@@ -122,6 +122,7 @@ struct _fd_funk_rec_prepare {
   fd_funk_rec_t * rec;
   uint *          rec_head_idx;
   uint *          rec_tail_idx;
+  fd_funk_txn_t * txn;
   uchar *         txn_lock;
 };
 
@@ -424,22 +425,6 @@ fd_funk_rec_set_erase_data( fd_funk_rec_t * rec, ulong erase_data );
 
 ulong
 fd_funk_rec_get_erase_data( fd_funk_rec_t const * rec );
-
-/* Remove a list of tombstones from funk, thereby freeing up space in
-   the main index. All the records must be removed and published
-   beforehand. Reasons for failure include:
-
-     FD_FUNK_ERR_INVAL - bad inputs (NULL funk, NULL rec, rec is
-       obviously not from funk, etc)
-
-     FD_FUNK_ERR_KEY - the record did not appear to be a removed record.
-       Specifically, a record query of funk for rec's (xid,key) pair did
-       not return rec. Also, the record was never published.
-*/
-int
-fd_funk_rec_forget( fd_funk_t *      funk,
-                    fd_funk_rec_t ** recs,
-                    ulong            recs_cnt );
 
 /* fd_funk_all_iter_t iterators over all funk record objects in all funk
    transactions.

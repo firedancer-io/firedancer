@@ -39,6 +39,7 @@ struct fd_snapshot_src {
       ushort       port;
       char const * path;
       ulong        path_len;
+      char const * http_header;
     } http;
 
   };
@@ -91,7 +92,8 @@ fd_snapshot_loader_get_name( fd_snapshot_loader_t const * loader );
 fd_snapshot_src_t *
 fd_snapshot_src_parse( fd_snapshot_src_t * src,
                        char *              cstr,
-                       int                 src_type );
+                       int                 src_type,
+                       char const *        http_header );
 
 /* fd_snapshot_src_parse_type_unknown determines the source from the
    given cstr.
@@ -102,7 +104,8 @@ fd_snapshot_src_parse( fd_snapshot_src_t * src,
 
 fd_snapshot_src_t *
 fd_snapshot_src_parse_type_unknown( fd_snapshot_src_t * src,
-                                    char *              cstr );
+                                    char *              cstr,
+                                    char const *        snapshot_http_header );
 
 FD_PROTOTYPES_END
 

@@ -123,6 +123,7 @@ fd_funk_txn_prepare( fd_funk_t *               funk,
   txn->sibling_next_cidx = fd_funk_txn_cidx( FD_FUNK_TXN_IDX_NULL );
   txn->stack_cidx        = fd_funk_txn_cidx( FD_FUNK_TXN_IDX_NULL );
   txn->tag               = 0UL;
+  txn->rec_cnt           = 0UL;
 
   txn->lock = 0;
   txn->rec_head_idx = FD_FUNK_REC_IDX_NULL;
@@ -520,6 +521,11 @@ fd_funk_txn_update( fd_funk_t *                  funk,
     *_dst_rec_tail_idx = rec_idx;
     rec->next_idx = FD_FUNK_REC_IDX_NULL;
 
+    /* If we are publishing into the root transaction, and the record is evictable, add it to the LRU. */
+    // if( dst_txn_idx == FD_FUNK_TXN_IDX_NULL && fd_funk_rec_is_evictable( rec ) ) {
+    //   fd_funk_rec_lru_push_tail( funk, rec );
+    // }
+
     rec_idx = next_rec_idx;
   }
 
@@ -672,12 +678,14 @@ fd_funk_txn_publish_into_parent( fd_funk_t *     funk,
     /* Inherit the children */
     funk->shmem->child_head_cidx = txn->child_head_cidx;
     funk->shmem->child_tail_cidx = txn->child_tail_cidx;
+    funk->shmem->root_rec_cnt   += txn->rec_cnt;
   } else {
     fd_funk_txn_t * parent_txn = &txn_pool->ele[ parent_idx ];
     fd_funk_txn_update( funk, &parent_txn->rec_head_idx, &parent_txn->rec_tail_idx, parent_idx, &parent_txn->xid, txn_idx );
     /* Inherit the children */
     parent_txn->child_head_cidx = txn->child_head_cidx;
     parent_txn->child_tail_cidx = txn->child_tail_cidx;
+    parent_txn->rec_cnt        += txn->rec_cnt;
   }
 
   /* Adjust the parent pointers of the children to point to their grandparent */

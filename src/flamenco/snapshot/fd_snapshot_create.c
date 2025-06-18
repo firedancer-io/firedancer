@@ -484,13 +484,13 @@ fd_snapshot_create_populate_acc_vecs( fd_snapshot_ctx_t *    snapshot_ctx,
   /* TODO: At this point we must implement compaction to the snapshot service.
      Without this, we are actually not cleaning up any tombstones from funk. */
 
-  if( snapshot_ctx->is_incremental ) {
-    err = fd_funk_rec_forget( funk, tombstones, tombstones_cnt );
-    if( FD_UNLIKELY( err!=FD_FUNK_SUCCESS ) ) {
-      FD_LOG_ERR(( "Unable to forget tombstones" ));
-    }
-    FD_LOG_NOTICE(( "Compacted %lu tombstone records", tombstones_cnt ));
-  }
+  // if( snapshot_ctx->is_incremental ) {
+  //   err = fd_funk_rec_forget( funk, tombstones, tombstones_cnt );
+  //   if( FD_UNLIKELY( err!=FD_FUNK_SUCCESS ) ) {
+  //     FD_LOG_ERR(( "Unable to forget tombstones" ));
+  //   }
+  //   FD_LOG_NOTICE(( "Compacted %lu tombstone records", tombstones_cnt ));
+  // }
 
   fd_valloc_free( fd_spad_virtual( snapshot_ctx->spad ), snapshot_slot_keys );
   fd_valloc_free( fd_spad_virtual( snapshot_ctx->spad ), tombstones );

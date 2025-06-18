@@ -18,7 +18,7 @@ $(call add-objs,fd_snapshot_istream,fd_flamenco)
 $(call add-hdrs,fd_snapshot_restore.h)
 $(call add-objs,fd_snapshot_restore,fd_flamenco)
 ifdef FD_HAS_HOSTED
-$(call make-unit-test,test_snapshot_restore,test_snapshot_restore,fd_flamenco fd_funk fd_ballet fd_util)
+$(call make-unit-test,test_snapshot_restore,test_snapshot_restore,fd_flamenco fd_funk fd_groove fd_ballet fd_util)
 $(call run-unit-test,test_snapshot_restore)
 endif
 
