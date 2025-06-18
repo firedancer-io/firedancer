@@ -291,8 +291,7 @@ fd_gui_txn_waterfall_snap( fd_gui_t *               gui,
       + bank_metrics[ MIDX( COUNTER, BANK, TRANSACTION_LOAD_ADDRESS_TABLES_INVALID_INDEX ) ];
 
     cur->out.bank_invalid +=
-        bank_metrics[ MIDX( COUNTER, BANK, PROCESSING_FAILED ) ]
-      + bank_metrics[ MIDX( COUNTER, BANK, PRECOMPILE_VERIFY_FAILURE ) ];
+        bank_metrics[ MIDX( COUNTER, BANK, PROCESSING_FAILED ) ];
   }
 
 

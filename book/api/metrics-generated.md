@@ -335,7 +335,6 @@
 |--------|------|-------------|
 | <span class="metrics-name">bank_&#8203;transaction_&#8203;sanitize_&#8203;failure</span> | counter | Number of transactions that failed to sanitize. |
 | <span class="metrics-name">bank_&#8203;transaction_&#8203;not_&#8203;executed_&#8203;failure</span> | counter | Number of transactions that did not execute. This is different than transactions which fail to execute, which make it onto the chain. |
-| <span class="metrics-name">bank_&#8203;precompile_&#8203;verify_&#8203;failure</span> | counter | Number of transactions that failed precompile verification and thus will not execute. |
 | <span class="metrics-name">bank_&#8203;slot_&#8203;acquire</span><br/>{bank_&#8203;slot_&#8203;acquire="<span class="metrics-enum">success</span>"} | counter | Result of acquiring a slot. (Success) |
 | <span class="metrics-name">bank_&#8203;slot_&#8203;acquire</span><br/>{bank_&#8203;slot_&#8203;acquire="<span class="metrics-enum">too_&#8203;high</span>"} | counter | Result of acquiring a slot. (Too high) |
 | <span class="metrics-name">bank_&#8203;slot_&#8203;acquire</span><br/>{bank_&#8203;slot_&#8203;acquire="<span class="metrics-enum">too_&#8203;low</span>"} | counter | Result of acquiring a slot. (Too low) |

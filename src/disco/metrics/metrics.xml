@@ -566,8 +566,6 @@ metric introduced.
     <counter name="TransactionSanitizeFailure" summary="Number of transactions that failed to sanitize." />
     <counter name="TransactionNotExecutedFailure" summary="Number of transactions that did not execute. This is different than transactions which fail to execute, which make it onto the chain." />
 
-    <counter name="PrecompileVerifyFailure" summary="Number of transactions that failed precompile verification and thus will not execute." />
-
     <counter name="SlotAcquire" enum="BankSlotAcquire" summary="Result of acquiring a slot." />
 
     <counter name="TransactionLoadAddressTables" enum="BankLoadAddressLookupTable" summary="Result of loading address lookup tables for a transaction. If there are multiple errors for the transaction, only the first one is reported." />
