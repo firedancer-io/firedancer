@@ -688,7 +688,11 @@ if [[ $ACTION == 0 ]]; then
   echo
   echo "[~] Running $0 fetch check install"
 
-  read -r -p "[?] Continue? (y/N) " choice
+  if [[ "${FD_AUTO_INSTALL_PACKAGES:-}" == "1" ]]; then
+    choice=y
+  else
+    read -r -p "[?] Continue? (y/N) " choice
+  fi
   case "$choice" in
     y|Y)
       echo
