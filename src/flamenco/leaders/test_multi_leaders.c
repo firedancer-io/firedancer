@@ -187,6 +187,9 @@ test_next_slot( void ) {
   fd_multi_epoch_leaders_stake_msg_init( mleaders, generate_stake_msg( stake_msg, 0UL, "ABC" ) );
   fd_multi_epoch_leaders_stake_msg_fini( mleaders );
 
+  fd_multi_epoch_leaders_stake_msg_init( mleaders, generate_stake_msg( stake_msg, 1UL, "D" ) );
+  fd_multi_epoch_leaders_stake_msg_fini( mleaders );
+
   fd_epoch_leaders_t const * lsched = fd_multi_epoch_leaders_get_lsched_for_epoch( mleaders, 0UL );
   FD_TEST( lsched );
   FD_TEST( lsched->slot0 == 0UL );
@@ -194,12 +197,22 @@ test_next_slot( void ) {
 
   /* Test finding next slot for each leader */
   fd_pubkey_t test_key;
-  for( char leader='A'; leader<'D'; leader++ ) {
-    memset( test_key.uc, leader, sizeof(fd_pubkey_t) );
+  for( char leader='A'; leader<='C'; leader++ ) {
+    fd_memset( test_key.uc, leader, sizeof(fd_pubkey_t) );
     ulong next_slot = fd_multi_epoch_leaders_get_next_slot( mleaders, 0UL, &test_key );
     FD_TEST( next_slot >= lsched->slot0 );
     FD_TEST( next_slot < lsched->slot0 + lsched->slot_cnt );
     FD_TEST( fd_multi_epoch_leaders_get_leader_for_slot( mleaders, next_slot )->uc[0] == leader );
+  }
+
+  /* test crossing epoch boundary */
+  {
+    fd_memset( test_key.uc, 'D', sizeof(fd_pubkey_t) );
+    fd_epoch_leaders_t const * lsched = fd_multi_epoch_leaders_get_lsched_for_epoch( mleaders, 1UL );
+    ulong next_slot = fd_multi_epoch_leaders_get_next_slot( mleaders, 0UL, &test_key );
+    FD_TEST( next_slot >= lsched->slot0 );
+    FD_TEST( next_slot < lsched->slot0 + lsched->slot_cnt );
+    FD_TEST( fd_multi_epoch_leaders_get_leader_for_slot( mleaders, next_slot )->uc[0] == 'D' );
   }
 
   /* Test with non-existent leader */
