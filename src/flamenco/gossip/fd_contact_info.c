@@ -31,6 +31,9 @@ fd_contact_info_convert_sockets( fd_contact_info_t const *             contact_i
   for( ulong j=0; j<FD_GOSSIP_SOCKET_TAG_MAX; j++ ) {
     if( contact_info->sockets[j].l != FD_CONTACT_INFO_SOCKET_TAG_NULL ){
       filled_up[filled_up_cnt].socket = contact_info->sockets[j];
+      /* Convert port to host order. Needed for sorting and because port info
+         is encoded in host order in ContactInfo */
+      filled_up[filled_up_cnt].socket.port = fd_ushort_bswap( filled_up[filled_up_cnt].socket.port );
       filled_up[filled_up_cnt].socket_tag = (uchar)j;
       filled_up_cnt++;
     }
@@ -56,14 +59,14 @@ fd_contact_info_convert_sockets( fd_contact_info_t const *             contact_i
       if( out_addrs[k] == socket->socket.addr ) {
         /* Already have this address, set index */
         out_sockets_entries[socket_entries_cnt].addr_index = (uchar)k;
-        addr_found                      = 1U;
+        addr_found                                         = 1U;
         break;
       }
     }
     if( !addr_found ) {
       /* New address, add it */
-      out_addrs[addrs_cnt++]              = socket->socket.addr;
-      out_sockets_entries[socket_entries_cnt].addr_index = (uchar)(addrs_cnt-1);
+      out_addrs[addrs_cnt++]                              = socket->socket.addr;
+      out_sockets_entries[socket_entries_cnt].addr_index  = (uchar)(addrs_cnt-1);
     }
 
     out_sockets_entries[socket_entries_cnt].port_offset   = (socket->socket.port-sorted[j-1].socket.port); /* Store relative port (offset) */

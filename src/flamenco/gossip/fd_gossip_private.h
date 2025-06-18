@@ -164,7 +164,7 @@ struct fd_gossip_view_pull_request {
 
   ulong_view_t bloom_bits_len;     /* length of bloom bits vector (ulong *) */
   offset_t     bloom_bits_offset;  /* offset to start of bloom bits in payload */
-  ulong_view_t bloom_len;
+  ulong_view_t bloom_len;          /* number of bits in the bloom filter */
 
   ulong_view_t bloom_num_bits_set; /* number of bits set in the bloom filter */
   ulong_view_t mask;               /* mask used to filter the CRDS values */

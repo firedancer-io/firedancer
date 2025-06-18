@@ -332,6 +332,9 @@ fd_gossip_stakes_update( fd_gossip_t *             gossip,
     entry->stake = stake_weights[i].stake;
   }
 
+
+
+  /* TODO: contact info entries need to be updated? Or let it be driven by rx_{pullreq, pullresp, push} events? */
   /* Update the identity stake */
   gossip->identity_stake = get_stake( gossip, gossip->identity_pubkey );
 }
