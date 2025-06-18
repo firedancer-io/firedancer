@@ -20,7 +20,6 @@
 #include "info/fd_runtime_block_info.h"
 #include "info/fd_instr_info.h"
 #include "../gossip/fd_gossip.h"
-#include "../repair/fd_repair.h"
 #include "../../disco/pack/fd_microblock.h"
 #include "info/fd_microblock_info.h"
 #include "../../ballet/bmtree/fd_wbmtree.h"
