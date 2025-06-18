@@ -114,8 +114,8 @@ FD_PROTOTYPES_BEGIN
    length in [32,44] (excluding NULL terminator). */
 
 static inline char *
-fd_acct_addr_cstr( char        cstr[ static FD_BASE58_ENCODED_32_SZ ],
-                   uchar const addr[ static 32 ] ) {
+fd_acct_addr_cstr( char        cstr[ FD_BASE58_ENCODED_32_SZ ],
+                   uchar const addr[ 32 ] ) {
   return fd_base58_encode_32( addr, NULL, cstr );
 }
 
