@@ -183,6 +183,9 @@
 | <span class="metrics-name">bundle_&#8203;shredstream_&#8203;heartbeats</span> | counter | Number of ShredStream heartbeats successfully sent |
 | <span class="metrics-name">bundle_&#8203;keepalives</span> | counter | Number of HTTP/2 PINGs acknowledged by server |
 | <span class="metrics-name">bundle_&#8203;connected</span> | gauge | 1 if connected to the bundle server, 0 if not |
+| <span class="metrics-name">bundle_&#8203;rtt_&#8203;sample</span> | gauge | Latest RTT sample at scrape time (nanoseconds) |
+| <span class="metrics-name">bundle_&#8203;rtt_&#8203;smoothed</span> | gauge | RTT moving average (nanoseconds) |
+| <span class="metrics-name">bundle_&#8203;rtt_&#8203;var</span> | gauge | RTT variance (nanoseconds) |
 
 </div>
 

@@ -38,6 +38,8 @@ fd_bundle_client_reset( fd_bundle_tile_t * ctx ) {
   ctx->bundle_subscription_live = 0;
   ctx->bundle_subscription_wait = 0;
 
+  ctx->rtt->is_rtt_valid = 0;
+
 # if FD_HAS_OPENSSL
   if( FD_UNLIKELY( ctx->ssl ) ) {
     SSL_free( ctx->ssl );
@@ -238,8 +240,9 @@ fd_bundle_client_send_ping( fd_bundle_tile_t * ctx ) {
   fd_h2_rbuf_t * rbuf_tx = fd_grpc_client_rbuf_tx( ctx->grpc_client );
 
   if( FD_LIKELY( fd_h2_tx_ping( conn, rbuf_tx ) ) ) {
-    ctx->last_ping_tx_ts = fd_tickcount();
-    ctx->ping_randomize  = fd_rng_ulong( ctx->rng );
+    ctx->last_ping_tx_ticks = fd_tickcount();
+    ctx->last_ping_tx_nanos = fd_log_wallclock();
+    ctx->ping_randomize     = fd_rng_ulong( ctx->rng );
   }
 }
 
@@ -249,7 +252,7 @@ fd_bundle_client_keepalive_due( fd_bundle_tile_t const * ctx,
   ulong delay_min = ctx->ping_threshold_ticks>>1;
   ulong delay_rng = ctx->ping_threshold_ticks & ctx->ping_randomize;
   ulong delay     = delay_min + delay_rng;
-  long  deadline  = ctx->last_ping_tx_ts + (long)delay;
+  long  deadline  = ctx->last_ping_tx_ticks + (long)delay;
   return now_ticks >= deadline;
 }
 
@@ -884,6 +887,8 @@ fd_bundle_client_grpc_ping_ack( void * app_ctx ) {
   fd_bundle_tile_t * ctx = app_ctx;
   ctx->last_ping_rx_ts = fd_tickcount();
   ctx->metrics.ping_ack_cnt++;
+  long rtt_sample = fd_log_wallclock() - ctx->last_ping_tx_nanos;
+  fd_rtt_sample( ctx->rtt, (float)rtt_sample, 0 );
 }
 
 fd_grpc_client_callbacks_t fd_bundle_client_grpc_callbacks = {
