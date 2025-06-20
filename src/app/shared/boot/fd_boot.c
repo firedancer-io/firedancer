@@ -139,6 +139,7 @@ fd_main_init( int *        pargc,
   if( FD_LIKELY( !gid && setegid( config->gid ) ) ) FD_LOG_ERR(( "setegid() failed (%i-%s)", errno, fd_io_strerror( errno ) ));
   if( FD_LIKELY( !uid && seteuid( config->uid ) ) ) FD_LOG_ERR(( "seteuid() failed (%i-%s)", errno, fd_io_strerror( errno ) ));
 
+  if( 0==strcmp( config->log.path, "-" ) ) config->log.path[0] = '\0';
   int boot_silent = config_fd>=0;
   fd_log_private_boot_custom( log_lock,
                               0UL,
