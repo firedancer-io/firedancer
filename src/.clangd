@@ -23,3 +23,9 @@ CompileFlags:
   - -Wdouble-promotion
   - -Wformat-security
   - -Wimplicit-fallthrough
+---
+If:
+  PathMatch: .*\.h
+CompileFlags:
+  Add:
+  - -xc-header
