@@ -73,7 +73,8 @@ fd_snapshot_loader_init( fd_snapshot_loader_t *    loader,
                          fd_snapshot_restore_t *   restore,
                          fd_snapshot_src_t const * src,
                          ulong                     base_slot,
-                         int                       validate_slot );
+                         int                       validate_slot,
+                         const char *              additional_http_header );
 
 /* fd_snapshot_loader_advance polls the tar reader for data.  This data
    is synchronously passed down the pipeline (ending in a manifest

@@ -226,6 +226,9 @@ setup_snapshots( config_t *       config,
 
   strncpy( tile->replay.snapshot_dir, config->tiles.replay.snapshot_dir, sizeof(tile->replay.snapshot_dir) );
   tile->replay.snapshot_dir[ sizeof(tile->replay.snapshot_dir)-1UL ] = '\0';
+
+  strncpy( tile->replay.snapshot_additional_http_header, config->tiles.replay.snapshot_additional_http_header, sizeof(tile->replay.snapshot_additional_http_header) );
+  tile->replay.snapshot_additional_http_header[ sizeof(tile->replay.snapshot_additional_http_header)-1UL ] = '\0';
 }
 
 void

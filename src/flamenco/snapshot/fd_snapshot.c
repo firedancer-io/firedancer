@@ -21,6 +21,7 @@ struct fd_snapshot_load_ctx {
   const char *           snapshot_dir;
   const char *           snapshot_src;
   int                    snapshot_src_type;
+  const char *           additional_http_header;
   fd_exec_slot_ctx_t *   slot_ctx;
   uint                   verify_hash;
   uint                   check_hash;
@@ -99,33 +100,35 @@ fd_snapshot_load_ctx_footprint( void ) {
 }
 
 fd_snapshot_load_ctx_t *
-fd_snapshot_load_new( uchar *                mem,
-                      const char *           snapshot_src,
-                      int                    snapshot_src_type,
-                      const char *           snapshot_dir,
-                      fd_exec_slot_ctx_t *   slot_ctx,
-                      uint                   verify_hash,
-                      uint                   check_hash,
-                      int                    snapshot_type,
-                      fd_spad_t * *          exec_spads,
-                      ulong                  exec_spad_cnt,
-                      fd_spad_t *            runtime_spad,
-                      fd_exec_para_cb_ctx_t * exec_para_ctx ) {
+fd_snapshot_load_new( uchar *                 mem,
+                      const char *            snapshot_src,
+                      int                     snapshot_src_type,
+                      const char *            snapshot_dir,
+                      fd_exec_slot_ctx_t *    slot_ctx,
+                      uint                    verify_hash,
+                      uint                    check_hash,
+                      int                     snapshot_type,
+                      fd_spad_t * *           exec_spads,
+                      ulong                   exec_spad_cnt,
+                      fd_spad_t *             runtime_spad,
+                      fd_exec_para_cb_ctx_t * exec_para_ctx,
+                      const char *            additional_http_header ) {
 
   (void)exec_spads;
   (void)exec_spad_cnt;
 
   fd_snapshot_load_ctx_t * ctx = (fd_snapshot_load_ctx_t *)mem;
 
-  ctx->snapshot_dir      = snapshot_dir;
-  ctx->snapshot_src      = snapshot_src;
-  ctx->snapshot_src_type = snapshot_src_type;
-  ctx->slot_ctx          = slot_ctx;
-  ctx->verify_hash       = verify_hash;
-  ctx->check_hash        = check_hash;
-  ctx->snapshot_type     = snapshot_type;
-  ctx->runtime_spad      = runtime_spad;
-  ctx->exec_para_ctx     = exec_para_ctx;
+  ctx->snapshot_dir       = snapshot_dir;
+  ctx->snapshot_src       = snapshot_src;
+  ctx->snapshot_src_type  = snapshot_src_type;
+  ctx->additional_http_header = additional_http_header;
+  ctx->slot_ctx           = slot_ctx;
+  ctx->verify_hash        = verify_hash;
+  ctx->check_hash         = check_hash;
+  ctx->snapshot_type      = snapshot_type;
+  ctx->runtime_spad       = runtime_spad;
+  ctx->exec_para_ctx      = exec_para_ctx;
 
   return ctx;
 }
@@ -208,7 +211,8 @@ fd_snapshot_load_manifest_and_status_cache( fd_snapshot_load_ctx_t * ctx,
                                              ctx->restore,
                                              src,
                                              base_slot_override ? *base_slot_override : ctx->slot_ctx->slot_bank.slot,
-                                             1 ) ) ) {
+                                             1,
+                                             ctx->additional_http_header ) ) ) {
     FD_LOG_ERR(( "Failed to init snapshot loader" ));
   }
 
@@ -379,7 +383,8 @@ fd_snapshot_load_all( const char *         source_cstr,
                       int                  snapshot_type,
                       fd_spad_t * *        exec_spads,
                       ulong                exec_spad_cnt,
-                      fd_spad_t *          runtime_spad ) {
+                      fd_spad_t *          runtime_spad,
+                      const char *         additional_http_header ) {
 
   fd_exec_para_cb_ctx_t exec_para_ctx = {
     .func       = fd_accounts_hash_counter_and_gather_tpool_cb,
@@ -398,7 +403,8 @@ fd_snapshot_load_all( const char *         source_cstr,
                                                        exec_spads,
                                                        exec_spad_cnt,
                                                        runtime_spad,
-                                                       &exec_para_ctx );
+                                                       &exec_para_ctx,
+                                                       additional_http_header );
 
   fd_snapshot_load_init( ctx );
   fd_runtime_update_slots_per_epoch( slot_ctx, FD_DEFAULT_SLOTS_PER_EPOCH );
@@ -437,7 +443,7 @@ fd_snapshot_load_prefetch_manifest( fd_snapshot_load_ctx_t * ctx ) {
     FD_LOG_ERR(( "Failed to fd_snapshot_loader_new" ));
   }
 
-  if( FD_UNLIKELY( !fd_snapshot_loader_init( ctx->loader, ctx->restore, src, 0UL, 0 ) ) ) {
+  if( FD_UNLIKELY( !fd_snapshot_loader_init( ctx->loader, ctx->restore, src, 0UL, 0, ctx->additional_http_header ) ) ) {
     FD_LOG_ERR(( "Failed to init snapshot loader" ));
   }
 

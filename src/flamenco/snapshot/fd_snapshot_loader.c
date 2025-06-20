@@ -133,7 +133,8 @@ fd_snapshot_loader_init( fd_snapshot_loader_t *    d,
                          fd_snapshot_restore_t *   restore,
                          fd_snapshot_src_t const * src,
                          ulong                     base_slot,
-                         int                       validate_slot ) {
+                         int                       validate_slot,
+                         const char *              additional_http_header ) {
 
   d->restore = restore;
 
@@ -162,7 +163,14 @@ fd_snapshot_loader_init( fd_snapshot_loader_t *    d,
     d->vsrc = fd_io_istream_file_virtual( d->vfile );
     break;
   case FD_SNAPSHOT_SRC_HTTP:
-    d->http = fd_snapshot_http_new( d->http_mem, src->http.dest, src->http.ip4, src->http.port, src->snapshot_dir, &d->name );
+    d->http = fd_snapshot_http_new(
+      d->http_mem,
+      src->http.dest,
+      src->http.ip4,
+      src->http.port,
+      src->snapshot_dir,
+      &d->name,
+      additional_http_header );
     if( FD_UNLIKELY( !d->http ) ) {
       FD_LOG_WARNING(( "Failed to create fd_snapshot_http_t" ));
       return NULL;

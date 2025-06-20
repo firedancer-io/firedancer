@@ -28,6 +28,7 @@
     [tiles.replay]
         snapshot_url = "http://{validator_ip}:8899/snapshot.tar.bz2"
         incremental_url = "http://{validator_ip}:8899/incremental-snapshot.tar.bz2"
+        snapshot_additional_http_header = ""
     [tiles.metric]
         prometheus_listen_address = "0.0.0.0"
         prometheus_listen_port = 7999
