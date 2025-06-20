@@ -250,6 +250,9 @@ metric introduced.
     <counter name="ShredstreamHeartbeats" summary="Number of ShredStream heartbeats successfully sent" />
     <counter name="Keepalives" summary="Number of HTTP/2 PINGs acknowledged by server" />
     <gauge name="Connected" summary="1 if connected to the bundle server, 0 if not" />
+    <gauge name="RttSample" summary="Latest RTT sample at scrape time (nanoseconds)" />
+    <gauge name="RttSmoothed" summary="RTT moving average (nanoseconds)" />
+    <gauge name="RttVar" summary="RTT variance (nanoseconds)" />
 </tile>
 
 <tile name="verify">

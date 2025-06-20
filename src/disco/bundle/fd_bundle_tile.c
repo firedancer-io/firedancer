@@ -54,6 +54,10 @@ metrics_write( fd_bundle_tile_t * ctx ) {
   FD_MCNT_SET( BUNDLE, ERRORS_TRANSPORT,       ctx->metrics.transport_fail_cnt        );
   FD_MCNT_SET( BUNDLE, ERRORS_NO_FEE_INFO,     ctx->metrics.missing_builder_info_fail_cnt );
 
+  FD_MGAUGE_SET( BUNDLE, RTT_SAMPLE,   (ulong)ctx->rtt->latest_rtt   );
+  FD_MGAUGE_SET( BUNDLE, RTT_SMOOTHED, (ulong)ctx->rtt->smoothed_rtt );
+  FD_MGAUGE_SET( BUNDLE, RTT_VAR,      (ulong)ctx->rtt->var_rtt      );
+
   fd_wksp_t * wksp = fd_wksp_containing( ctx );
   fd_wksp_usage_t usage[1];
   ulong const free_tag = 0UL;

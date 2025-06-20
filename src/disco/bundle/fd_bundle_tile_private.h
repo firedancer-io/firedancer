@@ -7,6 +7,7 @@
 #include "../keyguard/fd_keyguard_client.h"
 #include "../../waltz/grpc/fd_grpc_client.h"
 #include "../../waltz/resolv/fd_netdb.h"
+#include "../../waltz/fd_rtt_est.h"
 #include "../../util/alloc/fd_alloc.h"
 
 #if FD_HAS_OPENSSL
@@ -78,10 +79,12 @@ struct fd_bundle_tile {
   uint defer_reset : 1;
 
   /* Keepalive via HTTP/2 PINGs (randomized) */
-  long  last_ping_tx_ts;       /* last TX tickcount */
+  long  last_ping_tx_ticks;    /* last TX tickcount */
+  long  last_ping_tx_nanos;
   long  last_ping_rx_ts;       /* last RX tickcount */
   ulong ping_randomize;        /* random 64 bits */
   ulong ping_threshold_ticks;  /* avg keepalive timeout in ticks, 2^n-1 */
+  fd_rtt_estimate_t rtt[1];
 
   /* gRPC client */
   void *                   grpc_client_mem;
