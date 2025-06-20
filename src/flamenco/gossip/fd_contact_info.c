@@ -1,5 +1,14 @@
 #include "fd_contact_info.h"
 
+fd_ip4_port_t const *
+fd_contact_info_get_socket( fd_contact_info_t const * ci,
+                            uchar                     socket_tag ){
+  if( FD_UNLIKELY( !ci || socket_tag>=FD_GOSSIP_SOCKET_TAG_MAX ) ) {
+    FD_LOG_ERR(( "Invalid arguments to fd_contact_info_get_socket" ));
+  }
+  return &ci->sockets[socket_tag];
+}
+
 struct socket_ctx {
   fd_ip4_port_t socket;
   uchar         socket_tag;

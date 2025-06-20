@@ -755,6 +755,12 @@ fd_crds_is_contact_info(  fd_crds_entry_t const * entry ) {
   return is_contact_info( entry->key );
 }
 
+fd_contact_info_t *
+fd_crds_contact_info( fd_crds_entry_t const * entry ) {
+  FD_TEST( is_contact_info( entry->key ) );
+  return entry->contact_info.ci->contact_info;
+}
+
 ulong
 fd_crds_peer_count( fd_crds_t const * crds ){
   return crds_contact_info_pool_used( crds->contact_info.pool );

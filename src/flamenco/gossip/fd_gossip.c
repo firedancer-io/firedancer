@@ -1,4 +1,5 @@
 #include "fd_gossip.h"
+#include "fd_contact_info.h"
 #include "fd_gossip_private.h"
 
 #include "crds/fd_crds.h"
@@ -542,16 +543,18 @@ rx_pull_request( fd_gossip_t *                         gossip,
 }
 
 static void
-push_state_insert( fd_gossip_t * gossip,
-                   uchar const * payload,
+push_state_insert( fd_gossip_t *                       gossip,
                    fd_gossip_view_crds_value_t const * value,
-                   long          now ) {
+                   uchar const *                       payload,
+                   uchar const *                       origin_pubkey,
+                   ulong                               origin_stake,
+                   long                                now ) {
   ulong out_nodes[ 12UL ];
   ulong out_nodes_cnt = fd_active_set_nodes( gossip->active_set,
                                              gossip->identity_pubkey,
-                                             0UL, /* identity_stake FIXME */
-                                             payload+value->pubkey_off,
-                                             0UL, /* origin_stake FIXME */
+                                             gossip->identity_stake,
+                                             origin_pubkey,
+                                             origin_stake, /* origin_stake FIXME */
                                              0UL, /* ignore_prunes_if_peer_is_origin FIXME */
                                              out_nodes );
   if( FD_LIKELY( out_nodes_cnt ) ) {
@@ -598,13 +601,13 @@ rx_pull_response( fd_gossip_t *                          gossip,
     }
 
     uchar const * origin_pubkey    = payload+value->pubkey_off;
-    ulong stake                    = get_stake( gossip, origin_pubkey );
+    ulong origin_stake             = get_stake( gossip, origin_pubkey );
 
     /* TODO: Is this jittered in Agave? */
     long accept_after_nanos;
     if( FD_UNLIKELY( !memcmp( payload+value->pubkey_off, gossip->identity_pubkey, 32UL ) ) ) {
       accept_after_nanos = 0L;
-    } else if( !stake ) {
+    } else if( !origin_stake ) {
       accept_after_nanos = now-15L*1000L*1000L*1000L;
     } else {
       accept_after_nanos = now-432000L*1000L*1000L*1000L;
@@ -617,7 +620,7 @@ rx_pull_response( fd_gossip_t *                          gossip,
       fd_crds_populate_full( gossip->crds,
                              value,
                              payload,
-                             stake,
+                             origin_stake,
                              now,
                              1, /* has_upsert_info */
                              candidate );
@@ -635,14 +638,19 @@ rx_pull_response( fd_gossip_t *                          gossip,
       if( FD_UNLIKELY( fd_crds_is_contact_info( candidate ) ) ){
          int active = fd_ping_tracker_active( gossip->ping_tracker,
                                               origin_pubkey,
-                                              stake,
+                                              origin_stake,
                                               NULL /* TODO */,
                                               now );
           active ? fd_crds_peer_active( gossip->crds, origin_pubkey, now )
                  : fd_crds_peer_inactive( gossip->crds, origin_pubkey, now );
 
       }
-      push_state_insert( gossip, payload, value, now );
+      push_state_insert( gossip,
+                         value,
+                         payload,
+                         origin_pubkey,
+                         origin_stake,
+                         now );
     }
   }
 
@@ -653,7 +661,7 @@ static int
 rx_push( fd_gossip_t *                 gossip,
          fd_gossip_view_push_t const * push,
          uchar const *                 payload,
-         long                     now ) {
+         long                          now ) {
   uchar const * relayer_pubkey = payload+push->from_off;
 
   for( ulong i=0UL; i<push->crds_values_len.val; i++ ) {
@@ -670,14 +678,14 @@ rx_push( fd_gossip_t *                 gossip,
        the full population since the insert call terminates prior to any insertion
        in this case. This is pretty confusing, will need to clean up. */
     fd_crds_populate_preflight( value, payload, candidate );
-    ulong stake;
+    ulong origin_stake;
 
     if( FD_UNLIKELY( fd_crds_upserts( gossip->crds, candidate ) ) ) {
-      stake = get_stake( gossip, origin_pubkey );
+      origin_stake = get_stake( gossip, origin_pubkey );
       fd_crds_populate_full( gossip->crds,
                              value,
                              payload,
-                             stake,
+                             origin_stake,
                              now,
                              1 /* has_upsert_info */,
                              candidate );
@@ -693,22 +701,28 @@ rx_push( fd_gossip_t *                 gossip,
       if( FD_UNLIKELY( error>0 ) )      num_duplicates = (ulong)error;
       else if( FD_UNLIKELY( error<0 ) ) num_duplicates = ULONG_MAX;
     } else {
-      if( FD_UNLIKELY( fd_crds_is_contact_info( candidate ) ) ){
+      if( FD_UNLIKELY( fd_crds_is_contact_info( candidate ) ) ) {
+        fd_contact_info_t const * contact_info = fd_crds_contact_info( candidate );
          int active = fd_ping_tracker_active( gossip->ping_tracker,
                                               origin_pubkey,
-                                              stake,
-                                              NULL /* TODO */,
+                                              origin_stake,
+                                              fd_contact_info_get_socket( contact_info, FD_GOSSIP_SOCKET_TAG_GOSSIP ),
                                               now );
           active ? fd_crds_peer_active( gossip->crds, origin_pubkey, now )
                  : fd_crds_peer_inactive( gossip->crds, origin_pubkey, now );
 
       }
-      push_state_insert( gossip, payload, value, now );
+      push_state_insert( gossip,
+                         value,
+                         payload,
+                         origin_pubkey,
+                         origin_stake,
+                         now );
     }
 
     fd_prune_finder_record( gossip->prune_finder,
                             origin_pubkey,
-                            get_stake( gossip, origin_pubkey ),
+                            origin_stake,
                             relayer_pubkey,
                             get_stake( gossip, relayer_pubkey ),
                             num_duplicates );

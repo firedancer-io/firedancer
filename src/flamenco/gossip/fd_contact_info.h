@@ -9,8 +9,6 @@
 #include "../types/fd_types.h"
 #include "../../util/net/fd_net_headers.h" /* fd_ip4_port_t */
 
-typedef union fd_ip4_port fd_gossip_peer_addr_t;
-
 /* Contact info v2 socket tag constants */
 #define FD_GOSSIP_SOCKET_TAG_GOSSIP             ( 0)
 #define FD_GOSSIP_SOCKET_TAG_SERVE_REPAIR_QUIC  ( 1)
@@ -64,13 +62,23 @@ typedef struct fd_contact_info_t fd_contact_info_t;
 
 #define FD_CONTACT_INFO_SOCKET_TAG_NULL (0UL) /* Denotes an invalid/empty socket entry  */
 
-struct fd_gossip_contact_info_socket_entry {
-  ushort port_offset; /* relative to sockets[i-1] port value */
-  uchar  tag;
-  uchar  addr_index;
-};
-
 typedef struct fd_gossip_contact_info_socket_entry fd_gossip_contact_info_socket_entry_t;
+
+fd_ip4_port_t const *
+fd_contact_info_get_socket( fd_contact_info_t const * ci,
+                            uchar                     socket_tag );
+
+ushort
+fd_contact_info_get_shred_version( fd_contact_info_t const * ci );
+
+void
+fd_contact_info_set_shred_version( fd_contact_info_t * ci,
+                                   ushort              shred_version );
+
+int
+fd_contact_info_insert_socket( fd_contact_info_t *   ci,
+                               fd_ip4_port_t const * socket,
+                               uchar                 socket_tag );
 
 /* The Gossip encoding of a contact info splits the sockets into
    two vectors: socket entries (socket_entry_t) and addrs (uint).
@@ -100,6 +108,11 @@ typedef struct fd_gossip_contact_info_socket_entry fd_gossip_contact_info_socket
                                                   # null socket entry is not included
   ]
 */
+struct fd_gossip_contact_info_socket_entry {
+  ushort port_offset; /* relative to sockets[i-1] port value */
+  uchar  tag;
+  uchar  addr_index;
+};
 
 int
 fd_contact_info_convert_sockets( fd_contact_info_t const *             contact_info,
@@ -107,19 +120,6 @@ fd_contact_info_convert_sockets( fd_contact_info_t const *             contact_i
                                  uchar *                               socket_entries_cnt,
                                  uint                                  addrs[static FD_GOSSIP_SOCKET_TAG_MAX],
                                  uchar *                               addrs_cnt );
-
-
-ushort
-fd_contact_info_get_shred_version( fd_contact_info_t const * ci );
-
-void
-fd_contact_info_set_shred_version( fd_contact_info_t * ci,
-                                   ushort              shred_version );
-
-int
-fd_contact_info_insert_socket( fd_contact_info_t *            ci,
-                               fd_ip4_port_t const *          socket,
-                               uchar                          socket_tag );
 
 
 

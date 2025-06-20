@@ -157,6 +157,9 @@ fd_crds_value_hash( fd_crds_entry_t const * entry );
 int
 fd_crds_is_contact_info( fd_crds_entry_t const * key );
 
+fd_contact_info_t *
+fd_crds_contact_info( fd_crds_entry_t const * entry );
+
 /* Returns 1 if the provided pubkey (assumed 32b) has a corresponding Contact
    Info entry in the table. */
 int
