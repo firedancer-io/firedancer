@@ -94,6 +94,7 @@ struct fd_gossip_private {
 
   /* Event timers */
   long                next_active_set_refresh;
+  long                next_contact_info_refresh;
 
   /* Callbacks */
   fd_gossip_sign_fn   sign_fn;
@@ -103,10 +104,9 @@ struct fd_gossip_private {
   void *              send_ctx;
 
   struct {
-    ulong                       wallclock_off;
-    uchar                       crds_val[ 1232UL ]; /* CRDS value for the push message */
-    ulong                       crds_val_sz;        /* Size of the CRDS value */
-    fd_gossip_view_crds_value_t contact_info[ 1 ];  /* CRDS view for the contact info */
+    uchar             crds_val[ 1232UL ]; /* CRDS value for the push message */
+    ulong             crds_val_sz;        /* Size of the CRDS value */
+    fd_contact_info_t ci[1];
   } my_contact_info;
 
   /* Push state for each peer in the active set and entrypoints
@@ -305,7 +305,8 @@ fd_gossip_set_my_contact_info( fd_gossip_t *             gossip,
   fd_memcpy( gossip->identity_pubkey, contact_info->pubkey, 32UL );
   gossip->expected_shred_version = contact_info->shred_version;
 
-  fd_gossip_crds_contact_info_encode( contact_info,
+  *gossip->my_contact_info.ci = *contact_info;
+  fd_gossip_crds_contact_info_encode( gossip->my_contact_info.ci,
                                       gossip->my_contact_info.crds_val,
                                       1232UL,
                                       &gossip->my_contact_info.crds_val_sz );
@@ -517,6 +518,7 @@ rx_pull_request( fd_gossip_t *                         gossip,
   if( FD_UNLIKELY( contact_info->wallclock.ts_nanos<clamp_wallclock_lower_nanos ||
                    contact_info->wallclock.ts_nanos>clamp_wallclock_upper_nanos ) ) return -1; /* FD_GOSSIP_RX_ERR_PULL_REQUEST_WALLCLOCK; */
 
+  /* We use push_state since a pullresponse is identical save for the message discriminant */
   push_state_t pull_resp[1];
   push_state_new( pull_resp, gossip->identity_pubkey );
   pull_resp->msg[ 0 ] = FD_GOSSIP_MESSAGE_PULL_RESPONSE;
@@ -559,7 +561,7 @@ push_state_insert( fd_gossip_t *                       gossip,
                                              out_nodes );
   if( FD_LIKELY( out_nodes_cnt ) ) {
     for( ulong j=0UL; j<out_nodes_cnt; j++ ) {
-      ulong idx = out_nodes[ j ];
+      ulong idx            = out_nodes[ j ];
       push_state_t * state = &gossip->active_push_state[ idx ];
       push_state_append_crds( gossip,
                               state,
@@ -615,8 +617,7 @@ rx_pull_response( fd_gossip_t *                          gossip,
     int error = 0;
 
     if( FD_LIKELY( accept_after_nanos<=value->wallclock.ts_nanos ) ||
-                   fd_crds_peer_has_contact_info( gossip->crds,
-                                                  origin_pubkey ) ) {
+                   fd_crds_is_contact_info( candidate ) ) {
       fd_crds_populate_full( gossip->crds,
                              value,
                              payload,
@@ -626,7 +627,7 @@ rx_pull_response( fd_gossip_t *                          gossip,
                              candidate );
       error = fd_crds_insert( gossip->crds,
                               candidate,
-                              0 /* from_push_msg */,
+                              0, /* from_push_msg */
                               now );
     } else {
       failed_inserts_append( gossip, fd_crds_value_hash( candidate ), now );
@@ -742,7 +743,7 @@ rx_prune( fd_gossip_t *                  gossip,
 
   fd_active_set_prunes( gossip->active_set,
                         gossip->identity_pubkey,
-                        gossip->identity_stake, /* FIXME: this should be cached. */
+                        gossip->identity_stake,
                         payload+prune->prunes_off,
                         prune->prunes_len.val,
                         payload+prune->origin_off,
@@ -1050,15 +1051,12 @@ tx_pull_request( fd_gossip_t * gossip,
   *ctx->mask      = mask;
   *ctx->mask_bits = mask_bits;
 
-  /* TODO: contactinfo */
   long rem_sz = 1232L - (ctx->contact_info - payload);
   if( FD_UNLIKELY( rem_sz<(long)gossip->my_contact_info.crds_val_sz ) ) {
     FD_LOG_ERR(( "Not enough space in pull request for contact info, check bloom filter params" ));
   }
 
   fd_memcpy( ctx->contact_info, gossip->my_contact_info.crds_val, gossip->my_contact_info.crds_val_sz );
-
-
 }
 
 static inline long
@@ -1073,27 +1071,54 @@ next_pull_request( fd_gossip_t const * gossip,
   return now+200L*1000L;
 }
 
+static inline void
+refresh_contact_info( fd_gossip_t * gossip,
+                      long          now ) {
+  gossip->my_contact_info.ci->wallclock_nanos = now;
+  fd_gossip_crds_contact_info_encode( gossip->my_contact_info.ci,
+                                      gossip->my_contact_info.crds_val,
+                                      1232UL,
+                                      &gossip->my_contact_info.crds_val_sz );
+  push_my_contact_info( gossip, now );
+}
+
+static inline void
+rotate_active_set( fd_gossip_t * gossip,
+                        long          now ) {
+  ulong replaced_idx;
+  fd_active_set_rotate( gossip->active_set, gossip->crds, &replaced_idx );
+  push_state_flush( gossip, &gossip->active_push_state[replaced_idx], now );
+
+  /* TODO: We should figure out how to avoid this lookup since fd_active_set_rotate
+     already obtains the CRDS entry when sampling from the CRDS table */
+  uchar const * replaced_pubkey = fd_active_set_node_pubkey( gossip->active_set, replaced_idx );
+  fd_contact_info_t const * replaced_contact_info = fd_crds_contact_info_lookup( gossip->crds, replaced_pubkey );
+  if( FD_UNLIKELY( !replaced_contact_info ) ) {
+    FD_LOG_ERR(( "Failed to find contact info for replaced active set node. This should not happen!!" ));
+  }
+
+  push_state_new( &gossip->active_push_state[replaced_idx], gossip->identity_pubkey );
+  gossip->active_push_state[replaced_idx].push_dest[0] = *fd_contact_info_get_socket( replaced_contact_info, FD_GOSSIP_SOCKET_TAG_GOSSIP );
+}
+
 void
 fd_gossip_advance( fd_gossip_t * gossip,
                    long          now ) {
-  // purge_failed_inserts( gossip, now );
-  // fd_crds_expire( gossip->crds, now );
+  failed_inserts_purge( gossip, now );
+  fd_crds_expire( gossip->crds, now );
 
   tx_ping( gossip, now );
   if( FD_UNLIKELY( now>=gossip->next_pull_request ) ) {
     tx_pull_request( gossip, now );
     gossip->next_pull_request = next_pull_request( gossip, now );
   }
-  // if( FD_UNLIKELY( now>=gossip->next_contact_info_refresh ) ) {
-  //   /* TODO: Frequency of this? More often if observing? */
-  //   refresh_contact_info( gossip, now );
-  //   gossip->next_contact_info_refresh = now+15L*500L*1000L*1000L; /* TODO: Jitter */
-  // }
+  if( FD_UNLIKELY( now>=gossip->next_contact_info_refresh ) ) {
+    /* TODO: Frequency of this? More often if observing? */
+    refresh_contact_info( gossip, now );
+    gossip->next_contact_info_refresh = now+15L*500L*1000L*1000L; /* TODO: Jitter */
+  }
   if( FD_UNLIKELY( now>=gossip->next_active_set_refresh ) ) {
-    ulong replaced_idx;
-    fd_active_set_rotate( gossip->active_set, gossip->crds, &replaced_idx );
+    rotate_active_set( gossip, now );
     gossip->next_active_set_refresh = now+300L*1000L*1000L; /* TODO: Jitter */
-    push_state_flush( gossip, &gossip->active_push_state[replaced_idx], now);
-    push_state_new( &gossip->active_push_state[replaced_idx], gossip->identity_pubkey );
   }
 }

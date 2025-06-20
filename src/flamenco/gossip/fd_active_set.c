@@ -167,6 +167,10 @@ fd_active_set_rotate( fd_active_set_t *     active_set,
   fd_active_set_peer_t * replace = entry->nodes[ replace_idx ];
 
   uchar const * new_peer = fd_crds_bucket_sample_and_remove( crds, active_set->rng, bucket );
+  if( FD_UNLIKELY( !new_peer ) ) {
+    return;
+  }
+
   fd_bloom_initialize( replace->bloom, num_bloom_filter_items );
   fd_bloom_insert( replace->bloom, new_peer, 32UL );
   fd_memcpy( replace->pubkey, new_peer, 32UL );

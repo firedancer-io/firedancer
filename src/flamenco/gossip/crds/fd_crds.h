@@ -154,17 +154,28 @@ fd_crds_value_hash( fd_crds_entry_t const * entry );
 
 /************************ Begin Contact Info APIs *****************************/
 
+/* fd_crds_is_contact_info returns 1 if entry holds a Contact Info CRDS value.
+   Assumes entry was populated with either fd_crds_populate_{preflight,full} */
 int
-fd_crds_is_contact_info( fd_crds_entry_t const * key );
+fd_crds_is_contact_info( fd_crds_entry_t const * entry );
 
+/* fd_crds_contact_info returns a pointer to the contact info
+   structure in the entry.  This is used to access the contact info
+   fields in the entry, such as the pubkey, shred version, and
+   socket address.
+
+   Assumes crds entry is a contact info (check with fd_crds_is_contact_info) */
 fd_contact_info_t *
 fd_crds_contact_info( fd_crds_entry_t const * entry );
 
-/* Returns 1 if the provided pubkey (assumed 32b) has a corresponding Contact
-   Info entry in the table. */
-int
-fd_crds_peer_has_contact_info( fd_crds_t const * crds,
-                               uchar const *     pubkey );
+/* fd_crds_contact_info_lookup returns a pointer to the contact info
+   structure corresponding to pubkey. returns NULL if there is no such
+   entry. */
+
+fd_contact_info_t *
+fd_crds_contact_info_lookup( fd_crds_t const * crds,
+                              uchar const *     pubkey );
+
 
 ulong
 fd_crds_peer_count( fd_crds_t const * crds );

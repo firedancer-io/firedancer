@@ -744,21 +744,27 @@ make_contact_info_key( uchar const * pubkey ) {
 }
 
 int
-fd_crds_peer_has_contact_info( fd_crds_t const * crds,
-                          uchar const *     pubkey ) {
-  fd_crds_key_t key = make_contact_info_key( pubkey );
-  return lookup_map_idx_query( crds->lookup_map, &key, ULONG_MAX, crds->pool ) != ULONG_MAX;
-}
-
-int
 fd_crds_is_contact_info(  fd_crds_entry_t const * entry ) {
   return is_contact_info( entry->key );
 }
 
 fd_contact_info_t *
 fd_crds_contact_info( fd_crds_entry_t const * entry ) {
-  FD_TEST( is_contact_info( entry->key ) );
   return entry->contact_info.ci->contact_info;
+}
+
+
+fd_contact_info_t *
+fd_crds_contact_info_lookup( fd_crds_t const * crds,
+                              uchar const *     pubkey ){
+  fd_crds_key_t key         = make_contact_info_key( pubkey );
+  fd_crds_entry_t * peer_ci = lookup_map_ele_query( crds->lookup_map, &key, NULL, crds->pool );
+  if( FD_UNLIKELY( !peer_ci ) ) {
+    FD_LOG_WARNING(( "Bad contact info lookup" ));
+    return NULL;
+  }
+
+  return peer_ci->contact_info.ci->contact_info;
 }
 
 ulong
@@ -802,6 +808,9 @@ uchar const *
 fd_crds_bucket_sample_and_remove( fd_crds_t * crds,
                                   fd_rng_t *  rng,
                                   ulong       bucket ) {
+  if( FD_UNLIKELY( !crds->samplers->ele_cnt ) ) {
+    return NULL;
+  }
   ulong idx = peer_wsampler_sample( &crds->samplers->bucket_samplers[bucket],
                                     rng,
                                     crds->samplers->ele_cnt );
@@ -835,6 +844,10 @@ fd_crds_bucket_add( fd_crds_t *   crds,
 fd_ip4_port_t
 fd_crds_peer_sample( fd_crds_t const * crds,
                      fd_rng_t *         rng ) {
+  if( FD_UNLIKELY( !crds->samplers->ele_cnt ) ) {
+    return (fd_ip4_port_t){ .l = 0UL };
+  }
+
   ulong idx = peer_wsampler_sample( crds->samplers->pr_sampler,
                                     rng,
                                     crds->samplers->ele_cnt );
