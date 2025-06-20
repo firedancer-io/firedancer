@@ -688,11 +688,10 @@ after_frag( fd_net_ctx_t *      ctx,
    Attempts to copy out the frame to a downstream tile. */
 
 static void
-net_rx_packet( fd_net_ctx_t *      ctx,
-               fd_stem_context_t * stem,
-               ulong               umem_off,
-               ulong               sz,
-               uint *              freed_chunk ) {
+net_rx_packet( fd_net_ctx_t * ctx,
+               ulong          umem_off,
+               ulong          sz,
+               uint *         freed_chunk ) {
 
   ulong umem_lowbits = umem_off & 0x3fUL;
 
@@ -779,7 +778,6 @@ net_rx_packet( fd_net_ctx_t *      ctx,
   fd_mcache_publish( out->mcache, out->depth, out->seq, sig, chunk, sz, umem_lowbits, 0, tspub );
 
   /* Wind up for the next iteration */
-  *stem->cr_avail -= stem->cr_decrement_amount;
   out->seq = fd_seq_inc( out->seq, 1UL );
 
   ctx->metrics.rx_pkt_cnt++;
@@ -829,17 +827,9 @@ net_comp_event( fd_net_ctx_t * ctx,
    ring.  */
 
 static void
-net_rx_event( fd_net_ctx_t *      ctx,
-              fd_stem_context_t * stem,
-              fd_xsk_t *          xsk,
-              uint                rx_seq ) {
-
-  // FIXME(topointon): Temporarily disabling backpressure feature because it triggers even with FD_TOPOB_UNRELIABLE
-  //if( FD_UNLIKELY( *stem->cr_avail < stem->cr_decrement_amount ) ) {
-  //  ctx->metrics.rx_backp_cnt++;
-  //  return;
-  //}
-
+net_rx_event( fd_net_ctx_t * ctx,
+              fd_xsk_t *     xsk,
+              uint           rx_seq ) {
   /* Locate the incoming frame */
 
   fd_xdp_ring_t * rx_ring = &xsk->ring_rx;
@@ -866,7 +856,7 @@ net_rx_event( fd_net_ctx_t *      ctx,
   /* Pass it to the receive handler */
 
   uint freed_chunk = UINT_MAX;
-  net_rx_packet( ctx, stem, frame.addr, frame.len, &freed_chunk );
+  net_rx_packet( ctx, frame.addr, frame.len, &freed_chunk );
 
   FD_COMPILER_MFENCE();
   FD_VOLATILE( *rx_ring->cons ) = rx_ring->cached_cons = rx_seq+1U;
@@ -893,6 +883,7 @@ static void
 before_credit( fd_net_ctx_t *      ctx,
                fd_stem_context_t * stem,
                int *               charge_busy ) {
+  (void)stem;
   /* A previous send attempt was overrun.  A corrupt copy of the packet was
      placed into an XDP frame, but the frame was not yet submitted to the
      TX ring.  Return the tx buffer to the free list. */
@@ -919,7 +910,7 @@ before_credit( fd_net_ctx_t *      ctx,
   if( rx_cons!=rx_prod ) {
     *charge_busy = 1;
     rr_xsk->ring_rx.cached_prod = rx_prod;
-    net_rx_event( ctx, stem, rr_xsk, rx_cons );
+    net_rx_event( ctx, rr_xsk, rx_cons );
   } else {
     net_rx_wakeup( ctx, rr_xsk, charge_busy );
     ctx->rr_idx++;
@@ -1324,6 +1315,7 @@ populate_allowed_fds( fd_topo_t const *      topo,
 
 #include "../../stem/fd_stem.c"
 
+#ifndef FD_TILE_TEST
 fd_topo_run_tile_t fd_tile_net = {
   .name                     = "net",
   .populate_allowed_seccomp = populate_allowed_seccomp,
@@ -1334,3 +1326,4 @@ fd_topo_run_tile_t fd_tile_net = {
   .unprivileged_init        = unprivileged_init,
   .run                      = stem_run,
 };
+#endif
