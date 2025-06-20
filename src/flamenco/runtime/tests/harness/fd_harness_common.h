@@ -13,6 +13,7 @@ struct fd_runtime_fuzz_runner {
   fd_funk_t   funk[1];
   fd_wksp_t * wksp;
   fd_spad_t * spad;
+  fd_bank_t * bank;
 };
 typedef struct fd_runtime_fuzz_runner fd_runtime_fuzz_runner_t;
 
@@ -59,7 +60,7 @@ fd_runtime_fuzz_load_account( fd_txn_account_t *                acc,
 /* Activates features in the runtime given an input feature set. Fails if a passed-in feature
    is unknown / not supported. */
 int
-fd_runtime_fuzz_restore_features( fd_exec_epoch_ctx_t *              epoch_ctx,
+fd_runtime_fuzz_restore_features( fd_features_t *                    features,
                                   fd_exec_test_feature_set_t const * feature_set );
 
 FD_PROTOTYPES_END

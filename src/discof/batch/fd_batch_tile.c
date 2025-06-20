@@ -322,94 +322,99 @@ produce_snapshot( fd_snapshot_tile_ctx_t * ctx, ulong batch_fseq ) {
 
 }
 
-static fd_funk_txn_t*
-get_eah_txn( fd_funk_t * funk, ulong slot ) {
+// static fd_funk_txn_t * FD_FN_UNUSED
+// get_eah_txn( fd_funk_t * funk, ulong slot ) {
 
-  fd_funk_txn_all_iter_t txn_iter[1];
-  for( fd_funk_txn_all_iter_new( funk, txn_iter ); !fd_funk_txn_all_iter_done( txn_iter ); fd_funk_txn_all_iter_next( txn_iter ) ) {
-    fd_funk_txn_t * txn = fd_funk_txn_all_iter_ele( txn_iter );
-    if( txn->xid.ul[0]==slot ) {
-      FD_LOG_NOTICE(( "Found transaction for eah" ));
-      return txn;
-    }
-  }
-  FD_LOG_NOTICE(( "Calculating eah from root" ));
-  return NULL;
-}
+//   fd_funk_txn_all_iter_t txn_iter[1];
+//   for( fd_funk_txn_all_iter_new( funk, txn_iter ); !fd_funk_txn_all_iter_done( txn_iter ); fd_funk_txn_all_iter_next( txn_iter ) ) {
+//     fd_funk_txn_t * txn = fd_funk_txn_all_iter_ele( txn_iter );
+//     if( txn->xid.ul[0]==slot ) {
+//       FD_LOG_NOTICE(( "Found transaction for eah" ));
+//       return txn;
+//     }
+//   }
+//   FD_LOG_NOTICE(( "Calculating eah from root" ));
+//   return NULL;
+// }
 
-static void
+static void FD_FN_UNUSED
 produce_eah( fd_snapshot_tile_ctx_t * ctx, fd_stem_context_t * stem, ulong batch_fseq ) {
-  ulong eah_slot = fd_batch_fseq_get_slot( batch_fseq );
+  (void)ctx;
+  (void)stem;
+  (void)batch_fseq;
 
-  if( FD_FEATURE_ACTIVE_( eah_slot, ctx->runtime_public->features, accounts_lt_hash ) )
-    return;
+  // ulong eah_slot = fd_batch_fseq_get_slot( batch_fseq );
 
-  ulong tsorig = (ulong)fd_frag_meta_ts_comp( fd_tickcount() );
+  // if( FD_FEATURE_ACTIVE_( eah_slot, ctx->runtime_public->features, accounts_lt_hash ) )
+  //   return;
 
-  FD_LOG_WARNING(( "Begining to produce epoch account hash in background for slot=%lu", eah_slot ));
+  // ulong tsorig = (ulong)fd_frag_meta_ts_comp( fd_tickcount() );
 
-  /* TODO: Perhaps it makes sense to factor this out into a function in the
-     runtime as this could technically be considered a layering violation. */
+  // FD_LOG_WARNING(( "Begining to produce epoch account hash in background for slot=%lu", eah_slot ));
 
-  /* First, we must retrieve the corresponding slot_bank. We have the guarantee
-     that the root record is frozen from the replay tile. */
+  // /* TODO: Perhaps it makes sense to factor this out into a function in the
+  //    runtime as this could technically be considered a layering violation. */
 
-  fd_funk_t *           funk     = ctx->funk;
-  fd_funk_txn_t *       eah_txn  = get_eah_txn( funk, eah_slot );
-  fd_funk_rec_key_t     slot_id  = fd_runtime_slot_bank_key();
-  fd_funk_rec_query_t   query[1];
-  fd_funk_rec_t const * slot_rec = fd_funk_rec_query_try( funk, eah_txn, &slot_id, query );
-  if( FD_UNLIKELY( !slot_rec ) ) {
-    FD_LOG_ERR(( "Failed to read slot bank record: missing record" ));
-  }
-  void * slot_val = fd_funk_val( slot_rec, fd_funk_wksp( funk ) );
+  // /* First, we must retrieve the corresponding slot_bank. We have the guarantee
+  //    that the root record is frozen from the replay tile. */
 
-  if( FD_UNLIKELY( fd_funk_val_sz( slot_rec )<sizeof(uint) ) ) {
-    FD_LOG_ERR(( "Failed to read slot bank record: empty record" ));
-  }
+  // fd_funk_t *           funk     = ctx->funk;
+  // fd_funk_txn_t *       eah_txn  = get_eah_txn( funk, eah_slot );
+  // fd_funk_rec_query_t   query[1];
+  // fd_funk_rec_t const * slot_rec = fd_funk_rec_query_try( funk, eah_txn, &slot_id, query );
+  // if( FD_UNLIKELY( !slot_rec ) ) {
+  //   FD_LOG_ERR(( "Failed to read slot bank record: missing record" ));
+  // }
+  // void * slot_val = fd_funk_val( slot_rec, fd_funk_wksp( funk ) );
 
-  uint slot_magic = *(uint*)slot_val;
-  FD_SPAD_FRAME_BEGIN( ctx->spad ) {
-    if( FD_UNLIKELY( slot_magic!=FD_RUNTIME_ENC_BINCODE ) ) {
-      FD_LOG_ERR(( "Slot bank record has wrong magic" ));
-    }
+  // if( FD_UNLIKELY( fd_funk_val_sz( slot_rec )<sizeof(uint) ) ) {
+  //   FD_LOG_ERR(( "Failed to read slot bank record: empty record" ));
+  // }
 
-    int err;
-    fd_slot_bank_t * slot_bank = fd_bincode_decode_spad( slot_bank, ctx->spad, (uchar *)slot_val+sizeof(uint), fd_funk_val_sz( slot_rec )-sizeof(uint), &err );
-    if( FD_UNLIKELY( err!=FD_BINCODE_SUCCESS ) ) {
-      FD_LOG_ERR(( "Failed to read slot bank record: invalid decode" ));
-      continue;
-    }
+  // uint slot_magic = *(uint*)slot_val;
+  // FD_SPAD_FRAME_BEGIN( ctx->spad ) {
+  //   if( FD_UNLIKELY( slot_magic!=FD_RUNTIME_ENC_BINCODE ) ) {
+  //     FD_LOG_ERR(( "Slot bank record has wrong magic" ));
+  //   }
 
-    /* At this point, calculate the epoch account hash. */
+  //   /* FIXME: The slot bank is getting replaced with the bank manager. */
+  //   // int err;
+  //   // fd_slot_bank_t * slot_bank = fd_bincode_decode_spad( slot_bank, ctx->spad, (uchar *)slot_val+sizeof(uint), fd_funk_val_sz( slot_rec )-sizeof(uint), &err );
+  //   // if( FD_UNLIKELY( err!=FD_BINCODE_SUCCESS ) ) {
+  //   //   FD_LOG_ERR(( "Failed to read slot bank record: invalid decode" ));
+  //   //   continue;
+  //   // }
 
-    fd_hash_t epoch_account_hash = {0};
+  //   /* At this point, calculate the epoch account hash. */
 
-    fd_accounts_hash( funk, slot_bank, &epoch_account_hash, ctx->spad, &ctx->runtime_public->features, NULL, NULL );
+  //   fd_hash_t epoch_account_hash = {0};
 
-    FD_LOG_NOTICE(( "Done computing epoch account hash (%s)", FD_BASE58_ENC_32_ALLOCA( &epoch_account_hash ) ));
+  //   /* FIXME: this has an invalid slot number. */
+  //   fd_accounts_hash( funk, 0UL, &epoch_account_hash, ctx->spad, &ctx->runtime_public->features, NULL, NULL );
 
-    /* Once the hash is calculated, we are ready to push the computed hash
-       onto the out link to replay. We don't need to add any other information
-       as this is the only type of message that is transmitted. */
+  //   FD_LOG_NOTICE(( "Done computing epoch account hash (%s)", FD_BASE58_ENC_32_ALLOCA( &epoch_account_hash ) ));
 
-    uchar * out_buf = fd_chunk_to_laddr( ctx->replay_out_mem, ctx->replay_out_chunk );
-    fd_memcpy( out_buf, epoch_account_hash.uc, sizeof(fd_hash_t) );
-    ulong tspub = (ulong)fd_frag_meta_ts_comp( fd_tickcount() );
-    fd_stem_publish( stem, 0UL, EAH_REPLAY_OUT_SIG, ctx->replay_out_chunk, sizeof(fd_hash_t), 0UL, tsorig, tspub );
+  //   /* Once the hash is calculated, we are ready to push the computed hash
+  //      onto the out link to replay. We don't need to add any other information
+  //      as this is the only type of message that is transmitted. */
 
-    /* Reset the fseq allowing for the un-constipation of funk and allow for
-       snapshots to be created again. */
+  //   uchar * out_buf = fd_chunk_to_laddr( ctx->replay_out_mem, ctx->replay_out_chunk );
+  //   fd_memcpy( out_buf, epoch_account_hash.uc, sizeof(fd_hash_t) );
+  //   ulong tspub = (ulong)fd_frag_meta_ts_comp( fd_tickcount() );
+  //   fd_stem_publish( stem, 0UL, EAH_REPLAY_OUT_SIG, ctx->replay_out_chunk, sizeof(fd_hash_t), 0UL, tsorig, tspub );
 
-    fd_fseq_update( ctx->is_constipated, 0UL );
-  } FD_SPAD_FRAME_END;
+  //   /* Reset the fseq allowing for the un-constipation of funk and allow for
+  //      snapshots to be created again. */
 
-  FD_TEST( !fd_funk_rec_query_test( query ) );
+  //   fd_fseq_update( ctx->is_constipated, 0UL );
+  // } FD_SPAD_FRAME_END;
+
+  // FD_TEST( !fd_funk_rec_query_test( query ) );
 }
 
 static void
 after_credit( fd_snapshot_tile_ctx_t * ctx,
-              fd_stem_context_t *      stem,
+              fd_stem_context_t *      stem        FD_PARAM_UNUSED,
               int *                    opt_poll_in FD_PARAM_UNUSED,
               int *                    charge_busy FD_PARAM_UNUSED ) {
 
@@ -425,7 +430,7 @@ after_credit( fd_snapshot_tile_ctx_t * ctx,
     produce_snapshot( ctx, batch_fseq );
   } else {
     // We need features to disable this...
-    produce_eah( ctx, stem, batch_fseq );
+    // produce_eah( ctx, stem, batch_fseq );
   }
 }
 

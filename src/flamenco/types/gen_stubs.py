@@ -363,7 +363,7 @@ class PrimitiveMember(TypeNode):
 
     def emitSize(self, inner, indent=''):
         if self.encode:
-            PrimitiveMember.emitSizeMap[self.type](self.name, self.varint, inner, indent);
+            PrimitiveMember.emitSizeMap[self.type](self.name, self.varint, inner, indent)
 
     emitWalkMap = {
         "char" :      lambda n, inner: print(f'  fun( w, &self->{inner}{n}, "{n}", FD_FLAMENCO_TYPE_SCHAR, "char", level );', file=body),
@@ -504,9 +504,13 @@ class VectorMember(TypeNode):
         else:
             ret_type = f'{namespace}_{self.element}_global_t'
 
-        print(f'FD_FN_UNUSED static {ret_type} * {type_name}_{self.name}_join( {type_name}_global_t * struct_mem ) {{ // vector', file=header)
-        print(f'  return ({ret_type} *)fd_type_pun( (uchar *)struct_mem + struct_mem->{self.name}_offset );', file=header)
+        print(f'FD_FN_UNUSED static {ret_type} * {type_name}_{self.name}_join( {type_name}_global_t const * struct_mem ) {{ // vector', file=header)
+        print(f'  return struct_mem->{self.name}_offset ? ({ret_type} *)fd_type_pun( (uchar *)struct_mem + struct_mem->{self.name}_offset ) : NULL;', file=header)
         print(f'}}', file=header)
+        print(f'FD_FN_UNUSED static void {type_name}_{self.name}_update( {type_name}_global_t * struct_mem, {ret_type} * vec ) {{', file=header)
+        print(f'  struct_mem->{self.name}_offset = !!vec ? (ulong)vec - (ulong)struct_mem : 0UL;', file=header)
+        print(f'}}', file=header)
+
 
     def emitNew(self, indent=''):
         pass
@@ -1167,8 +1171,8 @@ class DequeMember(TypeNode):
 
         prefix = self.prefix() if self.element in flattypes else self.prefix_global()
 
-        print(f'static FD_FN_UNUSED {ret_type} * {type_name}_{self.name}_join( void * struct_mem, ulong offset ) {{ // deque', file=header)
-        print(f'  return ({ret_type} *){prefix}_join( fd_type_pun( (uchar *)struct_mem + offset ) );', file=header)
+        print(f'static FD_FN_UNUSED {ret_type} * {type_name}_{self.name}_join( {type_name}_global_t * type ) {{ // deque', file=header)
+        print(f'  return ({ret_type} *){prefix}_join( fd_type_pun( (uchar *)type + type->{self.name}_offset ) );', file=header)
         print(f'}}', file=header)
 
     def emitNew(self, indent=''):
@@ -1538,12 +1542,22 @@ class MapMember(TypeNode):
         mapname = element_type + "_map"
         nodename = element_type + "_mapnode_t"
 
-        print(f'static FD_FN_UNUSED {nodename} * {type_name}_{self.name}_pool_join( void * struct_mem, ulong offset ) {{ // deque', file=header)
-        print(f'  return ({nodename} *){mapname}_join( fd_type_pun( (uchar *)struct_mem + offset ) );', file=header)
+        print(f'static FD_FN_UNUSED {nodename} * {type_name}_{self.name}_pool_join( {type_name}_global_t const * type ) {{', file=header)
+        print(f'  if( FD_UNLIKELY( !type ) ) return NULL;', file=header)
+        print(f'  return !!type->{self.name}_pool_offset ? ({nodename} *){mapname}_join( fd_type_pun( (uchar *)type + type->{self.name}_pool_offset ) ) : NULL;', file=header)
         print(f'}}', file=header)
 
-        print(f'static FD_FN_UNUSED {nodename} * {type_name}_{self.name}_root_join( void * struct_mem, ulong offset ) {{ // deque', file=header)
-        print(f'  return ({nodename} *)fd_type_pun( (uchar *)struct_mem + offset );', file=header)
+        print(f'static FD_FN_UNUSED {nodename} * {type_name}_{self.name}_root_join( {type_name}_global_t const * type ) {{', file=header)
+        print(f'  if( FD_UNLIKELY( !type ) ) return NULL;', file=header)
+        print(f'  return !!type->{self.name}_root_offset ? ({nodename} *)fd_type_pun( (uchar *)type + type->{self.name}_root_offset ) : NULL;', file=header)
+        print(f'}}', file=header)
+
+        print(f'static FD_FN_UNUSED void {type_name}_{self.name}_pool_update( {type_name}_global_t * type, {nodename} * pool ) {{', file=header)
+        print(f'  type->{self.name}_pool_offset = !!pool ? (ulong){mapname}_leave( pool ) - (ulong)type : 0UL;', file=header)
+        print(f'}}', file=header)
+
+        print(f'static FD_FN_UNUSED void {type_name}_{self.name}_root_update( {type_name}_global_t * type, {nodename} * root ) {{', file=header)
+        print(f'  type->{self.name}_root_offset = !!root ? (ulong)root - (ulong)type : 0UL;', file=header)
         print(f'}}', file=header)
 
     def emitNew(self, indent=''):
@@ -1632,7 +1646,7 @@ class MapMember(TypeNode):
         print(f'  }}', file=body)
 
         print(f'  self->{self.name}_pool_offset = (ulong){mapname}_leave( {self.name}_pool ) - (ulong)struct_mem;', file=body)
-        print(f'  self->{self.name}_root_offset = (ulong){mapname}_leave( {self.name}_root ) - (ulong)struct_mem;', file=body)
+        print(f'  self->{self.name}_root_offset = (ulong){self.name}_root - (ulong)struct_mem;', file=body)
 
     def emitEncode(self):
         element_type = self.elem_type()
@@ -1706,8 +1720,10 @@ class MapMember(TypeNode):
             print(f'    size += fd_bincode_compact_u16_size( &{self.name}_len );', file=body)
         else:
             print('    size += sizeof(ulong);', file=body)
+        print(f'    ulong max = {mapname}_max( self->{self.name}_pool );', file=body)
+        print(f'    size += {mapname}_footprint( max );', file=body)
         print(f'    for( {nodename} * n = {mapname}_minimum( self->{self.name}_pool, self->{self.name}_root ); n; n = {mapname}_successor( self->{self.name}_pool, n ) ) {{', file=body);
-        print(f'      size += {namespace}_{self.element}_size( &n->elem );', file=body)
+        print(f'      size += {namespace}_{self.element}_size( &n->elem ) - sizeof({self.elem_type()});', file=body)
         print('    }', file=body)
         print('  } else {', file=body)
         if self.compact:
@@ -1793,8 +1809,8 @@ class PartitionMember(TypeNode):
         else:
             print(f'  ulong {self.name}_len;', file=header)
         print(f'  ulong {self.name}_lengths[{self.dlist_max}];', file=header)
+        print(f'  ulong {self.name}_offset;', file=header)
         print(f'  ulong pool_offset;', file=header)
-        print(f'  ulong dlist_offset;', file=header)
 
     def emitNew(self, indent=''):
         pass
@@ -1884,7 +1900,7 @@ class PartitionMember(TypeNode):
         print('    }', file=body)
         print('  }', file=body)
         print(f'  self->pool_offset  = (ulong){pool_name}_leave( pool ) - (ulong)struct_mem;', file=body)
-        print(f'  self->dlist_offset = (ulong){dlist_name}_leave( {self.name} ) - (ulong)struct_mem;', file=body)
+        print(f'  self->{self.name}_offset = (ulong){dlist_name}_leave( {self.name} ) - (ulong)struct_mem;', file=body)
 
 
     def emitEncode(self):
@@ -2510,6 +2526,22 @@ class OptionMember(TypeNode):
         else:
             print(f'  ulong {self.name}_offset;', file=header)
 
+    def emitOffsetJoin(self, type_name):
+        if self.flat:
+            return
+
+        ret_type = None
+        if self.element in simpletypes:
+            ret_type = self.element
+        elif self.element in flattypes:
+            ret_type = f'{namespace}_{self.element}_t'
+        else:
+            ret_type = f'{namespace}_{self.element}_global_t'
+
+        print(f'FD_FN_UNUSED static {ret_type} * {type_name}_{self.name}_join( {type_name}_global_t const * struct_mem ) {{', file=header)
+        print(f'  return ({ret_type} *)fd_type_pun( (uchar *)struct_mem + struct_mem->{self.name}_offset );', file=header)
+        print(f'}}', file=header)
+
     def emitNew(self, indent=''):
         pass
 
@@ -2987,6 +3019,8 @@ def extract_sub_type(member):
         return type_map[member.element] if member.element in type_map else None
     if hasattr(member, "type"):
         return type_map[member.type] if member.type in type_map else None
+    if hasattr(member, "dlist_t"):
+        return type_map[member.dlist_t] if member.dlist_t in type_map else None
     raise ValueError(f"Unknown type {member} in extract_sub_type")
 
 def extract_member_type(member):
@@ -3001,6 +3035,8 @@ def extract_member_type(member):
     if hasattr(member, "element"):
         return member
     if hasattr(member, "type"):
+        return member
+    if hasattr(member, "dlist_t"):
         return member
     raise ValueError(f"Unknown type {member} in extract_member_type")
 

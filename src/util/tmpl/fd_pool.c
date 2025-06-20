@@ -398,7 +398,7 @@ POOL_(idx_release)( POOL_T * join,
                     ulong    idx ) {
   POOL_(private_t) * meta = POOL_(private_meta)( join );
 # if FD_TMPL_USE_HANDHOLDING
-  if( FD_UNLIKELY( (meta->max<=idx) | (idx==POOL_IDX_NULL) ) ) FD_LOG_CRIT(( "invalid index" ));
+  if( FD_UNLIKELY( (meta->max<=idx) | (idx==POOL_IDX_NULL) ) ) FD_LOG_CRIT(( "invalid index %lu %lu", idx, POOL_IDX_NULL ));
 # if POOL_SENTINEL
   if( FD_UNLIKELY( POOL_(idx_sentinel)( join )==idx ) ) FD_LOG_CRIT(( "cannot releaes sentinel" ));
   if( FD_UNLIKELY( meta->free>=meta->max-1 ) ) FD_LOG_CRIT(( "pool is empty" ));

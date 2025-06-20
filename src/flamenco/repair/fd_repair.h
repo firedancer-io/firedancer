@@ -3,7 +3,6 @@
 
 #include "../gossip/fd_gossip.h"
 #include "../../ballet/shred/fd_shred.h"
-#include "../runtime/context/fd_exec_epoch_ctx.h"
 #include "../../disco/metrics/generated/fd_metrics_repair.h"
 
 

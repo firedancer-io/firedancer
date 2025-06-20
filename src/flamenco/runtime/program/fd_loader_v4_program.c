@@ -1,5 +1,7 @@
 #include "fd_loader_v4_program.h"
+#include "fd_bpf_loader_program.h"
 #include "../sysvar/fd_sysvar_clock.h"
+#include "../fd_borrowed_account.h"
 
 /* Helper functions that would normally be provided by fd_types. */
 FD_FN_PURE uchar

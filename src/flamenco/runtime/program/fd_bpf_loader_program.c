@@ -12,6 +12,7 @@
 #include "../fd_executor.h"
 #include "fd_bpf_loader_serialization.h"
 #include "fd_native_cpi.h"
+#include "../fd_borrowed_account.h"
 
 #include <stdlib.h>
 
@@ -797,7 +798,7 @@ process_loader_upgradeable_instruction( fd_exec_instr_ctx_t * instr_ctx ) {
 
       fd_bpf_upgradeable_loader_state_t * loader_state   = NULL;
       fd_pubkey_t *                       new_program_id = NULL;
-      fd_rent_t const *                   rent           = &instr_ctx->txn_ctx->rent;
+      fd_rent_t const *                   rent           = fd_bank_rent_query( instr_ctx->txn_ctx->bank );
 
       /* https://github.com/anza-xyz/agave/blob/v2.1.4/programs/bpf_loader/src/lib.rs#L545 */
       fd_guarded_borrowed_account_t program;
@@ -1211,7 +1212,7 @@ process_loader_upgradeable_instruction( fd_exec_instr_ctx_t * instr_ctx ) {
       fd_guarded_borrowed_account_t programdata;
       FD_TRY_BORROW_INSTR_ACCOUNT_DEFAULT_ERR_CHECK( instr_ctx, 0UL, &programdata );
 
-      fd_rent_t const * rent = &instr_ctx->txn_ctx->rent;
+      fd_rent_t const * rent = fd_bank_rent_query( instr_ctx->txn_ctx->bank );
 
       programdata_balance_required = fd_ulong_max( 1UL, fd_rent_exempt_minimum_balance( rent, fd_borrowed_account_get_data_len( &programdata ) ) );
 
@@ -1785,7 +1786,7 @@ process_loader_upgradeable_instruction( fd_exec_instr_ctx_t * instr_ctx ) {
       }
 
       /* https://github.com/anza-xyz/agave/blob/574bae8fefc0ed256b55340b9d87b7689bcdf222/programs/bpf_loader/src/lib.rs#L1232-L1256 */
-      fd_rent_t const * rent             = &instr_ctx->txn_ctx->rent;
+      fd_rent_t const * rent             = fd_bank_rent_query( instr_ctx->txn_ctx->bank );
       ulong             balance          = fd_borrowed_account_get_lamports( &programdata_account );
       ulong             min_balance      = fd_ulong_max( fd_rent_exempt_minimum_balance( rent, new_len ), 1UL );
       ulong             required_payment = fd_ulong_sat_sub( min_balance, balance );

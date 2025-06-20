@@ -215,6 +215,15 @@ backtest_topo( config_t * config ) {
   FOR(writer_tile_cnt) fd_topob_tile_uses( topo, &topo->tiles[ fd_topo_find_tile( topo, "writer", i ) ], runtime_pub_obj, FD_SHMEM_JOIN_MODE_READ_WRITE );
   FD_TEST( fd_pod_insertf_ulong( topo->props, runtime_pub_obj->id, "runtime_pub" ) );
 
+  /* banks_obj shared by replay, exec and writer tiles */
+  fd_topob_wksp( topo, "banks" );
+  FD_LOG_WARNING(("max_banks: %lu", config->firedancer.runtime.limits.max_banks));
+  fd_topo_obj_t * banks_obj = setup_topo_banks( topo, "banks", config->firedancer.runtime.limits.max_banks );
+  fd_topob_tile_uses( topo, replay_tile, banks_obj, FD_SHMEM_JOIN_MODE_READ_WRITE );
+  FOR(exec_tile_cnt) fd_topob_tile_uses( topo, &topo->tiles[ fd_topo_find_tile( topo, "exec", i ) ], banks_obj, FD_SHMEM_JOIN_MODE_READ_WRITE );
+  FOR(writer_tile_cnt) fd_topob_tile_uses( topo, &topo->tiles[ fd_topo_find_tile( topo, "writer", i ) ], banks_obj, FD_SHMEM_JOIN_MODE_READ_WRITE );
+  FD_TEST( fd_pod_insertf_ulong( topo->props, banks_obj->id, "banks" ) );
+
   /* exec_spad_obj shared by replay, exec and writer tiles */
   fd_topob_wksp( topo, "exec_spad" );
   for( ulong i=0UL; i<exec_tile_cnt; i++ ) {

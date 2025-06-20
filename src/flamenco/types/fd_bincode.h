@@ -26,7 +26,6 @@ struct fd_bincode_encode_ctx {
   void * data;
   /* End of buffer */
   void * dataend;
-  fd_wksp_t * wksp;
 };
 typedef struct fd_bincode_encode_ctx fd_bincode_encode_ctx_t;
 

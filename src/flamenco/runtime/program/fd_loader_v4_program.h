@@ -6,8 +6,6 @@
 #include "../fd_system_ids.h"
 #include "../fd_executor.h"
 #include "../sysvar/fd_sysvar_rent.h"
-#include "../fd_borrowed_account.h"
-#include "fd_bpf_loader_program.h"
 
 /*
   Notes about loader v4 since it differs slightly from the previous BPF v3 loader...

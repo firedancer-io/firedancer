@@ -22,7 +22,7 @@ struct fd_pubkey_hash_pair_list {
 typedef struct fd_pubkey_hash_pair_list fd_pubkey_hash_pair_list_t;
 
 struct fd_subrange_task_info {
-  fd_features_t *              features;
+  fd_features_t const *        features;
   fd_funk_t *                  funk;
   ulong                        num_lists;
   fd_pubkey_hash_pair_list_t * lists;
@@ -68,7 +68,7 @@ fd_accounts_sorted_subrange_gather( fd_funk_t *             funk,
                                     ulong *                 num_pairs_out,
                                     fd_lthash_value_t *     lthash_values_out,
                                     fd_pubkey_hash_pair_t * pairs,
-                                    fd_features_t *         features );
+                                    fd_features_t const *   features );
 
 void
 fd_accounts_hash_counter_and_gather_tpool_cb( void * para_arg_1,
@@ -100,7 +100,7 @@ fd_account_hash( fd_funk_t *                    funk,
                  fd_accounts_hash_task_info_t * task_info,
                  fd_lthash_value_t *            lt_hash,
                  ulong                          slot,
-                 fd_features_t *                features );
+                 fd_features_t const *          features );
 
 int
 fd_update_hash_bank_tpool( fd_exec_slot_ctx_t * slot_ctx,
@@ -129,7 +129,7 @@ fd_hash_account( uchar                     hash  [ static 32 ],
                  fd_pubkey_t const       * pubkey,
                  uchar const             * data,
                  int                       hash_needed,
-                 fd_features_t            *features
+                 fd_features_t const *     features
  );
 
 /* fd_hash_account_current chooses the correct account hash function
@@ -146,23 +146,23 @@ fd_hash_account_current( uchar                      hash  [ static 32 ],
                          fd_pubkey_t       const   *pubkey,
                          uchar const *              data,
                          int                        hash_needed,
-                         fd_features_t             *features );
+                         fd_features_t const *      features );
 
 /* Generate a complete accounts_hash of the entire account database. */
 
 int
 fd_accounts_hash( fd_funk_t *             funk,
-                  fd_slot_bank_t *        slot_bank,
+                  ulong                   slot,
                   fd_hash_t *             accounts_hash,
                   fd_spad_t *             runtime_spad,
-                  fd_features_t *         features,
+                  fd_features_t const *   features,
                   fd_exec_para_cb_ctx_t * exec_para_ctx,
-                  fd_lthash_value_t *  lt_hash );
+                  fd_lthash_value_t *     lt_hash );
 
 /* Generate a non-incremental hash of the entire account database, including
    the epoch account hash. It differs from fd_snapshot_hash in that this version
    is used by the snapshot service which doesn't have access to a slot_ctx
-   handle. However, it retains a copy of funk, slot_bank, and epoch_bank.
+   handle. However, it retains a copy of funk and epoch_bank.
    Do the same for the incremental hash. These functions are also
    responsible for conditionally including the epoch account hash into
    the account hash. These hashes are used by the snapshot service.
@@ -171,28 +171,23 @@ fd_accounts_hash( fd_funk_t *             funk,
 int
 fd_snapshot_service_hash( fd_hash_t *       accounts_hash,
                           fd_hash_t *       snapshot_hash,
-                          fd_slot_bank_t *  slot_bank,
-                          fd_epoch_bank_t * epoch_bank,
                           fd_funk_t *       funk,
                           fd_tpool_t *      tpool,
                           fd_spad_t *       runtime_spad,
-                          fd_features_t    *features );
+                          fd_features_t *   features );
 
 int
 fd_snapshot_service_inc_hash( fd_hash_t *                 accounts_hash,
                               fd_hash_t *                 snapshot_hash,
-                              fd_slot_bank_t *            slot_bank,
-                              fd_epoch_bank_t *           epoch_bank,
                               fd_funk_t *                 funk,
                               fd_funk_rec_key_t const * * pubkeys,
                               ulong                       pubkeys_len,
                               fd_spad_t *                 spad,
-                              fd_features_t              *features  );
+                              fd_features_t *             features );
 
 void
 fd_accounts_check_lthash( fd_funk_t *      funk,
                           fd_funk_txn_t *  funk_txn,
-                          fd_slot_bank_t * slot_bank,
                           fd_spad_t *      runtime_spad,
                           fd_features_t  * features );
 

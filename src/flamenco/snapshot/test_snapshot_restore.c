@@ -23,8 +23,10 @@ static void *                  _cb_v_ctx      = NULL;
 int
 cb_manifest( void *                 ctx,
              fd_solana_manifest_t * manifest,
+             fd_solana_manifest_global_t * manifest_global,
              fd_spad_t *            spad ) {
   (void)spad;
+  (void)manifest_global;
   _cb_v_manifest = manifest;
   _cb_v_ctx      = ctx;
   return _cb_retcode;
@@ -46,7 +48,7 @@ main( int     argc,
   fd_boot( &argc, &argv );
 
   char const * _page_sz = fd_env_strip_cmdline_cstr  ( &argc, &argv, "--page-sz",  NULL,      "gigantic" );
-  ulong        page_cnt = fd_env_strip_cmdline_ulong ( &argc, &argv, "--page-cnt", NULL,             1UL );
+  ulong        page_cnt = fd_env_strip_cmdline_ulong ( &argc, &argv, "--page-cnt", NULL,             3UL );
   ulong        near_cpu = fd_env_strip_cmdline_ulong ( &argc, &argv, "--near-cpu", NULL, fd_log_cpu_id() );
 
   /* Setup workspace */
@@ -71,7 +73,7 @@ main( int     argc,
 
   void * restore_mem = fd_wksp_alloc_laddr( wksp, fd_snapshot_restore_align(), fd_snapshot_restore_footprint(), static_tag );
 
-  fd_spad_t * _spad = fd_spad_new( fd_wksp_alloc_laddr( wksp, FD_SPAD_ALIGN, FD_SPAD_FOOTPRINT( 4194304UL ), static_tag ), 4194304UL );
+  fd_spad_t * _spad = fd_spad_new( fd_wksp_alloc_laddr( wksp, FD_SPAD_ALIGN, FD_SPAD_FOOTPRINT( 1000000000UL ), static_tag ), 1000000000UL );
   fd_spad_push( _spad );
 
   fd_funk_txn_xid_t xid[1] = {{ .ul = {4} }};

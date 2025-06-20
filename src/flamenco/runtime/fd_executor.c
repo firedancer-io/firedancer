@@ -1,9 +1,9 @@
 #include "fd_executor.h"
-#include "context/fd_exec_epoch_ctx.h"
 #include "fd_acc_mgr.h"
 #include "fd_hashes.h"
 #include "fd_runtime.h"
 #include "fd_runtime_err.h"
+
 #include "context/fd_exec_slot_ctx.h"
 #include "context/fd_exec_txn_ctx.h"
 #include "context/fd_exec_instr_ctx.h"
@@ -302,7 +302,7 @@ fd_validate_fee_payer( fd_txn_account_t * account,
   return fd_executor_check_rent_state_with_account( account, &payer_pre_rent_state, &payer_post_rent_state );
 }
 
-static int
+static int FD_FN_UNUSED
 status_check_tower( ulong slot, void * _ctx ) {
   fd_exec_txn_ctx_t * ctx = (fd_exec_txn_ctx_t *)_ctx;
   if( slot==ctx->slot ) {
@@ -350,14 +350,15 @@ fd_executor_check_status_cache( fd_exec_txn_ctx_t * txn_ctx ) {
   fd_blake3_fini( b3, &txn_ctx->blake_txn_msg_hash );
   curr_query.txnhash = txn_ctx->blake_txn_msg_hash.uc;
 
+  (void)curr_query;
   // TODO: figure out if it is faster to batch query properly and loop all txns again
-  int err;
-  fd_txncache_query_batch( txn_ctx->status_cache,
-                           &curr_query,
-                           1UL,
-                           (void *)txn_ctx,
-                           status_check_tower, &err );
-  return err;
+  // int err;
+  // fd_txncache_query_batch( txn_ctx->status_cache,
+  //                          &curr_query,
+  //                          1UL,
+  //                          (void *)txn_ctx,
+  //                          status_check_tower, &err );
+  return 0;
 }
 
 /* https://github.com/anza-xyz/agave/blob/ced98f1ebe73f7e9691308afa757323003ff744f/runtime/src/bank.rs#L3596-L3605 */
@@ -465,9 +466,9 @@ load_transaction_account( fd_exec_txn_ctx_t * txn_ctx,
   if( FD_LIKELY( !unknown_acc ) ) {
     if( is_writable ) {
       txn_ctx->collected_rent += fd_runtime_collect_rent_from_account( txn_ctx->slot,
-                                                                       &txn_ctx->schedule,
-                                                                       &txn_ctx->rent,
-                                                                       txn_ctx->slots_per_year,
+                                                                       fd_bank_epoch_schedule_query( txn_ctx->bank ),
+                                                                       fd_bank_rent_query( txn_ctx->bank ),
+                                                                       fd_bank_slots_per_year_get( txn_ctx->bank ),
                                                                        &txn_ctx->features,
                                                                        acct,
                                                                        epoch );
@@ -712,7 +713,7 @@ fd_executor_calculate_fee( fd_exec_txn_ctx_t *  txn_ctx,
     }
   }
 
-  ulong signature_fee = fd_executor_lamports_per_signature( &txn_ctx->fee_rate_governor ) * num_signatures;
+  ulong signature_fee = fd_executor_lamports_per_signature( fd_bank_fee_rate_governor_query( txn_ctx->bank ) ) * num_signatures;
 
   // TODO: as far as I can tell, this is always 0
   //
@@ -841,11 +842,11 @@ fd_executor_validate_transaction_fee_payer( fd_exec_txn_ctx_t * txn_ctx ) {
 
   /* Collect rent from the fee payer
      https://github.com/anza-xyz/agave/blob/v2.2.13/svm/src/transaction_processor.rs#L583-L589 */
-  ulong epoch              = fd_slot_to_epoch( &txn_ctx->schedule, txn_ctx->slot, NULL );
+  ulong epoch              = fd_slot_to_epoch( fd_bank_epoch_schedule_query( txn_ctx->bank ), txn_ctx->slot, NULL );
   txn_ctx->collected_rent += fd_runtime_collect_rent_from_account( txn_ctx->slot,
-                                                                  &txn_ctx->schedule,
-                                                                  &txn_ctx->rent,
-                                                                  txn_ctx->slots_per_year,
+                                                                  fd_bank_epoch_schedule_query( txn_ctx->bank ),
+                                                                  fd_bank_rent_query( txn_ctx->bank ),
+                                                                  fd_bank_slots_per_year_get( txn_ctx->bank ),
                                                                   &txn_ctx->features,
                                                                   fee_payer_rec,
                                                                   epoch );
@@ -863,7 +864,7 @@ fd_executor_validate_transaction_fee_payer( fd_exec_txn_ctx_t * txn_ctx ) {
   }
 
   /* https://github.com/anza-xyz/agave/blob/v2.2.13/svm/src/transaction_processor.rs#L609-L616 */
-  err = fd_validate_fee_payer( fee_payer_rec, &txn_ctx->rent, total_fee, txn_ctx->spad );
+  err = fd_validate_fee_payer( fee_payer_rec, fd_bank_rent_query( txn_ctx->bank ), total_fee, txn_ctx->spad );
   if( FD_UNLIKELY( err ) ) {
     return err;
   }
@@ -914,6 +915,7 @@ fd_executor_setup_accessed_accounts_for_txn( fd_exec_txn_ctx_t * txn_ctx ) {
                                                          accts_alt );
     txn_ctx->accounts_cnt += txn_ctx->txn_descriptor->addr_table_adtl_cnt;
     if( FD_UNLIKELY( err!=FD_RUNTIME_EXECUTE_SUCCESS ) ) return err;
+
   }
   return FD_RUNTIME_EXECUTE_SUCCESS;
 }
@@ -1241,18 +1243,22 @@ fd_txn_reclaim_accounts( fd_exec_txn_ctx_t * txn_ctx ) {
 }
 
 int
-fd_executor_is_blockhash_valid_for_age( fd_block_hash_queue_t const * block_hash_queue,
-                                        fd_hash_t const *             blockhash,
-                                        ulong                         max_age ) {
+fd_executor_is_blockhash_valid_for_age( fd_block_hash_queue_global_t const * block_hash_queue,
+                                        fd_hash_t const *                    blockhash,
+                                        ulong                                max_age ) {
   fd_hash_hash_age_pair_t_mapnode_t key;
   fd_memcpy( key.elem.key.uc, blockhash, sizeof(fd_hash_t) );
 
-  fd_hash_hash_age_pair_t_mapnode_t * hash_age = fd_hash_hash_age_pair_t_map_find( block_hash_queue->ages_pool, block_hash_queue->ages_root, &key );
+  fd_hash_hash_age_pair_t_mapnode_t * ages_pool = fd_block_hash_queue_ages_pool_join( block_hash_queue );
+  fd_hash_hash_age_pair_t_mapnode_t * ages_root = fd_block_hash_queue_ages_root_join( block_hash_queue );
+
+  fd_hash_hash_age_pair_t_mapnode_t * hash_age = fd_hash_hash_age_pair_t_map_find( ages_pool, ages_root, &key );
   if( hash_age==NULL ) {
     return 0;
   }
+
   ulong age = block_hash_queue->last_hash_index-hash_age->elem.val.hash_index;
-  return ( age<=max_age );
+  return age<=max_age;
 }
 
 void
@@ -1274,25 +1280,18 @@ fd_exec_txn_ctx_from_exec_slot_ctx( fd_exec_slot_ctx_t const * slot_ctx,
     FD_LOG_ERR(( "Could not find valid funk %lu", funk_gaddr ));
   }
 
-  ctx->features     = slot_ctx->epoch_ctx->features;
   ctx->status_cache = slot_ctx->status_cache;
 
-  ctx->bank_hash_cmp = slot_ctx->epoch_ctx->bank_hash_cmp;
+  ctx->bank_hash_cmp = slot_ctx->bank_hash_cmp;
 
-  ctx->prev_lamports_per_signature = slot_ctx->prev_lamports_per_signature;
-  ctx->enable_exec_recording       = slot_ctx->enable_exec_recording;
-  ctx->total_epoch_stake           = slot_ctx->epoch_ctx->total_epoch_stake;
+  ctx->enable_exec_recording = slot_ctx->enable_exec_recording;
 
-  ctx->slot                        = slot_ctx->slot_bank.slot;
-  ctx->fee_rate_governor           = slot_ctx->slot_bank.fee_rate_governor;
-  ctx->block_hash_queue            = slot_ctx->slot_bank.block_hash_queue; /* MAKE GLOBAL */
+  ctx->bank = slot_ctx->bank;
+  FD_TEST( ctx->bank );
 
-  fd_epoch_bank_t const * epoch_bank = fd_exec_epoch_ctx_epoch_bank_const( slot_ctx->epoch_ctx );
-  ctx->schedule                    = epoch_bank->epoch_schedule;
-  ctx->rent                        = epoch_bank->rent;
-  ctx->slots_per_year              = epoch_bank->slots_per_year;
-  ctx->stakes                      = epoch_bank->stakes;
+  ctx->slot = slot_ctx->bank->slot;
 
+  ctx->features = fd_bank_features_get( ctx->bank );
 }
 
 fd_txn_account_t *
@@ -1495,7 +1494,7 @@ fd_execute_txn( fd_execute_txn_task_info_t * task_info ) {
 
 int
 fd_executor_txn_check( fd_exec_txn_ctx_t * txn_ctx ) {
-  fd_rent_t const * rent = &txn_ctx->rent;
+  fd_rent_t const * rent = fd_bank_rent_query( txn_ctx->bank );
 
   ulong starting_lamports_l = 0;
   ulong starting_lamports_h = 0;

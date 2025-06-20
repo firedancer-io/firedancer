@@ -8,7 +8,6 @@
 
 #include "../../fd_executor.h"
 #include "../../program/fd_bpf_program_util.h"
-#include "../../context/fd_exec_epoch_ctx.h"
 #include "../../context/fd_exec_slot_ctx.h"
 #include "../../context/fd_exec_txn_ctx.h"
 #include "../../program/fd_bpf_loader_program.h"

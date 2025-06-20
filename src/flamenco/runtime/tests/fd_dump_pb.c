@@ -169,7 +169,7 @@ dump_executable_account_if_exists( fd_exec_slot_ctx_t const *        slot_ctx,
 }
 
 /** VOTE ACCOUNTS DUMPING **/
-static void
+static void FD_FN_UNUSED
 dump_vote_accounts( fd_exec_slot_ctx_t const *     slot_ctx,
                     fd_vote_accounts_t const *     vote_accounts,
                     fd_spad_t *                    spad,
@@ -343,16 +343,19 @@ dump_sanitized_transaction( fd_funk_t *                            funk,
 /** BLOCKHASH QUEUE DUMPING **/
 
 static void
-dump_blockhash_queue( fd_block_hash_queue_t const * queue,
-                      fd_spad_t *                   spad,
-                      pb_bytes_array_t **           output_blockhash_queue,
-                      pb_size_t *                   output_blockhash_queue_count ) {
+dump_blockhash_queue( fd_block_hash_queue_global_t const * queue,
+                      fd_spad_t *                          spad,
+                      pb_bytes_array_t **                  output_blockhash_queue,
+                      pb_size_t *                          output_blockhash_queue_count ) {
   pb_size_t cnt = 0;
   fd_hash_hash_age_pair_t_mapnode_t * nn;
 
+  fd_hash_hash_age_pair_t_mapnode_t * ages_pool = fd_block_hash_queue_ages_pool_join( queue );
+  fd_hash_hash_age_pair_t_mapnode_t * ages_root = fd_block_hash_queue_ages_root_join( queue );
+
   // Iterate over all block hashes in the queue and save them in the output
-  for ( fd_hash_hash_age_pair_t_mapnode_t * n = fd_hash_hash_age_pair_t_map_minimum( queue->ages_pool, queue->ages_root ); n; n = nn ) {
-    nn = fd_hash_hash_age_pair_t_map_successor( queue->ages_pool, n );
+  for( fd_hash_hash_age_pair_t_mapnode_t * n = fd_hash_hash_age_pair_t_map_minimum( ages_pool, ages_root ); n; n = nn ) {
+    nn = fd_hash_hash_age_pair_t_map_successor( ages_pool, n );
 
     /* Get the index in the blockhash queue
        - Lower index = newer
@@ -386,7 +389,6 @@ static void
 create_block_context_protobuf_from_block( fd_exec_test_block_context_t * block_context,
                                           fd_exec_slot_ctx_t const *     slot_ctx,
                                           fd_spad_t *                    spad ) {
-  fd_exec_epoch_ctx_t const * epoch_ctx = slot_ctx->epoch_ctx;
 
   /* BlockContext -> acct_states */
   // Dump sysvars + builtins
@@ -423,17 +425,35 @@ create_block_context_protobuf_from_block( fd_exec_test_block_context_t * block_c
   ulong num_sysvar_entries    = (sizeof(fd_relevant_sysvar_ids) / sizeof(fd_pubkey_t));
   ulong num_loaded_builtins   = (sizeof(loaded_builtins) / sizeof(fd_pubkey_t));
 
-  ulong new_stake_account_cnt = fd_account_keys_pair_t_map_size( slot_ctx->slot_bank.stake_account_keys.account_keys_pool,
-                                                                 slot_ctx->slot_bank.stake_account_keys.account_keys_root );
-  ulong stake_account_cnt     = fd_delegation_pair_t_map_size( epoch_ctx->epoch_bank.stakes.stake_delegations_pool,
-                                                               epoch_ctx->epoch_bank.stakes.stake_delegations_root );
+  fd_account_keys_global_t const *   stake_account_keys      = fd_bank_stake_account_keys_query( slot_ctx->bank );
+  fd_account_keys_pair_t_mapnode_t * stake_account_keys_pool = fd_account_keys_account_keys_pool_join( stake_account_keys );
+  fd_account_keys_pair_t_mapnode_t * stake_account_keys_root = fd_account_keys_account_keys_root_join( stake_account_keys );
 
-  ulong vote_account_t_cnt    = fd_vote_accounts_pair_t_map_size( epoch_ctx->epoch_bank.stakes.vote_accounts.vote_accounts_pool,
-                                                                  epoch_ctx->epoch_bank.stakes.vote_accounts.vote_accounts_root );
-  ulong vote_account_t_1_cnt  = fd_vote_accounts_pair_t_map_size( epoch_ctx->epoch_bank.next_epoch_stakes.vote_accounts_pool,
-                                                                  epoch_ctx->epoch_bank.next_epoch_stakes.vote_accounts_root );
-  ulong vote_account_t_2_cnt  = fd_vote_accounts_pair_t_map_size( slot_ctx->slot_bank.epoch_stakes.vote_accounts_pool,
-                                                                  slot_ctx->slot_bank.epoch_stakes.vote_accounts_root );
+
+  ulong new_stake_account_cnt = fd_account_keys_pair_t_map_size( stake_account_keys_pool, stake_account_keys_root );
+  // ulong stake_account_cnt     = fd_delegation_pair_t_map_size( epoch_ctx->epoch_bank.stakes.stake_delegations_pool,
+  //                                                              epoch_ctx->epoch_bank.stakes.stake_delegations_root );
+
+  // ulong vote_account_t_cnt    = fd_vote_accounts_pair_t_map_size( epoch_ctx->epoch_bank.stakes.vote_accounts.vote_accounts_pool,
+  //                                                                 epoch_ctx->epoch_bank.stakes.vote_accounts.vote_accounts_root );
+  ulong stake_account_cnt = 0;
+  ulong vote_account_t_cnt = 0;
+  fd_bank_stake_account_keys_end_query( slot_ctx->bank );
+
+
+  fd_vote_accounts_global_t const * next_epoch_stakes = fd_bank_next_epoch_stakes_query( slot_ctx->bank );
+  fd_vote_accounts_pair_global_t_mapnode_t * next_epoch_stakes_pool = fd_vote_accounts_vote_accounts_pool_join( next_epoch_stakes );
+  fd_vote_accounts_pair_global_t_mapnode_t * next_epoch_stakes_root = fd_vote_accounts_vote_accounts_root_join( next_epoch_stakes );
+  ulong vote_account_t_1_cnt  = fd_vote_accounts_pair_global_t_map_size( next_epoch_stakes_pool,
+                                                                         next_epoch_stakes_root );
+  fd_bank_next_epoch_stakes_end_query( slot_ctx->bank );
+
+  fd_vote_accounts_global_t const * epoch_stakes = fd_bank_epoch_stakes_query( slot_ctx->bank );
+  fd_vote_accounts_pair_global_t_mapnode_t * epoch_stakes_pool = fd_vote_accounts_vote_accounts_pool_join( epoch_stakes );
+  fd_vote_accounts_pair_global_t_mapnode_t * epoch_stakes_root = fd_vote_accounts_vote_accounts_root_join( epoch_stakes );
+  ulong vote_account_t_2_cnt  = fd_vote_accounts_pair_global_t_map_size( epoch_stakes_pool,
+                                                                         epoch_stakes_root );
+  fd_bank_epoch_stakes_end_query( slot_ctx->bank );
 
   ulong total_num_accounts    = num_sysvar_entries +
                                 num_loaded_builtins +
@@ -463,93 +483,97 @@ create_block_context_protobuf_from_block( fd_exec_test_block_context_t * block_c
                                                               alignof(pb_bytes_array_t *),
                                                               PB_BYTES_ARRAY_T_ALLOCSIZE((FD_BLOCKHASH_QUEUE_MAX_ENTRIES + 1) * sizeof(pb_bytes_array_t *)) );
   block_context->blockhash_queue = output_blockhash_queue;
-  dump_blockhash_queue( &slot_ctx->slot_bank.block_hash_queue, spad, block_context->blockhash_queue, &block_context->blockhash_queue_count );
+
+  fd_block_hash_queue_global_t * bhq      = (fd_block_hash_queue_global_t *)&slot_ctx->bank->block_hash_queue[0];
+  dump_blockhash_queue( bhq, spad, block_context->blockhash_queue, &block_context->blockhash_queue_count );
 
   /* BlockContext -> SlotContext */
   block_context->has_slot_ctx                       = true;
-  block_context->slot_ctx.slot                      = slot_ctx->slot_bank.slot;
+  block_context->slot_ctx.slot                      = slot_ctx->slot;
   // HACK FOR NOW: block height gets incremented in process_new_epoch, so we should dump block height + 1
-  block_context->slot_ctx.block_height              = slot_ctx->slot_bank.block_height + 1UL;
+  block_context->slot_ctx.block_height              = fd_bank_block_height_get( slot_ctx->bank ) + 1UL;
   // fd_memcpy( block_context->slot_ctx.poh, &slot_ctx->slot_bank.poh, sizeof(fd_pubkey_t) ); // TODO: dump here when process epoch happens after poh verification
-  fd_memcpy( block_context->slot_ctx.parent_bank_hash, &slot_ctx->slot_bank.banks_hash, sizeof(fd_pubkey_t) );
-  block_context->slot_ctx.prev_slot                 = slot_ctx->slot_bank.prev_slot;
-  block_context->slot_ctx.prev_lps                  = slot_ctx->prev_lamports_per_signature;
-  block_context->slot_ctx.prev_epoch_capitalization = slot_ctx->slot_bank.capitalization;
+  fd_memcpy( block_context->slot_ctx.parent_bank_hash, fd_bank_bank_hash_query( slot_ctx->bank ), sizeof(fd_pubkey_t) );
+  block_context->slot_ctx.prev_slot                 = fd_bank_prev_slot_get( slot_ctx->bank );
+  block_context->slot_ctx.prev_lps                  = fd_bank_prev_lamports_per_signature_get( slot_ctx->bank );
+  block_context->slot_ctx.prev_epoch_capitalization = fd_bank_capitalization_get( slot_ctx->bank );
 
   /* BlockContext -> EpochContext */
   block_context->has_epoch_ctx                        = true;
   block_context->epoch_ctx.has_features               = true;
-  dump_sorted_features( &epoch_ctx->features, &block_context->epoch_ctx.features, spad );
-  block_context->epoch_ctx.hashes_per_tick            = epoch_ctx->epoch_bank.hashes_per_tick;
-  block_context->epoch_ctx.ticks_per_slot             = epoch_ctx->epoch_bank.ticks_per_slot;
-  block_context->epoch_ctx.slots_per_year             = epoch_ctx->epoch_bank.slots_per_year;
+  dump_sorted_features( fd_bank_features_query( slot_ctx->bank ), &block_context->epoch_ctx.features, spad );
+  block_context->epoch_ctx.hashes_per_tick            = fd_bank_hashes_per_tick_get( slot_ctx->bank );
+  block_context->epoch_ctx.ticks_per_slot             = fd_bank_ticks_per_slot_get( slot_ctx->bank );
+  block_context->epoch_ctx.slots_per_year             = fd_bank_slots_per_year_get( slot_ctx->bank );
   block_context->epoch_ctx.has_inflation              = true;
+
+  fd_inflation_t const * inflation = fd_bank_inflation_query( slot_ctx->bank );
   block_context->epoch_ctx.inflation                  = (fd_exec_test_inflation_t) {
-    .initial         = epoch_ctx->epoch_bank.inflation.initial,
-    .terminal        = epoch_ctx->epoch_bank.inflation.terminal,
-    .taper           = epoch_ctx->epoch_bank.inflation.taper,
-    .foundation      = epoch_ctx->epoch_bank.inflation.foundation,
-    .foundation_term = epoch_ctx->epoch_bank.inflation.foundation_term,
+    .initial         = inflation->initial,
+    .terminal        = inflation->terminal,
+    .taper           = inflation->taper,
+    .foundation      = inflation->foundation,
+    .foundation_term = inflation->foundation_term,
   };
-  block_context->epoch_ctx.genesis_creation_time      = epoch_ctx->epoch_bank.genesis_creation_time;
+  block_context->epoch_ctx.genesis_creation_time      = fd_bank_genesis_creation_time_get( slot_ctx->bank );
 
   /* Dumping stake accounts for this epoch */
 
-  /* Dumping all existing stake accounts */
-  for( fd_delegation_pair_t_mapnode_t const * curr = fd_delegation_pair_t_map_minimum_const(
-          epoch_ctx->epoch_bank.stakes.stake_delegations_pool,
-          epoch_ctx->epoch_bank.stakes.stake_delegations_root );
-       curr;
-       curr = fd_delegation_pair_t_map_successor_const( epoch_ctx->epoch_bank.stakes.stake_delegations_pool, curr ) ) {
-    dump_account_if_not_already_dumped( slot_ctx, &curr->elem.account, spad, block_context->acct_states, &block_context->acct_states_count, NULL );
-  }
+  // /* Dumping all existing stake accounts */
+  // for( fd_delegation_pair_t_mapnode_t const * curr = fd_delegation_pair_t_map_minimum_const(
+  //         epoch_ctx->epoch_bank.stakes.stake_delegations_pool,
+  //         epoch_ctx->epoch_bank.stakes.stake_delegations_root );
+  //      curr;
+  //      curr = fd_delegation_pair_t_map_successor_const( epoch_ctx->epoch_bank.stakes.stake_delegations_pool, curr ) ) {
+  //   dump_account_if_not_already_dumped( slot_ctx, &curr->elem.account, spad, block_context->acct_states, &block_context->acct_states_count, NULL );
+  // }
 
-  /* Dump all new stake accounts */
-  for( fd_account_keys_pair_t_mapnode_t const * curr = fd_account_keys_pair_t_map_minimum_const(
-          slot_ctx->slot_bank.stake_account_keys.account_keys_pool,
-          slot_ctx->slot_bank.stake_account_keys.account_keys_root );
-       curr;
-       curr = fd_account_keys_pair_t_map_successor_const( slot_ctx->slot_bank.stake_account_keys.account_keys_pool, curr ) ) {
-    dump_account_if_not_already_dumped( slot_ctx, &curr->elem.key, spad, block_context->acct_states, &block_context->acct_states_count, NULL );
-  }
+  // /* Dump all new stake accounts */
+  // for( fd_account_keys_pair_t_mapnode_t const * curr = fd_account_keys_pair_t_map_minimum_const(
+  //         slot_ctx->slot_bank.stake_account_keys.account_keys_pool,
+  //         slot_ctx->slot_bank.stake_account_keys.account_keys_root );
+  //      curr;
+  //      curr = fd_account_keys_pair_t_map_successor_const( slot_ctx->slot_bank.stake_account_keys.account_keys_pool, curr ) ) {
+  //   dump_account_if_not_already_dumped( slot_ctx, &curr->elem.key, spad, block_context->acct_states, &block_context->acct_states_count, NULL );
+  // }
 
-  /* Dumping vote accounts for this epoch */
+  // /* Dumping vote accounts for this epoch */
 
-  /* Dump all existing vote accounts */
-  for( fd_vote_accounts_pair_t_mapnode_t const * curr = fd_vote_accounts_pair_t_map_minimum_const(
-          epoch_ctx->epoch_bank.stakes.vote_accounts.vote_accounts_pool,
-          epoch_ctx->epoch_bank.stakes.vote_accounts.vote_accounts_root );
-       curr;
-       curr = fd_vote_accounts_pair_t_map_successor_const( epoch_ctx->epoch_bank.stakes.vote_accounts.vote_accounts_pool, curr ) ) {
-    dump_account_if_not_already_dumped( slot_ctx, &curr->elem.key, spad, block_context->acct_states, &block_context->acct_states_count, NULL );
-  }
+  // /* Dump all existing vote accounts */
+  // for( fd_vote_accounts_pair_t_mapnode_t const * curr = fd_vote_accounts_pair_t_map_minimum_const(
+  //         epoch_ctx->epoch_bank.stakes.vote_accounts.vote_accounts_pool,
+  //         epoch_ctx->epoch_bank.stakes.vote_accounts.vote_accounts_root );
+  //      curr;
+  //      curr = fd_vote_accounts_pair_t_map_successor_const( epoch_ctx->epoch_bank.stakes.vote_accounts.vote_accounts_pool, curr ) ) {
+  //   dump_account_if_not_already_dumped( slot_ctx, &curr->elem.key, spad, block_context->acct_states, &block_context->acct_states_count, NULL );
+  // }
 
-  /* Dump all new vote accounts */
-  for( fd_account_keys_pair_t_mapnode_t const * curr = fd_account_keys_pair_t_map_minimum_const(
-          slot_ctx->slot_bank.vote_account_keys.account_keys_pool,
-          slot_ctx->slot_bank.vote_account_keys.account_keys_root );
-       curr;
-       curr = fd_account_keys_pair_t_map_successor_const( slot_ctx->slot_bank.vote_account_keys.account_keys_pool, curr ) ) {
-    dump_account_if_not_already_dumped( slot_ctx, &curr->elem.key, spad, block_context->acct_states, &block_context->acct_states_count, NULL );
-  }
+  // /* Dump all new vote accounts */
+  // for( fd_account_keys_pair_t_mapnode_t const * curr = fd_account_keys_pair_t_map_minimum_const(
+  //         vote_account_keys_pool,
+  //         vote_account_keys_root );
+  //      curr;
+  //      curr = fd_account_keys_pair_t_map_successor_const( slot_ctx->slot_bank.vote_account_keys.account_keys_pool, curr ) ) {
+  //   dump_account_if_not_already_dumped( slot_ctx, &curr->elem.key, spad, block_context->acct_states, &block_context->acct_states_count, NULL );
+  // }
 
   // BlockContext -> EpochContext -> vote_accounts_t_1 (vote accounts at epoch T-1)
-  dump_vote_accounts( slot_ctx,
-                      &epoch_ctx->epoch_bank.next_epoch_stakes,
-                      spad,
-                      &block_context->epoch_ctx.vote_accounts_t_1,
-                      &block_context->epoch_ctx.vote_accounts_t_1_count,
-                      block_context->acct_states,
-                      &block_context->acct_states_count );
+  // dump_vote_accounts( slot_ctx,
+  //                     &epoch_ctx->epoch_bank.next_epoch_stakes,
+  //                     spad,
+  //                     &block_context->epoch_ctx.vote_accounts_t_1,
+  //                     &block_context->epoch_ctx.vote_accounts_t_1_count,
+  //                     block_context->acct_states,
+  //                     &block_context->acct_states_count );
 
   // BlockContext -> EpochContext -> vote_accounts_t_2 (vote accounts at epoch T-2)
-  dump_vote_accounts( slot_ctx,
-                      &slot_ctx->slot_bank.epoch_stakes,
-                      spad,
-                      &block_context->epoch_ctx.vote_accounts_t_2,
-                      &block_context->epoch_ctx.vote_accounts_t_2_count,
-                      block_context->acct_states,
-                      &block_context->acct_states_count );
+  // dump_vote_accounts( slot_ctx,
+  //                     &slot_ctx->slot_bank.epoch_stakes,
+  //                     spad,
+  //                     &block_context->epoch_ctx.vote_accounts_t_2,
+  //                     &block_context->epoch_ctx.vote_accounts_t_2_count,
+  //                     block_context->acct_states,
+  //                     &block_context->acct_states_count );
 }
 
 static void
@@ -573,7 +597,7 @@ create_block_context_protobuf_from_block_tx_only( fd_exec_test_block_context_t *
 
   /* BlockContext -> slot_ctx -> poh
      This currently needs to be done because POH verification is done after epoch boundary processing. That should probably be changed */
-  fd_memcpy( block_context->slot_ctx.poh, &slot_ctx->slot_bank.poh, sizeof(fd_pubkey_t) );
+  fd_memcpy( block_context->slot_ctx.poh, fd_bank_poh_query( slot_ctx->bank )->hash, sizeof(fd_pubkey_t) );
 
   /* When iterating over microblocks batches and microblocks, we flatten the batches for the output block context (essentially just one big batch with several microblocks) */
   for( ulong i=0UL; i<block_info->microblock_batch_cnt; i++ ) {
@@ -754,7 +778,8 @@ create_txn_context_protobuf_from_txn( fd_exec_test_txn_context_t * txn_context_m
                                                       alignof(pb_bytes_array_t *),
                                                       PB_BYTES_ARRAY_T_ALLOCSIZE((FD_BLOCKHASH_QUEUE_MAX_ENTRIES + 1) * sizeof(pb_bytes_array_t *)) );
   txn_context_msg->blockhash_queue = output_blockhash_queue;
-  dump_blockhash_queue( &txn_ctx->block_hash_queue, spad, output_blockhash_queue, &txn_context_msg->blockhash_queue_count );
+  fd_block_hash_queue_global_t * block_hash_queue = (fd_block_hash_queue_global_t *)&txn_ctx->bank->block_hash_queue[0];
+  dump_blockhash_queue( block_hash_queue, spad, output_blockhash_queue, &txn_context_msg->blockhash_queue_count );
 
   /* Transaction Context -> epoch_ctx */
   txn_context_msg->has_epoch_ctx = true;
@@ -1003,7 +1028,7 @@ fd_dump_block_to_protobuf_tx_only( fd_runtime_block_info_t const * block_info,
     if( pb_encode( &stream, FD_EXEC_TEST_BLOCK_CONTEXT_FIELDS, block_context_msg ) ) {
       char output_filepath[256]; fd_memset( output_filepath, 0, sizeof(output_filepath) );
       char * position = fd_cstr_init( output_filepath );
-      position = fd_cstr_append_printf( position, "%s/block-%lu.blockctx", capture_ctx->dump_proto_output_dir, slot_ctx->slot_bank.slot );
+      position = fd_cstr_append_printf( position, "%s/block-%lu.blockctx", capture_ctx->dump_proto_output_dir, slot_ctx->slot );
       fd_cstr_fini( position );
 
       FILE * file = fopen(output_filepath, "wb");

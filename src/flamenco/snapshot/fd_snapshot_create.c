@@ -190,8 +190,6 @@ fd_snapshot_create_populate_acc_vecs( fd_snapshot_ctx_t *    snapshot_ctx,
 
     err = fd_snapshot_service_hash( &snapshot_ctx->acc_hash,
                                     &snapshot_ctx->snap_hash,
-                                    &snapshot_ctx->slot_bank,
-                                    &snapshot_ctx->epoch_bank,
                                     snapshot_ctx->funk,
                                     snapshot_ctx->tpool,
                                     snapshot_ctx->spad,
@@ -200,8 +198,6 @@ fd_snapshot_create_populate_acc_vecs( fd_snapshot_ctx_t *    snapshot_ctx,
   } else {
     err = fd_snapshot_service_inc_hash( &snapshot_ctx->acc_hash,
                                         &snapshot_ctx->snap_hash,
-                                        &snapshot_ctx->slot_bank,
-                                        &snapshot_ctx->epoch_bank,
                                         snapshot_ctx->funk,
                                         incremental_keys,
                                         incremental_key_cnt,
@@ -497,159 +493,58 @@ fd_snapshot_create_populate_acc_vecs( fd_snapshot_ctx_t *    snapshot_ctx,
 
 }
 
-static void
-fd_snapshot_create_serialiable_stakes( fd_snapshot_ctx_t * snapshot_ctx,
-                                       fd_stakes_delegation_t *       old_stakes,
-                                       fd_stakes_delegation_t *       new_stakes ) {
-
-  /* The deserialized stakes cache that is used by the runtime can't be
-     reserialized into the format that Agave uses. For every vote account
-     in the stakes struct, the Firedancer client holds a decoded copy of the
-     vote state. However, this vote state can't be reserialized back into the
-     full vote account data.
-
-     This poses a problem in the Agave client client because upon boot, Agave
-     verifies that for all of the vote accounts in the stakes struct, the data
-     in the cache is the same as the data in the accounts db.
-
-     The other problem is that the Firedancer stakes cache does not evict old
-     entries and doesn't update delegations within the cache. The cache will
-     just insert new pubkeys as stake accounts are created/delegated to. To
-     make the cache conformant for the snapshot, old accounts should be removed
-     from the snapshot and all of the delegations should be updated. */
-
-  /* First populate the vote accounts using the vote accounts/stakes cache.
-     We can populate over all of the fields except we can't reserialize the
-     vote account data. Instead we will copy over the raw contents of all of
-     the vote accounts. */
-
-  ulong   vote_accounts_len                    = fd_vote_accounts_pair_t_map_size( old_stakes->vote_accounts.vote_accounts_pool, old_stakes->vote_accounts.vote_accounts_root );
-  uchar * pool_mem                             = fd_spad_alloc( snapshot_ctx->spad, fd_vote_accounts_pair_t_map_align(), fd_vote_accounts_pair_t_map_footprint( vote_accounts_len ) );
-  new_stakes->vote_accounts.vote_accounts_pool = fd_vote_accounts_pair_t_map_join( fd_vote_accounts_pair_t_map_new( pool_mem, vote_accounts_len ) );
-  new_stakes->vote_accounts.vote_accounts_root = NULL;
-
-  for( fd_vote_accounts_pair_t_mapnode_t * n = fd_vote_accounts_pair_t_map_minimum(
-       old_stakes->vote_accounts.vote_accounts_pool,
-       old_stakes->vote_accounts.vote_accounts_root );
-       n;
-       n = fd_vote_accounts_pair_t_map_successor( old_stakes->vote_accounts.vote_accounts_pool, n ) ) {
-
-    fd_vote_accounts_pair_t_mapnode_t * new_node = fd_vote_accounts_pair_t_map_acquire( new_stakes->vote_accounts.vote_accounts_pool );
-    new_node->elem.key   = n->elem.key;
-    new_node->elem.stake = n->elem.stake;
-    /* Now to populate the value, lookup the account using the acc mgr */
-    FD_TXN_ACCOUNT_DECL( vote_acc );
-    int err = fd_txn_account_init_from_funk_readonly( vote_acc, &n->elem.key, snapshot_ctx->funk, NULL );
-    if( FD_UNLIKELY( err ) ) {
-      FD_LOG_ERR(( "Failed to view vote account from stakes cache %s", FD_BASE58_ENC_32_ALLOCA(&n->elem.key) ));
-    }
-
-    new_node->elem.value.lamports   = vote_acc->vt->get_lamports( vote_acc );
-    new_node->elem.value.data_len   = vote_acc->vt->get_data_len( vote_acc );
-    new_node->elem.value.data       = fd_spad_alloc( snapshot_ctx->spad, 8UL, vote_acc->vt->get_data_len( vote_acc ) );
-    fd_memcpy( new_node->elem.value.data, vote_acc->vt->get_data( vote_acc ), vote_acc->vt->get_data_len( vote_acc ) );
-    new_node->elem.value.owner      = *vote_acc->vt->get_owner( vote_acc );
-    new_node->elem.value.executable = (uchar)vote_acc->vt->is_executable( vote_acc );
-    new_node->elem.value.rent_epoch = vote_acc->vt->get_rent_epoch( vote_acc );
-    fd_vote_accounts_pair_t_map_insert( new_stakes->vote_accounts.vote_accounts_pool, &new_stakes->vote_accounts.vote_accounts_root, new_node );
-
-  }
-
-  /* Stale stake delegations should also be removed or updated in the cache.
-     TODO: This will likely be changed in the near future as the stake
-     program is migrated to a bpf program. It will likely be replaced by an
-     index of stake/vote accounts. */
-
-  FD_TXN_ACCOUNT_DECL( stake_acc );
-  fd_delegation_pair_t_mapnode_t *      nn = NULL;
-  for( fd_delegation_pair_t_mapnode_t * n  = fd_delegation_pair_t_map_minimum(
-      old_stakes->stake_delegations_pool, old_stakes->stake_delegations_root ); n; n=nn ) {
-
-    nn = fd_delegation_pair_t_map_successor( old_stakes->stake_delegations_pool, n );
-
-    int err = fd_txn_account_init_from_funk_readonly( stake_acc, &n->elem.account, snapshot_ctx->funk, NULL );
-    if( FD_UNLIKELY( err ) ) {
-      /* If the stake account doesn't exist, the cache is stale and the entry
-         just needs to be evicted. */
-      fd_delegation_pair_t_map_remove( old_stakes->stake_delegations_pool, &old_stakes->stake_delegations_root, n );
-      fd_delegation_pair_t_map_release( old_stakes->stake_delegations_pool, n );
-    } else {
-      /* Otherwise, just update the delegation in case it is stale. */
-      fd_stake_state_v2_t * stake_state = fd_bincode_decode_spad(
-          stake_state_v2, snapshot_ctx->spad,
-          stake_acc->vt->get_data( stake_acc ),
-          stake_acc->vt->get_data_len( stake_acc ),
-          &err );
-      if( FD_UNLIKELY( err ) ) {
-        FD_LOG_ERR(( "Failed to decode stake state" ));
-      }
-      n->elem.delegation = stake_state->inner.stake.stake.delegation;
-    }
-  }
-
-  /* Copy over the rest of the fields as they are the same. */
-
-  new_stakes->stake_delegations_pool = old_stakes->stake_delegations_pool;
-  new_stakes->stake_delegations_root = old_stakes->stake_delegations_root;
-  new_stakes->unused                 = old_stakes->unused;
-  new_stakes->epoch                  = old_stakes->epoch;
-  new_stakes->stake_history          = old_stakes->stake_history;
-
-}
-
 static inline void
 fd_snapshot_create_populate_bank( fd_snapshot_ctx_t *   snapshot_ctx,
                                   fd_versioned_bank_t * bank ) {
 
-  fd_slot_bank_t  * slot_bank  = &snapshot_ctx->slot_bank;
-  fd_epoch_bank_t * epoch_bank = &snapshot_ctx->epoch_bank;
+  // fd_slot_bank_t  * slot_bank  = &snapshot_ctx->slot_bank;
+  // fd_epoch_bank_t * epoch_bank = &snapshot_ctx->epoch_bank;
 
   /* The blockhash queue has to be copied over along with all of its entries.
      As a note, the size is 300 but in fact is of size 301 due to a knwon bug
      in the agave client that is emulated by the firedancer client. */
 
-  bank->blockhash_queue.last_hash_index = slot_bank->block_hash_queue.last_hash_index;
-  bank->blockhash_queue.last_hash       = fd_spad_alloc( snapshot_ctx->spad, FD_HASH_ALIGN, FD_HASH_FOOTPRINT );
-  *bank->blockhash_queue.last_hash      = *slot_bank->block_hash_queue.last_hash;
+  /* TODO: This needs to be converted to a global blockhash queue. */
+  // bank->blockhash_queue.last_hash_index = slot_bank->block_hash_queue.last_hash_index;
+  // bank->blockhash_queue.last_hash       = fd_spad_alloc( snapshot_ctx->spad, FD_HASH_ALIGN, FD_HASH_FOOTPRINT );
+  // fd_memcpy( bank->blockhash_queue.last_hash, slot_bank->block_hash_queue.last_hash, sizeof(fd_hash_t) );
 
-  bank->blockhash_queue.ages_len = fd_hash_hash_age_pair_t_map_size( slot_bank->block_hash_queue.ages_pool, slot_bank->block_hash_queue.ages_root);
-  bank->blockhash_queue.ages     = fd_spad_alloc( snapshot_ctx->spad, FD_HASH_HASH_AGE_PAIR_ALIGN, bank->blockhash_queue.ages_len * sizeof(fd_hash_hash_age_pair_t) );
-  bank->blockhash_queue.max_age  = FD_BLOCKHASH_QUEUE_SIZE;
+  // bank->blockhash_queue.ages_len = fd_hash_hash_age_pair_t_map_size( slot_bank->block_hash_queue.ages_pool, slot_bank->block_hash_queue.ages_root);
+  // bank->blockhash_queue.ages     = fd_spad_alloc( snapshot_ctx->spad, FD_HASH_HASH_AGE_PAIR_ALIGN, bank->blockhash_queue.ages_len * sizeof(fd_hash_hash_age_pair_t) );
+  // bank->blockhash_queue.max_age  = FD_BLOCKHASH_QUEUE_SIZE;
 
-  fd_block_hash_queue_t             * queue               = &slot_bank->block_hash_queue;
-  fd_hash_hash_age_pair_t_mapnode_t * nn                  = NULL;
-  ulong                               blockhash_queue_idx = 0UL;
-  for( fd_hash_hash_age_pair_t_mapnode_t * n = fd_hash_hash_age_pair_t_map_minimum( queue->ages_pool, queue->ages_root ); n; n = nn ) {
-    nn = fd_hash_hash_age_pair_t_map_successor( queue->ages_pool, n );
-    bank->blockhash_queue.ages[ blockhash_queue_idx++ ] = n->elem;
-  }
-
-
+  // fd_block_hash_queue_t             * queue               = &slot_bank->block_hash_queue;
+  // fd_hash_hash_age_pair_t_mapnode_t * nn                  = NULL;
+  // ulong                               blockhash_queue_idx = 0UL;
+  // for( fd_hash_hash_age_pair_t_mapnode_t * n = fd_hash_hash_age_pair_t_map_minimum( queue->ages_pool, queue->ages_root ); n; n = nn ) {
+  //   nn = fd_hash_hash_age_pair_t_map_successor( queue->ages_pool, n );
+  //   fd_memcpy( &bank->blockhash_queue.ages[ blockhash_queue_idx++ ], &n->elem, sizeof(fd_hash_hash_age_pair_t) );
+  // }
 
   /* Ancestor can be omitted to boot off of for both clients */
 
   bank->ancestors_len                         = 0UL;
   bank->ancestors                             = NULL;
 
-  bank->hash                                  = slot_bank->banks_hash;
-  bank->parent_hash                           = slot_bank->prev_banks_hash;
-  bank->parent_slot                           = slot_bank->prev_slot;
-  bank->hard_forks                            = slot_bank->hard_forks;
-  bank->transaction_count                     = slot_bank->transaction_count;
-  bank->signature_count                       = slot_bank->parent_signature_cnt;
-  bank->capitalization                        = slot_bank->capitalization;
-  bank->tick_height                           = slot_bank->tick_height;
-  bank->max_tick_height                       = slot_bank->max_tick_height;
+  // bank->hash                                  = slot_bank->banks_hash;
+  // bank->parent_hash                           = slot_bank->prev_banks_hash;
+  // bank->parent_slot                           = slot_bank->prev_slot;
+  // bank->hard_forks                            = slot_bank->hard_forks;
+  // bank->transaction_count                     = slot_bank->transaction_count;
+  // bank->signature_count                       = slot_bank->parent_signature_cnt;
+  // bank->capitalization                        = slot_bank->capitalization;
+  // bank->tick_height                           = slot_bank->tick_height;
+  // bank->max_tick_height                       = slot_bank->max_tick_height;
 
   /* The hashes_per_tick needs to be copied over from the epoch bank because
      the pointer could go out of bounds during an epoch boundary. */
-  bank->hashes_per_tick                       = fd_spad_alloc( snapshot_ctx->spad, alignof(ulong), sizeof(ulong) );
-  *bank->hashes_per_tick                      = epoch_bank->hashes_per_tick;
+  // bank->hashes_per_tick                       = fd_spad_alloc( snapshot_ctx->spad, alignof(ulong), sizeof(ulong) );
+  // *bank->hashes_per_tick                      = epoch_bank->hashes_per_tick;
 
-  bank->ticks_per_slot                        = FD_TICKS_PER_SLOT;
-  bank->ns_per_slot                           = epoch_bank->ns_per_slot;
-  bank->genesis_creation_time                 = epoch_bank->genesis_creation_time;
-  bank->slots_per_year                        = epoch_bank->slots_per_year;
+  // bank->ticks_per_slot                        = FD_TICKS_PER_SLOT;
+  // bank->ns_per_slot                           = epoch_bank->ns_per_slot;
+  // bank->genesis_creation_time                 = epoch_bank->genesis_creation_time;
+  // bank->slots_per_year                        = epoch_bank->slots_per_year;
 
   /* This value can be set to 0 because the Agave client recomputes this value
      and the firedancer client doesn't use it. */
@@ -657,25 +552,25 @@ fd_snapshot_create_populate_bank( fd_snapshot_ctx_t *   snapshot_ctx,
   bank->accounts_data_len                     = 0UL;
 
   bank->slot                                  = snapshot_ctx->slot;
-  bank->epoch                                 = fd_slot_to_epoch( &epoch_bank->epoch_schedule, bank->slot, NULL );
-  bank->block_height                          = slot_bank->block_height;
+  // bank->epoch                                 = fd_slot_to_epoch( &epoch_bank->epoch_schedule, bank->slot, NULL );
+  // bank->block_height                          = slot_bank->block_height;
 
   /* Collector id can be left as null for both clients */
 
   fd_memset( &bank->collector_id, 0, sizeof(fd_pubkey_t) );
 
-  bank->collector_fees                        = slot_bank->collected_execution_fees + slot_bank->collected_priority_fees;
-  bank->fee_calculator.lamports_per_signature = slot_bank->lamports_per_signature;
-  bank->fee_rate_governor                     = slot_bank->fee_rate_governor;
-  bank->collected_rent                        = slot_bank->collected_rent;
+  // bank->collector_fees                        = slot_bank->collected_execution_fees + slot_bank->collected_priority_fees;
+  // bank->fee_calculator.lamports_per_signature = slot_bank->lamports_per_signature;
+  // bank->fee_rate_governor                     = slot_bank->fee_rate_governor;
+  bank->collected_rent                        = 0UL;
 
   bank->rent_collector.epoch                  = bank->epoch;
-  bank->rent_collector.epoch_schedule         = epoch_bank->rent_epoch_schedule;
-  bank->rent_collector.slots_per_year         = epoch_bank->slots_per_year;
-  bank->rent_collector.rent                   = epoch_bank->rent;
+  // bank->rent_collector.epoch_schedule         = epoch_bank->rent_epoch_schedule;
+  // bank->rent_collector.slots_per_year         = epoch_bank->slots_per_year;
+  // bank->rent_collector.rent                   = epoch_bank->rent;
 
-  bank->epoch_schedule                        = epoch_bank->epoch_schedule;
-  bank->inflation                             = epoch_bank->inflation;
+  // bank->epoch_schedule                        = epoch_bank->epoch_schedule;
+  // bank->inflation                             = epoch_bank->inflation;
 
   /* Unused accounts can be left as NULL for both clients. */
 
@@ -694,9 +589,9 @@ fd_snapshot_create_populate_bank( fd_snapshot_ctx_t *   snapshot_ctx,
   fd_memset( &relevant_epoch_stakes[0], 0UL, sizeof(fd_epoch_epoch_stakes_pair_t) );
   fd_memset( &relevant_epoch_stakes[1], 0UL, sizeof(fd_epoch_epoch_stakes_pair_t) );
   relevant_epoch_stakes[0].key                        = bank->epoch;
-  relevant_epoch_stakes[0].value.stakes.vote_accounts = slot_bank->epoch_stakes;
+  // relevant_epoch_stakes[0].value.stakes.vote_accounts = slot_bank->epoch_stakes;
   relevant_epoch_stakes[1].key                        = bank->epoch+1UL;
-  relevant_epoch_stakes[1].value.stakes.vote_accounts = epoch_bank->next_epoch_stakes;
+  // relevant_epoch_stakes[1].value.stakes.vote_accounts = epoch_bank->next_epoch_stakes;
 
   bank->epoch_stakes_len = 2UL;
   bank->epoch_stakes     = relevant_epoch_stakes;
@@ -707,78 +602,76 @@ fd_snapshot_create_populate_bank( fd_snapshot_ctx_t *   snapshot_ctx,
      snapshot format. Therefore, we must recompute the data structure using
      the pubkeys from the stakes cache that is currently in the epoch context. */
 
-  fd_snapshot_create_serialiable_stakes( snapshot_ctx, &epoch_bank->stakes, &bank->stakes );
+  // fd_snapshot_create_serialiable_stakes( snapshot_ctx, &epoch_bank->stakes, &bank->stakes );
 
 }
 
 static inline void
 fd_snapshot_create_setup_and_validate_ctx( fd_snapshot_ctx_t * snapshot_ctx ) {
 
-  fd_funk_t * funk = snapshot_ctx->funk;
+  // fd_funk_t * funk = snapshot_ctx->funk;
 
-  /* First the epoch bank. */
+  // /* First the epoch bank. */
 
-  fd_funk_rec_key_t     epoch_id  = fd_runtime_epoch_bank_key();
-  fd_funk_rec_query_t   query[1];
-  fd_funk_rec_t const * epoch_rec = fd_funk_rec_query_try( funk, NULL, &epoch_id, query );
-  if( FD_UNLIKELY( !epoch_rec ) ) {
-    FD_LOG_ERR(( "Failed to read epoch bank record: missing record" ));
-  }
-  void * epoch_val = fd_funk_val( epoch_rec, fd_funk_wksp( funk ) );
+  // fd_funk_rec_key_t     epoch_id  = fd_runtime_epoch_bank_key();
+  // fd_funk_rec_query_t   query[1];
+  // fd_funk_rec_t const * epoch_rec = fd_funk_rec_query_try( funk, NULL, &epoch_id, query );
+  // if( FD_UNLIKELY( !epoch_rec ) ) {
+  //   FD_LOG_ERR(( "Failed to read epoch bank record: missing record" ));
+  // }
+  // void * epoch_val = fd_funk_val( epoch_rec, fd_funk_wksp( funk ) );
 
-  if( FD_UNLIKELY( fd_funk_val_sz( epoch_rec )<sizeof(uint) ) ) {
-    FD_LOG_ERR(( "Failed to read epoch bank record: empty record" ));
-  }
+  // if( FD_UNLIKELY( fd_funk_val_sz( epoch_rec )<sizeof(uint) ) ) {
+  //   FD_LOG_ERR(( "Failed to read epoch bank record: empty record" ));
+  // }
 
-  uint epoch_magic = *(uint*)epoch_val;
-  if( FD_UNLIKELY( epoch_magic!=FD_RUNTIME_ENC_BINCODE ) ) {
-    FD_LOG_ERR(( "Epoch bank record has wrong magic" ));
-  }
+  // uint epoch_magic = *(uint*)epoch_val;
+  // if( FD_UNLIKELY( epoch_magic!=FD_RUNTIME_ENC_BINCODE ) ) {
+  //   FD_LOG_ERR(( "Epoch bank record has wrong magic" ));
+  // }
 
-  int err;
-  fd_epoch_bank_t * epoch_bank = fd_bincode_decode_spad(
-      epoch_bank, snapshot_ctx->spad,
-      (uchar *)epoch_val          + sizeof(uint),
-      fd_funk_val_sz( epoch_rec ) - sizeof(uint),
-      &err );
-  if( FD_UNLIKELY( err!=FD_BINCODE_SUCCESS ) ) {
-    FD_LOG_ERR(( "Failed to decode epoch bank" ));
-  }
+  // int err;
+  // fd_epoch_bank_t * epoch_bank = fd_bincode_decode_spad(
+  //     epoch_bank, snapshot_ctx->spad,
+  //     (uchar *)epoch_val          + sizeof(uint),
+  //     fd_funk_val_sz( epoch_rec ) - sizeof(uint),
+  //     &err );
+  // if( FD_UNLIKELY( err!=FD_BINCODE_SUCCESS ) ) {
+  //   FD_LOG_ERR(( "Failed to decode epoch bank" ));
+  // }
 
-  snapshot_ctx->epoch_bank = *epoch_bank;
-
-  FD_TEST( !fd_funk_rec_query_test( query ) );
+  // FD_TEST( !fd_funk_rec_query_test( query ) );
 
   /* Now the slot bank. */
 
-  fd_funk_rec_key_t     slot_id  = fd_runtime_slot_bank_key();
-  fd_funk_rec_t const * slot_rec = fd_funk_rec_query_try( funk, NULL, &slot_id, query );
-  if( FD_UNLIKELY( !slot_rec ) ) {
-    FD_LOG_ERR(( "Failed to read slot bank record: missing record" ));
-  }
-  void * slot_val = fd_funk_val( slot_rec, fd_funk_wksp( funk ) );
+  // fd_funk_rec_key_t     slot_id  = fd_runtime_slot_bank_key();
+  // fd_funk_rec_t const * slot_rec = fd_funk_rec_query_try( funk, NULL, &slot_id, query );
+  // if( FD_UNLIKELY( !slot_rec ) ) {
+  //   FD_LOG_ERR(( "Failed to read slot bank record: missing record" ));
+  // }
+  // void * slot_val = fd_funk_val( slot_rec, fd_funk_wksp( funk ) );
 
-  if( FD_UNLIKELY( fd_funk_val_sz( slot_rec )<sizeof(uint) ) ) {
-    FD_LOG_ERR(( "Failed to read slot bank record: empty record" ));
-  }
+  // if( FD_UNLIKELY( fd_funk_val_sz( slot_rec )<sizeof(uint) ) ) {
+  //   FD_LOG_ERR(( "Failed to read slot bank record: empty record" ));
+  // }
 
-  uint slot_magic = *(uint*)slot_val;
-  if( FD_UNLIKELY( slot_magic!=FD_RUNTIME_ENC_BINCODE ) ) {
-    FD_LOG_ERR(( "Slot bank record has wrong magic" ));
-  }
+  // uint slot_magic = *(uint*)slot_val;
+  // if( FD_UNLIKELY( slot_magic!=FD_RUNTIME_ENC_BINCODE ) ) {
+  //   FD_LOG_ERR(( "Slot bank record has wrong magic" ));
+  // }
 
-  fd_slot_bank_t * slot_bank = fd_bincode_decode_spad(
-      slot_bank, snapshot_ctx->spad,
-      (uchar *)slot_val          + sizeof(uint),
-      fd_funk_val_sz( slot_rec ) - sizeof(uint),
-      &err );
-  if( FD_UNLIKELY( err!=FD_BINCODE_SUCCESS ) ) {
-    FD_LOG_ERR(( "Failed to decode slot bank" ));
-  }
+  // fd_slot_bank_t * slot_bank = fd_bincode_decode_spad(
+  //     slot_bank, snapshot_ctx->spad,
+  //     (uchar *)slot_val          + sizeof(uint),
+  //     fd_funk_val_sz( slot_rec ) - sizeof(uint),
+  //     &err );
+  // if( FD_UNLIKELY( err!=FD_BINCODE_SUCCESS ) ) {
+  //   FD_LOG_ERR(( "Failed to decode slot bank" ));
+  // }
 
-  snapshot_ctx->slot_bank = *slot_bank;
+  // snapshot_ctx->slot_bank = *slot_bank;
 
-  FD_TEST( !fd_funk_rec_query_test( query ) );
+  // FD_TEST( !fd_funk_rec_query_test( query ) );
 
   /* Validate that the snapshot context is setup correctly */
 
@@ -786,10 +679,10 @@ fd_snapshot_create_setup_and_validate_ctx( fd_snapshot_ctx_t * snapshot_ctx ) {
     FD_LOG_ERR(( "Snapshot directory is not set" ));
   }
 
-  if( FD_UNLIKELY( snapshot_ctx->slot>snapshot_ctx->slot_bank.slot ) ) {
-    FD_LOG_ERR(( "Snapshot slot=%lu is greater than the current slot=%lu",
-                     snapshot_ctx->slot, snapshot_ctx->slot_bank.slot ));
-  }
+  // if( FD_UNLIKELY( snapshot_ctx->slot>snapshot_ctx->slot_bank.slot ) ) {
+  //   FD_LOG_ERR(( "Snapshot slot=%lu is greater than the current slot=%lu",
+  //                    snapshot_ctx->slot, snapshot_ctx->slot_bank.slot ));
+  // }
 
   /* Truncate the two files used for snapshot creation and seek to its start. */
 
@@ -897,6 +790,7 @@ fd_snapshot_create_write_manifest_and_acc_vecs( fd_snapshot_ctx_t * snapshot_ctx
                                                 fd_hash_t *         out_hash,
                                                 ulong *             out_capitalization ) {
 
+  (void)out_capitalization;
 
   fd_solana_manifest_t manifest = {0};
 
@@ -906,8 +800,8 @@ fd_snapshot_create_write_manifest_and_acc_vecs( fd_snapshot_ctx_t * snapshot_ctx
 
   /* Populate the rest of the manifest, except for the append vec index. */
 
-  manifest.lamports_per_signature                = snapshot_ctx->slot_bank.lamports_per_signature;
-  manifest.epoch_account_hash                    = &snapshot_ctx->slot_bank.epoch_account_hash;
+  // manifest.lamports_per_signature                = snapshot_ctx->slot_bank.lamports_per_signature;
+  // manifest.epoch_account_hash                    = &snapshot_ctx->slot_bank.epoch_account_hash;
 
   /* FIXME: The versioned epoch stakes needs to be implemented. Right now if
      we try to create a snapshot on or near an epoch boundary, we will produce
@@ -933,7 +827,7 @@ fd_snapshot_create_write_manifest_and_acc_vecs( fd_snapshot_ctx_t * snapshot_ctx
     manifest.bank_incremental_snapshot_persistence->incremental_capitalization = incr_capitalization;
   } else {
     *out_hash           = manifest.accounts_db.bank_hash_info.accounts_hash;
-    *out_capitalization = snapshot_ctx->slot_bank.capitalization;
+    //*out_capitalization = snapshot_ctx->slot_bank.capitalization;
   }
 
   /* At this point, all of the account files are written out and the append
