@@ -1153,8 +1153,8 @@ fd_feature_id_t const ids[] = {
     .cleaned_up                = {UINT_MAX, UINT_MAX, UINT_MAX} },
 
   { .index                     = offsetof(fd_features_t, enable_loader_v4)>>3,
-    .id                        = {"\xe0\xea\x16\x11\xc8\xd1\xc7\x7c\x8b\xf2\xbd\xee\x37\x3b\x8d\x17\x56\x09\x1b\x97\x83\xce\xaf\x70\xc9\xb6\xc7\x2a\xb9\x42\x22\x79"},
-                                 /* G8yMNsNUd4p3VB22ycrPEB1qRgepCFeFpAqD2Lr66s36 */
+    .id                        = {"\x17\x6a\x33\xb1\x19\x20\x80\x12\xaa\xff\x40\xb3\x2e\xc5\x22\x69\xbd\x38\x2a\x54\x46\xc6\xdb\x97\xd7\x85\x0c\x5f\x30\x02\x2d\x12"},
+                                 /* 2aQJYqER2aKyb3cZw22v4SL2xMX7vwXBRWfvS4pTrtED */
     .name                      = "enable_loader_v4",
     .cleaned_up                = {UINT_MAX, UINT_MAX, UINT_MAX},
     .activated_on_all_clusters = 1 },
@@ -1329,7 +1329,8 @@ fd_feature_id_t const ids[] = {
     .id                        = {"\x0d\x2d\xfe\xed\x5a\x25\x11\xf7\x8d\x62\x07\x44\x0d\xad\x2c\xc2\x50\x72\xda\x55\x9c\xf7\x30\x7a\xe8\x45\x22\x92\x56\xdd\x66\x77"},
                                  /* tSynMCspg4xFiCj1v3TDb4c7crMR5tSBhLz4sF7rrNA */
     .name                      = "enable_tower_sync_ix",
-    .cleaned_up                = {UINT_MAX, UINT_MAX, UINT_MAX} },
+    .cleaned_up                = {2, 3, 0},
+    .activated_on_all_clusters = 1 },
 
   { .index                     = offsetof(fd_features_t, deprecate_unused_legacy_vote_plumbing)>>3,
     .id                        = {"\x51\x60\x3a\x65\xd2\x58\xf6\x81\xa9\x9d\x75\xfb\x82\x92\x01\x9d\x7c\xba\xba\x95\x17\x6d\x3b\xfd\xac\x4d\xba\x6f\x72\x50\xbc\x93"},
@@ -1549,7 +1550,7 @@ fd_feature_id_t const ids[] = {
     .id                        = {"\x85\x6c\x3d\xbc\xfd\xf4\xf4\x8e\x9f\xfa\xe7\xd0\xf8\xfc\x84\xda\x5a\x8b\x15\x32\x54\xe0\xe1\xa2\xe4\x64\x57\x89\x94\x0b\x38\x47"},
                                  /* 9ypxGLzkMxi89eDerRKXWDXe44UY2z4hBig4mDhNq5Dp */
     .name                      = "move_precompile_verification_to_svm",
-    .cleaned_up                = {UINT_MAX, UINT_MAX, UINT_MAX},
+    .cleaned_up                = {2, 3, 0},
     .activated_on_all_clusters = 1 },
 
   { .index                     = offsetof(fd_features_t, enable_transaction_loading_failure_fees)>>3,
@@ -1785,7 +1786,7 @@ fd_feature_id_query( ulong prefix ) {
   case 0x3cbf822ccb2eebd4: return &ids[ 163 ];
   case 0xe9d32123513c4d0d: return &ids[ 164 ];
   case 0x64205286d7935342: return &ids[ 165 ];
-  case 0x7cc7d1c81116eae0: return &ids[ 166 ];
+  case 0x12802019b1336a17: return &ids[ 166 ];
   case 0x4b241cb4c6f3b3b2: return &ids[ 167 ];
   case 0x21746beaa849f9d9: return &ids[ 168 ];
   case 0x9bb55b5df1c396c5: return &ids[ 169 ];
