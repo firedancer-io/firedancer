@@ -1,6 +1,10 @@
 #define _GNU_SOURCE  /* Enable GNU and POSIX extensions */
 #include "../../disco/tiles.h"
 #include "../../disco/topo/fd_topo.h"
+#include "../../disco/net/fd_net_tile.h"
+#include "../../flamenco/types/fd_types.h"
+#include "../../flamenco/fd_flamenco_base.h"
+#include "../../disco/fd_disco.h"
 
 #include <errno.h>
 #include <fcntl.h>
@@ -14,8 +18,6 @@
 #include <linux/if_xdp.h>
 #include "generated/fd_shredcap_tile_seccomp.h"
 
-#include "../../disco/net/fd_net_tile.h"
-#include "../../flamenco/types/fd_types.h"
 
 /* This tile spies on the net_shred, repair_net, and shred_repair links
    and currently outputs to a csv that can analyze repair performance
@@ -23,10 +25,13 @@
 
 #define FD_SHREDCAP_DEFAULT_WRITER_BUF_SZ  (4096UL)  /* local filesystem block size */
 #define FD_SHREDCAP_ALLOC_TAG              (4UL)
+#define MAX_BUFFER_SIZE  ( 20000UL * sizeof(fd_shred_dest_wire_t))
 
 #define NET_SHRED  (0UL)
 #define REPAIR_NET (1UL)
 #define SHRED_REPAIR (2UL)
+#define GOSSIP_SHRED (3UL)
+#define GOSSIP_REPAIR (4UL)
 
 typedef union {
   struct {
@@ -50,6 +55,7 @@ struct fd_capture_tile_ctx {
   ulong repair_buffer_sz;
   uchar repair_buffer[ FD_NET_MTU ];
 
+
   fd_ip4_udp_hdrs_t intake_hdr[1];
 
   ulong now;
@@ -59,16 +65,22 @@ struct fd_capture_tile_ctx {
   fd_io_buffered_ostream_t shred_ostream;
   fd_io_buffered_ostream_t repair_ostream;
   fd_io_buffered_ostream_t fecs_ostream;
+  fd_io_buffered_ostream_t peers_ostream;
 
   int  shreds_fd;
   int  requests_fd;
   int  fecs_fd;
+  int  peers_fd;
 
   ulong write_buf_sz;
 
-  uchar * shred_buf;
+  uchar * shreds_buf;
   uchar * requests_buf;
   uchar * fecs_buf;
+  uchar * peers_buf;
+
+  fd_alloc_t * alloc;
+  uchar contact_info_buffer[ MAX_BUFFER_SIZE ];
 };
 typedef struct fd_capture_tile_ctx fd_capture_tile_ctx_t;
 
@@ -92,7 +104,8 @@ populate_allowed_seccomp( fd_topo_t const *      topo FD_PARAM_UNUSED,
                                              (uint)fd_log_private_logfile_fd(),
                                              (uint)tile->shredcap.shreds_fd,
                                              (uint)tile->shredcap.requests_fd,
-                                             (uint)tile->shredcap.fecs_fd );
+                                             (uint)tile->shredcap.fecs_fd,
+                                             (uint)tile->shredcap.peers_fd );
   return sock_filter_policy_fd_shredcap_tile_instr_cnt;
 }
 
@@ -116,6 +129,27 @@ before_frag( fd_capture_tile_ctx_t * ctx,
   }
   return 0;
 }
+
+static inline void
+handle_new_turbine_contact_info( fd_capture_tile_ctx_t * ctx,
+                                 uchar const *          buf ) {
+  ulong const * header = (ulong const *)fd_type_pun_const( buf );
+  ulong dest_cnt = header[ 0 ];
+
+  fd_shred_dest_wire_t const * in_dests = fd_type_pun_const( header+1UL );
+
+  for( ulong i=0UL; i<dest_cnt; i++ ) {
+    // need to bswap the port
+    //ushort port = fd_ushort_bswap( in_dests[i].udp_port );
+    char peers_buf[1024];
+    snprintf( peers_buf, sizeof(peers_buf),
+              "%u,%u,%s,%d\n",
+              in_dests[i].ip4_addr, in_dests[i].udp_port, FD_BASE58_ENC_32_ALLOCA(in_dests[i].pubkey), 1);
+    int err = fd_io_buffered_ostream_write( &ctx->peers_ostream, peers_buf, strlen(peers_buf) );
+    FD_TEST( err==0 );
+  }
+}
+
 
 static int
 is_fec_completes_msg( ulong sz ) {
@@ -147,7 +181,7 @@ during_frag( fd_capture_tile_ctx_t * ctx,
       ctx->skip_frag = 1;
       return;
     };
-    fd_memcpy( ctx->shred_buffer, dcache_entry+hdr_sz, sz-hdr_sz );
+    fd_memcpy( ctx->shred_buffer, dcache_entry, sz );
     ctx->shred_buffer_sz = sz-hdr_sz;
   } else if( ctx->in_kind[ in_idx ] == REPAIR_NET ) {
     /* Repair will have outgoing pings, outgoing repair requests, and
@@ -173,6 +207,14 @@ during_frag( fd_capture_tile_ctx_t * ctx,
     }
     fd_memcpy( ctx->repair_buffer, dcache_entry, sz );
     ctx->repair_buffer_sz = sz;
+  } else {
+    // contact infos can be copied into a buffer
+    if( FD_UNLIKELY( chunk<ctx->in_links[ in_idx ].chunk0 || chunk>ctx->in_links[ in_idx ].wmark ) ) {
+      FD_LOG_ERR(( "chunk %lu %lu corrupt, not in range [%lu,%lu]", chunk, sz,
+                   ctx->in_links[ in_idx ].chunk0, ctx->in_links[ in_idx ].wmark ));
+    }
+    uchar const * dcache_entry = fd_chunk_to_laddr_const( ctx->in_links[ in_idx ].mem, chunk );
+    fd_memcpy( ctx->contact_info_buffer, dcache_entry, sz );
   }
 }
 
@@ -181,7 +223,7 @@ after_frag( fd_capture_tile_ctx_t * ctx,
             ulong                   in_idx,
             ulong                   seq    FD_PARAM_UNUSED,
             ulong                   sig,
-            ulong                   sz     FD_PARAM_UNUSED,
+            ulong                   sz,
             ulong                   tsorig FD_PARAM_UNUSED,
             ulong                   tspub  FD_PARAM_UNUSED,
             fd_stem_context_t *     stem   FD_PARAM_UNUSED ) {
@@ -193,35 +235,51 @@ after_frag( fd_capture_tile_ctx_t * ctx,
 
     fd_shred_t const * shred = (fd_shred_t *)fd_type_pun( ctx->shred_buffer );
     uint data_cnt = fd_disco_shred_repair_fec_sig_data_cnt( sig );
+    uint ref_tick = shred->data.flags & FD_SHRED_DATA_REF_TICK_MASK;
     char fec_complete[1024];
     snprintf( fec_complete, sizeof(fec_complete),
-             "%ld,%lu,%u,%u\n",
-              fd_log_wallclock(), shred->slot, shred->fec_set_idx, data_cnt );
+             "%ld,%lu,%u,%u,%u\n",
+              fd_log_wallclock(), shred->slot, ref_tick, shred->fec_set_idx, data_cnt );
+
+    // Last shred is guaranteed to be a data shred
+
 
     int err = fd_io_buffered_ostream_write( &ctx->fecs_ostream, fec_complete, strlen(fec_complete) );
     FD_TEST( err==0 );
   } else if( ctx->in_kind[ in_idx ] == NET_SHRED ) {
     /* TODO: leader schedule early exits in shred tile right around
        startup, which discards some turbine shreds, but there is a
-       chance we capture this shred here */
+       chance we capture this shred here. Currently handled in post, but
+       in the future will want to get the leader schedule here so we can
+       also benchmark whether the excepcted sender in the turbine tree
+       matches the actual sender. */
 
-    fd_shred_t const * shred = fd_shred_parse( ctx->shred_buffer, ctx->shred_buffer_sz );
+    ulong hdr_sz     = fd_disco_netmux_sig_hdr_sz( sig );
+    fd_ip4_udp_hdrs_t * hdr = (fd_ip4_udp_hdrs_t *)ctx->shred_buffer;
+    uint src_ip4_addr = hdr->ip4->saddr;
+    ushort src_port   = hdr->udp->net_sport;
+
+    fd_shred_t const * shred = fd_shred_parse( ctx->shred_buffer + hdr_sz, sz - hdr_sz );
     int   is_turbine = fd_disco_netmux_sig_proto( sig ) == DST_PROTO_SHRED;
-    uint  nonce      = is_turbine ? 0 : FD_LOAD(uint, ctx->shred_buffer + fd_shred_sz( shred ) );
+    uint  nonce      = is_turbine ? 0 : FD_LOAD(uint, ctx->shred_buffer + hdr_sz + fd_shred_sz( shred ) );
     int   is_data    = fd_shred_is_data( fd_shred_type( shred->variant ) );
-    ulong hash_src   = fd_disco_netmux_sig_hash( sig );
     ulong slot       = shred->slot;
     uint  idx        = shred->idx;
     uint  fec_idx    = shred->fec_set_idx;
+    uint  ref_tick   = 65;
+    if( FD_UNLIKELY( is_turbine && is_data ) ) {
+      /* We can then index into the flag and get a REFTICK */
+      ref_tick = shred->data.flags & FD_SHRED_DATA_REF_TICK_MASK;
+    }
 
     char repair_data_buf[1024];
     snprintf( repair_data_buf, sizeof(repair_data_buf),
-             "%lu,%ld,%lu,%u,%u,%d,%d,%u\n",
-              hash_src, fd_log_wallclock(), slot, fec_idx, idx, is_turbine, is_data, nonce );
+             "%u,%u,%ld,%lu,%u, %u,%u,%d,%d,%u\n",
+              src_ip4_addr, src_port, fd_log_wallclock(), slot, ref_tick, fec_idx, idx, is_turbine, is_data, nonce );
 
     int err = fd_io_buffered_ostream_write( &ctx->shred_ostream, repair_data_buf, strlen(repair_data_buf) );
     FD_TEST( err==0 );
-  } else {
+  } else if( ctx->in_kind[ in_idx ] == REPAIR_NET ) {
     /* We have a valid repair request that we can finally decode.
        Unfortunately we actually have to decode because we cant cast
        directly to the protocol */
@@ -261,13 +319,25 @@ after_frag( fd_capture_tile_ctx_t * ctx,
         break;
     }
 
-    ulong hash_src = 0xfffffUL & fd_ulong_hash( (ulong)peer_ip4_addr | ((ulong)peer_port<<32) );
     char repair_data_buf[1024];
     snprintf( repair_data_buf, sizeof(repair_data_buf),
-              "%lu,%ld,%u,%lu,%lu\n",
-              hash_src, fd_log_wallclock(), nonce, slot, shred_index );
+              "%u,%u,%ld,%u,%lu,%lu\n",
+              peer_ip4_addr, peer_port, fd_log_wallclock(), nonce, slot, shred_index );
     int err = fd_io_buffered_ostream_write( &ctx->repair_ostream, repair_data_buf, strlen(repair_data_buf) );
     FD_TEST( err==0 );
+  } else if( ctx->in_kind[ in_idx ] == GOSSIP_REPAIR ) {
+    fd_shred_dest_wire_t const * in_dests = (fd_shred_dest_wire_t const *)fd_type_pun_const( ctx->contact_info_buffer );
+    ulong dest_cnt = sz;
+    for( ulong i=0UL; i<dest_cnt; i++ ) {
+      char peers_buf[1024];
+      snprintf( peers_buf, sizeof(peers_buf),
+                "%u,%u,%s,%d\n",
+                 in_dests[i].ip4_addr, in_dests[i].udp_port, FD_BASE58_ENC_32_ALLOCA(in_dests[i].pubkey), 0);
+      int err = fd_io_buffered_ostream_write( &ctx->peers_ostream, peers_buf, strlen(peers_buf) );
+      FD_TEST( err==0 );
+    }
+  } else { // crds_shred contact infos
+    handle_new_turbine_contact_info( ctx, ctx->contact_info_buffer );
   }
 }
 
@@ -287,6 +357,8 @@ populate_allowed_fds( fd_topo_t const      * topo        FD_PARAM_UNUSED,
     out_fds[ out_cnt++ ] = tile->shredcap.requests_fd; /* request file */
   if( FD_LIKELY( -1!=tile->shredcap.fecs_fd ) )
     out_fds[ out_cnt++ ] = tile->shredcap.fecs_fd; /* fec complete file */
+  if( FD_LIKELY( -1!=tile->shredcap.peers_fd ) )
+    out_fds[ out_cnt++ ] = tile->shredcap.peers_fd; /* peers file */
 
   return out_cnt;
 }
@@ -316,7 +388,46 @@ privileged_init( fd_topo_t *      topo FD_PARAM_UNUSED,
     FD_LOG_ERR(( "failed to open or create fec complete csv dump file %s %d %s", file_path, errno, strerror(errno) ));
   }
   FD_LOG_NOTICE(( "Opening shred csv dump file at %s", file_path ));
+
+  strcpy( file_path, tile->shredcap.folder_path );
+  strcat( file_path, "/peers.csv" );
+  tile->shredcap.peers_fd = open( file_path, O_WRONLY|O_CREAT|O_APPEND /*| O_DIRECT*/, 0644 );
+  if ( FD_UNLIKELY( tile->shredcap.peers_fd == -1 ) ) {
+    FD_LOG_ERR(( "failed to open or create peers csv dump file %s %d %s", file_path, errno, strerror(errno) ));
+  }
 }
+
+static void
+init_file_handlers( fd_capture_tile_ctx_t    * ctx,
+                    int                      * ctx_file,
+                    int                        tile_file,
+                    uchar                   ** ctx_buf,
+                    fd_io_buffered_ostream_t * ctx_ostream ) {
+  *ctx_file =  tile_file ;
+
+  int err = ftruncate( *ctx_file, 0UL );
+  if( FD_UNLIKELY( err ) ) {
+    FD_LOG_ERR(( "failed to truncate file (%i-%s)", errno, fd_io_strerror( errno ) ));
+  }
+  long seek = lseek( *ctx_file, 0UL, SEEK_SET );
+  if( FD_UNLIKELY( seek!=0L ) ) {
+    FD_LOG_ERR(( "failed to seek to the beginning of file" ));
+  }
+
+  *ctx_buf = fd_alloc_malloc( ctx->alloc, 4096, ctx->write_buf_sz );
+  if( FD_UNLIKELY( *ctx_buf == NULL ) ) {
+    FD_LOG_ERR(( "failed to allocate ostream buffer" ));
+  }
+
+  if( FD_UNLIKELY( !fd_io_buffered_ostream_init(
+    ctx_ostream,
+    *ctx_file,
+    *ctx_buf,
+    ctx->write_buf_sz ) ) ) {
+    FD_LOG_ERR(( "failed to initialize ostream" ));
+  }
+}
+
 
 static void
 unprivileged_init( fd_topo_t *      topo,
@@ -327,41 +438,6 @@ unprivileged_init( fd_topo_t *      topo,
   fd_capture_tile_ctx_t * ctx = FD_SCRATCH_ALLOC_APPEND( l, alignof(fd_capture_tile_ctx_t), sizeof(fd_capture_tile_ctx_t) );
   void * alloc_mem            = FD_SCRATCH_ALLOC_APPEND( l, fd_alloc_align(), fd_alloc_footprint() );
   FD_SCRATCH_ALLOC_FINI( l, scratch_align() );
-
-  /* Setup the csv files to be in the expected state */
-
-  ctx->shreds_fd  = tile->shredcap.shreds_fd;
-  ctx->requests_fd = tile->shredcap.requests_fd;
-  ctx->fecs_fd    = tile->shredcap.fecs_fd;
-
-  FD_LOG_NOTICE(("Write buffer size is %lu", tile->shredcap.write_buffer_size ));
-
-  int err = ftruncate( ctx->shreds_fd, 0UL );
-  if( FD_UNLIKELY( err ) ) {
-    FD_LOG_ERR(( "failed to truncate the shred file (%i-%s)", errno, fd_io_strerror( errno ) ));
-  }
-  long seek = lseek( ctx->shreds_fd, 0UL, SEEK_SET );
-  if( FD_UNLIKELY( seek!=0L ) ) {
-    FD_LOG_ERR(( "failed to seek to the beginning of the shred file" ));
-  }
-
-  err = ftruncate( ctx->requests_fd, 0UL );
-  if( FD_UNLIKELY( err==-1 ) ) {
-    FD_LOG_ERR(( "failed to truncate the shred file (%i-%s)", errno, fd_io_strerror( errno ) ));
-  }
-  seek = lseek( ctx->requests_fd, 0UL, SEEK_SET );
-  if( FD_UNLIKELY( seek!=0L ) ) {
-    FD_LOG_ERR(( "failed to seek to the beginning of the shred file" ));
-  }
-
-  err = ftruncate( tile->shredcap.fecs_fd, 0UL );
-  if( FD_UNLIKELY( err==-1 ) ) {
-    FD_LOG_ERR(( "failed to truncate the fec complete file (%i-%s)", errno, fd_io_strerror( errno ) ));
-  }
-  seek = lseek( tile->shredcap.fecs_fd, 0UL, SEEK_SET );
-  if( FD_UNLIKELY( seek!=0L ) ) {
-    FD_LOG_ERR(( "failed to seek to the beginning of the fec complete file" ));
-  }
 
   /* Input links */
   for( ulong i=0; i<tile->in_cnt; i++ ) {
@@ -375,7 +451,11 @@ unprivileged_init( fd_topo_t *      topo,
       ctx->in_kind[ i ] = REPAIR_NET;
     } else if( 0==strcmp( link->name, "shred_repair" ) ) {
       ctx->in_kind[ i ] = SHRED_REPAIR;
-    }else {
+    } else if( 0==strcmp( link->name, "crds_shred" ) ) {
+      ctx->in_kind[ i ] = GOSSIP_SHRED;
+    } else if( 0==strcmp( link->name, "gossip_repai" ) ) {
+      ctx->in_kind[ i ] = GOSSIP_REPAIR;
+    } else {
       FD_LOG_ERR(( "repair tile has unexpected input link %s", link->name ));
     }
 
@@ -388,61 +468,25 @@ unprivileged_init( fd_topo_t *      topo,
   ctx->write_buf_sz = tile->shredcap.write_buffer_size ? tile->shredcap.write_buffer_size : FD_SHREDCAP_DEFAULT_WRITER_BUF_SZ;
 
   /* Allocate the write buffers */
-  fd_alloc_t * alloc = fd_alloc_join( fd_alloc_new( alloc_mem, FD_SHREDCAP_ALLOC_TAG ), fd_tile_idx() );
-  if( FD_UNLIKELY( !alloc ) ) {
+  ctx->alloc = fd_alloc_join( fd_alloc_new( alloc_mem, FD_SHREDCAP_ALLOC_TAG ), fd_tile_idx() );
+  if( FD_UNLIKELY( !ctx->alloc ) ) {
     FD_LOG_ERR( ( "fd_alloc_join failed" ) );
   }
-  ctx->shred_buf = fd_alloc_malloc( alloc, 4096, ctx->write_buf_sz );
-  if( FD_UNLIKELY( !ctx->shred_buf ) ) {
-    FD_LOG_ERR(( "failed to allocate shred buffer" ));
-  }
-  ctx->requests_buf = fd_alloc_malloc( alloc, 4096, ctx->write_buf_sz );
-  if( FD_UNLIKELY( !ctx->requests_buf ) ) {
-    FD_LOG_ERR(( "failed to allocate request buffer" ));
-  }
-  ctx->fecs_buf = fd_alloc_malloc( alloc, 4096, ctx->write_buf_sz );
-  if( FD_UNLIKELY( !ctx->fecs_buf ) ) {
-    FD_LOG_ERR(( "failed to allocate fecs buffer" ));
-  }
 
-  /* Initialize output stream */
-  if( FD_UNLIKELY( !fd_io_buffered_ostream_init(
-    &ctx->shred_ostream,
-    tile->shredcap.shreds_fd,
-    ctx->shred_buf,
-    ctx->write_buf_sz ) ) ) {
-    FD_LOG_ERR(( "failed to initialize ostream" ));
-  }
-  if( FD_UNLIKELY( !fd_io_buffered_ostream_init(
-    &ctx->repair_ostream,
-    tile->shredcap.requests_fd,
-    ctx->requests_buf,
-    ctx->write_buf_sz ) ) ) {
-    FD_LOG_ERR(( "failed to initialize ostream" ));
-  }
-  if( FD_UNLIKELY( !fd_io_buffered_ostream_init(
-    &ctx->fecs_ostream,
-    tile->shredcap.fecs_fd,
-    ctx->fecs_buf,
-    ctx->write_buf_sz ) ) ) {
-    FD_LOG_ERR(( "failed to initialize ostream" ));
-  }
+  /* Setup the csv files to be in the expected state */
 
-  err = fd_io_buffered_ostream_write( &ctx->shred_ostream, "hash_src,timestamp,slot,fec_set_idx,idx,is_turbine,is_data,nonce\n", 65UL );
+  init_file_handlers( ctx, &ctx->shreds_fd,   tile->shredcap.shreds_fd,   &ctx->shreds_buf,   &ctx->shred_ostream );
+  init_file_handlers( ctx, &ctx->requests_fd, tile->shredcap.requests_fd, &ctx->requests_buf, &ctx->repair_ostream );
+  init_file_handlers( ctx, &ctx->fecs_fd,     tile->shredcap.fecs_fd,     &ctx->fecs_buf,     &ctx->fecs_ostream );
+  init_file_handlers( ctx, &ctx->peers_fd,    tile->shredcap.peers_fd,    &ctx->peers_buf,    &ctx->peers_ostream );
+
+  int err = fd_io_buffered_ostream_write( &ctx->shred_ostream,  "src_ip,src_port,timestamp,slot,ref_tick,fec_set_idx,idx,is_turbine,is_data,nonce\n", 81UL );
+  err    |= fd_io_buffered_ostream_write( &ctx->repair_ostream, "dst_ip,dst_port,timestamp,nonce,slot,idx\n", 41UL );
+  err    |= fd_io_buffered_ostream_write( &ctx->fecs_ostream,   "timestamp,slot,ref_tick,fec_set_idx,data_cnt\n", 45UL );
+  err    |= fd_io_buffered_ostream_write( &ctx->peers_ostream,  "peer_ip4_addr,peer_port,pubkey,turbine\n", 48UL );
 
   if( FD_UNLIKELY( err ) ) {
-    FD_LOG_ERR(( "failed to write header to shred file (%i-%s)", errno, fd_io_strerror( errno ) ));
-  }
-
-  err = fd_io_buffered_ostream_write( &ctx->repair_ostream, "hash_peer,timestamp,nonce,slot,idx\n", 35UL );
-
-  if( FD_UNLIKELY( err ) ) {
-    FD_LOG_ERR(( "failed to write header to repair file (%i-%s)", errno, fd_io_strerror( errno ) ));
-  }
-
-  err = fd_io_buffered_ostream_write( &ctx->fecs_ostream, "timestamp,slot,fec_set_idx,data_cnt\n", 36UL );
-  if( FD_UNLIKELY( err ) ) {
-    FD_LOG_ERR(( "failed to write header to fec complete file (%i-%s)", errno, fd_io_strerror( errno ) ));
+    FD_LOG_ERR(( "failed to write header to any of the 4 files (%i-%s)", errno, fd_io_strerror( errno ) ));
   }
 }
 
