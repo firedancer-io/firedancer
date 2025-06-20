@@ -45,17 +45,18 @@ def peer_stats( catchup, catchup_rq, live, live_rq, pdf ):
     print('\n\033[1mPeer response statistics\033[0m\n')
 
     matched = match_repair_requests(catchup_rq, catchup)
-    print(f"Requests from {matched['hash_peer'].nunique()} unique peers this run")
+
+    print(f"Requests from {matched['dst_ip'].nunique()} unique peers this run")
     print(f"Recieved responses for {matched['is_matched'].sum()} out of {len(matched)} requests ({matched['is_matched'].mean() * 100:.2f}%)")
 
     #print missing idxs in slot_stalled
     print( 'Shreds recieved during catchup:', catchup.shape[0], 'and requests sent during catchup:', catchup_rq.shape[0])
     print( 'Shreds recieved during live turbine:', live.shape[0], 'and requests sent during live:', live_rq.shape[0])
 
-    success_rate = matched.groupby('hash_peer').agg({'is_matched': 'mean', 'nonce': 'count'}).reset_index()
+    success_rate = matched.groupby('dst_ip').agg({'is_matched': 'mean', 'nonce': 'count'}).reset_index()
 
     # how many requests were sent to each responder?
-    top_req_counts = matched.groupby('hash_peer').size().reset_index(name='count')
+    top_req_counts = matched.groupby('dst_ip').size().reset_index(name='count')
     print('Requests per pubkey: \n')
     describe = "\n".join('\t' + line for line in str(top_req_counts['count'].describe()).splitlines()[1:])
     print(describe)
@@ -68,7 +69,7 @@ def peer_stats( catchup, catchup_rq, live, live_rq, pdf ):
     axs[0, 0].set_ylabel('Number of responders')
 
     # show success rate of the ones we spammed the most
-    sns.barplot(data=success_rate.sort_values(by='nonce', ascending=False).head(40), x='hash_peer', y='is_matched', ax=axs[0, 1])
+    sns.barplot(data=success_rate.sort_values(by='nonce', ascending=False).head(40), x='dst_ip', y='is_matched', ax=axs[0, 1])
     axs[0, 1].set_xticklabels(axs[0, 1].get_xticklabels(), rotation=90)
     axs[0, 1].set_title('Success rate of the highest requested peers')
     axs[0, 1].set_ylabel('Success rate')
@@ -82,7 +83,7 @@ def peer_stats( catchup, catchup_rq, live, live_rq, pdf ):
 
     least_successful = success_rate.sort_values(by='is_matched')
     least_successful = least_successful[least_successful['is_matched'] < 0.9]
-    sns.barplot(data=least_successful, x='hash_peer', y='is_matched', ax=axs[1, 1])
+    sns.barplot(data=least_successful, x='dst_ip', y='is_matched', ax=axs[1, 1])
     axs[1, 1].set_xticklabels(axs[1, 1].get_xticklabels(),  rotation=90)
     axs[1, 1].set_title('Least successful responders')
     axs[1, 1].set_ylabel('Success rate')
@@ -119,9 +120,9 @@ def peer_stats( catchup, catchup_rq, live, live_rq, pdf ):
 
     # plot latency boxplot per pubkey
     fig = plt.figure(figsize=(12, 6))
-    top_latency_peers = top_latency.groupby('hash_peer').agg({'round_trip_latency': 'mean', 'nonce': 'count'}).reset_index()
+    top_latency_peers = top_latency.groupby('dst_ip').agg({'round_trip_latency': 'mean', 'nonce': 'count'}).reset_index()
     top_latency_peers = top_latency_peers.sort_values(by='round_trip_latency', ascending=True).reset_index(drop=True).head(1000)  # Limit to top 100 responders by latency
-    sns.boxplot(data=top_latency_peers, x='hash_peer', y='round_trip_latency')
+    sns.boxplot(data=top_latency_peers, x='dst_ip', y='round_trip_latency')
     plt.xticks(rotation=90)
     plt.title('Round trip latency per responder')
     plt.xlabel('Responder pubkey')
@@ -193,6 +194,126 @@ def execution_stats( log_path, pdf ):
     print(f'Time from snapshot loaded to first turbine execution: {diff}s over {first_turbine - snapshot_slot} slots')
     return first_turbine, snapshot_slot, last_executed
 
+def long_slots( slot_completion, shreds_data, first_turbine):
+    print('\n\033[1mLong slots\033[0m\n')
+
+    slot_completion = slot_completion.reset_index()
+    long_slots = slot_completion[(slot_completion['time_slot_complete(ms)'] > 410) & (slot_completion['time_slot_complete(ms)'] < 500)]
+    long_slots = long_slots[long_slots['slot'] >= first_turbine]
+    print("\nSlots that took between 420 ms and 450 ms to complete:")
+
+    for idx, row in long_slots.iterrows():
+        print(f"Interested in slot {row['slot']} which took {row['time_slot_complete(ms)']} ms to complete")
+        # count number of repair requests sent for this slot
+        turbine = shreds_data[(shreds_data['slot'] == row['slot']) & (shreds_data['is_turbine'])]
+        print(f"Number of turbine shreds recieved for slot {idx}: {len(turbine)}")
+
+        repairs = shreds_data[(shreds_data['slot'] == row['slot']) & (shreds_data['is_turbine'] == False)]
+        print(f"Number of repair shreds recieved for slot {idx}: {len(repairs)}")
+
+    # find a correlation between repair requests, number of shreds, and time to complete?
+    # Let's analyze the correlation between the number of repair requests, number of shreds, and time to complete for the long slots
+    long_slots['num_repair_requests'] = long_slots['slot'].map(
+        lambda slot: len(shreds_data[(shreds_data['slot'] == slot) & (shreds_data['is_turbine'] == False)])
+    )
+    long_slots['num_turbine_shreds'] = long_slots['slot'].map(
+        lambda slot: len(shreds_data[(shreds_data['slot'] == slot) & (shreds_data['is_turbine'])])
+    )
+
+
+    long_slots['num_shreds_in_slot'] = long_slots['slot'].map(
+        lambda slot: shreds_data[shreds_data['slot'] == slot]['idx'].nunique()
+    )
+
+    # Calculate the correlation matrix
+    correlation_matrix = long_slots[['time_slot_complete(ms)', 'num_repair_requests', 'num_turbine_shreds', 'num_shreds_in_slot']].corr()
+    # Plot the correlation matrix
+    fig = plt.figure(figsize=(8, 6))
+    sns.heatmap(correlation_matrix, annot=True, cmap='coolwarm', fmt='.2f', square=True)
+    plt.title('Correlation Matrix for Long Slots')
+    pdf.savefig(fig, bbox_inches='tight')
+    plt.close(fig)
+
+    #lets graph the shred arrival times for the long slots
+    i = 0
+    for idx, row in long_slots.iterrows():
+        print(f"Interested in slot {row['slot']} which took {row['time_slot_complete(ms)']} ms to complete")
+        # get the shreds for this slot
+        shreds = shreds_data[shreds_data['slot'] == row['slot']]
+        print(f"Number of shreds in slot {row['slot']}: {row['num_shreds_in_slot']}")
+
+        # only take < time_slot_complete(ms) shreds
+        shreds = shreds[shreds['timestamp'] <= row['timestamp_fec1']]
+        # plot the timestamps of the shreds
+        fig = plt.figure(figsize=(12, 6))
+        sns.histplot(shreds['timestamp'], bins=50, kde=True)
+        plt.title(f"Shred Arrival Times for Slot {row['slot']}")
+        plt.xlabel('Timestamp')
+        plt.ylabel('Frequency')
+
+        #print what shred idx is  in the last bin
+        last_bin = shreds['timestamp'].max()
+        last_bin_idx = shreds[shreds['timestamp'] == last_bin]['idx'].values[0]
+        print(f"Last shred idx in the last bin: {last_bin_idx}")
+
+        plt.legend()
+        pdf.savefig(fig, bbox_inches='tight')
+        plt.close(fig)
+        i += 1
+        if i == 10:  # Limit to first 5 slots for clarity
+            break
+
+    offenders = []
+
+    for idx, row in long_slots.iterrows():
+        # get the shreds for this slot
+        shreds = shreds_data[(shreds_data['slot'] == row['slot']) & (shreds_data['is_turbine'] == True)]
+        # only take shreds that came in after 400ms
+        shreds = shreds[shreds['timestamp'] >= row['first_shred_ts_fec0'] + 400_000_000]  # 400ms in nanoseconds
+        if len(shreds) > 0:
+            offenders.append(shreds[['src_ip', 'timestamp', 'idx']])
+
+    # Combine all offenders into a single DataFrame
+    offenders_df = pd.concat(offenders, ignore_index=True)
+    print(offenders_df.shape)
+    offenders_df = offenders_df.groupby('src_ip').size().reset_index(name='count')
+    print("\nOffenders who sent shreds after 400ms:")
+    print(offenders_df)
+
+    # bar plot the offenders by count, top 50 offenders first
+    fig = plt.figure(figsize=(12, 6))
+    sns.barplot(data=offenders_df.sort_values(by='count', ascending=False).head(50), x='src_ip', y='count', palette='viridis')
+    plt.title('Top 50 Offenders by Count of Shreds Sent After 400ms')
+    plt.xlabel('Hash Source')
+    plt.ylabel('Count')
+    plt.xticks(rotation=45)
+    plt.tight_layout()
+
+    #bar plot the least offenders by count, bottom 50 offenders first
+    fig = plt.figure(figsize=(12, 6))
+    sns.barplot(data=offenders_df.sort_values(by='count', ascending=False).tail(50), x='src_ip', y='count', palette='viridis')
+    plt.title('Bottom 50 Offenders by Count of Shreds Sent After 400ms')
+    plt.xlabel('Hash Source')
+    plt.ylabel('Count')
+    plt.xticks(rotation=45)
+    plt.tight_layout()
+
+    # The top most offender is responsible for
+    print(f"\nThe top most offender is responsible for {offenders_df['count'].max()} shreds sent after 400ms")
+
+    pdf.savefig(fig, bbox_inches='tight')
+    plt.close(fig)
+
+    # how many of these long slots are due to repair??? like from 400ms to the end of the slot, how many repair shreds are in that window?
+    # for each long slot, count the number of repair shreds that came in after 400ms
+    long_slots['num_repair_shreds_after_400ms'] = long_slots.apply(
+        lambda row: len(shreds_data[(shreds_data['slot'] == row['slot']) & (shreds_data['is_turbine'] == False) & (shreds_data['timestamp'] >= row['first_shred_ts_fec0'] + 400_000_000) & (shreds_data['timestamp'] <= row['timestamp_fec1'])]),
+        axis=1
+    )
+
+    print(long_slots[['slot', 'num_repair_shreds_after_400ms']])
+
+
 def completion_times( fec_stats, shred_data, first_turbine, pdf ):
     print('\n\033[1mFEC/Slot completion times\033[0m\n')
 
@@ -231,6 +352,27 @@ def completion_times( fec_stats, shred_data, first_turbine, pdf ):
     pdf.savefig(fig, bbox_inches='tight')
     plt.close(fig)
 
+    # Batch completion times (ref_tick)
+    # We get this by keeping the first shred of fec0, and the completion time of fec1
+
+
+    batch_stats = fec_stats.groupby(['slot', 'ref_tick']).agg({'first_shred_ts': 'min', 'timestamp': 'max'}).reset_index()
+    batch_stats['time_to_complete'] = batch_stats['timestamp'] - batch_stats['first_shred_ts']
+    batch_stats['time_to_complete(ms)'] = batch_stats['time_to_complete'] / 1_000_000  # Convert to milliseconds
+
+    # plot the batch completion times
+    fig = plt.figure(figsize=(12, 6))
+    sns.histplot(batch_stats['time_to_complete(ms)'], bins=50, kde=True)
+    plt.title('Batch Completion Times')
+    plt.xlabel('Time to Complete (ms)')
+    plt.ylabel('Frequency')
+    plt.tight_layout()
+    pdf.savefig(fig, bbox_inches='tight')
+    plt.close(fig)
+
+    batch_stats_live = batch_stats[batch_stats['slot'] >= first_turbine]
+    batch_stats_catchup = batch_stats[batch_stats['slot'] < first_turbine]
+
     # Slot completion times
 
     fec_stats_dedup = fec_stats.drop_duplicates(subset=['slot', 'fec_set_idx'], keep='first')
@@ -239,9 +381,9 @@ def completion_times( fec_stats, shred_data, first_turbine, pdf ):
                                                                                     slot.iloc[-1]
                                                                                     ]))
     slot_completion.drop(columns=['slot', 'slot'], inplace=True)
-    slot_completion.columns = ['timestamp_fec0', 'fec_set_idx_fec0', 'data_cnt_fec0', 'first_shred_ts_fec0',
+    slot_completion.columns = ['timestamp_fec0', 'ref_tick_fec0', 'fec_set_idx_fec0', 'data_cnt_fec0', 'first_shred_ts_fec0',
         'time_to_complete_fec0', 'time_to_complete(ms)_fec0', 'timestamp_fec1',
-        'fec_set_idx_fec1', 'data_cnt_fec1', 'first_shred_ts_fec1', 'time_to_complete_fec1',
+        'ref_tick_fec1', 'fec_set_idx_fec1', 'data_cnt_fec1', 'first_shred_ts_fec1', 'time_to_complete_fec1',
         'time_to_complete(ms)_fec1']
     slot_completion['first_shred_in_slot'] = slot_completion.index.map( lambda slot: shred_data[shred_data['slot'] == slot]['timestamp'].min() )
     slot_completion['time_slot_complete(ms)'] = ( slot_completion['timestamp_fec1'] - slot_completion['first_shred_in_slot'] ) / 1_000_000  # Convert to milliseconds
@@ -265,17 +407,39 @@ def completion_times( fec_stats, shred_data, first_turbine, pdf ):
     slot_cmpl_catchup = slot_completion[slot_completion.index < first_turbine]
 
     print('Below times in milliseconds (ms)')
-    print('{:<50} {:<50}'.format('Live FEC Stats Summary', 'Live Slot Completion Summary'))
+    print('{:<50} {:<50} {:<50}'.format('Live FEC Stats Summary', 'Live Batch Stats Summary', 'Live Slot Completion Summary'))
     live = zip(fec_stats_live['time_to_complete(ms)'].describe().to_string().splitlines(),
+                 batch_stats_live['time_to_complete(ms)'].describe().to_string().splitlines(),
                  slot_cmpl_live['time_slot_complete(ms)'].describe().to_string().splitlines())
-    for fec_line, slot_line in live:
-        print('{:<50} {:<50}'.format(fec_line, slot_line))
+    for fec_line, batch_line, slot_line in live:
+        print('{:<50} {:<50} {:<50}'.format(fec_line, batch_line, slot_line))
 
-    print('{:<50} {:<50}'.format('Catchup FEC Stats Summary', 'Catchup Slot Completion Summary'))
+    print('{:<50} {:<50} {:<50}'.format('Catchup FEC Stats Summary', 'Catchup Batch Stats Summary', 'Catchup Slot Completion Summary'))
     catchup = zip(fec_stats_catchup['time_to_complete(ms)'].describe().to_string().splitlines(),
+                  batch_stats_catchup['time_to_complete(ms)'].describe().to_string().splitlines(),
                   slot_cmpl_catchup['time_slot_complete(ms)'].describe().to_string().splitlines())
-    for fec_line, slot_line in catchup:
-        print('{:<50} {:<50}'.format(fec_line, slot_line))
+    for fec_line, batch_line, slot_line in catchup:
+        print('{:<50} {:<50} {:<50}'.format(fec_line, batch_line, slot_line))
+
+    # plot the batch completion times for a select slot.
+    # I want stacked sideways interval charts for each ref_tick
+    # the x axis is the time to complete
+    # the y axis is the ref_tick
+    # using hlines
+
+    slot_interest = 100
+    fig = plt.figure(figsize=(12, 6))
+    for idx, row in batch_stats[batch_stats['slot'] == slot_interest].iterrows():
+        # get the batch stats for this ref_tick
+        plt.hlines(y=row['ref_tick'], xmin=row['first_shred_ts'], xmax=row['timestamp'], color='blue')
+    plt.title(f'Batch Completion Times for Slot {slot_interest}')
+    plt.xlabel('Time to Complete (ms)')
+    plt.ylabel('Ref Tick')
+    plt.tight_layout()
+    pdf.savefig(fig, bbox_inches='tight')
+    plt.close(fig)
+
+
 
 def turbine_stats(catchup, live):
     print('\n\033[1mTurbine Statistics\033[0m\n')
@@ -335,13 +499,13 @@ def show_slot_repairs( repair, response, slot, pdf, max_idx=2**15, time_window=4
     sns.scatterplot(data=rsp, x='idx', y='timestamp', label='Shreds Received', color='blue', s=10, ax=ax1)
 
     # graph just min response and min request for each idx
-    min_rsp = rsp.loc[rsp.groupby('idx')['timestamp'].idxmin()][['idx', 'timestamp', 'hash_src']]
-    min_rq  = rq.loc[rq.groupby('idx')['timestamp'].idxmin()][['idx', 'timestamp', 'hash_peer']]
+    min_rsp = rsp.loc[rsp.groupby('idx')['timestamp'].idxmin()][['idx', 'timestamp', 'src_ip']]
+    min_rq  = rq.loc[rq.groupby('idx')['timestamp'].idxmin()][['idx', 'timestamp', 'dst_ip']]
     sns.scatterplot(data=min_rsp, x='idx', y='timestamp', label='Min Shred Response', color='blue', s=20, ax=ax2)
     sns.scatterplot(data=rq, x='idx', y='timestamp', label='All Repair Request', color='orange', s=20, ax=ax2)
 
-    sns.scatterplot(data=min_rsp, x='idx', y='timestamp', hue='hash_src', s=20, ax=ax3)
-    sns.scatterplot(data=min_rq, x='idx', y='timestamp', hue='hash_peer', s=20, ax=ax3, marker='x')
+    sns.scatterplot(data=min_rsp, x='idx', y='timestamp', hue='src_ip', s=20, ax=ax3)
+    sns.scatterplot(data=min_rq, x='idx', y='timestamp', hue='dst_ip', s=20, ax=ax3, marker='x')
 
     plt.title(f'Repair Requests and Shreds Received for Slot {slot}')
     plt.xlabel('idx')
@@ -369,7 +533,7 @@ def print_slots(repair_requests, shreds_data, snapshot_slot, first_turbine, pdf 
     print(f'\nFirst turbine slot + 50: {first_turbine + 50}')
     show_slot_repairs(repair_requests, shreds_data, first_turbine + 50, pdf, max_idx=100,  time_window=4000)
 
-def generate_report( log_path, request_data_path, shred_data_path, fec_complete_path=None, pdf=None ):
+def generate_report( log_path, request_data_path, shred_data_path, peers_data_path, fec_complete_path=None, pdf=None ):
     """
     Generate a report based on the peer response data.
 
@@ -384,21 +548,32 @@ def generate_report( log_path, request_data_path, shred_data_path, fec_complete_
     first_turbine, snapshot_slot, last_executed = execution_stats(log_path, pdf)
 
     # Load data sets
+    sys.stdout.write('Reading in CSV files...\r')
+    sys.stdout.flush()
 
     shreds_data     = pd.read_csv( shred_data_path,
-                                   dtype={'hash_src': str, 'timestamp': int, 'slot': int, 'fec_set_idx':int, 'idx': int, 'is_turbine': bool, 'is_data': bool, 'nonce' :int },
+                                   dtype={'src_ip': str, 'src_port': int, 'timestamp': int, 'slot': int, 'ref_tick': int, 'fec_set_idx':int, 'idx': int, 'is_turbine': bool, 'is_data': bool, 'nonce' :int },
                                    on_bad_lines='skip',
                                    skipfooter=1 ) # because of the buffered writer the last row is probably incomplete
 
     repair_requests = pd.read_csv( request_data_path,
-                                   dtype={'hash_src': str, 'timestamp': int, 'slot': int, 'idx': int, 'nonce': int },
+                                   dtype={'dst_ip': str, 'dst_port': int, 'timestamp': int, 'slot': int, 'idx': int, 'nonce': int },
                                    skipfooter=1 )
 
+    peers_data      = pd.read_csv( peers_data_path,
+                                   dtype={'peer_ip4_addr': int, 'peer_port': int, 'pubkey':str, 'turbine': bool },
+                                   on_bad_lines='skip',
+                                   skipfooter=1 )
+
+    # if we have a fec complete file, read it in
     if fec_complete_path:
         fec_stats   = pd.read_csv(fec_complete_path,
-                                  dtype={'timestamp': int, 'slot': int, 'fec_set_idx': int, 'data_cnt': int },
+                                  dtype={'timestamp': int, 'slot': int, 'ref_tick': int, 'fec_set_idx': int, 'data_cnt': int },
                                   on_bad_lines='skip',
                                   skipfooter=1 )
+
+    sys.stdout.write('\033[K')
+    sys.stdout.flush()
 
     shreds_data['shred']      = shreds_data['slot'] + ( shreds_data['idx'] / 100 )
     #repair_requests['pubkey'] = repair_requests['pubkey'].str.slice(0, 8)           #shortening pubkey for better readability
@@ -430,18 +605,19 @@ def generate_report( log_path, request_data_path, shred_data_path, fec_complete_
 if __name__ == "__main__":
     if len(sys.argv) < 4:
         print('Add: [tiles.shredcap] \n\t enabled = true \n\t folder_path = /my/folder_for_csv_dump \n to your testnet config.toml file to enable the report generation.')
-        print('Usage: python report.py <testnet.log path> <request_data.csv path> <shred_data.csv path> <fec_complete.csv path (optional)>')
+        print('Usage: python report.py <testnet.log path> <request_data.csv path> <shred_data.csv path> <peers_data.csv> <fec_complete.csv path (optional)>')
         print('Report will automatically be saved as report.pdf in the current directory.')
         sys.exit(1)
 
     log_path          = sys.argv[1]
     request_data_path = sys.argv[2]
     shred_data_path   = sys.argv[3]
-    fec_complete_path = sys.argv[4] if len(sys.argv) > 4 else None
+    peers_data_path   = sys.argv[4]
+    fec_complete_path = sys.argv[5] if len(sys.argv) > 5 else None
 
     output_path = 'report.pdf'
     pdf = PdfPages('report.pdf')
-    generate_report(log_path, request_data_path, shred_data_path, fec_complete_path, pdf)
+    generate_report(log_path, request_data_path, shred_data_path, peers_data_path, fec_complete_path, pdf)
     print(f'Graphs generated at: {output_path}')
 
     pdf.close()
