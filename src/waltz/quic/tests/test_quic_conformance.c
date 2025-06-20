@@ -728,6 +728,70 @@ test_quic_pktmeta_pktnum_skip( fd_quic_sandbox_t * sandbox,
   FD_TEST( *metrics_alloc_fail_cnt == alloc_fail_cnt );
 }
 
+static void
+test_quic_rtt_sample( void ) {
+  fd_quic_t quic = {
+    .config = {
+      .tick_per_us = 2500.
+    }
+  };
+  fd_quic_conn_t conn = {
+    .quic = &quic
+  };
+
+  fd_quic_transport_params_t peer_tp = {
+    .ack_delay_exponent_present = 1,
+    .ack_delay_exponent         = 2, /* 4us */
+    .max_ack_delay_present      = 1,
+    .max_ack_delay              = 100 /* 100ms */
+  };
+  fd_quic_apply_peer_params( &conn, &peer_tp );
+  FD_TEST( conn.peer_ack_delay_scale     ==  10e3f );
+  FD_TEST( conn.peer_max_ack_delay_ticks == 250e6f );
+
+  #define SAMPLE( rtt_sample, ack_delay ) do { \
+      fd_quic_sample_rtt( &conn, (rtt_sample), (ack_delay) ); \
+      FD_LOG_DEBUG(( "min_rtt %f latest_rtt %f smoothed_rtt %f var_rtt %f", \
+          (double)conn.rtt->min_rtt, (double)conn.rtt->latest_rtt, (double)conn.rtt->smoothed_rtt, (double)conn.rtt->var_rtt )); \
+    } while(0)
+
+  SAMPLE( (long)9000e3, (long)250 );
+  FD_TEST( conn.rtt->min_rtt      == 9000000.0f );
+  FD_TEST( conn.rtt->latest_rtt   == 9000000.0f );
+  FD_TEST( conn.rtt->smoothed_rtt == 9000000.0f );
+  FD_TEST( conn.rtt->var_rtt      == 4500000.0f );
+  /* ack_delay: 250*(2 us^2) = 1e6 ns = 2.5e6 ticks */
+
+  SAMPLE( (long)5000e3, 0L );
+  FD_TEST( conn.rtt->min_rtt      == 5000000.0f );
+  FD_TEST( conn.rtt->latest_rtt   == 5000000.0f );
+  FD_TEST( conn.rtt->smoothed_rtt == 8500000.0f );
+  FD_TEST( conn.rtt->var_rtt      == 4250000.0f );
+
+  fd_rtt_estimate_t est2 = conn.rtt[0];
+  SAMPLE( (long)8000e3, (long)0 );
+  FD_TEST( conn.rtt->min_rtt      == 5000000.0f );
+  FD_TEST( conn.rtt->latest_rtt   == 8000000.0f );
+  FD_TEST( conn.rtt->smoothed_rtt == 8437500.0f );
+  FD_TEST( conn.rtt->var_rtt      == 3296875.0f );
+
+  conn.rtt[0] = est2;
+  SAMPLE( (long)8000e3, (long)250 );
+  /* 250 ack_delay = 250 * 4us = 1000us = 2500e3 ticks */
+  FD_TEST( conn.rtt->min_rtt      == 5000000.0f );
+  FD_TEST( conn.rtt->latest_rtt   == 5500000.0f );
+  FD_TEST( conn.rtt->smoothed_rtt == 8125000.0f );
+  FD_TEST( conn.rtt->var_rtt      == 3843750.0f );
+
+  SAMPLE( (long)2500e3, 0L );
+  FD_TEST( conn.rtt->min_rtt      == 2500000.0f );
+  FD_TEST( conn.rtt->latest_rtt   == 2500000.0f );
+  FD_TEST( conn.rtt->smoothed_rtt == 7421875.0f );
+  FD_TEST( conn.rtt->var_rtt      == 4113281.25f );
+
+#undef SAMPLE
+}
+
 int
 main( int     argc,
       char ** argv ) {
@@ -790,6 +854,7 @@ main( int     argc,
   test_quic_parse_path_challenge();
   test_quic_conn_free                    ( sandbox, rng );
   test_quic_pktmeta_pktnum_skip          ( sandbox, rng );
+  test_quic_rtt_sample();
 
   /* Wind down */
 

@@ -275,6 +275,10 @@ fd_quic_tls_cb_peer_params( void *        context,
                             uchar const * peer_tp_enc,
                             ulong         peer_tp_enc_sz );
 
+void
+fd_quic_apply_peer_params( fd_quic_conn_t *                   conn,
+                           fd_quic_transport_params_t const * peer_tp );
+
 /* Helpers for calling callbacks **************************************/
 
 static inline ulong
@@ -420,60 +424,32 @@ fd_quic_conn_at_idx( fd_quic_state_t * quic_state, ulong idx ) {
 }
 
 /* called with round-trip-time (rtt) and the ack delay (from the spec)
- * to sample the round trip times.
- * Arguments:
- *   conn            The connection to be updated
- *   rtt_ticks       The round trip time in ticks
- *   ack_delay       The ack_delay field supplied by the peer in peer units
- *
- * Updates:
- *   smoothed_rtt    EMA over adjusted rtt
- *   min_rtt         minimum unadjusted rtt over all samples
- *   latest_rtt      the most recent rtt sample */
+   to sample the round trip times. */
 static inline void
 fd_quic_sample_rtt( fd_quic_conn_t * conn, long rtt_ticks, long ack_delay ) {
   /* for convenience */
-  fd_quic_conn_rtt_t * rtt = conn->rtt;
+  fd_rtt_estimate_t * rtt = conn->rtt;
 
   /* ack_delay is in peer units, so scale to put in ticks */
-  float ack_delay_ticks = (float)ack_delay * rtt->peer_ack_delay_scale;
+  float ack_delay_ticks = (float)ack_delay * conn->peer_ack_delay_scale;
 
   /* bound ack_delay by peer_max_ack_delay */
-  ack_delay_ticks = fminf( ack_delay_ticks, rtt->peer_max_ack_delay_ticks );
+  ack_delay_ticks = fminf( ack_delay_ticks, conn->peer_max_ack_delay_ticks );
 
-  /* minrtt is estimated from rtt_ticks without adjusting for ack_delay */
-  rtt->min_rtt = fminf( rtt->min_rtt, (float)rtt_ticks );
+  fd_rtt_sample( rtt, (float)rtt_ticks, ack_delay_ticks );
 
-  /* smoothed_rtt is calculated from adjusted rtt_ticks
-       except: ack_delay must not be subtracted if the result would be less than minrtt */
-  float adj_rtt = fmaxf( rtt->min_rtt, (float)rtt_ticks - (float)ack_delay_ticks );
-
-  rtt->latest_rtt = adj_rtt;
-
-  /* according to rfc 9002 */
-  if( !rtt->is_rtt_valid ) {
-    rtt->smoothed_rtt = adj_rtt;
-    rtt->var_rtt      = adj_rtt * 0.5f;
-    rtt->is_rtt_valid = 1;
-  } else {
-    rtt->smoothed_rtt = (7.f/8.f) * rtt->smoothed_rtt + (1.f/8.f) * adj_rtt;
-    float var_rtt_sample = fabsf( rtt->smoothed_rtt - adj_rtt );
-    rtt->var_rtt = (3.f/4.f) * rtt->var_rtt + (1.f/4.f) * var_rtt_sample;
-
-    FD_DEBUG({
-      double us_per_tick = 1.0 / (double)conn->quic->config.tick_per_us;
-      FD_LOG_NOTICE(( "conn_idx: %u  min_rtt: %f  smoothed_rtt: %f  var_rtt: %f  adj_rtt: %f  rtt_ticks: %f  ack_delay_ticks: %f  diff: %f",
-                       (uint)conn->conn_idx,
-                       us_per_tick * (double)rtt->min_rtt,
-                       us_per_tick * (double)rtt->smoothed_rtt,
-                       us_per_tick * (double)rtt->var_rtt,
-                       us_per_tick * (double)adj_rtt,
-                       us_per_tick * (double)rtt_ticks,
-                       us_per_tick * (double)ack_delay_ticks,
-                       us_per_tick * ( (double)rtt_ticks - (double)ack_delay_ticks ) ));
-    })
-  }
-
+  FD_DEBUG({
+    double us_per_tick = 1.0 / (double)conn->quic->config.tick_per_us;
+    FD_LOG_NOTICE(( "conn_idx: %u  min_rtt: %f  smoothed_rtt: %f  var_rtt: %f  adj_rtt: %f  rtt_ticks: %f  ack_delay_ticks: %f  diff: %f",
+                      (uint)conn->conn_idx,
+                      us_per_tick * (double)rtt->min_rtt,
+                      us_per_tick * (double)rtt->smoothed_rtt,
+                      us_per_tick * (double)rtt->var_rtt,
+                      us_per_tick * (double)adj_rtt,
+                      us_per_tick * (double)rtt_ticks,
+                      us_per_tick * (double)ack_delay_ticks,
+                      us_per_tick * ( (double)rtt_ticks - (double)ack_delay_ticks ) ));
+  })
 }
 
 /* fd_quic_calc_expiry returns the timestamp of the next expiry event. */
@@ -488,11 +464,12 @@ fd_quic_calc_expiry( fd_quic_conn_t * conn, ulong now ) {
      a timer for the PTO period as follows:
      PTO = smoothed_rtt + max(4*rttvar, kGranularity) + max_ack_delay  */
 
-  fd_quic_conn_rtt_t * rtt = conn->rtt;
+  fd_rtt_estimate_t * rtt = conn->rtt;
 
-  ulong duration = (ulong)( rtt->smoothed_rtt
-                        + fmaxf( 4.0f * rtt->var_rtt, rtt->sched_granularity_ticks )
-                        + rtt->peer_max_ack_delay_ticks );
+  ulong duration = (ulong)
+    ( rtt->smoothed_rtt
+        + (4.0f * rtt->var_rtt)
+        + conn->peer_max_ack_delay_ticks );
 
   FD_DTRACE_PROBE_2( quic_calc_expiry, conn->our_conn_id, duration );
 
