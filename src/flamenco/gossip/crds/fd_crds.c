@@ -72,6 +72,7 @@ struct fd_crds_entry_private {
       fd_crds_contact_info_entry_t * ci;
       long                           instance_creation_wallclock_nanos;
       uchar                          is_active;
+      ulong                          sampler_idx; /* Index into the sampler's elems array */
       struct {
         ulong prev;
         ulong next;
@@ -282,6 +283,8 @@ lookup_eq( fd_crds_key_t const * key0,
 
 #include "../../../util/tmpl/fd_map_chain.c"
 
+#include "fd_crds_peer_samplers.c"
+
 struct fd_crds_private {
   fd_crds_entry_t *          pool;
 
@@ -304,6 +307,8 @@ struct fd_crds_private {
     fd_crds_contact_info_entry_t * pool;
     crds_contact_info_dlist_t *    dlist;
   } contact_info;
+
+  crds_samplers_t            samplers[1];
 };
 
 FD_FN_CONST ulong
@@ -433,12 +438,13 @@ fd_crds_join( void * shcrds ) {
 }
 
 static inline void
-remove_contact_info( fd_crds_t *                    crds,
-                     fd_crds_entry_t *              ci ) {
+remove_contact_info( fd_crds_t *        crds,
+                     fd_crds_entry_t *  ci ) {
   crds_contact_info_dlist_ele_remove( crds->contact_info.dlist, ci, crds->pool );
   crds_contact_info_pool_ele_release( crds->contact_info.pool, ci->contact_info.ci );
   /* TODO: Emit this eviction as a gossip update event */
   /* TODO: Sampler updates */
+  crds_samplers_rem_peer( crds->samplers, ci );
 }
 
 void
@@ -678,7 +684,7 @@ fd_crds_insert( fd_crds_t *       crds,
       value->contact_info.is_active = replace->contact_info.is_active;
       if( FD_UNLIKELY( value->stake!=replace->stake ||
                        replace->wallclock_nanos<now-60*1000L*1000L*1000L ) ) {
-        /* TODO: this should trigger sampler update. Should this also check active state changes? */
+        crds_samplers_upd_peer( crds->samplers, value, now );
       }
     }
 
@@ -710,8 +716,7 @@ fd_crds_insert( fd_crds_t *       crds,
                                            value,
                                            crds->pool );
     if( FD_UNLIKELY( !is_replacing ) ) {
-      /* TODO: need to insert this NEW peer into samplers. Updates are taken
-         care of above.  */
+      crds_samplers_add_peer( crds->samplers, value, now);
     }
   }
   return 0;
@@ -758,7 +763,8 @@ fd_crds_peer_count( fd_crds_t const * crds ){
 static inline void
 set_peer_active_status( fd_crds_t *   crds,
                         uchar const * peer_pubkey,
-                        uchar         status ) {
+                        uchar         status,
+                        long          now ) {
   fd_crds_key_t key = make_contact_info_key( peer_pubkey );
 
   fd_crds_entry_t * peer_ci = lookup_map_ele_query( crds->lookup_map, &key, NULL, crds->pool );
@@ -769,18 +775,64 @@ set_peer_active_status( fd_crds_t *   crds,
 
   if( FD_UNLIKELY( old_status!=status ) ) {
     /* Trigger sampler update */
+    crds_samplers_upd_peer( crds->samplers, peer_ci, now );
   }
 }
 void
 fd_crds_peer_active( fd_crds_t *   crds,
-                     uchar const * peer_pubkey ) {
-  set_peer_active_status( crds, peer_pubkey, 1 /* active */ );
+                     uchar const * peer_pubkey,
+                     long          now ) {
+  set_peer_active_status( crds, peer_pubkey, 1 /* active */, now );
 }
 
 void
 fd_crds_peer_inactive( fd_crds_t *   crds,
-                       uchar const * peer_pubkey ) {
-  set_peer_active_status( crds, peer_pubkey, 0 /* inactive */ );
+                       uchar const * peer_pubkey,
+                       long          now ) {
+  set_peer_active_status( crds, peer_pubkey, 0 /* inactive */, now );
+}
+
+uchar const *
+fd_crds_bucket_sample_and_remove( fd_crds_t * crds,
+                                  fd_rng_t *  rng,
+                                  ulong       bucket ) {
+  ulong idx = peer_wsampler_sample( &crds->samplers->bucket_samplers[bucket],
+                                    rng,
+                                    crds->samplers->ele_cnt );
+  /* Set weight to 0 to prevent future sampling until added back with
+     fd_crds_bucket_add */
+  peer_wsampler_upd( &crds->samplers->bucket_samplers[bucket],
+                     0,
+                     idx,
+                     crds->samplers->ele_cnt );
+
+  return crds->samplers->ele[idx]->key->pubkey;
+}
+
+void
+fd_crds_bucket_add( fd_crds_t *   crds,
+                    ulong         bucket,
+                    uchar const * pubkey ) {
+  fd_crds_key_t key = make_contact_info_key( pubkey );
+  fd_crds_entry_t * peer_ci = lookup_map_ele_query( crds->lookup_map, &key, NULL, crds->pool );
+  if( FD_UNLIKELY( !peer_ci ) ) {
+    FD_LOG_ERR(( "Peer not found in CRDS. Bad entry" ));
+  }
+  ulong score = peer_wsampler_bucket_score( peer_ci,  bucket );
+  peer_wsampler_upd( &crds->samplers->bucket_samplers[bucket],
+                     score,
+                     peer_ci->contact_info.sampler_idx,
+                     crds->samplers->ele_cnt );
+}
+
+
+fd_ip4_port_t
+fd_crds_peer_sample( fd_crds_t const * crds,
+                     fd_rng_t *         rng ) {
+  ulong idx = peer_wsampler_sample( crds->samplers->pr_sampler,
+                                    rng,
+                                    crds->samplers->ele_cnt );
+  return crds->samplers->ele[idx]->contact_info.ci->contact_info->sockets[FD_GOSSIP_SOCKET_TAG_GOSSIP];
 }
 
 struct fd_crds_mask_iter_private {

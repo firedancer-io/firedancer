@@ -91,6 +91,9 @@ struct fd_gossip_private {
     ulong             cap;
   } failed_inserts;
 
+  /* Event timers */
+  long                next_active_set_refresh;
+
   /* Callbacks */
   fd_gossip_sign_fn   sign_fn;
   void *              sign_ctx;
@@ -296,8 +299,8 @@ push_my_contact_info( fd_gossip_t * gossip, long now ){
 }
 
 void
-fd_gossip_set_my_contact_info(fd_gossip_t *             gossip,
-                              fd_contact_info_t const * contact_info ) {
+fd_gossip_set_my_contact_info( fd_gossip_t *             gossip,
+                               fd_contact_info_t const * contact_info ) {
   fd_memcpy( gossip->identity_pubkey, contact_info->pubkey, 32UL );
   gossip->expected_shred_version = contact_info->shred_version;
 
@@ -635,8 +638,8 @@ rx_pull_response( fd_gossip_t *                          gossip,
                                               stake,
                                               NULL /* TODO */,
                                               now );
-          active ? fd_crds_peer_active( gossip->crds, origin_pubkey )
-                 : fd_crds_peer_inactive( gossip->crds, origin_pubkey );
+          active ? fd_crds_peer_active( gossip->crds, origin_pubkey, now )
+                 : fd_crds_peer_inactive( gossip->crds, origin_pubkey, now );
 
       }
       push_state_insert( gossip, payload, value, now );
@@ -696,8 +699,8 @@ rx_push( fd_gossip_t *                 gossip,
                                               stake,
                                               NULL /* TODO */,
                                               now );
-          active ? fd_crds_peer_active( gossip->crds, origin_pubkey )
-                 : fd_crds_peer_inactive( gossip->crds, origin_pubkey );
+          active ? fd_crds_peer_active( gossip->crds, origin_pubkey, now )
+                 : fd_crds_peer_inactive( gossip->crds, origin_pubkey, now );
 
       }
       push_state_insert( gossip, payload, value, now );
@@ -1011,7 +1014,7 @@ tx_pull_request( fd_gossip_t * gossip,
     fi_idx = (fi_idx+1UL)%gossip->failed_inserts.cap;
   }
 
-  fd_ip4_port_t peer = fd_crds_peer_sample( gossip->crds );
+  fd_ip4_port_t peer = fd_crds_peer_sample( gossip->crds, gossip->rng );
   if( FD_UNLIKELY( !peer.l )) {
     /* Choose random entrypoint */
     peer = random_entrypoint( gossip );

@@ -15,7 +15,7 @@ struct fd_crds_mask_iter_private;
 typedef struct fd_crds_mask_iter_private fd_crds_mask_iter_t;
 
 #define CRDS_MASK_ITER_SIZE   (16UL)
-#define CRDS_MAX_CONTACT_INFO 2>>15 /* 32K max contact info entries in side table */
+#define CRDS_MAX_CONTACT_INFO 1<<15 /* 32K max contact info entries in side table */
 
 FD_PROTOTYPES_BEGIN
 
@@ -172,20 +172,29 @@ fd_crds_peer_count( fd_crds_t const * crds );
 
    A peer's active state is typicallly determined by its ping/pong status. */
 void
-fd_crds_peer_active( fd_crds_t * crds,
-                     uchar const * peer_pubkey );
+fd_crds_peer_active( fd_crds_t *   crds,
+                     uchar const * peer_pubkey,
+                     long          now );
 
 void
-fd_crds_peer_inactive( fd_crds_t * crds,
-                       uchar const * peer_pubkey );
+fd_crds_peer_inactive( fd_crds_t *   crds,
+                       uchar const * peer_pubkey,
+                       long          now );
 
 /*************************** Begin Sample APIs ********************************/
+
+/* The CRDS Table also maintains a set of peer samplers for use in various
+   Gossip tx cases. Namely
+   - Rotating the active push set (bucket_samplers)
+   - Selecting a pull request target (pr_sampler) */
+
 
 /* fd_crds_bucket_* sample APIs are meant to be used by fd_active_set.
    Each bucket has a unique sampler. */
 uchar const *
-fd_crds_bucket_sample_and_remove( fd_crds_t const * crds,
-                                  ulong bucket );
+fd_crds_bucket_sample_and_remove( fd_crds_t * crds,
+                                  fd_rng_t *  rng,
+                                  ulong       bucket );
 
 /* fd_crds_bucket adds back in a peer that was previously
    sampled with fd_crds_bucket_sample_and_remove.  */
@@ -213,7 +222,8 @@ fd_crds_bucket_add( fd_crds_t *   crds,
    address suitable for sending a gossip pull request. */
 
 fd_ip4_port_t
-fd_crds_peer_sample( fd_crds_t const * crds );
+fd_crds_peer_sample( fd_crds_t const * crds,
+                     fd_rng_t *        rng );
 
 /************************* Begin Mask Iter APIs *******************************/
 
