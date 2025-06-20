@@ -11,13 +11,12 @@
 #include "../../disco/keyguard/fd_keyguard_client.h"
 #include "../../disco/net/fd_net_tile.h"
 #include "../../flamenco/gossip/fd_gossip.h"
-#include "../../flamenco/runtime/fd_system_ids.h"
-#include "../../flamenco/runtime/fd_runtime.h"
 #include "../../util/pod/fd_pod.h"
 #include "../../util/net/fd_ip4.h"
 #include "../../util/net/fd_udp.h"
 #include "../../util/net/fd_net_headers.h"
-#include "../../disco/plugin/fd_plugin.h"
+
+#include "../store/util.h"
 
 #include <unistd.h>
 #include <arpa/inet.h>
@@ -28,7 +27,7 @@
 #include <sys/socket.h>
 
 #define CONTACT_INFO_PUBLISH_TIME_NS ((long)5e9)
-#define PLUGIN_PUBLISH_TIME_NS ((long)60e9)
+#define PLUGIN_PUBLISH_TIME_NS ((long)30e9)
 
 #define IN_KIND_NET     (1)
 #define IN_KIND_SEND    (2)
@@ -42,13 +41,6 @@ static ulong
 fd_pubkey_hash( fd_pubkey_t const * key, ulong seed ) {
   return fd_hash( seed, key->key, sizeof(fd_pubkey_t) );
 }
-
-struct fd_contact_info_elem {
-  fd_pubkey_t key;
-  ulong next;
-  fd_gossip_contact_info_v1_t contact_info;
-};
-typedef struct fd_contact_info_elem fd_contact_info_elem_t;
 
 /* Contact info table */
 #define MAP_NAME     fd_contact_info_table
@@ -284,34 +276,19 @@ gossip_deliver_fun( fd_crds_data_t * data,
     ctx->verify_out_seq   = fd_seq_inc( ctx->verify_out_seq, 1UL );
     ctx->verify_out_chunk = fd_dcache_compact_next( ctx->verify_out_chunk, vote_txn_sz, ctx->verify_out_chunk0, ctx->verify_out_wmark );
 
-  } else if( fd_crds_data_is_contact_info_v1( data ) ) {
-    fd_gossip_contact_info_v1_t const * contact_info = &data->inner.contact_info_v1;
-    FD_LOG_DEBUG(("contact info v1 - ip: " FD_IP4_ADDR_FMT ", port: %u", FD_IP4_ADDR_FMT_ARGS( contact_info->gossip.inner.ip4.addr ), contact_info->gossip.inner.ip4.port ));
-
-    fd_contact_info_elem_t * ele = fd_contact_info_table_query( ctx->contact_info_table, &contact_info->id, NULL );
-    if (FD_UNLIKELY(!ele &&
-                    !fd_contact_info_table_is_full(ctx->contact_info_table))) {
-      ele = fd_contact_info_table_insert(ctx->contact_info_table,
-                                         &contact_info->id);
-    }
-    if (ele) {
-      ele->contact_info = *contact_info;
-    }
   } else if( fd_crds_data_is_contact_info_v2( data ) ) {
     fd_gossip_contact_info_v2_t const * contact_info_v2 = &data->inner.contact_info_v2;
 
-    fd_gossip_contact_info_v1_t contact_info;
-    fd_gossip_contact_info_v2_to_v1( contact_info_v2, &contact_info );
-    FD_LOG_DEBUG(("contact info v2 - ip: " FD_IP4_ADDR_FMT ", port: %u", FD_IP4_ADDR_FMT_ARGS( contact_info.gossip.inner.ip4.addr ), contact_info.gossip.inner.ip4.port ));
+    fd_contact_info_elem_t * ele = fd_contact_info_table_query( ctx->contact_info_table, &contact_info_v2->from, NULL );
 
-    fd_contact_info_elem_t * ele = fd_contact_info_table_query( ctx->contact_info_table, &contact_info.id, NULL );
-    if (FD_UNLIKELY(!ele &&
-                    !fd_contact_info_table_is_full(ctx->contact_info_table))) {
-      ele = fd_contact_info_table_insert(ctx->contact_info_table,
-                                         &contact_info.id);
+    if( FD_UNLIKELY( !ele &&
+                     !fd_contact_info_table_is_full( ctx->contact_info_table ) ) ) {
+      ele = fd_contact_info_table_insert( ctx->contact_info_table, &contact_info_v2->from);
+      fd_contact_info_init( &ele->contact_info );
     }
-    if (ele) {
-      ele->contact_info = contact_info;
+
+    if( FD_LIKELY( ele ) ) {
+      fd_contact_info_from_ci_v2( contact_info_v2, &ele->contact_info );
     }
 
   } else if( fd_crds_data_is_duplicate_shred( data ) ) {
@@ -509,41 +486,7 @@ publish_peers_to_plugin( fd_gossip_tile_ctx_t * ctx,
        iter = fd_contact_info_table_iter_next( ctx->contact_info_table, iter ), ++i ) {
     fd_contact_info_elem_t const * ele = fd_contact_info_table_iter_ele_const( ctx->contact_info_table, iter );
     fd_gossip_update_msg_t * msg = (fd_gossip_update_msg_t *)(dst + sizeof(ulong) + i*FD_GOSSIP_LINK_MSG_SIZE);
-    memset( msg, 0, FD_GOSSIP_LINK_MSG_SIZE );
-    memcpy( msg->pubkey, ele->contact_info.id.key, sizeof(fd_pubkey_t) );
-    msg->wallclock = ele->contact_info.wallclock;
-    msg->shred_version = ele->contact_info.shred_version;
-#define COPY_ADDR( _idx_, _srcname_ )                                                  \
-    if( ele->contact_info._srcname_.discriminant == fd_gossip_socket_addr_enum_ip4 ) { \
-      msg->addrs[ _idx_ ].ip = ele->contact_info._srcname_.inner.ip4.addr;             \
-      msg->addrs[ _idx_ ].port = ele->contact_info._srcname_.inner.ip4.port;           \
-    }
-    /*
-      0:  gossip_socket,
-      1:  rpc_socket,
-      2:  rpc_pubsub_socket,
-      3:  serve_repair_socket_udp,
-      4:  serve_repair_socket_quic,
-      5:  tpu_socket_udp,
-      6:  tpu_socket_quic,
-      7:  tvu_socket_udp,
-      8:  tvu_socket_quic,
-      9:  tpu_forwards_socket_udp,
-      10: tpu_forwards_socket_quic,
-      11: tpu_vote_socket,
-    */
-    COPY_ADDR(0,  gossip);
-    COPY_ADDR(1,  rpc);
-    COPY_ADDR(2,  rpc_pubsub);
-    COPY_ADDR(3,  serve_repair);
-    COPY_ADDR(4,  serve_repair);
-    COPY_ADDR(5,  tpu);
-    COPY_ADDR(6,  tpu);
-    COPY_ADDR(7,  tvu);
-    COPY_ADDR(8,  tvu);
-    COPY_ADDR(9,  tpu_fwd);
-    COPY_ADDR(10, tpu_fwd);
-    COPY_ADDR(11, tpu_vote);
+    fd_contact_info_to_update_msg( &ele->contact_info, msg );
   }
 
   *(ulong *)dst = i;
@@ -590,65 +533,61 @@ after_credit( fd_gossip_tile_ctx_t * ctx,
          !fd_contact_info_table_iter_done( ctx->contact_info_table, iter );
          iter = fd_contact_info_table_iter_next( ctx->contact_info_table, iter ) ) {
       fd_contact_info_elem_t const * ele = fd_contact_info_table_iter_ele_const( ctx->contact_info_table, iter );
+      fd_contact_info_t const * ci = &ele->contact_info;
 
-      if( ele->contact_info.shred_version!=fd_gossip_get_shred_version( ctx->gossip ) ) {
+      if( fd_contact_info_get_shred_version( ci )!=fd_gossip_get_shred_version( ctx->gossip ) ) {
         ctx->metrics.mismatched_contact_info_shred_version += 1UL;
         continue;
       }
 
       {
-        if( !fd_gossip_socket_addr_is_ip4( &ele->contact_info.tvu ) ){
-          ctx->metrics.ipv6_contact_info[ FD_METRICS_ENUM_PEER_TYPES_V_TVU_IDX ] += 1UL;
-          continue;
-        }
-
-        // TODO: add a consistency check function for IP addresses
-        if( ele->contact_info.tvu.inner.ip4.addr==0 ) {
+        ushort tvu_socket_idx = ci->socket_tag_idx[ FD_GOSSIP_SOCKET_TAG_TVU ];
+        if( tvu_socket_idx == FD_CONTACT_INFO_SOCKET_TAG_NULL ) {
           ctx->metrics.zero_ipv4_contact_info[ FD_METRICS_ENUM_PEER_TYPES_V_TVU_IDX ] += 1UL;
           continue;
         }
+        if( !fd_gossip_ip_addr_is_ip4( &ci->addrs[ ci->sockets[ tvu_socket_idx].index ] )) {
+          continue;
+        }
 
-        tvu_peers[tvu_peer_cnt].ip4_addr = ele->contact_info.tvu.inner.ip4.addr;
-        tvu_peers[tvu_peer_cnt].udp_port = ele->contact_info.tvu.inner.ip4.port;
-        memcpy( tvu_peers[tvu_peer_cnt].pubkey, ele->contact_info.id.key, sizeof(fd_pubkey_t) );
+
+        tvu_peers[tvu_peer_cnt].ip4_addr = ci->addrs[ ci->sockets[ tvu_socket_idx].index ].inner.ip4;
+        tvu_peers[tvu_peer_cnt].udp_port = ci->ports[ tvu_socket_idx ]; /* NOT converted to net order */
+        memcpy( tvu_peers[tvu_peer_cnt].pubkey, &ci->ci_crd.from, sizeof(fd_pubkey_t) );
 
         tvu_peer_cnt++;
       }
 
       {
-        if( !fd_gossip_socket_addr_is_ip4( &ele->contact_info.repair ) ) {
-          ctx->metrics.ipv6_contact_info[ FD_METRICS_ENUM_PEER_TYPES_V_REPAIR_IDX ] += 1UL;
-          continue;
-        }
-
-        // TODO: add a consistency check function for IP addresses
-        if( ele->contact_info.serve_repair.inner.ip4.addr == 0 ) {
+        ushort repair_socket_idx = ci->socket_tag_idx[ FD_GOSSIP_SOCKET_TAG_SERVE_REPAIR ];
+        if( repair_socket_idx == FD_CONTACT_INFO_SOCKET_TAG_NULL ) {
           ctx->metrics.zero_ipv4_contact_info[ FD_METRICS_ENUM_PEER_TYPES_V_REPAIR_IDX ] += 1UL;
           continue;
         }
+        if( !fd_gossip_ip_addr_is_ip4( &ci->addrs[ ci->sockets[ repair_socket_idx].index ] )) {
+          continue;
+        }
 
-        repair_peers[repair_peers_cnt].ip4_addr = ele->contact_info.serve_repair.inner.ip4.addr;
-        repair_peers[repair_peers_cnt].udp_port = ele->contact_info.serve_repair.inner.ip4.port;
-        memcpy( repair_peers[repair_peers_cnt].pubkey, ele->contact_info.id.key, sizeof(fd_pubkey_t) );
+        repair_peers[repair_peers_cnt].ip4_addr = ci->addrs[ ci->sockets[ repair_socket_idx].index ].inner.ip4;
+        repair_peers[repair_peers_cnt].udp_port = ci->ports[ repair_socket_idx ]; /* NOT converted to net order */
+        memcpy( repair_peers[repair_peers_cnt].pubkey, &ci->ci_crd.from, sizeof(fd_pubkey_t) );
 
         repair_peers_cnt++;
       }
 
       {
-        if( !fd_gossip_socket_addr_is_ip4( &ele->contact_info.tpu_vote ) ) {
-          ctx->metrics.ipv6_contact_info[ FD_METRICS_ENUM_PEER_TYPES_V_SEND_IDX ] += 1UL;
-          continue;
-        }
-
-        // TODO: add a consistency check function for IP addresses
-        if( ele->contact_info.tpu_vote.inner.ip4.addr == 0 ) {
+        ushort sender_socket_idx = ci->socket_tag_idx[ FD_GOSSIP_SOCKET_TAG_TPU_QUIC ];
+        if( sender_socket_idx == FD_CONTACT_INFO_SOCKET_TAG_NULL ) {
           ctx->metrics.zero_ipv4_contact_info[ FD_METRICS_ENUM_PEER_TYPES_V_SEND_IDX ] += 1UL;
           continue;
         }
+        if( !fd_gossip_ip_addr_is_ip4( &ci->addrs[ ci->sockets[ sender_socket_idx].index ] )) {
+          continue;
+        }
 
-        send_peers[send_peers_cnt].ip4_addr = ele->contact_info.tpu_vote.inner.ip4.addr;
-        send_peers[send_peers_cnt].udp_port = ele->contact_info.tpu_vote.inner.ip4.port;
-        memcpy( send_peers[send_peers_cnt].pubkey, ele->contact_info.id.key, sizeof(fd_pubkey_t) );
+        send_peers[send_peers_cnt].ip4_addr = ci->addrs[ ci->sockets[ sender_socket_idx ].index ].inner.ip4;
+        send_peers[send_peers_cnt].udp_port = ci->ports[ sender_socket_idx ]; /* NOT converted to net order */
+        memcpy( send_peers[send_peers_cnt].pubkey, &ci->ci_crd.from, sizeof(fd_pubkey_t) );
 
         send_peers_cnt++;
       }
@@ -951,7 +890,7 @@ unprivileged_init( fd_topo_t *      topo,
 
   FD_LOG_NOTICE(( "gossip my addr - addr: " FD_IP4_ADDR_FMT ":%u",
     FD_IP4_ADDR_FMT_ARGS( ctx->gossip_my_addr.addr ), fd_ushort_bswap( ctx->gossip_my_addr.port ) ));
-  ctx->gossip_config.my_addr       = ctx->gossip_my_addr;
+  ctx->gossip_config.my_addr    = ctx->gossip_my_addr;
   ctx->gossip_config.my_version = (fd_gossip_version_v3_t){
     .major = 42U,
     .minor = 42U,
