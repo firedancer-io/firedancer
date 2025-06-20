@@ -2725,22 +2725,8 @@ fd_quic_tls_cb_secret( fd_quic_tls_hs_t *           hs,
 }
 
 void
-fd_quic_tls_cb_peer_params( void *        context,
-                            uchar const * peer_tp_enc,
-                            ulong         peer_tp_enc_sz ) {
-  fd_quic_conn_t * conn = (fd_quic_conn_t*)context;
-
-  /* decode peer transport parameters */
-  fd_quic_transport_params_t peer_tp[1] = {0};
-  int rc = fd_quic_decode_transport_params( peer_tp, peer_tp_enc, peer_tp_enc_sz );
-  if( FD_UNLIKELY( rc != 0 ) ) {
-    FD_DEBUG( FD_LOG_NOTICE(( "fd_quic_decode_transport_params failed" )); )
-
-    /* failed to parse transport params */
-    fd_quic_conn_error( conn, FD_QUIC_CONN_REASON_TRANSPORT_PARAMETER_ERROR, __LINE__ );
-    return;
-  }
-
+fd_quic_apply_peer_params( fd_quic_conn_t *                   conn,
+                           fd_quic_transport_params_t const * peer_tp ) {
   /* flow control parameters */
   conn->tx_max_data                   = peer_tp->initial_max_data;
   conn->tx_initial_max_stream_data_uni= peer_tp->initial_max_stream_data_uni;
@@ -2798,7 +2784,7 @@ fd_quic_tls_cb_peer_params( void *        context,
                                     3UL );
 
   float tick_per_us = (float)conn->quic->config.tick_per_us;
-  conn->rtt->peer_ack_delay_scale = (float)( 1UL << peer_ack_delay_exponent ) * tick_per_us;
+  conn->peer_ack_delay_scale = (float)( 1UL << peer_ack_delay_exponent ) * tick_per_us;
 
   /* peer max ack delay in microseconds
      peer_tp->max_ack_delay is milliseconds */
@@ -2806,9 +2792,29 @@ fd_quic_tls_cb_peer_params( void *        context,
                                     peer_tp->max_ack_delay_present,
                                     peer_tp->max_ack_delay * 1000UL,
                                     25000UL );
-  conn->rtt->peer_max_ack_delay_ticks = peer_max_ack_delay_us * tick_per_us;
+  conn->peer_max_ack_delay_ticks = peer_max_ack_delay_us * tick_per_us;
 
   conn->transport_params_set = 1;
+}
+
+void
+fd_quic_tls_cb_peer_params( void *        context,
+                            uchar const * peer_tp_enc,
+                            ulong         peer_tp_enc_sz ) {
+  fd_quic_conn_t * conn = (fd_quic_conn_t*)context;
+
+  /* decode peer transport parameters */
+  fd_quic_transport_params_t peer_tp[1] = {0};
+  int rc = fd_quic_decode_transport_params( peer_tp, peer_tp_enc, peer_tp_enc_sz );
+  if( FD_UNLIKELY( rc != 0 ) ) {
+    FD_DEBUG( FD_LOG_NOTICE(( "fd_quic_decode_transport_params failed" )); )
+
+    /* failed to parse transport params */
+    fd_quic_conn_error( conn, FD_QUIC_CONN_REASON_TRANSPORT_PARAMETER_ERROR, __LINE__ );
+    return;
+  }
+
+  fd_quic_apply_peer_params( conn, peer_tp );
 }
 
 void
@@ -3967,7 +3973,7 @@ fd_quic_conn_service( fd_quic_t * quic, fd_quic_conn_t * conn, ulong now ) {
   (void)now;
 
   /* Send new rtt measurement probe? */
-  if( FD_UNLIKELY(now > conn->last_ack + (ulong)conn->rtt->rtt_period_ticks) ) {
+  if( FD_UNLIKELY(now > conn->last_ack + (ulong)conn->rtt_period_ticks) ) {
     /* send PING */
     if( !( conn->flags & ( FD_QUIC_CONN_FLAGS_PING | FD_QUIC_CONN_FLAGS_PING_SENT ) )
         && conn->state == FD_QUIC_CONN_STATE_ACTIVE ) {
@@ -4420,19 +4426,19 @@ fd_quic_conn_create( fd_quic_t *               quic,
 
   /* initial rtt */
   /* overridden when acks start returning */
-  fd_quic_conn_rtt_t * rtt = conn->rtt;
+  fd_rtt_estimate_t * rtt = conn->rtt;
 
   ulong peer_ack_delay_exponent  = 3UL; /* by spec, default is 3 */
-  rtt->peer_ack_delay_scale     = (float)( 1UL << peer_ack_delay_exponent )
+  conn->peer_ack_delay_scale     = (float)( 1UL << peer_ack_delay_exponent )
                                          * (float)quic->config.tick_per_us;
-  rtt->peer_max_ack_delay_ticks = 0.0f;        /* starts at zero, since peers respond immediately to */
+  conn->peer_max_ack_delay_ticks = 0.0f;       /* starts at zero, since peers respond immediately to */
                                                /* INITIAL and HANDSHAKE */
                                                /* updated when we get transport parameters */
-  rtt->smoothed_rtt             = FD_QUIC_INITIAL_RTT_US * (float)quic->config.tick_per_us;
-  rtt->latest_rtt               = FD_QUIC_INITIAL_RTT_US * (float)quic->config.tick_per_us;
-  rtt->min_rtt                  = FD_QUIC_INITIAL_RTT_US * (float)quic->config.tick_per_us;
-  rtt->var_rtt                  = FD_QUIC_INITIAL_RTT_US * (float)quic->config.tick_per_us * 0.5f;
-  rtt->rtt_period_ticks         = FD_QUIC_RTT_PERIOD_US  * (float)quic->config.tick_per_us;
+  rtt->smoothed_rtt              = FD_QUIC_INITIAL_RTT_US * (float)quic->config.tick_per_us;
+  rtt->latest_rtt                = FD_QUIC_INITIAL_RTT_US * (float)quic->config.tick_per_us;
+  rtt->min_rtt                   = FD_QUIC_INITIAL_RTT_US * (float)quic->config.tick_per_us;
+  rtt->var_rtt                   = FD_QUIC_INITIAL_RTT_US * (float)quic->config.tick_per_us * 0.5f;
+  conn->rtt_period_ticks         = FD_QUIC_RTT_PERIOD_US  * (float)quic->config.tick_per_us;
 
   /* highest peer encryption level */
   conn->peer_enc_level = 0;

@@ -7,6 +7,7 @@
 #include "fd_quic_conn_id.h"
 #include "crypto/fd_quic_crypto_suites.h"
 #include "fd_quic_pkt_meta.h"
+#include "../fd_rtt_est.h"
 
 #define FD_QUIC_CONN_STATE_INVALID            0 /* dead object / freed */
 #define FD_QUIC_CONN_STATE_HANDSHAKE          1 /* currently doing handshaking with peer */
@@ -67,33 +68,6 @@ struct fd_quic_conn_stream_rx {
 };
 
 typedef struct fd_quic_conn_stream_rx fd_quic_conn_stream_rx_t;
-
-struct fd_quic_conn_rtt {
-  /* is_rtt_valid indicates at least one proper sample exists of rtt */
-  int                  is_rtt_valid;
-
-  /* for converting ack_delays from peer unit into ticks
-     ack_delay_ticks = ack_delay * peer_ack_delay_scale
-     peer_ack_delay_scale is ticks per peer unit
-     peer_ack_delay_scale = (1<<peer_ack_delay_exponent) * tick_per_us */
-  float                peer_ack_delay_scale;
-
-  /* scheduling granularity in ticks
-     stored here as usually accessed along with peer_max_ack_delay_ticks */
-  float                sched_granularity_ticks;
-
-  /* peer max ack delay in microseconds */
-  float                peer_max_ack_delay_ticks;
-
-  /* RTT related members */
-  float                rtt_period_ticks; /* bound on time between RTT measurements */
-  float                smoothed_rtt;     /* in ticks */
-  float                var_rtt;          /* in ticks */
-  float                latest_rtt;       /* in ticks */
-  float                min_rtt;          /* in ticks */
-};
-
-typedef struct fd_quic_conn_rtt fd_quic_conn_rtt_t;
 
 struct fd_quic_conn {
   uint               conn_idx;            /* connection index */
@@ -240,7 +214,10 @@ struct fd_quic_conn {
   ulong                last_ack;
 
   /* round trip time related members */
-  fd_quic_conn_rtt_t rtt[1];
+  fd_rtt_estimate_t rtt[1];
+  float rtt_period_ticks;         /* bound on time between RTT measurements */
+  float peer_ack_delay_scale;     /* convert ACK delay units to ticks */
+  float peer_max_ack_delay_ticks; /* peer max ack delay in ticks */
 
   ulong token_len;
   uchar token[ FD_QUIC_RETRY_MAX_TOKEN_SZ ];
