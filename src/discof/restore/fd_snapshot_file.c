@@ -45,8 +45,10 @@ fd_snapshot_file_read( void *               _self,
       *sz = 0;
     } else {
       /* aborts app */
-      FD_LOG_WARNING(("file descriptor is %d", self->fd));
-      FD_LOG_ERR(( "readv() failed (%i-%s)", errno, fd_io_strerror( errno ) ));
+      FD_LOG_WARNING(( "readv() failed (%i-%s)", errno, fd_io_strerror( errno ) ));
+      *sz = 0;
+      self->metrics.err    = errno;
+      self->metrics.status = FD_SNAPSHOT_READER_FAIL;
     }
   } else {
     *sz = (ulong)res;

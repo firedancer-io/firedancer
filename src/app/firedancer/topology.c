@@ -712,11 +712,6 @@ fd_topo_initialize( config_t * config ) {
   /**/                 fd_topob_tile_out( topo, "sign",   0UL,                      "sign_send",     0UL                                            );
   /**/                 fd_topob_tile_in ( topo, "send",   0UL,         "metric_in", "sign_send",     0UL,    FD_TOPOB_UNRELIABLE, FD_TOPOB_UNPOLLED );
 
-  fd_topob_tile_out( topo, "SnapRd", 0UL, "snap_zstd", 0UL );
-  fd_topob_tile_in( topo, "SnapDc", 0UL, "metric_in", "snap_zstd", 0UL, FD_TOPOB_RELIABLE, FD_TOPOB_POLLED );
-  fd_topob_tile_out( topo, "SnapDc", 0UL, "snap_stream", 0UL );
-  fd_topob_tile_in  ( topo, "SnapIn", 0UL, "metric_in", "snap_stream", 0UL, FD_TOPOB_RELIABLE, FD_TOPOB_POLLED   );
-
   /**/                 fd_topob_tile_in ( topo, "pack",   0UL,         "metric_in",  "dedup_pack",   0UL,    FD_TOPOB_RELIABLE,   FD_TOPOB_POLLED   ); /* No reliable consumers of networking fragments, may be dropped or overrun */
   /**/                 fd_topob_tile_in ( topo, "pack",   0UL,         "metric_in",  "poh_pack",     0UL,    FD_TOPOB_UNRELIABLE, FD_TOPOB_POLLED   );
   /**/                 fd_topob_tile_out( topo, "pack",   0UL,                       "pack_replay",  0UL                                            );

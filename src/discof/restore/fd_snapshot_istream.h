@@ -4,6 +4,7 @@
 #include "../../util/fd_util_base.h"
 #include "fd_snapshot_reader_metrics.h"
 #include "fd_snapshot_file.h"
+#include "fd_snapshot_httpdl.h"
 
 #define SRC_FILE (0)
 #define SRC_HTTP (1)
@@ -32,15 +33,25 @@ struct fd_snapshot_istream_obj {
 typedef struct fd_snapshot_istream_obj fd_snapshot_istream_obj_t;
 
 extern fd_snapshot_istream_vt_t const fd_snapshot_istream_file_vt;
+extern fd_snapshot_istream_vt_t const fd_snapshot_istream_httpdl_vt;
 
 FD_PROTOTYPES_BEGIN
 
 static inline fd_snapshot_istream_obj_t
 fd_snapshot_istream_file( fd_snapshot_file_t * file ) {
   return (fd_snapshot_istream_obj_t) {
-    .this = file,
-    .vt   = &fd_snapshot_istream_file_vt,
+    .this     = file,
+    .vt       = &fd_snapshot_istream_file_vt,
     .src_type = SRC_FILE,
+  };
+}
+
+static inline fd_snapshot_istream_obj_t
+fd_snapshot_istream_httpdl( fd_snapshot_httpdl_t * httpdl ) {
+  return (fd_snapshot_istream_obj_t) {
+    .this     = httpdl,
+    .vt       = &fd_snapshot_istream_httpdl_vt,
+    .src_type = SRC_HTTP,
   };
 }
 

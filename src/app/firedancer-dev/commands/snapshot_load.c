@@ -5,6 +5,7 @@
 #include "../../../disco/topo/fd_topob.h"
 #include "../../../util/pod/fd_pod_format.h"
 #include "../../../util/tile/fd_tile_private.h"
+#include "../../../flamenco/snapshot/fd_snapshot_loader.h"
 #include "../../../discof/restore/fd_snapshot_messages.h"
 #include <sys/resource.h>
 #include <linux/capability.h>
@@ -44,6 +45,16 @@ _is_zstd( char const * path ) {
 static void
 snapshot_load_topo( config_t *     config,
                     args_t const * args ) {
+  /* experiment to see what comes out of parse src */
+  char snapshot_source[PATH_MAX];
+  char snapshot_source_source[ PATH_MAX ] = "http://emfr-ccn-solana-testnet-val2.jumpisolated.com:8899";
+  fd_memcpy( snapshot_source, snapshot_source_source, sizeof(snapshot_source_source) );
+  fd_snapshot_src_t src = {0};
+  fd_snapshot_src_parse_type_unknown( &src, snapshot_source_source );
+  FD_LOG_WARNING(("snapshot src dest: %s", src.http.dest));
+  FD_LOG_WARNING(("snapshot src ip4: %u", src.http.ip4));
+  FD_LOG_WARNING(("snapshot src port: %u", src.http.port));
+
   fd_topo_t * topo = &config->topo;
   fd_topob_new( &config->topo, config->name );
   topo->max_page_size = fd_cstr_to_shmem_page_sz( config->hugetlbfs.max_page_size );
@@ -195,14 +206,13 @@ snapshot_load_cmd_fn( args_t *   args,
   double ns_per_tick = 1.0/tick_per_ns;
   fd_topo_run_single_process( topo, 2, config->uid, config->gid, fdctl_tile_run, NULL );
 
-  ulong            snaprd_tile_idx     = fd_topo_find_tile( topo, "SnapRd", 0UL );
-  fd_topo_tile_t * snap_rd_tile        = snaprd_tile_idx!=ULONG_MAX ?  &topo->tiles[ snaprd_tile_idx ] : NULL;
+  fd_topo_tile_t * snap_rd_tile        = &topo->tiles[ fd_topo_find_tile( topo, "SnapIn", 0UL ) ];
   fd_topo_tile_t * const snap_in_tile  = &topo->tiles[ fd_topo_find_tile( topo, "SnapIn", 0UL ) ];
   ulong            const zstd_tile_idx =               fd_topo_find_tile( topo, "SnapDc", 0UL );
   fd_topo_tile_t * const snapdc_tile   = zstd_tile_idx!=ULONG_MAX ? &topo->tiles[ zstd_tile_idx ] : NULL;
 
   ulong *          const snap_in_fseq      = snap_in_tile->in_link_fseq[ 0 ];
-  ulong volatile * snap_rd_metrics         = snap_rd_tile ? fd_metrics_tile( snap_rd_tile->metrics ) : NULL;
+  ulong volatile * snap_rd_metrics         = fd_metrics_tile( snap_rd_tile->metrics );
   ulong volatile * const snap_in_metrics   = fd_metrics_tile( snap_in_tile->metrics );
   ulong volatile * const snapdc_in_metrics = snapdc_tile ? fd_metrics_tile( snapdc_tile->metrics ) : NULL;
 
@@ -223,7 +233,7 @@ snapshot_load_cmd_fn( args_t *   args,
   puts( "-------------backp=(snap,snap,alc ) busy=(snap,snap,alc ,idx )---------------" );
   long start = fd_log_wallclock();
   for(;;) {
-    ulong snaprd_status = snap_rd_metrics ? FD_VOLATILE_CONST( snap_rd_metrics[ MIDX( GAUGE, TILE, STATUS ) ] ) : 2UL;
+    ulong snaprd_status = FD_VOLATILE_CONST( snap_rd_metrics[ MIDX( GAUGE, TILE, STATUS ) ] );
     ulong snapin_status = FD_VOLATILE_CONST( snap_in_metrics[ MIDX( GAUGE, TILE, STATUS ) ] );
     ulong snapdc_status = snapdc_in_metrics ? FD_VOLATILE_CONST( snapdc_in_metrics[ MIDX( GAUGE, TILE, STATUS ) ] ) : 2UL;
     if( FD_UNLIKELY( snaprd_status==2UL && snapdc_status==2UL && snapin_status == 2UL ) ) {

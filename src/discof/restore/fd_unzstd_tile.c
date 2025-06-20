@@ -166,7 +166,7 @@ on_stream_frag( void *                        _ctx,
                 ulong *                       sz ) {
   fd_snapdc_tile_t * ctx = fd_type_pun(_ctx);
 
-  /* poll file complete notification */
+  /* TODO: poll file complete or retry notification */
   if( FD_UNLIKELY( fd_frag_meta_ctl_eom( frag->ctl ) ) ) {
     fd_snapdc_on_file_complete( ctx, reader, frag );
     *sz = frag->sz;

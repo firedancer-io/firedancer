@@ -22,6 +22,16 @@ typedef struct fd_incremental_snapshot_archive_entry fd_incremental_snapshot_arc
 FD_PROTOTYPES_BEGIN
 
 int
+fd_snapshot_archive_parse_full_snapshot_file( char const *                  snapshot_archive_path,
+                                              char const *                  snapshot_filename,
+                                              fd_snapshot_archive_entry_t * archive_entry );
+
+int
+fd_snapshot_archive_parse_incremental_snapshot_file( char const *                              snapshot_archive_path,
+                                                     char const *                              snapshot_filename,
+                                                     fd_incremental_snapshot_archive_entry_t * archive_entry );
+
+int
 fd_snapshot_archive_get_latest_full_snapshot( char const *                  snapshot_archive_path,
                                               fd_snapshot_archive_entry_t * full_snapshot_entry );
 

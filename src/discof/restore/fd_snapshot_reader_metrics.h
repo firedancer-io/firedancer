@@ -6,10 +6,12 @@
 #define FD_SNAPSHOT_READER_INIT  (0)
 #define FD_SNAPSHOT_READER_READ  (1)
 #define FD_SNAPSHOT_READER_DONE  (2)
-#define FD_SNAPSHOT_READER_ABORT (3)
+#define FD_SNAPSHOT_READER_RETRY (3)
+#define FD_SNAPSHOT_READER_FAIL  (4)
 
 struct fd_snapshot_reader_metrics {
   int   status;
+  int   err;
   ulong bytes_read;
   ulong bytes_total;
 };

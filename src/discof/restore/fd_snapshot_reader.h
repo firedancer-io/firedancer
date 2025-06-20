@@ -45,10 +45,15 @@ fd_snapshot_reader_footprint( void ) {
 }
 
 fd_snapshot_reader_t *
-fd_snapshot_reader_new_local( void * mem,
-                              fd_snapshot_archive_entry_t *             full_snapshot_entry,
-                              fd_incremental_snapshot_archive_entry_t * incremental_snapshot_entry,
-                              int                                       incremental_snapshot_fetch );
+fd_snapshot_reader_new( void *                                    mem,
+                        int                                       should_download_full,
+                        int                                       should_download_incremental,
+                        char const *                              snapshot_archive_path,
+                        fd_ip4_port_t const *                     peers,
+                        ulong                                     peers_cnt,
+                        fd_snapshot_archive_entry_t *             full_snapshot_entry,
+                        fd_incremental_snapshot_archive_entry_t * incremental_snapshot_entry,
+                        int                                       incremental_snapshot_fetch );
 
 static inline fd_snapshot_reader_metrics_t
 fd_snapshot_reader_read( fd_snapshot_reader_t * self,
@@ -56,19 +61,30 @@ fd_snapshot_reader_read( fd_snapshot_reader_t * self,
                          ulong                  dst_max,
                          ulong *                sz ) {
   return self->vsrc->vt->read( self->vsrc->this,
-                                dst,
-                                dst_max,
-                                sz );
+                               dst,
+                               dst_max,
+                               sz );
 }
 
 static inline void
 fd_snapshot_reader_set_source_incremental( fd_snapshot_reader_t * self ) {
+  FD_TEST( self->full_src.this );
   FD_TEST( self->incremental_src.this );
 
-  if( self->incremental_src.src_type == SRC_FILE ) {
+  /* There can be only be three different snapshot source configurations:
+     - Both full and incremental snapshot files exist on disk locally
+     - A valid local full snapshot file exists but no local incremental snapshot file exists
+     - Both the full and incremental snapshots must be downloaded */
+  if( self->full_src.src_type == SRC_FILE ) {
+    /* If the full snapshot was read from disk,
+       set the source to the incremental snapshot source, which could be
+       a file or from http */
     self->vsrc = &self->incremental_src;
-  } else if( self->incremental_src.src_type == SRC_HTTP ) {
-    /* TODO: set http to point to incremental path */
+  } else if( self->full_src.src_type == SRC_HTTP ) {
+    /* If the full snapshot was downloaded via http, then the incremental
+       snapshot must also be downloaded via http, so there is no need to
+       switch sources */
+    fd_snapshot_httpdl_set_source_incremental( self->http );
   }
 }
 
@@ -85,7 +101,7 @@ fd_snapshot_reader_delete( fd_snapshot_reader_t * self ) {
   }
 
   if( self->http ) {
-    /* TODO: delete http here */
+    fd_snapshot_httpdl_delete( self->http );
   }
 }
 

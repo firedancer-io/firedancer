@@ -13,15 +13,18 @@
 #define FILE_READ_MAX 8UL<<20
 
 #define CLUSTER_SNAPSHOT_SLOT 326672166UL
-#define PEER1 "http://emfr-ccn-solana-testnet-val2.jumpisolated.com"
-#define PEER2 "http://emfr-ccn-solana-testnet-val2.jumpisolated.com:8899"
-#define PEER3 "http://emfr-ccn-solana-testnet-val2.jumpisolated.com:8899"
 
 fd_ip4_port_t const peers[ 16UL ] = {
   { .addr = FD_IP4_ADDR( 145, 40, 95, 69 ), .port = 8899 },
   { .addr = FD_IP4_ADDR( 145, 40, 95, 69 ), .port = 8899 },
   { .addr = FD_IP4_ADDR( 145, 40, 95, 69 ), .port = 8899 }
 };
+
+struct fd_snaprd_should_download {
+  int full;
+  int incremental;
+};
+typedef struct fd_snaprd_should_download fd_snaprd_should_download_t;
 
 struct fd_snaprd_tile {
   fd_stream_writer_t * writer;
@@ -68,6 +71,7 @@ static ulong
 scratch_footprint( fd_topo_tile_t const * tile ) {
   (void)tile;
   ulong l = FD_LAYOUT_INIT;
+  FD_LOG_WARNING(("snapshot reader footprint: %lu", fd_snapshot_reader_footprint()));
   l = FD_LAYOUT_APPEND( l, alignof(fd_snaprd_tile_t),  sizeof(fd_snaprd_tile_t)       );
   l = FD_LAYOUT_APPEND( l, fd_snapshot_reader_align(), fd_snapshot_reader_footprint() );
   return FD_LAYOUT_FINI( l, alignof(fd_snaprd_tile_t) );
@@ -100,7 +104,7 @@ fd_snaprd_on_file_complete( fd_snaprd_tile_t * ctx ) {
   if( ctx->metrics.status == STATUS_FULL && ctx->config.incremental_snapshot_fetch ) {
     fd_snapshot_reader_set_source_incremental( ctx->snapshot_reader );
 
-    FD_LOG_INFO(("snaprd: done reading full snapshot, now reading incremental snapshot, seq is %lu", ctx->writer->seq ));
+    FD_LOG_INFO(("snaprd: done reading full snapshot, now reading incremental snapshot" ));
     fd_snaprd_set_status( ctx, STATUS_INC );
     fd_stream_writer_notify( ctx->writer, 
                              fd_frag_meta_ctl( 1UL, 0, 1, 0 ) );
@@ -124,7 +128,7 @@ fd_snaprd_on_file_complete( fd_snaprd_tile_t * ctx ) {
 }
 
 static void
-fd_snaprd_on_abort( fd_snaprd_tile_t * ctx ) {
+fd_snaprd_on_retry( fd_snaprd_tile_t * ctx ) {
   ctx->num_aborts++;
   fd_stream_writer_notify( ctx->writer,
                            fd_frag_meta_ctl( 0UL, 0, 0, 1 ) );
@@ -171,7 +175,7 @@ fd_snaprd_init_config( fd_snaprd_tile_t * ctx,
   ctx->config.maximum_download_retry_abort = tile->snaprd.maximum_download_retry_abort;
 }
 
-static int
+static fd_snaprd_should_download_t
 fd_snaprd_should_download( fd_snaprd_tile_t * ctx ) {
   /* first, check if there are any full local snapshots and get the highest slot */
   int res = fd_snapshot_archive_get_latest_full_snapshot( ctx->config.path,
@@ -179,9 +183,10 @@ fd_snaprd_should_download( fd_snaprd_tile_t * ctx ) {
 
   /* If we don't have any full snapshots in the snapshots archive path, we need to download  */
   if( FD_UNLIKELY( res ) ) {
-    FD_LOG_INFO(( "There are no valid local full snapshots in the\
-                  snapshots path: %s. Downloading from peers.", ctx->config.path ));
-    return 1;
+    FD_LOG_INFO(( "There are no valid local full snapshots in the"
+                  "snapshots path: %s. Downloading from peers.", ctx->config.path ));
+    return ( fd_snaprd_should_download_t ){ .full = 1,
+                                            .incremental = ctx->config.incremental_snapshot_fetch };
   }
 
   ulong highest_slot = ctx->full_snapshot_entry.slot;
@@ -191,19 +196,21 @@ fd_snaprd_should_download( fd_snaprd_tile_t * ctx ) {
                                                              &ctx->incremental_snapshot_entry );
     if( FD_UNLIKELY( res ) ) {
       /* there is no incremental snapshot entry */
-      FD_LOG_INFO(( "There are no valid local incremental snapshots\
-                    in the snapshots path %s. Downloading from peers.", ctx->config.path ));
-      return 1;
+      FD_LOG_INFO(( "There are no valid local incremental snapshots"
+                    "in the snapshots path %s. Downloading from peers.", ctx->config.path ));
+      return ( fd_snaprd_should_download_t ){ .full = 0,
+                                              .incremental = 1 };
     }
 
     /* Validate the incremental snapshot builds off the full snapshot */
     if( ctx->incremental_snapshot_entry.base_slot != ctx->full_snapshot_entry.slot ) {
-      FD_LOG_INFO(( "Local incremental snapshot at slot %lu does not build off the full snapshot at slot %lu.\
-                    Downloading from peers.", 
+      FD_LOG_INFO(( "Local incremental snapshot at slot %lu does not build off the full snapshot at slot %lu."
+                    "Downloading from peers.", 
                     ctx->incremental_snapshot_entry.inner.slot, 
                     ctx->full_snapshot_entry.slot ));
       fd_memset( &ctx->incremental_snapshot_entry, 0, sizeof(fd_incremental_snapshot_archive_entry_t) );
-      return 1;
+      return ( fd_snaprd_should_download_t ){ .full = 0,
+                                              .incremental = 1 };
     }
 
     highest_slot = ctx->incremental_snapshot_entry.inner.slot;
@@ -212,35 +219,37 @@ fd_snaprd_should_download( fd_snaprd_tile_t * ctx ) {
   /* Check that the snapshot age is within the maximum local snapshot age */
   if( highest_slot >= fd_ulong_sat_sub( CLUSTER_SNAPSHOT_SLOT, ctx->config.maximum_local_snapshot_age ) ) {
     FD_LOG_INFO(( "Re-using local snapshots at slot %lu", ctx->full_snapshot_entry.slot ));
-    return 0;
+    return ( fd_snaprd_should_download_t ){ .full = 0,
+                                            .incremental = 0 };
   } else {
     FD_LOG_INFO(( "Local snapshot at slot %lu is too old. ", ctx->full_snapshot_entry.slot ));
     fd_memset( &ctx->full_snapshot_entry, 0, sizeof(fd_snapshot_archive_entry_t) );
-    return 1;
+    return ( fd_snaprd_should_download_t ){ .full = 1,
+                                            .incremental = 1 };
   }
 }
 
 static void
 fd_snaprd_init( fd_snaprd_tile_t * ctx,
                 void *             snapshot_reader_mem ) {
-  int download = fd_snaprd_should_download( ctx );
+  fd_snaprd_should_download_t download_pair = fd_snaprd_should_download( ctx );
+  int should_download = download_pair.full || download_pair.incremental;
 
-  if( download && !ctx->config.do_download ) {
-    FD_LOG_ERR(( "There are no valid local snapshots and the validator was configured to not download snapshots.\
-                      Please reconfigure the validator to enable snapshot downloading by setting [snapshots.do_download] to true." ));
+  if( should_download && !ctx->config.do_download ) {
+    FD_LOG_ERR(( "There are no valid local snapshots and the validator was configured to not download snapshots."
+                      "Please reconfigure the validator to enable snapshot downloading by setting [snapshots.do_download] to true." ));
   }
 
-  if( download ) {
-    /* configure snaprd tile with download configuration, including peer ip, port, etc. */
-    FD_LOG_ERR(("I can't support this yet!"));
-  }
-  else {
-    FD_LOG_WARNING(("booting snapshot reader with local snapshots"));
-    ctx->snapshot_reader = fd_snapshot_reader_new_local( snapshot_reader_mem,
-                                                         &ctx->full_snapshot_entry,
-                                                         &ctx->incremental_snapshot_entry,
-                                                         ctx->config.incremental_snapshot_fetch );
-  }
+  /* TODO: get peers from gossip, right now they are hardcoded */
+  ctx->snapshot_reader = fd_snapshot_reader_new( snapshot_reader_mem,
+                                                 download_pair.full,
+                                                 download_pair.incremental,
+                                                 ctx->config.path,
+                                                 peers,
+                                                 16UL,
+                                                 &ctx->full_snapshot_entry,
+                                                 &ctx->incremental_snapshot_entry,
+                                                 ctx->config.incremental_snapshot_fetch );
 
 }
 
@@ -264,10 +273,11 @@ unprivileged_init( fd_topo_t *      topo,
   if( FD_UNLIKELY( tile->in_cnt !=0UL ) ) FD_LOG_ERR(( "tile `" NAME "` has %lu ins, expected 0",  tile->in_cnt  ));
   if( FD_UNLIKELY( tile->out_cnt!=1UL ) ) FD_LOG_ERR(( "tile `" NAME "` has %lu outs, expected 1", tile->out_cnt ));
 
-  fd_snaprd_tile_t * ctx = fd_topo_obj_laddr( topo, tile->tile_obj_id );
+  FD_SCRATCH_ALLOC_INIT( l, fd_topo_obj_laddr( topo, tile->tile_obj_id ) );
+  fd_snaprd_tile_t * ctx               = FD_SCRATCH_ALLOC_APPEND( l, alignof(fd_snaprd_tile_t), sizeof(fd_snaprd_tile_t) );
+
   ctx->metrics.full.bytes_read         = 0UL;
   ctx->metrics.incremental.bytes_read  = 0UL;
-
   fd_snaprd_set_status( ctx, STATUS_FULL );
 }
 
@@ -284,8 +294,8 @@ static void
 after_credit( void *            _ctx,
               fd_stream_ctx_t * stream_ctx,
               int *             poll_in FD_PARAM_UNUSED ) {
-  fd_snaprd_tile_t * ctx = _ctx;
   (void)stream_ctx;
+  fd_snaprd_tile_t * ctx = fd_type_pun( _ctx );
 
   uchar * out     = fd_stream_writer_prepare( ctx->writer );
   ulong   out_max = fd_stream_writer_publish_sz_max( ctx->writer );
@@ -296,8 +306,11 @@ after_credit( void *            _ctx,
 
   if( metrics.status == FD_SNAPSHOT_READER_DONE ) {
     fd_snaprd_on_file_complete( ctx );
-  } else if( metrics.status == FD_SNAPSHOT_READER_ABORT ) {
-    fd_snaprd_on_abort( ctx );
+  } else if( metrics.status == FD_SNAPSHOT_READER_RETRY ) {
+    fd_snaprd_on_retry( ctx );
+  } else if( metrics.status == FD_SNAPSHOT_READER_FAIL ) {
+    /* aborts app */
+    FD_LOG_ERR(( "Failed to read snapshot: %d", metrics.err ));
   }
 
   fd_stream_writer_publish( ctx->writer, sz, 0UL );

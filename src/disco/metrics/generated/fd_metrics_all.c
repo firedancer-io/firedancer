@@ -53,13 +53,10 @@ const char * FD_METRICS_TILE_KIND_NAMES[FD_METRICS_TILE_KIND_CNT] = {
     "netlnk",
     "sock",
     "repair",
-<<<<<<< HEAD
     "send",
-=======
     "snaprd",
     "snapdc",
     "snapin",
->>>>>>> 4f7104236 (compiles)
 };
 
 const ulong FD_METRICS_TILE_KIND_SIZES[FD_METRICS_TILE_KIND_CNT] = {
@@ -80,13 +77,10 @@ const ulong FD_METRICS_TILE_KIND_SIZES[FD_METRICS_TILE_KIND_CNT] = {
     FD_METRICS_NETLNK_TOTAL,
     FD_METRICS_SOCK_TOTAL,
     FD_METRICS_REPAIR_TOTAL,
-<<<<<<< HEAD
     FD_METRICS_SEND_TOTAL,
-=======
     FD_METRICS_SNAPRD_TOTAL,
     FD_METRICS_SNAPDC_TOTAL,
     FD_METRICS_SNAPIN_TOTAL,
->>>>>>> 4f7104236 (compiles)
 };
 const fd_metrics_meta_t * FD_METRICS_TILE_KIND_METRICS[FD_METRICS_TILE_KIND_CNT] = {
     FD_METRICS_NET,
@@ -106,11 +100,8 @@ const fd_metrics_meta_t * FD_METRICS_TILE_KIND_METRICS[FD_METRICS_TILE_KIND_CNT]
     FD_METRICS_NETLNK,
     FD_METRICS_SOCK,
     FD_METRICS_REPAIR,
-<<<<<<< HEAD
     FD_METRICS_SEND,
-=======
     FD_METRICS_SNAPRD,
     FD_METRICS_SNAPDC,
     FD_METRICS_SNAPIN,
->>>>>>> 4f7104236 (compiles)
 };

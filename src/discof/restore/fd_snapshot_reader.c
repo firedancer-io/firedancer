@@ -6,10 +6,15 @@
 #include <unistd.h>
 
 fd_snapshot_reader_t *
-fd_snapshot_reader_new_local( void *                                    mem,
-                              fd_snapshot_archive_entry_t *             full_snapshot_entry,
-                              fd_incremental_snapshot_archive_entry_t * incremental_snapshot_entry,
-                              int                                       incremental_snapshot_fetch ) {
+fd_snapshot_reader_new( void *                                    mem,
+                        int                                       should_download_full,
+                        int                                       should_download_incremental,
+                        char const *                              snapshot_archive_path,
+                        fd_ip4_port_t const *                     peers,
+                        ulong                                     peers_cnt,
+                        fd_snapshot_archive_entry_t *             full_snapshot_entry,
+                        fd_incremental_snapshot_archive_entry_t * incremental_snapshot_entry,
+                        int                                       incremental_snapshot_fetch ) {
   if( FD_UNLIKELY( !mem ) ) {
     FD_LOG_WARNING(( "NULL mem" ));
     return NULL;
@@ -21,28 +26,63 @@ fd_snapshot_reader_new_local( void *                                    mem,
   }
 
   FD_SCRATCH_ALLOC_INIT( l, mem );
-  fd_snapshot_reader_t * self   = FD_SCRATCH_ALLOC_APPEND( l, fd_snapshot_reader_align(), fd_snapshot_reader_footprint() );
+  fd_snapshot_reader_t * self   = FD_SCRATCH_ALLOC_APPEND( l,
+                                                           alignof(fd_snapshot_reader_t),
+                                                           sizeof(fd_snapshot_reader_t) );
+  fd_memset( self, 0, sizeof(fd_snapshot_reader_t) );
 
-  void * full_snapshot_file_mem = FD_SCRATCH_ALLOC_APPEND( l, fd_snapshot_file_align(),   fd_snapshot_file_footprint() );
-  int full_fd = open( full_snapshot_entry->filename, O_RDONLY|O_CLOEXEC );
-  if( FD_UNLIKELY( full_fd<0 ) ) FD_LOG_ERR(( "open() failed (%i-%s)", errno, fd_io_strerror( errno ) ));
-  self->full_snapshot_file = fd_snapshot_file_new( full_snapshot_file_mem, full_fd );
-
-  if( incremental_snapshot_fetch && incremental_snapshot_entry ) {
-    void * incremental_snapshot_file_mem = FD_SCRATCH_ALLOC_APPEND( l, fd_snapshot_file_align(),   fd_snapshot_file_footprint() );
-    int inc_fd = open( incremental_snapshot_entry->inner.filename, O_RDONLY|O_CLOEXEC );
-    if( FD_UNLIKELY( inc_fd<0 ) ) FD_LOG_ERR(( "open() failed (%i-%s)", errno, fd_io_strerror( errno ) ));
-    self->incremental_snapshot_file = fd_snapshot_file_new( incremental_snapshot_file_mem, inc_fd );
-  } else {
-    self->incremental_snapshot_file = NULL;
-    fd_memset( &self->incremental_src, 0, sizeof(fd_snapshot_istream_obj_t) );
+  if( should_download_full || should_download_incremental ) {
+    void * http_mem = FD_SCRATCH_ALLOC_APPEND( l,
+                                               fd_snapshot_httpdl_align(),
+                                               fd_snapshot_httpdl_footprint() );
+    self->http = fd_snapshot_httpdl_new( http_mem,
+                                              peers_cnt,
+                                              peers,
+                                              snapshot_archive_path,
+                                              full_snapshot_entry,
+                                              incremental_snapshot_entry );
+    if( should_download_full ) {
+      fd_snapshot_httpdl_set_source_full( self->http );
+      self->full_src = fd_snapshot_istream_httpdl( self->http );
+    } else {
+      fd_snapshot_httpdl_set_source_incremental( self->http );
+      self->incremental_src = fd_snapshot_istream_httpdl( self->http );
+    }
   }
 
-  self->http = NULL;
+  if( !should_download_full ) {
+    /* Set up local snapshot file sources */
+    if( FD_UNLIKELY( !full_snapshot_entry->filename[0] ) ) {
+      FD_LOG_WARNING(( "NULL full_snapshot_entry" ));
+      return NULL;
+    }
 
-  /* set up virtual source */
-  self->full_src        = fd_snapshot_istream_file( self->full_snapshot_file );
-  self->incremental_src = fd_snapshot_istream_file( self->incremental_snapshot_file );
-  self->vsrc            = &self->full_src;
+    void * full_snapshot_file_mem = FD_SCRATCH_ALLOC_APPEND( l,
+                                                             fd_snapshot_file_align(),
+                                                             fd_snapshot_file_footprint() );
+    int full_fd = open( full_snapshot_entry->filename, O_RDONLY|O_CLOEXEC );
+    if( FD_UNLIKELY( full_fd<0 ) ) FD_LOG_ERR(( "open() failed (%i-%s)", errno, fd_io_strerror( errno ) ));
+
+    self->full_snapshot_file = fd_snapshot_file_new( full_snapshot_file_mem, full_fd );
+    self->full_src           = fd_snapshot_istream_file( self->full_snapshot_file );
+  }
+
+  if( incremental_snapshot_fetch && !should_download_incremental ) {
+    if( !incremental_snapshot_entry->inner.filename[0] ) {
+      FD_LOG_WARNING(( "NULL incremental_snapshot_entry" ));
+      return NULL;
+    }
+
+    void * incremental_snapshot_file_mem = FD_SCRATCH_ALLOC_APPEND( l,
+                                                                    fd_snapshot_file_align(),
+                                                                    fd_snapshot_file_footprint() );
+    int inc_fd = open( incremental_snapshot_entry->inner.filename, O_RDONLY|O_CLOEXEC );
+    if( FD_UNLIKELY( inc_fd<0 ) ) FD_LOG_ERR(( "open() failed (%i-%s)", errno, fd_io_strerror( errno ) ));
+
+    self->incremental_snapshot_file = fd_snapshot_file_new( incremental_snapshot_file_mem, inc_fd );
+    self->incremental_src           = fd_snapshot_istream_file( self->incremental_snapshot_file );
+  }
+
+  self->vsrc = &self->full_src;
   return self;
 }

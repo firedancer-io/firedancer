@@ -2218,18 +2218,6 @@ after_credit( fd_replay_tile_ctx_t * ctx,
               int *                  opt_poll_in FD_PARAM_UNUSED,
               int *                  charge_busy FD_PARAM_UNUSED ) {
 
-  if( FD_UNLIKELY( !ctx->snapshot_init_done ) ) {
-    if( ctx->plugin_out->mem ) {
-      uchar msg[56];
-      fd_memset( msg, 0, sizeof(msg) );
-      msg[ 0 ] = 0; // ValidatorStartProgress::Initializing
-      replay_plugin_publish( ctx, stem, FD_PLUGIN_MSG_START_PROGRESS, msg, sizeof(msg) );
-    }
-    init_snapshot( ctx, stem );
-    ctx->snapshot_init_done = 1;
-    //*charge_busy = 0;
-  }
-
   /* TODO: Consider moving state management to during_housekeeping */
 
   if( FD_UNLIKELY( !ctx->snapshot_state && !ctx->snapshot_init_done ) ) {

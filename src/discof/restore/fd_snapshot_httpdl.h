@@ -49,6 +49,7 @@ struct fd_snapshot_httpdl {
   ushort hops;
   int    socket_fd;
   int    state;
+  int    snapshot_type; /* 0 for full, 1 for incremental */
   long   req_deadline;
 
   /* Http request path */
@@ -60,16 +61,15 @@ struct fd_snapshot_httpdl {
     char req_buf[ 4+FD_SNAPSHOT_HTTP_REQ_PATH_MAX+FD_SNAPSHOT_HTTP_REQ_HDRS_MAX ];
   };
 
-  ushort req_tail;  /* index of first unsent char */
-  ushort req_head;  /* index of end of request buf */
-  ushort path_off;
-  ushort _pad;
+  ulong req_tail;  /* index of first unsent char */
+  ulong req_head;  /* index of end of request buf */
+  ulong path_off;
 
   /* HTTP response header buffer */
 
   uchar resp_buf[ FD_SNAPSHOT_HTTP_RESP_BUF_MAX ];
-  uint  resp_tail;
-  uint  resp_head;
+  ulong resp_tail;
+  ulong resp_head;
 
   /* value from "content-length:" */
 
@@ -83,15 +83,17 @@ struct fd_snapshot_httpdl {
 
   ulong write_total;
 
+  /* full snapshot base slot used to verify incremental snapshot */
+  ulong base_slot;
+
   /* File to store downloaded snapshot contents.
      Named as <snapshot-type>-<slot>-<hash>-partial.tar.zst */
-  char snapshot_archive_path[ PATH_MAX ];
-  int   full_snapshot_fd;
-  int   incremental_snapshot_fd;
+  char  snapshot_archive_path[ PATH_MAX ];
+  int   current_snapshot_fd;
 
   /* snapshot entries */
-  fd_snapshot_archive_entry_t full_snapshot_entry;
-  fd_incremental_snapshot_archive_entry_t incremental_snapshot_entry;
+  fd_snapshot_archive_entry_t *             full_snapshot_entry;
+  fd_incremental_snapshot_archive_entry_t * incremental_snapshot_entry;
 
   /* metrics */
   fd_snapshot_reader_metrics_t metrics;
@@ -110,15 +112,29 @@ fd_snapshot_httpdl_footprint( void ) {
 }
 
 fd_snapshot_httpdl_t *
-fd_snapshot_httpdl_new( void *              mem,
-                        ulong               peers_cnt,
-                        fd_ip4_port_t const peers[ FD_SNAPSHOT_HTTP_MAX_NODES ],
-                        char const *        snapshot_archive_path );
+fd_snapshot_httpdl_new( void *                                    mem,
+                        ulong                                     peers_cnt,
+                        fd_ip4_port_t const                       peers[ FD_SNAPSHOT_HTTP_MAX_NODES ],
+                        char const *                              snapshot_archive_path,
+                        fd_snapshot_archive_entry_t *             full_snapshot_entry,
+                        fd_incremental_snapshot_archive_entry_t * incremental_snapshot_entry );
+
+void
+fd_snapshot_httpdl_set_source_full( fd_snapshot_httpdl_t * self );
+
+void
+fd_snapshot_httpdl_set_source_incremental( fd_snapshot_httpdl_t * self );
 
 void
 fd_snapshot_httpdl_set_path( fd_snapshot_httpdl_t * self,
                              char const *           path,
                              ulong                  path_len );
+
+fd_snapshot_reader_metrics_t
+fd_snapshot_httpdl_read( void *  _self,
+                         uchar * dst,
+                         ulong   dst_max,
+                         ulong * sz );
 
 void *
 fd_snapshot_httpdl_delete( fd_snapshot_httpdl_t * self );
