@@ -562,6 +562,157 @@ fd_wsample_remove_idx( fd_wsample_t * sampler,
   fd_wsample_remove( sampler, r );
 }
 
+
+#if FD_HAS_AVX512
+
+/* TRAVERSE_LEVEL Takes in and updates s (a vector with all elements set
+   to the unremoved weight in the current subtree), x or xprime (a
+   vector with all elements set to the current query value, or the
+   value+1, respectively), and cursor (a ulong of the current position
+   in the traversal).  See fd_wsample_map_sample_i for more about these
+   values.  Calling this macro height times is the same as calling
+   fd_wsample_map_sample_i, except for that it declares mask{i} and
+   cursor{i}, to save work in PROPAGATE_LEVEL, which is like
+   fd_wsample_remove.
+
+   This only works in the R=9 case, but we'll explain it as if R=5 like
+   before.  Then, v, a vector of tree elements has values
+           ----------------------------------------
+           |    a    |   a+b  |  a+b+c  | a+b+c+d |
+           ----------------------------------------
+   Then, like before, the desired state is
+         If...                pick,   and  l_{i-1}    and l_i
+              x < a         child 0        0             a
+    a      <= x < a+b       child 1        a            a+b
+    a+b    <= x < a+b+c     child 2       a+b          a+b+c
+    a+b+c  <= x < a+b+c+d   child 3      a+b+c        a+b+c+d
+    a+b+c+d<= x             child 4     a+b+c+d      a+b+c+d+e
+
+   Below, there are two pretty different implementations, and this
+   explains both:
+
+   Implementation 1:
+   We want to get information about v0<=x in as much as the vector as
+   fast as possible.  We could do some kind of compress and then bcast,
+   but operations with mask registers are frustratingly slow.  Instead,
+   we first define x'=x+1, so then v0<=x is equivalent to v0-x'<0, or
+   whether v0-x' has the high bit set.  Because of
+   fd_chacha20rng_ulong_roll's contract, we know x<ULONG_MAX, so forming
+   x' is safe. We then use a _mm512_permutexvar_epi8 to essentially
+   broadcast the high byte from each of the ulongs (really we just need
+   the high bit) to the whole vector.  A popcnt gives us our base
+   values.
+
+                  Case             compressed_signs   popcnt  popcnt-1
+                   x < a                      0         0       -1
+         a      <= x < a+b                 0x80         1        0
+         a+b    <= x < a+b+c             0x8080         2        1
+         a+b+c  <= x < a+b+c+d         0x808080         3        2
+         a+b+c+d<= x                 0x80808080         4        3
+
+   Then, keeping in mind that _mm512_permutex2var_epi64 will select an
+   element from the second vector if the next highest bit is set, using
+   popcnt-1 as the selector and (vec, 0) as (a,b) gives l_{i-1}; and
+   using popcnt as the selector with (vec, s) gives l_i.
+
+   Finally, we just need to produce the mask mask{i}, which we can do
+   with wwv_lt, off the critical path.
+
+
+   Implementation 2
+   We first use wwv_le to compare v0<=x to form lmask.  Then We extract
+   the most significant bit by lmask^(lmask>>1).  Note that below the
+   bits are written least to most significant, which is backwards of the
+   normal way.
+
+               Case            lmask       single_bit     ~lmask
+                x < a         0 0 0 0       0 0 0 0       1 1 1 1
+      a      <= x < a+b       1 0 0 0       1 0 0 0       0 1 1 1
+      a+b    <= x < a+b+c     1 1 0 0       0 1 0 0       0 0 1 1
+      a+b+c  <= x < a+b+c+d   1 1 1 0       0 0 1 0       0 0 0 1
+      a+b+c+d<= x             1 1 1 1       0 0 0 1       0 0 0 0
+
+   Then we use _mm512_mask_compress_epi64 to move the element
+   corresponding to the first set bit to the 0th position, or the src
+   vector if there aren't any set bits.  From there, we can use
+   _mm512_broadcastq_epi64 to fill a vector with that value.  Applying
+  this trick to single_bit gives us l_{i-1} and to ~lmask give l_i. */
+#define FD_WSAMPLE_IMPLEMENTATION 2
+
+#if FD_WSAMPLE_IMPLEMENTATION==1
+#define PREPARE()                                                                            \
+  ulong cursor           = 0UL;                                                              \
+  wwv_t xprime           = wwv_bcast( unif+1UL );                                            \
+  wwv_t s                = wwv_bcast( sampler->unremoved_weight );                           \
+  wwv_t high_bit_mask    = wwv_bcast( 0x8000000000000000UL );                                \
+  wwv_t gather_signs_idx = wwv_bcast( 0x070F171F272F373FUL )
+
+#define TRAVERSE_LEVEL(i)                                                                    \
+  __mmask8 mask##i;                                                                          \
+  ulong    cursor##i = cursor;                                                               \
+  wwv_t    vec##i;                                                                           \
+  do {                                                                                       \
+    wwv_t vec  = wwv_ld( tree[cursor].left_sum );                                            \
+    wwv_t sign = wwv_and( high_bit_mask, wwv_sub( vec, xprime ) );                           \
+    wwv_t compressed_signs = _mm512_permutexvar_epi8( gather_signs_idx, sign );              \
+    wwv_t popcnt = _mm512_popcnt_epi64( compressed_signs );                                  \
+    wwv_t li = _mm512_permutex2var_epi64( vec, popcnt, s );                                  \
+    wwv_t lim1 = _mm512_permutex2var_epi64( vec, wwv_sub( popcnt, wwv_one() ), wwv_zero() ); \
+    mask##i = _mm512_cmpge_epu64_mask( vec, xprime );                                        \
+    xprime = wwv_sub( xprime, lim1 );                                                        \
+    s = wwv_sub( li, lim1 );                                                                 \
+    ulong child_idx = (ulong)_mm_extract_epi64( _mm512_castsi512_si128( popcnt ), 0 );       \
+    cursor = R*cursor + child_idx + 1UL;                                                     \
+    vec##i = vec;                                                                            \
+  } while( 0 )
+
+#define PROPAGATE_LEVEL(i)                                                                   \
+  wwv_st( tree[cursor##i].left_sum, wwv_sub_if( mask##i, vec##i, s, vec##i ) );
+
+#define FINALIZE()                                                                              \
+  do {                                                                                          \
+    sampler->unremoved_weight -= (ulong)_mm256_extract_epi64( _mm512_castsi512_si256( s ), 0 ); \
+    sampler->unremoved_cnt--;                                                                   \
+  } while( 0 )
+
+#elif FD_WSAMPLE_IMPLEMENTATION==2
+
+#define PREPARE()                                                                            \
+  ulong cursor           = 0UL;                                                              \
+  wwv_t x                = wwv_bcast( unif );                                                \
+  wwv_t s                = wwv_bcast( sampler->unremoved_weight );                           \
+
+#define TRAVERSE_LEVEL(i)                                                                                             \
+  __mmask8 mask##i;                                                                                                   \
+  ulong    cursor##i = cursor;                                                                                        \
+  wwv_t    vec##i;                                                                                                    \
+  do {                                                                                                                \
+    wwv_t vec  = wwv_ld( tree[cursor].left_sum );                                                                     \
+    __mmask8 lmask = _mm512_cmple_epu64_mask( vec, x );                                                               \
+    cursor = R*cursor + (ulong)fd_uchar_popcnt( lmask ) + 1UL;                                                        \
+    __mmask8 single_bit = _kxor_mask8( lmask, _kshiftri_mask8( lmask, 1U ) );                                         \
+    wwv_t lim1 = _mm512_broadcastq_epi64( _mm512_castsi512_si128( _mm512_maskz_compress_epi64( single_bit, vec ) ) ); \
+    x = wwv_sub( x, lim1 );                                                                                           \
+    mask##i = _knot_mask8( lmask );                                                                                   \
+    wwv_t li = _mm512_broadcastq_epi64( _mm512_castsi512_si128( _mm512_mask_compress_epi64( s, mask##i, vec ) ) );    \
+    s = wwv_sub( li, lim1 );                                                                                          \
+    vec##i = vec;                                                                                                     \
+  } while( 0 )
+
+#define PROPAGATE_LEVEL(i)                                                                                          \
+  wwv_st( tree[cursor##i].left_sum, wwv_sub_if( mask##i, vec##i, s, vec##i ) );
+
+#define FINALIZE()                                                                              \
+  do {                                                                                          \
+    sampler->unremoved_weight -= (ulong)_mm256_extract_epi64( _mm512_castsi512_si256( s ), 0 ); \
+    sampler->unremoved_cnt--;                                                                   \
+  } while( 0 )
+
+#endif
+#else
+#define FD_WSAMPLE_IMPLEMENTATION 0
+#endif
+
 /* For now, implement the _many functions as loops over the single
    sample functions.  It is possible to do better though. */
 
@@ -589,6 +740,25 @@ fd_wsample_sample_and_remove_many( fd_wsample_t * sampler,
       sampler->poisoned_mode = 1;
       continue;
     }
+#if FD_WSAMPLE_IMPLEMENTATION > 0
+  if( FD_LIKELY( sampler->height==4UL ) ) {
+    tree_ele_t * tree = sampler->tree;
+    PREPARE();
+
+    TRAVERSE_LEVEL(0);
+    TRAVERSE_LEVEL(1);
+    TRAVERSE_LEVEL(2);
+    TRAVERSE_LEVEL(3);
+    PROPAGATE_LEVEL(0);
+    PROPAGATE_LEVEL(1);
+    PROPAGATE_LEVEL(2);
+    PROPAGATE_LEVEL(3);
+
+    FINALIZE();
+    idxs[ i ] = cursor - sampler->internal_node_cnt;
+    continue;
+  }
+#endif
     idxw_pair_t p = fd_wsample_map_sample_i( sampler, unif );
     fd_wsample_remove( sampler, p );
     idxs[ i ] = p.idx;
@@ -615,6 +785,24 @@ fd_wsample_sample_and_remove( fd_wsample_t * sampler ) {
     sampler->poisoned_mode = 1;
     return FD_WSAMPLE_INDETERMINATE;
   }
+
+#if FD_WSAMPLE_IMPLEMENTATION > 0
+  if( FD_LIKELY( sampler->height==4UL ) ) {
+    tree_ele_t * tree = sampler->tree;
+    PREPARE();
+
+    TRAVERSE_LEVEL(0);
+    TRAVERSE_LEVEL(1);
+    TRAVERSE_LEVEL(2);
+    TRAVERSE_LEVEL(3);
+    PROPAGATE_LEVEL(0);
+    PROPAGATE_LEVEL(1);
+    PROPAGATE_LEVEL(2);
+    PROPAGATE_LEVEL(3);
+    FINALIZE();
+    return cursor - sampler->internal_node_cnt;
+  }
+#endif
   idxw_pair_t p = fd_wsample_map_sample_i( sampler, unif );
   fd_wsample_remove( sampler, p );
   return p.idx;
