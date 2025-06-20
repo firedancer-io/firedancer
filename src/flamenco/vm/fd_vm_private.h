@@ -206,7 +206,7 @@ fd_vm_mem_cfg( fd_vm_t * vm ) {
   vm->region_haddr[FD_VM_STACK_REGION] = (ulong)vm->stack;  vm->region_ld_sz[FD_VM_STACK_REGION] = (uint)FD_VM_STACK_MAX; vm->region_st_sz[FD_VM_STACK_REGION] = (uint)FD_VM_STACK_MAX;
   vm->region_haddr[FD_VM_HEAP_REGION]  = (ulong)vm->heap;   vm->region_ld_sz[FD_VM_HEAP_REGION]  = (uint)vm->heap_max;    vm->region_st_sz[FD_VM_HEAP_REGION]  = (uint)vm->heap_max;
   vm->region_haddr[5]                  = 0UL;               vm->region_ld_sz[5]                  = (uint)0UL;             vm->region_st_sz[5]                  = (uint)0UL;
-  if( FD_FEATURE_ACTIVE( vm->instr_ctx->txn_ctx->slot, vm->instr_ctx->txn_ctx->features, bpf_account_data_direct_mapping ) || !vm->input_mem_regions_cnt ) {
+  if( vm->direct_mapping || !vm->input_mem_regions_cnt ) {
     /* When direct mapping is enabled, we don't use these fields because
        the load and stores are fragmented. */
     vm->region_haddr[FD_VM_INPUT_REGION] = 0UL;
