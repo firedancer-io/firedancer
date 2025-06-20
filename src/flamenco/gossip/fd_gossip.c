@@ -1072,8 +1072,11 @@ fd_gossip_advance( fd_gossip_t * gossip,
   //   refresh_contact_info( gossip, now );
   //   gossip->next_contact_info_refresh = now+15L*500L*1000L*1000L; /* TODO: Jitter */
   // }
-  // if( FD_UNLIKELY( now>=gossip->next_active_set_refresh ) ) {
-  //   refresh_active_set( gossip, now );
-  //   gossip->next_active_set_refresh = now+300L*1000L*1000L; /* TODO: Jitter */
-  // }
+  if( FD_UNLIKELY( now>=gossip->next_active_set_refresh ) ) {
+    ulong replaced_idx;
+    fd_active_set_rotate( gossip->active_set, gossip->crds, &replaced_idx );
+    gossip->next_active_set_refresh = now+300L*1000L*1000L; /* TODO: Jitter */
+    push_state_flush( gossip, &gossip->active_push_state[replaced_idx], now);
+    push_state_new( &gossip->active_push_state[replaced_idx], gossip->identity_pubkey );
+  }
 }

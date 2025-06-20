@@ -2,6 +2,7 @@
 #define HEADER_fd_src_flamenco_gossip_fd_active_set_h
 
 #include "fd_bloom.h"
+#include "crds/fd_crds.h"
 
 /* fd_active_set provides APIs for tracking the active set of nodes we
    should push messages to in a gossip network.
@@ -118,10 +119,8 @@ fd_active_set_prunes( fd_active_set_t * active_set,
 
 void
 fd_active_set_rotate( fd_active_set_t *     active_set,
-                      ulong                 cluster_size,
-                      uchar const * const * nodes,
-                      ulong const *         stakes,
-                      ulong                 nodes_len );
+                      fd_crds_t *           crds,
+                      ulong *               opt_replaced_node_idx );
 
 FD_PROTOTYPES_END
 

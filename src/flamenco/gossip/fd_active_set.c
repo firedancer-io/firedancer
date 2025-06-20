@@ -147,40 +147,32 @@ fd_active_set_prunes( fd_active_set_t * active_set,
 
 void
 fd_active_set_rotate( fd_active_set_t *     active_set,
-                      ulong                 cluster_size,
-                      uchar const * const * nodes,
-                      ulong const *         stakes,
-                      ulong                 nodes_len ) {
-  ulong num_bloom_filter_items = fd_ulong_max( cluster_size, 512UL );
+                      fd_crds_t *           crds,
+                      ulong *               opt_replaced_node_idx ) {
+  ulong num_bloom_filter_items = fd_ulong_max( fd_crds_peer_count( crds ), 512UL );
 
-  for( ulong i=0UL; i<25UL; i++ ) {
-    fd_active_set_entry_t * entry = active_set->entries[ i ];
+  ulong bucket = fd_rng_ulong_roll( active_set->rng, 25UL );
+  fd_active_set_entry_t * entry = active_set->entries[ bucket ];
 
-    /* TODO: Weighted shuffle of nodes by stake */
-    (void)stakes;
+  ulong replace_idx;
 
-    for( ulong i=0UL; i<nodes_len; i++ ) {
-      int has_peer = 0;
-      for( ulong j=0UL; j<entry->nodes_len; j++ ) {
-        fd_active_set_peer_t * peer = entry->nodes[ (entry->nodes_idx+j) % 12UL ];
+  if( FD_LIKELY( entry->nodes_len==12UL ) ) {
+    replace_idx = fd_rng_ulong_roll( active_set->rng, entry->nodes_len );
+    fd_crds_bucket_add( crds, bucket, entry->nodes[ replace_idx ]->pubkey );
+  } else {
+    replace_idx = entry->nodes_len;
+    entry->nodes_len++;
+  }
 
-        if( FD_UNLIKELY( !memcmp( peer->pubkey, nodes[ i ], 32UL ) ) ) {
-          has_peer = 1;
-          break;
-        }
-      }
+  fd_active_set_peer_t * replace = entry->nodes[ replace_idx ];
 
-      if( FD_LIKELY( has_peer ) ) continue;
+  uchar const * new_peer = fd_crds_bucket_sample_and_remove( crds, bucket);
+  fd_bloom_initialize( replace->bloom, num_bloom_filter_items );
+  fd_bloom_insert( replace->bloom, new_peer, 32UL );
+  fd_memcpy( replace->pubkey, new_peer, 32UL );
+  entry->nodes_len = fd_ulong_min( entry->nodes_len+1UL, 12UL );
 
-      fd_active_set_peer_t * replace = entry->nodes[ entry->nodes_idx ];
-      fd_bloom_initialize( replace->bloom, num_bloom_filter_items );
-      fd_bloom_insert( replace->bloom, nodes[ i ], 32UL );
-      fd_memcpy( replace->pubkey, nodes[ i ], 32UL );
-      entry->nodes_len = fd_ulong_min( entry->nodes_len+1UL, 12UL );
-      entry->nodes_idx = (entry->nodes_idx+1UL) % 12UL;
-
-      /* Just replace one peer, if we are replacing. */
-      if( FD_LIKELY( entry->nodes_len==12UL ) ) break;
-    }
+  if( opt_replaced_node_idx ) {
+    *opt_replaced_node_idx = bucket*12UL + replace_idx;
   }
 }
