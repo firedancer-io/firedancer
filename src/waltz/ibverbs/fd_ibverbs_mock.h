@@ -36,6 +36,7 @@ struct __attribute__((aligned(16))) fd_ibverbs_mock_qp {
   struct ibv_context ctx[1];
   struct ibv_qp      qp[1];
   struct ibv_cq      cq[1];
+  struct ibv_cq_ex   cq_ex[1];
 
   /* Internal buffer */
 
@@ -43,6 +44,14 @@ struct __attribute__((aligned(16))) fd_ibverbs_mock_qp {
   struct ibv_send_wr * tx_q; /* fd_deque_dynamic */
   struct ibv_wc *      wc_q; /* fd_deque_dynamic */
   fd_ibv_mock_sge_t *  sge_pool; /* fd_pool */
+
+  /* Polling */
+
+  uint cq_ex_polling : 1;
+  struct {
+    uint byte_len;
+    enum ibv_wc_opcode opcode;
+  } poll_opt;
 
   /* Error injection */
 
@@ -94,12 +103,25 @@ fd_ibverbs_mock_qp_get_qp( fd_ibverbs_mock_qp_t * mock ) {
 }
 
 /* fd_ibverbs_mock_qp_get_cq returns a pointer to the embedded ibv_cq.
-   Supports the following ibverbs:
+   Supports the following ibverbs methods:
    - ibv_poll_cq */
 
 static inline struct ibv_cq *
 fd_ibverbs_mock_qp_get_cq( fd_ibverbs_mock_qp_t * mock ) {
   return mock->cq;
+}
+
+/* fd_ibverbs_mock_qp_get_cq_ex returns a pointer to the embedded
+   ibv_cq_ex.  Supports the following ibverbs methods:
+   - ibv_start_poll
+   - ibv_next_poll
+   - ibv_end_poll
+   - ibv_wc_read_byte_len
+   - ibv_wc_read_opcode */
+
+static inline struct ibv_cq_ex *
+fd_ibverbs_mock_qp_get_cq_ex( fd_ibverbs_mock_qp_t * mock ) {
+  return mock->cq_ex;
 }
 
 /* Begin ibv_context_ops mocks */
@@ -118,6 +140,22 @@ int
 fd_ibv_mock_post_recv( struct ibv_qp *       qp,
                        struct ibv_recv_wr *  wr,
                        struct ibv_recv_wr ** bad_wr );
+
+int
+fd_ibv_mock_start_poll( struct ibv_cq_ex * cq,
+                        struct ibv_poll_cq_attr * attr );
+
+int
+fd_ibv_mock_next_poll( struct ibv_cq_ex * cq );
+
+void
+fd_ibv_mock_end_poll( struct ibv_cq_ex * cq );
+
+enum ibv_wc_opcode
+fd_ibv_mock_wc_read_opcode( struct ibv_cq_ex * cq );
+
+uint32_t
+fd_ibv_mock_wc_read_byte_len( struct ibv_cq_ex * cq );
 
 /* End ibv_context_ops mocks */
 

@@ -2,10 +2,6 @@
    in 'raw packet' mode and fd_tango traffic.  Works best on Mellanox
    ConnectX. */
 
-/* FIXME ibeth tile should keep the number of inflight WRs strictly below
-   the CQ depth.  (CQ overflow is a semi-permanent failure and needs
-   recovery, so it should be avoided) */
-
 #include "../fd_net_router.h"
 #include "../../metrics/fd_metrics.h"
 #include "../../topo/fd_topo.h"
@@ -19,7 +15,6 @@
 
 #define FD_IBETH_UDP_PORT_MAX  (8UL)
 #define FD_IBETH_TXQ_MAX      (32UL)
-#define FD_IBETH_BURST         (8UL)
 
 #define DEQUE_NAME tx_free
 #define DEQUE_T    uint
@@ -36,9 +31,10 @@ typedef struct fd_ibeth_txq fd_ibeth_txq_t;
 
 struct fd_ibeth_tile {
   /* ibverbs resources */
-  struct ibv_cq * cq; /* completion queue */
-  struct ibv_qp * qp; /* queue pair */
-  uint            mr_lkey;
+  struct ibv_context * ibv_ctx;
+  struct ibv_cq_ex *   cq; /* completion queue */
+  struct ibv_qp *      qp; /* queue pair */
+  uint                 mr_lkey;
 
   /* UMEM frame region within dcache */
   uchar *  umem_base;   /* Workspace base */
@@ -279,6 +275,7 @@ privileged_init( fd_topo_t *      topo,
   }
 
   struct ibv_context * ibv_context = fd_ibeth_dev_open( tile );
+  ctx->ibv_ctx = ibv_context;
 
   uint if_idx = if_nametoindex( tile->ibeth.if_name );
   if( FD_UNLIKELY( !if_idx ) ) {
@@ -301,8 +298,13 @@ privileged_init( fd_topo_t *      topo,
   ctx->mr_lkey = mr->lkey;
 
   /* Create completion queue */
-  int cqe = 1024; /* FIXME */
-  ctx->cq = ibv_create_cq( ibv_context, cqe, NULL, NULL, 0 );
+  struct ibv_cq_init_attr_ex cq_attr = {
+    .cqe       = tile->ibeth.rx_queue_size + tile->ibeth.tx_queue_size,
+    .wc_flags  = IBV_WC_EX_WITH_BYTE_LEN,
+    .comp_mask = IBV_CQ_INIT_ATTR_MASK_FLAGS,
+    .flags     = IBV_CREATE_CQ_ATTR_SINGLE_THREADED
+  };
+  ctx->cq = ibv_create_cq_ex( ibv_context, &cq_attr );
   if( FD_UNLIKELY( !ctx->cq ) ) {
     FD_LOG_ERR(( "ibv_create_cq failed" ));
   }
@@ -310,8 +312,8 @@ privileged_init( fd_topo_t *      topo,
   /* Create queue pair */
   struct ibv_qp_init_attr qp_init_attr = {
     .qp_context = NULL,
-    .recv_cq = ctx->cq,
-    .send_cq = ctx->cq,
+    .recv_cq = ibv_cq_ex_to_cq( ctx->cq ),
+    .send_cq = ibv_cq_ex_to_cq( ctx->cq ),
     .cap = {
       .max_recv_wr  = tile->ibeth.rx_queue_size,
       .max_recv_sge = 1,
@@ -519,13 +521,15 @@ metrics_write( fd_ibeth_tile_t * ctx ) {
    the shadowed chunk index for freeing). */
 
 static inline ulong
-fd_ibeth_rx_pkt( fd_ibeth_tile_t *     ctx,
-                 fd_stem_context_t *   stem,
-                 struct ibv_wc const * wc ) {
-  if( FD_UNLIKELY( wc->status!=IBV_WC_SUCCESS ) ) return wc->wr_id;
+fd_ibeth_rx_pkt( fd_ibeth_tile_t *   ctx,
+                 fd_stem_context_t * stem,
+                 ulong               wr_id,
+                 ulong               byte_len,
+                 enum ibv_wc_status  status ) {
+  if( FD_UNLIKELY( status!=IBV_WC_SUCCESS ) ) return wr_id;
 
-  ulong const chunk = wc->wr_id;
-  ulong const sz    = wc->byte_len;
+  ulong const chunk = wr_id;
+  ulong const sz    = byte_len;
 
   if( FD_UNLIKELY( chunk<ctx->umem_chunk0 || chunk>ctx->umem_wmark ) ) {
     FD_LOG_CRIT(( "ibv_wc wr_id %lu out of bounds [%u,%u]", chunk, ctx->umem_chunk0, ctx->umem_wmark ));
@@ -556,7 +560,7 @@ fd_ibeth_rx_pkt( fd_ibeth_tile_t *     ctx,
     (out_idx < (int)ctx->dst_port_cnt);
 
   int const filter = sz_ok & hdr_ok & match_ok;
-  if( FD_UNLIKELY( !filter ) ) return wc->wr_id;
+  if( FD_UNLIKELY( !filter ) ) return wr_id;
 
   /* FIXME: Since the order of wr_ids in CQEs mirrors those posted in
             WQEs, we could recover the shadowed wr_id/chunk without
@@ -607,30 +611,38 @@ after_credit( fd_ibeth_tile_t *   ctx,
   (void)poll_in;
 
   /* Poll for new event */
-  struct ibv_wc wcs[ FD_IBETH_BURST ];
-  int poll_res = ibv_poll_cq( ctx->cq, FD_IBETH_BURST, wcs );
-  if( FD_UNLIKELY( poll_res<0 ) ) {
-    FD_LOG_ERR(( "ibv_poll_cq failed (%i)", poll_res ));
-  }
-  if( FD_LIKELY( poll_res==0 ) ) return;
+  struct ibv_cq_ex *      cq      = ctx->cq;
+  struct ibv_poll_cq_attr cq_attr = {0};
+  int poll_err = ibv_start_poll( cq, &cq_attr );
+  if( poll_err ) goto poll_err;
+  *charge_busy = 1;
+  uint cqe_avail = 1024u; /* FIXME */
+  do {
+    ulong              wr_id    = cq->wr_id;
+    enum ibv_wc_status status   = cq->status;
+    ulong              byte_len = ibv_wc_read_byte_len( cq );
+    enum ibv_wc_opcode opcode   = ibv_wc_read_opcode( cq );
 
-  for( ulong i=0UL; i<(ulong)poll_res; i++ ) {
-    struct ibv_wc const * wc = &wcs[ i ];
-    if( FD_LIKELY( wc->opcode==IBV_WC_RECV ) ) {
-      ulong freed_chunk = fd_ibeth_rx_pkt( ctx, stem, wc );
+    if( FD_LIKELY( opcode==IBV_WC_RECV ) ) {
+      ulong freed_chunk = fd_ibeth_rx_pkt( ctx, stem, wr_id, byte_len, status );
       if( FD_UNLIKELY( !freed_chunk ) ) FD_LOG_CRIT(( "invalid chunk in mcache" ));
       fd_ibeth_rx_recycle( ctx, freed_chunk );
-      *charge_busy = 1;
-    } else if( FD_LIKELY( wc->opcode==IBV_WC_SEND ) ) {
-      if( FD_LIKELY( wc->status==IBV_WC_SUCCESS ) ) {
+    } else if( FD_LIKELY( opcode==IBV_WC_SEND ) ) {
+      if( FD_LIKELY( status==IBV_WC_SUCCESS ) ) {
         ctx->metrics.tx_pkt_cnt++;
-        ctx->metrics.tx_bytes_total += wc->byte_len;
+        ctx->metrics.tx_bytes_total += byte_len;
       }
-      fd_ibeth_tx_recycle( ctx, wc->wr_id );
-      *charge_busy = 1;
+      fd_ibeth_tx_recycle( ctx, wr_id );
     } else {
-      FD_LOG_WARNING(( "ibv_wc opcode %u status %u not supported", wc->opcode, wc->status ));
+      FD_LOG_WARNING(( "ibv_wc opcode %u status %u not supported", opcode, status ));
     }
+
+    poll_err = ibv_next_poll( cq );
+  } while( !poll_err && --cqe_avail );
+  ibv_end_poll( cq );
+poll_err:
+  if( FD_UNLIKELY( poll_err && poll_err!=ENOENT ) ) {
+    FD_LOG_ERR(( "ibv_cq_ex poll failed (%i)", poll_err ));
   }
 }
 
@@ -751,7 +763,7 @@ after_frag( fd_ibeth_tile_t *   ctx,
 #define STEM_CALLBACK_DURING_FRAG   during_frag
 #define STEM_CALLBACK_AFTER_FRAG    after_frag
 #define STEM_CALLBACK_METRICS_WRITE metrics_write
-#define STEM_BURST                  FD_IBETH_BURST
+#define STEM_BURST                  1UL /* ignored */
 #define STEM_LAZY                   130000UL /* 130us */
 #include "../../stem/fd_stem.c"
 

@@ -107,6 +107,16 @@ fd_ibverbs_mock_qp_new( void * const mem,
   cq->cq_context = mock;
   cq->context    = ctx;
 
+  struct ibv_cq_ex * cq_ex = mock->cq_ex;
+  cq_ex->cq_context    = mock;
+  cq_ex->context       = ctx;
+  cq_ex->cqe           = (int)cq_depth;
+  cq_ex->start_poll    = fd_ibv_mock_start_poll;
+  cq_ex->next_poll     = fd_ibv_mock_next_poll;
+  cq_ex->end_poll      = fd_ibv_mock_end_poll;
+  cq_ex->read_opcode   = fd_ibv_mock_wc_read_opcode;
+  cq_ex->read_byte_len = fd_ibv_mock_wc_read_byte_len;
+
   struct ibv_qp * qp = mock->qp;
   qp->qp_context = mock;
   qp->context    = ctx;
@@ -247,4 +257,63 @@ fd_ibv_mock_post_recv( struct ibv_qp *       qp,
     wr = wr->next;
   }
   return 0;
+}
+
+static void
+fd_ibv_mock_cq_ex_pop( fd_ibverbs_mock_qp_t * mock,
+                       struct ibv_cq_ex *     cq_ex ) {
+  FD_TEST( !fd_ibv_wc_q_empty( mock->wc_q ) );
+  struct ibv_wc * wc = fd_ibv_wc_q_pop_head_nocopy( mock->wc_q );
+  cq_ex->wr_id            = wc->wr_id;
+  cq_ex->status           = wc->status;
+  mock->poll_opt.byte_len = wc->byte_len;
+  mock->poll_opt.opcode   = wc->opcode;
+}
+
+/* FIXME Add error injection for cq_ex polling */
+
+int
+fd_ibv_mock_start_poll( struct ibv_cq_ex *        cq_ex,
+                        struct ibv_poll_cq_attr * attr ) {
+  fd_ibverbs_mock_qp_t * mock = cq_ex->cq_context;
+  FD_TEST( mock->magic==FD_IBVERBS_MOCK_QP_MAGIC );
+  FD_TEST( !mock->cq_ex_polling );
+  FD_TEST( attr );
+  if( FD_UNLIKELY( attr->comp_mask ) ) {
+    FD_LOG_ERR(( "Sorry, ibv_mock doesn't support ibv_start_poll attr comp_mask" ));
+  }
+  if( fd_ibv_wc_q_empty( mock->wc_q ) ) return ENOENT;
+  mock->cq_ex_polling = 1;
+  fd_ibv_mock_cq_ex_pop( mock, cq_ex );
+  return 0;
+}
+
+int
+fd_ibv_mock_next_poll( struct ibv_cq_ex * cq_ex ) {
+  fd_ibverbs_mock_qp_t * mock = cq_ex->cq_context;
+  FD_TEST( mock->cq_ex_polling );
+  if( fd_ibv_wc_q_empty( mock->wc_q ) ) return ENOENT;
+  fd_ibv_mock_cq_ex_pop( mock, cq_ex );
+  return 0;
+}
+
+void
+fd_ibv_mock_end_poll( struct ibv_cq_ex * cq_ex ) {
+  fd_ibverbs_mock_qp_t * mock = cq_ex->cq_context;
+  FD_TEST( mock->cq_ex_polling );
+  mock->cq_ex_polling = 0;
+}
+
+enum ibv_wc_opcode
+fd_ibv_mock_wc_read_opcode( struct ibv_cq_ex * cq_ex ) {
+  fd_ibverbs_mock_qp_t * mock = cq_ex->cq_context;
+  FD_TEST( mock->cq_ex_polling );
+  return mock->poll_opt.opcode;
+}
+
+uint32_t
+fd_ibv_mock_wc_read_byte_len( struct ibv_cq_ex * cq_ex ) {
+  fd_ibverbs_mock_qp_t * mock = cq_ex->cq_context;
+  FD_TEST( mock->cq_ex_polling );
+  return mock->poll_opt.byte_len;
 }
