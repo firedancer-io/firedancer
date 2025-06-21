@@ -424,6 +424,9 @@ fd_frank_verify_task( int     argc,
 
     /* wiredancer */
     if( !!wd_slots ){
+
+      FD_LOG_INFO(( "verify.%s: using wiredancer to verify sig", verify_name ));
+
       ulong ctl = fd_frag_meta_ctl( 0, 1 /*ctl_som*/, 1 /*ctl_eom*/, 0 /*ctl_err*/ );
       /* Block until the request is sent (or error on timeout) */
       FD_TEST( !wd_ed25519_verify_req( &wd, /* wiredancer context */
