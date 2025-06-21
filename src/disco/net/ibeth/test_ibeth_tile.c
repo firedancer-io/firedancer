@@ -238,8 +238,8 @@ main( int     argc,
   tile->umem_wmark  = (uint)fd_dcache_compact_wmark( wksp, dcache, FD_NET_MTU );
 
   /* Inject mock ibverbs QP into tile state */
-  tile->cq = fd_ibverbs_mock_qp_get_cq( mock );
-  tile->qp = fd_ibverbs_mock_qp_get_qp( mock );
+  tile->cq = fd_ibverbs_mock_qp_get_cq_ex( mock );
+  tile->qp = fd_ibverbs_mock_qp_get_qp   ( mock );
   tile->mr_lkey = MR_LKEY;
 
   /* Netbase objects */
