@@ -56,7 +56,7 @@ pktgen_topo( config_t * config ) {
   }
   if( FD_LIKELY( !is_auto_affinity ) ) {
     if( FD_UNLIKELY( affinity_tile_cnt!=4UL ) )
-      FD_LOG_ERR(( "Invalid [development.pktgen.affinity]: must include exactly three CPUs" ));
+      FD_LOG_ERR(( "Invalid [development.pktgen.affinity]: must include exactly 4 CPUs" ));
   }
 
   /* Reset topology from scratch */

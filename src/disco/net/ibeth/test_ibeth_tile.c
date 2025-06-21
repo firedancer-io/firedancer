@@ -44,6 +44,18 @@ verify_rx_balance( fd_ibeth_tile_t const *      tile,
     frame_track_remove( frame_track, frame_idx );                      \
   } while(0)
 
+  /* RX pending batch */
+  FD_TEST( tile->rx_pending_rem <= FD_IBETH_PENDING_MAX );
+  ulong const pending_cnt = FD_IBETH_PENDING_MAX - tile->rx_pending_rem;
+  for( ulong i=0UL; i<pending_cnt; i++ ) {
+    struct ibv_recv_wr const * wr = tile->rx_pending[ FD_IBETH_PENDING_MAX-i-1 ].wr;
+    CHECK( wr->wr_id );
+    void const * frame = fd_chunk_to_laddr_const( tile->umem_base, wr->wr_id );
+    FD_TEST( wr->num_sge==1 );
+    FD_TEST( wr->sg_list[0].addr==(ulong)frame );
+    FD_TEST( wr->sg_list[0].length==FD_NET_MTU );
+  }
+
   /* RX work queue entries */
   struct ibv_recv_wr * rx_q = mock->rx_q;
   for( fd_ibv_recv_wr_q_iter_t iter = fd_ibv_recv_wr_q_iter_init( rx_q );
@@ -294,18 +306,20 @@ main( int     argc,
   FD_TEST( fd_ibv_recv_wr_q_cnt( mock->rx_q )==rxq_depth );
   FD_TEST( fd_ibv_send_wr_q_cnt( mock->tx_q )==0UL       );
   FD_TEST( fd_ibv_wc_q_cnt     ( mock->wc_q )==0UL       );
+  FD_TEST( tile->rx_pending_rem==FD_IBETH_PENDING_MAX    );
   FD_TEST( stem_seq[0]==0UL );
 
   /* Trickle a few failed CQEs (should fill pending batch) */
-  for( ulong i=0; i<4; i++ ) { /* one less than max */
+  for( ulong i=1UL; i<FD_IBETH_PENDING_MAX; i++ ) { /* one less than max */
     rx_complete_one( mock, IBV_WC_GENERAL_ERR );
   }
-  FD_TEST( fd_ibv_recv_wr_q_cnt( mock->rx_q )==rxq_depth-4 );
-  FD_TEST( fd_ibv_wc_q_cnt( mock->wc_q )==4 );
+  FD_TEST( fd_ibv_recv_wr_q_cnt( mock->rx_q )==rxq_depth-FD_IBETH_PENDING_MAX+1 );
+  FD_TEST( fd_ibv_wc_q_cnt( mock->wc_q )==FD_IBETH_PENDING_MAX-1 );
   int poll_in     = 1;
   int charge_busy = 0;
   after_credit( tile, stem, &poll_in, &charge_busy );
   FD_TEST( charge_busy==1 );
+  FD_TEST( tile->rx_pending_rem==1 );
   verify_balances( tile, stem, mock, frame_track );
 
   /* No op */
@@ -316,6 +330,7 @@ main( int     argc,
   /* Flush pending batch */
   rx_complete_one( mock, IBV_WC_GENERAL_ERR ); /* flushes batch */
   after_credit( tile, stem, &poll_in, &charge_busy );
+  FD_TEST( tile->rx_pending_rem==FD_IBETH_PENDING_MAX    );
   FD_TEST( fd_ibv_recv_wr_q_cnt( mock->rx_q )==rxq_depth );
   FD_TEST( fd_ibv_wc_q_cnt     ( mock->wc_q )==0UL       );
   FD_TEST( stem_seq[0]==0UL );
