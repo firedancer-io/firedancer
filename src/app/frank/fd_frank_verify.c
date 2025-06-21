@@ -2,6 +2,8 @@
 #include "../../ballet/txn/fd_txn.h"
 #include "../../wiredancer/c/wd_f1.h"
 
+#define DETAILED_LOGGING (1)
+
 #if FD_HAS_FRANK
 
 int
