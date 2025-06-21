@@ -17,6 +17,7 @@
 
 #define FD_IBETH_UDP_PORT_MAX  (8UL)
 #define FD_IBETH_TXQ_MAX      (32UL)
+#define FD_IBETH_PENDING_MAX  (14UL)
 
 #define DEQUE_NAME tx_free
 #define DEQUE_T    uint
@@ -31,12 +32,19 @@ struct fd_ibeth_txq {
 };
 typedef struct fd_ibeth_txq fd_ibeth_txq_t;
 
+struct fd_ibeth_recv_wr {
+  struct ibv_recv_wr wr [1];
+  struct ibv_sge     sge[1];
+};
+typedef struct fd_ibeth_recv_wr fd_ibeth_recv_wr_t;
+
 struct fd_ibeth_tile {
   /* ibverbs resources */
   struct ibv_context * ibv_ctx;
   struct ibv_cq_ex *   cq; /* completion queue */
   struct ibv_qp *      qp; /* queue pair */
   uint                 mr_lkey;
+  uint                 rx_pending_rem;
 
   /* UMEM frame region within dcache */
   uchar *  umem_base;   /* Workspace base */
@@ -63,6 +71,9 @@ struct fd_ibeth_tile {
   ushort dst_ports  [ FD_IBETH_UDP_PORT_MAX ];
   uchar  dst_protos [ FD_IBETH_UDP_PORT_MAX ];
   uchar  dst_out_idx[ FD_IBETH_UDP_PORT_MAX ];
+
+  /* Batch RX work requests */
+  fd_ibeth_recv_wr_t rx_pending[ FD_IBETH_PENDING_MAX ];
 
   /* Out links */
   uchar rx_link_cnt;
@@ -179,20 +190,22 @@ fd_ibeth_dev_open( fd_topo_tile_t const * tile ) {
 
 static inline void
 fd_ibeth_rx_recycle( fd_ibeth_tile_t * ctx,
-                     ulong             chunk ) {
-  struct ibv_sge sge = {
+                     ulong             chunk,
+                     int               flush ) {
+  fd_ibeth_recv_wr_t * verb = &ctx->rx_pending[ --ctx->rx_pending_rem ];
+  verb->sge[0] = (struct ibv_sge) {
     .addr   = (ulong)fd_chunk_to_laddr( ctx->umem_base, chunk ),
     .length = FD_NET_MTU,
     .lkey   = ctx->mr_lkey
   };
-  struct ibv_recv_wr wr = {
-    .wr_id   = chunk,
-    .sg_list = &sge,
-    .num_sge = 1
-  };
-  struct ibv_recv_wr * bad_wr;
-  if( FD_UNLIKELY( ibv_post_recv( ctx->qp, &wr, &bad_wr ) ) ) {
-    FD_LOG_ERR(( "ibv_post_recv failed (%i-%s)", errno, fd_io_strerror( errno ) ));
+  verb->wr[0].wr_id = chunk;
+
+  if( !ctx->rx_pending_rem || flush ) {
+    struct ibv_recv_wr * bad_wr;
+    if( FD_UNLIKELY( ibv_post_recv( ctx->qp, verb->wr, &bad_wr ) ) ) {
+      FD_LOG_ERR(( "ibv_post_recv failed (%i-%s)", errno, fd_io_strerror( errno ) ));
+    }
+    ctx->rx_pending_rem = FD_IBETH_PENDING_MAX;
   }
 }
 
@@ -440,13 +453,23 @@ unprivileged_init( fd_topo_t *      topo,
   FD_TEST( ctx->umem_chunk0 > 0 );
 
 
+  /* Prepare RX WR batching */
+  for( uint i=0U; i<FD_IBETH_PENDING_MAX; i++ ) {
+    fd_ibeth_recv_wr_t * verb = &ctx->rx_pending[ i ];
+    memset( verb, 0, sizeof(fd_ibeth_recv_wr_t) );
+    verb->wr->next    = (i<(FD_IBETH_PENDING_MAX-1)) ? ctx->rx_pending[i+1].wr : NULL;
+    verb->wr->sg_list = verb->sge;
+    verb->wr->num_sge = 1;
+  }
+  ctx->rx_pending_rem = FD_IBETH_PENDING_MAX;
+
   /* Post RX descriptors */
   ulong frame_chunks = FD_NET_MTU>>FD_CHUNK_LG_SZ;
   ulong next_chunk   = ctx->umem_chunk0;
   ctx->rx_chunk0     = (uint)next_chunk;
   ulong const rx_fill_cnt = tile->ibeth.rx_queue_size;
   for( ulong i=0UL; i<rx_fill_cnt; i++ ) {
-    fd_ibeth_rx_recycle( ctx, next_chunk );
+    fd_ibeth_rx_recycle( ctx, next_chunk, 1 );
     next_chunk += frame_chunks;
   }
 
@@ -673,7 +696,7 @@ after_credit( fd_ibeth_tile_t *   ctx,
     if( FD_LIKELY( opcode==IBV_WC_RECV ) ) {
       ulong freed_chunk = fd_ibeth_rx_pkt( ctx, stem, wr_id, byte_len, status );
       if( FD_UNLIKELY( !freed_chunk ) ) FD_LOG_CRIT(( "invalid chunk in mcache" ));
-      fd_ibeth_rx_recycle( ctx, freed_chunk );
+      fd_ibeth_rx_recycle( ctx, freed_chunk, 0 );
     } else if( FD_LIKELY( opcode==IBV_WC_SEND ) ) {
       if( FD_LIKELY( status==IBV_WC_SUCCESS ) ) {
         ctx->metrics.tx_pkt_cnt++;
