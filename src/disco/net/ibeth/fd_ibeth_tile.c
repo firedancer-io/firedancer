@@ -11,6 +11,8 @@
 #include <errno.h>
 #include <dirent.h>
 #include <net/if.h>
+#include <fcntl.h>
+#include <poll.h>
 #include <infiniband/verbs.h>
 
 #define FD_IBETH_UDP_PORT_MAX  (8UL)
@@ -277,6 +279,14 @@ privileged_init( fd_topo_t *      topo,
   struct ibv_context * ibv_context = fd_ibeth_dev_open( tile );
   ctx->ibv_ctx = ibv_context;
 
+  /* Receive async events non-blocking */
+  int async_fd    = ibv_context->async_fd;
+  int async_flags = fcntl( async_fd, F_GETFL );
+  if( FD_UNLIKELY( 0!=fcntl( async_fd, F_SETFL, async_flags|O_NONBLOCK) ) ) {
+    FD_LOG_ERR(( "Failed to make ibv_context->async_fd non-blocking (%i-%s)",
+                 errno, fd_io_strerror( errno ) ));
+  }
+
   uint if_idx = if_nametoindex( tile->ibeth.if_name );
   if( FD_UNLIKELY( !if_idx ) ) {
     FD_LOG_ERR(( "if_nametoindex(%s) failed (%i-%s)",
@@ -510,6 +520,43 @@ metrics_write( fd_ibeth_tile_t * ctx ) {
   FD_MCNT_SET( IBETH, RX_BYTES_TOTAL, ctx->metrics.rx_bytes_total );
   FD_MCNT_SET( IBETH, TX_PKT_CNT,     ctx->metrics.tx_pkt_cnt     );
   FD_MCNT_SET( IBETH, TX_BYTES_TOTAL, ctx->metrics.tx_bytes_total );
+}
+
+static void
+handle_async_event( struct ibv_async_event * event ) {
+  FD_LOG_NOTICE(( "Async event: %u-%s", event->event_type, ibv_event_type_str( event->event_type ) ));
+  switch( event->event_type ) {
+  case IBV_EVENT_CQ_ERR:
+    FD_LOG_ERR(( "CQ error" ));
+    break;
+  case IBV_EVENT_QP_FATAL:
+    FD_LOG_ERR(( "QP fatal error" ));
+    break;
+  default:
+    break;
+  }
+  ibv_ack_async_event( event );
+}
+
+static void
+poll_async_events( fd_ibeth_tile_t * ctx ) {
+  for(;;) {
+    struct pollfd pfd[1] = {{
+      .fd     = ctx->ibv_ctx->async_fd,
+      .events = POLLIN
+    }};
+    int ret = poll( pfd, 1, 0 );
+    if( ret<0 || !( pfd->revents & POLLIN ) ) break;
+    struct ibv_async_event event;
+    if( 0==ibv_get_async_event( ctx->ibv_ctx, &event ) ) {
+      handle_async_event( &event );
+    }
+  }
+}
+
+static inline void
+during_housekeeping( fd_ibeth_tile_t * ctx ) {
+  poll_async_events( ctx );
 }
 
 /* fd_ibeth_rx_pkt handles an ibverbs RX completion.  If the completion
@@ -763,6 +810,7 @@ after_frag( fd_ibeth_tile_t *   ctx,
 #define STEM_CALLBACK_DURING_FRAG   during_frag
 #define STEM_CALLBACK_AFTER_FRAG    after_frag
 #define STEM_CALLBACK_METRICS_WRITE metrics_write
+#define STEM_CALLBACK_DURING_HOUSEKEEPING during_housekeeping
 #define STEM_BURST                  1UL /* ignored */
 #define STEM_LAZY                   130000UL /* 130us */
 #include "../../stem/fd_stem.c"
