@@ -547,7 +547,7 @@ metric introduced.
     <int value="36" name="ProgramExecutionTemporarilyRestricted" label="Program execution is temporarily restricted on an account." />
     <int value="37" name="UnbalancedTransaction" label="The total balance before the transaction does not equal the total balance after the transaction." />
     <int value="38" name="ProgramCacheHitMaxLimit" label="The total program cache size hit the maximum allowed limit." />
-    <int value="39" name="CommitCancelled" label="The process for comitting the transaction was cancelled internaly." />
+    <int value="39" name="CommitCancelled" label="The process for committing the transaction was cancelled internally." />
     <int value="40" name="BundlePeer" label="Transaction is part of a bundle and one of the peer transactions failed." />
 </enum>
 
@@ -617,7 +617,7 @@ metric introduced.
     <counter name="ShredRejectedInitial" summary="The number of shreds that were rejected before any resources were allocated for the FEC set" />
     <counter name="ShredRejectedUnchained" summary="The number of shreds that were rejected because they're not chained merkle shreds" />
     <counter name="FecRejectedFatal" summary="The number of FEC sets that were rejected for reasons that cause the whole FEC set to become invalid" />
-    <counter name="ForceCompleteRequest" summary="The number of times we recieved a FEC force complete message" />
+    <counter name="ForceCompleteRequest" summary="The number of times we received a FEC force complete message" />
     <counter name="ForceCompleteFailure" summary="The number of times we failed to force complete a FEC set on request" />
     <counter name="ForceCompleteSuccess" summary="The number of times we successfully forced completed a FEC set on request" />
 </tile>
