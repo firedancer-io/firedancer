@@ -49,8 +49,7 @@ decode_u64_varint( uchar const * payload,
   ulong value = 0UL;
   uchar shift = 0U;
   while( FD_LIKELY( _i < _payload_sz ) ) {
-    uchar byte = FD_LOAD( uchar, CURSOR );
-    INC( 1UL );
+    uchar byte = FD_LOAD( uchar, CURSOR ); INC( 1UL );
     value |= (ulong)(byte & 0x7F) << shift;
     if( !(byte & 0x80) ) break; /* No continuation bit */
     shift += 7U;
@@ -71,7 +70,7 @@ fd_gossip_msg_crds_legacy_contact_info_parse( fd_gossip_view_crds_value_t * crds
   for( ulong i=0UL; i<10; i++ ) {
     CHECK_LEFT( 4UL ); uint is_ip6 = FD_LOAD( uint, CURSOR ); INC( 4UL ); /* is_ip4 */
     if( !is_ip6 ){
-      CHECKED_INC(  4UL+2UL ); /* ip4 + port */
+      CHECKED_INC( 4UL+2UL ); /* ip4 + port */
     } else {
       CHECKED_INC( 16UL+2UL+4UL+4UL ); /* ip6 + port + flowinfo + scope_id */
     }
@@ -102,13 +101,13 @@ fd_gossip_msg_crds_lowest_slot_parse( fd_gossip_view_crds_value_t * crds_val,
                                       ulong                         payload_sz,
                                       ushort                        start_offset ) {
   CHECK_INIT( payload, payload_sz, start_offset );
-  CHECKED_INC( 1UL );
-  CHECK_LEFT( 32UL ); crds_val->pubkey_off = CUR_OFFSET         ; INC( 32UL ); /* pubkey */
+  CHECKED_INC(           1UL );
+  CHECK_LEFT(           32UL ); crds_val->pubkey_off = CUR_OFFSET                                          ; INC( 32UL );
   /* These can be trivially converted to parse instead of skips if needed */
-  CHECKED_INC( 8UL+8UL ); /* root + lowest slot */
+  CHECKED_INC(       8UL+8UL ); /* root + lowest slot */
 
   /* slots set is deprecated, so we skip it. */
-  CHECK_LEFT(            8UL ); ulong slots_len = FD_LOAD( ulong, CURSOR ); INC( 8UL );
+  CHECK_LEFT(            8UL ); ulong slots_len = FD_LOAD( ulong, CURSOR )                                 ; INC( 8UL );
   CHECKED_INC( slots_len*8UL ); /* slots */
 
   /* TODO: stash vector<EpochIncompleteSlots> is deprecated, but is hard to skip
@@ -116,10 +115,10 @@ fd_gossip_msg_crds_lowest_slot_parse( fd_gossip_view_crds_value_t * crds_val,
      parse if there are any entries. Might be worth implementing a skip instead,
      TBD after live testing.
      https://github.com/anza-xyz/agave/blob/540d5bc56cd44e3cc61b179bd52e9a782a2c99e4/gossip/src/deprecated.rs#L19 */
-  CHECK_LEFT( 8UL ); ulong stash_len = FD_LOAD( ulong, CURSOR ); INC( 8UL );
-  CHECK( stash_len==0UL );
+  CHECK_LEFT(            8UL ); ulong stash_len = FD_LOAD( ulong, CURSOR )                                 ; INC( 8UL );
+  CHECK(      stash_len==0UL );
 
-  CHECK_LEFT( 8UL ); crds_val->wallclock_nanos = FD_MILLI_TO_NANOSEC( FD_LOAD( ulong, CURSOR ) ); INC( 8UL );
+  CHECK_LEFT(            8UL ); crds_val->wallclock_nanos = FD_MILLI_TO_NANOSEC( FD_LOAD( ulong, CURSOR ) ); INC( 8UL );
   return BYTES_CONSUMED;
 }
 
@@ -129,10 +128,8 @@ fd_gossip_msg_crds_account_hashes_parse( fd_gossip_view_crds_value_t * crds_val,
                                          ulong                         payload_sz,
                                          ushort                        start_offset ) {
   CHECK_INIT( payload, payload_sz, start_offset );
-  CHECK_LEFT( 32UL ); crds_val->pubkey_off = CUR_OFFSET; INC( 32UL ); /* pubkey */
-
-  CHECK_LEFT( 8UL ); ulong hashes_len = FD_LOAD( ulong, CURSOR ); INC( 8UL );
-  /* These can be converted to parse instead of skips if needed */
+  CHECK_LEFT( 32UL ); crds_val->pubkey_off = CUR_OFFSET                                          ; INC( 32UL );
+  CHECK_LEFT(  8UL ); ulong hashes_len     = FD_LOAD( ulong, CURSOR )                            ; INC( 8UL );
   CHECKED_INC( hashes_len*32UL ); /* hashes */
 
   CHECK_LEFT( 8UL );  crds_val->wallclock_nanos = FD_MILLI_TO_NANOSEC( FD_LOAD( ulong, CURSOR ) ); INC( 8UL );
@@ -145,24 +142,24 @@ fd_gossip_msg_crds_epoch_slots_parse( fd_gossip_view_crds_value_t * crds_val,
                                       ulong                         payload_sz,
                                       ushort                        start_offset ) {
   CHECK_INIT( payload, payload_sz, start_offset );
-  CHECK_LEFT(  1UL ); crds_val->epoch_slots->index = FD_LOAD( uchar, CURSOR ); INC(  1UL );
-  CHECK_LEFT( 32UL ); crds_val->pubkey_off         = CUR_OFFSET              ; INC( 32UL );
-  CHECK_LEFT(  8UL ); ulong slots_len              = FD_LOAD( ulong, CURSOR ); INC(  8UL );
+  CHECK_LEFT(  1UL ); crds_val->epoch_slots->index = FD_LOAD( uchar, CURSOR )                   ; INC(  1UL );
+  CHECK_LEFT( 32UL ); crds_val->pubkey_off         = CUR_OFFSET                                 ; INC( 32UL );
+  CHECK_LEFT(  8UL ); ulong slots_len              = FD_LOAD( ulong, CURSOR )                   ; INC(  8UL );
 
   for( ulong i=0UL; i<slots_len; i++ ) {
-    CHECK_LEFT( 4UL ); uint is_uncompressed = FD_LOAD( uint, CURSOR ); INC( 4UL );
+    CHECK_LEFT( 4UL ); uint is_uncompressed = FD_LOAD( uint, CURSOR )                           ; INC( 4UL );
     if( is_uncompressed ) {
       CHECKED_INC( 8UL+8UL ); /* first_slot + num */
       uchar has_bits = 0;
-      CHECK_LEFT( 1UL ); has_bits = FD_LOAD( uchar, CURSOR ); INC( 1UL );
+      CHECK_LEFT( 1UL ); has_bits = FD_LOAD( uchar, CURSOR )                                    ; INC( 1UL );
       if( has_bits ) {
-        CHECK_LEFT( 8UL ); ulong bits_len = FD_LOAD( ulong, CURSOR ); INC( 8UL );
+        CHECK_LEFT( 8UL ); ulong bits_len = FD_LOAD( ulong, CURSOR )                            ; INC( 8UL );
         CHECKED_INC( bits_len ); /* bitvec<u8> */
         CHECKED_INC( 8UL );
       }
     } else {
       CHECKED_INC( 8UL+8UL ); /* first_slot + num */
-      CHECK_LEFT( 8UL ); ulong compressed_len = FD_LOAD( ulong, CURSOR ); INC( 8UL );
+      CHECK_LEFT( 8UL ); ulong compressed_len = FD_LOAD( ulong, CURSOR )                        ; INC( 8UL );
       CHECKED_INC( compressed_len ); /* compressed bitvec */
     }
   }
@@ -181,7 +178,7 @@ fd_gossip_msg_crds_legacy_version_parse( fd_gossip_view_crds_value_t * crds_val,
   CHECK_LEFT(  8UL ); crds_val->wallclock_nanos = FD_MILLI_TO_NANOSEC( FD_LOAD( ulong, CURSOR ) ); INC(  8UL );
 
   CHECKED_INC( 3*2UL ); /* major, minor, patch (all u16s)*/
-  CHECK_LEFT(    1UL ); uchar has_commit = FD_LOAD( uchar, CURSOR ); INC( 1UL );
+  CHECK_LEFT(    1UL ); uchar has_commit = FD_LOAD( uchar, CURSOR )                              ; INC( 1UL );
   if( has_commit ) {
     CHECKED_INC( 4UL ); /* first 4 bytes of commit */
   }
@@ -205,8 +202,8 @@ fd_gossip_msg_crds_node_instance_parse( fd_gossip_view_crds_value_t * crds_val,
                                         ulong                         payload_sz,
                                         ushort                        start_offset ) {
   CHECK_INIT( payload, payload_sz, start_offset );
-  CHECK_LEFT( 32UL ); crds_val->pubkey_off = CUR_OFFSET; INC( 32UL );
-  CHECK_LEFT(  8UL );  crds_val->wallclock_nanos = FD_MILLI_TO_NANOSEC( FD_LOAD( ulong, CURSOR ) ); INC( 8UL );
+  CHECK_LEFT( 32UL ); crds_val->pubkey_off      = CUR_OFFSET                                     ; INC( 32UL );
+  CHECK_LEFT(  8UL ); crds_val->wallclock_nanos = FD_MILLI_TO_NANOSEC( FD_LOAD( ulong, CURSOR ) ); INC( 8UL );
   CHECKED_INC( 8UL+8UL ); /* timestamp + token*/
   return BYTES_CONSUMED;
 }
@@ -217,11 +214,11 @@ fd_gossip_msg_crds_duplicate_shred_parse( fd_gossip_view_crds_value_t * crds_val
                                           ulong                         payload_sz,
                                           ushort                        start_offset ) {
   CHECK_INIT( payload, payload_sz, start_offset );
-  CHECK_LEFT(  2UL ); crds_val->duplicate_shred->index = FD_LOAD( ushort, CURSOR )               ; INC( 2UL );
-  CHECK_LEFT( 32UL ); crds_val->pubkey_off = CUR_OFFSET                                          ; INC( 32UL ); /* pubkey */
-  CHECK_LEFT(  8UL ); crds_val->wallclock_nanos = FD_MILLI_TO_NANOSEC( FD_LOAD( ulong, CURSOR ) ); INC( 8UL );
+  CHECK_LEFT(  2UL ); crds_val->duplicate_shred->index = FD_LOAD( ushort, CURSOR )               ; INC(  2UL );
+  CHECK_LEFT( 32UL ); crds_val->pubkey_off = CUR_OFFSET                                          ; INC( 32UL );
+  CHECK_LEFT(  8UL ); crds_val->wallclock_nanos = FD_MILLI_TO_NANOSEC( FD_LOAD( ulong, CURSOR ) ); INC(  8UL );
   CHECKED_INC( 8UL+4UL+4UL+1UL+1UL ); /* slot + (unused) + shred type + num chunks + chunk index */
-  CHECK_LEFT(  8UL ); ulong chunk_len = FD_LOAD( ulong, CURSOR ); INC( 8UL );
+  CHECK_LEFT(  8UL ); ulong chunk_len = FD_LOAD( ulong, CURSOR )                                 ; INC(  8UL );
   CHECKED_INC( chunk_len ); /* chunk data */
   return BYTES_CONSUMED;
 }
@@ -232,13 +229,13 @@ fd_gossip_msg_crds_snapshot_hashes_parse( fd_gossip_view_crds_value_t * crds_val
                                           ulong                         payload_sz,
                                           ushort                        start_offset ) {
   CHECK_INIT( payload, payload_sz, start_offset );
-  CHECK_LEFT(  32UL ); crds_val->pubkey_off = CUR_OFFSET             ; INC( 32UL ); /* pubkey */
+  CHECK_LEFT(  32UL ); crds_val->pubkey_off = CUR_OFFSET                                        ; INC( 32UL );
   CHECKED_INC( 40UL ); /* full: (slot, hash) */
 
-  CHECK_LEFT( 8UL ); ulong incremental_len = FD_LOAD( ulong, CURSOR ); INC( 8UL );
+  CHECK_LEFT( 8UL ); ulong incremental_len = FD_LOAD( ulong, CURSOR )                           ; INC(  8UL );
   CHECKED_INC( incremental_len*40UL ); /* hashes */
 
-  CHECK_LEFT( 8UL ); crds_val->wallclock_nanos = FD_MILLI_TO_NANOSEC( FD_LOAD( ulong, CURSOR ) ); INC( 8UL );
+  CHECK_LEFT( 8UL ); crds_val->wallclock_nanos = FD_MILLI_TO_NANOSEC( FD_LOAD( ulong, CURSOR ) ); INC(  8UL );
   return BYTES_CONSUMED;
 }
 
@@ -264,46 +261,46 @@ fd_gossip_msg_crds_contact_info_parse( fd_gossip_view_crds_value_t * crds_val,
                                        ulong                         payload_sz,
                                        ushort                        start_offset ) {
   CHECK_INIT( payload, payload_sz, start_offset );
-  CHECK_LEFT( 32UL ); crds_val->pubkey_off = CUR_OFFSET; INC( 32UL ); /* pubkey */
+  CHECK_LEFT( 32UL ); crds_val->pubkey_off = CUR_OFFSET                                                                         ; INC( 32UL );
   ulong wallclock;
   INC( decode_u64_varint( payload, payload_sz, CUR_OFFSET, &wallclock ) );
   crds_val->wallclock_nanos = FD_MILLI_TO_NANOSEC( wallclock );
 
-  CHECK_LEFT( 8UL ); crds_val->contact_info->instance_creation_wallclock_nanos = FD_MILLI_TO_NANOSEC( FD_LOAD( ulong, CURSOR ) ); INC( 8UL );
-  CHECK_LEFT( 2UL ); crds_val->contact_info->shred_version = FD_LOAD( ushort, CURSOR ); INC( 2UL );
+  CHECK_LEFT( 8UL ); crds_val->contact_info->instance_creation_wallclock_nanos = FD_MILLI_TO_NANOSEC( FD_LOAD( ulong, CURSOR ) ); INC(  8UL );
+  CHECK_LEFT( 2UL ); crds_val->contact_info->shred_version = FD_LOAD( ushort, CURSOR )                                          ; INC(  2UL );
   INC( version_parse( crds_val->contact_info->version, payload, payload_sz, CUR_OFFSET ) );
 
   /* Parse addrs */
   ulong decode_sz;
-  READ_CHECKED_COMPACT_U16( decode_sz, crds_val->contact_info->addrs_len, CUR_OFFSET ); INC( decode_sz );
+  READ_CHECKED_COMPACT_U16( decode_sz, crds_val->contact_info->addrs_len, CUR_OFFSET )                                          ; INC( decode_sz );
   if( FD_UNLIKELY( crds_val->contact_info->addrs_len > sizeof(crds_val->contact_info->addrs)/sizeof(fd_gossip_view_ipaddr_t) ) ) {
     FD_LOG_ERR(( "Too many addresses in contact info: %u. Adjust array lengths!", crds_val->contact_info->addrs_len ));
   }
 
   for( ulong i=0UL; i<crds_val->contact_info->addrs_len; i++ ) {
     fd_gossip_view_ipaddr_t * addr = &crds_val->contact_info->addrs[i];
-    CHECK_LEFT( 1UL ); addr->is_ip6 = FD_LOAD( uchar, CURSOR ); INC( 1UL );
+    CHECK_LEFT( 1UL ); addr->is_ip6 = FD_LOAD( uchar, CURSOR )                                                                  ; INC( 1UL );
     if( FD_LIKELY( !addr->is_ip6 ) ) {
-      CHECK_LEFT(  4UL ); addr->ip4_addr     = FD_LOAD( uint, CURSOR ); INC(  4UL );
+      CHECK_LEFT(  4UL ); addr->ip4_addr     = FD_LOAD( uint, CURSOR )                                                          ; INC(  4UL );
     } else {
-      CHECK_LEFT( 16UL ); addr->ip6_addr_off = CUR_OFFSET             ; INC( 16UL ); /* Offset to 16-byte value */
+      CHECK_LEFT( 16UL ); addr->ip6_addr_off = CUR_OFFSET                                                                       ; INC( 16UL ); /* Offset to 16-byte value */
     }
   }
 
   /* Parse sockets */
-  READ_CHECKED_COMPACT_U16( decode_sz, crds_val->contact_info->sockets_len, CUR_OFFSET ); INC( decode_sz );
+  READ_CHECKED_COMPACT_U16( decode_sz, crds_val->contact_info->sockets_len, CUR_OFFSET )                                        ; INC( decode_sz );
   if( FD_UNLIKELY( crds_val->contact_info->sockets_len > sizeof(crds_val->contact_info->sockets)/sizeof(fd_gossip_view_socket_t) ) ) {
     FD_LOG_ERR(( "Too many sockets in contact info: %u. Adjust array lengths!", crds_val->contact_info->sockets_len ));
   }
   for( ulong i=0UL; i<crds_val->contact_info->sockets_len; i++ ) {
     fd_gossip_view_socket_t * socket = &crds_val->contact_info->sockets[i];
-    CHECK_LEFT( 1UL ); socket->key   = FD_LOAD( uchar, CURSOR )      ; INC( 1UL );
-    CHECK_LEFT( 1UL ); socket->index = FD_LOAD( uchar, CURSOR )      ; INC( 1UL );
-    READ_CHECKED_COMPACT_U16( decode_sz, socket->offset, CUR_OFFSET ); INC( decode_sz );
+    CHECK_LEFT( 1UL ); socket->key   = FD_LOAD( uchar, CURSOR )                                                                 ; INC( 1UL );
+    CHECK_LEFT( 1UL ); socket->index = FD_LOAD( uchar, CURSOR )                                                                 ; INC( 1UL );
+    READ_CHECKED_COMPACT_U16( decode_sz, socket->offset, CUR_OFFSET )                                                           ; INC( decode_sz );
   }
 
   /* extensions are currently unused */
-  READ_CHECKED_COMPACT_U16( decode_sz, crds_val->contact_info->ext_len, CUR_OFFSET ); INC( decode_sz );
+  READ_CHECKED_COMPACT_U16( decode_sz, crds_val->contact_info->ext_len, CUR_OFFSET )                                            ; INC( decode_sz );
   CHECKED_INC( 4*crds_val->contact_info->ext_len ); /* TODO: check if this is correct, will need to create a synthetic ContactInfo in Agave */
 
   return BYTES_CONSUMED;
@@ -319,12 +316,12 @@ fd_gossip_msg_crds_last_voted_fork_slots_parse( fd_gossip_view_crds_value_t * cr
   CHECK_LEFT(  8UL ); crds_val->wallclock_nanos = FD_MILLI_TO_NANOSEC( FD_LOAD( ulong, CURSOR ) ); INC( 8UL );
   CHECK_LEFT(  4UL ); uint is_rawoffsets        = FD_LOAD( uint, CURSOR )                        ; INC( 4UL );
   if( !is_rawoffsets ) {
-    CHECK_LEFT( 8UL ); ulong slots_len = FD_LOAD( ulong, CURSOR ); INC( 8UL );
+    CHECK_LEFT( 8UL ); ulong slots_len = FD_LOAD( ulong, CURSOR )                                ; INC( 8UL );
     CHECKED_INC( slots_len*4UL ); /* RunLengthEncoding */
   } else {
-    CHECK_LEFT( 1UL ); uchar has_bits = FD_LOAD( uchar, CURSOR ); INC( 1UL );
+    CHECK_LEFT( 1UL ); uchar has_bits = FD_LOAD( uchar, CURSOR )                                 ; INC( 1UL );
     if( has_bits ) {
-      CHECK_LEFT( 8UL ); ulong bits_len = FD_LOAD( ulong, CURSOR ); INC( 8UL );
+      CHECK_LEFT( 8UL ); ulong bits_len = FD_LOAD( ulong, CURSOR )                               ; INC( 8UL );
       CHECKED_INC( bits_len ); /* bitvec<u8 > */
       CHECKED_INC( 8UL ); /* bits num set */
     }
@@ -339,7 +336,7 @@ fd_gossip_msg_crds_restart_heaviest_fork_parse( fd_gossip_view_crds_value_t * cr
                                                 ulong                         payload_sz,
                                                 ushort                        start_offset ) {
   CHECK_INIT( payload, payload_sz, start_offset );
-  CHECK_LEFT(  32UL ); crds_val->pubkey_off      = CUR_OFFSET; INC( 32UL );
+  CHECK_LEFT(  32UL ); crds_val->pubkey_off      = CUR_OFFSET                                     ; INC( 32UL );
   CHECK_LEFT(   8UL ); crds_val->wallclock_nanos = FD_MILLI_TO_NANOSEC( FD_LOAD( ulong, CURSOR ) ); INC( 8UL );
   CHECKED_INC(  8UL+32UL+8UL+2UL ); /* last slot + last slot hash + observed stake + shred version */
   return BYTES_CONSUMED;
@@ -474,6 +471,27 @@ fd_gossip_msg_crds_container_parse( fd_gossip_view_t * view,
   return BYTES_CONSUMED;
 }
 
+static ulong
+fd_gossip_msg_prune_parse( fd_gossip_view_t * view,
+                           uchar const *      payload,
+                           ulong              payload_sz,
+                           ushort             start_offset ) {
+  CHECK_INIT( payload, payload_sz, start_offset );
+  fd_gossip_view_prune_t * prune = view->prune;
+
+  CHECK_LEFT(                      32UL ); prune->origin_off      = CUR_OFFSET               ; INC( 32UL );
+  CHECK_LEFT(                       8UL ); prune->prunes_len      = FD_LOAD( ulong, CURSOR ) ; INC(  2UL );
+  CHECK_LEFT(    prune->prunes_len*32UL ); prune->prunes_off      = CUR_OFFSET               ; INC( prune->prunes_len*32UL );
+  CHECK_LEFT(                      64UL ); prune->signature_off   = CUR_OFFSET               ; INC( 64UL );
+  CHECK_LEFT(                      32UL ); prune->destination_off = CUR_OFFSET               ; INC( 32UL );
+  CHECK_LEFT(                       8UL ); prune->wallclock       = FD_LOAD( ulong, CURSOR ) ; INC(  8UL );
+
+  /* Convert wallclock to nanos */
+  prune->wallclock_nanos = FD_MILLI_TO_NANOSEC( prune->wallclock );
+
+  return BYTES_CONSUMED;
+}
+
 ulong
 fd_gossip_msg_parse( fd_gossip_view_t *   view,
                      uchar const *        payload,
@@ -497,7 +515,7 @@ fd_gossip_msg_parse( fd_gossip_view_t *   view,
       CHECK( payload_sz==CUR_OFFSET ); /* should be fully parsed at this point */
       break;
     case FD_GOSSIP_MESSAGE_PRUNE:
-      FD_LOG_ERR(( "Gossip message type %d parser not implemented", view->tag ));
+      INC( fd_gossip_msg_prune_parse( view, payload, payload_sz, CUR_OFFSET ) );
       break;
     case FD_GOSSIP_MESSAGE_PING:
     case FD_GOSSIP_MESSAGE_PONG:

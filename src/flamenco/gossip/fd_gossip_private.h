@@ -143,15 +143,16 @@ struct fd_gossip_view_crds_value {
 
 typedef struct fd_gossip_view_crds_value fd_gossip_view_crds_value_t;
 
-struct fd_gossip_view_crds_composite {
+struct fd_gossip_view_crds_container {
   ushort from_off; /* Offset to the sender's pubkey */
   ushort crds_values_len; /* Number of CRDS values in the response */
 
   fd_gossip_view_crds_value_t crds_values[ FD_GOSSIP_MSG_MAX_CRDS ]; /* CRDS values */
 };
 
-typedef struct fd_gossip_view_crds_composite fd_gossip_view_pull_response_t;
-typedef struct fd_gossip_view_crds_composite fd_gossip_view_push_t;
+typedef struct fd_gossip_view_crds_container fd_gossip_view_crds_container_t;
+typedef struct fd_gossip_view_crds_container fd_gossip_view_pull_response_t;
+typedef struct fd_gossip_view_crds_container fd_gossip_view_push_t;
 struct fd_gossip_view_pull_request {
   ulong bloom_keys_len;     /* number of keys in the bloom filter */
   ulong bloom_keys_offset;  /* offset to start of bloom keys in payload */
@@ -171,7 +172,7 @@ typedef struct fd_gossip_view_pull_request fd_gossip_view_pull_request_t;
 
 struct fd_gossip_view_prune {
   ushort origin_off;      /* Offset to the origin pubkey */
-  ushort prunes_len;      /* Number of prunes in the message */
+  ulong  prunes_len;      /* Number of prunes in the message */
   ushort prunes_off;      /* Offset to the start of pubkeys to prune */
   ushort destination_off; /* Offset to the destination pubkey */
   ulong  wallclock;       /* Wallclock encoded by sender (for sigverify) */
