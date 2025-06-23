@@ -144,3 +144,36 @@ change.
 <<< @/../src/app/fdctl/config/default.toml
 
 :::
+
+## Huge Pages
+
+Firedancer defaults to using 1 GiB large pages ("gigantic pages") via
+hugetlbfs. In other words, virtual memory allocated by Firedancer is
+backed by blocks of 1 GiB physical DRAM.
+
+The other x86 large page size is 2 MiB ("huge pages"). Allocating memory
+via 2 MiB pages instead of 1 GiB pages uses less DRAM but results in
+increased page table walks (i.e. is slightly slower).
+
+To switch to 2 MiB pages, first release any 1 GiB page reservations:
+```
+echo 0 | sudo tee /sys/kernel/mm/hugepages/hugepages-1048576kB/nr_hugepages
+```
+
+Then, add the following to the config file:
+
+```toml
+[hugetlbfs]
+    max_page_size = "huge"
+```
+
+This shrinks a typical Frankendancer testnet validator DRAM footprint
+by 14.5 GiB.
+
+```
+# With 'gigantic' max_page_size
+Total Memory Locked: 76910972928 bytes (71 GiB + 644 MiB + 20 KiB)
+
+# With 'huge' max_page_size
+Total Memory Locked: 61274607616 bytes (57 GiB + 68 MiB + 20 KiB)
+```
