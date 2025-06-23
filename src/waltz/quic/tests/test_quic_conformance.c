@@ -792,6 +792,8 @@ test_quic_rtt_sample( void ) {
 #undef SAMPLE
 }
 
+#include "test_quic_tx_buf.c"
+
 int
 main( int     argc,
       char ** argv ) {
@@ -855,6 +857,7 @@ main( int     argc,
   test_quic_conn_free                    ( sandbox, rng );
   test_quic_pktmeta_pktnum_skip          ( sandbox, rng );
   test_quic_rtt_sample();
+  test_quic_tx_buf();
 
   /* Wind down */
 

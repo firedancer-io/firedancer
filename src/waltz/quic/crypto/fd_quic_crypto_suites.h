@@ -158,9 +158,9 @@ fd_quic_key_update_derive( fd_quic_crypto_secrets_t * secrets,
     out       destination for the full packet
     out_sz    size of the output buffer, and also returned size of the written bytes
     hdr       the input plain text header
-    hdr_sz    the size of the input header
-    pkt       the input plain text payload
-    pkt_sz    the size of the input payload
+    hdr_sz    the size of the input header (including pkt num)
+    pkt       points to first QUIC frame
+    pkt_sz    payload byte size (all frames)
     keys      the keys to use
    */
 int
