@@ -19,6 +19,7 @@
 #include "fd_metrics_storei.h"
 #include "fd_metrics_repair.h"
 #include "fd_metrics_gossip.h"
+#include "fd_metrics_sign.h"
 #include "fd_metrics_netlnk.h"
 #include "fd_metrics_snaprd.h"
 #include "fd_metrics_snapdc.h"
