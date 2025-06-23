@@ -62,6 +62,8 @@ fi
 #   echo FAIL > $LOG_PATH/mux_ipc
 # fi
 
+sudo $UNIT_TEST/test_xdp_ebpf > $LOG_PATH/xdp_ebpf.log 2>&1
+
 wait
 
 for f in `ls $LOG_PATH`; do
