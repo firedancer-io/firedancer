@@ -66,18 +66,30 @@ struct fd_gossip_view_socket {
 
 typedef struct fd_gossip_view_socket fd_gossip_view_socket_t;
 
+struct fd_gossip_view_version {
+  ushort major;
+  ushort minor;
+  ushort patch;
+  uint   commit;      /* First 4 bytes of the commit hash */
+  uint   feature_set; /* Feature set encoded as a bitmask */
+  ushort client;
+};
+
+typedef struct fd_gossip_view_version fd_gossip_view_version_t;
+
 struct fd_gossip_view_contact_info {
-  long                    instance_creation_wallclock_nanos;
-  ushort                  shred_version;
+  long                     instance_creation_wallclock_nanos;
+  ushort                   shred_version;
+  fd_gossip_view_version_t version[ 1 ];
 
-  ushort                  addrs_len;
-  fd_gossip_view_ipaddr_t addrs[ 16UL ];    /* TODO: calculate length bounds */
+  ushort                   addrs_len;
+  fd_gossip_view_ipaddr_t  addrs[ 16UL ];    /* TODO: calculate length bounds */
 
-  ushort                  sockets_len;
-  fd_gossip_view_socket_t sockets[ 16UL ];  /* TODO: calculate length bounds */
+  ushort                   sockets_len;
+  fd_gossip_view_socket_t  sockets[ 16UL ];  /* TODO: calculate length bounds */
 
-  ushort                  ext_len;
-  ushort                  ext_off;
+  ushort                   ext_len;
+  ushort                   ext_off;
 };
 
 typedef struct fd_gossip_view_contact_info fd_gossip_view_contact_info_t;
