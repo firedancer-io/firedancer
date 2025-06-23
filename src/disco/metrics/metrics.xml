@@ -806,6 +806,7 @@ metric introduced.
     <histogram name="StoreLinkWork" min="0.00000001" max="0.0005" converter="seconds">
       <summary>Time in seconds spent on linking a new FEC set</summary>
     </histogram>
+    <histogram name="SignDurationSeconds" min="0.00000001" max="0.001" converter="seconds" summary="Duration of signing a message" />
 </tile>
 
 <tile name="gossip">
@@ -861,6 +862,10 @@ metric introduced.
     <counter name="RecvPongEvent" enum="RecvPongEvent" clickhouse_exclude="true" summary="Number of Pong messages processed with non-standard outcomes" />
 
     <gauge   name="GossipPeerCounts" enum="GossipPeerState" clickhouse_exclude="true" summary="Number of gossip peers tracked" />
+</tile>
+
+<tile name="sign">
+    <histogram name="SignDurationSeconds" min="0.00000001" max="0.001" converter="seconds" summary="Duration of signing a message" />
 </tile>
 
 <enum name="NetlinkMsg">
