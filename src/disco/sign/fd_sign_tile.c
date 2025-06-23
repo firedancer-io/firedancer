@@ -160,7 +160,13 @@ after_frag_sensitive( void *              _ctx,
 
   fd_sign_ctx_t * ctx = (fd_sign_ctx_t *)_ctx;
 
+  // get upper 32 bits of sig
+  uint sig_upper = (uint)(sig >> 32);
   int sign_type = (int)(uint)sig;
+
+  if( sig_upper != 0 ) {
+    FD_LOG_WARNING(("sig %lu, signing req %u, sign_type %d", sig, sig_upper, sign_type));
+  }
 
   FD_TEST( in_idx<MAX_IN );
 

@@ -480,6 +480,7 @@ fd_config_validate( fd_config_t const * config ) {
   CFG_HAS_NON_ZERO ( layout.verify_tile_count );
   CFG_HAS_NON_ZERO ( layout.bank_tile_count );
   CFG_HAS_NON_ZERO ( layout.shred_tile_count );
+  CFG_HAS_NON_ZERO ( layout.sign_tile_count );
 
   if( 0U!=config->firedancer.layout.writer_tile_count ) {
     if( FD_UNLIKELY( config->firedancer.layout.writer_tile_count>config->firedancer.layout.exec_tile_count ) ) {
