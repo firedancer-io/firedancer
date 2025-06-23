@@ -541,26 +541,26 @@ fd_crds_populate_preflight( fd_gossip_view_crds_value_t const * view,
   static fd_sha256_t sha2[1];
   /* Construct key */
   fd_crds_key_t * key = out_value->key;
-  key->tag            = view->tag.val;
+  key->tag            = view->tag;
   fd_memcpy( key->pubkey, view_payload+view->pubkey_off, 32UL );
 
   switch( key->tag ) {
     case FD_CRDS_TAG_VOTE:
-      key->vote_index            = view->vote->index.val;
+      key->vote_index            = view->vote->index;
       break;
     case FD_CRDS_TAG_EPOCH_SLOTS:
-      key->epoch_slots_index     = view->epoch_slots->index.val;
+      key->epoch_slots_index     = view->epoch_slots->index;
       break;
     case FD_CRDS_TAG_DUPLICATE_SHRED:
-      key->duplicate_shred_index = view->duplicate_shred->index.val;
+      key->duplicate_shred_index = view->duplicate_shred->index;
       break;
     default:
       break; /* no additional key fields */
   }
 
-  out_value->wallclock_nanos = view->wallclock.ts_nanos;
+  out_value->wallclock_nanos = view->wallclock_nanos;
 
-  out_value->contact_info.instance_creation_wallclock_nanos = view->contact_info->instance_creation_wallclock.ts_nanos;
+  out_value->contact_info.instance_creation_wallclock_nanos = view->contact_info->instance_creation_wallclock_nanos;
   fd_memcpy( out_value->node_instance.token, view_payload + view->node_instance->token_off, 32UL );
 
   fd_sha256_init(   sha2 );

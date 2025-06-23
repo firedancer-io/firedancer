@@ -20,11 +20,11 @@ int
 fd_crds_contact_info_populate( fd_gossip_view_crds_value_t const * view,
                                uchar const *                       payload,
                                fd_contact_info_t *                 ci ) {
-  FD_TEST( view->tag.val == 11 /* Contact Info */ );
+  FD_TEST( view->tag == 11 /* Contact Info */ );
   fd_gossip_view_contact_info_t const * ci_view = view->contact_info;
 
-  ci->instance_creation_wallclock_nanos = ci_view->instance_creation_wallclock.ts_nanos;
-  ci->shred_version                     = ci_view->shred_version.val;
+  ci->node_outset_wallclock_nanos = ci_view->instance_creation_wallclock_nanos;
+  ci->shred_version               = ci_view->shred_version;
   fd_memcpy( ci->pubkey, payload + view->pubkey_off, 32UL );
 
   /* TODO: Version */
@@ -35,9 +35,9 @@ fd_crds_contact_info_populate( fd_gossip_view_crds_value_t const * view,
      TODO: Check if we might want to keep last-seen instead? */
   uchar  tag_set[ FD_GOSSIP_SOCKET_TAG_MAX ] = {0};
   ushort cur_port = 0U;
-  for( ulong i = 0UL; i < ci_view->sockets_len.val; i++ ) {
-   fd_gossip_view_socket_t const * socket_view = &ci_view->socket_views[ i ];
-    ushort socket_tag = socket_view->key.val ;
+  for( ulong i = 0UL; i < ci_view->sockets_len; i++ ) {
+   fd_gossip_view_socket_t const * socket_view = &ci_view->sockets[ i ];
+    ushort socket_tag = socket_view->key;
     if( FD_UNLIKELY( socket_tag >= FD_GOSSIP_SOCKET_TAG_MAX ) ) {
         /* FIXME: We should treat this a corrupted packet, but we
            see a bunch of contact infos in testnet that enter this
@@ -49,21 +49,20 @@ fd_crds_contact_info_populate( fd_gossip_view_crds_value_t const * view,
       /* already seen this socket tag, skip */
       continue;
     }
-    uchar index = socket_view->index.val;
-    if( FD_UNLIKELY( index >= ci_view->addrs_len.val ) ) {
-      FD_LOG_WARNING(( "socket index %u out of bounds for addrs_len %lu", index, ci_view->addrs_len.val ));
+    if( FD_UNLIKELY( socket_view->index >= ci_view->addrs_len ) ) {
+      FD_LOG_WARNING(( "socket index %u out of bounds for addrs_len %u", socket_view->index, ci_view->addrs_len ));
       continue; /* FIXME: Return instead? This is likely a corrupted packet */
     }
 
-    fd_gossip_view_ipaddr_t const * addr_view = &ci_view->addr_views[ index ];
+    fd_gossip_view_ipaddr_t const * addr_view = &ci_view->addrs[ socket_view->index ];
     if( FD_UNLIKELY( addr_view->is_ip6 ) ) {
       continue; /* IPv6 not supported */
     }
 
     tag_set[ socket_tag ] = 1;
-    cur_port += socket_view->offset.val;
+    cur_port += socket_view->offset;
 
-    ci->sockets[ socket_tag ].addr = addr_view->ip4_addr.val;
+    ci->sockets[ socket_tag ].addr = addr_view->ip4_addr;
     ci->sockets[ socket_tag ].port = fd_ushort_bswap( cur_port );
   }
   return 0;
