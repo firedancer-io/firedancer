@@ -26,7 +26,11 @@
 
 #define FD_GOSSIP_SOCKET_TAG_MAX                (13)
 
-typedef fd_gossip_contact_info_v1_t fd_gossip_legacy_contact_info_t;
+/* https://github.com/anza-xyz/agave/blob/540d5bc56cd44e3cc61b179bd52e9a782a2c99e4/version/src/lib.rs#L95-L105 */
+#define FD_GOSSIP_VERSION_CLIENT_SOLANA_LABS    ( 0)
+#define FD_GOSSIP_VERSION_CLIENT_JITO_LABS      ( 1)
+#define FD_GOSSIP_VERSION_CLIENT_FIREDANCER     ( 2)
+#define FD_GOSSIP_VERSION_CLIENT_AGAVE          ( 3)
 
 /* Internal struct for maintaining a Gossip ContactInfo entry.
 
@@ -55,7 +59,6 @@ struct fd_contact_info{
     ushort minor;      /* Minor version */
     ushort patch;      /* Patch version */
 
-    int   has_commit;  /* 0 = no commit, 1 = commit present */
     uint  commit;      /* Commit hash */
     uint  feature_set; /* Feature set for this contact info */
   } version;
@@ -64,8 +67,6 @@ struct fd_contact_info{
 typedef struct fd_contact_info fd_contact_info_t;
 
 #define FD_CONTACT_INFO_SOCKET_TAG_NULL (0UL) /* Denotes an invalid/empty socket entry  */
-
-typedef struct fd_gossip_contact_info_socket_entry fd_gossip_contact_info_socket_entry_t;
 
 fd_ip4_port_t
 fd_contact_info_get_socket( fd_contact_info_t const * ci,
@@ -119,6 +120,8 @@ struct fd_gossip_contact_info_socket_entry {
   uchar  tag;
   uchar  addr_index;
 };
+
+typedef struct fd_gossip_contact_info_socket_entry fd_gossip_contact_info_socket_entry_t;
 
 int
 fd_contact_info_convert_sockets( fd_contact_info_t const *             contact_info,
