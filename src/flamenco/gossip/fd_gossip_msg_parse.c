@@ -117,9 +117,8 @@ fd_gossip_msg_crds_lowest_slot_parse( fd_gossip_view_crds_value_t * crds_val,
      TBD after live testing.
      https://github.com/anza-xyz/agave/blob/540d5bc56cd44e3cc61b179bd52e9a782a2c99e4/gossip/src/deprecated.rs#L19 */
   CHECK_LEFT( 8UL ); ulong stash_len = FD_LOAD( ulong, CURSOR ); INC( 8UL );
-  if( FD_UNLIKELY( !!stash_len ) ) {
-    return 0;
-  }
+  CHECK( stash_len==0UL );
+
   CHECK_LEFT( 8UL ); crds_val->wallclock_nanos = FD_MILLI_TO_NANOSEC( FD_LOAD( ulong, CURSOR ) ); INC( 8UL );
   return BYTES_CONSUMED;
 }
@@ -274,6 +273,7 @@ fd_gossip_msg_crds_contact_info_parse( fd_gossip_view_crds_value_t * crds_val,
   CHECK_LEFT( 2UL ); crds_val->contact_info->shred_version = FD_LOAD( ushort, CURSOR ); INC( 2UL );
   INC( version_parse( crds_val->contact_info->version, payload, payload_sz, CUR_OFFSET ) );
 
+  /* Parse addrs */
   ulong decode_sz;
   READ_CHECKED_COMPACT_U16( decode_sz, crds_val->contact_info->addrs_len, CUR_OFFSET ); INC( decode_sz );
   if( FD_UNLIKELY( crds_val->contact_info->addrs_len > sizeof(crds_val->contact_info->addrs)/sizeof(fd_gossip_view_ipaddr_t) ) ) {
@@ -290,6 +290,7 @@ fd_gossip_msg_crds_contact_info_parse( fd_gossip_view_crds_value_t * crds_val,
     }
   }
 
+  /* Parse sockets */
   READ_CHECKED_COMPACT_U16( decode_sz, crds_val->contact_info->sockets_len, CUR_OFFSET ); INC( decode_sz );
   if( FD_UNLIKELY( crds_val->contact_info->sockets_len > sizeof(crds_val->contact_info->sockets)/sizeof(fd_gossip_view_socket_t) ) ) {
     FD_LOG_ERR(( "Too many sockets in contact info: %u. Adjust array lengths!", crds_val->contact_info->sockets_len ));
@@ -443,8 +444,33 @@ fd_gossip_pull_req_parse( fd_gossip_view_t * view,
   CHECK_LEFT(                      8UL ); pr->mask      = FD_LOAD( ulong, CURSOR )         ; INC( 8UL );
   CHECK_LEFT(                      4UL ); pr->mask_bits = FD_LOAD( uint, CURSOR )          ; INC( 4UL );
 
-  /* TODO: Parse contact info */
+  INC( fd_gossip_msg_crds_vals_parse( pr->contact_info,
+                                      1UL, /* pull request holds only one contact info */
+                                      payload,
+                                      payload_sz,
+                                      CUR_OFFSET ) );
 
+  CHECK( pr->contact_info->tag==FD_GOSSIP_VALUE_CONTACT_INFO );
+  return BYTES_CONSUMED;
+}
+
+static ulong
+fd_gossip_msg_crds_container_parse( fd_gossip_view_t * view,
+                                    uchar const *      payload,
+                                    ulong              payload_sz,
+                                    ushort             start_offset ) {
+  /* Push and Pull Responses are CRDS composite types, */
+  CHECK_INIT( payload, payload_sz, start_offset );
+  fd_gossip_view_crds_container_t * container = view->tag==FD_GOSSIP_MESSAGE_PUSH ? view->push
+                                                                                  : view->pull_response;
+  CHECK_LEFT( 32UL ); container->from_off        = CUR_OFFSET               ; INC( 32UL );
+  CHECK_LEFT(  8UL ); container->crds_values_len = FD_LOAD( ushort, CURSOR ); INC(  8UL );
+  CHECK( container->crds_values_len<=FD_GOSSIP_MSG_MAX_CRDS );
+  INC( fd_gossip_msg_crds_vals_parse( container->crds_values,
+                                      container->crds_values_len,
+                                      payload,
+                                      payload_sz,
+                                      CUR_OFFSET ) );
   return BYTES_CONSUMED;
 }
 
@@ -463,20 +489,24 @@ fd_gossip_msg_parse( fd_gossip_view_t *   view,
 
   switch( view->tag ){
     case FD_GOSSIP_MESSAGE_PULL_REQUEST:
-      fd_gossip_pull_req_parse( view, payload, payload_sz, CUR_OFFSET );
+      INC( fd_gossip_pull_req_parse( view, payload, payload_sz, CUR_OFFSET ) );
       break;
     case FD_GOSSIP_MESSAGE_PULL_RESPONSE:
     case FD_GOSSIP_MESSAGE_PUSH:
+      INC( fd_gossip_msg_crds_container_parse( view, payload, payload_sz, CUR_OFFSET ) );
+      CHECK( payload_sz==CUR_OFFSET ); /* should be fully parsed at this point */
+      break;
     case FD_GOSSIP_MESSAGE_PRUNE:
       FD_LOG_ERR(( "Gossip message type %d parser not implemented", view->tag ));
       break;
     case FD_GOSSIP_MESSAGE_PING:
     case FD_GOSSIP_MESSAGE_PONG:
-      CUR_OFFSET+=fd_gossip_msg_ping_pong_parse( view, payload, payload_sz, CUR_OFFSET );
+      INC( fd_gossip_msg_ping_pong_parse( view, payload, payload_sz, CUR_OFFSET ) );
       CHECK( payload_sz==CUR_OFFSET ); /* should be fully parsed at this point */
       break;
     default:
-      return 0;
+      FD_LOG_WARNING(( "Unknown Gossip message type %d", view->tag ));
+      return 0; /* Unknown message type */
   }
   CHECK( CUR_OFFSET<=payload_sz );
   return BYTES_CONSUMED;
