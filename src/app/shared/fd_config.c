@@ -465,6 +465,7 @@ fd_config_validateh( fd_configh_t const * config ) {
 void
 fd_config_validate( fd_config_t const * config ) {
   if( FD_LIKELY( config->is_firedancer ) ) {
+    CFG_HAS_NON_ZERO ( layout.sign_tile_count );
     fd_config_validatef( &config->firedancer );
   } else {
     fd_config_validateh( &config->frankendancer );

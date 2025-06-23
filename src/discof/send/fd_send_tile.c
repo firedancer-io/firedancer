@@ -1,5 +1,6 @@
 #include "fd_send_tile.h"
 #include "../../disco/topo/fd_topo.h"
+#include "../../disco/keyguard/fd_keyguard.h"
 #include "../../disco/keyguard/fd_keyload.h"
 #include "generated/fd_send_tile_seccomp.h"
 
