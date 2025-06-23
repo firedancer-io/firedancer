@@ -511,7 +511,21 @@ rx_pull_request( fd_gossip_t *                         gossip,
 
   if( FD_UNLIKELY( !memcmp( payload+contact_info->pubkey_off, gossip->identity_pubkey, 32UL ) ) ) return -1 /* FD_GOSSIP_RX_ERR_PULL_REQUEST_LOOPBACK */;
 
-  if( FD_UNLIKELY( !is_valid_address( node ) ) ) return -1 /* FD_GOSSIP_RX_ERR_PULL_REQUEST_INVALID_ADDRESS */;
+  uchar const * node = payload+contact_info->pubkey_off;
+  ulong node_stake = get_stake( gossip, node );
+
+  if( FD_UNLIKELY( !fd_ping_tracker_active( gossip->ping_tracker,
+                                            node,
+                                            node_stake,
+                                            peer_addr,
+                                            now ) ) ) {
+    fd_ping_tracker_track( gossip->ping_tracker,
+                           node,
+                           node_stake,
+                           peer_addr,
+                           now );
+    return -1;
+  }
 
   crds_bloom_t filter[1];
   filter->keys_len = pr_view->bloom_keys_len.val;
