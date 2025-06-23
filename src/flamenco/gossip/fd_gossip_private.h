@@ -27,9 +27,15 @@
 /* Gossip message tag can never exceed this. */
 #define FD_GOSSIP_MESSAGE_LAST          (FD_GOSSIP_MESSAGE_PONG)
 
+#define FD_GOSSIP_VALUE_LEGACY_CONTACT_INFO           ( 0)
 #define FD_GOSSIP_VALUE_VOTE                          ( 1)
-#define FD_GOSSIP_VALUE_LOWEST_SLOT                   ( 2)
+#define FD_GOSSIP_VALUE_LOWEST_SLOT                   ( 2) // SOME FIELDS DEPRECATED
+#define FD_GOSSIP_VALUE_LEGACY_SNAPSHOT_HASHES        ( 3) // DEPRECATED
+#define FD_GOSSIP_VALUE_ACCOUNT_HASHES                ( 4) // DEPRECATED
 #define FD_GOSSIP_VALUE_EPOCH_SLOTS                   ( 5)
+#define FD_GOSSIP_VALUE_LEGACY_VERSION                ( 6)
+#define FD_GOSSIP_VALUE_VERSION                       ( 7)
+#define FD_GOSSIP_VALUE_NODE_INSTANCE                 ( 8)
 #define FD_GOSSIP_VALUE_DUPLICATE_SHRED               ( 9)
 #define FD_GOSSIP_VALUE_SNAPSHOT_HASHES               (10)
 #define FD_GOSSIP_VALUE_CONTACT_INFO                  (11)
@@ -111,7 +117,6 @@ struct fd_gossip_view_crds_value {
   };
   ushort pubkey_off;
   long   wallclock_nanos;
-
   ushort length; /* Length of the value in bytes (incl. signature) */
 
   uchar tag; /* Discriminant */
