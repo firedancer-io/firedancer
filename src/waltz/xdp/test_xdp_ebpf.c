@@ -135,7 +135,8 @@ run_tests( uint dst_ip ) {
     };
   } m = {
     .eth = { .net_type = USHORT_BSWAP( FD_ETH_HDR_TYPE_IP ) },
-    .ip4 = { .verihl = 0x45, .protocol = FD_IP4_HDR_PROTOCOL_UDP },
+    .ip4 = { .verihl = 0x45, .protocol = FD_IP4_HDR_PROTOCOL_UDP,
+             .net_tot_len = fd_ushort_bswap( 28 ) },
     .udp = { .net_dport = 0 }
   };
   m.ip4.daddr = dst_ip;
@@ -195,6 +196,7 @@ run_tests( uint dst_ip ) {
     .ip4 = { .verihl = 0x46, .protocol = FD_IP4_HDR_PROTOCOL_UDP },
     .udp = { .net_dport = USHORT_BSWAP( PORT0 ) }
   };
+  m1.ip4.daddr = dst_ip;
   prog_test( m1.b, sizeof(m1), "ihl6", XDP_REDIRECT );
 
 # define TEST_FIXTURE(name) name, name##_sz, #name
@@ -253,7 +255,6 @@ int main( int     argc,
   prog_fd = load_prog( code_buf, code_cnt );
   run_tests( FD_IP4_ADDR( 0,0,0,0 ) );
   close( prog_fd );
-
 
   /* Clean up */
 
