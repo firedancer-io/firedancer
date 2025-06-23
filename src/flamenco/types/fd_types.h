@@ -251,6 +251,7 @@ struct __attribute__((packed)) fd_account_meta {
 typedef struct fd_account_meta fd_account_meta_t;
 #define FD_ACCOUNT_META_ALIGN (8UL)
 
+/* https://github.com/firedancer-io/agave/blob/540d5bc56cd44e3cc61b179bd52e9a782a2c99e4/vote/src/vote_account.rs#L323 */
 /* Encoded Size: Dynamic */
 struct fd_vote_accounts_pair {
   fd_pubkey_t key;
@@ -308,6 +309,7 @@ fd_vote_accounts_pair_global_t_map_join_new( void * * alloc_mem, ulong len ) {
   *alloc_mem = (uchar *)*alloc_mem + fd_vote_accounts_pair_global_t_map_footprint( len );
   return fd_vote_accounts_pair_global_t_map_join( fd_vote_accounts_pair_global_t_map_new( map_mem, len ) );
 }
+/* https://github.com/firedancer-io/agave/blob/540d5bc56cd44e3cc61b179bd52e9a782a2c99e4/vote/src/vote_account.rs#L46 */
 /* Encoded Size: Dynamic */
 struct fd_vote_accounts {
   fd_vote_accounts_pair_t_mapnode_t * vote_accounts_pool;
