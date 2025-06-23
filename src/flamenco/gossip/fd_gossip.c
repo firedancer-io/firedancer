@@ -54,7 +54,7 @@ struct push_state {
   uchar            msg[ 1232UL ];
   ulong            msg_sz;    /* Also functions as cursor */
   ulong            num_crds;
-  fd_ip4_port_t    push_dest[1];
+  fd_ip4_port_t    push_dest;
   uchar            has_my_ci; /* Whether my contact info is already in the push */
 };
 
@@ -140,13 +140,21 @@ fd_gossip_footprint( ulong max_values ) {
 }
 
 static void
-push_state_new( push_state_t * state,
-                uchar const * identity_pubkey ) {
+push_state_reset( push_state_t * state,
+                  uchar const * identity_pubkey ) {
   state->msg[ 0 ] = FD_GOSSIP_MESSAGE_PUSH;
   fd_memcpy( &state->msg[ 4 ], identity_pubkey, 32UL );
   state->msg_sz     = 36UL; /* 4 byte tag + 32 byte sender pubkey */
   state->num_crds   = 0UL;
   state->has_my_ci  = 0;
+}
+
+static void
+push_state_new( push_state_t * state,
+                uchar const * identity_pubkey,
+                fd_ip4_port_t push_dest ) {
+  push_state_reset( state, identity_pubkey );
+  state->push_dest = push_dest;
 }
 
 void *
@@ -203,12 +211,11 @@ fd_gossip_new( void *                    shmem,
 
   /* Init push states */
   for( ulong i=0UL; i<FD_ACTIVE_SET_MAX_PEERS; i++ ) {
-    push_state_new( &gossip->active_push_state[i], gossip->identity_pubkey );
+    push_state_reset( &gossip->active_push_state[i], gossip->identity_pubkey );
   }
   for( ulong i=0UL; i<entrypoints_cnt; i++ ) {
     push_state_t * state = &gossip->entrypt_push_state[i];
-    push_state_new( state, gossip->identity_pubkey );
-    *state->push_dest = gossip->entrypoints[i];
+    push_state_new( state, gossip->identity_pubkey, gossip->entrypoints[i] );
   }
 
   fd_gossip_set_my_contact_info( gossip, my_contact_info );
@@ -249,7 +256,7 @@ push_state_flush( fd_gossip_t *   gossip,
   if( FD_UNLIKELY( !state->num_crds ) ) return; /* Nothing to flush */
 
   /* Send the message */
-  gossip->send_fn( gossip->send_ctx, state->msg, state->msg_sz, state->push_dest, (ulong)now );
+  gossip->send_fn( gossip->send_ctx, state->msg, state->msg_sz, &state->push_dest, (ulong)now );
 
   /* Reset the push state */
   state->msg_sz     = 36UL; /* 4 byte tag + 32 byte sender pubkey */
@@ -495,6 +502,7 @@ static int
 rx_pull_request( fd_gossip_t *                         gossip,
                  fd_gossip_view_pull_request_t const * pr_view,
                  uchar const *                         payload,
+                 fd_ip4_port_t const *                 peer_addr,
                  long                                  now ) {
   /* TODO: Implement data budget? Or at least limit iteration range */
 
@@ -520,7 +528,7 @@ rx_pull_request( fd_gossip_t *                         gossip,
 
   /* We use push_state since a pullresponse is identical save for the message discriminant */
   push_state_t pull_resp[1];
-  push_state_new( pull_resp, gossip->identity_pubkey );
+  push_state_new( pull_resp, gossip->identity_pubkey, *peer_addr );
   pull_resp->msg[ 0 ] = FD_GOSSIP_MESSAGE_PULL_RESPONSE;
 
   uchar iter_mem[ CRDS_MASK_ITER_SIZE ];
@@ -533,11 +541,11 @@ rx_pull_request( fd_gossip_t *                         gossip,
     /* TODO: Add jitter here? */
     // if( FD_UNLIKELY( fd_crds_value_wallclock( candidate )>contact_info->wallclock ) ) continue;
 
-    if( FD_UNLIKELY( !crds_bloom_contains( filter, fd_crds_value_hash( candidate ), 32UL ) ) ) continue;
+    if( FD_UNLIKELY( !crds_bloom_contains( filter, fd_crds_entry_hash( candidate ), 32UL ) ) ) continue;
 
     uchar const * crds_val;
-    ulong *       crds_size;
-    fd_crds_value( candidate, &crds_val, crds_size );
+    ulong *       crds_size = NULL;
+    fd_crds_entry_value( candidate, &crds_val, crds_size );
     push_state_append_crds( gossip, pull_resp, crds_val, *crds_size, now );
   }
   push_state_flush( gossip, pull_resp, now );
@@ -597,7 +605,7 @@ rx_pull_response( fd_gossip_t *                          gossip,
     int upserts = fd_crds_upserts( gossip->crds, candidate );
 
     if( FD_UNLIKELY( !upserts ) ) {
-      failed_inserts_append( gossip, fd_crds_value_hash( candidate ), now );
+      failed_inserts_append( gossip, fd_crds_entry_hash( candidate ), now );
       fd_crds_release( gossip->crds, candidate );
       continue;
     }
@@ -617,7 +625,7 @@ rx_pull_response( fd_gossip_t *                          gossip,
     int error = 0;
 
     if( FD_LIKELY( accept_after_nanos<=value->wallclock.ts_nanos ) ||
-                   fd_crds_is_contact_info( candidate ) ) {
+                   fd_crds_entry_is_contact_info( candidate ) ) {
       fd_crds_populate_full( gossip->crds,
                              value,
                              payload,
@@ -630,13 +638,13 @@ rx_pull_response( fd_gossip_t *                          gossip,
                               0, /* from_push_msg */
                               now );
     } else {
-      failed_inserts_append( gossip, fd_crds_value_hash( candidate ), now );
+      failed_inserts_append( gossip, fd_crds_entry_hash( candidate ), now );
       error = 1;
     }
     if( FD_UNLIKELY( !!error ) )
       fd_crds_release( gossip->crds, candidate );
     else {
-      if( FD_UNLIKELY( fd_crds_is_contact_info( candidate ) ) ){
+      if( FD_UNLIKELY( fd_crds_entry_is_contact_info( candidate ) ) ){
          int active = fd_ping_tracker_active( gossip->ping_tracker,
                                               origin_pubkey,
                                               origin_stake,
@@ -702,12 +710,13 @@ rx_push( fd_gossip_t *                 gossip,
       if( FD_UNLIKELY( error>0 ) )      num_duplicates = (ulong)error;
       else if( FD_UNLIKELY( error<0 ) ) num_duplicates = ULONG_MAX;
     } else {
-      if( FD_UNLIKELY( fd_crds_is_contact_info( candidate ) ) ) {
-        fd_contact_info_t const * contact_info = fd_crds_contact_info( candidate );
+      if( FD_UNLIKELY( fd_crds_entry_is_contact_info( candidate ) ) ) {
+        fd_contact_info_t const * contact_info = fd_crds_entry_contact_info( candidate );
+        fd_ip4_port_t origin_addr              = fd_contact_info_gossip_socket( contact_info );
          int active = fd_ping_tracker_active( gossip->ping_tracker,
                                               origin_pubkey,
                                               origin_stake,
-                                              fd_contact_info_get_socket( contact_info, FD_GOSSIP_SOCKET_TAG_GOSSIP ),
+                                              &origin_addr,
                                               now );
           active ? fd_crds_peer_active( gossip->crds, origin_pubkey, now )
                  : fd_crds_peer_inactive( gossip->crds, origin_pubkey, now );
@@ -1009,7 +1018,7 @@ tx_pull_request( fd_gossip_t * gossip,
   for( fd_crds_mask_iter_t * it = fd_crds_mask_iter_init( gossip->crds, mask, mask_bits, iter_mem );
        !fd_crds_mask_iter_done( it, gossip->crds );
        it = fd_crds_mask_iter_next( it, gossip->crds ) ) {
-    crds_bloom_insert( filter, fd_crds_value_hash( fd_crds_mask_iter_value( it, gossip->crds ) ), 32UL );
+    crds_bloom_insert( filter, fd_crds_entry_hash( fd_crds_mask_iter_value( it, gossip->crds ) ), 32UL );
   }
 
   ulong shift = 64UL-mask_bits;
@@ -1029,10 +1038,13 @@ tx_pull_request( fd_gossip_t * gossip,
     fi_idx = (fi_idx+1UL)%gossip->failed_inserts.cap;
   }
 
-  fd_ip4_port_t peer = fd_crds_peer_sample( gossip->crds, gossip->rng );
-  if( FD_UNLIKELY( !peer.l )) {
+  fd_contact_info_t const * peer = fd_crds_peer_sample( gossip->crds, gossip->rng );
+  fd_ip4_port_t peer_addr;
+  if( FD_UNLIKELY( !peer ) ) {
     /* Choose random entrypoint */
-    peer = random_entrypoint( gossip );
+    peer_addr = random_entrypoint( gossip );
+  } else {
+    peer_addr = fd_contact_info_gossip_socket( peer );
   }
 
   uchar payload[ 1232UL ];
@@ -1057,6 +1069,13 @@ tx_pull_request( fd_gossip_t * gossip,
   }
 
   fd_memcpy( ctx->contact_info, gossip->my_contact_info.crds_val, gossip->my_contact_info.crds_val_sz );
+  ulong payload_sz = (ulong)(ctx->contact_info - payload) + gossip->my_contact_info.crds_val_sz;
+
+  gossip->send_fn( gossip->send_ctx,
+                   payload,
+                   payload_sz,
+                   &peer_addr,
+                   (ulong)now );
 }
 
 static inline long
@@ -1086,19 +1105,17 @@ static inline void
 rotate_active_set( fd_gossip_t * gossip,
                         long          now ) {
   ulong replaced_idx;
-  fd_active_set_rotate( gossip->active_set, gossip->crds, &replaced_idx );
-  push_state_flush( gossip, &gossip->active_push_state[replaced_idx], now );
-
-  /* TODO: We should figure out how to avoid this lookup since fd_active_set_rotate
-     already obtains the CRDS entry when sampling from the CRDS table */
-  uchar const * replaced_pubkey = fd_active_set_node_pubkey( gossip->active_set, replaced_idx );
-  fd_contact_info_t const * replaced_contact_info = fd_crds_contact_info_lookup( gossip->crds, replaced_pubkey );
-  if( FD_UNLIKELY( !replaced_contact_info ) ) {
-    FD_LOG_ERR(( "Failed to find contact info for replaced active set node. This should not happen!!" ));
+  fd_contact_info_t const * new_peer = fd_active_set_rotate( gossip->active_set, gossip->crds, &replaced_idx );
+  if( FD_UNLIKELY( !new_peer ) ) {
+    FD_LOG_WARNING(( "No new peer to rotate into active set" ));
   }
 
-  push_state_new( &gossip->active_push_state[replaced_idx], gossip->identity_pubkey );
-  gossip->active_push_state[replaced_idx].push_dest[0] = *fd_contact_info_get_socket( replaced_contact_info, FD_GOSSIP_SOCKET_TAG_GOSSIP );
+  push_state_flush( gossip, &gossip->active_push_state[replaced_idx], now );
+
+  push_state_new( &gossip->active_push_state[replaced_idx],
+                  gossip->identity_pubkey,
+                  fd_contact_info_gossip_socket( new_peer ) );
+
 }
 
 void

@@ -3,6 +3,7 @@
 
 #include "fd_bloom.h"
 #include "crds/fd_crds.h"
+#include "fd_contact_info.h"
 
 /* fd_active_set provides APIs for tracking the active set of nodes we
    should push messages to in a gossip network.
@@ -117,7 +118,15 @@ fd_active_set_prunes( fd_active_set_t * active_set,
                       ulong             origin_stake,
                       ulong *           opt_out_node_idx );
 
-void
+/* fd_active_set_rotate chooses a random active set entry to swap/introduce
+   a peer into and returns the chosen peer's contact info. The peer is sampled
+   from a distribution (provided by crds) specific to the active set bucket.
+
+   opt_replaced_node_idx supplies the index that is being replaced within the
+   300 peer set. This allows users to maintain data structures that track the
+   active set. */
+
+fd_contact_info_t const *
 fd_active_set_rotate( fd_active_set_t *     active_set,
                       fd_crds_t *           crds,
                       ulong *               opt_replaced_node_idx );

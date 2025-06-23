@@ -64,9 +64,12 @@ typedef struct fd_contact_info_t fd_contact_info_t;
 
 typedef struct fd_gossip_contact_info_socket_entry fd_gossip_contact_info_socket_entry_t;
 
-fd_ip4_port_t const *
+fd_ip4_port_t
 fd_contact_info_get_socket( fd_contact_info_t const * ci,
                             uchar                     socket_tag );
+
+fd_ip4_port_t
+fd_contact_info_gossip_socket( fd_contact_info_t const * ci );
 
 ushort
 fd_contact_info_get_shred_version( fd_contact_info_t const * ci );

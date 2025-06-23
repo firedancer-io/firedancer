@@ -627,7 +627,7 @@ overrides( fd_crds_entry_t const * value,
 
   if( FD_UNLIKELY( cand_wc>val_wc ) ) return 1;
   else if( FD_UNLIKELY( cand_wc<val_wc ) ) return 0;
-  else return !!(fd_crds_value_hash( candidate )<fd_crds_value_hash( value ));
+  else return !!(fd_crds_entry_hash( candidate )<fd_crds_entry_hash( value ));
 }
 
 int
@@ -660,7 +660,7 @@ fd_crds_insert( fd_crds_t *       crds,
   if( FD_LIKELY( replace ) ) {
     if( FD_UNLIKELY( !overrides( replace, value ) ) ) {
       if( FD_UNLIKELY( replace->hash.hash!=value->hash.hash ) ) {
-        insert_purged( crds, fd_crds_value_hash( value ), replace->wallclock_nanos );
+        insert_purged( crds, fd_crds_entry_hash( value ), replace->wallclock_nanos );
         return -1;
       }
 
@@ -674,7 +674,7 @@ fd_crds_insert( fd_crds_t *       crds,
     replace->num_duplicates = 0;
     is_replacing = 1;
 
-    insert_purged( crds, fd_crds_value_hash( replace ), replace->wallclock_nanos );
+    insert_purged( crds, fd_crds_entry_hash( replace ), replace->wallclock_nanos );
 
     if( FD_UNLIKELY( is_contact_info( replace->key ) ) ) {
       crds_contact_info_dlist_ele_remove( crds->contact_info.dlist, replace, crds->pool );
@@ -723,7 +723,7 @@ fd_crds_insert( fd_crds_t *       crds,
 }
 
 void
-fd_crds_value( fd_crds_entry_t const *  entry,
+fd_crds_entry_value( fd_crds_entry_t const *  entry,
                uchar const **           value_bytes,
                ulong *                  value_sz ) {
   *value_bytes = entry->value_bytes;
@@ -731,7 +731,7 @@ fd_crds_value( fd_crds_entry_t const *  entry,
 }
 
 uchar const *
-fd_crds_value_hash( fd_crds_entry_t const * entry ) {
+fd_crds_entry_hash( fd_crds_entry_t const * entry ) {
   return entry->value_hash;
 }
 
@@ -744,12 +744,12 @@ make_contact_info_key( uchar const * pubkey ) {
 }
 
 int
-fd_crds_is_contact_info(  fd_crds_entry_t const * entry ) {
+fd_crds_entry_is_contact_info(  fd_crds_entry_t const * entry ) {
   return is_contact_info( entry->key );
 }
 
 fd_contact_info_t *
-fd_crds_contact_info( fd_crds_entry_t const * entry ) {
+fd_crds_entry_contact_info( fd_crds_entry_t const * entry ) {
   return entry->contact_info.ci->contact_info;
 }
 
@@ -804,7 +804,7 @@ fd_crds_peer_inactive( fd_crds_t *   crds,
   set_peer_active_status( crds, peer_pubkey, 0 /* inactive */, now );
 }
 
-uchar const *
+fd_contact_info_t const *
 fd_crds_bucket_sample_and_remove( fd_crds_t * crds,
                                   fd_rng_t *  rng,
                                   ulong       bucket ) {
@@ -821,7 +821,7 @@ fd_crds_bucket_sample_and_remove( fd_crds_t * crds,
                      idx,
                      crds->samplers->ele_cnt );
 
-  return crds->samplers->ele[idx]->key->pubkey;
+  return fd_crds_entry_contact_info( crds->samplers->ele[idx] );
 }
 
 void
@@ -841,17 +841,15 @@ fd_crds_bucket_add( fd_crds_t *   crds,
 }
 
 
-fd_ip4_port_t
+fd_contact_info_t const *
 fd_crds_peer_sample( fd_crds_t const * crds,
                      fd_rng_t *         rng ) {
-  if( FD_UNLIKELY( !crds->samplers->ele_cnt ) ) {
-    return (fd_ip4_port_t){ .l = 0UL };
-  }
+  if( FD_UNLIKELY( !crds->samplers->ele_cnt ) ) return NULL;
 
   ulong idx = peer_wsampler_sample( crds->samplers->pr_sampler,
                                     rng,
                                     crds->samplers->ele_cnt );
-  return crds->samplers->ele[idx]->contact_info.ci->contact_info->sockets[FD_GOSSIP_SOCKET_TAG_GOSSIP];
+  return fd_crds_entry_contact_info( crds->samplers->ele[idx] );
 }
 
 struct fd_crds_mask_iter_private {
