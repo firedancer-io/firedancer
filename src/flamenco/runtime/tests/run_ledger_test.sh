@@ -24,7 +24,7 @@ TILE_CPUS="--tile-cpus 5-9"
 THREAD_MEM_BOUND="--thread-mem-bound 0"
 CLUSTER_VERSION=""
 DUMP_DIR=${DUMP_DIR:="./dump"}
-ONE_OFFS=""
+ONE_OFFS="--one-off-features 2B2SBNbUcr438LtGXNcJNBP2GBSxjx81F945SdSkUSfC,LTHasHQX6661DaDD4S6A2TFi6QBuiwXKv66fB1obfHq,LTdLt9Ycbyoipz5fLysCi1NnDnASsZfmJLJXts5ZxZz,2Fr57nzzkLYXW695UdDxDeR5fhnZWSttZeZYemrnpGFV,C97eKZygrkU4JxJsZdjgbUY7iQR7rKTr4NyDWo2E5pRm,6M4oQ6eXneVhtLoiAr4yRYQY43eVLjrKbiDZDJc892yk"
 
 while [[ $# -gt 0 ]]; do
   case $1 in
