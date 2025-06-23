@@ -4,6 +4,7 @@
 #include "../../flamenco/runtime/fd_system_ids.h"
 #include "../../flamenco/types/fd_types.h"
 #include "../../disco/pack/fd_pack_unwritable.h"
+#include "../../disco/pack/fd_compute_budget_program.h"
 
 #define ABI_ALIGN( x ) __attribute__((packed)) __attribute__((aligned(x)))
 
@@ -252,7 +253,7 @@ struct ABI_ALIGN(8UL) fd_bank_abi_txn_private {
       ushort num_non_compute_budget_instructions;
       ushort num_non_migratable_builtin_instructions;
       ushort num_non_builtin_instructions;
-      ushort migrating_builtin[3];
+      ushort migrating_builtin[1]; /* The stake program */
     } compute_budget_instruction_details;
 
     uchar _message_hash[ 32 ]; /* with the same value as message_hash */
@@ -403,25 +404,42 @@ fd_bank_abi_resolve_address_lookup_tables( void const *     bank,
   return FD_BANK_ABI_TXN_INIT_SUCCESS;
 }
 
-#define MAP_PERFECT_NAME      precompile_table
-#define MAP_PERFECT_LG_TBL_SZ 2
-#define MAP_PERFECT_T         fd_acct_addr_t
+#define CATEGORY_NON_BUILTIN   0
+#define CATEGORY_NON_MIGRATABLE 1
+#define CATEGORY_MIGRATING(x)  (2+(x))
+typedef struct {
+  uchar b[FD_TXN_ACCT_ADDR_SZ];
+  int   category;
+} fd_bank_abi_prog_map_t;
+
+#define MAP_PERFECT_NAME      prog_map
+#define MAP_PERFECT_LG_TBL_SZ 4
+#define MAP_PERFECT_T         fd_bank_abi_prog_map_t
 #define MAP_PERFECT_KEY       b
 #define MAP_PERFECT_KEY_T     fd_acct_addr_t const *
 #define MAP_PERFECT_ZERO_KEY  (0,0,0,0, 0,0,0,0, 0,0,0,0, 0,0,0,0, 0,0,0,0, 0,0,0,0, 0,0,0,0, 0,0,0,0)
 #define MAP_PERFECT_COMPLEX_KEY 1
 #define MAP_PERFECT_KEYS_EQUAL(k1,k2) (!memcmp( (k1), (k2), 32UL ))
 
-#define PERFECT_HASH( u ) (((2U*(u))>>30)&0x3U)
+#define PERFECT_HASH( u ) ((((3776U*(u))>>28)-1U)&0xFU)
 
 #define MAP_PERFECT_HASH_PP( a00,a01,a02,a03,a04,a05,a06,a07,a08,a09,a10,a11,a12,a13,a14,a15, \
                              a16,a17,a18,a19,a20,a21,a22,a23,a24,a25,a26,a27,a28,a29,a30,a31) \
                                           PERFECT_HASH( (a08 | (a09<<8) | (a10<<16) | (a11<<24)) )
 #define MAP_PERFECT_HASH_R( ptr ) PERFECT_HASH( fd_uint_load_4( (uchar const *)ptr->b + 8UL ) )
 
-#define MAP_PERFECT_0  ( KECCAK_SECP_PROG_ID ),
-#define MAP_PERFECT_1  ( ED25519_SV_PROG_ID  ),
-#define MAP_PERFECT_2  ( SECP256R1_PROG_ID   ),
+#define MAP_PERFECT_0  ( KECCAK_SECP_PROG_ID     ), .category=CATEGORY_NON_MIGRATABLE
+#define MAP_PERFECT_1  ( ED25519_SV_PROG_ID      ), .category=CATEGORY_NON_MIGRATABLE
+#define MAP_PERFECT_2  ( SECP256R1_PROG_ID       ), .category=CATEGORY_NON_BUILTIN /* strange, but true */
+#define MAP_PERFECT_3  ( VOTE_PROG_ID            ), .category=CATEGORY_NON_MIGRATABLE
+#define MAP_PERFECT_4  ( SYS_PROG_ID             ), .category=CATEGORY_NON_MIGRATABLE
+#define MAP_PERFECT_5  ( COMPUTE_BUDGET_PROG_ID  ), .category=CATEGORY_NON_MIGRATABLE
+#define MAP_PERFECT_6  ( BPF_UPGRADEABLE_PROG_ID ), .category=CATEGORY_NON_MIGRATABLE
+#define MAP_PERFECT_7  ( BPF_LOADER_1_PROG_ID    ), .category=CATEGORY_NON_MIGRATABLE
+#define MAP_PERFECT_8  ( BPF_LOADER_2_PROG_ID    ), .category=CATEGORY_NON_MIGRATABLE
+#define MAP_PERFECT_9  ( LOADER_V4_PROG_ID       ), .category=CATEGORY_NON_MIGRATABLE
+#define MAP_PERFECT_10 ( STAKE_PROG_ID           ), .category=CATEGORY_MIGRATING(0)
+
 
 #include "../../util/tmpl/fd_map_perfect.c"
 
@@ -458,14 +476,15 @@ fd_bank_abi_txn_init( fd_bank_abi_txn_t * out_txn,
   out_txn->is_simple_vote_tx          = !!is_simple_vote;
   out_txn->is_simple_vote_transaction = !!is_simple_vote;
 
-  /* ComputeBudgetInstructionDetails is only used in the method
-     sanitize_and_convert_to_compute_budget_limits which never gets
-     called from the code paths we invoke. */
-  memset( &out_txn->compute_budget_instruction_details, '\0', sizeof(out_txn->compute_budget_instruction_details) );
-
 
   ulong sig_counters[4] = { 0UL };
+  ulong instr_cnt[3] = { 0UL }; /* non-builtin, non-migrating, stake program */
+
+  fd_compute_budget_program_state_t cbp_state[1];
+  fd_compute_budget_program_init( cbp_state );
+
   fd_acct_addr_t const * addr_base = fd_txn_get_acct_addrs( txn, payload );
+  const fd_bank_abi_prog_map_t non_builtin[1] = { { .category = CATEGORY_NON_BUILTIN } };
   for( ulong i=0UL; i<txn->instr_cnt; i++ ) {
     ulong prog_id_idx = (ulong)txn->instr[i].program_id;
     fd_acct_addr_t const * prog_id = addr_base + prog_id_idx;
@@ -473,14 +492,38 @@ fd_bank_abi_txn_init( fd_bank_abi_txn_t * out_txn,
     /* Lookup prog_id in hash table.  If it's a miss, it'll return
        UINT_MAX which gets clamped to 3.  Otherwise, it'll be 0, 1, or
        2. */
-    sig_counters[ fd_uint_min( 3UL, precompile_table_hash_or_default( prog_id ) ) ] +=
+    uint hash_or_def = prog_map_hash_or_default( prog_id );
+    sig_counters[ fd_uint_min( 3UL, hash_or_def ) ] +=
       (txn->instr[i].data_sz>0) ? (ulong)payload[ txn->instr[i].data_off ] : 0UL;
+
+    instr_cnt[ prog_map_query( prog_id, non_builtin )->category ]++;
+
+    if( FD_UNLIKELY( hash_or_def==HASH( COMPUTE_BUDGET_PROG_ID ) ) ) {
+      fd_compute_budget_program_parse( payload+txn->instr[i].data_off, txn->instr[i].data_sz, cbp_state );
+    }
   }
   out_txn->num_transaction_signatures = fd_txn_account_cnt( txn, FD_TXN_ACCT_CAT_SIGNER );
   out_txn->num_secp256k1_instruction_signatures = sig_counters[ HASH( KECCAK_SECP_PROG_ID ) ];
-  out_txn->num_ed25519_instruction_signatures = sig_counters  [ HASH( ED25519_SV_PROG_ID  ) ];
+  out_txn->num_ed25519_instruction_signatures   = sig_counters[ HASH( ED25519_SV_PROG_ID  ) ];
   out_txn->num_secp256r1_instruction_signatures = sig_counters[ HASH( SECP256R1_PROG_ID   ) ];
 
+  out_txn->compute_budget_instruction_details.num_non_compute_budget_instructions     = (ushort)(txn->instr_cnt - cbp_state->compute_budget_instr_cnt);
+  out_txn->compute_budget_instruction_details.num_non_migratable_builtin_instructions = (ushort)instr_cnt[ CATEGORY_NON_MIGRATABLE ];
+  out_txn->compute_budget_instruction_details.num_non_builtin_instructions            = (ushort)instr_cnt[ CATEGORY_NON_BUILTIN   ];
+  out_txn->compute_budget_instruction_details.migrating_builtin[0]                    = (ushort)instr_cnt[ CATEGORY_MIGRATING(0)  ];
+  /* The instruction index doesn't matter */
+#define CBP_TO_TUPLE_OPTION( out, flag, val0, val1 )                                                                      \
+  do {                                                                                                                    \
+    out_txn->compute_budget_instruction_details.out.discr = !!(cbp_state->flags & FD_COMPUTE_BUDGET_PROGRAM_FLAG_ ## flag); \
+    out_txn->compute_budget_instruction_details.out._0    = (val0);                                                         \
+    out_txn->compute_budget_instruction_details.out._1    = (val1);                                                         \
+  } while( 0 )
+
+  CBP_TO_TUPLE_OPTION( requested_compute_unit_price,              SET_FEE,            0, cbp_state->micro_lamports_per_cu );
+  CBP_TO_TUPLE_OPTION( requested_compute_unit_limit,              SET_CU,             0, cbp_state->compute_units         );
+  CBP_TO_TUPLE_OPTION( requested_heap_size,                       SET_HEAP,           0, cbp_state->heap_size             );
+  CBP_TO_TUPLE_OPTION( requested_loaded_accounts_data_size_limit, SET_LOADED_DATA_SZ, 0, cbp_state->loaded_acct_data_sz   );
+#undef CBP_TO_TUPLE_OPTION
 
   if( FD_LIKELY( txn->transaction_version==FD_TXN_VLEGACY ) ) {
     sanitized_txn_abi_legacy_message1_t * legacy = &out_txn->message.legacy;
