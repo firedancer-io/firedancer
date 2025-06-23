@@ -127,7 +127,8 @@ during_frag_sensitive( void * _ctx,
   ulong mtu  = ctx->in[ in_idx ].mtu;
 
   if( chunk<ctx->in[ in_idx ].chunk0 || chunk>ctx->in[ in_idx ].wmark || sz>mtu ) {
-    FD_LOG_EMERG(( "oversz or out of bounds signing request (role=%d chunk=%lu sz=%lu mtu=%lu, chunk0=%lu, wmark=%lu)", role, chunk, sz, mtu, ctx->in[ in_idx ].chunk0, ctx->in[ in_idx ].wmark ));
+    __asm__("int $3");
+    FD_LOG_EMERG(( "oversz or out of bounds signing request (role=%d chunk=%lu sz=%lu mtu=%lu, chunk0=%lu, wmark=%lu). SIG upper %u", role, chunk, sz, mtu, ctx->in[ in_idx ].chunk0, ctx->in[ in_idx ].wmark, (uint)(sig >> 32) ));
   }
 
   void * src = fd_chunk_to_laddr( ctx->in[ in_idx ].mem, chunk );
@@ -160,7 +161,13 @@ after_frag_sensitive( void *              _ctx,
 
   fd_sign_ctx_t * ctx = (fd_sign_ctx_t *)_ctx;
 
+  // get upper 32 bits of sig
+  uint sig_upper = (uint)(sig >> 32);
   int sign_type = (int)(uint)sig;
+
+  if( sig_upper != 0 ) {
+    FD_LOG_INFO(("sig %lu, signing req %u, sign_type %d", sig, sig_upper, sign_type));
+  }
 
   FD_TEST( in_idx<MAX_IN );
 
@@ -205,7 +212,7 @@ after_frag_sensitive( void *              _ctx,
   sign_duration += fd_tickcount();
   fd_histf_sample( ctx->sign_duration, (ulong)sign_duration );
 
-  fd_stem_publish( stem, in_idx, 0UL, ctx->out[ in_idx ].out_chunk, 64UL, 0UL, tsorig, 0UL );
+  fd_stem_publish( stem, in_idx, sig, ctx->out[ in_idx ].out_chunk, 64UL, 0UL, tsorig, 0UL );
   ctx->out[ in_idx ].out_chunk = fd_dcache_compact_next( ctx->out[ in_idx ].out_chunk, 64UL, ctx->out[ in_idx ].out_chunk0, ctx->out[ in_idx ].out_wmark );
 }
 

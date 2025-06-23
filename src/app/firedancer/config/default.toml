@@ -547,6 +547,23 @@ user = ""
     # very high TPS rates because the cluster size will be very small.
     shred_tile_count = 1
 
+    # How many sign tiles to run.  Sign tiles hold the validator private
+    # key in protected memory, which no other tiles can access, and then
+    # serve signing requests from other parts of the system.
+    #
+    # Data to be signed includes outgoing shreds, votes, repair
+    # requests, gossip messages, and various other things.
+    #
+    # Sign tiles are designed to scale linearly when adding more tiles,
+    # and the sign tile count should be increased if the system becomes
+    # bottlenecked on signing.  This should not routinely happen except
+    # in development and benchmarking environments, or when running on
+    # older hardware which does not support fast signing.
+    #
+    # For current mainnet conditions it is not recommended to run more
+    # than two sign tiles.
+    sign_tile_count = 2
+
 # All memory that will be used in Firedancer is pre-allocated in two
 # kinds of pages: huge and gigantic.  Huge pages are 2 MiB and gigantic
 # pages are 1 GiB.  This is done to prevent TLB misses which can have a

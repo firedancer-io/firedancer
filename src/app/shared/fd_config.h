@@ -236,6 +236,7 @@ struct fd_config {
     uint verify_tile_count;
     uint bank_tile_count;
     uint shred_tile_count;
+    uint sign_tile_count;
   } layout;
 
   struct {
