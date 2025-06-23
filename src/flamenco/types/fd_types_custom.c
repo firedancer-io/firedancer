@@ -6,6 +6,9 @@
 #error "fd_types_custom.c is part of the fd_types.c compile uint"
 #endif /* !SOURCE_fd_src_flamenco_types_fd_types_c */
 
+#include "../runtime/fd_system_ids.h"
+#include "../runtime/fd_executor_err.h"
+
 #include <stdio.h>
 
 int
@@ -202,7 +205,7 @@ int fd_tower_sync_decode_footprint( fd_bincode_decode_ctx_t * ctx, ulong * total
   return err;
 }
 
-static void fd_tower_sync_decode_inner( void * struct_mem, void * * alloc_mem, fd_bincode_decode_ctx_t * ctx ) {
+void fd_tower_sync_decode_inner( void * struct_mem, void * * alloc_mem, fd_bincode_decode_ctx_t * ctx ) {
   fd_tower_sync_t * self = (fd_tower_sync_t *)struct_mem;
   self->has_root = 1;
   fd_bincode_uint64_decode_unsafe( &self->root, ctx );
@@ -283,4 +286,58 @@ fd_rust_duration_footprint_validator ( fd_bincode_decode_ctx_t * ctx ) {
   if( __builtin_uaddl_overflow( d->seconds, d->nanoseconds/1000000000U, &out ) )
     return FD_BINCODE_ERR_ENCODING;
   return FD_BINCODE_SUCCESS;
+}
+
+void fd_vote_accounts_decode_inner( void * struct_mem, void * * alloc_mem, fd_bincode_decode_ctx_t * ctx ) {
+  fd_vote_accounts_t * self = (fd_vote_accounts_t *)struct_mem;
+  ulong vote_accounts_len;
+  fd_bincode_uint64_decode_unsafe( &vote_accounts_len, ctx );
+  self->vote_accounts_pool = fd_vote_accounts_pair_t_map_join_new( alloc_mem, fd_ulong_max( vote_accounts_len, 15000 ) );
+  self->vote_accounts_root = NULL;
+  for( ulong i=0; i < vote_accounts_len; i++ ) {
+    fd_vote_accounts_pair_t_mapnode_t * node = fd_vote_accounts_pair_t_map_acquire( self->vote_accounts_pool );
+    fd_vote_accounts_pair_new( &node->elem );
+    fd_vote_accounts_pair_decode_inner( &node->elem, alloc_mem, ctx );
+    fd_vote_accounts_pair_t_mapnode_t * out = NULL;;
+    // https://github.com/firedancer-io/agave/blob/540d5bc56cd44e3cc61b179bd52e9a782a2c99e4/vote/src/vote_account.rs#L323
+    // throws an error and
+    if( FD_UNLIKELY( 0 != memcmp( node->elem.value.owner.key,
+                                fd_solana_vote_program_id.key,
+                                sizeof( fd_pubkey_t ) ) ) )
+      // https://github.com/firedancer-io/agave/blob/540d5bc56cd44e3cc61b179bd52e9a782a2c99e4/vote/src/vote_account.rs#L429
+      // causes the entry to not get added
+      fd_vote_accounts_pair_t_map_release( self->vote_accounts_pool, node );
+    else
+      fd_vote_accounts_pair_t_map_insert_or_replace( self->vote_accounts_pool, &self->vote_accounts_root, node, &out );
+
+    if( out != NULL ) {
+      // Unclear how to release the memory...
+      fd_vote_accounts_pair_t_map_release( self->vote_accounts_pool, out );
+    }
+  }
+}
+
+void fd_vote_accounts_decode_inner_global( void * struct_mem, void * * alloc_mem, fd_bincode_decode_ctx_t * ctx ) {
+  fd_vote_accounts_global_t * self = (fd_vote_accounts_global_t *)struct_mem;
+  ulong vote_accounts_len;
+  fd_bincode_uint64_decode_unsafe( &vote_accounts_len, ctx );
+  *alloc_mem = (void*)fd_ulong_align_up( (ulong)*alloc_mem, fd_vote_accounts_pair_global_t_map_align() );
+  fd_vote_accounts_pair_global_t_mapnode_t * vote_accounts_pool = fd_vote_accounts_pair_global_t_map_join_new( alloc_mem, fd_ulong_max( vote_accounts_len, 15000 ) );
+  fd_vote_accounts_pair_global_t_mapnode_t * vote_accounts_root = NULL;
+  for( ulong i=0; i < vote_accounts_len; i++ ) {
+    fd_vote_accounts_pair_global_t_mapnode_t * node = fd_vote_accounts_pair_global_t_map_acquire( vote_accounts_pool );
+    fd_vote_accounts_pair_new( (fd_vote_accounts_pair_t *)fd_type_pun(&node->elem) );
+    fd_vote_accounts_pair_decode_inner_global( &node->elem, alloc_mem, ctx );
+    fd_vote_accounts_pair_global_t_mapnode_t * out = NULL;;
+    if( FD_UNLIKELY( 0 != memcmp( node->elem.value.owner.key,
+                                fd_solana_vote_program_id.key,
+                                sizeof( fd_pubkey_t ) ) ) )
+      fd_vote_accounts_pair_global_t_map_release( vote_accounts_pool, node );
+    else
+      fd_vote_accounts_pair_global_t_map_insert_or_replace( vote_accounts_pool, &vote_accounts_root, node, &out );
+    if( out != NULL )
+      fd_vote_accounts_pair_global_t_map_release( vote_accounts_pool, out );
+  }
+  self->vote_accounts_pool_offset = (ulong)fd_vote_accounts_pair_global_t_map_leave( vote_accounts_pool ) - (ulong)struct_mem;
+  self->vote_accounts_root_offset = (ulong)fd_vote_accounts_pair_global_t_map_leave( vote_accounts_root ) - (ulong)struct_mem;
 }

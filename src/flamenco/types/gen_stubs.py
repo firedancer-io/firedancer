@@ -29,7 +29,7 @@ print('#pragma GCC diagnostic ignored "-Wunused-variable"', file=body)
 print('#pragma GCC diagnostic ignored "-Wunused-function"', file=body)
 
 print('#define SOURCE_fd_src_flamenco_types_fd_types_c', file=body)
-print('#include "fd_types_custom.c"', file=body)
+print('#include "fd_types_custom.h"', file=body)
 
 preambletypes = set()
 postambletypes = set()
@@ -3019,6 +3019,7 @@ class StructType(TypeNode):
         self.comment = (json["comment"] if "comment" in json else None)
         self.nomethods = ("attribute" in json)
         self.encoders = (json["encoders"] if "encoders" in json else None)
+        self.custom_decode_inner = (json["custom_decode_inner"] if "custom_decode_inner" in json else False)
         self.normalizer = (json["normalizer"] if "normalizer" in json else None)
         self.validator = (json["validator"] if "validator" in json else None)
         if "alignment" in json:
@@ -3191,6 +3192,8 @@ class StructType(TypeNode):
                 print(f'  int err = 0;', file=body)
                 if self.validator is not None:
                     print(f'  err = {self.validator}( ctx );', file=body)
+                    print(f'  if( FD_UNLIKELY( err != FD_BINCODE_SUCCESS ) )', file=body)
+                    print(f'    return err;', file=body)
                 for f in self.fields:
                     if hasattr(f, "ignore_underflow") and f.ignore_underflow:
                         print('  if( ctx->data == ctx->dataend ) return FD_BINCODE_SUCCESS;', file=body)
@@ -3206,16 +3209,16 @@ class StructType(TypeNode):
                 print(f'  ctx->data = start_data;', file=body)
                 print(f'  return err;', file=body)
                 print(f'}}', file=body)
-
-            print(f'static void {n}_decode_inner( void * struct_mem, void * * alloc_mem, fd_bincode_decode_ctx_t * ctx ) {{', file=body)
-            print(f'  {n}_t * self = ({n}_t *)struct_mem;', file=body)
-            for f in self.fields:
-                if hasattr(f, "ignore_underflow") and f.ignore_underflow:
-                    print('  if( ctx->data == ctx->dataend ) return;', file=body)
-                f.emitDecodeInner()
-            if self.normalizer is not None:
-                print(f'  {self.normalizer}( self );', file=body)
-            print(f'}}', file=body)
+            if not self.custom_decode_inner:
+                print(f'static void {n}_decode_inner( void * struct_mem, void * * alloc_mem, fd_bincode_decode_ctx_t * ctx ) {{', file=body)
+                print(f'  {n}_t * self = ({n}_t *)struct_mem;', file=body)
+                for f in self.fields:
+                    if hasattr(f, "ignore_underflow") and f.ignore_underflow:
+                        print('  if( ctx->data == ctx->dataend ) return;', file=body)
+                    f.emitDecodeInner()
+                if self.normalizer is not None:
+                    print(f'  {self.normalizer}( self );', file=body)
+                print(f'}}', file=body)
 
             print(f'void * {n}_decode( void * mem, fd_bincode_decode_ctx_t * ctx ) {{', file=body)
             print(f'  {n}_t * self = ({n}_t *)mem;', file=body)
@@ -3227,13 +3230,14 @@ class StructType(TypeNode):
             print(f'}}', file=body)
 
             if self.produce_global and not self.isFlat():
-                print(f'static void {n}_decode_inner_global( void * struct_mem, void * * alloc_mem, fd_bincode_decode_ctx_t * ctx ) {{', file=body)
-                print(f'  {n}_global_t * self = ({n}_global_t *)struct_mem;', file=body)
-                for f in self.fields:
-                    if hasattr(f, "ignore_underflow") and f.ignore_underflow:
-                        print('  if( ctx->data == ctx->dataend ) return;', file=body)
-                    f.emitDecodeInnerGlobal()
-                print(f'}}', file=body)
+                if not self.custom_decode_inner:
+                    print(f'static void {n}_decode_inner_global( void * struct_mem, void * * alloc_mem, fd_bincode_decode_ctx_t * ctx ) {{', file=body)
+                    print(f'  {n}_global_t * self = ({n}_global_t *)struct_mem;', file=body)
+                    for f in self.fields:
+                        if hasattr(f, "ignore_underflow") and f.ignore_underflow:
+                            print('  if( ctx->data == ctx->dataend ) return;', file=body)
+                        f.emitDecodeInnerGlobal()
+                    print(f'}}', file=body)
 
                 print(f'void * {n}_decode_global( void * mem, fd_bincode_decode_ctx_t * ctx ) {{', file=body)
                 print(f'  {n}_global_t * self = ({n}_global_t *)mem;', file=body)
@@ -3752,6 +3756,8 @@ def main():
         print(f' .encode=(void *){key}_encode', file=reflect, end='')
         print('  },', file=reflect)
     print("};", file=reflect)
+
+    print('#include "fd_types_custom.c"', file=body)
 
 if __name__ == "__main__":
     main()
