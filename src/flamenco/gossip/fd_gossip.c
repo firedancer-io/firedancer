@@ -377,9 +377,9 @@ verify_prune( fd_gossip_view_prune_t const * view,
   prune_sign_data_pre_t * pre = (prune_sign_data_pre_t *)sign_data;
   fd_memcpy( pre->prefix, "\xffSOLANA_PRUNE_DATA", 18UL );
   fd_memcpy( pre->origin, payload+view->origin_off, 32UL );
-  pre->prunes_len = view->prunes_len.val;
+  pre->prunes_len = view->prunes_len;
 
-  ulong prunes_arr_sz = view->prunes_len.val*32UL;
+  ulong prunes_arr_sz = view->prunes_len*32UL;
   fd_memcpy( sign_data+sizeof(prune_sign_data_pre_t), payload+view->prunes_off, prunes_arr_sz );
 
   prune_sign_data_post_t * post = (prune_sign_data_post_t *)( sign_data + sizeof(prune_sign_data_pre_t) + prunes_arr_sz );
@@ -507,7 +507,7 @@ rx_pull_request( fd_gossip_t *                         gossip,
   /* TODO: Implement data budget? Or at least limit iteration range */
 
   fd_gossip_view_crds_value_t const * contact_info = pr_view->contact_info;
-  if( FD_UNLIKELY( contact_info->tag.val!=FD_GOSSIP_VALUE_CONTACT_INFO ) ) return -1 /* FD_GOSSIP_RX_ERR_PULL_REQUEST_NOT_CONTACT_INFO */;
+  if( FD_UNLIKELY( contact_info->tag!=FD_GOSSIP_VALUE_CONTACT_INFO ) ) return -1 /* FD_GOSSIP_RX_ERR_PULL_REQUEST_NOT_CONTACT_INFO */;
 
   if( FD_UNLIKELY( !memcmp( payload+contact_info->pubkey_off, gossip->identity_pubkey, 32UL ) ) ) return -1 /* FD_GOSSIP_RX_ERR_PULL_REQUEST_LOOPBACK */;
 
@@ -528,17 +528,17 @@ rx_pull_request( fd_gossip_t *                         gossip,
   }
 
   crds_bloom_t filter[1];
-  filter->keys_len = pr_view->bloom_keys_len.val;
+  filter->keys_len = pr_view->bloom_keys_len;
   filter->keys     = (ulong *)( payload + pr_view->bloom_keys_offset );
 
-  filter->bits_len = pr_view->bloom_len.val;
+  filter->bits_len = pr_view->bloom_len;
   filter->bits     = (ulong *)( payload + pr_view->bloom_bits_offset );
 
   /* TODO: Jitter? */
   long clamp_wallclock_lower_nanos = now - 15L*1000L*1000L*1000L;
   long clamp_wallclock_upper_nanos = now + 15L*1000L*1000L*1000L;
-  if( FD_UNLIKELY( contact_info->wallclock.ts_nanos<clamp_wallclock_lower_nanos ||
-                   contact_info->wallclock.ts_nanos>clamp_wallclock_upper_nanos ) ) return -1; /* FD_GOSSIP_RX_ERR_PULL_REQUEST_WALLCLOCK; */
+  if( FD_UNLIKELY( contact_info->wallclock_nanos<clamp_wallclock_lower_nanos ||
+                   contact_info->wallclock_nanos>clamp_wallclock_upper_nanos ) ) return -1; /* FD_GOSSIP_RX_ERR_PULL_REQUEST_WALLCLOCK; */
 
   /* We use push_state since a pullresponse is identical save for the message discriminant */
   push_state_t pull_resp[1];
@@ -547,7 +547,7 @@ rx_pull_request( fd_gossip_t *                         gossip,
 
   uchar iter_mem[ CRDS_MASK_ITER_SIZE ];
 
-  for( fd_crds_mask_iter_t * it=fd_crds_mask_iter_init( gossip->crds, pr_view->mask.val, pr_view->mask_bits.val, iter_mem );
+  for( fd_crds_mask_iter_t * it=fd_crds_mask_iter_init( gossip->crds, pr_view->mask, pr_view->mask_bits, iter_mem );
        !fd_crds_mask_iter_done( it, gossip->crds );
        it=fd_crds_mask_iter_next( it, gossip->crds ) ) {
     fd_crds_entry_t const * candidate = fd_crds_mask_iter_value( it, gossip->crds );
@@ -760,7 +760,7 @@ rx_prune( fd_gossip_t *                  gossip,
           uchar const *                  payload,
           fd_gossip_view_prune_t const * prune,
           long                           now ) {
-  if( FD_UNLIKELY( now-FD_MILLI_TO_NANOSEC(500L)>(long)prune->wallclock.ts_nanos ) ) return FD_GOSSIP_RX_PRUNE_ERR_STALE;
+  if( FD_UNLIKELY( now-FD_MILLI_TO_NANOSEC(500L)>(long)prune->wallclock_nanos ) ) return FD_GOSSIP_RX_PRUNE_ERR_STALE;
   else if( FD_UNLIKELY( !!memcmp( gossip->identity_pubkey, payload+prune->destination_off, 32UL ) ) ) return FD_GOSSIP_RX_PRUNE_ERR_DESTINATION;
 
 
@@ -768,7 +768,7 @@ rx_prune( fd_gossip_t *                  gossip,
                         gossip->identity_pubkey,
                         gossip->identity_stake,
                         payload+prune->prunes_off,
-                        prune->prunes_len.val,
+                        prune->prunes_len,
                         payload+prune->origin_off,
                         get_stake( gossip, payload+prune->origin_off ),
                         NULL /* TODO: use out_node_idx to update push states */ );

@@ -44,7 +44,7 @@ struct fd_contact_info{
   uchar         pubkey[ 32UL ];
   ushort        shred_version; /* Shred version for this contact info */
 
-  long          node_outset_wallclock_nanos; /* Wallclock when node was initialized */
+  long          instance_creation_wallclock_nanos; /* Wallclock when node was initialized */
   long          wallclock_nanos; /* Wallclock when this contact info was last updated */
   fd_ip4_port_t sockets[ FD_GOSSIP_SOCKET_TAG_MAX ];
 
