@@ -397,6 +397,8 @@ fd_txncache_new( void * shmem,
   uint * txnpages_free  = _txnpages_free;
   for( uint i=0; i<max_txnpages; i++ ) txnpages_free[ i ] = i;
 
+  tc->is_constipated = 0UL;
+
   FD_COMPILER_MFENCE();
   FD_VOLATILE( tc->magic ) = FD_TXNCACHE_MAGIC;
   FD_COMPILER_MFENCE();
@@ -619,7 +621,7 @@ fd_txncache_flush_constipated_slots( fd_txncache_t * tc ) {
   }
   tc->constipated_slots_cnt = 0UL;
 
-  tc->is_constipated = 0;
+  tc->is_constipated = 0UL;
 
   fd_rwlock_unwrite( tc->lock );
 
@@ -1174,11 +1176,11 @@ fd_txncache_get_is_constipated( fd_txncache_t * tc ) {
 
 int
 fd_txncache_set_is_constipated( fd_txncache_t * tc, int is_constipated ) {
-  fd_rwlock_read( tc->lock );
+  fd_rwlock_write( tc->lock );
 
   tc->is_constipated = is_constipated;
 
-  fd_rwlock_unread( tc->lock );
+  fd_rwlock_unwrite( tc->lock );
 
   return 0;
 }
