@@ -202,7 +202,7 @@
     },
     {
       "name": "solana_account_stored_meta",
-      "attribute": "((packed))",
+      "packed": true,
       "type": "struct",
       "fields": [
         { "name": "write_version_obsolete", "type": "ulong" },
@@ -212,7 +212,7 @@
     },
     {
       "name": "solana_account_meta",
-      "attribute": "((packed))",
+      "packed": true,
       "type": "struct",
       "fields": [
         { "name": "lamports", "type": "ulong" },
@@ -224,7 +224,7 @@
     },
     {
       "name": "solana_account_hdr",
-      "attribute": "((packed))",
+      "packed": true,
       "type": "struct",
       "fields": [
         { "name": "meta", "type": "solana_account_stored_meta" },
@@ -236,7 +236,7 @@
     {
       "name": "account_meta",
       "type": "struct",
-      "attribute": "((packed))",
+      "packed": true,
       "fields": [
         { "name": "magic", "type": "ushort" },
         { "name": "hlen",  "type": "ushort" },
@@ -282,6 +282,7 @@
     },
     {
       "name": "stake_weight",
+      "packed": true,
       "type": "struct",
       "fields": [
         { "name": "key", "type": "pubkey" },
