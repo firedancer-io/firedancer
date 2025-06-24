@@ -127,6 +127,17 @@ struct fd_configf {
     uint exec_tile_count; /* TODO: redundant ish with bank tile cnt */
     uint writer_tile_count;
   } layout;
+
+  struct {
+    char  path[ PATH_MAX ];
+    int   no_incremental_snapshots;
+    uint  maximum_local_snapshot_age;
+    int   download;
+    ulong known_validators_cnt;
+    char  known_validators[ 16 ][ 256 ];
+    uint  minimum_download_speed_mib;
+    uint  maximum_download_retry_abort;
+  } snapshots;
 };
 
 typedef struct fd_configf fd_configf_t;
@@ -301,6 +312,10 @@ struct fd_config {
       char affinity[ AFFINITY_SZ ];
       char fake_dst_ip[ 16 ];
     } pktgen;
+
+    struct {
+      char affinity[ AFFINITY_SZ ];
+    } snapshot_load;
   } development;
 
   struct {
@@ -389,12 +404,7 @@ struct fd_config {
     struct {
       char  funk_checkpt[ PATH_MAX ];
       char  genesis[ PATH_MAX ];
-      char  incremental[ PATH_MAX ];
-      char  incremental_url[ PATH_MAX ];
       char  slots_replayed[PATH_MAX ];
-      char  snapshot[ PATH_MAX ];
-      char  snapshot_url[ PATH_MAX ];
-      char  snapshot_dir[ PATH_MAX ];
       char  status_cache[ PATH_MAX ];
       char  cluster_version[ 32 ];
       char  tower_checkpt[ PATH_MAX ];
