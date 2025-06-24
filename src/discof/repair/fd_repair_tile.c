@@ -968,7 +968,8 @@ unprivileged_init( fd_topo_t *      topo,
                                                         sign_out->mcache,
                                                         sign_out->dcache,
                                                         sign_in->mcache,
-                                                        sign_in->dcache ) ) == NULL ) {
+                                                        sign_in->dcache,
+                                                        sign_out->mtu ) ) == NULL ) {
     FD_LOG_ERR(( "Keyguard join failed" ));
   }
 

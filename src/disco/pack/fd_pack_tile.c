@@ -1182,7 +1182,8 @@ unprivileged_init( fd_topo_t *      topo,
             sign_out->mcache,
             sign_out->dcache,
             sign_in->mcache,
-            sign_in->dcache ) ) ) ) {
+            sign_in->dcache,
+            sign_out->mtu ) ) ) ) {
       FD_LOG_ERR(( "failed to construct keyguard" ));
     }
     /* Initialize enough of the prev config that it produces a
