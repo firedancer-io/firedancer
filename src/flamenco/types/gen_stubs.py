@@ -27,6 +27,7 @@ print(f'#include "{sys.argv[1]}"', file=body)
 print('#pragma GCC diagnostic ignored "-Wunused-parameter"', file=body)
 print('#pragma GCC diagnostic ignored "-Wunused-variable"', file=body)
 print('#pragma GCC diagnostic ignored "-Wunused-function"', file=body)
+print('#pragma GCC diagnostic ignored "-Waddress-of-packed-member"', file=body)
 
 print('#define SOURCE_fd_src_flamenco_types_fd_types_c', file=body)
 print('#include "fd_types_custom.h"', file=body)
@@ -3017,7 +3018,6 @@ class StructType(TypeNode):
                 m.arch_index = (int(f["tag"]) if "tag" in f else index)
             index = index + 1
         self.comment = (json["comment"] if "comment" in json else None)
-        self.nomethods = ("attribute" in json)
         self.encoders = (json["encoders"] if "encoders" in json else None)
         self.custom_decode_inner = (json["custom_decode_inner"] if "custom_decode_inner" in json else False)
         self.normalizer = (json["normalizer"] if "normalizer" in json else None)
@@ -3025,8 +3025,8 @@ class StructType(TypeNode):
         if "alignment" in json:
             self.attribute = f'__attribute__((aligned({json["alignment"]}UL))) '
             self.alignment = json["alignment"]
-        elif "attribute" in json:
-            self.attribute = f'__attribute__{json["attribute"]} '
+        elif "packed" in json and json["packed"]:
+            self.attribute = f'__attribute__((packed)) '
             self.alignment = 8
         else:
             self.attribute = f''
@@ -3114,8 +3114,6 @@ class StructType(TypeNode):
                 f.emitOffsetJoin(n)
 
     def emitPrototypes(self):
-        if self.nomethods:
-            return
         n = self.fullname
         if self.isFixedSize() and self.isFuzzy():
             print(f"static inline void {n}_new( {n}_t * self ) {{ fd_memset( self, 0, sizeof({n}_t) ); }}", file=header)
@@ -3167,8 +3165,6 @@ class StructType(TypeNode):
         print("}", file=body)
 
     def emitImpls(self):
-        if self.nomethods:
-            return
         n = self.fullname
 
         if self.encoders is not False:
@@ -3293,8 +3289,8 @@ class EnumType(TypeNode):
         if "alignment" in json:
             self.attribute = f'__attribute__((aligned({json["alignment"]}UL))) '
             self.alignment = json["alignment"]
-        elif "attribute" in json:
-            self.attribute = f'__attribute__{json["attribute"]} '
+        elif "packed" in json and json["packed"]:
+            self.attribute = f'__attribute__((packed)) '
             self.alignment = 8
         else:
             self.attribute = ''
@@ -3703,7 +3699,7 @@ def main():
 
     nametypes = {}
     for t in alltypes:
-        if hasattr(t, 'fullname') and not (hasattr(t, 'nomethods') and t.nomethods):
+        if hasattr(t, 'fullname'):
             nametypes[t.fullname] = t
 
     global fixedsizetypes

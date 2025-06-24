@@ -292,6 +292,52 @@ void *fd_solana_account_generate( void *mem, void **alloc_mem, fd_rng_t * rng ) 
   return mem;
 }
 
+void *fd_solana_account_stored_meta_generate( void *mem, void **alloc_mem, fd_rng_t * rng ) {
+  fd_solana_account_stored_meta_t *self = (fd_solana_account_stored_meta_t *) mem;
+  *alloc_mem = (uchar *) *alloc_mem + sizeof(fd_solana_account_stored_meta_t);
+  fd_solana_account_stored_meta_new(mem);
+  self->write_version_obsolete = fd_rng_ulong( rng );
+  self->data_len = fd_rng_ulong( rng );
+  LLVMFuzzerMutate( &self->pubkey[0], sizeof(self->pubkey), sizeof(self->pubkey) );
+  return mem;
+}
+
+void *fd_solana_account_meta_generate( void *mem, void **alloc_mem, fd_rng_t * rng ) {
+  fd_solana_account_meta_t *self = (fd_solana_account_meta_t *) mem;
+  *alloc_mem = (uchar *) *alloc_mem + sizeof(fd_solana_account_meta_t);
+  fd_solana_account_meta_new(mem);
+  self->lamports = fd_rng_ulong( rng );
+  self->rent_epoch = fd_rng_ulong( rng );
+  LLVMFuzzerMutate( &self->owner[0], sizeof(self->owner), sizeof(self->owner) );
+  self->executable = fd_rng_uchar( rng );
+  LLVMFuzzerMutate( self->padding, 3, 3 );
+  return mem;
+}
+
+void *fd_solana_account_hdr_generate( void *mem, void **alloc_mem, fd_rng_t * rng ) {
+  fd_solana_account_hdr_t *self = (fd_solana_account_hdr_t *) mem;
+  *alloc_mem = (uchar *) *alloc_mem + sizeof(fd_solana_account_hdr_t);
+  fd_solana_account_hdr_new(mem);
+  fd_solana_account_stored_meta_generate( &self->meta, alloc_mem, rng );
+  fd_solana_account_meta_generate( &self->info, alloc_mem, rng );
+  LLVMFuzzerMutate( self->padding, 4, 4 );
+  fd_hash_generate( &self->hash, alloc_mem, rng );
+  return mem;
+}
+
+void *fd_account_meta_generate( void *mem, void **alloc_mem, fd_rng_t * rng ) {
+  fd_account_meta_t *self = (fd_account_meta_t *) mem;
+  *alloc_mem = (uchar *) *alloc_mem + sizeof(fd_account_meta_t);
+  fd_account_meta_new(mem);
+  self->magic = fd_rng_ushort( rng );
+  self->hlen = fd_rng_ushort( rng );
+  self->dlen = fd_rng_ulong( rng );
+  LLVMFuzzerMutate( &self->hash[0], sizeof(self->hash), sizeof(self->hash) );
+  self->slot = fd_rng_ulong( rng );
+  fd_solana_account_meta_generate( &self->info, alloc_mem, rng );
+  return mem;
+}
+
 void *fd_vote_accounts_pair_generate( void *mem, void **alloc_mem, fd_rng_t * rng ) {
   fd_vote_accounts_pair_t *self = (fd_vote_accounts_pair_t *) mem;
   *alloc_mem = (uchar *) *alloc_mem + sizeof(fd_vote_accounts_pair_t);
