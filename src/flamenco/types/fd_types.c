@@ -19105,7 +19105,7 @@ int fd_gossip_duplicate_shred_encode( fd_gossip_duplicate_shred_t const * self, 
   if( FD_UNLIKELY( err ) ) return err;
   err = fd_bincode_uint32_encode( self->_unused, ctx );
   if( FD_UNLIKELY( err ) ) return err;
-  err = fd_bincode_uint8_encode( (uchar)(self->_unused_shred_type), ctx );
+  err = fd_bincode_uint32_encode( self->_unused_shred_type, ctx );
   if( FD_UNLIKELY( err ) ) return err;
   err = fd_bincode_uint8_encode( (uchar)(self->num_chunks), ctx );
   if( FD_UNLIKELY( err ) ) return err;
@@ -19135,7 +19135,7 @@ static int fd_gossip_duplicate_shred_decode_footprint_inner( fd_bincode_decode_c
   if( FD_UNLIKELY( err!=FD_BINCODE_SUCCESS ) ) return err;
   err = fd_bincode_uint32_decode_footprint( ctx );
   if( FD_UNLIKELY( err ) ) return err;
-  err = fd_bincode_uint8_decode_footprint( ctx );
+  err = fd_bincode_uint32_decode_footprint( ctx );
   if( FD_UNLIKELY( err ) ) return err;
   err = fd_bincode_uint8_decode_footprint( ctx );
   if( FD_UNLIKELY( err ) ) return err;
@@ -19166,7 +19166,7 @@ static void fd_gossip_duplicate_shred_decode_inner( void * struct_mem, void * * 
   fd_bincode_uint64_decode_unsafe( &self->wallclock, ctx );
   fd_bincode_uint64_decode_unsafe( &self->slot, ctx );
   fd_bincode_uint32_decode_unsafe( &self->_unused, ctx );
-  fd_bincode_uint8_decode_unsafe( &self->_unused_shred_type, ctx );
+  fd_bincode_uint32_decode_unsafe( &self->_unused_shred_type, ctx );
   fd_bincode_uint8_decode_unsafe( &self->num_chunks, ctx );
   fd_bincode_uint8_decode_unsafe( &self->chunk_index, ctx );
   fd_bincode_uint64_decode_unsafe( &self->chunk_len, ctx );
@@ -19196,7 +19196,7 @@ void fd_gossip_duplicate_shred_walk( void * w, fd_gossip_duplicate_shred_t const
   fun( w, &self->wallclock, "wallclock", FD_FLAMENCO_TYPE_ULONG, "ulong", level );
   fun( w, &self->slot, "slot", FD_FLAMENCO_TYPE_ULONG, "ulong", level );
   fun( w, &self->_unused, "_unused", FD_FLAMENCO_TYPE_UINT, "uint", level );
-  fun( w, &self->_unused_shred_type, "_unused_shred_type", FD_FLAMENCO_TYPE_UCHAR, "uchar", level );
+  fun( w, &self->_unused_shred_type, "_unused_shred_type", FD_FLAMENCO_TYPE_UINT, "uint", level );
   fun( w, &self->num_chunks, "num_chunks", FD_FLAMENCO_TYPE_UCHAR, "uchar", level );
   fun( w, &self->chunk_index, "chunk_index", FD_FLAMENCO_TYPE_UCHAR, "uchar", level );
   if( self->chunk_len ) {
@@ -19214,7 +19214,7 @@ ulong fd_gossip_duplicate_shred_size( fd_gossip_duplicate_shred_t const * self )
   size += sizeof(ulong);
   size += sizeof(ulong);
   size += sizeof(uint);
-  size += sizeof(char);
+  size += sizeof(uint);
   size += sizeof(char);
   size += sizeof(char);
   do {

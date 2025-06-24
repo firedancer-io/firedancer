@@ -2672,7 +2672,7 @@ struct fd_gossip_duplicate_shred {
   ulong wallclock;
   ulong slot;
   uint _unused;
-  uchar _unused_shred_type;
+  uint _unused_shred_type;
   uchar num_chunks;
   uchar chunk_index;
   ulong chunk_len;
