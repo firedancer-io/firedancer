@@ -157,9 +157,9 @@ struct fd_gossip_view_pull_request {
   ulong bloom_keys_len;     /* number of keys in the bloom filter */
   ulong bloom_keys_offset;  /* offset to start of bloom keys in payload */
 
-  ulong bloom_bits_len;     /* length of bloom bits vector (ulong *) */
+  ulong bloom_len;     /* length of bloom bits vector (ulong *) */
   ulong bloom_bits_offset;  /* offset to start of bloom bits in payload */
-  ulong bloom_len;          /* number of bits in the bloom filter */
+  ulong bloom_bits_cnt;          /* number of bits in the bloom filter */
 
   ulong bloom_num_bits_set; /* number of bits set in the bloom filter */
   ulong mask;               /* mask used to filter the CRDS values */
@@ -217,45 +217,29 @@ typedef struct fd_gossip_view fd_gossip_view_t;
 
 /* Begin Encoding related structs */
 
-/* TODO: These end up looking very similar to views. Can we merge them? */
-struct fd_gossip_pull_request_encode_ctx {
-  uchar * tag;
-  ulong * bloom_keys_len;
-  ulong * bloom_keys; /* Offset to start of bloom keys in payload */
-
-  uchar * has_bits;
-  ulong * bloom_vec_len;   /* Length of bloom bits vector */
-  ulong * bloom_bits;       /* Start of bloom bits in payload */
-  ulong * bloom_bits_count; /* Number of bloom filter bits */
-  ulong * bloom_num_bits_set; /* Number of bits set in the bloom filter */
-
-  ulong * mask;      /* Mask used to filter the CRDS values */
-  ulong * mask_bits; /* Number of bits in the mask */
-
-  uchar * contact_info; /* Offset to the start of contact info in payload */
-};
-
-typedef struct fd_gossip_pull_request_encode_ctx fd_gossip_pull_request_encode_ctx_t;
-
 ulong
 fd_gossip_msg_parse( fd_gossip_view_t *   view,
                      uchar const *        payload,
                      ulong                payload_sz );
 
 int
-fd_gossip_pull_request_encode_ctx_init( uchar *                               payload,
-                                        ulong                                 payload_sz,
-                                        ulong                                 num_keys,
-                                        ulong                                 bloom_bits_len,
-                                        fd_gossip_pull_request_encode_ctx_t * out_ctx );
+fd_gossip_pull_request_encode_ctx_init( uchar *                          payload,
+                                        ulong                            payload_sz,
+                                        ulong                            num_keys,
+                                        ulong                            bloom_bits_len,
+                                        ulong                            mask,
+                                        uint                             mask_bits,
+                                        fd_gossip_view_pull_request_t *  out_view );
 
 int
-fd_gossip_pull_request_encode_bloom_keys( fd_gossip_pull_request_encode_ctx_t * ctx,
+fd_gossip_pull_request_encode_bloom_keys( fd_gossip_view_pull_request_t const * view,
+                                          uchar *                               payload,
                                           ulong const *                         bloom_keys,
                                           ulong                                 bloom_keys_len );
 
 int
-fd_gossip_pull_request_encode_bloom_bits( fd_gossip_pull_request_encode_ctx_t * ctx,
+fd_gossip_pull_request_encode_bloom_bits( fd_gossip_view_pull_request_t       * view,
+                                          uchar *                               payload,
                                           ulong const *                         bloom_bits,
                                           ulong                                 bloom_bits_len );
 
@@ -264,13 +248,4 @@ fd_gossip_contact_info_encode( fd_contact_info_t const * contact_info,
                                uchar *                   out_buf,
                                ulong                     out_buf_cap,
                                ulong *                   opt_encoded_sz );
-
-/* Initializes a payload buffer for a gossip message with tag encoded.
-   Returns offset into the buffer after tag, where the inner message
-   should begin. */
-int
-fd_gossip_init_msg_payload( uchar * payload,
-                            ulong   payload_sz,
-                            uchar   tag,
-                            ulong * start_cursor );
 #endif /* HEADER_fd_src_flamenco_gossip_fd_gossip_msg_h */

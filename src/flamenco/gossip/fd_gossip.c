@@ -1079,27 +1079,25 @@ tx_pull_request( fd_gossip_t * gossip,
 
   uchar payload[ 1232UL ];
 
-  fd_gossip_pull_request_encode_ctx_t ctx[ 1 ];
+  fd_gossip_view_pull_request_t view[ 1 ];
   fd_gossip_pull_request_encode_ctx_init( payload,
                                           1232UL,
                                           filter->keys_len,
                                           (filter->bits_len+7UL)/8UL,
-                                          ctx );
+                                          mask,
+                                          mask_bits,
+                                          view );
 
-  fd_gossip_pull_request_encode_bloom_keys( ctx, filter->keys, filter->keys_len );
+  fd_gossip_pull_request_encode_bloom_keys( view, payload, filter->keys, filter->keys_len );
+  fd_gossip_pull_request_encode_bloom_bits( view, payload, filter->bits, filter->bits_len );
 
-  fd_gossip_pull_request_encode_bloom_bits( ctx, filter->bits, filter->bits_len );
-
-  *ctx->mask      = mask;
-  *ctx->mask_bits = mask_bits;
-
-  long rem_sz = 1232L - (ctx->contact_info - payload);
+  long rem_sz = 1232L - view->contact_info->value_off;
   if( FD_UNLIKELY( rem_sz<(long)gossip->my_contact_info.crds_val_sz ) ) {
     FD_LOG_ERR(( "Not enough space in pull request for contact info, check bloom filter params" ));
   }
 
-  fd_memcpy( ctx->contact_info, gossip->my_contact_info.crds_val, gossip->my_contact_info.crds_val_sz );
-  ulong payload_sz = (ulong)(ctx->contact_info - payload) + gossip->my_contact_info.crds_val_sz;
+  fd_memcpy( payload+view->contact_info->value_off, gossip->my_contact_info.crds_val, gossip->my_contact_info.crds_val_sz );
+  ulong payload_sz = view->contact_info->value_off + gossip->my_contact_info.crds_val_sz;
 
   gossip->send_fn( gossip->send_ctx,
                    payload,
