@@ -5,6 +5,7 @@
 #include "../../ballet/sha256/fd_sha256.h"
 #include "../../ballet/wsample/fd_wsample.h"
 #include "../../flamenco/leaders/fd_leaders.h"
+#include "fd_stake_ci.h"
 
 /* This header defines a collection of methods for using stake weights
    to compute the destination of a specific shred for the leader and
@@ -47,15 +48,7 @@ struct __attribute__((aligned(FD_SHRED_DEST_ALIGN))) fd_shred_dest_private {
   uchar      _sha256_batch[ FD_SHA256_BATCH_FOOTPRINT ]  __attribute__((aligned(FD_SHA256_BATCH_ALIGN)));
   fd_chacha20rng_t rng[1];
 
-  /* null_dest is initialized to all zeros.  Returned when the destination
-     doesn't exist (e.g. you've asked for the 5th destination, but you only
-     need to send to 4 recipients. */
-  fd_shred_dest_weighted_t null_dest[1];
-
-  fd_epoch_leaders_t const * lsched;
-
-  ulong cnt;
-  fd_shred_dest_weighted_t * all_destinations; /* a local copy, points to memory after the struct */
+  fd_stake_ci_t * stake_ci;
 
   fd_wsample_t * staked;
   struct {
@@ -63,18 +56,10 @@ struct __attribute__((aligned(FD_SHRED_DEST_ALIGN))) fd_shred_dest_private {
     ulong * unstaked;
     ulong   unstaked_unremoved_cnt;
   };
-  ulong staked_cnt;
-  ulong unstaked_cnt;
 
-  ulong excluded_stake;
-
-  pubkey_to_idx_t * pubkey_to_idx_map; /* maps pubkey -> [0, staked_cnt+unstaked_cnt) */
-
-  ulong source_validator_orig_idx; /* in [0, staked_cnt+unstaked_cnt) */
   /* Struct followed by:
-     * pubkey_to_idx map
-     * all_destinations
-     * staked
+     * stake_ci
+     * staked AMANTODO ???
      * unstaked
    */
 };
@@ -84,15 +69,14 @@ typedef struct fd_shred_dest_private fd_shred_dest_t;
 /* fd_shred_dest_{align, footprint} return the alignment and footprint
    (respectively) required of a region of memory to format it as an
    fd_shred_dest_t object.  staked_cnt is the number of destinations
-   with positive stake while unstaked_cnt is the number of destinations
-   with zero stake that this object can store. */
-static inline ulong fd_shred_dest_align    ( void      ) { return FD_SHRED_DEST_ALIGN; }
-/*         */ ulong fd_shred_dest_footprint( ulong staked_cnt, ulong unstaked_cnt );
+   with positive stake */
+static inline ulong fd_shred_dest_align    ( void             ) { return FD_SHRED_DEST_ALIGN; }
+/*         */ ulong fd_shred_dest_footprint( ulong staked_cnt );
 
 /* fd_shred_dest_new formats a region of memory for use as an
    fd_shred_dest_t object. mem points to the first byte of a region of
-   memory with the required footprint and alignment.  info points to the
-   first of cnt destinations that the fd_shred_dest_t will be aware of.
+   memory with the required footprint and alignment. stake_ci points to a
+   stake_ci object the fd_shred_dest_t will be aware of.
    info must be sorted in the typical Solana stake weighted way: largest
    stake to smallest stake, with ties broken by pubkey (again, largest
    to smallest lexicographically).  info must not omit staked validators

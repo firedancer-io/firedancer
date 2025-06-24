@@ -1,24 +1,5 @@
 #include "fd_shred_dest.h"
-
-struct pubkey_to_idx {
-  fd_pubkey_t key;
-  ulong       idx;
-};
-typedef struct pubkey_to_idx pubkey_to_idx_t;
-
-static const fd_pubkey_t null_pubkey = {{ 0 }};
-
-#define MAP_NAME              pubkey_to_idx
-#define MAP_T                 pubkey_to_idx_t
-#define MAP_KEY_T             fd_pubkey_t
-#define MAP_KEY_NULL          null_pubkey
-#define MAP_KEY_EQUAL_IS_SLOW 1
-#define MAP_MEMOIZE           0
-#define MAP_KEY_INVAL(k)      MAP_KEY_EQUAL((k),MAP_KEY_NULL)
-#define MAP_KEY_EQUAL(k0,k1)  (!memcmp( (k0).key, (k1).key, 32UL ))
-#define MAP_KEY_HASH(key)     ((MAP_HASH_T)( (key).ul[1] ))
-
-#include "../../util/tmpl/fd_map_dynamic.c"
+#include "fd_stake_ci.h"
 
 
 /* This 45 byte struct gets hashed to compute the seed for Chacha20 to
@@ -32,27 +13,17 @@ struct __attribute__((packed)) shred_dest_input {
 typedef struct shred_dest_input shred_dest_input_t;
 
 ulong
-fd_shred_dest_footprint( ulong staked_cnt, ulong unstaked_cnt ) {
-  ulong cnt = staked_cnt+unstaked_cnt;
-  int lg_cnt = fd_ulong_find_msb( fd_ulong_pow2_up( 2UL*fd_ulong_max( cnt, 1UL ) ) );
-  return FD_LAYOUT_FINI( FD_LAYOUT_APPEND( FD_LAYOUT_APPEND( FD_LAYOUT_APPEND( FD_LAYOUT_APPEND( FD_LAYOUT_APPEND(
+fd_shred_dest_footprint( ulong max_staked_cnt ) {
+  return FD_LAYOUT_FINI( FD_LAYOUT_APPEND( FD_LAYOUT_APPEND(
                 FD_LAYOUT_INIT,
-                fd_shred_dest_align(),             sizeof(fd_shred_dest_t)              ),
-                pubkey_to_idx_align(),             pubkey_to_idx_footprint( lg_cnt )    ),
-                alignof(fd_shred_dest_weighted_t), sizeof(fd_shred_dest_weighted_t)*cnt ),
-                fd_wsample_align(),                fd_wsample_footprint( staked_cnt, 1 )),
-                alignof(ulong),                    sizeof(ulong)*unstaked_cnt           ),
+                fd_shred_dest_align(),  sizeof(fd_shred_dest_t)              ),
+                fd_wsample_align(),     fd_wsample_footprint( max_staked_cnt, 1 )),
       FD_SHRED_DEST_ALIGN );
 }
 
-
 void *
 fd_shred_dest_new( void                           * mem,
-                   fd_shred_dest_weighted_t const * info,
-                   ulong                            cnt,
-                   fd_epoch_leaders_t const       * lsched,
-                   fd_pubkey_t const              * source,
-                   ulong                            excluded_stake ) {
+                   fd_pubkey_t const              * source   ) {
 
   if( FD_UNLIKELY( !mem ) ) {
     FD_LOG_WARNING(( "NULL mem" ));
@@ -64,71 +35,12 @@ fd_shred_dest_new( void                           * mem,
     return NULL;
   }
 
-  int lg_cnt = fd_ulong_find_msb( fd_ulong_pow2_up( 2UL*fd_ulong_max( cnt, 1UL ) ) );
+  /* AMANTODO: scratch alloc append the space for the stake_ci */
   FD_SCRATCH_ALLOC_INIT( footprint, mem );
   fd_shred_dest_t * sdest;
   /* */  sdest     = FD_SCRATCH_ALLOC_APPEND( footprint, fd_shred_dest_align(),             sizeof(fd_shred_dest_t)              );
-  void * _map      = FD_SCRATCH_ALLOC_APPEND( footprint, pubkey_to_idx_align(),             pubkey_to_idx_footprint( lg_cnt )    );
-  void * _info     = FD_SCRATCH_ALLOC_APPEND( footprint, alignof(fd_shred_dest_weighted_t), sizeof(fd_shred_dest_weighted_t)*cnt );
-
-  ulong cnts[2] = { 0UL, 0UL }; /* cnts[0] = staked, cnts[1] = unstaked */
-
-  fd_shred_dest_weighted_t * copy = (fd_shred_dest_weighted_t *)_info;
-  for( ulong i=0UL; i<cnt; i++ ) {
-    copy[i] = info[i];
-    ulong stake = info[i].stake_lamports;
-    /* Check to make we never have a staked node following an unstaked
-       node, which would mean info is not sorted properly. */
-    if( FD_UNLIKELY( (stake>0UL) & (cnts[1]>0UL) ) ) {
-      FD_LOG_WARNING(( "info was not sorted properly. info[%lu] has non-zero stake %lu but follows an unstaked node", i, stake ));
-      return NULL;
-    }
-    cnts[ stake==0UL ]++;
-  }
-
-  ulong staked_cnt   = cnts[0];
-  ulong unstaked_cnt = cnts[1];
-
-  if( FD_UNLIKELY( (excluded_stake>0UL) & (unstaked_cnt>0UL) ) ) {
-    /* If excluded stake > 0, then the list must be filled with staked nodes. */
-    FD_LOG_WARNING(( "cannot have excluded stake and unstaked validators" ));
-    return NULL;
-  }
-
-  void * _wsample  = FD_SCRATCH_ALLOC_APPEND( footprint, fd_wsample_align(),                fd_wsample_footprint( staked_cnt, 1 ));
-  void * _unstaked = FD_SCRATCH_ALLOC_APPEND( footprint, alignof(ulong),                    sizeof(ulong)*unstaked_cnt           );
-
-
-  fd_chacha20rng_t * rng = fd_chacha20rng_join( fd_chacha20rng_new( sdest->rng, FD_CHACHA20RNG_MODE_SHIFT ) );
-
-  void  *  _staked   = fd_wsample_new_init( _wsample,  rng, staked_cnt,   1, FD_WSAMPLE_HINT_POWERLAW_REMOVE );
-
-  for( ulong i=0UL; i<staked_cnt;   i++ ) _staked   = fd_wsample_new_add( _staked,   info[i].stake_lamports );
-  _staked   = fd_wsample_new_fini( _staked, excluded_stake );
-
-  pubkey_to_idx_t * pubkey_to_idx_map = pubkey_to_idx_join( pubkey_to_idx_new( _map, lg_cnt ) );
-  for( ulong i=0UL; i<cnt; i++ ) {
-    pubkey_to_idx_insert( pubkey_to_idx_map, info[i].pubkey )->idx = i;
-  }
-  pubkey_to_idx_t * query = pubkey_to_idx_query( pubkey_to_idx_map, *source, NULL );
-  if( FD_UNLIKELY( !query ) ) {
-    FD_LOG_WARNING(( "source pubkey not found" ));
-    return NULL;
-  }
-
-  memset( sdest->null_dest, 0, sizeof(fd_shred_dest_weighted_t) );
-  sdest->lsched                     = lsched;
-  sdest->cnt                        = cnt;
-  sdest->all_destinations           = copy;
-  sdest->staked                     = fd_wsample_join( _staked );
-  sdest->unstaked                   = _unstaked;
-  sdest->unstaked_unremoved_cnt     = 0UL; /* unstaked doesn't get initialized until it's needed */
-  sdest->staked_cnt                 = staked_cnt;
-  sdest->unstaked_cnt               = unstaked_cnt;
-  sdest->excluded_stake             = excluded_stake;
-  sdest->pubkey_to_idx_map          = pubkey_to_idx_map;
-  sdest->source_validator_orig_idx  = query->idx;
-
+  void * _stake_ci = FD_SCRATCH_ALLOC_APPEND( footprint, fd_stake_ci_align(),  fd_stake_ci_footprint()  );
+  sdest->stake_ci  = fd_stake_ci_join( fd_stake_ci_new( _stake_ci, source ) );
   return (void *)sdest;
 }
 
@@ -140,8 +52,27 @@ void * fd_shred_dest_delete( void * mem ) {
 
   fd_chacha20rng_delete( fd_chacha20rng_leave( sdest->rng               ) );
   fd_wsample_delete    ( fd_wsample_leave    ( sdest->staked            ) );
-  pubkey_to_idx_delete ( pubkey_to_idx_leave ( sdest->pubkey_to_idx_map ) );
   return mem;
+}
+
+static void fd_shred_dest_stake_msg_fini( void ) {
+
+  void * _wsample  = FD_SCRATCH_ALLOC_APPEND( footprint, fd_wsample_align(),                fd_wsample_footprint( staked_cnt, 1 ));
+
+  fd_chacha20rng_t * rng = fd_chacha20rng_join( fd_chacha20rng_new( sdest->rng, FD_CHACHA20RNG_MODE_SHIFT ) );
+
+  void  *  _staked   = fd_wsample_new_init( _wsample,  rng, staked_cnt,   1, FD_WSAMPLE_HINT_POWERLAW_REMOVE );
+
+  for( ulong i=0UL; i<staked_cnt;   i++ ) _staked   = fd_wsample_new_add( _staked,   info[i].stake_lamports );
+  _staked   = fd_wsample_new_fini( _staked, excluded_stake );
+
+  pubkey_to_idx_t * query = pubkey_to_idx_query( pubkey_to_idx_map, *source, NULL );
+  if( FD_UNLIKELY( !query ) ) {
+    FD_LOG_WARNING(( "source pubkey not found" ));
+    return NULL;
+  }
+
+  sdest->staked                     = fd_wsample_join( _staked );
 }
 
 /* sample_unstaked, sample_unstaked_noprepare, and
