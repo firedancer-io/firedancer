@@ -147,6 +147,7 @@ struct fd_config_net {
     uint xdp_rx_queue_size;
     uint xdp_tx_queue_size;
     uint flush_timeout_micros;
+    int  flow_steering;
   } xdp;
 
   struct {

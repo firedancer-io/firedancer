@@ -985,6 +985,8 @@ dynamic_port_range = "8900-9000"
         # improve throughput.
         flush_timeout_micros = 20
 
+        flow_steering = true
+
     [net.socket]
         # Sets the socket receive buffer size via SO_RCVBUF.
         # Raises net.core.rmem_max accordingly
