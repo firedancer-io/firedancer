@@ -177,6 +177,7 @@ fd_ibv_mock_poll_cq( struct ibv_cq * cq,
     *wc = *fd_ibv_wc_q_pop_head_nocopy( mock->wc_q );
     wc++;
     num_entries--;
+    complete_cnt++;
   }
   return (int)complete_cnt;
 }
@@ -221,6 +222,7 @@ fd_ibv_mock_post_recv( struct ibv_qp *       qp,
   fd_ibverbs_mock_qp_t * mock = qp->qp_context;
   FD_TEST( mock->magic==FD_IBVERBS_MOCK_QP_MAGIC );
   while( wr ) {
+    FD_TEST( wr->num_sge );
     IBV_INJECT_ERR( mock );
     ulong const sge_cnt = (ulong)wr->num_sge;
     if( FD_UNLIKELY( fd_ibv_recv_wr_q_full( mock->rx_q ) ||
