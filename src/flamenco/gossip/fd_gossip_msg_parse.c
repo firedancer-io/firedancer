@@ -114,6 +114,7 @@ fd_gossip_msg_crds_lowest_slot_parse( fd_gossip_view_crds_value_t * crds_val,
      since EpochIncompleteSlots is a dynamically sized type. So we fail this
      parse if there are any entries. Might be worth implementing a skip instead,
      TBD after live testing.
+     Idea: rip out parser from fd_types
      https://github.com/anza-xyz/agave/blob/540d5bc56cd44e3cc61b179bd52e9a782a2c99e4/gossip/src/deprecated.rs#L19 */
   CHECK_LEFT(            8UL ); ulong stash_len = FD_LOAD( ulong, CURSOR )                                 ; INC( 8UL );
   CHECK(      stash_len==0UL );

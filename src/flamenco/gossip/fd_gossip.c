@@ -4,7 +4,6 @@
 
 #include "crds/fd_crds.h"
 #include "fd_active_set.h"
-#include "fd_prune_finder.h"
 #include "fd_ping_tracker.h"
 #include "../../ballet/ed25519/fd_ed25519.h"
 #include "../../disco/keyguard/fd_keyguard.h"

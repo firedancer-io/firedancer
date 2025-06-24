@@ -301,7 +301,7 @@ fd_ping_tracker_register( fd_ping_tracker_t *   ping_tracker,
   peer->state = FD_PING_TRACKER_STATE_VALID;
   waiting_list_ele_push_tail( ping_tracker->waiting, peer, ping_tracker->pool );
 
-  fd_crds_peer_active( crds, peer_pubkey );
+  fd_crds_peer_active( crds, peer_pubkey, now );
 }
 
 int
@@ -352,7 +352,7 @@ fd_ping_tracker_pop_request( fd_ping_tracker_t *    ping_tracker,
          marks a previously active peer as inactive, notify crds. */
       if( next->state==FD_PING_TRACKER_STATE_REFRESHING ||
           next->state==FD_PING_TRACKER_STATE_VALID ) {
-               fd_crds_peer_inactive( crds, next->identity_pubkey.b );
+               fd_crds_peer_inactive( crds, next->identity_pubkey.b, now );
          }
       peer_map_ele_remove_fast( ping_tracker->peers, next, ping_tracker->pool );
       lru_list_ele_remove( ping_tracker->lru, next, ping_tracker->pool );
