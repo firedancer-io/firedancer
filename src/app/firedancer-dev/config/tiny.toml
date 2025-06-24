@@ -1,5 +1,6 @@
 [hugetlbfs]
 max_page_size = "huge"
+gigantic_page_threshold_mib = 128
 
 [funk]
 max_account_records = 1048576
