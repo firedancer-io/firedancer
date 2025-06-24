@@ -192,6 +192,6 @@ crds_samplers_rem_peer( crds_samplers_t * ps,
     ps->ele[i-1]->contact_info.sampler_idx = i-1;
   }
   ps->ele_cnt--;
-  // peer->contact_info.sampler_idx = ULONG_MAX; /* Invalidate the index */
+  return 0;
 }
 

@@ -20,7 +20,7 @@
 
 #define CHECK_LEFT( n ) CHECK( (n)<=(_payload_sz-_i) )
 
-#define INC( n ) (_i += (n))
+#define INC( n ) (_i += (ushort)(n))
 
 #define CHECKED_INC( n ) do { \
   CHECK_LEFT( n );            \
@@ -431,12 +431,11 @@ fd_gossip_pull_req_parse( fd_gossip_view_t * view,
   uchar has_bits = 0;
   CHECK_LEFT(                      1U ); has_bits = FD_LOAD( uchar, CURSOR )              ; INC( 1U );
   if( has_bits ) {
-    CHECK_LEFT(                    8U ); pr->bloom_bits_len = FD_LOAD( ulong, CURSOR )    ; INC( 8U );
-    CHECK_LEFT( pr->bloom_bits_len*8U ); pr->bloom_bits_offset = CUR_OFFSET               ; INC( pr->bloom_bits_len*8U );
-    /* bits_len (TODO: check this vs bitvec len above?) */
-    CHECK_LEFT(                    8U ); pr->bloom_len = FD_LOAD( ulong, CURSOR )         ; INC( 8U );
+    CHECK_LEFT(                    8U ); pr->bloom_len         = FD_LOAD( ulong, CURSOR )    ; INC( 8U );
+    CHECK_LEFT( pr->bloom_len*8U      ); pr->bloom_bits_offset = CUR_OFFSET                  ; INC( pr->bloom_len*8U );
+    CHECK_LEFT(                    8U ); pr->bloom_bits_cnt    = FD_LOAD( ulong, CURSOR )    ; INC( 8U );
   } else {
-    pr->bloom_bits_len = 0U;
+    pr->bloom_len = 0U;
   }
   CHECK_LEFT(                      8U ); pr->bloom_num_bits_set = FD_LOAD( ulong, CURSOR ); INC( 8U );
   CHECK_LEFT(                      8U ); pr->mask      = FD_LOAD( ulong, CURSOR )         ; INC( 8U );

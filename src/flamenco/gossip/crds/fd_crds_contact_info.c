@@ -23,8 +23,8 @@ fd_crds_contact_info_populate( fd_gossip_view_crds_value_t const * view,
   FD_TEST( view->tag == 11 /* Contact Info */ );
   fd_gossip_view_contact_info_t const * ci_view = view->contact_info;
 
-  ci->node_outset_wallclock_nanos = ci_view->instance_creation_wallclock_nanos;
-  ci->shred_version               = ci_view->shred_version;
+  ci->instance_creation_wallclock_nanos = ci_view->instance_creation_wallclock_nanos;
+  ci->shred_version                     = ci_view->shred_version;
   fd_memcpy( ci->pubkey, payload + view->pubkey_off, 32UL );
 
   /* TODO: Version */
@@ -33,12 +33,12 @@ fd_crds_contact_info_populate( fd_gossip_view_crds_value_t const * view,
      tag entries
 
      TODO: Check if we might want to keep last-seen instead? */
-  uchar  tag_set[ FD_GOSSIP_SOCKET_TAG_MAX ] = {0};
+  uchar  tag_set[ FD_CONTACT_INFO_SOCKET_MAX ] = {0};
   ushort cur_port = 0U;
   for( ulong i = 0UL; i < ci_view->sockets_len; i++ ) {
    fd_gossip_view_socket_t const * socket_view = &ci_view->sockets[ i ];
     ushort socket_tag = socket_view->key;
-    if( FD_UNLIKELY( socket_tag >= FD_GOSSIP_SOCKET_TAG_MAX ) ) {
+    if( FD_UNLIKELY( socket_tag >= FD_CONTACT_INFO_SOCKET_MAX ) ) {
         /* FIXME: We should treat this a corrupted packet, but we
            see a bunch of contact infos in testnet that enter this
            branch. Should investigate before making this a return

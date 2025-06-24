@@ -47,6 +47,23 @@ void
 fd_crds_expire( fd_crds_t * crds,
                 long        now );
 
+/* fd_crds_len returns the number of entries in the CRDS table. This does not
+   include purged entries, which have a separate queue tracking them. See fd_crds_purged_* APIs below. */
+ulong
+fd_crds_len( fd_crds_t const * crds );
+
+/* fd_crds_purged_* provides APIs for accessing the CRDS table's purged entries.
+   A CRDS entry is purged when it is upserted by a newer form of the entry.
+   Purged entries expire completely after 60s. */
+
+ulong
+fd_crds_purged_len( fd_crds_t const * crds );
+
+/* fd_crds_purged returns the hash of the idx-th purged entry */
+uchar const *
+fd_crds_purged( fd_crds_t const * crds,
+                ulong             idx );
+
 /*************************** Begin Insertion APIs *****************************/
 
 /* fd_crds_acquire acquires a CRDS value from the storage pool in the
@@ -132,13 +149,6 @@ fd_crds_insert( fd_crds_t *       crds,
                 fd_crds_entry_t * value,
                 int               from_push_msg,
                 long              now );
-
-ulong
-fd_crds_purged_len( fd_crds_t * crds );
-
-uchar const *
-fd_crds_purged( fd_crds_t * crds,
-                ulong       idx );
 
 /********************* Begin CRDS Entry APIs *************************/
 
@@ -282,9 +292,6 @@ fd_crds_mask_iter_done( fd_crds_mask_iter_t * it,
 fd_crds_entry_t const *
 fd_crds_mask_iter_value( fd_crds_mask_iter_t * it,
                          fd_crds_t const * crds );
-
-ulong
-fd_crds_len( fd_crds_t * crds );
 
 FD_PROTOTYPES_END
 

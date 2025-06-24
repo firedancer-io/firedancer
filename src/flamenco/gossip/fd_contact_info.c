@@ -1,4 +1,5 @@
 #include "fd_contact_info.h"
+#include "../../util/fd_util.h"
 
 fd_ip4_port_t
 fd_contact_info_get_socket( fd_contact_info_t const * ci,

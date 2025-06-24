@@ -135,7 +135,7 @@ fd_gossip_footprint( ulong max_values ) {
   l = FD_LAYOUT_APPEND( l, alignof(uchar),  max_values/4*sizeof(failed_insert_t) ); /* failed inserts FIXME: figure out better numbers */
   l = FD_LAYOUT_APPEND( l, fd_active_set_align(), fd_active_set_footprint() );
   l = FD_LAYOUT_APPEND( l, fd_ping_tracker_align(), fd_ping_tracker_footprint() );
-  l = FD_LAYOUT_APPEND( l, fd_bloom_align(), fd_bloom_footprint( BLOOM_FALSE_POSITIVE_RATE, BLOOM_FILTER_MAX_BYTES ) );
+  l = FD_LAYOUT_APPEND( l, crds_bloom_align(), crds_bloom_footprint( BLOOM_FALSE_POSITIVE_RATE, BLOOM_FILTER_MAX_BYTES ) );
   l = FD_LAYOUT_APPEND( l, stake_map_align(), stake_map_footprint() );
   l = FD_LAYOUT_FINI( l, fd_gossip_align() );
   return l;
@@ -187,7 +187,7 @@ fd_gossip_new( void *                    shmem,
   void * active_set     = FD_SCRATCH_ALLOC_APPEND( l, fd_active_set_align(), fd_active_set_footprint() );
   void * failed_inserts = FD_SCRATCH_ALLOC_APPEND( l, alignof(uchar), max_values/4*sizeof(failed_insert_t) ); /* FIXME: figure out better numbers */
   void * ping_tracker   = FD_SCRATCH_ALLOC_APPEND( l, fd_ping_tracker_align(), fd_ping_tracker_footprint() );
-  void * bloom          = FD_SCRATCH_ALLOC_APPEND( l, fd_bloom_align(), fd_bloom_footprint( BLOOM_FALSE_POSITIVE_RATE, BLOOM_FILTER_MAX_BYTES ) );
+  void * bloom          = FD_SCRATCH_ALLOC_APPEND( l, crds_bloom_align(), crds_bloom_footprint( BLOOM_FALSE_POSITIVE_RATE, BLOOM_FILTER_MAX_BYTES ) );
   void * stake_weights  = FD_SCRATCH_ALLOC_APPEND( l, stake_map_align(), stake_map_footprint() );
 
   gossip->entrypoints_cnt = entrypoints_cnt;
@@ -547,7 +547,7 @@ rx_pull_request( fd_gossip_t *                         gossip,
   filter->keys_len = pr_view->bloom_keys_len;
   filter->keys     = (ulong *)( payload + pr_view->bloom_keys_offset );
 
-  filter->bits_len = pr_view->bloom_len;
+  filter->bits_len = pr_view->bloom_bits_cnt;
   filter->bits     = (ulong *)( payload + pr_view->bloom_bits_offset );
 
   /* TODO: Jitter? */
@@ -890,21 +890,23 @@ fd_gossip_rx( fd_gossip_t * gossip,
   // error = check_duplicate_instance( gossip, message );
   // if( FD_UNLIKELY( error ) ) return error;
 
-  /* TODO: This should verify ping tracker active for pull request */
-  // error = verify_gossip_address( gossip, message );
   if( FD_UNLIKELY( error ) ) return error;
 
   /* TODO: Implement traffic shaper / bandwidth limiter */
 
   switch( view->tag ) {
     case FD_GOSSIP_MESSAGE_PULL_REQUEST:
-      // error = rx_pull_request( gossip, message->pull_request );
+      error = rx_pull_request( gossip,
+                               view->pull_request,
+                               gossip_payload,
+                               peer_address,
+                               now );
       break;
     case FD_GOSSIP_MESSAGE_PULL_RESPONSE:
-      // error = rx_pull_response( gossip, message->pull_response );
+      error = rx_pull_response( gossip, view->pull_response, gossip_payload, now );
       break;
     case FD_GOSSIP_MESSAGE_PUSH:
-      // error = rx_push( gossip, message->push );
+      error = rx_push( gossip, view->push, gossip_payload, now );
       break;
     case FD_GOSSIP_MESSAGE_PRUNE:
       error = rx_prune( gossip, data, view->prune, now );

@@ -64,7 +64,7 @@ struct fd_crds_entry_private {
     know about more than one vote from a given originator.
 
     This key field is the key for the hash table. */
-  fd_crds_key_t key[1];
+  fd_crds_key_t key;
 
   union {
     /* fd_crds manages a separate contact info table */
@@ -181,12 +181,10 @@ fd_crds_entry_wallclock( fd_crds_entry_t const * entry ){
                                                                           implementation to cmp either */
 #define TREAP_IDX_T     ulong
 #define TREAP_LT(e0,e1) ((e0)->stake<(e1)->stake)
-
 #define TREAP_PARENT    evict.parent
 #define TREAP_LEFT      evict.left
 #define TREAP_RIGHT     evict.right
 #define TREAP_PRIO      evict.prio
-
 #define TREAP_OPTIMIZE_ITERATION 1
 #define TREAP_NEXT      evict.next
 #define TREAP_PREV      evict.prev
@@ -217,7 +215,7 @@ fd_crds_entry_wallclock( fd_crds_entry_t const * entry ){
 #define TREAP_NAME      hash_treap
 #define TREAP_T         fd_crds_entry_t
 #define TREAP_QUERY_T   ulong
-#define TREAP_CMP(q,e)  (q-e->hash.hash)
+#define TREAP_CMP(q,e)  ((q>e->hash.hash)-(q<e->hash.hash))
 #define TREAP_IDX_T     ulong
 #define TREAP_OPTIMIZE_ITERATION 1
 #define TREAP_NEXT      hash.next
@@ -270,13 +268,13 @@ lookup_eq( fd_crds_key_t const * key0,
   return 1;
 }
 
-#define MAP_NAME  lookup_map
-#define MAP_ELE_T fd_crds_entry_t
-#define MAP_KEY_T fd_crds_key_t
-#define MAP_KEY   key
-#define MAP_IDX_T ulong
-#define MAP_NEXT  lookup.next
-#define MAP_PREV  lookup.prev
+#define MAP_NAME          lookup_map
+#define MAP_ELE_T         fd_crds_entry_t
+#define MAP_KEY_T         fd_crds_key_t
+#define MAP_KEY           key
+#define MAP_IDX_T         ulong
+#define MAP_NEXT          lookup.next
+#define MAP_PREV          lookup.prev
 #define MAP_KEY_HASH(k,s) (lookup_hash( k, s ))
 #define MAP_KEY_EQ(k0,k1) (lookup_eq( k0, k1 ))
 #define MAP_OPTIMIZE_RANDOM_ACCESS_REMOVAL 1
@@ -295,7 +293,7 @@ struct fd_crds_private {
   lookup_map_t *             lookup_map;
 
   ulong                      purged_len;
-  ulong                      purged_idx;
+  ulong                      purged_head;
   ulong                      purged_cap;
   fd_crds_purged_t *         purged_list;
 
@@ -401,7 +399,7 @@ fd_crds_new( void *     shmem,
   FD_TEST( crds->lookup_map );
 
   crds->purged_len  = 0UL;
-  crds->purged_idx  = 0UL;
+  crds->purged_head  = 0UL;
   crds->purged_cap  = purged_max;
   crds->purged_list = (fd_crds_purged_t *)_purged_list;
 
@@ -447,6 +445,22 @@ remove_contact_info( fd_crds_t *        crds,
   crds_samplers_rem_peer( crds->samplers, ci );
 }
 
+ulong
+fd_crds_len( fd_crds_t const * crds ) {
+  return crds_pool_used( crds->pool );
+}
+
+ulong
+fd_crds_purged_len( fd_crds_t const * crds ) {
+  return crds->purged_len;
+}
+
+uchar const *
+fd_crds_purged( fd_crds_t const * crds,
+                ulong idx ) {
+  return crds->purged_list[ (crds->purged_head+idx)%crds->purged_cap ].hash;
+}
+
 void
 fd_crds_expire( fd_crds_t * crds,
                 long        now ) {
@@ -461,11 +475,11 @@ fd_crds_expire( fd_crds_t * crds,
 
     staked_expire_dlist_ele_pop_head( crds->staked_expire_dlist, crds->pool );
     hash_treap_ele_remove( crds->hash_treap, head, crds->pool );
-    lookup_map_ele_remove( crds->lookup_map, head->key, NULL, crds->pool );
+    lookup_map_ele_remove( crds->lookup_map, &head->key, NULL, crds->pool );
     evict_treap_ele_remove( crds->evict_treap, head, crds->pool );
     crds_pool_ele_release( crds->pool, head );
 
-    if( FD_UNLIKELY( is_contact_info( head->key ) ) ) {
+    if( FD_UNLIKELY( is_contact_info( &head->key ) ) ) {
       remove_contact_info( crds, head );
     }
   }
@@ -481,22 +495,20 @@ fd_crds_expire( fd_crds_t * crds,
 
     unstaked_expire_dlist_ele_pop_head( crds->unstaked_expire_dlist, crds->pool );
     hash_treap_ele_remove( crds->hash_treap, head, crds->pool );
-    lookup_map_ele_remove( crds->lookup_map, head->key, NULL, crds->pool );
+    lookup_map_ele_remove( crds->lookup_map, &head->key, NULL, crds->pool );
     evict_treap_ele_remove( crds->evict_treap, head, crds->pool );
     crds_pool_ele_release( crds->pool, head );
 
-    if( FD_UNLIKELY( is_contact_info( head->key ) ) ) {
+    if( FD_UNLIKELY( is_contact_info( &head->key ) ) ) {
       remove_contact_info( crds, head );
     }
   }
 
   while( crds->purged_len ) {
-    /* FIXME: purged_idx is used as a cursor in insert_purged, and as
-              the head pointer here. Which is broken. */
-    fd_crds_purged_t * purged = &crds->purged_list[ crds->purged_idx ];
+    fd_crds_purged_t * purged = &crds->purged_list[ crds->purged_head ];
 
     if( FD_LIKELY( purged->wallclock_nanos<now-60L*1000L*1000L*1000L ) ) break;
-    crds->purged_idx = (crds->purged_idx+1UL)%crds->purged_cap;
+    crds->purged_head = (crds->purged_head+1UL)%crds->purged_cap;
     crds->purged_len--;
   }
 }
@@ -515,7 +527,7 @@ fd_crds_acquire( fd_crds_t * crds ) {
     }
 
     hash_treap_ele_remove( crds->hash_treap, evict, crds->pool );
-    lookup_map_ele_remove( crds->lookup_map, evict->key, NULL, crds->pool );
+    lookup_map_ele_remove( crds->lookup_map, &evict->key, NULL, crds->pool );
 
     return evict;
   } else {
@@ -526,7 +538,7 @@ fd_crds_acquire( fd_crds_t * crds ) {
 void
 fd_crds_release( fd_crds_t *       crds,
                  fd_crds_entry_t * value ) {
-  if( FD_UNLIKELY( is_contact_info( value->key ) ) ){
+  if( FD_UNLIKELY( is_contact_info( &value->key ) ) ){
     /* TODO: We might want checks here if fd_crds cannot guarantee that
              value->contact_info.ci is valid when entry is contact info */
     crds_contact_info_pool_ele_release( crds->contact_info.pool, value->contact_info.ci );
@@ -540,7 +552,7 @@ fd_crds_populate_preflight( fd_gossip_view_crds_value_t const * view,
                             fd_crds_entry_t *                   out_value ) {
   static fd_sha256_t sha2[1];
   /* Construct key */
-  fd_crds_key_t * key = out_value->key;
+  fd_crds_key_t * key = &out_value->key;
   key->tag            = view->tag;
   fd_memcpy( key->pubkey, view_payload+view->pubkey_off, 32UL );
 
@@ -589,7 +601,7 @@ fd_crds_populate_full( fd_crds_t *                         crds,
   out_value->value_sz                = view->length;
   fd_memcpy( out_value->value_bytes, view_payload+view->value_off, view->length );
 
-  if( FD_UNLIKELY( is_contact_info( out_value->key ) ) ) {
+  if( FD_UNLIKELY( is_contact_info( &out_value->key ) ) ) {
     if( FD_UNLIKELY( !crds_contact_info_pool_free( crds->contact_info.pool ) ) ) {
       /* TODO: use dlist to LRU evict */
       FD_LOG_ERR(( "contact info pool exhausted" ));
@@ -608,7 +620,7 @@ overrides( fd_crds_entry_t const * value,
   long val_ci_onset   = value->contact_info.instance_creation_wallclock_nanos;
   long cand_ci_onset  = candidate->contact_info.instance_creation_wallclock_nanos;
 
-  switch( value->key->tag ) {
+  switch( value->key.tag ) {
     case FD_CRDS_TAG_CONTACT_INFO:
       if( FD_UNLIKELY( cand_ci_onset>val_ci_onset ) ) return 1;
       else if( FD_UNLIKELY( cand_ci_onset<val_ci_onset ) ) return 0;
@@ -617,7 +629,7 @@ overrides( fd_crds_entry_t const * value,
       break;
     case FD_CRDS_TAG_NODE_INSTANCE:
       if( FD_LIKELY( !memcmp( candidate->node_instance.token, value->node_instance.token, 32UL ) ) ) break;
-      else if( FD_LIKELY( memcmp( candidate->key->pubkey, value->key->pubkey, 32UL ) ) ) break;
+      else if( FD_LIKELY( memcmp( candidate->key.pubkey, value->key.pubkey, 32UL ) ) ) break;
       else if( FD_UNLIKELY( cand_wc>val_wc ) ) return 1;
       else if( FD_UNLIKELY( cand_wc<val_wc ) ) return 0;
       else return memcmp( candidate->node_instance.token, value->node_instance.token, 32UL ) < 0;
@@ -633,7 +645,7 @@ overrides( fd_crds_entry_t const * value,
 int
 fd_crds_upserts( fd_crds_t *       crds,
                  fd_crds_entry_t * candidate ) {
-  fd_crds_entry_t const * value = lookup_map_ele_query_const( crds->lookup_map, candidate->key, NULL, crds->pool );
+  fd_crds_entry_t const * value = lookup_map_ele_query_const( crds->lookup_map, &candidate->key, NULL, crds->pool );
   if( FD_UNLIKELY( !value ) ) return 1;
 
   return overrides( value, candidate );
@@ -643,9 +655,10 @@ static inline void
 insert_purged( fd_crds_t *   crds,
                uchar const * hash,
                long          wallclock_nanos ) {
-  fd_memcpy( &crds->purged_list[ crds->purged_idx ].hash, hash, 32UL );
-  crds->purged_list[ crds->purged_idx ].wallclock_nanos = wallclock_nanos;
-  crds->purged_idx = (crds->purged_idx+1UL)%crds->purged_cap;
+  /* insert at the tail */
+  ulong purged_tail = (crds->purged_head+crds->purged_len)%crds->purged_cap;
+  fd_memcpy( &crds->purged_list[ purged_tail ].hash, hash, 32UL );
+  crds->purged_list[ purged_tail ].wallclock_nanos = wallclock_nanos;
   crds->purged_len = fd_ulong_max( crds->purged_len+1UL, crds->purged_cap );
 }
 
@@ -655,7 +668,7 @@ fd_crds_insert( fd_crds_t *       crds,
                 int               from_push_message,
                 long              now ) {
   /* TODO: Why Agave tracks route? PushRespose etc ... */
-  fd_crds_entry_t * replace = lookup_map_ele_query( crds->lookup_map, value->key, NULL, crds->pool );
+  fd_crds_entry_t * replace = lookup_map_ele_query( crds->lookup_map, &value->key, NULL, crds->pool );
   uchar is_replacing = 0UL;
   if( FD_LIKELY( replace ) ) {
     if( FD_UNLIKELY( !overrides( replace, value ) ) ) {
@@ -676,7 +689,7 @@ fd_crds_insert( fd_crds_t *       crds,
 
     insert_purged( crds, fd_crds_entry_hash( replace ), replace->wallclock_nanos );
 
-    if( FD_UNLIKELY( is_contact_info( replace->key ) ) ) {
+    if( FD_UNLIKELY( is_contact_info( &replace->key ) ) ) {
       crds_contact_info_dlist_ele_remove( crds->contact_info.dlist, replace, crds->pool );
       crds_contact_info_pool_ele_release( crds->contact_info.pool, replace->contact_info.ci );
 
@@ -695,7 +708,7 @@ fd_crds_insert( fd_crds_t *       crds,
       unstaked_expire_dlist_ele_remove( crds->unstaked_expire_dlist, replace, crds->pool );
     }
     hash_treap_ele_remove( crds->hash_treap, replace, crds->pool );
-    lookup_map_ele_remove( crds->lookup_map, replace->key, NULL, crds->pool );
+    lookup_map_ele_remove( crds->lookup_map, &replace->key, NULL, crds->pool );
     crds_pool_ele_release( crds->pool, replace );
   }
 
@@ -710,7 +723,7 @@ fd_crds_insert( fd_crds_t *       crds,
   hash_treap_ele_insert( crds->hash_treap, value, crds->pool );
   lookup_map_ele_insert( crds->lookup_map, value, crds->pool );
 
-  if( FD_UNLIKELY( is_contact_info( value->key ) ) ) {
+  if( FD_UNLIKELY( is_contact_info( &value->key ) ) ) {
     /* TODO: Emit this as a gossip insert/update update */
     crds_contact_info_dlist_ele_push_tail( crds->contact_info.dlist,
                                            value,
@@ -745,7 +758,7 @@ make_contact_info_key( uchar const * pubkey ) {
 
 int
 fd_crds_entry_is_contact_info(  fd_crds_entry_t const * entry ) {
-  return is_contact_info( entry->key );
+  return is_contact_info( &entry->key );
 }
 
 fd_contact_info_t *
