@@ -14,6 +14,166 @@
 #include <sys/stat.h>
 #include <fcntl.h>
 
+#if FD_HAS_OPENSSL
+
+void
+fd_snapshot_http_enable_openssl( fd_snapshot_http_t * http,
+                                 SSL_CTX *            ssl_ctx ) {
+  if( FD_UNLIKELY( http->ssl_ctx ) ) {
+    SSL_CTX_free( http->ssl_ctx );
+    http->ssl_ctx = NULL;
+  }
+  SSL_CTX_up_ref( ssl_ctx );
+  http->ssl_ctx = ssl_ctx;
+}
+
+static int
+http_ssl_init( fd_snapshot_http_t * this ) {
+  if( this->ssl ) {
+    SSL_free( this->ssl );
+    this->ssl = NULL;
+  }
+  this->ssl = SSL_new( this->ssl_ctx );
+  if( FD_UNLIKELY( !this->ssl ) ) {
+    FD_LOG_ERR(( "SSL_new failed" ));
+  }
+
+  /* Set ALPN */
+  if( this->domain_name_len ) {
+    int alpn_res = SSL_set_alpn_protos( this->ssl, (uchar const *)"http/1.1", 8 );
+    if( FD_UNLIKELY( alpn_res!=0 ) ) {
+      FD_LOG_ERR(( "SSL_set_alpn_protos failed (%d-%s)", alpn_res, fd_io_strerror( errno ) ));
+    }
+  }
+
+  /* Set SNI */
+  if( this->domain_name_len ) {
+    if( FD_UNLIKELY( !SSL_set1_host( this->ssl, this->domain_name ) ) ) {
+      FD_LOG_ERR(( "SSL_set1_host failed (%d-%s)", errno, fd_io_strerror( errno ) ));
+    }
+  }
+
+  /* Connect */
+  SSL_set_fd( this->ssl, this->socket_fd );
+  int ssl_err = SSL_connect( this->ssl );
+  if( FD_UNLIKELY( ssl_err!=1 ) ) {
+    FD_LOG_WARNING(( "SSL_connect failed (%d-%s)", ssl_err, fd_io_strerror( errno ) ));
+    SSL_free( this->ssl );
+    this->ssl = NULL;
+    return EPROTO;
+  }
+
+  /* Switch to non-blocking sockets */
+  int const flags = fcntl( this->socket_fd, F_GETFL );
+  if( FD_UNLIKELY( flags<0 ) ) {
+    FD_LOG_ERR(( "fcntl(F_GETFL) failed (%d-%s)", errno, fd_io_strerror( errno ) ));
+  }
+  if( FD_UNLIKELY( fcntl( this->socket_fd, F_SETFL, flags|O_NONBLOCK )<0 ) ) {
+    FD_LOG_ERR(( "fcntl(F_SETFL,flags|O_NONBLOCK) failed (%d-%s)", errno, fd_io_strerror( errno ) ));
+  }
+
+  return 0;
+}
+
+static int
+http_ssl_io_error( fd_snapshot_http_t * this,
+                   int                  ssl_err,
+                   char const *         func ) {
+  (void)this;
+  switch( ssl_err ) {
+  case SSL_ERROR_SYSCALL:
+    FD_LOG_WARNING(( "SSL %s failed", func ));
+    return errno;
+  case SSL_ERROR_ZERO_RETURN:
+    return 0; /* EOF */
+  case SSL_ERROR_WANT_READ:
+  case SSL_ERROR_WANT_WRITE:
+    return EAGAIN;
+  default:
+    FD_LOG_WARNING(( "SSL error %d after %s", ssl_err, func ));
+    return EIO;
+  }
+}
+
+static long
+http_recv_ssl( fd_snapshot_http_t * this,
+               void *               buf,
+               ulong                bufsz ) {
+  int read_res = SSL_read( this->ssl, buf, (int)bufsz );
+  if( FD_UNLIKELY( read_res<=0 ) ) {
+    int ssl_err = SSL_get_error( this->ssl, read_res );
+    return http_ssl_io_error( this, ssl_err, "SSL_read" );
+  }
+  return read_res;
+}
+
+static long
+http_send_ssl( fd_snapshot_http_t * this,
+               void *               buf,
+               ulong                bufsz ) {
+  int write_res = SSL_write( this->ssl, buf, (int)bufsz );
+  if( FD_UNLIKELY( write_res<=0 ) ) {
+    int ssl_err = SSL_get_error( this->ssl, write_res );
+    return http_ssl_io_error( this, ssl_err, "SSL_write" );
+  }
+  return write_res;
+}
+
+#endif
+
+/* http_recv reads TCP or TLS stream bytes.  Returns -EAGAIN if no new
+   data is available.  Returns negative errno on failure.  Returns 0 if
+   the end of the stream was reached (graceful close of stream receive
+   side).  A positive return value is the number of bytes that were read
+   into buf (<=bufsz). */
+
+static long
+http_recv( fd_snapshot_http_t * this,
+           void *               buf,
+           ulong                bufsz,
+           char const *         phase ) {
+#if FD_HAS_OPENSSL
+  if( this->ssl ) return http_recv_ssl( this, buf, bufsz );
+#endif
+
+  long recv_sz = recv( this->socket_fd, buf, bufsz, MSG_DONTWAIT );
+  if( recv_sz<0L ) {
+    if( FD_UNLIKELY( errno!=EWOULDBLOCK ) ) {
+      FD_LOG_WARNING(( "recv(%d,%p,%lu) failed while %s (%d-%s)",
+                       this->socket_fd, buf, bufsz, phase,
+                       errno, fd_io_strerror( errno ) ));
+      return -errno;
+    } else {
+      return 0;
+    }
+  }
+
+  return recv_sz;
+}
+
+/* http_send sends TCP or TLS stream bytes.  Returns negative errno on
+   failure.  A positive return value is the number of bytes that were
+   written from buf. */
+
+static long
+http_send( fd_snapshot_http_t * this,
+           void *               buf,
+           ulong                bufsz,
+           char const *         phase ) {
+#if FD_HAS_OPENSSL
+  if( this->ssl ) return http_send_ssl( this, buf, bufsz );
+#endif
+
+  long sent_sz = send( this->socket_fd, buf, bufsz, MSG_DONTWAIT|MSG_NOSIGNAL );
+  if( sent_sz<0L ) {
+    FD_LOG_WARNING(( "send(%d,%p,%lu) failed while %s (%d-%s)",
+                    this->socket_fd, buf, bufsz, phase,
+                    errno, fd_io_strerror( errno ) ));
+    return -errno;
+  }
+  return sent_sz;
+}
+
 /* fd_snapshot_http_set_path renders the 'GET /path' chunk of the HTTP
    request.  The chunk is right aligned and is followed immediately by
    'HTTP/1.1\r\n...' to form a contiguous message. */
@@ -55,14 +215,13 @@ fd_snapshot_http_set_path( fd_snapshot_http_t * this,
 }
 
 fd_snapshot_http_t *
-fd_snapshot_http_new( void *               mem,
-                      const char *         dst_str,
+fd_snapshot_http_new( fd_snapshot_http_t * this,
+                      const char *         domain_name,
                       uint                 dst_ipv4,
                       ushort               dst_port,
                       const char *         snapshot_dir,
                       fd_snapshot_name_t * name_out ) {
 
-  fd_snapshot_http_t * this = (fd_snapshot_http_t *)mem;
   if( FD_UNLIKELY( !this ) ) {
     FD_LOG_WARNING(( "NULL mem" ));
     return NULL;
@@ -78,6 +237,15 @@ fd_snapshot_http_new( void *               mem,
   this->name_out    = name_out;
   if( !this->name_out ) this->name_out = this->name_dummy;
   fd_memset( this->name_out, 0, sizeof(fd_snapshot_name_t) );
+
+  ulong domain_name_len = strlen( domain_name );
+  if( FD_UNLIKELY( domain_name_len+1 >= sizeof(this->domain_name) ) ) {
+    FD_LOG_WARNING(( "Domain name too long (%lu chars)", domain_name_len ));
+    return NULL;
+  }
+  fd_cstr_fini( fd_cstr_append_text( fd_cstr_init(
+      this->domain_name ), domain_name, domain_name_len ) );
+  this->domain_name_len = (uint)domain_name_len;
 
   ulong snapshot_dir_len = snapshot_dir!=NULL ? strlen( snapshot_dir ) : 0UL;
   if( FD_LIKELY( snapshot_dir_len && snapshot_dir_len<sizeof(this->snapshot_path) ) ) {
@@ -106,16 +274,17 @@ fd_snapshot_http_new( void *               mem,
     " HTTP/1.1\r\n"
     "user-agent: Firedancer\r\n"
     "accept: */*\r\n"
-    "accept-encoding: identity\r\n"
-    "host: ";
+    "accept-encoding: identity\r\n";
   p = fd_cstr_append_text( p, hdr_part1, sizeof(hdr_part1)-1 );
 
-  p = fd_cstr_append_text( p, dst_str, strlen(dst_str) );
+  if( this->domain_name_len ) {
+    p = fd_cstr_append_text( p, "host: ", 6UL );
+    p = fd_cstr_append_text( p, this->domain_name, this->domain_name_len );
+    p = fd_cstr_append_text( p, "\r\n", 2UL );
+  }
 
-  static char const hdr_part2[] =
-    "\r\n"
-    "\r\n";
-  p = fd_cstr_append_text( p, hdr_part2, sizeof(hdr_part2)-1 );
+  /* End of header */
+  p = fd_cstr_append_text( p, "\r\n", 2UL );
 
   this->req_head = (ushort)( p - this->req_buf );
 
@@ -138,6 +307,14 @@ void *
 fd_snapshot_http_delete( fd_snapshot_http_t * this ) {
   if( FD_UNLIKELY( !this ) ) return NULL;
   fd_snapshot_http_cleanup_fds( this );
+
+#if FD_HAS_OPENSSL
+  if( this->ssl_ctx ) {
+    SSL_CTX_free( this->ssl_ctx );
+    this->ssl_ctx = NULL;
+  }
+#endif
+
   return (void *)this;
 }
 
@@ -186,6 +363,13 @@ fd_snapshot_http_init( fd_snapshot_http_t * this ) {
     return errno;
   }
 
+#if FD_HAS_OPENSSL
+  if( this->ssl_ctx ) {
+    int ssl_err = http_ssl_init( this );
+    return ssl_err;
+  }
+#endif
+
   FD_LOG_INFO(( "Sending request" ));
 
   this->state = FD_SNAPSHOT_HTTP_STATE_REQ;
@@ -206,16 +390,11 @@ fd_snapshot_http_req( fd_snapshot_http_t * this ) {
     return ETIMEDOUT;
   }
 
-  int socket_fd = this->socket_fd;
-
   uint avail_sz = (uint)this->req_head - (uint)this->req_tail;
   assert( avail_sz < sizeof(this->req_buf) );
-  long sent_sz = send( socket_fd, this->req_buf + this->req_tail, avail_sz, MSG_DONTWAIT|MSG_NOSIGNAL );
+  long sent_sz = http_send( this, this->req_buf + this->req_tail, avail_sz, "writing request" );
   if( sent_sz<0L ) {
     if( FD_UNLIKELY( errno!=EWOULDBLOCK ) ) {
-      FD_LOG_WARNING(( "send(%d,%p,%u) failed (%d-%s)",
-                       socket_fd, (void *)(this->req_buf + this->req_tail), avail_sz,
-                       errno, fd_io_strerror( errno ) ));
       this->state = FD_SNAPSHOT_HTTP_STATE_FAIL;
       return errno;
     } else {
@@ -324,18 +503,13 @@ fd_snapshot_http_resp( fd_snapshot_http_t * this ) {
 
   /* Do blocking read of TCP data until timeout */
 
-  int socket_fd = this->socket_fd;
-
   uchar * next      = this->resp_buf                + this->resp_head;
   ulong   bufsz     = FD_SNAPSHOT_HTTP_RESP_BUF_MAX - this->resp_head;
   assert( this->resp_head <= FD_SNAPSHOT_HTTP_RESP_BUF_MAX );
 
-  long recv_sz = recv( socket_fd, next, bufsz, MSG_DONTWAIT );
+  long recv_sz = http_recv( this, next, bufsz, "reading headers" );
   if( recv_sz<0L ) {
-    if( FD_UNLIKELY( errno!=EWOULDBLOCK ) ) {
-      FD_LOG_WARNING(( "recv(%d,%p,%lu) failed (%d-%s)",
-                       socket_fd, (void *)next, bufsz,
-                       errno, fd_io_strerror( errno ) ));
+    if( FD_UNLIKELY( errno!=EAGAIN ) ) {
       this->state = FD_SNAPSHOT_HTTP_STATE_FAIL;
       return errno;
     } else {
@@ -514,14 +688,11 @@ fd_snapshot_http_dl( fd_snapshot_http_t * this,
       return -1;
     }
     this->resp_tail = this->resp_head = 0U;
-    long recv_sz = recv( this->socket_fd, this->resp_buf,
-                         fd_ulong_min( this->content_len - this->dl_total, FD_SNAPSHOT_HTTP_RESP_BUF_MAX ),
-                         MSG_DONTWAIT );
+    long recv_sz = http_recv( this, this->resp_buf,
+        fd_ulong_min( this->content_len - this->dl_total, FD_SNAPSHOT_HTTP_RESP_BUF_MAX ),
+        "downloading response body" );
     if( recv_sz<0L ) {
       if( FD_UNLIKELY( errno!=EWOULDBLOCK && errno!=EAGAIN ) ) {
-        FD_LOG_WARNING(( "recv(%d,%p,%lu) failed while downloading response body (%d-%s)",
-                        this->socket_fd, (void *)this->resp_buf, FD_SNAPSHOT_HTTP_RESP_BUF_MAX,
-                        errno, fd_io_strerror( errno ) ));
         this->state = FD_SNAPSHOT_HTTP_STATE_FAIL;
         fd_snapshot_http_cleanup_fds( this );
         return errno;

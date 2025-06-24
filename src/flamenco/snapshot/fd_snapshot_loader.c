@@ -169,6 +169,18 @@ fd_snapshot_loader_init( fd_snapshot_loader_t *    d,
     }
     fd_snapshot_http_set_path( d->http, src->http.path, src->http.path_len, validate_slot ? base_slot : ULONG_MAX );
 
+#if FD_HAS_OPENSSL
+    if( src->http.is_https ) {
+      SSL_CTX * ssl_ctx = SSL_CTX_new( TLS_client_method() );
+      if( FD_UNLIKELY( !ssl_ctx ) ) {
+        FD_LOG_WARNING(( "SSL_CTX_new failed" ));
+        return NULL;
+      }
+      fd_snapshot_http_enable_openssl( d->http, ssl_ctx );
+      SSL_CTX_free( ssl_ctx );
+    }
+#endif
+
     d->vsrc = fd_io_istream_snapshot_http_virtual( d->http );
     break;
   default:
@@ -227,22 +239,25 @@ fd_snapshot_src_parse( fd_snapshot_src_t * src,
   fd_memset( src, 0, sizeof(fd_snapshot_src_t) );
 
   if( FD_LIKELY( src_type==FD_SNAPSHOT_SRC_HTTP ) ) {
-    static char const url_regex[] = "^http://([^:/[:space:]]+)(:[[:digit:]]+)?(/.*)?$";
+    static char const url_regex[] = "^(https?)://([^:/[:space:]]+)(:[[:digit:]]+)?(/.*)?$";
     regex_t url_re;
     FD_TEST( 0==regcomp( &url_re, url_regex, REG_EXTENDED ) );
-    regmatch_t group[4] = {0};
-    int url_re_res = regexec( &url_re, cstr, 4, group, 0 );
+    regmatch_t group[5] = {0};
+    int url_re_res = regexec( &url_re, cstr, 5, group, 0 );
     regfree( &url_re );
     if( FD_UNLIKELY( url_re_res!=0 ) ) {
       FD_LOG_WARNING(( "Bad URL: %s", cstr ));
       return NULL;
     }
 
-    regmatch_t * m_hostname = &group[1];
-    regmatch_t * m_port     = &group[2];
-    regmatch_t * m_path     = &group[3];
+    regmatch_t * m_scheme   = &group[1];
+    regmatch_t * m_hostname = &group[2];
+    regmatch_t * m_port     = &group[3];
+    regmatch_t * m_path     = &group[4];
 
     src->type = FD_SNAPSHOT_SRC_HTTP;
+    src->http.is_https = m_scheme->rm_eo - m_scheme->rm_so == 5 &&
+                         fd_memeq( cstr + m_scheme->rm_so, "https", 5 );
     src->http.path     = cstr + m_path->rm_so;
     src->http.path_len = (ulong)m_path->rm_eo - (ulong)m_path->rm_so;
 
@@ -331,7 +346,7 @@ fd_snapshot_src_t *
 fd_snapshot_src_parse_type_unknown( fd_snapshot_src_t * src,
                                     char *              cstr ) {
 
-  if( 0==strncmp( cstr, "http://", 7 ) ) {
+  if( 0==strncmp( cstr, "http://", 7 ) || 0==strncmp( cstr, "https://", 8 ) ) {
     return fd_snapshot_src_parse( src, cstr, FD_SNAPSHOT_SRC_HTTP );
   } else {
     return fd_snapshot_src_parse( src, cstr, FD_SNAPSHOT_SRC_FILE );
