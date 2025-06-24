@@ -557,11 +557,10 @@ VM_SYSCALL_CPI_UPDATE_CALLER_ACC_FUNC( fd_vm_t *                          vm,
 
     ulong const updated_data_len = callee_acc->vt->get_data_len( callee_acc );
     if( !updated_data_len ) fd_memset( (void*)caller_acc_data, 0, caller_acc_data_len );
-
     if( caller_acc_data_len != updated_data_len ) {
-      // https://github.com/anza-xyz/agave/blob/a1ed2b1052bde05e79c31388b399dba9da10f7de/programs/bpf_loader/src/syscalls/cpi.rs#L1374
       ulong max_increase = (vm->direct_mapping && vm->is_deprecated) ? 0UL : MAX_PERMITTED_DATA_INCREASE;
-      if( FD_UNLIKELY( updated_data_len>fd_ulong_sat_add( (ulong)caller_acc_data_len, max_increase ) ) ) {
+      // https://github.com/anza-xyz/agave/blob/7f3a6cf6d3c2dcc81bb38e49a5c9ef998a6f4dd9/programs/bpf_loader/src/syscalls/cpi.rs#L1387-L1397
+      if( FD_UNLIKELY( updated_data_len>fd_ulong_sat_add( caller_account->orig_data_len, max_increase ) ) ) {
         FD_VM_ERR_FOR_LOG_INSTR( vm, FD_EXECUTOR_INSTR_ERR_INVALID_REALLOC);
         return FD_EXECUTOR_INSTR_ERR_INVALID_REALLOC;
       }
