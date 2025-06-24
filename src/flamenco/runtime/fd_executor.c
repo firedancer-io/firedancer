@@ -618,14 +618,14 @@ fd_executor_load_transaction_accounts( fd_exec_txn_ctx_t * txn_ctx ) {
 int
 fd_executor_validate_account_locks( fd_exec_txn_ctx_t const * txn_ctx ) {
   /* Ensure the number of account keys does not exceed the transaction lock limit
-     https://github.com/anza-xyz/agave/blob/838c1952595809a31520ff1603a13f2c9123aa51/accounts-db/src/account_locks.rs#L123 */
+     https://github.com/anza-xyz/agave/blob/v2.2.17/accounts-db/src/account_locks.rs#L121 */
   ulong tx_account_lock_limit = get_transaction_account_lock_limit( txn_ctx );
   if( FD_UNLIKELY( txn_ctx->accounts_cnt>tx_account_lock_limit ) ) {
     return FD_RUNTIME_TXN_ERR_TOO_MANY_ACCOUNT_LOCKS;
   }
 
   /* Duplicate account check
-     https://github.com/anza-xyz/agave/blob/838c1952595809a31520ff1603a13f2c9123aa51/accounts-db/src/account_locks.rs#L125 */
+     https://github.com/anza-xyz/agave/blob/v2.2.17/accounts-db/src/account_locks.rs#L123 */
   for( ushort i=0; i<txn_ctx->accounts_cnt; i++ ) {
     for( ushort j=(ushort)(i+1U); j<txn_ctx->accounts_cnt; j++ ) {
       if( FD_UNLIKELY( !memcmp( &txn_ctx->account_keys[i], &txn_ctx->account_keys[j], sizeof(fd_pubkey_t) ) ) ) {
@@ -634,7 +634,7 @@ fd_executor_validate_account_locks( fd_exec_txn_ctx_t const * txn_ctx ) {
     }
   }
 
-  /* https://github.com/anza-xyz/agave/blob/ced98f1ebe73f7e9691308afa757323003ff744f/sdk/src/transaction/sanitized.rs#L286-L288 */
+  /* https://github.com/anza-xyz/agave/blob/v2.2.17/accounts-db/src/account_locks.rs#L124-L126 */
   return FD_RUNTIME_EXECUTE_SUCCESS;
 }
 
