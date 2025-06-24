@@ -16,6 +16,7 @@
 #include "../../discof/replay/fd_exec.h"
 #include "../../util/pod/fd_pod_format.h"
 #include "../../util/net/fd_net_headers.h"
+#include "../../tango/fd_tango_base.h"
 
 #include "../forest/fd_forest.h"
 #include "fd_fec_repair.h"
@@ -50,11 +51,14 @@ typedef union {
 } fd_repair_in_ctx_t;
 
 struct fd_repair_out_ctx {
-  ulong       idx;
-  fd_wksp_t * mem;
-  ulong       chunk0;
-  ulong       wmark;
-  ulong       chunk;
+  ulong         idx;
+  fd_wksp_t *   mem;
+  ulong         chunk0;
+  ulong         wmark;
+  ulong         chunk;
+  ulong         depth;
+  void *        dcache;
+  fd_frag_meta_t * mcache;
 };
 typedef struct fd_repair_out_ctx fd_repair_out_ctx_t;
 
@@ -80,6 +84,22 @@ typedef struct fd_reasm fd_reasm_t;
 #define MAP_KEY      slot
 #define MAP_MEMOIZE  0
 #include "../../util/tmpl/fd_map_dynamic.c"
+
+struct fd_repair_pending_sign_req {
+  uchar buf[1024];
+  ulong buflen;
+  ulong sig_offset;
+  uint dst_ip_addr;
+  ushort dst_port;
+  ulong nonce;
+  fd_pubkey_t recipient;
+};
+typedef struct fd_repair_pending_sign_req fd_repair_pending_sign_req_t;
+
+#define DEQUE_NAME fd_repair_pending_sign_req_deque
+#define DEQUE_T    fd_repair_pending_sign_req_t
+#define DEQUE_MAX  8192UL
+#include "../../util/tmpl/fd_deque.c"
 
 struct fd_repair_tile_ctx {
   long tsprint; /* timestamp for printing */
@@ -140,6 +160,22 @@ struct fd_repair_tile_ctx {
   uint                shred_tile_cnt;
   fd_repair_out_ctx_t shred_out_ctx[ MAX_SHRED_TILE_CNT ];
 
+  /* ping_sign link (to sign tile 0) - used for keyguard client */
+  uint        ping_sign_in_idx;
+  uint        ping_sign_out_idx;
+  fd_wksp_t * ping_sign_out_mem;
+  ulong       ping_sign_out_chunk0;
+  ulong       ping_sign_out_wmark;
+  ulong       ping_sign_out_chunk;
+
+  /* repair_sign links (to sign tiles 1+) - for round-robin distribution */
+  uint                repair_sign_cnt;
+  fd_repair_out_ctx_t repair_sign_out_ctx[ MAX_SHRED_TILE_CNT ];
+  ulong               repair_sign_round_robin_idx;
+  
+  /* Request sequence tracking for async signing */
+  ulong               request_seq;
+
   ushort net_id;
   /* Includes Ethernet, IP, UDP headers */
   uchar buffer[ MAX_BUFFER_SIZE ];
@@ -153,6 +189,8 @@ struct fd_repair_tile_ctx {
   fd_blockstore_t * blockstore;
 
   fd_keyguard_client_t keyguard_client[1];
+
+  fd_repair_pending_sign_req_t * pending_sign_req_deque;
 };
 typedef struct fd_repair_tile_ctx fd_repair_tile_ctx_t;
 
@@ -177,6 +215,7 @@ scratch_footprint( fd_topo_tile_t const * tile ) {
   l = FD_LAYOUT_APPEND( l, fd_reasm_align(),              fd_reasm_footprint( 20 ) );
   // l = FD_LAYOUT_APPEND( l, fd_fec_repair_align(),         fd_fec_repair_footprint( ( 1<<20 ), tile->repair.shred_tile_cnt ) );
   l = FD_LAYOUT_APPEND( l, fd_fec_chainer_align(),        fd_fec_chainer_footprint( 1 << 20 ) ); // TODO: fix this
+  l = FD_LAYOUT_APPEND( l, fd_repair_pending_sign_req_deque_align(), fd_repair_pending_sign_req_deque_footprint() );
   l = FD_LAYOUT_APPEND( l, fd_scratch_smem_align(),       fd_scratch_smem_footprint( FD_REPAIR_SCRATCH_MAX ) );
   l = FD_LAYOUT_APPEND( l, fd_scratch_fmem_align(),       fd_scratch_fmem_footprint( FD_REPAIR_SCRATCH_DEPTH ) );
   return FD_LAYOUT_FINI( l, scratch_align() );
@@ -309,7 +348,7 @@ fd_repair_sign_and_send( fd_repair_tile_ctx_t *  repair_tile_ctx,
                          fd_repair_protocol_t *  protocol,
                          fd_gossip_peer_addr_t * addr FD_PARAM_UNUSED,
                          uchar                 * buf,
-                         ulong                   buflen ) {
+                         ulong                   buflen) {
 
   FD_TEST( buflen >= 1024UL );
   fd_bincode_encode_ctx_t ctx = { .data = buf, .dataend = buf + buflen };
@@ -362,12 +401,8 @@ fd_repair_send_request( fd_repair_tile_ctx_t   * repair_tile_ctx,
                         uint                     shred_index,
                         fd_pubkey_t const      * recipient,
                         long                     now ) {
-
-  /* Send requests starting where we left off last time. i.e. if n < current_nonce, seek forward */
-  /* Track statistics */
   fd_repair_protocol_t protocol;
-  fd_repair_construct_request_protocol( glob, &protocol, type, slot, shred_index, recipient, glob->next_nonce, now );
-  glob->next_nonce++;
+  fd_repair_construct_request_protocol( glob, &protocol, type, slot, shred_index, recipient, 0, now );
   fd_active_elem_t * active = fd_active_table_query( glob->actives, recipient, NULL );
 
   active->avg_reqs++;
@@ -380,7 +415,7 @@ fd_repair_send_request( fd_repair_tile_ctx_t   * repair_tile_ctx,
   send_packet( repair_tile_ctx, stem, 1, active->addr.addr, active->addr.port, src_ip4_addr, buf, buflen, tsorig );
 }
 
-static void
+static void FD_FN_UNUSED
 fd_repair_send_requests( fd_repair_tile_ctx_t *   ctx,
                          fd_stem_context_t *      stem,
                          enum fd_needed_elem_type type,
@@ -393,6 +428,104 @@ fd_repair_send_requests( fd_repair_tile_ctx_t *   ctx,
     fd_pubkey_t const * id = &glob->peers[ glob->peer_idx++ ].key;
     fd_repair_send_request( ctx, stem, glob, type, slot, shred_index, id, now );
     if( FD_UNLIKELY( glob->peer_idx >= glob->peer_cnt ) ) glob->peer_idx = 0; /* wrap around */
+  }
+}
+
+static void
+fd_repair_send_request_async( fd_repair_tile_ctx_t *   ctx,
+                              fd_stem_context_t *      stem FD_PARAM_UNUSED,
+                              fd_repair_t *            glob,
+                              enum fd_needed_elem_type type,
+                              ulong                    slot,
+                              uint                     shred_index,
+                              fd_pubkey_t const      * recipient,
+                              long                     now ){
+    fd_active_elem_t * peer = fd_active_table_query(glob->actives, recipient, NULL);
+    if (!peer) return;
+  
+    uint nonce = (uint)glob->next_nonce;
+
+    fd_repair_protocol_t protocol;
+    fd_repair_construct_request_protocol( glob, &protocol, type, slot, shred_index, recipient, glob->next_nonce, now );
+    glob->next_nonce++;
+    glob->metrics.send_pkt_cnt++;
+  
+    if( FD_UNLIKELY( fd_repair_pending_sign_req_deque_full( ctx->pending_sign_req_deque ) ) ) {
+        return;
+    }
+    
+    fd_repair_pending_sign_req_t * pending = fd_repair_pending_sign_req_deque_push_tail_nocopy( ctx->pending_sign_req_deque );
+    
+    // Inline the buffer preparation logic from fd_repair_sign_and_send
+    FD_TEST( sizeof(pending->buf) >= 1024UL );
+    fd_bincode_encode_ctx_t encode_ctx = { .data = pending->buf, .dataend = pending->buf + sizeof(pending->buf) };
+    if( FD_UNLIKELY( fd_repair_protocol_encode( &protocol, &encode_ctx ) != FD_BINCODE_SUCCESS ) ) {
+        FD_LOG_CRIT(( "Failed to encode repair message (type %#x)", protocol.discriminant ));
+    }
+    
+    ulong buflen = (ulong)encode_ctx.data - (ulong)pending->buf;
+    if( FD_UNLIKELY( buflen<68 ) ) {
+        FD_LOG_CRIT(( "Attempted to sign unsigned repair message type (type %#x)", protocol.discriminant ));
+    }
+
+    // FD_LOG_HEXDUMP_INFO(( "ASYNC: encoded message", pending->buf, buflen ));
+    
+    /* At this point buffer contains
+       [ discriminant ] [ signature_placeholder ] [ payload ]
+       ^                ^                        ^
+       0                4                        68 */
+    
+    /* Move discriminant to position 64 for signing (same as sync version) */
+    fd_memcpy( pending->buf+64, pending->buf, 4 );
+    uchar * sign_buf = pending->buf + 64;
+    ulong sign_len = buflen - 64;
+
+    /*
+    now it contains
+    [ discriminant ] [ payload ]
+    ^                ^
+    sign_buf         sign_buf+4
+    */
+    
+    if( FD_UNLIKELY( ctx->repair_sign_cnt == 0 ) ) {
+      FD_LOG_ERR(( "No repair_sign links configured for async signing" ));
+    }
+    
+    uint round_robin_idx = (nonce % (ctx->repair_sign_cnt));
+    fd_repair_out_ctx_t * sign_out = &ctx->repair_sign_out_ctx[ round_robin_idx ];
+    uchar * dst = fd_chunk_to_laddr( sign_out->mem, sign_out->chunk );
+    fd_memcpy( dst, sign_buf, sign_len );
+    
+    ulong sig = ((ulong)nonce << 32) | (ulong)(uint)FD_KEYGUARD_SIGN_TYPE_ED25519;
+    
+    /* Publish using stem publish like other tiles */
+    fd_stem_publish( ctx->stem, sign_out->idx, sig, sign_out->chunk, sign_len, 0UL, 0UL, 0UL );
+    ctx->request_seq = fd_seq_inc( ctx->request_seq, 1UL );
+    ulong new_chunk = fd_dcache_compact_next( sign_out->chunk, sign_len, sign_out->chunk0, sign_out->wmark );
+    sign_out->chunk = new_chunk;
+    
+    pending->buflen      = buflen;
+    pending->sig_offset  = 4;
+    pending->dst_ip_addr = peer->addr.addr;
+    pending->dst_port    = peer->addr.port;
+    pending->nonce       = nonce;
+    pending->recipient   = *recipient;
+}
+
+
+static void
+fd_repair_send_requests_async( fd_repair_tile_ctx_t *   ctx,
+                         fd_stem_context_t *      stem,
+                         enum fd_needed_elem_type type,
+                         ulong                    slot ,
+                         uint                     shred_index,
+                         long                     now ){
+  fd_repair_t * glob = ctx->repair;
+
+  for( uint i=0; i<FD_REPAIR_NUM_NEEDED_PEERS; i++ ) {
+    fd_pubkey_t const * id = &glob->peers[ glob->peer_idx++ ].key;
+    fd_repair_send_request_async( ctx, stem, glob, type, slot, shred_index, id, now );
+    if( FD_UNLIKELY( glob->peer_idx >= glob->peer_cnt ) ) glob->peer_idx = 0;
   }
 }
 
@@ -437,6 +570,7 @@ before_frag( fd_repair_tile_ctx_t * ctx,
              ulong                  in_idx,
              ulong                  seq FD_PARAM_UNUSED,
              ulong                  sig ) {
+  // FD_LOG_NOTICE(( "repair: before_frag %lu", in_idx ));
   uint in_kind = ctx->in_kind[ in_idx ];
   if( FD_LIKELY( in_kind==IN_KIND_NET ) ) return fd_disco_netmux_sig_proto( sig )!=DST_PROTO_REPAIR;
   return 0;
@@ -489,7 +623,9 @@ during_frag( fd_repair_tile_ctx_t * ctx,
     }
     dcache_entry = fd_chunk_to_laddr_const( in_ctx->mem, chunk );
     dcache_entry_sz = sz;
-
+  } else if ( FD_UNLIKELY( in_kind==IN_KIND_SIGN ) ) {
+    dcache_entry = fd_chunk_to_laddr_const( in_ctx->mem, chunk );
+    dcache_entry_sz = sz;
   } else {
     FD_LOG_ERR(( "Frag from unknown link (kind=%u in_idx=%lu)", in_kind, in_idx ));
   }
@@ -747,7 +883,7 @@ fd_repair_recv_serv_packet( fd_repair_tile_ctx_t *        repair_tile_ctx,
   return 0;
 }
 
-static void
+static void FD_FN_UNUSED
 publish_to_shredcap( fd_repair_tile_ctx_t * ctx,
                      fd_fec_out_t *         out,
                      uint                   shred_cnt,
@@ -791,7 +927,7 @@ after_frag( fd_repair_tile_ctx_t * ctx,
             ulong                  seq    FD_PARAM_UNUSED,
             ulong                  sig    FD_PARAM_UNUSED,
             ulong                  sz,
-            ulong                  tsorig,
+            ulong                  tsorig FD_PARAM_UNUSED,
             ulong                  tspub  FD_PARAM_UNUSED,
             fd_stem_context_t *    stem ) {
 
@@ -800,6 +936,7 @@ after_frag( fd_repair_tile_ctx_t * ctx,
   ctx->stem = stem;
 
   uint in_kind = ctx->in_kind[ in_idx ];
+  // FD_LOG_INFO(( "in_idx: %lu, in_kind: %u", in_idx, in_kind ));
   if( FD_UNLIKELY( in_kind==IN_KIND_CONTACT ) ) {
     handle_new_cluster_contact_info( ctx, ctx->buffer, sz );
     return;
@@ -810,6 +947,33 @@ after_frag( fd_repair_tile_ctx_t * ctx,
     return;
   }
 
+  if( FD_UNLIKELY( in_kind==IN_KIND_SIGN ) ) {
+    ulong response_nonce = sig >> 32;
+    fd_repair_pending_sign_req_t pending;
+    
+    while( !fd_repair_pending_sign_req_deque_empty( ctx->pending_sign_req_deque ) ) {
+      fd_repair_pending_sign_req_t * head_req = fd_repair_pending_sign_req_deque_peek_head( ctx->pending_sign_req_deque );
+      
+      if( head_req->nonce > response_nonce ) {
+        break;
+      }
+      
+      pending = fd_repair_pending_sign_req_deque_pop_head( ctx->pending_sign_req_deque );
+      
+      if( pending.nonce == response_nonce ) {
+        fd_memcpy( pending.buf + pending.sig_offset, ctx->buffer, 64UL );
+        ulong tsorig = fd_frag_meta_ts_comp( fd_tickcount() );
+    
+        uint src_ip4_addr = 0U; /* unknown */
+        send_packet( ctx, stem, 1, pending.dst_ip_addr, pending.dst_port, src_ip4_addr, pending.buf, pending.buflen, tsorig );
+        return;
+      }
+    }
+    
+    FD_LOG_WARNING(( "No matching request found for nonce %lu", response_nonce ));
+    return;
+  }
+  
   if( FD_UNLIKELY( in_kind==IN_KIND_SHRED ) ) {
 
     /* Initialize the forest, which requires the root to be ready.  This
@@ -882,31 +1046,6 @@ after_frag( fd_repair_tile_ctx_t * ctx,
       FD_TEST( !fd_fec_chainer_query( ctx->fec_chainer, shred->slot, shred->fec_set_idx ) );
       FD_TEST( fd_fec_chainer_insert( ctx->fec_chainer, shred->slot, shred->fec_set_idx, (ushort)(shred->idx - shred->fec_set_idx + 1), data_complete, slot_complete, shred->data.parent_off, merkle, merkle /* FIXME */ ) );
 
-      while( FD_LIKELY( !fd_fec_out_empty( ctx->fec_chainer->out ) ) ) {
-        fd_fec_out_t out = fd_fec_out_pop_head( ctx->fec_chainer->out );
-        if( FD_UNLIKELY( out.err != FD_FEC_CHAINER_SUCCESS ) ) FD_LOG_ERR(( "fec chainer err %d", out.err ));
-        fd_reasm_t * reasm = fd_reasm_query( ctx->reasm, out.slot, NULL );
-        if( FD_UNLIKELY( !reasm ) ) {
-          reasm      = fd_reasm_insert( ctx->reasm, out.slot );
-          reasm->cnt = 0;
-        }
-        if( FD_UNLIKELY( out.data_complete ) ) {
-
-          uint  cnt   = out.fec_set_idx + out.data_cnt - reasm->cnt;
-          ulong sig   = fd_disco_repair_replay_sig( out.slot, out.parent_off, cnt, out.slot_complete );
-          ulong tspub = fd_frag_meta_ts_comp( fd_tickcount() );
-          reasm->cnt  = out.fec_set_idx + out.data_cnt;
-
-          if( FD_UNLIKELY( ctx->shredcap_enabled ) ) {
-            publish_to_shredcap( ctx, &out, cnt, tsorig, tspub );
-          }
-
-          fd_stem_publish( ctx->stem, REPLAY_OUT_IDX, sig, 0, 0, 0, tsorig, tspub );
-          if( FD_UNLIKELY( out.slot_complete ) ) {
-            fd_reasm_remove( ctx->reasm, reasm );
-          }
-        }
-      }
     }
 
     /* Insert the shred into the map. */
@@ -992,6 +1131,30 @@ after_credit( fd_repair_tile_ctx_t * ctx,
 
   long now = fd_log_wallclock();
 
+  if ( FD_LIKELY( !fd_fec_out_empty( ctx->fec_chainer->out ) ) ) {
+    fd_fec_out_t out = fd_fec_out_pop_head( ctx->fec_chainer->out );
+    if( FD_UNLIKELY( out.err != FD_FEC_CHAINER_SUCCESS ) ) FD_LOG_ERR(( "fec chainer err %d", out.err ));
+    fd_reasm_t * reasm = fd_reasm_query( ctx->reasm, out.slot, NULL );
+    if( FD_UNLIKELY( !reasm ) ) {
+      reasm      = fd_reasm_insert( ctx->reasm, out.slot );
+      reasm->cnt = 0;
+    }
+    if( FD_UNLIKELY( out.data_complete ) ) {
+      uint  cnt   = out.fec_set_idx + out.data_cnt - reasm->cnt;
+      ulong sig   = fd_disco_repair_replay_sig( out.slot, out.parent_off, cnt, out.slot_complete );
+      ulong tspub = fd_frag_meta_ts_comp( fd_tickcount() );
+      reasm->cnt = out.fec_set_idx + out.data_cnt;
+      fd_stem_publish( ctx->stem, REPLAY_OUT_IDX, sig, 0, 0, 0, 0, tspub );
+      if( FD_UNLIKELY( out.slot_complete ) ) {
+        fd_reasm_remove( ctx->reasm, reasm );
+        // FD_LOG_INFO(( "SLOT COMPLETE: %lu, time: %ld", out.slot, fd_log_wallclock() ));
+      }
+    }
+    *opt_poll_in = 1;
+    *charge_busy = 1;
+    return;
+  }
+
 #if MAX_REQ_PER_CREDIT > FD_REPAIR_NUM_NEEDED_PEERS
   /* If the requests are > 1 per credit then we need to starve
      after_credit for after_frag to get the chance to be called. We could
@@ -1016,8 +1179,9 @@ after_credit( fd_repair_tile_ctx_t * ctx,
         iter = fd_forest_orphaned_iter_next( iter, orphaned, pool ) ) {
     fd_forest_ele_t * orphan = fd_forest_orphaned_iter_ele( iter, orphaned, pool );
     if( fd_repair_need_orphan( ctx->repair, orphan->slot ) ) {
-      fd_repair_send_requests( ctx, stem, fd_needed_orphan, orphan->slot, UINT_MAX, now );
+      fd_repair_send_requests_async( ctx, stem, fd_needed_orphan, orphan->slot, UINT_MAX, now );
       total_req += FD_REPAIR_NUM_NEEDED_PEERS;
+      return;
     }
   }
 
@@ -1051,10 +1215,10 @@ after_credit( fd_repair_tile_ctx_t * ctx,
     ele = fd_forest_pool_ele_const( pool, ctx->repair_iter.ele_idx );
     // Request first, advance iterator second.
     if( ctx->repair_iter.shred_idx == UINT_MAX && fd_repair_need_highest_window_index( ctx->repair, ele->slot, 0 ) ){
-      fd_repair_send_requests( ctx, stem, fd_needed_highest_window_index, ele->slot, 0, now );
+      fd_repair_send_requests_async( ctx, stem, fd_needed_highest_window_index, ele->slot, 0, now );
       total_req += FD_REPAIR_NUM_NEEDED_PEERS;
     } else if( fd_repair_need_window_index( ctx->repair, ele->slot, ctx->repair_iter.shred_idx ) ) {
-      fd_repair_send_requests( ctx, stem, fd_needed_window_index, ele->slot, ctx->repair_iter.shred_idx, now );
+      fd_repair_send_requests_async( ctx, stem, fd_needed_window_index, ele->slot, ctx->repair_iter.shred_idx, now );
       total_req += FD_REPAIR_NUM_NEEDED_PEERS;
     }
 
@@ -1123,7 +1287,6 @@ unprivileged_init( fd_topo_t *      topo,
 
   if( FD_UNLIKELY( tile->in_cnt > MAX_IN_LINKS ) ) FD_LOG_ERR(( "repair tile has too many input links" ));
 
-  uint sign_link_in_idx = UINT_MAX;
   for( uint in_idx=0U; in_idx<(tile->in_cnt); in_idx++ ) {
     fd_topo_link_t * link = &topo->links[ tile->in_link_id[ in_idx ] ];
     if( 0==strcmp( link->name, "net_repair" ) ) {
@@ -1136,9 +1299,11 @@ unprivileged_init( fd_topo_t *      topo,
       ctx->in_kind[ in_idx ] = IN_KIND_STAKE;
     } else if( 0==strcmp( link->name, "shred_repair" ) ) {
       ctx->in_kind[ in_idx ] = IN_KIND_SHRED;
-    } else if( 0==strcmp( link->name, "sign_repair" ) ) {
+    } else if( 0==strcmp( link->name, "sign_repair" ) || 0==strcmp( link->name, "sign_ping" ) ) {
       ctx->in_kind[ in_idx ] = IN_KIND_SIGN;
-      sign_link_in_idx = in_idx;
+      if( 0==strcmp( link->name, "sign_ping" ) ) {
+        ctx->ping_sign_in_idx = in_idx;
+      }
     } else {
       FD_LOG_ERR(( "repair tile has unexpected input link %s", link->name ));
     }
@@ -1147,13 +1312,26 @@ unprivileged_init( fd_topo_t *      topo,
     ctx->in_links[ in_idx ].chunk0 = fd_dcache_compact_chunk0( ctx->in_links[ in_idx ].mem, link->dcache );
     ctx->in_links[ in_idx ].wmark  = fd_dcache_compact_wmark ( ctx->in_links[ in_idx ].mem, link->dcache, link->mtu );
     ctx->in_links[ in_idx ].mtu    = link->mtu;
+    
+    if( ctx->in_kind[ in_idx ] == IN_KIND_SIGN ) {
+      // fd_wksp_t * wksp = fd_wksp_containing( link->dcache );
+      // FD_LOG_NOTICE(( "repair tile: link %s[%lu] mem=%p, dcache=%p, wksp=%p, wksp_name=%s, in_idx=%u", 
+                      // link->name, link->kind_id,
+                      // (void*)ctx->in_links[ in_idx ].mem,
+                      // link->dcache,
+                      // (void*)wksp,
+                      // wksp ? fd_wksp_name( wksp ) : "NULL",
+                      // in_idx ));
+    }
     FD_TEST( fd_dcache_compact_is_safe( ctx->in_links[in_idx].mem, link->dcache, link->mtu, link->depth ) );
   }
-  if( FD_UNLIKELY( sign_link_in_idx==UINT_MAX ) ) FD_LOG_ERR(( "Missing sign_repair link" ));
 
-  uint net_link_out_idx  = UINT_MAX;
-  uint sign_link_out_idx = UINT_MAX;
-  uint shred_tile_idx    = 0;
+  uint net_link_out_idx      = UINT_MAX;
+  ctx->ping_sign_out_idx     = UINT_MAX;
+  ctx->repair_sign_round_robin_idx = 0UL;
+  ctx->repair_sign_cnt       = 0;
+  ctx->request_seq           = 0UL;
+  uint shred_tile_idx        = 0;
   for( uint out_idx=0U; out_idx<(tile->out_cnt); out_idx++ ) {
     fd_topo_link_t * link = &topo->links[ tile->out_link_id[ out_idx ] ];
 
@@ -1161,15 +1339,11 @@ unprivileged_init( fd_topo_t *      topo,
 
       if( net_link_out_idx!=UINT_MAX ) continue; /* only use first net link */
       net_link_out_idx = out_idx;
+      ctx->net_out_idx = out_idx;
       ctx->net_out_mem    = topo->workspaces[ topo->objs[ link->dcache_obj_id ].wksp_id ].wksp;
       ctx->net_out_chunk0 = fd_dcache_compact_chunk0( ctx->net_out_mem, link->dcache );
       ctx->net_out_wmark  = fd_dcache_compact_wmark( ctx->net_out_mem, link->dcache, link->mtu );
       ctx->net_out_chunk  = ctx->net_out_chunk0;
-
-    } else if( 0==strcmp( link->name, "repair_sign" ) ) {
-
-      sign_link_out_idx = out_idx;
-
     } else if( 0==strcmp( link->name, "repair_repla" ) ) {
 
       ctx->replay_out_mem    = topo->workspaces[ topo->objs[ link->dcache_obj_id ].wksp_id ].wksp;
@@ -1194,13 +1368,31 @@ unprivileged_init( fd_topo_t *      topo,
       ctx->shredcap_out_chunk0 = fd_dcache_compact_chunk0( ctx->shredcap_out_mem, link->dcache );
       ctx->shredcap_out_wmark  = fd_dcache_compact_wmark( ctx->shredcap_out_mem, link->dcache, link->mtu );
       ctx->shredcap_out_chunk  = ctx->shredcap_out_chunk0;
+    
+    } else if( 0==strcmp( link->name, "ping_sign" ) ) {
+      ctx->ping_sign_out_idx = out_idx;
+      ctx->ping_sign_out_mem    = topo->workspaces[ topo->objs[ link->dcache_obj_id ].wksp_id ].wksp;
+      ctx->ping_sign_out_chunk0 = fd_dcache_compact_chunk0( ctx->ping_sign_out_mem, link->dcache );
+      ctx->ping_sign_out_wmark  = fd_dcache_compact_wmark( ctx->ping_sign_out_mem, link->dcache, link->mtu );
+      ctx->ping_sign_out_chunk  = ctx->ping_sign_out_chunk0;
+
+    } else if( 0==strcmp( link->name, "repair_sign" ) ) {
+      fd_repair_out_ctx_t * repair_sign_out = &ctx->repair_sign_out_ctx[ ctx->repair_sign_cnt++ ];
+      repair_sign_out->idx    = out_idx;
+      repair_sign_out->mem    = topo->workspaces[ topo->objs[ link->dcache_obj_id ].wksp_id ].wksp;
+      repair_sign_out->chunk0 = fd_dcache_compact_chunk0( repair_sign_out->mem, link->dcache );
+      repair_sign_out->wmark  = fd_dcache_compact_wmark( repair_sign_out->mem, link->dcache, link->mtu );
+      repair_sign_out->chunk  = repair_sign_out->chunk0;
+      repair_sign_out->mcache = link->mcache;
+      repair_sign_out->dcache = link->dcache;
+      repair_sign_out->depth  = link->depth;
 
     } else {
       FD_LOG_ERR(( "repair tile has unexpected output link %s", link->name ));
     }
 
   }
-  if( FD_UNLIKELY( sign_link_out_idx==UINT_MAX ) ) FD_LOG_ERR(( "Missing repair_sign link" ));
+  if( FD_UNLIKELY( ctx->ping_sign_out_idx==UINT_MAX ) ) FD_LOG_ERR(( "Missing ping_sign link for keyguard client" ));
   if( FD_UNLIKELY( net_link_out_idx ==UINT_MAX ) ) FD_LOG_ERR(( "Missing repair_net link" ));
   ctx->shred_tile_cnt = shred_tile_idx;
   FD_TEST( ctx->shred_tile_cnt == fd_topo_tile_name_cnt( topo, "shred" ) );
@@ -1208,6 +1400,7 @@ unprivileged_init( fd_topo_t *      topo,
   /* Scratch mem setup */
 
   ctx->repair     = FD_SCRATCH_ALLOC_APPEND( l, fd_repair_align(), fd_repair_footprint() );
+  ctx->repair->next_nonce = 1;
   ctx->forest = FD_SCRATCH_ALLOC_APPEND( l, fd_forest_align(), fd_forest_footprint( tile->repair.slot_max ) );
   ctx->fec_sigs = FD_SCRATCH_ALLOC_APPEND( l, fd_fec_sig_align(), fd_fec_sig_footprint( 20 ) );
   ctx->reasm = FD_SCRATCH_ALLOC_APPEND( l, fd_reasm_align(), fd_reasm_footprint( 20 ) );
@@ -1215,6 +1408,7 @@ unprivileged_init( fd_topo_t *      topo,
   /* Look at fec_repair.h for an explanation of this fec_max. */
 
   ctx->fec_chainer = FD_SCRATCH_ALLOC_APPEND( l, fd_fec_chainer_align(), fd_fec_chainer_footprint( 1 << 20 ) );
+  ctx->pending_sign_req_deque = FD_SCRATCH_ALLOC_APPEND( l, fd_repair_pending_sign_req_deque_align(), fd_repair_pending_sign_req_deque_footprint() );
 
   void * smem = FD_SCRATCH_ALLOC_APPEND( l, fd_scratch_smem_align(), fd_scratch_smem_footprint( FD_REPAIR_SCRATCH_MAX ) );
   void * fmem = FD_SCRATCH_ALLOC_APPEND( l, fd_scratch_fmem_align(), fd_scratch_fmem_footprint( FD_REPAIR_SCRATCH_DEPTH ) );
@@ -1235,14 +1429,14 @@ unprivileged_init( fd_topo_t *      topo,
   fd_ip4_udp_hdr_init( ctx->intake_hdr, FD_REPAIR_MAX_PACKET_SIZE, 0, ctx->repair_intake_listen_port );
   fd_ip4_udp_hdr_init( ctx->serve_hdr,  FD_REPAIR_MAX_PACKET_SIZE, 0, ctx->repair_serve_listen_port  );
 
-  /* Keyguard setup */
-  fd_topo_link_t * sign_in = &topo->links[ tile->in_link_id[ sign_link_in_idx ] ];
-  fd_topo_link_t * sign_out = &topo->links[ tile->out_link_id[ sign_link_out_idx ] ];
+  fd_topo_link_t * sign_in = &topo->links[ tile->in_link_id[ ctx->ping_sign_in_idx ] ];
+  fd_topo_link_t * sign_out = &topo->links[ tile->out_link_id[ ctx->ping_sign_out_idx ] ];
   if( fd_keyguard_client_join( fd_keyguard_client_new( ctx->keyguard_client,
                                                         sign_out->mcache,
                                                         sign_out->dcache,
                                                         sign_in->mcache,
-                                                        sign_in->dcache ) ) == NULL ) {
+                                                        sign_in->dcache,
+                                                        sign_out->mtu ) ) == NULL ) {
     FD_LOG_ERR(( "Keyguard join failed" ));
   }
 
@@ -1271,6 +1465,7 @@ unprivileged_init( fd_topo_t *      topo,
   ctx->fec_sigs = fd_fec_sig_join( fd_fec_sig_new( ctx->fec_sigs, 20 ) );
   ctx->reasm = fd_reasm_join( fd_reasm_new( ctx->reasm, 20 ) );
   ctx->fec_chainer = fd_fec_chainer_join( fd_fec_chainer_new( ctx->fec_chainer, 1 << 20, 0 ) );
+  ctx->pending_sign_req_deque = fd_repair_pending_sign_req_deque_join( fd_repair_pending_sign_req_deque_new( ctx->pending_sign_req_deque ) );
   ctx->repair_iter = fd_forest_iter_init( ctx->forest );
   FD_TEST( fd_forest_iter_done( ctx->repair_iter, ctx->forest ) );
 

@@ -32,7 +32,7 @@
 /* Sha256 pre-image size for pings */
 #define FD_PING_PRE_IMAGE_SZ (48UL)
 /* Number of peers to send requests to. */
-#define FD_REPAIR_NUM_NEEDED_PEERS (2)
+#define FD_REPAIR_NUM_NEEDED_PEERS (1)
 
 typedef fd_gossip_peer_addr_t fd_repair_peer_addr_t;
 

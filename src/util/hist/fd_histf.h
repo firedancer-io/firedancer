@@ -7,6 +7,7 @@
 
 #include <math.h> /* FIXME: HMMM */
 #include "../log/fd_log.h"
+
 #if FD_HAS_AVX
 #include "../simd/fd_avx.h"
 #endif

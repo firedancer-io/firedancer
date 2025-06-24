@@ -1,7 +1,9 @@
 #include "fd_send_tile.h"
 #include "../../disco/topo/fd_topo.h"
 #include "../../disco/keyguard/fd_keyload.h"
+#include "../../disco/keyguard/fd_keyguard.h"
 #include "generated/fd_send_tile_seccomp.h"
+
 
 #include <errno.h>
 #include <sys/random.h>
@@ -545,7 +547,8 @@ unprivileged_init( fd_topo_t *      topo,
                                                             sign_out->mcache,
                                                             sign_out->dcache,
                                                             sign_in->mcache,
-                                                            sign_in->dcache ) )==NULL ) {
+                                                            sign_in->dcache,
+                                                            sign_out->mtu ) )==NULL ) {
     FD_LOG_ERR(( "Keyguard join failed" ));
   }
 

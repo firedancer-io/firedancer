@@ -8,6 +8,8 @@
 #include "../keyguard/fd_keyswitch.h"
 #include "../../ballet/base58/fd_base58.h"
 
+#include "../../util/hist/fd_histf.h"
+
 #include <errno.h>
 #include <sys/mman.h>
 
@@ -16,11 +18,22 @@
 /* fd_sign_in_ctx_t is a context object for each in (producer) mcache
    connected to the sign tile. */
 
-typedef struct {
-  ulong            seq;
-  fd_frag_meta_t * mcache;
-  uchar *          data;
-} fd_sign_out_ctx_t;
+struct fd_sign_out_ctx {
+  fd_wksp_t * out_mem;
+  ulong       out_chunk0;
+  ulong       out_wmark;
+  ulong       out_chunk;
+};
+typedef struct fd_sign_out_ctx fd_sign_out_ctx_t;
+
+struct fd_sign_in_ctx {
+  int              role;
+  fd_wksp_t *      mem;
+  ulong            chunk0;
+  ulong            wmark;
+  ulong            mtu;
+};
+typedef struct fd_sign_in_ctx fd_sign_in_ctx_t;
 
 typedef struct {
   uchar             _data[ FD_KEYGUARD_SIGN_REQ_MTU ];
@@ -31,10 +44,7 @@ typedef struct {
 
   uchar event_concat[ 18UL+32UL ];
 
-  int               in_role[ MAX_IN ];
-  uchar *           in_data[ MAX_IN ];
-  ushort            in_mtu [ MAX_IN ];
-
+  fd_sign_in_ctx_t  in[ MAX_IN ];
   fd_sign_out_ctx_t out[ MAX_IN ];
 
   fd_sha512_t       sha512 [ 1 ];
@@ -43,6 +53,8 @@ typedef struct {
 
   uchar *           public_key;
   uchar *           private_key;
+
+  fd_histf_t       sign_duration[1];
 } fd_sign_ctx_t;
 
 FD_FN_CONST static inline ulong
@@ -103,18 +115,19 @@ during_frag_sensitive( void * _ctx,
                        ulong  sz ) {
   (void)seq;
   (void)sig;
-  (void)chunk;
 
   fd_sign_ctx_t * ctx = (fd_sign_ctx_t *)_ctx;
   FD_TEST( in_idx<MAX_IN );
 
-  int  role = ctx->in_role[ in_idx ];
-  uint mtu  = ctx->in_mtu [ in_idx ];
-
-  if( sz>mtu ) {
-    FD_LOG_EMERG(( "oversz signing request (role=%d sz=%lu mtu=%u)", role, sz, mtu ));
+  int   role = ctx->in[ in_idx ].role;
+  ulong mtu  = ctx->in[ in_idx ].mtu;
+  
+  if( chunk<ctx->in[ in_idx ].chunk0 || chunk>ctx->in[ in_idx ].wmark || sz>mtu ) {
+    FD_LOG_EMERG(( "oversz or out of bounds signing request (role=%d chunk=%lu sz=%lu mtu=%lu, chunk0=%lu, wmark=%lu)", role, chunk, sz, mtu, ctx->in[ in_idx ].chunk0, ctx->in[ in_idx ].wmark ));
   }
-  fd_memcpy( ctx->_data, ctx->in_data[ in_idx ], sz );
+
+  void * src = fd_chunk_to_laddr( ctx->in[ in_idx ].mem, chunk );
+  fd_memcpy( ctx->_data, src, sz );
 }
 
 
@@ -139,18 +152,19 @@ after_frag_sensitive( void *              _ctx,
                       ulong               tspub,
                       fd_stem_context_t * stem ) {
   (void)seq;
-  (void)tsorig;
   (void)tspub;
-  (void)stem;
 
   fd_sign_ctx_t * ctx = (fd_sign_ctx_t *)_ctx;
 
-  int sign_type = (int)(uint)sig;
+  /* The upper 32 bits contain the repair nonce to identify the request,
+    while the lower 32 bits specify the sign_type. */
+  ulong nonce = sig >> 32;
+  (void)nonce;
+  int sign_type = (int)(uint)(sig);
 
   FD_TEST( in_idx<MAX_IN );
 
-  int role = ctx->in_role[ in_idx ];
-
+  int role = ctx->in[ in_idx ].role;
   fd_keyguard_authority_t authority = {0};
   memcpy( authority.identity_pubkey, ctx->public_key, 32 );
 
@@ -158,33 +172,40 @@ after_frag_sensitive( void *              _ctx,
     FD_LOG_EMERG(( "fd_keyguard_payload_authorize failed (role=%d sign_type=%d)", role, sign_type ));
   }
 
+  long sign_duration = -fd_tickcount();
+
+  uchar * dst = fd_chunk_to_laddr( ctx->out[ in_idx ].out_mem, ctx->out[ in_idx ].out_chunk );
+
   switch( sign_type ) {
   case FD_KEYGUARD_SIGN_TYPE_ED25519: {
-    fd_ed25519_sign( ctx->out[ in_idx ].data, ctx->_data, sz, ctx->public_key, ctx->private_key, ctx->sha512 );
+    fd_ed25519_sign( dst, ctx->_data, sz, ctx->public_key, ctx->private_key, ctx->sha512 );
     break;
   }
   case FD_KEYGUARD_SIGN_TYPE_SHA256_ED25519: {
     uchar hash[ 32 ];
     fd_sha256_hash( ctx->_data, sz, hash );
-    fd_ed25519_sign( ctx->out[ in_idx ].data, hash, 32UL, ctx->public_key, ctx->private_key, ctx->sha512 );
+    fd_ed25519_sign( dst, hash, 32UL, ctx->public_key, ctx->private_key, ctx->sha512 );
     break;
   }
   case FD_KEYGUARD_SIGN_TYPE_PUBKEY_CONCAT_ED25519: {
     memcpy( ctx->concat+ctx->public_key_base58_sz+1UL, ctx->_data, 9UL );
-    fd_ed25519_sign( ctx->out[ in_idx ].data, ctx->concat, ctx->public_key_base58_sz+1UL+9UL, ctx->public_key, ctx->private_key, ctx->sha512 );
+    fd_ed25519_sign( dst, ctx->concat, ctx->public_key_base58_sz+1UL+9UL, ctx->public_key, ctx->private_key, ctx->sha512 );
     break;
   }
   case FD_KEYGUARD_SIGN_TYPE_FD_METRICS_REPORT_CONCAT_ED25519: {
     memcpy( ctx->event_concat+18UL, ctx->_data, 32UL );
-    fd_ed25519_sign( ctx->out[ in_idx ].data, ctx->event_concat, 18UL+32UL, ctx->public_key, ctx->private_key, ctx->sha512 );
+    fd_ed25519_sign( dst, ctx->event_concat, 18UL+32UL, ctx->public_key, ctx->private_key, ctx->sha512 );
     break;
   }
   default:
     FD_LOG_EMERG(( "invalid sign type: %d", sign_type ));
   }
 
-  fd_mcache_publish( ctx->out[ in_idx ].mcache, 128UL, ctx->out[ in_idx ].seq, 0UL, 0UL, 0UL, 0UL, 0UL, 0UL );
-  ctx->out[ in_idx ].seq = fd_seq_inc( ctx->out[ in_idx ].seq, 1UL );
+  sign_duration += fd_tickcount();
+  fd_histf_sample( ctx->sign_duration, (ulong)sign_duration );
+
+  fd_stem_publish( stem, in_idx, sig, ctx->out[ in_idx ].out_chunk, 64UL, 0UL, tsorig, 0UL );
+  ctx->out[ in_idx ].out_chunk = fd_dcache_compact_next( ctx->out[ in_idx ].out_chunk, 64UL, ctx->out[ in_idx ].out_chunk0, ctx->out[ in_idx ].out_wmark );
 }
 
 static void
@@ -250,52 +271,60 @@ unprivileged_init_sensitive( fd_topo_t *      topo,
   ctx->keyswitch = fd_keyswitch_join( fd_topo_obj_laddr( topo, tile->keyswitch_obj_id ) );
   derive_fields( ctx );
 
-  for( ulong i=0UL; i<MAX_IN; i++ ) ctx->in_role[ i ] = -1;
+  for( ulong i=0UL; i<MAX_IN; i++ ) ctx->in[ i ].role = -1;
 
   for( ulong i=0UL; i<tile->in_cnt; i++ ) {
     fd_topo_link_t * in_link = &topo->links[ tile->in_link_id[ i ] ];
     fd_topo_link_t * out_link = &topo->links[ tile->out_link_id[ i ] ];
 
     if( in_link->mtu > FD_KEYGUARD_SIGN_REQ_MTU ) FD_LOG_CRIT(( "oversz link[%lu].mtu=%lu", i, in_link->mtu ));
-    ctx->in_data[ i ] = in_link->dcache;
-    ctx->in_mtu [ i ] = (ushort)in_link->mtu;
+    ctx->in[ i ].mem    = fd_wksp_containing( in_link->dcache );
+    ctx->in[ i ].mtu    = in_link->mtu;
+    ctx->in[ i ].chunk0 = fd_dcache_compact_chunk0( ctx->in[ i ].mem, in_link->dcache );
+    ctx->in[ i ].wmark  = fd_dcache_compact_wmark( ctx->in[ i ].mem, in_link->dcache, in_link->mtu );
 
-    ctx->out[ i ].mcache = out_link->mcache;
-    ctx->out[ i ].data   = out_link->dcache;
-    ctx->out[ i ].seq    = 0UL;
+    ctx->out[ i ].out_mem    = fd_wksp_containing( out_link->dcache );
+    ctx->out[ i ].out_chunk0 = fd_dcache_compact_chunk0( ctx->out[ i ].out_mem, out_link->dcache );
+    ctx->out[ i ].out_wmark  = fd_dcache_compact_wmark( ctx->out[ i ].out_mem, out_link->dcache, 64UL );
+    ctx->out[ i ].out_chunk  = ctx->out[ i ].out_chunk0;
 
     if( !strcmp( in_link->name, "shred_sign" ) ) {
-      ctx->in_role[ i ] = FD_KEYGUARD_ROLE_LEADER;
+      ctx->in[ i ].role = FD_KEYGUARD_ROLE_LEADER;
       FD_TEST( !strcmp( out_link->name, "sign_shred" ) );
       FD_TEST( in_link->mtu==32UL );
       FD_TEST( out_link->mtu==64UL );
     } else if ( !strcmp( in_link->name, "gossip_sign" ) ) {
-      ctx->in_role[ i ] = FD_KEYGUARD_ROLE_GOSSIP;
+      ctx->in[ i ].role = FD_KEYGUARD_ROLE_GOSSIP;
       FD_TEST( !strcmp( out_link->name, "sign_gossip" ) );
       FD_TEST( in_link->mtu==2048UL );
       FD_TEST( out_link->mtu==64UL );
-    } else if ( !strcmp( in_link->name, "repair_sign")) {
-      ctx->in_role[ i ] = FD_KEYGUARD_ROLE_REPAIR;
-      FD_TEST( !strcmp( out_link->name, "sign_repair" ) );
+    } else if ( !strcmp( in_link->name, "repair_sign" )
+             || !strcmp( in_link->name, "ping_sign" ) ) {
+      ctx->in[ i ].role = FD_KEYGUARD_ROLE_REPAIR;
+      if( !strcmp( in_link->name, "ping_sign" ) ) {
+        FD_TEST( !strcmp( out_link->name, "sign_ping" ) );
+      } else {
+        FD_TEST( !strcmp( out_link->name, "sign_repair" ) );
+      }
       FD_TEST( in_link->mtu==2048UL );
       FD_TEST( out_link->mtu==64UL );
     } else if ( !strcmp(in_link->name, "send_sign"  ) ) {
-      ctx->in_role[ i ] = FD_KEYGUARD_ROLE_SEND;
+      ctx->in[ i ].role = FD_KEYGUARD_ROLE_SEND;
       FD_TEST( !strcmp( out_link->name, "sign_send"  ) );
       FD_TEST( in_link->mtu==FD_TXN_MTU  );
       FD_TEST( out_link->mtu==64UL );
     } else if( !strcmp(in_link->name, "bundle_sign" ) ) {
-      ctx->in_role[ i ] = FD_KEYGUARD_ROLE_BUNDLE;
+      ctx->in[ i ].role = FD_KEYGUARD_ROLE_BUNDLE;
       FD_TEST( !strcmp( out_link->name, "sign_bundle" ) );
       FD_TEST( in_link->mtu==9UL );
       FD_TEST( out_link->mtu==64UL );
     } else if( !strcmp(in_link->name, "event_sign" ) ) {
-      ctx->in_role[ i ] = FD_KEYGUARD_ROLE_EVENT;
+      ctx->in[ i ].role = FD_KEYGUARD_ROLE_EVENT;
       FD_TEST( !strcmp( out_link->name, "sign_event" ) );
       FD_TEST( in_link->mtu==32UL );
       FD_TEST( out_link->mtu==64UL );
     } else if( !strcmp(in_link->name, "pack_sign" ) ) {
-      ctx->in_role[ i ] = FD_KEYGUARD_ROLE_BUNDLE_CRANK;
+      ctx->in[ i ].role = FD_KEYGUARD_ROLE_BUNDLE_CRANK;
       FD_TEST( !strcmp( out_link->name, "sign_pack" ) );
       FD_TEST( in_link->mtu==1232UL );
       FD_TEST( out_link->mtu==64UL );
