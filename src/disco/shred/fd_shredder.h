@@ -10,6 +10,7 @@
 #include "../../ballet/reedsol/fd_reedsol.h"
 #include "../../ballet/bmtree/fd_bmtree.h"
 #include "../../ballet/shred/fd_fec_set.h"
+#include "../../ballet/shred/fd_shred.h"
 
 #define FD_SHREDDER_MAX_STAKE_WEIGHTS (1UL<<20)
 

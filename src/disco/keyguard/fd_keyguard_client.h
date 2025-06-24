@@ -24,7 +24,7 @@
         keyguard tile verifies that all incoming requests are
         specifically formatted for that role. */
 
-#include "fd_keyguard.h"
+#include "../../tango/fd_tango_base.h"
 
 #define FD_KEYGUARD_CLIENT_ALIGN (128UL)
 #define FD_KEYGUARD_CLIENT_FOOTPRINT (128UL)
@@ -33,12 +33,18 @@ struct __attribute__((aligned(FD_KEYGUARD_CLIENT_ALIGN))) fd_keyguard_client {
   fd_frag_meta_t * request;
   ulong            request_seq;
   ulong            request_depth;
-  uchar          * request_data;
+  fd_wksp_t *      request_mem;
+  ulong            request_chunk;
+  ulong            request_chunk0;
+  ulong            request_wmark;
+  ulong            request_mtu;
 
   fd_frag_meta_t * response;
   ulong            response_seq;
   ulong            response_depth;
-  uchar          * response_data;
+  fd_wksp_t *      response_mem;
+  ulong            response_chunk0;
+  ulong            response_wmark;
 };
 typedef struct fd_keyguard_client fd_keyguard_client_t;
 
@@ -47,9 +53,10 @@ FD_PROTOTYPES_BEGIN
 void *
 fd_keyguard_client_new( void *           shmem,
                         fd_frag_meta_t * request_mcache,
-                        uchar *          request_data,
+                        uchar *          request_dcache,
                         fd_frag_meta_t * response_mcache,
-                        uchar *          response_data );
+                        uchar *          response_dcache,
+                        ulong            request_mtu );
 
 static inline fd_keyguard_client_t *
 fd_keyguard_client_join( void * shclient ) { return (fd_keyguard_client_t*)shclient; }
