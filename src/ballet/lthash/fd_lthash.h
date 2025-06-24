@@ -39,6 +39,17 @@ fd_lthash_zero( fd_lthash_value_t * r ) {
   return fd_memset( r->bytes, 0, FD_LTHASH_LEN_BYTES );
 }
 
+static inline int
+fd_lthash_is_zero( fd_lthash_value_t const * r ) {
+  for ( ulong i=0; i<FD_LTHASH_LEN_ELEMS; i++ ) {
+    if( r->words[i] != 0 ) {
+      return 0; /* not zero */
+    }
+  }
+
+  return 1;
+}
+
 static inline fd_lthash_value_t *
 fd_lthash_add( fd_lthash_value_t * restrict       r,
                fd_lthash_value_t const * restrict a ) {

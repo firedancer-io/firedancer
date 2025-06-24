@@ -24,9 +24,13 @@ class Tile(Enum):
     STOREI = 18
     GOSSIP = 19
     NETLNK = 20
-    SOCK = 21,
-    REPAIR = 22,
+    SOCK = 21
+    REPAIR = 22
     SEND = 23
+    SNAPRD = 24
+    SNAPDC = 25
+    SNAPIN = 26
+
 
 class MetricType(Enum):
     COUNTER = 0
