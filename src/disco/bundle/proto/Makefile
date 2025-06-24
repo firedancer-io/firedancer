@@ -6,6 +6,7 @@ PROTOS+=block_engine
 PROTOS+=bundle
 PROTOS+=packet
 PROTOS+=shared
+PROTOS+=shredstream
 PROTOS+=timestamp
 
 .PHONY: generate
