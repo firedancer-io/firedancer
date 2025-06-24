@@ -6,31 +6,30 @@
 
    https://github.com/anza-xyz/agave/blob/b11ca828cfc658b93cb86a6c5c70561875abe237/gossip/src/contact_info.rs# */
 
-#include "../types/fd_types.h"
 #include "../../util/net/fd_net_headers.h" /* fd_ip4_port_t */
 
 /* Contact info v2 socket tag constants */
-#define FD_GOSSIP_SOCKET_TAG_GOSSIP             ( 0)
-#define FD_GOSSIP_SOCKET_TAG_SERVE_REPAIR_QUIC  ( 1)
-#define FD_GOSSIP_SOCKET_TAG_RPC                ( 2)
-#define FD_GOSSIP_SOCKET_TAG_RPC_PUBSUB         ( 3)
-#define FD_GOSSIP_SOCKET_TAG_SERVE_REPAIR       ( 4)
-#define FD_GOSSIP_SOCKET_TAG_TPU                ( 5)
-#define FD_GOSSIP_SOCKET_TAG_TPU_FORWARDS       ( 6)
-#define FD_GOSSIP_SOCKET_TAG_TPU_FORWARDS_QUIC  ( 7)
-#define FD_GOSSIP_SOCKET_TAG_TPU_QUIC           ( 8)
-#define FD_GOSSIP_SOCKET_TAG_TPU_VOTE           ( 9)
-#define FD_GOSSIP_SOCKET_TAG_TVU                (10)
-#define FD_GOSSIP_SOCKET_TAG_TVU_QUIC           (11)
-#define FD_GOSSIP_SOCKET_TAG_TPU_VOTE_QUIC      (12)
+#define FD_CONTACT_INFO_SOCKET_GOSSIP             ( 0)
+#define FD_CONTACT_INFO_SOCKET_SERVE_REPAIR_QUIC  ( 1)
+#define FD_CONTACT_INFO_SOCKET_RPC                ( 2)
+#define FD_CONTACT_INFO_SOCKET_RPC_PUBSUB         ( 3)
+#define FD_CONTACT_INFO_SOCKET_SERVE_REPAIR       ( 4)
+#define FD_CONTACT_INFO_SOCKET_TPU                ( 5)
+#define FD_CONTACT_INFO_SOCKET_TPU_FORWARDS       ( 6)
+#define FD_CONTACT_INFO_SOCKET_TPU_FORWARDS_QUIC  ( 7)
+#define FD_CONTACT_INFO_SOCKET_TPU_QUIC           ( 8)
+#define FD_CONTACT_INFO_SOCKET_TPU_VOTE           ( 9)
+#define FD_CONTACT_INFO_SOCKET_TVU                (10)
+#define FD_CONTACT_INFO_SOCKET_TVU_QUIC           (11)
+#define FD_CONTACT_INFO_SOCKET_TPU_VOTE_QUIC      (12)
 
-#define FD_GOSSIP_SOCKET_TAG_MAX                (13)
+#define FD_CONTACT_INFO_SOCKET_MAX                (13)
 
 /* https://github.com/anza-xyz/agave/blob/540d5bc56cd44e3cc61b179bd52e9a782a2c99e4/version/src/lib.rs#L95-L105 */
-#define FD_GOSSIP_VERSION_CLIENT_SOLANA_LABS    ( 0)
-#define FD_GOSSIP_VERSION_CLIENT_JITO_LABS      ( 1)
-#define FD_GOSSIP_VERSION_CLIENT_FIREDANCER     ( 2)
-#define FD_GOSSIP_VERSION_CLIENT_AGAVE          ( 3)
+#define FD_GOSSIP_VERSION_CLIENT_SOLANA_LABS      ( 0)
+#define FD_GOSSIP_VERSION_CLIENT_JITO_LABS        ( 1)
+#define FD_GOSSIP_VERSION_CLIENT_FIREDANCER       ( 2)
+#define FD_GOSSIP_VERSION_CLIENT_AGAVE            ( 3)
 
 /* Internal struct for maintaining a Gossip ContactInfo entry.
 
@@ -50,7 +49,7 @@ struct fd_contact_info{
 
   long          instance_creation_wallclock_nanos; /* Wallclock when node was initialized */
   long          wallclock_nanos; /* Wallclock when this contact info was last updated */
-  fd_ip4_port_t sockets[ FD_GOSSIP_SOCKET_TAG_MAX ];
+  fd_ip4_port_t sockets[ FD_CONTACT_INFO_SOCKET_MAX ];
 
   struct {
     uchar client;
@@ -125,9 +124,9 @@ typedef struct fd_gossip_contact_info_socket_entry fd_gossip_contact_info_socket
 
 int
 fd_contact_info_convert_sockets( fd_contact_info_t const *             contact_info,
-                                 fd_gossip_contact_info_socket_entry_t sockets_entries[static FD_GOSSIP_SOCKET_TAG_MAX],
+                                 fd_gossip_contact_info_socket_entry_t sockets_entries[static FD_CONTACT_INFO_SOCKET_MAX],
                                  uchar *                               socket_entries_cnt,
-                                 uint                                  addrs[static FD_GOSSIP_SOCKET_TAG_MAX],
+                                 uint                                  addrs[static FD_CONTACT_INFO_SOCKET_MAX],
                                  uchar *                               addrs_cnt );
 
 

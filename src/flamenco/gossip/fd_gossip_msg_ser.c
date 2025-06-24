@@ -107,11 +107,7 @@ encode_version( fd_contact_info_t const * contact_info,
   encoded_sz = varint_encoded_sz( contact_info->version.patch );
   varint_encode( contact_info->version.patch, out_buf+i, out_buf_sz-i ); i+=encoded_sz;
 
-  if( contact_info->version.has_commit ) {
-    FD_STORE( uint, out_buf+i, contact_info->version.commit ); i+=4UL;
-  } else {
-    FD_STORE( uint, out_buf+i, 0U ); i+=4UL;
-  }
+  FD_STORE( uint, out_buf+i, contact_info->version.commit ); i+=4UL;
 
   FD_STORE( uint, out_buf+i, contact_info->version.feature_set ); i+=4UL;
 
@@ -156,9 +152,9 @@ fd_gossip_contact_info_encode( fd_contact_info_t const *     contact_info,
      TODO: This is awkwardly placed. Caller should be in charge of setting these
      data structures, leaving encode with the sole role of serializing them to
      bytes.*/
-  uint                                  addrs[ FD_GOSSIP_SOCKET_TAG_MAX ];
+  uint                                  addrs[ FD_CONTACT_INFO_SOCKET_MAX ];
   uchar                                 addrs_cnt;
-  fd_gossip_contact_info_socket_entry_t socket_entries[ FD_GOSSIP_SOCKET_TAG_MAX ];
+  fd_gossip_contact_info_socket_entry_t socket_entries[ FD_CONTACT_INFO_SOCKET_MAX ];
   uchar                                 socket_entries_cnt;
 
   if( FD_UNLIKELY( fd_contact_info_convert_sockets( contact_info, socket_entries, &socket_entries_cnt, addrs, &addrs_cnt ) ) ) {
