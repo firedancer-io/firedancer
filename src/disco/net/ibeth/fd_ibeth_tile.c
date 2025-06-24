@@ -66,6 +66,18 @@ struct fd_ibeth_tile {
   uchar  dst_protos [ FD_IBETH_UDP_PORT_MAX ];
   uchar  dst_out_idx[ FD_IBETH_UDP_PORT_MAX ];
 
+  /* Out links */
+  uchar rx_link_cnt;
+  uchar rx_link_out_idx[ FD_IBETH_UDP_PORT_MAX ];
+
+  /* RX frame range */
+  uint rx_chunk0;
+  uint rx_chunk1;
+
+  /* TX frame range */
+  uint tx_chunk0;
+  uint tx_chunk1;
+
   struct {
     ulong rx_pkt_cnt;
     ulong rx_bytes_total;
@@ -208,6 +220,16 @@ rxq_assign( fd_ibeth_tile_t * ctx,
   ctx->dst_ports  [ idx ] = dst_port;
   ctx->dst_out_idx[ idx ] = (uchar)out_idx;
   ctx->dst_port_cnt++;
+
+  for( ulong i=0UL; i<ctx->rx_link_cnt; i++ ) {
+    if( ctx->rx_link_out_idx[ i ]==out_idx ) {
+      goto registered;
+    }
+  }
+  FD_TEST( ctx->rx_link_cnt < FD_IBETH_UDP_PORT_MAX );
+  ctx->rx_link_out_idx[ ctx->rx_link_cnt++ ] = (uchar)out_idx;
+registered:
+  if(0){}
 }
 
 /* privileged_init does various ibverbs configuration via userspace verbs
@@ -409,6 +431,7 @@ unprivileged_init( fd_topo_t *      topo,
   /* Post RX descriptors */
   ulong frame_chunks = FD_NET_MTU>>FD_CHUNK_LG_SZ;
   ulong next_chunk   = ctx->umem_chunk0;
+  ctx->rx_chunk0     = (uint)next_chunk;
   ulong const rx_fill_cnt = tile->ibeth.rx_queue_size;
   for( ulong i=0UL; i<rx_fill_cnt; i++ ) {
     fd_ibeth_rx_recycle( ctx, next_chunk );
@@ -425,13 +448,16 @@ unprivileged_init( fd_topo_t *      topo,
       next_chunk += frame_chunks;
     }
   }
+  ctx->rx_chunk1 = (uint)next_chunk;
 
   /* Init TX free list */
+  ctx->tx_chunk0 = (uint)next_chunk;
   ctx->tx_free = tx_free_join( tx_free_new( deque_mem, tile->ibeth.tx_queue_size ) );
   while( !tx_free_full( ctx->tx_free ) ) {
     tx_free_push_tail( ctx->tx_free, (uint)next_chunk );
     next_chunk += frame_chunks;
   }
+  ctx->tx_chunk1 = (uint)next_chunk;
 
   /* Init TX */
   for( ulong i=0UL; i<(tile->in_cnt); i++ ) {
