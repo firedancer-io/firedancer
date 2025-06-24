@@ -6,11 +6,11 @@ static void
 fd_config_check_configf( fd_config_t *  config,
                          fd_configf_t * config_f ) {
   (void)config_f;
-  if( FD_UNLIKELY( strlen( config->tiles.replay.snapshot_dir )>PATH_MAX-1UL ) ) {
-    FD_LOG_ERR(( "[tiles.replay.snapshot_dir] is too long (max %lu)", PATH_MAX-1UL ));
+  if( FD_UNLIKELY( strlen( config->paths.snapshots )>PATH_MAX-1UL ) ) {
+    FD_LOG_ERR(( "[config->paths.snapshots] is too long (max %lu)", PATH_MAX-1UL ));
   }
-  if( FD_UNLIKELY( config->tiles.replay.snapshot_dir[ 0 ]!='\0' && config->tiles.replay.snapshot_dir[ 0 ]!='/' ) ) {
-    FD_LOG_ERR(( "[tiles.replay.snapshot_dir] must be an absolute path and hence start with a '/'"));
+  if( FD_UNLIKELY( config->paths.snapshots[ 0 ]!='\0' && config->paths.snapshots[ 0 ]!='/' ) ) {
+    FD_LOG_ERR(( "[config->paths.snapshots] must be an absolute path and hence start with a '/'"));
   }
 }
 
@@ -101,6 +101,13 @@ fd_config_extract_podf( uchar *        pod,
   CFG_POP      ( ulong,  funk.heap_size_gib                               );
   CFG_POP      ( ulong,  funk.max_database_transactions                   );
 
+  CFG_POP       ( bool,   snapshots.incremental_snapshots                  );
+  CFG_POP       ( uint,   snapshots.maximum_local_snapshot_age             );
+  CFG_POP       ( bool,   snapshots.download                               );
+  CFG_POP_ARRAY ( cstr,   snapshots.known_validators                       );
+  CFG_POP       ( uint,   snapshots.minimum_download_speed_mib             );
+  CFG_POP       ( uint,   snapshots.maximum_download_retry_abort           );
+
   return config;
 }
 
@@ -121,6 +128,7 @@ fd_config_extract_pod( uchar *       pod,
     CFG_POP      ( cstr,   paths.ledger                                     );
     CFG_POP      ( cstr,   paths.identity_key                               );
     CFG_POP      ( cstr,   paths.vote_account                               );
+    CFG_POP      ( cstr,   paths.snapshots                                  );
   } else {
     CFG_POP1     ( cstr,   scratch_directory,           paths.base          );
     CFG_POP1     ( cstr,   ledger.path,                 paths.ledger        );
@@ -230,12 +238,7 @@ fd_config_extract_pod( uchar *       pod,
 
   CFG_POP      ( cstr,   tiles.replay.funk_checkpt                        );
   CFG_POP      ( cstr,   tiles.replay.genesis                             );
-  CFG_POP      ( cstr,   tiles.replay.incremental                         );
-  CFG_POP      ( cstr,   tiles.replay.incremental_url                     );
   CFG_POP      ( cstr,   tiles.replay.slots_replayed                      );
-  CFG_POP      ( cstr,   tiles.replay.snapshot                            );
-  CFG_POP      ( cstr,   tiles.replay.snapshot_url                        );
-  CFG_POP      ( cstr,   tiles.replay.snapshot_dir                        );
   CFG_POP      ( cstr,   tiles.replay.status_cache                        );
   CFG_POP      ( cstr,   tiles.replay.cluster_version                     );
   CFG_POP      ( cstr,   tiles.replay.tower_checkpt                       );

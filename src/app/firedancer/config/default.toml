@@ -122,6 +122,11 @@ user = ""
     # to inside the base directory, under path `vote-account.json`.
     vote_account = ""
 
+    # Absolute directory path for storing snapshots.  If no path is
+    # provided, it defaults to the `snapshot` subdirectory of the
+    # base firedancer path option ( [paths.base] ).
+    snapshots = ""
+
 # Firedancer logs to two places by default: stderr and a logfile.
 # stdout is not used for logging, and will only be used to print command
 # output or boot errors.  Messages to "stderr" are abbreviated and not
@@ -226,6 +231,94 @@ user = ""
     # to successfully join the cluster.
     port = 8001
 
+# Snapshots are a periodic view of the ledger at a point in time.  They
+# are used to enable validators to join the network quickly, as they do
+# not need to replay all transactions since genesis, just those since a
+# recent snapshot.
+#
+# Firedancer does not support creating or serving snapshots to other
+# nodes, and all snapshot related configuration is for downloading and
+# using snapshots when booting the validator.
+[snapshots]
+    # Whether to enable loading from incremental snapshots.
+    #
+    # If set to false, the validator will only load from a full snapshot.
+    # Typically, loading from both full and incremental snapshots allows
+    # a validator to catch up more quickly.
+    incremental_snapshots = true
+
+    # How old a local incremental snapshot on disk can be, in slots, and
+    # still be loaded on startup.  The age of a snapshot is determined
+    # by looking at the highest incremental snapshot slot available for
+    # download from cluster peers.
+    #
+    # If a local snapshot exists on disk, within the given age, other
+    # options are ignored and no snapshot will be downloaded.
+    #
+    # If the local snapshot is older than this, we will instead download
+    # a new snapshot.  If the local snapshot is too old, and we cannot
+    # download a snapshot because `download` is `false`, the validator
+    # will exit with an error.
+    maximum_local_snapshot_age = 2500
+
+    # Whether to download a new snapshot from a peer when booting.
+    #
+    # If set to true, the validator will contact peers from the gossip
+    # network to locate both a full and incremental snapshot and
+    # download it.  If false, the validator will attempt to load the
+    # most recently downloaded snapshot that exists locally on the disk.
+    # If there is no local snapshot, the validator will abort with an
+    # error.
+    #
+    # When downloading a snapshot, it will optionally be stored on disk
+    # if `[paths.snapshots]` is specified.  At most one downloaded
+    # full snapshot, and one incremental snapshot will be stored, and
+    # newly downloaded snapshots will replace ones that are already
+    # present.
+    #
+    # TODO: implement the "at most one downloaded " logic. "
+    download = true
+
+    # A snapshot hash must be published in gossip by one of the
+    # validator identities listed here for it to be accepted.  The list
+    # should be a list of identity public keys, specified as base58
+    # strings.
+    #
+    # If a snapshot hash is received that is not published by a known
+    # validator the validator will exit with an error.
+    #
+    # If no known validators are specified here, any snapshot hash will
+    # be accepted.
+    #
+    # TODO: Implement this once gossip is wired up.
+    known_validators = []
+
+    # The minimum acceptable speed for snapshot download from a peer, in
+    # megabits per second.  If the initial download speed falls below
+    # this threshold, the validator will abandon the download, find a
+    # new peer and start downloading the snapshot from them.
+    #
+    # The initial download speed is measured over every 10 mib for the
+    # first 400 mib of downloaded content.  The validator continues
+    # to measure download speed over every 10 mib until the download is
+    # complete, but only the initial download speed is used to decide
+    # whether to abort and retry the download.
+    # TODO: refine the initial download speed measurement and threshold.
+    #
+    # If set to zero, no minimum threshold will be applied.
+    minimum_download_speed_mib = 0
+
+    # The maximum number of times to abort and retry when encountering a
+    # slow snapshot download.  If the maximum attempts is reached while
+    # downloading a snapshot the validator will exit with an error.
+    #
+    # The number of attempts is reset when starting a download for a
+    # new full or incremental snapshot.
+    #
+    # If set to zero, the validator will continually retry until
+    # completing snapshot download.
+    maximum_download_retry_abort = 5
+
 [rpc]
     # If nonzero, enable JSON RPC on this port, and use the next port
     # for the RPC websocket.  If zero, disable JSON RPC.
@@ -234,14 +327,6 @@ user = ""
     # If enabled, include CPI inner instructions, logs, and return data
     # in the historical transaction info stored.
     extended_tx_metadata_storage = false
-
-# Snapshots are a periodic view of the ledger at a point in time.  They
-# are used to enable validators to join the network quickly, as they do
-# not need to replay all transactions since genesis, just those since a
-# recent snapshot.
-#
-# Firedancer does not support creating or serving snapshots.
-[snapshots]
 
 # TODO: Relocate and document.
 [blockstore]
@@ -1066,72 +1151,6 @@ user = ""
         slot_max = 1024
 
     [tiles.replay]
-        # Where to obtain the full snapshot.
-        #
-        # If you have a full snapshot pre-downloaded somewhere,
-        # say by a script, you may specify the path to that file in
-        # "snapshot".
-        #
-        # FIXME These should not be in the "snapshot" config option.
-        # Two special values are recognized here.  One is "funk", and the
-        # other is "wksp:".  Setting either will cause Firedancer to pick
-        # up its state from Funk, rather than going through the full
-        # snapshot deserialization process.
-        #
-        # If you have an alternative URL for downloading a full
-        # snapshot, you may specify that in "snapshot_url".
-        #
-        # At most one of "snapshot" and "snapshot_url" may be
-        # specified at once.
-        #
-        # Only the HTTP protocol is supported at the moment for snapshot
-        # download.  So URLs in "snapshot_url" should be of the format
-        # "http://..."
-        snapshot = ""
-        snapshot_url = ""
-
-        # Where to obtain the incremental snapshot.
-        #
-        # If you have an incremental snapshot pre-downloaded somewhere,
-        # say by a script, you may specify the path to that file in
-        # "incremental".
-        #
-        # If you have an alternative URL for downloading an incremental
-        # snapshot, you may specify that in "incremental_url".
-        #
-        # At most one of "incremental" and "incremental_url" may be
-        # specified at once.
-        #
-        # When a URL is specified, the validator will attempt to download
-        # the incremental snapshot as late as possible during boot, to
-        # attempt to obtain the most up to date incremental.  There's a
-        # small chance that by the time the validator downloads the
-        # latest incremental snapshot, it no longer matches the full
-        # snapshot.  In such cases, the validator will terminate boot so
-        # the full snapshot may be re-downloaded.
-        #
-        # Only the HTTP protocol is supported at the moment for snapshot
-        # download.  So URLs in "incremental_url" should be of the format
-        # "http://..."
-        incremental = ""
-        incremental_url = ""
-
-        # Absolute path to the directory to store downloaded snapshots.
-        #
-        # If not specified, the validator will download snapshots into
-        # memory buffers.  When the validator shuts down, there will be
-        # no snapshot files on disk.
-        #
-        # If specified, the validator will download snapshots into the
-        # specified directory.  Moreover, on subsequent validator
-        # restarts, the validator will check for snapshot files in the
-        # specified directory first, before attempting to download over
-        # the network.
-        #
-        # Therefore, it is recommended to specify this if large full
-        # snapshots and frequent validator restarts are expected.
-        snapshot_dir = ""
-
         cluster_version =  "1.18.0"
 
     # The metric tile receives metrics updates published from the rest
