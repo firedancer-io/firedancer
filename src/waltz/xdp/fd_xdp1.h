@@ -2,6 +2,7 @@
 #define HEADER_fd_src_waltz_xdp_fd_xdp1_h
 
 #include "../../util/fd_util.h"
+#include <stdbool.h>
 
 struct fd_xdp_fds {
   int xsk_map_fd;
@@ -15,7 +16,8 @@ fd_xdp_gen_program( ulong          code_buf[ 512 ],
                     int            xsks_fd,
                     uint           listen_ip4_addr,
                     ushort const * ports,
-                    ulong          ports_cnt );
+                    ulong          ports_cnt,
+                    bool           allowed_gre );
 
 /* fd_xdp_install installs a BPF program onto the given interface which
    only passes through UDP traffic on the provided ports to rings on an

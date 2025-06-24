@@ -20,6 +20,7 @@
 #include "../../../util/log/fd_dtrace.h"
 #include "../../../util/net/fd_eth.h"
 #include "../../../util/net/fd_ip4.h"
+#include "../../../util/net/fd_gre.h"
 
 #include <unistd.h>
 #include <linux/if.h> /* struct ifreq */
@@ -695,18 +696,36 @@ net_rx_packet( fd_net_ctx_t * ctx,
                ulong          sz,
                uint *         freed_chunk ) {
 
-  ulong umem_lowbits = umem_off & 0x3fUL;
+  uchar *       packet       = (uchar *)ctx->umem_frame0 + umem_off;
+  uchar const * packet_end   = packet + sz;
+  uchar *       iphdr        = packet + 14U;
 
-  uchar const * packet     = (uchar const *)ctx->umem_frame0 + umem_off;
-  uchar const * packet_end = packet + sz;
-  uchar const * iphdr      = packet + 14U;
+  /* Discard the GRE overhead (outer iphdr and gre hdr) */
+  if( iphdr[9] == FD_IP4_HDR_PROTOCOL_GRE ) {
+
+    ulong overhead           = FD_IP4_GET_LEN( *(fd_ip4_hdr_t *)iphdr ) + sizeof(fd_gre_hdr_t);
+
+    /* The new iphdr is where the inner iphdr was */
+    iphdr                    += overhead;
+    
+    /* Copy over the eth_hdr */
+    fd_eth_hdr_t *new_packet = (fd_eth_hdr_t *)( (char *)iphdr - sizeof(fd_eth_hdr_t) );
+    *new_packet              = *( (fd_eth_hdr_t *)packet );
+    
+    sz                       -= overhead;
+    packet                   = (uchar *)new_packet;  
+    umem_off                 = (ulong)( packet - (uchar *)ctx->umem_frame0 );
+  }
+  
 
   /* Translate packet to UMEM frame index */
-  ulong chunk = ctx->umem_chunk0 + (umem_off>>FD_CHUNK_LG_SZ);
+  ulong chunk       = ctx->umem_chunk0 + (umem_off>>FD_CHUNK_LG_SZ);
+  ulong ctl         = umem_off & 0x3fUL;
+
 
   /* Filter for UDP/IPv4 packets. Test for ethtype and ipproto in 1
      branch */
-  uint test_ethip = ( (uint)packet[12] << 16u ) | ( (uint)packet[13] << 8u ) | (uint)packet[23];
+  uint test_ethip   = ( (uint)packet[12] << 16u ) | ( (uint)packet[13] << 8u ) | (uint)packet[23];
   if( FD_UNLIKELY( test_ethip!=0x080011 ) ) {
     FD_LOG_ERR(( "Firedancer received a packet from the XDP program that was either "
                   "not an IPv4 packet, or not a UDP packet. It is likely your XDP program "
@@ -714,7 +733,7 @@ net_rx_packet( fd_net_ctx_t * ctx,
   }
 
   /* IPv4 is variable-length, so lookup IHL to find start of UDP */
-  uint iplen = ( ( (uint)iphdr[0] ) & 0x0FU ) * 4U;
+  uint iplen        = FD_IP4_GET_LEN( *(fd_ip4_hdr_t *)iphdr );
   uchar const * udp = iphdr + iplen;
 
   /* Ignore if UDP header is too short */
@@ -772,22 +791,21 @@ net_rx_packet( fd_net_ctx_t * ctx,
   }
 
   /* tile can decide how to partition based on src ip addr and src port */
-  ulong sig = fd_disco_netmux_sig( ip_srcaddr, udp_srcport, 0U, proto, 14UL+8UL+iplen );
+  ulong sig              = fd_disco_netmux_sig( ip_srcaddr, udp_srcport, 0U, proto, 14UL+8UL+iplen );
 
   /* Peek the mline for an old frame */
   fd_frag_meta_t * mline = out->mcache + fd_mcache_line_idx( out->seq, out->depth );
-  *freed_chunk = mline->chunk;
+  *freed_chunk           = mline->chunk;
 
   /* Overwrite the mline with the new frame */
-  ulong tspub = (ulong)fd_frag_meta_ts_comp( fd_tickcount() );
-  fd_mcache_publish( out->mcache, out->depth, out->seq, sig, chunk, sz, umem_lowbits, 0, tspub );
+  ulong tspub            = (ulong)fd_frag_meta_ts_comp( fd_tickcount() );
+  fd_mcache_publish( out->mcache, out->depth, out->seq, sig, chunk, sz, ctl, 0, tspub );
 
   /* Wind up for the next iteration */
-  out->seq = fd_seq_inc( out->seq, 1UL );
+  out->seq               = fd_seq_inc( out->seq, 1UL );
 
   ctx->metrics.rx_pkt_cnt++;
   ctx->metrics.rx_bytes_total += sz;
-
 }
 
 /* net_comp_event is called when an XDP TX frame is free again. */
@@ -1031,6 +1049,9 @@ privileged_init( fd_topo_t *      topo,
   void * const umem_base   = fd_wksp_containing( dcache_mem );
   ulong  const umem_chunk0 = ( (ulong)umem_frame0 - (ulong)umem_base )>>FD_CHUNK_LG_SZ;
   ulong  const umem_wmark  = umem_chunk0 + ( ( umem_sz-umem_frame_sz )>>FD_CHUNK_LG_SZ );
+
+  FD_LOG_NOTICE( ("priviledge init. dcache_mem: %p, umem_base: %p, umem_chunk0: %lx", dcache_mem, umem_base, umem_chunk0 ));
+
   if( FD_UNLIKELY( umem_chunk0>UINT_MAX || umem_wmark>UINT_MAX || umem_chunk0>umem_wmark ) ) {
     FD_LOG_ERR(( "Calculated invalid UMEM bounds [%lu,%lu]", umem_chunk0, umem_wmark ));
   }
