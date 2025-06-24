@@ -415,6 +415,33 @@ fd_funk_txn_cancel_children( fd_funk_t *     funk,
   return fd_funk_txn_cancel_sibling_list( funk, funk->shmem->cycle_tag++, oldest_idx, FD_FUNK_TXN_IDX_NULL );
 }
 
+ulong
+fd_funk_txn_cancel_root( fd_funk_t * funk ) {
+  fd_funk_rec_map_t * rec_map = funk->rec_map;
+  fd_funk_rec_pool_t * rec_pool = funk->rec_pool;
+  ulong chain_cnt = fd_funk_rec_map_chain_cnt( rec_map );
+  for( ulong chain_idx=0UL; chain_idx<chain_cnt; chain_idx++ ) {
+    for(
+        fd_funk_rec_map_iter_t iter = fd_funk_rec_map_iter( rec_map, chain_idx );
+        !fd_funk_rec_map_iter_done( iter );
+        iter = fd_funk_rec_map_iter_next( iter )
+    ) {
+      for (;;) {
+        fd_funk_rec_map_query_t rec_query[1];
+        int err = fd_funk_rec_map_remove( rec_map, fd_funk_rec_pair( iter.ele ), NULL, rec_query, FD_MAP_FLAG_BLOCKING );
+        if( FD_UNLIKELY( err == FD_MAP_ERR_AGAIN ) ) continue;
+        if( err == FD_MAP_ERR_KEY ) break;
+        if( FD_UNLIKELY( err != FD_MAP_SUCCESS ) ) FD_LOG_CRIT(( "map corruption" ));
+        if( iter.ele != fd_funk_rec_map_query_ele( rec_query ) ) break;
+        fd_funk_val_flush( fd_funk_rec_map_iter_ele( iter ), fd_funk_alloc( funk ), fd_funk_wksp( funk ) );
+        fd_funk_rec_pool_release( rec_pool, fd_funk_rec_map_query_ele( rec_query ), 1 );
+      }
+    }
+  }
+
+  return 0UL;
+}
+
 /* Cancel all outstanding transactions */
 
 ulong

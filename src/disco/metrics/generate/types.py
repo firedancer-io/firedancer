@@ -27,6 +27,10 @@ class Tile(Enum):
     SOCK = 21,
     REPAIR = 22,
     SEND = 23
+    SNAPRD = 23,
+    SNAPDC = 24,
+    SNAPIN = 25
+
 
 class MetricType(Enum):
     COUNTER = 0

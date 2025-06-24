@@ -28,7 +28,7 @@
 | <span class="metrics-name">tile_&#8203;tid</span> | gauge | The thread ID of the tile. Always the same as the Pid in production, but might be different in development. |
 | <span class="metrics-name">tile_&#8203;context_&#8203;switch_&#8203;involuntary_&#8203;count</span> | counter | The number of involuntary context switches. |
 | <span class="metrics-name">tile_&#8203;context_&#8203;switch_&#8203;voluntary_&#8203;count</span> | counter | The number of voluntary context switches. |
-| <span class="metrics-name">tile_&#8203;status</span> | gauge | The current status of the tile. 0 is booting, 1 is running. |
+| <span class="metrics-name">tile_&#8203;status</span> | gauge | The current status of the tile. 0 is booting, 1 is running. 2 is shutdown |
 | <span class="metrics-name">tile_&#8203;heartbeat</span> | gauge | The last UNIX timestamp in nanoseconds that the tile heartbeated. |
 | <span class="metrics-name">tile_&#8203;in_&#8203;backpressure</span> | gauge | Whether the tile is currently backpressured or not, either 1 or 0. |
 | <span class="metrics-name">tile_&#8203;backpressure_&#8203;count</span> | counter | Number of times the tile has had to wait for one of more consumers to catch up to resume publishing. |
@@ -716,5 +716,54 @@
 | <span class="metrics-name">send_&#8203;leader_&#8203;not_&#8203;found</span> | counter | Total count of times leader not found for given slot |
 | <span class="metrics-name">send_&#8203;leader_&#8203;contact_&#8203;not_&#8203;found</span> | counter | Total count of times leader contact info not found |
 | <span class="metrics-name">send_&#8203;leader_&#8203;contact_&#8203;nonroutable</span> | counter | Total count of times leader contact is nonroutable |
+
+</div>
+
+## Snaprd Tile
+
+<div class="metrics">
+
+| Metric | Type | Description |
+|--------|------|-------------|
+| <span class="metrics-name">snaprd_&#8203;status</span> | gauge | Status of the tile. 0 = waiting for gossip peers, 1 = reading full snapshot, 2 = reading incremental snapshot, 3 = complete |
+| <span class="metrics-name">snaprd_&#8203;full_&#8203;num_&#8203;retries</span> | counter | Number of times we aborted and retried full snapshot download because the peer was too slow |
+| <span class="metrics-name">snaprd_&#8203;incremental_&#8203;num_&#8203;retries</span> | counter | Number of times we aborted and retried incremental snapshot download because the peer was too slow |
+| <span class="metrics-name">snaprd_&#8203;full_&#8203;bytes_&#8203;read</span> | gauge | Number of bytes read so far from the full snapshot. Might decrease if snapshot load is aborted and restarted |
+| <span class="metrics-name">snaprd_&#8203;full_&#8203;bytes_&#8203;total</span> | gauge | Total size of the full snapshot file. Might change if snapshot load is aborted and restarted |
+| <span class="metrics-name">snaprd_&#8203;incremental_&#8203;bytes_&#8203;read</span> | gauge | Number of bytes read so far from the incremental snapshot. Might decrease if snapshot load is aborted and restarted |
+| <span class="metrics-name">snaprd_&#8203;incremental_&#8203;bytes_&#8203;total</span> | gauge | Total size of the incremental snapshot file. Might change if snapshot load is aborted and restarted |
+
+</div>
+
+## Snapdc Tile
+
+<div class="metrics">
+
+| Metric | Type | Description |
+|--------|------|-------------|
+| <span class="metrics-name">snapdc_&#8203;status</span> | gauge | Status of the tile. 0 = waiting for compressed snapshot bytestream, 1 = decompressing full snapshot, 2 = decompressing incremental snapshot, 3 = complete |
+| <span class="metrics-name">snapdc_&#8203;full_&#8203;compressed_&#8203;bytes_&#8203;read</span> | gauge | Number of bytes read so far from the compressed full snapshot file. Might decrease if snapshot load is aborted and restarted |
+| <span class="metrics-name">snapdc_&#8203;full_&#8203;decompressed_&#8203;bytes_&#8203;read</span> | gauge | Number of bytes read so far from the decompressed file. Might decrease if snapshot load is aborted and restarted |
+| <span class="metrics-name">snapdc_&#8203;full_&#8203;decompressed_&#8203;bytes_&#8203;total</span> | gauge | Total size of the decompressed full snapshot file. Might change if snapshot load is aborted and restarted |
+| <span class="metrics-name">snapdc_&#8203;incremental_&#8203;compressed_&#8203;bytes_&#8203;read</span> | gauge | Number of bytes read so far from the compressed incremental snapshot file. Might decrease if snapshot load is aborted and restarted |
+| <span class="metrics-name">snapdc_&#8203;incremental_&#8203;decompressed_&#8203;bytes_&#8203;read</span> | gauge | Number of bytes read so far from the decompressed incremental snapshot file. Might decrease if snapshot load is aborted and restarted |
+| <span class="metrics-name">snapdc_&#8203;incremental_&#8203;decompressed_&#8203;bytes_&#8203;total</span> | gauge | Total size of the decompressed incremental snapshot file. Might change if snapshot load is aborted and restarted |
+
+</div>
+
+## Snapin Tile
+
+<div class="metrics">
+
+| Metric | Type | Description |
+|--------|------|-------------|
+| <span class="metrics-name">snapin_&#8203;status</span> | gauge | Status of the tile. 0 = waiting for decompressed snapshot bytestream, 1 = processing full snapshot, 2 = processing incremental snapshot, 3 = complete |
+| <span class="metrics-name">snapin_&#8203;full_&#8203;accounts_&#8203;files_&#8203;processed</span> | gauge | Number of accounts files (appendvecs) processed in the full snapshot. Might decrease if snapshot load is aborted and restarted |
+| <span class="metrics-name">snapin_&#8203;full_&#8203;accounts_&#8203;files_&#8203;total</span> | gauge | Total number of accounts files in the full snapshot. Might change if snapshot load is aborted and restarted |
+| <span class="metrics-name">snapin_&#8203;incremental_&#8203;accounts_&#8203;files_&#8203;processed</span> | gauge | Number of accounts files (appendvecs) processed in the incremental snapshot. Might decrease if snapshot load is aborted and restarted |
+| <span class="metrics-name">snapin_&#8203;incremental_&#8203;accounts_&#8203;files_&#8203;total</span> | gauge | Total number of accounts files in the full snapshot. Might change if snapshot load is aborted and restarted |
+| <span class="metrics-name">snapin_&#8203;full_&#8203;accounts_&#8203;processed</span> | gauge | Number of accounts processed in the full snapshot. Might decrease if snapshot load is aborted and restarted |
+| <span class="metrics-name">snapin_&#8203;incremental_&#8203;accounts_&#8203;processed</span> | gauge | Number of accounts processed in the incremental snapshot. Might decrease if snapshot load is aborted and restarted |
+| <span class="metrics-name">snapin_&#8203;accounts_&#8203;inserted</span> | gauge | Number of accounts inserted during snpashot loading. Might decrease if snapshot load is aborted and restarted |
 
 </div>
