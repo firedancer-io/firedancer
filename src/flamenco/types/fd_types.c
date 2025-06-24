@@ -18848,6 +18848,9 @@ int fd_gossip_duplicate_shred_encode( fd_gossip_duplicate_shred_t const * self, 
 static int fd_gossip_duplicate_shred_decode_footprint_inner( fd_bincode_decode_ctx_t * ctx, ulong * total_sz ) {
   if( ctx->data>=ctx->dataend ) { return FD_BINCODE_ERR_OVERFLOW; };
   int err = 0;
+  err = fd_gossip_duplicate_shred_validator( ctx );
+  if( FD_UNLIKELY( err != FD_BINCODE_SUCCESS ) )
+    return err;
   err = fd_bincode_uint16_decode_footprint( ctx );
   if( FD_UNLIKELY( err!=FD_BINCODE_SUCCESS ) ) return err;
   err = fd_pubkey_decode_footprint_inner( ctx, total_sz );
