@@ -25,6 +25,7 @@
 #include "../../../discof/replay/fd_replay_notif.h"
 #include "../../../flamenco/runtime/fd_runtime.h"
 #include "../../../flamenco/runtime/fd_txncache.h"
+#include "../../../discof/restore/fd_snapshot_messages.h"
 
 #include <unistd.h> /* pause */
 extern fd_topo_obj_callbacks_t * CALLBACKS[];
@@ -85,7 +86,17 @@ backtest_topo( config_t * config ) {
   FOR(writer_tile_cnt) fd_topob_tile( topo, "writer",  "writer",  "metric_in",  cpu_idx++, 0, 0 );
 
   /**********************************************************************/
-  /* Setup backtest->replay links in topo                               */
+  /* Add the snapshot tiles to topo                                       */
+  /**********************************************************************/
+  fd_topob_wksp( topo, "SnapRd" );
+  fd_topob_wksp( topo, "SnapDc" );
+  fd_topob_wksp( topo, "SnapIn" );
+  fd_topo_tile_t * snaprd_tile = fd_topob_tile( topo, "SnapRd",  "SnapRd",  "metric_in",  cpu_idx++, 0, 0 );
+  fd_topo_tile_t * snapdc_tile = fd_topob_tile( topo, "SnapDc",  "SnapDc",  "metric_in",  cpu_idx++, 0, 0 );
+  fd_topo_tile_t * snapin_tile = fd_topob_tile( topo, "SnapIn",  "SnapIn",  "metric_in",  cpu_idx++, 0, 0 );
+
+  /**********************************************************************/
+  /* Setup backtest->replay link (repair_repla) in topo                 */
   /**********************************************************************/
 
   /* The repair tile is replaced by the backtest tile for the repair to
@@ -168,6 +179,25 @@ backtest_topo( config_t * config ) {
   FOR(exec_tile_cnt) fd_topob_tile_out( topo, "exec", i, "exec_writer", i );
   FOR(writer_tile_cnt) for( ulong j=0UL; j<exec_tile_cnt; j++ )
     fd_topob_tile_in( topo, "writer", i, "metric_in", "exec_writer", j, FD_TOPOB_RELIABLE, FD_TOPOB_POLLED );
+
+  /**********************************************************************/
+  /* Setup snapshot links in topo                                       */
+  /**********************************************************************/
+  fd_topob_wksp( topo, "snap_zstd" );
+  fd_topob_wksp( topo, "snap_stream");
+  fd_topob_wksp( topo, "snap_replay" );
+  fd_topob_wksp( topo, "replay_manif" );
+  fd_topob_link( topo, "snap_replay", "snap_replay",   128UL, sizeof(fd_snapshot_manifest_t), 1UL );
+
+  fd_topo_link_t * snap_zstd_link = fd_topob_link( topo, "snap_zstd",    "snap_zstd",    512UL,                                    0UL,                           0UL );
+  fd_topo_link_t * snapin_link    = fd_topob_link( topo, "snap_stream", "snap_stream",   512UL,                                    0UL,                           0UL );
+
+  fd_topob_tile_out( topo, "SnapRd", 0UL, "snap_zstd", 0UL );
+  fd_topob_tile_in( topo,  "SnapDc", 0UL, "metric_in", "snap_zstd", 0UL, FD_TOPOB_RELIABLE, FD_TOPOB_POLLED );
+  fd_topob_tile_out( topo, "SnapDc", 0UL, "snap_stream", 0UL );
+  fd_topob_tile_in  ( topo, "SnapIn", 0UL, "metric_in", "snap_stream", 0UL, FD_TOPOB_RELIABLE, FD_TOPOB_POLLED   );
+  fd_topob_tile_out( topo,  "SnapIn", 0UL, "snap_replay", 0UL );
+  fd_topob_tile_in( topo,   "replay", 0UL, "metric_in", "snap_replay", 0UL, FD_TOPOB_UNRELIABLE, FD_TOPOB_UNPOLLED );
 
   /**********************************************************************/
   /* Setup the shared objs used by replay and exec tiles                */
@@ -266,6 +296,23 @@ backtest_topo( config_t * config ) {
     fd_topob_tile_uses( topo, replay_tile, busy_obj, FD_SHMEM_JOIN_MODE_READ_WRITE );
     FD_TEST( fd_pod_insertf_ulong( topo->props, busy_obj->id, "bank_busy.%lu", i ) );
   }
+
+  /* snapshot tiles */
+  fd_topo_obj_t * zstd_dcache   = fd_topob_link_set_dcache( topo, snap_zstd_link, "snap_zstd", (16<<20UL) );
+  fd_topo_obj_t * snapin_dcache = fd_topob_link_set_dcache( topo, snapin_link, "snap_stream", (16<<20UL) );
+
+  /* Replay decoded manifest dcache topo obj */
+  fd_topo_obj_t * replay_manifest_dcache = fd_topob_obj( topo, "dcache", "replay_manif" );
+  fd_pod_insertf_ulong( topo->props, 2UL << 30UL, "obj.%lu.data_sz", replay_manifest_dcache->id );
+  fd_pod_insert_ulong(  topo->props, "manifest_dcache", replay_manifest_dcache->id );
+
+  fd_topob_tile_uses( topo, snaprd_tile, zstd_dcache, FD_SHMEM_JOIN_MODE_READ_WRITE );
+  fd_topob_tile_uses( topo, snapdc_tile, zstd_dcache, FD_SHMEM_JOIN_MODE_READ_ONLY  );
+  fd_topob_tile_uses( topo, snapin_tile, snapin_dcache, FD_SHMEM_JOIN_MODE_READ_ONLY  );
+  fd_topob_tile_uses( topo, snapin_tile, funk_obj, FD_SHMEM_JOIN_MODE_READ_WRITE );
+  fd_topob_tile_uses( topo, snapin_tile, runtime_pub_obj, FD_SHMEM_JOIN_MODE_READ_WRITE );
+  fd_topob_tile_uses( topo, snapin_tile, replay_manifest_dcache, FD_SHMEM_JOIN_MODE_READ_WRITE );
+  fd_topob_tile_uses( topo, replay_tile, replay_manifest_dcache, FD_SHMEM_JOIN_MODE_READ_ONLY );
 
   for( ulong i=0UL; i<topo->tile_cnt; i++ ) {
     fd_topo_tile_t * tile = &topo->tiles[ i ];

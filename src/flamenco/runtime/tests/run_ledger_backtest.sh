@@ -141,6 +141,11 @@ fi
 
 echo_notice "Starting on-demand ingest and replay"
 echo "
+[snapshots]
+    path = \"$DUMP/$LEDGER\"
+    no_incremental_snapshots = true
+    minimum_download_speed_mib = 0
+    maximum_local_snapshot_age = 4294967295
 [layout]
     affinity = \"auto\"
     bank_tile_count = 1
@@ -152,7 +157,6 @@ echo "
         end_slot = $END_SLOT
         archiver_path = \"$DUMP/$LEDGER/rocksdb\"
     [tiles.replay]
-        snapshot = \"$SNAPSHOT\"
         cluster_version = \"$CLUSTER_VERSION\"
         enable_features = [ $FORMATTED_ONE_OFFS ]
     [tiles.gui]
