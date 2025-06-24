@@ -189,7 +189,7 @@ after_frag( fd_gossip_tile_ctx_t * ctx,
     FD_MGAUGE_SET( GOSSIP, SHRED_VERSION, (ushort)sig );
     ctx->my_contact_info->shred_version   = (ushort)sig;
     ctx->my_contact_info->wallclock_nanos = now;
-    fd_gossip_set_my_contact_info( ctx->gossip, ctx->my_contact_info );
+    fd_gossip_set_my_contact_info( ctx->gossip, ctx->my_contact_info, now );
   } else {
     FD_LOG_ERR(( "unexpected in_kind %d", ctx->in_kind[ in_idx ] ));
   }
@@ -262,6 +262,7 @@ unprivileged_init( fd_topo_t *      topo,
                                                tile->gossip.entrypoints_cnt,
                                                tile->gossip.entrypoints,
                                                ctx->my_contact_info,
+                                               ctx->last_wallclock,
 
                                                gossip_send_fn,
                                                (void*)ctx,

@@ -260,18 +260,10 @@ fd_gossip_pull_request_encode_bloom_bits( fd_gossip_pull_request_encode_ctx_t * 
                                           ulong                                 bloom_bits_len );
 
 int
-fd_gossip_crds_contact_info_encode( fd_contact_info_t const * contact_info,
-                                    uchar *                   out_buf,
-                                    ulong                     out_buf_cap,
-                                    ulong *                   opt_encoded_sz );
-
-/* Handles case where new wallclock changes encoded representation of
-   compact-64 bit value */
-int
-fd_gossip_crds_contact_info_update_wallclock( ulong * contact_info_buf,
-                                              ulong * contact_info_buf_sz,
-                                              ulong   contact_info_buf_cap,
-                                              long    wallclock_nanos );
+fd_gossip_contact_info_encode( fd_contact_info_t const * contact_info,
+                               uchar *                   out_buf,
+                               ulong                     out_buf_cap,
+                               ulong *                   opt_encoded_sz );
 
 /* Initializes a payload buffer for a gossip message with tag encoded.
    Returns offset into the buffer after tag, where the inner message

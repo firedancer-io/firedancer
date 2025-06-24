@@ -102,6 +102,7 @@ fd_gossip_new( void *                    shmem,
                ulong                     entrypoints_cnt,
                fd_ip4_port_t const *     entrypoints,
                fd_contact_info_t const * my_contact_info,
+               long                      now,
                fd_gossip_send_fn         send_fn,
                void *                    send_ctx,
                fd_gossip_sign_fn         sign_fn,
@@ -134,7 +135,8 @@ fd_gossip_metrics( fd_gossip_t const * gossip );
           TODO: update wallclock ourselves? */
 void
 fd_gossip_set_my_contact_info( fd_gossip_t *             gossip,
-                               fd_contact_info_t const * contact_info );
+                               fd_contact_info_t const * contact_info,
+                               long                      now );
 
 void
 fd_gossip_stakes_update( fd_gossip_t *             gossip,

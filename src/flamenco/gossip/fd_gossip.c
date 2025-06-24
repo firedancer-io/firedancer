@@ -13,6 +13,9 @@
 #define BLOOM_FALSE_POSITIVE_RATE       (  0.1)
 #define BLOOM_NUM_KEYS                  (  8.0)
 
+#define PING_PONG_SIGN_TYPE             FD_KEYGUARD_SIGN_TYPE_SHA256_ED25519
+#define CRDS_SIGN_TYPE                  FD_KEYGUARD_SIGN_TYPE_ED25519
+
 /* TODO: hardcode a CRDS filter instead of using bloom tmpls ? */
 #define BLOOM_NAME    crds_bloom
 #include "tmpl/fd_bloom.c"
@@ -164,6 +167,7 @@ fd_gossip_new( void *                    shmem,
                ulong                     entrypoints_cnt,
                fd_ip4_port_t const *     entrypoints,
                fd_contact_info_t const * my_contact_info,
+               long                      now,
                fd_gossip_send_fn         send_fn,
                void *                    send_ctx,
                fd_gossip_sign_fn         sign_fn,
@@ -218,7 +222,7 @@ fd_gossip_new( void *                    shmem,
     push_state_new( state, gossip->identity_pubkey, gossip->entrypoints[i] );
   }
 
-  fd_gossip_set_my_contact_info( gossip, my_contact_info );
+  fd_gossip_set_my_contact_info( gossip, my_contact_info, now );
   return gossip;
 }
 
@@ -306,18 +310,31 @@ push_my_contact_info( fd_gossip_t * gossip, long now ){
   }
 }
 
+static inline void
+refresh_contact_info( fd_gossip_t * gossip,
+                      long          now ) {
+  gossip->my_contact_info.ci->wallclock_nanos = now;
+  fd_gossip_contact_info_encode( gossip->my_contact_info.ci,
+                                 gossip->my_contact_info.crds_val,
+                                 1232UL,
+                                 &gossip->my_contact_info.crds_val_sz );
+  gossip->sign_fn( gossip->sign_ctx,
+                   gossip->my_contact_info.crds_val+64UL,
+                   gossip->my_contact_info.crds_val_sz-64UL,
+                   CRDS_SIGN_TYPE,
+                   gossip->my_contact_info.crds_val );
+  push_my_contact_info( gossip, now );
+}
+
 void
 fd_gossip_set_my_contact_info( fd_gossip_t *             gossip,
-                               fd_contact_info_t const * contact_info ) {
+                               fd_contact_info_t const * contact_info,
+                               long                      now ) {
   fd_memcpy( gossip->identity_pubkey, contact_info->pubkey, 32UL );
   gossip->expected_shred_version = contact_info->shred_version;
 
   *gossip->my_contact_info.ci = *contact_info;
-  fd_gossip_crds_contact_info_encode( gossip->my_contact_info.ci,
-                                      gossip->my_contact_info.crds_val,
-                                      1232UL,
-                                      &gossip->my_contact_info.crds_val_sz );
-  push_my_contact_info( gossip, contact_info->wallclock_nanos );
+  refresh_contact_info( gossip, now );
 }
 
 ulong
@@ -686,6 +703,7 @@ rx_push( fd_gossip_t *                 gossip,
          uchar const *                 payload,
          long                          now ) {
   uchar const * relayer_pubkey = payload+push->from_off;
+  (void)relayer_pubkey; /* TODO: use relayer_pubkey to update push state */
 
   for( ulong i=0UL; i<push->crds_values_len; i++ ) {
     fd_gossip_view_crds_value_t const * value = &push->crds_values[ i ];
@@ -743,13 +761,13 @@ rx_push( fd_gossip_t *                 gossip,
                          origin_stake,
                          now );
     }
-
-    fd_prune_finder_record( gossip->prune_finder,
-                            origin_pubkey,
-                            origin_stake,
-                            relayer_pubkey,
-                            get_stake( gossip, relayer_pubkey ),
-                            num_duplicates );
+    (void)num_duplicates; /* TODO: use num_duplicates to prune the prune_finder */
+    // fd_prune_finder_record( gossip->prune_finder,
+    //                         origin_pubkey,
+    //                         origin_stake,
+    //                         relayer_pubkey,
+    //                         get_stake( gossip, relayer_pubkey ),
+    //                         num_duplicates );
   }
 
   return 0;
@@ -790,7 +808,7 @@ rx_ping( fd_gossip_t *           gossip,
 
   fd_memcpy( out_pong->pubkey, gossip->identity_pubkey, 32UL );
   fd_ping_tracker_hash_ping_token( ping->ping_token, out_pong->ping_hash );
-  gossip->sign_fn( gossip->sign_ctx, out_pong->ping_hash, 32UL, FD_KEYGUARD_SIGN_TYPE_SHA256_ED25519, out_pong->signature );
+  gossip->sign_fn( gossip->sign_ctx, out_pong->ping_hash, 32UL, PING_PONG_SIGN_TYPE, out_pong->signature );
 
   gossip->send_fn( gossip->send_ctx, (uchar *)out_payload, sizeof(out_payload), peer_address, (ulong)now );
   return FD_GOSSIP_RX_OK;
@@ -928,7 +946,7 @@ tx_ping( fd_gossip_t * gossip,
 
 
     fd_memcpy( out_ping->ping_token, ping_token, 32UL );
-    gossip->sign_fn( gossip->sign_ctx, out_ping->ping_token, 32UL, FD_KEYGUARD_SIGN_TYPE_SHA256_ED25519, out_ping->signature );
+    gossip->sign_fn( gossip->sign_ctx, out_ping->ping_token, 32UL, PING_PONG_SIGN_TYPE, out_ping->signature );
 
     gossip->send_fn( gossip->send_ctx, (uchar *)out_payload, sizeof(out_payload), peer_address, (ulong)now );
   }
@@ -1067,7 +1085,7 @@ tx_pull_request( fd_gossip_t * gossip,
                                           1232UL,
                                           filter->keys_len,
                                           (filter->bits_len+7UL)/8UL,
-                                          ctx);
+                                          ctx );
 
   fd_gossip_pull_request_encode_bloom_keys( ctx, filter->keys, filter->keys_len );
 
@@ -1101,17 +1119,6 @@ next_pull_request( fd_gossip_t const * gossip,
      replicate this in the frequency domain. */
   /* TODO: Jitter */
   return now+200L*1000L;
-}
-
-static inline void
-refresh_contact_info( fd_gossip_t * gossip,
-                      long          now ) {
-  gossip->my_contact_info.ci->wallclock_nanos = now;
-  fd_gossip_crds_contact_info_encode( gossip->my_contact_info.ci,
-                                      gossip->my_contact_info.crds_val,
-                                      1232UL,
-                                      &gossip->my_contact_info.crds_val_sz );
-  push_my_contact_info( gossip, now );
 }
 
 static inline void
