@@ -3,7 +3,9 @@
 #pragma GCC diagnostic ignored "-Wunused-parameter"
 #pragma GCC diagnostic ignored "-Wunused-variable"
 #pragma GCC diagnostic ignored "-Wunused-function"
+#if defined(__GNUC__) && (__GNUC__ >= 9)
 #pragma GCC diagnostic ignored "-Waddress-of-packed-member"
+#endif
 #define SOURCE_fd_src_flamenco_types_fd_types_c
 #include "fd_types_custom.h"
 int fd_hash_encode( fd_hash_t const * self, fd_bincode_encode_ctx_t * ctx ) {

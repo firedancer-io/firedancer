@@ -13,7 +13,7 @@ refresh_metadata( fd_contact_info_t * ci_int ) {
   ushort cur_port = 0U;
   reset_socket_tag_idx( ci_int->socket_tag_idx );
   for( ushort i = 0UL; i<ci_int->ci_crd.sockets_len; i++ ) {
-    cur_port += ci_int->sockets[ i ].offset;
+    cur_port = (ushort)( cur_port + ci_int->sockets[ i ].offset );
 
     ci_int->socket_tag_idx[ ci_int->sockets[ i ].key ] = i;
     ci_int->ports[ i ] = cur_port;
@@ -63,8 +63,8 @@ fd_contact_info_from_ci_v2( fd_gossip_contact_info_v2_t const * ci_v2,
   ushort cur_port   = 0U;
   for( ulong i = 0UL; i<ci_v2->sockets_len; i++ ) {
     fd_gossip_socket_entry_t const * socket_entry = &ci_v2->sockets[ i ];
-    cur_offset += socket_entry->offset;
-    cur_port   += socket_entry->offset;
+    cur_offset = (ushort)( cur_offset + socket_entry->offset );
+    cur_port   = (ushort)( cur_port   + socket_entry->offset );
 
     if( FD_UNLIKELY( socket_entry->key >= FD_GOSSIP_SOCKET_TAG_MAX ) ){
       /* We seem to receive quite a few of these in testnet, so commented out logging
@@ -147,7 +147,7 @@ fd_contact_info_to_update_msg( fd_contact_info_t const * contact_info,
   ushort cur_port = 0U;
   for( ulong i = 0UL; i<FD_GOSSIP_SOCKET_TAG_MAX; i++ ) {
     fd_gossip_socket_entry_t const * socket_entry = &ci_v2->sockets[ i ];
-    cur_port += socket_entry->offset;
+    cur_port = (ushort)( cur_port + socket_entry->offset );
     ushort socket_tag = socket_entry->key;
 
     /* NOTE: We use FD_GOSSIP_UPDATE_MSG_NUM_SOCKETS instead of FD_GOSSIP_SOCKET_TAG_MAX
@@ -214,7 +214,7 @@ fd_contact_info_remove_socket( fd_contact_info_t *      ci_int,
   ushort addr_idx = ci_int->ci_crd.sockets[ socket_idx ].index;
   memmove( &ci_int->ci_crd.sockets[ socket_idx ],
            &ci_int->ci_crd.sockets[ socket_idx+1 ],
-           sizeof(fd_gossip_socket_entry_t)*( ci_int->ci_crd.sockets_len - socket_idx - 1U ) );
+           sizeof(fd_gossip_socket_entry_t)*(ulong)( ci_int->ci_crd.sockets_len - socket_idx - 1 ) );
   ci_int->ci_crd.sockets_len--;
 
   /* Remove addr idx if no longer in any socket entry */
@@ -229,7 +229,7 @@ fd_contact_info_remove_socket( fd_contact_info_t *      ci_int,
   if( !addr_found ){
     memmove( &ci_int->ci_crd.addrs[ addr_idx ],
              &ci_int->ci_crd.addrs[ addr_idx+1 ],
-             sizeof(fd_gossip_ip_addr_t)*( ci_int->ci_crd.addrs_len - addr_idx - 1U ) );
+             sizeof(fd_gossip_ip_addr_t)*(ulong)( ci_int->ci_crd.addrs_len - addr_idx - 1 ) );
     ci_int->ci_crd.addrs_len--;
   }
 
@@ -263,18 +263,18 @@ fd_contact_info_insert_socket( fd_contact_info_t *            ci_int,
     if( FD_LIKELY( cur_port + socket_entry->offset > new_port ) ) {
       break;
     }
-    cur_port += socket_entry->offset;
+    cur_port = (ushort)( cur_port + socket_entry->offset );
   }
 
   new_socket_entry.offset = (ushort)( new_port - cur_port );
 
   /* Update the offset for the entry currently in insert_idx */
-  ci_int->sockets[ insert_idx ].offset -= new_socket_entry.offset;
+  ci_int->sockets[ insert_idx ].offset = (ushort)( ci_int->sockets[ insert_idx ].offset - new_socket_entry.offset );
 
   /* Shift all entries starting from insert_idx down */
   memmove( &ci_int->sockets[ insert_idx+1 ],
            &ci_int->sockets[ insert_idx ],
-           sizeof(fd_gossip_socket_entry_t)*( ci_int->ci_crd.sockets_len - insert_idx ) );
+           sizeof(fd_gossip_socket_entry_t)*(ulong)( ci_int->ci_crd.sockets_len - insert_idx ) );
   ci_int->ci_crd.sockets_len++;
 
   /* Find addr idx */
@@ -307,7 +307,7 @@ fd_gossip_contact_info_v2_find_proto_ident( fd_gossip_contact_info_v2_t const * 
   ushort port = 0;
   for( ulong i = 0UL; i<contact_info->sockets_len; i++ ) {
     fd_gossip_socket_entry_t const * socket_entry = &contact_info->sockets[ i ];
-    port = port + socket_entry->offset;
+    port = (ushort)( port + socket_entry->offset );
     if( socket_entry->key==proto_ident ) {
       if( socket_entry->index>=contact_info->addrs_len) {
         continue;
