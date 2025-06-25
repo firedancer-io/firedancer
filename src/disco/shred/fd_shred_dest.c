@@ -13,11 +13,12 @@ struct __attribute__((packed)) shred_dest_input {
 typedef struct shred_dest_input shred_dest_input_t;
 
 ulong
-fd_shred_dest_footprint( ulong max_staked_cnt ) {
-  return FD_LAYOUT_FINI( FD_LAYOUT_APPEND( FD_LAYOUT_APPEND(
+fd_shred_dest_footprint( ulong max_staked_cnt, ulong max_unstaked_cnt ) {
+  return FD_LAYOUT_FINI( FD_LAYOUT_APPEND( FD_LAYOUT_APPEND( FD_LAYOUT_APPEND(
                 FD_LAYOUT_INIT,
-                fd_shred_dest_align(),  sizeof(fd_shred_dest_t)              ),
+                fd_shred_dest_align(),  sizeof(fd_shred_dest_t) ),
                 fd_wsample_align(),     fd_wsample_footprint( max_staked_cnt, 1 )),
+                alignof(ulong),         sizeof(ulong)*max_unstaked_cnt ),
       FD_SHRED_DEST_ALIGN );
 }
 
@@ -41,6 +42,12 @@ fd_shred_dest_new( void                           * mem,
   /* */  sdest     = FD_SCRATCH_ALLOC_APPEND( footprint, fd_shred_dest_align(),             sizeof(fd_shred_dest_t)              );
   void * _stake_ci = FD_SCRATCH_ALLOC_APPEND( footprint, fd_stake_ci_align(),  fd_stake_ci_footprint()  );
   sdest->stake_ci  = fd_stake_ci_join( fd_stake_ci_new( _stake_ci, source ) );
+
+  /* pointer to where staked should start */
+  sdest->staked = (fd_wsample_t *)fd_ulong_align_up( _footprint, fd_wsample_align() );
+
+  sdest->source = *source;
+
   return (void *)sdest;
 }
 
@@ -48,16 +55,28 @@ fd_shred_dest_t * fd_shred_dest_join( void * mem  ) { return (fd_shred_dest_t *)
 void * fd_shred_dest_leave( fd_shred_dest_t * sdest ) { return (void *)sdest;          }
 
 void * fd_shred_dest_delete( void * mem ) {
-  fd_shred_dest_t * sdest = (fd_shred_dest_t *)mem;
+  fd_shred_dest_t * sdest = fd_type_pun( mem );
 
   fd_chacha20rng_delete( fd_chacha20rng_leave( sdest->rng               ) );
   fd_wsample_delete    ( fd_wsample_leave    ( sdest->staked            ) );
   return mem;
 }
 
-static void fd_shred_dest_stake_msg_fini( void ) {
 
-  void * _wsample  = FD_SCRATCH_ALLOC_APPEND( footprint, fd_wsample_align(),                fd_wsample_footprint( staked_cnt, 1 ));
+static void fd_shred_dest_stake_msg_fini( fd_shred_dest_t * sdest ) {
+
+  fd_stake_ci_t * stake_ci = sdest->stake_ci;
+
+  fd_stake_ci_stake_msg_fini( stake_ci );
+
+  ulong staked_cnt     = fd_stake_ci_get_staked_cnt(   stake_ci );
+  ulong unstaked_cnt   = fd_stake_ci_get_unstaked_cnt( stake_ci );
+  ulong excluded_stake = fd_stake_ci_get_excluded_stake( stake_ci );
+
+  ulong _footprint = (ulong)sdest->staked;
+
+  void * _wsample  = FD_SCRATCH_ALLOC_APPEND( footprint, fd_wsample_align(),  fd_wsample_footprint( staked_cnt, 1 ));
+  void * _unstaked = FD_SCRATCH_ALLOC_APPEND( footprint, alignof(ulong),                    sizeof(ulong)*unstaked_cnt           );
 
   fd_chacha20rng_t * rng = fd_chacha20rng_join( fd_chacha20rng_new( sdest->rng, FD_CHACHA20RNG_MODE_SHIFT ) );
 
@@ -66,13 +85,17 @@ static void fd_shred_dest_stake_msg_fini( void ) {
   for( ulong i=0UL; i<staked_cnt;   i++ ) _staked   = fd_wsample_new_add( _staked,   info[i].stake_lamports );
   _staked   = fd_wsample_new_fini( _staked, excluded_stake );
 
-  pubkey_to_idx_t * query = pubkey_to_idx_query( pubkey_to_idx_map, *source, NULL );
-  if( FD_UNLIKELY( !query ) ) {
+  fd_shred_dest_idx_t idx = fd_stake_ci_get_idx( &sdest->source );
+  if( FD_UNLIKELY( idx==FD_SHRED_DEST_NO_DEST ) ) {
     FD_LOG_WARNING(( "source pubkey not found" ));
-    return NULL;
+    return;
   }
 
-  sdest->staked                     = fd_wsample_join( _staked );
+  sdest->staked = fd_wsample_join( _staked );
+  sdest->unstaked = _unstaked;
+  sdest->unstaked_cnt = unstaked_cnt;
+  sdest->staked_cnt = staked_cnt;
+  sdest->cnt = staked_cnt + unstaked_cnt;
 }
 
 /* sample_unstaked, sample_unstaked_noprepare, and
@@ -200,7 +223,7 @@ fd_shred_dest_compute_first( fd_shred_dest_t          * sdest,
   uchar dest_hash_outputs[ FD_SHRED_DEST_MAX_SHRED_CNT ][ 32 ];
 
   ulong slot = input_shreds[0]->slot;
-  fd_pubkey_t const * leader = fd_epoch_leaders_get( sdest->lsched, slot );
+  fd_pubkey_t const * leader = fd_stake_ci_get_leader_for_slot( sdest->stake_ci, slot );
   if( FD_UNLIKELY( !leader ) ) return NULL;
 
   if( FD_UNLIKELY( compute_seeds( sdest, input_shreds, shred_cnt, leader, slot, dest_hash_outputs ) ) ) return NULL;
@@ -209,16 +232,17 @@ fd_shred_dest_compute_first( fd_shred_dest_t          * sdest,
      some stake when the leader schedule was created, but maybe not
      anymore?  This version of the code is safe either way, but I should
      probably confirm this can happen. */
-  int source_validator_is_staked = sdest->source_validator_orig_idx<sdest->staked_cnt;
+  fd_shred_dest_idx_t source_validator_orig_idx = fd_stake_ci_get_idx( &sdest->source );
+  int source_validator_is_staked = source_validator_orig_idx<sdest->staked_cnt;
   if( FD_LIKELY( source_validator_is_staked ) )
-    fd_wsample_remove_idx( sdest->staked, sdest->source_validator_orig_idx );
+    fd_wsample_remove_idx( sdest->staked, source_validator_orig_idx );
 
   int any_staked_candidates = sdest->staked_cnt > (ulong)source_validator_is_staked;
   for( ulong i=0UL; i<shred_cnt; i++ ) {
     fd_wsample_seed_rng( fd_wsample_get_rng( sdest->staked ), dest_hash_outputs[ i ] );
     /* Map FD_WSAMPLE_INDETERMINATE to FD_SHRED_DEST_NO_DEST */
     if( FD_LIKELY( any_staked_candidates ) ) out[i] = (fd_shred_dest_idx_t)fd_ulong_min( fd_wsample_sample( sdest->staked ), FD_SHRED_DEST_NO_DEST );
-    else                                     out[i] = (fd_shred_dest_idx_t)sample_unstaked_noprepare( sdest, sdest->source_validator_orig_idx );
+    else                                     out[i] = (fd_shred_dest_idx_t)sample_unstaked_noprepare( sdest, source_validator_orig_idx );
   }
   fd_wsample_restore_all( sdest->staked );
 

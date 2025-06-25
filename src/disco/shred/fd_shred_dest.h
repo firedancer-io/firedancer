@@ -48,6 +48,8 @@ struct __attribute__((aligned(FD_SHRED_DEST_ALIGN))) fd_shred_dest_private {
   uchar      _sha256_batch[ FD_SHA256_BATCH_FOOTPRINT ]  __attribute__((aligned(FD_SHA256_BATCH_ALIGN)));
   fd_chacha20rng_t rng[1];
 
+  fd_pubkey_t source;
+
   fd_stake_ci_t * stake_ci;
 
   fd_wsample_t * staked;
@@ -56,10 +58,13 @@ struct __attribute__((aligned(FD_SHRED_DEST_ALIGN))) fd_shred_dest_private {
     ulong * unstaked;
     ulong   unstaked_unremoved_cnt;
   };
+  ulong cnt;
+  ulong staked_cnt;
+  ulong unstaked_cnt;
 
   /* Struct followed by:
      * stake_ci
-     * staked AMANTODO ???
+     * staked
      * unstaked
    */
 };
@@ -71,7 +76,7 @@ typedef struct fd_shred_dest_private fd_shred_dest_t;
    fd_shred_dest_t object.  staked_cnt is the number of destinations
    with positive stake */
 static inline ulong fd_shred_dest_align    ( void             ) { return FD_SHRED_DEST_ALIGN; }
-/*         */ ulong fd_shred_dest_footprint( ulong staked_cnt );
+/*         */ ulong fd_shred_dest_footprint( ulong staked_cnt, ulong unstaked_cnt );
 
 /* fd_shred_dest_new formats a region of memory for use as an
    fd_shred_dest_t object. mem points to the first byte of a region of
@@ -103,12 +108,8 @@ static inline ulong fd_shred_dest_align    ( void             ) { return FD_SHRE
    Returns mem on success and NULL on errors.  Logs a warning with
    details on errors. */
 void *
-fd_shred_dest_new( void                           * mem,
-                   fd_shred_dest_weighted_t const * info, /* Accessed [0, cnt) */
-                   ulong                            cnt,
-                   fd_epoch_leaders_t       const * lsched,
-                   fd_pubkey_t              const * source,
-                   ulong                            excluded_stake );
+fd_shred_dest_new( void               * mem,
+                   fd_pubkey_t  const * source );
 
 /* fd_shred_dest_join joins the caller to a region of memory formatted
    as an fd_shred_dest_t. fd_shred_dest_leave does the opposite.
