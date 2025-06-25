@@ -23,7 +23,7 @@ TILE_CPUS="--tile-cpus 5-15"
 THREAD_MEM_BOUND="--thread-mem-bound 0"
 CLUSTER_VERSION=""
 DUMP_DIR=${DUMP_DIR:="./dump"}
-ONE_OFFS=""
+ONE_OFFS="2B2SBNbUcr438LtGXNcJNBP2GBSxjx81F945SdSkUSfC,LTHasHQX6661DaDD4S6A2TFi6QBuiwXKv66fB1obfHq,LTdLt9Ycbyoipz5fLysCi1NnDnASsZfmJLJXts5ZxZz"
 
 while [[ $# -gt 0 ]]; do
   case $1 in
@@ -96,6 +96,8 @@ while [[ $# -gt 0 ]]; do
   esac
 done
 
+FORMATTED_ONE_OFFS=$(echo "$ONE_OFFS" | sed -E 's/([^,]+)/"\1"/g')
+
 export LLVM_PROFILE_FILE=$OBJDIR/cov/raw/ledger_test_$LEDGER.profraw
 mkdir -p $OBJDIR/cov/raw
 
@@ -152,7 +154,7 @@ echo "
      [tiles.replay]
          snapshot = \"$SNAPSHOT\"
          cluster_version = \"$CLUSTER_VERSION\"
-         enable_features = [ \"$ONE_OFFS\" ]
+         enable_features = [ $FORMATTED_ONE_OFFS ]
      [tiles.gui]
          enabled = false
  [blockstore]
