@@ -6,6 +6,7 @@
 #include "../../disco/topo/fd_topo.h"
 #include "../../disco/metrics/fd_metrics.h"
 #include "../../flamenco/gossip/fd_gossip_types.h"
+#include "../../disco/plugin/fd_plugin.h"
 
 #include <errno.h>
 #include <fcntl.h>
@@ -45,6 +46,10 @@
 #define IN_KIND_GOSSIP  (1)
 #define MAX_IN_LINKS    (3)
 
+#define OUT_KIND_SNAPCTL (0)
+#define OUT_KIND_PLUGIN  (1)
+#define MAX_OUT_LINKS    (3)
+
 struct fd_snaprd_tile {
   fd_ssping_t * ssping;
   fd_sshttp_t * sshttp;
@@ -73,7 +78,6 @@ struct fd_snaprd_tile {
   } local_out;
 
   uchar in_kind[ MAX_IN_LINKS ];
-
   struct {
     ulong full_snapshot_slot;
     int   full_snapshot_fd;
@@ -99,6 +103,7 @@ struct fd_snaprd_tile {
 
   struct {
     struct {
+      int path_sent;
       ulong bytes_read;
       ulong bytes_written;
       ulong bytes_total;
@@ -106,6 +111,7 @@ struct fd_snaprd_tile {
     } full;
 
     struct {
+      int path_sent;
       ulong bytes_read;
       ulong bytes_written;
       ulong bytes_total;
@@ -144,7 +150,8 @@ struct fd_snaprd_tile {
     ulong       wmark;
     ulong       chunk;
     ulong       mtu;
-  } out;
+    ulong       out_idx;
+  } out[ MAX_OUT_LINKS ];
 };
 
 typedef struct fd_snaprd_tile fd_snaprd_tile_t;
@@ -186,22 +193,41 @@ metrics_write( fd_snaprd_tile_t * ctx ) {
 }
 
 static void
+plugin_publish_path( fd_snaprd_tile_t *  ctx,
+                     fd_stem_context_t * stem,
+                     char const *        path,
+                     int                 is_full ) {
+  fd_restore_snapshot_update_t * out = fd_chunk_to_laddr( ctx->out[ OUT_KIND_PLUGIN ].wksp, ctx->out[ OUT_KIND_PLUGIN ].chunk );
+  FD_TEST( fd_cstr_printf_check( out->read_path, PATH_MAX, NULL, "%s", path ) );
+  out->is_download = 0;
+  out->type = fd_int_if( is_full, FD_PLUGIN_MSG_SNAPSHOT_TYPE_FULL, FD_PLUGIN_MSG_SNAPSHOT_TYPE_INCREMENTAL );
+  fd_stem_publish( stem, ctx->out[ OUT_KIND_PLUGIN ].out_idx, FD_PLUGIN_MSG_SNAPSHOT_UPDATE, ctx->out[ OUT_KIND_PLUGIN ].chunk, sizeof(fd_restore_snapshot_update_t) , 0UL, 0UL, 0UL );
+  ctx->out[ OUT_KIND_PLUGIN ].chunk = fd_dcache_compact_next( ctx->out[ OUT_KIND_PLUGIN ].chunk, sizeof(fd_restore_snapshot_update_t), ctx->out[ OUT_KIND_PLUGIN ].chunk0, ctx->out[ OUT_KIND_PLUGIN ].wmark );
+  if( is_full ) ctx->metrics.full.path_sent = 1;
+  else          ctx->metrics.incremental.path_sent = 1;
+}
+
+static void
 read_file_data( fd_snaprd_tile_t *  ctx,
                 fd_stem_context_t * stem ) {
-  uchar * out = fd_chunk_to_laddr( ctx->out.wksp, ctx->out.chunk );
+  uchar * out = fd_chunk_to_laddr( ctx->out[ OUT_KIND_SNAPCTL ].wksp, ctx->out[ OUT_KIND_SNAPCTL ].chunk );
 
   FD_TEST( ctx->state==FD_SNAPRD_STATE_READING_INCREMENTAL_FILE || ctx->state==FD_SNAPRD_STATE_READING_FULL_FILE );
   int full = ctx->state==FD_SNAPRD_STATE_READING_FULL_FILE;
-  long result = read( full ? ctx->local_in.full_snapshot_fd : ctx->local_in.incremental_snapshot_fd , out, ctx->out.mtu );
+  long result = read( full ? ctx->local_in.full_snapshot_fd : ctx->local_in.incremental_snapshot_fd , out, ctx->out[ OUT_KIND_SNAPCTL ].mtu );
   if( FD_UNLIKELY( -1==result && errno==EAGAIN ) ) return;
   else if( FD_UNLIKELY( -1==result ) ) FD_LOG_ERR(( "read() failed (%i-%s)", errno, fd_io_strerror( errno ) ));
 
   switch( ctx->state ) {
     case FD_SNAPRD_STATE_READING_INCREMENTAL_FILE:
       ctx->metrics.incremental.bytes_read += (ulong)result;
+
+      if( FD_LIKELY( !ctx->metrics.incremental.path_sent ) ) plugin_publish_path( ctx, stem, ctx->local_in.incremental_snapshot_path, /* is_full */ 0 );
       break;
     case FD_SNAPRD_STATE_READING_FULL_FILE:
       ctx->metrics.full.bytes_read += (ulong)result;
+
+      if( FD_LIKELY( !ctx->metrics.full.path_sent ) ) plugin_publish_path( ctx, stem, ctx->local_in.full_snapshot_path, /* is_full */ 1 );
       break;
     default:
       break;
@@ -210,14 +236,14 @@ read_file_data( fd_snaprd_tile_t *  ctx,
   if( FD_UNLIKELY( !result ) ) {
     switch( ctx->state ) {
       case FD_SNAPRD_STATE_READING_INCREMENTAL_FILE:
-        fd_stem_publish( stem, 0UL, FD_SNAPSHOT_MSG_CTRL_DONE, 0UL, 0UL, 0UL, 0UL, 0UL );
+        fd_stem_publish( stem, ctx->out[ OUT_KIND_SNAPCTL ].out_idx, FD_SNAPSHOT_MSG_CTRL_DONE, 0UL, 0UL, 0UL, 0UL, 0UL );
         ctx->state = FD_SNAPRD_STATE_FLUSHING_INCREMENTAL_FILE;
         break;
       case FD_SNAPRD_STATE_READING_FULL_FILE:
         if( FD_LIKELY( ctx->config.incremental_snapshot_fetch ) ) {
-          fd_stem_publish( stem, 0UL, FD_SNAPSHOT_MSG_CTRL_EOF_FULL, 0UL, 0UL, 0UL, 0UL, 0UL );
+          fd_stem_publish( stem, ctx->out[ OUT_KIND_SNAPCTL ].out_idx, FD_SNAPSHOT_MSG_CTRL_EOF_FULL, 0UL, 0UL, 0UL, 0UL, 0UL );
         } else {
-          fd_stem_publish( stem, 0UL, FD_SNAPSHOT_MSG_CTRL_DONE, 0UL, 0UL, 0UL, 0UL, 0UL );
+          fd_stem_publish( stem, ctx->out[ OUT_KIND_SNAPCTL ].out_idx, FD_SNAPSHOT_MSG_CTRL_DONE, 0UL, 0UL, 0UL, 0UL, 0UL );
         }
         ctx->state = FD_SNAPRD_STATE_FLUSHING_FULL_FILE;
         break;
@@ -227,19 +253,32 @@ read_file_data( fd_snaprd_tile_t *  ctx,
     return;
   }
 
-  fd_stem_publish( stem, 0UL, FD_SNAPSHOT_MSG_DATA, ctx->out.chunk, (ulong)result, 0UL, 0UL, 0UL );
-  ctx->out.chunk = fd_dcache_compact_next( ctx->out.chunk, (ulong)result, ctx->out.chunk0, ctx->out.wmark );
+  fd_stem_publish( stem, ctx->out[ OUT_KIND_SNAPCTL ].out_idx, FD_SNAPSHOT_MSG_DATA, ctx->out[ OUT_KIND_SNAPCTL ].chunk, (ulong)result, 0UL, 0UL, 0UL );
+  ctx->out[ OUT_KIND_SNAPCTL ].chunk = fd_dcache_compact_next( ctx->out[ OUT_KIND_SNAPCTL ].chunk, (ulong)result, ctx->out[ OUT_KIND_SNAPCTL ].chunk0, ctx->out[ OUT_KIND_SNAPCTL ].wmark );
 }
 
 static void
 read_http_data( fd_snaprd_tile_t *  ctx,
                 fd_stem_context_t * stem,
                 long                now ) {
-  uchar * out = fd_chunk_to_laddr( ctx->out.wksp, ctx->out.chunk );
+  uchar * out = fd_chunk_to_laddr( ctx->out[ OUT_KIND_SNAPCTL ].wksp, ctx->out[ OUT_KIND_SNAPCTL ].chunk );
 
   ulong buffer_avail = fd_ulong_if( -1!=ctx->local_out.dir_fd, SNAPRD_FILE_BUF_SZ-ctx->local_out.write_buffer_len, ULONG_MAX );
-  ulong data_len = fd_ulong_min( buffer_avail, ctx->out.mtu );
+  ulong data_len = fd_ulong_min( buffer_avail, ctx->out[ OUT_KIND_SNAPCTL ].mtu );
   int result = fd_sshttp_advance( ctx->sshttp, &data_len, out, now );
+
+  char const * full_snapshot_name;
+  char const * incremental_snapshot_name;
+  fd_sshttp_snapshot_names( ctx->sshttp, &full_snapshot_name, &incremental_snapshot_name );
+  char snapshot_path[ PATH_MAX ];
+  if( FD_LIKELY( !ctx->metrics.full.path_sent && fd_cstr_nlen( full_snapshot_name,        1 ) ) ) {
+    fd_cstr_printf_check( snapshot_path, sizeof(snapshot_path), NULL, "http://" FD_IP4_ADDR_FMT ":%hu/%s", FD_IP4_ADDR_FMT_ARGS( ctx->addr.addr ), fd_ushort_bswap( ctx->addr.port ), full_snapshot_name );
+    plugin_publish_path( ctx, stem, snapshot_path, /* is_full */ 1 );
+  }
+  if( FD_LIKELY( !ctx->metrics.incremental.path_sent && fd_cstr_nlen( incremental_snapshot_name, 1 ) ) ) {
+    fd_cstr_printf_check( snapshot_path, sizeof(snapshot_path), NULL, "http://" FD_IP4_ADDR_FMT ":%hu/%s", FD_IP4_ADDR_FMT_ARGS( ctx->addr.addr ), fd_ushort_bswap( ctx->addr.port ), incremental_snapshot_name );
+    plugin_publish_path( ctx, stem, snapshot_path, /* is_full */ 0 );
+  }
 
   switch( result ) {
     case FD_SSHTTP_ADVANCE_AGAIN: break;
@@ -247,7 +286,7 @@ read_http_data( fd_snaprd_tile_t *  ctx,
       FD_LOG_NOTICE(( "error downloading snapshot from http://" FD_IP4_ADDR_FMT ":%hu/snapshot.tar.bz2",
                       FD_IP4_ADDR_FMT_ARGS( ctx->addr.addr ), fd_ushort_bswap( ctx->addr.port ) ));
       fd_ssping_invalidate( ctx->ssping, ctx->addr, now );
-      fd_stem_publish( stem, 0UL, FD_SNAPSHOT_MSG_CTRL_RESET_FULL, 0UL, 0UL, 0UL, 0UL, 0UL );
+      fd_stem_publish( stem, ctx->out[ OUT_KIND_SNAPCTL ].out_idx, FD_SNAPSHOT_MSG_CTRL_RESET_FULL, 0UL, 0UL, 0UL, 0UL, 0UL );
       ctx->state = FD_SNAPRD_STATE_FLUSHING_FULL_HTTP_RESET;
       ctx->deadline_nanos = now;
       break;
@@ -255,14 +294,14 @@ read_http_data( fd_snaprd_tile_t *  ctx,
     case FD_SSHTTP_ADVANCE_DONE: {
       switch( ctx->state ) {
         case FD_SNAPRD_STATE_READING_INCREMENTAL_HTTP:
-          fd_stem_publish( stem, 0UL, FD_SNAPSHOT_MSG_CTRL_DONE, 0UL, 0UL, 0UL, 0UL, 0UL );
+          fd_stem_publish( stem, ctx->out[ OUT_KIND_SNAPCTL ].out_idx, FD_SNAPSHOT_MSG_CTRL_DONE, 0UL, 0UL, 0UL, 0UL, 0UL );
           ctx->state = FD_SNAPRD_STATE_FLUSHING_INCREMENTAL_HTTP;
           break;
         case FD_SNAPRD_STATE_READING_FULL_HTTP:
           if( FD_LIKELY( ctx->config.incremental_snapshot_fetch ) ) {
-            fd_stem_publish( stem, 0UL, FD_SNAPSHOT_MSG_CTRL_EOF_FULL, 0UL, 0UL, 0UL, 0UL, 0UL );
+            fd_stem_publish( stem, ctx->out[ OUT_KIND_SNAPCTL ].out_idx, FD_SNAPSHOT_MSG_CTRL_EOF_FULL, 0UL, 0UL, 0UL, 0UL, 0UL );
           } else {
-            fd_stem_publish( stem, 0UL, FD_SNAPSHOT_MSG_CTRL_DONE, 0UL, 0UL, 0UL, 0UL, 0UL );
+            fd_stem_publish( stem, ctx->out[ OUT_KIND_SNAPCTL ].out_idx, FD_SNAPSHOT_MSG_CTRL_DONE, 0UL, 0UL, 0UL, 0UL, 0UL );
           }
           ctx->state = FD_SNAPRD_STATE_FLUSHING_FULL_HTTP;
           break;
@@ -275,8 +314,8 @@ read_http_data( fd_snaprd_tile_t *  ctx,
       if( FD_LIKELY( ctx->state==FD_SNAPRD_STATE_READING_FULL_HTTP ) ) ctx->metrics.full.bytes_total = fd_sshttp_content_len( ctx->sshttp );
       else                                                             ctx->metrics.incremental.bytes_total = fd_sshttp_content_len( ctx->sshttp );
 
-      fd_stem_publish( stem, 0UL, FD_SNAPSHOT_MSG_DATA, ctx->out.chunk, data_len, 0UL, 0UL, 0UL );
-      ctx->out.chunk = fd_dcache_compact_next( ctx->out.chunk, data_len, ctx->out.chunk0, ctx->out.wmark );
+      fd_stem_publish( stem, ctx->out[ OUT_KIND_SNAPCTL ].out_idx, FD_SNAPSHOT_MSG_DATA, ctx->out[ OUT_KIND_SNAPCTL ].chunk, data_len, 0UL, 0UL, 0UL );
+      ctx->out[ OUT_KIND_SNAPCTL ].chunk = fd_dcache_compact_next( ctx->out[ OUT_KIND_SNAPCTL ].chunk, data_len, ctx->out[ OUT_KIND_SNAPCTL ].chunk0, ctx->out[ OUT_KIND_SNAPCTL ].wmark );
 
       ulong written_sz = 0UL;
       if( FD_LIKELY( -1!=ctx->local_out.dir_fd && !ctx->local_out.write_buffer_len ) ) {
@@ -574,7 +613,7 @@ after_credit( fd_snaprd_tile_t *  ctx,
       ctx->ack_cnt = 0UL;
 
       if( FD_UNLIKELY( ctx->malformed ) ) {
-        fd_stem_publish( stem, 0UL, FD_SNAPSHOT_MSG_CTRL_RESET_FULL, 0UL, 0UL, 0UL, 0UL, 0UL );
+        fd_stem_publish( stem, ctx->out[ OUT_KIND_SNAPCTL ].out_idx, FD_SNAPSHOT_MSG_CTRL_RESET_FULL, 0UL, 0UL, 0UL, 0UL, 0UL );
         ctx->state = FD_SNAPRD_STATE_FLUSHING_FULL_HTTP_RESET;
         ctx->malformed = 0;
         break;
@@ -585,7 +624,7 @@ after_credit( fd_snaprd_tile_t *  ctx,
       rename_snapshots( ctx );
       ctx->state = FD_SNAPRD_STATE_SHUTDOWN;
       metrics_write( ctx ); /* ensures that shutdown state is written to metrics workspace before the tile actually shuts down */
-      fd_stem_publish( stem, 0UL, FD_SNAPSHOT_MSG_CTRL_SHUTDOWN, 0UL, 0UL, 0UL, 0UL, 0UL );
+      fd_stem_publish( stem, ctx->out[ OUT_KIND_SNAPCTL ].out_idx, FD_SNAPSHOT_MSG_CTRL_SHUTDOWN, 0UL, 0UL, 0UL, 0UL, 0UL );
       break;
     case FD_SNAPRD_STATE_FLUSHING_FULL_FILE:
       if( FD_UNLIKELY( ctx->ack_cnt<NUM_SNAP_CONSUMERS ) ) break;
@@ -594,7 +633,7 @@ after_credit( fd_snaprd_tile_t *  ctx,
       if( FD_LIKELY( !ctx->config.incremental_snapshot_fetch ) ) {
         ctx->state = FD_SNAPRD_STATE_SHUTDOWN;
         metrics_write( ctx ); /* ensures that shutdown state is written to metrics workspace before the tile actually shuts down */
-        fd_stem_publish( stem, 0UL, FD_SNAPSHOT_MSG_CTRL_SHUTDOWN, 0UL, 0UL, 0UL, 0UL, 0UL );
+        fd_stem_publish( stem, ctx->out[ OUT_KIND_SNAPCTL ].out_idx, FD_SNAPSHOT_MSG_CTRL_SHUTDOWN, 0UL, 0UL, 0UL, 0UL, 0UL );
         break;
       }
 
@@ -607,7 +646,7 @@ after_credit( fd_snaprd_tile_t *  ctx,
       ctx->ack_cnt = 0UL;
 
       if( FD_UNLIKELY( ctx->malformed ) ) {
-        fd_stem_publish( stem, 0UL, FD_SNAPSHOT_MSG_CTRL_RESET_FULL, 0UL, 0UL, 0UL, 0UL, 0UL );
+        fd_stem_publish( stem, ctx->out[ OUT_KIND_SNAPCTL ].out_idx, FD_SNAPSHOT_MSG_CTRL_RESET_FULL, 0UL, 0UL, 0UL, 0UL, 0UL );
         ctx->state = FD_SNAPRD_STATE_FLUSHING_FULL_HTTP_RESET;
         ctx->malformed = 0;
         break;
@@ -619,7 +658,7 @@ after_credit( fd_snaprd_tile_t *  ctx,
         rename_snapshots( ctx );
         ctx->state = FD_SNAPRD_STATE_SHUTDOWN;
         metrics_write( ctx ); /* ensures that shutdown state is written to metrics workspace before the tile actually shuts down */
-        fd_stem_publish( stem, 0UL, FD_SNAPSHOT_MSG_CTRL_SHUTDOWN, 0UL, 0UL, 0UL, 0UL, 0UL );
+        fd_stem_publish( stem, ctx->out[ OUT_KIND_SNAPCTL ].out_idx, FD_SNAPSHOT_MSG_CTRL_SHUTDOWN, 0UL, 0UL, 0UL, 0UL, 0UL );
         break;
       }
 
@@ -632,10 +671,12 @@ after_credit( fd_snaprd_tile_t *  ctx,
       if( FD_UNLIKELY( ctx->ack_cnt<NUM_SNAP_CONSUMERS ) ) break;
       ctx->ack_cnt = 0UL;
 
+      ctx->metrics.full.path_sent = 0;
       ctx->metrics.full.bytes_read = 0UL;
       ctx->metrics.full.bytes_written = 0UL;
       ctx->metrics.full.bytes_total = 0UL;
 
+      ctx->metrics.incremental.path_sent = 0;
       ctx->metrics.incremental.bytes_read = 0UL;
       ctx->metrics.incremental.bytes_written = 0UL;
       ctx->metrics.incremental.bytes_total = 0UL;
@@ -754,7 +795,7 @@ after_frag( fd_snaprd_tile_t *  ctx,
                           FD_IP4_ADDR_FMT_ARGS( ctx->addr.addr ), ctx->addr.port ));
           fd_sshttp_cancel( ctx->sshttp );
           fd_ssping_invalidate( ctx->ssping, ctx->addr, fd_log_wallclock() );
-          fd_stem_publish( stem, 0UL, FD_SNAPSHOT_MSG_CTRL_RESET_FULL, 0UL, 0UL, 0UL, 0UL, 0UL );
+          fd_stem_publish( stem, ctx->out[ OUT_KIND_SNAPCTL ].out_idx, FD_SNAPSHOT_MSG_CTRL_RESET_FULL, 0UL, 0UL, 0UL, 0UL, 0UL );
           ctx->state = FD_SNAPRD_STATE_FLUSHING_FULL_HTTP_RESET;
           break;
         case FD_SNAPRD_STATE_FLUSHING_FULL_HTTP:
@@ -956,13 +997,21 @@ unprivileged_init( fd_topo_t *      topo,
 
   for( ulong i=0UL; i<tile->snaprd.http.peers_cnt; i++ ) fd_ssping_add( ctx->ssping, tile->snaprd.http.peers[ i ] );
 
-  if( FD_UNLIKELY( tile->out_cnt!=1UL ) ) FD_LOG_ERR(( "tile `" NAME "` has %lu outs, expected 1", tile->out_cnt ));
+  FD_TEST( tile->out_cnt<=MAX_OUT_LINKS );
+  for( ulong i=0UL; i<(tile->out_cnt); i++ ){
+    fd_topo_link_t * out_link = &topo->links[ tile->out_link_id[ i ] ];
+    ulong kind;
+    if     ( 0==strcmp( out_link->name, "snap_zstd"    ) ) kind = OUT_KIND_SNAPCTL;
+    else if( 0==strcmp( out_link->name, "snaprd_plugi" ) ) kind = OUT_KIND_PLUGIN;
+    else FD_LOG_ERR(( "unexpected link" ));
 
-  ctx->out.wksp   = topo->workspaces[ topo->objs[ topo->links[ tile->out_link_id[ 0 ] ].dcache_obj_id ].wksp_id ].wksp;
-  ctx->out.chunk0 = fd_dcache_compact_chunk0( ctx->out.wksp, topo->links[ tile->out_link_id[ 0 ] ].dcache );
-  ctx->out.wmark  = fd_dcache_compact_wmark ( ctx->out.wksp, topo->links[ tile->out_link_id[ 0 ] ].dcache, topo->links[ tile->out_link_id[ 0 ] ].mtu );
-  ctx->out.chunk  = ctx->out.chunk0;
-  ctx->out.mtu    = topo->links[ tile->out_link_id[ 0 ] ].mtu;
+    ctx->out[ kind ].wksp    = topo->workspaces[ topo->objs[ topo->links[ tile->out_link_id[ kind ] ].dcache_obj_id ].wksp_id ].wksp;
+    ctx->out[ kind ].chunk0  = fd_dcache_compact_chunk0( ctx->out[ kind ].wksp, topo->links[ tile->out_link_id[ kind ] ].dcache );
+    ctx->out[ kind ].wmark   = fd_dcache_compact_wmark ( ctx->out[ kind ].wksp, topo->links[ tile->out_link_id[ kind ] ].dcache, topo->links[ tile->out_link_id[ kind ] ].mtu );
+    ctx->out[ kind ].chunk   = ctx->out[ kind ].chunk0;
+    ctx->out[ kind ].mtu     = topo->links[ tile->out_link_id[ kind ] ].mtu;
+    ctx->out[ kind ].out_idx = i;
+  }
 }
 
 #define STEM_BURST 2UL /* One control message, and one data message */

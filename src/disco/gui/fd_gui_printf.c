@@ -435,6 +435,97 @@ fd_gui_printf_startup_progress( fd_gui_t * gui ) {
 }
 
 void
+fd_gui_printf_boot_progress( fd_gui_t * gui ) {
+  const double _ns_per_sec = 1000000000.0;
+
+  jsonp_open_envelope( gui->http, "summary", "boot_progress" );
+    jsonp_open_object( gui->http, "value" );
+      switch( gui->summary.boot_progress.phase ) {
+        case FD_GUI_BOOT_PROGRESS_TYPE_JOINING_GOSSIP:
+          jsonp_string( gui->http, "phase", "joining_gossip" );
+          jsonp_double( gui->http, "total_elapsed", (double)(gui->summary.boot_progress.joining_gossip_time_nanos - gui->summary.startup_time_nanos) / _ns_per_sec );
+          break;
+        case FD_GUI_BOOT_PROGRESS_TYPE_LOADING_FULL_SNAPSHOT:
+          jsonp_string( gui->http, "phase", "loading_full_snapshot" );
+          jsonp_double( gui->http, "total_elapsed", (double)(gui->summary.boot_progress.loading_snapshot[ FD_GUI_BOOT_PROGRESS_FULL_SNAPSHOT_IDX ].sample_time_nanos - gui->summary.startup_time_nanos) / _ns_per_sec );
+          break;
+        case FD_GUI_BOOT_PROGRESS_TYPE_LOADING_INCREMENTAL_SNAPSHOT:
+          jsonp_string( gui->http, "phase", "loading_incr_snapshot" );
+          jsonp_double( gui->http, "total_elapsed", (double)(gui->summary.boot_progress.loading_snapshot[ FD_GUI_BOOT_PROGRESS_INCREMENTAL_SNAPSHOT_IDX ].sample_time_nanos - gui->summary.startup_time_nanos) / _ns_per_sec );
+          break;
+        case FD_GUI_BOOT_PROGRESS_TYPE_CATCHING_UP:
+          jsonp_string( gui->http, "phase", "catching_up" );
+          jsonp_double( gui->http, "total_elapsed", (double)(gui->summary.boot_progress.catching_up_time_nanos - gui->summary.startup_time_nanos) / _ns_per_sec );
+          break;
+        case FD_GUI_BOOT_PROGRESS_TYPE_RUNNING:
+          jsonp_string( gui->http, "phase", "running" );
+          jsonp_double( gui->http, "total_elapsed", (double)(gui->summary.boot_progress.catching_up_time_nanos - gui->summary.startup_time_nanos) / _ns_per_sec );
+          break;
+        default:
+          FD_LOG_ERR(( "unknown phase %d", gui->summary.startup_progress.phase ));
+      }
+
+      jsonp_long( gui->http, "joining_gossip_elapsed", (gui->summary.boot_progress.joining_gossip_time_nanos - gui->summary.startup_time_nanos) / 1000000L );
+
+#define HANDLE_SNAPSHOT_STATE(snapshot_type, snapshot_type_upper) \
+      if( FD_LIKELY( gui->summary.boot_progress.phase>=FD_GUI_BOOT_PROGRESS_TYPE_LOADING_##snapshot_type_upper##_SNAPSHOT )) { \
+        ulong snapshot_idx = FD_GUI_BOOT_PROGRESS_##snapshot_type_upper##_SNAPSHOT_IDX; \
+        jsonp_double      ( gui->http, "loading_" FD_STRINGIFY(snapshot_type) "_snapshot_elapsed_secs",                  (double)(gui->summary.boot_progress.loading_snapshot[ snapshot_idx ].sample_time_nanos - gui->summary.boot_progress.loading_snapshot[ snapshot_idx ].reset_time_nanos) / _ns_per_sec ); \
+        jsonp_double      ( gui->http, "loading_" FD_STRINGIFY(snapshot_type) "_snapshot_remaining_secs",                (double)gui->summary.boot_progress.loading_snapshot[ snapshot_idx ].time_remaining_nanos / _ns_per_sec           ); \
+        jsonp_ulong       ( gui->http, "loading_" FD_STRINGIFY(snapshot_type) "_snapshot_reset_cnt",                     gui->summary.boot_progress.loading_snapshot[ snapshot_idx ].reset_cnt                                            ); \
+        jsonp_ulong       ( gui->http, "loading_" FD_STRINGIFY(snapshot_type) "_snapshot_slot",                          gui->summary.boot_progress.loading_snapshot[ snapshot_idx ].slot                                                 ); \
+        jsonp_ulong_as_str( gui->http, "loading_" FD_STRINGIFY(snapshot_type) "_snapshot_total_bytes",                   gui->summary.boot_progress.loading_snapshot[ snapshot_idx ].total_bytes                                          ); \
+        jsonp_ulong_as_str( gui->http, "loading_" FD_STRINGIFY(snapshot_type) "_snapshot_read_bytes",                    gui->summary.boot_progress.loading_snapshot[ snapshot_idx ].read_bytes                                           ); \
+        jsonp_double      ( gui->http, "loading_" FD_STRINGIFY(snapshot_type) "_snapshot_read_throughput",               gui->summary.boot_progress.loading_snapshot[ snapshot_idx ].read_throughput_ema * _ns_per_sec                    ); \
+        jsonp_string      ( gui->http, "loading_" FD_STRINGIFY(snapshot_type) "_snapshot_read_path",                     gui->summary.boot_progress.loading_snapshot[ snapshot_idx ].read_path                                            ); \
+        jsonp_ulong_as_str( gui->http, "loading_" FD_STRINGIFY(snapshot_type) "_snapshot_decompress_decompressed_bytes", gui->summary.boot_progress.loading_snapshot[ snapshot_idx ].decompress_decompressed_bytes                        ); \
+        jsonp_ulong_as_str( gui->http, "loading_" FD_STRINGIFY(snapshot_type) "_snapshot_decompress_compressed_bytes",   gui->summary.boot_progress.loading_snapshot[ snapshot_idx ].decompress_compressed_bytes                          ); \
+        jsonp_double      ( gui->http, "loading_" FD_STRINGIFY(snapshot_type) "_snapshot_decompress_throughput",         gui->summary.boot_progress.loading_snapshot[ snapshot_idx ].decompress_throughput_ema * _ns_per_sec              ); \
+        jsonp_ulong_as_str( gui->http, "loading_" FD_STRINGIFY(snapshot_type) "_snapshot_insert_bytes",                  gui->summary.boot_progress.loading_snapshot[ snapshot_idx ].insert_bytes                                         ); \
+        jsonp_double      ( gui->http, "loading_" FD_STRINGIFY(snapshot_type) "_snapshot_insert_throughput",             gui->summary.boot_progress.loading_snapshot[ snapshot_idx ].insert_throughput_ema * _ns_per_sec                  ); \
+        jsonp_double      ( gui->http, "loading_" FD_STRINGIFY(snapshot_type) "_snapshot_insert_accounts_throughput",    (double)gui->summary.boot_progress.loading_snapshot[ snapshot_idx ].insert_accounts_throughput_ema * _ns_per_sec ); \
+        jsonp_ulong       ( gui->http, "loading_" FD_STRINGIFY(snapshot_type) "_snapshot_insert_accounts_current",       gui->summary.boot_progress.loading_snapshot[ snapshot_idx ].insert_accounts_current                              ); \
+      } else { \
+        jsonp_null( gui->http, "loading_" FD_STRINGIFY(snapshot_type) "_snapshot_elapsed_secs"                  ); \
+        jsonp_null( gui->http, "loading_" FD_STRINGIFY(snapshot_type) "_snapshot_remaining_secs"                ); \
+        jsonp_null( gui->http, "loading_" FD_STRINGIFY(snapshot_type) "_snapshot_reset_cnt"                     ); \
+        jsonp_null( gui->http, "loading_" FD_STRINGIFY(snapshot_type) "_snapshot_slot"                          ); \
+        jsonp_null( gui->http, "loading_" FD_STRINGIFY(snapshot_type) "_snapshot_total_bytes"                   ); \
+        jsonp_null( gui->http, "loading_" FD_STRINGIFY(snapshot_type) "_snapshot_read_bytes"                    ); \
+        jsonp_null( gui->http, "loading_" FD_STRINGIFY(snapshot_type) "_snapshot_read_throughput"               ); \
+        jsonp_null( gui->http, "loading_" FD_STRINGIFY(snapshot_type) "_snapshot_read_path"                     ); \
+        jsonp_null( gui->http, "loading_" FD_STRINGIFY(snapshot_type) "_snapshot_decompress_decompressed_bytes" ); \
+        jsonp_null( gui->http, "loading_" FD_STRINGIFY(snapshot_type) "_snapshot_decompress_compressed_bytes"   ); \
+        jsonp_null( gui->http, "loading_" FD_STRINGIFY(snapshot_type) "_snapshot_decompress_throughput"         ); \
+        jsonp_null( gui->http, "loading_" FD_STRINGIFY(snapshot_type) "_snapshot_insert_bytes"                  ); \
+        jsonp_null( gui->http, "loading_" FD_STRINGIFY(snapshot_type) "_snapshot_insert_throughput"             ); \
+        jsonp_null( gui->http, "loading_" FD_STRINGIFY(snapshot_type) "_snapshot_insert_accounts_throughput"    ); \
+        jsonp_null( gui->http, "loading_" FD_STRINGIFY(snapshot_type) "_snapshot_insert_accounts_current"       ); \
+      }
+
+    HANDLE_SNAPSHOT_STATE(full, FULL)
+    HANDLE_SNAPSHOT_STATE(incremental, INCREMENTAL)
+#undef HANDLE_SNAPSHOT_STATE
+
+    if( FD_LIKELY( gui->summary.boot_progress.phase>=FD_GUI_BOOT_PROGRESS_TYPE_CATCHING_UP )) {
+      jsonp_double( gui->http, "catching_up_elapsed",          (double)(gui->summary.boot_progress.catching_up_time_nanos - gui->summary.boot_progress.loading_snapshot[ FD_GUI_BOOT_PROGRESS_INCREMENTAL_SNAPSHOT_IDX ].sample_time_nanos) / _ns_per_sec );
+      jsonp_ulong ( gui->http, "catching_up_first_turbine_slot", gui->summary.boot_progress.catching_up_first_turbine_slot );
+      jsonp_ulong ( gui->http, "catching_up_latest_turbine_slot", gui->summary.boot_progress.catching_up_latest_turbine_slot );
+      jsonp_ulong ( gui->http, "catching_up_latest_repair_slot",  gui->summary.boot_progress.catching_up_latest_repair_slot  );
+      jsonp_ulong ( gui->http, "catching_up_latest_replay_slot",  gui->summary.boot_progress.catching_up_latest_replay_slot  );
+    } else {
+      jsonp_null( gui->http, "catching_up_elapsed"          );
+      jsonp_null( gui->http, "catching_up_first_turbine_slot" );
+      jsonp_null( gui->http, "catching_up_latest_turbine_slot" );
+      jsonp_null( gui->http, "catching_up_latest_repair_slot"  );
+      jsonp_null( gui->http, "catching_up_latest_replay_slot"  );
+    }
+
+    jsonp_close_object( gui->http );
+  jsonp_close_envelope( gui->http );
+}
+
+void
 fd_gui_printf_block_engine( fd_gui_t * gui ) {
   jsonp_open_envelope( gui->http, "block_engine", "update" );
     jsonp_open_object( gui->http, "value" );
@@ -1552,4 +1643,277 @@ fd_gui_printf_slot_request_detailed( fd_gui_t * gui,
 
     jsonp_close_object( gui->http );
   jsonp_close_envelope( gui->http );
+}
+
+void
+fd_gui_printf_peers_viewport_update( fd_gui_peers_ctx_t *  peers,
+                                     ulong                 ws_conn_id ) {
+        fd_gui_peers_live_table_verify( peers->live_table, peers->contact_info_table ); /* todo ... remove */
+  jsonp_open_envelope( peers->http, "gossip", "view_update" );
+    jsonp_open_object( peers->http, "value" );
+      jsonp_open_array( peers->http, "changes" );
+
+        /* loop over latest viewport */
+        FD_TEST( peers->client_viewports[ ws_conn_id ].connected );
+        if( !(peers->client_viewports[ ws_conn_id ].row_cnt && peers->client_viewports[ ws_conn_id ].row_cnt<FD_GUI_PEERS_WS_VIEWPORT_MAX_SZ) ) FD_LOG_ERR(("row_cnt=%lu", peers->client_viewports[ ws_conn_id ].row_cnt ));
+
+        for( fd_gui_peers_live_table_fwd_iter_t iter = fd_gui_peers_live_table_fwd_iter_init( peers->live_table, &peers->client_viewports[ ws_conn_id ].sort_key, peers->contact_info_table ), j = 0;
+             !fd_gui_peers_live_table_fwd_iter_done( iter ) && j<peers->client_viewports[ ws_conn_id ].start_row+peers->client_viewports[ ws_conn_id ].row_cnt;
+             iter = fd_gui_peers_live_table_fwd_iter_next( iter, peers->contact_info_table ), j++ ) {
+          if( FD_LIKELY( j<peers->client_viewports[ ws_conn_id ].start_row ) ) continue;
+          fd_gui_peers_node_t const * cur = fd_gui_peers_live_table_fwd_iter_ele_const( iter, peers->contact_info_table );
+          fd_gui_peers_node_t * ref = &peers->client_viewports[ ws_conn_id ].viewport[ j ];
+
+          /* This code should be kept in sync with updates to
+             fd_gui_peers_live_table */
+          if( FD_UNLIKELY( memcmp( cur->contact_info.pubkey.uc, ref->contact_info.pubkey.uc, 32UL ) ) ) {
+            jsonp_open_object( peers->http, NULL );
+              jsonp_ulong ( peers->http, "row_index", peers->client_viewports[ ws_conn_id ].start_row + j );
+              jsonp_string( peers->http, "column_name", "Pubkey" );
+
+              char pubkey_base58[ FD_BASE58_ENCODED_32_SZ ];
+              fd_base58_encode_32( cur->contact_info.pubkey.uc, NULL, pubkey_base58 );
+              jsonp_string( peers->http, "new_value", pubkey_base58 );
+            jsonp_close_object( peers->http );
+          }
+
+          if( FD_UNLIKELY( cur->contact_info.sockets[ FD_CONTACT_INFO_SOCKET_GOSSIP ].addr!=ref->contact_info.sockets[ FD_CONTACT_INFO_SOCKET_GOSSIP ].addr ) ) {
+            jsonp_open_object( peers->http, NULL );
+              jsonp_ulong ( peers->http, "row_index", peers->client_viewports[ ws_conn_id ].start_row + j );
+              jsonp_string( peers->http, "column_name", "IP Addr" );
+
+              char peer_addr[ 16 ]; /* 255.255.255.255 + '\0' */
+              FD_TEST( fd_cstr_printf_check( peer_addr, sizeof(peer_addr), NULL, FD_IP4_ADDR_FMT, FD_IP4_ADDR_FMT_ARGS(cur->contact_info.sockets[ FD_CONTACT_INFO_SOCKET_GOSSIP ].addr) ) );
+              jsonp_string( peers->http, "new_value", peer_addr );
+            jsonp_close_object( peers->http );
+          }
+
+          long cur_egress_push_kbps           = cur->gossip_tx[ FD_METRICS_ENUM_GOSSIP_MESSAGE_V_PUSH_IDX ].rate;
+          long ref_egress_push_kbps           = ref->gossip_tx[ FD_METRICS_ENUM_GOSSIP_MESSAGE_V_PUSH_IDX ].rate;
+          long cur_ingress_push_kbps          = cur->gossvf_rx[ FD_METRICS_ENUM_GOSSIP_MESSAGE_V_PUSH_IDX ].rate;
+          long ref_ingress_push_kbps          = ref->gossvf_rx[ FD_METRICS_ENUM_GOSSIP_MESSAGE_V_PUSH_IDX ].rate;
+          long cur_egress_pull_response_kbps  = cur->gossip_tx[ FD_METRICS_ENUM_GOSSIP_MESSAGE_V_PULL_RESPONSE_IDX ].rate;
+          long ref_egress_pull_response_kbps  = ref->gossip_tx[ FD_METRICS_ENUM_GOSSIP_MESSAGE_V_PULL_RESPONSE_IDX ].rate;
+          long cur_ingress_pull_response_kbps = cur->gossvf_rx[ FD_METRICS_ENUM_GOSSIP_MESSAGE_V_PULL_RESPONSE_IDX ].rate;
+          long ref_ingress_pull_response_kbps = ref->gossvf_rx[ FD_METRICS_ENUM_GOSSIP_MESSAGE_V_PULL_RESPONSE_IDX ].rate;
+
+          if( FD_UNLIKELY( ref->valid && cur_ingress_pull_response_kbps!=ref_ingress_pull_response_kbps ) ) {
+            jsonp_open_object( peers->http, NULL );
+              jsonp_ulong ( peers->http, "row_index", peers->client_viewports[ ws_conn_id ].start_row + j );
+              jsonp_string( peers->http, "column_name", "Ingress Pull" );
+              jsonp_long  ( peers->http, "new_value", cur_ingress_pull_response_kbps );
+            jsonp_close_object( peers->http );
+          }
+
+          if( FD_UNLIKELY( ref->valid && cur_ingress_push_kbps!=ref_ingress_push_kbps ) ) {
+            jsonp_open_object( peers->http, NULL );
+              jsonp_ulong ( peers->http, "row_index", peers->client_viewports[ ws_conn_id ].start_row + j );
+              jsonp_string( peers->http, "column_name", "Ingress Push" );
+              jsonp_long  ( peers->http, "new_value", cur_ingress_push_kbps );
+            jsonp_close_object( peers->http );
+          }
+
+          if( FD_UNLIKELY( ref->valid && cur_egress_pull_response_kbps!=ref_egress_pull_response_kbps ) ) {
+            jsonp_open_object( peers->http, NULL );
+              jsonp_ulong ( peers->http, "row_index", peers->client_viewports[ ws_conn_id ].start_row + j );
+              jsonp_string( peers->http, "column_name", "Egress Pull" );
+              jsonp_long  ( peers->http, "new_value", cur_egress_pull_response_kbps );
+            jsonp_close_object( peers->http );
+          }
+
+          if( FD_UNLIKELY( ref->valid && cur_egress_push_kbps!=ref_egress_push_kbps ) ) {
+            jsonp_open_object( peers->http, NULL );
+              jsonp_ulong ( peers->http, "row_index", peers->client_viewports[ ws_conn_id ].start_row + j );
+              jsonp_string( peers->http, "column_name", "Egress Push" );
+              jsonp_long  ( peers->http, "new_value", cur_egress_push_kbps );
+            jsonp_close_object( peers->http );
+          }
+
+          fd_gui_peers_live_table_verify( peers->live_table, peers->contact_info_table ); /* todo ... remove */
+        }
+      jsonp_close_array( peers->http );
+    jsonp_close_object( peers->http );
+  jsonp_close_envelope( peers->http );
+}
+
+void
+fd_gui_printf_peers_viewport_request( fd_gui_peers_ctx_t *  peers,
+                                      char const *          key,
+                                      ulong                 ws_conn_id,
+                                      ulong                 request_id ) {
+  jsonp_open_envelope( peers->http, "gossip", key );
+    jsonp_ulong( peers->http, "id", request_id );
+    jsonp_open_object( peers->http, "value" );
+
+      FD_TEST( peers->client_viewports[ ws_conn_id ].connected );
+      if( !(peers->client_viewports[ ws_conn_id ].row_cnt && peers->client_viewports[ ws_conn_id ].row_cnt<FD_GUI_PEERS_WS_VIEWPORT_MAX_SZ) ) FD_LOG_ERR(("row_cnt=%lu", peers->client_viewports[ ws_conn_id ].row_cnt ));
+      for( fd_gui_peers_live_table_fwd_iter_t iter = fd_gui_peers_live_table_fwd_iter_init( peers->live_table, &peers->client_viewports[ ws_conn_id ].sort_key, peers->contact_info_table ), j = 0;
+           !fd_gui_peers_live_table_fwd_iter_done( iter ) && j<peers->client_viewports[ ws_conn_id ].start_row+peers->client_viewports[ ws_conn_id ].row_cnt;
+           iter = fd_gui_peers_live_table_fwd_iter_next( iter, peers->contact_info_table ), j++ ) {
+        if( FD_LIKELY( j<peers->client_viewports[ ws_conn_id ].start_row ) ) continue;
+        fd_gui_peers_node_t const * cur = fd_gui_peers_live_table_fwd_iter_ele_const( iter, peers->contact_info_table );
+
+        char row_index_cstr[ 32 ];
+        FD_TEST( fd_cstr_printf_check( row_index_cstr, sizeof(row_index_cstr), NULL, "%lu", peers->client_viewports[ ws_conn_id ].start_row + j ) );
+        jsonp_open_array( peers->http, row_index_cstr );
+          /* This code should be kept in sync with updates to
+            fd_gui_peers_live_table */
+
+          char pubkey_base58[ FD_BASE58_ENCODED_32_SZ ];
+          fd_base58_encode_32( cur->contact_info.pubkey.uc, NULL, pubkey_base58 );
+          jsonp_string( peers->http, "Pubkey", pubkey_base58 );
+
+          char peer_addr[ 16 ]; /* 255.255.255.255 + '\0' */
+          FD_TEST( fd_cstr_printf_check( peer_addr, sizeof(peer_addr), NULL, FD_IP4_ADDR_FMT, FD_IP4_ADDR_FMT_ARGS(cur->contact_info.sockets[ FD_CONTACT_INFO_SOCKET_GOSSIP ].addr) ) );
+          jsonp_string( peers->http, "IP Addr", peer_addr );
+
+          long cur_egress_push_kbps           = cur->gossip_tx[ FD_METRICS_ENUM_GOSSIP_MESSAGE_V_PUSH_IDX ].rate;
+          long cur_ingress_push_kbps          = cur->gossvf_rx[ FD_METRICS_ENUM_GOSSIP_MESSAGE_V_PUSH_IDX ].rate;
+          long cur_egress_pull_response_kbps  = cur->gossip_tx[ FD_METRICS_ENUM_GOSSIP_MESSAGE_V_PULL_RESPONSE_IDX ].rate;
+          long cur_ingress_pull_response_kbps = cur->gossvf_rx[ FD_METRICS_ENUM_GOSSIP_MESSAGE_V_PULL_RESPONSE_IDX ].rate;
+
+          jsonp_long  ( peers->http, "Ingress Pull", cur_ingress_pull_response_kbps );
+          jsonp_long  ( peers->http, "Ingress Push", cur_ingress_push_kbps );
+          jsonp_long  ( peers->http, "Egress Pull", cur_egress_pull_response_kbps );
+          jsonp_long  ( peers->http, "Egress Push", cur_egress_push_kbps );
+
+        jsonp_close_array( peers->http );
+      }
+
+    jsonp_close_object( peers->http );
+  jsonp_close_envelope( peers->http );
+}
+
+void
+fd_gui_printf_peers_view_resize( fd_gui_peers_ctx_t *  peers, ulong sz ) {
+  jsonp_open_envelope( peers->http, "gossip", "peers_size_update" );
+    jsonp_ulong( peers->http, "value", sz );
+  jsonp_close_envelope( peers->http );
+}
+
+void
+fd_gui_peers_printf_gossip_stats( fd_gui_peers_ctx_t *  peers ) {
+  fd_gui_peers_gossip_stats_t * cur = peers->gossip_stats_current;
+  fd_gui_peers_gossip_stats_t * ref = peers->gossip_stats_reference;
+
+  jsonp_open_envelope( peers->http, "gossip", "network_stats" );
+    jsonp_open_object( peers->http, "value" );
+
+      jsonp_open_object( peers->http, "health" );
+        ulong _push_msg_rx_success_delta = cur->network_health_push_msg_rx_success - ref->network_health_push_msg_rx_success;
+        ulong _pull_response_msg_rx_success_delta = cur->network_health_push_msg_rx_success - ref->network_health_push_msg_rx_success;
+        ulong _ingress_msg_rx_total_delta = _push_msg_rx_success_delta + _pull_response_msg_rx_success_delta;
+        if( FD_LIKELY( _ingress_msg_rx_total_delta ) ) jsonp_double( peers->http, "push_rx_pct", (double)_push_msg_rx_success_delta / (double)_ingress_msg_rx_total_delta );
+        else                                           jsonp_null( peers->http, "push_rx_pct" );
+
+        if( FD_LIKELY( _ingress_msg_rx_total_delta ) ) jsonp_double( peers->http, "pull_response_rx_pct", (double)_pull_response_msg_rx_success_delta / (double)_ingress_msg_rx_total_delta );
+        else                                           jsonp_null( peers->http, "pull_response_rx_pct" );
+
+        ulong _push_crds_rx_success_delta = cur->network_health_push_crds_rx_success - ref->network_health_push_crds_rx_success;
+        ulong _push_crds_rx_failure_delta = cur->network_health_push_crds_rx_failure - ref->network_health_push_crds_rx_failure;
+        ulong _push_crds_rx_crds_duplicate_delta = cur->network_health_push_crds_rx_duplicate - ref->network_health_push_crds_rx_duplicate;
+        ulong _push_crds_rx_total_delta = _push_crds_rx_success_delta + _push_crds_rx_failure_delta;
+        if( FD_LIKELY( _push_crds_rx_total_delta ) ) jsonp_double( peers->http, "push_rx_dup_pct", (double)_push_crds_rx_crds_duplicate_delta / (double)_push_crds_rx_total_delta );
+        else                                         jsonp_null( peers->http, "push_rx_dup_pct" );
+
+        ulong _pull_response_crds_rx_success_delta = cur->network_health_pull_response_crds_rx_success - ref->network_health_pull_response_crds_rx_success;
+        ulong _pull_response_crds_rx_failure_delta = cur->network_health_pull_response_crds_rx_failure - ref->network_health_pull_response_crds_rx_failure;
+        ulong _pull_response_crds_rx_crds_duplicate_delta = cur->network_health_pull_response_crds_rx_duplicate - ref->network_health_pull_response_crds_rx_duplicate;
+        ulong _pull_response_crds_rx_total_delta = _pull_response_crds_rx_success_delta + _pull_response_crds_rx_failure_delta;
+        if( FD_LIKELY( _pull_response_crds_rx_total_delta ) ) jsonp_double( peers->http, "pull_response_rx_dup_pct", (double)_pull_response_crds_rx_crds_duplicate_delta / (double)_pull_response_crds_rx_total_delta );
+        else                                                  jsonp_null( peers->http, "pull_response_rx_dup_pct" );
+
+        ulong _push_msg_rx_failure_delta = cur->network_health_push_msg_rx_failure - ref->network_health_push_msg_rx_failure;
+        ulong _pull_response_msg_rx_failure_delta = cur->network_health_pull_response_msg_rx_failure - ref->network_health_pull_response_msg_rx_failure;
+        ulong _push_msg_rx_total_delta = _push_msg_rx_success_delta + _push_msg_rx_failure_delta;
+        ulong _pull_response_msg_rx_total_delta = _pull_response_msg_rx_success_delta + _pull_response_msg_rx_failure_delta;
+        if( FD_LIKELY( _push_msg_rx_total_delta ) ) jsonp_double( peers->http, "push_rx_msg_bad_pct", (double)_push_msg_rx_failure_delta / (double)_push_msg_rx_total_delta );
+        else                                        jsonp_null( peers->http, "push_rx_msg_bad_pct" );
+
+        if( FD_LIKELY( _push_crds_rx_total_delta ) ) jsonp_double( peers->http, "push_rx_entry_bad_pct", (double)_push_crds_rx_failure_delta / (double)_push_crds_rx_total_delta );
+        else                                         jsonp_null( peers->http, "push_rx_entry_bad_pct" );
+
+        if( FD_LIKELY( _pull_response_msg_rx_total_delta ) ) jsonp_double( peers->http, "pull_response_rx_msg_bad_pct", (double)_pull_response_msg_rx_failure_delta / (double)_pull_response_msg_rx_total_delta );
+        else                                                 jsonp_null( peers->http, "pull_response_rx_msg_bad_pct" );
+
+        if( FD_LIKELY( _pull_response_crds_rx_total_delta ) ) jsonp_double( peers->http, "pull_response_rx_entry_bad_pct", (double)_pull_response_crds_rx_failure_delta / (double)_pull_response_crds_rx_total_delta );
+        else                                                  jsonp_null( peers->http, "pull_response_rx_entry_bad_pct" );
+
+        if( FD_LIKELY( 0 ) ) jsonp_double( peers->http, "pull_already_known_pct", 0.0 ); /* todo ... */
+        else                 jsonp_null( peers->http, "pull_already_known_pct" );
+
+        /* since these are gauges, we don't take a diff */
+        jsonp_ulong( peers->http, "total_stake",              cur->network_health_total_stake              );
+        jsonp_ulong( peers->http, "total_peers",              cur->network_health_total_peers              );
+        jsonp_ulong( peers->http, "connected_stake",          cur->network_health_connected_stake          );
+        jsonp_ulong( peers->http, "connected_staked_peers",   cur->network_health_connected_staked_peers   );
+        jsonp_ulong( peers->http, "connected_unstaked_peers", cur->network_health_connected_unstaked_peers );
+      jsonp_close_object( peers->http );
+
+      double _window = (double)(fd_long_max( cur->sample_time,  ref->sample_time + 1L) - ref->sample_time) / 1000000000.0;
+      jsonp_open_object( peers->http, "ingress" );
+        jsonp_double( peers->http, "total_throughput", (double)(cur->network_ingress_total_bytes - ref->network_ingress_total_bytes) / _window );
+        jsonp_open_array( peers->http, "peer_names" );
+          for( ulong i=0UL; i<cur->network_ingress_peer_sz; i++ ) jsonp_string( peers->http, NULL, cur->network_egress_peer_names[ i ] );
+        jsonp_close_array( peers->http );
+        jsonp_open_array( peers->http, "peer_throughput" );
+          for( ulong i=0UL; i<cur->network_ingress_peer_sz; i++ ) jsonp_double( peers->http, NULL, cur->network_egress_peer_bytes_per_ns[ i ]  );
+        jsonp_close_array( peers->http );
+      jsonp_close_object( peers->http );
+
+      jsonp_open_object( peers->http, "egress" );
+        jsonp_double( peers->http, "total_throughput", (double)(cur->network_egress_total_bytes - ref->network_egress_total_bytes) / _window );
+        jsonp_open_array( peers->http, "peer_names" );
+          /* todo ... */
+        jsonp_close_array( peers->http );
+        jsonp_open_array( peers->http, "peer_throughput" );
+          /* todo ... */
+        jsonp_close_array( peers->http );
+      jsonp_close_object( peers->http );
+
+      jsonp_open_object( peers->http, "storage" );
+        /* since these are gauges, we don't take a diff */
+        jsonp_ulong( peers->http, "capacity", cur->storage_capacity );
+        jsonp_ulong( peers->http, "expired_count", cur->storage_expired_cnt );
+        jsonp_ulong( peers->http, "evicted_count", cur->storage_evicted_cnt );
+        jsonp_open_array( peers->http, "count" );
+          for( ulong i = 0UL; i<FD_GUI_GOSSIP_ENTRY_CNT; i++ ) jsonp_ulong( peers->http, NULL, cur->storage_active_cnt[ i ] );
+        jsonp_close_array( peers->http );
+        jsonp_open_array( peers->http, "eps_tx" );
+          for( ulong i = 0UL; i<FD_GUI_GOSSIP_ENTRY_CNT; i++ ) jsonp_double( peers->http, NULL, (double)(cur->storage_cnt_tx[ i ] - ref->storage_cnt_tx[ i ]) / _window );
+        jsonp_close_array( peers->http );
+        jsonp_open_array( peers->http, "bps_tx" );
+          for( ulong i = 0UL; i<FD_GUI_GOSSIP_ENTRY_CNT; i++ ) jsonp_double( peers->http, NULL, (double)(cur->storage_bytes_tx[ i ] - ref->storage_bytes_tx[ i ]) / _window );
+        jsonp_close_array( peers->http );
+      jsonp_close_object( peers->http );
+      jsonp_open_object( peers->http, "messages" );
+        jsonp_open_array( peers->http, "bps_rx" );
+          for( ulong i = 0UL; i<FD_GUI_GOSSIP_MESSAGE_CNT; i++ ) jsonp_double( peers->http, NULL, (double)(cur->messages_bytes_rx[ i ] - ref->messages_bytes_rx[ i ]) / _window );
+        jsonp_close_array( peers->http );
+        jsonp_open_array( peers->http, "mps_rx" );
+          for( ulong i = 0UL; i<FD_GUI_GOSSIP_MESSAGE_CNT; i++ ) jsonp_double( peers->http, NULL, (double)(cur->messages_count_rx[ i ] - ref->messages_count_rx[ i ]) / _window );
+        jsonp_close_array( peers->http );
+        jsonp_open_array( peers->http, "bps_tx" );
+          for( ulong i = 0UL; i<FD_GUI_GOSSIP_MESSAGE_CNT; i++ ) jsonp_double( peers->http, NULL, (double)(cur->messages_bytes_tx[ i ] - ref->messages_bytes_tx[ i ]) / _window );
+        jsonp_close_array( peers->http );
+        jsonp_open_array( peers->http, "mps_tx" );
+          for( ulong i = 0UL; i<FD_GUI_GOSSIP_MESSAGE_CNT; i++ ) jsonp_double( peers->http, NULL, (double)(cur->messages_count_tx[ i ] - ref->messages_count_tx[ i ]) / _window );
+        jsonp_close_array( peers->http );
+
+        /* since these are gauges, we don't take a diff */
+        jsonp_open_array( peers->http, "bytes_rx_total" );
+          for( ulong i = 0UL; i<FD_GUI_GOSSIP_MESSAGE_CNT; i++ ) jsonp_ulong( peers->http, NULL, cur->messages_bytes_rx[ i ] );
+        jsonp_close_array( peers->http );
+        jsonp_open_array( peers->http, "bytes_tx_total" );
+          for( ulong i = 0UL; i<FD_GUI_GOSSIP_MESSAGE_CNT; i++ ) jsonp_ulong( peers->http, NULL, cur->messages_bytes_tx[ i ] );
+        jsonp_close_array( peers->http );
+        jsonp_open_array( peers->http, "count_rx_total" );
+          for( ulong i = 0UL; i<FD_GUI_GOSSIP_MESSAGE_CNT; i++ ) jsonp_ulong( peers->http, NULL, cur->messages_count_rx[ i ] );
+        jsonp_close_array( peers->http );
+        jsonp_open_array( peers->http, "count_tx_total" );
+          for( ulong i = 0UL; i<FD_GUI_GOSSIP_MESSAGE_CNT; i++ ) jsonp_ulong( peers->http, NULL, cur->messages_count_tx[ i ] );
+        jsonp_close_array( peers->http );
+      jsonp_close_object( peers->http );
+    jsonp_close_object( peers->http );
+  jsonp_close_envelope( peers->http );
 }

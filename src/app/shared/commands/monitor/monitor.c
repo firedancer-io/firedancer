@@ -395,8 +395,8 @@ run_monitor( config_t const * config,
         PRINT( TEXT_NEWLINE );
       }
     } else {
-      PRINT( "             link |  tot TPS |  tot bps | uniq TPS | uniq bps |   ha tr%% | uniq bw%% | filt tr%% | filt bw%% |           ovrnp cnt |           ovrnr cnt |            slow cnt |             tx seq" TEXT_NEWLINE );
-      PRINT( "------------------+----------+----------+----------+----------+----------+----------+----------+----------+---------------------+---------------------+---------------------+-------------------" TEXT_NEWLINE );
+      PRINT( "                            link |  tot TPS |  tot bps | uniq TPS | uniq bps |   ha tr%% | uniq bw%% | filt tr%% | filt bw%% |           ovrnp cnt |           ovrnr cnt |            slow cnt |             tx seq" TEXT_NEWLINE );
+      PRINT( "---------------------------------+----------+----------+----------+----------+----------+----------+----------+----------+---------------------+---------------------+---------------------+-------------------" TEXT_NEWLINE );
 
       ulong link_idx = 0UL;
       for( ulong tile_idx=0UL; tile_idx<topo->tile_cnt; tile_idx++ ) {
@@ -408,7 +408,7 @@ run_monitor( config_t const * config,
           ulong producer_tile_id = fd_topo_find_link_producer( topo, &link );
           FD_TEST( producer_tile_id != ULONG_MAX );
           char const * producer = topo->tiles[ producer_tile_id ].name;
-          PRINT( " %7s->%-7s", producer, topo->tiles[ tile_idx ].name );
+          PRINT( " %7s->%-7s (%-12s)", producer, topo->tiles[ tile_idx ].name, link.name );
           ulong cur_raw_cnt = /* cur->cnc_diag_ha_filt_cnt + */ cur->fseq_diag_tot_cnt;
           ulong cur_raw_sz  = /* cur->cnc_diag_ha_filt_sz  + */ cur->fseq_diag_tot_sz;
           ulong prv_raw_cnt = /* prv->cnc_diag_ha_filt_cnt + */ prv->fseq_diag_tot_cnt;

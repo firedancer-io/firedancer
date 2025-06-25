@@ -1,6 +1,6 @@
 #include "../fd_disco.h"
 
-uchar scratch[ 256 ] __attribute__((aligned(256UL)));
+uchar scratch[ 384 ] __attribute__((aligned(256UL)));
 
 #define TEST_LIVE_TABLE_ROW_CNT (10000UL)
 #define TEST_LIVE_TABLE_MAX_SORT_KEY_CNT 3UL
@@ -13,6 +13,7 @@ struct test_live_table_row {
     ulong next    [ TEST_LIVE_TABLE_MAX_SORT_KEY_CNT ];
     ulong prev    [ TEST_LIVE_TABLE_MAX_SORT_KEY_CNT ];
   } treaps;
+  ulong sort_keys;
 
   fd_pubkey_t key;
   uint ipv4;
@@ -26,6 +27,7 @@ static int live_table_col_counter_lt( void const * a, void const * b ) { return 
 
 #define LIVE_TABLE_NAME test_live_table
 #define LIVE_TABLE_COLUMN_CNT (3UL)
+#define LIVE_TABLE_SORT_KEYS sort_keys
 #define LIVE_TABLE_MAX_SORT_KEY_CNT TEST_LIVE_TABLE_MAX_SORT_KEY_CNT
 #define LIVE_TABLE_COLUMNS LIVE_TABLE_COL_ARRAY( LIVE_TABLE_COL_ENTRY("Pubkey", key, live_table_col_pubkey_lt), LIVE_TABLE_COL_ENTRY("IP Address", ipv4, live_table_col_ipv4_lt), LIVE_TABLE_COL_ENTRY("Some Metric", counter, live_table_col_counter_lt) )
 #define LIVE_TABLE_ROW_T test_live_table_row_t

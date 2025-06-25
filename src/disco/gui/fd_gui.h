@@ -3,6 +3,7 @@
 
 #include "../fd_disco_base.h"
 
+#include "fd_gui_peers.h"
 #include "../pack/fd_microblock.h"
 #include "../../waltz/http/fd_http_server.h"
 #include "../../flamenco/leaders/fd_leaders.h"
@@ -42,6 +43,44 @@
 #define FD_GUI_START_PROGRESS_TYPE_HALTED                             (10)
 #define FD_GUI_START_PROGRESS_TYPE_WAITING_FOR_SUPERMAJORITY          (11)
 #define FD_GUI_START_PROGRESS_TYPE_RUNNING                            (12)
+
+#define FD_GUI_BOOT_PROGRESS_TYPE_JOINING_GOSSIP               ( 1)
+#define FD_GUI_BOOT_PROGRESS_TYPE_LOADING_FULL_SNAPSHOT        ( 2)
+#define FD_GUI_BOOT_PROGRESS_TYPE_LOADING_INCREMENTAL_SNAPSHOT ( 3)
+#define FD_GUI_BOOT_PROGRESS_TYPE_CATCHING_UP                  ( 4)
+#define FD_GUI_BOOT_PROGRESS_TYPE_RUNNING                      ( 5)
+
+#define FD_GUI_BOOT_PROGRESS_FULL_SNAPSHOT_IDX        (0UL)
+#define FD_GUI_BOOT_PROGRESS_INCREMENTAL_SNAPSHOT_IDX (1UL)
+
+#define FD_GUI_GOSSIP_ENTRY_CNT                               (14UL)
+#define FD_GUI_GOSSIP_ENTRY_CONTACT_INFO_V1_IDX               ( 0UL)
+#define FD_GUI_GOSSIP_ENTRY_VOTE_IDX                          ( 1UL)
+#define FD_GUI_GOSSIP_ENTRY_LOWEST_SLOT_IDX                   ( 2UL)
+#define FD_GUI_GOSSIP_ENTRY_SNAPSHOT_HASHES_IDX               ( 3UL)
+#define FD_GUI_GOSSIP_ENTRY_ACCOUNTS_HASHES_IDX               ( 4UL)
+#define FD_GUI_GOSSIP_ENTRY_EPOCH_SLOTS_IDX                   ( 5UL)
+#define FD_GUI_GOSSIP_ENTRY_VERSION_V1_IDX                    ( 6UL)
+#define FD_GUI_GOSSIP_ENTRY_VERSION_V2_IDX                    ( 7UL)
+#define FD_GUI_GOSSIP_ENTRY_NODE_INSTANCE_IDX                 ( 8UL)
+#define FD_GUI_GOSSIP_ENTRY_DUPLICATE_SHRED_IDX               ( 9UL)
+#define FD_GUI_GOSSIP_ENTRY_INCREMENTAL_SNAPSHOT_HASHES_IDX   (10UL)
+#define FD_GUI_GOSSIP_ENTRY_CONTACT_INFO_V2_IDX               (11UL)
+#define FD_GUI_GOSSIP_ENTRY_RESTART_LAST_VOTED_FORK_SLOTS_IDX (12UL)
+#define FD_GUI_GOSSIP_ENTRY_RESTART_HEAVIEST_FORK_IDX         (13UL)
+
+#define FD_GUI_GOSSIP_MESSAGE_CNT               (6UL)
+#define FD_GUI_GOSSIP_MESSAGE_PULL_REQUEST_IDX  (0UL)
+#define FD_GUI_GOSSIP_MESSAGE_PULL_RESPONSE_IDX (1UL)
+#define FD_GUI_GOSSIP_MESSAGE_PUSH_IDX          (2UL)
+#define FD_GUI_GOSSIP_MESSAGE_PING_IDX          (3UL)
+#define FD_GUI_GOSSIP_MESSAGE_PONG_IDX          (4UL)
+#define FD_GUI_GOSSIP_MESSAGE_PRUNE_IDX         (5UL)
+
+
+#define FD_GUI_EMA_FILTER_ALPHA ((double)0.15)
+
+#define FD_GUI_GOSSIP_NETWORK_STATS_PEER_CNT (64UL)
 
 /* Ideally, we would store an entire epoch's worth of transactions.  If
    we assume any given validator will have at most 5% stake, and average
@@ -376,6 +415,7 @@ struct fd_gui {
     char vote_key_base58[ FD_BASE58_ENCODED_32_SZ ];
     char identity_key_base58[ FD_BASE58_ENCODED_32_SZ ];
 
+    int          is_full_client;
     char const * version;
     char const * cluster;
 
@@ -384,7 +424,8 @@ struct fd_gui {
 
     long  startup_time_nanos;
 
-    struct { /* used in frankendancer */
+    union {
+      struct { /* used in frankendancer */
       uchar phase;
       int   startup_got_full_snapshot;
 
@@ -411,7 +452,42 @@ struct fd_gui {
 
         ulong startup_waiting_for_supermajority_slot;
         ulong startup_waiting_for_supermajority_stake_pct;
-    } startup_progress;
+      } startup_progress;
+      struct { /* used in the full client */
+        uchar phase;
+        long joining_gossip_time_nanos;
+        struct {
+          ulong  slot;
+          uint   peer_addr;
+          ushort peer_port;
+          ulong  total_bytes; /* compressed */
+          long   reset_time_nanos; /* since this phase can reset, we keep a reset timestamp for proper timekeeping */
+          long   sample_time_nanos;
+          long   time_remaining_nanos;
+          ulong  reset_cnt;
+
+          ulong  read_bytes; /* compressed */
+          double read_throughput_ema; /* EMA filtered throughput, in compressed bytes / ns */
+          char   read_path[ PATH_MAX ];
+
+          ulong  decompress_decompressed_bytes; /* decompressed */
+          ulong  decompress_compressed_bytes; /* compressed */
+          double decompress_throughput_ema; /* compressed */
+
+          ulong  insert_bytes; /* decompressed */
+          double insert_throughput_ema; /* decompressed */
+          char   insert_path[ PATH_MAX ];
+          ulong  insert_accounts_current;
+          double insert_accounts_throughput_ema;
+        } loading_snapshot[ 2UL ];
+
+        long  catching_up_time_nanos;
+        ulong catching_up_first_turbine_slot;
+        ulong catching_up_latest_turbine_slot;
+        ulong catching_up_latest_repair_slot;
+        ulong catching_up_latest_replay_slot;
+      } boot_progress;
+    };
 
     int schedule_strategy;
 
@@ -426,9 +502,11 @@ struct fd_gui {
     ulong resolv_tile_cnt;
     ulong bank_tile_cnt;
     ulong shred_tile_cnt;
+    ulong bundle_tile_cnt;
 
     ulong slot_rooted;
     ulong slot_optimistically_confirmed;
+    ulong slot_reset;
     ulong slot_completed;
     ulong slot_estimated;
     ulong slot_caught_up;
@@ -493,17 +571,19 @@ struct fd_gui {
   struct {
     ulong                     peer_cnt;
     struct fd_gui_gossip_peer peers[ FD_GUI_MAX_PEER_CNT ];
-  } gossip;
+  } gossip; /* legacy */
 
   struct {
     ulong                      vote_account_cnt;
     struct fd_gui_vote_account vote_accounts[ FD_GUI_MAX_PEER_CNT ];
-  } vote_account;
+  } vote_account; /* legacy */
 
   struct {
     ulong                        info_cnt;
     struct fd_gui_validator_info info[ FD_GUI_MAX_PEER_CNT ];
-  } validator_info;
+  } validator_info; /* legacy */
+
+  fd_gui_peers_ctx_t * peers; /* full-client */
 };
 
 typedef struct fd_gui fd_gui_t;
@@ -517,16 +597,17 @@ FD_FN_CONST ulong
 fd_gui_footprint( void );
 
 void *
-fd_gui_new( void *             shmem,
-            fd_http_server_t * http,
-            char const *       version,
-            char const *       cluster,
-            uchar const *      identity_key,
-            int                has_vote_key,
-            uchar const *      vote_key,
-            int                is_voting,
-            int                schedule_strategy,
-            fd_topo_t *        topo );
+fd_gui_new( void *                shmem,
+            fd_http_server_t *    http,
+            char const *          version,
+            char const *          cluster,
+            uchar const *         identity_key,
+            int                   has_vote_key,
+            uchar const *         vote_key,
+            int                   is_full_client,
+            int                   is_voting,
+            int                   schedule_strategy,
+            fd_topo_t *           topo );
 
 fd_gui_t *
 fd_gui_join( void * shmem );
