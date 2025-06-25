@@ -11,6 +11,7 @@
 #include "../../ballet/blake3/fd_blake3.h"
 #include "../../ballet/lthash/fd_lthash.h"
 #include "../../ballet/sha256/fd_sha256.h"
+#include "../../ballet/lthash/fd_lthash.h"
 
 #include <assert.h>
 #include <stdio.h>

@@ -1,6 +1,7 @@
 #include "fd_snapshot_parser.h"
 #include "../../util/archive/fd_tar.h"
 #include "../../flamenco/runtime/fd_acc_mgr.h" /* FD_ACC_SZ_MAX */
+#include "../../ballet/lthash/fd_lthash.h"
 #include <errno.h>
 #include <assert.h>
 #include <stdio.h>
@@ -312,13 +313,18 @@ fd_snapshot_parser_restore_manifest( fd_snapshot_parser_t * self ) {
   fd_solana_manifest_t * manifest = fd_solana_manifest_decode( self->manifest_buf, &decode );
 
   char acc_hash_cstr[ FD_BASE58_ENCODED_32_SZ ];
-  fd_base58_encode_32( manifest->accounts_db.bank_hash_info.accounts_hash.uc, NULL, acc_hash_cstr );
+  if( manifest->lthash ) {
+    FD_LOG_WARNING(("full acc hash is %s", FD_LTHASH_ENC_32_ALLOCA( (fd_lthash_value_t *) manifest->lthash->lthash)));
+  } else {
+    fd_base58_encode_32( manifest->accounts_db.bank_hash_info.accounts_hash.uc, NULL, acc_hash_cstr );
+    FD_LOG_WARNING(("full acc hash is %s", acc_hash_cstr));
+  }
+
+  /* TODO: seems like this is not used anymore for incremental snapshots... or we are just parsing it wrong */
   if( manifest->bank_incremental_snapshot_persistence ) {
     FD_LOG_NOTICE(( "Incremental snapshot has incremental snapshot persistence with full acc_hash=%s and incremental acc_hash=%s",
       FD_BASE58_ENC_32_ALLOCA(&manifest->bank_incremental_snapshot_persistence->full_hash),
       FD_BASE58_ENC_32_ALLOCA(&manifest->bank_incremental_snapshot_persistence->incremental_hash) ));
-  } else {
-    FD_LOG_NOTICE(( "Full snapshot acc_hash=%s", acc_hash_cstr ));
   }
 
   dt += fd_log_wallclock();

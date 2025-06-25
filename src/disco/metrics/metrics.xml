@@ -768,8 +768,10 @@ metric introduced.
     <counter name="IncrementalNumRetries" summary="Number of times we aborted and retried incremental snapshot download because the peer was too slow" />
     <gauge name="FullBytesRead" summary="Number of bytes read so far from the full snapshot. Might decrease if snapshot load is aborted and restarted" />
     <gauge name="FullBytesTotal" summary="Total size of the full snapshot file. Might change if snapshot load is aborted and restarted" />
+    <gauge name="FullDownloadRetries" summary="Number of times we retried the full snapshot download because the peer was too slow" />
     <gauge name="IncrementalBytesRead" summary="Number of bytes read so far from the incremental snapshot. Might decrease if snapshot load is aborted and restarted" />
     <gauge name="IncrementalBytesTotal" summary="Total size of the incremental snapshot file. Might change if snapshot load is aborted and restarted" />
+    <gauge name="IncrementalDownloadRetries" summary="Number of times we retried the incremental snapshot download because the peer was too slow" />
 </tile>
 
 <tile name="snapdc">

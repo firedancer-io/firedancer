@@ -33,16 +33,14 @@
 
 #define FD_SNAPSHOT_HTTPDL_DEFAULT_HOPS (4UL)
 
-#define FD_SNAPSHOT_HTTPDL_MAX_NODES (16UL)
-
 #define FD_SNAPSHOT_HTTPDL_REQUEST_TIMEOUT (10e9) /* 10 seconds */
 #define FD_SNAPSHOT_HTTPDL_DL_PERIOD (100UL<<20)
 
 struct fd_snapshot_httpdl {
   /* List of RPC node addresses */
-  fd_snapshot_peer_t peers[ 16UL ];
-  ulong              peers_cnt;
-  ulong              current_peer_idx;
+  fd_snapshot_peer_t const * peers;
+  ulong                      peers_cnt;
+  ulong                      current_peer_idx;
 
   uint   ipv4;
   ushort port;
@@ -122,7 +120,7 @@ fd_snapshot_httpdl_footprint( void ) {
 fd_snapshot_httpdl_t *
 fd_snapshot_httpdl_new( void *                                    mem,
                         ulong                                     peers_cnt,
-                        fd_snapshot_peer_t const                  peers[ FD_SNAPSHOT_HTTPDL_MAX_NODES ],
+                        fd_snapshot_peer_t const *                peers,
                         char                                      snapshot_archive_path[ PATH_MAX ],
                         fd_snapshot_archive_entry_t *             full_snapshot_entry,
                         fd_incremental_snapshot_archive_entry_t * incremental_snapshot_entry,

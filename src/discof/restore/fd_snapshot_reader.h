@@ -100,6 +100,21 @@ fd_snapshot_reader_set_source_incremental( fd_snapshot_reader_t * self ) {
   }
 }
 
+static inline int
+fd_snapshot_reader_get_source_type( fd_snapshot_reader_t * self ) {
+  return self->vsrc->src_type;
+}
+
+static inline void
+fd_snapshot_reader_set_peers_cnt( fd_snapshot_reader_t * self,
+                                  ulong                 peers_cnt ) {
+  if( self->http ) {
+    self->http->peers_cnt = peers_cnt;
+  } else {
+    FD_LOG_ERR(( "Cannot set peers count because http source is not initialized" ));
+  }
+}
+
 static inline void
 fd_snapshot_reader_delete( fd_snapshot_reader_t * self ) {
   if( self->full_snapshot_file ) {

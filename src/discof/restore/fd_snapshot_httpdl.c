@@ -113,6 +113,15 @@ fd_snapshot_httpdl_cleanup_fds( fd_snapshot_httpdl_t * self ) {
 
 static int
 fd_snapshot_httpdl_init_connection( fd_snapshot_httpdl_t * self ) {
+
+  if( self->peers_cnt == 0 ) {
+    FD_LOG_WARNING(( "No peers to connect to." ));
+    self->state = FD_SNAPSHOT_HTTPDL_STATE_FAIL;
+    return EINVAL;
+  }
+
+  self->ipv4 = self->peers[ self->current_peer_idx ].dest.addr;
+  self->port = self->peers[ self->current_peer_idx ].dest.port;
   FD_LOG_NOTICE(( "Connecting to " FD_IP4_ADDR_FMT ":%u ...",
     FD_IP4_ADDR_FMT_ARGS( self->ipv4 ), self->port ));
 
@@ -602,8 +611,8 @@ fd_snapshot_httpdl_retry( fd_snapshot_httpdl_t * self ) {
     return -1;
   }
 
-  self->ipv4 = self->peers[ self->current_peer_idx ].peer.addr;
-  self->port = self->peers[self->current_peer_idx ].peer.port;
+  self->ipv4 = self->peers[ self->current_peer_idx ].dest.addr;
+  self->port = self->peers[self->current_peer_idx ].dest.port;
 
   FD_LOG_NOTICE(( "Retrying download of %s from "FD_IP4_ADDR_FMT" and port: %u",
                   self->snapshot_filename,
@@ -773,7 +782,7 @@ fd_snapshot_httpdl_read( void *  _self,
 fd_snapshot_httpdl_t *
 fd_snapshot_httpdl_new( void *                                    mem,
                         ulong                                     peers_cnt,
-                        fd_snapshot_peer_t const                  peers[ FD_SNAPSHOT_HTTPDL_MAX_NODES ],
+                        fd_snapshot_peer_t const *                peers,
                         char                                      snapshot_archive_path[ PATH_MAX],
                         fd_snapshot_archive_entry_t *             full_snapshot_entry,
                         fd_incremental_snapshot_archive_entry_t * incremental_snapshot_entry,
@@ -793,14 +802,12 @@ fd_snapshot_httpdl_new( void *                                    mem,
   fd_snapshot_httpdl_t * self = fd_type_pun( mem );
   fd_memset( self, 0, sizeof(fd_snapshot_httpdl_t) );
 
-  /* copy peers into http peers */
+  /* Assign peers by reference from peers manager */
   self->peers_cnt = peers_cnt;
-  fd_memcpy( self->peers, peers, sizeof(fd_snapshot_peer_t) * peers_cnt );
+  self->peers     = peers;
 
   /* set up first peer to contact */
   self->current_peer_idx = 0UL;
-  self->ipv4             = self->peers[ self->current_peer_idx ].peer.addr;
-  self->port             = self->peers[ self->current_peer_idx ].peer.port;
 
   /* set up http state */
   self->socket_fd = -1;
