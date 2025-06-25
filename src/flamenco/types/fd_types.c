@@ -17458,10 +17458,6 @@ int fd_gossip_socket_addr_ip6_encode( fd_gossip_socket_addr_ip6_t const * self, 
   if( FD_UNLIKELY( err ) ) return err;
   err = fd_bincode_uint16_encode( self->port, ctx );
   if( FD_UNLIKELY( err ) ) return err;
-  err = fd_bincode_uint32_encode( self->flowinfo, ctx );
-  if( FD_UNLIKELY( err ) ) return err;
-  err = fd_bincode_uint32_encode( self->scope_id, ctx );
-  if( FD_UNLIKELY( err ) ) return err;
   return FD_BINCODE_SUCCESS;
 }
 static int fd_gossip_socket_addr_ip6_decode_footprint_inner( fd_bincode_decode_ctx_t * ctx, ulong * total_sz ) {
@@ -17471,10 +17467,6 @@ static int fd_gossip_socket_addr_ip6_decode_footprint_inner( fd_bincode_decode_c
   if( FD_UNLIKELY( err ) ) return err;
   err = fd_bincode_uint16_decode_footprint( ctx );
   if( FD_UNLIKELY( err!=FD_BINCODE_SUCCESS ) ) return err;
-  err = fd_bincode_uint32_decode_footprint( ctx );
-  if( FD_UNLIKELY( err ) ) return err;
-  err = fd_bincode_uint32_decode_footprint( ctx );
-  if( FD_UNLIKELY( err ) ) return err;
   return 0;
 }
 int fd_gossip_socket_addr_ip6_decode_footprint( fd_bincode_decode_ctx_t * ctx, ulong * total_sz ) {
@@ -17489,8 +17481,6 @@ static void fd_gossip_socket_addr_ip6_decode_inner( void * struct_mem, void * * 
   fd_gossip_socket_addr_ip6_t * self = (fd_gossip_socket_addr_ip6_t *)struct_mem;
   fd_gossip_ip6_addr_decode_inner( &self->addr, alloc_mem, ctx );
   fd_bincode_uint16_decode_unsafe( &self->port, ctx );
-  fd_bincode_uint32_decode_unsafe( &self->flowinfo, ctx );
-  fd_bincode_uint32_decode_unsafe( &self->scope_id, ctx );
 }
 void * fd_gossip_socket_addr_ip6_decode( void * mem, fd_bincode_decode_ctx_t * ctx ) {
   fd_gossip_socket_addr_ip6_t * self = (fd_gossip_socket_addr_ip6_t *)mem;
@@ -17508,16 +17498,12 @@ void fd_gossip_socket_addr_ip6_walk( void * w, fd_gossip_socket_addr_ip6_t const
   fun( w, self, name, FD_FLAMENCO_TYPE_MAP, "fd_gossip_socket_addr_ip6", level++ );
   fd_gossip_ip6_addr_walk( w, &self->addr, fun, "addr", level );
   fun( w, &self->port, "port", FD_FLAMENCO_TYPE_USHORT, "ushort", level );
-  fun( w, &self->flowinfo, "flowinfo", FD_FLAMENCO_TYPE_UINT, "uint", level );
-  fun( w, &self->scope_id, "scope_id", FD_FLAMENCO_TYPE_UINT, "uint", level );
   fun( w, self, name, FD_FLAMENCO_TYPE_MAP_END, "fd_gossip_socket_addr_ip6", level-- );
 }
 ulong fd_gossip_socket_addr_ip6_size( fd_gossip_socket_addr_ip6_t const * self ) {
   ulong size = 0;
   size += fd_gossip_ip6_addr_size( &self->addr );
   size += sizeof(ushort);
-  size += sizeof(uint);
-  size += sizeof(uint);
   return size;
 }
 
