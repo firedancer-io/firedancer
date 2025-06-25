@@ -133,7 +133,6 @@ extern action_t fd_action_pktgen;
 extern action_t fd_action_quic_trace;
 extern action_t fd_action_txn;
 extern action_t fd_action_wksp;
-extern action_t fd_action_minimal_bench;
 extern action_t fd_action_prodcons;
 
 action_t * ACTIONS[] = {
@@ -160,7 +159,6 @@ action_t * ACTIONS[] = {
   &fd_action_quic_trace,
   &fd_action_txn,
   &fd_action_wksp,
-  &fd_action_minimal_bench,
   &fd_action_prodcons,
   NULL,
 };
