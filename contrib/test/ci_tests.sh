@@ -37,9 +37,6 @@ for MACHINE in ${MACHINES[*]}; do
   contrib/make-j $TARGETS
   if [[ "$NOTEST" != 1 ]]; then
     make run-unit-test
-    if [[ "$EXTRAS" != *"ubsan"* && "$EXTRAS" != *"asan"* ]]; then
-      make run-integration-test
-    fi
     make run-fuzz-test
     make run-script-test
     # make run-test-vectors

@@ -104,9 +104,12 @@ jobs:
           compiler-version: ${{ matrix.compiler-version }}
           extras: ${{ matrix.deps-extras || '' }}
         if: ${{ !contains(matrix.extras, 'no-deps') }}
+
       - uses: ./.github/actions/hugepages
         if: ${{ matrix.targets != 'check' }}
+
       - uses: ./.github/actions/cpusonline
+
       - uses: dtolnay/rust-toolchain@1.84.1
         if: ${{ contains(matrix.targets, 'fdctl') }}
 
