@@ -736,6 +736,14 @@ fd_tower_threshold_check( fd_tower_t const *   tower,
 ulong
 fd_tower_reset_slot( fd_tower_t const * tower,
                      fd_ghost_t const * ghost );
+ulong
+fd_tower_reset_slot_trace( fd_tower_t const * tower,
+                           fd_ghost_t const * ghost,
+                           ulong *            opt_vote_slot,
+                           ulong              sentinel,
+                           ulong *            parent_cnt,
+                           ulong              parents_capacity,
+                           ulong *            parents );
 
 /* fd_tower_vote_slot returns the correct vote slot to pick given the
    ghost tree.  Returns FD_SLOT_NULL if we cannot vote, because we are

@@ -65,7 +65,7 @@
 #include "../forest/fd_forest.h"
 #include "../reasm/fd_reasm.h"
 
-#define LOGGING       1
+#define LOGGING       0
 #define DEBUG_LOGGING 0
 
 #define IN_KIND_CONTACT (0)

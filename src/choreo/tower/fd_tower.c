@@ -285,8 +285,60 @@ fd_tower_threshold_check( fd_tower_t const *   tower,
   }
 
   double threshold_pct = (double)threshold_stake / (double)epoch->total_stake;
-  FD_LOG_NOTICE(( "[%s] ok? %d. top: %lu. threshold: %lu. stake: %.0lf%%.", __func__, threshold_pct > THRESHOLD_RATIO, fd_tower_votes_peek_tail_const( tower )->slot, threshold_slot, threshold_pct * 100.0 ));
+  // FD_LOG_NOTICE(( "[%s] ok? %d. top: %lu. threshold: %lu. stake: %.0lf%%.", __func__, threshold_pct > THRESHOLD_RATIO, fd_tower_votes_peek_tail_const( tower )->slot, threshold_slot, threshold_pct * 100.0 ));
   return threshold_pct > THRESHOLD_RATIO;
+}
+
+ulong
+fd_tower_reset_slot_trace( fd_tower_t const * tower,
+                           fd_ghost_t const * ghost,
+                           ulong *            opt_vote_slot,
+                           ulong              sentinel,
+                           ulong *            parent_cnt,
+                           ulong              parents_capacity,
+                           ulong *            parents ) {
+  *opt_vote_slot = sentinel;
+  *parent_cnt = 0UL;
+  fd_tower_vote_t const *    vote = fd_tower_votes_peek_tail_const( tower );
+  fd_ghost_ele_t const *     root = fd_ghost_root_const( ghost );
+  fd_ghost_ele_t const *     head = fd_ghost_head( ghost, root );
+  fd_hash_t const * vote_block_id = fd_ghost_hash( ghost, vote->slot );
+
+  /* Reset to the ghost head if any of the following is true:
+       1. haven't voted
+       2. last vote < ghost root
+       3. ghost root is not an ancestory of last vote */
+
+  if( FD_UNLIKELY( !vote || vote->slot < root->slot ||
+                   !fd_ghost_is_ancestor( ghost, &root->key, vote_block_id ) ) ) {
+    return head->slot;
+  }
+
+  /* Find the ghost node keyed by our last vote slot. It is invariant
+     that this node must always be found after doing the above check.
+     Otherwise ghost and tower contain implementation bugs and/or are
+     corrupt. */
+
+  fd_ghost_ele_t const * vote_node = fd_ghost_query_const( ghost, vote_block_id );
+  #if FD_TOWER_USE_HANDHOLDING
+  if( FD_UNLIKELY( !vote_node ) ) {
+    fd_ghost_print( ghost, 0, root );
+    FD_LOG_ERR(( "[%s] invariant violation: unable to find last tower vote slot %lu in ghost.", __func__, vote->slot ));
+  }
+  #endif
+
+  /* Starting from the node keyed by the last vote slot, greedy traverse
+     for the head. */
+
+  fd_ghost_ele_t const * ghost_head = fd_ghost_head( ghost, vote_node );
+  fd_ghost_ele_t const * parent = fd_ghost_parent_const( ghost, ghost_head );
+
+  while( FD_UNLIKELY( parent && *parent_cnt < parents_capacity ) ) {
+    parents[ *parent_cnt++ ] = parent->slot;
+    parent = fd_ghost_parent_const( ghost, parent );
+  }
+
+  return ghost_head->slot;
 }
 
 ulong

@@ -494,17 +494,6 @@
 
 </div>
 
-## Storei Tile
-
-<div class="metrics">
-
-| Metric | Type | Description |
-|--------|------|-------------|
-| <span class="metrics-name">storei_&#8203;first_&#8203;turbine_&#8203;slot</span> | gauge |  |
-| <span class="metrics-name">storei_&#8203;current_&#8203;turbine_&#8203;slot</span> | gauge |  |
-
-</div>
-
 ## Gossip Tile
 
 <div class="metrics">
