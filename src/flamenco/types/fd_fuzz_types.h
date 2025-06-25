@@ -3041,8 +3041,6 @@ void *fd_gossip_socket_addr_ip6_generate( void *mem, void **alloc_mem, fd_rng_t 
   fd_gossip_socket_addr_ip6_new(mem);
   fd_gossip_ip6_addr_generate( &self->addr, alloc_mem, rng );
   self->port = fd_rng_ushort( rng );
-  self->flowinfo = fd_rng_uint( rng );
-  self->scope_id = fd_rng_uint( rng );
   return mem;
 }
 

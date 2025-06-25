@@ -2421,7 +2421,7 @@ union fd_gossip_ip_addr_inner {
 };
 typedef union fd_gossip_ip_addr_inner fd_gossip_ip_addr_inner_t;
 
-/* Unnecessary and sad wrapper type. IPv4 addresses could have been mapped to IPv6 */
+/* https://doc.rust-lang.org/beta/src/core/net/socket_addr.rs.html#33 */
 struct fd_gossip_ip_addr {
   uint discriminant;
   fd_gossip_ip_addr_inner_t inner;
@@ -2477,12 +2477,11 @@ struct fd_gossip_socket_addr_ip4 {
 typedef struct fd_gossip_socket_addr_ip4 fd_gossip_socket_addr_ip4_t;
 #define FD_GOSSIP_SOCKET_ADDR_IP4_ALIGN alignof(fd_gossip_socket_addr_ip4_t)
 
-/* Encoded Size: Dynamic */
+/* https://doc.rust-lang.org/beta/src/core/net/socket_addr.rs.html#147 */
+/* Encoded Size: Fixed (18 bytes) */
 struct fd_gossip_socket_addr_ip6 {
   fd_gossip_ip6_addr_t addr;
   ushort port;
-  uint flowinfo;
-  uint scope_id;
 };
 typedef struct fd_gossip_socket_addr_ip6 fd_gossip_socket_addr_ip6_t;
 #define FD_GOSSIP_SOCKET_ADDR_IP6_ALIGN alignof(fd_gossip_socket_addr_ip6_t)
@@ -2493,6 +2492,7 @@ union fd_gossip_socket_addr_inner {
 };
 typedef union fd_gossip_socket_addr_inner fd_gossip_socket_addr_inner_t;
 
+/* https://doc.rust-lang.org/beta/src/core/net/socket_addr.rs.html#33 */
 struct fd_gossip_socket_addr {
   uint discriminant;
   fd_gossip_socket_addr_inner_t inner;
@@ -2500,6 +2500,7 @@ struct fd_gossip_socket_addr {
 typedef struct fd_gossip_socket_addr fd_gossip_socket_addr_t;
 #define FD_GOSSIP_SOCKET_ADDR_ALIGN alignof(fd_gossip_socket_addr_t)
 
+/* https://github.com/firedancer-io/agave/blob/540d5bc56cd44e3cc61b179bd52e9a782a2c99e4/gossip/src/legacy_contact_info.rs#L14 */
 /* Encoded Size: Dynamic */
 struct fd_gossip_contact_info_v1 {
   fd_pubkey_t id;

@@ -36,7 +36,9 @@
     },
     {
       "name": "gossip_ip6_addr",
-      "type": "opaque"
+      "type": "opaque",
+      "size": "16",
+      "comment": "https://doc.rust-lang.org/src/core/net/ip_addr.rs.html#165"
     },
     {
       "name": "feature",
@@ -1904,7 +1906,7 @@
           "type": "gossip_ip6_addr"
         }
       ],
-      "comment": "Unnecessary and sad wrapper type. IPv4 addresses could have been mapped to IPv6"
+      "comment": "https://doc.rust-lang.org/beta/src/core/net/socket_addr.rs.html#33"
     },
     {
       "name": "gossip_prune_data",
@@ -1956,10 +1958,9 @@
       "type": "struct",
       "fields": [
         { "name": "addr", "type": "gossip_ip6_addr" },
-        { "name": "port", "type": "ushort" },
-        { "name": "flowinfo", "type": "uint" },
-        { "name": "scope_id", "type": "uint" }
-      ]
+        { "name": "port", "type": "ushort" }
+      ],
+      "comment": "https://doc.rust-lang.org/beta/src/core/net/socket_addr.rs.html#147"
     },
     {
       "name": "gossip_socket_addr",
@@ -1974,7 +1975,8 @@
           "name": "ip6",
           "type": "gossip_socket_addr_ip6"
         }
-      ]
+      ],
+      "comment": "https://doc.rust-lang.org/beta/src/core/net/socket_addr.rs.html#33"
     },
     {
       "name": "gossip_contact_info_v1",
@@ -1993,7 +1995,8 @@
         { "name": "serve_repair", "type": "gossip_socket_addr" },
         { "name": "wallclock", "type": "ulong" },
         { "name": "shred_version", "type": "ushort" }
-      ]
+      ],
+      "comment": "https://github.com/firedancer-io/agave/blob/540d5bc56cd44e3cc61b179bd52e9a782a2c99e4/gossip/src/legacy_contact_info.rs#L14"
     },
     {
       "name": "gossip_vote",
