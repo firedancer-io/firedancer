@@ -478,7 +478,7 @@ fd_config_validate( fd_config_t const * config ) {
   CFG_HAS_NON_ZERO ( layout.quic_tile_count );
   CFG_HAS_NON_ZERO ( layout.resolv_tile_count );
   CFG_HAS_NON_ZERO ( layout.verify_tile_count );
-  CFG_HAS_NON_ZERO ( layout.bank_tile_count );
+  CFG_HAS_NON_ZERO ( layout.bank_tile_count  );
   CFG_HAS_NON_ZERO ( layout.shred_tile_count );
 
   if( 0U!=config->firedancer.layout.writer_tile_count ) {
@@ -523,6 +523,10 @@ fd_config_validate( fd_config_t const * config ) {
 
   CFG_HAS_NON_ZERO( tiles.shred.max_pending_shred_sets );
   CFG_HAS_NON_ZERO( tiles.shred.shred_listen_port );
+
+  if( config->is_firedancer ) {
+    CFG_HAS_POW2( tiles.repair.slot_max );
+  }
 
   CFG_HAS_NON_ZERO( tiles.metric.prometheus_listen_port );
 

@@ -8,6 +8,7 @@ static void ver_inc( ulong ** ver ) {
 
 void *
 fd_forest_new( void * shmem, ulong ele_max, ulong seed ) {
+  FD_TEST( fd_ulong_is_pow2( ele_max ) );
 
   if( FD_UNLIKELY( !shmem ) ) {
     FD_LOG_WARNING(( "NULL mem" ));
