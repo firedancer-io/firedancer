@@ -1,5 +1,6 @@
 // fd_producer_tile.c
 #include "../../../../disco/topo/fd_topo.h"
+// #include <time.h>  // For clock_nanosleep
 
 struct fd_producer_tile_ctx {
   void * out_base;
@@ -7,6 +8,7 @@ struct fd_producer_tile_ctx {
   ulong  wmark;
   ulong  chunk;
   ulong  counter;
+  long   next_produce_time;  // Next time to produce data (in nanoseconds)
 };
 typedef struct fd_producer_tile_ctx fd_producer_tile_ctx_t;
 
@@ -34,15 +36,25 @@ unprivileged_init( fd_topo_t *      topo,
   ctx->wmark    = fd_dcache_compact_wmark( out_base, out_dcache, 256UL );
   ctx->chunk    = ctx->chunk0;
   ctx->counter  = 0UL;
+  ctx->next_produce_time = fd_log_wallclock();
 }
 
 static void
 before_credit( fd_producer_tile_ctx_t * ctx,
                fd_stem_context_t *      stem,
                int *                    charge_busy ) {
+  
+  long now = fd_log_wallclock();
+  if (now < ctx->next_produce_time) {
+    return;
+  }
+
+  // Time to produce data
   *charge_busy = 1;
   
-  // Send data every cycle
+  // Schedule next production in 5 seconds (5 billion nanoseconds)
+  ctx->next_produce_time = now + 5000000000L;
+  
   ulong   chunk = ctx->chunk;
   uchar * data = fd_chunk_to_laddr( ctx->out_base, chunk );
   ulong   counter = ctx->counter;
@@ -52,6 +64,10 @@ before_credit( fd_producer_tile_ctx_t * ctx,
   
   // Publish fragment with simple signature
   fd_stem_publish( stem, 0UL, 1UL, chunk, sizeof(ulong), 0UL, 0UL, 0UL );
+  
+  // Log every message to show the timing
+  FD_LOG_NOTICE(( "Producer sent counter %lu at wallclock time %ld", 
+                  counter, now ));
   
   // Update for next iteration
   chunk++;

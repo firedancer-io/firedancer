@@ -5,6 +5,7 @@ struct fd_consumer_tile_ctx {
   void * in_base;  // Base address of input workspace to read data
   ulong  fragments_received;
   ulong  last_counter_seen;
+  long   last_receive_time;  // Time when last fragment was received
 };
 typedef struct fd_consumer_tile_ctx fd_consumer_tile_ctx_t;
 
@@ -33,6 +34,7 @@ unprivileged_init( fd_topo_t *      topo,
   
   ctx->fragments_received = 0UL;
   ctx->last_counter_seen = 0UL;
+  ctx->last_receive_time = 0L;
 }
 
 static void
@@ -45,6 +47,8 @@ during_frag( fd_consumer_tile_ctx_t * ctx,
              ulong                    ctl ) {
   (void)in_idx; (void)seq; (void)sig; (void)sz; (void)ctl;
   
+  long now = fd_log_wallclock();
+  
   // Read the counter value from the fragment
   uchar * data = fd_chunk_to_laddr( ctx->in_base, chunk );
   ulong counter = FD_LOAD( ulong, data );
@@ -52,10 +56,21 @@ during_frag( fd_consumer_tile_ctx_t * ctx,
   ctx->fragments_received++;
   ctx->last_counter_seen = counter;
   
-  // Print every 1000 fragments to show progress
-  if( (ctx->fragments_received % 1000UL) == 0UL ) {
-    FD_LOG_NOTICE(( "Consumer received fragment %lu with counter %lu", 
-                    ctx->fragments_received, counter ));
+  // Calculate time difference from last message
+  long time_diff_ns = 0L;
+  if( ctx->last_receive_time > 0L ) {
+    time_diff_ns = now - ctx->last_receive_time;
+  }
+  ctx->last_receive_time = now;
+  
+  // Log every fragment to show timing information
+  if( ctx->fragments_received == 1UL ) {
+    FD_LOG_NOTICE(( "Consumer received first fragment %lu with counter %lu at time %ld", 
+                    ctx->fragments_received, counter, now ));
+  } else {
+    double time_diff_sec = (double)time_diff_ns / 1e9;
+    FD_LOG_NOTICE(( "Consumer received fragment %lu with counter %lu at time %ld (%.3f seconds since last)", 
+                    ctx->fragments_received, counter, now, time_diff_sec ));
   }
 }
 

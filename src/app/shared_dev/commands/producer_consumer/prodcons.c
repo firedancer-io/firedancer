@@ -1,20 +1,10 @@
 #include "../dev.h"
 #include "../../../shared/commands/configure/configure.h" /* CONFIGURE_CMD_INIT */
 #include "../../../shared/commands/run/run.h" /* fdctl_check_configure */
-#include "../../../../disco/net/fd_net_tile.h"
-#include "../../../../disco/metrics/fd_metrics.h"
 #include "../../../../disco/topo/fd_topob.h"
-#include "../../../../disco/topo/fd_cpu_topo.h"
-#include "../../../../util/net/fd_ip4.h"
-#include "../../../../util/tile/fd_tile_private.h" /* fd_tile_private_cpus_parse */
-#define STEM_BURST 32
-#define STEM_CALLBACK_CONTEXT_TYPE void
-#include "../../../../disco/stem/fd_stem.h"
 
 #include <stdio.h> /* printf */
 #include <unistd.h> /* isatty */
-#include <sys/ioctl.h>
-#include <poll.h>
 
 extern fd_topo_obj_callbacks_t * CALLBACKS[];
 
