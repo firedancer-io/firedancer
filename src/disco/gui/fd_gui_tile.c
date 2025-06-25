@@ -19,11 +19,6 @@ static fd_http_static_file_t * STATIC_FILES;
 
 #include "generated/fd_gui_tile_seccomp.h"
 
-extern ulong const fdctl_major_version;
-extern ulong const fdctl_minor_version;
-extern ulong const fdctl_patch_version;
-extern uint  const fdctl_commit_ref;
-
 #include "../../disco/tiles.h"
 #include "../../disco/keyguard/fd_keyload.h"
 #include "../../disco/keyguard/fd_keyswitch.h"
@@ -31,6 +26,9 @@ extern uint  const fdctl_commit_ref;
 #include "../../disco/plugin/fd_plugin.h"
 #include "../../waltz/http/fd_http_server.h"
 #include "../../ballet/json/cJSON.h"
+#include "../../util/clock/fd_clock.h"
+#include "../../discof/repair/fd_repair.h"
+#include "../../flamenco/gossip/fd_gossip_private.h"
 
 #include <sys/types.h>
 #include <unistd.h>
@@ -43,12 +41,17 @@ extern uint  const fdctl_commit_ref;
 #include <zstd.h>
 #endif
 
-#define IN_KIND_PLUGIN    (0UL)
-#define IN_KIND_POH_PACK  (1UL)
-#define IN_KIND_PACK_BANK (2UL)
-#define IN_KIND_PACK_POH  (3UL)
-#define IN_KIND_BANK_POH  (4UL)
-#define IN_KIND_SHRED_OUT (5UL) /* firedancer only */
+#define IN_KIND_PLUGIN       ( 0UL)
+#define IN_KIND_POH_PACK     ( 1UL)
+#define IN_KIND_PACK_BANK    ( 2UL)
+#define IN_KIND_PACK_POH     ( 3UL)
+#define IN_KIND_BANK_POH     ( 4UL)
+#define IN_KIND_SHRED_OUT    ( 5UL) /* firedancer only */
+#define IN_KIND_NET_GOSSVF   ( 6UL) /* firedancer only */
+#define IN_KIND_GOSSIP_NET   ( 7UL) /* firedancer only */
+#define IN_KIND_GOSSIP_OUT   ( 8UL) /* firedancer only */
+#define IN_KIND_SNAPRD       ( 9UL) /* firedancer only */
+#define IN_KIND_REPAIR_NET   (10UL) /* firedancer only */
 
 FD_IMPORT_BINARY( firedancer_svg, "book/public/fire.svg" );
 
@@ -81,7 +84,22 @@ typedef struct fd_gui_in_ctx fd_gui_in_ctx_t;
 typedef struct {
   fd_topo_t * topo;
 
+  int is_full_client;
+  int snapshots_enabled;
+
   fd_gui_t * gui;
+  fd_gui_peers_ctx_t * peers;
+
+  /* Most of the gui tile uses fd_clock for timing, but some stem
+     timestamps still used tickcounts, so we keep separate timestamps
+     here to handle those cases until fd_clock is more widely adopted. */
+  long ref_wallclock;
+  long ref_tickcount;
+
+  fd_clock_t clock[1];
+  long       recal_next; /* next recalibration time (ns) */
+
+  uchar __attribute__((aligned(FD_CLOCK_ALIGN))) clock_mem[ FD_CLOCK_FOOTPRINT ];
 
   /* This needs to be max(plugin_msg) across all kinds of messages.
      Currently this is just figured out manually, it's a gossip update
@@ -114,12 +132,14 @@ scratch_align( void ) {
 
 static inline ulong
 scratch_footprint( fd_topo_tile_t const * tile ) {
-  ulong http_fp = fd_http_server_footprint( derive_http_params( tile ) );
+  fd_http_server_params_t http_param = derive_http_params( tile );
+  ulong http_fp = fd_http_server_footprint( http_param );
   if( FD_UNLIKELY( !http_fp ) ) FD_LOG_ERR(( "Invalid [tiles.gui] config parameters" ));
 
   ulong l = FD_LAYOUT_INIT;
   l = FD_LAYOUT_APPEND( l, alignof( fd_gui_ctx_t ), sizeof( fd_gui_ctx_t ) );
   l = FD_LAYOUT_APPEND( l, fd_http_server_align(),  http_fp );
+  l = FD_LAYOUT_APPEND( l, fd_gui_peers_align(),    fd_gui_peers_footprint( http_param.max_ws_connection_cnt ) );
   l = FD_LAYOUT_APPEND( l, fd_gui_align(),          fd_gui_footprint() );
   l = FD_LAYOUT_APPEND( l, fd_alloc_align(),        fd_alloc_footprint() );
   return FD_LAYOUT_FINI( l, scratch_align() );
@@ -132,6 +152,13 @@ loose_footprint( fd_topo_tile_t const * tile FD_PARAM_UNUSED ) {
 
 static inline void
 during_housekeeping( fd_gui_ctx_t * ctx ) {
+  ctx->ref_wallclock = fd_log_wallclock();
+  ctx->ref_tickcount = fd_tickcount();
+
+  if( FD_UNLIKELY( fd_clock_now( ctx->clock ) >= ctx->recal_next ) ) {
+    ctx->recal_next = fd_clock_default_recal( ctx->clock );
+  }
+
   if( FD_UNLIKELY( fd_keyswitch_state_query( ctx->keyswitch )==FD_KEYSWITCH_STATE_SWITCH_PENDING ) ) {
     fd_gui_set_identity( ctx->gui, ctx->keyswitch->bytes );
     fd_keyswitch_state( ctx->keyswitch, FD_KEYSWITCH_STATE_COMPLETED );
@@ -151,7 +178,9 @@ before_credit( fd_gui_ctx_t *      ctx,
     ctx->next_poll_deadline = fd_tickcount() + (long)(fd_tempo_tick_per_ns( NULL ) * 128L * 1000L);
   }
 
-  int charge_poll = fd_gui_poll( ctx->gui );
+  int charge_poll = 0;
+  charge_poll |= fd_gui_poll( ctx->gui, fd_clock_now( ctx->clock ) );
+  if( FD_UNLIKELY( ctx->is_full_client ) ) charge_poll |= fd_gui_peers_poll( ctx->peers, fd_clock_now( ctx->clock ) );
 
   *charge_busy = charge_busy_server | charge_poll;
 }
@@ -165,7 +194,6 @@ before_frag( fd_gui_ctx_t * ctx,
 
   /* Ignore "done draining banks" signal from pack->poh */
   if( FD_LIKELY( ctx->in_kind[ in_idx ]==IN_KIND_PACK_POH && sig==ULONG_MAX ) ) return 1;
-
   return 0;
 }
 
@@ -180,12 +208,10 @@ during_frag( fd_gui_ctx_t * ctx,
 
   uchar * src = (uchar *)fd_chunk_to_laddr( ctx->in[ in_idx ].mem, chunk );
 
-  /* There are two frags types sent on this link, the currently the only
-     way to distinguish them is to check sz. We dont actually read from
-     the dcache  */
-  if( FD_UNLIKELY( ctx->in_kind[ in_idx ]==IN_KIND_SHRED_OUT ) ) {
-    return;
-  }
+  /* There are multiple frags types sent on this link, the currently the
+     only way to distinguish them is to check sz.  We dont actually read
+     from the dcache  */
+  if( FD_UNLIKELY( ctx->in_kind[ in_idx ]==IN_KIND_SHRED_OUT ) ) return;
 
   if( FD_LIKELY( ctx->in_kind[ in_idx ]==IN_KIND_PLUGIN ) ) {
     /* ... todo... sigh, sz is not correct since it's too big */
@@ -226,47 +252,128 @@ after_frag( fd_gui_ctx_t *      ctx,
             ulong               tspub,
             fd_stem_context_t * stem ) {
   (void)seq;
-  (void)tsorig;
   (void)stem;
 
-  if( FD_LIKELY( ctx->in_kind[ in_idx ]==IN_KIND_PLUGIN ) ) fd_gui_plugin_message( ctx->gui, sig, ctx->buf );
-  else if( FD_LIKELY( ctx->in_kind[ in_idx ]==IN_KIND_SHRED_OUT ) ) {
-    if( FD_UNLIKELY( sz == FD_SHRED_DATA_HEADER_SZ + sizeof(fd_hash_t) + sizeof(fd_hash_t) ) ) fd_gui_handle_shred_slot( ctx->gui, fd_disco_shred_out_fec_sig_slot( sig ), fd_log_wallclock() );
-  } else if( FD_UNLIKELY( ctx->in_kind[ in_idx ]==IN_KIND_POH_PACK ) ) {
-    FD_TEST( fd_disco_poh_sig_pkt_type( sig )==POH_PKT_TYPE_BECAME_LEADER );
-    fd_became_leader_t * became_leader = (fd_became_leader_t *)ctx->buf;
-    fd_gui_became_leader( ctx->gui, fd_frag_meta_ts_decomp( tspub, fd_tickcount() ), fd_disco_poh_sig_slot( sig ), became_leader->slot_start_ns, became_leader->slot_end_ns, became_leader->limits.slot_max_cost, became_leader->max_microblocks_in_slot );
-  } else if( FD_UNLIKELY( ctx->in_kind[ in_idx ]==IN_KIND_PACK_POH ) ) {
-    fd_gui_unbecame_leader( ctx->gui, fd_frag_meta_ts_decomp( tspub, fd_tickcount() ), fd_disco_bank_sig_slot( sig ), ((fd_done_packing_t *)ctx->buf)->microblocks_in_slot );
-  } else if( FD_UNLIKELY( ctx->in_kind[ in_idx ]==IN_KIND_PACK_BANK ) ) {
-    if( FD_LIKELY( fd_disco_poh_sig_pkt_type( sig )==POH_PKT_TYPE_MICROBLOCK ) ) {
-      fd_microblock_bank_trailer_t * trailer = (fd_microblock_bank_trailer_t *)( ctx->buf+sz-sizeof(fd_microblock_bank_trailer_t) );
-      fd_gui_microblock_execution_begin( ctx->gui,
-                                         fd_frag_meta_ts_decomp( tspub, fd_tickcount() ),
-                                         fd_disco_poh_sig_slot( sig ),
-                                         (fd_txn_p_t *)ctx->buf,
-                                         (sz-sizeof( fd_microblock_bank_trailer_t ))/sizeof( fd_txn_p_t ),
-                                         (uint)trailer->microblock_idx,
-                                         trailer->pack_txn_idx );
-    } else {
-      FD_LOG_ERR(( "unexpected poh packet type %lu", fd_disco_poh_sig_pkt_type( sig ) ));
+  switch ( ctx->in_kind[ in_idx ] ) {
+    case IN_KIND_PLUGIN: {
+      FD_TEST( !ctx->is_full_client );
+      fd_gui_plugin_message( ctx->gui, sig, ctx->buf, fd_clock_now( ctx->clock ) );
+      break;
     }
-  } else if( FD_UNLIKELY( ctx->in_kind[ in_idx ]==IN_KIND_BANK_POH ) ) {
-    fd_microblock_trailer_t * trailer = (fd_microblock_trailer_t *)( ctx->buf+sz-sizeof( fd_microblock_trailer_t ) );
-    fd_gui_microblock_execution_end( ctx->gui,
-                                     fd_frag_meta_ts_decomp( tspub, fd_tickcount() ),
-                                     ctx->in_bank_idx[ in_idx ],
-                                     fd_disco_bank_sig_slot( sig ),
-                                     (sz-sizeof( fd_microblock_trailer_t ))/sizeof( fd_txn_p_t ),
-                                     (fd_txn_p_t *)ctx->buf,
-                                     trailer->pack_txn_idx,
-                                     trailer->txn_start_pct,
-                                     trailer->txn_load_end_pct,
-                                     trailer->txn_end_pct,
-                                     trailer->txn_preload_end_pct,
-                                     trailer->tips );
-  } else {
-    FD_LOG_ERR(( "unexpected in_kind %lu", ctx->in_kind[ in_idx ] ));
+    case IN_KIND_SHRED_OUT: {
+      FD_TEST( ctx->is_full_client );
+      if( FD_LIKELY( sz!=0 && sz!=FD_SHRED_DATA_HEADER_SZ + sizeof(fd_hash_t) + sizeof(fd_hash_t) ) ) {
+        ulong slot = fd_disco_shred_out_shred_sig_slot( sig );
+        int is_turbine = fd_disco_shred_out_shred_sig_is_turbine( sig );
+        ulong shred_idx  = fd_disco_shred_out_shred_sig_shred_idx( sig );
+        ulong fec_idx  = fd_disco_shred_out_shred_sig_fec_set_idx( sig );
+        /* tsorig is the timestamp when the shred was received by the shred tile */
+        long tsorig_nanos = ctx->ref_wallclock + (long)((double)(fd_frag_meta_ts_decomp( tsorig, fd_tickcount() ) - ctx->ref_tickcount) / fd_tempo_tick_per_ns( NULL ));
+        fd_gui_handle_shred( ctx->gui, slot, shred_idx, fec_idx, is_turbine, tsorig_nanos );
+      }
+      break;
+    }
+    case IN_KIND_SNAPRD: {
+      FD_TEST( ctx->is_full_client );
+      fd_gui_handle_snapshot_update( ctx->gui, (fd_snaprd_update_t *)ctx->buf );
+      break;
+    }
+    case IN_KIND_REPAIR_NET: {
+      FD_TEST( ctx->is_full_client );
+      uchar * payload;
+      ulong payload_sz;
+      if( FD_LIKELY( fd_ip4_udp_hdr_strip( ctx->buf, sz, &payload, &payload_sz, NULL, NULL, NULL ) ) ) {
+        fd_repair_msg_t const * msg = (fd_repair_msg_t const *)payload;
+        long tsorig_ns = ctx->ref_wallclock + (long)((double)(fd_frag_meta_ts_decomp( tsorig, fd_tickcount() ) - ctx->ref_tickcount) / fd_tempo_tick_per_ns( NULL ));
+        switch ( msg->kind ) {
+          case FD_REPAIR_KIND_PING:
+          case FD_REPAIR_KIND_PONG:
+          case FD_REPAIR_KIND_ORPHAN: break;
+          case FD_REPAIR_KIND_SHRED: fd_gui_handle_repair_slot( ctx->gui, msg->shred.slot, tsorig_ns ); break;
+          case FD_REPAIR_KIND_HIGHEST_SHRED: fd_gui_handle_repair_slot( ctx->gui, msg->highest_shred.slot, tsorig_ns ); break;
+          default: FD_LOG_ERR(( "unexpected repair msg kind %u", msg->kind ));
+        }
+      }
+      break;
+    }
+    case IN_KIND_NET_GOSSVF: {
+      FD_TEST( ctx->is_full_client );
+      uchar * payload;
+      ulong payload_sz;
+      fd_ip4_hdr_t * ip4_hdr;
+      fd_udp_hdr_t * udp_hdr;
+      if( FD_LIKELY( fd_ip4_udp_hdr_strip( ctx->buf, sz, &payload, &payload_sz, NULL, &ip4_hdr, &udp_hdr ) ) ) {
+        fd_gui_peers_handle_gossip_message( ctx->peers, payload, payload_sz, &(fd_ip4_port_t){ .addr = ip4_hdr->saddr, .port = udp_hdr->net_sport }, 1 );
+      }
+      break;
+    }
+    case IN_KIND_GOSSIP_NET: {
+      FD_TEST( ctx->is_full_client );
+      uchar * payload;
+      ulong payload_sz;
+      fd_ip4_hdr_t * ip4_hdr;
+      fd_udp_hdr_t * udp_hdr;
+      FD_TEST( fd_ip4_udp_hdr_strip( ctx->buf, sz, &payload, &payload_sz, NULL, &ip4_hdr, &udp_hdr ) );
+      fd_gui_peers_handle_gossip_message( ctx->peers, payload, payload_sz, &(fd_ip4_port_t){ .addr = ip4_hdr->daddr, .port = udp_hdr->net_dport }, 0 );
+      break;
+    }
+    case IN_KIND_GOSSIP_OUT: {
+      FD_TEST( ctx->is_full_client );
+      fd_gossip_update_message_t * update = (fd_gossip_update_message_t *)ctx->buf;
+      switch( update->tag ) {
+        case FD_GOSSIP_UPDATE_TAG_CONTACT_INFO_REMOVE: FD_TEST( sz == FD_GOSSIP_UPDATE_SZ_CONTACT_INFO_REMOVE ); break;
+        case FD_GOSSIP_UPDATE_TAG_CONTACT_INFO: FD_TEST( sz == FD_GOSSIP_UPDATE_SZ_CONTACT_INFO ); break;
+        default: break;
+      }
+      fd_gui_peers_handle_gossip_update( ctx->peers, update, fd_clock_now( ctx-> clock ) );
+      break;
+    }
+    case IN_KIND_POH_PACK: {
+      FD_TEST( fd_disco_poh_sig_pkt_type( sig )==POH_PKT_TYPE_BECAME_LEADER );
+      fd_became_leader_t * became_leader = (fd_became_leader_t *)ctx->buf;
+      long now = ctx->ref_wallclock + (long)((double)(fd_frag_meta_ts_decomp( tspub, fd_tickcount() ) - ctx->ref_tickcount) / fd_tempo_tick_per_ns( NULL ));
+      fd_gui_became_leader( ctx->gui, now, fd_disco_poh_sig_slot( sig ), became_leader->slot_start_ns, became_leader->slot_end_ns, became_leader->limits.slot_max_cost, became_leader->max_microblocks_in_slot );
+      break;
+    }
+    case IN_KIND_PACK_POH: {
+      long now = ctx->ref_wallclock + (long)((double)(fd_frag_meta_ts_decomp( tspub, fd_tickcount() ) - ctx->ref_tickcount) / fd_tempo_tick_per_ns( NULL ));
+      fd_gui_unbecame_leader( ctx->gui, now, fd_disco_bank_sig_slot( sig ), ((fd_done_packing_t *)ctx->buf)->microblocks_in_slot );
+      break;
+    }
+    case IN_KIND_PACK_BANK: {
+      if( FD_LIKELY( fd_disco_poh_sig_pkt_type( sig )==POH_PKT_TYPE_MICROBLOCK ) ) {
+        fd_microblock_bank_trailer_t * trailer = (fd_microblock_bank_trailer_t *)( ctx->buf+sz-sizeof(fd_microblock_bank_trailer_t) );
+        long now = ctx->ref_wallclock + (long)((double)(fd_frag_meta_ts_decomp( tspub, fd_tickcount() ) - ctx->ref_tickcount) / fd_tempo_tick_per_ns( NULL ));
+        fd_gui_microblock_execution_begin( ctx->gui,
+                                          now,
+                                          fd_disco_poh_sig_slot( sig ),
+                                          (fd_txn_p_t *)ctx->buf,
+                                          (sz-sizeof( fd_microblock_bank_trailer_t ))/sizeof( fd_txn_p_t ),
+                                          (uint)trailer->microblock_idx,
+                                          trailer->pack_txn_idx );
+      } else {
+        FD_LOG_ERR(( "unexpected poh packet type %lu", fd_disco_poh_sig_pkt_type( sig ) ));
+      }
+      break;
+    }
+    case IN_KIND_BANK_POH: {
+      fd_microblock_trailer_t * trailer = (fd_microblock_trailer_t *)( ctx->buf+sz-sizeof( fd_microblock_trailer_t ) );
+      long now = ctx->ref_wallclock + (long)((double)(fd_frag_meta_ts_decomp( tspub, fd_tickcount() ) - ctx->ref_tickcount) / fd_tempo_tick_per_ns( NULL ));
+      fd_gui_microblock_execution_end( ctx->gui,
+                                      now,
+                                      ctx->in_bank_idx[ in_idx ],
+                                      fd_disco_bank_sig_slot( sig ),
+                                      (sz-sizeof( fd_microblock_trailer_t ))/sizeof( fd_txn_p_t ),
+                                      (fd_txn_p_t *)ctx->buf,
+                                      trailer->pack_txn_idx,
+                                      trailer->txn_start_pct,
+                                      trailer->txn_load_end_pct,
+                                      trailer->txn_end_pct,
+                                      trailer->txn_preload_end_pct,
+                                      trailer->tips );
+      break;
+    }
+    default: FD_LOG_ERR(( "unexpected in_kind %lu", ctx->in_kind[ in_idx ] ));
   }
 }
 
@@ -372,6 +479,16 @@ gui_ws_open( ulong  conn_id,
   fd_gui_ctx_t * ctx = (fd_gui_ctx_t *)_ctx;
 
   fd_gui_ws_open( ctx->gui, conn_id );
+  fd_gui_peers_ws_open( ctx->peers, conn_id, fd_clock_now( ctx->clock ) );
+}
+
+static void
+gui_ws_close( ulong  conn_id,
+              int    reason,
+              void * _ctx ) {
+  (void) reason;
+  fd_gui_ctx_t * ctx = (fd_gui_ctx_t *)_ctx;
+  fd_gui_peers_ws_close( ctx->peers, conn_id );
 }
 
 static void
@@ -381,8 +498,10 @@ gui_ws_message( ulong         ws_conn_id,
                 void *        _ctx ) {
   fd_gui_ctx_t * ctx = (fd_gui_ctx_t *)_ctx;
 
-  int close = fd_gui_ws_message( ctx->gui, ws_conn_id, data, data_len );
-  if( FD_UNLIKELY( close<0 ) ) fd_http_server_ws_close( ctx->gui_server, ws_conn_id, close );
+  int reason = fd_gui_ws_message( ctx->gui, ws_conn_id, data, data_len );
+  if( reason==FD_HTTP_SERVER_CONNECTION_CLOSE_UNKNOWN_METHOD ) reason = fd_gui_peers_ws_message( ctx->peers, ws_conn_id, data, data_len );
+
+  if( FD_UNLIKELY( reason<0 ) ) fd_http_server_ws_close( ctx->gui_server, ws_conn_id, reason );
 }
 
 static void
@@ -399,6 +518,7 @@ privileged_init( fd_topo_t *      topo,
   fd_http_server_callbacks_t gui_callbacks = {
     .request    = gui_http_request,
     .ws_open    = gui_ws_open,
+    .ws_close   = gui_ws_close,
     .ws_message = gui_ws_message,
   };
   ctx->gui_server = fd_http_server_join( fd_http_server_new( _gui, http_param, gui_callbacks, ctx ) );
@@ -452,16 +572,28 @@ unprivileged_init( fd_topo_t *      topo,
   fd_topo_tile_t * gui_tile = &topo->tiles[ fd_topo_find_tile( topo, "gui", 0UL ) ];
   STATIC_FILES = fd_ptr_if( gui_tile->gui.frontend_release_channel==0UL, (fd_http_static_file_t *)STATIC_FILES_STABLE, (fd_http_static_file_t *)STATIC_FILES_ALPHA );
 
+  fd_http_server_params_t http_param = derive_http_params( tile );
   FD_SCRATCH_ALLOC_INIT( l, scratch );
-  fd_gui_ctx_t * ctx = FD_SCRATCH_ALLOC_APPEND( l, alignof( fd_gui_ctx_t ), sizeof( fd_gui_ctx_t ) );
-                       FD_SCRATCH_ALLOC_APPEND( l, fd_http_server_align(), fd_http_server_footprint( derive_http_params( tile ) ) );
-  void * _gui        = FD_SCRATCH_ALLOC_APPEND( l, fd_gui_align(),         fd_gui_footprint() );
-  void * _alloc      = FD_SCRATCH_ALLOC_APPEND( l, fd_alloc_align(),       fd_alloc_footprint() );
+  fd_gui_ctx_t * ctx = FD_SCRATCH_ALLOC_APPEND( l, alignof( fd_gui_ctx_t ), sizeof( fd_gui_ctx_t )                                    );
+                       FD_SCRATCH_ALLOC_APPEND( l, fd_http_server_align(),  fd_http_server_footprint( http_param )                    );
+  void * _peers      = FD_SCRATCH_ALLOC_APPEND( l, fd_gui_peers_align(),    fd_gui_peers_footprint( http_param.max_ws_connection_cnt) );
+  void * _gui        = FD_SCRATCH_ALLOC_APPEND( l, fd_gui_align(),          fd_gui_footprint()                                        );
+  void * _alloc      = FD_SCRATCH_ALLOC_APPEND( l, fd_alloc_align(),        fd_alloc_footprint()                                      );
+
+  ctx->is_full_client = ULONG_MAX!=fd_topo_find_tile( topo, "repair", 0UL );
+  ctx->snapshots_enabled = ULONG_MAX!=fd_topo_find_tile( topo, "snaprd", 0UL );
+
+  fd_clock_default_init( ctx->clock, ctx->clock_mem );
+  ctx->recal_next = fd_clock_recal_next( ctx->clock );
+
+  ctx->ref_wallclock = fd_log_wallclock();
+  ctx->ref_tickcount = fd_tickcount();
 
   FD_TEST( fd_cstr_printf_check( ctx->version_string, sizeof( ctx->version_string ), NULL, "%s", fdctl_version_string ) );
 
   ctx->topo = topo;
-  ctx->gui  = fd_gui_join( fd_gui_new( _gui, ctx->gui_server, ctx->version_string, tile->gui.cluster, ctx->identity_key, ctx->has_vote_key, ctx->vote_key->uc, tile->gui.is_voting, tile->gui.schedule_strategy, ctx->topo ) );
+  ctx->peers = fd_gui_peers_join( fd_gui_peers_new( _peers, ctx->gui_server, ctx->topo, http_param.max_ws_connection_cnt, fd_clock_now( ctx->clock) ) );
+  ctx->gui  = fd_gui_join(  fd_gui_new( _gui, ctx->gui_server, ctx->version_string, tile->gui.cluster, ctx->identity_key, ctx->has_vote_key, ctx->vote_key->uc, ctx->is_full_client, ctx->snapshots_enabled, tile->gui.is_voting, tile->gui.schedule_strategy, ctx->topo, fd_clock_now( ctx->clock ) ) );
   FD_TEST( ctx->gui );
 
   ctx->keyswitch = fd_keyswitch_join( fd_topo_obj_laddr( topo, tile->keyswitch_obj_id ) );
@@ -481,12 +613,17 @@ unprivileged_init( fd_topo_t *      topo,
     fd_topo_link_t * link = &topo->links[ tile->in_link_id[ i ] ];
     fd_topo_wksp_t * link_wksp = &topo->workspaces[ topo->objs[ link->dcache_obj_id ].wksp_id ];
 
-    if( FD_LIKELY( !strcmp( link->name, "plugin_out"     ) ) ) ctx->in_kind[ i ] = IN_KIND_PLUGIN;
-    else if( FD_LIKELY( !strcmp( link->name, "poh_pack"  ) ) ) ctx->in_kind[ i ] = IN_KIND_POH_PACK;
-    else if( FD_LIKELY( !strcmp( link->name, "pack_bank" ) ) ) ctx->in_kind[ i ] = IN_KIND_PACK_BANK;
-    else if( FD_LIKELY( !strcmp( link->name, "pack_poh" ) ) )  ctx->in_kind[ i ] = IN_KIND_PACK_POH;
-    else if( FD_LIKELY( !strcmp( link->name, "bank_poh"  ) ) ) ctx->in_kind[ i ] = IN_KIND_BANK_POH;
-    else if( FD_LIKELY( !strcmp( link->name, "shred_out" ) ) ) ctx->in_kind[ i ] = IN_KIND_SHRED_OUT;
+    if( FD_LIKELY( !strcmp( link->name, "plugin_out"      ) ) ) ctx->in_kind[ i ] = IN_KIND_PLUGIN;
+    else if( FD_LIKELY( !strcmp( link->name, "poh_pack"   ) ) ) ctx->in_kind[ i ] = IN_KIND_POH_PACK;
+    else if( FD_LIKELY( !strcmp( link->name, "pack_bank"  ) ) ) ctx->in_kind[ i ] = IN_KIND_PACK_BANK;
+    else if( FD_LIKELY( !strcmp( link->name, "pack_poh"   ) ) ) ctx->in_kind[ i ] = IN_KIND_PACK_POH;
+    else if( FD_LIKELY( !strcmp( link->name, "bank_poh"   ) ) ) ctx->in_kind[ i ] = IN_KIND_BANK_POH;
+    else if( FD_LIKELY( !strcmp( link->name, "shred_out"  ) ) ) ctx->in_kind[ i ] = IN_KIND_SHRED_OUT;  /* full client only */
+    else if( FD_LIKELY( !strcmp( link->name, "net_gossvf" ) ) ) ctx->in_kind[ i ] = IN_KIND_NET_GOSSVF; /* full client only */
+    else if( FD_LIKELY( !strcmp( link->name, "gossip_net" ) ) ) ctx->in_kind[ i ] = IN_KIND_GOSSIP_NET; /* full client only */
+    else if( FD_LIKELY( !strcmp( link->name, "gossip_out" ) ) ) ctx->in_kind[ i ] = IN_KIND_GOSSIP_OUT; /* full client only */
+    else if( FD_LIKELY( !strcmp( link->name, "snaprd_out" ) ) ) ctx->in_kind[ i ] = IN_KIND_SNAPRD;     /* full client only */
+    else if( FD_LIKELY( !strcmp( link->name, "repair_net" ) ) ) ctx->in_kind[ i ] = IN_KIND_REPAIR_NET; /* full client only */
     else FD_LOG_ERR(( "gui tile has unexpected input link %lu %s", i, link->name ));
 
     if( FD_LIKELY( !strcmp( link->name, "bank_poh" ) ) ) {

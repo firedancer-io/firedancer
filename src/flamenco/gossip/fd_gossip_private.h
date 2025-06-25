@@ -6,6 +6,8 @@
 #include "../../util/fd_util.h"
 #include "../../disco/fd_disco_base.h"
 
+#include <stddef.h> // offsetof
+
 /* Constants used in deriving size bounds
    - 1232b (MTU)
    - 1188b = 1232b-4b(discriminant)-32b(pubkey)-8(crds len) max CRDS sz
@@ -74,12 +76,12 @@ FD_STATIC_ASSERT( FD_GOSSIP_SNAPSHOT_HASHES_MAX_INCREMENTAL==25UL,
                  "FD_GOSSIP_SNAPSHOT_HASHES_MAX_INCREMENTAL must be 25" );
 
 
-#define FD_GOSSIP_UPDATE_SZ_CONTACT_INFO        (__builtin_offsetof(fd_gossip_update_message_t, contact_info)        + sizeof(ulong) + sizeof(fd_contact_info_t))
-#define FD_GOSSIP_UPDATE_SZ_CONTACT_INFO_REMOVE (__builtin_offsetof(fd_gossip_update_message_t, contact_info_remove) + sizeof(ulong))
-#define FD_GOSSIP_UPDATE_SZ_LOWEST_SLOT         (__builtin_offsetof(fd_gossip_update_message_t, lowest_slot)         + sizeof(ulong))
-#define FD_GOSSIP_UPDATE_SZ_VOTE                (__builtin_offsetof(fd_gossip_update_message_t, vote)                + sizeof(fd_gossip_vote_t))
-#define FD_GOSSIP_UPDATE_SZ_DUPLICATE_SHRED     (__builtin_offsetof(fd_gossip_update_message_t, duplicate_shred)     + sizeof(fd_gossip_duplicate_shred_t))
-#define FD_GOSSIP_UPDATE_SZ_SNAPSHOT_HASHES     (__builtin_offsetof(fd_gossip_update_message_t, snapshot_hashes)     + sizeof(fd_gossip_snapshot_hashes_t))
+#define FD_GOSSIP_UPDATE_SZ_CONTACT_INFO        (offsetof(fd_gossip_update_message_t, contact_info)        + sizeof(ulong) + sizeof(fd_contact_info_t))
+#define FD_GOSSIP_UPDATE_SZ_CONTACT_INFO_REMOVE (offsetof(fd_gossip_update_message_t, contact_info_remove) + sizeof(ulong))
+#define FD_GOSSIP_UPDATE_SZ_LOWEST_SLOT         (offsetof(fd_gossip_update_message_t, lowest_slot)         + sizeof(ulong))
+#define FD_GOSSIP_UPDATE_SZ_VOTE                (offsetof(fd_gossip_update_message_t, vote)                + sizeof(fd_gossip_vote_t))
+#define FD_GOSSIP_UPDATE_SZ_DUPLICATE_SHRED     (offsetof(fd_gossip_update_message_t, duplicate_shred)     + sizeof(fd_gossip_duplicate_shred_t))
+#define FD_GOSSIP_UPDATE_SZ_SNAPSHOT_HASHES     (offsetof(fd_gossip_update_message_t, snapshot_hashes)     + sizeof(fd_gossip_snapshot_hashes_t))
 
 struct fd_gossip_view_ipaddr {
   uchar   is_ip6;

@@ -9,6 +9,7 @@
 #include "../../discof/repair/fd_repair.h"
 #include "../../discof/replay/fd_replay_tile.h"
 #include "../../disco/net/fd_net_tile.h"
+#include "../../discof/restore/fd_snaprd_tile.h"
 #include "../../disco/quic/fd_tpu.h"
 #include "../../disco/pack/fd_pack_cost.h"
 #include "../../disco/tiles.h"
@@ -326,6 +327,8 @@ fd_topo_initialize( config_t * config ) {
   /**/                 fd_topob_link( topo, "snap_out",     "snap_out",     2UL,                                      sizeof(fd_snapshot_manifest_t), 1UL ); /* TODO: Rename */
   /**/                 fd_topob_link( topo, "snapdc_rd",    "snapdc_rd",    128UL,                                    0UL,                           1UL );
   /**/                 fd_topob_link( topo, "snapin_rd",    "snapin_rd",    128UL,                                    0UL,                           1UL );
+  if( FD_LIKELY( config->tiles.gui.enabled ) ) /* the gui, which is optional, is the only consumer of snaprd_out */
+                       fd_topob_link( topo, "snaprd_out",   "snaprd",       128UL,                                    sizeof(fd_snaprd_update_t),    1UL );
   }
 
   /**/                 fd_topob_link( topo, "genesi_out",   "genesi_out",   2UL,                                      10UL*1024UL*1024UL+32UL+sizeof(fd_lthash_value_t), 1UL );
@@ -480,6 +483,8 @@ fd_topo_initialize( config_t * config ) {
                       fd_topob_tile_out(    topo, "snapin",  0UL,                       "snap_out",     0UL                                                );
                       fd_topob_tile_out(    topo, "snapin",  0UL,          "snapin_rd",                 0UL                                                );
                       fd_topob_tile_in (    topo, "replay",  0UL,          "metric_in", "snap_out",     0UL,          FD_TOPOB_RELIABLE,   FD_TOPOB_POLLED );
+    if( FD_LIKELY( config->tiles.gui.enabled ) ) /* the gui, which is optional, is the only consumer of snaprd_out */
+                      fd_topob_tile_out(    topo, "snaprd",  0UL,                       "snaprd_out",   0UL                                                );
   }
 
   /**/                 fd_topob_tile_in(    topo, "repair",  0UL,          "metric_in", "genesi_out",   0UL,          FD_TOPOB_RELIABLE,   FD_TOPOB_POLLED );
@@ -648,6 +653,22 @@ fd_topo_initialize( config_t * config ) {
     FOR(exec_tile_cnt) fd_topob_tile_in(  topo, "replay",    0UL,         "metric_in",        "capt_replay", i, FD_TOPOB_RELIABLE, FD_TOPOB_POLLED );
   }
 
+  if( FD_LIKELY( config->tiles.gui.enabled ) ) {
+    fd_topob_wksp( topo, "gui" );
+
+    /**/                 fd_topob_tile(     topo, "gui",     "gui",     "metric_in",  tile_to_cpu[ topo->tile_cnt ], 0, 1 );
+
+    /*                                      topo, tile_name, tile_kind_id, fseq_wksp,   link_name,      link_kind_id, reliable,            polled */
+    FOR(net_tile_cnt)    fd_topob_tile_in(  topo, "gui",    0UL,           "metric_in", "net_gossvf",   i,            FD_TOPOB_UNRELIABLE, FD_TOPOB_POLLED ); /* No reliable consumers of networking fragments, may be dropped or overrun */
+    /**/                 fd_topob_tile_in(  topo, "gui",    0UL,           "metric_in", "repair_net",   0UL,          FD_TOPOB_UNRELIABLE, FD_TOPOB_POLLED );
+    FOR(shred_tile_cnt)  fd_topob_tile_in(  topo, "gui",    0UL,           "metric_in", "shred_out",    i,            FD_TOPOB_RELIABLE,   FD_TOPOB_POLLED );
+    /**/                 fd_topob_tile_in(  topo, "gui",    0UL,           "metric_in", "gossip_net",   0UL,          FD_TOPOB_UNRELIABLE, FD_TOPOB_POLLED );
+    /**/                 fd_topob_tile_in(  topo, "gui",    0UL,           "metric_in", "gossip_out",   0UL,          FD_TOPOB_RELIABLE,   FD_TOPOB_POLLED );
+
+    if( FD_LIKELY( snapshots_enabled ) )
+                         fd_topob_tile_in ( topo, "gui",    0UL,           "metric_in", "snaprd_out",   0UL,          FD_TOPOB_RELIABLE,   FD_TOPOB_POLLED );
+  }
+
   if( FD_LIKELY( !is_auto_affinity ) ) {
     if( FD_UNLIKELY( affinity_tile_cnt<topo->tile_cnt ) )
       FD_LOG_ERR(( "The topology you are using has %lu tiles, but the CPU affinity specified in the config tile as [layout.affinity] only provides for %lu cores. "
@@ -754,8 +775,6 @@ fd_topo_initialize( config_t * config ) {
 void
 fd_topo_configure_tile( fd_topo_tile_t * tile,
                         fd_config_t *    config ) {
-  int plugins_enabled = config->tiles.gui.enabled;
-
   if( FD_UNLIKELY( !strcmp( tile->name, "metric" ) ) ) {
 
     if( FD_UNLIKELY( !fd_cstr_to_ip4_addr( config->tiles.metric.prometheus_listen_address, &tile->metric.prometheus_listen_addr ) ) )
@@ -991,7 +1010,7 @@ fd_topo_configure_tile( fd_topo_tile_t * tile,
   } else if( FD_UNLIKELY( !strcmp( tile->name, "poh" ) ) ) {
     strncpy( tile->poh.identity_key_path, config->paths.identity_key, sizeof(tile->poh.identity_key_path) );
 
-    tile->poh.plugins_enabled = plugins_enabled;
+    tile->poh.plugins_enabled = 0;
     tile->poh.bank_cnt = config->layout.bank_tile_count;
     tile->poh.lagged_consecutive_leader_start = config->tiles.poh.lagged_consecutive_leader_start;
 
