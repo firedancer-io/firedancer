@@ -416,12 +416,6 @@ struct fd_config {
 
     struct {
       int   enabled;
-      char  genesis_hash[ FD_BASE58_ENCODED_32_SZ ];
-      char  wen_restart_coordinator[ FD_BASE58_ENCODED_32_SZ ];
-    } restart;
-
-    struct {
-      int   enabled;
       ulong end_slot;
       char  archiver_path[ PATH_MAX ];
     } archiver;
