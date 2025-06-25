@@ -173,6 +173,16 @@ init( config_t const * config ) {
     if( FD_UNLIKELY( chmod( mount_path[ i ], S_IRUSR | S_IWUSR | S_IXUSR ) ) )
       FD_LOG_ERR(( "chmod of hugetlbfs at `%s` failed (%i-%s)", mount_path[ i ], errno, fd_io_strerror( errno ) ));
   }
+
+  /* Create the directory for the normal pages */
+  char unpinned_pages_mnt_path[ PATH_MAX ];
+  FD_TEST( fd_cstr_printf_check(
+    unpinned_pages_mnt_path,
+    sizeof(unpinned_pages_mnt_path), NULL, "%s/.normal", config->hugetlbfs.mount_path ) );
+  FD_LOG_NOTICE(( "RUN: `mkdir -p %s`", unpinned_pages_mnt_path ));
+  if( FD_UNLIKELY( -1==fd_file_util_mkdir_all( unpinned_pages_mnt_path, config->uid, config->gid ) ) ) {
+    FD_LOG_ERR(( "could not create mount directory `%s` (%i-%s)", unpinned_pages_mnt_path, errno, fd_io_strerror( errno ) ));
+  }
 }
 
 static void
@@ -225,6 +235,32 @@ warn_mount_users( char const * mount_path ) {
   if( FD_UNLIKELY( -1==closedir( dir ) ) ) FD_LOG_ERR(( "closedir (%i-%s)", errno, fd_io_strerror( errno ) ));
 }
 
+static int
+empty_dir_top_level( const char *dir_path ) {
+  DIR *dir = opendir( dir_path );
+  if( FD_UNLIKELY( !dir ) ) return (errno == ENOENT) ? 0 : -1;
+
+  struct dirent *entry;
+  while( ( entry = readdir(dir) ) ) {
+    /* Skip . and .. */
+    if( FD_UNLIKELY( !strcmp(entry->d_name, ".") || !strcmp(entry->d_name, "..") ) ) continue;
+
+    char path[PATH_MAX];
+    FD_TEST( fd_cstr_printf_check( path, PATH_MAX, NULL, "%s/%s", dir_path, entry->d_name ) );
+
+    /* Only remove regular files, not subdirectories */
+    struct stat st;
+    if( stat(path, &st) == 0 && S_ISREG(st.st_mode)) {
+      if( FD_UNLIKELY( unlink(path) && errno != ENOENT ) ) {
+        FD_LOG_WARNING(( "failed to remove file `%s` (%i-%s)", path, errno, fd_io_strerror(errno) ));
+      }
+    }
+  }
+
+  closedir( dir );
+  return 0;
+}
+
 static void
 fini( config_t const * config,
       int              pre_init ) {
@@ -271,6 +307,13 @@ fini( config_t const * config,
     if( FD_LIKELY( fclose( fp ) ) )
       FD_LOG_ERR(( "error closing `/proc/self/mounts` (%i-%s)", errno, fd_io_strerror( errno ) ));
 
+    /* For normal pages, we need to empty the directory first */
+    if( i == 2 ) {
+      FD_LOG_NOTICE(( "RUN: `rmdir %s`", mount_path[ i ] ));
+      if( FD_UNLIKELY( empty_dir_top_level(mount_path[i]) && errno != ENOENT ) )
+        FD_LOG_ERR(( "error removing hugetlbfs mount at `%s` (%i-%s)", mount_path[i], errno, fd_io_strerror(errno) ));
+    }
+
     FD_LOG_NOTICE(( "RUN: `rmdir %s`", mount_path[ i ] ));
     if( FD_UNLIKELY( rmdir( mount_path[ i ] ) && errno!=ENOENT ) )
       FD_LOG_ERR(( "error removing hugetlbfs mount at `%s` (%i-%s)", mount_path[ i ], errno, fd_io_strerror( errno ) ));
@@ -307,13 +350,18 @@ check( config_t const * config ) {
   int result2 = stat( mount_path[ 1 ], &st );
   if( FD_UNLIKELY( result2 && errno!=ENOENT ) )
     PARTIALLY_CONFIGURED( "failed to stat `%s` (%i-%s)", mount_path[ 1 ], errno, fd_io_strerror( errno ) );
+  int result3 = stat( config->hugetlbfs.normal_page_mount_path, &st );
+  if( FD_UNLIKELY( result3 && errno!=ENOENT ) )
+    PARTIALLY_CONFIGURED( "failed to stat `%s` (%i-%s)", config->hugetlbfs.normal_page_mount_path, errno, fd_io_strerror( errno ) );
 
-  if( FD_UNLIKELY( result1 && result2 ) )
-    NOT_CONFIGURED( "mounts `%s` and `%s` do not exist", mount_path[ 0 ], mount_path[ 1 ] );
+  if( FD_UNLIKELY( result1 && result2 && result3 ) )
+    NOT_CONFIGURED( "mounts `%s`, `%s` and `%s` do not exist", mount_path[ 0 ], mount_path[ 1 ], config->hugetlbfs.normal_page_mount_path );
   else if( FD_UNLIKELY( result1 ) )
     PARTIALLY_CONFIGURED( "mount `%s` does not exist", mount_path[ 0 ] );
   else if( FD_UNLIKELY( result2 ) )
     PARTIALLY_CONFIGURED( "mount `%s` does not exist", mount_path[ 1 ] );
+  else if( FD_UNLIKELY( result3 ) )
+    PARTIALLY_CONFIGURED( "mount `%s` does not exist", config->hugetlbfs.normal_page_mount_path );
 
   CHECK( check_dir( config->hugetlbfs.mount_path, config->uid, config->gid, S_IFDIR | S_IRUSR | S_IWUSR | S_IXUSR ) );
   for( ulong i=0UL; i<2UL; i++ ) {
