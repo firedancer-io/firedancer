@@ -3,7 +3,6 @@
 #include "generated/fd_replay_tile_seccomp.h"
 
 #include "fd_replay_notif.h"
-#include "../restart/fd_restart.h"
 #include "fd_epoch_forks.h"
 
 #include "../../disco/keyguard/fd_keyload.h"

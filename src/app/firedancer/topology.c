@@ -241,8 +241,7 @@ fd_topo_initialize( config_t * config ) {
   ulong writer_tile_cnt = config->firedancer.layout.writer_tile_count;
   ulong resolv_tile_cnt = config->layout.resolv_tile_count;
 
-  int enable_rpc    = ( config->rpc.port != 0 );
-  int enable_rstart = !!config->tiles.restart.enabled;
+  int enable_rpc = ( config->rpc.port != 0 );
 
   fd_topo_t * topo = { fd_topob_new( &config->topo, config->name ) };
   topo->max_page_size = fd_cstr_to_shmem_page_sz( config->hugetlbfs.max_page_size );
@@ -299,11 +298,6 @@ fd_topo_initialize( config_t * config ) {
   fd_topob_wksp( topo, "send_txns"    );
   fd_topob_wksp( topo, "batch_replay" );
 
-  if( enable_rstart ) {
-    fd_topob_wksp( topo, "rstart_gossi" );
-    fd_topob_wksp( topo, "gossi_rstart" );
-  }
-
   fd_topob_wksp( topo, "quic"        );
   fd_topob_wksp( topo, "verify"      );
   fd_topob_wksp( topo, "dedup"       );
@@ -331,7 +325,6 @@ fd_topo_initialize( config_t * config ) {
   fd_topob_wksp( topo, "writer_fseq" );
   fd_topob_wksp( topo, "funk" );
   fd_topob_wksp( topo, "slot_fseqs"  ); /* fseqs for marked slots eg. turbine slot */
-  if(enable_rstart) fd_topob_wksp( topo, "restart" );
   if( enable_rpc ) fd_topob_wksp( topo, "rpcsrv" );
 
   #define FOR(cnt) for( ulong i=0UL; i<cnt; i++ )
@@ -404,11 +397,6 @@ fd_topo_initialize( config_t * config ) {
 
   /**/                 fd_topob_link( topo, "batch_replay", "batch_replay", 128UL,                                    32UL,                          1UL );
 
-  if( enable_rstart ) {
-    /**/               fd_topob_link( topo, "rstart_gossi", "rstart_gossi", 128UL,                                    4UL + 128UL + 8192UL,          1UL );
-    /**/               fd_topob_link( topo, "gossi_rstart", "gossi_rstart", 128UL,                                    4UL + 128UL + 8192UL,          1UL );
-  }
-
   ushort parsed_tile_to_cpu[ FD_TILE_MAX ];
   /* Unassigned tiles will be floating, unless auto topology is enabled. */
   for( ulong i=0UL; i<FD_TILE_MAX; i++ ) parsed_tile_to_cpu[ i ] = USHORT_MAX;
@@ -464,9 +452,6 @@ fd_topo_initialize( config_t * config ) {
   FOR(writer_tile_cnt)             fd_topob_tile( topo, "writer",  "writer",  "metric_in",  tile_to_cpu[ topo->tile_cnt ], 0,        0 );
   fd_topo_tile_t * batch_tile =    fd_topob_tile( topo, "batch",   "batch",   "metric_in",  tile_to_cpu[ topo->tile_cnt ], 0,        0 );
 
-  fd_topo_tile_t * rstart_tile = NULL;
-  if( enable_rstart ) rstart_tile =fd_topob_tile( topo, "rstart",  "restart", "metric_in",  tile_to_cpu[ topo->tile_cnt ], 0,        0 );
-
   fd_topo_tile_t * rpcserv_tile = NULL;
   if( enable_rpc ) rpcserv_tile =  fd_topob_tile( topo, "rpcsrv",  "rpcsrv",  "metric_in",  tile_to_cpu[ topo->tile_cnt ], 0,        0 );
 
@@ -480,7 +465,6 @@ fd_topo_initialize( config_t * config ) {
   /*                */ fd_topob_tile_uses( topo, batch_tile,   funk_obj, FD_SHMEM_JOIN_MODE_READ_WRITE );
   FOR(exec_tile_cnt)   fd_topob_tile_uses( topo, &topo->tiles[ fd_topo_find_tile( topo, "exec", i ) ], funk_obj, FD_SHMEM_JOIN_MODE_READ_WRITE );
   /*                */ fd_topob_tile_uses( topo, replay_tile,  funk_obj, FD_SHMEM_JOIN_MODE_READ_WRITE );
-  if(rstart_tile)      fd_topob_tile_uses( topo, rstart_tile,  funk_obj, FD_SHMEM_JOIN_MODE_READ_WRITE );
   if(rpcserv_tile)     fd_topob_tile_uses( topo, rpcserv_tile, funk_obj, FD_SHMEM_JOIN_MODE_READ_WRITE );
   FOR(writer_tile_cnt) fd_topob_tile_uses( topo,  &topo->tiles[ fd_topo_find_tile( topo, "writer", i ) ], funk_obj, FD_SHMEM_JOIN_MODE_READ_WRITE );
 
@@ -689,9 +673,6 @@ fd_topo_initialize( config_t * config ) {
   /**/                 fd_topob_tile_out( topo, "gossip",   0UL,                       "gossip_verif", 0UL                                                  );
   /**/                 fd_topob_tile_in(  topo, "sign",     0UL,          "metric_in", "gossip_sign",  0UL,          FD_TOPOB_UNRELIABLE, FD_TOPOB_POLLED   );
   /**/                 fd_topob_tile_out( topo, "gossip",   0UL,                       "gossip_sign",  0UL                                                  );
-  if(enable_rstart) {
-    /**/               fd_topob_tile_in(  topo, "gossip",   0UL,          "metric_in", "rstart_gossi", 0UL,          FD_TOPOB_UNRELIABLE, FD_TOPOB_POLLED   );
-  }
   /**/                 fd_topob_tile_in(  topo, "gossip",   0UL,          "metric_in", "sign_gossip",  0UL,          FD_TOPOB_UNRELIABLE, FD_TOPOB_UNPOLLED );
   /**/                 fd_topob_tile_out( topo, "sign",     0UL,                       "sign_gossip",  0UL                                                  );
   /**/                 fd_topob_tile_out( topo, "gossip",   0UL,                       "gossip_send",  0UL                                                  );
@@ -749,13 +730,6 @@ fd_topo_initialize( config_t * config ) {
   /**/                 fd_topob_tile_out( topo, "sign",   0UL,                       "sign_repair",  0UL                                            );
 
   /**/                 fd_topob_tile_out( topo, "batch",  0UL,                       "batch_replay", 0UL                                            );
-
-  if( enable_rstart ) {
-    /**/               fd_topob_tile_out( topo, "gossip",   0UL,                       "gossi_rstart", 0UL                                                  );
-    /**/               fd_topob_tile_in(  topo, "rstart",   0UL,          "metric_in", "gossi_rstart", 0UL,          FD_TOPOB_UNRELIABLE, FD_TOPOB_POLLED   );
-
-    /**/               fd_topob_tile_out( topo, "rstart",   0UL,                       "rstart_gossi", 0UL                                                  );
-  }
 
   if( config->tiles.archiver.enabled ) {
     fd_topob_wksp( topo, "arch_f" );
@@ -1033,13 +1007,6 @@ fd_topo_configure_tile( fd_topo_tile_t * tile,
       tile->exec.funk_obj_id = fd_pod_query_ulong( config->topo.props, "funk", ULONG_MAX );
     } else if( FD_UNLIKELY( !strcmp( tile->name, "writer" ) ) ) {
       tile->writer.funk_obj_id = fd_pod_query_ulong( config->topo.props, "funk", ULONG_MAX );
-    } else if( FD_UNLIKELY( !strcmp( tile->name, "rstart" ) ) ) {
-      tile->restart.funk_obj_id = fd_pod_query_ulong( config->topo.props, "funk", ULONG_MAX );
-      strncpy( tile->restart.tower_checkpt, config->tiles.replay.tower_checkpt, sizeof(tile->replay.tower_checkpt) );
-      strncpy( tile->restart.identity_key_path, config->paths.identity_key, sizeof(tile->restart.identity_key_path) );
-      fd_memcpy( tile->restart.genesis_hash, config->tiles.restart.genesis_hash, FD_BASE58_ENCODED_32_SZ );
-      fd_memcpy( tile->restart.restart_coordinator, config->tiles.restart.wen_restart_coordinator, FD_BASE58_ENCODED_32_SZ );
-      tile->restart.heap_mem_max = config->firedancer.runtime.heap_size_gib<<30;
     } else if( FD_UNLIKELY( !strcmp( tile->name, "arch_f" ) ||
                             !strcmp( tile->name, "arch_w" ) ) ) {
       strncpy( tile->archiver.archiver_path, config->tiles.archiver.archiver_path, sizeof(tile->archiver.archiver_path) );
