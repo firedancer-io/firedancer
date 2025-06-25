@@ -161,7 +161,6 @@ fd_active_set_rotate( fd_active_set_t *     active_set,
     fd_crds_bucket_add( crds, bucket, entry->nodes[ replace_idx ]->pubkey );
   } else {
     replace_idx = entry->nodes_len;
-    entry->nodes_len++;
   }
 
   fd_active_set_peer_t * replace = entry->nodes[ replace_idx ];

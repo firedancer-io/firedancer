@@ -1085,7 +1085,7 @@ tx_pull_request( fd_gossip_t * gossip,
   fd_gossip_pull_request_encode_ctx_init( payload,
                                           1232UL,
                                           filter->keys_len,
-                                          (filter->bits_len+7UL)/8UL,
+                                          (filter->bits_len),
                                           mask,
                                           mask_bits,
                                           view );
@@ -1127,6 +1127,7 @@ rotate_active_set( fd_gossip_t * gossip,
   fd_contact_info_t const * new_peer = fd_active_set_rotate( gossip->active_set, gossip->crds, &replaced_idx );
   if( FD_UNLIKELY( !new_peer ) ) {
     FD_LOG_WARNING(( "No new peer to rotate into active set" ));
+    return;
   }
 
   push_state_flush( gossip, &gossip->active_push_state[replaced_idx], now );

@@ -241,34 +241,10 @@ unprivileged_init( fd_topo_t *      topo,
   fd_gossip_tile_ctx_t * ctx = FD_SCRATCH_ALLOC_APPEND( l, alignof(fd_gossip_tile_ctx_t), sizeof(fd_gossip_tile_ctx_t) );
   void * gossip              = FD_SCRATCH_ALLOC_APPEND( l, fd_gossip_align(),             fd_gossip_footprint( tile->gossip.max_entries ) );
 
-  ctx->ticks_per_ns   = fd_tempo_tick_per_ns( NULL );
-  ctx->last_wallclock = fd_log_wallclock();
-  ctx->last_tickcount = fd_tickcount();
+  fd_memset( ctx, 0, sizeof(fd_gossip_tile_ctx_t) );
 
   fd_rng_t rng[ 1 ];
   FD_TEST( fd_rng_join( fd_rng_new( rng, ctx->rng_seed, ctx->rng_idx ) ) );
-
-  /* TODO setup my_contact_info */
-  if( tile->gossip.has_expected_shred_version ) {
-    ctx->my_contact_info->shred_version = tile->gossip.expected_shred_version;
-  } else {
-    ctx->my_contact_info->shred_version = 0;
-  }
-  ctx->my_contact_info->wallclock_nanos = ctx->last_wallclock;
-
-  ctx->gossip = fd_gossip_join( fd_gossip_new( gossip,
-                                               rng,
-                                               tile->gossip.max_entries,
-                                               tile->gossip.entrypoints_cnt,
-                                               tile->gossip.entrypoints,
-                                               ctx->my_contact_info,
-                                               ctx->last_wallclock,
-
-                                               gossip_send_fn,
-                                               (void*)ctx,
-                                               gossip_sign_fn,
-                                               (void*)ctx ) );
-  FD_TEST( ctx->gossip );
 
   FD_MGAUGE_SET( GOSSIP, SHRED_VERSION, tile->gossip.expected_shred_version );
 
@@ -329,6 +305,45 @@ unprivileged_init( fd_topo_t *      topo,
                                                        sign_in->dcache ) )==NULL ) {
     FD_LOG_ERR(( "failed to join keyguard client" ));
   }
+
+  ctx->ticks_per_ns   = fd_tempo_tick_per_ns( NULL );
+  ctx->last_wallclock = fd_log_wallclock();
+  ctx->last_tickcount = fd_tickcount();
+
+  /* TODO setup my_contact_info */
+  if( tile->gossip.has_expected_shred_version ) {
+    ctx->my_contact_info->shred_version = tile->gossip.expected_shred_version;
+  } else {
+    ctx->my_contact_info->shred_version = 0;
+  }
+
+  fd_contact_info_t * ci                = ctx->my_contact_info;
+  ci->wallclock_nanos                   = ctx->last_wallclock;
+  ci->version.client                    = FD_GOSSIP_VERSION_CLIENT_FIREDANCER;
+  ci->version.major                     = 42;
+  ci->version.minor                     = 42;
+  ci->version.patch                     = 42;
+  ci->version.commit                    = UINT_MAX;
+  ci->version.feature_set               = UINT_MAX;
+  ci->instance_creation_wallclock_nanos = ctx->last_wallclock;
+  fd_ip4_port_t * gossip_port = &ci->sockets[ FD_CONTACT_INFO_SOCKET_GOSSIP ];
+  gossip_port->addr = tile->gossip.ip_addr;
+  gossip_port->port = tile->gossip.ports.gossip;
+
+
+  ctx->gossip = fd_gossip_join( fd_gossip_new( gossip,
+                                               rng,
+                                               tile->gossip.max_entries,
+                                               tile->gossip.entrypoints_cnt,
+                                               tile->gossip.entrypoints,
+                                               ctx->my_contact_info,
+                                               ctx->last_wallclock,
+
+                                               gossip_send_fn,
+                                               (void*)ctx,
+                                               gossip_sign_fn,
+                                               (void*)ctx ) );
+  FD_TEST( ctx->gossip );
 
   fd_ip4_udp_hdr_init( ctx->net_out_hdr,
                        FD_GOSSIP_MTU,

@@ -143,7 +143,7 @@ fd_gossip_contact_info_encode( fd_contact_info_t const *     contact_info,
   FD_STORE( ulong,  CURSOR, instance_creation_wallclock ); INC( 8UL );
   FD_STORE( ushort, CURSOR, contact_info->shred_version ); INC( 2UL );
 
-  INC( encode_version( contact_info, CURSOR, BYTES_REMAINING, CUR_OFFSET ) );
+  INC( encode_version( contact_info, out_buf, out_buf_sz, CUR_OFFSET ) );
 
   /* fd_contact_info_t has a fixed-size array of addresses and sockets, while
      the encoded representation is a variable-length array of addrs and
