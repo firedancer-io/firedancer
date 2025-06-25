@@ -316,8 +316,10 @@ unprivileged_init( fd_topo_t *      topo,
   } else {
     ctx->my_contact_info->shred_version = 0;
   }
+  uchar * pubkey = fd_keyload_load( tile->gossip.identity_key_path, /* pubkey only: */ 1 );
 
   fd_contact_info_t * ci                = ctx->my_contact_info;
+  fd_memcpy( ci->pubkey, pubkey, 32UL );
   ci->wallclock_nanos                   = ctx->last_wallclock;
   ci->version.client                    = FD_GOSSIP_VERSION_CLIENT_FIREDANCER;
   ci->version.major                     = 42;
@@ -328,8 +330,7 @@ unprivileged_init( fd_topo_t *      topo,
   ci->instance_creation_wallclock_nanos = ctx->last_wallclock;
   fd_ip4_port_t * gossip_port = &ci->sockets[ FD_CONTACT_INFO_SOCKET_GOSSIP ];
   gossip_port->addr = tile->gossip.ip_addr;
-  gossip_port->port = tile->gossip.ports.gossip;
-
+  gossip_port->port = fd_ushort_bswap( tile->gossip.ports.gossip );
 
   ctx->gossip = fd_gossip_join( fd_gossip_new( gossip,
                                                rng,
