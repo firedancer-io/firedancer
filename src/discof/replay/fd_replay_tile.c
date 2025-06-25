@@ -22,7 +22,6 @@
 #include "../../flamenco/rewards/fd_rewards.h"
 #include "../../disco/metrics/fd_metrics.h"
 #include "../../choreo/fd_choreo.h"
-#include "../../flamenco/snapshot/fd_snapshot_create.h"
 #include "../../disco/plugin/fd_plugin.h"
 #include "fd_exec.h"
 
@@ -51,7 +50,6 @@
 
 #define REPAIR_IN_IDX  (0UL)
 #define PACK_IN_IDX    (1UL)
-#define BATCH_IN_IDX   (2UL)
 #define SHRED_IN_IDX   (3UL)
 
 #define EXEC_BOOT_WAIT  (0UL)
@@ -104,11 +102,6 @@ struct fd_replay_tile_ctx {
   fd_wksp_t * pack_in_mem;
   ulong       pack_in_chunk0;
   ulong       pack_in_wmark;
-
-  // Batch tile input for epoch account hash
-  fd_wksp_t * batch_in_mem;
-  ulong       batch_in_chunk0;
-  ulong       batch_in_wmark;
 
   /* Tower tile input */
   ulong tower_in_idx;
@@ -247,14 +240,7 @@ struct fd_replay_tile_ctx {
   ulong               exec_spad_cnt;
 
   fd_spad_t *         runtime_spad;
-
-  /* TODO: refactor this all into fd_replay_tile_snapshot_ctx_t. */
-  ulong   snapshot_interval;        /* User defined parameter */
-  ulong   incremental_interval;     /* User defined parameter */
-  ulong   last_full_snap;           /* If a full snapshot has been produced */
   ulong * is_constipated;           /* Shared fseq to determine if funk should be constipated */
-  ulong   prev_full_snapshot_dist;  /* Tracking for snapshot creation */
-  ulong   prev_incr_snapshot_dist;  /* Tracking for incremental snapshot creation */
 
   fd_funk_txn_t * false_root;
 
@@ -320,22 +306,6 @@ before_frag( fd_replay_tile_ctx_t * ctx,
     return 1;
   }
   return 0;
-}
-
-static void
-during_frag( fd_replay_tile_ctx_t * ctx,
-             ulong                  in_idx,
-             ulong                  seq FD_PARAM_UNUSED,
-             ulong                  sig FD_PARAM_UNUSED,
-             ulong                  chunk,
-             ulong                  sz  FD_PARAM_UNUSED,
-             ulong                  ctl FD_PARAM_UNUSED ) {
-
-  if( in_idx==BATCH_IN_IDX ) {
-    uchar * src = (uchar *)fd_chunk_to_laddr( ctx->batch_in_mem, chunk );
-    fd_memcpy( ctx->slot_ctx->slot_bank.epoch_account_hash.uc, src, sizeof(fd_hash_t) );
-    FD_LOG_NOTICE(( "Epoch account hash calculated to be %s", FD_BASE58_ENC_32_ALLOCA( ctx->slot_ctx->slot_bank.epoch_account_hash.uc ) ));
-  }
 }
 
 /* Large number of helpers for after_credit begin here  */
@@ -623,7 +593,7 @@ block_finalize_tiles_cb( void * para_arg_1,
 }
 
 
-static void
+FD_FN_UNUSED static void
 checkpt( fd_replay_tile_ctx_t * ctx ) {
   if( FD_UNLIKELY( ctx->slots_replayed_file ) ) fclose( ctx->slots_replayed_file );
   if( FD_UNLIKELY( strcmp( ctx->blockstore_checkpt, "" ) ) ) {
@@ -682,83 +652,6 @@ txncache_publish( fd_replay_tile_ctx_t * ctx,
   }
 
   fd_funk_txn_end_read( ctx->funk );
-}
-
-/* NOTE: Snapshot creation is currently not supported in Firedancer V1. We may add support
-         for this back in, after the initial release. For that reason, we want to keep around
-         the snapshot code, but we return early in this function so that snapshot creation
-         is never initiated. */
-static void
-snapshot_state_update( fd_replay_tile_ctx_t * ctx, ulong wmk ) {
-
-  /* We are ready for a snapshot if either we are on or just passed a snapshot
-     interval and no snapshot is currently in progress. This is to handle the
-     case where the snapshot interval falls on a skipped slot.
-
-     We are ready to create a snapshot if:
-     1. The node is caught up to the network.
-     2. There is currently no snapshot in progress
-     3. The current slot is at the snapshot interval OR
-        The current slot has passed a snapshot interval
-
-    If a snapshot is ready to be created we will constipate funk and the
-    status cache. This will also notify the status cache via the funk
-    constipation fseq. */
-
-  if( ctx->snapshot_interval==ULONG_MAX ) {
-    return;
-  }
-
-  uchar is_constipated = fd_fseq_query( ctx->is_constipated ) != 0UL;
-
-  if( ctx->read_only ) {
-    return;
-  }
-
-  if( is_constipated ) {
-    return;
-  }
-
-  fd_epoch_bank_t * epoch_bank = fd_exec_epoch_ctx_epoch_bank( ctx->slot_ctx->epoch_ctx );
-
-  /* The distance from the last snapshot should only grow until we skip
-     past the last full snapshot. If it has shrunk that means we skipped
-     over the snapshot interval. */
-  ulong curr_full_snapshot_dist = wmk % ctx->snapshot_interval;
-  uchar is_full_snapshot_ready  = curr_full_snapshot_dist < ctx->prev_full_snapshot_dist;
-  ctx->prev_full_snapshot_dist  = curr_full_snapshot_dist;
-
-  /* Do the same for incrementals, only try to create one if there has been
-     a full snapshot. */
-
-  ulong curr_incr_snapshot_dist = wmk % ctx->incremental_interval;
-
-  uchar is_inc_snapshot_ready   = wmk % ctx->incremental_interval < ctx->prev_incr_snapshot_dist && ctx->last_full_snap;
-  ctx->prev_incr_snapshot_dist  = curr_incr_snapshot_dist;
-
-  ulong updated_fseq = 0UL;
-
-  /* TODO: We need a better check if the wmk fell on an epoch boundary due to
-     skipped slots. We just don't want to make a snapshot on an epoch boundary */
-  if( (is_full_snapshot_ready || is_inc_snapshot_ready) &&
-      !fd_runtime_is_epoch_boundary( epoch_bank, wmk, wmk-1UL ) ) {
-
-    /* NOTE: returning early to avoid triggering snapshot creation, as this is not yet supported.*/
-    FD_LOG_WARNING(( "snapshot creation not supported! skipping snapshot creation" ));
-    return;
-
-    /* Constipate the status cache when a snapshot is ready to be created. */
-    if( is_full_snapshot_ready ) {
-      ctx->last_full_snap = wmk;
-      FD_LOG_NOTICE(( "Ready to create a full snapshot" ));
-      updated_fseq = fd_batch_fseq_pack( 1, 0, wmk );
-    } else {
-      FD_LOG_NOTICE(( "Ready to create an incremental snapshot" ));
-      updated_fseq = fd_batch_fseq_pack( 1, 1, wmk );
-    }
-    fd_txncache_set_is_constipated( ctx->slot_ctx->status_cache, 1 );
-    fd_fseq_update( ctx->is_constipated, updated_fseq );
-  }
 }
 
 static void
@@ -924,10 +817,6 @@ funk_and_txncache_publish( fd_replay_tile_ctx_t * ctx, ulong wmk, fd_funk_txn_xi
   txncache_publish( ctx, to_root_txn, rooted_txn );
 
   funk_publish( ctx, to_root_txn, wmk, is_constipated );
-
-  /* Update the snapshot state and determine if one is ready to be created. */
-
-  snapshot_state_update( ctx, wmk );
 
   if( FD_UNLIKELY( ctx->capture_ctx ) ) {
     fd_runtime_checkpt( ctx->capture_ctx, ctx->slot_ctx, wmk );
@@ -2347,7 +2236,6 @@ after_credit( fd_replay_tile_ctx_t * ctx,
 
           //funk_cancel( ctx, cmp_slot );
           //checkpt( ctx );
-          (void)checkpt;
           FD_LOG_WARNING(( "Bank hash mismatch on slot: %lu. Halting.", cmp_slot ));
 
           break;
@@ -2428,7 +2316,6 @@ unprivileged_init( fd_topo_t *      topo,
 
   if( FD_UNLIKELY( tile->in_cnt < 3 ||
                    strcmp( topo->links[ tile->in_link_id[ PACK_IN_IDX ] ].name, "pack_replay")   ||
-                   strcmp( topo->links[ tile->in_link_id[ BATCH_IN_IDX  ] ].name, "batch_replay" ) ||
                    strcmp( topo->links[ tile->in_link_id[ REPAIR_IN_IDX  ] ].name, "repair_repla" ) ) ) {
     FD_LOG_ERR(( "replay tile has none or unexpected input links %lu %s %s",
                  tile->in_cnt, topo->links[ tile->in_link_id[ 0 ] ].name, topo->links[ tile->in_link_id[ 1 ] ].name ));
@@ -2480,16 +2367,6 @@ unprivileged_init( fd_topo_t *      topo,
   if( ctx->status_cache_wksp == NULL ) {
     FD_LOG_ERR(( "no status cache wksp" ));
   }
-
-  /**********************************************************************/
-  /* snapshot                                                           */
-  /**********************************************************************/
-
-  ctx->snapshot_interval    = tile->replay.full_interval ? tile->replay.full_interval : ULONG_MAX;
-  ctx->incremental_interval = tile->replay.incremental_interval ? tile->replay.incremental_interval : ULONG_MAX;
-  ctx->last_full_snap       = 0UL;
-
-  FD_LOG_NOTICE(( "Snapshot intervals full=%lu incremental=%lu", ctx->snapshot_interval, ctx->incremental_interval ));
 
   /**********************************************************************/
   /* funk                                                               */
@@ -2802,12 +2679,6 @@ unprivileged_init( fd_topo_t *      topo,
   ctx->pack_in_chunk0           = fd_dcache_compact_chunk0( ctx->pack_in_mem, pack_in_link->dcache );
   ctx->pack_in_wmark            = fd_dcache_compact_wmark( ctx->pack_in_mem, pack_in_link->dcache, pack_in_link->mtu );
 
-  /* Setup batch tile input for epoch account hash */
-  fd_topo_link_t * batch_in_link = &topo->links[ tile->in_link_id[ BATCH_IN_IDX ] ];
-  ctx->batch_in_mem              = topo->workspaces[ topo->objs[ batch_in_link->dcache_obj_id ].wksp_id ].wksp;
-  ctx->batch_in_chunk0           = fd_dcache_compact_chunk0( ctx->batch_in_mem, batch_in_link->dcache );
-  ctx->batch_in_wmark            = fd_dcache_compact_wmark( ctx->batch_in_mem, batch_in_link->dcache, batch_in_link->mtu );
-
   /* Setup tower tile input */
   ctx->tower_in_idx = fd_topo_find_tile_in_link( topo, tile, "tower_replay", 0 );
   if( FD_UNLIKELY( ctx->tower_in_idx==ULONG_MAX ) ) FD_LOG_WARNING(( "replay tile is missing tower input link %lu", ctx->tower_in_idx ));
@@ -2942,7 +2813,6 @@ metrics_write( fd_replay_tile_ctx_t * ctx ) {
 
 #define STEM_CALLBACK_AFTER_CREDIT        after_credit
 #define STEM_CALLBACK_BEFORE_FRAG         before_frag
-#define STEM_CALLBACK_DURING_FRAG         during_frag
 #define STEM_CALLBACK_AFTER_FRAG          after_frag
 #define STEM_CALLBACK_METRICS_WRITE       metrics_write
 

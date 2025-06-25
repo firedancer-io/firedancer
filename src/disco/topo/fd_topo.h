@@ -308,8 +308,6 @@ struct fd_topo_tile {
       char  identity_key_path[ PATH_MAX ];
       uint  ip_addr;
       char  vote_account_path[ PATH_MAX ];
-      ulong full_interval;
-      ulong incremental_interval;
 
       char  blockstore_file[ PATH_MAX ];
       char  blockstore_checkpt[ PATH_MAX ];
@@ -415,17 +413,6 @@ struct fd_topo_tile {
       uint    acct_index_max;
       char    history_file[ PATH_MAX ];
     } rpcserv;
-
-    struct {
-      ulong funk_obj_id;
-      ulong full_interval;
-      ulong incremental_interval;
-      char  out_dir[ PATH_MAX ];
-      int   tmp_fd;
-      int   tmp_inc_fd;
-      int   full_snapshot_fd;
-      int   incremental_snapshot_fd;
-    } batch;
 
     struct {
       uint fake_dst_ip;
