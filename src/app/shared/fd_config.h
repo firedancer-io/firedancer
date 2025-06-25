@@ -409,12 +409,6 @@ struct fd_config {
     } store_int;
 
     struct {
-      ulong full_interval;
-      ulong incremental_interval;
-      char  out_dir[ PATH_MAX ];
-    } batch;
-
-    struct {
       int   enabled;
       ulong end_slot;
       char  archiver_path[ PATH_MAX ];

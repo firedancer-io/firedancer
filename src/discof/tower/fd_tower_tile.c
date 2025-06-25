@@ -341,7 +341,7 @@ unprivileged_init( fd_topo_t *      topo,
   ctx->tower   = fd_tower_join( fd_tower_new( tower_mem                     ) );
   ctx->scratch = fd_tower_join( fd_tower_new( scratch_mem                   ) );
 
-  if( FD_UNLIKELY( !fd_funk_join( ctx->funk, fd_topo_obj_laddr( topo, tile->batch.funk_obj_id ) ) ) ) {
+  if( FD_UNLIKELY( !fd_funk_join( ctx->funk, fd_topo_obj_laddr( topo, tile->tower.funk_obj_id ) ) ) ) {
     FD_LOG_ERR(( "Failed to join database cache" ));
   }
 
