@@ -1258,12 +1258,17 @@ fd_gui_handle_reset_slot( fd_gui_t * gui,
   ulong last_slot = _slot;
   long last_published = gui->slots[ _slot % FD_GUI_SLOTS_CNT ]->completed_time;
 
-  for( ulong i=0UL; i<fd_ulong_min( _slot+1, 750UL ); i++ ) {
+  for( ulong i=0UL; i<fd_ulong_min( _slot+1, FD_GUI_SLOT_DURATION_HISTORY_SAMPLE_CNT ); i++ ) {
     ulong parent_slot = _slot - i;
     ulong parent_idx  = parent_slot % FD_GUI_SLOTS_CNT;
 
     fd_gui_slot_t * slot = gui->slots[ parent_idx ];
     if( FD_UNLIKELY( slot->slot==ULONG_MAX) ) break;
+
+    /* Check if the ancestor has been evicted. This shouldn't typically happen
+       since FD_GUI_SLOT_DURATION_HISTORY_SAMPLE_CNT << FD_GUI_SLOTS_CNT but
+       we'll keep it here for correctness */
+    if( FD_UNLIKELY( slot->slot >= parent_slot + FD_GUI_SLOTS_CNT) ) break;
     if( FD_UNLIKELY( slot->slot!=parent_slot ) ) {
       FD_LOG_ERR(( "_slot %lu i %lu we expect _slot-i %lu got slot->slot %lu", _slot, i, _slot-i, slot->slot ));
     }
@@ -1377,7 +1382,12 @@ fd_gui_handle_rooted_slot( fd_gui_t * gui,
     fd_gui_slot_t * slot = gui->slots[ parent_idx ];
     if( FD_UNLIKELY( slot->slot==ULONG_MAX) ) break;
 
-    if( FD_UNLIKELY( slot->slot!=parent_slot ) ) {
+    /* We shouldn't find any entries with a slot number != parent_slot.
+       The exception is if our slot history is full and we've started evicting
+       old slots (e.g. in fd_gui_became_leader), then a new, larget slot may
+       have evicted an ancestor.  In this case
+       slot->slot >= parent_slot + FD_GUI_SLOTS_CNT. */
+    if( FD_UNLIKELY( slot->slot!=parent_slot && slot->slot < parent_slot + FD_GUI_SLOTS_CNT ) ) {
       FD_LOG_ERR(( "_slot %lu i %lu we expect parent_slot %lu got slot->slot %lu", _slot, i, parent_slot, slot->slot ));
     }
     if( FD_UNLIKELY( slot->level>=FD_GUI_SLOT_LEVEL_ROOTED ) ) break;
@@ -1400,13 +1410,19 @@ fd_gui_handle_optimistically_confirmed_slot( fd_gui_t * gui,
   /* Slot 0 is always rooted.  No need to iterate all the way back to
      i==_slot */
   for( ulong i=0UL; i<fd_ulong_min( _slot, FD_GUI_SLOTS_CNT ); i++ ) {
+    /* Loop through all the ancestors of _slot */
     ulong parent_slot = _slot - i;
     ulong parent_idx = parent_slot % FD_GUI_SLOTS_CNT;
 
     fd_gui_slot_t * slot = gui->slots[ parent_idx ];
     if( FD_UNLIKELY( slot->slot==ULONG_MAX) ) break;
 
-    if( FD_UNLIKELY( slot->slot>parent_slot ) ) {
+    /* We shouldn't find any entries with a slot number larger than parent_slot.
+       The exception is if our slot history is full and we've started evicting
+       old slots (e.g. in fd_gui_became_leader), then a new, larget slot may
+       have evicted an ancestor.  In this case
+       slot->slot >= parent_slot + FD_GUI_SLOTS_CNT. */
+    if( FD_UNLIKELY( slot->slot>parent_slot && slot->slot < parent_slot + FD_GUI_SLOTS_CNT ) ) {
       FD_LOG_ERR(( "_slot %lu i %lu we expect parent_slot %lu got slot->slot %lu", _slot, i, parent_slot, slot->slot ));
     } else if( FD_UNLIKELY( slot->slot<parent_slot ) ) {
       /* Slot not even replayed yet ... will come out as optmistically confirmed */

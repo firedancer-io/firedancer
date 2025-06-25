@@ -9,8 +9,9 @@
 
 #include "../topo/fd_topo.h"
 
-#define FD_GUI_SLOTS_CNT (864000UL)
+#define FD_GUI_SLOTS_CNT                           (864000UL)
 #define FD_GUI_TPS_HISTORY_WINDOW_DURATION_SECONDS (10L) /* 10 second moving average */
+#define FD_GUI_SLOT_DURATION_HISTORY_SAMPLE_CNT    (750UL)
 #define FD_GUI_TPS_HISTORY_SAMPLE_CNT              (150UL)
 #define FD_GUI_TILE_TIMER_SNAP_CNT                 (512UL)
 #define FD_GUI_TILE_TIMER_LEADER_CNT               (4096UL)
