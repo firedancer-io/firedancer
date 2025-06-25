@@ -21,6 +21,7 @@ void fd_gui_printf_skipped_history( fd_gui_t * gui );
 void fd_gui_printf_skipped_history_cluster( fd_gui_t * gui );
 void fd_gui_printf_tps_history( fd_gui_t * gui );
 void fd_gui_printf_startup_progress( fd_gui_t * gui );
+void fd_gui_printf_boot_progress( fd_gui_t * gui );
 void fd_gui_printf_block_engine( fd_gui_t * gui );
 void fd_gui_printf_tiles( fd_gui_t * gui );
 void fd_gui_printf_schedule_strategy( fd_gui_t * gui );
@@ -119,5 +120,21 @@ void
 fd_gui_printf_live_tile_stats( fd_gui_t *                  gui,
                                fd_gui_tile_stats_t const * prev,
                                fd_gui_tile_stats_t const * cur );
+
+void
+fd_gui_printf_peers_viewport_update( fd_gui_peers_ctx_t *  peers,
+                                     ulong                 ws_conn_id );
+
+void
+fd_gui_printf_peers_viewport_request( fd_gui_peers_ctx_t *  peers,
+                                      char const *          key,
+                                      ulong                 ws_conn_id,
+                                      ulong                 request_id );
+
+void
+fd_gui_printf_peers_view_resize( fd_gui_peers_ctx_t *  peers );
+
+void
+fd_gui_peers_printf_gossip_stats( fd_gui_peers_ctx_t *  peers );
 
 #endif /* HEADER_fd_src_disco_gui_fd_gui_printf_h */
