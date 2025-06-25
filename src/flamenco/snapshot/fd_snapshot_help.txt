@@ -21,7 +21,6 @@ Available Commands
     --csv               Write CSV table of account metadata to file
     --csv-hdr           Write CSV header? (default 1)
 
-    --manifest          Write YAML serialization of snapshot manifest to file
     --manifest-max      Snapshot manifest file size limit (default 1 GiB)
 
 Global Flags
