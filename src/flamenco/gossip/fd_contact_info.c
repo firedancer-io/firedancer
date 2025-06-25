@@ -54,8 +54,8 @@ fd_contact_info_convert_sockets( fd_contact_info_t const *             contact_i
     }
   }
 
-  socket_ctx_t sorted[ FD_CONTACT_INFO_SOCKET_MAX ];
-  sort_socket_port_stable_fast( filled_up, filled_up_cnt, sorted );
+  socket_ctx_t scratch[ FD_CONTACT_INFO_SOCKET_MAX ];
+  socket_ctx_t * sorted = sort_socket_port_stable_fast( filled_up, filled_up_cnt, scratch );
 
   uchar addrs_cnt = 0UL;
   uchar socket_entries_cnt = 0UL;
