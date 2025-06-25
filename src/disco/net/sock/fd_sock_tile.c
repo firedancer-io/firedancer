@@ -395,7 +395,7 @@ poll_rx_socket( fd_sock_tile_t *    ctx,
 
     ctx->metrics.rx_pkt_cnt++;
     ulong chunk = fd_laddr_to_chunk( base, eth_hdr );
-    ulong sig   = fd_disco_netmux_sig( sa->sin_addr.s_addr, fd_ushort_bswap( sa->sin_port ), 0U, proto, hdr_sz );
+    ulong sig   = fd_disco_netmux_sig( sa->sin_addr.s_addr, fd_ushort_bswap( sa->sin_port ), proto, hdr_sz );
     ulong tspub = fd_frag_meta_ts_comp( ts );
     fd_stem_publish( stem, rx_link, sig, chunk, frame_sz, 0UL, 0UL, tspub );
     last_chunk = chunk;

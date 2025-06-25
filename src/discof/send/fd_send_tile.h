@@ -17,6 +17,7 @@
 #include "../../disco/stem/fd_stem.h"
 
 #include "../../disco/fd_disco.h"
+#include "../../disco/fd_txn_m_t.h"
 #include "../../disco/pack/fd_microblock.h"
 
 #include "../../disco/keyguard/fd_keyload.h"
