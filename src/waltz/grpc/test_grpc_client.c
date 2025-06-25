@@ -1,5 +1,7 @@
 #if !FD_HAS_HOSTED
 
+#include "../../util/fd_util.h"
+
 int
 main( int     argc,
       char ** argv ) {
