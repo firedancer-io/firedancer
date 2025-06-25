@@ -1062,6 +1062,13 @@ user = ""
         repair_intake_listen_port = 8701
         repair_serve_listen_port = 8702
 
+        # Slot max is the maximum number of slots that repair tile can
+        # maintain at once.  This is expected to be the largest at
+        # startup, when the validator is catching up from the snapshot
+        # slot, but still maintaining and receiving new turbine slots.
+        # Must be power of 2
+        slot_max = 1024
+
     [tiles.replay]
         # Where to obtain the full snapshot.
         #

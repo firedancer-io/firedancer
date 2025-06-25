@@ -375,6 +375,7 @@ struct fd_topo_tile {
       int     good_peer_cache_file_fd;
       char    identity_key_path[ PATH_MAX ];
       ulong   max_pending_shred_sets;
+      ulong   slot_max;
     } repair;
 
     struct {
