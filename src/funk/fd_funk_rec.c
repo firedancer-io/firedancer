@@ -707,6 +707,7 @@ fd_funk_rec_purify( fd_funk_t * funk ) {
 
     fd_funk_rec_t * rec = fd_funk_rec_map_purify_help_ele( &iter );
     if( !fd_funk_txn_xid_eq_root( rec->pair.xid ) ||
+        (rec->flags & FD_FUNK_REC_FLAG_ERASE) ||
         fd_funk_rec_map_purify_help_check_hash( &iter ) ) {
       /* Snip out the record */
       fd_funk_rec_map_purify_help_erase( &iter );

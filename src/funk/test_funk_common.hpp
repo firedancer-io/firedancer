@@ -124,7 +124,7 @@ struct fake_funk {
           void * val = fd_funk_val( rec, _wksp );
           ulong sz = fd_funk_val_sz( rec );
           fake_rec * rec2 = new fake_rec( fd_funk_rec_key( rec )->ul[0] );
-          rec2->_data.resize( sz );
+          rec2->_data.resize( sz/8UL );
           memcpy( rec2->_data.data(), val, sz );
           _txns[ROOT_KEY]->_recs.push_back( rec2 );
         }

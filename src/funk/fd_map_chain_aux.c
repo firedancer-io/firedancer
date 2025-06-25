@@ -22,6 +22,7 @@ struct MAP_(purify_help_private) {
   ulong       ele_max;     /* Size of element pool */
   ulong       ele_idx;     /* Current iteration element store index (or the null index) */
   uint      * ele_idx_ref; /* Where did the index come from */
+  ulong       ele_cnt;     /* Number of elements in the chain */
   int         error;
   ulong       seed;      /* Hash seed, arbitrary */
 };
@@ -42,8 +43,10 @@ MAP_(purify_help_next_private)( MAP_(purify_help_t) * help ) {
       *(help->ele_idx_ref) = MAP_(private_cidx)(MAP_(private_idx_null()));
       help->error = 1;
     } else {
+      help->ele_cnt ++;
       return;
     }
+    help->ele_cnt = 0;
     help->chain_idx ++;
   }
   help->ele_idx_ref = NULL;
@@ -59,6 +62,7 @@ MAP_(purify_help)( MAP_(t) const * join, ulong ele_max, MAP_(purify_help_t) * he
   help->ele_max     = ele_max;
   help->error       = 0;
   help->seed        = join->map->seed;
+  help->ele_cnt     = 0;
 
   /* Advance to the first element */
   MAP_(purify_help_next_private)( help );
@@ -81,10 +85,13 @@ MAP_(purify_help_next)( MAP_(purify_help_t) * help ) {
     *(help->ele_idx_ref) = MAP_(private_cidx)(MAP_(private_idx_null()));
     help->error = 1;
   } else {
+    help->ele_cnt ++;
     return;
   }
+  help->chain_base[help->chain_idx].ver_cnt = MAP_(private_vcnt)( 0, help->ele_cnt );
   /* Next chain */
   help->chain_idx ++;
+  help->ele_cnt = 0;
   MAP_(purify_help_next_private)( help );
 }
 
@@ -102,8 +109,10 @@ MAP_(purify_help_erase)( MAP_(purify_help_t) * help ) {
   } else {
     return ele;
   }
+  help->chain_base[help->chain_idx].ver_cnt = MAP_(private_vcnt)( 0, help->ele_cnt );
   /* Next chain */
   help->chain_idx ++;
+  help->ele_cnt = 0;
   MAP_(purify_help_next_private)( help );
   return ele;
 }
