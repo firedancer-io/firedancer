@@ -19,5 +19,8 @@ $(call add-objs,fd_dns_parse,fd_waltz)
 $(call add-objs,fd_res_mkquery fd_res_msend,fd_waltz)
 
 $(call make-unit-test,test_getaddrinfo,test_getaddrinfo,fd_waltz fd_util)
+$(call make-fuzz-test,fuzz_dn_expand,fuzz_dn_expand,fd_waltz fd_util)
+$(call make-fuzz-test,fuzz_lookup_literal,fuzz_lookup_literal,fd_waltz fd_util)
+$(call make-fuzz-test,fuzz_dns_parse,fuzz_dns_parse,fd_waltz fd_util)
 
 endif
