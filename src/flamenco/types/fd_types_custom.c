@@ -290,9 +290,14 @@ fd_rust_duration_footprint_validator ( fd_bincode_decode_ctx_t * ctx ) {
 
 int
 fd_gossip_duplicate_shred_validator ( fd_bincode_decode_ctx_t * ctx ) {
+  // Temporarily disable this till we understand better
+#if 0
   fd_gossip_duplicate_shred_t *d = (fd_gossip_duplicate_shred_t *) ctx->data;
   if( FD_UNLIKELY( (d->_unused_shred_type != 0x5a) || (d->_unused_shred_type != 0xa5) ) )
     return FD_BINCODE_ERR_ENCODING;
+#else
+  (void) ctx;
+#endif
   return FD_BINCODE_SUCCESS;
 }
 
