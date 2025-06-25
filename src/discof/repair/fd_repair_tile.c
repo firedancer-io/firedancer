@@ -40,7 +40,7 @@
 #define MAX_SHRED_TILE_CNT (16UL)
 
 #define MAX_SIGN_TILE_CNT (16UL)
-#define SIGN_LINK_DEPTH   (128UL) // TOOD: is there a better way to ensure topo value and this are the same?
+#define SIGN_LINK_DEPTH   (256UL) // TOOD: is there a better way to ensure topo value and this are the same?
 
 #define FD_FOREST_ELE_MAX  (2048) /* FIXME */
 typedef union {
@@ -228,10 +228,11 @@ dispatch_pending_sign( fd_repair_tile_ctx_t * ctx,
   uchar * chunk = fd_chunk_to_laddr( ctx->sign_out_ctx[i].mem, ctx->sign_out_ctx[i].chunk );
   fd_memcpy( chunk, data, data_len );
 
-  FD_LOG_INFO(( "dispatch_pending_sign: tile %u, req idx %u", i, ctx->sign_ring[i].next_req ));
+  ulong * seqp = &ctx->stem->seqs[ ctx->sign_out_ctx[i].idx ];
+  FD_LOG_INFO(( "dispatch_pending_sign: tile %u, seq: %lu, req idx %u", i, *seqp, ctx->sign_ring[i].next_req ));
 
   ulong sig = (ulong)ctx->sign_ring[i].next_req << 32 | (ulong)sign_type;
-  if( data_len == 0 ) {
+  if( FD_UNLIKELY( data_len == 0 || ctx->sign_out_ctx[i].chunk == 0) ) {
     __asm__("int $3");
   }
   fd_stem_publish( ctx->stem, ctx->sign_out_ctx[i].idx, sig, ctx->sign_out_ctx[i].chunk, data_len, 0, 0, 0 );
@@ -811,6 +812,12 @@ after_frag( fd_repair_tile_ctx_t * ctx,
     //FD_LOG_WARNING(("sign in_idx %lu, sz %lu", in_idx, sz));
     uint sign_idx = (uint)in_idx - ctx->sign_in_idx0;
     uint resp_idx = ctx->sign_ring[sign_idx].next_resp;
+
+
+    if( resp_idx != (uint)(sig >> 32) ) {
+      FD_LOG_WARNING(("sign in_idx %lu, resp_idx %u vs actual resp_idx %u", in_idx, resp_idx, (uint)(sig >> 32)));
+    }
+    //FD_TEST( resp_idx == (uint)(sig >> 32));
 
     ctx->sign_ring[sign_idx].next_resp = (ctx->sign_ring[sign_idx].next_resp + 1) % SIGN_LINK_DEPTH;
 
