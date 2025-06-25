@@ -77,9 +77,6 @@ echo "
     level_stderr = \"INFO\"
     level_logfile = \"NOTICE\"
     level_flush = \"ERR\"
-[rpc]
-    port = 8123
-    extended_tx_metadata_storage = true
 " > firedancer-dev.toml
 
 sudo $FD_DIR/$OBJDIR/bin/firedancer-dev configure init kill --config $(readlink -f firedancer-dev.toml)

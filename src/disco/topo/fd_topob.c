@@ -372,7 +372,6 @@ fd_topob_auto_layout( fd_topo_t * topo,
     "writer", /* FIREDANCER only */
     "send",   /* FIREDANCER only */
     "tower",  /* FIREDANCER only */
-    "rpcsrv", /* FIREDANCER only */
     "pktgen"
   };
 
