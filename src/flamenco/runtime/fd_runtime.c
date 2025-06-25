@@ -80,11 +80,11 @@ fd_runtime_compute_max_tick_height( ulong   ticks_per_slot,
     ulong next_slot = fd_ulong_sat_add( slot, 1UL );
     if( FD_UNLIKELY( next_slot == slot ) ) {
       FD_LOG_WARNING(( "max tick height addition overflowed slot %lu ticks_per_slot %lu", slot, ticks_per_slot ));
-      return FD_RUNTIME_EXECUTE_GENERIC_ERR;
+      return -1;
     }
     if( FD_UNLIKELY( ULONG_MAX / ticks_per_slot < next_slot ) ) {
       FD_LOG_WARNING(( "max tick height multiplication overflowed slot %lu ticks_per_slot %lu", slot, ticks_per_slot ));
-      return FD_RUNTIME_EXECUTE_GENERIC_ERR;
+      return -1;
     }
     max_tick_height = fd_ulong_sat_mul( next_slot, ticks_per_slot );
   }
@@ -3951,7 +3951,7 @@ fd_runtime_block_verify_tpool( fd_exec_slot_ctx_t *    slot_ctx,
   );
   if( FD_UNLIKELY( tick_res != FD_BLOCK_OK ) ) {
     FD_LOG_WARNING(( "failed to verify ticks res %lu slot %lu", tick_res, slot_ctx->slot_bank.slot ));
-    return FD_RUNTIME_EXECUTE_GENERIC_ERR;
+    return -1;
   }
 
   /* poh_verification_info is now in order information of all the microblocks */
