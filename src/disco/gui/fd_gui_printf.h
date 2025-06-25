@@ -15,12 +15,14 @@ void fd_gui_printf_vote_key( fd_gui_t * gui );
 void fd_gui_printf_startup_time_nanos( fd_gui_t * gui );
 void fd_gui_printf_vote_state( fd_gui_t * gui );
 void fd_gui_printf_vote_distance( fd_gui_t * gui );
-void fd_gui_printf_slot_max_known( fd_gui_t * gui );
+void fd_gui_printf_turbine_slot( fd_gui_t * gui );
+void fd_gui_printf_repair_slot( fd_gui_t * gui );
 void fd_gui_printf_slot_caught_up( fd_gui_t * gui );
 void fd_gui_printf_skipped_history( fd_gui_t * gui );
 void fd_gui_printf_skipped_history_cluster( fd_gui_t * gui );
 void fd_gui_printf_tps_history( fd_gui_t * gui );
 void fd_gui_printf_startup_progress( fd_gui_t * gui );
+void fd_gui_printf_boot_progress( fd_gui_t * gui );
 void fd_gui_printf_block_engine( fd_gui_t * gui );
 void fd_gui_printf_tiles( fd_gui_t * gui );
 void fd_gui_printf_schedule_strategy( fd_gui_t * gui );
@@ -119,5 +121,21 @@ void
 fd_gui_printf_live_tile_stats( fd_gui_t *                  gui,
                                fd_gui_tile_stats_t const * prev,
                                fd_gui_tile_stats_t const * cur );
+
+void
+fd_gui_printf_peers_viewport_update( fd_gui_peers_ctx_t *  peers,
+                                     ulong                 ws_conn_id );
+
+void
+fd_gui_printf_peers_viewport_request( fd_gui_peers_ctx_t *  peers,
+                                      char const *          key,
+                                      ulong                 ws_conn_id,
+                                      ulong                 request_id );
+
+void
+fd_gui_printf_peers_view_resize( fd_gui_peers_ctx_t *  peers, ulong sz );
+
+void
+fd_gui_peers_printf_gossip_stats( fd_gui_peers_ctx_t *  peers );
 
 #endif /* HEADER_fd_src_disco_gui_fd_gui_printf_h */

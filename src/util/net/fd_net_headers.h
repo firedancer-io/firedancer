@@ -61,7 +61,7 @@ union fd_ip4_port {
     uint   addr;  /* net order */
     ushort port;  /* net order */
   };
-  ulong l;
+  ulong l : 48;
 };
 
 typedef union fd_ip4_port fd_ip4_port_t;

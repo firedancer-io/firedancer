@@ -3,10 +3,13 @@
 
 #include "../fd_disco_base.h"
 
+#include "fd_gui_peers.h"
+
 #include "../pack/fd_microblock.h"
 #include "../../waltz/http/fd_http_server.h"
 #include "../../flamenco/leaders/fd_leaders.h"
 #include "../../util/hist/fd_histf.h"
+#include "../../discof/restore/fd_snaprd_tile.h"
 
 #include "../topo/fd_topo.h"
 
@@ -42,6 +45,18 @@
 #define FD_GUI_START_PROGRESS_TYPE_HALTED                             (10)
 #define FD_GUI_START_PROGRESS_TYPE_WAITING_FOR_SUPERMAJORITY          (11)
 #define FD_GUI_START_PROGRESS_TYPE_RUNNING                            (12)
+
+#define FD_GUI_BOOT_PROGRESS_TYPE_JOINING_GOSSIP               ( 1)
+#define FD_GUI_BOOT_PROGRESS_TYPE_LOADING_FULL_SNAPSHOT        ( 2)
+#define FD_GUI_BOOT_PROGRESS_TYPE_LOADING_INCREMENTAL_SNAPSHOT ( 3)
+#define FD_GUI_BOOT_PROGRESS_TYPE_CATCHING_UP                  ( 4)
+#define FD_GUI_BOOT_PROGRESS_TYPE_RUNNING                      ( 5)
+
+#define FD_GUI_BOOT_PROGRESS_FULL_SNAPSHOT_IDX        (0UL)
+#define FD_GUI_BOOT_PROGRESS_INCREMENTAL_SNAPSHOT_IDX (1UL)
+#define FD_GUI_BOOT_PROGRESS_SNAPSHOT_CNT             (2UL)
+
+#define FD_GUI_EMA_FILTER_ALPHA ((double)0.15)
 
 /* Ideally, we would store an entire epoch's worth of transactions.  If
    we assume any given validator will have at most 5% stake, and average
@@ -88,7 +103,8 @@
    caught up. This would require the chain having perpetually malicious
    leaders with adjacent rotations.  If this happens, Solana has bigger
    problems. */
-#define FD_GUI_SHRED_SLOT_HISTORY_SZ ( 12UL )
+#define FD_GUI_TURBINE_SLOT_HISTORY_SZ ( 12UL )
+#define FD_GUI_REPAIR_SLOT_HISTORY_SZ  ( 12UL )
 
 #define FD_GUI_TXN_FLAGS_STARTED         ( 1U)
 #define FD_GUI_TXN_FLAGS_ENDED           ( 2U)
@@ -242,11 +258,10 @@ struct fd_gui_slot {
     long leader_start_time; /* UNIX timestamp of when we first became leader in this slot */
     long leader_end_time;   /* UNIX timestamp of when we stopped being leader in this slot */
 
-    long reference_ticks;   /* A somewhat arbitrary reference tickcount, that we use for compressing the tickcounts
+    long reference_nanos;   /* A somewhat arbitrary reference UNIX timestamp, that we use for compressing the tickcounts
                                of transaction start and end times in this slot.  It is, roughly (not exactly), the
-                               minimum of the first transaction start or end tickcount, and the time of the message
+                               minimum of the first transaction start or end time, and the time of the message
                                from poh to pack telling it to become leader. */
-    long reference_nanos;   /* The UNIX timestamp in nanoseconds of the reference tick value above. */
 
     uint microblocks_upper_bound; /* An upper bound on the number of microblocks in the slot.  If the number of
                                      microblocks observed is equal to this, the slot can be considered over.
@@ -312,14 +327,14 @@ struct fd_gui_slot_rankings {
 
 typedef struct fd_gui_slot_rankings fd_gui_slot_rankings_t;
 
-struct fd_gui_shred_slot {
+struct fd_gui_ephemeral_slot {
       ulong slot; /* ULONG_MAX indicates invalid/evicted */
       long timestamp_arrival_nanos;
 };
-typedef struct fd_gui_shred_slot fd_gui_shred_slot_t;
+typedef struct fd_gui_ephemeral_slot fd_gui_ephemeral_slot_t;
 
-#define SORT_NAME fd_gui_shred_slot_sort
-#define SORT_KEY_T fd_gui_shred_slot_t
+#define SORT_NAME fd_gui_ephemeral_slot_sort
+#define SORT_KEY_T fd_gui_ephemeral_slot_t
 #define SORT_BEFORE(a,b) fd_int_if( (a).slot==ULONG_MAX, 0, fd_int_if( (b).slot==ULONG_MAX, 1, fd_int_if( (a).slot==(b).slot, (a).timestamp_arrival_nanos>(b).timestamp_arrival_nanos, (a).slot>(b).slot ) ) )
 #include "../../util/tmpl/fd_sort.c"
 
@@ -376,6 +391,7 @@ struct fd_gui {
     char vote_key_base58[ FD_BASE58_ENCODED_32_SZ ];
     char identity_key_base58[ FD_BASE58_ENCODED_32_SZ ];
 
+    int          is_full_client;
     char const * version;
     char const * cluster;
 
@@ -384,7 +400,8 @@ struct fd_gui {
 
     long  startup_time_nanos;
 
-    struct { /* used in frankendancer */
+    union {
+      struct { /* used in frankendancer */
       uchar phase;
       int   startup_got_full_snapshot;
 
@@ -411,7 +428,33 @@ struct fd_gui {
 
         ulong startup_waiting_for_supermajority_slot;
         ulong startup_waiting_for_supermajority_stake_pct;
-    } startup_progress;
+      } startup_progress;
+      struct { /* used in the full client */
+        uchar phase;
+        long joining_gossip_time_nanos;
+        struct {
+          ulong  slot;
+          uint   peer_addr;
+          ushort peer_port;
+          ulong  total_bytes_compressed;
+          long   reset_time_nanos;                /* UNIX nanosecond timestamp */
+          long   sample_time_nanos;
+          ulong  reset_cnt;
+
+          ulong read_bytes_compressed;
+          char  read_path[ PATH_MAX+30UL ];       /* URL or filesystem path.  30 is fd_cstr_nlen( "https://255.255.255.255:12345/", ULONG_MAX ) */
+
+          ulong decompress_bytes_decompressed;
+          ulong decompress_bytes_compressed;
+
+          ulong insert_bytes_decompressed;
+          char  insert_path[ PATH_MAX ];
+          ulong insert_accounts_current;
+        } loading_snapshot[ FD_GUI_BOOT_PROGRESS_SNAPSHOT_CNT ];
+
+        long  catching_up_time_nanos;
+      } boot_progress;
+    };
 
     int schedule_strategy;
 
@@ -433,7 +476,8 @@ struct fd_gui {
     ulong slot_estimated;
     ulong slot_caught_up;
 
-    fd_gui_shred_slot_t slots_max_known[ FD_GUI_SHRED_SLOT_HISTORY_SZ+1UL ];
+    fd_gui_ephemeral_slot_t slots_max_turbine[ FD_GUI_TURBINE_SLOT_HISTORY_SZ+1UL ];
+    fd_gui_ephemeral_slot_t slots_max_repair [ FD_GUI_REPAIR_SLOT_HISTORY_SZ +1UL ];
 
     ulong estimated_tps_history_idx;
     ulong estimated_tps_history[ FD_GUI_TPS_HISTORY_SAMPLE_CNT ][ 3UL ];
@@ -504,6 +548,8 @@ struct fd_gui {
     ulong                        info_cnt;
     struct fd_gui_validator_info info[ FD_GUI_MAX_PEER_CNT ];
   } validator_info;
+
+  fd_gui_peers_ctx_t * peers; /* full-client */
 };
 
 typedef struct fd_gui fd_gui_t;
@@ -517,16 +563,19 @@ FD_FN_CONST ulong
 fd_gui_footprint( void );
 
 void *
-fd_gui_new( void *             shmem,
-            fd_http_server_t * http,
-            char const *       version,
-            char const *       cluster,
-            uchar const *      identity_key,
-            int                has_vote_key,
-            uchar const *      vote_key,
-            int                is_voting,
-            int                schedule_strategy,
-            fd_topo_t *        topo );
+fd_gui_new( void *                shmem,
+            fd_http_server_t *    http,
+            char const *          version,
+            char const *          cluster,
+            uchar const *         identity_key,
+            int                   has_vote_key,
+            uchar const *         vote_key,
+            int                   is_full_client,
+            int                   snapshots_enabled,
+            int                   is_voting,
+            int                   schedule_strategy,
+            fd_topo_t *           topo,
+            long                  now );
 
 fd_gui_t *
 fd_gui_join( void * shmem );
@@ -548,11 +597,12 @@ fd_gui_ws_message( fd_gui_t *    gui,
 void
 fd_gui_plugin_message( fd_gui_t *    gui,
                        ulong         plugin_msg,
-                       uchar const * msg );
+                       uchar const * msg,
+                       long          now );
 
 void
 fd_gui_became_leader( fd_gui_t * gui,
-                      long       tickcount,
+                      long       now,
                       ulong      slot,
                       long       start_time_nanos,
                       long       end_time_nanos,
@@ -561,13 +611,13 @@ fd_gui_became_leader( fd_gui_t * gui,
 
 void
 fd_gui_unbecame_leader( fd_gui_t * gui,
-                        long       tickcount,
+                        long       now,
                         ulong      slot,
                         ulong      microblocks_in_slot );
 
 void
 fd_gui_microblock_execution_begin( fd_gui_t *   gui,
-                                   long         tickcount,
+                                   long         now,
                                    ulong        _slot,
                                    fd_txn_p_t * txns,
                                    ulong        txn_cnt,
@@ -576,7 +626,7 @@ fd_gui_microblock_execution_begin( fd_gui_t *   gui,
 
 void
 fd_gui_microblock_execution_end( fd_gui_t *   gui,
-                                 long         tickcount,
+                                 long         now,
                                  ulong        bank_idx,
                                  ulong        _slot,
                                  ulong        txn_cnt,
@@ -589,10 +639,22 @@ fd_gui_microblock_execution_end( fd_gui_t *   gui,
                                  ulong        tips );
 
 int
-fd_gui_poll( fd_gui_t * gui );
+fd_gui_poll( fd_gui_t * gui, long now );
 
 void
-fd_gui_handle_shred_slot( fd_gui_t * gui, ulong slot, long now_nanos );
+fd_gui_handle_shred( fd_gui_t * gui,
+                     ulong      slot,
+                     ulong      shred_idx,
+                     ulong      fec_idx,
+                     int        is_turbine,
+                     long       tsorig );
+
+void
+fd_gui_handle_repair_slot( fd_gui_t * gui, ulong slot, long now );
+
+void
+fd_gui_handle_snapshot_update( fd_gui_t *                 gui,
+                               fd_snaprd_update_t * msg );
 
 
 FD_PROTOTYPES_END

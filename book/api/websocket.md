@@ -260,7 +260,7 @@ landed a vote for, and the current highest replayed slot on the
 validators fork choice. A distance of more than 150 means the validator
 is considered delinquent.
 
-#### `summary.slot_max_known`
+#### `summary.turbine_slot`
 | frequency       | type           | example |
 |-----------------|----------------|---------|
 | *Once* + *Live* | `number\|null` | `100`   |
@@ -272,9 +272,9 @@ were just leader. During boot, the max known slot may not be known yet
 if we haven't received any shreds. In this case this message will
 publish `null`.
 
-It is worth nothing that `slot_max_known` might be momentarily
+It is worth nothing that `turbine_slot` might be momentarily
 inaccurate (too large). If this happens, it should self-correct after
-about 4.8 seconds. This happens because `slot_max_known` is derived from
+about 4.8 seconds. This happens because `turbine_slot` is derived from
 the header on incoming shreds. In the worst case, a malicious leader
 shred can create an arbitrarily large slot on a new fork. All slot
 numbers received from shreds, including any malicious shreds, are
@@ -284,22 +284,31 @@ over time.
 NOTE: this message is only supported on the Firedancer client, the
 Frankendancer client will always publish `null` for this message
 
-#### `summary.slot_caught_up`
+#### `summary.repair_slot`
+| frequency       | type           | example |
+|-----------------|----------------|---------|
+| *Once* + *Live* | `number\|null` | `100`   |
+
+The largest slot for which the validator sent out a repair request.
+This slot has the same problem as `summary.turbine_slot` (it might
+sporadically become unboundedly large) and provides the same guarantees.
+
+#### `summary.caught_up_slot`
 | frequency       | type           | example |
 |-----------------|----------------|---------|
 | *Once* + *Live* | `number\|null` | `100`   |
 
 The slot when this validator caught up to the tip of the blockchain.
 This slot is recorded when replay slot is within 4 slots (one leader
-rotation) of `summary.slot_max_known`. If the WebSocket client connects
+rotation) of `summary.turbine_slot`. If the WebSocket client connects
 before the validator has caught up, then this message will be published
 with `null`. The message would then be published once when the validator
 actually catches up.
 
-Since `summary.slot_max_known` can be sometimes arbitrarily larger that
+Since `summary.turbine_slot` can be sometimes arbitrarily larger that
 the ground truth, that affects the accuracy of the catch-up slot as
 well. If a maliciously large shred arrives within 3 leader rotations of
-the validator catchup event, then `summary.slot_max_known` will be
+the validator catchup event, then `summary.turbine_slot` will be
 wrong, and `summary.slot_caught_up` will not be recorded until after 4.8
 seconds when the malicious slot is forgotten. Functionally, this means
 that `summary.slot_caught_up` could be arbitrarily larger than the true
@@ -403,6 +412,101 @@ The phases are,
 | ledger_max_slot                                 | `number\|null` | If the phase is at least `processing_ledger` or later, this is the maximum slot we need to replay up to in the ledger. Otherwise it is `null` |
 | waiting_for_supermajority_slot                  | `number\|null` | If the phase is at least `waiting_for_supermajority` or later, and we are stopped waiting for supermajority, this is the slot that we are stopped at. Otherwise it is `null` |
 | waiting_for_supermajority_stake_percent         | `number\|null` | If the phase is at least `waiting_for_supermajority` or later, and we are stopped waiting for supermajority, this is the percentage of stake that is currently online and gossiping to our node. Otherwise it is `null`. The validator will proceed with starting up once the stake percent reaches 80 |
+
+#### `summary.boot_progress`
+| frequency       | type              | example |
+|-----------------|-------------------|---------|
+| *Once* + *Live* | `BootProgress`    |  below  |
+
+Information about the validators progress in starting up. There are
+various stages of starting up which the validator goes through in order
+before it is ready.
+
+The phases form a state machine, and the validator can progress through
+them in interesting ways,
+
+                   +--+      +------------------------------+
+                   |  v      |                              v
+joining_gossip -> loading_full_snapshot -> catching_up -> running
+                        v        ^          ^
+             loading_incremental_snapshot --+
+
+Some interesting transitions are,
+
+ * The validator may skip joining gossip and go straight to loading a
+   snapshot if it was instructed to load from a specific file or source
+ * The full snapshot may be restarted many times, if a snapshot is
+   corrupt or fails to download
+ * The incremental snapshot may be skipped if the full snapshot is
+   sufficient
+ * The incremental snapshot may be abandoned and the phase returns to a
+   new full snapshot, if the incremental snapshot is corrupt or fails to
+   download
+ * The validator may skip the catching up phase if the snapshot brings
+   it fully up to date, although this is extremely rare and unlikely to
+   happen on mainnet except if the chain is halted or restarting
+
+| Phase                              | Description |
+|------------------------------------|-------------|
+| joining_gossip                     | The validator has just booted and has started looking for RPC services to download snapshots from |
+| loading_full_snapshot              | The validator has found an RPC peer to download a full snapshot, or a local snapshot to read from disk.  The snapshot is being downloaded, decompressed, and inserted into the account database |
+| loading_incremental_snapshot       | The validator has found an RPC peer to download a incremental snapshot.  The snapshot is being downloaded, decompressed, and inserted into the client database |
+| catching_up                        | The validator is replaying / repairing an missing slots up to the move tip of the chain |
+| running                            | The validator is fully booted and running normally |
+
+::: details Example
+
+```json
+{
+	"topic": "summary",
+	"key": "boot_progress",
+    "value": {
+        "phase": "loading_full_snapshot",
+        "joining_gossip_elapsed_seconds": 5,
+        "loading_full_snapshot_elapsed_seconds": 7.8,
+        "loading_full_snapshot_reset_count": 0,
+        "loading_full_snapshot_slot": 359396820,
+        "loading_full_snapshot_total_bytes_compressed": "5004677960",
+        "loading_full_snapshot_read_bytes_compressed": "960692224",
+        "loading_full_snapshot_read_path": "/path/to/snapshot-359396820-EuXH88VnugHwoeusjHFXAg1Fp1VucJp2Z3SSjmrpBcam.tar.zst",
+        "loading_full_snapshot_decompress_bytes_decompressed": "4961009663",
+        "loading_full_snapshot_decompress_bytes_compressed": "826495323",
+        "loading_full_snapshot_insert_bytes_decompressed": "4864409599",
+        "loading_full_snapshot_insert_accounts": 10634591,
+        "loading_incremental_snapshot_elapsed_seconds": null,
+        "loading_incremental_snapshot_reset_count": null,
+        "loading_incremental_snapshot_slot": null,
+        "loading_incremental_snapshot_total_bytes_compressed": null,
+        "loading_incremental_snapshot_read_bytes_compressed": null,
+        "loading_incremental_snapshot_read_path": null,
+        "loading_incremental_snapshot_decompress_bytes_decompressed": null,
+        "loading_incremental_snapshot_decompress_bytes_compressed": null,
+        "loading_incremental_snapshot_insert_bytes_decompressed": null,
+        "loading_incremental_snapshot_insert_accounts": null,
+        "catching_up_elapsed": null,
+    }
+}
+```
+
+:::
+
+**`BootProgress`**
+| Field                                                                | Type            | Description |
+|----------------------------------------------------------------------|-----------------|-------------|
+| phase                                                                | `string`        | One of `joining_gossip`, `loading_full_snapshot`, `loading_incremental_snapshot`, `catching_up`, or `running`. This indicates the current phase of the boot process |
+| joining_gossip_elapsed_seconds                                       | `number`        | If the phase is `joining_gossip`, this is the duration, in seconds, spent joining the gossip network |
+| loading_{full|incremental}_snapshot_elapsed_seconds                  | `number`        | If the phase is at least `loading_{full|incremental}_snapshot`, this is the elapsed time, in seconds, spent reading (either downloading or reading from disk) the snapshot since the last reset |
+| loading_{full|incremental}_snapshot_reset_count                      | `number\|null`  | If the phase is at least `loading_{full|incremental}_snapshot` or later, this is the number of times the load for the snapshot failed and the phase was restarted from scratch. A snapshot load may fail due to an unreliable or underperforming network connection. Otherwise, `null` |
+| loading_{full|incremental}_snapshot_slot                             | `number\|null`  | If the phase is at least `loading_{full|incremental}_snapshot` or later, this is the slot of the snapshot being loaded. Otherwise, `null` |
+| loading_{full|incremental}_snapshot_total_bytes_compressed           | `number\|null`  | If the phase is at least `loading_{full|incremental}_snapshot`, this is the (compressed) total size of the snapshot being loaded, in bytes. Otherwise, `null` |
+| loading_{full|incremental}_snapshot_read_bytes_compressed            | `number\|null`  | If the phase is at least `loading_{full|incremental}_snapshot`, this is the (compressed) total number of bytes read from disk for the snapshot. Otherwise, `null` |
+| loading_{full|incremental}_snapshot_read_path                        | `string\|null`  | If the phase is at least `loading_{full|incremental}_snapshot`, this is either the remote url or local file path from which the snapshot is being read. Otherwise, `null` |
+| loading_{full|incremental}_snapshot_decompress_bytes_decompressed    | `number\|null`  | If the phase is at least `loading_{full|incremental}_snapshot`, this is the (decompressed) number of bytes processed by decompress from the snapshot so far. Otherwise, `null` |
+| loading_{full|incremental}_snapshot_decompress_bytes_compressed      | `number\|null`  | If the phase is at least `loading_{full|incremental}_snapshot`, this is the (compressed) number of bytes processed by decompress from the snapshot so far. Otherwise, `null` |
+| loading_{full|incremental}_snapshot_insert_bytes_decompressed        | `number\|null`  | If the phase is at least `loading_{full|incremental}_snapshot`, this is the (decompressed) number of bytes processed from the snapshot by the snapshot insert time so far. Otherwise, `null` |
+| loading_{full|incremental}_snapshot_insert_accounts                  | `number\|null`  | If the phase is at least `loading_{full|incremental}_snapshot`, this is the current number of inserted accounts from the snapshot into the validator's accounts database. Otherwise, `null` |
+| catching_up_elapsed_seconds                                          | `number`        | If the phase is `catching_up`, this is the duration, in seconds, the validator has spent catching up to the current slot |
+
 
 #### `summary.schedule_strategy`
 | frequency  | type     | example |
@@ -901,6 +1005,319 @@ epoch T, it is published as `end_slot` in epoch T-2 is rooted. The
 epoch is speculatively known as soon as `end_slot` in epoch T-2 is
 completed, rather than rooted, but no speculative epoch information is
 published until the epoch is finalized by rooting the slot.
+
+### gossip
+Information about the validator's connection to the gossip network.
+Gossip is a distributed database which maintains a single underlying
+store called the Cluster Replicated Data Store (CRDS), which this
+documentation will simply call the "Gossip Table". The Gossip Table has
+"CRDS values", which are store entries that take the form of one of
+several different structured variants specified in the protocol. This
+documentation will simply call these "table entries".
+
+Note that "Gossip messages" and "Gossip Table entries" are distinct
+measures and therefore cannot be compared coherently. A typical Gossip
+message may contain several table entries, or none at all.
+
+The server maintains a table called the "Peer Table" with per-peer
+Gossip connection metrics. This table is large and updates frequently.
+Instead of sending a new copy of the table to every client periodically,
+the node maintains a viewport of a sorted instance of the Peer Table.
+The `gossip.query_scroll`, `gossip.query_sort_col`,
+`gossip.peers_size_update`, and `gossip.view_update` allow the client to
+synchronize with and update their viewport.
+
+A viewport is parameterized by the following attributes:
+
+- sort_key: a list of (column, direction) tuples which describe a
+possible ordering of the Peer Table. Earlier columns in the sort key
+have higher precedence, meaning that are "stable sorted" later. This
+increases the visual impact of their ordering.
+- start_row: the Peer Table index of the first row in the viewport
+- row_cnt: the number of rows in the viewport
+
+The server imposes a limit of a maximum of 200 rows per viewport. When a
+client first connects, the server assigns them the following default
+viewport. This viewport can be incrementally changed by sending the
+update messages below.
+
+start_row: 0
+row_cnt: 0
+sort_key:
+
+- ("Ingress Push", desc)
+- ("Ingress Pull", desc)
+- ("Egress Push", desc)
+- ("Egress Pull", desc)
+- ("Pubkey", desc)
+- ("IP Addr", desc)
+
+#### `gossip.network_stats`
+| frequency       | type                 | example     |
+|-----------------|----------------------|-------------|
+| *Once* + *10ms* | `GossipNetworkStats` | below       |
+
+::: details Example
+
+```json
+{
+    "health": {
+        "num_push_messages_rx_success": 1234,
+        "num_push_messages_rx_failure": 0,
+        "num_push_entries_rx_success": 0,
+        "num_push_entries_rx_failure": 0,
+        "num_push_entries_rx_duplicate": 0,
+        "num_pull_response_messages_rx_success": 0,
+        "num_pull_response_messages_rx_failure": 0,
+        "num_pull_response_entries_rx_success": 0,
+        "num_pull_response_entries_rx_failure": 0,
+        "num_pull_response_entries_rx_duplicate": 0,
+        "total_stake": "411123000000000000",
+        "total_staked_peers": "911",
+        "total_unstaked_peers": "5334",
+        "connected_stake": "123456789",
+        "connected_staked_peers": 623,
+        "connected_unstaked_peers": 1432,
+    },
+    "ingress": {
+        "total_throughput": 131204210,
+        "peer_names": ["Coinbase 02", "Figment", "Jupiter", ... ],
+        "peer_identities": ["FDpbCBMxVnDK7maPM5tGv6MvB3v1sRMC86PZ8okm21FD", "FD7btgySsrjuo25CJCj7oE7VPMyezDhnx7pZkj2v69FD", "FDXWcZ7T1wP4bW9SB4XgNNwjnFEJ982nE8aVbbNuwFD", ... ],
+        "peer_throughput": [15121541, 11697591, 9131124 ]
+    },
+    "egress": {
+        "total_throughput": 131204210,
+        "peer_names": ["Coinbase 02", "Figment", "Jupiter", ... ],
+        "peer_identities": ["FDpbCBMxVnDK7maPM5tGv6MvB3v1sRMC86PZ8okm21FD", "FD7btgySsrjuo25CJCj7oE7VPMyezDhnx7pZkj2v69FD", "FDXWcZ7T1wP4bW9SB4XgNNwjnFEJ982nE8aVbbNuwFD", ... ],
+        "peer_throughput": [15121541, 11697591, 9131124 ]
+    },
+    "storage": {
+        "capacity": 2097152,
+        "expired_total": 1234,
+        "evicted_total": 0,
+        "count": [0, 10608, 95, ...],
+        "count_tx": [0, 10608, 95, ...],
+        "bytes_tx": [0, 9827342, 9723, ...],
+    },
+    "messages": {
+        "num_bytes_rx": [857419, 8839524, 43480758, ...],
+        "num_bytes_tx": [28938, 2416123, 72351557, ...],
+        "num_messages_rx": [1364, 20477, 456094, ...],
+        "num_messages_tx": [26, 2490, 73599, ...],
+    }
+}
+```
+
+:::
+
+**`GossipNetworkStats`**
+| Field      | Type                   | Description |
+|------------|------------------------|-------------|
+| health     | `GossipNetworkStake`   | Aggregate statistics related to the health of the gossip network and the amount of connected peers / stake |
+| ingress    | `GossipNetworkTraffic` | Ingress network traffic and peer metrics |
+| egress     | `GossipNetworkTraffic` | Egress network traffic and peer metrics |
+| storage    | `GossipStorageStats`   | Storage statistics showing the storage utilization for the Gossip Table. Inner arrays are ordered according to the following `tables_entries` array ["ContactInfoV1","Vote","LowestSlot","SnapshotHashes","AccountsHashes","EpochSlots","VersionV1","VersionV2","NodeInstance","DuplicateShred","IncrementalSnapshotHashes","ContactInfoV2","RestartLastVotedForkSlots","RestartHeaviestFork"] |
+| messages   | `GossipMessageStats`   | Message statistics showing the message traffic for the Gossip Table. Inner arrays are ordered according to the following `message_types` array ["pull_request","pull_response","push","ping","pong","prune"] |
+
+
+**`GossipNetworkHealth`**
+| Field                                                           | Type     | Description |
+|-----------------------------------------------------------------|----------|-------------|
+| num_{push|pull_response}_entries_rx_{success|failure|duplicate} | `number` | The number of Gossip Table entries that this node has ever received. `success` means only entries that were fully received and included in the Table are counted. `failure` means only entries that was dropped for any reason, including parsing failures or invariant violations, are counted. `duplicate` refers to entries that were dropped as duplicates. {push|pull_request} means that only entries received via Gossip {push|pull_request} messages are counted |
+| num_{push|pull_response}_messages_rx_{success|failure}          | `number` | The number of Gossip messages that this node has ever received. `success` means only messages that were fully valid, even if any entries they contain were dropped. `failure` means only messages that was dropped for any reason, including parsing failures or invariant violations, are counted. `duplicate` refers to messages that were dropped as duplicates. {`push`|`pull_request`} is the type of Gossip message counted |
+| total_stake                                                     | `number` | The total active stake on the Solana network for the current epoch. The information is derived from the getLeaderSchedule rpc call at startup and is fixed for the duration of the epoch |
+| total_staked_peers                                              | `number` | The total number of peers on the current epoch leader schedule also active on Gossip.  This information is derived from `getClusterNodes` and `getLeaderSchedule` rpc calls at startup |
+| total_unstaked_peers                                            | `number` | The total number of peers active on gossip, not including peers on the leader schedule.  This information is derived from `getClusterNodes` and `getLeaderSchedule` rpc calls at startup |
+| connected_stake                                                 | `number` | The sum of active stake across all peers with a ContactInfo entry in the Gossip Table.  The stake quantity is taken from the leader schedule, and reflects the activate stake at the start of the current epoch |
+| connected_staked_peers                                          | `number` | The number of currently connected peers that have nonzero active stake |
+| connected_unstaked_peers                                        | `number` | The number of currently connected peers without any stake currently active |
+
+**`GossipNetworkTraffic`**
+| Field            | Type       | Description |
+|------------------|------------|-------------|
+| total_throughput | `number`   | The Gossip network throughput in bytes per second |
+| peer_names       | `string[]` | The names of the 64 peers on the Gossip network with the largest contribution to our traffic |
+| peer_identities  | `string[]` | The base58 identity pubkey of the 64 peers on the Gossip network with the largest contribution to our traffic |
+| peer_throughput  | `number[]` | A list of network throughputs in bytes per second. The peer name for each entry is the corresponding entry in `peer_names` |
+
+**`GossipStorageStats`**
+| Field         | Type       | Description |!
+|---------------|------------|-------------|
+| capacity      | `number`   | The total number of entries that can be stored in the Gossip Table before old entries start being evicted |
+| expired_total | `number`   | The cumulative number of Gossip Table entries that have expired and been removed |
+| evicted_total | `number`   | The cumulative number of Gossip Table entries that have been evicted due to insufficient space |
+| count         | `number[]` | `count[i]` is the number of currently active `table_entries[i]` entries currently in the Gossip Table |
+| count_tx      | `number[]` | `count_tx[i]` is the number of egress `table_entries[i]` entries transmitted until now |
+| bytes_tx      | `number[]` | `bytes_tx[i]` is the number of egress `table_entries[i]` bytes transmitted until now |
+
+**`GossipMessageStats`**
+| Field           | Type       | Description |
+|-----------------|------------|-------------|
+| num_bytes_rx    | `number[]` | `num_bytes_rx[i]` is the ingress cumulative byte amount received as `message_types[i]` messages |
+| num_bytes_tx    | `number[]` | `num_bytes_tx[i]` is the ingress cumulative message count sent for `message_types[i]` messages |
+| num_messages_rx | `number[]` | `num_messages_rx[i]` is the egress cumulative byte amount sent as `message_types[i]` messages |
+| num_messages_tx | `number[]` | `num_messages_tx[i]` is the egress cumulative message count sent for `message_types[i]` messages |
+
+#### `gossip.query_scroll`
+| frequency | type             | example     |
+|-----------|------------------|-------------|
+| *Request* | `GossipViewData` | below       |
+
+| param     | type     | description |
+|-----------|----------|-------------|
+| start_row | `number` | The first row in the contiguous chunk of rows from the Peer Table in the client's view |
+| end_row   | `number` | The last row in the contiguous chunk of rows from the Peer Table in the client's view |
+
+The client's view of the peer table changes when they scroll.  This
+request includes the bounds for the updated view, which lets the server
+respond with the view's data. If the requested rows are outside the
+bounds of the table, only the active rows are included in the response.
+
+Note that the default client view is an empty viewport, meaning no
+updates will be published to the client until after the first
+`query_scroll` received by the server.
+
+::: details Example
+
+```json
+{
+    "topic": "gossip",
+    "key": "query_scroll",
+    "id": 16,
+    "params": {
+        "start_row": 10,
+        "row_cnt": 12,
+    }
+}
+```
+
+```json
+{
+    "topic": "gossip",
+    "key": "query_scroll",
+    "id": 16,
+    "value": {
+        "10": {"IP Address": "192.168.0.1", "col2": 2},
+        "11": {"IP Address": "192.168.0.2", "col2": 4},
+        "12": {"IP Address": "192.168.0.3", "col2": 6}
+    }
+}
+```
+
+:::
+
+**`GossipViewData`**
+The tabular data in the clients view, as a 2D dictionary. The dictionary is keyed by row index (object keys are always strings). Each value is a dictionary that represents a table row. Each row is keyed by column name, and each row value is the value of the cell for the corresponding (rowIndex, column_name)
+
+
+#### `gossip.query_sort_col`
+| frequency | type             | example     |
+|-----------|------------------|-------------|
+| *Request* | `GossipViewData` | below       |
+
+| param    | type     | description |
+|----------|----------|-------------|
+| col_name | `string` | The name of the column to apply the sort on |
+| dir      | `string` | The direction to sort `col_name`.  One of 'asc', 'desc', or null.  null will restore the column to its default precedence by completely removing it from the client sort key |
+
+The server maintains a copy of each client's sort key, and this message
+updates the client's stored sort key.  The provided column is moved to
+the front of the sort key and its direction is set to the provided
+value. Since updating the sort key changes the client's view completely,
+the response will be a fresh copy of all the data in the client's new
+view.
+
+::: details Example
+
+```json
+{
+    "topic": "gossip",
+    "key": "query_sort_col",
+    "id": 32,
+    "params": {
+        "colId": "IP Address",
+        "dir": "asc",
+    }
+}
+```
+
+```json
+{
+    "topic": "gossip",
+    "key": "query_sort_col",
+    "id": 32,
+    "value": {
+        "10": {"IP Address": "192.168.0.1", "col2": 2},
+        "11": {"IP Address": "192.168.0.2", "col2": 4},
+        "12": {"IP Address": "192.168.0.3", "col2": 6}
+    }
+}
+```
+
+:::
+
+#### `gossip.peers_size_update`
+| frequency | type     | example     |
+|-----------|----------|-------------|
+| *Request* | `number` | below       |
+
+The latest known count of the number of rows in the gossip peer table.
+This is sent every time the total number of rows in the gossip peer
+table changes.
+
+::: details Example
+
+```json
+{
+    "topic": "gossip",
+    "key": "peers_size_update",
+    "value": 1234
+}
+```
+
+:::
+
+
+#### `gossip.view_update`
+| frequency       | type                   | example     |
+|-----------------|------------------------|-------------|
+| *Once* + *Live* | `GossipPeerViewUpdate` | below       |
+
+Sent every time the content of the client's view changes (i.e. cell
+values).
+
+::: details Example
+
+```json
+{
+    "changes": [
+        {
+            "row_index": 10,
+            "column_name": "IP Address",
+            "new_value": "192.168.0.1"
+        },
+        {
+            "row_index": 10,
+            "column_name": "Port",
+            "new_value": 12345
+        }
+    ]
+}
+```
+
+:::
+
+**`GossipPeerViewUpdate`**
+| Field   | Type                         | Description |
+|---------|------------------------------|-------------|
+| changes | `GossipPeerViewCellUpdate[]` | An list of cells in the client's view that changed values since the last `GossipPeerViewUpdate` message |
+
+**`GossipPeerViewCellUpdate`**
+| Field       | Type     | Description |
+|-------------|----------|-------------|
+| row_index   | `number` | The index of the updated cell's row |
+| column_name | `string` | The name of the updated cell's column |
+| new_value   | `any`    | The new value display in the cell |
 
 ### peers
 Information about validator peers from the cluster. Peer data is sourced
@@ -1548,8 +1965,8 @@ explicitly mentioned, skipped slots are not included.
 | txn_load_end_timstamps_nanos      | `string[]`  | An array of UNIX timestamps, in nanoseconds. `txn_load_end_timstamps_nanos[i]` is the time when the `i`-th transaction in the slot finished loading and started executing. At this point, relevant on-chain data has been loaded for the transaction and it is ready to be fed into the Solana Virtual Machine (SVM) |
 | txn_end_timstamps_nanos           | `string[]`  | An array of UNIX timestamps, in nanoseconds. `txn_end_timstamps_nanos[i]` is the time when the `i`-th transaction in the slot finished executing |
 | txn_mb_end_timestamps_nanos       | `string[]`  | An array of UNIX timestamps, in nanoseconds. `txn_mb_end_timestamps_nanos[i]` is the time when the microblock for the `i`-th transaction in the slot completed executing.  At this point, the bank tile for this microblock was ready to communicate the execution result back to the pack. pack uses this result to track the progress of the growing block and also repurposes any unused compute units for other microblocks.  The current implementation splits microblocks which originally contained multiple transactions (i.e. bundles) apart so that consumers always receive one transaction per microblock, so unlike `txn_mb_start_timestamps_nanos` this timestamp may be unique for a given transaction |
-| txn_compute_units_requested       | `number[]`  | `txn_compute_units_estimated[i]` is a strict upper bound on the total cost for the `i`-th transaction in the slot.  The transaction cannot have succeeded if its incurred cost (known after execution) exceeds this bound.  This bound is used by the pack tile to estimate the pace at which the block is being filled, and to filter out transactions that it knows will fail ahead of time. |
-| txn_compute_units_consumed        | `number[]`  | `txn_compute_units_consumed[i]` is the actual post-execution cost of `i`-th transaction in the slot.  While some transactions costs are known from the transaction payload itself (such as the cost incurred by the amount of instruction data), other costs (like execution costs or the cost due to loaded on-chain account data) are a function of the state of the blockchain at the time of execution. This value represents the actual cost after a transaction is executed.  Consensus requires that all validators agree on this value for a given transaction in a slot. There are two special cases to consider for scheduled transactions that were not added to the produced block. Failed bundle transactions that successfully executed up to the point of failure will show actual consumed CUs. Subsequent failed bundle transactions will show 0 cus consumed.  Non-bundle transactions that were not added to the block will also show 0 cus consumed. |
+| txn_compute_units_requested       | `number[]`  | `txn_compute_units_estimated[i]` is a strict upper bound on the total cost for the `i`-th transaction in the slot.  The transaction cannot have succeeded if its incurred cost (known after execution) exceeds this bound.  This bound is used by the pack tile to estimate the pace at which the block is being filled, and to filter out transactions that it knows will fail ahead of time |
+| txn_compute_units_consumed        | `number[]`  | `txn_compute_units_consumed[i]` is the actual post-execution cost of `i`-th transaction in the slot.  While some transactions costs are known from the transaction payload itself (such as the cost incurred by the amount of instruction data), other costs (like execution costs or the cost due to loaded on-chain account data) are a function of the state of the blockchain at the time of execution. This value represents the actual cost after a transaction is executed.  Consensus requires that all validators agree on this value for a given transaction in a slot. There are two special cases to consider for scheduled transactions that were not added to the produced block. Failed bundle transactions that successfully executed up to the point of failure will show actual consumed CUs. Subsequent failed bundle transactions will show 0 cus consumed.  Non-bundle transactions that were not added to the block will also show 0 cus consumed |
 | txn_transaction_fee               | `string[]`  | `txn_non_execution_fee[i]` is the signature fee for the `i`-th transaction in the slot. Currenlty, this is the number of signatures in the transaction times 5000 lamports. This fee used to (and may in the future) include rewards from other parts of the transaction, which is why a more general name is used.  50% of this fee is burned and the other 50% is included in validator block rewards. The provided values reflect the fee balance after burning |
 | txn_priority_fee                  | `string[]`  | `txn_priority_fee[i]` is the priority fee in lamports for the `i`-th transaction in the slot.  The priority fee is a static metric computed by multiplying the requested execution cost (derived from a provided computeBudget instruction, or from a protocol defined default) by the compute unit price (derived from a seperate computeBudget instruction) |
 | txn_tips                          | `string[]`  | `txn_tips[i]` is the total tip in lamports for the `i`-th transaction in the slot. The tip is the increase (due to this transaction) in the total balance of all tip payment accounts across all block builders after any commission to the block builder is subtracted.  This implies that both the validator and staker portions of the tip are included in this value.  Non-bundle transactions may have a non-zero tip.  Tips for transactions in failed bundles are included up to the point of failure |
