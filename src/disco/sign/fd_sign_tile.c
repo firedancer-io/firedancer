@@ -165,7 +165,7 @@ after_frag_sensitive( void *              _ctx,
   int sign_type = (int)(uint)sig;
 
   if( sig_upper != 0 ) {
-    FD_LOG_WARNING(("sig %lu, signing req %u, sign_type %d", sig, sig_upper, sign_type));
+    FD_LOG_INFO(("sig %lu, signing req %u, sign_type %d", sig, sig_upper, sign_type));
   }
 
   FD_TEST( in_idx<MAX_IN );

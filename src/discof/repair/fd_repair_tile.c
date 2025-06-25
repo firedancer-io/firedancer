@@ -228,7 +228,12 @@ dispatch_pending_sign( fd_repair_tile_ctx_t * ctx,
   uchar * chunk = fd_chunk_to_laddr( ctx->sign_out_ctx[i].mem, ctx->sign_out_ctx[i].chunk );
   fd_memcpy( chunk, data, data_len );
 
+  FD_LOG_INFO(( "dispatch_pending_sign: tile %u, req idx %u", i, ctx->sign_ring[i].next_req ));
+
   ulong sig = (ulong)ctx->sign_ring[i].next_req << 32 | (ulong)sign_type;
+  if( data_len == 0 ) {
+    __asm__("int $3");
+  }
   fd_stem_publish( ctx->stem, ctx->sign_out_ctx[i].idx, sig, ctx->sign_out_ctx[i].chunk, data_len, 0, 0, 0 );
   ctx->sign_out_ctx[i].chunk = fd_dcache_compact_next( ctx->sign_out_ctx[i].chunk, data_len, ctx->sign_out_ctx[i].chunk0, ctx->sign_out_ctx[i].wmark );
 
@@ -1230,7 +1235,7 @@ unprivileged_init( fd_topo_t *      topo,
   ctx->shred_tile_cnt  = shred_tile_idx;
   ctx->sign_tile_cnt   = sign_tile_idx;
   FD_TEST( ctx->shred_tile_cnt == fd_topo_tile_name_cnt( topo, "shred" ) );
-  FD_TEST( ctx->sign_tile_cnt  == fd_topo_tile_name_cnt( topo, "sign" ) );
+  FD_TEST( ctx->sign_tile_cnt  == fd_topo_tile_name_cnt( topo, "sign" ) - 1 );
 
   /* Scratch mem setup */
 
