@@ -267,6 +267,7 @@ struct __attribute__((aligned(128UL))) fd_fec_chainer {
   fd_fec_children_t  * children; /* map of slot->child_offs for fast O(1) querying */
   ulong              * queue;    /* queue of FEC keys for BFS chaining */
   fd_fec_out_t       * out;      /* queue of FEC keys to deliver to application */
+  ulong              root_fec;   /* pool idx of the root FEC set */
 };
 
 FD_PROTOTYPES_BEGIN
@@ -364,6 +365,11 @@ fd_fec_chainer_insert( fd_fec_chainer_t * chainer,
                        ushort             parent_off,
                        uchar const        merkle_root[static FD_SHRED_MERKLE_ROOT_SZ],
                        uchar const        chained_merkle_root[static FD_SHRED_MERKLE_ROOT_SZ] );
+
+/* fd_fec_chainer_publish prunes the fec tree when the wmk is updated. */
+
+void
+fd_fec_chainer_publish( fd_fec_chainer_t * chainer, ulong new_root );
 
 FD_PROTOTYPES_END
 
