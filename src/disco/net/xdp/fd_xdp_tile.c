@@ -547,6 +547,7 @@ before_frag( fd_net_ctx_t * ctx,
              ulong          sig ) {
   (void)in_idx; (void)seq;
 
+  FD_LOG_NOTICE(( "PKT" ));
   /* Find interface index of next packet */
 
   ulong proto = fd_disco_netmux_sig_proto( sig );
@@ -666,6 +667,7 @@ after_frag( fd_net_ctx_t *      ctx,
      (This invariant breaks if any other packet is sent over this ring
      between before_frag and this point, e.g. send_arp_probe.) */
 
+  FD_LOG_HEXDUMP_NOTICE(( "created packet", frame, sz ));
   fd_xdp_ring_t * tx_ring = &xsk->ring_tx;
   uint            tx_seq  = FD_VOLATILE_CONST( *tx_ring->prod );
   uint            tx_mask = tx_ring->depth - 1U;

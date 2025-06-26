@@ -12,7 +12,7 @@
 #include "../../../../util/net/fd_eth.h"
 
 extern uint fd_pktgen_active;
-uint fd_pktgen_active = 0U;
+uint fd_pktgen_active = 1U;
 
 struct fd_pktgen_tile_ctx {
   void * out_base;
@@ -52,6 +52,7 @@ unprivileged_init( fd_topo_t *      topo,
   /* Assume dcache was zero initialized */
 }
 
+#include <unistd.h>
 static void
 before_credit( fd_pktgen_tile_ctx_t * ctx,
                fd_stem_context_t *    stem,
@@ -70,7 +71,31 @@ before_credit( fd_pktgen_tile_ctx_t * ctx,
   ulong   chunk = ctx->chunk;
   uchar * frame = fd_chunk_to_laddr( ctx->out_base, chunk );
   ulong   tag   = ctx->tag;
-  ulong   sz    = sizeof(fd_eth_hdr_t) + 46;
+
+  fd_eth_hdr_t eth = {
+    .net_type = FD_ETH_HDR_TYPE_IP
+  };
+  fd_ip4_hdr_t ip4 = {
+    .verihl = FD_IP4_VERIHL( 4, 5 ),
+    .tos    = 0,
+    .ttl    = 64,
+    .protocol  = FD_IP4_HDR_PROTOCOL_UDP,
+    .net_tot_len = fd_ushort_bswap( 30 ),
+    .saddr =  ctx->fake_dst_ip,
+    .daddr =  ctx->fake_dst_ip
+  };
+  ip4.check = fd_ip4_hdr_check_fast( &ip4 );
+  fd_udp_hdr_t udp = {
+    .net_len = fd_ushort_bswap( 10 ),
+    .net_sport = fd_ushort_bswap( 12345 ),
+    .net_dport = fd_ushort_bswap( 8008 )
+  };
+  FD_STORE( fd_eth_hdr_t, frame,    eth );
+  FD_STORE( fd_ip4_hdr_t, frame+14, ip4 );
+  FD_STORE( fd_udp_hdr_t, frame+34, udp );
+  memcpy( frame+42, "hi", 2 );
+
+  ulong sz = 64;
   FD_STORE( ulong, frame+sizeof(fd_eth_hdr_t), tag );
   fd_stem_publish( stem, 0UL, sig, chunk, sz, 0UL, 0UL, 0UL );
 
@@ -79,6 +104,8 @@ before_credit( fd_pktgen_tile_ctx_t * ctx,
   chunk      = fd_ulong_if( chunk>ctx->wmark, ctx->chunk0, chunk );
   ctx->tag   = tag+1UL;
   ctx->chunk = chunk;
+
+  sleep( 1 );
 }
 
 #define STEM_BURST (1UL)

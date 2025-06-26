@@ -67,7 +67,6 @@ pktgen_topo( config_t * config ) {
 
   /* Create dummy RX link */
   fd_topos_net_rx_link( topo, "net_quic", 0UL, config->net.ingress_buffer_size );
-  fd_topob_tile_out( topo, "net", 0UL, "net_quic", 0UL );
   fd_topob_tile_in( topo, "pktgen", 0UL, "metric_in", "net_quic", 0UL, FD_TOPOB_UNRELIABLE, FD_TOPOB_POLLED );
 
   fd_topos_net_tile_finish( topo, 0UL );
@@ -92,7 +91,7 @@ extern uint fd_pktgen_active;
 /* render_status prints statistics at the top of the screen.
    Should be called at a low rate (~500ms). */
 
-static void
+FD_FN_UNUSED static void
 render_status( ulong volatile const * net_metrics ) {
   fputs( "\0337"      /* save cursor position */
          "\033[H"     /* move cursor to (0,0) */
@@ -220,69 +219,70 @@ pktgen_cmd_fn( args_t *   args FD_PARAM_UNUSED,
   /* FIXME allow running sandboxed/multiprocess */
   fd_topo_run_single_process( topo, 2, config->uid, config->gid, fdctl_tile_run, NULL );
 
-  ulong volatile const * net_metrics = fd_metrics_tile( net_tile->metrics );
+ for(;;) pause();
+  // ulong volatile const * net_metrics = fd_metrics_tile( net_tile->metrics );
 
-  /* Don't attempt to render TTY */
-  if( !isatty( STDOUT_FILENO ) ) {
-    puts( "stdout is not a tty, not taking commands" );
-    FD_VOLATILE( fd_pktgen_active ) = 1;
-    for(;;) pause();
-    return;
-  }
+  // /* Don't attempt to render TTY */
+  // if( !isatty( STDOUT_FILENO ) ) {
+  //   puts( "stdout is not a tty, not taking commands" );
+  //   FD_VOLATILE( fd_pktgen_active ) = 1;
+  //   for(;;) pause();
+  //   return;
+  // }
 
-  /* Clear screen */
-  struct winsize w;
-  if( FD_UNLIKELY( 0!=ioctl( STDOUT_FILENO, TIOCGWINSZ, &w ) ) ) {
-    FD_LOG_WARNING(( "ioctl(STDOUT_FILENO,TIOCGWINSZ) failed" ));
-  } else {
-    for( ulong i=0UL; i<w.ws_row; i++ ) putc( '\n', stdout );
-  }
+  // /* Clear screen */
+  // struct winsize w;
+  // if( FD_UNLIKELY( 0!=ioctl( STDOUT_FILENO, TIOCGWINSZ, &w ) ) ) {
+  //   FD_LOG_WARNING(( "ioctl(STDOUT_FILENO,TIOCGWINSZ) failed" ));
+  // } else {
+  //   for( ulong i=0UL; i<w.ws_row; i++ ) putc( '\n', stdout );
+  // }
 
   /* Simple REPL loop */
-  puts( "Running fddev pktgen" );
-  printf( "XDP socket listening on port %u\n", (uint)listen_port );
-  puts( "Available commands: start, stop, quit" );
-  puts( "" );
-  char input[ 256 ] = {0};
-  for(;;) {
-    render_status( net_metrics );
-    fputs( "pktgen> ", stdout );
-    fflush( stdout );
+  // puts( "Running fddev pktgen" );
+  // printf( "XDP socket listening on port %u\n", (uint)listen_port );
+  // puts( "Available commands: start, stop, quit" );
+  // puts( "" );
+  // char input[ 256 ] = {0};
+  // for(;;) {
+  //   render_status( net_metrics );
+  //   fputs( "pktgen> ", stdout );
+  //   fflush( stdout );
 
-    for(;;) {
-      struct pollfd fds[1] = {{ .fd=STDIN_FILENO, .events=POLLIN }};
-      int poll_res = poll( fds, 1, 500 );
-      if( poll_res==0 ) {
-        render_status( net_metrics );
-        continue;
-      } else if( poll_res>0 ) {
-        break;
-      } else {
-        FD_LOG_ERR(( "poll(STDIN_FILENO) failed" ));
-        break;
-      }
-    }
+  //   for(;;) {
+  //     struct pollfd fds[1] = {{ .fd=STDIN_FILENO, .events=POLLIN }};
+  //     int poll_res = poll( fds, 1, 500 );
+  //     if( poll_res==0 ) {
+  //       render_status( net_metrics );
+  //       continue;
+  //     } else if( poll_res>0 ) {
+  //       break;
+  //     } else {
+  //       FD_LOG_ERR(( "poll(STDIN_FILENO) failed" ));
+  //       break;
+  //     }
+  //   }
 
-    if( fgets( input, sizeof(input), stdin )==NULL ) {
-      putc( '\n', stdout );
-      break;
-    }
-    input[ strcspn( input, "\n" ) ] = '\0';
-    input[ sizeof(input)-1        ] = '\0';
+  //   if( fgets( input, sizeof(input), stdin )==NULL ) {
+  //     putc( '\n', stdout );
+  //     break;
+  //   }
+  //   input[ strcspn( input, "\n" ) ] = '\0';
+  //   input[ sizeof(input)-1        ] = '\0';
 
-    if( !input[0] ) {
-      /* No command */
-    } else if( !strcmp( input, "exit" ) || !strcmp( input, "quit" ) ) {
-      break;
-    } else if( !strcmp( input, "start" ) ) {
-      FD_VOLATILE( fd_pktgen_active ) = 1U;
-    } else if( !strcmp( input, "stop" ) ) {
-      FD_VOLATILE( fd_pktgen_active ) = 0U;
-    } else {
-      fputs( "Unknown command\n", stdout );
-    }
-  }
-  puts( "Exiting" );
+  //   if( !input[0] ) {
+  //     /* No command */
+  //   } else if( !strcmp( input, "exit" ) || !strcmp( input, "quit" ) ) {
+  //     break;
+  //   } else if( !strcmp( input, "start" ) ) {
+  //     FD_VOLATILE( fd_pktgen_active ) = 1U;
+  //   } else if( !strcmp( input, "stop" ) ) {
+  //     FD_VOLATILE( fd_pktgen_active ) = 0U;
+  //   } else {
+  //     fputs( "Unknown command\n", stdout );
+  //   }
+  // }
+  // puts( "Exiting" );
 }
 
 action_t fd_action_pktgen = {
