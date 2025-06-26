@@ -539,7 +539,7 @@ void fd_log_enable_unclean_exit( void ) { fd_log_private_unclean_exit = 1; }
 /* Buffer size used for vsnprintf calls (this is also one more than the
    maximum size that this can passed to fd_io_write) */
 
-#define FD_LOG_BUF_SZ (16UL*4096UL)
+#define FD_LOG_BUF_SZ (32UL*4096UL)
 
 /* Lock to used by fd_log_private_fprintf_0 to sequence calls writes
    between different _processes_ that share the same fd. */
