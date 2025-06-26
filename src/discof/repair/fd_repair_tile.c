@@ -767,13 +767,14 @@ after_frag( fd_repair_tile_ctx_t * ctx,
 
     ulong wmark = fd_fseq_query( ctx->wmark );
     if( FD_UNLIKELY( fd_forest_root_slot( ctx->forest ) == ULONG_MAX ) ) {
+      FD_LOG_NOTICE(( "Forest initializing with root %lu", wmark ));
       fd_forest_init( ctx->forest, wmark );
       uchar mr[ FD_SHRED_MERKLE_ROOT_SZ ] = { 0 }; /* FIXME */
       fd_fec_chainer_init( ctx->fec_chainer, wmark, mr );
       FD_TEST( fd_forest_root_slot( ctx->forest ) != ULONG_MAX );
-      FD_LOG_NOTICE(( "Forest initialized with root %lu", wmark ));
       ctx->prev_wmark = wmark;
     }
+
     if( FD_UNLIKELY( ctx->prev_wmark < wmark ) ) {
       fd_forest_publish( ctx->forest, wmark );
       ctx->prev_wmark  = wmark;
@@ -841,6 +842,7 @@ after_frag( fd_repair_tile_ctx_t * ctx,
           ulong tspub = fd_frag_meta_ts_comp( fd_tickcount() );
           reasm->cnt = out.fec_set_idx + out.data_cnt;
           fd_stem_publish( ctx->stem, REPLAY_OUT_IDX, sig, 0, 0, 0, tsorig, tspub );
+          FD_LOG_INFO(( "REPLAY out %lu %u %u %d", out.slot, out.fec_set_idx, cnt, out.slot_complete ));
           if( FD_UNLIKELY( out.slot_complete ) ) {
             fd_reasm_remove( ctx->reasm, reasm );
           }
