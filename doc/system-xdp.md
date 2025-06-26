@@ -6,7 +6,7 @@ Installation guide for `XDP`/`AF_XDP` based networking.
 Prerequisites
 -------------
 
-This guide assumes the steps in [getting-started.md](./getting-started.md)
+This guide assumes the steps in [getting-started.md](../book/guide/getting-started.md)
 have been completed.
 
 Requires recent Linux kernel and headers (version >=4.18). `XDP` and related
