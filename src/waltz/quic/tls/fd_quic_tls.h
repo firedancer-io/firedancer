@@ -140,30 +140,18 @@ struct fd_quic_tls_hs {
      these will be encapsulated and sent in order */
   fd_quic_tls_hs_data_t hs_data[ FD_QUIC_TLS_HS_DATA_CNT ];
 
-  /* head of handshake data free list */
+  /* head of hs_data_t free list */
   ushort hs_data_free_idx;
 
-  /* head of handshake data pending (to be sent) */
+  /* head/tail of hs_data_t pending (to be sent) */
   ushort hs_data_pend_idx[4];
   ushort hs_data_pend_end_idx[4];
 
   /* handshake data buffer
-     allocated in arbitrary chunks in a circular queue manner */
-  uchar  hs_data_buf[ FD_QUIC_TLS_HS_DATA_SZ ];
-
-  /* head and tail of unused hs_data_buf data
-       head % buf_sz is first used byte
-       tail % buf_sz is first unused byte
-       invariants
-         0 <= head < 2 * buf_sz
-         0 <= tail <     buf_sz
-         head >= tail
-         head <  tail + buf_sz
-         head -  tail == unused size */
-
-  /* buffer space is shared between encryption levels */
-  uint  hs_data_buf_head;
-  uint  hs_data_buf_tail;
+      allocated in arbitrary chunks
+      and shared between encryption levels */
+  uchar hs_data_buf[ FD_QUIC_TLS_HS_DATA_SZ ];
+  uint  hs_data_buf_ptr;     /* ptr is first unused byte in hs_data_buf */
   uint  hs_data_offset[ 4 ]; /* one offset per encoding level */
 
   /* Handshake message receive buffer
@@ -257,6 +245,13 @@ fd_quic_tls_get_next_hs_data( fd_quic_tls_hs_t * self, fd_quic_tls_hs_data_t * h
    remove handshake data from head of queue and free associated resources */
 void
 fd_quic_tls_pop_hs_data( fd_quic_tls_hs_t * self, uint enc_level );
+
+
+/* fd_quic_tls_clear_hs_data
+
+   clear all handshake data from a given encryption level. */
+void
+fd_quic_tls_clear_hs_data( fd_quic_tls_hs_t * self, uint enc_level );
 
 
 #endif /* HEADER_fd_src_waltz_quic_tls_fd_quic_tls_h */
