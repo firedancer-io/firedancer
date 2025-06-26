@@ -224,8 +224,17 @@ fd_vm_syscall_sol_create_program_address( /**/            void *  _vm,
     return err;
   }
 
-  fd_pubkey_t * out_haddr = FD_VM_MEM_HADDR_ST( vm, out_vaddr, FD_VM_ALIGN_RUST_U8, FD_PUBKEY_FOOTPRINT );
-  memcpy( out_haddr, derived->uc, FD_PUBKEY_FOOTPRINT );
+  /* https://github.com/anza-xyz/agave/blob/v2.3.1/programs/bpf_loader/src/syscalls/mod.rs#L875-L880 */
+  fd_vm_haddr_query_t address_query = {
+    .vaddr    = out_vaddr,
+    .align    = FD_VM_ALIGN_RUST_U8,
+    .sz       = FD_PUBKEY_FOOTPRINT,
+    .is_slice = 1,
+  };
+
+  fd_vm_haddr_query_t * queries[] = { &address_query };
+  FD_VM_TRANSLATE_MUT( vm, queries );
+  memcpy( address_query.haddr, derived->uc, FD_PUBKEY_FOOTPRINT );
 
   /* Success */
   *_ret = 0UL;
@@ -287,25 +296,30 @@ fd_vm_syscall_sol_try_find_program_address( void *  _vm,
 
     fd_pubkey_t derived[1];
     err = fd_vm_derive_pda( vm, program_id, seed_haddrs, seed_szs, seeds_cnt, bump_seed, derived );
+
+    /* Stop looking if we have found a valid PDA */
     if( FD_LIKELY( err==FD_VM_SUCCESS ) ) {
-      /* Stop looking if we have found a valid PDA */
-      err = 0;
-      fd_pubkey_t * out_haddr = FD_VM_MEM_HADDR_ST_( vm, out_vaddr, FD_VM_ALIGN_RUST_U8, sizeof(fd_pubkey_t), &err );
-      if( FD_UNLIKELY( 0 != err ) ) {
-        *_ret = 0UL;
-        return err;
-      }
-      uchar * out_bump_seed_haddr = FD_VM_MEM_HADDR_ST_( vm, out_bump_seed_vaddr, FD_VM_ALIGN_RUST_U8, 1UL, &err );
-      if( FD_UNLIKELY( 0 != err ) ) {
-        *_ret = 0UL;
-        return err;
-      }
 
-      /* Do the overlap check, which is only included for this syscall */
-      FD_VM_MEM_CHECK_NON_OVERLAPPING( vm, (ulong)out_haddr, 32UL, (ulong)out_bump_seed_haddr, 1UL );
+      /* https://github.com/anza-xyz/agave/blob/v2.3.1/programs/bpf_loader/src/syscalls/mod.rs#L919-L924 */
+      fd_vm_haddr_query_t bump_seed_ref_query = {
+        .vaddr    = out_bump_seed_vaddr,
+        .align    = FD_VM_ALIGN_RUST_U8,
+        .sz       = 1UL,
+        .is_slice = 0,
+      };
 
-      memcpy( out_haddr, derived, sizeof(fd_pubkey_t) );
-      *out_bump_seed_haddr = (uchar)*bump_seed;
+      fd_vm_haddr_query_t address_query = {
+        .vaddr    = out_vaddr,
+        .align    = FD_VM_ALIGN_RUST_U8,
+        .sz       = FD_PUBKEY_FOOTPRINT,
+        .is_slice = 1,
+      };
+
+      fd_vm_haddr_query_t * queries[] = { &bump_seed_ref_query, &address_query };
+      FD_VM_TRANSLATE_MUT( vm, queries );
+
+      memcpy( address_query.haddr, derived->uc, sizeof(fd_pubkey_t) );
+      memcpy( bump_seed_ref_query.haddr, bump_seed, sizeof(uchar) );
 
       *_ret = 0UL;
       return FD_VM_SUCCESS;

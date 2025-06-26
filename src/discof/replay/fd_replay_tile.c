@@ -2204,6 +2204,8 @@ unprivileged_init( fd_topo_t *      topo,
 
   if ( strlen(tile->replay.solcap_capture) > 0 || strlen(tile->replay.dump_proto_dir) > 0 ) {
     ctx->capture_ctx = fd_capture_ctx_new( capture_ctx_mem );
+  } else {
+    ctx->capture_ctx = NULL;
   }
 
   if( strlen(tile->replay.solcap_capture) > 0 ) {

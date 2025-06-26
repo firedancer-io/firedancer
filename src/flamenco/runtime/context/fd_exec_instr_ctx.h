@@ -13,7 +13,6 @@ typedef struct fd_borrowed_account fd_borrowed_account_t;
 
 struct fd_exec_instr_ctx {
   ulong                   magic;   /* ==FD_EXEC_INSTR_CTX_MAGIC */
-  uint                    depth;   /* starts at 0 */
   fd_instr_info_t const * instr;   /* The instruction info for this instruction */
   fd_exec_txn_ctx_t *     txn_ctx; /* The transaction context for this instruction */
 

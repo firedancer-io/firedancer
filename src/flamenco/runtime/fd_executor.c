@@ -384,7 +384,7 @@ fd_executor_check_transactions( fd_exec_txn_ctx_t * txn_ctx ) {
 }
 
 /* https://github.com/anza-xyz/agave/blob/v2.1.0/runtime/src/verify_precompiles.rs#L11-L34 */
-int
+static int
 fd_executor_verify_precompiles( fd_exec_txn_ctx_t * txn_ctx ) {
   ushort instr_cnt = txn_ctx->txn_descriptor->instr_cnt;
   int    err       = 0;
@@ -413,6 +413,35 @@ fd_executor_verify_precompiles( fd_exec_txn_ctx_t * txn_ctx ) {
       return FD_RUNTIME_TXN_ERR_INSTRUCTION_ERROR;
     }
   }
+
+  return FD_RUNTIME_EXECUTE_SUCCESS;
+}
+
+/* `verify_transaction()` is the first function called in the
+   transaction execution pipeline. It is responsible for deserializing
+   the transaction, verifying the message hash (sigverify), verifying
+   the precompiles, and processing compute budget instructions. We
+   leave sigverify out for now to easily bypass this function's
+   checks for fuzzing.
+
+   TODO: Maybe support adding sigverify in here, and toggling it
+   on/off with a flag.
+
+   https://github.com/anza-xyz/agave/blob/v2.3.1/runtime/src/bank.rs#L5725-L5753 */
+int
+fd_executor_verify_transaction( fd_exec_txn_ctx_t * txn_ctx ) {
+  int err = FD_RUNTIME_EXECUTE_SUCCESS;
+
+  /* If the `move_precompile_verification_to_svm` feature is active, then we skip verifying the precompiles here.
+     https://github.com/anza-xyz/agave/blob/v2.3.1/runtime/src/bank.rs#L5726-L5727 */
+  if( !FD_FEATURE_ACTIVE( txn_ctx->slot, &txn_ctx->features, move_precompile_verification_to_svm ) ) {
+    err = fd_executor_verify_precompiles( txn_ctx );
+    if( FD_UNLIKELY( err ) ) return err;
+  }
+
+  /* https://github.com/anza-xyz/agave/blob/v2.2.13/svm/src/transaction_processor.rs#L566-L569 */
+  err = fd_executor_compute_budget_program_execute_instructions( txn_ctx );
+  if( FD_UNLIKELY( err ) ) return err;
 
   return FD_RUNTIME_EXECUTE_SUCCESS;
 }
@@ -826,18 +855,12 @@ fd_executor_create_rollback_fee_payer_account( fd_exec_txn_ctx_t * txn_ctx,
 /* https://github.com/anza-xyz/agave/blob/v2.2.13/svm/src/transaction_processor.rs#L557-L634 */
 int
 fd_executor_validate_transaction_fee_payer( fd_exec_txn_ctx_t * txn_ctx ) {
-  /* https://github.com/anza-xyz/agave/blob/v2.2.13/svm/src/transaction_processor.rs#L566-L569 */
-  int err = fd_executor_compute_budget_program_execute_instructions( txn_ctx, txn_ctx->_txn_raw );
-  if( FD_UNLIKELY( err!=FD_RUNTIME_EXECUTE_SUCCESS ) ) {
-    return err;
-  }
-
   /* https://github.com/anza-xyz/agave/blob/v2.2.13/svm/src/transaction_processor.rs#L574-L580 */
   fd_txn_account_t * fee_payer_rec = NULL;
-  err = fd_exec_txn_ctx_get_account_at_index( txn_ctx,
-                                              FD_FEE_PAYER_TXN_IDX,
-                                              &fee_payer_rec,
-                                              fd_txn_account_check_fee_payer_writable );
+  int err = fd_exec_txn_ctx_get_account_at_index( txn_ctx,
+                                                  FD_FEE_PAYER_TXN_IDX,
+                                                  &fee_payer_rec,
+                                                  fd_txn_account_check_fee_payer_writable );
   if( FD_UNLIKELY( err!=FD_ACC_MGR_SUCCESS ) ) {
     return FD_RUNTIME_TXN_ERR_ACCOUNT_NOT_FOUND;
   }
@@ -882,20 +905,23 @@ fd_executor_validate_transaction_fee_payer( fd_exec_txn_ctx_t * txn_ctx ) {
   return FD_RUNTIME_EXECUTE_SUCCESS;
 }
 
-int
-fd_executor_setup_accessed_accounts_for_txn( fd_exec_txn_ctx_t * txn_ctx ) {
-
-  txn_ctx->accounts_cnt = 0UL;
-
+/* Simply unpacks the account keys from the serialized transaction and sets them in the txn_ctx. */
+void
+fd_executor_setup_txn_account_keys( fd_exec_txn_ctx_t * txn_ctx ) {
+  txn_ctx->accounts_cnt = (uchar)txn_ctx->txn_descriptor->acct_addr_cnt;
   fd_pubkey_t * tx_accs = (fd_pubkey_t *)((uchar *)txn_ctx->_txn_raw->raw + txn_ctx->txn_descriptor->acct_addr_off);
 
   // Set up accounts in the transaction body and perform checks
   for( ulong i = 0UL; i < txn_ctx->txn_descriptor->acct_addr_cnt; i++ ) {
     txn_ctx->account_keys[i] = tx_accs[i];
   }
+}
 
-  txn_ctx->accounts_cnt += (uchar)txn_ctx->txn_descriptor->acct_addr_cnt;
-
+/* Resolves any address lookup tables referenced in the transaction and adds
+   them to the transaction's account keys. Returns 0 on success or if the transaction
+   is a legacy transaction, and 1 on failure. */
+int
+fd_executor_setup_txn_alut_account_keys( fd_exec_txn_ctx_t * txn_ctx ) {
   if( txn_ctx->txn_descriptor->transaction_version == FD_TXN_V0 ) {
     /* https://github.com/anza-xyz/agave/blob/368ea563c423b0a85cc317891187e15c9a321521/runtime/src/bank/address_lookup_table.rs#L44-L48 */
     fd_slot_hashes_global_t const * slot_hashes_global = fd_sysvar_slot_hashes_read( txn_ctx->funk, txn_ctx->funk_txn, txn_ctx->spad );
@@ -1127,11 +1153,6 @@ int
 fd_execute_instr( fd_exec_txn_ctx_t * txn_ctx,
                   fd_instr_info_t *   instr ) {
   FD_RUNTIME_TXN_SPAD_FRAME_BEGIN( txn_ctx->spad, txn_ctx ) {
-    fd_exec_instr_ctx_t * parent = NULL;
-    if( txn_ctx->instr_stack_sz ) {
-      parent = &txn_ctx->instr_stack[ txn_ctx->instr_stack_sz - 1 ];
-    }
-
     int instr_exec_result = fd_instr_stack_push( txn_ctx, instr );
     if( FD_UNLIKELY( instr_exec_result ) ) {
       FD_TXN_PREPARE_ERR_OVERWRITE( txn_ctx );
@@ -1145,7 +1166,6 @@ fd_execute_instr( fd_exec_txn_ctx_t * txn_ctx,
     *ctx = (fd_exec_instr_ctx_t) {
       .instr     = instr,
       .txn_ctx   = txn_ctx,
-      .depth     = parent ? (parent->depth+1) : 0,
     };
     fd_base58_encode_32( txn_ctx->accounts[ instr->program_id ].pubkey->uc, NULL, ctx->program_id_base58 );
 
@@ -1412,10 +1432,10 @@ fd_execute_txn_prepare_start( fd_exec_slot_ctx_t const * slot_ctx,
                                       NULL );
   fd_exec_txn_ctx_setup( txn_ctx, txn_descriptor, txn_raw );
 
-  /* Unroll accounts from aluts and place into correct spots */
-  int res = fd_executor_setup_accessed_accounts_for_txn( txn_ctx );
+  /* Set up the core account keys */
+  fd_executor_setup_txn_account_keys( txn_ctx );
 
-  return res;
+  return FD_RUNTIME_EXECUTE_SUCCESS;
 }
 
 int

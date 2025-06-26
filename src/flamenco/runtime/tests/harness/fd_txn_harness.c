@@ -69,9 +69,6 @@ fd_runtime_fuzz_txn_ctx_create( fd_runtime_fuzz_runner_t *         runner,
     fd_runtime_fuzz_load_account( acc, funk, funk_txn, &test_ctx->account_shared_data[i], 1 );
   }
 
-  /* Add accounts to bpf program cache */
-  fd_bpf_scan_and_create_bpf_program_cache_entry( slot_ctx, runner->spad );
-
   /* Setup Bank manager */
 
   fd_bank_prev_slot_set( slot_ctx->bank, slot_ctx->slot - 1UL );
@@ -247,6 +244,9 @@ fd_runtime_fuzz_txn_ctx_create( fd_runtime_fuzz_runner_t *         runner,
     fd_sysvar_recent_hashes_update( slot_ctx, runner->spad );
   }
 
+  /* Add accounts to bpf program cache */
+  fd_bpf_scan_and_create_bpf_program_cache_entry( slot_ctx, runner->spad );
+
   /* Create the raw txn (https://solana.com/docs/core/transactions#transaction-size) */
   uchar * txn_raw_begin = fd_spad_alloc( runner->spad, alignof(uchar), 1232 );
   ushort instr_count, addr_table_cnt;
@@ -293,7 +293,7 @@ fd_runtime_fuzz_txn_ctx_exec( fd_runtime_fuzz_runner_t * runner,
   task_info->txn_ctx->spad      = runner->spad;
   task_info->txn_ctx->spad_wksp = fd_wksp_containing( runner->spad );
 
-  fd_runtime_pre_execute_check( task_info, 0 );
+  fd_runtime_pre_execute_check( task_info );
 
   if( task_info->txn->flags & FD_TXN_P_FLAGS_SANITIZE_SUCCESS ) {
       task_info->txn->flags |= FD_TXN_P_FLAGS_EXECUTE_SUCCESS;

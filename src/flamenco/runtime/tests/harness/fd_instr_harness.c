@@ -214,9 +214,6 @@ fd_runtime_fuzz_instr_ctx_create( fd_runtime_fuzz_runner_t *           runner,
     }
   }
 
-  /* Add accounts to bpf program cache */
-  fd_bpf_scan_and_create_bpf_program_cache_entry( slot_ctx, runner->spad );
-
   /* Fill missing sysvar cache values with defaults */
   /* We create mock accounts for each of the sysvars and hardcode the data fields before loading it into the account manager */
   /* We use Agave sysvar defaults for data field values */
@@ -285,6 +282,11 @@ fd_runtime_fuzz_instr_ctx_create( fd_runtime_fuzz_runner_t *           runner,
 
   /* Handle undefined behavior if sysvars are malicious (!!!) */
 
+  epoch_schedule = fd_sysvar_epoch_schedule_read( funk, funk_txn, runner->spad );
+  if( epoch_schedule ) {
+    fd_bank_epoch_schedule_set( slot_ctx->bank, *epoch_schedule );
+  }
+
   /* Override epoch bank rent setting */
   rent = fd_sysvar_rent_read( funk, funk_txn, runner->spad );
   if( rent ) {
@@ -310,6 +312,9 @@ fd_runtime_fuzz_instr_ctx_create( fd_runtime_fuzz_runner_t *           runner,
       fd_bank_prev_lamports_per_signature_set( slot_ctx->bank, last->fee_calculator.lamports_per_signature );
     }
   }
+
+  /* Add accounts to bpf program cache */
+  fd_bpf_scan_and_create_bpf_program_cache_entry( slot_ctx, runner->spad );
 
   /* Load instruction accounts */
 

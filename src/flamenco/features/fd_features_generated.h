@@ -8,7 +8,7 @@
 #endif
 
 /* FEATURE_ID_CNT is the number of features in ids */
-#define FD_FEATURE_ID_CNT (236UL)
+#define FD_FEATURE_ID_CNT (235UL)
 union fd_features {
   ulong f[ FD_FEATURE_ID_CNT ];
   struct {
@@ -96,7 +96,6 @@ union fd_features {
     /* 0x2bf29bf13f0e1d5d */ ulong executables_incur_cpi_data_cost;
     /* 0x073a0a7d3f570b55 */ ulong fix_recent_blockhashes;
     /* 0x4d6ae02c256bdf10 */ ulong update_rewards_from_cached_accounts;
-    /* 0x5bf898a97b29c67f */ ulong enable_partitioned_epoch_reward;
     /* 0xe8f10f26141749dd */ ulong spl_token_v3_4_0;
     /* 0xe02ac5f848d395d8 */ ulong spl_associated_token_account_v1_1_0;
     /* 0x7b285d0430faf2fc */ ulong default_units_per_instruction;
@@ -146,7 +145,7 @@ union fd_features {
     /* 0x795c88a20bcb6dfd */ ulong enable_program_redeployment_cooldown;
     /* 0x8a8eb9085ca2bb0b */ ulong commission_updates_only_allowed_in_first_half_of_epoch;
     /* 0x33e6e44dc3a9cfb2 */ ulong enable_turbine_fanout_experiments;
-    /* 0xc3df53505d0f7aed */ ulong disable_turbine_fanout_experiments;
+    /* 0x74bb9abc81624c0d */ ulong disable_turbine_fanout_experiments;
     /* 0x784adb4f1d180869 */ ulong drop_merkle_shreds;
     /* 0x71eba1d288ba2bfc */ ulong keep_merkle_shreds;
     /* 0x823d14dd6235f859 */ ulong move_serialized_len_ptr_in_cpi;
@@ -178,7 +177,7 @@ union fd_features {
     /* 0x3cbf822ccb2eebd4 */ ulong enable_poseidon_syscall;
     /* 0xe9d32123513c4d0d */ ulong timely_vote_credits;
     /* 0x64205286d7935342 */ ulong remaining_compute_units_syscall_enabled;
-    /* 0x7cc7d1c81116eae0 */ ulong enable_loader_v4;
+    /* 0x12802019b1336a17 */ ulong enable_loader_v4;
     /* 0x4b241cb4c6f3b3b2 */ ulong require_rent_exempt_split_destination;
     /* 0x21746beaa849f9d9 */ ulong better_error_codes_for_tx_lamport_check;
     /* 0x9bb55b5df1c396c5 */ ulong enable_alt_bn128_compression_syscall;

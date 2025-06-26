@@ -349,9 +349,19 @@ fd_vm_memmove( fd_vm_t * vm,
   }
 
   if( !vm->direct_mapping ) {
-    void *       dst = FD_VM_MEM_HADDR_ST( vm, dst_vaddr, FD_VM_ALIGN_RUST_U8, sz );
+    /* https://github.com/anza-xyz/agave/blob/v2.3.1/programs/bpf_loader/src/syscalls/mem_ops.rs#L188-L192 */
+    fd_vm_haddr_query_t dst_ref_mut_query = {
+      .vaddr    = dst_vaddr,
+      .align    = FD_VM_ALIGN_RUST_U8,
+      .sz       = sz,
+      .is_slice = 1,
+    };
+
+    fd_vm_haddr_query_t * queries[] = { &dst_ref_mut_query };
+    FD_VM_TRANSLATE_MUT( vm, queries );
+
     void const * src = FD_VM_MEM_HADDR_LD( vm, src_vaddr, FD_VM_ALIGN_RUST_U8, sz );
-    memmove( dst, src, sz );
+    memmove( dst_ref_mut_query.haddr, src, sz );
   } else {
     /* If the src and dst vaddrs overlap and src_vaddr < dst_vaddr, Agave iterates through input regions backwards
        to maintain correct memmove behavior for overlapping cases. Although this logic should only apply to the src and dst
@@ -599,7 +609,16 @@ fd_vm_syscall_sol_memcmp( /**/            void *  _vm,
       case, different from libc style memcmp, harder to callers to use,
       etc ... probably too late to do anything about it now ... sigh */
 
-    void * _out = FD_VM_MEM_HADDR_ST( vm, out_vaddr, FD_VM_ALIGN_RUST_I32, 4UL );
+    /* https://github.com/anza-xyz/agave/blob/v2.3.1/programs/bpf_loader/src/syscalls/mem_ops.rs#L121-L125 */
+    fd_vm_haddr_query_t cmp_result_ref_mut_query = {
+      .vaddr    = out_vaddr,
+      .align    = FD_VM_ALIGN_RUST_I32,
+      .sz       = 4UL,
+      .is_slice = 0,
+    };
+
+    fd_vm_haddr_query_t * queries[] = { &cmp_result_ref_mut_query };
+    FD_VM_TRANSLATE_MUT( vm, queries );
 
     int out = 0;
     for( ulong i=0UL; i<sz; i++ ) {
@@ -611,7 +630,7 @@ fd_vm_syscall_sol_memcmp( /**/            void *  _vm,
       }
     }
 
-    fd_memcpy( _out, &out, 4UL ); /* Sigh ... see note above (and might be unaligned ... double sigh) */
+    fd_memcpy( cmp_result_ref_mut_query.haddr, &out, 4UL ); /* Sigh ... see note above (and might be unaligned ... double sigh) */
 
     return FD_VM_SUCCESS;
   } else {
@@ -650,6 +669,7 @@ fd_vm_syscall_sol_memcmp( /**/            void *  _vm,
       https://github.com/anza-xyz/agave/blob/v2.0.10/programs/bpf_loader/src/syscalls/mem_ops.rs#L213
        */
 
+    /* TODO: Refactor to use `FD_VM_TRANSLATE_MUT` macro when direct mapping is rewritten */
     void * _out = FD_VM_MEM_HADDR_ST( vm, out_vaddr, FD_VM_ALIGN_RUST_I32, 4UL );
     int     out = 0;
 
@@ -776,8 +796,17 @@ fd_vm_syscall_sol_memset( /**/            void *  _vm,
   int b = (int)(c & 255UL);
 
   if( !vm->direct_mapping ) {
-    haddr = FD_VM_MEM_HADDR_ST( vm, dst_vaddr, FD_VM_ALIGN_RUST_U8, sz );
-    fd_memset( haddr, b, sz );
+    /* https://github.com/anza-xyz/agave/blob/v2.3.1/programs/bpf_loader/src/syscalls/mem_ops.rs#L155-L159 */
+    fd_vm_haddr_query_t haddr_query = {
+      .vaddr    = dst_vaddr,
+      .align    = FD_VM_ALIGN_RUST_U8,
+      .sz       = sz,
+      .is_slice = 1,
+    };
+
+    fd_vm_haddr_query_t * queries[] = { &haddr_query };
+    FD_VM_TRANSLATE_MUT( vm, queries );
+    fd_memset( haddr_query.haddr, b, sz );
   } else if( region!=FD_VM_INPUT_REGION ) {
     /* Here we special case non-input region memsets: we try to memset
        as many bytes as possible until it reaches an unwritable section.
