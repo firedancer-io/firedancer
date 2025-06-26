@@ -93,8 +93,8 @@ gossip_send_fn( void *                ctx,
   udp->net_len     = fd_ushort_bswap( (ushort)(payload_sz + sizeof(fd_udp_hdr_t)) );
   ip4->daddr       = peer_address->addr;
   udp->net_dport   = peer_address->port;
-  ip4->check       = fd_ip4_hdr_check_fast( ip4 );
   ip4->net_id      = fd_ushort_bswap( gossip_ctx->net_id++ );
+  ip4->check       = fd_ip4_hdr_check_fast( ip4 );
   udp->check       = 0;
 
   /* TODO: Construct payload in place to avoid memcpy here. */

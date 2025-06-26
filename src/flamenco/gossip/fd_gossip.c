@@ -13,7 +13,7 @@
 #define BLOOM_NUM_KEYS                  (  8.0)
 
 #define PING_PONG_SIGN_TYPE             FD_KEYGUARD_SIGN_TYPE_SHA256_ED25519
-#define CRDS_SIGN_TYPE                  FD_KEYGUARD_SIGN_TYPE_ED25519
+#define GOSSIP_SIGN_TYPE                FD_KEYGUARD_SIGN_TYPE_ED25519
 
 /* TODO: hardcode a CRDS filter instead of using bloom tmpls ? */
 #define BLOOM_NAME    crds_bloom
@@ -271,17 +271,18 @@ static void
 push_state_append_crds( fd_gossip_t *                       gossip,
                         push_state_t *                      state,
                         uchar const *                       crds_bytes,
-                        ulong                               crds_len,
+                        ulong                               crds_sz,
                         long                                now ) {
   ulong remaining_space = sizeof(state->msg) - state->msg_sz;
-  if( FD_UNLIKELY( remaining_space<crds_len ) ) {
+  if( FD_UNLIKELY( remaining_space<crds_sz ) ) {
     push_state_flush( gossip, state, now );
+    remaining_space = sizeof(state->msg) - state->msg_sz;
   }
-  if( FD_UNLIKELY( remaining_space<crds_len ) ) {
+  if( FD_UNLIKELY( remaining_space<crds_sz ) ) {
     FD_LOG_ERR(( "Not enough space in push state to append CRDS value even after flushing" ));
   }
-  fd_memcpy( &state->msg[ state->msg_sz ], crds_bytes, crds_len );
-  state->msg_sz   += crds_len;
+  fd_memcpy( &state->msg[ state->msg_sz ], crds_bytes, crds_sz );
+  state->msg_sz   += crds_sz;
   state->num_crds += 1UL;
 }
 
@@ -320,7 +321,7 @@ refresh_contact_info( fd_gossip_t * gossip,
   gossip->sign_fn( gossip->sign_ctx,
                    gossip->my_contact_info.crds_val+64UL,
                    gossip->my_contact_info.crds_val_sz-64UL,
-                   CRDS_SIGN_TYPE,
+                   GOSSIP_SIGN_TYPE,
                    gossip->my_contact_info.crds_val );
   push_my_contact_info( gossip, now );
 }
@@ -630,7 +631,7 @@ rx_pull_response( fd_gossip_t *                          gossip,
     fd_crds_entry_t * candidate               = fd_crds_acquire( gossip->crds );
 
     /* Fill up with information needed for upsert check */
-    fd_crds_populate_preflight( value, payload, candidate );
+    fd_crds_populate_preflight( gossip->crds, value, payload, candidate );
 
     int upserts = fd_crds_upserts( gossip->crds, candidate );
 
@@ -717,7 +718,7 @@ rx_push( fd_gossip_t *                 gossip,
        so that the purge table is correctly updated, but we don't need to perform
        the full population since the insert call terminates prior to any insertion
        in this case. This is pretty confusing, will need to clean up. */
-    fd_crds_populate_preflight( value, payload, candidate );
+    fd_crds_populate_preflight( gossip->crds, value, payload, candidate );
     ulong origin_stake;
 
     if( FD_UNLIKELY( fd_crds_upserts( gossip->crds, candidate ) ) ) {
@@ -801,13 +802,24 @@ rx_ping( fd_gossip_t *           gossip,
          long                    now ) {
   /* TODO: have this point to dcache buffer directly instead */
   uchar out_payload[ sizeof(fd_gossip_view_pong_t) + 4UL];
-  out_payload[0] = FD_GOSSIP_MESSAGE_PONG;
+  ((uint *)out_payload)[0] = FD_GOSSIP_MESSAGE_PONG;
 
-  fd_gossip_view_pong_t * out_pong = (fd_gossip_view_pong_t *)out_payload + 4UL;
-
+  fd_gossip_view_pong_t * out_pong = (fd_gossip_view_pong_t *)(out_payload + 4UL);
   fd_memcpy( out_pong->pubkey, gossip->identity_pubkey, 32UL );
-  fd_ping_tracker_hash_ping_token( ping->ping_token, out_pong->ping_hash );
-  gossip->sign_fn( gossip->sign_ctx, out_pong->ping_hash, 32UL, PING_PONG_SIGN_TYPE, out_pong->signature );
+
+  /* fd_keyguard checks payloads for certain patterns before performing the
+     sign. Pattern-matching can't be done on hashed data, so we need
+     to supply the pre-hashed image to the sign fn (fd_keyguard will hash when
+     supplied with FD_KEYGUARD_SIGN_TYPE_SHA256_ED25519) while also hashing
+     the image ourselves onto pong->ping_hash */
+
+  /* Clobber the ping message pubkey since we already verified the message at
+     this point */
+  uchar *    pre_hash_img = ping->ping_token-16UL;
+  fd_memcpy( pre_hash_img, "SOLANA_PING_PONG", 16UL );
+
+  fd_sha256_hash( pre_hash_img, 48UL, out_pong->ping_hash );
+  gossip->sign_fn( gossip->sign_ctx, pre_hash_img, 48UL, PING_PONG_SIGN_TYPE, out_pong->signature );
 
   gossip->send_fn( gossip->send_ctx, (uchar *)out_payload, sizeof(out_payload), peer_address, (ulong)now );
   return FD_GOSSIP_RX_OK;
@@ -847,11 +859,12 @@ strip_network_hdrs( uchar const *   data,
   if( FD_UNLIKELY( udp_sz<sizeof(fd_udp_hdr_t) ) )
     FD_LOG_ERR(( "Malformed UDP header" ));
   ulong payload_sz_ = udp_sz-sizeof(fd_udp_hdr_t);
-  if( FD_UNLIKELY( (ulong)payload+payload_sz_>(ulong)eth+data_sz ) )
-    FD_LOG_ERR(( "Malformed UDP payload" ));
 
   *payload     = (uchar *)( (ulong)udp + sizeof(fd_udp_hdr_t) );
   *payload_sz  = payload_sz_;
+
+  if( FD_UNLIKELY( (ulong)payload+payload_sz_>(ulong)data+data_sz ) )
+    FD_LOG_ERR(( "Malformed UDP payload" ));
 
   peer_address->addr = ip4->saddr;
   peer_address->port = udp->net_sport;
@@ -860,18 +873,18 @@ strip_network_hdrs( uchar const *   data,
 
 int
 fd_gossip_rx( fd_gossip_t * gossip,
-              uchar const * data,
-              ulong         data_sz,
+              uchar const * packet,
+              ulong         packet_sz,
               long          now ) {
 
   uchar *       gossip_payload;
   ulong         gossip_payload_sz;
   fd_ip4_port_t peer_address[1];
 
-  FD_LOG_WARNING(( "fd_gossip_rx: data_sz=%lu", data_sz ));
+  // FD_LOG_WARNING(( "fd_gossip_rx: data_sz=%lu", data_sz ));
 
-  int error = strip_network_hdrs( data,
-                                  data_sz,
+  int error = strip_network_hdrs( packet,
+                                  packet_sz,
                                   &gossip_payload,
                                   &gossip_payload_sz,
                                   peer_address );
@@ -879,9 +892,12 @@ fd_gossip_rx( fd_gossip_t * gossip,
 
   fd_gossip_view_t view[ 1 ];
   ulong decode_sz = fd_gossip_msg_parse( view, gossip_payload, gossip_payload_sz );
-  if( FD_UNLIKELY( !decode_sz ) ) return FD_GOSSIP_RX_PARSE_ERR;
+  if( FD_UNLIKELY( !decode_sz ) ) {
+    FD_LOG_ERR(( "Failed to decode gossip message" ));
+    return FD_GOSSIP_RX_PARSE_ERR;
+  }
 
-  error = verify_signatures( view, data, gossip->sha512 );
+  error = verify_signatures( view, gossip_payload, gossip->sha512 );
   if( FD_UNLIKELY( error ) ) return error;
 
   // error = filter_shred_version( gossip, message );
@@ -909,7 +925,7 @@ fd_gossip_rx( fd_gossip_t * gossip,
       error = rx_push( gossip, view->push, gossip_payload, now );
       break;
     case FD_GOSSIP_MESSAGE_PRUNE:
-      error = rx_prune( gossip, data, view->prune, now );
+      error = rx_prune( gossip, gossip_payload, view->prune, now );
       break;
     case FD_GOSSIP_MESSAGE_PING:
       error = rx_ping( gossip, view->ping, peer_address, now );

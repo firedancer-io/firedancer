@@ -92,6 +92,7 @@ fd_gossip_msg_crds_vote_parse( fd_gossip_view_crds_value_t * crds_val,
   crds_val->vote->transaction_off = CUR_OFFSET;
   crds_val->vote->transaction_sz  = transaction_sz;
   INC( transaction_sz );
+  CHECK_LEFT( 8U ); crds_val->wallclock_nanos = FD_MILLI_TO_NANOSEC( FD_LOAD( ulong, CURSOR ) ); INC( 8U );
   return BYTES_CONSUMED;
 }
 
@@ -280,9 +281,9 @@ fd_gossip_msg_crds_contact_info_parse( fd_gossip_view_crds_value_t * crds_val,
 
   for( ulong i=0UL; i<crds_val->contact_info->addrs_len; i++ ) {
     fd_gossip_view_ipaddr_t * addr = &crds_val->contact_info->addrs[i];
-    CHECK_LEFT( 1U ); addr->is_ip6 = FD_LOAD( uchar, CURSOR )                                                                  ; INC( 1U );
+    CHECK_LEFT( 4U ); addr->is_ip6 = FD_LOAD( uchar, CURSOR )                                                                  ; INC( 4U );
     if( FD_LIKELY( !addr->is_ip6 ) ) {
-      CHECK_LEFT(  4U ); addr->ip4_addr     = FD_LOAD( uint, CURSOR )                                                          ; INC(  4U );
+      CHECK_LEFT(  4U ); addr->ip4_addr     = FD_LOAD( uint, CURSOR )                                                          ; INC( 4U );
     } else {
       CHECK_LEFT( 16U ); addr->ip6_addr_off = CUR_OFFSET                                                                       ; INC( 16U ); /* Offset to 16-byte value */
     }

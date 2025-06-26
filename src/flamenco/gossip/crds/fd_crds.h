@@ -105,7 +105,8 @@ fd_crds_release( fd_crds_t *       crds,
    free (i.e., no possibility of OOBs when correctly used). */
 
 void
-fd_crds_populate_preflight( fd_gossip_view_crds_value_t const * view,
+fd_crds_populate_preflight( fd_crds_t *                         crds,
+                            fd_gossip_view_crds_value_t const * view,
                             uchar const *                       view_payload,
                             fd_crds_entry_t *                   out_value );
 

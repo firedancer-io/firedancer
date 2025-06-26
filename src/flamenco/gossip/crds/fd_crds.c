@@ -547,7 +547,8 @@ fd_crds_release( fd_crds_t *       crds,
 }
 
 void
-fd_crds_populate_preflight( fd_gossip_view_crds_value_t const * view,
+fd_crds_populate_preflight( fd_crds_t *                         crds,
+                            fd_gossip_view_crds_value_t const * view,
                             uchar const *                       view_payload,
                             fd_crds_entry_t *                   out_value ) {
   static fd_sha256_t sha2[1];
@@ -581,6 +582,16 @@ fd_crds_populate_preflight( fd_gossip_view_crds_value_t const * view,
 
   /* assign to first 8 bytes of value_hash to hash.hash */
   out_value->hash.hash = fd_ulong_load_8( out_value->value_hash );
+
+  if( FD_UNLIKELY( is_contact_info( key ) ) ) {
+    /* Contact info is a special case, we need to allocate a contact info entry */
+    if( FD_UNLIKELY( !crds_contact_info_pool_free( crds->contact_info.pool ) ) ) {
+      /* TODO: use dlist to LRU evict */
+      FD_LOG_ERR(( "contact info pool exhausted" ));
+    }
+    fd_crds_contact_info_entry_t * ci = crds_contact_info_pool_ele_acquire( crds->contact_info.pool );
+    out_value->contact_info.ci = ci;
+  }
 }
 
 void
@@ -592,7 +603,7 @@ fd_crds_populate_full( fd_crds_t *                         crds,
                        uchar                               has_preflight_info,
                        fd_crds_entry_t *                   out_value ) {
   if( FD_UNLIKELY( !has_preflight_info ) ){
-    fd_crds_populate_preflight( view, view_payload, out_value );
+    fd_crds_populate_preflight( crds, view, view_payload, out_value );
   }
   out_value->num_duplicates         = 0UL;
   out_value->expire.wallclock_nanos = now;
@@ -602,12 +613,7 @@ fd_crds_populate_full( fd_crds_t *                         crds,
   fd_memcpy( out_value->value_bytes, view_payload+view->value_off, view->length );
 
   if( FD_UNLIKELY( is_contact_info( &out_value->key ) ) ) {
-    if( FD_UNLIKELY( !crds_contact_info_pool_free( crds->contact_info.pool ) ) ) {
-      /* TODO: use dlist to LRU evict */
-      FD_LOG_ERR(( "contact info pool exhausted" ));
-    }
-
-    fd_crds_contact_info_entry_t * ci = crds_contact_info_pool_ele_acquire( crds->contact_info.pool );
+    fd_crds_contact_info_entry_t * ci = out_value->contact_info.ci;
     fd_crds_contact_info_populate( view, view_payload, ci->contact_info );
   }
 }
