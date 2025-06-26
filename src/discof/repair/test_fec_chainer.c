@@ -183,6 +183,77 @@ test_single_fec( fd_wksp_t * wksp ){
 
 }
 
+void
+test_publish( fd_wksp_t * wksp ){
+  ulong fec_max = 32;
+
+  void * mem = fd_wksp_alloc_laddr( wksp, fd_fec_chainer_align(), fd_fec_chainer_footprint( fec_max ), 1UL );
+  FD_TEST( mem );
+  fd_fec_chainer_t * chainer = fd_fec_chainer_join( fd_fec_chainer_new( mem, fec_max, 0UL ) );
+
+  uchar mr_root[FD_SHRED_MERKLE_ROOT_SZ] = { 1 };
+  fd_fec_ele_t * f0_64 = fd_fec_chainer_init( chainer, 1, mr_root );
+
+  FD_TEST( fd_fec_frontier_ele_query( chainer->frontier, &f0_64->key, NULL, chainer->pool ) == f0_64 );
+
+  /* Typical startup behavior, turbine orphan FECs added */
+  fd_fec_chainer_insert( chainer, 10, 0, 32, 1, 1, 1, mr_root, mr_root );
+  fd_fec_chainer_insert( chainer, 9, 0, 32, 1, 1, 1, mr_root, mr_root );
+
+  /* simulating no FECs chained, but a new root is published */
+  ulong new_root = 2UL << 32 | 0;
+  fd_fec_chainer_publish( chainer, 2 );
+
+  FD_TEST( fd_fec_frontier_ele_query( chainer->frontier, &new_root, NULL, chainer->pool ) );
+
+  /* Chain off of root slot for a bit */
+  fd_fec_chainer_insert( chainer, 3, 0, 32, 1, 1, 1, mr_root, mr_root );
+  fd_fec_chainer_insert( chainer, 4, 0, 32, 1, 1, 1, mr_root, mr_root );
+  ulong new_frontier = 4UL << 32 | 0;
+  FD_TEST( fd_fec_frontier_ele_query( chainer->frontier, &new_frontier, NULL, chainer->pool ) );
+
+  /* Publish to ancestor */
+  fd_fec_chainer_publish( chainer, 3 );
+  FD_TEST( fd_fec_frontier_ele_query( chainer->frontier, &new_frontier, NULL, chainer->pool ) );
+
+  /* Make a tree
+
+  3 - 4 - 8 - 9 - 10
+    \ 5 - 6 - 7
+
+  */
+
+  fd_fec_chainer_insert( chainer, 5, 0, 32, 1, 1, 2, mr_root, mr_root );
+  fd_fec_chainer_insert( chainer, 6, 0, 32, 1, 1, 1, mr_root, mr_root );
+  fd_fec_chainer_insert( chainer, 7, 0, 32, 1, 1, 1, mr_root, mr_root );
+  fd_fec_chainer_insert( chainer, 8, 0, 32, 1, 1, 4, mr_root, mr_root );
+
+  uint frontier_cnt = 0;
+  ulong frontier_keys[2] = { 7UL << 32 | 0, 10UL << 32 | 0 };
+  for( fd_fec_frontier_iter_t iter = fd_fec_frontier_iter_init( chainer->frontier, chainer->pool ); !fd_fec_frontier_iter_done( iter, chainer->frontier, chainer->pool ); iter = fd_fec_frontier_iter_next( iter, chainer->frontier, chainer->pool ) ){
+    frontier_cnt++;
+  }
+  FD_TEST( frontier_cnt == sizeof(frontier_keys) / sizeof(ulong) );
+  for( uint i = 0; i < sizeof(frontier_keys) / sizeof(ulong); i++ ){
+    FD_TEST( fd_fec_frontier_ele_query( chainer->frontier, &frontier_keys[i], NULL, chainer->pool ) );
+  }
+
+  /* Publish down the tree */
+  fd_fec_chainer_publish( chainer, 4 );
+  new_frontier = 10UL << 32 | 0;
+  FD_TEST( fd_fec_frontier_ele_query( chainer->frontier, &new_frontier, NULL, chainer->pool ) );
+
+  FD_TEST( fd_fec_chainer_query( chainer, 4, 0 ) );
+  FD_TEST( !fd_fec_chainer_query( chainer, 5, 0 ) );
+  FD_TEST( !fd_fec_chainer_query( chainer, 6, 0 ) );
+  FD_TEST( !fd_fec_chainer_query( chainer, 7, 0 ) );
+  FD_TEST( fd_fec_chainer_query( chainer, 8, 0 ) );
+  FD_TEST( fd_fec_chainer_query( chainer, 9, 0 ) );
+  FD_TEST( fd_fec_chainer_query( chainer, 10, 0 ) );
+
+  fd_wksp_free_laddr( fd_fec_chainer_delete( fd_fec_chainer_leave( chainer ) ) );
+}
+
 int
 main( int argc, char ** argv ) {
   fd_boot( &argc, &argv );
@@ -195,6 +266,7 @@ main( int argc, char ** argv ) {
 
   // test_fec_ordering( wksp );
   // test_single_fec( wksp );
+  test_publish( wksp );
 
   ulong sig = fd_disco_repair_replay_sig( 3508496, 1, 32, 128 );
   FD_TEST( fd_disco_repair_replay_sig_slot( sig ) == 3508496 );

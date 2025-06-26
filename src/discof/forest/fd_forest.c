@@ -188,18 +188,6 @@ fd_forest_verify( fd_forest_t const * forest ) {
   return 0;
 }
 
-/* query queries for a connected ele keyed by slot.  does not return
-   orphaned ele. */
-
-static fd_forest_ele_t *
-ancestry_frontier_query( fd_forest_t * forest, ulong slot ) {
-  fd_forest_ele_t * pool = fd_forest_pool( forest );
-  fd_forest_ele_t * ele  = NULL;
-  ele =                  fd_forest_ancestry_ele_query( fd_forest_ancestry( forest ), &slot, NULL, pool );
-  ele = fd_ptr_if( !ele, fd_forest_frontier_ele_query( fd_forest_frontier( forest ), &slot, NULL, pool ), ele );
-  return ele;
-}
-
 /* remove removes and returns a connected ele from ancestry or frontier
    maps.  does not remove orphaned ele.  does not unlink ele. */
 
@@ -382,9 +370,6 @@ insert( fd_forest_t * forest, ulong slot, ushort parent_off ) {
 
 fd_forest_ele_t *
 fd_forest_query( fd_forest_t * forest, ulong slot ) {
-# if FD_FOREST_USE_HANDHOLDING
-  FD_TEST( slot > fd_forest_root_slot( forest ) ); /* caller error - inval */
-# endif
   return query( forest, slot );
 }
 
@@ -433,22 +418,39 @@ fd_forest_publish( fd_forest_t * forest, ulong new_root_slot ) {
 
   fd_forest_ancestry_t * ancestry = fd_forest_ancestry( forest );
   fd_forest_frontier_t * frontier = fd_forest_frontier( forest );
+  fd_forest_orphaned_t * orphaned = fd_forest_orphaned( forest );
   fd_forest_ele_t *      pool     = fd_forest_pool( forest );
   ulong                  null     = fd_forest_pool_idx_null( pool );
 
   fd_forest_ele_t * old_root_ele = fd_forest_pool_ele( pool, forest->root );
-  fd_forest_ele_t * new_root_ele = ancestry_frontier_query( forest, new_root_slot );
+  fd_forest_ele_t * new_root_ele = query( forest, new_root_slot );
 
-# if FD_FOREST_USE_HANDHOLDING
-  FD_TEST( new_root_ele );                            /* caller error - not found */
-  FD_TEST( new_root_ele->slot > old_root_ele->slot ); /* caller error - inval */
-# endif
+#if FD_FOREST_USE_HANDHOLDING
+  if( FD_LIKELY( new_root_ele ) ) {
+    FD_TEST( new_root_ele->slot > old_root_ele->slot ); /* caller error - inval */
+  }
+#endif
+
+  /* Edge case where if we haven't been getting repairs, and we have a
+     gap between the root and orphans. we publish forward to a slot that
+     we don't have. This only case this should be happening is when we
+     load a second incremental and that incremental slot lives in the
+     gap. In that case this isn't a bug, but we should be treating this
+     new root like the snapshot slot / init root. Should be happening
+     very rarely given a well-functioning repair.  */
+
+  if( FD_UNLIKELY( !new_root_ele ) ) {
+    new_root_ele = acquire( forest, new_root_slot );
+    new_root_ele->complete_idx = 0;
+    new_root_ele->buffered_idx = 0;
+    fd_forest_frontier_ele_insert( frontier, new_root_ele, pool );
+  }
 
   /* First, remove the previous root, and add it to a FIFO prune queue.
      head points to the queue head (initialized with old_root_ele). */
 
   fd_forest_ele_t * head = ancestry_frontier_remove( forest, old_root_ele->slot );
-  head->next             = null;
+  head->prev             = null;
   fd_forest_ele_t * tail = head;
 
   /* Second, BFS down the tree, inserting each ele into the prune queue
@@ -461,22 +463,80 @@ fd_forest_publish( fd_forest_t * forest, ulong new_root_slot ) {
       if( FD_LIKELY( child != new_root_ele ) ) { /* do not prune new root or descendants */
         ulong idx  = fd_forest_ancestry_idx_remove( ancestry, &child->slot, null, pool );
         idx        = fd_ulong_if( idx != null, idx, fd_forest_frontier_idx_remove( frontier, &child->slot, null, pool ) );
-        tail->next = idx; /* insert prune queue */
+        tail->prev = idx; /* insert prune queue */
 #       if FD_FOREST_USE_HANDHOLDING
-        FD_TEST( tail->next != null ); /* programming error in BFS */
+        FD_TEST( tail->prev != null ); /* programming error in BFS */
 #       endif
-        tail       = fd_forest_pool_ele( pool, tail->next ); /* advance prune queue */
-        tail->next = null;
+        tail       = fd_forest_pool_ele( pool, tail->prev ); /* advance prune queue */
+        tail->prev = null;
       }
       child = fd_forest_pool_ele( pool, child->sibling );
     }
-    fd_forest_ele_t * next = fd_forest_pool_ele( pool, head->next ); /* FIFO pop */
+    fd_forest_ele_t * next = fd_forest_pool_ele( pool, head->prev ); /* FIFO pop */
     fd_forest_pool_ele_release( pool, head ); /* free head */
     head = next;
   }
 
+  /* If there is nothing on the frontier, we have hit an edge case
+     during catching up where all of our frontiers were < the new root.
+     In that case we need to continue repairing from the new root, so
+     add it to the frontier. */
+
+  if( FD_UNLIKELY( fd_forest_frontier_iter_done( fd_forest_frontier_iter_init( frontier, pool ), frontier, pool ) ) ) {
+    fd_forest_ele_t * remove = fd_forest_ancestry_ele_remove( ancestry, &new_root_ele->slot, NULL, pool );
+    if( FD_UNLIKELY( !remove ) ) {
+      /* Very rare case where during second incremental load we could publish to an orphaned slot */
+      remove = fd_forest_orphaned_ele_remove( orphaned, &new_root_ele->slot, NULL, pool );
+    }
+    FD_TEST( remove == new_root_ele );
+    fd_forest_frontier_ele_insert( frontier, new_root_ele, pool );
+    new_root_ele->complete_idx = 0;
+    new_root_ele->buffered_idx = 0;
+    advance_frontier( forest, new_root_ele->slot, 0 );
+  }
+
   new_root_ele->parent = null; /* unlink new root from parent */
-  forest->root     = fd_forest_ancestry_idx_query( ancestry, &new_root_slot, null, pool );
+  forest->root         = fd_forest_pool_idx( pool, new_root_ele );
+
+  /* Lastly, cleanup orphans if there orphan heads < new_root_slot.
+     First, add any relevant orphans to the prune queue. */
+
+  head = NULL;
+  for( fd_forest_orphaned_iter_t iter = fd_forest_orphaned_iter_init( orphaned, pool );
+       !fd_forest_orphaned_iter_done( iter, orphaned, pool );
+       iter = fd_forest_orphaned_iter_next( iter, orphaned, pool ) ) {
+    fd_forest_ele_t * ele = fd_forest_orphaned_iter_ele( iter, orphaned, pool );
+    if( FD_UNLIKELY( ele->slot < new_root_slot ) ) {
+      if( FD_UNLIKELY( !head ) ) {
+        head = ele;
+        head->prev = null;
+        tail = ele;
+      } else {
+        tail->prev = iter.ele_idx;
+        tail = fd_forest_pool_ele( pool, tail->prev );
+        tail->prev = null;
+      }
+    }
+  }
+
+  /* Now BFS and clean up children of these orphan heads */
+  while( head ) {
+    fd_forest_ele_t * child = fd_forest_pool_ele( pool, head->child );
+    while( FD_LIKELY( child ) ) {
+      if( FD_LIKELY( child != new_root_ele ) ) {
+        tail->prev = fd_forest_pool_idx( pool, child ); /* insert prune queue */
+        tail       = fd_forest_pool_ele( pool, tail->prev ); /* advance prune queue */
+        tail->prev = null;
+      }
+      child = fd_forest_pool_ele( pool, child->sibling );
+    }
+    ulong remove = fd_forest_orphaned_idx_remove( orphaned, &head->slot, null, pool ); /* remove myself */
+    remove = fd_ulong_if( remove == null, fd_forest_ancestry_idx_remove( ancestry, &head->slot, null, pool ), remove );
+
+    fd_forest_ele_t * next = fd_forest_pool_ele( pool, head->prev ); /* FIFO pop */
+    fd_forest_pool_ele_release( pool, head ); /* free head */
+    head = next;
+  }
   return new_root_ele;
 }
 
