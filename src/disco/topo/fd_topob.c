@@ -139,6 +139,7 @@ fd_topob_tile( fd_topo_t *    topo,
 
   fd_topo_tile_t * tile = &topo->tiles[ topo->tile_cnt ];
   strncpy( tile->name, tile_name, sizeof(tile->name) );
+  tile->metrics_name[ 0 ]   = 0;
   tile->id                  = topo->tile_cnt;
   tile->kind_id             = kind_id;
   tile->is_agave            = is_agave;
