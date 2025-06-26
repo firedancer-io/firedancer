@@ -12,8 +12,8 @@ static void fd_funk_rec_pool_mark_not_in_pool( fd_funk_rec_t * ele ) {
   ele->val_sz    = 0;
   ele->val_max   = 0;
 }
-static int fd_funk_rec_pool_mark_is_in_pool( fd_funk_rec_t * ele ) {
-  return (ele->val_sz != UINT_MAX);
+static int fd_funk_rec_pool_is_in_pool( fd_funk_rec_t const * ele ) {
+  return (ele->val_sz == UINT_MAX);
 }
 
 #define POOL_NAME          fd_funk_rec_pool
@@ -715,9 +715,12 @@ fd_funk_rec_purify( fd_funk_t * funk ) {
   uint prev_idx = FD_FUNK_REC_IDX_NULL;
   for( ulong i = 0; i < rec_max; ++i ) {
     fd_funk_rec_t * rec = rec_pool->ele + i;
-    if( !fd_funk_txn_xid_eq_root( rec->pair.xid ) ||
+    if( fd_funk_rec_pool_is_in_pool( rec ) ||
         (rec->flags & FD_FUNK_REC_FLAG_ERASE) ) {
-      /* Snip out the record */
+      fd_funk_rec_pool_release( rec_pool, rec, 1 );
+      continue;
+    }
+    if( !fd_funk_txn_xid_eq_root( rec->pair.xid ) ) {
       fd_funk_val_flush( rec, funk->alloc, funk->wksp );
       fd_funk_rec_pool_release( rec_pool, rec, 1 );
       continue;
@@ -765,7 +768,7 @@ fd_funk_rec_verify( fd_funk_t * funk ) {
          !fd_funk_rec_map_iter_done( iter );
          iter = fd_funk_rec_map_iter_next( iter ) ) {
       fd_funk_rec_t const * rec = fd_funk_rec_map_iter_ele_const( iter );
-      TEST( !fd_funk_rec_pool_mark_is_in_pool( rec ) );
+      TEST( !fd_funk_rec_pool_is_in_pool( rec ) );
 
       /* Make sure every record either links up with the last published
          transaction or an in-prep transaction and the flags are sane. */
@@ -829,6 +832,11 @@ fd_funk_rec_verify( fd_funk_t * funk ) {
       }
     }
   } while(0);
+
+  for( ulong rec_idx=0UL; rec_idx<rec_max; rec_idx++ ) {
+    FD_TEST( fd_funk_rec_pool_is_in_pool( &rec_pool->ele[ rec_idx ] ) ==
+             (rec_pool->ele[ rec_idx ].tag == 0UL) );
+  }
 
   do {
     ulong txn_idx = FD_FUNK_TXN_IDX_NULL;
