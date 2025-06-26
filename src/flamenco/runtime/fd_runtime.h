@@ -13,7 +13,6 @@
 #include "fd_rent_lists.h"
 #include "../../ballet/poh/fd_poh.h"
 #include "../leaders/fd_leaders.h"
-#include "context/fd_exec_epoch_ctx.h"
 #include "context/fd_exec_slot_ctx.h"
 #include "context/fd_capture_ctx.h"
 #include "context/fd_exec_txn_ctx.h"
@@ -42,7 +41,7 @@
 #define FD_RUNTIME_TRACE_SAVE   (1)
 #define FD_RUNTIME_TRACE_REPLAY (2)
 
-#define FD_RUNTIME_NUM_ROOT_BLOCKS (32UL)
+#define FD_RUNTIME_OFFLINE_NUM_ROOT_BLOCKS (6UL) /* 6 root blocks for offline replay */
 
 #define FD_BLOCKHASH_QUEUE_MAX_ENTRIES    (300UL)
 #define FD_RECENT_BLOCKHASHES_MAX_ENTRIES (150UL)
@@ -313,9 +312,9 @@ fd_runtime_compute_max_tick_height( ulong   ticks_per_slot,
                                     ulong * out_max_tick_height /* out */ );
 
 void
-fd_runtime_update_leaders( fd_exec_slot_ctx_t * slot_ctx,
-                           ulong                slot,
-                           fd_spad_t *          runtime_spad );
+fd_runtime_update_leaders( fd_bank_t * bank,
+                           ulong       slot,
+                           fd_spad_t * runtime_spad );
 
 /* TODO: Invoked by fd_executor: layering violation. Rent logic is deprecated
    and will be torn out entirely very soon. */
@@ -329,12 +328,12 @@ fd_runtime_collect_rent_from_account( ulong                       slot,
                                       ulong                       epoch );
 
 void
-fd_runtime_update_slots_per_epoch( fd_exec_slot_ctx_t * slot_ctx,
-                                   ulong                slots_per_epoch );
+fd_runtime_update_slots_per_epoch( fd_bank_t * bank,
+                                   ulong       slots_per_epoch );
 
 void
-fd_runtime_register_new_fresh_account( fd_exec_slot_ctx_t * slot_ctx,
-                                       fd_pubkey_t const  * pubkey );
+fd_runtime_register_new_fresh_account( fd_pubkey_t const * pubkey,
+                                       fd_bank_t *         bank );
 
 /* Block Level Execution Prep/Finalize ****************************************/
 
@@ -373,7 +372,7 @@ fd_runtime_block_verify_ticks( fd_blockstore_t * blockstore,
 
 /* extra fine-grained streaming tick verification */
 int
-fd_runtime_microblock_verify_ticks( fd_exec_slot_ctx_t *        slot_ctx,
+fd_runtime_microblock_verify_ticks( fd_blockstore_t *           blockstore,
                                     ulong                       slot,
                                     fd_microblock_hdr_t const * hdr,
                                     bool               slot_complete,
@@ -501,6 +500,7 @@ fd_runtime_poh_verify( fd_poh_verifier_t * poh_info );
 
 int
 fd_runtime_block_execute_prepare( fd_exec_slot_ctx_t * slot_ctx,
+                                  fd_blockstore_t *    blockstore,
                                   fd_spad_t *          runtime_spad );
 
 void
@@ -569,17 +569,18 @@ fd_runtime_process_txns_in_microblock_stream( fd_exec_slot_ctx_t * slot_ctx,
                                               fd_cost_tracker_t *  cost_tracker_opt );
 
 void
-fd_runtime_finalize_txn( fd_exec_slot_ctx_t *         slot_ctx,
-                         fd_capture_ctx_t *           capture_ctx,
+fd_runtime_finalize_txn( fd_funk_t *                  funk,
+                         fd_funk_txn_t *              funk_txn,
                          fd_execute_txn_task_info_t * task_info,
-                         fd_spad_t *                  finalize_spad );
+                         fd_spad_t *                  finalize_spad,
+                         fd_bank_t *                  bank );
 
 /* Epoch Boundary *************************************************************/
 
 uint
-fd_runtime_is_epoch_boundary( fd_epoch_bank_t * epoch_bank,
-                              ulong             curr_slot,
-                              ulong             prev_slot );
+fd_runtime_is_epoch_boundary( fd_exec_slot_ctx_t * slot_ctx,
+                              ulong                curr_slot,
+                              ulong                prev_slot );
 
 /*
    This is roughly Agave's process_new_epoch() which gets called from
@@ -626,6 +627,7 @@ fd_raw_block_txn_iter_ele( fd_raw_block_txn_iter_t iter, fd_txn_p_t * out_txn );
 
 int
 fd_runtime_block_eval_tpool( fd_exec_slot_ctx_t * slot_ctx,
+                             ulong                slot,
                              fd_block_t *         block,
                              fd_capture_ctx_t *   capture_ctx,
                              fd_tpool_t *         tpool,
@@ -633,10 +635,12 @@ fd_runtime_block_eval_tpool( fd_exec_slot_ctx_t * slot_ctx,
                              ulong *              txn_cnt,
                              fd_spad_t * *        spads,
                              ulong                spads_cnt,
-                             fd_spad_t *          runtime_spad );
+                             fd_spad_t *          runtime_spad,
+                             fd_blockstore_t *    blockstore );
 
 int
 fd_runtime_block_execute_tpool( fd_exec_slot_ctx_t *            slot_ctx,
+                                fd_blockstore_t *               blockstore,
                                 fd_capture_ctx_t *              capture_ctx,
                                 fd_runtime_block_info_t const * block_info,
                                 fd_tpool_t *                    tpool,

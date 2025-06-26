@@ -512,7 +512,6 @@ main( void ) {
 //                                                fd_exec_epoch_ctx_align(),
 //                                                fd_exec_epoch_ctx_footprint( vote_acc_max ),
 //                                                TEST_CONSENSUS_MAGIC );
-//   fd_exec_epoch_ctx_t * epoch_ctx =
 //       fd_exec_epoch_ctx_join( fd_exec_epoch_ctx_new( epoch_ctx_mem, vote_acc_max ) );
 //   FD_TEST( epoch_ctx );
 
@@ -552,14 +551,14 @@ main( void ) {
 //   if( incremental_snapshot ) {
 //     ulong i, j;
 //     FD_TEST( sscanf( incremental_snapshot, "incremental-snapshot-%lu-%lu", &i, &j ) == 2 );
-//     FD_TEST( i == snapshot_slot_ctx->slot_bank.slot );
+//     FD_TEST( i == snapshot_slot_ctx->slot );
 //     FD_TEST( epoch_bank );
 //     FD_TEST( fd_slot_to_epoch( &epoch_bank->epoch_schedule, i, NULL ) ==
 //              fd_slot_to_epoch( &epoch_bank->epoch_schedule, j, NULL ) );
 //     fd_snapshot_load_all( incremental_snapshot, NULL, snapshot_slot_ctx, 1, 1, FD_SNAPSHOT_TYPE_INCREMENTAL );
 //   }
 
-//   ulong snapshot_slot = snapshot_slot_ctx->slot_bank.slot;
+//   ulong snapshot_slot = snapshot_slot_ctx->slot;
 //   FD_LOG_NOTICE( ( "snapshot_slot: %lu", snapshot_slot ) );
 
 //   snapshot_fork->slot                         = snapshot_slot;
@@ -568,7 +567,7 @@ main( void ) {
 //   FD_TEST( !fd_runtime_sysvar_cache_load( snapshot_slot_ctx ) );
 
 //   fd_features_restore( snapshot_slot_ctx );
-//   fd_runtime_update_leaders( snapshot_slot_ctx, snapshot_slot_ctx->slot_bank.slot );
+//   fd_runtime_update_leaders( snapshot_slot_ctx, snapshot_slot_ctx->slot );
 //   fd_calculate_epoch_accounts_hash_values( snapshot_slot_ctx );
 
 //   fd_funk_start_write( funk );

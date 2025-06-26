@@ -5,6 +5,7 @@
 #include "../../ballet/base58/fd_base58.h"
 #include "../../disco/keyguard/fd_keyguard.h"
 #include "../../util/rng/fd_rng.h"
+#include "../../flamenco/fd_flamenco_base.h"
 #include <string.h>
 #include <stdio.h>
 #include <stdlib.h>

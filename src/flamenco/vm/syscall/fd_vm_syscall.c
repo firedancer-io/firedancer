@@ -18,7 +18,7 @@ fd_vm_syscall_register( fd_sbpf_syscalls_t *   syscalls,
 int
 fd_vm_syscall_register_slot( fd_sbpf_syscalls_t *      syscalls,
                              ulong                     slot,
-                             fd_features_t *           features,
+                             fd_features_t const *     features,
                              uchar                     is_deploy ) {
   if( FD_UNLIKELY( !syscalls ) ) return FD_VM_ERR_INVAL;
 
@@ -32,14 +32,14 @@ fd_vm_syscall_register_slot( fd_sbpf_syscalls_t *      syscalls,
   int enable_get_epoch_stake_syscall       = 0;
 
   if( slot ) {
-    enable_blake3_syscall                = FD_FEATURE_ACTIVE( slot, *features, blake3_syscall_enabled );
-    enable_curve25519_syscall            = FD_FEATURE_ACTIVE( slot, *features, curve25519_syscall_enabled );
-    enable_poseidon_syscall              = FD_FEATURE_ACTIVE( slot, *features, enable_poseidon_syscall );
-    enable_alt_bn128_syscall             = FD_FEATURE_ACTIVE( slot, *features, enable_alt_bn128_syscall );
-    enable_alt_bn128_compression_syscall = FD_FEATURE_ACTIVE( slot, *features, enable_alt_bn128_compression_syscall );
-    enable_last_restart_slot_syscall     = FD_FEATURE_ACTIVE( slot, *features, last_restart_slot_sysvar );
-    enable_get_sysvar_syscall            = FD_FEATURE_ACTIVE( slot, *features, get_sysvar_syscall_enabled );
-    enable_get_epoch_stake_syscall       = FD_FEATURE_ACTIVE( slot, *features, enable_get_epoch_stake_syscall );
+    enable_blake3_syscall                = FD_FEATURE_ACTIVE( slot, features, blake3_syscall_enabled );
+    enable_curve25519_syscall            = FD_FEATURE_ACTIVE( slot, features, curve25519_syscall_enabled );
+    enable_poseidon_syscall              = FD_FEATURE_ACTIVE( slot, features, enable_poseidon_syscall );
+    enable_alt_bn128_syscall             = FD_FEATURE_ACTIVE( slot, features, enable_alt_bn128_syscall );
+    enable_alt_bn128_compression_syscall = FD_FEATURE_ACTIVE( slot, features, enable_alt_bn128_compression_syscall );
+    enable_last_restart_slot_syscall     = FD_FEATURE_ACTIVE( slot, features, last_restart_slot_sysvar );
+    enable_get_sysvar_syscall            = FD_FEATURE_ACTIVE( slot, features, get_sysvar_syscall_enabled );
+    enable_get_epoch_stake_syscall       = FD_FEATURE_ACTIVE( slot, features, enable_get_epoch_stake_syscall );
 
   } else { /* enable ALL */
 

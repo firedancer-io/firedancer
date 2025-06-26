@@ -569,7 +569,10 @@ fd_blockstore_delete( void * shblockstore );
    file.  */
 
 fd_blockstore_t *
-fd_blockstore_init( fd_blockstore_t * blockstore, int fd, ulong fd_size_max, fd_slot_bank_t const * slot_bank );
+fd_blockstore_init( fd_blockstore_t *      blockstore,
+                    int                    fd,
+                    ulong                  fd_size_max,
+                    ulong                  slot );
 
 /* fd_blockstore_fini finalizes a blockstore.
 

@@ -9,6 +9,7 @@
 #include "../fd_acc_mgr.h"
 #include "../fd_txncache.h"
 #include "../fd_bank_hash_cmp.h"
+#include "../fd_bank.h"
 
 /* Return data for syscalls */
 
@@ -66,44 +67,37 @@ struct fd_exec_txn_ctx {
 
   uint flags;
 
+  fd_bank_t * bank;
+
   /* All pointers starting here are valid local joins in txn execution. */
-  fd_features_t                   features;
-  fd_txncache_t *                 status_cache;
-  ulong                           prev_lamports_per_signature;
-  int                             enable_exec_recording;
-  ulong                           total_epoch_stake;
-  fd_bank_hash_cmp_t *            bank_hash_cmp;
-  fd_funk_txn_t *                 funk_txn;
-  fd_funk_t                       funk[1];
-  fd_wksp_t *                     runtime_pub_wksp;
-  ulong                           slot;
-  fd_fee_rate_governor_t          fee_rate_governor;
-  fd_block_hash_queue_t           block_hash_queue;
+  fd_features_t                        features;
+  fd_txncache_t *                      status_cache;
+  int                                  enable_exec_recording;
+  fd_bank_hash_cmp_t *                 bank_hash_cmp;
+  fd_funk_txn_t *                      funk_txn;
+  fd_funk_t                            funk[1];
+  fd_wksp_t *                          runtime_pub_wksp;
+  ulong                                slot;
 
-  fd_epoch_schedule_t             schedule;
-  fd_rent_t                       rent;
-  double                          slots_per_year;
-  fd_stakes_delegation_t          stakes;
-
-  fd_spad_t *                     spad;                                        /* Sized out to handle the worst case footprint of single transaction execution. */
-  fd_wksp_t *                     spad_wksp;                                   /* Workspace for the spad. */
+  fd_spad_t *                          spad;                                        /* Sized out to handle the worst case footprint of single transaction execution. */
+  fd_wksp_t *                          spad_wksp;                                   /* Workspace for the spad. */
   /* Fields below here are not guaranteed to be local joins in txn execution. */
 
-  ulong                           paid_fees;
-  ulong                           compute_unit_limit;                          /* Compute unit limit for this transaction. */
-  ulong                           compute_unit_price;                          /* Compute unit price for this transaction. */
-  ulong                           compute_meter;                               /* Remaining compute units */
-  ulong                           heap_size;                                   /* Heap size for VMs for this transaction. */
-  ulong                           loaded_accounts_data_size_limit;             /* Loaded accounts data size limit for this transaction. */
-  ulong                           loaded_accounts_data_size;                   /* The actual transaction loaded data size */
-  uint                            prioritization_fee_type;                     /* The type of prioritization fee to use. */
-  fd_txn_t const *                txn_descriptor;                              /* Descriptor of the transaction. */
-  fd_rawtxn_b_t                   _txn_raw[1];                                 /* Raw bytes of the transaction. */
-  uint                            custom_err;                                  /* When a custom error is returned, this is where the numeric value gets stashed */
-  uchar                           instr_stack_sz;                              /* Current depth of the instruction execution stack. */
-  fd_exec_instr_ctx_t             instr_stack[FD_MAX_INSTRUCTION_STACK_DEPTH]; /* Instruction execution stack. */
-  fd_exec_instr_ctx_t *           failed_instr;
-  int                             instr_err_idx;
+  ulong                                paid_fees;
+  ulong                                compute_unit_limit;                          /* Compute unit limit for this transaction. */
+  ulong                                compute_unit_price;                          /* Compute unit price for this transaction. */
+  ulong                                compute_meter;                               /* Remaining compute units */
+  ulong                                heap_size;                                   /* Heap size for VMs for this transaction. */
+  ulong                                loaded_accounts_data_size_limit;             /* Loaded accounts data size limit for this transaction. */
+  ulong                                loaded_accounts_data_size;                   /* The actual transaction loaded data size */
+  uint                                 prioritization_fee_type;                     /* The type of prioritization fee to use. */
+  fd_txn_t const *                     txn_descriptor;                              /* Descriptor of the transaction. */
+  fd_rawtxn_b_t                        _txn_raw[1];                                 /* Raw bytes of the transaction. */
+  uint                                 custom_err;                                  /* When a custom error is returned, this is where the numeric value gets stashed */
+  uchar                                instr_stack_sz;                              /* Current depth of the instruction execution stack. */
+  fd_exec_instr_ctx_t                  instr_stack[FD_MAX_INSTRUCTION_STACK_DEPTH]; /* Instruction execution stack. */
+  fd_exec_instr_ctx_t *                failed_instr;
+  int                                  instr_err_idx;
   /* During sanitization, v0 transactions are allowed to have up to 256 accounts:
      https://github.com/anza-xyz/agave/blob/838c1952595809a31520ff1603a13f2c9123aa51/sdk/program/src/message/versions/v0/mod.rs#L139
      Nonetheless, when Agave prepares a sanitized batch for execution and tries to lock accounts, a lower limit is enforced:

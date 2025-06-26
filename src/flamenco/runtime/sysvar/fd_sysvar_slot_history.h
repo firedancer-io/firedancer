@@ -4,8 +4,6 @@
 #include "../../fd_flamenco_base.h"
 #include "../../types/fd_types.h"
 #include "../context/fd_exec_slot_ctx.h"
-#include "../context/fd_exec_epoch_ctx.h"
-
 
 #define FD_SLOT_HISTORY_SLOT_FOUND     (0)
 #define FD_SLOT_HISTORY_SLOT_FUTURE    (-1)

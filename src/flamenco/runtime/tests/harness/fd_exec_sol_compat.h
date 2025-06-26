@@ -8,7 +8,7 @@
 
 FD_PROTOTYPES_BEGIN
 
-void
+fd_wksp_t *
 sol_compat_wksp_init( ulong wksp_page_sz );
 
 void

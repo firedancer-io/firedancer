@@ -2,7 +2,6 @@
 #include "fd_snapshot_http.h"
 #include "fd_snapshot_restore_private.h"
 #include "../runtime/fd_acc_mgr.h"
-#include "../runtime/context/fd_exec_epoch_ctx.h"
 #include "../runtime/context/fd_exec_slot_ctx.h"
 #include "../../ballet/zstd/fd_zstd.h"
 #include "../../flamenco/types/fd_types.h"
@@ -26,7 +25,6 @@ struct fd_snapshot_dumper {
   fd_alloc_t * alloc;
   fd_funk_t    funk[1];
 
-  fd_exec_epoch_ctx_t * epoch_ctx;
   fd_exec_slot_ctx_t *  slot_ctx;
 
   int snapshot_fd;
@@ -70,11 +68,6 @@ fd_snapshot_dumper_delete( fd_snapshot_dumper_t * dumper ) {
   if( dumper->slot_ctx ) {
     fd_exec_slot_ctx_delete( fd_exec_slot_ctx_leave( dumper->slot_ctx ) );
     dumper->slot_ctx = NULL;
-  }
-
-  if( dumper->epoch_ctx ) {
-    fd_exec_epoch_ctx_delete( fd_exec_epoch_ctx_leave( dumper->epoch_ctx ) );
-    dumper->epoch_ctx = NULL;
   }
 
   if( dumper->funk->shmem ) {
@@ -280,14 +273,8 @@ do_dump( fd_snapshot_dumper_t *    d,
 
   /* Create a new processing context */
 
-  ulong const vote_acct_max = 1UL;  /* fd_snapshot doesn't retain epoch stakes */
-  d->epoch_ctx = fd_exec_epoch_ctx_join( fd_exec_epoch_ctx_new( fd_spad_alloc( spad, fd_exec_epoch_ctx_align(), fd_exec_epoch_ctx_footprint( vote_acct_max ) ), vote_acct_max ) );
-  if( FD_UNLIKELY( !d->epoch_ctx ) ) { FD_LOG_WARNING(( "Failed to create fd_exec_epoch_ctx_t" )); return EXIT_FAILURE; }
-
   d->slot_ctx = fd_exec_slot_ctx_join( fd_exec_slot_ctx_new( fd_spad_alloc( spad, FD_EXEC_SLOT_CTX_ALIGN, FD_EXEC_SLOT_CTX_FOOTPRINT ) ) );
   if( FD_UNLIKELY( !d->slot_ctx ) ) { FD_LOG_WARNING(( "Failed to create fd_exec_slot_ctx_t" )); return EXIT_FAILURE; }
-
-  d->slot_ctx->epoch_ctx = d->epoch_ctx;
 
   /* funk_txn is destroyed automatically when deleting fd_funk_t. */
 

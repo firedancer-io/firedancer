@@ -103,18 +103,24 @@ fd_epoch_delete( void * epoch ) {
 }
 
 void
-fd_epoch_init( fd_epoch_t * epoch, fd_epoch_bank_t const * epoch_bank ) {
-  epoch->first_slot = epoch_bank->eah_start_slot;
-  epoch->last_slot  = epoch_bank->eah_stop_slot;
+fd_epoch_init( fd_epoch_t *                      epoch,
+               ulong                             eah_start_slot,
+               ulong                             eah_stop_slot,
+               fd_vote_accounts_global_t const * vote_accounts ) {
 
-  fd_voter_t *               epoch_voters  = fd_epoch_voters( epoch );
-  fd_vote_accounts_t const * vote_accounts = &epoch_bank->stakes.vote_accounts;
+  epoch->first_slot = eah_start_slot;
+  epoch->last_slot  = eah_stop_slot;
 
-  for( fd_vote_accounts_pair_t_mapnode_t * curr = fd_vote_accounts_pair_t_map_minimum(
-           vote_accounts->vote_accounts_pool,
-           vote_accounts->vote_accounts_root );
+  fd_voter_t * epoch_voters = fd_epoch_voters( epoch );
+
+  fd_vote_accounts_pair_global_t_mapnode_t * vote_accounts_pool = fd_vote_accounts_vote_accounts_pool_join( vote_accounts );
+  fd_vote_accounts_pair_global_t_mapnode_t * vote_accounts_root = fd_vote_accounts_vote_accounts_root_join( vote_accounts );
+
+  for( fd_vote_accounts_pair_global_t_mapnode_t * curr = fd_vote_accounts_pair_global_t_map_minimum(
+           vote_accounts_pool,
+           vote_accounts_root );
        curr;
-       curr = fd_vote_accounts_pair_t_map_successor( vote_accounts->vote_accounts_pool, curr ) ) {
+       curr = fd_vote_accounts_pair_global_t_map_successor( vote_accounts_pool, curr ) ) {
 
     if( FD_UNLIKELY( curr->elem.stake > 0UL ) ) {
 

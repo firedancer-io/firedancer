@@ -13,12 +13,10 @@
 #define FD_SHRED_IDX_NULL            ( UINT_MAX )
 
 /* This is arbitrary, and needs to be sized for the worst case */
-#define FD_RENT_FRESH_ACCOUNTS_MAX   ( 1000UL )
+#define FD_RENT_FRESH_ACCOUNTS_MAX   ( 10000UL )
 
 #define FD_FUNK_KEY_TYPE_ACC       ((uchar)1)
 #define FD_FUNK_KEY_TYPE_ELF_CACHE ((uchar)2)
-#define FD_FUNK_KEY_SLOT_BANK      ((uchar)6)
-#define FD_FUNK_KEY_EPOCH_BANK     ((uchar)7)
 
 /* CLUSTER_VERSION is the default value for the cluster version
    in the epoch context. This value will foll forward to the
@@ -80,9 +78,6 @@ fd_base58_enc_64_fmt( char *        out,
 
 /* Forward declarations */
 
-struct fd_exec_epoch_ctx;
-typedef struct fd_exec_epoch_ctx fd_exec_epoch_ctx_t;
-
 struct fd_exec_slot_ctx;
 typedef struct fd_exec_slot_ctx fd_exec_slot_ctx_t;
 
@@ -97,6 +92,12 @@ typedef struct fd_acc_mgr fd_acc_mgr_t;
 
 struct fd_capture_ctx;
 typedef struct fd_capture_ctx fd_capture_ctx_t;
+
+struct fd_borrowed_account;
+typedef struct fd_borrowed_account fd_borrowed_account_t;
+
+struct fd_txn_account;
+typedef struct fd_txn_account fd_txn_account_t;
 
 /* fd_rawtxn_b_t is a convenience type to store a pointer to a
    serialized transaction.  Should probably be removed in the future. */
