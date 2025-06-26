@@ -4,7 +4,6 @@
 #include "../../disco/metrics/fd_metrics.h"
 #include "fd_snapshot_archive.h"
 #include "fd_snapshot_reader.h"
-#include "fd_snapshot_peers_manager.h"
 #include <fcntl.h>
 #include <stdlib.h>
 #include <unistd.h>
@@ -13,15 +12,14 @@
 #define NAME "SnapRd"
 #define SNAP_READ_MAX 8UL<<20
 
-#define INITIAL_PEERS_COUNT 3UL
-
-/* The snaprd tile at a high level is a state machine that downloads
-   snapshots or reads snapshots from disk. The snaprd tile gathers the
-   latest SnapshotHashes information from gossip to decide whether to
-   download snapshots or read local snapshots from disk. If the snaprd
-   tile needs to download a snapshot, it goes through the process of
-   discovering and selecting elegible peers from gossip to download from
-   */
+/* The SnapRd tile at a high level is a state machine that downloads
+   snapshots or reads snapshots from disk and produces a byte stream
+   that is parsed by downstream snapshot consumer tiles.  The snaprd
+   tile gathers the latest SnapshotHashes information from gossip to
+   decide whether to download snapshots or read local snapshots from
+   disk. If the snaprd tile needs to download a snapshot, it goes
+   through the process of discovering and selecting elegible peers from
+   gossip to download from. */
 
 /* An initial state that sets a duration threshold and immediately
    transitions to WAITING_FOR_PEERS. */
@@ -32,25 +30,25 @@
    time in a non-deterministic order, so there is not a clear indicator
    when we have all such messages.
 
-   We wait for a fixed duration to collect gossip peers before
+   SnapRd waits for a fixed duration to collect gossip peers before
    transitioning to peer selection.  If there are no peers after waiting
-   the fixed duration, we stay in the waiting state until we receive
-   peers or indefinitely.
+   the fixed duration, SnapRd stays in the waiting state until it
+   receives peers or indefinitely.
 
    If there are elegible peers and at least one known validator peer and
    there exists a local snapshot whose slot is recent enough compared to
-   the collected SnapshotHashes slot numbers, we transition to loading a
-   snapshot from disk.
+   the collected SnapshotHashes slot numbers, SnapRd transitions to
+   loading a snapshot from disk.
 
   If there are elegible peers and at least one known validator peer
-  and no local snapshot is recent enough, we transition to peer
-  selection. */
+  and no local snapshot is recent enough, SnapRd transitions to
+  PINGING_PEERS. */
 #define FD_SNAPRD_STATE_WAITING_FOR_PEERS                    ( 1)
 
-/* Once peers are collected, we select peers by pinging
+/* Once peers are collected, SnapRd select peers by pinging
    ones that are reporting as having a recent snapshot, to see if they
-   are online and what the latency is.  We ping all of them, and wait
-   for responses for up to a second.  */
+   are online and what the latency is.  SnapRd pings all of them  and
+   waits for responses for up to a second.  */
 #define FD_SNAPRD_STATE_PINGING_PEERS                        ( 2)
 
 /* Collect responses from pings. If we get no response, or the latency
@@ -65,15 +63,15 @@
    /* TODO: Check how long to wait ... borrow from that python file */
 #define FD_SNAPRD_STATE_COLLECTING_RESPONSES                 ( 3)
 
-/* If we have decided to load the full snapshot from a local file, we
+/* If SnapRd has decided to load the full snapshot from a local file, it
    can now begin reading it.  This choice is not reversible, and so any
    error encountered while reading the file will abort the boot process,
    rather than retrying from gossip.  Once the full snapshot is loaded,
-   we may optionally load an incremental snapshot, or due to
+   SnapRd may optionally load an incremental snapshot or due to
    configuration simply transition to the WAITING_FOR_LOAD stage. */
 #define FD_SNAPRD_STATE_READING_FULL_FILE                    ( 4)
 
-/* Optionally, after loading the full snapshot we can now load the
+/* Optionally, after loading the full snapshot SnapRd loads the
    incremental snapshot from a local file.  This is also not reversible,
    and any error encountered while reading the file will abort the boot
    process, rather than retrying from gossip.  Once the incremental
@@ -81,7 +79,7 @@
    state. */
 #define FD_SNAPRD_STATE_READING_INCREMENTAL_FILE             ( 5)
 
-/* Once we have decided to download from a peer, we can begin to
+/* Once SnapRd has decided to download from a peer, it can begin to
    download the full snapshot from them.  This choice is still
    reversible if the peer turns out to be downloading to slow, or goes
    offline, or serves something corrupt, or we hit some other transient
@@ -140,12 +138,16 @@
    transition to the DONE state and shutdown. */
 #define FD_SNAPRD_STATE_WAITING_FOR_INCREMENTAL_LOAD         (11)
 
-/* The terminal state of the tile, snapshot load is fully completed and
+/* The terminal state of the tile, snapshot load is completed and
    the tile has exited. */
 #define FD_SNAPRD_STATE_DONE                                 (12)
 
+/* A failure state to indicate fatal, non-recoverable errors */
+#define FD_SNAPRD_STATE_FAILED                               (13)
+
 /* TODO: these should be received from gossip */
 #define CLUSTER_SNAPSHOT_SLOT 326672166UL
+#define INITIAL_PEERS_COUNT 3UL
 
 fd_snapshot_peer_t initial_peers[ 16UL ] = {
   { .dest = {
@@ -167,7 +169,7 @@ fd_snapshot_peer_t initial_peers[ 16UL ] = {
      .host_domain_name = ""
   },
   { .dest = {
-    .addr = FD_IP4_ADDR( 145, 40, 95, 69 ),
+    .addr = FD_IP4_ADDR( 177, 54, 155, 187 ),
     .port = 8899
      },
      .has_authentication_token = 0,
@@ -177,6 +179,8 @@ fd_snapshot_peer_t initial_peers[ 16UL ] = {
   }
 };
 
+/* fd_snaprd_download_pair indicates whether
+   the full and incremental snapshots need to be downloaded or not. */
 struct fd_snaprd_download_pair {
   int full;
   int incremental;
@@ -185,22 +189,24 @@ struct fd_snaprd_download_pair {
 typedef struct fd_snaprd_download_pair fd_snaprd_download_pair_t;
 
 struct fd_snaprd_tile {
+  /* Snapshot bytestream producer */
   fd_stream_writer_t * writer;
 
+  fd_snaprd_download_pair_t               download_pair;
   fd_snapshot_archive_entry_t             full_snapshot_entry;
   fd_incremental_snapshot_archive_entry_t incremental_snapshot_entry;
 
-  fd_snapshot_reader_t * snapshot_reader;
-
+  fd_snapshot_reader_t *        snapshot_reader;
   fd_snapshot_peers_manager_t * peers_manager;
 
-  /* state machine */
+  /* State machine */
   int                       state;
   long                      wait_deadline_nanos;
   long                      wait_duration_nanos;
   int                       should_download;
-  fd_snaprd_download_pair_t download_pair;
 
+  /* TODO: is there a better way to store the pointer to
+     snapshot reader mem? */
   void *                 snapshot_reader_mem;
 
   struct {
@@ -226,7 +232,6 @@ struct fd_snaprd_tile {
       uint  num_retries;
     } incremental;
 
-    ulong status;
   } metrics;
 };
 
@@ -235,16 +240,19 @@ typedef struct fd_snaprd_tile fd_snaprd_tile_t;
 /* SnapRd tile Helper functions ***************************************/
 
 static void
-fd_snaprd_set_status( fd_snaprd_tile_t * ctx,
-                      ulong              status ) {
-  ctx->metrics.status = status;
+fd_snaprd_set_state( fd_snaprd_tile_t * ctx,
+                     int                state ) {
+  ctx->state = state;
   FD_COMPILER_MFENCE();
-  FD_MGAUGE_SET( SNAPRD, STATUS, status );
+  FD_MGAUGE_SET( SNAPRD, STATE, (ulong)state );
   FD_COMPILER_MFENCE();
 }
 
 __attribute__((noreturn)) FD_FN_UNUSED static void
 fd_snaprd_shutdown( fd_snaprd_tile_t * ctx ) {
+  fd_snaprd_set_state( ctx, FD_SNAPRD_STATE_DONE );
+
+  /* Notify downstream consumers of end of snapshot byte stream */
   fd_stream_writer_notify( ctx->writer,
     fd_frag_meta_ctl( 0UL, 0, 1, 0 ) );
   fd_snapshot_reader_delete( ctx->snapshot_reader );
@@ -259,92 +267,24 @@ fd_snaprd_shutdown( fd_snaprd_tile_t * ctx ) {
 }
 
 static void
-fd_snaprd_on_file_complete( fd_snaprd_tile_t * ctx ) {
-  if( ctx->metrics.status == STATUS_FULL &&
-      ctx->config.incremental_snapshot_fetch ) {
-    fd_snapshot_reader_set_source_incremental( ctx->snapshot_reader );
-
-    /* Determine next state from incremental source */
-    int source_type = fd_snapshot_reader_get_source_type( ctx->snapshot_reader );
-    if( source_type == SRC_FILE ) {
-      ctx->state = FD_SNAPRD_STATE_READING_INCREMENTAL_FILE;
-    } else {
-      ctx->state = FD_SNAPRD_STATE_INCREMENTAL_DOWNLOAD;
-    }
-
-    FD_LOG_INFO(("snaprd: done reading full snapshot, now reading incremental snapshot" ));
-    fd_snaprd_set_status( ctx, STATUS_INC );
-    fd_stream_writer_notify( ctx->writer, 
-                             fd_frag_meta_ctl( 1UL, 0, 1, 0 ) );
-    fd_stream_writer_reset_stream( ctx->writer );
-
-  } else if( ctx->metrics.status == STATUS_INC ||
-             !ctx->config.incremental_snapshot_fetch ) {
-
-    if( ctx->config.incremental_snapshot_fetch ) {
-      FD_LOG_INFO(( "snaprd: done reading incremental snapshot with size %lu",
-                    ctx->metrics.incremental.bytes_total ));
-    } else {
-      FD_LOG_INFO(( "snaprd: done reading full snapshot with size %lu",
-                         ctx->metrics.full.bytes_total ));
-    }
-
-    ctx->state = FD_SNAPRD_STATE_DONE;
-    fd_snaprd_set_status( ctx, STATUS_DONE );
-  } else {
-    FD_LOG_ERR(("snaprd: unexpected status"));
-  }
-}
-
-static void
-fd_snaprd_on_retry( fd_snaprd_tile_t * ctx ) {
-  uint * num_retries = NULL;
-
-  /* Determine which num_retries metric to use from
-     the state */
-  if( ctx->state == FD_SNAPRD_STATE_FULL_DOWNLOAD ) {
-    num_retries = &ctx->metrics.full.num_retries;
-  } else if( ctx->state == FD_SNAPRD_STATE_INCREMENTAL_DOWNLOAD ) {
-    num_retries = &ctx->metrics.incremental.num_retries;
-  } else {
-    FD_LOG_ERR(( "snaprd: unexpected state %d for retry", ctx->state ));
-    return;
-  }
-
-  (*num_retries)++;
-
-  /* Notify downstream consumers of retry */
-  fd_stream_writer_notify( ctx->writer,
-                           fd_frag_meta_ctl( 0UL, 0, 0, 1 ) );
-  fd_stream_writer_reset_stream( ctx->writer );
-
-  if( FD_UNLIKELY( *num_retries > ctx->config.maximum_download_retry_abort ) ) {
-    /* TODO: should we shutdown or just error out here? */
-    fd_snaprd_set_status( ctx, STATUS_FAILED );
-    FD_LOG_ERR(( "Hit the maximum number of download retries, aborting." ));
-  }
-
-  if( ctx->state == FD_SNAPRD_STATE_INCREMENTAL_DOWNLOAD &&
-      *num_retries == 1 ) {
-    /* Upon retrying the incremental download for the first time,
-       we execute the peer selection process in case some peers have
-       gone offline or changed during the time we downloaded or read
-       the full snapshot. */
-    ctx->state = FD_SNAPRD_STATE_PINGING_PEERS_INCREMENTAL;
-  }
-}
-
-static void
 fd_snaprd_accumulate_metrics( fd_snaprd_tile_t *             ctx,
                               fd_snapshot_reader_metrics_t * metrics ) {
-  if( ctx->metrics.status == STATUS_FULL ) {
-    ctx->metrics.full.bytes_read += metrics->bytes_read;
-    ctx->metrics.full.bytes_total = metrics->bytes_total;
-  } else if( ctx->metrics.status == STATUS_INC ) {
-    ctx->metrics.incremental.bytes_read += metrics->bytes_read;
-    ctx->metrics.incremental.bytes_total = metrics->bytes_total;
-  } else {
-    FD_LOG_ERR(("snaprd: unexpected status"));
+  switch ( ctx->state ) {
+    case FD_SNAPRD_STATE_FULL_DOWNLOAD:
+    case FD_SNAPRD_STATE_READING_FULL_FILE: {
+      ctx->metrics.full.bytes_read += metrics->bytes_read;
+      ctx->metrics.full.bytes_total = metrics->bytes_total;
+      break;
+    }
+    case FD_SNAPRD_STATE_INCREMENTAL_DOWNLOAD:
+    case FD_SNAPRD_STATE_READING_INCREMENTAL_FILE: {
+      ctx->metrics.incremental.bytes_read += metrics->bytes_read;
+      ctx->metrics.incremental.bytes_total = metrics->bytes_total;
+      break;
+    }
+    default: {
+      FD_LOG_ERR(("snaprd: unexpected status"));
+    }
   }
 }
 
@@ -427,22 +367,125 @@ fd_snaprd_init_reader( fd_snaprd_tile_t * ctx ) {
                                                  ctx->download_pair.full,
                                                  ctx->download_pair.incremental,
                                                  ctx->config.path,
-                                                 ctx->peers_manager->peers,
-                                                 ctx->peers_manager->peers_cnt,
+                                                 ctx->peers_manager,
                                                  &ctx->full_snapshot_entry,
                                                  &ctx->incremental_snapshot_entry,
                                                  ctx->config.incremental_snapshot_fetch,
                                                  ctx->config.minimum_download_speed_mib );
 
   if( ctx->download_pair.full ) {
-    ctx->state = FD_SNAPRD_STATE_PINGING_PEERS;
+    fd_snaprd_set_state( ctx, FD_SNAPRD_STATE_PINGING_PEERS );
   } else {
-    ctx->state = FD_SNAPRD_STATE_READING_FULL_FILE;
-    fd_snaprd_set_status( ctx, STATUS_FULL );
+    fd_snaprd_set_state( ctx, FD_SNAPRD_STATE_READING_FULL_FILE );
   }
 }
 
 /* SnapRd State Machine Functions *************************************/
+
+static void
+fd_snaprd_on_file_complete( fd_snaprd_tile_t * ctx ) {
+  switch( ctx->state ) {
+    case FD_SNAPRD_STATE_FULL_DOWNLOAD:
+    case FD_SNAPRD_STATE_READING_FULL_FILE: {
+      if( ctx->config.incremental_snapshot_fetch ) {
+        /* SnapRd is configured to load the incremental snapshot. */
+
+        FD_LOG_INFO(("snaprd: done reading full snapshot, "
+                     "now reading incremental snapshot" ));
+
+         /* Prepare snapshot reader to read from incremental snapshot
+            source. */
+        fd_snapshot_reader_set_source_incremental( ctx->snapshot_reader );
+        /* Determine next state from incremental source */
+        int source_type = fd_snapshot_reader_get_source_type( ctx->snapshot_reader );
+        if( source_type == SRC_FILE ) {
+          fd_snaprd_set_state( ctx,
+                               FD_SNAPRD_STATE_READING_INCREMENTAL_FILE );
+        } else {
+          fd_snaprd_set_state( ctx,
+                               FD_SNAPRD_STATE_INCREMENTAL_DOWNLOAD );
+        }
+
+        /* Notify downstream consumers of incoming incremental snapshot
+           byte stream. */
+        fd_stream_writer_notify( ctx->writer, 
+                                 fd_frag_meta_ctl( 1UL, 0, 1, 0 ) );
+        /* reset snapshot byte stream */
+        fd_stream_writer_reset_stream( ctx->writer );
+      } else {
+        FD_LOG_INFO(( "snaprd: done reading full snapshot with size %lu",
+                      ctx->metrics.full.bytes_total ));
+        fd_snaprd_shutdown( ctx );
+      }
+      break;
+    }
+    case FD_SNAPRD_STATE_INCREMENTAL_DOWNLOAD:
+    case FD_SNAPRD_STATE_READING_INCREMENTAL_FILE: {
+      FD_LOG_INFO(( "snaprd: done reading incremental snapshot with size %lu",
+                    ctx->metrics.incremental.bytes_total ));
+      fd_snaprd_shutdown( ctx );
+      break;
+    }
+    default: {
+      FD_LOG_ERR(( "snaprd: unexpected state %d for file complete",
+                   ctx->state ));
+    }
+  }
+}
+
+static void
+fd_snaprd_on_retry( fd_snaprd_tile_t * ctx ) {
+  uint * num_retries = NULL;
+
+  /* Determine which num_retries metric to use from
+     the state */
+  if( ctx->state == FD_SNAPRD_STATE_FULL_DOWNLOAD ) {
+    num_retries = &ctx->metrics.full.num_retries;
+  } else if( ctx->state == FD_SNAPRD_STATE_INCREMENTAL_DOWNLOAD ) {
+    num_retries = &ctx->metrics.incremental.num_retries;
+  } else {
+    FD_LOG_ERR(( "snaprd: unexpected state %d for retry", ctx->state ));
+    return;
+  }
+
+  (*num_retries)++;
+
+  /* Notify downstream consumers of retry (soft reset) */
+  fd_stream_writer_notify( ctx->writer,
+                           fd_frag_meta_ctl( 0UL, 0, 0, 1 ) );
+  fd_stream_writer_reset_stream( ctx->writer );
+
+  if( FD_UNLIKELY( *num_retries > ctx->config.maximum_download_retry_abort ) ) {
+    /* TODO: should we shutdown or just error out here? */
+    fd_snaprd_set_state( ctx, FD_SNAPRD_STATE_FAILED );
+    FD_LOG_ERR(( "Hit the maximum number of download retries, aborting." ));
+  }
+
+  if( ctx->state == FD_SNAPRD_STATE_INCREMENTAL_DOWNLOAD &&
+      *num_retries == 1 ) {
+    /* Upon retrying the incremental download for the first time,
+       we execute the peer selection process in case some peers have
+       gone offline or changed during the time we downloaded or read
+       the full snapshot. */
+    fd_snaprd_set_state( ctx,
+                         FD_SNAPRD_STATE_PINGING_PEERS_INCREMENTAL );
+  }
+}
+
+static void
+fd_snaprd_on_reset( fd_snaprd_tile_t * ctx ) {
+  /* A fatal, recoverable snapshot loading error has occurred.
+     Reset the snaprd tile to re-load both the full and incremental snapshots. */
+  
+  /* Notify downstream consumers of hard reset with start of message
+     bit. TODO: better way to notify? */
+  fd_stream_writer_notify( ctx->writer,
+                           fd_frag_meta_ctl( 0UL, 1, 0, 0 ) );
+  fd_stream_writer_reset_stream( ctx->writer );
+
+  /* TODO: should we go back to waiting for peers or pinging peers? */
+  fd_snaprd_set_state( ctx, FD_SNAPRD_STATE_WAITING_FOR_PEERS );
+}
 
 static void
 fd_snaprd_read_snapshot( fd_snaprd_tile_t * ctx ) {
@@ -460,6 +503,8 @@ fd_snaprd_read_snapshot( fd_snaprd_tile_t * ctx ) {
     fd_snaprd_on_file_complete( ctx );
   } else if( metrics.status == FD_SNAPSHOT_READER_RETRY ) {
     fd_snaprd_on_retry( ctx );
+  } else if( metrics.status == FD_SNAPSHOT_READER_RESET ) {
+    fd_snaprd_on_reset( ctx );
   } else if( metrics.status == FD_SNAPSHOT_READER_FAIL ) {
     /* aborts app */
     FD_LOG_ERR(( "Failed to read snapshot: %d", metrics.err ));
@@ -473,13 +518,10 @@ fd_snaprd_shared_state_transition( fd_snaprd_tile_t * ctx ) {
       return FD_SNAPRD_STATE_COLLECTING_RESPONSES;
     case FD_SNAPRD_STATE_PINGING_PEERS_INCREMENTAL:
       return FD_SNAPRD_STATE_COLLECTING_RESPONSES_INCREMENTAL;
-    case FD_SNAPRD_STATE_COLLECTING_RESPONSES: {
-      fd_snaprd_set_status( ctx, STATUS_FULL );
+    case FD_SNAPRD_STATE_COLLECTING_RESPONSES:
       return FD_SNAPRD_STATE_FULL_DOWNLOAD;
-    }
-    case FD_SNAPRD_STATE_COLLECTING_RESPONSES_INCREMENTAL: {
+    case FD_SNAPRD_STATE_COLLECTING_RESPONSES_INCREMENTAL:
       return FD_SNAPRD_STATE_INCREMENTAL_DOWNLOAD;
-    }
     default: {
       FD_LOG_ERR(( "snaprd: unexpected state %d for shared state transition", ctx->state ));
       return -1; /* error */
@@ -517,6 +559,9 @@ after_credit( void *            _ctx,
 
   // TODO: ... maybe query RPC for the nodes instead?
 
+  /* Background tasks that always get run */
+  fd_snapshot_peers_manager_update_peer_state( ctx->peers_manager );
+
   switch ( ctx->state ) {
     case FD_SNAPRD_STATE_INIT: {
       /* Wait a fixed duration for gossip peers to arrive */
@@ -528,12 +573,12 @@ after_credit( void *            _ctx,
     case FD_SNAPRD_STATE_WAITING_FOR_PEERS: {
       long now = fd_log_wallclock();
       if( now > ctx->wait_deadline_nanos ) {
-        /* If we have any peers and SnapshotHashes, we can decide whether to
-           download snapshots or read from local snapshots */
+        /* If we have any peers and SnapshotHashes, we can decide
+           whether to download snapshots or read from local snapshots */
 
         /* Because we are not receiving from gossip right now, just
            set peers to be initial peers */
-        fd_snapshot_peers_managers_set_peers_testing( ctx->peers_manager,
+        fd_snapshot_peers_manager_set_peers_testing( ctx->peers_manager,
                                                       initial_peers,
                                                       INITIAL_PEERS_COUNT );
         if( ctx->peers_manager->peers_cnt > 0 ) {
@@ -546,7 +591,8 @@ after_credit( void *            _ctx,
     case FD_SNAPRD_STATE_PINGING_PEERS_INCREMENTAL: {
       int complete = fd_snapshot_peers_manager_send_pings( ctx->peers_manager );
       if( complete ) {
-        ctx->state = fd_snaprd_shared_state_transition( ctx );
+        fd_snaprd_set_state( ctx,
+                             fd_snaprd_shared_state_transition( ctx ) );
       }
       break;
     }
@@ -554,9 +600,12 @@ after_credit( void *            _ctx,
     case FD_SNAPRD_STATE_COLLECTING_RESPONSES_INCREMENTAL: {
       int complete = fd_snapshot_peers_maanger_collect_responses( ctx->peers_manager );
       if( complete ) {
-        ulong valid_peers_cnt = fd_snapshot_peers_manager_sort_peers( ctx->peers_manager );
-        fd_snapshot_reader_set_peers_cnt( ctx->snapshot_reader, valid_peers_cnt );
-        ctx->state = fd_snaprd_shared_state_transition( ctx );
+        fd_snapshot_peers_manager_sort_peers( ctx->peers_manager );
+
+        fd_snapshot_peers_manager_reset_pings( ctx->peers_manager );
+
+        fd_snaprd_set_state( ctx,
+                             fd_snaprd_shared_state_transition( ctx ) );
       }
       break;
     }
@@ -565,10 +614,6 @@ after_credit( void *            _ctx,
     case FD_SNAPRD_STATE_FULL_DOWNLOAD:
     case FD_SNAPRD_STATE_INCREMENTAL_DOWNLOAD:{
       fd_snaprd_read_snapshot( ctx );
-      break;
-    }
-    case FD_SNAPRD_STATE_DONE: {
-      fd_snaprd_shutdown( ctx );
       break;
     }
     default: {
@@ -638,7 +683,7 @@ unprivileged_init( fd_topo_t *      topo,
   /* TODO: this might come from config later */
   ctx->wait_duration_nanos = 3UL * 1000000000UL; /* 3 seconds */
   ctx->state               = FD_SNAPRD_STATE_INIT;
-  fd_snaprd_set_status( ctx, STATUS_WAITING );
+  fd_snaprd_set_state( ctx, FD_SNAPRD_STATE_WAITING_FOR_PEERS );
 }
 
 __attribute__((noinline)) static void

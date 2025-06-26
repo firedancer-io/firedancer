@@ -1,5 +1,4 @@
 #include "../../flamenco/types/fd_types.h"
-#include "../../flamenco/runtime/context/fd_exec_slot_ctx.h"
 
 #define SNAP_STATE_IGNORE       ((uchar)0)  /* ignore file content */
 #define SNAP_STATE_TAR          ((uchar)1)  /* reading tar header (buffered) */

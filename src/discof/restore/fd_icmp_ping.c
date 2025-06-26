@@ -6,11 +6,11 @@
  #include <sys/socket.h>
 
 int
-fd_icmp_send_ping( int *                 sockfd,
+fd_icmp_send_ping( int                   sockfd,
                    fd_ip4_port_t const * dest,
                    ushort                sequence,
                    long *                ping_send_time_nanos ) {
-  if( *sockfd<0 ) {
+  if( sockfd<0 ) {
     FD_LOG_WARNING(( "Socket does not exist!" ));
     return -1;
   }
@@ -20,7 +20,7 @@ fd_icmp_send_ping( int *                 sockfd,
   socklen_t addr_len = sizeof(struct sockaddr_in);
 
   /* check if socket already connected */
-  if( FD_UNLIKELY( getpeername( *sockfd, &addr , &addr_len )!=0 ) ) {
+  if( FD_UNLIKELY( getpeername( sockfd, &addr , &addr_len )!=0 ) ) {
     struct sockaddr_in connect_addr;
     fd_memset( &connect_addr, 0, sizeof(connect_addr) );
     /* set up dest address */
@@ -28,10 +28,10 @@ fd_icmp_send_ping( int *                 sockfd,
     connect_addr.sin_addr.s_addr = dest->addr;
 
     /* connect socket to dest address */
-    int connect_res = connect( *sockfd, fd_type_pun_const( &connect_addr ), sizeof(struct sockaddr_in) );
+    int connect_res = connect( sockfd, fd_type_pun_const( &connect_addr ), sizeof(struct sockaddr_in) );
     if( FD_UNLIKELY( connect_res<0 ) ) {
       FD_LOG_WARNING(( "connect(%d,"FD_IP4_ADDR_FMT":%u) failed (%i-%s)",
-                      *sockfd, FD_IP4_ADDR_FMT_ARGS(dest->addr), dest->port,
+                      sockfd, FD_IP4_ADDR_FMT_ARGS(dest->addr), dest->port,
                       errno, fd_io_strerror( errno ) ));
       return -1;
     }
@@ -48,13 +48,13 @@ fd_icmp_send_ping( int *                 sockfd,
 
   /* keep trying to send as long as the socket is blocked */
   for (;;) {
-    long res = send( *sockfd, &icmp_hdr, sizeof(icmp_hdr), 0 );
+    long res = send( sockfd, &icmp_hdr, sizeof(icmp_hdr), 0 );
     if( FD_UNLIKELY( res<0 ) ) {
       if( errno == EWOULDBLOCK ) {
         continue;
       }
       FD_LOG_WARNING(( "sendto(%d) failed (%i-%s)",
-                       *sockfd, errno, fd_io_strerror( errno ) ));
+                       sockfd, errno, fd_io_strerror( errno ) ));
       return -1;
     }
 
@@ -67,13 +67,13 @@ fd_icmp_send_ping( int *                 sockfd,
 }
 
 int
-fd_icmp_recv_ping_resp( int *                 sockfd,
+fd_icmp_recv_ping_resp( int                   sockfd,
                         fd_ip4_port_t const * dest,
                         ushort                sequence,
                         long *                ping_recv_time_nanos ) {
   (void)dest;
-  if( FD_UNLIKELY( *sockfd<0 ) ) {
-    FD_LOG_WARNING(( "Socket %d is not open!", *sockfd ));
+  if( FD_UNLIKELY( sockfd<0 ) ) {
+    FD_LOG_WARNING(( "Socket %d is not open!", sockfd ));
     return -1;
   }
 
@@ -82,14 +82,14 @@ fd_icmp_recv_ping_resp( int *                 sockfd,
 
   ulong received_bytes = 0UL;
   for(;;) {
-    long res = recv( *sockfd, &icmp_hdr, sizeof(icmp_hdr), 0 );
+    long res = recv( sockfd, &icmp_hdr, sizeof(icmp_hdr), 0 );
     if( FD_UNLIKELY( res<0 ) ) {
       if( errno == EWOULDBLOCK || errno == EAGAIN ) {
         return (int)res;
       }
 
       FD_LOG_ERR(( "recvfrom(%d) failed (%i-%s)",
-                      *sockfd, errno, fd_io_strerror( errno ) ));
+                      sockfd, errno, fd_io_strerror( errno ) ));
     }
 
     received_bytes += (ulong)res;

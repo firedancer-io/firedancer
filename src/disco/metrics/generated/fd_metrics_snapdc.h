@@ -3,11 +3,11 @@
 #include "../fd_metrics_base.h"
 #include "fd_metrics_enums.h"
 
-#define FD_METRICS_GAUGE_SNAPDC_STATUS_OFF  (16UL)
-#define FD_METRICS_GAUGE_SNAPDC_STATUS_NAME "snapdc_status"
-#define FD_METRICS_GAUGE_SNAPDC_STATUS_TYPE (FD_METRICS_TYPE_GAUGE)
-#define FD_METRICS_GAUGE_SNAPDC_STATUS_DESC "Status of the tile. 0 = waiting for compressed snapshot bytestream, 1 = decompressing full snapshot, 2 = decompressing incremental snapshot, 3 = complete"
-#define FD_METRICS_GAUGE_SNAPDC_STATUS_CVT  (FD_METRICS_CONVERTER_NONE)
+#define FD_METRICS_GAUGE_SNAPDC_STATE_OFF  (16UL)
+#define FD_METRICS_GAUGE_SNAPDC_STATE_NAME "snapdc_state"
+#define FD_METRICS_GAUGE_SNAPDC_STATE_TYPE (FD_METRICS_TYPE_GAUGE)
+#define FD_METRICS_GAUGE_SNAPDC_STATE_DESC "State of the tile. 0 = waiting for compressed byte stream, 1 = decompressing full snapshot, 2 = decompressing incremental snapshot, 3 = Done"
+#define FD_METRICS_GAUGE_SNAPDC_STATE_CVT  (FD_METRICS_CONVERTER_NONE)
 
 #define FD_METRICS_GAUGE_SNAPDC_FULL_COMPRESSED_BYTES_READ_OFF  (17UL)
 #define FD_METRICS_GAUGE_SNAPDC_FULL_COMPRESSED_BYTES_READ_NAME "snapdc_full_compressed_bytes_read"

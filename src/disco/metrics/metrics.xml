@@ -763,7 +763,7 @@ metric introduced.
 </tile>
 
 <tile name="snaprd">
-    <gauge name="Status" summary="Status of the tile. 0 = waiting for gossip peers, 1 = reading full snapshot, 2 = reading incremental snapshot, 3 = complete" />
+    <gauge name="State" summary="State of the tile. See fd_snaprd_tile.c for a detailed explanation of each state." />
     <counter name="FullNumRetries" summary="Number of times we aborted and retried full snapshot download because the peer was too slow" />
     <counter name="IncrementalNumRetries" summary="Number of times we aborted and retried incremental snapshot download because the peer was too slow" />
     <gauge name="FullBytesRead" summary="Number of bytes read so far from the full snapshot. Might decrease if snapshot load is aborted and restarted" />
@@ -775,7 +775,7 @@ metric introduced.
 </tile>
 
 <tile name="snapdc">
-    <gauge name="Status" summary="Status of the tile. 0 = waiting for compressed snapshot bytestream, 1 = decompressing full snapshot, 2 = decompressing incremental snapshot, 3 = complete" />
+    <gauge name="State" summary="State of the tile. 0 = waiting for compressed byte stream, 1 = decompressing full snapshot, 2 = decompressing incremental snapshot, 3 = Done" />
     <gauge name="FullCompressedBytesRead" summary="Number of bytes read so far from the compressed full snapshot file. Might decrease if snapshot load is aborted and restarted" />
     <gauge name="FullDecompressedBytesRead" summary="Number of bytes read so far from the decompressed file. Might decrease if snapshot load is aborted and restarted" />
     <gauge name="FullDecompressedBytesTotal" summary="Total size of the decompressed full snapshot file. Might change if snapshot load is aborted and restarted" />
@@ -785,7 +785,7 @@ metric introduced.
 </tile>
 
 <tile name="snapin">
-    <gauge name="Status" summary="Status of the tile. 0 = waiting for decompressed snapshot bytestream, 1 = processing full snapshot, 2 = processing incremental snapshot, 3 = complete" />
+    <gauge name="State" summary="State of the tile. 0 = waiting for decompressed snapshot bytestream, 1 = processing full snapshot, 2 = processing incremental snapshot, 3 = Done" />
     <gauge name="FullAccountsFilesProcessed" summary="Number of accounts files (appendvecs) processed in the full snapshot. Might decrease if snapshot load is aborted and restarted" />
     <gauge name="FullAccountsFilesTotal" summary="Total number of accounts files in the full snapshot. Might change if snapshot load is aborted and restarted" />
     <gauge name="IncrementalAccountsFilesProcessed" summary="Number of accounts files (appendvecs) processed in the incremental snapshot. Might decrease if snapshot load is aborted and restarted" />

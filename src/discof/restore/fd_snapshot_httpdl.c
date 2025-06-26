@@ -4,6 +4,7 @@
 #include "../../flamenco/snapshot/fd_snapshot_base.h"
 #include "fd_snapshot_archive.h"
 #include "fd_snapshot_istream.h"
+#include "fd_snapshot_peers_manager.h"
 #include <assert.h>
 #include <errno.h>
 #include <stdint.h>
@@ -33,9 +34,9 @@ fd_snapshot_httpdl_render_headers( fd_snapshot_httpdl_t * self ) {
 
   p = fd_cstr_append_text( p, hdr_part1, sizeof(hdr_part1)-1 );
 
-  if( self->peers[ self->current_peer_idx ].requires_host_domain ) {
-    p = fd_cstr_append_text( p, self->peers[ self->current_peer_idx ].host_domain_name,
-                             strlen( self->peers[ self->current_peer_idx ].host_domain_name ) );
+  if( self->current_peer->requires_host_domain ) {
+    p = fd_cstr_append_text( p, self->current_peer->host_domain_name,
+                             strlen( self->current_peer->host_domain_name ) );
   } else {
     /* TODO: Hack to get ip dst str, revisit pls */
     char ip_dst_str[ 20UL ];
@@ -45,12 +46,12 @@ fd_snapshot_httpdl_render_headers( fd_snapshot_httpdl_t * self ) {
     p = fd_cstr_append_text( p, ip_dst_str, strlen(ip_dst_str) );
   }
 
-  if( self->peers[ self->current_peer_idx ].has_authentication_token ) {
+  if( self->current_peer->has_authentication_token ) {
     char authentication[ PATH_MAX ] = "\r\nX-token: ";
     ulong authentication_len = strlen( authentication );
-    ulong authentication_token_len = strlen( self->peers[ self->current_peer_idx ].authentication_token );
+    ulong authentication_token_len = strlen( self->current_peer->authentication_token );
     fd_memcpy(  authentication + authentication_len,
-                self->peers[ self->current_peer_idx ].authentication_token,
+                self->current_peer->authentication_token,
                 authentication_token_len );
       
     p = fd_cstr_append_text( p, authentication, authentication_len + authentication_token_len );
@@ -111,17 +112,76 @@ fd_snapshot_httpdl_cleanup_fds( fd_snapshot_httpdl_t * self ) {
   }
 }
 
-static int
-fd_snapshot_httpdl_init_connection( fd_snapshot_httpdl_t * self ) {
+static void
+fd_snapshot_httpdl_reset( fd_snapshot_httpdl_t * self ) {
+  self->state         = FD_SNAPSHOT_HTTPDL_STATE_INIT;
+  self->hops          = FD_SNAPSHOT_HTTPDL_DEFAULT_HOPS;
+  self->req_deadline  = 0L;
 
-  if( self->peers_cnt == 0 ) {
+  self->req_tail      = 0UL;
+  self->req_head      = 0UL;
+  self->resp_tail     = 0UL;
+  self->resp_head     = 0UL;
+  self->dl_total      = 0UL;
+  self->last_dl_total = 0UL;
+  self->last_nanos    = 0UL;
+  self->write_total   = 0UL;
+  self->content_len   = 0UL;
+
+  fd_memset( self->req_buf, 0, sizeof(self->req_buf) );
+  fd_memset( self->resp_buf, 0, sizeof(self->resp_buf) );
+
+  fd_snapshot_httpdl_cleanup_fds( self );
+}
+
+static int
+fd_snapshot_httpdl_render_request( fd_snapshot_httpdl_t * self ) {
+  fd_snapshot_httpdl_reset( self );
+
+  if( self->snapshot_type == FD_SNAPSHOT_TYPE_FULL ) {
+    fd_snapshot_httpdl_set_path( self, default_full_path, sizeof(default_full_path)-1UL );
+  } else if( self->snapshot_type == FD_SNAPSHOT_TYPE_INCREMENTAL ) {
+    fd_snapshot_httpdl_set_path( self, default_incremental_path, sizeof(default_incremental_path)-1UL );
+  } else {
+    FD_LOG_WARNING(( "Unknown snapshot type %d", self->snapshot_type ));
+    self->state = FD_SNAPSHOT_HTTPDL_STATE_FAIL;
+    return EINVAL;
+  }
+
+  fd_snapshot_httpdl_render_headers( self );
+
+  return 0;
+}
+
+static int
+fd_snapshot_httpdl_init_peer( fd_snapshot_httpdl_t * self ) {
+  self->current_peer = fd_snapshot_peers_manager_get_next_peer( self->peers_manager );
+
+  if( !self->current_peer ) {
     FD_LOG_WARNING(( "No peers to connect to." ));
     self->state = FD_SNAPSHOT_HTTPDL_STATE_FAIL;
     return EINVAL;
   }
 
-  self->ipv4 = self->peers[ self->current_peer_idx ].dest.addr;
-  self->port = self->peers[ self->current_peer_idx ].dest.port;
+  self->ipv4 = self->current_peer->dest.addr;
+  self->port = self->current_peer->dest.port;
+
+  FD_LOG_NOTICE(( "Selected peer " FD_IP4_ADDR_FMT ":%u ...",
+    FD_IP4_ADDR_FMT_ARGS( self->ipv4 ), self->port ));
+
+  return fd_snapshot_httpdl_render_request( self );
+}
+
+static int
+fd_snapshot_httpdl_init_connection( fd_snapshot_httpdl_t * self ) {
+
+  if( !self->current_peer ) {
+    int res = fd_snapshot_httpdl_init_peer( self );
+    if( FD_UNLIKELY( res ) ) {
+      return res;
+    }
+  }
+
   FD_LOG_NOTICE(( "Connecting to " FD_IP4_ADDR_FMT ":%u ...",
     FD_IP4_ADDR_FMT_ARGS( self->ipv4 ), self->port ));
 
@@ -321,8 +381,9 @@ fd_snapshot_httpdl_init_incremental_snapshot_file( fd_snapshot_httpdl_t * self,
 
   if( self->incremental_snapshot_entry->base_slot != self->base_slot ) {
     FD_LOG_WARNING(( "Incremental snapshot does not build off previously loaded full snapshot."
-                     "This likely indicates that the full snapsnot is stale and that the incremental snapshot is based on a newer slot." ));
-    self->state = FD_SNAPSHOT_HTTPDL_STATE_FAIL;
+                     "This likely indicates that the full snapsnot is stale and that the incremental snapshot is based on a newer slot."
+                     "Re-loading full snapshot." ));
+    self->metrics.status = FD_SNAPSHOT_READER_RESET;
     return EINVAL;
   }
 
@@ -578,59 +639,29 @@ fd_snapshot_httldl_write_snapshot_file( fd_snapshot_httpdl_t * self,
   return 0;
 }
 
-static void
-fd_snapshot_httpdl_reset( fd_snapshot_httpdl_t * self ) {
-  self->state         = FD_SNAPSHOT_HTTPDL_STATE_INIT;
-  self->hops          = FD_SNAPSHOT_HTTPDL_DEFAULT_HOPS;
-  self->req_deadline  = 0L;
-
-  self->req_tail      = 0UL;
-  self->req_head      = 0UL;
-  self->resp_tail     = 0UL;
-  self->resp_head     = 0UL;
-  self->dl_total      = 0UL;
-  self->last_dl_total = 0UL;
-  self->last_nanos    = 0UL;
-  self->write_total   = 0UL;
-  self->content_len   = 0UL;
-
-  fd_memset( self->req_buf, 0, sizeof(self->req_buf) );
-  fd_memset( self->resp_buf, 0, sizeof(self->resp_buf) );
-
-  fd_snapshot_httpdl_cleanup_fds( self );
-}
-
 static int
 fd_snapshot_httpdl_retry( fd_snapshot_httpdl_t * self ) {
-  self->current_peer_idx++;
+  /* mark current peer invalid because download speed was too slow */
+  fd_snapshot_peers_manager_set_current_peer_invalid( self->peers_manager );
 
-  if( self->current_peer_idx == self->peers_cnt ) {
+  self->current_peer = fd_snapshot_peers_manager_get_next_peer( self->peers_manager );
+
+  if( !self->current_peer ) {
     FD_LOG_WARNING(( "Exhausted all peers to download from. Failing." ));
     self->state = FD_SNAPSHOT_HTTPDL_STATE_FAIL;
     fd_snapshot_httpdl_cleanup_fds( self );
     return -1;
   }
 
-  self->ipv4 = self->peers[ self->current_peer_idx ].dest.addr;
-  self->port = self->peers[self->current_peer_idx ].dest.port;
+  self->ipv4 = self->current_peer->dest.addr;
+  self->port = self->current_peer->dest.port;
 
-  FD_LOG_NOTICE(( "Retrying download of %s from "FD_IP4_ADDR_FMT" and port: %u",
+  FD_LOG_NOTICE(( "Retrying download of %s from peer "FD_IP4_ADDR_FMT": %u",
                   self->snapshot_filename,
                   FD_IP4_ADDR_FMT_ARGS( self->ipv4 ),
                   self->port ));
-  fd_snapshot_httpdl_reset( self );
 
-  if( self->snapshot_type == FD_SNAPSHOT_TYPE_FULL ) {
-    fd_snapshot_httpdl_set_source_full( self );
-  } else if( self->snapshot_type == FD_SNAPSHOT_TYPE_INCREMENTAL ) {
-    fd_snapshot_httpdl_set_source_incremental( self );
-  } else {
-    FD_LOG_WARNING(( "Unknown snapshot type %d", self->snapshot_type ));
-    self->state = FD_SNAPSHOT_HTTPDL_STATE_FAIL;
-    return -1;
-  }
-
-  return 0;
+  return fd_snapshot_httpdl_render_request( self );
 }
 
 static int
@@ -639,7 +670,7 @@ fd_snapshot_httpdl_dl( fd_snapshot_httpdl_t * self,
                        ulong                dst_max,
                        ulong *              sz ) {
   if( self->content_len == self->dl_total ) {
-    FD_LOG_NOTICE(( "download already complete at %lu MB", self->dl_total>>20 ));
+    FD_LOG_NOTICE(( "Download already complete at %lu MB", self->dl_total>>20 ));
     return -1;
   }
 
@@ -662,7 +693,7 @@ fd_snapshot_httpdl_dl( fd_snapshot_httpdl_t * self,
       }
     }
     if( !recv_sz ) { /* Connection closed */
-      FD_LOG_WARNING(( "connection closed at %lu MB", self->dl_total>>20 ));
+      FD_LOG_WARNING(( "Connection closed at %lu MB", self->dl_total>>20 ));
       self->state = FD_SNAPSHOT_HTTPDL_STATE_FAIL;
       fd_snapshot_httpdl_cleanup_fds( self );
       return -1;
@@ -672,7 +703,7 @@ fd_snapshot_httpdl_dl( fd_snapshot_httpdl_t * self,
 
     /* check download speed and retry if needed */
     if( self->dl_total - self->last_dl_total >= FD_SNAPSHOT_HTTPDL_DL_PERIOD ) {
-      FD_LOG_NOTICE(( "downloaded %lu MB (%lu%%) ...",
+      FD_LOG_NOTICE(( "Downloaded %lu MB (%lu%%) ...",
                     self->dl_total>>20U, 100UL*self->dl_total/self->content_len ));
 
       if( self->last_nanos > 0 ) {
@@ -681,11 +712,11 @@ fd_snapshot_httpdl_dl( fd_snapshot_httpdl_t * self,
         ulong mibps       = (dl_delta*1000UL)/nanos_delta;
 
         if( mibps != self->mibps ) {
-          FD_LOG_NOTICE(( "estimate %lu MB/s", mibps ));
+          FD_LOG_NOTICE(( "Estimate %lu MB/s", mibps ));
         }
 
         if( FD_UNLIKELY( mibps < self->minimum_download_speed_mib ) ) {
-          FD_LOG_WARNING(( "download speed %lu MB/s is below minimum %lu MB/s",
+          FD_LOG_WARNING(( "Download speed %lu MB/s is below minimum %lu MB/s",
                           mibps, self->minimum_download_speed_mib ));
           self->metrics.status = FD_SNAPSHOT_READER_RETRY;
           return fd_snapshot_httpdl_retry( self );
@@ -697,7 +728,7 @@ fd_snapshot_httpdl_dl( fd_snapshot_httpdl_t * self,
     }
 
     if( self->content_len <= self->dl_total ) {
-      FD_LOG_NOTICE(( "download complete at %lu MB", self->dl_total>>20 ));
+      FD_LOG_NOTICE(( "Download complete at %lu MB", self->dl_total>>20 ));
       if( FD_UNLIKELY( self->content_len < self->dl_total ) ) {
         FD_LOG_WARNING(( "server transmitted more than Content-Length %lu bytes vs %lu bytes", self->content_len, self->dl_total ));
       }
@@ -726,7 +757,7 @@ fd_snapshot_httpdl_dl( fd_snapshot_httpdl_t * self,
 
   /* check if done downloading */
   if( self->content_len == self->write_total ) {
-    FD_LOG_NOTICE(( "wrote out all %lu MB", self->write_total>>20 ));
+    FD_LOG_NOTICE(( "Wrote out all %lu MB", self->write_total>>20 ));
 
     self->state = FD_SNAPSHOT_HTTPDL_STATE_DONE;
     fd_snapshot_httpdl_cleanup_fds( self );
@@ -781,8 +812,7 @@ fd_snapshot_httpdl_read( void *  _self,
 
 fd_snapshot_httpdl_t *
 fd_snapshot_httpdl_new( void *                                    mem,
-                        ulong                                     peers_cnt,
-                        fd_snapshot_peer_t const *                peers,
+                        fd_snapshot_peers_manager_t *             peers_manager,
                         char                                      snapshot_archive_path[ PATH_MAX],
                         fd_snapshot_archive_entry_t *             full_snapshot_entry,
                         fd_incremental_snapshot_archive_entry_t * incremental_snapshot_entry,
@@ -803,11 +833,7 @@ fd_snapshot_httpdl_new( void *                                    mem,
   fd_memset( self, 0, sizeof(fd_snapshot_httpdl_t) );
 
   /* Assign peers by reference from peers manager */
-  self->peers_cnt = peers_cnt;
-  self->peers     = peers;
-
-  /* set up first peer to contact */
-  self->current_peer_idx = 0UL;
+  self->peers_manager = peers_manager;
 
   /* set up http state */
   self->socket_fd = -1;
@@ -824,8 +850,9 @@ fd_snapshot_httpdl_new( void *                                    mem,
   self->minimum_download_speed_mib = minimum_download_speed_mib;
 
   if( should_download_full ) {
-    fd_snapshot_httpdl_set_source_full( self );
+    self->snapshot_type = FD_SNAPSHOT_TYPE_FULL;
   } else if( should_download_incremental) {
+    self->snapshot_type = FD_SNAPSHOT_TYPE_INCREMENTAL;
     self->base_slot = full_snapshot_entry->slot;
     fd_snapshot_httpdl_set_source_incremental( self );
   } else {
@@ -836,27 +863,10 @@ fd_snapshot_httpdl_new( void *                                    mem,
 }
 
 void
-fd_snapshot_httpdl_set_source_full( fd_snapshot_httpdl_t * self ) {
-  fd_snapshot_httpdl_reset( self );
-
-  self->snapshot_type = FD_SNAPSHOT_TYPE_FULL;
-
-  /* set initial get request to point to full snapshot path */
-  fd_snapshot_httpdl_set_path( self, default_full_path, sizeof(default_full_path)-1UL );
-
-  fd_snapshot_httpdl_render_headers( self );
-}
-
-void
 fd_snapshot_httpdl_set_source_incremental( fd_snapshot_httpdl_t * self ) {
-  fd_snapshot_httpdl_reset( self );
-
   self->snapshot_type = FD_SNAPSHOT_TYPE_INCREMENTAL;
 
-  /* set initial get request to point to incremental snapshot path */
-  fd_snapshot_httpdl_set_path( self, default_incremental_path, sizeof(default_incremental_path)-1UL );
-
-  fd_snapshot_httpdl_render_headers( self );
+  fd_snapshot_httpdl_render_request( self );
 }
 
 void *

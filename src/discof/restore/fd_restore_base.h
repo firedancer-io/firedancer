@@ -5,12 +5,6 @@
 #include "../../flamenco/types/fd_types_custom.h"
 #include "../../ballet/lthash/fd_lthash.h"
 
-#define STATUS_WAITING 0UL
-#define STATUS_FULL    1UL
-#define STATUS_INC     2UL
-#define STATUS_DONE    3UL
-#define STATUS_FAILED  4UL
-
 #define DCACHE_SZ 16<<20UL
 
 /* fd_stream_frag_meta_t is a variation of fd_frag_meta_t optimized for

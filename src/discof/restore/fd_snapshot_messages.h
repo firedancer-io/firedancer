@@ -6,6 +6,9 @@
 
 #define FD_SNAPSHOT_MANIFEST_MESSAGE_ID (0)
 
+/* Defines the snapshot manifest message that is broadcast from
+   the snapshot tiles when loading a snapshot. */
+
 struct fd_snapshot_manifest_vote_account {
   /* The pubkey of the vote account */
   uchar vote_account_pubkey[ 32UL ];

@@ -6,13 +6,6 @@
 #include <assert.h>
 #include <stdio.h>
 
-// static int
-// restore_slot_ctx( fd_exec_slot_ctx_t * slot_ctx,
-//                                      fd_solana_manifest_t * manifest,
-//                                      fd_spad_t *            spad ) {
-//   return (!!fd_exec_slot_ctx_recover( slot_ctx, manifest, spad ) ? 0 : EINVAL);
-// }
-
 static void
 fd_snapshot_parser_discard_buf( fd_snapshot_parser_t * self ) {
   self->buf_ctr = 0UL;
@@ -247,7 +240,6 @@ fd_snapshot_parser_accv_index( fd_snapshot_parser_t *          self,
   for( ulong i=0UL; i < fields->storages_len; i++ ) {
 
     fd_snapshot_slot_acc_vecs_t * slot = &fields->storages[ i ];
-
     for( ulong j=0UL; j < slot->account_vecs_len; j++ ) {
       fd_snapshot_acc_vec_t * accv = &slot->account_vecs[ j ];
 
@@ -334,11 +326,6 @@ fd_snapshot_parser_restore_manifest( fd_snapshot_parser_t * self ) {
 
   fd_solana_accounts_db_fields_t accounts_db = manifest->accounts_db;
   fd_memset( &manifest->accounts_db, 0, sizeof(fd_solana_accounts_db_fields_t) );
-
-  /* Move over objects and recover state
-     This destroys all remaining fields with the slot context valloc. */
-
-  // err = restore_slot_ctx( self->slot_ctx, manifest, self->runtime_spad );
 
   /* Read AccountVec map */
 

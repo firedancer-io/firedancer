@@ -54,15 +54,14 @@ fd_snapshot_reader_new( void *                                    mem,
                         int                                       should_download_full,
                         int                                       should_download_incremental,
                         char                                      snapshot_archive_path[ PATH_MAX ],
-                        fd_snapshot_peer_t const *                peers,
-                        ulong                                     peers_cnt,
+                        fd_snapshot_peers_manager_t *             peers_manager,
                         fd_snapshot_archive_entry_t *             full_snapshot_entry,
                         fd_incremental_snapshot_archive_entry_t * incremental_snapshot_entry,
                         int                                       incremental_snapshot_fetch,
                         ulong                                     minimum_download_speed_mib );
 
 /* fd_snapshot_reader_read is an entrypoint to receive bytes of a
-   snapshot into the specified dst buffer. Returns a
+   snapshot into the specified dst buffer.  Returns a
    fd_snapshot_reader_metrics_t struct that contains reader's
    status, result of the read call, and metrics. */
 static inline fd_snapshot_reader_metrics_t
@@ -103,16 +102,6 @@ fd_snapshot_reader_set_source_incremental( fd_snapshot_reader_t * self ) {
 static inline int
 fd_snapshot_reader_get_source_type( fd_snapshot_reader_t * self ) {
   return self->vsrc->src_type;
-}
-
-static inline void
-fd_snapshot_reader_set_peers_cnt( fd_snapshot_reader_t * self,
-                                  ulong                 peers_cnt ) {
-  if( self->http ) {
-    self->http->peers_cnt = peers_cnt;
-  } else {
-    FD_LOG_ERR(( "Cannot set peers count because http source is not initialized" ));
-  }
 }
 
 static inline void

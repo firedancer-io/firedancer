@@ -6,17 +6,18 @@
 /* TODO: bound this out */
 #define FD_SNAPSHOT_PEERS_MAX 64UL
 #define FD_SNAPSHOT_PING_TIMEOUT 1000000000L /* 1 second */
+#define FD_SNAPSHOT_PEER_INVALID_TIMEOUT 180000000000L /* 3 minutes */
 
 /* fd_snapshot_peers_manager_t validates the eligibility of each
    discovered peer from gossip by pinging the peer and waiting for its
-   response.  Peers are marked eligible or ineligible for snapshot downloading
-   and sorted by lowest latency and snapshot age. */
+   response.  Peers are marked eligible or ineligible for snapshot
+   downloading and sorted by lowest latency and snapshot age. */
 
 struct fd_snapshot_peers_manager {
   fd_snapshot_peer_t peers[ FD_SNAPSHOT_PEERS_MAX ];
   ulong              peers_cnt;
-  ulong              sent_pings;
   ulong              processed_responses;
+  ulong              current_peer_idx;
 
   int                sockets[ FD_SNAPSHOT_PEERS_MAX ];
   ulong              sockets_cnt;
@@ -41,14 +42,29 @@ fd_snapshot_peers_manager_t *
 fd_snapshot_peers_manager_new( void * mem );
 
 void
-fd_snapshot_peers_managers_set_peers( fd_snapshot_peers_manager_t * self,
+fd_snapshot_peers_manager_set_peers( fd_snapshot_peers_manager_t * self,
                                       fd_ip4_port_t const *         peers,
                                       ulong                         peers_cnt );
 
 void
-fd_snapshot_peers_managers_set_peers_testing( fd_snapshot_peers_manager_t * self,
+fd_snapshot_peers_manager_set_peers_testing( fd_snapshot_peers_manager_t * self,
                                               fd_snapshot_peer_t const *         peers,
                                               ulong                         peers_cnt );
+
+ulong
+fd_snapshot_peers_manager_get_valid_peers_cnt( fd_snapshot_peers_manager_t const * self );
+
+fd_snapshot_peer_t const *
+fd_snapshot_peers_manager_get_next_peer( fd_snapshot_peers_manager_t * self );
+
+void
+fd_snapshot_peers_manager_set_current_peer_invalid( fd_snapshot_peers_manager_t * self );
+
+void
+fd_snapshot_peers_manager_update_peer_state( fd_snapshot_peers_manager_t * self );
+
+void
+fd_snapshot_peers_manager_reset_pings( fd_snapshot_peers_manager_t * self );
 
 int
 fd_snapshot_peers_manager_send_pings( fd_snapshot_peers_manager_t * self );
@@ -56,7 +72,7 @@ fd_snapshot_peers_manager_send_pings( fd_snapshot_peers_manager_t * self );
 int
 fd_snapshot_peers_maanger_collect_responses( fd_snapshot_peers_manager_t * self );
 
-ulong
+void
 fd_snapshot_peers_manager_sort_peers( fd_snapshot_peers_manager_t * self );
 
 void *

@@ -1,6 +1,7 @@
 #include "fd_snapshot_peers_manager.h"
 #include "../../util/log/fd_log.h"
 #include "fd_icmp_ping.h"
+#include "fd_snapshot_peer.h"
 #include <errno.h>
 #include <sys/socket.h>
 #include <netinet/in.h>
@@ -43,11 +44,12 @@ fd_snapshot_peers_manager_new( void * mem ) {
     }
   }
 
+  self->current_peer_idx = ULONG_MAX;
   return self;
 }
 
 void
-fd_snapshot_peers_managers_set_peers( fd_snapshot_peers_manager_t * self,
+fd_snapshot_peers_manager_set_peers( fd_snapshot_peers_manager_t * self,
                                       fd_ip4_port_t const *         peers,
                                       ulong                         peers_cnt ) {
   /* Copy peers into peers manager */
@@ -63,7 +65,7 @@ fd_snapshot_peers_managers_set_peers( fd_snapshot_peers_manager_t * self,
 }
 
 void
-fd_snapshot_peers_managers_set_peers_testing( fd_snapshot_peers_manager_t * self,
+fd_snapshot_peers_manager_set_peers_testing( fd_snapshot_peers_manager_t * self,
                                               fd_snapshot_peer_t const *         peers,
                                               ulong                         peers_cnt ) {
   /* Copy peers into peers manager */
@@ -77,27 +79,117 @@ fd_snapshot_peers_managers_set_peers_testing( fd_snapshot_peers_manager_t * self
   self->peers_cnt = peers_cnt;
 }
 
+fd_snapshot_peer_t const *
+fd_snapshot_peers_manager_get_next_peer( fd_snapshot_peers_manager_t * self ) {
+  if( FD_UNLIKELY( !self->peers_cnt ) ) {
+    return NULL;
+  }
+
+  if( self->current_peer_idx == ULONG_MAX ) {
+    self->current_peer_idx = 0UL;
+    return &self->peers[ self->current_peer_idx ];
+  }
+
+  /* Skip over invalid peers and return the next valid peer */
+  for (;;) {
+    self->current_peer_idx++;
+    if( self->current_peer_idx >= self->peers_cnt ) {
+      FD_LOG_WARNING(( "Exhausted all peers" ));
+      return NULL;
+    }
+
+    if( !self->peers[ self->current_peer_idx ].valid ) {
+      continue;
+    } else {
+      return &self->peers[ self->current_peer_idx ];
+    }
+  }
+}
+
+void
+fd_snapshot_peers_manager_set_peer_invalid( fd_snapshot_peers_manager_t * self,
+                                            ulong                         peer_idx ) {
+  fd_snapshot_peer_t * peer = &self->peers[ peer_idx ];
+  peer->valid = 0;
+  peer->marked_invalid_time_nanos = fd_log_wallclock();
+  FD_LOG_WARNING(( "Marking peer %lu with ip address "FD_IP4_ADDR_FMT" and port %u invalid",
+                   peer_idx,
+                   FD_IP4_ADDR_FMT_ARGS( peer->dest.addr ),
+                   peer->dest.port ));
+}
+
+void
+fd_snapshot_peers_manager_set_current_peer_invalid( fd_snapshot_peers_manager_t * self ) {
+  if( FD_UNLIKELY( !self->peers_cnt ) ) {
+    FD_LOG_WARNING(("No peers" ));
+    return;
+  }
+
+  if( self->current_peer_idx >= self->peers_cnt ) {
+    FD_LOG_WARNING(( "Exhausted all peers" ));
+    return;
+  }
+
+  fd_snapshot_peers_manager_set_peer_invalid( self, self->current_peer_idx );
+}
+
+void
+fd_snapshot_peers_manager_reset_pings( fd_snapshot_peers_manager_t * self ) {
+  self->processed_responses = 0UL;
+
+  fd_memset( self->ping_send_time_nanos, 0, sizeof(self->ping_send_time_nanos) );
+  fd_memset( self->ping_recv_time_nanos, 0, sizeof(self->ping_recv_time_nanos) );
+
+  for( ulong i=0UL; i<self->peers_cnt; i++ ) {
+    self->peers[ i ].ping_sent     = 0;
+    self->peers[ i ].ping_received = 0;
+  }
+}
+
+void
+fd_snapshot_peers_manager_update_peer_state( fd_snapshot_peers_manager_t * self ) {
+  if( !self->peers_cnt ) return;
+
+  long now = fd_log_wallclock();
+
+  for( ulong i=0UL; i<self->peers_cnt; i++ ) {
+    if( !self->peers[ i ].valid ) {
+      /* Mark peer valid again if the invalid timeout has passed */
+      if( now > self->peers[ i ].marked_invalid_time_nanos + FD_SNAPSHOT_PEER_INVALID_TIMEOUT ) {
+        self->peers[ i ].valid = 1;
+        self->peers[ i ].latency = ULONG_MAX; /* Reset latency */
+        self->peers[ i ].ping_sent = 0;
+        self->peers[ i ].ping_received = 0;
+        FD_LOG_WARNING(( "Peer %lu with ip address "FD_IP4_ADDR_FMT" and port %u is now valid again",
+                         i,
+                         FD_IP4_ADDR_FMT_ARGS( self->peers[ i ].dest.addr ),
+                         self->peers[ i ].dest.port ));
+      }
+    }
+  }
+}
+
 int
 fd_snapshot_peers_manager_send_pings( fd_snapshot_peers_manager_t * self ) {
   for( ulong i=0UL; i<self->peers_cnt; i++ ) {
     if( !self->peers[ i ].ping_sent ) {
-      int res = fd_icmp_send_ping( &self->sockets[ i ],
+      int res = fd_icmp_send_ping( self->sockets[ i ],
                                    &self->peers[ i ].dest,
                                    (ushort)i,
                                    &self->ping_send_time_nanos[ i ] );
       if( FD_UNLIKELY( res<0 ) ) {
-        /* Sendings pings should not fail */
+        /* Sendings pings should not fail.  If they do fail, skip them
+           and mark the peer invalid. */
         FD_LOG_WARNING(( "fd_icmp_send_ping() failed for peer %lu (%d-%s)",
                          i, res, fd_io_strerror( res ) ));
-        return 0;
+        self->peers[ i ].valid = 0;
       }
 
       self->peers[ i ].ping_sent = 1;
-      self->sent_pings++;
     }
   }
 
-  return self->sent_pings == self->peers_cnt ? 1 : 0;
+  return 1;
 }
 
 int
@@ -115,7 +207,7 @@ fd_snapshot_peers_maanger_collect_responses( fd_snapshot_peers_manager_t * self 
         continue;
       }
 
-      int res = fd_icmp_recv_ping_resp( &self->sockets[ i ],
+      int res = fd_icmp_recv_ping_resp( self->sockets[ i ],
                                         &self->peers[ i ].dest,
                                         (ushort)i,
                                         &self->ping_recv_time_nanos[ i ] );
@@ -130,7 +222,7 @@ fd_snapshot_peers_maanger_collect_responses( fd_snapshot_peers_manager_t * self 
   return self->processed_responses == self->peers_cnt ? 1 : 0;
 }
 
-static ulong
+ulong
 fd_snapshot_peers_manager_get_valid_peers_cnt( fd_snapshot_peers_manager_t const * self ) {
   ulong valid_peers_cnt = 0UL;
   for( ulong i=0UL; i<self->peers_cnt; i++ ) {
@@ -142,7 +234,7 @@ fd_snapshot_peers_manager_get_valid_peers_cnt( fd_snapshot_peers_manager_t const
   return valid_peers_cnt;
 }
 
-ulong
+void
 fd_snapshot_peers_manager_sort_peers( fd_snapshot_peers_manager_t * self ) {
   /* TODO: sort peers by latency and snapshot age */
   /* For now, we sort peers by latency only */
@@ -155,7 +247,6 @@ fd_snapshot_peers_manager_sort_peers( fd_snapshot_peers_manager_t * self ) {
                        i, FD_IP4_ADDR_FMT_ARGS( self->peers[ i ].dest.addr ), self->peers[ i ].dest.port, self->peers[ i ].latency ));
     }
   }
-  return fd_snapshot_peers_manager_get_valid_peers_cnt( self );
 }
 
 void *

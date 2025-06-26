@@ -11,10 +11,47 @@
 #define ZSTD_FRAME_SZ 8*1024*1024UL
 #define LINK_IN_MAX 1
 
+/* The SnapDc tile is a state machine that decompresses the full and
+   optionally incremental snapshot byte stream that it receives from the
+   SnapRd tile.
+
+   SnapRd may send a retry notification, which causes SnapDc to reset
+   its decompressor state and byte stream while staying in the same
+   state.
+
+   SnapRd may also send a reset notification, which causes SnapDc to
+   reset itself and transition back to DECOMPRESSING_FULL. */
+
+/* The initial state is waiting for an incoming compressed
+   byte stream of the full snapshot. */
+#define FD_SNAPDC_STATE_WAITING                   (0)
+
+/* SnapDc transitions to DECOMPRESSING_FULL once it starts decompressing
+   the full snapshot byte stream.  It remains in this state as long
+   as it has not received a end-of-stream notification from
+   SnapRd. */
+#define FD_SNAPDC_STATE_DECOMPRESSING_FULL        (1)
+
+/* SnapDc transitions to decompressing the incremental snapshot byte
+   stream when it receives a end-of-stream notification from
+   SnapRd.  SnapDc waits in this state indefinitely if there are no
+   incoming incremental snapshot stream bytes. */
+#define FD_SNAPDC_STATE_DECOMPRESSING_INCREMENTAL (2)
+
+/* The terminal state of SnapDc.  It transitions to DONE when it
+   receives a tagged end-of-message notification from SnapRd. */
+#define FD_SNAPDC_STATE_DONE                      (3)
+
+/* A failure state to indicate fatal, non-recoverable errors */
+#define FD_SNAPDC_STATE_FAILED                    (4)
+
 struct fd_snapdc_tile {
   fd_stream_frag_meta_ctx_t in_state; /* input mcache context */
   fd_zstd_dstream_t *       dstream;  /* zstd decompress reader */
   fd_stream_writer_t *      writer;   /* stream writer object */
+
+  int state;
+
   struct {
 
     struct {
@@ -29,7 +66,6 @@ struct fd_snapdc_tile {
       ulong decompressed_bytes_total;
     } incremental;
 
-    ulong status;
   } metrics;
 };
 typedef struct fd_snapdc_tile fd_snapdc_tile_t;
@@ -49,11 +85,11 @@ scratch_footprint( fd_topo_tile_t const * tile ) {
 }
 
 static void
-fd_snapdc_set_status( fd_snapdc_tile_t * ctx,
-                      ulong              status ) {
-  ctx->metrics.status = status;
+fd_snapdc_set_state( fd_snapdc_tile_t * ctx,
+                      int               state ) {
+  ctx->state = state;
   FD_COMPILER_MFENCE();
-  FD_MGAUGE_SET( SNAPDC, STATUS, status );
+  FD_MGAUGE_SET( SNAPDC, STATE, (ulong)state );
   FD_COMPILER_MFENCE();
 }
 
@@ -61,14 +97,20 @@ static void
 fd_snapdc_accumulate_metrics( fd_snapdc_tile_t * ctx,
                               ulong              compressed_bytes_read,
                               ulong              decompressed_bytes_read ) {
-  if( ctx->metrics.status == STATUS_FULL ) {
-    ctx->metrics.full.compressed_bytes_read   += compressed_bytes_read;
-    ctx->metrics.full.decompressed_bytes_read += decompressed_bytes_read;
-  } else if( ctx->metrics.status == STATUS_INC ) {
-    ctx->metrics.incremental.compressed_bytes_read   += compressed_bytes_read;
-    ctx->metrics.incremental.decompressed_bytes_read += decompressed_bytes_read;
-  } else {
-    FD_LOG_ERR(("snapdc: unexpected status"));
+  switch ( ctx->state ) {
+    case FD_SNAPDC_STATE_DECOMPRESSING_FULL: {
+      ctx->metrics.full.compressed_bytes_read   += compressed_bytes_read;
+      ctx->metrics.full.decompressed_bytes_read += decompressed_bytes_read;
+      break;
+    }
+    case FD_SNAPDC_STATE_DECOMPRESSING_INCREMENTAL: {
+      ctx->metrics.incremental.compressed_bytes_read   += compressed_bytes_read;
+      ctx->metrics.incremental.decompressed_bytes_read += decompressed_bytes_read;
+      break;
+    }
+    default: {
+      FD_LOG_ERR(("snapdc: unexpected status"));
+    }
   }
 }
 
@@ -104,7 +146,7 @@ unprivileged_init( fd_topo_t *      topo,
   ctx->dstream         = fd_zstd_dstream_new( zstd_mem, ZSTD_WINDOW_SZ );
 
   fd_zstd_dstream_reset( ctx->dstream );
-  fd_snapdc_set_status( ctx, STATUS_FULL );
+  fd_snapdc_set_state( ctx, FD_SNAPDC_STATE_WAITING );
 }
 
 static void
@@ -119,7 +161,11 @@ fd_snapdc_init_from_stream_ctx( void * _ctx,
 }
 
 __attribute__((noreturn)) static void
-fd_snapdc_shutdown( void ) {
+fd_snapdc_shutdown( fd_snapdc_tile_t * ctx ) {
+  fd_stream_writer_notify( ctx->writer,
+                          fd_frag_meta_ctl( 0UL, 0, 1, 0 ) );
+  fd_snapdc_set_state( ctx, FD_SNAPDC_STATE_DONE );
+
   FD_COMPILER_MFENCE();
   FD_MGAUGE_SET( TILE, STATUS, 2UL );
   FD_COMPILER_MFENCE();
@@ -142,26 +188,44 @@ static void
 fd_snapdc_on_file_complete( fd_snapdc_tile_t *   ctx,
                             fd_stream_reader_t * reader,
                             fd_stream_frag_meta_t const * frag ) {
-  if( ctx->metrics.status == STATUS_FULL && 
-      fd_frag_meta_ctl_orig( frag->ctl ) == 1UL ) {
-    FD_LOG_INFO(("snapdc: done decompressing full snapshot, now decompressing incremental snapshot"));
-    fd_snapdc_set_status( ctx, STATUS_INC );
+  switch ( ctx->state ) {
+    case FD_SNAPDC_STATE_DECOMPRESSING_FULL: {
+      if( FD_LIKELY( fd_frag_meta_ctl_orig( frag->ctl ) == 1UL ) ) {
 
-    /* notify downstream consumer */
-    fd_stream_writer_notify( ctx->writer,
-                             fd_frag_meta_ctl( 1UL, 0, 1, 0 ) );
-    /* reset */
-    fd_snapdc_reset( ctx, reader );
+        /* Received an end-of-stream notification from SnapRd
+           indicating an incremental snapshot byte stream is next. */
 
-  } else if( ctx->metrics.status == STATUS_INC ||
-             !fd_frag_meta_ctl_orig( frag->ctl ) ) {
-    fd_snapdc_set_status( ctx, STATUS_DONE );
-    fd_stream_writer_notify( ctx->writer,
-                             fd_frag_meta_ctl( 0UL, 0, 1, 0 ) );
-    fd_snapdc_shutdown();
+        FD_LOG_INFO(("snapdc: done decompressing full snapshot, "
+                     "now decompressing incremental snapshot"));
+        fd_snapdc_set_state( ctx,
+                             FD_SNAPDC_STATE_DECOMPRESSING_INCREMENTAL );
+        /* notify downstream consumer */
+        fd_stream_writer_notify( ctx->writer,
+                                fd_frag_meta_ctl( 1UL, 0, 1, 0 ) );
+        /* reset */
+        fd_snapdc_reset( ctx, reader );
 
-  } else {
-    FD_LOG_ERR(("snapdc: unexpected status"));
+      } else if( !fd_frag_meta_ctl_orig( frag->ctl ) ) {
+        /* Received an end-of-stream notification from SnapRd
+           indicating the snapshot byte stream is complete. */
+        fd_snapdc_shutdown( ctx );
+      } else {
+        FD_LOG_ERR(("snapdc: unexpected ctl orig %lu",
+                    fd_frag_meta_ctl_orig( frag->ctl ) ));
+      }
+      break;
+    }
+    case FD_SNAPDC_STATE_DECOMPRESSING_INCREMENTAL: {
+      /* Received an end-of-message notification from SnapRd
+         indicating the incremental snapshot byte stream is complete. */
+      FD_TEST( fd_frag_meta_ctl_orig( frag->ctl )==0UL );
+      fd_snapdc_shutdown( ctx );
+      break;
+    }
+    default: {
+      fd_snapdc_set_state( ctx, FD_SNAPDC_STATE_FAILED );
+      FD_LOG_ERR(("snapdc: unexpected status"));
+    }
   }
 }
 
@@ -170,13 +234,22 @@ fd_snapdc_on_notification( fd_snapdc_tile_t *            ctx,
                            fd_stream_reader_t *          reader,
                            fd_stream_frag_meta_t const * frag ) {
   if( FD_UNLIKELY( fd_frag_meta_ctl_eom( frag->ctl ) ) ) {
-    /* file complete notification */
+    /* Received an end-of-stream notification */
     fd_snapdc_on_file_complete( ctx, reader, frag );
   } else if( FD_UNLIKELY( fd_frag_meta_ctl_err( frag->ctl ) ) ) {
-    /* retry notification */
+    /* Received a retry notification from SnapRd indicating that the
+       current snapshot byte stream is restarting. */
     fd_stream_writer_notify( ctx->writer,
                              fd_frag_meta_ctl( 0UL, 0, 0, 1 ) );
     fd_snapdc_reset( ctx, reader );
+  } else if( FD_UNLIKELY( fd_frag_meta_ctl_som( frag->ctl ) ) ) {
+    /* Received a hard reset notification from SnapRd indicating
+       that a full snapshot byte stream is next.  Reset state to
+       DECOMPRESSING_FULL */
+    fd_stream_writer_notify( ctx->writer,
+                             fd_frag_meta_ctl( 0UL, 1, 0, 0 ) );
+    fd_snapdc_reset( ctx, reader );
+    fd_snapdc_set_state( ctx, FD_SNAPDC_STATE_DECOMPRESSING_FULL );
   } else {
     FD_LOG_ERR(( "snapdc: unknown notification ctl %u", frag->ctl ));
   }
@@ -188,6 +261,10 @@ on_stream_frag( void *                        _ctx,
                 fd_stream_frag_meta_t const * frag,
                 ulong *                       sz ) {
   fd_snapdc_tile_t * ctx = fd_type_pun(_ctx);
+
+  if( FD_UNLIKELY( ctx->state == FD_SNAPDC_STATE_WAITING ) ) {
+    fd_snapdc_set_state( ctx, FD_SNAPDC_STATE_DECOMPRESSING_FULL );
+  }
 
   /* Poll notifications */
   if( FD_UNLIKELY( frag->sz==0 ) ) {
@@ -217,10 +294,17 @@ on_stream_frag( void *                        _ctx,
       break;
     }
 
-    /* fd_zstd_dstream_read updates chunk_start and out */
-    int zstd_err = fd_zstd_dstream_read( ctx->dstream, &in_cur, in_chunk_end, &out_cur, out_end, NULL );
+    /* fd_zstd_dstream_read advances in_cur and out */
+    int zstd_err = fd_zstd_dstream_read( ctx->dstream,
+                                         &in_cur,
+                                         in_chunk_end,
+                                         &out_cur,
+                                         out_end,
+                                         NULL );
     if( FD_UNLIKELY( zstd_err>0 ) ) {
-      FD_LOG_ERR(( "snapdc: fd_zstd_dstream_read failed on seq %lu", reader->base.seq ));
+      fd_snapdc_set_state( ctx, FD_SNAPDC_STATE_FAILED );
+      FD_LOG_ERR(( "snapdc: fd_zstd_dstream_read failed on seq %lu",
+                   reader->base.seq ));
       break;
     }
 
@@ -231,8 +315,12 @@ on_stream_frag( void *                        _ctx,
 
   ulong decompressed_bytes = (ulong)out_cur-(ulong)out;
   ulong consumed_bytes     = (ulong)in_cur - (ulong)in_chunk_start;
-  fd_stream_writer_publish( ctx->writer, decompressed_bytes, 0UL );
-  fd_snapdc_accumulate_metrics( ctx, consumed_bytes, decompressed_bytes );
+  fd_stream_writer_publish( ctx->writer,
+                            decompressed_bytes,
+                            0UL );
+  fd_snapdc_accumulate_metrics( ctx,
+                                consumed_bytes,
+                                decompressed_bytes );
 
   *sz = (ulong)in_cur - (ulong)in_chunk_start;
   return in_consume;

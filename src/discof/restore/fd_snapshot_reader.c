@@ -10,8 +10,7 @@ fd_snapshot_reader_new( void *                                    mem,
                         int                                       should_download_full,
                         int                                       should_download_incremental,
                         char                                      snapshot_archive_path[ PATH_MAX ],
-                        fd_snapshot_peer_t const *                peers,
-                        ulong                                     peers_cnt,
+                        fd_snapshot_peers_manager_t *             peers_manager,
                         fd_snapshot_archive_entry_t *             full_snapshot_entry,
                         fd_incremental_snapshot_archive_entry_t * incremental_snapshot_entry,
                         int                                       incremental_snapshot_fetch,
@@ -37,14 +36,13 @@ fd_snapshot_reader_new( void *                                    mem,
                                                fd_snapshot_httpdl_align(),
                                                fd_snapshot_httpdl_footprint() );
     self->http = fd_snapshot_httpdl_new( http_mem,
-                                              peers_cnt,
-                                              peers,
-                                              snapshot_archive_path,
-                                              full_snapshot_entry,
-                                              incremental_snapshot_entry,
-                                              should_download_full,
-                                              should_download_incremental,
-                                              minimum_download_speed_mib );
+                                         peers_manager,
+                                         snapshot_archive_path,
+                                         full_snapshot_entry,
+                                         incremental_snapshot_entry,
+                                         should_download_full,
+                                         should_download_incremental,
+                                         minimum_download_speed_mib );
     if( should_download_full ) {
       self->full_src = fd_snapshot_istream_httpdl( self->http );
     } else {

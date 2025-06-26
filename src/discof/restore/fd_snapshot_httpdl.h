@@ -5,7 +5,7 @@
 #include "../../util/net/fd_net_headers.h"
 #include "fd_snapshot_archive.h"
 #include "fd_snapshot_reader_metrics.h"
-#include "fd_snapshot_peer.h"
+#include "fd_snapshot_peers_manager.h"
 
 /* fd_snapshot_httpdl.h provides APIs for streaming download of Solana
    snapshots via HTTP.  It is currently hardcoded to use non-blocking
@@ -38,9 +38,8 @@
 
 struct fd_snapshot_httpdl {
   /* List of RPC node addresses */
-  fd_snapshot_peer_t const * peers;
-  ulong                      peers_cnt;
-  ulong                      current_peer_idx;
+  fd_snapshot_peers_manager_t * peers_manager;
+  fd_snapshot_peer_t const *    current_peer;
 
   uint   ipv4;
   ushort port;
@@ -119,8 +118,7 @@ fd_snapshot_httpdl_footprint( void ) {
 
 fd_snapshot_httpdl_t *
 fd_snapshot_httpdl_new( void *                                    mem,
-                        ulong                                     peers_cnt,
-                        fd_snapshot_peer_t const *                peers,
+                        fd_snapshot_peers_manager_t *             peers_manager,
                         char                                      snapshot_archive_path[ PATH_MAX ],
                         fd_snapshot_archive_entry_t *             full_snapshot_entry,
                         fd_incremental_snapshot_archive_entry_t * incremental_snapshot_entry,

@@ -6,14 +6,13 @@
 /* Helper functions to send and receive icmp pings */
 
 /* fd_icmp_send_ping connects an open socket file descriptor to the
-   given dest address
-   and sends an icmp echo packet, blocking if needed. Takes a pointer to
-   an unused socket file descriptor and a pointer to a destination
-   address. Returns 0 on success and -1 on failure.  Upon success,
-   ping_send_time_nanos is set to the software timestamp right before
-   send is called. */
+   given dest address and sends an icmp echo packet, blocking if needed.
+   Takes a pointer to an unused socket file descriptor and a pointer to
+   a destination address. Returns 0 on success and -1 on failure.  Upon
+   success, ping_send_time_nanos is set to the software timestamp right
+   before send is called. */
 int
-fd_icmp_send_ping( int *                 sockfd,
+fd_icmp_send_ping( int                   sockfd,
                    fd_ip4_port_t const * dest,
                    ushort                sequence,
                    long *                ping_send_time_nanos );
@@ -26,7 +25,7 @@ fd_icmp_send_ping( int *                 sockfd,
    ping_recv_time_nanos is set to the software timestamp right after
    recv is called. */
 int
-fd_icmp_recv_ping_resp( int *                 sockfd,
+fd_icmp_recv_ping_resp( int                   sockfd,
                         fd_ip4_port_t const * dest,
                         ushort                sequence,
                         long *                ping_recv_time_nanos );

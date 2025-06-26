@@ -9,7 +9,7 @@
 #include "stream/fd_stream_ctx.h"
 #include "stream/fd_frag_writer.h"
 #include "fd_snapshot_messages.h"
-#include "../../flamenco/runtime/fd_runtime_public.h"
+#include "fd_solana_manifest_streaming_decode.h"
 #include <assert.h>
 #include <stdio.h>
 #include <unistd.h>
@@ -19,11 +19,37 @@
 
 #define MANIFEST_OUT_IDX 0UL
 
-#define SNAP_FSEQ_NO_SNAPSHOT 1UL
-#define SNAP_FSEQ_SNAPSHOT_LOADED 2UL
-
 #define FD_SNAPIN_SCRATCH_MAX ( 1UL << 20UL )
 #define FD_SNAPIN_SCRATCH_DEPTH (1UL << 5UL )
+
+/* The SnapIn tile is a state machine that parses and loads a full
+   and optionally an incremental snapshot.  It is currently responsible
+   for loading accounts into an in-memory database, though this may
+   change. */
+
+/* The initial state of the SnapIn tile indicating it is waiting for
+   a full snapshot byte stream. */
+#define FD_SNAPIN_STATE_WAITING             (0)
+
+/* SnapIn transitions to LOADING_FULL upon receiving bytes from
+   the full snapshot byte stream.  It stays in this state until it
+   receives an end-of-stream message indicating that an incremental
+   byte stream is starting. */
+#define FD_SNAPIN_STATE_LOADING_FULL        (1)
+
+/* Once SnapIn receives an end-of-stream message indicating an
+   incremental byte stream is starting, it transitions to
+   LOADING_INCREMENTAL and remains in this state until it receives
+   an end-of-stream message indicating the end of the snapshot stream */
+#define FD_SNAPIN_STATE_LOADING_INCREMENTAL (2)
+
+/* The terminal state of the SnapIn tile when the received snapshot
+   contents are fully parsed and loaded */
+#define FD_SNAPIN_STATE_DONE                (3)
+
+/* A failure state to indicate fatal, non-recoverable errors */
+#define FD_SNAPIN_STATE_FAILED              (4)
+
 
 struct fd_snapin_tile {
   /* Snapshot parser */
@@ -33,6 +59,10 @@ struct fd_snapin_tile {
   /* Stream input */
 
   fd_stream_frag_meta_ctx_t in_state;
+
+  /* State machine */
+
+  int state;
 
   /* Account insertion */
 
@@ -48,28 +78,33 @@ struct fd_snapin_tile {
     fd_snapshot_parser_metrics_t full;
     fd_snapshot_parser_metrics_t incremental;
 
-    ulong   num_accounts_inserted;
-    ulong   status;
+    /* TODO: should this be split between full and incremental? */
+    ulong num_accounts_inserted;
   } metrics;
 };
 
 typedef struct fd_snapin_tile fd_snapin_tile_t;
 
 static void
-fd_snapin_set_status( fd_snapin_tile_t * ctx,
-                      ulong              status ) {
-  ctx->metrics.status = status;
+fd_snapin_set_state( fd_snapin_tile_t * ctx,
+                     int                state ) {
+  ctx->state = state;
   FD_COMPILER_MFENCE();
-  FD_MGAUGE_SET( SNAPIN, STATUS, status );
+  FD_MGAUGE_SET( SNAPIN, STATE, (ulong)state );
   FD_COMPILER_MFENCE();
 }
 
 static void
 fd_snapin_shutdown( fd_snapin_tile_t * ctx ) {
-  fd_snapin_set_status( ctx, STATUS_DONE );
+  fd_snapin_set_state( ctx, FD_SNAPIN_STATE_DONE );
   fd_snapshot_parser_close( ctx->parser );
   fd_frag_writer_notify( ctx->manifest_writer,
                                   fd_frag_meta_ctl( 0UL, 0, 1, 0 ) );
+
+  /* publish any outstanding funk txn */
+  if( ctx->funk_txn ) {
+    fd_funk_txn_publish_into_parent( ctx->funk, ctx->funk_txn, 0 );
+  }
 
   FD_COMPILER_MFENCE();
   FD_MGAUGE_SET( TILE, STATUS, 2UL );
@@ -101,6 +136,14 @@ send_manifest( fd_snapshot_parser_t * parser,
                           0UL,
                           0UL,
                           0UL );
+
+  // fd_solana_manifest_streaming_decode( parser->buf, parser->buf_sz, NULL, snapshot_manifest_mem );
+
+  // FD_LOG_WARNING(("manifest ancestors len is %lu", manifest->bank.ancestors_len ));
+  // FD_LOG_WARNING(("manifest hard forks len is %lu", manifest->bank.hard_forks.hard_forks_len ));
+  // FD_LOG_WARNING(("manifest parent slot is %lu", manifest->bank.parent_slot ));
+  // FD_LOG_WARNING(("manifest bank hash is %s", FD_BASE58_ENC_32_ALLOCA( manifest->bank.hash.hash ) ));
+  // FD_LOG_WARNING(("manifest parent bank hash is %s", FD_BASE58_ENC_32_ALLOCA( manifest->bank.parent_hash.hash ) ));
 }
 
 static int
@@ -239,19 +282,26 @@ unprivileged_init( fd_topo_t *      topo,
   ctx->metrics.incremental.accounts_files_processed = 0UL;
   ctx->metrics.incremental.accounts_files_total     = 0UL;
   ctx->metrics.incremental.accounts_processed       = 0UL;
-  ctx->metrics.status                               = STATUS_FULL;
+  ctx->metrics.num_accounts_inserted                = 0UL;
 
-  ctx->metrics.num_accounts_inserted = 0UL;
+  fd_snapin_set_state( ctx, FD_SNAPIN_STATE_WAITING );
 }
 
 static void
 fd_snapin_accumulate_metrics( fd_snapin_tile_t * ctx ) {
-  if( ctx->metrics.status == STATUS_FULL ) {
-    ctx->metrics.full = fd_snapshot_parser_get_metrics( ctx->parser );
-  } else if( ctx->metrics.status == STATUS_INC ) {
-    ctx->metrics.incremental = fd_snapshot_parser_get_metrics( ctx->parser );
-  } else {
-    FD_LOG_ERR(("unexpected status"));
+  switch (ctx->state ) {
+    case FD_SNAPIN_STATE_LOADING_FULL: {
+      ctx->metrics.full = fd_snapshot_parser_get_metrics( ctx->parser );
+      break;
+    }
+    case FD_SNAPIN_STATE_LOADING_INCREMENTAL: {
+      ctx->metrics.incremental = fd_snapshot_parser_get_metrics( ctx->parser );
+      break;
+    }
+    default: {
+      fd_snapin_set_state( ctx, FD_SNAPIN_STATE_FAILED );
+      FD_LOG_ERR(("unexpected status"));
+    }
   }
 }
 
@@ -279,20 +329,62 @@ static void
 fd_snapin_on_file_complete( fd_snapin_tile_t *   ctx,
                             fd_stream_reader_t * reader,
                             fd_stream_frag_meta_t const * frag ) {
-  if( ctx->metrics.status == STATUS_FULL &&
-      fd_frag_meta_ctl_orig( frag->ctl ) == 1UL ) {
-    FD_LOG_INFO(("snapin: done processing full snapshot, now processing incremental snapshot"));
-    fd_snapin_set_status( ctx, STATUS_INC );
+  switch ( ctx->state ) {
+    case FD_SNAPIN_STATE_LOADING_FULL: {
+      if( FD_LIKELY( fd_frag_meta_ctl_orig( frag->ctl ) == 1UL ) ) {
+        /* Received an end-of-stream notification from SnapRd
+           indicating an incremental snapshot byte stream is next. */
 
-    fd_snapin_reset( ctx, reader );
+        FD_LOG_INFO(("snapin: done processing full snapshot, now processing incremental snapshot"));
+        fd_snapin_set_state( ctx, FD_SNAPIN_STATE_LOADING_INCREMENTAL );
+        /* TODO: notify manifest consumers? */
 
-  } else if( ctx->metrics.status == STATUS_INC ||
-             !fd_frag_meta_ctl_orig( frag->ctl ) ) {
-    fd_snapin_shutdown( ctx );
+        /* reset */
+        fd_snapin_reset( ctx, reader );
 
-  } else {
-    FD_LOG_ERR(("snapin: unexpected status"));
+        /* prepare a new funk txn to load the incremental snapshot */
+        fd_funk_txn_xid_t incremental_xid = fd_funk_generate_xid();
+        ctx->funk_txn = fd_funk_txn_prepare( ctx->funk, ctx->funk_txn, &incremental_xid, 0 );
+
+      } else if( !fd_frag_meta_ctl_orig( frag->ctl ) ) {
+        /* Received an end-of-stream notification from SnapRd
+           indicating the snapshot byte stream is complete. */
+        fd_snapin_shutdown( ctx );
+      } else {
+        fd_snapin_set_state( ctx, FD_SNAPIN_STATE_FAILED );
+        FD_LOG_ERR(("snapin: unexpected ctl orig %lu",
+                    fd_frag_meta_ctl_orig( frag->ctl ) ));
+      }
+      break;
+    }
+    case FD_SNAPIN_STATE_LOADING_INCREMENTAL: {
+      fd_snapin_shutdown( ctx );
+      break;
+    }
+    default: {
+      fd_snapin_set_state( ctx, FD_SNAPIN_STATE_FAILED );
+      FD_LOG_ERR(("snapin: unexpected state %d", ctx->state));
+      return;
+    }
   }
+}
+
+static void
+fd_snapin_soft_reset_funk( fd_snapin_tile_t * ctx ) {
+  if( ctx->funk_txn == NULL ) {
+    fd_funk_txn_cancel_root( ctx->funk );
+  } else {
+    fd_funk_txn_cancel( ctx->funk, ctx->funk_txn, 0 );
+  }
+
+  /* TODO: Assert soft reset succeeded */
+}
+
+static void
+fd_snapin_hard_reset_funk( fd_snapin_tile_t * ctx ) {
+  fd_funk_txn_cancel_root( ctx->funk );
+
+  /* TODO: Assert that hard reset suceeded */
 }
 
 static void
@@ -300,17 +392,21 @@ fd_snapin_on_notification( fd_snapin_tile_t *            ctx,
                            fd_stream_reader_t *          reader,
                            fd_stream_frag_meta_t const * frag ) {
   if( FD_UNLIKELY( fd_frag_meta_ctl_eom( frag->ctl ) ) ) {
-    /* file complete notification */
+    /* Received an end-of-stream notification */
     fd_snapin_on_file_complete( ctx, reader, frag );
   } else if( FD_UNLIKELY( fd_frag_meta_ctl_err( frag->ctl ) ) ) {
-    /* retry notification */
+    /* Received a retry notification from SnapDc indicating that the
+       current snapshot byte stream is restarting. */
     /* TODO: notify manifest writer if needed */
     fd_snapin_reset( ctx, reader );
-
-    /* clear contents of funk */
-    fd_funk_txn_cancel_root( ctx->funk );
-    /* TODO: why does this assertion fail??? */
-    // FD_TEST( fd_funk_rec_pool_is_empty( fd_funk_rec_pool( ctx->funk ) ) );
+    fd_snapin_soft_reset_funk( ctx );
+  } else if( FD_UNLIKELY( fd_frag_meta_ctl_som( frag->ctl))) {
+    /* Received a hard reset notification from SnapDc indicating
+       that a full snapshot byte stream is next.  Reset state to
+       LOADING_FULL */
+    fd_snapin_reset( ctx, reader );
+    fd_snapin_hard_reset_funk( ctx );
+    fd_snapin_set_state( ctx, FD_SNAPIN_STATE_LOADING_FULL );
   } else {
     FD_LOG_ERR(( "snapin: unknown notification ctl %u", frag->ctl ));
   }
@@ -330,6 +426,10 @@ on_stream_frag( void *                        _ctx,
                 fd_stream_frag_meta_t const * frag,
                 ulong *                       sz ) {
   fd_snapin_tile_t * ctx = fd_type_pun( _ctx );
+
+  if( ctx->state == FD_SNAPIN_STATE_WAITING ) {
+    fd_snapin_set_state( ctx, FD_SNAPIN_STATE_LOADING_FULL );
+  }
 
   /* poll notifications */
   if( FD_UNLIKELY( frag->sz==0 ) ) {

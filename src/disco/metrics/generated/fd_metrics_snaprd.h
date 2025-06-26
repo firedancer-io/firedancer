@@ -3,11 +3,11 @@
 #include "../fd_metrics_base.h"
 #include "fd_metrics_enums.h"
 
-#define FD_METRICS_GAUGE_SNAPRD_STATUS_OFF  (16UL)
-#define FD_METRICS_GAUGE_SNAPRD_STATUS_NAME "snaprd_status"
-#define FD_METRICS_GAUGE_SNAPRD_STATUS_TYPE (FD_METRICS_TYPE_GAUGE)
-#define FD_METRICS_GAUGE_SNAPRD_STATUS_DESC "Status of the tile. 0 = waiting for gossip peers, 1 = reading full snapshot, 2 = reading incremental snapshot, 3 = complete"
-#define FD_METRICS_GAUGE_SNAPRD_STATUS_CVT  (FD_METRICS_CONVERTER_NONE)
+#define FD_METRICS_GAUGE_SNAPRD_STATE_OFF  (16UL)
+#define FD_METRICS_GAUGE_SNAPRD_STATE_NAME "snaprd_state"
+#define FD_METRICS_GAUGE_SNAPRD_STATE_TYPE (FD_METRICS_TYPE_GAUGE)
+#define FD_METRICS_GAUGE_SNAPRD_STATE_DESC "State of the tile. See fd_snaprd_tile.c for a detailed explanation of each state."
+#define FD_METRICS_GAUGE_SNAPRD_STATE_CVT  (FD_METRICS_CONVERTER_NONE)
 
 #define FD_METRICS_COUNTER_SNAPRD_FULL_NUM_RETRIES_OFF  (17UL)
 #define FD_METRICS_COUNTER_SNAPRD_FULL_NUM_RETRIES_NAME "snaprd_full_num_retries"

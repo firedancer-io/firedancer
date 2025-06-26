@@ -3,11 +3,11 @@
 #include "../fd_metrics_base.h"
 #include "fd_metrics_enums.h"
 
-#define FD_METRICS_GAUGE_SNAPIN_STATUS_OFF  (16UL)
-#define FD_METRICS_GAUGE_SNAPIN_STATUS_NAME "snapin_status"
-#define FD_METRICS_GAUGE_SNAPIN_STATUS_TYPE (FD_METRICS_TYPE_GAUGE)
-#define FD_METRICS_GAUGE_SNAPIN_STATUS_DESC "Status of the tile. 0 = waiting for decompressed snapshot bytestream, 1 = processing full snapshot, 2 = processing incremental snapshot, 3 = complete"
-#define FD_METRICS_GAUGE_SNAPIN_STATUS_CVT  (FD_METRICS_CONVERTER_NONE)
+#define FD_METRICS_GAUGE_SNAPIN_STATE_OFF  (16UL)
+#define FD_METRICS_GAUGE_SNAPIN_STATE_NAME "snapin_state"
+#define FD_METRICS_GAUGE_SNAPIN_STATE_TYPE (FD_METRICS_TYPE_GAUGE)
+#define FD_METRICS_GAUGE_SNAPIN_STATE_DESC "State of the tile. 0 = waiting for decompressed snapshot bytestream, 1 = processing full snapshot, 2 = processing incremental snapshot, 3 = Done"
+#define FD_METRICS_GAUGE_SNAPIN_STATE_CVT  (FD_METRICS_CONVERTER_NONE)
 
 #define FD_METRICS_GAUGE_SNAPIN_FULL_ACCOUNTS_FILES_PROCESSED_OFF  (17UL)
 #define FD_METRICS_GAUGE_SNAPIN_FULL_ACCOUNTS_FILES_PROCESSED_NAME "snapin_full_accounts_files_processed"
