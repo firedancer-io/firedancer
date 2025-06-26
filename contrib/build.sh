@@ -397,7 +397,7 @@ if [[ $NO_GCC -ne 1 ]]; then
           echo "  ./deps.sh nuke"
           echo "  FD_AUTO_INSTALL_PACKAGES=1 CC=gcc CXX=g++ ./deps.sh +dev fetch check install"
           echo "  make -j distclean"
-          echo "  MACHINE=${MACHINE} CC=gcc make -j ${FAILED[*]}"
+          echo "  MACHINE=${MACHINE} CC=gcc CXX=g++ make -j ${FAILED[*]}"
           if [[ $VERBOSE -eq 1 ]]; then
             err "Failure Logs:\n"
             cat "$LOG_FILE"
@@ -514,7 +514,7 @@ if [[ $NO_CLANG -ne 1 ]]; then
           echo "  ./deps.sh nuke"
           echo "  FD_AUTO_INSTALL_PACKAGES=1 CC=clang CXX=clang++ ./deps.sh +dev fetch check install"
           echo "  make -j distclean"
-          echo "  MACHINE=${MACHINE} CC=clang make -j ${FAILED[*]}"
+          echo "  MACHINE=${MACHINE} CC=clang CXX=clang++ make -j ${FAILED[*]}"
           if [[ $VERBOSE -eq 1 ]]; then
             err "Failure Logs:\n"
             cat "$LOG_FILE"

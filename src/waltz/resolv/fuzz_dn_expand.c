@@ -37,7 +37,7 @@ LLVMFuzzerTestOneInput( uchar const *data,
   /* First two bytes pick an offset inside the packet to start
      expansion from.  The modulo arithmetic ensures we never read past
      the end of the provided buffer. */
-  ushort offset = (ushort) (((ushort) data[ 0 ] | (ushort) (data[ 1 ] << 8)) % (size-2UL));
+  ushort offset = (ushort) (((ushort) data[ 0 ] | (ushort) (data[ 1 ] << 8)) % (ushort) (size-2UL));
 
   int ret = fd_dn_expand( data+2, data+size, /* base/end */
                           data+offset,       /* src      */
