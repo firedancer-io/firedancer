@@ -2540,15 +2540,26 @@ unprivileged_init( fd_topo_t *      topo,
   /* capture                                                            */
   /**********************************************************************/
 
-  if( strlen(tile->replay.capture) > 0 ) {
+  if ( strlen(tile->replay.solcap_capture) > 0 || strlen(tile->replay.dump_proto_dir) > 0 ) {
     ctx->capture_ctx = fd_capture_ctx_new( capture_ctx_mem );
+  }
+
+  if( strlen(tile->replay.solcap_capture) > 0 ) {
     ctx->capture_ctx->checkpt_freq = ULONG_MAX;
-    ctx->capture_file = fopen( tile->replay.capture, "w+" );
+    ctx->capture_file = fopen( tile->replay.solcap_capture, "w+" );
     if( FD_UNLIKELY( !ctx->capture_file ) ) {
-      FD_LOG_ERR(( "fopen(%s) failed (%d-%s)", tile->replay.capture, errno, strerror( errno ) ));
+      FD_LOG_ERR(( "fopen(%s) failed (%d-%s)", tile->replay.solcap_capture, errno, strerror( errno ) ));
     }
     ctx->capture_ctx->capture_txns = 0;
+    ctx->capture_ctx->solcap_start_slot = tile->replay.capture_start_slot;
     fd_solcap_writer_init( ctx->capture_ctx->capture, ctx->capture_file );
+  }
+
+  if ( strlen(tile->replay.dump_proto_dir) > 0) {
+    ctx->capture_ctx->dump_proto_output_dir = tile->replay.dump_proto_dir;
+    if (tile->replay.dump_block_to_pb) {
+      ctx->capture_ctx->dump_block_to_pb = tile->replay.dump_block_to_pb;
+    }
   }
 
   /**********************************************************************/

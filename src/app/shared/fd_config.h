@@ -385,7 +385,6 @@ struct fd_config {
     } repair;
 
     struct {
-      char  capture[ PATH_MAX ];
       char  funk_checkpt[ PATH_MAX ];
       char  genesis[ PATH_MAX ];
       char  incremental[ PATH_MAX ];
@@ -421,6 +420,15 @@ struct fd_config {
     } shredcap;
 
   } tiles;
+  struct {
+    ulong capture_start_slot;
+    char  dump_proto_dir[ PATH_MAX ];
+    char  solcap_capture[ PATH_MAX ];
+    int   dump_syscall_to_pb;
+    int   dump_instr_to_pb;
+    int   dump_txn_to_pb;
+    int   dump_block_to_pb;
+  } capture;
 };
 
 typedef struct fd_config fd_config_t;

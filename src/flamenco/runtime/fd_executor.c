@@ -1462,7 +1462,7 @@ fd_execute_txn( fd_execute_txn_task_info_t * task_info ) {
   }
 
   fd_exec_txn_ctx_t * txn_ctx   = task_info->txn_ctx;
-  bool                dump_insn = txn_ctx->capture_ctx && txn_ctx->slot >= txn_ctx->capture_ctx->dump_proto_start_slot && txn_ctx->capture_ctx->dump_insn_to_pb;
+  bool                dump_insn = txn_ctx->capture_ctx && txn_ctx->slot >= txn_ctx->capture_ctx->dump_proto_start_slot && txn_ctx->capture_ctx->dump_instr_to_pb;
 
   /* Initialize log collection */
   fd_log_collector_init( &txn_ctx->log_collector, txn_ctx->enable_exec_recording );

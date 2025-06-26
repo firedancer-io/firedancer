@@ -2,7 +2,7 @@
 #include "generated/fd_exec_tile_seccomp.h"
 
 #include "../../util/pod/fd_pod_format.h"
-
+#include "../../flamenco/runtime/context/fd_capture_ctx.h"
 #include "../../flamenco/runtime/fd_runtime.h"
 #include "../../flamenco/runtime/fd_runtime_public.h"
 #include "../../flamenco/runtime/fd_executor.h"
@@ -140,6 +140,8 @@ struct fd_exec_tile_ctx {
 
   /* Pairs len is the number of accounts to hash. */
   ulong                 pairs_len;
+
+  fd_capture_ctx_t *    capture_ctx;
 };
 typedef struct fd_exec_tile_ctx fd_exec_tile_ctx_t;
 
@@ -153,6 +155,7 @@ scratch_footprint( fd_topo_tile_t const * tile FD_PARAM_UNUSED ) {
   /* clang-format off */
   ulong l = FD_LAYOUT_INIT;
   l       = FD_LAYOUT_APPEND( l, alignof(fd_exec_tile_ctx_t),  sizeof(fd_exec_tile_ctx_t) );
+  l       = FD_LAYOUT_APPEND( l, FD_CAPTURE_CTX_ALIGN, FD_CAPTURE_CTX_FOOTPRINT );
   return FD_LAYOUT_FINI( l, scratch_align() );
   /* clang-format on */
 }
@@ -286,6 +289,7 @@ execute_txn( fd_exec_tile_ctx_t * ctx ) {
   task_info.txn->flags = FD_TXN_P_FLAGS_SANITIZE_SUCCESS;
 
   fd_exec_txn_ctx_setup( ctx->txn_ctx, txn_descriptor, &raw_txn );
+  ctx->txn_ctx->capture_ctx = ctx->capture_ctx;
 
   int err = fd_executor_setup_accessed_accounts_for_txn( ctx->txn_ctx );
   if( FD_UNLIKELY( err ) ) {
@@ -301,7 +305,8 @@ execute_txn( fd_exec_tile_ctx_t * ctx ) {
     return;
   }
 
-  fd_runtime_pre_execute_check( &task_info, 0 );
+  uchar dump_txn = !!( ctx->txn_ctx->capture_ctx && ctx->txn_ctx->slot >= ctx->txn_ctx->capture_ctx->dump_proto_start_slot && ctx->txn_ctx->capture_ctx->dump_txn_to_pb );
+  fd_runtime_pre_execute_check( &task_info, dump_txn );
   if( FD_UNLIKELY( !( task_info.txn->flags & FD_TXN_P_FLAGS_SANITIZE_SUCCESS ) ) ) {
     return;
   }
@@ -536,6 +541,7 @@ unprivileged_init( fd_topo_t *      topo,
 
   FD_SCRATCH_ALLOC_INIT( l, scratch );
   fd_exec_tile_ctx_t * ctx = FD_SCRATCH_ALLOC_APPEND( l, alignof(fd_exec_tile_ctx_t), sizeof(fd_exec_tile_ctx_t) );
+  void * capture_ctx_mem     = FD_SCRATCH_ALLOC_APPEND( l, FD_CAPTURE_CTX_ALIGN, FD_CAPTURE_CTX_FOOTPRINT );
   ulong scratch_alloc_mem = FD_SCRATCH_ALLOC_FINI( l, scratch_align() );
   if( FD_UNLIKELY( scratch_alloc_mem - (ulong)scratch  - scratch_footprint( tile ) ) ) {
     FD_LOG_ERR( ( "Scratch_alloc_mem did not match scratch_footprint diff: %lu alloc: %lu footprint: %lu",
@@ -672,6 +678,15 @@ unprivileged_init( fd_topo_t *      topo,
   ctx->bpf_id = 0U;
 
   FD_LOG_NOTICE(( "Done booting exec tile idx=%lu", ctx->tile_idx ));
+
+  if( strlen(tile->exec.dump_proto_dir) > 0 ) {
+    ctx->capture_ctx = fd_capture_ctx_new( capture_ctx_mem );
+    ctx->capture_ctx->dump_proto_output_dir = tile->exec.dump_proto_dir;
+    ctx->capture_ctx->dump_proto_start_slot = tile->exec.capture_start_slot;
+    ctx->capture_ctx->dump_instr_to_pb = tile->exec.dump_instr_to_pb;
+    ctx->capture_ctx->dump_txn_to_pb = tile->exec.dump_txn_to_pb;
+    ctx->capture_ctx->dump_syscall_to_pb = tile->exec.dump_syscall_to_pb;
+  }
 }
 
 static void
