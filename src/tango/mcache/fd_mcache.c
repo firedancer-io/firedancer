@@ -149,6 +149,16 @@ fd_mcache_seq0( fd_frag_meta_t const * mcache ) {
   return fd_mcache_private_hdr_const( mcache )->seq0;
 }
 
+uint const *
+fd_mcache_futex_flag_const( fd_frag_meta_t const * mcache ) {
+  return &(fd_mcache_private_hdr_const( mcache )->futex_flag);
+}
+
+uint *
+fd_mcache_futex_flag( fd_frag_meta_t * mcache ) {
+  return &(fd_mcache_private_hdr( mcache )->futex_flag);
+}
+
 ulong const *
 fd_mcache_seq_laddr_const( fd_frag_meta_t const * mcache ) {
   return fd_mcache_private_hdr_const( mcache )->seq;

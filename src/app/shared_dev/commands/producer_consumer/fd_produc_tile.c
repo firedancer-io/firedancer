@@ -39,6 +39,7 @@ unprivileged_init( fd_topo_t *      topo,
   ctx->next_produce_time = fd_log_wallclock();
 }
 
+// TODO: make it to after credit -- otherwise overloading our consumer cuz it does it before credit check
 static void
 before_credit( fd_producer_tile_ctx_t * ctx,
                fd_stem_context_t *      stem,
@@ -52,8 +53,8 @@ before_credit( fd_producer_tile_ctx_t * ctx,
   // Time to produce data
   *charge_busy = 1;
   
-  // Schedule next production in 5 seconds (5 billion nanoseconds)
-  ctx->next_produce_time = now + 5000000000L;
+  // Schedule next production in 10 seconds (10 billion nanoseconds)
+  ctx->next_produce_time = now + 10000000000L;
   
   ulong   chunk = ctx->chunk;
   uchar * data = fd_chunk_to_laddr( ctx->out_base, chunk );

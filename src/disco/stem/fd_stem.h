@@ -34,11 +34,11 @@ typedef struct fd_stem_tile_in fd_stem_tile_in_t;
 
 long syscall(long number, ...);
 
-static inline long futex_wait(volatile int *addr, int val) {
+static inline long futex_wait(const uint32_t *addr, uint32_t val) {
     return syscall(SYS_futex, addr, FUTEX_WAIT, val, NULL, NULL, 0);
 }
 
-static inline long futex_wake(volatile int *addr, int n) {
+static inline long futex_wake(uint32_t *addr, uint32_t n) {
     return syscall(SYS_futex, addr, FUTEX_WAKE, n, NULL, NULL, 0);
 }
 
@@ -58,13 +58,13 @@ fd_stem_publish( fd_stem_context_t * stem,
   ulong * seqp = &stem->seqs[ out_idx ];
   ulong   seq  = *seqp;
   fd_mcache_publish( stem->mcaches[ out_idx ], stem->depths[ out_idx ], seq, sig, chunk, sz, ctl, tsorig, tspub );
-  
-  FD_LOG_NOTICE(("\n\n waking up consumer"));
-  fd_frag_meta_t * meta = stem->mcaches[ out_idx ] + fd_mcache_line_idx( stem->seqs[ out_idx ] , stem->depths[ out_idx ] );
-  FD_LOG_NOTICE(("\n\n &stem->mcaches[%lu]: %p", out_idx, (void*) meta));
-  FD_LOG_NOTICE(("\n\n new seq value at the address is: %d", (int) meta->seq));
-  // TODO: is volatile needed?
-  futex_wake((volatile int *) meta, INT_MAX);
+  uint * futex_flag = fd_mcache_futex_flag( stem->mcaches[out_idx] );
+  FD_LOG_NOTICE(("Producer: futex_flag address: %p", (void*) futex_flag));
+  FD_LOG_NOTICE(("Producer: futex_flag value: %d", (int) *futex_flag));
+  // logic like if need_to_wake_up [out_idx]
+  futex_wake( (uint32_t*) futex_flag, 1);
+  // is this okay? writing to header every time? -- only the producer should be pulling a writable version anyways
+  *futex_flag += 1;
   
   *stem->cr_avail -= stem->cr_decrement_amount;
   *seqp = fd_seq_inc( seq, 1UL );

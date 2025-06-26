@@ -340,6 +340,12 @@ STEM_(run1)( ulong                        in_cnt,
   FD_MGAUGE_SET( TILE, STATUS, 1UL );
   long then = fd_tickcount();
   long now  = then;
+
+
+  // int should_enter_futex_wait = 0;
+  uint32_t last_futex_value = 0;
+  // long last_frag_time = 0;
+
   for(;;) {
 
     /* Do housekeeping at a low rate in the background */
@@ -444,6 +450,20 @@ STEM_(run1)( ulong                        in_cnt,
       housekeeping_ticks = (ulong)(next - now);
       now = next;
     }
+
+    // if( should_enter_futex_wait ) {
+    //   futex_wait( ... );
+    //   // last_frag_time = now
+    // }
+
+    // if( havent_received_frag_for_2_millis ) should_enter_futex_wait = true;
+    // if (now - last_frag_time > 2000000) {
+    //   should_enter_futex_wait = 1;
+    //   const uint * futex_val = fd_mcache_futex_flag_const( (&in[in_seq])->mcache );
+    //   FD_LOG_NOTICE(("\n\n\nfutex_val address: %p\n\n\n", (void*) futex_val));
+    //   // FD_LOG_NOTICE(("\n\n\nfutex_val value: %d\n\n\n", (int) *futex_val));
+    //   // last_futex_value = (int) *futex_val;
+    // }
 
 #if defined(STEM_CALLBACK_BEFORE_CREDIT) || defined(STEM_CALLBACK_AFTER_CREDIT) || defined(STEM_CALLBACK_AFTER_FRAG)
     fd_stem_context_t stem = {
@@ -555,27 +575,39 @@ STEM_(run1)( ulong                        in_cnt,
 
       // when it's all caught up, so we can sleep here.
       // TODO: is volatile needed?/
-      volatile int * seq_ptr = (volatile int *) this_in->mline;
+      // volatile int * seq_ptr = (volatile int *) this_in->mline;
+      // uint32_t * seq_ptr = (uint32_t *) fd_type_pun(&this_in->seq);
+      const uint32_t * seq_ptr = fd_mcache_futex_flag_const( this_in->mcache );
 
       FD_LOG_NOTICE(("\n\nwaiting on seq_ptr: %p", (void*) seq_ptr));
-      FD_LOG_NOTICE(("\n\ncur value on seq_ptr: %d", *seq_ptr));
+      FD_LOG_NOTICE(("\n\ncur value on seq_ptr: %u", *seq_ptr));
       FD_LOG_NOTICE(("\n\nwaiting for futex"));
-      futex_wait(seq_ptr, (int) this_in->seq - 1);
+      FD_LOG_NOTICE(("\n\nlast futex value is: %u", last_futex_value));
+      // IF should_wait_for_futex -- the debouncing logic to prevent keep calling futex_wait on that piece of memory
+      // if (should_enter_futex_wait) {
+      //   FD_LOG_NOTICE(("\n\n\nshould_enter_futex_wait is true\n\n\n"));
+      //   FD_LOG_NOTICE(("\n\n\nlast_futex_value: %d\n\n\n", last_futex_value));
+      futex_wait(seq_ptr, last_futex_value);
       FD_LOG_NOTICE(("\n\n\nWOKE UP WOKE UP WOKE UP\n\n\n"));
+      last_futex_value = *seq_ptr;
+      //   should_enter_futex_wait = 0;
+      //   FD_LOG_NOTICE(("\n\n\nshould_enter_futex_wait is false\n\n\n"));
+      // }
       
-      int futex_value = *seq_ptr;
-      if (futex_value == (int) this_in->seq) {
-        FD_LOG_NOTICE(("\n\nfutex value is correct"));
-        FD_LOG_NOTICE(("should consume here\n\n\n"));
-        for (long i = 0; i < 20000000; i++) {
-          FD_LOG_NOTICE(("\n\n\nin the loop\n\n\n"));
-        }
-        continue;
-      } else if (futex_value > (int) this_in->seq) {
-        FD_LOG_NOTICE(("\n\nfutex value is greater than expected, we got overrun"));
-      } else {
-        FD_LOG_NOTICE(("\n\nfutex value is less, already got consumed"));
-      }
+      // int futex_value = (int) *seq_ptr;
+      // FD_COMPILER_MFENCE();
+      // if (futex_value == (int) this_in->seq) {
+      //   FD_LOG_NOTICE(("\n\nfutex value is correct"));
+      //   FD_LOG_NOTICE(("should consume here\n\n\n"));
+      //   for (long i = 0; i < 20000000; i++) {
+      //     FD_LOG_NOTICE(("\n\n\nin the loop\n\n\n"));
+      //   }
+      //   continue;
+      // } else if (futex_value > (int) this_in->seq) {
+      //   FD_LOG_NOTICE(("\n\nfutex value is greater than expected, we got overrun"));
+      // } else {
+      //   FD_LOG_NOTICE(("\n\nfutex value is less, already got consumed"));
+      // }
       // TODO: for now ignore the overrun case
       if( FD_UNLIKELY( diff<0L ) ) { /* Overrun (impossible if in is honoring our flow control) */
         this_in->seq = seq_found; /* Resume from here (probably reasonably current, could query in mcache sync directly instead) */
@@ -682,6 +714,7 @@ STEM_(run1)( ulong                        in_cnt,
     metric_regime_ticks[4] += prefrag_ticks;
     long next = fd_tickcount();
     metric_regime_ticks[7] += (ulong)(next - now);
+    // last_frag_time = next;
     now = next;
   }
 }

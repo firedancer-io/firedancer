@@ -170,8 +170,12 @@ FD_FN_CONST ulong *       fd_mcache_seq_laddr      ( fd_frag_meta_t *       mcac
    alignment (double cache line) and is fd_mcache_app_sz( mcache ) in
    size.  laddr_const is a const-correct version. */
 
+// Question: why is it FD_FN_PURE and not CONST?
 FD_FN_PURE uchar const * fd_mcache_app_laddr_const( fd_frag_meta_t const * mcache );
 FD_FN_PURE uchar *       fd_mcache_app_laddr      ( fd_frag_meta_t *       mcache );
+
+FD_FN_CONST uint const * fd_mcache_futex_flag_const( fd_frag_meta_t const * mcache );
+FD_FN_PURE uint *       fd_mcache_futex_flag      ( fd_frag_meta_t *       mcache );
 
 /* fd_mcache_seq_query atomically reads the mcache's seq[0] (e.g. from
    fd_mcache_seq_laddr_const) to get a lower bound of where the producer

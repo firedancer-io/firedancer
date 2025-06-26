@@ -37,6 +37,7 @@ prodcons_topo( config_t * config ) {
   fd_topob_tile_out( topo, "produc", 0UL, "data_link", 0UL );
   
   // Connect consumer input to link  
+  // TODO: make reliable, cuz unreliable getting overrun
   fd_topob_tile_in( topo, "consum", 0UL, "metric_in", "data_link", 0UL, FD_TOPOB_UNRELIABLE, FD_TOPOB_POLLED );
   
   fd_topob_finish( topo, CALLBACKS );
