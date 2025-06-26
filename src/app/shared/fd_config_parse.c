@@ -238,17 +238,17 @@ fd_config_extract_pod( uchar *       pod,
   CFG_POP      ( cstr,   tiles.store_int.shred_cap_replay                 );
   CFG_POP      ( ulong,  tiles.store_int.shred_cap_end_slot               );
 
-  CFG_POP      ( ulong,  tiles.batch.full_interval                        );
-  CFG_POP      ( ulong,  tiles.batch.incremental_interval                 );
-  CFG_POP      ( cstr,   tiles.batch.out_dir                              );
-
-  CFG_POP      ( bool,   tiles.restart.enabled                            );
-  CFG_POP      ( cstr,   tiles.restart.wen_restart_coordinator            );
-  CFG_POP      ( cstr,   tiles.restart.genesis_hash                       );
+  CFG_POP      ( ushort, tiles.send.send_src_port                         );
 
   CFG_POP      ( bool,   tiles.archiver.enabled                           );
   CFG_POP      ( ulong,  tiles.archiver.end_slot                          );
   CFG_POP      ( cstr,   tiles.archiver.archiver_path                     );
+
+  if( FD_UNLIKELY( config->is_firedancer ) ) {
+    CFG_POP      ( bool,    tiles.shredcap.enabled                           );
+    CFG_POP      ( cstr,    tiles.shredcap.folder_path                       );
+    CFG_POP      ( ulong,   tiles.shredcap.write_buffer_size                  );
+  }
 
   CFG_POP      ( bool,   development.sandbox                              );
   CFG_POP      ( bool,   development.no_clone                             );

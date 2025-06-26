@@ -1191,9 +1191,6 @@ user = ""
         # slow clients but also increase memory usage.
         send_buffer_size_mb = 5120
 
-    [tiles.restart]
-        enabled = false
-
     [tiles.archiver]
         enabled = false
 

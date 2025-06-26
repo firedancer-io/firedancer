@@ -257,8 +257,8 @@ fd_grpc_client_rxtx_socket( fd_grpc_client_t * client,
    - The connection is not dead and the HTTP/2 handshake is complete.
    - Client has quota to open a new stream (MAX_CONCURRENT_STREAMS)
    - There is no other request still sending.
-   - The message serialized size does not exceed
-     FD_GRPC_CLIENT_REQUEST_SZ_MAX.
+   - The message serialized size does not exceed buf_max (set in
+     fd_grpc_client_new())
    - rbuf_tx is empty.  (HTTP/2 frames all flushed out to sockets) */
 
 fd_grpc_h2_stream_t *

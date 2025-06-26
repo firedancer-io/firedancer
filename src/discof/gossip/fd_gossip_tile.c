@@ -4,20 +4,17 @@
 #include "../../disco/topo/fd_topo.h"
 #include "generated/fd_gossip_tile_seccomp.h"
 
-#include "../restart/fd_restart.h"
-
 #include "../../disco/fd_disco.h"
 #include "../../disco/keyguard/fd_keyload.h"
 #include "../../disco/keyguard/fd_keyguard_client.h"
 #include "../../disco/net/fd_net_tile.h"
 #include "../../flamenco/gossip/fd_gossip.h"
-#include "../../flamenco/runtime/fd_system_ids.h"
-#include "../../flamenco/runtime/fd_runtime.h"
 #include "../../util/pod/fd_pod.h"
 #include "../../util/net/fd_ip4.h"
 #include "../../util/net/fd_udp.h"
 #include "../../util/net/fd_net_headers.h"
-#include "../../disco/plugin/fd_plugin.h"
+
+#include "../store/util.h"
 
 #include <unistd.h>
 #include <arpa/inet.h>
@@ -28,11 +25,10 @@
 #include <sys/socket.h>
 
 #define CONTACT_INFO_PUBLISH_TIME_NS ((long)5e9)
-#define PLUGIN_PUBLISH_TIME_NS ((long)60e9)
+#define PLUGIN_PUBLISH_TIME_NS ((long)30e9)
 
 #define IN_KIND_NET     (1)
 #define IN_KIND_SEND    (2)
-#define IN_KIND_RESTART (3)
 #define IN_KIND_SIGN    (4)
 #define MAX_IN_LINKS    (8)
 
@@ -42,13 +38,6 @@ static ulong
 fd_pubkey_hash( fd_pubkey_t const * key, ulong seed ) {
   return fd_hash( seed, key->key, sizeof(fd_pubkey_t) );
 }
-
-struct fd_contact_info_elem {
-  fd_pubkey_t key;
-  ulong next;
-  fd_gossip_contact_info_v1_t contact_info;
-};
-typedef struct fd_contact_info_elem fd_contact_info_elem_t;
 
 /* Contact info table */
 #define MAP_NAME     fd_contact_info_table
@@ -140,16 +129,6 @@ struct fd_gossip_tile_ctx {
   ulong       tower_out_wmark;
   ulong       tower_out_chunk;
 
-  fd_frag_meta_t * restart_out_mcache;
-  ulong *          restart_out_sync;
-  ulong            restart_out_depth;
-  ulong            restart_out_seq;
-
-  fd_wksp_t * restart_out_mem;
-  ulong       restart_out_chunk0;
-  ulong       restart_out_wmark;
-  ulong       restart_out_chunk;
-
   fd_wksp_t *           wksp;
   fd_gossip_peer_addr_t gossip_my_addr;
   fd_gossip_peer_addr_t tvu_my_addr;
@@ -192,12 +171,6 @@ struct fd_gossip_tile_ctx {
 
   ulong replay_vote_txn_sz;
   uchar replay_vote_txn [ FD_TXN_MTU ];
-
-  long  restart_last_push_time;
-  ulong restart_last_vote_msg_sz;
-  ulong restart_heaviest_fork_msg_sz;
-  ulong restart_heaviest_fork_msg[ sizeof(fd_gossip_restart_heaviest_fork_t) ];
-  uchar restart_last_vote_msg[ FD_RESTART_LINK_BYTES_MAX+sizeof(uint) ];
 
   /* Metrics */
   fd_gossip_tile_metrics_t metrics;
@@ -284,34 +257,19 @@ gossip_deliver_fun( fd_crds_data_t * data,
     ctx->verify_out_seq   = fd_seq_inc( ctx->verify_out_seq, 1UL );
     ctx->verify_out_chunk = fd_dcache_compact_next( ctx->verify_out_chunk, vote_txn_sz, ctx->verify_out_chunk0, ctx->verify_out_wmark );
 
-  } else if( fd_crds_data_is_contact_info_v1( data ) ) {
-    fd_gossip_contact_info_v1_t const * contact_info = &data->inner.contact_info_v1;
-    FD_LOG_DEBUG(("contact info v1 - ip: " FD_IP4_ADDR_FMT ", port: %u", FD_IP4_ADDR_FMT_ARGS( contact_info->gossip.inner.ip4.addr ), contact_info->gossip.inner.ip4.port ));
-
-    fd_contact_info_elem_t * ele = fd_contact_info_table_query( ctx->contact_info_table, &contact_info->id, NULL );
-    if (FD_UNLIKELY(!ele &&
-                    !fd_contact_info_table_is_full(ctx->contact_info_table))) {
-      ele = fd_contact_info_table_insert(ctx->contact_info_table,
-                                         &contact_info->id);
-    }
-    if (ele) {
-      ele->contact_info = *contact_info;
-    }
   } else if( fd_crds_data_is_contact_info_v2( data ) ) {
     fd_gossip_contact_info_v2_t const * contact_info_v2 = &data->inner.contact_info_v2;
 
-    fd_gossip_contact_info_v1_t contact_info;
-    fd_gossip_contact_info_v2_to_v1( contact_info_v2, &contact_info );
-    FD_LOG_DEBUG(("contact info v2 - ip: " FD_IP4_ADDR_FMT ", port: %u", FD_IP4_ADDR_FMT_ARGS( contact_info.gossip.inner.ip4.addr ), contact_info.gossip.inner.ip4.port ));
+    fd_contact_info_elem_t * ele = fd_contact_info_table_query( ctx->contact_info_table, &contact_info_v2->from, NULL );
 
-    fd_contact_info_elem_t * ele = fd_contact_info_table_query( ctx->contact_info_table, &contact_info.id, NULL );
-    if (FD_UNLIKELY(!ele &&
-                    !fd_contact_info_table_is_full(ctx->contact_info_table))) {
-      ele = fd_contact_info_table_insert(ctx->contact_info_table,
-                                         &contact_info.id);
+    if( FD_UNLIKELY( !ele &&
+                     !fd_contact_info_table_is_full( ctx->contact_info_table ) ) ) {
+      ele = fd_contact_info_table_insert( ctx->contact_info_table, &contact_info_v2->from);
+      fd_contact_info_init( &ele->contact_info );
     }
-    if (ele) {
-      ele->contact_info = contact_info;
+
+    if( FD_LIKELY( ele ) ) {
+      fd_contact_info_from_ci_v2( contact_info_v2, &ele->contact_info );
     }
 
   } else if( fd_crds_data_is_duplicate_shred( data ) ) {
@@ -322,52 +280,6 @@ gossip_deliver_fun( fd_crds_data_t * data,
     memcpy( chunk_laddr + sizeof(fd_gossip_duplicate_shred_t), duplicate_shred->chunk, duplicate_shred->chunk_len );
     fd_stem_publish( ctx->stem, ctx->tower_out_idx, data->discriminant, ctx->tower_out_chunk, sizeof(fd_gossip_duplicate_shred_t) + duplicate_shred->chunk_len, 0UL, 0, 0 /* FIXME gossip tile needs to plumb through ts. this callback API is not ideal. */ );
 
-  } else if( fd_crds_data_is_restart_last_voted_fork_slots( data ) ) {
-
-    if( FD_UNLIKELY( !ctx->restart_out_mcache ) ) return;
-
-    ulong struct_len       = sizeof( fd_gossip_restart_last_voted_fork_slots_t );
-    uchar * last_vote_msg_ = fd_chunk_to_laddr( ctx->restart_out_mem, ctx->restart_out_chunk );
-    FD_STORE( uint, last_vote_msg_, fd_crds_data_enum_restart_last_voted_fork_slots );
-
-    ulong bitmap_len   = 0;
-    uchar * bitmap_dst = last_vote_msg_+sizeof(uint)+struct_len;
-    if ( FD_LIKELY( data->inner.restart_last_voted_fork_slots.offsets.discriminant==fd_restart_slots_offsets_enum_raw_offsets ) ) {
-      uchar * bitmap_src = data->inner.restart_last_voted_fork_slots.offsets.inner.raw_offsets.offsets_bitvec;
-      bitmap_len         = data->inner.restart_last_voted_fork_slots.offsets.inner.raw_offsets.offsets_bitvec_len;
-      memcpy( bitmap_dst, bitmap_src, bitmap_len );
-    } else {
-      uchar bitmap_src [ FD_RESTART_RAW_BITMAP_BYTES_MAX ];
-      fd_restart_convert_runlength_to_raw_bitmap( &data->inner.restart_last_voted_fork_slots, bitmap_src, &bitmap_len );
-      if( FD_UNLIKELY( bitmap_len>FD_RESTART_RAW_BITMAP_BYTES_MAX ) ) {
-        FD_LOG_WARNING(( "Ignore an invalid gossip message with bitmap length greater than %lu", FD_RESTART_RAW_BITMAP_BYTES_MAX ));
-        return;
-      }
-      memcpy( bitmap_dst, bitmap_src, bitmap_len );
-    }
-    /* Copy the struct to the buffer now because it may be modified by fd_restart_convert_runlength_to_raw_bitmap */
-    fd_memcpy( last_vote_msg_+sizeof(uint), &data->inner.restart_last_voted_fork_slots, struct_len );
-
-    ulong total_len = sizeof(uint) + struct_len + bitmap_len;
-    fd_mcache_publish( ctx->restart_out_mcache, ctx->restart_out_depth, ctx->restart_out_seq, 1UL, ctx->restart_out_chunk,
-                       total_len, 0UL, 0, 0 );
-    ctx->restart_out_seq   = fd_seq_inc( ctx->restart_out_seq, 1UL );
-    ctx->restart_out_chunk = fd_dcache_compact_next( ctx->restart_out_chunk, total_len, ctx->restart_out_chunk0, ctx->restart_out_wmark );
-  } else if( fd_crds_data_is_restart_heaviest_fork( data ) ) {
-    if( FD_UNLIKELY( !ctx->restart_out_mcache ) ) return;
-
-    uchar * heaviest_fork_msg_ = fd_chunk_to_laddr( ctx->restart_out_mem, ctx->restart_out_chunk );
-    FD_STORE( uint, heaviest_fork_msg_, fd_crds_data_enum_restart_heaviest_fork );
-
-    fd_memcpy( heaviest_fork_msg_+sizeof(uint),
-               &data->inner.restart_heaviest_fork,
-               sizeof(fd_gossip_restart_heaviest_fork_t) );
-
-    ulong total_len = sizeof(uint) + sizeof(fd_gossip_restart_heaviest_fork_t);
-    fd_mcache_publish( ctx->restart_out_mcache, ctx->restart_out_depth, ctx->restart_out_seq, 1UL, ctx->restart_out_chunk,
-                       total_len, 0UL, 0, 0 );
-    ctx->restart_out_seq   = fd_seq_inc( ctx->restart_out_seq, 1UL );
-    ctx->restart_out_chunk = fd_dcache_compact_next( ctx->restart_out_chunk, total_len, ctx->restart_out_chunk0, ctx->restart_out_wmark );
   }
 }
 
@@ -392,7 +304,7 @@ before_frag( fd_gossip_tile_ctx_t * ctx,
              ulong                  seq FD_PARAM_UNUSED,
              ulong                  sig ) {
   uint in_kind = ctx->in_kind[ in_idx ];
-  return in_kind != IN_KIND_SEND && in_kind != IN_KIND_RESTART && fd_disco_netmux_sig_proto( sig ) != DST_PROTO_GOSSIP;
+  return in_kind != IN_KIND_SEND && fd_disco_netmux_sig_proto( sig ) != DST_PROTO_GOSSIP;
 }
 
 static inline void
@@ -406,32 +318,6 @@ during_frag( fd_gossip_tile_ctx_t * ctx,
 
   uint in_kind = ctx->in_kind[ in_idx ];
   fd_gossip_in_ctx_t const * in_ctx = &ctx->in_links[ in_idx ];
-  if( in_kind==IN_KIND_RESTART ) {
-    if( FD_UNLIKELY( chunk<in_ctx->chunk0 || chunk>in_ctx->wmark || sz>FD_RESTART_LINK_BYTES_MAX+sizeof(uint) ) ) {
-      FD_LOG_ERR(( "chunk %lu %lu corrupt, not in range [%lu,%lu]", chunk, sz, in_ctx->chunk0, in_ctx->wmark ));
-    }
-
-    uchar * msg = fd_chunk_to_laddr( in_ctx->mem, chunk );
-    uint discriminant = FD_LOAD( uint, msg );
-    if( discriminant==fd_crds_data_enum_restart_last_voted_fork_slots ) {
-      if( ctx->restart_last_vote_msg_sz!=0 ) {
-        FD_LOG_ERR(( "Gossip tile expects fd_gossip_restart_last_voted_fork_slots_t only once." ));
-      }
-      /* Copy this message into ctx and after_frag will send it out periodically */
-      FD_TEST( sz>=sizeof(uint)+sizeof(fd_gossip_restart_last_voted_fork_slots_t) );
-      fd_memcpy( ctx->restart_last_vote_msg, msg+sizeof(uint), sz-sizeof(uint) );
-      ctx->restart_last_vote_msg_sz = sz-sizeof(uint);
-    } else if( discriminant==fd_crds_data_enum_restart_heaviest_fork ) {
-      if( ctx->restart_heaviest_fork_msg_sz!=0 ) {
-        FD_LOG_ERR(( "Gossip tile expects fd_gossip_restart_heaviest_fork_t only once." ));
-      }
-      /* Copy this message into ctx and after_frag will send it out periodically */
-      FD_TEST( sz==sizeof(uint)+sizeof(fd_gossip_restart_heaviest_fork_t) );
-      fd_memcpy( ctx->restart_heaviest_fork_msg, msg+sizeof(uint), sz-sizeof(uint) );
-      ctx->restart_heaviest_fork_msg_sz = sz-sizeof(uint);
-    }
-    return;
-  }
 
   if( in_kind == IN_KIND_SEND ) {
     if( FD_UNLIKELY( chunk<in_ctx->chunk0 || chunk>in_ctx->wmark || sz>FD_TXN_MTU ) ) {
@@ -459,9 +345,6 @@ after_frag( fd_gossip_tile_ctx_t * ctx,
             ulong                  tspub  FD_PARAM_UNUSED,
             fd_stem_context_t *    stem ) {
   uint in_kind = ctx->in_kind[ in_idx ];
-
-  /* Messages from the replay tile for wen-restart are handled by after_credit periodically */
-  if( in_kind==IN_KIND_RESTART ) return;
 
   if( in_kind==IN_KIND_SEND ) {
     fd_crds_data_t vote_txn_crds;
@@ -509,41 +392,7 @@ publish_peers_to_plugin( fd_gossip_tile_ctx_t * ctx,
        iter = fd_contact_info_table_iter_next( ctx->contact_info_table, iter ), ++i ) {
     fd_contact_info_elem_t const * ele = fd_contact_info_table_iter_ele_const( ctx->contact_info_table, iter );
     fd_gossip_update_msg_t * msg = (fd_gossip_update_msg_t *)(dst + sizeof(ulong) + i*FD_GOSSIP_LINK_MSG_SIZE);
-    memset( msg, 0, FD_GOSSIP_LINK_MSG_SIZE );
-    memcpy( msg->pubkey, ele->contact_info.id.key, sizeof(fd_pubkey_t) );
-    msg->wallclock = ele->contact_info.wallclock;
-    msg->shred_version = ele->contact_info.shred_version;
-#define COPY_ADDR( _idx_, _srcname_ )                                                  \
-    if( ele->contact_info._srcname_.discriminant == fd_gossip_socket_addr_enum_ip4 ) { \
-      msg->addrs[ _idx_ ].ip = ele->contact_info._srcname_.inner.ip4.addr;             \
-      msg->addrs[ _idx_ ].port = ele->contact_info._srcname_.inner.ip4.port;           \
-    }
-    /*
-      0:  gossip_socket,
-      1:  rpc_socket,
-      2:  rpc_pubsub_socket,
-      3:  serve_repair_socket_udp,
-      4:  serve_repair_socket_quic,
-      5:  tpu_socket_udp,
-      6:  tpu_socket_quic,
-      7:  tvu_socket_udp,
-      8:  tvu_socket_quic,
-      9:  tpu_forwards_socket_udp,
-      10: tpu_forwards_socket_quic,
-      11: tpu_vote_socket,
-    */
-    COPY_ADDR(0,  gossip);
-    COPY_ADDR(1,  rpc);
-    COPY_ADDR(2,  rpc_pubsub);
-    COPY_ADDR(3,  serve_repair);
-    COPY_ADDR(4,  serve_repair);
-    COPY_ADDR(5,  tpu);
-    COPY_ADDR(6,  tpu);
-    COPY_ADDR(7,  tvu);
-    COPY_ADDR(8,  tvu);
-    COPY_ADDR(9,  tpu_fwd);
-    COPY_ADDR(10, tpu_fwd);
-    COPY_ADDR(11, tpu_vote);
+    fd_contact_info_to_update_msg( &ele->contact_info, msg );
   }
 
   *(ulong *)dst = i;
@@ -590,65 +439,61 @@ after_credit( fd_gossip_tile_ctx_t * ctx,
          !fd_contact_info_table_iter_done( ctx->contact_info_table, iter );
          iter = fd_contact_info_table_iter_next( ctx->contact_info_table, iter ) ) {
       fd_contact_info_elem_t const * ele = fd_contact_info_table_iter_ele_const( ctx->contact_info_table, iter );
+      fd_contact_info_t const * ci = &ele->contact_info;
 
-      if( ele->contact_info.shred_version!=fd_gossip_get_shred_version( ctx->gossip ) ) {
+      if( fd_contact_info_get_shred_version( ci )!=fd_gossip_get_shred_version( ctx->gossip ) ) {
         ctx->metrics.mismatched_contact_info_shred_version += 1UL;
         continue;
       }
 
       {
-        if( !fd_gossip_socket_addr_is_ip4( &ele->contact_info.tvu ) ){
-          ctx->metrics.ipv6_contact_info[ FD_METRICS_ENUM_PEER_TYPES_V_TVU_IDX ] += 1UL;
-          continue;
-        }
-
-        // TODO: add a consistency check function for IP addresses
-        if( ele->contact_info.tvu.inner.ip4.addr==0 ) {
+        ushort tvu_socket_idx = ci->socket_tag_idx[ FD_GOSSIP_SOCKET_TAG_TVU ];
+        if( tvu_socket_idx == FD_CONTACT_INFO_SOCKET_TAG_NULL ) {
           ctx->metrics.zero_ipv4_contact_info[ FD_METRICS_ENUM_PEER_TYPES_V_TVU_IDX ] += 1UL;
           continue;
         }
+        if( !fd_gossip_ip_addr_is_ip4( &ci->addrs[ ci->sockets[ tvu_socket_idx].index ] )) {
+          continue;
+        }
 
-        tvu_peers[tvu_peer_cnt].ip4_addr = ele->contact_info.tvu.inner.ip4.addr;
-        tvu_peers[tvu_peer_cnt].udp_port = ele->contact_info.tvu.inner.ip4.port;
-        memcpy( tvu_peers[tvu_peer_cnt].pubkey, ele->contact_info.id.key, sizeof(fd_pubkey_t) );
+
+        tvu_peers[tvu_peer_cnt].ip4_addr = ci->addrs[ ci->sockets[ tvu_socket_idx].index ].inner.ip4;
+        tvu_peers[tvu_peer_cnt].udp_port = ci->ports[ tvu_socket_idx ]; /* NOT converted to net order */
+        memcpy( tvu_peers[tvu_peer_cnt].pubkey, &ci->ci_crd.from, sizeof(fd_pubkey_t) );
 
         tvu_peer_cnt++;
       }
 
       {
-        if( !fd_gossip_socket_addr_is_ip4( &ele->contact_info.repair ) ) {
-          ctx->metrics.ipv6_contact_info[ FD_METRICS_ENUM_PEER_TYPES_V_REPAIR_IDX ] += 1UL;
-          continue;
-        }
-
-        // TODO: add a consistency check function for IP addresses
-        if( ele->contact_info.serve_repair.inner.ip4.addr == 0 ) {
+        ushort repair_socket_idx = ci->socket_tag_idx[ FD_GOSSIP_SOCKET_TAG_SERVE_REPAIR ];
+        if( repair_socket_idx == FD_CONTACT_INFO_SOCKET_TAG_NULL ) {
           ctx->metrics.zero_ipv4_contact_info[ FD_METRICS_ENUM_PEER_TYPES_V_REPAIR_IDX ] += 1UL;
           continue;
         }
+        if( !fd_gossip_ip_addr_is_ip4( &ci->addrs[ ci->sockets[ repair_socket_idx].index ] )) {
+          continue;
+        }
 
-        repair_peers[repair_peers_cnt].ip4_addr = ele->contact_info.serve_repair.inner.ip4.addr;
-        repair_peers[repair_peers_cnt].udp_port = ele->contact_info.serve_repair.inner.ip4.port;
-        memcpy( repair_peers[repair_peers_cnt].pubkey, ele->contact_info.id.key, sizeof(fd_pubkey_t) );
+        repair_peers[repair_peers_cnt].ip4_addr = ci->addrs[ ci->sockets[ repair_socket_idx].index ].inner.ip4;
+        repair_peers[repair_peers_cnt].udp_port = ci->ports[ repair_socket_idx ]; /* NOT converted to net order */
+        memcpy( repair_peers[repair_peers_cnt].pubkey, &ci->ci_crd.from, sizeof(fd_pubkey_t) );
 
         repair_peers_cnt++;
       }
 
       {
-        if( !fd_gossip_socket_addr_is_ip4( &ele->contact_info.tpu_vote ) ) {
-          ctx->metrics.ipv6_contact_info[ FD_METRICS_ENUM_PEER_TYPES_V_SEND_IDX ] += 1UL;
-          continue;
-        }
-
-        // TODO: add a consistency check function for IP addresses
-        if( ele->contact_info.tpu_vote.inner.ip4.addr == 0 ) {
+        ushort sender_socket_idx = ci->socket_tag_idx[ FD_GOSSIP_SOCKET_TAG_TPU_QUIC ];
+        if( sender_socket_idx == FD_CONTACT_INFO_SOCKET_TAG_NULL ) {
           ctx->metrics.zero_ipv4_contact_info[ FD_METRICS_ENUM_PEER_TYPES_V_SEND_IDX ] += 1UL;
           continue;
         }
+        if( !fd_gossip_ip_addr_is_ip4( &ci->addrs[ ci->sockets[ sender_socket_idx].index ] )) {
+          continue;
+        }
 
-        send_peers[send_peers_cnt].ip4_addr = ele->contact_info.tpu_vote.inner.ip4.addr;
-        send_peers[send_peers_cnt].udp_port = ele->contact_info.tpu_vote.inner.ip4.port;
-        memcpy( send_peers[send_peers_cnt].pubkey, ele->contact_info.id.key, sizeof(fd_pubkey_t) );
+        send_peers[send_peers_cnt].ip4_addr = ci->addrs[ ci->sockets[ sender_socket_idx ].index ].inner.ip4;
+        send_peers[send_peers_cnt].udp_port = ci->ports[ sender_socket_idx ]; /* NOT converted to net order */
+        memcpy( send_peers[send_peers_cnt].pubkey, &ci->ci_crd.from, sizeof(fd_pubkey_t) );
 
         send_peers_cnt++;
       }
@@ -698,48 +543,6 @@ after_credit( fd_gossip_tile_ctx_t * ctx,
   if( ctx->gossip_plugin_out_mem && FD_UNLIKELY( ( now - ctx->last_plugin_push_time )>PLUGIN_PUBLISH_TIME_NS ) ) {
     ctx->last_plugin_push_time = now;
     publish_peers_to_plugin( ctx, stem );
-  }
-
-  if( FD_UNLIKELY(( ctx->restart_last_push_time+FD_RESTART_MSG_PUBLISH_PERIOD_NS<now )) ) {
-    ctx->restart_last_push_time = now;
-
-    if( FD_UNLIKELY( ctx->restart_last_vote_msg_sz>0 ) ) {
-      fd_crds_data_t restart_last_vote_msg;
-      restart_last_vote_msg.discriminant = fd_crds_data_enum_restart_last_voted_fork_slots;
-      fd_memcpy( &restart_last_vote_msg.inner.restart_last_voted_fork_slots,
-                 ctx->restart_last_vote_msg,
-                 sizeof(fd_gossip_restart_last_voted_fork_slots_t) );
-
-      restart_last_vote_msg.inner.restart_last_voted_fork_slots.shred_version = fd_gossip_get_shred_version( ctx->gossip );
-      restart_last_vote_msg.inner.restart_last_voted_fork_slots.offsets.inner.raw_offsets.offsets_bitvec = ctx->restart_last_vote_msg + sizeof(fd_gossip_restart_last_voted_fork_slots_t);
-
-      /* Convert the raw bitmap into RunLengthEncoding before sending out */
-      fd_restart_run_length_encoding_inner_t runlength_encoding[ FD_RESTART_PACKET_BITMAP_BYTES_MAX/sizeof(ushort) ];
-      fd_restart_convert_raw_bitmap_to_runlength( &restart_last_vote_msg.inner.restart_last_voted_fork_slots, runlength_encoding );
-
-      FD_TEST( fd_gossip_push_value( ctx->gossip, &restart_last_vote_msg, NULL )==0 );
-      FD_LOG_NOTICE(( "Send out restart_last_voted_fork_slots message with bitmap=%luB, vote_slot=%lu, bank_hash=%s, shred_version=%u",
-                      restart_last_vote_msg.inner.restart_last_voted_fork_slots.offsets.inner.run_length_encoding.offsets_len*sizeof(ushort),
-                      restart_last_vote_msg.inner.restart_last_voted_fork_slots.last_voted_slot,
-                      FD_BASE58_ENC_32_ALLOCA( &restart_last_vote_msg.inner.restart_last_voted_fork_slots.last_voted_hash ),
-                      restart_last_vote_msg.inner.restart_last_voted_fork_slots.shred_version ));
-    }
-
-    if( FD_UNLIKELY( ctx->restart_heaviest_fork_msg_sz>0 ) ) {
-      fd_crds_data_t restart_heaviest_fork_msg;
-      restart_heaviest_fork_msg.discriminant = fd_crds_data_enum_restart_heaviest_fork;
-      fd_memcpy( &restart_heaviest_fork_msg.inner.restart_heaviest_fork,
-                 ctx->restart_heaviest_fork_msg,
-                 sizeof(fd_gossip_restart_heaviest_fork_t) );
-      restart_heaviest_fork_msg.inner.restart_heaviest_fork.shred_version = fd_gossip_get_shred_version( ctx->gossip );
-
-      FD_TEST( fd_gossip_push_value( ctx->gossip, &restart_heaviest_fork_msg, NULL )==0 );
-      FD_LOG_NOTICE(( "Send out restart_heaviest_fork gossip message with slot=%lu, hash=%s, shred_version=%u",
-                       restart_heaviest_fork_msg.inner.restart_heaviest_fork.last_slot,
-                       FD_BASE58_ENC_32_ALLOCA( &restart_heaviest_fork_msg.inner.restart_heaviest_fork.last_slot_hash ),
-                       restart_heaviest_fork_msg.inner.restart_heaviest_fork.shred_version ));
-
-    }
   }
 
   ushort shred_version = fd_gossip_get_shred_version( ctx->gossip );
@@ -794,8 +597,6 @@ unprivileged_init( fd_topo_t *      topo,
       continue;
     } else if( 0==strcmp( link->name, "send_txns" ) ) {
       ctx->in_kind[ in_idx ] = IN_KIND_SEND;
-    } else if( 0==strcmp( link->name, "rstart_gossi" ) ) {
-      ctx->in_kind[ in_idx ] = IN_KIND_RESTART;
     } else if( 0==strcmp( link->name, "sign_gossip" ) ) {
       ctx->in_kind[ in_idx ] = IN_KIND_SIGN;
       sign_link_in_idx = in_idx;
@@ -890,18 +691,6 @@ unprivileged_init( fd_topo_t *      topo,
       FD_TEST( ctx->tower_out_mem );
       FD_TEST( fd_dcache_compact_is_safe( ctx->tower_out_mem, link->dcache, link->mtu, link->depth ) );
 
-    } else if( 0==strcmp( link->name, "gossi_rstart" ) ) {
-
-      if( FD_UNLIKELY( ctx->restart_out_mcache ) ) FD_LOG_ERR(( "gossip tile has multiple gossi_rstart out links" ));
-      ctx->restart_out_mcache = link->mcache;
-      ctx->restart_out_sync   = fd_mcache_seq_laddr( ctx->restart_out_mcache );
-      ctx->restart_out_depth  = fd_mcache_depth( ctx->restart_out_mcache );
-      ctx->restart_out_seq    = fd_mcache_seq_query( ctx->restart_out_sync );
-      ctx->restart_out_mem    = topo->workspaces[ topo->objs[ link->dcache_obj_id ].wksp_id ].wksp;
-      ctx->restart_out_chunk0 = fd_dcache_compact_chunk0( ctx->restart_out_mem, link->dcache );
-      ctx->restart_out_wmark  = fd_dcache_compact_wmark ( ctx->restart_out_mem, link->dcache, link->mtu );
-      ctx->restart_out_chunk  = ctx->restart_out_chunk0;
-
     } else if( 0==strcmp( link->name, "gossip_plugi" ) ) {
 
       if( FD_UNLIKELY( ctx->gossip_plugin_out_mem ) ) FD_LOG_ERR(( "gossip tile has multiple gossip_plugi out links" ));
@@ -931,10 +720,7 @@ unprivileged_init( fd_topo_t *      topo,
 
   fd_ip4_udp_hdr_init( ctx->hdr, FD_NET_MTU, ctx->gossip_my_addr.addr, ctx->gossip_listen_port );
 
-  ctx->last_shred_dest_push_time    = 0;
-  ctx->restart_last_push_time       = 0;
-  ctx->restart_last_vote_msg_sz     = 0;
-  ctx->restart_heaviest_fork_msg_sz = 0;
+  ctx->last_shred_dest_push_time = 0;
 
   fd_topo_link_t * sign_in  = &topo->links[ tile->in_link_id [ sign_link_in_idx  ] ];
   fd_topo_link_t * sign_out = &topo->links[ tile->out_link_id[ sign_link_out_idx ] ];
@@ -951,7 +737,7 @@ unprivileged_init( fd_topo_t *      topo,
 
   FD_LOG_NOTICE(( "gossip my addr - addr: " FD_IP4_ADDR_FMT ":%u",
     FD_IP4_ADDR_FMT_ARGS( ctx->gossip_my_addr.addr ), fd_ushort_bswap( ctx->gossip_my_addr.port ) ));
-  ctx->gossip_config.my_addr       = ctx->gossip_my_addr;
+  ctx->gossip_config.my_addr    = ctx->gossip_my_addr;
   ctx->gossip_config.my_version = (fd_gossip_version_v3_t){
     .major = 42U,
     .minor = 42U,

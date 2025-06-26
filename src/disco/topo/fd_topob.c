@@ -343,7 +343,6 @@ fd_topob_auto_layout( fd_topo_t * topo,
     "metric",
     "cswtch",
     "bencho",
-    "rstart", /* FIREDANCER only */
   };
 
   char const * ORDERED[] = {
@@ -374,7 +373,6 @@ fd_topob_auto_layout( fd_topo_t * topo,
     "send",   /* FIREDANCER only */
     "tower",  /* FIREDANCER only */
     "rpcsrv", /* FIREDANCER only */
-    "batch",  /* FIREDANCER only */
     "pktgen"
   };
 

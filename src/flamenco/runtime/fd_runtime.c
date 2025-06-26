@@ -80,11 +80,11 @@ fd_runtime_compute_max_tick_height( ulong   ticks_per_slot,
     ulong next_slot = fd_ulong_sat_add( slot, 1UL );
     if( FD_UNLIKELY( next_slot == slot ) ) {
       FD_LOG_WARNING(( "max tick height addition overflowed slot %lu ticks_per_slot %lu", slot, ticks_per_slot ));
-      return FD_RUNTIME_EXECUTE_GENERIC_ERR;
+      return -1;
     }
     if( FD_UNLIKELY( ULONG_MAX / ticks_per_slot < next_slot ) ) {
       FD_LOG_WARNING(( "max tick height multiplication overflowed slot %lu ticks_per_slot %lu", slot, ticks_per_slot ));
-      return FD_RUNTIME_EXECUTE_GENERIC_ERR;
+      return -1;
     }
     max_tick_height = fd_ulong_sat_mul( next_slot, ticks_per_slot );
   }
@@ -1790,36 +1790,31 @@ fd_runtime_pre_execute_check( fd_execute_txn_task_info_t * task_info,
   /* https://github.com/anza-xyz/agave/blob/ced98f1ebe73f7e9691308afa757323003ff744f/svm/src/transaction_processor.rs#L284-L296 */
   err = fd_executor_load_transaction_accounts( txn_ctx );
   if( FD_UNLIKELY( err!=FD_RUNTIME_EXECUTE_SUCCESS ) ) {
-    if( FD_FEATURE_ACTIVE( txn_ctx->slot, txn_ctx->features, enable_transaction_loading_failure_fees ) ) {
-      /* Regardless of whether transaction accounts were loaded successfully, the transaction is
-         included in the block and transaction fees are collected.
-         https://github.com/anza-xyz/agave/blob/v2.1.6/svm/src/transaction_processor.rs#L341-L357 */
-      task_info->txn->flags |= FD_TXN_P_FLAGS_FEES_ONLY;
-      task_info->exec_res    = err;
+    /* Regardless of whether transaction accounts were loaded successfully, the transaction is
+        included in the block and transaction fees are collected.
+        https://github.com/anza-xyz/agave/blob/v2.1.6/svm/src/transaction_processor.rs#L341-L357 */
+    task_info->txn->flags |= FD_TXN_P_FLAGS_FEES_ONLY;
+    task_info->exec_res    = err;
 
-      /* If the transaction fails to load, the "rollback" accounts will include one of the following:
-         1. Nonce account only
-         2. Fee payer only
-         3. Nonce account + fee payer
+    /* If the transaction fails to load, the "rollback" accounts will include one of the following:
+        1. Nonce account only
+        2. Fee payer only
+        3. Nonce account + fee payer
 
-         Because the cost tracker uses the loaded account data size in block cost calculations, we need to
-         make sure our calculated loaded accounts data size is conformant with Agave's.
-         https://github.com/anza-xyz/agave/blob/v2.1.14/runtime/src/bank.rs#L4116
+        Because the cost tracker uses the loaded account data size in block cost calculations, we need to
+        make sure our calculated loaded accounts data size is conformant with Agave's.
+        https://github.com/anza-xyz/agave/blob/v2.1.14/runtime/src/bank.rs#L4116
 
-         In any case, we should always add the dlen of the fee payer. */
-      task_info->txn_ctx->loaded_accounts_data_size = task_info->txn_ctx->accounts[FD_FEE_PAYER_TXN_IDX].vt->get_data_len( &task_info->txn_ctx->accounts[FD_FEE_PAYER_TXN_IDX] );
+        In any case, we should always add the dlen of the fee payer. */
+    task_info->txn_ctx->loaded_accounts_data_size = task_info->txn_ctx->accounts[FD_FEE_PAYER_TXN_IDX].vt->get_data_len( &task_info->txn_ctx->accounts[FD_FEE_PAYER_TXN_IDX] );
 
-      /* Special case handling for if a nonce account is present in the transaction. */
-      if( task_info->txn_ctx->nonce_account_idx_in_txn!=ULONG_MAX ) {
-        /* If the nonce account is not the fee payer, then we separately add the dlen of the nonce account. Otherwise, we would
-           be double counting the dlen of the fee payer. */
-        if( task_info->txn_ctx->nonce_account_idx_in_txn!=FD_FEE_PAYER_TXN_IDX ) {
-          task_info->txn_ctx->loaded_accounts_data_size += task_info->txn_ctx->rollback_nonce_account->vt->get_data_len( task_info->txn_ctx->rollback_nonce_account );
-        }
+    /* Special case handling for if a nonce account is present in the transaction. */
+    if( task_info->txn_ctx->nonce_account_idx_in_txn!=ULONG_MAX ) {
+      /* If the nonce account is not the fee payer, then we separately add the dlen of the nonce account. Otherwise, we would
+          be double counting the dlen of the fee payer. */
+      if( task_info->txn_ctx->nonce_account_idx_in_txn!=FD_FEE_PAYER_TXN_IDX ) {
+        task_info->txn_ctx->loaded_accounts_data_size += task_info->txn_ctx->rollback_nonce_account->vt->get_data_len( task_info->txn_ctx->rollback_nonce_account );
       }
-    } else {
-      task_info->txn->flags = 0U;
-      task_info->exec_res   = err;
     }
   }
 
@@ -3951,7 +3946,7 @@ fd_runtime_block_verify_tpool( fd_exec_slot_ctx_t *    slot_ctx,
   );
   if( FD_UNLIKELY( tick_res != FD_BLOCK_OK ) ) {
     FD_LOG_WARNING(( "failed to verify ticks res %lu slot %lu", tick_res, slot_ctx->slot_bank.slot ));
-    return FD_RUNTIME_EXECUTE_GENERIC_ERR;
+    return -1;
   }
 
   /* poh_verification_info is now in order information of all the microblocks */
@@ -4009,15 +4004,6 @@ fd_runtime_publish_old_txns( fd_exec_slot_ctx_t * slot_ctx,
         }
       } else {
         slot_ctx->root_slot = txn->xid.ul[0];
-        /* TODO: The epoch boundary check is not correct due to skipped slots. */
-        if( (!(slot_ctx->root_slot % slot_ctx->snapshot_freq) || (
-             !(slot_ctx->root_slot % slot_ctx->incremental_freq) && slot_ctx->last_snapshot_slot)) &&
-             !fd_runtime_is_epoch_boundary( epoch_bank, slot_ctx->root_slot, slot_ctx->root_slot - 1UL )) {
-
-          slot_ctx->last_snapshot_slot         = slot_ctx->root_slot;
-          slot_ctx->epoch_ctx->constipate_root = 1;
-          fd_txncache_set_is_constipated( slot_ctx->status_cache, 1 );
-        }
 
         if( FD_UNLIKELY( !fd_funk_txn_publish( funk, txn, 1 ) ) ) {
           FD_LOG_ERR(( "No transactions were published" ));

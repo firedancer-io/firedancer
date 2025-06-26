@@ -602,7 +602,6 @@ class StructType(TypeNode):
                 m.arch_index = (int(f["tag"]) if "tag" in f else index)
             index = index + 1
         self.comment = (json["comment"] if "comment" in json else None)
-        self.nomethods = ("attribute" in json)
         self.encoders = (json["encoders"] if "encoders" in json else None)
         if "alignment" in json:
             self.attribute = f'__attribute__((aligned({json["alignment"]}UL))) '
@@ -647,9 +646,6 @@ class StructType(TypeNode):
         print("}", file=body)
 
     def emitImpls(self):
-        if self.nomethods:
-            return
-
         if self.encoders is not False:
             self.emitGenerators()
 
@@ -753,7 +749,7 @@ def main():
 
     nametypes = {}
     for t in alltypes:
-        if hasattr(t, 'fullname') and not (hasattr(t, 'nomethods') and t.nomethods):
+        if hasattr(t, 'fullname'):
             nametypes[t.fullname] = t
 
     global fixedsizetypes

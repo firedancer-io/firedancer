@@ -52,9 +52,6 @@ struct fd_exec_slot_ctx {
                                                         of Agave's ExecutionRecordingConfig. */
 
   ulong                       root_slot;
-  ulong                       snapshot_freq;
-  ulong                       incremental_freq;
-  ulong                       last_snapshot_slot;
 
   fd_wksp_t *                 runtime_wksp; /* TODO: this should hold wksp for runtime_spad. */
   fd_wksp_t *                 funk_wksp; /* TODO: this should hold wksp for funk. */

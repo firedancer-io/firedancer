@@ -15,6 +15,11 @@
 
 #if FD_HAS_SDT
 
+#if defined(__clang__) && (__clang_major__ == 19)
+/* Work around an incompatibility between Clang 19 and SystemTap SDT */
+#pragma GCC diagnostic ignored "-Wc23-extensions"
+#endif
+
 #include <sys/sdt.h>
 
 #define FD_DTRACE_PROBE(name)                  DTRACE_PROBE(Firedancer,name)

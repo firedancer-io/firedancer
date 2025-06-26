@@ -6,7 +6,6 @@
 #include "../runtime/context/fd_exec_slot_ctx.h"
 #include "../../ballet/zstd/fd_zstd.h"
 #include "../../flamenco/types/fd_types.h"
-#include "../../flamenco/types/fd_types_yaml.h"
 
 #include <assert.h>
 #include <errno.h>
@@ -35,13 +34,10 @@ struct fd_snapshot_dumper {
   fd_snapshot_loader_t *  loader;
   fd_snapshot_restore_t * restore;
 
-  int                      yaml_fd;
-
   int                      csv_fd;
   fd_io_buffered_ostream_t csv_out;
   uchar                    csv_buf[ OSTREAM_BUFSZ ];
 
-  int want_manifest;
   int want_accounts;
   int has_fail;
 };
@@ -53,7 +49,6 @@ fd_snapshot_dumper_new( void * mem ) {
   fd_snapshot_dumper_t * dumper = mem;
   *dumper = (fd_snapshot_dumper_t) {
     .snapshot_fd = -1,
-    .yaml_fd     = -1,
     .csv_fd      = -1
   };
   return dumper;
@@ -93,12 +88,6 @@ fd_snapshot_dumper_delete( fd_snapshot_dumper_t * dumper ) {
     dumper->alloc = NULL;
   }
 
-  if( dumper->yaml_fd>=0 ) {
-    if( FD_UNLIKELY( 0!=close( dumper->yaml_fd ) ) )
-      FD_LOG_WARNING(( "close(%d) failed (%d-%s)", dumper->yaml_fd, errno, fd_io_strerror( errno ) ));
-    dumper->yaml_fd = -1;
-  }
-
   if( dumper->csv_fd>=0 ) {
     fd_io_buffered_ostream_fini( &dumper->csv_out );
     if( FD_UNLIKELY( 0!=close( dumper->csv_fd ) ) )
@@ -108,44 +97,6 @@ fd_snapshot_dumper_delete( fd_snapshot_dumper_t * dumper ) {
 
   fd_memset( dumper, 0, sizeof(fd_snapshot_dumper_t) );
   return dumper;
-}
-
-/* fd_snapshot_dumper_on_manifest gets called when the snapshot manifest
-   becomes available. */
-
-static int
-fd_snapshot_dumper_on_manifest( void *                 _d,
-                                fd_solana_manifest_t * manifest,
-                                fd_spad_t *            spad ) {
-  fd_snapshot_dumper_t * d = _d;
-  if( !d->want_manifest ) return 0;
-  d->want_manifest = 0;
-
-  FILE * file = fdopen( d->yaml_fd, "w" );
-  if( FD_UNLIKELY( !file ) ) {
-    FD_LOG_WARNING(( "fdopen(%d) failed (%d-%s)", d->yaml_fd, errno, fd_io_strerror( errno ) ));
-    close( d->yaml_fd );
-    d->yaml_fd  = -1;
-    d->has_fail = 1;
-    return errno;
-  }
-
-  fd_spad_push( spad );
-  fd_flamenco_yaml_t * yaml = fd_flamenco_yaml_init( fd_flamenco_yaml_new( fd_spad_alloc( spad, fd_flamenco_yaml_align(), fd_flamenco_yaml_footprint() ) ), file );
-  fd_solana_manifest_walk( yaml, manifest, fd_flamenco_yaml_walk, NULL, 0U );
-  fd_flamenco_yaml_delete( yaml );
-  fd_spad_pop( spad );
-
-  int err = 0;
-  if( FD_UNLIKELY( (err = ferror( file )) ) ) {
-    FD_LOG_WARNING(( "Error occurred while writing manifest (%d-%s)", err, fd_io_strerror( err ) ));
-    d->has_fail = 1;
-  }
-
-  fclose( file );
-  close( d->yaml_fd );
-  d->yaml_fd = -1;
-  return err;
 }
 
 /* fd_snapshot_dumper_record processes a newly encountered account
@@ -272,7 +223,6 @@ struct fd_snapshot_dump_args {
   ulong        near_cpu;
   ulong        zstd_window_sz;
   char *       snapshot;
-  char const * manifest_path;
   char const * csv_path;
   int          csv_hdr;
   ushort       http_redirs;
@@ -306,11 +256,6 @@ do_dump( fd_snapshot_dumper_t *    d,
     d->csv_fd = open( args->csv_path, O_WRONLY|O_CREAT|O_TRUNC, 0644 );
     if( FD_UNLIKELY( d->csv_fd<0 ) ) { FD_LOG_WARNING(( "open(%s) failed (%d-%s)", args->csv_path, errno, fd_io_strerror( errno ) )); return EXIT_FAILURE; }
     fd_io_buffered_ostream_init( &d->csv_out, d->csv_fd, d->csv_buf, OSTREAM_BUFSZ );
-  }
-
-  if( args->manifest_path ) {
-    d->yaml_fd = open( args->manifest_path, O_WRONLY|O_CREAT|O_TRUNC, 0644 );
-    if( FD_UNLIKELY( d->yaml_fd<0 ) ) { FD_LOG_WARNING(( "open(%s) failed (%d-%s)", args->manifest_path, errno, fd_io_strerror( errno ) )); return EXIT_FAILURE; }
   }
 
   /* Create loader */
@@ -353,7 +298,7 @@ do_dump( fd_snapshot_dumper_t *    d,
   void * restore_mem = fd_spad_alloc( spad, fd_snapshot_restore_align(), fd_snapshot_restore_footprint() );
   if( FD_UNLIKELY( !restore_mem ) ) FD_LOG_ERR(( "Failed to allocate restore buffer" ));  /* unreachable */
 
-  d->restore = fd_snapshot_restore_new( restore_mem, d->funk, funk_txn, spad, d, fd_snapshot_dumper_on_manifest, NULL, NULL );
+  d->restore = fd_snapshot_restore_new( restore_mem, d->funk, funk_txn, spad, d, NULL, NULL, NULL );
   if( FD_UNLIKELY( !d->restore ) ) { FD_LOG_WARNING(( "Failed to create fd_snapshot_restore_t" )); return EXIT_FAILURE; }
 
   /* Set up the snapshot loader */
@@ -363,10 +308,9 @@ do_dump( fd_snapshot_dumper_t *    d,
     return EXIT_FAILURE;
   }
 
-  d->want_manifest = (!!args->manifest_path);
   d->want_accounts = (!!args->csv_path);
 
-  if( FD_UNLIKELY( (!d->want_manifest) & (!d->want_accounts) ) ) {
+  if( FD_UNLIKELY( !d->want_accounts ) ) {
     FD_LOG_NOTICE(( "Nothing to do, exiting." ));
     return EXIT_SUCCESS;
   }
@@ -401,7 +345,7 @@ do_dump( fd_snapshot_dumper_t *    d,
     else if( err<0 ) { /* EOF */ break; }
     else             { return EXIT_FAILURE; }
 
-    if( FD_UNLIKELY( (!d->want_accounts) & (!d->want_manifest) ) )
+    if( FD_UNLIKELY( !d->want_accounts ) )
       break;
   }
 
@@ -418,7 +362,6 @@ cmd_dump( int     argc,
   args->near_cpu       =         fd_env_strip_cmdline_ulong ( &argc, &argv, "--near-cpu",       NULL, fd_log_cpu_id() );
   args->zstd_window_sz =         fd_env_strip_cmdline_ulong ( &argc, &argv, "--zstd-window-sz", NULL,      33554432UL );
   args->snapshot       = (char *)fd_env_strip_cmdline_cstr  ( &argc, &argv, "--snapshot",       NULL,            NULL );
-  args->manifest_path  =         fd_env_strip_cmdline_cstr  ( &argc, &argv, "--manifest",       NULL,            NULL );
   args->csv_path       =         fd_env_strip_cmdline_cstr  ( &argc, &argv, "--csv",            NULL,            NULL );
   args->csv_hdr        =         fd_env_strip_cmdline_int   ( &argc, &argv, "--csv-hdr",        NULL,               1 );
   args->http_redirs    = (ushort)fd_env_strip_cmdline_ushort( &argc, &argv, "--http-redirs",    NULL,               5 );

@@ -251,6 +251,7 @@ struct __attribute__((packed)) fd_account_meta {
 typedef struct fd_account_meta fd_account_meta_t;
 #define FD_ACCOUNT_META_ALIGN (8UL)
 
+/* https://github.com/firedancer-io/agave/blob/540d5bc56cd44e3cc61b179bd52e9a782a2c99e4/vote/src/vote_account.rs#L323 */
 /* Encoded Size: Dynamic */
 struct fd_vote_accounts_pair {
   fd_pubkey_t key;
@@ -308,6 +309,7 @@ fd_vote_accounts_pair_global_t_map_join_new( void * * alloc_mem, ulong len ) {
   *alloc_mem = (uchar *)*alloc_mem + fd_vote_accounts_pair_global_t_map_footprint( len );
   return fd_vote_accounts_pair_global_t_map_join( fd_vote_accounts_pair_global_t_map_new( map_mem, len ) );
 }
+/* https://github.com/firedancer-io/agave/blob/540d5bc56cd44e3cc61b179bd52e9a782a2c99e4/vote/src/vote_account.rs#L46 */
 /* Encoded Size: Dynamic */
 struct fd_vote_accounts {
   fd_vote_accounts_pair_t_mapnode_t * vote_accounts_pool;
@@ -367,12 +369,12 @@ typedef struct fd_account_keys fd_account_keys_t;
 
 /* fd_stake_weight_t assigns an Ed25519 public key (node identity) a stake weight number measured in lamports */
 /* Encoded Size: Fixed (40 bytes) */
-struct fd_stake_weight {
+struct __attribute__((packed)) fd_stake_weight {
   fd_pubkey_t key;
   ulong stake;
 };
 typedef struct fd_stake_weight fd_stake_weight_t;
-#define FD_STAKE_WEIGHT_ALIGN alignof(fd_stake_weight_t)
+#define FD_STAKE_WEIGHT_ALIGN (8UL)
 
 typedef struct fd_stake_weight_t_mapnode fd_stake_weight_t_mapnode_t;
 #define REDBLK_T fd_stake_weight_t_mapnode_t
@@ -2419,7 +2421,7 @@ union fd_gossip_ip_addr_inner {
 };
 typedef union fd_gossip_ip_addr_inner fd_gossip_ip_addr_inner_t;
 
-/* Unnecessary and sad wrapper type. IPv4 addresses could have been mapped to IPv6 */
+/* https://doc.rust-lang.org/beta/src/core/net/socket_addr.rs.html#33 */
 struct fd_gossip_ip_addr {
   uint discriminant;
   fd_gossip_ip_addr_inner_t inner;
@@ -2475,12 +2477,11 @@ struct fd_gossip_socket_addr_ip4 {
 typedef struct fd_gossip_socket_addr_ip4 fd_gossip_socket_addr_ip4_t;
 #define FD_GOSSIP_SOCKET_ADDR_IP4_ALIGN alignof(fd_gossip_socket_addr_ip4_t)
 
-/* Encoded Size: Dynamic */
+/* https://doc.rust-lang.org/beta/src/core/net/socket_addr.rs.html#147 */
+/* Encoded Size: Fixed (18 bytes) */
 struct fd_gossip_socket_addr_ip6 {
   fd_gossip_ip6_addr_t addr;
   ushort port;
-  uint flowinfo;
-  uint scope_id;
 };
 typedef struct fd_gossip_socket_addr_ip6 fd_gossip_socket_addr_ip6_t;
 #define FD_GOSSIP_SOCKET_ADDR_IP6_ALIGN alignof(fd_gossip_socket_addr_ip6_t)
@@ -2491,6 +2492,7 @@ union fd_gossip_socket_addr_inner {
 };
 typedef union fd_gossip_socket_addr_inner fd_gossip_socket_addr_inner_t;
 
+/* https://doc.rust-lang.org/beta/src/core/net/socket_addr.rs.html#33 */
 struct fd_gossip_socket_addr {
   uint discriminant;
   fd_gossip_socket_addr_inner_t inner;
@@ -2498,6 +2500,7 @@ struct fd_gossip_socket_addr {
 typedef struct fd_gossip_socket_addr fd_gossip_socket_addr_t;
 #define FD_GOSSIP_SOCKET_ADDR_ALIGN alignof(fd_gossip_socket_addr_t)
 
+/* https://github.com/firedancer-io/agave/blob/540d5bc56cd44e3cc61b179bd52e9a782a2c99e4/gossip/src/legacy_contact_info.rs#L14 */
 /* Encoded Size: Dynamic */
 struct fd_gossip_contact_info_v1 {
   fd_pubkey_t id;
@@ -3484,6 +3487,42 @@ int fd_solana_account_decode_footprint( fd_bincode_decode_ctx_t * ctx, ulong * t
 void * fd_solana_account_decode( void * mem, fd_bincode_decode_ctx_t * ctx );
 void * fd_solana_account_decode_global( void * mem, fd_bincode_decode_ctx_t * ctx );
 int fd_solana_account_encode_global( fd_solana_account_global_t const * self, fd_bincode_encode_ctx_t * ctx );
+
+static inline void fd_solana_account_stored_meta_new( fd_solana_account_stored_meta_t * self ) { fd_memset( self, 0, sizeof(fd_solana_account_stored_meta_t) ); }
+int fd_solana_account_stored_meta_encode( fd_solana_account_stored_meta_t const * self, fd_bincode_encode_ctx_t * ctx );
+void fd_solana_account_stored_meta_walk( void * w, fd_solana_account_stored_meta_t const * self, fd_types_walk_fn_t fun, const char *name, uint level );
+ulong fd_solana_account_stored_meta_size( fd_solana_account_stored_meta_t const * self );
+static inline ulong fd_solana_account_stored_meta_align( void ) { return FD_SOLANA_ACCOUNT_STORED_META_ALIGN; }
+static inline int fd_solana_account_stored_meta_decode_footprint( fd_bincode_decode_ctx_t * ctx, ulong * total_sz ) {
+  *total_sz += sizeof(fd_solana_account_stored_meta_t);
+  if( (ulong)ctx->data + 48UL > (ulong)ctx->dataend ) { return FD_BINCODE_ERR_OVERFLOW; };
+  return 0;
+}
+void * fd_solana_account_stored_meta_decode( void * mem, fd_bincode_decode_ctx_t * ctx );
+
+void fd_solana_account_meta_new( fd_solana_account_meta_t * self );
+int fd_solana_account_meta_encode( fd_solana_account_meta_t const * self, fd_bincode_encode_ctx_t * ctx );
+void fd_solana_account_meta_walk( void * w, fd_solana_account_meta_t const * self, fd_types_walk_fn_t fun, const char *name, uint level );
+ulong fd_solana_account_meta_size( fd_solana_account_meta_t const * self );
+static inline ulong fd_solana_account_meta_align( void ) { return FD_SOLANA_ACCOUNT_META_ALIGN; }
+int fd_solana_account_meta_decode_footprint( fd_bincode_decode_ctx_t * ctx, ulong * total_sz );
+void * fd_solana_account_meta_decode( void * mem, fd_bincode_decode_ctx_t * ctx );
+
+void fd_solana_account_hdr_new( fd_solana_account_hdr_t * self );
+int fd_solana_account_hdr_encode( fd_solana_account_hdr_t const * self, fd_bincode_encode_ctx_t * ctx );
+void fd_solana_account_hdr_walk( void * w, fd_solana_account_hdr_t const * self, fd_types_walk_fn_t fun, const char *name, uint level );
+ulong fd_solana_account_hdr_size( fd_solana_account_hdr_t const * self );
+static inline ulong fd_solana_account_hdr_align( void ) { return FD_SOLANA_ACCOUNT_HDR_ALIGN; }
+int fd_solana_account_hdr_decode_footprint( fd_bincode_decode_ctx_t * ctx, ulong * total_sz );
+void * fd_solana_account_hdr_decode( void * mem, fd_bincode_decode_ctx_t * ctx );
+
+void fd_account_meta_new( fd_account_meta_t * self );
+int fd_account_meta_encode( fd_account_meta_t const * self, fd_bincode_encode_ctx_t * ctx );
+void fd_account_meta_walk( void * w, fd_account_meta_t const * self, fd_types_walk_fn_t fun, const char *name, uint level );
+ulong fd_account_meta_size( fd_account_meta_t const * self );
+static inline ulong fd_account_meta_align( void ) { return FD_ACCOUNT_META_ALIGN; }
+int fd_account_meta_decode_footprint( fd_bincode_decode_ctx_t * ctx, ulong * total_sz );
+void * fd_account_meta_decode( void * mem, fd_bincode_decode_ctx_t * ctx );
 
 void fd_vote_accounts_pair_new( fd_vote_accounts_pair_t * self );
 int fd_vote_accounts_pair_encode( fd_vote_accounts_pair_t const * self, fd_bincode_encode_ctx_t * ctx );

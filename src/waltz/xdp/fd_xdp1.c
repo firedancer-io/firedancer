@@ -51,7 +51,7 @@ fd_xdp_gen_program( ulong          code_buf[ 512 ],
   *(code++) = FD_EBPF( ldxh, r5, r2, 12        );
   *(code++) = FD_EBPF( jne_imm, r5, 0x0008, +1 );  // if eth_hdr->net_type != IP4 goto lbl_pass
   if( listen_ip4_addr!=0 ) {
-    *(code++) = FD_EBPF( ldxw, r5, r2, 36 );
+    *(code++) = FD_EBPF( ldxw, r5, r2, 30 );
     *(code++) = FD_EBPF( jne_imm, r5, listen_ip4_addr, +1 );  // if eth_hdr->daddr != listen_ip4_addr goto lbl_pass
   }
   *(code++) = FD_EBPF( ldxb, r5, r2, 23        );
@@ -79,6 +79,9 @@ fd_xdp_gen_program( ulong          code_buf[ 512 ],
   *(code++) = FD_EBPF( mov64_imm, r3, 0        ); // r3 = 0
   *(code++) = FD_EBPF( call, 0x33              );
   *(code++) = FD_EBPF_exit;                       // return bpf_redirect_map(r1,r2,r3)
+  // ulong * lbl_drop = code;
+  // *(code++) = FD_EBPF( mov64_imm, r0, XDP_DROP );
+  // *(code++) = FD_EBPF_exit;
   ulong * code_end = code;
   ulong   code_cnt = (ulong)( code_end-code_buf );
 
@@ -94,6 +97,7 @@ fd_xdp_gen_program( ulong          code_buf[ 512 ],
       case 0: continue;
       case 1: jmp_target = lbl_pass;     break;
       case 2: jmp_target = lbl_redirect; break;
+      // case 3: jmp_target = lbl_drop;     break;
       default: FD_LOG_ERR(( "Invalid jump instruction (%016lx)", fd_ulong_bswap( code_buf[ i ] ) ));
       }
       long   off   = jmp_target-code_buf-(long)i-1;

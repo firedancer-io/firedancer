@@ -17,9 +17,6 @@ FD_AUTO_INSTALL_PACKAGES=1 ./deps.sh +dev fetch check install
 source ~/.cargo/env
 make -j
 
-# Run the tests
-make run-runtime-backtest-nightly > ~/nightly_run.txt
-
 send_slack_message() {
     local MESSAGE="$1"
     json_payload=$(cat <<EOF

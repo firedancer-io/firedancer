@@ -264,9 +264,6 @@ fd_snapshot_load_fini( fd_snapshot_load_ctx_t * ctx ) {
   int incremental_snapshot_only_incremental_hash_calculation = FD_FEATURE_ACTIVE( ctx->slot_ctx->slot_bank.slot, ctx->slot_ctx->epoch_ctx->features,
     incremental_snapshot_only_incremental_hash_calculation );
 
-#ifdef FD_LTHASH_SNAPSHOT_HACK
-  int zero_lthash = 0;
-#endif
   // https://github.com/anza-xyz/agave/blob/766cd682423b8049ddeac3c0ec6cebe0a1356e9e/runtime/src/bank.rs#L1831
   if( accounts_lt_hash ) {
     ulong *p = (ulong *) ctx->slot_ctx->slot_bank.lthash.lthash;
@@ -276,13 +273,15 @@ fd_snapshot_load_fini( fd_snapshot_load_ctx_t * ctx ) {
         break;
     }
     if (p >= e) {
-#ifdef FD_LTHASH_SNAPSHOT_HACK
-      FD_LOG_WARNING(( "snapshot must have an accounts lt hash if the feature is enabled..  re-calculating" ));
-      ctx->verify_hash = 1;
-      zero_lthash = 1;
-#else
-      FD_LOG_ERR(( "snapshot must have an accounts lt hash if the feature is enabled.. " ));
-#endif
+      if( ctx->snapshot_type==FD_SNAPSHOT_TYPE_FULL ) {
+        FD_LOG_WARNING(( "re-calculating accounts lt hash for full snapshot" ));
+        fd_lthash_value_t lthash_buf;
+        fd_lthash_zero(&lthash_buf);
+        fd_hash_t accounts_hash;
+        fd_snapshot_hash( ctx->slot_ctx, &accounts_hash, ctx->check_hash, ctx->runtime_spad, ctx->exec_para_ctx, &lthash_buf );
+        fd_memcpy( (fd_lthash_value_t *)fd_type_pun(ctx->slot_ctx->slot_bank.lthash.lthash), &lthash_buf, sizeof(lthash_buf) );
+        FD_LOG_NOTICE(( "re-calculated accounts_lthash for full snapshot %s", FD_LTHASH_ENC_32_ALLOCA( (fd_lthash_value_t *)fd_type_pun(ctx->slot_ctx->slot_bank.lthash.lthash)  ) ));
+      }
     } else {
       FD_LOG_NOTICE(( "accounts_lthash found %s", FD_LTHASH_ENC_32_ALLOCA( (fd_lthash_value_t *)fd_type_pun(ctx->slot_ctx->slot_bank.lthash.lthash)  ) ));
     }
@@ -303,10 +302,6 @@ fd_snapshot_load_fini( fd_snapshot_load_ctx_t * ctx ) {
       } FD_SPAD_FRAME_END;
 
       if ( snapshots_lt_hash ) {
-#ifdef FD_LTHASH_SNAPSHOT_HACK
-        if ( zero_lthash )
-          fd_memcpy( (fd_lthash_value_t *)fd_type_pun(ctx->slot_ctx->slot_bank.lthash.lthash), lthash, sizeof(lthash_buf) );
-#endif
         if( memcmp( (fd_lthash_value_t *)fd_type_pun(ctx->slot_ctx->slot_bank.lthash.lthash), lthash, sizeof(lthash_buf) ) ) {
           FD_LOG_ERR(( "snapshot accounts_hash (calculated) %s != (expected) %s",
               FD_LTHASH_ENC_32_ALLOCA( (fd_lthash_value_t *)fd_type_pun(ctx->slot_ctx->slot_bank.lthash.lthash) ), FD_LTHASH_ENC_32_ALLOCA( lthash ) ));
@@ -332,10 +327,6 @@ fd_snapshot_load_fini( fd_snapshot_load_ctx_t * ctx ) {
       }
 
       if ( snapshots_lt_hash ) {
-#ifdef FD_LTHASH_SNAPSHOT_HACK
-        if ( zero_lthash )
-          fd_memcpy( (fd_lthash_value_t *)fd_type_pun(ctx->slot_ctx->slot_bank.lthash.lthash), lthash, sizeof(lthash_buf) );
-#endif
         if( memcmp( (fd_lthash_value_t *)fd_type_pun(ctx->slot_ctx->slot_bank.lthash.lthash), lthash, sizeof(lthash_buf) ) ) {
           FD_LOG_ERR(( "snapshot accounts_hash (calculated) %s != (expected) %s",
               FD_LTHASH_ENC_32_ALLOCA( (fd_lthash_value_t *)fd_type_pun(ctx->slot_ctx->slot_bank.lthash.lthash) ), FD_LTHASH_ENC_32_ALLOCA( lthash ) ));

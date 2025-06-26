@@ -2,7 +2,6 @@
 #define HEADER_fd_src_flamenco_runtime_fd_runtime_err_h
 
 #define FD_RUNTIME_EXECUTE_SUCCESS                               ( 0 )  /* Slot executed successfully */
-#define FD_RUNTIME_EXECUTE_GENERIC_ERR                          ( -1 ) /* The Slot execute returned an error */
 
 /* Transaction errors */
 #define FD_RUNTIME_TXN_ERR_ACCOUNT_IN_USE                            -1

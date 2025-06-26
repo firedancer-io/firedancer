@@ -298,8 +298,8 @@ cd $FD_REPO_DIR
 if [[ $NO_RUST -ne 1 ]]; then
   curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y > /dev/null 2>&1
 fi
-inf "Installing packages and fetching repositories...\n"
-FD_AUTO_INSTALL_PACKAGES=1 ./deps.sh +dev check fetch > /dev/null 2>&1
+inf "Installing packages...\n"
+FD_AUTO_INSTALL_PACKAGES=1 ./deps.sh check > /dev/null 2>&1
 make -j distclean > /dev/null 2>&1
 
 if [[ $NO_GCC -ne 1 ]]; then
@@ -325,6 +325,7 @@ if [[ $NO_GCC -ne 1 ]]; then
       CC=gcc CXX=g++ ./deps.sh +dev fetch install > "$LOG_FILE" 2>&1
       if [[ $? -ne 0 ]]; then
         err "Failed to install deps with $compiler... exiting.\n"
+        FAIL=1
         if [[ $VERBOSE -eq 1 ]]; then
           cat "$LOG_FILE"
         fi
@@ -378,7 +379,7 @@ if [[ $NO_GCC -ne 1 ]]; then
             inf "Skipping - $compiler $MACHINE $target\n"
             continue
           fi
-          MACHINE=${MACHINE} CC=gcc make -j "$target" >> "$LOG_FILE" 2>&1
+          MACHINE=${MACHINE} CC=gcc CXX=g++ make -j "$target" >> "$LOG_FILE" 2>&1
           if [[ $? -ne 0 ]]; then
             FAILED+=( "$target" )
             FAIL=1
@@ -394,9 +395,9 @@ if [[ $NO_GCC -ne 1 ]]; then
           inf "To reproduce, run:\n"
           echo "  source /opt/gcc/$compiler/activate"
           echo "  ./deps.sh nuke"
-          echo "  FD_AUTO_INSTALL_PACKAGES=1 ./deps.sh +dev fetch check install"
+          echo "  FD_AUTO_INSTALL_PACKAGES=1 CC=gcc CXX=g++ ./deps.sh +dev fetch check install"
           echo "  make -j distclean"
-          echo "  MACHINE=${MACHINE} CC=gcc make -j ${FAILED[*]}"
+          echo "  MACHINE=${MACHINE} CC=gcc CXX=g++ make -j ${FAILED[*]}"
           if [[ $VERBOSE -eq 1 ]]; then
             err "Failure Logs:\n"
             cat "$LOG_FILE"
@@ -442,6 +443,7 @@ if [[ $NO_CLANG -ne 1 ]]; then
       CC=clang CXX=clang++ ./deps.sh +dev fetch install > "$LOG_FILE" 2>&1
       if [[ $? -ne 0 ]]; then
         err "Failed to install deps with $compiler...\n"
+        FAIL=1
         if [[ $VERBOSE -eq 1 ]]; then
           cat "$LOG_FILE"
         fi
@@ -495,7 +497,7 @@ if [[ $NO_CLANG -ne 1 ]]; then
             inf "Skipping - $compiler $MACHINE $target\n"
             continue
           fi
-          MACHINE=${MACHINE} CC=clang make -j "$target" >> "$LOG_FILE" 2>&1
+          MACHINE=${MACHINE} CC=clang CXX=clang++ make -j "$target" >> "$LOG_FILE" 2>&1
           if [[ $? -ne 0 ]]; then
             FAILED+=( "$target" )
             FAIL=1
@@ -510,9 +512,9 @@ if [[ $NO_CLANG -ne 1 ]]; then
           echo "${FAILED[@]}"
           echo "  source /opt/clang/$compiler/activate"
           echo "  ./deps.sh nuke"
-          echo "  FD_AUTO_INSTALL_PACKAGES=1 ./deps.sh +dev fetch check install"
+          echo "  FD_AUTO_INSTALL_PACKAGES=1 CC=clang CXX=clang++ ./deps.sh +dev fetch check install"
           echo "  make -j distclean"
-          echo "  MACHINE=${MACHINE} CC=clang make -j ${FAILED[*]}"
+          echo "  MACHINE=${MACHINE} CC=clang CXX=clang++ make -j ${FAILED[*]}"
           if [[ $VERBOSE -eq 1 ]]; then
             err "Failure Logs:\n"
             cat "$LOG_FILE"

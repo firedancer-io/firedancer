@@ -11,21 +11,24 @@ to run a full Firedancer validator, which is in heavy development.
 
 Because Firedancer currently depends on the Agave validator, the
 hardware requirements are at least [what's
-recommended](https://docs.solana.com/running-validator/validator-reqs)
+recommended](https://docs.anza.xyz/operations/requirements)
 for that validator. Firedancer hopes to reduce these over time.
 
 **Minimum**
 
-- 24-Core AMD or Intel CPU @ >2.5GHz
-- 64GB RAM
-- 512GB SSD
+- 24-Core AMD or Intel CPU @ >2.8GHz
+- 256GB RAM
+- 2TB PCI Gen3 NVME SSD (High TBW)
 
 **Recommended**
 
 - 32-Core CPU @ >3GHz with AVX512 support
-- 128GB RAM with ECC memory
-- 1TB NVMe SSD with separate disk for OS
+- 512GB RAM with ECC memory
+- Same capacity with separate disks for Accounts and Ledger
 - 1 Gigabit/s Network Bandwidth
+
+Validator operators also refer to https://solanahcl.org/ which
+has a lot of useful information about hardware.
 
 ## Installing
 

@@ -88,6 +88,7 @@ struct fd_topo_net_tile {
   ushort gossip_listen_port;
   ushort repair_intake_listen_port;
   ushort repair_serve_listen_port;
+  ushort send_src_port;
 };
 typedef struct fd_topo_net_tile fd_topo_net_tile_t;
 
@@ -307,8 +308,6 @@ struct fd_topo_tile {
       char  identity_key_path[ PATH_MAX ];
       uint  ip_addr;
       char  vote_account_path[ PATH_MAX ];
-      ulong full_interval;
-      ulong incremental_interval;
 
       char  blockstore_file[ PATH_MAX ];
       char  blockstore_checkpt[ PATH_MAX ];
@@ -323,17 +322,6 @@ struct fd_topo_tile {
 
       ulong enable_bank_hash_cmp;
     } replay;
-
-    struct {
-      int   in_wen_restart;
-      int   tower_checkpt_fileno;
-      ulong funk_obj_id;
-      char  tower_checkpt[ PATH_MAX ];
-      char  identity_key_path[ PATH_MAX ];
-      char  genesis_hash[ FD_BASE58_ENCODED_32_SZ ];
-      char  restart_coordinator[ FD_BASE58_ENCODED_32_SZ ];
-      ulong heap_mem_max;
-    } restart;
 
     struct {
       ulong funk_obj_id;
@@ -406,7 +394,7 @@ struct fd_topo_tile {
     } store_int;
 
     struct {
-      ushort  tpu_listen_port;
+      ushort  send_src_port;
 
       /* non-config */
 
@@ -427,17 +415,6 @@ struct fd_topo_tile {
     } rpcserv;
 
     struct {
-      ulong funk_obj_id;
-      ulong full_interval;
-      ulong incremental_interval;
-      char  out_dir[ PATH_MAX ];
-      int   tmp_fd;
-      int   tmp_inc_fd;
-      int   full_snapshot_fd;
-      int   incremental_snapshot_fd;
-    } batch;
-
-    struct {
       uint fake_dst_ip;
     } pktgen;
 
@@ -454,6 +431,17 @@ struct fd_topo_tile {
       char  identity_key_path[ PATH_MAX ];
       char  vote_acc_path[ PATH_MAX ];
     } tower;
+    struct {
+      char   folder_path[ PATH_MAX ];
+      ushort repair_intake_listen_port;
+      ulong   write_buffer_size; /* Size of the write buffer for the capture tile */
+
+      /* Set internally by the capture tile */
+      int shreds_fd;
+      int requests_fd;
+      int fecs_fd;
+      int peers_fd;
+    } shredcap;
   };
 };
 

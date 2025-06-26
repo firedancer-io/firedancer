@@ -44,8 +44,7 @@ fd_hpack_wr_varint(
 #endif
     int   msb   = fd_ulong_find_msb_w_default( enc, 0 );
     int   shift = 64-(msb&0x38);
-    ulong mask  = 0x8080808080808080UL >> shift;
-    if( shift==64 ) mask = 0UL;
+    ulong mask  = shift==64 ? 0UL : 0x8080808080808080UL>>shift;
     FD_STORE( ulong, code+1, enc|mask );
     sz = 2 + (ulong)( msb>>3 );
   }

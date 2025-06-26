@@ -321,6 +321,10 @@ struct fd_config {
     } quic;
 
     struct {
+      ushort send_src_port;
+    } send;
+
+    struct {
       uint signature_cache_size;
       uint receive_buffer_size;
       uint mtu;
@@ -405,22 +409,16 @@ struct fd_config {
     } store_int;
 
     struct {
-      ulong full_interval;
-      ulong incremental_interval;
-      char  out_dir[ PATH_MAX ];
-    } batch;
-
-    struct {
-      int   enabled;
-      char  genesis_hash[ FD_BASE58_ENCODED_32_SZ ];
-      char  wen_restart_coordinator[ FD_BASE58_ENCODED_32_SZ ];
-    } restart;
-
-    struct {
       int   enabled;
       ulong end_slot;
       char  archiver_path[ PATH_MAX ];
     } archiver;
+
+    struct {
+      int   enabled;
+      char  folder_path[ PATH_MAX ];
+      ulong write_buffer_size;
+    } shredcap;
 
   } tiles;
 };
