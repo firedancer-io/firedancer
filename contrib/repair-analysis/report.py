@@ -5,7 +5,7 @@ import matplotlib.pyplot as plt
 from matplotlib.backends.backend_pdf import PdfPages
 import sys
 import warnings
-
+import os
 """
 This script generates a report on repair analysis off of one testnet run.
 1. Add the following to your testnet config.toml file:
@@ -19,7 +19,7 @@ This script generates a report on repair analysis off of one testnet run.
     - /my/folder/fec_complete.csv
 
 3. Run this script with the following command:
-    python3 report.py <testnet.log path> <request_data.csv path> <shred_data.csv path> <fec_complete.csv path (optional, skips some long-running steps)>
+    python3 report.py <testnet.log path> <request_data.csv path (optional)> <shred_data.csv path> <fec_complete.csv path (optional, skips some long-running steps)>
 
     If you are missing dependencies, make sure to install them with:
     python3 -m pip install pandas numpy matplotlib seaborn
@@ -556,13 +556,15 @@ def generate_report( log_path, request_data_path, shred_data_path, peers_data_pa
                                    on_bad_lines='skip',
                                    skipfooter=1 ) # because of the buffered writer the last row is probably incomplete
 
-    repair_requests = pd.read_csv( request_data_path,
-                                   dtype={'dst_ip': str, 'dst_port': int, 'timestamp': int, 'slot': int, 'idx': int, 'nonce': int },
-                                   skipfooter=1 )
+    if request_data_path:
+        repair_requests = pd.read_csv( request_data_path,
+                                    dtype={'dst_ip': str, 'dst_port': int, 'timestamp': int, 'slot': int, 'idx': int, 'nonce': int },
+                                    skipfooter=1 )
 
-    peers_data      = pd.read_csv( peers_data_path,
-                                   dtype={'peer_ip4_addr': int, 'peer_port': int, 'pubkey':str, 'turbine': bool },
-                                   on_bad_lines='skip',
+    if peers_data_path:
+        peers_data      = pd.read_csv( peers_data_path,
+                                    dtype={'peer_ip4_addr': int, 'peer_port': int, 'pubkey':str, 'turbine': bool },
+                                    on_bad_lines='skip',
                                    skipfooter=1 )
 
     # if we have a fec complete file, read it in
@@ -588,32 +590,56 @@ def generate_report( log_path, request_data_path, shred_data_path, peers_data_pa
     catchup = shreds_data[shreds_data['slot'].between(snapshot_slot, first_turbine - 1)]
     live    = shreds_data[shreds_data['slot'].between(first_turbine, last_executed)]
 
-    catchup_rq = repair_requests[repair_requests['slot'].between(snapshot_slot, first_turbine - 1)]
-    live_rq    = repair_requests[repair_requests['slot'].between(first_turbine, last_executed)]
 
-    turbine_stats(catchup, live)
+    if request_data_path:
+        catchup_rq = repair_requests[repair_requests['slot'].between(snapshot_slot, first_turbine - 1)]
+        live_rq    = repair_requests[repair_requests['slot'].between(first_turbine, last_executed)]
 
-    catchup = catchup[catchup['timestamp'] >= first_turbine_accept_ts]  # only keep shreds that were accepted after the first turbine
-    shreds_data = shreds_data[shreds_data['timestamp'] >= first_turbine_accept_ts]  # only keep shreds that were accepted after the first turbine
-    peer_stats( catchup, catchup_rq, live, live_rq, pdf )
+        turbine_stats(catchup, live)
+
+        catchup = catchup[catchup['timestamp'] >= first_turbine_accept_ts]  # only keep shreds that were accepted after the first turbine
+        shreds_data = shreds_data[shreds_data['timestamp'] >= first_turbine_accept_ts]  # only keep shreds that were accepted after the first turbine
+
+        peer_stats( catchup, catchup_rq, live, live_rq, pdf )
 
     if fec_complete_path:
         completion_times( fec_stats, shreds_data, first_turbine, pdf )
 
-    print_slots(repair_requests, shreds_data, snapshot_slot, first_turbine, pdf)
+    if request_data_path:
+        print_slots(repair_requests, shreds_data, snapshot_slot, first_turbine, pdf)
 
 if __name__ == "__main__":
-    if len(sys.argv) < 4:
+    if len(sys.argv) < 3:
         print('Add: [tiles.shredcap] \n\t enabled = true \n\t folder_path = /my/folder_for_csv_dump \n to your testnet config.toml file to enable the report generation.')
-        print('Usage: python report.py <testnet.log path> <request_data.csv path> <shred_data.csv path> <peers_data.csv> <fec_complete.csv path (optional)>')
+        print('Usage: python report.py <testnet.log path> <csv_folder_path>')
         print('Report will automatically be saved as report.pdf in the current directory.')
         sys.exit(1)
 
-    log_path          = sys.argv[1]
-    request_data_path = sys.argv[2]
-    shred_data_path   = sys.argv[3]
-    peers_data_path   = sys.argv[4]
-    fec_complete_path = sys.argv[5] if len(sys.argv) > 5 else None
+    log_path = sys.argv[1]
+    csv_path = sys.argv[2]
+    # check if the csvs live in path
+    if not os.path.exists(csv_path):
+        print(f'Error: {csv_path} does not exist')
+        sys.exit(1)
+
+    shred_data_path   = os.path.join(csv_path, 'shred_data.csv')
+    request_data_path = os.path.join(csv_path, 'request_data.csv')
+    peers_data_path   = os.path.join(csv_path, 'peers_data.csv')
+    fec_complete_path = os.path.join(csv_path, 'fec_complete.csv')
+
+    if not os.path.exists(shred_data_path):
+        shred_data_path = None
+    if not os.path.exists(request_data_path):
+        request_data_path = None
+    if not os.path.exists(peers_data_path):
+        peers_data_path = None
+    if not os.path.exists(fec_complete_path):
+        fec_complete_path = None
+
+    print(f"Found shred_data.csv: {shred_data_path}")
+    print(f"Found request_data.csv: {request_data_path}")
+    print(f"Found peers_data.csv: {peers_data_path}")
+    print(f"Found fec_complete.csv: {fec_complete_path}")
 
     output_path = 'report.pdf'
     pdf = PdfPages('report.pdf')

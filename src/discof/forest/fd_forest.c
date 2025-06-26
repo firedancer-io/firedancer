@@ -439,10 +439,24 @@ fd_forest_publish( fd_forest_t * forest, ulong new_root_slot ) {
   fd_forest_ele_t * old_root_ele = fd_forest_pool_ele( pool, forest->root );
   fd_forest_ele_t * new_root_ele = ancestry_frontier_query( forest, new_root_slot );
 
-# if FD_FOREST_USE_HANDHOLDING
-  FD_TEST( new_root_ele );                            /* caller error - not found */
-  FD_TEST( new_root_ele->slot > old_root_ele->slot ); /* caller error - inval */
-# endif
+#if FD_FOREST_USE_HANDHOLDING
+  if( FD_LIKELY( new_root_ele ) ) {
+    FD_TEST( new_root_ele->slot > old_root_ele->slot ); /* caller error - inval */
+  }
+#endif
+
+  /* Edge case where if we haven't been getting repairs, and we have a
+     gap between the root and orphans. we publish forward to a slot that
+     we don't have. This only case this should be happening is when we
+     load a second incremental and that incremental slot lives in the
+     gap. In that case this isn't a bug, but we should be treating this
+     new root like the snapshot slot / init root. Should be happening
+     very rarely given a well-functioning repair.  */
+
+  if( FD_UNLIKELY( !new_root_ele ) ) {
+    new_root_ele = acquire( forest, new_root_slot );
+    fd_forest_frontier_ele_insert( frontier, new_root_ele, pool );
+  }
 
   /* First, remove the previous root, and add it to a FIFO prune queue.
      head points to the queue head (initialized with old_root_ele). */
@@ -476,7 +490,17 @@ fd_forest_publish( fd_forest_t * forest, ulong new_root_slot ) {
   }
 
   new_root_ele->parent = null; /* unlink new root from parent */
-  forest->root     = fd_forest_ancestry_idx_query( ancestry, &new_root_slot, null, pool );
+  forest->root         = fd_forest_ancestry_idx_query( ancestry, &new_root_slot, null, pool );
+  forest->root         = fd_ulong_if( forest->root == null, fd_forest_frontier_idx_query( frontier, &new_root_slot, null, pool ), forest->root );
+
+  /* If there is nothing on the frontier, we have hit an edge case
+     during catching up where all of our frontiers were < the new root.
+     In that case we need to continue repairing from the new root, so
+     add it to the frontier. */
+  if( FD_UNLIKELY( fd_forest_frontier_iter_done( fd_forest_frontier_iter_init( frontier, pool ), frontier, pool ) ) ) {
+    fd_forest_frontier_ele_insert( frontier, new_root_ele, pool );
+    advance_frontier( forest, new_root_ele->slot, 0 );
+  }
   return new_root_ele;
 }
 

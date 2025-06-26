@@ -1545,6 +1545,7 @@ read_snapshot( void *              _ctx,
     /* TODO: If prefetching the manifest is enabled it leads to
        incorrect snapshot loads. This needs to be looked into. */
     if( strlen( incremental )>0UL ) {
+      FD_LOG_NOTICE(("LOADING INCREMENTAL SNAPSHOT"));
       uchar * tmp_mem = fd_spad_alloc_check( ctx->runtime_spad, fd_snapshot_load_ctx_align(), fd_snapshot_load_ctx_footprint() );
 
       fd_snapshot_load_ctx_t * tmp_snap_ctx = fd_snapshot_load_new( tmp_mem,
@@ -1585,6 +1586,7 @@ read_snapshot( void *              _ctx,
     /* If we don't have an incremental snapshot, load the manifest and the status cache and initialize
          the objects because we don't have these from the incremental snapshot. */
     if( strlen( incremental )<=0UL ) {
+      FD_LOG_NOTICE(("LOADING MANIFEST AND STATUS CACHE BECAUSE NO INCREMENTAL SNAPSHOT"));
       fd_snapshot_load_manifest_and_status_cache( snap_ctx, NULL,
         FD_SNAPSHOT_RESTORE_MANIFEST | FD_SNAPSHOT_RESTORE_STATUS_CACHE );
 
@@ -1592,6 +1594,7 @@ read_snapshot( void *              _ctx,
       /* If we don't have an incremental snapshot, we can still kick off
          sending the stake weights and snapshot slot to repair. */
     } else {
+      FD_LOG_NOTICE(("LOADING MANIFEST AND STATUS CACHE W/ INCREMENTAL SNAPSHOT"));
       /* If we have an incremental snapshot, load the manifest and the status cache,
           and don't initialize the objects because we did this above from the incremental snapshot. */
       fd_snapshot_load_manifest_and_status_cache( snap_ctx, NULL, FD_SNAPSHOT_RESTORE_NONE );
@@ -1606,6 +1609,7 @@ read_snapshot( void *              _ctx,
 
     /* The slot of the full snapshot should be used as the base slot to verify the incremental snapshot,
        not the slot context's slot - which is the slot of the incremental, not the full snapshot. */
+    FD_LOG_NOTICE(( "LOADING ANOTHER INCREMENTAL SNAPSHOT"));
     fd_snapshot_load_all( incremental,
                           ctx->incremental_src_type,
                           NULL,
@@ -1774,10 +1778,8 @@ init_after_snapshot( fd_replay_tile_ctx_t * ctx,
        are no funk txns to publish, and all rooted slots have already
        been registered in the txncache when we loaded the snapshot. */
 
-    fd_funk_txn_xid_t xid = { .ul = { root, root } };
     if( FD_LIKELY( ctx->blockstore ) ) fd_blockstore_publish( ctx->blockstore, ctx->blockstore_fd, root );
     if( FD_LIKELY( ctx->forks ) ) fd_forks_publish( ctx->forks, root );
-    if( FD_LIKELY( ctx->funk ) ) funk_and_txncache_publish( ctx, root, &xid );
     if( FD_LIKELY( ctx->epoch_forks ) ) fd_epoch_forks_publish( ctx->epoch_forks, root );
 
     fd_fseq_update( ctx->published_wmark, root );
