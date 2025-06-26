@@ -905,7 +905,6 @@ fd_topo_configure_tile( fd_topo_tile_t * tile,
       strncpy( tile->replay.blockstore_checkpt, config->firedancer.blockstore.checkpt, sizeof(tile->replay.blockstore_checkpt) );
 
       tile->replay.tx_metadata_storage = config->rpc.extended_tx_metadata_storage;
-      strncpy( tile->replay.capture, config->tiles.replay.capture, sizeof(tile->replay.capture) );
       strncpy( tile->replay.funk_checkpt, config->tiles.replay.funk_checkpt, sizeof(tile->replay.funk_checkpt) );
 
       tile->replay.funk_obj_id = fd_pod_query_ulong( config->topo.props, "funk", ULONG_MAX );
@@ -930,6 +929,11 @@ fd_topo_configure_tile( fd_topo_tile_t * tile,
       tile->replay.ip_addr = config->net.ip_addr;
       strncpy( tile->replay.vote_account_path, config->paths.vote_account, sizeof(tile->replay.vote_account_path) );
       tile->replay.enable_bank_hash_cmp = 1;
+
+      tile->replay.capture_start_slot = config->capture.capture_start_slot;
+      strncpy( tile->replay.solcap_capture, config->capture.solcap_capture, sizeof(tile->replay.solcap_capture) );
+      strncpy( tile->replay.dump_proto_dir, config->capture.dump_proto_dir, sizeof(tile->replay.dump_proto_dir) );
+      tile->replay.dump_block_to_pb = config->capture.dump_block_to_pb;
 
       FD_TEST( tile->replay.funk_obj_id == fd_pod_query_ulong( config->topo.props, "funk", ULONG_MAX ) );
 
@@ -987,6 +991,12 @@ fd_topo_configure_tile( fd_topo_tile_t * tile,
 
     } else if( FD_UNLIKELY( !strcmp( tile->name, "exec" ) ) ) {
       tile->exec.funk_obj_id = fd_pod_query_ulong( config->topo.props, "funk", ULONG_MAX );
+
+      tile->exec.capture_start_slot = config->capture.capture_start_slot;
+      strncpy( tile->exec.dump_proto_dir, config->capture.dump_proto_dir, sizeof(tile->exec.dump_proto_dir) );
+      tile->exec.dump_instr_to_pb = config->capture.dump_instr_to_pb;
+      tile->exec.dump_txn_to_pb = config->capture.dump_txn_to_pb;
+      tile->exec.dump_syscall_to_pb = config->capture.dump_syscall_to_pb;
     } else if( FD_UNLIKELY( !strcmp( tile->name, "writer" ) ) ) {
       tile->writer.funk_obj_id = fd_pod_query_ulong( config->topo.props, "funk", ULONG_MAX );
     } else if( FD_UNLIKELY( !strcmp( tile->name, "arch_f" ) ||
