@@ -16,10 +16,10 @@
 #define MAX_BUILTIN_ALLOCATION_COMPUTE_UNIT_LIMIT (3000UL)
 
 FD_FN_PURE static inline uchar
-get_program_kind( fd_exec_txn_ctx_t const * ctx,
+get_program_kind( fd_exec_txn_ctx_t const * txn_ctx,
                   fd_txn_instr_t const *    instr ) {
-  fd_pubkey_t const * txn_accs       = ctx->account_keys;
-  fd_pubkey_t const * program_pubkey = &txn_accs[ instr->program_id ];
+  fd_acct_addr_t const * txn_accs       = fd_txn_get_acct_addrs( txn_ctx->txn_descriptor, txn_ctx->_txn_raw->raw );
+  fd_pubkey_t const *    program_pubkey = fd_type_pun_const( &txn_accs[ instr->program_id ] );
 
   /* The program is a standard, non-migrating builtin (e.g. system program) */
   if( fd_is_non_migrating_builtin_program( program_pubkey ) ) {
@@ -27,7 +27,7 @@ get_program_kind( fd_exec_txn_ctx_t const * ctx,
   }
 
   uchar migrated_yet;
-  uchar is_migrating_program = fd_is_migrating_builtin_program( ctx, program_pubkey, &migrated_yet );
+  uchar is_migrating_program = fd_is_migrating_builtin_program( txn_ctx, program_pubkey, &migrated_yet );
 
   /* The program has a BPF migration config but has not been migrated yet, so it's still a builtin program */
   if( is_migrating_program && !migrated_yet ) {
@@ -44,10 +44,11 @@ get_program_kind( fd_exec_txn_ctx_t const * ctx,
 }
 
 FD_FN_PURE static inline int
-is_compute_budget_instruction( fd_exec_txn_ctx_t const * ctx,
-                               fd_txn_instr_t    const * instr ) {
-  fd_pubkey_t const * txn_accs       = ctx->account_keys;
-  fd_pubkey_t const * program_pubkey = &txn_accs[ instr->program_id ];
+is_compute_budget_instruction( fd_txn_t const *       txn,
+                               fd_rawtxn_b_t const *  txn_raw,
+                               fd_txn_instr_t const * instr ) {
+  fd_acct_addr_t const * txn_accs       = fd_txn_get_acct_addrs( txn, txn_raw->raw );
+  fd_acct_addr_t const * program_pubkey = &txn_accs[ instr->program_id ];
   return !memcmp(program_pubkey, fd_solana_compute_budget_program_id.key, sizeof(fd_pubkey_t));
 }
 
@@ -77,9 +78,11 @@ sanitize_requested_heap_size( ulong bytes ) {
   return !(bytes>FD_MAX_HEAP_FRAME_BYTES || bytes<FD_MIN_HEAP_FRAME_BYTES || bytes%FD_HEAP_FRAME_BYTES_GRANULARITY);
 }
 
-/* https://github.com/anza-xyz/agave/blob/16de8b75ebcd57022409b422de557dd37b1de8db/compute-budget/src/compute_budget_processor.rs#L69-L148 */
+/* NOTE: At this point, the transaction context has NOT been fully initialized (namely, the accounts). The accounts are NOT safe to access.
+
+   https://github.com/anza-xyz/agave/blob/16de8b75ebcd57022409b422de557dd37b1de8db/compute-budget/src/compute_budget_processor.rs#L69-L148 */
 int
-fd_executor_compute_budget_program_execute_instructions( fd_exec_txn_ctx_t * ctx, fd_rawtxn_b_t const * txn_raw ) {
+fd_executor_compute_budget_program_execute_instructions( fd_exec_txn_ctx_t * ctx ) {
   uint   has_compute_units_limit_update              = 0UL;
   uint   has_compute_units_price_update              = 0UL;
   uint   has_requested_heap_size                     = 0UL;
@@ -114,13 +117,13 @@ fd_executor_compute_budget_program_execute_instructions( fd_exec_txn_ctx_t * ctx
       }
     }
 
-    if( !is_compute_budget_instruction( ctx, instr ) ) {
+    if( !is_compute_budget_instruction( ctx->txn_descriptor, ctx->_txn_raw, instr ) ) {
       num_non_compute_budget_instrs++;
       continue;
     }
 
     /* Deserialize the ComputeBudgetInstruction enum */
-    uchar * data = (uchar *)txn_raw->raw + instr->data_off;
+    uchar * data = (uchar *)ctx->_txn_raw->raw + instr->data_off;
 
     int ret;
     fd_compute_budget_program_instruction_t * instruction =

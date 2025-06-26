@@ -1172,18 +1172,9 @@ fd_runtime_prepare_txns_start( fd_exec_slot_ctx_t *         slot_ctx,
    transaction sanitization checks. */
 
 void
-fd_runtime_pre_execute_check( fd_execute_txn_task_info_t * task_info,
-                              uchar                        dump_txn ) {
+fd_runtime_pre_execute_check( fd_execute_txn_task_info_t * task_info ) {
   if( FD_UNLIKELY( !( task_info->txn->flags & FD_TXN_P_FLAGS_SANITIZE_SUCCESS ) ) ) {
     return;
-  }
-
-  fd_exec_txn_ctx_t * txn_ctx = task_info->txn_ctx;
-  fd_executor_setup_accounts_for_txn( txn_ctx );
-
-  /* Dump transaction to protobuf */
-  if( FD_UNLIKELY( dump_txn ) ) {
-    fd_dump_txn_to_protobuf( task_info->txn_ctx, task_info->txn_ctx->spad );
   }
 
   int err;
@@ -1195,32 +1186,51 @@ fd_runtime_pre_execute_check( fd_execute_txn_task_info_t * task_info,
                    v
             confirm_full_slot
                    v
-            confirm_slot_entries --------->
-                   v                      v
-            verify_transaction      process_entries
-                   v                      v
-            verify_precompiles      process_batches
-                                          v
-                                         ...
-                                          v
-                              load_and_execute_transactions
-                                          v
-                                         ...
-                                          v
-                                    load_accounts --> load_transaction_accounts
-                                          v
-                              general transaction execution
+            confirm_slot_entries --------------------------------------------------->
+                   v                               v                                v
+            verify_transaction    ComputeBudget::process_instruction         process_entries
+                   v                                                                v
+            verify_precompiles                                                process_batches
+                                                                                    v
+                                                                                   ...
+                                                                                    v
+                                                                        load_and_execute_transactions
+                                                                                    v
+                                                                                   ...
+                                                                                    v
+                                                                              load_accounts --> load_transaction_accounts
+                                                                                    v
+                                                                       general transaction execution
 
   */
 
-  if( !FD_FEATURE_ACTIVE( txn_ctx->slot, &txn_ctx->features, move_precompile_verification_to_svm ) ) {
-    err = fd_executor_verify_precompiles( txn_ctx );
-    if( FD_UNLIKELY( err!=FD_RUNTIME_EXECUTE_SUCCESS ) ) {
-      task_info->txn->flags = 0U;
-      task_info->exec_res   = err;
-      return;
-    }
+  uchar dump_txn = !!( task_info->txn_ctx->capture_ctx &&
+                       task_info->txn_ctx->slot >= task_info->txn_ctx->capture_ctx->dump_proto_start_slot &&
+                       task_info->txn_ctx->capture_ctx->dump_txn_to_pb );
+  if( FD_UNLIKELY( dump_txn ) ) {
+    fd_dump_txn_to_protobuf( task_info->txn_ctx, task_info->txn_ctx->spad );
   }
+
+  /* Verify the transaction. This step involves processing the compute budget instructions and
+     precompiles (for now, until `move_precompile_verification_to_svm` is cleaned up). */
+  err = fd_executor_verify_transaction( task_info->txn_ctx );
+  if( FD_UNLIKELY( err!=FD_RUNTIME_EXECUTE_SUCCESS ) ) {
+    task_info->txn->flags = 0U;
+    task_info->exec_res   = err;
+    return;
+  }
+
+  /* Resolve and verify ALUT-referenced account keys, if applicable */
+  err = fd_executor_setup_txn_alut_account_keys( task_info->txn_ctx );
+  if( FD_UNLIKELY( err!=FD_RUNTIME_EXECUTE_SUCCESS ) ) {
+    task_info->txn->flags = 0U;
+    task_info->exec_res   = err;
+    return;
+  }
+
+  /* Set up the transaction accounts and other txn ctx metadata */
+  fd_exec_txn_ctx_t * txn_ctx = task_info->txn_ctx;
+  fd_executor_setup_accounts_for_txn( txn_ctx );
 
   /* Post-sanitization checks. Called from `prepare_sanitized_batch()` which, for now, only is used
      to lock the accounts and perform a couple basic validations.
@@ -1438,7 +1448,6 @@ fd_runtime_prepare_and_execute_txn( fd_exec_slot_ctx_t const *   slot_ctx,
                                     fd_spad_t *                  exec_spad,
                                     fd_capture_ctx_t *           capture_ctx ) {
 
-  uchar dump_txn = !!( capture_ctx && slot_ctx->slot >= capture_ctx->dump_proto_start_slot && capture_ctx->dump_txn_to_pb );
   int res = 0;
 
   fd_exec_txn_ctx_t * txn_ctx     = task_info->txn_ctx;
@@ -1464,7 +1473,7 @@ fd_runtime_prepare_and_execute_txn( fd_exec_slot_ctx_t const *   slot_ctx,
     task_info->exec_res   = FD_RUNTIME_TXN_ERR_SIGNATURE_FAILURE;
   }
 
-  fd_runtime_pre_execute_check( task_info, dump_txn ); /* TODO: check if this will be called from executor tile or replay tile */
+  fd_runtime_pre_execute_check( task_info ); /* TODO: check if this will be called from executor tile or replay tile */
   if( FD_UNLIKELY( !( task_info->txn->flags & FD_TXN_P_FLAGS_SANITIZE_SUCCESS ) ) ) {
     res  = task_info->exec_res;
     return -1;
@@ -1528,7 +1537,7 @@ fd_runtime_prepare_execute_finalize_txn_task( void * tpool,
    confirm_slot_entries() which calls verify_ticks() and
    verify_transaction(). verify_transaction() calls verify_and_hash_message()
    and verify_precompiles() which parallels fd_executor_txn_verify() and
-   fd_executor_verify_precompiles().
+   fd_executor_verify_transaction().
 
    process_entries() contains a duplicate account check which is part of
    agave account lock acquiring. This is checked inline in

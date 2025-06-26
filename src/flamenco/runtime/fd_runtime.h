@@ -533,8 +533,7 @@ fd_runtime_prepare_txns_start( fd_exec_slot_ctx_t *         slot_ctx,
                                fd_spad_t *                  runtime_spad );
 
 void
-fd_runtime_pre_execute_check( fd_execute_txn_task_info_t * task_info,
-                              uchar                        dump_txn );
+fd_runtime_pre_execute_check( fd_execute_txn_task_info_t * task_info );
 
 /* fd_runtime_process_txns is responsible for end-to-end preparing, executing,
    and finalizing a list of transactions. It will execute all of the

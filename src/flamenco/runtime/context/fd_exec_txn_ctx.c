@@ -204,8 +204,9 @@ fd_exec_txn_ctx_setup_basic( fd_exec_txn_ctx_t * ctx ) {
   ctx->cpi_instr_info_cnt = 0UL;
   ctx->instr_trace_length = 0UL;
 
-  ctx->exec_err      = 0;
-  ctx->exec_err_kind = FD_EXECUTOR_ERR_KIND_NONE;
+  ctx->exec_err          = 0;
+  ctx->exec_err_kind     = FD_EXECUTOR_ERR_KIND_NONE;
+  ctx->current_instr_idx = 0;
 }
 
 void
