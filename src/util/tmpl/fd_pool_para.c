@@ -825,6 +825,9 @@ POOL_(reset)( POOL_(t) * join,
       #endif
       ele[ ele_idx ].POOL_NEXT = POOL_(private_cidx)( ele_idx+1UL );
     }
+    #ifdef POOL_MARK_IN_POOL
+    POOL_MARK_IN_POOL( &ele[ ele_max-1UL ] );
+    #endif
     ele[ ele_max-1UL ].POOL_NEXT = POOL_(private_cidx)( POOL_(idx_null)() );
   }
 

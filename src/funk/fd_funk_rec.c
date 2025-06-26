@@ -241,6 +241,7 @@ fd_funk_rec_prepare( fd_funk_t *               funk,
   }
 
   if( rec != NULL ) {
+    fd_funk_val_init( rec );
     if( txn == NULL ) {
       fd_funk_txn_xid_set_root( rec->pair.xid );
       rec->txn_cidx = fd_funk_txn_cidx( FD_FUNK_TXN_IDX_NULL );
@@ -255,7 +256,6 @@ fd_funk_rec_prepare( fd_funk_t *               funk,
       prepare->txn_lock     = &txn->lock;
     }
     fd_funk_rec_key_copy( rec->pair.key, key );
-    fd_funk_val_init( rec );
     rec->tag = 0;
     rec->flags = 0;
     rec->prev_idx = FD_FUNK_REC_IDX_NULL;
