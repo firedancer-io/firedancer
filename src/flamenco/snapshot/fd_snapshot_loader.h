@@ -34,7 +34,8 @@ struct fd_snapshot_src {
     } file;
 
     struct {
-      char         dest[128];
+      char         dest[127];
+      uchar        is_https;
       uint         ip4;
       ushort       port;
       char const * path;
