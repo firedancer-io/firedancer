@@ -180,6 +180,18 @@ def execution_stats( log_path, pdf ):
             last_executed = int(line.split()[12][:-1])  # 13th word (index 12 in 0-based indexing)
             break
 
+    if snapshot_slot is None:
+        # get user input from CLI instead
+        snapshot_slot = int(input('Couldn\'t find snapshot slot in log, please enter it manually: '))
+
+    if first_turbine is None:
+        # get user input from CLI instead
+        first_turbine = input('Couldn\'t find first turbine slot in log, please enter it manually: ')
+
+    if last_executed is None:
+        # get user input from CLI instead
+        last_executed = int(input('Couldn\'t find last executed slot in log, please enter it manually: '))
+
     # Output the extracted values
     print(f'snapshot_slot = {snapshot_slot}')
     print(f'first_turbine = {first_turbine}')
