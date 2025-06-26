@@ -552,6 +552,31 @@ STEM_(run1)( ulong                        in_cnt,
       ulong * housekeeping_regime = &metric_regime_ticks[0];
       ulong * prefrag_regime = &metric_regime_ticks[3];
       ulong * finish_regime = &metric_regime_ticks[6];
+
+      // when it's all caught up, so we can sleep here.
+      // TODO: is volatile needed?/
+      volatile int * seq_ptr = (volatile int *) this_in->mline;
+
+      FD_LOG_NOTICE(("\n\nwaiting on seq_ptr: %p", (void*) seq_ptr));
+      FD_LOG_NOTICE(("\n\ncur value on seq_ptr: %d", *seq_ptr));
+      FD_LOG_NOTICE(("\n\nwaiting for futex"));
+      futex_wait(seq_ptr, (int) this_in->seq - 1);
+      FD_LOG_NOTICE(("\n\n\nWOKE UP WOKE UP WOKE UP\n\n\n"));
+      
+      int futex_value = *seq_ptr;
+      if (futex_value == (int) this_in->seq) {
+        FD_LOG_NOTICE(("\n\nfutex value is correct"));
+        FD_LOG_NOTICE(("should consume here\n\n\n"));
+        for (long i = 0; i < 20000000; i++) {
+          FD_LOG_NOTICE(("\n\n\nin the loop\n\n\n"));
+        }
+        continue;
+      } else if (futex_value > (int) this_in->seq) {
+        FD_LOG_NOTICE(("\n\nfutex value is greater than expected, we got overrun"));
+      } else {
+        FD_LOG_NOTICE(("\n\nfutex value is less, already got consumed"));
+      }
+      // TODO: for now ignore the overrun case
       if( FD_UNLIKELY( diff<0L ) ) { /* Overrun (impossible if in is honoring our flow control) */
         this_in->seq = seq_found; /* Resume from here (probably reasonably current, could query in mcache sync directly instead) */
         housekeeping_regime = &metric_regime_ticks[1];

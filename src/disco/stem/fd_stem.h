@@ -2,6 +2,8 @@
 #define HEADER_fd_src_disco_stem_fd_stem_h
 
 #include "../fd_disco_base.h"
+#include <sys/syscall.h>
+#include <linux/futex.h>
 
 #define FD_STEM_SCRATCH_ALIGN (128UL)
 
@@ -30,6 +32,20 @@ struct __attribute__((aligned(64))) fd_stem_tile_in {
 
 typedef struct fd_stem_tile_in fd_stem_tile_in_t;
 
+long syscall(long number, ...);
+
+static inline long futex_wait(volatile int *addr, int val) {
+    return syscall(SYS_futex, addr, FUTEX_WAIT, val, NULL, NULL, 0);
+}
+
+static inline long futex_wake(volatile int *addr, int n) {
+    return syscall(SYS_futex, addr, FUTEX_WAKE, n, NULL, NULL, 0);
+}
+
+static inline long futex_waitv(struct futex_waitv *waiters, unsigned int nr_futexes) {
+    return syscall(SYS_futex_waitv, waiters, nr_futexes, 0, NULL, 0);
+}
+
 static inline void
 fd_stem_publish( fd_stem_context_t * stem,
                  ulong               out_idx,
@@ -42,6 +58,14 @@ fd_stem_publish( fd_stem_context_t * stem,
   ulong * seqp = &stem->seqs[ out_idx ];
   ulong   seq  = *seqp;
   fd_mcache_publish( stem->mcaches[ out_idx ], stem->depths[ out_idx ], seq, sig, chunk, sz, ctl, tsorig, tspub );
+  
+  FD_LOG_NOTICE(("\n\n waking up consumer"));
+  fd_frag_meta_t * meta = stem->mcaches[ out_idx ] + fd_mcache_line_idx( stem->seqs[ out_idx ] , stem->depths[ out_idx ] );
+  FD_LOG_NOTICE(("\n\n &stem->mcaches[%lu]: %p", out_idx, (void*) meta));
+  FD_LOG_NOTICE(("\n\n new seq value at the address is: %d", (int) meta->seq));
+  // TODO: is volatile needed?
+  futex_wake((volatile int *) meta, INT_MAX);
+  
   *stem->cr_avail -= stem->cr_decrement_amount;
   *seqp = fd_seq_inc( seq, 1UL );
 }
