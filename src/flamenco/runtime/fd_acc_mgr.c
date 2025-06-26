@@ -100,7 +100,7 @@ fd_funk_get_acc_meta_mutable( fd_funk_t *             funk,
         0UL,
         sz,
         &funk_err );
-    if( FD_UNLIKELY( !val ) ) FD_LOG_ERR(( "fd_funk_val_truncate(sz=%lu) failed (%i-%s)", sz, funk_err, fd_funk_strerror( funk_err ) ));
+    if( FD_UNLIKELY( !val ) ) FD_LOG_CRIT(( "fd_funk_val_truncate(sz=%lu) failed (%i-%s)", sz, funk_err, fd_funk_strerror( funk_err ) ));
   } else {
     val = fd_funk_val( rec, wksp );
   }

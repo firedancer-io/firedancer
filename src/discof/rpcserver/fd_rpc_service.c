@@ -136,74 +136,6 @@ get_slot_from_commitment_level( struct json_values * values, fd_rpc_ctx_t * ctx 
   }
 }
 
-static fd_epoch_bank_t *
-read_epoch_bank( fd_rpc_ctx_t * ctx ) {
-  fd_funk_rec_key_t recid = fd_runtime_epoch_bank_key();
-
-  ulong vallen;
-  const void * val = read_account( ctx, &recid, &vallen );
-  if( val == NULL ) {
-    FD_LOG_WARNING(( "failed to decode epoch_bank" ));
-    return NULL;
-  }
-  uint magic = *(uint*)val;
-  if( FD_UNLIKELY( magic != FD_RUNTIME_ENC_BINCODE ) ) {
-    FD_LOG_ERR(("failed to read banks record: invalid magic number"));
-  }
-
-  fd_epoch_bank_t * epoch_bank = fd_bincode_decode_spad(
-      epoch_bank,
-      ctx->global->spad,
-      val    + sizeof(uint),
-      vallen - sizeof(uint),
-      NULL );
-  if( FD_UNLIKELY( !epoch_bank ) ) {
-    FD_LOG_WARNING(( "failed to decode epoch_bank" ));
-    return NULL;
-  }
-
-  return epoch_bank;
-}
-
-static fd_slot_bank_t *
-read_slot_bank( fd_rpc_ctx_t * ctx, ulong slot ) {
-  fd_funk_rec_key_t recid = fd_runtime_slot_bank_key();
-  ulong vallen;
-
-  fd_replay_notif_msg_t * info = fd_rpc_history_get_block_info( ctx->global->history, slot );
-  if( FD_UNLIKELY( info == NULL ) ) {
-    FD_LOG_WARNING( ( "get_slot_info failed" ) );
-    return NULL;
-  }
-  fd_funk_txn_xid_t xid;
-  xid.ul[0] = xid.ul[1] = slot;
-  const void * val = read_account_with_xid(ctx, &recid, &xid, &vallen);
-  if( FD_UNLIKELY( !val ) ) {
-    val = read_account(ctx, &recid, &vallen);
-    if( FD_UNLIKELY( !val ) ) {
-      FD_LOG_WARNING(( "failed to decode slot_bank" ));
-      return NULL;
-    }
-  }
-
-  uint magic = *(uint*)val;
-  if( FD_UNLIKELY( magic != FD_RUNTIME_ENC_BINCODE ) ) {
-    FD_LOG_ERR(( "failed to read banks record: invalid magic number" ));
-  }
-
-  fd_slot_bank_t * slot_bank = fd_bincode_decode_spad(
-      slot_bank,
-      ctx->global->spad,
-      val    + sizeof(uint),
-      vallen - sizeof(uint),
-      NULL );
-  if( !slot_bank ) {
-    FD_LOG_WARNING(( "failed to decode slot_bank" ));
-    return NULL;
-  }
-  return slot_bank;
-}
-
 /*
 static const char *
 block_flags_to_confirmation_status( uchar flags ) {
@@ -722,20 +654,17 @@ method_getEpochInfo(struct json_values* values, fd_rpc_ctx_t * ctx) {
       fd_method_error(ctx, -1, "unable to find slot info");
       return 0;
     }
-    fd_epoch_bank_t * epoch_bank = read_epoch_bank(ctx);
-    if( epoch_bank == NULL ) {
-      fd_method_error(ctx, -1, "unable to read epoch_bank");
-      return 0;
-    }
-    ulong slot_index;
-    ulong epoch = fd_slot_to_epoch( &epoch_bank->epoch_schedule, slot, &slot_index );
+
+    ulong slot_index = 0UL;
+    // ulong epoch = fd_slot_to_epoch( &epoch_bank->epoch_schedule, slot, &slot_index );
+    ulong epoch = 0UL;
 
     fd_web_reply_sprintf(ws, "{\"jsonrpc\":\"2.0\",\"result\":{\"absoluteSlot\":%lu,\"blockHeight\":%lu,\"epoch\":%lu,\"slotIndex\":%lu,\"slotsInEpoch\":%lu,\"transactionCount\":%lu},\"id\":%s}" CRLF,
                          slot,
                          info->slot_exec.height,
                          epoch,
                          slot_index,
-                         fd_epoch_slot_cnt( &epoch_bank->epoch_schedule, epoch ),
+                         432000UL,
                          info->slot_exec.transaction_count,
                          ctx->call_id);
   } FD_SPAD_FRAME_END;
@@ -750,18 +679,14 @@ method_getEpochSchedule(struct json_values* values, fd_rpc_ctx_t * ctx) {
   (void)values;
   FD_SPAD_FRAME_BEGIN( ctx->global->spad ) {
     fd_webserver_t * ws = &ctx->global->ws;
-    fd_epoch_bank_t * epoch_bank = read_epoch_bank(ctx);
-    if( FD_UNLIKELY( !epoch_bank ) ) {
-      fd_method_simple_error( ctx, -1, "unable to read epoch_bank" );
-      return 0;
-    }
-    fd_web_reply_sprintf(ws, "{\"jsonrpc\":\"2.0\",\"result\":{\"firstNormalEpoch\":%lu,\"firstNormalSlot\":%lu,\"leaderScheduleSlotOffset\":%lu,\"slotsPerEpoch\":%lu,\"warmup\":%s},\"id\":%s}" CRLF,
-                         epoch_bank->epoch_schedule.first_normal_epoch,
-                         epoch_bank->epoch_schedule.first_normal_slot,
-                         epoch_bank->epoch_schedule.leader_schedule_slot_offset,
-                         epoch_bank->epoch_schedule.slots_per_epoch,
-                         (epoch_bank->epoch_schedule.warmup ? "true" : "false"),
-                         ctx->call_id);
+    (void)ws;
+    // fd_web_reply_sprintf(ws, "{\"jsonrpc\":\"2.0\",\"result\":{\"firstNormalEpoch\":%lu,\"firstNormalSlot\":%lu,\"leaderScheduleSlotOffset\":%lu,\"slotsPerEpoch\":%lu,\"warmup\":%s},\"id\":%s}" CRLF,
+    //                      epoch_bank->epoch_schedule.first_normal_epoch,
+    //                      epoch_bank->epoch_schedule.first_normal_slot,
+    //                      epoch_bank->epoch_schedule.leader_schedule_slot_offset,
+    //                      epoch_bank->epoch_schedule.slots_per_epoch,
+    //                      (epoch_bank->epoch_schedule.warmup ? "true" : "false"),
+    //                      ctx->call_id);
   } FD_SPAD_FRAME_END;
   return 0;
 }
@@ -819,14 +744,9 @@ static int
 method_getGenesisHash(struct json_values* values, fd_rpc_ctx_t * ctx) {
   (void)values;
   FD_SPAD_FRAME_BEGIN( ctx->global->spad ) {
-    fd_epoch_bank_t * epoch_bank = read_epoch_bank(ctx);
-    if( epoch_bank == NULL ) {
-      fd_method_error(ctx, -1, "unable to read epoch_bank");
-      return 0;
-    }
     fd_webserver_t * ws = &ctx->global->ws;
     fd_web_reply_sprintf(ws, "{\"jsonrpc\":\"2.0\",\"result\":\"");
-    fd_web_reply_encode_base58(ws, epoch_bank->genesis_hash.uc, sizeof(fd_pubkey_t));
+    // fd_web_reply_encode_base58(ws, epoch_bank->genesis_hash.uc, sizeof(fd_pubkey_t));
     fd_web_reply_sprintf(ws, "\",\"id\":%s}" CRLF, ctx->call_id);
   } FD_SPAD_FRAME_END;
   return 0;
@@ -967,11 +887,11 @@ method_getLeaderSchedule(struct json_values* values, fd_rpc_ctx_t * ctx) {
     fd_webserver_t * ws = &ctx->global->ws;
 
     ulong slot = get_slot_from_commitment_level( values, ctx );
-    fd_epoch_bank_t * epoch_bank = read_epoch_bank(ctx);
-    if( epoch_bank == NULL ) {
-      fd_method_error(ctx, -1, "unable to read epoch_bank");
-      return 0;
-    }
+    // fd_epoch_bank_t * epoch_bank = read_epoch_bank(ctx);
+    // if( epoch_bank == NULL ) {
+    //   fd_method_error(ctx, -1, "unable to read epoch_bank");
+    //   return 0;
+    // }
 
     fd_epoch_leaders_t const * leaders = fd_multi_epoch_leaders_get_lsched_for_slot( ctx->global->leaders, slot );
     if( FD_UNLIKELY( !leaders ) ) {
@@ -1060,12 +980,9 @@ method_getMinimumBalanceForRentExemption(struct json_values* values, fd_rpc_ctx_
     ulong size_sz = 0;
     const void* size = json_get_value(values, PATH_SIZE, 3, &size_sz);
     ulong sizen = (size == NULL ? 0UL : (ulong)(*(long*)size));
-    fd_epoch_bank_t * epoch_bank  = read_epoch_bank( ctx );
-    if( epoch_bank == NULL ) {
-      fd_method_error(ctx, -1, "unable to read epoch_bank");
-      return 0;
-    }
-    ulong min_balance = fd_rent_exempt_minimum_balance( &epoch_bank->rent, sizen );
+    (void)sizen;
+    // ulong min_balance = fd_rent_exempt_minimum_balance( &epoch_bank->rent, sizen );
+    ulong min_balance = 0UL;
 
     fd_webserver_t * ws = &ctx->global->ws;
     fd_web_reply_sprintf(ws, "{\"jsonrpc\":\"2.0\",\"result\":%lu,\"id\":%s}" CRLF,
@@ -1424,17 +1341,10 @@ method_getStakeMinimumDelegation(struct json_values* values, fd_rpc_ctx_t * ctx)
 // TODO
 static int
 method_getSupply(struct json_values* values, fd_rpc_ctx_t * ctx) {
-  FD_SPAD_FRAME_BEGIN( ctx->global->spad ) {
-    ulong                 slot      = get_slot_from_commitment_level( values, ctx );
-    fd_slot_bank_t *      slot_bank = read_slot_bank( ctx, slot );
-    if( FD_UNLIKELY( !slot_bank ) ) {
-      fd_method_error( ctx, -1, "slot bank %lu not found", slot );
-      return 0;
-    }
-    fd_webserver_t * ws = &ctx->global->ws;
-    fd_web_reply_sprintf( ws, "{\"jsonrpc\":\"2.0\",\"result\":{\"context\":{\"apiVersion\":\"" FIREDANCER_VERSION "\",\"slot\":%lu},\"value\":{\"circulating\":%lu,\"nonCirculating\":%lu,\"nonCirculatingAccounts\":[],\"total\":%lu}},\"id\":%s}",
-                          slot, slot_bank->capitalization, 0UL, slot_bank->capitalization, ctx->call_id);
-  } FD_SPAD_FRAME_END;
+  (void)values;
+  (void)ctx;
+  FD_LOG_WARNING(( "getSupply is not implemented" ));
+  fd_method_error(ctx, -1, "getSupply is not implemented");
   return 0;
 }
 
@@ -1597,9 +1507,10 @@ method_getTransactionCount(struct json_values* values, fd_rpc_ctx_t * ctx) {
       fd_method_error( ctx, -1, "slot bank %lu not found", slot );
       return 0;
     }
+    /* FIXME: should be the transaction count here */
     fd_web_reply_sprintf( ws,
                           "{\"jsonrpc\":\"2.0\",\"result\":%lu,\"id\":%s}" CRLF,
-                          info->slot_exec.transaction_count,
+                          0UL,
                           ctx->call_id );
   } FD_SPAD_FRAME_END;
   return 0;
@@ -1634,19 +1545,19 @@ method_getVoteAccounts(struct json_values* values, fd_rpc_ctx_t * ctx) {
     const void* arg = json_get_value(values, path, 4, &arg_sz);
     (void)arg; // Ignore for now
 
-    ulong                 slot      = get_slot_from_commitment_level( values, ctx );
-    fd_slot_bank_t *      slot_bank = read_slot_bank( ctx, slot );
-    if( FD_UNLIKELY( !slot_bank ) ) {
-      fd_method_error( ctx, -1, "slot bank %lu not found", slot );
-      return 0;
-    }
+    // ulong                 slot      = get_slot_from_commitment_level( values, ctx );
+    // fd_slot_bank_t *      slot_bank = read_slot_bank( ctx, slot );
+    // if( FD_UNLIKELY( !slot_bank ) ) {
+    //   fd_method_error( ctx, -1, "slot bank %lu not found", slot );
+    //   return 0;
+    // }
 
     int needcomma = 0;
 
-    fd_clock_timestamp_vote_t_mapnode_t * timestamp_votes_root = slot_bank->timestamp_votes.votes_root;
-    fd_clock_timestamp_vote_t_mapnode_t * timestamp_votes_pool = slot_bank->timestamp_votes.votes_pool;
-    fd_vote_accounts_pair_t_mapnode_t *   vote_acc_root        = slot_bank->epoch_stakes.vote_accounts_root;
-    fd_vote_accounts_pair_t_mapnode_t *   vote_acc_pool        = slot_bank->epoch_stakes.vote_accounts_pool;
+    fd_clock_timestamp_vote_t_mapnode_t * timestamp_votes_root = NULL;
+    fd_clock_timestamp_vote_t_mapnode_t * timestamp_votes_pool = NULL;
+    fd_vote_accounts_pair_t_mapnode_t *   vote_acc_root        = NULL; // slot_bank->epoch_stakes.vote_accounts_root;
+    fd_vote_accounts_pair_t_mapnode_t *   vote_acc_pool        = NULL; // slot_bank->epoch_stakes.vote_accounts_pool;
     for( fd_vote_accounts_pair_t_mapnode_t* n = fd_vote_accounts_pair_t_map_minimum(vote_acc_pool, vote_acc_root);
          n;
          n = fd_vote_accounts_pair_t_map_successor( vote_acc_pool, n ) ) {

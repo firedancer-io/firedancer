@@ -42,7 +42,7 @@ leader_pipeline( void ) {
     //   /* FIXME. We need a more efficient way to compute the ancestor chain. */
     //   uchar msg[4098*8] __attribute__( ( aligned( 8U ) ) );
     //   fd_memset( msg, 0, sizeof(msg) );
-    //   ulong s = reset_fork->slot_ctx->slot_bank.slot;
+    //   ulong s = reset_fork->slot_ctx->slot;
     //   *(ulong*)(msg + 16U) = s;
     //   ulong i = 0;
     //   do {
@@ -67,7 +67,7 @@ leader_pipeline( void ) {
     // memcpy( microblock_trailer->hash, reset_fork->slot_ctx->slot_bank.block_hash_queue.last_hash->uc, sizeof(fd_hash_t) );
     // if( ctx->poh_init_done == 1 ) {
     //   ulong parent_slot = reset_fork->slot_ctx->slot_bank.prev_slot;
-    //   ulong curr_slot = reset_fork->slot_ctx->slot_bank.slot;
+    //   ulong curr_slot = reset_fork->slot_ctx->slot;
     //   FD_LOG_DEBUG(( "publishing mblk to poh - slot: %lu, parent_slot: %lu, flags: %lx", curr_slot, parent_slot, flags ));
     //   ulong tspub = fd_frag_meta_ts_comp( fd_tickcount() );
     //   ulong sig = fd_disco_replay_old_sig( curr_slot, flags );
@@ -214,7 +214,7 @@ leader_pipeline( void ) {
   // /* Init PoH if it is ready                                            */
   // /**********************************************************************/
 
-  // if( FD_UNLIKELY( !(flags & REPLAY_FLAG_CATCHING_UP) && ctx->poh_init_done == 0 && ctx->slot_ctx->blockstore ) ) {
+  // if( FD_UNLIKELY( !(flags & REPLAY_FLAG_CATCHING_UP) && ctx->poh_init_done == 0 && ctx->blockstore ) ) {
   //   init_poh( ctx );
   // }
 

@@ -33,7 +33,7 @@ FD_PROTOTYPES_BEGIN
 /* https://github.com/anza-xyz/agave/blob/v2.0.9/runtime/src/bank.rs#L3239-L3251 */
 static inline ulong
 get_transaction_account_lock_limit( fd_exec_txn_ctx_t const * txn_ctx ) {
-  return fd_ulong_if( FD_FEATURE_ACTIVE( txn_ctx->slot, txn_ctx->features, increase_tx_account_lock_limit ), MAX_TX_ACCOUNT_LOCKS, 64UL );
+  return fd_ulong_if( FD_FEATURE_ACTIVE_BANK( txn_ctx->bank, increase_tx_account_lock_limit ), MAX_TX_ACCOUNT_LOCKS, 64UL );
 }
 
 /* fd_exec_instr_fn_t processes an instruction.  Returns an error code
@@ -97,9 +97,9 @@ void
 fd_txn_reclaim_accounts( fd_exec_txn_ctx_t * txn_ctx );
 
 int
-fd_executor_is_blockhash_valid_for_age( fd_block_hash_queue_t const * block_hash_queue,
-                                        fd_hash_t const *             blockhash,
-                                        ulong                         max_age );
+fd_executor_is_blockhash_valid_for_age( fd_block_hash_queue_global_t const * block_hash_queue,
+                                        fd_hash_t const *                    blockhash,
+                                        ulong                                max_age );
 
 /* fd_io_strerror converts an FD_EXECUTOR_INSTR_ERR_{...} code into a
    human readable cstr.  The lifetime of the returned pointer is
@@ -144,7 +144,8 @@ fd_exec_txn_ctx_from_exec_slot_ctx( fd_exec_slot_ctx_t const * slot_ctx,
                                     fd_wksp_t const *          funk_wksp,
                                     fd_wksp_t const *          runtime_pub_wksp,
                                     ulong                      funk_txn_gaddr,
-                                    ulong                      funk_gaddr );
+                                    ulong                      funk_gaddr,
+                                    fd_bank_hash_cmp_t *       bank_hash_cmp );
 
 FD_PROTOTYPES_END
 

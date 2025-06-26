@@ -79,9 +79,8 @@ main( int     argc,
 
   fd_valloc_t valloc = fd_libc_alloc_virtual();
   fd_exec_slot_ctx_t  * slot_ctx  = fd_valloc_malloc( valloc, FD_EXEC_SLOT_CTX_ALIGN,    FD_EXEC_SLOT_CTX_FOOTPRINT );
-  fd_exec_epoch_ctx_t * epoch_ctx = fd_valloc_malloc( valloc, fd_exec_epoch_ctx_align(), sizeof(fd_exec_epoch_ctx_t) );
 
-  fd_exec_instr_ctx_t * instr_ctx = test_vm_minimal_exec_instr_ctx( valloc, epoch_ctx, slot_ctx );
+  fd_exec_instr_ctx_t * instr_ctx = test_vm_minimal_exec_instr_ctx( valloc, slot_ctx );
   fd_features_enable_all( &((fd_exec_txn_ctx_t *)instr_ctx->txn_ctx)->features );
 
   int vm_ok = !!fd_vm_init(
@@ -105,7 +104,7 @@ main( int     argc,
       /* mem_regions_cnt    */ 0UL,
       /* mem_regions_accs   */ NULL,
       /* is_deprecated      */ 0,
-      /* direct mapping     */ FD_FEATURE_ACTIVE( instr_ctx->txn_ctx->slot, instr_ctx->txn_ctx->features, bpf_account_data_direct_mapping ),
+      /* direct mapping     */ FD_FEATURE_ACTIVE( instr_ctx->txn_ctx->slot, &instr_ctx->txn_ctx->features, bpf_account_data_direct_mapping ),
       /* dump_syscall_to_pb */ 0
   );
   FD_TEST( vm_ok );
@@ -395,7 +394,6 @@ main( int     argc,
   fd_vm_delete    ( fd_vm_leave    ( vm  ) );
   fd_sha256_delete( fd_sha256_leave( sha ) );
   fd_rng_delete   ( fd_rng_leave   ( rng ) );
-  fd_valloc_free( valloc, epoch_ctx );
   fd_valloc_free( valloc, slot_ctx );
   test_vm_exec_instr_ctx_delete( instr_ctx, fd_libc_alloc_virtual() );
 

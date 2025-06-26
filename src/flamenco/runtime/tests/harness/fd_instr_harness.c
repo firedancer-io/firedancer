@@ -3,15 +3,19 @@
 #define FD_SPAD_USE_HANDHOLDING 1
 
 #include "fd_instr_harness.h"
+#include "../../fd_system_ids.h"
 #include "../../sysvar/fd_sysvar_clock.h"
 #include "../../sysvar/fd_sysvar_epoch_schedule.h"
 #include "../../sysvar/fd_sysvar_recent_hashes.h"
 #include "../../sysvar/fd_sysvar_last_restart_slot.h"
+#include "../../sysvar/fd_sysvar_rent.h"
+
 int
 fd_runtime_fuzz_instr_ctx_create( fd_runtime_fuzz_runner_t *           runner,
                                   fd_exec_instr_ctx_t *                ctx,
                                   fd_exec_test_instr_context_t const * test_ctx,
                                   bool                                 is_syscall ) {
+
   memset( ctx, 0, sizeof(fd_exec_instr_ctx_t) );
 
   fd_funk_t * funk = runner->funk;
@@ -27,51 +31,55 @@ fd_runtime_fuzz_instr_ctx_create( fd_runtime_fuzz_runner_t *           runner,
   fd_funk_txn_t * funk_txn = fd_funk_txn_prepare( funk, NULL, xid, 1 );
   fd_funk_txn_end_write( funk );
 
-  ulong vote_acct_max = MAX_TX_ACCOUNT_LOCKS;
-
   /* Allocate contexts */
-  uchar *               epoch_ctx_mem = fd_spad_alloc( runner->spad, fd_exec_epoch_ctx_align(), fd_exec_epoch_ctx_footprint( vote_acct_max ) );
   uchar *               slot_ctx_mem  = fd_spad_alloc( runner->spad,FD_EXEC_SLOT_CTX_ALIGN,  FD_EXEC_SLOT_CTX_FOOTPRINT  );
   uchar *               txn_ctx_mem   = fd_spad_alloc( runner->spad,FD_EXEC_TXN_CTX_ALIGN,   FD_EXEC_TXN_CTX_FOOTPRINT   );
 
-  fd_exec_epoch_ctx_t * epoch_ctx     = fd_exec_epoch_ctx_join( fd_exec_epoch_ctx_new( epoch_ctx_mem, vote_acct_max ) );
   fd_exec_slot_ctx_t *  slot_ctx      = fd_exec_slot_ctx_join ( fd_exec_slot_ctx_new ( slot_ctx_mem ) );
   fd_exec_txn_ctx_t *   txn_ctx       = fd_exec_txn_ctx_join  ( fd_exec_txn_ctx_new  ( txn_ctx_mem ), runner->spad, fd_wksp_containing( runner->spad ) );
 
-  assert( epoch_ctx );
   assert( slot_ctx  );
 
   ctx->txn_ctx = txn_ctx;
 
-  /* Set up epoch context. Defaults obtained from GenesisConfig::Default() */
-  fd_epoch_bank_t * epoch_bank = fd_exec_epoch_ctx_epoch_bank( epoch_ctx );
-  epoch_bank->rent.lamports_per_uint8_year = 3480;
-  epoch_bank->rent.exemption_threshold = 2;
-  epoch_bank->rent.burn_percent = 50;
-
   /* Set up slot context */
 
-  slot_ctx->epoch_ctx    = epoch_ctx;
   slot_ctx->funk_txn     = funk_txn;
   slot_ctx->funk         = funk;
-  slot_ctx->runtime_wksp = runner->wksp;
 
-  /* Restore feature flags */
+  /* Bank manager */
 
+  slot_ctx->bank = runner->bank;
+  memcpy( (uchar *)slot_ctx->bank + FD_BANK_HEADER_SIZE, (uchar *)runner->bank + FD_BANK_HEADER_SIZE, sizeof(fd_bank_t) - FD_BANK_HEADER_SIZE );
+
+  fd_features_t * features = fd_bank_features_modify( slot_ctx->bank );
   fd_exec_test_feature_set_t const * feature_set = &test_ctx->epoch_context.features;
-  if( !fd_runtime_fuzz_restore_features( epoch_ctx, feature_set ) ) {
+  if( !fd_runtime_fuzz_restore_features( features, feature_set ) ) {
     return 0;
   }
 
-  /* Restore slot_bank */
+  /* Set up epoch context. Defaults obtained from GenesisConfig::Default() */
 
-  fd_slot_bank_new( &slot_ctx->slot_bank );
+  fd_rent_t * rent_bm = fd_bank_rent_modify( slot_ctx->bank );
+  rent_bm->lamports_per_uint8_year = 3480;
+  rent_bm->exemption_threshold = 2;
+  rent_bm->burn_percent = 50;
 
   /* Blockhash queue init */
-  fd_block_hash_queue_t * blockhash_queue = &slot_ctx->slot_bank.block_hash_queue;
-  blockhash_queue->max_age   = FD_BLOCKHASH_QUEUE_MAX_ENTRIES;
-  blockhash_queue->last_hash = fd_spad_alloc( runner->spad, FD_HASH_ALIGN, FD_HASH_FOOTPRINT );
-  fd_memset( blockhash_queue->last_hash, 0, FD_HASH_FOOTPRINT );
+
+  fd_block_hash_queue_global_t * block_hash_queue = fd_bank_block_hash_queue_modify( slot_ctx->bank );
+
+  uchar * last_hash_mem = (uchar *)fd_ulong_align_up( (ulong)block_hash_queue + sizeof(fd_block_hash_queue_global_t), alignof(fd_hash_t) );
+  uchar * ages_pool_mem = (uchar *)fd_ulong_align_up( (ulong)last_hash_mem + sizeof(fd_hash_t), fd_hash_hash_age_pair_t_map_align() );
+  fd_hash_hash_age_pair_t_mapnode_t * ages_pool = fd_hash_hash_age_pair_t_map_join( fd_hash_hash_age_pair_t_map_new( ages_pool_mem, 400 ) );
+
+  block_hash_queue->max_age          = FD_BLOCKHASH_QUEUE_MAX_ENTRIES;
+  block_hash_queue->ages_root_offset = 0UL;
+  fd_block_hash_queue_ages_pool_update( block_hash_queue, ages_pool );
+  block_hash_queue->last_hash_index  = 0UL;
+  block_hash_queue->last_hash_offset = (ulong)last_hash_mem - (ulong)block_hash_queue;
+
+  memset( last_hash_mem, 0, sizeof(fd_hash_t) );
 
   /* Set up txn context */
 
@@ -90,7 +98,8 @@ fd_runtime_fuzz_instr_ctx_create( fd_runtime_fuzz_runner_t *           runner,
                                       funk_wksp,
                                       runtime_wksp,
                                       funk_txn_gaddr,
-                                      funk_gaddr );
+                                      funk_gaddr,
+                                      NULL );
   fd_exec_txn_ctx_setup_basic( txn_ctx );
 
   txn_ctx->txn_descriptor     = txn_descriptor;
@@ -227,7 +236,7 @@ fd_runtime_fuzz_instr_ctx_create( fd_runtime_fuzz_runner_t *           runner,
                                           .leader_schedule_epoch = 0UL,
                                           .unix_timestamp        = 0L
                                         };
-    fd_sysvar_clock_write( slot_ctx, &sysvar_clock );
+    fd_sysvar_clock_write( slot_ctx->bank, slot_ctx->funk, slot_ctx->funk_txn, &sysvar_clock );
   }
 
   /* Epoch schedule */
@@ -261,23 +270,29 @@ fd_runtime_fuzz_instr_ctx_create( fd_runtime_fuzz_runner_t *           runner,
 
     fd_sol_sysvar_last_restart_slot_t restart = { .slot = 5000UL };
 
-    fd_sysvar_set( slot_ctx, &fd_sysvar_owner_id,
+    fd_sysvar_set( slot_ctx->bank,
+                   slot_ctx->funk,
+                   slot_ctx->funk_txn,
+                   &fd_sysvar_owner_id,
                    &fd_sysvar_last_restart_slot_id,
-                   &restart.slot, sizeof(ulong),
-                   slot_ctx->slot_bank.slot );
+                   &restart.slot,
+                   sizeof(ulong),
+                   slot_ctx->slot );
 
   }
 
   /* Set slot bank variables */
   clock = fd_sysvar_clock_read( funk, funk_txn, runner->spad );
-  slot_ctx->slot_bank.slot = clock->slot;
+
+  slot_ctx->slot = clock->slot;
+  slot_ctx->bank->slot = clock->slot;
 
   /* Handle undefined behavior if sysvars are malicious (!!!) */
 
   /* Override epoch bank rent setting */
   rent = fd_sysvar_rent_read( funk, funk_txn, runner->spad );
   if( rent ) {
-    epoch_bank->rent = *rent;
+    fd_bank_rent_set( slot_ctx->bank, *rent );
   }
 
   /* Override most recent blockhash if given */
@@ -290,9 +305,13 @@ fd_runtime_fuzz_instr_ctx_create( fd_runtime_fuzz_runner_t *           runner,
   if( rbh_global && !deq_fd_block_block_hash_entry_t_empty( rbh->hashes ) ) {
     fd_block_block_hash_entry_t const * last = deq_fd_block_block_hash_entry_t_peek_tail_const( rbh->hashes );
     if( last ) {
-      *blockhash_queue->last_hash                = last->blockhash;
-      slot_ctx->slot_bank.lamports_per_signature = last->fee_calculator.lamports_per_signature;
-      slot_ctx->prev_lamports_per_signature      = last->fee_calculator.lamports_per_signature;
+      block_hash_queue = (fd_block_hash_queue_global_t *)&slot_ctx->bank->block_hash_queue[0];
+      fd_hash_t * last_hash = fd_block_hash_queue_last_hash_join( block_hash_queue );
+      fd_memcpy( last_hash, &last->blockhash, sizeof(fd_hash_t) );
+
+      fd_bank_lamports_per_signature_set( slot_ctx->bank, last->fee_calculator.lamports_per_signature );
+
+      fd_bank_prev_lamports_per_signature_set( slot_ctx->bank, last->fee_calculator.lamports_per_signature );
     }
   }
 
@@ -344,9 +363,7 @@ fd_runtime_fuzz_instr_ctx_create( fd_runtime_fuzz_runner_t *           runner,
     return 0;
   }
 
-  ctx->funk_txn  = funk_txn;
-  ctx->funk      = funk;
-  ctx->instr     = info;
+  ctx->instr = info;
 
   /* Refresh the setup from the updated slot and epoch ctx. */
   fd_exec_txn_ctx_from_exec_slot_ctx( slot_ctx,
@@ -354,7 +371,8 @@ fd_runtime_fuzz_instr_ctx_create( fd_runtime_fuzz_runner_t *           runner,
                                       funk_wksp,
                                       runtime_wksp,
                                       funk_txn_gaddr,
-                                      funk_gaddr );
+                                      funk_gaddr,
+                                      NULL );
 
   fd_log_collector_init( &ctx->txn_ctx->log_collector, 1 );
   fd_base58_encode_32( txn_ctx->account_keys[ ctx->instr->program_id ].uc, NULL, ctx->program_id_base58 );
@@ -382,8 +400,6 @@ fd_runtime_fuzz_instr_run( fd_runtime_fuzz_runner_t * runner,
                            ulong                      output_bufsz ) {
   fd_exec_test_instr_context_t const * input  = fd_type_pun_const( input_ );
   fd_exec_test_instr_effects_t **      output = fd_type_pun( output_ );
-
-  FD_SPAD_FRAME_BEGIN( runner->spad ) {
 
   /* Convert the Protobuf inputs to a fd_exec context */
   fd_exec_instr_ctx_t ctx[1];
@@ -488,5 +504,4 @@ fd_runtime_fuzz_instr_run( fd_runtime_fuzz_runner_t * runner,
   *output = effects;
   return actual_end - (ulong)output_buf;
 
-  } FD_SPAD_FRAME_END;
 }

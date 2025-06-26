@@ -6,7 +6,6 @@
 
    Address: BPFLoaderUpgradeab1e11111111111111111111111 */
 
-#include "../fd_borrowed_account.h"
 #include "fd_bpf_program_util.h"
 
 /* https://github.com/anza-xyz/agave/blob/77daab497df191ef485a7ad36ed291c1874596e5/programs/bpf_loader/src/lib.rs#L67-L69 */

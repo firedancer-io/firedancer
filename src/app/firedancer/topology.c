@@ -48,6 +48,21 @@ setup_topo_blockstore( fd_topo_t *  topo,
   return obj;
 }
 
+fd_topo_obj_t *
+setup_topo_bank_hash_cmp( fd_topo_t * topo, char const * wksp_name ) {
+  fd_topo_obj_t * obj = fd_topob_obj( topo, "bh_cmp", wksp_name );
+  return obj;
+}
+
+fd_topo_obj_t *
+setup_topo_banks( fd_topo_t *  topo,
+                  char const * wksp_name,
+                  ulong        max_banks ) {
+  fd_topo_obj_t * obj = fd_topob_obj( topo, "banks", wksp_name );
+  FD_TEST( fd_pod_insertf_ulong( topo->props, max_banks, "obj.%lu.max_banks", obj->id ) );
+  return obj;
+}
+
 static fd_topo_obj_t *
 setup_topo_fec_sets( fd_topo_t * topo, char const * wksp_name, ulong sz ) {
   fd_topo_obj_t * obj = fd_topob_obj( topo, "fec_sets", wksp_name );
@@ -274,7 +289,6 @@ fd_topo_initialize( config_t * config ) {
   fd_topob_wksp( topo, "sign_gossip"  );
 
   fd_topob_wksp( topo, "replay_exec"  );
-  fd_topob_wksp( topo, "replay_wtr"   );
   fd_topob_wksp( topo, "exec_writer"  );
 
   fd_topob_wksp( topo, "send_sign"    );
@@ -309,6 +323,8 @@ fd_topo_initialize( config_t * config ) {
   fd_topob_wksp( topo, "metric"      );
   fd_topob_wksp( topo, "replay"      );
   fd_topob_wksp( topo, "runtime_pub" );
+  fd_topob_wksp( topo, "banks"       );
+  fd_topob_wksp( topo, "bh_cmp" );
   fd_topob_wksp( topo, "exec"        );
   fd_topob_wksp( topo, "writer"      );
   fd_topob_wksp( topo, "blockstore"  );
@@ -350,7 +366,6 @@ fd_topo_initialize( config_t * config ) {
   /* TODO: The MTU is currently relatively arbitrary and needs to be resized to the size of the largest
      message that is outbound from the replay to exec. */
   FOR(exec_tile_cnt)   fd_topob_link( topo, "replay_exec",  "replay_exec",  128UL,                                    10240UL,                       exec_tile_cnt );
-  FOR(writer_tile_cnt) fd_topob_link( topo, "replay_wtr",   "replay_wtr",   128UL,                                    FD_REPLAY_WRITER_MTU,          1UL );
   /* Assuming the number of writer tiles is sufficient to keep up with
      the number of exec tiles, under equilibrium, we should have at least
      enough link space to buffer worst case input shuffling done by the
@@ -478,7 +493,20 @@ fd_topo_initialize( config_t * config ) {
 
   FD_TEST( fd_pod_insertf_ulong( topo->props, blockstore_obj->id, "blockstore" ) );
 
-  fd_topo_obj_t * runtime_pub_obj = setup_topo_runtime_pub( topo, "runtime_pub", config->firedancer.runtime.heap_size_gib<<30 );
+  /* Setup a shared wksp object for banks. */
+
+  fd_topo_obj_t * banks_obj = setup_topo_banks( topo, "banks", config->firedancer.runtime.limits.max_banks );
+  fd_topob_tile_uses( topo, replay_tile, banks_obj, FD_SHMEM_JOIN_MODE_READ_WRITE );
+  FOR(exec_tile_cnt) fd_topob_tile_uses( topo, &topo->tiles[ fd_topo_find_tile( topo, "exec", i ) ], banks_obj, FD_SHMEM_JOIN_MODE_READ_WRITE );
+  FOR(writer_tile_cnt) fd_topob_tile_uses( topo, &topo->tiles[ fd_topo_find_tile( topo, "writer", i ) ], banks_obj, FD_SHMEM_JOIN_MODE_READ_WRITE );
+  FD_TEST( fd_pod_insertf_ulong( topo->props, banks_obj->id, "banks" ) );
+
+  /* Setup a shared wksp object for bank hash cmp. */
+
+  fd_topo_obj_t * bank_hash_cmp_obj = setup_topo_bank_hash_cmp( topo, "bh_cmp" );
+  fd_topob_tile_uses( topo, replay_tile, bank_hash_cmp_obj, FD_SHMEM_JOIN_MODE_READ_WRITE );
+  FOR(exec_tile_cnt) fd_topob_tile_uses( topo, &topo->tiles[ fd_topo_find_tile( topo, "exec", i ) ], bank_hash_cmp_obj, FD_SHMEM_JOIN_MODE_READ_WRITE );
+  FD_TEST( fd_pod_insertf_ulong( topo->props, bank_hash_cmp_obj->id, "bh_cmp" ) );
 
   /* Setup a shared wksp object for fec sets. */
 
@@ -494,6 +522,8 @@ fd_topo_initialize( config_t * config ) {
   FD_TEST( fd_pod_insertf_ulong( topo->props, fec_sets_obj->id, "fec_sets" ) );
 
   /* Setup a shared wksp object for runtime pub. */
+
+  fd_topo_obj_t * runtime_pub_obj = setup_topo_runtime_pub( topo, "runtime_pub", config->firedancer.runtime.heap_size_gib<<30 );
 
   fd_topob_tile_uses( topo, replay_tile, runtime_pub_obj, FD_SHMEM_JOIN_MODE_READ_WRITE );
   fd_topob_tile_uses( topo, pack_tile,   runtime_pub_obj, FD_SHMEM_JOIN_MODE_READ_ONLY );
@@ -681,7 +711,6 @@ fd_topo_initialize( config_t * config ) {
   /**/                 fd_topob_tile_out( topo, "replay",  0UL,                       "replay_tower",  0UL                                                  );
   FOR(bank_tile_cnt)   fd_topob_tile_out( topo, "replay",  0UL,                       "replay_poh",    i                                                    );
   FOR(exec_tile_cnt)   fd_topob_tile_out( topo, "replay",  0UL,                       "replay_exec",   i                                                    ); /* TODO check order in fd_replay.c macros*/
-  FOR(writer_tile_cnt) fd_topob_tile_out( topo, "replay",  0UL,                       "replay_wtr",    i                                                    );
 
   FOR(exec_tile_cnt)   fd_topob_tile_in(  topo, "exec",    i,            "metric_in", "replay_exec",  i,            FD_TOPOB_RELIABLE,   FD_TOPOB_POLLED    );
   FOR(exec_tile_cnt)   fd_topob_tile_out( topo, "exec",    i,                         "exec_writer",  i                                                     );
@@ -689,7 +718,6 @@ fd_topo_initialize( config_t * config ) {
      single out link, over which all the writer tiles round-robin. */
   FOR(writer_tile_cnt) for( ulong j=0UL; j<exec_tile_cnt; j++ )
                        fd_topob_tile_in(  topo, "writer",  i,            "metric_in", "exec_writer",  j,            FD_TOPOB_RELIABLE,   FD_TOPOB_POLLED    );
-  FOR(writer_tile_cnt) fd_topob_tile_in(  topo, "writer",  i,            "metric_in", "replay_wtr",   i,            FD_TOPOB_RELIABLE,   FD_TOPOB_POLLED    );
 
   /**/                 fd_topob_tile_in ( topo, "send",   0UL,         "metric_in", "stake_out",     0UL,    FD_TOPOB_UNRELIABLE, FD_TOPOB_POLLED   );
   /**/                 fd_topob_tile_in ( topo, "send",   0UL,         "metric_in", "gossip_send",   0UL,    FD_TOPOB_RELIABLE,   FD_TOPOB_POLLED   );

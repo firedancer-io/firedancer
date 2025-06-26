@@ -23,26 +23,21 @@ struct fd_writer_tile_ctx {
   ulong                       tile_cnt;
   ulong                       tile_idx;
   ulong                       exec_tile_cnt;
-  ulong                       replay_in_idx;
 
   /* R/W by this tile and the replay tile. */
   ulong *                     fseq;
 
   /* Local join of Funk.  R/W. */
   fd_funk_t                   funk[1];
+  fd_funk_txn_t *             funk_txn;
 
   /* Link management. */
   fd_writer_tile_in_ctx_t     exec_writer_in[ FD_PACK_MAX_BANK_TILES ];
-  fd_writer_tile_in_ctx_t     replay_writer_in[ 1 ];
 
   /* Runtime public and local joins of its members. */
   fd_wksp_t const *           runtime_public_wksp;
   fd_runtime_public_t const * runtime_public;
   fd_spad_t const *           runtime_spad;
-
-  //FIXME this should be bank mgr
-  /* Local join of replay tile slot ctx.  R/W. */
-  fd_exec_slot_ctx_t *        slot_ctx;
 
   /* Local joins of exec spads.  Read-only. */
   fd_spad_t *                 exec_spad[ FD_PACK_MAX_BANK_TILES ];
@@ -50,6 +45,10 @@ struct fd_writer_tile_ctx {
 
   /* Local joins of exec tile txn ctx.  Read-only. */
   fd_exec_txn_ctx_t *         txn_ctx[ FD_PACK_MAX_BANK_TILES ];
+
+  /* Local join of bank manager. R/W */
+  fd_banks_t *                 banks;
+  fd_bank_t *                  bank;
 };
 typedef struct fd_writer_tile_ctx fd_writer_tile_ctx_t;
 
@@ -96,10 +95,6 @@ before_frag( fd_writer_tile_ctx_t * ctx,
              ulong                  in_idx,
              ulong                  seq,
              ulong                  sig ) {
-  if( FD_UNLIKELY( in_idx==ctx->replay_in_idx ) ) {
-    /* All messages from replay go through. */
-    return 0;
-  }
 
   /* Round-robin.
 
@@ -131,31 +126,6 @@ during_frag( fd_writer_tile_ctx_t * ctx,
   (void)seq;
   (void)ctl;
 
-  if( FD_UNLIKELY( in_idx==ctx->replay_in_idx ) ) {
-    fd_writer_tile_in_ctx_t * in_ctx = ctx->replay_writer_in;
-
-    if( FD_UNLIKELY( chunk < in_ctx->chunk0 || chunk > in_ctx->wmark ) ) {
-      FD_LOG_CRIT(( "chunk %lu %lu corrupt, not in range [%lu,%lu]",
-                    chunk,
-                    sz,
-                    in_ctx->chunk0,
-                    in_ctx->wmark ));
-    }
-
-    if( FD_LIKELY( sig==FD_WRITER_SLOT_SIG ) ) {
-      //FIXME this should be replaced by bank mgr
-      fd_runtime_public_replay_writer_slot_msg_t * msg = fd_type_pun( fd_chunk_to_laddr( in_ctx->mem, chunk ) );
-      fd_exec_slot_ctx_t * slot_ctx = fd_wksp_laddr_fast( ctx->runtime_public_wksp, msg->slot_ctx_gaddr );
-      if( FD_UNLIKELY( !slot_ctx ) ) {
-        FD_LOG_CRIT(( "Unable to join slot_ctx at gaddr 0x%lx", msg->slot_ctx_gaddr ));
-      }
-      ctx->slot_ctx = slot_ctx;
-      return;
-    }
-
-    FD_LOG_CRIT(( "Unknown sig %lu from replay to writer %lu", sig, ctx->tile_idx ));
-  }
-
   /* exec_writer is a reliable flow controlled link so we are not gonna
      bother with copying the incoming frag. */
 
@@ -171,30 +141,6 @@ during_frag( fd_writer_tile_ctx_t * ctx,
 
   /* Process messages from exec tiles. */
 
-  if( FD_LIKELY( sig == FD_WRITER_TXN_SIG ) ) {
-    fd_runtime_public_exec_writer_txn_msg_t * msg = fd_type_pun( fd_chunk_to_laddr( in_ctx->mem, chunk ) );
-    if( FD_UNLIKELY( msg->exec_tile_id!=in_idx ) ) {
-      FD_LOG_CRIT(( "exec_tile_id %u should be == in_idx %lu", msg->exec_tile_id, in_idx ));
-    }
-    fd_execute_txn_task_info_t info = {0};
-    info.txn_ctx  = ctx->txn_ctx[ in_idx ];
-    info.exec_res = info.txn_ctx->exec_err;
-
-    if( FD_LIKELY( info.txn_ctx->flags & FD_TXN_P_FLAGS_EXECUTE_SUCCESS ) ) {
-      while( fd_writer_fseq_get_state( fd_fseq_query( ctx->fseq ) )!=FD_WRITER_STATE_READY ) {
-        /* Spin to wait for the replay tile to ack the previous txn
-           done. */
-        FD_SPIN_PAUSE();
-      }
-      FD_SPAD_FRAME_BEGIN( ctx->spad ) {
-        fd_runtime_finalize_txn( ctx->slot_ctx, NULL, &info, ctx->spad );
-      } FD_SPAD_FRAME_END;
-    }
-    /* Notify the replay tile. */
-    fd_fseq_update( ctx->fseq, fd_writer_fseq_set_txn_done( msg->txn_id, msg->exec_tile_id ) );
-    return;
-  }
-
   if( FD_UNLIKELY( sig == FD_WRITER_BOOT_SIG ) ) {
     fd_runtime_public_exec_writer_boot_msg_t * msg = fd_type_pun( fd_chunk_to_laddr( in_ctx->mem, chunk ) );
     join_txn_ctx( ctx, in_idx, msg->txn_ctx_offset );
@@ -206,6 +152,55 @@ during_frag( fd_writer_tile_ctx_t * ctx,
       fd_fseq_update( ctx->fseq, FD_WRITER_STATE_READY );
       FD_LOG_NOTICE(( "writer tile %lu fully booted", ctx->tile_idx ));
     }
+    return;
+  }
+
+  if( FD_LIKELY( sig == FD_WRITER_TXN_SIG ) ) {
+    fd_runtime_public_exec_writer_txn_msg_t * msg = fd_type_pun( fd_chunk_to_laddr( in_ctx->mem, chunk ) );
+    if( FD_UNLIKELY( msg->exec_tile_id!=in_idx ) ) {
+      FD_LOG_CRIT(( "exec_tile_id %u should be == in_idx %lu", msg->exec_tile_id, in_idx ));
+    }
+    fd_execute_txn_task_info_t info = {0};
+    info.txn_ctx  = ctx->txn_ctx[ in_idx ];
+    info.exec_res = info.txn_ctx->exec_err;
+
+    if( !ctx->bank || info.txn_ctx->slot != ctx->bank->slot ) {
+      ctx->bank = fd_banks_get_bank( ctx->banks, info.txn_ctx->slot );
+      if( FD_UNLIKELY( !ctx->bank ) ) {
+        FD_LOG_CRIT(( "Could not find bank for slot %lu", info.txn_ctx->slot ));
+      }
+    }
+
+    if( !ctx->funk_txn || info.txn_ctx->slot != ctx->funk_txn->xid.ul[0] ) {
+      fd_funk_txn_map_t * txn_map = fd_funk_txn_map( ctx->funk );
+      if( FD_UNLIKELY( !txn_map->map ) ) {
+        FD_LOG_CRIT(( "Could not find valid funk transaction map" ));
+      }
+      fd_funk_txn_xid_t xid = { .ul = { ctx->bank->slot, ctx->bank->slot } };
+      fd_funk_txn_start_read( ctx->funk );
+      ctx->funk_txn = fd_funk_txn_query( &xid, txn_map );
+      if( FD_UNLIKELY( !ctx->funk_txn ) ) {
+        FD_LOG_CRIT(( "Could not find valid funk transaction" ));
+      }
+      fd_funk_txn_end_read( ctx->funk );
+    }
+
+    if( FD_LIKELY( info.txn_ctx->flags & FD_TXN_P_FLAGS_EXECUTE_SUCCESS ) ) {
+      while( fd_writer_fseq_get_state( fd_fseq_query( ctx->fseq ) )!=FD_WRITER_STATE_READY ) {
+        /* Spin to wait for the replay tile to ack the previous txn
+           done. */
+        FD_SPIN_PAUSE();
+      }
+      FD_SPAD_FRAME_BEGIN( ctx->spad ) {
+        if( FD_UNLIKELY( !ctx->bank ) ) {
+          FD_LOG_CRIT(( "No bank for slot %lu", info.txn_ctx->slot ));
+        }
+
+        fd_runtime_finalize_txn( ctx->funk, ctx->funk_txn, &info, ctx->spad, ctx->bank );
+      } FD_SPAD_FRAME_END;
+    }
+    /* Notify the replay tile. */
+    fd_fseq_update( ctx->fseq, fd_writer_fseq_set_txn_done( msg->txn_id, msg->exec_tile_id ) );
     return;
   }
 
@@ -254,10 +249,10 @@ unprivileged_init( fd_topo_t *      topo,
   ctx->exec_tile_cnt  = exec_tile_cnt;
 
   /* Find and setup all the exec_writer links. */
-  if( FD_UNLIKELY( exec_tile_cnt!=tile->in_cnt-1UL ) ) {
+  if( FD_UNLIKELY( exec_tile_cnt!=tile->in_cnt ) ) {
     FD_LOG_CRIT(( "Expecting one exec_writer link per exec tile but found %lu links and %lu tiles", tile->in_cnt, exec_tile_cnt ));
   }
-  for( ulong i=0UL; i<tile->in_cnt-1UL; i++ ) {
+  for( ulong i=0UL; i<tile->in_cnt; i++ ) {
     ulong exec_writer_idx = fd_topo_find_tile_in_link( topo, tile, "exec_writer", i );
     if( FD_UNLIKELY( exec_writer_idx==ULONG_MAX ) ) {
       FD_LOG_CRIT(( "Could not find exec_writer in-link %lu", i ));
@@ -272,21 +267,6 @@ unprivileged_init( fd_topo_t *      topo,
                                                                exec_writer_in_link->dcache,
                                                                exec_writer_in_link->mtu );
   }
-
-  /* Setup the replay-writer link. */
-  fd_topo_link_t * replay_writer_in_link = &topo->links[ tile->in_link_id[ tile->in_cnt-1UL ] ];
-  if( FD_UNLIKELY( !replay_writer_in_link ) ) {
-    FD_LOG_CRIT(( "Invalid replay_writer in-link" ));
-  }
-  if( FD_UNLIKELY( strcmp( replay_writer_in_link->name, "replay_wtr" ) ) ) {
-    FD_LOG_CRIT(( "Unexpected in link named %s", replay_writer_in_link->name ));
-  }
-  ctx->replay_in_idx            = tile->in_cnt - 1UL;
-  ctx->replay_writer_in->mem    = topo->workspaces[ topo->objs[ replay_writer_in_link->dcache_obj_id ].wksp_id ].wksp;
-  ctx->replay_writer_in->chunk0 = fd_dcache_compact_chunk0( ctx->replay_writer_in->mem, replay_writer_in_link->dcache );
-  ctx->replay_writer_in->wmark  = fd_dcache_compact_wmark( ctx->replay_writer_in->mem,
-                                                           replay_writer_in_link->dcache,
-                                                           replay_writer_in_link->mtu );
 
   /********************************************************************/
   /* Setup runtime public                                             */
@@ -351,6 +331,20 @@ unprivileged_init( fd_topo_t *      topo,
     FD_LOG_CRIT(( "writer tile %lu fseq setup failed", ctx->tile_idx ));
   }
   fd_fseq_update( ctx->fseq, FD_WRITER_STATE_NOT_BOOTED );
+
+  /********************************************************************/
+  /* Bank                                                             */
+  /********************************************************************/
+
+  ulong banks_obj_id = fd_pod_queryf_ulong( topo->props, ULONG_MAX, "banks" );
+  if( FD_UNLIKELY( banks_obj_id==ULONG_MAX ) ) {
+    FD_LOG_ERR(( "Could not find topology object for banks" ));
+  }
+
+  ctx->banks = fd_banks_join( fd_topo_obj_laddr( topo, banks_obj_id ) );
+  if( FD_UNLIKELY( !ctx->banks ) ) {
+    FD_LOG_ERR(( "Failed to join banks" ));
+  }
 }
 
 static ulong

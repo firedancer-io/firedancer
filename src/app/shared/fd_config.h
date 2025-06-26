@@ -113,6 +113,7 @@ struct fd_configf {
       ulong max_transactions_per_slot;
       ulong snapshot_grace_period_seconds;
       ulong max_vote_accounts;
+      ulong max_banks;
     } limits;
   } runtime;
 

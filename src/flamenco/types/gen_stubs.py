@@ -366,7 +366,12 @@ class PrimitiveMember(TypeNode):
 
     def emitSize(self, inner, indent=''):
         if self.encode:
-            PrimitiveMember.emitSizeMap[self.type](self.name, self.varint, inner, indent);
+            PrimitiveMember.emitSizeMap[self.type](self.name, self.varint, inner, indent)
+
+    def emitSizeGlobal(self, inner, indent=''):
+        # FIXME: char * is currently incorrect
+        if self.encode:
+            PrimitiveMember.emitSizeMap[self.type](self.name, self.varint, inner, indent)
 
     emitWalkMap = {
         "char" :      lambda n, inner: print(f'  fun( w, &self->{inner}{n}, "{n}", FD_FLAMENCO_TYPE_SCHAR, "char", level );', file=body),
@@ -453,6 +458,12 @@ class StructMember(TypeNode):
     def emitSize(self, inner, indent=''):
         print(f'{indent}  size += {namespace}_{self.type}_size( &self->{inner}{self.name} );', file=body)
 
+    def emitSizeGlobal(self, inner, indent=''):
+        if self.type in flattypes:
+            print(f'{indent}  size += {namespace}_{self.type}_size( &self->{inner}{self.name} );', file=body)
+        else:
+            print(f'{indent}  size += {namespace}_{self.type}_size_global( &self->{inner}{self.name} );', file=body)
+
     def emitWalk(self, inner, indent=''):
         print(f'{indent}  {namespace}_{self.type}_walk( w, &self->{inner}{self.name}, fun, "{self.name}", level );', file=body)
 
@@ -507,9 +518,13 @@ class VectorMember(TypeNode):
         else:
             ret_type = f'{namespace}_{self.element}_global_t'
 
-        print(f'FD_FN_UNUSED static {ret_type} * {type_name}_{self.name}_join( {type_name}_global_t * struct_mem ) {{ // vector', file=header)
-        print(f'  return ({ret_type} *)fd_type_pun( (uchar *)struct_mem + struct_mem->{self.name}_offset );', file=header)
+        print(f'FD_FN_UNUSED static {ret_type} * {type_name}_{self.name}_join( {type_name}_global_t const * struct_mem ) {{ // vector', file=header)
+        print(f'  return struct_mem->{self.name}_offset ? ({ret_type} *)fd_type_pun( (uchar *)struct_mem + struct_mem->{self.name}_offset ) : NULL;', file=header)
         print(f'}}', file=header)
+        print(f'FD_FN_UNUSED static void {type_name}_{self.name}_update( {type_name}_global_t * struct_mem, {ret_type} * vec ) {{', file=header)
+        print(f'  struct_mem->{self.name}_offset = !!vec ? (ulong)vec - (ulong)struct_mem : 0UL;', file=header)
+        print(f'}}', file=header)
+
 
     def emitNew(self, indent=''):
         pass
@@ -700,6 +715,37 @@ class VectorMember(TypeNode):
             print(f'{indent}      size += {namespace}_{self.element}_size( self->{self.name} + i );', file=body)
         print(f'{indent}  }} while(0);', file=body)
 
+    def emitSizeGlobal(self, inner, indent=''):
+        print(f'{indent}  do {{', file=body)
+        if self.compact:
+            print(f'{indent}    ushort tmp = (ushort)self->{self.name}_len;', file=body)
+            print(f'{indent}    size += fd_bincode_compact_u16_size( &tmp );', file=body)
+        else:
+            print(f'{indent}    size += sizeof(ulong);', file=body)
+
+        ret_type = None
+        if self.element in simpletypes:
+            ret_type = self.element
+        elif self.element in flattypes:
+            ret_type = f'{namespace}_{self.element}_t'
+        else:
+            ret_type = f'{namespace}_{self.element}_global_t'
+
+        print(f'    {ret_type} * {self.name} = self->{self.name}_offset ? ({ret_type} *)fd_type_pun( (uchar *)self + self->{self.name}_offset ) : NULL;', file=body)
+
+        if self.element == "uchar":
+            print(f'{indent}    size += self->{self.name}_len;', file=body)
+        elif self.element in simpletypes:
+            print(f'{indent}    size += self->{self.name}_len * sizeof({self.element});', file=body)
+        elif self.element in flattypes:
+            print(f'{indent}    for( ulong i=0; i < self->{self.name}_len; i++ )', file=body)
+            print(f'{indent}      size += {namespace}_{self.element}_size( {self.name} + i );', file=body)
+        else:
+            print(f'{indent}    for( ulong i=0; i < self->{self.name}_len; i++ )', file=body)
+            print(f'{indent}      size += {namespace}_{self.element}_size_global( {self.name} + i );', file=body)
+        print(f'{indent}  }} while(0);', file=body)
+
+
     emitWalkMap = {
         "double" :  lambda n: print(f'  fun( w, self->{n} + i, "{n}", FD_FLAMENCO_TYPE_DOUBLE,  "double",  level );', file=body),
         "long" :    lambda n: print(f'  fun( w, self->{n} + i, "{n}", FD_FLAMENCO_TYPE_LONG,    "long",    level );', file=body),
@@ -840,6 +886,14 @@ class BitVectorMember(TypeNode):
         self.vector_member.emitSize('', '  ')
         print('  }', file=body)
         print('  size += sizeof(ulong);', file=body)
+
+    def emitSizeGlobal(self, inner, indent=''):
+        print(f'{indent}  do {{', file=body)
+        print(f'{indent}    size += sizeof(char);', file=body)
+        print(f'{indent}    if( self->has_{self.name} ) {{', file=body)
+        self.vector_member.emitSizeGlobal('', '  ')
+        print(f'{indent}    }}', file=body)
+        print(f'{indent}  }} while(0);', file=body)
 
     def emitWalk(self, inner, indent=''):
         print(f'  if( !self->has_{self.name} ) {{', file=body)
@@ -1016,6 +1070,19 @@ class StaticVectorMember(TypeNode):
             print(f'  for( ulong i=0; i<self->{self.name}_len; i++ )', file=body)
             print(f'    size += {namespace}_{self.element}_size( self->{self.name} + i );', file=body)
 
+    def emitSizeGlobal(self, inner, indent=''):
+        print('  size += sizeof(ulong);', file=body)
+        if self.element == "uchar":
+            print(f'  size += self->{self.name}_len;', file=body)
+        elif self.element in simpletypes:
+            print(f'  size += self->{self.name}_len * sizeof({self.element});', file=body)
+        elif self.element in flattypes:
+            print(f'  for( ulong i=0; i<self->{self.name}_len; i++ )', file=body)
+            print(f'    size += {namespace}_{self.element}_size( self->{self.name} + i );', file=body)
+        else:
+            print(f'  for( ulong i=0; i<self->{self.name}_len; i++ )', file=body)
+            print(f'    size += {namespace}_{self.element}_size_global( self->{self.name} + i );', file=body)
+
     emitWalkMap = {
         "double" :  lambda n: print(f'  fun( w, self->{n} + idx, "{n}", FD_FLAMENCO_TYPE_DOUBLE,  "double",  level );', file=body),
         "long" :    lambda n: print(f'  fun( w, self->{n} + idx, "{n}", FD_FLAMENCO_TYPE_LONG,    "long",    level );', file=body),
@@ -1170,8 +1237,8 @@ class DequeMember(TypeNode):
 
         prefix = self.prefix() if self.element in flattypes else self.prefix_global()
 
-        print(f'static FD_FN_UNUSED {ret_type} * {type_name}_{self.name}_join( void * struct_mem, ulong offset ) {{ // deque', file=header)
-        print(f'  return ({ret_type} *){prefix}_join( fd_type_pun( (uchar *)struct_mem + offset ) );', file=header)
+        print(f'static FD_FN_UNUSED {ret_type} * {type_name}_{self.name}_join( {type_name}_global_t * type ) {{ // deque', file=header)
+        print(f'  return type->{self.name}_offset ? ({ret_type} *){prefix}_join( fd_type_pun( (uchar *)type + type->{self.name}_offset ) ) : NULL;', file=header)
         print(f'}}', file=header)
 
     def emitNew(self, indent=''):
@@ -1379,6 +1446,51 @@ class DequeMember(TypeNode):
             print('    size += sizeof(ulong);', file=body)
         print('  }', file=body)
 
+    def emitSizeGlobal(self, inner):
+        print(f'  if( self->{self.name}_offset!=0 ) {{', file=body)
+
+        ret_type = None
+        if self.element in simpletypes:
+            ret_type = self.element
+        elif self.element in flattypes:
+            ret_type = f'{namespace}_{self.element}_t'
+        else:
+            ret_type = f'{namespace}_{self.element}_global_t'
+        prefix = self.prefix() if self.element in flattypes else self.prefix_global()
+
+        print(f'    {ret_type} * {self.name} = ({ret_type} *){prefix}_join( fd_type_pun( (uchar *)self + self->{self.name}_offset ) );', file=body)
+
+        if self.compact:
+            print(f'    ushort {self.name}_len = (ushort){self.prefix()}_cnt( {self.name} );', file=body)
+            print(f'    size += fd_bincode_compact_u16_size( &{self.name}_len );', file=body)
+        else:
+            print('    size += sizeof(ulong);', file=body)
+
+        if self.element == "uchar":
+            print(f'    ulong {self.name}_len = {self.prefix()}_cnt({self.name});', file=body)
+            print(f'    size += {self.name}_len;', file=body)
+        elif self.element in simpletypes:
+            print(f'    ulong {self.name}_len = {self.prefix()}_cnt({self.name});', file=body)
+            print(f'    size += {self.name}_len * sizeof({self.element});', file=body)
+        elif self.element in flattypes:
+            print(f'    for( {self.prefix()}_iter_t iter = {self.prefix()}_iter_init( {self.name} ); !{self.prefix()}_iter_done( {self.name}, iter ); iter = {self.prefix()}_iter_next( {self.name}, iter ) ) {{', file=body)
+            print(f'      {self.elem_type()} * ele = {self.prefix()}_iter_ele( {self.name}, iter );', file=body)
+            print(f'      size += {namespace}_{self.element}_size( ele );', file=body)
+            print('    }', file=body)
+        else:
+            print(f'    for( {self.prefix()}_iter_t iter = {self.prefix()}_iter_init( {self.name} ); !{self.prefix()}_iter_done( {self.name}, iter ); iter = {self.prefix()}_iter_next( {self.name}, iter ) ) {{', file=body)
+            print(f'      {self.elem_type_global()} * ele = {self.prefix()}_iter_ele( {self.name}, iter );', file=body)
+            print(f'      size += {namespace}_{self.element}_size_global( ele );', file=body)
+            print('    }', file=body)
+
+        print('  } else {', file=body)
+        if self.compact:
+            print('    size += 1;', file=body)
+        else:
+            print('    size += sizeof(ulong);', file=body)
+        print('  }', file=body)
+
+
     def emitWalk(self, inner):
         print(
             f'''
@@ -1541,12 +1653,22 @@ class MapMember(TypeNode):
         mapname = element_type + "_map"
         nodename = element_type + "_mapnode_t"
 
-        print(f'static FD_FN_UNUSED {nodename} * {type_name}_{self.name}_pool_join( void * struct_mem, ulong offset ) {{ // deque', file=header)
-        print(f'  return ({nodename} *){mapname}_join( fd_type_pun( (uchar *)struct_mem + offset ) );', file=header)
+        print(f'static FD_FN_UNUSED {nodename} * {type_name}_{self.name}_pool_join( {type_name}_global_t const * type ) {{', file=header)
+        print(f'  if( FD_UNLIKELY( !type ) ) return NULL;', file=header)
+        print(f'  return !!type->{self.name}_pool_offset ? ({nodename} *){mapname}_join( fd_type_pun( (uchar *)type + type->{self.name}_pool_offset ) ) : NULL;', file=header)
         print(f'}}', file=header)
 
-        print(f'static FD_FN_UNUSED {nodename} * {type_name}_{self.name}_root_join( void * struct_mem, ulong offset ) {{ // deque', file=header)
-        print(f'  return ({nodename} *)fd_type_pun( (uchar *)struct_mem + offset );', file=header)
+        print(f'static FD_FN_UNUSED {nodename} * {type_name}_{self.name}_root_join( {type_name}_global_t const * type ) {{', file=header)
+        print(f'  if( FD_UNLIKELY( !type ) ) return NULL;', file=header)
+        print(f'  return !!type->{self.name}_root_offset ? ({nodename} *)fd_type_pun( (uchar *)type + type->{self.name}_root_offset ) : NULL;', file=header)
+        print(f'}}', file=header)
+
+        print(f'static FD_FN_UNUSED void {type_name}_{self.name}_pool_update( {type_name}_global_t * type, {nodename} * pool ) {{', file=header)
+        print(f'  type->{self.name}_pool_offset = !!pool ? (ulong){mapname}_leave( pool ) - (ulong)type : 0UL;', file=header)
+        print(f'}}', file=header)
+
+        print(f'static FD_FN_UNUSED void {type_name}_{self.name}_root_update( {type_name}_global_t * type, {nodename} * root ) {{', file=header)
+        print(f'  type->{self.name}_root_offset = !!root ? (ulong)root - (ulong)type : 0UL;', file=header)
         print(f'}}', file=header)
 
     def emitNew(self, indent=''):
@@ -1635,7 +1757,7 @@ class MapMember(TypeNode):
         print(f'  }}', file=body)
 
         print(f'  self->{self.name}_pool_offset = (ulong){mapname}_leave( {self.name}_pool ) - (ulong)struct_mem;', file=body)
-        print(f'  self->{self.name}_root_offset = (ulong){mapname}_leave( {self.name}_root ) - (ulong)struct_mem;', file=body)
+        print(f'  self->{self.name}_root_offset = (ulong){self.name}_root - (ulong)struct_mem;', file=body)
 
     def emitEncode(self):
         element_type = self.elem_type()
@@ -1709,8 +1831,38 @@ class MapMember(TypeNode):
             print(f'    size += fd_bincode_compact_u16_size( &{self.name}_len );', file=body)
         else:
             print('    size += sizeof(ulong);', file=body)
+        print(f'    ulong max = {mapname}_max( self->{self.name}_pool );', file=body)
+        print(f'    size += {mapname}_footprint( max );', file=body)
         print(f'    for( {nodename} * n = {mapname}_minimum( self->{self.name}_pool, self->{self.name}_root ); n; n = {mapname}_successor( self->{self.name}_pool, n ) ) {{', file=body);
-        print(f'      size += {namespace}_{self.element}_size( &n->elem );', file=body)
+        print(f'      size += {namespace}_{self.element}_size( &n->elem ) - sizeof({self.elem_type()});', file=body)
+        print('    }', file=body)
+        print('  } else {', file=body)
+        if self.compact:
+            print('    size += 1;', file=body)
+        else:
+            print('    size += sizeof(ulong);', file=body)
+        print('  }', file=body)
+
+    def emitSizeGlobal(self, inner, indent=''):
+        element_type = self.elem_type() if self.element in flattypes else self.elem_type_global()
+        mapname = element_type + "_map"
+        nodename = element_type + "_mapnode_t"
+
+        print(f'  {nodename} * {self.name}_pool = !!self->{self.name}_pool_offset ? ({nodename} *){mapname}_join( fd_type_pun( (uchar *)self + self->{self.name}_pool_offset ) ) : NULL; // bruuu', file=body)
+        print(f'  {nodename} * {self.name}_root = !!self->{self.name}_root_offset ? ({nodename} *)fd_type_pun( (uchar *)self + self->{self.name}_root_offset ) : NULL;', file=body)
+        print(f'  if( {self.name}_root ) {{', file=body)
+        if self.compact:
+            print(f'    ushort {self.name}_len = (ushort){mapname}_size( {self.name}_pool, {self.name}_root );', file=body)
+            print(f'    size += fd_bincode_compact_u16_size( &{self.name}_len );', file=body)
+        else:
+            print('    size += sizeof(ulong);', file=body)
+        print(f'    ulong max = {mapname}_max( {self.name}_pool );', file=body)
+        print(f'    size += {mapname}_footprint( max );', file=body)
+        print(f'    for( {nodename} * n = {mapname}_minimum( {self.name}_pool, {self.name}_root ); n; n = {mapname}_successor( {self.name}_pool, n ) ) {{', file=body);
+        if self.element in flattypes:
+            print(f'      size += {namespace}_{self.element}_size( &n->elem ) - sizeof({self.elem_type()});', file=body)
+        else:
+            print(f'      size += {namespace}_{self.element}_size_global( &n->elem ) - sizeof({self.elem_type()});', file=body)
         print('    }', file=body)
         print('  } else {', file=body)
         if self.compact:
@@ -1796,8 +1948,8 @@ class PartitionMember(TypeNode):
         else:
             print(f'  ulong {self.name}_len;', file=header)
         print(f'  ulong {self.name}_lengths[{self.dlist_max}];', file=header)
+        print(f'  ulong {self.name}_offset;', file=header)
         print(f'  ulong pool_offset;', file=header)
-        print(f'  ulong dlist_offset;', file=header)
 
     def emitNew(self, indent=''):
         pass
@@ -1887,7 +2039,7 @@ class PartitionMember(TypeNode):
         print('    }', file=body)
         print('  }', file=body)
         print(f'  self->pool_offset  = (ulong){pool_name}_leave( pool ) - (ulong)struct_mem;', file=body)
-        print(f'  self->dlist_offset = (ulong){dlist_name}_leave( {self.name} ) - (ulong)struct_mem;', file=body)
+        print(f'  self->{self.name}_offset = (ulong){dlist_name}_leave( {self.name} ) - (ulong)struct_mem;', file=body)
 
 
     def emitEncode(self):
@@ -1953,6 +2105,9 @@ class PartitionMember(TypeNode):
         print(f'      }}', file=body)
         print(f'    }}', file=body)
         print(f'  }}', file=body)
+
+    def emitSizeGlobal(self, inner):
+        print(f'  FD_LOG_CRIT(( "FIXME: not implemented" ));', file=body)
 
     def emitWalk(self, inner):
         name = self.name
@@ -2272,6 +2427,9 @@ class TreapMember(TypeNode):
         print(f'  }}', file=body)
 
 
+    def emitSizeGlobal(self, inner):
+        print(f'  FD_LOG_CRIT(( "FIXME: Not implemented" ));', file=body)
+
 # FIXME: The dlist member is currently implement in a very hacky manner
 # and does not properly support global types where the dlist has members
 # which are local pointers. The dlist is currently only used for
@@ -2451,6 +2609,9 @@ class DlistMember(TypeNode):
         print(f'    }}', file=body)
         print(f'  }}', file=body)
 
+    def emitSizeGlobal(self, inner, indent=''):
+        print(f'  FD_LOG_CRIT(( "FIXME: not implemented" ));', file=body)
+
     def emitWalk(self, inner):
         name = self.name
         dlist_name = self.dlist_n + "_dlist"
@@ -2512,6 +2673,22 @@ class OptionMember(TypeNode):
             print(f'  uchar has_{self.name};', file=header)
         else:
             print(f'  ulong {self.name}_offset;', file=header)
+
+    def emitOffsetJoin(self, type_name):
+        if self.flat:
+            return
+
+        ret_type = None
+        if self.element in simpletypes:
+            ret_type = self.element
+        elif self.element in flattypes:
+            ret_type = f'{namespace}_{self.element}_t'
+        else:
+            ret_type = f'{namespace}_{self.element}_global_t'
+
+        print(f'FD_FN_UNUSED static {ret_type} * {type_name}_{self.name}_join( {type_name}_global_t const * struct_mem ) {{', file=header)
+        print(f'  return struct_mem->{self.name}_offset ? ({ret_type} *)fd_type_pun( (uchar *)struct_mem + struct_mem->{self.name}_offset ) : NULL;', file=header)
+        print(f'}}', file=header)
 
     def emitNew(self, indent=''):
         pass
@@ -2682,6 +2859,35 @@ class OptionMember(TypeNode):
                 print(f'    size += sizeof({self.element});', file=body)
             else:
                 print(f'    size += {namespace}_{self.element}_size( self->{self.name} );', file=body)
+            print('  }', file=body)
+
+    def emitSizeGlobal(self, inner, indent=''):
+        print('  size += sizeof(char);', file=body)
+        if self.flat:
+            print(f'  if( self->has_{self.name} ) {{', file=body)
+            if self.element in simpletypes:
+                print(f'    size += sizeof({self.element});', file=body)
+            else:
+                print(f'    size += {namespace}_{self.element}_size( &self->{self.name} );', file=body)
+            print('  }', file=body)
+        else:
+            ret_type = None
+            if self.element in simpletypes:
+                ret_type = self.element
+            elif self.element in flattypes:
+                ret_type = f'{namespace}_{self.element}_t'
+            else:
+                ret_type = f'{namespace}_{self.element}_global_t'
+
+            print(f'  {ret_type} * {self.name} = ({ret_type} *)fd_type_pun( (uchar *)self + self->{self.name}_offset );', file=body)
+
+            print(f'  if( NULL != {self.name} ) {{', file=body)
+            if self.element in simpletypes:
+                print(f'    size += sizeof({self.element});', file=body)
+            elif self.element in flattypes:
+                print(f'    size += {namespace}_{self.element}_size( {self.name} );', file=body)
+            else:
+                print(f'    size += {namespace}_{self.element}_size_global( {self.name} );', file=body)
             print('  }', file=body)
 
     emitWalkMap = {
@@ -2856,6 +3062,20 @@ class ArrayMember(TypeNode):
             print(f'  for( ulong i=0; i<{length}; i++ )', file=body)
             print(f'    size += {namespace}_{self.element}_size( self->{self.name} + i );', file=body)
 
+    def emitSizeGlobal(self, inner, indent=''):
+        length = self.length
+
+        if self.element == "uchar":
+            print(f'  size += {length};', file=body)
+        elif self.element in simpletypes:
+            print(f'  size += {length} * sizeof({self.element});', file=body)
+        elif self.element in flattypes:
+            print(f'  for( ulong i=0; i<{length}; i++ )', file=body)
+            print(f'    size += {namespace}_{self.element}_size( self->{self.name} + i );', file=body)
+        else:
+            print(f'  for( ulong i=0; i<{length}; i++ )', file=body)
+            print(f'    size += {namespace}_{self.element}_size_global( self->{self.name} + i );', file=body)
+
     def emitWalk(self, inner):
         length = self.length
 
@@ -2990,6 +3210,8 @@ def extract_sub_type(member):
         return type_map[member.element] if member.element in type_map else None
     if hasattr(member, "type"):
         return type_map[member.type] if member.type in type_map else None
+    if hasattr(member, "dlist_t"):
+        return type_map[member.dlist_t] if member.dlist_t in type_map else None
     raise ValueError(f"Unknown type {member} in extract_sub_type")
 
 def extract_member_type(member):
@@ -3004,6 +3226,8 @@ def extract_member_type(member):
     if hasattr(member, "element"):
         return member
     if hasattr(member, "type"):
+        return member
+    if hasattr(member, "dlist_t"):
         return member
     raise ValueError(f"Unknown type {member} in extract_member_type")
 
@@ -3137,6 +3361,7 @@ class StructType(TypeNode):
         if self.produce_global and not self.isFlat():
             print(f'void * {n}_decode_global( void * mem, fd_bincode_decode_ctx_t * ctx );', file=header)
             print(f"int {n}_encode_global( {n}_global_t const * self, fd_bincode_encode_ctx_t * ctx );", file=header)
+            print(f'ulong {n}_size_global( {n}_global_t const * self );', file=header)
         print("", file=header)
 
     def emitEncodes(self):
@@ -3262,6 +3487,7 @@ class StructType(TypeNode):
         print(f'  fun( w, self, name, FD_FLAMENCO_TYPE_MAP_END, "{n}", level-- );', file=body)
         print("}", file=body)
 
+
         print(f'ulong {n}_size( {n}_t const * self ) {{', file=body)
         print('  ulong size = 0;', file=body)
         for f in self.fields:
@@ -3269,6 +3495,15 @@ class StructType(TypeNode):
         print('  return size;', file=body)
         print("}", file=body)
         print("", file=body)
+
+        if self.produce_global and not self.isFlat():
+            print(f'ulong {n}_size_global( {n}_global_t const * self ) {{', file=body)
+            print('  ulong size = 0;', file=body)
+            for f in self.fields:
+                f.emitSizeGlobal('')
+            print('  return size;', file=body)
+            print("}", file=body)
+            print("", file=body)
 
     def emitPostamble(self):
         for f in self.fields:
@@ -3417,6 +3652,7 @@ class EnumType(TypeNode):
         if self.produce_global and not self.isFlat():
             print(f'void * {n}_decode_global( void * mem, fd_bincode_decode_ctx_t * ctx );', file=header)
             print(f"int {n}_encode_global( {n}_global_t const * self, fd_bincode_encode_ctx_t * ctx );", file=header)
+            print(f'ulong {n}_size_global( {n}_global_t const * self );', file=header)
         print("", file=header)
 
         for i, v in enumerate(self.variants):
@@ -3627,6 +3863,22 @@ class EnumType(TypeNode):
         print('  return size;', file=body)
         print("}", file=body)
         print("", file=body)
+
+        if self.produce_global and not self.isFlat():
+            print(f'ulong {n}_size_global( {n}_global_t const * self ) {{', file=body)
+            print('  ulong size = 0;', file=body)
+            print(f'  size += sizeof({self.repr});', file=body)
+            print('  switch (self->discriminant) {', file=body)
+            for i, v in enumerate(self.variants):
+                if not isinstance(v, str):
+                    print(f'  case {i}: {{', file=body)
+                    v.emitSizeGlobal('inner.', indent)
+                    print('    break;', file=body)
+                    print('  }', file=body)
+            print('  }', file=body)
+            print('  return size;', file=body)
+            print("}", file=body)
+            print("", file=body)
 
         if not self.isFixedSize():
             print(f'int {n}_inner_encode( {n}_inner_t const * self, {self.repr} discriminant, fd_bincode_encode_ctx_t * ctx ) {{', file=body)

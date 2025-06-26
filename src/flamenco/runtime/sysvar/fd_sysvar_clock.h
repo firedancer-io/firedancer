@@ -18,19 +18,25 @@ FD_PROTOTYPES_BEGIN
 /* Initialize the clock sysvar account. */
 
 void
-fd_sysvar_clock_init( fd_exec_slot_ctx_t * slot_ctx );
+fd_sysvar_clock_init( fd_bank_t *     bank,
+                      fd_funk_t *     funk,
+                      fd_funk_txn_t * funk_txn );
 
 /* Update the clock sysvar account.  This should be called at the start
    of every slot, before execution commences. */
 
 int
-fd_sysvar_clock_update( fd_exec_slot_ctx_t * slot_ctx,
-                        fd_spad_t *          runtime_spad );
+fd_sysvar_clock_update( fd_bank_t *     bank,
+                        fd_funk_t *     funk,
+                        fd_funk_txn_t * funk_txn,
+                        fd_spad_t *     runtime_spad );
 
 /* Writes the current value of the clock sysvar to funk. */
 
 void
-fd_sysvar_clock_write( fd_exec_slot_ctx_t *    slot_ctx,
+fd_sysvar_clock_write( fd_bank_t *             bank,
+                       fd_funk_t *             funk,
+                       fd_funk_txn_t *         funk_txn,
                        fd_sol_sysvar_clock_t * clock );
 
 /* fd_sysvar_clok_read reads the current value of the rent sysvar from

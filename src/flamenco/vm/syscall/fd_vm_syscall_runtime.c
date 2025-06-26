@@ -244,7 +244,7 @@ fd_vm_syscall_sol_get_epoch_stake( /**/            void *  _vm,
     FD_VM_CU_UPDATE( vm, FD_VM_SYSCALL_BASE_COST );
 
     /* https://github.com/anza-xyz/agave/blob/v2.1.0/programs/bpf_loader/src/syscalls/mod.rs#L2074 */
-    *_ret = vm->instr_ctx->txn_ctx->total_epoch_stake;
+    *_ret = fd_bank_total_epoch_stake_get( vm->instr_ctx->txn_ctx->bank );
     return FD_VM_SUCCESS;
   }
 
@@ -254,7 +254,10 @@ fd_vm_syscall_sol_get_epoch_stake( /**/            void *  _vm,
 
   /* https://github.com/anza-xyz/agave/blob/v2.1.0/programs/bpf_loader/src/syscalls/mod.rs#L2103-L2104 */
   const fd_pubkey_t * vote_address = FD_VM_MEM_HADDR_LD( vm, var_addr, FD_VM_ALIGN_RUST_PUBKEY, FD_PUBKEY_FOOTPRINT );
-  *_ret = fd_query_pubkey_stake( vote_address, &vm->instr_ctx->txn_ctx->stakes.vote_accounts );
+
+  fd_stakes_global_t const * stakes = fd_bank_stakes_locking_query( vm->instr_ctx->txn_ctx->bank );
+  *_ret = fd_query_pubkey_stake( vote_address, &stakes->vote_accounts );
+  fd_bank_stakes_end_locking_query( vm->instr_ctx->txn_ctx->bank );
 
   return FD_VM_SUCCESS;
 }

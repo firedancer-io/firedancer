@@ -12,7 +12,7 @@ fd_runtime_fuzz_runner_footprint( void ) {
 
   ulong l = FD_LAYOUT_INIT;
   l = FD_LAYOUT_APPEND( l, fd_runtime_fuzz_runner_align(), sizeof(fd_runtime_fuzz_runner_t) );
-  l = FD_LAYOUT_APPEND( l, fd_funk_align(),                fd_funk_footprint( txn_max, rec_max) );
+  l = FD_LAYOUT_APPEND( l, fd_funk_align(),                fd_funk_footprint( txn_max, rec_max ) );
   /* Spad memory is not included in the footprint since its allocated separately at the beginning of a fuzzing run */
   return FD_LAYOUT_FINI( l, fd_runtime_fuzz_runner_align() );
 }
@@ -26,7 +26,7 @@ fd_runtime_fuzz_runner_new( void * mem,
 
   FD_SCRATCH_ALLOC_INIT( l, mem );
   void * runner_mem = FD_SCRATCH_ALLOC_APPEND( l, fd_runtime_fuzz_runner_align(), sizeof(fd_runtime_fuzz_runner_t) );
-  void * funk_mem   = FD_SCRATCH_ALLOC_APPEND( l, fd_funk_align(),                   fd_funk_footprint( txn_max, rec_max) );
+  void * funk_mem   = FD_SCRATCH_ALLOC_APPEND( l, fd_funk_align(),                fd_funk_footprint( txn_max, rec_max ) );
   FD_SCRATCH_ALLOC_FINI( l, fd_runtime_fuzz_runner_align() );
 
   fd_runtime_fuzz_runner_t * runner = runner_mem;
@@ -108,9 +108,9 @@ fd_runtime_fuzz_load_account( fd_txn_account_t *                acc,
 }
 
 int
-fd_runtime_fuzz_restore_features( fd_exec_epoch_ctx_t *              epoch_ctx,
+fd_runtime_fuzz_restore_features( fd_features_t *                    features,
                                   fd_exec_test_feature_set_t const * feature_set ) {
-  fd_features_disable_all( &epoch_ctx->features );
+  fd_features_disable_all( features );
   for( ulong j=0UL; j < feature_set->features_count; j++ ) {
     ulong                   prefix = feature_set->features[j];
     fd_feature_id_t const * id     = fd_feature_id_query( prefix );
@@ -119,7 +119,7 @@ fd_runtime_fuzz_restore_features( fd_exec_epoch_ctx_t *              epoch_ctx,
       return 0;
     }
     /* Enabled since genesis */
-    fd_features_set( &epoch_ctx->features, id, 0UL );
+    fd_features_set( features, id, 0UL );
   }
   return 1;
 }
