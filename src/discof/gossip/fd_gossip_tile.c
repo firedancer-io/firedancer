@@ -82,8 +82,6 @@ gossip_send_fn( void *                ctx,
                 ulong                 tsorig ) {
   fd_gossip_tile_ctx_t * gossip_ctx = (fd_gossip_tile_ctx_t *)ctx;
 
-  ulong packet_sz = payload_sz + sizeof(fd_ip4_udp_hdrs_t);
-
   uchar * packet          = (uchar *)fd_chunk_to_laddr( gossip_ctx->net_out->mem, gossip_ctx->net_out->chunk );
   fd_ip4_udp_hdrs_t * hdr = (fd_ip4_udp_hdrs_t *)packet;
   *hdr = *gossip_ctx->net_out_hdr;
@@ -91,12 +89,13 @@ gossip_send_fn( void *                ctx,
   fd_ip4_hdr_t * ip4 = hdr->ip4;
   fd_udp_hdr_t * udp = hdr->udp;
 
-  ip4->net_tot_len = fd_ushort_bswap( (ushort)(packet_sz) );
+  ip4->net_tot_len = fd_ushort_bswap( (ushort)(payload_sz + sizeof(fd_udp_hdr_t) + sizeof(fd_ip4_hdr_t)) );
   udp->net_len     = fd_ushort_bswap( (ushort)(payload_sz + sizeof(fd_udp_hdr_t)) );
   ip4->daddr       = peer_address->addr;
   udp->net_dport   = peer_address->port;
   ip4->check       = fd_ip4_hdr_check_fast( ip4 );
   ip4->net_id      = fd_ushort_bswap( gossip_ctx->net_id++ );
+  udp->check       = 0;
 
   /* TODO: Construct payload in place to avoid memcpy here. */
   fd_memcpy( packet+sizeof(fd_ip4_udp_hdrs_t), payload, payload_sz );
@@ -105,6 +104,7 @@ gossip_send_fn( void *                ctx,
   ulong tspub = fd_frag_meta_ts_comp( fd_tickcount() );
   ulong sig   = fd_disco_netmux_sig( peer_address->addr, peer_address->port, peer_address->addr, DST_PROTO_OUTGOING, sizeof(fd_ip4_udp_hdrs_t) );
 
+  ulong packet_sz = payload_sz + sizeof(fd_ip4_udp_hdrs_t);
   fd_mcache_publish( gossip_ctx->net_out_mcache, gossip_ctx->net_out_depth, gossip_ctx->net_out_seq, sig, gossip_ctx->net_out->chunk, packet_sz, 0UL, tsorig, tspub );
   gossip_ctx->net_out_seq    = fd_seq_inc( gossip_ctx->net_out_seq,  1UL );
   gossip_ctx->net_out->chunk = fd_dcache_compact_next( gossip_ctx->net_out->chunk, packet_sz, gossip_ctx->net_out->chunk0, gossip_ctx->net_out->wmark );

@@ -879,7 +879,7 @@ fd_gossip_rx( fd_gossip_t * gossip,
 
   fd_gossip_view_t view[ 1 ];
   ulong decode_sz = fd_gossip_msg_parse( view, gossip_payload, gossip_payload_sz );
-  if( FD_UNLIKELY( !!decode_sz ) ) return FD_GOSSIP_RX_PARSE_ERR;
+  if( FD_UNLIKELY( !decode_sz ) ) return FD_GOSSIP_RX_PARSE_ERR;
 
   error = verify_signatures( view, data, gossip->sha512 );
   if( FD_UNLIKELY( error ) ) return error;

@@ -39,7 +39,7 @@ fd_gossip_pull_request_encode_ctx_init( uchar *                               pa
     out_view->bloom_bits_offset = CUR_OFFSET; INC( 8U*bloom_vec_len );
   } else {
     FD_STORE( uchar, CURSOR, 0 ); INC( 1U ); /* has_bits */
-    out_view->bloom_len = 0U; /* No bloom bits */
+    out_view->bloom_len         = 0U; /* No bloom bits */
     out_view->bloom_bits_offset = 0UL; /* SHOULD NOT BE USED */
   }
   FD_STORE( ulong, CURSOR, bloom_bits_cnt ); out_view->bloom_bits_cnt     = bloom_bits_cnt; INC( 8U );
@@ -77,7 +77,7 @@ fd_gossip_pull_request_encode_bloom_bits( fd_gossip_view_pull_request_t       * 
     FD_LOG_ERR(( "Bloom bits length mismatch: expected %lu, got %lu", view->bloom_bits_cnt, bloom_bits_cnt ));
   }
 
-  fd_memcpy( payload, bloom_bits, view->bloom_len * sizeof(ulong) );
+  fd_memcpy( payload+view->bloom_bits_offset, bloom_bits, view->bloom_len * sizeof(ulong) );
   /* Set the number of bits set in the bloom filter */
   int num_bits_set = 0UL;
   for( ulong i=0UL; i<view->bloom_len; i++ ) {
