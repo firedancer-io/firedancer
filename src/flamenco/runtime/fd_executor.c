@@ -1127,11 +1127,6 @@ int
 fd_execute_instr( fd_exec_txn_ctx_t * txn_ctx,
                   fd_instr_info_t *   instr ) {
   FD_RUNTIME_TXN_SPAD_FRAME_BEGIN( txn_ctx->spad, txn_ctx ) {
-    fd_exec_instr_ctx_t * parent = NULL;
-    if( txn_ctx->instr_stack_sz ) {
-      parent = &txn_ctx->instr_stack[ txn_ctx->instr_stack_sz - 1 ];
-    }
-
     int instr_exec_result = fd_instr_stack_push( txn_ctx, instr );
     if( FD_UNLIKELY( instr_exec_result ) ) {
       FD_TXN_PREPARE_ERR_OVERWRITE( txn_ctx );
@@ -1145,7 +1140,6 @@ fd_execute_instr( fd_exec_txn_ctx_t * txn_ctx,
     *ctx = (fd_exec_instr_ctx_t) {
       .instr     = instr,
       .txn_ctx   = txn_ctx,
-      .depth     = parent ? (parent->depth+1) : 0,
     };
     fd_base58_encode_32( txn_ctx->accounts[ instr->program_id ].pubkey->uc, NULL, ctx->program_id_base58 );
 

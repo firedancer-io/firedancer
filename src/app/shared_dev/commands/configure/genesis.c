@@ -32,7 +32,6 @@ default_enable_features( fd_features_t * features ) {
   features->apply_cost_tracker_during_replay = 0UL;
   features->reject_callx_r10 = 1UL;
   features->update_hashes_per_tick = 0UL;
-  features->enable_partitioned_epoch_reward = 0UL;
   features->pico_inflation = 0UL;
   features->remaining_compute_units_syscall_enabled = 0UL;
   features->simplify_writable_program_account_check = 0UL;
