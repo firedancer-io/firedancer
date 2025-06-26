@@ -45,7 +45,6 @@
 
 struct __attribute__((aligned(128UL))) fd_forest_ele {
   ulong slot;     /* map key */
-  ulong prev;     /* internal use by link_orphans */
   ulong next;     /* internal use by fd_pool, fd_map_chain */
   ulong parent;   /* pool idx of the parent in the tree */
   ulong child;    /* pool idx of the left-child */
@@ -79,6 +78,12 @@ typedef struct fd_forest_ele fd_forest_ele_t;
 #define MAP_KEY   slot
 #include "../../util/tmpl/fd_map_chain.c"
 
+/* Internal use only for BFSing */
+#define DEQUE_NAME fd_forest_deque
+#define DEQUE_T    ulong
+#include "../../util/tmpl/fd_deque_dynamic.c"
+
+
 /* fd_forest_t is the top-level structure that holds the root of
    the tree, as well as the memory pools and map structures.
 
@@ -111,6 +116,7 @@ struct __attribute__((aligned(128UL))) fd_forest {
   ulong ancestry_gaddr; /* wksp_gaddr of fd_forest_ancestry */
   ulong frontier_gaddr; /* map of slot to ele (leaf that needs repair) */
   ulong orphaned_gaddr; /* map of parent_slot to singly-linked list of ele orphaned by that parent slot */
+  ulong deque_gaddr;    /* wksp gaddr of fd_forest_deque. internal use only for BFSing */
   ulong magic;          /* ==FD_FOREST_MAGIC */
 };
 typedef struct fd_forest fd_forest_t;
@@ -137,13 +143,15 @@ fd_forest_footprint( ulong ele_max ) {
     FD_LAYOUT_APPEND(
     FD_LAYOUT_APPEND(
     FD_LAYOUT_APPEND(
+    FD_LAYOUT_APPEND(
     FD_LAYOUT_INIT,
-      alignof(fd_forest_t),         sizeof(fd_forest_t)              ),
-      fd_fseq_align(),              fd_fseq_footprint()              ),
-      fd_forest_pool_align(),       fd_forest_pool_footprint( ele_max )     ),
+      alignof(fd_forest_t),         sizeof(fd_forest_t)                     ),
+      fd_fseq_align(),              fd_fseq_footprint()                     ),
+      fd_forest_pool_align(),       fd_forest_pool_footprint    ( ele_max ) ),
       fd_forest_ancestry_align(),   fd_forest_ancestry_footprint( ele_max ) ),
       fd_forest_frontier_align(),   fd_forest_frontier_footprint( ele_max ) ),
       fd_forest_orphaned_align(),   fd_forest_orphaned_footprint( ele_max ) ),
+      fd_forest_deque_align(),      fd_forest_deque_footprint   ( ele_max ) ),
     fd_forest_align() );
 }
 

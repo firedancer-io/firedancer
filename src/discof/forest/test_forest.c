@@ -79,6 +79,115 @@ test_publish( fd_wksp_t * wksp ) {
   }
 }
 
+void
+test_publish_incremental( fd_wksp_t * wksp ){
+  /* as the name suggests. tests the complications introduced by loading
+     two incremental snapshots */
+
+  ulong ele_max = 32UL;
+  void * mem = fd_wksp_alloc_laddr( wksp, fd_forest_align(), fd_forest_footprint( ele_max ), 1UL );
+  FD_TEST( mem );
+  fd_forest_t * forest = fd_forest_join( fd_forest_new( mem, ele_max, 42UL /* seed */ ) );
+
+  /* 1. Try publishing to a slot that doesnt exist
+
+      0          10 -> 11
+
+   */
+
+  fd_forest_init( forest, 0 );
+  fd_forest_data_shred_insert( forest, 11, 1, 0, 0, 1, 1 );
+
+  ulong new_root = 1;
+  fd_forest_publish( forest, new_root );
+  FD_TEST( fd_forest_root_slot( forest ) == new_root );
+  FD_TEST( fd_forest_frontier_ele_query( fd_forest_frontier( forest ), &new_root, NULL, fd_forest_pool( forest ) ) );
+  FD_TEST( !fd_forest_query( forest, 0 ) );
+
+  /* 2. Try publishing to a slot on the frontier
+
+    1 -> 2 -> 3       10 -> 11
+
+  */
+
+  fd_forest_data_shred_insert( forest, 2, 1, 0, 0, 1, 1 );
+  fd_forest_data_shred_insert( forest, 3, 1, 0, 0, 1, 1 );
+
+  ulong frontier = 3;
+  FD_TEST( fd_forest_frontier_ele_query( fd_forest_frontier( forest ), &frontier, NULL, fd_forest_pool( forest ) ) );
+  fd_forest_publish( forest, frontier );
+  FD_TEST( fd_forest_root_slot( forest ) == frontier );
+  FD_TEST( fd_forest_frontier_ele_query( fd_forest_frontier( forest ), &frontier, NULL, fd_forest_pool( forest ) ) );
+  FD_TEST( !fd_forest_query( forest, 1 ) );
+  FD_TEST( !fd_forest_query( forest, 2 ) );
+  FD_TEST( fd_forest_query( forest, 10 ) );
+  FD_TEST( fd_forest_query( forest, 11 ) );
+
+  /* 3. Try publishing to a slot in ancestry but in front of the frontier
+
+      frontier    new_root
+    3 -> 4 -> 5 -> 6 -> 7      10 -> 11
+
+  */
+
+  fd_forest_data_shred_insert( forest, 4, 1, 0, 0, 0, 0 );
+  fd_forest_data_shred_insert( forest, 5, 1, 0, 0, 0, 0 );
+  fd_forest_data_shred_insert( forest, 6, 1, 0, 0, 0, 0 );
+  fd_forest_data_shred_insert( forest, 7, 1, 0, 0, 0, 0 );
+
+  frontier = 4;
+  new_root = 6;
+  FD_TEST( fd_forest_frontier_ele_query( fd_forest_frontier( forest ), &frontier, NULL, fd_forest_pool( forest ) ) );
+  fd_forest_publish( forest, new_root );
+  FD_TEST( fd_forest_root_slot( forest ) == new_root );
+  frontier = 7;
+  FD_TEST( fd_forest_frontier_ele_query( fd_forest_frontier( forest ), &frontier, NULL, fd_forest_pool( forest ) ) );
+  FD_TEST( !fd_forest_query( forest, 3 ) );
+  FD_TEST( !fd_forest_query( forest, 4 ) );
+  FD_TEST( !fd_forest_query( forest, 5 ) );
+
+  /* 4. Try publishing to an orphan slot
+
+  6 -> 7       10 -> 11
+               8 -> 9 (should get pruned)
+  */
+
+  fd_forest_data_shred_insert( forest, 9, 1, 0, 0, 0, 0 );
+
+  new_root = 10;
+  frontier = 11;
+
+  fd_forest_publish( forest, new_root);
+  FD_TEST( !fd_forest_verify( forest ) );
+  FD_TEST( fd_forest_root_slot( forest ) == new_root );
+  FD_TEST( fd_forest_frontier_ele_query( fd_forest_frontier( forest ), &frontier, NULL, fd_forest_pool( forest ) ) );
+  FD_TEST( !fd_forest_query( forest, 6 ) );
+  FD_TEST( !fd_forest_query( forest, 7 ) );
+  FD_TEST( !fd_forest_query( forest, 8 ) );
+  FD_TEST( !fd_forest_query( forest, 9 ) );
+  FD_TEST( fd_forest_query( forest, 10 ) );
+  FD_TEST( fd_forest_query( forest, 11 ) );
+
+  /* 5. Try publishing to an orphan slot that is not a "head" of orphans
+                            (publish)
+    10 -> 11         14 -> 15 -> 16
+
+  */
+
+  fd_forest_data_shred_insert( forest, 14, 1, 0, 0, 0, 0 );
+  fd_forest_data_shred_insert( forest, 15, 1, 0, 0, 0, 0 );
+  fd_forest_data_shred_insert( forest, 16, 1, 0, 0, 0, 0 );
+
+  new_root = 15;
+  frontier = 16;
+  fd_forest_publish( forest, new_root );
+  FD_TEST( !fd_forest_verify( forest ) );
+  FD_TEST( fd_forest_root_slot( forest ) == new_root );
+  FD_TEST( fd_forest_frontier_ele_query( fd_forest_frontier( forest ), &frontier, NULL, fd_forest_pool( forest ) ) );
+  FD_TEST( !fd_forest_query( forest, 10 ) );
+  FD_TEST( !fd_forest_query( forest, 11 ) );
+  FD_TEST( !fd_forest_query( forest, 14 ) );
+}
 #define SORT_NAME        sort
 #define SORT_KEY_T       ulong
 #include "../../util/tmpl/fd_sort.c"
@@ -520,6 +629,7 @@ main( int argc, char ** argv ) {
   FD_TEST( wksp );
 
   test_publish( wksp );
+  test_publish_incremental( wksp );
   test_out_of_order( wksp );
   test_forks( wksp );
   // test_print_tree( wksp );
