@@ -108,10 +108,6 @@ sol_compat_wksp_init( ulong wksp_page_sz ) {
     // Skip reverted features
     if( current_feature->reverted ) continue;
 
-    // HACK: Skip `revise_turbine_epoch_stakes` as it is currently not accessible in solfuzz-agave (not public)
-    if( strcmp( current_feature->name, "revise_turbine_epoch_stakes" )==0 ) continue;
-
-
     // Only hardcode features that are activated on all clusters
     if( current_feature->activated_on_all_clusters ) {
       memcpy( &features.hardcoded_features[features.hardcoded_features_cnt++], &current_feature->id, sizeof(ulong) );

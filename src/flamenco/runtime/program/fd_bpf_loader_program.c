@@ -2514,7 +2514,6 @@ fd_directly_invoke_loader_v3_deploy( fd_exec_slot_ctx_t * slot_ctx,
   *instr_ctx = (fd_exec_instr_ctx_t) {
     .instr     = NULL,
     .txn_ctx   = txn_ctx,
-    .depth     = 0U,
   };
 
   return fd_deploy_program( instr_ctx, elf, elf_sz, runtime_spad );
