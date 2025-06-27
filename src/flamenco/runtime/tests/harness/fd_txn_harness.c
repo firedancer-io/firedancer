@@ -69,7 +69,7 @@ fd_runtime_fuzz_txn_ctx_create( fd_runtime_fuzz_runner_t *         runner,
   }
 
   /* Add accounts to bpf program cache */
-  fd_bpf_scan_and_create_bpf_program_cache_entry( slot_ctx, runner->spad );
+  fd_bpf_scan_and_create_bpf_program_cache_entry( slot_ctx->bank, slot_ctx->funk, slot_ctx->funk_txn, runner->spad );
 
   /* Setup Bank manager */
 
@@ -131,7 +131,7 @@ fd_runtime_fuzz_txn_ctx_create( fd_runtime_fuzz_runner_t *         runner,
       fd_slot_hash_t * dummy_elem = deq_fd_slot_hash_t_push_tail_nocopy( slot_hashes );
       memset( dummy_elem, 0, sizeof(fd_slot_hash_t) );
 
-      fd_sysvar_slot_hashes_write( slot_ctx, default_slot_hashes_global );
+      fd_sysvar_slot_hashes_write( slot_ctx->bank, slot_ctx->funk, slot_ctx->funk_txn, default_slot_hashes_global );
 
       fd_sysvar_slot_hashes_delete( fd_sysvar_slot_hashes_leave( default_slot_hashes_global, slot_hashes ) );
     } FD_SPAD_FRAME_END;
@@ -150,7 +150,7 @@ fd_runtime_fuzz_txn_ctx_create( fd_runtime_fuzz_runner_t *         runner,
   FD_TXN_ACCOUNT_DECL( acc );
   int err = fd_txn_account_init_from_funk_readonly( acc, &fd_sysvar_last_restart_slot_id, funk, funk_txn );
   if( err==FD_ACC_MGR_ERR_UNKNOWN_ACCOUNT ) {
-    fd_sysvar_last_restart_slot_init( slot_ctx );
+    fd_sysvar_last_restart_slot_init( slot_ctx->bank, slot_ctx->funk, slot_ctx->funk_txn );
   }
 
   /* Provide a default clock if not present */

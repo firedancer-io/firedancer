@@ -499,12 +499,16 @@ void
 fd_runtime_poh_verify( fd_poh_verifier_t * poh_info );
 
 int
-fd_runtime_block_execute_prepare( fd_exec_slot_ctx_t * slot_ctx,
-                                  fd_blockstore_t *    blockstore,
-                                  fd_spad_t *          runtime_spad );
+fd_runtime_block_execute_prepare( fd_bank_t *       bank,
+                                  fd_funk_t *       funk,
+                                  fd_funk_txn_t *   funk_txn,
+                                  fd_blockstore_t * blockstore,
+                                  fd_spad_t *       runtime_spad );
 
 void
-fd_runtime_block_execute_finalize_start( fd_exec_slot_ctx_t *             slot_ctx,
+fd_runtime_block_execute_finalize_start( fd_bank_t *                      bank,
+                                         fd_funk_t *                      funk,
+                                         fd_funk_txn_t *                  funk_txn,
                                          fd_spad_t *                      runtime_spad,
                                          fd_accounts_hash_task_data_t * * task_data,
                                          ulong                            lt_hash_cnt );

@@ -3,8 +3,8 @@
 
 #include "../fd_flamenco_base.h"
 #include "../types/fd_types.h"
-#include "../../funk/fd_funk.h"
 #include "../../ballet/lthash/fd_lthash.h"
+#include "fd_bank.h"
 #include "fd_runtime_public.h"
 
 #define FD_PUBKEY_HASH_PAIR_ALIGN (16UL)
@@ -31,11 +31,13 @@ struct fd_subrange_task_info {
 typedef struct fd_subrange_task_info fd_subrange_task_info_t;
 
 struct fd_accounts_hash_task_info {
-  fd_exec_slot_ctx_t *     slot_ctx;
-  fd_pubkey_t              acc_pubkey[1];
-  fd_hash_t                acc_hash[1];
-  uint                     should_erase;
-  uint                     hash_changed;
+  fd_funk_t *     funk;
+  fd_funk_txn_t * funk_txn;
+  fd_bank_t *     bank;
+  fd_pubkey_t     acc_pubkey[1];
+  fd_hash_t       acc_hash[1];
+  uint            should_erase;
+  uint            hash_changed;
 };
 typedef struct fd_accounts_hash_task_info fd_accounts_hash_task_info_t;
 
@@ -90,7 +92,9 @@ fd_update_hash_bank_exec_hash( fd_exec_slot_ctx_t *           slot_ctx,
                                fd_spad_t *                    runtime_spad );
 
 void
-fd_collect_modified_accounts( fd_exec_slot_ctx_t *           slot_ctx,
+fd_collect_modified_accounts( fd_bank_t *                    bank,
+                              fd_funk_t *                    funk,
+                              fd_funk_txn_t *                funk_txn,
                               fd_accounts_hash_task_data_t * task_data,
                               fd_spad_t *                    runtime_spad );
 

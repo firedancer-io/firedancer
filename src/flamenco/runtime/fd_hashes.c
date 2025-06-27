@@ -410,26 +410,25 @@ fd_account_hash_task( void * tpool,
 
   for( ulong i=start_idx; i<=stop_idx; i++ ) {
     fd_accounts_hash_task_info_t * task_info = &task_data->info[i];
-    fd_exec_slot_ctx_t *           slot_ctx  = task_info->slot_ctx;
-    fd_account_hash( slot_ctx->funk,
-                     slot_ctx->funk_txn,
+    fd_account_hash( task_info->funk,
+                     task_info->funk_txn,
                      task_info,
                      lthash,
-                     slot_ctx->slot,
-                     fd_bank_features_query( slot_ctx->bank )
+                     task_info->bank->slot,
+                     fd_bank_features_query( task_info->bank )
       );
   }
 }
 
 void
-fd_collect_modified_accounts( fd_exec_slot_ctx_t *           slot_ctx,
+fd_collect_modified_accounts( fd_bank_t *                    bank,
+                              fd_funk_t *                    funk,
+                              fd_funk_txn_t *                funk_txn,
                               fd_accounts_hash_task_data_t * task_data,
                               fd_spad_t *                    runtime_spad ) {
-  fd_funk_t *     funk = slot_ctx->funk;
-  fd_funk_txn_t * txn  = slot_ctx->funk_txn;
 
   ulong rec_cnt = 0;
-  for( fd_funk_rec_t const * rec = fd_funk_txn_first_rec( funk, txn );
+  for( fd_funk_rec_t const * rec = fd_funk_txn_first_rec( funk, funk_txn );
        NULL != rec;
        rec = fd_funk_txn_next_rec( funk, rec ) ) {
 
@@ -451,7 +450,7 @@ fd_collect_modified_accounts( fd_exec_slot_ctx_t *           slot_ctx,
   /* Iterate over accounts that have been changed in the current
      database transaction. */
   ulong recs_iterated = 0;
-  for( fd_funk_rec_t const * rec = fd_funk_txn_first_rec( funk, txn );
+  for( fd_funk_rec_t const * rec = fd_funk_txn_first_rec( funk, funk_txn );
        NULL != rec;
        rec = fd_funk_txn_next_rec( funk, rec ) ) {
 
@@ -460,7 +459,9 @@ fd_collect_modified_accounts( fd_exec_slot_ctx_t *           slot_ctx,
     fd_accounts_hash_task_info_t * task_info = &task_data->info[recs_iterated++];
 
     memcpy( task_info->acc_pubkey, rec->pair.key->uc, sizeof(fd_pubkey_t) );
-    task_info->slot_ctx     = slot_ctx;
+    task_info->bank         = bank;
+    task_info->funk         = funk;
+    task_info->funk_txn     = funk_txn;
     task_info->hash_changed = 0;
     task_info->should_erase = 0;
   }
@@ -620,7 +621,7 @@ fd_update_hash_bank_tpool( fd_exec_slot_ctx_t * slot_ctx,
                                                             alignof(fd_accounts_hash_task_data_t),
                                                             sizeof(fd_accounts_hash_task_data_t) );
 
-  fd_collect_modified_accounts( slot_ctx, task_data, runtime_spad );
+  fd_collect_modified_accounts( slot_ctx->bank, slot_ctx->funk, slot_ctx->funk_txn, task_data, runtime_spad );
 
   ulong wcnt = 0UL;
 

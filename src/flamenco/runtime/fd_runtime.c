@@ -781,27 +781,29 @@ fd_runtime_new_fee_rate_governor_derived( fd_bank_t * bank,
 }
 
 static int
-fd_runtime_block_sysvar_update_pre_execute( fd_exec_slot_ctx_t * slot_ctx,
-                                            fd_spad_t *          runtime_spad ) {
+fd_runtime_block_sysvar_update_pre_execute( fd_bank_t *     bank,
+                                            fd_funk_t *     funk,
+                                            fd_funk_txn_t * funk_txn,
+                                            fd_spad_t *     runtime_spad ) {
   // let (fee_rate_governor, fee_components_time_us) = measure_us!(
   //     FeeRateGovernor::new_derived(&parent.fee_rate_governor, parent.signature_count())
   // );
   /* https://github.com/firedancer-io/solana/blob/dab3da8e7b667d7527565bddbdbecf7ec1fb868e/runtime/src/bank.rs#L1312-L1314 */
 
-  fd_runtime_new_fee_rate_governor_derived( slot_ctx->bank, fd_bank_parent_signature_cnt_get( slot_ctx->bank ) );
+  fd_runtime_new_fee_rate_governor_derived( bank, fd_bank_parent_signature_cnt_get( bank ) );
 
   // TODO: move all these out to a fd_sysvar_update() call...
   long clock_update_time      = -fd_log_wallclock();
-  fd_sysvar_clock_update( slot_ctx->bank, slot_ctx->funk, slot_ctx->funk_txn, runtime_spad );
+  fd_sysvar_clock_update( bank, funk, funk_txn, runtime_spad );
   clock_update_time          += fd_log_wallclock();
   double clock_update_time_ms = (double)clock_update_time * 1e-6;
-  FD_LOG_INFO(( "clock updated - slot: %lu, elapsed: %6.6f ms", slot_ctx->slot, clock_update_time_ms ));
+  FD_LOG_INFO(( "clock updated - slot: %lu, elapsed: %6.6f ms", bank->slot, clock_update_time_ms ));
 
   // It has to go into the current txn previous info but is not in slot 0
-  if( slot_ctx->slot != 0 ) {
-    fd_sysvar_slot_hashes_update( slot_ctx, runtime_spad );
+  if( bank->slot != 0 ) {
+    fd_sysvar_slot_hashes_update( bank, funk, funk_txn, runtime_spad );
   }
-  fd_sysvar_last_restart_slot_update( slot_ctx, runtime_spad );
+  fd_sysvar_last_restart_slot_update( bank, funk, funk_txn, runtime_spad );
 
   return 0;
 }
@@ -1284,34 +1286,36 @@ fd_runtime_poh_verify( fd_poh_verifier_t * poh_info ) {
 }
 
 int
-fd_runtime_block_execute_prepare( fd_exec_slot_ctx_t * slot_ctx,
-                                  fd_blockstore_t *    blockstore,
-                                  fd_spad_t *          runtime_spad ) {
+fd_runtime_block_execute_prepare( fd_bank_t *       bank,
+                                  fd_funk_t *       funk,
+                                  fd_funk_txn_t *   funk_txn,
+                                  fd_blockstore_t * blockstore,
+                                  fd_spad_t *       runtime_spad ) {
 
 
-  if( blockstore && slot_ctx->slot != 0UL ) {
+  if( blockstore && bank->slot != 0UL ) {
     fd_blockstore_block_height_update( blockstore,
-                                       slot_ctx->slot,
-                                       fd_bank_block_height_get( slot_ctx->bank ) );
+                                       bank->slot,
+                                       fd_bank_block_height_get( bank ) );
   }
 
-  fd_bank_execution_fees_set( slot_ctx->bank, 0UL );
+  fd_bank_execution_fees_set( bank, 0UL );
 
-  fd_bank_priority_fees_set( slot_ctx->bank, 0UL );
+  fd_bank_priority_fees_set( bank, 0UL );
 
-  fd_bank_signature_count_set( slot_ctx->bank, 0UL );
+  fd_bank_signature_count_set( bank, 0UL );
 
-  fd_bank_txn_count_set( slot_ctx->bank, 0UL );
+  fd_bank_txn_count_set( bank, 0UL );
 
-  fd_bank_nonvote_txn_count_set( slot_ctx->bank, 0UL );
+  fd_bank_nonvote_txn_count_set( bank, 0UL );
 
-  fd_bank_failed_txn_count_set( slot_ctx->bank, 0UL );
+  fd_bank_failed_txn_count_set( bank, 0UL );
 
-  fd_bank_nonvote_failed_txn_count_set( slot_ctx->bank, 0UL );
+  fd_bank_nonvote_failed_txn_count_set( bank, 0UL );
 
-  fd_bank_total_compute_units_used_set( slot_ctx->bank, 0UL );
+  fd_bank_total_compute_units_used_set( bank, 0UL );
 
-  int result = fd_runtime_block_sysvar_update_pre_execute( slot_ctx, runtime_spad );
+  int result = fd_runtime_block_sysvar_update_pre_execute( bank, funk, funk_txn, runtime_spad );
   if( FD_UNLIKELY( result != 0 ) ) {
     FD_LOG_WARNING(("updating sysvars failed"));
     return result;
@@ -1321,17 +1325,19 @@ fd_runtime_block_execute_prepare( fd_exec_slot_ctx_t * slot_ctx,
 }
 
 void
-fd_runtime_block_execute_finalize_start( fd_exec_slot_ctx_t *             slot_ctx,
+fd_runtime_block_execute_finalize_start( fd_bank_t *                      bank,
+                                         fd_funk_t *                      funk,
+                                         fd_funk_txn_t *                  funk_txn,
                                          fd_spad_t *                      runtime_spad,
                                          fd_accounts_hash_task_data_t * * task_data,
                                          ulong                            lt_hash_cnt ) {
 
-  fd_sysvar_slot_history_update( slot_ctx, runtime_spad );
+  fd_sysvar_slot_history_update( bank, funk, funk_txn, runtime_spad );
 
   /* This slot is now "frozen" and can't be changed anymore. */
-  fd_runtime_freeze( slot_ctx->bank, slot_ctx->funk, slot_ctx->funk_txn, runtime_spad );
+  fd_runtime_freeze( bank, funk, funk_txn, runtime_spad );
 
-  int result = fd_bpf_scan_and_create_bpf_program_cache_entry( slot_ctx, runtime_spad );
+  int result = fd_bpf_scan_and_create_bpf_program_cache_entry( bank, funk, funk_txn, runtime_spad );
   if( FD_UNLIKELY( result ) ) {
     FD_LOG_WARNING(( "update bpf program cache failed" ));
     return;
@@ -1348,7 +1354,7 @@ fd_runtime_block_execute_finalize_start( fd_exec_slot_ctx_t *             slot_c
     fd_lthash_zero( &((*task_data)->lthash_values)[i] );
   }
 
-  fd_collect_modified_accounts( slot_ctx, *task_data, runtime_spad );
+  fd_collect_modified_accounts( bank, funk, funk_txn, *task_data, runtime_spad );
 }
 
 int
@@ -1421,7 +1427,12 @@ fd_runtime_block_execute_finalize_para( fd_exec_slot_ctx_t *             slot_ct
 
   fd_accounts_hash_task_data_t * task_data = NULL;
 
-  fd_runtime_block_execute_finalize_start( slot_ctx, runtime_spad, &task_data, worker_cnt );
+  fd_runtime_block_execute_finalize_start( slot_ctx->bank,
+      slot_ctx->funk,
+      slot_ctx->funk_txn,
+      runtime_spad,
+      &task_data,
+      worker_cnt );
 
   exec_para_ctx->fn_arg_1 = (void*)task_data;
   exec_para_ctx->fn_arg_2 = (void*)worker_cnt;
@@ -3116,12 +3127,12 @@ fd_runtime_init_program( fd_exec_slot_ctx_t * slot_ctx,
                          fd_spad_t *          runtime_spad ) {
   fd_sysvar_recent_hashes_init( slot_ctx->bank, slot_ctx->funk, slot_ctx->funk_txn, runtime_spad );
   fd_sysvar_clock_init( slot_ctx->bank, slot_ctx->funk, slot_ctx->funk_txn );
-  fd_sysvar_slot_history_init( slot_ctx, runtime_spad );
-  fd_sysvar_slot_hashes_init( slot_ctx, runtime_spad );
+  fd_sysvar_slot_history_init( slot_ctx->bank, slot_ctx->funk, slot_ctx->funk_txn, runtime_spad );
+  fd_sysvar_slot_hashes_init( slot_ctx->bank, slot_ctx->funk, slot_ctx->funk_txn, runtime_spad );
   fd_sysvar_epoch_schedule_init( slot_ctx );
   fd_sysvar_rent_init( slot_ctx );
   fd_sysvar_stake_history_init( slot_ctx );
-  fd_sysvar_last_restart_slot_init( slot_ctx );
+  fd_sysvar_last_restart_slot_init( slot_ctx->bank, slot_ctx->funk, slot_ctx->funk_txn );
 
   fd_builtin_programs_init( slot_ctx );
   fd_stake_program_config_init( slot_ctx );
@@ -3417,7 +3428,7 @@ fd_runtime_process_genesis_block( fd_exec_slot_ctx_t * slot_ctx,
 
   fd_bank_total_compute_units_used_set( slot_ctx->bank, 0UL );
 
-  fd_sysvar_slot_history_update( slot_ctx, runtime_spad );
+  fd_sysvar_slot_history_update( slot_ctx->bank, slot_ctx->funk, slot_ctx->funk_txn, runtime_spad );
 
   fd_runtime_update_leaders( slot_ctx->bank, 0, runtime_spad );
 
@@ -3853,7 +3864,11 @@ fd_runtime_block_execute_tpool( fd_exec_slot_ctx_t *            slot_ctx,
 
   long block_execute_time = -fd_log_wallclock();
 
-  int res = fd_runtime_block_execute_prepare( slot_ctx, blockstore, runtime_spad );
+  int res = fd_runtime_block_execute_prepare( slot_ctx->bank,
+      slot_ctx->funk,
+      slot_ctx->funk_txn,
+      blockstore,
+      runtime_spad );
   if( res != FD_RUNTIME_EXECUTE_SUCCESS ) {
     return res;
   }
