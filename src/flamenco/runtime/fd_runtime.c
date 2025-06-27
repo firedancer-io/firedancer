@@ -305,168 +305,8 @@ fd_runtime_run_incinerator( fd_bank_t *     bank,
   return 0;
 }
 
-/* Yes, this is a real function that exists in Solana. Yes, I am ashamed I have had to replicate it. */
-// https://github.com/firedancer-io/solana/blob/d8292b427adf8367d87068a3a88f6fd3ed8916a5/runtime/src/bank.rs#L5618
-static ulong
-fd_runtime_slot_count_in_two_day( ulong ticks_per_slot ) {
-  return 2UL * FD_SYSVAR_CLOCK_DEFAULT_TICKS_PER_SECOND * 86400UL /* seconds per day */ / ticks_per_slot;
-}
-
-// https://github.com/firedancer-io/solana/blob/d8292b427adf8367d87068a3a88f6fd3ed8916a5/runtime/src/bank.rs#L5594
-static int
-fd_runtime_use_multi_epoch_collection( fd_bank_t * bank, ulong slot ) {
-
-  fd_epoch_schedule_t const * schedule = fd_bank_epoch_schedule_query( bank );
-
-  ulong off;
-  ulong epoch = fd_slot_to_epoch( schedule, slot, &off );
-  ulong slots_per_normal_epoch = fd_epoch_slot_cnt( schedule, schedule->first_normal_epoch );
-
-  ulong slot_count_in_two_day = fd_runtime_slot_count_in_two_day( fd_bank_ticks_per_slot_get( bank ) );
-
-  int use_multi_epoch_collection = ( epoch >= schedule->first_normal_epoch )
-      && ( slots_per_normal_epoch < slot_count_in_two_day );
-
-  return use_multi_epoch_collection;
-}
-
-FD_FN_UNUSED static ulong
-fd_runtime_num_rent_partitions( fd_bank_t * bank, ulong slot ) {
-
-  fd_epoch_schedule_t const * schedule = fd_bank_epoch_schedule_query( bank );
-
-  ulong off;
-  ulong epoch = fd_slot_to_epoch( schedule, slot, &off );
-  ulong slots_per_epoch = fd_epoch_slot_cnt( schedule, epoch );
-
-  ulong slot_count_in_two_day = fd_runtime_slot_count_in_two_day( fd_bank_ticks_per_slot_get( bank ) );
-
-  int use_multi_epoch_collection = fd_runtime_use_multi_epoch_collection( bank, slot );
-
-  if( use_multi_epoch_collection ) {
-    ulong epochs_in_cycle = slot_count_in_two_day / slots_per_epoch;
-    return slots_per_epoch * epochs_in_cycle;
-  } else {
-    return slots_per_epoch;
-  }
-}
-
-// https://github.com/anza-xyz/agave/blob/2bdcc838c18d262637524274cbb2275824eb97b8/accounts-db/src/accounts_partition.rs#L30
-static ulong
-fd_runtime_get_rent_partition( fd_bank_t * bank, ulong slot ) {
-
-  int use_multi_epoch_collection = fd_runtime_use_multi_epoch_collection( bank, slot );
-
-  fd_epoch_schedule_t const * schedule = fd_bank_epoch_schedule_query( bank );
-
-  ulong off;
-  ulong epoch = fd_slot_to_epoch( schedule, slot, &off );
-  ulong slot_count_per_epoch = fd_epoch_slot_cnt( schedule, epoch );
-  ulong slot_count_in_two_day = fd_runtime_slot_count_in_two_day( fd_bank_ticks_per_slot_get( bank ) );
-
-  ulong base_epoch;
-  ulong epoch_count_in_cycle;
-  if( use_multi_epoch_collection ) {
-    base_epoch = schedule->first_normal_epoch;
-    epoch_count_in_cycle = slot_count_in_two_day / slot_count_per_epoch;
-  } else {
-    base_epoch = 0;
-    epoch_count_in_cycle = 1;
-  }
-
-  ulong epoch_offset = epoch - base_epoch;
-  ulong epoch_index_in_cycle = epoch_offset % epoch_count_in_cycle;
-  return off + ( epoch_index_in_cycle * slot_count_per_epoch );
-}
-
-static void
-fd_runtime_update_rent_epoch_account( fd_funk_t *     funk,
-                                      fd_funk_txn_t * funk_txn,
-                                      fd_pubkey_t *    pubkey ) {
-  FD_TXN_ACCOUNT_DECL( rec );
-  int err = fd_txn_account_init_from_funk_readonly( rec, pubkey, funk, funk_txn );
-
-  /* If the account has been deleted, skip it */
-  if( err==FD_ACC_MGR_ERR_UNKNOWN_ACCOUNT ) {
-    return;
-  }
-  if( FD_UNLIKELY( err != FD_ACC_MGR_SUCCESS ) ) {
-    FD_LOG_WARNING(( "fd_runtime_update_rent_epoch: fd_txn_account_init_from_funk_readonly failed (%d)", err ));
-    return;
-  }
-
-  /* If the account's rent epoch is correct, don't update it */
-  if( rec->vt->get_rent_epoch( rec ) == FD_RENT_EXEMPT_RENT_EPOCH ) {
-    return;
-  }
-
-  /* Otherwise, update the rent epoch field */
-  err = fd_txn_account_init_from_funk_mutable( rec, pubkey, funk, funk_txn, 0, 0UL );
-  if( FD_UNLIKELY( err!=FD_ACC_MGR_SUCCESS ) ) {
-    FD_LOG_WARNING(( "fd_runtime_update_rent_epoch: fd_txn_account_init_from_funk_mutable failed (%d)", err ));
-    return;
-  }
-  rec->vt->set_rent_epoch( rec, FD_RENT_EXEMPT_RENT_EPOCH );
-
-  fd_txn_account_mutable_fini( rec, funk, funk_txn );
-}
-
-/* Emulate collecting rent from accounts. Since every account is rent exempt, all we have to do
-   is set all rent_epoch fields to ULONG_MAX. By induction, we only need to do this for newly created accounts.
-
-   The slight complication is that we need to do this at the appropiate time - taking into account
-   the rent partition the account would have fallen into.
-
-   This code is super hacky, but will be removed soon when disable_partitioned_rent_collection is activated.
-   After that, we will not update any rent_epoch fields.
-
-   https://github.com/anza-xyz/agave/blob/v2.1.14/runtime/src/bank.rs#L2921 */
-static void
-fd_runtime_update_rent_epoch( fd_bank_t *     bank,
-                              fd_funk_t *     funk,
-                              fd_funk_txn_t * funk_txn ) {
-  if( FD_FEATURE_ACTIVE_BANK( bank, disable_partitioned_rent_collection ) ) {
-    return;
-  }
-
-  fd_rent_fresh_accounts_global_t * rent_fresh_accounts = fd_bank_rent_fresh_accounts_locking_modify( bank );
-  fd_rent_fresh_account_t *         fresh_accounts      = fd_rent_fresh_accounts_fresh_accounts_join( rent_fresh_accounts );
-
-  /* Common case: do nothing if we have no rent fresh accounts */
-  if( FD_LIKELY( rent_fresh_accounts->total_count == 0UL ) ) {
-    fd_bank_rent_fresh_accounts_end_locking_modify( bank );
-    return;
-  }
-
-  ulong prev_slot = fd_bank_prev_slot_get( bank );
-  ulong slot0     = ( prev_slot == 0 ) ? 0 : prev_slot + 1;   /* Accomodate skipped slots */
-  ulong slot1     = bank->slot;
-
-  for( ulong s = slot0; s <= slot1; ++s ) {
-
-    ulong partition = fd_runtime_get_rent_partition( bank, s );
-
-    /* Iterate over each rent fresh account, updating rent_epoch if it is in this slots partition */
-    for( ulong i = 0UL; i < rent_fresh_accounts->fresh_accounts_len; i++ ) {
-      fd_rent_fresh_account_t * rent_fresh_account = &fresh_accounts[ i ];
-      if( FD_UNLIKELY( ( rent_fresh_account->present == 1UL ) && rent_fresh_account->partition == partition ) ) {
-
-        /* Update the rent epoch value for this account */
-        fd_runtime_update_rent_epoch_account( funk, funk_txn, &rent_fresh_account->pubkey );
-
-        /* Remove the account from the list */
-        rent_fresh_account->present = 0UL;
-        rent_fresh_accounts->total_count--;
-      }
-    }
-  }
-  fd_bank_rent_fresh_accounts_end_locking_modify( bank );
-}
-
 static void
 fd_runtime_freeze( fd_exec_slot_ctx_t * slot_ctx, fd_spad_t * runtime_spad ) {
-
-  fd_runtime_update_rent_epoch( slot_ctx->bank, slot_ctx->funk, slot_ctx->funk_txn );
 
   fd_sysvar_recent_hashes_update( slot_ctx, runtime_spad );
 
@@ -3199,7 +3039,6 @@ fd_runtime_init_bank_from_genesis( fd_exec_slot_ctx_t *        slot_ctx,
   fd_acc_lamports_t capitalization = 0UL;
 
   fd_features_t * features = fd_bank_features_modify( slot_ctx->bank );
-  FD_FEATURE_SET_ACTIVE(features, disable_partitioned_rent_collection, 0);
   FD_FEATURE_SET_ACTIVE(features, accounts_lt_hash, 0);
   FD_FEATURE_SET_ACTIVE(features, remove_accounts_delta_hash, 0);
 
@@ -3417,24 +3256,6 @@ fd_runtime_process_genesis_block( fd_exec_slot_ctx_t * slot_ctx,
   fd_sysvar_slot_history_update( slot_ctx, runtime_spad );
 
   fd_runtime_update_leaders( slot_ctx->bank, 0, runtime_spad );
-
-  if( !FD_FEATURE_ACTIVE_BANK( slot_ctx->bank, disable_partitioned_rent_collection ) ) {
-    fd_funk_t *     funk = slot_ctx->funk;
-    fd_funk_txn_t * txn  = slot_ctx->funk_txn;
-
-    /* Add all the genesis accounts into the rent fresh list */
-    for( fd_funk_rec_t const * rec = fd_funk_txn_first_rec( funk, txn );
-         NULL != rec;
-         rec = fd_funk_txn_next_rec( funk, rec ) ) {
-
-      if( !fd_funk_key_is_acc( rec->pair.key  ) ) {
-        continue;
-      }
-
-      fd_funk_rec_key_t const * pubkey = rec->pair.key;
-      fd_runtime_register_new_fresh_account( (fd_pubkey_t * const ) fd_type_pun_const(&pubkey->uc[0]), slot_ctx->bank );
-    }
-  }
 
   fd_runtime_freeze( slot_ctx, runtime_spad );
 
