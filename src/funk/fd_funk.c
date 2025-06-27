@@ -208,6 +208,7 @@ fd_funk_purify( void * shfunk ) {
   /* Reset the txn map. We discard any pending transactions. */
   fd_funk_txn_map_reset( funk->txn_map );
   fd_funk_txn_pool_reset( funk->txn_pool, 0 );
+  funk->shmem->child_head_cidx = funk->shmem->child_tail_cidx = fd_funk_txn_cidx( FD_FUNK_TXN_IDX_NULL );
 
   return fd_funk_rec_purify( funk );
 }

@@ -705,6 +705,9 @@ fd_funk_all_iter_ele( fd_funk_all_iter_t * iter ) {
 
 int
 fd_funk_rec_purify( fd_funk_t * funk ) {
+  uint rec_used_cnt = 0;
+  uint rec_free_cnt = 0;
+
   fd_funk_rec_map_t *  rec_map  = funk->rec_map;
   fd_funk_rec_pool_t * rec_pool = funk->rec_pool;
   ulong rec_max = fd_funk_rec_pool_ele_max( rec_pool );
@@ -718,13 +721,18 @@ fd_funk_rec_purify( fd_funk_t * funk ) {
     if( fd_funk_rec_pool_is_in_pool( rec ) ||
         (rec->flags & FD_FUNK_REC_FLAG_ERASE) ) {
       fd_funk_rec_pool_release( rec_pool, rec, 1 );
+      rec_free_cnt++;
       continue;
     }
     if( !fd_funk_txn_xid_eq_root( rec->pair.xid ) ) {
       fd_funk_val_flush( rec, funk->alloc, funk->wksp );
       fd_funk_rec_pool_release( rec_pool, rec, 1 );
+      rec_free_cnt++;
       continue;
     }
+    rec_used_cnt++;
+
+    fd_funk_rec_map_insert( rec_map, rec, FD_MAP_FLAG_BLOCKING );
 
     rec->prev_idx = prev_idx;
     if( prev_idx != FD_FUNK_REC_IDX_NULL ) {
@@ -741,6 +749,8 @@ fd_funk_rec_purify( fd_funk_t * funk ) {
   } else {
     funk->shmem->rec_head_idx = FD_FUNK_REC_IDX_NULL;
   }
+
+  FD_LOG_NOTICE(( "funk records used after purify: %u, free: %u", rec_used_cnt, rec_free_cnt ));
 
   return FD_FUNK_SUCCESS;
 }
