@@ -253,6 +253,18 @@ privileged_init( fd_topo_t *      topo,
     FD_LOG_ERR(( "setsockopt(SOL_SOCKET,SO_SNDBUF,%i) failed (%i-%s)", tile->sock.so_sndbuf, errno, fd_io_strerror( errno ) ));
   }
 
+  uint multicast_ip = fd_uint_bswap( (uint)((239 << 24) + (0 << 16) + (192 << 8) + 18) );
+  struct ip_mreq mreq;
+  mreq.imr_multiaddr.s_addr = multicast_ip;
+  mreq.imr_interface.s_addr = tile->sock.net.default_address;
+  if( FD_UNLIKELY( 0!=setsockopt(tx_sock, IPPROTO_IP, IP_MULTICAST_IF, &mreq.imr_interface, sizeof(mreq.imr_interface)) ) ) {
+    FD_LOG_ERR(( "setsockopt(tx_sock, IPPROTO_IP, IP_MULTICAST_IF) failed (%i-%s)", errno, fd_io_strerror( errno ) ));
+  }
+  int loop = 0;
+  if( FD_UNLIKELY( 0!=setsockopt(tx_sock, IPPROTO_IP, IP_MULTICAST_LOOP, &loop, sizeof(loop)) ) ) {
+    FD_LOG_ERR(( "setsockopt(tx_sock, IPPROTO_IP, IP_MULTICAST_LOOP) failed (%i-%s)", errno, fd_io_strerror( errno ) ));
+  }
+
   ctx->tx_sock      = tx_sock;
   ctx->bind_address = tile->sock.net.bind_address;
 
@@ -575,7 +587,7 @@ during_frag( fd_sock_tile_t * ctx,
   struct mmsghdr *     msg  = ctx->batch_msg + batch_idx;
   struct sockaddr_in * sa   = ctx->batch_sa  + batch_idx;
   struct iovec   *     iov  = ctx->batch_iov + batch_idx;
-  struct cmsghdr *     cmsg = (void *)( (ulong)ctx->batch_cmsg + batch_idx*FD_SOCK_CMSG_MAX );
+  // struct cmsghdr *     cmsg = (void *)( (ulong)ctx->batch_cmsg + batch_idx*FD_SOCK_CMSG_MAX );
   uchar *              buf  = ctx->tx_ptr;
 
   *iov = (struct iovec) {
@@ -586,22 +598,25 @@ during_frag( fd_sock_tile_t * ctx,
   sa->sin_addr.s_addr = FD_LOAD( uint, ip_hdr->daddr_c );
   sa->sin_port        = 0; /* ignored */
 
-  cmsg->cmsg_level = IPPROTO_IP;
-  cmsg->cmsg_type  = IP_PKTINFO;
-  cmsg->cmsg_len   = CMSG_LEN( sizeof(struct in_pktinfo) );
-  struct in_pktinfo * pi = (struct in_pktinfo *)CMSG_DATA( cmsg );
-  pi->ipi_ifindex         = 0;
-  pi->ipi_addr.s_addr     = 0;
-  pi->ipi_spec_dst.s_addr = fd_uint_if( !!ip_hdr->saddr, ip_hdr->saddr, ctx->bind_address );
+  // cmsg->cmsg_level = IPPROTO_IP;
+  // cmsg->cmsg_type  = ip_hdr->daddr_c[0]==239 ? IP_MULTICAST_IF : IP_PKTINFO;
+  // cmsg->cmsg_len   = CMSG_LEN( sizeof(struct in_pktinfo) );
+  // struct in_pktinfo * pi = (struct in_pktinfo *)CMSG_DATA( cmsg );
+  // pi->ipi_ifindex         = 0;
+  // pi->ipi_addr.s_addr     = 0;
+  // pi->ipi_spec_dst.s_addr = fd_uint_if( !!ip_hdr->saddr, ip_hdr->saddr, ctx->bind_address );
 
+  // FD_LOG_WARNING(( "[socket] sending packet is_multicast=%i cmsg_len=%lu", ip_hdr->daddr_c[0]==239, cmsg->cmsg_len ));
   *msg = (struct mmsghdr) {
     .msg_hdr = {
       .msg_name       = sa,
       .msg_namelen    = sizeof(struct sockaddr_in),
       .msg_iov        = iov,
       .msg_iovlen     = 1,
-      .msg_control    = cmsg,
-      .msg_controllen = CMSG_LEN( sizeof(struct in_pktinfo) )
+      // .msg_control    = cmsg,
+      // .msg_controllen = CMSG_LEN( sizeof(struct in_pktinfo) )
+      .msg_control    = NULL,
+      .msg_controllen = 0
     }
   };
 

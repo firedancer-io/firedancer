@@ -15,8 +15,16 @@
 #include "../../flamenco/leaders/fd_leaders.h"
 #include "../../flamenco/runtime/fd_blockstore.h"
 #include "../../util/net/fd_net_headers.h"
+#include "../../waltz/snp/fd_snp_app.h"
 
 #include <linux/unistd.h>
+
+/* Enable extra debug messages */
+#define FD_DEBUG_SHRED_ENABLED (0)
+
+/* Drop shreds on receipt, to easily test repair.
+   This is only for development and should be replaced by actual tests. */
+#define DEV_DROP_SHREDS (0)
 
 /* The shred tile handles shreds from two data sources: shreds
    generated from microblocks from the banking tile, and shreds
@@ -88,11 +96,11 @@
 #define IN_KIND_CONTACT (0UL)
 #define IN_KIND_STAKE   (1UL)
 #define IN_KIND_POH     (2UL)
-#define IN_KIND_NET     (3UL)
+#define IN_KIND_SNP     (3UL)
 #define IN_KIND_SIGN    (4UL)
 #define IN_KIND_REPAIR  (5UL)
 
-#define NET_OUT_IDX     1
+#define SNP_OUT_IDX     1
 #define SIGN_OUT_IDX    2
 
 #define DCACHE_ENTRIES_PER_FEC_SET (4UL)
@@ -127,6 +135,12 @@ FD_STATIC_ASSERT( sizeof(fd_entry_batch_meta_t)==56UL, poh_shred_mtu );
    at runtime the difference by inspecting the topology. The simplest
    way is to test if ctx->blockstore is enabled. */
 #define IS_FIREDANCER ( ctx->blockstore!=NULL )
+
+#if ( FD_DEBUG_SHRED_ENABLED || FD_DEBUG_SNP_ENABLED )
+#define FD_DEBUG_SHRED(...) __VA_ARGS__
+#else
+#define FD_DEBUG_SHRED(...)
+#endif
 
 typedef union {
   struct {
@@ -167,17 +181,12 @@ typedef struct {
 
   ulong poh_in_expect_seq;
 
-  ushort net_id;
-
   int skip_frag;
 
   ulong                    adtl_dests_leader_cnt;
   fd_shred_dest_weighted_t adtl_dests_leader    [ FD_TOPO_ADTL_DESTS_MAX ];
   ulong                    adtl_dests_retransmit_cnt;
   fd_shred_dest_weighted_t adtl_dests_retransmit[ FD_TOPO_ADTL_DESTS_MAX ];
-
-  fd_ip4_udp_hdrs_t data_shred_net_hdr  [1];
-  fd_ip4_udp_hdrs_t parity_shred_net_hdr[1];
 
   fd_wksp_t * shred_store_wksp;
 
@@ -191,6 +200,7 @@ typedef struct {
   /* Includes Ethernet, IP, UDP headers */
   ulong shred_buffer_sz;
   uchar shred_buffer[ FD_NET_MTU ];
+  ulong shred_from_multicast;
 
   fd_shred_in_ctx_t in[ 32 ];
   int               in_kind[ 32 ];
@@ -199,6 +209,7 @@ typedef struct {
   ulong       net_out_chunk0;
   ulong       net_out_wmark;
   ulong       net_out_chunk;
+  ulong       net_out_chunkP;
 
   ulong       store_out_idx;
   fd_wksp_t * store_out_mem;
@@ -245,6 +256,8 @@ typedef struct {
 
   uchar * chained_merkle_root;
   uchar block_ids[ BLOCK_IDS_TABLE_CNT ][ FD_SHRED_MERKLE_ROOT_SZ ];
+  fd_snp_app_t * snp;
+  fd_stem_context_t * stem;
 } fd_shred_ctx_t;
 
 FD_FN_CONST static inline ulong
@@ -259,12 +272,15 @@ scratch_footprint( fd_topo_tile_t const * tile ) {
                                                             128UL * tile->shred.fec_resolver_depth );
   ulong fec_set_cnt = tile->shred.depth + tile->shred.fec_resolver_depth + 4UL;
 
+  fd_snp_app_limits_t limits = { 0 };
+
   ulong l = FD_LAYOUT_INIT;
   l = FD_LAYOUT_APPEND( l, alignof(fd_shred_ctx_t),          sizeof(fd_shred_ctx_t)                  );
   l = FD_LAYOUT_APPEND( l, fd_stake_ci_align(),              fd_stake_ci_footprint()                 );
   l = FD_LAYOUT_APPEND( l, fd_fec_resolver_align(),          fec_resolver_footprint                  );
   l = FD_LAYOUT_APPEND( l, fd_shredder_align(),              fd_shredder_footprint()                 );
   l = FD_LAYOUT_APPEND( l, alignof(fd_fec_set_t),            sizeof(fd_fec_set_t)*fec_set_cnt        );
+  l = FD_LAYOUT_APPEND( l, fd_snp_app_align(),               fd_snp_app_footprint( &limits )         );
   return FD_LAYOUT_FINI( l, scratch_align() );
 }
 
@@ -316,7 +332,6 @@ handle_new_cluster_contact_info( fd_shred_ctx_t * ctx,
 
   ctx->new_dest_ptr = dests;
   ctx->new_dest_cnt = dest_cnt;
-
   for( ulong i=0UL; i<dest_cnt; i++ ) {
     memcpy( dests[i].pubkey.uc, in_dests[i].pubkey, 32UL );
     dests[i].ip4  = in_dests[i].ip4_addr;
@@ -338,9 +353,9 @@ before_frag( fd_shred_ctx_t * ctx,
     ctx->poh_in_expect_seq = seq+1UL;
     return (fd_disco_poh_sig_pkt_type( sig )!=POH_PKT_TYPE_MICROBLOCK) & (fd_disco_poh_sig_pkt_type( sig )!=POH_PKT_TYPE_FEAT_ACT_SLOT);
   }
-  if( FD_LIKELY( ctx->in_kind[ in_idx ]==IN_KIND_NET ) ) {
-    return (fd_disco_netmux_sig_proto( sig )!=DST_PROTO_SHRED) & (fd_disco_netmux_sig_proto( sig )!=DST_PROTO_REPAIR);
-  }
+  // if( FD_LIKELY( ctx->in_kind[ in_idx ]==IN_KIND_NET ) ) {
+  //   return (fd_disco_netmux_sig_proto( sig )!=DST_PROTO_SHRED) && (fd_disco_netmux_sig_proto( sig )!=DST_PROTO_REPAIR);
+  // }
   return 0;
 }
 
@@ -620,40 +635,20 @@ during_frag( fd_shred_ctx_t * ctx,
         ctx->pending_batch.txn_cnt        = microblock->txn_cnt;
       }
     }
-  } else if( FD_UNLIKELY( ctx->in_kind[ in_idx ]==IN_KIND_NET ) ) {
+  } else if( FD_UNLIKELY( ctx->in_kind[ in_idx ]==IN_KIND_SNP ) ) {
     /* The common case, from the net tile.  The FEC resolver API does
        not present a prepare/commit model. If we get overrun between
        when the FEC resolver verifies the signature and when it stores
        the local copy, we could end up storing and retransmitting
        garbage.  Instead we copy it locally, sadly, and only give it to
        the FEC resolver when we know it won't be overrun anymore. */
-    uchar const * dcache_entry = fd_net_rx_translate_frag( &ctx->in[ in_idx ].net_rx, chunk, ctl, sz );
-    ulong hdr_sz = fd_disco_netmux_sig_hdr_sz( sig );
-    FD_TEST( hdr_sz <= sz ); /* Should be ensured by the net tile */
-    fd_shred_t const * shred = fd_shred_parse( dcache_entry+hdr_sz, sz-hdr_sz );
-    if( FD_UNLIKELY( !shred ) ) {
-      ctx->skip_frag = 1;
-      return;
-    };
+    if( FD_UNLIKELY( chunk<ctx->in[ in_idx ].chunk0 || chunk>ctx->in[ in_idx ].wmark || sz>FD_NET_MTU ) )
+      FD_LOG_ERR(( "chunk %lu %lu corrupt, not in range [%lu,%lu]", chunk, sz, ctx->in[ in_idx ].chunk0, ctx->in[ in_idx ].wmark ));
+    uchar const * dcache_entry = (uchar const *)fd_chunk_to_laddr_const( ctx->in[ in_idx ].mem, chunk ) + ctl;
 
-    /* Drop unchained merkle shreds (if feature is active) */
-    int is_unchained = !fd_shred_is_chained( fd_shred_type( shred->variant ) );
-    if( FD_UNLIKELY( is_unchained && shred->slot >= ctx->features_activation->drop_unchained_merkle_shreds ) ) {
-      ctx->metrics->shred_rejected_unchained_cnt++;
-      ctx->skip_frag = 1;
-      return;
-    };
-
-    /* all shreds in the same FEC set will have the same signature
-       so we can round-robin shreds between the shred tiles based on
-       just the signature without splitting individual FEC sets. */
-    ulong sig = fd_ulong_load_8( shred->signature );
-    if( FD_LIKELY( sig%ctx->round_robin_cnt!=ctx->round_robin_id ) ) {
-      ctx->skip_frag = 1;
-      return;
-    }
-    fd_memcpy( ctx->shred_buffer, dcache_entry+hdr_sz, sz-hdr_sz );
-    ctx->shred_buffer_sz = sz-hdr_sz;
+    FD_DEBUG_SHRED( FD_LOG_NOTICE(( "[shred] received from snp %lu meta=%016lx, parsing", sz, sig )) );
+    fd_snp_meta_t meta = (fd_snp_meta_t)sig;
+    fd_snp_app_recv( ctx->snp, dcache_entry, sz, meta );
   }
 }
 
@@ -662,60 +657,102 @@ send_shred( fd_shred_ctx_t                 * ctx,
             fd_stem_context_t              * stem,
             fd_shred_t const               * shred,
             fd_shred_dest_weighted_t const * dest,
-            ulong                            tsorig ) {
-
+            ulong                            reuse_prev_pkt ) {
   if( FD_UNLIKELY( !dest->ip4 ) ) return;
 
-  uchar * packet = fd_chunk_to_laddr( ctx->net_out_mem, ctx->net_out_chunk );
-
   int is_data = fd_shred_is_data( fd_shred_type( shred->variant ) );
-  fd_ip4_udp_hdrs_t * hdr  = (fd_ip4_udp_hdrs_t *)packet;
-  *hdr = *( is_data ? ctx->data_shred_net_hdr : ctx->parity_shred_net_hdr );
-
-  fd_ip4_hdr_t * ip4 = hdr->ip4;
-  ip4->daddr  = dest->ip4;
-  ip4->net_id = fd_ushort_bswap( ctx->net_id++ );
-  ip4->check  = 0U;
-  ip4->check  = fd_ip4_hdr_check_fast( ip4 );
-
-  hdr->udp->net_dport = fd_ushort_bswap( dest->port );
-
   ulong shred_sz = fd_ulong_if( is_data, FD_SHRED_MIN_SZ, FD_SHRED_MAX_SZ );
-#if FD_HAS_AVX
-  /* We're going to copy this shred potentially a bunch of times without
-     reading it again, and we'd rather not thrash our cache, so we want
-     to use non-temporal writes here.  We need to make sure we don't
-     touch the cache line containing the network headers that we just
-     wrote to though.  We know the destination is 64 byte aligned.  */
-  FD_STATIC_ASSERT( sizeof(*hdr)<64UL, non_temporal );
-  /* src[0:sizeof(hdrs)] is invalid, but now we want to copy
-     dest[i]=src[i] for i>=sizeof(hdrs), so it simplifies the code. */
-  uchar const * src = (uchar const *)((ulong)shred - sizeof(fd_ip4_udp_hdrs_t));
-  memcpy( packet+sizeof(fd_ip4_udp_hdrs_t), src+sizeof(fd_ip4_udp_hdrs_t), 64UL-sizeof(fd_ip4_udp_hdrs_t) );
 
-  ulong end_offset = shred_sz + sizeof(fd_ip4_udp_hdrs_t);
-  ulong i;
-  for( i=64UL; end_offset-i<64UL; i+=64UL ) {
-#  if FD_HAS_AVX512
-    _mm512_stream_si512( (void *)(packet+i     ), _mm512_loadu_si512( (void const *)(src+i     ) ) );
-#  else
-    _mm256_stream_si256( (void *)(packet+i     ), _mm256_loadu_si256( (void const *)(src+i     ) ) );
-    _mm256_stream_si256( (void *)(packet+i+32UL), _mm256_loadu_si256( (void const *)(src+i+32UL) ) );
-#  endif
+  uchar * packet = NULL;
+  if( FD_UNLIKELY( !reuse_prev_pkt ) ) packet = fd_chunk_to_laddr( ctx->net_out_mem, ctx->net_out_chunk );
+  fd_snp_meta_t meta = fd_snp_meta_from_parts( FD_SNP_META_PROTO_V1, /* app_id */ 0, dest->ip4, dest->port );
+  if( reuse_prev_pkt ) {
+    meta |= FD_SNP_META_OPT_BROADCAST;
   }
-  _mm_sfence();
-  fd_memcpy( packet+i, src+i, end_offset-i ); /* Copy the last partial cache line */
+  if( shred->slot%10==0 && shred->fec_set_idx==0 && shred->idx==0 ) {
+    FD_LOG_NOTICE(( "[shred] sending shred %lu:%u:%u to=%08x meta=%016lx", shred->slot, shred->fec_set_idx, shred->idx, dest->ip4, meta ));
+  }
+  ctx->stem = stem;
+  FD_DEBUG_SHRED(FD_LOG_NOTICE(( "[shred] sending shred %lu:%u:%u", shred->slot, shred->fec_set_idx, shred->idx )) );
+  FD_PARAM_UNUSED int res = fd_snp_app_send( ctx->snp, packet, FD_NET_MTU, shred, shred_sz, meta );
+  FD_DEBUG_SHRED( if( res<0 ) FD_LOG_WARNING(( "[shred] send error: %d", res )) );
+}
 
-#else
-  fd_memcpy( packet+sizeof(fd_ip4_udp_hdrs_t), shred, shred_sz );
-#endif
+static int
+snp_callback_tx( void const *  _ctx,
+                 uchar *       packet,
+                 ulong         packet_sz,
+                 fd_snp_meta_t meta ) {
+  // TODO: convert back packet -> ctx->net_out_chunk. The conversion is implicit right now.
 
-  ulong pkt_sz = shred_sz + sizeof(fd_ip4_udp_hdrs_t);
+  fd_shred_ctx_t * ctx = (fd_shred_ctx_t *)_ctx;
   ulong tspub  = fd_frag_meta_ts_comp( fd_tickcount() );
-  ulong sig    = fd_disco_netmux_sig( dest->ip4, dest->port, dest->ip4, DST_PROTO_OUTGOING, sizeof(fd_ip4_udp_hdrs_t) );
-  ulong const chunk = ctx->net_out_chunk;
-  fd_stem_publish( stem, NET_OUT_IDX, sig, chunk, pkt_sz, 0UL, tsorig, tspub );
-  ctx->net_out_chunk = fd_dcache_compact_next( chunk, pkt_sz, ctx->net_out_chunk0, ctx->net_out_wmark );
+  ulong sig = (ulong)meta;
+
+  if( FD_LIKELY( packet!=NULL ) ) {
+    ctx->net_out_chunkP = ctx->net_out_chunk;
+    ctx->net_out_chunk  = fd_dcache_compact_next( ctx->net_out_chunk, packet_sz, ctx->net_out_chunk0, ctx->net_out_wmark );
+  }
+  fd_stem_publish( ctx->stem, SNP_OUT_IDX, sig, ctx->net_out_chunkP, packet_sz, 0UL, ctx->tsorig, tspub );
+
+  FD_DEBUG_SHRED( FD_LOG_NOTICE(( "[shred] publish to snp %lu", packet_sz )) );
+
+  return FD_SNP_SUCCESS;
+}
+
+static int
+snp_callback_rx( void const *  _ctx,
+                 fd_snp_peer_t peer,
+                 uchar const * data,
+                 ulong         data_sz,
+                 fd_snp_meta_t meta ) {
+  (void)peer;
+  (void)meta;
+  FD_DEBUG_SHRED( FD_LOG_NOTICE(( "[shred] snp_callback_rx data_sz=%lu meta=%016lx", data_sz, meta )) );
+
+  fd_shred_ctx_t * ctx = (fd_shred_ctx_t *)_ctx;
+  fd_shred_t const * shred = fd_shred_parse( data, (ulong)data_sz );
+  if( FD_UNLIKELY( !shred ) ) {
+    ctx->skip_frag = 1;
+    return FD_SNP_SUCCESS;
+  };
+
+  /* Drop unchained merkle shreds (if feature is active) */
+  int is_unchained = !fd_shred_is_chained( fd_shred_type( shred->variant ) );
+  if( FD_UNLIKELY( is_unchained && shred->slot >= ctx->features_activation->drop_unchained_merkle_shreds ) ) {
+    ctx->metrics->shred_rejected_unchained_cnt++;
+    ctx->skip_frag = 1;
+    return FD_SNP_SUCCESS;
+  };
+
+  /* all shreds in the same FEC set will have the same signature
+     so we can round-robin shreds between the shred tiles based on
+     just the signature without splitting individual FEC sets. */
+  ulong sig = fd_ulong_load_8( shred->signature );
+  if( FD_LIKELY( sig%ctx->round_robin_cnt!=ctx->round_robin_id ) ) {
+    ctx->skip_frag = 1;
+    return FD_SNP_SUCCESS;
+  }
+
+  if( DEV_DROP_SHREDS ) {
+    uchar app_id;
+    fd_snp_meta_into_parts( NULL, &app_id, NULL, NULL, meta );
+    if( app_id==0 && shred->slot%2==0 && ( fd_shred_is_data( fd_shred_type( shred->variant ) ) || shred->idx==0 ) ) {
+      FD_LOG_WARNING(( "[shred] shred SKIPPED (should trigger repair) %lu:%u:%u", shred->slot, shred->fec_set_idx, shred->idx ));
+      return FD_SNP_SUCCESS;
+    }
+  }
+
+  fd_memcpy( ctx->shred_buffer, data, data_sz );
+  ctx->shred_buffer_sz = data_sz;
+  ctx->shred_from_multicast = meta & FD_SNP_META_OPT_BROADCAST;
+
+  if( shred->slot%10==0 && shred->fec_set_idx==0 && shred->idx==0 ) {
+    FD_LOG_NOTICE(( "[shred] shred received %lu:%u:%u", shred->slot, shred->fec_set_idx, shred->idx ));
+  }
+
+  FD_DEBUG_SHRED( FD_LOG_NOTICE(( "[shred] shred received %lu:%u:%u", shred->slot, shred->fec_set_idx, shred->idx )) );
+  return FD_SNP_SUCCESS;
 }
 
 static void
@@ -802,7 +839,7 @@ after_frag( fd_shred_ctx_t *    ctx,
   ulong fanout = 200UL; /* Default Agave's DATA_PLANE_FANOUT = 200UL */
 
   fd_bmtree_node_t out_merkle_root;
-  if( FD_LIKELY( ctx->in_kind[ in_idx ]==IN_KIND_NET ) ) {
+  if( FD_LIKELY( ctx->in_kind[ in_idx ]==IN_KIND_SNP ) ) {
     uchar * shred_buffer    = ctx->shred_buffer;
     ulong   shred_buffer_sz = ctx->shred_buffer_sz;
 
@@ -872,8 +909,8 @@ after_frag( fd_shred_ctx_t *    ctx,
           fd_shred_dest_idx_t * dests = fd_shred_dest_compute_children( sdest, &shred, 1UL, ctx->scratchpad_dests, 1UL, fanout, fanout, max_dest_cnt );
           if( FD_UNLIKELY( !dests ) ) break;
 
-          for( ulong i=0UL; i<ctx->adtl_dests_retransmit_cnt; i++ ) send_shred( ctx, stem, *out_shred, ctx->adtl_dests_retransmit+i, ctx->tsorig );
-          for( ulong j=0UL; j<*max_dest_cnt; j++ ) send_shred( ctx, stem, *out_shred, fd_shred_dest_idx_to_dest( sdest, dests[ j ] ), ctx->tsorig );
+          for( ulong i=0UL; i<ctx->adtl_dests_retransmit_cnt; i++ ) send_shred( ctx, stem, *out_shred, ctx->adtl_dests_retransmit+i, fd_ulong_if( !i, ctx->shred_from_multicast, 1UL )/*reuse_prev_pkt*/ );
+          for( ulong j=0UL; j<*max_dest_cnt; j++ ) send_shred( ctx, stem, *out_shred, fd_shred_dest_idx_to_dest( sdest, dests[ j ] ), fd_ulong_if( !j, ctx->shred_from_multicast, 1UL )/*reuse_prev_pkt*/ );
         } while( 0 );
       }
 
@@ -982,8 +1019,7 @@ after_frag( fd_shred_ctx_t *    ctx,
     } else if( FD_UNLIKELY( ctx->store_out_idx != ULONG_MAX ) ) { /* frankendancer-only */
 
       /* Send to the blockstore, skipping any empty shred34_t s. */
-
-      ulong new_sig = ctx->in_kind[ in_idx ]!=IN_KIND_NET; /* sig==0 means the store tile will do extra checks */
+      ulong new_sig = ctx->in_kind[ in_idx ]!=IN_KIND_SNP; /* sig==0 means the store tile will do extra checks */
       ulong tspub = fd_frag_meta_ts_comp( fd_tickcount() );
       fd_stem_publish( stem, 0UL, new_sig, fd_laddr_to_chunk( ctx->store_out_mem, s34+0UL ), sz0, 0UL, ctx->tsorig, tspub );
       if( FD_UNLIKELY( s34[ 1 ].shred_cnt ) )
@@ -1010,9 +1046,9 @@ after_frag( fd_shred_ctx_t *    ctx,
     ulong out_stride;
     ulong max_dest_cnt[1];
     fd_shred_dest_idx_t * dests;
-    if( FD_LIKELY( ctx->in_kind[ in_idx ]==IN_KIND_NET ) ) {
+    if( FD_LIKELY( ctx->in_kind[ in_idx ]==IN_KIND_SNP ) ) {
       for( ulong i=0UL; i<k; i++ ) {
-        for( ulong j=0UL; j<ctx->adtl_dests_retransmit_cnt; j++ ) send_shred( ctx, stem, new_shreds[ i ], ctx->adtl_dests_retransmit+j, ctx->tsorig );
+        for( ulong j=0UL; j<ctx->adtl_dests_retransmit_cnt; j++ ) send_shred( ctx, stem, new_shreds[ i ], ctx->adtl_dests_retransmit+j, fd_ulong_if( !j, ctx->shred_from_multicast, 1UL )/*reuse_prev_pkt*/ );
       }
       out_stride = k;
       /* In the case of feature activation, the fanout used below is
@@ -1031,7 +1067,7 @@ after_frag( fd_shred_ctx_t *    ctx,
 
     /* Send only the ones we didn't receive. */
     for( ulong i=0UL; i<k; i++ ) {
-      for( ulong j=0UL; j<*max_dest_cnt; j++ ) send_shred( ctx, stem, new_shreds[ i ], fd_shred_dest_idx_to_dest( sdest, dests[ j*out_stride+i ]), ctx->tsorig );
+      for( ulong j=0UL; j<*max_dest_cnt; j++ ) send_shred( ctx, stem, new_shreds[ i ], fd_shred_dest_idx_to_dest( sdest, dests[ j*out_stride+i ]), fd_ulong_if( !j, 0UL, 1UL )/*reuse_prev_pkt*/ );
     }
   }
 }
@@ -1062,7 +1098,7 @@ static void
 unprivileged_init( fd_topo_t *      topo,
                    fd_topo_tile_t * tile ) {
 
-  FD_TEST( 0==strcmp( topo->links[tile->out_link_id[ NET_OUT_IDX   ]].name, "shred_net"   ) );
+  FD_TEST( 0==strcmp( topo->links[tile->out_link_id[ SNP_OUT_IDX   ]].name, "shred_snp"   ) );
   FD_TEST( 0==strcmp( topo->links[tile->out_link_id[ SIGN_OUT_IDX  ]].name, "shred_sign"  ) );
 
   if( FD_UNLIKELY( !tile->out_cnt ) )
@@ -1123,10 +1159,18 @@ unprivileged_init( fd_topo_t *      topo,
   if( FD_UNLIKELY( !tile->shred.fec_resolver_depth ) ) FD_LOG_ERR(( "fec_resolver_depth not set" ));
   if( FD_UNLIKELY( !tile->shred.shred_listen_port  ) ) FD_LOG_ERR(( "shred_listen_port not set" ));
 
-  void * _stake_ci = FD_SCRATCH_ALLOC_APPEND( l, fd_stake_ci_align(),              fd_stake_ci_footprint()            );
-  void * _resolver = FD_SCRATCH_ALLOC_APPEND( l, fd_fec_resolver_align(),          fec_resolver_footprint             );
-  void * _shredder = FD_SCRATCH_ALLOC_APPEND( l, fd_shredder_align(),              fd_shredder_footprint()            );
-  void * _fec_sets = FD_SCRATCH_ALLOC_APPEND( l, alignof(fd_fec_set_t),            sizeof(fd_fec_set_t)*fec_set_cnt   );
+  fd_snp_app_limits_t limits = { 0 };
+
+  void * _stake_ci = FD_SCRATCH_ALLOC_APPEND( l, fd_stake_ci_align(),     fd_stake_ci_footprint()          );
+  void * _resolver = FD_SCRATCH_ALLOC_APPEND( l, fd_fec_resolver_align(), fec_resolver_footprint           );
+  void * _shredder = FD_SCRATCH_ALLOC_APPEND( l, fd_shredder_align(),     fd_shredder_footprint()          );
+  void * _fec_sets = FD_SCRATCH_ALLOC_APPEND( l, alignof(fd_fec_set_t),   sizeof(fd_fec_set_t)*fec_set_cnt );
+  void * _snp      = FD_SCRATCH_ALLOC_APPEND( l, fd_snp_app_align(),      fd_snp_app_footprint( &limits )  );
+
+  fd_snp_app_t * snp = fd_snp_app_join( fd_snp_app_new( _snp, &limits ) );
+  snp->cb.ctx = ctx;
+  snp->cb.rx = snp_callback_rx;
+  snp->cb.tx = snp_callback_tx;
 
   fd_fec_set_t * fec_sets = (fd_fec_set_t *)_fec_sets;
   fd_shred34_t * shred34  = (fd_shred34_t *)fec_sets_shmem;
@@ -1164,7 +1208,7 @@ unprivileged_init( fd_topo_t *      topo,
   }
 
   if( FD_UNLIKELY( expected_shred_version > USHORT_MAX ) ) FD_LOG_ERR(( "invalid shred version %lu", expected_shred_version ));
-  FD_LOG_INFO(( "Using shred version %hu", (ushort)expected_shred_version ));
+  FD_LOG_NOTICE(( "Using shred version %hu", (ushort)expected_shred_version ));
 
   ctx->keyswitch = fd_keyswitch_join( fd_topo_obj_laddr( topo, tile->keyswitch_obj_id ) );
   FD_TEST( ctx->keyswitch );
@@ -1193,13 +1237,9 @@ unprivileged_init( fd_topo_t *      topo,
 
   ctx->shred34  = shred34;
   ctx->fec_sets = fec_sets;
+  ctx->snp      = snp;
 
   ctx->stake_ci = fd_stake_ci_join( fd_stake_ci_new( _stake_ci, ctx->identity_key ) );
-
-  ctx->net_id   = (ushort)0;
-
-  fd_ip4_udp_hdr_init( ctx->data_shred_net_hdr,   FD_SHRED_MIN_SZ, 0, tile->shred.shred_listen_port );
-  fd_ip4_udp_hdr_init( ctx->parity_shred_net_hdr, FD_SHRED_MAX_SZ, 0, tile->shred.shred_listen_port );
 
   ctx->adtl_dests_retransmit_cnt = tile->shred.adtl_dests_retransmit_cnt;
   for( ulong i=0UL; i<ctx->adtl_dests_retransmit_cnt; i++) {
@@ -1216,13 +1256,11 @@ unprivileged_init( fd_topo_t *      topo,
     fd_topo_link_t const * link = &topo->links[ tile->in_link_id[ i ] ];
     fd_topo_wksp_t const * link_wksp = &topo->workspaces[ topo->objs[ link->dcache_obj_id ].wksp_id ];
 
-    if( FD_LIKELY(      !strcmp( link->name, "net_shred"    ) ) ) { ctx->in_kind[ i ] = IN_KIND_NET;
-      fd_net_rx_bounds_init( &ctx->in[ i ].net_rx, link->dcache );
-      continue; /* only net_rx needs to be set in this case. */ }
-    else if( FD_LIKELY( !strcmp( link->name, "poh_shred"    ) ) ) ctx->in_kind[ i ] = IN_KIND_POH;
-    else if( FD_LIKELY( !strcmp( link->name, "stake_out"    ) ) ) ctx->in_kind[ i ] = IN_KIND_STAKE;
-    else if( FD_LIKELY( !strcmp( link->name, "crds_shred"   ) ) ) ctx->in_kind[ i ] = IN_KIND_CONTACT;
-    else if( FD_LIKELY( !strcmp( link->name, "sign_shred"   ) ) ) ctx->in_kind[ i ] = IN_KIND_SIGN;
+    if( FD_LIKELY(      !strcmp( link->name, "snp_shred"   ) ) ) ctx->in_kind[ i ] = IN_KIND_SNP;
+    else if( FD_LIKELY( !strcmp( link->name, "poh_shred"   ) ) ) ctx->in_kind[ i ] = IN_KIND_POH;
+    else if( FD_LIKELY( !strcmp( link->name, "stake_out"   ) ) ) ctx->in_kind[ i ] = IN_KIND_STAKE;
+    else if( FD_LIKELY( !strcmp( link->name, "crds_shred"  ) ) ) ctx->in_kind[ i ] = IN_KIND_CONTACT;
+    else if( FD_LIKELY( !strcmp( link->name, "sign_shred"  ) ) ) ctx->in_kind[ i ] = IN_KIND_SIGN;
     else if( FD_LIKELY( !strcmp( link->name, "repair_shred" ) ) ) ctx->in_kind[ i ] = IN_KIND_REPAIR;
     else FD_LOG_ERR(( "shred tile has unexpected input link %lu %s", i, link->name ));
 
@@ -1231,12 +1269,13 @@ unprivileged_init( fd_topo_t *      topo,
     ctx->in[ i ].wmark  = fd_dcache_compact_wmark ( ctx->in[ i ].mem, link->dcache, link->mtu );
   }
 
-  fd_topo_link_t * net_out = &topo->links[ tile->out_link_id[ NET_OUT_IDX ] ];
+  fd_topo_link_t * net_out = &topo->links[ tile->out_link_id[ SNP_OUT_IDX ] ];
 
   ctx->net_out_chunk0 = fd_dcache_compact_chunk0( fd_wksp_containing( net_out->dcache ), net_out->dcache );
   ctx->net_out_mem    = topo->workspaces[ topo->objs[ net_out->dcache_obj_id ].wksp_id ].wksp;
   ctx->net_out_wmark  = fd_dcache_compact_wmark ( ctx->net_out_mem, net_out->dcache, net_out->mtu );
   ctx->net_out_chunk  = ctx->net_out_chunk0;
+  ctx->net_out_chunkP = ctx->net_out_chunk0;
 
   ctx->blockstore = NULL;
   ulong blockstore_obj_id = fd_pod_queryf_ulong( topo->props, ULONG_MAX, "blockstore" );
