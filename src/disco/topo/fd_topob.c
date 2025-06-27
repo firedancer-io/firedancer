@@ -104,6 +104,17 @@ fd_topob_link( fd_topo_t *  topo,
   return link;
 }
 
+fd_topo_obj_t *
+fd_topob_link_set_dcache( fd_topo_t *     topo,
+                         fd_topo_link_t * link,
+                         char const *     wksp_name,
+                         ulong            dcache_sz ) {
+  fd_topo_obj_t * obj = fd_topob_obj( topo, "dcache", wksp_name );
+  link->dcache_obj_id = obj->id;
+  fd_pod_insertf_ulong( topo->props, dcache_sz, "obj.%lu.data_sz", obj->id );
+  return obj;
+}
+
 void
 fd_topob_tile_uses( fd_topo_t *      topo,
                     fd_topo_tile_t * tile,
@@ -326,7 +337,7 @@ validate( fd_topo_t const * topo ) {
   for( ulong i=0UL; i<topo->link_cnt; i++ ) {
     ulong cnt = fd_topo_link_consumer_cnt( topo, &topo->links[ i ] );
     if( FD_UNLIKELY( cnt < 1UL && !topo->links[ i ].permit_no_consumers ) ) {
-      FD_LOG_ERR(( "link %lu (%s:%lu) has 0 consumers", i, topo->links[ i ].name, topo->links[ i ].kind_id ));
+      FD_LOG_WARNING(( "link %lu (%s:%lu) has 0 consumers", i, topo->links[ i ].name, topo->links[ i ].kind_id ));
     }
   }
 }
