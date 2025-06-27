@@ -137,13 +137,55 @@ send_manifest( fd_snapshot_parser_t * parser,
                           0UL,
                           0UL );
 
-  // fd_solana_manifest_streaming_decode( parser->buf, parser->buf_sz, NULL, snapshot_manifest_mem );
+  fd_snapshot_manifest_t * manifest_mem_streaming = fd_type_pun( fd_frag_writer_prepare( ctx->manifest_writer ) );
 
-  // FD_LOG_WARNING(("manifest ancestors len is %lu", manifest->bank.ancestors_len ));
-  // FD_LOG_WARNING(("manifest hard forks len is %lu", manifest->bank.hard_forks.hard_forks_len ));
-  // FD_LOG_WARNING(("manifest parent slot is %lu", manifest->bank.parent_slot ));
-  // FD_LOG_WARNING(("manifest bank hash is %s", FD_BASE58_ENC_32_ALLOCA( manifest->bank.hash.hash ) ));
-  // FD_LOG_WARNING(("manifest parent bank hash is %s", FD_BASE58_ENC_32_ALLOCA( manifest->bank.parent_hash.hash ) ));
+  fd_solana_manifest_streaming_decode( parser->buf, parser->buf_sz, NULL, manifest_mem_streaming );
+
+  FD_LOG_WARNING(("manifest bank slot is %lu, streaming slot is %lu",
+                  manifest->bank.slot, manifest_mem_streaming->slot ));
+  FD_LOG_WARNING(("manifest ticks per slot is %lu, streaming ticks per slot is %lu",
+                  manifest->bank.ticks_per_slot, manifest_mem_streaming->ticks_per_slot ));
+  FD_TEST( manifest->bank.ticks_per_slot == manifest_mem_streaming->ticks_per_slot );
+  FD_TEST( manifest->bank.slot == manifest_mem_streaming->slot );
+  FD_TEST( memcmp( &manifest->bank.hash, &manifest_mem_streaming->bank_hash, sizeof(fd_hash_t) ) == 0 );
+  FD_TEST( memcmp( &manifest->bank.parent_hash, &manifest_mem_streaming->parent_bank_hash, sizeof(fd_hash_t) ) == 0 );
+  FD_TEST( manifest->bank.parent_slot == manifest_mem_streaming->parent_slot );
+  FD_TEST( manifest->bank.block_height == manifest_mem_streaming->block_height );
+
+  /* fee rate governor */
+  FD_TEST( manifest->bank.fee_rate_governor.target_lamports_per_signature == manifest_mem_streaming->fee_rate_governor.target_lamports_per_signature );
+  FD_TEST( manifest->bank.fee_rate_governor.target_signatures_per_slot == manifest_mem_streaming->fee_rate_governor.target_signatures_per_slot );
+  FD_TEST( manifest->bank.fee_rate_governor.min_lamports_per_signature == manifest_mem_streaming->fee_rate_governor.min_lamports_per_signature );
+  FD_TEST( manifest->bank.fee_rate_governor.max_lamports_per_signature == manifest_mem_streaming->fee_rate_governor.max_lamports_per_signature );
+  FD_TEST( manifest->bank.fee_rate_governor.burn_percent == manifest_mem_streaming->fee_rate_governor.burn_percent );
+
+  /* epoch schedule */
+  FD_TEST( manifest->bank.epoch_schedule.slots_per_epoch == manifest_mem_streaming->epoch_schedule_params.slots_per_epoch );
+  FD_TEST( manifest->bank.epoch_schedule.leader_schedule_slot_offset == manifest_mem_streaming->epoch_schedule_params.leader_schedule_slot_offset );
+  FD_TEST( manifest->bank.epoch_schedule.warmup == manifest_mem_streaming->epoch_schedule_params.warmup );
+
+  /* inflation test */
+  FD_TEST( manifest->bank.inflation.initial == manifest_mem_streaming->inflation_params.initial );
+  FD_TEST( manifest->bank.inflation.terminal == manifest_mem_streaming->inflation_params.terminal );
+  FD_TEST( manifest->bank.inflation.taper == manifest_mem_streaming->inflation_params.taper );
+  FD_TEST( manifest->bank.inflation.foundation == manifest_mem_streaming->inflation_params.foundation );
+  FD_TEST( manifest->bank.inflation.foundation_term == manifest_mem_streaming->inflation_params.foundation_term );
+
+  /* vote accounts */
+  FD_LOG_WARNING(("manifest vote accounts len is %lu, streaming vote accounts len is %lu",
+    fd_vote_accounts_pair_t_map_size( manifest->bank.stakes.vote_accounts.vote_accounts_pool, 
+      manifest->bank.stakes.vote_accounts.vote_accounts_root ),
+                  manifest_mem_streaming->vote_accounts_len ));
+  FD_TEST( fd_vote_accounts_pair_t_map_size( manifest->bank.stakes.vote_accounts.vote_accounts_pool, 
+                                             manifest->bank.stakes.vote_accounts.vote_accounts_root ) == manifest_mem_streaming->vote_accounts_len );
+  for( ulong i=0UL; i<manifest_mem_streaming->vote_accounts_len; i++ ) {
+    FD_TEST( memcmp( snapshot_manifest_mem->vote_accounts[i].vote_account_pubkey, 
+      manifest_mem_streaming->vote_accounts[i].vote_account_pubkey,
+      sizeof(fd_pubkey_t) ) == 0 );
+    FD_TEST( snapshot_manifest_mem->vote_accounts[i].commission == manifest_mem_streaming->vote_accounts[i].commission );
+  }
+
+
 }
 
 static int
