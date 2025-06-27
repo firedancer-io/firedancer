@@ -540,7 +540,9 @@ fd_runtime_block_execute_finalize_para( fd_bank_t *                      bank,
    for various transaction sanitization checks. */
 
 int
-fd_runtime_prepare_txns_start( fd_exec_slot_ctx_t *         slot_ctx,
+fd_runtime_prepare_txns_start( fd_bank_t *                  bank,
+                               fd_funk_t *                  funk,
+                               fd_funk_txn_t *              funk_txn,
                                fd_execute_txn_task_info_t * task_info,
                                fd_txn_p_t *                 txns,
                                ulong                        txn_cnt,
@@ -566,15 +568,17 @@ fd_runtime_process_txns( fd_exec_slot_ctx_t * slot_ctx,
    all transactions are conflict-free. */
 
 int
-fd_runtime_process_txns_in_microblock_stream( fd_exec_slot_ctx_t * slot_ctx,
-                                              fd_capture_ctx_t *   capture_ctx,
-                                              fd_txn_p_t *         all_txns,
-                                              ulong                total_txn_cnt,
-                                              fd_tpool_t *         tpool,
-                                              fd_spad_t * *        exec_spads,
-                                              ulong                exec_spad_cnt,
-                                              fd_spad_t *          runtime_spad,
-                                              fd_cost_tracker_t *  cost_tracker_opt );
+fd_runtime_process_txns_in_microblock_stream( fd_bank_t *         bank,
+                                              fd_funk_t *         funk,
+                                              fd_funk_txn_t *     funk_txn,
+                                              fd_capture_ctx_t *  capture_ctx,
+                                              fd_txn_p_t *        all_txns,
+                                              ulong               total_txn_cnt,
+                                              fd_tpool_t *        tpool,
+                                              fd_spad_t * *       exec_spads,
+                                              ulong               exec_spad_cnt,
+                                              fd_spad_t *         runtime_spad,
+                                              fd_cost_tracker_t * cost_tracker_opt );
 
 void
 fd_runtime_finalize_txn( fd_funk_t *                  funk,

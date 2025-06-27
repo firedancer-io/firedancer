@@ -2479,25 +2479,27 @@ fd_bpf_loader_program_execute( fd_exec_instr_ctx_t * ctx ) {
 /* Public APIs */
 
 int
-fd_directly_invoke_loader_v3_deploy( fd_exec_slot_ctx_t * slot_ctx,
-                                     uchar const *        elf,
-                                     ulong                elf_sz,
-                                     fd_spad_t *          runtime_spad ) {
+fd_directly_invoke_loader_v3_deploy( fd_bank_t *     bank,
+                                     fd_funk_t *     funk,
+                                     fd_funk_txn_t * funk_txn,
+                                     uchar const *   elf,
+                                     ulong           elf_sz,
+                                     fd_spad_t *     runtime_spad ) {
   /* Set up a dummy instr and txn context */
-  fd_exec_txn_ctx_t * txn_ctx            = fd_exec_txn_ctx_join( fd_exec_txn_ctx_new( fd_spad_alloc( runtime_spad, FD_EXEC_TXN_CTX_ALIGN, FD_EXEC_TXN_CTX_FOOTPRINT ) ), runtime_spad, fd_wksp_containing( runtime_spad ) );
-  fd_funk_t *         funk               = slot_ctx->funk;
-  fd_wksp_t *         funk_wksp          = fd_funk_wksp( funk );
-  fd_wksp_t *         runtime_wksp       = fd_wksp_containing( slot_ctx );
-  ulong               funk_txn_gaddr     = fd_wksp_gaddr( funk_wksp, slot_ctx->funk_txn );
-  ulong               funk_gaddr         = fd_wksp_gaddr( funk_wksp, funk->shmem );
+  fd_exec_txn_ctx_t * txn_ctx        = fd_exec_txn_ctx_join( fd_exec_txn_ctx_new( fd_spad_alloc( runtime_spad, FD_EXEC_TXN_CTX_ALIGN, FD_EXEC_TXN_CTX_FOOTPRINT ) ), runtime_spad, fd_wksp_containing( runtime_spad ) );
+  fd_wksp_t *         funk_wksp      = fd_funk_wksp( funk );
+  fd_wksp_t *         runtime_wksp   = fd_wksp_containing( runtime_spad );
+  ulong               funk_txn_gaddr = fd_wksp_gaddr( funk_wksp, funk_txn );
+  ulong               funk_gaddr     = fd_wksp_gaddr( funk_wksp, funk->shmem );
 
-  fd_exec_txn_ctx_from_exec_slot_ctx( slot_ctx,
-                                      txn_ctx,
-                                      funk_wksp,
-                                      runtime_wksp,
-                                      funk_txn_gaddr,
-                                      funk_gaddr,
-                                      NULL );
+  fd_exec_txn_ctx_from_exec_slot_ctx(
+      bank,
+      txn_ctx,
+      funk_wksp,
+      runtime_wksp,
+      funk_txn_gaddr,
+      funk_gaddr,
+      NULL );
 
   fd_exec_txn_ctx_setup_basic( txn_ctx );
   txn_ctx->instr_stack_sz = 1;

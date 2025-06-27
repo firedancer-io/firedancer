@@ -445,9 +445,9 @@ typedef struct fd_banks fd_banks_t;
   type const * fd_bank_##name##_query( fd_bank_t * bank ); \
   type * fd_bank_##name##_modify( fd_bank_t * bank );
 
-#define X(type, name, footprint, align, cow, has_lock) \
-  void fd_bank_##name##_set( fd_bank_t * bank, type value );       \
-  type fd_bank_##name##_get( fd_bank_t * bank );                   \
+#define X(type, name, footprint, align, cow, has_lock)       \
+  void fd_bank_##name##_set( fd_bank_t * bank, type value ); \
+  type fd_bank_##name##_get( fd_bank_t const * bank );       \
   HAS_LOCK_##has_lock(type, name)
 FD_BANKS_ITER(X)
 #undef X

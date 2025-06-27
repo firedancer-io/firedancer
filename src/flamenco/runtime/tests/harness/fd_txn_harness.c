@@ -286,7 +286,7 @@ fd_runtime_fuzz_txn_ctx_exec( fd_runtime_fuzz_runner_t * runner,
   tpool->worker_cnt = 1;
   tpool->worker_max = 1;
 
-  fd_runtime_prepare_txns_start( slot_ctx, task_info, txn, 1UL, runner->spad );
+  fd_runtime_prepare_txns_start( slot_ctx->bank, slot_ctx->funk, slot_ctx->funk_txn, task_info, txn, 1UL, runner->spad );
 
   /* Setup the spad for account allocation */
   task_info->txn_ctx->spad      = runner->spad;
