@@ -23,8 +23,8 @@
    account data for the recent blockhashes sysvar. */
 
 static void
-encode_rbh_from_blockhash_queue( fd_exec_slot_ctx_t * slot_ctx, uchar * enc ) {
-  fd_block_hash_queue_global_t const * bhq = fd_bank_block_hash_queue_query( slot_ctx->bank );
+encode_rbh_from_blockhash_queue( fd_bank_t * bank, uchar * enc ) {
+  fd_block_hash_queue_global_t const * bhq = fd_bank_block_hash_queue_query( bank );
 
   fd_hash_hash_age_pair_t_mapnode_t * ages_pool = fd_block_hash_queue_ages_pool_join( bhq );
   fd_hash_hash_age_pair_t_mapnode_t * ages_root = fd_block_hash_queue_ages_root_join( bhq );
@@ -55,29 +55,31 @@ encode_rbh_from_blockhash_queue( fd_exec_slot_ctx_t * slot_ctx, uchar * enc ) {
 
 // https://github.com/solana-labs/solana/blob/8f2c8b8388a495d2728909e30460aa40dcc5d733/sdk/program/src/fee_calculator.rs#L110
 void
-fd_sysvar_recent_hashes_init( fd_exec_slot_ctx_t * slot_ctx,
-                              fd_spad_t *          runtime_spad ) {
+fd_sysvar_recent_hashes_init( fd_bank_t *     bank,
+                              fd_funk_t *     funk,
+                              fd_funk_txn_t * funk_txn,
+                              fd_spad_t *     runtime_spad ) {
 
   FD_SPAD_FRAME_BEGIN( runtime_spad ) {
 
-  if( slot_ctx->slot != 0 ) {
+  if( bank->slot != 0 ) {
     return;
   }
 
   ulong   sz  = FD_RECENT_BLOCKHASHES_ACCOUNT_MAX_SIZE;
   uchar * enc = fd_spad_alloc( runtime_spad, FD_SPAD_ALIGN, sz );
   fd_memset( enc, 0, sz );
-  encode_rbh_from_blockhash_queue( slot_ctx, enc );
-  fd_sysvar_set( slot_ctx->bank, slot_ctx->funk, slot_ctx->funk_txn, &fd_sysvar_owner_id, &fd_sysvar_recent_block_hashes_id, enc, sz, slot_ctx->slot );
+  encode_rbh_from_blockhash_queue( bank, enc );
+  fd_sysvar_set( bank, funk, funk_txn, &fd_sysvar_owner_id, &fd_sysvar_recent_block_hashes_id, enc, sz, bank->slot );
 
   } FD_SPAD_FRAME_END;
 }
 
 // https://github.com/anza-xyz/agave/blob/e8750ba574d9ac7b72e944bc1227dc7372e3a490/accounts-db/src/blockhash_queue.rs#L113
 static void
-register_blockhash( fd_exec_slot_ctx_t * slot_ctx, fd_hash_t const * hash ) {
+register_blockhash( fd_bank_t * bank, fd_hash_t const * hash ) {
 
-  fd_block_hash_queue_global_t *      bhq       = fd_bank_block_hash_queue_modify( slot_ctx->bank );
+  fd_block_hash_queue_global_t *      bhq       = fd_bank_block_hash_queue_modify( bank );
   fd_hash_hash_age_pair_t_mapnode_t * ages_pool = fd_block_hash_queue_ages_pool_join( bhq );
   fd_hash_hash_age_pair_t_mapnode_t * ages_root = fd_block_hash_queue_ages_root_join( bhq );
   bhq->last_hash_index++;
@@ -97,9 +99,12 @@ register_blockhash( fd_exec_slot_ctx_t * slot_ctx, fd_hash_t const * hash ) {
   }
 
   fd_hash_hash_age_pair_t_mapnode_t * node = fd_hash_hash_age_pair_t_map_acquire( ages_pool );
-  node->elem = (fd_hash_hash_age_pair_t){
+  node->elem = (fd_hash_hash_age_pair_t) {
     .key = *hash,
-    .val = (fd_hash_age_t){ .hash_index = bhq->last_hash_index, .fee_calculator = (fd_fee_calculator_t){ .lamports_per_signature = fd_bank_lamports_per_signature_get( slot_ctx->bank ) }, .timestamp = (ulong)fd_log_wallclock() }
+    .val = (fd_hash_age_t){ .hash_index = bhq->last_hash_index,
+        .fee_calculator = (fd_fee_calculator_t) {
+            .lamports_per_signature = fd_bank_lamports_per_signature_get( bank ) },
+            .timestamp              = (ulong)fd_log_wallclock() }
   };
   // https://github.com/anza-xyz/agave/blob/e8750ba574d9ac7b72e944bc1227dc7372e3a490/accounts-db/src/blockhash_queue.rs#L121-L128
   fd_hash_hash_age_pair_t_map_insert( ages_pool, &ages_root, node );
@@ -117,11 +122,14 @@ register_blockhash( fd_exec_slot_ctx_t * slot_ctx, fd_hash_t const * hash ) {
    3. Manually serialize the recent blockhashes
    4. Set the sysvar account with the new data */
 void
-fd_sysvar_recent_hashes_update( fd_exec_slot_ctx_t * slot_ctx, fd_spad_t * runtime_spad ) {
+fd_sysvar_recent_hashes_update( fd_bank_t *     bank,
+                                fd_funk_t *     funk,
+                                fd_funk_txn_t * funk_txn,
+                                fd_spad_t *     runtime_spad ) {
   FD_SPAD_FRAME_BEGIN( runtime_spad ) {
   /* Update the blockhash queue */
 
-  register_blockhash( slot_ctx, fd_bank_poh_query( slot_ctx->bank ) );
+  register_blockhash( bank, fd_bank_poh_query( bank ) );
 
   /* Derive the new sysvar recent blockhashes from the blockhash queue */
   ulong   sz        = FD_RECENT_BLOCKHASHES_ACCOUNT_MAX_SIZE;
@@ -130,17 +138,17 @@ fd_sysvar_recent_hashes_update( fd_exec_slot_ctx_t * slot_ctx, fd_spad_t * runti
   fd_memset( enc, 0, sz );
 
   /* Encode the recent blockhashes */
-  encode_rbh_from_blockhash_queue( slot_ctx, enc );
+  encode_rbh_from_blockhash_queue( bank, enc );
 
   /* Set the sysvar from the encoded data */
-  fd_sysvar_set( slot_ctx->bank,
-                 slot_ctx->funk,
-                 slot_ctx->funk_txn,
+  fd_sysvar_set( bank,
+                 funk,
+                 funk_txn,
                  &fd_sysvar_owner_id,
                  &fd_sysvar_recent_block_hashes_id,
                  enc_start,
                  sz,
-                 slot_ctx->slot );
+                 bank->slot );
   } FD_SPAD_FRAME_END;
 }
 

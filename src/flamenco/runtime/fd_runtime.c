@@ -464,19 +464,22 @@ fd_runtime_update_rent_epoch( fd_bank_t *     bank,
 }
 
 static void
-fd_runtime_freeze( fd_exec_slot_ctx_t * slot_ctx, fd_spad_t * runtime_spad ) {
+fd_runtime_freeze( fd_bank_t *     bank,
+                   fd_funk_t *     funk,
+                   fd_funk_txn_t * funk_txn,
+                   fd_spad_t *     runtime_spad ) {
 
-  fd_runtime_update_rent_epoch( slot_ctx->bank, slot_ctx->funk, slot_ctx->funk_txn );
+  fd_runtime_update_rent_epoch( bank, funk, funk_txn );
 
-  fd_sysvar_recent_hashes_update( slot_ctx, runtime_spad );
+  fd_sysvar_recent_hashes_update( bank, funk, funk_txn, runtime_spad );
 
   ulong fees = 0UL;
   ulong burn = 0UL;
 
-  ulong execution_fees = fd_bank_execution_fees_get( slot_ctx->bank );
-  ulong priority_fees  = fd_bank_priority_fees_get( slot_ctx->bank );
+  ulong execution_fees = fd_bank_execution_fees_get( bank );
+  ulong priority_fees  = fd_bank_priority_fees_get( bank );
 
-  if( FD_FEATURE_ACTIVE_BANK( slot_ctx->bank, reward_full_priority_fee ) ) {
+  if( FD_FEATURE_ACTIVE_BANK( bank, reward_full_priority_fee ) ) {
     ulong half_fee = execution_fees / 2;
     fees = fd_ulong_sat_add( priority_fees, execution_fees - half_fee );
     burn = half_fee;
@@ -494,30 +497,30 @@ fd_runtime_freeze( fd_exec_slot_ctx_t * slot_ctx, fd_spad_t * runtime_spad ) {
       /* do_create=1 because we might wanna pay fees to a leader
          account that we've purged due to 0 balance. */
 
-      fd_epoch_leaders_t const * leaders = fd_bank_epoch_leaders_locking_query( slot_ctx->bank );
+      fd_epoch_leaders_t const * leaders = fd_bank_epoch_leaders_locking_query( bank );
       if( FD_UNLIKELY( !leaders ) ) {
         FD_LOG_WARNING(( "fd_runtime_freeze: leaders not found" ));
         break;
       }
 
-      fd_pubkey_t const * leader = fd_epoch_leaders_get( leaders, slot_ctx->slot );
+      fd_pubkey_t const * leader = fd_epoch_leaders_get( leaders, bank->slot );
       if( FD_UNLIKELY( !leader ) ) {
         FD_LOG_WARNING(( "fd_runtime_freeze: leader not found" ));
         break;
       }
 
-      int err = fd_txn_account_init_from_funk_mutable( rec, leader, slot_ctx->funk, slot_ctx->funk_txn, 1, 0UL );
+      int err = fd_txn_account_init_from_funk_mutable( rec, leader, funk, funk_txn, 1, 0UL );
       if( FD_UNLIKELY( err ) ) {
         FD_LOG_WARNING(("fd_runtime_freeze: fd_txn_account_init_from_funk_mutable for leader (%s) failed (%d)", FD_BASE58_ENC_32_ALLOCA( leader ), err));
         burn = fd_ulong_sat_add( burn, fees );
         break;
       }
 
-      fd_bank_epoch_leaders_end_locking_query( slot_ctx->bank );
+      fd_bank_epoch_leaders_end_locking_query( bank );
 
-      if ( FD_LIKELY( FD_FEATURE_ACTIVE_BANK( slot_ctx->bank, validate_fee_collector_account ) ) ) {
+      if ( FD_LIKELY( FD_FEATURE_ACTIVE_BANK( bank, validate_fee_collector_account ) ) ) {
         ulong _burn;
-        if( FD_UNLIKELY( _burn=fd_runtime_validate_fee_collector( slot_ctx->bank, rec, fees ) ) ) {
+        if( FD_UNLIKELY( _burn=fd_runtime_validate_fee_collector( bank, rec, fees ) ) ) {
           if( FD_UNLIKELY( _burn!=fees ) ) {
             FD_LOG_ERR(( "expected _burn(%lu)==fees(%lu)", _burn, fees ));
           }
@@ -529,22 +532,22 @@ fd_runtime_freeze( fd_exec_slot_ctx_t * slot_ctx, fd_spad_t * runtime_spad ) {
 
       /* TODO: is it ok to not check the overflow error here? */
       rec->vt->checked_add_lamports( rec, fees );
-      rec->vt->set_slot( rec, slot_ctx->slot );
+      rec->vt->set_slot( rec, bank->slot );
 
-      fd_txn_account_mutable_fini( rec, slot_ctx->funk, slot_ctx->funk_txn );
+      fd_txn_account_mutable_fini( rec, funk, funk_txn );
 
     } while(0);
 
-    ulong old = fd_bank_capitalization_get( slot_ctx->bank );
-    fd_bank_capitalization_set( slot_ctx->bank, fd_ulong_sat_sub( old, burn ) );
-    FD_LOG_DEBUG(( "fd_runtime_freeze: burn %lu, capitalization %lu->%lu ", burn, old, fd_bank_capitalization_get( slot_ctx->bank ) ));
+    ulong old = fd_bank_capitalization_get( bank );
+    fd_bank_capitalization_set( bank, fd_ulong_sat_sub( old, burn ) );
+    FD_LOG_DEBUG(( "fd_runtime_freeze: burn %lu, capitalization %lu->%lu ", burn, old, fd_bank_capitalization_get( bank ) ));
 
-    fd_bank_execution_fees_set( slot_ctx->bank, 0UL );
+    fd_bank_execution_fees_set( bank, 0UL );
 
-    fd_bank_priority_fees_set( slot_ctx->bank, 0UL );
+    fd_bank_priority_fees_set( bank, 0UL );
   }
 
-  fd_runtime_run_incinerator( slot_ctx->bank, slot_ctx->funk, slot_ctx->funk_txn );
+  fd_runtime_run_incinerator( bank, funk, funk_txn );
 
 }
 
@@ -1326,7 +1329,7 @@ fd_runtime_block_execute_finalize_start( fd_exec_slot_ctx_t *             slot_c
   fd_sysvar_slot_history_update( slot_ctx, runtime_spad );
 
   /* This slot is now "frozen" and can't be changed anymore. */
-  fd_runtime_freeze( slot_ctx, runtime_spad );
+  fd_runtime_freeze( slot_ctx->bank, slot_ctx->funk, slot_ctx->funk_txn, runtime_spad );
 
   int result = fd_bpf_scan_and_create_bpf_program_cache_entry( slot_ctx, runtime_spad );
   if( FD_UNLIKELY( result ) ) {
@@ -3111,7 +3114,7 @@ fd_runtime_block_collect_txns( fd_runtime_block_info_t const * block_info,
 static void
 fd_runtime_init_program( fd_exec_slot_ctx_t * slot_ctx,
                          fd_spad_t *          runtime_spad ) {
-  fd_sysvar_recent_hashes_init( slot_ctx, runtime_spad );
+  fd_sysvar_recent_hashes_init( slot_ctx->bank, slot_ctx->funk, slot_ctx->funk_txn, runtime_spad );
   fd_sysvar_clock_init( slot_ctx->bank, slot_ctx->funk, slot_ctx->funk_txn );
   fd_sysvar_slot_history_init( slot_ctx, runtime_spad );
   fd_sysvar_slot_hashes_init( slot_ctx, runtime_spad );
@@ -3436,7 +3439,7 @@ fd_runtime_process_genesis_block( fd_exec_slot_ctx_t * slot_ctx,
     }
   }
 
-  fd_runtime_freeze( slot_ctx, runtime_spad );
+  fd_runtime_freeze( slot_ctx->bank, slot_ctx->funk, slot_ctx->funk_txn, runtime_spad );
 
   /* sort and update bank hash */
   fd_hash_t * bank_hash = fd_bank_bank_hash_modify( slot_ctx->bank );

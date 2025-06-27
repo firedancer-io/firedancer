@@ -447,7 +447,7 @@ fd_runtime_fuzz_block_ctx_create( fd_runtime_fuzz_runner_t *           runner,
     fd_block_block_hash_entry_t blockhash_entry;
     memcpy( &blockhash_entry.blockhash, test_ctx->blockhash_queue[i]->bytes, sizeof(fd_hash_t) );
     fd_bank_poh_set( slot_ctx->bank, blockhash_entry.blockhash );
-    fd_sysvar_recent_hashes_update( slot_ctx, runner->spad );
+    fd_sysvar_recent_hashes_update( slot_ctx->bank, slot_ctx->funk, slot_ctx->funk_txn, runner->spad );
   }
 
   // Set the current poh from the input (we skip POH verification in this fuzzing target)
