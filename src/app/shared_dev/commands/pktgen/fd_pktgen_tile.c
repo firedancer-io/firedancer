@@ -73,7 +73,7 @@ before_credit( fd_pktgen_tile_ctx_t * ctx,
   ulong   tag   = ctx->tag;
 
   fd_eth_hdr_t eth = {
-    .net_type = FD_ETH_HDR_TYPE_IP
+    .net_type = fd_ushort_bswap( FD_ETH_HDR_TYPE_IP )
   };
   fd_ip4_hdr_t ip4 = {
     .verihl = FD_IP4_VERIHL( 4, 5 ),
@@ -96,7 +96,7 @@ before_credit( fd_pktgen_tile_ctx_t * ctx,
   memcpy( frame+42, "hi", 2 );
 
   ulong sz = 64;
-  FD_STORE( ulong, frame+sizeof(fd_eth_hdr_t), tag );
+  // FD_STORE( ulong, frame+sizeof(fd_eth_hdr_t), tag );
   fd_stem_publish( stem, 0UL, sig, chunk, sz, 0UL, 0UL, 0UL );
 
   /* Wind up for next iteration */
