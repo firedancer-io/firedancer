@@ -433,85 +433,6 @@ fd_runtime_get_rent_due( fd_epoch_schedule_t const * schedule,
   return (long)fd_rust_cast_double_to_ulong(years_elapsed * (double)lamports_per_year);
 }
 
-/* https://github.com/anza-xyz/agave/blob/v2.0.10/sdk/src/rent_collector.rs#L117-149 */
-/* Collect rent from an account. Returns the amount of rent collected. */
-static ulong
-fd_runtime_collect_from_existing_account( ulong                       slot,
-                                          fd_epoch_schedule_t const * schedule,
-                                          fd_rent_t const *           rent,
-                                          double                      slots_per_year,
-                                          fd_txn_account_t *          acc,
-                                          ulong                       epoch ) {
-  ulong collected_rent = 0UL;
-  #define NO_RENT_COLLECTION_NOW (-1)
-  #define EXEMPT                 (-2)
-  #define COLLECT_RENT           (-3)
-
-  /* An account must be hashed regardless of if rent is collected from it. */
-  acc->vt->set_slot( acc, slot );
-
-  /* Inlining calculate_rent_result
-     https://github.com/anza-xyz/agave/blob/v2.0.10/sdk/src/rent_collector.rs#L153-184 */
-  int calculate_rent_result = COLLECT_RENT;
-
-  /* RentResult::NoRentCollectionNow */
-  if( FD_LIKELY( acc->vt->get_rent_epoch( acc )==FD_RENT_EXEMPT_RENT_EPOCH || acc->vt->get_rent_epoch( acc )>epoch ) ) {
-    calculate_rent_result = NO_RENT_COLLECTION_NOW;
-    goto rent_calculation;
-  }
-  /* RentResult::Exempt */
-  /* Inlining should_collect_rent() */
-  int should_collect_rent = !( acc->vt->is_executable( acc ) ||
-                               !memcmp( acc->pubkey, &fd_sysvar_incinerator_id, sizeof(fd_pubkey_t) ) );
-  if( !should_collect_rent ) {
-    calculate_rent_result = EXEMPT;
-    goto rent_calculation;
-  }
-
-  /* https://github.com/anza-xyz/agave/blob/v2.0.10/sdk/src/rent_collector.rs#L167-180 */
-  long rent_due = fd_runtime_get_rent_due( schedule,
-                                           rent,
-                                           slots_per_year,
-                                           acc,
-                                           epoch );
-  if( rent_due==FD_RENT_EXEMPT ) {
-    calculate_rent_result = EXEMPT;
-  } else if( rent_due==0L ) {
-    calculate_rent_result = NO_RENT_COLLECTION_NOW;
-  } else {
-    calculate_rent_result = COLLECT_RENT;
-  }
-
-  rent_calculation:
-  switch( calculate_rent_result ) {
-    case EXEMPT:
-      acc->vt->set_rent_epoch( acc, FD_RENT_EXEMPT_RENT_EPOCH );
-      break;
-    case NO_RENT_COLLECTION_NOW:
-      break;
-    case COLLECT_RENT:
-      if( FD_UNLIKELY( (ulong)rent_due>=acc->vt->get_lamports( acc ) ) ) {
-        /* Reclaim account */
-        collected_rent += (ulong)acc->vt->get_lamports( acc );
-        acc->vt->set_lamports( acc, 0UL );
-        acc->vt->set_data_len( acc, 0UL );
-        acc->vt->clear_owner( acc );
-      } else {
-        collected_rent += (ulong)rent_due;
-        /* It's ok to not check the overflow error because
-           the rent_due value will always be less than the account's lamports here */
-        acc->vt->checked_sub_lamports( acc, (ulong)rent_due );
-        acc->vt->set_rent_epoch( acc, epoch+1UL );
-      }
-  }
-
-  return collected_rent;
-
-  #undef NO_RENT_COLLECTION_NOW
-  #undef EXEMPT
-  #undef COLLECT_RENT
-}
-
 /* fd_runtime_collect_rent_from_account performs rent collection duties.
    Although the Solana runtime prevents the creation of new accounts
    that are subject to rent, some older accounts are still undergo the
@@ -519,30 +440,19 @@ fd_runtime_collect_from_existing_account( ulong                       slot,
    needed. Returns the amount of rent collected. */
 /* https://github.com/anza-xyz/agave/blob/v2.0.10/svm/src/account_loader.rs#L71-96 */
 ulong
-fd_runtime_collect_rent_from_account( ulong                       slot,
-                                      fd_epoch_schedule_t const * schedule,
+fd_runtime_collect_rent_from_account( fd_epoch_schedule_t const * schedule,
                                       fd_rent_t const *           rent,
                                       double                      slots_per_year,
-                                      fd_features_t *             features,
                                       fd_txn_account_t *          acc,
                                       ulong                       epoch ) {
 
-  if( !FD_FEATURE_ACTIVE( slot, features, disable_rent_fees_collection ) ) {
-    return fd_runtime_collect_from_existing_account( slot,
-                                                     schedule,
-                                                     rent,
-                                                     slots_per_year,
-                                                     acc,
-                                                     epoch );
-  } else {
-    if( FD_UNLIKELY( acc->vt->get_rent_epoch( acc )!=FD_RENT_EXEMPT_RENT_EPOCH &&
+  if( FD_UNLIKELY( acc->vt->get_rent_epoch( acc )!=FD_RENT_EXEMPT_RENT_EPOCH &&
                      fd_runtime_get_rent_due( schedule,
                                               rent,
                                               slots_per_year,
                                               acc,
                                               epoch )==FD_RENT_EXEMPT ) ) {
       acc->vt->set_rent_epoch( acc, FD_RENT_EXEMPT_RENT_EPOCH );
-    }
   }
   return 0UL;
 }

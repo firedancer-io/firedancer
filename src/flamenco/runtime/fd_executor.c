@@ -465,11 +465,9 @@ load_transaction_account( fd_exec_txn_ctx_t * txn_ctx,
      https://github.com/anza-xyz/agave/blob/v2.2.0/svm/src/account_loader.rs#L552-L565 */
   if( FD_LIKELY( !unknown_acc ) ) {
     if( is_writable ) {
-      txn_ctx->collected_rent += fd_runtime_collect_rent_from_account( txn_ctx->slot,
-                                                                       fd_bank_epoch_schedule_query( txn_ctx->bank ),
+      txn_ctx->collected_rent += fd_runtime_collect_rent_from_account( fd_bank_epoch_schedule_query( txn_ctx->bank ),
                                                                        fd_bank_rent_query( txn_ctx->bank ),
                                                                        fd_bank_slots_per_year_get( txn_ctx->bank ),
-                                                                       &txn_ctx->features,
                                                                        acct,
                                                                        epoch );
       acct->starting_lamports = acct->vt->get_lamports( acct ); /* TODO: why do we do this everywhere? */
@@ -843,11 +841,9 @@ fd_executor_validate_transaction_fee_payer( fd_exec_txn_ctx_t * txn_ctx ) {
   /* Collect rent from the fee payer
      https://github.com/anza-xyz/agave/blob/v2.2.13/svm/src/transaction_processor.rs#L583-L589 */
   ulong epoch              = fd_slot_to_epoch( fd_bank_epoch_schedule_query( txn_ctx->bank ), txn_ctx->slot, NULL );
-  txn_ctx->collected_rent += fd_runtime_collect_rent_from_account( txn_ctx->slot,
-                                                                  fd_bank_epoch_schedule_query( txn_ctx->bank ),
+  txn_ctx->collected_rent += fd_runtime_collect_rent_from_account( fd_bank_epoch_schedule_query( txn_ctx->bank ),
                                                                   fd_bank_rent_query( txn_ctx->bank ),
                                                                   fd_bank_slots_per_year_get( txn_ctx->bank ),
-                                                                  &txn_ctx->features,
                                                                   fee_payer_rec,
                                                                   epoch );
 
