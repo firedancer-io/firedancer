@@ -1593,7 +1593,9 @@ init_after_snapshot( fd_replay_tile_ctx_t * ctx,
       .para_arg_2 = stem,
     };
 
-    fd_runtime_block_execute_finalize_para( ctx->slot_ctx,
+    fd_runtime_block_execute_finalize_para( ctx->slot_ctx->bank,
+                                            ctx->slot_ctx->funk,
+                                            ctx->slot_ctx->funk_txn,
                                             ctx->capture_ctx,
                                             &info,
                                             ctx->exec_cnt,
@@ -1971,12 +1973,14 @@ after_credit( fd_replay_tile_ctx_t * ctx,
       .para_arg_2 = stem,
     };
 
-    fd_runtime_block_execute_finalize_para( ctx->slot_ctx,
-                                            ctx->capture_ctx,
-                                            runtime_block_info,
-                                            ctx->exec_cnt,
-                                            ctx->runtime_spad,
-                                            &exec_para_ctx_block_finalize );
+    fd_runtime_block_execute_finalize_para( ctx->slot_ctx->bank,
+        ctx->slot_ctx->funk,
+        ctx->slot_ctx->funk_txn,
+        ctx->capture_ctx,
+        runtime_block_info,
+        ctx->exec_cnt,
+        ctx->runtime_spad,
+        &exec_para_ctx_block_finalize );
 
     /* Update blockstore with the freshly computed bank hash */
     fd_block_map_query_t query[1] = { 0 };

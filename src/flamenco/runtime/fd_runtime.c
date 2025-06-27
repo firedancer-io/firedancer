@@ -1358,17 +1358,19 @@ fd_runtime_block_execute_finalize_start( fd_bank_t *                      bank,
 }
 
 int
-fd_runtime_block_execute_finalize_finish( fd_exec_slot_ctx_t *             slot_ctx,
-                                          fd_capture_ctx_t *               capture_ctx,
-                                          fd_runtime_block_info_t const *  block_info,
-                                          fd_spad_t *                      runtime_spad,
-                                          fd_accounts_hash_task_data_t *   task_data,
-                                          ulong                            lt_hash_cnt ) {
+fd_runtime_block_execute_finalize_finish( fd_bank_t *                     bank,
+                                          fd_funk_t *                     funk,
+                                          fd_funk_txn_t *                 funk_txn,
+                                          fd_capture_ctx_t *              capture_ctx,
+                                          fd_runtime_block_info_t const * block_info,
+                                          fd_spad_t *                     runtime_spad,
+                                          fd_accounts_hash_task_data_t *  task_data,
+                                          ulong                           lt_hash_cnt ) {
 
-  fd_hash_t * bank_hash = fd_bank_bank_hash_modify( slot_ctx->bank );
-  int err = fd_update_hash_bank_exec_hash( slot_ctx->bank ,
-      slot_ctx->funk,
-      slot_ctx->funk_txn,
+  fd_hash_t * bank_hash = fd_bank_bank_hash_modify( bank );
+  int err = fd_update_hash_bank_exec_hash( bank,
+      funk,
+      funk_txn,
       bank_hash,
       capture_ctx,
       task_data,
@@ -1420,7 +1422,9 @@ block_finalize_tpool_wrapper( void * para_arg_1,
 }
 
 int
-fd_runtime_block_execute_finalize_para( fd_exec_slot_ctx_t *             slot_ctx,
+fd_runtime_block_execute_finalize_para( fd_bank_t *                      bank,
+                                        fd_funk_t *                      funk,
+                                        fd_funk_txn_t *                  funk_txn,
                                         fd_capture_ctx_t *               capture_ctx,
                                         fd_runtime_block_info_t const *  block_info,
                                         ulong                            worker_cnt,
@@ -1429,19 +1433,24 @@ fd_runtime_block_execute_finalize_para( fd_exec_slot_ctx_t *             slot_ct
 
   fd_accounts_hash_task_data_t * task_data = NULL;
 
-  fd_runtime_block_execute_finalize_start( slot_ctx->bank,
-      slot_ctx->funk,
-      slot_ctx->funk_txn,
+  fd_runtime_block_execute_finalize_start( bank,
+      funk,
+      funk_txn,
       runtime_spad,
       &task_data,
       worker_cnt );
 
   exec_para_ctx->fn_arg_1 = (void*)task_data;
   exec_para_ctx->fn_arg_2 = (void*)worker_cnt;
-  exec_para_ctx->fn_arg_3 = (void*)slot_ctx;
   fd_exec_para_call_func( exec_para_ctx );
 
-  fd_runtime_block_execute_finalize_finish( slot_ctx, capture_ctx, block_info, runtime_spad, task_data, worker_cnt );
+  fd_runtime_block_execute_finalize_finish( bank,
+      funk,
+      funk_txn,
+      capture_ctx,
+      block_info,
+      runtime_spad,
+      task_data, worker_cnt );
 
   return 0;
 }
@@ -3921,7 +3930,9 @@ fd_runtime_block_execute_tpool( fd_exec_slot_ctx_t *            slot_ctx,
     .para_arg_1 = tpool
   };
 
-  res = fd_runtime_block_execute_finalize_para( slot_ctx,
+  res = fd_runtime_block_execute_finalize_para( slot_ctx->bank,
+                                                slot_ctx->funk,
+                                                slot_ctx->funk_txn,
                                                 capture_ctx,
                                                 block_info,
                                                 fd_tpool_worker_cnt( tpool ),

@@ -629,8 +629,9 @@ fd_update_hash_bank_tpool( fd_exec_slot_ctx_t * slot_ctx,
         break;
       }
       ulong end_idx = fd_ulong_sat_sub((worker_idx) * cnt_per_worker, 1UL);
-      if( end_idx >= task_data->info_sz )
-        end_idx = fd_ulong_sat_sub( task_data->info_sz, 1UL );;
+      if( end_idx >= task_data->info_sz ) {
+        end_idx = fd_ulong_sat_sub( task_data->info_sz, 1UL );
+      }
       fd_tpool_exec( tpool, worker_idx, fd_account_hash_task,
         task_data, start_idx, end_idx,
         &lt_hashes[worker_idx], slot_ctx, 0UL,

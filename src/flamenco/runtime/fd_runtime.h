@@ -514,7 +514,9 @@ fd_runtime_block_execute_finalize_start( fd_bank_t *                      bank,
                                          ulong                            lt_hash_cnt );
 
 int
-fd_runtime_block_execute_finalize_finish( fd_exec_slot_ctx_t *             slot_ctx,
+fd_runtime_block_execute_finalize_finish( fd_bank_t *                      bank,
+                                          fd_funk_t *                      funk,
+                                          fd_funk_txn_t *                  funk_txn,
                                           fd_capture_ctx_t *               capture_ctx,
                                           fd_runtime_block_info_t const *  block_info,
                                           fd_spad_t *                      runtime_spad,
@@ -522,7 +524,9 @@ fd_runtime_block_execute_finalize_finish( fd_exec_slot_ctx_t *             slot_
                                           ulong                            lt_hash_cnt );
 
 int
-fd_runtime_block_execute_finalize_para( fd_exec_slot_ctx_t *             slot_ctx,
+fd_runtime_block_execute_finalize_para( fd_bank_t *                      bank,
+                                        fd_funk_t *                      funk,
+                                        fd_funk_txn_t *                  funk_txn,
                                         fd_capture_ctx_t *               capture_ctx,
                                         fd_runtime_block_info_t const *  block_info,
                                         ulong                            worker_cnt,
