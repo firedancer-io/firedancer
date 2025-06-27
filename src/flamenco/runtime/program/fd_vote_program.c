@@ -798,48 +798,38 @@ __attribute__((warn_unused_result)) static int
 set_vote_account_state( fd_borrowed_account_t *     vote_account,
                         fd_vote_state_t *           vote_state,
                         fd_exec_instr_ctx_t const * ctx /* feature_set */ ) {
+  /* This is a horrible conditional expression in Agave.
+      The terms were broken up into their own variables. */
 
-  if( FD_FEATURE_ACTIVE_BANK( ctx->txn_ctx->bank, vote_state_add_vote_latency ) ) {
-    /* This is a horrible conditional expression in Agave.
-       The terms were broken up into their own variables. */
+  ulong vsz = size_of_versioned( 1 );
 
-    ulong vsz = size_of_versioned( 1 );
+  // https://github.com/anza-xyz/agave/blob/v2.0.1/programs/vote/src/vote_state/mod.rs#L175
+  fd_rent_t const * rent               = fd_bank_rent_query( ctx->txn_ctx->bank );
+  int               resize_needed      = fd_borrowed_account_get_data_len( vote_account ) < vsz;
+  int               resize_rent_exempt = fd_rent_exempt_minimum_balance( rent, vsz ) <= fd_borrowed_account_get_lamports( vote_account );
 
-    // https://github.com/anza-xyz/agave/blob/v2.0.1/programs/vote/src/vote_state/mod.rs#L175
-    fd_rent_t const * rent               = fd_bank_rent_query( ctx->txn_ctx->bank );
-    int               resize_needed      = fd_borrowed_account_get_data_len( vote_account ) < vsz;
-    int               resize_rent_exempt = fd_rent_exempt_minimum_balance( rent, vsz ) <= fd_borrowed_account_get_lamports( vote_account );
+  /* The resize operation itself is part of the horrible conditional,
+      but behind a short-circuit operator. */
+  int resize_failed = 0;
+  if( resize_needed && resize_rent_exempt ) {
+    // https://github.com/anza-xyz/agave/blob/v2.0.1/programs/vote/src/vote_state/mod.rs#L179
+    resize_failed =
+      fd_borrowed_account_set_data_length( vote_account, vsz ) != FD_EXECUTOR_INSTR_SUCCESS;
+  }
 
-    /* The resize operation itself is part of the horrible conditional,
-       but behind a short-circuit operator. */
-    int resize_failed = 0;
-    if( resize_needed && resize_rent_exempt ) {
-      // https://github.com/anza-xyz/agave/blob/v2.0.1/programs/vote/src/vote_state/mod.rs#L179
-      resize_failed =
-        fd_borrowed_account_set_data_length( vote_account, vsz ) != FD_EXECUTOR_INSTR_SUCCESS;
-    }
-
-    if( FD_UNLIKELY( resize_needed && ( !resize_rent_exempt || resize_failed ) ) ) {
-      // https://github.com/anza-xyz/agave/blob/v2.0.1/programs/vote/src/vote_state/mod.rs#L184
-      fd_vote_state_versioned_t v1_14_11;
-      fd_vote_state_versioned_new_disc( &v1_14_11, fd_vote_state_versioned_enum_v1_14_11 );
-      from_vote_state_1_14_11( vote_state, &v1_14_11.inner.v1_14_11, ctx->txn_ctx->spad );
-      return set_state( vote_account, &v1_14_11 );
-    }
-
-    // https://github.com/anza-xyz/agave/blob/v2.0.1/programs/vote/src/vote_state/mod.rs#L189
-    // TODO: This is stupid...  optimize this...
-    fd_vote_state_versioned_t new_current = { .discriminant = fd_vote_state_versioned_enum_current,
-                                              .inner        = { .current = *vote_state } };
-    return set_state( vote_account, &new_current );
-  } else {
-    // https://github.com/anza-xyz/agave/blob/v2.0.1/programs/vote/src/vote_state/mod.rs#L192
+  if( FD_UNLIKELY( resize_needed && ( !resize_rent_exempt || resize_failed ) ) ) {
+    // https://github.com/anza-xyz/agave/blob/v2.0.1/programs/vote/src/vote_state/mod.rs#L184
     fd_vote_state_versioned_t v1_14_11;
     fd_vote_state_versioned_new_disc( &v1_14_11, fd_vote_state_versioned_enum_v1_14_11 );
-
     from_vote_state_1_14_11( vote_state, &v1_14_11.inner.v1_14_11, ctx->txn_ctx->spad );
     return set_state( vote_account, &v1_14_11 );
   }
+
+  // https://github.com/anza-xyz/agave/blob/v2.0.1/programs/vote/src/vote_state/mod.rs#L189
+  // TODO: This is stupid...  optimize this...
+  fd_vote_state_versioned_t new_current = { .discriminant = fd_vote_state_versioned_enum_current,
+                                            .inner        = { .current = *vote_state } };
+  return set_state( vote_account, &new_current );
 }
 
 // https://github.com/anza-xyz/agave/blob/v2.0.1/sdk/program/src/vote/state/mod.rs#L727
@@ -1790,7 +1780,7 @@ initialize_account( fd_borrowed_account_t *       vote_account,
 
   // https://github.com/anza-xyz/agave/blob/v2.0.1/programs/vote/src/vote_state/mod.rs#L1067
   ulong data_len = fd_borrowed_account_get_data_len( vote_account );
-  if( FD_UNLIKELY( data_len != size_of_versioned( FD_FEATURE_ACTIVE_BANK( ctx->txn_ctx->bank, vote_state_add_vote_latency ) ) ) ) {
+  if( FD_UNLIKELY( data_len != size_of_versioned( 1 ) ) ) {
     return FD_EXECUTOR_INSTR_ERR_INVALID_ACC_DATA;
   }
 
