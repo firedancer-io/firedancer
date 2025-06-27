@@ -27,6 +27,7 @@ fd_runtime_fuzz_runner_new( void * mem,
   FD_SCRATCH_ALLOC_INIT( l, mem );
   void * runner_mem = FD_SCRATCH_ALLOC_APPEND( l, fd_runtime_fuzz_runner_align(), sizeof(fd_runtime_fuzz_runner_t) );
   void * funk_mem   = FD_SCRATCH_ALLOC_APPEND( l, fd_funk_align(),                fd_funk_footprint( txn_max, rec_max ) );
+  void * banks_mem  = FD_SCRATCH_ALLOC_APPEND( l, fd_banks_align(),               fd_banks_footprint( 1UL ) );
   FD_SCRATCH_ALLOC_FINI( l, fd_runtime_fuzz_runner_align() );
 
   fd_runtime_fuzz_runner_t * runner = runner_mem;
@@ -37,9 +38,15 @@ fd_runtime_fuzz_runner_new( void * mem,
     return NULL;
   }
 
+  fd_banks_t * banks = fd_banks_join( fd_banks_new( banks_mem, 1UL ) );
+
+  fd_bank_t * bank = fd_banks_init_bank( banks, 1UL );
+
   /* Create spad */
   runner->spad = fd_spad_join( fd_spad_new( spad_mem, FD_RUNTIME_TRANSACTION_EXECUTION_FOOTPRINT_FUZZ ) );
   runner->wksp = fd_wksp_containing( runner->spad );
+  runner->bank = bank;
+
   return runner;
 }
 
