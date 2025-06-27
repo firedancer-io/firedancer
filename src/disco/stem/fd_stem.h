@@ -6,6 +6,7 @@
 #include <linux/futex.h>
 
 #define FD_STEM_SCRATCH_ALIGN (128UL)
+#define FD_STEM_SPIN_THRESHOLD (1000000L)
 
 struct fd_stem_context {
    fd_frag_meta_t ** mcaches;

@@ -154,8 +154,8 @@
 #error "STEM_BURST must be defined"
 #endif
 
-#ifndef STEM_TIME_BEFORE_WAIT
-#define STEM_TIME_BEFORE_WAIT (-1L)
+#ifndef STEM_ALWAYS_SPINNING
+#define STEM_ALWAYS_SPINNING 1
 #endif
 
 #ifndef STEM_TIME_BEFORE_WAKE
@@ -220,7 +220,6 @@ STEM_(run1)( ulong                        in_cnt,
              ulong *                      _cons_out,
              ulong **                     _cons_fseq,
              ulong                        burst,
-             long                         time_before_wait,
              long                         time_before_wake,
              long                         lazy,
              fd_rng_t *                   rng,
@@ -235,7 +234,6 @@ STEM_(run1)( ulong                        in_cnt,
 
   // Hack around "unusued parameter time_before_wake
   (void) time_before_wake;
-  (void) time_before_wait;
 
   /* out frag stream state */
   ulong *        out_depth; /* ==fd_mcache_depth( out_mcache[out_idx] ) for out_idx in [0, out_cnt) */
@@ -362,8 +360,10 @@ STEM_(run1)( ulong                        in_cnt,
   long then = fd_tickcount();
   long now  = then;
 
+#if !(STEM_ALWAYS_SPINNING)
   uint32_t last_futex_value = 0;
   uint32_t futex_wait_counter = 0;
+#endif
 
   for(;;) {
 
@@ -469,13 +469,16 @@ STEM_(run1)( ulong                        in_cnt,
       housekeeping_ticks = (ulong)(next - now);
       now = next;
     }
-    // -1 as default for now just to stop tiles from waiting for futexes
-    if (time_before_wait != -1 && futex_wait_counter > 1000000) {
+
+/* By default, tiles are always spinning, except the ones that are configured to wait for futexes */ 
+#if !(STEM_ALWAYS_SPINNING)
+    if (futex_wait_counter > FD_STEM_SPIN_THRESHOLD) {
       fd_stem_tile_in_t * this_in_futex = &in[ in_seq ];
       fd_frag_meta_t const * this_in_futex_mcache = this_in_futex->mcache;
       const uint32_t * futex_seq_ptr = fd_mcache_futex_flag_const( this_in_futex_mcache);
       futex_wait(futex_seq_ptr, last_futex_value);
     }
+#endif
 
 #if defined(STEM_CALLBACK_BEFORE_CREDIT) || defined(STEM_CALLBACK_AFTER_CREDIT) || defined(STEM_CALLBACK_AFTER_FRAG)
     fd_stem_context_t stem = {
@@ -559,7 +562,9 @@ STEM_(run1)( ulong                        in_cnt,
     }
 #endif
 
-    if (time_before_wait != -1) futex_wait_counter++;
+#if !(STEM_ALWAYS_SPINNING)
+    futex_wait_counter++;
+#endif
 
     fd_stem_tile_in_t * this_in = &in[ in_seq ];
     in_seq++;
@@ -593,9 +598,9 @@ STEM_(run1)( ulong                        in_cnt,
 
       if( FD_UNLIKELY( diff<0L ) ) { /* Overrun (impossible if in is honoring our flow control) */
         this_in->seq = seq_found; /* Resume from here (probably reasonably current, could query in mcache sync directly instead) */
-        if (time_before_wait != -1) {
-          last_futex_value = *fd_mcache_futex_flag_const( this_in->mcache );
-        }
+#if !(STEM_ALWAYS_SPINNING)
+        last_futex_value = *fd_mcache_futex_flag_const( this_in->mcache );
+#endif
         housekeeping_regime = &metric_regime_ticks[1];
         prefrag_regime = &metric_regime_ticks[4];
         finish_regime = &metric_regime_ticks[7];
@@ -699,11 +704,11 @@ STEM_(run1)( ulong                        in_cnt,
     metric_regime_ticks[4] += prefrag_ticks;
     long next = fd_tickcount();
     metric_regime_ticks[7] += (ulong)(next - now);
-    if (time_before_wait != -1) {
-      last_futex_value += 1;
-      futex_wait_counter = 0;
-    }
     now = next;
+#if !(STEM_ALWAYS_SPINNING)
+    last_futex_value += 1;
+    futex_wait_counter = 0;
+#endif
   }
 }
 
@@ -765,7 +770,6 @@ STEM_(run)( fd_topo_t *      topo,
                cons_out,
                cons_fseq,
                STEM_BURST,
-               STEM_TIME_BEFORE_WAIT,
                STEM_TIME_BEFORE_WAKE,
                STEM_LAZY,
                rng,
@@ -776,7 +780,6 @@ STEM_(run)( fd_topo_t *      topo,
 #undef STEM_NAME
 #undef STEM_
 #undef STEM_BURST
-#undef STEM_TIME_BEFORE_WAIT
 #undef STEM_TIME_BEFORE_WAKE
 #undef STEM_CALLBACK_CONTEXT_TYPE
 #undef STEM_LAZY
