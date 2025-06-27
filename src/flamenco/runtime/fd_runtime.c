@@ -1366,15 +1366,17 @@ fd_runtime_block_execute_finalize_finish( fd_exec_slot_ctx_t *             slot_
                                           ulong                            lt_hash_cnt ) {
 
   fd_hash_t * bank_hash = fd_bank_bank_hash_modify( slot_ctx->bank );
-  int err = fd_update_hash_bank_exec_hash( slot_ctx,
-                                           bank_hash,
-                                           capture_ctx,
-                                           task_data,
-                                           1UL,
-                                           task_data->lthash_values,
-                                           lt_hash_cnt,
-                                           block_info->signature_cnt,
-                                           runtime_spad );
+  int err = fd_update_hash_bank_exec_hash( slot_ctx->bank ,
+      slot_ctx->funk,
+      slot_ctx->funk_txn,
+      bank_hash,
+      capture_ctx,
+      task_data,
+      1UL,
+      task_data->lthash_values,
+      lt_hash_cnt,
+      block_info->signature_cnt,
+      runtime_spad );
 
   if( FD_UNLIKELY( err ) ) {
     FD_LOG_ERR(( "Unable to hash at end of slot" ));

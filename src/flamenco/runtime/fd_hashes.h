@@ -81,7 +81,9 @@ fd_accounts_hash_counter_and_gather_tpool_cb( void * para_arg_1,
                                               void * fn_arg_4 );
 
 int
-fd_update_hash_bank_exec_hash( fd_exec_slot_ctx_t *           slot_ctx,
+fd_update_hash_bank_exec_hash( fd_bank_t *                    bank,
+                               fd_funk_t *                    funk,
+                               fd_funk_txn_t *                funk_txn,
                                fd_hash_t *                    hash,
                                fd_capture_ctx_t *             capture_ctx,
                                fd_accounts_hash_task_data_t * task_datas,
