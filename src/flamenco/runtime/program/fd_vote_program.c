@@ -558,13 +558,12 @@ compute_vote_latency( ulong voted_for_slot, ulong current_slot ) {
 
 // https://github.com/anza-xyz/agave/blob/v2.0.1/sdk/program/src/vote/state/mod.rs#L673
 static ulong
-credits_for_vote_at_index( fd_vote_state_t * self, ulong index, int deprecate_unused_legacy_vote_plumbing ) {
+credits_for_vote_at_index( fd_vote_state_t * self, ulong index ) {
   // https://github.com/anza-xyz/agave/blob/v2.0.1/sdk/program/src/vote/state/mod.rs#L679
   fd_landed_vote_t * landed_vote = deq_fd_landed_vote_t_peek_index( self->votes, index );
   ulong              latency     = landed_vote == NULL ? 0 : landed_vote->latency;
   // https://github.com/anza-xyz/agave/blob/v2.0.1/sdk/program/src/vote/state/mod.rs#L683
-  ulong              max_credits = deprecate_unused_legacy_vote_plumbing ?
-                                   VOTE_CREDITS_MAXIMUM_PER_SLOT : VOTE_CREDITS_MAXIMUM_PER_SLOT_OLD;
+  ulong              max_credits =  VOTE_CREDITS_MAXIMUM_PER_SLOT;
 
   // If latency is 0, this means that the Lockout was created and stored from a software version
   // that did not store vote latencies; in this case, 1 credit is awarded
@@ -645,10 +644,7 @@ static void
 process_next_vote_slot( fd_vote_state_t * self,
                         ulong             next_vote_slot,
                         ulong             epoch,
-                        ulong             current_slot,
-                        int               deprecate_unused_legacy_vote_plumbing
-
- ) {
+                        ulong             current_slot ) {
   ulong * last_voted_slot_ = last_voted_slot( self );
   if( FD_UNLIKELY( last_voted_slot_ && next_vote_slot <= *last_voted_slot_ ) ) return;
 
@@ -659,7 +655,7 @@ process_next_vote_slot( fd_vote_state_t * self,
 
   // https://github.com/anza-xyz/agave/blob/v2.0.1/sdk/program/src/vote/state/mod.rs#L623
   if( FD_UNLIKELY( deq_fd_landed_vote_t_cnt( self->votes ) == MAX_LOCKOUT_HISTORY ) ) {
-    ulong            credits     = credits_for_vote_at_index( self, 0, deprecate_unused_legacy_vote_plumbing);
+    ulong            credits     = credits_for_vote_at_index( self, 0 );
     fd_landed_vote_t landed_vote = deq_fd_landed_vote_t_pop_head( self->votes );
     self->has_root_slot = 1;
     self->root_slot     = landed_vote.lockout.slot;
@@ -1270,7 +1266,6 @@ process_new_vote_state( fd_vote_state_t *           vote_state,
      credits for slots actually voted on and finalized. */
 
   // https://github.com/anza-xyz/agave/blob/v2.0.1/programs/vote/src/vote_state/mod.rs#L635
-  int deprecate_unused_legacy_vote_plumbing = FD_FEATURE_ACTIVE_BANK( ctx->txn_ctx->bank, deprecate_unused_legacy_vote_plumbing );
 
   // https://github.com/anza-xyz/agave/blob/v2.0.1/programs/vote/src/vote_state/mod.rs#L641
   ulong earned_credits      = 0;
@@ -1285,9 +1280,7 @@ process_new_vote_state( fd_vote_state_t *           vote_state,
         // this is safe because we're inside if has_new_root
         earned_credits = fd_ulong_checked_add_expect(
             credits_for_vote_at_index( vote_state,
-              current_vote_state_index,
-              deprecate_unused_legacy_vote_plumbing
-              ),
+              current_vote_state_index ),
             earned_credits,
             "`earned_credits` does not overflow" );
         current_vote_state_index = fd_ulong_checked_add_expect(
@@ -1692,7 +1685,6 @@ process_vote_unfiltered( fd_vote_state_t *           vote_state,
                          fd_slot_hashes_t const *    slot_hashes,
                          ulong                       epoch,
                          ulong                       current_slot,
-                         int                         deprecate_unused_legacy_vote_plumbing,
                          fd_exec_instr_ctx_t const * ctx ) {
   int rc;
   // https://github.com/anza-xyz/agave/blob/v2.0.1/programs/vote/src/vote_state/mod.rs#L770
@@ -1703,7 +1695,7 @@ process_vote_unfiltered( fd_vote_state_t *           vote_state,
        iter = deq_ulong_iter_next( vote_slots, iter ) ) {
     ulong * ele = deq_ulong_iter_ele( vote_slots, iter );
     // https://github.com/anza-xyz/agave/blob/v2.0.1/programs/vote/src/vote_state/mod.rs#L772
-    process_next_vote_slot( vote_state, *ele, epoch, current_slot, deprecate_unused_legacy_vote_plumbing);
+    process_next_vote_slot( vote_state, *ele, epoch, current_slot );
   }
   return 0;
 }
@@ -1715,7 +1707,6 @@ process_vote( fd_vote_state_t *           vote_state,
               fd_slot_hashes_t const *    slot_hashes,
               ulong                       epoch,
               ulong                       current_slot,
-              int                         deprecate_unused_legacy_vote_plumbing,
               fd_exec_instr_ctx_t const * ctx ) {
   // https://github.com/anza-xyz/agave/blob/v2.0.1/programs/vote/src/vote_state/mod.rs#L792
   if( FD_UNLIKELY( deq_ulong_empty( vote->slots ) ) ) {
@@ -1750,7 +1741,7 @@ process_vote( fd_vote_state_t *           vote_state,
 
   // https://github.com/anza-xyz/agave/blob/v2.0.1/programs/vote/src/vote_state/mod.rs#L805
   return process_vote_unfiltered(
-      vote_state, vote_slots, vote, slot_hashes, epoch, current_slot, deprecate_unused_legacy_vote_plumbing, ctx );
+      vote_state, vote_slots, vote, slot_hashes, epoch, current_slot, ctx );
 }
 
 // https://github.com/anza-xyz/agave/blob/v2.0.1/programs/vote/src/vote_state/mod.rs#L1060
@@ -1850,11 +1841,9 @@ process_vote_with_account( fd_borrowed_account_t *       vote_account,
   rc = verify_and_get_vote_state( vote_account, clock, signers, &vote_state, ctx );
   if( FD_UNLIKELY( rc ) ) return rc;
 
-  // https://github.com/anza-xyz/agave/blob/v2.0.1/programs/vote/src/vote_state/mod.rs#L1114
-  int deprecate_unused_legacy_vote_plumbing = FD_FEATURE_ACTIVE_BANK( ctx->txn_ctx->bank, deprecate_unused_legacy_vote_plumbing );
 
   // https://github.com/anza-xyz/agave/blob/v2.0.1/programs/vote/src/vote_state/mod.rs#L1117
-  rc = process_vote( &vote_state, vote, slot_hashes, clock->epoch, clock->slot, deprecate_unused_legacy_vote_plumbing, ctx );
+  rc = process_vote( &vote_state, vote, slot_hashes, clock->epoch, clock->slot, ctx );
   if( FD_UNLIKELY( rc ) ) return rc;
 
   // https://github.com/anza-xyz/agave/blob/v2.0.1/programs/vote/src/vote_state/mod.rs#L1126
