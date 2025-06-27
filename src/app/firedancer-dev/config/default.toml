@@ -32,7 +32,6 @@
         prometheus_listen_address = "0.0.0.0"
         prometheus_listen_port = 7999
 [consensus]
-    vote = false
     expected_shred_version = 64475
 [paths]
     identity_key = "{keys}/fd-identity-keypair.json"
@@ -41,4 +40,3 @@
     path = "{ledger_dir}/firedancer-dev.log"
     level_stderr = "INFO"
     level_logfile = "NOTICE"
-
