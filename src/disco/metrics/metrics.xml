@@ -654,6 +654,15 @@ metric introduced.
     <counter name="ForceCompleteSuccess" summary="The number of times we successfully forced completed a FEC set on request" />
 </tile>
 
+<tile name="snp">
+    <histogram name="ClusterContactInfoCnt" min="0" max="40200">
+        <summary>Number of contact infos in the cluster contact info message</summary>
+    </histogram>
+    <histogram name="ClusterContactSnpCnt" min="0" max="40200">
+        <summary>Number of contact SNP in the cluster contact info message</summary>
+    </histogram>
+</tile>
+
 <tile name="store">
     <counter name="TransactionsInserted" summary="Count of transactions produced while we were leader in the shreds that have been inserted so far" />
 </tile>

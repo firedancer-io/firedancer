@@ -874,3 +874,14 @@
 | <span class="metrics-name">snapin_&#8203;accounts_&#8203;inserted</span> | gauge | Number of accounts inserted during snpashot loading. Might decrease if snapshot load is aborted and restarted |
 
 </div>
+
+## Snp Tile
+
+<div class="metrics">
+
+| Metric | Type | Description |
+|--------|------|-------------|
+| <span class="metrics-name">snp_&#8203;cluster_&#8203;contact_&#8203;info_&#8203;cnt</span> | histogram | Number of contact infos in the cluster contact info message |
+| <span class="metrics-name">snp_&#8203;cluster_&#8203;contact_&#8203;snp_&#8203;cnt</span> | histogram | Number of contact SNP in the cluster contact info message |
+
+</div>

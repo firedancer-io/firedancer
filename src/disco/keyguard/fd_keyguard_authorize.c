@@ -218,6 +218,14 @@ fd_keyguard_payload_authorize( fd_keyguard_authority_t const * authority,
     }
     return fd_keyguard_authorize_bundle_crank_txn( authority, data, sz, sign_type );
 
+  case FD_KEYGUARD_ROLE_SNP:
+    if( FD_UNLIKELY( payload_mask != FD_KEYGUARD_PAYLOAD_SNP ) ) {
+      FD_LOG_WARNING(( "unauthorized payload type for leader (mask=%#lx)", payload_mask ));
+      return 0;
+    }
+    /* no further restrictions on snp */
+    return 1;
+
   default:
     FD_LOG_WARNING(( "unsupported role=%#x", (uint)role ));
     return 0;
