@@ -44,6 +44,7 @@ fd_runtime_fuzz_runner_new( void *      mem,
 
   /* Reuse the same bank for each iteration of the fuzzer */
   runner->bank = bank;
+
   return runner;
 }
 
