@@ -24,10 +24,15 @@ fd_crds_contact_info_populate( fd_gossip_view_crds_value_t const * view,
   fd_gossip_view_contact_info_t const * ci_view = view->contact_info;
 
   ci->instance_creation_wallclock_nanos = ci_view->instance_creation_wallclock_nanos;
+  ci->wallclock_nanos                   = view->wallclock_nanos;
   ci->shred_version                     = ci_view->shred_version;
   fd_memcpy( ci->pubkey, payload + view->pubkey_off, 32UL );
 
-  /* TODO: Version */
+  ci->version.major       = ci_view->version->major;
+  ci->version.minor       = ci_view->version->minor;
+  ci->version.patch       = ci_view->version->patch;
+  ci->version.commit      = ci_view->version->commit;
+  ci->version.feature_set = ci_view->version->feature_set;
 
   /* We only want to save the first instance in the event of duplicate socket
      tag entries
