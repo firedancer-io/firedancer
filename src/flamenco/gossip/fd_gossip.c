@@ -12,7 +12,7 @@
 #define BLOOM_FALSE_POSITIVE_RATE       (  0.1)
 #define BLOOM_NUM_KEYS                  (  8.0)
 
-#define PING_PONG_SIGN_TYPE             FD_KEYGUARD_SIGN_TYPE_SHA256_ED25519
+#define PONG_SIGN_TYPE                  FD_KEYGUARD_SIGN_TYPE_SHA256_ED25519
 #define GOSSIP_SIGN_TYPE                FD_KEYGUARD_SIGN_TYPE_ED25519
 
 /* TODO: hardcode a CRDS filter instead of using bloom tmpls ? */
@@ -821,7 +821,7 @@ rx_ping( fd_gossip_t *           gossip,
   fd_memcpy( pre_hash_img, "SOLANA_PING_PONG", 16UL );
 
   fd_sha256_hash( pre_hash_img, 48UL, out_pong->ping_hash );
-  gossip->sign_fn( gossip->sign_ctx, pre_hash_img, 48UL, PING_PONG_SIGN_TYPE, out_pong->signature );
+  gossip->sign_fn( gossip->sign_ctx, pre_hash_img, 48UL, PONG_SIGN_TYPE, out_pong->signature );
 
   gossip->send_fn( gossip->send_ctx, (uchar *)out_payload, sizeof(out_payload), peer_address, (ulong)now );
   return FD_GOSSIP_RX_OK;
@@ -949,9 +949,10 @@ tx_ping( fd_gossip_t * gossip,
 
   /* TODO: have this point to dcache buffer directly instead. */
   uchar out_payload[ sizeof(fd_gossip_view_ping_t) + 4UL ];
-  out_payload[0] = FD_GOSSIP_MESSAGE_PING;
+  FD_STORE( uint, out_payload, FD_GOSSIP_MESSAGE_PING );
 
   fd_gossip_view_ping_t * out_ping = (fd_gossip_view_ping_t *)( out_payload + 4UL );
+  fd_memcpy( out_ping->pubkey, gossip->identity_pubkey, 32UL );
 
   uchar const *         peer_pubkey;
   uchar const *         ping_token;
@@ -962,14 +963,11 @@ tx_ping( fd_gossip_t * gossip,
                                       &peer_pubkey,
                                       &peer_address,
                                       &ping_token ) ) {
-
-    uchar sign_img[ 48UL ];
-    fd_memcpy( sign_img, "SOLANA_PING_PONG", 16UL );
-    fd_memcpy( sign_img+16UL, ping_token, 32UL );
     fd_memcpy( out_ping->ping_token, ping_token, 32UL );
-    gossip->sign_fn( gossip->sign_ctx, sign_img, 48UL, PING_PONG_SIGN_TYPE, out_ping->signature );
 
-    gossip->send_fn( gossip->send_ctx, (uchar *)out_payload, sizeof(out_payload), peer_address, (ulong)now );
+    gossip->sign_fn( gossip->sign_ctx, out_ping->ping_token, 32UL, GOSSIP_SIGN_TYPE, out_ping->signature );
+
+    gossip->send_fn( gossip->send_ctx, out_payload, sizeof(out_payload), peer_address, (ulong)now );
   }
 }
 
