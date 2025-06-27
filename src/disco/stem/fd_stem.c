@@ -155,7 +155,7 @@
 #endif
 
 #ifndef STEM_TIME_BEFORE_WAIT
-#define STEM_TIME_BEFORE_WAIT (3000000000L) // 3 seconds
+#define STEM_TIME_BEFORE_WAIT (-1L)
 #endif
 
 #ifndef STEM_TIME_BEFORE_WAKE
@@ -235,6 +235,7 @@ STEM_(run1)( ulong                        in_cnt,
 
   // Hack around "unusued parameter time_before_wake
   (void) time_before_wake;
+  (void) time_before_wait;
 
   /* out frag stream state */
   ulong *        out_depth; /* ==fd_mcache_depth( out_mcache[out_idx] ) for out_idx in [0, out_cnt) */
@@ -362,7 +363,7 @@ STEM_(run1)( ulong                        in_cnt,
   long now  = then;
 
   uint32_t last_futex_value = 0;
-  long last_frag_time = fd_log_wallclock();
+  uint32_t futex_wait_counter = 0;
 
   for(;;) {
 
@@ -468,10 +469,8 @@ STEM_(run1)( ulong                        in_cnt,
       housekeeping_ticks = (ulong)(next - now);
       now = next;
     }
-
-    long now_debug = fd_log_wallclock();
-    long timedif = now_debug - last_frag_time;
-    if (timedif > time_before_wait && in_cnt) {
+    // -1 as default for now just to stop tiles from waiting for futexes
+    if (time_before_wait != -1 && futex_wait_counter > 1000000) {
       fd_stem_tile_in_t * this_in_futex = &in[ in_seq ];
       fd_frag_meta_t const * this_in_futex_mcache = this_in_futex->mcache;
       const uint32_t * futex_seq_ptr = fd_mcache_futex_flag_const( this_in_futex_mcache);
@@ -504,6 +503,9 @@ STEM_(run1)( ulong                        in_cnt,
      from not backpressured to backpressured. */
 
     if( FD_UNLIKELY( cr_avail<burst ) ) {
+      // TODO: if backpressured, we should wake on futexes so people wake up
+      // wake the slowest consumer link up
+      // OR can wake on every out link depending on profile of a loop iteration-- but im guessing slowing 1 run of loop too much?
       metric_backp_cnt += (ulong)!metric_in_backp;
       metric_in_backp   = 1UL;
       FD_SPIN_PAUSE();
@@ -557,6 +559,8 @@ STEM_(run1)( ulong                        in_cnt,
     }
 #endif
 
+    if (time_before_wait != -1) futex_wait_counter++;
+
     fd_stem_tile_in_t * this_in = &in[ in_seq ];
     in_seq++;
     if( in_seq>=in_cnt ) in_seq = 0UL; /* cmov */
@@ -589,7 +593,9 @@ STEM_(run1)( ulong                        in_cnt,
 
       if( FD_UNLIKELY( diff<0L ) ) { /* Overrun (impossible if in is honoring our flow control) */
         this_in->seq = seq_found; /* Resume from here (probably reasonably current, could query in mcache sync directly instead) */
-        last_futex_value = *fd_mcache_futex_flag_const( this_in->mcache );
+        if (time_before_wait != -1) {
+          last_futex_value = *fd_mcache_futex_flag_const( this_in->mcache );
+        }
         housekeeping_regime = &metric_regime_ticks[1];
         prefrag_regime = &metric_regime_ticks[4];
         finish_regime = &metric_regime_ticks[7];
@@ -693,8 +699,10 @@ STEM_(run1)( ulong                        in_cnt,
     metric_regime_ticks[4] += prefrag_ticks;
     long next = fd_tickcount();
     metric_regime_ticks[7] += (ulong)(next - now);
-    last_frag_time = fd_log_wallclock();
-    last_futex_value += 1;
+    if (time_before_wait != -1) {
+      last_futex_value += 1;
+      futex_wait_counter = 0;
+    }
     now = next;
   }
 }
