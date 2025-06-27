@@ -17,19 +17,19 @@
 
    Max buffer length: 29 (string literal) + 90 (2 encoded pubkeys) + 6 (Some()) = 125
    */
-#define FD_LOG_ADDRESS_TYPE( _spad, _pubkey, _base ) __extension__({                                            \
-  char * _out       = fd_spad_alloc(_spad, alignof(char), 125UL );                                              \
-  char * _base_addr = fd_spad_alloc( _spad, alignof(char), 52UL );                                              \
-  char * _base_enc  = fd_spad_alloc( _spad, alignof(char), FD_BASE58_ENCODED_32_SZ );                           \
-  if( FD_UNLIKELY( _base ) ) {                                                                                  \
-    fd_base58_encode_32( _base->uc, NULL, _base_enc );                                                          \
-    snprintf( _base_addr, 52UL, "Some(%s)", _base_enc );                                                        \
-  } else {                                                                                                      \
-    snprintf( _base_addr, 52UL, "None" );                                                                       \
-  }                                                                                                             \
-  snprintf( _out, 125UL, "Address { address: %s, base: %s }", FD_BASE58_ENC_32_ALLOCA( _pubkey ), _base_addr ); \
-  _out;                                                                                                         \
-})
+static inline char *
+fd_log_address_type( fd_spad_t * spad, fd_pubkey_t const * pubkey, fd_pubkey_t const * base ) {
+  char * out = fd_spad_alloc( spad, alignof(char), 125UL );
+  char base_addr[52];
+  if( FD_UNLIKELY( base ) ) {
+    snprintf( base_addr, 52UL, "Some(%s)", FD_BASE58_ENC_32_ALLOCA( base ) );
+  } else {
+    snprintf( base_addr, 52UL, "None" );
+  }
+
+  snprintf( out, 125UL, "Address { address: %s, base: %s }", FD_BASE58_ENC_32_ALLOCA( pubkey ), base_addr );
+  return out;
+}
 
 /* https://github.com/solana-labs/solana/blob/v1.17.22/programs/system/src/system_processor.rs#L42-L68
 
@@ -172,7 +172,7 @@ fd_system_program_allocate( fd_exec_instr_ctx_t *   ctx,
   if( FD_UNLIKELY( !fd_exec_instr_ctx_any_signed( ctx, authority ) ) ) {
     /* Max msg_sz: 35 - 2 + 125 = 158 */
     fd_log_collector_printf_inefficient_max_512( ctx,
-      "Allocate: 'to' account %s must sign", FD_LOG_ADDRESS_TYPE( ctx->txn_ctx->spad, account->acct->pubkey, base ) );
+      "Allocate: 'to' account %s must sign", fd_log_address_type( ctx->txn_ctx->spad, account->acct->pubkey, base ) );
     return FD_EXECUTOR_INSTR_ERR_MISSING_REQUIRED_SIGNATURE;
   }
 
@@ -182,7 +182,7 @@ fd_system_program_allocate( fd_exec_instr_ctx_t *   ctx,
                    ( 0!=memcmp( fd_borrowed_account_get_owner( account ), fd_solana_system_program_id.uc, 32UL ) ) ) ) {
     /* Max msg_sz: 35 - 2 + 125 = 158 */
     fd_log_collector_printf_inefficient_max_512( ctx,
-      "Allocate: account %s already in use", FD_LOG_ADDRESS_TYPE( ctx->txn_ctx->spad, account->acct->pubkey, base ) );
+      "Allocate: account %s already in use", fd_log_address_type( ctx->txn_ctx->spad, account->acct->pubkey, base ) );
     ctx->txn_ctx->custom_err = FD_SYSTEM_PROGRAM_ERR_ACCT_ALREADY_IN_USE;
     return FD_EXECUTOR_INSTR_ERR_CUSTOM_ERR;
   }
@@ -230,7 +230,7 @@ fd_system_program_assign( fd_exec_instr_ctx_t *   ctx,
   if( FD_UNLIKELY( !fd_exec_instr_ctx_any_signed( ctx, authority ) ) ) {
     /* Max msg_sz: 28 - 2 + 125 = 151 */
     fd_log_collector_printf_inefficient_max_512( ctx,
-      "Assign: account %s must sign", FD_LOG_ADDRESS_TYPE( ctx->txn_ctx->spad, account->acct->pubkey, base ) );
+      "Assign: account %s must sign", fd_log_address_type( ctx->txn_ctx->spad, account->acct->pubkey, base ) );
     return FD_EXECUTOR_INSTR_ERR_MISSING_REQUIRED_SIGNATURE;
   }
 
@@ -287,7 +287,7 @@ fd_system_program_create_account( fd_exec_instr_ctx_t * ctx,
     if( FD_UNLIKELY( fd_borrowed_account_get_lamports( &to ) ) ) {
       /* Max msg_sz: 41 - 2 + 125 = 164 */
       fd_log_collector_printf_inefficient_max_512( ctx,
-        "Create Account: account %s already in use", FD_LOG_ADDRESS_TYPE( ctx->txn_ctx->spad, to.acct->pubkey, base ) );
+        "Create Account: account %s already in use", fd_log_address_type( ctx->txn_ctx->spad, to.acct->pubkey, base ) );
       ctx->txn_ctx->custom_err = FD_SYSTEM_PROGRAM_ERR_ACCT_ALREADY_IN_USE;
       return FD_EXECUTOR_INSTR_ERR_CUSTOM_ERR;
     }
