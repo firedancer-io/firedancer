@@ -12,7 +12,8 @@
 
 static void
 fd_feature_restore( fd_features_t *         features,
-                    fd_exec_slot_ctx_t *    slot_ctx,
+                    fd_funk_t *             funk,
+                    fd_funk_txn_t *         funk_txn,
                     fd_feature_id_t const * id,
                     uchar const             acct[ static 32 ],
                     fd_spad_t *             runtime_spad ) {
@@ -25,8 +26,8 @@ fd_feature_restore( fd_features_t *         features,
   FD_TXN_ACCOUNT_DECL( acct_rec );
   int err = fd_txn_account_init_from_funk_readonly( acct_rec,
                                                     (fd_pubkey_t *)acct,
-                                                    slot_ctx->funk,
-                                                    slot_ctx->funk_txn );
+                                                    funk,
+                                                    funk_txn );
   if( FD_UNLIKELY( err!=FD_ACC_MGR_SUCCESS ) ) {
     return;
   }
@@ -67,12 +68,12 @@ fd_feature_restore( fd_features_t *         features,
 }
 
 void
-fd_features_restore( fd_exec_slot_ctx_t * slot_ctx, fd_spad_t * runtime_spad ) {
-  fd_features_t * features = fd_bank_features_modify( slot_ctx->bank );
+fd_features_restore( fd_bank_t * bank, fd_funk_t * funk, fd_funk_txn_t * funk_txn, fd_spad_t * runtime_spad ) {
+  fd_features_t * features = fd_bank_features_modify( bank );
 
   for( fd_feature_id_t const * id = fd_feature_iter_init();
                                    !fd_feature_iter_done( id );
                                id = fd_feature_iter_next( id ) ) {
-    fd_feature_restore( features, slot_ctx, id, id->id.key, runtime_spad );
+    fd_feature_restore( features, funk, funk_txn, id, id->id.key, runtime_spad );
   }
 }

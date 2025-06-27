@@ -499,18 +499,24 @@ void
 fd_runtime_poh_verify( fd_poh_verifier_t * poh_info );
 
 int
-fd_runtime_block_execute_prepare( fd_exec_slot_ctx_t * slot_ctx,
-                                  fd_blockstore_t *    blockstore,
-                                  fd_spad_t *          runtime_spad );
+fd_runtime_block_execute_prepare( fd_bank_t *       bank,
+                                  fd_funk_t *       funk,
+                                  fd_funk_txn_t *   funk_txn,
+                                  fd_blockstore_t * blockstore,
+                                  fd_spad_t *       runtime_spad );
 
 void
-fd_runtime_block_execute_finalize_start( fd_exec_slot_ctx_t *             slot_ctx,
+fd_runtime_block_execute_finalize_start( fd_bank_t *                      bank,
+                                         fd_funk_t *                      funk,
+                                         fd_funk_txn_t *                  funk_txn,
                                          fd_spad_t *                      runtime_spad,
                                          fd_accounts_hash_task_data_t * * task_data,
                                          ulong                            lt_hash_cnt );
 
 int
-fd_runtime_block_execute_finalize_finish( fd_exec_slot_ctx_t *             slot_ctx,
+fd_runtime_block_execute_finalize_finish( fd_bank_t *                      bank,
+                                          fd_funk_t *                      funk,
+                                          fd_funk_txn_t *                  funk_txn,
                                           fd_capture_ctx_t *               capture_ctx,
                                           fd_runtime_block_info_t const *  block_info,
                                           fd_spad_t *                      runtime_spad,
@@ -518,7 +524,9 @@ fd_runtime_block_execute_finalize_finish( fd_exec_slot_ctx_t *             slot_
                                           ulong                            lt_hash_cnt );
 
 int
-fd_runtime_block_execute_finalize_para( fd_exec_slot_ctx_t *             slot_ctx,
+fd_runtime_block_execute_finalize_para( fd_bank_t *                      bank,
+                                        fd_funk_t *                      funk,
+                                        fd_funk_txn_t *                  funk_txn,
                                         fd_capture_ctx_t *               capture_ctx,
                                         fd_runtime_block_info_t const *  block_info,
                                         ulong                            worker_cnt,
@@ -532,7 +540,9 @@ fd_runtime_block_execute_finalize_para( fd_exec_slot_ctx_t *             slot_ct
    for various transaction sanitization checks. */
 
 int
-fd_runtime_prepare_txns_start( fd_exec_slot_ctx_t *         slot_ctx,
+fd_runtime_prepare_txns_start( fd_bank_t *                  bank,
+                               fd_funk_t *                  funk,
+                               fd_funk_txn_t *              funk_txn,
                                fd_execute_txn_task_info_t * task_info,
                                fd_txn_p_t *                 txns,
                                ulong                        txn_cnt,
@@ -558,15 +568,17 @@ fd_runtime_process_txns( fd_exec_slot_ctx_t * slot_ctx,
    all transactions are conflict-free. */
 
 int
-fd_runtime_process_txns_in_microblock_stream( fd_exec_slot_ctx_t * slot_ctx,
-                                              fd_capture_ctx_t *   capture_ctx,
-                                              fd_txn_p_t *         all_txns,
-                                              ulong                total_txn_cnt,
-                                              fd_tpool_t *         tpool,
-                                              fd_spad_t * *        exec_spads,
-                                              ulong                exec_spad_cnt,
-                                              fd_spad_t *          runtime_spad,
-                                              fd_cost_tracker_t *  cost_tracker_opt );
+fd_runtime_process_txns_in_microblock_stream( fd_bank_t *         bank,
+                                              fd_funk_t *         funk,
+                                              fd_funk_txn_t *     funk_txn,
+                                              fd_capture_ctx_t *  capture_ctx,
+                                              fd_txn_p_t *        all_txns,
+                                              ulong               total_txn_cnt,
+                                              fd_tpool_t *        tpool,
+                                              fd_spad_t * *       exec_spads,
+                                              ulong               exec_spad_cnt,
+                                              fd_spad_t *         runtime_spad,
+                                              fd_cost_tracker_t * cost_tracker_opt );
 
 void
 fd_runtime_finalize_txn( fd_funk_t *                  funk,
@@ -578,9 +590,9 @@ fd_runtime_finalize_txn( fd_funk_t *                  funk,
 /* Epoch Boundary *************************************************************/
 
 uint
-fd_runtime_is_epoch_boundary( fd_exec_slot_ctx_t * slot_ctx,
-                              ulong                curr_slot,
-                              ulong                prev_slot );
+fd_runtime_is_epoch_boundary( fd_bank_t * bank,
+                              ulong       curr_slot,
+                              ulong       prev_slot );
 
 /*
    This is roughly Agave's process_new_epoch() which gets called from

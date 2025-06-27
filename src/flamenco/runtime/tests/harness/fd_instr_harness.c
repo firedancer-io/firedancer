@@ -93,13 +93,14 @@ fd_runtime_fuzz_instr_ctx_create( fd_runtime_fuzz_runner_t *           runner,
   txn_descriptor->transaction_version = FD_TXN_V0;
   txn_descriptor->acct_addr_cnt       = (ushort)test_ctx->accounts_count;
 
-  fd_exec_txn_ctx_from_exec_slot_ctx( slot_ctx,
-                                      txn_ctx,
-                                      funk_wksp,
-                                      runtime_wksp,
-                                      funk_txn_gaddr,
-                                      funk_gaddr,
-                                      NULL );
+  fd_exec_txn_ctx_from_exec_slot_ctx(
+      slot_ctx->bank,
+      txn_ctx,
+      funk_wksp,
+      runtime_wksp,
+      funk_txn_gaddr,
+      funk_gaddr,
+      NULL );
   fd_exec_txn_ctx_setup_basic( txn_ctx );
 
   txn_ctx->txn_descriptor     = txn_descriptor;
@@ -219,7 +220,7 @@ fd_runtime_fuzz_instr_ctx_create( fd_runtime_fuzz_runner_t *           runner,
   }
 
   /* Add accounts to bpf program cache */
-  fd_bpf_scan_and_create_bpf_program_cache_entry( slot_ctx, runner->spad );
+  fd_bpf_scan_and_create_bpf_program_cache_entry( slot_ctx->bank, slot_ctx->funk, slot_ctx->funk_txn, runner->spad );
 
   /* Fill missing sysvar cache values with defaults */
   /* We create mock accounts for each of the sysvars and hardcode the data fields before loading it into the account manager */
@@ -366,13 +367,14 @@ fd_runtime_fuzz_instr_ctx_create( fd_runtime_fuzz_runner_t *           runner,
   ctx->instr = info;
 
   /* Refresh the setup from the updated slot and epoch ctx. */
-  fd_exec_txn_ctx_from_exec_slot_ctx( slot_ctx,
-                                      txn_ctx,
-                                      funk_wksp,
-                                      runtime_wksp,
-                                      funk_txn_gaddr,
-                                      funk_gaddr,
-                                      NULL );
+  fd_exec_txn_ctx_from_exec_slot_ctx(
+      slot_ctx->bank,
+      txn_ctx,
+      funk_wksp,
+      runtime_wksp,
+      funk_txn_gaddr,
+      funk_gaddr,
+      NULL );
 
   fd_log_collector_init( &ctx->txn_ctx->log_collector, 1 );
   fd_base58_encode_32( txn_ctx->account_keys[ ctx->instr->program_id ].uc, NULL, ctx->program_id_base58 );

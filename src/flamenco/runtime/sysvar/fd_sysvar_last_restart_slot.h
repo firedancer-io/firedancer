@@ -12,13 +12,18 @@ FD_PROTOTYPES_BEGIN
    state. */
 
 void
-fd_sysvar_last_restart_slot_init( fd_exec_slot_ctx_t * slot_ctx );
+fd_sysvar_last_restart_slot_init( fd_bank_t *     bank,
+                                  fd_funk_t *     funk,
+                                  fd_funk_txn_t * funk_txn );
 
 /* fd_sysvar_last_restart_slot_update performs a sysvar update before
    transaction processing.  TODO not completely implemented. */
 
 void
-fd_sysvar_last_restart_slot_update( fd_exec_slot_ctx_t * slot_ctx, fd_spad_t * runtime_spad );
+fd_sysvar_last_restart_slot_update( fd_bank_t *     bank,
+                                    fd_funk_t *     funk,
+                                    fd_funk_txn_t * funk_txn,
+                                    fd_spad_t *     runtime_spad );
 
 /* fd_sysvar_last_restart_slot_read queries the last restart slot sysvar
    from the given funk. If the account doesn't exist in funk or if the

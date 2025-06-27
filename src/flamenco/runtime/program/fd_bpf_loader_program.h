@@ -94,10 +94,12 @@ read_bpf_upgradeable_loader_state_for_program( fd_exec_txn_ctx_t *              
 
    https://github.com/anza-xyz/agave/blob/v2.1.0/runtime/src/bank/builtins/core_bpf_migration/mod.rs#L155-L233 */
 int
-fd_directly_invoke_loader_v3_deploy( fd_exec_slot_ctx_t * slot_ctx,
-                                     uchar const *        elf,
-                                     ulong                elf_sz,
-                                     fd_spad_t *          runtime_spad );
+fd_directly_invoke_loader_v3_deploy( fd_bank_t *     bank,
+                                     fd_funk_t *     funk,
+                                     fd_funk_txn_t * funk_txn,
+                                     uchar const *   elf,
+                                     ulong           elf_sz,
+                                     fd_spad_t *     runtime_spad );
 
 FD_PROTOTYPES_END
 

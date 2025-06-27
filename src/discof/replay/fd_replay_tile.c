@@ -1008,7 +1008,7 @@ prepare_new_block_execution( fd_replay_tile_ctx_t * ctx,
   /* if it is an epoch boundary, push out stake weights */
 
   if( ctx->slot_ctx->slot != 0 ) {
-    is_new_epoch_in_new_block = (int)fd_runtime_is_epoch_boundary( ctx->slot_ctx, ctx->slot_ctx->slot, fd_bank_prev_slot_get( ctx->slot_ctx->bank ) );
+    is_new_epoch_in_new_block = (int)fd_runtime_is_epoch_boundary( ctx->slot_ctx->bank, ctx->slot_ctx->slot, fd_bank_prev_slot_get( ctx->slot_ctx->bank ) );
   }
 
   /* Update starting PoH hash for the new slot for tick verification later */
@@ -1087,7 +1087,11 @@ prepare_new_block_execution( fd_replay_tile_ctx_t * ctx,
      an epoch). We pop a frame when rewards are done being distributed. */
   fd_spad_push( ctx->runtime_spad );
 
-  int res = fd_runtime_block_execute_prepare( ctx->slot_ctx, ctx->blockstore, ctx->runtime_spad );
+  int res = fd_runtime_block_execute_prepare( ctx->slot_ctx->bank,
+      ctx->slot_ctx->funk,
+      ctx->slot_ctx->funk_txn,
+      ctx->blockstore,
+      ctx->runtime_spad );
   if( res != FD_RUNTIME_EXECUTE_SUCCESS ) {
     FD_LOG_ERR(( "block prep execute failed" ));
   }
@@ -1580,7 +1584,7 @@ init_after_snapshot( fd_replay_tile_ctx_t * ctx,
       fd_sha256_hash( poh->hash, 32UL, poh->hash );
     }
 
-    FD_TEST( fd_runtime_block_execute_prepare( ctx->slot_ctx, ctx->blockstore, ctx->runtime_spad ) == 0 );
+    FD_TEST( fd_runtime_block_execute_prepare( ctx->slot_ctx->bank, ctx->slot_ctx->funk, ctx->slot_ctx->funk_txn, ctx->blockstore, ctx->runtime_spad ) == 0 );
     fd_runtime_block_info_t info = { .signature_cnt = 0 };
 
     fd_exec_para_cb_ctx_t exec_para_ctx_block_finalize = {
@@ -1589,7 +1593,9 @@ init_after_snapshot( fd_replay_tile_ctx_t * ctx,
       .para_arg_2 = stem,
     };
 
-    fd_runtime_block_execute_finalize_para( ctx->slot_ctx,
+    fd_runtime_block_execute_finalize_para( ctx->slot_ctx->bank,
+                                            ctx->slot_ctx->funk,
+                                            ctx->slot_ctx->funk_txn,
                                             ctx->capture_ctx,
                                             &info,
                                             ctx->exec_cnt,
@@ -1967,12 +1973,14 @@ after_credit( fd_replay_tile_ctx_t * ctx,
       .para_arg_2 = stem,
     };
 
-    fd_runtime_block_execute_finalize_para( ctx->slot_ctx,
-                                            ctx->capture_ctx,
-                                            runtime_block_info,
-                                            ctx->exec_cnt,
-                                            ctx->runtime_spad,
-                                            &exec_para_ctx_block_finalize );
+    fd_runtime_block_execute_finalize_para( ctx->slot_ctx->bank,
+        ctx->slot_ctx->funk,
+        ctx->slot_ctx->funk_txn,
+        ctx->capture_ctx,
+        runtime_block_info,
+        ctx->exec_cnt,
+        ctx->runtime_spad,
+        &exec_para_ctx_block_finalize );
 
     /* Update blockstore with the freshly computed bank hash */
     fd_block_map_query_t query[1] = { 0 };

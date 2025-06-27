@@ -108,7 +108,7 @@ fd_bank_footprint( void ) {
     FD_STORE( type, bank->name, value );                    \
   }                                                         \
   type                                                      \
-  fd_bank_##name##_get( fd_bank_t * bank ) {                \
+  fd_bank_##name##_get( fd_bank_t const * bank ) {          \
     type val = FD_LOAD( type, bank->name );                 \
     return val;                                             \
   }

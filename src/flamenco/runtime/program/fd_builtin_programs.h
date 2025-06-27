@@ -52,10 +52,12 @@ void
 fd_builtin_programs_init( fd_exec_slot_ctx_t * slot_ctx );
 
 void
-fd_write_builtin_account( fd_exec_slot_ctx_t * slot_ctx,
-                          fd_pubkey_t const    pubkey,
-                          char const *         data,
-                          ulong                sz );
+fd_write_builtin_account( fd_bank_t *       bank,
+                          fd_funk_t *       funk,
+                          fd_funk_txn_t *   funk_txn,
+                          fd_pubkey_t const pubkey,
+                          char const *      data,
+                          ulong             sz );
 
 fd_builtin_program_t const *
 fd_builtins( void );

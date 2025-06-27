@@ -4,6 +4,7 @@
 /* fd_runtime_init.h provides APIs for backing up and restoring a Solana
    runtime environment.  This file must not depend on fd_executor.h. */
 
+#include "fd_bank.h"
 #include "../fd_flamenco_base.h"
 #include "../../funk/fd_funk_rec.h"
 
@@ -20,7 +21,10 @@ FD_PROTOTYPES_BEGIN
    snapshot. */
 
 void
-fd_features_restore( fd_exec_slot_ctx_t * slot_ctx, fd_spad_t * runtime_spad );
+fd_features_restore( fd_bank_t *     bank,
+                     fd_funk_t *     funk,
+                     fd_funk_txn_t * funk_txn,
+                     fd_spad_t *     runtime_spad );
 
 FD_PROTOTYPES_END
 

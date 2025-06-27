@@ -1256,13 +1256,13 @@ fd_executor_is_blockhash_valid_for_age( fd_block_hash_queue_global_t const * blo
 }
 
 void
-fd_exec_txn_ctx_from_exec_slot_ctx( fd_exec_slot_ctx_t const * slot_ctx,
-                                    fd_exec_txn_ctx_t *        ctx,
-                                    fd_wksp_t const *          funk_wksp,
-                                    fd_wksp_t const *          runtime_pub_wksp,
-                                    ulong                      funk_txn_gaddr,
-                                    ulong                      funk_gaddr,
-                                    fd_bank_hash_cmp_t *       bank_hash_cmp ) {
+fd_exec_txn_ctx_from_exec_slot_ctx( fd_bank_t *           bank,
+                                    fd_exec_txn_ctx_t *   ctx,
+                                    fd_wksp_t const *     funk_wksp,
+                                    fd_wksp_t const *     runtime_pub_wksp,
+                                    ulong                 funk_txn_gaddr,
+                                    ulong                 funk_gaddr,
+                                    fd_bank_hash_cmp_t *  bank_hash_cmp ) {
 
   ctx->runtime_pub_wksp = (fd_wksp_t *)runtime_pub_wksp;
 
@@ -1275,15 +1275,15 @@ fd_exec_txn_ctx_from_exec_slot_ctx( fd_exec_slot_ctx_t const * slot_ctx,
     FD_LOG_ERR(( "Could not find valid funk %lu", funk_gaddr ));
   }
 
-  ctx->status_cache = slot_ctx->status_cache;
+  /* TODO: Implement status cachce*/
 
   ctx->bank_hash_cmp = bank_hash_cmp;
 
-  ctx->enable_exec_recording = fd_bank_enable_exec_recording_get( slot_ctx->bank );
+  ctx->enable_exec_recording = fd_bank_enable_exec_recording_get( bank );
 
-  ctx->bank = slot_ctx->bank;
+  ctx->bank = bank;
 
-  ctx->slot = slot_ctx->bank->slot;
+  ctx->slot = bank->slot;
 
   ctx->features = fd_bank_features_get( ctx->bank );
 }
@@ -1389,21 +1389,22 @@ fd_executor_setup_accounts_for_txn( fd_exec_txn_ctx_t * txn_ctx ) {
 
 /* Stuff to be done before multithreading can begin */
 int
-fd_execute_txn_prepare_start( fd_exec_slot_ctx_t const * slot_ctx,
-                              fd_exec_txn_ctx_t *        txn_ctx,
-                              fd_txn_t const *           txn_descriptor,
-                              fd_rawtxn_b_t const *      txn_raw ) {
+fd_execute_txn_prepare_start( fd_bank_t *           bank,
+                              fd_funk_t const *     funk,
+                              fd_funk_txn_t const * funk_txn,
+                              fd_exec_txn_ctx_t *   txn_ctx,
+                              fd_txn_t const *      txn_descriptor,
+                              fd_rawtxn_b_t const * txn_raw ) {
 
-  fd_funk_t * funk               = slot_ctx->funk;
   fd_wksp_t * funk_wksp          = fd_funk_wksp( funk );
   /* FIXME: just pass in the runtime workspace, instead of getting it from fd_wksp_containing */
-  fd_wksp_t * runtime_pub_wksp   = fd_wksp_containing( slot_ctx );
-  ulong       funk_txn_gaddr     = fd_wksp_gaddr( funk_wksp, slot_ctx->funk_txn );
-  ulong       funk_gaddr         = fd_wksp_gaddr( funk_wksp, slot_ctx->funk->shmem );
+  fd_wksp_t * runtime_pub_wksp   = fd_wksp_containing( bank );
+  ulong       funk_txn_gaddr     = fd_wksp_gaddr( funk_wksp, funk_txn );
+  ulong       funk_gaddr         = fd_wksp_gaddr( funk_wksp, funk->shmem );
 
   /* Init txn ctx */
   fd_exec_txn_ctx_new( txn_ctx );
-  fd_exec_txn_ctx_from_exec_slot_ctx( slot_ctx,
+  fd_exec_txn_ctx_from_exec_slot_ctx( bank,
                                       txn_ctx,
                                       funk_wksp,
                                       runtime_pub_wksp,

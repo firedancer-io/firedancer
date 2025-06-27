@@ -70,7 +70,7 @@ fd_runtime_fuzz_txn_ctx_create( fd_runtime_fuzz_runner_t *         runner,
   }
 
   /* Add accounts to bpf program cache */
-  fd_bpf_scan_and_create_bpf_program_cache_entry( slot_ctx, runner->spad );
+  fd_bpf_scan_and_create_bpf_program_cache_entry( slot_ctx->bank, slot_ctx->funk, slot_ctx->funk_txn, runner->spad );
 
   /* Setup Bank manager */
 
@@ -132,7 +132,7 @@ fd_runtime_fuzz_txn_ctx_create( fd_runtime_fuzz_runner_t *         runner,
       fd_slot_hash_t * dummy_elem = deq_fd_slot_hash_t_push_tail_nocopy( slot_hashes );
       memset( dummy_elem, 0, sizeof(fd_slot_hash_t) );
 
-      fd_sysvar_slot_hashes_write( slot_ctx, default_slot_hashes_global );
+      fd_sysvar_slot_hashes_write( slot_ctx->bank, slot_ctx->funk, slot_ctx->funk_txn, default_slot_hashes_global );
 
       fd_sysvar_slot_hashes_delete( fd_sysvar_slot_hashes_leave( default_slot_hashes_global, slot_hashes ) );
     } FD_SPAD_FRAME_END;
@@ -144,14 +144,14 @@ fd_runtime_fuzz_txn_ctx_create( fd_runtime_fuzz_runner_t *         runner,
     // Provide a 0-set default entry
     fd_epoch_stake_history_entry_pair_t entry = {0};
     fd_sysvar_stake_history_init( slot_ctx );
-    fd_sysvar_stake_history_update( slot_ctx, &entry, runner->spad );
+    fd_sysvar_stake_history_update( slot_ctx->bank, slot_ctx->funk, slot_ctx->funk_txn, &entry, runner->spad );
   }
 
   /* Provide default last restart slot sysvar if not provided */
   FD_TXN_ACCOUNT_DECL( acc );
   int err = fd_txn_account_init_from_funk_readonly( acc, &fd_sysvar_last_restart_slot_id, funk, funk_txn );
   if( err==FD_ACC_MGR_ERR_UNKNOWN_ACCOUNT ) {
-    fd_sysvar_last_restart_slot_init( slot_ctx );
+    fd_sysvar_last_restart_slot_init( slot_ctx->bank, slot_ctx->funk, slot_ctx->funk_txn );
   }
 
   /* Provide a default clock if not present */
@@ -177,7 +177,14 @@ fd_runtime_fuzz_txn_ctx_create( fd_runtime_fuzz_runner_t *         runner,
   if( !epoch_rewards ) {
     fd_point_value_t point_value = {0};
     fd_hash_t const * last_hash = test_ctx->blockhash_queue_count > 0 ? (fd_hash_t const *)test_ctx->blockhash_queue[0]->bytes : (fd_hash_t const *)empty_bytes;
-    fd_sysvar_epoch_rewards_init( slot_ctx, 0UL, 2UL, 1UL, point_value, last_hash);
+    fd_sysvar_epoch_rewards_init(
+        slot_ctx->bank,
+        slot_ctx->funk,
+        slot_ctx->funk_txn,
+        0UL,
+        2UL,
+        1UL,
+        point_value, last_hash);
   }
 
   /* A NaN rent exemption threshold is U.B. in Solana Labs */
@@ -234,7 +241,7 @@ fd_runtime_fuzz_txn_ctx_create( fd_runtime_fuzz_runner_t *         runner,
       fd_block_block_hash_entry_t blockhash_entry;
       memcpy( &blockhash_entry.blockhash, test_ctx->blockhash_queue[i]->bytes, sizeof(fd_hash_t) );
       fd_bank_poh_set( slot_ctx->bank, blockhash_entry.blockhash );
-      fd_sysvar_recent_hashes_update( slot_ctx, runner->spad );
+      fd_sysvar_recent_hashes_update( slot_ctx->bank, slot_ctx->funk, slot_ctx->funk_txn, runner->spad );
     }
   } else {
     // Add a default empty blockhash and use it as genesis
@@ -244,7 +251,7 @@ fd_runtime_fuzz_txn_ctx_create( fd_runtime_fuzz_runner_t *         runner,
     fd_block_block_hash_entry_t blockhash_entry;
     memcpy( &blockhash_entry.blockhash, empty_bytes, sizeof(fd_hash_t) );
     fd_bank_poh_set( slot_ctx->bank, blockhash_entry.blockhash );
-    fd_sysvar_recent_hashes_update( slot_ctx, runner->spad );
+    fd_sysvar_recent_hashes_update( slot_ctx->bank, slot_ctx->funk, slot_ctx->funk_txn, runner->spad );
   }
 
   /* Create the raw txn (https://solana.com/docs/core/transactions#transaction-size) */
@@ -287,7 +294,7 @@ fd_runtime_fuzz_txn_ctx_exec( fd_runtime_fuzz_runner_t * runner,
   tpool->worker_cnt = 1;
   tpool->worker_max = 1;
 
-  fd_runtime_prepare_txns_start( slot_ctx, task_info, txn, 1UL, runner->spad );
+  fd_runtime_prepare_txns_start( slot_ctx->bank, slot_ctx->funk, slot_ctx->funk_txn, task_info, txn, 1UL, runner->spad );
 
   /* Setup the spad for account allocation */
   task_info->txn_ctx->spad      = runner->spad;
