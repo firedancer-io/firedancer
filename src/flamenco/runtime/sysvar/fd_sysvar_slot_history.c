@@ -52,6 +52,7 @@ fd_sysvar_slot_history_write_history( fd_exec_slot_ctx_t *       slot_ctx,
 }
 
 /* https://github.com/solana-labs/solana/blob/8f2c8b8388a495d2728909e30460aa40dcc5d733/sdk/program/src/slot_history.rs#L16 */
+
 void
 fd_sysvar_slot_history_init( fd_exec_slot_ctx_t * slot_ctx, fd_spad_t * runtime_spad ) {
   FD_SPAD_FRAME_BEGIN( runtime_spad ) {
@@ -94,15 +95,17 @@ fd_sysvar_slot_history_update( fd_exec_slot_ctx_t * slot_ctx, fd_spad_t * runtim
     .dataend = rec->vt->get_data( rec ) + rec->vt->get_data_len( rec )
   };
 
+  FD_LOG_WARNING(("DATA %p %lu", (void*)rec->vt->get_data( rec ), rec->vt->get_data_len( rec ) ));
+
   ulong total_sz = 0UL;
   err = fd_slot_history_decode_footprint( &ctx, &total_sz );
   if( FD_UNLIKELY( err ) ) {
-    FD_LOG_ERR(( "fd_slot_history_decode_footprint failed" ));
+    FD_LOG_CRIT(( "fd_slot_history_decode_footprint failed %d", err ));
   }
 
   uchar * mem = fd_spad_alloc( runtime_spad, fd_slot_history_align(), total_sz );
   if( FD_UNLIKELY( !mem ) ) {
-    FD_LOG_ERR(( "Unable to allocate memory for slot history" ));
+    FD_LOG_CRIT(( "Unable to allocate memory for slot history" ));
   }
 
   fd_slot_history_global_t * history = fd_slot_history_decode_global( mem, &ctx );
