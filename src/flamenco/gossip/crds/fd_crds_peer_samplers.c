@@ -22,6 +22,8 @@
 #include "fd_crds.h"
 #include "../fd_active_set_private.h"
 
+#define SAMPLE_IDX_SENTINEL ULONG_MAX
+
 /* This is a very rudimentary implementation of a weighted sampler. We will
    eventually want to use a modified fd_wsample. Using this until then. */
 struct peer_wsampler {
@@ -47,6 +49,10 @@ ulong
 peer_wsampler_sample( peer_wsampler_t const * ps,
                       fd_rng_t *              rng,
                       ulong                   ele_cnt ) {
+  if( FD_UNLIKELY( !ele_cnt || !ps->cumul_weight[ele_cnt-1] ) ) {
+    return SAMPLE_IDX_SENTINEL; /* Return sentinel if no weights or empty sampler */
+  }
+
   ulong sample = fd_rng_ulong_roll( rng, ps->cumul_weight[ele_cnt-1] );
 
   /* Binary search for the smallest cumulative weight >= sample */
@@ -68,31 +74,22 @@ peer_wsampler_upd( peer_wsampler_t * ps,
                    ulong             weight,
                    ulong             idx,
                    ulong             ele_cnt ) {
-  if( FD_UNLIKELY( !ps || !weight ) ) return -1;
+  if( FD_UNLIKELY( !ps ) ) return -1;
 
   ulong old_weight = ps->cumul_weight[idx] - PREV_PEER_WEIGHT( ps, idx );
   if( FD_UNLIKELY( old_weight==weight ) ) return 0; /* No change */
   long score_delta = (long)(weight - old_weight);
 
   if( score_delta>0 ){
-    for( ulong i = idx; i < ele_cnt; i++ ) {
+    for( ulong i = idx; i<ele_cnt; i++ ) {
       ps->cumul_weight[i] += (ulong)score_delta;
     }
   } else {
     score_delta = -score_delta;
-    for( ulong i = idx; i < ele_cnt; i++ ) {
+    for( ulong i=idx; i<ele_cnt; i++ ) {
       ps->cumul_weight[i] -= (ulong)score_delta;
     }
   }
-  return 0;
-}
-
-int
-peer_wsampler_add( peer_wsampler_t * ps,
-                   ulong             score,
-                   ulong             idx ) {
-  if( FD_UNLIKELY( !ps || !score ) ) return -1;
-  ps->cumul_weight[idx] = score + PREV_PEER_WEIGHT( ps, idx );
   return 0;
 }
 
@@ -149,14 +146,17 @@ crds_samplers_upd_peer( crds_samplers_t * ps,
                         fd_crds_entry_t * peer,
                         long              now ) {
   ulong idx = peer->contact_info.sampler_idx;
-  if( FD_UNLIKELY( idx>=ps->ele_cnt ) ) return -1; /* Invalid index */
+  if( FD_UNLIKELY( idx>=ps->ele_cnt ) ) {
+    FD_LOG_WARNING(( "Bad peer idx supplied in sample update" )); /* Invalid index */
+    return -1;
+  }
   ulong peer_score = peer_wsampler_peer_score( peer, now );
   if( FD_UNLIKELY( peer_wsampler_upd( ps->pr_sampler, peer_score, idx, ps->ele_cnt )<0 ) ) return -1;
 
   for( ulong i=0UL; i<25UL; i++ ) {
     ulong bucket_score = peer_wsampler_bucket_score( peer, i );
     if( FD_UNLIKELY( !bucket_score ) ) FD_LOG_ERR(( "0-weighted peer in bucket, should not be possible" ));
-    if( FD_UNLIKELY( peer_wsampler_upd( &ps->bucket_samplers[i], bucket_score, idx, 25UL )<0 ) ) return -1;
+    if( FD_UNLIKELY( peer_wsampler_upd( &ps->bucket_samplers[i], bucket_score, idx, ps->ele_cnt )<0 ) ) return -1;
   }
 
   return 0;
@@ -168,10 +168,14 @@ crds_samplers_add_peer( crds_samplers_t * ps,
                         long              now ) {
   ulong idx = fd_ulong_min( ps->ele_cnt, (CRDS_MAX_CONTACT_INFO)-1UL );
   peer->contact_info.sampler_idx = idx;
-  if( FD_UNLIKELY( !!crds_samplers_upd_peer( ps, peer, now ) ) ) return -1;
+  ps->ele_cnt++;
+  if( FD_UNLIKELY( !!crds_samplers_upd_peer( ps, peer, now ) ) ){
+    FD_LOG_ERR(( "Failed to update peer in samplers" ));
+    return -1;
+  }
 
   ps->ele[idx] = peer;
-  ps->ele_cnt++;
+
 
   return 0;
 }
@@ -183,7 +187,7 @@ crds_samplers_rem_peer( crds_samplers_t * ps,
   if( FD_UNLIKELY( idx>=ps->ele_cnt ) ) return -1; /* Invalid index */
   if( FD_UNLIKELY( peer_wsampler_rem( ps->pr_sampler, idx, ps->ele_cnt )<0 ) ) return -1;
   for( ulong i=0UL; i<25UL; i++ ) {
-    if( FD_UNLIKELY( peer_wsampler_rem( &ps->bucket_samplers[i], idx, 25UL )<0 ) ) return -1;
+    if( FD_UNLIKELY( peer_wsampler_rem( &ps->bucket_samplers[i], idx, ps->ele_cnt )<0 ) ) return -1;
   }
 
   // Shift the elements down in elems array
@@ -193,5 +197,19 @@ crds_samplers_rem_peer( crds_samplers_t * ps,
   }
   ps->ele_cnt--;
   return 0;
+}
+
+void
+crds_samplers_new( crds_samplers_t * ps ) {
+  if( FD_UNLIKELY( !ps ) ) return;
+
+  peer_wsampler_init( ps->pr_sampler );
+  for( ulong i=0UL; i<25UL; i++ ) {
+    peer_wsampler_init( &ps->bucket_samplers[i] );
+  }
+  ps->ele_cnt = 0UL;
+  for( ulong i=0UL; i<CRDS_MAX_CONTACT_INFO; i++ ) {
+    ps->ele[i] = NULL;
+  }
 }
 

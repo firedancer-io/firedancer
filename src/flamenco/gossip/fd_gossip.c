@@ -676,10 +676,12 @@ rx_pull_response( fd_gossip_t *                          gossip,
       fd_crds_release( gossip->crds, candidate );
     else {
       if( FD_UNLIKELY( fd_crds_entry_is_contact_info( candidate ) ) ){
+        fd_contact_info_t const * contact_info = fd_crds_entry_contact_info( candidate );
+        fd_ip4_port_t origin_addr              = fd_contact_info_gossip_socket( contact_info );
          int active = fd_ping_tracker_active( gossip->ping_tracker,
                                               origin_pubkey,
                                               origin_stake,
-                                              NULL /* TODO */,
+                                              &origin_addr,
                                               now );
           active ? fd_crds_peer_active( gossip->crds, origin_pubkey, now )
                  : fd_crds_peer_inactive( gossip->crds, origin_pubkey, now );

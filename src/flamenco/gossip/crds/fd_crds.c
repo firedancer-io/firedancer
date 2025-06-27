@@ -406,6 +406,8 @@ fd_crds_new( void *     shmem,
   crds->contact_info.pool  = crds_contact_info_pool_join( crds_contact_info_pool_new( _ci_pool, CRDS_MAX_CONTACT_INFO ) );
   crds->contact_info.dlist = crds_contact_info_dlist_join( crds_contact_info_dlist_new( _ci_dlist ) );
 
+  crds_samplers_new( crds->samplers );
+
   FD_COMPILER_MFENCE();
   FD_VOLATILE( crds->magic ) = FD_CRDS_MAGIC;
   FD_COMPILER_MFENCE();
@@ -471,7 +473,7 @@ fd_crds_expire( fd_crds_t * crds,
   while( !staked_expire_dlist_is_empty( crds->staked_expire_dlist, crds->pool ) ) {
     fd_crds_entry_t * head = staked_expire_dlist_ele_peek_head( crds->staked_expire_dlist, crds->pool );
 
-    if( FD_LIKELY( head->expire.wallclock_nanos<now-STAKED_EXPIRE_DURATION_NANOS ) ) break;
+    if( FD_LIKELY( head->expire.wallclock_nanos>now-STAKED_EXPIRE_DURATION_NANOS ) ) break;
 
     staked_expire_dlist_ele_pop_head( crds->staked_expire_dlist, crds->pool );
     hash_treap_ele_remove( crds->hash_treap, head, crds->pool );
@@ -491,7 +493,7 @@ fd_crds_expire( fd_crds_t * crds,
   while( !unstaked_expire_dlist_is_empty( crds->unstaked_expire_dlist, crds->pool ) ) {
     fd_crds_entry_t * head = unstaked_expire_dlist_ele_peek_head( crds->unstaked_expire_dlist, crds->pool );
 
-    if( FD_LIKELY( head->expire.wallclock_nanos<now-unstaked_expire_duration_nanos ) ) break;
+    if( FD_LIKELY( head->expire.wallclock_nanos>now-unstaked_expire_duration_nanos ) ) break;
 
     unstaked_expire_dlist_ele_pop_head( crds->unstaked_expire_dlist, crds->pool );
     hash_treap_ele_remove( crds->hash_treap, head, crds->pool );
@@ -507,7 +509,7 @@ fd_crds_expire( fd_crds_t * crds,
   while( crds->purged_len ) {
     fd_crds_purged_t * purged = &crds->purged_list[ crds->purged_head ];
 
-    if( FD_LIKELY( purged->wallclock_nanos<now-60L*1000L*1000L*1000L ) ) break;
+    if( FD_LIKELY( purged->wallclock_nanos>now-60L*1000L*1000L*1000L ) ) break;
     crds->purged_head = (crds->purged_head+1UL)%crds->purged_cap;
     crds->purged_len--;
   }
@@ -573,7 +575,6 @@ fd_crds_populate_preflight( fd_crds_t *                         crds,
 
   out_value->wallclock_nanos = view->wallclock_nanos;
 
-  out_value->contact_info.instance_creation_wallclock_nanos = view->contact_info->instance_creation_wallclock_nanos;
   fd_memcpy( out_value->node_instance.token, view_payload + view->node_instance->token_off, 32UL );
 
   fd_sha256_init(   sha2 );
@@ -591,6 +592,8 @@ fd_crds_populate_preflight( fd_crds_t *                         crds,
     }
     fd_crds_contact_info_entry_t * ci = crds_contact_info_pool_ele_acquire( crds->contact_info.pool );
     out_value->contact_info.ci = ci;
+
+    out_value->contact_info.instance_creation_wallclock_nanos = view->contact_info->instance_creation_wallclock_nanos;
   }
 }
 
@@ -827,12 +830,10 @@ fd_contact_info_t const *
 fd_crds_bucket_sample_and_remove( fd_crds_t * crds,
                                   fd_rng_t *  rng,
                                   ulong       bucket ) {
-  if( FD_UNLIKELY( !crds->samplers->ele_cnt ) ) {
-    return NULL;
-  }
   ulong idx = peer_wsampler_sample( &crds->samplers->bucket_samplers[bucket],
                                     rng,
                                     crds->samplers->ele_cnt );
+  if( FD_UNLIKELY( idx==SAMPLE_IDX_SENTINEL ) ) return NULL;
   /* Set weight to 0 to prevent future sampling until added back with
      fd_crds_bucket_add */
   peer_wsampler_upd( &crds->samplers->bucket_samplers[bucket],
@@ -850,7 +851,8 @@ fd_crds_bucket_add( fd_crds_t *   crds,
   fd_crds_key_t key = make_contact_info_key( pubkey );
   fd_crds_entry_t * peer_ci = lookup_map_ele_query( crds->lookup_map, &key, NULL, crds->pool );
   if( FD_UNLIKELY( !peer_ci ) ) {
-    FD_LOG_ERR(( "Peer not found in CRDS. Bad entry" ));
+    FD_LOG_WARNING(( "Peer not found in CRDS. Likely dropped." ));
+    return;
   }
   ulong score = peer_wsampler_bucket_score( peer_ci,  bucket );
   peer_wsampler_upd( &crds->samplers->bucket_samplers[bucket],
@@ -863,11 +865,10 @@ fd_crds_bucket_add( fd_crds_t *   crds,
 fd_contact_info_t const *
 fd_crds_peer_sample( fd_crds_t const * crds,
                      fd_rng_t *         rng ) {
-  if( FD_UNLIKELY( !crds->samplers->ele_cnt ) ) return NULL;
-
   ulong idx = peer_wsampler_sample( crds->samplers->pr_sampler,
                                     rng,
                                     crds->samplers->ele_cnt );
+  if( FD_UNLIKELY( idx==SAMPLE_IDX_SENTINEL ) ) return NULL;
   return fd_crds_entry_contact_info( crds->samplers->ele[idx] );
 }
 

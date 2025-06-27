@@ -48,7 +48,8 @@ fd_crds_expire( fd_crds_t * crds,
                 long        now );
 
 /* fd_crds_len returns the number of entries in the CRDS table. This does not
-   include purged entries, which have a separate queue tracking them. See fd_crds_purged_* APIs below. */
+   include purged entries, which have a separate queue tracking them.
+   See fd_crds_purged_* APIs below. */
 ulong
 fd_crds_len( fd_crds_t const * crds );
 
