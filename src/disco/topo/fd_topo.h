@@ -81,6 +81,7 @@ typedef struct {
 struct fd_topo_net_tile {
   ulong umem_dcache_obj_id;  /* dcache for XDP UMEM frames */
   uint  bind_address;
+  uint  default_address;
 
   ushort shred_listen_port;
   ushort quic_transaction_listen_port;
@@ -256,6 +257,11 @@ struct fd_topo_tile {
         ushort port; /* in host byte order */
       } adtl_dest; /* be careful ip and host are in different byte order */
     } shred;
+
+    struct {
+      ulong depth; /* TODO expand */
+      char identity_key_path[ PATH_MAX ];
+    } snp;
 
     struct {
       ulong disable_blockstore_from_slot;

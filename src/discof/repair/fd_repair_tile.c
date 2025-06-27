@@ -17,6 +17,7 @@
 #include "../../util/pod/fd_pod_format.h"
 #include "../../choreo/fd_choreo_base.h"
 #include "../../util/net/fd_net_headers.h"
+#include "../../waltz/snp/fd_snp_app.h"
 
 #include "../forest/fd_forest.h"
 #include "fd_fec_repair.h"
@@ -24,7 +25,7 @@
 
 #include <errno.h>
 
-#define IN_KIND_NET     (0)
+#define IN_KIND_SNP     (0)
 #define IN_KIND_CONTACT (1)
 #define IN_KIND_STAKE   (2)
 #define IN_KIND_SHRED   (3)
@@ -150,6 +151,8 @@ struct fd_repair_tile_ctx {
   fd_blockstore_t * blockstore;
 
   fd_keyguard_client_t keyguard_client[1];
+
+  fd_snp_app_t * snp;
 };
 typedef struct fd_repair_tile_ctx fd_repair_tile_ctx_t;
 
@@ -166,6 +169,8 @@ loose_footprint( fd_topo_tile_t const * tile FD_PARAM_UNUSED ) {
 FD_FN_PURE static inline ulong
 scratch_footprint( fd_topo_tile_t const * tile ) {
 
+  fd_snp_app_limits_t limits = { 0 };
+
   ulong l = FD_LAYOUT_INIT;
   l = FD_LAYOUT_APPEND( l, alignof(fd_repair_tile_ctx_t), sizeof(fd_repair_tile_ctx_t)             );
   l = FD_LAYOUT_APPEND( l, fd_repair_align(),             fd_repair_footprint()                    );
@@ -176,6 +181,7 @@ scratch_footprint( fd_topo_tile_t const * tile ) {
   l = FD_LAYOUT_APPEND( l, fd_fec_chainer_align(),        fd_fec_chainer_footprint( 1 << 20 ) ); // TODO: fix this
   l = FD_LAYOUT_APPEND( l, fd_scratch_smem_align(),       fd_scratch_smem_footprint( FD_REPAIR_SCRATCH_MAX ) );
   l = FD_LAYOUT_APPEND( l, fd_scratch_fmem_align(),       fd_scratch_fmem_footprint( FD_REPAIR_SCRATCH_DEPTH ) );
+  l = FD_LAYOUT_APPEND( l, fd_snp_app_align(),            fd_snp_app_footprint( &limits )         );
   return FD_LAYOUT_FINI( l, scratch_align() );
 }
 
@@ -416,6 +422,31 @@ fd_repair_send_requests( fd_repair_tile_ctx_t   * ctx,
   }
 }
 
+static int
+snp_callback_tx( void const *  _ctx,
+                 uchar *       packet,
+                 ulong         packet_sz,
+                 fd_snp_meta_t meta ) {
+  (void)_ctx;
+  (void)packet;
+  (void)packet_sz;
+  (void)meta;
+  return FD_SNP_SUCCESS;
+}
+
+static int
+snp_callback_rx( void const *  _ctx,
+                 fd_snp_peer_t peer,
+                 uchar const * data,
+                 ulong         data_sz,
+                 fd_snp_meta_t meta ) {
+  (void)_ctx;
+  (void)peer;
+  (void)data;
+  (void)data_sz;
+  (void)meta;
+  return FD_SNP_SUCCESS;
+}
 
 static inline int
 before_frag( fd_repair_tile_ctx_t * ctx,
@@ -423,7 +454,7 @@ before_frag( fd_repair_tile_ctx_t * ctx,
              ulong                  seq FD_PARAM_UNUSED,
              ulong                  sig ) {
   uint in_kind = ctx->in_kind[ in_idx ];
-  if( FD_LIKELY( in_kind==IN_KIND_NET ) ) return fd_disco_netmux_sig_proto( sig )!=DST_PROTO_REPAIR;
+  if( FD_LIKELY( in_kind==IN_KIND_SNP ) ) return fd_disco_netmux_sig_proto( sig )!=DST_PROTO_REPAIR;
   return 0;
 }
 
@@ -448,7 +479,7 @@ during_frag( fd_repair_tile_ctx_t * ctx,
   // TODO: check for sz>MTU for failure once MTUs are decided
   uint in_kind = ctx->in_kind[ in_idx ];
   fd_repair_in_ctx_t const * in_ctx = &ctx->in_links[ in_idx ];
-  if( FD_LIKELY( in_kind==IN_KIND_NET ) ) {
+  if( FD_LIKELY( in_kind==IN_KIND_SNP ) ) {
     dcache_entry = fd_net_rx_translate_frag( &in_ctx->net_rx, chunk, ctl, sz );
     dcache_entry_sz = sz;
 
@@ -1064,8 +1095,8 @@ unprivileged_init( fd_topo_t *      topo,
   uint sign_link_in_idx = UINT_MAX;
   for( uint in_idx=0U; in_idx<(tile->in_cnt); in_idx++ ) {
     fd_topo_link_t * link = &topo->links[ tile->in_link_id[ in_idx ] ];
-    if( 0==strcmp( link->name, "net_repair" ) ) {
-      ctx->in_kind[ in_idx ] = IN_KIND_NET;
+    if( 0==strcmp( link->name, "snp_repair" ) ) {
+      ctx->in_kind[ in_idx ] = IN_KIND_SNP;
       fd_net_rx_bounds_init( &ctx->in_links[ in_idx ].net_rx, link->dcache );
       continue;
     } else if( 0==strcmp( link->name, "gossip_repai" ) ) {
@@ -1095,9 +1126,9 @@ unprivileged_init( fd_topo_t *      topo,
   for( uint out_idx=0U; out_idx<(tile->out_cnt); out_idx++ ) {
     fd_topo_link_t * link = &topo->links[ tile->out_link_id[ out_idx ] ];
 
-    if( 0==strcmp( link->name, "repair_net" ) ) {
+    if( 0==strcmp( link->name, "repair_snp" ) ) {
 
-      if( FD_UNLIKELY( ctx->net_out_mcache ) ) FD_LOG_ERR(( "repair tile has multiple repair_net out links" ));
+      if( FD_UNLIKELY( ctx->net_out_mcache ) ) FD_LOG_ERR(( "repair tile has multiple repair_snp out links" ));
       ctx->net_out_mcache = link->mcache;
       ctx->net_out_sync   = fd_mcache_seq_laddr( ctx->net_out_mcache );
       ctx->net_out_depth  = fd_mcache_depth( ctx->net_out_mcache );
@@ -1138,13 +1169,21 @@ unprivileged_init( fd_topo_t *      topo,
 
   /* Scratch mem setup */
 
+  fd_snp_app_limits_t limits = { 0 };
+
   ctx->blockstore = &ctx->blockstore_ljoin;
   ctx->repair     = FD_SCRATCH_ALLOC_APPEND( l, fd_repair_align(), fd_repair_footprint() );
   ctx->forest = FD_SCRATCH_ALLOC_APPEND( l, fd_forest_align(), fd_forest_footprint( tile->repair.slot_max ) );
   ctx->fec_sigs = FD_SCRATCH_ALLOC_APPEND( l, fd_fec_sig_align(), fd_fec_sig_footprint( 20 ) );
   ctx->reasm = FD_SCRATCH_ALLOC_APPEND( l, fd_reasm_align(), fd_reasm_footprint( 20 ) );
+  void * _snp      = FD_SCRATCH_ALLOC_APPEND( l, fd_snp_app_align(),      fd_snp_app_footprint( &limits )  );
   // ctx->fec_repair = FD_SCRATCH_ALLOC_APPEND( l, fd_fec_repair_align(), fd_fec_repair_footprint(  ( 1<<20 ), tile->repair.shred_tile_cnt ) );
   /* Look at fec_repair.h for an explanation of this fec_max. */
+
+  fd_snp_app_t * snp = fd_snp_app_join( fd_snp_app_new( _snp, &limits ) );
+  snp->cb.ctx = ctx;
+  snp->cb.rx = snp_callback_rx;
+  snp->cb.tx = snp_callback_tx;
 
   ctx->fec_chainer = FD_SCRATCH_ALLOC_APPEND( l, fd_fec_chainer_align(), fd_fec_chainer_footprint( 1 << 20 ) );
 
@@ -1202,6 +1241,7 @@ unprivileged_init( fd_topo_t *      topo,
   ctx->fec_chainer = fd_fec_chainer_join( fd_fec_chainer_new( ctx->fec_chainer, 1 << 20, 0 ) );
   ctx->repair_iter = fd_forest_iter_init( ctx->forest );
   FD_TEST( fd_forest_iter_done( ctx->repair_iter, ctx->forest ) );
+  ctx->snp      = snp;
 
   /**********************************************************************/
   /* turbine_slot fseq                                                  */
