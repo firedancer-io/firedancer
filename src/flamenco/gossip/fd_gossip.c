@@ -144,9 +144,9 @@ fd_gossip_footprint( ulong max_values ) {
 static void
 push_state_reset( push_state_t * state,
                   uchar const * identity_pubkey ) {
-  state->msg[ 0 ] = FD_GOSSIP_MESSAGE_PUSH;
+  FD_STORE( uint, state->msg, FD_GOSSIP_MESSAGE_PUSH );
   fd_memcpy( &state->msg[ 4 ], identity_pubkey, 32UL );
-  state->msg_sz     = 36UL; /* 4 byte tag + 32 byte sender pubkey */
+  state->msg_sz     = 44UL; /* 4 byte tag + 32 byte sender pubkey + 8 byte crds len*/
   state->num_crds   = 0UL;
   state->has_my_ci  = 0;
 }
@@ -257,12 +257,12 @@ push_state_flush( fd_gossip_t *   gossip,
                   push_state_t *  state,
                   long            now ) {
   if( FD_UNLIKELY( !state->num_crds ) ) return; /* Nothing to flush */
-
+  FD_STORE( ulong, &state->msg[ 36UL ], state->num_crds );
   /* Send the message */
   gossip->send_fn( gossip->send_ctx, state->msg, state->msg_sz, &state->push_dest, (ulong)now );
 
   /* Reset the push state */
-  state->msg_sz     = 36UL; /* 4 byte tag + 32 byte sender pubkey */
+  state->msg_sz     = 44UL; /* 4 byte tag + 32 byte sender pubkey */
   state->num_crds   = 0UL;
   state->has_my_ci  = 0;
 }
@@ -865,7 +865,7 @@ strip_network_hdrs( uchar const *   data,
   *payload     = (uchar *)( (ulong)udp + sizeof(fd_udp_hdr_t) );
   *payload_sz  = payload_sz_;
 
-  if( FD_UNLIKELY( (ulong)payload+payload_sz_>(ulong)data+data_sz ) )
+  if( FD_UNLIKELY( (ulong)(*payload)+payload_sz_>(ulong)data+data_sz ) )
     FD_LOG_ERR(( "Malformed UDP payload" ));
 
   peer_address->addr = ip4->saddr;
@@ -963,9 +963,11 @@ tx_ping( fd_gossip_t * gossip,
                                       &peer_address,
                                       &ping_token ) ) {
 
-
+    uchar sign_img[ 48UL ];
+    fd_memcpy( sign_img, "SOLANA_PING_PONG", 16UL );
+    fd_memcpy( sign_img+16UL, ping_token, 32UL );
     fd_memcpy( out_ping->ping_token, ping_token, 32UL );
-    gossip->sign_fn( gossip->sign_ctx, out_ping->ping_token, 32UL, PING_PONG_SIGN_TYPE, out_ping->signature );
+    gossip->sign_fn( gossip->sign_ctx, sign_img, 48UL, PING_PONG_SIGN_TYPE, out_ping->signature );
 
     gossip->send_fn( gossip->send_ctx, (uchar *)out_payload, sizeof(out_payload), peer_address, (ulong)now );
   }
@@ -1057,7 +1059,7 @@ tx_pull_request( fd_gossip_t * gossip,
   double max_bits       = (double)(BLOOM_FILTER_MAX_BYTES*8UL);
   double max_items      = ceil(max_bits / ( -BLOOM_NUM_KEYS / log( 1.0 - exp( log( BLOOM_FALSE_POSITIVE_RATE ) / BLOOM_NUM_KEYS) )));
   double _mask_bits     = ceil( log2( (double)num_items / max_items ) );
-  uint mask_bits        = _mask_bits >= 0.0 ? (uint)_mask_bits : 0UL;
+  uint mask_bits        = _mask_bits >= 0.0 ? (uint)_mask_bits : 1UL;
   ulong mask            = fd_rng_ulong( gossip->rng ) & ((1UL<<mask_bits)-1UL);
 
   crds_bloom_t * filter   = gossip->bloom;
