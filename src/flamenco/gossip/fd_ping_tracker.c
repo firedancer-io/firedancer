@@ -338,10 +338,15 @@ fd_ping_tracker_pop_request( fd_ping_tracker_t *    ping_tracker,
     if( FD_UNLIKELY( !waiting_list_is_empty( ping_tracker->waiting, ping_tracker->pool ) ) ) peer_waiting = waiting_list_ele_peek_head( ping_tracker->waiting, ping_tracker->pool );
 
     fd_ping_peer_t * next;
-    if( FD_UNLIKELY( !peer_refreshing && !peer_waiting && !peer_invalid ) ) return 0;
-    else if( FD_UNLIKELY( peer_refreshing && !peer_waiting && !peer_invalid ) ) next = peer_refreshing;
-    else if( FD_UNLIKELY( !peer_refreshing && peer_waiting && !peer_invalid ) ) next = peer_waiting;
-    else if( FD_UNLIKELY( !peer_refreshing && !peer_waiting && peer_invalid ) ) next = peer_invalid;
+    if(      FD_UNLIKELY( !peer_refreshing && !peer_waiting && !peer_invalid ) ) return 0;
+    else if( FD_UNLIKELY(  peer_refreshing && !peer_waiting && !peer_invalid ) ) next = peer_refreshing;
+    else if( FD_UNLIKELY( !peer_refreshing &&  peer_waiting && !peer_invalid ) ) next = peer_waiting;
+    else if( FD_UNLIKELY( !peer_refreshing && !peer_waiting &&  peer_invalid ) ) next = peer_invalid;
+
+    else if( FD_UNLIKELY(  peer_refreshing &&  peer_waiting && !peer_invalid ) ) next = (peer_refreshing->next_ping_nanos<peer_waiting->next_ping_nanos) ? peer_refreshing : peer_waiting;
+    else if( FD_UNLIKELY(  peer_refreshing && !peer_waiting &&  peer_invalid ) ) next = (peer_refreshing->next_ping_nanos<peer_invalid->next_ping_nanos) ? peer_refreshing : peer_invalid;
+    else if( FD_UNLIKELY( !peer_refreshing &&  peer_waiting &&  peer_invalid ) ) next = (peer_waiting->next_ping_nanos<peer_invalid->next_ping_nanos)    ? peer_waiting    : peer_invalid;
+
     else if( FD_LIKELY( peer_invalid->next_ping_nanos<peer_refreshing->next_ping_nanos && peer_invalid->next_ping_nanos<peer_waiting->next_ping_nanos ) ) next = peer_invalid;
     else if( FD_LIKELY( peer_refreshing->next_ping_nanos<peer_waiting->next_ping_nanos && peer_refreshing->next_ping_nanos<peer_invalid->next_ping_nanos ) ) next = peer_refreshing;
     else next = peer_waiting;
