@@ -11,6 +11,8 @@ struct fd_stem_context {
    fd_frag_meta_t ** mcaches;
    ulong *           seqs;
    ulong *           depths;
+   long *            tslastwake;
+   long              time_before_wake;
 
    ulong *           cr_avail;
    ulong             cr_decrement_amount;
@@ -58,13 +60,17 @@ fd_stem_publish( fd_stem_context_t * stem,
   ulong * seqp = &stem->seqs[ out_idx ];
   ulong   seq  = *seqp;
   fd_mcache_publish( stem->mcaches[ out_idx ], stem->depths[ out_idx ], seq, sig, chunk, sz, ctl, tsorig, tspub );
+  
+  long now = fd_log_wallclock();
+  // TODO: think abt moving retrieval of flag inside? but pretty hard cuz this value is needed for the consumer (every frag)
+
   uint * futex_flag = fd_mcache_futex_flag( stem->mcaches[out_idx] );
-  FD_LOG_NOTICE(("Producer: futex_flag address: %p", (void*) futex_flag));
-  FD_LOG_NOTICE(("Producer: futex_flag value: %d", (int) *futex_flag));
-  // logic like if need_to_wake_up [out_idx]
-  futex_wake( (uint32_t*) futex_flag, 1);
-  // is this okay? writing to header every time? -- only the producer should be pulling a writable version anyways
   *futex_flag += 1;
+  // fd_mcache_futex_arr
+  if( now - stem->tslastwake[ out_idx ] >= stem->time_before_wake ) {
+    futex_wake( (uint32_t*) futex_flag, 1 );
+    stem->tslastwake[ out_idx ] = now;
+  }
   
   *stem->cr_avail -= stem->cr_decrement_amount;
   *seqp = fd_seq_inc( seq, 1UL );

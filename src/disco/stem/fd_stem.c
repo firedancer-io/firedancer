@@ -154,6 +154,14 @@
 #error "STEM_BURST must be defined"
 #endif
 
+#ifndef STEM_TIME_BEFORE_WAIT
+#define STEM_TIME_BEFORE_WAIT (3000000000L) // 3 seconds
+#endif
+
+#ifndef STEM_TIME_BEFORE_WAKE
+#define STEM_TIME_BEFORE_WAKE (5000000000L) // 5 seconds
+#endif
+
 #ifndef STEM_CALLBACK_CONTEXT_TYPE
 #error "STEM_CALLBACK_CONTEXT_TYPE must be defined"
 #endif
@@ -192,6 +200,7 @@ STEM_(scratch_footprint)( ulong in_cnt,
   l = FD_LAYOUT_APPEND( l, alignof(fd_stem_tile_in_t), in_cnt*sizeof(fd_stem_tile_in_t)     );  /* in */
   l = FD_LAYOUT_APPEND( l, alignof(ulong),             out_cnt*sizeof(ulong)                ); /* out_depth */
   l = FD_LAYOUT_APPEND( l, alignof(ulong),             out_cnt*sizeof(ulong)                ); /* out_seq */
+  l = FD_LAYOUT_APPEND( l, alignof(long),              out_cnt*sizeof(long)                 ); /* tslastwake */
   l = FD_LAYOUT_APPEND( l, alignof(ulong const *),     cons_cnt*sizeof(ulong const *)       ); /* cons_fseq */
   l = FD_LAYOUT_APPEND( l, alignof(ulong *),           cons_cnt*sizeof(ulong *)             ); /* cons_slow */
   l = FD_LAYOUT_APPEND( l, alignof(ulong),             cons_cnt*sizeof(ulong)               ); /* cons_out */
@@ -211,6 +220,8 @@ STEM_(run1)( ulong                        in_cnt,
              ulong *                      _cons_out,
              ulong **                     _cons_fseq,
              ulong                        burst,
+             long                         time_before_wait,
+             long                         time_before_wake,
              long                         lazy,
              fd_rng_t *                   rng,
              void *                       scratch,
@@ -221,9 +232,14 @@ STEM_(run1)( ulong                        in_cnt,
                                  position in_seq in the in_idx polling sequence.  The ordering of this array is continuously
                                  shuffled to avoid lighthousing effects in the output fragment stream at extreme fan-in and load */
 
+
+  // Hack around "unusued parameter time_before_wake
+  (void) time_before_wake;
+
   /* out frag stream state */
   ulong *        out_depth; /* ==fd_mcache_depth( out_mcache[out_idx] ) for out_idx in [0, out_cnt) */
   ulong *        out_seq;  /* next mux frag sequence number to publish for out_idx in [0, out_cnt) ]*/
+  long *         tslastwake; /* last time a wakeup was triggered for out_idx in [0, out_cnt) */
 
   /* out flow control state */
   ulong          cr_avail;   /* number of flow control credits available to publish downstream, in [0,cr_max] */
@@ -290,15 +306,19 @@ STEM_(run1)( ulong                        in_cnt,
 
   out_depth  = (ulong *)FD_SCRATCH_ALLOC_APPEND( l, alignof(ulong), out_cnt*sizeof(ulong) );
   out_seq    = (ulong *)FD_SCRATCH_ALLOC_APPEND( l, alignof(ulong), out_cnt*sizeof(ulong) );
+  tslastwake = (long *)FD_SCRATCH_ALLOC_APPEND( l, alignof(long), out_cnt*sizeof(long) );
 
   ulong cr_max = fd_ulong_if( !out_cnt, 128UL, ULONG_MAX );
 
+  // TODO: change all wallclocks to tickcount
+  long ts_first_wake = fd_log_wallclock();
   for( ulong out_idx=0UL; out_idx<out_cnt; out_idx++ ) {
 
     if( FD_UNLIKELY( !out_mcache[ out_idx ] ) ) FD_LOG_ERR(( "NULL out_mcache[%lu]", out_idx ));
 
     out_depth[ out_idx ] = fd_mcache_depth( out_mcache[ out_idx ] );
     out_seq[ out_idx ] = 0UL;
+    tslastwake[ out_idx ] = ts_first_wake;
 
     cr_max = fd_ulong_min( cr_max, out_depth[ out_idx ] );
   }
@@ -451,7 +471,7 @@ STEM_(run1)( ulong                        in_cnt,
 
     long now_debug = fd_log_wallclock();
     long timedif = now_debug - last_frag_time;
-    if (timedif > 30000000000L && in_cnt) {
+    if (timedif > time_before_wait && in_cnt) {
       fd_stem_tile_in_t * this_in_futex = &in[ in_seq ];
       fd_frag_meta_t const * this_in_futex_mcache = this_in_futex->mcache;
       const uint32_t * futex_seq_ptr = fd_mcache_futex_flag_const( this_in_futex_mcache);
@@ -463,7 +483,8 @@ STEM_(run1)( ulong                        in_cnt,
       .mcaches             = out_mcache,
       .depths              = out_depth,
       .seqs                = out_seq,
-
+      .tslastwake          = tslastwake,
+      .time_before_wake    = time_before_wake,
       .cr_avail            = &cr_avail,
       .cr_decrement_amount = fd_ulong_if( out_cnt>0UL, 1UL, 0UL ),
     };
@@ -736,6 +757,8 @@ STEM_(run)( fd_topo_t *      topo,
                cons_out,
                cons_fseq,
                STEM_BURST,
+               STEM_TIME_BEFORE_WAIT,
+               STEM_TIME_BEFORE_WAKE,
                STEM_LAZY,
                rng,
                fd_alloca( FD_STEM_SCRATCH_ALIGN, STEM_(scratch_footprint)( polled_in_cnt, tile->out_cnt, reliable_cons_cnt ) ),
@@ -745,6 +768,8 @@ STEM_(run)( fd_topo_t *      topo,
 #undef STEM_NAME
 #undef STEM_
 #undef STEM_BURST
+#undef STEM_TIME_BEFORE_WAIT
+#undef STEM_TIME_BEFORE_WAKE
 #undef STEM_CALLBACK_CONTEXT_TYPE
 #undef STEM_LAZY
 #undef STEM_CALLBACK_DURING_HOUSEKEEPING
