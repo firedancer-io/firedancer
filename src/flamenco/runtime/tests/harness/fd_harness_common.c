@@ -18,9 +18,10 @@ fd_runtime_fuzz_runner_footprint( void ) {
 }
 
 fd_runtime_fuzz_runner_t *
-fd_runtime_fuzz_runner_new( void * mem,
-                            void * spad_mem,
-                            ulong  wksp_tag ) {
+fd_runtime_fuzz_runner_new( void *      mem,
+                            void *      spad_mem,
+                            fd_bank_t * bank,
+                            ulong       wksp_tag ) {
   ulong txn_max = 4+fd_tile_cnt();
   uint rec_max  = 1024;
 
@@ -40,6 +41,9 @@ fd_runtime_fuzz_runner_new( void * mem,
   /* Create spad */
   runner->spad = fd_spad_join( fd_spad_new( spad_mem, FD_RUNTIME_TRANSACTION_EXECUTION_FOOTPRINT_FUZZ ) );
   runner->wksp = fd_wksp_containing( runner->spad );
+
+  /* Reuse the same bank for each iteration of the fuzzer */
+  runner->bank = bank;
   return runner;
 }
 
