@@ -360,10 +360,6 @@ fd_gossip_stakes_update( fd_gossip_t *             gossip,
     }
     entry->stake = stake_weights[i].stake;
   }
-
-
-
-  /* TODO: contact info entries need to be updated? Or let it be driven by rx_{pullreq, pullresp, push} events? */
   /* Update the identity stake */
   gossip->identity_stake = get_stake( gossip, gossip->identity_pubkey );
 }
@@ -678,14 +674,19 @@ rx_pull_response( fd_gossip_t *                          gossip,
       if( FD_UNLIKELY( fd_crds_entry_is_contact_info( candidate ) ) ){
         fd_contact_info_t const * contact_info = fd_crds_entry_contact_info( candidate );
         fd_ip4_port_t origin_addr              = fd_contact_info_gossip_socket( contact_info );
-         int active = fd_ping_tracker_active( gossip->ping_tracker,
-                                              origin_pubkey,
-                                              origin_stake,
-                                              &origin_addr,
-                                              now );
-          active ? fd_crds_peer_active( gossip->crds, origin_pubkey, now )
-                 : fd_crds_peer_inactive( gossip->crds, origin_pubkey, now );
+        int active = fd_ping_tracker_active( gossip->ping_tracker,
+                                            origin_pubkey,
+                                            origin_stake,
+                                            &origin_addr,
+                                            now );
+        active ? fd_crds_peer_active( gossip->crds, origin_pubkey, now )
+                : fd_crds_peer_inactive( gossip->crds, origin_pubkey, now );
 
+        fd_ping_tracker_track( gossip->ping_tracker,
+                               origin_pubkey,
+                               origin_stake,
+                               &origin_addr,
+                               now );
       }
       push_state_insert( gossip,
                          value,
@@ -751,7 +752,11 @@ rx_push( fd_gossip_t *                 gossip,
                                               now );
           active ? fd_crds_peer_active( gossip->crds, origin_pubkey, now )
                  : fd_crds_peer_inactive( gossip->crds, origin_pubkey, now );
-
+        fd_ping_tracker_track( gossip->ping_tracker,
+                               origin_pubkey,
+                               origin_stake,
+                               &origin_addr,
+                               now );
       }
       push_state_insert( gossip,
                          value,
