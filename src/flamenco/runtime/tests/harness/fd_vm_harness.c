@@ -544,7 +544,6 @@ fd_runtime_fuzz_vm_syscall_run( fd_runtime_fuzz_runner_t * runner,
   *instr_ctx = (fd_exec_instr_ctx_t) {
     .instr     = ctx->instr,
     .txn_ctx   = ctx->txn_ctx,
-    .depth     = 0U,
   };
 
   /* Actually invoke the syscall */
