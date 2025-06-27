@@ -137,7 +137,6 @@ FD_PROTOTYPES_BEGIN
   X(fd_clock_timestamp_votes_global_t, clock_timestamp_votes,       5000000UL,                                 128UL,                                      1,   1    )  /* TODO: This needs to get sized out */                      \
   X(fd_account_keys_global_t,          stake_account_keys,          100000000UL,                               128UL,                                      1,   1    )  /* Supports roughly 3M stake accounts */                     \
   X(fd_account_keys_global_t,          vote_account_keys,           3200000UL,                                 128UL,                                      1,   1    )  /* Supports roughly 100k vote accounts */                    \
-  X(fd_rent_fresh_accounts_global_t,   rent_fresh_accounts,         500000UL,                                  128UL,                                      1,   1    )  /* Rent fresh accounts */                                    \
   X(fd_block_hash_queue_global_t,      block_hash_queue,            50000UL,                                   128UL,                                      0,   0    )  /* Block hash queue */                                       \
   X(fd_fee_rate_governor_t,            fee_rate_governor,           sizeof(fd_fee_rate_governor_t),            alignof(fd_fee_rate_governor_t),            0,   0    )  /* Fee rate governor */                                      \
   X(ulong,                             capitalization,              sizeof(ulong),                             alignof(ulong),                             0,   0    )  /* Capitalization */                                         \
@@ -243,12 +242,6 @@ FD_PROTOTYPES_BEGIN
 
 #define POOL_NAME fd_bank_vote_account_keys_pool
 #define POOL_T    fd_bank_vote_account_keys_t
-#include "../../util/tmpl/fd_pool.c"
-#undef POOL_NAME
-#undef POOL_T
-
-#define POOL_NAME fd_bank_rent_fresh_accounts_pool
-#define POOL_T    fd_bank_rent_fresh_accounts_t
 #include "../../util/tmpl/fd_pool.c"
 #undef POOL_NAME
 #undef POOL_T

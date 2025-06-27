@@ -93,58 +93,6 @@ fd_runtime_compute_max_tick_height( ulong   ticks_per_slot,
 }
 
 void
-fd_runtime_register_new_fresh_account( fd_pubkey_t const  * pubkey,
-                                       fd_bank_t *          bank ) {
-
-  fd_rent_fresh_accounts_global_t * rent_fresh_accounts = fd_bank_rent_fresh_accounts_locking_modify( bank );
-
-  fd_rent_fresh_account_t *         fresh_accounts      = fd_rent_fresh_accounts_fresh_accounts_join( rent_fresh_accounts );
-
-  /* Insert the new account into the partition */
-  ulong partition = fd_rent_key_to_partition( pubkey, fd_bank_part_width_get( bank ), fd_bank_slots_per_epoch_get( bank ) );
-
-  /* See if there is an unused fresh account we can re-use */
-  fd_rent_fresh_account_t * rent_fresh_account = NULL;
-  for( ulong i = 0; i < rent_fresh_accounts->fresh_accounts_len; i++ ) {
-    if( FD_UNLIKELY( fresh_accounts[ i ].present == 0UL ) ) {
-      rent_fresh_account = &fresh_accounts[ i ];
-      break;
-    }
-  }
-  if( FD_UNLIKELY( rent_fresh_account == NULL ) ) {
-    FD_LOG_CRIT(( "rent_fresh_accounts full! increase FD_RENT_FRESH_ACCOUNTS_MAX" ));
-  }
-
-  /* Add the account to the rent fresh account list */
-  rent_fresh_account->partition = partition;
-  rent_fresh_account->pubkey    = *pubkey;
-  rent_fresh_account->present   = 1UL;
-
-  rent_fresh_accounts->total_count++;
-
-  fd_bank_rent_fresh_accounts_end_locking_modify( bank );
-}
-
-void
-fd_runtime_repartition_fresh_account_partitions( fd_bank_t * bank ) {
-  /* Update the partition in each rent fresh account */
-
-  fd_rent_fresh_accounts_global_t * rent_fresh_accounts = fd_bank_rent_fresh_accounts_locking_modify( bank );
-  fd_rent_fresh_account_t *         fresh_accounts      = fd_rent_fresh_accounts_fresh_accounts_join( rent_fresh_accounts );
-
-  for( ulong i = 0UL; i < rent_fresh_accounts->fresh_accounts_len; i++ ) {
-    fd_rent_fresh_account_t * rent_fresh_account = &fresh_accounts[ i ];
-    if( FD_UNLIKELY( rent_fresh_account->present == 1UL ) ) {
-      rent_fresh_account->partition = fd_rent_key_to_partition( &rent_fresh_account->pubkey,
-                                                                fd_bank_part_width_get( bank ),
-                                                                fd_bank_slots_per_epoch_get( bank ) );
-    }
-  }
-
-  fd_bank_rent_fresh_accounts_end_locking_modify( bank );
-}
-
-void
 fd_runtime_update_slots_per_epoch( fd_bank_t * bank,
                                    ulong       slots_per_epoch ) {
   if( FD_LIKELY( slots_per_epoch == fd_bank_slots_per_epoch_get( bank ) ) ) {
@@ -154,9 +102,6 @@ fd_runtime_update_slots_per_epoch( fd_bank_t * bank,
   fd_bank_slots_per_epoch_set( bank, slots_per_epoch );
 
   fd_bank_part_width_set( bank, fd_rent_partition_width( slots_per_epoch ) );
-
-
-  fd_runtime_repartition_fresh_account_partitions( bank );
 }
 
 void
@@ -1458,11 +1403,6 @@ fd_runtime_finalize_txn( fd_funk_t *                  funk,
       }
 
       fd_txn_account_save( &txn_ctx->accounts[i], funk, funk_txn, txn_ctx->spad_wksp );
-      int fresh_account = acc_rec->vt->is_mutable( acc_rec ) &&
-         acc_rec->vt->get_lamports( acc_rec ) && acc_rec->vt->get_rent_epoch( acc_rec ) != FD_RENT_EXEMPT_RENT_EPOCH;
-      if( FD_UNLIKELY( fresh_account ) ) {
-        fd_runtime_register_new_fresh_account( txn_ctx->accounts[0].pubkey, bank );
-      }
     }
   }
 

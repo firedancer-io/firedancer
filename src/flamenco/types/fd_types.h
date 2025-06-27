@@ -1882,38 +1882,6 @@ struct fd_cluster_type {
 typedef struct fd_cluster_type fd_cluster_type_t;
 #define FD_CLUSTER_TYPE_ALIGN alignof(fd_cluster_type_t)
 
-/* Encoded Size: Fixed (48 bytes) */
-struct fd_rent_fresh_account {
-  ulong partition;
-  fd_pubkey_t pubkey;
-  ulong present;
-};
-typedef struct fd_rent_fresh_account fd_rent_fresh_account_t;
-#define FD_RENT_FRESH_ACCOUNT_ALIGN alignof(fd_rent_fresh_account_t)
-
-/* Encoded Size: Dynamic */
-struct fd_rent_fresh_accounts {
-  ulong total_count;
-  ulong fresh_accounts_len;
-  fd_rent_fresh_account_t * fresh_accounts;
-};
-typedef struct fd_rent_fresh_accounts fd_rent_fresh_accounts_t;
-#define FD_RENT_FRESH_ACCOUNTS_ALIGN alignof(fd_rent_fresh_accounts_t)
-
-struct fd_rent_fresh_accounts_global {
-  ulong total_count;
-  ulong fresh_accounts_len;
-  ulong fresh_accounts_offset;
-};
-typedef struct fd_rent_fresh_accounts_global fd_rent_fresh_accounts_global_t;
-#define FD_RENT_FRESH_ACCOUNTS_GLOBAL_ALIGN alignof(fd_rent_fresh_accounts_global_t)
-
-FD_FN_UNUSED static fd_rent_fresh_account_t * fd_rent_fresh_accounts_fresh_accounts_join( fd_rent_fresh_accounts_global_t const * struct_mem ) { // vector
-  return struct_mem->fresh_accounts_offset ? (fd_rent_fresh_account_t *)fd_type_pun( (uchar *)struct_mem + struct_mem->fresh_accounts_offset ) : NULL;
-}
-FD_FN_UNUSED static void fd_rent_fresh_accounts_fresh_accounts_update( fd_rent_fresh_accounts_global_t * struct_mem, fd_rent_fresh_account_t * vec ) {
-  struct_mem->fresh_accounts_offset = !!vec ? (ulong)vec - (ulong)struct_mem : 0UL;
-}
 /* Encoded Size: Fixed (12 bytes) */
 struct fd_cluster_version {
   uint major;
@@ -4764,29 +4732,6 @@ fd_cluster_type_enum_MainnetBeta = 1,
 fd_cluster_type_enum_Devnet = 2,
 fd_cluster_type_enum_Development = 3,
 };
-static inline void fd_rent_fresh_account_new( fd_rent_fresh_account_t * self ) { fd_memset( self, 0, sizeof(fd_rent_fresh_account_t) ); }
-int fd_rent_fresh_account_encode( fd_rent_fresh_account_t const * self, fd_bincode_encode_ctx_t * ctx );
-void fd_rent_fresh_account_walk( void * w, fd_rent_fresh_account_t const * self, fd_types_walk_fn_t fun, const char *name, uint level );
-ulong fd_rent_fresh_account_size( fd_rent_fresh_account_t const * self );
-static inline ulong fd_rent_fresh_account_align( void ) { return FD_RENT_FRESH_ACCOUNT_ALIGN; }
-static inline int fd_rent_fresh_account_decode_footprint( fd_bincode_decode_ctx_t * ctx, ulong * total_sz ) {
-  *total_sz += sizeof(fd_rent_fresh_account_t);
-  if( (ulong)ctx->data + 48UL > (ulong)ctx->dataend ) { return FD_BINCODE_ERR_OVERFLOW; };
-  return 0;
-}
-void * fd_rent_fresh_account_decode( void * mem, fd_bincode_decode_ctx_t * ctx );
-
-void fd_rent_fresh_accounts_new( fd_rent_fresh_accounts_t * self );
-int fd_rent_fresh_accounts_encode( fd_rent_fresh_accounts_t const * self, fd_bincode_encode_ctx_t * ctx );
-void fd_rent_fresh_accounts_walk( void * w, fd_rent_fresh_accounts_t const * self, fd_types_walk_fn_t fun, const char *name, uint level );
-ulong fd_rent_fresh_accounts_size( fd_rent_fresh_accounts_t const * self );
-static inline ulong fd_rent_fresh_accounts_align( void ) { return FD_RENT_FRESH_ACCOUNTS_ALIGN; }
-int fd_rent_fresh_accounts_decode_footprint( fd_bincode_decode_ctx_t * ctx, ulong * total_sz );
-void * fd_rent_fresh_accounts_decode( void * mem, fd_bincode_decode_ctx_t * ctx );
-void * fd_rent_fresh_accounts_decode_global( void * mem, fd_bincode_decode_ctx_t * ctx );
-int fd_rent_fresh_accounts_encode_global( fd_rent_fresh_accounts_global_t const * self, fd_bincode_encode_ctx_t * ctx );
-ulong fd_rent_fresh_accounts_size_global( fd_rent_fresh_accounts_global_t const * self );
-
 static inline void fd_cluster_version_new( fd_cluster_version_t * self ) { fd_memset( self, 0, sizeof(fd_cluster_version_t) ); }
 int fd_cluster_version_encode( fd_cluster_version_t const * self, fd_bincode_encode_ctx_t * ctx );
 void fd_cluster_version_walk( void * w, fd_cluster_version_t const * self, fd_types_walk_fn_t fun, const char *name, uint level );

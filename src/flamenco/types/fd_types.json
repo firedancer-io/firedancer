@@ -1051,24 +1051,6 @@
       ]
     },
     {
-      "name": "rent_fresh_account",
-      "type": "struct",
-      "fields": [
-        { "name": "partition", "type": "ulong" },
-        { "name": "pubkey", "type": "pubkey" },
-        { "name": "present", "type": "ulong" }
-      ]
-    },
-    {
-      "name": "rent_fresh_accounts",
-      "type": "struct",
-      "global": true,
-      "fields": [
-        { "name": "total_count", "type": "ulong" },
-        { "name": "fresh_accounts", "type": "vector", "element": "rent_fresh_account" }
-      ]
-    },
-    {
       "name": "cluster_version",
       "type": "struct",
       "global": true,
