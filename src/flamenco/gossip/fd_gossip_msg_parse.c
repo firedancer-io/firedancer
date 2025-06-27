@@ -75,7 +75,8 @@ fd_gossip_msg_crds_legacy_contact_info_parse( fd_gossip_view_crds_value_t * crds
       CHECKED_INC( 16U+2U+4U+4U ); /* ip6 + port + flowinfo + scope_id */
     }
   }
-  CHECK_LEFT( 8U ); crds_val->wallclock_nanos = FD_MILLI_TO_NANOSEC( FD_LOAD( ulong, CURSOR ) ); INC(  8U );
+  CHECK_LEFT(  8U ); crds_val->wallclock_nanos = FD_MILLI_TO_NANOSEC( FD_LOAD( ulong, CURSOR ) ); INC(  8U );
+  CHECKED_INC( 2U ); /* shred_version */
   return BYTES_CONSUMED;
 }
 
@@ -104,7 +105,7 @@ fd_gossip_msg_crds_lowest_slot_parse( fd_gossip_view_crds_value_t * crds_val,
   CHECK_INIT( payload, payload_sz, start_offset );
   CHECKED_INC(           1U );
   CHECK_LEFT(           32U ); crds_val->pubkey_off = CUR_OFFSET                                          ; INC( 32U );
-  /* These can be trivially converted to parse instead of skips if needed */
+
   CHECKED_INC(       8U+8U ); /* root + lowest slot */
 
   /* slots set is deprecated, so we skip it. */
@@ -219,7 +220,7 @@ fd_gossip_msg_crds_duplicate_shred_parse( fd_gossip_view_crds_value_t * crds_val
   CHECK_LEFT(  2U ); crds_val->duplicate_shred->index = FD_LOAD( ushort, CURSOR )               ; INC(  2U );
   CHECK_LEFT( 32U ); crds_val->pubkey_off = CUR_OFFSET                                          ; INC( 32U );
   CHECK_LEFT(  8U ); crds_val->wallclock_nanos = FD_MILLI_TO_NANOSEC( FD_LOAD( ulong, CURSOR ) ); INC(  8U );
-  CHECKED_INC( 8U+4U+4U+1U+1U ); /* slot + (unused) + shred type + num chunks + chunk index */
+  CHECKED_INC( 8U+4U+1U+1U+1U ); /* slot + (unused) + shred type + num chunks + chunk index */
   CHECK_LEFT(  8U ); ulong chunk_len = FD_LOAD( ulong, CURSOR )                                 ; INC(  8U );
   CHECKED_INC( chunk_len ); /* chunk data */
   return BYTES_CONSUMED;
@@ -479,7 +480,7 @@ fd_gossip_msg_prune_parse( fd_gossip_view_t * view,
                            ushort             start_offset ) {
   CHECK_INIT( payload, payload_sz, start_offset );
   fd_gossip_view_prune_t * prune = view->prune;
-
+  CHECKED_INC( 32U ); /* pubkey is sent twice */
   CHECK_LEFT(                      32U ); prune->origin_off      = CUR_OFFSET               ; INC( 32U );
   CHECK_LEFT(                       8U ); prune->prunes_len      = FD_LOAD( ulong, CURSOR ) ; INC(  2U );
   CHECK_LEFT(    prune->prunes_len*32U ); prune->prunes_off      = CUR_OFFSET               ; INC( prune->prunes_len*32U );
