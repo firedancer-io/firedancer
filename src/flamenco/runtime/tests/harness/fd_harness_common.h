@@ -27,16 +27,20 @@ fd_runtime_fuzz_runner_align( void );
 ulong
 fd_runtime_fuzz_runner_footprint( void );
 
-/* fd_runtime_fuzz_runner_new formats two memory regions, one for use as a
-   fuzzing context object and another for an spad. `mem` must be part of an fd_wksp
-   and hold memory for both the runner and a funk instance. Does additional wksp allocs.
-   wksp_tag is the tag used for wksp allocs managed by the runner. Returns newly created runner
-   on success. On failure, returns NULL and logs reason for error. */
+/* fd_runtime_fuzz_runner_new formats two memory regions, one for use as
+   a fuzzing context object and another for an spad. `mem` must be part
+   of an fd_wksp and hold memory for both the runner and a funk
+   instance. Does additional wksp allocs. wksp_tag is the tag used for
+   wksp allocs managed by the runner. The runner also takes in a
+   initialized bank object. This bnak reused for each iteration of the
+   fuzzer. Returns newly created runner on success. On failure, returns
+   NULL and logs reason for error. */
 
 fd_runtime_fuzz_runner_t *
-fd_runtime_fuzz_runner_new( void * mem,
-                            void * spad_mem,
-                            ulong  wksp_tag );
+fd_runtime_fuzz_runner_new( void *      mem,
+                            void *      spad_mem,
+                            fd_bank_t * bank,
+                            ulong       wksp_tag );
 
 /* fd_runtime_fuzz_runner_delete frees wksp allocations managed by
    runner and returns the memory region backing runner itself back to

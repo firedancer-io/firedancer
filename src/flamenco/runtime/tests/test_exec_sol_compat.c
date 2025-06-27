@@ -63,18 +63,13 @@ main( int     argc,
   if( wksp_page_sz == ULONG_MAX ) {
     wksp_page_sz = FD_SHMEM_NORMAL_PAGE_SZ;
   }
-  fd_wksp_t * wksp = sol_compat_wksp_init( wksp_page_sz );
 
-  uchar *      bank_mem = fd_wksp_alloc_laddr( wksp, fd_banks_align(), fd_banks_footprint( 1UL ), 12391 );
-  fd_banks_t * banks    = fd_banks_join( fd_banks_new( bank_mem, 1UL ) );
-  fd_bank_t *  bank     = fd_banks_init_bank( banks, 0UL );
+  sol_compat_wksp_init( wksp_page_sz );
 
   ulong fail_cnt = 0UL;
   for( int j=1; j<argc; j++ ) {
     // Init runner
     fd_runtime_fuzz_runner_t * runner = sol_compat_setup_runner();
-
-    runner->bank = bank;
 
     ulong frames_used_pre_test = runner->spad->frame_free;
     ulong mem_used_pre_test    = runner->spad->mem_used;

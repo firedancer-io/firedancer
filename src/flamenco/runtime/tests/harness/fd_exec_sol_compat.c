@@ -43,6 +43,7 @@ typedef struct {
 static sol_compat_features_t features;
 static uchar *               spad_mem;
 static fd_wksp_t *           wksp = NULL;
+static fd_bank_t *           bank = NULL;
 
 #define WKSP_EXECUTE_ALLOC_TAG (2UL)
 #define WKSP_INIT_ALLOC_TAG    (3UL)
@@ -83,6 +84,21 @@ sol_compat_wksp_init( ulong wksp_page_sz ) {
 
   spad_mem = fd_wksp_alloc_laddr( wksp, FD_SPAD_ALIGN, FD_SPAD_FOOTPRINT( FD_RUNTIME_TRANSACTION_EXECUTION_FOOTPRINT_FUZZ ), WKSP_INIT_ALLOC_TAG ); /* 4738713960 B */
   FD_TEST( spad_mem );
+
+  ulong        banks_footprint = fd_banks_footprint( 1UL );
+  uchar *      banks_mem       = fd_wksp_alloc_laddr( wksp, fd_banks_align(), banks_footprint, WKSP_INIT_ALLOC_TAG );
+  if( FD_UNLIKELY( !banks_mem ) ) {
+    FD_LOG_CRIT(( "Unable to allocate memory for banks" ));
+  }
+
+  fd_banks_t * banks = fd_banks_join( fd_banks_new( banks_mem, 1UL ) );
+  if( FD_UNLIKELY( !banks ) ) {
+    FD_LOG_CRIT(( "Unable to create and join banks" ));
+  }
+  bank = fd_banks_init_bank( banks, 0UL );
+  if( FD_UNLIKELY( !bank ) ) {
+    FD_LOG_CRIT(( "Unable to initialize bank" ));
+  }
 
   features.struct_size        = sizeof(sol_compat_features_t);
   features.hardcoded_features = fd_wksp_alloc_laddr( wksp, 8UL, FD_FEATURE_ID_CNT * sizeof(ulong), WKSP_INIT_ALLOC_TAG );
@@ -137,7 +153,7 @@ sol_compat_setup_runner( void ) {
 
   // Setup test runner
   void * runner_mem = fd_wksp_alloc_laddr( wksp, fd_runtime_fuzz_runner_align(), fd_runtime_fuzz_runner_footprint(), WKSP_EXECUTE_ALLOC_TAG );
-  fd_runtime_fuzz_runner_t * runner = fd_runtime_fuzz_runner_new( runner_mem, spad_mem, WKSP_EXECUTE_ALLOC_TAG );
+  fd_runtime_fuzz_runner_t * runner = fd_runtime_fuzz_runner_new( runner_mem, spad_mem, bank, WKSP_EXECUTE_ALLOC_TAG );
   return runner;
 }
 
