@@ -56,14 +56,14 @@ fd_aesni_set_decrypt_key( uchar const *      user_key,
                           fd_aes_key_ref_t * key );
 
 __attribute__((sysv_abi)) void
-fd_aesni_encrypt( uchar const *      in,
-                  uchar *            out,
-                  fd_aes_key_ref_t * key );
+fd_aesni_encrypt( uchar const *            in,
+                  uchar *                  out,
+                  fd_aes_key_ref_t const * key );
 
 __attribute__((sysv_abi)) void
-fd_aesni_decrypt( uchar const *      in,
-                  uchar *            out,
-                  fd_aes_key_ref_t * key );
+fd_aesni_decrypt( uchar const *            in,
+                  uchar *                  out,
+                  fd_aes_key_ref_t const * key );
 
 FD_PROTOTYPES_END
 
@@ -114,9 +114,9 @@ fd_aes_set_decrypt_key( uchar const *  user_key,
 }
 
 static inline void
-fd_aes_encrypt( uchar const *  in,
-                uchar *        out,
-                fd_aes_key_t * key ) {
+fd_aes_encrypt( uchar const *        in,
+                uchar *              out,
+                fd_aes_key_t const * key ) {
   fd_msan_check   ( key, sizeof(fd_aes_key_t) );
   fd_msan_check   ( in,  16UL );
   fd_msan_unpoison( out, 16UL );
@@ -124,9 +124,9 @@ fd_aes_encrypt( uchar const *  in,
 }
 
 static inline void
-fd_aes_decrypt( uchar const *  in,
-                uchar *        out,
-                fd_aes_key_t * key ) {
+fd_aes_decrypt( uchar const *        in,
+                uchar *              out,
+                fd_aes_key_t const * key ) {
   fd_msan_check   ( key, sizeof(fd_aes_key_t) );
   fd_msan_check   ( in,  16UL );
   fd_msan_unpoison( out, 16UL );

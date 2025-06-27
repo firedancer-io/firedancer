@@ -11,6 +11,15 @@ struct __attribute__((packed)) fd_shred_dest_wire {
   fd_pubkey_t pubkey[1];
   /* The Agave splice writes this as octets, which means when we read
      this, it's essentially network byte order */
+  union {
+    ulong version;
+    struct {
+      ushort version_patch;
+      ushort version_minor;
+      ushort version_major;
+      ushort version_client_id;
+    };
+  };
   uint   ip4_addr;
   ushort udp_port;
 };

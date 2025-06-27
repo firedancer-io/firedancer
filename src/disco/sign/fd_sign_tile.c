@@ -20,7 +20,23 @@ typedef struct {
   ulong            seq;
   fd_frag_meta_t * mcache;
   uchar *          data;
+  ulong            depth;
+  ulong            mtu;
+  fd_wksp_t *      mem;
+  ulong            chunk0;
+  ulong            wmark;
+  ulong            chunk;
 } fd_sign_out_ctx_t;
+
+typedef struct {
+  uchar *          data;
+  ulong            mtu;
+  fd_wksp_t *      mem;
+  ulong            chunk0;
+  ulong            wmark;
+  ulong            chunk;
+  int              role;
+} fd_sign_in_ctx_t;
 
 typedef struct {
   uchar             _data[ FD_KEYGUARD_SIGN_REQ_MTU ];
@@ -31,10 +47,7 @@ typedef struct {
 
   uchar event_concat[ 18UL+32UL ];
 
-  int               in_role[ MAX_IN ];
-  uchar *           in_data[ MAX_IN ];
-  ushort            in_mtu [ MAX_IN ];
-
+  fd_sign_in_ctx_t  in [ MAX_IN ];
   fd_sign_out_ctx_t out[ MAX_IN ];
 
   fd_sha512_t       sha512 [ 1 ];
@@ -102,19 +115,27 @@ during_frag_sensitive( void * _ctx,
                        ulong  chunk,
                        ulong  sz ) {
   (void)seq;
-  (void)sig;
-  (void)chunk;
 
   fd_sign_ctx_t * ctx = (fd_sign_ctx_t *)_ctx;
   FD_TEST( in_idx<MAX_IN );
 
-  int  role = ctx->in_role[ in_idx ];
-  uint mtu  = ctx->in_mtu [ in_idx ];
+  int   role = ctx->in[ in_idx ].role;
+  ulong mtu  = ctx->in[ in_idx ].mtu;
 
   if( sz>mtu ) {
-    FD_LOG_EMERG(( "oversz signing request (role=%d sz=%lu mtu=%u)", role, sz, mtu ));
+    FD_LOG_EMERG(( "oversz signing request (role=%d sz=%lu mtu=%lu)", role, sz, mtu ));
   }
-  fd_memcpy( ctx->_data, ctx->in_data[ in_idx ], sz );
+
+  int sign_type = (int)(uint)sig;
+  if( FD_UNLIKELY( sign_type == FD_KEYGUARD_SIGN_TYPE_ULONG_ID_ED25519 ) ) {
+    uchar const * dcache_entry = fd_chunk_to_laddr_const( ctx->in[ in_idx ].mem, chunk );
+    if( FD_UNLIKELY( chunk<ctx->in[ in_idx ].chunk0 || chunk>ctx->in[ in_idx ].wmark || sz>ctx->in[ in_idx ].mtu ) )
+      FD_LOG_ERR(( "chunk %lu %lu corrupt, not in range [%lu,%lu]", chunk, sz,
+            ctx->in[ in_idx ].chunk0, ctx->in[ in_idx ].wmark ));
+    fd_memcpy( ctx->_data, dcache_entry, sz );
+  } else {
+    fd_memcpy( ctx->_data, ctx->in[ in_idx ].data, sz );
+  }
 }
 
 
@@ -149,7 +170,7 @@ after_frag_sensitive( void *              _ctx,
 
   FD_TEST( in_idx<MAX_IN );
 
-  int role = ctx->in_role[ in_idx ];
+  int role = ctx->in[ in_idx ].role;
 
   fd_keyguard_authority_t authority = {0};
   memcpy( authority.identity_pubkey, ctx->public_key, 32 );
@@ -157,6 +178,10 @@ after_frag_sensitive( void *              _ctx,
   if( FD_UNLIKELY( !fd_keyguard_payload_authorize( &authority, ctx->_data, sz, role, sign_type ) ) ) {
     FD_LOG_EMERG(( "fd_keyguard_payload_authorize failed (role=%d sign_type=%d)", role, sign_type ));
   }
+
+  ulong out_sig   = 0UL;
+  ulong out_chunk = 0UL;
+  ulong out_sz    = 0UL;
 
   switch( sign_type ) {
   case FD_KEYGUARD_SIGN_TYPE_ED25519: {
@@ -179,11 +204,20 @@ after_frag_sensitive( void *              _ctx,
     fd_ed25519_sign( ctx->out[ in_idx ].data, ctx->event_concat, 18UL+32UL, ctx->public_key, ctx->private_key, ctx->sha512 );
     break;
   }
+  case FD_KEYGUARD_SIGN_TYPE_ULONG_ID_ED25519: {
+    fd_memcpy( &out_sig, ctx->_data, sizeof(ulong) );
+    uchar * dst = fd_chunk_to_laddr( ctx->out[ in_idx ].mem, ctx->out[ in_idx ].chunk );
+    fd_ed25519_sign( dst, ctx->_data + sizeof(ulong), sz-sizeof(ulong), ctx->public_key, ctx->private_key, ctx->sha512 );
+    out_chunk = ctx->out[ in_idx ].chunk;
+    out_sz    = FD_ED25519_SIG_SZ;
+    ctx->out[ in_idx ].chunk = fd_dcache_compact_next( ctx->out[ in_idx ].chunk, out_sz, ctx->out[ in_idx ].chunk0, ctx->out[ in_idx ].wmark );
+    break;
+  }
   default:
     FD_LOG_EMERG(( "invalid sign type: %d", sign_type ));
   }
 
-  fd_mcache_publish( ctx->out[ in_idx ].mcache, 128UL, ctx->out[ in_idx ].seq, 0UL, 0UL, 0UL, 0UL, 0UL, 0UL );
+  fd_mcache_publish( ctx->out[ in_idx ].mcache, ctx->out[ in_idx ].depth, ctx->out[ in_idx ].seq, out_sig, out_chunk, out_sz, 0UL, 0UL, 0UL );
   ctx->out[ in_idx ].seq = fd_seq_inc( ctx->out[ in_idx ].seq, 1UL );
 }
 
@@ -250,55 +284,70 @@ unprivileged_init_sensitive( fd_topo_t *      topo,
   ctx->keyswitch = fd_keyswitch_join( fd_topo_obj_laddr( topo, tile->keyswitch_obj_id ) );
   derive_fields( ctx );
 
-  for( ulong i=0UL; i<MAX_IN; i++ ) ctx->in_role[ i ] = -1;
+  for( ulong i=0UL; i<MAX_IN; i++ ) ctx->in[ i ].role = -1;
 
   for( ulong i=0UL; i<tile->in_cnt; i++ ) {
     fd_topo_link_t * in_link = &topo->links[ tile->in_link_id[ i ] ];
     fd_topo_link_t * out_link = &topo->links[ tile->out_link_id[ i ] ];
 
     if( in_link->mtu > FD_KEYGUARD_SIGN_REQ_MTU ) FD_LOG_CRIT(( "oversz link[%lu].mtu=%lu", i, in_link->mtu ));
-    ctx->in_data[ i ] = in_link->dcache;
-    ctx->in_mtu [ i ] = (ushort)in_link->mtu;
+    ctx->in[ i ].data   = in_link->dcache;
+    ctx->in[ i ].mtu    = in_link->mtu;
+    ctx->in[ i ].mem    = topo->workspaces[ topo->objs[ in_link->dcache_obj_id ].wksp_id ].wksp;
+    ctx->in[ i ].chunk0 = fd_dcache_compact_chunk0( ctx->in[ i ].mem, ctx->in[ i ].data );
+    ctx->in[ i ].wmark  = fd_dcache_compact_wmark ( ctx->in[ i ].mem, ctx->in[ i ].data, ctx->in[ i ].mtu );
+    ctx->in[ i ].chunk  = ctx->in[ i ].chunk0;
 
     ctx->out[ i ].mcache = out_link->mcache;
     ctx->out[ i ].data   = out_link->dcache;
+    ctx->out[ i ].depth  = fd_mcache_depth( ctx->out[ i ].mcache );
+    ctx->out[ i ].mtu    = out_link->mtu;
+    ctx->out[ i ].mem    = topo->workspaces[ topo->objs[ out_link->dcache_obj_id ].wksp_id ].wksp;
+    ctx->out[ i ].chunk0 = fd_dcache_compact_chunk0( ctx->out[ i ].mem, ctx->out[ i ].data );
+    ctx->out[ i ].wmark  = fd_dcache_compact_wmark ( ctx->out[ i ].mem, ctx->out[ i ].data, ctx->out[ i ].mtu );
+    ctx->out[ i ].chunk  = ctx->out[ i ].chunk0;
     ctx->out[ i ].seq    = 0UL;
 
     if( !strcmp( in_link->name, "shred_sign" ) ) {
-      ctx->in_role[ i ] = FD_KEYGUARD_ROLE_LEADER;
+      ctx->in[ i ].role = FD_KEYGUARD_ROLE_LEADER;
       FD_TEST( !strcmp( out_link->name, "sign_shred" ) );
-      FD_TEST( in_link->mtu==32UL );
-      FD_TEST( out_link->mtu==64UL );
+      FD_TEST( ctx->in[ i ].mtu==32UL );
+      FD_TEST( ctx->out[ i ].mtu==64UL );
+    } else if( !strcmp( in_link->name, "snp_sign" ) ) {
+      ctx->in[ i ].role = FD_KEYGUARD_ROLE_SNP;
+      FD_TEST( !strcmp( out_link->name, "sign_snp" ) );
+      FD_TEST( ctx->in[ i ].mtu==40UL );
+      FD_TEST( ctx->out[ i ].mtu==64UL );
     } else if ( !strcmp( in_link->name, "gossip_sign" ) ) {
-      ctx->in_role[ i ] = FD_KEYGUARD_ROLE_GOSSIP;
+      ctx->in[ i ].role = FD_KEYGUARD_ROLE_GOSSIP;
       FD_TEST( !strcmp( out_link->name, "sign_gossip" ) );
-      FD_TEST( in_link->mtu==2048UL );
-      FD_TEST( out_link->mtu==64UL );
+      FD_TEST( ctx->in[ i ].mtu==2048UL );
+      FD_TEST( ctx->out[ i ].mtu==64UL );
     } else if ( !strcmp( in_link->name, "repair_sign")) {
-      ctx->in_role[ i ] = FD_KEYGUARD_ROLE_REPAIR;
+      ctx->in[ i ].role = FD_KEYGUARD_ROLE_REPAIR;
       FD_TEST( !strcmp( out_link->name, "sign_repair" ) );
       FD_TEST( in_link->mtu==2048UL );
       FD_TEST( out_link->mtu==64UL );
     } else if ( !strcmp(in_link->name, "send_sign"  ) ) {
-      ctx->in_role[ i ] = FD_KEYGUARD_ROLE_SEND;
+      ctx->in[ i ].role = FD_KEYGUARD_ROLE_SEND;
       FD_TEST( !strcmp( out_link->name, "sign_send"  ) );
       FD_TEST( in_link->mtu==FD_TXN_MTU  );
       FD_TEST( out_link->mtu==64UL );
     } else if( !strcmp(in_link->name, "bundle_sign" ) ) {
-      ctx->in_role[ i ] = FD_KEYGUARD_ROLE_BUNDLE;
+      ctx->in[ i ].role = FD_KEYGUARD_ROLE_BUNDLE;
       FD_TEST( !strcmp( out_link->name, "sign_bundle" ) );
-      FD_TEST( in_link->mtu==9UL );
-      FD_TEST( out_link->mtu==64UL );
+      FD_TEST( ctx->in[ i ].mtu==9UL );
+      FD_TEST( ctx->out[ i ].mtu==64UL );
     } else if( !strcmp(in_link->name, "event_sign" ) ) {
-      ctx->in_role[ i ] = FD_KEYGUARD_ROLE_EVENT;
+      ctx->in[ i ].role = FD_KEYGUARD_ROLE_EVENT;
       FD_TEST( !strcmp( out_link->name, "sign_event" ) );
-      FD_TEST( in_link->mtu==32UL );
-      FD_TEST( out_link->mtu==64UL );
+      FD_TEST( ctx->in[ i ].mtu==32UL );
+      FD_TEST( ctx->out[ i ].mtu==64UL );
     } else if( !strcmp(in_link->name, "pack_sign" ) ) {
-      ctx->in_role[ i ] = FD_KEYGUARD_ROLE_BUNDLE_CRANK;
+      ctx->in[ i ].role = FD_KEYGUARD_ROLE_BUNDLE_CRANK;
       FD_TEST( !strcmp( out_link->name, "sign_pack" ) );
-      FD_TEST( in_link->mtu==1232UL );
-      FD_TEST( out_link->mtu==64UL );
+      FD_TEST( ctx->in[ i ].mtu==1232UL );
+      FD_TEST( ctx->out[ i ].mtu==64UL );
     } else {
       FD_LOG_CRIT(( "unexpected link %s", in_link->name ));
     }
