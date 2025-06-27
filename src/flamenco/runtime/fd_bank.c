@@ -54,11 +54,11 @@ fd_bank_footprint( void ) {
     }                                                                                                              \
     /* If the dirty flag has not been set yet, we need to allocated a */                                           \
     /* new pool element and copy over the data from the parent idx.   */                                           \
-    /* We also need to mark the dirty flag.                           */                                           \
+    /* We also need to mark the dirty flag. */                                                                     \
     ulong child_idx = fd_bank_##name##_pool_idx( name##_pool, child_##name );                                      \
     if( bank->name##_pool_idx!=fd_bank_##name##_pool_idx_null( name##_pool ) ) {                                   \
       fd_bank_##name##_t * parent_##name = fd_bank_##name##_pool_ele( name##_pool, bank->name##_pool_idx );        \
-      memcpy( child_##name->data, parent_##name->data, fd_bank_##name##_footprint );                               \
+      fd_memcpy( child_##name->data, parent_##name->data, fd_bank_##name##_footprint );                            \
     }                                                                                                              \
     bank->name##_pool_idx = child_idx;                                                                             \
     bank->name##_dirty    = 1;                                                                                     \
@@ -169,8 +169,6 @@ fd_banks_new( void * shmem, ulong max_banks ) {
     FD_LOG_WARNING(( "misaligned banks" ));
     return NULL;
   }
-
-  fd_memset( banks, 0, fd_banks_footprint( max_banks ) );
 
   /* Set the rwlock to unlocked. */
   fd_rwlock_unwrite( &banks->rwlock );
@@ -495,7 +493,6 @@ fd_banks_clone_from_parent( fd_banks_t * banks,
 
   ulong null_idx = fd_banks_pool_idx_null( bank_pool );
 
-  memset( new_bank, 0, fd_bank_footprint() );
   new_bank->slot        = slot;
   new_bank->next        = null_idx;
   new_bank->parent_idx  = null_idx;
