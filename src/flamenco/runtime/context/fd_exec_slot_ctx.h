@@ -9,62 +9,30 @@
 #include "../../types/fd_types.h"
 #include "../fd_txncache.h"
 #include "../fd_acc_mgr.h"
+#include "../fd_bank_hash_cmp.h"
+#include "../fd_bank.h"
 
 /* fd_exec_slot_ctx_t is the context that stays constant during all
    transactions in a block. */
 
+/* TODO: The slot ctx should be removed entirely. Pointers to
+   funk, funk_txn, status_cache should be passed in
+   seperately.*/
+
 struct fd_exec_slot_ctx {
   ulong                       magic; /* ==FD_EXEC_SLOT_CTX_MAGIC */
 
-  fd_funk_txn_t *             funk_txn;
+  ulong                       slot;
+
+  fd_banks_t *                banks;
+  fd_bank_t *                 bank;
 
   /* External joins, pointers to be set by caller */
 
   fd_funk_t *                 funk;
-  fd_blockstore_t *           blockstore;
-  fd_block_rewards_t          block_rewards;
-  ulong                       txns_meta_gaddr;
-  ulong                       txns_meta_sz;
-  fd_exec_epoch_ctx_t *       epoch_ctx;
-
-  fd_slot_bank_t              slot_bank;
-
-  ulong                       total_compute_units_requested;
-  ulong                       slots_per_epoch;
-  ulong                       part_width;
-
-  /* TODO remove this stuff */
-  ulong                       signature_cnt;
-  fd_hash_t                   account_delta_hash;
-  ulong                       prev_lamports_per_signature;
-  ulong                       parent_transaction_count;
-  ulong                       txn_count;
-  ulong                       nonvote_txn_count;
-  ulong                       failed_txn_count;
-  ulong                       nonvote_failed_txn_count;
-  ulong                       total_compute_units_used;
+  fd_funk_txn_t *             funk_txn;
 
   fd_txncache_t *             status_cache;
-  fd_slot_history_global_t *  slot_history;
-
-  int                         enable_exec_recording; /* Enable/disable execution metadata
-                                                        recording, e.g. txn logs.  Analogue
-                                                        of Agave's ExecutionRecordingConfig. */
-
-  ulong                       root_slot;
-  ulong                       snapshot_freq;
-  ulong                       incremental_freq;
-  ulong                       last_snapshot_slot;
-
-  fd_wksp_t *                 runtime_wksp; /* TODO: this should hold wksp for runtime_spad. */
-  fd_wksp_t *                 funk_wksp; /* TODO: this should hold wksp for funk. */
-
-  /* This serializes updates to the vote account and stake account
-     related data structures in the slot bank and the epoch bank.
-   */
-  fd_rwlock_t                 vote_stake_lock[ 1 ];
-
-  ulong shred_cnt;
 };
 
 #define FD_EXEC_SLOT_CTX_ALIGN     (alignof(fd_exec_slot_ctx_t))
@@ -94,9 +62,9 @@ fd_exec_slot_ctx_delete( void * mem );
    On failure, logs reason for error and returns NULL. */
 
 fd_exec_slot_ctx_t *
-fd_exec_slot_ctx_recover( fd_exec_slot_ctx_t *         ctx,
-                          fd_solana_manifest_t const * manifest,
-                          fd_spad_t *                  spad );
+fd_exec_slot_ctx_recover( fd_exec_slot_ctx_t *                ctx,
+                          fd_solana_manifest_global_t const * manifest_global,
+                          fd_spad_t *                         spad );
 
 /* fd_exec_slot_ctx_recover re-initializes the current slot
    context's status cache from the provided solana slot deltas.

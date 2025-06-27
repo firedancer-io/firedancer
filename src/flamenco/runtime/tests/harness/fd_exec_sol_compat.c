@@ -43,6 +43,7 @@ typedef struct {
 static sol_compat_features_t features;
 static uchar *               spad_mem;
 static fd_wksp_t *           wksp = NULL;
+static fd_bank_t *           bank = NULL;
 
 #define WKSP_EXECUTE_ALLOC_TAG (2UL)
 #define WKSP_INIT_ALLOC_TAG    (3UL)
@@ -64,17 +65,17 @@ sol_compat_init( int log_level ) {
   sol_compat_wksp_init( FD_SHMEM_NORMAL_PAGE_SZ );
 }
 
-void
+fd_wksp_t *
 sol_compat_wksp_init( ulong wksp_page_sz ) {
   ulong cpu_idx = fd_tile_cpu_id( fd_tile_idx() );
   if( cpu_idx>=fd_shmem_cpu_cnt() ) cpu_idx = 0UL;
   switch( wksp_page_sz )
   {
   case FD_SHMEM_GIGANTIC_PAGE_SZ:
-    wksp = fd_wksp_new_anonymous( FD_SHMEM_GIGANTIC_PAGE_SZ, 5UL, fd_shmem_cpu_idx( fd_shmem_numa_idx( cpu_idx ) ), "wksp", 0UL );
+    wksp = fd_wksp_new_anonymous( FD_SHMEM_GIGANTIC_PAGE_SZ, 6UL, fd_shmem_cpu_idx( fd_shmem_numa_idx( cpu_idx ) ), "wksp", 0UL );
     break;
   case FD_SHMEM_NORMAL_PAGE_SZ:
-    wksp = fd_wksp_new_anonymous( FD_SHMEM_NORMAL_PAGE_SZ, 512UL * 512UL * 5UL, fd_shmem_cpu_idx( fd_shmem_numa_idx( cpu_idx ) ), "wksp", 0UL );
+    wksp = fd_wksp_new_anonymous( FD_SHMEM_NORMAL_PAGE_SZ, 512UL * 512UL * 6UL, fd_shmem_cpu_idx( fd_shmem_numa_idx( cpu_idx ) ), "wksp", 0UL );
     break;
   default:
     FD_LOG_ERR(( "Unsupported page size %lu", wksp_page_sz ));
@@ -83,6 +84,21 @@ sol_compat_wksp_init( ulong wksp_page_sz ) {
 
   spad_mem = fd_wksp_alloc_laddr( wksp, FD_SPAD_ALIGN, FD_SPAD_FOOTPRINT( FD_RUNTIME_TRANSACTION_EXECUTION_FOOTPRINT_FUZZ ), WKSP_INIT_ALLOC_TAG ); /* 4738713960 B */
   FD_TEST( spad_mem );
+
+  ulong        banks_footprint = fd_banks_footprint( 1UL );
+  uchar *      banks_mem       = fd_wksp_alloc_laddr( wksp, fd_banks_align(), banks_footprint, WKSP_INIT_ALLOC_TAG );
+  if( FD_UNLIKELY( !banks_mem ) ) {
+    FD_LOG_CRIT(( "Unable to allocate memory for banks" ));
+  }
+
+  fd_banks_t * banks = fd_banks_join( fd_banks_new( banks_mem, 1UL ) );
+  if( FD_UNLIKELY( !banks ) ) {
+    FD_LOG_CRIT(( "Unable to create and join banks" ));
+  }
+  bank = fd_banks_init_bank( banks, 0UL );
+  if( FD_UNLIKELY( !bank ) ) {
+    FD_LOG_CRIT(( "Unable to initialize bank" ));
+  }
 
   features.struct_size        = sizeof(sol_compat_features_t);
   features.hardcoded_features = fd_wksp_alloc_laddr( wksp, 8UL, FD_FEATURE_ID_CNT * sizeof(ulong), WKSP_INIT_ALLOC_TAG );
@@ -103,6 +119,8 @@ sol_compat_wksp_init( ulong wksp_page_sz ) {
       memcpy( &features.supported_features[features.supported_feature_cnt++], &current_feature->id, sizeof(ulong) );
     }
   }
+
+  return wksp;
 }
 
 void
@@ -135,7 +153,7 @@ sol_compat_setup_runner( void ) {
 
   // Setup test runner
   void * runner_mem = fd_wksp_alloc_laddr( wksp, fd_runtime_fuzz_runner_align(), fd_runtime_fuzz_runner_footprint(), WKSP_EXECUTE_ALLOC_TAG );
-  fd_runtime_fuzz_runner_t * runner = fd_runtime_fuzz_runner_new( runner_mem, spad_mem, WKSP_EXECUTE_ALLOC_TAG );
+  fd_runtime_fuzz_runner_t * runner = fd_runtime_fuzz_runner_new( runner_mem, spad_mem, bank, WKSP_EXECUTE_ALLOC_TAG );
   return runner;
 }
 
@@ -452,14 +470,12 @@ sol_compat_instr_fixture( fd_runtime_fuzz_runner_t * runner,
   }
 
   int ok = 0;
-  FD_SPAD_FRAME_BEGIN( runner->spad ) {
   // Execute
   void * output = NULL;
   sol_compat_execute_wrapper( runner, &fixture->input, &output, fd_runtime_fuzz_instr_run );
 
   // Compare effects
   ok = sol_compat_cmp_binary_strict( output, &fixture->output, &fd_exec_test_instr_effects_t_msg, runner->spad );
-  } FD_SPAD_FRAME_END;
 
   // Cleanup
   pb_release( &fd_exec_test_instr_fixture_t_msg, fixture );

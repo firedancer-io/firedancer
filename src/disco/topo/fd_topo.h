@@ -292,7 +292,6 @@ struct fd_topo_tile {
 
       int   tx_metadata_storage;
       ulong funk_obj_id;
-      char  capture[ PATH_MAX ];
       char  funk_checkpt[ PATH_MAX ];
       char  genesis[ PATH_MAX ];
       char  incremental[ PATH_MAX ];
@@ -308,8 +307,6 @@ struct fd_topo_tile {
       char  identity_key_path[ PATH_MAX ];
       uint  ip_addr;
       char  vote_account_path[ PATH_MAX ];
-      ulong full_interval;
-      ulong incremental_interval;
 
       char  blockstore_file[ PATH_MAX ];
       char  blockstore_checkpt[ PATH_MAX ];
@@ -323,10 +320,21 @@ struct fd_topo_tile {
       char  enable_features[ 16 ][ FD_BASE58_ENCODED_32_SZ ];
 
       ulong enable_bank_hash_cmp;
+
+      ulong capture_start_slot;
+      char  solcap_capture[ PATH_MAX ];
+      char  dump_proto_dir[ PATH_MAX ];
+      int   dump_block_to_pb;
     } replay;
 
     struct {
       ulong funk_obj_id;
+
+      ulong capture_start_slot;
+      char  dump_proto_dir[ PATH_MAX ];
+      int   dump_instr_to_pb;
+      int   dump_txn_to_pb;
+      int   dump_syscall_to_pb;
     } exec;
 
     struct {
@@ -377,6 +385,7 @@ struct fd_topo_tile {
       int     good_peer_cache_file_fd;
       char    identity_key_path[ PATH_MAX ];
       ulong   max_pending_shred_sets;
+      ulong   slot_max;
     } repair;
 
     struct {
@@ -415,17 +424,6 @@ struct fd_topo_tile {
       uint    acct_index_max;
       char    history_file[ PATH_MAX ];
     } rpcserv;
-
-    struct {
-      ulong funk_obj_id;
-      ulong full_interval;
-      ulong incremental_interval;
-      char  out_dir[ PATH_MAX ];
-      int   tmp_fd;
-      int   tmp_inc_fd;
-      int   full_snapshot_fd;
-      int   incremental_snapshot_fd;
-    } batch;
 
     struct {
       uint fake_dst_ip;

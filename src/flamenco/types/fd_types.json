@@ -87,6 +87,8 @@
     {
       "name": "block_hash_queue",
       "type": "struct",
+      "global": true,
+      "alignment": "128",
       "fields": [
         { "name": "last_hash_index", "type": "ulong" },
         { "name": "last_hash", "type": "option", "element": "hash" },
@@ -263,7 +265,7 @@
       "type": "struct",
       "custom_decode_inner": true,
       "fields": [
-        { "name": "vote_accounts", "type": "map", "element": "vote_accounts_pair", "key": "key", "minalloc":15000 }
+        { "name": "vote_accounts", "type": "map", "element": "vote_accounts_pair", "key": "key", "minalloc":50000 }
       ],
       "comment": "https://github.com/firedancer-io/agave/blob/540d5bc56cd44e3cc61b179bd52e9a782a2c99e4/vote/src/vote_account.rs#L46"
     },
@@ -278,6 +280,7 @@
     {
       "name": "account_keys",
       "type": "struct",
+      "global": true,
       "fields": [
         { "name": "account_keys", "type": "map", "element": "account_keys_pair", "key": "key", "minalloc":100000 }
       ]
@@ -331,18 +334,20 @@
     {
       "name": "stake_pair",
       "type": "struct",
+      "constructor": true,
       "fields": [
         { "name": "account", "type": "pubkey" },
         { "name": "stake", "type": "stake" }
       ]
     },
     {
-      "name": "stakes_delegation",
+      "name": "stakes",
       "type": "struct",
       "global": true,
+      "alignment": "128",
       "fields": [
         { "name": "vote_accounts", "type": "vote_accounts" },
-        { "name": "stake_delegations", "type": "map", "element": "delegation_pair", "key": "account" },
+        { "name": "stake_delegations", "type": "map", "element": "delegation_pair", "key": "account", "minalloc": 2000000 },
         { "name": "unused", "type": "ulong" },
         { "name": "epoch", "type": "ulong" },
         { "name": "stake_history", "type": "stake_history" }
@@ -402,7 +407,7 @@
       "name": "epoch_stakes",
       "type": "struct",
       "fields": [
-        { "name": "stakes", "type": "stakes_delegation", "comment": "https://github.com/anza-xyz/agave/blob/3e1c3a2f85b5b1d34031f2710d609347cfb77dfd/runtime/src/stakes/serde_stakes.rs#L84"},
+        { "name": "stakes", "type": "stakes", "comment": "https://github.com/anza-xyz/agave/blob/3e1c3a2f85b5b1d34031f2710d609347cfb77dfd/runtime/src/stakes/serde_stakes.rs#L84"},
         { "name": "total_stake", "type": "ulong" },
         { "name": "node_id_to_vote_accounts", "type": "map", "element": "pubkey_node_vote_accounts_pair", "key": "key" },
         { "name": "epoch_authorized_voters", "type": "map", "element": "pubkey_pubkey_pair", "key": "key" }
@@ -466,7 +471,7 @@
         { "name": "rent_collector",        "type": "rent_collector" },
         { "name": "epoch_schedule",        "type": "epoch_schedule" },
         { "name": "inflation",             "type": "inflation" },
-        { "name": "stakes",                "type": "stakes_delegation" },
+        { "name": "stakes",                "type": "stakes" },
         { "name": "unused_accounts",       "type": "unused_accounts" },
         { "name": "epoch_stakes",          "type": "vector", "element": "epoch_epoch_stakes_pair" },
         { "name": "is_delta",              "type": "bool" }
@@ -590,6 +595,7 @@
     {
       "name": "solana_manifest",
       "type": "struct",
+      "global": true,
       "fields": [
         { "name": "bank",                                  "type": "versioned_bank" },
         { "name": "accounts_db",                           "type": "solana_accounts_db_fields" },
@@ -978,6 +984,7 @@
     {
       "name": "clock_timestamp_votes",
       "type": "struct",
+      "global": true,
       "fields": [
           { "name": "votes", "type": "map", "element": "clock_timestamp_vote", "key": "pubkey", "minalloc":15000 }
       ],
@@ -1034,36 +1041,6 @@
       ]
     },
     {
-      "name": "firedancer_bank",
-      "type": "struct",
-      "fields": [
-        { "name": "stakes",                "type": "stakes_delegation" },
-        { "name": "recent_block_hashes",   "type": "recent_block_hashes" },
-        { "name": "timestamp_votes",       "type": "clock_timestamp_votes" },
-        { "name": "slot",                  "type": "ulong" },
-        { "name": "prev_slot",             "type": "ulong" },
-        { "name": "poh",                   "type": "hash" },
-        { "name": "banks_hash",            "type": "hash" },
-        { "name": "fee_rate_governor",     "type": "fee_rate_governor" },
-        { "name": "capitalization",        "type": "ulong" },
-        { "name": "block_height",          "type": "ulong" },
-        { "name": "lamports_per_signature","type": "ulong" },
-        { "name": "hashes_per_tick",       "type": "ulong" },
-        { "name": "ticks_per_slot",        "type": "ulong" },
-        { "name": "ns_per_slot",           "type": "uint128" },
-        { "name": "genesis_creation_time", "type": "ulong" },
-        { "name": "slots_per_year",        "type": "double" },
-        { "name": "max_tick_height",       "type": "ulong" },
-        { "name": "inflation",             "type": "inflation" },
-        { "name": "epoch_schedule",        "type": "epoch_schedule" },
-        { "name": "rent",                  "type": "rent" },
-        { "name": "collected_fees",        "type": "ulong" },
-        { "name": "collected_rent",        "type": "ulong" },
-        { "name": "epoch_stakes",          "type": "vote_accounts" },
-        { "name": "last_restart_slot",     "type": "sol_sysvar_last_restart_slot" }
-      ]
-    },
-    {
       "name": "cluster_type",
       "type": "enum",
       "variants": [
@@ -1085,34 +1062,20 @@
     {
       "name": "rent_fresh_accounts",
       "type": "struct",
+      "global": true,
       "fields": [
         { "name": "total_count", "type": "ulong" },
         { "name": "fresh_accounts", "type": "vector", "element": "rent_fresh_account" }
       ]
     },
     {
-      "name": "epoch_bank",
+      "name": "cluster_version",
       "type": "struct",
-      "archival": "true",
+      "global": true,
       "fields": [
-        { "name": "stakes",                "type": "stakes_delegation" },
-        { "name": "hashes_per_tick",       "type": "ulong" },
-        { "name": "ticks_per_slot",        "type": "ulong" },
-        { "name": "ns_per_slot",           "type": "uint128" },
-        { "name": "genesis_creation_time", "type": "ulong" },
-        { "name": "slots_per_year",        "type": "double" },
-        { "name": "max_tick_height",       "type": "ulong" },
-        { "name": "inflation",             "type": "inflation" },
-        { "name": "epoch_schedule",        "type": "epoch_schedule" },
-        { "name": "rent",                  "type": "rent" },
-        { "name": "eah_start_slot",        "type": "ulong" },
-        { "name": "eah_stop_slot",         "type": "ulong" },
-        { "name": "eah_interval",          "type": "ulong" },
-        { "name": "genesis_hash",          "type": "hash" },
-        { "name": "cluster_type",          "type": "uint" },
-        { "name": "cluster_version",       "type": "array", "element": "uint", "length": 3 },
-        { "name": "next_epoch_stakes",     "type": "vote_accounts"},
-        { "name": "rent_epoch_schedule",   "type": "epoch_schedule" }
+        { "name": "major", "type": "uint" },
+        { "name": "minor", "type": "uint" },
+        { "name": "patch", "type": "uint" }
       ]
     },
     {
@@ -1237,45 +1200,12 @@
     {
       "name": "epoch_reward_status",
       "type": "enum",
+      "global": true,
       "variants": [
         { "name": "Active", "type": "start_block_height_and_rewards" },
         { "name": "Inactive" }
       ],
       "comment": "https://github.com/anza-xyz/agave/blob/7117ed9653ce19e8b2dea108eff1f3eb6a3378a7/runtime/src/bank/partitioned_epoch_rewards/mod.rs#L70"
-    },
-    {
-      "name": "slot_bank",
-      "type": "struct",
-      "fields": [
-        { "name": "timestamp_votes",             "type": "clock_timestamp_votes" },
-        { "name": "slot",                        "type": "ulong" },
-        { "name": "prev_slot",                   "type": "ulong" },
-        { "name": "poh",                         "type": "hash" },
-        { "name": "banks_hash",                  "type": "hash" },
-        { "name": "epoch_account_hash",          "type": "hash" },
-        { "name": "fee_rate_governor",           "type": "fee_rate_governor" },
-        { "name": "capitalization",              "type": "ulong" },
-        { "name": "block_height",                "type": "ulong" },
-        { "name": "max_tick_height",             "type": "ulong" },
-        { "name": "collected_execution_fees",    "type": "ulong" },
-        { "name": "collected_priority_fees",     "type": "ulong" },
-        { "name": "collected_rent",              "type": "ulong" },
-        { "name": "epoch_stakes",                "type": "vote_accounts" },
-        { "name": "last_restart_slot",           "type": "sol_sysvar_last_restart_slot" },
-        { "name": "stake_account_keys",          "type": "account_keys"},
-        { "name": "vote_account_keys",           "type": "account_keys" },
-        { "name": "lamports_per_signature",      "type": "ulong" },
-        { "name": "transaction_count",           "type": "ulong" },
-        { "name": "lthash",                      "type": "slot_lthash" },
-        { "name": "block_hash_queue",            "type": "block_hash_queue" },
-        { "name": "prev_banks_hash",             "type": "hash" },
-        { "name": "parent_signature_cnt",        "type": "ulong" },
-        { "name": "tick_height",                 "type": "ulong" },
-        { "name": "use_preceeding_epoch_stakes", "type": "option", "element": "ulong", "flat": true, "comment": "The epoch for which to use the immediately preceeding epoch's stakes for leader schedule calculation. This is necessary due to how Agave's stake caches interact when loading from snapshots." },
-        { "name": "hard_forks",                  "type": "hard_forks" },
-        { "name": "rent_fresh_accounts",   "type": "rent_fresh_accounts", "comment": "TODO: remove this after disable_partitioned_rent_collection is activated everywhere." },
-        { "name": "epoch_reward_status",         "type": "epoch_reward_status" }
-      ]
     },
     {
       "name": "prev_epoch_inflation_rewards",

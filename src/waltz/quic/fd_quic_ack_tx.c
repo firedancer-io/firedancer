@@ -102,6 +102,7 @@ fd_quic_gen_ack_frames( fd_quic_ack_gen_t * gen,
   if( !gen->is_elicited ) return payload_ptr;
 
   /* Attempt to send all ACK ranges */
+  ulong ranges_sent = 0UL;
   for( ; gen->tail != gen->head; gen->tail++ ) {
     fd_quic_ack_t * ack = fd_quic_ack_queue_ele( gen, gen->tail );
     if( ack->enc_level != enc_level ) {
@@ -126,6 +127,7 @@ fd_quic_gen_ack_frames( fd_quic_ack_gen_t * gen,
       break;
     }
     payload_ptr += frame_sz;
+    ranges_sent += 1UL;
     FD_ACK_DEBUG( FD_LOG_DEBUG(( "gen=%p sending ACK enc=%u range=[%lu,%lu) seq=%u sz=%lu",
         (void *)gen, enc_level, ack->pkt_number.offset_lo, ack->pkt_number.offset_hi, gen->tail, frame_sz )); )
   }
@@ -136,6 +138,9 @@ fd_quic_gen_ack_frames( fd_quic_ack_gen_t * gen,
   } else {
     FD_ACK_DEBUG( FD_LOG_DEBUG(( "Not all ACK frames were flushed" )); )
   }
+
+  int const flushed = !gen->is_elicited;
+  FD_DTRACE_PROBE_3( fd_quic_gen_ack_frames, enc_level, ranges_sent, flushed );
 
   return payload_ptr;
 }

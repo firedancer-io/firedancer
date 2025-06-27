@@ -1,13 +1,12 @@
 #include "fd_sysvar_rent.h"
 #include "fd_sysvar.h"
 #include "../fd_system_ids.h"
-#include "../context/fd_exec_epoch_ctx.h"
 #include "../context/fd_exec_slot_ctx.h"
 #include <assert.h>
 
 void
 fd_sysvar_rent_write( fd_exec_slot_ctx_t * slot_ctx,
-                      fd_rent_t *          rent ) {
+                      fd_rent_t const *    rent ) {
 
   uchar enc[ 32 ];
 
@@ -21,13 +20,13 @@ fd_sysvar_rent_write( fd_exec_slot_ctx_t * slot_ctx,
   if( fd_rent_encode( rent, &ctx ) )
     FD_LOG_ERR(("fd_rent_encode failed"));
 
-  fd_sysvar_set( slot_ctx, &fd_sysvar_owner_id, &fd_sysvar_rent_id, enc, sz, slot_ctx->slot_bank.slot );
+  fd_sysvar_set( slot_ctx->bank, slot_ctx->funk, slot_ctx->funk_txn, &fd_sysvar_owner_id, &fd_sysvar_rent_id, enc, sz, slot_ctx->slot );
 }
 
 void
 fd_sysvar_rent_init( fd_exec_slot_ctx_t * slot_ctx ) {
-  fd_epoch_bank_t * epoch_bank = fd_exec_epoch_ctx_epoch_bank( slot_ctx->epoch_ctx );
-  fd_sysvar_rent_write( slot_ctx, &epoch_bank->rent );
+  fd_rent_t const * rent = fd_bank_rent_query( slot_ctx->bank );
+  fd_sysvar_rent_write( slot_ctx, rent );
 }
 
 fd_rent_t const *

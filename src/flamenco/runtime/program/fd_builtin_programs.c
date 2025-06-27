@@ -169,7 +169,7 @@ fd_write_builtin_account( fd_exec_slot_ctx_t * slot_ctx,
 
   fd_txn_account_mutable_fini( rec, funk, txn );
 
-  slot_ctx->slot_bank.capitalization++;
+  fd_bank_capitalization_set( slot_ctx->bank, fd_bank_capitalization_get( slot_ctx->bank ) + 1UL );
 
   // err = fd_acc_mgr_commit( acc_mgr, rec, slot_ctx );
   FD_TEST( !err );
@@ -179,10 +179,12 @@ fd_write_builtin_account( fd_exec_slot_ctx_t * slot_ctx,
 /* TODO: move this somewhere more appropiate */
 static void
 write_inline_spl_native_mint_program_account( fd_exec_slot_ctx_t * slot_ctx ) {
-  // really?! really!?
-  fd_epoch_bank_t const * epoch_bank = fd_exec_epoch_ctx_epoch_bank( slot_ctx->epoch_ctx );
-  if( epoch_bank->cluster_type != 3)
+
+  if( true ) {
+    /* FIXME: This is a hack that corresponds to the cluster type field
+       in Agave. This needs to get implemented properly in Firedancer. */
     return;
+  }
 
   fd_funk_t *         funk = slot_ctx->funk;
   fd_funk_txn_t *     txn  = slot_ctx->funk_txn;
@@ -213,9 +215,9 @@ void fd_builtin_programs_init( fd_exec_slot_ctx_t * slot_ctx ) {
   // https://github.com/anza-xyz/agave/blob/v2.0.1/runtime/src/bank/builtins/mod.rs#L33
   fd_builtin_program_t const * builtins = fd_builtins();
   for( ulong i=0UL; i<fd_num_builtins(); i++ ) {
-    if( builtins[i].core_bpf_migration_config && FD_FEATURE_ACTIVE_OFFSET( slot_ctx->slot_bank.slot, slot_ctx->epoch_ctx->features, builtins[i].core_bpf_migration_config->enable_feature_offset ) ) {
+    if( builtins[i].core_bpf_migration_config && FD_FEATURE_ACTIVE_OFFSET( slot_ctx->slot, fd_bank_features_get( slot_ctx->bank ), builtins[i].core_bpf_migration_config->enable_feature_offset ) ) {
       continue;
-    } else if( builtins[i].enable_feature_offset!=NO_ENABLE_FEATURE_ID && !FD_FEATURE_ACTIVE_OFFSET( slot_ctx->slot_bank.slot, slot_ctx->epoch_ctx->features, builtins[i].enable_feature_offset ) ) {
+    } else if( builtins[i].enable_feature_offset!=NO_ENABLE_FEATURE_ID && !FD_FEATURE_ACTIVE_OFFSET( slot_ctx->slot, fd_bank_features_get( slot_ctx->bank ), builtins[i].enable_feature_offset ) ) {
       continue;
     } else {
       fd_write_builtin_account( slot_ctx, *builtins[i].pubkey, builtins[i].data, strlen(builtins[i].data) );
@@ -223,25 +225,25 @@ void fd_builtin_programs_init( fd_exec_slot_ctx_t * slot_ctx ) {
   }
 
   //TODO: remove when no longer necessary
-  if( FD_FEATURE_ACTIVE( slot_ctx->slot_bank.slot, slot_ctx->epoch_ctx->features, zk_token_sdk_enabled ) ) {
+  if( FD_FEATURE_ACTIVE_BANK( slot_ctx->bank, zk_token_sdk_enabled ) ) {
     fd_write_builtin_account( slot_ctx, fd_solana_zk_token_proof_program_id, "zk_token_proof_program", 22UL );
   }
 
-  if( FD_FEATURE_ACTIVE( slot_ctx->slot_bank.slot, slot_ctx->epoch_ctx->features, zk_elgamal_proof_program_enabled ) ) {
+  if( FD_FEATURE_ACTIVE_BANK( slot_ctx->bank, zk_elgamal_proof_program_enabled ) ) {
     fd_write_builtin_account( slot_ctx, fd_solana_zk_elgamal_proof_program_id, "zk_elgamal_proof_program", 24UL );
   }
 
   /* Precompiles have empty account data */
-  if( slot_ctx->epoch_ctx->epoch_bank.cluster_version[0]<2 ) {
+  if( fd_bank_cluster_version_get( slot_ctx->bank ).major == 1 ) {
     char data[1] = {1};
     fd_write_builtin_account( slot_ctx, fd_solana_keccak_secp_256k_program_id, data, 1 );
     fd_write_builtin_account( slot_ctx, fd_solana_ed25519_sig_verify_program_id, data, 1 );
-    if( FD_FEATURE_ACTIVE( slot_ctx->slot_bank.slot, slot_ctx->epoch_ctx->features, enable_secp256r1_precompile ) )
+    if( FD_FEATURE_ACTIVE_BANK( slot_ctx->bank, enable_secp256r1_precompile ) )
       fd_write_builtin_account( slot_ctx, fd_solana_secp256r1_program_id, data, 1 );
   } else {
     fd_write_builtin_account( slot_ctx, fd_solana_keccak_secp_256k_program_id, "", 0 );
     fd_write_builtin_account( slot_ctx, fd_solana_ed25519_sig_verify_program_id, "", 0 );
-    if( FD_FEATURE_ACTIVE( slot_ctx->slot_bank.slot, slot_ctx->epoch_ctx->features, enable_secp256r1_precompile ) )
+    if( FD_FEATURE_ACTIVE_BANK( slot_ctx->bank, enable_secp256r1_precompile ) )
       fd_write_builtin_account( slot_ctx, fd_solana_secp256r1_program_id, "", 0 );
   }
 

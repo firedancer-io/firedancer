@@ -71,7 +71,7 @@ fd_vm_syscall_sol_alt_bn128_group_op( void *  _vm,
   case FD_VM_SYSCALL_SOL_ALT_BN128_MUL:
     /* Compute scalar mul */
     if( FD_LIKELY( fd_bn254_g1_scalar_mul_syscall( call_result, input, input_sz,
-                                                   FD_FEATURE_ACTIVE( vm->instr_ctx->txn_ctx->slot, vm->instr_ctx->txn_ctx->features, fix_alt_bn128_multiplication_input_length ) )==0 ) ) {
+                                                   FD_FEATURE_ACTIVE( vm->instr_ctx->txn_ctx->slot, &vm->instr_ctx->txn_ctx->features, fix_alt_bn128_multiplication_input_length ) )==0 ) ) {
       ret = 0UL; /* success */
     }
     break;

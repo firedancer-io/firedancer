@@ -3,7 +3,6 @@
 
 #include "../info/fd_instr_info.h"
 #include "../fd_executor_err.h"
-#include "../../../funk/fd_funk.h"
 
 /* Avoid circular include dependency with forward declaration */
 struct fd_borrowed_account;
@@ -12,26 +11,15 @@ typedef struct fd_borrowed_account fd_borrowed_account_t;
 /* fd_exec_instr_ctx_t is the context needed to execute a single
    instruction (program invocation). */
 
-struct __attribute__((aligned(8UL))) fd_exec_instr_ctx {
-  ulong magic; /* ==FD_EXEC_INSTR_CTX_MAGIC */
-
-  fd_exec_txn_ctx_t *         txn_ctx;  /* The transaction context for this instruction */
-
-  fd_exec_instr_ctx_t const * parent;
-
-  uint depth;      /* starts at 0 */
-  uint index;      /* number of preceding instructions with same parent */
-  uint child_cnt;  /* number of child instructions */
-  uint instr_err;  /* TODO: this is kind of redundant wrt instr_exec */
-
-  fd_funk_txn_t * funk_txn;
-  fd_funk_t *     funk;
+struct fd_exec_instr_ctx {
+  ulong                   magic;   /* ==FD_EXEC_INSTR_CTX_MAGIC */
+  uint                    depth;   /* starts at 0 */
+  fd_instr_info_t const * instr;   /* The instruction info for this instruction */
+  fd_exec_txn_ctx_t *     txn_ctx; /* The transaction context for this instruction */
 
   /* Most instructions log the base58 program id multiple times, so it's
      convenient to compute it once and reuse it. */
   char program_id_base58[ FD_BASE58_ENCODED_32_SZ ];
-
-  fd_instr_info_t const * instr;
 };
 
 #define FD_EXEC_INSTR_CTX_ALIGN     (alignof(fd_exec_instr_ctx_t))

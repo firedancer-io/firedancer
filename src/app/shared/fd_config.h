@@ -113,6 +113,7 @@ struct fd_configf {
       ulong max_transactions_per_slot;
       ulong snapshot_grace_period_seconds;
       ulong max_vote_accounts;
+      ulong max_banks;
     } limits;
   } runtime;
 
@@ -382,10 +383,10 @@ struct fd_config {
       ushort repair_intake_listen_port;
       ushort repair_serve_listen_port;
       char   good_peer_cache_file[ PATH_MAX ];
+      ulong  slot_max;
     } repair;
 
     struct {
-      char  capture[ PATH_MAX ];
       char  funk_checkpt[ PATH_MAX ];
       char  genesis[ PATH_MAX ];
       char  incremental[ PATH_MAX ];
@@ -409,12 +410,6 @@ struct fd_config {
     } store_int;
 
     struct {
-      ulong full_interval;
-      ulong incremental_interval;
-      char  out_dir[ PATH_MAX ];
-    } batch;
-
-    struct {
       int   enabled;
       ulong end_slot;
       char  archiver_path[ PATH_MAX ];
@@ -427,6 +422,15 @@ struct fd_config {
     } shredcap;
 
   } tiles;
+  struct {
+    ulong capture_start_slot;
+    char  dump_proto_dir[ PATH_MAX ];
+    char  solcap_capture[ PATH_MAX ];
+    int   dump_syscall_to_pb;
+    int   dump_instr_to_pb;
+    int   dump_txn_to_pb;
+    int   dump_block_to_pb;
+  } capture;
 };
 
 typedef struct fd_config fd_config_t;

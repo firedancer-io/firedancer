@@ -5,9 +5,31 @@
 #include "../fd_system_ids.h"
 #include "../fd_pubkey_utils.h"
 #include "../sysvar/fd_sysvar_rent.h"
-#include "../context/fd_exec_epoch_ctx.h"
 #include "../context/fd_exec_slot_ctx.h"
 #include "../context/fd_exec_txn_ctx.h"
+
+
+/* The `Address` type in the Agave system program is logged in the format:
+   "Address { address: <pubkey>>, base: <pubkey | None> }"
+   When this function is called, there are two cases:
+   1. _base==NULL. This means the address was not derived, so we should log the base pubkey as `None`.
+   2. _base!=NULL. The address was derived, so we should log the base pubkey as `Some(pubkey)`.
+
+   Max buffer length: 29 (string literal) + 90 (2 encoded pubkeys) + 6 (Some()) = 125
+   */
+static inline char *
+fd_log_address_type( fd_spad_t * spad, fd_pubkey_t const * pubkey, fd_pubkey_t const * base ) {
+  char * out = fd_spad_alloc( spad, alignof(char), 125UL );
+  char base_addr[52];
+  if( FD_UNLIKELY( base ) ) {
+    snprintf( base_addr, 52UL, "Some(%s)", FD_BASE58_ENC_32_ALLOCA( base ) );
+  } else {
+    snprintf( base_addr, 52UL, "None" );
+  }
+
+  snprintf( out, 125UL, "Address { address: %s, base: %s }", FD_BASE58_ENC_32_ALLOCA( pubkey ), base_addr );
+  return out;
+}
 
 /* https://github.com/solana-labs/solana/blob/v1.17.22/programs/system/src/system_processor.rs#L42-L68
 
@@ -139,7 +161,8 @@ static int
 fd_system_program_allocate( fd_exec_instr_ctx_t *   ctx,
                             fd_borrowed_account_t * account,
                             ulong                   space,
-                            fd_pubkey_t const *     authority ) {
+                            fd_pubkey_t const *     authority,
+                            fd_pubkey_t const *     base ) {
   int err;
 
   /* Assumes that acct_idx was bounds checked */
@@ -147,19 +170,19 @@ fd_system_program_allocate( fd_exec_instr_ctx_t *   ctx,
   /* https://github.com/solana-labs/solana/blob/v1.17.22/programs/system/src/system_processor.rs#L78-L85 */
 
   if( FD_UNLIKELY( !fd_exec_instr_ctx_any_signed( ctx, authority ) ) ) {
-    /* Max msg_sz: 35 - 2 + 45 = 78 < 127 => we can use printf */
-    fd_log_collector_printf_dangerous_max_127( ctx,
-      "Allocate: 'to' account %s must sign", FD_BASE58_ENC_32_ALLOCA( authority ) );
+    /* Max msg_sz: 35 - 2 + 125 = 158 */
+    fd_log_collector_printf_inefficient_max_512( ctx,
+      "Allocate: 'to' account %s must sign", fd_log_address_type( ctx->txn_ctx->spad, account->acct->pubkey, base ) );
     return FD_EXECUTOR_INSTR_ERR_MISSING_REQUIRED_SIGNATURE;
   }
 
   /* https://github.com/solana-labs/solana/blob/v1.17.22/programs/system/src/system_processor.rs#L87-L96 */
 
-  if( FD_UNLIKELY( ( fd_borrowed_account_get_data_len( account ) != 0UL ) |
+  if( FD_UNLIKELY( ( fd_borrowed_account_get_data_len( account ) != 0UL ) ||
                    ( 0!=memcmp( fd_borrowed_account_get_owner( account ), fd_solana_system_program_id.uc, 32UL ) ) ) ) {
-    /* Max msg_sz: 35 - 2 + 45 = 78 < 127 => we can use printf */
-    fd_log_collector_printf_dangerous_max_127( ctx,
-      "Allocate: account %s already in use", FD_BASE58_ENC_32_ALLOCA( account->acct->pubkey ) );
+    /* Max msg_sz: 35 - 2 + 125 = 158 */
+    fd_log_collector_printf_inefficient_max_512( ctx,
+      "Allocate: account %s already in use", fd_log_address_type( ctx->txn_ctx->spad, account->acct->pubkey, base ) );
     ctx->txn_ctx->custom_err = FD_SYSTEM_PROGRAM_ERR_ACCT_ALREADY_IN_USE;
     return FD_EXECUTOR_INSTR_ERR_CUSTOM_ERR;
   }
@@ -193,7 +216,8 @@ static int
 fd_system_program_assign( fd_exec_instr_ctx_t *   ctx,
                           fd_borrowed_account_t * account,
                           fd_pubkey_t const *     owner,
-                          fd_pubkey_t const *     authority ) {
+                          fd_pubkey_t const *     authority,
+                          fd_pubkey_t const *     base ) {
   /* Assumes addr_idx was bounds checked */
 
   /* https://github.com/solana-labs/solana/blob/v1.17.22/programs/system/src/system_processor.rs#L121-L123 */
@@ -204,9 +228,9 @@ fd_system_program_assign( fd_exec_instr_ctx_t *   ctx,
   /* https://github.com/solana-labs/solana/blob/v1.17.22/programs/system/src/system_processor.rs#L125-L128 */
 
   if( FD_UNLIKELY( !fd_exec_instr_ctx_any_signed( ctx, authority ) ) ) {
-    /* Max msg_sz: 28 - 2 + 45 = 71 < 127 => we can use printf */
-    fd_log_collector_printf_dangerous_max_127( ctx,
-      "Assign: account %s must sign", FD_BASE58_ENC_32_ALLOCA( authority ) );
+    /* Max msg_sz: 28 - 2 + 125 = 151 */
+    fd_log_collector_printf_inefficient_max_512( ctx,
+      "Assign: account %s must sign", fd_log_address_type( ctx->txn_ctx->spad, account->acct->pubkey, base ) );
     return FD_EXECUTOR_INSTR_ERR_MISSING_REQUIRED_SIGNATURE;
   }
 
@@ -220,15 +244,16 @@ fd_system_program_assign( fd_exec_instr_ctx_t *   ctx,
 static int
 fd_system_program_allocate_and_assign( fd_exec_instr_ctx_t *   ctx,
                                        fd_borrowed_account_t * account,
-                                       ulong                 space,
-                                       fd_pubkey_t const *   owner,
-                                       fd_pubkey_t const *   authority ) {
+                                       ulong                   space,
+                                       fd_pubkey_t const *     owner,
+                                       fd_pubkey_t const *     authority,
+                                       fd_pubkey_t const *     base ) {
 
   do {
-    int err = fd_system_program_allocate( ctx, account, space, authority );
+    int err = fd_system_program_allocate( ctx, account, space, authority, base );
     if( FD_UNLIKELY( err ) ) return err;
   } while(0);
-  return fd_system_program_assign( ctx, account, owner, authority );
+  return fd_system_program_assign( ctx, account, owner, authority, base );
 
 }
 
@@ -244,7 +269,8 @@ fd_system_program_create_account( fd_exec_instr_ctx_t * ctx,
                                   ulong                 lamports,
                                   ulong                 space,
                                   fd_pubkey_t const *   owner,
-                                  fd_pubkey_t const *   authority ) {
+                                  fd_pubkey_t const *   authority,
+                                  fd_pubkey_t const *   base ) {
   int err;
 
   /* if it looks like the to account is already in use, bail
@@ -259,16 +285,16 @@ fd_system_program_create_account( fd_exec_instr_ctx_t * ctx,
     /* https://github.com/solana-labs/solana/blob/v1.17.22/programs/system/src/system_processor.rs#L162-L169 */
 
     if( FD_UNLIKELY( fd_borrowed_account_get_lamports( &to ) ) ) {
-      /* Max msg_sz: 41 - 2 + 45 = 84 < 127 => we can use printf */
-      fd_log_collector_printf_dangerous_max_127( ctx,
-        "Create Account: account %s already in use", FD_BASE58_ENC_32_ALLOCA( to.acct->pubkey ) );
+      /* Max msg_sz: 41 - 2 + 125 = 164 */
+      fd_log_collector_printf_inefficient_max_512( ctx,
+        "Create Account: account %s already in use", fd_log_address_type( ctx->txn_ctx->spad, to.acct->pubkey, base ) );
       ctx->txn_ctx->custom_err = FD_SYSTEM_PROGRAM_ERR_ACCT_ALREADY_IN_USE;
       return FD_EXECUTOR_INSTR_ERR_CUSTOM_ERR;
     }
 
     /* https://github.com/solana-labs/solana/blob/v1.17.22/programs/system/src/system_processor.rs#L171 */
 
-    err = fd_system_program_allocate_and_assign( ctx, &to, space, owner, authority );
+    err = fd_system_program_allocate_and_assign( ctx, &to, space, owner, authority, base );
     if( FD_UNLIKELY( err ) ) return err;
 
     /* Implicit drop
@@ -311,7 +337,8 @@ fd_system_program_exec_create_account( fd_exec_instr_ctx_t *                    
       create_acc->lamports,
       create_acc->space,
       &create_acc->owner,
-      authority );
+      authority,
+      NULL );
 }
 
 /* https://github.com/solana-labs/solana/blob/v1.17.22/programs/system/src/system_processor.rs#L381-L393
@@ -338,7 +365,7 @@ fd_system_program_exec_assign( fd_exec_instr_ctx_t * ctx,
 
   /* https://github.com/solana-labs/solana/blob/v1.17.22/programs/system/src/system_processor.rs#L392 */
 
-  err = fd_system_program_assign( ctx, &account, owner, account.acct->pubkey );
+  err = fd_system_program_assign( ctx, &account, owner, account.acct->pubkey, NULL );
   if( FD_UNLIKELY( err ) ) return err;
 
   /* Implicit drop */
@@ -405,6 +432,7 @@ fd_system_program_exec_create_account_with_seed( fd_exec_instr_ctx_t *          
       args->lamports,
       args->space,
       &args->owner,
+      &args->base,
       &args->base );
 }
 
@@ -432,7 +460,7 @@ fd_system_program_exec_allocate( fd_exec_instr_ctx_t * ctx,
   /* https://github.com/solana-labs/solana/blob/v1.17.22/programs/system/src/system_processor.rs#L515
      Authorization check is lifted out from 'allocate' to here. */
 
-  err = fd_system_program_allocate( ctx, &account, space, account.acct->pubkey );
+  err = fd_system_program_allocate( ctx, &account, space, account.acct->pubkey, NULL );
   if( FD_UNLIKELY( err ) ) return err;
 
   /* Implicit drop */
@@ -478,6 +506,7 @@ fd_system_program_exec_allocate_with_seed( fd_exec_instr_ctx_t *                
     &account,
     args->space,
     &args->owner,
+    &args->base,
     &args->base );
   if( FD_UNLIKELY( err ) ) return err;
 
@@ -519,7 +548,7 @@ fd_system_program_exec_assign_with_seed( fd_exec_instr_ctx_t *                  
   /* https://github.com/solana-labs/solana/blob/v1.17.22/programs/system/src/system_processor.rs#L553
      Authorization check is lifted out from 'assign' to here. */
 
-  err = fd_system_program_assign( ctx, &account, &args->owner, &args->base );
+  err = fd_system_program_assign( ctx, &account, &args->owner, &args->base, &args->base );
   if( FD_UNLIKELY( err ) ) return err;
 
   /* Implicit drop */

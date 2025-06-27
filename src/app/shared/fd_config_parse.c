@@ -96,6 +96,7 @@ fd_config_extract_podf( uchar *        pod,
   CFG_POP      ( ulong,  runtime.limits.max_transactions_per_slot         );
   CFG_POP      ( ulong,  runtime.limits.snapshot_grace_period_seconds     );
   CFG_POP      ( ulong,  runtime.limits.max_vote_accounts                 );
+  CFG_POP      ( ulong,  runtime.limits.max_banks                         );
 
   CFG_POP      ( ulong,  funk.max_account_records                         );
   CFG_POP      ( ulong,  funk.heap_size_gib                               );
@@ -218,8 +219,16 @@ fd_config_extract_pod( uchar *       pod,
   CFG_POP      ( ushort, tiles.repair.repair_intake_listen_port           );
   CFG_POP      ( ushort, tiles.repair.repair_serve_listen_port            );
   CFG_POP      ( cstr,   tiles.repair.good_peer_cache_file                );
+  CFG_POP      ( ulong,  tiles.repair.slot_max                           );
 
-  CFG_POP      ( cstr,   tiles.replay.capture                             );
+  CFG_POP      ( ulong,  capture.capture_start_slot                       );
+  CFG_POP      ( cstr,   capture.solcap_capture                           );
+  CFG_POP      ( cstr,   capture.dump_proto_dir                           );
+  CFG_POP      ( bool,   capture.dump_syscall_to_pb                       );
+  CFG_POP      ( bool,   capture.dump_instr_to_pb                          );
+  CFG_POP      ( bool,   capture.dump_txn_to_pb                           );
+  CFG_POP      ( bool,   capture.dump_block_to_pb                         );
+
   CFG_POP      ( cstr,   tiles.replay.funk_checkpt                        );
   CFG_POP      ( cstr,   tiles.replay.genesis                             );
   CFG_POP      ( cstr,   tiles.replay.incremental                         );
@@ -237,10 +246,6 @@ fd_config_extract_pod( uchar *       pod,
   CFG_POP      ( cstr,   tiles.store_int.shred_cap_archive                );
   CFG_POP      ( cstr,   tiles.store_int.shred_cap_replay                 );
   CFG_POP      ( ulong,  tiles.store_int.shred_cap_end_slot               );
-
-  CFG_POP      ( ulong,  tiles.batch.full_interval                        );
-  CFG_POP      ( ulong,  tiles.batch.incremental_interval                 );
-  CFG_POP      ( cstr,   tiles.batch.out_dir                              );
 
   CFG_POP      ( ushort, tiles.send.send_src_port                         );
 

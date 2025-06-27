@@ -6,11 +6,11 @@
 #include "../../disco/pack/fd_microblock.h"
 #include "../../disco/fd_disco_base.h"
 
+/* FIXME: Everything in this file should be migrated to fd_exec.h */
+
 /* definition of the public/readable workspace */
 #define FD_RUNTIME_PUBLIC_MAGIC (0xF17EDA2C9A7B1C21UL)
 
-#define EXEC_NEW_SLOT_SIG              (0xABC123UL)
-#define EXEC_NEW_EPOCH_SIG             (0xDEF456UL)
 #define EXEC_NEW_TXN_SIG               (0x777777UL)
 #define EXEC_HASH_ACCS_SIG             (0x888888UL)
 #define EXEC_BPF_SCAN_SIG              (0x999991UL)
@@ -23,8 +23,6 @@
 
 #define FD_EXEC_STATE_NOT_BOOTED       (0xFFFFFFFFUL)
 #define FD_EXEC_STATE_BOOTED           (1<<1UL      )
-#define FD_EXEC_STATE_EPOCH_DONE       (1<<2UL      )
-#define FD_EXEC_STATE_SLOT_DONE        (1<<3UL      )
 #define FD_EXEC_STATE_HASH_DONE        (1<<6UL      )
 #define FD_EXEC_STATE_BPF_SCAN_DONE    (1<<7UL      )
 #define FD_EXEC_STATE_SNAP_CNT_DONE    (1<<8UL      )
@@ -95,11 +93,6 @@ fd_exec_fseq_get_state( ulong fseq ) {
 }
 
 static ulong FD_FN_UNUSED
-fd_exec_fseq_set_slot_done( void ) {
-  return (ulong)FD_EXEC_STATE_SLOT_DONE;
-}
-
-static ulong FD_FN_UNUSED
 fd_exec_fseq_set_booted( uint offset ) {
   ulong state = ((ulong)offset << 32UL);
   state      |= FD_EXEC_STATE_BOOTED;
@@ -112,13 +105,15 @@ fd_exec_fseq_get_booted_offset( ulong fseq ) {
 }
 
 static ulong FD_FN_UNUSED
-fd_exec_fseq_set_epoch_done( void ) {
-  return FD_EXEC_STATE_EPOCH_DONE;
+fd_exec_fseq_set_hash_done( ulong slot ) {
+  ulong state = ((ulong)slot << 32UL);
+  state      |= FD_EXEC_STATE_HASH_DONE;
+  return state;
 }
 
-static ulong FD_FN_UNUSED
-fd_exec_fseq_set_hash_done( void ) {
-  return FD_EXEC_STATE_HASH_DONE;
+static uint FD_FN_UNUSED
+fd_exec_fseq_get_slot( ulong fseq ) {
+  return (uint)(fseq >> 32UL);
 }
 
 static ulong FD_FN_UNUSED
@@ -193,34 +188,8 @@ fd_writer_fseq_is_not_joined( ulong fseq ) {
   return fseq==ULONG_MAX;
 }
 
-/* FIXME: This will need to get reworked when we consolidate the
-   slot/epoch ctx/bank. We will use zero-copy accesssors into a
-   fork-aware funk record. This will allow us to have one object which
-   represents runtime state that is fork-aware that doesn't need to be
-   bincode serialized/deserialized. */
-struct fd_runtime_public_epoch_msg {
-  fd_features_t       features;
-  ulong               total_epoch_stake;
-  fd_epoch_schedule_t epoch_schedule;
-  fd_rent_t           rent;
-  double              slots_per_year;
-  ulong               stakes_encoded_gaddr;
-  ulong               stakes_encoded_sz;
-  ulong               bank_hash_cmp_gaddr;
-};
-typedef struct fd_runtime_public_epoch_msg fd_runtime_public_epoch_msg_t;
-
-struct fd_runtime_public_slot_msg {
-  ulong                  slot;
-  ulong                  prev_lamports_per_signature;
-  fd_fee_rate_governor_t fee_rate_governor;
-  ulong                  block_hash_queue_encoded_gaddr;
-  ulong                  block_hash_queue_encoded_sz;
-  int                    enable_exec_recording;
-};
-typedef struct fd_runtime_public_slot_msg fd_runtime_public_slot_msg_t;
-
 struct fd_runtime_public_txn_msg {
+  ulong      slot;
   fd_txn_p_t txn;
 };
 typedef struct fd_runtime_public_txn_msg fd_runtime_public_txn_msg_t;
@@ -230,6 +199,7 @@ struct fd_runtime_public_hash_bank_msg {
   ulong lthash_gaddr;
   ulong start_idx;
   ulong end_idx;
+  ulong slot;
 };
 typedef struct fd_runtime_public_hash_bank_msg fd_runtime_public_hash_bank_msg_t;
 

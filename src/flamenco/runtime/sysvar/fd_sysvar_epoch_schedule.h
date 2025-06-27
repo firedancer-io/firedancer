@@ -73,8 +73,8 @@ fd_sysvar_epoch_schedule_read( fd_funk_t *     funk,
    schedule sysvar to funk. */
 
 void
-fd_sysvar_epoch_schedule_write( fd_exec_slot_ctx_t *  slot_ctx,
-                                fd_epoch_schedule_t * epoch_schedule );
+fd_sysvar_epoch_schedule_write( fd_exec_slot_ctx_t *        slot_ctx,
+                                fd_epoch_schedule_t const * epoch_schedule );
 
 /* fd_epoch_schedule_derive derives an epoch schedule config from the
    given parameters.  New epoch schedule configurations should only be

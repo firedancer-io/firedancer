@@ -6,7 +6,6 @@
 #include "../context/fd_exec_instr_ctx.h"
 #include "../context/fd_exec_txn_ctx.h"
 #include "../context/fd_exec_slot_ctx.h"
-#include "../context/fd_exec_epoch_ctx.h"
 #include "../../vm/fd_vm.h"
 #include "fd_builtin_programs.h"
 
@@ -62,7 +61,7 @@ calculate_default_compute_unit_limit( fd_exec_txn_ctx_t const * ctx,
                                       ulong                     num_builtin_instrs,
                                       ulong                     num_non_builtin_instrs,
                                       ulong                     num_non_compute_budget_instrs ) {
-  if( FD_FEATURE_ACTIVE( ctx->slot, ctx->features, reserve_minimal_cus_for_builtin_instructions ) ) {
+  if( FD_FEATURE_ACTIVE_BANK( ctx->bank, reserve_minimal_cus_for_builtin_instructions ) ) {
     /* https://github.com/anza-xyz/agave/blob/v2.1.13/runtime-transaction/src/compute_budget_instruction_details.rs#L227-L234 */
     return fd_ulong_sat_add( fd_ulong_sat_mul( num_builtin_instrs, MAX_BUILTIN_ALLOCATION_COMPUTE_UNIT_LIMIT ),
                              fd_ulong_sat_mul( num_non_builtin_instrs, DEFAULT_INSTRUCTION_COMPUTE_UNIT_LIMIT ) );
@@ -105,7 +104,7 @@ fd_executor_compute_budget_program_execute_instructions( fd_exec_txn_ctx_t * ctx
     fd_txn_instr_t const * instr = &ctx->txn_descriptor->instr[i];
 
     /* Track builtin vs non-builtin metrics only if SIMD-170 is active */
-    if( FD_FEATURE_ACTIVE( ctx->slot, ctx->features, reserve_minimal_cus_for_builtin_instructions ) ) {
+    if( FD_FEATURE_ACTIVE_BANK( ctx->bank, reserve_minimal_cus_for_builtin_instructions ) ) {
       /* Only `FD_PROGRAM_KIND_BUILTIN` gets charged as a builtin instruction */
       uchar program_kind = get_program_kind( ctx, instr );
       if( program_kind==FD_PROGRAM_KIND_BUILTIN ) {

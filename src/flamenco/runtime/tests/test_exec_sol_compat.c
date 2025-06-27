@@ -63,11 +63,11 @@ main( int     argc,
   if( wksp_page_sz == ULONG_MAX ) {
     wksp_page_sz = FD_SHMEM_NORMAL_PAGE_SZ;
   }
+
   sol_compat_wksp_init( wksp_page_sz );
 
   ulong fail_cnt = 0UL;
   for( int j=1; j<argc; j++ ) {
-
     // Init runner
     fd_runtime_fuzz_runner_t * runner = sol_compat_setup_runner();
 
@@ -88,7 +88,6 @@ main( int     argc,
 
     // Free runner
     sol_compat_cleanup_runner( runner );
-
 
     // Check usage
     sol_compat_check_wksp_usage();

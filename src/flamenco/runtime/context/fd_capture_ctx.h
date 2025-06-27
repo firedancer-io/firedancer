@@ -27,7 +27,7 @@ struct __attribute__((aligned(FD_CAPTURE_CTX_ALIGN))) fd_capture_ctx {
   ulong                    dump_proto_start_slot;
 
   /* Instruction Capture */
-  int                      dump_insn_to_pb;
+  int                      dump_instr_to_pb;
 
   /* Transaction Capture */
   int                      dump_txn_to_pb;

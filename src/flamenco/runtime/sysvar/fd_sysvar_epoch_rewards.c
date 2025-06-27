@@ -4,7 +4,6 @@
 #include "../fd_runtime.h"
 #include "../fd_borrowed_account.h"
 #include "../fd_system_ids.h"
-#include "../context/fd_exec_epoch_ctx.h"
 
 static void
 write_epoch_rewards( fd_exec_slot_ctx_t * slot_ctx, fd_sysvar_epoch_rewards_t * epoch_rewards ) {
@@ -19,7 +18,7 @@ write_epoch_rewards( fd_exec_slot_ctx_t * slot_ctx, fd_sysvar_epoch_rewards_t * 
     FD_LOG_ERR(( "fd_sysvar_epoch_rewards_encode failed" ));
   }
 
-  fd_sysvar_set( slot_ctx, &fd_sysvar_owner_id, &fd_sysvar_epoch_rewards_id, enc, sz, slot_ctx->slot_bank.slot );
+  fd_sysvar_set( slot_ctx->bank, slot_ctx->funk, slot_ctx->funk_txn, &fd_sysvar_owner_id, &fd_sysvar_epoch_rewards_id, enc, sz, slot_ctx->slot );
 }
 
 fd_sysvar_epoch_rewards_t *

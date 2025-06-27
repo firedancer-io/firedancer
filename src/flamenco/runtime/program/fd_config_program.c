@@ -3,7 +3,6 @@
 #include "../fd_acc_mgr.h"
 #include "../fd_executor.h"
 #include "../fd_system_ids.h"
-#include "../context/fd_exec_epoch_ctx.h"
 #include "../context/fd_exec_slot_ctx.h"
 #include "../context/fd_exec_txn_ctx.h"
 #include "../context/fd_exec_instr_ctx.h"
@@ -237,7 +236,7 @@ _process_config_instr( fd_exec_instr_ctx_t * ctx ) {
 int
 fd_config_program_execute( fd_exec_instr_ctx_t * ctx ) {
   /* Prevent execution of migrated native programs */
-  if( FD_UNLIKELY( FD_FEATURE_ACTIVE( ctx->txn_ctx->slot, ctx->txn_ctx->features, migrate_config_program_to_core_bpf ) ) ) {
+  if( FD_UNLIKELY( FD_FEATURE_ACTIVE_BANK( ctx->txn_ctx->bank, migrate_config_program_to_core_bpf ) ) ) {
     return FD_EXECUTOR_INSTR_ERR_UNSUPPORTED_PROGRAM_ID;
   }
 

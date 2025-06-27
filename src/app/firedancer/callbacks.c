@@ -38,6 +38,59 @@ fd_topo_obj_callbacks_t fd_obj_cb_runtime_pub = {
 };
 
 static ulong
+banks_footprint( fd_topo_t const *     topo,
+                 fd_topo_obj_t const * obj ) {
+  return fd_banks_footprint( VAL("max_banks") );
+}
+
+static ulong
+banks_align( fd_topo_t const *     topo FD_FN_UNUSED,
+             fd_topo_obj_t const * obj  FD_FN_UNUSED ) {
+  return fd_banks_align();
+}
+
+static void
+banks_new( fd_topo_t const *     topo,
+           fd_topo_obj_t const * obj ) {
+  FD_TEST( fd_banks_new( fd_topo_obj_laddr( topo, obj->id ), VAL("max_banks") ) );
+}
+
+fd_topo_obj_callbacks_t fd_obj_cb_banks = {
+  .name      = "banks",
+  .footprint = banks_footprint,
+  .align     = banks_align,
+  .new       = banks_new,
+};
+
+static ulong
+bh_cmp_footprint( fd_topo_t const *     topo,
+                  fd_topo_obj_t const * obj ) {
+  (void)topo; (void)obj;
+  return fd_bank_hash_cmp_footprint();
+}
+
+static ulong
+bh_cmp_align( fd_topo_t const *     topo,
+              fd_topo_obj_t const * obj ) {
+  (void)topo; (void)obj;
+  return fd_bank_hash_cmp_align();
+}
+
+static void
+bh_cmp_new( fd_topo_t const *     topo,
+                   fd_topo_obj_t const * obj ) {
+  (void)topo; (void)obj;
+  FD_TEST( fd_bank_hash_cmp_new( fd_topo_obj_laddr( topo, obj->id ) ) );
+}
+
+fd_topo_obj_callbacks_t fd_obj_cb_bank_hash_cmp = {
+  .name      = "bh_cmp",
+  .footprint = bh_cmp_footprint,
+  .align     = bh_cmp_align,
+  .new       = bh_cmp_new,
+};
+
+static ulong
 funk_align( fd_topo_t const *     topo,
             fd_topo_obj_t const * obj ) {
   (void)topo; (void)obj;

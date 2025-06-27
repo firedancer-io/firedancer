@@ -225,7 +225,13 @@ fd_vm_syscall_sol_get_sysvar( /**/            void *  _vm,
   return FD_VM_SUCCESS;
 }
 
-/* https://github.com/anza-xyz/agave/blob/v2.1.0/programs/bpf_loader/src/syscalls/mod.rs#L2043-L2118 */
+/* https://github.com/anza-xyz/agave/blob/v2.1.0/programs/bpf_loader/src/syscalls/mod.rs#L2043-L2118
+
+   This syscall is meant to return the latest frozen stakes at an epoch
+   boundary.  So for instance, when we are executing in epoch 7, this
+   should return the stakes at the end of epoch 6.  Note that this is
+   also the stakes that determined the leader schedule for the upcoming
+   epoch, namely epoch 8. */
 int
 fd_vm_syscall_sol_get_epoch_stake( /**/            void *  _vm,
                                    /**/            ulong   var_addr,
@@ -244,7 +250,7 @@ fd_vm_syscall_sol_get_epoch_stake( /**/            void *  _vm,
     FD_VM_CU_UPDATE( vm, FD_VM_SYSCALL_BASE_COST );
 
     /* https://github.com/anza-xyz/agave/blob/v2.1.0/programs/bpf_loader/src/syscalls/mod.rs#L2074 */
-    *_ret = vm->instr_ctx->txn_ctx->total_epoch_stake;
+    *_ret = fd_bank_total_epoch_stake_get( vm->instr_ctx->txn_ctx->bank );
     return FD_VM_SUCCESS;
   }
 
@@ -254,7 +260,11 @@ fd_vm_syscall_sol_get_epoch_stake( /**/            void *  _vm,
 
   /* https://github.com/anza-xyz/agave/blob/v2.1.0/programs/bpf_loader/src/syscalls/mod.rs#L2103-L2104 */
   const fd_pubkey_t * vote_address = FD_VM_MEM_HADDR_LD( vm, var_addr, FD_VM_ALIGN_RUST_PUBKEY, FD_PUBKEY_FOOTPRINT );
-  *_ret = fd_query_pubkey_stake( vote_address, &vm->instr_ctx->txn_ctx->stakes.vote_accounts );
+
+  /* https://github.com/anza-xyz/agave/blob/v2.2.14/runtime/src/bank.rs#L6954 */
+  fd_vote_accounts_global_t const * next_epoch_stakes = fd_bank_next_epoch_stakes_locking_query( vm->instr_ctx->txn_ctx->bank );
+  *_ret = fd_query_pubkey_stake( vote_address, next_epoch_stakes );
+  fd_bank_next_epoch_stakes_end_locking_query( vm->instr_ctx->txn_ctx->bank );
 
   return FD_VM_SUCCESS;
 }

@@ -6,7 +6,7 @@
    backtest-------------->replay------------->exec------------->writer
      ^                    |^ | |                                   ^
      |____________________|| | |___________________________________|
-          replay_notif     | |              replay_wtr
+          replay_notif     | |
                            | |------------------------------>no consumer
     no producer-------------  stake_out, send_out, poh_out
                 store_replay,
@@ -170,16 +170,6 @@ backtest_topo( config_t * config ) {
     fd_topob_tile_in( topo, "writer", i, "metric_in", "exec_writer", j, FD_TOPOB_RELIABLE, FD_TOPOB_POLLED );
 
   /**********************************************************************/
-  /* Setup replay->writer links in topo                                 */
-  /**********************************************************************/
-  fd_topob_wksp( topo, "replay_wtr" );
-  for( ulong i=0; i<writer_tile_cnt; i++ ) {
-    fd_topob_link( topo, "replay_wtr", "replay_wtr", 128UL, FD_REPLAY_WRITER_MTU, 1UL );
-    fd_topob_tile_out( topo, "replay", 0UL, "replay_wtr", i );
-    fd_topob_tile_in( topo, "writer", i, "metric_in", "replay_wtr", i, FD_TOPOB_RELIABLE, FD_TOPOB_POLLED );
-  }
-
-  /**********************************************************************/
   /* Setup the shared objs used by replay and exec tiles                */
   /**********************************************************************/
 
@@ -214,6 +204,22 @@ backtest_topo( config_t * config ) {
   FOR(exec_tile_cnt) fd_topob_tile_uses( topo, &topo->tiles[ fd_topo_find_tile( topo, "exec", i ) ], runtime_pub_obj, FD_SHMEM_JOIN_MODE_READ_ONLY );
   FOR(writer_tile_cnt) fd_topob_tile_uses( topo, &topo->tiles[ fd_topo_find_tile( topo, "writer", i ) ], runtime_pub_obj, FD_SHMEM_JOIN_MODE_READ_WRITE );
   FD_TEST( fd_pod_insertf_ulong( topo->props, runtime_pub_obj->id, "runtime_pub" ) );
+
+  /* banks_obj shared by replay, exec and writer tiles */
+  fd_topob_wksp( topo, "banks" );
+  FD_LOG_WARNING(("max_banks: %lu", config->firedancer.runtime.limits.max_banks));
+  fd_topo_obj_t * banks_obj = setup_topo_banks( topo, "banks", config->firedancer.runtime.limits.max_banks );
+  fd_topob_tile_uses( topo, replay_tile, banks_obj, FD_SHMEM_JOIN_MODE_READ_WRITE );
+  FOR(exec_tile_cnt) fd_topob_tile_uses( topo, &topo->tiles[ fd_topo_find_tile( topo, "exec", i ) ], banks_obj, FD_SHMEM_JOIN_MODE_READ_WRITE );
+  FOR(writer_tile_cnt) fd_topob_tile_uses( topo, &topo->tiles[ fd_topo_find_tile( topo, "writer", i ) ], banks_obj, FD_SHMEM_JOIN_MODE_READ_WRITE );
+  FD_TEST( fd_pod_insertf_ulong( topo->props, banks_obj->id, "banks" ) );
+
+  /* bank_hash_cmp_obj shared by replay, exec and writer tiles */
+  fd_topob_wksp( topo, "bh_cmp" );
+  fd_topo_obj_t * bank_hash_cmp_obj = setup_topo_bank_hash_cmp( topo, "bh_cmp" );
+  fd_topob_tile_uses( topo, replay_tile, bank_hash_cmp_obj, FD_SHMEM_JOIN_MODE_READ_WRITE );
+  FOR(exec_tile_cnt) fd_topob_tile_uses( topo, &topo->tiles[ fd_topo_find_tile( topo, "exec", i ) ], bank_hash_cmp_obj, FD_SHMEM_JOIN_MODE_READ_WRITE );
+  FD_TEST( fd_pod_insertf_ulong( topo->props, bank_hash_cmp_obj->id, "bh_cmp" ) );
 
   /* exec_spad_obj shared by replay, exec and writer tiles */
   fd_topob_wksp( topo, "exec_spad" );

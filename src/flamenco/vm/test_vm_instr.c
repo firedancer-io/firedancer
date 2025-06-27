@@ -5,7 +5,6 @@
 #include "fd_vm_base.h"
 #include "fd_vm_private.h"
 #include "test_vm_util.h"
-#include "../runtime/context/fd_exec_epoch_ctx.h"
 #include "../runtime/context/fd_exec_slot_ctx.h"
 #include <assert.h>
 #include <ctype.h>
@@ -446,10 +445,8 @@ run_input( test_input_t const * input,
 
   fd_valloc_t valloc = fd_libc_alloc_virtual();
   fd_exec_slot_ctx_t  * slot_ctx  = fd_valloc_malloc( valloc, FD_EXEC_SLOT_CTX_ALIGN,    FD_EXEC_SLOT_CTX_FOOTPRINT );
-  fd_exec_epoch_ctx_t * epoch_ctx = fd_valloc_malloc( valloc, fd_exec_epoch_ctx_align(), sizeof(fd_exec_epoch_ctx_t) );
 
-  fd_exec_instr_ctx_t * instr_ctx = test_vm_minimal_exec_instr_ctx(
-    valloc, epoch_ctx, slot_ctx );
+  fd_exec_instr_ctx_t * instr_ctx = test_vm_minimal_exec_instr_ctx( valloc, slot_ctx );
 
   int vm_ok = !!fd_vm_init(
       /* vm                 */ vm,
@@ -472,7 +469,7 @@ run_input( test_input_t const * input,
       /* mem_regions_cnt    */ input->region_boundary_cnt ? input->region_boundary_cnt : 1,
       /* mem_regions_accs   */ NULL,
       /* is_deprecated      */ 0,
-      /* direct mapping     */ FD_FEATURE_ACTIVE( instr_ctx->txn_ctx->slot, instr_ctx->txn_ctx->features, bpf_account_data_direct_mapping ),
+      /* direct mapping     */ FD_FEATURE_ACTIVE( instr_ctx->txn_ctx->slot, &instr_ctx->txn_ctx->features, bpf_account_data_direct_mapping ),
       /* dump_syscall_to_pb */ 0
   );
   assert( vm_ok );
@@ -484,7 +481,6 @@ run_input( test_input_t const * input,
   run_input2( out, vm, force_exec );
 
   /* Clean up */
-  fd_valloc_free( valloc, epoch_ctx );
   fd_valloc_free( valloc, slot_ctx );
   test_vm_exec_instr_ctx_delete( instr_ctx, fd_libc_alloc_virtual() );
   free( fd_sbpf_syscalls_delete ( fd_sbpf_syscalls_leave ( syscalls  ) ) );

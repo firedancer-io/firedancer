@@ -203,7 +203,7 @@ create_lookup_table( fd_exec_instr_ctx_t *       ctx,
   lut_owner    = fd_borrowed_account_get_owner( &lut_acct );
 
   /* https://github.com/solana-labs/solana/blob/v1.17.4/programs/address-lookup-table/src/processor.rs#L63-L70 */
-  if( !FD_FEATURE_ACTIVE( ctx->txn_ctx->slot, ctx->txn_ctx->features, relax_authority_signer_check_for_lookup_table_creation )
+  if( !FD_FEATURE_ACTIVE_BANK( ctx->txn_ctx->bank, relax_authority_signer_check_for_lookup_table_creation )
       && fd_borrowed_account_get_data_len( &lut_acct ) != 0UL ) {
     fd_log_collector_msg_literal( ctx, "Table account must not be allocated" );
     return FD_EXECUTOR_INSTR_ERR_ACC_ALREADY_INITIALIZED;
@@ -223,7 +223,7 @@ create_lookup_table( fd_exec_instr_ctx_t *       ctx,
   authority_key = authority_acct.acct->pubkey;
 
   /* https://github.com/solana-labs/solana/blob/v1.17.4/programs/address-lookup-table/src/processor.rs#L76-L83 */
-  if( !FD_FEATURE_ACTIVE( ctx->txn_ctx->slot, ctx->txn_ctx->features, relax_authority_signer_check_for_lookup_table_creation )
+  if( !FD_FEATURE_ACTIVE_BANK( ctx->txn_ctx->bank, relax_authority_signer_check_for_lookup_table_creation )
       && !fd_instr_acc_is_signer_idx( ctx->instr, ACC_IDX_AUTHORITY ) ) {
     fd_log_collector_msg_literal( ctx, "Authority account must be a signer" );
     return FD_EXECUTOR_INSTR_ERR_MISSING_REQUIRED_SIGNATURE;
@@ -293,14 +293,14 @@ create_lookup_table( fd_exec_instr_ctx_t *       ctx,
   }
 
   /* https://github.com/solana-labs/solana/blob/v1.17.4/programs/address-lookup-table/src/processor.rs#L129-L135 */
-  if( FD_FEATURE_ACTIVE( ctx->txn_ctx->slot, ctx->txn_ctx->features, relax_authority_signer_check_for_lookup_table_creation )
+  if( FD_FEATURE_ACTIVE_BANK( ctx->txn_ctx->bank, relax_authority_signer_check_for_lookup_table_creation )
       && 0==memcmp( lut_owner, fd_solana_address_lookup_table_program_id.key, sizeof(fd_pubkey_t) ) ) {
     return FD_EXECUTOR_INSTR_SUCCESS;
   }
 
   /* https://github.com/solana-labs/solana/blob/v1.17.4/programs/address-lookup-table/src/processor.rs#L137-L142 */
 
-  fd_rent_t const * rent              = &ctx->txn_ctx->rent;
+  fd_rent_t const * rent              = fd_bank_rent_query( ctx->txn_ctx->bank );
   ulong             tbl_acct_data_len = 0x38UL;
   ulong             required_lamports = fd_rent_exempt_minimum_balance( rent, tbl_acct_data_len );
                     required_lamports = fd_ulong_max( required_lamports, 1UL );
@@ -710,10 +710,10 @@ extend_lookup_table( fd_exec_instr_ctx_t *       ctx,
 
 
   /* https://github.com/solana-labs/solana/blob/v1.17.4/programs/address-lookup-table/src/processor.rs#L317-L321 */
-  fd_rent_t       const * rent              = &ctx->txn_ctx->rent;
-  ulong                   required_lamports = fd_rent_exempt_minimum_balance( rent, new_table_data_sz );
-                          required_lamports = fd_ulong_max    ( required_lamports, 1UL );
-                          required_lamports = fd_ulong_sat_sub( required_lamports, lut_lamports );
+  fd_rent_t const * rent              = fd_bank_rent_query( ctx->txn_ctx->bank );
+  ulong             required_lamports = fd_rent_exempt_minimum_balance( rent, new_table_data_sz );
+                    required_lamports = fd_ulong_max    ( required_lamports, 1UL );
+                    required_lamports = fd_ulong_sat_sub( required_lamports, lut_lamports );
 
   if( required_lamports ) {
     fd_pubkey_t const * payer_key = NULL;
@@ -848,7 +848,7 @@ deactivate_lookup_table( fd_exec_instr_ctx_t * ctx ) {
 
   /* https://github.com/solana-labs/solana/blob/v1.17.4/programs/address-lookup-table/src/processor.rs#L367-L370 */
   if( FD_UNLIKELY( !state->meta.has_authority ) ) {
-    fd_log_collector_msg_literal( ctx, "Lookup table is already frozen" );
+    fd_log_collector_msg_literal( ctx, "Lookup table is frozen" );
     return FD_EXECUTOR_INSTR_ERR_ACC_IMMUTABLE;
   }
 
@@ -1058,7 +1058,7 @@ close_lookup_table( fd_exec_instr_ctx_t * ctx ) {
 int
 fd_address_lookup_table_program_execute( fd_exec_instr_ctx_t * ctx ) {
   /* Prevent execution of migrated native programs */
-  if( FD_UNLIKELY( FD_FEATURE_ACTIVE( ctx->txn_ctx->slot, ctx->txn_ctx->features, migrate_address_lookup_table_program_to_core_bpf ) ) ) {
+  if( FD_UNLIKELY( FD_FEATURE_ACTIVE_BANK( ctx->txn_ctx->bank, migrate_address_lookup_table_program_to_core_bpf ) ) ) {
     return FD_EXECUTOR_INSTR_ERR_UNSUPPORTED_PROGRAM_ID;
   }
 

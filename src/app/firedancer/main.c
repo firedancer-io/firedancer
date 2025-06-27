@@ -22,7 +22,9 @@ extern fd_topo_obj_callbacks_t fd_obj_cb_blockstore;
 extern fd_topo_obj_callbacks_t fd_obj_cb_fec_sets;
 extern fd_topo_obj_callbacks_t fd_obj_cb_txncache;
 extern fd_topo_obj_callbacks_t fd_obj_cb_exec_spad;
+extern fd_topo_obj_callbacks_t fd_obj_cb_banks;
 extern fd_topo_obj_callbacks_t fd_obj_cb_funk;
+extern fd_topo_obj_callbacks_t fd_obj_cb_bank_hash_cmp;
 
 fd_topo_obj_callbacks_t * CALLBACKS[] = {
   &fd_obj_cb_mcache,
@@ -41,10 +43,9 @@ fd_topo_obj_callbacks_t * CALLBACKS[] = {
   &fd_obj_cb_fec_sets,
   &fd_obj_cb_txncache,
   &fd_obj_cb_exec_spad,
-  &fd_obj_cb_funk,
-  NULL,
+  &fd_obj_cb_banks,
+  &fd_obj_cb_bank_hash_cmp,
 };
-
 configure_stage_t * STAGES[] = {
   &fd_cfg_stage_hugetlbfs,
   &fd_cfg_stage_sysctl,
@@ -77,7 +78,6 @@ extern fd_topo_run_tile_t fd_tile_repair;
 extern fd_topo_run_tile_t fd_tile_replay;
 extern fd_topo_run_tile_t fd_tile_execor;
 extern fd_topo_run_tile_t fd_tile_writer;
-extern fd_topo_run_tile_t fd_tile_batch;
 extern fd_topo_run_tile_t fd_tile_poh;
 extern fd_topo_run_tile_t fd_tile_send;
 extern fd_topo_run_tile_t fd_tile_tower;
@@ -104,7 +104,6 @@ fd_topo_run_tile_t * TILES[] = {
   &fd_tile_replay,
   &fd_tile_execor,
   &fd_tile_writer,
-  &fd_tile_batch,
   &fd_tile_poh,
   &fd_tile_send,
   &fd_tile_tower,

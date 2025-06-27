@@ -712,10 +712,10 @@ fd_vm_syscall_register( fd_sbpf_syscalls_t *   syscalls,
    should be the set used to execute programs. */
 
 int
-fd_vm_syscall_register_slot( fd_sbpf_syscalls_t * syscalls,
-                             ulong                slot,
-                             fd_features_t *      features,
-                             uchar                is_deploy );
+fd_vm_syscall_register_slot( fd_sbpf_syscalls_t *  syscalls,
+                             ulong                 slot,
+                             fd_features_t const * features,
+                             uchar                 is_deploy );
 
 /* fd_vm_syscall_register_all is a shorthand for registering all
    syscalls (see register slot). */
