@@ -202,6 +202,7 @@ fd_runtime_fuzz_block_ctx_create( fd_runtime_fuzz_runner_t *           runner,
   fd_funk_t * funk = runner->funk;
 
   slot_ctx->bank = runner->bank;
+  fd_bank_clear_bank( slot_ctx->bank );
 
   /* Generate unique ID for funk txn */
   fd_funk_txn_xid_t xid[1] = {0};

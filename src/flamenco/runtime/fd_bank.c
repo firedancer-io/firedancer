@@ -671,5 +671,26 @@ fd_banks_publish( fd_banks_t * banks, ulong slot ) {
   fd_rwlock_unwrite( &banks->rwlock );
 
   return new_root;
+}
 
+void
+fd_bank_clear_bank( fd_bank_t * bank ) {
+
+  #define HAS_COW_1(type, name, footprint) \
+    fd_bank_##name##_t * name##_pool = fd_bank_get_##name##_pool( bank ); \
+    if( bank->name##_pool_idx==fd_bank_##name##_pool_idx_null( name##_pool ) ) { \
+      return; \
+    } \
+    fd_bank_##name##_t * name##_ele = fd_bank_##name##_pool_ele( name##_pool, bank->name##_pool_idx ); \
+    fd_memset( name##_ele->data, 0, footprint );
+
+  #define HAS_COW_0(type, name, footprint) \
+    fd_memset( bank->name, 0, footprint );
+
+  #define X(type, name, footprint, align, cow, has_lock) \
+    HAS_COW_##cow(type, name, footprint)
+  FD_BANKS_ITER(X)
+  #undef X
+  #undef HAS_COW_0
+  #undef HAS_COW_1
 }

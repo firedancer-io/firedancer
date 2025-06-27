@@ -50,7 +50,7 @@ fd_runtime_fuzz_instr_ctx_create( fd_runtime_fuzz_runner_t *           runner,
   /* Bank manager */
 
   slot_ctx->bank = runner->bank;
-  memcpy( (uchar *)slot_ctx->bank + FD_BANK_HEADER_SIZE, (uchar *)runner->bank + FD_BANK_HEADER_SIZE, sizeof(fd_bank_t) - FD_BANK_HEADER_SIZE );
+  fd_bank_clear_bank( slot_ctx->bank );
 
   fd_features_t * features = fd_bank_features_modify( slot_ctx->bank );
   fd_exec_test_feature_set_t const * feature_set = &test_ctx->epoch_context.features;

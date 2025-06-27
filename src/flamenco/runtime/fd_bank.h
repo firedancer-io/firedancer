@@ -586,6 +586,9 @@ fd_banks_clone_from_parent( fd_banks_t * banks,
 fd_bank_t const *
 fd_banks_publish( fd_banks_t * banks, ulong slot );
 
+void
+fd_bank_clear_bank( fd_bank_t * bank );
+
 FD_PROTOTYPES_END
 
 #endif /* HEADER_fd_src_flamenco_runtime_fd_bank_h */
