@@ -237,7 +237,11 @@ fd_snapshot_load_fini( fd_snapshot_load_ctx_t * ctx ) {
   }
 
   // In order to calculate the snapshot hash, we need to know what features are active...
-  fd_features_restore( ctx->slot_ctx, ctx->runtime_spad );
+  fd_features_restore(
+      ctx->slot_ctx->bank,
+      ctx->slot_ctx->funk,
+      ctx->slot_ctx->funk_txn,
+      ctx->runtime_spad );
   fd_calculate_epoch_accounts_hash_values( ctx->slot_ctx );
 
   int snapshots_lt_hash = FD_FEATURE_ACTIVE_BANK( ctx->slot_ctx->bank, snapshots_lt_hash );

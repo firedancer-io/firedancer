@@ -162,7 +162,7 @@ int
 runtime_replay( fd_ledger_args_t * ledger_args ) {
   int ret = 0;
 
-  fd_features_restore( ledger_args->slot_ctx, ledger_args->runtime_spad );
+  fd_features_restore( ledger_args->slot_ctx->bank, ledger_args->slot_ctx->funk, ledger_args->slot_ctx->funk_txn, ledger_args->runtime_spad );
 
   fd_runtime_update_leaders( ledger_args->slot_ctx->bank, ledger_args->slot_ctx->slot, ledger_args->runtime_spad );
 
@@ -519,7 +519,7 @@ fd_ledger_main_setup( fd_ledger_args_t * args ) {
   fd_flamenco_boot( NULL, NULL );
 
   /* Finish other runtime setup steps */
-  fd_features_restore( args->slot_ctx, args->runtime_spad );
+  fd_features_restore( args->slot_ctx->bank, args->slot_ctx->funk, args->slot_ctx->funk_txn, args->runtime_spad );
   fd_runtime_update_leaders( args->slot_ctx->bank, args->slot_ctx->slot, args->runtime_spad );
   fd_calculate_epoch_accounts_hash_values( args->slot_ctx );
 

@@ -172,7 +172,8 @@ fd_stake_weights_by_node( fd_vote_accounts_global_t const * accs,
 /* Helper function to deserialize a vote account. If successful, populates vote account info in `elem`
    and saves the decoded vote state in `vote_state` */
 static fd_vote_state_versioned_t *
-deserialize_and_update_vote_account( fd_exec_slot_ctx_t *                       slot_ctx,
+deserialize_and_update_vote_account( fd_funk_t *                                funk,
+                                     fd_funk_txn_t *                            funk_txn,
                                      fd_vote_accounts_pair_global_t_mapnode_t * elem,
                                      fd_stake_weight_t_mapnode_t *              stake_delegations_root,
                                      fd_stake_weight_t_mapnode_t *              stake_delegations_pool,
@@ -182,8 +183,8 @@ deserialize_and_update_vote_account( fd_exec_slot_ctx_t *                       
   FD_TXN_ACCOUNT_DECL( vote_account );
   if( FD_UNLIKELY( fd_txn_account_init_from_funk_readonly( vote_account,
                                                            vote_account_pubkey,
-                                                           slot_ctx->funk,
-                                                           slot_ctx->funk_txn ) ) ) {
+                                                           funk,
+                                                           funk_txn ) ) ) {
     FD_LOG_DEBUG(( "Vote account not found" ));
     return NULL;
   }
@@ -420,7 +421,9 @@ new vote account keys from this epoch.
 
 https://github.com/solana-labs/solana/blob/c091fd3da8014c0ef83b626318018f238f506435/runtime/src/stakes.rs#L562 */
 void
-fd_refresh_vote_accounts( fd_exec_slot_ctx_t *       slot_ctx,
+fd_refresh_vote_accounts( fd_bank_t *                bank,
+                          fd_funk_t *                funk,
+                          fd_funk_txn_t *            funk_txn,
                           fd_stake_history_t const * history,
                           ulong *                    new_rate_activation_epoch,
                           fd_epoch_info_t *          temp_info,
@@ -429,12 +432,12 @@ fd_refresh_vote_accounts( fd_exec_slot_ctx_t *       slot_ctx,
                           ulong                      exec_spad_cnt,
                           fd_spad_t *                runtime_spad ) {
 
-  fd_stakes_global_t *                       stakes                    = fd_bank_stakes_locking_modify( slot_ctx->bank );
+  fd_stakes_global_t *                       stakes                    = fd_bank_stakes_locking_modify( bank );
   fd_vote_accounts_global_t *                vote_accounts             = &stakes->vote_accounts;
   fd_vote_accounts_pair_global_t_mapnode_t * stakes_vote_accounts_pool = fd_vote_accounts_vote_accounts_pool_join( vote_accounts );
   fd_vote_accounts_pair_global_t_mapnode_t * stakes_vote_accounts_root = fd_vote_accounts_vote_accounts_root_join( vote_accounts );
 
-  fd_account_keys_global_t *         vote_account_keys      = fd_bank_vote_account_keys_locking_modify( slot_ctx->bank );
+  fd_account_keys_global_t *         vote_account_keys      = fd_bank_vote_account_keys_locking_modify( bank );
   fd_account_keys_pair_t_mapnode_t * vote_account_keys_pool = fd_account_keys_account_keys_pool_join( vote_account_keys );
   fd_account_keys_pair_t_mapnode_t * vote_account_keys_root = fd_account_keys_account_keys_root_join( vote_account_keys );
 
@@ -504,12 +507,15 @@ fd_refresh_vote_accounts( fd_exec_slot_ctx_t *       slot_ctx,
        elem;
        elem = fd_vote_accounts_pair_global_t_map_successor( stakes_vote_accounts_pool, elem ) ) {
     fd_pubkey_t const *         vote_account_pubkey = &elem->elem.key;
-    fd_vote_state_versioned_t * vote_state          = deserialize_and_update_vote_account( slot_ctx,
-                                                                                           elem,
-                                                                                           root,
-                                                                                           pool,
-                                                                                           vote_account_pubkey,
-                                                                                           runtime_spad );
+    fd_vote_state_versioned_t * vote_state          = deserialize_and_update_vote_account(
+        funk,
+        funk_txn,
+        elem,
+        root,
+        pool,
+        vote_account_pubkey,
+        runtime_spad );
+
     if( FD_LIKELY( vote_state ) ) {
       total_epoch_stake += elem->elem.stake;
       // Insert into the temporary vote states cache
@@ -539,7 +545,8 @@ fd_refresh_vote_accounts( fd_exec_slot_ctx_t *       slot_ctx,
     }
 
     fd_vote_accounts_pair_global_t_mapnode_t * new_vote_node = fd_vote_accounts_pair_global_t_map_acquire( stakes_vote_accounts_pool );
-    fd_vote_state_versioned_t *                vote_state    = deserialize_and_update_vote_account( slot_ctx,
+    fd_vote_state_versioned_t *                vote_state    = deserialize_and_update_vote_account( funk,
+                                                                                                    funk_txn,
                                                                                                     new_vote_node,
                                                                                                     root,
                                                                                                     pool,
@@ -563,9 +570,9 @@ fd_refresh_vote_accounts( fd_exec_slot_ctx_t *       slot_ctx,
   fd_vote_accounts_vote_accounts_pool_update( &stakes->vote_accounts, stakes_vote_accounts_pool );
   fd_vote_accounts_vote_accounts_root_update( &stakes->vote_accounts, stakes_vote_accounts_root );
 
-  fd_bank_stakes_end_locking_modify( slot_ctx->bank );
+  fd_bank_stakes_end_locking_modify( bank );
 
-  fd_bank_total_epoch_stake_set( slot_ctx->bank, total_epoch_stake );
+  fd_bank_total_epoch_stake_set( bank, total_epoch_stake );
 
   /* At this point, we need to flush the vote account keys cache */
   vote_account_keys_pool = fd_account_keys_account_keys_pool_join( vote_account_keys );
@@ -574,7 +581,7 @@ fd_refresh_vote_accounts( fd_exec_slot_ctx_t *       slot_ctx,
   vote_account_keys_root = NULL;
   fd_account_keys_account_keys_pool_update( vote_account_keys, vote_account_keys_pool );
   fd_account_keys_account_keys_root_update( vote_account_keys, vote_account_keys_root );
-  fd_bank_vote_account_keys_end_locking_modify( slot_ctx->bank );
+  fd_bank_vote_account_keys_end_locking_modify( bank );
 }
 
 static void
@@ -583,7 +590,8 @@ accumulate_stake_cache_delegations( fd_delegation_pair_t_mapnode_t * *      dele
                                     ulong                                   worker_idx,
                                     fd_delegation_pair_t_mapnode_t *        end_node ) {
 
-  fd_exec_slot_ctx_t const *              slot_ctx                  = task_args->slot_ctx;
+  fd_funk_t *                             funk                      = task_args->funk;
+  fd_funk_txn_t *                         funk_txn                  = task_args->funk_txn;
   fd_stake_history_t const *              history                   = task_args->stake_history;
   ulong *                                 new_rate_activation_epoch = task_args->new_rate_activation_epoch;
   fd_stake_history_entry_t *              accumulator               = task_args->accumulator;
@@ -604,8 +612,8 @@ accumulate_stake_cache_delegations( fd_delegation_pair_t_mapnode_t * *      dele
       FD_TXN_ACCOUNT_DECL( acc );
       int rc = fd_txn_account_init_from_funk_readonly( acc,
                                                        &n->elem.account,
-                                                       slot_ctx->funk,
-                                                       slot_ctx->funk_txn );
+                                                       funk,
+                                                       funk_txn );
       if( FD_UNLIKELY( rc!=FD_ACC_MGR_SUCCESS || acc->vt->get_lamports( acc )==0UL ) ) {
         FD_LOG_WARNING(("Failed to init account"));
         continue;
@@ -670,7 +678,9 @@ accumulate_stake_cache_delegations_tpool_task( void  *tpool,
    used to save intermediate state about stake and vote accounts to avoid them from having to
    be recomputed on every access, especially at the epoch boundary. Also collects stats in `accumulator` */
 void
-fd_accumulate_stake_infos( fd_exec_slot_ctx_t const * slot_ctx,
+fd_accumulate_stake_infos( fd_bank_t *                bank,
+                           fd_funk_t *                funk,
+                           fd_funk_txn_t *            funk_txn,
                            fd_stakes_global_t const * stakes,
                            fd_stake_history_t const * history,
                            ulong *                    new_rate_activation_epoch,
@@ -718,7 +728,8 @@ fd_accumulate_stake_infos( fd_exec_slot_ctx_t const * slot_ctx,
   batch_delegation_roots[worker_cnt] = NULL;
 
   fd_accumulate_delegations_task_args_t task_args = {
-    .slot_ctx                  = slot_ctx,
+    .funk                      = funk,
+    .funk_txn                  = funk_txn,
     .stake_history             = history,
     .new_rate_activation_epoch = new_rate_activation_epoch,
     .accumulator               = accumulator,
@@ -740,12 +751,12 @@ fd_accumulate_stake_infos( fd_exec_slot_ctx_t const * slot_ctx,
   }
   temp_info->stake_infos_new_keys_start_idx = temp_info->stake_infos_len;
 
-  fd_account_keys_global_t const *   stake_account_keys = fd_bank_stake_account_keys_locking_query( slot_ctx->bank );
+  fd_account_keys_global_t const *   stake_account_keys = fd_bank_stake_account_keys_locking_query( bank );
   fd_account_keys_pair_t_mapnode_t * account_keys_pool  = fd_account_keys_account_keys_pool_join( stake_account_keys );
   fd_account_keys_pair_t_mapnode_t * account_keys_root  = fd_account_keys_account_keys_root_join( stake_account_keys );
 
   if( !account_keys_pool ) {
-    fd_bank_stake_account_keys_end_locking_query( slot_ctx->bank );
+    fd_bank_stake_account_keys_end_locking_query( bank );
     return;
   }
 
@@ -754,7 +765,7 @@ fd_accumulate_stake_infos( fd_exec_slot_ctx_t const * slot_ctx,
        n;
        n = fd_account_keys_pair_t_map_successor( account_keys_pool, n ) ) {
     FD_TXN_ACCOUNT_DECL( acc );
-    int rc = fd_txn_account_init_from_funk_readonly(acc, &n->elem.key, slot_ctx->funk, slot_ctx->funk_txn );
+    int rc = fd_txn_account_init_from_funk_readonly(acc, &n->elem.key, funk, funk_txn );
     if( FD_UNLIKELY( rc!=FD_ACC_MGR_SUCCESS || acc->vt->get_lamports( acc )==0UL ) ) {
       continue;
     }
@@ -782,24 +793,26 @@ fd_accumulate_stake_infos( fd_exec_slot_ctx_t const * slot_ctx,
     accumulator->deactivating += new_entry.deactivating;
   }
 
-  fd_bank_stake_account_keys_end_locking_query( slot_ctx->bank );
+  fd_bank_stake_account_keys_end_locking_query( bank );
 }
 
 /* https://github.com/solana-labs/solana/blob/88aeaa82a856fc807234e7da0b31b89f2dc0e091/runtime/src/stakes.rs#L169 */
 void
-fd_stakes_activate_epoch( fd_exec_slot_ctx_t *  slot_ctx,
-                          ulong *               new_rate_activation_epoch,
-                          fd_epoch_info_t *     temp_info,
-                          fd_tpool_t *          tpool,
-                          fd_spad_t * *         exec_spads,
-                          ulong                 exec_spad_cnt,
-                          fd_spad_t *           runtime_spad ) {
+fd_stakes_activate_epoch( fd_bank_t *       bank,
+                          fd_funk_t *       funk,
+                          fd_funk_txn_t *   funk_txn,
+                          ulong *           new_rate_activation_epoch,
+                          fd_epoch_info_t * temp_info,
+                          fd_tpool_t *      tpool,
+                          fd_spad_t * *     exec_spads,
+                          ulong             exec_spad_cnt,
+                          fd_spad_t *       runtime_spad ) {
 
-  fd_stakes_global_t const *       stakes                 = fd_bank_stakes_locking_query( slot_ctx->bank );
+  fd_stakes_global_t const *       stakes                 = fd_bank_stakes_locking_query( bank );
   fd_delegation_pair_t_mapnode_t * stake_delegations_pool = fd_stakes_stake_delegations_pool_join( stakes );
   fd_delegation_pair_t_mapnode_t * stake_delegations_root = fd_stakes_stake_delegations_root_join( stakes );
 
-  fd_account_keys_global_t const * stake_account_keys = fd_bank_stake_account_keys_locking_query( slot_ctx->bank );
+  fd_account_keys_global_t const * stake_account_keys = fd_bank_stake_account_keys_locking_query( bank );
 
   fd_account_keys_pair_t_mapnode_t * account_keys_pool = NULL;
   fd_account_keys_pair_t_mapnode_t * account_keys_root = NULL;
@@ -814,7 +827,7 @@ fd_stakes_activate_epoch( fd_exec_slot_ctx_t *  slot_ctx,
   /* Add a new entry to the Stake History sysvar for the previous epoch
      https://github.com/solana-labs/solana/blob/88aeaa82a856fc807234e7da0b31b89f2dc0e091/runtime/src/stakes.rs#L181-L192 */
 
-  fd_stake_history_t const * history = fd_sysvar_stake_history_read( slot_ctx->funk, slot_ctx->funk_txn, runtime_spad );
+  fd_stake_history_t const * history = fd_sysvar_stake_history_read( funk, funk_txn, runtime_spad );
   if( FD_UNLIKELY( !history ) ) FD_LOG_ERR(( "StakeHistory sysvar is missing from sysvar cache" ));
 
   ulong stake_delegations_size = fd_delegation_pair_t_map_size(
@@ -822,7 +835,7 @@ fd_stakes_activate_epoch( fd_exec_slot_ctx_t *  slot_ctx,
 
   stake_delegations_size += !!account_keys_pool ? fd_account_keys_pair_t_map_size( account_keys_pool, account_keys_root ) : 0UL;
 
-  fd_bank_stake_account_keys_end_locking_query( slot_ctx->bank );
+  fd_bank_stake_account_keys_end_locking_query( bank );
 
   temp_info->stake_infos_len = 0UL;
   temp_info->stake_infos     = (fd_epoch_info_pair_t *)fd_spad_alloc( runtime_spad, FD_EPOCH_INFO_PAIR_ALIGN, sizeof(fd_epoch_info_pair_t)*stake_delegations_size );
@@ -835,16 +848,19 @@ fd_stakes_activate_epoch( fd_exec_slot_ctx_t *  slot_ctx,
   };
 
   /* Accumulate stats for stake accounts */
-  fd_accumulate_stake_infos( slot_ctx,
-                             stakes,
-                             history,
-                             new_rate_activation_epoch,
-                             &accumulator,
-                             temp_info,
-                             tpool,
-                             exec_spads,
-                             exec_spad_cnt,
-                             runtime_spad );
+  fd_accumulate_stake_infos(
+      bank,
+      funk,
+      funk_txn,
+      stakes,
+      history,
+      new_rate_activation_epoch,
+      &accumulator,
+      temp_info,
+      tpool,
+      exec_spads,
+      exec_spad_cnt,
+      runtime_spad );
 
   /* https://github.com/anza-xyz/agave/blob/v2.1.6/runtime/src/stakes.rs#L359 */
   fd_epoch_stake_history_entry_pair_t new_elem = {
@@ -856,9 +872,9 @@ fd_stakes_activate_epoch( fd_exec_slot_ctx_t *  slot_ctx,
     }
   };
 
-  fd_sysvar_stake_history_update( slot_ctx, &new_elem, runtime_spad );
+  fd_sysvar_stake_history_update( bank, funk, funk_txn, &new_elem, runtime_spad );
 
-  fd_bank_stakes_end_locking_query( slot_ctx->bank );
+  fd_bank_stakes_end_locking_query( bank );
 
 }
 

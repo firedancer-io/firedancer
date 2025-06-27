@@ -1008,7 +1008,7 @@ prepare_new_block_execution( fd_replay_tile_ctx_t * ctx,
   /* if it is an epoch boundary, push out stake weights */
 
   if( ctx->slot_ctx->slot != 0 ) {
-    is_new_epoch_in_new_block = (int)fd_runtime_is_epoch_boundary( ctx->slot_ctx, ctx->slot_ctx->slot, fd_bank_prev_slot_get( ctx->slot_ctx->bank ) );
+    is_new_epoch_in_new_block = (int)fd_runtime_is_epoch_boundary( ctx->slot_ctx->bank, ctx->slot_ctx->slot, fd_bank_prev_slot_get( ctx->slot_ctx->bank ) );
   }
 
   /* Update starting PoH hash for the new slot for tick verification later */

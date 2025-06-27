@@ -590,9 +590,9 @@ fd_runtime_finalize_txn( fd_funk_t *                  funk,
 /* Epoch Boundary *************************************************************/
 
 uint
-fd_runtime_is_epoch_boundary( fd_exec_slot_ctx_t * slot_ctx,
-                              ulong                curr_slot,
-                              ulong                prev_slot );
+fd_runtime_is_epoch_boundary( fd_bank_t * bank,
+                              ulong       curr_slot,
+                              ulong       prev_slot );
 
 /*
    This is roughly Agave's process_new_epoch() which gets called from

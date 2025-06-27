@@ -3,6 +3,8 @@
 
 #include "../fd_flamenco_base.h"
 #include "../types/fd_types.h"
+#include "../runtime/fd_bank.h"
+#include "../../funk/fd_funk.h"
 
 FD_PROTOTYPES_BEGIN
 
@@ -34,7 +36,8 @@ struct fd_compute_stake_delegations {
 typedef struct fd_compute_stake_delegations fd_compute_stake_delegations_t;
 
 struct fd_accumulate_delegations_task_args {
-   fd_exec_slot_ctx_t const *         slot_ctx;
+   fd_funk_t *                        funk;
+   fd_funk_txn_t *                    funk_txn;
    fd_stake_history_t const *         stake_history;
    ulong *                            new_rate_activation_epoch;
    fd_stake_history_entry_t *         accumulator;
@@ -52,13 +55,15 @@ fd_stake_weights_by_node( fd_vote_accounts_global_t const * accs,
 
 
 void
-fd_stakes_activate_epoch( fd_exec_slot_ctx_t *  slot_ctx,
-                          ulong *               new_rate_activation_epoch,
-                          fd_epoch_info_t *     temp_info,
-                          fd_tpool_t *          tpool,
-                          fd_spad_t * *         exec_spads,
-                          ulong                 exec_spad_cnt,
-                          fd_spad_t *           runtime_spad );
+fd_stakes_activate_epoch( fd_bank_t *       bank,
+                          fd_funk_t *       funk,
+                          fd_funk_txn_t *   funk_txn,
+                          ulong *           new_rate_activation_epoch,
+                          fd_epoch_info_t * temp_info,
+                          fd_tpool_t *      tpool,
+                          fd_spad_t * *     exec_spads,
+                          ulong             exec_spad_cnt,
+                          fd_spad_t *       runtime_spad );
 
 fd_stake_history_entry_t
 stake_and_activating( fd_delegation_t const * delegation,
@@ -83,7 +88,9 @@ void
 fd_stakes_upsert_stake_delegation( fd_exec_slot_ctx_t * slot_ctx, fd_borrowed_account_t * stake_account, ulong * new_rate_activation_epoch );
 
 void
-fd_refresh_vote_accounts( fd_exec_slot_ctx_t *       slot_ctx,
+fd_refresh_vote_accounts( fd_bank_t *                bank,
+                          fd_funk_t *                funk,
+                          fd_funk_txn_t *            funk_txn,
                           fd_stake_history_t const * history,
                           ulong *                    new_rate_activation_epoch,
                           fd_epoch_info_t *          temp_info,
@@ -105,7 +112,9 @@ fd_populate_vote_accounts( fd_exec_slot_ctx_t *       slot_ctx,
                           fd_spad_t *                runtime_spad );
 
 void
-fd_accumulate_stake_infos( fd_exec_slot_ctx_t const * slot_ctx,
+fd_accumulate_stake_infos( fd_bank_t *                bank,
+                           fd_funk_t *                funk,
+                           fd_funk_txn_t *            funk_txn,
                            fd_stakes_global_t const * stakes,
                            fd_stake_history_t const * history,
                            ulong *                    new_rate_activation_epoch,

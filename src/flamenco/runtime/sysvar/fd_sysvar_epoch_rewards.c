@@ -6,7 +6,10 @@
 #include "../fd_system_ids.h"
 
 static void
-write_epoch_rewards( fd_exec_slot_ctx_t * slot_ctx, fd_sysvar_epoch_rewards_t * epoch_rewards ) {
+write_epoch_rewards( fd_bank_t *                 bank,
+                     fd_funk_t *                 funk,
+                     fd_funk_txn_t *             funk_txn,
+                     fd_sysvar_epoch_rewards_t * epoch_rewards ) {
   ulong sz = fd_sysvar_epoch_rewards_size( epoch_rewards );
   uchar enc[sz];
   fd_memset( enc, 0, sz );
@@ -18,7 +21,7 @@ write_epoch_rewards( fd_exec_slot_ctx_t * slot_ctx, fd_sysvar_epoch_rewards_t * 
     FD_LOG_ERR(( "fd_sysvar_epoch_rewards_encode failed" ));
   }
 
-  fd_sysvar_set( slot_ctx->bank, slot_ctx->funk, slot_ctx->funk_txn, &fd_sysvar_owner_id, &fd_sysvar_epoch_rewards_id, enc, sz, slot_ctx->slot );
+  fd_sysvar_set( bank, funk, funk_txn, &fd_sysvar_owner_id, &fd_sysvar_epoch_rewards_id, enc, sz, bank->slot );
 }
 
 fd_sysvar_epoch_rewards_t *
@@ -68,7 +71,7 @@ fd_sysvar_epoch_rewards_distribute( fd_exec_slot_ctx_t * slot_ctx,
 
   epoch_rewards->distributed_rewards += distributed;
 
-  write_epoch_rewards( slot_ctx, epoch_rewards );
+  write_epoch_rewards( slot_ctx->bank, slot_ctx->funk, slot_ctx->funk_txn, epoch_rewards );
 }
 
 void
@@ -85,14 +88,16 @@ fd_sysvar_epoch_rewards_set_inactive( fd_exec_slot_ctx_t * slot_ctx,
 
   epoch_rewards->active = 0;
 
-  write_epoch_rewards( slot_ctx, epoch_rewards );
+  write_epoch_rewards( slot_ctx->bank, slot_ctx->funk, slot_ctx->funk_txn, epoch_rewards );
 }
 
 /* Create EpochRewards sysvar with calculated rewards
 
    https://github.com/anza-xyz/agave/blob/cbc8320d35358da14d79ebcada4dfb6756ffac79/runtime/src/bank/partitioned_epoch_rewards/sysvar.rs#L25 */
 void
-fd_sysvar_epoch_rewards_init( fd_exec_slot_ctx_t * slot_ctx,
+fd_sysvar_epoch_rewards_init( fd_bank_t *          bank,
+                              fd_funk_t *          funk,
+                              fd_funk_txn_t *      funk_txn,
                               ulong                distributed_rewards,
                               ulong                distribution_starting_block_height,
                               ulong                num_partitions,
@@ -113,5 +118,5 @@ fd_sysvar_epoch_rewards_init( fd_exec_slot_ctx_t * slot_ctx,
 
   fd_memcpy( &epoch_rewards.parent_blockhash, last_blockhash, FD_HASH_FOOTPRINT );
 
-  write_epoch_rewards( slot_ctx, &epoch_rewards );
+  write_epoch_rewards( bank, funk, funk_txn, &epoch_rewards );
 }

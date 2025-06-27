@@ -3,6 +3,7 @@
 
 #include "../../fd_flamenco_base.h"
 #include "../../types/fd_types.h"
+#include "../../runtime/fd_bank.h"
 #include "../../../funk/fd_funk.h"
 
 /* FD_SYSVAR_STAKE_HISTORY_CAP is the max number of entries that the
@@ -31,7 +32,9 @@ fd_sysvar_stake_history_read( fd_funk_t *     funk,
 
 /* Update the stake history sysvar account - called during epoch boundary */
 void
-fd_sysvar_stake_history_update( fd_exec_slot_ctx_t *                  slot_ctx,
+fd_sysvar_stake_history_update( fd_bank_t *                           bank,
+                                fd_funk_t *                           funk,
+                                fd_funk_txn_t *                       funk_txn,
                                 fd_epoch_stake_history_entry_pair_t * pair,
                                 fd_spad_t *                           runtime_spad );
 

@@ -36,13 +36,14 @@ fd_sysvar_epoch_rewards_set_inactive( fd_exec_slot_ctx_t * slot_ctx,
     https://github.com/anza-xyz/agave/blob/cbc8320d35358da14d79ebcada4dfb6756ffac79/runtime/src/bank/partitioned_epoch_rewards/sysvar.rs#L25 */
 void
 fd_sysvar_epoch_rewards_init(
-    fd_exec_slot_ctx_t * slot_ctx,
-    ulong distributed_rewards,
-    ulong distribution_starting_block_height,
-    ulong num_partitions,
-    fd_point_value_t point_value,
-    const fd_hash_t * last_blockhash
-);
+    fd_bank_t *       bank,
+    fd_funk_t *       funk,
+    fd_funk_txn_t *   funk_txn,
+    ulong             distributed_rewards,
+    ulong             distribution_starting_block_height,
+    ulong             num_partitions,
+    fd_point_value_t  point_value,
+    fd_hash_t const * last_blockhash );
 
 FD_PROTOTYPES_END
 
