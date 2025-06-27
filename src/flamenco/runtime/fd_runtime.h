@@ -329,10 +329,6 @@ void
 fd_runtime_update_slots_per_epoch( fd_bank_t * bank,
                                    ulong       slots_per_epoch );
 
-void
-fd_runtime_register_new_fresh_account( fd_pubkey_t const * pubkey,
-                                       fd_bank_t *         bank );
-
 /* Block Level Execution Prep/Finalize ****************************************/
 
 #define FD_BLOCK_OK                          (0UL)

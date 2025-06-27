@@ -68,8 +68,7 @@ fd_snapshot_restore_new( void *                                         mem,
                          fd_spad_t *                                    spad,
                          void *                                         cb_manifest_ctx,
                          fd_snapshot_restore_cb_manifest_fn_t           cb_manifest,
-                         fd_snapshot_restore_cb_status_cache_fn_t       cb_status_cache,
-                         fd_snapshot_restore_cb_rent_fresh_account_fn_t cb_rent_fresh_account ) {
+                         fd_snapshot_restore_cb_status_cache_fn_t       cb_status_cache ) {
 
   if( FD_UNLIKELY( !mem ) ) {
     FD_LOG_WARNING(( "NULL mem" ));
@@ -105,9 +104,6 @@ fd_snapshot_restore_new( void *                                         mem,
 
   self->cb_status_cache     = cb_status_cache;
   self->cb_status_cache_ctx = cb_manifest_ctx;
-
-  self->cb_rent_fresh_account     = cb_rent_fresh_account;
-  self->cb_rent_fresh_account_ctx = cb_manifest_ctx;
 
   void * accv_map_mem = FD_SCRATCH_ALLOC_APPEND( l, fd_snapshot_accv_map_align(), fd_snapshot_accv_map_footprint() );
   self->accv_map = fd_snapshot_accv_map_join( fd_snapshot_accv_map_new( accv_map_mem ) );
@@ -194,9 +190,7 @@ fd_snapshot_restore_account_hdr( fd_snapshot_restore_t * restore ) {
     rec->vt->set_slot( rec, restore->accv_slot );
     rec->vt->set_hash( rec, &hdr->hash );
     rec->vt->set_info( rec, &hdr->info );
-    if( rec->vt->get_meta( rec ) && rec->vt->get_lamports( rec ) && rec->vt->get_rent_epoch( rec ) != FD_RENT_EXEMPT_RENT_EPOCH ) {
-      restore->cb_rent_fresh_account( restore->cb_rent_fresh_account_ctx, key );
-    }
+
     restore->acc_data = rec->vt->get_data_mut( rec );
 
     fd_txn_account_mutable_fini( rec, funk, funk_txn );

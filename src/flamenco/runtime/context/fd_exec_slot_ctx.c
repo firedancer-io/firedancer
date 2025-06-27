@@ -545,20 +545,6 @@ fd_exec_slot_ctx_recover( fd_exec_slot_ctx_t *                slot_ctx,
   } else {
     fd_lthash_zero( (fd_lthash_value_t *)lthash->lthash );
   }
-
-  fd_rent_fresh_accounts_global_t * rent_fresh_accounts = fd_bank_rent_fresh_accounts_locking_modify( slot_ctx->bank );
-
-  /* Setup rent fresh accounts */
-  rent_fresh_accounts->total_count        = 0UL;
-  rent_fresh_accounts->fresh_accounts_len = FD_RENT_FRESH_ACCOUNTS_MAX;
-
-  fd_rent_fresh_account_t * fresh_accounts = (fd_rent_fresh_account_t *)fd_ulong_align_up( (ulong)rent_fresh_accounts + sizeof(fd_rent_fresh_accounts_global_t), FD_RENT_FRESH_ACCOUNT_ALIGN );
-  memset( fresh_accounts, 0, rent_fresh_accounts->fresh_accounts_len * sizeof(fd_rent_fresh_account_t) );
-
-  fd_rent_fresh_accounts_fresh_accounts_update( rent_fresh_accounts, fresh_accounts );
-
-  fd_bank_rent_fresh_accounts_end_locking_modify( slot_ctx->bank );
-
   /* Setup next epoch stakes */
 
   return slot_ctx;
