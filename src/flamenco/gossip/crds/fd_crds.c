@@ -830,13 +830,13 @@ fd_contact_info_t const *
 fd_crds_bucket_sample_and_remove( fd_crds_t * crds,
                                   fd_rng_t *  rng,
                                   ulong       bucket ) {
-  ulong idx = peer_wsampler_sample( &crds->samplers->bucket_samplers[bucket],
+  ulong idx = wpeer_sampler_sample( &crds->samplers->bucket_samplers[bucket],
                                     rng,
                                     crds->samplers->ele_cnt );
   if( FD_UNLIKELY( idx==SAMPLE_IDX_SENTINEL ) ) return NULL;
   /* Set weight to 0 to prevent future sampling until added back with
      fd_crds_bucket_add */
-  peer_wsampler_upd( &crds->samplers->bucket_samplers[bucket],
+  wpeer_sampler_upd( &crds->samplers->bucket_samplers[bucket],
                      0,
                      idx,
                      crds->samplers->ele_cnt );
@@ -854,8 +854,8 @@ fd_crds_bucket_add( fd_crds_t *   crds,
     FD_LOG_WARNING(( "Peer not found in CRDS. Likely dropped." ));
     return;
   }
-  ulong score = peer_wsampler_bucket_score( peer_ci,  bucket );
-  peer_wsampler_upd( &crds->samplers->bucket_samplers[bucket],
+  ulong score = wpeer_sampler_bucket_score( peer_ci,  bucket );
+  wpeer_sampler_upd( &crds->samplers->bucket_samplers[bucket],
                      score,
                      peer_ci->contact_info.sampler_idx,
                      crds->samplers->ele_cnt );
@@ -865,7 +865,7 @@ fd_crds_bucket_add( fd_crds_t *   crds,
 fd_contact_info_t const *
 fd_crds_peer_sample( fd_crds_t const * crds,
                      fd_rng_t *         rng ) {
-  ulong idx = peer_wsampler_sample( crds->samplers->pr_sampler,
+  ulong idx = wpeer_sampler_sample( crds->samplers->pr_sampler,
                                     rng,
                                     crds->samplers->ele_cnt );
   if( FD_UNLIKELY( idx==SAMPLE_IDX_SENTINEL ) ) return NULL;
