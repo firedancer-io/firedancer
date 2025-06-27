@@ -32,6 +32,7 @@ struct fd_shred_dest_weighted {
   ulong  stake_lamports; /* Stake, measured in lamports, or 0 for an unstaked validator */
   uint   ip4;            /* The validator's IP address, in network byte order */
   ushort port;           /* The TVU port, in host byte order */
+  uchar  is_secure;      /* is_secure if SNP protocol is used */
 }; /* be careful ip and host are in different byte order */
 typedef struct fd_shred_dest_weighted fd_shred_dest_weighted_t;
 

@@ -15,7 +15,7 @@ $(call add-objs,commands/sim,fd_firedancer_dev)
 $(call add-objs,commands/backtest,fd_firedancer_dev)
 $(call add-objs,commands/snapshot_load,fd_firedancer_dev)
 
-$(call make-bin,firedancer-dev,main,fd_firedancer_dev fd_firedancer fddev_shared fdctl_shared fdctl_platform fd_discof fd_disco fd_choreo fd_flamenco fd_funk fd_quic fd_tls fd_reedsol fd_waltz fd_tango fd_ballet fd_util firedancer_version,$(SECP256K1_LIBS) $(ROCKSDB_LIBS) $(OPENSSL_LIBS))
+$(call make-bin,firedancer-dev,main,fd_firedancer_dev fd_firedancer fddev_shared fdctl_shared fdctl_platform fd_discof fd_disco fd_choreo fd_flamenco fd_funk fd_quic fd_tls fd_snp fd_reedsol fd_waltz fd_tango fd_ballet fd_util firedancer_version,$(SECP256K1_LIBS) $(ROCKSDB_LIBS) $(OPENSSL_LIBS))
 
 firedancer-dev: $(OBJDIR)/bin/firedancer-dev
 
