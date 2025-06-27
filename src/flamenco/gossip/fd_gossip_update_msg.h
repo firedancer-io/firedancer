@@ -17,7 +17,7 @@ typedef fd_contact_info_t fd_gossip_upd_contact_info_t;
 
 struct fd_gossip_upd_vote {
   ulong slot;
-  uchar vote_tower_index; /* TODO: Is this needed? */
+  uchar vote_tower_index;
   uchar txn[ 1232UL ];
 };
 

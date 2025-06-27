@@ -152,7 +152,7 @@ fd_gossip_contact_info_encode( fd_contact_info_t const *     contact_info,
 
      TODO: This is awkwardly placed. Caller should be in charge of setting these
      data structures, leaving encode with the sole role of serializing them to
-     bytes.*/
+     bytes. */
   uint                                  addrs[ FD_CONTACT_INFO_SOCKET_MAX ];
   uchar                                 addrs_cnt;
   fd_gossip_contact_info_socket_entry_t socket_entries[ FD_CONTACT_INFO_SOCKET_MAX ];

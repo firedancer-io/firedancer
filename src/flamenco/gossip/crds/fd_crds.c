@@ -443,7 +443,6 @@ remove_contact_info( fd_crds_t *        crds,
   crds_contact_info_dlist_ele_remove( crds->contact_info.dlist, ci, crds->pool );
   crds_contact_info_pool_ele_release( crds->contact_info.pool, ci->contact_info.ci );
   /* TODO: Emit this eviction as a gossip update event */
-  /* TODO: Sampler updates */
   crds_samplers_rem_peer( crds->samplers, ci );
 }
 
@@ -540,9 +539,8 @@ fd_crds_acquire( fd_crds_t * crds ) {
 void
 fd_crds_release( fd_crds_t *       crds,
                  fd_crds_entry_t * value ) {
-  if( FD_UNLIKELY( is_contact_info( &value->key ) ) ){
-    /* TODO: We might want checks here if fd_crds cannot guarantee that
-             value->contact_info.ci is valid when entry is contact info */
+  if( FD_UNLIKELY( is_contact_info( &value->key ) &&
+                   !!(value->contact_info.ci)) ){
     crds_contact_info_pool_ele_release( crds->contact_info.pool, value->contact_info.ci );
   }
   crds_pool_ele_release( crds->pool, value );

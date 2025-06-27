@@ -6,7 +6,6 @@ struct fd_crds_contact_info_entry {
   struct{
     ulong next;
   } pool;
-  /* TODO: Stake-ordered treap/pq ? */
 };
 
 typedef struct fd_crds_contact_info_entry fd_crds_contact_info_entry_t;

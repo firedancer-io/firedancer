@@ -704,9 +704,6 @@ rx_push( fd_gossip_t *                 gossip,
          fd_gossip_view_push_t const * push,
          uchar const *                 payload,
          long                          now ) {
-  uchar const * relayer_pubkey = payload+push->from_off;
-  (void)relayer_pubkey; /* TODO: use relayer_pubkey to update push state */
-
   for( ulong i=0UL; i<push->crds_values_len; i++ ) {
     fd_gossip_view_crds_value_t const * value = &push->crds_values[ i ];
     /* TODO: pretty sure this is 15s now. */
@@ -764,12 +761,15 @@ rx_push( fd_gossip_t *                 gossip,
                          now );
     }
     (void)num_duplicates; /* TODO: use num_duplicates to prune the prune_finder */
-    // fd_prune_finder_record( gossip->prune_finder,
-    //                         origin_pubkey,
-    //                         origin_stake,
-    //                         relayer_pubkey,
-    //                         get_stake( gossip, relayer_pubkey ),
-    //                         num_duplicates );
+    /* TODO: implement prune finder
+    uchar const * relayer_pubkey = payload+push->from_off;
+    fd_prune_finder_record( gossip->prune_finder,
+                            origin_pubkey,
+                            origin_stake,
+                            relayer_pubkey,
+                            get_stake( gossip, relayer_pubkey ),
+                            num_duplicates );
+    */
   }
 
   return 0;
