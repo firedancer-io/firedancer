@@ -72,8 +72,6 @@ struct fd_gossip_private {
   fd_active_set_t *   active_set;
   fd_ping_tracker_t * ping_tracker;
 
-  long                next_pull_request;
-
   fd_sha512_t         sha512[1];
 
   fd_ip4_port_t       entrypoints[ 16UL ];
@@ -95,8 +93,12 @@ struct fd_gossip_private {
   } failed_inserts;
 
   /* Event timers */
-  long                next_active_set_refresh;
-  long                next_contact_info_refresh;
+  struct {
+    long next_pull_request;
+    long next_active_set_refresh;
+    long next_contact_info_refresh;
+    long next_metrics_print;
+  } timers;
 
   /* Callbacks */
   fd_gossip_sign_fn   sign_fn;
@@ -132,11 +134,11 @@ fd_gossip_footprint( ulong max_values ) {
   l = FD_LAYOUT_INIT;
   l = FD_LAYOUT_APPEND( l, alignof(fd_gossip_t), sizeof(fd_gossip_t) );
   l = FD_LAYOUT_APPEND( l, fd_crds_align(), fd_crds_footprint( max_values, max_values*4 /* FIXME: figure out better numbers */ ) );
-  l = FD_LAYOUT_APPEND( l, alignof(uchar),  max_values/4*sizeof(failed_insert_t) ); /* failed inserts FIXME: figure out better numbers */
   l = FD_LAYOUT_APPEND( l, fd_active_set_align(), fd_active_set_footprint() );
   l = FD_LAYOUT_APPEND( l, fd_ping_tracker_align(), fd_ping_tracker_footprint() );
   l = FD_LAYOUT_APPEND( l, crds_bloom_align(), crds_bloom_footprint( BLOOM_FALSE_POSITIVE_RATE, BLOOM_FILTER_MAX_BYTES ) );
   l = FD_LAYOUT_APPEND( l, stake_map_align(), stake_map_footprint() );
+  l = FD_LAYOUT_APPEND( l, alignof(uchar),  max_values/4*sizeof(failed_insert_t) ); /* failed inserts FIXME: figure out better numbers */
   l = FD_LAYOUT_FINI( l, fd_gossip_align() );
   return l;
 }
@@ -185,10 +187,10 @@ fd_gossip_new( void *                    shmem,
   fd_gossip_t * gossip  = FD_SCRATCH_ALLOC_APPEND( l, alignof(fd_gossip_t), sizeof(fd_gossip_t) );
   void * crds           = FD_SCRATCH_ALLOC_APPEND( l, fd_crds_align(), fd_crds_footprint( max_values, max_values*4 ) );
   void * active_set     = FD_SCRATCH_ALLOC_APPEND( l, fd_active_set_align(), fd_active_set_footprint() );
-  void * failed_inserts = FD_SCRATCH_ALLOC_APPEND( l, alignof(uchar), max_values/4*sizeof(failed_insert_t) ); /* FIXME: figure out better numbers */
   void * ping_tracker   = FD_SCRATCH_ALLOC_APPEND( l, fd_ping_tracker_align(), fd_ping_tracker_footprint() );
   void * bloom          = FD_SCRATCH_ALLOC_APPEND( l, crds_bloom_align(), crds_bloom_footprint( BLOOM_FALSE_POSITIVE_RATE, BLOOM_FILTER_MAX_BYTES ) );
   void * stake_weights  = FD_SCRATCH_ALLOC_APPEND( l, stake_map_align(), stake_map_footprint() );
+  void * failed_inserts = FD_SCRATCH_ALLOC_APPEND( l, alignof(uchar), max_values/4*sizeof(failed_insert_t) ); /* FIXME: figure out better numbers */
 
   gossip->entrypoints_cnt = entrypoints_cnt;
   fd_memcpy( gossip->entrypoints, entrypoints, entrypoints_cnt*sizeof(fd_ip4_port_t) );
@@ -1168,17 +1170,18 @@ fd_gossip_advance( fd_gossip_t * gossip,
   fd_crds_expire( gossip->crds, now );
 
   tx_ping( gossip, now );
-  if( FD_UNLIKELY( now>=gossip->next_pull_request ) ) {
+  if( FD_UNLIKELY( now>=gossip->timers.next_pull_request ) ) {
     tx_pull_request( gossip, now );
-    gossip->next_pull_request = next_pull_request( gossip, now );
+    gossip->timers.next_pull_request = next_pull_request( gossip, now );
   }
-  if( FD_UNLIKELY( now>=gossip->next_contact_info_refresh ) ) {
+  if( FD_UNLIKELY( now>=gossip->timers.next_contact_info_refresh ) ) {
     /* TODO: Frequency of this? More often if observing? */
     refresh_contact_info( gossip, now );
-    gossip->next_contact_info_refresh = now+15L*500L*1000L*1000L; /* TODO: Jitter */
+    gossip->timers.next_contact_info_refresh = now+15L*500L*1000L*1000L; /* TODO: Jitter */
   }
-  if( FD_UNLIKELY( now>=gossip->next_active_set_refresh ) ) {
+  if( FD_UNLIKELY( now>=gossip->timers.next_active_set_refresh ) ) {
     rotate_active_set( gossip, now );
-    gossip->next_active_set_refresh = now+300L*1000L*1000L; /* TODO: Jitter */
+    gossip->timers.next_active_set_refresh = now+300L*1000L*1000L; /* TODO: Jitter */
+  }
   }
 }
