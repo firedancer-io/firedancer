@@ -46,10 +46,6 @@ where (
     structName = "fd_keyguard_client" and
     not fitsInFootprint(structName, macroName)
 ) and (
-    macroName = "FD_SHREDCAP_MANIFEST_CAP_FOOTPRINT_V1" and
-    structName = "fd_shredcap_manifest_cap_V1" and
-    not fitsInFootprint(structName, macroName)
-) and (
     macroName = "FD_FUNK_TXN_XID_FOOTPRINT" and
     structName = "fd_funk_txn_xid" and
     not fitsInFootprint(structName, macroName)
