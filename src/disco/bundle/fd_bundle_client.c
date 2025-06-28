@@ -32,6 +32,7 @@ fd_bundle_client_reset( fd_bundle_tile_t * ctx ) {
   }
   ctx->defer_reset = 0;
 
+  ctx->builder_info_avail       = 0;
   ctx->builder_info_wait        = 0;
   ctx->packet_subscription_live = 0;
   ctx->packet_subscription_wait = 0;
