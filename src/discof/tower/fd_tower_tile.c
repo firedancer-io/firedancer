@@ -1,7 +1,5 @@
 #define _GNU_SOURCE
 
-#include "generated/fd_tower_tile_seccomp.h"
-
 #include "../../choreo/fd_choreo.h"
 #include "../../disco/fd_disco.h"
 #include "../../disco/keyguard/fd_keyload.h"
@@ -10,6 +8,7 @@
 #include "../../flamenco/runtime/fd_runtime.h"
 #include "../../funk/fd_funk.h"
 #include "../../funk/fd_funk_val.h"
+#include "generated/fd_tower_tile_seccomp.h"
 
 #define IN_KIND_GOSSIP ( 0)
 #define IN_KIND_REPLAY ( 1)
