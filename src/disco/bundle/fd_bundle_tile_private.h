@@ -47,7 +47,6 @@ typedef struct fd_bundle_metrics fd_bundle_metrics_t;
 struct fd_bundle_tile {
   /* Key switch */
   fd_keyswitch_t * keyswitch;
-  uint             identity_switched : 1;
 
   /* Key guard */
   fd_keyguard_client_t keyguard_client[1];
@@ -182,6 +181,11 @@ fd_bundle_tile_should_stall( fd_bundle_tile_t const * ctx,
                              long                     tickcount ) {
   return tickcount < ctx->backoff_until;
 }
+
+/* fd_bundle_tile_housekeeping runs periodically at a low frequency. */
+
+void
+fd_bundle_tile_housekeeping( fd_bundle_tile_t * ctx );
 
 /* fd_bundle_client_grpc_rx_msg is called by grpc_client when a gRPC
    message arrives (unary or server-streaming response). */
