@@ -62,10 +62,10 @@ fd_stem_publish( fd_stem_context_t * stem,
   ulong   seq  = *seqp;
   fd_mcache_publish( stem->mcaches[ out_idx ], stem->depths[ out_idx ], seq, sig, chunk, sz, ctl, tsorig, tspub );
   
-  long now = fd_log_wallclock();
-  // TODO: think abt moving retrieval of flag inside? but pretty hard cuz this value is needed for the consumer (every frag)
   uint * futex_flag = fd_mcache_futex_flag( stem->mcaches[out_idx] );
   *futex_flag += 1;
+  // TODO: change
+  long now = fd_log_wallclock();
   if( now - stem->tslastwake[ out_idx ] >= stem->time_before_wake ) {
     futex_wake( (uint32_t*) futex_flag, 1 );
     stem->tslastwake[ out_idx ] = now;

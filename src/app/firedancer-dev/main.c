@@ -171,7 +171,6 @@ extern action_t fd_action_wksp;
 extern action_t fd_action_gossip;
 extern action_t fd_action_sim;
 extern action_t fd_action_backtest;
-extern action_t fd_action_minimal;
 
 action_t * ACTIONS[] = {
   &fd_action_run,
@@ -198,7 +197,6 @@ action_t * ACTIONS[] = {
   &fd_action_gossip,
   &fd_action_sim,
   &fd_action_backtest,
-  &fd_action_minimal,
   NULL,
 };
 

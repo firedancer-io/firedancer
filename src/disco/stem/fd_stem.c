@@ -595,7 +595,6 @@ STEM_(run1)( ulong                        in_cnt,
       ulong * housekeeping_regime = &metric_regime_ticks[0];
       ulong * prefrag_regime = &metric_regime_ticks[3];
       ulong * finish_regime = &metric_regime_ticks[6];
-
       if( FD_UNLIKELY( diff<0L ) ) { /* Overrun (impossible if in is honoring our flow control) */
         this_in->seq = seq_found; /* Resume from here (probably reasonably current, could query in mcache sync directly instead) */
 #if !(STEM_ALWAYS_SPINNING)
@@ -624,9 +623,7 @@ STEM_(run1)( ulong                        in_cnt,
     ulong sig = fd_frag_meta_sse0_sig( seq_sig ); (void)sig;
 #ifdef STEM_CALLBACK_BEFORE_FRAG
     int filter = STEM_CALLBACK_BEFORE_FRAG( ctx, (ulong)this_in->idx, seq_found, sig );
-    // ^^allows the callback to filter out fragments based on their signature
     if( FD_UNLIKELY( filter<0 ) ) {
-      // give me this frag at a later time
       metric_regime_ticks[1] += housekeeping_ticks;
       metric_regime_ticks[4] += prefrag_ticks;
       long next = fd_tickcount();
@@ -634,7 +631,6 @@ STEM_(run1)( ulong                        in_cnt,
       now = next;
       continue;
     } else if( FD_UNLIKELY( filter>0 ) ) {
-      // never want to see ths frag again
       this_in->accum[ FD_METRICS_COUNTER_LINK_FILTERED_COUNT_OFF ]++;
       this_in->accum[ FD_METRICS_COUNTER_LINK_FILTERED_SIZE_BYTES_OFF ] += (uint)this_in_mline->sz; /* TODO: This might be overrun ... ? Not loaded atomically */
 
