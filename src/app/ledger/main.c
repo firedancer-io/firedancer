@@ -10,9 +10,10 @@
 #include "../../ballet/base58/fd_base58.h"
 #include "../../flamenco/runtime/context/fd_capture_ctx.h"
 #include "../../flamenco/runtime/fd_blockstore.h"
-#include "../../flamenco/shredcap/fd_shredcap.h"
 #include "../../flamenco/runtime/program/fd_bpf_program_util.h"
 #include "../../flamenco/snapshot/fd_snapshot.h"
+#include <sys/stat.h>
+#include <unistd.h>
 
 struct fd_ledger_args {
   fd_wksp_t *           wksp;                    /* wksp for blockstore */
@@ -42,7 +43,6 @@ struct fd_ledger_args {
   char const *          mini_db_dir;             /* path to minifed rocksdb that's to be created */
   int                   copy_txn_status;         /* determine if txns should be copied to the blockstore during minify/replay */
   int                   funk_only;               /* determine if only funk should be ingested */
-  char const *          shredcap;                /* path to replay using shredcap instead of rocksdb */
   int                   abort_on_mismatch;       /* determine if execution should abort on mismatch*/
   char const *          capture_fpath;           /* solcap: path for solcap file to be created */
   ulong                 solcap_start_slot;       /* solcap capture start slot */
@@ -945,9 +945,6 @@ ingest( fd_ledger_args_t * args ) {
 
   if( args->funk_only ) {
     FD_LOG_NOTICE(( "using funk only, skipping blockstore ingest" ));
-  } else if( args->shredcap ) {
-    FD_LOG_NOTICE(( "using shredcap" ));
-    fd_shredcap_populate_blockstore( args->shredcap, blockstore, args->start_slot, args->end_slot );
   } else if( args->rocksdb_list[ 0UL ] ) {
     if( args->end_slot >= slot_ctx->slot + args->slot_history_max ) {
       args->end_slot = slot_ctx->slot + args->slot_history_max - 1;
@@ -1161,7 +1158,6 @@ initial_setup( int argc, char ** argv, fd_ledger_args_t * args ) {
   uint         verify_acc_hash       = fd_env_strip_cmdline_uint  ( &argc, &argv, "--verify-acc-hash",       NULL, 1                                                  );
   uint         check_acc_hash        = fd_env_strip_cmdline_uint  ( &argc, &argv, "--check-acc-hash",        NULL, 1                                                  );
   char const * restore               = fd_env_strip_cmdline_cstr  ( &argc, &argv, "--restore",               NULL, NULL                                               );
-  char const * shredcap              = fd_env_strip_cmdline_cstr  ( &argc, &argv, "--shred-cap",             NULL, NULL                                               );
   ulong        trash_hash            = fd_env_strip_cmdline_ulong ( &argc, &argv, "--trash-hash",            NULL, ULONG_MAX                                          );
   char const * mini_db_dir           = fd_env_strip_cmdline_cstr  ( &argc, &argv, "--minified-rocksdb",      NULL, NULL                                               );
   int          funk_only             = fd_env_strip_cmdline_int   ( &argc, &argv, "--funk-only",             NULL, 0                                                  );
@@ -1275,7 +1271,6 @@ initial_setup( int argc, char ** argv, fd_ledger_args_t * args ) {
   args->snapshot                = snapshot;
   args->incremental             = incremental;
   args->genesis                 = genesis;
-  args->shredcap                = shredcap;
   args->verify_funk             = verify_funk;
   args->check_acc_hash          = check_acc_hash;
   args->verify_acc_hash         = verify_acc_hash;

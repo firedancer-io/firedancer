@@ -287,13 +287,6 @@ fd_rocksdb_import_block_blockstore( fd_rocksdb_t *    db,
                                     const uchar *     hash_override,
                                     fd_valloc_t       valloc );
 
-int
-fd_rocksdb_import_block_shredcap( fd_rocksdb_t *             db,
-                                  fd_slot_meta_t *           metadata,
-                                  fd_io_buffered_ostream_t * ostream,
-                                  fd_io_buffered_ostream_t * bank_hash_ostream,
-                                  fd_valloc_t                valloc );
-
 /* fd_blockstore_block_query queries blockstore for block at slot.
    Returns a pointer to the block or NULL if not in blockstore.  The
    returned pointer lifetime is until the block is removed.  Check
