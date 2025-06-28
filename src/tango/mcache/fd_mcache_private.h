@@ -20,7 +20,6 @@ struct __attribute__((aligned(FD_MCACHE_ALIGN))) fd_mcache_private_hdr {
   ulong app_sz;  /* Size of the application region in bytes */
   ulong seq0;    /* Initial sequence number passed on creation */
   ulong app_off; /* Location of the application region relative to the first byte of the header */
-  // TODO: stick the futex flag in here
   uint futex_flag; /* futex flag */
 
   /* Padding to FD_MCACHE_ALIGN here (lots of room for additional static data here) */

@@ -78,6 +78,7 @@ before_credit( fd_producer_tile_ctx_t * ctx,
 }
 
 #define STEM_BURST (1UL)
+#define STEM_ALWAYS_SPINNING (0)
 #define STEM_CALLBACK_CONTEXT_TYPE fd_producer_tile_ctx_t
 #define STEM_CALLBACK_CONTEXT_ALIGN alignof(fd_producer_tile_ctx_t)
 #define STEM_CALLBACK_BEFORE_CREDIT before_credit

@@ -75,6 +75,7 @@ during_frag( fd_consumer_tile_ctx_t * ctx,
 }
 
 #define STEM_BURST (1UL)
+#define STEM_ALWAYS_SPINNING (0)
 #define STEM_CALLBACK_CONTEXT_TYPE fd_consumer_tile_ctx_t
 #define STEM_CALLBACK_CONTEXT_ALIGN alignof(fd_consumer_tile_ctx_t)
 #define STEM_CALLBACK_DURING_FRAG during_frag
