@@ -472,7 +472,7 @@ fd_crds_expire( fd_crds_t * crds,
   while( !staked_expire_dlist_is_empty( crds->staked_expire_dlist, crds->pool ) ) {
     fd_crds_entry_t * head = staked_expire_dlist_ele_peek_head( crds->staked_expire_dlist, crds->pool );
 
-    if( FD_LIKELY( head->expire.wallclock_nanos<now-STAKED_EXPIRE_DURATION_NANOS ) ) break;
+    if( FD_LIKELY( head->expire.wallclock_nanos>now-STAKED_EXPIRE_DURATION_NANOS ) ) break;
 
     staked_expire_dlist_ele_pop_head( crds->staked_expire_dlist, crds->pool );
     hash_treap_ele_remove( crds->hash_treap, head, crds->pool );
@@ -492,7 +492,7 @@ fd_crds_expire( fd_crds_t * crds,
   while( !unstaked_expire_dlist_is_empty( crds->unstaked_expire_dlist, crds->pool ) ) {
     fd_crds_entry_t * head = unstaked_expire_dlist_ele_peek_head( crds->unstaked_expire_dlist, crds->pool );
 
-    if( FD_LIKELY( head->expire.wallclock_nanos<now-unstaked_expire_duration_nanos ) ) break;
+    if( FD_LIKELY( head->expire.wallclock_nanos>now-unstaked_expire_duration_nanos ) ) break;
 
     unstaked_expire_dlist_ele_pop_head( crds->unstaked_expire_dlist, crds->pool );
     hash_treap_ele_remove( crds->hash_treap, head, crds->pool );
@@ -508,7 +508,7 @@ fd_crds_expire( fd_crds_t * crds,
   while( crds->purged_len ) {
     fd_crds_purged_t * purged = &crds->purged_list[ crds->purged_head ];
 
-    if( FD_LIKELY( purged->wallclock_nanos<now-60L*1000L*1000L*1000L ) ) break;
+    if( FD_LIKELY( purged->wallclock_nanos>now-60L*1000L*1000L*1000L ) ) break;
     crds->purged_head = (crds->purged_head+1UL)%crds->purged_cap;
     crds->purged_len--;
   }
