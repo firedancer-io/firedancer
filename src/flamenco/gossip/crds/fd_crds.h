@@ -1,0 +1,300 @@
+#ifndef HEADER_fd_src_flamenco_gossip_fd_crds_h
+#define HEADER_fd_src_flamenco_gossip_fd_crds_h
+
+#include "../../../util/fd_util.h"
+#include "../../../util/net/fd_net_headers.h"
+#include "../fd_gossip_private.h"
+
+struct fd_crds_entry_private;
+typedef struct fd_crds_entry_private fd_crds_entry_t;
+
+struct fd_crds_private;
+typedef struct fd_crds_private fd_crds_t;
+
+struct fd_crds_mask_iter_private;
+typedef struct fd_crds_mask_iter_private fd_crds_mask_iter_t;
+
+#define CRDS_MASK_ITER_SIZE   (16UL)
+#define CRDS_MAX_CONTACT_INFO 1<<15 /* 32K max contact info entries in side table */
+
+FD_PROTOTYPES_BEGIN
+
+FD_FN_CONST ulong
+fd_crds_align( void );
+
+FD_FN_CONST ulong
+fd_crds_footprint( ulong ele_max,
+                   ulong purged_max );
+
+void *
+fd_crds_new( void *     shmem,
+             fd_rng_t * rng,
+             ulong      ele_max,
+             ulong      purged_max );
+
+fd_crds_t *
+fd_crds_join( void * shcrds );
+
+/* fd_crds_expire removes stale entries from the replicated data
+   store.  CRDS values from staked nodes expire roughly an epoch after
+   they are created, and values from non-staked nodes expire after 15
+   seconds.
+
+   There is one exception, when the node is first bootstrapping, and
+   has not yet seen any staked nodes, values do not expire at all. */
+
+void
+fd_crds_expire( fd_crds_t * crds,
+                long        now );
+
+/* fd_crds_len returns the number of entries in the CRDS table. This does not
+   include purged entries, which have a separate queue tracking them.
+   See fd_crds_purged_* APIs below. */
+ulong
+fd_crds_len( fd_crds_t const * crds );
+
+/* fd_crds_purged_* provides APIs for accessing the CRDS table's purged entries.
+   A CRDS entry is purged when it is upserted by a newer form of the entry.
+   Purged entries expire completely after 60s. */
+
+ulong
+fd_crds_purged_len( fd_crds_t const * crds );
+
+/* fd_crds_purged returns the hash of the idx-th purged entry */
+uchar const *
+fd_crds_purged( fd_crds_t const * crds,
+                ulong             idx );
+
+/*************************** Begin Insertion APIs *****************************/
+
+/* fd_crds_acquire acquires a CRDS value from the storage pool in the
+   CRDS so that it can be written to by the caller.  The value will
+   _not_ be present in the underlying data structures and indexes of
+   the CRDS (and will not, for example, be returned  by queries) until
+   it is inserted into the CRDS with fd_crds_insert.  The caller is
+   responsible for completely filling in the value before calling
+   insert or it will not be indexed correctly.
+
+   A value acquired with acquire does not strictly have to be inserted
+   into the CRDS, and can be released back to the pool with
+   fd_crds_release.
+
+   fd_crds_acquire cannot fail and will always return a valid CRDS.  It
+   does this by evicting an existing value from the pool and structures
+   if there is no free space. */
+
+fd_crds_entry_t *
+fd_crds_acquire( fd_crds_t * crds );
+
+/* fd_crds_release releases a CRDS value back to the storage pool.  The
+   value must have been acquired with fd_crds_acquire, and must not
+   have been inserted into the CRDS.  The caller releases the ownership
+   interest in the value and should not modify or use the value
+   afterwards. */
+
+void
+fd_crds_release( fd_crds_t *       crds,
+                 fd_crds_entry_t * value );
+
+/* fd_crds_populate_preflight fills in the minimum information necessary
+   for valid calls to the following functions
+      - fd_crds_upserts()
+      - fd_crds_value_hash()
+
+   This avoids a full memcpy of the CRDS data, which is only needed in
+   fd_crds_insert(). Supplied view and payload are assumed to be error
+   free (i.e., no possibility of OOBs when correctly used). */
+
+void
+fd_crds_populate_preflight( fd_crds_t *                         crds,
+                            fd_gossip_view_crds_value_t const * view,
+                            uchar const *                       view_payload,
+                            fd_crds_entry_t *                   out_value );
+
+/* fd_crds_populate_full fills in the information necessary
+   for a valid fd_crds_insert call from a given CRDS view and the corresponding
+   payload. view and payload are assumed to be error free (i.e., no possibility
+   of OOBs when correctly used).
+
+   Contact Info (CI) messages will also additionally populate an entry in the
+   crds contact info table.
+
+   has_preflight_info can be set if the entry was
+   previously populated with fd_crds_populate_preflight. */
+
+void
+fd_crds_populate_full( fd_crds_t *                         crds,
+                       fd_gossip_view_crds_value_t const * view,
+                       uchar const *                       view_payload,
+                       ulong                               origin_stake,
+                       long                                now,
+                       uchar                               has_upsert_info,
+                       fd_crds_entry_t *                   out_value );
+
+/* fd_crds_upserts checks if inserting the value into the CRDS would
+   succeed.  An insert will fail if the value is already present in the
+   CRDS with a newer timestamp, or if the value is not present. */
+int
+fd_crds_upserts( fd_crds_t *       crds,
+                 fd_crds_entry_t * value );
+
+/* fd_crds_insert inserts and indexes a previously acquired CRDS value
+   into the data store, so that it can be returned by future queries.
+
+   Once inserted, the value is owned by the CRDS and should not be
+   modified or released by the caller.  The CRDS will automatically
+   release the value when it expires, or when it must be evicted to
+   make room for a new value. */
+
+int
+fd_crds_insert( fd_crds_t *       crds,
+                fd_crds_entry_t * value,
+                int               from_push_msg,
+                long              now );
+
+/********************* Begin CRDS Entry APIs *************************/
+
+void
+fd_crds_entry_value( fd_crds_entry_t const * entry,
+                     uchar const **          value_bytes,
+                     ulong *                 value_sz );
+
+uchar const *
+fd_crds_entry_pubkey( fd_crds_entry_t const * entry );
+
+/* fd_crds_entry_hash returns a pointer to the 32b sha256 hash of the
+   entry's value hash. This is used for constructing a bloom filter. */
+uchar const *
+fd_crds_entry_hash( fd_crds_entry_t const * entry );
+
+/* fd_crds_entry_is_contact_info returns 1 if entry holds a Contact
+    Info CRDS value. Assumes entry was populated with either
+   fd_crds_populate_{preflight,full} */
+int
+fd_crds_entry_is_contact_info( fd_crds_entry_t const * entry );
+
+/* fd_crds_contact_info returns a pointer to the contact info
+   structure in the entry.  This is used to access the contact info
+   fields in the entry, such as the pubkey, shred version, and
+   socket address.
+
+   Assumes crds entry is a contact info (check with
+   fd_crds_entry_is_contact_info) */
+fd_contact_info_t *
+fd_crds_entry_contact_info( fd_crds_entry_t const * entry );
+
+/******************** Begin Contact Info Sidetable APIs ***********************/
+/* fd_crds tracks Contact Info entries with a sidetable that holds the
+   fully decoded contact info of a */
+
+/* fd_crds_contact_info_lookup returns a pointer to the contact info
+   structure corresponding to pubkey. returns NULL if there is no such
+   entry. */
+
+fd_contact_info_t *
+fd_crds_contact_info_lookup( fd_crds_t const * crds,
+                             uchar const *     pubkey );
+
+/* fd_crds_peer_count returns the number of Contact Info entries
+   present in the sidetable. The lifetime of a Contact Info entry
+   tracks the lifetime of the corresponding CRDS entry. */
+ulong
+fd_crds_peer_count( fd_crds_t const * crds );
+
+/* The CRDS table tracks whether a peer is active or not to determine whether
+   it should be sampled (see sample APIs). fd_crds_peer_{active,inactive}
+   provide a way to manage this state for a given peer.
+
+   A peer's active state is typicallly determined by its ping/pong status. */
+void
+fd_crds_peer_active( fd_crds_t *   crds,
+                     uchar const * peer_pubkey,
+                     long          now );
+
+void
+fd_crds_peer_inactive( fd_crds_t *   crds,
+                       uchar const * peer_pubkey,
+                       long          now );
+
+/*************************** Begin Sample APIs ********************************/
+
+/* The CRDS Table also maintains a set of peer samplers for use in various
+   Gossip tx cases. Namely
+   - Rotating the active push set (bucket_samplers)
+   - Selecting a pull request target (pr_sampler) */
+
+
+/* fd_crds_bucket_* sample APIs are meant to be used by fd_active_set.
+   Each bucket has a unique sampler. */
+fd_contact_info_t const *
+fd_crds_bucket_sample_and_remove( fd_crds_t * crds,
+                                  fd_rng_t *  rng,
+                                  ulong       bucket );
+
+/* fd_crds_bucket adds back in a peer that was previously
+   sampled with fd_crds_bucket_sample_and_remove.  */
+void
+fd_crds_bucket_add( fd_crds_t *   crds,
+                    ulong         bucket,
+                    uchar const * pubkey );
+
+
+/* fd_crds_sample_peer randomly selects a peer node from the CRDS based
+   weighted by stake.  Peers with a ContactInfo that hasn't been
+   refreshed in more than 60 seconds are considered offline, and are
+   downweighted in the selection by a factor of 100.  They are still
+   included to mitigate eclipse attacks.  Peers with no ContactInfo in
+   the CRDS are not included in the selection.  The current node is
+   also excluded from the selection.  Low stake peers which are not
+   active in the ping tracker, because they aren't responding to pings
+   are also excluded from the sampling.  Peers with a different shred
+   version than us, or with an invalid gossip socket address are also
+   excluded from the sampling.
+
+   If no valid peer can be found, the returned fd_contact_info_t will be
+   NULL.  The caller should check for this case and handle it
+   appropriately.  On success, the returned fd_contact_info_t is a contact info
+   suitable for sending a gossip pull request. */
+
+fd_contact_info_t const *
+fd_crds_peer_sample( fd_crds_t const * crds,
+                     fd_rng_t *        rng );
+
+/************************* Begin Mask Iter APIs *******************************/
+
+/* fd_crds_mask_iter_{init,next,done,value} provide an iterator to
+   iterate over the CRDS values in the table that whose hashes match
+   a given mask. In the Gossip CRDS filter, the mask is applied on
+   the most significant 8 bytes of the CRDS value's hash.
+
+   The Gossip CRDS filter encodes the mask in two values: `mask` and
+   `mask_bits`. For example, if we set `mask_bits` to 5 and 0b01010 as
+   `mask`, we get the following 64-bit bitmask:
+                        01010 11111111111.....
+
+   Therefore, we can frame a mask match as a CRDS value's hash whose
+   most significant `mask_bits` is `mask`. We can trivially define
+   the range of matching hash values by setting the non-mask bits to
+   all 0s or 1s to get the start and end values respectively. */
+
+fd_crds_mask_iter_t *
+fd_crds_mask_iter_init( fd_crds_t const * crds,
+                        ulong             mask,
+                        uint              mask_bits,
+                        void *            iter_mem );
+
+fd_crds_mask_iter_t *
+fd_crds_mask_iter_next( fd_crds_mask_iter_t * it,
+                        fd_crds_t const * crds );
+
+int
+fd_crds_mask_iter_done( fd_crds_mask_iter_t * it,
+                        fd_crds_t const * crds );
+
+fd_crds_entry_t const *
+fd_crds_mask_iter_value( fd_crds_mask_iter_t * it,
+                         fd_crds_t const * crds );
+
+FD_PROTOTYPES_END
+
+#endif /* HEADER_fd_src_flamenco_gossip_fd_crds_h */

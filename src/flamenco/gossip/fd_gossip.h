@@ -3,6 +3,17 @@
 
 #include "../../util/rng/fd_rng.h"
 #include "../../util/net/fd_net_headers.h"
+#include "fd_contact_info.h"
+#include "../types/fd_types.h"
+
+#define FD_GOSSIP_RX_OK                         (0)
+
+#define FD_GOSSIP_RX_PARSE_ERR                  (1)
+
+#define FD_GOSSIP_RX_VERIFY_NO_SIGNABLE_DATA    (1)
+
+#define FD_GOSSIP_RX_PRUNE_ERR_STALE            (1)
+#define FD_GOSSIP_RX_PRUNE_ERR_DESTINATION      (2)
 
 /* TODO: When we get a pull request, respond with ContactInfos first if
    we have any available that are responsive. */
@@ -64,6 +75,18 @@ struct fd_gossip_metrics {
 
 typedef struct fd_gossip_metrics fd_gossip_metrics_t;
 
+typedef void (*fd_gossip_send_fn)( void *                 ctx,
+                                   uchar const *          data,
+                                   ulong                  sz,
+                                   fd_ip4_port_t const *  peer_address,
+                                   ulong                  now );
+
+typedef void (*fd_gossip_sign_fn)( void *         ctx,
+                                   uchar const *  data,
+                                   ulong          sz,
+                                   int            sign_type,
+                                   uchar *        out_signature );
+
 FD_PROTOTYPES_BEGIN
 
 FD_FN_CONST ulong
@@ -73,14 +96,17 @@ FD_FN_CONST ulong
 fd_gossip_footprint( ulong max_values );
 
 void *
-fd_gossip_new( void *                shmem,
-               fd_rng_t *            rng,
-               ulong                 max_values,
-               int                   has_expected_shred_version,
-               ushort                expected_shred_version,
-               ulong                 entrypoints_cnt,
-               fd_ip4_port_t const * entrypoints,
-               uchar const *         identity_pubkey );
+fd_gossip_new( void *                    shmem,
+               fd_rng_t *                rng,
+               ulong                     max_values,
+               ulong                     entrypoints_cnt,
+               fd_ip4_port_t const *     entrypoints,
+               fd_contact_info_t const * my_contact_info,
+               long                      now,
+               fd_gossip_send_fn         send_fn,
+               void *                    send_ctx,
+               fd_gossip_sign_fn         sign_fn,
+               void *                    sign_ctx );
 
 fd_gossip_t *
 fd_gossip_join( void * shgossip );
@@ -88,14 +114,34 @@ fd_gossip_join( void * shgossip );
 fd_gossip_metrics_t const *
 fd_gossip_metrics( fd_gossip_t const * gossip );
 
+/* fd_gossip stores the node's contact info for various purposes:
+
+      - The pubkey specified in contact_info will serve as the
+        identity key, used in various checks of the rx path.
+
+        - Therefore this function also serves as the set_identity
+          function.
+
+      - If the shred version specified in the contact_info is non-zero,
+        it will be used to determine whether to accept or drop incoming
+        messages from peers.
+
+      - The contact info will be periodically gossiped to peers via
+        push messages.
+
+        - contact_info should have its wallclock correctly updated
+          in order to avoid timeouts on peers
+
+          TODO: update wallclock ourselves? */
 void
-fd_gossip_set_expected_shred_version( fd_gossip_t * gossip,
-                                      int           has_expected_shred_version,
-                                      ushort        expected_shred_version );
+fd_gossip_set_my_contact_info( fd_gossip_t *             gossip,
+                               fd_contact_info_t const * contact_info,
+                               long                      now );
 
 void
-fd_gossip_set_identity( fd_gossip_t * gossip,
-                        uchar const * identity_pubkey );
+fd_gossip_stakes_update( fd_gossip_t *             gossip,
+                         fd_stake_weight_t const * stake_weights,
+                         ulong                     stake_weights_cnt );
 
 /* fd_gossip_advance advances the gossip protocol to the provided time,
    performing any necessary updates and actions along the way.  The
@@ -121,6 +167,7 @@ fd_gossip_set_identity( fd_gossip_t * gossip,
       periodically rotated, with one new peer entering and one old peer
       leaving, based on stake weights.
 
+
    Only actions which are necessary and useful will be performed, and
    the function is idempotent and fast otherwise.  advance should be
    called as often as possible. */
@@ -133,6 +180,10 @@ fd_gossip_advance( fd_gossip_t * gossip,
    from the network.  It is expected that the packet is a UDP packet but
    otherwise no assumptions are made about the contents of the packet,
    in particular it might be malformed, corrupted, malicious, and so on.
+
+   now is the current time in nanoseconds, and is used to determine
+   whether the packet is stale or not, and to update the internal state
+   of the gossip protocol.
 
    Receiving a packet might cause response packets to need to be sent
    back to the gossip network.  The response packets are queued for
