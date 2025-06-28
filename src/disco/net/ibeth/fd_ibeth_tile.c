@@ -243,6 +243,18 @@ registered:
   if(0){}
 }
 
+static void
+rxq_assign_all( fd_ibeth_tile_t * ctx,
+                fd_topo_t *       topo,
+                fd_topo_tile_t *  tile ) {
+  rxq_assign( ctx, topo, tile, DST_PROTO_TPU_UDP,  "net_quic",   tile->ibeth.net.legacy_transaction_listen_port );
+  rxq_assign( ctx, topo, tile, DST_PROTO_TPU_QUIC, "net_quic",   tile->ibeth.net.quic_transaction_listen_port   );
+  rxq_assign( ctx, topo, tile, DST_PROTO_SHRED,    "net_shred",  tile->ibeth.net.shred_listen_port              );
+  rxq_assign( ctx, topo, tile, DST_PROTO_GOSSIP,   "net_gossip", tile->ibeth.net.gossip_listen_port             );
+  rxq_assign( ctx, topo, tile, DST_PROTO_REPAIR,   "net_shred",  tile->ibeth.net.repair_intake_listen_port      );
+  rxq_assign( ctx, topo, tile, DST_PROTO_REPAIR,   "net_repair", tile->ibeth.net.repair_serve_listen_port       );
+}
+
 /* privileged_init does various ibverbs configuration via userspace verbs
    (/dev/interface/uverbs*). */
 
@@ -377,12 +389,7 @@ privileged_init( fd_topo_t *      topo,
   }
 
   /* Setup flow steering */
-  rxq_assign( ctx, topo, tile, DST_PROTO_TPU_UDP,  "net_quic",   tile->ibeth.net.legacy_transaction_listen_port );
-  rxq_assign( ctx, topo, tile, DST_PROTO_TPU_QUIC, "net_quic",   tile->ibeth.net.quic_transaction_listen_port   );
-  rxq_assign( ctx, topo, tile, DST_PROTO_SHRED,    "net_shred",  tile->ibeth.net.shred_listen_port              );
-  rxq_assign( ctx, topo, tile, DST_PROTO_GOSSIP,   "net_gossip", tile->ibeth.net.gossip_listen_port             );
-  rxq_assign( ctx, topo, tile, DST_PROTO_REPAIR,   "net_shred",  tile->ibeth.net.repair_intake_listen_port      );
-  rxq_assign( ctx, topo, tile, DST_PROTO_REPAIR,   "net_repair", tile->ibeth.net.repair_serve_listen_port       );
+  rxq_assign_all( ctx, topo, tile );
   struct __attribute__((packed,aligned(8))) {
     struct ibv_flow_attr         attr;
     struct ibv_flow_spec_eth     eth;
