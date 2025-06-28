@@ -202,7 +202,7 @@ fd_ibv_mock_post_send( struct ibv_qp *       qp,
     IBV_INJECT_ERR( mock );
     ulong const sge_cnt = (ulong)wr->num_sge;
     if( FD_UNLIKELY( fd_ibv_send_wr_q_full( mock->tx_q ) ||
-                     fd_ibv_sge_p_free( mock->sge_pool )>=sge_cnt ) ) {
+                     fd_ibv_sge_p_free( mock->sge_pool )<sge_cnt ) ) {
       *bad_wr = wr;
       return ENOSPC;
     }
