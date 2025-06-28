@@ -207,6 +207,32 @@ test_stream_ended( fd_wksp_t * wksp ) {
   FD_TEST( fd_h2_frame_type( headers_hdr.typlen )==FD_H2_FRAME_TYPE_HEADERS );
 }
 
+/* Ensure that the client resets after switching keys */
+
+static void
+test_keyswitch( fd_wksp_t * wksp ) {
+  test_bundle_env_t env[1];
+  test_bundle_env_create( env, wksp );
+  test_bundle_env_mock_conn( env );
+  fd_bundle_tile_t * state = env->state;
+
+  void * keyswitch_mem = fd_wksp_alloc_laddr( wksp, fd_keyswitch_align(), fd_keyswitch_footprint(), 1UL );
+  state->keyswitch = fd_keyswitch_join( fd_keyswitch_new( keyswitch_mem, FD_KEYSWITCH_STATE_UNLOCKED ) );
+  memset( state->auther.pubkey, 0, 32 );
+
+  fd_bundle_tile_housekeeping( state ); /* should not switch */
+  FD_TEST( !state->defer_reset );
+
+  fd_keyswitch_state( state->keyswitch, FD_KEYSWITCH_STATE_SWITCH_PENDING );
+  state->keyswitch->bytes[0] = 0x01;
+  fd_bundle_tile_housekeeping( state ); /* should switch */
+  FD_TEST( state->defer_reset );
+  FD_TEST( state->auther.pubkey[0] == 0x01 );
+
+  test_bundle_env_destroy( env );
+  fd_wksp_free_laddr( keyswitch_mem );
+}
+
 int
 main( int     argc,
       char ** argv ) {
@@ -225,6 +251,7 @@ main( int     argc,
   test_data_path( wksp );
   test_missing_builder_fee_info( wksp );
   test_stream_ended( wksp );
+  test_keyswitch( wksp );
 
   fd_wksp_delete_anonymous( wksp );
 

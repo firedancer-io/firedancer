@@ -72,8 +72,8 @@ metrics_write( fd_bundle_tile_t * ctx ) {
   ctx->bundle_status_recent = (uchar)bundle_status;
 }
 
-static void
-during_housekeeping( fd_bundle_tile_t * ctx ) {
+void
+fd_bundle_tile_housekeeping( fd_bundle_tile_t * ctx ) {
   long log_interval_ns = (long)30e9;
   int  status          = fd_bundle_client_status( ctx );
   long log_next_ns     = ctx->last_bundle_status_log_nanos + log_interval_ns;
@@ -84,9 +84,9 @@ during_housekeeping( fd_bundle_tile_t * ctx ) {
   }
 
   if( FD_UNLIKELY( fd_keyswitch_state_query( ctx->keyswitch )==FD_KEYSWITCH_STATE_SWITCH_PENDING ) ) {
-    ctx->identity_switched = 1;
     fd_memcpy( ctx->auther.pubkey, ctx->keyswitch->bytes, 32UL );
     fd_keyswitch_state( ctx->keyswitch, FD_KEYSWITCH_STATE_COMPLETED );
+    ctx->defer_reset = 1;
   }
 }
 
@@ -528,10 +528,8 @@ unprivileged_init( fd_topo_t *      topo,
     FD_LOG_ERR(( "fd_keyguard_client_join failed" )); /* unreachable */
   }
 
-  ctx->identity_switched = 0;
   ctx->keyswitch = fd_keyswitch_join( fd_topo_obj_laddr( topo, tile->keyswitch_obj_id ) );
   FD_TEST( ctx->keyswitch );
-
 
   ulong verify_out_idx = fd_topo_find_tile_out_link( topo, tile, "bundle_verif", tile->kind_id );
   if( FD_UNLIKELY( verify_out_idx==ULONG_MAX ) ) FD_LOG_ERR(( "Missing bundle_verif link" ));
@@ -611,7 +609,7 @@ populate_allowed_fds( fd_topo_t const *      topo,
 #define STEM_CALLBACK_CONTEXT_TYPE  fd_bundle_tile_t
 #define STEM_CALLBACK_CONTEXT_ALIGN alignof(fd_bundle_tile_t)
 
-#define STEM_CALLBACK_DURING_HOUSEKEEPING during_housekeeping
+#define STEM_CALLBACK_DURING_HOUSEKEEPING fd_bundle_tile_housekeeping
 #define STEM_CALLBACK_METRICS_WRITE       metrics_write
 #define STEM_CALLBACK_AFTER_CREDIT        after_credit
 
