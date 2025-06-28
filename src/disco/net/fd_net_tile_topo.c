@@ -88,7 +88,6 @@ setup_ibeth_tile( fd_topo_t *             topo,
   fd_topob_tile_uses( topo, tile, umem_obj, FD_SHMEM_JOIN_MODE_READ_WRITE );
   fd_pod_insertf_ulong( topo->props, umem_obj->id, "net.%lu.umem", 0UL ); /* FIXME multi queue support */
 
-  tile->ibeth.umem_dcache_obj_id = umem_obj->id;
   fd_cstr_fini( fd_cstr_append_cstr_safe(
       fd_cstr_init( tile->ibeth.if_name ),
       net_cfg->interface,
