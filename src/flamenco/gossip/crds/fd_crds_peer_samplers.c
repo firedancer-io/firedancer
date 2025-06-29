@@ -155,12 +155,14 @@ crds_samplers_new( crds_samplers_t * ps ) {
 int
 crds_samplers_upd_peer( crds_samplers_t * ps,
                         fd_crds_entry_t * peer,
+                        ulong             idx,
                         long              now ) {
-  ulong idx = peer->contact_info.sampler_idx;
   if( FD_UNLIKELY( idx>=ps->ele_cnt ) ) {
-    FD_LOG_WARNING(( "Bad peer idx supplied in sample update" )); /* Invalid index */
+    FD_LOG_ERR(( "Bad peer idx supplied in sample update" )); /* Invalid index */
     return -1;
   }
+  ps->ele[idx] = peer;
+  peer->contact_info.sampler_idx = idx;
   ulong peer_score = wpeer_sampler_peer_score( peer, now );
   if( FD_UNLIKELY( wpeer_sampler_upd( ps->pr_sampler, peer_score, idx, ps->ele_cnt )<0 ) ) return -1;
 
@@ -178,10 +180,8 @@ crds_samplers_add_peer( crds_samplers_t * ps,
                         fd_crds_entry_t * peer,
                         long              now ) {
   ulong idx = fd_ulong_min( ps->ele_cnt, (CRDS_MAX_CONTACT_INFO)-1UL );
-  peer->contact_info.sampler_idx = idx;
   ps->ele_cnt++;
-  ps->ele[idx] = peer;
-  if( FD_UNLIKELY( !!crds_samplers_upd_peer( ps, peer, now ) ) ){
+  if( FD_UNLIKELY( !!crds_samplers_upd_peer( ps, peer, idx, now ) ) ){
     FD_LOG_ERR(( "Failed to update peer in samplers" ));
     ps->ele_cnt--;
     ps->ele[idx] = NULL;

@@ -529,6 +529,9 @@ fd_crds_acquire( fd_crds_t * crds ) {
 
     hash_treap_ele_remove( crds->hash_treap, evict, crds->pool );
     lookup_map_ele_remove( crds->lookup_map, &evict->key, NULL, crds->pool );
+    if( FD_UNLIKELY( is_contact_info( &evict->key ) ) ) {
+      remove_contact_info( crds, evict );
+    }
 
     return evict;
   } else {
@@ -541,6 +544,11 @@ fd_crds_release( fd_crds_t *       crds,
                  fd_crds_entry_t * value ) {
   if( FD_UNLIKELY( is_contact_info( &value->key ) &&
                    !!(value->contact_info.ci)) ){
+    if( FD_UNLIKELY( value->contact_info.sampler_idx != SAMPLE_IDX_SENTINEL ) ) {
+      FD_LOG_ERR(( "Contact info entry released in half-baked state, "
+                   "sampler_idx %lu != SAMPLE_IDX_SENTINEL",
+                   value->contact_info.sampler_idx ));
+    }
     crds_contact_info_pool_ele_release( crds->contact_info.pool, value->contact_info.ci );
   }
   crds_pool_ele_release( crds->pool, value );
@@ -590,8 +598,9 @@ fd_crds_populate_preflight( fd_crds_t *                         crds,
     }
     fd_crds_contact_info_entry_t * ci = crds_contact_info_pool_ele_acquire( crds->contact_info.pool );
     out_value->contact_info.ci = ci;
-
     out_value->contact_info.instance_creation_wallclock_nanos = view->contact_info->instance_creation_wallclock_nanos;
+    /* Contact Info entry will be added to sampler upon successful insertion */
+    out_value->contact_info.sampler_idx = SAMPLE_IDX_SENTINEL;
   }
 }
 
@@ -671,16 +680,16 @@ insert_purged( fd_crds_t *   crds,
 
 int
 fd_crds_insert( fd_crds_t *       crds,
-                fd_crds_entry_t * value,
+                fd_crds_entry_t * candidate,
                 int               from_push_message,
                 long              now ) {
   /* TODO: Why Agave tracks route? PushRespose etc ... */
-  fd_crds_entry_t * replace = lookup_map_ele_query( crds->lookup_map, &value->key, NULL, crds->pool );
+  fd_crds_entry_t * replace = lookup_map_ele_query( crds->lookup_map, &candidate->key, NULL, crds->pool );
   uchar is_replacing = 0UL;
   if( FD_LIKELY( replace ) ) {
-    if( FD_UNLIKELY( !overrides( replace, value ) ) ) {
-      if( FD_UNLIKELY( replace->hash.hash!=value->hash.hash ) ) {
-        insert_purged( crds, fd_crds_entry_hash( value ), replace->wallclock_nanos );
+    if( FD_UNLIKELY( !overrides( replace, candidate ) ) ) {
+      if( FD_UNLIKELY( replace->hash.hash!=candidate->hash.hash ) ) {
+        insert_purged( crds, fd_crds_entry_hash( candidate ), replace->wallclock_nanos );
         return -1;
       }
 
@@ -701,10 +710,13 @@ fd_crds_insert( fd_crds_t *       crds,
       crds_contact_info_pool_ele_release( crds->contact_info.pool, replace->contact_info.ci );
 
       /* Inherit is_active from replacee */
-      value->contact_info.is_active = replace->contact_info.is_active;
-      if( FD_UNLIKELY( value->stake!=replace->stake ||
+      candidate->contact_info.is_active = replace->contact_info.is_active;
+      if( FD_UNLIKELY( candidate->stake!=replace->stake ||
                        replace->wallclock_nanos<now-60*1000L*1000L*1000L ) ) {
-        crds_samplers_upd_peer( crds->samplers, value, now );
+        crds_samplers_upd_peer( crds->samplers,
+                                candidate,
+                                replace->contact_info.sampler_idx,
+                                now );
       }
     }
 
@@ -719,24 +731,24 @@ fd_crds_insert( fd_crds_t *       crds,
     crds_pool_ele_release( crds->pool, replace );
   }
 
-  crds->has_staked_node |= value->stake ? 1 : 0;
+  crds->has_staked_node |= candidate->stake ? 1 : 0;
 
-  evict_treap_ele_insert( crds->evict_treap, value, crds->pool );
-  if( FD_LIKELY( value->stake ) ) {
-    staked_expire_dlist_ele_push_tail( crds->staked_expire_dlist, value, crds->pool );
+  evict_treap_ele_insert( crds->evict_treap, candidate, crds->pool );
+  if( FD_LIKELY( candidate->stake ) ) {
+    staked_expire_dlist_ele_push_tail( crds->staked_expire_dlist, candidate, crds->pool );
   } else {
-    unstaked_expire_dlist_ele_push_tail( crds->unstaked_expire_dlist, value, crds->pool );
+    unstaked_expire_dlist_ele_push_tail( crds->unstaked_expire_dlist, candidate, crds->pool );
   }
-  hash_treap_ele_insert( crds->hash_treap, value, crds->pool );
-  lookup_map_ele_insert( crds->lookup_map, value, crds->pool );
+  hash_treap_ele_insert( crds->hash_treap, candidate, crds->pool );
+  lookup_map_ele_insert( crds->lookup_map, candidate, crds->pool );
 
-  if( FD_UNLIKELY( is_contact_info( &value->key ) ) ) {
+  if( FD_UNLIKELY( is_contact_info( &candidate->key ) ) ) {
     /* TODO: Emit this as a gossip insert/update update */
     crds_contact_info_dlist_ele_push_tail( crds->contact_info.dlist,
-                                           value,
+                                           candidate,
                                            crds->pool );
     if( FD_UNLIKELY( !is_replacing ) ) {
-      crds_samplers_add_peer( crds->samplers, value, now);
+      crds_samplers_add_peer( crds->samplers, candidate, now);
     }
   }
   return 0;
@@ -807,7 +819,10 @@ set_peer_active_status( fd_crds_t *   crds,
 
   if( FD_UNLIKELY( old_status!=status ) ) {
     /* Trigger sampler update */
-    crds_samplers_upd_peer( crds->samplers, peer_ci, now );
+    crds_samplers_upd_peer( crds->samplers,
+                            peer_ci,
+                            peer_ci->contact_info.sampler_idx,
+                            now );
   }
 }
 void
