@@ -713,10 +713,16 @@ fd_crds_insert( fd_crds_t *       crds,
       candidate->contact_info.is_active = replace->contact_info.is_active;
       if( FD_UNLIKELY( candidate->stake!=replace->stake ||
                        replace->wallclock_nanos<now-60*1000L*1000L*1000L ) ) {
+        /* Perform a rescore here (expensive) */
         crds_samplers_upd_peer( crds->samplers,
                                 candidate,
                                 replace->contact_info.sampler_idx,
                                 now );
+      } else {
+        /* swap peer pointers */
+        crds_samplers_swap_peer( crds->samplers,
+                                 candidate,
+                                 replace->contact_info.sampler_idx );
       }
     }
 
