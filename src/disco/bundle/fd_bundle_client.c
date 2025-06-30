@@ -848,12 +848,18 @@ fd_bundle_client_grpc_rx_end(
     ctx->packet_subscription_live = 0;
     ctx->packet_subscription_wait = 0;
     fd_bundle_tile_backoff( ctx, fd_tickcount() );
-    break;
+    ctx->defer_reset = 1;
+    FD_LOG_INFO(( "SubscribePackets stream failed (gRPC status %u-%s). Reconnecting ...",
+                  resp->grpc_status, fd_grpc_status_cstr( resp->grpc_status ) ));
+    return;
   case FD_BUNDLE_CLIENT_REQ_Bundle_SubscribeBundles:
     ctx->bundle_subscription_live = 0;
     ctx->bundle_subscription_wait = 0;
     fd_bundle_tile_backoff( ctx, fd_tickcount() );
-    break;
+    ctx->defer_reset = 1;
+    FD_LOG_INFO(( "SubscribeBundles stream failed (gRPC status %u-%s). Reconnecting ...",
+                  resp->grpc_status, fd_grpc_status_cstr( resp->grpc_status ) ));
+    return;
   default:
     break;
   }
