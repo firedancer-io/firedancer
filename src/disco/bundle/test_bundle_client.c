@@ -177,7 +177,8 @@ test_missing_builder_fee_info( fd_wksp_t * wksp ) {
   test_bundle_env_destroy( env );
 }
 
-/* Ensure that the client re-requests a stream if the server ends it */
+/* Ensure that the client reconnects (with a new TCP socket) if the
+   server ends the stream */
 
 static void
 test_stream_ended( fd_wksp_t * wksp ) {
@@ -192,19 +193,9 @@ test_stream_ended( fd_wksp_t * wksp ) {
     .h2_status   = 200,
     .grpc_status = FD_GRPC_STATUS_OK
   };
+  FD_TEST( state->defer_reset==0 );
   fd_bundle_client_grpc_rx_end( state, FD_BUNDLE_CLIENT_REQ_Bundle_SubscribeBundles, &hdrs );
-
-  /* Ensure that client doesn't immediately transmit */
-  long clock = fd_tickcount();
-  FD_TEST( fd_bundle_tile_should_stall( state, clock ) );
-  FD_TEST( !fd_bundle_tile_should_stall( state, state->backoff_until + 1L ) );
-
-  /* Client should send a SubscribeBundles request */
-  FD_TEST( fd_bundle_client_step_reconnect( state, clock )==1 );
-  FD_TEST( rbuf_tx->hi_off>=sizeof(fd_h2_frame_hdr_t) );
-  fd_h2_frame_hdr_t headers_hdr;
-  fd_h2_rbuf_pop_copy( rbuf_tx, &headers_hdr, sizeof(fd_h2_frame_hdr_t) );
-  FD_TEST( fd_h2_frame_type( headers_hdr.typlen )==FD_H2_FRAME_TYPE_HEADERS );
+  FD_TEST( state->defer_reset==1 );
 }
 
 #if FD_HAS_INT128
