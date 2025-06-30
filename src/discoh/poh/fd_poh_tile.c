@@ -441,7 +441,7 @@ typedef struct {
      little bit over-strict, we just need to ensure that microblocks
      with conflicting accounts execute in order, but this is easiest to
      implement for now. */
-  ulong expect_microblock_idx;
+  uint expect_pack_idx;
 
   /* The PoH tile must never drop microblocks that get committed by the
      bank, so it needs to always be able to mixin a microblock hash.
@@ -1095,7 +1095,6 @@ fd_ext_poh_begin_leader( void const * bank,
   ctx->current_leader_bank     = bank;
   ctx->microblocks_lower_bound = 0UL;
   ctx->cus_used                = 0UL;
-  ctx->expect_microblock_idx   = 0UL;
 
   ctx->limits.slot_max_cost                = cus_block_limit;
   ctx->limits.slot_max_vote_cost           = cus_vote_cost_limit;
@@ -1775,16 +1774,12 @@ before_frag( fd_poh_ctx_t * ctx,
              ulong          sig ) {
   (void)seq;
 
-  if( FD_LIKELY( ctx->in_kind[ in_idx ]==IN_KIND_BANK ) ) {
-    ulong microblock_idx = fd_disco_bank_sig_microblock_idx( sig );
-    FD_TEST( microblock_idx>=ctx->expect_microblock_idx );
+  if( FD_LIKELY( ctx->in_kind[ in_idx ]!=IN_KIND_BANK && ctx->in_kind[ in_idx ]!=IN_KIND_PACK ) ) return 0;
 
-    /* Return the fragment to stem so we can process it later, if it's
-       not next in the sequence. */
-    if( FD_UNLIKELY( microblock_idx>ctx->expect_microblock_idx ) ) return -1;
-
-    ctx->expect_microblock_idx++;
-  }
+  uint pack_idx = (uint)fd_disco_bank_sig_pack_idx( sig );
+  FD_TEST( ((int)(pack_idx-ctx->expect_pack_idx))>=0L );
+  if( FD_UNLIKELY( pack_idx!=ctx->expect_pack_idx ) ) return -1;
+  ctx->expect_pack_idx++;
 
   return 0;
 }
@@ -1797,7 +1792,6 @@ during_frag( fd_poh_ctx_t * ctx,
              ulong          chunk,
              ulong          sz,
              ulong          ctl FD_PARAM_UNUSED ) {
-
   ctx->skip_frag = 0;
 
   if( FD_UNLIKELY( ctx->in_kind[ in_idx ]==IN_KIND_STAKE ) ) {
@@ -1810,16 +1804,13 @@ during_frag( fd_poh_ctx_t * ctx,
     return;
   }
 
-  ulong pkt_type;
   ulong slot;
   switch( ctx->in_kind[ in_idx ] ) {
     case IN_KIND_BANK: {
-      pkt_type = POH_PKT_TYPE_MICROBLOCK;
       slot = fd_disco_bank_sig_slot( sig );
       break;
     }
     case IN_KIND_PACK: {
-      pkt_type = fd_disco_poh_sig_pkt_type( sig );
       slot = fd_disco_poh_sig_slot( sig );
       break;
     }
@@ -1827,40 +1818,35 @@ during_frag( fd_poh_ctx_t * ctx,
       FD_LOG_ERR(( "unexpected in_kind %d", ctx->in_kind[ in_idx ] ));
   }
 
-  int is_frag_for_prior_leader_slot = 0;
-  if( FD_LIKELY( pkt_type==POH_PKT_TYPE_DONE_PACKING || pkt_type==POH_PKT_TYPE_MICROBLOCK ) ) {
-    /* The following sequence is possible...
+  /* The following sequence is possible...
 
-        1. We become leader in slot 10
-        2. While leader, we switch to a fork that is on slot 8, where
-            we are leader
-        3. We get the in-flight microblocks for slot 10
+      1. We become leader in slot 10
+      2. While leader, we switch to a fork that is on slot 8, where
+          we are leader
+      3. We get the in-flight microblocks for slot 10
 
-      These in-flight microblocks need to be dropped, so we check
-      against the high water mark (highwater_leader_slot) rather than
-      the current hashcnt here when determining what to drop.
+    These in-flight microblocks need to be dropped, so we check
+    against the high water mark (highwater_leader_slot) rather than
+    the current hashcnt here when determining what to drop.
 
-      We know if the slot is lower than the high water mark it's from a stale
-      leader slot, because we will not become leader for the same slot twice
-      even if we are reset back in time (to prevent duplicate blocks). */
-    is_frag_for_prior_leader_slot = slot<ctx->highwater_leader_slot;
-  }
+    We know if the slot is lower than the high water mark it's from a stale
+    leader slot, because we will not become leader for the same slot twice
+    even if we are reset back in time (to prevent duplicate blocks). */
+  int is_frag_for_prior_leader_slot = slot<ctx->highwater_leader_slot;
 
   if( FD_UNLIKELY( ctx->in_kind[ in_idx ]==IN_KIND_PACK ) ) {
     /* We now know the real amount of microblocks published, so set an
        exact bound for once we receive them. */
     ctx->skip_frag = 1;
-    if( pkt_type==POH_PKT_TYPE_DONE_PACKING ) {
-      if( FD_UNLIKELY( is_frag_for_prior_leader_slot ) ) return;
+    if( FD_UNLIKELY( is_frag_for_prior_leader_slot ) ) return;
 
-      FD_TEST( ctx->microblocks_lower_bound<=ctx->max_microblocks_per_slot );
-      fd_done_packing_t const * done_packing = fd_chunk_to_laddr( ctx->in[ in_idx ].mem, chunk );
-      FD_LOG_INFO(( "done_packing(slot=%lu,seen_microblocks=%lu,microblocks_in_slot=%lu)",
-                    ctx->slot,
-                    ctx->microblocks_lower_bound,
-                    done_packing->microblocks_in_slot ));
-      ctx->microblocks_lower_bound += ctx->max_microblocks_per_slot - done_packing->microblocks_in_slot;
-    }
+    FD_TEST( ctx->microblocks_lower_bound<=ctx->max_microblocks_per_slot );
+    fd_done_packing_t const * done_packing = fd_chunk_to_laddr( ctx->in[ in_idx ].mem, chunk );
+    FD_LOG_INFO(( "done_packing(slot=%lu,seen_microblocks=%lu,microblocks_in_slot=%lu)",
+                  ctx->slot,
+                  ctx->microblocks_lower_bound,
+                  done_packing->microblocks_in_slot ));
+    ctx->microblocks_lower_bound += ctx->max_microblocks_per_slot - done_packing->microblocks_in_slot;
     return;
   } else {
     if( FD_UNLIKELY( chunk<ctx->in[ in_idx ].chunk0 || chunk>ctx->in[ in_idx ].wmark || sz>USHORT_MAX ) )
@@ -2245,6 +2231,7 @@ unprivileged_init( fd_topo_t *      topo,
   ctx->lagged_consecutive_leader_start = tile->poh.lagged_consecutive_leader_start;
   ctx->expect_sequential_leader_slot = ULONG_MAX;
 
+  ctx->expect_pack_idx         = 0U;
   ctx->microblocks_lower_bound = 0UL;
 
   ctx->max_active_descendant = 0UL;
@@ -2328,7 +2315,7 @@ unprivileged_init( fd_topo_t *      topo,
 
     if(        !strcmp( link->name, "stake_out" ) ) {
       ctx->in_kind[ i ] = IN_KIND_STAKE;
-    } else if( !strcmp( link->name, "pack_bank" ) ) {
+    } else if( !strcmp( link->name, "pack_poh" ) ) {
       ctx->in_kind[ i ] = IN_KIND_PACK;
     } else if( !strcmp( link->name, "bank_poh"  ) ) {
       ctx->in_kind[ i ] = IN_KIND_BANK;
