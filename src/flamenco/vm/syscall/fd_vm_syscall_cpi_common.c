@@ -480,7 +480,7 @@ VM_SYSCALL_CPI_TRANSLATE_AND_UPDATE_ACCOUNTS_FUNC(
         caller_account->serialized_data_len = data_haddr_len;
       }
 
-      caller_account->orig_data_len = acc_region_meta->has_data_region ? vm->input_mem_regions[ acc_region_meta->region_idx ].region_sz : 0U;
+      caller_account->orig_data_len = acc_region_meta->original_data_len;
 
       ////// END from_account_info
 
@@ -557,7 +557,8 @@ VM_SYSCALL_CPI_UPDATE_CALLER_ACC_FUNC( fd_vm_t *                          vm,
 
     ulong const updated_data_len = callee_acc->vt->get_data_len( callee_acc );
     if( !updated_data_len ) fd_memset( (void*)caller_acc_data, 0, caller_acc_data_len );
-    if( caller_acc_data_len != updated_data_len ) {
+    ulong * ref_to_len = caller_account->ref_to_len_in_vm.translated;
+    if( *ref_to_len != updated_data_len ) {
       ulong max_increase = (vm->direct_mapping && vm->is_deprecated) ? 0UL : MAX_PERMITTED_DATA_INCREASE;
       // https://github.com/anza-xyz/agave/blob/7f3a6cf6d3c2dcc81bb38e49a5c9ef998a6f4dd9/programs/bpf_loader/src/syscalls/cpi.rs#L1387-L1397
       if( FD_UNLIKELY( updated_data_len>fd_ulong_sat_add( caller_account->orig_data_len, max_increase ) ) ) {
@@ -573,7 +574,6 @@ VM_SYSCALL_CPI_UPDATE_CALLER_ACC_FUNC( fd_vm_t *                          vm,
        */
       caller_acc_data = FD_VM_MEM_SLICE_HADDR_ST( vm, caller_acc_data_vm_addr, alignof(uchar), updated_data_len );
 
-      ulong * ref_to_len = caller_account->ref_to_len_in_vm.translated;
       *ref_to_len = updated_data_len;
 
       /* Update the serialized len field
