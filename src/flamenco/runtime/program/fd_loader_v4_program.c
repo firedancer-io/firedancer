@@ -865,7 +865,7 @@ fd_loader_v4_program_execute( fd_exec_instr_ctx_t * instr_ctx ) {
       /* The program may be in the cache but could have failed verification in the current epoch. */
       if( FD_UNLIKELY( prog->failed_verification ) ) {
         fd_log_collector_msg_literal( instr_ctx, "Program is not deployed" );
-        return FD_EXECUTOR_INSTR_ERR_INVALID_ACC_DATA;
+        return FD_EXECUTOR_INSTR_ERR_UNSUPPORTED_PROGRAM_ID;
       }
 
       /* After the program is deployed, we wait a slot before adding it to our program cache. Agave, on the other hand,
