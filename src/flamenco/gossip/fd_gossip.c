@@ -812,7 +812,7 @@ rx_ping( fd_gossip_t *           gossip,
          long                    now ) {
   /* TODO: have this point to dcache buffer directly instead */
   uchar out_payload[ sizeof(fd_gossip_view_pong_t) + 4UL];
-  ((uint *)out_payload)[0] = FD_GOSSIP_MESSAGE_PONG;
+  FD_STORE( uint, out_payload, FD_GOSSIP_MESSAGE_PONG );
 
   fd_gossip_view_pong_t * out_pong = (fd_gossip_view_pong_t *)(out_payload + 4UL);
   fd_memcpy( out_pong->pubkey, gossip->identity_pubkey, 32UL );
@@ -1186,11 +1186,12 @@ fd_gossip_advance( fd_gossip_t * gossip,
   }
   if( FD_UNLIKELY( now>=gossip->timers.next_flush_push_state ) ) {
     for( ulong i=0UL; i<FD_ACTIVE_SET_MAX_PEERS; i++ ) {
+      if( !gossip->active_push_state[ i ].push_dest.l ) continue;
       push_state_flush( gossip, &gossip->active_push_state[ i ], now );
     }
     for( ulong i=0UL; i<gossip->entrypoints_cnt; i++ ) {
       push_state_flush( gossip, &gossip->entrypt_push_state[ i ], now );
     }
-    gossip->timers.next_flush_push_state = now+10L*1000L*1000L*1000L; /* TODO: Jitter */
+    gossip->timers.next_flush_push_state = now+15L*500L*1000L; /* TODO: Jitter */
   }
 }
