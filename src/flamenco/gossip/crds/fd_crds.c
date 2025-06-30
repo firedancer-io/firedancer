@@ -863,8 +863,6 @@ fd_crds_bucket_sample_and_remove( fd_crds_t * crds,
                                     rng,
                                     crds->samplers->ele_cnt );
   if( FD_UNLIKELY( idx==SAMPLE_IDX_SENTINEL ) ) return NULL;
-  FD_LOG_NOTICE(( "Removing idx %lu from bucket %lu. Total count %lu", idx, bucket,
-                  crds->samplers->ele_cnt ));
   /* Disable peer to prevent future sampling until added back with
      fd_crds_bucket_add */
   wpeer_sampler_disable( &crds->samplers->bucket_samplers[bucket],

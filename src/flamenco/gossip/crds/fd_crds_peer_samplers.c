@@ -73,6 +73,8 @@ wpeer_sampler_sample( wpeer_sampler_t const * ps,
   }
 
   ulong sample = fd_rng_ulong_roll( rng, ps->cumul_weight[ele_cnt-1] );
+  /* avoid sampling 0 */
+  sample = fd_ulong_min( sample+1UL, ps->cumul_weight[ele_cnt-1] );
 
   /* Binary search for the smallest cumulative weight >= sample */
   ulong left = 0UL;
@@ -103,7 +105,7 @@ wpeer_sampler_upd( wpeer_sampler_t * ps,
   long score_delta = (long)(weight - old_weight);
 
   if( score_delta>0 ){
-    for( ulong i = idx; i<ele_cnt; i++ ) {
+    for( ulong i=idx; i<ele_cnt; i++ ) {
       ps->cumul_weight[i] += (ulong)score_delta;
     }
   } else {
@@ -250,7 +252,7 @@ crds_samplers_add_peer( crds_samplers_t * ps,
   ulong idx = fd_ulong_min( ps->ele_cnt, (CRDS_MAX_CONTACT_INFO)-1UL );
   ps->ele_cnt++;
   if( FD_UNLIKELY( !!crds_samplers_upd_peer( ps, peer, idx, now ) ) ){
-    FD_LOG_ERR(( "Failed to update peer in samplers" ));
+    FD_LOG_WARNING(( "Failed to update peer in samplers" ));
     ps->ele_cnt--;
     ps->ele[idx] = NULL;
     return -1;
