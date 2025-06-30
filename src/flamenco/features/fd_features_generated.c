@@ -934,8 +934,8 @@ fd_feature_id_t const ids[] = {
     .activated_on_all_clusters = 1 },
 
   { .index                     = offsetof(fd_features_t, disable_turbine_fanout_experiments)>>3,
-    .id                        = {"\xed\x7a\x0f\x5d\x50\x53\xdf\xc3\x1a\x51\x89\xb6\x66\xfb\x7e\xb7\xb5\xf8\x91\x7c\xd3\xee\x46\x82\x07\x9e\x28\x44\xb1\xb0\x0d\xf9"},
-                                 /* Gz1aLrbeQ4Q6PTSafCZcGWZXz91yVRi7ASFzFEr1U4sa */
+    .id                        = {"\x0d\x4c\x62\x81\xbc\x9a\xbb\x74\xd1\x32\xac\x16\x8e\xd0\x61\x9b\xb6\x1f\x0b\xdb\xaa\xa9\xa4\xd9\x55\xc7\xe5\xa1\x8d\xeb\x2b\x73"},
+                                 /* turbnbNRp22nwZCmgVVXFSshz7H7V23zMzQgA46YpmQ */
     .name                      = "disable_turbine_fanout_experiments",
     .cleaned_up                = {UINT_MAX, UINT_MAX, UINT_MAX} },
 
@@ -1753,7 +1753,7 @@ fd_feature_id_query( ulong prefix ) {
   case 0x795c88a20bcb6dfd: return &ids[ 131 ];
   case 0x8a8eb9085ca2bb0b: return &ids[ 132 ];
   case 0x33e6e44dc3a9cfb2: return &ids[ 133 ];
-  case 0xc3df53505d0f7aed: return &ids[ 134 ];
+  case 0x74bb9abc81624c0d: return &ids[ 134 ];
   case 0x784adb4f1d180869: return &ids[ 135 ];
   case 0x71eba1d288ba2bfc: return &ids[ 136 ];
   case 0x823d14dd6235f859: return &ids[ 137 ];
