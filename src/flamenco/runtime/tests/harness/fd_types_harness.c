@@ -22,7 +22,6 @@ custom_serializer_walk( void *       _self,
   (void)type;
   (void)type_name;
   (void)level;
-  (void)varint;
 
   CustomerSerializer * self = (CustomerSerializer *)_self;
   FILE * file = self->file;
@@ -57,13 +56,31 @@ custom_serializer_walk( void *       _self,
       fprintf( file, "%d,", *(short const *)arg );
       break;
     case FD_FLAMENCO_TYPE_UINT:
-      fprintf( file, "%u,", *(uint const *)arg );
+      if (varint) {
+        uchar b[8];
+        fd_bincode_encode_ctx_t ctx = { .data = b, .dataend = &b[sizeof(b)-1] };
+        fd_bincode_varint_encode( *(uint const *)arg, &ctx );
+        int len = (int) ((char *) ctx.data - (char *) &b[0]);
+        for (int i = 0; i < len; i++) {
+          fprintf( file, "%d,", (uchar) b[i] );
+        }
+      } else
+        fprintf( file, "%u,", *(uint const *)arg );
       break;
     case FD_FLAMENCO_TYPE_SINT:
       fprintf( file, "%d,", *(int const *)arg );
       break;
     case FD_FLAMENCO_TYPE_ULONG:
-      fprintf( file, "%lu,", *(ulong const *)arg );
+      if (varint) {
+        uchar b[8];
+        fd_bincode_encode_ctx_t ctx = { .data = b, .dataend = &b[sizeof(b)-1] };
+        fd_bincode_varint_encode( *(ulong const *)arg, &ctx );
+        int len = (int) ((char *) ctx.data - (char *) &b[0]);
+        for (int i = 0; i < len; i++) {
+          fprintf( file, "%d,", (uchar) b[i] );
+        }
+      } else
+        fprintf( file, "%lu,", *(ulong const *)arg );
       break;
     case FD_FLAMENCO_TYPE_SLONG:
       fprintf( file, "%ld,", *(long const *)arg );
