@@ -151,6 +151,7 @@ struct fd_microblock_bank_trailer {
      banks.  This is used by PoH to ensure microblocks get committed
      in the same order they are executed. */
   ulong microblock_idx;
+  uint  pack_idx;
 
   /* A sequentially increasing index of the first transaction in the
      microblock, across all slots ever processed by pack.  This is used
