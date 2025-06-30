@@ -30,16 +30,17 @@
    sits on top of 1 or more memory mapped gigantic or huge pages mounted
    to the hugetlbfs. */
 typedef struct {
-  ulong id;           /* The ID of this workspace.  Indexed from [0, wksp_cnt).  When placed in a topology, the ID must be the index of the workspace in the workspaces list. */
-  char  name[ 13UL ]; /* The name of this workspace, like "pack".  There can be at most one of each workspace name in a topology. */
+  ulong id;                  /* The ID of this workspace.  Indexed from [0, wksp_cnt).  When placed in a topology, the ID must be the index of the workspace in the workspaces list. */
+  char  name[ 13UL ];        /* The name of this workspace, like "pack".  There can be at most one of each workspace name in a topology. */
 
-  ulong numa_idx;     /* The index of the NUMA node on the system that this workspace should be allocated from. */
+  ulong numa_idx;            /* The index of the NUMA node on the system that this workspace should be allocated from. */
 
   /* Computed fields.  These are not supplied as configuration but calculated as needed. */
   struct {
-    ulong page_sz;  /* The size of the pages that this workspace is backed by.  One of FD_PAGE_SIZE_*. */
-    ulong page_cnt; /* The number of pages that must be mapped to this workspace to store all the data needed by consumers. */
-    ulong part_max; /* The maximum number of partitions in the underlying workspace.  There can only be this many allocations made at any one time. */
+    ulong page_sz;   /* The size of the pages that this workspace is backed by.  One of FD_PAGE_SIZE_*. */
+    ulong page_cnt;  /* The number of pages that must be mapped to this workspace to store all the data needed by consumers. */
+    int   is_locked; /* If the workspace should use pages locked and pinned to a specific numa node. */
+    ulong part_max;  /* The maximum number of partitions in the underlying workspace.  There can only be this many allocations made at any one time. */
 
     fd_wksp_t * wksp;            /* The workspace memory in the local process. */
     ulong       known_footprint; /* Total size in bytes of all data in Firedancer that will be stored in this workspace at startup. */

@@ -82,7 +82,9 @@ fd_topo_create_workspace( fd_topo_t *      topo,
   ulong sub_cpu_idx [ 1 ] = { fd_shmem_cpu_idx( wksp->numa_idx ) };
 
   int err;
-  if( FD_UNLIKELY( update_existing ) ) {
+  if( FD_UNLIKELY( !wksp->is_locked ) ) {
+    err = fd_shmem_create_multi_unlocked( name, wksp->page_sz, wksp->page_cnt, S_IRUSR | S_IWUSR ); /* logs details */
+  } else if( FD_UNLIKELY( update_existing ) ) {
     err = fd_shmem_update_multi( name, wksp->page_sz, 1, sub_page_cnt, sub_cpu_idx, S_IRUSR | S_IWUSR ); /* logs details */
   } else {
     err = fd_shmem_create_multi( name, wksp->page_sz, 1, sub_page_cnt, sub_cpu_idx, S_IRUSR | S_IWUSR ); /* logs details */
@@ -223,6 +225,8 @@ fd_topo_mlock_max_tile1( fd_topo_t const *      topo,
   ulong tile_mem = 0UL;
 
   for( ulong i=0UL; i<topo->wksp_cnt; i++ ) {
+    if( FD_UNLIKELY( !topo->workspaces[ i ].is_locked ) ) continue;
+
     if( FD_UNLIKELY( -1!=tile_needs_wksp( topo, tile, i ) ) )
       tile_mem += topo->workspaces[ i ].page_cnt * topo->workspaces[ i ].page_sz;
   }
@@ -250,6 +254,7 @@ fd_topo_gigantic_page_cnt( fd_topo_t const * topo,
   for( ulong i=0UL; i<topo->wksp_cnt; i++ ) {
     fd_topo_wksp_t const * wksp = &topo->workspaces[ i ];
     if( FD_LIKELY( wksp->numa_idx!=numa_idx ) ) continue;
+    if( FD_UNLIKELY( !wksp->is_locked ) ) continue;
 
     if( FD_LIKELY( wksp->page_sz==FD_SHMEM_GIGANTIC_PAGE_SZ ) ) {
       result += wksp->page_cnt;
@@ -266,6 +271,7 @@ fd_topo_huge_page_cnt( fd_topo_t const * topo,
   for( ulong i=0UL; i<topo->wksp_cnt; i++ ) {
     fd_topo_wksp_t const * wksp = &topo->workspaces[ i ];
     if( FD_LIKELY( wksp->numa_idx!=numa_idx ) ) continue;
+    if( FD_UNLIKELY( !wksp->is_locked ) ) continue;
 
     if( FD_LIKELY( wksp->page_sz==FD_SHMEM_HUGE_PAGE_SZ ) ) {
       result += wksp->page_cnt;
@@ -296,6 +302,7 @@ FD_FN_PURE ulong
 fd_topo_mlock( fd_topo_t const * topo ) {
   ulong result = 0UL;
   for( ulong i=0UL; i<topo->wksp_cnt; i++ ) {
+    if( FD_UNLIKELY( !topo->workspaces[ i ].is_locked ) ) continue;
     result += topo->workspaces[ i ].page_cnt * topo->workspaces[ i ].page_sz;
   }
   return result;
@@ -385,7 +392,7 @@ fd_topo_print_log( int         stdout,
 
     char size[ 24 ];
     fd_topo_mem_sz_string( wksp->page_sz * wksp->page_cnt, size );
-    PRINT( "  %2lu (%7s): %12s  page_cnt=%3lu  page_sz=%-8s  numa_idx=%-2lu  footprint=%10lu  loose=%lu\n", i, size, wksp->name, wksp->page_cnt, fd_shmem_page_sz_to_cstr( wksp->page_sz ), wksp->numa_idx, wksp->known_footprint, wksp->total_footprint - wksp->known_footprint );
+    PRINT( "  %2lu (%7s): %12s  page_cnt=%3lu  page_sz=%-8s  numa_idx=%-2lu  footprint=%10lu  loose=%10lu  is_locked=%d\n", i, size, wksp->name, wksp->page_cnt, fd_shmem_page_sz_to_cstr( wksp->page_sz ), wksp->numa_idx, wksp->known_footprint, wksp->total_footprint - wksp->known_footprint, wksp->is_locked );
   }
 
   PRINT( "\nOBJECTS\n" );
