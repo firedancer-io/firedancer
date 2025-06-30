@@ -574,9 +574,9 @@ rx_pull_request( fd_gossip_t *                         gossip,
     if( FD_UNLIKELY( !crds_bloom_contains( filter, fd_crds_entry_hash( candidate ), 32UL ) ) ) continue;
 
     uchar const * crds_val;
-    ulong *       crds_size = NULL;
-    fd_crds_entry_value( candidate, &crds_val, crds_size );
-    push_state_append_crds( gossip, pull_resp, crds_val, *crds_size, now );
+    ulong         crds_size;
+    fd_crds_entry_value( candidate, &crds_val, &crds_size );
+    push_state_append_crds( gossip, pull_resp, crds_val, crds_size, now );
   }
   push_state_flush( gossip, pull_resp, now );
   return 0;
