@@ -44,7 +44,9 @@ fd_topo_obj_callbacks_t * CALLBACKS[] = {
   &fd_obj_cb_txncache,
   &fd_obj_cb_exec_spad,
   &fd_obj_cb_banks,
+  &fd_obj_cb_funk,
   &fd_obj_cb_bank_hash_cmp,
+  NULL,
 };
 configure_stage_t * STAGES[] = {
   &fd_cfg_stage_hugetlbfs,
