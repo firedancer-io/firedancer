@@ -97,6 +97,7 @@ struct fd_gossip_private {
     long next_pull_request;
     long next_active_set_refresh;
     long next_contact_info_refresh;
+    long next_flush_push_state;
     long next_metrics_print;
   } timers;
 
@@ -1183,5 +1184,13 @@ fd_gossip_advance( fd_gossip_t * gossip,
     rotate_active_set( gossip, now );
     gossip->timers.next_active_set_refresh = now+300L*1000L*1000L; /* TODO: Jitter */
   }
+  if( FD_UNLIKELY( now>=gossip->timers.next_flush_push_state ) ) {
+    for( ulong i=0UL; i<FD_ACTIVE_SET_MAX_PEERS; i++ ) {
+      push_state_flush( gossip, &gossip->active_push_state[ i ], now );
+    }
+    for( ulong i=0UL; i<gossip->entrypoints_cnt; i++ ) {
+      push_state_flush( gossip, &gossip->entrypt_push_state[ i ], now );
+    }
+    gossip->timers.next_flush_push_state = now+10L*1000L*1000L*1000L; /* TODO: Jitter */
   }
 }
