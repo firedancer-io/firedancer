@@ -2040,7 +2040,7 @@
       "fields": [
         { "name": "from", "type": "pubkey" },
         { "name": "wallclock", "type": "ulong" },
-        { "name": "timestamp", "type": "long" },
+        { "name": "timestamp", "type": "ulong" },
         { "name": "token", "type": "ulong" }
       ]
     },

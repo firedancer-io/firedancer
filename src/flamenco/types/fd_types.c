@@ -20005,7 +20005,7 @@ int fd_gossip_node_instance_encode( fd_gossip_node_instance_t const * self, fd_b
   if( FD_UNLIKELY( err ) ) return err;
   err = fd_bincode_uint64_encode( self->wallclock, ctx );
   if( FD_UNLIKELY( err ) ) return err;
-  err = fd_bincode_uint64_encode( (ulong)self->timestamp, ctx );
+  err = fd_bincode_uint64_encode( self->timestamp, ctx );
   if( FD_UNLIKELY( err ) ) return err;
   err = fd_bincode_uint64_encode( self->token, ctx );
   if( FD_UNLIKELY( err ) ) return err;
@@ -20020,7 +20020,7 @@ static void fd_gossip_node_instance_decode_inner( void * struct_mem, void * * al
   fd_gossip_node_instance_t * self = (fd_gossip_node_instance_t *)struct_mem;
   fd_pubkey_decode_inner( &self->from, alloc_mem, ctx );
   fd_bincode_uint64_decode_unsafe( &self->wallclock, ctx );
-  fd_bincode_uint64_decode_unsafe( (ulong *) &self->timestamp, ctx );
+  fd_bincode_uint64_decode_unsafe( &self->timestamp, ctx );
   fd_bincode_uint64_decode_unsafe( &self->token, ctx );
 }
 void * fd_gossip_node_instance_decode( void * mem, fd_bincode_decode_ctx_t * ctx ) {
@@ -20035,7 +20035,7 @@ void fd_gossip_node_instance_walk( void * w, fd_gossip_node_instance_t const * s
   fun( w, self, name, FD_FLAMENCO_TYPE_MAP, "fd_gossip_node_instance", level++ );
   fd_pubkey_walk( w, &self->from, fun, "from", level );
   fun( w, &self->wallclock, "wallclock", FD_FLAMENCO_TYPE_ULONG, "ulong", level );
-  fun( w, &self->timestamp, "timestamp", FD_FLAMENCO_TYPE_SLONG, "long", level );
+  fun( w, &self->timestamp, "timestamp", FD_FLAMENCO_TYPE_ULONG, "ulong", level );
   fun( w, &self->token, "token", FD_FLAMENCO_TYPE_ULONG, "ulong", level );
   fun( w, self, name, FD_FLAMENCO_TYPE_MAP_END, "fd_gossip_node_instance", level-- );
 }
@@ -20043,7 +20043,7 @@ ulong fd_gossip_node_instance_size( fd_gossip_node_instance_t const * self ) {
   ulong size = 0;
   size += fd_pubkey_size( &self->from );
   size += sizeof(ulong);
-  size += sizeof(long);
+  size += sizeof(ulong);
   size += sizeof(ulong);
   return size;
 }

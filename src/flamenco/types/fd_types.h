@@ -3035,7 +3035,7 @@ typedef struct fd_gossip_version_v3 fd_gossip_version_v3_t;
 struct fd_gossip_node_instance {
   fd_pubkey_t from;
   ulong wallclock;
-  long timestamp;
+  ulong timestamp;
   ulong token;
 };
 typedef struct fd_gossip_node_instance fd_gossip_node_instance_t;

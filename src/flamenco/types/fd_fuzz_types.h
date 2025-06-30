@@ -3197,7 +3197,7 @@ void *fd_gossip_node_instance_generate( void *mem, void **alloc_mem, fd_rng_t * 
   fd_gossip_node_instance_new(mem);
   fd_pubkey_generate( &self->from, alloc_mem, rng );
   self->wallclock = fd_rng_ulong( rng );
-  self->timestamp = fd_rng_long( rng );
+  self->timestamp = fd_rng_ulong( rng );
   self->token = fd_rng_ulong( rng );
   return mem;
 }
