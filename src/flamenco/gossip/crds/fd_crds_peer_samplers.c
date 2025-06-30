@@ -18,12 +18,35 @@
 
 #define SAMPLE_IDX_SENTINEL ULONG_MAX
 
+#define SET_NAME peer_enabled
+#define SET_MAX  CRDS_MAX_CONTACT_INFO
+#include "../../../util/tmpl/fd_set.c"
+
 /* This is a very rudimentary implementation of a weighted sampler. We will
    eventually want to use a modified fd_wsample. Using this until then. */
 struct wpeer_sampler {
   /* Cumulative weight for each peer.
-     Individual peer weight can be derived with cum_weight[i]-cum_weight[i-1]  */
-  ulong  cumul_weight[ CRDS_MAX_CONTACT_INFO ];
+     Individual peer weight can be derived with cumul_weight[i]-cumul_weight[i-1]  */
+  ulong          cumul_weight[ CRDS_MAX_CONTACT_INFO ];
+
+  /* peer_enabled_test( peer_enabled, i ) determines if peer i is enabled. A
+     disabled peer should not be scored (e.g., during an update) and should
+     have a peer weight of 0 (i.e,. cumul_weight[i] - cumul_weight[i-1]==0).
+
+     Why not just remove the peer?
+      1. Removing is expensive (see wpeer_sampler_rem)
+      2. Adding/removing should strictly track the CRDS Contact Info table.
+         That is to say a peer must have an entry in the sampler if it has
+         an entry in the table, and vice versa. We might want to "soft disable"
+         a peer from being sampled.
+
+     Why not just set the peer's weight to 0?
+       A peer's weight might be updated/recalculated from various events
+       (stake update, peer active status, etc,.). When this happens, a
+       "disabled" peer may become inadvertently enabled.
+       Note: the peer's weight is still set to zero, this just serves as an
+       additional null check. */
+  peer_enabled_t peer_enabled[ peer_enabled_word_cnt ];
 };
 
 typedef struct wpeer_sampler wpeer_sampler_t;
@@ -36,6 +59,8 @@ wpeer_sampler_init( wpeer_sampler_t * ps ) {
   for( ulong i = 0UL; i < CRDS_MAX_CONTACT_INFO; i++ ) {
     ps->cumul_weight[i] = 0UL;
   }
+  /* All peers are "enabled" by default as they get added. */
+  peer_enabled_full( ps->peer_enabled );
   return 0;
 }
 
@@ -44,7 +69,7 @@ wpeer_sampler_sample( wpeer_sampler_t const * ps,
                       fd_rng_t *              rng,
                       ulong                   ele_cnt ) {
   if( FD_UNLIKELY( !ele_cnt || !ps->cumul_weight[ele_cnt-1] ) ) {
-    return SAMPLE_IDX_SENTINEL; /* Return sentinel if no weights or empty sampler */
+    return SAMPLE_IDX_SENTINEL;
   }
 
   ulong sample = fd_rng_ulong_roll( rng, ps->cumul_weight[ele_cnt-1] );
@@ -70,6 +95,9 @@ wpeer_sampler_upd( wpeer_sampler_t * ps,
                    ulong             ele_cnt ) {
   if( FD_UNLIKELY( !ps ) ) return -1;
 
+  /* Disabled peers should not be scored */
+  weight *= (ulong)peer_enabled_test( ps->peer_enabled, idx );
+
   ulong old_weight = ps->cumul_weight[idx] - PREV_PEER_WEIGHT( ps, idx );
   if( FD_UNLIKELY( old_weight==weight ) ) return 0; /* No change */
   long score_delta = (long)(weight - old_weight);
@@ -84,6 +112,29 @@ wpeer_sampler_upd( wpeer_sampler_t * ps,
       ps->cumul_weight[i] -= (ulong)score_delta;
     }
   }
+  return 0;
+}
+
+int
+wpeer_sampler_disable( wpeer_sampler_t * ps,
+                       ulong             idx,
+                       ulong             ele_cnt ) {
+  if( FD_UNLIKELY( !ps || idx>=ele_cnt ) ) return -1;
+
+  /* Set the peer weight to zero */
+  if( FD_UNLIKELY( wpeer_sampler_upd( ps, 0UL, idx, ele_cnt )<0 ) ) return -1;
+
+  /* Disable the peer in the enabled set */
+  peer_enabled_remove( ps->peer_enabled, idx );
+  return 0;
+}
+
+int
+wpeer_sampler_enable( wpeer_sampler_t * ps,
+                      ulong             idx,
+                      ulong             ele_cnt ) {
+  if( FD_UNLIKELY( !ps || idx>=ele_cnt ) ) return -1; /* Invalid index */
+  peer_enabled_insert( ps->peer_enabled, idx );
   return 0;
 }
 
@@ -159,7 +210,6 @@ crds_samplers_upd_peer( crds_samplers_t * ps,
                         long              now ) {
   if( FD_UNLIKELY( idx>=ps->ele_cnt ) ) {
     FD_LOG_ERR(( "Bad peer idx supplied in sample update" )); /* Invalid index */
-    return -1;
   }
   ps->ele[idx] = peer;
   peer->contact_info.sampler_idx = idx;

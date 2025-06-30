@@ -840,6 +840,16 @@ fd_crds_peer_inactive( fd_crds_t *   crds,
 }
 
 fd_contact_info_t const *
+fd_crds_peer_sample( fd_crds_t const * crds,
+                     fd_rng_t *         rng ) {
+  ulong idx = wpeer_sampler_sample( crds->samplers->pr_sampler,
+                                    rng,
+                                    crds->samplers->ele_cnt );
+  if( FD_UNLIKELY( idx==SAMPLE_IDX_SENTINEL ) ) return NULL;
+  return fd_crds_entry_contact_info( crds->samplers->ele[idx] );
+}
+
+fd_contact_info_t const *
 fd_crds_bucket_sample_and_remove( fd_crds_t * crds,
                                   fd_rng_t *  rng,
                                   ulong       bucket ) {
@@ -847,12 +857,13 @@ fd_crds_bucket_sample_and_remove( fd_crds_t * crds,
                                     rng,
                                     crds->samplers->ele_cnt );
   if( FD_UNLIKELY( idx==SAMPLE_IDX_SENTINEL ) ) return NULL;
-  /* Set weight to 0 to prevent future sampling until added back with
+  FD_LOG_NOTICE(( "Removing idx %lu from bucket %lu. Total count %lu", idx, bucket,
+                  crds->samplers->ele_cnt ));
+  /* Disable peer to prevent future sampling until added back with
      fd_crds_bucket_add */
-  wpeer_sampler_upd( &crds->samplers->bucket_samplers[bucket],
-                     0,
-                     idx,
-                     crds->samplers->ele_cnt );
+  wpeer_sampler_disable( &crds->samplers->bucket_samplers[bucket],
+                         idx,
+                         crds->samplers->ele_cnt );
 
   return fd_crds_entry_contact_info( crds->samplers->ele[idx] );
 }
@@ -861,28 +872,22 @@ void
 fd_crds_bucket_add( fd_crds_t *   crds,
                     ulong         bucket,
                     uchar const * pubkey ) {
-  fd_crds_key_t key = make_contact_info_key( pubkey );
+  fd_crds_key_t key         = make_contact_info_key( pubkey );
   fd_crds_entry_t * peer_ci = lookup_map_ele_query( crds->lookup_map, &key, NULL, crds->pool );
   if( FD_UNLIKELY( !peer_ci ) ) {
     FD_LOG_WARNING(( "Peer not found in CRDS. Likely dropped." ));
     return;
   }
+  wpeer_sampler_t * bucket_sampler = &crds->samplers->bucket_samplers[bucket];
+  wpeer_sampler_enable( bucket_sampler,
+                        peer_ci->contact_info.sampler_idx,
+                        crds->samplers->ele_cnt );
+
   ulong score = wpeer_sampler_bucket_score( peer_ci,  bucket );
-  wpeer_sampler_upd( &crds->samplers->bucket_samplers[bucket],
+  wpeer_sampler_upd( bucket_sampler,
                      score,
                      peer_ci->contact_info.sampler_idx,
                      crds->samplers->ele_cnt );
-}
-
-
-fd_contact_info_t const *
-fd_crds_peer_sample( fd_crds_t const * crds,
-                     fd_rng_t *         rng ) {
-  ulong idx = wpeer_sampler_sample( crds->samplers->pr_sampler,
-                                    rng,
-                                    crds->samplers->ele_cnt );
-  if( FD_UNLIKELY( idx==SAMPLE_IDX_SENTINEL ) ) return NULL;
-  return fd_crds_entry_contact_info( crds->samplers->ele[idx] );
 }
 
 struct fd_crds_mask_iter_private {
