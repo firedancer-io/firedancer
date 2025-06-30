@@ -207,6 +207,8 @@ test_stream_ended( fd_wksp_t * wksp ) {
   FD_TEST( fd_h2_frame_type( headers_hdr.typlen )==FD_H2_FRAME_TYPE_HEADERS );
 }
 
+#if FD_HAS_INT128
+
 /* Ensure that the client resets after switching keys */
 
 static void
@@ -232,6 +234,15 @@ test_keyswitch( fd_wksp_t * wksp ) {
   test_bundle_env_destroy( env );
   fd_wksp_free_laddr( keyswitch_mem );
 }
+
+#else
+
+static void
+test_keyswitch( fd_wksp_t * wksp ) {
+  (void)wksp;
+}
+
+#endif
 
 int
 main( int     argc,
