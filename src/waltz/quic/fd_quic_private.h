@@ -476,12 +476,34 @@ fd_quic_calc_expiry( fd_quic_conn_t * conn, ulong now ) {
   return now + (ulong)500e6; /* 500ms */
 }
 
+/* fd_quic_gen_stream_frames writes out queued stream data as QUIC
+   STREAM frames into the buffer [payload_ptr,payload_end).  Returns a
+   pointer one past data written in [payload_ptr,payload_end].
+
+   pkt_meta_tmpl is partially initialized with info about the QUIC
+   packet that will contain these frames (key.stream_id, enc_level,
+   pn_space, tx_time, expiry).  On return, pkt_meta_tmpl is clobbered.
+   New pkt_metas are inserted into the given tracker.
+
+   This function stops writing STREAM frames as soon as one of the
+   following conditions is met:
+   - No more stream data pending writes
+   - No more space to write a frame
+   - pkt_meta object pool is out of memory in tracker */
+
 uchar *
 fd_quic_gen_stream_frames( fd_quic_conn_t *             conn,
                            uchar *                      payload_ptr,
                            uchar *                      payload_end,
-                           fd_quic_pkt_meta_t   * pkt_meta_tmpl,
+                           fd_quic_pkt_meta_t *         pkt_meta_tmpl,
                            fd_quic_pkt_meta_tracker_t * tracker );
+
+/* fd_quic_tx_stream_frames enqueues QUIC STREAM frames for the given
+   conn, sending out packets if necessary.  (Wraps the above) */
+
+void
+fd_quic_tx_stream_frames( fd_quic_t *      quic,
+                          fd_quic_conn_t * conn );
 
 void
 fd_quic_process_ack_range( fd_quic_conn_t      *      conn,

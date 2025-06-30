@@ -626,20 +626,14 @@ fd_quic_stream_send( fd_quic_stream_t *  stream,
 FD_QUIC_API void
 fd_quic_stream_fin( fd_quic_stream_t * stream );
 
+/* fd_quic_process_packet handles an incoming QUIC UDP packet.  data
+   points to the first byte of the packet's IP header.  data_sz is the
+   total packet size including the IP header. */
+
 FD_QUIC_API void
 fd_quic_process_packet( fd_quic_t * quic,
                         uchar *     data,
                         ulong       data_sz );
-
-uint
-fd_quic_tx_buffered_raw( fd_quic_t * quic,
-                         uchar **    tx_ptr_ptr,
-                         uchar *     tx_buf,
-                         ushort *    ipv4_id,
-                         uint        dst_ipv4_addr,
-                         ushort      dst_udp_port,
-                         uint        src_ipv4_addr,
-                         ushort      src_udp_port );
 
 FD_PROTOTYPES_END
 
