@@ -16,11 +16,13 @@ custom_serializer_walk( void *       _self,
                         char const * name,
                         int          type,
                         char const * type_name,
-                        uint         level ) {
+                        uint         level,
+                        uint         varint ) {
   (void)name;
   (void)type;
   (void)type_name;
   (void)level;
+  (void)varint;
 
   CustomerSerializer * self = (CustomerSerializer *)_self;
   FILE * file = self->file;
@@ -219,7 +221,7 @@ fd_runtime_fuzz_decode_type_run( fd_runtime_fuzz_runner_t * runner,
     };
 
     // Walk the decoded object and serialize it
-    type_meta->walk( &serializer, decoded, custom_serializer_walk, type_meta->name, 0 );
+    type_meta->walk( &serializer, decoded, custom_serializer_walk, type_meta->name, 0U, 0U );
     if( ferror( file ) ) {
       fclose( file );
       *output_sz = 0;
@@ -247,7 +249,7 @@ fd_runtime_fuzz_decode_type_run( fd_runtime_fuzz_runner_t * runner,
     fd_flamenco_yaml_t * yaml = fd_flamenco_yaml_init( fd_flamenco_yaml_new( yaml_mem ), file );
 
     // Walk the decoded object and generate YAML
-    type_meta->walk( yaml, decoded, fd_flamenco_yaml_walk, type_meta->name, 0 );
+    type_meta->walk( yaml, decoded, fd_flamenco_yaml_walk, type_meta->name, 0U, 0U );
     if( ferror( file ) ) {
       fclose( file );
       *output_sz = 0;

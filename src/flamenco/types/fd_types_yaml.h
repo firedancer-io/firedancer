@@ -55,7 +55,8 @@ fd_flamenco_yaml_walk( void *       self,
                        char const * name,
                        int          type,
                        char const * type_name,
-                       uint         level );
+                       uint         level,
+                       uint         varint );
 
 fd_flamenco_yaml_t *
 fd_get_types_yaml(void);

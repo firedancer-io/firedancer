@@ -149,7 +149,9 @@ fd_flamenco_txn_walk( void *                    w,
                       fd_flamenco_txn_t const * self,
                       fd_types_walk_fn_t        fun,
                       char const *              name,
-                      uint                      level ) {
+                      uint                      level,
+                      uint                      varint ) {
+  (void) varint;
 
   static uchar const zero[ 64 ]={0};
   fd_txn_t const *   txn  = self->txn;
@@ -159,7 +161,7 @@ fd_flamenco_txn_walk( void *                    w,
     sig0 = fd_txn_get_signatures( txn, self->raw )[0];
 
   /* For now, just print the transaction's signature */
-  fun( w, sig0, name, FD_FLAMENCO_TYPE_SIG512, "txn", level );
+  fun( w, sig0, name, FD_FLAMENCO_TYPE_SIG512, "txn", level, 0 );
 }
 
 static inline ulong
