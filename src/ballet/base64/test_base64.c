@@ -105,6 +105,20 @@ main( int     argc,
     if( FD_UNLIKELY( raw_sz>=0L ) ) FD_LOG_ERR(( "decode should have failed but didn't: \"%s\"", *corrupt ));
   }
 
+  /* Round trip test */
+
+  for( ulong iter=0UL; iter<100000UL; iter++ ) {
+    uchar raw[  512 ];
+    uchar dec[  512 ];
+    char  enc[ 1024 ];
+    ulong const raw_sz = fd_rng_uint_roll( rng, sizeof(raw) );
+    ulong const enc_sz = fd_base64_encode( enc, raw, raw_sz );
+    FD_TEST( enc_sz==FD_BASE64_ENC_SZ( raw_sz ) );
+    long  const dec_sz = fd_base64_decode( dec, enc, enc_sz );
+    FD_TEST( dec_sz==(long)raw_sz );
+    FD_TEST( fd_memeq( raw, dec, raw_sz ) );
+  }
+
   /* Throughput test */
 
   static uchar raw[ 32768UL ];
