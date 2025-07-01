@@ -670,7 +670,7 @@ insert_purged( fd_crds_t *   crds,
   ulong purged_tail = (crds->purged_head+crds->purged_len)%crds->purged_cap;
   fd_memcpy( &crds->purged_list[ purged_tail ].hash, hash, 32UL );
   crds->purged_list[ purged_tail ].wallclock_nanos = wallclock_nanos;
-  crds->purged_len = fd_ulong_max( crds->purged_len+1UL, crds->purged_cap );
+  crds->purged_len = fd_ulong_min( crds->purged_len+1UL, crds->purged_cap );
 }
 
 int
@@ -691,7 +691,7 @@ fd_crds_insert( fd_crds_t *       crds,
       /* We tried to insert a duplicate.  If it's from a push message,
          update the book-keeping to reflect the number of duplicates
          so we can send out proper prune messages. */
-      if( FD_UNLIKELY( !from_push_message ) ) return -1;
+      if( FD_UNLIKELY( !from_push_message ) ) return -2;
 
       return (int)(replace->num_duplicates++);
     }
