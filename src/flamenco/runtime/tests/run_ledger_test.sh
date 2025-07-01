@@ -177,6 +177,7 @@ then
     echo "inverted test passed"
     exit 0
   fi
+  echo "LAST 40 LINES OF LOG:"
   tail -40 $LOG
   echo_error "ledger test failed: $*"
   echo $LOG
