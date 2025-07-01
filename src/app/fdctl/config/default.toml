@@ -1670,7 +1670,7 @@ dynamic_port_range = "8900-9000"
         # This affects the size of various gRPC-related buffers,
         # including socket buffer sizes, the TLS buffer, the HTTP/2
         # frame buffer, and a Protobuf encode buffer.
-        buffer_size_kib = 2048
+        buffer_size_kib = 16384
 
         # SSL library heap size in MiB.
         #
