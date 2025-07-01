@@ -442,6 +442,19 @@ fd_shmem_create_multi_unlocked( char const *  name,
     ERROR( done );
   }
 
+  /* Zero the region to avoid excessive page faults */
+  uchar zeros[4<<20];
+  memset( zeros, 0, sizeof(zeros) );
+  for( ulong i = 0; i < sz; ) {
+    ulong chunk_sz = fd_ulong_min( sizeof(zeros), sz - i );
+    if( FD_UNLIKELY( pwrite( fd, zeros, chunk_sz, (__off_t)i ) < (ssize_t)chunk_sz ) ) {
+      FD_LOG_WARNING(( "error zeroing %s: %s", path, strerror(errno) ));
+      ERROR( close );
+    }
+    sync_file_range( fd, (__off64_t)i, (__off64_t)chunk_sz, SYNC_FILE_RANGE_WRITE );
+    i += sz;
+  }
+
   /* Size the region */
 
   if( FD_UNLIKELY( ftruncate( fd, (off_t)sz ) ) ) {
