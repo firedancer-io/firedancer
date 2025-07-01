@@ -34,7 +34,6 @@
 
 /* DO NOT MODIFY. */
 // #define FD_BUF_SHRED_MAP_MAX (1UL << 24UL) /* 16 million shreds can be buffered */
-// #define FD_TXN_MAP_LG_MAX    (24)          /* 16 million txns can be stored in the txn map */
 
 /* TODO this can be removed if we explicitly manage a memory pool for
    the fd_block_map_t entries */
@@ -83,10 +82,8 @@
 #define FD_BLOCKSTORE_ERR_KEY     (-6)
 #define FD_BLOCKSTORE_ERR_SHRED_FULL      -1 /* no space left for shreds */
 #define FD_BLOCKSTORE_ERR_SLOT_FULL       -2 /* no space left for slots */
-#define FD_BLOCKSTORE_ERR_TXN_FULL        -3 /* no space left for txns */
 #define FD_BLOCKSTORE_ERR_SHRED_MISSING   -4
 #define FD_BLOCKSTORE_ERR_SLOT_MISSING    -5
-#define FD_BLOCKSTORE_ERR_TXN_MISSING     -6
 #define FD_BLOCKSTORE_ERR_SHRED_INVALID   -7 /* shred was invalid */
 #define FD_BLOCKSTORE_ERR_DESHRED_INVALID -8 /* deshredded block was invalid */
 #define FD_BLOCKSTORE_ERR_NO_MEM          -9 /* no mem */
@@ -207,16 +204,6 @@ struct fd_block_micro {
   ulong off; /* offset into block data */
 };
 typedef struct fd_block_micro fd_block_micro_t;
-
-/* fd_block_txn_t is a transaction that has been parsed and is part of a
-   block. The transaction begins at `off` relative to the start of the
-   block's data region. */
-struct fd_block_txn {
-  ulong txn_off; /* offset into block data of transaction */
-  ulong id_off;  /* offset into block data of transaction identifiers */
-  ulong sz;
-};
-typedef struct fd_block_txn fd_block_txn_t;
 
 /* If the 0th bit is set, this indicates the block is preparing, which
    means it might be partially executed e.g. a subset of the microblocks
@@ -367,33 +354,6 @@ typedef struct fd_block_idx fd_block_idx_t;
 #define MAP_KEY_INVAL(k)  (k == ULONG_MAX)
 #include "../../util/tmpl/fd_map_dynamic.c"
 
-struct fd_txn_key {
-  ulong v[FD_ED25519_SIG_SZ / sizeof( ulong )];
-};
-typedef struct fd_txn_key fd_txn_key_t;
-
-struct fd_txn_map {
-  fd_txn_key_t sig;
-  ulong        next;
-  ulong        slot;
-  ulong        offset;
-  ulong        sz;
-  ulong        meta_gaddr; /* ptr to the transaction metadata */
-  ulong        meta_sz;    /* metadata size */
-};
-typedef struct fd_txn_map fd_txn_map_t;
-
-FD_FN_PURE int fd_txn_key_equal(fd_txn_key_t const * k0, fd_txn_key_t const * k1);
-FD_FN_PURE ulong fd_txn_key_hash(fd_txn_key_t const * k, ulong seed);
-
-#define MAP_NAME             fd_txn_map
-#define MAP_T                fd_txn_map_t
-#define MAP_KEY              sig
-#define MAP_KEY_T            fd_txn_key_t
-#define MAP_KEY_EQ(k0,k1)    fd_txn_key_equal(k0,k1)
-#define MAP_KEY_HASH(k,seed) fd_txn_key_hash(k, seed)
-#include "../../util/tmpl/fd_map_giant.c"
-
 /* fd_blockstore_archiver outlines the format of metadata
    at the start of an archive file - needed so that archive
    files can be read back on initialization. */
@@ -447,15 +407,12 @@ struct __attribute__((aligned(FD_BLOCKSTORE_ALIGN))) fd_blockstore_shmem {
   ulong shred_max; /* maximum # of shreds that can be held in memory */
   ulong block_max; /* maximum # of blocks that can be held in memory */
   ulong idx_max;   /* maximum # of blocks that can be indexed from the archival file */
-  ulong txn_max;   /* maximum # of transactions that can be indexed from blocks */
   ulong alloc_max; /* maximum bytes that can be allocated */
 
   //ulong block_map_gaddr;  /* map of slot->(slot_meta, block) */
   ulong block_idx_gaddr;  /* map of slot->byte offset in archival file */
   ulong slot_deque_gaddr; /* deque of slot numbers */
 
-  /* IMPORTANT: the txn_map is not safe to write to from multiple threads. */
-  ulong txn_map_gaddr;
   ulong alloc_gaddr;
 };
 typedef struct fd_blockstore_shmem fd_blockstore_shmem_t;
@@ -491,14 +448,13 @@ fd_blockstore_align( void ) {
    including data structures. */
 
 FD_FN_CONST static inline ulong
-fd_blockstore_footprint( ulong shred_max, ulong block_max, ulong idx_max, ulong txn_max ) {
+fd_blockstore_footprint( ulong shred_max, ulong block_max, ulong idx_max ) {
   /* TODO -- when removing, make change in fd_blockstore_new as well */
   block_max      = fd_ulong_pow2_up( block_max );
   ulong lock_cnt = fd_ulong_min( block_max, BLOCK_INFO_LOCK_CNT );
 
   int lg_idx_max = fd_ulong_find_msb( fd_ulong_pow2_up( idx_max ) );
   return FD_LAYOUT_FINI(
-    FD_LAYOUT_APPEND(
     FD_LAYOUT_APPEND(
     FD_LAYOUT_APPEND(
     FD_LAYOUT_APPEND(
@@ -517,7 +473,6 @@ fd_blockstore_footprint( ulong shred_max, ulong block_max, ulong idx_max, ulong 
       fd_block_map_align(),           fd_block_map_footprint( block_max, lock_cnt, BLOCK_INFO_PROBE_CNT ) ),
       fd_block_idx_align(),           fd_block_idx_footprint( lg_idx_max ) ),
       fd_slot_deque_align(),          fd_slot_deque_footprint( block_max ) ),
-      fd_txn_map_align(),             fd_txn_map_footprint( txn_max ) ),
       fd_alloc_align(),               fd_alloc_footprint() ),
     fd_blockstore_align() );
 }
@@ -535,8 +490,7 @@ fd_blockstore_new( void * shmem,
                    ulong  seed,
                    ulong  shred_max,
                    ulong  block_max,
-                   ulong  idx_max,
-                   ulong  txn_max );
+                   ulong  idx_max );
 
 /* fd_blockstore_join joins a blockstore.  ljoin points to a
    fd_blockstore_t compatible memory region in the caller's address
@@ -627,15 +581,6 @@ fd_blockstore_block_idx( fd_blockstore_t * blockstore ) {
 FD_FN_PURE static inline ulong *
 fd_blockstore_slot_deque( fd_blockstore_t * blockstore ) {
   return fd_wksp_laddr_fast( fd_blockstore_wksp( blockstore), blockstore->shmem->slot_deque_gaddr );
-}
-
-/* fd_txn_map returns a pointer in the caller's address space to the blockstore's
-   block map. Assumes blockstore is local join. Lifetime of the returned pointer is that of the
-   local join. */
-
-FD_FN_PURE static inline fd_txn_map_t *
-fd_blockstore_txn_map( fd_blockstore_t * blockstore ) {
-  return fd_wksp_laddr_fast( fd_blockstore_wksp( blockstore), blockstore->shmem->txn_map_gaddr );
 }
 
 /* fd_blockstore_alloc returns a pointer in the caller's address space to
@@ -782,27 +727,6 @@ fd_blockstore_block_map_query_volatile( fd_blockstore_t * blockstore,
                                         int               fd,
                                         ulong             slot,
                                         fd_block_info_t * block_info_out ) ;
-
-/* fd_blockstore_txn_query queries the transaction data for the given
-   signature.
-
-   IMPORTANT!  Caller MUST hold the read lock when calling this
-   function. */
-
-fd_txn_map_t *
-fd_blockstore_txn_query( fd_blockstore_t * blockstore, uchar const sig[static FD_ED25519_SIG_SZ] );
-
-/* Query the transaction data for the given signature in a thread
-   safe manner. The transaction data is copied out. txn_data_out can
-   be NULL if you are only interested in the transaction metadata. */
-int
-fd_blockstore_txn_query_volatile( fd_blockstore_t * blockstore,
-                                  int               fd,
-                                  uchar const       sig[static FD_ED25519_SIG_SZ],
-                                  fd_txn_map_t *    txn_out,
-                                  long *            blk_ts,
-                                  uchar *           blk_flags,
-                                  uchar             txn_data_out[FD_TXN_MTU] );
 
 /* fd_blockstore_block_info_test tests if a block meta entry exists for
    the given slot.  Returns 1 if the entry exists and 0 otherwise.

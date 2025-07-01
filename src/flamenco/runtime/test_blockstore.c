@@ -88,9 +88,9 @@ main( int argc, char ** argv ) {
 
   ulong shred_max = 1 << 24;
 
-  void * mem = fd_wksp_alloc_laddr( wksp, fd_blockstore_align(), fd_blockstore_footprint( shred_max, 4096, 4096, shred_max ), 1UL );
+  void * mem = fd_wksp_alloc_laddr( wksp, fd_blockstore_align(), fd_blockstore_footprint( shred_max, 4096, 4096 ), 1UL );
   FD_TEST( mem );
-  void * shblockstore = fd_blockstore_new( mem, 1UL, 42UL, shred_max, 4096, 4096, shred_max );
+  void * shblockstore = fd_blockstore_new( mem, 1UL, 42UL, shred_max, 4096, 4096 );
   FD_TEST( shblockstore );
   fd_blockstore_t   blockstore_ljoin;
   fd_blockstore_t * blockstore = fd_blockstore_join( &blockstore_ljoin, shblockstore );

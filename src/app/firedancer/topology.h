@@ -19,7 +19,6 @@ setup_topo_blockstore( fd_topo_t *  topo,
                        ulong        shred_max,
                        ulong        block_max,
                        ulong        idx_max,
-                       ulong        txn_max,
                        ulong        alloc_max );
 
 fd_topo_obj_t *

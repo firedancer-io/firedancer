@@ -11,8 +11,7 @@ fd_blockstore_new( void * shmem,
                    ulong  seed,
                    ulong  shred_max,
                    ulong  block_max,
-                   ulong  idx_max,
-                   ulong  txn_max ) {
+                   ulong  idx_max ) {
   /* TODO temporary fix to make sure block_max is a power of 2, as
      required for slot map para. We should change to err in config
      verification eventually */
@@ -47,7 +46,7 @@ fd_blockstore_new( void * shmem,
     FD_LOG_WARNING(( "blockstore implementation requires shred_max to be a power of two, rounding it up to %lu", shred_max ));
   }
 
-  fd_memset( blockstore_shmem, 0, fd_blockstore_footprint( shred_max, block_max, idx_max, txn_max ) );
+  fd_memset( blockstore_shmem, 0, fd_blockstore_footprint( shred_max, block_max, idx_max ) );
 
   int   lg_idx_max   = fd_ulong_find_msb( fd_ulong_pow2_up( idx_max ) );
 
@@ -60,10 +59,9 @@ fd_blockstore_new( void * shmem,
   void * block_map  = FD_SCRATCH_ALLOC_APPEND( l, fd_block_map_align(),           fd_block_map_footprint( block_max, lock_cnt, BLOCK_INFO_PROBE_CNT ) );
   void * block_idx  = FD_SCRATCH_ALLOC_APPEND( l, fd_block_idx_align(),           fd_block_idx_footprint( lg_idx_max ) );
   void * slot_deque = FD_SCRATCH_ALLOC_APPEND( l, fd_slot_deque_align(),          fd_slot_deque_footprint( block_max ) );
-  void * txn_map    = FD_SCRATCH_ALLOC_APPEND( l, fd_txn_map_align(),             fd_txn_map_footprint( txn_max ) );
   void * alloc      = FD_SCRATCH_ALLOC_APPEND( l, fd_alloc_align(),               fd_alloc_footprint() );
   ulong  top        = FD_SCRATCH_ALLOC_FINI( l, fd_blockstore_align() );
-  FD_TEST( fd_ulong_align_up( top - (ulong)shmem, fd_alloc_align() ) == fd_ulong_align_up( fd_blockstore_footprint( shred_max, block_max, idx_max, txn_max ), fd_alloc_align() ) );
+  FD_TEST( fd_ulong_align_up( top - (ulong)shmem, fd_alloc_align() ) == fd_ulong_align_up( fd_blockstore_footprint( shred_max, block_max, idx_max ), fd_alloc_align() ) );
 
   (void)shreds;
   fd_buf_shred_pool_new( shred_pool );
@@ -82,12 +80,10 @@ fd_blockstore_new( void * shmem,
 
   blockstore_shmem->block_idx_gaddr  = fd_wksp_gaddr( wksp, fd_block_idx_join( fd_block_idx_new( block_idx, lg_idx_max ) ) );
   blockstore_shmem->slot_deque_gaddr = fd_wksp_gaddr( wksp, fd_slot_deque_join (fd_slot_deque_new( slot_deque, block_max ) ) );
-  blockstore_shmem->txn_map_gaddr    = fd_wksp_gaddr( wksp, fd_txn_map_join (fd_txn_map_new( txn_map, txn_max, seed ) ) );
   blockstore_shmem->alloc_gaddr      = fd_wksp_gaddr( wksp, fd_alloc_join (fd_alloc_new( alloc, wksp_tag ), wksp_tag ) );
 
   FD_TEST( blockstore_shmem->block_idx_gaddr  );
   FD_TEST( blockstore_shmem->slot_deque_gaddr );
-  FD_TEST( blockstore_shmem->txn_map_gaddr    );
   FD_TEST( blockstore_shmem->alloc_gaddr      );
 
   blockstore_shmem->blockstore_gaddr = fd_wksp_gaddr_fast( wksp, blockstore_shmem );
@@ -108,7 +104,6 @@ fd_blockstore_new( void * shmem,
   blockstore_shmem->shred_max  = shred_max;
   blockstore_shmem->block_max  = block_max;
   blockstore_shmem->idx_max    = idx_max;
-  blockstore_shmem->txn_max    = txn_max;
 
   FD_COMPILER_MFENCE();
   FD_VOLATILE( blockstore_shmem->magic ) = FD_BLOCKSTORE_MAGIC;
@@ -189,7 +184,6 @@ fd_blockstore_leave( fd_blockstore_t * blockstore ) {
   FD_TEST( fd_block_map_leave( blockstore->block_map ) );
   FD_TEST( fd_block_idx_leave( fd_blockstore_block_idx( blockstore ) ) );
   FD_TEST( fd_slot_deque_leave( fd_blockstore_slot_deque( blockstore ) ) );
-  FD_TEST( fd_txn_map_leave( fd_blockstore_txn_map( blockstore ) ) );
   FD_TEST( fd_alloc_leave( fd_blockstore_alloc( blockstore ) ) );
 
   return (void *)blockstore;
@@ -227,7 +221,6 @@ fd_blockstore_delete( void * shblockstore ) {
   FD_TEST( fd_block_map_delete( &blockstore->block_map ) );
   FD_TEST( fd_block_idx_delete( fd_blockstore_block_idx( blockstore ) ) );
   FD_TEST( fd_slot_deque_delete( fd_blockstore_slot_deque( blockstore ) ) );
-  FD_TEST( fd_txn_map_delete( fd_blockstore_txn_map( blockstore ) ) );
   FD_TEST( fd_alloc_delete( fd_blockstore_alloc( blockstore ) ) );
 
   FD_COMPILER_MFENCE();
@@ -318,25 +311,7 @@ fd_blockstore_fini( fd_blockstore_t * blockstore ) {
   }
 }
 
-/* txn map helpers */
-
-FD_FN_PURE int
-fd_txn_key_equal( fd_txn_key_t const * k0, fd_txn_key_t const * k1 ) {
-  for( ulong i = 0; i < FD_ED25519_SIG_SZ / sizeof( ulong ); ++i )
-    if( k0->v[i] != k1->v[i] ) return 0;
-  return 1;
-}
-
-FD_FN_PURE ulong
-fd_txn_key_hash( fd_txn_key_t const * k, ulong seed ) {
-  ulong h = seed;
-  for( ulong i = 0; i < FD_ED25519_SIG_SZ / sizeof( ulong ); ++i )
-    h ^= k->v[i];
-  return h;
-}
-
-/* Remove a slot from blockstore. Needs to currently be under a blockstore_write
-   lock due to txn_map access. */
+/* Remove a slot from blockstore */
 void
 fd_blockstore_slot_remove( fd_blockstore_t * blockstore, ulong slot ) {
   FD_LOG_DEBUG(( "[%s] slot: %lu", __func__, slot ));
@@ -929,106 +904,6 @@ fd_blockstore_block_map_query_volatile( fd_blockstore_t * blockstore,
   return FD_BLOCKSTORE_SUCCESS;
 }
 
-fd_txn_map_t *
-fd_blockstore_txn_query( fd_blockstore_t * blockstore, uchar const sig[FD_ED25519_SIG_SZ] ) {
-  fd_txn_key_t key;
-  fd_memcpy( &key, sig, sizeof( key ) );
-  return fd_txn_map_query( fd_blockstore_txn_map( blockstore ), &key, NULL );
-}
-
-int
-fd_blockstore_txn_query_volatile( fd_blockstore_t * blockstore,
-                                  int               fd,
-                                  uchar const       sig[FD_ED25519_SIG_SZ],
-                                  fd_txn_map_t *    txn_out,
-                                  long *            blk_ts,
-                                  uchar *           blk_flags,
-                                  uchar             txn_data_out[FD_TXN_MTU] ) {
-  /* WARNING: this code is extremely delicate. Do NOT modify without
-     understanding all the invariants. In particular, we must never
-     dereference through a corrupt pointer. It's OK for the
-     destination data to be overwritten/invalid as long as the memory
-     location is valid. As long as we don't crash, we can validate the
-     data after it is read. */
-  (void)blockstore;
-  (void)fd;
-  (void)sig;
-  (void)txn_out;
-  (void)blk_ts;
-  (void)blk_flags;
-  (void)txn_data_out;
-  return FD_BLOCKSTORE_ERR_SLOT_MISSING;
-#if BLOCK_ARCHIVING
-  fd_wksp_t * wksp = fd_blockstore_wksp( blockstore );
-  fd_txn_map_t * txn_map = fd_blockstore_txn_map( blockstore );
-
-  for(;;) {
-    fd_txn_key_t key;
-    memcpy( &key, sig, sizeof(key) );
-    fd_txn_map_t const * txn_map_entry = fd_txn_map_query_safe( txn_map, &key, NULL );
-    if( FD_UNLIKELY( txn_map_entry == NULL ) ) return FD_BLOCKSTORE_ERR_TXN_MISSING;
-    memcpy( txn_out, txn_map_entry, sizeof(fd_txn_map_t) );
-    break;
-  }
-
-  fd_block_idx_t * block_idx = fd_blockstore_block_idx( blockstore );
-
-  ulong off = ULONG_MAX;
-  for(;;) {
-    fd_block_idx_t * idx_entry = fd_block_idx_query( block_idx, txn_out->slot, NULL );
-    if( FD_LIKELY( idx_entry ) ) off = idx_entry->off;
-    break;
-  }
-
-  if ( FD_UNLIKELY( off < ULONG_MAX ) ) { /* optimize for non-archival */
-    if( FD_UNLIKELY( lseek( fd, (long)off, SEEK_SET ) == -1 ) ) {
-      FD_LOG_WARNING(( "failed to seek" ));
-      return FD_BLOCKSTORE_ERR_SLOT_MISSING;
-    }
-    fd_block_info_t block_info;
-    ulong rsz; int err;
-    err = fd_io_read( fd, &block_info, sizeof(fd_block_info_t), sizeof(fd_block_info_t), &rsz );
-    check_read_write_err( err );
-    err = fd_io_read( fd, txn_data_out, txn_out->sz, txn_out->sz, &rsz );
-    check_read_write_err( err );
-    err = (int)lseek( fd, (long)off + (long)txn_out->offset, SEEK_SET );
-    check_read_write_err( err );
-    err = fd_io_read( fd, txn_data_out, txn_out->sz, txn_out->sz, &rsz );
-    check_read_write_err( err);
-    return FD_BLOCKSTORE_SUCCESS;
-  }
-
-  for(;;) {
-    fd_block_map_query_t quer[1] = { 0 };
-    fd_block_map_query_try( blockstore->block_map, &txn_out->slot, NULL, quer, 0 );
-    fd_block_info_t const * query = fd_block_map_query_ele_const( quer );
-
-    if( FD_UNLIKELY( !query ) ) return FD_BLOCKSTORE_ERR_TXN_MISSING;
-    ulong blk_gaddr = query->block_gaddr;
-    if( FD_UNLIKELY( !blk_gaddr ) ) return FD_BLOCKSTORE_ERR_TXN_MISSING;
-
-    if( fd_block_map_query_test( quer ) ) continue;
-
-    fd_block_t * blk = fd_wksp_laddr_fast( wksp, blk_gaddr );
-    if( blk_ts ) *blk_ts = query->ts;
-    if( blk_flags ) *blk_flags = query->flags;
-    ulong ptr = blk->data_gaddr;
-    ulong sz = blk->data_sz;
-    if( txn_out->offset + txn_out->sz > sz || txn_out->sz > FD_TXN_MTU ) continue;
-
-    if( FD_UNLIKELY( fd_block_map_query_test( quer ) ) ) continue;
-
-    if( txn_data_out == NULL ) return FD_BLOCKSTORE_SUCCESS;
-    uchar const * data = fd_wksp_laddr_fast( wksp, ptr );
-    fd_memcpy( txn_data_out, data + txn_out->offset, txn_out->sz );
-
-    if( FD_UNLIKELY( fd_block_map_query_test( quer ) ) ) continue;
-
-    return FD_BLOCKSTORE_SUCCESS;
-  }
-#endif
-}
-
 void
 fd_blockstore_block_height_update( fd_blockstore_t * blockstore, ulong slot, ulong height ) {
   fd_block_map_query_t query[1] = { 0 };
@@ -1128,14 +1003,6 @@ fd_blockstore_log_mem_usage( fd_blockstore_t * blockstore ) {
                   slot_map_max,
                   (100U*slot_map_cnt)/slot_map_max )); */
 
-  fd_txn_map_t * txn_map = fd_blockstore_txn_map( blockstore );
-  ulong txn_map_cnt = fd_txn_map_key_cnt( txn_map );
-  ulong txn_map_max = fd_txn_map_key_max( txn_map );
-  FD_LOG_NOTICE(( "txn map footprint: %s (%lu entries used out of %lu, %lu%%)",
-                  fd_smart_size( fd_txn_map_footprint( txn_map_max ), tmp1, sizeof(tmp1) ),
-                  txn_map_cnt,
-                  txn_map_max,
-                  (100U*txn_map_cnt)/txn_map_max ));
   ulong block_cnt = 0;
 
   ulong * q = fd_blockstore_slot_deque( blockstore );
