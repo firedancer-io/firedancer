@@ -57,12 +57,9 @@ int main( int     argc,
     uchar FD_ALIGNED res[64];
     uchar in[128];
     uchar exp[64];
-    ulong in_sz;
 
     for( ulong i=0; i<sizeof(tests)/8/2; i++ ) {
-      in_sz = 128;
-      if( i==5 ) in_sz = 0;
-      if( i==7 ) in_sz = 64;
+      ulong in_sz = strlen( tests[2*i] ) / 2;
 
       fd_hex_decode( in, tests[2*i], in_sz );
 
@@ -80,7 +77,7 @@ int main( int     argc,
       ulong iter = 10000UL;
       long dt = fd_log_wallclock();
       for( ulong rem=iter; rem; rem-- ) {
-        fd_bn254_g1_add_syscall( res, in, in_sz );
+        fd_bn254_g1_add_syscall( res, in, 64 );
       }
       dt = fd_log_wallclock() - dt;
       log_bench( "fd_bn254_g1_add_syscall", iter, dt );
@@ -155,14 +152,10 @@ int main( int     argc,
     uchar FD_ALIGNED res[64];
     uchar in[96];
     uchar exp[64];
-    ulong in_sz;
 
     ulong len=sizeof(tests)/8/2;
     for( ulong i=0; i<len; i++ ) {
-      in_sz = 96;
-      if( i==len-2 ) in_sz = 68;
-      if( i==len-1 ) in_sz = 80;
-
+      ulong in_sz = strlen( tests[2*i] ) / 2;
       fd_hex_decode( in, tests[2*i], in_sz );
 
       FD_TEST( fd_bn254_g1_scalar_mul_syscall( res, in, in_sz, 0 )==0 );
@@ -180,7 +173,7 @@ int main( int     argc,
       ulong iter = 1000UL;
       long dt = fd_log_wallclock();
       for( ulong rem=iter; rem; rem-- ) {
-        fd_bn254_g1_scalar_mul_syscall( res, in, in_sz, 1 );
+        fd_bn254_g1_scalar_mul_syscall( res, in, 96, 1 );
       }
       dt = fd_log_wallclock() - dt;
       log_bench( "fd_bn254_g1_scalar_mul_syscall", iter, dt );
