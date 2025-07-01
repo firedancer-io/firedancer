@@ -2,11 +2,10 @@
 #define HEADER_fd_src_disco_stem_fd_stem_h
 
 #include "../fd_disco_base.h"
-#include <sys/syscall.h>
-#include <linux/futex.h>
-
+#include "../../util/futex/fd_futex.h"
+#include <limits.h>
 #define FD_STEM_SCRATCH_ALIGN (128UL)
-#define FD_STEM_SPIN_THRESHOLD (1000000L)
+#define FD_STEM_SPIN_THRESHOLD (10000L)
 
 struct fd_stem_context {
    fd_frag_meta_t ** mcaches;
@@ -35,20 +34,6 @@ struct __attribute__((aligned(64))) fd_stem_tile_in {
 
 typedef struct fd_stem_tile_in fd_stem_tile_in_t;
 
-long syscall(long number, ...);
-
-static inline long futex_wait(const uint32_t *addr, uint32_t val) {
-    return syscall(SYS_futex, addr, FUTEX_WAIT, val, NULL, NULL, 0);
-}
-
-static inline long futex_wake(uint32_t *addr, uint32_t n) {
-    return syscall(SYS_futex, addr, FUTEX_WAKE, n, NULL, NULL, 0);
-}
-
-static inline long futex_waitv(struct futex_waitv *waiters, unsigned int nr_futexes) {
-    return syscall(SYS_futex_waitv, waiters, nr_futexes, 0, NULL, 0);
-}
-
 static inline void
 fd_stem_publish( fd_stem_context_t * stem,
                  ulong               out_idx,
@@ -61,15 +46,6 @@ fd_stem_publish( fd_stem_context_t * stem,
   ulong * seqp = &stem->seqs[ out_idx ];
   ulong   seq  = *seqp;
   fd_mcache_publish( stem->mcaches[ out_idx ], stem->depths[ out_idx ], seq, sig, chunk, sz, ctl, tsorig, tspub );
-  
-  uint * futex_flag = fd_mcache_futex_flag( stem->mcaches[out_idx] );
-  *futex_flag += 1;
-  // TODO: change
-  long now = fd_log_wallclock();
-  if( now - stem->tslastwake[ out_idx ] >= stem->time_before_wake ) {
-    futex_wake( (uint32_t*) futex_flag, 1 );
-    stem->tslastwake[ out_idx ] = now;
-  }
   
   *stem->cr_avail -= stem->cr_decrement_amount;
   *seqp = fd_seq_inc( seq, 1UL );

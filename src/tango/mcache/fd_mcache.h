@@ -2,6 +2,8 @@
 #define HEADER_fd_src_tango_mcache_fd_mcache_h
 
 #include "../fd_tango_base.h"
+#include "../../util/futex/fd_futex.h"
+#include <limits.h>
 
 /* FD_MCACHE_{ALIGN,FOOTPRINT} specify the alignment and footprint
    needed for a mcache with depth entries and an application region of
@@ -322,6 +324,10 @@ fd_mcache_publish( fd_frag_meta_t * mcache,   /* Assumed a current local join */
   FD_COMPILER_MFENCE();
   meta->seq    = seq;
   FD_COMPILER_MFENCE();
+  // TODO: implement the if( now - stem->tslastwake[ out_idx ] >= stem->time_before_wake ) logic
+  uint * futex_flag = fd_mcache_futex_flag( mcache );
+  *futex_flag += 1;
+  fd_futex_wake( (uint32_t*) futex_flag, UINT32_MAX );
 }
 
 #if FD_HAS_SSE

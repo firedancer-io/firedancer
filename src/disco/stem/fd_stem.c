@@ -159,7 +159,7 @@
 #endif
 
 #ifndef STEM_TIME_BEFORE_WAKE
-#define STEM_TIME_BEFORE_WAKE (5000000000L) // 5 seconds
+#define STEM_TIME_BEFORE_WAKE (0L) // 0 nanoseconds
 #endif
 
 #ifndef STEM_CALLBACK_CONTEXT_TYPE
@@ -198,6 +198,9 @@ STEM_(scratch_footprint)( ulong in_cnt,
                           ulong cons_cnt ) {
   ulong l = FD_LAYOUT_INIT;
   l = FD_LAYOUT_APPEND( l, alignof(fd_stem_tile_in_t), in_cnt*sizeof(fd_stem_tile_in_t)     );  /* in */
+#if !(STEM_ALWAYS_SPINNING)
+  l = FD_LAYOUT_APPEND( l, alignof(struct futex_waitv), in_cnt*sizeof(struct futex_waitv) ); /* waiters */
+#endif
   l = FD_LAYOUT_APPEND( l, alignof(ulong),             out_cnt*sizeof(ulong)                ); /* out_depth */
   l = FD_LAYOUT_APPEND( l, alignof(ulong),             out_cnt*sizeof(ulong)                ); /* out_seq */
   l = FD_LAYOUT_APPEND( l, alignof(long),              out_cnt*sizeof(long)                 ); /* tslastwake */
@@ -231,6 +234,10 @@ STEM_(run1)( ulong                        in_cnt,
                                  position in_seq in the in_idx polling sequence.  The ordering of this array is continuously
                                  shuffled to avoid lighthousing effects in the output fragment stream at extreme fan-in and load */
 
+
+#if !(STEM_ALWAYS_SPINNING)
+  struct futex_waitv * waiters; /* array of futex waiters for each in */
+#endif
 
   // Hack around "unusued parameter time_before_wake
   (void) time_before_wake;
@@ -278,6 +285,12 @@ STEM_(run1)( ulong                        in_cnt,
   if( FD_UNLIKELY( !!in_cnt && !in_mcache ) ) FD_LOG_ERR(( "NULL in_mcache" ));
   if( FD_UNLIKELY( !!in_cnt && !in_fseq   ) ) FD_LOG_ERR(( "NULL in_fseq"   ));
   if( FD_UNLIKELY( in_cnt > UINT_MAX ) )      FD_LOG_ERR(( "in_cnt too large" ));
+
+#if !(STEM_ALWAYS_SPINNING)
+  waiters = (struct futex_waitv *)FD_SCRATCH_ALLOC_APPEND( l, alignof(struct futex_waitv), in_cnt*sizeof(struct futex_waitv) );
+  ulong futex_wait_counter = 0UL;
+#endif
+
   for( ulong in_idx=0UL; in_idx<in_cnt; in_idx++ ) {
 
     if( FD_UNLIKELY( !in_mcache[ in_idx ] ) ) FD_LOG_ERR(( "NULL in_mcache[%lu]", in_idx ));
@@ -297,6 +310,14 @@ STEM_(run1)( ulong                        in_cnt,
 
     this_in->accum[0] = 0U; this_in->accum[1] = 0U; this_in->accum[2] = 0U;
     this_in->accum[3] = 0U; this_in->accum[4] = 0U; this_in->accum[5] = 0U;
+
+#if !(STEM_ALWAYS_SPINNING)
+    waiters[in_idx].uaddr = (uint64_t)fd_mcache_futex_flag_const( this_in->mcache );
+    /* Starts off at 0 similar to this_in->seq */
+    waiters[in_idx].val = 0UL;
+    waiters[in_idx].flags= FUTEX_32;
+    waiters[in_idx].__reserved= 0UL;
+#endif
   }
 
   /* out frag stream init */
@@ -359,11 +380,6 @@ STEM_(run1)( ulong                        in_cnt,
   FD_MGAUGE_SET( TILE, STATUS, 1UL );
   long then = fd_tickcount();
   long now  = then;
-
-#if !(STEM_ALWAYS_SPINNING)
-  uint32_t last_futex_value = 0;
-  uint32_t futex_wait_counter = 0;
-#endif
 
   for(;;) {
 
@@ -473,10 +489,8 @@ STEM_(run1)( ulong                        in_cnt,
 /* By default, tiles are always spinning, except the ones that are configured to wait for futexes */ 
 #if !(STEM_ALWAYS_SPINNING)
     if (futex_wait_counter > FD_STEM_SPIN_THRESHOLD) {
-      fd_stem_tile_in_t * this_in_futex = &in[ in_seq ];
-      fd_frag_meta_t const * this_in_futex_mcache = this_in_futex->mcache;
-      const uint32_t * futex_seq_ptr = fd_mcache_futex_flag_const( this_in_futex_mcache);
-      futex_wait(futex_seq_ptr, last_futex_value);
+      fd_futex_waitv(waiters, (uint)in_cnt, 0, 0);
+      futex_wait_counter = 0;
     }
 #endif
 
@@ -598,7 +612,7 @@ STEM_(run1)( ulong                        in_cnt,
       if( FD_UNLIKELY( diff<0L ) ) { /* Overrun (impossible if in is honoring our flow control) */
         this_in->seq = seq_found; /* Resume from here (probably reasonably current, could query in mcache sync directly instead) */
 #if !(STEM_ALWAYS_SPINNING)
-        last_futex_value = *fd_mcache_futex_flag_const( this_in->mcache );
+        waiters[this_in->idx].val = *fd_mcache_futex_flag_const( this_in->mcache );
 #endif
         housekeeping_regime = &metric_regime_ticks[1];
         prefrag_regime = &metric_regime_ticks[4];
@@ -702,7 +716,7 @@ STEM_(run1)( ulong                        in_cnt,
     metric_regime_ticks[7] += (ulong)(next - now);
     now = next;
 #if !(STEM_ALWAYS_SPINNING)
-    last_futex_value += 1;
+    waiters[this_in->idx].val += 1;
     futex_wait_counter = 0;
 #endif
   }
