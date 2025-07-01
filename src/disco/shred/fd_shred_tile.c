@@ -118,6 +118,8 @@ FD_STATIC_ASSERT( sizeof(fd_entry_batch_meta_t)==56UL, poh_shred_mtu );
    way is to test if ctx->blockstore is enabled. */
 #define IS_FIREDANCER ( ctx->blockstore!=NULL )
 
+static const ulong ci_cnt = 1UL;
+
 typedef union {
   struct {
     fd_wksp_t * mem;
@@ -247,7 +249,7 @@ scratch_footprint( fd_topo_tile_t const * tile ) {
 
   ulong l = FD_LAYOUT_INIT;
   l = FD_LAYOUT_APPEND( l, alignof(fd_shred_ctx_t),          sizeof(fd_shred_ctx_t)                  );
-  l = FD_LAYOUT_APPEND( l, fd_stake_ci_align(),              fd_stake_ci_footprint()                 );
+  l = FD_LAYOUT_APPEND( l, fd_stake_ci_align(),              fd_stake_ci_footprint( ci_cnt )         );
   l = FD_LAYOUT_APPEND( l, fd_fec_resolver_align(),          fec_resolver_footprint                  );
   l = FD_LAYOUT_APPEND( l, fd_shredder_align(),              fd_shredder_footprint()                 );
   l = FD_LAYOUT_APPEND( l, alignof(fd_fec_set_t),            sizeof(fd_fec_set_t)*fec_set_cnt        );
@@ -298,7 +300,7 @@ handle_new_cluster_contact_info( fd_shred_ctx_t * ctx,
     FD_LOG_ERR(( "Cluster nodes had %lu destinations, which was more than the max of %lu", dest_cnt, MAX_SHRED_DESTS ));
 
   fd_shred_dest_wire_t const * in_dests = fd_type_pun_const( header+1UL );
-  fd_shred_dest_weighted_t * dests = fd_stake_ci_dest_add_init( ctx->stake_ci );
+  fd_shred_dest_weighted_t * dests = fd_type_pun( fd_stake_ci_dest_add_init( ctx->stake_ci ) );
 
   ctx->new_dest_ptr = dests;
   ctx->new_dest_cnt = dest_cnt;
@@ -829,7 +831,7 @@ after_frag( fd_shred_ctx_t *    ctx,
           if( FD_UNLIKELY( !dests ) ) break;
 
           send_shred( ctx, stem, *out_shred, ctx->adtl_dest, ctx->tsorig );
-          for( ulong j=0UL; j<*max_dest_cnt; j++ ) send_shred( ctx, stem, *out_shred, fd_shred_dest_idx_to_dest( sdest, dests[ j ]), ctx->tsorig );
+          for( ulong j=0UL; j<*max_dest_cnt; j++ ) send_shred( ctx, stem, *out_shred, fd_type_pun( fd_shred_dest_idx_to_dest( sdest, dests[ j ] )), ctx->tsorig );
         } while( 0 );
       }
 
@@ -982,7 +984,7 @@ after_frag( fd_shred_ctx_t *    ctx,
     /* Send only the ones we didn't receive. */
     for( ulong i=0UL; i<k; i++ ) {
       send_shred( ctx, stem, new_shreds[ i ], ctx->adtl_dest, ctx->tsorig );
-      for( ulong j=0UL; j<*max_dest_cnt; j++ ) send_shred( ctx, stem, new_shreds[ i ], fd_shred_dest_idx_to_dest( sdest, dests[ j*out_stride+i ]), ctx->tsorig );
+      for( ulong j=0UL; j<*max_dest_cnt; j++ ) send_shred( ctx, stem, new_shreds[ i ], fd_type_pun( fd_shred_dest_idx_to_dest( sdest, dests[ j*out_stride+i ]) ), ctx->tsorig );
     }
   }
 }
@@ -1074,7 +1076,7 @@ unprivileged_init( fd_topo_t *      topo,
   if( FD_UNLIKELY( !tile->shred.fec_resolver_depth ) ) FD_LOG_ERR(( "fec_resolver_depth not set" ));
   if( FD_UNLIKELY( !tile->shred.shred_listen_port  ) ) FD_LOG_ERR(( "shred_listen_port not set" ));
 
-  void * _stake_ci = FD_SCRATCH_ALLOC_APPEND( l, fd_stake_ci_align(),              fd_stake_ci_footprint()            );
+  void * _stake_ci = FD_SCRATCH_ALLOC_APPEND( l, fd_stake_ci_align(),              fd_stake_ci_footprint( ci_cnt )   );
   void * _resolver = FD_SCRATCH_ALLOC_APPEND( l, fd_fec_resolver_align(),          fec_resolver_footprint             );
   void * _shredder = FD_SCRATCH_ALLOC_APPEND( l, fd_shredder_align(),              fd_shredder_footprint()            );
   void * _fec_sets = FD_SCRATCH_ALLOC_APPEND( l, alignof(fd_fec_set_t),            sizeof(fd_fec_set_t)*fec_set_cnt   );
@@ -1145,7 +1147,7 @@ unprivileged_init( fd_topo_t *      topo,
   ctx->shred34  = shred34;
   ctx->fec_sets = fec_sets;
 
-  ctx->stake_ci = fd_stake_ci_join( fd_stake_ci_new( _stake_ci, ctx->identity_key ) );
+  ctx->stake_ci = fd_stake_ci_join( fd_stake_ci_new( _stake_ci, ctx->identity_key, ci_cnt ) );
 
   ctx->net_id   = (ushort)0;
 

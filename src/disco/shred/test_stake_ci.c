@@ -1,9 +1,13 @@
 #include "fd_stake_ci.h"
 #define SLOTS_PER_EPOCH 1000 /* Just for testing */
+#define USER_CI_CNT 2UL
 
-fd_stake_ci_t _info[1];
+/* Allocate memory for fd_stake_ci_t */
+uchar _info_mem[ 50UL * 1024UL * 1024UL ];
 
+#define FD_STAKE_CI_STAKE_MSG_SZ (sizeof(fd_stake_weight_msg_t) + MAX_SHRED_DESTS*sizeof(fd_stake_weight_t))
 uchar stake_msg[ FD_STAKE_CI_STAKE_MSG_SZ ];
+#undef FD_STAKE_CI_STAKE_MSG_SZ
 
 fd_pubkey_t identity_key[1];
 
@@ -28,14 +32,27 @@ generate_stake_msg( uchar *      _buf,
 }
 
 static ulong
-generate_dest_add( fd_shred_dest_weighted_t * buf,
-                   char const               * destinations ) {
+generate_dest_add_impl( fd_shred_dest_stake_ci_n_t  * buf,
+                        char const                  * destinations,
+                        ulong                         user_ci_cnt ) {
+  ulong const user_sz = fd_shred_dest_stake_ci_n_footprint( user_ci_cnt );
   ulong i = 0UL;
   for(; *destinations; destinations++, i++ ) {
-    memset( buf+i, *destinations, sizeof(fd_shred_dest_weighted_t) );
-    buf[i].stake_lamports = 0xDEADBEEF0BADF00DUL;
+    fd_shred_dest_stake_ci_n_t * dest = fd_shred_dest_stake_ci_n_get_idx( buf, i, USER_CI_CNT );
+    memset( dest->pubkey.uc, *destinations, user_sz );
+    /* Make ports unique to validate multiple contact infos */
+    for( ushort j=0UL; j<user_ci_cnt; j++ ) {
+      dest->sock_addr[j].port += j;
+    }
+    dest->stake_lamports = 0xDEADBEEF0BADF00DUL;
   }
   return i;
+}
+
+static ulong
+generate_dest_add( fd_shred_dest_stake_ci_n_t  * buf,
+                   char const                  * destinations ) {
+  return generate_dest_add_impl( buf, destinations, USER_CI_CNT );
 }
 
 static void
@@ -78,17 +95,25 @@ check_destinations( fd_stake_ci_t const * info,
   FD_TEST( fd_shred_dest_cnt_unstaked( sdest ) == strlen( unstaked_dests ) );
 
   ulong        i = 0UL;
-  char const * c = staked_dests;
-  for(; *c; c++, i++ ) {
-    uchar buf[ 32 ];
-    memset( buf, *c, 32UL );
-    FD_TEST( fd_memeq( buf, fd_shred_dest_idx_to_dest( sdest, (fd_shred_dest_idx_t)i )->pubkey.uc, 32UL ) );
-  }
-  c = unstaked_dests;
-  for(; *c; c++, i++ ) {
-    uchar buf[ 32 ];
-    memset( buf, *c, 32UL );
-    FD_TEST( fd_memeq( buf, fd_shred_dest_idx_to_dest( sdest, (fd_shred_dest_idx_t)i )->pubkey.uc, 32UL ) );
+  char const * starts[] = { staked_dests, unstaked_dests };
+  for( ulong start_i=0UL; start_i<2UL; start_i++ ) {
+    char const * c = starts[start_i];
+    for(; *c; c++, i++ ) {
+      uchar buf[ 32 ];
+      memset( buf, *c, 32UL );
+      fd_shred_dest_stake_ci_n_t * dest = fd_shred_dest_idx_to_dest( sdest, (fd_shred_dest_idx_t)i );
+      FD_TEST( fd_memeq( buf, dest->pubkey.uc, 32UL ) );
+      for( ushort j=0UL; j<info->user_ci_cnt; j++ ) {
+        uint   const exp_ip   = FD_LOAD( uint, buf );
+        uint   const act_ip   = dest->sock_addr[j].addr;
+        ushort const exp_port = FD_LOAD( ushort, buf ) + j;
+        ushort const act_port = dest->sock_addr[j].port;
+
+        /* 0 is unknown, 1 is SELF_DUMMY_IP */
+        FD_TEST( act_ip<=1 || act_ip   == exp_ip   );
+        FD_TEST( act_ip<=1 || act_port == exp_port );
+      }
+    }
   }
 
   fd_epoch_leaders_t * lsched = fd_stake_ci_get_lsched_for_slot( info, min_slot );
@@ -113,8 +138,32 @@ check_destinations( fd_stake_ci_t const * info,
 }
 
 static void
+check_contact_info( fd_stake_ci_t * info, ulong epoch, char const * destinations ) {
+
+  ulong             min_slot = epoch * SLOTS_PER_EPOCH;
+  fd_shred_dest_t * sdest    = fd_stake_ci_get_sdest_for_slot( info, min_slot );
+
+  char const * c = destinations;
+  for( ; *c; c++ ) {
+    uchar buf[ 32 ];
+    fd_memset( buf, *c, 32UL );
+    fd_shred_dest_idx_t          idx  = fd_shred_dest_pubkey_to_idx( sdest, fd_type_pun(buf) );
+    fd_shred_dest_stake_ci_n_t * dest = fd_shred_dest_idx_to_dest( sdest, idx );
+    FD_TEST( fd_memeq( buf, dest->pubkey.uc, 32UL ) );
+    for( ushort j=0UL; j<info->user_ci_cnt; j++ ) {
+      uint   const exp_ip   = FD_LOAD( uint, buf );
+      uint   const act_ip   = dest->sock_addr[j].addr;
+      ushort const exp_port = FD_LOAD( ushort, buf ) + j;
+      ushort const act_port = dest->sock_addr[j].port;
+      FD_TEST( act_ip   == exp_ip   );
+      FD_TEST( act_port == exp_port );
+    }
+  }
+}
+
+static void
 test_staked_only( void ) {
-  fd_stake_ci_t * info = fd_stake_ci_join( fd_stake_ci_new( _info, identity_key ) );
+  fd_stake_ci_t * info = fd_stake_ci_join( fd_stake_ci_new( _info_mem, identity_key, USER_CI_CNT ) );
 
   fd_stake_ci_stake_msg_init( info, generate_stake_msg( stake_msg, 0UL, "ABC"   ) );  fd_stake_ci_stake_msg_fini( info );
   check_destinations( info, 0UL, "ABC",   "I" );
@@ -133,7 +182,7 @@ test_staked_only( void ) {
 
 static void
 test_unstaked_only( void ) {
-  fd_stake_ci_t * info = fd_stake_ci_join( fd_stake_ci_new( _info, identity_key ) );
+  fd_stake_ci_t * info = fd_stake_ci_join( fd_stake_ci_new( _info_mem, identity_key, USER_CI_CNT ) );
 
   /* We need one epoch and one staked node */
   fd_stake_ci_stake_msg_init( info, generate_stake_msg( stake_msg, 0UL, "I"   ) );  fd_stake_ci_stake_msg_fini( info );
@@ -141,38 +190,48 @@ test_unstaked_only( void ) {
 
   fd_stake_ci_dest_add_fini( info, generate_dest_add( fd_stake_ci_dest_add_init( info ), "ABC" ) );
   check_destinations( info, 0UL, "I", "ABC"    );
+  check_contact_info( info, 0UL, "ABC" );
 
   fd_stake_ci_dest_add_fini( info, generate_dest_add( fd_stake_ci_dest_add_init( info ), "ABCDEF" ) );
   check_destinations( info, 0UL, "I", "ABCDEF" );
+  check_contact_info( info, 0UL, "ABCDEF" );
 
   fd_stake_ci_dest_add_fini( info, generate_dest_add( fd_stake_ci_dest_add_init( info ), "ABC" ) );
   check_destinations( info, 0UL, "I", "ABC" );
+  check_contact_info( info, 0UL, "ABC" );
 
   fd_stake_ci_delete( fd_stake_ci_leave( info ) );
 }
 
 static void
 test_transitions( void ) {
-  fd_stake_ci_t * info = fd_stake_ci_join( fd_stake_ci_new( _info, identity_key ) );
+  fd_stake_ci_t * info = fd_stake_ci_join( fd_stake_ci_new( _info_mem, identity_key, USER_CI_CNT ) );
 
   fd_stake_ci_stake_msg_init( info, generate_stake_msg( stake_msg, 0UL, "ABCD" ) );  fd_stake_ci_stake_msg_fini( info );
   fd_stake_ci_dest_add_fini( info, generate_dest_add( fd_stake_ci_dest_add_init( info ), "ABCDEFGH" ) );
   check_destinations( info, 0UL, "ABCD", "EFGHI" );
+  check_contact_info( info, 0UL, "ABCDEFGH" );
 
   /* Transition half of unstaked to staked */
   fd_stake_ci_stake_msg_init( info, generate_stake_msg( stake_msg, 1UL, "ABCDEF" ) );  fd_stake_ci_stake_msg_fini( info );
   check_destinations( info, 0UL, "ABCD",   "EFGHI" );
   check_destinations( info, 1UL, "ABCDEF",   "GHI" );
+  check_contact_info( info, 0UL, "ABCDEFGH" );
+  check_contact_info( info, 1UL, "ABCDEFGH" );
 
   /* Transition them back */
   fd_stake_ci_stake_msg_init( info, generate_stake_msg( stake_msg, 2UL, "AB" ) );  fd_stake_ci_stake_msg_fini( info );
   check_destinations( info, 1UL, "ABCDEF",   "GHI" );
   check_destinations( info, 2UL, "AB",   "CDEFGHI" );
+  check_contact_info( info, 1UL, "ABCDEFGH" );
+  check_contact_info( info, 2UL, "ABCDEFGH" );
 
   /* Completely swap */
   fd_stake_ci_stake_msg_init( info, generate_stake_msg( stake_msg, 3UL, "GI" ) );  fd_stake_ci_stake_msg_fini( info );
   check_destinations( info, 2UL, "AB",   "CDEFGHI" );
   check_destinations( info, 3UL, "GI",   "ABCDEFH" );
+  check_contact_info( info, 2UL, "ABCDEFGH" );
+  check_contact_info( info, 3UL, "ABCDEFGH" );
 
   /* Delete a bunch of the unstaked ones */
   fd_stake_ci_dest_add_fini( info, generate_dest_add( fd_stake_ci_dest_add_init( info ), "" ) );
@@ -183,13 +242,15 @@ test_transitions( void ) {
   fd_stake_ci_dest_add_fini( info, generate_dest_add( fd_stake_ci_dest_add_init( info ), "KL" ) );
   check_destinations( info, 2UL, "AB",  "IKL" );
   check_destinations( info, 3UL, "GI",   "KL" );
+  check_contact_info( info, 2UL, "KL" );
+  check_contact_info( info, 3UL, "KL" );
 
   fd_stake_ci_delete( fd_stake_ci_leave( info ) );
 }
 
 static void
 test_startup( void ) {
-  fd_stake_ci_t * info = fd_stake_ci_join( fd_stake_ci_new( _info, identity_key ) );
+  fd_stake_ci_t * info = fd_stake_ci_join( fd_stake_ci_new( _info_mem, identity_key, USER_CI_CNT ) );
 
   /* Before it has any information, no epoch should be known */
   check_destinations( info, 0UL, NULL, NULL );
@@ -205,7 +266,7 @@ test_startup( void ) {
   fd_stake_ci_delete( fd_stake_ci_leave( info ) );
 
   /* Start over and make just A staked, which means I is unstaked */
-  info = fd_stake_ci_join( fd_stake_ci_new( _info, identity_key ) );
+  info = fd_stake_ci_join( fd_stake_ci_new( _info_mem, identity_key, USER_CI_CNT ) );
   fd_stake_ci_stake_msg_init( info, generate_stake_msg( stake_msg, 0UL, "A"   ) );  fd_stake_ci_stake_msg_fini( info );
   check_destinations( info, 0UL, "A", "I"      );
 
@@ -214,7 +275,7 @@ test_startup( void ) {
 
 static void
 test_skip_ahead( void ) {
-  fd_stake_ci_t * info = fd_stake_ci_join( fd_stake_ci_new( _info, identity_key ) );
+  fd_stake_ci_t * info = fd_stake_ci_join( fd_stake_ci_new( _info_mem, identity_key, USER_CI_CNT ) );
 
   fd_stake_ci_stake_msg_init( info, generate_stake_msg( stake_msg, 0UL, "ABC"   ) );  fd_stake_ci_stake_msg_fini( info );
   check_destinations( info, 0UL, "ABC",   "I");
@@ -232,7 +293,7 @@ test_skip_ahead( void ) {
 
 static void
 test_cancel( void ) {
-  fd_stake_ci_t * info = fd_stake_ci_join( fd_stake_ci_new( _info, identity_key ) );
+  fd_stake_ci_t * info = fd_stake_ci_join( fd_stake_ci_new( _info_mem, identity_key, USER_CI_CNT ) );
 
   fd_stake_ci_stake_msg_init( info, generate_stake_msg( stake_msg, 0UL, "ABC"   ) );  fd_stake_ci_stake_msg_fini( info );
   check_destinations( info, 0UL, "ABC",   "I");
@@ -243,16 +304,19 @@ test_cancel( void ) {
   fd_stake_ci_dest_add_fini( info, generate_dest_add( fd_stake_ci_dest_add_init( info ), "EFG" ) );
   check_destinations( info, 0UL, "ABC", "EFGI");
   check_destinations( info, 1UL, NULL,   NULL );
+  check_contact_info( info, 0UL, "EFG" );
+
   generate_dest_add( fd_stake_ci_dest_add_init( info ), "EFGHIJ" ); /* Don't fini */
   check_destinations( info, 0UL, "ABC", "EFGI");
   check_destinations( info, 1UL, NULL,   NULL );
+  check_contact_info( info, 0UL, "EFG" );
 
   fd_stake_ci_delete( fd_stake_ci_leave( info ) );
 }
 
 static void
 test_ordering( void ) {
-  fd_stake_ci_t * info = fd_stake_ci_join( fd_stake_ci_new( _info, identity_key ) );
+  fd_stake_ci_t * info = fd_stake_ci_join( fd_stake_ci_new( _info_mem, identity_key, USER_CI_CNT ) );
 
   fd_stake_ci_stake_msg_init( info, generate_stake_msg( stake_msg, 0UL, "ABC"   ) );  fd_stake_ci_stake_msg_fini( info );
   check_destinations( info, 0UL, "ABC",   "I" );
@@ -264,23 +328,29 @@ test_ordering( void ) {
   fd_stake_ci_dest_add_fini( info, generate_dest_add( fd_stake_ci_dest_add_init( info ), "EFG" ) );
   check_destinations( info, 0UL, "ABC", "EFGI" );
   check_destinations( info, 1UL, "BCA", "EFGI" );
+  check_contact_info( info, 0UL, "EFG" );
+  check_contact_info( info, 1UL, "EFG" );
+
 
   fd_stake_ci_dest_add_fini( info, generate_dest_add( fd_stake_ci_dest_add_init( info ), "LKJ" ) );
   check_destinations( info, 0UL, "ABC", "IJKL" );
   check_destinations( info, 1UL, "BCA", "IJKL" );
+  check_contact_info( info, 0UL, "LKJ" );
+  check_contact_info( info, 1UL, "LKJ" );
 
   fd_stake_ci_delete( fd_stake_ci_leave( info ) );
 }
 
 static void
 test_destaking( void ) {
-  fd_stake_ci_t * info = fd_stake_ci_join( fd_stake_ci_new( _info, identity_key ) );
+  fd_stake_ci_t * info = fd_stake_ci_join( fd_stake_ci_new( _info_mem, identity_key, USER_CI_CNT ) );
 
   fd_stake_ci_stake_msg_init( info, generate_stake_msg( stake_msg, 0UL, "ABCDEF" ) );  fd_stake_ci_stake_msg_fini( info );
   check_destinations( info, 0UL, "ABCDEF",   "I" );
 
   fd_stake_ci_dest_add_fini( info, generate_dest_add( fd_stake_ci_dest_add_init( info ), "ABCH" ) );
   check_destinations( info, 0UL, "ABCDEF",  "HI" );
+  check_contact_info( info, 0UL, "ABCH" );
 
   fd_stake_ci_stake_msg_init( info, generate_stake_msg( stake_msg, 1UL, "DCAF" ) );  fd_stake_ci_stake_msg_fini( info );
   check_destinations( info, 0UL, "ABCDEF",  "HI" );
@@ -294,33 +364,40 @@ test_destaking( void ) {
   check_destinations( info, 2UL, "H",     "ABCI" );
   check_destinations( info, 3UL, "A",     "BCHI" );
 
+  check_contact_info( info, 2UL, "ABCH" );
+  check_contact_info( info, 3UL, "ABCH" );
+
   fd_stake_ci_delete( fd_stake_ci_leave( info ) );
 }
 
 static void
 test_changing_contact_info( void ) {
-  fd_stake_ci_t * info = fd_stake_ci_join( fd_stake_ci_new( _info, identity_key ) );
+  fd_stake_ci_t * info = fd_stake_ci_join( fd_stake_ci_new( _info_mem, identity_key, USER_CI_CNT ) );
 
   fd_stake_ci_stake_msg_init( info, generate_stake_msg( stake_msg, 0UL, "A" ) );  fd_stake_ci_stake_msg_fini( info );
   check_destinations( info, 0UL, "A",   "I" );
 
   fd_stake_ci_dest_add_fini( info, generate_dest_add( fd_stake_ci_dest_add_init( info ), "AB" ) );
   check_destinations( info, 0UL, "A",  "BI" );
+  check_contact_info( info, 0UL, "AB" );
 
-  fd_shred_dest_weighted_t * destinations = fd_stake_ci_dest_add_init( info );
+  fd_shred_dest_stake_ci_n_t * destinations = fd_stake_ci_dest_add_init( info );
   generate_dest_add( destinations, "AB" );
-  destinations[ 0 ].ip4  = 0x11111111U;
-  destinations[ 0 ].port = 0x2222;
-  destinations[ 1 ].ip4  = 0x33333333U;
-  destinations[ 1 ].port = 0x5555;
+
+  fd_shred_dest_stake_ci_n_t * dest0 = fd_shred_dest_stake_ci_n_get_idx( destinations, 0, USER_CI_CNT );
+  fd_shred_dest_stake_ci_n_t * dest1 = fd_shred_dest_stake_ci_n_get_idx( destinations, 1, USER_CI_CNT );
+  dest0->sock_addr[0].addr = 0x11111111U;
+  dest0->sock_addr[0].port = 0x2222;
+  dest1->sock_addr[0].addr = 0x33333333U;
+  dest1->sock_addr[0].port = 0x5555;
 
   fd_stake_ci_dest_add_fini( info, 2UL );
 
   fd_shred_dest_t * sdest = fd_stake_ci_get_sdest_for_slot( info, 0UL );
-  FD_TEST( fd_shred_dest_idx_to_dest( sdest, 0 )->ip4  == 0x11111111U );
-  FD_TEST( fd_shred_dest_idx_to_dest( sdest, 0 )->port == 0x2222      );
-  FD_TEST( fd_shred_dest_idx_to_dest( sdest, 1 )->ip4  == 0x33333333U );
-  FD_TEST( fd_shred_dest_idx_to_dest( sdest, 1 )->port == 0x5555      );
+  FD_TEST( fd_shred_dest_idx_to_dest( sdest, 0 )->sock_addr[0].addr == 0x11111111U );
+  FD_TEST( fd_shred_dest_idx_to_dest( sdest, 0 )->sock_addr[0].port == 0x2222      );
+  FD_TEST( fd_shred_dest_idx_to_dest( sdest, 1 )->sock_addr[0].addr == 0x33333333U );
+  FD_TEST( fd_shred_dest_idx_to_dest( sdest, 1 )->sock_addr[0].port == 0x5555      );
 
   fd_stake_ci_delete( fd_stake_ci_leave( info ) );
 }
@@ -333,7 +410,7 @@ test_limits( void ) {
      Stake weights cannot include more than 40,200 public keys.  Any
      beyond that get truncated and counted as excluded stake.  more than
      40,200. */
-  fd_stake_ci_t * info = fd_stake_ci_join( fd_stake_ci_new( _info, identity_key ) );
+  fd_stake_ci_t * info = fd_stake_ci_join( fd_stake_ci_new( _info_mem, identity_key, USER_CI_CNT ) );
 
   for( ulong stake_weight_cnt=40198UL; stake_weight_cnt<=40201UL; stake_weight_cnt++ ) {
     fd_stake_weight_msg_t * buf = fd_type_pun( stake_msg );
@@ -358,11 +435,12 @@ test_limits( void ) {
     fd_stake_ci_stake_msg_fini( info );
 
     for( ulong cluster_info_cnt=40198UL; cluster_info_cnt<=40201UL; cluster_info_cnt++ ) {
-      fd_shred_dest_weighted_t * dests = fd_stake_ci_dest_add_init( info );
+      fd_shred_dest_stake_ci_n_t * dests = fd_stake_ci_dest_add_init( info );
       for( ulong j=0UL; j<cluster_info_cnt; j++ ) {
         if( FD_LIKELY( j<40199UL ) ) {
-          memset( dests[j].pubkey.uc, 127-((int)j%96), sizeof(fd_pubkey_t) );
-          FD_STORE( ulong, dests[j].pubkey.uc, fd_ulong_bswap( j ) );
+          fd_shred_dest_stake_ci_n_t * dest = fd_shred_dest_stake_ci_n_get_idx( dests, j, USER_CI_CNT );
+          memset( dest->pubkey.uc, 127-((int)j%96), sizeof(fd_pubkey_t) );
+          FD_STORE( ulong, dest->pubkey.uc, fd_ulong_bswap( j ) );
         }
       }
       fd_stake_ci_dest_add_fini( info, fd_ulong_min( cluster_info_cnt, 40199UL ) );
@@ -377,7 +455,7 @@ test_limits( void ) {
 
 static void
 test_set_identity( void ) {
-  fd_stake_ci_t * info = fd_stake_ci_join( fd_stake_ci_new( _info, identity_key ) );
+  fd_stake_ci_t * info = fd_stake_ci_join( fd_stake_ci_new( _info_mem, identity_key, USER_CI_CNT ) );
 
   fd_stake_ci_stake_msg_init( info, generate_stake_msg( stake_msg, 0UL, "ABCDEF" ) );  fd_stake_ci_stake_msg_fini( info );
   fd_stake_ci_dest_add_fini( info, generate_dest_add( fd_stake_ci_dest_add_init( info ), "ABCHJZ" ) );
@@ -413,13 +491,12 @@ main( int     argc,
       char ** argv ) {
   fd_boot( &argc, &argv );
 
-  ulong max = 0UL;
-  for( ulong staked=1UL; staked<MAX_SHRED_DESTS; staked++ ) {
-    max = fd_ulong_max( max, fd_shred_dest_footprint( staked, MAX_SHRED_DESTS-staked ) );
-  }
+  /* Verify our allocated memory is sufficient */
+  ulong required_footprint = fd_stake_ci_footprint( USER_CI_CNT );
 
-  if( FD_UNLIKELY( MAX_SHRED_DEST_FOOTPRINT != max ) )
-    FD_LOG_ERR(( "MAX_SHRED_DEST_FOOTPRINT should be %lu = sizeof(fd_shred_dest_t) + %lu", max, max-sizeof(fd_shred_dest_t) ));
+  if( FD_UNLIKELY( required_footprint > sizeof(_info_mem) ) ) {
+    FD_LOG_ERR(( "Insufficient memory allocated. Required: %lu, allocated: %lu", required_footprint, sizeof(_info_mem) ));
+  }
 
   memset( identity_key, 'I', sizeof(fd_pubkey_t) );
 
