@@ -198,19 +198,6 @@
 
 #define FD_TXNCACHE_DEFAULT_MAX_TRANSACTIONS_PER_SLOT (524288UL)
 
-/* This number is not a strict bound but is a reasonable max allowed of
-   slots that can be constipated. As of the writing of this comment, the only
-   use case for constipating the status cache is to generate a snapshot. We
-   will use constipation here because we want the root to stay frozen while
-   we generate the full state of a node for a given rooted slot. This max
-   size gives us roughly 1024 slots * 0.4secs / 60 secs/min = ~6.8 minutes from
-   when we root a slot to when the status cache is done getting serialized into
-   the snapshot format. This SHOULD be enough time because serializing the
-   status cache into a Solana snapshot is done on the order of seconds and is
-   one of the first things that is done during snapshot creation. */
-
-#define FD_TXNCACHE_DEFAULT_MAX_CONSTIPATED_SLOTS (1024UL)
-
 struct fd_txncache_insert {
   uchar const * blockhash;
   uchar const * txnhash;
@@ -279,22 +266,13 @@ fd_txncache_align( void );
 FD_FN_CONST ulong
 fd_txncache_footprint( ulong max_rooted_slots,
                        ulong max_live_slots,
-                       ulong max_txn_per_slot,
-                       ulong max_constipated_slots );
-
-static inline ulong
-fd_txncache_max_constipated_slots_est( ulong stall_duration_secs ) {
-  double stall_slots_d = (double)stall_duration_secs * 0.4;
-  ulong  stall_slots   = (ulong)ceil( stall_slots_d );
-  return stall_slots;
-}
+                       ulong max_txn_per_slot );
 
 void *
 fd_txncache_new( void * shmem,
                  ulong  max_rooted_slots,
                  ulong  max_live_slots,
-                 ulong  max_txn_per_slot,
-                 ulong  max_constipated_slots );
+                 ulong  max_txn_per_slot );
 
 fd_txncache_t *
 fd_txncache_join( void * shtc );
@@ -321,19 +299,6 @@ fd_txncache_delete( void * shtc );
 void
 fd_txncache_register_root_slot( fd_txncache_t * tc,
                                 ulong           slot );
-
-/* fd_txncache_register_constipated_slot is the "constipated" version of
-   fd_txncache_register_root_slot. This means that older root slots will not
-   get purged nor will the newer root slots actually be rooted. All the slots
-   that are marked as constipated will be flushed down to the set of rooted
-   slots when fd_txncache_flush_constipated_slots is called. */
-
-void
-fd_txncache_register_constipated_slot( fd_txncache_t * tc,
-                                       ulong           slot );
-
-void
-fd_txncache_flush_constipated_slots( fd_txncache_t * tc );
 
 /* fd_txncache_root_slots returns the list of live slots currently
    tracked by the txn cache.  There will be at most max_root_slots
@@ -442,15 +407,6 @@ int
 fd_txncache_get_entries( fd_txncache_t *         tc,
                          fd_bank_slot_deltas_t * bank_slot_deltas,
                          fd_spad_t *             spad );
-
-/* fd_txncache_{is,set}_constipated is used to set and determine if the
-   status cache is currently in a constipated state. */
-
-int
-fd_txncache_get_is_constipated( fd_txncache_t * tc );
-
-int
-fd_txncache_set_is_constipated( fd_txncache_t * tc, int is_constipated );
 
 FD_PROTOTYPES_END
 

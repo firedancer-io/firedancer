@@ -220,7 +220,6 @@ fd_restart_find_heaviest_fork_bank_hash( fd_restart_t * restart,
 
 void
 fd_restart_verify_heaviest_fork( fd_restart_t *   restart,
-                                 ulong *          is_constipated,
                                  fd_slot_pair_t * hard_forks,
                                  ulong            hard_forks_len,
                                  fd_hash_t *      genesis_hash,
@@ -262,7 +261,6 @@ fd_restart_verify_heaviest_fork( fd_restart_t *   restart,
 
       /* Generate a full snapshot since we started wen-restart with a funk file instead of a snapshot file */
       ulong updated_fseq = fd_batch_fseq_pack( 1, 0, restart->heaviest_fork_slot );
-      fd_fseq_update( is_constipated, updated_fseq );
 
       /* Calculate the new shred version after inserting a hard fork */
       fd_sha256_t _sha[ 1 ];  fd_sha256_t * sha = fd_sha256_join( fd_sha256_new( _sha ) );

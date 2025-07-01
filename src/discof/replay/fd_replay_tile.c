@@ -228,7 +228,6 @@ struct fd_replay_tile_ctx {
   ulong               exec_spad_cnt;
 
   fd_spad_t *         runtime_spad;
-  ulong * is_constipated;           /* Shared fseq to determine if funk should be constipated */
 
   fd_funk_txn_t * false_root;
 
@@ -558,13 +557,10 @@ txncache_publish( fd_replay_tile_ctx_t * ctx,
   fd_funk_txn_pool_t * txn_pool = fd_funk_txn_pool( ctx->funk );
   while( txn!=rooted_txn ) {
     ulong slot = txn->xid.ul[0];
-    if( FD_LIKELY( !fd_txncache_get_is_constipated( ctx->slot_ctx->status_cache ) ) ) {
-      FD_LOG_INFO(( "Registering slot %lu", slot ));
-      fd_txncache_register_root_slot( ctx->slot_ctx->status_cache, slot );
-    } else {
-      FD_LOG_INFO(( "Registering constipated slot %lu", slot ));
-      fd_txncache_register_constipated_slot( ctx->slot_ctx->status_cache, slot );
-    }
+
+    FD_LOG_INFO(( "Registering slot %lu", slot ));
+    fd_txncache_register_root_slot( ctx->slot_ctx->status_cache, slot );
+
     txn = fd_funk_txn_parent( txn, txn_pool );
   }
 
@@ -574,41 +570,16 @@ txncache_publish( fd_replay_tile_ctx_t * ctx,
 static void
 funk_publish( fd_replay_tile_ctx_t * ctx,
               fd_funk_txn_t *        to_root_txn,
-              ulong                  wmk,
-              uchar                  is_constipated ) {
+              ulong                  wmk ) {
 
   fd_funk_txn_start_write( ctx->funk );
+  FD_LOG_DEBUG(( "Publishing slot=%lu xid=%lu", wmk, to_root_txn->xid.ul[0] ));
 
-  fd_funk_txn_pool_t * txn_pool = fd_funk_txn_pool( ctx->funk );
-
-  /* Try to publish into Funk */
-  if( is_constipated ) {
-    FD_LOG_NOTICE(( "Publishing slot=%lu while constipated", wmk ));
-
-    /* At this point, first collapse the current transaction that should be
-       published into the oldest child transaction. */
-    FD_LOG_NOTICE(( "Publishing into constipated root for wmk=%lu", wmk ));
-    fd_funk_txn_t * txn        = to_root_txn;
-
-    while( txn!=ctx->false_root ) {
-      if( FD_UNLIKELY( fd_funk_txn_publish_into_parent( ctx->funk, txn, 0 ) ) ) {
-        FD_LOG_ERR(( "Can't publish funk transaction" ));
-      }
-      txn = fd_funk_txn_parent( txn, txn_pool );
-    }
-
-  } else {
-    /* This is the case where we are not in the constipated case. We only need
-       to do special handling in the case where the epoch account hash is about
-       to be calculated. */
-    FD_LOG_DEBUG(( "Publishing slot=%lu xid=%lu", wmk, to_root_txn->xid.ul[0] ));
-
-    /* This is the standard case. Publish all transactions up to and
-       including the watermark. This will publish any in-prep ancestors
-       of root_txn as well. */
-    if( FD_UNLIKELY( !fd_funk_txn_publish( ctx->funk, to_root_txn, 1 ) ) ) {
-      FD_LOG_ERR(( "failed to funk publish slot %lu", wmk ));
-    }
+  /* This is the standard case. Publish all transactions up to and
+      including the watermark. This will publish any in-prep ancestors
+      of root_txn as well. */
+  if( FD_UNLIKELY( !fd_funk_txn_publish( ctx->funk, to_root_txn, 1 ) ) ) {
+    FD_LOG_ERR(( "failed to funk publish slot %lu", wmk ));
   }
   fd_funk_txn_end_write( ctx->funk );
 
@@ -640,45 +611,6 @@ funk_publish( fd_replay_tile_ctx_t * ctx,
 
 }
 
-static fd_funk_txn_t*
-get_rooted_txn( fd_replay_tile_ctx_t * ctx,
-                fd_funk_txn_t *     to_root_txn,
-                uchar                  is_constipated ) {
-
-  /* We need to get the rooted transaction that we are publishing into. This
-     needs to account for the two different cases: no constipation and single
-     constipation.
-
-     Also, if it's the first time that we are setting the false root, then
-     we must also register it into the status cache because we don't register
-     the root in txncache_publish to avoid registering the same slot multiple times. */
-
-  fd_funk_txn_pool_t * txn_pool = fd_funk_txn_pool( ctx->funk );
-
-  if( is_constipated ) {
-
-    if( FD_UNLIKELY( !ctx->false_root ) ) {
-
-      fd_funk_txn_t * txn        = to_root_txn;
-      fd_funk_txn_t * parent_txn = fd_funk_txn_parent( txn, txn_pool );
-      while( parent_txn ) {
-        txn        = parent_txn;
-        parent_txn = fd_funk_txn_parent( txn, txn_pool );
-      }
-
-      ctx->false_root = txn;
-      if( !fd_txncache_get_is_constipated( ctx->slot_ctx->status_cache ) ) {
-        fd_txncache_register_root_slot( ctx->slot_ctx->status_cache, txn->xid.ul[0] );
-      } else {
-        fd_txncache_register_constipated_slot( ctx->slot_ctx->status_cache, txn->xid.ul[0] );
-      }
-    }
-    return ctx->false_root;
-  } else {
-    return NULL;
-  }
-}
-
 static void
 funk_and_txncache_publish( fd_replay_tile_ctx_t * ctx, ulong wmk, fd_funk_txn_xid_t const * xid ) {
 
@@ -696,12 +628,12 @@ funk_and_txncache_publish( fd_replay_tile_ctx_t * ctx, ulong wmk, fd_funk_txn_xi
   if( FD_UNLIKELY( !to_root_txn ) ) {
     FD_LOG_ERR(( "Unable to find funk transaction for xid %lu", xid->ul[0] ));
   }
-  fd_funk_txn_t *   rooted_txn  = get_rooted_txn( ctx, to_root_txn, 0 );
+  fd_funk_txn_t *   rooted_txn  = NULL;
   fd_funk_txn_end_read( ctx->funk );
 
   txncache_publish( ctx, to_root_txn, rooted_txn );
 
-  funk_publish( ctx, to_root_txn, wmk, 0 );
+  funk_publish( ctx, to_root_txn, wmk );
 
   if( FD_UNLIKELY( ctx->capture_ctx ) ) {
     fd_runtime_checkpt( ctx->capture_ctx, ctx->slot_ctx, wmk );
@@ -2125,19 +2057,6 @@ unprivileged_init( fd_topo_t *      topo,
   ctx->published_wmark = fd_fseq_join( fd_topo_obj_laddr( topo, root_slot_obj_id ) );
   if( FD_UNLIKELY( !ctx->published_wmark ) ) FD_LOG_ERR(( "replay tile has no root_slot fseq" ));
   FD_TEST( ULONG_MAX==fd_fseq_query( ctx->published_wmark ) );
-
-  /**********************************************************************/
-  /* constipated fseq                                                   */
-  /**********************************************************************/
-
-  /* When the replay tile boots, funk should not be constipated */
-
-  ulong constipated_obj_id = fd_pod_queryf_ulong( topo->props, ULONG_MAX, "constipate" );
-  FD_TEST( constipated_obj_id!=ULONG_MAX );
-  ctx->is_constipated = fd_fseq_join( fd_topo_obj_laddr( topo, constipated_obj_id ) );
-  if( FD_UNLIKELY( !ctx->is_constipated ) ) FD_LOG_ERR(( "replay tile has no constipated fseq" ));
-  fd_fseq_update( ctx->is_constipated, 0UL );
-  FD_TEST( 0UL==fd_fseq_query( ctx->is_constipated ) );
 
   /**********************************************************************/
   /* turbine_slot fseq                                                  */
