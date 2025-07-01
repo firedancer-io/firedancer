@@ -631,6 +631,7 @@ fd_grpc_h2_cb_data(
       stream->msg_sz = fd_uint_bswap( FD_LOAD( uint, (void *)( (ulong)stream->msg_buf+1 ) ) );
       if( FD_UNLIKELY( sizeof(fd_grpc_hdr_t)  + stream->msg_sz > stream->msg_buf_max ) ) {
         FD_LOG_WARNING(( "Received oversized gRPC message (%lu bytes), killing request", stream->msg_sz ));
+        client->callbacks->rx_end( client->ctx, stream->request_ctx, &stream->hdrs );
         fd_h2_stream_error( h2_stream, client->frame_tx, FD_H2_ERR_INTERNAL );
         fd_grpc_client_stream_release( client, stream );
         return;
@@ -672,18 +673,20 @@ fd_grpc_h2_cb_data(
 
 static void
 fd_grpc_h2_rst_stream( fd_h2_conn_t *   conn,
-                       fd_h2_stream_t * stream,
+                       fd_h2_stream_t * h2_stream,
                        uint             error_code,
                        int              closed_by ) {
   if( closed_by==1 ) {
     FD_LOG_WARNING(( "Server terminated request stream_id=%u (%u-%s)",
-                     stream->stream_id, error_code, fd_h2_strerror( error_code ) ));
+                     h2_stream->stream_id, error_code, fd_h2_strerror( error_code ) ));
   } else {
     FD_LOG_WARNING(( "Stream failed stream_id=%u (%u-%s)",
-                     stream->stream_id, error_code, fd_h2_strerror( error_code ) ));
+                     h2_stream->stream_id, error_code, fd_h2_strerror( error_code ) ));
   }
-  fd_grpc_client_t * client = conn->ctx;
-  fd_grpc_client_stream_release( client, fd_grpc_h2_stream_upcast( stream ) );
+  fd_grpc_client_t *    client = conn->ctx;
+  fd_grpc_h2_stream_t * stream = fd_grpc_h2_stream_upcast( h2_stream );
+  client->callbacks->rx_end( client->ctx, stream->request_ctx, &stream->hdrs ); /* invalidates stream->hdrs */
+  fd_grpc_client_stream_release( client, stream );
 }
 
 /* A HTTP/2 flow control change might unblock a queued request send op */
