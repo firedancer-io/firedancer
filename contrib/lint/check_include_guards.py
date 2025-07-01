@@ -10,7 +10,7 @@ import os
 def check_file(path):
     guard_name = "HEADER_fd_" + str(path).replace(".", "_").replace("/", "_")
     with open(path, "r") as f:
-        # Skip whitepsace lines
+        # Skip whitespace lines
         while True:
             line0 = f.readline()
             if not line0.startswith("/* ") and not line0.startswith("// ") and line0.strip():
