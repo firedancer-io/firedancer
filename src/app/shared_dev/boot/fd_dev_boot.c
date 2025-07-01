@@ -79,8 +79,6 @@ fd_dev_main( int          argc,
 
   int no_sandbox = fd_env_strip_cmdline_contains( &argc, &argv, "--no-sandbox" );
   int no_clone = fd_env_strip_cmdline_contains( &argc, &argv, "--no-clone" );
-  config.development.no_clone = config.development.no_clone || no_clone;
-  config.development.sandbox = config.development.sandbox && !no_sandbox && !no_clone;
 
   const char * opt_user_config_path = fd_env_strip_cmdline_cstr(
     &argc,
@@ -119,6 +117,9 @@ fd_dev_main( int          argc,
   }
 
   fd_main_init( &argc, &argv, &config, opt_user_config_path, is_firedancer, action->is_local_cluster, log_path, default_config, default_config_sz, topo_init );
+
+  config.development.no_clone = config.development.no_clone || no_clone;
+  config.development.sandbox = config.development.sandbox && !no_sandbox && !no_clone;
 
   int is_allowed_live = action->is_diagnostic==1;
   if( FD_UNLIKELY( config.is_live_cluster && !is_allowed_live ) )
