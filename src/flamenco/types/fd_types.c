@@ -9015,7 +9015,7 @@ static int fd_slot_history_decode_footprint_inner( fd_bincode_decode_ctx_t * ctx
     ulong len;
     err = fd_bincode_uint64_decode( &len, ctx );
     if( FD_UNLIKELY( err!=FD_BINCODE_SUCCESS ) ) return err;
-    if( len > inner_len * sizeof(ulong) * 8UL ) return FD_BINCODE_ERR_ENCODING;
+    if( o && len > inner_len * sizeof(ulong) * 8UL ) return FD_BINCODE_ERR_ENCODING;
   }
   err = fd_bincode_uint64_decode_footprint( ctx );
   if( FD_UNLIKELY( err!=FD_BINCODE_SUCCESS ) ) return err;
@@ -19476,7 +19476,7 @@ static int fd_gossip_slots_decode_footprint_inner( fd_bincode_decode_ctx_t * ctx
     ulong len;
     err = fd_bincode_uint64_decode( &len, ctx );
     if( FD_UNLIKELY( err!=FD_BINCODE_SUCCESS ) ) return err;
-    if( len > inner_len * sizeof(uchar) * 8UL ) return FD_BINCODE_ERR_ENCODING;
+    if( o && len > inner_len * sizeof(uchar) * 8UL ) return FD_BINCODE_ERR_ENCODING;
   }
   return 0;
 }
@@ -20909,7 +20909,7 @@ static int fd_restart_raw_offsets_decode_footprint_inner( fd_bincode_decode_ctx_
     ulong len;
     err = fd_bincode_uint64_decode( &len, ctx );
     if( FD_UNLIKELY( err!=FD_BINCODE_SUCCESS ) ) return err;
-    if( len > inner_len * sizeof(uchar) * 8UL ) return FD_BINCODE_ERR_ENCODING;
+    if( o && len > inner_len * sizeof(uchar) * 8UL ) return FD_BINCODE_ERR_ENCODING;
   }
   return 0;
 }
@@ -21829,7 +21829,7 @@ static int fd_crds_bloom_decode_footprint_inner( fd_bincode_decode_ctx_t * ctx, 
     ulong len;
     err = fd_bincode_uint64_decode( &len, ctx );
     if( FD_UNLIKELY( err!=FD_BINCODE_SUCCESS ) ) return err;
-    if( len > inner_len * sizeof(ulong) * 8UL ) return FD_BINCODE_ERR_ENCODING;
+    if( o && len > inner_len * sizeof(ulong) * 8UL ) return FD_BINCODE_ERR_ENCODING;
   }
   err = fd_bincode_uint64_decode_footprint( ctx );
   if( FD_UNLIKELY( err!=FD_BINCODE_SUCCESS ) ) return err;

@@ -505,6 +505,8 @@ block_finalize_tiles_cb( void * para_arg_1,
       break;
     }
   }
+
+
 }
 
 
@@ -1015,8 +1017,13 @@ prepare_new_block_execution( fd_replay_tile_ctx_t * ctx,
 static void
 init_poh( fd_replay_tile_ctx_t * ctx ) {
   FD_LOG_INFO(( "sending init msg" ));
+
+  FD_LOG_WARNING(( "hashes_per_tick: %lu, ticks_per_slot: %lu",
+                   fd_bank_hashes_per_tick_get( ctx->slot_ctx->bank ),
+                   fd_bank_ticks_per_slot_get( ctx->slot_ctx->bank ) ));
+
   fd_replay_out_link_t * bank_out = &ctx->bank_out[ 0UL ];
-  fd_poh_init_msg_t * msg = fd_chunk_to_laddr( bank_out->mem, bank_out->chunk );
+  fd_poh_init_msg_t * msg = fd_chunk_to_laddr( bank_out->mem, bank_out->chunk ); // FIXME: msg is NULL
   msg->hashcnt_per_tick = fd_bank_hashes_per_tick_get( ctx->slot_ctx->bank );
   msg->ticks_per_slot   = fd_bank_ticks_per_slot_get( ctx->slot_ctx->bank );
   msg->tick_duration_ns = (ulong)(fd_bank_ns_per_slot_get( ctx->slot_ctx->bank )) / fd_bank_ticks_per_slot_get( ctx->slot_ctx->bank );
