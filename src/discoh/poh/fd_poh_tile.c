@@ -1689,9 +1689,9 @@ after_credit( fd_poh_ctx_t *      ctx,
 
   *charge_busy = 1;
 
-  while( ctx->hashcnt<target_hashcnt ) {
-    fd_sha256_hash( ctx->hash, 32UL, ctx->hash );
-    ctx->hashcnt++;
+  if( FD_LIKELY( ctx->hashcnt<target_hashcnt ) ) {
+    fd_sha256_hash_32_repeated( ctx->hash, ctx->hash, target_hashcnt-ctx->hashcnt );
+    ctx->hashcnt = target_hashcnt;
   }
 
   if( FD_UNLIKELY( ctx->hashcnt==ctx->hashcnt_per_slot ) ) {
