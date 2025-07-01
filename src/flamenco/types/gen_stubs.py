@@ -1,29 +1,50 @@
+#!/usr/bin/env python3
+"""
+C Code Generator for Solana/Firedancer Type System
+
+This script generates C header and implementation files for serialization/deserialization
+of Solana blockchain data structures. It reads type definitions from a JSON configuration
+file and generates optimized C code for binary encoding/decoding, memory management,
+and type reflection.
+
+Usage: python3 gen_stubs.py <header_file> <implementation_file> <reflection_file>
+"""
+
 import json
 import sys
 
-
+# Load type definitions from JSON configuration file
 with open('fd_types.json', 'r') as json_file:
     json_object = json.load(json_file)
 
-header = open(sys.argv[1], "w")
-body = open(sys.argv[2], "w")
-reflect = open(sys.argv[3], "w")
+# Open output files for writing generated C code
+header = open(sys.argv[1], "w")      # Header file (.h)
+body = open(sys.argv[2], "w")        # Implementation file (.c)
+reflect = open(sys.argv[3], "w")     # Reflection file
 
-namespace = json_object["namespace"]
-entries = json_object["entries"]
+# Extract configuration from JSON
+namespace = json_object["namespace"]  # Namespace prefix for generated functions
+entries = json_object["entries"]     # List of type definitions
 
+# Generate file headers with auto-generation notice
 print("// This is an auto-generated file. To add entries, edit fd_types.json", file=header)
 print("// This is an auto-generated file. To add entries, edit fd_types.json", file=body)
 print("// This is an auto-generated file. To add entries, edit fd_types.json", file=reflect)
+
+# Generate header file include guards
 print("#ifndef HEADER_" + json_object["name"].upper(), file=header)
 print("#define HEADER_" + json_object["name"].upper(), file=header)
 print("", file=header)
+
+# Include any extra headers specified in the JSON config
 for extra in json_object["extra_header"]:
     print(extra, file=header)
 print("", file=header)
 
+# Generate implementation file includes and compiler directives
 print(f'#include "{sys.argv[1]}"', file=body)
 
+# Disable specific GCC warnings for generated code
 print('#pragma GCC diagnostic ignored "-Wunused-parameter"', file=body)
 print('#pragma GCC diagnostic ignored "-Wunused-variable"', file=body)
 print('#pragma GCC diagnostic ignored "-Wunused-function"', file=body)
@@ -31,13 +52,16 @@ print('#if defined(__GNUC__) && (__GNUC__ >= 9)', file=body)
 print('#pragma GCC diagnostic ignored "-Waddress-of-packed-member"', file=body)
 print('#endif', file=body)
 
+# Include custom type definitions
 print('#define SOURCE_fd_src_flamenco_types_fd_types_c', file=body)
 print('#include "fd_types_custom.h"', file=body)
 
+# Sets to track types that need special preamble/postamble handling
 preambletypes = set()
 postambletypes = set()
 
-# Map from primitive types to bincode function names
+# Map from primitive types to their corresponding bincode function names
+# This allows the code generator to emit the correct function calls for each type
 simpletypes = dict()
 for t,t2 in [("char","int8"),
              ("uchar","uint8"),
@@ -50,7 +74,8 @@ for t,t2 in [("char","int8"),
              ("ulong","uint64")]:
     simpletypes[t] = t2
 
-# Map from type name to encoded size
+# Map from type name to encoded byte size for fixed-size types
+# Used for memory allocation and size calculations
 fixedsizetypes = dict()
 for t,t2 in [("bool",1),
              ("char",1),
@@ -72,6 +97,7 @@ for t,t2 in [("bool",1),
     fixedsizetypes[t] = t2
 
 # Set of types that do not contain nested local pointers
+# These types can be serialized directly without special offset handling
 flattypes = {
   "bool",
   "char",
@@ -94,7 +120,8 @@ flattypes = {
 }
 
 # Types that are fixed size and valid for all possible bit patterns
-# (e.g. ulong is in here, but bool is not)
+# These types can be used in fuzzing without special validation
+# (e.g. ulong is in here, but bool is not because not all bit patterns are valid bools)
 fuzzytypes = {
     "char", "uchar",
     "short", "ushort",
@@ -110,7 +137,23 @@ fuzzytypes = {
     "uchar[2048]",
 }
 
+# Base class for all type nodes in the type system
 class TypeNode:
+    """
+    Base class for all type definitions in the generated C code.
+
+    Each type node represents a data structure that can be:
+    - Serialized/deserialized using bincode format
+    - Allocated and freed in memory
+    - Walked for reflection/debugging
+    - Sized for memory planning
+
+    Attributes:
+        name: The name of this type
+        produce_global: Whether to generate "global" versions (using offsets vs pointers)
+        encoders: Encoder configuration (if any)
+        arch_index: Architecture-specific index for optimization
+    """
     def __init__(self, json, **kwargs):
         self.produce_global = False
         if json is not None:
@@ -121,28 +164,53 @@ class TypeNode:
         else:
             raise ValueError(f"invalid arguments {kwargs} provided to TypeNode!")
         self.encoders = None
+        self.arch_index = 0  # Index for architecture-specific optimizations
 
     def isFixedSize(self):
+        """Return True if this type has a fixed size in bytes."""
         return False
 
     def fixedSize(self):
+        """Return the fixed size in bytes, or None if variable size."""
         return
 
     def isFuzzy(self):
+        """Return True if this type is safe for fuzzing (all bit patterns valid)."""
         return False
 
     def isFlat(self):
+        """Return True if this type contains no nested pointers."""
         return False
 
     def emitOffsetJoin(self, type_name):
+        """Generate helper functions for joining global types with offsets."""
         pass
 
     def subTypes(self):
+        """Return iterator over nested types contained in this type."""
         return iter(())
 
     def subMembers(self):
+        """Return iterator over member fields of this type."""
         return iter(())
+# Class representing primitive/basic types (int, char, etc.)
 class PrimitiveMember(TypeNode):
+    """
+    Represents primitive data types like integers, chars, booleans, etc.
+
+    These are the fundamental building blocks that map directly to C primitive types.
+    Handles special cases like:
+    - Variable-length integers (varint encoding)
+    - String types (char*)
+    - Fixed-size arrays (uchar[32], etc.)
+
+    Attributes:
+        type: The primitive type name (e.g., "ulong", "char*")
+        varint: Whether to use variable-length integer encoding
+        decode: Whether this field should be decoded
+        encode: Whether this field should be encoded
+        walk: Whether this field should be included in walking/reflection
+    """
     def __init__(self, container, json):
         super().__init__(json)
         self.type = json["type"]
@@ -152,17 +220,22 @@ class PrimitiveMember(TypeNode):
         self.walk = ("walk" not in json or json["walk"])
 
     def emitPreamble(self):
+        """Generate any preamble code needed before type definition."""
         pass
 
     def emitPostamble(self):
+        """Generate any postamble code needed after type definition."""
         pass
 
     def emitNew(self, indent=''):
+        """Generate constructor/initialization code for this primitive type."""
         pass
 
     def isFlat(self):
+        """Return True if this primitive type contains no pointers (except char*)."""
         return self.type != "char*"
 
+    # Map from primitive type names to functions that emit C struct member declarations
     emitMemberMap = {
         "char" :      lambda n: print(f'  char {n};',      file=header),
         "char*" :     lambda n: print(f'  char* {n};',     file=header),
@@ -171,7 +244,7 @@ class PrimitiveMember(TypeNode):
         "long" :      lambda n: print(f'  long {n};',      file=header),
         "uint" :      lambda n: print(f'  uint {n};',      file=header),
         "uint128" :   lambda n: print(f'  uint128 {n};',   file=header),
-        "bool" :      lambda n: print(f'  uchar {n};',     file=header),
+        "bool" :      lambda n: print(f'  uchar {n};',     file=header),  # bool stored as uchar
         "uchar" :     lambda n: print(f'  uchar {n};',     file=header),
         "uchar[32]" : lambda n: print(f'  uchar {n}[32];', file=header),
         "uchar[128]" :lambda n: print(f'  uchar {n}[128];', file=header),
@@ -204,14 +277,21 @@ class PrimitiveMember(TypeNode):
         return self.type in fuzzytypes
 
     def string_decode_footprint(n, varint, indent):
-        # This ends up working for decode_footprint but in a hacky way
+        """
+        Generate code to calculate memory footprint needed for decoding a string.
+
+        Strings are encoded as: [length: u64][data: bytes]
+        We need extra space for null termination in C.
+        """
         print(f'{indent}  ulong slen;', file=body)
         print(f'{indent}  err = fd_bincode_uint64_decode( &slen, ctx );', file=body)
         print(f'{indent}  if( FD_UNLIKELY( err!=FD_BINCODE_SUCCESS ) ) return err;', file=body)
         print(f'{indent}  err = fd_bincode_bytes_decode_footprint( slen, ctx );', file=body)
         print(f'{indent}  if( FD_UNLIKELY( err!=FD_BINCODE_SUCCESS ) ) return err;', file=body)
+        print(f'{indent}  *total_sz += slen + 1; // Need an extra byte for null termination', file=body)
 
     def ushort_decode_footprint(n, varint, indent):
+        """Generate code to calculate footprint for decoding unsigned short (16-bit)."""
         if varint:
             print(f'{indent}  do {{ ushort _tmp; err = fd_bincode_compact_u16_decode( &_tmp, ctx ); }} while(0);', file=body),
         else:
@@ -219,19 +299,12 @@ class PrimitiveMember(TypeNode):
         print(f'{indent}  if( FD_UNLIKELY( err!=FD_BINCODE_SUCCESS ) ) return err;', file=body)
 
     def ulong_decode_footprint(n, varint, indent):
+        """Generate code to calculate footprint for decoding unsigned long (64-bit)."""
         if varint:
             print(f'{indent}  err = fd_bincode_varint_decode_footprint( ctx );', file=body),
         else:
             print(f'{indent}  err = fd_bincode_uint64_decode_footprint( ctx );', file=body),
         print(f'{indent}  if( FD_UNLIKELY( err!=FD_BINCODE_SUCCESS ) ) return err;', file=body)
-
-    def string_decode_footprint(n, varint, indent):
-        print(f'{indent}  ulong slen;', file=body)
-        print(f'{indent}  err = fd_bincode_uint64_decode( &slen, ctx );', file=body)
-        print(f'{indent}  if( FD_UNLIKELY( err!=FD_BINCODE_SUCCESS ) ) return err;', file=body)
-        print(f'{indent}  err = fd_bincode_bytes_decode_footprint( slen, ctx );', file=body)
-        print(f'{indent}  if( FD_UNLIKELY( err!=FD_BINCODE_SUCCESS ) ) return err;', file=body)
-        print(f'{indent}  *total_sz += slen + 1; // Need an extra byte for null termination', file=body)
 
     emitDecodeFootprintMap = {
         "char" :      lambda n, varint, indent: print(f'{indent}  err = fd_bincode_uint8_decode_footprint( ctx );\n  if( FD_UNLIKELY( err ) ) return err;', file=body),
@@ -467,7 +540,23 @@ class StructMember(TypeNode):
     def emitWalk(self, inner, indent=''):
         print(f'{indent}  {namespace}_{self.type}_walk( w, &self->{inner}{self.name}, fun, "{self.name}", level, 0 );', file=body)
 
+# Class representing dynamic arrays/vectors
 class VectorMember(TypeNode):
+    """
+    Represents a dynamic array (vector) of elements.
+
+    Vectors are encoded as: [length][element1][element2]...[elementN]
+
+    Supports:
+    - Compact encoding (uses 16-bit length instead of 64-bit)
+    - Different element types (primitives or complex types)
+    - Memory management for both regular and global variants
+
+    Attributes:
+        element: Type of elements stored in the vector
+        compact: Whether to use compact (16-bit) length encoding
+        ignore_underflow: Whether to ignore underflow errors during decoding
+    """
     def __init__(self, container, json, **kwargs):
         if (json is not None):
             super().__init__(json)
@@ -528,6 +617,11 @@ class VectorMember(TypeNode):
 
     def emitNew(self, indent=''):
         pass
+
+    def emitDestroy(self, indent=''):
+        """Generate cleanup code for vector member - sets pointer to NULL and length to 0."""
+        print(f'{indent}  self->{self.name} = NULL;', file=body)
+        print(f'{indent}  self->{self.name}_len = 0;', file=body)
 
     def emitDecodeFootprint(self, indent=''):
         if self.compact:
@@ -831,7 +925,7 @@ class BitVectorMember(TypeNode):
         print('    ulong len;', file=body)
         print('    err = fd_bincode_uint64_decode( &len, ctx );', file=body)
         print('    if( FD_UNLIKELY( err!=FD_BINCODE_SUCCESS ) ) return err;', file=body)
-        print(f'    if( o && len > inner_len * sizeof({self.vector_element}) * 8UL ) return FD_BINCODE_ERR_ENCODING;', file=body)
+        print(f'    if( len > inner_len * sizeof({self.vector_element}) * 8UL ) return FD_BINCODE_ERR_ENCODING;', file=body)
         print('  }', file=body)
 
     def emitDecodeInner(self):
@@ -902,7 +996,25 @@ class BitVectorMember(TypeNode):
         print('  }', file=body)
         print(f'  fun( w, &self->{self.name}_len, "{self.name}_len", FD_FLAMENCO_TYPE_ULONG, "ulong", level, 0 );', file=body)
 
+# Class representing fixed-size circular buffer arrays
 class StaticVectorMember(TypeNode):
+    """
+    Represents a fixed-size array that acts as a circular buffer.
+
+    Unlike regular vectors, static vectors have a fixed maximum size but variable
+    length. They use offset-based indexing to implement circular buffer behavior.
+
+    Key features:
+    - Fixed maximum size at compile time
+    - Variable length at runtime (up to max size)
+    - Circular buffer indexing with offset
+    - Optimized indexing for power-of-2 sizes (uses bitwise AND vs modulo)
+
+    Attributes:
+        element: Type of elements stored in the array
+        size: Maximum number of elements (None if not specified)
+        ignore_underflow: Whether to ignore underflow errors during decoding
+    """
     def __init__(self, container, json):
         super().__init__(json)
         self.element = json["element"]
@@ -1023,7 +1135,7 @@ class StaticVectorMember(TypeNode):
             return
 
         print(f'  for( ulong i=0; i<self->{self.name}_len; i++ ) {{', file=body)
-        if (self.size & (self.size - 1)) == 0:
+        if self.size is not None and (self.size & (self.size - 1)) == 0:
             print(f'    ulong idx = ( i + self->{self.name}_offset ) & ({self.size} - 1);', file=body)
         else:
             print(f'    ulong idx = ( i + self->{self.name}_offset ) % self->{self.name}_size;', file=body)
@@ -1046,7 +1158,7 @@ class StaticVectorMember(TypeNode):
             return
 
         print(f'  for( ulong i=0; i<self->{self.name}_len; i++ ) {{', file=body)
-        if (self.size & (self.size - 1)) == 0:
+        if self.size is not None and (self.size & (self.size - 1)) == 0:
             print(f'    ulong idx = ( i + self->{self.name}_offset ) & ({self.size} - 1);', file=body)
         else:
             print(f'    ulong idx = ( i + self->{self.name}_offset ) % self->{self.name}_size;', file=body)
@@ -1098,7 +1210,7 @@ class StaticVectorMember(TypeNode):
 
         print(f'  fun( w, NULL, "{self.name}", FD_FLAMENCO_TYPE_ARR, "{self.element}[]", level++, 0 );', file=body)
         print(f'  for( ulong i=0; i<self->{self.name}_len; i++ ) {{', file=body)
-        if (self.size & (self.size - 1)) == 0:
+        if self.size is not None and (self.size & (self.size - 1)) == 0:
             print(f'    ulong idx = ( i + self->{self.name}_offset ) & ({self.size} - 1);', file=body)
         else:
             print(f'    ulong idx = ( i + self->{self.name}_offset ) % self->{self.name}_size;', file=body)
@@ -2635,7 +2747,22 @@ class DlistMember(TypeNode):
         print(f'  }}', file=body)
 
 
+# Class representing optional/nullable types (Rust Option<T> equivalent)
 class OptionMember(TypeNode):
+    """
+    Represents an optional value that may or may not be present.
+
+    Options are encoded as: [present: bool][value if present]
+
+    Supports two storage modes:
+    - Flat: Value stored inline with a boolean flag (for small types)
+    - Pointer: Value stored via pointer, NULL if not present (for large types)
+
+    Attributes:
+        element: Type of the optional value
+        flat: Whether to store value inline (True) or via pointer (False)
+        ignore_underflow: Whether to ignore underflow errors during decoding
+    """
     def __init__(self, container, json):
         super().__init__(json)
         self.element = json["element"]
@@ -3230,23 +3357,51 @@ def extract_member_type(member):
         return member
     raise ValueError(f"Unknown type {member} in extract_member_type")
 
+# Class representing C struct types
 class StructType(TypeNode):
+    """
+    Represents a C struct with multiple named fields.
+
+    Generates complete C struct definitions with:
+    - Member declarations
+    - Constructor/destructor functions
+    - Encode/decode functions for serialization
+    - Size calculation functions
+    - Walk functions for reflection
+    - Both regular and "global" variants (using offsets vs pointers)
+
+    Attributes:
+        fullname: Full qualified name with namespace prefix
+        fields: List of member fields in this struct
+        comment: Optional comment/documentation for the struct
+        encoders: Encoder configuration (if any)
+        custom_decode_inner: Whether to use custom decode implementation
+        normalizer: Optional normalizer function name
+        validator: Optional validator function name
+        attribute: C attribute string (alignment, packed, etc.)
+        alignment: Alignment requirement in bytes
+    """
     def __init__(self, json):
         super().__init__(json)
         self.fullname = f'{namespace}_{json["name"]}'
         self.fields = []
         index = 0
+        # Parse all non-removed fields
         for f in json["fields"]:
             if not (bool(f["removed"]) if "removed" in f else False):
                 m = parseMember(self.fullname, f)
                 self.fields.append(m)
                 m.arch_index = (int(f["tag"]) if "tag" in f else index)
             index = index + 1
+
+        # Extract optional configuration
         self.comment = (json["comment"] if "comment" in json else None)
         self.encoders = (json["encoders"] if "encoders" in json else None)
         self.custom_decode_inner = (json["custom_decode_inner"] if "custom_decode_inner" in json else False)
         self.normalizer = (json["normalizer"] if "normalizer" in json else None)
         self.validator = (json["validator"] if "validator" in json else None)
+
+        # Handle alignment and packing attributes
         if "alignment" in json:
             self.attribute = f'__attribute__((aligned({json["alignment"]}UL))) '
             self.alignment = json["alignment"]
@@ -3920,9 +4075,27 @@ class EnumType(TypeNode):
             if not isinstance(v, str):
                 v.emitPostamble()
 
+# Global type mapping for cross-references
 type_map = {}
 
+# Main function that orchestrates the code generation process
 def main():
+    """
+    Main code generation function.
+
+    This function processes all type definitions from the JSON configuration and
+    generates the complete C code in multiple phases:
+
+    1. Parse and create all type objects
+    2. Propagate global attributes through type dependencies
+    3. Build lookup tables for type properties
+    4. Generate headers, prototypes, implementations, and reflection data
+
+    The multi-pass approach ensures all types are properly declared before
+    any code that references them is generated.
+    """
+
+    # Parse all type definitions from JSON
     alltypes = []
     for entry in entries:
         if entry['type'] == 'opaque':
@@ -3932,14 +4105,15 @@ def main():
         if entry['type'] == 'enum':
             alltypes.append(EnumType(entry))
 
+    # Build type mapping and identify global types
     propagate = set()
-
     global type_map
     for t in alltypes:
         if t.produce_global:
             propagate.add(t)
         type_map[t.name] = t
 
+    # Propagate 'global' attribute recursively through dependencies
     # We need to propagate the 'global' attribute recursively through
     # all the types specified in fd_types.json to be global. We need
     # to mark all of the submembers AND subtypes of these global types
@@ -3952,11 +4126,13 @@ def main():
         for sub in t.subMembers():
             sub.produce_global = True
 
+    # Build lookup tables for type properties
     nametypes = {}
     for t in alltypes:
         if hasattr(t, 'fullname'):
             nametypes[t.fullname] = t
 
+    # Update global type property sets
     global fixedsizetypes
     global fuzzytypes
     global flattypes
@@ -3967,9 +4143,12 @@ def main():
             flattypes.add(typeinfo.name)
         if typeinfo.isFuzzy():
             fuzzytypes.add(typeinfo.name)
+
+    # Generate struct/union/enum declarations
     for t in alltypes:
         t.emitHeader()
 
+    # Generate function prototypes
     print("", file=header)
     print("FD_PROTOTYPES_BEGIN", file=header)
     print("", file=header)
@@ -3981,9 +4160,11 @@ def main():
     print("", file=header)
     print("#endif // HEADER_" + json_object["name"].upper(), file=header)
 
+    # Generate function implementations
     for t in alltypes:
         t.emitImpls()
 
+    # Generate cleanup/postamble code
     for t in alltypes:
         t.emitPostamble()
 
