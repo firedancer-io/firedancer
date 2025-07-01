@@ -83,7 +83,6 @@ fd_config_extract_podf( uchar *        pod,
   CFG_POP      ( ulong,  blockstore.shred_max                             );
   CFG_POP      ( ulong,  blockstore.block_max                             );
   CFG_POP      ( ulong,  blockstore.idx_max                               );
-  CFG_POP      ( ulong,  blockstore.txn_max                               );
   CFG_POP      ( ulong,  blockstore.alloc_max                             );
   CFG_POP      ( cstr,   blockstore.file                                  );
   CFG_POP      ( cstr,   blockstore.checkpt                               );

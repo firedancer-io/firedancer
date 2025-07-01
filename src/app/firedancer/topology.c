@@ -25,7 +25,6 @@ setup_topo_blockstore( fd_topo_t *  topo,
                        ulong        shred_max,
                        ulong        block_max,
                        ulong        idx_max,
-                       ulong        txn_max,
                        ulong        alloc_max ) {
   fd_topo_obj_t * obj = fd_topob_obj( topo, "blockstore", wksp_name );
 
@@ -37,12 +36,11 @@ setup_topo_blockstore( fd_topo_t *  topo,
   FD_TEST( fd_pod_insertf_ulong( topo->props, shred_max,  "obj.%lu.shred_max",  obj->id ) );
   FD_TEST( fd_pod_insertf_ulong( topo->props, block_max,  "obj.%lu.block_max",  obj->id ) );
   FD_TEST( fd_pod_insertf_ulong( topo->props, idx_max,    "obj.%lu.idx_max",    obj->id ) );
-  FD_TEST( fd_pod_insertf_ulong( topo->props, txn_max,    "obj.%lu.txn_max",    obj->id ) );
   FD_TEST( fd_pod_insertf_ulong( topo->props, alloc_max,  "obj.%lu.alloc_max",  obj->id ) );
 
   /* DO NOT MODIFY LOOSE WITHOUT CHANGING HOW BLOCKSTORE ALLOCATES INTERNAL STRUCTURES */
 
-  ulong blockstore_footprint = fd_blockstore_footprint( shred_max, block_max, idx_max, txn_max ) + alloc_max;
+  ulong blockstore_footprint = fd_blockstore_footprint( shred_max, block_max, idx_max ) + alloc_max;
   FD_TEST( fd_pod_insertf_ulong( topo->props, blockstore_footprint,  "obj.%lu.loose", obj->id ) );
 
   return obj;
@@ -480,7 +478,6 @@ fd_topo_initialize( config_t * config ) {
                                                           config->firedancer.blockstore.shred_max,
                                                           config->firedancer.blockstore.block_max,
                                                           config->firedancer.blockstore.idx_max,
-                                                          config->firedancer.blockstore.txn_max,
                                                           config->firedancer.blockstore.alloc_max );
   fd_topob_tile_uses( topo, replay_tile, blockstore_obj, FD_SHMEM_JOIN_MODE_READ_WRITE );
   fd_topob_tile_uses( topo, repair_tile, blockstore_obj, FD_SHMEM_JOIN_MODE_READ_ONLY );

@@ -128,7 +128,6 @@ sim_topo( config_t * config ) {
                                                           config->firedancer.blockstore.shred_max,
                                                           config->firedancer.blockstore.block_max,
                                                           config->firedancer.blockstore.idx_max,
-                                                          config->firedancer.blockstore.txn_max,
                                                           config->firedancer.blockstore.alloc_max );
   fd_topo_obj_t * poh_shred_obj = fd_topob_obj( topo, "fseq", "poh_shred" );
   fd_topo_obj_t * root_slot_obj = fd_topob_obj( topo, "fseq", "root_slot" );

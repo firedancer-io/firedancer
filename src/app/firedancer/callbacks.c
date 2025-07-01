@@ -131,7 +131,7 @@ fd_topo_obj_callbacks_t fd_obj_cb_funk = {
 static ulong
 blockstore_footprint( fd_topo_t const *     topo,
                       fd_topo_obj_t const * obj ) {
-  return fd_blockstore_footprint( VAL("shred_max"), VAL("block_max"), VAL("idx_max"), VAL("txn_max") ) + VAL("alloc_max");
+  return fd_blockstore_footprint( VAL("shred_max"), VAL("block_max"), VAL("idx_max") ) + VAL("alloc_max");
 }
 
 static ulong
@@ -143,7 +143,7 @@ blockstore_align( fd_topo_t const *     topo FD_FN_UNUSED,
 static void
 blockstore_new( fd_topo_t const *     topo,
                 fd_topo_obj_t const * obj ) {
-  FD_TEST( fd_blockstore_new( fd_topo_obj_laddr( topo, obj->id ), VAL("wksp_tag"), VAL("seed"), VAL("shred_max"), VAL("block_max"), VAL("idx_max"), VAL("txn_max") ) );
+  FD_TEST( fd_blockstore_new( fd_topo_obj_laddr( topo, obj->id ), VAL("wksp_tag"), VAL("seed"), VAL("shred_max"), VAL("block_max"), VAL("idx_max") ) );
 }
 
 fd_topo_obj_callbacks_t fd_obj_cb_blockstore = {

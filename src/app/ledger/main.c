@@ -227,7 +227,6 @@ runtime_replay( fd_ledger_args_t * ledger_args ) {
     if( !block_exists && slot_meta.slot == slot ) {
       int err = fd_rocksdb_import_block_blockstore( &rocks_db,
                                                     &slot_meta, blockstore,
-                                                    ledger_args->copy_txn_status,
                                                     slot == (ledger_args->trash_hash) ? trash_hash_buf : NULL,
                                                     ledger_args->valloc );
       if( FD_UNLIKELY( err ) ) {
@@ -550,7 +549,6 @@ ingest_rocksdb( char const *      file,
                 ulong             start_slot,
                 ulong             end_slot,
                 fd_blockstore_t * blockstore,
-                int               txn_status,
                 ulong             trash_hash,
                 fd_valloc_t       valloc ) {
 
@@ -607,7 +605,6 @@ ingest_rocksdb( char const *      file,
     int err = fd_rocksdb_import_block_blockstore( &rocks_db,
                                                   &slot_meta,
                                                   blockstore,
-                                                  txn_status,
                                                   (slot == trash_hash) ? trash_hash_buf : NULL,
                                                   valloc );
     if( FD_UNLIKELY( err ) ) {
@@ -727,12 +724,11 @@ init_blockstore( fd_ledger_args_t * args ) {
     }
     FD_LOG_NOTICE(( "joined blockstore" ));
   } else {
-    ulong txn_max = 256UL;
-    shmem = fd_wksp_alloc_laddr( args->wksp, fd_blockstore_align(), fd_blockstore_footprint( args->shred_max, args->slot_history_max, 16, txn_max ), blockstore_tag );
+    shmem = fd_wksp_alloc_laddr( args->wksp, fd_blockstore_align(), fd_blockstore_footprint( args->shred_max, args->slot_history_max, 16 ), blockstore_tag );
     if( shmem == NULL ) {
       FD_LOG_ERR(( "failed to allocate a blockstore" ));
     }
-    args->blockstore = fd_blockstore_join( &args->blockstore_ljoin, fd_blockstore_new( shmem, 1, args->hashseed, args->shred_max, args->slot_history_max, 16, txn_max ) );
+    args->blockstore = fd_blockstore_join( &args->blockstore_ljoin, fd_blockstore_new( shmem, 1, args->hashseed, args->shred_max, args->slot_history_max, 16 ) );
     if( args->blockstore->shmem->magic != FD_BLOCKSTORE_MAGIC ) {
       fd_wksp_free_laddr( shmem );
       FD_LOG_ERR(( "failed to allocate a blockstore" ));
@@ -842,13 +838,9 @@ minify( fd_ledger_args_t * args ) {
                     args->start_slot,
                     args->end_slot,
                     args->blockstore,
-                    0,
                     ULONG_MAX,
                     args->valloc );
 
-    fd_rocksdb_copy_over_txn_status_range( &big_rocksdb, &mini_rocksdb, args->blockstore,
-                                           args->start_slot, args->end_slot );
-    FD_LOG_NOTICE(( "copied over all transaction statuses" ));
   } else {
     FD_LOG_NOTICE(( "skipping copying of transaction statuses" ));
   }
@@ -951,7 +943,7 @@ ingest( fd_ledger_args_t * args ) {
       args->end_slot = slot_ctx->slot + args->slot_history_max - 1;
     }
     ingest_rocksdb( args->rocksdb_list[ 0UL ], args->start_slot, args->end_slot,
-                    blockstore, args->copy_txn_status, args->trash_hash, args->valloc );
+                    blockstore, args->trash_hash, args->valloc );
   }
 
 #ifdef FD_FUNK_HANDHOLDING

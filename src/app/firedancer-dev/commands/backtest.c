@@ -177,7 +177,7 @@ backtest_topo( config_t * config ) {
 
   /* blockstore_obj shared by replay and backtest tiles */
   fd_topob_wksp( topo, "blockstore" );
-  fd_topo_obj_t * blockstore_obj = setup_topo_blockstore( topo, "blockstore", config->firedancer.blockstore.shred_max, config->firedancer.blockstore.block_max, config->firedancer.blockstore.idx_max, config->firedancer.blockstore.txn_max, config->firedancer.blockstore.alloc_max );
+  fd_topo_obj_t * blockstore_obj = setup_topo_blockstore( topo, "blockstore", config->firedancer.blockstore.shred_max, config->firedancer.blockstore.block_max, config->firedancer.blockstore.idx_max, config->firedancer.blockstore.alloc_max );
   fd_topob_tile_uses( topo, replay_tile, blockstore_obj, FD_SHMEM_JOIN_MODE_READ_WRITE );
   fd_topob_tile_uses( topo, backtest_tile, blockstore_obj, FD_SHMEM_JOIN_MODE_READ_WRITE );
   FD_TEST( fd_pod_insertf_ulong( topo->props, blockstore_obj->id, "blockstore" ) );
