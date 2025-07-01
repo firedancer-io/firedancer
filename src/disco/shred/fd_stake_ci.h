@@ -21,9 +21,8 @@
    This is asserted in the tests.  The size of fd_shred_dest_t, varies
    based on FD_SHA256_BATCH_FOOTPRINT, which depends on the compiler
    settings. */
+/* AMANTODO - reverse eng this number, and update it */
 #define MAX_SHRED_DEST_FOOTPRINT (8386688UL + sizeof(fd_shred_dest_t))
-
-#define FD_STAKE_CI_STAKE_MSG_SZ (40UL + MAX_SHRED_DESTS * 40UL)
 
 struct fd_per_epoch_info_private {
   /* Epoch, and [start_slot, start_slot+slot_cnt) refer to the time
@@ -36,15 +35,24 @@ struct fd_per_epoch_info_private {
   ulong slot_cnt;
   ulong excluded_stake;
 
-  /* Invariant: These are always joined and use the memory below for
-     their footprint. */
+  /* Invariant: these are always joined. Lsched uses the memory below for
+     its footprint. */
   fd_epoch_leaders_t * lsched;
-  fd_shred_dest_t    * sdest;
+  fd_shred_dest_t    * sdest; /* remember to alloc the space and join this right away */
 
   uchar __attribute__((aligned(FD_EPOCH_LEADERS_ALIGN))) _lsched[ FD_EPOCH_LEADERS_FOOTPRINT(MAX_SHRED_DESTS, MAX_SLOTS_PER_EPOCH) ];
-  uchar __attribute__((aligned(FD_SHRED_DEST_ALIGN   ))) _sdest [ MAX_SHRED_DEST_FOOTPRINT ];
+  /* followed by memory for the sdest */
 };
 typedef struct fd_per_epoch_info_private fd_per_epoch_info_t;
+
+static inline ulong
+fd_per_epoch_info_footprint( fd_sdest_user_type_data_t const * user_type ) {
+   return FD_LAYOUT_FINI( FD_LAYOUT_APPEND( FD_LAYOUT_APPEND( FD_LAYOUT_INIT,
+            alignof(fd_per_epoch_info_t), sizeof(fd_per_epoch_info_t)),
+            /* AMANTODO: what are correct constants here? */
+            fd_shred_dest_align(), fd_shred_dest_footprint( MAX_SHRED_DESTS, MAX_SHRED_DESTS, user_type ) ),
+          alignof(fd_per_epoch_info_t));
+}
 
 struct fd_stake_ci {
   fd_pubkey_t identity_key[ 1 ];
@@ -60,24 +68,34 @@ struct fd_stake_ci {
     ulong excluded_stake;
   } scratch[1];
 
-  fd_stake_weight_t        stake_weight   [ MAX_SHRED_DESTS ];
-  fd_shred_dest_weighted_t shred_dest     [ MAX_SHRED_DESTS ];
+  fd_stake_weight_t stake_weight   [ MAX_SHRED_DESTS ];
 
-  fd_shred_dest_weighted_t shred_dest_temp[ MAX_SHRED_DESTS ];
+  /* these are now dynamic pointers. Each points to a mem region, bounded by
+     user_type->sz*MAX_SHRED_DESTS */
+  user_ptr_type *   shred_dest;
+  user_ptr_type *   shred_dest_temp;
 
   /* The information to be used for epoch i can be found at
      epoch_info[ i%2 ] if it is known. */
-  fd_per_epoch_info_t epoch_info[ 2 ];
+  fd_per_epoch_info_t * epoch_info[ 2 ]; /* AMANTODO - make sure these get joined*/
+
+  fd_sdest_user_type_data_t user_type;
+  /* this struct is followed by:
+     1. shred_dest{,_tmp} arr (total sz = 2*user_type->sz*MAX_SHRED_DESTS)
+     2. 2 epoch infos */
 };
 typedef struct fd_stake_ci fd_stake_ci_t;
 
 /* fd_stake_ci_{footprint, align} return the footprint and alignment
-   required of a region of memory to be used as an fd_stake_ci_t.
-   fd_stake_ci_t is statically sized, so it can just be declared
-   outright if needed, but it's pretty large (~30 MB!), so you probably
-   don't want it on the stack. */
+   required of a region of memory to be used as an fd_stake_ci_t.  */
 
-FD_FN_CONST static inline ulong fd_stake_ci_footprint( void ) { return sizeof (fd_stake_ci_t); }
+FD_FN_CONST static inline ulong fd_stake_ci_footprint( fd_sdest_user_type_data_t const * user_type ) {
+   return FD_LAYOUT_FINI( FD_LAYOUT_APPEND( FD_LAYOUT_APPEND( FD_LAYOUT_APPEND( FD_LAYOUT_INIT,
+            alignof(fd_stake_ci_t), sizeof(fd_stake_ci_t) ),
+            user_type->align, 2*MAX_SHRED_DESTS*user_type->sz ),
+            alignof(fd_per_epoch_info_t), 2*fd_per_epoch_info_footprint( user_type ) ),
+          alignof(fd_stake_ci_t) ); }
+
 FD_FN_CONST static inline ulong fd_stake_ci_align    ( void ) { return alignof(fd_stake_ci_t); }
 
 /* fd_stake_ci_new formats a piece of memory as a valid stake contact
@@ -146,10 +164,10 @@ void * fd_stake_ci_delete( void          * mem  );
    contact info will be preserved.  If a stake message doesn't have
    contact info for an unstaked node, on the other hand, that node will
    be deleted from the list. */
-void                       fd_stake_ci_stake_msg_init( fd_stake_ci_t * info, fd_stake_weight_msg_t const * msg );
-void                       fd_stake_ci_stake_msg_fini( fd_stake_ci_t * info                                    );
-fd_shred_dest_weighted_t * fd_stake_ci_dest_add_init ( fd_stake_ci_t * info                                    );
-void                       fd_stake_ci_dest_add_fini ( fd_stake_ci_t * info, ulong                         cnt );
+void            fd_stake_ci_stake_msg_init( fd_stake_ci_t * info, fd_stake_weight_msg_t const * msg );
+void            fd_stake_ci_stake_msg_fini( fd_stake_ci_t * info                                    );
+user_ptr_type * fd_stake_ci_dest_add_init ( fd_stake_ci_t * info                                    );
+void            fd_stake_ci_dest_add_fini ( fd_stake_ci_t * info, ulong                         cnt );
 
 
 /* fd_stake_ci_set_identity changes the identity of the locally running

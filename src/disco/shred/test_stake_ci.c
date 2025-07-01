@@ -1,5 +1,7 @@
 #include "fd_stake_ci.h"
 #define SLOTS_PER_EPOCH 1000 /* Just for testing */
+#define FD_STAKE_CI_STAKE_MSG_SZ (40UL + MAX_SHRED_DESTS * 40UL)
+/* AMANTODO - this was unused... was it supposed to be used */
 
 fd_stake_ci_t _info[1];
 

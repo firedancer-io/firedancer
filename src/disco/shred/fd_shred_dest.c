@@ -1,4 +1,5 @@
 #include "fd_shred_dest.h"
+#include <string.h>
 
 struct pubkey_to_idx {
   fd_pubkey_t key;
@@ -31,28 +32,32 @@ struct __attribute__((packed)) shred_dest_input {
 };
 typedef struct shred_dest_input shred_dest_input_t;
 
+/* AMANTODO - fix alignment with param name disabled */
 ulong
-fd_shred_dest_footprint( ulong staked_cnt, ulong unstaked_cnt ) {
+fd_shred_dest_footprint( ulong                             staked_cnt,
+                         ulong                             unstaked_cnt,
+                         fd_sdest_user_type_data_t const * user_type ) {
   ulong cnt = staked_cnt+unstaked_cnt;
   int lg_cnt = fd_ulong_find_msb( fd_ulong_pow2_up( 2UL*fd_ulong_max( cnt, 1UL ) ) );
   return FD_LAYOUT_FINI( FD_LAYOUT_APPEND( FD_LAYOUT_APPEND( FD_LAYOUT_APPEND( FD_LAYOUT_APPEND( FD_LAYOUT_APPEND(
                 FD_LAYOUT_INIT,
-                fd_shred_dest_align(),             sizeof(fd_shred_dest_t)              ),
-                pubkey_to_idx_align(),             pubkey_to_idx_footprint( lg_cnt )    ),
-                alignof(fd_shred_dest_weighted_t), sizeof(fd_shred_dest_weighted_t)*cnt ),
-                fd_wsample_align(),                fd_wsample_footprint( staked_cnt, 1 )),
-                alignof(ulong),                    sizeof(ulong)*unstaked_cnt           ),
+                fd_shred_dest_align(),  sizeof(fd_shred_dest_t)                        ),
+                pubkey_to_idx_align(),  pubkey_to_idx_footprint( lg_cnt ) ),
+                user_type->align,       user_type->sz*cnt                                            ),
+                fd_wsample_align(),     fd_wsample_footprint( staked_cnt, 1 )),
+                alignof(ulong),         sizeof(ulong)*unstaked_cnt           ),
       FD_SHRED_DEST_ALIGN );
 }
 
 
 void *
-fd_shred_dest_new( void                           * mem,
-                   fd_shred_dest_weighted_t const * info,
-                   ulong                            cnt,
-                   fd_epoch_leaders_t const       * lsched,
-                   fd_pubkey_t const              * source,
-                   ulong                            excluded_stake ) {
+fd_shred_dest_new( void                            * mem,
+                   user_ptr_type             const * info,
+                   ulong                             cnt,
+                   fd_epoch_leaders_t        const * lsched,
+                   fd_pubkey_t               const * source,
+                   ulong                             excluded_stake,
+                   fd_sdest_user_type_data_t const * user_type ) {
 
   if( FD_UNLIKELY( !mem ) ) {
     FD_LOG_WARNING(( "NULL mem" ));
@@ -64,19 +69,31 @@ fd_shred_dest_new( void                           * mem,
     return NULL;
   }
 
+  ulong const user_sz          = user_type->sz;
+  ulong const user_align       = user_type->align;
+  ulong const user_stake_off   = user_type->stake_off;
+  ulong const user_pubkey_off  = user_type->pubkey_off;
+
+  if( FD_UNLIKELY( user_sz > FD_SDEST_USER_TYPE_MAX_SZ )) {
+    FD_LOG_WARNING(("User type too large"));
+    return NULL;
+  }
+
   int lg_cnt = fd_ulong_find_msb( fd_ulong_pow2_up( 2UL*fd_ulong_max( cnt, 1UL ) ) );
   FD_SCRATCH_ALLOC_INIT( footprint, mem );
   fd_shred_dest_t * sdest;
-  /* */  sdest     = FD_SCRATCH_ALLOC_APPEND( footprint, fd_shred_dest_align(),             sizeof(fd_shred_dest_t)              );
-  void * _map      = FD_SCRATCH_ALLOC_APPEND( footprint, pubkey_to_idx_align(),             pubkey_to_idx_footprint( lg_cnt )    );
-  void * _info     = FD_SCRATCH_ALLOC_APPEND( footprint, alignof(fd_shred_dest_weighted_t), sizeof(fd_shred_dest_weighted_t)*cnt );
+  /* */  sdest     = FD_SCRATCH_ALLOC_APPEND( footprint, fd_shred_dest_align(),  sizeof(fd_shred_dest_t)              );
+  void * _map      = FD_SCRATCH_ALLOC_APPEND( footprint, pubkey_to_idx_align(),  pubkey_to_idx_footprint( lg_cnt )    );
+  void * _info     = FD_SCRATCH_ALLOC_APPEND( footprint, user_align,             user_sz*cnt );
 
   ulong cnts[2] = { 0UL, 0UL }; /* cnts[0] = staked, cnts[1] = unstaked */
 
-  fd_shred_dest_weighted_t * copy = (fd_shred_dest_weighted_t *)_info;
+  user_ptr_type * copy = fd_type_pun( _info );
   for( ulong i=0UL; i<cnt; i++ ) {
-    copy[i] = info[i];
-    ulong stake = info[i].stake_lamports;
+    ulong         const   user_type_idx = i*user_sz;
+    user_ptr_type const * info_e        = info+user_type_idx;
+    fd_memcpy( copy+user_type_idx, info_e, user_sz );
+    ulong stake = FD_LOAD( ulong, info_e+user_stake_off );
     /* Check to make we never have a staked node following an unstaked
        node, which would mean info is not sorted properly. */
     if( FD_UNLIKELY( (stake>0UL) & (cnts[1]>0UL) ) ) {
@@ -95,20 +112,25 @@ fd_shred_dest_new( void                           * mem,
     return NULL;
   }
 
-  void * _wsample  = FD_SCRATCH_ALLOC_APPEND( footprint, fd_wsample_align(),                fd_wsample_footprint( staked_cnt, 1 ));
-  void * _unstaked = FD_SCRATCH_ALLOC_APPEND( footprint, alignof(ulong),                    sizeof(ulong)*unstaked_cnt           );
+  void * _wsample  = FD_SCRATCH_ALLOC_APPEND( footprint, fd_wsample_align(),  fd_wsample_footprint( staked_cnt, 1 ));
+  void * _unstaked = FD_SCRATCH_ALLOC_APPEND( footprint, alignof(ulong),      sizeof(ulong)*unstaked_cnt           );
 
 
   fd_chacha20rng_t * rng = fd_chacha20rng_join( fd_chacha20rng_new( sdest->rng, FD_CHACHA20RNG_MODE_SHIFT ) );
 
   void  *  _staked   = fd_wsample_new_init( _wsample,  rng, staked_cnt,   1, FD_WSAMPLE_HINT_POWERLAW_REMOVE );
 
-  for( ulong i=0UL; i<staked_cnt;   i++ ) _staked   = fd_wsample_new_add( _staked,   info[i].stake_lamports );
-  _staked   = fd_wsample_new_fini( _staked, excluded_stake );
+  for( ulong i=0UL; i<staked_cnt; i++ ) {
+    user_ptr_type const * info_e   = info+i*user_sz;
+    _staked  = fd_wsample_new_add( _staked, FD_LOAD( ulong, info_e+user_stake_off) );
+  }
+  _staked    = fd_wsample_new_fini( _staked, excluded_stake );
 
   pubkey_to_idx_t * pubkey_to_idx_map = pubkey_to_idx_join( pubkey_to_idx_new( _map, lg_cnt ) );
   for( ulong i=0UL; i<cnt; i++ ) {
-    pubkey_to_idx_insert( pubkey_to_idx_map, info[i].pubkey )->idx = i;
+    user_ptr_type const * info_e = info+i*user_sz;
+    fd_pubkey_t   const * pubkey = fd_type_pun_const( info_e+user_pubkey_off );
+    pubkey_to_idx_insert( pubkey_to_idx_map, *pubkey )->idx = i;
   }
   pubkey_to_idx_t * query = pubkey_to_idx_query( pubkey_to_idx_map, *source, NULL );
   if( FD_UNLIKELY( !query ) ) {
