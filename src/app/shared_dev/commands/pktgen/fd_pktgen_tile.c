@@ -81,8 +81,8 @@ before_credit( fd_pktgen_tile_ctx_t * ctx,
     .ttl    = 64,
     .protocol  = FD_IP4_HDR_PROTOCOL_UDP,
     .net_tot_len = fd_ushort_bswap( 30 ),
-    .saddr =  ctx->fake_dst_ip,
-    .daddr =  ctx->fake_dst_ip
+    .saddr =  FD_IP4_ADDR(192,168,123,1),
+    .daddr =  FD_IP4_ADDR(192,168,123,6)
   };
   ip4.check = fd_ip4_hdr_check_fast( &ip4 );
   fd_udp_hdr_t udp = {

@@ -34,7 +34,7 @@ netconf_cmd_fn( args_t *   args,
   fd_dbl_buf_t * netdev_buf = fd_dbl_buf_join( fd_topo_obj_laddr( topo, tile->netlink.netdev_dbl_buf_obj_id ) );
   FD_TEST( netdev_buf );
   void * netdev_copy = aligned_alloc( fd_netdev_tbl_align(), fd_dbl_buf_obj_mtu( netdev_buf ) );
-  fd_dbl_buf_read( netdev_buf, netdev_copy, NULL );
+  fd_dbl_buf_read( netdev_buf, fd_dbl_buf_obj_mtu( netdev_buf ), netdev_copy, NULL );
   fd_netdev_tbl_join_t netdev[1];
   FD_TEST( fd_netdev_tbl_join( netdev, netdev_copy ) );
   fd_netdev_tbl_fprintf( netdev, stdout );

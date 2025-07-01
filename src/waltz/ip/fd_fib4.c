@@ -2,6 +2,7 @@
 #include "fd_fib4_private.h"
 #include "../../util/fd_util.h"
 
+
 static const fd_fib4_hop_t
 fd_fib4_hop_blackhole = {
   .rtype = FD_FIB4_RTYPE_BLACKHOLE
@@ -101,7 +102,6 @@ fd_fib4_append( fd_fib4_t * fib,
                 uint        prio ) {
 
   ulong const generation = fib->generation;
-
   if( FD_UNLIKELY( fib->cnt>=fib->max ) ) {
     FD_LOG_WARNING(( "Failed to insert route, route table is full (%lu max)", fib->max ));
     return NULL;
