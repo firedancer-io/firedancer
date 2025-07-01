@@ -3041,6 +3041,7 @@ struct fd_gossip_node_instance {
 typedef struct fd_gossip_node_instance fd_gossip_node_instance_t;
 #define FD_GOSSIP_NODE_INSTANCE_ALIGN alignof(fd_gossip_node_instance_t)
 
+/* https://github.com/firedancer-io/agave/blob/540d5bc56cd44e3cc61b179bd52e9a782a2c99e4/gossip/src/duplicate_shred.rs#L25 */
 /* Encoded Size: Dynamic */
 struct fd_gossip_duplicate_shred {
   ushort duplicate_shred_index;
@@ -3077,6 +3078,7 @@ struct fd_gossip_socket_entry {
 typedef struct fd_gossip_socket_entry fd_gossip_socket_entry_t;
 #define FD_GOSSIP_SOCKET_ENTRY_ALIGN alignof(fd_gossip_socket_entry_t)
 
+/* https://github.com/firedancer-io/agave/blob/540d5bc56cd44e3cc61b179bd52e9a782a2c99e4/gossip/src/contact_info.rs#L85 */
 /* Encoded Size: Dynamic */
 struct fd_gossip_contact_info_v2 {
   fd_pubkey_t from;

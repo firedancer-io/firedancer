@@ -2047,7 +2047,6 @@
     {
       "name": "gossip_duplicate_shred",
       "type": "struct",
-      "validator": "fd_gossip_duplicate_shred_validator",
       "fields": [
         { "name": "duplicate_shred_index", "type": "ushort" },
         { "name": "from", "type": "pubkey" },

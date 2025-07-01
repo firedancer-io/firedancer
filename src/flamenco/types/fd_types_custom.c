@@ -293,18 +293,6 @@ fd_rust_duration_footprint_validator ( fd_bincode_decode_ctx_t * ctx ) {
   return FD_BINCODE_SUCCESS;
 }
 
-int
-fd_gossip_duplicate_shred_validator ( fd_bincode_decode_ctx_t * ctx ) {
-#if 1
-  (void) ctx;
-#else
-  fd_gossip_duplicate_shred_t *d = (fd_gossip_duplicate_shred_t *) ctx->data;
-  if( FD_UNLIKELY( (d->_unused_shred_type != 0x5a) || (d->_unused_shred_type != 0xa5) ) )
-    return FD_BINCODE_ERR_ENCODING;
-#endif
-  return FD_BINCODE_SUCCESS;
-}
-
 void fd_vote_accounts_decode_inner( void * struct_mem, void * * alloc_mem, fd_bincode_decode_ctx_t * ctx ) {
   fd_vote_accounts_t * self = (fd_vote_accounts_t *)struct_mem;
   ulong vote_accounts_len;

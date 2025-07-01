@@ -71,6 +71,7 @@ fd_sysvar_slot_history_init( fd_exec_slot_ctx_t * slot_ctx, fd_spad_t * runtime_
   history->bits_bitvec_offset = (ulong)((uchar*)blocks - (uchar*)history);
   history->bits_len           = slot_history_max_entries;
   history->bits_bitvec_len    = blocks_len;
+  history->has_bits           = 1;
   memset( blocks, 0, sizeof(ulong) * blocks_len );
 
   /* TODO: handle slot != 0 init case */

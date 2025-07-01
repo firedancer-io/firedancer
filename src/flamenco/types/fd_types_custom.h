@@ -197,9 +197,6 @@ fd_rust_duration_normalize ( fd_rust_duration_t * );
 int
 fd_rust_duration_footprint_validator ( fd_bincode_decode_ctx_t * ctx );
 
-int
-fd_gossip_duplicate_shred_validator ( fd_bincode_decode_ctx_t * ctx );
-
 void fd_vote_accounts_decode_inner( void * struct_mem, void * * alloc_mem, fd_bincode_decode_ctx_t * ctx );
 void fd_vote_accounts_decode_inner_global( void * struct_mem, void * * alloc_mem, fd_bincode_decode_ctx_t * ctx );
 
