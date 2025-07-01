@@ -96,6 +96,7 @@ static void
 test_bundle_env_destroy( test_bundle_env_t * env ) {
   fd_wksp_free_laddr( fd_mcache_delete( fd_mcache_leave( env->out_mcache ) ) );
   fd_wksp_free_laddr( fd_dcache_delete( fd_dcache_leave( env->out_dcache ) ) );
+  fd_wksp_free_laddr( env->state->grpc_client_mem );
   fd_memset( env, 0, sizeof(test_bundle_env_t) );
 }
 
@@ -196,6 +197,80 @@ test_stream_ended( fd_wksp_t * wksp ) {
   FD_TEST( state->defer_reset==0 );
   fd_bundle_client_grpc_rx_end( state, FD_BUNDLE_CLIENT_REQ_Bundle_SubscribeBundles, &hdrs );
   FD_TEST( state->defer_reset==1 );
+
+  test_bundle_env_destroy( env );
+}
+
+static void
+test_stream_reset( fd_wksp_t * wksp ) {
+  test_bundle_env_t env[1];
+  test_bundle_env_create( env, wksp );
+  test_bundle_env_mock_conn( env );
+
+  fd_bundle_tile_t * state   = env->state;
+  fd_grpc_client_t * client  = state->grpc_client;
+  fd_h2_conn_t *     h2_conn = fd_grpc_client_h2_conn( client );
+
+  fd_grpc_h2_stream_t * stream = fd_grpc_client_stream_acquire( client, FD_BUNDLE_CLIENT_REQ_Bundle_SubscribeBundles );
+  FD_TEST( stream );
+  stream->hdrs.h2_status     = 200;
+  stream->hdrs.is_grpc_proto = 1;
+
+  FD_TEST( state->defer_reset==0 );
+  fd_grpc_client_h2_callbacks.rst_stream( h2_conn, &stream->s, 0U, 1 );
+  FD_TEST( state->defer_reset==1 );
+
+  test_bundle_env_destroy( env );
+}
+
+static void
+test_conn_timeout( fd_wksp_t * wksp ) {
+  test_bundle_env_t env[1];
+  test_bundle_env_create( env, wksp );
+  test_bundle_env_mock_conn( env );
+
+  fd_bundle_tile_t * state   = env->state;
+  fd_grpc_client_t * client  = state->grpc_client;
+
+  fd_grpc_h2_stream_t * stream = fd_grpc_client_stream_acquire( client, FD_BUNDLE_CLIENT_REQ_Bundle_SubscribeBundles );
+  FD_TEST( stream );
+  stream->hdrs.h2_status        = 200;
+  stream->hdrs.is_grpc_proto    = 1;
+  stream->has_rx_end_deadline   = 1;
+  stream->rx_end_deadline_nanos = 99L;
+
+  fd_grpc_client_service_streams( client, 100L );
+  FD_TEST( state->defer_reset==1 );
+
+  test_bundle_env_destroy( env );
+}
+
+static void
+test_stream_msg_oversized( fd_wksp_t * wksp ) {
+  test_bundle_env_t env[1];
+  test_bundle_env_create( env, wksp );
+  test_bundle_env_mock_conn( env );
+
+  fd_bundle_tile_t * state  = env->state;
+  fd_grpc_client_t * client = state->grpc_client;
+
+  fd_grpc_h2_stream_t * stream = fd_grpc_client_stream_acquire( client, FD_BUNDLE_CLIENT_REQ_Bundle_SubscribeBundles );
+  FD_TEST( stream );
+  stream->hdrs.h2_status     = 200;
+  stream->hdrs.is_grpc_proto = 1;
+
+  fd_h2_conn_t * h2_conn = fd_grpc_client_h2_conn( state->grpc_client );
+  fd_grpc_hdr_t hdr = {
+    .compressed = 0,
+    .msg_sz     = fd_uint_bswap( USHORT_MAX )
+  };
+
+  FD_TEST( state->bundle_subscription_live );
+  fd_grpc_client_h2_callbacks.data( h2_conn, &stream->s, &hdr, sizeof(fd_grpc_hdr_t), 0UL );
+  FD_TEST( !state->bundle_subscription_live );
+  FD_TEST( state->defer_reset );
+
+  test_bundle_env_destroy( env );
 }
 
 #if FD_HAS_INT128
@@ -210,6 +285,7 @@ test_keyswitch( fd_wksp_t * wksp ) {
   fd_bundle_tile_t * state = env->state;
 
   void * keyswitch_mem = fd_wksp_alloc_laddr( wksp, fd_keyswitch_align(), fd_keyswitch_footprint(), 1UL );
+  FD_TEST( keyswitch_mem );
   state->keyswitch = fd_keyswitch_join( fd_keyswitch_new( keyswitch_mem, FD_KEYSWITCH_STATE_UNLOCKED ) );
   memset( state->auther.pubkey, 0, 32 );
 
@@ -253,6 +329,9 @@ main( int     argc,
   test_data_path( wksp );
   test_missing_builder_fee_info( wksp );
   test_stream_ended( wksp );
+  test_stream_reset( wksp );
+  test_conn_timeout( wksp );
+  test_stream_msg_oversized( wksp );
   test_keyswitch( wksp );
 
   fd_wksp_delete_anonymous( wksp );
