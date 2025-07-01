@@ -107,6 +107,7 @@ fd_funk_val_flush( fd_funk_rec_t * rec,     /* Assumed live funk record in calle
                    fd_wksp_t *     wksp ) { /* ==fd_funk_wksp( funk ) where funk is a current local join */
   ulong val_gaddr = rec->val_gaddr;
   fd_funk_val_init( rec );
+  FD_COMPILER_MFENCE(); /* Make sure we don't double free on crash recovery */
   if( val_gaddr ) fd_alloc_free( alloc, fd_wksp_laddr_fast( wksp, val_gaddr ) );
   return rec;
 }
