@@ -26,7 +26,7 @@
 static void print_data(fd_crds_data_t* data, void* arg) {
   fd_flamenco_yaml_t * yamldump = (fd_flamenco_yaml_t *)arg;
   FILE * dumpfile = (FILE *)fd_flamenco_yaml_file(yamldump);
-  fd_crds_data_walk(yamldump, data, fd_flamenco_yaml_walk, NULL, 1U);
+  fd_crds_data_walk(yamldump, data, fd_flamenco_yaml_walk, NULL, 1U, 0);
 
   if (data->discriminant == fd_crds_data_enum_vote) {
     fd_gossip_vote_t * v = &data->inner.vote;
@@ -54,7 +54,7 @@ static void print_data(fd_crds_data_t* data, void* arg) {
         return;
       }
 
-      fd_vote_instruction_walk( yamldump, vinsn, fd_flamenco_yaml_walk, NULL, 1U );
+      fd_vote_instruction_walk( yamldump, vinsn, fd_flamenco_yaml_walk, NULL, 1U, 0 );
     }
   }
 

@@ -116,8 +116,10 @@ fd_flamenco_yaml_walk( void *       _self,
                        char const * name,
                        int          type,
                        char const * type_name,
-                       uint         level ) {
+                       uint         level,
+                       uint         varint ) {
   (void)type_name;
+  (void)varint;
 
   if( level>=FD_FLAMENCO_YAML_MAX_INDENT-1 ) {
     FD_LOG_WARNING(( "indent level %u exceeds max %lu",

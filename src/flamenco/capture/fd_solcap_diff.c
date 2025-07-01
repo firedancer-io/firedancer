@@ -264,27 +264,27 @@ fd_solcap_account_pretty_print( uchar const   pubkey[ static 32 ],
     if( 0==memcmp( owner, _vote_program_address, 32UL ) ) {
       fd_vote_state_versioned_t * vote_state = fd_bincode_decode_scratch( vote_state_versioned, data, data_sz, NULL );
       if( FD_UNLIKELY( !vote_state ) ) return -ENOMEM;
-      fd_vote_state_versioned_walk( yaml, vote_state, fd_flamenco_yaml_walk, NULL, 0U );
+      fd_vote_state_versioned_walk( yaml, vote_state, fd_flamenco_yaml_walk, NULL, 0U, 0U );
     } else if( 0==memcmp( owner, _stake_program_address, 32UL ) ) {
       fd_stake_state_v2_t * stake_state = fd_bincode_decode_scratch( stake_state_v2, data, data_sz, NULL );
       if( FD_UNLIKELY( !stake_state ) ) return -ENOMEM;
-      fd_stake_state_v2_walk( yaml, stake_state, fd_flamenco_yaml_walk, NULL, 0U );
+      fd_stake_state_v2_walk( yaml, stake_state, fd_flamenco_yaml_walk, NULL, 0U, 0U );
     } else if( 0==memcmp( pubkey, _sysvar_clock, 32UL ) ) {
       fd_sol_sysvar_clock_t * clock = fd_bincode_decode_scratch( sol_sysvar_clock, data, data_sz, NULL );
       if( FD_UNLIKELY( !clock ) ) return -ENOMEM;
-      fd_sol_sysvar_clock_walk( yaml, clock, fd_flamenco_yaml_walk, NULL, 0U );
+      fd_sol_sysvar_clock_walk( yaml, clock, fd_flamenco_yaml_walk, NULL, 0U, 0U );
     } else if( 0==memcmp( pubkey, _sysvar_rent, 32UL ) ) {
       fd_rent_t * rent = fd_bincode_decode_scratch( rent, data, data_sz, NULL );
       if( FD_UNLIKELY( !rent ) ) return -ENOMEM;
-      fd_rent_walk( yaml, rent, fd_flamenco_yaml_walk, NULL, 0U );
+      fd_rent_walk( yaml, rent, fd_flamenco_yaml_walk, NULL, 0U, 0U );
     } else if( 0==memcmp( pubkey, _sysvar_epoch_rewards, 32UL ) ) {
       fd_sysvar_epoch_rewards_t * epoch_rewards = fd_bincode_decode_scratch( sysvar_epoch_rewards, data, data_sz, NULL );
       if( FD_UNLIKELY( !epoch_rewards ) ) return -ENOMEM;
-      fd_sysvar_epoch_rewards_walk( yaml, epoch_rewards, fd_flamenco_yaml_walk, NULL, 0U );
+      fd_sysvar_epoch_rewards_walk( yaml, epoch_rewards, fd_flamenco_yaml_walk, NULL, 0U, 0U );
     } else if( 0==memcmp( pubkey, _sysvar_stake_history, 32UL ) ) {
       fd_stake_history_t * stake_history = fd_bincode_decode_scratch( stake_history, data, data_sz, NULL );
       if( FD_UNLIKELY( !stake_history ) ) return -ENOMEM;
-      fd_stake_history_walk( yaml, stake_history, fd_flamenco_yaml_walk, NULL, 0U );
+      fd_stake_history_walk( yaml, stake_history, fd_flamenco_yaml_walk, NULL, 0U, 0U );
     }
 
     int err = ferror( file );
