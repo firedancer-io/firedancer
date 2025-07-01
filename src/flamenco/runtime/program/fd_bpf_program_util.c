@@ -235,8 +235,8 @@ fd_bpf_validate_sbpf_program( fd_exec_slot_ctx_t const *    slot_ctx,
                               fd_sbpf_validated_program_t * validated_prog /* out */ ) {
   /* Mark the program as validated for this epoch. */
 
-  fd_epoch_schedule_t const * epoch_schedule = fd_bank_epoch_schedule_query( slot_ctx->bank );
-  validated_prog->last_epoch_verification_ran = fd_slot_to_epoch( epoch_schedule,
+  fd_epoch_schedule_t epoch_schedule = fd_sysvar_epoch_schedule_read_nofail( slot_ctx->sysvar_cache );
+  validated_prog->last_epoch_verification_ran = fd_slot_to_epoch( &epoch_schedule,
                                                                   slot_ctx->slot,
                                                                   NULL );
 
@@ -553,8 +553,8 @@ FD_SPAD_FRAME_BEGIN( runtime_spad ) {
 
   /* At this point, the program is in the cache. We need to check the last verified epoch now to determine if it needs to be reverified.
      If it has already been reverified for the current epoch, then there is no need to do anything. */
-  fd_epoch_schedule_t const * epoch_schedule = fd_bank_epoch_schedule_query( slot_ctx->bank );
-  ulong current_epoch = fd_slot_to_epoch( epoch_schedule, slot_ctx->slot, NULL );
+  fd_epoch_schedule_t const epoch_schedule = fd_sysvar_epoch_schedule_read_nofail( slot_ctx->sysvar_cache );
+  ulong current_epoch = fd_slot_to_epoch( &epoch_schedule, slot_ctx->slot, NULL );
   if( FD_LIKELY( prog->last_epoch_verification_ran==current_epoch ) ) {
     return;
   }

@@ -3,7 +3,6 @@
 
 #include "../../types/fd_types.h"
 #include "../../fd_flamenco_base.h"
-#include "../../../funk/fd_funk.h"
 
 /* FD_SYSVAR_RECENT_HASHES_CAP is the max number of block hash entries
    the recent blockhashes sysvar will include.

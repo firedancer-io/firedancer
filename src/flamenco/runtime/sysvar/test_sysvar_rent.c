@@ -40,12 +40,8 @@ test_rent_exempt_vector[] = {
 };
 #define test_rent_exempt_vector_end (fd_rent_exempt_fixture_t const *)( (uchar const *)test_rent_exempt_vector + sizeof(test_rent_exempt_vector) )
 
-
-int
-main( int     argc,
-      char ** argv ) {
-  fd_boot( &argc, &argv );
-
+void
+test_sysvar_rent( void ) {
   fd_rent_exempt_fixture_t const * iter;
   for( iter = test_rent_exempt_vector;
        iter < test_rent_exempt_vector_end;
@@ -57,8 +53,4 @@ main( int     argc,
     ulong min_balance = fd_rent_exempt_minimum_balance( &rent, iter->data_len );
     FD_TEST( min_balance == iter->min_balance );
   }
-
-  FD_LOG_NOTICE(( "pass" ));
-  fd_halt();
-  return 0;
 }

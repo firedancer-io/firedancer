@@ -1,5 +1,8 @@
 #include "fd_bundle_crank.h"
 #include "../../flamenco/runtime/fd_pubkey_utils.h"
+#if FD_HAS_AVX
+#include "../../util/simd/fd_avx.h"
+#endif
 
 FD_STATIC_ASSERT( sizeof(fd_bundle_crank_tip_payment_config_t)==89UL, config_struct );
 

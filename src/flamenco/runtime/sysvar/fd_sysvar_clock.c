@@ -1,10 +1,8 @@
+#include "fd_sysvar_cache.h"
 #include "fd_sysvar_clock.h"
 #include "fd_sysvar_epoch_schedule.h"
 #include "fd_sysvar_rent.h"
-#include "../fd_executor.h"
-#include "../fd_acc_mgr.h"
 #include "../fd_system_ids.h"
-#include "../../fd_flamenco_base.h"
 
 /* https://github.com/solana-labs/solana/blob/8f2c8b8388a495d2728909e30460aa40dcc5d733/runtime/src/stake_weighted_timestamp.rs#L14 */
 #define MAX_ALLOWABLE_DRIFT_FAST ( 25 )
@@ -29,63 +27,17 @@ timestamp_from_genesis( fd_bank_t * bank ) {
 }
 
 void
-fd_sysvar_clock_write( fd_bank_t *             bank,
-                       fd_funk_t *             funk,
-                       fd_funk_txn_t *         funk_txn,
-                       fd_sol_sysvar_clock_t * clock ) {
-  ulong sz = fd_sol_sysvar_clock_size( clock );
-  uchar enc[sz];
-  memset( enc, 0, sz );
-  fd_bincode_encode_ctx_t ctx;
-  ctx.data = enc;
-  ctx.dataend = enc + sz;
-  if( fd_sol_sysvar_clock_encode( clock, &ctx ) )
-    FD_LOG_ERR(("fd_sol_sysvar_clock_encode failed"));
-
-  fd_sysvar_set( bank, funk, funk_txn, &fd_sysvar_owner_id, (fd_pubkey_t *) &fd_sysvar_clock_id, enc, sz, bank->slot );
-}
-
-
-fd_sol_sysvar_clock_t const *
-fd_sysvar_clock_read( fd_funk_t *     funk,
-                      fd_funk_txn_t * funk_txn,
-                      fd_spad_t *     spad ) {
-  FD_TXN_ACCOUNT_DECL( acc );
-  int rc = fd_txn_account_init_from_funk_readonly( acc, &fd_sysvar_clock_id, funk, funk_txn );
-  if( FD_UNLIKELY( rc!=FD_ACC_MGR_SUCCESS ) ) {
-    return NULL;
-  }
-
-  /* This check is needed as a quirk of the fuzzer. If a sysvar account
-     exists in the accounts database, but doesn't have any lamports,
-     this means that the account does not exist. This wouldn't happen
-     in a real execution environment. */
-  if( FD_UNLIKELY( acc->vt->get_lamports( acc )==0 ) ) {
-    return NULL;
-  }
-
-  int err;
-  return fd_bincode_decode_spad(
-      sol_sysvar_clock, spad,
-      acc->vt->get_data( acc ),
-      acc->vt->get_data_len( acc ),
-      &err );
-}
-
-void
-fd_sysvar_clock_init( fd_bank_t *     bank,
-                      fd_funk_t *     funk,
-                      fd_funk_txn_t * funk_txn ) {
-  long timestamp = timestamp_from_genesis( bank );
+fd_sysvar_clock_init( fd_exec_slot_ctx_t * slot_ctx ) {
+  long timestamp = timestamp_from_genesis( slot_ctx->bank );
 
   fd_sol_sysvar_clock_t clock = {
-    .slot                  = bank->slot,
+    .slot                  = slot_ctx->bank->slot,
     .epoch                 = 0,
     .epoch_start_timestamp = timestamp,
     .leader_schedule_epoch = 1,
     .unix_timestamp        = timestamp,
   };
-  fd_sysvar_clock_write( bank, funk, funk_txn, &clock );
+  fd_sysvar_clock_write( slot_ctx, &clock );
 }
 
 /* Bounds the timestamp estimate by the max allowable drift from the expected PoH slot duration.
@@ -180,18 +132,17 @@ FD_FN_CONST static inline int valcmp (VAL_T a, VAL_T b) {
 
 /* https://github.com/solana-labs/solana/blob/c091fd3da8014c0ef83b626318018f238f506435/runtime/src/bank.rs#L3600 */
 static void
-fd_calculate_stake_weighted_timestamp( fd_bank_t *     bank,
-                                       fd_funk_t *     funk,
-                                       fd_funk_txn_t * funk_txn,
-                                       long *          result_timestamp,
-                                       uint            fix_estimate_into_u64,
-                                       fd_spad_t *     runtime_spad ) {
+fd_calculate_stake_weighted_timestamp( fd_bank_t * bank,
+                                       long *      result_timestamp,
+                                       uint        fix_estimate_into_u64,
+                                       fd_spad_t * runtime_spad ) {
   FD_SPAD_FRAME_BEGIN( runtime_spad ) {
 
   ulong slot_duration = (ulong)fd_bank_ns_per_slot_get( bank );
-  fd_sol_sysvar_clock_t const * clock = fd_sysvar_clock_read( funk,
-                                                              funk_txn,
-                                                              runtime_spad );
+  fd_sol_sysvar_clock_t clock[1];
+  if( FD_UNLIKELY( !fd_sysvar_clock_read( bank->sysvar_cache, clock ) ) ) {
+    FD_LOG_ERR(( "fd_sysvar_clock_read failed" ));
+  }
   // get the unique timestamps
   /* stake per timestamp */
 

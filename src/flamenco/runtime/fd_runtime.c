@@ -9,7 +9,6 @@
 #include "fd_executor.h"
 #include "fd_cost_tracker.h"
 #include "fd_runtime_public.h"
-#include "fd_txncache.h"
 #include "sysvar/fd_sysvar_clock.h"
 #include "sysvar/fd_sysvar_epoch_schedule.h"
 #include "sysvar/fd_sysvar_recent_hashes.h"
@@ -17,7 +16,6 @@
 #include "sysvar/fd_sysvar.h"
 #include "../../ballet/base58/fd_base58.h"
 #include "../../ballet/txn/fd_txn.h"
-#include "../../ballet/bmtree/fd_bmtree.h"
 
 #include "../stakes/fd_stakes.h"
 #include "../rewards/fd_rewards.h"
@@ -44,10 +42,6 @@
 #include "sysvar/fd_sysvar_slot_history.h"
 
 #include "tests/fd_dump_pb.h"
-
-#include "../../ballet/nanopb/pb_decode.h"
-#include "../../ballet/nanopb/pb_encode.h"
-#include "../types/fd_solana_block.pb.h"
 
 #include "fd_system_ids.h"
 #include "../vm/fd_vm.h"
@@ -105,13 +99,12 @@ fd_runtime_update_slots_per_epoch( fd_bank_t * bank,
 }
 
 void
-fd_runtime_update_leaders( fd_bank_t * bank,
-                           ulong       slot,
-                           fd_spad_t * runtime_spad ) {
+fd_runtime_update_leaders( fd_bank_t *                 bank,
+                           fd_epoch_schedule_t const * epoch_schedule,
+                           ulong                       slot,
+                           fd_spad_t *                 runtime_spad ) {
 
   FD_SPAD_FRAME_BEGIN( runtime_spad ) {
-
-  fd_epoch_schedule_t const * epoch_schedule = fd_bank_epoch_schedule_query( bank );
 
   FD_LOG_INFO(( "schedule->slots_per_epoch = %lu", epoch_schedule->slots_per_epoch ));
   FD_LOG_INFO(( "schedule->leader_schedule_slot_offset = %lu", epoch_schedule->leader_schedule_slot_offset ));
@@ -213,7 +206,7 @@ fd_runtime_validate_fee_collector( fd_bank_t *              bank,
      We already know that the post deposit balance is >0 because we are paying a >0 amount.
      So TLDR we just check if the account is rent exempt.
    */
-  fd_rent_t const * rent = fd_bank_rent_query( bank );
+  fd_rent_t const rent = fd_sysvar_rent_read_nofail( bank );
   ulong minbal = fd_rent_exempt_minimum_balance( rent, collector->vt->get_data_len( collector ) );
   if( FD_UNLIKELY( collector->vt->get_lamports( collector ) + fee < minbal ) ) {
     FD_BASE58_ENCODE_32_BYTES( collector->pubkey->key, _out_key );
@@ -493,7 +486,7 @@ fd_runtime_block_sysvar_update_pre_execute( fd_exec_slot_ctx_t * slot_ctx,
   if( slot_ctx->slot != 0 ) {
     fd_sysvar_slot_hashes_update( slot_ctx, runtime_spad );
   }
-  fd_sysvar_last_restart_slot_update( slot_ctx, runtime_spad );
+  fd_sysvar_last_restart_slot_update( slot_ctx );
 
   return 0;
 }
@@ -689,7 +682,7 @@ fd_runtime_load_txn_address_lookup_tables( fd_txn_t const * txn,
                                            fd_funk_t *      funk,
                                            fd_funk_txn_t *  funk_txn,
                                            ulong            slot,
-                                           fd_slot_hash_t * hashes,
+                                           fd_slot_hash_t const * hashes, /* deque */
                                            fd_acct_addr_t * out_accts_alt ) {
 
   if( FD_LIKELY( txn->transaction_version!=FD_TXN_V0 ) ) return FD_RUNTIME_EXECUTE_SUCCESS;
@@ -1776,12 +1769,8 @@ fd_new_target_program_account( fd_exec_slot_ctx_t * slot_ctx,
   };
 
   /* https://github.com/anza-xyz/agave/blob/v2.1.0/runtime/src/bank/builtins/core_bpf_migration/mod.rs#L89-L90 */
-  fd_rent_t const * rent = fd_bank_rent_query( slot_ctx->bank );
-  if( FD_UNLIKELY( rent==NULL ) ) {
-    return -1;
-  }
-
-  out_rec->vt->set_lamports( out_rec, fd_rent_exempt_minimum_balance( rent, SIZE_OF_PROGRAM ) );
+  fd_rent_t rent = fd_sysvar_rent_read_nofail( slot_ctx->sysvar_cache );
+  out_rec->vt->set_lamports( out_rec, fd_rent_exempt_minimum_balance( &rent, SIZE_OF_PROGRAM ) );
   fd_bincode_encode_ctx_t ctx = {
     .data    = out_rec->vt->get_data_mut( out_rec ),
     .dataend = out_rec->vt->get_data_mut( out_rec ) + SIZE_OF_PROGRAM,
@@ -1838,14 +1827,10 @@ fd_new_target_program_data_account( fd_exec_slot_ctx_t * slot_ctx,
   }
 
   /* https://github.com/anza-xyz/agave/blob/v2.1.0/runtime/src/bank/builtins/core_bpf_migration/mod.rs#L127-L132 */
-  fd_rent_t const * rent = fd_bank_rent_query( slot_ctx->bank );
-  if( FD_UNLIKELY( rent==NULL ) ) {
-    return -1;
-  }
-
-  const uchar * elf = buffer_acc_rec->vt->get_data( buffer_acc_rec ) + BUFFER_METADATA_SIZE;
-  ulong space = PROGRAMDATA_METADATA_SIZE - BUFFER_METADATA_SIZE + buffer_acc_rec->vt->get_data_len( buffer_acc_rec );
-  ulong lamports = fd_rent_exempt_minimum_balance( rent, space );
+  uchar const * elf      = buffer_acc_rec->vt->get_data( buffer_acc_rec ) + BUFFER_METADATA_SIZE;
+  ulong         space    = PROGRAMDATA_METADATA_SIZE - BUFFER_METADATA_SIZE + buffer_acc_rec->vt->get_data_len( buffer_acc_rec );
+  fd_rent_t     rent     = fd_sysvar_rent_read_nofail( slot_ctx->sysvar_cache );
+  ulong         lamports = fd_rent_exempt_minimum_balance( &rent, space );
 
   /* https://github.com/anza-xyz/agave/blob/v2.1.0/runtime/src/bank/builtins/core_bpf_migration/mod.rs#L134-L137 */
   fd_bpf_upgradeable_loader_state_t programdata_metadata = {
@@ -2216,11 +2201,13 @@ fd_features_activate( fd_exec_slot_ctx_t * slot_ctx, fd_spad_t * runtime_spad ) 
 }
 
 uint
-fd_runtime_is_epoch_boundary( fd_exec_slot_ctx_t * slot_ctx, ulong curr_slot, ulong prev_slot ) {
+fd_runtime_is_epoch_boundary( fd_exec_slot_ctx_t * slot_ctx,
+                              ulong                curr_slot,
+                              ulong                prev_slot ) {
   ulong slot_idx;
-  fd_epoch_schedule_t const * schedule = fd_bank_epoch_schedule_query( slot_ctx->bank );
-  ulong prev_epoch = fd_slot_to_epoch( schedule, prev_slot, &slot_idx );
-  ulong new_epoch  = fd_slot_to_epoch( schedule, curr_slot, &slot_idx );
+  fd_epoch_schedule_t const schedule = fd_sysvar_epoch_schedule_read_nofail( slot_ctx->sysvar_cache );
+  ulong prev_epoch = fd_slot_to_epoch( &schedule, prev_slot, &slot_idx );
+  ulong new_epoch  = fd_slot_to_epoch( &schedule, curr_slot, &slot_idx );
 
   return ( prev_epoch < new_epoch || slot_idx == 0 );
 }
@@ -2251,9 +2238,9 @@ fd_runtime_process_new_epoch( fd_exec_slot_ctx_t * slot_ctx,
 
   long start = fd_log_wallclock();
 
-  ulong                       slot;
-  fd_epoch_schedule_t const * epoch_schedule = fd_bank_epoch_schedule_query( slot_ctx->bank );
-  ulong                       epoch          = fd_slot_to_epoch( epoch_schedule, slot_ctx->slot, &slot );
+  fd_epoch_schedule_t const epoch_schedule = fd_sysvar_epoch_schedule_read_nofail( slot_ctx->sysvar_cache );
+  ulong slot;
+  ulong epoch = fd_slot_to_epoch( &epoch_schedule, slot_ctx->slot, &slot );
 
   /* Activate new features
      https://github.com/anza-xyz/agave/blob/v2.1.0/runtime/src/bank.rs#L6587-L6598 */
@@ -2323,7 +2310,7 @@ fd_runtime_process_new_epoch( fd_exec_slot_ctx_t * slot_ctx,
 
   /* Refresh vote accounts in stakes cache using updated stake weights, and merges slot bank vote accounts with the epoch bank vote accounts.
     https://github.com/anza-xyz/agave/blob/v2.1.6/runtime/src/stakes.rs#L363-L370 */
-  fd_stake_history_t const * history = fd_sysvar_stake_history_read( slot_ctx->funk, slot_ctx->funk_txn, runtime_spad );
+  fd_stake_history_t const * history = fd_sysvar_stake_history_join( slot_ctx->sysvar_cache );
   if( FD_UNLIKELY( !history ) ) {
     FD_LOG_ERR(( "StakeHistory sysvar could not be read and decoded" ));
   }
@@ -2368,7 +2355,7 @@ fd_runtime_process_new_epoch( fd_exec_slot_ctx_t * slot_ctx,
   fd_update_next_epoch_stakes( slot_ctx );
 
   /* Update current leaders using slot_ctx->slot_bank.epoch_stakes (new T-2 stakes) */
-  fd_runtime_update_leaders( slot_ctx->bank, slot_ctx->slot, runtime_spad );
+  fd_runtime_update_leaders( slot_ctx->bank, &epoch_schedule, slot_ctx->slot, runtime_spad );
 
   fd_calculate_epoch_accounts_hash_values( slot_ctx );
 
@@ -2417,12 +2404,8 @@ fd_runtime_update_program_cache( fd_exec_slot_ctx_t * slot_ctx,
 
     /* Iterate over account keys referenced in ALUTs */
     fd_acct_addr_t alut_accounts[256];
-    fd_slot_hashes_global_t const * slot_hashes_global = fd_sysvar_slot_hashes_read( slot_ctx->funk, slot_ctx->funk_txn, runtime_spad );
-    if( FD_UNLIKELY( !slot_hashes_global ) ) {
-      return;
-    }
-
-    fd_slot_hash_t * slot_hash = deq_fd_slot_hash_t_join( (uchar *)slot_hashes_global + slot_hashes_global->hashes_offset );
+    fd_slot_hash_t const * slot_hash = fd_sysvar_slot_hashes_join( slot_ctx->sysvar_cache );
+    if( FD_UNLIKELY( !slot_hash ) ) return; /* FIXME is this valid behavior? */
 
     if( FD_UNLIKELY( fd_runtime_load_txn_address_lookup_tables( txn_descriptor,
                          txn_p->payload,
@@ -2843,7 +2826,7 @@ static void
 fd_runtime_init_program( fd_exec_slot_ctx_t * slot_ctx,
                          fd_spad_t *          runtime_spad ) {
   fd_sysvar_recent_hashes_init( slot_ctx, runtime_spad );
-  fd_sysvar_clock_init( slot_ctx->bank, slot_ctx->funk, slot_ctx->funk_txn );
+  fd_sysvar_clock_init( slot_ctx );
   fd_sysvar_slot_history_init( slot_ctx, runtime_spad );
   fd_sysvar_slot_hashes_init( slot_ctx, runtime_spad );
   fd_sysvar_epoch_schedule_init( slot_ctx );
@@ -2872,7 +2855,7 @@ fd_runtime_init_bank_from_genesis( fd_exec_slot_ctx_t *        slot_ctx,
 
   fd_bank_epoch_schedule_set( slot_ctx->bank, genesis_block->epoch_schedule );
 
-  fd_bank_rent_set( slot_ctx->bank, genesis_block->rent );
+  fd_sysvar_rent_write( slot_ctx, &genesis_block->rent );
 
   fd_bank_block_height_set( slot_ctx->bank, 0UL );
 
@@ -3678,11 +3661,7 @@ fd_runtime_block_pre_execute_process_new_epoch( fd_exec_slot_ctx_t * slot_ctx,
   }
 
   if( FD_LIKELY( slot_ctx->slot!=0UL ) ) {
-    fd_distribute_partitioned_epoch_rewards( slot_ctx,
-                                             tpool,
-                                             exec_spads,
-                                             exec_spad_cnt,
-                                             runtime_spad );
+    fd_distribute_partitioned_epoch_rewards( slot_ctx );
   }
 }
 

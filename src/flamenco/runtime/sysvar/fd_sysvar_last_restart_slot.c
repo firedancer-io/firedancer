@@ -33,33 +33,11 @@ fd_sysvar_last_restart_slot_init( fd_exec_slot_ctx_t * slot_ctx ) {
                  slot_ctx->slot );
 }
 
-fd_sol_sysvar_last_restart_slot_t *
-fd_sysvar_last_restart_slot_read( fd_funk_t *     funk,
-                                  fd_funk_txn_t * funk_txn,
-                                  fd_spad_t *     spad ) {
-
-  FD_TXN_ACCOUNT_DECL( acc );
-  int err = fd_txn_account_init_from_funk_readonly( acc, &fd_sysvar_last_restart_slot_id, funk, funk_txn );
-  if( FD_UNLIKELY( err!=FD_ACC_MGR_SUCCESS ) ) return NULL;
-
-  /* This check is needed as a quirk of the fuzzer. If a sysvar account
-     exists in the accounts database, but doesn't have any lamports,
-     this means that the account does not exist. This wouldn't happen
-     in a real execution environment. */
-  if( FD_UNLIKELY( acc->vt->get_lamports( acc )==0 ) ) return NULL;
-
-  return fd_bincode_decode_spad(
-      sol_sysvar_last_restart_slot, spad,
-      acc->vt->get_data( acc ),
-      acc->vt->get_data_len( acc ),
-      &err );
-}
-
 /* fd_sysvar_last_restart_slot_update is equivalent to
    Agave's solana_runtime::bank::Bank::update_last_restart_slot */
 
 void
-fd_sysvar_last_restart_slot_update( fd_exec_slot_ctx_t * slot_ctx, fd_spad_t * runtime_spad ) {
+fd_sysvar_last_restart_slot_update( fd_exec_slot_ctx_t * slot_ctx ) {
 
   /* https://github.com/solana-labs/solana/blob/v1.18.18/runtime/src/bank.rs#L2093-L2095 */
   if( !FD_FEATURE_ACTIVE_BANK( slot_ctx->bank, last_restart_slot_sysvar ) ) return;
