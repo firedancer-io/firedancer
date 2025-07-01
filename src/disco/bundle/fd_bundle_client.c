@@ -884,7 +884,7 @@ fd_bundle_client_grpc_rx_timeout(
     int    deadline_kind /* FD_GRPC_DEADLINE_{HEADER|RX_END} */
 ) {
   (void)deadline_kind;
-  FD_LOG_WARNING(( "Request timed out %s", fd_bundle_request_ctx_cstr( request_ctx ) ));
+  FD_LOG_WARNING(( "Request timed out: %s", fd_bundle_request_ctx_cstr( request_ctx ) ));
   fd_bundle_tile_t * ctx = app_ctx;
   ctx->defer_reset = 1;
 }
