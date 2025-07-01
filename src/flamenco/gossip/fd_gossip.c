@@ -149,9 +149,10 @@ push_state_reset( push_state_t * state,
                   uchar const * identity_pubkey ) {
   FD_STORE( uint, state->msg, FD_GOSSIP_MESSAGE_PUSH );
   fd_memcpy( &state->msg[ 4 ], identity_pubkey, 32UL );
-  state->msg_sz     = 44UL; /* 4 byte tag + 32 byte sender pubkey + 8 byte crds len*/
-  state->num_crds   = 0UL;
-  state->has_my_ci  = 0;
+  state->msg_sz      = 44UL; /* 4 byte tag + 32 byte sender pubkey + 8 byte crds len*/
+  state->num_crds    = 0UL;
+  state->has_my_ci   = 0;
+  state->push_dest.l = 0UL; /* Reset push destination */
 }
 
 static void
@@ -523,9 +524,13 @@ rx_pull_request( fd_gossip_t *                         gossip,
   /* TODO: Implement data budget? Or at least limit iteration range */
 
   fd_gossip_view_crds_value_t const * contact_info = pr_view->contact_info;
-  if( FD_UNLIKELY( contact_info->tag!=FD_GOSSIP_VALUE_CONTACT_INFO ) ) return -1 /* FD_GOSSIP_RX_ERR_PULL_REQUEST_NOT_CONTACT_INFO */;
 
-  if( FD_UNLIKELY( !memcmp( payload+contact_info->pubkey_off, gossip->identity_pubkey, 32UL ) ) ) return -1 /* FD_GOSSIP_RX_ERR_PULL_REQUEST_LOOPBACK */;
+  /* Some pull requests still attach legacy contact infos instead of the
+     current type. We choose to ignore such pull requests entirely since
+     legacy contact infos should be fully deprecated. */
+  if( FD_UNLIKELY( contact_info->tag!=FD_GOSSIP_VALUE_CONTACT_INFO ) ) return -1;
+
+  if( FD_UNLIKELY( !memcmp( payload+contact_info->pubkey_off, gossip->identity_pubkey, 32UL ) ) ) return -1;
 
   uchar const * node = payload+contact_info->pubkey_off;
   ulong node_stake = get_stake( gossip, node );
@@ -1157,7 +1162,6 @@ rotate_active_set( fd_gossip_t * gossip,
   ulong replaced_idx;
   fd_contact_info_t const * new_peer = fd_active_set_rotate( gossip->active_set, gossip->crds, &replaced_idx );
   if( FD_UNLIKELY( !new_peer ) ) {
-    FD_LOG_WARNING(( "No new peer to rotate into active set" ));
     return;
   }
 

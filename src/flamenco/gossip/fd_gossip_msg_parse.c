@@ -14,6 +14,7 @@
 
 #define CHECK( cond ) do {              \
   if( FD_UNLIKELY( !(cond) ) ) {        \
+    FD_LOG_WARNING(( "Gossip message parse error at offset %u, size %lu: %s", _i, _payload_sz, #cond )); \
     return 0;                           \
   }                                     \
 } while( 0 )
@@ -448,8 +449,6 @@ fd_gossip_pull_req_parse( fd_gossip_view_t * view,
                                       payload,
                                       payload_sz,
                                       CUR_OFFSET ) );
-
-  CHECK( pr->contact_info->tag==FD_GOSSIP_VALUE_CONTACT_INFO );
   return BYTES_CONSUMED;
 }
 

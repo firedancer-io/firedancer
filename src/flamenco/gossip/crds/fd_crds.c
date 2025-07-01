@@ -22,13 +22,6 @@
 
 #include "fd_crds_contact_info.c"
 
-struct fd_crds_purged {
-  uchar hash[ 32UL ];
-  long wallclock_nanos;
-};
-
-typedef struct fd_crds_purged fd_crds_purged_t;
-
 struct fd_crds_key {
   uchar tag;
   uchar pubkey[ 32UL ];
@@ -99,11 +92,11 @@ struct fd_crds_entry_private {
   uchar   value_bytes[ 1232UL ];
   ushort  value_sz;
 
-  uchar   value_hash[ 32UL ]; /* The hash of the encoded value, used for pull requests */
+   /* The hash of the encoded value, used for pull requests */
+  uchar   value_hash[ 32UL ];
   ulong   num_duplicates;
-  ulong   stake; /* Used by samplers and evict treap */
+  ulong   stake;
 
-  /* Pool fields. Not in use when pool element is acquired */
   struct {
     ulong next;
   } pool;
@@ -162,11 +155,6 @@ struct fd_crds_entry_private {
     ulong prio;
   } hash;
 };
-
-long
-fd_crds_entry_wallclock( fd_crds_entry_t const * entry ){
-  return entry->expire.wallclock_nanos;
-}
 
 #define POOL_NAME   crds_pool
 #define POOL_T      fd_crds_entry_t
@@ -282,6 +270,13 @@ lookup_eq( fd_crds_key_t const * key0,
 #include "../../../util/tmpl/fd_map_chain.c"
 
 #include "fd_crds_peer_samplers.c"
+
+struct fd_crds_purged {
+  uchar hash[ 32UL ];
+  long wallclock_nanos;
+};
+
+typedef struct fd_crds_purged fd_crds_purged_t;
 
 struct fd_crds_private {
   fd_crds_entry_t *          pool;
@@ -762,8 +757,8 @@ fd_crds_insert( fd_crds_t *       crds,
 
 void
 fd_crds_entry_value( fd_crds_entry_t const *  entry,
-               uchar const **           value_bytes,
-               ulong *                  value_sz ) {
+                     uchar const **           value_bytes,
+                     ulong *                  value_sz ) {
   *value_bytes = entry->value_bytes;
   *value_sz    = entry->value_sz;
 }

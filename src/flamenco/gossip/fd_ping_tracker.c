@@ -18,7 +18,7 @@ struct fd_ping_peer {
   fd_ip4_port_t    address;
   pubkey_private_t identity_pubkey;
   uchar            ping_token[ 32UL ];
-  uchar            expected_pong_token[ 32UL ];
+  uchar            expected_pong_hash[ 32UL ];
 
   uchar state;
 
@@ -251,7 +251,7 @@ fd_ping_tracker_track( fd_ping_tracker_t *   ping_tracker,
     peer->state             = FD_PING_TRACKER_STATE_INVALID;
 
     generate_ping_token( peer, ping_tracker->rng );
-    hash_ping_token( peer->ping_token, peer->expected_pong_token, ping_tracker->sha );
+    hash_ping_token( peer->ping_token, peer->expected_pong_hash, ping_tracker->sha );
 
     invalid_list_ele_push_head( ping_tracker->invalid, peer, ping_tracker->pool );
     peer_map_ele_insert( ping_tracker->peers, peer, ping_tracker->pool );
@@ -276,7 +276,7 @@ fd_ping_tracker_track( fd_ping_tracker_t *   ping_tracker,
       peer->next_ping_nanos = now;
       peer->state           = FD_PING_TRACKER_STATE_INVALID;
       generate_ping_token( peer, ping_tracker->rng );
-      hash_ping_token( peer->ping_token, peer->expected_pong_token, ping_tracker->sha );
+      hash_ping_token( peer->ping_token, peer->expected_pong_hash, ping_tracker->sha );
       invalid_list_ele_push_head( ping_tracker->invalid, peer, ping_tracker->pool );
     }
   }
@@ -300,7 +300,7 @@ fd_ping_tracker_register( fd_ping_tracker_t *   ping_tracker,
   if( FD_UNLIKELY( !peer ) ) return;
 
   if( FD_UNLIKELY( peer_address->addr!=peer->address.addr || peer_address->port!=peer->address.port ) ) return;
-  if( FD_UNLIKELY( memcmp( pong_token, peer->expected_pong_token, 32UL ) ) ) return;
+  if( FD_UNLIKELY( memcmp( pong_token, peer->expected_pong_hash, 32UL ) ) ) return;
 
   peer->valid_until_nanos = now+20L*60L*1000L*1000L*1000L; /* 20 minutes */
   peer->next_ping_nanos   = now+18L*60L*1000L*1000L*1000L; /* 18 minutes til we start trying to refresh */

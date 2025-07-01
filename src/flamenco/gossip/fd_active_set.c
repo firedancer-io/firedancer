@@ -122,13 +122,13 @@ fd_active_set_node_pubkey( fd_active_set_t * active_set,
 
 void
 fd_active_set_prunes( fd_active_set_t * active_set,
-                     uchar const *     identity_pubkey,
-                     ulong             identity_stake,
-                     uchar const *     peers,
-                     ulong             peers_len,
-                     uchar const *     origin,
-                     ulong             origin_stake,
-                     ulong *           opt_out_node_idx ) {
+                      uchar const *     identity_pubkey,
+                      ulong             identity_stake,
+                      uchar const *     peers,
+                      ulong             peers_len,
+                      uchar const *     origin,
+                      ulong             origin_stake,
+                      ulong *           opt_out_node_idx ) {
   if( FD_UNLIKELY( !memcmp( identity_pubkey, origin, 32UL ) ) ) return;
 
   ulong bucket = fd_active_set_stake_bucket( fd_ulong_min( identity_stake, origin_stake ) );
