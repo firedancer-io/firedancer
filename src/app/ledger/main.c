@@ -887,14 +887,12 @@ ingest( fd_ledger_args_t * args ) {
   //                                                  fd_txncache_align(),
   //                                                  fd_txncache_footprint( FD_TXNCACHE_DEFAULT_MAX_ROOTED_SLOTS,
   //                                                                             FD_TXNCACHE_DEFAULT_MAX_LIVE_SLOTS,
-  //                                                                             MAX_CACHE_TXNS_PER_SLOT,
-  //                                                                             FD_TXNCACHE_DEFAULT_MAX_CONSTIPATED_SLOTS ) );
+  //                                                                             MAX_CACHE_TXNS_PER_SLOT ) );
   //   FD_TEST( status_cache_mem );
   //   slot_ctx->status_cache  = fd_txncache_join( fd_txncache_new( status_cache_mem,
   //                                                                FD_TXNCACHE_DEFAULT_MAX_ROOTED_SLOTS,
   //                                                                FD_TXNCACHE_DEFAULT_MAX_LIVE_SLOTS,
-  //                                                                MAX_CACHE_TXNS_PER_SLOT,
-  //                                                                FD_TXNCACHE_DEFAULT_MAX_CONSTIPATED_SLOTS ) );
+  //                                                                MAX_CACHE_TXNS_PER_SLOT ) );
   //   FD_TEST( slot_ctx->status_cache );
   // }
 
@@ -1064,8 +1062,7 @@ replay( fd_ledger_args_t * args ) {
   // args->slot_ctx->status_cache = fd_txncache_join( fd_txncache_new( status_cache_mem,
   //                                                                   FD_TXNCACHE_DEFAULT_MAX_ROOTED_SLOTS,
   //                                                                   FD_TXNCACHE_DEFAULT_MAX_LIVE_SLOTS,
-  //                                                                   MAX_CACHE_TXNS_PER_SLOT,
-  //                                                                   FD_TXNCACHE_DEFAULT_MAX_CONSTIPATED_SLOTS ) );
+  //                                                                   MAX_CACHE_TXNS_PER_SLOT ) );
   // if( FD_UNLIKELY( !args->slot_ctx->status_cache ) ) {
   //   FD_LOG_ERR(( "Status cache was not allocated" ));
   // }
