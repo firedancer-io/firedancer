@@ -780,8 +780,7 @@ class VectorMember(TypeNode):
         print(f'{indent}    fun( w, NULL, "{self.name}", FD_FLAMENCO_TYPE_ARR_END, "array", level--, 0 );', file=body)
         print(f'{indent}  }}', file=body)
 
-# A BitVector can be modeled as an Option<Vector<some type>>
-# See https://github.com/tov/bv-rs/blob/master/src/bit_vec/inner.rs#L8
+# A BitVector is a [Option<Vector<some type>>, len]
 # TODO: it would be ideal to use an OptionMember that contains a VectorMember,
 # but we can't do this yet. Hence, BitVectorMember re-implements the
 # OptionMember implementation with the element set to VectorMember
@@ -832,7 +831,7 @@ class BitVectorMember(TypeNode):
         print('    ulong len;', file=body)
         print('    err = fd_bincode_uint64_decode( &len, ctx );', file=body)
         print('    if( FD_UNLIKELY( err!=FD_BINCODE_SUCCESS ) ) return err;', file=body)
-        print(f'    if( len > inner_len * sizeof({self.vector_element}) * 8UL ) return FD_BINCODE_ERR_ENCODING;', file=body)
+        print(f'    if( o && len > inner_len * sizeof({self.vector_element}) * 8UL ) return FD_BINCODE_ERR_ENCODING;', file=body)
         print('  }', file=body)
 
     def emitDecodeInner(self):
