@@ -142,43 +142,47 @@ fi
 echo_notice "Starting on-demand ingest and replay"
 echo "
 [layout]
-     affinity = \"auto\"
-     bank_tile_count = 1
-     shred_tile_count = 4
-     exec_tile_count = 4
- [tiles]
-     [tiles.archiver]
-         enabled = true
-         end_slot = $END_SLOT
-         archiver_path = \"$DUMP/$LEDGER/rocksdb\"
-     [tiles.replay]
-         snapshot = \"$SNAPSHOT\"
-         cluster_version = \"$CLUSTER_VERSION\"
-         enable_features = [ $FORMATTED_ONE_OFFS ]
-     [tiles.gui]
-         enabled = false
- [blockstore]
-     shred_max = 16777216
-     block_max = 8192
-     txn_max = 1048576
-     alloc_max = 10737418240
-     file = \"$DUMP/$LEDGER/backtest.blockstore\"
- [funk]
-     heap_size_gib = $FUNK_PAGES
-     max_account_records = $INDEX_MAX
-     max_database_transactions = 64
- [consensus]
-     vote = false
- [development]
-     sandbox = false
-     no_agave = true
-     no_clone = true
- [log]
-     level_stderr = \"INFO\"
-     path = \"$LOG\"
- [paths]
-     identity_key = \"$DUMP_DIR/identity.json\"
-     vote_account = \"$DUMP_DIR/vote.json\"
+    affinity = \"auto\"
+    bank_tile_count = 1
+    shred_tile_count = 4
+    exec_tile_count = 4
+[tiles]
+    [tiles.archiver]
+        enabled = true
+        end_slot = $END_SLOT
+        archiver_path = \"$DUMP/$LEDGER/rocksdb\"
+    [tiles.replay]
+        snapshot = \"$SNAPSHOT\"
+        cluster_version = \"$CLUSTER_VERSION\"
+        enable_features = [ $FORMATTED_ONE_OFFS ]
+    [tiles.gui]
+        enabled = false
+[blockstore]
+    shred_max = 16777216
+    block_max = 8192
+    txn_max = 1048576
+    alloc_max = 10737418240
+    file = \"$DUMP/$LEDGER/backtest.blockstore\"
+[funk]
+    heap_size_gib = $FUNK_PAGES
+    max_account_records = $INDEX_MAX
+    max_database_transactions = 64
+[runtime]
+    heap_size_gib = 100
+    [runtime.limits]
+        max_banks = 36
+[consensus]
+    vote = false
+[development]
+    sandbox = false
+    no_agave = true
+    no_clone = true
+[log]
+    level_stderr = \"INFO\"
+    path = \"$LOG\"
+[paths]
+    identity_key = \"$DUMP_DIR/identity.json\"
+    vote_account = \"$DUMP_DIR/vote.json\"
 " > $DUMP_DIR/${LEDGER}_backtest.toml
 
 if [ ! -f $DUMP_DIR/identity.json ]; then
@@ -215,6 +219,7 @@ else
     exit 0
   fi
 
+  echo "LAST 40 LINES OF LOG:"
   tail -40 $LOG
   echo_error "backtest test failed: $*"
   echo $LOG
