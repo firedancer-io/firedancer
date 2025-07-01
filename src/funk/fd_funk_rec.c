@@ -2,10 +2,26 @@
 
 /* Provide the actual record map implementation */
 
+static void fd_funk_rec_pool_mark_in_pool( fd_funk_rec_t * ele ) {
+  ele->val_gaddr = ULONG_MAX;
+  ele->val_sz    = UINT_MAX;
+  ele->val_max   = UINT_MAX;
+}
+static void fd_funk_rec_pool_mark_not_in_pool( fd_funk_rec_t * ele ) {
+  ele->val_gaddr = 0;
+  ele->val_sz    = 0;
+  ele->val_max   = 0;
+}
+static int fd_funk_rec_pool_is_in_pool( fd_funk_rec_t const * ele ) {
+  return (ele->val_sz == UINT_MAX);
+}
+
 #define POOL_NAME          fd_funk_rec_pool
 #define POOL_ELE_T         fd_funk_rec_t
 #define POOL_IDX_T         uint
 #define POOL_NEXT          map_next
+#define POOL_MARK_IN_POOL(ele) fd_funk_rec_pool_mark_in_pool(ele)
+#define POOL_MARK_NOT_IN_POOL(ele) fd_funk_rec_pool_mark_not_in_pool(ele)
 #define POOL_IMPL_STYLE    2
 #include "../util/tmpl/fd_pool_para.c"
 
@@ -225,6 +241,7 @@ fd_funk_rec_prepare( fd_funk_t *               funk,
   }
 
   if( rec != NULL ) {
+    fd_funk_val_init( rec );
     if( txn == NULL ) {
       fd_funk_txn_xid_set_root( rec->pair.xid );
       rec->txn_cidx = fd_funk_txn_cidx( FD_FUNK_TXN_IDX_NULL );
@@ -239,7 +256,6 @@ fd_funk_rec_prepare( fd_funk_t *               funk,
       prepare->txn_lock     = &txn->lock;
     }
     fd_funk_rec_key_copy( rec->pair.key, key );
-    fd_funk_val_init( rec );
     rec->tag = 0;
     rec->flags = 0;
     rec->prev_idx = FD_FUNK_REC_IDX_NULL;
@@ -688,6 +704,58 @@ fd_funk_all_iter_ele( fd_funk_all_iter_t * iter ) {
 }
 
 int
+fd_funk_rec_purify( fd_funk_t * funk ) {
+  uint rec_used_cnt = 0;
+  uint rec_free_cnt = 0;
+
+  fd_funk_rec_map_t *  rec_map  = funk->rec_map;
+  fd_funk_rec_pool_t * rec_pool = funk->rec_pool;
+  ulong rec_max = fd_funk_rec_pool_ele_max( rec_pool );
+
+  fd_funk_rec_map_reset( rec_map );
+  rec_pool->pool->ver_top = fd_funk_rec_pool_idx_null();;
+
+  uint prev_idx = FD_FUNK_REC_IDX_NULL;
+  for( ulong i = 0; i < rec_max; ++i ) {
+    fd_funk_rec_t * rec = rec_pool->ele + i;
+    if( fd_funk_rec_pool_is_in_pool( rec ) ||
+        (rec->flags & FD_FUNK_REC_FLAG_ERASE) ) {
+      fd_funk_rec_pool_release( rec_pool, rec, 1 );
+      rec_free_cnt++;
+      continue;
+    }
+    if( !fd_funk_txn_xid_eq_root( rec->pair.xid ) ) {
+      fd_funk_val_flush( rec, funk->alloc, funk->wksp );
+      fd_funk_rec_pool_release( rec_pool, rec, 1 );
+      rec_free_cnt++;
+      continue;
+    }
+    rec_used_cnt++;
+
+    fd_funk_rec_map_insert( rec_map, rec, FD_MAP_FLAG_BLOCKING );
+
+    rec->prev_idx = prev_idx;
+    if( prev_idx != FD_FUNK_REC_IDX_NULL ) {
+      (rec_pool->ele + prev_idx)->next_idx = fd_funk_rec_map_private_cidx( i );
+    } else {
+      funk->shmem->rec_head_idx = fd_funk_rec_map_private_cidx( i );
+    }
+    prev_idx = fd_funk_rec_map_private_cidx( i );
+  }
+
+  funk->shmem->rec_tail_idx = prev_idx;
+  if( prev_idx != FD_FUNK_REC_IDX_NULL ) {
+    (rec_pool->ele + prev_idx)->next_idx = FD_FUNK_REC_IDX_NULL;
+  } else {
+    funk->shmem->rec_head_idx = FD_FUNK_REC_IDX_NULL;
+  }
+
+  FD_LOG_NOTICE(( "funk records used after purify: %u, free: %u", rec_used_cnt, rec_free_cnt ));
+
+  return FD_FUNK_SUCCESS;
+}
+
+int
 fd_funk_rec_verify( fd_funk_t * funk ) {
   fd_funk_rec_map_t *  rec_map  = funk->rec_map;
   fd_funk_rec_pool_t * rec_pool = funk->rec_pool;
@@ -710,6 +778,7 @@ fd_funk_rec_verify( fd_funk_t * funk ) {
          !fd_funk_rec_map_iter_done( iter );
          iter = fd_funk_rec_map_iter_next( iter ) ) {
       fd_funk_rec_t const * rec = fd_funk_rec_map_iter_ele_const( iter );
+      TEST( !fd_funk_rec_pool_is_in_pool( rec ) );
 
       /* Make sure every record either links up with the last published
          transaction or an in-prep transaction and the flags are sane. */
@@ -773,6 +842,11 @@ fd_funk_rec_verify( fd_funk_t * funk ) {
       }
     }
   } while(0);
+
+  for( ulong rec_idx=0UL; rec_idx<rec_max; rec_idx++ ) {
+    FD_TEST( fd_funk_rec_pool_is_in_pool( &rec_pool->ele[ rec_idx ] ) ==
+             (rec_pool->ele[ rec_idx ].tag == 0UL) );
+  }
 
   do {
     ulong txn_idx = FD_FUNK_TXN_IDX_NULL;

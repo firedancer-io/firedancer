@@ -154,7 +154,11 @@ fd_funk_join( fd_funk_t * ljoin,
 
   fd_funk_shmem_t * shmem = shfunk;
   if( FD_UNLIKELY( shmem->magic!=FD_FUNK_MAGIC ) ) {
-    FD_LOG_WARNING(( "bad magic" ));
+    if (shmem->magic == FD_FUNK_MAGIC+1) {
+      FD_LOG_WARNING(( "attempted to join a funk that crashed in a critical section" ));
+    } else {
+      FD_LOG_WARNING(( "bad magic" ));
+    }
     return NULL;
   }
 
@@ -196,6 +200,21 @@ fd_funk_join( fd_funk_t * ljoin,
   }
 
   return funk;
+}
+
+int
+fd_funk_purify( void * shfunk ) {
+  /* Join should work even if there was a crash */
+  fd_funk_t ljoin[1];
+  fd_funk_t * funk = fd_funk_join( ljoin, shfunk );
+  if( funk == NULL ) return FD_FUNK_ERR_PURIFY;
+
+  /* Reset the txn map. We discard any pending transactions. */
+  fd_funk_txn_map_reset( funk->txn_map );
+  fd_funk_txn_pool_reset( funk->txn_pool, 0 );
+  funk->shmem->child_head_cidx = funk->shmem->child_tail_cidx = fd_funk_txn_cidx( FD_FUNK_TXN_IDX_NULL );
+
+  return fd_funk_rec_purify( funk );
 }
 
 void *

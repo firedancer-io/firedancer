@@ -56,10 +56,6 @@ struct __attribute__((aligned(FD_FUNK_REC_ALIGN))) fd_funk_rec {
   uint  prev_idx;  /* Record map index of previous record in its transaction */
   uint  next_idx;  /* Record map index of next record in its transaction */
 
-  /* UNUSED: reserved for future use by the Funk LRU. Do not remove or modify. */
-  uint  accounts_lru_prev_idx; /* Record map idx of the next record in the accounts LRU dlist */
-  uint  accounts_lru_next_idx; /* Record map idx of the prev record in the accounts LRU dlist */
-
   uint  txn_cidx;  /* Compressed transaction map index (or compressed FD_FUNK_TXN_IDX if this is in the last published) */
   uint  tag;       /* Internal use only */
   ulong flags;     /* Flags that indicate how to interpret a record */
@@ -485,6 +481,9 @@ fd_funk_rec_t * fd_funk_all_iter_ele( fd_funk_all_iter_t * iter );
 
 int
 fd_funk_rec_verify( fd_funk_t * funk );
+
+int
+fd_funk_rec_purify( fd_funk_t * funk );
 
 FD_PROTOTYPES_END
 
