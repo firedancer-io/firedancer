@@ -230,6 +230,7 @@ fd_main( int          argc,
 
   int is_local_cluster = action ? action->is_local_cluster : 0;
   fd_main_init( &argc, &argv, &config, opt_user_config_path, is_firedancer, is_local_cluster, NULL, default_config, default_config_sz, topo_init );
+  if( FD_UNLIKELY( !opt_user_config_path ) ) FD_LOG_ERR(( "missing required `--config` argument" ));
 
   if( FD_UNLIKELY( !action ) ) {
     for( ulong i=0UL; ACTIONS[ i ]; i++ ) {

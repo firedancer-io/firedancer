@@ -48,7 +48,8 @@ struct fd_types_vt {
             void *             self,
             fd_types_walk_fn_t callback,
             const char *       name,
-            uint               depth );
+            uint               depth,
+            uint               varint );
 };
 
 typedef struct fd_types_vt fd_types_vt_t;

@@ -319,7 +319,7 @@ vote_program_to_json( fd_webserver_t * ws,
     EMIT_SIMPLE("{\"parsed\":");
 
     fd_rpc_json_t * json = fd_rpc_json_init( fd_rpc_json_new( fd_spad_alloc( spad, fd_rpc_json_align(), fd_rpc_json_footprint() ) ), ws );
-    fd_vote_instruction_walk( json, instruction, fd_rpc_json_walk, NULL, 0 );
+    fd_vote_instruction_walk( json, instruction, fd_rpc_json_walk, NULL, 0, 0 );
 
     EMIT_SIMPLE(",\"program\":\"vote\",\"programId\":\"Vote111111111111111111111111111111111111111\",\"stackHeight\":null}");
     *need_comma = 1;
@@ -353,7 +353,7 @@ system_program_to_json( fd_webserver_t * ws,
     EMIT_SIMPLE("{\"parsed\":");
 
     fd_rpc_json_t * json = fd_rpc_json_init( fd_rpc_json_new( fd_spad_alloc( spad, fd_rpc_json_align(), fd_rpc_json_footprint() ) ), ws );
-    fd_system_program_instruction_walk( json, instruction, fd_rpc_json_walk, NULL, 0 );
+    fd_system_program_instruction_walk( json, instruction, fd_rpc_json_walk, NULL, 0, 0 );
 
     EMIT_SIMPLE(",\"program\":\"system\",\"programId\":\"11111111111111111111111111111111\",\"stackHeight\":null}");
     *need_comma = 1;
@@ -411,7 +411,7 @@ compute_budget_program_to_json( fd_webserver_t * ws,
     EMIT_SIMPLE("{\"parsed\":");
 
     fd_rpc_json_t * json = fd_rpc_json_init( fd_rpc_json_new( fd_spad_alloc( spad, fd_rpc_json_align(), fd_rpc_json_footprint() ) ), ws );
-    fd_compute_budget_program_instruction_walk( json, instruction, fd_rpc_json_walk, NULL, 0 );
+    fd_compute_budget_program_instruction_walk( json, instruction, fd_rpc_json_walk, NULL, 0, 0 );
 
     EMIT_SIMPLE(",\"program\":\"compute_budget\",\"programId\":\"ComputeBudget111111111111111111111111111111\",\"stackHeight\":null}");
     *need_comma = 1;

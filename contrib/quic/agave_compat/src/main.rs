@@ -118,7 +118,7 @@ unsafe fn agave_to_fdquic() {
 
     // Rust's type system prevents us from passing raw pointers to a
     // thread even with appropriate synchronization barriers and unsafe.
-    // To escape this hostage situation, we indrect via usize ... sigh
+    // To escape this hostage situation, we indirect via usize ... sigh
     let udpsock2 = udpsock as usize;
     let quic2 = quic as usize;
     let stop_ptr = Box::leak(Box::new(AtomicU32::new(0))) as *mut AtomicU32 as usize;
@@ -192,7 +192,7 @@ unsafe fn agave_to_fdquic_bench() {
 
     // Rust's type system prevents us from passing raw pointers to a
     // thread even with appropriate synchronization barriers and unsafe.
-    // To escape this hostage situation, we indrect via usize ... sigh
+    // To escape this hostage situation, we indirect via usize ... sigh
     let quic2 = quic as usize;
     std::thread::spawn(move || {
         let quic3: *mut fd_quic_t = quic2 as *mut fd_quic_t;

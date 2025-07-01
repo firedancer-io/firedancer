@@ -76,7 +76,8 @@ typedef void
                          void const *       self,
                          fd_types_walk_fn_t fun,
                          char const *       name,
-                         uint               level );
+                         uint               level,
+                         uint               varint );
 
 typedef ulong
 (* fd_types_align_vfn_t)( void );
@@ -167,7 +168,7 @@ test_yaml( test_fixture_t const * t ) {
   static fd_flamenco_yaml_t yaml_mem[1];
   fd_flamenco_yaml_t * yaml = fd_flamenco_yaml_init( fd_flamenco_yaml_new( yaml_mem ), file );
 
-  t->walk( yaml, decoded, fd_flamenco_yaml_walk, NULL, 0 );
+  t->walk( yaml, decoded, fd_flamenco_yaml_walk, NULL, 0, 0 );
   FD_TEST( 0==ferror( file ) );
   long sz = ftell(  file );
   FD_TEST( sz>0 );

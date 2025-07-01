@@ -109,7 +109,7 @@ main( int     argc,
 
   f->decode( d, &decode );
 
-  f->walk( yaml, d, fd_flamenco_yaml_walk, NULL, 0U );
+  f->walk( yaml, d, fd_flamenco_yaml_walk, NULL, 0U, 0U );
 
   fd_scratch_pop();
   fd_scratch_detach( NULL );

@@ -16,7 +16,8 @@ custom_serializer_walk( void *       _self,
                         char const * name,
                         int          type,
                         char const * type_name,
-                        uint         level ) {
+                        uint         level,
+                        uint         varint ) {
   (void)name;
   (void)type;
   (void)type_name;
@@ -55,13 +56,31 @@ custom_serializer_walk( void *       _self,
       fprintf( file, "%d,", *(short const *)arg );
       break;
     case FD_FLAMENCO_TYPE_UINT:
-      fprintf( file, "%u,", *(uint const *)arg );
+      if (varint) {
+        uchar b[8];
+        fd_bincode_encode_ctx_t ctx = { .data = b, .dataend = &b[sizeof(b)-1] };
+        fd_bincode_varint_encode( *(uint const *)arg, &ctx );
+        int len = (int) ((char *) ctx.data - (char *) &b[0]);
+        for (int i = 0; i < len; i++) {
+          fprintf( file, "%d,", (uchar) b[i] );
+        }
+      } else
+        fprintf( file, "%u,", *(uint const *)arg );
       break;
     case FD_FLAMENCO_TYPE_SINT:
       fprintf( file, "%d,", *(int const *)arg );
       break;
     case FD_FLAMENCO_TYPE_ULONG:
-      fprintf( file, "%lu,", *(ulong const *)arg );
+      if (varint) {
+        uchar b[8];
+        fd_bincode_encode_ctx_t ctx = { .data = b, .dataend = &b[sizeof(b)-1] };
+        fd_bincode_varint_encode( *(ulong const *)arg, &ctx );
+        int len = (int) ((char *) ctx.data - (char *) &b[0]);
+        for (int i = 0; i < len; i++) {
+          fprintf( file, "%d,", (uchar) b[i] );
+        }
+      } else
+        fprintf( file, "%lu,", *(ulong const *)arg );
       break;
     case FD_FLAMENCO_TYPE_SLONG:
       fprintf( file, "%ld,", *(long const *)arg );
@@ -219,7 +238,7 @@ fd_runtime_fuzz_decode_type_run( fd_runtime_fuzz_runner_t * runner,
     };
 
     // Walk the decoded object and serialize it
-    type_meta->walk( &serializer, decoded, custom_serializer_walk, type_meta->name, 0 );
+    type_meta->walk( &serializer, decoded, custom_serializer_walk, type_meta->name, 0U, 0U );
     if( ferror( file ) ) {
       fclose( file );
       *output_sz = 0;
@@ -247,7 +266,7 @@ fd_runtime_fuzz_decode_type_run( fd_runtime_fuzz_runner_t * runner,
     fd_flamenco_yaml_t * yaml = fd_flamenco_yaml_init( fd_flamenco_yaml_new( yaml_mem ), file );
 
     // Walk the decoded object and generate YAML
-    type_meta->walk( yaml, decoded, fd_flamenco_yaml_walk, type_meta->name, 0 );
+    type_meta->walk( yaml, decoded, fd_flamenco_yaml_walk, type_meta->name, 0U, 0U );
     if( ferror( file ) ) {
       fclose( file );
       *output_sz = 0;

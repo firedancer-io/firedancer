@@ -10,7 +10,8 @@ typedef void
                         char const * name,
                         int          type,
                         char const * type_name,
-                        uint         level );
+                        uint         level,
+                        uint         varint );
 
 typedef void
 (* fd_types_walk_fn_t)( void *       self,
@@ -18,7 +19,8 @@ typedef void
                         char const * name,
                         int          type,
                         char const * type_name,
-                        uint         level );
+                        uint         level,
+                        uint         varint );
 
 /* Context argument used for encoding */
 struct fd_bincode_encode_ctx {

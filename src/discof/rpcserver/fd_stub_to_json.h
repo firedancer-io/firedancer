@@ -35,7 +35,8 @@ fd_rpc_json_walk( void *       self,
                   char const * name,
                   int          type,
                   char const * type_name,
-                  uint         level );
+                  uint         level,
+                  uint         varint );
 
 FD_PROTOTYPES_END
 
