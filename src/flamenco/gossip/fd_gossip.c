@@ -534,7 +534,8 @@ rx_pull_request( fd_gossip_t *                         gossip,
                                             node,
                                             node_stake,
                                             peer_addr,
-                                            now ) ) ) {
+                                            now ) &&
+                   !is_entrypoint( gossip, peer_addr) ) ) {
     fd_ping_tracker_track( gossip->ping_tracker,
                            node,
                            node_stake,
@@ -677,19 +678,21 @@ rx_pull_response( fd_gossip_t *                          gossip,
       if( FD_UNLIKELY( fd_crds_entry_is_contact_info( candidate ) ) ){
         fd_contact_info_t const * contact_info = fd_crds_entry_contact_info( candidate );
         fd_ip4_port_t origin_addr              = fd_contact_info_gossip_socket( contact_info );
-        int active = fd_ping_tracker_active( gossip->ping_tracker,
-                                            origin_pubkey,
-                                            origin_stake,
-                                            &origin_addr,
-                                            now );
-        active ? fd_crds_peer_active( gossip->crds, origin_pubkey, now )
-                : fd_crds_peer_inactive( gossip->crds, origin_pubkey, now );
+        if( FD_LIKELY( !is_entrypoint( gossip, &origin_addr ) ) ){
+          int active = fd_ping_tracker_active( gossip->ping_tracker,
+                                               origin_pubkey,
+                                               origin_stake,
+                                               &origin_addr,
+                                               now );
+          active ? fd_crds_peer_active( gossip->crds, origin_pubkey, now )
+                 : fd_crds_peer_inactive( gossip->crds, origin_pubkey, now );
 
-        fd_ping_tracker_track( gossip->ping_tracker,
-                               origin_pubkey,
-                               origin_stake,
-                               &origin_addr,
-                               now );
+          fd_ping_tracker_track( gossip->ping_tracker,
+                                 origin_pubkey,
+                                 origin_stake,
+                                 &origin_addr,
+                                 now );
+        }
       }
       push_state_insert( gossip,
                          value,
@@ -748,18 +751,20 @@ rx_push( fd_gossip_t *                 gossip,
       if( FD_UNLIKELY( fd_crds_entry_is_contact_info( candidate ) ) ) {
         fd_contact_info_t const * contact_info = fd_crds_entry_contact_info( candidate );
         fd_ip4_port_t origin_addr              = fd_contact_info_gossip_socket( contact_info );
-         int active = fd_ping_tracker_active( gossip->ping_tracker,
+        if( FD_LIKELY( !is_entrypoint( gossip, &origin_addr ) ) ) {
+          int active = fd_ping_tracker_active( gossip->ping_tracker,
                                               origin_pubkey,
                                               origin_stake,
                                               &origin_addr,
                                               now );
           active ? fd_crds_peer_active( gossip->crds, origin_pubkey, now )
-                 : fd_crds_peer_inactive( gossip->crds, origin_pubkey, now );
-        fd_ping_tracker_track( gossip->ping_tracker,
-                               origin_pubkey,
-                               origin_stake,
-                               &origin_addr,
-                               now );
+                : fd_crds_peer_inactive( gossip->crds, origin_pubkey, now );
+          fd_ping_tracker_track( gossip->ping_tracker,
+                                origin_pubkey,
+                                origin_stake,
+                                &origin_addr,
+                                now );
+        }
       }
       push_state_insert( gossip,
                          value,
