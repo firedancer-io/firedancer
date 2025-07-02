@@ -17,5 +17,6 @@ action_t fd_action_version = {
   .args        = NULL,
   .fn          = version_cmd_fn,
   .perm        = NULL,
+  .is_immediate= 1,
   .description = "Show the current software version",
 };

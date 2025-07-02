@@ -193,15 +193,18 @@ fd_main( int          argc,
      example, they want to show the version or validate the produced
      binary without yet setting up the full TOML. */
 
-  if( FD_UNLIKELY( !argc ) ) {
-    for( ulong i=0UL; ACTIONS[ i ]; i++ ) {
-      action_t * action = ACTIONS[ i ];
-      if( FD_UNLIKELY( action->is_help ) ) {
-        action->fn( NULL, NULL );
-        FD_LOG_WARNING(( "no subcommand specified, exiting" ));
-        return 1;
-      }
+  action_t * help_action = NULL;
+  for( ulong i=0UL; ACTIONS[ i ]; i++ ) {
+    if( FD_UNLIKELY( ACTIONS[ i ]->is_help ) ) {
+      help_action = ACTIONS[ i ];
+      break;
     }
+  }
+
+  if( FD_UNLIKELY( !argc ) ) {
+    help_action->fn( NULL, NULL );
+    FD_LOG_WARNING(( "no subcommand specified, exiting" ));
+    return 1;
   }
 
   /* We need to strip away (potentially leading) cmdline flags first,
@@ -230,18 +233,13 @@ fd_main( int          argc,
 
   int is_local_cluster = action ? action->is_local_cluster : 0;
   fd_main_init( &argc, &argv, &config, opt_user_config_path, is_firedancer, is_local_cluster, NULL, default_config, default_config_sz, topo_init );
-  if( FD_UNLIKELY( !opt_user_config_path ) ) FD_LOG_ERR(( "missing required `--config` argument" ));
 
   if( FD_UNLIKELY( !action ) ) {
-    for( ulong i=0UL; ACTIONS[ i ]; i++ ) {
-      action_t * action = ACTIONS[ i ];
-      if( FD_UNLIKELY( action->is_help ) ) {
-        action->fn( NULL, NULL );
-        break;
-      }
-    }
+    help_action->fn( NULL, NULL );
     FD_LOG_ERR(( "unknown subcommand `%s`", argv[ 0 ] ));
   }
+
+  if( FD_UNLIKELY( action->require_config && !opt_user_config_path ) ) FD_LOG_ERR(( "missing required `--config` argument" ));
 
   argc--; argv++;
 

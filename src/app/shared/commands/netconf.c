@@ -64,9 +64,10 @@ netconf_cmd_fn( args_t *   args,
 }
 
 action_t fd_action_netconf = {
-  .name        = "netconf",
-  .args        = NULL,
-  .fn          = netconf_cmd_fn,
-  .perm        = NULL,
-  .description = "Print network configuration",
+  .name           = "netconf",
+  .args           = NULL,
+  .fn             = netconf_cmd_fn,
+  .require_config = 1,
+  .perm           = NULL,
+  .description    = "Print network configuration",
 };
