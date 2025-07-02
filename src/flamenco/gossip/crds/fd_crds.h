@@ -14,7 +14,6 @@ typedef struct fd_crds_private fd_crds_t;
 struct fd_crds_mask_iter_private;
 typedef struct fd_crds_mask_iter_private fd_crds_mask_iter_t;
 
-#define CRDS_MASK_ITER_SIZE   (16UL)
 #define CRDS_MAX_CONTACT_INFO (1<<15) /* 32K max contact info entries in side table */
 
 FD_PROTOTYPES_BEGIN
@@ -53,17 +52,43 @@ fd_crds_expire( fd_crds_t * crds,
 ulong
 fd_crds_len( fd_crds_t const * crds );
 
-/* fd_crds_purged_* provides APIs for accessing the CRDS table's purged entries.
-   A CRDS entry is purged when it is upserted by a newer form of the entry.
-   Purged entries expire completely after 60s. */
+/* fd_crds maintains a table of purged CRDS entries. A CRDS entry is
+   purged when it is overriden by a newer form of the entry. Such entries
+   are no longer propagated by the node, but are still tracked in order
+   to avoid re-receiving them via pull responses by including them in
+   the pull request filters we generate. This means we only need to hold
+   the hash of the entry and the wallclock time when it was purged.
+
+   Agave's Gossip client maintains two such tables: one labeled "purged"
+   and another "failed_inserts". They function the same, the only difference
+   lies in the conditions that trigger the insertion and the expiry windows.
+
+   "purged"
+      A CRDS value is inserted into "purged" when
+       - it is from an incoming push message and does NOT upsert in the CRDS
+         table and is not a duplicate of an existing entry in the CRDS table
+       - it is an existing entry in the CRDS table and will be overriden by
+         an incoming CRDS value in a push/pull response message
+      "purged" entries expire after 60s
+
+  "failed_inserts"
+      A CRDS value is inserted into "failed_inserts" when it is from an
+      incoming pull response and either
+        - does NOT upsert in the CRDS table and is not a duplicate of an
+           existing entry in the CRDS table
+        - satisfies upsert conditions, but is too old to be inserted
+      "failed_inserts" entries expire after 20s */
 
 ulong
 fd_crds_purged_len( fd_crds_t const * crds );
 
-/* fd_crds_purged returns the hash of the idx-th purged entry */
-uchar const *
-fd_crds_purged( fd_crds_t const * crds,
-                ulong             idx );
+/* fd_crds_insert_failed_insert performs of a copy of hash when inserting
+   into the purge table. */
+void
+fd_crds_insert_failed_insert( fd_crds_t *   crds,
+                              uchar const * hash,
+                              long          now );
+
 
 /*************************** Begin Insertion APIs *****************************/
 
@@ -250,7 +275,7 @@ fd_crds_peer_sample( fd_crds_t const * crds,
 
 /************************* Begin Mask Iter APIs *******************************/
 
-/* fd_crds_mask_iter_{init,next,done,value} provide an iterator to
+/* fd_crds_mask_iter_{init,next,done,entry} provide an API to
    iterate over the CRDS values in the table that whose hashes match
    a given mask. In the Gossip CRDS filter, the mask is applied on
    the most significant 8 bytes of the CRDS value's hash.
@@ -269,7 +294,7 @@ fd_crds_mask_iter_t *
 fd_crds_mask_iter_init( fd_crds_t const * crds,
                         ulong             mask,
                         uint              mask_bits,
-                        void *            iter_mem );
+                        uchar             iter_mem[ static 16UL ] );
 
 fd_crds_mask_iter_t *
 fd_crds_mask_iter_next( fd_crds_mask_iter_t * it,
@@ -280,8 +305,34 @@ fd_crds_mask_iter_done( fd_crds_mask_iter_t * it,
                         fd_crds_t const * crds );
 
 fd_crds_entry_t const *
-fd_crds_mask_iter_value( fd_crds_mask_iter_t * it,
+fd_crds_mask_iter_entry( fd_crds_mask_iter_t * it,
                          fd_crds_t const * crds );
+
+/* fd_crds_purged_mask_iter_{init,next,done} mirrors the fd_crds_mask_*
+   APIs for the purged table. This includes purged and failed_inserts
+   entries for the specified mask range.
+
+   Mixing APIs (e.g., using crds init and purged next/done/hash) is UB.*/
+
+fd_crds_mask_iter_t *
+fd_crds_purged_mask_iter_init( fd_crds_t const * crds,
+                               ulong             mask,
+                               uint              mask_bits,
+                               uchar             iter_mem[ static 16UL ] );
+
+fd_crds_mask_iter_t *
+fd_crds_purged_mask_iter_next( fd_crds_mask_iter_t * it,
+                               fd_crds_t const * crds );
+
+int
+fd_crds_purged_mask_iter_done( fd_crds_mask_iter_t * it,
+                               fd_crds_t const * crds );
+
+/* fd_crds_purged_mask_iter_hash returns the hash of the current
+   entry in the purged mask iterator. */
+uchar const *
+fd_crds_purged_mask_iter_hash( fd_crds_mask_iter_t * it,
+                               fd_crds_t const * crds );
 
 FD_PROTOTYPES_END
 

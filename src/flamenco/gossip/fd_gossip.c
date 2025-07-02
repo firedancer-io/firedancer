@@ -482,37 +482,7 @@ verify_signatures( fd_gossip_view_t const * view,
     default:
       return -1;
   };
-}
-
-static ulong
-failed_inserts_start_idx( fd_gossip_t const * gossip ) {
-  return (gossip->failed_inserts.cursor-gossip->failed_inserts.cnt+gossip->failed_inserts.cap)%gossip->failed_inserts.cap;
-}
-
-static void
-failed_inserts_append( fd_gossip_t * gossip,
-                       uchar const * hash,
-                       long          now ) {
-  failed_insert_t * failed_insert = &gossip->failed_inserts.entries[ gossip->failed_inserts.cursor ];
-  failed_insert->wallclock_nanos  = now;
-  fd_memcpy( failed_insert->hash, hash, 32UL );
-
-  gossip->failed_inserts.cursor = (gossip->failed_inserts.cursor+1UL)%gossip->failed_inserts.cap;
-  gossip->failed_inserts.cnt    = fd_ulong_min( gossip->failed_inserts.cnt+1UL, gossip->failed_inserts.cap );
-}
-
-static void
-failed_inserts_purge( fd_gossip_t * gossip,
-                      long          now ) {
-  long cutoff_nanos = now-20L*1000L*1000L*1000L;
-  ulong idx = failed_inserts_start_idx( gossip );
-  while( gossip->failed_inserts.cnt ) {
-    long ts = gossip->failed_inserts.entries[ idx ].wallclock_nanos;
-    if( FD_UNLIKELY( ts>=cutoff_nanos ) ) break;
-
-    idx = (idx+1UL)%gossip->failed_inserts.cap;
-    gossip->failed_inserts.cnt--;
-  }
+  return FD_ED25519_SUCCESS;
 }
 
 static int
@@ -567,15 +537,15 @@ rx_pull_request( fd_gossip_t *                         gossip,
   push_state_new( pull_resp, gossip->identity_pubkey, *peer_addr );
   pull_resp->msg[ 0 ] = FD_GOSSIP_MESSAGE_PULL_RESPONSE;
 
-  uchar iter_mem[ CRDS_MASK_ITER_SIZE ];
+  uchar iter_mem[ 16UL ];
 
   for( fd_crds_mask_iter_t * it=fd_crds_mask_iter_init( gossip->crds, pr_view->mask, pr_view->mask_bits, iter_mem );
        !fd_crds_mask_iter_done( it, gossip->crds );
        it=fd_crds_mask_iter_next( it, gossip->crds ) ) {
-    fd_crds_entry_t const * candidate = fd_crds_mask_iter_value( it, gossip->crds );
+    fd_crds_entry_t const * candidate = fd_crds_mask_iter_entry( it, gossip->crds );
 
     /* TODO: Add jitter here? */
-    // if( FD_UNLIKELY( fd_crds_value_wallclock( candidate )>contact_info->wallclock ) ) continue;
+    // if( FD_UNLIKELY( fd_crds_value_wallclock( candidate )>contact_info->wallclock_nanos ) ) continue;
 
     if( FD_UNLIKELY( !crds_bloom_contains( filter, fd_crds_entry_hash( candidate ), 32UL ) ) ) continue;
 
@@ -641,7 +611,7 @@ rx_pull_response( fd_gossip_t *                          gossip,
     int upserts = fd_crds_upserts( gossip->crds, candidate );
 
     if( FD_UNLIKELY( !upserts ) ) {
-      failed_inserts_append( gossip, fd_crds_entry_hash( candidate ), now );
+      fd_crds_insert_failed_insert( gossip->crds, fd_crds_entry_hash( candidate ), now );
       fd_crds_release( gossip->crds, candidate );
       continue;
     }
@@ -658,50 +628,48 @@ rx_pull_response( fd_gossip_t *                          gossip,
     } else {
       accept_after_nanos = now-432000L*1000L*1000L*1000L;
     }
-    int error = 0;
 
-    if( FD_LIKELY( accept_after_nanos<=value->wallclock_nanos ) ||
-                   fd_crds_entry_is_contact_info( candidate ) ) {
-      error = fd_crds_insert( gossip->crds,
-                              candidate,
-                              value,
-                              payload,
-                              origin_stake,
-                              0, /* from_push_msg */
-                              now );
-    } else {
-      failed_inserts_append( gossip, fd_crds_entry_hash( candidate ), now );
-      error = 1;
-    }
-    if( FD_UNLIKELY( !!error ) )
+    /* https://github.com/anza-xyz/agave/blob/540d5bc56cd44e3cc61b179bd52e9a782a2c99e4/gossip/src/crds_gossip_pull.rs#L340-L351 */
+    if( FD_UNLIKELY( accept_after_nanos>value->wallclock_nanos &&
+                     !fd_crds_contact_info_lookup( gossip->crds, origin_pubkey ) ) ) {
+      fd_crds_insert_failed_insert( gossip->crds, fd_crds_entry_hash( candidate ), now );
       fd_crds_release( gossip->crds, candidate );
-    else {
-      if( FD_UNLIKELY( fd_crds_entry_is_contact_info( candidate ) ) ){
-        fd_contact_info_t const * contact_info = fd_crds_entry_contact_info( candidate );
-        fd_ip4_port_t origin_addr              = fd_contact_info_gossip_socket( contact_info );
-        if( FD_LIKELY( !is_entrypoint( gossip, &origin_addr ) ) ){
-          int active = fd_ping_tracker_active( gossip->ping_tracker,
-                                               origin_pubkey,
-                                               origin_stake,
-                                               &origin_addr,
-                                               now );
-          active ? fd_crds_peer_active( gossip->crds, origin_pubkey, now )
-                 : fd_crds_peer_inactive( gossip->crds, origin_pubkey, now );
-
-          fd_ping_tracker_track( gossip->ping_tracker,
-                                 origin_pubkey,
-                                 origin_stake,
-                                 &origin_addr,
-                                 now );
-        }
-      }
-      push_state_insert( gossip,
-                         value,
-                         payload,
-                         origin_pubkey,
-                         origin_stake,
-                         now );
+      continue;
     }
+
+    FD_TEST( !fd_crds_insert( gossip->crds,
+                            candidate,
+                            value,
+                            payload,
+                            origin_stake,
+                            0, /* from_push_msg */
+                            now ) );
+
+    if( FD_UNLIKELY( fd_crds_entry_is_contact_info( candidate ) ) ){
+      fd_contact_info_t const * contact_info = fd_crds_entry_contact_info( candidate );
+      fd_ip4_port_t origin_addr              = fd_contact_info_gossip_socket( contact_info );
+      if( FD_LIKELY( !is_entrypoint( gossip, &origin_addr ) ) ){
+        int active = fd_ping_tracker_active( gossip->ping_tracker,
+                                              origin_pubkey,
+                                              origin_stake,
+                                              &origin_addr,
+                                              now );
+        active ? fd_crds_peer_active( gossip->crds, origin_pubkey, now )
+                : fd_crds_peer_inactive( gossip->crds, origin_pubkey, now );
+
+        fd_ping_tracker_track( gossip->ping_tracker,
+                                origin_pubkey,
+                                origin_stake,
+                                &origin_addr,
+                                now );
+      }
+    }
+    push_state_insert( gossip,
+                        value,
+                        payload,
+                        origin_pubkey,
+                        origin_stake,
+                        now );
   }
 
   return 0;
@@ -1063,29 +1031,18 @@ tx_pull_request( fd_gossip_t * gossip,
   crds_bloom_t * filter   = gossip->bloom;
   crds_bloom_initialize( filter, (ulong)max_items+1 ); /* TODO: check cast */
 
-  uchar iter_mem[ CRDS_MASK_ITER_SIZE ];
+  uchar iter_mem[ 16UL ];
 
   for( fd_crds_mask_iter_t * it = fd_crds_mask_iter_init( gossip->crds, mask, mask_bits, iter_mem );
        !fd_crds_mask_iter_done( it, gossip->crds );
        it = fd_crds_mask_iter_next( it, gossip->crds ) ) {
-    crds_bloom_insert( filter, fd_crds_entry_hash( fd_crds_mask_iter_value( it, gossip->crds ) ), 32UL );
+    crds_bloom_insert( filter, fd_crds_entry_hash( fd_crds_mask_iter_entry( it, gossip->crds ) ), 32UL );
   }
 
-  ulong shift = 64UL-mask_bits;
-  for( ulong i=0UL; i<fd_crds_purged_len( gossip->crds ); i++ ) {
-    /* TODO: Make the purged list also a bplus, for fast finding of matching hashes? */
-    uchar const * hash = fd_crds_purged( gossip->crds, i );
-    if( FD_LIKELY( (fd_ulong_load_8( hash )>>shift)!=mask ) ) continue;
-    crds_bloom_insert( filter, hash, 32UL );
-  }
-
-  ulong fi_idx = failed_inserts_start_idx( gossip );
-  for( ulong i=0UL; i<gossip->failed_inserts.cnt; i++ ) {
-    /* TODO: Make the failed insert list also a bplus, for fast finding of matching hashes? */
-    uchar const * hash = gossip->failed_inserts.entries[ fi_idx ].hash;
-    if( FD_LIKELY( (fd_ulong_load_8( hash )>>shift)!=mask ) ) continue;
-    crds_bloom_insert( filter, hash, 32UL );
-    fi_idx = (fi_idx+1UL)%gossip->failed_inserts.cap;
+  for( fd_crds_mask_iter_t * it = fd_crds_purged_mask_iter_init( gossip->crds, mask, mask_bits, iter_mem );
+       !fd_crds_purged_mask_iter_done( it, gossip->crds );
+       it = fd_crds_purged_mask_iter_next( it, gossip->crds ) ){
+    crds_bloom_insert( filter, fd_crds_purged_mask_iter_hash( it, gossip->crds ), 32UL );
   }
 
   fd_contact_info_t const * peer = fd_crds_peer_sample( gossip->crds, gossip->rng );
@@ -1158,7 +1115,6 @@ rotate_active_set( fd_gossip_t * gossip,
 void
 fd_gossip_advance( fd_gossip_t * gossip,
                    long          now ) {
-  failed_inserts_purge( gossip, now );
   fd_crds_expire( gossip->crds, now );
 
   tx_ping( gossip, now );
