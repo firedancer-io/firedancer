@@ -5,7 +5,7 @@ import matplotlib.pyplot as plt
 from matplotlib.backends.backend_pdf import PdfPages
 import sys
 import warnings
-
+import os
 """
 This script generates a report on repair analysis off of one testnet run.
 1. Add the following to your testnet config.toml file:
@@ -19,7 +19,7 @@ This script generates a report on repair analysis off of one testnet run.
     - /my/folder/fec_complete.csv
 
 3. Run this script with the following command:
-    python3 report.py <testnet.log path> <request_data.csv path> <shred_data.csv path> <fec_complete.csv path (optional, skips some long-running steps)>
+    python3 report.py <testnet.log path> <csv_folder path>
 
     If you are missing dependencies, make sure to install them with:
     python3 -m pip install pandas numpy matplotlib seaborn
@@ -33,6 +33,14 @@ warnings.filterwarnings('ignore')
 
 def match_repair_requests( requests, responses ):
     rsp = responses[responses['is_turbine'] == False]
+
+    # sanity check that no more than 1 pubkey has the same nonce
+    verify_nonce = rsp.groupby('nonce').agg({'src_ip': 'nunique'}).reset_index()
+    verify_nonce = verify_nonce[verify_nonce['src_ip'] > 1]
+    if len(verify_nonce) > 0:
+        print("Repair responses with strangely the same nonce: ")
+        print(verify_nonce)
+
     rsp = rsp.groupby('nonce').agg({'timestamp': 'min', 'slot':'first', 'idx':'max'}).reset_index()
 
     # check which nonces are in requests but not in responses
@@ -179,6 +187,18 @@ def execution_stats( log_path, pdf ):
         if 'finished block - slot:' in line:
             last_executed = int(line.split()[12][:-1])  # 13th word (index 12 in 0-based indexing)
             break
+
+    if snapshot_slot is None:
+        # get user input from CLI instead
+        snapshot_slot = int(input('Couldn\'t find snapshot slot in log, please enter it manually: '))
+
+    if first_turbine is None:
+        # get user input from CLI instead
+        first_turbine = input('Couldn\'t find first turbine slot in log, please enter it manually: ')
+
+    if last_executed is None:
+        # get user input from CLI instead
+        last_executed = int(input('Couldn\'t find last executed slot in log, please enter it manually: '))
 
     # Output the extracted values
     print(f'snapshot_slot = {snapshot_slot}')
@@ -556,13 +576,15 @@ def generate_report( log_path, request_data_path, shred_data_path, peers_data_pa
                                    on_bad_lines='skip',
                                    skipfooter=1 ) # because of the buffered writer the last row is probably incomplete
 
-    repair_requests = pd.read_csv( request_data_path,
-                                   dtype={'dst_ip': str, 'dst_port': int, 'timestamp': int, 'slot': int, 'idx': int, 'nonce': int },
-                                   skipfooter=1 )
+    if request_data_path:
+        repair_requests = pd.read_csv( request_data_path,
+                                    dtype={'dst_ip': str, 'dst_port': int, 'timestamp': int, 'slot': int, 'idx': int, 'nonce': int },
+                                    skipfooter=1 )
 
-    peers_data      = pd.read_csv( peers_data_path,
-                                   dtype={'peer_ip4_addr': int, 'peer_port': int, 'pubkey':str, 'turbine': bool },
-                                   on_bad_lines='skip',
+    if peers_data_path:
+        peers_data      = pd.read_csv( peers_data_path,
+                                    dtype={'peer_ip4_addr': int, 'peer_port': int, 'pubkey':str, 'turbine': bool },
+                                    on_bad_lines='skip',
                                    skipfooter=1 )
 
     # if we have a fec complete file, read it in
@@ -588,36 +610,59 @@ def generate_report( log_path, request_data_path, shred_data_path, peers_data_pa
     catchup = shreds_data[shreds_data['slot'].between(snapshot_slot, first_turbine - 1)]
     live    = shreds_data[shreds_data['slot'].between(first_turbine, last_executed)]
 
-    catchup_rq = repair_requests[repair_requests['slot'].between(snapshot_slot, first_turbine - 1)]
-    live_rq    = repair_requests[repair_requests['slot'].between(first_turbine, last_executed)]
 
-    turbine_stats(catchup, live)
+    if request_data_path:
+        catchup_rq = repair_requests[repair_requests['slot'].between(snapshot_slot, first_turbine - 1)]
+        live_rq    = repair_requests[repair_requests['slot'].between(first_turbine, last_executed)]
 
-    catchup = catchup[catchup['timestamp'] >= first_turbine_accept_ts]  # only keep shreds that were accepted after the first turbine
-    shreds_data = shreds_data[shreds_data['timestamp'] >= first_turbine_accept_ts]  # only keep shreds that were accepted after the first turbine
-    peer_stats( catchup, catchup_rq, live, live_rq, pdf )
+        turbine_stats(catchup, live)
+
+        catchup = catchup[catchup['timestamp'] >= first_turbine_accept_ts]  # only keep shreds that were accepted after the first turbine
+        shreds_data = shreds_data[shreds_data['timestamp'] >= first_turbine_accept_ts]  # only keep shreds that were accepted after the first turbine
+
+        peer_stats( catchup, catchup_rq, live, live_rq, pdf )
 
     if fec_complete_path:
         completion_times( fec_stats, shreds_data, first_turbine, pdf )
 
-    print_slots(repair_requests, shreds_data, snapshot_slot, first_turbine, pdf)
+    if request_data_path:
+        print_slots(repair_requests, shreds_data, snapshot_slot, first_turbine, pdf)
 
 if __name__ == "__main__":
-    if len(sys.argv) < 4:
+    if len(sys.argv) < 3:
         print('Add: [tiles.shredcap] \n\t enabled = true \n\t folder_path = /my/folder_for_csv_dump \n to your testnet config.toml file to enable the report generation.')
-        print('Usage: python report.py <testnet.log path> <request_data.csv path> <shred_data.csv path> <peers_data.csv> <fec_complete.csv path (optional)>')
+        print('Usage: python report.py <testnet.log path> <csv_folder_path>')
         print('Report will automatically be saved as report.pdf in the current directory.')
         sys.exit(1)
 
-    log_path          = sys.argv[1]
-    request_data_path = sys.argv[2]
-    shred_data_path   = sys.argv[3]
-    peers_data_path   = sys.argv[4]
-    fec_complete_path = sys.argv[5] if len(sys.argv) > 5 else None
+    log_path = sys.argv[1]
+    csv_path = sys.argv[2]
+    # check if the csvs live in path
+    if not os.path.exists(csv_path):
+        print(f'Error: {csv_path} does not exist')
+        sys.exit(1)
+
+    csv_paths = { 'shred_data.csv'   : os.path.join(csv_path, 'shred_data.csv'),
+                  'request_data.csv' : os.path.join(csv_path, 'request_data.csv'),
+                  'peers_data.csv'   : os.path.join(csv_path, 'peers.csv'),
+                  'fec_complete.csv' : os.path.join(csv_path, 'fec_complete.csv') }
+
+    for csv_name, csv_path in csv_paths.items():
+        if not os.path.exists(csv_path):
+            csv_paths[csv_name] = None
+
+    for csv_name, csv_path in csv_paths.items():
+        print(f'Found {csv_name}: {csv_path}')
 
     output_path = 'report.pdf'
     pdf = PdfPages('report.pdf')
-    generate_report(log_path, request_data_path, shred_data_path, peers_data_path, fec_complete_path, pdf)
+
+    generate_report(log_path,
+                    csv_paths['request_data.csv'],
+                    csv_paths['shred_data.csv'],
+                    csv_paths['peers_data.csv'],
+                    csv_paths['fec_complete.csv'],
+                    pdf)
     print(f'Graphs generated at: {output_path}')
 
     pdf.close()
