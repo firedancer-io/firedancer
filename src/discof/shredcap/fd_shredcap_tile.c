@@ -160,10 +160,10 @@ static inline void
 during_frag( fd_capture_tile_ctx_t * ctx,
              ulong                   in_idx,
              ulong                   seq     FD_PARAM_UNUSED,
-             ulong                   sig     FD_PARAM_UNUSED,
+             ulong                   sig,
              ulong                   chunk,
              ulong                   sz,
-             ulong                   ctl FD_PARAM_UNUSED ) {
+             ulong                   ctl ) {
   ctx->skip_frag = 0;
   if( ctx->in_kind[ in_idx ]==SHRED_REPAIR ) {
     if( !is_fec_completes_msg( sz ) ) {
@@ -343,7 +343,7 @@ after_frag( fd_capture_tile_ctx_t * ctx,
 
 static ulong
 populate_allowed_fds( fd_topo_t const      * topo        FD_PARAM_UNUSED,
-                      fd_topo_tile_t const * tile        FD_PARAM_UNUSED,
+                      fd_topo_tile_t const * tile,
                       ulong                  out_fds_cnt FD_PARAM_UNUSED,
                       int *                  out_fds ) {
   ulong out_cnt = 0UL;

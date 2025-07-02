@@ -286,9 +286,6 @@ crypto_realloc( void *       addr,
                 ulong        num,
                 char const * file,
                 int          line ) {
-  (void)file;
-  (void)line;
-
   if( FD_UNLIKELY( !addr ) ) return crypto_malloc( num, file, line );
   if( FD_UNLIKELY( !num ) ) {
     crypto_free( addr, file, line );
