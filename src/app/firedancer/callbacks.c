@@ -114,7 +114,6 @@ funk_loose( fd_topo_t const *     topo,
 static void
 funk_new( fd_topo_t const *     topo,
            fd_topo_obj_t const * obj ) {
-  (void)topo;
   ulong funk_seed = fd_pod_queryf_ulong( topo->props, 0UL, "obj.%lu.seed", obj->id );
   if( !funk_seed ) FD_TEST( fd_rng_secure( &funk_seed, sizeof(ulong) ) );
   FD_TEST( fd_funk_new( fd_topo_obj_laddr( topo, obj->id ), 2UL, funk_seed, VAL("txn_max"), VAL("rec_max") ) );

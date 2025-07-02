@@ -230,7 +230,7 @@ fd_exec_slot_ctx_recover( fd_exec_slot_ctx_t *                slot_ctx,
   /* Fee Rate Governor */
 
   fd_fee_rate_governor_t * fee_rate_governor = fd_bank_fee_rate_governor_modify( slot_ctx->bank );
-  fd_memcpy( fee_rate_governor, &old_bank->fee_rate_governor, sizeof(fd_fee_rate_governor_t) );
+  *fee_rate_governor = old_bank->fee_rate_governor;
 
   /* Capitalization */
 

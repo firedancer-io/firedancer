@@ -23,12 +23,27 @@ class MemcpyFunction extends Function {
   }
 }
 
-from FunctionCall call, MemcpyFunction memcpy
+predicate ignoredLocation(Location l) {
+  // we don't want to change vendored code if not really necessary
+  l.getFile().getBaseName() = "cJSON.c"
+}
+
+class InScopeType extends Type {
+  InScopeType() {
+    not this instanceof CharType and
+    not this instanceof VoidType and
+    not this.getUnspecifiedType().(DerivedType).getBaseType().getUnspecifiedType().hasName(["fd_txn_p", "fd_hash"])
+  }
+}
+
+from FunctionCall call, MemcpyFunction memcpy, InScopeType t
 where
   included(call.getLocation()) and
   not call.isInMacroExpansion() and
+  not ignoredLocation(call.getLocation()) and
   call.getTarget() = memcpy and
   call.getArgument(2) instanceof SizeofTypeOperator and
-  call.getArgument(0).getUnspecifiedType() = call.getArgument(1).getUnspecifiedType() and
-  call.getArgument(0).getUnspecifiedType().(DerivedType).getBaseType().getUnspecifiedType() = call.getArgument(2).(SizeofTypeOperator).getTypeOperand().getUnspecifiedType()
-select call, "Call to " + memcpy.getName() + " could be rewritten as an assignment."
+  t = call.getArgument(0).getUnspecifiedType() and
+  t = call.getArgument(1).getUnspecifiedType() and
+  t.(DerivedType).getBaseType().getUnspecifiedType() = call.getArgument(2).(SizeofTypeOperator).getTypeOperand().getUnspecifiedType()
+select call, "Call to " + memcpy.getName() + " could be rewritten as an assignment." + t.getUnderlyingType()
