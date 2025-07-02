@@ -347,6 +347,13 @@ fd_config_fill( fd_config_t * config,
   replace( config->paths.vote_account, "{user}", config->user );
   replace( config->paths.vote_account, "{name}", config->name );
 
+  if( FD_UNLIKELY( strcmp( config->paths.snapshots, "" ) ) ) {
+    replace( config->paths.snapshots, "{user}", config->user );
+    replace( config->paths.snapshots, "{name}", config->name );
+  } else {
+    FD_TEST( fd_cstr_printf_check( config->paths.snapshots, sizeof(config->paths.snapshots), NULL, "%s/snapshots", config->paths.base ) );
+  }
+
   config->tick_per_ns_mu = fd_tempo_tick_per_ns( &config->tick_per_ns_sigma );
 
   if( 0!=strcmp( config->net.bind_address, "" ) ) {

@@ -104,9 +104,9 @@ extern fd_topo_run_tile_t fd_tile_archiver_writer;
 extern fd_topo_run_tile_t fd_tile_archiver_playback;
 extern fd_topo_run_tile_t fd_tile_shredcap;
 
-extern fd_topo_run_tile_t fd_tile_bencho;
-extern fd_topo_run_tile_t fd_tile_benchg;
-extern fd_topo_run_tile_t fd_tile_benchs;
+extern fd_topo_run_tile_t fd_tile_snaprd;
+extern fd_topo_run_tile_t fd_tile_snapdc;
+extern fd_topo_run_tile_t fd_tile_snapin;
 
 fd_topo_run_tile_t * TILES[] = {
   &fd_tile_net,
@@ -146,6 +146,9 @@ fd_topo_run_tile_t * TILES[] = {
   &fd_tile_bencho,
   &fd_tile_benchg,
   &fd_tile_benchs,
+  &fd_tile_snaprd,
+  &fd_tile_snapdc,
+  &fd_tile_snapin,
   NULL,
 };
 
@@ -173,6 +176,7 @@ extern action_t fd_action_wksp;
 extern action_t fd_action_gossip;
 extern action_t fd_action_sim;
 extern action_t fd_action_backtest;
+extern action_t fd_action_snapshot_load;
 
 action_t * ACTIONS[] = {
   &fd_action_run,
@@ -199,6 +203,7 @@ action_t * ACTIONS[] = {
   &fd_action_gossip,
   &fd_action_sim,
   &fd_action_backtest,
+  &fd_action_snapshot_load,
   NULL,
 };
 

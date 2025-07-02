@@ -16,17 +16,6 @@
 #include <assert.h>
 #include <stdio.h>
 
-/* Internal helper for extracting data from account_meta */
-static inline void *
-fd_account_meta_get_data( fd_account_meta_t * m ) {
-  return ((uchar *) m) + m->hlen;
-}
-
-static inline void const *
-fd_account_meta_get_data_const( fd_account_meta_t const * m ) {
-  return ((uchar const *) m) + m->hlen;
-}
-
 #define SORT_NAME sort_pubkey_hash_pair
 #define SORT_KEY_T fd_pubkey_hash_pair_t
 static int
