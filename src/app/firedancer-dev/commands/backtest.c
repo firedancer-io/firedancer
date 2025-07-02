@@ -88,12 +88,12 @@ backtest_topo( config_t * config ) {
   /**********************************************************************/
   /* Add the snapshot tiles to topo                                       */
   /**********************************************************************/
-  fd_topob_wksp( topo, "SnapRd" );
-  fd_topob_wksp( topo, "SnapDc" );
-  fd_topob_wksp( topo, "SnapIn" );
-  fd_topo_tile_t * snaprd_tile = fd_topob_tile( topo, "SnapRd",  "SnapRd",  "metric_in",  cpu_idx++, 0, 0 );
-  fd_topo_tile_t * snapdc_tile = fd_topob_tile( topo, "SnapDc",  "SnapDc",  "metric_in",  cpu_idx++, 0, 0 );
-  fd_topo_tile_t * snapin_tile = fd_topob_tile( topo, "SnapIn",  "SnapIn",  "metric_in",  cpu_idx++, 0, 0 );
+  fd_topob_wksp( topo, "snaprd" );
+  fd_topob_wksp( topo, "snapdc" );
+  fd_topob_wksp( topo, "snapin" );
+  fd_topo_tile_t * snaprd_tile = fd_topob_tile( topo, "snaprd",  "snaprd",  "metric_in",  cpu_idx++, 0, 0 );
+  fd_topo_tile_t * snapdc_tile = fd_topob_tile( topo, "snapdc",  "snapdc",  "metric_in",  cpu_idx++, 0, 0 );
+  fd_topo_tile_t * snapin_tile = fd_topob_tile( topo, "snapin",  "snapin",  "metric_in",  cpu_idx++, 0, 0 );
 
   /**********************************************************************/
   /* Setup backtest->replay link (repair_repla) in topo                 */
@@ -185,19 +185,19 @@ backtest_topo( config_t * config ) {
   /**********************************************************************/
   fd_topob_wksp( topo, "snap_zstd" );
   fd_topob_wksp( topo, "snap_stream");
-  fd_topob_wksp( topo, "snap_replay" );
+  fd_topob_wksp( topo, "snap_out" );
   fd_topob_wksp( topo, "replay_manif" );
-  fd_topob_link( topo, "snap_replay", "snap_replay",   128UL, sizeof(fd_snapshot_manifest_t), 1UL );
+  fd_topob_link( topo, "snap_out", "snap_out",   128UL, sizeof(fd_snapshot_manifest_t), 1UL );
 
   fd_topo_link_t * snap_zstd_link = fd_topob_link( topo, "snap_zstd",    "snap_zstd",    512UL,                                    0UL,                           0UL );
   fd_topo_link_t * snapin_link    = fd_topob_link( topo, "snap_stream", "snap_stream",   512UL,                                    0UL,                           0UL );
 
-  fd_topob_tile_out( topo, "SnapRd", 0UL, "snap_zstd", 0UL );
-  fd_topob_tile_in( topo,  "SnapDc", 0UL, "metric_in", "snap_zstd", 0UL, FD_TOPOB_RELIABLE, FD_TOPOB_POLLED );
-  fd_topob_tile_out( topo, "SnapDc", 0UL, "snap_stream", 0UL );
-  fd_topob_tile_in  ( topo, "SnapIn", 0UL, "metric_in", "snap_stream", 0UL, FD_TOPOB_RELIABLE, FD_TOPOB_POLLED   );
-  fd_topob_tile_out( topo,  "SnapIn", 0UL, "snap_replay", 0UL );
-  fd_topob_tile_in( topo,   "replay", 0UL, "metric_in", "snap_replay", 0UL, FD_TOPOB_UNRELIABLE, FD_TOPOB_UNPOLLED );
+  fd_topob_tile_out( topo, "snaprd", 0UL, "snap_zstd", 0UL );
+  fd_topob_tile_in( topo,  "snapdc", 0UL, "metric_in", "snap_zstd", 0UL, FD_TOPOB_RELIABLE, FD_TOPOB_POLLED );
+  fd_topob_tile_out( topo, "snapdc", 0UL, "snap_stream", 0UL );
+  fd_topob_tile_in  ( topo, "snapin", 0UL, "metric_in", "snap_stream", 0UL, FD_TOPOB_RELIABLE, FD_TOPOB_POLLED   );
+  fd_topob_tile_out( topo,  "snapin", 0UL, "snap_out", 0UL );
+  fd_topob_tile_in( topo,   "replay", 0UL, "metric_in", "snap_out", 0UL, FD_TOPOB_UNRELIABLE, FD_TOPOB_UNPOLLED );
 
   /**********************************************************************/
   /* Setup the shared objs used by replay and exec tiles                */

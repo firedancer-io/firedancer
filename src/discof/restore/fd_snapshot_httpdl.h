@@ -34,7 +34,8 @@
 #define FD_SNAPSHOT_HTTPDL_DEFAULT_HOPS (4UL)
 
 #define FD_SNAPSHOT_HTTPDL_REQUEST_TIMEOUT (10e9) /* 10 seconds */
-#define FD_SNAPSHOT_HTTPDL_DL_PERIOD (100UL<<20)
+#define FD_SNAPSHOT_HTTPDL_DL_PERIOD (10UL<<20) /* 10 mib */
+#define FD_SNAPSHOT_HTTPDL_SPEED_CHECK_PERIOD (100UL<<20) /* 100 mib */
 
 struct fd_snapshot_httpdl {
   /* List of RPC node addresses */
@@ -80,7 +81,6 @@ struct fd_snapshot_httpdl {
   ulong dl_total;      /* total bytes downloaded */
   ulong last_dl_total; /* total bytes downloaded at last speed check */
   long  last_nanos;    /* last time speed was checked */
-  ulong mibps;
 
   /* Total written out so far */
 

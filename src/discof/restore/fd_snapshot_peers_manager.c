@@ -7,6 +7,9 @@
 #include <netinet/in.h>
 #include <fcntl.h>
 
+#define FD_SNAPSHOT_PING_TIMEOUT_NANOS         1000000000L   /* 1 second */
+#define FD_SNAPSHOT_PEER_INVALID_TIMEOUT_NANOS 180000000000L /* 3 minutes */
+
 #define SORT_NAME sort_peers
 #define SORT_KEY_T fd_snapshot_peer_t
 #define SORT_BEFORE(a,b) ((a).latency < (b).latency)
@@ -52,6 +55,11 @@ void
 fd_snapshot_peers_manager_set_peers( fd_snapshot_peers_manager_t * self,
                                       fd_ip4_port_t const *         peers,
                                       ulong                         peers_cnt ) {
+  if( peers_cnt > FD_SNAPSHOT_PEERS_MAX ) {
+    FD_LOG_WARNING(( "Too many peers (%lu), truncating to %lu", peers_cnt, FD_SNAPSHOT_PEERS_MAX ));
+    peers_cnt = FD_SNAPSHOT_PEERS_MAX;
+  }
+
   /* Copy peers into peers manager */
   for( ulong i=0UL; i<peers_cnt; i++ ) {
     fd_snapshot_peer_t * peer = &self->peers[ i ];
@@ -66,8 +74,13 @@ fd_snapshot_peers_manager_set_peers( fd_snapshot_peers_manager_t * self,
 
 void
 fd_snapshot_peers_manager_set_peers_testing( fd_snapshot_peers_manager_t * self,
-                                              fd_snapshot_peer_t const *         peers,
-                                              ulong                         peers_cnt ) {
+                                             fd_snapshot_peer_t const *    peers,
+                                             ulong                         peers_cnt ) {
+  if( peers_cnt > FD_SNAPSHOT_PEERS_MAX ) {
+    FD_LOG_WARNING(( "Too many peers (%lu), truncating to %lu", peers_cnt, FD_SNAPSHOT_PEERS_MAX ));
+    peers_cnt = FD_SNAPSHOT_PEERS_MAX;
+  }
+
   /* Copy peers into peers manager */
   for( ulong i=0UL; i<peers_cnt; i++ ) {
     fd_snapshot_peer_t * peer = &self->peers[ i ];
@@ -155,7 +168,7 @@ fd_snapshot_peers_manager_update_peer_state( fd_snapshot_peers_manager_t * self 
   for( ulong i=0UL; i<self->peers_cnt; i++ ) {
     if( !self->peers[ i ].valid ) {
       /* Mark peer valid again if the invalid timeout has passed */
-      if( now > self->peers[ i ].marked_invalid_time_nanos + FD_SNAPSHOT_PEER_INVALID_TIMEOUT ) {
+      if( now > self->peers[ i ].marked_invalid_time_nanos + FD_SNAPSHOT_PEER_INVALID_TIMEOUT_NANOS ) {
         self->peers[ i ].valid = 1;
         self->peers[ i ].latency = ULONG_MAX; /* Reset latency */
         self->peers[ i ].ping_sent = 0;
@@ -169,6 +182,10 @@ fd_snapshot_peers_manager_update_peer_state( fd_snapshot_peers_manager_t * self 
   }
 }
 
+/* TODO: eventually we need to just send http requests because pings
+   aren't representative of snapshot peer eligibility and may even be
+   filtered by firewalls or the http server on a particular port may
+   go down and the ping will still go through. */
 int
 fd_snapshot_peers_manager_send_pings( fd_snapshot_peers_manager_t * self ) {
   for( ulong i=0UL; i<self->peers_cnt; i++ ) {
@@ -199,7 +216,7 @@ fd_snapshot_peers_maanger_collect_responses( fd_snapshot_peers_manager_t * self 
 
       /* Mark a peer invalid if its ping response timed out */
       long now = fd_log_wallclock();
-      if( now > self->ping_send_time_nanos[ i ] + FD_SNAPSHOT_PING_TIMEOUT ) {
+      if( now > self->ping_send_time_nanos[ i ] + FD_SNAPSHOT_PING_TIMEOUT_NANOS ) {
         self->peers[ i ].valid                     = 0;
         self->peers[ i ].marked_invalid_time_nanos = now;
         self->processed_responses++;

@@ -4,9 +4,7 @@
 #include "fd_snapshot_peer.h"
 
 /* TODO: bound this out */
-#define FD_SNAPSHOT_PEERS_MAX 64UL
-#define FD_SNAPSHOT_PING_TIMEOUT 1000000000L /* 1 second */
-#define FD_SNAPSHOT_PEER_INVALID_TIMEOUT 180000000000L /* 3 minutes */
+#define FD_SNAPSHOT_PEERS_MAX 2048UL
 
 /* fd_snapshot_peers_manager_t validates the eligibility of each
    discovered peer from gossip by pinging the peer and waiting for its

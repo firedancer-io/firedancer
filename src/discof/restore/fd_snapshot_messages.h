@@ -156,7 +156,6 @@ typedef struct fd_snapshot_repair fd_snapshot_repair_t;
 struct fd_snapshot_manifest {
   /* The UNIX timestamp when the genesis block was for this chain
      was created, in nanoseconds.  */
-  /* TODO: convert from seconds */
   long creation_time_ns;
 
   /* At genesis, certain parameters can be set which control the

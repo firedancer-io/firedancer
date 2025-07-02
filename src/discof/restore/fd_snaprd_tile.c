@@ -9,7 +9,7 @@
 #include <unistd.h>
 #include <sys/stat.h>
 
-#define NAME "SnapRd"
+#define NAME "snaprd"
 #define SNAP_READ_MAX 8UL<<20
 
 /* The SnapRd tile at a high level is a state machine that downloads
@@ -148,7 +148,7 @@
 #define FD_SNAPRD_STATE_FAILED                               (14)
 
 /* TODO: these should be received from gossip */
-#define CLUSTER_SNAPSHOT_SLOT 326672166UL
+#define CLUSTER_SNAPSHOT_SLOT 0
 #define INITIAL_PEERS_COUNT 2UL
 
 fd_snapshot_peer_t initial_peers[ 2UL ] = {
@@ -700,7 +700,7 @@ fd_snaprd_run( fd_topo_t *        topo,
   fd_snaprd_run1( ctx, stream_ctx );
 }
 
-fd_topo_run_tile_t fd_tile_snapshot_restore_SnapRd = {
+fd_topo_run_tile_t fd_tile_snaprd = {
   .name                 = NAME,
   .scratch_align        = scratch_align,
   .scratch_footprint    = scratch_footprint,

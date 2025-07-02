@@ -463,18 +463,9 @@ struct fd_topo_tile {
     } snaprd;
 
     struct {
-      ulong scratch_sz;
       ulong funk_obj_id;
       ulong manifest_dcache_obj_id;
     } snapin;
-
-    struct {
-      ulong funk_obj_id;
-    } actalc;
-
-    struct {
-      ulong funk_obj_id;
-    } actidx;
 
   };
 };

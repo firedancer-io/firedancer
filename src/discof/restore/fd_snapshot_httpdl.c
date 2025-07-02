@@ -694,11 +694,11 @@ fd_snapshot_httpdl_dl( fd_snapshot_httpdl_t * self,
         ulong nanos_delta = (ulong)(fd_log_wallclock() - self->last_nanos);
         ulong mibps       = (dl_delta*1000UL)/nanos_delta;
 
-        if( mibps != self->mibps ) {
-          FD_LOG_NOTICE(( "Estimate %lu MB/s", mibps ));
-        }
+        /* TODO: send to GUI download metrics */
+        FD_LOG_NOTICE(( "Estimate %lu MB/s", mibps ));
 
-        if( FD_UNLIKELY( mibps < self->minimum_download_speed_mib ) ) {
+        if( FD_UNLIKELY( self->dl_total < FD_SNAPSHOT_HTTPDL_SPEED_CHECK_PERIOD &&
+                         mibps < self->minimum_download_speed_mib ) ) {
           FD_LOG_WARNING(( "Download speed %lu MB/s is below minimum %lu MB/s",
                           mibps, self->minimum_download_speed_mib ));
           self->metrics.status = FD_SNAPSHOT_READER_RETRY;

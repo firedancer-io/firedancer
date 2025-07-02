@@ -6,40 +6,40 @@
 #include "stream/fd_stream_writer.h"
 #include <unistd.h> /* pause */
 
-#define NAME "SnapDc"
+#define NAME "snapdc"
 #define ZSTD_WINDOW_SZ (33554432UL)
 #define ZSTD_FRAME_SZ 8*1024*1024UL
 #define LINK_IN_MAX 1
 
-/* The SnapDc tile is a state machine that decompresses the full and
+/* The snapdc tile is a state machine that decompresses the full and
    optionally incremental snapshot byte stream that it receives from the
-   SnapRd tile.
+   snaprd tile.
 
-   SnapRd may send a retry notification, which causes SnapDc to reset
+   snaprd may send a retry notification, which causes snapdc to reset
    its decompressor state and byte stream while staying in the same
    state.
 
-   SnapRd may also send a reset notification, which causes SnapDc to
+   snaprd may also send a reset notification, which causes snapdc to
    reset itself and transition back to DECOMPRESSING_FULL. */
 
 /* The initial state is waiting for an incoming compressed
    byte stream of the full snapshot. */
 #define FD_SNAPDC_STATE_WAITING                   (0)
 
-/* SnapDc transitions to DECOMPRESSING_FULL once it starts decompressing
+/* snapdc transitions to DECOMPRESSING_FULL once it starts decompressing
    the full snapshot byte stream.  It remains in this state as long
    as it has not received a end-of-stream notification from
-   SnapRd. */
+   snaprd. */
 #define FD_SNAPDC_STATE_DECOMPRESSING_FULL        (1)
 
-/* SnapDc transitions to decompressing the incremental snapshot byte
+/* snapdc transitions to decompressing the incremental snapshot byte
    stream when it receives a end-of-stream notification from
-   SnapRd.  SnapDc waits in this state indefinitely if there are no
+   snaprd.  snapdc waits in this state indefinitely if there are no
    incoming incremental snapshot stream bytes. */
 #define FD_SNAPDC_STATE_DECOMPRESSING_INCREMENTAL (2)
 
-/* The terminal state of SnapDc.  It transitions to DONE when it
-   receives a tagged end-of-message notification from SnapRd. */
+/* The terminal state of snapdc.  It transitions to DONE when it
+   receives a tagged end-of-message notification from snaprd. */
 #define FD_SNAPDC_STATE_DONE                      (3)
 
 /* A failure state to indicate fatal, non-recoverable errors */
@@ -57,6 +57,9 @@ struct fd_snapdc_tile {
     struct {
       ulong compressed_bytes_read;
       ulong decompressed_bytes_read;
+
+      /* TODO: how to get this? zstd header
+         does not have the frame content sz field populated. */
       ulong decompressed_bytes_total;
     } full;
 
@@ -201,7 +204,7 @@ fd_snapdc_on_file_complete( fd_snapdc_tile_t *   ctx,
     case FD_SNAPDC_STATE_DECOMPRESSING_FULL: {
       if( FD_LIKELY( fd_frag_meta_ctl_orig( frag->ctl ) == 1UL ) ) {
 
-        /* Received an end-of-stream notification from SnapRd
+        /* Received an end-of-stream notification from snaprd
            indicating an incremental snapshot byte stream is next. */
 
         FD_LOG_INFO(("snapdc: done decompressing full snapshot, "
@@ -215,7 +218,7 @@ fd_snapdc_on_file_complete( fd_snapdc_tile_t *   ctx,
         fd_snapdc_reset( ctx, reader );
 
       } else if( !fd_frag_meta_ctl_orig( frag->ctl ) ) {
-        /* Received an end-of-stream notification from SnapRd
+        /* Received an end-of-stream notification from snaprd
            indicating the snapshot byte stream is complete. */
         fd_snapdc_shutdown( ctx );
       } else {
@@ -225,7 +228,7 @@ fd_snapdc_on_file_complete( fd_snapdc_tile_t *   ctx,
       break;
     }
     case FD_SNAPDC_STATE_DECOMPRESSING_INCREMENTAL: {
-      /* Received an end-of-message notification from SnapRd
+      /* Received an end-of-message notification from snaprd
          indicating the incremental snapshot byte stream is complete. */
       FD_TEST( fd_frag_meta_ctl_orig( frag->ctl )==0UL );
       fd_snapdc_shutdown( ctx );
@@ -246,13 +249,13 @@ fd_snapdc_on_notification( fd_snapdc_tile_t *            ctx,
     /* Received an end-of-stream notification */
     fd_snapdc_on_file_complete( ctx, reader, frag );
   } else if( FD_UNLIKELY( fd_frag_meta_ctl_err( frag->ctl ) ) ) {
-    /* Received a retry notification from SnapRd indicating that the
+    /* Received a retry notification from snaprd indicating that the
        current snapshot byte stream is restarting. */
     fd_stream_writer_notify( ctx->writer,
                              fd_frag_meta_ctl( 0UL, 0, 0, 1 ) );
     fd_snapdc_reset( ctx, reader );
   } else if( FD_UNLIKELY( fd_frag_meta_ctl_som( frag->ctl ) ) ) {
-    /* Received a hard reset notification from SnapRd indicating
+    /* Received a hard reset notification from snaprd indicating
        that a full snapshot byte stream is next.  Reset state to
        DECOMPRESSING_FULL */
     fd_stream_writer_notify( ctx->writer,
@@ -368,14 +371,12 @@ fd_snapdc_run( fd_topo_t * topo,
   fd_snapdc_run1( ctx, stream_ctx );
 }
 
-#ifndef FD_TILE_TEST
-fd_topo_run_tile_t fd_tile_snapshot_restore_SnapDc = {
+fd_topo_run_tile_t fd_tile_snapdc = {
   .name              = NAME,
   .scratch_align     = scratch_align,
   .scratch_footprint = scratch_footprint,
   .unprivileged_init = unprivileged_init,
   .run               = fd_snapdc_run,
 };
-#endif
 
 #undef NAME

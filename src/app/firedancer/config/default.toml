@@ -122,6 +122,11 @@ user = ""
     # to inside the base directory, under path `vote-account.json`.
     vote_account = ""
 
+    # Absolute directory path for storing snapshots.  If no path is
+    # provided, it defaults to the `snapshot` subdirectory of the
+    # base firedancer path option ( [paths.base] ).
+    snapshots = ""
+
 # Firedancer logs to two places by default: stderr and a logfile.
 # stdout is not used for logging, and will only be used to print command
 # output or boot errors.  Messages to "stderr" are abbreviated and not
@@ -235,17 +240,12 @@ user = ""
 # nodes, and all snapshot related configuration is for downloading and
 # using snapshots when booting the validator.
 [snapshots]
-    # Absolute directory path for storing snapshots.  If no path is
-    # provided, it defaults to the `snapshot` subdirectory of the
-    # base firedancer path option ( [paths.base] ).
-    path = ""
-
     # Whether to enable loading from incremental snapshots.
     #
-    # If set to true, the validator will only load from a full snapshot.
+    # If set to false, the validator will only load from a full snapshot.
     # Typically, loading from both full and incremental snapshots allows
     # a validator to catch up more quickly.
-    no_incremental_snapshots = false
+    incremental_snapshots = true
 
     # How old a local incremental snapshot on disk can be, in slots, and
     # still be loaded on startup.  The age of a snapshot is determined
@@ -265,16 +265,18 @@ user = ""
     #
     # If set to true, the validator will contact peers from the gossip
     # network to locate both a full and incremental snapshot and
-    # download it.  If false, the validator attempt to load the most
-    # recently created snapshot that exists locally on the disk.  If
-    # there is no local snapshot, the validator will abort with an
+    # download it.  If false, the validator will attempt to load the
+    # most recently downloaded snapshot that exists locally on the disk.
+    # If there is no local snapshot, the validator will abort with an
     # error.
     #
     # When downloading a snapshot, it will optionally be stored on disk
-    # if `[paths.snapshot_dir]` is specified.  At most one downloaded
+    # if `[paths.snapshots]` is specified.  At most one downloaded
     # full snapshot, and one incremental snapshot will be stored, and
     # newly downloaded snapshots will replace ones that are already
     # present.
+    #
+    # TODO: implement the "at most one downloaded " logic. "
     download = true
 
     # A snapshot hash must be published in gossip by one of the
@@ -296,12 +298,22 @@ user = ""
     # this threshold, the validator will abandon the download, find a
     # new peer and start downloading the snapshot from them.
     #
+    # The initial download speed is measured over every 10 mib for the
+    # first 400 mib of downloaded content.  The validator continues
+    # to measure download speed over every 10 mib until the download is
+    # complete, but only the initial download speed is used to decide
+    # whether to abort and retry the download.
+    # TODO: refine the initial download speed measurement and threshold.
+    #
     # If set to zero, no minimum threshold will be applied.
     minimum_download_speed_mib = 0
 
     # The maximum number of times to abort and retry when encountering a
-    # slow snapshot download.  If the maximum attempts is reached, the
-    # validator will exit with an error.
+    # slow snapshot download.  If the maximum attempts is reached while
+    # downloading a snapshot the validator will exit with an error.
+    #
+    # The number of attempts is reset when starting a download for a
+    # new full or incremental snapshot.
     #
     # If set to zero, the validator will continually retry until
     # completing snapshot download.

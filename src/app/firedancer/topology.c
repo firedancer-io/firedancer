@@ -188,7 +188,7 @@ resolve_gossip_entrypoints( config_t * config ) {
 static void
 setup_snapshots( config_t *       config,
                  fd_topo_tile_t * tile ) {
-  fd_memcpy( tile->snaprd.snapshots_path, config->firedancer.snapshots.path, PATH_MAX );
+  fd_memcpy( tile->snaprd.snapshots_path, config->paths.snapshots, PATH_MAX );
   tile->snaprd.incremental_snapshot_fetch   = !config->firedancer.snapshots.no_incremental_snapshots;
   tile->snaprd.do_download                  = config->firedancer.snapshots.download;
   tile->snaprd.maximum_local_snapshot_age   = config->firedancer.snapshots.maximum_local_snapshot_age;
@@ -291,8 +291,15 @@ fd_topo_initialize( config_t * config ) {
   fd_topob_wksp( topo, "exec_fseq"   );
   fd_topob_wksp( topo, "writer_fseq" );
   fd_topob_wksp( topo, "funk" );
-  fd_topob_wksp( topo, "snap_replay" );
+
+  fd_topob_wksp( topo, "snapdc" );
+  fd_topob_wksp( topo, "snaprd" );
+  fd_topob_wksp( topo, "snapin" );
+  fd_topob_wksp( topo, "snap_stream" );
+  fd_topob_wksp( topo, "snap_zstd" );
+  fd_topob_wksp( topo, "snap_out" );
   fd_topob_wksp( topo, "replay_manif" );
+
   fd_topob_wksp( topo, "slot_fseqs"  ); /* fseqs for marked slots eg. turbine slot */
   if( enable_rpc ) fd_topob_wksp( topo, "rpcsrv" );
 
@@ -366,7 +373,7 @@ fd_topo_initialize( config_t * config ) {
   /* Snapshot tiles links */
   fd_topo_link_t * snap_zstd_link   = fd_topob_link( topo, "snap_zstd",    "snap_zstd",    512UL,                     0UL,                            0UL );
   fd_topo_link_t * snapin_link      = fd_topob_link( topo, "snap_stream", "snap_stream",   512UL,                     0UL,                            0UL );
-  fd_topob_link( topo, "snap_replay", "snap_replay",   128UL, sizeof(fd_snapshot_manifest_t), 1UL );
+  fd_topob_link( topo, "snap_out", "snap_out",   128UL, sizeof(fd_snapshot_manifest_t), 1UL );
 
   /* Replay decoded manifest dcache topo obj */
   fd_topo_obj_t * replay_manifest_dcache = fd_topob_obj( topo, "dcache", "replay_manif" );
@@ -430,9 +437,9 @@ fd_topo_initialize( config_t * config ) {
   fd_topo_tile_t * rpcserv_tile = NULL;
   if( enable_rpc ) rpcserv_tile =  fd_topob_tile( topo, "rpcsrv",  "rpcsrv",  "metric_in",  tile_to_cpu[ topo->tile_cnt ], 0,        0 );
 
-  fd_topo_tile_t * snaprd_tile  =  fd_topob_tile( topo, "SnapRd", "SnapRd", "metric_in", tile_to_cpu[ topo->tile_cnt ], 0, 0 );
-  fd_topo_tile_t * snapdc_tile  =  fd_topob_tile( topo, "SnapDc", "SnapDc", "metric_in", tile_to_cpu[ topo->tile_cnt ], 0, 0 );
-  fd_topo_tile_t * snapin_tile  =  fd_topob_tile( topo, "SnapIn", "SnapIn", "metric_in", tile_to_cpu[ topo->tile_cnt ], 0, 0 );
+  fd_topo_tile_t * snaprd_tile  =  fd_topob_tile( topo, "snaprd", "snaprd", "metric_in", tile_to_cpu[ topo->tile_cnt ], 0, 0 );
+  fd_topo_tile_t * snapdc_tile  =  fd_topob_tile( topo, "snapdc", "snapdc", "metric_in", tile_to_cpu[ topo->tile_cnt ], 0, 0 );
+  fd_topo_tile_t * snapin_tile  =  fd_topob_tile( topo, "snapin", "snapin", "metric_in", tile_to_cpu[ topo->tile_cnt ], 0, 0 );
 
   /* Database cache */
 
@@ -722,12 +729,12 @@ fd_topo_initialize( config_t * config ) {
   FOR(shred_tile_cnt)  fd_topob_tile_out( topo, "repair", 0UL,                       "repair_shred", i                                              );
   /**/                 fd_topob_tile_out( topo, "sign",   0UL,                       "sign_repair",  0UL                                            );
 
-  fd_topob_tile_out( topo, "SnapRd", 0UL, "snap_zstd", 0UL );
-  fd_topob_tile_in( topo, "SnapDc", 0UL, "metric_in", "snap_zstd", 0UL, FD_TOPOB_RELIABLE, FD_TOPOB_POLLED );
-  fd_topob_tile_out( topo, "SnapDc", 0UL, "snap_stream", 0UL );
-  fd_topob_tile_in  ( topo, "SnapIn", 0UL, "metric_in", "snap_stream", 0UL, FD_TOPOB_RELIABLE, FD_TOPOB_POLLED   );
-  fd_topob_tile_out( topo, "SnapIn", 0UL, "snap_replay", 0UL );
-  fd_topob_tile_in( topo, "replay", 0UL, "metric_in", "snap_replay", 0UL, FD_TOPOB_UNRELIABLE, FD_TOPOB_UNPOLLED );
+  fd_topob_tile_out( topo, "snaprd", 0UL, "snap_zstd", 0UL );
+  fd_topob_tile_in( topo, "snapdc", 0UL, "metric_in", "snap_zstd", 0UL, FD_TOPOB_RELIABLE, FD_TOPOB_POLLED );
+  fd_topob_tile_out( topo, "snapdc", 0UL, "snap_stream", 0UL );
+  fd_topob_tile_in  ( topo, "snapin", 0UL, "metric_in", "snap_stream", 0UL, FD_TOPOB_RELIABLE, FD_TOPOB_POLLED   );
+  fd_topob_tile_out( topo, "snapin", 0UL, "snap_out", 0UL );
+  fd_topob_tile_in( topo, "replay", 0UL, "metric_in", "snap_out", 0UL, FD_TOPOB_UNRELIABLE, FD_TOPOB_UNPOLLED );
 
   if( config->tiles.archiver.enabled ) {
     fd_topob_wksp( topo, "arch_f" );
@@ -921,7 +928,7 @@ fd_topo_configure_tile( fd_topo_tile_t * tile,
       tile->replay.plugins_enabled = fd_topo_find_tile( &config->topo, "plugin", 0UL ) != ULONG_MAX;
 
       if( FD_UNLIKELY( !strncmp( config->tiles.replay.genesis,  "", 1 ) &&
-                       !strncmp( config->firedancer.snapshots.path, "", 1 ) ) ) {
+                       !strncmp( config->paths.snapshots, "", 1 ) ) ) {
         fd_cstr_printf_check( config->tiles.replay.genesis, PATH_MAX, NULL, "%s/genesis.bin", config->paths.ledger );
       }
       strncpy( tile->replay.genesis, config->tiles.replay.genesis, sizeof(tile->replay.genesis) );
@@ -945,7 +952,6 @@ fd_topo_configure_tile( fd_topo_tile_t * tile,
 
       FD_TEST( tile->replay.funk_obj_id == fd_pod_query_ulong( config->topo.props, "funk", ULONG_MAX ) );
       tile->replay.manifest_dcache_obj_id = fd_pod_query_ulong( config->topo.props, "manifest_dcache", ULONG_MAX );
-      FD_LOG_WARNING(("replay's manifest dcache obj id is %lu", tile->replay.manifest_dcache_obj_id));
 
     } else if( FD_UNLIKELY( !strcmp( tile->name, "sign" ) ) ) {
       strncpy( tile->sign.identity_key_path, config->paths.identity_key, sizeof(tile->sign.identity_key_path) );
@@ -1009,11 +1015,11 @@ fd_topo_configure_tile( fd_topo_tile_t * tile,
       tile->exec.dump_syscall_to_pb = config->capture.dump_syscall_to_pb;
     } else if( FD_UNLIKELY( !strcmp( tile->name, "writer" ) ) ) {
       tile->writer.funk_obj_id = fd_pod_query_ulong( config->topo.props, "funk", ULONG_MAX );
-    } else if( FD_UNLIKELY( !strcmp( tile->name, "SnapRd" ) ) ) {
+    } else if( FD_UNLIKELY( !strcmp( tile->name, "snaprd" ) ) ) {
       setup_snapshots( config, tile );
-    } else if( FD_UNLIKELY( !strcmp( tile->name, "SnapDc" ) ) ) {
+    } else if( FD_UNLIKELY( !strcmp( tile->name, "snapdc" ) ) ) {
 
-    } else if( FD_UNLIKELY( !strcmp( tile->name, "SnapIn" ) ) ) {
+    } else if( FD_UNLIKELY( !strcmp( tile->name, "snapin" ) ) ) {
       tile->snapin.funk_obj_id            = fd_pod_query_ulong( config->topo.props, "funk",      ULONG_MAX );
       tile->snapin.manifest_dcache_obj_id = fd_pod_query_ulong( config->topo.props, "manifest_dcache", ULONG_MAX );
     } else if( FD_UNLIKELY( !strcmp( tile->name, "arch_f" ) ||
@@ -1032,6 +1038,5 @@ fd_topo_configure_tile( fd_topo_tile_t * tile,
     } else {
       return 0;
     }
-  FD_LOG_WARNING(("Configured tile `%s` with id %lu", tile->name, tile->id));
   return 1;
 }

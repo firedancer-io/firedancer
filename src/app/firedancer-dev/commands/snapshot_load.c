@@ -42,8 +42,10 @@ snapshot_load_topo( config_t *     config,
   fd_topob_wksp( topo, "metric" );
   fd_topob_tile( topo, "metric",  "metric", "metric_in", tile_to_cpu[0], 0, 0 );
 
-  fd_topob_wksp( topo, "snap_replay" );
-  fd_topob_link( topo, "snap_replay", "snap_replay",   128UL, sizeof(fd_snapshot_manifest_t), 1UL );
+  fd_topob_wksp( topo, "snap_out" );
+  fd_topo_link_t * snap_out_link = fd_topob_link( topo, "snap_out", "snap_out",   128UL, sizeof(fd_snapshot_manifest_t), 1UL );
+  /* snapshot load topology doesn't consume from snap out link */
+  snap_out_link->permit_no_consumers = 1;
 
   fd_topob_wksp( topo, "replay_manif" );
   fd_topo_obj_t * replay_manifest_dcache = fd_topob_obj( topo, "dcache", "replay_manif" );
@@ -58,12 +60,12 @@ snapshot_load_topo( config_t *     config,
   FD_TEST( fd_pod_insertf_ulong( topo->props, (16UL<<20), "obj.%lu.data_sz", snapin_dcache->id ) );
 
   /* read() tile */
-  fd_topob_wksp( topo, "SnapRd" );
-  fd_topo_tile_t * snaprd_tile = fd_topob_tile( topo, "SnapRd", "SnapRd", "SnapRd", tile_to_cpu[1], 0, 0 );
+  fd_topob_wksp( topo, "snaprd" );
+  fd_topo_tile_t * snaprd_tile = fd_topob_tile( topo, "snaprd", "snaprd", "snaprd", tile_to_cpu[1], 0, 0 );
 
   /* "snapdc": Zstandard decompress tile */
-  fd_topob_wksp( topo, "SnapDc" );
-  fd_topo_tile_t * snapdc_tile = fd_topob_tile( topo, "SnapDc", "SnapDc", "SnapDc", tile_to_cpu[2], 0, 0 );
+  fd_topob_wksp( topo, "snapdc" );
+  fd_topo_tile_t * snapdc_tile = fd_topob_tile( topo, "snapdc", "snapdc", "snapdc", tile_to_cpu[2], 0, 0 );
   (void)snapdc_tile;
 
   /* Compressed data stream */
@@ -74,24 +76,23 @@ snapshot_load_topo( config_t *     config,
   FD_TEST( fd_pod_insertf_ulong( topo->props, (16UL<<20), "obj.%lu.data_sz", zstd_dcache->id ) );
 
   /* snaprd tile -> compressed stream */
-  fd_topob_tile_out( topo, "SnapRd", 0UL, "snap_zstd", 0UL );
+  fd_topob_tile_out( topo, "snaprd", 0UL, "snap_zstd", 0UL );
   fd_topob_tile_uses( topo, snaprd_tile, zstd_dcache, FD_SHMEM_JOIN_MODE_READ_WRITE );
 
   /* compressed stream -> snapdc tile */
-  fd_topob_tile_in( topo, "SnapDc", 0UL, "metric_in", "snap_zstd", 0UL, FD_TOPOB_RELIABLE, FD_TOPOB_POLLED );
+  fd_topob_tile_in( topo, "snapdc", 0UL, "metric_in", "snap_zstd", 0UL, FD_TOPOB_RELIABLE, FD_TOPOB_POLLED );
   fd_topob_tile_uses( topo, snapdc_tile, zstd_dcache, FD_SHMEM_JOIN_MODE_READ_ONLY  );
 
   /* snapdc tile -> uncompressed stream */
-  fd_topob_tile_out( topo, "SnapDc", 0UL, "snap_stream", 0UL );
+  fd_topob_tile_out( topo, "snapdc", 0UL, "snap_stream", 0UL );
   fd_topob_tile_uses( topo, snapdc_tile, snapin_dcache, FD_SHMEM_JOIN_MODE_READ_WRITE );
 
-  /* "SnapIn": Snapshot parser tile */
-  fd_topob_wksp( topo, "SnapIn" );
-  fd_topo_tile_t * snapin_tile = fd_topob_tile( topo, "SnapIn", "SnapIn", "SnapIn", tile_to_cpu[3], 0, 0 );
-  snapin_tile->snapin.scratch_sz = (3UL<<30);
+  /* "snapin": Snapshot parser tile */
+  fd_topob_wksp( topo, "snapin" );
+  fd_topo_tile_t * snapin_tile = fd_topob_tile( topo, "snapin", "snapin", "snapin", tile_to_cpu[3], 0, 0 );
 
   /* uncompressed stream -> snapin tile */
-  fd_topob_tile_in  ( topo, "SnapIn", 0UL, "metric_in", "snap_stream", 0UL, FD_TOPOB_RELIABLE, FD_TOPOB_POLLED   );
+  fd_topob_tile_in  ( topo, "snapin", 0UL, "metric_in", "snap_stream", 0UL, FD_TOPOB_RELIABLE, FD_TOPOB_POLLED   );
   fd_topob_tile_uses( topo, snapin_tile, snapin_dcache, FD_SHMEM_JOIN_MODE_READ_ONLY  );
 
   fd_topob_tile_uses( topo, snapin_tile, funk_obj, FD_SHMEM_JOIN_MODE_READ_WRITE );
@@ -100,7 +101,7 @@ snapshot_load_topo( config_t *     config,
   fd_topob_tile_uses( topo, snapin_tile, replay_manifest_dcache, FD_SHMEM_JOIN_MODE_READ_WRITE );
   snapin_tile->snapin.manifest_dcache_obj_id = replay_manifest_dcache->id;
 
-  fd_topob_tile_out( topo, "SnapIn", 0UL, "snap_replay", 0UL );
+  fd_topob_tile_out( topo, "snapin", 0UL, "snap_out", 0UL );
 
   for( ulong i=0UL; i<topo->tile_cnt; i++ ) {
     fd_topo_tile_t * tile = &topo->tiles[ i ];
@@ -154,9 +155,9 @@ snapshot_load_cmd_fn( args_t *   args,
   double ns_per_tick = 1.0/tick_per_ns;
   fd_topo_run_single_process( topo, 2, config->uid, config->gid, fdctl_tile_run, NULL );
 
-  fd_topo_tile_t * snap_rd_tile        = &topo->tiles[ fd_topo_find_tile( topo, "SnapIn", 0UL ) ];
-  fd_topo_tile_t * const snap_in_tile  = &topo->tiles[ fd_topo_find_tile( topo, "SnapIn", 0UL ) ];
-  ulong            const zstd_tile_idx =               fd_topo_find_tile( topo, "SnapDc", 0UL );
+  fd_topo_tile_t * snap_rd_tile        = &topo->tiles[ fd_topo_find_tile( topo, "snapin", 0UL ) ];
+  fd_topo_tile_t * const snap_in_tile  = &topo->tiles[ fd_topo_find_tile( topo, "snapin", 0UL ) ];
+  ulong            const zstd_tile_idx =               fd_topo_find_tile( topo, "snapdc", 0UL );
   fd_topo_tile_t * const snapdc_tile   = zstd_tile_idx!=ULONG_MAX ? &topo->tiles[ zstd_tile_idx ] : NULL;
 
   ulong *          const snap_in_fseq      = snap_in_tile->in_link_fseq[ 0 ];

@@ -129,7 +129,6 @@ struct fd_configf {
   } layout;
 
   struct {
-    char  path[ PATH_MAX ];
     int   no_incremental_snapshots;
     uint  maximum_local_snapshot_age;
     int   download;
@@ -195,6 +194,7 @@ struct fd_config {
     char ledger[ PATH_MAX ];
     char identity_key[ PATH_MAX ];
     char vote_account[ PATH_MAX ];
+    char snapshots[ PATH_MAX ];
   } paths;
 
   struct {

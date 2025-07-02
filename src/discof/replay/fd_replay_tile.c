@@ -1995,9 +1995,11 @@ unprivileged_init( fd_topo_t *      topo,
   if( FD_UNLIKELY( tile->in_cnt < 4 ||
                    strcmp( topo->links[ tile->in_link_id[ PACK_IN_IDX ] ].name, "pack_replay")   ||
                    strcmp( topo->links[ tile->in_link_id[ REPAIR_IN_IDX  ] ].name, "repair_repla" ) ||
-                   strcmp( topo->links[ tile->in_link_id[ SNAP_IN_IDX  ] ].name, "snap_replay" ) ) ) {
-    FD_LOG_ERR(( "replay tile has none or unexpected input links %lu %s %s",
-                 tile->in_cnt, topo->links[ tile->in_link_id[ 0 ] ].name, topo->links[ tile->in_link_id[ 1 ] ].name ));
+                   strcmp( topo->links[ tile->in_link_id[ SNAP_IN_IDX  ] ].name, "snap_out" ) ) ) {
+    FD_LOG_ERR(( "replay tile has none or unexpected input links %lu %s %s %s",
+                 tile->in_cnt, topo->links[ tile->in_link_id[ 0 ] ].name,
+                 topo->links[ tile->in_link_id[ 1 ] ].name,
+                 topo->links[ tile->in_link_id[ 2 ] ].name ));
   }
 
   /**********************************************************************/

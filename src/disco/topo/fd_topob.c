@@ -337,7 +337,7 @@ validate( fd_topo_t const * topo ) {
   for( ulong i=0UL; i<topo->link_cnt; i++ ) {
     ulong cnt = fd_topo_link_consumer_cnt( topo, &topo->links[ i ] );
     if( FD_UNLIKELY( cnt < 1UL && !topo->links[ i ].permit_no_consumers ) ) {
-      FD_LOG_WARNING(( "link %lu (%s:%lu) has 0 consumers", i, topo->links[ i ].name, topo->links[ i ].kind_id ));
+      FD_LOG_ERR(( "link %lu (%s:%lu) has 0 consumers", i, topo->links[ i ].name, topo->links[ i ].kind_id ));
     }
   }
 }
@@ -385,9 +385,9 @@ fd_topob_auto_layout( fd_topo_t * topo,
     "tower",  /* FIREDANCER only */
     "rpcsrv", /* FIREDANCER only */
     "pktgen",
-    "SnapRd",
-    "SnapDc",
-    "SnapIn"
+    "snaprd", /* FIREDANCER only */
+    "snapdc", /* FIREDANCER only */
+    "snapin" /* FIREDANCER only */
   };
 
   char const * CRITICAL_TILES[] = {

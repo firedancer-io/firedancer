@@ -7,11 +7,11 @@ fd_config_check_configf( fd_config_t *  config,
                          fd_configf_t * config_f ) {
   (void)config_f;
   (void)config;
-  if( FD_UNLIKELY( strlen( config->firedancer.snapshots.path )>PATH_MAX-1UL ) ) {
-    FD_LOG_ERR(( "[tiles.replay.snapshot_dir] is too long (max %lu)", PATH_MAX-1UL ));
+  if( FD_UNLIKELY( strlen( config->paths.snapshots )>PATH_MAX-1UL ) ) {
+    FD_LOG_ERR(( "[config->paths.snapshots] is too long (max %lu)", PATH_MAX-1UL ));
   }
-  if( FD_UNLIKELY( config->firedancer.snapshots.path[ 0 ]!='\0' && config->firedancer.snapshots.path[ 0 ]!='/' ) ) {
-    FD_LOG_ERR(( "[tiles.replay.snapshot_dir] must be an absolute path and hence start with a '/'"));
+  if( FD_UNLIKELY( config->paths.snapshots[ 0 ]!='\0' && config->paths.snapshots[ 0 ]!='/' ) ) {
+    FD_LOG_ERR(( "[config->paths.snapshots] must be an absolute path and hence start with a '/'"));
   }
 }
 
@@ -103,7 +103,6 @@ fd_config_extract_podf( uchar *        pod,
   CFG_POP      ( ulong,  funk.heap_size_gib                               );
   CFG_POP      ( ulong,  funk.max_database_transactions                   );
 
-  CFG_POP       ( cstr,   snapshots.path                                   );
   CFG_POP       ( bool,   snapshots.no_incremental_snapshots               );
   CFG_POP       ( uint,   snapshots.maximum_local_snapshot_age             );
   CFG_POP       ( bool,   snapshots.download                               );
@@ -131,6 +130,7 @@ fd_config_extract_pod( uchar *       pod,
     CFG_POP      ( cstr,   paths.ledger                                     );
     CFG_POP      ( cstr,   paths.identity_key                               );
     CFG_POP      ( cstr,   paths.vote_account                               );
+    CFG_POP      ( cstr,   paths.snapshots                                  );
   } else {
     CFG_POP1     ( cstr,   scratch_directory,           paths.base          );
     CFG_POP1     ( cstr,   ledger.path,                 paths.ledger        );

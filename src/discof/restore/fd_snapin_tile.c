@@ -14,7 +14,7 @@
 #include <stdio.h>
 #include <unistd.h>
 
-#define NAME        "SnapIn"
+#define NAME "snapin"
 #define LINK_IN_MAX  1UL
 
 #define MANIFEST_OUT_IDX 0UL
@@ -258,7 +258,7 @@ scratch_footprint( fd_topo_tile_t const * tile ) {
   l = FD_LAYOUT_APPEND( l, alignof(fd_snapin_tile_t),  sizeof(fd_snapin_tile_t)       );
   l = FD_LAYOUT_APPEND( l, fd_snapshot_parser_align(), fd_snapshot_parser_footprint() );
   l = FD_LAYOUT_APPEND( l, fd_frag_writer_align(),     fd_frag_writer_footprint()     );
-  l = FD_LAYOUT_APPEND( l, fd_scratch_smem_align(),       fd_scratch_smem_footprint( FD_SNAPIN_SCRATCH_MAX ) );
+  l = FD_LAYOUT_APPEND( l, fd_scratch_smem_align(),    fd_scratch_smem_footprint( FD_SNAPIN_SCRATCH_MAX ) );
   return FD_LAYOUT_FINI( l, alignof(fd_snapin_tile_t) );
 }
 
@@ -545,8 +545,8 @@ fd_snapin_run( fd_topo_t *      topo,
   fd_snapin_run1( ctx, stream_ctx );
 }
 
-fd_topo_run_tile_t fd_tile_snapshot_restore_SnapIn = {
-  .name              = "SnapIn",
+fd_topo_run_tile_t fd_tile_snapin = {
+  .name              = NAME,
   .scratch_align     = scratch_align,
   .scratch_footprint = scratch_footprint,
   .unprivileged_init = unprivileged_init,
