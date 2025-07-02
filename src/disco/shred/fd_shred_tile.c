@@ -83,10 +83,6 @@
    33 data shreds point into the second fd_shred34_t.  Similar for the
    parity shreds pointing into the third and fourth fd_shred34_t. */
 
-/* There's nothing deep about this max, but I just find it easier to
-   have a max and use statically sized arrays than alloca. */
-#define MAX_BANK_CNT 64UL
-
 #define FD_SHRED_TILE_SCRATCH_ALIGN 128UL
 
 #define IN_KIND_CONTACT (0UL)
@@ -1081,12 +1077,6 @@ unprivileged_init( fd_topo_t *      topo,
 
   if( FD_UNLIKELY( !tile->shred.fec_resolver_depth ) ) FD_LOG_ERR(( "fec_resolver_depth not set" ));
   if( FD_UNLIKELY( !tile->shred.shred_listen_port  ) ) FD_LOG_ERR(( "shred_listen_port not set" ));
-
-  ulong bank_cnt   = fd_topo_tile_name_cnt( topo, "bank" );
-  ulong replay_cnt = fd_topo_tile_name_cnt( topo, "replay" );
-
-  if( FD_UNLIKELY( !bank_cnt && !replay_cnt ) ) FD_LOG_ERR(( "0 bank/replay tiles" ));
-  if( FD_UNLIKELY( bank_cnt>MAX_BANK_CNT ) ) FD_LOG_ERR(( "Too many banks" ));
 
   void * _stake_ci = FD_SCRATCH_ALLOC_APPEND( l, fd_stake_ci_align(),              fd_stake_ci_footprint()            );
   void * _resolver = FD_SCRATCH_ALLOC_APPEND( l, fd_fec_resolver_align(),          fec_resolver_footprint             );
