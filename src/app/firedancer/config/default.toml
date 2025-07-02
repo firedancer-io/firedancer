@@ -1021,7 +1021,7 @@ user = ""
         # starting late, but you can disable the option to use a more
         # healthy behavior, where taking a long time to "freeze" slots
         # cuts into your own next slot time, and does not increase it.
-        lagged_consecutive_leader_start = true
+        lagged_consecutive_leader_start = false
 
     # The shred tile distributes processed transactions that have been
     # executed to the rest of the cluster in the form of shred packets.
