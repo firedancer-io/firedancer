@@ -546,19 +546,23 @@ fd_gui_poll( fd_gui_t * gui ) {
 static void
 fd_gui_handle_gossip_update( fd_gui_t *    gui,
                              uchar const * msg ) {
+  if( FD_UNLIKELY( gui->gossip.peer_cnt == FD_GUI_MAX_PEER_CNT ) ) {
+    FD_LOG_DEBUG(("gossip peer cnt exceeds 40200 %lu, ignoring additional entries", gui->gossip.peer_cnt ));
+    return;
+  }
   ulong const * header = (ulong const *)fd_type_pun_const( msg );
   ulong peer_cnt = header[ 0 ];
 
-  FD_TEST( peer_cnt<=40200UL );
+  FD_TEST( peer_cnt<=FD_GUI_MAX_PEER_CNT );
 
   ulong added_cnt = 0UL;
-  ulong added[ 40200 ] = {0};
+  ulong added[ FD_GUI_MAX_PEER_CNT ] = {0};
 
   ulong update_cnt = 0UL;
-  ulong updated[ 40200 ] = {0};
+  ulong updated[ FD_GUI_MAX_PEER_CNT ] = {0};
 
   ulong removed_cnt = 0UL;
-  fd_pubkey_t removed[ 40200 ] = {0};
+  fd_pubkey_t removed[ FD_GUI_MAX_PEER_CNT ] = {0};
 
   uchar const * data = (uchar const *)(header+1UL);
   for( ulong i=0UL; i<gui->gossip.peer_cnt; i++ ) {
@@ -670,19 +674,23 @@ fd_gui_handle_gossip_update( fd_gui_t *    gui,
 static void
 fd_gui_handle_vote_account_update( fd_gui_t *    gui,
                                    uchar const * msg ) {
+  if( FD_UNLIKELY( gui->vote_account.vote_account_cnt==FD_GUI_MAX_PEER_CNT ) ) {
+    FD_LOG_DEBUG(("vote account cnt exceeds 40200 %lu, ignoring additional entries", gui->vote_account.vote_account_cnt ));
+    return;
+  }
   ulong const * header = (ulong const *)fd_type_pun_const( msg );
   ulong peer_cnt = header[ 0 ];
 
-  FD_TEST( peer_cnt<=40200UL );
+  FD_TEST( peer_cnt<=FD_GUI_MAX_PEER_CNT );
 
   ulong added_cnt = 0UL;
-  ulong added[ 40200 ] = {0};
+  ulong added[ FD_GUI_MAX_PEER_CNT ] = {0};
 
   ulong update_cnt = 0UL;
-  ulong updated[ 40200 ] = {0};
+  ulong updated[ FD_GUI_MAX_PEER_CNT ] = {0};
 
   ulong removed_cnt = 0UL;
-  fd_pubkey_t removed[ 40200 ] = {0};
+  fd_pubkey_t removed[ FD_GUI_MAX_PEER_CNT ] = {0};
 
   uchar const * data = (uchar const *)(header+1UL);
   for( ulong i=0UL; i<gui->vote_account.vote_account_cnt; i++ ) {
@@ -762,6 +770,10 @@ fd_gui_handle_vote_account_update( fd_gui_t *    gui,
 static void
 fd_gui_handle_validator_info_update( fd_gui_t *    gui,
                                      uchar const * msg ) {
+  if( FD_UNLIKELY( gui->validator_info.info_cnt == FD_GUI_MAX_PEER_CNT ) ) {
+    FD_LOG_DEBUG(("validator info cnt exceeds 40200 %lu, ignoring additional entries", gui->validator_info.info_cnt ));
+    return;
+  }
   uchar const * data = (uchar const *)fd_type_pun_const( msg );
 
   ulong added_cnt = 0UL;

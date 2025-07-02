@@ -80,7 +80,7 @@ typedef struct {
   /* This needs to be max(plugin_msg) across all kinds of messages.
      Currently this is just figured out manually, it's a gossip update
      message assuming the table is completely full (40200) of peers. */
-  uchar      buf[ 8UL+40200UL*(58UL+12UL*34UL) ] __attribute__((aligned(8)));
+  uchar      buf[ 8UL+FD_GUI_MAX_PEER_CNT*(58UL+12UL*34UL) ] __attribute__((aligned(8)));
 
   fd_http_server_t * gui_server;
 
@@ -176,11 +176,11 @@ during_frag( fd_gui_ctx_t * ctx,
     /* ... todo... sigh, sz is not correct since it's too big */
     if( FD_LIKELY( sig==FD_PLUGIN_MSG_GOSSIP_UPDATE ) ) {
       ulong peer_cnt = ((ulong *)src)[ 0 ];
-      FD_TEST( peer_cnt<=40200 );
+      FD_TEST( peer_cnt<=FD_GUI_MAX_PEER_CNT );
       sz = 8UL + peer_cnt*FD_GOSSIP_LINK_MSG_SIZE;
     } else if( FD_LIKELY( sig==FD_PLUGIN_MSG_VOTE_ACCOUNT_UPDATE ) ) {
       ulong peer_cnt = ((ulong *)src)[ 0 ];
-      FD_TEST( peer_cnt<=40200 );
+      FD_TEST( peer_cnt<=FD_GUI_MAX_PEER_CNT );
       sz = 8UL + peer_cnt*112UL;
     } else if( FD_UNLIKELY( sig==FD_PLUGIN_MSG_LEADER_SCHEDULE ) ) {
       ulong staked_cnt = ((ulong *)src)[ 1 ];
