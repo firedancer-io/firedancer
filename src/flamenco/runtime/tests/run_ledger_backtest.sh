@@ -170,7 +170,7 @@ echo "
 [runtime]
     heap_size_gib = 100
     [runtime.limits]
-        max_banks = 36
+        max_banks = 64
 [consensus]
     vote = false
 [development]
