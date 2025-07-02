@@ -6,6 +6,7 @@ $(call make-lib,fdctl_shared)
 
 $(call add-objs,fd_config fd_config_parse,fdctl_shared)
 $(call add-objs,fd_obj_callbacks,fdctl_shared)
+$(call add-objs,fd_tile_unit_test,fdctl_shared)
 $(call make-unit-test,test_config_parse,test_config_parse,fd_fdctl fdctl_shared fdctl_platform fd_disco fd_ballet fd_tango fd_util)
 $(call run-unit-test,test_config_parse)
 $(call make-fuzz-test,fuzz_fdctl_config,fuzz_fdctl_config,fd_fdctl fdctl_shared fdctl_platform fd_disco fd_ballet fd_tango fd_util)
