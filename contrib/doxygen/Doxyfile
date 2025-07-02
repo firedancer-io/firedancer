@@ -1,0 +1,127 @@
+PROJECT_NAME = Firedancer
+
+USE_MDFILE_AS_MAINPAGE = README.md
+
+OUTPUT_DIRECTORY = $(OUTPUT_DIRECTORY)
+
+FILE_PATTERNS = *.md fd_*.h
+INPUT = README.md \
+  src \
+  src/util \
+  src/util/alloc \
+  src/util/archive \
+  src/util/bits \
+  src/util/checkpt \
+  src/util/cstr \
+  src/util/env \
+  src/util/hist \
+  src/util/io \
+  src/util/log \
+  src/util/math \
+  src/util/net \
+  src/util/pod \
+  src/util/rng \
+  src/util/sandbox \
+  src/util/sanitize \
+  src/util/scratch \
+  src/util/shmem \
+  src/util/simd \
+  src/util/spad \
+  src/util/tile \
+  src/util/templ \
+  src/util/wksp \
+  src/waltz \
+  src/waltz/ebpf \
+  src/waltz/grpc \
+  src/waltz/h2 \
+  src/waltz/http \
+  src/waltz/ip \
+  src/waltz/mib \
+  src/waltz/neigh \
+  src/waltz/quic \
+  src/waltz/quic/crypto \
+  src/waltz/quic/tls \
+  src/waltz/resolv/fd_netdb.h \
+  src/waltz/xdp
+
+EXCLUDE = src/waltz/tls/fd_tls_proto.h
+
+OPTIMIZE_OUTPUT_FOR_C   = YES
+ENABLE_PREPROCESSING    = YES
+MACRO_EXPANSION         = YES
+EXPAND_ONLY_PREDEF      = YES
+EXTRACT_ALL             = YES
+EXTRACT_STATIC          = YES
+DISTRIBUTE_GROUP_DOC    = YES
+HIDE_UNDOC_MEMBERS      = YES
+HIDE_UNDOC_CLASSES      = YES
+HIDE_SCOPE_NAMES        = YES
+GENERATE_DEPRECATEDLIST = YES
+VERBATIM_HEADERS        = NO
+IGNORE_PREFIX           = fd_ FD_
+ALPHABETICAL_INDEX      = YES
+INTERNAL_DOCS           = NO
+GENERATE_TREEVIEW       = YES
+TYPEDEF_HIDES_STRUCT    = YES
+GENERATE_LATEX          = NO
+
+# The EXCLUDE_SYMBOLS and PREDEFINED lists are a bit ... special.
+
+EXCLUDE_SYMBOLS = _ \
+  _* \
+  COMMA \
+  MAP_* \
+  DLIST_* \
+  TREAP_* \
+  POOL_* \
+  pretty_print \
+  __pad* \
+  FD_STATIC_ASSERT \
+  SELECT_IMPL \
+  fd_spad_*_impl \
+  fd_spad_*_debug \
+  FD_HAS_* \
+  SHORT_MIN \
+  SHORT_MAX \
+  USHORT_MAX \
+  FD_STRINGIFY \
+  FD_CONCAT2 \
+  FD_CONCAT3 \
+  FD_CONCAT4 \
+  FD_EXPAND_THEN_* \
+  FD_USE_* \
+  FD_TICKCOUNT_STYLE \
+  FD_RESTRICT \
+  FD_VA_ARGS_SELECT
+
+PREDEFINED = FD_PROTOTYPES_BEGIN \
+  FD_PROTOTYPES_END \
+  __visibility__ \
+  __attribute__ \
+  aligned \
+  sizeof \
+  alignof \
+  typedef \
+  FD_RESTRICT \
+  __linux__ \
+  FD_HAS_SSE \
+  FD_HAS_AVX \
+  FD_HAS_AVX512 \
+  FD_HAS_GFNI
+
+HTML_DYNAMIC_SECTIONS   = YES
+SEARCHENGINE            = YES
+SORT_MEMBER_DOCS        = NO
+SOURCE_BROWSER          = NO
+
+FULL_PATH_NAMES         = YES
+STRIP_FROM_PATH         =
+GENERATE_HTML           = YES
+HTML_OUTPUT             = html
+GENERATE_LATEX          = NO
+GENERATE_MAN            = NO
+MAN_LINKS               = YES
+
+HAVE_DOT                = NO
+
+WARN_AS_ERROR           = NO
