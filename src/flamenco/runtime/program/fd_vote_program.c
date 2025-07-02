@@ -1853,20 +1853,20 @@ process_vote_with_account( fd_borrowed_account_t *       vote_account,
       return FD_EXECUTOR_INSTR_ERR_CUSTOM_ERR;
     }
 
-    ulong * max = deq_ulong_peek_head( vote->slots ) ? deq_ulong_peek_head( vote->slots ) : NULL;
+    ulong max = deq_ulong_peek_head( vote->slots ) ? *deq_ulong_peek_head( vote->slots ) : 0UL;
     // https://github.com/anza-xyz/agave/blob/v2.0.1/programs/vote/src/vote_state/mod.rs#L1127
     for( deq_ulong_iter_t iter = deq_ulong_iter_init( vote->slots );
          !deq_ulong_iter_done( vote->slots, iter );
          iter = deq_ulong_iter_next( vote->slots, iter ) ) {
       ulong * ele = deq_ulong_iter_ele( vote->slots, iter );
-      *max        = fd_ulong_max( *max, *ele );
+      max         = fd_ulong_max( max, *ele );
     }
     if( FD_UNLIKELY( !max ) ) {
       ctx->txn_ctx->custom_err = FD_VOTE_ERR_EMPTY_SLOTS;
       return FD_EXECUTOR_INSTR_ERR_CUSTOM_ERR;
     }
     // https://github.com/anza-xyz/agave/blob/v2.0.1/programs/vote/src/vote_state/mod.rs#L1131
-    rc = process_timestamp( &vote_state, *max, *vote->timestamp, ctx );
+    rc = process_timestamp( &vote_state, max, *vote->timestamp, ctx );
     if( FD_UNLIKELY( rc ) ) return rc;
   }
 
