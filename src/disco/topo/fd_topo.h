@@ -234,6 +234,7 @@ struct fd_topo_tile {
     struct {
       int   lagged_consecutive_leader_start;
       int   plugins_enabled;
+      int   perf_mode;
       ulong bank_cnt;
       char  identity_key_path[ PATH_MAX ];
       struct {

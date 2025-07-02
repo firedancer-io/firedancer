@@ -128,6 +128,9 @@ typedef struct {
 
   /* One of the FD_PACK_STRATEGY_* values defined above */
   int      strategy;
+  /* Set to 1 when we get a message from PoH indicating it's pretty much
+     done with the slot.  Only matters if strategy==PERF */
+  int      poh_done;
 
   /* The value passed to fd_pack_new, etc. */
   ulong    max_pending_transactions;
@@ -544,6 +547,7 @@ after_credit( fd_pack_ctx_t *     ctx,
     ctx->drain_banks         = 1;
     ctx->leader_slot         = ULONG_MAX;
     ctx->slot_microblock_cnt = 0UL;
+    ctx->poh_done            = 0;
     fd_pack_end_block( ctx->pack );
     remove_ib( ctx );
 
@@ -583,6 +587,15 @@ after_credit( fd_pack_ctx_t *     ctx,
   if( FD_UNLIKELY( (ulong)(now-ctx->last_successful_insert) <
         ctx->wait_duration_ticks[ fd_ulong_min( fd_pack_avail_txn_cnt( ctx->pack ), MAX_TXN_PER_MICROBLOCK ) ] ) ) {
     update_metric_state( ctx, now, FD_PACK_METRIC_STATE_TRANSACTIONS, 0 );
+
+    if( FD_UNLIKELY( (ctx->strategy==FD_PACK_STRATEGY_PERF) &
+          (ctx->bank_idle_bitset==fd_ulong_mask_lsb( (int)bank_cnt )) &
+          ctx->poh_done ) ) {
+      FD_LOG_INFO(( "pack_end_early(ms=%li, reason=txn)", (ctx->slot_end_ns - ctx->approx_wallclock_ns)/1000000L ));
+      /* In perf mode, if PoH is done, we're out of transactions, and we
+         can't schedule anything, just try to end the block ASAP. */
+      ctx->slot_end_ns = ctx->approx_wallclock_ns;
+    }
     return;
   }
 
@@ -715,6 +728,14 @@ after_credit( fd_pack_ctx_t *     ctx,
 
       memcpy( ctx->last_sched_metrics->all, (ulong const *)fd_metrics_tl, sizeof(ctx->last_sched_metrics->all) );
       ctx->last_sched_metrics->time = now2;
+    } else if( FD_UNLIKELY( (ctx->strategy==FD_PACK_STRATEGY_PERF) &
+          (ctx->bank_idle_bitset==fd_ulong_mask_lsb( (int)bank_cnt )) &
+          ctx->poh_done ) ) {
+      FD_LOG_INFO(( "pack_end_early(ms=%li, reason=sched)", (ctx->slot_end_ns - ctx->approx_wallclock_ns)/1000000L ));
+      /* In perf mode, if PoH is done and we can't schedule anything
+         even though all the banks are idle, just schedule ending the
+         block ASAP. */
+      ctx->slot_end_ns = ctx->approx_wallclock_ns;
     }
   }
 
@@ -748,6 +769,7 @@ after_credit( fd_pack_ctx_t *     ctx,
     ctx->drain_banks         = 1;
     ctx->leader_slot         = ULONG_MAX;
     ctx->slot_microblock_cnt = 0UL;
+    ctx->poh_done            = 0;
     fd_pack_end_block( ctx->pack );
     remove_ib( ctx );
 
@@ -771,7 +793,13 @@ during_frag( fd_pack_ctx_t * ctx,
 
   switch( ctx->in_kind[ in_idx ] ) {
   case IN_KIND_POH: {
-      /* Not interested in stamped microblocks, only leader updates. */
+    /* Not interested in stamped microblocks, only leader updates and
+       possibly done hashing messages. */
+    if( FD_UNLIKELY( fd_disco_poh_sig_pkt_type( sig )==POH_PKT_TYPE_DONE_HASHING ) ) {
+      ctx->poh_done = ctx->leader_slot == fd_disco_poh_sig_slot( sig );
+      FD_LOG_INFO(( "PoH done %i hashing for slot %lu", ctx->poh_done, fd_disco_poh_sig_slot( sig ) ));
+    }
+
     if( fd_disco_poh_sig_pkt_type( sig )!=POH_PKT_TYPE_BECAME_LEADER ) return;
 
     /* There was a leader transition.  Handle it. */
@@ -787,6 +815,7 @@ during_frag( fd_pack_ctx_t * ctx,
       ctx->drain_banks         = 1;
       ctx->leader_slot         = ULONG_MAX;
       ctx->slot_microblock_cnt = 0UL;
+      ctx->poh_done            = 0;
       fd_pack_end_block( ctx->pack );
       remove_ib( ctx );
     }
@@ -796,6 +825,7 @@ during_frag( fd_pack_ctx_t * ctx,
     FD_MCNT_INC( PACK, TRANSACTION_EXPIRED, exp_cnt );
 
     fd_became_leader_t * became_leader = (fd_became_leader_t *)dcache_entry;
+    ctx->poh_done             = 0;
     ctx->leader_bank          = became_leader->bank;
     ctx->slot_max_microblocks = became_leader->max_microblocks_in_slot;
     /* Reserve some space in the block for ticks */
@@ -1175,6 +1205,7 @@ unprivileged_init( fd_topo_t *      topo,
   ctx->cur_spot                      = NULL;
   ctx->is_bundle                     = 0;
   ctx->strategy                      = tile->pack.schedule_strategy;
+  ctx->poh_done                      = 0;
   ctx->max_pending_transactions      = tile->pack.max_pending_transactions;
   ctx->leader_slot                   = ULONG_MAX;
   ctx->leader_bank                   = NULL;

@@ -387,6 +387,13 @@ typedef struct {
      microblocks that the pack tile can publish in each slot. */
   ulong max_microblocks_per_slot;
 
+  /* If perf_mode==1, then instead of using slot_duration_ns and
+     hashcnt_duration_ns to pace hashes during our leader slot, we just
+     hash as fast as possible.  In practice, this means we'll hardly mix
+     in any transactions for the first portion of the slot, which can
+     cause backpressure. */
+  int   perf_mode;
+
   /* Consensus-critical slot cost limits. */
   struct {
     ulong slot_max_cost;
@@ -482,6 +489,10 @@ typedef struct {
 
   /* If an in progress frag should be skipped */
   int skip_frag;
+
+  /* If the poh tile has sent a DONE_HASHING message to pack for this
+     slot. */
+  int sent_done_hashing;
 
   ulong max_active_descendant;
 
@@ -1096,6 +1107,7 @@ fd_ext_poh_begin_leader( void const * bank,
   ctx->microblocks_lower_bound = 0UL;
   ctx->cus_used                = 0UL;
   ctx->expect_microblock_idx   = 0UL;
+  ctx->sent_done_hashing       = 0;
 
   ctx->limits.slot_max_cost                = cus_block_limit;
   ctx->limits.slot_max_vote_cost           = cus_vote_cost_limit;
@@ -1243,9 +1255,10 @@ fd_ext_poh_reset( ulong         completed_bank_slot, /* The slot that successful
 
        But: if we were leader in the prior slot, and the block was our
        own we can do better.  We know that the next slot should start
-       exactly 400ms after the prior one started, so we can use that as
-       the reset slot start time instead. */
-    ctx->reset_slot_start_ns = ctx->reset_slot_start_ns + (long)((double)((completed_bank_slot+1UL)-ctx->reset_slot)*ctx->slot_duration_ns);
+       no later than 400ms after the prior one started, so we can use
+       that as the reset slot start time instead. */
+    ctx->reset_slot_start_ns = fd_long_min( ctx->reset_slot_start_ns + (long)((double)((completed_bank_slot+1UL)-ctx->reset_slot)*ctx->slot_duration_ns),
+                                            ctx->leader_bank_start_ns );
   } else {
     ctx->reset_slot_start_ns = ctx->leader_bank_start_ns;
   }
@@ -1631,7 +1644,7 @@ after_credit( fd_poh_ctx_t *      ctx,
   ulong target_hashcnt;
   if( FD_LIKELY( !is_leader ) ) {
     target_hashcnt = (ulong)((double)(now - ctx->reset_slot_start_ns) / ctx->hashcnt_duration_ns) - (ctx->slot-ctx->reset_slot)*ctx->hashcnt_per_slot;
-  } else {
+  } else if( FD_LIKELY( ctx->perf_mode==0 ) ) {
     /* We might have gotten very behind on hashes, but if we are leader
        we want to catch up gradually over the remainder of our leader
        slot, not all at once right now.  This helps keep the tile from
@@ -1641,7 +1654,10 @@ after_credit( fd_poh_ctx_t *      ctx,
     double actual_slot_duration_ns = ctx->slot_duration_ns<(double)(ctx->leader_bank_start_ns - expected_slot_start_ns) ? 0.0 : ctx->slot_duration_ns - (double)(ctx->leader_bank_start_ns - expected_slot_start_ns);
     double actual_hashcnt_duration_ns = actual_slot_duration_ns / (double)ctx->hashcnt_per_slot;
     target_hashcnt = fd_ulong_if( actual_hashcnt_duration_ns==0.0, restricted_hashcnt, (ulong)((double)(now - ctx->leader_bank_start_ns) / actual_hashcnt_duration_ns) );
+  } else {
+    target_hashcnt = ULONG_MAX; /* It gets clamped down immediately */
   }
+
   /* Clamp to [min_hashcnt, restricted_hashcnt] as above */
   target_hashcnt = fd_ulong_max( fd_ulong_min( target_hashcnt, restricted_hashcnt ), min_hashcnt );
 
@@ -1689,9 +1705,13 @@ after_credit( fd_poh_ctx_t *      ctx,
 
   *charge_busy = 1;
 
-  if( FD_LIKELY( ctx->hashcnt<target_hashcnt ) ) {
-    fd_sha256_hash_32_repeated( ctx->hash, ctx->hash, target_hashcnt-ctx->hashcnt );
-    ctx->hashcnt = target_hashcnt;
+  fd_sha256_hash_32_repeated( ctx->hash, ctx->hash, target_hashcnt-ctx->hashcnt );
+  ctx->hashcnt = target_hashcnt;
+
+  if( FD_UNLIKELY( (ctx->hashcnt==restricted_hashcnt) && (!ctx->sent_done_hashing) ) ) {
+    ulong sig = fd_disco_poh_sig( ctx->slot, POH_PKT_TYPE_DONE_HASHING, 0UL );
+    fd_stem_publish( ctx->stem, ctx->pack_out->idx, sig, ctx->pack_out->chunk, 0UL, 0UL, 0UL, 0UL );
+    ctx->sent_done_hashing = 1;
   }
 
   if( FD_UNLIKELY( ctx->hashcnt==ctx->hashcnt_per_slot ) ) {
@@ -2241,6 +2261,8 @@ unprivileged_init( fd_topo_t *      topo,
   ctx->highwater_leader_slot = ULONG_MAX;
   ctx->next_leader_slot      = ULONG_MAX;
   ctx->reset_slot            = ULONG_MAX;
+  ctx->sent_done_hashing     = 0;
+  ctx->perf_mode             = tile->poh.perf_mode;
 
   ctx->lagged_consecutive_leader_start = tile->poh.lagged_consecutive_leader_start;
   ctx->expect_sequential_leader_slot = ULONG_MAX;
