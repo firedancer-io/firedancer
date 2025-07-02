@@ -313,8 +313,7 @@ STEM_(run1)( ulong                        in_cnt,
 
 #if !(STEM_ALWAYS_SPINNING)
     waiters[in_idx].uaddr = (uint64_t)fd_mcache_futex_flag_const( this_in->mcache );
-    /* Starts off at 0 similar to this_in->seq */
-    waiters[in_idx].val = 0UL;
+    waiters[in_idx].val = this_in->seq;
     waiters[in_idx].flags= FUTEX_32;
     waiters[in_idx].__reserved= 0UL;
 #endif
@@ -488,7 +487,7 @@ STEM_(run1)( ulong                        in_cnt,
 
 /* By default, tiles are always spinning, except the ones that are configured to wait for futexes */ 
 #if !(STEM_ALWAYS_SPINNING)
-    if (futex_wait_counter > FD_STEM_SPIN_THRESHOLD) {
+    if (futex_wait_counter > FD_STEM_SPIN_THRESHOLD) { 
       fd_futex_waitv(waiters, (uint)in_cnt, 0, 0);
       futex_wait_counter = 0;
     }
@@ -612,7 +611,7 @@ STEM_(run1)( ulong                        in_cnt,
       if( FD_UNLIKELY( diff<0L ) ) { /* Overrun (impossible if in is honoring our flow control) */
         this_in->seq = seq_found; /* Resume from here (probably reasonably current, could query in mcache sync directly instead) */
 #if !(STEM_ALWAYS_SPINNING)
-        waiters[this_in->idx].val = *fd_mcache_futex_flag_const( this_in->mcache );
+        waiters[this_in->idx].val = this_in->seq;
 #endif
         housekeeping_regime = &metric_regime_ticks[1];
         prefrag_regime = &metric_regime_ticks[4];
@@ -652,6 +651,11 @@ STEM_(run1)( ulong                        in_cnt,
       this_in->seq   = this_in_seq;
       this_in->mline = this_in->mcache + fd_mcache_line_idx( this_in_seq, this_in->depth );
 
+#if !(STEM_ALWAYS_SPINNING)
+      waiters[this_in->idx].val += 1;
+      futex_wait_counter = 0;
+#endif
+
       metric_regime_ticks[1] += housekeeping_ticks;
       metric_regime_ticks[4] += prefrag_ticks;
       long next = fd_tickcount();
@@ -686,6 +690,9 @@ STEM_(run1)( ulong                        in_cnt,
 
     if( FD_UNLIKELY( fd_seq_ne( seq_test, seq_found ) ) ) { /* Overrun while reading (impossible if this_in honoring our fctl) */
       this_in->seq = seq_test; /* Resume from here (probably reasonably current, could query in mcache sync instead) */
+#if !(STEM_ALWAYS_SPINNING)
+      waiters[this_in->idx].val = this_in->seq;
+#endif
       fd_metrics_link_in( fd_metrics_base_tl, this_in->idx )[ FD_METRICS_COUNTER_LINK_OVERRUN_READING_COUNT_OFF ]++; /* No local accum since extremely rare, faster to use smaller cache line */
       fd_metrics_link_in( fd_metrics_base_tl, this_in->idx )[ FD_METRICS_COUNTER_LINK_OVERRUN_READING_FRAG_COUNT_OFF ] += (uint)fd_seq_diff( seq_test, seq_found ); /* No local accum since extremely rare, faster to use smaller cache line */
       /* Don't bother with spin as polling multiple locations */

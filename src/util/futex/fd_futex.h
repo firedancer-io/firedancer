@@ -6,6 +6,7 @@
 #include <stdint.h>
 #include <stddef.h>
 #include <unistd.h>
+#include <time.h>
 
 /* Futex syscall wrappers */
 
@@ -17,12 +18,12 @@ fd_futex_wait(const uint32_t *addr, uint32_t val) {
 }
 
 static inline long 
-fd_futex_wake(uint32_t *addr, uint32_t n) {
+fd_futex_wake(uint32_t *addr, int n) {
     return syscall(SYS_futex, addr, FUTEX_WAKE, n, NULL, NULL, 0);
 }
 
 static inline long 
-fd_futex_waitv(struct futex_waitv *waiters, unsigned int nr_futexes, long timeout, int clockid) {
+fd_futex_waitv(struct futex_waitv *waiters, unsigned int nr_futexes, struct timespec *timeout, int clockid) {
     return syscall(SYS_futex_waitv, waiters, nr_futexes, 0, timeout, clockid);
 }
 
