@@ -482,14 +482,14 @@ fd_shmem_create_multi_unlocked( char const *  name,
 # undef ERROR
 
 unmap:
-  if( FD_UNLIKELY( err ) && FD_UNLIKELY( munmap( shmem, sz ) ) )
+  if( FD_UNLIKELY( munmap( shmem, sz ) ) )
     FD_LOG_ERR(( "munmap(\"%s\",%lu KiB) failed (%i-%s)",
                  path, sz>>10, errno, fd_io_strerror( errno ) ));
 
 close:
   if( FD_UNLIKELY( err ) && FD_UNLIKELY( unlink( path ) ) )
     FD_LOG_ERR(( "unlink(\"%s\") failed (%i-%s)", path, errno, fd_io_strerror( errno ) ));
-  if( FD_UNLIKELY( err ) && FD_UNLIKELY( close( fd ) ) )
+  if( FD_UNLIKELY( close( fd ) ) )
     FD_LOG_ERR(( "close(\"%s\") failed (%i-%s)", path, errno, fd_io_strerror( errno ) ));
 
 done:
