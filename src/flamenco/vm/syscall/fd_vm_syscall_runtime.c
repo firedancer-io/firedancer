@@ -197,18 +197,55 @@ fd_vm_syscall_sol_get_sysvar( /**/            void *  _vm,
     return FD_VM_SUCCESS;
   }
 
-  /* we know that the account data won't be changed for the lifetime of this view, because sysvars don't change inter-block */
-  FD_TXN_ACCOUNT_DECL( sysvar_account );
-  err = fd_txn_account_init_from_funk_readonly( sysvar_account, sysvar_id, vm->instr_ctx->txn_ctx->funk, vm->instr_ctx->txn_ctx->funk_txn );
-  if( FD_UNLIKELY( err ) ) {
-    *_ret = 2UL;
-    return FD_VM_SUCCESS;
+  /* Select the correct sysvar by pubkey and read it directly from the sysvar cache. */
+  const uchar * sysvar_buf = NULL;
+  ulong sysvar_buf_len = 0;
+  
+  if( memcmp( sysvar_id->uc, fd_sysvar_clock_id.uc, FD_PUBKEY_FOOTPRINT ) == 0 ) {
+      const fd_sol_sysvar_clock_t *clock = fd_sysvar_clock_read(
+          vm->instr_ctx->txn_ctx->funk,
+          vm->instr_ctx->txn_ctx->funk_txn,
+          vm->instr_ctx->txn_ctx->spad
+      );
+      sysvar_buf = (const uchar *)clock;
+      sysvar_buf_len = sizeof(fd_sol_sysvar_clock_t);
+  } else if( memcmp( sysvar_id->uc, fd_sysvar_epoch_schedule_id.uc, FD_PUBKEY_FOOTPRINT ) == 0 ) {
+      const fd_epoch_schedule_t *schedule = fd_sysvar_epoch_schedule_read(
+          vm->instr_ctx->txn_ctx->funk,
+          vm->instr_ctx->txn_ctx->funk_txn,
+          vm->instr_ctx->txn_ctx->spad
+      );
+      sysvar_buf = (const uchar *)schedule;
+      sysvar_buf_len = sizeof(fd_epoch_schedule_t);
+  } else if( memcmp( sysvar_id->uc, fd_sysvar_epoch_rewards_id.uc, FD_PUBKEY_FOOTPRINT ) == 0 ) {
+      const fd_sysvar_epoch_rewards_t *epoch_rewards = fd_sysvar_epoch_rewards_read(
+          vm->instr_ctx->txn_ctx->funk,
+          vm->instr_ctx->txn_ctx->funk_txn,
+          vm->instr_ctx->txn_ctx->spad
+      );
+      sysvar_buf = (const uchar *)epoch_rewards;
+      sysvar_buf_len = sizeof(fd_sysvar_epoch_rewards_t);
+  } else if( memcmp( sysvar_id->uc, fd_sysvar_rent_id.uc, FD_PUBKEY_FOOTPRINT ) == 0 ) {
+      const fd_rent_t *rent = fd_sysvar_rent_read(
+          vm->instr_ctx->txn_ctx->funk,
+          vm->instr_ctx->txn_ctx->funk_txn,
+          vm->instr_ctx->txn_ctx->spad
+      );
+      sysvar_buf = (const uchar *)rent;
+      sysvar_buf_len = sizeof(fd_rent_t);
+  } else if( memcmp( sysvar_id->uc, fd_sysvar_last_restart_slot_id.uc, FD_PUBKEY_FOOTPRINT ) == 0 ) {
+      const fd_sol_sysvar_last_restart_slot_t *slot = fd_sysvar_last_restart_slot_read(
+          vm->instr_ctx->txn_ctx->funk,
+          vm->instr_ctx->txn_ctx->funk_txn,
+          vm->instr_ctx->txn_ctx->spad
+      );
+      sysvar_buf = (const uchar *)slot;
+      sysvar_buf_len = sizeof(fd_sol_sysvar_last_restart_slot_t);
+  } else {
+      *_ret = 2UL;
+      return FD_VM_SUCCESS;
   }
-
-  /* https://github.com/anza-xyz/agave/blob/v2.1.0/programs/bpf_loader/src/syscalls/sysvar.rs#L223-L228
-     Note the length check is at the very end to fail after performing sufficient checks. */
-  const uchar * sysvar_buf     = sysvar_account->vt->get_data( sysvar_account );
-  ulong         sysvar_buf_len = sysvar_account->vt->get_data_len( sysvar_account );
+  
 
   if( FD_UNLIKELY( offset_length>sysvar_buf_len ) ) {
     *_ret = 1UL;

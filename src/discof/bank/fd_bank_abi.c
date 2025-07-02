@@ -24,8 +24,8 @@ fd_bank_abi_resolve_address_lookup_tables( void const *     bank FD_PARAM_UNUSED
     }
 
     /* Look up the pubkeys from the ALTs */
-    fd_slot_hashes_global_t const * slot_hashes_global = fd_sysvar_cache_slot_hashes(
-      ctx->slot_ctx->sysvar_cache, ctx->runtime_public_wksp );
+    fd_slot_hashes_global_t const * slot_hashes_global = fd_sysvar_slot_hashes_read(
+      ctx->txn_ctx->funk, ctx->txn_ctx->funk_txn, ctx->txn_ctx->spad );
     if( FD_UNLIKELY( !slot_hashes_global ) ) {
       FD_LOG_ERR(( "failed to get slot hashes global" ));
     }
