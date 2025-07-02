@@ -55,8 +55,8 @@ struct fd_gossip_tile_ctx {
   fd_keyguard_client_t keyguard_client[ 1 ];
   fd_keyswitch_t *     keyswitch;
 
-  fd_ip4_udp_hdrs_t    net_out_hdr[ 1 ]; /* Used to construct outgoing network packets */
-  ushort               net_id;           /* Network ID for outgoing packets */
+  fd_ip4_udp_hdrs_t    net_out_hdr[ 1 ];
+  ushort               net_id;
 };
 
 typedef struct fd_gossip_tile_ctx fd_gossip_tile_ctx_t;
@@ -122,16 +122,18 @@ gossip_sign_fn( void *        ctx,
 
 static inline void
 during_housekeeping( fd_gossip_tile_ctx_t * ctx ) {
+  ctx->last_wallclock = fd_log_wallclock();
+  ctx->last_tickcount = fd_tickcount();
   if( FD_UNLIKELY( fd_keyswitch_state_query( ctx->keyswitch )==FD_KEYSWITCH_STATE_SWITCH_PENDING ) ) {
     /* TODO: Need some kind of state machine here, to ensure we switch
        in sync with the signing tile.  Currently, we might send out a
        badly signed message before the signing tile has switched. */
-    // fd_gossip_set_identity( ctx->gossip, ctx->keyswitch->bytes );
+    fd_memcpy( ctx->my_contact_info->pubkey, ctx->keyswitch->bytes, 32UL );
+    fd_gossip_set_my_contact_info( ctx->gossip, ctx->my_contact_info, ctx->last_wallclock );
+
     fd_keyswitch_state( ctx->keyswitch, FD_KEYSWITCH_STATE_COMPLETED );
   }
-
-  ctx->last_wallclock = fd_log_wallclock();
-  ctx->last_tickcount = fd_tickcount();
+  /* TODO: move this to after credit */
   fd_gossip_advance( ctx->gossip, ctx->last_wallclock );
 }
 
