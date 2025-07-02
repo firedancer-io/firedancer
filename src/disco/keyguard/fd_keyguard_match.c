@@ -160,6 +160,15 @@ FD_FN_PURE static int
 fd_keyguard_payload_matches_ping_msg( uchar const * data,
                                       ulong         sz,
                                       int           sign_type ) {
+  return sign_type==FD_KEYGUARD_SIGN_TYPE_ED25519 &&
+         sz==32UL &&
+         (memcmp( data, "SOLANA_PING_PONG", 16UL ) == 0);
+}
+
+FD_FN_PURE static int
+fd_keyguard_payload_matches_pong_msg( uchar const * data,
+                                      ulong         sz,
+                                      int           sign_type ) {
   return sign_type==FD_KEYGUARD_SIGN_TYPE_SHA256_ED25519 &&
          sz==48UL &&
          (memcmp( data, "SOLANA_PING_PONG", 16UL ) == 0);
@@ -315,6 +324,7 @@ fd_keyguard_payload_match( uchar const * data,
   res |= fd_ulong_if( fd_keyguard_payload_matches_shred     ( data, sz, sign_type ), FD_KEYGUARD_PAYLOAD_SHRED,  0 );
   res |= fd_ulong_if( fd_keyguard_payload_matches_tls_cv    ( data, sz, sign_type ), FD_KEYGUARD_PAYLOAD_TLS_CV, 0 );
   res |= fd_ulong_if( fd_keyguard_payload_matches_ping_msg  ( data, sz, sign_type ), FD_KEYGUARD_PAYLOAD_PING,   0 );
+  res |= fd_ulong_if( fd_keyguard_payload_matches_pong_msg  ( data, sz, sign_type ), FD_KEYGUARD_PAYLOAD_PONG,   0 );
   res |= fd_ulong_if( fd_keyguard_payload_matches_bundle    ( data, sz, sign_type ), FD_KEYGUARD_PAYLOAD_BUNDLE, 0 );
   res |= fd_ulong_if( fd_keyguard_payload_matches_event     ( data, sz, sign_type ), FD_KEYGUARD_PAYLOAD_EVENT,  0 );
   return res;
