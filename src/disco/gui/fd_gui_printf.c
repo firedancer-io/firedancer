@@ -741,7 +741,7 @@ fd_gui_printf_peer( fd_gui_t *    gui,
                     uchar const * identity_pubkey ) {
   ulong gossip_idx = ULONG_MAX;
   ulong info_idx = ULONG_MAX;
-  ulong vote_idxs[ 40200 ] = {0};
+  ulong vote_idxs[ FD_GUI_MAX_PEER_CNT ] = {0};
   ulong vote_idx_cnt = 0UL;
 
   for( ulong i=0UL; i<gui->gossip.peer_cnt; i++ ) {
