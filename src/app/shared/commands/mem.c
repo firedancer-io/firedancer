@@ -8,9 +8,10 @@ mem_cmd_fn( args_t *   args FD_PARAM_UNUSED,
 }
 
 action_t fd_action_mem = {
-  .name        = "mem",
-  .args        = NULL,
-  .fn          = mem_cmd_fn,
-  .perm        = NULL,
-  .description = "Print workspace memory and tile topology information",
+  .name           = "mem",
+  .args           = NULL,
+  .fn             = mem_cmd_fn,
+  .require_config = 1,
+  .perm           = NULL,
+  .description    = "Print workspace memory and tile topology information",
 };
