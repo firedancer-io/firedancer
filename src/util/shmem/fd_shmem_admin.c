@@ -464,7 +464,7 @@ fd_shmem_create_multi_unlocked( char const *  name,
 
   /* Map the region into our address space. */
 
-  shmem = mmap( NULL, sz, PROT_READ | PROT_WRITE, MAP_PRIVATE, fd, (off_t)0);
+  shmem = mmap( NULL, sz, PROT_READ | PROT_WRITE, MAP_SHARED, fd, (off_t)0);
   if( FD_UNLIKELY( shmem==MAP_FAILED ) ) {
     FD_LOG_WARNING(( "mmap(NULL,%lu KiB,PROT_READ|PROT_WRITE,MAP_SHARED,\"%s\",0) failed (%i-%s)",
                      sz>>10, path, errno, fd_io_strerror( errno ) ));
