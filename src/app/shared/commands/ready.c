@@ -40,9 +40,10 @@ ready_cmd_fn( args_t *   args FD_PARAM_UNUSED,
 }
 
 action_t fd_action_ready = {
-  .name        = "ready",
-  .args        = NULL,
-  .fn          = ready_cmd_fn,
-  .perm        = NULL,
-  .description = "Wait for all tiles to be running",
+  .name           = "ready",
+  .args           = NULL,
+  .fn             = ready_cmd_fn,
+  .require_config = 1,
+  .perm           = NULL,
+  .description    = "Wait for all tiles to be running",
 };

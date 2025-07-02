@@ -899,6 +899,7 @@ action_t fd_action_run = {
   .name           = "run",
   .args           = NULL,
   .fn             = run_cmd_fn,
+  .require_config = 1,
   .perm           = run_cmd_perm,
   .description    = "Start up a Firedancer validator",
   .permission_err = "insufficient permissions to execute command `%s`. It is recommended "
