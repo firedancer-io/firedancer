@@ -693,7 +693,7 @@ fd_crds_insert( fd_crds_t *       crds,
          so we can send out proper prune messages. */
       if( FD_UNLIKELY( !from_push_message ) ) return -2;
 
-      return (int)(replace->num_duplicates++);
+      return (int)(++replace->num_duplicates);
     }
     replace->num_duplicates = 0;
     is_replacing = 1;
