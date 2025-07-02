@@ -600,7 +600,7 @@ push_state_insert( fd_gossip_t *                       gossip,
                                              gossip->identity_pubkey,
                                              gossip->identity_stake,
                                              origin_pubkey,
-                                             origin_stake, /* origin_stake FIXME */
+                                             origin_stake,
                                              0UL, /* ignore_prunes_if_peer_is_origin FIXME */
                                              out_nodes );
   if( FD_LIKELY( out_nodes_cnt ) ) {
@@ -636,7 +636,7 @@ rx_pull_response( fd_gossip_t *                          gossip,
     fd_crds_entry_t * candidate               = fd_crds_acquire( gossip->crds );
 
     /* Fill up with information needed for upsert check */
-    fd_crds_populate_preflight( gossip->crds, value, payload, candidate );
+    fd_crds_entry_init( value, payload, candidate );
 
     int upserts = fd_crds_upserts( gossip->crds, candidate );
 
@@ -662,15 +662,11 @@ rx_pull_response( fd_gossip_t *                          gossip,
 
     if( FD_LIKELY( accept_after_nanos<=value->wallclock_nanos ) ||
                    fd_crds_entry_is_contact_info( candidate ) ) {
-      fd_crds_populate_full( gossip->crds,
-                             value,
-                             payload,
-                             origin_stake,
-                             now,
-                             1, /* has_upsert_info */
-                             candidate );
       error = fd_crds_insert( gossip->crds,
                               candidate,
+                              value,
+                              payload,
+                              origin_stake,
                               0, /* from_push_msg */
                               now );
     } else {
@@ -723,28 +719,14 @@ rx_push( fd_gossip_t *                 gossip,
 
     uchar const * origin_pubkey    = payload+value->pubkey_off;
     fd_crds_entry_t * candidate = fd_crds_acquire( gossip->crds );
-    /* Separate upsert check prior to insertion to save us a memcpy + lookup if not upserting.
+    fd_crds_entry_init( value, payload, candidate );
 
-       FIXME: Even if new value does not upsert, we still need to call crds_insert
-       so that the purge table is correctly updated, but we don't need to perform
-       the full population since the insert call terminates prior to any insertion
-       in this case. This is pretty confusing, will need to clean up. */
-    fd_crds_populate_preflight( gossip->crds, value, payload, candidate );
-    ulong origin_stake;
-
-    if( FD_UNLIKELY( fd_crds_upserts( gossip->crds, candidate ) ) ) {
-      origin_stake = get_stake( gossip, origin_pubkey );
-      fd_crds_populate_full( gossip->crds,
-                             value,
-                             payload,
-                             origin_stake,
-                             now,
-                             1 /* has_upsert_info */,
-                             candidate );
-    }
-
+    ulong origin_stake   = get_stake( gossip, origin_pubkey );
     int error            = fd_crds_insert( gossip->crds,
                                            candidate,
+                                           value,
+                                           payload,
+                                           origin_stake,
                                            1 /* from_push_msg */,
                                            now );
     ulong num_duplicates = 0UL;

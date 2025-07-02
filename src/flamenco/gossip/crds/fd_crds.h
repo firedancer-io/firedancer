@@ -96,47 +96,30 @@ void
 fd_crds_release( fd_crds_t *       crds,
                  fd_crds_entry_t * value );
 
-/* fd_crds_populate_preflight fills in the minimum information necessary
+/* fd_crds_entry_init fills in the minimum information necessary
    for valid calls to the following functions
       - fd_crds_upserts()
       - fd_crds_value_hash()
+      - fd_crds_insert()
 
    This avoids a full memcpy of the CRDS data, which is only needed in
    fd_crds_insert(). Supplied view and payload are assumed to be error
    free (i.e., no possibility of OOBs when correctly used). */
 
 void
-fd_crds_populate_preflight( fd_crds_t *                         crds,
-                            fd_gossip_view_crds_value_t const * view,
-                            uchar const *                       view_payload,
-                            fd_crds_entry_t *                   out_value );
-
-/* fd_crds_populate_full fills in the information necessary
-   for a valid fd_crds_insert call from a given CRDS view and the corresponding
-   payload. view and payload are assumed to be error free (i.e., no possibility
-   of OOBs when correctly used).
-
-   Contact Info (CI) messages will also additionally populate an entry in the
-   crds contact info table.
-
-   has_preflight_info can be set if the entry was
-   previously populated with fd_crds_populate_preflight. */
-
-void
-fd_crds_populate_full( fd_crds_t *                         crds,
-                       fd_gossip_view_crds_value_t const * view,
-                       uchar const *                       view_payload,
-                       ulong                               origin_stake,
-                       long                                now,
-                       uchar                               has_upsert_info,
-                       fd_crds_entry_t *                   out_value );
+fd_crds_entry_init( fd_gossip_view_crds_value_t const * view,
+                    uchar const *                       view_payload,
+                    fd_crds_entry_t *                   out_value );
 
 /* fd_crds_upserts checks if inserting the value into the CRDS would
    succeed.  An insert will fail if the value is already present in the
-   CRDS with a newer timestamp, or if the value is not present. */
+   CRDS with a newer timestamp, or if the value is not present.
+
+   candidate is assumed to have been populated with
+   fd_crds_entry_init */
 int
 fd_crds_upserts( fd_crds_t *       crds,
-                 fd_crds_entry_t * value );
+                 fd_crds_entry_t * candidate );
 
 /* fd_crds_insert inserts and indexes a previously acquired CRDS value
    into the data store, so that it can be returned by future queries.
@@ -144,13 +127,18 @@ fd_crds_upserts( fd_crds_t *       crds,
    Once inserted, the value is owned by the CRDS and should not be
    modified or released by the caller.  The CRDS will automatically
    release the value when it expires, or when it must be evicted to
-   make room for a new value. */
+   make room for a new value.
+
+   candidate is assumed to have been populated with fd_crds_entry_init */
 
 int
-fd_crds_insert( fd_crds_t *       crds,
-                fd_crds_entry_t * value,
-                int               from_push_msg,
-                long              now );
+fd_crds_insert( fd_crds_t *                         crds,
+                fd_crds_entry_t *                   candidate,
+                fd_gossip_view_crds_value_t const * view,
+                uchar const *                       view_payload,
+                ulong                               origin_stake,
+                int                                 from_push_msg,
+                long                                now );
 
 /********************* Begin CRDS Entry APIs *************************/
 

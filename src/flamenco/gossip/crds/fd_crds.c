@@ -537,23 +537,13 @@ fd_crds_acquire( fd_crds_t * crds ) {
 void
 fd_crds_release( fd_crds_t *       crds,
                  fd_crds_entry_t * value ) {
-  if( FD_UNLIKELY( is_contact_info( &value->key ) &&
-                   !!(value->contact_info.ci)) ){
-    if( FD_UNLIKELY( value->contact_info.sampler_idx != SAMPLE_IDX_SENTINEL ) ) {
-      FD_LOG_ERR(( "Contact info entry released in half-baked state, "
-                   "sampler_idx %lu != SAMPLE_IDX_SENTINEL",
-                   value->contact_info.sampler_idx ));
-    }
-    crds_contact_info_pool_ele_release( crds->contact_info.pool, value->contact_info.ci );
-  }
   crds_pool_ele_release( crds->pool, value );
 }
 
 void
-fd_crds_populate_preflight( fd_crds_t *                         crds,
-                            fd_gossip_view_crds_value_t const * view,
-                            uchar const *                       view_payload,
-                            fd_crds_entry_t *                   out_value ) {
+fd_crds_entry_init( fd_gossip_view_crds_value_t const * view,
+                    uchar const *                       view_payload,
+                    fd_crds_entry_t *                   out_value ) {
   static fd_sha256_t sha2[1];
   /* Construct key */
   fd_crds_key_t * key = &out_value->key;
@@ -578,48 +568,17 @@ fd_crds_populate_preflight( fd_crds_t *                         crds,
 
   fd_memcpy( out_value->node_instance.token, view_payload + view->node_instance->token_off, 32UL );
 
-  fd_sha256_init(   sha2 );
+  fd_sha256_init( sha2 );
   fd_sha256_append( sha2, view_payload + view->value_off, view->length );
-  fd_sha256_fini(   sha2, out_value->value_hash );
+  fd_sha256_fini( sha2, out_value->value_hash );
 
   /* assign to first 8 bytes of value_hash to hash.hash */
   out_value->hash.hash = fd_ulong_load_8( out_value->value_hash );
 
   if( FD_UNLIKELY( is_contact_info( key ) ) ) {
-    /* Contact info is a special case, we need to allocate a contact info entry */
-    if( FD_UNLIKELY( !crds_contact_info_pool_free( crds->contact_info.pool ) ) ) {
-      /* TODO: use dlist to LRU evict */
-      FD_LOG_ERR(( "contact info pool exhausted" ));
-    }
-    fd_crds_contact_info_entry_t * ci = crds_contact_info_pool_ele_acquire( crds->contact_info.pool );
-    out_value->contact_info.ci = ci;
     out_value->contact_info.instance_creation_wallclock_nanos = view->contact_info->instance_creation_wallclock_nanos;
     /* Contact Info entry will be added to sampler upon successful insertion */
     out_value->contact_info.sampler_idx = SAMPLE_IDX_SENTINEL;
-  }
-}
-
-void
-fd_crds_populate_full( fd_crds_t *                         crds,
-                       fd_gossip_view_crds_value_t const * view,
-                       uchar const *                       view_payload,
-                       ulong                               origin_stake,
-                       long                                now,
-                       uchar                               has_preflight_info,
-                       fd_crds_entry_t *                   out_value ) {
-  if( FD_UNLIKELY( !has_preflight_info ) ){
-    fd_crds_populate_preflight( crds, view, view_payload, out_value );
-  }
-  out_value->num_duplicates         = 0UL;
-  out_value->expire.wallclock_nanos = now;
-  out_value->stake                  = origin_stake;
-
-  out_value->value_sz                = view->length;
-  fd_memcpy( out_value->value_bytes, view_payload+view->value_off, view->length );
-
-  if( FD_UNLIKELY( is_contact_info( &out_value->key ) ) ) {
-    fd_crds_contact_info_entry_t * ci = out_value->contact_info.ci;
-    fd_crds_contact_info_populate( view, view_payload, ci->contact_info );
   }
 }
 
@@ -674,11 +633,13 @@ insert_purged( fd_crds_t *   crds,
 }
 
 int
-fd_crds_insert( fd_crds_t *       crds,
-                fd_crds_entry_t * candidate,
-                int               from_push_message,
-                long              now ) {
-  /* TODO: Why Agave tracks route? PushRespose etc ... */
+fd_crds_insert( fd_crds_t *                         crds,
+                fd_crds_entry_t *                   candidate,
+                fd_gossip_view_crds_value_t const * view,
+                uchar const *                       view_payload,
+                ulong                               origin_stake,
+                int                                 from_push_msg,
+                long                                now ) {
   fd_crds_entry_t * replace = lookup_map_ele_query( crds->lookup_map, &candidate->key, NULL, crds->pool );
   uchar is_replacing = 0UL;
   if( FD_LIKELY( replace ) ) {
@@ -691,7 +652,7 @@ fd_crds_insert( fd_crds_t *       crds,
       /* We tried to insert a duplicate.  If it's from a push message,
          update the book-keeping to reflect the number of duplicates
          so we can send out proper prune messages. */
-      if( FD_UNLIKELY( !from_push_message ) ) return -2;
+      if( FD_UNLIKELY( !from_push_msg ) ) return 1;
 
       return (int)(++replace->num_duplicates);
     }
@@ -701,8 +662,8 @@ fd_crds_insert( fd_crds_t *       crds,
     insert_purged( crds, fd_crds_entry_hash( replace ), replace->wallclock_nanos );
 
     if( FD_UNLIKELY( is_contact_info( &replace->key ) ) ) {
-      crds_contact_info_dlist_ele_remove( crds->contact_info.dlist, replace, crds->pool );
-      crds_contact_info_pool_ele_release( crds->contact_info.pool, replace->contact_info.ci );
+      crds_contact_info_dlist_ele_remove( crds->contact_info.dlist, replace, crds->pool );      candidate->contact_info.ci = replace->contact_info.ci;
+      candidate->contact_info.ci = replace->contact_info.ci;
 
       /* Inherit is_active from replacee */
       candidate->contact_info.is_active = replace->contact_info.is_active;
@@ -730,7 +691,32 @@ fd_crds_insert( fd_crds_t *       crds,
     hash_treap_ele_remove( crds->hash_treap, replace, crds->pool );
     lookup_map_ele_remove( crds->lookup_map, &replace->key, NULL, crds->pool );
     crds_pool_ele_release( crds->pool, replace );
+  } else if( is_contact_info( &candidate->key ) ) {
+    if( FD_UNLIKELY( !crds_contact_info_pool_free( crds->contact_info.pool ) ) ) {
+      FD_LOG_ERR(( "TODO: contact info pool exhausted, implement LRU based eviction?" ));
+    }
+    fd_crds_contact_info_entry_t * ci = crds_contact_info_pool_ele_acquire( crds->contact_info.pool );
+    candidate->contact_info.ci = ci;
   }
+
+  /* Begin full insertion, fill out remaining fields */
+  candidate->num_duplicates         = 0UL;
+  candidate->expire.wallclock_nanos = now;
+  candidate->stake                  = origin_stake;
+  candidate->value_sz               = view->length;
+  fd_memcpy( candidate->value_bytes, view_payload+view->value_off, view->length );
+
+  if( FD_UNLIKELY( is_contact_info( &candidate->key ) ) ) {
+    /* TODO: Emit this as a gossip insert/update update */
+    fd_crds_contact_info_populate( view, view_payload, candidate->contact_info.ci->contact_info );
+    crds_contact_info_dlist_ele_push_tail( crds->contact_info.dlist,
+                                           candidate,
+                                           crds->pool );
+    if( FD_UNLIKELY( !is_replacing ) ) {
+      crds_samplers_add_peer( crds->samplers, candidate, now);
+    }
+  }
+
 
   crds->has_staked_node |= candidate->stake ? 1 : 0;
 
@@ -742,16 +728,6 @@ fd_crds_insert( fd_crds_t *       crds,
   }
   hash_treap_ele_insert( crds->hash_treap, candidate, crds->pool );
   lookup_map_ele_insert( crds->lookup_map, candidate, crds->pool );
-
-  if( FD_UNLIKELY( is_contact_info( &candidate->key ) ) ) {
-    /* TODO: Emit this as a gossip insert/update update */
-    crds_contact_info_dlist_ele_push_tail( crds->contact_info.dlist,
-                                           candidate,
-                                           crds->pool );
-    if( FD_UNLIKELY( !is_replacing ) ) {
-      crds_samplers_add_peer( crds->samplers, candidate, now);
-    }
-  }
   return 0;
 }
 

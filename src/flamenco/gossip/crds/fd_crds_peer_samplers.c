@@ -229,8 +229,8 @@ crds_samplers_upd_peer( crds_samplers_t * ps,
 
 int
 crds_samplers_swap_peer( crds_samplers_t * ps,
-                        fd_crds_entry_t * new_peer,
-                        ulong             idx ) {
+                        fd_crds_entry_t *  new_peer,
+                        ulong              idx ) {
   if( FD_UNLIKELY( idx>=ps->ele_cnt ) ) {
     FD_LOG_ERR(( "Bad peer idx supplied in sample update" ));
   }
