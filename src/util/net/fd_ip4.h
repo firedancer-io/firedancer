@@ -17,6 +17,7 @@
 #define FD_IP4_HDR_PROTOCOL_IGMP ((uchar) 2) /* The IP4 packet encapsulates an IGMP packet */
 #define FD_IP4_HDR_PROTOCOL_TCP  ((uchar) 6) /* The IP4 packet encapsulates an TCP  packet */
 #define FD_IP4_HDR_PROTOCOL_UDP  ((uchar)17) /* The IP4 packet encapsulates an UDP  packet */
+#define FD_IP4_HDR_PROTOCOL_GRE  ((uchar)47) /* The IP4 packet encapsulates a GRE  packet */
 
 #define FD_IP4_OPT_RA  ((uchar)148) /* This option is a router alert option */
 #define FD_IP4_OPT_EOL ((uchar)0)   /* This is the end of the options list */
