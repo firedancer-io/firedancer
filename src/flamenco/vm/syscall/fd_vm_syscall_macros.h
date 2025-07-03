@@ -40,6 +40,18 @@
 
 /* fd_vm_mem API *****************************************************/
 
+/* fd_vm_haddr_query is a struct that contains information about a vaddr, align, sz, and whether it is a slice.
+   The translated haddr is written into the `haddr` field of the struct on success. This struct is primarily used
+   by the FD_VM_TRANSLATE_MUT_N macro. See more details in the macro's documentation. */
+struct fd_vm_haddr_query {
+  ulong vaddr;
+  ulong align;
+  ulong sz;
+  uchar is_slice;
+  void * haddr; /* out field */
+};
+typedef struct fd_vm_haddr_query fd_vm_haddr_query_t;
+
 /* FD_VM_MEM_HADDR_LD returns a read only pointer to the first byte
    in the host address space corresponding to vm's virtual address range
    [vaddr,vaddr+sz).  If the vm has check_align enabled, the vaddr
@@ -258,6 +270,32 @@ FD_VM_MEM_HADDR_ST_( fd_vm_t const *vm, ulong vaddr, ulong align, ulong sz, int 
     FD_VM_ERR_FOR_LOG_SYSCALL( vm, FD_VM_SYSCALL_ERR_COPY_OVERLAPPING );                                        \
     return FD_VM_SYSCALL_ERR_COPY_OVERLAPPING;                                                                  \
   }                                                                                                             \
+} while(0)
+
+/* Mimics Agave's `translate_mut!` macro by taking in a variable number of (vaddr, align, sz) entries
+   and translates each of them, failing if any one of the translations fail, or if any of the
+   vaddrs have overlapping haddr regions. The caller is responsible for creating each `fd_vm_haddr_query_t`
+   object containing information about the vaddr, align, sz, and whether it is a slice. The translated haddr
+   is written into the `haddr` field of each of the `fd_vm_haddr_query_t` objects on success. The caller must
+   also specify the number of entries to translate.
+
+   https://github.com/anza-xyz/agave/blob/v2.3.1/programs/bpf_loader/src/syscalls/mod.rs#L701-L738 */
+#define FD_VM_TRANSLATE_MUT_N( vm, n, struct1, struct2, struct3, struct4, struct5 ) do { \
+  fd_vm_haddr_query_t * queries[5] = { \
+    struct1, struct2, struct3, struct4, struct5 \
+  }; \
+  for( ulong i=0UL; i<(n); i++ ) { \
+    fd_vm_haddr_query_t * query = queries[i]; \
+    if( query->is_slice ) { \
+      query->haddr = FD_VM_MEM_SLICE_HADDR_ST( vm, query->vaddr, query->align, query->sz ); \
+    } else { \
+      query->haddr = FD_VM_MEM_HADDR_ST( vm, query->vaddr, query->align, query->sz ); \
+    } \
+    for( ulong j=0UL; j<i; j++ ) { \
+      fd_vm_haddr_query_t * other_query = queries[j]; \
+      FD_VM_MEM_CHECK_NON_OVERLAPPING( vm, (ulong)query->haddr, query->sz, (ulong)other_query->haddr, other_query->sz ); \
+    } \
+  } \
 } while(0)
 
 #endif /* HEADER_fd_src_flamenco_vm_syscall_fd_vm_syscall_macros_h */

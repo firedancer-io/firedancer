@@ -50,10 +50,10 @@ uchar
 fd_executor_pubkey_is_bpf_loader( fd_pubkey_t const * pubkey );
 
 int
-fd_executor_check_transactions( fd_exec_txn_ctx_t * txn_ctx );
+fd_executor_verify_transaction( fd_exec_txn_ctx_t * txn_ctx );
 
 int
-fd_executor_verify_precompiles( fd_exec_txn_ctx_t * txn_ctx );
+fd_executor_check_transactions( fd_exec_txn_ctx_t * txn_ctx );
 
 /* fd_execute_instr creates a new fd_exec_instr_ctx_t and performs
    instruction processing.  Does fd_spad_t allocations.  Returns an
@@ -88,8 +88,11 @@ fd_executor_validate_transaction_fee_payer( fd_exec_txn_ctx_t * txn_ctx );
 void
 fd_executor_setup_accounts_for_txn( fd_exec_txn_ctx_t * txn_ctx );
 
+void
+fd_executor_setup_txn_account_keys( fd_exec_txn_ctx_t * txn_ctx );
+
 int
-fd_executor_setup_accessed_accounts_for_txn( fd_exec_txn_ctx_t * txn_ctx );
+fd_executor_setup_txn_alut_account_keys( fd_exec_txn_ctx_t * txn_ctx );
 
 /*
   Validate the txn after execution for violations of various lamport balance and size rules
