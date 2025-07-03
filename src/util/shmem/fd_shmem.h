@@ -172,7 +172,8 @@ fd_shmem_join( char const *               name,
                int                        mode,
                fd_shmem_joinleave_func_t  join_func,
                void *                     context,
-               fd_shmem_join_info_t *     opt_info );
+               fd_shmem_join_info_t *     opt_info,
+               int                        lock_pages );
 
 int
 fd_shmem_leave( void *                    join,
