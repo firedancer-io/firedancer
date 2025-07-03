@@ -144,6 +144,13 @@ typedef struct fd_bundle_tile fd_bundle_tile_t;
 
 FD_PROTOTYPES_BEGIN
 
+/* fd_bundle_tickcount is an externally linked function wrapping
+   fd_tickcount().  This is backed by a weak symbol, allowing tests to
+   override the clock source. */
+
+long
+fd_bundle_tickcount( void );
+
 /* fd_bundle_client_grpc_callbacks provides callbacks for grpc_client. */
 
 extern fd_grpc_client_callbacks_t fd_bundle_client_grpc_callbacks;
