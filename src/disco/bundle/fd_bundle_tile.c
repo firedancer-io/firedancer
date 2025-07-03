@@ -546,7 +546,7 @@ unprivileged_init( fd_topo_t *      topo,
   ctx->so_rcvbuf = (int)so_rcvbuf;
 
   /* Set idle ping timer */
-  fd_bundle_client_set_ping_interval( ctx, (long)tile->bundle.keepalive_interval_nanos );
+  // fd_bundle_client_set_ping_interval( ctx, (long)tile->bundle.keepalive_interval_nanos );
 
   ctx->bundle_status_plugin = 127;
   ctx->bundle_status_recent = FD_PLUGIN_MSG_BLOCK_ENGINE_UPDATE_STATUS_DISCONNECTED;
