@@ -80,9 +80,10 @@ struct fd_bundle_tile {
   /* Keepalive via HTTP/2 PINGs (randomized) */
   long  last_ping_tx_ticks;    /* last TX tickcount */
   long  last_ping_tx_nanos;
-  long  last_ping_rx_ts;       /* last RX tickcount */
+  long  last_ping_rx_ticks;    /* last RX tickcount */
   ulong ping_randomize;        /* random 64 bits */
   ulong ping_threshold_ticks;  /* avg keepalive timeout in ticks, 2^n-1 */
+  ulong ping_deadline_ticks;   /* enforced keepalive timeout in ticks */
   fd_rtt_estimate_t rtt[1];
 
   /* gRPC client */
@@ -187,6 +188,14 @@ fd_bundle_tile_should_stall( fd_bundle_tile_t const * ctx,
 void
 fd_bundle_tile_housekeeping( fd_bundle_tile_t * ctx );
 
+/* fd_bundle_client_grpc_rx_start is the first RX callback of a stream. */
+
+void
+fd_bundle_client_grpc_rx_start(
+    void * app_ctx,
+    ulong  request_ctx
+) ;
+
 /* fd_bundle_client_grpc_rx_msg is called by grpc_client when a gRPC
    message arrives (unary or server-streaming response). */
 
@@ -243,6 +252,44 @@ fd_bundle_client_status( fd_bundle_tile_t const * ctx );
 
 FD_FN_CONST char const *
 fd_bundle_request_ctx_cstr( ulong request_ctx );
+
+/* fd_bundle_client_reset frees all connection-related resources. */
+
+void
+fd_bundle_client_reset( fd_bundle_tile_t * ctx );
+
+/* Keepalive **********************************************************/
+
+/* fd_bundle_client_set_ping_interval configures the approx HTTP/2 PING
+   interval.  ping_interval_ns is a rough hint, the effective ping
+   interval will be more aggressive. */
+
+void
+fd_bundle_client_set_ping_interval( fd_bundle_tile_t * ctx,
+                                    long               ping_interval_ns );
+
+/* fd_bundle_client_ping_is_due returns 1 if a ping is due for sending,
+   0 otherwise. */
+
+FD_FN_PURE int
+fd_bundle_client_ping_is_due( fd_bundle_tile_t const * ctx,
+                              long                     now_ticks );
+
+/* fd_bundle_client_ping_is_timeout returns 1 if a ping timeout was
+   detected, 0 otherwise. */
+
+FD_FN_PURE static inline int
+fd_bundle_client_ping_is_timeout( fd_bundle_tile_t const * ctx,
+                                  long                     now_ticks ) {
+  if( !ctx->ping_deadline_ticks ) return 0; /* timeout disabled */
+  return now_ticks > ctx->last_ping_rx_ticks + (long)ctx->ping_deadline_ticks;
+}
+
+/* fd_bundle_client_ping_tx enqueues a PING frame for sending.  Returns
+   1 on success and 0 on failure (occurs when frame_tx buf is full). */
+
+void
+fd_bundle_client_send_ping( fd_bundle_tile_t * ctx );
 
 FD_PROTOTYPES_END
 

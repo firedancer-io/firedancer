@@ -39,4 +39,5 @@ genhtml default.lcov \
   --num-spaces 1 \
   --legend \
   --highlight \
-  --branch-coverage
+  --branch-coverage \
+  --quiet
