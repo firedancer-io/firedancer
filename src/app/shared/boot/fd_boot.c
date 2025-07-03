@@ -83,7 +83,6 @@ apply_cmdline_overrides(int *pargc, char ***pargv, config_t *config) {
       const char *value = (*pargv)[i + 1];  // Next arg is value
 
       if (!strcmp(key, "hugetlbfs.max_page_size")) {
-        printf("[DEBUG OVERRIDE]: %s = %s\n", key, value);
         strncpy(config->hugetlbfs.max_page_size, value, sizeof(config->hugetlbfs.max_page_size) - 1);
         config->hugetlbfs.max_page_size[sizeof(config->hugetlbfs.max_page_size) - 1] = '\0';
       } else {
