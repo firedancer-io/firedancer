@@ -9,7 +9,7 @@
 
 #define NAME_SZ                          (256UL)
 #define AFFINITY_SZ                      (256UL)
-#define CONFIGURE_STAGE_COUNT            ( 12UL)
+#define CONFIGURE_STAGE_COUNT            ( 13UL)
 #define FD_CONFIG_GOSSIP_ENTRYPOINTS_MAX ( 16UL)
 
 struct fd_configh {
