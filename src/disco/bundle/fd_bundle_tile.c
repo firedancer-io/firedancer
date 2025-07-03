@@ -115,7 +115,7 @@ fd_bundle_tile_publish_block_engine_update(
 
   update->status = (uchar)ctx->bundle_status_recent;
 
-  ulong tspub = (ulong)fd_frag_meta_ts_comp( fd_tickcount() );
+  ulong tspub = (ulong)fd_frag_meta_ts_comp( fd_bundle_tickcount() );
   fd_stem_publish(
       stem,
       ctx->plugin_out.idx,
