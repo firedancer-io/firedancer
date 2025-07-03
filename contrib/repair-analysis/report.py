@@ -47,11 +47,11 @@ def peer_stats( catchup, catchup_rq, live, live_rq, pdf ):
     matched = match_repair_requests(catchup_rq, catchup)
 
     print(f"Requests from {matched['dst_ip'].nunique()} unique peers this run")
-    print(f"Recieved responses for {matched['is_matched'].sum()} out of {len(matched)} requests ({matched['is_matched'].mean() * 100:.2f}%)")
+    print(f"Received responses for {matched['is_matched'].sum()} out of {len(matched)} requests ({matched['is_matched'].mean() * 100:.2f}%)")
 
     #print missing idxs in slot_stalled
-    print( 'Shreds recieved during catchup:', catchup.shape[0], 'and requests sent during catchup:', catchup_rq.shape[0])
-    print( 'Shreds recieved during live turbine:', live.shape[0], 'and requests sent during live:', live_rq.shape[0])
+    print( 'Shreds received during catchup:', catchup.shape[0], 'and requests sent during catchup:', catchup_rq.shape[0])
+    print( 'Shreds received during live turbine:', live.shape[0], 'and requests sent during live:', live_rq.shape[0])
 
     success_rate = matched.groupby('dst_ip').agg({'is_matched': 'mean', 'nonce': 'count'}).reset_index()
 
@@ -206,10 +206,10 @@ def long_slots( slot_completion, shreds_data, first_turbine):
         print(f"Interested in slot {row['slot']} which took {row['time_slot_complete(ms)']} ms to complete")
         # count number of repair requests sent for this slot
         turbine = shreds_data[(shreds_data['slot'] == row['slot']) & (shreds_data['is_turbine'])]
-        print(f"Number of turbine shreds recieved for slot {idx}: {len(turbine)}")
+        print(f"Number of turbine shreds received for slot {idx}: {len(turbine)}")
 
         repairs = shreds_data[(shreds_data['slot'] == row['slot']) & (shreds_data['is_turbine'] == False)]
-        print(f"Number of repair shreds recieved for slot {idx}: {len(repairs)}")
+        print(f"Number of repair shreds received for slot {idx}: {len(repairs)}")
 
     # find a correlation between repair requests, number of shreds, and time to complete?
     # Let's analyze the correlation between the number of repair requests, number of shreds, and time to complete for the long slots
@@ -448,14 +448,14 @@ def turbine_stats(catchup, live):
     num_turbine = catchup['is_turbine'].sum()
     print(f'Number of turbine shreds received for catchup slots (expected 0): {num_turbine} out of {len(catchup)} ({num_turbine / len(catchup) * 100:.2f}%)')
     if( num_turbine ):
-        print('Turbine shreds recieved < first_turbine:', np.sort(catchup[catchup['is_turbine']]['slot'].unique() ) )
+        print('Turbine shreds received < first_turbine:', np.sort(catchup[catchup['is_turbine']]['slot'].unique() ) )
         print('If this is happening, it is likely that the stake weights are not propagating to the shred tile fast enough')
 
     num_turbine = live['is_turbine'].sum()
-    print(f'Percentage of all shreds recieved through turbine for >first_turbine (expected closer to 100%): {num_turbine} out of {len(live)} ({num_turbine / len(live) * 100:.2f}%)')
+    print(f'Percentage of all shreds received through turbine for >first_turbine (expected closer to 100%): {num_turbine} out of {len(live)} ({num_turbine / len(live) * 100:.2f}%)')
 
-    # Just because x% of turbine shreds were recieved as repair, doesn't
-    # mean they weren't recieved as turbine shreds. Check how many are this case.
+    # Just because x% of turbine shreds were received as repair, doesn't
+    # mean they weren't received as turbine shreds. Check how many are this case.
 
     live_turbine_shreds     = live[live['is_turbine']]
     live_turbine_shred_vals = set(live_turbine_shreds['shred'].values)
@@ -472,7 +472,7 @@ def turbine_stats(catchup, live):
 
     repaired_during_live = live[live['is_turbine'] == False]
     if( len(repaired_during_live) > 0 ):
-        print(f'Number of live repair shreds that are duplicates with shreds recieved through turbine: {fake_live_repair_cnt} out of {len(repaired_during_live)} ({fake_live_repair_cnt / len(repaired_during_live) * 100:.2f}%)')
+        print(f'Number of live repair shreds that are duplicates with shreds received through turbine: {fake_live_repair_cnt} out of {len(repaired_during_live)} ({fake_live_repair_cnt / len(repaired_during_live) * 100:.2f}%)')
     true_live_repair_shreds = pd.DataFrame(true_live_repair_shreds)
 
 def show_slot_repairs( repair, response, slot, pdf, max_idx=2**15, time_window=400): # in ms
