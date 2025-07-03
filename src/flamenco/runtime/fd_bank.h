@@ -438,6 +438,7 @@ typedef struct fd_banks fd_banks_t;
 
 #define HAS_LOCK_1(type, name) \
   type const * fd_bank_##name##_locking_query( fd_bank_t * bank ); \
+  type const * fd_bank_##name##_unsafe_query( fd_bank_t * bank );  \
   void fd_bank_##name##_end_locking_query( fd_bank_t * bank );     \
   type * fd_bank_##name##_locking_modify( fd_bank_t * bank );      \
   void fd_bank_##name##_end_locking_modify( fd_bank_t * bank );

@@ -1713,13 +1713,10 @@ fd_update_epoch_stakes( fd_exec_slot_ctx_t * slot_ctx ) {
                    fd_vote_accounts_pair_global_t_map_footprint( 50000UL ) +
                    4000 * 50000UL;
 
-  fd_vote_accounts_global_t const * next_epoch_stakes = fd_bank_next_epoch_stakes_locking_query( slot_ctx->bank );
-
-  fd_vote_accounts_global_t * epoch_stakes = fd_bank_epoch_stakes_locking_modify( slot_ctx->bank );
+  fd_vote_accounts_global_t       * epoch_stakes      = fd_bank_epoch_stakes_locking_modify( slot_ctx->bank );
+  fd_vote_accounts_global_t const * next_epoch_stakes = fd_bank_next_epoch_stakes_unsafe_query( slot_ctx->bank );
   fd_memcpy( epoch_stakes, next_epoch_stakes, total_sz );
   fd_bank_epoch_stakes_end_locking_modify( slot_ctx->bank );
-
-  fd_bank_next_epoch_stakes_end_locking_query( slot_ctx->bank );
 
 }
 

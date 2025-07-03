@@ -19,6 +19,14 @@ fd_bank_footprint( void ) {
   type const *                                                                                                     \
   fd_bank_##name##_locking_query( fd_bank_t * bank ) {                                                             \
     fd_rwlock_read( &bank->name##_lock );                                                                          \
+    return fd_bank_##name##_unsafe_query( bank );                                                                  \
+  }                                                                                                                \
+  void                                                                                                             \
+  fd_bank_##name##_end_locking_query( fd_bank_t * bank ) {                                                         \
+    fd_rwlock_unread( &bank->name##_lock );                                                                        \
+  }                                                                                                                \
+  type const *                                                                                                     \
+  fd_bank_##name##_unsafe_query( fd_bank_t * bank ) {                                                              \
     /* If the pool element hasn't been setup yet, then return NULL */                                              \
     fd_bank_##name##_t * name##_pool = fd_bank_get_##name##_pool( bank );                                          \
     if( FD_UNLIKELY( name##_pool==NULL ) ) {                                                                       \
@@ -29,10 +37,6 @@ fd_bank_footprint( void ) {
     }                                                                                                              \
     fd_bank_##name##_t * bank_##name = fd_bank_##name##_pool_ele( name##_pool, bank->name##_pool_idx );            \
     return (type *)bank_##name->data;                                                                              \
-  }                                                                                                                \
-  void                                                                                                             \
-  fd_bank_##name##_end_locking_query( fd_bank_t * bank ) {                                                         \
-    fd_rwlock_unread( &bank->name##_lock );                                                                        \
   }                                                                                                                \
   type *                                                                                                           \
   fd_bank_##name##_locking_modify( fd_bank_t * bank ) {                                                            \
