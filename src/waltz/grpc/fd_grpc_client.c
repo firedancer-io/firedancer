@@ -538,7 +538,7 @@ static fd_h2_stream_t *
 fd_grpc_h2_stream_query( fd_h2_conn_t * conn,
                          uint           stream_id ) {
   fd_grpc_client_t * client = conn->ctx;
-  for( ulong i=0UL; i<FD_GRPC_CLIENT_MAX_STREAMS; i++ ) {
+  for( ulong i=0UL; i<client->stream_cnt; i++ ) {
     if( client->stream_ids[ i ] == stream_id ) {
       return &client->streams[ i ]->s;
     }
