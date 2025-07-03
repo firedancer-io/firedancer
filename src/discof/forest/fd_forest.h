@@ -45,7 +45,7 @@
 
 struct __attribute__((aligned(128UL))) fd_forest_ele {
   ulong slot;     /* map key */
-  ulong prev;     /* internal use by link_orphans */
+  ulong prev;     /* internal use for BFSing */
   ulong next;     /* internal use by fd_pool, fd_map_chain */
   ulong parent;   /* pool idx of the parent in the tree */
   ulong child;    /* pool idx of the left-child */

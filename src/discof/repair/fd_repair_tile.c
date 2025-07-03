@@ -766,15 +766,17 @@ after_frag( fd_repair_tile_ctx_t * ctx,
 
     ulong wmark = fd_fseq_query( ctx->wmark );
     if( FD_UNLIKELY( fd_forest_root_slot( ctx->forest ) == ULONG_MAX ) ) {
+      FD_LOG_NOTICE(( "Forest initializing with root %lu", wmark ));
       fd_forest_init( ctx->forest, wmark );
       uchar mr[ FD_SHRED_MERKLE_ROOT_SZ ] = { 0 }; /* FIXME */
       fd_fec_chainer_init( ctx->fec_chainer, wmark, mr );
       FD_TEST( fd_forest_root_slot( ctx->forest ) != ULONG_MAX );
-      FD_LOG_NOTICE(( "Forest initialized with root %lu", wmark ));
       ctx->prev_wmark = wmark;
     }
+
     if( FD_UNLIKELY( ctx->prev_wmark < wmark ) ) {
       fd_forest_publish( ctx->forest, wmark );
+      fd_fec_chainer_publish( ctx->fec_chainer, wmark );
       ctx->prev_wmark  = wmark;
       // invalidate our repair iterator
       ctx->repair_iter = fd_forest_iter_init( ctx->forest );
