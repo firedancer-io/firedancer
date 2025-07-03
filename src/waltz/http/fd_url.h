@@ -47,6 +47,12 @@ fd_url_parse_cstr( fd_url_t *   url,
                    ulong        url_str_len,
                    int *        opt_err );
 
+/* fd_url_unescape undoes % escapes in-place. */
+
+ulong
+fd_url_unescape( char * const msg,
+                 ulong  const len );
+
 FD_PROTOTYPES_END
 
 #endif /* HEADER_fd_src_waltz_h2_fd_url_h */

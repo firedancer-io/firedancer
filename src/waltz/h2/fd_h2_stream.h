@@ -42,9 +42,9 @@ fd_h2_stream_init( fd_h2_stream_t * stream ) {
    window. */
 
 static inline fd_h2_stream_t *
-fd_h2_stream_open( fd_h2_stream_t *     stream,
-                   fd_h2_conn_t const * conn,
-                   uint                 stream_id ) {
+fd_h2_stream_open( fd_h2_stream_t * stream,
+                   fd_h2_conn_t *   conn,
+                   uint             stream_id ) {
   *stream = (fd_h2_stream_t) {
     .stream_id = stream_id,
     .state     = FD_H2_STREAM_STATE_OPEN,
@@ -52,6 +52,7 @@ fd_h2_stream_open( fd_h2_stream_t *     stream,
     .rx_wnd    = conn->self_settings.initial_window_size,
     .hdrs_seq  = 0U
   };
+  conn->stream_active_cnt[ (stream_id&1) ^ (conn->rx_stream_id&1) ]++;
   return stream;
 }
 

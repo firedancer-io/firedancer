@@ -70,3 +70,49 @@ fd_url_parse_cstr( fd_url_t *   const url,
 
   return url;
 }
+
+
+static inline int
+fd_hex_unhex( int c ) {
+  if( c>='0' && c<='9' ) return c-'0';
+  if( c>='a' && c<='f' ) return c-'a'+0xa;
+  if( c>='A' && c<='F' ) return c-'A'+0xa;
+  return -1;
+}
+
+ulong
+fd_url_unescape( char * const msg,
+                 ulong  const len ) {
+  char * end = msg+len;
+  int state = 0;
+  char * dst = msg;
+  for( char * src=msg; src<end; src++ ) {
+    /* invariant: p<=msg */
+    switch( state ) {
+    case 0:
+      if( FD_LIKELY( (*src)!='%' ) ) {
+        *dst = *src;
+        dst++;
+      } else {
+        state = 1;
+      }
+      break;
+    case 1:
+      if( FD_LIKELY( (*src)!='%' ) )  {
+        *dst = (char)( ( fd_hex_unhex( *src )&0xf )<<4 );
+        state = 2;
+      } else {
+        /* FIXME is 'aa%%aa' a valid escape? */
+        *(dst++) = '%';
+        state = 0;
+      }
+      break;
+    case 2:
+      *dst = (char)( (*dst) | ( fd_hex_unhex( *src )&0xf ) );
+      dst++;
+      state = 0;
+      break;
+    }
+  }
+  return (ulong)( dst-msg );
+}
