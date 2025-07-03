@@ -179,7 +179,6 @@ fd_h2_rx_headers( fd_h2_conn_t *            conn,
     }
     fd_h2_stream_open( stream, conn, stream_id );
     stream->tx_wnd = conn->peer_settings.initial_window_size;
-    conn->stream_active_cnt[0]++;
     conn->rx_stream_next = stream_id+2;
   }
 

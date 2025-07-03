@@ -187,6 +187,14 @@ fd_bundle_tile_should_stall( fd_bundle_tile_t const * ctx,
 void
 fd_bundle_tile_housekeeping( fd_bundle_tile_t * ctx );
 
+/* fd_bundle_client_grpc_rx_start is the first RX callback of a stream. */
+
+void
+fd_bundle_client_grpc_rx_start(
+    void * app_ctx,
+    ulong  request_ctx
+) ;
+
 /* fd_bundle_client_grpc_rx_msg is called by grpc_client when a gRPC
    message arrives (unary or server-streaming response). */
 
@@ -243,6 +251,11 @@ fd_bundle_client_status( fd_bundle_tile_t const * ctx );
 
 FD_FN_CONST char const *
 fd_bundle_request_ctx_cstr( ulong request_ctx );
+
+/* fd_bundle_client_reset frees all connection-related resources. */
+
+void
+fd_bundle_client_reset( fd_bundle_tile_t * ctx );
 
 FD_PROTOTYPES_END
 

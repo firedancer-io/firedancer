@@ -24,7 +24,7 @@
 
 #define FD_BUNDLE_CLIENT_REQUEST_TIMEOUT ((long)8e9) /* 8 seconds */
 
-static void
+void
 fd_bundle_client_reset( fd_bundle_tile_t * ctx ) {
   if( FD_UNLIKELY( ctx->tcp_sock >= 0 ) ) {
     if( FD_UNLIKELY( 0!=close( ctx->tcp_sock ) ) ) {
@@ -53,7 +53,8 @@ fd_bundle_client_reset( fd_bundle_tile_t * ctx ) {
 
   fd_bundle_tile_backoff( ctx, fd_tickcount() );
 
-  fd_bundle_auther_handle_request_fail( &ctx->auther );
+  fd_bundle_auther_reset( &ctx->auther );
+  fd_grpc_client_reset( ctx->grpc_client );
 }
 
 static int
@@ -721,7 +722,7 @@ fd_bundle_client_grpc_tx_complete(
   (void)app_ctx; (void)request_ctx;
 }
 
-static void
+void
 fd_bundle_client_grpc_rx_start(
     void * app_ctx,
     ulong  request_ctx
@@ -868,6 +869,9 @@ fd_bundle_client_grpc_rx_end(
     FD_LOG_INFO(( "SubscribeBundles stream failed (gRPC status %u-%s). Reconnecting ...",
                   resp->grpc_status, fd_grpc_status_cstr( resp->grpc_status ) ));
     return;
+  case FD_BUNDLE_CLIENT_REQ_Bundle_GetBlockBuilderFeeInfo:
+    ctx->builder_info_wait = 0;
+    break;
   default:
     break;
   }
