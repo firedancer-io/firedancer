@@ -10,6 +10,7 @@
 #include <unistd.h>
 #include <fcntl.h>
 #include <sys/mman.h>
+#include <stdio.h>
 
 extern action_t * ACTIONS[];
 extern fd_topo_run_tile_t * TILES[];
@@ -71,6 +72,30 @@ should_colorize( void ) {
   return 0;
 }
 
+/* Applies command-line overrides of the form --section.option value
+   Only add supported keys here. Extend this function as needed. */
+static void
+apply_cmdline_overrides(int *pargc, char ***pargv, config_t *config) {
+  for (int i = 1; i < *pargc - 1; i++) {
+    // Match keys like --section.option value
+    if (strncmp((*pargv)[i], "--", 2) == 0 && strchr((*pargv)[i], '.')) {
+      const char *key = (*pargv)[i] + 2;    // Skip leading "--"
+      const char *value = (*pargv)[i + 1];  // Next arg is value
+
+      if (!strcmp(key, "hugetlbfs.max_page_size")) {
+        printf("[DEBUG OVERRIDE]: %s = %s\n", key, value);
+        strncpy(config->hugetlbfs.max_page_size, value, sizeof(config->hugetlbfs.max_page_size) - 1);
+        config->hugetlbfs.max_page_size[sizeof(config->hugetlbfs.max_page_size) - 1] = '\0';
+      } else {
+        // Print a warning for unknown override keys
+        FD_LOG_WARNING(("Unknown override option: --%s (ignored)", key));
+      }
+
+      i++; // Skip value
+    }
+  }
+}   
+
 void
 fd_main_init( int *        pargc,
               char ***     pargv,
@@ -94,7 +119,7 @@ fd_main_init( int *        pargc,
   if( FD_UNLIKELY( config_fd >= 0 ) ) {
     copy_config_from_fd( config_fd, config );
     /* tick_per_ns needs to be synchronized across processes so that
-       they can coordinate on metrics measurement. */
+        they can coordinate on metrics measurement. */
     fd_tempo_set_tick_per_ns( config->tick_per_ns_mu, config->tick_per_ns_sigma );
   } else {
     char * user_config = NULL;
@@ -107,6 +132,10 @@ fd_main_init( int *        pargc,
     int netns = fd_env_strip_cmdline_contains( pargc, pargv, "--netns" );
     fd_config_load( is_firedancer, netns, is_local_cluster, default_config, default_config_sz, user_config, user_config_sz, opt_user_config_path, config );
     topo_init( config );
+
+    /* --- APPLY COMMAND-LINE OVERRIDES --- */
+    apply_cmdline_overrides(pargc, pargv, config);
+    /* --- END OVERRIDES --- */
 
     if( FD_UNLIKELY( user_config && -1==munmap( user_config, user_config_sz ) ) ) FD_LOG_ERR(( "munmap() failed (%i-%s)", errno, fd_io_strerror( errno ) ));
 
@@ -132,7 +161,7 @@ fd_main_init( int *        pargc,
   if( FD_LIKELY( config->log.path[ 0 ]=='\0' ) ) log_path = NULL;
 
   /* Switch to the sandbox uid/gid for log file creation, so it's always
-     owned by that user. */
+      owned by that user. */
 
   gid_t gid = getgid();
   uid_t uid = getuid();
