@@ -473,7 +473,7 @@ workspace_path( config_t const *       config,
       mount_path = config->hugetlbfs.gigantic_page_mount_path;
       break;
     case FD_SHMEM_NORMAL_PAGE_SZ:
-      mount_path = config->hugetlbfs.normal_page_mount_path;
+      mount_path = "/data/mnt/normal";
       break;
     default:
       FD_LOG_ERR(( "invalid page size %lu", wksp->page_sz ));
