@@ -51,15 +51,15 @@ slot_get_offset( ulong slot_idx ) {
 }
 
 FD_FN_PURE static inline uchar *
-slot_get_data( fd_tpu_reasm_t * reasm,
+slot_get_data_hdr( fd_tpu_reasm_t * reasm,
                ulong            slot_idx ) {
   return reasm->dcache + slot_get_offset( slot_idx );
 }
 
-FD_FN_PURE static inline uchar const *
-slot_get_data_const( fd_tpu_reasm_t const * reasm,
-                     ulong                  slot_idx ) {
-  return reasm->dcache + slot_get_offset( slot_idx );
+FD_FN_PURE static inline uchar *
+slot_get_data_payload( fd_tpu_reasm_t * reasm,
+               ulong            slot_idx ) {
+  return reasm->dcache + slot_get_offset( slot_idx ) + sizeof(fd_txn_m_t);
 }
 
 static FD_FN_UNUSED void

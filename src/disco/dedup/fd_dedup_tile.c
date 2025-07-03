@@ -108,19 +108,20 @@ during_frag( fd_dedup_ctx_t * ctx,
              ulong            sz,
              ulong            ctl FD_PARAM_UNUSED ) {
 
-  if( FD_UNLIKELY( chunk<ctx->in[ in_idx ].chunk0 || chunk>ctx->in[ in_idx ].wmark || sz>ctx->in[ in_idx ].mtu ) )
+  if( FD_UNLIKELY( chunk<ctx->in[ in_idx ].chunk0 || chunk>ctx->in[ in_idx ].wmark || sz>ctx->in[ in_idx ].mtu || sz>FD_TPU_RAW_MTU ) )
     FD_LOG_ERR(( "chunk %lu %lu corrupt, not in range [%lu,%lu]", chunk, sz, ctx->in[ in_idx ].chunk0, ctx->in[ in_idx ].wmark ));
 
   uchar * src = (uchar *)fd_chunk_to_laddr( ctx->in[ in_idx ].mem, chunk );
   uchar * dst = (uchar *)fd_chunk_to_laddr( ctx->out_mem, ctx->out_chunk );
 
   if( FD_UNLIKELY( ctx->in_kind[ in_idx ]==IN_KIND_GOSSIP ) ) {
-    if( FD_UNLIKELY( sz>FD_TPU_MTU ) ) FD_LOG_ERR(( "received a gossip transaction that was too large" ));
+    if( FD_UNLIKELY( sz>FD_TPU_RAW_MTU ) ) FD_LOG_ERR(( "received a gossip transaction that was too large" ));
+    fd_memcpy( dst, src, sz );
 
-    fd_txn_m_t * txnm = (fd_txn_m_t *)dst;
-    txnm->payload_sz = (ushort)sz;
-    fd_memcpy( fd_txn_m_payload( txnm ), src, sz );
-    txnm->block_engine.bundle_id = 0UL;
+    fd_txn_m_t const * txnm = (fd_txn_m_t const *)dst;
+    if( FD_UNLIKELY( txnm->payload_sz>FD_TPU_MTU ) ) {
+      FD_LOG_ERR(( "fd_dedup: vote txn payload size %hu exceeds max %lu", txnm->payload_sz, FD_TPU_MTU ));
+    }
   } else if( FD_UNLIKELY( ctx->in_kind[ in_idx ]==IN_KIND_EXECUTED_TXN ) ) {
     /* Executed txns just have their signature inserted into the tcache
        so we can dedup them easily. */
