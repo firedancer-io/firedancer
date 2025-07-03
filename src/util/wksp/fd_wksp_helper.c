@@ -147,7 +147,7 @@ fd_wksp_new_named( char const *  name,
 
   /* Join the memory region */
 
-  void * shmem = fd_shmem_join( name, FD_SHMEM_JOIN_MODE_READ_WRITE, NULL, NULL, NULL ); /* logs details */
+  void * shmem = fd_shmem_join( name, FD_SHMEM_JOIN_MODE_READ_WRITE, NULL, NULL, NULL, 1 ); /* logs details */
   if( FD_UNLIKELY( !shmem ) ) {
     fd_shmem_unlink( name, page_sz ); /* logs details */
     return FD_WKSP_ERR_FAIL;
@@ -172,7 +172,7 @@ fd_wksp_delete_named( char const * name ) {
   /* Join the region and get the page size */
 
   fd_shmem_join_info_t info[1];
-  void * shwksp = fd_shmem_join( name, FD_SHMEM_JOIN_MODE_READ_WRITE, NULL, NULL, info ); /* logs details */
+  void * shwksp = fd_shmem_join( name, FD_SHMEM_JOIN_MODE_READ_WRITE, NULL, NULL, info, 1 ); /* logs details */
   if( FD_UNLIKELY( !shwksp ) ) return FD_WKSP_ERR_FAIL;
   ulong page_sz = info->page_sz;
 
@@ -273,7 +273,7 @@ fd_wksp_delete_anon( fd_wksp_t * wksp ) {
 fd_wksp_t *
 fd_wksp_attach( char const * name ) {
   return (fd_wksp_t *)
-    fd_shmem_join( name, FD_SHMEM_JOIN_MODE_READ_WRITE, fd_wksp_private_join_func, NULL, NULL ); /* logs details */
+    fd_shmem_join( name, FD_SHMEM_JOIN_MODE_READ_WRITE, fd_wksp_private_join_func, NULL, NULL, 1 ); /* logs details */
 }
 
 int

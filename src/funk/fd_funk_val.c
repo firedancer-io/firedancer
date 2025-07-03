@@ -45,7 +45,9 @@ fd_funk_val_truncate( fd_funk_rec_t * rec,
     /* NOTE: if the align is 0, we use the default alignment for
        fd_alloc_malloc_at_least */
     ulong   new_val_max;
+    // FD_LOG_WARNING(( "fd_alloc_malloc_at_least: %lu", sz ));
     uchar * new_val = fd_alloc_malloc_at_least( alloc, align, sz, &new_val_max );
+    // FD_LOG_WARNING(( "fd_alloc_malloc_at_least done: %p", (void *)new_val ));
     if( FD_UNLIKELY( !new_val ) ) { /* Allocation failure! */
       fd_int_store_if( !!opt_err, opt_err, FD_FUNK_ERR_MEM );
       return NULL;

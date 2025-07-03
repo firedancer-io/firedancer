@@ -199,7 +199,19 @@ while true; do
             rm -rf $TEMP_LOG && touch $TEMP_LOG && chmod 777 $TEMP_LOG
 
             set -x
-                $OBJDIR/bin/firedancer-dev backtest --config $LEDGER_DIR/offline_replay.toml &> /dev/null
+                $OBJDIR/bin/firedancer-dev backtest --config $LEDGER_DIR/offline_replay.toml &
+
+            OOM_SCORE_ADJ=-1000
+            PID=$!
+            # Set the OOM score adjustment for the process
+            if [ -d "/proc/$PID" ]; then
+                echo "$OOM_SCORE_ADJ" | sudo tee /proc/$PID/oom_score_adj > /dev/null
+                echo "Started process '$COMMAND' with PID: $PID and oom_score_adj: $OOM_SCORE_ADJ"
+            else
+                echo "Failed to start the process or PID does not exist."
+                exit 1
+            fi
+            wait $PID
 
             if grep -q "Rocksdb playback done." $TEMP_LOG && ! grep -q "Bank hash mismatch!" $TEMP_LOG;
             then

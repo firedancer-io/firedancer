@@ -136,6 +136,11 @@ static inline char *                         /* ==buf always */
 fd_shmem_private_path( char const * name,    /* Valid name */
                        ulong        page_sz, /* Valid page size (normal, huge, gigantic) */
                        char *       buf ) {  /* Non-NULL with FD_SHMEM_PRIVATE_PATH_BUF_MAX bytes */
+
+  if( page_sz == FD_SHMEM_NORMAL_PAGE_SZ ) {
+    return fd_cstr_printf( buf, FD_SHMEM_PRIVATE_PATH_BUF_MAX, NULL, "/data/mnt/normal/%s", name );
+  }
+
   return fd_cstr_printf( buf, FD_SHMEM_PRIVATE_PATH_BUF_MAX, NULL, "%s/.%s/%s",
                          fd_shmem_private_base, fd_shmem_page_sz_to_cstr( page_sz ), name );
 }
