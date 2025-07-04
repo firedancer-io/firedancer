@@ -2963,6 +2963,7 @@ upsert_vote_account( fd_txn_account_t *   vote_account,
 
   if( FD_UNLIKELY( vote_account_keys_pool==NULL ) ) {
     fd_bank_vote_account_keys_end_locking_modify( bank );
+    fd_bank_stakes_end_locking_query( bank );
     FD_LOG_DEBUG(( "Vote accounts pool does not exist" ));
     return;
   }
@@ -2993,6 +2994,7 @@ upsert_vote_account( fd_txn_account_t *   vote_account,
     fd_bank_vote_account_keys_end_locking_modify( bank );
   } else {
     fd_bank_vote_account_keys_end_locking_modify( bank );
+    fd_bank_stakes_end_locking_query( bank );
     remove_vote_account( vote_account, bank );
   }
 }
