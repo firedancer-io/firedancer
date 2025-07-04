@@ -1030,6 +1030,7 @@ fd_topo_configure_tile( fd_topo_tile_t * tile,
       tile->shredcap.repair_intake_listen_port = config->tiles.repair.repair_intake_listen_port;
       strncpy( tile->shredcap.folder_path, config->tiles.shredcap.folder_path, sizeof(tile->shredcap.folder_path) );
       tile->shredcap.write_buffer_size = config->tiles.shredcap.write_buffer_size;
+      tile->shredcap.manifest_dcache_obj_id = fd_pod_query_ulong( config->topo.props, "manifest_dcache", ULONG_MAX );
     } else {
       return 0;
     }

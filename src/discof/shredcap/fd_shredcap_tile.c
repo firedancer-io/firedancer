@@ -4,6 +4,8 @@
 #include "../../flamenco/types/fd_types.h"
 #include "../../flamenco/fd_flamenco_base.h"
 #include "../../disco/fd_disco.h"
+#include "../../util/pod/fd_pod_format.h"
+#include "../../discof/restore/utils/fd_snapshot_messages.h"
 
 #include <errno.h>
 #include <fcntl.h>
@@ -31,6 +33,8 @@
 #define SHRED_REPAIR (2UL)
 #define GOSSIP_SHRED (3UL)
 #define GOSSIP_REPAIR (4UL)
+#define SNAP_IN (5UL)
+
 
 typedef union {
   struct {
@@ -40,6 +44,19 @@ typedef union {
   };
   fd_net_rx_bounds_t net_rx;
 } fd_capture_in_ctx_t;
+
+struct fd_stake_out_link {
+  ulong       idx;
+  fd_frag_meta_t * mcache;
+  ulong *          sync;
+  ulong            depth;
+  ulong            seq;
+  fd_wksp_t * mem;
+  ulong       chunk0;
+  ulong       wmark;
+  ulong       chunk;
+};
+typedef struct fd_stake_out_link fd_stake_out_link_t;
 
 struct fd_capture_tile_ctx {
   uchar               in_kind[ 32 ];
@@ -54,6 +71,14 @@ struct fd_capture_tile_ctx {
   ulong repair_buffer_sz;
   uchar repair_buffer[ FD_NET_MTU ];
 
+  fd_stake_out_link_t stake_out[1];
+  int                 snapshot_init_done;
+  char const *        incremental;
+  char const *        snapshot;
+  uchar *             manifest_buf_mem;
+  uchar *             manifest_spad_mem;
+  uchar *             manifest_runtime_mem;
+  ulong *             published_wmark;
 
   fd_ip4_udp_hdrs_t intake_hdr[1];
 
@@ -80,6 +105,10 @@ struct fd_capture_tile_ctx {
 
   fd_alloc_t * alloc;
   uchar contact_info_buffer[ MAX_BUFFER_SIZE ];
+
+  /* Replicated behavior from replay tile consuming snap_out messages. */
+  ulong         _snap_out_chunk;
+  uchar const * manifest_dcache;          /* Dcache to receive decoded solana manifest */
 };
 typedef struct fd_capture_tile_ctx fd_capture_tile_ctx_t;
 
@@ -90,7 +119,38 @@ scratch_align( void ) {
 
 FD_FN_PURE static inline ulong
 loose_footprint( fd_topo_tile_t const * tile FD_PARAM_UNUSED ) {
-  return 1UL * FD_SHMEM_GIGANTIC_PAGE_SZ;
+  /* manifest_buf + manifest_spad + others */
+  return 4UL * FD_SHMEM_GIGANTIC_PAGE_SZ;
+}
+
+FD_FN_CONST static inline ulong
+manifest_buf_align( void ) {
+  return 128UL;
+}
+
+FD_FN_CONST static inline ulong
+manifest_buf_footprint( void ) {
+  return 2UL*1024UL*1024UL*1024UL;
+}
+
+FD_FN_CONST static inline ulong
+manifest_spad_align( void ) {
+  return 128UL;
+}
+
+FD_FN_CONST static inline ulong
+manifest_spad_footprint( void ) {
+  return 1UL*1024UL*1024UL*1024UL;
+}
+
+FD_FN_CONST static inline ulong
+manifest_runtime_align( void ) {
+  return 128UL;
+}
+
+FD_FN_CONST static inline ulong
+manifest_runtime_footprint( void ) {
+  return 1UL*1024UL*1024UL*1024UL;
 }
 
 static ulong
@@ -108,14 +168,149 @@ populate_allowed_seccomp( fd_topo_t const *      topo FD_PARAM_UNUSED,
   return sock_filter_policy_fd_shredcap_tile_instr_cnt;
 }
 
-
 FD_FN_PURE static inline ulong
 scratch_footprint( fd_topo_tile_t const * tile ) {
   (void)tile;
   ulong l = FD_LAYOUT_INIT;
   l = FD_LAYOUT_APPEND( l, alignof(fd_capture_tile_ctx_t), sizeof(fd_capture_tile_ctx_t) );
+  l = FD_LAYOUT_APPEND( l, manifest_buf_align(), manifest_buf_footprint() );
+  l = FD_LAYOUT_APPEND( l, manifest_spad_align(), manifest_spad_footprint() );
+  l = FD_LAYOUT_APPEND( l, manifest_runtime_align(), manifest_runtime_footprint()  );
   l = FD_LAYOUT_APPEND( l, fd_alloc_align(), fd_alloc_footprint() );
   return FD_LAYOUT_FINI( l, scratch_align() );
+}
+
+#include "../../flamenco/stakes/fd_stakes.h"
+#include "../../flamenco/runtime/sysvar/fd_sysvar_epoch_schedule.h"
+static inline ulong
+generate_stake_weight_msg( //fd_exec_slot_ctx_t * slot_ctx,
+                           fd_spad_t          * runtime_spad,
+                           ulong                epoch,
+                           fd_epoch_schedule_t const * epoch_schedule,
+                           fd_vote_accounts_global_t const * vote_accounts,
+                           ulong              * stake_weight_msg_out ) {
+
+  fd_stake_weight_msg_t *           stake_weight_msg = (fd_stake_weight_msg_t *)fd_type_pun( stake_weight_msg_out );
+  fd_stake_weight_t     *           stake_weights    = (fd_stake_weight_t *)&stake_weight_msg_out[5];
+  ulong                             stake_weight_idx = fd_stake_weights_by_node( vote_accounts,
+                                                                           stake_weights,
+                                                                           runtime_spad );
+  stake_weight_msg->epoch          = epoch;
+  stake_weight_msg->staked_cnt     = stake_weight_idx;                           /* staked_cnt */
+  stake_weight_msg->start_slot     = fd_epoch_slot0( epoch_schedule, stake_weight_msg_out[0] ); /* start_slot */
+  stake_weight_msg->slot_cnt       = epoch_schedule->slots_per_epoch; /* slot_cnt */
+  stake_weight_msg->excluded_stake = 0UL;                                        /* excluded stake */
+
+  return 5*sizeof(ulong) + (stake_weight_idx * sizeof(fd_stake_weight_t));
+}
+
+static void
+publish_stake_weights( fd_capture_tile_ctx_t * ctx,
+                       fd_stem_context_t *    stem,
+                       /* DEPRECATED */
+                       // fd_exec_slot_ctx_t *   slot_ctx
+                       /* NEW */
+                       fd_solana_manifest_global_t const * manifest
+                        ) {
+  fd_epoch_schedule_t const *       epoch_schedule  = &manifest->bank.epoch_schedule;
+  fd_vote_accounts_global_t const * vote_accounts   = &manifest->bank.stakes.vote_accounts;
+  ulong                             manifest_slot   = manifest->bank.slot;
+
+  FD_LOG_NOTICE(( "publish_stake_weights manifest_slot %lu", manifest_slot ));
+
+  fd_spad_t * spad = fd_spad_join( fd_spad_new( ctx->manifest_runtime_mem, manifest_spad_footprint() ) );
+
+  // fd_vote_accounts_global_t const * epoch_stakes = fd_bank_epoch_stakes_locking_query( slot_ctx->bank );
+  fd_vote_accounts_global_t const * epoch_stakes = vote_accounts;
+  fd_vote_accounts_pair_global_t_mapnode_t * epoch_stakes_root = fd_vote_accounts_vote_accounts_root_join( epoch_stakes );
+
+  if( epoch_stakes_root!=NULL ) {
+    ulong * stake_weights_msg = fd_chunk_to_laddr( ctx->stake_out->mem, ctx->stake_out->chunk );
+    ulong epoch               = fd_slot_to_leader_schedule_epoch( epoch_schedule, manifest_slot );
+    ulong stake_weights_sz    = generate_stake_weight_msg( spad, epoch - 1, epoch_schedule, vote_accounts, stake_weights_msg );
+    ulong stake_weights_sig   = 4UL;
+    FD_LOG_HEXDUMP_NOTICE(( "epoch_stakes stake_weights_msg", stake_weights_msg, stake_weights_sz ));
+    fd_stem_publish( stem, 0UL, stake_weights_sig, ctx->stake_out->chunk, stake_weights_sz, 0UL, 0UL, fd_frag_meta_ts_comp( fd_tickcount() ) );
+    ctx->stake_out->chunk = fd_dcache_compact_next( ctx->stake_out->chunk, stake_weights_sz, ctx->stake_out->chunk0, ctx->stake_out->wmark );
+    FD_LOG_NOTICE(("sending current epoch stake weights - epoch: %lu, stake_weight_cnt: %lu, start_slot: %lu, slot_cnt: %lu", stake_weights_msg[0], stake_weights_msg[1], stake_weights_msg[2], stake_weights_msg[3]));
+  }
+
+  // fd_vote_accounts_global_t const * next_epoch_stakes = fd_bank_next_epoch_stakes_locking_query( slot_ctx->bank );
+  // fd_vote_accounts_pair_global_t_mapnode_t * next_epoch_stakes_root = fd_vote_accounts_vote_accounts_root_join( next_epoch_stakes );
+
+  // if( next_epoch_stakes_root!=NULL ) {
+  if( epoch_stakes_root!=NULL ) {
+    ulong * stake_weights_msg = fd_chunk_to_laddr( ctx->stake_out->mem, ctx->stake_out->chunk );
+    ulong epoch               = fd_slot_to_leader_schedule_epoch( epoch_schedule, manifest_slot );
+    ulong stake_weights_sz    = generate_stake_weight_msg( spad, epoch, epoch_schedule, vote_accounts, stake_weights_msg );
+    ulong stake_weights_sig   = 4UL;
+    FD_LOG_HEXDUMP_NOTICE(( "next_epoch_stakes stake_weights_msg", stake_weights_msg, stake_weights_sz ));
+    fd_stem_publish( stem, 0UL, stake_weights_sig, ctx->stake_out->chunk, stake_weights_sz, 0UL, 0UL, fd_frag_meta_ts_comp( fd_tickcount() ) );
+    ctx->stake_out->chunk = fd_dcache_compact_next( ctx->stake_out->chunk, stake_weights_sz, ctx->stake_out->chunk0, ctx->stake_out->wmark );
+    FD_LOG_NOTICE(("sending next epoch stake weights - epoch: %lu, stake_weight_cnt: %lu, start_slot: %lu, slot_cnt: %lu", stake_weights_msg[0], stake_weights_msg[1], stake_weights_msg[2], stake_weights_msg[3]));
+  }
+  // fd_bank_next_epoch_stakes_end_locking_query( slot_ctx->bank );
+
+  FD_TEST( fd_spad_delete( fd_spad_leave( spad ) ) );
+}
+
+static void
+after_credit( fd_capture_tile_ctx_t * ctx FD_PARAM_UNUSED,
+              fd_stem_context_t *     stem FD_PARAM_UNUSED,
+              int *                   opt_poll_in FD_PARAM_UNUSED,
+              int *                   charge_busy FD_PARAM_UNUSED ) {
+
+  FD_SPIN_PAUSE();
+
+  // if( FD_UNLIKELY( !ctx->snapshot_init_done ) ) {
+
+  //   FD_LOG_NOTICE(( "[JAV] checkpoint snapshot_init" ));
+
+  //   fd_spad_t * spad = fd_spad_join( fd_spad_new( ctx->manifest_spad_mem, manifest_spad_footprint() ) );
+
+  //   char const * manifest_file = (access(ctx->incremental, F_OK)==0) ? ctx->incremental : ctx->snapshot;
+
+  //   int fd = open( manifest_file, O_RDONLY );
+  //   if( FD_UNLIKELY( fd < 0 ) ) {
+  //     FD_LOG_WARNING(( "open(%s) failed (%d-%s)", manifest_file, errno, fd_io_strerror( errno ) ));
+  //     return;
+  //   }
+  //   uchar * buf    = ctx->manifest_buf_mem;
+  //   ulong   buf_sz = 0;
+  //   FD_TEST( !fd_io_read( fd, buf/*dst*/, 0/*dst_min*/, manifest_buf_footprint()-1UL /*dst_max*/, &buf_sz ) );
+
+  //   FD_LOG_NOTICE(( "[JAV] checkpoint get manifest" ));
+
+  //   int err = 0;
+  //   fd_solana_manifest_global_t * manifest = fd_bincode_decode_spad_global(
+  //     solana_manifest,
+  //     spad,
+  //     buf,
+  //     buf_sz,
+  //     &err );
+  //   if( FD_UNLIKELY( err ) ) {
+  //     FD_LOG_WARNING(( "fd_solana_manifest_decode failed (%d)", err ));
+  //     return;
+  //   }
+  //   FD_LOG_NOTICE(( "manifest->bank.slot %lu", manifest->bank.slot ));
+
+  //   FD_LOG_NOTICE(( "[JAV] checkpoint published_wmark" ));
+
+  //   fd_fseq_update( ctx->published_wmark, manifest->bank.slot /*root_slot*/ );
+
+  //   FD_LOG_NOTICE(( "[JAV] checkpoint publish_stake_weights" ));
+
+  //   publish_stake_weights( ctx,
+  //                          stem,
+  //                          manifest );
+
+  //   ctx->snapshot_init_done = 1;
+
+  //   FD_TEST( fd_spad_delete( fd_spad_leave( spad ) ) );
+
+  //   FD_LOG_NOTICE(( "[JAV] checkpoint snapshot_init_done" ));
+  //   //*charge_busy = 0;
+  // }
 }
 
 static inline int
@@ -125,6 +320,10 @@ before_frag( fd_capture_tile_ctx_t * ctx,
              ulong            sig ) {
   if( FD_LIKELY( ctx->in_kind[ in_idx ]==NET_SHRED ) ) {
     return (fd_disco_netmux_sig_proto( sig )!=DST_PROTO_SHRED) & (fd_disco_netmux_sig_proto( sig )!=DST_PROTO_REPAIR);
+  }
+  if( FD_LIKELY( ctx->in_kind[ in_idx ]==SNAP_IN ) ) {
+    FD_LOG_WARNING(( "TODO received SNAP_IN" ));
+    return 0;
   }
   return 0;
 }
@@ -206,6 +405,8 @@ during_frag( fd_capture_tile_ctx_t * ctx,
     }
     fd_memcpy( ctx->repair_buffer, dcache_entry, sz );
     ctx->repair_buffer_sz = sz;
+  } else if( FD_LIKELY( ctx->in_kind[ in_idx ]==SNAP_IN ) ) {
+    ctx->_snap_out_chunk = chunk;
   } else {
     // contact infos can be copied into a buffer
     if( FD_UNLIKELY( chunk<ctx->in_links[ in_idx ].chunk0 || chunk>ctx->in_links[ in_idx ].wmark ) ) {
@@ -215,6 +416,107 @@ during_frag( fd_capture_tile_ctx_t * ctx,
     uchar const * dcache_entry = fd_chunk_to_laddr_const( ctx->in_links[ in_idx ].mem, chunk );
     fd_memcpy( ctx->contact_info_buffer, dcache_entry, sz );
   }
+}
+
+static void
+on_snapshot_message( fd_capture_tile_ctx_t * ctx,
+                     fd_stem_context_t *    stem,
+                     ulong                  chunk,
+                     ulong                  sig ) {
+  // if( sig==FD_SNAPSHOT_DONE ) {
+  //   /* An end of message notification indicates the snapshot is loaded.
+  //      Replay is able to start executing from this point onwards. */
+  //   /* TODO: replay should finish booting. Could make replay a
+  //      state machine and set the state here accordingly. */
+  //   FD_LOG_INFO(("Snapshot loaded, replay can start executing"));
+  //   ctx->snapshot_init_done = 1;
+  //   init_from_snapshot( ctx, stem );
+  //   return;
+  // }
+
+  // switch( sig ) {
+  //   case FD_FULL_SNAPSHOT_MANIFEST: {
+  //     /* A snapshot manifest message contains information needed to
+  //      initialize a bank to start replaying slots from the snapshot slot. */
+  //     FD_LOG_INFO(("Received full snapshot manifest message"));
+  //     break;
+  //   }
+  //   case FD_INCREMENTAL_SNAPSHOT_MANIFEST: {
+  //     FD_LOG_INFO(("Received incremental snapshot manifest message"));
+  //     return;
+  //   }
+  //   case FD_FULL_SNAPSHOT_MANIFEST_EXTERNAL:
+  //   case FD_INCREMENTAL_SNAPSHOT_MANIFEST_EXTERNAL: {
+  //     /* We may either receive a full snapshot manifest or an
+  //        incremental snapshot manifest.  Note that this external message
+  //        id is only used temporarily because replay cannot yet receive
+  //        the firedancer-internal snapshot manifest message. */
+  //     // restore_slot_ctx( ctx, chunk );
+  //     // /* kick off repair orphans */
+  //     // kickoff_repair_orphans( ctx, stem );
+  //     if( FD_UNLIKELY( !ctx->snapshot_init_done ) ) {
+  //       FD_LOG_NOTICE(( "publish_stake_wait from manifest_dcache" ));
+  //       fd_solana_manifest_global_t * manifest = (fd_solana_manifest_global_t *)fd_chunk_to_laddr( fd_wksp_containing( ctx->manifest_dcache ), chunk );
+  //       /* TODO move to after credit? */
+  //       publish_stake_weights( ctx,
+  //                              stem,
+  //                              manifest );
+  //       ctx->snapshot_init_done = 1;
+  //     }
+  //     break;
+  //   }
+  //   default: {
+  //     FD_LOG_WARNING(("Received unknown snapshot message with sig %lu", sig ));
+  //     return;
+  //   }
+
+  switch( sig ) {
+    case FD_SNAPSHOT_DONE: {
+      FD_LOG_NOTICE(("Snapshot loaded, replay can start executing"));
+      break;
+    }
+    case FD_FULL_SNAPSHOT_MANIFEST: {
+      /* A snapshot manifest message contains information needed to
+       initialize a bank to start replaying slots from the snapshot slot. */
+      FD_LOG_NOTICE(("Received full snapshot manifest message"));
+      break;
+    }
+    case FD_INCREMENTAL_SNAPSHOT_MANIFEST: {
+      FD_LOG_NOTICE(("Received incremental snapshot manifest message"));
+      break;
+    }
+    case FD_FULL_SNAPSHOT_MANIFEST_EXTERNAL: {
+      FD_LOG_NOTICE(("Received full snapshot manifest message - extermal"));
+      break;
+    }
+    case FD_INCREMENTAL_SNAPSHOT_MANIFEST_EXTERNAL: {
+      FD_LOG_NOTICE(("Received incremental snapshot manifest message - external"));
+      break;
+    }
+    default: {
+      FD_LOG_WARNING(("Received unknown snapshot message with sig %lu", sig ));
+      return;
+    }
+  }
+
+  if( FD_LIKELY( //sig==FD_SNAPSHOT_DONE ) ) {
+                 //sig==FD_FULL_SNAPSHOT_MANIFEST ||
+                 //sig==FD_INCREMENTAL_SNAPSHOT_MANIFEST ||
+                 sig==FD_FULL_SNAPSHOT_MANIFEST_EXTERNAL ||
+                 sig==FD_INCREMENTAL_SNAPSHOT_MANIFEST_EXTERNAL ) ){
+    if( FD_UNLIKELY( !ctx->snapshot_init_done ) ) {
+      FD_LOG_NOTICE(( "publish_stake_wait from manifest_dcache" ));
+      fd_solana_manifest_global_t * manifest = (fd_solana_manifest_global_t *)fd_chunk_to_laddr( fd_wksp_containing( ctx->manifest_dcache ), chunk );
+      /* TODO move to after credit? */
+      fd_fseq_update( ctx->published_wmark, manifest->bank.slot /*root_slot*/ );
+      publish_stake_weights( ctx,
+                              stem,
+                              manifest );
+      ctx->snapshot_init_done = 1;
+    }
+  }
+
+  return;
 }
 
 static inline void
@@ -335,6 +637,8 @@ after_frag( fd_capture_tile_ctx_t * ctx,
       int err = fd_io_buffered_ostream_write( &ctx->peers_ostream, peers_buf, strlen(peers_buf) );
       FD_TEST( err==0 );
     }
+  } else if( ctx->in_kind[ in_idx ] == SNAP_IN ) {
+    on_snapshot_message( ctx, stem, ctx->_snap_out_chunk, sig );
   } else { // crds_shred contact infos
     handle_new_turbine_contact_info( ctx, ctx->contact_info_buffer );
   }
@@ -432,9 +736,13 @@ static void
 unprivileged_init( fd_topo_t *      topo,
                    fd_topo_tile_t * tile ) {
 
+  FD_LOG_WARNING(( "[JAV] unprivileged_init!!"));
   void * scratch = fd_topo_obj_laddr( topo, tile->tile_obj_id );
   FD_SCRATCH_ALLOC_INIT( l, scratch );
   fd_capture_tile_ctx_t * ctx = FD_SCRATCH_ALLOC_APPEND( l, alignof(fd_capture_tile_ctx_t), sizeof(fd_capture_tile_ctx_t) );
+  void * manifest_buf_mem     = FD_SCRATCH_ALLOC_APPEND( l, manifest_buf_align(), manifest_buf_footprint() );
+  void * manifest_spad_mem    = FD_SCRATCH_ALLOC_APPEND( l, manifest_spad_align(), manifest_spad_footprint() );
+  void * manifest_runtime_mem = FD_SCRATCH_ALLOC_APPEND( l, manifest_runtime_align(), manifest_runtime_footprint() );
   void * alloc_mem            = FD_SCRATCH_ALLOC_APPEND( l, fd_alloc_align(), fd_alloc_footprint() );
   FD_SCRATCH_ALLOC_FINI( l, scratch_align() );
 
@@ -454,6 +762,8 @@ unprivileged_init( fd_topo_t *      topo,
       ctx->in_kind[ i ] = GOSSIP_SHRED;
     } else if( 0==strcmp( link->name, "gossip_repai" ) ) {
       ctx->in_kind[ i ] = GOSSIP_REPAIR;
+    } else if( 0==strcmp( link->name, "snap_out" ) ) {
+      ctx->in_kind[ i ] = SNAP_IN;
     } else {
       FD_LOG_ERR(( "repair tile has unexpected input link %s", link->name ));
     }
@@ -466,11 +776,47 @@ unprivileged_init( fd_topo_t *      topo,
   ctx->repair_intake_listen_port = tile->shredcap.repair_intake_listen_port;
   ctx->write_buf_sz = tile->shredcap.write_buffer_size ? tile->shredcap.write_buffer_size : FD_SHREDCAP_DEFAULT_WRITER_BUF_SZ;
 
+  /* Set up stake weights tile output */
+  ctx->stake_out->idx        = fd_topo_find_tile_out_link( topo, tile, "stake_out", 0 );
+  FD_TEST( ctx->stake_out->idx!=ULONG_MAX );
+  fd_topo_link_t * stake_weights_out = &topo->links[ tile->out_link_id[ ctx->stake_out->idx] ];
+  ctx->stake_out->mcache    = stake_weights_out->mcache;
+  ctx->stake_out->mem       = topo->workspaces[ topo->objs[ stake_weights_out->dcache_obj_id ].wksp_id ].wksp;
+  ctx->stake_out->sync      = fd_mcache_seq_laddr     ( ctx->stake_out->mcache );
+  ctx->stake_out->depth     = fd_mcache_depth         ( ctx->stake_out->mcache );
+  ctx->stake_out->seq       = fd_mcache_seq_query     ( ctx->stake_out->sync );
+  ctx->stake_out->chunk0    = fd_dcache_compact_chunk0( ctx->stake_out->mem, stake_weights_out->dcache );
+  ctx->stake_out->wmark     = fd_dcache_compact_wmark ( ctx->stake_out->mem, stake_weights_out->dcache, stake_weights_out->mtu );
+  ctx->stake_out->chunk     = ctx->stake_out->chunk0;
+
+  ctx->snapshot_init_done   = 0;
+
+  /* TODO avoid hardcoding the names */
+  ctx->incremental          = "temp/manifest_incr";
+  ctx->snapshot             = "temp/manifest_full";
+  FD_LOG_NOTICE(( "ctx->incremental %s", ctx->incremental ));
+  FD_LOG_NOTICE(( "ctx->snapshot %s", ctx->snapshot ));
+
+  ctx->manifest_buf_mem     = manifest_buf_mem;
+  ctx->manifest_spad_mem    = manifest_spad_mem;
+  ctx->manifest_runtime_mem    = manifest_runtime_mem;
+
+  /* root slot */
+  ulong root_slot_obj_id = fd_pod_queryf_ulong( topo->props, ULONG_MAX, "root_slot" );
+  FD_TEST( root_slot_obj_id!=ULONG_MAX );
+  ctx->published_wmark = fd_fseq_join( fd_topo_obj_laddr( topo, root_slot_obj_id ) );
+  if( FD_UNLIKELY( !ctx->published_wmark ) ) FD_LOG_ERR(( "replay tile has no root_slot fseq" ));
+  FD_TEST( ULONG_MAX==fd_fseq_query( ctx->published_wmark ) );
+
   /* Allocate the write buffers */
   ctx->alloc = fd_alloc_join( fd_alloc_new( alloc_mem, FD_SHREDCAP_ALLOC_TAG ), fd_tile_idx() );
   if( FD_UNLIKELY( !ctx->alloc ) ) {
     FD_LOG_ERR( ( "fd_alloc_join failed" ) );
   }
+
+  /* join dcache from wksp */
+  ctx->_snap_out_chunk = 0;
+  ctx->manifest_dcache = (uchar const *)topo->workspaces[ topo->objs[ tile->shredcap.manifest_dcache_obj_id ].wksp_id ].wksp;
 
   /* Setup the csv files to be in the expected state */
 
@@ -495,6 +841,7 @@ unprivileged_init( fd_topo_t *      topo,
 #define STEM_CALLBACK_CONTEXT_TYPE  fd_capture_tile_ctx_t
 #define STEM_CALLBACK_CONTEXT_ALIGN alignof(fd_capture_tile_ctx_t)
 
+#define STEM_CALLBACK_AFTER_CREDIT         after_credit
 #define STEM_CALLBACK_DURING_FRAG          during_frag
 #define STEM_CALLBACK_AFTER_FRAG           after_frag
 #define STEM_CALLBACK_BEFORE_FRAG          before_frag
