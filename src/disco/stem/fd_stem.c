@@ -1,4 +1,5 @@
 #include "fd_stem.h"
+#include <errno.h>
 
 /* fd_stem provides services to multiplex multiple streams of input
    fragments and present them to a mix of reliable and unreliable
@@ -314,7 +315,7 @@ STEM_(run1)( ulong                        in_cnt,
 #if !(STEM_ALWAYS_SPINNING)
     waiters[in_idx].uaddr = (uint64_t)fd_mcache_futex_flag_const( this_in->mcache );
     waiters[in_idx].val = this_in->seq;
-    waiters[in_idx].flags= FUTEX_32;
+    waiters[in_idx].flags = FUTEX_32;
     waiters[in_idx].__reserved= 0UL;
 #endif
   }
@@ -475,6 +476,12 @@ STEM_(run1)( ulong                        in_cnt,
           in_tmp         = in[ swap_idx ];
           in[ swap_idx ] = in[ 0        ];
           in[ 0        ] = in_tmp;
+#if !(STEM_ALWAYS_SPINNING)
+          struct futex_waitv waitv_tmp;
+          waitv_tmp      = waiters[ swap_idx ];
+          waiters[ swap_idx ] = waiters[ 0        ];
+          waiters[ 0        ] = waitv_tmp;
+#endif
         }
       }
 
@@ -488,8 +495,22 @@ STEM_(run1)( ulong                        in_cnt,
 /* By default, tiles are always spinning, except the ones that are configured to wait for futexes */ 
 #if !(STEM_ALWAYS_SPINNING)
     if (futex_wait_counter > FD_STEM_SPIN_THRESHOLD) { 
-      fd_futex_waitv(waiters, (uint)in_cnt, 0, 0);
-      futex_wait_counter = 0;
+      long ticks_until_housekeeping = then - fd_tickcount();
+      long ns_until_housekeeping = (long)((double)ticks_until_housekeeping / fd_tempo_tick_per_ns(NULL));
+
+      // TODO: potentially use 1ms instead of housekeeping
+      // long wait_duration_ns = fd_log_wallclock() + (long) 1e6;
+      long housekeeping_deadline = fd_log_wallclock() + ns_until_housekeeping;
+      struct timespec housekeeping_timeout = {
+        .tv_sec = housekeeping_deadline / (long) 1e9,
+        .tv_nsec = housekeeping_deadline % (long) 1e9,
+      };
+
+      // TODO: CLOCK_REALTIME? that's what wallclock calls
+      long futex_result = fd_futex_waitv(waiters, (uint)in_cnt, &housekeeping_timeout, CLOCK_REALTIME);
+      if (FD_LIKELY(futex_result >= 0)) {
+        futex_wait_counter = 0;
+      }
     }
 #endif
 
@@ -577,6 +598,7 @@ STEM_(run1)( ulong                        in_cnt,
 
 #if !(STEM_ALWAYS_SPINNING)
     futex_wait_counter++;
+    ulong current_pos = in_seq;
 #endif
 
     fd_stem_tile_in_t * this_in = &in[ in_seq ];
@@ -611,7 +633,7 @@ STEM_(run1)( ulong                        in_cnt,
       if( FD_UNLIKELY( diff<0L ) ) { /* Overrun (impossible if in is honoring our flow control) */
         this_in->seq = seq_found; /* Resume from here (probably reasonably current, could query in mcache sync directly instead) */
 #if !(STEM_ALWAYS_SPINNING)
-        waiters[this_in->idx].val = this_in->seq;
+        waiters[current_pos].val = this_in->seq;
 #endif
         housekeeping_regime = &metric_regime_ticks[1];
         prefrag_regime = &metric_regime_ticks[4];
@@ -652,7 +674,7 @@ STEM_(run1)( ulong                        in_cnt,
       this_in->mline = this_in->mcache + fd_mcache_line_idx( this_in_seq, this_in->depth );
 
 #if !(STEM_ALWAYS_SPINNING)
-      waiters[this_in->idx].val += 1;
+      waiters[current_pos].val = this_in_seq;
       futex_wait_counter = 0;
 #endif
 
@@ -691,7 +713,7 @@ STEM_(run1)( ulong                        in_cnt,
     if( FD_UNLIKELY( fd_seq_ne( seq_test, seq_found ) ) ) { /* Overrun while reading (impossible if this_in honoring our fctl) */
       this_in->seq = seq_test; /* Resume from here (probably reasonably current, could query in mcache sync instead) */
 #if !(STEM_ALWAYS_SPINNING)
-      waiters[this_in->idx].val = this_in->seq;
+      waiters[current_pos].val = seq_test;
 #endif
       fd_metrics_link_in( fd_metrics_base_tl, this_in->idx )[ FD_METRICS_COUNTER_LINK_OVERRUN_READING_COUNT_OFF ]++; /* No local accum since extremely rare, faster to use smaller cache line */
       fd_metrics_link_in( fd_metrics_base_tl, this_in->idx )[ FD_METRICS_COUNTER_LINK_OVERRUN_READING_FRAG_COUNT_OFF ] += (uint)fd_seq_diff( seq_test, seq_found ); /* No local accum since extremely rare, faster to use smaller cache line */
@@ -714,6 +736,11 @@ STEM_(run1)( ulong                        in_cnt,
     this_in->seq   = this_in_seq;
     this_in->mline = this_in->mcache + fd_mcache_line_idx( this_in_seq, this_in->depth );
 
+#if !(STEM_ALWAYS_SPINNING)
+    waiters[current_pos].val = this_in_seq;
+    futex_wait_counter = 0;
+#endif
+
     this_in->accum[ FD_METRICS_COUNTER_LINK_CONSUMED_COUNT_OFF ]++;
     this_in->accum[ FD_METRICS_COUNTER_LINK_CONSUMED_SIZE_BYTES_OFF ] += (uint)sz;
 
@@ -722,10 +749,6 @@ STEM_(run1)( ulong                        in_cnt,
     long next = fd_tickcount();
     metric_regime_ticks[7] += (ulong)(next - now);
     now = next;
-#if !(STEM_ALWAYS_SPINNING)
-    waiters[this_in->idx].val += 1;
-    futex_wait_counter = 0;
-#endif
   }
 }
 
