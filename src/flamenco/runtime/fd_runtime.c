@@ -272,12 +272,14 @@ fd_runtime_freeze( fd_exec_slot_ctx_t * slot_ctx, fd_spad_t * runtime_spad ) {
       fd_epoch_leaders_t const * leaders = fd_bank_epoch_leaders_locking_query( slot_ctx->bank );
       if( FD_UNLIKELY( !leaders ) ) {
         FD_LOG_WARNING(( "fd_runtime_freeze: leaders not found" ));
+        fd_bank_epoch_leaders_end_locking_query( slot_ctx->bank );
         break;
       }
 
       fd_pubkey_t const * leader = fd_epoch_leaders_get( leaders, slot_ctx->bank->slot );
       if( FD_UNLIKELY( !leader ) ) {
         FD_LOG_WARNING(( "fd_runtime_freeze: leader not found" ));
+        fd_bank_epoch_leaders_end_locking_query( slot_ctx->bank );
         break;
       }
 
@@ -285,6 +287,7 @@ fd_runtime_freeze( fd_exec_slot_ctx_t * slot_ctx, fd_spad_t * runtime_spad ) {
       if( FD_UNLIKELY( err ) ) {
         FD_LOG_WARNING(("fd_runtime_freeze: fd_txn_account_init_from_funk_mutable for leader (%s) failed (%d)", FD_BASE58_ENC_32_ALLOCA( leader ), err));
         burn = fd_ulong_sat_add( burn, fees );
+        fd_bank_epoch_leaders_end_locking_query( slot_ctx->bank );
         break;
       }
 
