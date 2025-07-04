@@ -321,6 +321,7 @@ STEM_(run1)( ulong                        in_cnt,
   /* housekeeping init */
 
   if( lazy<=0L ) lazy = fd_tempo_lazy_default( cr_max );
+  lazy = fd_long_min( lazy, (long)10e6 ); /* report metrics ~100 times a second */
   FD_LOG_INFO(( "Configuring housekeeping (lazy %li ns)", lazy ));
 
   /* Initialize the initial event sequence to immediately update
