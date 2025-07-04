@@ -135,7 +135,6 @@ struct fd_repair_tile_ctx {
   ulong       replay_out_chunk;
 
   uint                shred_tile_cnt;
-  fd_repair_out_ctx_t shred_out_ctx[ MAX_SHRED_TILE_CNT ];
 
   ushort net_id;
   /* Includes Ethernet, IP, UDP headers */
@@ -253,12 +252,12 @@ handle_new_cluster_contact_info( fd_repair_tile_ctx_t * ctx,
 }
 
 ulong
-fd_repair_handle_ping( fd_repair_tile_ctx_t *  repair_tile_ctx,
+fd_repair_handle_ping( fd_repair_tile_ctx_t        * repair_tile_ctx,
                        fd_repair_t *                 glob,
-                       fd_gossip_ping_t const *      ping,
+                       fd_gossip_ping_t const      * ping,
                        fd_gossip_peer_addr_t const * peer_addr FD_PARAM_UNUSED,
                        uint                          self_ip4_addr FD_PARAM_UNUSED,
-                       uchar *                       msg_buf,
+                       uchar                       * msg_buf,
                        ulong                         msg_buf_sz ) {
   fd_repair_protocol_t protocol;
   fd_repair_protocol_new_disc(&protocol, fd_repair_protocol_enum_pong);
@@ -813,10 +812,9 @@ after_frag( fd_repair_tile_ctx_t * ctx,
     if( FD_UNLIKELY( is_fec_completes_msg( sz ) ) ) {
       fd_forest_ele_t * ele = NULL;
       for( uint idx = shred->fec_set_idx; idx <= shred->idx; idx++ ) {
-        ele = fd_forest_data_shred_insert( ctx->forest, shred->slot, shred->data.parent_off, idx, shred->fec_set_idx, 0, 0 );
+        ele = fd_forest_data_shred_insert( ctx->forest, shred->slot, shred->data.parent_off, idx, 0 );
       }
       FD_TEST( ele ); /* must be non-empty */
-      fd_forest_ele_idxs_insert( ele->cmpl, shred->fec_set_idx );
 
       uchar * merkle        = ctx->buffer + FD_SHRED_DATA_HEADER_SZ;
       int     data_complete = !!(shred->data.flags & FD_SHRED_DATA_FLAG_DATA_COMPLETE);
@@ -835,16 +833,18 @@ after_frag( fd_repair_tile_ctx_t * ctx,
           reasm->cnt = 0;
         }
         if( FD_UNLIKELY( out.data_complete ) ) {
-          uint  cnt   = out.fec_set_idx + out.data_cnt - reasm->cnt;
+          uint  cnt   = out.fec_set_idx + FD_FEC_SHRED_CNT - reasm->cnt;
           ulong sig   = fd_disco_repair_replay_sig( out.slot, out.parent_off, cnt, out.slot_complete );
           ulong tspub = fd_frag_meta_ts_comp( fd_tickcount() );
-          reasm->cnt = out.fec_set_idx + out.data_cnt;
+          reasm->cnt = out.fec_set_idx + FD_FEC_SHRED_CNT;
           fd_stem_publish( ctx->stem, REPLAY_OUT_IDX, sig, 0, 0, 0, tsorig, tspub );
           if( FD_UNLIKELY( out.slot_complete ) ) {
             fd_reasm_remove( ctx->reasm, reasm );
           }
         }
       }
+      /* remove the fec entry in forest */
+      fd_forest_fec_remove( ctx->forest, shred->slot, shred->fec_set_idx );
     }
 
     /* Insert the shred into the map. */
@@ -854,40 +854,8 @@ after_frag( fd_repair_tile_ctx_t * ctx,
     if( FD_LIKELY( !is_code ) ) {
       fd_repair_inflight_remove( ctx->repair, shred->slot, shred->idx );
 
-      int               data_complete = !!(shred->data.flags & FD_SHRED_DATA_FLAG_DATA_COMPLETE);
-      int               slot_complete = !!(shred->data.flags & FD_SHRED_DATA_FLAG_SLOT_COMPLETE);
-      fd_forest_ele_t * ele           = fd_forest_data_shred_insert( ctx->forest, shred->slot, shred->data.parent_off, shred->idx, shred->fec_set_idx, data_complete, slot_complete );
-
-      /* Check if there are FECs to force complete. Algorithm: window
-         through the idxs in interval [i, j). If j = next fec_set_idx
-         then we know we can force complete the FEC set interval [i, j)
-         (assuming it wasn't already completed based on `cmpl`). */
-
-      uint i = 0;
-      for( uint j = 1; j < ele->buffered_idx + 1; j++ ) { /* TODO iterate by word */
-        if( FD_UNLIKELY( fd_forest_ele_idxs_test( ele->cmpl, i ) && fd_forest_ele_idxs_test( ele->fecs, j ) ) ) {
-          i = j;
-        } else if( FD_UNLIKELY( fd_forest_ele_idxs_test( ele->fecs, j ) || j == ele->complete_idx ) ) {
-          if ( j == ele->complete_idx ) j++;
-          fd_forest_ele_idxs_insert( ele->cmpl, i );
-
-          /* Find the shred tile owning this FEC set. */
-
-          fd_fec_sig_t * fec_sig = fd_fec_sig_query( ctx->fec_sigs, (shred->slot << 32) | i, NULL );
-
-          ulong sig      = fd_ulong_load_8( fec_sig->sig );
-          ulong tile_idx = sig % ctx->shred_tile_cnt;
-          uint  last_idx = j - i - 1;
-
-          uchar * chunk = fd_chunk_to_laddr( ctx->shred_out_ctx[tile_idx].mem, ctx->shred_out_ctx[tile_idx].chunk );
-          memcpy( chunk, fec_sig->sig, sizeof(fd_ed25519_sig_t) );
-          fd_stem_publish( stem, ctx->shred_out_ctx[tile_idx].idx, last_idx, ctx->shred_out_ctx[tile_idx].chunk, sizeof(fd_ed25519_sig_t), 0UL, 0UL, 0UL );
-          ctx->shred_out_ctx[tile_idx].chunk = fd_dcache_compact_next( ctx->shred_out_ctx[tile_idx].chunk, sizeof(fd_ed25519_sig_t), ctx->shred_out_ctx[tile_idx].chunk0, ctx->shred_out_ctx[tile_idx].wmark );
-          i = j;
-        } else {
-          // FD_LOG_NOTICE(( "not a fec boundary %lu %u", ele->slot, j ));
-        }
-      }
+      int slot_complete = !!(shred->data.flags & FD_SHRED_DATA_FLAG_SLOT_COMPLETE);
+      fd_forest_data_shred_insert( ctx->forest, shred->slot, shred->data.parent_off, shred->idx, slot_complete );
     }
     return;
   }
@@ -1091,7 +1059,6 @@ unprivileged_init( fd_topo_t *      topo,
 
 
   uint sign_link_out_idx = UINT_MAX;
-  uint shred_tile_idx    = 0;
   for( uint out_idx=0U; out_idx<(tile->out_cnt); out_idx++ ) {
     fd_topo_link_t * link = &topo->links[ tile->out_link_id[ out_idx ] ];
 
@@ -1118,28 +1085,18 @@ unprivileged_init( fd_topo_t *      topo,
       ctx->replay_out_wmark  = fd_dcache_compact_wmark( ctx->replay_out_mem, link->dcache, link->mtu );
       ctx->replay_out_chunk  = ctx->replay_out_chunk0;
 
-    } else if ( 0==strcmp( link->name, "repair_shred" ) ) {
-
-      fd_repair_out_ctx_t * shred_out = &ctx->shred_out_ctx[ shred_tile_idx++ ];
-      shred_out->idx                  = out_idx;
-      shred_out->mem                  = topo->workspaces[ topo->objs[ link->dcache_obj_id ].wksp_id ].wksp;
-      shred_out->chunk0               = fd_dcache_compact_chunk0( shred_out->mem, link->dcache );
-      shred_out->wmark                = fd_dcache_compact_wmark( shred_out->mem, link->dcache, link->mtu );
-      shred_out->chunk                = shred_out->chunk0;
-
     } else {
       FD_LOG_ERR(( "repair tile has unexpected output link %s", link->name ));
     }
 
   }
   if( FD_UNLIKELY( sign_link_out_idx==UINT_MAX ) ) FD_LOG_ERR(( "Missing gossip_sign link" ));
-  ctx->shred_tile_cnt = shred_tile_idx;
-  FD_TEST( ctx->shred_tile_cnt == fd_topo_tile_name_cnt( topo, "shred" ) );
+  ctx->shred_tile_cnt = (uint)fd_topo_tile_name_cnt( topo, "shred" );
 
   /* Scratch mem setup */
 
   ctx->blockstore = &ctx->blockstore_ljoin;
-  ctx->repair     = FD_SCRATCH_ALLOC_APPEND( l, fd_repair_align(), fd_repair_footprint() );
+  ctx->repair = FD_SCRATCH_ALLOC_APPEND( l, fd_repair_align(), fd_repair_footprint() );
   ctx->forest = FD_SCRATCH_ALLOC_APPEND( l, fd_forest_align(), fd_forest_footprint( tile->repair.slot_max ) );
   ctx->fec_sigs = FD_SCRATCH_ALLOC_APPEND( l, fd_fec_sig_align(), fd_fec_sig_footprint( 20 ) );
   ctx->reasm = FD_SCRATCH_ALLOC_APPEND( l, fd_reasm_align(), fd_reasm_footprint( 20 ) );

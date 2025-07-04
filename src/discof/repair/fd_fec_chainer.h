@@ -176,7 +176,6 @@ struct fd_fec_ele {
 
   ulong  slot;
   uint   fec_set_idx;
-  ushort data_cnt;
   int    data_complete;
   int    slot_complete;
   ushort parent_off;
@@ -245,7 +244,6 @@ struct fd_fec_out {
   ulong  slot;
   ushort parent_off;
   uint   fec_set_idx;
-  ushort data_cnt;
   int    data_complete;
   int    slot_complete;
   int    err;
