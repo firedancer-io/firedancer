@@ -139,6 +139,14 @@ find_keyswitch( fd_topo_t const * topo,
   return keyswitch;
 }
 
+/* Pause loop with timeout protection (~3s), avoids infinite spin */
+#define FD_PAUSE_WITH_TIMEOUT(ctx, who)                                  \
+  do {                                                                   \
+    if( FD_UNLIKELY( ++retry_count > max_retries ) )                     \
+      FD_LOG_ERR(( "Timeout waiting for %s to complete key switch in state %lu", who, *ctx )); \
+    FD_SPIN_PAUSE();                                                     \
+  } while(0)
+
 static void FD_FN_SENSITIVE
 poll_keyswitch( fd_topo_t * topo,
                 ulong *     state,
@@ -147,8 +155,13 @@ poll_keyswitch( fd_topo_t * topo,
                 int *       has_error,
                 int         require_tower,
                 int         force_lock ) {
+
+  ulong retry_count = 0UL;
+  static const ulong max_retries = 100000000UL;
+
   switch( *state ) {
     case FD_SET_IDENTITY_STATE_UNLOCKED: {
+      retry_count = 0UL;
       fd_keyswitch_t * poh = find_keyswitch( topo, "poh" );
       if( FD_LIKELY( FD_KEYSWITCH_STATE_UNLOCKED==FD_ATOMIC_CAS( &poh->state, FD_KEYSWITCH_STATE_UNLOCKED, FD_KEYSWITCH_STATE_LOCKED ) ) ) {
         *state = FD_SET_IDENTITY_STATE_LOCKED;
@@ -166,6 +179,7 @@ poll_keyswitch( fd_topo_t * topo,
       break;
     }
     case FD_SET_IDENTITY_STATE_LOCKED: {
+      retry_count = 0UL;
       fd_keyswitch_t * poh = find_keyswitch( topo, "poh" );
       memcpy( poh->bytes, keypair, 64UL );
       poh->param = !!require_tower;
@@ -179,13 +193,14 @@ poll_keyswitch( fd_topo_t * topo,
     case FD_SET_IDENTITY_STATE_POH_HALT_REQUESTED: {
       fd_keyswitch_t * poh = find_keyswitch( topo, "poh" );
       if( FD_LIKELY( poh->state==FD_KEYSWITCH_STATE_COMPLETED ) ) {
+        retry_count = 0UL;
         explicit_bzero( poh->bytes, 64UL );
         FD_COMPILER_MFENCE();
         *halted_seq = poh->result;
         *state = FD_SET_IDENTITY_STATE_POH_HALTED;
         FD_LOG_INFO(( "Leader pipeline successfully paused..." ));
       } else if( FD_UNLIKELY( poh->state==FD_KEYSWITCH_STATE_SWITCH_PENDING ) ) {
-        FD_SPIN_PAUSE();
+        FD_PAUSE_WITH_TIMEOUT(state, "poh");
       } else if( FD_LIKELY( poh->state==FD_KEYSWITCH_STATE_FAILED ) ) {
         /* Failed to switch identity in Agave, so abort the entire process. */
         *state = FD_SET_IDENTITY_STATE_ALL_SWITCHED;
@@ -196,6 +211,7 @@ poll_keyswitch( fd_topo_t * topo,
       break;
     }
     case FD_SET_IDENTITY_STATE_POH_HALTED: {
+      retry_count = 0UL;
       for( ulong i=0UL; i<topo->tile_cnt; i++ ) {
         fd_topo_tile_t const * tile = &topo->tiles[ i ];
         if( FD_LIKELY( strcmp( tile->name, "shred" ) ) ) continue;
@@ -226,13 +242,14 @@ poll_keyswitch( fd_topo_t * topo,
           continue;
         } else if( FD_UNLIKELY( shred->state==FD_KEYSWITCH_STATE_SWITCH_PENDING ) ) {
           /* If any of the shred tiles is still pending, we need to wait. */
-          FD_SPIN_PAUSE();
+          FD_PAUSE_WITH_TIMEOUT(state, "shred");
           return;
         } else {
           FD_LOG_ERR(( "Unexpected shred:%lu keyswitch state %lu", tile->kind_id, shred->state ));
         }
       }
 
+      retry_count = 0UL;
       *state = FD_SET_IDENTITY_STATE_SHRED_FLUSHED;
       FD_LOG_INFO(( "All in-flight shreds published..." ));
       break;
@@ -260,6 +277,7 @@ poll_keyswitch( fd_topo_t * topo,
       }
 
       FD_LOG_INFO(( "Requesting all tiles switch identity key..." ));
+      retry_count = 0UL;
       *state = FD_SET_IDENTITY_STATE_ALL_SWITCH_REQUESTED;
       break;
     }
@@ -287,10 +305,11 @@ poll_keyswitch( fd_topo_t * topo,
       }
 
       if( FD_LIKELY( all_switched ) ) {
+        retry_count = 0UL;
         FD_LOG_INFO(( "All tiles successfully switched identity key..." ));
         *state = FD_SET_IDENTITY_STATE_ALL_SWITCHED;
       } else {
-        FD_SPIN_PAUSE();
+        FD_PAUSE_WITH_TIMEOUT(state, "all-switched");
       }
       break;
     }
@@ -304,11 +323,12 @@ poll_keyswitch( fd_topo_t * topo,
     case FD_SET_IDENTITY_STATE_POH_UNHALT_REQUESTED: {
       fd_keyswitch_t * poh = find_keyswitch( topo, "poh" );
       if( FD_LIKELY( poh->state==FD_KEYSWITCH_STATE_COMPLETED ) ) {
+        retry_count = 0UL;
         FD_LOG_INFO(( "Leader pipeline unpaused..." ));
         poh->state = FD_KEYSWITCH_STATE_UNLOCKED;
         *state = FD_SET_IDENTITY_STATE_UNLOCKED;
       } else if( FD_UNLIKELY( poh->state==FD_KEYSWITCH_STATE_UNHALT_PENDING ) ) {
-        FD_SPIN_PAUSE();
+        FD_PAUSE_WITH_TIMEOUT(state, "poh-unhalt");
       } else {
         FD_LOG_ERR(( "Unexpected poh keyswitch state %lu", poh->state ));
       }
