@@ -164,6 +164,48 @@ recover_clock( fd_exec_slot_ctx_t * slot_ctx, fd_spad_t * runtime_spad ) {
   return 1;
 }
 
+/* https://github.com/anza-xyz/agave/blob/v2.3.2/runtime/src/bank.rs#L2217 */
+
+static ulong
+fd_bank_last_restart_slot_derive(
+    fd_hard_forks_global_t const * hard_forks,
+    ulong                          current_slot
+) {
+
+  if( FD_UNLIKELY( hard_forks->hard_forks_len == 0 ) ) {
+    /* SIMD-0047: The first restart slot should be `0` */
+    return 0UL;
+  }
+
+  fd_slot_pair_t const * head = fd_hard_forks_hard_forks_join( (fd_hard_forks_global_t *)hard_forks );
+  fd_slot_pair_t const * tail = head + hard_forks->hard_forks_len - 1UL;
+
+  for( fd_slot_pair_t const *pair = tail; pair >= head; pair-- ) {
+    if( pair->slot <= current_slot ) {
+      return pair->slot;
+    }
+  }
+
+  return 0UL;
+}
+
+static void
+fd_bank_last_restart_slot_update( fd_exec_slot_ctx_t *           slot_ctx,
+                                  fd_hard_forks_global_t const * old_hard_forks ) {
+  ulong last_restart_slot_have = ULONG_MAX;
+  fd_sol_sysvar_last_restart_slot_t sysvar;
+  if( FD_LIKELY( fd_sysvar_last_restart_slot_read( slot_ctx->sysvar_cache, &sysvar ) ) ) {
+    last_restart_slot_have = sysvar.slot;
+  }
+
+  ulong last_restart_slot_want = fd_bank_last_restart_slot_derive( old_hard_forks, slot_ctx->slot );
+
+  if( last_restart_slot_have != last_restart_slot_want ) {
+    sysvar.slot = last_restart_slot_want;
+    fd_sysvar_last_restart_slot_write( slot_ctx, &sysvar );
+  }
+}
+
 fd_exec_slot_ctx_t *
 fd_exec_slot_ctx_recover( fd_exec_slot_ctx_t *                slot_ctx,
                           fd_solana_manifest_global_t const * manifest,
@@ -322,11 +364,11 @@ fd_exec_slot_ctx_recover( fd_exec_slot_ctx_t *                slot_ctx,
 
   /* Epoch Schedule */
 
-  fd_bank_epoch_schedule_set( slot_ctx->bank, old_bank->epoch_schedule );
+  fd_sysvar_epoch_schedule_write( slot_ctx, &old_bank->epoch_schedule );
 
   /* Rent */
 
-  fd_bank_rent_set( slot_ctx->bank, old_bank->rent_collector.rent );
+  fd_sysvar_rent_write( slot_ctx, &old_bank->rent_collector.rent );
 
   /* Last Restart Slot */
 
@@ -337,26 +379,7 @@ fd_exec_slot_ctx_recover( fd_exec_slot_ctx_t *                slot_ctx,
      To find the last restart slot, take the highest hard fork slot
      number that is less or equal than the current slot number.
      (There might be some hard forks in the future, ignore these) */
-  do {
-    fd_sol_sysvar_last_restart_slot_t * last_restart_slot = fd_bank_last_restart_slot_modify( slot_ctx->bank );
-    last_restart_slot->slot = 0UL;
-
-    if( FD_UNLIKELY( old_bank->hard_forks.hard_forks_len == 0 ) ) {
-      /* SIMD-0047: The first restart slot should be `0` */
-      break;
-    }
-
-    fd_slot_pair_t const * head = fd_hard_forks_hard_forks_join( &old_bank->hard_forks );
-    fd_slot_pair_t const * tail = head + old_bank->hard_forks.hard_forks_len - 1UL;
-
-    for( fd_slot_pair_t const *pair = tail; pair >= head; pair-- ) {
-      if( pair->slot <= slot_ctx->slot ) {
-        fd_sol_sysvar_last_restart_slot_t * last_restart_slot = fd_bank_last_restart_slot_modify( slot_ctx->bank );
-        last_restart_slot->slot = pair->slot;
-        break;
-      }
-    }
-  } while (0);
+  fd_bank_last_restart_slot_update( slot_ctx, &old_bank->hard_forks );
 
   /* FIXME: Remove the magic number here. */
   fd_clock_timestamp_votes_global_t * clock_timestamp_votes = fd_bank_clock_timestamp_votes_locking_modify( slot_ctx->bank );
@@ -372,8 +395,8 @@ fd_exec_slot_ctx_recover( fd_exec_slot_ctx_t *                slot_ctx,
   /* Move EpochStakes */
   do {
 
-    fd_epoch_schedule_t const * epoch_schedule = fd_bank_epoch_schedule_query( slot_ctx->bank );
-    ulong epoch = fd_slot_to_epoch( epoch_schedule, slot_ctx->slot, NULL );
+    fd_epoch_schedule_t epoch_schedule = fd_sysvar_epoch_schedule_read_nofail( slot_ctx->sysvar_cache );
+    ulong epoch = fd_slot_to_epoch( &epoch_schedule, slot_ctx->slot, NULL );
 
     /* We need to save the vote accounts for the current epoch and the next
        epoch as it is used to calculate the leader schedule at the epoch

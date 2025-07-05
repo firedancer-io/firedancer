@@ -312,9 +312,10 @@ fd_runtime_compute_max_tick_height( ulong   ticks_per_slot,
                                     ulong * out_max_tick_height /* out */ );
 
 void
-fd_runtime_update_leaders( fd_bank_t * bank,
-                           ulong       slot,
-                           fd_spad_t * runtime_spad );
+fd_runtime_update_leaders( fd_bank_t *                 bank,
+                           fd_epoch_schedule_t const * epoch_schedule,
+                           ulong                       slot,
+                           fd_spad_t *                 runtime_spad );
 
 /* TODO: Invoked by fd_executor: layering violation. Rent logic is deprecated
    and will be torn out entirely very soon. */
@@ -483,7 +484,7 @@ fd_runtime_load_txn_address_lookup_tables( fd_txn_t const * txn,
                                            fd_funk_t *      funk,
                                            fd_funk_txn_t *  funk_txn,
                                            ulong            slot,
-                                           fd_slot_hash_t * hashes,
+                                           fd_slot_hash_t const * hashes,
                                            fd_acct_addr_t * out_accts_alt );
 
 /* fd_runtime_poh_verify is responsible for verifying poh hashes while
