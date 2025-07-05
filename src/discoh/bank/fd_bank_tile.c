@@ -23,7 +23,7 @@ typedef struct {
   uchar * txn_sidecar_mem;
 
   void const * _bank;
-  ulong _microblock_idx;
+  ulong _pack_idx;
   ulong _txn_idx;
   int _is_bundle;
 
@@ -46,8 +46,6 @@ typedef struct {
   fd_pack_rebate_sum_t rebater[ 1 ];
 
   struct {
-    ulong slot_acquire[ 3 ];
-
     ulong txn_load_address_lookup_tables[ 6 ];
     ulong transaction_result[ 41 ];
     ulong processing_failed;
@@ -76,8 +74,6 @@ scratch_footprint( fd_topo_tile_t const * tile ) {
 
 static inline void
 metrics_write( fd_bank_ctx_t * ctx ) {
-  FD_MCNT_ENUM_COPY( BANK, SLOT_ACQUIRE,  ctx->metrics.slot_acquire );
-
   FD_MCNT_ENUM_COPY( BANK, TRANSACTION_LOAD_ADDRESS_TABLES, ctx->metrics.txn_load_address_lookup_tables );
   FD_MCNT_ENUM_COPY( BANK, TRANSACTION_RESULT,  ctx->metrics.transaction_result );
 
@@ -130,7 +126,7 @@ during_frag( fd_bank_ctx_t * ctx,
   fd_memcpy( dst, src, sz-sizeof(fd_microblock_bank_trailer_t) );
   fd_microblock_bank_trailer_t * trailer = (fd_microblock_bank_trailer_t *)( src+sz-sizeof(fd_microblock_bank_trailer_t) );
   ctx->_bank = trailer->bank;
-  ctx->_microblock_idx = trailer->microblock_idx;
+  ctx->_pack_idx = trailer->pack_idx;
   ctx->_txn_idx = trailer->pack_txn_idx;
   ctx->_is_bundle = trailer->is_bundle;
 }
@@ -336,7 +332,7 @@ handle_microblock( fd_bank_ctx_t *     ctx,
      PoH should eventually flush the pipeline before ending the slot. */
   metrics_write( ctx );
 
-  ulong bank_sig = fd_disco_bank_sig( slot, ctx->_microblock_idx );
+  ulong bank_sig = fd_disco_bank_sig( slot, ctx->_pack_idx );
 
   /* We always need to publish, even if there are no successfully executed
      transactions so the PoH tile can keep an accurate count of microblocks
@@ -489,7 +485,7 @@ handle_bundle( fd_bank_ctx_t *     ctx,
     trailer->pack_txn_idx = ctx->_txn_idx + i;
     trailer->tips = tips[ i ];
 
-    ulong bank_sig = fd_disco_bank_sig( slot, ctx->_microblock_idx+i );
+    ulong bank_sig = fd_disco_bank_sig( slot, ctx->_pack_idx+i );
 
     long tickcount                 = fd_tickcount();
     long microblock_start_ticks    = fd_frag_meta_ts_decomp( begin_tspub, tickcount );

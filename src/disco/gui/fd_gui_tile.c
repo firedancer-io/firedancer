@@ -43,7 +43,8 @@ extern uint  const fdctl_commit_ref;
 #define IN_KIND_PLUGIN    (0UL)
 #define IN_KIND_POH_PACK  (1UL)
 #define IN_KIND_PACK_BANK (2UL)
-#define IN_KIND_BANK_POH  (3UL)
+#define IN_KIND_PACK_POH  (3UL)
+#define IN_KIND_BANK_POH  (4UL)
 
 FD_IMPORT_BINARY( firedancer_svg, "book/public/fire.svg" );
 
@@ -219,6 +220,8 @@ after_frag( fd_gui_ctx_t *      ctx,
     FD_TEST( fd_disco_poh_sig_pkt_type( sig )==POH_PKT_TYPE_BECAME_LEADER );
     fd_became_leader_t * became_leader = (fd_became_leader_t *)ctx->buf;
     fd_gui_became_leader( ctx->gui, fd_frag_meta_ts_decomp( tspub, fd_tickcount() ), fd_disco_poh_sig_slot( sig ), became_leader->slot_start_ns, became_leader->slot_end_ns, became_leader->limits.slot_max_cost, became_leader->max_microblocks_in_slot );
+  } else if( FD_UNLIKELY( ctx->in_kind[ in_idx ]==IN_KIND_PACK_POH ) ) {
+    fd_gui_unbecame_leader( ctx->gui, fd_frag_meta_ts_decomp( tspub, fd_tickcount() ), fd_disco_poh_sig_slot( sig ), ((fd_done_packing_t *)ctx->buf)->microblocks_in_slot );
   } else if( FD_UNLIKELY( ctx->in_kind[ in_idx ]==IN_KIND_PACK_BANK ) ) {
     if( FD_LIKELY( fd_disco_poh_sig_pkt_type( sig )==POH_PKT_TYPE_MICROBLOCK ) ) {
       fd_microblock_bank_trailer_t * trailer = (fd_microblock_bank_trailer_t *)( ctx->buf+sz-sizeof(fd_microblock_bank_trailer_t) );
@@ -229,8 +232,6 @@ after_frag( fd_gui_ctx_t *      ctx,
                                          (sz-sizeof( fd_microblock_bank_trailer_t ))/sizeof( fd_txn_p_t ),
                                          (uint)trailer->microblock_idx,
                                          trailer->pack_txn_idx );
-    } else if( FD_LIKELY( fd_disco_poh_sig_pkt_type( sig )==POH_PKT_TYPE_DONE_PACKING ) ) {
-      fd_gui_unbecame_leader( ctx->gui, fd_frag_meta_ts_decomp( tspub, fd_tickcount() ), fd_disco_poh_sig_slot( sig ), ((fd_done_packing_t *)ctx->buf)->microblocks_in_slot );
     } else {
       FD_LOG_ERR(( "unexpected poh packet type %lu", fd_disco_poh_sig_pkt_type( sig ) ));
     }
@@ -510,6 +511,7 @@ unprivileged_init( fd_topo_t *      topo,
     if( FD_LIKELY( !strcmp( link->name, "plugin_out"     ) ) ) ctx->in_kind[ i ] = IN_KIND_PLUGIN;
     else if( FD_LIKELY( !strcmp( link->name, "poh_pack"  ) ) ) ctx->in_kind[ i ] = IN_KIND_POH_PACK;
     else if( FD_LIKELY( !strcmp( link->name, "pack_bank" ) ) ) ctx->in_kind[ i ] = IN_KIND_PACK_BANK;
+    else if( FD_LIKELY( !strcmp( link->name, "pack_poh" ) ) )  ctx->in_kind[ i ] = IN_KIND_PACK_POH;
     else if( FD_LIKELY( !strcmp( link->name, "bank_poh"  ) ) ) ctx->in_kind[ i ] = IN_KIND_BANK_POH;
     else FD_LOG_ERR(( "gui tile has unexpected input link %lu %s", i, link->name ));
 

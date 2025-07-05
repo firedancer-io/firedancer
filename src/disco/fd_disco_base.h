@@ -17,8 +17,7 @@
 
 #define POH_PKT_TYPE_MICROBLOCK    (0UL)
 #define POH_PKT_TYPE_BECAME_LEADER (1UL)
-#define POH_PKT_TYPE_DONE_PACKING  (2UL)
-#define POH_PKT_TYPE_FEAT_ACT_SLOT (3UL)
+#define POH_PKT_TYPE_FEAT_ACT_SLOT (2UL)
 
 #define REPLAY_FLAG_FINISHED_BLOCK      (0x01UL)
 #define REPLAY_FLAG_PACKED_MICROBLOCK   (0x02UL)
@@ -119,12 +118,12 @@ FD_FN_CONST static inline ulong fd_disco_poh_sig_bank_tile( ulong sig ) { return
 
 FD_FN_CONST static inline ulong
 fd_disco_bank_sig( ulong slot,
-                   ulong microblock_idx ) {
-  return (slot << 32) | microblock_idx;
+                   ulong pack_idx ) {
+  return (slot << 32) | pack_idx;
 }
 
 FD_FN_CONST static inline ulong fd_disco_bank_sig_slot( ulong sig ) { return (sig >> 32); }
-FD_FN_CONST static inline ulong fd_disco_bank_sig_microblock_idx( ulong sig ) { return sig & 0xFFFFFFFFUL; }
+FD_FN_CONST static inline ulong fd_disco_bank_sig_pack_idx( ulong sig ) { return sig & 0xFFFFFFFFUL; }
 
 /* TODO remove with store_int */
 
