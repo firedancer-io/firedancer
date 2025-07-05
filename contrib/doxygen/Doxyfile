@@ -7,6 +7,30 @@ OUTPUT_DIRECTORY = $(OUTPUT_DIRECTORY)
 FILE_PATTERNS = *.md fd_*.h
 INPUT = README.md \
   src \
+  src/ballet \
+  src/ballet/bn254 \
+  src/ballet/chacha20 \
+  src/ballet/ed25519 \
+  src/ballet/hex \
+  src/ballet/murmur3 \
+  src/ballet/reedsol/fd_reedsol.h \
+  src/ballet/sbpf \
+  src/ballet/secp256k1 \
+  src/ballet/secp256r1 \
+  src/ballet/sha1 \
+  src/ballet/sha256 \
+  src/ballet/sha512 \
+  src/ballet/shred \
+  src/ballet/toml \
+  src/ballet/wsample \
+  src/tango \
+  src/tango/cnc \
+  src/tango/dcache/fd_dcache.h \
+  src/tango/fctl \
+  src/tango/fseq \
+  src/tango/mcache/fd_mcache.h \
+  src/tango/tcache \
+  src/tango/tempo \
   src/util \
   src/util/alloc \
   src/util/archive \
@@ -19,7 +43,7 @@ INPUT = README.md \
   src/util/log \
   src/util/math \
   src/util/net \
-  src/util/pod \
+  src/util/pod/fd_pod.h \
   src/util/rng \
   src/util/sandbox \
   src/util/sanitize \
@@ -75,6 +99,7 @@ EXCLUDE_SYMBOLS = _ \
   TREAP_* \
   POOL_* \
   pretty_print \
+  const \
   __pad* \
   FD_STATIC_ASSERT \
   SELECT_IMPL \
@@ -101,8 +126,6 @@ PREDEFINED = FD_PROTOTYPES_BEGIN \
   aligned \
   sizeof \
   alignof \
-  typedef \
-  FD_RESTRICT \
   __linux__ \
   FD_HAS_SSE \
   FD_HAS_AVX \
