@@ -204,7 +204,7 @@ STEM_(scratch_footprint)( ulong in_cnt,
 #endif
   l = FD_LAYOUT_APPEND( l, alignof(ulong),             out_cnt*sizeof(ulong)                ); /* out_depth */
   l = FD_LAYOUT_APPEND( l, alignof(ulong),             out_cnt*sizeof(ulong)                ); /* out_seq */
-  l = FD_LAYOUT_APPEND( l, alignof(long),              out_cnt*sizeof(long)                 ); /* tslastwake */
+  l = FD_LAYOUT_APPEND( l, alignof(ulong),             out_cnt*sizeof(ulong)                ); /* out_wake_cnt */
   l = FD_LAYOUT_APPEND( l, alignof(ulong const *),     cons_cnt*sizeof(ulong const *)       ); /* cons_fseq */
   l = FD_LAYOUT_APPEND( l, alignof(ulong *),           cons_cnt*sizeof(ulong *)             ); /* cons_slow */
   l = FD_LAYOUT_APPEND( l, alignof(ulong),             cons_cnt*sizeof(ulong)               ); /* cons_out */
@@ -224,7 +224,6 @@ STEM_(run1)( ulong                        in_cnt,
              ulong *                      _cons_out,
              ulong **                     _cons_fseq,
              ulong                        burst,
-             long                         time_before_wake,
              long                         lazy,
              fd_rng_t *                   rng,
              void *                       scratch,
@@ -240,13 +239,10 @@ STEM_(run1)( ulong                        in_cnt,
   struct futex_waitv * waiters; /* array of futex waiters for each in */
 #endif
 
-  // Hack around "unusued parameter time_before_wake
-  (void) time_before_wake;
-
   /* out frag stream state */
   ulong *        out_depth; /* ==fd_mcache_depth( out_mcache[out_idx] ) for out_idx in [0, out_cnt) */
   ulong *        out_seq;  /* next mux frag sequence number to publish for out_idx in [0, out_cnt) ]*/
-  long *         tslastwake; /* last time a wakeup was triggered for out_idx in [0, out_cnt) */
+  ulong *        out_wake_cnt; /* number of loop iterations since last wake for out_idx in [0, out_cnt) */
 
   /* out flow control state */
   ulong          cr_avail;   /* number of flow control credits available to publish downstream, in [0,cr_max] */
@@ -326,19 +322,17 @@ STEM_(run1)( ulong                        in_cnt,
 
   out_depth  = (ulong *)FD_SCRATCH_ALLOC_APPEND( l, alignof(ulong), out_cnt*sizeof(ulong) );
   out_seq    = (ulong *)FD_SCRATCH_ALLOC_APPEND( l, alignof(ulong), out_cnt*sizeof(ulong) );
-  tslastwake = (long *)FD_SCRATCH_ALLOC_APPEND( l, alignof(long), out_cnt*sizeof(long) );
+  out_wake_cnt = (ulong *)FD_SCRATCH_ALLOC_APPEND( l, alignof(ulong), out_cnt*sizeof(ulong) );
 
   ulong cr_max = fd_ulong_if( !out_cnt, 128UL, ULONG_MAX );
 
-  // TODO: change all wallclocks to tickcount
-  long ts_first_wake = fd_log_wallclock();
   for( ulong out_idx=0UL; out_idx<out_cnt; out_idx++ ) {
 
     if( FD_UNLIKELY( !out_mcache[ out_idx ] ) ) FD_LOG_ERR(( "NULL out_mcache[%lu]", out_idx ));
 
     out_depth[ out_idx ] = fd_mcache_depth( out_mcache[ out_idx ] );
     out_seq[ out_idx ] = 0UL;
-    tslastwake[ out_idx ] = ts_first_wake;
+    out_wake_cnt[ out_idx ] = 0UL;
 
     cr_max = fd_ulong_min( cr_max, out_depth[ out_idx ] );
   }
@@ -382,6 +376,11 @@ STEM_(run1)( ulong                        in_cnt,
   long now  = then;
 
   for(;;) {
+
+    /* Increment loop iteration counter for all outputs */
+    for( ulong out_idx=0UL; out_idx<out_cnt; out_idx++ ) {
+      out_wake_cnt[ out_idx ]++;
+    }
 
     /* Do housekeeping at a low rate in the background */
 
@@ -499,6 +498,7 @@ STEM_(run1)( ulong                        in_cnt,
       long ns_until_housekeeping = (long)((double)ticks_until_housekeeping / fd_tempo_tick_per_ns(NULL));
 
       // TODO: potentially use 1ms instead of housekeeping
+      // TODO: only call fd_log_wallclock() in the housekeeping loop and then do math here?
       // long wait_duration_ns = fd_log_wallclock() + (long) 1e6;
       long housekeeping_deadline = fd_log_wallclock() + ns_until_housekeeping;
       struct timespec housekeeping_timeout = {
@@ -519,8 +519,7 @@ STEM_(run1)( ulong                        in_cnt,
       .mcaches             = out_mcache,
       .depths              = out_depth,
       .seqs                = out_seq,
-      .tslastwake          = tslastwake,
-      .time_before_wake    = time_before_wake,
+      .out_wake_cnt        = out_wake_cnt,
       .cr_avail            = &cr_avail,
       .cr_decrement_amount = fd_ulong_if( out_cnt>0UL, 1UL, 0UL ),
     };
@@ -810,7 +809,6 @@ STEM_(run)( fd_topo_t *      topo,
                cons_out,
                cons_fseq,
                STEM_BURST,
-               STEM_TIME_BEFORE_WAKE,
                STEM_LAZY,
                rng,
                fd_alloca( FD_STEM_SCRATCH_ALIGN, STEM_(scratch_footprint)( polled_in_cnt, tile->out_cnt, reliable_cons_cnt ) ),

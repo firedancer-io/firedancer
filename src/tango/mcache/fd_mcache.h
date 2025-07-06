@@ -324,10 +324,6 @@ fd_mcache_publish( fd_frag_meta_t * mcache,   /* Assumed a current local join */
   FD_COMPILER_MFENCE();
   meta->seq    = seq;
   FD_COMPILER_MFENCE();
-  // TODO: implement the if( now - stem->tslastwake[ out_idx ] >= stem->time_before_wake ) logic
-  uint * futex_flag = fd_mcache_futex_flag( mcache );
-  *futex_flag = (uint) seq + 1;
-  fd_futex_wake( (uint32_t*) futex_flag, INT_MAX );
 }
 
 #if FD_HAS_SSE
@@ -355,10 +351,6 @@ fd_mcache_publish_sse( fd_frag_meta_t * mcache,   /* Assumed a current local joi
   FD_COMPILER_MFENCE();
   meta->seq = seq;
   FD_COMPILER_MFENCE();
-  // TODO: implement the if( now - stem->tslastwake[ out_idx ] >= stem->time_before_wake ) logic
-  uint * futex_flag = fd_mcache_futex_flag( mcache );
-  *futex_flag = (uint) seq + 1;
-  fd_futex_wake( (uint32_t*) futex_flag, INT_MAX );
 }
 
 #endif
@@ -390,10 +382,6 @@ fd_mcache_publish_avx( fd_frag_meta_t * mcache,   /* Assumed a current local joi
      as a workaround. */
   FD_VOLATILE( meta->avx ) = meta_avx;
   FD_COMPILER_MFENCE();
-  // TODO: implement the if( now - stem->tslastwake[ out_idx ] >= stem->time_before_wake ) logic
-  uint * futex_flag = fd_mcache_futex_flag( mcache );
-  *futex_flag = (uint) seq + 1;
-  fd_futex_wake( (uint32_t*) futex_flag, INT_MAX );
 }
 
 #endif

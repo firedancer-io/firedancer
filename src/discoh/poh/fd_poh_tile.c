@@ -651,6 +651,11 @@ poh_link_publish( poh_link_t *  link,
   link->chunk = fd_dcache_compact_next( link->chunk, data_sz, link->chunk0, link->wmark );
   link->cr_avail--;
   link->tx_seq++;
+
+  uint * futex_flag = fd_mcache_futex_flag( link->mcache );
+  *futex_flag = (uint)(link->tx_seq);
+  FD_COMPILER_MFENCE(); /* TODO: Not needed? Compiler won't reorder this? */
+  fd_futex_wake( (uint32_t*) futex_flag, INT_MAX );
 }
 
 static void
