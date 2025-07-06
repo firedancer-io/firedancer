@@ -1,7 +1,11 @@
 #ifndef HEADER_fd_src_disco_verify_fd_verify_tile_h
 #define HEADER_fd_src_disco_verify_fd_verify_tile_h
 
-#include "../tiles.h"
+/* The verify tile verifies that the cryptographic signatures of
+   incoming transactions match the data being signed.  Transactions with
+   invalid signatures are filtered out of the frag stream. */
+
+#include "../topo/fd_topo.h"
 
 #define FD_TXN_VERIFY_SUCCESS  0
 #define FD_TXN_VERIFY_FAILED  -1
