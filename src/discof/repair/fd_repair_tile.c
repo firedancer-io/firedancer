@@ -15,7 +15,6 @@
 #include "../../disco/net/fd_net_tile.h"
 #include "../../discof/replay/fd_exec.h"
 #include "../../util/pod/fd_pod_format.h"
-#include "../../choreo/fd_choreo_base.h"
 #include "../../util/net/fd_net_headers.h"
 
 #include "../forest/fd_forest.h"
@@ -119,11 +118,7 @@ struct fd_repair_tile_ctx {
 
   int skip_frag;
 
-  fd_frag_meta_t * net_out_mcache;
-  ulong *          net_out_sync;
-  ulong            net_out_depth;
-  ulong            net_out_seq;
-
+  uint        net_out_idx;
   fd_wksp_t * net_out_mem;
   ulong       net_out_chunk0;
   ulong       net_out_wmark;
@@ -191,6 +186,7 @@ repair_signer( void *        signer_ctx,
 
 static void
 send_packet( fd_repair_tile_ctx_t * ctx,
+             fd_stem_context_t *    stem,
              int                    is_intake,
              uint                   dst_ip_addr,
              ushort                 dst_port,
@@ -219,9 +215,9 @@ send_packet( fd_repair_tile_ctx_t * ctx,
   ulong tspub     = fd_frag_meta_ts_comp( fd_tickcount() );
   ulong sig       = fd_disco_netmux_sig( dst_ip_addr, dst_port, dst_ip_addr, DST_PROTO_OUTGOING, sizeof(fd_ip4_udp_hdrs_t) );
   ulong packet_sz = payload_sz + sizeof(fd_ip4_udp_hdrs_t);
-  fd_mcache_publish( ctx->net_out_mcache, ctx->net_out_depth, ctx->net_out_seq, sig, ctx->net_out_chunk, packet_sz, 0UL, tsorig, tspub );
-  ctx->net_out_seq   = fd_seq_inc( ctx->net_out_seq, 1UL );
-  ctx->net_out_chunk = fd_dcache_compact_next( ctx->net_out_chunk, packet_sz, ctx->net_out_chunk0, ctx->net_out_wmark );
+  ulong chunk     = ctx->net_out_chunk;
+  fd_stem_publish( stem, ctx->net_out_idx, sig, chunk, packet_sz, 0UL, tsorig, tspub );
+  ctx->net_out_chunk = fd_dcache_compact_next( chunk, packet_sz, ctx->net_out_chunk0, ctx->net_out_wmark );
 }
 
 static inline void
@@ -288,6 +284,7 @@ fd_repair_handle_ping( fd_repair_tile_ctx_t *  repair_tile_ctx,
 /* Pass a raw client response packet into the protocol. addr is the address of the sender */
 static int
 fd_repair_recv_clnt_packet( fd_repair_tile_ctx_t *        repair_tile_ctx,
+                            fd_stem_context_t *           stem,
                             fd_repair_t *                 glob,
                             uchar const *                 msg,
                             ulong                         msglen,
@@ -315,7 +312,7 @@ fd_repair_recv_clnt_packet( fd_repair_tile_ctx_t *        repair_tile_ctx,
           uchar buf[1024];
           ulong buflen = fd_repair_handle_ping( repair_tile_ctx, glob, &gmsg->inner.ping, src_addr, dst_ip4_addr, buf, sizeof(buf) );
           ulong tsorig = fd_frag_meta_ts_comp( fd_tickcount() );
-          send_packet( repair_tile_ctx, 1, src_addr->addr, src_addr->port, dst_ip4_addr, buf, buflen, tsorig );
+          send_packet( repair_tile_ctx, stem, 1, src_addr->addr, src_addr->port, dst_ip4_addr, buf, buflen, tsorig );
           break;
         }
       }
@@ -377,6 +374,7 @@ fd_repair_sign_and_send( fd_repair_tile_ctx_t *  repair_tile_ctx,
 
 static void
 fd_repair_send_request( fd_repair_tile_ctx_t   * repair_tile_ctx,
+                        fd_stem_context_t      * stem,
                         fd_repair_t            * glob,
                         enum fd_needed_elem_type type,
                         ulong                    slot,
@@ -398,20 +396,21 @@ fd_repair_send_request( fd_repair_tile_ctx_t   * repair_tile_ctx,
   ulong buflen       = fd_repair_sign_and_send( repair_tile_ctx, &protocol, &active->addr, buf, sizeof(buf) );
   ulong tsorig       = fd_frag_meta_ts_comp( fd_tickcount() );
   uint  src_ip4_addr = 0U; /* unknown */
-  send_packet( repair_tile_ctx, 1, active->addr.addr, active->addr.port, src_ip4_addr, buf, buflen, tsorig );
+  send_packet( repair_tile_ctx, stem, 1, active->addr.addr, active->addr.port, src_ip4_addr, buf, buflen, tsorig );
 }
 
 static void
-fd_repair_send_requests( fd_repair_tile_ctx_t   * ctx,
+fd_repair_send_requests( fd_repair_tile_ctx_t *   ctx,
+                         fd_stem_context_t *      stem,
                          enum fd_needed_elem_type type,
-                         ulong slot,
-                         uint  shred_index,
-                         long  now ){
+                         ulong                    slot,
+                         uint                     shred_index,
+                         long                     now ){
   fd_repair_t * glob = ctx->repair;
 
   for( uint i=0; i<FD_REPAIR_NUM_NEEDED_PEERS; i++ ) {
     fd_pubkey_t const * id = &glob->peers[ glob->peer_idx++ ].key;
-    fd_repair_send_request( ctx, glob, type, slot, shred_index, id, now );
+    fd_repair_send_request( ctx, stem, glob, type, slot, shred_index, id, now );
     if( FD_UNLIKELY( glob->peer_idx >= glob->peer_cnt ) ) glob->peer_idx = 0; /* wrap around */
   }
 }
@@ -590,6 +589,7 @@ repair_get_parent( ulong  slot,
 
 static int
 fd_repair_recv_serv_packet( fd_repair_tile_ctx_t *        repair_tile_ctx,
+                            fd_stem_context_t *           stem,
                             fd_repair_t *                 glob,
                             uchar *                       msg,
                             ulong                         msglen,
@@ -685,7 +685,7 @@ fd_repair_recv_serv_packet( fd_repair_tile_ctx_t *        repair_tile_ctx,
       val->good = 0;
       uchar buf[1024];
       ulong buflen = fd_repair_send_ping( repair_tile_ctx, glob, val, buf, sizeof(buf) );
-      send_packet( repair_tile_ctx, 0, peer_addr->addr, peer_addr->port, self_ip4_addr, buf, buflen, fd_frag_meta_ts_comp( fd_tickcount() ) );
+      send_packet( repair_tile_ctx, stem, 0, peer_addr->addr, peer_addr->port, self_ip4_addr, buf, buflen, fd_frag_meta_ts_comp( fd_tickcount() ) );
     } else {
       uchar buf[FD_SHRED_MAX_SZ + sizeof(uint)];
       switch( protocol->discriminant ) {
@@ -694,7 +694,7 @@ fd_repair_recv_serv_packet( fd_repair_tile_ctx_t *        repair_tile_ctx,
           long sz = repair_get_shred( wi->slot, (uint)wi->shred_index, buf, FD_SHRED_MAX_SZ, repair_tile_ctx );
           if( sz < 0 ) break;
           *(uint *)(buf + sz) = wi->header.nonce;
-          send_packet( repair_tile_ctx, 0, peer_addr->addr, peer_addr->port, self_ip4_addr, buf, (ulong)sz + sizeof(uint), fd_frag_meta_ts_comp( fd_tickcount() ) );
+          send_packet( repair_tile_ctx, stem, 0, peer_addr->addr, peer_addr->port, self_ip4_addr, buf, (ulong)sz + sizeof(uint), fd_frag_meta_ts_comp( fd_tickcount() ) );
           break;
         }
 
@@ -703,7 +703,7 @@ fd_repair_recv_serv_packet( fd_repair_tile_ctx_t *        repair_tile_ctx,
           long sz = repair_get_shred( wi->slot, UINT_MAX, buf, FD_SHRED_MAX_SZ, repair_tile_ctx );
           if( sz < 0 ) break;
           *(uint *)(buf + sz) = wi->header.nonce;
-          send_packet( repair_tile_ctx, 0, peer_addr->addr, peer_addr->port, self_ip4_addr, buf, (ulong)sz + sizeof(uint), fd_frag_meta_ts_comp( fd_tickcount() ) );
+          send_packet( repair_tile_ctx, stem, 0, peer_addr->addr, peer_addr->port, self_ip4_addr, buf, (ulong)sz + sizeof(uint), fd_frag_meta_ts_comp( fd_tickcount() ) );
           break;
         }
 
@@ -717,7 +717,7 @@ fd_repair_recv_serv_packet( fd_repair_tile_ctx_t *        repair_tile_ctx,
             long sz = repair_get_shred( slot, UINT_MAX, buf, FD_SHRED_MAX_SZ, repair_tile_ctx );
             if( sz < 0 ) continue;
             *(uint *)(buf + sz) = wi->header.nonce;
-            send_packet( repair_tile_ctx, 0, peer_addr->addr, peer_addr->port, self_ip4_addr, buf, (ulong)sz + sizeof(uint), fd_frag_meta_ts_comp( fd_tickcount() ) );
+            send_packet( repair_tile_ctx, stem, 0, peer_addr->addr, peer_addr->port, self_ip4_addr, buf, (ulong)sz + sizeof(uint), fd_frag_meta_ts_comp( fd_tickcount() ) );
           }
           break;
         }
@@ -905,9 +905,9 @@ after_frag( fd_repair_tile_ctx_t * ctx,
   fd_gossip_peer_addr_t peer_addr = { .addr=ip4->saddr, .port=udp->net_sport };
   ushort dport = udp->net_dport;
   if( ctx->repair_intake_addr.port == dport ) {
-    fd_repair_recv_clnt_packet( ctx, ctx->repair, data, data_sz, &peer_addr, ip4->daddr );
+    fd_repair_recv_clnt_packet( ctx, stem, ctx->repair, data, data_sz, &peer_addr, ip4->daddr );
   } else if( ctx->repair_serve_addr.port == dport ) {
-    fd_repair_recv_serv_packet( ctx, ctx->repair, data, data_sz, &peer_addr, ip4->daddr );
+    fd_repair_recv_serv_packet( ctx, stem, ctx->repair, data, data_sz, &peer_addr, ip4->daddr );
   } else {
     FD_LOG_WARNING(( "Unexpectedly received packet for port %u", (uint)fd_ushort_bswap( dport ) ));
   }
@@ -953,13 +953,12 @@ after_credit( fd_repair_tile_ctx_t * ctx,
         iter = fd_forest_orphaned_iter_next( iter, orphaned, pool ) ) {
     fd_forest_ele_t * orphan = fd_forest_orphaned_iter_ele( iter, orphaned, pool );
     if( fd_repair_need_orphan( ctx->repair, orphan->slot ) ) {
-      fd_repair_send_requests( ctx, fd_needed_orphan, orphan->slot, UINT_MAX, now );
+      fd_repair_send_requests( ctx, stem, fd_needed_orphan, orphan->slot, UINT_MAX, now );
       total_req += FD_REPAIR_NUM_NEEDED_PEERS;
     }
   }
 
   if( FD_UNLIKELY( total_req >= MAX_REQ_PER_CREDIT ) ) {
-    fd_mcache_seq_update( ctx->net_out_sync, ctx->net_out_seq );
     fd_repair_continue( ctx->repair );
     return; /* we have already sent enough requests */
   }
@@ -989,10 +988,10 @@ after_credit( fd_repair_tile_ctx_t * ctx,
     ele = fd_forest_pool_ele_const( pool, ctx->repair_iter.ele_idx );
     // Request first, advance iterator second.
     if( ctx->repair_iter.shred_idx == UINT_MAX && fd_repair_need_highest_window_index( ctx->repair, ele->slot, 0 ) ){
-      fd_repair_send_requests( ctx, fd_needed_highest_window_index, ele->slot, 0, now );
+      fd_repair_send_requests( ctx, stem, fd_needed_highest_window_index, ele->slot, 0, now );
       total_req += FD_REPAIR_NUM_NEEDED_PEERS;
     } else if( fd_repair_need_window_index( ctx->repair, ele->slot, ctx->repair_iter.shred_idx ) ) {
-      fd_repair_send_requests( ctx, fd_needed_window_index, ele->slot, ctx->repair_iter.shred_idx, now );
+      fd_repair_send_requests( ctx, stem, fd_needed_window_index, ele->slot, ctx->repair_iter.shred_idx, now );
       total_req += FD_REPAIR_NUM_NEEDED_PEERS;
     }
 
@@ -1006,7 +1005,6 @@ after_credit( fd_repair_tile_ctx_t * ctx,
     }
   }
 
-  fd_mcache_seq_update( ctx->net_out_sync, ctx->net_out_seq );
   fd_repair_continue( ctx->repair );
 }
 
@@ -1089,7 +1087,7 @@ unprivileged_init( fd_topo_t *      topo,
   }
   if( FD_UNLIKELY( sign_link_in_idx==UINT_MAX ) ) FD_LOG_ERR(( "Missing sign_repair link" ));
 
-
+  uint net_link_out_idx  = UINT_MAX;
   uint sign_link_out_idx = UINT_MAX;
   uint shred_tile_idx    = 0;
   for( uint out_idx=0U; out_idx<(tile->out_cnt); out_idx++ ) {
@@ -1097,11 +1095,8 @@ unprivileged_init( fd_topo_t *      topo,
 
     if( 0==strcmp( link->name, "repair_net" ) ) {
 
-      if( FD_UNLIKELY( ctx->net_out_mcache ) ) FD_LOG_ERR(( "repair tile has multiple repair_net out links" ));
-      ctx->net_out_mcache = link->mcache;
-      ctx->net_out_sync   = fd_mcache_seq_laddr( ctx->net_out_mcache );
-      ctx->net_out_depth  = fd_mcache_depth( ctx->net_out_mcache );
-      ctx->net_out_seq    = fd_mcache_seq_query( ctx->net_out_sync );
+      if( net_link_out_idx!=UINT_MAX ) continue; /* only use first net link */
+      net_link_out_idx = out_idx;
       ctx->net_out_mem    = topo->workspaces[ topo->objs[ link->dcache_obj_id ].wksp_id ].wksp;
       ctx->net_out_chunk0 = fd_dcache_compact_chunk0( ctx->net_out_mem, link->dcache );
       ctx->net_out_wmark  = fd_dcache_compact_wmark( ctx->net_out_mem, link->dcache, link->mtu );
@@ -1132,7 +1127,8 @@ unprivileged_init( fd_topo_t *      topo,
     }
 
   }
-  if( FD_UNLIKELY( sign_link_out_idx==UINT_MAX ) ) FD_LOG_ERR(( "Missing gossip_sign link" ));
+  if( FD_UNLIKELY( sign_link_out_idx==UINT_MAX ) ) FD_LOG_ERR(( "Missing repair_sign link" ));
+  if( FD_UNLIKELY( net_link_out_idx ==UINT_MAX ) ) FD_LOG_ERR(( "Missing repair_net link" ));
   ctx->shred_tile_cnt = shred_tile_idx;
   FD_TEST( ctx->shred_tile_cnt == fd_topo_tile_name_cnt( topo, "shred" ) );
 

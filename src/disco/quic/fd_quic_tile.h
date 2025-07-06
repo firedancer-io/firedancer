@@ -32,11 +32,6 @@ typedef struct {
 
   fd_net_rx_bounds_t net_in_bounds[ FD_QUIC_TILE_IN_MAX ];
 
-  fd_frag_meta_t * net_out_mcache;
-  ulong *          net_out_sync;
-  ulong            net_out_depth;
-  ulong            net_out_seq;
-
   fd_wksp_t * net_out_mem;
   ulong       net_out_chunk0;
   ulong       net_out_wmark;

@@ -182,11 +182,6 @@ typedef struct {
   fd_shred_in_ctx_t in[ 32 ];
   int               in_kind[ 32 ];
 
-  fd_frag_meta_t * net_out_mcache;
-  ulong *          net_out_sync;
-  ulong            net_out_depth;
-  ulong            net_out_seq;
-
   fd_wksp_t * net_out_mem;
   ulong       net_out_chunk0;
   ulong       net_out_wmark;
@@ -620,6 +615,7 @@ during_frag( fd_shred_ctx_t * ctx,
 
 static inline void
 send_shred( fd_shred_ctx_t                 * ctx,
+            fd_stem_context_t              * stem,
             fd_shred_t const               * shred,
             fd_shred_dest_weighted_t const * dest,
             ulong                            tsorig ) {
@@ -673,9 +669,9 @@ send_shred( fd_shred_ctx_t                 * ctx,
   ulong pkt_sz = shred_sz + sizeof(fd_ip4_udp_hdrs_t);
   ulong tspub  = fd_frag_meta_ts_comp( fd_tickcount() );
   ulong sig    = fd_disco_netmux_sig( dest->ip4, dest->port, dest->ip4, DST_PROTO_OUTGOING, sizeof(fd_ip4_udp_hdrs_t) );
-  fd_mcache_publish( ctx->net_out_mcache, ctx->net_out_depth, ctx->net_out_seq, sig, ctx->net_out_chunk, pkt_sz, 0UL, tsorig, tspub );
-  ctx->net_out_seq   = fd_seq_inc( ctx->net_out_seq, 1UL );
-  ctx->net_out_chunk = fd_dcache_compact_next( ctx->net_out_chunk, pkt_sz, ctx->net_out_chunk0, ctx->net_out_wmark );
+  ulong const chunk = ctx->net_out_chunk;
+  fd_stem_publish( stem, NET_OUT_IDX, sig, chunk, pkt_sz, 0UL, tsorig, tspub );
+  ctx->net_out_chunk = fd_dcache_compact_next( chunk, pkt_sz, ctx->net_out_chunk0, ctx->net_out_wmark );
 }
 
 static void
@@ -832,8 +828,8 @@ after_frag( fd_shred_ctx_t *    ctx,
           fd_shred_dest_idx_t * dests = fd_shred_dest_compute_children( sdest, &shred, 1UL, ctx->scratchpad_dests, 1UL, fanout, fanout, max_dest_cnt );
           if( FD_UNLIKELY( !dests ) ) break;
 
-          send_shred( ctx, *out_shred, ctx->adtl_dest, ctx->tsorig );
-          for( ulong j=0UL; j<*max_dest_cnt; j++ ) send_shred( ctx, *out_shred, fd_shred_dest_idx_to_dest( sdest, dests[ j ]), ctx->tsorig );
+          send_shred( ctx, stem, *out_shred, ctx->adtl_dest, ctx->tsorig );
+          for( ulong j=0UL; j<*max_dest_cnt; j++ ) send_shred( ctx, stem, *out_shred, fd_shred_dest_idx_to_dest( sdest, dests[ j ]), ctx->tsorig );
         } while( 0 );
       }
 
@@ -985,8 +981,8 @@ after_frag( fd_shred_ctx_t *    ctx,
 
     /* Send only the ones we didn't receive. */
     for( ulong i=0UL; i<k; i++ ) {
-      send_shred( ctx, new_shreds[ i ], ctx->adtl_dest, ctx->tsorig );
-      for( ulong j=0UL; j<*max_dest_cnt; j++ ) send_shred( ctx, new_shreds[ i ], fd_shred_dest_idx_to_dest( sdest, dests[ j*out_stride+i ]), ctx->tsorig );
+      send_shred( ctx, stem, new_shreds[ i ], ctx->adtl_dest, ctx->tsorig );
+      for( ulong j=0UL; j<*max_dest_cnt; j++ ) send_shred( ctx, stem, new_shreds[ i ], fd_shred_dest_idx_to_dest( sdest, dests[ j*out_stride+i ]), ctx->tsorig );
     }
   }
 }
@@ -1180,10 +1176,6 @@ unprivileged_init( fd_topo_t *      topo,
 
   fd_topo_link_t * net_out = &topo->links[ tile->out_link_id[ NET_OUT_IDX ] ];
 
-  ctx->net_out_mcache = net_out->mcache;
-  ctx->net_out_sync   = fd_mcache_seq_laddr( ctx->net_out_mcache );
-  ctx->net_out_depth  = fd_mcache_depth( ctx->net_out_mcache );
-  ctx->net_out_seq    = fd_mcache_seq_query( ctx->net_out_sync );
   ctx->net_out_chunk0 = fd_dcache_compact_chunk0( fd_wksp_containing( net_out->dcache ), net_out->dcache );
   ctx->net_out_mem    = topo->workspaces[ topo->objs[ net_out->dcache_obj_id ].wksp_id ].wksp;
   ctx->net_out_wmark  = fd_dcache_compact_wmark ( ctx->net_out_mem, net_out->dcache, net_out->mtu );
