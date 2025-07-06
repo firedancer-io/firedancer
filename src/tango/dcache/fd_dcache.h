@@ -3,6 +3,8 @@
 
 #include "../fd_tango_base.h"
 
+/* */
+
 /* FD_DCACHE_{ALIGN,FOOTPRINT} specify the alignment and footprint
    needed for a dcache with a data region of data_sz bytes and an
    application region of app_sz bytes.  ALIGN is at least FD_CHUNK_ALIGN
@@ -11,6 +13,7 @@
    (e.g. will not require a footprint larger than ULONG_MAX).  These are
    provided to facilitate compile time dcache declarations. */
 
+   
 #define FD_DCACHE_ALIGN (128UL)
 #define FD_DCACHE_FOOTPRINT( data_sz, app_sz )                                                            \
   FD_LAYOUT_FINI( FD_LAYOUT_APPEND( FD_LAYOUT_APPEND( FD_LAYOUT_APPEND( FD_LAYOUT_APPEND( FD_LAYOUT_INIT, \
@@ -115,10 +118,20 @@ fd_dcache_new( void * shmem,
    is terminated.
 
    This region will have a guard region of FD_DCACHE_GUARD_FOOTPRINT
-   just before it and data_sz bytes available after it. */
+   just before it and data_sz bytes available after it. */  
 
 uchar *
 fd_dcache_join( void * shdcache );
+
+/* fd_dcache_bounds_check standardizes the mtu, wmark, and chunk bounds
+   checking to happen at the moment the tile is received on the link 
+   instead of at runtime. Returns FD_DCACHE_SUCCESS on success and 
+   FD_DCACHE_ERR_BOUNDS if mtu, wmark, chunk are not within proper
+   parameters. */
+
+#define FD_DCACHE_SUCCESS 0
+#define FD_DCACHE_ERR_BOUNDS (-1)
+
 
 /* fd_dcache_leave leaves a current local join.  Returns a pointer to
    the underlying shared memory region on success (IMPORTANT!  THIS IS
@@ -267,6 +280,24 @@ fd_dcache_compact_next( ulong chunk,    /* Assumed in [chunk0,wmark] */
   chunk += ((sz+(2UL*FD_CHUNK_SZ-1UL)) >> (1+FD_CHUNK_LG_SZ)) << 1; /* Advance to next chunk pair, no overflow if init passed */
   return fd_ulong_if( chunk>wmark, chunk0, chunk );                 /* If that goes over the high water mark, wrap to zero */
 }
+
+/* fd_dcache_bounds_check: 
+   @brief: bounds check all link parameters for both compact and burst rings.
+   @param base    start of dcache shared memory region
+   @param dcache  pointer returned by fd_dcache_join()
+   @param mtu     max payload size per message
+   @param depth   ring depth
+   @param burst   extra slots for burst/unreliable traffic
+   @param compact nonzero = compact mode, 0 = burst mode 
+   @return        1 if all checks pass, 0 otherwise
+*/
+
+int fd_dcache_bounds_check(void const * base,
+                           void const * dcache,
+                           ulong mtu,
+                           ulong depth,
+                           ulong burst,
+                           int compact);
 
 FD_PROTOTYPES_END
 
