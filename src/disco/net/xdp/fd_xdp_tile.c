@@ -601,9 +601,6 @@ during_frag( fd_net_ctx_t * ctx,
              ulong          chunk,
              ulong          sz,
              ulong          ctl FD_PARAM_UNUSED ) {
-  if( FD_UNLIKELY( chunk<ctx->in[ in_idx ].chunk0 || chunk>ctx->in[ in_idx ].wmark || sz>FD_NET_MTU ) )
-    FD_LOG_ERR(( "chunk %lu %lu corrupt, not in range [%lu,%lu]", chunk, sz, ctx->in[ in_idx ].chunk0, ctx->in[ in_idx ].wmark ));
-
   if( FD_UNLIKELY( sz<34UL ) )
     FD_LOG_ERR(( "packet too small %lu (in_idx=%lu)", sz, in_idx ));
 

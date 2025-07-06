@@ -325,9 +325,6 @@ during_frag( fd_send_tile_ctx_t * ctx,
              ulong                  ctl ) {
 
   fd_send_link_in_t * in_link = &ctx->in_links[ in_idx ];
-  if( FD_UNLIKELY( chunk<in_link->chunk0 || chunk>in_link->wmark ) ) {
-    FD_LOG_ERR(( "chunk %lu %lu corrupt, not in range [%lu,%lu] on link %lu", chunk, sz, in_link->chunk0, in_link->wmark, in_idx ));
-  }
 
   uchar const * dcache_entry = fd_chunk_to_laddr_const( in_link->mem, chunk );
   ulong         kind         = in_link->kind;

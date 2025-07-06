@@ -131,14 +131,6 @@ during_frag( fd_writer_tile_ctx_t * ctx,
 
   fd_writer_tile_in_ctx_t * in_ctx = &(ctx->exec_writer_in[ in_idx ]);
 
-  if( FD_UNLIKELY( chunk < in_ctx->chunk0 || chunk > in_ctx->wmark ) ) {
-    FD_LOG_CRIT(( "chunk %lu %lu corrupt, not in range [%lu,%lu]",
-                  chunk,
-                  sz,
-                  in_ctx->chunk0,
-                  in_ctx->wmark ));
-  }
-
   /* Process messages from exec tiles. */
 
   if( FD_UNLIKELY( sig == FD_WRITER_BOOT_SIG ) ) {

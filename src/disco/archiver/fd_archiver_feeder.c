@@ -125,9 +125,6 @@ during_frag( fd_archiver_feeder_tile_ctx_t * ctx,
              ulong                           sz,
              ulong                           ctl FD_PARAM_UNUSED ) {
   /* TODO: filter by signature in before_credit */
-  if( FD_UNLIKELY( chunk<ctx->in[ in_idx ].chunk0 || chunk>ctx->in[ in_idx ].wmark ) ) {
-    FD_LOG_ERR(( "chunk %lu %lu corrupt, not in range [%lu,%lu]", chunk, sz, ctx->in[ in_idx ].chunk0, ctx->in[ in_idx ].wmark ));
-  }
 
   uchar * src = (uchar *)fd_chunk_to_laddr( ctx->in[in_idx].mem, chunk );
   uchar * dst = (uchar *)fd_chunk_to_laddr( ctx->out_mem, ctx->out_chunk );

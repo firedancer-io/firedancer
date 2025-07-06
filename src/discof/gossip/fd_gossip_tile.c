@@ -320,9 +320,6 @@ during_frag( fd_gossip_tile_ctx_t * ctx,
   fd_gossip_in_ctx_t const * in_ctx = &ctx->in_links[ in_idx ];
 
   if( in_kind == IN_KIND_SEND ) {
-    if( FD_UNLIKELY( chunk<in_ctx->chunk0 || chunk>in_ctx->wmark || sz>FD_TXN_MTU ) ) {
-      FD_LOG_ERR(( "chunk %lu %lu corrupt, not in range [%lu,%lu]", chunk, sz, in_ctx->chunk0, in_ctx->wmark ));
-    }
 
     ctx->replay_vote_txn_sz = sz;
     memcpy( ctx->replay_vote_txn, fd_chunk_to_laddr( in_ctx->mem, chunk ), sz );

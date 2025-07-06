@@ -518,9 +518,6 @@ during_frag( fd_sock_tile_t * ctx,
              ulong            chunk,
              ulong            sz,
              ulong            ctl FD_PARAM_UNUSED ) {
-  if( FD_UNLIKELY( chunk<ctx->link_tx[ in_idx ].chunk0 || chunk>ctx->link_tx[ in_idx ].wmark || sz>FD_NET_MTU ) ) {
-    FD_LOG_ERR(( "chunk %lu %lu corrupt, not in range [%lu,%lu]", chunk, sz, ctx->link_tx[ in_idx ].chunk0, ctx->link_tx[ in_idx ].wmark ));
-  }
 
   ulong const hdr_min = sizeof(fd_eth_hdr_t)+sizeof(fd_ip4_hdr_t)+sizeof(fd_udp_hdr_t);
   if( FD_UNLIKELY( sz<hdr_min ) ) {

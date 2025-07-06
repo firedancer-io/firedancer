@@ -187,8 +187,8 @@ during_frag( fd_restart_tile_ctx_t * ctx,
              ulong                   sz,
              ulong                   ctl FD_PARAM_UNUSED ) {
   if( FD_LIKELY( in_idx==GOSSIP_IN_IDX ) ) {
-    if( FD_UNLIKELY( chunk<ctx->gossip_in_chunk0 || chunk>ctx->gossip_in_wmark || sz>FD_RESTART_LINK_BYTES_MAX+sizeof(uint) ) ) {
-      FD_LOG_ERR(( "chunk %lu %lu corrupt, not in range [%lu,%lu]", chunk, sz, ctx->gossip_in_chunk0, ctx->gossip_in_wmark ));
+    if( FD_UNLIKELY( sz>FD_RESTART_LINK_BYTES_MAX+sizeof(uint) ) ) {
+      FD_LOG_ERR(( "restart: gossip msg size %lu > max %lu", sz, (ulong)(FD_RESTART_LINK_BYTES_MAX + sizeof(uint)) ));
     }
 
     fd_memcpy( ctx->restart_gossip_msg, fd_chunk_to_laddr( ctx->gossip_in_mem, chunk ), sz );
@@ -196,8 +196,8 @@ during_frag( fd_restart_tile_ctx_t * ctx,
   }
 
   if( FD_UNLIKELY( in_idx==STORE_IN_IDX ) ) {
-    if( FD_UNLIKELY( chunk<ctx->store_in_chunk0 || chunk>ctx->store_in_wmark || sz!=sizeof(fd_funk_txn_xid_t) ) ) {
-      FD_LOG_ERR(( "chunk %lu %lu corrupt, not in range [%lu,%lu]", chunk, sz, ctx->store_in_chunk0, ctx->store_in_wmark ));
+    if( FD_UNLIKELY( sz!=sizeof(fd_funk_txn_xid_t) ) ) {
+      FD_LOG_ERR(( "restart: store-XID msg size %lu != expected %lu", sz, (ulong)sizeof(fd_funk_txn_xid_t) ));
     }
 
     fd_memcpy( &ctx->store_xid_msg, fd_chunk_to_laddr( ctx->store_in_mem, chunk), sz );

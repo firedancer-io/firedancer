@@ -191,9 +191,6 @@ during_frag( fd_archiver_writer_tile_ctx_t * ctx,
              ulong                           chunk,
              ulong                           sz,
              ulong                           ctl FD_PARAM_UNUSED ) {
-  if( FD_UNLIKELY( chunk<ctx->in[ in_idx ].chunk0 || chunk>ctx->in[ in_idx ].wmark || sz<FD_ARCHIVER_FRAG_HEADER_FOOTPRINT ) ) {
-    FD_LOG_ERR(( "chunk %lu %lu corrupt, not in range [%lu,%lu]", chunk, sz, ctx->in[ in_idx ].chunk0, ctx->in[ in_idx ].wmark ));
-  }
 
   /* Write the incoming fragment to the ostream */
   char * src = (char *)fd_chunk_to_laddr( ctx->in[in_idx].mem, chunk );

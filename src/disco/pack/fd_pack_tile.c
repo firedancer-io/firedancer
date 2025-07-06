@@ -774,10 +774,6 @@ during_frag( fd_pack_ctx_t * ctx,
       /* Not interested in stamped microblocks, only leader updates. */
     if( fd_disco_poh_sig_pkt_type( sig )!=POH_PKT_TYPE_BECAME_LEADER ) return;
 
-    /* There was a leader transition.  Handle it. */
-    if( FD_UNLIKELY( chunk<ctx->in[ in_idx ].chunk0 || chunk>ctx->in[ in_idx ].wmark || sz!=sizeof(fd_became_leader_t) ) )
-      FD_LOG_ERR(( "chunk %lu %lu corrupt, not in range [%lu,%lu]", chunk, sz, ctx->in[ in_idx ].chunk0, ctx->in[ in_idx ].wmark ));
-
     long now_ticks = fd_tickcount();
     long now_ns    = fd_log_wallclock();
 

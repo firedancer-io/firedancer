@@ -188,15 +188,12 @@ during_frag( fd_gui_ctx_t * ctx,
       sz = 40UL + staked_cnt*40UL;
     }
 
-    if( FD_UNLIKELY( chunk<ctx->in[ in_idx ].chunk0 || chunk>ctx->in[ in_idx ].wmark || sz>sizeof( ctx->buf ) ) )
-      FD_LOG_ERR(( "chunk %lu %lu corrupt, not in range [%lu,%lu]", chunk, sz, ctx->in[ in_idx ].chunk0, ctx->in[ in_idx ].wmark ));
+    if( FD_UNLIKELY( sz>sizeof( ctx->buf ) ) )
+      FD_LOG_ERR(( "gui: plugin message size %lu > buf %lu", sz, (ulong)sizeof(ctx->buf) ));
 
     fd_memcpy( ctx->buf, src, sz );
     return;
   }
-
-  if( FD_UNLIKELY( chunk<ctx->in[ in_idx ].chunk0 || chunk>ctx->in[ in_idx ].wmark || sz>ctx->in[ in_idx ].mtu ) )
-    FD_LOG_ERR(( "chunk %lu %lu corrupt, not in range [%lu,%lu]", chunk, sz, ctx->in[ in_idx ].chunk0, ctx->in[ in_idx ].wmark ));
 
   fd_memcpy( ctx->buf, src, sz );
 }

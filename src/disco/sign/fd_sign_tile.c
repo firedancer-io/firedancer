@@ -108,12 +108,6 @@ during_frag_sensitive( void * _ctx,
   fd_sign_ctx_t * ctx = (fd_sign_ctx_t *)_ctx;
   FD_TEST( in_idx<MAX_IN );
 
-  int  role = ctx->in_role[ in_idx ];
-  uint mtu  = ctx->in_mtu [ in_idx ];
-
-  if( sz>mtu ) {
-    FD_LOG_EMERG(( "oversz signing request (role=%d sz=%lu mtu=%u)", role, sz, mtu ));
-  }
   fd_memcpy( ctx->_data, ctx->in_data[ in_idx ], sz );
 }
 
