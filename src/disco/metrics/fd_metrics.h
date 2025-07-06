@@ -45,8 +45,8 @@
 
    where every value is a ulong.  Tile metrics come after link metrics,
    so this base pointer points at the very start of the layout.  You
-   shouldn't need to use this directly, instead it's used by the mux
-   tile when it's computing the metrics for specific links. */
+   shouldn't need to use this directly, instead it's used by fd_stem
+   when it's computing the metrics for specific links. */
 extern FD_TL ulong * fd_metrics_base_tl;
 
 /* All metrics in the application are ulongs, and are laid out

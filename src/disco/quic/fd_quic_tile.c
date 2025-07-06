@@ -11,22 +11,20 @@
 #include <linux/unistd.h>
 #include <sys/random.h>
 
-/* fd_quic provides a TPU server tile.
+/* fd_quic_tile provides a TPU server tile.
 
    This tile handles incoming transactions that clients request to be
    included in blocks.  Supported protocols currently include TPU/UDP
    and TPU/QUIC.
 
-   The fd_quic tile acts as a plain old Tango producer writing to a cnc
-   and an mcache.  The tile will defragment multi-packet TPU streams
-   coming in from QUIC, such that each mcache/dcache pair forms a
-   complete txn.  This requires the dcache mtu to be at least that of
-   the largest allowed serialized txn size.
+   The fd_quic tile acts as a plain old Tango producer.  The tile will
+   defragment multi-packet TPU streams coming in from QUIC, such tha
+   each frag_meta refers to a complete txn.  This requires the dcache
+   mtu to be at least that of the largest allowed serialized txn size.
 
-   QUIC tiles don't service network devices directly, but rely on
-   packets being received by net tiles and forwarded on via. a mux
-   (multiplexer).  An arbitrary number of QUIC tiles can be run.  Each
-   UDP flow must stick to one QUIC tile. */
+   QUIC tiles don't service network devices directly, but rely on net
+   tiles to send and receive packets.  An arbitrary number of QUIC tiles
+   can be run.  Each UDP flow must stick to one QUIC tile. */
 
 static inline fd_quic_limits_t
 quic_limits( fd_topo_tile_t const * tile ) {
@@ -92,7 +90,7 @@ legacy_stream_notify( fd_quic_ctx_t * ctx,
 }
 
 /* Because of the separate mcache for publishing network fragments
-   back to networking tiles, which is not managed by the mux, we
+   back to networking tiles, which is not managed by fd_stem, we
    need to periodically update the sync. */
 static void
 during_housekeeping( fd_quic_ctx_t * ctx ) {

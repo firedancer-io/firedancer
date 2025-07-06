@@ -95,10 +95,9 @@ fd_topob_tile( fd_topo_t *    topo,
                int            is_agave,
                int            uses_keyswitch );
 
-/* Add an input link to the tile.  If the tile is created with the
-   standard mux runner, it will automatically poll the in link and
-   forward fragments to the user code (unless the link is specified
-   as unpolled).
+/* Add an input link to the tile.  If the tile is created with fd_stem,
+   it will automatically poll the in link and forward fragments to the
+   user code (unless the link is specified as unpolled).
 
    An input link has an fseq which is a ulong used for returning the
    current reader position in sequence space, used for wiring flow

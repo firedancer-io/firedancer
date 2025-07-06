@@ -41,8 +41,8 @@ struct fd_bundle_metrics {
 
 typedef struct fd_bundle_metrics fd_bundle_metrics_t;
 
-/* fd_bundle_tile_t is the context object provided to callbacks from the
-   mux tile, and contains all state needed to progress the tile. */
+/* fd_bundle_tile_t is the context object provided to callbacks from
+   stem, and contains all state needed to progress the tile. */
 
 struct fd_bundle_tile {
   /* Key switch */

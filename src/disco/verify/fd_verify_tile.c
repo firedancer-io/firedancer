@@ -1,4 +1,5 @@
 #include "fd_verify_tile.h"
+#include "../fd_txn_m_t.h"
 #include "../metrics/fd_metrics.h"
 #include "generated/fd_verify_tile_seccomp.h"
 
@@ -8,9 +9,6 @@
 #define IN_KIND_BUNDLE (1UL)
 #define IN_KIND_GOSSIP (2UL)
 #define IN_KIND_SEND   (3UL)
-/* The verify tile is a wrapper around the mux tile, that also verifies
-   incoming transaction signatures match the data being signed.
-   Non-matching transactions are filtered out of the frag stream. */
 
 FD_FN_CONST static inline ulong
 scratch_align( void ) {

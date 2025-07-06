@@ -51,17 +51,6 @@ fi
 # FIXME: Needs a /tmp/test.pcap file
 #$UNIT_TEST/test_replay         --tile-cpus 38-42/2 --tx-pcap /tmp/test.pcap 2> $LOG_PATH/replay
 
-
-# todo(mmcgee-jump): reenable those tests https://github.com/firedancer-io/firedancer/issues/761
-# if $UNIT_TEST/test_mux_ipc_init $OBJDIR && \
-#     $UNIT_TEST/test_mux_ipc_meta 16 16  && \
-#     $UNIT_TEST/test_mux_ipc_full 16 16  && \
-#     $UNIT_TEST/test_mux_ipc_fini; then
-#   echo pass > $LOG_PATH/mux_ipc
-# else
-#   echo FAIL > $LOG_PATH/mux_ipc
-# fi
-
 wait
 
 for f in `ls $LOG_PATH`; do

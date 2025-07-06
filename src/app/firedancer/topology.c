@@ -667,7 +667,7 @@ fd_topo_initialize( config_t * config ) {
 
   /* Sign links don't need to be reliable because they are synchronous,
     so there's at most one fragment in flight at a time anyway.  The
-    sign links are also not polled by the mux, instead the tiles will
+    sign links are also not polled by fd_stem, instead the tiles will
     read the sign responses out of band in a dedicated spin loop. */
   for( ulong i=0UL; i<shred_tile_cnt; i++ ) {
     /**/               fd_topob_tile_in(  topo, "sign",   0UL,           "metric_in", "shred_sign",    i,            FD_TOPOB_UNRELIABLE, FD_TOPOB_POLLED   );
