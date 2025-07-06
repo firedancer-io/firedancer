@@ -289,8 +289,7 @@ fd_dcache_compact_next( ulong chunk,    /* Assumed in [chunk0,wmark] */
    @param depth   ring depth
    @param burst   extra slots for burst/unreliable traffic
    @param compact nonzero = compact mode, 0 = burst mode 
-   @return        1 if all checks pass, 0 otherwise
-*/
+   @return        1 if all checks pass, 0 otherwise */
 
 int fd_dcache_bounds_check(void const * base,
                            void const * dcache,
