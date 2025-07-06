@@ -11,6 +11,9 @@
 #include <linux/unistd.h>
 #include <sys/random.h>
 
+#define OUT_IDX_VERIFY 0
+#define OUT_IDX_NET    1
+
 /* fd_quic_tile provides a TPU server tile.
 
    This tile handles incoming transactions that clients request to be
@@ -87,14 +90,6 @@ legacy_stream_notify( fd_quic_ctx_t * ctx,
     fd_stem_advance( stem, 0UL );
     ctx->metrics.txns_received_udp++;
   }
-}
-
-/* Because of the separate mcache for publishing network fragments
-   back to networking tiles, which is not managed by fd_stem, we
-   need to periodically update the sync. */
-static void
-during_housekeeping( fd_quic_ctx_t * ctx ) {
-  fd_mcache_seq_update( ctx->net_out_sync, ctx->net_out_seq );
 }
 
 /* This tile always publishes messages downstream, even if there are
@@ -409,19 +404,11 @@ quic_tx_aio_send( void *                    _ctx,
        just indicate where they came from so they don't bounce back */
     ulong sig = fd_disco_netmux_sig( ip_dst, 0U, ip_dst, DST_PROTO_OUTGOING, FD_NETMUX_SIG_MIN_HDR_SZ );
 
-    long tspub = fd_tickcount();
-    fd_mcache_publish( ctx->net_out_mcache,
-                       ctx->net_out_depth,
-                       ctx->net_out_seq,
-                       sig,
-                       ctx->net_out_chunk,
-                       sz_l2,
-                       fd_frag_meta_ctl( 0UL, 1, 1, 0 ),
-                       0,
-                       fd_frag_meta_ts_comp( tspub ) );
+    ulong chunk = ctx->net_out_chunk;
+    ulong ctl   = fd_frag_meta_ctl( 0UL, 1, 1, 0 );
+    fd_stem_publish( ctx->stem, OUT_IDX_NET, sig, chunk, sz_l2, ctl, 0L, 0L );
 
-    ctx->net_out_seq   = fd_seq_inc( ctx->net_out_seq, 1UL );
-    ctx->net_out_chunk = fd_dcache_compact_next( ctx->net_out_chunk, FD_NET_MTU, ctx->net_out_chunk0, ctx->net_out_wmark );
+    ctx->net_out_chunk = fd_dcache_compact_next( chunk, FD_NET_MTU, ctx->net_out_chunk0, ctx->net_out_wmark );
   }
 
   if( FD_LIKELY( opt_batch_idx ) ) {
@@ -475,8 +462,8 @@ unprivileged_init( fd_topo_t *      topo,
   }
 
   if( FD_UNLIKELY( tile->out_cnt!=2UL ||
-                   strcmp( topo->links[ tile->out_link_id[ 0UL ] ].name, "quic_verify" ) ||
-                   strcmp( topo->links[ tile->out_link_id[ 1UL ] ].name, "quic_net" ) ) )
+                   strcmp( topo->links[ tile->out_link_id[ OUT_IDX_VERIFY ] ].name, "quic_verify" ) ||
+                   strcmp( topo->links[ tile->out_link_id[ OUT_IDX_NET    ] ].name, "quic_net" ) ) )
     FD_LOG_ERR(( "quic tile has none or unexpected output links %lu %s %s",
                  tile->out_cnt, topo->links[ tile->out_link_id[ 0 ] ].name, topo->links[ tile->out_link_id[ 1 ] ].name ));
 
@@ -549,10 +536,6 @@ unprivileged_init( fd_topo_t *      topo,
 
   fd_topo_link_t * net_out = &topo->links[ tile->out_link_id[ 1 ] ];
 
-  ctx->net_out_mcache = net_out->mcache;
-  ctx->net_out_sync   = fd_mcache_seq_laddr( ctx->net_out_mcache );
-  ctx->net_out_depth  = fd_mcache_depth( ctx->net_out_mcache );
-  ctx->net_out_seq    = fd_mcache_seq_query( ctx->net_out_sync );
   ctx->net_out_mem    = topo->workspaces[ topo->objs[ net_out->dcache_obj_id ].wksp_id ].wksp;
   ctx->net_out_chunk0 = fd_dcache_compact_chunk0( ctx->net_out_mem, net_out->dcache );
   ctx->net_out_wmark  = fd_dcache_compact_wmark ( ctx->net_out_mem, net_out->dcache, net_out->mtu );
@@ -615,12 +598,11 @@ populate_allowed_fds( fd_topo_t const *      topo,
 #define STEM_CALLBACK_CONTEXT_TYPE  fd_quic_ctx_t
 #define STEM_CALLBACK_CONTEXT_ALIGN alignof(fd_quic_ctx_t)
 
-#define STEM_CALLBACK_DURING_HOUSEKEEPING during_housekeeping
-#define STEM_CALLBACK_METRICS_WRITE       metrics_write
-#define STEM_CALLBACK_BEFORE_CREDIT       before_credit
-#define STEM_CALLBACK_BEFORE_FRAG         before_frag
-#define STEM_CALLBACK_DURING_FRAG         during_frag
-#define STEM_CALLBACK_AFTER_FRAG          after_frag
+#define STEM_CALLBACK_METRICS_WRITE metrics_write
+#define STEM_CALLBACK_BEFORE_CREDIT before_credit
+#define STEM_CALLBACK_BEFORE_FRAG   before_frag
+#define STEM_CALLBACK_DURING_FRAG   during_frag
+#define STEM_CALLBACK_AFTER_FRAG    after_frag
 
 #include "../stem/fd_stem.c"
 
