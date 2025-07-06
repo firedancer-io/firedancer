@@ -422,20 +422,14 @@ verify_prune( fd_gossip_view_prune_t const * view,
 }
 
 static int
-verify_crds_values( fd_gossip_view_crds_value_t const * values,
-                    ulong                               values_len,
-                    uchar const *                       payload,
-                    fd_sha512_t *                       sha ) {
-  for( ulong i=0UL; i<values_len; i++ ) {
-    fd_gossip_view_crds_value_t const * value = &values[ i ];
-    int err = fd_ed25519_verify( payload+value->signature_off+64UL, /* signable data begins after signature */
-                                 value->length-64UL,                /* signable data length */
-                                 payload+value->signature_off,
-                                 payload+value->pubkey_off,
-                                 sha );
-    if( FD_UNLIKELY( err!=FD_ED25519_SUCCESS ) ) return err;
-  }
-  return FD_ED25519_SUCCESS;
+verify_crds_value( fd_gossip_view_crds_value_t const * value,
+                    uchar const *                      payload,
+                    fd_sha512_t *                      sha ) {
+    return fd_ed25519_verify( payload+value->signature_off+64UL, /* signable data begins after signature */
+                              value->length-64UL,                /* signable data length */
+                              payload+value->signature_off,
+                              payload+value->pubkey_off,
+                              sha );
 }
 
 static int
@@ -469,11 +463,12 @@ verify_signatures( fd_gossip_view_t const * view,
                    fd_sha512_t *            sha ) {
   switch( view->tag ) {
     case FD_GOSSIP_MESSAGE_PULL_REQUEST:
-      return verify_crds_values( view->pull_request->contact_info, 1UL, payload, sha );
+      return verify_crds_value( view->pull_request->contact_info, payload, sha );
     case FD_GOSSIP_MESSAGE_PULL_RESPONSE:
-      return verify_crds_values( view->pull_response->crds_values, view->pull_response->crds_values_len, payload, sha );
     case FD_GOSSIP_MESSAGE_PUSH:
-      return verify_crds_values( view->push->crds_values, view->push->crds_values_len, payload, sha );
+    /* Push and pull resp CRDS values are verified in their
+       respective rx_* loops */
+      break;
     case FD_GOSSIP_MESSAGE_PRUNE:
       return verify_prune( view->prune, payload, sha );
     case FD_GOSSIP_MESSAGE_PING:
@@ -603,16 +598,12 @@ rx_pull_response( fd_gossip_t *                          gossip,
 
   for( ulong i=0UL; i<pull_response->crds_values_len; i++ ) {
     fd_gossip_view_crds_value_t const * value = &pull_response->crds_values[ i ];
-    fd_crds_entry_t * candidate               = fd_crds_acquire( gossip->crds );
 
-    /* Fill up with information needed for upsert check */
-    fd_crds_entry_init( value, payload, candidate );
-
-    int upserts = fd_crds_upserts( gossip->crds, candidate );
-
-    if( FD_UNLIKELY( !upserts ) ) {
-      fd_crds_insert_failed_insert( gossip->crds, fd_crds_entry_hash( candidate ), now );
-      fd_crds_release( gossip->crds, candidate );
+    int checks_res = fd_crds_checks_fast( gossip->crds,
+                                             value,
+                                             payload,
+                                             0 /* from_push_msg m*/ );
+    if( FD_UNLIKELY( !!checks_res ) ) {
       continue;
     }
 
@@ -632,19 +623,24 @@ rx_pull_response( fd_gossip_t *                          gossip,
     /* https://github.com/anza-xyz/agave/blob/540d5bc56cd44e3cc61b179bd52e9a782a2c99e4/gossip/src/crds_gossip_pull.rs#L340-L351 */
     if( FD_UNLIKELY( accept_after_nanos>value->wallclock_nanos &&
                      !fd_crds_contact_info_lookup( gossip->crds, origin_pubkey ) ) ) {
-      fd_crds_insert_failed_insert( gossip->crds, fd_crds_entry_hash( candidate ), now );
-      fd_crds_release( gossip->crds, candidate );
+      uchar candidate_hash[ 32UL ];
+      fd_crds_genrate_hash( payload+value->value_off, value->length, candidate_hash );
+      fd_crds_insert_failed_insert( gossip->crds, candidate_hash, now );
       continue;
     }
 
-    FD_TEST( !fd_crds_insert( gossip->crds,
-                            candidate,
-                            value,
-                            payload,
-                            origin_stake,
-                            0, /* from_push_msg */
-                            now ) );
+    int err = verify_crds_value( value, payload, gossip->sha512 );
+    if( FD_UNLIKELY( err!=FD_ED25519_SUCCESS ) ) {
+      continue;
+    }
 
+    fd_crds_entry_t const * candidate = fd_crds_insert( gossip->crds,
+                                                        value,
+                                                        payload,
+                                                        origin_stake,
+                                                        checks_res,
+                                                        now  );
+    if( FD_UNLIKELY( !candidate ) ) continue;
     if( FD_UNLIKELY( fd_crds_entry_is_contact_info( candidate ) ) ){
       fd_contact_info_t const * contact_info = fd_crds_entry_contact_info( candidate );
       fd_ip4_port_t origin_addr              = fd_contact_info_gossip_socket( contact_info );
@@ -671,7 +667,72 @@ rx_pull_response( fd_gossip_t *                          gossip,
                         origin_stake,
                         now );
   }
+  return 0;
+}
 
+/* process_push_crds() > 0 holds the duplicate count */
+static int
+process_push_crds( fd_gossip_t *                       gossip,
+                   fd_gossip_view_crds_value_t const * value,
+                   uchar const *                       payload,
+                   long                                now ) {
+  /* TODO: pretty sure this is 15s now. */
+  if( FD_UNLIKELY( value->wallclock_nanos<now-30L*1000L*1000L*1000L || value->wallclock_nanos>now+30L*1000L*1000L*1000L ) ) return -1;
+  /* overrides_fast here, either count duplicates or purge if older (how!?) */
+
+
+  /* return values in both fd_crds_checks_fast and fd_crds_inserted need
+     to be propagated since they both work the same (error>0 holds duplicate
+     count). This is quite fragile. */
+  int checks_res = fd_crds_checks_fast( gossip->crds,
+                                        value,
+                                        payload,
+                                        1 /* from_push_msg */ );
+  if( FD_UNLIKELY( !!checks_res ) ) {
+    return checks_res;
+  }
+
+  int err = verify_crds_value( value, payload, gossip->sha512 );
+  if( FD_UNLIKELY( err!=FD_ED25519_SUCCESS ) ) {
+    return -1;
+  }
+
+  uchar const * origin_pubkey    = payload+value->pubkey_off;
+  ulong origin_stake             = get_stake( gossip, origin_pubkey );
+
+
+  fd_crds_entry_t const * candidate = fd_crds_insert( gossip->crds,
+                                                      value,
+                                                      payload,
+                                                      origin_stake,
+                                                      checks_res,
+                                                      now );
+  if( FD_UNLIKELY( !candidate ) ) return -1;
+  if( FD_UNLIKELY( fd_crds_entry_is_contact_info( candidate ) ) ) {
+    fd_contact_info_t const * contact_info = fd_crds_entry_contact_info( candidate );
+    fd_ip4_port_t origin_addr              = fd_contact_info_gossip_socket( contact_info );
+    if( FD_LIKELY( !is_entrypoint( gossip, &origin_addr ) ) ) {
+      int active = fd_ping_tracker_active( gossip->ping_tracker,
+                                          origin_pubkey,
+                                          origin_stake,
+                                          &origin_addr,
+                                          now );
+      active ? fd_crds_peer_active( gossip->crds, origin_pubkey, now )
+             : fd_crds_peer_inactive( gossip->crds, origin_pubkey, now );
+
+      fd_ping_tracker_track( gossip->ping_tracker,
+                            origin_pubkey,
+                            origin_stake,
+                            &origin_addr,
+                            now );
+    }
+  }
+  push_state_insert( gossip,
+                     value,
+                     payload,
+                     origin_pubkey,
+                     origin_stake,
+                     now );
   return 0;
 }
 
@@ -681,63 +742,21 @@ rx_push( fd_gossip_t *                 gossip,
          uchar const *                 payload,
          long                          now ) {
   for( ulong i=0UL; i<push->crds_values_len; i++ ) {
-    fd_gossip_view_crds_value_t const * value = &push->crds_values[ i ];
-    /* TODO: pretty sure this is 15s now. */
-    if( FD_UNLIKELY( value->wallclock_nanos<now-30L*1000L*1000L*1000L || value->wallclock_nanos>now+30L*1000L*1000L*1000L ) ) continue;
-
-    uchar const * origin_pubkey    = payload+value->pubkey_off;
-    fd_crds_entry_t * candidate = fd_crds_acquire( gossip->crds );
-    fd_crds_entry_init( value, payload, candidate );
-
-    ulong origin_stake   = get_stake( gossip, origin_pubkey );
-    int error            = fd_crds_insert( gossip->crds,
-                                           candidate,
-                                           value,
-                                           payload,
-                                           origin_stake,
-                                           1 /* from_push_msg */,
-                                           now );
-    ulong num_duplicates = 0UL;
-    if( FD_UNLIKELY( !!error ) ){
-      fd_crds_release( gossip->crds, candidate );
-      if( FD_UNLIKELY( error>0 ) )      num_duplicates = (ulong)error;
-      else if( FD_UNLIKELY( error<0 ) ) num_duplicates = ULONG_MAX;
-    } else {
-      if( FD_UNLIKELY( fd_crds_entry_is_contact_info( candidate ) ) ) {
-        fd_contact_info_t const * contact_info = fd_crds_entry_contact_info( candidate );
-        fd_ip4_port_t origin_addr              = fd_contact_info_gossip_socket( contact_info );
-        if( FD_LIKELY( !is_entrypoint( gossip, &origin_addr ) ) ) {
-          int active = fd_ping_tracker_active( gossip->ping_tracker,
-                                              origin_pubkey,
-                                              origin_stake,
-                                              &origin_addr,
-                                              now );
-          active ? fd_crds_peer_active( gossip->crds, origin_pubkey, now )
-                : fd_crds_peer_inactive( gossip->crds, origin_pubkey, now );
-          fd_ping_tracker_track( gossip->ping_tracker,
-                                origin_pubkey,
-                                origin_stake,
-                                &origin_addr,
-                                now );
-        }
-      }
-      push_state_insert( gossip,
-                         value,
-                         payload,
-                         origin_pubkey,
-                         origin_stake,
-                         now );
+    int err = process_push_crds( gossip,
+                                 &push->crds_values[ i ],
+                                 payload,
+                                 now );
+    if( FD_UNLIKELY( err>0 ) ) {
+      /* TODO: implement prune finder
+      ulong num_duplicates         = (ulong)err;
+      uchar const * relayer_pubkey = payload+push->from_off;
+      fd_prune_finder_record( gossip->prune_finder,
+                              origin_pubkey,
+                              origin_stake,
+                              relayer_pubkey,
+                              get_stake( gossip, relayer_pubkey ),
+                              num_duplicates ); */
     }
-    (void)num_duplicates; /* TODO: use num_duplicates to prune the prune_finder */
-    /* TODO: implement prune finder
-    uchar const * relayer_pubkey = payload+push->from_off;
-    fd_prune_finder_record( gossip->prune_finder,
-                            origin_pubkey,
-                            origin_stake,
-                            relayer_pubkey,
-                            get_stake( gossip, relayer_pubkey ),
-                            num_duplicates );
-    */
   }
 
   return 0;

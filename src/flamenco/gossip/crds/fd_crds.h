@@ -14,6 +14,10 @@ typedef struct fd_crds_private fd_crds_t;
 struct fd_crds_mask_iter_private;
 typedef struct fd_crds_mask_iter_private fd_crds_mask_iter_t;
 
+#define FD_CRDS_UPSERT_CHECK_UPSERTS      ( 0)
+#define FD_CRDS_UPSERT_CHECK_UNDETERMINED (-1)
+#define FD_CRDS_UPSERT_CHECK_FAILS        (-2)
+
 #define CRDS_MAX_CONTACT_INFO (1<<15) /* 32K max contact info entries in side table */
 
 FD_PROTOTYPES_BEGIN
@@ -82,87 +86,62 @@ fd_crds_len( fd_crds_t const * crds );
 ulong
 fd_crds_purged_len( fd_crds_t const * crds );
 
-/* fd_crds_insert_failed_insert performs of a copy of hash when inserting
-   into the purge table. */
+void
+fd_crds_genrate_hash( uchar const *     crds_value_buf,
+                      ulong             crds_value_sz,
+                      uchar             out_hash[ static 32UL ] );
+
+
 void
 fd_crds_insert_failed_insert( fd_crds_t *   crds,
                               uchar const * hash,
                               long          now );
 
-
 /*************************** Begin Insertion APIs *****************************/
 
-/* fd_crds_acquire acquires a CRDS value from the storage pool in the
-   CRDS so that it can be written to by the caller.  The value will
-   _not_ be present in the underlying data structures and indexes of
-   the CRDS (and will not, for example, be returned  by queries) until
-   it is inserted into the CRDS with fd_crds_insert.  The caller is
-   responsible for completely filling in the value before calling
-   insert or it will not be indexed correctly.
+/* fd_crds_checks_fast checks if inserting a CRDS value would fail on
+   specific conditions. Updates the CRDS purged table depending on the checks
+   that failed.
 
-   A value acquired with acquire does not strictly have to be inserted
-   into the CRDS, and can be released back to the pool with
-   fd_crds_release.
+   This isn't an exhaustive check, but that does not matter since
+   fd_crds_insert will perform the full check. This avoids expensive operations
+   like sigverify and hashing* if a CRDS value fails these fast checks.
 
-   fd_crds_acquire cannot fail and will always return a valid CRDS.  It
-   does this by evicting an existing value from the pool and structures
-   if there is no free space. */
+   Returns FD_CRDS_UPSERT_CHECK_UPSERTS if the value passes the fast checks.
+   Returns >0 if the value is a duplicate, with the return value denoting the
+   number of duplicates seen at this point (including current). Returns
+   FD_CRDS_UPSERT_CHECK_UNDETERMINED if further checks are needed
+   (e.g. hash comparison). Returns FD_CRDS_UPSERT_CHECK_FAILS for other
+   failures (e.g. too old). This will result in the candidate being purged.
 
-fd_crds_entry_t *
-fd_crds_acquire( fd_crds_t * crds );
+   Note that this function is not idempotent as duplicate counts are tracked by
+   the CRDS table.
 
-/* fd_crds_release releases a CRDS value back to the storage pool.  The
-   value must have been acquired with fd_crds_acquire, and must not
-   have been inserted into the CRDS.  The caller releases the ownership
-   interest in the value and should not modify or use the value
-   afterwards. */
-
-void
-fd_crds_release( fd_crds_t *       crds,
-                 fd_crds_entry_t * value );
-
-/* fd_crds_entry_init fills in the minimum information necessary
-   for valid calls to the following functions
-      - fd_crds_upserts()
-      - fd_crds_value_hash()
-      - fd_crds_insert()
-
-   This avoids a full memcpy of the CRDS data, which is only needed in
-   fd_crds_insert(). Supplied view and payload are assumed to be error
-   free (i.e., no possibility of OOBs when correctly used). */
-
-void
-fd_crds_entry_init( fd_gossip_view_crds_value_t const * view,
-                    uchar const *                       view_payload,
-                    fd_crds_entry_t *                   out_value );
-
-/* fd_crds_upserts checks if inserting the value into the CRDS would
-   succeed.  An insert will fail if the value is already present in the
-   CRDS with a newer timestamp, or if the value is not present.
-
-   candidate is assumed to have been populated with
-   fd_crds_entry_init */
-int
-fd_crds_upserts( fd_crds_t *       crds,
-                 fd_crds_entry_t * candidate );
-
-/* fd_crds_insert inserts and indexes a previously acquired CRDS value
-   into the data store, so that it can be returned by future queries.
-
-   Once inserted, the value is owned by the CRDS and should not be
-   modified or released by the caller.  The CRDS will automatically
-   release the value when it expires, or when it must be evicted to
-   make room for a new value.
-
-   candidate is assumed to have been populated with fd_crds_entry_init */
+   *Hashing is performed if a failure condition warrants a purge insert. */
 
 int
+fd_crds_checks_fast( fd_crds_t *                         crds,
+                     fd_gossip_view_crds_value_t const * candidate,
+                     uchar const *                       payload,
+                     uchar                               from_push_msg );
+
+/* fd_crds_insert inserts and indexes a CRDS value into the data store as a
+   CRDS entry, so that it can be returned by future queries. Assumes
+   fd_crds_upserts_checks_fast was performed on candidate_view and the return
+   value passed in upsert_check_result.
+
+   Returns a pointer to the newly created CRDS entry. Lifetime is guaranteed
+   until the next call to the following functions:
+     - fd_crds_insert
+     - fd_crds_expire
+   Returns NULL if the insertion fails for any reason. */
+
+fd_crds_entry_t const *
 fd_crds_insert( fd_crds_t *                         crds,
-                fd_crds_entry_t *                   candidate,
-                fd_gossip_view_crds_value_t const * view,
-                uchar const *                       view_payload,
+                fd_gossip_view_crds_value_t const * candidate_view,
+                uchar const *                       payload,
                 ulong                               origin_stake,
-                int                                 from_push_msg,
+                int                                 upsert_check_result,
                 long                                now );
 
 /********************* Begin CRDS Entry APIs *************************/
