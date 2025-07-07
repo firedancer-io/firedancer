@@ -3,7 +3,6 @@
 #include "fd_snapshot_restore_private.h"
 #include "../runtime/fd_acc_mgr.h"
 #include "../runtime/context/fd_exec_slot_ctx.h"
-#include "../../ballet/zstd/fd_zstd.h"
 #include "../../flamenco/types/fd_types.h"
 
 #include <assert.h>

@@ -3,6 +3,9 @@
 
 #include "fd_snapshot_base.h"
 #include "fd_snapshot_istream.h"
+#if FD_HAS_OPENSSL
+#include <openssl/ssl.h>
+#endif
 
 /* fd_snapshot_http.h provides APIs for streaming download of Solana
    snapshots via HTTP.  It is currently hardcoded to use non-blocking
@@ -44,6 +47,14 @@ struct fd_snapshot_http {
   int    state;
   long   req_timeout;
   long   req_deadline;
+
+  char   domain_name[ 256 ]; /* null terminated */
+  uint   domain_name_len;    /* excluding null terminator */
+
+  /* OpenSSL */
+
+  void * ssl_ctx;  /* SSL_CTX */
+  void * ssl;      /* SSL */
 
   /* HTTP request buffer */
 
@@ -98,9 +109,15 @@ struct fd_snapshot_http {
 
 typedef struct fd_snapshot_http fd_snapshot_http_t;
 
+/* fd_snapshot_http_new initializes a snapshot_http object.  mem is the
+   memory region that will back the object.  domain_name is a cstr
+   containing the hostname to be used in the HTTP host header and TLS
+   server name indication.  domain_name is max 255 chars excluding the
+   null terminator.  dst_{ipv4_port} identify the endpoint. */
+
 fd_snapshot_http_t *
-fd_snapshot_http_new( void *               mem,
-                      const char *         dst_str,
+fd_snapshot_http_new( fd_snapshot_http_t * mem,
+                      const char *         domain_name,
                       uint                 dst_ipv4,
                       ushort               dst_port,
                       const char *         snapshot_dir,
@@ -143,5 +160,25 @@ fd_io_istream_snapshot_http_virtual( fd_snapshot_http_t * this ) {
 }
 
 FD_PROTOTYPES_END
+
+/* HTTPS support */
+
+#if FD_HAS_OPENSSL
+
+/* fd_snapshot_http_enable_openssl installs an SSL_CTX, which enables
+   support for https URLs.  Increments the SSL_CTX refcount immediately.
+   If fd_snapshot_http_delete or an existing SSL_CTX is replaced by
+   another call to this function, the refcount of the existing SSL_CTX
+   is decremented (which may result in heap frees). */
+
+FD_PROTOTYPES_BEGIN
+
+void
+fd_snapshot_http_enable_openssl( fd_snapshot_http_t * http,
+                                 SSL_CTX *            ssl_ctx );
+
+FD_PROTOTYPES_END
+
+#endif /* FD_HAS_OPENSSL */
 
 #endif /* HEADER_fd_src_flamenco_snapshot_fd_snapshot_http_h */
