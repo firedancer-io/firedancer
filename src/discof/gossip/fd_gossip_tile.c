@@ -142,6 +142,7 @@ metrics_write( fd_gossip_tile_ctx_t * ctx ) {
   // FD_MGAUGE_SET( GOSSIP, FAILED_SIZE,   metrics->failed_size   );
 }
 
+
 static inline void
 during_frag( fd_gossip_tile_ctx_t * ctx,
              ulong                  in_idx,
@@ -323,9 +324,34 @@ unprivileged_init( fd_topo_t *      topo,
   ci->version.commit                    = UINT_MAX;
   ci->version.feature_set               = UINT_MAX;
   ci->instance_creation_wallclock_nanos = ctx->last_wallclock;
+
+  uint ip_addr = tile->gossip.ip_addr;
+
   fd_ip4_port_t * gossip_port = &ci->sockets[ FD_CONTACT_INFO_SOCKET_GOSSIP ];
-  gossip_port->addr = tile->gossip.ip_addr;
+  gossip_port->addr = ip_addr;
   gossip_port->port = fd_ushort_bswap( tile->gossip.ports.gossip );
+
+  fd_ip4_port_t * shred = &ci->sockets[ FD_CONTACT_INFO_SOCKET_TVU ];
+  shred->addr = ip_addr;
+  shred->port = fd_ushort_bswap( tile->gossip.ports.tvu );
+
+  fd_ip4_port_t * tpu = &ci->sockets[ FD_CONTACT_INFO_SOCKET_TPU ];
+  tpu->addr = ip_addr;
+  tpu->port = fd_ushort_bswap( tile->gossip.ports.tpu );
+
+  fd_ip4_port_t * tpu_quic = &ci->sockets[ FD_CONTACT_INFO_SOCKET_TPU_QUIC ];
+  tpu_quic->addr = ip_addr;
+  tpu_quic->port = fd_ushort_bswap( tile->gossip.ports.tpu_quic );
+
+  fd_ip4_port_t * vote = &ci->sockets[ FD_CONTACT_INFO_SOCKET_TPU_VOTE ];
+  vote->addr = ip_addr;
+  vote->port = fd_ushort_bswap( tile->gossip.ports.vote );
+
+  // fd_ip4_port_t * repair = &ci->sockets[ FD_CONTACT_INFO_SOCKET_SERVE_REPAIR ];
+  // repair->addr = ip_addr;
+  // repair->port = fd_ushort_bswap( tile->gossip.ports.repair );
+
+
 
   ctx->gossip = fd_gossip_join( fd_gossip_new( gossip,
                                                rng,

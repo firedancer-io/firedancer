@@ -527,7 +527,7 @@ remove_contact_info( fd_crds_t *         crds,
                      fd_stem_context_t * stem ) {
   /* Emit this eviction as a gossip update event */
   if( FD_LIKELY( crds->gossip_update ) ) {
-    fd_gossip_update_message_t * msg = fd_gossip_out_get_chunk( crds->gossip_update );
+    fd_gossip_update_msg_t * msg = fd_gossip_out_get_chunk( crds->gossip_update );
     msg->tag = FD_GOSSIP_UPDATE_TAG_CONTACT_INFO_REMOVE;
     msg->wallclock_nanos = now;
     fd_memcpy( msg->origin_pubkey, ci->key.pubkey, 32UL );
@@ -839,7 +839,7 @@ publish_update_msg( fd_crds_t *                         crds,
     return;
   }
 
-  fd_gossip_update_message_t * msg = fd_gossip_out_get_chunk( crds->gossip_update );
+  fd_gossip_update_msg_t * msg = fd_gossip_out_get_chunk( crds->gossip_update );
   msg->wallclock_nanos = now;
   fd_memcpy( msg->origin_pubkey, entry->key.pubkey, 32UL );
   ulong sz;

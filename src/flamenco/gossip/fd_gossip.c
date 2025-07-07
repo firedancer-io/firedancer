@@ -250,6 +250,14 @@ fd_gossip_join( void * shgossip ) {
   return (fd_gossip_t *)shgossip;
 }
 
+static inline void
+metrics_update( fd_gossip_t * gossip ) {
+  fd_gossip_metrics_t * metrics = gossip->metrics;
+
+  metrics->table_size  = fd_crds_len( gossip->crds );
+  metrics->purged_size = fd_crds_purged_len( gossip->crds );
+}
+
 static int
 is_entrypoint( fd_gossip_t const *   gossip,
                fd_ip4_port_t const * peer_addr ) {
@@ -297,6 +305,32 @@ push_state_append_crds( fd_gossip_t *                       gossip,
   fd_memcpy( &state->msg[ state->msg_sz ], crds_bytes, crds_sz );
   state->msg_sz   += crds_sz;
   state->num_crds += 1UL;
+}
+
+static void
+push_state_insert( fd_gossip_t *                       gossip,
+                   fd_gossip_view_crds_value_t const * value,
+                   uchar const *                       payload,
+                   uchar const *                       origin_pubkey,
+                   ulong                               origin_stake,
+                   long                                now ) {
+  ulong out_nodes[ 12UL ];
+  ulong out_nodes_cnt = fd_active_set_nodes( gossip->active_set,
+                                             gossip->identity_pubkey,
+                                             gossip->identity_stake,
+                                             origin_pubkey,
+                                             origin_stake,
+                                             0UL, /* ignore_prunes_if_peer_is_origin TODO */
+                                             out_nodes );
+    for( ulong j=0UL; j<out_nodes_cnt; j++ ) {
+      ulong idx            = out_nodes[ j ];
+      push_state_t * state = &gossip->active_push_state[ idx ];
+      push_state_append_crds( gossip,
+                              state,
+                            payload+value->value_off,
+                            value->length,
+                            now );
+  }
 }
 
 static void
@@ -562,41 +596,6 @@ rx_pull_request( fd_gossip_t *                         gossip,
   return 0;
 }
 
-static void
-push_state_insert( fd_gossip_t *                       gossip,
-                   fd_gossip_view_crds_value_t const * value,
-                   uchar const *                       payload,
-                   uchar const *                       origin_pubkey,
-                   ulong                               origin_stake,
-                   long                                now ) {
-  ulong out_nodes[ 12UL ];
-  ulong out_nodes_cnt = fd_active_set_nodes( gossip->active_set,
-                                             gossip->identity_pubkey,
-                                             gossip->identity_stake,
-                                             origin_pubkey,
-                                             origin_stake,
-                                             0UL, /* ignore_prunes_if_peer_is_origin FIXME */
-                                             out_nodes );
-  if( FD_LIKELY( out_nodes_cnt ) ) {
-    for( ulong j=0UL; j<out_nodes_cnt; j++ ) {
-      ulong idx            = out_nodes[ j ];
-      push_state_t * state = &gossip->active_push_state[ idx ];
-      push_state_append_crds( gossip,
-                              state,
-                              payload+value->value_off,
-                              value->length,
-                              now );
-    }
-  } else {
-    /* pick entrypoint to push value to ?? */
-    ulong idx = fd_rng_ulong_roll( gossip->rng, gossip->entrypoints_cnt );
-    push_state_append_crds( gossip,
-                            &gossip->entrypt_push_state[idx],
-                            payload+value->value_off,
-                            value->length,
-                            now );
-  }
-}
 
 static int
 rx_pull_response( fd_gossip_t *                          gossip,
@@ -1157,8 +1156,8 @@ fd_gossip_advance( fd_gossip_t *       gossip,
                    long                now,
                    fd_stem_context_t * stem ) {
   fd_crds_expire( gossip->crds, now, stem );
-
   tx_ping( gossip, now );
+  metrics_update( gossip );
   if( FD_UNLIKELY( now>=gossip->timers.next_pull_request ) ) {
     tx_pull_request( gossip, now );
     gossip->timers.next_pull_request = next_pull_request( gossip, now );
