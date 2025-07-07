@@ -387,7 +387,7 @@ fd_restart_init( fd_restart_t *              restart,
   FD_TEST( FD_RESTART_EPOCHS_MAX==2 );
   for( ulong e=0; e<FD_RESTART_EPOCHS_MAX; e++ ) {
     if( epoch_stakes[e]->vote_accounts_root==NULL ) FD_LOG_ERR(( "vote account information is missing for epoch#%lu", restart->root_epoch+e ));
-    // restart->num_vote_accts[e]                 = fd_stake_weights_by_node( epoch_stakes[e], restart->stake_weights[e], runtime_spad );
+    // restart->num_vote_accts[e]                 = fd_get_stake_weights( epoch_stakes[e], restart->stake_weights[e], runtime_spad, 1 );
     restart->total_stake[e]                    = 0;
     restart->total_stake_received[e]           = 0;
     restart->total_stake_received_and_voted[e] = 0;
