@@ -98,7 +98,7 @@ typedef struct fd_vm_haddr_query fd_vm_haddr_query_t;
       return FD_VM_SYSCALL_ERR_SEGFAULT;                                                                    \
     }                                                                                                       \
     if( FD_UNLIKELY( (!_haddr) | _is_multi) ) {                                                             \
-      FD_VM_ERR_FOR_LOG_EBPF( _vm, FD_VM_ERR_EBPF_ACCESS_VIOLATION );                                       \
+      FD_VM_ERR_FOR_LOG_EBPF( _vm, fd_vm_generate_access_violation( _vaddr, _vm->sbpf_version ) );          \
       return FD_VM_SYSCALL_ERR_SEGFAULT;                                                                    \
     }                                                                                                       \
     if ( FD_UNLIKELY( _sigbus ) ) {                                                                         \
@@ -134,7 +134,7 @@ FD_VM_MEM_HADDR_ST_( fd_vm_t const *vm, ulong vaddr, ulong align, ulong sz, int 
     return 0;
   }
   if( FD_UNLIKELY( (!_haddr) | _is_multi) ) {
-    FD_VM_ERR_FOR_LOG_EBPF( _vm, FD_VM_ERR_EBPF_ACCESS_VIOLATION );
+    FD_VM_ERR_FOR_LOG_EBPF( _vm, fd_vm_generate_access_violation( _vaddr, _vm->sbpf_version ) );
     *err = FD_VM_SYSCALL_ERR_SEGFAULT;
     return 0;
   }
@@ -173,7 +173,7 @@ FD_VM_MEM_HADDR_ST_( fd_vm_t const *vm, ulong vaddr, ulong align, ulong sz, int 
       return FD_VM_SYSCALL_ERR_SEGFAULT;                                                                    \
     }                                                                                                       \
     if( FD_UNLIKELY( (!_haddr) | _is_multi ) ) {                                                            \
-      FD_VM_ERR_FOR_LOG_EBPF( _vm, FD_VM_ERR_EBPF_ACCESS_VIOLATION );                                       \
+      FD_VM_ERR_FOR_LOG_EBPF( _vm, fd_vm_generate_access_violation( _vaddr, _vm->sbpf_version ) );          \
       return FD_VM_SYSCALL_ERR_SEGFAULT;                                                                    \
     }                                                                                                       \
     if ( FD_UNLIKELY( _sigbus ) ) {                                                                         \

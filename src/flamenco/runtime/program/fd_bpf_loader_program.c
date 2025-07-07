@@ -525,34 +525,48 @@ fd_bpf_execute( fd_exec_instr_ctx_t * instr_ctx, fd_sbpf_validated_program_t con
     fd_log_collector_program_return( instr_ctx );
   }
 
-  /* Handles instr + EBPF errors */
-  if( FD_UNLIKELY( exec_err!=FD_VM_SUCCESS ) ) {
+  /* We have a big error-matching arm here
+     https://github.com/anza-xyz/agave/blob/v2.3.1/programs/bpf_loader/src/lib.rs#L1674-L1744 */
 
+  /* Handle non-zero return status with successful VM execution. This is
+     the Ok(status) case, hence exec_err must be 0 for this case to be hit.
+     https://github.com/anza-xyz/agave/blob/v2.3.1/programs/bpf_loader/src/lib.rs#L1675-L1678 */
+  if( FD_LIKELY( !exec_err ) ) {
+    ulong status = vm->reg[0];
+    if( FD_UNLIKELY( status ) ) {
+      err = program_error_to_instr_error( status, &instr_ctx->txn_ctx->custom_err );
+      FD_VM_PREPARE_ERR_OVERWRITE( vm );
+      FD_VM_ERR_FOR_LOG_INSTR( vm, err );
+      return err;
+    }
+  } else {
     /* https://github.com/anza-xyz/agave/blob/v2.1.13/programs/bpf_loader/src/lib.rs#L1434-L1439 */
     /* (SIMD-182) Consume ALL requested CUs on non-Syscall errors */
-    if( FD_FEATURE_ACTIVE_BANK( instr_ctx->txn_ctx->bank, deplete_cu_meter_on_vm_failure )
-        && exec_err != FD_VM_ERR_SIGSYSCALL ) {
+    if( FD_FEATURE_ACTIVE_BANK( instr_ctx->txn_ctx->bank, deplete_cu_meter_on_vm_failure ) &&
+        exec_err!=FD_VM_ERR_EBPF_SYSCALL_ERROR ) {
       instr_ctx->txn_ctx->compute_meter = 0UL;
     }
 
-    /* EBPF error case
+    /* Direct mapping access violation case
        Edge case with error codes: if direct mapping is enabled, the EBPF error is an access violation,
        and the access type was a store, a different error code is returned to give developers more insight
        as to what caused the error.
        https://github.com/anza-xyz/agave/blob/v2.0.9/programs/bpf_loader/src/lib.rs#L1436-L1470 */
-    if( FD_UNLIKELY( direct_mapping && exec_err==FD_VM_ERR_EBPF_ACCESS_VIOLATION && vm->segv_store_vaddr!=ULONG_MAX ) ) {
+    if( FD_UNLIKELY( direct_mapping && exec_err==FD_VM_ERR_EBPF_ACCESS_VIOLATION &&
+                     vm->segv_vaddr!=ULONG_MAX &&
+                     vm->segv_access_type==FD_VM_ACCESS_TYPE_ST ) ) {
       /* vaddrs start at 0xFFFFFFFF + 1, so anything below it would not correspond to any account metadata. */
-      if( FD_UNLIKELY( vm->segv_store_vaddr>>32UL==0UL ) ) {
+      if( FD_UNLIKELY( vm->segv_vaddr>>32UL==0UL ) ) {
         return FD_EXECUTOR_INSTR_ERR_PROGRAM_FAILED_TO_COMPLETE;
       }
 
       /* Find the account meta corresponding to the vaddr */
-      ulong vaddr_offset = vm->segv_store_vaddr & FD_VM_OFFSET_MASK;
+      ulong vaddr_offset = vm->segv_vaddr & FD_VM_OFFSET_MASK;
       ulong acc_region_addl_off = is_deprecated ? 0UL : MAX_PERMITTED_DATA_INCREASE;
 
       /* If the vaddr doesn't live in the input region, then we don't need to
          bother trying to iterate through all of the borrowed accounts. */
-      if( FD_VADDR_TO_REGION( vm->segv_store_vaddr )!=FD_VM_INPUT_REGION ) {
+      if( FD_VADDR_TO_REGION( vm->segv_vaddr )!=FD_VM_INPUT_REGION ) {
         return FD_EXECUTOR_INSTR_ERR_PROGRAM_FAILED_TO_COMPLETE;
       }
 
@@ -582,28 +596,41 @@ fd_bpf_execute( fd_exec_instr_ctx_t * instr_ctx, fd_sbpf_validated_program_t con
       }
     }
 
-    /* Instr error case */
-    /* https://github.com/anza-xyz/agave/blob/v2.1.10/program-runtime/src/invoke_context.rs#L564-L577 */
-    /* If the result returned from fd_vm_exec is an error, there are three possibilities:
-        1. When fd_vm_exec error is a SyscallError and error kind is an InstructionError, return the actual InstructionError
-        2. When fd_vm_exec error is a SyscallError, but error kind is not an InstructionError, return FD_EXECUTOR_INSTR_ERR_PROGRAM_FAILED_TO_COMPLETE
-        3. When fd_vm_exec error is not a SyscallError, return FD_EXECUTOR_INSTR_ERR_PROGRAM_FAILED_TO_COMPLETE
-    */
-    if( FD_UNLIKELY( exec_err==FD_VM_ERR_SIGSYSCALL && instr_ctx->txn_ctx->exec_err_kind==FD_EXECUTOR_ERR_KIND_INSTR ) ) {
-      return instr_ctx->txn_ctx->exec_err;
+    /* The error kind should have been set in the VM. Match it and set
+       the error code accordingly. There are no direct permalinks here -
+       this is all a result of Agave's complex nested error-code handling
+       and our design decisions for making our error codes match. */
+
+    /* Instr error case. Set the error kind and return the instruction error */
+    if( instr_ctx->txn_ctx->exec_err_kind==FD_EXECUTOR_ERR_KIND_INSTR ) {
+      err = instr_ctx->txn_ctx->exec_err;
+      FD_VM_PREPARE_ERR_OVERWRITE( vm );
+      FD_VM_ERR_FOR_LOG_INSTR( vm, err );
+      return err;
+    }
+
+    /* Syscall error case. The VM would have also set the syscall error
+       code in the txn_ctx exec_err. */
+    if( instr_ctx->txn_ctx->exec_err_kind==FD_EXECUTOR_ERR_KIND_SYSCALL ) {
+      err = instr_ctx->txn_ctx->exec_err;
+      FD_VM_PREPARE_ERR_OVERWRITE( vm );
+      FD_VM_ERR_FOR_LOG_SYSCALL( vm, err );
+      return FD_EXECUTOR_INSTR_ERR_PROGRAM_FAILED_TO_COMPLETE;
+    }
+
+    /* An access violation that takes place inside a syscall will
+       cause `exec_res` to be set to EbpfError::SyscallError,
+       but the `txn_ctx->exec_err_kind` will be set to EBPF and
+       `txn_ctx->exec_err` will be set to the EBPF error. In this
+       specific case, there is nothing to do since the error and error
+       kind area already set correctly. Otherwise, we need to log the
+       EBPF error. */
+    if( exec_err!=FD_VM_ERR_EBPF_SYSCALL_ERROR ) {
+      FD_VM_PREPARE_ERR_OVERWRITE( vm );
+      FD_VM_ERR_FOR_LOG_EBPF( vm, exec_err );
     }
 
     return FD_EXECUTOR_INSTR_ERR_PROGRAM_FAILED_TO_COMPLETE;
-  }
-
-  /* Handles syscall errors
-     TODO: vm should report */
-  ulong syscall_err = vm->reg[0];
-  if( FD_UNLIKELY( syscall_err ) ) {
-    /* https://github.com/anza-xyz/agave/blob/v2.0.9/programs/bpf_loader/src/lib.rs#L1431-L1434 */
-    err = program_error_to_instr_error( syscall_err, &instr_ctx->txn_ctx->custom_err );
-    FD_VM_ERR_FOR_LOG_INSTR( vm, err );
-    return err;
   }
 
   err = fd_bpf_loader_input_deserialize_parameters( instr_ctx, pre_lens, input, input_sz, direct_mapping, is_deprecated );

@@ -298,14 +298,11 @@ do{
     exec_res = fd_vm_exec_notrace( vm );
   }
 
-  /* Agave does not have a SIGCALL error, and instead throws SIGILL */
-  if( exec_res == FD_VM_ERR_SIGCALL ) exec_res = FD_VM_ERR_SIGILL;
-  effects->error = -1 * exec_res;
-
   /* Capture outputs */
+  effects->error       = -exec_res;
   effects->cu_avail    = vm->cu;
   effects->frame_count = vm->frame_cnt;
-  /* Only capture registers if no error */;
+  /* Only capture registers if no error */
   effects->r0          = exec_res ? 0 : vm->reg[0];
   effects->r1          = exec_res ? 0 : vm->reg[1];
   effects->r2          = exec_res ? 0 : vm->reg[2];
@@ -319,12 +316,6 @@ do{
   effects->r10         = exec_res ? 0 : vm->reg[10];
 
   /* skip logs since syscalls are stubbed */
-
-  /* CU error is difficult to properly compare as there may have been
-     valid writes to the memory regions prior to capturing the error. And
-     the pc might be well past (by an arbitrary amount) the instruction
-     where the CU error occurred. */
-  if( exec_res == FD_VM_ERR_SIGCOST ) break;
 
   effects->pc = vm->pc;
 

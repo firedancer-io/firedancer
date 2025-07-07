@@ -639,29 +639,30 @@ fd_vm_init(
   }
 
   // Set the vm fields
-  vm->instr_ctx = instr_ctx;
-  vm->heap_max = heap_max;
-  vm->entry_cu = entry_cu;
-  vm->rodata = rodata;
-  vm->rodata_sz = rodata_sz;
-  vm->text = text;
-  vm->text_cnt = text_cnt;
-  vm->text_off = text_off;
-  vm->text_sz = text_sz;
-  vm->entry_pc = entry_pc;
-  vm->calldests = calldests;
-  vm->sbpf_version = sbpf_version;
-  vm->syscalls = syscalls;
-  vm->trace = trace;
-  vm->sha = sha;
-  vm->input_mem_regions = mem_regions;
+  vm->instr_ctx             = instr_ctx;
+  vm->heap_max              = heap_max;
+  vm->entry_cu              = entry_cu;
+  vm->rodata                = rodata;
+  vm->rodata_sz             = rodata_sz;
+  vm->text                  = text;
+  vm->text_cnt              = text_cnt;
+  vm->text_off              = text_off;
+  vm->text_sz               = text_sz;
+  vm->entry_pc              = entry_pc;
+  vm->calldests             = calldests;
+  vm->sbpf_version          = sbpf_version;
+  vm->syscalls              = syscalls;
+  vm->trace                 = trace;
+  vm->sha                   = sha;
+  vm->input_mem_regions     = mem_regions;
   vm->input_mem_regions_cnt = mem_regions_cnt;
-  vm->acc_region_metas = acc_region_metas;
-  vm->is_deprecated = is_deprecated;
-  vm->direct_mapping = direct_mapping;
-  vm->stack_frame_size = FD_VM_STACK_FRAME_SZ + ( direct_mapping ? 0UL : FD_VM_STACK_GUARD_SZ );
-  vm->segv_store_vaddr = ULONG_MAX;
-  vm->dump_syscall_to_pb = dump_syscall_to_pb;
+  vm->acc_region_metas      = acc_region_metas;
+  vm->is_deprecated         = is_deprecated;
+  vm->direct_mapping        = direct_mapping;
+  vm->stack_frame_size      = FD_VM_STACK_FRAME_SZ + ( direct_mapping ? 0UL : FD_VM_STACK_GUARD_SZ );
+  vm->segv_vaddr            = ULONG_MAX;
+  vm->segv_access_type      = 0;
+  vm->dump_syscall_to_pb    = dump_syscall_to_pb;
 
   /* Unpack the configuration */
   int err = fd_vm_setup_state_for_execution( vm );

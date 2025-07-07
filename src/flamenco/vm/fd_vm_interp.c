@@ -10,8 +10,6 @@ fd_vm_exec_notrace( fd_vm_t * vm ) {
 # undef FD_VM_INTERP_EXE_TRACING_ENABLED
 # undef FD_VM_INTERP_MEM_TRACING_ENABLED
 
-  if( FD_UNLIKELY( !vm ) ) return FD_VM_ERR_INVAL;
-
   /* Pull out variables needed for the fd_vm_interp_core template */
   ulong frame_max   = FD_VM_STACK_FRAME_MAX; /* FIXME: vm->frame_max to make this run-time configured */
 
@@ -43,8 +41,6 @@ fd_vm_exec_trace( fd_vm_t * vm ) {
 
 # define FD_VM_INTERP_EXE_TRACING_ENABLED 1
 # define FD_VM_INTERP_MEM_TRACING_ENABLED 1
-
-  if( FD_UNLIKELY( !vm ) ) return FD_VM_ERR_INVAL;
 
   /* Pull out variables needed for the fd_vm_interp_core template */
   ulong frame_max   = FD_VM_STACK_FRAME_MAX; /* FIXME: vm->frame_max to make this run-time configured */

@@ -290,7 +290,7 @@ test_0cu_exit( void ) {
   FD_TEST( vm_ok );
 
   FD_TEST( fd_vm_validate( vm )==FD_VM_SUCCESS );
-  FD_TEST( fd_vm_exec    ( vm )==FD_VM_ERR_SIGCOST );
+  FD_TEST( fd_vm_exec    ( vm )==FD_VM_ERR_EBPF_EXCEEDED_MAX_INSTRUCTIONS );
 
   fd_vm_delete( fd_vm_leave( vm ) );
   fd_valloc_free( valloc, slot_ctx );

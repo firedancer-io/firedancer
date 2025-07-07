@@ -123,12 +123,20 @@ FD_PROTOTYPES_BEGIN
     FD_TEST( vm->instr_ctx->txn_ctx->exec_err );                          \
     FD_TEST( vm->instr_ctx->txn_ctx->exec_err_kind )
 
+/* Used prior to a FD_VM_ERR_FOR_LOG_INSTR call to deliberately
+   bypass overwrite handholding checks.
+   Only use this if you know what you're doing. */
+#define FD_VM_PREPARE_ERR_OVERWRITE( vm )                                 \
+   vm->instr_ctx->txn_ctx->exec_err = 0;                                  \
+   vm->instr_ctx->txn_ctx->exec_err_kind = 0
+
 /* Asserts that the error and error kind are not populated (zero) */
 #define FD_VM_TEST_ERR_OVERWRITE( vm )                                    \
     FD_TEST( !vm->instr_ctx->txn_ctx->exec_err );                         \
     FD_TEST( !vm->instr_ctx->txn_ctx->exec_err_kind )
 #else
 #define FD_VM_TEST_ERR_EXISTS( vm ) ( ( void )0 )
+#define FD_VM_PREPARE_ERR_OVERWRITE( vm ) ( ( void )0 )
 #define FD_VM_TEST_ERR_OVERWRITE( vm ) ( ( void )0 )
 #endif
 
@@ -218,6 +226,28 @@ fd_vm_mem_cfg( fd_vm_t * vm ) {
     vm->region_st_sz[FD_VM_INPUT_REGION] = vm->input_mem_regions[0].region_sz;
   }
   return vm;
+}
+
+/* Simplified version of Agave's `generate_access_violation()` function
+   that simply returns either FD_VM_ERR_EBPF_ACCESS_VIOLATION or
+   FD_VM_ERR_EBPF_STACK_ACCESS_VIOLATION. This has no consensus
+   effects and is purely for logging purposes for fuzzing. Returns
+   FD_VM_ERR_EBPF_STACK_ACCESS_VIOLATION if the provided vaddr is in the
+   stack (0x200000000) and FD_VM_ERR_EBPF_ACCESS_VIOLATION otherwise.
+
+   https://github.com/anza-xyz/sbpf/blob/v0.11.1/src/memory_region.rs#L834-L869 */
+static FD_FN_PURE inline int
+fd_vm_generate_access_violation( ulong vaddr, ulong sbpf_version ) {
+  /* rel_offset can be negative because there is an edge case where the
+     first "frame" right before the stack region should also throw a
+     stack access violation. */
+  long rel_offset = fd_long_sat_sub( (long)vaddr, (long)FD_VM_MEM_MAP_STACK_REGION_START );
+  long stack_frame = rel_offset / (long)FD_VM_STACK_FRAME_SZ;
+  if( !FD_VM_SBPF_DYNAMIC_STACK_FRAMES( sbpf_version ) &&
+      stack_frame>=-1L && stack_frame<=(long)FD_VM_MAX_CALL_DEPTH ) {
+    return FD_VM_ERR_EBPF_STACK_ACCESS_VIOLATION;
+  }
+  return FD_VM_ERR_EBPF_ACCESS_VIOLATION;
 }
 
 /* fd_vm_mem_haddr translates the vaddr range [vaddr,vaddr+sz) (in
@@ -346,7 +376,9 @@ fd_vm_mem_haddr( fd_vm_t const *    vm,
      - dynamic stack frames are not enabled (!(SBPF version >= SBPF_V1))
      https://github.com/anza-xyz/agave/blob/v2.2.12/programs/bpf_loader/src/lib.rs#L344-L351
     */
-  if( FD_UNLIKELY( region==FD_VM_STACK_REGION && !vm->direct_mapping && vm->sbpf_version<FD_SBPF_V1 ) ) {
+  if( FD_UNLIKELY( region==FD_VM_STACK_REGION &&
+                   !vm->direct_mapping &&
+                   !FD_VM_SBPF_DYNAMIC_STACK_FRAMES( vm->sbpf_version ) ) ) {
     /* If an access starts in a gap region, that is an access violation */
     if( FD_UNLIKELY( !!(vaddr & 0x1000) ) ) {
       return sentinel;

@@ -1172,15 +1172,24 @@ fd_execute_instr( fd_exec_txn_ctx_t * txn_ctx,
       /* Log success */
       fd_log_collector_program_success( ctx );
     } else {
-      FD_TXN_PREPARE_ERR_OVERWRITE( txn_ctx );
-      FD_TXN_ERR_FOR_LOG_INSTR( txn_ctx, instr_exec_result, txn_ctx->instr_err_idx );
-
       /* Log failure cases.
          We assume that the correct type of error is stored in ctx.
          Syscalls are expected to log when the error is generated, while
          native programs will be logged here.
-         (This is because syscall errors often carry data with them.) */
-      fd_log_collector_program_failure( ctx );
+         (This is because syscall errors often carry data with them.)
+
+         TODO: This hackily handles cases where the exec_err and exec_err_kind
+         is not set yet. We should change our native programs to set
+         this in their respective processors. */
+      if( !txn_ctx->exec_err ) {
+        FD_TXN_PREPARE_ERR_OVERWRITE( txn_ctx );
+        FD_TXN_ERR_FOR_LOG_INSTR( txn_ctx, instr_exec_result, txn_ctx->instr_err_idx );
+        fd_log_collector_program_failure( ctx );
+      } else {
+        fd_log_collector_program_failure( ctx );
+        FD_TXN_PREPARE_ERR_OVERWRITE( txn_ctx );
+        FD_TXN_ERR_FOR_LOG_INSTR( txn_ctx, instr_exec_result, txn_ctx->instr_err_idx );
+      }
     }
 
     return fd_execute_instr_end( ctx, instr, instr_exec_result );

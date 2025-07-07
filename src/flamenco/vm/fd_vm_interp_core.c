@@ -360,12 +360,12 @@
   /* FIXME: unvalidated code mucking with r10 */
 
 # define FD_VM_INTERP_STACK_PUSH                                                                            \
-  shadow[ frame_cnt ].r6 = reg[6];                                                                          \
-  shadow[ frame_cnt ].r7 = reg[7];                                                                          \
-  shadow[ frame_cnt ].r8 = reg[8];                                                                          \
-  shadow[ frame_cnt ].r9 = reg[9];                                                                          \
-  shadow[ frame_cnt ].r10= reg[10];                                                                         \
-  shadow[ frame_cnt ].pc = pc;                                                                              \
+  shadow[ frame_cnt ].r6  = reg[6];                                                                          \
+  shadow[ frame_cnt ].r7  = reg[7];                                                                          \
+  shadow[ frame_cnt ].r8  = reg[8];                                                                          \
+  shadow[ frame_cnt ].r9  = reg[9];                                                                          \
+  shadow[ frame_cnt ].r10 = reg[10];                                                                         \
+  shadow[ frame_cnt ].pc  = pc;                                                                              \
   if( FD_UNLIKELY( ++frame_cnt>=frame_max ) ) goto sigstack; /* Note: untaken branches don't consume BTB */ \
   if( !FD_VM_SBPF_DYNAMIC_STACK_FRAMES( sbpf_version ) ) reg[10] += vm->stack_frame_size;
 
@@ -474,7 +474,11 @@ interp_exec:
     uchar is_multi_region = 0;
     ulong vaddr           = reg_dst + offset;
     ulong haddr           = fd_vm_mem_haddr( vm, vaddr, sizeof(uchar), region_haddr, region_st_sz, 1, 0UL, &is_multi_region );
-    if( FD_UNLIKELY( !haddr ) ) { vm->segv_store_vaddr = vaddr; goto sigsegv; } /* Note: untaken branches don't consume BTB */
+    if( FD_UNLIKELY( !haddr ) ) {
+      vm->segv_vaddr       = vaddr;
+      vm->segv_access_type = FD_VM_ACCESS_TYPE_ST;
+      goto sigsegv;
+    } /* Note: untaken branches don't consume BTB */
     fd_vm_mem_st_1( haddr, (uchar)imm );
   }
   FD_VM_INTERP_INSTR_END;
@@ -483,7 +487,11 @@ interp_exec:
     uchar is_multi_region = 0;
     ulong vaddr           = reg_src + offset;
     ulong haddr           = fd_vm_mem_haddr( vm, vaddr, sizeof(uchar), region_haddr, region_ld_sz, 0, 0UL, &is_multi_region );
-    if( FD_UNLIKELY( !haddr ) ) goto sigsegv; /* Note: untaken branches don't consume BTB */
+    if( FD_UNLIKELY( !haddr ) ) {
+      vm->segv_vaddr       = vaddr;
+      vm->segv_access_type = FD_VM_ACCESS_TYPE_LD;
+      goto sigsegv;
+    } /* Note: untaken branches don't consume BTB */
     reg[ dst ] = fd_vm_mem_ld_1( haddr );
   }
   FD_VM_INTERP_INSTR_END;
@@ -496,7 +504,11 @@ interp_exec:
     uchar is_multi_region = 0;
     ulong vaddr           = reg_dst + offset;
     ulong haddr           = fd_vm_mem_haddr( vm, vaddr, sizeof(uchar), region_haddr, region_st_sz, 1, 0UL, &is_multi_region );
-    if( FD_UNLIKELY( !haddr ) ) { vm->segv_store_vaddr = vaddr; goto sigsegv; } /* Note: untaken branches don't consume BTB */ /* FIXME: sigrdonly */
+    if( FD_UNLIKELY( !haddr ) ) {
+      vm->segv_vaddr       = vaddr;
+      vm->segv_access_type = FD_VM_ACCESS_TYPE_ST;
+      goto sigsegv;
+    } /* Note: untaken branches don't consume BTB */ /* FIXME: sigrdonly */
     fd_vm_mem_st_1( haddr, (uchar)reg_src );
   }
   FD_VM_INTERP_INSTR_END;
@@ -535,7 +547,8 @@ interp_exec:
     ulong haddr           = fd_vm_mem_haddr( vm, vaddr, sizeof(ushort), region_haddr, region_st_sz, 1, 0UL, &is_multi_region );
     int   sigsegv         = !haddr;
     if( FD_UNLIKELY( sigsegv ) ) {
-      vm->segv_store_vaddr = vaddr;
+      vm->segv_vaddr       = vaddr;
+      vm->segv_access_type = FD_VM_ACCESS_TYPE_ST;
 
       if( vm->direct_mapping ) {
         /* Only execute slow path partial store when direct mapping is enabled.
@@ -558,7 +571,11 @@ interp_exec:
     ulong vaddr           = reg_src + offset;
     ulong haddr           = fd_vm_mem_haddr( vm, vaddr, sizeof(ushort), region_haddr, region_ld_sz, 0, 0UL, &is_multi_region );
     int   sigsegv         = !haddr;
-    if( FD_UNLIKELY( sigsegv ) ) goto sigsegv; /* Note: untaken branches don't consume BTB */ /* FIXME: sigbus */
+    if( FD_UNLIKELY( sigsegv ) ) {
+      vm->segv_vaddr       = vaddr;
+      vm->segv_access_type = FD_VM_ACCESS_TYPE_LD;
+      goto sigsegv; /* Note: untaken branches don't consume BTB */ /* FIXME: sigbus */
+    }
     reg[ dst ] = fd_vm_mem_ld_2( vm, vaddr, haddr, is_multi_region );
   }
   FD_VM_INTERP_INSTR_END;
@@ -573,7 +590,8 @@ interp_exec:
     ulong haddr           = fd_vm_mem_haddr( vm, vaddr, sizeof(ushort), region_haddr, region_st_sz, 1, 0UL, &is_multi_region );
     int   sigsegv         = !haddr;
     if( FD_UNLIKELY( sigsegv ) ) {
-      vm->segv_store_vaddr = vaddr;
+      vm->segv_vaddr       = vaddr;
+      vm->segv_access_type = FD_VM_ACCESS_TYPE_ST;
 
       if( vm->direct_mapping ) {
         /* See FD_SBPF_OP_STH for details */
@@ -778,7 +796,7 @@ interp_exec:
        that the call stack frame gets allocated _before_ checking if the
        call target is valid.  It would be fine to switch the order
        though such would change the precise faulting semantics of
-       sigcall and sigstack.
+       sigtextbr and sigstack.
 
        (*)but after checking calldests, see point below. */
 
@@ -804,10 +822,10 @@ interp_exec:
       } else {
         ulong target_pc = (ulong)fd_pchash_inverse( imm );
         if( FD_UNLIKELY( target_pc>=text_cnt ) ) {
-          goto sigcall; /* different return between 0x85 and 0x8d */
+          goto sigillbr; /* different return between 0x85 and 0x8d */
         }
         if( FD_UNLIKELY( !fd_sbpf_calldests_test( calldests, target_pc ) ) ) {
-          goto sigcall;
+          goto sigillbr;
         }
         FD_VM_INTERP_STACK_PUSH;
         pc = target_pc - 1;
@@ -830,7 +848,8 @@ interp_exec:
     ulong haddr           = fd_vm_mem_haddr( vm, vaddr, sizeof(uint), region_haddr, region_st_sz, 1, 0UL, &is_multi_region );
     int   sigsegv         = !haddr;
     if( FD_UNLIKELY( sigsegv ) ) {
-      vm->segv_store_vaddr = vaddr;
+      vm->segv_vaddr       = vaddr;
+      vm->segv_access_type = FD_VM_ACCESS_TYPE_ST;
 
       if( vm->direct_mapping ) {
         /* See FD_SBPF_OP_STH for details */
@@ -852,7 +871,11 @@ interp_exec:
     ulong vaddr           = reg_src + offset;
     ulong haddr           = fd_vm_mem_haddr( vm, vaddr, sizeof(uint), region_haddr, region_ld_sz, 0, 0UL, &is_multi_region );
     int   sigsegv         = !haddr;
-    if( FD_UNLIKELY( sigsegv ) ) goto sigsegv; /* Note: untaken branches don't consume BTB */ /* FIXME: sigbus */
+    if( FD_UNLIKELY( sigsegv ) ) {
+      vm->segv_vaddr       = vaddr;
+      vm->segv_access_type = FD_VM_ACCESS_TYPE_LD;
+      goto sigsegv; /* Note: untaken branches don't consume BTB */ /* FIXME: sigbus */
+    }
     reg[ dst ] = fd_vm_mem_ld_4( vm, vaddr, haddr, is_multi_region );
   }
   FD_VM_INTERP_INSTR_END;
@@ -862,7 +885,7 @@ interp_exec:
     ulong target_pc = (reg_src - vm->text_off) / 8UL;
     if( FD_UNLIKELY( target_pc>=text_cnt ) ) goto sigtextbr;
     if( FD_UNLIKELY( !fd_sbpf_calldests_test( calldests, target_pc ) ) ) {
-      goto sigcall;
+      goto sigillbr;
     }
     pc = target_pc - 1;
   } FD_VM_INTERP_BRANCH_END;
@@ -896,7 +919,8 @@ interp_exec:
     ulong haddr           = fd_vm_mem_haddr( vm, vaddr, sizeof(uint), region_haddr, region_st_sz, 1, 0UL, &is_multi_region );
     int   sigsegv         = !haddr;
     if( FD_UNLIKELY( sigsegv ) ) {
-      vm->segv_store_vaddr = vaddr;
+      vm->segv_vaddr       = vaddr;
+      vm->segv_access_type = FD_VM_ACCESS_TYPE_ST;
 
       if( vm->direct_mapping ) {
         /* See FD_SBPF_OP_STH for details */
@@ -919,12 +943,7 @@ interp_exec:
   FD_VM_INTERP_BRANCH_BEGIN(0x95) { /* FD_SBPF_OP_SYSCALL */
     /* imm has already been validated */
     fd_sbpf_syscalls_t const * syscall = fd_sbpf_syscalls_query_const( syscalls, (ulong)imm, NULL );
-
-    /* this check is probably useless, as validation includes checking that the
-       syscall is active in this epoch.
-       However, it's safe to keep it here, because at the time of writing this
-       code we're not (re)validating all programs at every new epoch. */
-    if( FD_UNLIKELY( !syscall ) ) goto sigill;
+    if( FD_UNLIKELY( !syscall ) ) goto sigillbr;
 
     FD_VM_INTERP_SYSCALL_EXEC;
 
@@ -940,7 +959,8 @@ interp_exec:
     ulong haddr           = fd_vm_mem_haddr( vm, vaddr, sizeof(ulong), region_haddr, region_st_sz, 1, 0UL, &is_multi_region );
     int   sigsegv         = !haddr;
     if( FD_UNLIKELY( sigsegv ) ) {
-      vm->segv_store_vaddr = vaddr;
+      vm->segv_vaddr       = vaddr;
+      vm->segv_access_type = FD_VM_ACCESS_TYPE_ST;
 
       if( vm->direct_mapping ) {
         /* See FD_SBPF_OP_STH for details */
@@ -959,7 +979,11 @@ interp_exec:
     ulong vaddr           = reg_src + offset;
     ulong haddr           = fd_vm_mem_haddr( vm, vaddr, sizeof(ulong), region_haddr, region_ld_sz, 0, 0UL, &is_multi_region );
     int   sigsegv         = !haddr;
-    if( FD_UNLIKELY( sigsegv ) ) goto sigsegv; /* Note: untaken branches don't consume BTB */ /* FIXME: sigbus */
+    if( FD_UNLIKELY( sigsegv ) ) {
+      vm->segv_vaddr       = vaddr;
+      vm->segv_access_type = FD_VM_ACCESS_TYPE_LD;
+      goto sigsegv; /* Note: untaken branches don't consume BTB */ /* FIXME: sigbus */
+    }
     reg[ dst ] = fd_vm_mem_ld_8( vm, vaddr, haddr, is_multi_region );
   }
   FD_VM_INTERP_INSTR_END;
@@ -990,7 +1014,8 @@ interp_exec:
     ulong haddr           = fd_vm_mem_haddr( vm, vaddr, sizeof(ulong), region_haddr, region_st_sz, 1, 0UL, &is_multi_region );
     int   sigsegv         = !haddr;
     if( FD_UNLIKELY( sigsegv ) ) {
-      vm->segv_store_vaddr = vaddr;
+      vm->segv_vaddr       = vaddr;
+      vm->segv_access_type = FD_VM_ACCESS_TYPE_ST;
 
       if( vm->direct_mapping ) {
         /* See FD_SBPF_OP_STH for details */
@@ -1125,7 +1150,7 @@ interp_exec:
     case 16U: reg[ dst ] = (ushort)reg_dst; break;
     case 32U: reg[ dst ] = (uint)  reg_dst; break;
     case 64U:                               break;
-    default: goto sigill;
+    default: goto siginv;
     }
   FD_VM_INTERP_INSTR_END;
 
@@ -1143,7 +1168,7 @@ interp_exec:
     case 16U: reg[ dst ] = (ulong)fd_ushort_bswap( (ushort)reg_dst ); break;
     case 32U: reg[ dst ] = (ulong)fd_uint_bswap  ( (uint)  reg_dst ); break;
     case 64U: reg[ dst ] =        fd_ulong_bswap ( (ulong) reg_dst ); break;
-    default: goto sigill;
+    default: goto siginv;
     }
   FD_VM_INTERP_INSTR_END;
 
@@ -1212,23 +1237,24 @@ interp_exec:
      non-branching and branching cases for sigtext.  The same applies to
      sigsplit. */
 
-#define FD_VM_INTERP_FAULT                                          \
-  ic_correction = pc - pc0 + 1UL - ic_correction;                   \
-  ic += ic_correction;                                              \
-  if ( FD_UNLIKELY( ic_correction > cu ) ) err = FD_VM_ERR_SIGCOST; \
+#define FD_VM_INTERP_FAULT                                                                 \
+  ic_correction = pc - pc0 + 1UL - ic_correction;                                          \
+  ic += ic_correction;                                                                     \
+  if ( FD_UNLIKELY( ic_correction > cu ) ) err = FD_VM_ERR_EBPF_EXCEEDED_MAX_INSTRUCTIONS; \
   cu -= fd_ulong_min( ic_correction, cu )
 
-sigtext:     err = FD_VM_ERR_SIGTEXT;     FD_VM_INTERP_FAULT;                     goto interp_halt;
-sigtextbr:   err = FD_VM_ERR_SIGTEXT;     /* ic current */      /* cu current */  goto interp_halt;
-sigcall:     err = FD_VM_ERR_SIGILL;      /* ic current */      /* cu current */  goto interp_halt;
-sigstack:    err = FD_VM_ERR_SIGSTACK;    /* ic current */      /* cu current */  goto interp_halt;
-sigill:      err = FD_VM_ERR_SIGILL;      FD_VM_INTERP_FAULT;                     goto interp_halt;
-sigsegv:     err = FD_VM_ERR_SIGSEGV;     FD_VM_INTERP_FAULT;                     goto interp_halt;
-sigcost:     err = FD_VM_ERR_SIGCOST;     /* ic current */      cu = 0UL;         goto interp_halt;
-sigsyscall:  err = FD_VM_ERR_SIGSYSCALL;  /* ic current */      /* cu current */  goto interp_halt;
-sigfpe:      err = FD_VM_ERR_SIGFPE;      FD_VM_INTERP_FAULT;                     goto interp_halt;
-sigfpeof:    err = FD_VM_ERR_SIGFPE_OF;   FD_VM_INTERP_FAULT;                     goto interp_halt;
-sigexit:     /* err current */            /* ic current */      /* cu current */  goto interp_halt;
+sigtext:     err = FD_VM_ERR_EBPF_EXECUTION_OVERRUN;                                     FD_VM_INTERP_FAULT;                    goto interp_halt;
+sigtextbr:   err = FD_VM_ERR_EBPF_CALL_OUTSIDE_TEXT_SEGMENT;                             /* ic current */     /* cu current */  goto interp_halt;
+sigstack:    err = FD_VM_ERR_EBPF_CALL_DEPTH_EXCEEDED;                                   /* ic current */     /* cu current */  goto interp_halt;
+sigill:      err = FD_VM_ERR_EBPF_UNSUPPORTED_INSTRUCTION;                               FD_VM_INTERP_FAULT;                    goto interp_halt;
+sigillbr:    err = FD_VM_ERR_EBPF_UNSUPPORTED_INSTRUCTION;                               /* ic current */     /* cu current */  goto interp_halt;
+siginv:      err = FD_VM_ERR_EBPF_INVALID_INSTRUCTION;                                   /* ic current */     /* cu current */  goto interp_halt;
+sigsegv:     err = fd_vm_generate_access_violation( vm->segv_vaddr, vm->sbpf_version );  FD_VM_INTERP_FAULT;                    goto interp_halt;
+sigcost:     err = FD_VM_ERR_EBPF_EXCEEDED_MAX_INSTRUCTIONS;                             /* ic current */     cu = 0UL;         goto interp_halt;
+sigsyscall:  err = FD_VM_ERR_EBPF_SYSCALL_ERROR;                                         /* ic current */     /* cu current */  goto interp_halt;
+sigfpe:      err = FD_VM_ERR_EBPF_DIVIDE_BY_ZERO;                                        FD_VM_INTERP_FAULT;                    goto interp_halt;
+sigfpeof:    err = FD_VM_ERR_EBPF_DIVIDE_OVERFLOW;                                       FD_VM_INTERP_FAULT;                    goto interp_halt;
+sigexit:     /* err current */                                                           /* ic current */     /* cu current */  goto interp_halt;
 
 #undef FD_VM_INTERP_FAULT
 
