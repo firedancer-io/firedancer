@@ -14,6 +14,10 @@
 #include "../../ballet/sbpf/fd_sbpf_loader.h" /* FIXME: functionality needed from here probably should be moved here */
 #include "../features/fd_features.h"
 
+/* Defines the different VM access types */
+#define FD_VM_ACCESS_TYPE_LD (1)
+#define FD_VM_ACCESS_TYPE_ST (2)
+
 /* FD_VM_SUCCESS is zero and returned to indicate that an operation
    completed successfully.  FD_VM_ERR_* are negative integers and
    returned to indicate an operation that failed and why. */

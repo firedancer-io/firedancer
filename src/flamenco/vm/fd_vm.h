@@ -211,9 +211,12 @@ struct __attribute__((aligned(FD_VM_HOST_REGION_ALIGN))) fd_vm {
   int   direct_mapping;   /* If direct mapping is enabled or not */
   ulong stack_frame_size; /* Size of a stack frame (varies depending on direct mapping being enabled or not) */
 
-  /* Agave reports different error codes (for developers to understand the failure cause) if direct mapping is
-     enabled AND we halt on a segfault caused by a store on an invalid vaddr. */
-  ulong segv_store_vaddr;
+  /* Agave uses the segv vaddr in several different cases, including:
+     - Determining whether or not to return a regular or stack access violation
+     - (If direct mapping is enabled) determining the instruction error
+       code to return on store operations. */
+  ulong segv_vaddr;
+  uchar segv_access_type;
 
   ulong sbpf_version;     /* SBPF version, SIMD-0161 */
 
