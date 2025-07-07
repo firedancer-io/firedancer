@@ -1596,35 +1596,6 @@ void *fd_cluster_type_generate( void *mem, void **alloc_mem, fd_rng_t * rng ) {
   return mem;
 }
 
-void *fd_rent_fresh_account_generate( void *mem, void **alloc_mem, fd_rng_t * rng ) {
-  fd_rent_fresh_account_t *self = (fd_rent_fresh_account_t *) mem;
-  *alloc_mem = (uchar *) *alloc_mem + sizeof(fd_rent_fresh_account_t);
-  fd_rent_fresh_account_new(mem);
-  self->partition = fd_rng_ulong( rng );
-  fd_pubkey_generate( &self->pubkey, alloc_mem, rng );
-  self->present = fd_rng_ulong( rng );
-  return mem;
-}
-
-void *fd_rent_fresh_accounts_generate( void *mem, void **alloc_mem, fd_rng_t * rng ) {
-  fd_rent_fresh_accounts_t *self = (fd_rent_fresh_accounts_t *) mem;
-  *alloc_mem = (uchar *) *alloc_mem + sizeof(fd_rent_fresh_accounts_t);
-  fd_rent_fresh_accounts_new(mem);
-  self->total_count = fd_rng_ulong( rng );
-  self->fresh_accounts_len = fd_rng_ulong( rng ) % 8;
-  if( self->fresh_accounts_len ) {
-    self->fresh_accounts = (fd_rent_fresh_account_t *) *alloc_mem;
-    *alloc_mem = (uchar *) *alloc_mem + sizeof(fd_rent_fresh_account_t)*self->fresh_accounts_len;
-    for( ulong i=0; i < self->fresh_accounts_len; i++ ) {
-      fd_rent_fresh_account_new( self->fresh_accounts + i );
-      fd_rent_fresh_account_generate( self->fresh_accounts + i, alloc_mem, rng );
-    }
-  } else {
-    self->fresh_accounts = NULL;
-  }
-  return mem;
-}
-
 void *fd_cluster_version_generate( void *mem, void **alloc_mem, fd_rng_t * rng ) {
   fd_cluster_version_t *self = (fd_cluster_version_t *) mem;
   *alloc_mem = (uchar *) *alloc_mem + sizeof(fd_cluster_version_t);
@@ -3226,7 +3197,7 @@ void *fd_gossip_node_instance_generate( void *mem, void **alloc_mem, fd_rng_t * 
   fd_gossip_node_instance_new(mem);
   fd_pubkey_generate( &self->from, alloc_mem, rng );
   self->wallclock = fd_rng_ulong( rng );
-  self->timestamp = fd_rng_long( rng );
+  self->timestamp = fd_rng_ulong( rng );
   self->token = fd_rng_ulong( rng );
   return mem;
 }

@@ -36,9 +36,9 @@ scratch_footprint( fd_topo_tile_t const * tile ) {
 
 static void
 before_credit( fd_cswtch_ctx_t *   ctx,
-               fd_stem_context_t * mux,
+               fd_stem_context_t * stem,
                int *               charge_busy ) {
-  (void)mux;
+  (void)stem;
 
   long now = fd_log_wallclock();
   if( now<ctx->next_report_nanos ) {

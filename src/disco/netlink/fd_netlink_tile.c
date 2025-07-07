@@ -7,6 +7,7 @@
 #include "../../waltz/neigh/fd_neigh4_netlink.h"
 #include "../../util/pod/fd_pod_format.h"
 #include "../../util/log/fd_dtrace.h"
+#include "fd_netlink_tile.h"
 
 #include <errno.h>
 #include <net/if.h>
@@ -18,10 +19,6 @@
 
 #define FD_SOCKADDR_IN_SZ sizeof(struct sockaddr_in)
 #include "generated/netlink_seccomp.h"
-
-/* Hardcoded limits */
-#define NETDEV_MAX      (256U)
-#define BOND_MASTER_MAX (256U)
 
 void
 fd_netlink_topo_create( fd_topo_tile_t * netlink_tile,

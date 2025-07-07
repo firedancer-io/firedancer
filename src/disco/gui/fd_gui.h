@@ -16,6 +16,7 @@
 #define FD_GUI_TILE_TIMER_LEADER_CNT               (4096UL)
 #define FD_GUI_TILE_TIMER_LEADER_DOWNSAMPLE_CNT    (50UL)
 #define FD_GUI_TILE_TIMER_TILE_CNT                 (128UL)
+#define FD_GUI_MAX_PEER_CNT                        (40200UL)
 
 #define FD_GUI_SLOT_LEVEL_INCOMPLETE               (0)
 #define FD_GUI_SLOT_LEVEL_COMPLETED                (1)
@@ -390,17 +391,17 @@ struct fd_gui {
 
   struct {
     ulong                     peer_cnt;
-    struct fd_gui_gossip_peer peers[ 40200 ];
+    struct fd_gui_gossip_peer peers[ FD_GUI_MAX_PEER_CNT ];
   } gossip;
 
   struct {
     ulong                      vote_account_cnt;
-    struct fd_gui_vote_account vote_accounts[ 40200 ];
+    struct fd_gui_vote_account vote_accounts[ FD_GUI_MAX_PEER_CNT ];
   } vote_account;
 
   struct {
     ulong                        info_cnt;
-    struct fd_gui_validator_info info[ 40200 ];
+    struct fd_gui_validator_info info[ FD_GUI_MAX_PEER_CNT ];
   } validator_info;
 };
 

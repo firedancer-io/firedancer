@@ -1,29 +1,50 @@
+#!/usr/bin/env python3
+"""
+C Code Generator for Solana/Firedancer Type System
+
+This script generates C header and implementation files for serialization/deserialization
+of Solana blockchain data structures. It reads type definitions from a JSON configuration
+file and generates optimized C code for binary encoding/decoding, memory management,
+and type reflection.
+
+Usage: python3 gen_stubs.py <header_file> <implementation_file> <reflection_file>
+"""
+
 import json
 import sys
 
-
+# Load type definitions from JSON configuration file
 with open('fd_types.json', 'r') as json_file:
     json_object = json.load(json_file)
 
-header = open(sys.argv[1], "w")
-body = open(sys.argv[2], "w")
-reflect = open(sys.argv[3], "w")
+# Open output files for writing generated C code
+header = open(sys.argv[1], "w")      # Header file (.h)
+body = open(sys.argv[2], "w")        # Implementation file (.c)
+reflect = open(sys.argv[3], "w")     # Reflection file
 
-namespace = json_object["namespace"]
-entries = json_object["entries"]
+# Extract configuration from JSON
+namespace = json_object["namespace"]  # Namespace prefix for generated functions
+entries = json_object["entries"]     # List of type definitions
 
+# Generate file headers with auto-generation notice
 print("// This is an auto-generated file. To add entries, edit fd_types.json", file=header)
 print("// This is an auto-generated file. To add entries, edit fd_types.json", file=body)
 print("// This is an auto-generated file. To add entries, edit fd_types.json", file=reflect)
+
+# Generate header file include guards
 print("#ifndef HEADER_" + json_object["name"].upper(), file=header)
 print("#define HEADER_" + json_object["name"].upper(), file=header)
 print("", file=header)
+
+# Include any extra headers specified in the JSON config
 for extra in json_object["extra_header"]:
     print(extra, file=header)
 print("", file=header)
 
+# Generate implementation file includes and compiler directives
 print(f'#include "{sys.argv[1]}"', file=body)
 
+# Disable specific GCC warnings for generated code
 print('#pragma GCC diagnostic ignored "-Wunused-parameter"', file=body)
 print('#pragma GCC diagnostic ignored "-Wunused-variable"', file=body)
 print('#pragma GCC diagnostic ignored "-Wunused-function"', file=body)
@@ -31,13 +52,16 @@ print('#if defined(__GNUC__) && (__GNUC__ >= 9)', file=body)
 print('#pragma GCC diagnostic ignored "-Waddress-of-packed-member"', file=body)
 print('#endif', file=body)
 
+# Include custom type definitions
 print('#define SOURCE_fd_src_flamenco_types_fd_types_c', file=body)
 print('#include "fd_types_custom.h"', file=body)
 
+# Sets to track types that need special preamble/postamble handling
 preambletypes = set()
 postambletypes = set()
 
-# Map from primitive types to bincode function names
+# Map from primitive types to their corresponding bincode function names
+# This allows the code generator to emit the correct function calls for each type
 simpletypes = dict()
 for t,t2 in [("char","int8"),
              ("uchar","uint8"),
@@ -50,7 +74,8 @@ for t,t2 in [("char","int8"),
              ("ulong","uint64")]:
     simpletypes[t] = t2
 
-# Map from type name to encoded size
+# Map from type name to encoded byte size for fixed-size types
+# Used for memory allocation and size calculations
 fixedsizetypes = dict()
 for t,t2 in [("bool",1),
              ("char",1),
@@ -72,6 +97,7 @@ for t,t2 in [("bool",1),
     fixedsizetypes[t] = t2
 
 # Set of types that do not contain nested local pointers
+# These types can be serialized directly without special offset handling
 flattypes = {
   "bool",
   "char",
@@ -94,7 +120,8 @@ flattypes = {
 }
 
 # Types that are fixed size and valid for all possible bit patterns
-# (e.g. ulong is in here, but bool is not)
+# These types can be used in fuzzing without special validation
+# (e.g. ulong is in here, but bool is not because not all bit patterns are valid bools)
 fuzzytypes = {
     "char", "uchar",
     "short", "ushort",
@@ -110,7 +137,23 @@ fuzzytypes = {
     "uchar[2048]",
 }
 
+# Base class for all type nodes in the type system
 class TypeNode:
+    """
+    Base class for all type definitions in the generated C code.
+
+    Each type node represents a data structure that can be:
+    - Serialized/deserialized using bincode format
+    - Allocated and freed in memory
+    - Walked for reflection/debugging
+    - Sized for memory planning
+
+    Attributes:
+        name: The name of this type
+        produce_global: Whether to generate "global" versions (using offsets vs pointers)
+        encoders: Encoder configuration (if any)
+        arch_index: Architecture-specific index for optimization
+    """
     def __init__(self, json, **kwargs):
         self.produce_global = False
         if json is not None:
@@ -121,28 +164,53 @@ class TypeNode:
         else:
             raise ValueError(f"invalid arguments {kwargs} provided to TypeNode!")
         self.encoders = None
+        self.arch_index = 0  # Index for architecture-specific optimizations
 
     def isFixedSize(self):
+        """Return True if this type has a fixed size in bytes."""
         return False
 
     def fixedSize(self):
+        """Return the fixed size in bytes, or None if variable size."""
         return
 
     def isFuzzy(self):
+        """Return True if this type is safe for fuzzing (all bit patterns valid)."""
         return False
 
     def isFlat(self):
+        """Return True if this type contains no nested pointers."""
         return False
 
     def emitOffsetJoin(self, type_name):
+        """Generate helper functions for joining global types with offsets."""
         pass
 
     def subTypes(self):
+        """Return iterator over nested types contained in this type."""
         return iter(())
 
     def subMembers(self):
+        """Return iterator over member fields of this type."""
         return iter(())
+# Class representing primitive/basic types (int, char, etc.)
 class PrimitiveMember(TypeNode):
+    """
+    Represents primitive data types like integers, chars, booleans, etc.
+
+    These are the fundamental building blocks that map directly to C primitive types.
+    Handles special cases like:
+    - Variable-length integers (varint encoding)
+    - String types (char*)
+    - Fixed-size arrays (uchar[32], etc.)
+
+    Attributes:
+        type: The primitive type name (e.g., "ulong", "char*")
+        varint: Whether to use variable-length integer encoding
+        decode: Whether this field should be decoded
+        encode: Whether this field should be encoded
+        walk: Whether this field should be included in walking/reflection
+    """
     def __init__(self, container, json):
         super().__init__(json)
         self.type = json["type"]
@@ -152,17 +220,22 @@ class PrimitiveMember(TypeNode):
         self.walk = ("walk" not in json or json["walk"])
 
     def emitPreamble(self):
+        """Generate any preamble code needed before type definition."""
         pass
 
     def emitPostamble(self):
+        """Generate any postamble code needed after type definition."""
         pass
 
     def emitNew(self, indent=''):
+        """Generate constructor/initialization code for this primitive type."""
         pass
 
     def isFlat(self):
+        """Return True if this primitive type contains no pointers (except char*)."""
         return self.type != "char*"
 
+    # Map from primitive type names to functions that emit C struct member declarations
     emitMemberMap = {
         "char" :      lambda n: print(f'  char {n};',      file=header),
         "char*" :     lambda n: print(f'  char* {n};',     file=header),
@@ -171,7 +244,7 @@ class PrimitiveMember(TypeNode):
         "long" :      lambda n: print(f'  long {n};',      file=header),
         "uint" :      lambda n: print(f'  uint {n};',      file=header),
         "uint128" :   lambda n: print(f'  uint128 {n};',   file=header),
-        "bool" :      lambda n: print(f'  uchar {n};',     file=header),
+        "bool" :      lambda n: print(f'  uchar {n};',     file=header),  # bool stored as uchar
         "uchar" :     lambda n: print(f'  uchar {n};',     file=header),
         "uchar[32]" : lambda n: print(f'  uchar {n}[32];', file=header),
         "uchar[128]" :lambda n: print(f'  uchar {n}[128];', file=header),
@@ -204,14 +277,21 @@ class PrimitiveMember(TypeNode):
         return self.type in fuzzytypes
 
     def string_decode_footprint(n, varint, indent):
-        # This ends up working for decode_footprint but in a hacky way
+        """
+        Generate code to calculate memory footprint needed for decoding a string.
+
+        Strings are encoded as: [length: u64][data: bytes]
+        We need extra space for null termination in C.
+        """
         print(f'{indent}  ulong slen;', file=body)
         print(f'{indent}  err = fd_bincode_uint64_decode( &slen, ctx );', file=body)
         print(f'{indent}  if( FD_UNLIKELY( err!=FD_BINCODE_SUCCESS ) ) return err;', file=body)
         print(f'{indent}  err = fd_bincode_bytes_decode_footprint( slen, ctx );', file=body)
         print(f'{indent}  if( FD_UNLIKELY( err!=FD_BINCODE_SUCCESS ) ) return err;', file=body)
+        print(f'{indent}  *total_sz += slen + 1; // Need an extra byte for null termination', file=body)
 
     def ushort_decode_footprint(n, varint, indent):
+        """Generate code to calculate footprint for decoding unsigned short (16-bit)."""
         if varint:
             print(f'{indent}  do {{ ushort _tmp; err = fd_bincode_compact_u16_decode( &_tmp, ctx ); }} while(0);', file=body),
         else:
@@ -219,19 +299,12 @@ class PrimitiveMember(TypeNode):
         print(f'{indent}  if( FD_UNLIKELY( err!=FD_BINCODE_SUCCESS ) ) return err;', file=body)
 
     def ulong_decode_footprint(n, varint, indent):
+        """Generate code to calculate footprint for decoding unsigned long (64-bit)."""
         if varint:
             print(f'{indent}  err = fd_bincode_varint_decode_footprint( ctx );', file=body),
         else:
             print(f'{indent}  err = fd_bincode_uint64_decode_footprint( ctx );', file=body),
         print(f'{indent}  if( FD_UNLIKELY( err!=FD_BINCODE_SUCCESS ) ) return err;', file=body)
-
-    def string_decode_footprint(n, varint, indent):
-        print(f'{indent}  ulong slen;', file=body)
-        print(f'{indent}  err = fd_bincode_uint64_decode( &slen, ctx );', file=body)
-        print(f'{indent}  if( FD_UNLIKELY( err!=FD_BINCODE_SUCCESS ) ) return err;', file=body)
-        print(f'{indent}  err = fd_bincode_bytes_decode_footprint( slen, ctx );', file=body)
-        print(f'{indent}  if( FD_UNLIKELY( err!=FD_BINCODE_SUCCESS ) ) return err;', file=body)
-        print(f'{indent}  *total_sz += slen + 1; // Need an extra byte for null termination', file=body)
 
     emitDecodeFootprintMap = {
         "char" :      lambda n, varint, indent: print(f'{indent}  err = fd_bincode_uint8_decode_footprint( ctx );\n  if( FD_UNLIKELY( err ) ) return err;', file=body),
@@ -374,24 +447,24 @@ class PrimitiveMember(TypeNode):
             PrimitiveMember.emitSizeMap[self.type](self.name, self.varint, inner, indent)
 
     emitWalkMap = {
-        "char" :      lambda n, inner: print(f'  fun( w, &self->{inner}{n}, "{n}", FD_FLAMENCO_TYPE_SCHAR, "char", level );', file=body),
-        "char*" :     lambda n, inner: print(f'  fun( w, self->{inner}{n}, "{n}", FD_FLAMENCO_TYPE_CSTR, "char*", level );', file=body),
-        "double" :    lambda n, inner: print(f'  fun( w, &self->{inner}{n}, "{n}", FD_FLAMENCO_TYPE_DOUBLE, "double", level );', file=body),
-        "long" :      lambda n, inner: print(f'  fun( w, &self->{inner}{n}, "{n}", FD_FLAMENCO_TYPE_SLONG, "long", level );', file=body),
-        "uint" :      lambda n, inner: print(f'  fun( w, &self->{inner}{n}, "{n}", FD_FLAMENCO_TYPE_UINT, "uint", level );', file=body),
-        "uint128" :   lambda n, inner: print(f'  fun( w, &self->{inner}{n}, "{n}", FD_FLAMENCO_TYPE_UINT128, "uint128", level );', file=body),
-        "bool" :      lambda n, inner: print(f'  fun( w, &self->{inner}{n}, "{n}", FD_FLAMENCO_TYPE_BOOL, "bool", level );', file=body),
-        "uchar" :     lambda n, inner: print(f'  fun( w, &self->{inner}{n}, "{n}", FD_FLAMENCO_TYPE_UCHAR, "uchar", level );', file=body),
-        "uchar[32]" : lambda n, inner: print(f'  fun( w, self->{inner}{n}, "{n}", FD_FLAMENCO_TYPE_HASH256, "uchar[32]", level );', file=body),
-        "uchar[128]" :lambda n, inner: print(f'  fun( w, self->{inner}{n}, "{n}", FD_FLAMENCO_TYPE_HASH1024, "uchar[128]", level );', file=body),
-        "uchar[2048]":lambda n, inner: print(f'  fun( w, self->{inner}{n}, "{n}", FD_FLAMENCO_TYPE_HASH16384, "uchar[2048]", level );', file=body),
-        "ulong" :     lambda n, inner: print(f'  fun( w, &self->{inner}{n}, "{n}", FD_FLAMENCO_TYPE_ULONG, "ulong", level );', file=body),
-        "ushort" :    lambda n, inner: print(f'  fun( w, &self->{inner}{n}, "{n}", FD_FLAMENCO_TYPE_USHORT, "ushort", level );', file=body)
+        "char" :      lambda n, varint, inner: print(f'  fun( w, &self->{inner}{n}, "{n}", FD_FLAMENCO_TYPE_SCHAR, "char", level, {1 if varint else 0} );',  file=body),
+        "char*" :     lambda n, varint, inner: print(f'  fun( w, self->{inner}{n}, "{n}", FD_FLAMENCO_TYPE_CSTR, "char*", level, {1 if varint else 0}  );', file=body),
+        "double" :    lambda n, varint, inner: print(f'  fun( w, &self->{inner}{n}, "{n}", FD_FLAMENCO_TYPE_DOUBLE, "double", level, {1 if varint else 0}  );', file=body),
+        "long" :      lambda n, varint, inner: print(f'  fun( w, &self->{inner}{n}, "{n}", FD_FLAMENCO_TYPE_SLONG, "long", level, {1 if varint else 0}  );', file=body),
+        "uint" :      lambda n, varint, inner: print(f'  fun( w, &self->{inner}{n}, "{n}", FD_FLAMENCO_TYPE_UINT, "uint", level, {1 if varint else 0}  );', file=body),
+        "uint128" :   lambda n, varint, inner: print(f'  fun( w, &self->{inner}{n}, "{n}", FD_FLAMENCO_TYPE_UINT128, "uint128", level, {1 if varint else 0}  );', file=body),
+        "bool" :      lambda n, varint, inner: print(f'  fun( w, &self->{inner}{n}, "{n}", FD_FLAMENCO_TYPE_BOOL, "bool", level, {1 if varint else 0}  );', file=body),
+        "uchar" :     lambda n, varint, inner: print(f'  fun( w, &self->{inner}{n}, "{n}", FD_FLAMENCO_TYPE_UCHAR, "uchar", level, {1 if varint else 0}  );', file=body),
+        "uchar[32]" : lambda n, varint, inner: print(f'  fun( w, self->{inner}{n}, "{n}", FD_FLAMENCO_TYPE_HASH256, "uchar[32]", level, {1 if varint else 0}  );', file=body),
+        "uchar[128]" :lambda n, varint, inner: print(f'  fun( w, self->{inner}{n}, "{n}", FD_FLAMENCO_TYPE_HASH1024, "uchar[128]", level, {1 if varint else 0}  );', file=body),
+        "uchar[2048]":lambda n, varint, inner: print(f'  fun( w, self->{inner}{n}, "{n}", FD_FLAMENCO_TYPE_HASH16384, "uchar[2048]", level, {1 if varint else 0}  );', file=body),
+        "ulong" :     lambda n, varint, inner: print(f'  fun( w, &self->{inner}{n}, "{n}", FD_FLAMENCO_TYPE_ULONG, "ulong", level, {1 if varint else 0}  );', file=body),
+        "ushort" :    lambda n, varint, inner: print(f'  fun( w, &self->{inner}{n}, "{n}", FD_FLAMENCO_TYPE_USHORT, "ushort", level, {1 if varint else 0}  );', file=body)
     }
 
     def emitWalk(self, inner, indent=''):
         if self.walk:
-            PrimitiveMember.emitWalkMap[self.type](self.name, inner)
+            PrimitiveMember.emitWalkMap[self.type](self.name, self.varint, inner)
 
 # This is a member which IS a struct, NOT a member OF a struct
 class StructMember(TypeNode):
@@ -465,9 +538,25 @@ class StructMember(TypeNode):
             print(f'{indent}  size += {namespace}_{self.type}_size_global( &self->{inner}{self.name} );', file=body)
 
     def emitWalk(self, inner, indent=''):
-        print(f'{indent}  {namespace}_{self.type}_walk( w, &self->{inner}{self.name}, fun, "{self.name}", level );', file=body)
+        print(f'{indent}  {namespace}_{self.type}_walk( w, &self->{inner}{self.name}, fun, "{self.name}", level, 0 );', file=body)
 
+# Class representing dynamic arrays/vectors
 class VectorMember(TypeNode):
+    """
+    Represents a dynamic array (vector) of elements.
+
+    Vectors are encoded as: [length][element1][element2]...[elementN]
+
+    Supports:
+    - Compact encoding (uses 16-bit length instead of 64-bit)
+    - Different element types (primitives or complex types)
+    - Memory management for both regular and global variants
+
+    Attributes:
+        element: Type of elements stored in the vector
+        compact: Whether to use compact (16-bit) length encoding
+        ignore_underflow: Whether to ignore underflow errors during decoding
+    """
     def __init__(self, container, json, **kwargs):
         if (json is not None):
             super().__init__(json)
@@ -528,6 +617,11 @@ class VectorMember(TypeNode):
 
     def emitNew(self, indent=''):
         pass
+
+    def emitDestroy(self, indent=''):
+        """Generate cleanup code for vector member - sets pointer to NULL and length to 0."""
+        print(f'{indent}  self->{self.name} = NULL;', file=body)
+        print(f'{indent}  self->{self.name}_len = 0;', file=body)
 
     def emitDecodeFootprint(self, indent=''):
         if self.compact:
@@ -747,13 +841,13 @@ class VectorMember(TypeNode):
 
 
     emitWalkMap = {
-        "double" :  lambda n: print(f'  fun( w, self->{n} + i, "{n}", FD_FLAMENCO_TYPE_DOUBLE,  "double",  level );', file=body),
-        "long" :    lambda n: print(f'  fun( w, self->{n} + i, "{n}", FD_FLAMENCO_TYPE_LONG,    "long",    level );', file=body),
-        "uint" :    lambda n: print(f'  fun( w, self->{n} + i, "{n}", FD_FLAMENCO_TYPE_UINT,    "uint",    level );', file=body),
-        "uint128" : lambda n: print(f'  fun( w, self->{n} + i, "{n}", FD_FLAMENCO_TYPE_UINT128, "uint128", level );', file=body),
-        "ulong" :   lambda n: print(f'  fun( w, self->{n} + i, "{n}", FD_FLAMENCO_TYPE_ULONG,   "ulong",   level );', file=body),
-        "ushort" :  lambda n: print(f'  fun( w, self->{n} + i, "{n}", FD_FLAMENCO_TYPE_USHORT,  "ushort",  level );', file=body),
-        "uchar" :   lambda n: print(f'  fun( w, self->{n} + i, "{n}", FD_FLAMENCO_TYPE_UCHAR,   "uchar",   level );', file=body),
+        "double" :  lambda n: print(f'  fun( w, self->{n} + i, "{n}", FD_FLAMENCO_TYPE_DOUBLE,  "double",  level, 0 );', file=body),
+        "long" :    lambda n: print(f'  fun( w, self->{n} + i, "{n}", FD_FLAMENCO_TYPE_LONG,    "long",    level, 0 );', file=body),
+        "uint" :    lambda n: print(f'  fun( w, self->{n} + i, "{n}", FD_FLAMENCO_TYPE_UINT,    "uint",    level, 0 );', file=body),
+        "uint128" : lambda n: print(f'  fun( w, self->{n} + i, "{n}", FD_FLAMENCO_TYPE_UINT128, "uint128", level, 0 );', file=body),
+        "ulong" :   lambda n: print(f'  fun( w, self->{n} + i, "{n}", FD_FLAMENCO_TYPE_ULONG,   "ulong",   level, 0 );', file=body),
+        "ushort" :  lambda n: print(f'  fun( w, self->{n} + i, "{n}", FD_FLAMENCO_TYPE_USHORT,  "ushort",  level, 0 );', file=body),
+        "uchar" :   lambda n: print(f'  fun( w, self->{n} + i, "{n}", FD_FLAMENCO_TYPE_UCHAR,   "uchar",   level, 0 );', file=body),
     }
 
     def emitWalk(self, inner, indent=''):
@@ -765,23 +859,22 @@ class VectorMember(TypeNode):
         # callback (which, in Bincode's implementation, does not encode the sequence length) rather than `serialize_seq`.
         # Reference: https://docs.rs/bincode/latest/src/bincode/features/serde/ser.rs.html#226-228 (see the `serialize_seq` implementation above for comparison)
         if self.compact:
-            print(f'{indent}  fun( w, &self->{self.name}_len, "{self.name}_len", FD_FLAMENCO_TYPE_USHORT, "ushort", level );', file=body)
+            print(f'{indent}  fun( w, &self->{self.name}_len, "{self.name}_len", FD_FLAMENCO_TYPE_USHORT, "ushort", level, 1 );', file=body)
 
         print(f'{indent}  if( self->{self.name}_len ) {{', file=body)
-        print(f'{indent}    fun( w, NULL, "{self.name}", FD_FLAMENCO_TYPE_ARR, "array", level++ );', file=body)
+        print(f'{indent}    fun( w, NULL, "{self.name}", FD_FLAMENCO_TYPE_ARR, "array", level++, 0 );', file=body)
         print(f'{indent}    for( ulong i=0; i < self->{self.name}_len; i++ )', file=body)
 
         if self.element in VectorMember.emitWalkMap:
             body.write("    ")
             VectorMember.emitWalkMap[self.element](self.name)
         else:
-            print(f'{indent}      {namespace}_{self.element}_walk(w, self->{self.name} + i, fun, "{self.element}", level );', file=body)
+            print(f'{indent}      {namespace}_{self.element}_walk(w, self->{self.name} + i, fun, "{self.element}", level, 0 );', file=body)
 
-        print(f'{indent}    fun( w, NULL, "{self.name}", FD_FLAMENCO_TYPE_ARR_END, "array", level-- );', file=body)
+        print(f'{indent}    fun( w, NULL, "{self.name}", FD_FLAMENCO_TYPE_ARR_END, "array", level--, 0 );', file=body)
         print(f'{indent}  }}', file=body)
 
-# A BitVector can be modeled as an Option<Vector<some type>>
-# See https://github.com/tov/bv-rs/blob/master/src/bit_vec/inner.rs#L8
+# A BitVector is a [Option<Vector<some type>>, len]
 # TODO: it would be ideal to use an OptionMember that contains a VectorMember,
 # but we can't do this yet. Hence, BitVectorMember re-implements the
 # OptionMember implementation with the element set to VectorMember
@@ -897,13 +990,31 @@ class BitVectorMember(TypeNode):
 
     def emitWalk(self, inner, indent=''):
         print(f'  if( !self->has_{self.name} ) {{', file=body)
-        print(f'    fun( w, NULL, "{self.name}", FD_FLAMENCO_TYPE_NULL, "{self.vector_element}", level );', file=body)
+        print(f'    fun( w, NULL, "{self.name}", FD_FLAMENCO_TYPE_NULL, "{self.vector_element}", level, 0 );', file=body)
         print('  } else {', file=body)
         self.vector_member.emitWalk('', '  ')
         print('  }', file=body)
-        print(f'  fun( w, &self->{self.name}_len, "{self.name}_len", FD_FLAMENCO_TYPE_ULONG, "ulong", level );', file=body)
+        print(f'  fun( w, &self->{self.name}_len, "{self.name}_len", FD_FLAMENCO_TYPE_ULONG, "ulong", level, 0 );', file=body)
 
+# Class representing fixed-size circular buffer arrays
 class StaticVectorMember(TypeNode):
+    """
+    Represents a fixed-size array that acts as a circular buffer.
+
+    Unlike regular vectors, static vectors have a fixed maximum size but variable
+    length. They use offset-based indexing to implement circular buffer behavior.
+
+    Key features:
+    - Fixed maximum size at compile time
+    - Variable length at runtime (up to max size)
+    - Circular buffer indexing with offset
+    - Optimized indexing for power-of-2 sizes (uses bitwise AND vs modulo)
+
+    Attributes:
+        element: Type of elements stored in the array
+        size: Maximum number of elements (None if not specified)
+        ignore_underflow: Whether to ignore underflow errors during decoding
+    """
     def __init__(self, container, json):
         super().__init__(json)
         self.element = json["element"]
@@ -1024,7 +1135,7 @@ class StaticVectorMember(TypeNode):
             return
 
         print(f'  for( ulong i=0; i<self->{self.name}_len; i++ ) {{', file=body)
-        if (self.size & (self.size - 1)) == 0:
+        if self.size is not None and (self.size & (self.size - 1)) == 0:
             print(f'    ulong idx = ( i + self->{self.name}_offset ) & ({self.size} - 1);', file=body)
         else:
             print(f'    ulong idx = ( i + self->{self.name}_offset ) % self->{self.name}_size;', file=body)
@@ -1047,7 +1158,7 @@ class StaticVectorMember(TypeNode):
             return
 
         print(f'  for( ulong i=0; i<self->{self.name}_len; i++ ) {{', file=body)
-        if (self.size & (self.size - 1)) == 0:
+        if self.size is not None and (self.size & (self.size - 1)) == 0:
             print(f'    ulong idx = ( i + self->{self.name}_offset ) & ({self.size} - 1);', file=body)
         else:
             print(f'    ulong idx = ( i + self->{self.name}_offset ) % self->{self.name}_size;', file=body)
@@ -1084,12 +1195,12 @@ class StaticVectorMember(TypeNode):
             print(f'    size += {namespace}_{self.element}_size_global( self->{self.name} + i );', file=body)
 
     emitWalkMap = {
-        "double" :  lambda n: print(f'  fun( w, self->{n} + idx, "{n}", FD_FLAMENCO_TYPE_DOUBLE,  "double",  level );', file=body),
-        "long" :    lambda n: print(f'  fun( w, self->{n} + idx, "{n}", FD_FLAMENCO_TYPE_LONG,    "long",    level );', file=body),
-        "uint" :    lambda n: print(f'  fun( w, self->{n} + idx, "{n}", FD_FLAMENCO_TYPE_UINT,    "uint",    level );', file=body),
-        "uint128" : lambda n: print(f'  fun( w, self->{n} + idx, "{n}", FD_FLAMENCO_TYPE_UINT128, "uint128", level );', file=body),
-        "ulong" :   lambda n: print(f'  fun( w, self->{n} + idx, "{n}", FD_FLAMENCO_TYPE_ULONG,   "ulong",   level );', file=body),
-        "ushort" :  lambda n: print(f'  fun( w, self->{n} + idx, "{n}", FD_FLAMENCO_TYPE_USHORT,  "ushort",  level );', file=body)
+        "double" :  lambda n: print(f'  fun( w, self->{n} + idx, "{n}", FD_FLAMENCO_TYPE_DOUBLE,  "double",  level, 0 );', file=body),
+        "long" :    lambda n: print(f'  fun( w, self->{n} + idx, "{n}", FD_FLAMENCO_TYPE_LONG,    "long",    level, 0 );', file=body),
+        "uint" :    lambda n: print(f'  fun( w, self->{n} + idx, "{n}", FD_FLAMENCO_TYPE_UINT,    "uint",    level, 0 );', file=body),
+        "uint128" : lambda n: print(f'  fun( w, self->{n} + idx, "{n}", FD_FLAMENCO_TYPE_UINT128, "uint128", level, 0 );', file=body),
+        "ulong" :   lambda n: print(f'  fun( w, self->{n} + idx, "{n}", FD_FLAMENCO_TYPE_ULONG,   "ulong",   level, 0 );', file=body),
+        "ushort" :  lambda n: print(f'  fun( w, self->{n} + idx, "{n}", FD_FLAMENCO_TYPE_USHORT,  "ushort",  level, 0 );', file=body)
     }
 
     def emitWalk(self, inner, indent=''):
@@ -1097,9 +1208,9 @@ class StaticVectorMember(TypeNode):
             print(f'  TODO: IMPLEMENT', file=body),
             return
 
-        print(f'  fun( w, NULL, "{self.name}", FD_FLAMENCO_TYPE_ARR, "{self.element}[]", level++ );', file=body)
+        print(f'  fun( w, NULL, "{self.name}", FD_FLAMENCO_TYPE_ARR, "{self.element}[]", level++, 0 );', file=body)
         print(f'  for( ulong i=0; i<self->{self.name}_len; i++ ) {{', file=body)
-        if (self.size & (self.size - 1)) == 0:
+        if self.size is not None and (self.size & (self.size - 1)) == 0:
             print(f'    ulong idx = ( i + self->{self.name}_offset ) & ({self.size} - 1);', file=body)
         else:
             print(f'    ulong idx = ( i + self->{self.name}_offset ) % self->{self.name}_size;', file=body)
@@ -1107,9 +1218,9 @@ class StaticVectorMember(TypeNode):
             body.write("  ")
             VectorMember.emitWalkMap[self.element](self.name)
         else:
-            print(f'    {namespace}_{self.element}_walk( w, self->{self.name} + idx, fun, "{self.element}", level );', file=body)
+            print(f'    {namespace}_{self.element}_walk( w, self->{self.name} + idx, fun, "{self.element}", level, 0 );', file=body)
         print('  }', file=body)
-        print(f'  fun( w, NULL, "{self.name}", FD_FLAMENCO_TYPE_ARR_END, "{self.element}[]", level-- );', file=body)
+        print(f'  fun( w, NULL, "{self.name}", FD_FLAMENCO_TYPE_ARR_END, "{self.element}[]", level--, 0 );', file=body)
 
 class StringMember(VectorMember):
     def __init__(self, container, json):
@@ -1495,7 +1606,7 @@ class DequeMember(TypeNode):
         print(
             f'''
   /* Walk deque */
-  fun( w, self->{self.name}, "{self.name}", FD_FLAMENCO_TYPE_ARR, "{self.name}", level++ );
+  fun( w, self->{self.name}, "{self.name}", FD_FLAMENCO_TYPE_ARR, "{self.name}", level++, 0 );
   if( self->{self.name} ) {{
     for( {self.prefix()}_iter_t iter = {self.prefix()}_iter_init( self->{self.name} );
          !{self.prefix()}_iter_done( self->{self.name}, iter );
@@ -1505,17 +1616,17 @@ class DequeMember(TypeNode):
         )
 
         if self.element == "uchar":
-            print('      fun(w, ele, "ele", FD_FLAMENCO_TYPE_UCHAR, "uchar", level );', file=body),
+            print('      fun(w, ele, "ele", FD_FLAMENCO_TYPE_UCHAR, "uchar", level, 0 );', file=body),
         elif self.element == "ulong":
-            print('      fun(w, ele, "ele", FD_FLAMENCO_TYPE_ULONG, "long",  level );', file=body),
+            print('      fun(w, ele, "ele", FD_FLAMENCO_TYPE_ULONG, "long",  level, 0 );', file=body),
         elif self.element == "uint":
-            print('      fun(w, ele, "ele", FD_FLAMENCO_TYPE_UINT,  "uint",  level );', file=body),
+            print('      fun(w, ele, "ele", FD_FLAMENCO_TYPE_UINT,  "uint",  level, 0 );', file=body),
         else:
-            print(f'      {namespace}_{self.element}_walk(w, ele, fun, "{self.name}", level );', file=body)
+            print(f'      {namespace}_{self.element}_walk(w, ele, fun, "{self.name}", level, 0 );', file=body)
 
         print(f'''    }}
   }}
-  fun( w, self->{self.name}, "{self.name}", FD_FLAMENCO_TYPE_ARR_END, "{self.name}", level-- );
+  fun( w, self->{self.name}, "{self.name}", FD_FLAMENCO_TYPE_ARR_END, "{self.name}", level--, 0 );
   /* Done walking deque */
 ''', file=body)
 
@@ -1879,13 +1990,13 @@ class MapMember(TypeNode):
         print(f'    for( {nodename} * n = {mapname}_minimum(self->{self.name}_pool, self->{self.name}_root ); n; n = {mapname}_successor( self->{self.name}_pool, n ) ) {{', file=body);
 
         if self.element == "uchar":
-            print('      fun(w, &n->elem, "ele", FD_FLAMENCO_TYPE_UCHAR, "uchar", level );', file=body),
+            print('      fun(w, &n->elem, "ele", FD_FLAMENCO_TYPE_UCHAR, "uchar", level, 0 );', file=body),
         elif self.element == "ulong":
-            print('      fun(w, &n->elem, "ele", FD_FLAMENCO_TYPE_ULONG, "long",  level );', file=body),
+            print('      fun(w, &n->elem, "ele", FD_FLAMENCO_TYPE_ULONG, "long",  level, 0 );', file=body),
         elif self.element == "uint":
-            print('      fun(w, &n->elem, "ele", FD_FLAMENCO_TYPE_UINT,  "uint",  level );', file=body),
+            print('      fun(w, &n->elem, "ele", FD_FLAMENCO_TYPE_UINT,  "uint",  level, 0 );', file=body),
         else:
-            print(f'      {namespace}_{self.element}_walk(w, &n->elem, fun, "{self.name}", level );', file=body)
+            print(f'      {namespace}_{self.element}_walk(w, &n->elem, fun, "{self.name}", level, 0 );', file=body)
         print(f'    }}', file=body)
         print(f'  }}', file=body)
 
@@ -2123,13 +2234,13 @@ class PartitionMember(TypeNode):
         print(f'          {dlist_t} * ele = {dlist_name}_iter_ele( iter, &self->{self.name}[ i ], self->pool );', file=body)
 
         if dlist_t == "uchar":
-            print('        fun( w, ele, "ele", FD_FLAMENCO_TYPE_UCHAR, "uchar", level );', file=body),
+            print('        fun( w, ele, "ele", FD_FLAMENCO_TYPE_UCHAR, "uchar", level, 0 );', file=body),
         elif dlist_t == "ulong":
-            print('        fun( w, ele, "ele", FD_FLAMENCO_TYPE_ULONG, "long",  level );', file=body),
+            print('        fun( w, ele, "ele", FD_FLAMENCO_TYPE_ULONG, "long",  level, 0 );', file=body),
         elif dlist_t == "uint":
-            print('        fun( w, ele, "ele", FD_FLAMENCO_TYPE_UINT,  "uint",  level );', file=body),
+            print('        fun( w, ele, "ele", FD_FLAMENCO_TYPE_UINT,  "uint",  level, 0 );', file=body),
         else:
-            print(f'        {dlist_t.rstrip("_t")}_walk( w, ele, fun, "{dlist_t}", level );', file=body)
+            print(f'        {dlist_t.rstrip("_t")}_walk( w, ele, fun, "{dlist_t}", level, 0 );', file=body)
         print(f'      }}', file=body)
         print(f'    }}', file=body)
         print(f'  }}', file=body)
@@ -2416,13 +2527,13 @@ class TreapMember(TypeNode):
         print(f'      {treap_t} * ele = {treap_name}_fwd_iter_ele( iter, self->pool );', file=body)
 
         if treap_t == "uchar":
-            print('      fun( w, ele, "ele", FD_FLAMENCO_TYPE_UCHAR, "uchar", level );', file=body),
+            print('      fun( w, ele, "ele", FD_FLAMENCO_TYPE_UCHAR, "uchar", level, 0 );', file=body),
         elif treap_t == "ulong":
-            print('      fun( w, ele, "ele", FD_FLAMENCO_TYPE_ULONG, "long",  level );', file=body),
+            print('      fun( w, ele, "ele", FD_FLAMENCO_TYPE_ULONG, "long",  level, 0 );', file=body),
         elif treap_t == "uint":
-            print('      fun( w, ele, "ele", FD_FLAMENCO_TYPE_UINT,  "uint",  level );', file=body),
+            print('      fun( w, ele, "ele", FD_FLAMENCO_TYPE_UINT,  "uint",  level, 0 );', file=body),
         else:
-            print(f'      {treap_t.rstrip("_t")}_walk( w, ele, fun, "{treap_t}", level );', file=body)
+            print(f'      {treap_t.rstrip("_t")}_walk( w, ele, fun, "{treap_t}", level, 0 );', file=body)
         print(f'    }}', file=body)
         print(f'  }}', file=body)
 
@@ -2625,18 +2736,33 @@ class DlistMember(TypeNode):
         print(f'        {dlist_t} * ele = {dlist_name}_iter_ele( iter, self->{self.name}, self->pool );', file=body)
 
         if dlist_t == "uchar":
-            print('      fun( w, ele, "ele", FD_FLAMENCO_TYPE_UCHAR, "uchar", level );', file=body),
+            print('      fun( w, ele, "ele", FD_FLAMENCO_TYPE_UCHAR, "uchar", level, 0 );', file=body),
         elif dlist_t == "ulong":
-            print('      fun( w, ele, "ele", FD_FLAMENCO_TYPE_ULONG, "long",  level );', file=body),
+            print('      fun( w, ele, "ele", FD_FLAMENCO_TYPE_ULONG, "long",  level, 0 );', file=body),
         elif dlist_t == "uint":
-            print('      fun( w, ele, "ele", FD_FLAMENCO_TYPE_UINT,  "uint",  level );', file=body),
+            print('      fun( w, ele, "ele", FD_FLAMENCO_TYPE_UINT,  "uint",  level, 0 );', file=body),
         else:
-            print(f'      {dlist_t.rstrip("_t")}_walk( w, ele, fun, "{dlist_t}", level );', file=body)
+            print(f'      {dlist_t.rstrip("_t")}_walk( w, ele, fun, "{dlist_t}", level, 0 );', file=body)
         print(f'    }}', file=body)
         print(f'  }}', file=body)
 
 
+# Class representing optional/nullable types (Rust Option<T> equivalent)
 class OptionMember(TypeNode):
+    """
+    Represents an optional value that may or may not be present.
+
+    Options are encoded as: [present: bool][value if present]
+
+    Supports two storage modes:
+    - Flat: Value stored inline with a boolean flag (for small types)
+    - Pointer: Value stored via pointer, NULL if not present (for large types)
+
+    Attributes:
+        element: Type of the optional value
+        flat: Whether to store value inline (True) or via pointer (False)
+        ignore_underflow: Whether to ignore underflow errors during decoding
+    """
     def __init__(self, container, json):
         super().__init__(json)
         self.element = json["element"]
@@ -2891,38 +3017,38 @@ class OptionMember(TypeNode):
             print('  }', file=body)
 
     emitWalkMap = {
-        "bool" :      lambda n, p: print(f'    fun( w, {p}self->{n}, "{n}", FD_FLAMENCO_TYPE_BOOL, "char", level );', file=body),
-        "char" :      lambda n, p: print(f'    fun( w, {p}self->{n}, "{n}", FD_FLAMENCO_TYPE_SCHAR, "char", level );', file=body),
-        "double" :    lambda n, p: print(f'    fun( w, {p}self->{n}, "{n}", FD_FLAMENCO_TYPE_DOUBLE, "double", level );', file=body),
-        "long" :      lambda n, p: print(f'    fun( w, {p}self->{n}, "{n}", FD_FLAMENCO_TYPE_SLONG, "long", level );', file=body),
-        "uint" :      lambda n, p: print(f'    fun( w, {p}self->{n}, "{n}", FD_FLAMENCO_TYPE_UINT, "uint", level );', file=body),
-        "uint128" :   lambda n, p: print(f'    fun( w, {p}self->{n}, "{n}", FD_FLAMENCO_TYPE_UINT128, "uint128", level );', file=body),
-        "uchar" :     lambda n, p: print(f'    fun( w, {p}self->{n}, "{n}", FD_FLAMENCO_TYPE_UCHAR, "uchar", level );', file=body),
-        "uchar[32]" : lambda n, p: print(f'    fun( w, {p}self->{n}, "{n}", FD_FLAMENCO_TYPE_HASH256, "uchar[32]", level );', file=body),
-        "uchar[128]" :lambda n, p: print(f'    fun( w, {p}self->{n}, "{n}", FD_FLAMENCO_TYPE_HASH1024, "uchar[128]", level );', file=body),
-        "uchar[2048]":lambda n, p: print(f'    fun( w, {p}self->{n}, "{n}", FD_FLAMENCO_TYPE_HASH16384, "uchar[2048]", level );', file=body),
-        "ulong" :     lambda n, p: print(f'    fun( w, {p}self->{n}, "{n}", FD_FLAMENCO_TYPE_ULONG, "ulong", level );', file=body),
-        "ushort" :    lambda n, p: print(f'    fun( w, {p}self->{n}, "{n}", FD_FLAMENCO_TYPE_USHORT, "ushort", level );', file=body),
+        "bool" :      lambda n, p: print(f'    fun( w, {p}self->{n}, "{n}", FD_FLAMENCO_TYPE_BOOL, "char", level, 0 );', file=body),
+        "char" :      lambda n, p: print(f'    fun( w, {p}self->{n}, "{n}", FD_FLAMENCO_TYPE_SCHAR, "char", level, 0 );', file=body),
+        "double" :    lambda n, p: print(f'    fun( w, {p}self->{n}, "{n}", FD_FLAMENCO_TYPE_DOUBLE, "double", level, 0 );', file=body),
+        "long" :      lambda n, p: print(f'    fun( w, {p}self->{n}, "{n}", FD_FLAMENCO_TYPE_SLONG, "long", level, 0 );', file=body),
+        "uint" :      lambda n, p: print(f'    fun( w, {p}self->{n}, "{n}", FD_FLAMENCO_TYPE_UINT, "uint", level, 0 );', file=body),
+        "uint128" :   lambda n, p: print(f'    fun( w, {p}self->{n}, "{n}", FD_FLAMENCO_TYPE_UINT128, "uint128", level, 0 );', file=body),
+        "uchar" :     lambda n, p: print(f'    fun( w, {p}self->{n}, "{n}", FD_FLAMENCO_TYPE_UCHAR, "uchar", level, 0 );', file=body),
+        "uchar[32]" : lambda n, p: print(f'    fun( w, {p}self->{n}, "{n}", FD_FLAMENCO_TYPE_HASH256, "uchar[32]", level, 0 );', file=body),
+        "uchar[128]" :lambda n, p: print(f'    fun( w, {p}self->{n}, "{n}", FD_FLAMENCO_TYPE_HASH1024, "uchar[128]", level, 0 );', file=body),
+        "uchar[2048]":lambda n, p: print(f'    fun( w, {p}self->{n}, "{n}", FD_FLAMENCO_TYPE_HASH16384, "uchar[2048]", level, 0 );', file=body),
+        "ulong" :     lambda n, p: print(f'    fun( w, {p}self->{n}, "{n}", FD_FLAMENCO_TYPE_ULONG, "ulong", level, 0 );', file=body),
+        "ushort" :    lambda n, p: print(f'    fun( w, {p}self->{n}, "{n}", FD_FLAMENCO_TYPE_USHORT, "ushort", level, 0 );', file=body),
     }
 
     def emitWalk(self, inner):
         if self.flat:
             print(f'  if( !self->has_{self.name} ) {{', file=body)
-            print(f'    fun( w, NULL, "{self.name}", FD_FLAMENCO_TYPE_NULL, "{self.element}", level );', file=body)
+            print(f'    fun( w, NULL, "{self.name}", FD_FLAMENCO_TYPE_NULL, "{self.element}", level, 0 );', file=body)
             print( '  } else {', file=body)
             if self.element in OptionMember.emitWalkMap:
                 OptionMember.emitWalkMap[self.element](self.name, '&')
             else:
-                print(f'    {namespace}_{self.element}_walk( w, &self->{self.name}, fun, "{self.name}", level );', file=body)
+                print(f'    {namespace}_{self.element}_walk( w, &self->{self.name}, fun, "{self.name}", level, 0 );', file=body)
             print( '  }', file=body)
         else:
             print(f'  if( !self->{self.name} ) {{', file=body)
-            print(f'    fun( w, NULL, "{self.name}", FD_FLAMENCO_TYPE_NULL, "{self.element}", level );', file=body)
+            print(f'    fun( w, NULL, "{self.name}", FD_FLAMENCO_TYPE_NULL, "{self.element}", level, 0 );', file=body)
             print( '  } else {', file=body)
             if self.element in OptionMember.emitWalkMap:
                 OptionMember.emitWalkMap[self.element](self.name, '')
             else:
-                print(f'    {namespace}_{self.element}_walk( w, self->{self.name}, fun, "{self.name}", level );', file=body)
+                print(f'    {namespace}_{self.element}_walk( w, self->{self.name}, fun, "{self.name}", level, 0 );', file=body)
             print( '  }', file=body)
 
 class ArrayMember(TypeNode):
@@ -3080,17 +3206,17 @@ class ArrayMember(TypeNode):
         length = self.length
 
         if self.element == "uchar":
-            print(f'  fun(w, self->{self.name}, "{self.name}", FD_FLAMENCO_TYPE_UCHAR, "{self.element}", level );', file=body),
+            print(f'  fun(w, self->{self.name}, "{self.name}", FD_FLAMENCO_TYPE_UCHAR, "{self.element}", level, 0 );', file=body),
             return
 
-        print(f'  fun( w, NULL, "{self.name}", FD_FLAMENCO_TYPE_ARR, "{self.element}[]", level++ );', file=body)
+        print(f'  fun( w, NULL, "{self.name}", FD_FLAMENCO_TYPE_ARR, "{self.element}[]", level++, 0 );', file=body)
         print(f'  for( ulong i=0; i<{length}; i++ )', file=body)
         if self.element in VectorMember.emitWalkMap:
             body.write("  ")
             VectorMember.emitWalkMap[self.element](self.name)
         else:
-            print(f'    {namespace}_{self.element}_walk( w, self->{self.name} + i, fun, "{self.element}", level );', file=body)
-        print(f'  fun( w, NULL, "{self.name}", FD_FLAMENCO_TYPE_ARR_END, "{self.element}[]", level-- );', file=body)
+            print(f'    {namespace}_{self.element}_walk( w, self->{self.name} + i, fun, "{self.element}", level, 0 );', file=body)
+        print(f'  fun( w, NULL, "{self.name}", FD_FLAMENCO_TYPE_ARR_END, "{self.element}[]", level--, 0 );', file=body)
 
 memberTypeMap = {
     "static_vector" : StaticVectorMember,
@@ -3146,7 +3272,7 @@ class OpaqueType(TypeNode):
         n = self.fullname
         print(f"static inline void {n}_new( {n}_t * self ) {{ (void)self; }}", file=header)
         print(f"int {n}_encode( {n}_t const * self, fd_bincode_encode_ctx_t * ctx );", file=header)
-        print(f"void {n}_walk( void * w, {n}_t const * self, fd_types_walk_fn_t fun, const char * name, uint level );", file=header)
+        print(f"void {n}_walk( void * w, {n}_t const * self, fd_types_walk_fn_t fun, const char * name, uint level, uint varint );", file=header)
         print(f"static inline ulong {n}_size( {n}_t const * self ) {{ (void)self; return sizeof({n}_t); }}", file=header)
         print(f'static inline ulong {n}_align( void ) {{ return alignof({n}_t); }}', file=header)
         print(f'int {n}_decode_footprint( fd_bincode_decode_ctx_t * ctx, ulong * total_sz );', file=header)
@@ -3162,8 +3288,8 @@ class OpaqueType(TypeNode):
         print("}", file=body)
 
         if self.walktype is not None:
-            print(f"void {n}_walk( void * w, {n}_t const * self, fd_types_walk_fn_t fun, const char *name, uint level ) {{", file=body)
-            print(f'  fun( w, (uchar const *)self, name, {self.walktype}, name, level );', file=body)
+            print(f"void {n}_walk( void * w, {n}_t const * self, fd_types_walk_fn_t fun, const char *name, uint level, uint varint ) {{", file=body)
+            print(f'  fun( w, (uchar const *)self, name, {self.walktype}, name, level, varint );', file=body)
             print("}", file=body)
 
         print(f'static int {n}_decode_footprint_inner( fd_bincode_decode_ctx_t * ctx, ulong * total_sz ) {{', file=body)
@@ -3231,23 +3357,51 @@ def extract_member_type(member):
         return member
     raise ValueError(f"Unknown type {member} in extract_member_type")
 
+# Class representing C struct types
 class StructType(TypeNode):
+    """
+    Represents a C struct with multiple named fields.
+
+    Generates complete C struct definitions with:
+    - Member declarations
+    - Constructor/destructor functions
+    - Encode/decode functions for serialization
+    - Size calculation functions
+    - Walk functions for reflection
+    - Both regular and "global" variants (using offsets vs pointers)
+
+    Attributes:
+        fullname: Full qualified name with namespace prefix
+        fields: List of member fields in this struct
+        comment: Optional comment/documentation for the struct
+        encoders: Encoder configuration (if any)
+        custom_decode_inner: Whether to use custom decode implementation
+        normalizer: Optional normalizer function name
+        validator: Optional validator function name
+        attribute: C attribute string (alignment, packed, etc.)
+        alignment: Alignment requirement in bytes
+    """
     def __init__(self, json):
         super().__init__(json)
         self.fullname = f'{namespace}_{json["name"]}'
         self.fields = []
         index = 0
+        # Parse all non-removed fields
         for f in json["fields"]:
             if not (bool(f["removed"]) if "removed" in f else False):
                 m = parseMember(self.fullname, f)
                 self.fields.append(m)
                 m.arch_index = (int(f["tag"]) if "tag" in f else index)
             index = index + 1
+
+        # Extract optional configuration
         self.comment = (json["comment"] if "comment" in json else None)
         self.encoders = (json["encoders"] if "encoders" in json else None)
         self.custom_decode_inner = (json["custom_decode_inner"] if "custom_decode_inner" in json else False)
         self.normalizer = (json["normalizer"] if "normalizer" in json else None)
         self.validator = (json["validator"] if "validator" in json else None)
+
+        # Handle alignment and packing attributes
         if "alignment" in json:
             self.attribute = f'__attribute__((aligned({json["alignment"]}UL))) '
             self.alignment = json["alignment"]
@@ -3346,7 +3500,7 @@ class StructType(TypeNode):
         else:
             print(f"void {n}_new( {n}_t * self );", file=header)
         print(f"int {n}_encode( {n}_t const * self, fd_bincode_encode_ctx_t * ctx );", file=header)
-        print(f"void {n}_walk( void * w, {n}_t const * self, fd_types_walk_fn_t fun, const char *name, uint level );", file=header)
+        print(f"void {n}_walk( void * w, {n}_t const * self, fd_types_walk_fn_t fun, const char *name, uint level, uint varint );", file=header)
         print(f"ulong {n}_size( {n}_t const * self );", file=header)
         print(f'static inline ulong {n}_align( void ) {{ return {n.upper()}_ALIGN; }}', file=header)
         if self.isFixedSize() and self.isFuzzy():
@@ -3480,11 +3634,12 @@ class StructType(TypeNode):
                 f.emitNew()
             print("}", file=body)
 
-        print(f'void {n}_walk( void * w, {n}_t const * self, fd_types_walk_fn_t fun, const char *name, uint level ) {{', file=body)
-        print(f'  fun( w, self, name, FD_FLAMENCO_TYPE_MAP, "{n}", level++ );', file=body)
+        print(f'void {n}_walk( void * w, {n}_t const * self, fd_types_walk_fn_t fun, const char *name, uint level, uint varint ) {{', file=body)
+        print(f'  (void) varint;', file=body)
+        print(f'  fun( w, self, name, FD_FLAMENCO_TYPE_MAP, "{n}", level++, 0 );', file=body)
         for f in self.fields:
             f.emitWalk('')
-        print(f'  fun( w, self, name, FD_FLAMENCO_TYPE_MAP_END, "{n}", level-- );', file=body)
+        print(f'  fun( w, self, name, FD_FLAMENCO_TYPE_MAP_END, "{n}", level--, 0 );', file=body)
         print("}", file=body)
 
 
@@ -3644,7 +3799,7 @@ class EnumType(TypeNode):
             print(f"void {n}_new_disc( {n}_t * self, {self.repr} discriminant );", file=header)
             print(f"void {n}_new( {n}_t * self );", file=header)
         print(f"int {n}_encode( {n}_t const * self, fd_bincode_encode_ctx_t * ctx );", file=header)
-        print(f"void {n}_walk( void * w, {n}_t const * self, fd_types_walk_fn_t fun, const char *name, uint level );", file=header)
+        print(f"void {n}_walk( void * w, {n}_t const * self, fd_types_walk_fn_t fun, const char *name, uint level, uint varint );", file=header)
         print(f"ulong {n}_size( {n}_t const * self );", file=header)
         print(f'static inline ulong {n}_align( void ) {{ return {n.upper()}_ALIGN; }}', file=header)
         print(f'int {n}_decode_footprint( fd_bincode_decode_ctx_t * ctx, ulong * total_sz );', file=header)
@@ -3833,20 +3988,21 @@ class EnumType(TypeNode):
 
         print("", file=body)
 
-        print(f'void {n}_walk( void * w, {n}_t const * self, fd_types_walk_fn_t fun, const char *name, uint level ) {{', file=body)
-        print(f'  fun(w, self, name, FD_FLAMENCO_TYPE_ENUM, "{n}", level++);', file=body)
+        print(f'void {n}_walk( void * w, {n}_t const * self, fd_types_walk_fn_t fun, const char *name, uint level, uint varint ) {{', file=body)
+        print(f'  (void) varint;', file=body)
+        print(f'  fun(w, self, name, FD_FLAMENCO_TYPE_ENUM, "{n}", level++, 0);', file=body)
         print('  switch( self->discriminant ) {', file=body)
         for i, v in enumerate(self.variants):
             print(f'  case {i}: {{', file=body)
             if not isinstance(v, str):
-                print(f'    fun( w, self, "{v.name}", FD_FLAMENCO_TYPE_ENUM_DISC, "discriminant", level );', file=body)
+                print(f'    fun( w, self, "{v.name}", FD_FLAMENCO_TYPE_ENUM_DISC, "discriminant", level, 0 );', file=body)
                 v.emitWalk("inner.", indent)
             else:
-                print(f'    fun( w, self, "{v}", FD_FLAMENCO_TYPE_ENUM_DISC, "discriminant", level );', file=body)
+                print(f'    fun( w, self, "{v}", FD_FLAMENCO_TYPE_ENUM_DISC, "discriminant", level, 0 );', file=body)
             print('    break;', file=body)
             print('  }', file=body)
         print('  }', file=body)
-        print(f'  fun( w, self, name, FD_FLAMENCO_TYPE_ENUM_END, "{n}", level-- );', file=body)
+        print(f'  fun( w, self, name, FD_FLAMENCO_TYPE_ENUM_END, "{n}", level--, 0 );', file=body)
         print("}", file=body)
 
         print(f'ulong {n}_size( {n}_t const * self ) {{', file=body)
@@ -3919,9 +4075,27 @@ class EnumType(TypeNode):
             if not isinstance(v, str):
                 v.emitPostamble()
 
+# Global type mapping for cross-references
 type_map = {}
 
+# Main function that orchestrates the code generation process
 def main():
+    """
+    Main code generation function.
+
+    This function processes all type definitions from the JSON configuration and
+    generates the complete C code in multiple phases:
+
+    1. Parse and create all type objects
+    2. Propagate global attributes through type dependencies
+    3. Build lookup tables for type properties
+    4. Generate headers, prototypes, implementations, and reflection data
+
+    The multi-pass approach ensures all types are properly declared before
+    any code that references them is generated.
+    """
+
+    # Parse all type definitions from JSON
     alltypes = []
     for entry in entries:
         if entry['type'] == 'opaque':
@@ -3931,14 +4105,15 @@ def main():
         if entry['type'] == 'enum':
             alltypes.append(EnumType(entry))
 
+    # Build type mapping and identify global types
     propagate = set()
-
     global type_map
     for t in alltypes:
         if t.produce_global:
             propagate.add(t)
         type_map[t.name] = t
 
+    # Propagate 'global' attribute recursively through dependencies
     # We need to propagate the 'global' attribute recursively through
     # all the types specified in fd_types.json to be global. We need
     # to mark all of the submembers AND subtypes of these global types
@@ -3951,11 +4126,13 @@ def main():
         for sub in t.subMembers():
             sub.produce_global = True
 
+    # Build lookup tables for type properties
     nametypes = {}
     for t in alltypes:
         if hasattr(t, 'fullname'):
             nametypes[t.fullname] = t
 
+    # Update global type property sets
     global fixedsizetypes
     global fuzzytypes
     global flattypes
@@ -3966,9 +4143,12 @@ def main():
             flattypes.add(typeinfo.name)
         if typeinfo.isFuzzy():
             fuzzytypes.add(typeinfo.name)
+
+    # Generate struct/union/enum declarations
     for t in alltypes:
         t.emitHeader()
 
+    # Generate function prototypes
     print("", file=header)
     print("FD_PROTOTYPES_BEGIN", file=header)
     print("", file=header)
@@ -3980,9 +4160,11 @@ def main():
     print("", file=header)
     print("#endif // HEADER_" + json_object["name"].upper(), file=header)
 
+    # Generate function implementations
     for t in alltypes:
         t.emitImpls()
 
+    # Generate cleanup/postamble code
     for t in alltypes:
         t.emitPostamble()
 

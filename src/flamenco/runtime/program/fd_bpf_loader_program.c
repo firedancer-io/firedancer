@@ -400,7 +400,7 @@ common_close_account( fd_pubkey_t * authority_address,
 
    https://github.com/anza-xyz/agave/blob/574bae8fefc0ed256b55340b9d87b7689bcdf222/programs/bpf_loader/src/lib.rs#L1332-L1501 */
 int
-fd_bpf_execute( fd_exec_instr_ctx_t * instr_ctx, fd_sbpf_validated_program_t * prog, uchar is_deprecated ) {
+fd_bpf_execute( fd_exec_instr_ctx_t * instr_ctx, fd_sbpf_validated_program_t const * prog, uchar is_deprecated ) {
 
   int err                       = FD_EXECUTOR_INSTR_SUCCESS;
   fd_sbpf_syscalls_t * syscalls = fd_sbpf_syscalls_new( fd_spad_alloc( instr_ctx->txn_ctx->spad,
@@ -2454,7 +2454,7 @@ fd_bpf_loader_program_execute( fd_exec_instr_ctx_t * ctx ) {
 
        TLDR: A program is present in the BPF cache iff it is already deployed AND passes current SBPF and VM checks.
        Only then it is considered valid to interact with. */
-    fd_sbpf_validated_program_t * prog = NULL;
+    fd_sbpf_validated_program_t const * prog = NULL;
     if( FD_UNLIKELY( fd_bpf_load_cache_entry( ctx->txn_ctx->funk,
                                               ctx->txn_ctx->funk_txn,
                                               program_id,
@@ -2462,6 +2462,15 @@ fd_bpf_loader_program_execute( fd_exec_instr_ctx_t * ctx ) {
       fd_log_collector_msg_literal( ctx, "Program is not cached" );
 
       /* https://github.com/anza-xyz/agave/blob/89872fdb074e6658646b2b57a299984f0059cc84/programs/bpf_loader/src/lib.rs#L460-L467 */
+      if( FD_FEATURE_ACTIVE_BANK( ctx->txn_ctx->bank, remove_accounts_executable_flag_checks ) ) {
+        return FD_EXECUTOR_INSTR_ERR_UNSUPPORTED_PROGRAM_ID;
+      }
+      return FD_EXECUTOR_INSTR_ERR_INVALID_ACC_DATA;
+    }
+
+    /* The program may be in the cache but could have failed verification in the current epoch. */
+    if( FD_UNLIKELY( prog->failed_verification ) ) {
+      fd_log_collector_msg_literal( ctx, "Program is not deployed" );
       if( FD_FEATURE_ACTIVE_BANK( ctx->txn_ctx->bank, remove_accounts_executable_flag_checks ) ) {
         return FD_EXECUTOR_INSTR_ERR_UNSUPPORTED_PROGRAM_ID;
       }

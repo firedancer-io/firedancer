@@ -91,14 +91,16 @@ fd_gossip_ip4_addr_walk( void *                       w,
                          fd_gossip_ip4_addr_t const * self,
                          fd_types_walk_fn_t           fun,
                          char const *                 name,
-                         uint                         level ) {
+                         uint                         level,
+                         uint                         varint ) {
+  (void) varint;
 
-  fun( w, self, name, FD_FLAMENCO_TYPE_ARR, "ip4_addr", level++ );
+  fun( w, self, name, FD_FLAMENCO_TYPE_ARR, "ip4_addr", level++, 0 );
   uchar * octet = (uchar *)self;
   for( uchar i = 0; i < 4; ++i ) {
-    fun( w, &octet[i], name, FD_FLAMENCO_TYPE_UCHAR, "uchar", level );
+    fun( w, &octet[i], name, FD_FLAMENCO_TYPE_UCHAR, "uchar", level, 0 );
   }
-  fun( w, self, name, FD_FLAMENCO_TYPE_ARR_END, "ip4_addr", level-- );
+  fun( w, self, name, FD_FLAMENCO_TYPE_ARR_END, "ip4_addr", level--, 0 );
   /* TODO: Add support for optional pretty-printing like serde?
      Saving this in the meantime */
   // char buf[ 16 ];
@@ -111,13 +113,16 @@ fd_gossip_ip6_addr_walk( void *                       w,
                          fd_gossip_ip6_addr_t const * self,
                          fd_types_walk_fn_t           fun,
                          char const *                 name,
-                         uint                         level ) {
-  fun( w, self, name, FD_FLAMENCO_TYPE_ARR, "ip6_addr", level++ );
+                         uint                         level,
+                         uint                         varint ) {
+  (void) varint;
+
+  fun( w, self, name, FD_FLAMENCO_TYPE_ARR, "ip6_addr", level++, 0 );
   uchar * octet = (uchar *)self;
   for( uchar i = 0; i < 16; ++i ) {
-    fun( w, &octet[i], name, FD_FLAMENCO_TYPE_UCHAR, "uchar", level );
+    fun( w, &octet[i], name, FD_FLAMENCO_TYPE_UCHAR, "uchar", level, 0 );
   }
-  fun( w, self, name, FD_FLAMENCO_TYPE_ARR_END, "ip6_addr", level-- );
+  fun( w, self, name, FD_FLAMENCO_TYPE_ARR_END, "ip6_addr", level--, 0 );
   /* Saving this for when we support configurable pretty-printing mode */
   // char buf[ 40 ];
   // sprintf( buf,
@@ -285,19 +290,6 @@ fd_rust_duration_footprint_validator ( fd_bincode_decode_ctx_t * ctx ) {
   ulong out;
   if( __builtin_uaddl_overflow( d->seconds, d->nanoseconds/1000000000U, &out ) )
     return FD_BINCODE_ERR_ENCODING;
-  return FD_BINCODE_SUCCESS;
-}
-
-int
-fd_gossip_duplicate_shred_validator ( fd_bincode_decode_ctx_t * ctx ) {
-  // Temporarily disable this till we understand better
-#if 0
-  fd_gossip_duplicate_shred_t *d = (fd_gossip_duplicate_shred_t *) ctx->data;
-  if( FD_UNLIKELY( (d->_unused_shred_type != 0x5a) || (d->_unused_shred_type != 0xa5) ) )
-    return FD_BINCODE_ERR_ENCODING;
-#else
-  (void) ctx;
-#endif
   return FD_BINCODE_SUCCESS;
 }
 

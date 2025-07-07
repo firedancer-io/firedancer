@@ -105,6 +105,8 @@ echo "
     max_database_transactions = 1024
 [runtime]
     heap_size_gib = 200
+    [runtime.limits]
+        max_banks = 64
 [blockstore]
     shred_max = 16777216
     block_max = 8192

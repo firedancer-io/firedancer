@@ -149,7 +149,9 @@ fd_flamenco_txn_walk( void *                    w,
                       fd_flamenco_txn_t const * self,
                       fd_types_walk_fn_t        fun,
                       char const *              name,
-                      uint                      level ) {
+                      uint                      level,
+                      uint                      varint ) {
+  (void) varint;
 
   static uchar const zero[ 64 ]={0};
   fd_txn_t const *   txn  = self->txn;
@@ -159,7 +161,7 @@ fd_flamenco_txn_walk( void *                    w,
     sig0 = fd_txn_get_signatures( txn, self->raw )[0];
 
   /* For now, just print the transaction's signature */
-  fun( w, sig0, name, FD_FLAMENCO_TYPE_SIG512, "txn", level );
+  fun( w, sig0, name, FD_FLAMENCO_TYPE_SIG512, "txn", level, 0 );
 }
 
 static inline ulong
@@ -194,9 +196,6 @@ fd_rust_duration_normalize ( fd_rust_duration_t * );
 
 int
 fd_rust_duration_footprint_validator ( fd_bincode_decode_ctx_t * ctx );
-
-int
-fd_gossip_duplicate_shred_validator ( fd_bincode_decode_ctx_t * ctx );
 
 void fd_vote_accounts_decode_inner( void * struct_mem, void * * alloc_mem, fd_bincode_decode_ctx_t * ctx );
 void fd_vote_accounts_decode_inner_global( void * struct_mem, void * * alloc_mem, fd_bincode_decode_ctx_t * ctx );

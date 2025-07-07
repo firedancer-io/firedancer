@@ -67,8 +67,10 @@ fd_rpc_json_walk( void *       _self,
                   char const * name,
                   int          type,
                   char const * type_name,
-                  uint         level ) {
+                  uint         level,
+                  uint         varint ) {
   (void)type_name;
+  (void)varint;
 
   if( level>=STACK_HEIGHT-1 ) {
     FD_LOG_WARNING(( "level %u exceeds max %u", level, STACK_HEIGHT));

@@ -49,18 +49,6 @@ generate_hash_bank_msg( ulong                               task_infos_gaddr,
   hash_msg_out->slot             = curr_slot;
 }
 
-static inline void
-generate_bpf_scan_msg( ulong start_idx,
-                       ulong end_idx,
-                       ulong recs_gaddr,
-                       ulong is_bpf_gaddr,
-                       fd_runtime_public_bpf_scan_msg_t * scan_msg_out ) {
-  scan_msg_out->start_idx       = start_idx;
-  scan_msg_out->end_idx         = end_idx;
-  scan_msg_out->recs_gaddr      = recs_gaddr;
-  scan_msg_out->is_bpf_gaddr    = is_bpf_gaddr;
-}
-
 /* Execution tracking helpers */
 
 struct fd_slice_exec {

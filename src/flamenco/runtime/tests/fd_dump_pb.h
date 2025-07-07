@@ -104,7 +104,7 @@ fd_dump_vm_syscall_to_protobuf( fd_vm_t const * vm,
 
 void
 fd_dump_elf_to_protobuf( fd_exec_txn_ctx_t * txn_ctx,
-                         fd_pubkey_t const * program_id );
+                         fd_txn_account_t *  program_acc );
 
 FD_PROTOTYPES_END
 

@@ -1,6 +1,6 @@
 import cpp
 
-/* Point this predicate to the topology to be visualized. Make sure it is part of the DB */
+  /* Point this predicate to the topology to be visualized */
 predicate inTopology(Location loc) {
   loc.getFile().getRelativePath() = "src/app/firedancer/topology.c" or
   loc.getFile().getRelativePath() = "src/disco/net/fd_net_tile_topo.c"
@@ -70,7 +70,7 @@ class OutLink extends FunctionCall {
     or
     (
     this.getTarget().hasName("fd_topos_net_rx_link") and
-    name = this.getArgument(2).(StringLiteral).getValue() and
+    name = this.getArgument(1).(StringLiteral).getValue() and
     out_tile = "net" and /* leaving aside the sock alternative */
     inTopology(this.getLocation())
     )

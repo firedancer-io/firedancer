@@ -41,6 +41,11 @@ struct __attribute((aligned(8UL))) fd_vm_acc_region_meta {
    /* offset of the accounts metadata region, relative to the start of the input region.
       importantly, this excludes any duplicate account markers at the beginning of the "full" metadata region. */
    ulong                               metadata_region_offset;
+   /* FIXME: We can get rid of this field once DM is activated.  This is
+      only a hack to make the non-DM code path happy.  When DM is
+      activated, we could query the input_mem_region array for the
+      original data len. */
+   ulong                               original_data_len;
 };
 typedef struct fd_vm_acc_region_meta fd_vm_acc_region_meta_t;
 

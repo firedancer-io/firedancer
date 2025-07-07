@@ -228,7 +228,7 @@ fd_flamenco_yaml_unit_test( fd_flamenco_yaml_test_t const * test ) {
   for( fd_flamenco_type_step_t const * walk = test->walk;
                                        (!!walk->type) | (!!walk->level);
                                        walk++ ) {
-    fd_flamenco_yaml_walk( yaml, &walk->ul, walk->name, walk->type, NULL, walk->level );
+    fd_flamenco_yaml_walk( yaml, &walk->ul, walk->name, walk->type, NULL, walk->level, 0 );
   }
   FD_TEST( 0==fputc( '\0', file ) );
   long cnt = ftell( file );

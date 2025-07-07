@@ -202,6 +202,7 @@ fd_runtime_fuzz_block_ctx_create( fd_runtime_fuzz_runner_t *           runner,
   fd_funk_t * funk = runner->funk;
 
   slot_ctx->bank = runner->bank;
+  fd_bank_clear_bank( slot_ctx->bank );
 
   /* Generate unique ID for funk txn */
   fd_funk_txn_xid_t xid[1] = {0};
@@ -414,14 +415,6 @@ fd_runtime_fuzz_block_ctx_create( fd_runtime_fuzz_runner_t *           runner,
      size this out for worst case, but this also blows up the memory
      requirement. */
   /* Allocate all the memory for the rent fresh accounts list */
-
-  fd_rent_fresh_accounts_global_t * rent_fresh_accounts = fd_bank_rent_fresh_accounts_locking_modify( slot_ctx->bank );
-  fd_rent_fresh_account_t * fresh_accounts = (fd_rent_fresh_account_t *)fd_ulong_align_up( (ulong)rent_fresh_accounts + sizeof(fd_rent_fresh_accounts_global_t), alignof(fd_rent_fresh_account_t) );
-  rent_fresh_accounts->total_count        = 0UL;
-  rent_fresh_accounts->fresh_accounts_len = FD_RENT_FRESH_ACCOUNTS_MAX;
-  fd_memset(  fresh_accounts, 0, sizeof(fd_rent_fresh_account_t) * FD_RENT_FRESH_ACCOUNTS_MAX );
-  fd_rent_fresh_accounts_fresh_accounts_update( rent_fresh_accounts, fresh_accounts );
-  fd_bank_rent_fresh_accounts_end_locking_modify( slot_ctx->bank );
 
   // Set genesis hash to {0}
   fd_hash_t * genesis_hash = fd_bank_genesis_hash_modify( slot_ctx->bank );

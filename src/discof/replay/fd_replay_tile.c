@@ -228,7 +228,6 @@ struct fd_replay_tile_ctx {
   ulong               exec_spad_cnt;
 
   fd_spad_t *         runtime_spad;
-  ulong * is_constipated;           /* Shared fseq to determine if funk should be constipated */
 
   fd_funk_txn_t * false_root;
 
@@ -427,96 +426,6 @@ snapshot_hash_tiles_cb( void * para_arg_1,
   }
 }
 
-
-static void
-bpf_tiles_cb( void * para_arg_1,
-              void * para_arg_2,
-              void * fn_arg_1,
-              void * fn_arg_2,
-              void * fn_arg_3,
-              void * fn_arg_4 FD_PARAM_UNUSED ) {
-  fd_replay_tile_ctx_t  * ctx            = (fd_replay_tile_ctx_t *)para_arg_1;
-  fd_stem_context_t     * stem           = (fd_stem_context_t *)para_arg_2;
-  fd_funk_rec_t const * * recs           = (fd_funk_rec_t const **)fn_arg_1;
-  uchar *                 is_bpf_program = (uchar *)fn_arg_2;
-  ulong                   rec_cnt        = (ulong)fn_arg_3;
-
-  ulong cnt_per_worker = rec_cnt / ctx->exec_cnt;
-
-  ulong recs_gaddr   = fd_wksp_gaddr_fast( ctx->runtime_public_wksp, recs );
-  if( FD_UNLIKELY( !recs_gaddr ) ) {
-    FD_LOG_ERR(( "Unable to calculate gaddr for recs arary" ));
-  }
-
-  ulong is_bpf_gaddr = fd_wksp_gaddr_fast( ctx->runtime_public_wksp, is_bpf_program );
-  if( FD_UNLIKELY( !is_bpf_gaddr ) ) {
-    FD_LOG_ERR(( "Unable to calculate gaddr for is bpf array" ));
-  }
-
-  /* We need to keep track of the previous state because we don't want
-     to duplicate write cache entries back into funk. If we are in an
-     uninitialized state, we set our previous id to UINT_MAX */
-  uint prev_ids[ FD_PACK_MAX_BANK_TILES ];
-  for( ulong i=0UL; i<ctx->exec_cnt; i++ ) {
-    ulong res   = fd_fseq_query( ctx->exec_fseq[ i ] );
-    uint  state = fd_exec_fseq_get_state( res );
-    if( state==FD_EXEC_STATE_BPF_SCAN_DONE ) {
-      prev_ids[ i ] = fd_exec_fseq_get_bpf_id( res );
-    } else {
-      prev_ids[ i ] = FD_EXEC_ID_SENTINEL;
-    }
-  }
-
-  for( ulong worker_idx=0UL; worker_idx<ctx->exec_cnt; worker_idx++ ) {
-
-    ulong tsorig = fd_frag_meta_ts_comp( fd_tickcount() );
-
-    ulong start_idx = worker_idx * cnt_per_worker;
-    ulong end_idx   = worker_idx!=ctx->exec_cnt-1UL ? fd_ulong_sat_sub( start_idx + cnt_per_worker, 1UL ) :
-                                                      fd_ulong_sat_sub( rec_cnt, 1UL );
-    fd_replay_out_link_t * exec_out = &ctx->exec_out[ worker_idx ];
-
-    fd_runtime_public_bpf_scan_msg_t * scan_msg = (fd_runtime_public_bpf_scan_msg_t *)fd_chunk_to_laddr( exec_out->mem, exec_out->chunk );
-    generate_bpf_scan_msg( start_idx, end_idx, recs_gaddr, is_bpf_gaddr, scan_msg );
-    fd_stem_publish( stem,
-                     exec_out->idx,
-                     EXEC_BPF_SCAN_SIG,
-                     exec_out->chunk,
-                     sizeof(fd_runtime_public_bpf_scan_msg_t),
-                     0UL,
-                     tsorig,
-                     fd_frag_meta_ts_comp( fd_tickcount() ) );
-    exec_out->chunk = fd_dcache_compact_next( exec_out->chunk,
-                                              sizeof(fd_runtime_public_bpf_scan_msg_t),
-                                              exec_out->chunk0,
-                                              exec_out->wmark );
-
-  }
-
-  /* Spins and blocks until all exec tiles are done scanning. */
-  uchar scan_done[ FD_PACK_MAX_BANK_TILES ] = {0};
-  for( ;; ) {
-    uchar wait_cnt = 0;
-    for( ulong i=0UL; i<ctx->exec_cnt; i++ ) {
-      if( !scan_done[ i ] ) {
-        ulong res   = fd_fseq_query( ctx->exec_fseq[ i ] );
-        uint  state = fd_exec_fseq_get_state( res );
-        uint  id    = fd_exec_fseq_get_bpf_id( res );
-        if( state==FD_EXEC_STATE_BPF_SCAN_DONE && id!=prev_ids[ i ] ) {
-          scan_done[ i ] = 1;
-          prev_ids[ i ]  = id;
-        } else {
-          wait_cnt++;
-        }
-      }
-    }
-    if( !wait_cnt ) {
-      break;
-    }
-  }
-
-}
-
 static void
 block_finalize_tiles_cb( void * para_arg_1,
                          void * para_arg_2,
@@ -595,6 +504,8 @@ block_finalize_tiles_cb( void * para_arg_1,
       break;
     }
   }
+
+
 }
 
 
@@ -646,13 +557,10 @@ txncache_publish( fd_replay_tile_ctx_t * ctx,
   fd_funk_txn_pool_t * txn_pool = fd_funk_txn_pool( ctx->funk );
   while( txn!=rooted_txn ) {
     ulong slot = txn->xid.ul[0];
-    if( FD_LIKELY( !fd_txncache_get_is_constipated( ctx->slot_ctx->status_cache ) ) ) {
-      FD_LOG_INFO(( "Registering slot %lu", slot ));
-      fd_txncache_register_root_slot( ctx->slot_ctx->status_cache, slot );
-    } else {
-      FD_LOG_INFO(( "Registering constipated slot %lu", slot ));
-      fd_txncache_register_constipated_slot( ctx->slot_ctx->status_cache, slot );
-    }
+
+    FD_LOG_INFO(( "Registering slot %lu", slot ));
+    fd_txncache_register_root_slot( ctx->slot_ctx->status_cache, slot );
+
     txn = fd_funk_txn_parent( txn, txn_pool );
   }
 
@@ -662,41 +570,16 @@ txncache_publish( fd_replay_tile_ctx_t * ctx,
 static void
 funk_publish( fd_replay_tile_ctx_t * ctx,
               fd_funk_txn_t *        to_root_txn,
-              ulong                  wmk,
-              uchar                  is_constipated ) {
+              ulong                  wmk ) {
 
   fd_funk_txn_start_write( ctx->funk );
+  FD_LOG_DEBUG(( "Publishing slot=%lu xid=%lu", wmk, to_root_txn->xid.ul[0] ));
 
-  fd_funk_txn_pool_t * txn_pool = fd_funk_txn_pool( ctx->funk );
-
-  /* Try to publish into Funk */
-  if( is_constipated ) {
-    FD_LOG_NOTICE(( "Publishing slot=%lu while constipated", wmk ));
-
-    /* At this point, first collapse the current transaction that should be
-       published into the oldest child transaction. */
-    FD_LOG_NOTICE(( "Publishing into constipated root for wmk=%lu", wmk ));
-    fd_funk_txn_t * txn        = to_root_txn;
-
-    while( txn!=ctx->false_root ) {
-      if( FD_UNLIKELY( fd_funk_txn_publish_into_parent( ctx->funk, txn, 0 ) ) ) {
-        FD_LOG_ERR(( "Can't publish funk transaction" ));
-      }
-      txn = fd_funk_txn_parent( txn, txn_pool );
-    }
-
-  } else {
-    /* This is the case where we are not in the constipated case. We only need
-       to do special handling in the case where the epoch account hash is about
-       to be calculated. */
-    FD_LOG_DEBUG(( "Publishing slot=%lu xid=%lu", wmk, to_root_txn->xid.ul[0] ));
-
-    /* This is the standard case. Publish all transactions up to and
-       including the watermark. This will publish any in-prep ancestors
-       of root_txn as well. */
-    if( FD_UNLIKELY( !fd_funk_txn_publish( ctx->funk, to_root_txn, 1 ) ) ) {
-      FD_LOG_ERR(( "failed to funk publish slot %lu", wmk ));
-    }
+  /* This is the standard case. Publish all transactions up to and
+      including the watermark. This will publish any in-prep ancestors
+      of root_txn as well. */
+  if( FD_UNLIKELY( !fd_funk_txn_publish( ctx->funk, to_root_txn, 1 ) ) ) {
+    FD_LOG_ERR(( "failed to funk publish slot %lu", wmk ));
   }
   fd_funk_txn_end_write( ctx->funk );
 
@@ -728,45 +611,6 @@ funk_publish( fd_replay_tile_ctx_t * ctx,
 
 }
 
-static fd_funk_txn_t*
-get_rooted_txn( fd_replay_tile_ctx_t * ctx,
-                fd_funk_txn_t *     to_root_txn,
-                uchar                  is_constipated ) {
-
-  /* We need to get the rooted transaction that we are publishing into. This
-     needs to account for the two different cases: no constipation and single
-     constipation.
-
-     Also, if it's the first time that we are setting the false root, then
-     we must also register it into the status cache because we don't register
-     the root in txncache_publish to avoid registering the same slot multiple times. */
-
-  fd_funk_txn_pool_t * txn_pool = fd_funk_txn_pool( ctx->funk );
-
-  if( is_constipated ) {
-
-    if( FD_UNLIKELY( !ctx->false_root ) ) {
-
-      fd_funk_txn_t * txn        = to_root_txn;
-      fd_funk_txn_t * parent_txn = fd_funk_txn_parent( txn, txn_pool );
-      while( parent_txn ) {
-        txn        = parent_txn;
-        parent_txn = fd_funk_txn_parent( txn, txn_pool );
-      }
-
-      ctx->false_root = txn;
-      if( !fd_txncache_get_is_constipated( ctx->slot_ctx->status_cache ) ) {
-        fd_txncache_register_root_slot( ctx->slot_ctx->status_cache, txn->xid.ul[0] );
-      } else {
-        fd_txncache_register_constipated_slot( ctx->slot_ctx->status_cache, txn->xid.ul[0] );
-      }
-    }
-    return ctx->false_root;
-  } else {
-    return NULL;
-  }
-}
-
 static void
 funk_and_txncache_publish( fd_replay_tile_ctx_t * ctx, ulong wmk, fd_funk_txn_xid_t const * xid ) {
 
@@ -784,12 +628,12 @@ funk_and_txncache_publish( fd_replay_tile_ctx_t * ctx, ulong wmk, fd_funk_txn_xi
   if( FD_UNLIKELY( !to_root_txn ) ) {
     FD_LOG_ERR(( "Unable to find funk transaction for xid %lu", xid->ul[0] ));
   }
-  fd_funk_txn_t *   rooted_txn  = get_rooted_txn( ctx, to_root_txn, 0 );
+  fd_funk_txn_t *   rooted_txn  = NULL;
   fd_funk_txn_end_read( ctx->funk );
 
   txncache_publish( ctx, to_root_txn, rooted_txn );
 
-  funk_publish( ctx, to_root_txn, wmk, 0 );
+  funk_publish( ctx, to_root_txn, wmk );
 
   if( FD_UNLIKELY( ctx->capture_ctx ) ) {
     fd_runtime_checkpt( ctx->capture_ctx, ctx->slot_ctx, wmk );
@@ -1109,8 +953,13 @@ prepare_new_block_execution( fd_replay_tile_ctx_t * ctx,
 static void
 init_poh( fd_replay_tile_ctx_t * ctx ) {
   FD_LOG_INFO(( "sending init msg" ));
+
+  FD_LOG_WARNING(( "hashes_per_tick: %lu, ticks_per_slot: %lu",
+                   fd_bank_hashes_per_tick_get( ctx->slot_ctx->bank ),
+                   fd_bank_ticks_per_slot_get( ctx->slot_ctx->bank ) ));
+
   fd_replay_out_link_t * bank_out = &ctx->bank_out[ 0UL ];
-  fd_poh_init_msg_t * msg = fd_chunk_to_laddr( bank_out->mem, bank_out->chunk );
+  fd_poh_init_msg_t * msg = fd_chunk_to_laddr( bank_out->mem, bank_out->chunk ); // FIXME: msg is NULL
   msg->hashcnt_per_tick = fd_bank_hashes_per_tick_get( ctx->slot_ctx->bank );
   msg->ticks_per_slot   = fd_bank_ticks_per_slot_get( ctx->slot_ctx->bank );
   msg->tick_duration_ns = (ulong)(fd_bank_ns_per_slot_get( ctx->slot_ctx->bank )) / fd_bank_ticks_per_slot_get( ctx->slot_ctx->bank );
@@ -1225,7 +1074,10 @@ exec_slice( fd_replay_tile_ctx_t * ctx,
       fd_txn_p_t txn_p;
       fd_slice_exec_txn_parse( &ctx->slice_exec_ctx, &txn_p );
 
-      /* Iterate and check/update all program ids? */
+      /* Insert or reverify invoked programs for this epoch, if needed
+         FIXME: this should be done during txn parsing so that we don't have to loop
+         over all accounts a second time. */
+      fd_runtime_update_program_cache( ctx->slot_ctx, &txn_p, ctx->runtime_spad );
 
       fd_fork_t * fork = fd_fork_frontier_ele_query( ctx->forks->frontier,
                                                      &slot,
@@ -1538,17 +1390,6 @@ read_snapshot( void *              _ctx,
   fd_runtime_update_leaders( ctx->slot_ctx->bank,
                              ctx->slot_ctx->slot,
                              ctx->runtime_spad );
-  FD_LOG_NOTICE(( "starting fd_bpf_scan_and_create_bpf_program_cache_entry..." ));
-
-  fd_exec_para_cb_ctx_t exec_para_ctx = {
-    .func       = bpf_tiles_cb,
-    .para_arg_1 = ctx,
-    .para_arg_2 = stem
-  };
-  fd_bpf_scan_and_create_bpf_program_cache_entry_para( ctx->slot_ctx,
-                                                       ctx->runtime_spad,
-                                                       &exec_para_ctx );
-  FD_LOG_NOTICE(( "finished fd_bpf_scan_and_create_bpf_program_cache_entry..." ));
 }
 
 static void
@@ -1604,18 +1445,6 @@ init_after_snapshot( fd_replay_tile_ctx_t * ctx,
 
     ctx->slot_ctx->slot                = 1UL;
     snapshot_slot                      = 1UL;
-
-    fd_exec_para_cb_ctx_t exec_para_ctx_bpf = {
-      .func       = bpf_tiles_cb,
-      .para_arg_1 = ctx,
-      .para_arg_2 = stem
-    };
-
-    FD_LOG_NOTICE(( "starting fd_bpf_scan_and_create_bpf_program_cache_entry..." ));
-    fd_bpf_scan_and_create_bpf_program_cache_entry_para( ctx->slot_ctx,
-                                                         ctx->runtime_spad,
-                                                         &exec_para_ctx_bpf );
-    FD_LOG_NOTICE(( "finished fd_bpf_scan_and_create_bpf_program_cache_entry..." ));
 
     /* Now setup exec tiles for execution */
     for( ulong i=0UL; i<ctx->exec_cnt; i++ ) {
@@ -2236,19 +2065,6 @@ unprivileged_init( fd_topo_t *      topo,
   ctx->published_wmark = fd_fseq_join( fd_topo_obj_laddr( topo, root_slot_obj_id ) );
   if( FD_UNLIKELY( !ctx->published_wmark ) ) FD_LOG_ERR(( "replay tile has no root_slot fseq" ));
   FD_TEST( ULONG_MAX==fd_fseq_query( ctx->published_wmark ) );
-
-  /**********************************************************************/
-  /* constipated fseq                                                   */
-  /**********************************************************************/
-
-  /* When the replay tile boots, funk should not be constipated */
-
-  ulong constipated_obj_id = fd_pod_queryf_ulong( topo->props, ULONG_MAX, "constipate" );
-  FD_TEST( constipated_obj_id!=ULONG_MAX );
-  ctx->is_constipated = fd_fseq_join( fd_topo_obj_laddr( topo, constipated_obj_id ) );
-  if( FD_UNLIKELY( !ctx->is_constipated ) ) FD_LOG_ERR(( "replay tile has no constipated fseq" ));
-  fd_fseq_update( ctx->is_constipated, 0UL );
-  FD_TEST( 0UL==fd_fseq_query( ctx->is_constipated ) );
 
   /**********************************************************************/
   /* turbine_slot fseq                                                  */

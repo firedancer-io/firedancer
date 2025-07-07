@@ -487,7 +487,7 @@ module shcl_cpu
      initially but was changed to improve timing in other areas of the design
     
      In the "next instruction" logic here we create fairness across tags by having 
-     the two read ports in the instruciton ROM split between from upper/lower
+     the two read ports in the instruction ROM split between from upper/lower
      tags and allowing for "lower" reads to select "upper" values to read if they are
      idle (and vice-versa). While still having implicit priority to the lsb tags 
      within $next_instr_req, this logic provides sufficient access bandwidth to not

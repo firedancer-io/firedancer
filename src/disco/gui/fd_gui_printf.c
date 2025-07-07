@@ -214,9 +214,9 @@ fd_gui_printf_identity_key( fd_gui_t * gui ) {
 }
 
 void
-fd_gui_printf_uptime_nanos( fd_gui_t * gui ) {
-  jsonp_open_envelope( gui, "summary", "uptime_nanos" );
-    jsonp_ulong_as_str( gui, "value", (ulong)(fd_log_wallclock() - gui->summary.startup_time_nanos ) );
+fd_gui_printf_startup_time_nanos( fd_gui_t * gui ) {
+  jsonp_open_envelope( gui, "summary", "startup_time_nanos" );
+    jsonp_long_as_str( gui, "value", gui->summary.startup_time_nanos );
   jsonp_close_envelope( gui );
 }
 
@@ -741,7 +741,7 @@ fd_gui_printf_peer( fd_gui_t *    gui,
                     uchar const * identity_pubkey ) {
   ulong gossip_idx = ULONG_MAX;
   ulong info_idx = ULONG_MAX;
-  ulong vote_idxs[ 40200 ] = {0};
+  ulong vote_idxs[ FD_GUI_MAX_PEER_CNT ] = {0};
   ulong vote_idx_cnt = 0UL;
 
   for( ulong i=0UL; i<gui->gossip.peer_cnt; i++ ) {
@@ -1060,12 +1060,19 @@ fd_gui_printf_slot( fd_gui_t * gui,
         if( FD_UNLIKELY( slot->completed_time==LONG_MAX ) ) jsonp_null( gui, "completed_time_nanos" );
         else                                                jsonp_long_as_str( gui, "completed_time_nanos", slot->completed_time );
         jsonp_string( gui, "level", level );
-        if( FD_UNLIKELY( slot->total_txn_cnt==UINT_MAX ) ) jsonp_null( gui, "transactions" );
-        else                                               jsonp_ulong( gui, "transactions", slot->total_txn_cnt );
-        if( FD_UNLIKELY( slot->vote_txn_cnt==UINT_MAX ) ) jsonp_null( gui, "vote_transactions" );
-        else                                              jsonp_ulong( gui, "vote_transactions", slot->vote_txn_cnt );
-        if( FD_UNLIKELY( slot->failed_txn_cnt==UINT_MAX ) ) jsonp_null( gui, "failed_transactions" );
-        else                                                jsonp_ulong( gui, "failed_transactions", slot->failed_txn_cnt );
+        if( FD_UNLIKELY( slot->total_txn_cnt==UINT_MAX
+                         || slot->vote_txn_cnt==UINT_MAX
+                         || slot->nonvote_failed_txn_cnt==UINT_MAX ) ) jsonp_null( gui, "success_nonvote_transaction_cnt" );
+        else                                                           jsonp_ulong( gui, "success_nonvote_transaction_cnt", slot->total_txn_cnt - slot->vote_txn_cnt - slot->nonvote_failed_txn_cnt );
+        if( FD_UNLIKELY( slot->nonvote_failed_txn_cnt==UINT_MAX ) ) jsonp_null( gui, "failed_nonvote_transaction_cnt" );
+        else                                                        jsonp_ulong( gui, "failed_nonvote_transaction_cnt", slot->nonvote_failed_txn_cnt );
+        if( FD_UNLIKELY( slot->vote_txn_cnt==UINT_MAX
+                         || slot->failed_txn_cnt==UINT_MAX
+                         || slot->nonvote_failed_txn_cnt==UINT_MAX ) ) jsonp_null( gui, "success_vote_transaction_cnt" );
+        else                                                           jsonp_ulong( gui, "success_vote_transaction_cnt", slot->vote_txn_cnt - (slot->failed_txn_cnt - slot->nonvote_failed_txn_cnt) );
+        if( FD_UNLIKELY( slot->failed_txn_cnt==UINT_MAX
+                         || slot->nonvote_failed_txn_cnt==UINT_MAX ) ) jsonp_null( gui, "failed_vote_transaction_cnt" );
+        else                                                           jsonp_ulong( gui, "failed_vote_transaction_cnt", slot->failed_txn_cnt - slot->nonvote_failed_txn_cnt );
         if( FD_UNLIKELY( slot->max_compute_units==UINT_MAX ) ) jsonp_null( gui, "max_compute_units" );
         else                                                       jsonp_ulong( gui, "max_compute_units", slot->max_compute_units );
         if( FD_UNLIKELY( slot->compute_units==UINT_MAX ) ) jsonp_null( gui, "compute_units" );
@@ -1127,12 +1134,19 @@ fd_gui_printf_slot_request( fd_gui_t * gui,
         else                                          jsonp_long( gui, "duration_nanos", duration_nanos );
         if( FD_UNLIKELY( slot->completed_time==LONG_MAX ) ) jsonp_null( gui, "completed_time_nanos" );
         else                                                jsonp_long( gui, "completed_time_nanos", slot->completed_time );
-        if( FD_UNLIKELY( slot->total_txn_cnt==UINT_MAX ) ) jsonp_null( gui, "transactions" );
-        else                                               jsonp_ulong( gui, "transactions", slot->total_txn_cnt );
-        if( FD_UNLIKELY( slot->vote_txn_cnt==UINT_MAX ) ) jsonp_null( gui, "vote_transactions" );
-        else                                              jsonp_ulong( gui, "vote_transactions", slot->vote_txn_cnt );
-        if( FD_UNLIKELY( slot->failed_txn_cnt==UINT_MAX ) ) jsonp_null( gui, "failed_transactions" );
-        else                                                jsonp_ulong( gui, "failed_transactions", slot->failed_txn_cnt );
+        if( FD_UNLIKELY( slot->total_txn_cnt==UINT_MAX
+                         || slot->vote_txn_cnt==UINT_MAX
+                         || slot->nonvote_failed_txn_cnt==UINT_MAX ) ) jsonp_null( gui, "success_nonvote_transaction_cnt" );
+        else                                                           jsonp_ulong( gui, "success_nonvote_transaction_cnt", slot->total_txn_cnt - slot->vote_txn_cnt - slot->nonvote_failed_txn_cnt );
+        if( FD_UNLIKELY( slot->nonvote_failed_txn_cnt==UINT_MAX ) ) jsonp_null( gui, "failed_nonvote_transaction_cnt" );
+        else                                                        jsonp_ulong( gui, "failed_nonvote_transaction_cnt", slot->nonvote_failed_txn_cnt );
+        if( FD_UNLIKELY( slot->vote_txn_cnt==UINT_MAX
+                         || slot->failed_txn_cnt==UINT_MAX
+                         || slot->nonvote_failed_txn_cnt==UINT_MAX ) ) jsonp_null( gui, "success_vote_transaction_cnt" );
+        else                                                           jsonp_ulong( gui, "success_vote_transaction_cnt", slot->vote_txn_cnt - (slot->failed_txn_cnt - slot->nonvote_failed_txn_cnt) );
+        if( FD_UNLIKELY( slot->failed_txn_cnt==UINT_MAX
+                         || slot->nonvote_failed_txn_cnt==UINT_MAX ) ) jsonp_null( gui, "failed_vote_transaction_cnt" );
+        else                                                           jsonp_ulong( gui, "failed_vote_transaction_cnt", slot->failed_txn_cnt - slot->nonvote_failed_txn_cnt );
         if( FD_UNLIKELY( slot->max_compute_units==UINT_MAX ) ) jsonp_null( gui, "max_compute_units" );
         else                                                       jsonp_ulong( gui, "max_compute_units", slot->max_compute_units );
         if( FD_UNLIKELY( slot->compute_units==UINT_MAX ) ) jsonp_null( gui, "compute_units" );
@@ -1186,12 +1200,19 @@ fd_gui_printf_slot_transactions_request( fd_gui_t * gui,
         else                                          jsonp_long( gui, "duration_nanos", duration_nanos );
         if( FD_UNLIKELY( slot->completed_time==LONG_MAX ) ) jsonp_null( gui, "completed_time_nanos" );
         else                                                jsonp_long( gui, "completed_time_nanos", slot->completed_time );
-        if( FD_UNLIKELY( slot->total_txn_cnt==UINT_MAX ) ) jsonp_null( gui, "transactions" );
-        else                                               jsonp_ulong( gui, "transactions", slot->total_txn_cnt );
-        if( FD_UNLIKELY( slot->vote_txn_cnt==UINT_MAX ) ) jsonp_null( gui, "vote_transactions" );
-        else                                              jsonp_ulong( gui, "vote_transactions", slot->vote_txn_cnt );
-        if( FD_UNLIKELY( slot->failed_txn_cnt==UINT_MAX ) ) jsonp_null( gui, "failed_transactions" );
-        else                                                jsonp_ulong( gui, "failed_transactions", slot->failed_txn_cnt );
+        if( FD_UNLIKELY( slot->total_txn_cnt==UINT_MAX
+                         || slot->vote_txn_cnt==UINT_MAX
+                         || slot->nonvote_failed_txn_cnt==UINT_MAX ) ) jsonp_null( gui, "success_nonvote_transaction_cnt" );
+        else                                                           jsonp_ulong( gui, "success_nonvote_transaction_cnt", slot->total_txn_cnt - slot->vote_txn_cnt - slot->nonvote_failed_txn_cnt );
+        if( FD_UNLIKELY( slot->nonvote_failed_txn_cnt==UINT_MAX ) ) jsonp_null( gui, "failed_nonvote_transaction_cnt" );
+        else                                                        jsonp_ulong( gui, "failed_nonvote_transaction_cnt", slot->nonvote_failed_txn_cnt );
+        if( FD_UNLIKELY( slot->vote_txn_cnt==UINT_MAX
+                         || slot->failed_txn_cnt==UINT_MAX
+                         || slot->nonvote_failed_txn_cnt==UINT_MAX ) ) jsonp_null( gui, "success_vote_transaction_cnt" );
+        else                                                           jsonp_ulong( gui, "success_vote_transaction_cnt", slot->vote_txn_cnt - (slot->failed_txn_cnt - slot->nonvote_failed_txn_cnt) );
+        if( FD_UNLIKELY( slot->failed_txn_cnt==UINT_MAX
+                         || slot->nonvote_failed_txn_cnt==UINT_MAX ) ) jsonp_null( gui, "failed_vote_transaction_cnt" );
+        else                                                           jsonp_ulong( gui, "failed_vote_transaction_cnt", slot->failed_txn_cnt - slot->nonvote_failed_txn_cnt );
         if( FD_UNLIKELY( slot->max_compute_units==UINT_MAX ) ) jsonp_null( gui, "max_compute_units" );
         else                                                       jsonp_ulong( gui, "max_compute_units", slot->max_compute_units );
         if( FD_UNLIKELY( slot->compute_units==UINT_MAX ) ) jsonp_null( gui, "compute_units" );
@@ -1346,14 +1367,21 @@ fd_gui_printf_slot_request_detailed( fd_gui_t * gui,
         else                                          jsonp_long( gui, "duration_nanos", duration_nanos );
         if( FD_UNLIKELY( slot->completed_time==LONG_MAX ) ) jsonp_null( gui, "completed_time_nanos" );
         else                                                jsonp_long( gui, "completed_time_nanos", slot->completed_time );
-        if( FD_UNLIKELY( slot->total_txn_cnt==UINT_MAX ) ) jsonp_null( gui, "transactions" );
-        else                                               jsonp_ulong( gui, "transactions", slot->total_txn_cnt );
-        if( FD_UNLIKELY( slot->vote_txn_cnt==UINT_MAX ) ) jsonp_null( gui, "vote_transactions" );
-        else                                              jsonp_ulong( gui, "vote_transactions", slot->vote_txn_cnt );
-        if( FD_UNLIKELY( slot->failed_txn_cnt==UINT_MAX ) ) jsonp_null( gui, "failed_transactions" );
-        else                                                jsonp_ulong( gui, "failed_transactions", slot->failed_txn_cnt );
+        if( FD_UNLIKELY( slot->total_txn_cnt==UINT_MAX
+                         || slot->vote_txn_cnt==UINT_MAX
+                         || slot->nonvote_failed_txn_cnt==UINT_MAX ) ) jsonp_null( gui, "success_nonvote_transaction_cnt" );
+        else                                                           jsonp_ulong( gui, "success_nonvote_transaction_cnt", slot->total_txn_cnt - slot->vote_txn_cnt - slot->nonvote_failed_txn_cnt );
+        if( FD_UNLIKELY( slot->nonvote_failed_txn_cnt==UINT_MAX ) ) jsonp_null( gui, "failed_nonvote_transaction_cnt" );
+        else                                                        jsonp_ulong( gui, "failed_nonvote_transaction_cnt", slot->nonvote_failed_txn_cnt );
+        if( FD_UNLIKELY( slot->vote_txn_cnt==UINT_MAX
+                         || slot->failed_txn_cnt==UINT_MAX
+                         || slot->nonvote_failed_txn_cnt==UINT_MAX ) ) jsonp_null( gui, "success_vote_transaction_cnt" );
+        else                                                           jsonp_ulong( gui, "success_vote_transaction_cnt", slot->vote_txn_cnt - (slot->failed_txn_cnt - slot->nonvote_failed_txn_cnt) );
+        if( FD_UNLIKELY( slot->failed_txn_cnt==UINT_MAX
+                         || slot->nonvote_failed_txn_cnt==UINT_MAX ) ) jsonp_null( gui, "failed_vote_transaction_cnt" );
+        else                                                           jsonp_ulong( gui, "failed_vote_transaction_cnt", slot->failed_txn_cnt - slot->nonvote_failed_txn_cnt );
         if( FD_UNLIKELY( slot->max_compute_units==UINT_MAX ) ) jsonp_null( gui, "max_compute_units" );
-        else                                                       jsonp_ulong( gui, "max_compute_units", slot->max_compute_units );
+        else                                                   jsonp_ulong( gui, "max_compute_units", slot->max_compute_units );
         if( FD_UNLIKELY( slot->compute_units==UINT_MAX ) ) jsonp_null( gui, "compute_units" );
         else                                               jsonp_ulong( gui, "compute_units", slot->compute_units );
         if( FD_UNLIKELY( slot->transaction_fee==ULONG_MAX ) ) jsonp_null( gui, "transaction_fee" );

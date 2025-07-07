@@ -126,13 +126,14 @@ fd_dbl_buf_insert( fd_dbl_buf_t * buf,
 
 ulong
 fd_dbl_buf_read( fd_dbl_buf_t * buf,
+                 ulong          buf_sz,
                  void *         obj,
                  ulong *        opt_seqp ) {
   ulong _seq[1];
   ulong * seqp = opt_seqp ? opt_seqp : _seq;
   ulong sz;
   do {
-    sz = fd_dbl_buf_try_read( buf, obj, seqp );
+    sz = fd_dbl_buf_try_read( buf, obj, buf_sz, seqp );
   } while( FD_UNLIKELY( sz==ULONG_MAX ) );
   return sz;
 }

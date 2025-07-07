@@ -565,7 +565,7 @@ fd_vm_syscall_sol_memcpy( /**/            void *  _vm,
   FD_VM_CU_MEM_OP_UPDATE( vm, sz );
 
   /* Exact same as memmove, except also check overlap.
-     https://github.com/anza-xyz/agave/blob/master/programs/bpf_loader/src/syscalls/mem_ops.rs#L31 */
+     https://github.com/anza-xyz/agave/blob/v2.2.17/programs/bpf_loader/src/syscalls/mem_ops.rs#L45 */
   FD_VM_MEM_CHECK_NON_OVERLAPPING( vm, src_vaddr, sz, dst_vaddr, sz );
 
   return fd_vm_memmove( vm, dst_vaddr, src_vaddr, sz );
@@ -582,7 +582,7 @@ fd_vm_syscall_sol_memcmp( /**/            void *  _vm,
   *_ret = 0;
   fd_vm_t * vm = (fd_vm_t *)_vm;
 
-  /* https://github.com/anza-xyz/agave/blob/master/programs/bpf_loader/src/syscalls/mem_ops.rs#L59 */
+  /* https://github.com/anza-xyz/agave/blob/v2.2.17/programs/bpf_loader/src/syscalls/mem_ops.rs#L84 */
 
   FD_VM_CU_MEM_OP_UPDATE( vm, sz );
 
@@ -761,7 +761,7 @@ fd_vm_syscall_sol_memset( /**/            void *  _vm,
   fd_vm_t * vm = (fd_vm_t *)_vm;
   *_ret = 0;
 
-  /* https://github.com/anza-xyz/agave/blob/master/programs/bpf_loader/src/syscalls/mem_ops.rs#L115 */
+  /* https://github.com/anza-xyz/agave/blob/v2.2.17/programs/bpf_loader/src/syscalls/mem_ops.rs#L142 */
 
   FD_VM_CU_MEM_OP_UPDATE( vm, sz );
 

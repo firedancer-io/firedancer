@@ -54,11 +54,11 @@ fd_bank_footprint( void ) {
     }                                                                                                              \
     /* If the dirty flag has not been set yet, we need to allocated a */                                           \
     /* new pool element and copy over the data from the parent idx.   */                                           \
-    /* We also need to mark the dirty flag.                           */                                           \
+    /* We also need to mark the dirty flag. */                                                                     \
     ulong child_idx = fd_bank_##name##_pool_idx( name##_pool, child_##name );                                      \
     if( bank->name##_pool_idx!=fd_bank_##name##_pool_idx_null( name##_pool ) ) {                                   \
       fd_bank_##name##_t * parent_##name = fd_bank_##name##_pool_ele( name##_pool, bank->name##_pool_idx );        \
-      memcpy( child_##name->data, parent_##name->data, fd_bank_##name##_footprint );                               \
+      fd_memcpy( child_##name->data, parent_##name->data, fd_bank_##name##_footprint );                            \
     }                                                                                                              \
     bank->name##_pool_idx = child_idx;                                                                             \
     bank->name##_dirty    = 1;                                                                                     \
@@ -133,10 +133,12 @@ fd_banks_align( void ) {
 ulong
 fd_banks_footprint( ulong max_banks ) {
 
+  ulong map_chain_cnt = fd_ulong_pow2_up( max_banks );
+
   ulong l = FD_LAYOUT_INIT;
   l = FD_LAYOUT_APPEND( l, fd_banks_align(),      sizeof(fd_banks_t) );
   l = FD_LAYOUT_APPEND( l, fd_banks_pool_align(), fd_banks_pool_footprint( max_banks ) );
-  l = FD_LAYOUT_APPEND( l, fd_banks_map_align(),  fd_banks_map_footprint( max_banks ) );
+  l = FD_LAYOUT_APPEND( l, fd_banks_map_align(),  fd_banks_map_footprint( map_chain_cnt ) );
 
   /* Need to count the footprint for all of the CoW pools. */
   #define HAS_COW_1(name) \
@@ -170,16 +172,16 @@ fd_banks_new( void * shmem, ulong max_banks ) {
     return NULL;
   }
 
-  fd_memset( banks, 0, fd_banks_footprint( max_banks ) );
-
   /* Set the rwlock to unlocked. */
   fd_rwlock_unwrite( &banks->rwlock );
+
+  ulong map_chain_cnt = fd_ulong_pow2_up( max_banks );
 
   /* First, layout the banks and the pool/map used by fd_banks_t. */
   FD_SCRATCH_ALLOC_INIT( l, banks );
   banks           = FD_SCRATCH_ALLOC_APPEND( l, fd_banks_align(),      sizeof(fd_banks_t) );
   void * pool_mem = FD_SCRATCH_ALLOC_APPEND( l, fd_banks_pool_align(), fd_banks_pool_footprint( max_banks ) );
-  void * map_mem  = FD_SCRATCH_ALLOC_APPEND( l, fd_banks_map_align(),  fd_banks_map_footprint( max_banks ) );
+  void * map_mem  = FD_SCRATCH_ALLOC_APPEND( l, fd_banks_map_align(),  fd_banks_map_footprint( map_chain_cnt ) );
 
   /* Need to layout all of the CoW pools. */
   #define HAS_COW_1(name) \
@@ -215,7 +217,7 @@ fd_banks_new( void * shmem, ulong max_banks ) {
 
   fd_banks_set_bank_pool( banks, bank_pool );
 
-  void * map = fd_banks_map_new( map_mem, max_banks, 999UL );
+  void * map = fd_banks_map_new( map_mem, map_chain_cnt, 999UL );
   if( FD_UNLIKELY( !map ) ) {
     FD_LOG_WARNING(( "Failed to create bank map" ));
     return NULL;
@@ -278,10 +280,12 @@ fd_banks_join( void * mem ) {
     return NULL;
   }
 
+  ulong map_chain_cnt = fd_ulong_pow2_up( banks->max_banks );
+
   FD_SCRATCH_ALLOC_INIT( l, banks );
   banks           = FD_SCRATCH_ALLOC_APPEND( l, fd_banks_align(),      sizeof(fd_banks_t) );
   void * pool_mem = FD_SCRATCH_ALLOC_APPEND( l, fd_banks_pool_align(), fd_banks_pool_footprint( banks->max_banks ) );
-  void * map_mem  = FD_SCRATCH_ALLOC_APPEND( l, fd_banks_map_align(),  fd_banks_map_footprint( banks->max_banks ) );
+  void * map_mem  = FD_SCRATCH_ALLOC_APPEND( l, fd_banks_map_align(),  fd_banks_map_footprint( map_chain_cnt ) );
 
   /* Need to layout all of the CoW pools. */
   #define HAS_COW_1(name) \
@@ -486,6 +490,7 @@ fd_banks_clone_from_parent( fd_banks_t * banks,
 
   /* Now acquire a new bank */
 
+  FD_LOG_WARNING(( "fd_banks_pool_max: %lu, fd_banks_pool_free: %lu", fd_banks_pool_max( bank_pool ), fd_banks_pool_free( bank_pool ) ));
   fd_bank_t * new_bank = fd_banks_pool_ele_acquire( bank_pool );
   if( FD_UNLIKELY( !new_bank ) ) {
     FD_LOG_WARNING(( "Failed to acquire bank" ));
@@ -495,7 +500,6 @@ fd_banks_clone_from_parent( fd_banks_t * banks,
 
   ulong null_idx = fd_banks_pool_idx_null( bank_pool );
 
-  memset( new_bank, 0, fd_bank_footprint() );
   new_bank->slot        = slot;
   new_bank->next        = null_idx;
   new_bank->parent_idx  = null_idx;
@@ -671,5 +675,26 @@ fd_banks_publish( fd_banks_t * banks, ulong slot ) {
   fd_rwlock_unwrite( &banks->rwlock );
 
   return new_root;
+}
 
+void
+fd_bank_clear_bank( fd_bank_t * bank ) {
+
+  #define HAS_COW_1(type, name, footprint) \
+    fd_bank_##name##_t * name##_pool = fd_bank_get_##name##_pool( bank ); \
+    if( bank->name##_pool_idx==fd_bank_##name##_pool_idx_null( name##_pool ) ) { \
+      return; \
+    } \
+    fd_bank_##name##_t * name##_ele = fd_bank_##name##_pool_ele( name##_pool, bank->name##_pool_idx ); \
+    fd_memset( name##_ele->data, 0, footprint );
+
+  #define HAS_COW_0(type, name, footprint) \
+    fd_memset( bank->name, 0, footprint );
+
+  #define X(type, name, footprint, align, cow, has_lock) \
+    HAS_COW_##cow(type, name, footprint)
+  FD_BANKS_ITER(X)
+  #undef X
+  #undef HAS_COW_0
+  #undef HAS_COW_1
 }

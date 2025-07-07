@@ -123,10 +123,10 @@ find_producer_out_idx( fd_topo_t const *      topo,
      and then returns the position of the consumer (specified by tile
      and index of the in of that tile) in that list. The list ordering
      is not important, except that it matches the ordering of fseqs
-     provided to the mux tile, so that metrics written for each link
-     index are retrieved at the same index here.
+     provided to fd_stem, so that metrics written for each link index
+     are retrieved at the same index here.
 
-     This is why we only count reliable links, because the mux tile only
+     This is why we only count reliable links, because fd_stem only
      looks at and writes producer side diagnostics (is the link slow)
      for reliable links. */
 
@@ -622,9 +622,10 @@ monitor_cmd_fn( args_t *   args,
 }
 
 action_t fd_action_monitor = {
-  .name        = "monitor",
-  .args        = monitor_cmd_args,
-  .fn          = monitor_cmd_fn,
-  .perm        = monitor_cmd_perm,
-  .description = "Monitor a locally running Firedancer instance with a terminal GUI",
+  .name           = "monitor",
+  .args           = monitor_cmd_args,
+  .fn             = monitor_cmd_fn,
+  .require_config = 1,
+  .perm           = monitor_cmd_perm,
+  .description    = "Monitor a locally running Firedancer instance with a terminal GUI",
 };

@@ -82,6 +82,7 @@ write_account( fd_borrowed_account_t *   account,
   uchar const * data = account ? fd_borrowed_account_get_data( account )     : NULL;
   ulong         dlen = account ? fd_borrowed_account_get_data_len( account ) : 0UL;
 
+  acc_region_metas[instr_acc_idx].original_data_len = dlen;
   if( copy_account_data ) {
     /* Copy the account data into input region buffer */
     fd_memcpy( *serialized_params, data, dlen );
@@ -93,6 +94,11 @@ write_account( fd_borrowed_account_t *   account,
       fd_memset( *serialized_params, 0, MAX_PERMITTED_DATA_INCREASE + align_offset );
       *serialized_params += MAX_PERMITTED_DATA_INCREASE + align_offset;
     }
+    /* In the non-DM case, we don't bother with setting up mem regions.
+       So has_data_region and has_resizing_region are set to 0. */
+    acc_region_metas[instr_acc_idx].region_idx          = UINT_MAX;
+    acc_region_metas[instr_acc_idx].has_data_region     = 0U;
+    acc_region_metas[instr_acc_idx].has_resizing_region = 0U;
   } else { /* direct_mapping == true */
     /* First, push on the region for the metadata that has just been serialized.
        This function will push the metadata in the serialized_params from

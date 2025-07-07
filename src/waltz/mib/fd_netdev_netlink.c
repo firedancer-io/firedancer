@@ -1,6 +1,8 @@
 #include "fd_netdev_netlink.h"
 #include "../../util/fd_util.h"
+#include "../../util/net/fd_ip4.h"
 #include "fd_netdev_tbl.h"
+#include <linux/if_link.h>
 
 #if !defined(__linux__)
 #error "fd_fib4_netlink.c requires a Linux system with kernel headers"
@@ -10,6 +12,7 @@
 #include <linux/if.h> /* IFNAMSIZ */
 #include <linux/if_arp.h> /* ARPHRD_NETROM */
 #include <linux/rtnetlink.h> /* RTM_{...}, NLM_{...} */
+#include <linux/if_tunnel.h>
 
 static fd_netdev_t *
 fd_netdev_init( fd_netdev_t * netdev ) {
@@ -18,7 +21,10 @@ fd_netdev_init( fd_netdev_t * netdev ) {
     .if_idx        = 0,
     .slave_tbl_idx = -1,
     .master_idx    = -1,
-    .oper_status   = FD_OPER_STATUS_INVALID
+    .oper_status   = FD_OPER_STATUS_INVALID,
+    .dev_type      = ARPHRD_NONE,
+    .gre_dst_ip    = 0,
+    .gre_src_ip    = 0
   };
   return netdev;
 }
@@ -49,7 +55,6 @@ ifoper_to_oper_status( uint if_oper ) {
 int
 fd_netdev_netlink_load_table( fd_netdev_tbl_join_t * tbl,
                               fd_netlink_t *         netlink ) {
-
   fd_netdev_tbl_reset( tbl );
 
   uint seq = netlink->seq++;
@@ -104,7 +109,9 @@ fd_netdev_netlink_load_table( fd_netdev_tbl_join_t * tbl,
       err = ENOSPC;
       break;
     }
-    if( ifi->ifi_type!=ARPHRD_ETHER && ifi->ifi_type!=ARPHRD_LOOPBACK ) continue;
+
+    ushort ifi_type = ifi->ifi_type;
+    if( ifi_type!=ARPHRD_ETHER && ifi_type!=ARPHRD_LOOPBACK && ifi_type!=ARPHRD_IPGRE ) continue;
 
     struct ifinfomsg * msg    = NLMSG_DATA( nlh );
     struct rtattr *    rat    = (void *)( (ulong)msg + NLMSG_ALIGN( sizeof(struct ifinfomsg) ) );
@@ -168,7 +175,46 @@ fd_netdev_netlink_load_table( fd_netdev_tbl_join_t * tbl,
         }
         netdev->master_idx = (short)master_idx;
         break;
-      }
+      } /* IFLA_MASTER */
+
+      case IFLA_LINKINFO : {
+        if( ifi->ifi_type!=ARPHRD_IPGRE ) continue;
+
+        struct rtattr * info_rat    = rta;
+        long            info_rat_sz = (long)rta_sz;
+
+        for( ; RTA_OK( info_rat, info_rat_sz ); info_rat = RTA_NEXT( info_rat, info_rat_sz ) ) {
+          void * info_rta    = RTA_DATA( info_rat );
+          ulong  info_rta_sz = RTA_PAYLOAD( info_rat );
+
+          switch( info_rat->rta_type ) {
+          case IFLA_INFO_DATA: {
+            struct rtattr * gre_rat    = (struct rtattr *)info_rta;
+            long            gre_rat_sz = (long)info_rta_sz;
+
+            for( ; RTA_OK( gre_rat, gre_rat_sz ); gre_rat = RTA_NEXT( gre_rat, gre_rat_sz ) ) {
+              void * gre_rta    = RTA_DATA( gre_rat );
+              uint gre_dst_ip;
+              uint gre_src_ip;
+
+              switch( gre_rat->rta_type ) {
+              case IFLA_GRE_REMOTE: {
+                gre_dst_ip = FD_LOAD( uint, gre_rta );
+                if( gre_dst_ip != 0 ) netdev->gre_dst_ip = gre_dst_ip;
+                break;
+              } /* IFLA_GRE_REMOTE */
+              case IFLA_GRE_LOCAL: {
+                gre_src_ip = FD_LOAD( uint, gre_rta );
+                if( gre_src_ip != 0 ) netdev->gre_src_ip = gre_src_ip;
+                break;
+              } /* IFLA_GRE_LOCAL */
+              }
+            }
+            break;
+          } /* IFLA_INFO_DATA */
+          } /* info_rat->rta_type */
+        } /* for each info_rta */
+      } /* IFLA_LINKINFO */
 
       } /* switch( rat->rta_type ) */
     } /* for each RTA */
@@ -177,6 +223,7 @@ fd_netdev_netlink_load_table( fd_netdev_tbl_join_t * tbl,
       netdev->oper_status = FD_OPER_STATUS_UP;
     }
 
+    netdev->dev_type = ifi_type;
     tbl->dev_tbl[ ifi->ifi_index ] = *netdev;
     tbl->hdr->dev_cnt = (ushort)fd_uint_max( tbl->hdr->dev_cnt, (uint)ifi->ifi_index+1U );
   }

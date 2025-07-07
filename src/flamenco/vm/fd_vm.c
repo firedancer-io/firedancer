@@ -621,11 +621,6 @@ fd_vm_init(
     return NULL;
   }
 
-  if ( FD_UNLIKELY( instr_ctx == NULL ) ) {
-    FD_LOG_WARNING(( "NULL instr_ctx" ));
-    return NULL;
-  }
-
   if ( FD_UNLIKELY( heap_max > FD_VM_HEAP_MAX ) ) {
     FD_LOG_WARNING(( "heap_max > FD_VM_HEAP_MAX" ));
     return NULL;

@@ -688,6 +688,9 @@ extend_lookup_table( fd_exec_instr_ctx_t *       ctx,
   uchar * lut_data_mut = NULL;
   ulong   lut_data_mut_len = 0;
   err = fd_borrowed_account_get_data_mut( &lut_acct, &lut_data_mut, &lut_data_mut_len );
+  if( FD_UNLIKELY( err ) ) {
+    return err;
+  }
   lut_acct.acct->vt->resize( lut_acct.acct, new_table_data_sz );
 
   /* https://github.com/solana-labs/solana/blob/v1.17.4/programs/address-lookup-table/src/processor.rs#L307-L310 */
@@ -848,7 +851,7 @@ deactivate_lookup_table( fd_exec_instr_ctx_t * ctx ) {
 
   /* https://github.com/solana-labs/solana/blob/v1.17.4/programs/address-lookup-table/src/processor.rs#L367-L370 */
   if( FD_UNLIKELY( !state->meta.has_authority ) ) {
-    fd_log_collector_msg_literal( ctx, "Lookup table is already frozen" );
+    fd_log_collector_msg_literal( ctx, "Lookup table is frozen" );
     return FD_EXECUTOR_INSTR_ERR_ACC_IMMUTABLE;
   }
 

@@ -3,9 +3,7 @@
 void *
 fd_poh_append( void * poh,
                ulong  n ) {
-  while( n-- ) {
-    fd_sha256_hash_32( poh, poh );
-  }
+  fd_sha256_hash_32_repeated( poh, poh, n );
   return poh;
 }
 

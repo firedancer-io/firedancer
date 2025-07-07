@@ -137,7 +137,6 @@ FD_PROTOTYPES_BEGIN
   X(fd_clock_timestamp_votes_global_t, clock_timestamp_votes,       5000000UL,                                 128UL,                                      1,   1    )  /* TODO: This needs to get sized out */                      \
   X(fd_account_keys_global_t,          stake_account_keys,          100000000UL,                               128UL,                                      1,   1    )  /* Supports roughly 3M stake accounts */                     \
   X(fd_account_keys_global_t,          vote_account_keys,           3200000UL,                                 128UL,                                      1,   1    )  /* Supports roughly 100k vote accounts */                    \
-  X(fd_rent_fresh_accounts_global_t,   rent_fresh_accounts,         500000UL,                                  128UL,                                      1,   1    )  /* Rent fresh accounts */                                    \
   X(fd_block_hash_queue_global_t,      block_hash_queue,            50000UL,                                   128UL,                                      0,   0    )  /* Block hash queue */                                       \
   X(fd_fee_rate_governor_t,            fee_rate_governor,           sizeof(fd_fee_rate_governor_t),            alignof(fd_fee_rate_governor_t),            0,   0    )  /* Fee rate governor */                                      \
   X(ulong,                             capitalization,              sizeof(ulong),                             alignof(ulong),                             0,   0    )  /* Capitalization */                                         \
@@ -154,6 +153,9 @@ FD_PROTOTYPES_BEGIN
   X(double,                            slots_per_year,              sizeof(double),                            alignof(double),                            0,   0    )  /* Slots per year */                                         \
   X(fd_inflation_t,                    inflation,                   sizeof(fd_inflation_t),                    alignof(fd_inflation_t),                    0,   0    )  /* Inflation */                                              \
   X(ulong,                             total_epoch_stake,           sizeof(ulong),                             alignof(ulong),                             0,   0    )  /* Total epoch stake */                                      \
+                                                                                                                                                                        /* This is only used for the get_epoch_stake syscall. */     \
+                                                                                                                                                                        /* If we are executing in epoch E, this is the total */      \
+                                                                                                                                                                        /* stake at the end of epoch E-1. */                         \
   X(ulong,                             eah_start_slot,              sizeof(ulong),                             alignof(ulong),                             0,   0    )  /* EAH start slot */                                         \
   X(ulong,                             eah_stop_slot,               sizeof(ulong),                             alignof(ulong),                             0,   0    )  /* EAH stop slot */                                          \
   X(ulong,                             eah_interval,                sizeof(ulong),                             alignof(ulong),                             0,   0    )  /* EAH interval */                                           \
@@ -174,6 +176,11 @@ FD_PROTOTYPES_BEGIN
   X(fd_rent_t,                         rent,                        sizeof(fd_rent_t),                         alignof(fd_rent_t),                         0,   0    )  /* Rent */                                                   \
   X(fd_slot_lthash_t,                  lthash,                      sizeof(fd_slot_lthash_t),                  alignof(fd_slot_lthash_t),                  0,   0    )  /* LTHash */                                                 \
   X(fd_vote_accounts_global_t,         next_epoch_stakes,           200000000UL,                               128UL,                                      1,   1    )  /* Next epoch stakes, ~4K per account * 50k vote accounts */ \
+                                                                                                                                                                        /* These are the stakes that determine the leader */         \
+                                                                                                                                                                        /* schedule for the upcoming epoch.  If we are executing */  \
+                                                                                                                                                                        /* in epoch E, these are the stakes at the end of epoch */   \
+                                                                                                                                                                        /* E-1 and they determined the leader schedule for epoch */  \
+                                                                                                                                                                        /* E+1. */                                                   \
   X(fd_vote_accounts_global_t,         epoch_stakes,                200000000UL,                               128UL,                                      1,   1    )  /* Epoch stakes ~4K per account * 50k vote accounts */       \
   X(fd_epoch_reward_status_global_t,   epoch_reward_status,         160000000UL,                               128UL,                                      1,   1    )  /* Epoch reward status */                                    \
   X(fd_epoch_leaders_t,                epoch_leaders,               1000000UL,                                 128UL,                                      1,   1    )  /* Epoch leaders */                                          \
@@ -235,12 +242,6 @@ FD_PROTOTYPES_BEGIN
 
 #define POOL_NAME fd_bank_vote_account_keys_pool
 #define POOL_T    fd_bank_vote_account_keys_t
-#include "../../util/tmpl/fd_pool.c"
-#undef POOL_NAME
-#undef POOL_T
-
-#define POOL_NAME fd_bank_rent_fresh_accounts_pool
-#define POOL_T    fd_bank_rent_fresh_accounts_t
 #include "../../util/tmpl/fd_pool.c"
 #undef POOL_NAME
 #undef POOL_T
@@ -585,6 +586,9 @@ fd_banks_clone_from_parent( fd_banks_t * banks,
 
 fd_bank_t const *
 fd_banks_publish( fd_banks_t * banks, ulong slot );
+
+void
+fd_bank_clear_bank( fd_bank_t * bank );
 
 FD_PROTOTYPES_END
 

@@ -30,8 +30,6 @@ typedef struct fd_h2_settings fd_h2_settings_t;
    settings with a peer. */
 
 struct fd_h2_conn {
-  fd_h2_callbacks_t const * cb;
-
   union { /* arbitrary value for use by caller */
     void * ctx;
     ulong  memo;

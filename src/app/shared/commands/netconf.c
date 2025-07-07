@@ -34,7 +34,7 @@ netconf_cmd_fn( args_t *   args,
   fd_dbl_buf_t * netdev_buf = fd_dbl_buf_join( fd_topo_obj_laddr( topo, tile->netlink.netdev_dbl_buf_obj_id ) );
   FD_TEST( netdev_buf );
   void * netdev_copy = aligned_alloc( fd_netdev_tbl_align(), fd_dbl_buf_obj_mtu( netdev_buf ) );
-  fd_dbl_buf_read( netdev_buf, netdev_copy, NULL );
+  fd_dbl_buf_read( netdev_buf, fd_dbl_buf_obj_mtu( netdev_buf ), netdev_copy, NULL );
   fd_netdev_tbl_join_t netdev[1];
   FD_TEST( fd_netdev_tbl_join( netdev, netdev_copy ) );
   fd_netdev_tbl_fprintf( netdev, stdout );
@@ -64,9 +64,10 @@ netconf_cmd_fn( args_t *   args,
 }
 
 action_t fd_action_netconf = {
-  .name        = "netconf",
-  .args        = NULL,
-  .fn          = netconf_cmd_fn,
-  .perm        = NULL,
-  .description = "Print network configuration",
+  .name           = "netconf",
+  .args           = NULL,
+  .fn             = netconf_cmd_fn,
+  .require_config = 1,
+  .perm           = NULL,
+  .description    = "Print network configuration",
 };

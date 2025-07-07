@@ -230,7 +230,7 @@ fd_exec_slot_ctx_recover( fd_exec_slot_ctx_t *                slot_ctx,
   /* Fee Rate Governor */
 
   fd_fee_rate_governor_t * fee_rate_governor = fd_bank_fee_rate_governor_modify( slot_ctx->bank );
-  fd_memcpy( fee_rate_governor, &old_bank->fee_rate_governor, sizeof(fd_fee_rate_governor_t) );
+  *fee_rate_governor = old_bank->fee_rate_governor;
 
   /* Capitalization */
 
@@ -405,13 +405,28 @@ fd_exec_slot_ctx_recover( fd_exec_slot_ctx_t *                slot_ctx,
 
       if( versioned_epoch_stakes[i].epoch == epoch ) {
         vote_accounts_curr_stakes = &versioned_epoch_stakes[i].val.inner.Current.stakes.vote_accounts;
-
-        /* We want to save the total epoch stake for the current epoch */
-        fd_bank_total_epoch_stake_set( slot_ctx->bank, versioned_epoch_stakes[i].val.inner.Current.total_stake );
-
       }
       if( versioned_epoch_stakes[i].epoch == epoch+1UL ) {
         vote_accounts_next_stakes = &versioned_epoch_stakes[i].val.inner.Current.stakes.vote_accounts;
+
+        /* Save the initial value to be used for the get_epoch_stake
+           syscall.
+
+           A note on Agave's indexing scheme for their epoch_stakes
+           structure:
+
+           https://github.com/anza-xyz/agave/blob/v2.2.14/runtime/src/bank.rs#L6175
+
+           If we are loading a snapshot and replaying in the middle of
+           epoch 7, the syscall is supposed to return the total stake at
+           the end of epoch 6.  The epoch_stakes structure is indexed in
+           Agave by the epoch number of the leader schedule that the
+           stakes are meant to determine.  For instance, to get the
+           stakes at the end of epoch 6, we should query by 8, because
+           the leader schedule for epoch 8 is determined based on the
+           stakes at the end of epoch 6.  Therefore, we save the total
+           epoch stake by querying for epoch+1. */
+        fd_bank_total_epoch_stake_set( slot_ctx->bank, versioned_epoch_stakes[i].val.inner.Current.total_stake );
       }
     }
 
@@ -530,20 +545,6 @@ fd_exec_slot_ctx_recover( fd_exec_slot_ctx_t *                slot_ctx,
   } else {
     fd_lthash_zero( (fd_lthash_value_t *)lthash->lthash );
   }
-
-  fd_rent_fresh_accounts_global_t * rent_fresh_accounts = fd_bank_rent_fresh_accounts_locking_modify( slot_ctx->bank );
-
-  /* Setup rent fresh accounts */
-  rent_fresh_accounts->total_count        = 0UL;
-  rent_fresh_accounts->fresh_accounts_len = FD_RENT_FRESH_ACCOUNTS_MAX;
-
-  fd_rent_fresh_account_t * fresh_accounts = (fd_rent_fresh_account_t *)fd_ulong_align_up( (ulong)rent_fresh_accounts + sizeof(fd_rent_fresh_accounts_global_t), FD_RENT_FRESH_ACCOUNT_ALIGN );
-  memset( fresh_accounts, 0, rent_fresh_accounts->fresh_accounts_len * sizeof(fd_rent_fresh_account_t) );
-
-  fd_rent_fresh_accounts_fresh_accounts_update( rent_fresh_accounts, fresh_accounts );
-
-  fd_bank_rent_fresh_accounts_end_locking_modify( slot_ctx->bank );
-
   /* Setup next epoch stakes */
 
   return slot_ctx;

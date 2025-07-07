@@ -147,7 +147,7 @@ fd_gui_ws_open( fd_gui_t * gui,
     fd_gui_printf_cluster,
     fd_gui_printf_commit_hash,
     fd_gui_printf_identity_key,
-    fd_gui_printf_uptime_nanos,
+    fd_gui_printf_startup_time_nanos,
     fd_gui_printf_vote_state,
     fd_gui_printf_vote_distance,
     fd_gui_printf_skipped_history,
@@ -546,19 +546,23 @@ fd_gui_poll( fd_gui_t * gui ) {
 static void
 fd_gui_handle_gossip_update( fd_gui_t *    gui,
                              uchar const * msg ) {
+  if( FD_UNLIKELY( gui->gossip.peer_cnt == FD_GUI_MAX_PEER_CNT ) ) {
+    FD_LOG_DEBUG(("gossip peer cnt exceeds 40200 %lu, ignoring additional entries", gui->gossip.peer_cnt ));
+    return;
+  }
   ulong const * header = (ulong const *)fd_type_pun_const( msg );
   ulong peer_cnt = header[ 0 ];
 
-  FD_TEST( peer_cnt<=40200UL );
+  FD_TEST( peer_cnt<=FD_GUI_MAX_PEER_CNT );
 
   ulong added_cnt = 0UL;
-  ulong added[ 40200 ] = {0};
+  ulong added[ FD_GUI_MAX_PEER_CNT ] = {0};
 
   ulong update_cnt = 0UL;
-  ulong updated[ 40200 ] = {0};
+  ulong updated[ FD_GUI_MAX_PEER_CNT ] = {0};
 
   ulong removed_cnt = 0UL;
-  fd_pubkey_t removed[ 40200 ] = {0};
+  fd_pubkey_t removed[ FD_GUI_MAX_PEER_CNT ] = {0};
 
   uchar const * data = (uchar const *)(header+1UL);
   for( ulong i=0UL; i<gui->gossip.peer_cnt; i++ ) {
@@ -670,19 +674,23 @@ fd_gui_handle_gossip_update( fd_gui_t *    gui,
 static void
 fd_gui_handle_vote_account_update( fd_gui_t *    gui,
                                    uchar const * msg ) {
+  if( FD_UNLIKELY( gui->vote_account.vote_account_cnt==FD_GUI_MAX_PEER_CNT ) ) {
+    FD_LOG_DEBUG(("vote account cnt exceeds 40200 %lu, ignoring additional entries", gui->vote_account.vote_account_cnt ));
+    return;
+  }
   ulong const * header = (ulong const *)fd_type_pun_const( msg );
   ulong peer_cnt = header[ 0 ];
 
-  FD_TEST( peer_cnt<=40200UL );
+  FD_TEST( peer_cnt<=FD_GUI_MAX_PEER_CNT );
 
   ulong added_cnt = 0UL;
-  ulong added[ 40200 ] = {0};
+  ulong added[ FD_GUI_MAX_PEER_CNT ] = {0};
 
   ulong update_cnt = 0UL;
-  ulong updated[ 40200 ] = {0};
+  ulong updated[ FD_GUI_MAX_PEER_CNT ] = {0};
 
   ulong removed_cnt = 0UL;
-  fd_pubkey_t removed[ 40200 ] = {0};
+  fd_pubkey_t removed[ FD_GUI_MAX_PEER_CNT ] = {0};
 
   uchar const * data = (uchar const *)(header+1UL);
   for( ulong i=0UL; i<gui->vote_account.vote_account_cnt; i++ ) {
@@ -762,6 +770,10 @@ fd_gui_handle_vote_account_update( fd_gui_t *    gui,
 static void
 fd_gui_handle_validator_info_update( fd_gui_t *    gui,
                                      uchar const * msg ) {
+  if( FD_UNLIKELY( gui->validator_info.info_cnt == FD_GUI_MAX_PEER_CNT ) ) {
+    FD_LOG_DEBUG(("validator info cnt exceeds 40200 %lu, ignoring additional entries", gui->validator_info.info_cnt ));
+    return;
+  }
   uchar const * data = (uchar const *)fd_type_pun_const( msg );
 
   ulong added_cnt = 0UL;
@@ -772,8 +784,8 @@ fd_gui_handle_validator_info_update( fd_gui_t *    gui,
 
   ulong removed_cnt = 0UL;
   /* Unlike gossip or vote account updates, validator info messages come
-     in as info is disovered, and may contain as little as 1 validator
-     per message.  Therefore it doesn't make sense to use the remove
+     in as info is discovered, and may contain as little as 1 validator
+     per message.  Therefore, it doesn't make sense to use the remove
      mechanism.  */
 
   ulong before_peer_cnt = gui->validator_info.info_cnt;
@@ -1409,7 +1421,7 @@ fd_gui_handle_optimistically_confirmed_slot( fd_gui_t * gui,
     if( FD_UNLIKELY( slot->slot>parent_slot ) ) {
       FD_LOG_ERR(( "_slot %lu i %lu we expect parent_slot %lu got slot->slot %lu", _slot, i, parent_slot, slot->slot ));
     } else if( FD_UNLIKELY( slot->slot<parent_slot ) ) {
-      /* Slot not even replayed yet ... will come out as optmistically confirmed */
+      /* Slot not even replayed yet ... will come out as optimistically confirmed */
       continue;
     }
     if( FD_UNLIKELY( slot->level>=FD_GUI_SLOT_LEVEL_ROOTED ) ) break;
@@ -1748,7 +1760,7 @@ fd_gui_microblock_execution_begin( fd_gui_t *   gui,
 
   /* At the moment, bank publishes at most 1 transaction per microblock,
      even if it received microblocks with multiple transactions
-     (i.e. a bundle). This means that we need to calulate microblock
+     (i.e. a bundle). This means that we need to calculate microblock
      count here based on the transaction count. */
   slot->txs.begin_microblocks = (ushort)(slot->txs.begin_microblocks + txn_cnt);
 }

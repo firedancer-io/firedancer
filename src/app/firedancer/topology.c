@@ -25,7 +25,6 @@ setup_topo_blockstore( fd_topo_t *  topo,
                        ulong        shred_max,
                        ulong        block_max,
                        ulong        idx_max,
-                       ulong        txn_max,
                        ulong        alloc_max ) {
   fd_topo_obj_t * obj = fd_topob_obj( topo, "blockstore", wksp_name );
 
@@ -37,12 +36,11 @@ setup_topo_blockstore( fd_topo_t *  topo,
   FD_TEST( fd_pod_insertf_ulong( topo->props, shred_max,  "obj.%lu.shred_max",  obj->id ) );
   FD_TEST( fd_pod_insertf_ulong( topo->props, block_max,  "obj.%lu.block_max",  obj->id ) );
   FD_TEST( fd_pod_insertf_ulong( topo->props, idx_max,    "obj.%lu.idx_max",    obj->id ) );
-  FD_TEST( fd_pod_insertf_ulong( topo->props, txn_max,    "obj.%lu.txn_max",    obj->id ) );
   FD_TEST( fd_pod_insertf_ulong( topo->props, alloc_max,  "obj.%lu.alloc_max",  obj->id ) );
 
   /* DO NOT MODIFY LOOSE WITHOUT CHANGING HOW BLOCKSTORE ALLOCATES INTERNAL STRUCTURES */
 
-  ulong blockstore_footprint = fd_blockstore_footprint( shred_max, block_max, idx_max, txn_max ) + alloc_max;
+  ulong blockstore_footprint = fd_blockstore_footprint( shred_max, block_max, idx_max ) + alloc_max;
   FD_TEST( fd_pod_insertf_ulong( topo->props, blockstore_footprint,  "obj.%lu.loose", obj->id ) );
 
   return obj;
@@ -85,14 +83,12 @@ setup_topo_txncache( fd_topo_t *  topo,
                      char const * wksp_name,
                      ulong        max_rooted_slots,
                      ulong        max_live_slots,
-                     ulong        max_txn_per_slot,
-                     ulong        max_constipated_slots ) {
+                     ulong        max_txn_per_slot ) {
   fd_topo_obj_t * obj = fd_topob_obj( topo, "txncache", wksp_name );
 
   FD_TEST( fd_pod_insertf_ulong( topo->props, max_rooted_slots, "obj.%lu.max_rooted_slots", obj->id ) );
   FD_TEST( fd_pod_insertf_ulong( topo->props, max_live_slots,   "obj.%lu.max_live_slots",   obj->id ) );
   FD_TEST( fd_pod_insertf_ulong( topo->props, max_txn_per_slot, "obj.%lu.max_txn_per_slot", obj->id ) );
-  FD_TEST( fd_pod_insertf_ulong( topo->props, max_constipated_slots, "obj.%lu.max_constipated_slots", obj->id ) );
 
   return obj;
 }
@@ -333,7 +329,6 @@ fd_topo_initialize( config_t * config ) {
   fd_topob_wksp( topo, "poh"         );
   fd_topob_wksp( topo, "send"        );
   fd_topob_wksp( topo, "tower"       );
-  fd_topob_wksp( topo, "constipate"  );
   fd_topob_wksp( topo, "exec_spad"   );
   fd_topob_wksp( topo, "exec_fseq"   );
   fd_topob_wksp( topo, "writer_fseq" );
@@ -483,7 +478,6 @@ fd_topo_initialize( config_t * config ) {
                                                           config->firedancer.blockstore.shred_max,
                                                           config->firedancer.blockstore.block_max,
                                                           config->firedancer.blockstore.idx_max,
-                                                          config->firedancer.blockstore.txn_max,
                                                           config->firedancer.blockstore.alloc_max );
   fd_topob_tile_uses( topo, replay_tile, blockstore_obj, FD_SHMEM_JOIN_MODE_READ_WRITE );
   fd_topob_tile_uses( topo, repair_tile, blockstore_obj, FD_SHMEM_JOIN_MODE_READ_ONLY );
@@ -535,8 +529,7 @@ fd_topo_initialize( config_t * config ) {
   fd_topo_obj_t * txncache_obj = setup_topo_txncache( topo, "tcache",
       config->firedancer.runtime.limits.max_rooted_slots,
       config->firedancer.runtime.limits.max_live_slots,
-      config->firedancer.runtime.limits.max_transactions_per_slot,
-      fd_txncache_max_constipated_slots_est( config->firedancer.runtime.limits.snapshot_grace_period_seconds ) );
+      config->firedancer.runtime.limits.max_transactions_per_slot );
   fd_topob_tile_uses( topo, replay_tile, txncache_obj, FD_SHMEM_JOIN_MODE_READ_WRITE );
   FD_TEST( fd_pod_insertf_ulong( topo->props, txncache_obj->id, "txncache" ) );
 
@@ -614,10 +607,6 @@ fd_topo_initialize( config_t * config ) {
   }
   FD_TEST( fd_pod_insertf_ulong( topo->props, poh_shred_obj->id, "poh_shred" ) );
 
-  fd_topo_obj_t * constipated_obj = fd_topob_obj( topo, "fseq", "constipate" );
-  fd_topob_tile_uses( topo, replay_tile, constipated_obj, FD_SHMEM_JOIN_MODE_READ_WRITE );
-  FD_TEST( fd_pod_insertf_ulong( topo->props, constipated_obj->id, "constipate" ) );
-
   if( FD_LIKELY( !is_auto_affinity ) ) {
     if( FD_UNLIKELY( affinity_tile_cnt<topo->tile_cnt ) )
       FD_LOG_ERR(( "The topology you are using has %lu tiles, but the CPU affinity specified in the config tile as [layout.affinity] only provides for %lu cores. "
@@ -678,7 +667,7 @@ fd_topo_initialize( config_t * config ) {
 
   /* Sign links don't need to be reliable because they are synchronous,
     so there's at most one fragment in flight at a time anyway.  The
-    sign links are also not polled by the mux, instead the tiles will
+    sign links are also not polled by fd_stem, instead the tiles will
     read the sign responses out of band in a dedicated spin loop. */
   for( ulong i=0UL; i<shred_tile_cnt; i++ ) {
     /**/               fd_topob_tile_in(  topo, "sign",   0UL,           "metric_in", "shred_sign",    i,            FD_TOPOB_UNRELIABLE, FD_TOPOB_POLLED   );

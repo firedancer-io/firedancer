@@ -148,9 +148,24 @@ fd_sha256_hash( void const * data,
                 ulong        sz,
                 void *       hash );
 
+/* fd_sha256_hash_32_repeated hashes the 32 bytes pointed to by data,
+   then hashes the hash, and repeats, doing a total of cnt hashes.  It
+   is a streamlined version of:
+
+   uchar temp[32];
+   memcpy( temp, data, 32UL );
+   for( ulong i=0UL; i<cnt; i++ ) fd_sha256_hash( temp, 32UL, temp );
+   memcpy( hash, temp, 32UL );
+   return hash;
+
+   This eliminates function call overhead and data marshalling.  cnt==0
+   is okay, in which case this just copies data to hash.  Always returns
+   hash.  data and hash must be valid, non-NULL pointers, even when
+   cnt==0. */
 void *
-fd_sha256_hash_32( void const * data,
-                   void *       hash );
+fd_sha256_hash_32_repeated( void const * data,
+                            void *       hash,
+                            ulong        cnt );
 
 FD_PROTOTYPES_END
 

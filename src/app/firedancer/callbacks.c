@@ -114,7 +114,6 @@ funk_loose( fd_topo_t const *     topo,
 static void
 funk_new( fd_topo_t const *     topo,
            fd_topo_obj_t const * obj ) {
-  (void)topo;
   ulong funk_seed = fd_pod_queryf_ulong( topo->props, 0UL, "obj.%lu.seed", obj->id );
   if( !funk_seed ) FD_TEST( fd_rng_secure( &funk_seed, sizeof(ulong) ) );
   FD_TEST( fd_funk_new( fd_topo_obj_laddr( topo, obj->id ), 2UL, funk_seed, VAL("txn_max"), VAL("rec_max") ) );
@@ -131,7 +130,7 @@ fd_topo_obj_callbacks_t fd_obj_cb_funk = {
 static ulong
 blockstore_footprint( fd_topo_t const *     topo,
                       fd_topo_obj_t const * obj ) {
-  return fd_blockstore_footprint( VAL("shred_max"), VAL("block_max"), VAL("idx_max"), VAL("txn_max") ) + VAL("alloc_max");
+  return fd_blockstore_footprint( VAL("shred_max"), VAL("block_max"), VAL("idx_max") ) + VAL("alloc_max");
 }
 
 static ulong
@@ -143,7 +142,7 @@ blockstore_align( fd_topo_t const *     topo FD_FN_UNUSED,
 static void
 blockstore_new( fd_topo_t const *     topo,
                 fd_topo_obj_t const * obj ) {
-  FD_TEST( fd_blockstore_new( fd_topo_obj_laddr( topo, obj->id ), VAL("wksp_tag"), VAL("seed"), VAL("shred_max"), VAL("block_max"), VAL("idx_max"), VAL("txn_max") ) );
+  FD_TEST( fd_blockstore_new( fd_topo_obj_laddr( topo, obj->id ), VAL("wksp_tag"), VAL("seed"), VAL("shred_max"), VAL("block_max"), VAL("idx_max") ) );
 }
 
 fd_topo_obj_callbacks_t fd_obj_cb_blockstore = {
@@ -181,7 +180,7 @@ fd_topo_obj_callbacks_t fd_obj_cb_fec_sets = {
 static ulong
 txncache_footprint( fd_topo_t const *     topo,
                     fd_topo_obj_t const * obj ) {
-  return fd_txncache_footprint( VAL("max_rooted_slots"), VAL("max_live_slots"), VAL("max_txn_per_slot"), VAL("max_constipated_slots") );
+  return fd_txncache_footprint( VAL("max_rooted_slots"), VAL("max_live_slots"), VAL("max_txn_per_slot") );
 }
 
 static ulong
@@ -193,7 +192,7 @@ txncache_align( fd_topo_t const *     topo FD_FN_UNUSED,
 static void
 txncache_new( fd_topo_t const *     topo,
               fd_topo_obj_t const * obj ) {
-  FD_TEST( fd_txncache_new( fd_topo_obj_laddr( topo, obj->id ), VAL("max_rooted_slots"), VAL("max_live_slots"), VAL("max_txn_per_slot"), VAL("max_constipated_slots") ) );
+  FD_TEST( fd_txncache_new( fd_topo_obj_laddr( topo, obj->id ), VAL("max_rooted_slots"), VAL("max_live_slots"), VAL("max_txn_per_slot") ) );
 }
 
 fd_topo_obj_callbacks_t fd_obj_cb_txncache = {

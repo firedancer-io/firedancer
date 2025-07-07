@@ -29,6 +29,8 @@ $(call add-objs,fd_snapshot,fd_flamenco)
 $(call add-hdrs,fd_snapshot_loader.h)
 $(call add-objs,fd_snapshot_loader,fd_flamenco)
 
-$(call make-bin,fd_snapshot,fd_snapshot_main,fd_flamenco fd_disco fd_funk fd_waltz fd_ballet fd_util,$(SECP256K1_LIBS))
+# We are not building this because it currently iterates over all accounts in a Funk transaction,
+# which is no longer supported.
+# $(call make-bin,fd_snapshot,fd_snapshot_main,fd_flamenco fd_disco fd_funk fd_waltz fd_ballet fd_util,$(SECP256K1_LIBS))
 endif
 endif

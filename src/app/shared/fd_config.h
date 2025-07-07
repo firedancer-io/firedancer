@@ -97,7 +97,6 @@ struct fd_configf {
     ulong shred_max;
     ulong block_max;
     ulong idx_max;
-    ulong txn_max;
     ulong alloc_max;
     char  file[PATH_MAX];
     char  checkpt[PATH_MAX];

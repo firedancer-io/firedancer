@@ -137,11 +137,15 @@ typedef struct {
   ulong  leader_slot;
   void const * leader_bank;
 
+  fd_became_leader_t _became_leader[1];
+
   /* The number of microblocks we have packed for the current leader
      slot.  Will always be <= slot_max_microblocks.  We must track
      this so that when we are done we can tell the PoH tile how many
      microblocks to expect in the slot. */
   ulong slot_microblock_cnt;
+
+  uint pack_idx;
 
   ulong pack_txn_cnt; /* total num transactions packed since startup */
 
@@ -238,10 +242,15 @@ typedef struct {
      least bank_ready_at[x]. */
   long     bank_ready_at[ FD_PACK_MAX_BANK_TILES  ];
 
-  fd_wksp_t * out_mem;
-  ulong       out_chunk0;
-  ulong       out_wmark;
-  ulong       out_chunk;
+  fd_wksp_t * bank_out_mem;
+  ulong       bank_out_chunk0;
+  ulong       bank_out_wmark;
+  ulong       bank_out_chunk;
+
+  fd_wksp_t * poh_out_mem;
+  ulong       poh_out_chunk0;
+  ulong       poh_out_wmark;
+  ulong       poh_out_chunk;
 
   ulong      insert_result[ FD_PACK_INSERT_RETVAL_CNT ];
   fd_histf_t schedule_duration[ 1 ];
@@ -527,18 +536,12 @@ after_credit( fd_pack_ctx_t *     ctx,
   if( FD_UNLIKELY( ctx->approx_wallclock_ns>=ctx->slot_end_ns && ctx->leader_slot!=ULONG_MAX ) ) {
     *charge_busy = 1;
 
-    if( FD_UNLIKELY( ctx->slot_microblock_cnt<ctx->slot_max_microblocks )) {
-      /* As an optimization, The PoH tile will automatically end a slot
-         if it receives the maximum allowed microblocks, since it knows
-         there is nothing left to receive.  In that case, we don't need
-         to send a DONE_PACKING notification, since they are already on
-         the next slot.  If we did send one it would just get dropped. */
-      fd_done_packing_t * done_packing = fd_chunk_to_laddr( ctx->out_mem, ctx->out_chunk );
-      done_packing->microblocks_in_slot = ctx->slot_microblock_cnt;
+    fd_done_packing_t * done_packing = fd_chunk_to_laddr( ctx->poh_out_mem, ctx->poh_out_chunk );
+    done_packing->microblocks_in_slot = ctx->slot_microblock_cnt;
 
-      fd_stem_publish( stem, 0UL, fd_disco_poh_sig( ctx->leader_slot, POH_PKT_TYPE_DONE_PACKING, ULONG_MAX ), ctx->out_chunk, sizeof(fd_done_packing_t), 0UL, 0UL, fd_frag_meta_ts_comp( fd_tickcount() ) );
-      ctx->out_chunk = fd_dcache_compact_next( ctx->out_chunk, sizeof(fd_done_packing_t), ctx->out_chunk0, ctx->out_wmark );
-    }
+    fd_stem_publish( stem, 1UL, fd_disco_bank_sig( ctx->leader_slot, ctx->pack_idx ), ctx->poh_out_chunk, sizeof(fd_done_packing_t), 0UL, 0UL, fd_frag_meta_ts_comp( fd_tickcount() ) );
+    ctx->poh_out_chunk = fd_dcache_compact_next( ctx->poh_out_chunk, sizeof(fd_done_packing_t), ctx->poh_out_chunk0, ctx->poh_out_wmark );
+    ctx->pack_idx++;
 
     log_end_block_metrics( ctx, now, "time" );
     ctx->drain_banks         = 1;
@@ -682,7 +685,7 @@ after_credit( fd_pack_ctx_t *     ctx,
         break;
     }
 
-    fd_txn_p_t * microblock_dst = fd_chunk_to_laddr( ctx->out_mem, ctx->out_chunk );
+    fd_txn_p_t * microblock_dst = fd_chunk_to_laddr( ctx->bank_out_mem, ctx->bank_out_chunk );
     long schedule_duration = -fd_tickcount();
     ulong schedule_cnt = fd_pack_schedule_next_microblock( ctx->pack, CUS_PER_MICROBLOCK, VOTE_FRACTION, (ulong)i, flags, microblock_dst );
     schedule_duration      += fd_tickcount();
@@ -693,11 +696,12 @@ after_credit( fd_pack_ctx_t *     ctx,
       long  now2   = fd_tickcount();
       ulong tsorig = (ulong)fd_frag_meta_ts_comp( now  ); /* A bound on when we observed bank was idle */
       ulong tspub  = (ulong)fd_frag_meta_ts_comp( now2 );
-      ulong chunk  = ctx->out_chunk;
+      ulong chunk  = ctx->bank_out_chunk;
       ulong msg_sz = schedule_cnt*sizeof(fd_txn_p_t);
       fd_microblock_bank_trailer_t * trailer = (fd_microblock_bank_trailer_t*)(microblock_dst+schedule_cnt);
       trailer->bank = ctx->leader_bank;
       trailer->microblock_idx = ctx->slot_microblock_cnt;
+      trailer->pack_idx = ctx->pack_idx;
       trailer->pack_txn_idx = ctx->pack_txn_cnt;
       trailer->is_bundle = !!(microblock_dst->flags & FD_TXN_P_FLAGS_BUNDLE);
 
@@ -705,8 +709,9 @@ after_credit( fd_pack_ctx_t *     ctx,
       fd_stem_publish( stem, 0UL, sig, chunk, msg_sz+sizeof(fd_microblock_bank_trailer_t), 0UL, tsorig, tspub );
       ctx->bank_expect[ i ] = stem->seqs[0]-1UL;
       ctx->bank_ready_at[i] = now2 + (long)ctx->microblock_duration_ticks;
-      ctx->out_chunk = fd_dcache_compact_next( ctx->out_chunk, msg_sz+sizeof(fd_microblock_bank_trailer_t), ctx->out_chunk0, ctx->out_wmark );
+      ctx->bank_out_chunk = fd_dcache_compact_next( ctx->bank_out_chunk, msg_sz+sizeof(fd_microblock_bank_trailer_t), ctx->bank_out_chunk0, ctx->bank_out_wmark );
       ctx->slot_microblock_cnt += fd_ulong_if( trailer->is_bundle, schedule_cnt, 1UL );
+      ctx->pack_idx += fd_uint_if( trailer->is_bundle, (uint)schedule_cnt, 1U );
       ctx->pack_txn_cnt += schedule_cnt;
 
       ctx->bank_idle_bitset = fd_ulong_pop_lsb( ctx->bank_idle_bitset );
@@ -778,61 +783,7 @@ during_frag( fd_pack_ctx_t * ctx,
     if( FD_UNLIKELY( chunk<ctx->in[ in_idx ].chunk0 || chunk>ctx->in[ in_idx ].wmark || sz!=sizeof(fd_became_leader_t) ) )
       FD_LOG_ERR(( "chunk %lu %lu corrupt, not in range [%lu,%lu]", chunk, sz, ctx->in[ in_idx ].chunk0, ctx->in[ in_idx ].wmark ));
 
-    long now_ticks = fd_tickcount();
-    long now_ns    = fd_log_wallclock();
-
-    if( FD_UNLIKELY( ctx->leader_slot!=ULONG_MAX ) ) {
-      FD_LOG_WARNING(( "switching to slot %lu while packing for slot %lu. Draining bank tiles.", fd_disco_poh_sig_slot( sig ), ctx->leader_slot ));
-      log_end_block_metrics( ctx, now_ticks, "switch" );
-      ctx->drain_banks         = 1;
-      ctx->leader_slot         = ULONG_MAX;
-      ctx->slot_microblock_cnt = 0UL;
-      fd_pack_end_block( ctx->pack );
-      remove_ib( ctx );
-    }
-    ctx->leader_slot = fd_disco_poh_sig_slot( sig );
-
-    ulong exp_cnt = fd_pack_expire_before( ctx->pack, fd_ulong_max( ctx->leader_slot, TRANSACTION_LIFETIME_SLOTS )-TRANSACTION_LIFETIME_SLOTS );
-    FD_MCNT_INC( PACK, TRANSACTION_EXPIRED, exp_cnt );
-
-    fd_became_leader_t * became_leader = (fd_became_leader_t *)dcache_entry;
-    ctx->leader_bank          = became_leader->bank;
-    ctx->slot_max_microblocks = became_leader->max_microblocks_in_slot;
-    /* Reserve some space in the block for ticks */
-    ctx->slot_max_data        = (ctx->larger_shred_limits_per_block ? LARGER_MAX_DATA_PER_BLOCK : FD_PACK_MAX_DATA_PER_BLOCK)
-                                      - 48UL*(became_leader->ticks_per_slot+became_leader->total_skipped_ticks);
-
-    ctx->limits.slot_max_cost                = became_leader->limits.slot_max_cost;
-    ctx->limits.slot_max_vote_cost           = became_leader->limits.slot_max_vote_cost;
-    ctx->limits.slot_max_write_cost_per_acct = became_leader->limits.slot_max_write_cost_per_acct;
-
-    /* ticks_per_ns is probably relatively stable over 400ms, but not
-       over several hours, so we need to compute the slot duration in
-       milliseconds first and then convert to ticks.  This doesn't need
-       to be super accurate, but we don't want it to vary wildly. */
-    long end_ticks = now_ticks + (long)((double)fd_long_max( became_leader->slot_end_ns - now_ns, 1L )*ctx->ticks_per_ns);
-    /* We may still get overrun, but then we'll never use this and just
-       reinitialize it the next time when we actually become leader. */
-    fd_pack_pacing_init( ctx->pacer, now_ticks, end_ticks, (float)ctx->ticks_per_ns, ctx->limits.slot_max_cost );
-
-    if( FD_UNLIKELY( ctx->crank->enabled ) ) {
-      /* If we get overrun, we'll just never use these values, but the
-         old values aren't really useful either. */
-      ctx->crank->epoch = became_leader->epoch;
-      *(ctx->crank->prev_config) = *(became_leader->bundle->config);
-      memcpy( ctx->crank->recent_blockhash,   became_leader->bundle->last_blockhash,     32UL );
-      memcpy( ctx->crank->tip_receiver_owner, became_leader->bundle->tip_receiver_owner, 32UL );
-    }
-
-    FD_LOG_INFO(( "pack_became_leader(slot=%lu,ends_at=%ld)", ctx->leader_slot, became_leader->slot_end_ns ));
-
-    /* The dcache might get overrun, so set slot_end_ns to 0, so if it does
-       the slot will get skipped.  Then update it in the `after_frag` case
-       below to the correct value. */
-    ctx->slot_end_ns = 0L;
-    ctx->_slot_end_ns = became_leader->slot_end_ns;
-
-    update_metric_state( ctx, fd_tickcount(), FD_PACK_METRIC_STATE_LEADER, 1 );
+    fd_memcpy( ctx->_became_leader, dcache_entry, sizeof(fd_became_leader_t) );
     return;
   }
   case IN_KIND_BANK: {
@@ -971,6 +922,68 @@ after_frag( fd_pack_ctx_t *     ctx,
   case IN_KIND_POH: {
     if( fd_disco_poh_sig_pkt_type( sig )!=POH_PKT_TYPE_BECAME_LEADER ) return;
 
+    long now_ticks = fd_tickcount();
+    long now_ns    = fd_log_wallclock();
+
+    if( FD_UNLIKELY( ctx->leader_slot!=ULONG_MAX ) ) {
+      fd_done_packing_t * done_packing = fd_chunk_to_laddr( ctx->poh_out_mem, ctx->poh_out_chunk );
+      done_packing->microblocks_in_slot = ctx->slot_microblock_cnt;
+
+      fd_stem_publish( stem, 1UL, fd_disco_bank_sig( ctx->leader_slot, ctx->pack_idx ), ctx->poh_out_chunk, sizeof(fd_done_packing_t), 0UL, 0UL, fd_frag_meta_ts_comp( fd_tickcount() ) );
+      ctx->poh_out_chunk = fd_dcache_compact_next( ctx->poh_out_chunk, sizeof(fd_done_packing_t), ctx->poh_out_chunk0, ctx->poh_out_wmark );
+      ctx->pack_idx++;
+
+      FD_LOG_WARNING(( "switching to slot %lu while packing for slot %lu. Draining bank tiles.", fd_disco_poh_sig_slot( sig ), ctx->leader_slot ));
+      log_end_block_metrics( ctx, now_ticks, "switch" );
+      ctx->drain_banks         = 1;
+      ctx->leader_slot         = ULONG_MAX;
+      ctx->slot_microblock_cnt = 0UL;
+      fd_pack_end_block( ctx->pack );
+      remove_ib( ctx );
+    }
+    ctx->leader_slot = fd_disco_poh_sig_slot( sig );
+
+    ulong exp_cnt = fd_pack_expire_before( ctx->pack, fd_ulong_max( ctx->leader_slot, TRANSACTION_LIFETIME_SLOTS )-TRANSACTION_LIFETIME_SLOTS );
+    FD_MCNT_INC( PACK, TRANSACTION_EXPIRED, exp_cnt );
+
+    ctx->leader_bank          = ctx->_became_leader->bank;
+    ctx->slot_max_microblocks = ctx->_became_leader->max_microblocks_in_slot;
+    /* Reserve some space in the block for ticks */
+    ctx->slot_max_data        = (ctx->larger_shred_limits_per_block ? LARGER_MAX_DATA_PER_BLOCK : FD_PACK_MAX_DATA_PER_BLOCK)
+                                      - 48UL*(ctx->_became_leader->ticks_per_slot+ctx->_became_leader->total_skipped_ticks);
+
+    ctx->limits.slot_max_cost                = ctx->_became_leader->limits.slot_max_cost;
+    ctx->limits.slot_max_vote_cost           = ctx->_became_leader->limits.slot_max_vote_cost;
+    ctx->limits.slot_max_write_cost_per_acct = ctx->_became_leader->limits.slot_max_write_cost_per_acct;
+
+    /* ticks_per_ns is probably relatively stable over 400ms, but not
+       over several hours, so we need to compute the slot duration in
+       milliseconds first and then convert to ticks.  This doesn't need
+       to be super accurate, but we don't want it to vary wildly. */
+    long end_ticks = now_ticks + (long)((double)fd_long_max( ctx->_became_leader->slot_end_ns - now_ns, 1L )*ctx->ticks_per_ns);
+    /* We may still get overrun, but then we'll never use this and just
+       reinitialize it the next time when we actually become leader. */
+    fd_pack_pacing_init( ctx->pacer, now_ticks, end_ticks, (float)ctx->ticks_per_ns, ctx->limits.slot_max_cost );
+
+    if( FD_UNLIKELY( ctx->crank->enabled ) ) {
+      /* If we get overrun, we'll just never use these values, but the
+         old values aren't really useful either. */
+      ctx->crank->epoch = ctx->_became_leader->epoch;
+      *(ctx->crank->prev_config) = *(ctx->_became_leader->bundle->config);
+      memcpy( ctx->crank->recent_blockhash,   ctx->_became_leader->bundle->last_blockhash,     32UL );
+      memcpy( ctx->crank->tip_receiver_owner, ctx->_became_leader->bundle->tip_receiver_owner, 32UL );
+    }
+
+    FD_LOG_INFO(( "pack_became_leader(slot=%lu,ends_at=%ld)", ctx->leader_slot, ctx->_became_leader->slot_end_ns ));
+
+    /* The dcache might get overrun, so set slot_end_ns to 0, so if it does
+       the slot will get skipped.  Then update it in the `after_frag` case
+       below to the correct value. */
+    ctx->slot_end_ns = 0L;
+    ctx->_slot_end_ns = ctx->_became_leader->slot_end_ns;
+
+    update_metric_state( ctx, fd_tickcount(), FD_PACK_METRIC_STATE_LEADER, 1 );
+
     ctx->slot_end_ns = ctx->_slot_end_ns;
     fd_pack_limits_t limits[ 1 ];
     limits->max_cost_per_block = ctx->limits.slot_max_cost;
@@ -1099,6 +1112,7 @@ unprivileged_init( fd_topo_t *      topo,
 
   if( FD_UNLIKELY( tile->in_cnt>32UL ) ) FD_LOG_ERR(( "Too many input links (%lu>32) to pack tile", tile->in_cnt ));
 
+  FD_TEST( tile->in_cnt<sizeof( ctx->in_kind )/sizeof( ctx->in_kind[0] ) );
   for( ulong i=0UL; i<tile->in_cnt; i++ ) {
     fd_topo_link_t const * link = &topo->links[ tile->in_link_id[ i ] ];
 
@@ -1178,6 +1192,7 @@ unprivileged_init( fd_topo_t *      topo,
   ctx->max_pending_transactions      = tile->pack.max_pending_transactions;
   ctx->leader_slot                   = ULONG_MAX;
   ctx->leader_bank                   = NULL;
+  ctx->pack_idx                      = 0UL;
   ctx->slot_microblock_cnt           = 0UL;
   ctx->pack_txn_cnt                  = 0UL;
   ctx->slot_max_microblocks          = 0UL;
@@ -1229,10 +1244,15 @@ unprivileged_init( fd_topo_t *      topo,
     ctx->in[ i ].wmark  = fd_dcache_compact_wmark ( ctx->in[ i ].mem, link->dcache, link->mtu );
   }
 
-  ctx->out_mem    = topo->workspaces[ topo->objs[ topo->links[ tile->out_link_id[ 0 ] ].dcache_obj_id ].wksp_id ].wksp;
-  ctx->out_chunk0 = fd_dcache_compact_chunk0( ctx->out_mem, topo->links[ tile->out_link_id[ 0 ] ].dcache );
-  ctx->out_wmark  = fd_dcache_compact_wmark ( ctx->out_mem, topo->links[ tile->out_link_id[ 0 ] ].dcache, topo->links[ tile->out_link_id[ 0 ] ].mtu );
-  ctx->out_chunk  = ctx->out_chunk0;
+  ctx->bank_out_mem    = topo->workspaces[ topo->objs[ topo->links[ tile->out_link_id[ 0 ] ].dcache_obj_id ].wksp_id ].wksp;
+  ctx->bank_out_chunk0 = fd_dcache_compact_chunk0( ctx->bank_out_mem, topo->links[ tile->out_link_id[ 0 ] ].dcache );
+  ctx->bank_out_wmark  = fd_dcache_compact_wmark ( ctx->bank_out_mem, topo->links[ tile->out_link_id[ 0 ] ].dcache, topo->links[ tile->out_link_id[ 0 ] ].mtu );
+  ctx->bank_out_chunk  = ctx->bank_out_chunk0;
+
+  ctx->poh_out_mem    = topo->workspaces[ topo->objs[ topo->links[ tile->out_link_id[ 1 ] ].dcache_obj_id ].wksp_id ].wksp;
+  ctx->poh_out_chunk0 = fd_dcache_compact_chunk0( ctx->poh_out_mem, topo->links[ tile->out_link_id[ 1 ] ].dcache );
+  ctx->poh_out_wmark  = fd_dcache_compact_wmark ( ctx->poh_out_mem, topo->links[ tile->out_link_id[ 1 ] ].dcache, topo->links[ tile->out_link_id[ 1 ] ].mtu );
+  ctx->poh_out_chunk  = ctx->poh_out_chunk0;
 
   /* Initialize metrics storage */
   memset( ctx->insert_result, '\0', FD_PACK_INSERT_RETVAL_CNT * sizeof(ulong) );

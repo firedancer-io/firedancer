@@ -43,13 +43,11 @@ usage( void ) {
     ulong shred_max = 1 << 17;                                                           \
     ulong idx_max = 1 << 12;                                                             \
     ulong block_max = 1 << 17;                                                           \
-    ulong txn_max = 1 << 17;                                                             \
     void * mem = fd_wksp_alloc_laddr( wksp,                                              \
                                       fd_blockstore_align(),                             \
                                       fd_blockstore_footprint( shred_max,                \
                                                                block_max,                \
-                                                               idx_max,                  \
-                                                               txn_max ),                \
+                                                               idx_max ),                \
                                       1UL );                                             \
     FD_TEST( mem );                                                                      \
     void * shblockstore = fd_blockstore_new( mem,                                        \
@@ -57,8 +55,7 @@ usage( void ) {
                                              0UL,                                        \
                                              shred_max,                                  \
                                              block_max,                                  \
-                                             idx_max,                                    \
-                                             txn_max );                                  \
+                                             idx_max );                                  \
                                                                                          \
     FD_TEST( shblockstore );                                                             \
     fd_blockstore_t   blockstore_ljoin;                                                  \
@@ -181,7 +178,7 @@ initialize_rocksdb( fd_wksp_t * wksp,
 
     if( err < 0 ) continue;
 
-    err = fd_rocksdb_import_block_blockstore( &rocks_db, &slot_meta, blockstore, 1, trash_hash_buf, valloc );
+    err = fd_rocksdb_import_block_blockstore( &rocks_db, &slot_meta, blockstore, trash_hash_buf, valloc );
     if( FD_UNLIKELY( err != 0) ) {
       FD_LOG_ERR(( "Failed to import block %lu", slot ));
     }

@@ -1,7 +1,5 @@
 #define _GNU_SOURCE
 
-#include "generated/fd_tower_tile_seccomp.h"
-
 #include "../../choreo/fd_choreo.h"
 #include "../../disco/fd_disco.h"
 #include "../../disco/keyguard/fd_keyload.h"
@@ -10,6 +8,7 @@
 #include "../../flamenco/runtime/fd_runtime.h"
 #include "../../funk/fd_funk.h"
 #include "../../funk/fd_funk_val.h"
+#include "generated/fd_tower_tile_seccomp.h"
 
 #define IN_KIND_GOSSIP ( 0)
 #define IN_KIND_REPLAY ( 1)
@@ -264,12 +263,12 @@ during_frag( ctx_t * ctx,
 static void
 after_frag( ctx_t *             ctx,
             ulong               in_idx,
-            ulong               seq FD_PARAM_UNUSED,
+            ulong               seq     FD_PARAM_UNUSED,
             ulong               sig,
             ulong               sz,
-            ulong               tsorig FD_PARAM_UNUSED,
-            ulong               tspub FD_PARAM_UNUSED,
-            fd_stem_context_t * stem FD_PARAM_UNUSED ) {
+            ulong               tsorig,
+            ulong               tspub   FD_PARAM_UNUSED,
+            fd_stem_context_t * stem ) {
   uint in_kind = ctx->in_kind[in_idx];
   if( FD_UNLIKELY( in_kind != IN_KIND_REPLAY ) ) return;
 

@@ -20,6 +20,8 @@
     max_database_transactions = 64
 [runtime]
     heap_size_gib = {heap_size}
+    [runtime.limits]
+        max_banks = 64
 [blockstore]
     shred_max = 16777216
     block_max = 8192

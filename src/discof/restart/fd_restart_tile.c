@@ -21,7 +21,6 @@ struct fd_restart_tile_ctx {
   fd_pubkey_t           identity, coordinator, genesis_hash;
   fd_slot_pair_t *      new_hard_forks;
   ulong                 new_hard_forks_len;
-  ulong *               is_constipated;
 
   // Gossip tile output
   fd_frag_meta_t *      gossip_out_mcache;
@@ -137,17 +136,6 @@ unprivileged_init( fd_topo_t      * topo,
   fd_base58_decode_32( tile->restart.restart_coordinator, ctx->coordinator.key );
   fd_base58_decode_32( tile->restart.genesis_hash, ctx->genesis_hash.key );
   ctx->identity = *(fd_pubkey_t const *)fd_type_pun_const( fd_keyload_load( tile->restart.identity_key_path, 1 ) );
-
-  /**********************************************************************/
-  /* constipated fseq                                                   */
-  /**********************************************************************/
-
-  ulong constipated_obj_id = fd_pod_queryf_ulong( topo->props, ULONG_MAX, "constipate" );
-  FD_TEST( constipated_obj_id!=ULONG_MAX );
-  ctx->is_constipated = fd_fseq_join( fd_topo_obj_laddr( topo, constipated_obj_id ) );
-  if( FD_UNLIKELY( !ctx->is_constipated ) ) FD_LOG_ERR(( "restart tile has no constipated fseq" ));
-  //fd_fseq_update( ctx->is_constipated, 0UL );
-  //FD_TEST( 0UL==fd_fseq_query( ctx->is_constipated ) );
 
   /**********************************************************************/
   /* links                                                              */
@@ -455,7 +443,7 @@ after_credit( fd_restart_tile_ctx_t * ctx,
   ulong send  = 0;
   uchar * buf = fd_chunk_to_laddr( ctx->gossip_out_mem, ctx->gossip_out_chunk );
   fd_restart_verify_heaviest_fork( ctx->restart,
-                                   ctx->is_constipated,
+                                   0,
                                    ctx->new_hard_forks,
                                    ctx->new_hard_forks_len,
                                    &ctx->genesis_hash,

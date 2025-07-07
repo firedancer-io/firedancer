@@ -319,21 +319,15 @@ fd_runtime_update_leaders( fd_bank_t * bank,
 /* TODO: Invoked by fd_executor: layering violation. Rent logic is deprecated
    and will be torn out entirely very soon. */
 ulong
-fd_runtime_collect_rent_from_account( ulong                       slot,
-                                      fd_epoch_schedule_t const * schedule,
+fd_runtime_collect_rent_from_account( fd_epoch_schedule_t const * schedule,
                                       fd_rent_t const *           rent,
                                       double                      slots_per_year,
-                                      fd_features_t *             features,
                                       fd_txn_account_t *          acc,
                                       ulong                       epoch );
 
 void
 fd_runtime_update_slots_per_epoch( fd_bank_t * bank,
                                    ulong       slots_per_epoch );
-
-void
-fd_runtime_register_new_fresh_account( fd_pubkey_t const * pubkey,
-                                       fd_bank_t *         bank );
 
 /* Block Level Execution Prep/Finalize ****************************************/
 
@@ -609,6 +603,26 @@ fd_runtime_block_pre_execute_process_new_epoch( fd_exec_slot_ctx_t * slot_ctx,
                                                 ulong                exec_spad_cnt,
                                                 fd_spad_t *          runtime_spad,
                                                 int *                is_epoch_boundary );
+
+/* This function is responsible for inserting fresh entries or updating existing entries in the program cache.
+   When the client boots up, the program cache is empty. As programs get invoked, this function is responsible
+   for verifying and inserting these programs into the cache. Additionally, this function performs reverification
+   checks for every existing program that is invoked after an epoch boundary once per program per epoch, and invalidates
+   any programs that fail reverification.
+
+   When the cluster's feature set changes at an epoch, there is a possibility that existing programs
+   fail new SBPF / ELF header checks. Therefore, after every epoch, we should reverify all programs
+   and update our program cache so that users cannot invoke those old programs. Since iterating through
+   all programs every single epoch is expensive, we adopt a lazy approach where we reverify programs as they
+   are referenced in transactions, since only a small subset of all programs are actually referenced at any
+   time. We also make sure each program is only verified once per epoch, so repeated executions of a
+   program within the same epoch will only trigger verification once at the very first invocation.
+
+   Note that ALUTs must be resolved because programs referenced in ALUTs can be invoked via CPI. */
+void
+fd_runtime_update_program_cache( fd_exec_slot_ctx_t * slot_ctx,
+                                 fd_txn_p_t const *   txn_p,
+                                 fd_spad_t *          runtime_spad );
 
 /* Debugging Tools ************************************************************/
 

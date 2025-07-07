@@ -1291,7 +1291,7 @@ dynamic_port_range = "8900-9000"
         # starting late, but you can disable the option to use a more
         # healthy behavior, where taking a long time to "freeze" slots
         # cuts into your own next slot time, and does not increase it.
-        lagged_consecutive_leader_start = true
+        lagged_consecutive_leader_start = false
 
     # The shred tile distributes processed transactions that have been
     # executed to the rest of the cluster in the form of shred packets.
@@ -1670,7 +1670,7 @@ dynamic_port_range = "8900-9000"
         # This affects the size of various gRPC-related buffers,
         # including socket buffer sizes, the TLS buffer, the HTTP/2
         # frame buffer, and a Protobuf encode buffer.
-        buffer_size_kib = 2048
+        buffer_size_kib = 16384
 
         # SSL library heap size in MiB.
         #

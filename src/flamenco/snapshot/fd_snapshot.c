@@ -64,13 +64,6 @@ restore_status_cache( void *                  ctx,
   return (!!fd_exec_slot_ctx_recover_status_cache( ctx, slot_deltas, spad ) ? 0 : EINVAL);
 }
 
-static int
-restore_rent_fresh_account( fd_exec_slot_ctx_t * slot_ctx,
-                            fd_pubkey_t const  * pubkey ) {
-  fd_runtime_register_new_fresh_account( pubkey, slot_ctx->bank );
-  return 0;
-}
-
 ulong
 fd_snapshot_load_ctx_align( void ) {
   return alignof(fd_snapshot_load_ctx_t);
@@ -173,8 +166,7 @@ fd_snapshot_load_manifest_and_status_cache( fd_snapshot_load_ctx_t * ctx,
                                           ctx->runtime_spad,
                                           ctx->slot_ctx,
                                           (restore_manifest_flags & FD_SNAPSHOT_RESTORE_MANIFEST) ? restore_manifest : NULL,
-                                          (restore_manifest_flags & FD_SNAPSHOT_RESTORE_STATUS_CACHE) ? restore_status_cache : NULL,
-                                          restore_rent_fresh_account );
+                                          (restore_manifest_flags & FD_SNAPSHOT_RESTORE_STATUS_CACHE) ? restore_status_cache : NULL );
   if( FD_UNLIKELY( !ctx->restore ) ) {
     FD_LOG_ERR(( "Failed to fd_snapshot_restore_new" ));
   }
@@ -411,7 +403,7 @@ fd_snapshot_load_prefetch_manifest( fd_snapshot_load_ctx_t * ctx ) {
   void * restore_mem = fd_spad_alloc( ctx->runtime_spad, fd_snapshot_restore_align(), fd_snapshot_restore_footprint() );
   void * loader_mem  = fd_spad_alloc( ctx->runtime_spad, fd_snapshot_loader_align(),  fd_snapshot_loader_footprint( ZSTD_WINDOW_SZ ) );
 
-  ctx->restore = fd_snapshot_restore_new( restore_mem, funk, funk_txn, ctx->runtime_spad, ctx->slot_ctx, restore_manifest, restore_status_cache, restore_rent_fresh_account );
+  ctx->restore = fd_snapshot_restore_new( restore_mem, funk, funk_txn, ctx->runtime_spad, ctx->slot_ctx, restore_manifest, restore_status_cache );
   if( FD_UNLIKELY( !ctx->restore ) ) {
     FD_LOG_ERR(( "Failed to fd_snapshot_restore_new" ));
   }

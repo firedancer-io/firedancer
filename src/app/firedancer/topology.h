@@ -19,7 +19,6 @@ setup_topo_blockstore( fd_topo_t *  topo,
                        ulong        shred_max,
                        ulong        block_max,
                        ulong        idx_max,
-                       ulong        txn_max,
                        ulong        alloc_max );
 
 fd_topo_obj_t *
@@ -32,8 +31,7 @@ setup_topo_txncache( fd_topo_t *  topo,
                      char const * wksp_name,
                      ulong        max_rooted_slots,
                      ulong        max_live_slots,
-                     ulong        max_txn_per_slot,
-                     ulong        max_constipated_slots );
+                     ulong        max_txn_per_slot );
 
 fd_topo_obj_t *
 setup_topo_funk( fd_topo_t *  topo,

@@ -1051,24 +1051,6 @@
       ]
     },
     {
-      "name": "rent_fresh_account",
-      "type": "struct",
-      "fields": [
-        { "name": "partition", "type": "ulong" },
-        { "name": "pubkey", "type": "pubkey" },
-        { "name": "present", "type": "ulong" }
-      ]
-    },
-    {
-      "name": "rent_fresh_accounts",
-      "type": "struct",
-      "global": true,
-      "fields": [
-        { "name": "total_count", "type": "ulong" },
-        { "name": "fresh_accounts", "type": "vector", "element": "rent_fresh_account" }
-      ]
-    },
-    {
       "name": "cluster_version",
       "type": "struct",
       "global": true,
@@ -2058,14 +2040,13 @@
       "fields": [
         { "name": "from", "type": "pubkey" },
         { "name": "wallclock", "type": "ulong" },
-        { "name": "timestamp", "type": "long" },
+        { "name": "timestamp", "type": "ulong" },
         { "name": "token", "type": "ulong" }
       ]
     },
     {
       "name": "gossip_duplicate_shred",
       "type": "struct",
-      "validator": "fd_gossip_duplicate_shred_validator",
       "fields": [
         { "name": "duplicate_shred_index", "type": "ushort" },
         { "name": "from", "type": "pubkey" },
@@ -2076,7 +2057,8 @@
         { "name": "num_chunks", "type": "uchar" },
         { "name": "chunk_index", "type": "uchar" },
         { "name": "chunk", "type": "vector", "element": "uchar" }
-      ]
+      ],
+      "comment": "https://github.com/firedancer-io/agave/blob/540d5bc56cd44e3cc61b179bd52e9a782a2c99e4/gossip/src/duplicate_shred.rs#L25"
     },
     {
       "name": "gossip_incremental_snapshot_hashes",
@@ -2109,7 +2091,8 @@
         { "name": "addrs", "type": "vector", "modifier": "compact", "element": "gossip_ip_addr" },
         { "name": "sockets", "type": "vector", "modifier": "compact", "element": "gossip_socket_entry" },
         { "name": "extensions", "type": "vector", "modifier": "compact", "element": "uint" }
-      ]
+      ],
+      "comment": "https://github.com/firedancer-io/agave/blob/540d5bc56cd44e3cc61b179bd52e9a782a2c99e4/gossip/src/contact_info.rs#L85"
     },
     {
       "name": "restart_run_length_encoding_inner",

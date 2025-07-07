@@ -93,58 +93,6 @@ fd_runtime_compute_max_tick_height( ulong   ticks_per_slot,
 }
 
 void
-fd_runtime_register_new_fresh_account( fd_pubkey_t const  * pubkey,
-                                       fd_bank_t *          bank ) {
-
-  fd_rent_fresh_accounts_global_t * rent_fresh_accounts = fd_bank_rent_fresh_accounts_locking_modify( bank );
-
-  fd_rent_fresh_account_t *         fresh_accounts      = fd_rent_fresh_accounts_fresh_accounts_join( rent_fresh_accounts );
-
-  /* Insert the new account into the partition */
-  ulong partition = fd_rent_key_to_partition( pubkey, fd_bank_part_width_get( bank ), fd_bank_slots_per_epoch_get( bank ) );
-
-  /* See if there is an unused fresh account we can re-use */
-  fd_rent_fresh_account_t * rent_fresh_account = NULL;
-  for( ulong i = 0; i < rent_fresh_accounts->fresh_accounts_len; i++ ) {
-    if( FD_UNLIKELY( fresh_accounts[ i ].present == 0UL ) ) {
-      rent_fresh_account = &fresh_accounts[ i ];
-      break;
-    }
-  }
-  if( FD_UNLIKELY( rent_fresh_account == NULL ) ) {
-    FD_LOG_CRIT(( "rent_fresh_accounts full! increase FD_RENT_FRESH_ACCOUNTS_MAX" ));
-  }
-
-  /* Add the account to the rent fresh account list */
-  rent_fresh_account->partition = partition;
-  rent_fresh_account->pubkey    = *pubkey;
-  rent_fresh_account->present   = 1UL;
-
-  rent_fresh_accounts->total_count++;
-
-  fd_bank_rent_fresh_accounts_end_locking_modify( bank );
-}
-
-void
-fd_runtime_repartition_fresh_account_partitions( fd_bank_t * bank ) {
-  /* Update the partition in each rent fresh account */
-
-  fd_rent_fresh_accounts_global_t * rent_fresh_accounts = fd_bank_rent_fresh_accounts_locking_modify( bank );
-  fd_rent_fresh_account_t *         fresh_accounts      = fd_rent_fresh_accounts_fresh_accounts_join( rent_fresh_accounts );
-
-  for( ulong i = 0UL; i < rent_fresh_accounts->fresh_accounts_len; i++ ) {
-    fd_rent_fresh_account_t * rent_fresh_account = &fresh_accounts[ i ];
-    if( FD_UNLIKELY( rent_fresh_account->present == 1UL ) ) {
-      rent_fresh_account->partition = fd_rent_key_to_partition( &rent_fresh_account->pubkey,
-                                                                fd_bank_part_width_get( bank ),
-                                                                fd_bank_slots_per_epoch_get( bank ) );
-    }
-  }
-
-  fd_bank_rent_fresh_accounts_end_locking_modify( bank );
-}
-
-void
 fd_runtime_update_slots_per_epoch( fd_bank_t * bank,
                                    ulong       slots_per_epoch ) {
   if( FD_LIKELY( slots_per_epoch == fd_bank_slots_per_epoch_get( bank ) ) ) {
@@ -154,9 +102,6 @@ fd_runtime_update_slots_per_epoch( fd_bank_t * bank,
   fd_bank_slots_per_epoch_set( bank, slots_per_epoch );
 
   fd_bank_part_width_set( bank, fd_rent_partition_width( slots_per_epoch ) );
-
-
-  fd_runtime_repartition_fresh_account_partitions( bank );
 }
 
 void
@@ -305,171 +250,11 @@ fd_runtime_run_incinerator( fd_bank_t *     bank,
   return 0;
 }
 
-/* Yes, this is a real function that exists in Solana. Yes, I am ashamed I have had to replicate it. */
-// https://github.com/firedancer-io/solana/blob/d8292b427adf8367d87068a3a88f6fd3ed8916a5/runtime/src/bank.rs#L5618
-static ulong
-fd_runtime_slot_count_in_two_day( ulong ticks_per_slot ) {
-  return 2UL * FD_SYSVAR_CLOCK_DEFAULT_TICKS_PER_SECOND * 86400UL /* seconds per day */ / ticks_per_slot;
-}
-
-// https://github.com/firedancer-io/solana/blob/d8292b427adf8367d87068a3a88f6fd3ed8916a5/runtime/src/bank.rs#L5594
-static int
-fd_runtime_use_multi_epoch_collection( fd_bank_t * bank, ulong slot ) {
-
-  fd_epoch_schedule_t const * schedule = fd_bank_epoch_schedule_query( bank );
-
-  ulong off;
-  ulong epoch = fd_slot_to_epoch( schedule, slot, &off );
-  ulong slots_per_normal_epoch = fd_epoch_slot_cnt( schedule, schedule->first_normal_epoch );
-
-  ulong slot_count_in_two_day = fd_runtime_slot_count_in_two_day( fd_bank_ticks_per_slot_get( bank ) );
-
-  int use_multi_epoch_collection = ( epoch >= schedule->first_normal_epoch )
-      && ( slots_per_normal_epoch < slot_count_in_two_day );
-
-  return use_multi_epoch_collection;
-}
-
-FD_FN_UNUSED static ulong
-fd_runtime_num_rent_partitions( fd_bank_t * bank, ulong slot ) {
-
-  fd_epoch_schedule_t const * schedule = fd_bank_epoch_schedule_query( bank );
-
-  ulong off;
-  ulong epoch = fd_slot_to_epoch( schedule, slot, &off );
-  ulong slots_per_epoch = fd_epoch_slot_cnt( schedule, epoch );
-
-  ulong slot_count_in_two_day = fd_runtime_slot_count_in_two_day( fd_bank_ticks_per_slot_get( bank ) );
-
-  int use_multi_epoch_collection = fd_runtime_use_multi_epoch_collection( bank, slot );
-
-  if( use_multi_epoch_collection ) {
-    ulong epochs_in_cycle = slot_count_in_two_day / slots_per_epoch;
-    return slots_per_epoch * epochs_in_cycle;
-  } else {
-    return slots_per_epoch;
-  }
-}
-
-// https://github.com/anza-xyz/agave/blob/2bdcc838c18d262637524274cbb2275824eb97b8/accounts-db/src/accounts_partition.rs#L30
-static ulong
-fd_runtime_get_rent_partition( fd_bank_t * bank, ulong slot ) {
-
-  int use_multi_epoch_collection = fd_runtime_use_multi_epoch_collection( bank, slot );
-
-  fd_epoch_schedule_t const * schedule = fd_bank_epoch_schedule_query( bank );
-
-  ulong off;
-  ulong epoch = fd_slot_to_epoch( schedule, slot, &off );
-  ulong slot_count_per_epoch = fd_epoch_slot_cnt( schedule, epoch );
-  ulong slot_count_in_two_day = fd_runtime_slot_count_in_two_day( fd_bank_ticks_per_slot_get( bank ) );
-
-  ulong base_epoch;
-  ulong epoch_count_in_cycle;
-  if( use_multi_epoch_collection ) {
-    base_epoch = schedule->first_normal_epoch;
-    epoch_count_in_cycle = slot_count_in_two_day / slot_count_per_epoch;
-  } else {
-    base_epoch = 0;
-    epoch_count_in_cycle = 1;
-  }
-
-  ulong epoch_offset = epoch - base_epoch;
-  ulong epoch_index_in_cycle = epoch_offset % epoch_count_in_cycle;
-  return off + ( epoch_index_in_cycle * slot_count_per_epoch );
-}
-
-static void
-fd_runtime_update_rent_epoch_account( fd_funk_t *     funk,
-                                      fd_funk_txn_t * funk_txn,
-                                      fd_pubkey_t *    pubkey ) {
-  FD_TXN_ACCOUNT_DECL( rec );
-  int err = fd_txn_account_init_from_funk_readonly( rec, pubkey, funk, funk_txn );
-
-  /* If the account has been deleted, skip it */
-  if( err==FD_ACC_MGR_ERR_UNKNOWN_ACCOUNT ) {
-    return;
-  }
-  if( FD_UNLIKELY( err != FD_ACC_MGR_SUCCESS ) ) {
-    FD_LOG_WARNING(( "fd_runtime_update_rent_epoch: fd_txn_account_init_from_funk_readonly failed (%d)", err ));
-    return;
-  }
-
-  /* If the account's rent epoch is correct, don't update it */
-  if( rec->vt->get_rent_epoch( rec ) == FD_RENT_EXEMPT_RENT_EPOCH ) {
-    return;
-  }
-
-  /* Otherwise, update the rent epoch field */
-  err = fd_txn_account_init_from_funk_mutable( rec, pubkey, funk, funk_txn, 0, 0UL );
-  if( FD_UNLIKELY( err!=FD_ACC_MGR_SUCCESS ) ) {
-    FD_LOG_WARNING(( "fd_runtime_update_rent_epoch: fd_txn_account_init_from_funk_mutable failed (%d)", err ));
-    return;
-  }
-  rec->vt->set_rent_epoch( rec, FD_RENT_EXEMPT_RENT_EPOCH );
-
-  fd_txn_account_mutable_fini( rec, funk, funk_txn );
-}
-
-/* Emulate collecting rent from accounts. Since every account is rent exempt, all we have to do
-   is set all rent_epoch fields to ULONG_MAX. By induction, we only need to do this for newly created accounts.
-
-   The slight complication is that we need to do this at the appropiate time - taking into account
-   the rent partition the account would have fallen into.
-
-   This code is super hacky, but will be removed soon when disable_partitioned_rent_collection is activated.
-   After that, we will not update any rent_epoch fields.
-
-   https://github.com/anza-xyz/agave/blob/v2.1.14/runtime/src/bank.rs#L2921 */
-static void
-fd_runtime_update_rent_epoch( fd_bank_t *     bank,
-                              fd_funk_t *     funk,
-                              fd_funk_txn_t * funk_txn ) {
-  if( FD_FEATURE_ACTIVE_BANK( bank, disable_partitioned_rent_collection ) ) {
-    return;
-  }
-
-  fd_rent_fresh_accounts_global_t * rent_fresh_accounts = fd_bank_rent_fresh_accounts_locking_modify( bank );
-  fd_rent_fresh_account_t *         fresh_accounts      = fd_rent_fresh_accounts_fresh_accounts_join( rent_fresh_accounts );
-
-  /* Common case: do nothing if we have no rent fresh accounts */
-  if( FD_LIKELY( rent_fresh_accounts->total_count == 0UL ) ) {
-    fd_bank_rent_fresh_accounts_end_locking_modify( bank );
-    return;
-  }
-
-  ulong prev_slot = fd_bank_prev_slot_get( bank );
-  ulong slot0     = ( prev_slot == 0 ) ? 0 : prev_slot + 1;   /* Accomodate skipped slots */
-  ulong slot1     = bank->slot;
-
-  for( ulong s = slot0; s <= slot1; ++s ) {
-
-    ulong partition = fd_runtime_get_rent_partition( bank, s );
-
-    /* Iterate over each rent fresh account, updating rent_epoch if it is in this slots partition */
-    for( ulong i = 0UL; i < rent_fresh_accounts->fresh_accounts_len; i++ ) {
-      fd_rent_fresh_account_t * rent_fresh_account = &fresh_accounts[ i ];
-      if( FD_UNLIKELY( ( rent_fresh_account->present == 1UL ) && rent_fresh_account->partition == partition ) ) {
-
-        /* Update the rent epoch value for this account */
-        fd_runtime_update_rent_epoch_account( funk, funk_txn, &rent_fresh_account->pubkey );
-
-        /* Remove the account from the list */
-        rent_fresh_account->present = 0UL;
-        rent_fresh_accounts->total_count--;
-      }
-    }
-  }
-  fd_bank_rent_fresh_accounts_end_locking_modify( bank );
-}
-
 static void
 fd_runtime_freeze( fd_bank_t *     bank,
                    fd_funk_t *     funk,
                    fd_funk_txn_t * funk_txn,
                    fd_spad_t *     runtime_spad ) {
-
-  fd_runtime_update_rent_epoch( bank, funk, funk_txn );
 
   fd_sysvar_recent_hashes_update( bank, funk, funk_txn, runtime_spad );
 
@@ -596,85 +381,6 @@ fd_runtime_get_rent_due( fd_epoch_schedule_t const * schedule,
   return (long)fd_rust_cast_double_to_ulong(years_elapsed * (double)lamports_per_year);
 }
 
-/* https://github.com/anza-xyz/agave/blob/v2.0.10/sdk/src/rent_collector.rs#L117-149 */
-/* Collect rent from an account. Returns the amount of rent collected. */
-static ulong
-fd_runtime_collect_from_existing_account( ulong                       slot,
-                                          fd_epoch_schedule_t const * schedule,
-                                          fd_rent_t const *           rent,
-                                          double                      slots_per_year,
-                                          fd_txn_account_t *          acc,
-                                          ulong                       epoch ) {
-  ulong collected_rent = 0UL;
-  #define NO_RENT_COLLECTION_NOW (-1)
-  #define EXEMPT                 (-2)
-  #define COLLECT_RENT           (-3)
-
-  /* An account must be hashed regardless of if rent is collected from it. */
-  acc->vt->set_slot( acc, slot );
-
-  /* Inlining calculate_rent_result
-     https://github.com/anza-xyz/agave/blob/v2.0.10/sdk/src/rent_collector.rs#L153-184 */
-  int calculate_rent_result = COLLECT_RENT;
-
-  /* RentResult::NoRentCollectionNow */
-  if( FD_LIKELY( acc->vt->get_rent_epoch( acc )==FD_RENT_EXEMPT_RENT_EPOCH || acc->vt->get_rent_epoch( acc )>epoch ) ) {
-    calculate_rent_result = NO_RENT_COLLECTION_NOW;
-    goto rent_calculation;
-  }
-  /* RentResult::Exempt */
-  /* Inlining should_collect_rent() */
-  int should_collect_rent = !( acc->vt->is_executable( acc ) ||
-                               !memcmp( acc->pubkey, &fd_sysvar_incinerator_id, sizeof(fd_pubkey_t) ) );
-  if( !should_collect_rent ) {
-    calculate_rent_result = EXEMPT;
-    goto rent_calculation;
-  }
-
-  /* https://github.com/anza-xyz/agave/blob/v2.0.10/sdk/src/rent_collector.rs#L167-180 */
-  long rent_due = fd_runtime_get_rent_due( schedule,
-                                           rent,
-                                           slots_per_year,
-                                           acc,
-                                           epoch );
-  if( rent_due==FD_RENT_EXEMPT ) {
-    calculate_rent_result = EXEMPT;
-  } else if( rent_due==0L ) {
-    calculate_rent_result = NO_RENT_COLLECTION_NOW;
-  } else {
-    calculate_rent_result = COLLECT_RENT;
-  }
-
-  rent_calculation:
-  switch( calculate_rent_result ) {
-    case EXEMPT:
-      acc->vt->set_rent_epoch( acc, FD_RENT_EXEMPT_RENT_EPOCH );
-      break;
-    case NO_RENT_COLLECTION_NOW:
-      break;
-    case COLLECT_RENT:
-      if( FD_UNLIKELY( (ulong)rent_due>=acc->vt->get_lamports( acc ) ) ) {
-        /* Reclaim account */
-        collected_rent += (ulong)acc->vt->get_lamports( acc );
-        acc->vt->set_lamports( acc, 0UL );
-        acc->vt->set_data_len( acc, 0UL );
-        acc->vt->clear_owner( acc );
-      } else {
-        collected_rent += (ulong)rent_due;
-        /* It's ok to not check the overflow error because
-           the rent_due value will always be less than the account's lamports here */
-        acc->vt->checked_sub_lamports( acc, (ulong)rent_due );
-        acc->vt->set_rent_epoch( acc, epoch+1UL );
-      }
-  }
-
-  return collected_rent;
-
-  #undef NO_RENT_COLLECTION_NOW
-  #undef EXEMPT
-  #undef COLLECT_RENT
-}
-
 /* fd_runtime_collect_rent_from_account performs rent collection duties.
    Although the Solana runtime prevents the creation of new accounts
    that are subject to rent, some older accounts are still undergo the
@@ -682,30 +388,19 @@ fd_runtime_collect_from_existing_account( ulong                       slot,
    needed. Returns the amount of rent collected. */
 /* https://github.com/anza-xyz/agave/blob/v2.0.10/svm/src/account_loader.rs#L71-96 */
 ulong
-fd_runtime_collect_rent_from_account( ulong                       slot,
-                                      fd_epoch_schedule_t const * schedule,
+fd_runtime_collect_rent_from_account( fd_epoch_schedule_t const * schedule,
                                       fd_rent_t const *           rent,
                                       double                      slots_per_year,
-                                      fd_features_t *             features,
                                       fd_txn_account_t *          acc,
                                       ulong                       epoch ) {
 
-  if( !FD_FEATURE_ACTIVE( slot, features, disable_rent_fees_collection ) ) {
-    return fd_runtime_collect_from_existing_account( slot,
-                                                     schedule,
-                                                     rent,
-                                                     slots_per_year,
-                                                     acc,
-                                                     epoch );
-  } else {
-    if( FD_UNLIKELY( acc->vt->get_rent_epoch( acc )!=FD_RENT_EXEMPT_RENT_EPOCH &&
+  if( FD_UNLIKELY( acc->vt->get_rent_epoch( acc )!=FD_RENT_EXEMPT_RENT_EPOCH &&
                      fd_runtime_get_rent_due( schedule,
                                               rent,
                                               slots_per_year,
                                               acc,
                                               epoch )==FD_RENT_EXEMPT ) ) {
       acc->vt->set_rent_epoch( acc, FD_RENT_EXEMPT_RENT_EPOCH );
-    }
   }
   return 0UL;
 }
@@ -1736,11 +1431,6 @@ fd_runtime_finalize_txn( fd_funk_t *                  funk,
       }
 
       fd_txn_account_save( &txn_ctx->accounts[i], funk, funk_txn, txn_ctx->spad_wksp );
-      int fresh_account = acc_rec->vt->is_mutable( acc_rec ) &&
-         acc_rec->vt->get_lamports( acc_rec ) && acc_rec->vt->get_rent_epoch( acc_rec ) != FD_RENT_EXEMPT_RENT_EPOCH;
-      if( FD_UNLIKELY( fresh_account ) ) {
-        fd_runtime_register_new_fresh_account( txn_ctx->accounts[0].pubkey, bank );
-      }
     }
   }
 
@@ -2771,6 +2461,47 @@ fd_runtime_parse_microblock_hdr( void const *          buf FD_PARAM_UNUSED,
   return 0;
 }
 
+void
+fd_runtime_update_program_cache( fd_exec_slot_ctx_t * slot_ctx,
+                                 fd_txn_p_t const *   txn_p,
+                                 fd_spad_t *          runtime_spad ) {
+  fd_txn_t const * txn_descriptor = TXN( txn_p );
+
+  /* Iterate over account keys referenced directly in the transaction first */
+  fd_acct_addr_t const * acc_addrs = fd_txn_get_acct_addrs( txn_descriptor, txn_p );
+  for( ushort acc_idx=0; acc_idx<txn_descriptor->acct_addr_cnt; acc_idx++ ) {
+    fd_pubkey_t const * account = fd_type_pun_const( &acc_addrs[acc_idx] );
+    fd_bpf_program_update_program_cache( slot_ctx, account, runtime_spad );
+  }
+
+  if( txn_descriptor->transaction_version==FD_TXN_V0 ) {
+
+    /* Iterate over account keys referenced in ALUTs */
+    fd_acct_addr_t alut_accounts[256];
+    fd_slot_hashes_global_t const * slot_hashes_global = fd_sysvar_slot_hashes_read( slot_ctx->funk, slot_ctx->funk_txn, runtime_spad );
+    if( FD_UNLIKELY( !slot_hashes_global ) ) {
+      return;
+    }
+
+    fd_slot_hash_t * slot_hash = deq_fd_slot_hash_t_join( (uchar *)slot_hashes_global + slot_hashes_global->hashes_offset );
+
+    if( FD_UNLIKELY( fd_runtime_load_txn_address_lookup_tables( txn_descriptor,
+                         txn_p->payload,
+                         slot_ctx->funk,
+                         slot_ctx->funk_txn,
+                         slot_ctx->slot,
+                         slot_hash,
+                         alut_accounts ) ) ) {
+      return;
+    }
+
+    for( ushort alut_idx=0; alut_idx<txn_descriptor->addr_table_adtl_cnt; alut_idx++ ) {
+      fd_pubkey_t const * account = fd_type_pun_const( &alut_accounts[alut_idx] );
+      fd_bpf_program_update_program_cache( slot_ctx, account, runtime_spad );
+    }
+  }
+}
+
 /* if we are currently in the middle of a batch, batch_cnt will include the current batch.
    if we are at the start of a batch, batch_cnt will include the current batch. */
 static fd_raw_block_txn_iter_t
@@ -3250,17 +2981,20 @@ fd_runtime_init_bank_from_genesis( fd_exec_slot_ctx_t *        slot_ctx,
 
   /* Derive epoch stakes */
 
-  fd_vote_accounts_pair_t_mapnode_t * vacc_pool = NULL;
-  fd_vote_accounts_pair_t_mapnode_t * vacc_root = NULL;
-  FD_TEST( vacc_pool );
+  fd_stakes_global_t * stakes_global = fd_bank_stakes_locking_modify( slot_ctx->bank );
 
-  fd_delegation_pair_t_mapnode_t * sacc_pool = NULL;
+  uchar * vacc_pool_mem = (uchar *)fd_ulong_align_up( (ulong)stakes_global + sizeof(fd_stakes_global_t), fd_vote_accounts_pair_global_t_map_align() );
+  fd_vote_accounts_pair_global_t_mapnode_t * vacc_pool = fd_vote_accounts_pair_global_t_map_join( fd_vote_accounts_pair_global_t_map_new( vacc_pool_mem, 5000UL ) );
+  fd_vote_accounts_pair_global_t_mapnode_t * vacc_root = NULL;
+
+
+  uchar * sacc_pool_mem = (uchar *)fd_ulong_align_up( (ulong)vacc_pool + fd_vote_accounts_pair_global_t_map_footprint( 5000UL ), fd_delegation_pair_t_map_align() );
+  fd_delegation_pair_t_mapnode_t * sacc_pool = fd_delegation_pair_t_map_join( fd_delegation_pair_t_map_new( sacc_pool_mem, 5000UL ) );
   fd_delegation_pair_t_mapnode_t * sacc_root = NULL;
 
   fd_acc_lamports_t capitalization = 0UL;
 
   fd_features_t * features = fd_bank_features_modify( slot_ctx->bank );
-  FD_FEATURE_SET_ACTIVE(features, disable_partitioned_rent_collection, 0);
   FD_FEATURE_SET_ACTIVE(features, accounts_lt_hash, 0);
   FD_FEATURE_SET_ACTIVE(features, remove_accounts_delta_hash, 0);
 
@@ -3270,59 +3004,22 @@ fd_runtime_init_bank_from_genesis( fd_exec_slot_ctx_t *        slot_ctx,
 
     if( !memcmp(acc->account.owner.key, fd_solana_vote_program_id.key, sizeof(fd_pubkey_t)) ) {
       /* Vote Program Account */
-      fd_vote_accounts_pair_t_mapnode_t *node = fd_vote_accounts_pair_t_map_acquire(vacc_pool);
+      fd_vote_accounts_pair_global_t_mapnode_t * node = fd_vote_accounts_pair_global_t_map_acquire(vacc_pool);
       FD_TEST( node );
 
-      /* FIXME: Reimplement when we try to fix genesis. */
-      // fd_vote_block_timestamp_t last_timestamp = {0};
-      // fd_pubkey_t               node_pubkey    = {0};
-      // FD_SPAD_FRAME_BEGIN( runtime_spad ) {
-      //   /* Deserialize content */
-      //   fd_vote_state_versioned_t vs[1];
-      //   fd_bincode_decode_ctx_t decode = {
-      //     .data    = acc->account.data,
-      //     .dataend = acc->account.data + acc->account.data_len,
-      //     .valloc  = fd_spad_virtual( runtime_spad )
-      //   };
-      //   int decode_err = fd_vote_state_versioned_decode( vs, &decode );
-      //   if( FD_UNLIKELY( decode_err!=FD_BINCODE_SUCCESS ) ) {
-      //     FD_LOG_WARNING(( "fd_vote_state_versioned_decode failed (%d)", decode_err ));
-      //     return;
-      //   }
+      fd_memcpy(node->elem.key.key, acc->key.key, sizeof(fd_pubkey_t));
+      node->elem.stake = acc->account.lamports;
+      node->elem.value = (fd_solana_account_global_t){
+        .lamports = acc->account.lamports,
+        .data_len = acc->account.data_len,
+        .data_offset = 0UL, /* FIXME: remove this field from the cache altogether. */
+        .owner = acc->account.owner,
+        .executable = acc->account.executable,
+        .rent_epoch = acc->account.rent_epoch
+      };
+      fd_solana_account_data_update( &node->elem.value, acc->account.data );
 
-      //   switch( vs->discriminant )
-      //   {
-      //   case fd_vote_state_versioned_enum_current:
-      //     last_timestamp = vs->inner.current.last_timestamp;
-      //     node_pubkey    = vs->inner.current.node_pubkey;
-      //     break;
-      //   case fd_vote_state_versioned_enum_v0_23_5:
-      //     last_timestamp = vs->inner.v0_23_5.last_timestamp;
-      //     node_pubkey    = vs->inner.v0_23_5.node_pubkey;
-      //     break;
-      //   case fd_vote_state_versioned_enum_v1_14_11:
-      //     last_timestamp = vs->inner.v1_14_11.last_timestamp;
-      //     node_pubkey    = vs->inner.v1_14_11.node_pubkey;
-      //     break;
-      //   default:
-      //     __builtin_unreachable();
-      //   }
-
-      // } FD_SPAD_FRAME_END;
-
-      // fd_memcpy(node->elem.key.key, acc->key.key, sizeof(fd_pubkey_t));
-      // node->elem.stake = acc->account.lamports;
-      // node->elem.value = (fd_solana_vote_account_t){
-      //   .lamports = acc->account.lamports,
-      //   .node_pubkey = node_pubkey,
-      //   .last_timestamp_ts = last_timestamp.timestamp,
-      //   .last_timestamp_slot = last_timestamp.slot,
-      //   .owner = acc->account.owner,
-      //   .executable = acc->account.executable,
-      //   .rent_epoch = acc->account.rent_epoch
-      // };
-
-      fd_vote_accounts_pair_t_map_insert( vacc_pool, &vacc_root, node );
+      fd_vote_accounts_pair_global_t_map_insert( vacc_pool, &vacc_root, node );
 
       FD_LOG_INFO(( "Adding genesis vote account: key=%s stake=%lu",
                     FD_BASE58_ENC_32_ALLOCA( node->elem.key.key ),
@@ -3393,51 +3090,104 @@ fd_runtime_init_bank_from_genesis( fd_exec_slot_ctx_t *        slot_ctx,
   // slot_ctx->slot_bank.epoch_stakes.vote_accounts_pool = fd_vote_accounts_pair_t_map_join( fd_vote_accounts_pair_t_map_new( pool_mem, FD_HASH_FOOTPRINT * 400 ) );
   // slot_ctx->slot_bank.epoch_stakes.vote_accounts_root = NULL;
 
-  // fd_vote_accounts_pair_t_mapnode_t * next_pool = fd_exec_epoch_ctx_next_epoch_stakes_join( slot_ctx->epoch_ctx );
-  // fd_vote_accounts_pair_t_mapnode_t * next_root = NULL;
 
-  // for( fd_vote_accounts_pair_t_mapnode_t *n = fd_vote_accounts_pair_t_map_minimum( vacc_pool, vacc_root );
-  //      n;
-  //      n = fd_vote_accounts_pair_t_map_successor( vacc_pool, n )) {
-  //   fd_vote_accounts_pair_t_mapnode_t * e = fd_vote_accounts_pair_t_map_acquire( slot_ctx->slot_bank.epoch_stakes.vote_accounts_pool );
-  //   e->elem = n->elem;
-  //   fd_vote_accounts_pair_t_map_insert( slot_ctx->slot_bank.epoch_stakes.vote_accounts_pool, &slot_ctx->slot_bank.epoch_stakes.vote_accounts_root, e );
+  fd_vote_accounts_global_t * epoch_stakes = fd_bank_epoch_stakes_locking_modify( slot_ctx->bank );
+  uchar * pool_mem = (uchar *)fd_ulong_align_up( (ulong)epoch_stakes + sizeof(fd_vote_accounts_global_t), fd_vote_accounts_pair_t_map_align() );
+  fd_vote_accounts_pair_global_t_mapnode_t * vote_accounts_pool = fd_vote_accounts_pair_global_t_map_join( fd_vote_accounts_pair_global_t_map_new( pool_mem, 50000UL ) );
+  fd_vote_accounts_pair_global_t_mapnode_t * vote_accounts_root = NULL;
 
-  //   fd_vote_accounts_pair_t_mapnode_t * next_e = fd_vote_accounts_pair_t_map_acquire( next_pool );
-  //   next_e->elem = n->elem;
-  //   fd_vote_accounts_pair_t_map_insert( next_pool, &next_root, next_e );
-  // }
+  uchar * epoch_stakes_vote_acc_region_curr = (uchar *)fd_ulong_align_up( (ulong)vote_accounts_pool + fd_vote_accounts_pair_global_t_map_footprint( 50000UL ), 8UL );
+
+  fd_vote_accounts_global_t * next_epoch_stakes = fd_bank_next_epoch_stakes_locking_modify( slot_ctx->bank );
+  uchar * next_pool_mem = (uchar *)fd_ulong_align_up( (ulong)next_epoch_stakes + sizeof(fd_vote_accounts_global_t), fd_vote_accounts_pair_t_map_align() );
+  fd_vote_accounts_pair_global_t_mapnode_t * next_pool = fd_vote_accounts_pair_global_t_map_join( fd_vote_accounts_pair_global_t_map_new( next_pool_mem, 50000UL ) );
+  fd_vote_accounts_pair_global_t_mapnode_t * next_root = NULL;
+
+  uchar * next_epoch_stakes_acc_region_curr = (uchar *)fd_ulong_align_up( (ulong)next_pool + fd_vote_accounts_pair_global_t_map_footprint( 50000UL ), 8UL );
+
+  for( ulong i=0UL; i<genesis_block->accounts_len; i++ ) {
+    fd_pubkey_account_pair_t const * acc = &genesis_block->accounts[i];
+
+    if( !memcmp( acc->account.owner.key, fd_solana_vote_program_id.key, sizeof(fd_pubkey_t) ) ) {
+
+      /* Insert into the epoch_stakes vote accounts map */
+      fd_vote_accounts_pair_global_t_mapnode_t * e = fd_vote_accounts_pair_global_t_map_acquire( vote_accounts_pool );
+      FD_TEST( e );
+      e->elem.key = acc->key;
+      e->elem.stake = acc->account.lamports;
+      e->elem.value = (fd_solana_account_global_t){
+        .lamports = acc->account.lamports,
+        .data_len = acc->account.data_len,
+        .data_offset = 0UL, /* FIXME: remove this field from the cache altogether. */
+        .owner = acc->account.owner,
+        .executable = acc->account.executable,
+        .rent_epoch = acc->account.rent_epoch
+      };
+
+      memcpy( epoch_stakes_vote_acc_region_curr, acc->account.data, acc->account.data_len );
+      e->elem.value.data_offset = (ulong)(epoch_stakes_vote_acc_region_curr - (uchar *)&e->elem.value);
+      epoch_stakes_vote_acc_region_curr += acc->account.data_len;
+
+      fd_vote_accounts_pair_global_t_map_insert( vote_accounts_pool, &vote_accounts_root, e );
+
+      /* Insert into the next_epoch_stakes vote accounts map */
+      /* FIXME: is this correct? */
+      fd_vote_accounts_pair_global_t_mapnode_t * next_e = fd_vote_accounts_pair_global_t_map_acquire( next_pool );
+      FD_TEST( next_e );
+      next_e->elem.key = acc->key;
+      next_e->elem.stake = acc->account.lamports;
+      next_e->elem.value = (fd_solana_account_global_t){
+        .lamports = acc->account.lamports,
+        .data_len = acc->account.data_len,
+        .data_offset = 0UL, /* FIXME: remove this field from the cache altogether. */
+        .owner = acc->account.owner,
+        .executable = acc->account.executable,
+        .rent_epoch = acc->account.rent_epoch
+      };
+
+      memcpy( next_epoch_stakes_acc_region_curr, acc->account.data, acc->account.data_len );
+      next_e->elem.value.data_offset = (ulong)(next_epoch_stakes_acc_region_curr - (uchar *)&next_e->elem.value);
+      next_epoch_stakes_acc_region_curr += acc->account.data_len;
+
+      fd_vote_accounts_pair_global_t_map_insert( next_pool, &next_root, next_e );
+    }
+
+  }
 
   for( fd_delegation_pair_t_mapnode_t *n = fd_delegation_pair_t_map_minimum( sacc_pool, sacc_root );
        n;
        n = fd_delegation_pair_t_map_successor( sacc_pool, n )) {
-    fd_vote_accounts_pair_t_mapnode_t query_voter = {0};
+    fd_vote_accounts_pair_global_t_mapnode_t query_voter = {0};
     query_voter.elem.key = n->elem.delegation.voter_pubkey;
 
-    fd_vote_accounts_pair_t_mapnode_t * voter = fd_vote_accounts_pair_t_map_find( vacc_pool, vacc_root, &query_voter );
+    fd_vote_accounts_pair_global_t_mapnode_t * voter = fd_vote_accounts_pair_global_t_map_find( vacc_pool, vacc_root, &query_voter );
 
     if( !!voter ) {
       voter->elem.stake = fd_ulong_sat_add( voter->elem.stake, n->elem.delegation.stake );
     }
   }
 
-  // epoch_bank->next_epoch_stakes = (fd_vote_accounts_t){
-  //   .vote_accounts_pool = next_pool,
-  //   .vote_accounts_root = next_root,
-  // };
+  fd_vote_accounts_vote_accounts_pool_update( epoch_stakes, vote_accounts_pool );
+  fd_vote_accounts_vote_accounts_root_update( epoch_stakes, vote_accounts_root );
 
-  /* Initializes the stakes cache in the Bank structure. */
-  // epoch_bank->stakes = (fd_stakes_t){
-  //     .stake_delegations_pool = sacc_pool,
-  //     .stake_delegations_root = sacc_root,
-  //     .epoch                  = 0UL,
-  //     .unused                 = 0UL,
-  //     .vote_accounts = (fd_vote_accounts_t){
-  //       .vote_accounts_pool = vacc_pool,
-  //       .vote_accounts_root = vacc_root
-  //     },
-  //     .stake_history = {0}
-  // };
+
+  fd_vote_accounts_vote_accounts_pool_update( next_epoch_stakes, next_pool );
+  fd_vote_accounts_vote_accounts_root_update( next_epoch_stakes, next_root );
+
+  fd_bank_epoch_stakes_end_locking_modify( slot_ctx->bank );
+
+  fd_bank_next_epoch_stakes_end_locking_modify( slot_ctx->bank );
+
+
+
+  stakes_global->epoch  = 0UL;
+  stakes_global->unused = 0UL;
+
+  fd_vote_accounts_vote_accounts_pool_update( &stakes_global->vote_accounts, vacc_pool );
+  fd_vote_accounts_vote_accounts_root_update( &stakes_global->vote_accounts, vacc_root );
+  fd_stakes_stake_delegations_pool_update( stakes_global, sacc_pool );
+  fd_stakes_stake_delegations_root_update( stakes_global, sacc_root );
+  fd_bank_stakes_end_locking_modify( slot_ctx->bank );
 
   fd_bank_capitalization_set( slot_ctx->bank, capitalization );
 
@@ -3475,27 +3225,11 @@ fd_runtime_process_genesis_block( fd_exec_slot_ctx_t * slot_ctx,
 
   fd_bank_total_compute_units_used_set( slot_ctx->bank, 0UL );
 
+  fd_runtime_init_program( slot_ctx, runtime_spad );
+
   fd_sysvar_slot_history_update( slot_ctx->bank, slot_ctx->funk, slot_ctx->funk_txn, runtime_spad );
 
   fd_runtime_update_leaders( slot_ctx->bank, 0, runtime_spad );
-
-  if( !FD_FEATURE_ACTIVE_BANK( slot_ctx->bank, disable_partitioned_rent_collection ) ) {
-    fd_funk_t *     funk = slot_ctx->funk;
-    fd_funk_txn_t * txn  = slot_ctx->funk_txn;
-
-    /* Add all the genesis accounts into the rent fresh list */
-    for( fd_funk_rec_t const * rec = fd_funk_txn_first_rec( funk, txn );
-         NULL != rec;
-         rec = fd_funk_txn_next_rec( funk, rec ) ) {
-
-      if( !fd_funk_key_is_acc( rec->pair.key  ) ) {
-        continue;
-      }
-
-      fd_funk_rec_key_t const * pubkey = rec->pair.key;
-      fd_runtime_register_new_fresh_account( (fd_pubkey_t * const ) fd_type_pun_const(&pubkey->uc[0]), slot_ctx->bank );
-    }
-  }
 
   fd_runtime_freeze( slot_ctx->bank, slot_ctx->funk, slot_ctx->funk_txn, runtime_spad );
 
@@ -3569,13 +3303,18 @@ fd_runtime_read_genesis( fd_exec_slot_ctx_t * slot_ctx,
   fd_memcpy( genesis_hash_bm, buf, sizeof(fd_hash_t) );
 
   if( !is_snapshot ) {
-    fd_runtime_init_bank_from_genesis(
-        slot_ctx,
-        genesis_block,
-        &genesis_hash,
-        runtime_spad );
+    /* Create a new Funk transaction for slot 0 */
+    fd_funk_txn_start_write( slot_ctx->funk );
+    fd_funk_txn_xid_t xid = { 0 };
+    xid.ul[1] = 0UL;
+    xid.ul[0] = 0UL;
+    slot_ctx->funk_txn = fd_funk_txn_prepare( slot_ctx->funk, NULL, &xid, 1 );
+    fd_funk_txn_end_write( slot_ctx->funk );
 
-    fd_runtime_init_program( slot_ctx, runtime_spad );
+    fd_runtime_init_bank_from_genesis( slot_ctx,
+                                        genesis_block,
+                                        &genesis_hash,
+                                        runtime_spad );
 
     FD_LOG_DEBUG(( "start genesis accounts - count: %lu", genesis_block->accounts_len ));
 
@@ -3945,6 +3684,11 @@ fd_runtime_block_execute_tpool( fd_exec_slot_ctx_t *            slot_ctx,
       /* UPDATE */
 
       if( !mblock_txn_cnt ) continue;
+
+      /* Reverify programs for this epoch if needed */
+      for( ulong txn_idx=0UL; txn_idx<mblock_txn_cnt; txn_idx++ ) {
+        fd_runtime_update_program_cache( slot_ctx, &mblock_txn_ptrs[txn_idx], runtime_spad );
+      }
 
       res = fd_runtime_process_txns_in_microblock_stream( slot_ctx->bank,
                                                           slot_ctx->funk,

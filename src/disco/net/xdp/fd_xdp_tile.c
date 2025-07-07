@@ -15,16 +15,20 @@
 
 #include "../../../waltz/ip/fd_fib4.h"
 #include "../../../waltz/neigh/fd_neigh4_map.h"
+#include "../../../waltz/mib/fd_netdev_tbl.h"
+#include "../../../waltz/mib/fd_dbl_buf.h"
 #include "../../../waltz/xdp/fd_xdp_redirect_user.h" /* fd_xsk_activate */
 #include "../../../waltz/xdp/fd_xsk.h"
 #include "../../../util/log/fd_dtrace.h"
 #include "../../../util/net/fd_eth.h"
 #include "../../../util/net/fd_ip4.h"
+#include "../../../util/net/fd_gre.h"
 
 #include <unistd.h>
 #include <linux/if.h> /* struct ifreq */
 #include <sys/ioctl.h>
 #include <linux/unistd.h>
+#include <linux/if_arp.h>
 
 #include "generated/xdp_seccomp.h"
 
@@ -179,10 +183,14 @@ typedef struct {
 
   /* Details pertaining to an inflight send op */
   struct {
-    uint   if_idx; /* 0: main interface, 1: loopback */
+    uint   if_idx;            /* linux interface index */
     void * frame;
-    uchar  mac_addrs[12]; /* First 12 bytes of Ethernet header */
-    uint   src_ip;
+    uchar  mac_addrs[12];     /* First 12 bytes of Ethernet header */
+    uint   src_ip;            /* src_ip in net order */
+
+    uint   use_gre;           /* The tx packet will be GRE-encapsulated */
+    uint   gre_outer_src_ip;  /* For GRE: Outer iphdr's src_ip in net order */
+    uint   gre_outer_dst_ip;  /* For GRE: Outer iphdr's dst_ip in net order */
   } tx_op;
 
   /* Round-robin cycle serivce operations */
@@ -225,6 +233,13 @@ typedef struct {
   fd_neigh4_hmap_t  neigh4[1];
   fd_netlink_neigh4_solicit_link_t neigh4_solicit[1];
 
+  /* Netdev table */
+  fd_netdev_tbl_join_t netdev_tbl_handle; // handle to the netdev table itself
+  fd_dbl_buf_t       * netdev_dbl_handle; // handle to the double buffer
+  uchar              * netdev_buf;        // local buf to copy in the netdev table
+  ulong                netdev_buf_sz;     // size of netdev_buf above
+  int                  has_gre_interface; // netdev table has a GRE interface entry
+
   struct {
     ulong rx_pkt_cnt;
     ulong rx_bytes_total;
@@ -259,6 +274,7 @@ scratch_footprint( fd_topo_tile_t const * tile ) {
   ulong l = FD_LAYOUT_INIT;
   l = FD_LAYOUT_APPEND( l, alignof(fd_net_ctx_t), sizeof(fd_net_ctx_t)                      );
   l = FD_LAYOUT_APPEND( l, alignof(ulong),        tile->xdp.free_ring_depth * sizeof(ulong) );
+  l = FD_LAYOUT_APPEND( l, fd_netdev_tbl_align(), fd_netdev_tbl_footprint( NETDEV_MAX, BOND_MASTER_MAX ) );
   return FD_LAYOUT_FINI( l, scratch_align() );
 }
 
@@ -340,6 +356,47 @@ net_is_fatal_xdp_error( int err ) {
          err==EPERM;
 }
 
+/* Load the netdev table to ctx->netdev_buf. Create a join in ctx->netdev_tbl_handle  */
+
+static void
+net_load_netdev_tbl( fd_net_ctx_t * ctx ) {
+  /* Copy from double buffer */
+  if( FD_UNLIKELY( fd_dbl_buf_read( ctx->netdev_dbl_handle, ctx->netdev_buf_sz, ctx->netdev_buf, NULL ) ) == 0)  FD_LOG_ERR(("netdev table load failed"));
+
+  /* Recalculate the join handler to netdeb buf */
+  if( FD_UNLIKELY( !fd_netdev_tbl_join( &ctx->netdev_tbl_handle, ctx->netdev_buf ) ) ) FD_LOG_ERR(("netdev table join failed"));
+}
+
+/* Query the netdev table. Return a fd_netdev_t pointer to the net device of the
+interface specified by if_idx. Null if the if_idx is invalid */
+
+static fd_netdev_t *
+net_query_netdev_tbl( fd_net_ctx_t *ctx,
+                      uint if_idx ) {
+  /* dev_tbl is one-indexed */
+  if( if_idx>ctx->netdev_tbl_handle.hdr->dev_cnt ) {
+    FD_LOG_NOTICE(( "interface idx invalid (%u). dev_cnt (%u)", if_idx, ctx->netdev_tbl_handle.hdr->dev_cnt ));
+    return NULL;
+  }
+
+  return &ctx->netdev_tbl_handle.dev_tbl[if_idx];
+}
+
+/* Iterates the netdev table and returns 1 if a GRE interface exists, 0 otherwise.
+   Only called in privileged_init and during_housekeeping */
+
+static int
+net_check_gre_interface_exists( fd_net_ctx_t * ctx ) {
+  fd_netdev_t * dev_tbl = ctx->netdev_tbl_handle.dev_tbl;
+  ushort        dev_cnt = ctx->netdev_tbl_handle.hdr->dev_cnt;
+
+  for( ushort if_idx = 0; if_idx<dev_cnt; if_idx++ ) {
+    if( dev_tbl[if_idx].dev_type==ARPHRD_IPGRE ) return 1;
+  }
+  return 0;
+}
+
+
 /* net_tx_ready returns 1 if the current XSK is ready to submit a TX send
    job.  If the XSK is blocked for sends, returns 0.  Reasons for block
    include:
@@ -348,8 +405,8 @@ net_is_fatal_xdp_error( int err ) {
 
 static int
 net_tx_ready( fd_net_ctx_t * ctx,
-              uint           if_idx ) {
-  fd_xsk_t *           xsk     = &ctx->xsk[ if_idx ];
+              uint           xsk_idx ) {
+  fd_xsk_t *           xsk     = &ctx->xsk[ xsk_idx ];
   fd_xdp_ring_t *      tx_ring = &xsk->ring_tx;
   fd_net_free_ring_t * free    = &ctx->free_tx;
   if( free->prod == free->cons ) return 0; /* drop */
@@ -411,15 +468,15 @@ net_tx_wakeup( fd_net_ctx_t * ctx,
 
 static inline int
 net_tx_periodic_wakeup( fd_net_ctx_t * ctx,
-                        uint           if_idx,
+                        uint           xsk_idx,
                         long           now,
                         int *          charge_busy ) {
-  uint tx_prod = FD_VOLATILE_CONST( *ctx->xsk[ if_idx ].ring_tx.prod );
-  uint tx_cons = FD_VOLATILE_CONST( *ctx->xsk[ if_idx ].ring_tx.cons );
+  uint tx_prod = FD_VOLATILE_CONST( *ctx->xsk[ xsk_idx ].ring_tx.prod );
+  uint tx_cons = FD_VOLATILE_CONST( *ctx->xsk[ xsk_idx ].ring_tx.cons );
   int tx_ring_empty = tx_prod==tx_cons;
-  if( fd_net_flusher_check( ctx->tx_flusher+if_idx, now, tx_ring_empty ) ) {
-    net_tx_wakeup( ctx, &ctx->xsk[ if_idx ], charge_busy );
-    fd_net_flusher_wakeup( ctx->tx_flusher+if_idx, now );
+  if( fd_net_flusher_check( ctx->tx_flusher+xsk_idx, now, tx_ring_empty ) ) {
+    net_tx_wakeup( ctx, &ctx->xsk[ xsk_idx ], charge_busy );
+    fd_net_flusher_wakeup( ctx->tx_flusher+xsk_idx, now );
   }
   return 0;
 }
@@ -427,6 +484,8 @@ net_tx_periodic_wakeup( fd_net_ctx_t * ctx,
 static void
 during_housekeeping( fd_net_ctx_t * ctx ) {
   long now = fd_tickcount();
+  net_load_netdev_tbl( ctx );
+  ctx->has_gre_interface = net_check_gre_interface_exists( ctx );
 
   ctx->metrics.rx_busy_cnt = 0UL;
   ctx->metrics.rx_idle_cnt = 0UL;
@@ -457,6 +516,7 @@ during_housekeeping( fd_net_ctx_t * ctx ) {
   }
 }
 
+
 /* net_tx_route resolves the destination interface index, src MAC address,
    and dst MAC address.  Returns 1 on success, 0 on failure.  On success,
    tx_op->{if_idx,mac_addrs} is set. */
@@ -486,26 +546,39 @@ net_tx_route( fd_net_ctx_t * ctx,
     return 0;
   }
 
-  ip4_src = fd_uint_if( !!ctx->bind_address, ctx->bind_address, ip4_src );
+  fd_netdev_t * netdev = net_query_netdev_tbl( ctx, if_idx );
+  if( !netdev ) {
+    ctx->metrics.tx_route_fail_cnt++;
+    return 0;
+  }
 
-  if( if_idx==1 ) {
+  ip4_src = fd_uint_if( !!ctx->bind_address, ctx->bind_address, ip4_src );
+  ctx->tx_op.src_ip = ip4_src;
+  ctx->tx_op.if_idx = if_idx;
+
+  if( netdev->dev_type==ARPHRD_LOOPBACK ) {
     /* Set Ethernet src and dst address to 00:00:00:00:00:00 */
     memset( ctx->tx_op.mac_addrs, 0, 12UL );
     ctx->tx_op.if_idx = 1;
     /* Set preferred src address to 127.0.0.1 if no bind address is set */
-    if( !ip4_src ) ip4_src = FD_IP4_ADDR( 127,0,0,1 );
-    ctx->tx_op.src_ip = ip4_src;
+    if( !ctx->tx_op.src_ip ) ctx->tx_op.src_ip = FD_IP4_ADDR( 127,0,0,1 );
+    return 1;
+  } else if( netdev->dev_type==ARPHRD_IPGRE ) {
+    /* skip MAC addrs lookup for GRE inner dst ip */
+    if( netdev->gre_src_ip ) ctx->tx_op.gre_outer_src_ip = netdev->gre_src_ip;
+    ctx->tx_op.gre_outer_dst_ip = netdev->gre_dst_ip;
+    ctx->tx_op.use_gre = 1;
     return 1;
   }
+
+  if( FD_UNLIKELY( netdev->dev_type!=ARPHRD_ETHER ) ) return 0; // drop
 
   if( FD_UNLIKELY( if_idx!=ctx->xsk[ 0 ].if_idx ) ) {
     ctx->metrics.tx_no_xdp_cnt++;
     return 0;
   }
-  ctx->tx_op.if_idx = 0;
 
   /* Neighbor resolve */
-
   uint neigh_ip = next_hop->ip4_gw;
   if( !neigh_ip ) neigh_ip = dst_ip;
 
@@ -524,8 +597,8 @@ net_tx_route( fd_net_ctx_t * ctx,
   }
   ip4_src = fd_uint_if( !ip4_src, ctx->default_address, ip4_src );
   ctx->tx_op.src_ip = ip4_src;
-  memcpy( ctx->tx_op.mac_addrs+0, neigh->mac_addr,   6 );
-  memcpy( ctx->tx_op.mac_addrs+6, ctx->src_mac_addr, 6 );
+  memcpy( ctx->tx_op.mac_addrs+0, neigh->mac_addr,  6 );
+  memcpy( ctx->tx_op.mac_addrs+6, netdev->mac_addr, 6 );
 
   if( FD_UNLIKELY( fd_neigh4_hmap_query_test( neigh_query ) ) ) {
     ctx->metrics.tx_neigh_fail_cnt++;
@@ -558,13 +631,30 @@ before_frag( fd_net_ctx_t * ctx,
   uint net_tile_id  = ctx->net_tile_id;
   uint net_tile_cnt = ctx->net_tile_cnt;
   uint if_idx       = ctx->tx_op.if_idx;
-  if( FD_UNLIKELY( if_idx>=ctx->xsk_cnt ) ) return 1; /* ignore */
+  uint xsk_idx      = if_idx;   // index into ctx->xsk
+
+  if( ctx->tx_op.use_gre ) {
+    uint inner_src_ip = ctx->tx_op.src_ip;
+    if( FD_UNLIKELY( !inner_src_ip ) ) return 1;   // skip
+
+    /* Find the MAC addrs for the eth hdr, and src ip for outer ip4 hdr if not found in netdev tbl */
+    ctx->tx_op.src_ip           = 0;
+    ctx->tx_op.use_gre          = 0;
+    if( FD_UNLIKELY( !net_tx_route( ctx, ctx->tx_op.gre_outer_dst_ip ) ) ) return 1;
+    if( ctx->tx_op.use_gre==1 ) return 1;   // Do not support multiple tunneling. drop
+    if( !ctx->tx_op.gre_outer_src_ip ) ctx->tx_op.gre_outer_src_ip = ctx->tx_op.src_ip;
+    ctx->tx_op.use_gre          = 1;      // Reset to 1
+    ctx->tx_op.src_ip           = inner_src_ip;
+
+    xsk_idx                     = 0;    // use xsk of the main interface
+  }
+
+  if( FD_UNLIKELY( xsk_idx>=ctx->xsk_cnt ) ) return 1; // ignore
 
   /* Load balance TX */
-
   uint hash       = (uint)fd_disco_netmux_sig_hash( sig );
   uint target_idx = hash % net_tile_cnt;
-  if( if_idx==1 ) target_idx = 0; /* loopback always targets tile 0 */
+  if( xsk_idx==1 ) target_idx = 0; /* loopback always targets tile 0 */
 
   /* Skip if another net tile is responsible for this packet */
 
@@ -572,7 +662,7 @@ before_frag( fd_net_ctx_t * ctx,
 
   /* Skip if TX is blocked */
 
-  if( FD_UNLIKELY( !net_tx_ready( ctx, if_idx ) ) ) {
+  if( FD_UNLIKELY( !net_tx_ready( ctx, xsk_idx ) ) ) {
     ctx->metrics.tx_full_fail_cnt++;
     return 1;
   }
@@ -604,8 +694,11 @@ during_frag( fd_net_ctx_t * ctx,
   if( FD_UNLIKELY( chunk<ctx->in[ in_idx ].chunk0 || chunk>ctx->in[ in_idx ].wmark || sz>FD_NET_MTU ) )
     FD_LOG_ERR(( "chunk %lu %lu corrupt, not in range [%lu,%lu]", chunk, sz, ctx->in[ in_idx ].chunk0, ctx->in[ in_idx ].wmark ));
 
-  if( FD_UNLIKELY( sz<34UL ) )
+  if( FD_UNLIKELY( sz<( sizeof(fd_eth_hdr_t)+sizeof(fd_ip4_hdr_t) ) ) )
     FD_LOG_ERR(( "packet too small %lu (in_idx=%lu)", sz, in_idx ));
+
+  if( FD_UNLIKELY( sz>FD_ETH_PAYLOAD_MAX ) )
+    FD_LOG_ERR(( "packet too big %lu (in_idx=%lu)", sz, in_idx ));
 
   void * frame = ctx->tx_op.frame;
   if( FD_UNLIKELY( (ulong)frame < (ulong)ctx->umem_frame0 ) )
@@ -616,7 +709,15 @@ during_frag( fd_net_ctx_t * ctx,
 
   /* Speculatively copy frame into XDP buffer */
   uchar const * src = fd_chunk_to_laddr_const( ctx->in[ in_idx ].mem, chunk );
-  fd_memcpy( ctx->tx_op.frame, src, sz );
+
+  if( ctx->tx_op.use_gre ) {
+    /* Discard the ethernet hdr from src. Copy the rest to where the inner ip4_hdr is.
+       Safe from overflow: FD_ETH_PAYLOAD_MAX + header overhead < frame size (2048UL) */
+    ulong overhead = sizeof(fd_eth_hdr_t) + sizeof(fd_ip4_hdr_t) + sizeof(fd_gre_hdr_t);
+    fd_memcpy( (void *)( (ulong)ctx->tx_op.frame + overhead ), src + sizeof(fd_eth_hdr_t), sz - sizeof(fd_eth_hdr_t) );
+  } else {
+    fd_memcpy( ctx->tx_op.frame, src, sz );
+  }
 }
 
 /* after_frag is called when the during_frag memcpy was _not_ overrun. */
@@ -634,30 +735,71 @@ after_frag( fd_net_ctx_t *      ctx,
 
   /* Current send operation */
 
-  uint       if_idx = ctx->tx_op.if_idx;
-  uchar *    frame  = ctx->tx_op.frame;
-  fd_xsk_t * xsk    = &ctx->xsk[ if_idx ];
+  uint       if_idx  = ctx->tx_op.if_idx;
+  uchar *    frame   = ctx->tx_op.frame;
+  uint       xsk_idx = if_idx;
 
   /* Select Ethernet addresses */
   memcpy( frame, ctx->tx_op.mac_addrs, 12 );
 
-  /* Select IPv4 source address */
-  uint   ihl       = frame[ 14 ] & 0x0f;
-  ushort ethertype = FD_LOAD( ushort, frame+12 );
-  uint   ip4_saddr = FD_LOAD( uint,   frame+26 );
+  uchar * iphdr = frame + sizeof(fd_eth_hdr_t);
+
+  if( ctx->tx_op.use_gre ) {
+
+    /* For GRE packets, the ethertype will always be FD_ETH_HDR_TYPE_IP. outer source ip can't be 0 */
+    if( FD_UNLIKELY( ctx->tx_op.gre_outer_src_ip==0 ) ) {
+      ctx->metrics.tx_route_fail_cnt++;
+      return;
+    }
+
+    /* Write the last two bytes for eth_hdr */
+    FD_STORE( ushort, frame+12, fd_ushort_bswap( FD_ETH_HDR_TYPE_IP ) );
+
+    uchar * outer_iphdr       = frame + sizeof(fd_eth_hdr_t);
+    uchar * gre_hdr           = outer_iphdr + sizeof(fd_ip4_hdr_t);
+    uchar * inner_iphdr       = gre_hdr + sizeof(fd_gre_hdr_t);
+
+    /* outer hdr + gre hdr + inner net_tot_len */
+    ushort  outer_net_tot_len = sizeof(fd_ip4_hdr_t) + sizeof(fd_gre_hdr_t) + fd_ushort_bswap( ( (fd_ip4_hdr_t *)inner_iphdr )->net_tot_len  );
+
+    /* Construct outer ip header */
+    FD_STORE( uchar,  outer_iphdr,    0x45 );  // outer_iphdr->verihl = 0x45;
+    FD_STORE( ushort, outer_iphdr+2,  fd_ushort_bswap( outer_net_tot_len ) );
+    FD_STORE( uchar,  outer_iphdr+8,  64 );    // ttl = 64
+    FD_STORE( uchar,  outer_iphdr+9,  FD_IP4_HDR_PROTOCOL_GRE );
+    FD_STORE( uint,   outer_iphdr+12, ctx->tx_op.gre_outer_src_ip );
+    FD_STORE( uint,   outer_iphdr+16, ctx->tx_op.gre_outer_dst_ip );
+    /* Compute checksum for the outer hdr */
+    FD_STORE( ushort, outer_iphdr+10, 0 );
+    FD_STORE( ushort, outer_iphdr+10, fd_ip4_hdr_check_fast( outer_iphdr ) );
+
+    /* Construct gre header */
+    FD_STORE( ushort, gre_hdr,   0 );
+    FD_STORE( ushort, gre_hdr+2, fd_ushort_bswap( FD_ETH_HDR_TYPE_IP ) );
+
+    iphdr   = inner_iphdr;
+    sz      = sizeof(fd_eth_hdr_t) + outer_net_tot_len;
+    xsk_idx = 0;
+  }
+
+  /* Construct (inner) ip header */
+  uint   ihl         = FD_IP4_GET_LEN( *(fd_ip4_hdr_t *)iphdr );
+  uint   ip4_saddr   = FD_LOAD( uint, iphdr+12 );
+  ushort ethertype   = FD_LOAD( ushort, frame+12 );
+
   if( ethertype==fd_ushort_bswap( FD_ETH_HDR_TYPE_IP ) && ip4_saddr==0 ) {
     if( FD_UNLIKELY( ctx->tx_op.src_ip==0 ||
-                     ihl<5 || (14+(ihl<<2))>sz ) ) {
+                     ihl<sizeof(fd_ip4_hdr_t) ||
+                     (sizeof(fd_eth_hdr_t)+ihl)>sz ) ) {
       /* Outgoing IPv4 packet with unknown src IP or invalid IHL */
       /* FIXME should select first IPv4 address of device table here */
       ctx->metrics.tx_route_fail_cnt++;
       return;
     }
-
     /* Recompute checksum after changing header */
-    FD_STORE( uint,   frame+26, ctx->tx_op.src_ip );
-    FD_STORE( ushort, frame+24, 0 );
-    FD_STORE( ushort, frame+24, fd_ip4_hdr_check( frame+14 ) );
+    FD_STORE( uint,   iphdr+12, ctx->tx_op.src_ip );
+    FD_STORE( ushort, iphdr+10, 0 );
+    FD_STORE( ushort, iphdr+10, fd_ip4_hdr_check( iphdr ) );
   }
 
   /* Submit packet TX job
@@ -666,6 +808,8 @@ after_frag( fd_net_ctx_t *      ctx,
      (This invariant breaks if any other packet is sent over this ring
      between before_frag and this point, e.g. send_arp_probe.) */
 
+
+  fd_xsk_t      * xsk     = &ctx->xsk[ xsk_idx ];
   fd_xdp_ring_t * tx_ring = &xsk->ring_tx;
   uint            tx_seq  = FD_VOLATILE_CONST( *tx_ring->prod );
   uint            tx_mask = tx_ring->depth - 1U;
@@ -682,7 +826,7 @@ after_frag( fd_net_ctx_t *      ctx,
   FD_VOLATILE( *xsk->ring_tx.prod ) = tx_ring->cached_prod = tx_seq+1U;
   ctx->metrics.tx_submit_cnt++;
   ctx->metrics.tx_bytes_total += sz;
-  fd_net_flusher_inc( ctx->tx_flusher+if_idx, fd_tickcount() );
+  fd_net_flusher_inc( ctx->tx_flusher+xsk_idx, fd_tickcount() );
 
 }
 
@@ -695,18 +839,38 @@ net_rx_packet( fd_net_ctx_t * ctx,
                ulong          sz,
                uint *         freed_chunk ) {
 
-  ulong umem_lowbits = umem_off & 0x3fUL;
+  uchar *       packet       = (uchar *)ctx->umem_frame0 + umem_off;
+  uchar const * packet_end   = packet + sz;
+  uchar *       iphdr        = packet + 14U;
 
-  uchar const * packet     = (uchar const *)ctx->umem_frame0 + umem_off;
-  uchar const * packet_end = packet + sz;
-  uchar const * iphdr      = packet + 14U;
+  /* Discard the GRE overhead (outer iphdr and gre hdr) */
+  if( iphdr[9] == FD_IP4_HDR_PROTOCOL_GRE ) {
+
+    if( FD_UNLIKELY( ctx->has_gre_interface==0 ) ) return;   // drop
+
+    ulong overhead           = FD_IP4_GET_LEN( *(fd_ip4_hdr_t *)iphdr ) + sizeof(fd_gre_hdr_t);
+
+    /* The new iphdr is where the inner iphdr was */
+    iphdr                    += overhead;
+
+    /* Copy over the eth_hdr */
+    fd_eth_hdr_t * new_packet = (fd_eth_hdr_t *)( (char *)iphdr - sizeof(fd_eth_hdr_t) );
+    fd_memcpy( new_packet, packet, sizeof(fd_eth_hdr_t) );
+
+    sz                        -= overhead;
+    packet                    = (uchar *)new_packet;
+    umem_off                  = (ulong)( packet - (uchar *)ctx->umem_frame0 );
+  }
+
 
   /* Translate packet to UMEM frame index */
-  ulong chunk = ctx->umem_chunk0 + (umem_off>>FD_CHUNK_LG_SZ);
+  ulong chunk       = ctx->umem_chunk0 + (umem_off>>FD_CHUNK_LG_SZ);
+  ulong ctl         = umem_off & 0x3fUL;
+
 
   /* Filter for UDP/IPv4 packets. Test for ethtype and ipproto in 1
      branch */
-  uint test_ethip = ( (uint)packet[12] << 16u ) | ( (uint)packet[13] << 8u ) | (uint)packet[23];
+  uint test_ethip  = ( (uint)packet[12] << 16u ) | ( (uint)packet[13] << 8u ) | (uint)packet[23];
   if( FD_UNLIKELY( test_ethip!=0x080011 ) ) {
     FD_LOG_ERR(( "Firedancer received a packet from the XDP program that was either "
                   "not an IPv4 packet, or not a UDP packet. It is likely your XDP program "
@@ -714,7 +878,7 @@ net_rx_packet( fd_net_ctx_t * ctx,
   }
 
   /* IPv4 is variable-length, so lookup IHL to find start of UDP */
-  uint iplen = ( ( (uint)iphdr[0] ) & 0x0FU ) * 4U;
+  uint iplen        = FD_IP4_GET_LEN( *(fd_ip4_hdr_t *)iphdr );
   uchar const * udp = iphdr + iplen;
 
   /* Ignore if UDP header is too short */
@@ -772,22 +936,21 @@ net_rx_packet( fd_net_ctx_t * ctx,
   }
 
   /* tile can decide how to partition based on src ip addr and src port */
-  ulong sig = fd_disco_netmux_sig( ip_srcaddr, udp_srcport, 0U, proto, 14UL+8UL+iplen );
+  ulong sig              = fd_disco_netmux_sig( ip_srcaddr, udp_srcport, 0U, proto, 14UL+8UL+iplen );
 
   /* Peek the mline for an old frame */
   fd_frag_meta_t * mline = out->mcache + fd_mcache_line_idx( out->seq, out->depth );
-  *freed_chunk = mline->chunk;
+  *freed_chunk           = mline->chunk;
 
   /* Overwrite the mline with the new frame */
-  ulong tspub = (ulong)fd_frag_meta_ts_comp( fd_tickcount() );
-  fd_mcache_publish( out->mcache, out->depth, out->seq, sig, chunk, sz, umem_lowbits, 0, tspub );
+  ulong tspub            = (ulong)fd_frag_meta_ts_comp( fd_tickcount() );
+  fd_mcache_publish( out->mcache, out->depth, out->seq, sig, chunk, sz, ctl, 0, tspub );
 
   /* Wind up for the next iteration */
-  out->seq = fd_seq_inc( out->seq, 1UL );
+  out->seq               = fd_seq_inc( out->seq, 1UL );
 
   ctx->metrics.rx_pkt_cnt++;
   ctx->metrics.rx_bytes_total += sz;
-
 }
 
 /* net_comp_event is called when an XDP TX frame is free again. */
@@ -997,7 +1160,7 @@ interface_addrs( const char * interface,
       |
       +-> XSKMAP object <-- BPF_MAP file descriptor (xsk_map) */
 
-static void
+FD_FN_UNUSED static void
 privileged_init( fd_topo_t *      topo,
                  fd_topo_tile_t * tile ) {
   void * scratch = fd_topo_obj_laddr( topo, tile->tile_obj_id );
@@ -1031,6 +1194,7 @@ privileged_init( fd_topo_t *      topo,
   void * const umem_base   = fd_wksp_containing( dcache_mem );
   ulong  const umem_chunk0 = ( (ulong)umem_frame0 - (ulong)umem_base )>>FD_CHUNK_LG_SZ;
   ulong  const umem_wmark  = umem_chunk0 + ( ( umem_sz-umem_frame_sz )>>FD_CHUNK_LG_SZ );
+
   if( FD_UNLIKELY( umem_chunk0>UINT_MAX || umem_wmark>UINT_MAX || umem_chunk0>umem_wmark ) ) {
     FD_LOG_ERR(( "Calculated invalid UMEM bounds [%lu,%lu]", umem_chunk0, umem_wmark ));
   }
@@ -1125,13 +1289,17 @@ privileged_init( fd_topo_t *      topo,
     FD_LOG_ERR(( "scratch overflow %lu %lu %lu", scratch_top - (ulong)scratch - scratch_footprint( tile ), scratch_top, (ulong)scratch + scratch_footprint( tile ) ));
 }
 
-static void
+FD_FN_UNUSED static void
 unprivileged_init( fd_topo_t *      topo,
                    fd_topo_tile_t * tile ) {
   void * scratch = fd_topo_obj_laddr( topo, tile->tile_obj_id );
+
   FD_SCRATCH_ALLOC_INIT( l, scratch );
   fd_net_ctx_t * ctx = FD_SCRATCH_ALLOC_APPEND( l, alignof(fd_net_ctx_t), sizeof(fd_net_ctx_t) );
   FD_TEST( ctx->xsk_cnt!=0 );
+  FD_TEST( ctx->free_tx.queue!=NULL );
+  (void)FD_SCRATCH_ALLOC_APPEND( l, alignof(ulong), tile->xdp.free_ring_depth * sizeof(ulong) );
+  ctx->netdev_buf              = FD_SCRATCH_ALLOC_APPEND( l, fd_netdev_tbl_align(), ctx->netdev_buf_sz );
 
   ctx->net_tile_id  = (uint)tile->kind_id;
   ctx->net_tile_cnt = (uint)fd_topo_tile_name_cnt( topo, tile->name );
@@ -1153,7 +1321,7 @@ unprivileged_init( fd_topo_t *      topo,
   FD_TEST( tile->in_cnt<=32 );
   for( ulong i=0UL; i<tile->in_cnt; i++ ) {
     fd_topo_link_t * link = &topo->links[ tile->in_link_id[ i ] ];
-    if( FD_UNLIKELY( link->mtu!=FD_NET_MTU ) ) FD_LOG_ERR(( "net tile in link does not have a normal MTU" ));
+    if( FD_UNLIKELY( link->mtu!=FD_NET_MTU ) ) FD_LOG_ERR(( "net tile in link %s does not have a normal MTU", link->name ));
 
     ctx->in[ i ].mem    = topo->workspaces[ topo->objs[ link->dcache_obj_id ].wksp_id ].wksp;
     ctx->in[ i ].chunk0 = fd_dcache_compact_chunk0( ctx->in[ i ].mem, link->dcache );
@@ -1238,6 +1406,17 @@ unprivileged_init( fd_topo_t *      topo,
     FD_LOG_ERR(( "fd_neigh4_hmap_join failed" ));
   }
 
+  /* Allocate and join netdev buffer */
+  ctx->netdev_dbl_handle       = fd_dbl_buf_join( fd_topo_obj_laddr( topo, tile->xdp.netdev_dbl_buf_obj_id ) );
+  if( FD_UNLIKELY( ctx->netdev_dbl_handle==NULL ) ) FD_LOG_ERR(( "fd_dbl_buf_join failed" ))  ;
+  ctx->netdev_buf_sz           = fd_netdev_tbl_footprint( NETDEV_MAX, BOND_MASTER_MAX );
+
+  /* Load the netdev table for the first time */
+  net_load_netdev_tbl( ctx );
+
+  /* Loop through netdev table to find if GRE interface exists */
+  ctx->has_gre_interface = net_check_gre_interface_exists( ctx );
+
   /* Initialize TX free ring */
 
   ulong const frame_sz  = 2048UL;
@@ -1274,7 +1453,7 @@ unprivileged_init( fd_topo_t *      topo,
   }
 }
 
-static ulong
+FD_FN_UNUSED static ulong
 populate_allowed_seccomp( fd_topo_t const *      topo,
                           fd_topo_tile_t const * tile,
                           ulong                  out_cnt,
@@ -1291,7 +1470,7 @@ populate_allowed_seccomp( fd_topo_t const *      topo,
   return sock_filter_policy_xdp_instr_cnt;
 }
 
-static ulong
+FD_FN_UNUSED static ulong
 populate_allowed_fds( fd_topo_t const *      topo,
                       fd_topo_tile_t const * tile,
                       ulong                  out_fds_cnt,
