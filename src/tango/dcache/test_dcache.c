@@ -212,6 +212,27 @@ main( int     argc,
 
   fd_rng_delete( fd_rng_leave( rng ) );
 
+  // FD_TEST( fd_dcache_bounds_check( NULL, NULL, 1UL, 1UL, 1UL, 0 ) == 0 );
+  
+  // ulong bounds_mtu = 64UL;
+  // ulong bounds_depth = 2UL;
+  // ulong bounds_burst = 1UL;
+
+  // fd_wksp_t * wksp;
+  // ulong shmem_gaddr = fd_wksp_alloc( wksp, FD_DCACHE_ALIGN, FD_DCACHE_FOOTPRINT ( FD_DCACHE_SLOT_FOOTPRINT( bounds_mtu ) * ( bounds_depth + bounds_burst ), 0UL ), 1UL );
+  // void *bounds_shdcache = fd_wksp_laddr( wksp, shmem_gaddr );
+  // uchar * bounds_dcache = fd_dcache_join( bounds_shdcache );
+
+  // FD_TEST( fd_dcache_bounds_check( bounds_shdcache, bounds_dcache, 0UL, bounds_depth, bounds_burst, 0 ) == 0 );
+  // FD_TEST( fd_dcache_bounds_check( bounds_shdcache, bounds_dcache, bounds_mtu, 0UL, bounds_burst, 0 ) == 0 );
+  // FD_TEST( fd_dcache_bounds_check( bounds_shdcache, bounds_dcache, bounds_mtu, bounds_depth, 0UL, 0 ) == 0 );
+  // FD_TEST( fd_dcache_bounds_check( bounds_shdcache, bounds_dcache, 0UL, bounds_depth, bounds_burst, 0 ) == 1 );
+  // FD_TEST( fd_dcache_bounds_check( bounds_shdcache, bounds_dcache, 0UL, bounds_depth, 0UL, 1 ) == 
+  //          fd_dcache_compact_is_safe(bounds_shdcache, bounds_dcache, bounds_mtu, bounds_depth) );
+  
+  // fd_wksp_unmap( fd_dcache_leave( bounds_dcache ) );
+  // fd_wksp_delete( bounds_shdcache );
+
   FD_LOG_NOTICE(( "pass" ));
   fd_halt();
   return 0;

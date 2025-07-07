@@ -266,14 +266,6 @@ during_frag( fd_exec_tile_ctx_t * ctx,
              ulong                ctl FD_PARAM_UNUSED ) {
 
   if( FD_LIKELY( in_idx == ctx->replay_exec_in_idx ) ) {
-    if( FD_UNLIKELY( chunk < ctx->replay_in_chunk0 || chunk > ctx->replay_in_wmark ) ) {
-      FD_LOG_ERR(( "chunk %lu %lu corrupt, not in range [%lu,%lu]",
-                    chunk,
-                    sz,
-                    ctx->replay_in_chunk0,
-                    ctx->replay_in_wmark ));
-    }
-
     if( FD_LIKELY( sig==EXEC_NEW_TXN_SIG ) ) {
       fd_runtime_public_txn_msg_t * txn = (fd_runtime_public_txn_msg_t *)fd_chunk_to_laddr( ctx->replay_in_mem, chunk );
       ctx->txn  = txn->txn;

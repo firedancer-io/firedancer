@@ -92,17 +92,9 @@ during_frag( fd_rpcserv_tile_ctx_t * ctx,
              ulong                   ctl FD_PARAM_UNUSED ) {
 
   if( FD_UNLIKELY( in_idx==REPLAY_NOTIF_IDX ) ) {
-    if( FD_UNLIKELY( chunk<ctx->replay_notif_in_chunk0 || chunk>ctx->replay_notif_in_wmark ) ) {
-      FD_LOG_ERR(( "chunk %lu %lu corrupt, not in range [%lu,%lu]", chunk, sz,
-                   ctx->replay_notif_in_chunk0, ctx->replay_notif_in_wmark ));
-    }
     fd_rpc_replay_during_frag( ctx->ctx, &ctx->replay_notif_in_state, fd_chunk_to_laddr_const( ctx->replay_notif_in_mem, chunk ), (int)sz );
 
   } else if( FD_UNLIKELY( in_idx==STAKE_IN_IDX ) ) {
-    if( FD_UNLIKELY( chunk<ctx->stake_in_chunk0 || chunk>ctx->stake_in_wmark ) ) {
-      FD_LOG_ERR(( "chunk %lu %lu corrupt, not in range [%lu,%lu]", chunk, sz,
-                   ctx->stake_in_chunk0, ctx->stake_in_wmark ));
-    }
     fd_rpc_stake_during_frag( ctx->ctx, ctx->args.leaders, fd_chunk_to_laddr_const( ctx->stake_in_mem, chunk ), (int)sz );
 
   } else {

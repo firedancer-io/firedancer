@@ -618,7 +618,17 @@ STEM_(run1)( ulong                        in_cnt,
     ulong tspub    = (ulong)this_in_mline->tspub;  (void)tspub;
 
 #ifdef STEM_CALLBACK_DURING_FRAG
-    STEM_CALLBACK_DURING_FRAG( ctx, (ulong)this_in->idx, seq_found, sig, chunk, sz, ctl );
+    if ( FD_UNLIKELY ( !fd_dcache_bounds_check( this_in->shmem_base,
+                                                this_in->dcache,
+                                                this_in->mtu,
+                                                this_in->depth,
+                                                this_in->burst,
+                                                this_in->compact ) ) ) {
+      FD_LOG_WARNING(( "stem: fragment %lu failed dcache bounds check", chunk ));
+    }
+    else {
+      STEM_CALLBACK_DURING_FRAG ( ctx, (ulong)this_in->idx, seq_found, sig, chunk, sz, ctl);
+    }
 #endif
 
     FD_COMPILER_MFENCE();

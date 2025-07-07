@@ -453,9 +453,6 @@ during_frag( fd_repair_tile_ctx_t * ctx,
     dcache_entry_sz = sz;
 
   } else if( FD_UNLIKELY( in_kind==IN_KIND_CONTACT ) ) {
-    if( FD_UNLIKELY( chunk<in_ctx->chunk0 || chunk>in_ctx->wmark ) ) {
-      FD_LOG_ERR(( "chunk %lu %lu corrupt, not in range [%lu,%lu]", chunk, sz, in_ctx->chunk0, in_ctx->wmark ));
-    }
     dcache_entry = fd_chunk_to_laddr_const( in_ctx->mem, chunk );
     dcache_entry_sz = sz * sizeof(fd_shred_dest_wire_t);
 

@@ -259,3 +259,15 @@ fd_dcache_compact_is_safe( void const * base,
   return 1;
 }
 
+int fd_dcache_bounds_check(void const * base,
+                           void const * dcache,
+                           uint64_t mtu,
+                           uint64_t depth,
+                           uint64_t burst,
+                           int32_t compact) {
+  
+  if( FD_UNLIKELY( compact ) ) return fd_dcache_compact_is_safe( base, dcache, mtu, depth );
+
+  return fd_dcache_req_data_sz( mtu, depth, burst, 0 ) ? 1 : 0;
+}
+

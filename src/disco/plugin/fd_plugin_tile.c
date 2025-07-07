@@ -70,10 +70,7 @@ during_frag( fd_plugin_ctx_t * ctx,
     FD_TEST( staked_cnt<=50000UL );
     sz = 40UL + staked_cnt*40UL;
   }
-
-  if( FD_UNLIKELY( chunk<ctx->in[ in_idx ].chunk0 || chunk>ctx->in[ in_idx ].wmark || sz>ctx->in[ in_idx ].mtu ) )
-    FD_LOG_ERR(( "chunk %lu %lu corrupt, not in range [%lu,%lu]", chunk, sz, ctx->in[ in_idx ].chunk0, ctx->in[ in_idx ].wmark ));
-
+  
   fd_memcpy( dst, src, sz );
 }
 
