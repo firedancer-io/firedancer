@@ -13,6 +13,7 @@
    threads (e.g. x86-TSO).  Does not use atomics or hardware fences. */
 
 #include "../../util/bits/fd_bits.h"
+#include "../../util/log/fd_log.h"
 #if FD_HAS_SSE
 #include <emmintrin.h>
 #endif
@@ -143,10 +144,12 @@ fd_dbl_buf_insert( fd_dbl_buf_t * buf,
 static inline ulong
 fd_dbl_buf_try_read( fd_dbl_buf_t * buf,
                      void *         out,
+                     ulong          out_sz,
                      ulong *        opt_seqp ) {
   ulong  seq = fd_dbl_buf_seq_query( buf );
   void * src = fd_dbl_buf_slot( buf, seq );
   ulong  sz  = FD_VOLATILE_CONST( buf->sz );
+  if( out_sz<sz ) FD_LOG_ERR(( "fd_dbl_buf_try_read failed: output buffer too small: out_sz: %lu, sz: %lu", out_sz, sz ));
   fd_memcpy( out, src, sz );
   if( FD_UNLIKELY( seq!=fd_dbl_buf_seq_query( buf ) ) ) return ULONG_MAX;
   fd_ulong_store_if( !!opt_seqp, opt_seqp, seq );
@@ -157,6 +160,7 @@ fd_dbl_buf_try_read( fd_dbl_buf_t * buf,
 
 ulong
 fd_dbl_buf_read( fd_dbl_buf_t * buf,
+                 ulong          buf_sz,
                  void *         obj,
                  ulong *        opt_seqp );
 

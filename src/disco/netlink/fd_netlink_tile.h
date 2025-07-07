@@ -5,6 +5,10 @@
 
 #include "../topo/fd_topo.h"
 
+/* Hardcoded limits */
+#define NETDEV_MAX      (256U)
+#define BOND_MASTER_MAX (256U)
+
 /* fd_tile_netlnk provides the netlink tile.
 
    Consult /book/guide/netlink.md for more information.
