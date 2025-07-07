@@ -89,7 +89,6 @@ fd_bank_footprint( void ) {
   type *                                                    \
   fd_bank_##name##_locking_modify( fd_bank_t * bank ) {     \
     fd_rwlock_write( &bank->name##_lock );                  \
-    ACQUIRE_WRITE_##has_lock( name );                       \
     return (type *)fd_type_pun( bank->name );               \
   }                                                         \
   void                                                      \
