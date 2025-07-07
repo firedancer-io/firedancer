@@ -104,6 +104,58 @@ fd_runtime_update_slots_per_epoch( fd_bank_t * bank,
   fd_bank_part_width_set( bank, fd_rent_partition_width( slots_per_epoch ) );
 }
 
+/* This function is used to determine how we should be keying our leader schedule.
+   Returns 1 if we should now be keying the leader schedule by the vote account pubkey,
+   and 0 if we should still be keying it by the node identity.
+
+   https://github.com/anza-xyz/agave/blob/v2.3.1/runtime/src/bank.rs#L6148-L6183 */
+static uchar
+fd_runtime_should_use_vote_keyed_leader_schedule( fd_bank_t * bank ) {
+  /* Agave uses an option type for their `effective_epoch` value. We represent None
+     as ULONG_MAX and Some(value) as the value.
+     https://github.com/anza-xyz/agave/blob/v2.3.1/runtime/src/bank.rs#L6149-L6165 */
+  if( FD_FEATURE_ACTIVE_BANK( bank, enable_vote_address_leader_schedule ) ) {
+    /* Return the first epoch if activated at genesis
+       https://github.com/anza-xyz/agave/blob/v2.3.1/runtime/src/bank.rs#L6153-L6157 */
+    ulong activation_slot = fd_bank_features_query( bank )->enable_vote_address_leader_schedule;
+    if( activation_slot==0UL ) return 0;
+
+    /* Calculate the epoch that the feature became activated in
+       https://github.com/anza-xyz/agave/blob/v2.3.1/runtime/src/bank.rs#L6159-L6160 */
+    fd_epoch_schedule_t const * epoch_schedule = fd_bank_epoch_schedule_query( bank );
+    ulong activation_epoch = fd_slot_to_epoch( epoch_schedule, activation_slot, NULL );
+
+    /* The effective epoch is the epoch immediately after the activation epoch
+       https://github.com/anza-xyz/agave/blob/v2.3.1/runtime/src/bank.rs#L6162-L6164 */
+    ulong effective_epoch = activation_epoch + 1UL;
+    ulong current_epoch   = fd_slot_to_epoch( epoch_schedule, bank->slot, NULL );
+
+    /* https://github.com/anza-xyz/agave/blob/v2.3.1/runtime/src/bank.rs#L6167-L6170 */
+    return !!( current_epoch >= effective_epoch );
+  }
+
+  /* ...The rest of the logic in this function either returns `None` or `Some(false)` so we
+     will just return 0 by default. */
+  return 0;
+}
+
+/* FIXME: this logic should probably belong in `fd_leaders.c`
+
+   Iterates over the entire leader schedule and rekeys the leader schedule vote nodes by the node IDs.
+   This is necessary because in future Agave versions, the leader schedule will be keyed by
+   the vote account pubkeys instead of the node IDs, but the pubkeys in the leader schedule
+   should be rekeyed to the node IDs. */
+static void
+fd_runtime_convert_vote_pubkeys_to_node_ids( fd_vote_accounts_pair_global_t_mapnode_t const * vote_acc_pool,
+                                             fd_vote_accounts_pair_global_t_mapnode_t const * vote_acc_root,
+                                             fd_epoch_leaders_t *                             leaders /* out*/ ) {
+  for( ulong i=0UL; i<leaders->pub_cnt; i++ ) {
+    fd_pubkey_t * leader = &leaders->pub[i];
+
+    /* Query the vote account pool for the node pubkey */
+  }
+}
+
 void
 fd_runtime_update_leaders( fd_bank_t * bank,
                            ulong       slot,
@@ -134,10 +186,11 @@ fd_runtime_update_leaders( fd_bank_t * bank,
 
   fd_stake_weight_t * epoch_weights = fd_spad_alloc_check( runtime_spad, alignof(fd_stake_weight_t), vote_acc_cnt * sizeof(fd_stake_weight_t) );
 
-  ulong stake_weight_cnt = fd_stake_weights_by_node( epoch_vaccs, epoch_weights, runtime_spad );
+  uchar use_vote_keyed_leader_schedule = fd_runtime_should_use_vote_keyed_leader_schedule( bank );
+  ulong stake_weight_cnt               = fd_get_stake_weights( epoch_vaccs, epoch_weights, runtime_spad, use_vote_keyed_leader_schedule );
 
   if( FD_UNLIKELY( stake_weight_cnt == ULONG_MAX ) ) {
-    FD_LOG_ERR(( "fd_stake_weights_by_node() failed" ));
+    FD_LOG_ERR(( "fd_get_stake_weights() failed" ));
   }
 
   /* Derive leader schedule */
@@ -161,10 +214,16 @@ fd_runtime_update_leaders( fd_bank_t * bank,
                                                                                            stake_weight_cnt,
                                                                                            epoch_weights,
                                                                                            0UL ) );
-    fd_bank_epoch_leaders_end_locking_modify( bank );
     if( FD_UNLIKELY( !leaders ) ) {
       FD_LOG_ERR(( "Unable to init and join fd_epoch_leaders" ));
     }
+
+    /* Change the leader schedule pubkeys back to node IDs if keyed by the vote account */
+    if( use_vote_keyed_leader_schedule ) {
+      fd_runtime_convert_vote_pubkeys_to_node_ids( vote_acc_pool, vote_acc_root, leaders );
+    }
+
+    fd_bank_epoch_leaders_end_locking_modify( bank );
   }
 
   } FD_SPAD_FRAME_END;
