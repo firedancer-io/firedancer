@@ -612,7 +612,8 @@ rx_pull_response( fd_gossip_t *                          gossip,
 
     /* TODO: Is this jittered in Agave? */
     long accept_after_nanos;
-    if( FD_UNLIKELY( !memcmp( payload+value->pubkey_off, gossip->identity_pubkey, 32UL ) ) ) {
+    uchar is_me = !memcmp( origin_pubkey, gossip->identity_pubkey, 32UL );
+    if( FD_UNLIKELY( is_me ) ) {
       accept_after_nanos = 0L;
     } else if( !origin_stake ) {
       accept_after_nanos = now-15L*1000L*1000L*1000L;
@@ -639,6 +640,7 @@ rx_pull_response( fd_gossip_t *                          gossip,
                                                         payload,
                                                         origin_stake,
                                                         checks_res,
+                                                        is_me,
                                                         now  );
     if( FD_UNLIKELY( !candidate ) ) continue;
     if( FD_UNLIKELY( fd_crds_entry_is_contact_info( candidate ) ) ){
@@ -646,12 +648,12 @@ rx_pull_response( fd_gossip_t *                          gossip,
       fd_ip4_port_t origin_addr              = fd_contact_info_gossip_socket( contact_info );
       if( FD_LIKELY( !is_entrypoint( gossip, &origin_addr ) ) ){
         int active = fd_ping_tracker_active( gossip->ping_tracker,
-                                              origin_pubkey,
-                                              origin_stake,
-                                              &origin_addr,
-                                              now );
+                                             origin_pubkey,
+                                             origin_stake,
+                                             &origin_addr,
+                                             now );
         active ? fd_crds_peer_active( gossip->crds, origin_pubkey, now )
-                : fd_crds_peer_inactive( gossip->crds, origin_pubkey, now );
+               : fd_crds_peer_inactive( gossip->crds, origin_pubkey, now );
 
         fd_ping_tracker_track( gossip->ping_tracker,
                                 origin_pubkey,
@@ -698,6 +700,7 @@ process_push_crds( fd_gossip_t *                       gossip,
   }
 
   uchar const * origin_pubkey    = payload+value->pubkey_off;
+  uchar is_me                    = !memcmp( origin_pubkey, gossip->identity_pubkey, 32UL );
   ulong origin_stake             = get_stake( gossip, origin_pubkey );
 
 
@@ -706,6 +709,7 @@ process_push_crds( fd_gossip_t *                       gossip,
                                                       payload,
                                                       origin_stake,
                                                       checks_res,
+                                                      is_me,
                                                       now );
   if( FD_UNLIKELY( !candidate ) ) return -1;
   if( FD_UNLIKELY( fd_crds_entry_is_contact_info( candidate ) ) ) {

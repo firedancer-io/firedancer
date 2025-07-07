@@ -211,7 +211,8 @@ crds_samplers_upd_peer( crds_samplers_t * ps,
                         ulong             idx,
                         long              now ) {
   if( FD_UNLIKELY( idx>=ps->ele_cnt ) ) {
-    FD_LOG_ERR(( "Bad peer idx supplied in sample update" )); /* Invalid index */
+    FD_LOG_WARNING(( "Bad peer idx supplied in sample update" )); /* Invalid index */
+    return -1;
   }
   ps->ele[idx] = peer;
   peer->contact_info.sampler_idx = idx;
@@ -232,7 +233,8 @@ crds_samplers_swap_peer( crds_samplers_t * ps,
                         fd_crds_entry_t *  new_peer,
                         ulong              idx ) {
   if( FD_UNLIKELY( idx>=ps->ele_cnt ) ) {
-    FD_LOG_ERR(( "Bad peer idx supplied in sample update" ));
+    FD_LOG_WARNING(( "Bad peer idx supplied in sample update" ));
+    return -1;
   }
   fd_crds_entry_t * old_peer = ps->ele[idx];
   if( FD_UNLIKELY( !old_peer ) ) {
@@ -264,7 +266,7 @@ int
 crds_samplers_rem_peer( crds_samplers_t * ps,
                         fd_crds_entry_t * peer ) {
   ulong idx = peer->contact_info.sampler_idx;
-  if( FD_UNLIKELY( idx>=ps->ele_cnt ) ) return -1; /* Invalid index */
+  if( FD_UNLIKELY( idx>=ps->ele_cnt ) ) return -1;
   if( FD_UNLIKELY( wpeer_sampler_rem( ps->pr_sampler, idx, ps->ele_cnt )<0 ) ) return -1;
   for( ulong i=0UL; i<25UL; i++ ) {
     if( FD_UNLIKELY( wpeer_sampler_rem( &ps->bucket_samplers[i], idx, ps->ele_cnt )<0 ) ) return -1;

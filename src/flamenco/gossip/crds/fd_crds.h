@@ -126,9 +126,17 @@ fd_crds_checks_fast( fd_crds_t *                         crds,
                      uchar                               from_push_msg );
 
 /* fd_crds_insert inserts and indexes a CRDS value into the data store as a
-   CRDS entry, so that it can be returned by future queries. Assumes
-   fd_crds_upserts_checks_fast was performed on candidate_view and the return
-   value passed in upsert_check_result.
+   CRDS entry, so that it can be returned by future queries. upsert_check_result
+   holds the result of fd_crds_checks_fast on candidate. This function should
+   not be called if that result is neither FD_CRDS_UPSERT_CHECK_UPSERTS nor
+   FD_CRDS_UPSERT_CHECK_UNDETERMINED.
+
+   On top of inserting the CRDS entry, this function also updates the sidetable
+   of ContactInfo entries and the peer samplers if the entry is a ContactInfo.
+   is_from_me indicates the CRDS entry originates from this node. We exclude our
+   own entries from peer samplers. origin_stake is used to weigh the peer in the
+   samplers.
+
 
    Returns a pointer to the newly created CRDS entry. Lifetime is guaranteed
    until the next call to the following functions:
@@ -142,6 +150,7 @@ fd_crds_insert( fd_crds_t *                         crds,
                 uchar const *                       payload,
                 ulong                               origin_stake,
                 int                                 upsert_check_result,
+                uchar                               is_from_me,
                 long                                now );
 
 /********************* Begin CRDS Entry APIs *************************/

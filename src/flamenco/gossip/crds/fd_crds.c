@@ -665,13 +665,15 @@ generate_key( fd_gossip_view_crds_value_t const * view,
 
 static inline void
 crds_entry_init( fd_gossip_view_crds_value_t const * view,
-                    uchar const *                       payload,
-                    fd_crds_entry_t *                   out_value ) {
+                 uchar const *                    payload,
+                 ulong                            stake,
+                 fd_crds_entry_t *                out_value ) {
   /* Construct key */
   fd_crds_key_t * key = &out_value->key;
   generate_key( view, payload, key );
 
   out_value->wallclock_nanos = view->wallclock_nanos;
+  out_value->stake           = stake;
 
   fd_memcpy( out_value->node_instance.token, payload + view->node_instance->token_off, 32UL );
   fd_crds_genrate_hash( payload+view->value_off, view->length, out_value->value_hash );
@@ -807,6 +809,7 @@ fd_crds_insert( fd_crds_t *                         crds,
                 uchar const *                       payload,
                 ulong                               origin_stake,
                 int                                 upsert_check_result,
+                uchar                               is_from_me,
                 long                                now ) {
   /* TODO: pointless check? */
   if( FD_UNLIKELY( !( upsert_check_result==FD_CRDS_UPSERT_CHECK_UPSERTS ||
@@ -816,7 +819,7 @@ fd_crds_insert( fd_crds_t *                         crds,
   }
 
   fd_crds_entry_t * candidate = fd_crds_acquire( crds );
-  crds_entry_init( candidate_view, payload, candidate );
+  crds_entry_init( candidate_view, payload, origin_stake, candidate );
 
   fd_crds_entry_t * replace = lookup_map_ele_query( crds->lookup_map, &candidate->key, NULL, crds->pool );
   uchar is_replacing = 0UL;
@@ -834,10 +837,10 @@ fd_crds_insert( fd_crds_t *                         crds,
         return NULL;
       } else {
         /* duplicate, replace wins
+           TODO: Return number of duplicates?
            TODO: this technically should not reach here since fd_crds_checks_fast
            does something similar by comparing signatures, but can be an edge case.
-           We should monitor hits to this code path. And also figure out
-           how to return num dups here. */
+           We should monitor hits to this code path. */
         ++replace->num_duplicates;
         fd_crds_release( crds, candidate );
         return NULL;
@@ -854,18 +857,20 @@ fd_crds_insert( fd_crds_t *                         crds,
 
       /* Inherit is_active from replacee */
       candidate->contact_info.is_active = replace->contact_info.is_active;
-      if( FD_UNLIKELY( candidate->stake!=replace->stake ||
-                       replace->wallclock_nanos<now-60*1000L*1000L*1000L ) ) {
-        /* Perform a rescore here (expensive) */
-        crds_samplers_upd_peer( crds->samplers,
-                                candidate,
-                                replace->contact_info.sampler_idx,
-                                now );
-      } else {
-        /* swap peer pointers */
-        crds_samplers_swap_peer( crds->samplers,
-                                 candidate,
-                                 replace->contact_info.sampler_idx );
+      if( FD_LIKELY( !is_from_me ) ) {
+        if( FD_UNLIKELY( candidate->stake!=replace->stake ||
+                         replace->wallclock_nanos<now-60*1000L*1000L*1000L ) ) {
+          /* Perform a rescore here (expensive) */
+          crds_samplers_upd_peer( crds->samplers,
+                                  candidate,
+                                  replace->contact_info.sampler_idx,
+                                  now );
+        } else {
+          /* swap peer pointers */
+          crds_samplers_swap_peer( crds->samplers,
+                                   candidate,
+                                   replace->contact_info.sampler_idx );
+        }
       }
     }
 
@@ -889,21 +894,8 @@ fd_crds_insert( fd_crds_t *                         crds,
   /* Begin full insertion, fill out remaining fields */
   candidate->num_duplicates         = 0UL;
   candidate->expire.wallclock_nanos = now;
-  candidate->stake                  = origin_stake;
   candidate->value_sz               = candidate_view->length;
   fd_memcpy( candidate->value_bytes, payload+candidate_view->value_off, candidate_view->length );
-
-  if( FD_UNLIKELY( is_contact_info( &candidate->key ) ) ) {
-    /* TODO: Emit this as a gossip insert/update update */
-    fd_crds_contact_info_populate( candidate_view, payload, candidate->contact_info.ci->contact_info );
-    crds_contact_info_dlist_ele_push_tail( crds->contact_info.dlist,
-                                           candidate,
-                                           crds->pool );
-    if( FD_UNLIKELY( !is_replacing ) ) {
-      crds_samplers_add_peer( crds->samplers, candidate, now);
-    }
-  }
-
 
   crds->has_staked_node |= candidate->stake ? 1 : 0;
 
@@ -915,6 +907,17 @@ fd_crds_insert( fd_crds_t *                         crds,
   }
   hash_treap_ele_insert( crds->hash_treap, candidate, crds->pool );
   lookup_map_ele_insert( crds->lookup_map, candidate, crds->pool );
+
+  if( FD_UNLIKELY( is_contact_info( &candidate->key ) ) ) {
+    /* TODO: Emit this as a gossip insert/update update */
+    fd_crds_contact_info_populate( candidate_view, payload, candidate->contact_info.ci->contact_info );
+    crds_contact_info_dlist_ele_push_tail( crds->contact_info.dlist,
+                                           candidate,
+                                           crds->pool );
+    if( FD_UNLIKELY( !is_replacing && !is_from_me ) ) {
+      crds_samplers_add_peer( crds->samplers, candidate, now);
+    }
+  }
   return candidate;
 }
 
