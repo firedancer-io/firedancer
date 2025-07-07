@@ -18,6 +18,8 @@
     heap_size_gib = 140
     max_account_records = 150000000
     max_database_transactions = 2000
+[runtime.limits]
+    max_banks = 128
 [tiles]
     [tiles.shred]
         max_pending_shred_sets = 16384
@@ -31,7 +33,7 @@
         prometheus_listen_address = "0.0.0.0"
         prometheus_listen_port = 7999
 [consensus]
-    expected_shred_version = 64475
+    expected_shred_version = 9065
 [paths]
     identity_key = "{keys}/fd-identity-keypair.json"
     vote_account = "{keys}/fd-vote-keypair.json"

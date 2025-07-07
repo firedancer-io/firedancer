@@ -506,6 +506,11 @@ fd_banks_clone_from_parent( fd_banks_t * banks,
   new_bank->child_idx   = null_idx;
   new_bank->sibling_idx = null_idx;
 
+  fd_bank_t * old_bank = fd_banks_map_ele_remove( bank_map, &slot, NULL, bank_pool );
+  if( FD_UNLIKELY( old_bank ) ) {
+    fd_banks_pool_ele_release( bank_pool, old_bank );
+  }
+
   fd_banks_map_ele_insert( bank_map, new_bank, bank_pool );
 
   ulong child_idx = fd_banks_pool_idx( bank_pool, new_bank );
