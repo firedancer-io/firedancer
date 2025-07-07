@@ -431,6 +431,7 @@ fd_topo_initialize( config_t * config ) {
       tile->poh.plugins_enabled = plugins_enabled;
       tile->poh.bank_cnt = config->layout.bank_tile_count;
       tile->poh.lagged_consecutive_leader_start = config->tiles.poh.lagged_consecutive_leader_start;
+      tile->poh.perf_mode = (config->tiles.pack.schedule_strategy_enum==0);
 
       if( FD_UNLIKELY( config->tiles.bundle.enabled ) ) {
         tile->poh.bundle.enabled = 1;

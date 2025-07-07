@@ -18,7 +18,11 @@
 #define POH_PKT_TYPE_MICROBLOCK    (0UL)
 #define POH_PKT_TYPE_BECAME_LEADER (1UL)
 #define POH_PKT_TYPE_DONE_PACKING  (2UL)
+#define POH_PKT_TYPE_DONE_HASHING  (2UL)
 #define POH_PKT_TYPE_FEAT_ACT_SLOT (3UL)
+/* Since we're out of bits, alias DONE_PACKING and DONE_HASHING.
+   DONE_PACKING will be set from pack, but DONE_HASHING will only be
+   sent from poh to pack, so they don't actually conflict. */
 
 #define REPLAY_FLAG_FINISHED_BLOCK      (0x01UL)
 #define REPLAY_FLAG_PACKED_MICROBLOCK   (0x02UL)
