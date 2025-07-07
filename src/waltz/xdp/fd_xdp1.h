@@ -15,7 +15,8 @@ fd_xdp_gen_program( ulong          code_buf[ 512 ],
                     int            xsks_fd,
                     uint           listen_ip4_addr,
                     ushort const * ports,
-                    ulong          ports_cnt );
+                    ulong          ports_cnt,
+                    int            allowed_gre );
 
 /* fd_xdp_install installs a BPF program onto the given interface which
    only passes through UDP traffic on the provided ports to rings on an

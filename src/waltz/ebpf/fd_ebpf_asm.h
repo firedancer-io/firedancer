@@ -23,6 +23,7 @@
 #define FD_EBPF_ASM_and64_imm( dst, imm ) FD_EBPF_ALU_IMM( 0x57, dst, imm )
 #define FD_EBPF_ASM_lsh64_imm( dst, imm ) FD_EBPF_ALU_IMM( 0x67, dst, imm )
 
+#define FD_EBPF_ASM_ja( off ) ( 0x05 | (((off)&0xFFFFUL)<<16) )
 #define FD_EBPF_ASM_JUMP_COND_IMM( op, dst, imm, off ) (op | ((FD_EBPF_ASM_##dst)<<8) | (((off)&0xFFFFUL)<<16)) | (((imm)&0xFFFFFFFFUL)<<32)
 #define FD_EBPF_ASM_JUMP_COND_REG( op, dst, src, off ) (op | ((FD_EBPF_ASM_##dst)<<8) | ((FD_EBPF_ASM_##src)<<12) | ((off&0xFFFFUL)<<16))
 #define FD_EBPF_ASM_jeq_imm( dst, imm, off ) FD_EBPF_ASM_JUMP_COND_IMM( 0x15, dst, imm, off )

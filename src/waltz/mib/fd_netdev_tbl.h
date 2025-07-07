@@ -28,8 +28,9 @@ struct fd_netdev {
   short  master_idx;     /* index of bond master, -1 if not a bond slave */
   char   name[16];       /* cstr interface name (max 15 length) */
   uchar  oper_status;    /* one of FD_OPER_STATUS_{...} */
-  uchar  pad[1];
-  /* padded to 32 bytes */
+  ushort dev_type;       /* one of ARPHRD_ETHER/_LOOPBACK_/IPGRE*/
+  uint   gre_dst_ip;
+  uint   gre_src_ip;
 };
 
 typedef struct fd_netdev fd_netdev_t;
