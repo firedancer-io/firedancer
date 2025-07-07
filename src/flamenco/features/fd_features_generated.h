@@ -178,7 +178,7 @@ union fd_features {
     /* 0x3cbf822ccb2eebd4 */ ulong enable_poseidon_syscall;
     /* 0xe9d32123513c4d0d */ ulong timely_vote_credits;
     /* 0x64205286d7935342 */ ulong remaining_compute_units_syscall_enabled;
-    /* 0x7cc7d1c81116eae0 */ ulong enable_loader_v4;
+    /* 0x12802019b1336a17 */ ulong enable_loader_v4;
     /* 0x4b241cb4c6f3b3b2 */ ulong require_rent_exempt_split_destination;
     /* 0x21746beaa849f9d9 */ ulong better_error_codes_for_tx_lamport_check;
     /* 0x9bb55b5df1c396c5 */ ulong enable_alt_bn128_compression_syscall;

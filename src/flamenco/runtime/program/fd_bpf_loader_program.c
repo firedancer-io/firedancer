@@ -2028,12 +2028,8 @@ process_loader_upgradeable_instruction( fd_exec_instr_ctx_t * instr_ctx ) {
         return err;
       }
 
-      /* https://github.com/anza-xyz/agave/blob/v2.2.6/programs/bpf_loader/src/lib.rs#L1429-L1433 */
-      if( FD_UNLIKELY( program_len==0UL ) ) {
-        err = fd_borrowed_account_set_owner( &program, &fd_solana_system_program_id );
-      } else {
-        err = fd_borrowed_account_set_owner( &program, &fd_solana_bpf_loader_v4_program_id );
-      }
+      /* https://github.com/anza-xyz/agave/blob/v2.3.3/programs/bpf_loader/src/lib.rs#L1268 */
+      err = fd_borrowed_account_set_owner( &program, &fd_solana_bpf_loader_v4_program_id );
       if( FD_UNLIKELY( err ) ) {
         return err;
       }
@@ -2063,6 +2059,14 @@ process_loader_upgradeable_instruction( fd_exec_instr_ctx_t * instr_ctx ) {
         fd_vm_rust_account_meta_t *        acct_metas = fd_spad_alloc( instr_ctx->txn_ctx->spad,
                                                                        FD_VM_RUST_ACCOUNT_META_ALIGN,
                                                                        3UL * sizeof(fd_vm_rust_account_meta_t) );
+
+        /* https://github.com/anza-xyz/agave/blob/v2.3.3/programs/bpf_loader/src/lib.rs#L1276-L1286 */
+        if( FD_UNLIKELY( program_len==0UL ) ) {
+          /* Program will be removed from the cache at the end of the
+             slot because set_program_length will set the program
+             account size to 0, causing the end-of-slot bpf cache update
+             function to fail to decode the program account. */
+        }
 
         /* https://github.com/anza-xyz/agave/blob/v2.2.6/programs/bpf_loader/src/lib.rs#L1441-L1484 */
         if( FD_LIKELY( program_len>0UL ) ) {
@@ -2256,12 +2260,6 @@ process_loader_upgradeable_instruction( fd_exec_instr_ctx_t * instr_ctx ) {
 
       /* https://github.com/anza-xyz/agave/blob/v2.2.6/programs/bpf_loader/src/lib.rs#L1502 */
       err = fd_borrowed_account_set_data_from_slice( &programdata, NULL, 0UL );
-      if( FD_UNLIKELY( err ) ) {
-        return err;
-      }
-
-      /* https://github.com/anza-xyz/agave/blob/v2.2.6/programs/bpf_loader/src/lib.rs#L1503 */
-      err = fd_borrowed_account_set_owner( &programdata, &fd_solana_system_program_id );
       if( FD_UNLIKELY( err ) ) {
         return err;
       }
