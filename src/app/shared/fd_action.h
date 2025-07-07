@@ -89,6 +89,10 @@ union fdctl_args {
     int dump_config; /* whether the user requested to dump the quic config */
     int dump_conns;  /* whether the user requested to dump the quic connections */
   } quic_trace;
+
+  struct {
+    ushort listen_port;
+  } pktgen;
 };
 
 typedef union fdctl_args args_t;
