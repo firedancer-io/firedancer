@@ -9,6 +9,7 @@
 #include <sys/socket.h> /* MSG_DONTWAIT needed before importing the net seccomp filter */
 #include <linux/if_xdp.h>
 
+#include "../fd_net_common.h"
 #include "../../metrics/fd_metrics.h"
 #include "../../netlink/fd_netlink_tile.h" /* neigh4_solicit */
 #include "../../topo/fd_topo.h"
@@ -42,14 +43,6 @@
    collects metrics. */
 
 #define FD_XDP_STATS_INTERVAL_NS (11e6) /* 11ms */
-
-/* REPAIR_PING_SZ is the sz of a ping packet for the repair protocol.
-   Because pings are routed to the same port as shreds without any
-   discriminant encoding, we have to use the packet sz to interpret the
-   payload.  Note that any valid shred must be either FD_SHRED_MAX_SZ
-   or FD_SHRED_MIN_SZ ie. will never be FD_REPAIR_PING_SZ.*/
-
-#define REPAIR_PING_SZ (174UL)
 
 /* fd_net_in_ctx_t contains consumer information for an incoming tango
    link.  It is used as part of the TX path. */

@@ -1,5 +1,6 @@
 #define _GNU_SOURCE /* dup3 */
 #include "fd_sock_tile_private.h"
+#include "../fd_net_common.h"
 #include "../../topo/fd_topo.h"
 #include "../../../util/net/fd_eth.h"
 #include "../../../util/net/fd_ip4.h"
@@ -26,6 +27,11 @@
 /* Controls max ancillary data size.
    Must be aligned by alignof(struct cmsghdr) */
 #define FD_SOCK_CMSG_MAX (64UL)
+
+/* Value of the sock_idx for Firedancer repair intake.
+   Used to determine whether repair packets should go to shred vs repair tile.
+   This value is validated at startup. */
+#define REPAIR_SHRED_SOCKET_ID (4U)
 
 static ulong
 populate_allowed_seccomp( fd_topo_t const *      topo,
@@ -200,7 +206,7 @@ privileged_init( fd_topo_t *      topo,
     DST_PROTO_TPU_QUIC, /* quic_transaction_listen_port */
     DST_PROTO_SHRED,    /* shred_listen_port (turbine) */
     DST_PROTO_GOSSIP,   /* gossip_listen_port */
-    DST_PROTO_SHRED,    /* shred_listen_port (repair) */
+    DST_PROTO_REPAIR,   /* shred_listen_port (repair) */
     DST_PROTO_REPAIR    /* repair_serve_listen_port */
   };
   for( uint candidate_idx=0U; candidate_idx<6; candidate_idx++ ) {
@@ -208,6 +214,12 @@ privileged_init( fd_topo_t *      topo,
     uint sock_idx = ctx->sock_cnt;
     if( candidate_idx>FD_SOCK_TILE_MAX_SOCKETS ) FD_LOG_ERR(( "too many sockets" ));
     ushort port = (ushort)udp_port_candidates[ candidate_idx ];
+
+    /* Validate value of REPAIR_SHRED_SOCKET_ID */
+    if( udp_port_candidates[sock_idx]==tile->sock.net.repair_intake_listen_port )
+      FD_TEST( sock_idx==REPAIR_SHRED_SOCKET_ID );
+    if( udp_port_candidates[sock_idx]==tile->sock.net.repair_serve_listen_port )
+      FD_TEST( sock_idx==REPAIR_SHRED_SOCKET_ID+1 );
 
     char const * target_link = udp_port_links[ candidate_idx ];
     ctx->link_rx_map[ sock_idx ] = 0xFF;
@@ -351,7 +363,6 @@ poll_rx_socket( fd_sock_tile_t *    ctx,
     if( FD_UNLIKELY( sa->sin_family!=AF_INET ) ) {
       /* unreachable */
       FD_LOG_ERR(( "Received packet with unexpected sin_family %i", sa->sin_family ));
-      continue;
     }
 
     long daddr = -1;
@@ -397,7 +408,20 @@ poll_rx_socket( fd_sock_tile_t *    ctx,
     ulong chunk = fd_laddr_to_chunk( base, eth_hdr );
     ulong sig   = fd_disco_netmux_sig( sa->sin_addr.s_addr, fd_ushort_bswap( sa->sin_port ), 0U, proto, hdr_sz );
     ulong tspub = fd_frag_meta_ts_comp( ts );
-    fd_stem_publish( stem, rx_link, sig, chunk, frame_sz, 0UL, 0UL, tspub );
+
+    /* default for repair intake is to send to [shreds] to shred tile.
+       ping messages should be routed to the repair. */
+    if( FD_UNLIKELY( sock_idx==REPAIR_SHRED_SOCKET_ID && frame_sz==REPAIR_PING_SZ ) ) {
+      uchar repair_rx_link = ctx->link_rx_map[ REPAIR_SHRED_SOCKET_ID+1 ];
+      fd_sock_link_rx_t * repair_link = ctx->link_rx + repair_rx_link;
+      uchar * repair_buf = fd_chunk_to_laddr( repair_link->base, repair_link->chunk );
+      memcpy( repair_buf, eth_hdr, frame_sz );
+      fd_stem_publish( stem, repair_rx_link, sig, repair_link->chunk, frame_sz, 0UL, 0UL, tspub );
+      repair_link->chunk = fd_dcache_compact_next( repair_link->chunk, FD_NET_MTU, repair_link->chunk0, repair_link->wmark );
+    } else {
+      fd_stem_publish( stem, rx_link, sig, chunk, frame_sz, 0UL, 0UL, tspub );
+    }
+
     last_chunk = chunk;
   }
 
