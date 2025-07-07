@@ -97,7 +97,7 @@ while true; do
             send_slack_message "Downloaded rocksdb to \`$LEDGER_DIR/rocksdb\`"
         fi
 
-        output=$( $AGAVE_LEDGER_TOOL bounds -l $LEDGER_DIR )
+        output=$( $AGAVE_LEDGER_TOOL bounds -l $LEDGER_DIR --force-update-to-open )
         ROCKSDB_ROOTED_MIN=$(echo "$output" | grep "rooted" | awk '{print $6}')
         ROCKSDB_ROOTED_MAX=$(echo "$output" | grep "rooted" | awk '{print $8}')
         echo "RocksDB Bounds: $ROCKSDB_ROOTED_MIN - $ROCKSDB_ROOTED_MAX"
