@@ -24,7 +24,7 @@ static const fd_bundle_crank_3_t fd_bundle_crank_3_base[1] = {{
         .acct_cnt = 0,
         .data_sz = 5,
         .set_cu_limit = 2,
-        .cus = 103000U
+        .cus = 130000U
     },
 
     .init_tip_distribution_acct = {
