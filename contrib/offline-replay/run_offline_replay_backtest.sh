@@ -297,7 +297,7 @@ while true; do
 
                 # create new snapshot at that slot
                 if [ "$PREVIOUS_ROOTED_SLOT" -gt "$REPLAY_SNAPSHOT_SLOT_NUMBER" ]; then
-                echo "Creating new snapshot at $PREVIOUS_ROOTED_SLOT"
+                    echo "Creating new snapshot at $PREVIOUS_ROOTED_SLOT"
                     $AGAVE_LEDGER_TOOL create-snapshot $PREVIOUS_ROOTED_SLOT -l $LEDGER_DIR
                     sleep 10
                     rm $LEDGER_DIR/ledger_tool -rf
@@ -315,8 +315,11 @@ while true; do
                 sleep 10
                 rm $LEDGER_DIR/ledger_tool -rf
 
-                echo "New snapshot created at $LEDGER_REPLAY_SNAPSHOT"
-                # minify a rocksdb for the minimized snapshot
+                echo "New (right after) snapshot created at $NEXT_ROOTED_SLOT"
+                NEXT_REPLAY_SNAPSHOT=$LEDGER_DIR/snapshot-${NEXT_ROOTED_SLOT}*
+                for NEXT_REPLAY_SNAPSHOT_FILE in $NEXT_REPLAY_SNAPSHOT; do
+                    send_slack_message "New (right after) snapshot created at \`$NEXT_REPLAY_SNAPSHOT_FILE\`"
+                done
 
                 # create a minimized snapshot for the mismatch slot using the new snapshot
                 MISMATCH_DIR=$LEDGER_DIR/$NETWORK-${MISMATCH_SLOT}
@@ -324,8 +327,8 @@ while true; do
                 cp $LEDGER_DIR/genesis.tar.bz2 $MISMATCH_DIR
                 # mv $LEDGER_DIR/snapshot-${PREVIOUS_ROOTED_SLOT}* $MISMATCH_DIR
 
+                # minify a rocksdb for the minimized snapshot
                 MINIMIZED_END_SLOT=$((NEXT_ROOTED_SLOT+32))
-
                 send_slack_message "Minifying rocksdb for mismatch"
                 "$OBJDIR"/bin/fd_ledger \
                     --reset 1 \
@@ -366,7 +369,7 @@ while true; do
                 ledger_name=$(basename $MISMATCH_DIR)
                 snapshot_name=$(basename $MISMATCH_SNAPSHOT_FILE)
                 end_slot=$((NEXT_ROOTED_SLOT+5))
-                send_slack_message "Command to reproduce mismatch: \`\`\`src/flamenco/runtime/tests/run_ledger_backtest.sh -l $ledger_name -s $snapshot_name -y 10 -m 2000000 -e $end_slot -c $FD_CLUSTER_VERSION \`\`\`"
+                send_slack_message "Command to reproduce mismatch: \`\`\`src/flamenco/runtime/tests/run_ledger_backtest.sh -l $ledger_name -s $snapshot_name -y 10 -m 2000000 -e $end_slot -c $FD_CLUSTER_VERSION\`\`\`"
 
             fi
         done
