@@ -374,6 +374,10 @@ STEM_(run1)( ulong                        in_cnt,
   FD_MGAUGE_SET( TILE, STATUS, 1UL );
   long then = fd_tickcount();
   long now  = then;
+#if !(STEM_ALWAYS_SPINNING)
+  long approx_wallclock_ns = fd_log_wallclock();
+  long approx_tickcount = then;
+#endif
 
   for(;;) {
 
@@ -410,7 +414,11 @@ STEM_(run1)( ulong                        in_cnt,
         STEM_(in_update)( &in[ in_idx ] );
 
       } else { /* event_idx==cons_cnt, housekeeping event */
-
+      
+#if !(STEM_ALWAYS_SPINNING)
+        approx_wallclock_ns = fd_log_wallclock();
+        approx_tickcount = now;
+#endif
         /* Update metrics counters to external viewers */
         FD_COMPILER_MFENCE();
         FD_MGAUGE_SET( TILE, HEARTBEAT,                 (ulong)now );
@@ -494,22 +502,20 @@ STEM_(run1)( ulong                        in_cnt,
 /* By default, tiles are always spinning, except the ones that are configured to wait for futexes */ 
 #if !(STEM_ALWAYS_SPINNING)
     if (futex_wait_counter > FD_STEM_SPIN_THRESHOLD) { 
-      long ticks_until_housekeeping = then - fd_tickcount();
+      long ticks_until_housekeeping = then - approx_tickcount;
       long ns_until_housekeeping = (long)((double)ticks_until_housekeeping / fd_tempo_tick_per_ns(NULL));
+      long housekeeping_deadline_ns = approx_wallclock_ns + ns_until_housekeeping;
 
-      // TODO: potentially use 1ms instead of housekeeping
-      // TODO: only call fd_log_wallclock() in the housekeeping loop and then do math here?
-      // long wait_duration_ns = fd_log_wallclock() + (long) 1e6;
-      long housekeeping_deadline = fd_log_wallclock() + ns_until_housekeeping;
-      struct timespec housekeeping_timeout = {
-        .tv_sec = housekeeping_deadline / (long) 1e9,
-        .tv_nsec = housekeeping_deadline % (long) 1e9,
+      struct timespec deadline = {
+        .tv_sec = housekeeping_deadline_ns / (long) 1e9,
+        .tv_nsec = housekeeping_deadline_ns % (long) 1e9,
       };
 
-      // TODO: CLOCK_REALTIME? that's what wallclock calls
-      long futex_result = fd_futex_waitv(waiters, (uint)in_cnt, &housekeeping_timeout, CLOCK_REALTIME);
-      if (FD_LIKELY(futex_result >= 0)) {
+      long futex_result = fd_futex_waitv(waiters, (uint)in_cnt, &deadline, CLOCK_REALTIME);
+      if (FD_LIKELY(futex_result >= 0 || errno == EAGAIN)) {
         futex_wait_counter = 0;
+      } else if (errno != ETIMEDOUT) { // TODO: account for other spurious errors (EINTR not allowed?)
+        FD_LOG_ERR(( "futex_waitv failed with result %ld errno %d", futex_result, errno ));
       }
     }
 #endif
@@ -522,6 +528,7 @@ STEM_(run1)( ulong                        in_cnt,
       .out_wake_cnt        = out_wake_cnt,
       .cr_avail            = &cr_avail,
       .cr_decrement_amount = fd_ulong_if( out_cnt>0UL, 1UL, 0UL ),
+      .housekeeping_deadline = then,
     };
 #endif
 
