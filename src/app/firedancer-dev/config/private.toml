@@ -27,7 +27,7 @@
         prometheus_listen_port = 7999
 [consensus]
     vote = false
-    expected_shred_version = 21308
+    expected_shred_version = 36600
 [paths]
     identity_key = "{keys}/fd-identity-keypair.json"
     vote_account = "{keys}/fd-vote-keypair.json"
