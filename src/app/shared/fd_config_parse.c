@@ -88,8 +88,11 @@ fd_config_extract_podf( uchar *        pod,
   CFG_POP      ( cstr,   blockstore.checkpt                               );
   CFG_POP      ( cstr,   blockstore.restore                               );
 
-  CFG_POP      ( ulong,  runtime.heap_size_gib                            );
+  CFG_POP      ( ulong,  funk.max_account_records                         );
+  CFG_POP      ( ulong,  funk.heap_size_gib                               );
+  CFG_POP      ( ulong,  funk.max_database_transactions                   );
 
+  CFG_POP      ( ulong,  runtime.heap_size_gib                            );
   CFG_POP      ( ulong,  runtime.limits.max_rooted_slots                  );
   CFG_POP      ( ulong,  runtime.limits.max_live_slots                    );
   CFG_POP      ( ulong,  runtime.limits.max_transactions_per_slot         );
@@ -97,9 +100,7 @@ fd_config_extract_podf( uchar *        pod,
   CFG_POP      ( ulong,  runtime.limits.max_vote_accounts                 );
   CFG_POP      ( ulong,  runtime.limits.max_banks                         );
 
-  CFG_POP      ( ulong,  funk.max_account_records                         );
-  CFG_POP      ( ulong,  funk.heap_size_gib                               );
-  CFG_POP      ( ulong,  funk.max_database_transactions                   );
+  CFG_POP      ( ulong,  store.fec_max                                    );
 
   CFG_POP       ( bool,   snapshots.incremental_snapshots                  );
   CFG_POP       ( uint,   snapshots.maximum_local_snapshot_age             );
