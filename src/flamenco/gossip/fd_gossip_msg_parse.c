@@ -90,9 +90,9 @@ fd_gossip_msg_crds_vote_parse( fd_gossip_view_crds_value_t * crds_val,
   CHECK_LEFT(  1U ); crds_val->vote->index = FD_LOAD( uchar, CURSOR ); INC(  1U );
   CHECK_LEFT( 32U ); crds_val->pubkey_off  = CUR_OFFSET              ; INC( 32U );
   ulong transaction_sz;
-  fd_txn_parse_core( CURSOR, BYTES_REMAINING, NULL, NULL, &transaction_sz );
-  crds_val->vote->transaction_off = CUR_OFFSET;
-  crds_val->vote->transaction_sz  = transaction_sz;
+  CHECK( fd_txn_parse_core( CURSOR, BYTES_REMAINING, NULL, NULL, &transaction_sz )!=0UL );
+  crds_val->vote->txn_off = CUR_OFFSET;
+  crds_val->vote->txn_sz  = transaction_sz;
   INC( transaction_sz );
   CHECK_LEFT( 8U ); crds_val->wallclock_nanos = FD_MILLI_TO_NANOSEC( FD_LOAD( ulong, CURSOR ) ); INC( 8U );
   return BYTES_CONSUMED;
@@ -107,7 +107,9 @@ fd_gossip_msg_crds_lowest_slot_parse( fd_gossip_view_crds_value_t * crds_val,
   CHECKED_INC(           1U );
   CHECK_LEFT(           32U ); crds_val->pubkey_off = CUR_OFFSET                                          ; INC( 32U );
 
-  CHECKED_INC(       8U+8U ); /* root + lowest slot */
+  CHECKED_INC(           8U ); /* root */
+
+  CHECK_LEFT(            8U ); crds_val->lowest_slot = FD_LOAD( ulong, CURSOR )                           ; INC( 8U );
 
   /* slots set is deprecated, so we skip it. */
   CHECK_LEFT(            8U ); ulong slots_len = FD_LOAD( ulong, CURSOR )                                 ; INC( 8U );

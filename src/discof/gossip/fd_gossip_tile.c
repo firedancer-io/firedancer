@@ -3,6 +3,7 @@
 #include "generated/fd_gossip_tile_seccomp.h"
 
 #include "../../flamenco/gossip/fd_gossip.h"
+#include "../../flamenco/gossip/fd_gossip_out.h"
 #include "../../disco/keyguard/fd_keyswitch.h"
 #include "../../disco/keyguard/fd_keyload.h"
 #include "../../disco/keyguard/fd_keyguard_client.h"
@@ -18,14 +19,6 @@ typedef struct {
   ulong       chunk0;
   ulong       wmark;
 } fd_gossip_in_ctx_t;
-
-typedef struct {
-  ulong       idx;
-  fd_wksp_t * mem;
-  ulong       chunk0;
-  ulong       wmark;
-  ulong       chunk;
-} fd_gossip_out_ctx_t;
 
 struct fd_gossip_tile_ctx {
   fd_gossip_t *        gossip;
@@ -133,8 +126,6 @@ during_housekeeping( fd_gossip_tile_ctx_t * ctx ) {
 
     fd_keyswitch_state( ctx->keyswitch, FD_KEYSWITCH_STATE_COMPLETED );
   }
-  /* TODO: move this to after credit */
-  fd_gossip_advance( ctx->gossip, ctx->last_wallclock );
 }
 
 static inline void
@@ -181,12 +172,12 @@ after_frag( fd_gossip_tile_ctx_t * ctx,
             ulong                  sz,
             ulong                  tsorig FD_PARAM_UNUSED,
             ulong                  tspub  FD_PARAM_UNUSED,
-            fd_stem_context_t *    stem   FD_PARAM_UNUSED) {
+            fd_stem_context_t *    stem ) {
   long now = ctx->last_wallclock + (long)((double)(fd_tickcount()-ctx->last_tickcount)/ctx->ticks_per_ns);
   if( FD_UNLIKELY( ctx->in_kind[ in_idx ]==IN_KIND_NET ) ) {
 
-    fd_gossip_advance( ctx->gossip, now );
-    fd_gossip_rx( ctx->gossip, ctx->buffer, sz, now );
+    fd_gossip_advance( ctx->gossip, now, stem );
+    fd_gossip_rx( ctx->gossip, ctx->buffer, sz, now, stem );
   } else if( FD_UNLIKELY( ctx->in_kind[ in_idx ]==IN_KIND_SHRED_VERSION ) ) {
     FD_MGAUGE_SET( GOSSIP, SHRED_VERSION, (ushort)sig );
     ctx->my_contact_info->shred_version   = (ushort)sig;
@@ -290,10 +281,12 @@ unprivileged_init( fd_topo_t *      topo,
   ctx->net_out_depth            = fd_mcache_depth( ctx->net_out_mcache );
 
   /* Optional out links (?) */
+  uchar has_gossip_out = 0;
   for( ulong i=0UL; i<tile->out_cnt; i++ ) {
     fd_topo_link_t * link = &topo->links[ tile->out_link_id[ i ] ];
     if( FD_UNLIKELY( !strcmp( link->name, "gossip_out" ) ) ) {
       *ctx->gossip_out = out1( topo, tile, "gossip_out" );
+      has_gossip_out = 1;
     }
   }
 
@@ -345,7 +338,9 @@ unprivileged_init( fd_topo_t *      topo,
                                                gossip_send_fn,
                                                (void*)ctx,
                                                gossip_sign_fn,
-                                               (void*)ctx ) );
+                                               (void*)ctx,
+                                               has_gossip_out ? ctx->gossip_out : NULL,
+                                               ctx->net_out ) );
   FD_TEST( ctx->gossip );
 
   fd_ip4_udp_hdr_init( ctx->net_out_hdr,

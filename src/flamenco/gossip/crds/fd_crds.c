@@ -1,6 +1,7 @@
 #include "fd_crds.h"
 #include "../../../ballet/sha256/fd_sha256.h"
 #include <string.h>
+#include "../fd_gossip_update_msg.h"
 
 #define FD_CRDS_ALIGN 8UL
 #define FD_CRDS_MAGIC (0xf17eda2c37c7d50UL) /* firedancer crds version 0*/
@@ -33,11 +34,6 @@ struct fd_crds_key {
 };
 
 typedef struct fd_crds_key fd_crds_key_t;
-
-static int
-is_contact_info( fd_crds_key_t const * key ) {
-  return key->tag == FD_CRDS_TAG_CONTACT_INFO;
-}
 
 /* The CRDS at a high level is just a list of all the messages we have
    received over gossip.  These are called the CRDS values.  Values
@@ -340,6 +336,7 @@ typedef struct fd_crds_purged fd_crds_purged_t;
 
 
 struct fd_crds_private {
+  fd_gossip_out_ctx_t *      gossip_update;
   fd_crds_entry_t *          pool;
 
   evict_treap_t *            evict_treap;
@@ -399,10 +396,11 @@ fd_crds_footprint( ulong ele_max,
 }
 
 void *
-fd_crds_new( void *     shmem,
-             fd_rng_t * rng,
-             ulong      ele_max,
-             ulong      purged_max ) {
+fd_crds_new( void *                shmem,
+             fd_rng_t *            rng,
+             ulong                 ele_max,
+             ulong                 purged_max,
+             fd_gossip_out_ctx_t * gossip_update_out ) {
   if( FD_UNLIKELY( !shmem ) ) {
     FD_LOG_WARNING(( "NULL shmem" ));
     return NULL;
@@ -426,6 +424,10 @@ fd_crds_new( void *     shmem,
   if( FD_UNLIKELY( !rng ) ) {
     FD_LOG_WARNING(( "NULL rng" ));
     return NULL;
+  }
+
+  if( FD_UNLIKELY( !gossip_update_out ) ) {
+    FD_LOG_WARNING(( "NULL gossip_out, will not publish update messages" ));
   }
 
   FD_SCRATCH_ALLOC_INIT( l, shmem );
@@ -487,6 +489,8 @@ fd_crds_new( void *     shmem,
 
   crds_samplers_new( crds->samplers );
 
+  crds->gossip_update = gossip_update_out;
+
   FD_COMPILER_MFENCE();
   FD_VOLATILE( crds->magic ) = FD_CRDS_MAGIC;
   FD_COMPILER_MFENCE();
@@ -517,11 +521,26 @@ fd_crds_join( void * shcrds ) {
 }
 
 static inline void
-remove_contact_info( fd_crds_t *        crds,
-                     fd_crds_entry_t *  ci ) {
+remove_contact_info( fd_crds_t *         crds,
+                     fd_crds_entry_t *   ci,
+                     long                now,
+                     fd_stem_context_t * stem ) {
+  /* Emit this eviction as a gossip update event */
+  if( FD_LIKELY( crds->gossip_update ) ) {
+    fd_gossip_update_message_t * msg = fd_gossip_out_get_chunk( crds->gossip_update );
+    msg->tag = FD_GOSSIP_UPDATE_TAG_CONTACT_INFO_REMOVE;
+    msg->wallclock_nanos = now;
+    fd_memcpy( msg->origin_pubkey, ci->key.pubkey, 32UL );
+
+    fd_gossip_tx_publish_chunk( crds->gossip_update,
+                                stem,
+                                fd_gossip_update_message_sig( msg->tag ),
+                                FD_GOSSIP_UPDATE_SZ_CONTACT_INFO_REMOVE,
+                                now );
+  }
+
   crds_contact_info_dlist_ele_remove( crds->contact_info.dlist, ci, crds->pool );
   crds_contact_info_pool_ele_release( crds->contact_info.pool, ci->contact_info.ci );
-  /* TODO: Emit this eviction as a gossip update event */
   crds_samplers_rem_peer( crds->samplers, ci );
 }
 
@@ -536,8 +555,9 @@ fd_crds_purged_len( fd_crds_t const * crds ) {
 }
 
 void
-fd_crds_expire( fd_crds_t * crds,
-                long        now ) {
+fd_crds_expire( fd_crds_t *         crds,
+                long                now,
+                fd_stem_context_t * stem ) {
   static const long SLOT_DURATION_NANOS            = 400L*1000L*1000L;
   static const long STAKED_EXPIRE_DURATION_NANOS   = 432000L*SLOT_DURATION_NANOS;
   static const long UNSTAKED_EXPIRE_DURATION_NANOS = 15L*1000L*1000L*1000L;
@@ -553,8 +573,8 @@ fd_crds_expire( fd_crds_t * crds,
     evict_treap_ele_remove( crds->evict_treap, head, crds->pool );
     crds_pool_ele_release( crds->pool, head );
 
-    if( FD_UNLIKELY( is_contact_info( &head->key ) ) ) {
-      remove_contact_info( crds, head );
+    if( FD_UNLIKELY( head->key.tag == FD_CRDS_TAG_CONTACT_INFO ) ) {
+      remove_contact_info( crds, head, now, stem );
     }
   }
 
@@ -573,8 +593,8 @@ fd_crds_expire( fd_crds_t * crds,
     evict_treap_ele_remove( crds->evict_treap, head, crds->pool );
     crds_pool_ele_release( crds->pool, head );
 
-    if( FD_UNLIKELY( is_contact_info( &head->key ) ) ) {
-      remove_contact_info( crds, head );
+    if( FD_UNLIKELY( head->key.tag == FD_CRDS_TAG_CONTACT_INFO ) ) {
+      remove_contact_info( crds, head, now, stem );
     }
   }
 
@@ -600,7 +620,9 @@ fd_crds_expire( fd_crds_t * crds,
 }
 
 fd_crds_entry_t *
-fd_crds_acquire( fd_crds_t * crds ) {
+fd_crds_acquire( fd_crds_t *         crds,
+                 long                now,
+                 fd_stem_context_t * stem ) {
   if( FD_UNLIKELY( !crds_pool_free( crds->pool ) ) ) {
     evict_treap_fwd_iter_t head = evict_treap_fwd_iter_init( crds->evict_treap, crds->pool );
     FD_TEST( !evict_treap_fwd_iter_done( head ) );
@@ -614,8 +636,8 @@ fd_crds_acquire( fd_crds_t * crds ) {
 
     hash_treap_ele_remove( crds->hash_treap, evict, crds->pool );
     lookup_map_ele_remove( crds->lookup_map, &evict->key, NULL, crds->pool );
-    if( FD_UNLIKELY( is_contact_info( &evict->key ) ) ) {
-      remove_contact_info( crds, evict );
+    if( FD_UNLIKELY( evict->key.tag == FD_CRDS_TAG_CONTACT_INFO ) ) {
+      remove_contact_info( crds, evict, now, stem );
     }
 
     return evict;
@@ -679,7 +701,7 @@ crds_entry_init( fd_gossip_view_crds_value_t const * view,
   fd_crds_genrate_hash( payload+view->value_off, view->length, out_value->value_hash );
   out_value->hash.hash = fd_ulong_load_8( out_value->value_hash );
 
-  if( FD_UNLIKELY( is_contact_info( key ) ) ) {
+  if( FD_UNLIKELY( key->tag == FD_CRDS_TAG_CONTACT_INFO ) ) {
     out_value->contact_info.instance_creation_wallclock_nanos = view->contact_info->instance_creation_wallclock_nanos;
     /* Contact Info entry will be added to sampler upon successful insertion */
     out_value->contact_info.sampler_idx = SAMPLE_IDX_SENTINEL;
@@ -803,6 +825,53 @@ fd_crds_checks_fast( fd_crds_t *                         crds,
   return FD_CRDS_UPSERT_CHECK_UNDETERMINED;
 }
 
+static inline void
+publish_update_msg( fd_crds_t *                         crds,
+                       fd_crds_entry_t *                   entry,
+                       fd_gossip_view_crds_value_t const * entry_view,
+                       uchar const *                       payload,
+                       long                                now,
+                       fd_stem_context_t *                 stem ) {
+  if( FD_UNLIKELY( !crds->gossip_update ) ) return;
+  if( FD_LIKELY( entry->key.tag!=FD_CRDS_TAG_CONTACT_INFO &&
+                 entry->key.tag!=FD_CRDS_TAG_LOWEST_SLOT &&
+                 entry->key.tag!=FD_CRDS_TAG_VOTE ) ) {
+    return;
+  }
+
+  fd_gossip_update_message_t * msg = fd_gossip_out_get_chunk( crds->gossip_update );
+  msg->wallclock_nanos = now;
+  fd_memcpy( msg->origin_pubkey, entry->key.pubkey, 32UL );
+  ulong sz;
+  switch( entry->key.tag ) {
+    case FD_CRDS_TAG_CONTACT_INFO:
+      msg->tag = FD_GOSSIP_UPDATE_TAG_CONTACT_INFO;
+      msg->contact_info = *entry->contact_info.ci->contact_info;
+      sz = FD_GOSSIP_UPDATE_SZ_CONTACT_INFO;
+      break;
+    case FD_CRDS_TAG_LOWEST_SLOT:
+      msg->tag = FD_GOSSIP_UPDATE_TAG_LOWEST_SLOT;
+      sz = FD_GOSSIP_UPDATE_SZ_LOWEST_SLOT;
+      msg->lowest_slot = entry_view->lowest_slot;
+      break;
+    case FD_CRDS_TAG_VOTE:
+      msg->tag = FD_GOSSIP_UPDATE_TAG_VOTE;
+      /* TODO: measure update size instead */
+      sz = FD_GOSSIP_UPDATE_SZ_VOTE;
+      msg->vote.vote_tower_index = entry->key.vote_index;
+      msg->vote.txn_sz = entry_view->vote->txn_sz;
+      fd_memcpy( msg->vote.txn, payload+entry_view->vote->txn_off, entry_view->vote->txn_sz );
+      break;
+    default:
+      FD_LOG_ERR(( "impossible" ));
+  }
+  fd_gossip_tx_publish_chunk( crds->gossip_update,
+                              stem,
+                              fd_gossip_update_message_sig( msg->tag ),
+                              sz,
+                              now );
+}
+
 fd_crds_entry_t const *
 fd_crds_insert( fd_crds_t *                         crds,
                 fd_gossip_view_crds_value_t const * candidate_view,
@@ -810,7 +879,8 @@ fd_crds_insert( fd_crds_t *                         crds,
                 ulong                               origin_stake,
                 int                                 upsert_check_result,
                 uchar                               is_from_me,
-                long                                now ) {
+                long                                now ,
+                fd_stem_context_t *                 stem ) {
   /* TODO: pointless check? */
   if( FD_UNLIKELY( !( upsert_check_result==FD_CRDS_UPSERT_CHECK_UPSERTS ||
                       upsert_check_result==FD_CRDS_UPSERT_CHECK_UNDETERMINED ) ) ) {
@@ -818,13 +888,12 @@ fd_crds_insert( fd_crds_t *                         crds,
                   FD_CRDS_UPSERT_CHECK_UNDETERMINED nor FD_CRDS_UPSERT_CHECK_PASSED" ));
   }
 
-  fd_crds_entry_t * candidate = fd_crds_acquire( crds );
+  fd_crds_entry_t * candidate = fd_crds_acquire( crds, now, stem );
   crds_entry_init( candidate_view, payload, origin_stake, candidate );
 
   fd_crds_entry_t * replace = lookup_map_ele_query( crds->lookup_map, &candidate->key, NULL, crds->pool );
   uchar is_replacing = 0UL;
   if( FD_LIKELY( replace ) ) {
-
     if( FD_UNLIKELY( upsert_check_result==FD_CRDS_UPSERT_CHECK_UNDETERMINED ) ) {
       /* tiebreaker used by Agave's Gossip implementation
          https://github.com/anza-xyz/agave/blob/540d5bc56cd44e3cc61b179bd52e9a782a2c99e4/gossip/src/crds.rs#L212-L216 */
@@ -850,9 +919,8 @@ fd_crds_insert( fd_crds_t *                         crds,
 
     insert_purged( crds, replace->value_hash, now );
 
-    if( FD_UNLIKELY( is_contact_info( &replace->key ) ) ) {
+    if( FD_UNLIKELY( replace->key.tag==FD_CRDS_TAG_CONTACT_INFO ) ) {
       crds_contact_info_dlist_ele_remove( crds->contact_info.dlist, replace, crds->pool );
-      candidate->contact_info.ci = replace->contact_info.ci;
       candidate->contact_info.ci = replace->contact_info.ci;
 
       /* Inherit is_active from replacee */
@@ -883,7 +951,7 @@ fd_crds_insert( fd_crds_t *                         crds,
     hash_treap_ele_remove( crds->hash_treap, replace, crds->pool );
     lookup_map_ele_remove( crds->lookup_map, &replace->key, NULL, crds->pool );
     crds_pool_ele_release( crds->pool, replace );
-  } else if( is_contact_info( &candidate->key ) ) {
+  } else if( candidate->key.tag==FD_CRDS_TAG_CONTACT_INFO ) {
     if( FD_UNLIKELY( !crds_contact_info_pool_free( crds->contact_info.pool ) ) ) {
       FD_LOG_ERR(( "TODO: contact info pool exhausted, implement LRU based eviction?" ));
     }
@@ -908,7 +976,7 @@ fd_crds_insert( fd_crds_t *                         crds,
   hash_treap_ele_insert( crds->hash_treap, candidate, crds->pool );
   lookup_map_ele_insert( crds->lookup_map, candidate, crds->pool );
 
-  if( FD_UNLIKELY( is_contact_info( &candidate->key ) ) ) {
+  if( FD_UNLIKELY( candidate->key.tag==FD_CRDS_TAG_CONTACT_INFO ) ) {
     /* TODO: Emit this as a gossip insert/update update */
     fd_crds_contact_info_populate( candidate_view, payload, candidate->contact_info.ci->contact_info );
     crds_contact_info_dlist_ele_push_tail( crds->contact_info.dlist,
@@ -918,6 +986,8 @@ fd_crds_insert( fd_crds_t *                         crds,
       crds_samplers_add_peer( crds->samplers, candidate, now);
     }
   }
+
+  publish_update_msg( crds, candidate, candidate_view, payload, now, stem );
   return candidate;
 }
 
@@ -944,7 +1014,7 @@ make_contact_info_key( uchar const * pubkey ) {
 
 int
 fd_crds_entry_is_contact_info(  fd_crds_entry_t const * entry ) {
-  return is_contact_info( &entry->key );
+  return entry->key.tag == FD_CRDS_TAG_CONTACT_INFO;
 }
 
 fd_contact_info_t *

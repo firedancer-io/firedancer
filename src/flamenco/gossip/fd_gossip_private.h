@@ -102,8 +102,8 @@ typedef struct fd_gossip_view_node_instance fd_gossip_view_node_instance_t;
 
 struct fd_gossip_view_vote {
   uchar  index;
-  ulong  transaction_sz;
-  ushort transaction_off;
+  ulong  txn_sz;
+  ushort txn_off;
 };
 
 typedef struct fd_gossip_view_vote fd_gossip_view_vote_t;
@@ -138,6 +138,7 @@ struct fd_gossip_view_crds_value {
     fd_gossip_view_vote_t            vote[ 1 ];
     fd_gossip_view_epoch_slots_t     epoch_slots[ 1 ];
     fd_gossip_view_duplicate_shred_t duplicate_shred[ 1 ];
+    ulong                            lowest_slot;
   };
 };
 

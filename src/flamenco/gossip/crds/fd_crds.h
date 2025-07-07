@@ -4,6 +4,7 @@
 #include "../../../util/fd_util.h"
 #include "../../../util/net/fd_net_headers.h"
 #include "../fd_gossip_private.h"
+#include "../fd_gossip_out.h"
 
 struct fd_crds_entry_private;
 typedef struct fd_crds_entry_private fd_crds_entry_t;
@@ -29,11 +30,14 @@ FD_FN_CONST ulong
 fd_crds_footprint( ulong ele_max,
                    ulong purged_max );
 
+/* gossip_update_out holds the info to the gossip out link used to publish
+   gossip message updates */
 void *
-fd_crds_new( void *     shmem,
-             fd_rng_t * rng,
-             ulong      ele_max,
-             ulong      purged_max );
+fd_crds_new( void *               shmem,
+             fd_rng_t *           rng,
+             ulong                ele_max,
+             ulong                purged_max,
+             fd_gossip_out_ctx_t * gossip_update_out  );
 
 fd_crds_t *
 fd_crds_join( void * shcrds );
@@ -41,14 +45,16 @@ fd_crds_join( void * shcrds );
 /* fd_crds_expire removes stale entries from the replicated data
    store.  CRDS values from staked nodes expire roughly an epoch after
    they are created, and values from non-staked nodes expire after 15
-   seconds.
+   seconds. Removed contact info entries are also published as gossip
+   updates via stem.
 
    There is one exception, when the node is first bootstrapping, and
    has not yet seen any staked nodes, values do not expire at all. */
 
 void
-fd_crds_expire( fd_crds_t * crds,
-                long        now );
+fd_crds_expire( fd_crds_t *         crds,
+                long                now,
+                fd_stem_context_t * stem );
 
 /* fd_crds_len returns the number of entries in the CRDS table. This does not
    include purged entries, which have a separate queue tracking them.
@@ -137,6 +143,7 @@ fd_crds_checks_fast( fd_crds_t *                         crds,
    own entries from peer samplers. origin_stake is used to weigh the peer in the
    samplers.
 
+   stem is used to publish updates to {ContactInfo, Vote, LowestSlot} entries.
 
    Returns a pointer to the newly created CRDS entry. Lifetime is guaranteed
    until the next call to the following functions:
@@ -151,7 +158,8 @@ fd_crds_insert( fd_crds_t *                         crds,
                 ulong                               origin_stake,
                 int                                 upsert_check_result,
                 uchar                               is_from_me,
-                long                                now );
+                long                                now,
+                fd_stem_context_t *                 stem );
 
 /********************* Begin CRDS Entry APIs *************************/
 

@@ -122,6 +122,8 @@ struct fd_gossip_private {
   /* entrypt_push_set is a separate push set that is used on a separate regime,
      typically at bootup when the active set is sparse  */
   push_state_t        entrypt_push_state[ 16UL ];
+
+  fd_gossip_out_ctx_t * gossip_net_out;
 };
 
 ulong
@@ -174,7 +176,9 @@ fd_gossip_new( void *                    shmem,
                fd_gossip_send_fn         send_fn,
                void *                    send_ctx,
                fd_gossip_sign_fn         sign_fn,
-               void *                    sign_ctx ) {
+               void *                    sign_ctx,
+               fd_gossip_out_ctx_t *     gossip_update_out,
+               fd_gossip_out_ctx_t *     gossip_net_out ) {
   if( FD_UNLIKELY( !shmem ) ) {
     FD_LOG_ERR(( "NULL shmem" ));
   }
@@ -183,6 +187,9 @@ fd_gossip_new( void *                    shmem,
   }
   if( FD_UNLIKELY( entrypoints_cnt>16UL ) ) {
     FD_LOG_ERR(( "entrypoints_cnt %lu exceeds maximum of 16", entrypoints_cnt ));
+  }
+  if( FD_UNLIKELY( !gossip_net_out ) ) {
+    FD_LOG_ERR(( "NULL gossip_out" ));
   }
 
   FD_SCRATCH_ALLOC_INIT( l, shmem );
@@ -194,10 +201,12 @@ fd_gossip_new( void *                    shmem,
   void * stake_weights  = FD_SCRATCH_ALLOC_APPEND( l, stake_map_align(), stake_map_footprint() );
   void * failed_inserts = FD_SCRATCH_ALLOC_APPEND( l, alignof(uchar), max_values/4*sizeof(failed_insert_t) ); /* FIXME: figure out better numbers */
 
+  gossip->gossip_net_out  = gossip_net_out;
+
   gossip->entrypoints_cnt = entrypoints_cnt;
   fd_memcpy( gossip->entrypoints, entrypoints, entrypoints_cnt*sizeof(fd_ip4_port_t) );
 
-  gossip->crds          = fd_crds_join( fd_crds_new( crds, rng, max_values, max_values*4 ) );
+  gossip->crds          = fd_crds_join( fd_crds_new( crds, rng, max_values, max_values*4, gossip_update_out ) );
   gossip->active_set    = fd_active_set_join( fd_active_set_new( active_set, rng ) );
   gossip->ping_tracker  = fd_ping_tracker_join( fd_ping_tracker_new( ping_tracker, rng ) );
   gossip->bloom         = crds_bloom_join( crds_bloom_new( bloom, rng, BLOOM_FALSE_POSITIVE_RATE, BLOOM_FILTER_MAX_BYTES ) );
@@ -593,7 +602,8 @@ static int
 rx_pull_response( fd_gossip_t *                          gossip,
                   fd_gossip_view_pull_response_t const * pull_response,
                   uchar const *                          payload,
-                  long                                   now ) {
+                  long                                   now,
+                  fd_stem_context_t *                    stem ) {
   /* TODO: use epoch_duration and make timeouts ... ? */
 
   for( ulong i=0UL; i<pull_response->crds_values_len; i++ ) {
@@ -641,7 +651,8 @@ rx_pull_response( fd_gossip_t *                          gossip,
                                                         origin_stake,
                                                         checks_res,
                                                         is_me,
-                                                        now  );
+                                                        now,
+                                                        stem );
     if( FD_UNLIKELY( !candidate ) ) continue;
     if( FD_UNLIKELY( fd_crds_entry_is_contact_info( candidate ) ) ){
       fd_contact_info_t const * contact_info = fd_crds_entry_contact_info( candidate );
@@ -677,7 +688,8 @@ static int
 process_push_crds( fd_gossip_t *                       gossip,
                    fd_gossip_view_crds_value_t const * value,
                    uchar const *                       payload,
-                   long                                now ) {
+                   long                                now,
+                   fd_stem_context_t *                 stem ) {
   /* TODO: pretty sure this is 15s now. */
   if( FD_UNLIKELY( value->wallclock_nanos<now-30L*1000L*1000L*1000L || value->wallclock_nanos>now+30L*1000L*1000L*1000L ) ) return -1;
   /* overrides_fast here, either count duplicates or purge if older (how!?) */
@@ -710,7 +722,8 @@ process_push_crds( fd_gossip_t *                       gossip,
                                                       origin_stake,
                                                       checks_res,
                                                       is_me,
-                                                      now );
+                                                      now,
+                                                      stem );
   if( FD_UNLIKELY( !candidate ) ) return -1;
   if( FD_UNLIKELY( fd_crds_entry_is_contact_info( candidate ) ) ) {
     fd_contact_info_t const * contact_info = fd_crds_entry_contact_info( candidate );
@@ -744,12 +757,14 @@ static int
 rx_push( fd_gossip_t *                 gossip,
          fd_gossip_view_push_t const * push,
          uchar const *                 payload,
-         long                          now ) {
+         long                          now,
+         fd_stem_context_t *           stem ) {
   for( ulong i=0UL; i<push->crds_values_len; i++ ) {
     int err = process_push_crds( gossip,
                                  &push->crds_values[ i ],
                                  payload,
-                                 now );
+                                 now,
+                                 stem );
     if( FD_UNLIKELY( err>0 ) ) {
       /* TODO: implement prune finder
       ulong num_duplicates         = (ulong)err;
@@ -771,8 +786,8 @@ rx_prune( fd_gossip_t *                  gossip,
           uchar const *                  payload,
           fd_gossip_view_prune_t const * prune,
           long                           now ) {
-  if( FD_UNLIKELY( now-FD_MILLI_TO_NANOSEC(500L)>(long)prune->wallclock_nanos ) ) return FD_GOSSIP_RX_PRUNE_ERR_STALE;
-  else if( FD_UNLIKELY( !!memcmp( gossip->identity_pubkey, payload+prune->destination_off, 32UL ) ) ) return FD_GOSSIP_RX_PRUNE_ERR_DESTINATION;
+  if( FD_UNLIKELY( now-FD_MILLI_TO_NANOSEC(500L)>(long)prune->wallclock_nanos ) ) return -1; /* FD_GOSSIP_RX_PRUNE_ERR_STALE; */
+  else if( FD_UNLIKELY( !!memcmp( gossip->identity_pubkey, payload+prune->destination_off, 32UL ) ) ) return -1; /* FD_GOSSIP_RX_PRUNE_ERR_DESTINATION; */
 
 
   fd_active_set_prunes( gossip->active_set,
@@ -784,7 +799,7 @@ rx_prune( fd_gossip_t *                  gossip,
                         get_stake( gossip, payload+prune->origin_off ),
                         NULL /* TODO: use out_node_idx to update push states */ );
 
-  return FD_GOSSIP_RX_OK;
+  return 0;
 }
 
 
@@ -815,7 +830,7 @@ rx_ping( fd_gossip_t *           gossip,
   gossip->sign_fn( gossip->sign_ctx, pre_hash_img, 48UL, PONG_SIGN_TYPE, out_pong->signature );
 
   gossip->send_fn( gossip->send_ctx, (uchar *)out_payload, sizeof(out_payload), peer_address, (ulong)now );
-  return FD_GOSSIP_RX_OK;
+  return 0;
 }
 
 static int
@@ -861,14 +876,15 @@ strip_network_hdrs( uchar const *   data,
 
   peer_address->addr = ip4->saddr;
   peer_address->port = udp->net_sport;
-  return FD_GOSSIP_RX_OK;
+  return 0;
 }
 
 int
 fd_gossip_rx( fd_gossip_t * gossip,
               uchar const * packet,
               ulong         packet_sz,
-              long          now ) {
+              long          now,
+              fd_stem_context_t * stem ) {
 
   uchar *       gossip_payload;
   ulong         gossip_payload_sz;
@@ -886,8 +902,8 @@ fd_gossip_rx( fd_gossip_t * gossip,
   fd_gossip_view_t view[ 1 ];
   ulong decode_sz = fd_gossip_msg_parse( view, gossip_payload, gossip_payload_sz );
   if( FD_UNLIKELY( !decode_sz ) ) {
-    FD_LOG_ERR(( "Failed to decode gossip message" ));
-    return FD_GOSSIP_RX_PARSE_ERR;
+    FD_LOG_WARNING(( "Failed to decode gossip message" ));
+    return -1;
   }
 
   error = verify_signatures( view, gossip_payload, gossip->sha512 );
@@ -912,10 +928,10 @@ fd_gossip_rx( fd_gossip_t * gossip,
                                now );
       break;
     case FD_GOSSIP_MESSAGE_PULL_RESPONSE:
-      error = rx_pull_response( gossip, view->pull_response, gossip_payload, now );
+      error = rx_pull_response( gossip, view->pull_response, gossip_payload, now, stem );
       break;
     case FD_GOSSIP_MESSAGE_PUSH:
-      error = rx_push( gossip, view->push, gossip_payload, now );
+      error = rx_push( gossip, view->push, gossip_payload, now, stem );
       break;
     case FD_GOSSIP_MESSAGE_PRUNE:
       error = rx_prune( gossip, gossip_payload, view->prune, now );
@@ -1120,7 +1136,7 @@ next_pull_request( fd_gossip_t const * gossip,
 
 static inline void
 rotate_active_set( fd_gossip_t * gossip,
-                        long          now ) {
+                   long          now ) {
   ulong replaced_idx;
   fd_contact_info_t const * new_peer = fd_active_set_rotate( gossip->active_set, gossip->crds, &replaced_idx );
   if( FD_UNLIKELY( !new_peer ) ) {
@@ -1135,10 +1151,12 @@ rotate_active_set( fd_gossip_t * gossip,
 
 }
 
+
 void
-fd_gossip_advance( fd_gossip_t * gossip,
-                   long          now ) {
-  fd_crds_expire( gossip->crds, now );
+fd_gossip_advance( fd_gossip_t *       gossip,
+                   long                now,
+                   fd_stem_context_t * stem ) {
+  fd_crds_expire( gossip->crds, now, stem );
 
   tx_ping( gossip, now );
   if( FD_UNLIKELY( now>=gossip->timers.next_pull_request ) ) {

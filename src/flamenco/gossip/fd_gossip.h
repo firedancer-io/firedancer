@@ -5,15 +5,7 @@
 #include "../../util/net/fd_net_headers.h"
 #include "fd_contact_info.h"
 #include "../types/fd_types.h"
-
-#define FD_GOSSIP_RX_OK                         (0)
-
-#define FD_GOSSIP_RX_PARSE_ERR                  (1)
-
-#define FD_GOSSIP_RX_VERIFY_NO_SIGNABLE_DATA    (1)
-
-#define FD_GOSSIP_RX_PRUNE_ERR_STALE            (1)
-#define FD_GOSSIP_RX_PRUNE_ERR_DESTINATION      (2)
+#include "fd_gossip_out.h"
 
 /* TODO: When we get a pull request, respond with ContactInfos first if
    we have any available that are responsive. */
@@ -106,7 +98,9 @@ fd_gossip_new( void *                    shmem,
                fd_gossip_send_fn         send_fn,
                void *                    send_ctx,
                fd_gossip_sign_fn         sign_fn,
-               void *                    sign_ctx );
+               void *                    sign_ctx,
+               fd_gossip_out_ctx_t *     gossip_update_out,
+               fd_gossip_out_ctx_t *     gossip_net_out );
 
 fd_gossip_t *
 fd_gossip_join( void * shgossip );
@@ -118,9 +112,6 @@ fd_gossip_metrics( fd_gossip_t const * gossip );
 
       - The pubkey specified in contact_info will serve as the
         identity key, used in various checks of the rx path.
-
-        - Therefore this function also serves as the set_identity
-          function.
 
       - If the shred version specified in the contact_info is non-zero,
         it will be used to determine whether to accept or drop incoming
@@ -173,8 +164,9 @@ fd_gossip_stakes_update( fd_gossip_t *             gossip,
    called as often as possible. */
 
 void
-fd_gossip_advance( fd_gossip_t * gossip,
-                   long          now );
+fd_gossip_advance( fd_gossip_t *       gossip,
+                   long                now,
+                   fd_stem_context_t * stem );
 
 /* fd_gossip_rx handles an incoming packet received on the gossip socket
    from the network.  It is expected that the packet is a UDP packet but
@@ -197,10 +189,11 @@ fd_gossip_advance( fd_gossip_t * gossip,
    activity. */
 
 int
-fd_gossip_rx( fd_gossip_t * gossip,
-              uchar const * data,
-              ulong         data_sz,
-              long          now );
+fd_gossip_rx( fd_gossip_t *       gossip,
+              uchar const *       data,
+              ulong               data_sz,
+              long                now,
+              fd_stem_context_t * stem );
 
 FD_PROTOTYPES_END
 
