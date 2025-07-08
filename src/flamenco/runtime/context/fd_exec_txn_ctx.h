@@ -76,7 +76,6 @@ struct fd_exec_txn_ctx {
   fd_bank_hash_cmp_t *                 bank_hash_cmp;
   fd_funk_txn_t *                      funk_txn;
   fd_funk_t                            funk[1];
-  fd_wksp_t *                          runtime_pub_wksp;
   ulong                                slot;
 
   fd_spad_t *                          spad;                                        /* Sized out to handle the worst case footprint of single transaction execution. */

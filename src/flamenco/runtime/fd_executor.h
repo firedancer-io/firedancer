@@ -152,7 +152,6 @@ void
 fd_exec_txn_ctx_from_exec_slot_ctx( fd_bank_t *                bank,
                                     fd_exec_txn_ctx_t *        ctx,
                                     fd_wksp_t const *          funk_wksp,
-                                    fd_wksp_t const *          runtime_pub_wksp,
                                     ulong                      funk_txn_gaddr,
                                     ulong                      funk_gaddr,
                                     fd_bank_hash_cmp_t *       bank_hash_cmp );

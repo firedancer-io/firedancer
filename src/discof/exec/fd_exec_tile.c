@@ -507,11 +507,6 @@ unprivileged_init( fd_topo_t *      topo,
   ctx->txn_ctx          = fd_exec_txn_ctx_join( fd_exec_txn_ctx_new( txn_ctx_mem ), ctx->exec_spad, ctx->exec_spad_wksp );
   *ctx->txn_ctx->funk   = *ctx->funk;
 
-  ctx->txn_ctx->runtime_pub_wksp = ctx->runtime_public_wksp;
-  if( FD_UNLIKELY( !ctx->txn_ctx->runtime_pub_wksp ) ) {
-    FD_LOG_ERR(( "Failed to find public wksp" ));
-  }
-
   ctx->txn_ctx->bank_hash_cmp = ctx->bank_hash_cmp;
 
   /********************************************************************/

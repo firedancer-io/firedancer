@@ -37,6 +37,5 @@ fd_sysvar_slot_history_read( fd_funk_t *     funk,
 
 int
 fd_sysvar_slot_history_find_slot( fd_slot_history_global_t const * history,
-                                  ulong                            slot,
-                                  fd_wksp_t *                      wksp );
+                                  ulong                            slot );
 #endif /* HEADER_fd_src_flamenco_runtime_sysvar_fd_slot_history_h */

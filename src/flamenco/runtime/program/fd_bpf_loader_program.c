@@ -2497,7 +2497,6 @@ fd_directly_invoke_loader_v3_deploy( fd_bank_t *     bank,
   /* Set up a dummy instr and txn context */
   fd_exec_txn_ctx_t * txn_ctx        = fd_exec_txn_ctx_join( fd_exec_txn_ctx_new( fd_spad_alloc( runtime_spad, FD_EXEC_TXN_CTX_ALIGN, FD_EXEC_TXN_CTX_FOOTPRINT ) ), runtime_spad, fd_wksp_containing( runtime_spad ) );
   fd_wksp_t *         funk_wksp      = fd_funk_wksp( funk );
-  fd_wksp_t *         runtime_wksp   = fd_wksp_containing( runtime_spad );
   ulong               funk_txn_gaddr = fd_wksp_gaddr( funk_wksp, funk_txn );
   ulong               funk_gaddr     = fd_wksp_gaddr( funk_wksp, funk->shmem );
 
@@ -2505,7 +2504,6 @@ fd_directly_invoke_loader_v3_deploy( fd_bank_t *     bank,
       bank,
       txn_ctx,
       funk_wksp,
-      runtime_wksp,
       funk_txn_gaddr,
       funk_gaddr,
       NULL );

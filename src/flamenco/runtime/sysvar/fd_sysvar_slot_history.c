@@ -191,10 +191,7 @@ fd_sysvar_slot_history_read( fd_funk_t *     funk,
 }
 
 int
-fd_sysvar_slot_history_find_slot( fd_slot_history_global_t const * history,
-                                  ulong                            slot,
-                                  fd_wksp_t *                      wksp ) {
-  (void)wksp;
+fd_sysvar_slot_history_find_slot( fd_slot_history_global_t const * history, ulong slot ) {
   ulong * blocks = (ulong *)((uchar*)history + history->bits_bitvec_offset);
   if( FD_UNLIKELY( !blocks ) ) {
     FD_LOG_ERR(( "Unable to find slot history blocks" ));

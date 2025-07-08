@@ -324,9 +324,7 @@ status_check_tower( ulong slot, void * _ctx ) {
     FD_LOG_ERR(( "Unable to read and decode slot history sysvar" ));
   }
 
-  if( fd_sysvar_slot_history_find_slot( slot_history,
-                                        slot,
-                                        ctx->runtime_pub_wksp ) == FD_SLOT_HISTORY_SLOT_FOUND ) {
+  if( fd_sysvar_slot_history_find_slot( slot_history, slot ) == FD_SLOT_HISTORY_SLOT_FOUND ) {
     return 1;
   }
 
@@ -1231,12 +1229,9 @@ void
 fd_exec_txn_ctx_from_exec_slot_ctx( fd_bank_t *           bank,
                                     fd_exec_txn_ctx_t *   ctx,
                                     fd_wksp_t const *     funk_wksp,
-                                    fd_wksp_t const *     runtime_pub_wksp,
                                     ulong                 funk_txn_gaddr,
                                     ulong                 funk_gaddr,
                                     fd_bank_hash_cmp_t *  bank_hash_cmp ) {
-
-  ctx->runtime_pub_wksp = (fd_wksp_t *)runtime_pub_wksp;
 
   ctx->funk_txn = fd_wksp_laddr( funk_wksp, funk_txn_gaddr );
   if( FD_UNLIKELY( !ctx->funk_txn ) ) {
@@ -1368,18 +1363,15 @@ fd_execute_txn_prepare_start( fd_bank_t *           bank,
                               fd_txn_t const *      txn_descriptor,
                               fd_rawtxn_b_t const * txn_raw ) {
 
-  fd_wksp_t * funk_wksp          = fd_funk_wksp( funk );
-  /* FIXME: just pass in the runtime workspace, instead of getting it from fd_wksp_containing */
-  fd_wksp_t * runtime_pub_wksp   = fd_wksp_containing( bank );
-  ulong       funk_txn_gaddr     = fd_wksp_gaddr( funk_wksp, funk_txn );
-  ulong       funk_gaddr         = fd_wksp_gaddr( funk_wksp, funk->shmem );
+  fd_wksp_t * funk_wksp      = fd_funk_wksp( funk );
+  ulong       funk_txn_gaddr = fd_wksp_gaddr( funk_wksp, funk_txn );
+  ulong       funk_gaddr     = fd_wksp_gaddr( funk_wksp, funk->shmem );
 
   /* Init txn ctx */
   fd_exec_txn_ctx_new( txn_ctx );
   fd_exec_txn_ctx_from_exec_slot_ctx( bank,
                                       txn_ctx,
                                       funk_wksp,
-                                      runtime_pub_wksp,
                                       funk_txn_gaddr,
                                       funk_gaddr,
                                       NULL );
