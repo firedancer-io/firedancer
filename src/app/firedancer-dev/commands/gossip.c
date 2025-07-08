@@ -45,7 +45,7 @@ gossip_topo( config_t * config ) {
   net_tile->net.gossip_listen_port = config->gossip.port;
 
   fd_topob_wksp( topo, "gossip" );
-  fd_topo_tile_t * gossip_tile = fd_topob_tile( topo, "gossip", "gossip", "metric_in", 0UL, 0, 0 );
+  fd_topo_tile_t * gossip_tile = fd_topob_tile( topo, "gossip", "gossip", "metric_in", 0UL, 0, 1 /* uses_keyswitch */ );
 
   strncpy( gossip_tile->gossip.identity_key_path, config->paths.identity_key, sizeof(gossip_tile->gossip.identity_key_path) );
   gossip_tile->gossip.entrypoints_cnt        = config->gossip.entrypoints_cnt;
