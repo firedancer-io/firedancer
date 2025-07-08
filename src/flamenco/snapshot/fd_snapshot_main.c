@@ -22,10 +22,9 @@
 #define OSTREAM_BUFSZ (32768UL)
 
 struct fd_snapshot_dumper {
-  fd_alloc_t * alloc;
-  fd_funk_t    funk[1];
-
-  fd_exec_slot_ctx_t *  slot_ctx;
+  fd_alloc_t *    alloc;
+  fd_funk_t       funk[1];
+  fd_funk_txn_t * funk_txn;
 
   int snapshot_fd;
 
@@ -63,11 +62,6 @@ fd_snapshot_dumper_delete( fd_snapshot_dumper_t * dumper ) {
   if( dumper->restore ) {
     fd_snapshot_restore_delete( dumper->restore );
     dumper->restore = NULL;
-  }
-
-  if( dumper->slot_ctx ) {
-    fd_exec_slot_ctx_delete( fd_exec_slot_ctx_leave( dumper->slot_ctx ) );
-    dumper->slot_ctx = NULL;
   }
 
   if( dumper->funk->shmem ) {
@@ -271,16 +265,11 @@ do_dump( fd_snapshot_dumper_t *    d,
   int funk_ok = !!fd_funk_join( d->funk, fd_funk_new( fd_wksp_alloc_laddr( wksp, fd_funk_align(), fd_funk_footprint(txn_max, rec_max), funk_tag ), funk_tag, funk_seed, txn_max, rec_max ) );
   if( FD_UNLIKELY( !funk_ok ) ) { FD_LOG_WARNING(( "Failed to create fd_funk_t" )); return EXIT_FAILURE; }
 
-  /* Create a new processing context */
-
-  d->slot_ctx = fd_exec_slot_ctx_join( fd_exec_slot_ctx_new( fd_spad_alloc( spad, FD_EXEC_SLOT_CTX_ALIGN, FD_EXEC_SLOT_CTX_FOOTPRINT ) ) );
-  if( FD_UNLIKELY( !d->slot_ctx ) ) { FD_LOG_WARNING(( "Failed to create fd_exec_slot_ctx_t" )); return EXIT_FAILURE; }
-
   /* funk_txn is destroyed automatically when deleting fd_funk_t. */
 
   fd_funk_txn_xid_t funk_txn_xid = { .ul = { 1UL } };
   fd_funk_txn_t * funk_txn = fd_funk_txn_prepare( d->funk, NULL, &funk_txn_xid, 1 );
-  d->slot_ctx->funk_txn = funk_txn;
+  d->funk_txn = funk_txn;
 
   void * restore_mem = fd_spad_alloc( spad, fd_snapshot_restore_align(), fd_snapshot_restore_footprint() );
   if( FD_UNLIKELY( !restore_mem ) ) FD_LOG_ERR(( "Failed to allocate restore buffer" ));  /* unreachable */
