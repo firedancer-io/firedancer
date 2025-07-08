@@ -56,6 +56,7 @@ fd_mcache_new( void * shmem,
   hdr->app_sz   = app_sz;
   hdr->seq0     = seq0;
   hdr->app_off  = sizeof(fd_mcache_private_hdr_t) + fd_ulong_align_up( depth*sizeof(fd_frag_meta_t), FD_MCACHE_ALIGN );
+  hdr->futex_flag = 0UL;
 
   hdr->seq[0] = seq0;
 

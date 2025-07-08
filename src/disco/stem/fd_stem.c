@@ -188,6 +188,25 @@ STEM_(in_update)( fd_stem_tile_in_t * in ) {
   accum[3] = 0U;              accum[4] = 0U;              accum[5] = 0U;
 }
 
+#if !(STEM_ALWAYS_SPINNING)
+static inline void
+STEM_(wake_downstream_consumers)( ulong out_cnt,
+                                  fd_frag_meta_t ** out_mcache,
+                                  ulong * out_wake_cnt,
+                                  uint * latest_futex_vals ) {
+  for( ulong out_idx = 0; out_idx < out_cnt; out_idx++ ) {
+    if( out_wake_cnt[out_idx] > FD_STEM_WAKE_THRESHOLD ) {
+      uint * futex_flag = fd_mcache_futex_flag( out_mcache[ out_idx ] );
+      if( latest_futex_vals[out_idx] != *futex_flag ) {
+        fd_futex_wake( futex_flag, INT_MAX );
+        latest_futex_vals[out_idx] = *futex_flag;
+      }
+      out_wake_cnt[out_idx] = 0UL;
+    }
+  }
+}
+#endif
+
 FD_FN_PURE static inline ulong
 STEM_(scratch_align)( void ) {
   return FD_STEM_SCRATCH_ALIGN;
@@ -233,11 +252,10 @@ STEM_(run1)( ulong                        in_cnt,
   fd_stem_tile_in_t * in;     /* in[in_seq] for in_seq in [0,in_cnt) has information about input fragment stream currently at
                                  position in_seq in the in_idx polling sequence.  The ordering of this array is continuously
                                  shuffled to avoid lighthousing effects in the output fragment stream at extreme fan-in and load */
-
-
 #if !(STEM_ALWAYS_SPINNING)
   struct futex_waitv * waiters; /* array of futex waiters for each in */
 #endif
+  uint *         latest_futex_vals; /* array of latest futex values for each out */
 
   /* out frag stream state */
   ulong *        out_depth; /* ==fd_mcache_depth( out_mcache[out_idx] ) for out_idx in [0, out_cnt) */
@@ -309,7 +327,7 @@ STEM_(run1)( ulong                        in_cnt,
     this_in->accum[3] = 0U; this_in->accum[4] = 0U; this_in->accum[5] = 0U;
 
 #if !(STEM_ALWAYS_SPINNING)
-    waiters[in_idx].uaddr = (uint64_t)fd_mcache_futex_flag_const( this_in->mcache );
+    waiters[in_idx].uaddr = (ulong)fd_mcache_futex_flag_const( this_in->mcache );
     waiters[in_idx].val = this_in->seq;
     waiters[in_idx].flags = FUTEX_32;
     waiters[in_idx].__reserved= 0UL;
@@ -323,6 +341,7 @@ STEM_(run1)( ulong                        in_cnt,
   out_depth  = (ulong *)FD_SCRATCH_ALLOC_APPEND( l, alignof(ulong), out_cnt*sizeof(ulong) );
   out_seq    = (ulong *)FD_SCRATCH_ALLOC_APPEND( l, alignof(ulong), out_cnt*sizeof(ulong) );
   out_wake_cnt = (ulong *)FD_SCRATCH_ALLOC_APPEND( l, alignof(ulong), out_cnt*sizeof(ulong) );
+  latest_futex_vals = (uint *)FD_SCRATCH_ALLOC_APPEND( l, alignof(uint), out_cnt*sizeof(uint) );
 
   ulong cr_max = fd_ulong_if( !out_cnt, 128UL, ULONG_MAX );
 
@@ -333,6 +352,7 @@ STEM_(run1)( ulong                        in_cnt,
     out_depth[ out_idx ] = fd_mcache_depth( out_mcache[ out_idx ] );
     out_seq[ out_idx ] = 0UL;
     out_wake_cnt[ out_idx ] = 0UL;
+    latest_futex_vals[ out_idx ] = *fd_mcache_futex_flag_const(out_mcache[ out_idx ]);
 
     cr_max = fd_ulong_min( cr_max, out_depth[ out_idx ] );
   }
@@ -501,7 +521,12 @@ STEM_(run1)( ulong                        in_cnt,
 
 /* By default, tiles are always spinning, except the ones that are configured to wait for futexes */ 
 #if !(STEM_ALWAYS_SPINNING)
+    STEM_(wake_downstream_consumers)( out_cnt, out_mcache, out_wake_cnt, latest_futex_vals );
+
     if (futex_wait_counter > FD_STEM_SPIN_THRESHOLD) { 
+      // should wake those downstream before we sleep
+      STEM_(wake_downstream_consumers)( out_cnt, out_mcache, out_wake_cnt, latest_futex_vals );
+
       long ticks_until_housekeeping = then - approx_tickcount;
       long ns_until_housekeeping = (long)((double)ticks_until_housekeeping / fd_tempo_tick_per_ns(NULL));
       long housekeeping_deadline_ns = approx_wallclock_ns + ns_until_housekeeping;
