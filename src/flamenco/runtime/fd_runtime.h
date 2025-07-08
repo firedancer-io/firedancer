@@ -655,20 +655,25 @@ fd_raw_block_txn_iter_ele( fd_raw_block_txn_iter_t iter, fd_txn_p_t * out_txn );
 /* Offline Replay *************************************************************/
 
 int
-fd_runtime_block_eval_tpool( fd_exec_slot_ctx_t * slot_ctx,
+fd_runtime_block_eval_tpool( fd_banks_t *         banks,
+                             fd_bank_t *          bank,
+                             fd_funk_t *          funk,
+                             fd_funk_txn_t * *    funk_txn_out,
                              ulong                slot,
                              fd_block_t *         block,
                              fd_capture_ctx_t *   capture_ctx,
                              fd_tpool_t *         tpool,
                              ulong                scheduler,
                              ulong *              txn_cnt,
-                             fd_spad_t * *        spads,
-                             ulong                spads_cnt,
+                             fd_spad_t * *        exec_spads,
+                             ulong                exec_spad_cnt,
                              fd_spad_t *          runtime_spad,
                              fd_blockstore_t *    blockstore );
 
 int
-fd_runtime_block_execute_tpool( fd_exec_slot_ctx_t *            slot_ctx,
+fd_runtime_block_execute_tpool( fd_bank_t *                     bank,
+                                fd_funk_t *                     funk,
+                                fd_funk_txn_t *                 funk_txn,
                                 fd_blockstore_t *               blockstore,
                                 fd_capture_ctx_t *              capture_ctx,
                                 fd_runtime_block_info_t const * block_info,

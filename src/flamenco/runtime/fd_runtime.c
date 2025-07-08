@@ -3634,7 +3634,9 @@ fd_runtime_publish_old_txns( fd_banks_t *       banks,
 }
 
 int
-fd_runtime_block_execute_tpool( fd_exec_slot_ctx_t *            slot_ctx,
+fd_runtime_block_execute_tpool( fd_bank_t *                     bank,
+                                fd_funk_t *                     funk,
+                                fd_funk_txn_t *                 funk_txn,
                                 fd_blockstore_t *               blockstore,
                                 fd_capture_ctx_t *              capture_ctx,
                                 fd_runtime_block_info_t const * block_info,
@@ -3643,15 +3645,15 @@ fd_runtime_block_execute_tpool( fd_exec_slot_ctx_t *            slot_ctx,
                                 ulong                           exec_spad_cnt,
                                 fd_spad_t *                     runtime_spad ) {
 
-  if ( capture_ctx != NULL && capture_ctx->capture && slot_ctx->slot>=capture_ctx->solcap_start_slot ) {
-    fd_solcap_writer_set_slot( capture_ctx->capture, slot_ctx->slot );
+  if ( capture_ctx != NULL && capture_ctx->capture && bank->slot>=capture_ctx->solcap_start_slot ) {
+    fd_solcap_writer_set_slot( capture_ctx->capture, bank->slot );
   }
 
   long block_execute_time = -fd_log_wallclock();
 
-  int res = fd_runtime_block_execute_prepare( slot_ctx->bank,
-      slot_ctx->funk,
-      slot_ctx->funk_txn,
+  int res = fd_runtime_block_execute_prepare( bank,
+      funk,
+      funk_txn,
       blockstore,
       runtime_spad );
   if( res != FD_RUNTIME_EXECUTE_SUCCESS ) {
@@ -3682,12 +3684,12 @@ fd_runtime_block_execute_tpool( fd_exec_slot_ctx_t *            slot_ctx,
 
       /* Reverify programs for this epoch if needed */
       for( ulong txn_idx=0UL; txn_idx<mblock_txn_cnt; txn_idx++ ) {
-        fd_runtime_update_program_cache( slot_ctx->bank, slot_ctx->funk, slot_ctx->funk_txn, &mblock_txn_ptrs[txn_idx], runtime_spad );
+        fd_runtime_update_program_cache( bank, funk, funk_txn, &mblock_txn_ptrs[txn_idx], runtime_spad );
       }
 
-      res = fd_runtime_process_txns_in_microblock_stream( slot_ctx->bank,
-                                                          slot_ctx->funk,
-                                                          slot_ctx->funk_txn,
+      res = fd_runtime_process_txns_in_microblock_stream( bank,
+                                                          funk,
+                                                          funk_txn,
                                                           capture_ctx,
                                                           mblock_txn_ptrs,
                                                           mblock_txn_cnt,
@@ -3709,9 +3711,9 @@ fd_runtime_block_execute_tpool( fd_exec_slot_ctx_t *            slot_ctx,
     .para_arg_1 = tpool
   };
 
-  res = fd_runtime_block_execute_finalize_para( slot_ctx->bank,
-                                                slot_ctx->funk,
-                                                slot_ctx->funk_txn,
+  res = fd_runtime_block_execute_finalize_para( bank,
+                                                funk,
+                                                funk_txn,
                                                 capture_ctx,
                                                 block_info,
                                                 fd_tpool_worker_cnt( tpool ),
@@ -3723,12 +3725,12 @@ fd_runtime_block_execute_tpool( fd_exec_slot_ctx_t *            slot_ctx,
 
   block_finalize_time += fd_log_wallclock();
   double block_finalize_time_ms = (double)block_finalize_time * 1e-6;
-  FD_LOG_INFO(( "finalized block successfully - slot: %lu, elapsed: %6.6f ms", slot_ctx->slot, block_finalize_time_ms ));
+  FD_LOG_INFO(( "finalized block successfully - slot: %lu, elapsed: %6.6f ms", bank->slot, block_finalize_time_ms ));
 
   block_execute_time += fd_log_wallclock();
   double block_execute_time_ms = (double)block_execute_time * 1e-6;
 
-  FD_LOG_INFO(( "executed block successfully - slot: %lu, elapsed: %6.6f ms", slot_ctx->slot, block_execute_time_ms ));
+  FD_LOG_INFO(( "executed block successfully - slot: %lu, elapsed: %6.6f ms", bank->slot, block_execute_time_ms ));
 
   return FD_RUNTIME_EXECUTE_SUCCESS;
 }
@@ -3785,7 +3787,10 @@ fd_runtime_block_pre_execute_process_new_epoch( fd_bank_t *     bank,
 }
 
 int
-fd_runtime_block_eval_tpool( fd_exec_slot_ctx_t * slot_ctx,
+fd_runtime_block_eval_tpool( fd_banks_t *         banks,
+                             fd_bank_t *          bank,
+                             fd_funk_t *          funk,
+                             fd_funk_txn_t * *    funk_txn_out,
                              ulong                slot,
                              fd_block_t *         block,
                              fd_capture_ctx_t *   capture_ctx,
@@ -3801,18 +3806,16 @@ fd_runtime_block_eval_tpool( fd_exec_slot_ctx_t * slot_ctx,
   (void)scheduler;
 
   int err = fd_runtime_publish_old_txns(
-      slot_ctx->banks,
-      slot_ctx->bank,
-      slot_ctx->funk,
-      slot_ctx->funk_txn,
+      banks,
+      bank,
+      funk,
+      *funk_txn_out,
       capture_ctx,
       tpool,
       runtime_spad );
   if( err != 0 ) {
     return err;
   }
-
-  fd_funk_t * funk = slot_ctx->funk;
 
   long block_eval_time = -fd_log_wallclock();
   fd_runtime_block_info_t block_info;
@@ -3823,10 +3826,8 @@ fd_runtime_block_eval_tpool( fd_exec_slot_ctx_t * slot_ctx,
 
     fd_funk_txn_xid_t xid = { .ul = { slot, slot } };
     fd_funk_txn_start_write( funk );
-    slot_ctx->funk_txn = fd_funk_txn_prepare( funk, slot_ctx->funk_txn, &xid, 1 );
+    *funk_txn_out = fd_funk_txn_prepare( funk, *funk_txn_out, &xid, 1 );
     fd_funk_txn_end_write( funk );
-
-    slot_ctx->slot = slot;
 
     /* Capturing block-agnostic state in preparation for the epoch boundary */
     uchar dump_block = capture_ctx && slot >= capture_ctx->dump_proto_start_slot && capture_ctx->dump_block_to_pb;
@@ -3835,13 +3836,13 @@ fd_runtime_block_eval_tpool( fd_exec_slot_ctx_t * slot_ctx,
       /* TODO: This probably should get allocated from a separate spad for the capture ctx */
       block_ctx = fd_spad_alloc( runtime_spad, alignof(fd_exec_test_block_context_t), sizeof(fd_exec_test_block_context_t) );
       fd_memset( block_ctx, 0, sizeof(fd_exec_test_block_context_t) );
-      fd_dump_block_to_protobuf( slot_ctx, capture_ctx, runtime_spad, block_ctx );
+      fd_dump_block_to_protobuf( bank, funk, *funk_txn_out, capture_ctx, runtime_spad, block_ctx );
     }
 
     int is_epoch_boundary = 0;
-    fd_runtime_block_pre_execute_process_new_epoch( slot_ctx->bank,
-                                                    slot_ctx->funk,
-                                                    slot_ctx->funk_txn,
+    fd_runtime_block_pre_execute_process_new_epoch( bank,
+                                                    funk,
+                                                    *funk_txn_out,
                                                     tpool,
                                                     exec_spads,
                                                     exec_spad_cnt,
@@ -3861,26 +3862,29 @@ fd_runtime_block_eval_tpool( fd_exec_slot_ctx_t * slot_ctx,
     *txn_cnt = block_info.txn_cnt;
 
     fd_hash_t poh_out = {0};
-    fd_hash_t poh_in = fd_bank_poh_get( slot_ctx->bank );
-    if( FD_UNLIKELY( (ret = fd_runtime_block_verify_tpool( slot_ctx->bank, blockstore, &block_info, &poh_in, &poh_out, tpool, runtime_spad )) != FD_RUNTIME_EXECUTE_SUCCESS ) ) {
+    fd_hash_t poh_in = fd_bank_poh_get( bank );
+    if( FD_UNLIKELY( (ret = fd_runtime_block_verify_tpool( bank, blockstore, &block_info, &poh_in, &poh_out, tpool, runtime_spad )) != FD_RUNTIME_EXECUTE_SUCCESS ) ) {
       break;
     }
 
-    fd_bank_poh_set( slot_ctx->bank, poh_out );
+    fd_bank_poh_set( bank, poh_out );
 
     /* Dump the remainder of the block after preparation, POH verification, etc */
     if( FD_UNLIKELY( dump_block ) ) {
-      fd_dump_block_to_protobuf_tx_only( &block_info, slot_ctx, capture_ctx, runtime_spad, block_ctx );
+      fd_dump_block_to_protobuf_tx_only( &block_info, bank, funk, *funk_txn_out, capture_ctx, runtime_spad, block_ctx );
     }
 
-    if( FD_UNLIKELY( (ret = fd_runtime_block_execute_tpool( slot_ctx,
-                                                            blockstore,
-                                                            capture_ctx,
-                                                            &block_info,
-                                                            tpool,
-                                                            exec_spads,
-                                                            exec_spad_cnt,
-                                                            runtime_spad )) != FD_RUNTIME_EXECUTE_SUCCESS ) ) {
+    if( FD_UNLIKELY( (ret = fd_runtime_block_execute_tpool(
+        bank,
+        funk,
+        *funk_txn_out,
+        blockstore,
+        capture_ctx,
+        &block_info,
+        tpool,
+        exec_spads,
+        exec_spad_cnt,
+        runtime_spad )) != FD_RUNTIME_EXECUTE_SUCCESS ) ) {
       break;
     }
 
@@ -3899,7 +3903,7 @@ fd_runtime_block_eval_tpool( fd_exec_slot_ctx_t * slot_ctx,
   block_eval_time          += fd_log_wallclock();
   double block_eval_time_ms = (double)block_eval_time * 1e-6;
   double tps                = (double) block_info.txn_cnt / ((double)block_eval_time * 1e-9);
-  fd_epoch_leaders_t const * leaders = fd_bank_epoch_leaders_locking_query( slot_ctx->bank );
+  fd_epoch_leaders_t const * leaders = fd_bank_epoch_leaders_locking_query( bank );
   fd_pubkey_t const *        leader  = fd_epoch_leaders_get( leaders, slot );
   FD_LOG_INFO(( "evaluated block successfully - slot: %lu, elapsed: %6.6f ms, signatures: %lu, txns: %lu, tps: %6.6f, leader: %s",
                 slot,
@@ -3908,11 +3912,11 @@ fd_runtime_block_eval_tpool( fd_exec_slot_ctx_t * slot_ctx,
                 block_info.txn_cnt,
                 tps,
                 FD_BASE58_ENC_32_ALLOCA( leader ) ));
-  fd_bank_epoch_leaders_end_locking_query( slot_ctx->bank );
+  fd_bank_epoch_leaders_end_locking_query( bank );
 
-  fd_bank_transaction_count_set( slot_ctx->bank, fd_bank_transaction_count_get( slot_ctx->bank ) + block_info.txn_cnt );
+  fd_bank_transaction_count_set( bank, fd_bank_transaction_count_get( bank ) + block_info.txn_cnt );
 
-  fd_bank_prev_slot_set( slot_ctx->bank, slot );
+  fd_bank_prev_slot_set( bank, slot );
   // FIXME: this shouldn't be doing this, it doesn't work with forking. punting changing it though
   // slot_ctx->slot = slot+1UL;
 

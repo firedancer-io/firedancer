@@ -284,7 +284,10 @@ runtime_replay( fd_ledger_args_t * ledger_args ) {
 
     ulong blk_txn_cnt = 0UL;
     FD_LOG_NOTICE(( "Used memory in spad before slot=%lu %lu", slot, ledger_args->runtime_spad->mem_used ));
-    FD_TEST( fd_runtime_block_eval_tpool( ledger_args->slot_ctx,
+    FD_TEST( fd_runtime_block_eval_tpool( ledger_args->slot_ctx->banks,
+                                          ledger_args->slot_ctx->bank,
+                                          ledger_args->slot_ctx->funk,
+                                          &ledger_args->slot_ctx->funk_txn,
                                           slot,
                                           blk,
                                           ledger_args->capture_ctx,

@@ -556,10 +556,10 @@ fd_runtime_fuzz_block_ctx_exec( fd_runtime_fuzz_runner_t * runner,
 
     /* Process new epoch may push a new spad frame onto the runtime spad. We should make sure this frame gets
        cleared (if it was allocated) before executing the block. */
-    int   is_epoch_boundary = 0;
+    int is_epoch_boundary = 0;
     fd_runtime_block_pre_execute_process_new_epoch( slot_ctx->bank, slot_ctx->funk, slot_ctx->funk_txn, tpool, exec_spads, exec_spads_cnt, runtime_spad, &is_epoch_boundary );
 
-    res = fd_runtime_block_execute_tpool( slot_ctx, NULL, NULL, block_info, tpool, exec_spads, exec_spads_cnt, runtime_spad );
+    res = fd_runtime_block_execute_tpool( slot_ctx->bank, slot_ctx->funk, slot_ctx->funk_txn, NULL, NULL, block_info, tpool, exec_spads, exec_spads_cnt, runtime_spad );
   } FD_SPAD_FRAME_END;
 
   fd_tpool_worker_pop( tpool );
