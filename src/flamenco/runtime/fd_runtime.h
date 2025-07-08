@@ -487,25 +487,18 @@ fd_runtime_block_execute_prepare( fd_exec_slot_ctx_t * slot_ctx,
 
 void
 fd_runtime_block_execute_finalize_start( fd_exec_slot_ctx_t *             slot_ctx,
-                                         fd_spad_t *                      runtime_spad,
-                                         fd_accounts_hash_task_data_t * * task_data,
-                                         ulong                            lt_hash_cnt );
+                                         fd_spad_t *                      runtime_spad );
 
 int
 fd_runtime_block_execute_finalize_finish( fd_exec_slot_ctx_t *             slot_ctx,
                                           fd_capture_ctx_t *               capture_ctx,
-                                          fd_runtime_block_info_t const *  block_info,
-                                          fd_spad_t *                      runtime_spad,
-                                          fd_accounts_hash_task_data_t *   task_data,
-                                          ulong                            lt_hash_cnt );
+                                          fd_runtime_block_info_t const *  block_info );
 
 int
 fd_runtime_block_execute_finalize_para( fd_exec_slot_ctx_t *             slot_ctx,
                                         fd_capture_ctx_t *               capture_ctx,
                                         fd_runtime_block_info_t const *  block_info,
-                                        ulong                            worker_cnt,
-                                        fd_spad_t *                      runtime_spad,
-                                        fd_exec_para_cb_ctx_t *          exec_para_ctx );
+                                        fd_spad_t *                      runtime_spad );
 
 /* Transaction Level Execution Management *************************************/
 
@@ -636,6 +629,12 @@ fd_runtime_read_genesis( fd_exec_slot_ctx_t * slot_ctx,
                          uchar                is_snapshot,
                          fd_capture_ctx_t *   capture_ctx,
                          fd_spad_t *          spad );
+
+/* Hashing  ********************************************************************/
+void
+fd_runtime_update_lthash_with_account_prev_hash( fd_txn_account_t *   account,
+                                                 fd_lthash_value_t *  old_hash,
+                                                 fd_bank_t *          bank );
 
 FD_PROTOTYPES_END
 

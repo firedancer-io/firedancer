@@ -435,7 +435,7 @@ fd_runtime_fuzz_block_ctx_create( fd_runtime_fuzz_runner_t *           runner,
   fd_funk_txn_end_write( funk );
 
   /* Calculate epoch account hash values. This sets epoch_bank.eah_{start_slot, stop_slot, interval} */
-  fd_calculate_epoch_accounts_hash_values( slot_ctx );
+  // fd_calculate_epoch_accounts_hash_values( slot_ctx );
 
   /* Prepare raw transaction pointers and block / microblock infos */
   ulong txn_cnt = test_ctx->txns_count;

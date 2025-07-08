@@ -854,12 +854,21 @@ calculate_rewards_and_distribute_vote_rewards( fd_exec_slot_ctx_t *             
       FD_LOG_ERR(( "Unable to modify vote account" ));
     }
 
+    fd_lthash_value_t prev_lthash_value = {0};
+    fd_hash_account_lthash_value( vote_pubkey,
+                                  vote_rec->vt->get_meta( vote_rec ),
+                                  vote_rec->vt->get_data( vote_rec ),
+                                  &prev_lthash_value );
+
     vote_rec->vt->set_slot( vote_rec, fd_bank_slot_get( slot_ctx->bank ) );
 
     if( FD_UNLIKELY( vote_rec->vt->checked_add_lamports( vote_rec, vote_reward_node->elem.vote_rewards ) ) ) {
       FD_LOG_ERR(( "Adding lamports to vote account would cause overflow" ));
     }
 
+    fd_runtime_update_lthash_with_account_prev_hash( vote_rec,
+                                                     &prev_lthash_value,
+                                                     slot_ctx->bank );
     fd_txn_account_mutable_fini( vote_rec, slot_ctx->funk, slot_ctx->funk_txn );
 
     result->distributed_rewards = fd_ulong_sat_add( result->distributed_rewards, vote_reward_node->elem.vote_rewards );
@@ -896,6 +905,12 @@ distribute_epoch_reward_to_stake_acc( fd_exec_slot_ctx_t * slot_ctx,
     FD_LOG_ERR(( "Unable to modify stake account" ));
   }
 
+  fd_lthash_value_t prev_lthash_value = {0};
+  fd_hash_account_lthash_value( stake_pubkey,
+                                stake_acc_rec->vt->get_meta( stake_acc_rec ),
+                                stake_acc_rec->vt->get_data( stake_acc_rec ),
+                                &prev_lthash_value );
+
   stake_acc_rec->vt->set_slot( stake_acc_rec, fd_bank_slot_get( slot_ctx->bank ) );
 
   fd_stake_state_v2_t stake_state[1] = {0};
@@ -922,6 +937,9 @@ distribute_epoch_reward_to_stake_acc( fd_exec_slot_ctx_t * slot_ctx,
     FD_LOG_ERR(( "write_stake_state failed" ));
   }
 
+  fd_runtime_update_lthash_with_account_prev_hash( stake_acc_rec,
+                                                   &prev_lthash_value,
+                                                   slot_ctx->bank );
   fd_txn_account_mutable_fini( stake_acc_rec, slot_ctx->funk, slot_ctx->funk_txn );
 
   return 0;
