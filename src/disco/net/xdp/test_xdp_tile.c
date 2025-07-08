@@ -46,8 +46,8 @@ main( int     argc,
   ulong const  rxq_depth       = 128UL;
   ulong const  txq_depth       = 128UL;
   ulong        link_depth      = 128UL;
-  ulong const  ring_fr_depth   = 128UL * 2; // depth for fill ring
-  ulong const  xsk_rings_depth = 128UL;     // depth for rx, tx, and completion ring
+  uint  const  ring_fr_depth   = 128U * 2; // depth for fill ring
+  uint  const  xsk_rings_depth = 128U;     // depth for rx, tx, and completion ring
 
   ulong part_max = fd_wksp_part_max_est( SCRATCH_MAX, 64UL );
   ulong data_max = fd_wksp_data_max_est( SCRATCH_MAX, part_max );
@@ -252,8 +252,8 @@ main( int     argc,
     chunk             += 1;
     FD_TEST( chunk < umem_wmark );
   }
-  xdp_fr_ring_prod         += (ring_fr_depth/2UL);
-  xsk->ring_fr.cached_prod += (ring_fr_depth/2UL);
+  xdp_fr_ring_prod         += (ring_fr_depth/2U);
+  xsk->ring_fr.cached_prod += (ring_fr_depth/2U);
 
   /* Initialize completion ring */
   xsk->ring_cr.frame_ring = fd_wksp_alloc_laddr( wksp, alignof(ulong), xsk_rings_depth * sizeof(ulong), WKSP_TAG );
