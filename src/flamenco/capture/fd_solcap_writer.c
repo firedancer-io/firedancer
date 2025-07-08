@@ -389,6 +389,15 @@ fd_solcap_write_account2( fd_solcap_writer_t *             writer,
 
   if( FD_LIKELY( !writer ) ) return 0;
 
+  /* Check if account with same key already exists */
+  uint existing_idx = UINT_MAX;
+  for( uint i = 0U; i < writer->account_idx; i++ ) {
+    if( memcmp( writer->accounts[i].key, tbl->key, 32UL ) == 0 ) {
+      existing_idx = i;
+      break;
+    }
+  }
+
   /* Locate chunk */
 
   ulong chunk_goff = FTELL_BAIL( writer->file );
@@ -420,7 +429,13 @@ fd_solcap_write_account2( fd_solcap_writer_t *             writer,
 
   /* Remember account table entry */
 
-  if( writer->account_idx < FD_SOLCAP_ACC_TBL_CNT ) {
+  if( existing_idx != UINT_MAX ) {
+    /* Replace existing entry */
+    fd_solcap_account_tbl_t * account = &writer->accounts[ existing_idx ];
+    *account = *tbl;
+    account->acc_coff = (long)chunk_goff;
+  } else if( writer->account_idx < FD_SOLCAP_ACC_TBL_CNT ) {
+    /* Add new entry */
     fd_solcap_account_tbl_t * account = &writer->accounts[ writer->account_idx ];
     *account = *tbl;
 
@@ -428,6 +443,10 @@ fd_solcap_write_account2( fd_solcap_writer_t *             writer,
        we temporarily store a global offset.  This will later get
        converted into a chunk offset. */
     account->acc_coff = (long)chunk_goff;
+    writer->account_idx += 1U;
+  } else {
+    /* Table is full, increment counter anyway to signal overflow */
+    writer->account_idx += 1U;
   }
 
   /* Serialize chunk header */
@@ -449,10 +468,6 @@ fd_solcap_write_account2( fd_solcap_writer_t *             writer,
   /* Restore stream cursor */
 
   FSEEK_BAIL( writer->file, (long)chunk_end_goff, SEEK_SET );
-
-  /* Wind up for next iteration */
-
-  writer->account_idx += 1U;
 
   return 0;
 }
