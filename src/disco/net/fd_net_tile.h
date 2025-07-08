@@ -77,6 +77,7 @@ fd_topos_net_tiles( fd_topo_t *             topo,
                     ulong                   net_tile_cnt,
                     fd_config_net_t const * net_config,
                     ulong                   netlnk_max_routes,
+                    ulong                   netlnk_max_peer_routes,
                     ulong                   netlnk_max_neighbors,
                     ulong const             tile_to_cpu[ FD_TILE_MAX ] );
 

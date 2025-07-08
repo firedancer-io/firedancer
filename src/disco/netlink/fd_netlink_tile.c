@@ -24,6 +24,7 @@ void
 fd_netlink_topo_create( fd_topo_tile_t * netlink_tile,
                         fd_topo_t *      topo,
                         ulong            netlnk_max_routes,
+                        ulong            netlnk_max_peer_routes,
                         ulong            netlnk_max_neighbors,
                         char const *     bind_interface ) {
   fd_topo_obj_t * netdev_dbl_buf_obj = fd_topob_obj( topo, "dbl_buf",     "netbase" );
@@ -43,8 +44,14 @@ fd_netlink_topo_create( fd_topo_tile_t * netlink_tile,
   FD_TEST( fd_pod_insertf_ulong( topo->props, netdev_dbl_buf_mtu, "obj.%lu.mtu", netdev_dbl_buf_obj->id ) );
 
   /* Configure route table */
-  FD_TEST( fd_pod_insertf_ulong( topo->props, netlnk_max_routes, "obj.%lu.route_max", fib4_main_obj->id  ) );
-  FD_TEST( fd_pod_insertf_ulong( topo->props, netlnk_max_routes, "obj.%lu.route_max", fib4_local_obj->id ) );
+  FD_TEST( fd_pod_insertf_ulong( topo->props, netlnk_max_routes,           "obj.%lu.route_max",           fib4_main_obj->id  ) );
+  FD_TEST( fd_pod_insertf_ulong( topo->props, netlnk_max_routes,           "obj.%lu.route_max",           fib4_local_obj->id ) );
+  FD_TEST( fd_pod_insertf_ulong( topo->props, netlnk_max_peer_routes,      "obj.%lu.route_peer_max",      fib4_main_obj->id  ) );
+  FD_TEST( fd_pod_insertf_ulong( topo->props, netlnk_max_peer_routes,      "obj.%lu.route_peer_max",      fib4_local_obj->id ) );
+  ulong fib4_seed;
+  FD_TEST( 8UL==getrandom( &fib4_seed, sizeof(ulong), 0 ) );
+  FD_TEST( fd_pod_insertf_ulong( topo->props, fib4_seed, "obj.%lu.route_peer_seed", fib4_local_obj->id ) );
+  FD_TEST( fd_pod_insertf_ulong( topo->props, fib4_seed, "obj.%lu.route_peer_seed", fib4_main_obj->id  ) );
 
   /* Configure neighbor hashmap: Open addressed hashmap with 3.0 sparsity
      factor and 16 long probe chain */
@@ -58,9 +65,9 @@ fd_netlink_topo_create( fd_topo_tile_t * netlink_tile,
   FD_TEST( fd_pod_insertf_ulong( topo->props, neigh_ele_fp,    "obj.%lu.footprint", neigh4_ele_obj->id ) );
 
   /* Pick a random hashmap seed */
-  ulong seed;
-  FD_TEST( 8UL==getrandom( &seed, sizeof(ulong), 0 ) );
-  FD_TEST( fd_pod_insertf_ulong( topo->props, seed, "obj.%lu.seed", neigh4_obj->id ) );
+  ulong neigh4_seed;
+  FD_TEST( 8UL==getrandom( &neigh4_seed, sizeof(ulong), 0 ) );
+  FD_TEST( fd_pod_insertf_ulong( topo->props, neigh4_seed, "obj.%lu.seed", neigh4_obj->id ) );
 
   netlink_tile->netlink.netdev_dbl_buf_obj_id = netdev_dbl_buf_obj->id;
   netlink_tile->netlink.fib4_main_obj_id      = fib4_main_obj->id;

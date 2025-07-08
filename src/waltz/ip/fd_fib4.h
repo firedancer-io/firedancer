@@ -21,7 +21,7 @@
 
 #include "../../util/fd_util_base.h"
 
-#define FD_FIB4_ALIGN (16UL)
+#define FD_FIB4_ALIGN (128UL)
 
 /* FD_FIB4_RTYPE_{...} enumerate route types.
    These match Linux RTN_UNICAST, etc. */
@@ -65,11 +65,14 @@ FD_FN_CONST ulong
 fd_fib4_align( void );
 
 FD_FN_CONST ulong
-fd_fib4_footprint( ulong route_max );
+fd_fib4_footprint( ulong route_max,
+                   ulong route_peer_max );
 
 void *
 fd_fib4_new( void * mem,
-             ulong  route_max );
+             ulong  route_max,
+             ulong  route_peer_max,
+             ulong  route_peer_seed );
 
 fd_fib4_t *
 fd_fib4_join( void * mem );
@@ -88,24 +91,25 @@ fd_fib4_delete( void * mem );
    means outgoing packets get dropped.  (This is preferable to potentially
    making an incorrect routing decision based on a partial route table.) */
 
-/* fd_fib4_clear removes all route table entries but the first.  Sets
-   the first route table entry to "throw 0.0.0.0/0 metric ((2<<32)-1)". */
+/* fd_fib4_clear removes all route table entries but the first. Remove all
+   entries in the route hmap. Sets the first route table entry to
+   "throw 0.0.0.0/0 metric ((2<<32)-1)". */
 
 void
 fd_fib4_clear( fd_fib4_t * fib );
 
-/* fd_fib4_append attempts to add a new route entry.  If
-   fd_fib4_free_cnt(fib) returned non-zero immediately prior to calling
-   append, then append is guaranteed to succeed.
+/* fd_fib4_insert attempts to add a new route entry to the FIB routing table.
+   Routes with /32 netmask prefix are stored in hashmap for faster lookup. Other
+   routes use the main table. Returns 1 on success, 0 if the internal data
+   structures are full (logs warning in that case).
+   */
 
-   Returns a hop object to be filled by the caller on success.  On
-   failure, returns NULL and logs warning. */
-
-fd_fib4_hop_t *
-fd_fib4_append( fd_fib4_t * fib,
-                uint        ip4_dst,
-                int         prefix,
-                uint        prio );
+int
+fd_fib4_insert( fd_fib4_t *     fib,
+                uint            ip4_dst,
+                int             prefix,
+                uint            prio,
+                fd_fib4_hop_t * hop );
 
 /* Read APIs *************************************************************/
 
@@ -137,23 +141,23 @@ fd_fib4_hop_or( fd_fib4_hop_t const * left,
 FD_FN_PURE ulong
 fd_fib4_max( fd_fib4_t const * fib );
 
-/* fd_fib4_cnt returns the number of routes in the table. */
+/* fd_fib4_peer_max returns the max number of /32 routes (backed by a hashmap). */
+
+FD_FN_PURE ulong
+fd_fib4_peer_max( fd_fib4_t const * fib );
+
+/* fd_fib4_cnt returns the total number of routes stored in the fib4.
+   This also includes /32 routes. */
 
 FD_FN_PURE ulong
 fd_fib4_cnt( fd_fib4_t const * fib );
 
-/* fd_fib4_free_cnt returns the number of fd_fib4_append calls that are
-   guaranteed to succeed. */
-
-ulong
-fd_fib4_free_cnt( fd_fib4_t const * fib );
-
 #if FD_HAS_HOSTED
 
-/* fd_fib4_fprintf prints the routing table to the given FILE * pointer (or
-   target equivalent).  Order of routes is undefined but guaranteed to be
-   stable between calls.  Outputs ASCII encoding with LF newlines.  Returns
-   errno on failure and 0 on success. */
+/* fd_fib4_fprintf prints the routing table and hash map to the given FILE *
+   pointer (or target equivalent).  Order of routes is undefined but
+   guaranteed to be stable between calls.  Outputs ASCII encoding with LF
+   newlines.  Returns errno on failure and 0 on success. */
 
 int
 fd_fib4_fprintf( fd_fib4_t const * fib,

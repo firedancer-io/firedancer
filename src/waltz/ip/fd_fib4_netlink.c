@@ -154,8 +154,7 @@ fd_fib4_netlink_translate( fd_fib4_t *             fib,
     }
   }
 
-  if( fd_fib4_free_cnt( fib )==0UL ) return ENOSPC;
-  *fd_fib4_append( fib, ip4_dst, prefix, prio ) = *hop;
+  if( FD_UNLIKELY( !fd_fib4_insert( fib, ip4_dst, prefix, prio, hop ) ) ) return ENOSPC;
 
   return 0;
 }

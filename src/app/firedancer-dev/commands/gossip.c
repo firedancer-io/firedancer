@@ -37,7 +37,7 @@ gossip_topo( config_t * config ) {
     FD_LOG_ERR(( "failed to parse prometheus listen address `%s`", config->tiles.metric.prometheus_listen_address ));
   metric_tile->metric.prometheus_listen_port = config->tiles.metric.prometheus_listen_port;
 
-  fd_topos_net_tiles( topo, 1UL, &config->net, config->tiles.netlink.max_routes, config->tiles.netlink.max_neighbors, tile_to_cpu );
+  fd_topos_net_tiles( topo, 1UL, &config->net, config->tiles.netlink.max_routes, config->tiles.netlink.max_peer_routes, config->tiles.netlink.max_neighbors, tile_to_cpu );
   ulong net_tile_id = fd_topo_find_tile( topo, "net", 0UL );
   if( net_tile_id==ULONG_MAX ) net_tile_id = fd_topo_find_tile( topo, "sock", 0UL );
   if( FD_UNLIKELY( net_tile_id==ULONG_MAX ) ) FD_LOG_ERR(( "net tile not found" ));
