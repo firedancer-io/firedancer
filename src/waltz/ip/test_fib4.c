@@ -4,10 +4,10 @@
 #include "../../util/net/fd_ip4.h"
 
 static uchar __attribute__((aligned(FD_FIB4_ALIGN)))
-fib1_mem[ 4096 ];
+fib1_mem[ 1<<18 ];
 
 static uchar __attribute__((aligned(FD_FIB4_ALIGN)))
-fib2_mem[ 4096 ];
+fib2_mem[ 1<<18 ];
 
 #if FD_HAS_HOSTED
 #include <stdio.h>
@@ -33,6 +33,69 @@ test_fib_print( fd_fib4_t const * fib,
 #define test_fib_print(...)
 
 #endif
+
+void
+test_fib4_hmap( fd_fib4_t * fib ) {
+  FD_TEST( fib );
+
+  fd_fib4_clear( fib );
+
+  FD_TEST( fd_fib4_free_cnt( fib )>=6 );
+  fd_fib4_hop_t hop1 = (fd_fib4_hop_t){ .rtype=FD_FIB4_RTYPE_BROADCAST, .if_idx=6, .scope=253, .ip4_src=FD_IP4_ADDR( 192,0,2,161 )};
+  fd_fib4_hop_t hop2 = (fd_fib4_hop_t){ .rtype=FD_FIB4_RTYPE_BROADCAST, .if_idx=6, .scope=253, .ip4_src=FD_IP4_ADDR( 192,0,2,162 )} ;
+  fd_fib4_hop_t hop3 = (fd_fib4_hop_t){ .rtype=FD_FIB4_RTYPE_BROADCAST, .if_idx=6, .scope=253, .ip4_src=FD_IP4_ADDR( 192,0,2,163 )};
+  fd_fib4_hop_t hop4 = (fd_fib4_hop_t){ .rtype=FD_FIB4_RTYPE_BROADCAST, .if_idx=6, .scope=253, .ip4_src=FD_IP4_ADDR( 127,0,0,1 )};
+  fd_fib4_hop_t hop5 = (fd_fib4_hop_t){ .rtype=FD_FIB4_RTYPE_BROADCAST, .if_idx=6, .scope=253, .ip4_src=FD_IP4_ADDR( 127,0,0,2 )};
+  fd_fib4_hop_t hop6 = (fd_fib4_hop_t){ .rtype=FD_FIB4_RTYPE_BROADCAST, .if_idx=1, .scope=253, .ip4_src=FD_IP4_ADDR( 127,0,0,1   ) };
+
+  uint ip_dst1 = FD_IP4_ADDR( 192,0,2,160   );
+  uint ip_dst2 = FD_IP4_ADDR( 192,0,2,165  );
+  uint ip_dst3 = FD_IP4_ADDR( 192,0,2,191   );
+  uint ip_dst4 = FD_IP4_ADDR( 127,0,0,0   );
+  uint ip_dst5 = FD_IP4_ADDR( 127,0,0,1   );
+  uint ip_dst6 = FD_IP4_ADDR( 127,0,255,255 );
+
+  fd_fib4_hop_t hop;
+
+  FD_TEST( fd_fib4_lookup( fib, &hop, ip_dst1, 0 )->rtype==FD_FIB4_RTYPE_THROW );
+
+  fd_fib4_hmap_insert( fib, ip_dst1, hop1   );
+  fd_fib4_hmap_insert( fib, ip_dst2, hop2   );
+  fd_fib4_hmap_insert( fib, ip_dst3, hop3   );
+  fd_fib4_hmap_insert( fib, ip_dst4, hop4   );
+  fd_fib4_hmap_insert( fib, ip_dst5, hop5   );
+  *fd_fib4_append( fib, ip_dst6,  32, 0 ) =  hop6;
+
+  fd_fib4_lookup( fib, &hop, ip_dst1, 0 );
+  FD_TEST( hop.rtype==hop1.rtype );
+  FD_TEST( hop.if_idx==hop1.if_idx );
+  FD_TEST( hop.ip4_src==hop1.ip4_src );
+
+  fd_fib4_lookup( fib, &hop, ip_dst2, 0 );
+  FD_TEST( hop.rtype==hop2.rtype );
+  FD_TEST( hop.if_idx==hop2.if_idx );
+  FD_TEST( hop.ip4_src==hop2.ip4_src );
+
+  fd_fib4_lookup( fib, &hop, ip_dst3, 0 );
+  FD_TEST( hop.rtype==hop3.rtype );
+  FD_TEST( hop.if_idx==hop3.if_idx );
+  FD_TEST( hop.ip4_src==hop3.ip4_src );
+
+  fd_fib4_lookup( fib, &hop, ip_dst4, 0 );
+  FD_TEST( hop.rtype==hop4.rtype );
+  FD_TEST( hop.if_idx==hop4.if_idx );
+  FD_TEST( hop.ip4_src==hop4.ip4_src );
+
+  fd_fib4_lookup( fib, &hop, ip_dst5, 0 );
+  FD_TEST( hop.rtype==hop5.rtype );
+  FD_TEST( hop.if_idx==hop5.if_idx );
+  FD_TEST( hop.ip4_src==hop5.ip4_src );
+
+  fd_fib4_lookup( fib, &hop, ip_dst6, 0 );
+  FD_TEST( hop.rtype==hop6.rtype );
+  FD_TEST( hop.if_idx==hop6.if_idx );
+  FD_TEST( hop.ip4_src==hop6.ip4_src );
+}
 
 int
 main( int     argc,
@@ -138,6 +201,10 @@ main( int     argc,
   /* Clear again */
   fd_fib4_clear( fib_main );
   FD_TEST( fd_fib4_lookup( fib_local, candidate, 0x12345678, 0 )->rtype==FD_FIB4_RTYPE_THROW );
+
+  /* Test the fib4 hmap */
+  test_fib4_hmap( fib_main );
+  test_fib4_hmap( fib_main );   // test again
 
   fd_fib4_delete( fd_fib4_leave( fib_local ) );
   fd_fib4_delete( fd_fib4_leave( fib_main  ) );
