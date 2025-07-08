@@ -13,6 +13,8 @@
 #define IN_KIND_NET           (0)
 #define IN_KIND_SHRED_VERSION (1)
 #define IN_KIND_SIGN          (2)
+#define IN_KIND_VOTER         (3)
+#define IN_KIND_RSTART        (4)
 
 typedef struct {
   fd_wksp_t * mem;
@@ -142,6 +144,14 @@ metrics_write( fd_gossip_tile_ctx_t * ctx ) {
   // FD_MGAUGE_SET( GOSSIP, FAILED_SIZE,   metrics->failed_size   );
 }
 
+void
+after_credit( fd_gossip_tile_ctx_t * ctx,
+              fd_stem_context_t *    stem,
+              int *                  opt_poll_in FD_PARAM_UNUSED,
+              int *                  charge_busy FD_PARAM_UNUSED ) {
+  ctx->last_wallclock = fd_log_wallclock();
+  fd_gossip_advance( ctx->gossip, ctx->last_wallclock, stem );
+}
 
 static inline void
 during_frag( fd_gossip_tile_ctx_t * ctx,
@@ -265,6 +275,10 @@ unprivileged_init( fd_topo_t *      topo,
     } else if( FD_UNLIKELY( !strcmp( link->name, "sign_gossip" ) ) ) {
       ctx->in_kind[ i ] = IN_KIND_SIGN;
       sign_in_tile_idx = i;
+    } else if( FD_UNLIKELY( !strcmp( link->name, "voter_gossip" ) ) ) {
+      ctx->in_kind[ i ] = IN_KIND_VOTER;
+    } else if( FD_UNLIKELY( !strcmp( link->name, "rstart_gossi" ) ) ) {
+      ctx->in_kind[ i ] = IN_KIND_RSTART;
     } else {
       FD_LOG_ERR(( "unexpected input link name %s", link->name ));
     }
@@ -331,21 +345,21 @@ unprivileged_init( fd_topo_t *      topo,
   gossip_port->addr = ip_addr;
   gossip_port->port = fd_ushort_bswap( tile->gossip.ports.gossip );
 
-  fd_ip4_port_t * shred = &ci->sockets[ FD_CONTACT_INFO_SOCKET_TVU ];
-  shred->addr = ip_addr;
-  shred->port = fd_ushort_bswap( tile->gossip.ports.tvu );
+  // fd_ip4_port_t * shred = &ci->sockets[ FD_CONTACT_INFO_SOCKET_TVU ];
+  // shred->addr = ip_addr;
+  // shred->port = fd_ushort_bswap( tile->gossip.ports.tvu );
 
-  fd_ip4_port_t * tpu = &ci->sockets[ FD_CONTACT_INFO_SOCKET_TPU ];
-  tpu->addr = ip_addr;
-  tpu->port = fd_ushort_bswap( tile->gossip.ports.tpu );
+  // fd_ip4_port_t * tpu = &ci->sockets[ FD_CONTACT_INFO_SOCKET_TPU ];
+  // tpu->addr = ip_addr;
+  // tpu->port = fd_ushort_bswap( tile->gossip.ports.tpu );
 
-  fd_ip4_port_t * tpu_quic = &ci->sockets[ FD_CONTACT_INFO_SOCKET_TPU_QUIC ];
-  tpu_quic->addr = ip_addr;
-  tpu_quic->port = fd_ushort_bswap( tile->gossip.ports.tpu_quic );
+  // fd_ip4_port_t * tpu_quic = &ci->sockets[ FD_CONTACT_INFO_SOCKET_TPU_QUIC ];
+  // tpu_quic->addr = ip_addr;
+  // tpu_quic->port = fd_ushort_bswap( tile->gossip.ports.tpu_quic );
 
-  fd_ip4_port_t * vote = &ci->sockets[ FD_CONTACT_INFO_SOCKET_TPU_VOTE ];
-  vote->addr = ip_addr;
-  vote->port = fd_ushort_bswap( tile->gossip.ports.vote );
+  // fd_ip4_port_t * vote = &ci->sockets[ FD_CONTACT_INFO_SOCKET_TPU_VOTE ];
+  // vote->addr = ip_addr;
+  // vote->port = fd_ushort_bswap( tile->gossip.ports.vote );
 
   // fd_ip4_port_t * repair = &ci->sockets[ FD_CONTACT_INFO_SOCKET_SERVE_REPAIR ];
   // repair->addr = ip_addr;
@@ -408,13 +422,17 @@ populate_allowed_fds( fd_topo_t const *      topo,
   return out_cnt;
 }
 
+/* TODO: Size for the worst case ... 16k contact info updates + max crds in a pull request or push, all generating a frag */
 #define STEM_BURST (1UL)
+
+#define STEM_LAZY  (128L*3000L)
 
 #define STEM_CALLBACK_CONTEXT_TYPE  fd_gossip_tile_ctx_t
 #define STEM_CALLBACK_CONTEXT_ALIGN alignof(fd_gossip_tile_ctx_t)
 
 #define STEM_CALLBACK_DURING_HOUSEKEEPING during_housekeeping
 #define STEM_CALLBACK_METRICS_WRITE       metrics_write
+#define STEM_CALLBACK_AFTER_CREDIT        after_credit
 #define STEM_CALLBACK_DURING_FRAG         during_frag
 #define STEM_CALLBACK_AFTER_FRAG          after_frag
 
