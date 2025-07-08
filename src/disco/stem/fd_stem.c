@@ -242,6 +242,7 @@ STEM_(run1)( ulong                        in_cnt,
              ulong                        cons_cnt,
              ulong *                      _cons_out,
              ulong **                     _cons_fseq,
+            //  TODO: flag if consumers use cooperative scheduling
              ulong                        burst,
              long                         lazy,
              fd_rng_t *                   rng,
@@ -397,6 +398,7 @@ STEM_(run1)( ulong                        in_cnt,
 #if !(STEM_ALWAYS_SPINNING)
   long approx_wallclock_ns = fd_log_wallclock();
   long approx_tickcount = then;
+  long tile_deadline_ticks = LONG_MAX;
 #endif
 
   for(;;) {
@@ -527,13 +529,17 @@ STEM_(run1)( ulong                        in_cnt,
       // should wake those downstream before we sleep
       STEM_(wake_downstream_consumers)( out_cnt, out_mcache, out_wake_cnt, latest_futex_vals );
 
-      long ticks_until_housekeeping = then - approx_tickcount;
-      long ns_until_housekeeping = (long)((double)ticks_until_housekeeping / fd_tempo_tick_per_ns(NULL));
-      long housekeeping_deadline_ns = approx_wallclock_ns + ns_until_housekeeping;
+#ifdef STEM_CALLBACK_GET_TILE_DEADLINE
+      STEM_CALLBACK_GET_TILE_DEADLINE( ctx, &tile_deadline_ticks );
+#endif
+      long nearest_deadline = fd_long_min(tile_deadline_ticks, then);
+      long ticks_until_deadline = nearest_deadline - approx_tickcount;
+      long ns_until_deadline = (long)((double)ticks_until_deadline / fd_tempo_tick_per_ns(NULL));
+      long deadline_ns = approx_wallclock_ns + ns_until_deadline;
 
       struct timespec deadline = {
-        .tv_sec = housekeeping_deadline_ns / (long) 1e9,
-        .tv_nsec = housekeeping_deadline_ns % (long) 1e9,
+        .tv_sec = deadline_ns / (long) 1e9,
+        .tv_nsec = deadline_ns % (long) 1e9,
       };
 
       long futex_result = fd_futex_waitv(waiters, (uint)in_cnt, &deadline, CLOCK_REALTIME);
@@ -553,7 +559,7 @@ STEM_(run1)( ulong                        in_cnt,
       .out_wake_cnt        = out_wake_cnt,
       .cr_avail            = &cr_avail,
       .cr_decrement_amount = fd_ulong_if( out_cnt>0UL, 1UL, 0UL ),
-      .housekeeping_deadline = then,
+      .housekeeping_deadline_ticks = then,
     };
 #endif
 

@@ -17,7 +17,7 @@ struct fd_stem_context {
    ulong *           cr_avail;
    ulong             cr_decrement_amount;
 
-   long              housekeeping_deadline;
+   long              housekeeping_deadline_ticks;
 };
 
 typedef struct fd_stem_context fd_stem_context_t;
