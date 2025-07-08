@@ -44,6 +44,12 @@
 
 #define FD_XDP_STATS_INTERVAL_NS (11e6) /* 11ms */
 
+/* XSK_IDX_{MAIN,LO} are the hardcoded XSK indices in ctx->xsk[ ... ].
+   Only net tile 0 has XSK_IDX_LO, all net tiles have XSK_IDX_MAIN. */
+
+#define XSK_IDX_MAIN 0
+#define XSK_IDX_LO   1
+
 /* fd_net_in_ctx_t contains consumer information for an incoming tango
    link.  It is used as part of the TX path. */
 
@@ -176,7 +182,7 @@ typedef struct {
 
   /* Details pertaining to an inflight send op */
   struct {
-    uint   if_idx;            /* linux interface index */
+    uint   xsk_idx;
     void * frame;
     uchar  mac_addrs[12];     /* First 12 bytes of Ethernet header */
     uint   src_ip;            /* src_ip in net order */
@@ -546,13 +552,13 @@ net_tx_route( fd_net_ctx_t * ctx,
   }
 
   ip4_src = fd_uint_if( !!ctx->bind_address, ctx->bind_address, ip4_src );
-  ctx->tx_op.src_ip = ip4_src;
-  ctx->tx_op.if_idx = if_idx;
+  ctx->tx_op.src_ip  = ip4_src;
+  ctx->tx_op.xsk_idx = UINT_MAX;
 
   if( netdev->dev_type==ARPHRD_LOOPBACK ) {
     /* Set Ethernet src and dst address to 00:00:00:00:00:00 */
     memset( ctx->tx_op.mac_addrs, 0, 12UL );
-    ctx->tx_op.if_idx = 1;
+    ctx->tx_op.xsk_idx = XSK_IDX_LO;
     /* Set preferred src address to 127.0.0.1 if no bind address is set */
     if( !ctx->tx_op.src_ip ) ctx->tx_op.src_ip = FD_IP4_ADDR( 127,0,0,1 );
     return 1;
@@ -566,10 +572,11 @@ net_tx_route( fd_net_ctx_t * ctx,
 
   if( FD_UNLIKELY( netdev->dev_type!=ARPHRD_ETHER ) ) return 0; // drop
 
-  if( FD_UNLIKELY( if_idx!=ctx->xsk[ 0 ].if_idx ) ) {
+  if( FD_UNLIKELY( if_idx!=ctx->xsk[ XSK_IDX_MAIN ].if_idx ) ) {
     ctx->metrics.tx_no_xdp_cnt++;
     return 0;
   }
+  ctx->tx_op.xsk_idx = XSK_IDX_MAIN;
 
   /* Neighbor resolve */
   uint neigh_ip = next_hop->ip4_gw;
@@ -614,40 +621,56 @@ before_frag( fd_net_ctx_t * ctx,
   (void)in_idx; (void)seq;
 
   /* Find interface index of next packet */
-
   ulong proto = fd_disco_netmux_sig_proto( sig );
   if( FD_UNLIKELY( proto!=DST_PROTO_OUTGOING ) ) return 1;
 
-  uint dst_ip = fd_disco_netmux_sig_dst_ip( sig );
-  if( FD_UNLIKELY( !net_tx_route( ctx, dst_ip ) ) ) return 1;
-
-  uint net_tile_id  = ctx->net_tile_id;
+  /* Load balance TX */
   uint net_tile_cnt = ctx->net_tile_cnt;
-  uint if_idx       = ctx->tx_op.if_idx;
-  uint xsk_idx      = if_idx;   // index into ctx->xsk
+  uint hash         = (uint)fd_disco_netmux_sig_hash( sig );
+  uint target_idx   = hash % net_tile_cnt;
+
+  uint dst_ip = fd_disco_netmux_sig_dst_ip( sig );
+  if( FD_UNLIKELY( !net_tx_route( ctx, dst_ip ) ) ) {
+    return 1; /* metrics incremented by net_tx_route */
+  }
+
+  uint net_tile_id = ctx->net_tile_id;
+  uint xsk_idx     = ctx->tx_op.xsk_idx;
 
   if( ctx->tx_op.use_gre ) {
     uint inner_src_ip = ctx->tx_op.src_ip;
-    if( FD_UNLIKELY( !inner_src_ip ) ) return 1;   // skip
+    if( FD_UNLIKELY( !inner_src_ip ) ) {
+      ctx->metrics.tx_route_fail_cnt++;
+      return 1;
+    }
 
     /* Find the MAC addrs for the eth hdr, and src ip for outer ip4 hdr if not found in netdev tbl */
-    ctx->tx_op.src_ip           = 0;
-    ctx->tx_op.use_gre          = 0;
-    if( FD_UNLIKELY( !net_tx_route( ctx, ctx->tx_op.gre_outer_dst_ip ) ) ) return 1;
-    if( ctx->tx_op.use_gre==1 ) return 1;   // Do not support multiple tunneling. drop
-    if( !ctx->tx_op.gre_outer_src_ip ) ctx->tx_op.gre_outer_src_ip = ctx->tx_op.src_ip;
-    ctx->tx_op.use_gre          = 1;      // Reset to 1
-    ctx->tx_op.src_ip           = inner_src_ip;
+    ctx->tx_op.src_ip  = 0;
+    ctx->tx_op.use_gre = 0;
+    if( FD_UNLIKELY( !net_tx_route( ctx, ctx->tx_op.gre_outer_dst_ip ) ) ) {
+    return 1; /* metrics incremented by net_tx_route */
+  }
+    if( ctx->tx_op.use_gre==1 ) {
+      /* Only one layer of tunnelling supported */
+      ctx->metrics.tx_route_fail_cnt++;
+      return 1;
+    }
+    if( !ctx->tx_op.gre_outer_src_ip ) {
+      ctx->tx_op.gre_outer_src_ip = ctx->tx_op.src_ip;
+    }
+    ctx->tx_op.use_gre = 1; /* indicate to during_frag to use GRE header */
+    ctx->tx_op.src_ip  = inner_src_ip;
 
-    xsk_idx                     = 0;    // use xsk of the main interface
+    xsk_idx = XSK_IDX_MAIN;
   }
 
-  if( FD_UNLIKELY( xsk_idx>=ctx->xsk_cnt ) ) return 1; // ignore
+  if( FD_UNLIKELY( xsk_idx>=ctx->xsk_cnt ) ) {
+    /* Packet does not route to an XDP interface */
+    ctx->metrics.tx_no_xdp_cnt++;
+    return 1;
+  }
 
-  /* Load balance TX */
-  uint hash       = (uint)fd_disco_netmux_sig_hash( sig );
-  uint target_idx = hash % net_tile_cnt;
-  if( xsk_idx==1 ) target_idx = 0; /* loopback always targets tile 0 */
+  if( xsk_idx==XSK_IDX_LO ) target_idx = 0; /* loopback always targets tile 0 */
 
   /* Skip if another net tile is responsible for this packet */
 
@@ -667,8 +690,7 @@ before_frag( fd_net_ctx_t * ctx,
   void *               frame     = (void *)free->queue[ alloc_seq % free->depth ];
   free->cons = fd_seq_inc( alloc_seq, 1UL );
 
-  ctx->tx_op.if_idx    = if_idx;
-  ctx->tx_op.frame     = frame;
+  ctx->tx_op.frame = frame;
 
   return 0; /* continue */
 }
@@ -728,9 +750,8 @@ after_frag( fd_net_ctx_t *      ctx,
 
   /* Current send operation */
 
-  uint       if_idx  = ctx->tx_op.if_idx;
   uchar *    frame   = ctx->tx_op.frame;
-  uint       xsk_idx = if_idx;
+  uint       xsk_idx = ctx->tx_op.xsk_idx;
 
   /* Select Ethernet addresses */
   memcpy( frame, ctx->tx_op.mac_addrs, 12 );
