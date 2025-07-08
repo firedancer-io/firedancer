@@ -533,7 +533,7 @@ fd_exec_slot_ctx_recover( fd_exec_slot_ctx_t *                slot_ctx,
 
   } while(0);
 
-  fd_slot_lthash_t * lthash = fd_bank_lthash_modify( slot_ctx->bank );
+  fd_slot_lthash_t * lthash = fd_bank_lthash_locking_modify( slot_ctx->bank );
 
   fd_slot_lthash_t * lthash_value = fd_solana_manifest_lthash_join( manifest );
   if( !!lthash_value ) {
@@ -541,6 +541,8 @@ fd_exec_slot_ctx_recover( fd_exec_slot_ctx_t *                slot_ctx,
   } else {
     fd_lthash_zero( (fd_lthash_value_t *)lthash->lthash );
   }
+
+  fd_bank_lthash_end_locking_modify( slot_ctx->bank );
   /* Setup next epoch stakes */
 
   return slot_ctx;

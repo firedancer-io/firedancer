@@ -95,20 +95,6 @@ void
 fd_snapshot_load_fini( fd_snapshot_load_ctx_t * ctx );
 
 void
-fd_snapshot_load_all( const char *         source_cstr,
-                      int                  source_type,
-                      const char *         snapshot_dir,
-                      fd_exec_slot_ctx_t * slot_ctx,
-                      ulong *              base_slot_override,
-                      fd_tpool_t *         tpool,
-                      uint                 verify_hash,
-                      uint                 check_hash,
-                      int                  snapshot_type,
-                      fd_spad_t * *        exec_spads,
-                      ulong                exec_spad_cnt,
-                      fd_spad_t *          runtime_spad );
-
-void
 fd_snapshot_load_prefetch_manifest( fd_snapshot_load_ctx_t * ctx );
 
 ulong
