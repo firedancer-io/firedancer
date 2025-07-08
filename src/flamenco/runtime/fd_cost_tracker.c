@@ -319,11 +319,10 @@ add_transaction_cost( fd_cost_tracker_t *           self,
 
 void
 fd_cost_tracker_init( fd_cost_tracker_t *        self,
-                      fd_exec_slot_ctx_t const * slot_ctx,
                       fd_spad_t *                spad ) {
   // Set limits appropriately
   self->account_cost_limit = FD_MAX_WRITABLE_ACCOUNT_UNITS;
-  self->block_cost_limit   = FD_FEATURE_ACTIVE_BANK( slot_ctx->bank, raise_block_limits_to_50m ) ? FD_MAX_BLOCK_UNITS_SIMD_0207 : FD_MAX_BLOCK_UNITS;
+  self->block_cost_limit   = FD_MAX_BLOCK_UNITS_SIMD_0207;
   self->vote_cost_limit    = FD_MAX_VOTE_UNITS;
 
   /* Init cost tracker map

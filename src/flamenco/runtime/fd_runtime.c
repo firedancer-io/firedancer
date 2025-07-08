@@ -255,22 +255,12 @@ fd_runtime_freeze( fd_exec_slot_ctx_t * slot_ctx, fd_spad_t * runtime_spad ) {
 
   fd_sysvar_recent_hashes_update( slot_ctx, runtime_spad );
 
-  ulong fees = 0UL;
-  ulong burn = 0UL;
-
   ulong execution_fees = fd_bank_execution_fees_get( slot_ctx->bank );
   ulong priority_fees  = fd_bank_priority_fees_get( slot_ctx->bank );
 
-  if( FD_FEATURE_ACTIVE_BANK( slot_ctx->bank, reward_full_priority_fee ) ) {
-    ulong half_fee = execution_fees / 2;
-    fees = fd_ulong_sat_add( priority_fees, execution_fees - half_fee );
-    burn = half_fee;
-  } else {
-    ulong total_fees = fd_ulong_sat_add( execution_fees, priority_fees );
-    ulong half_fee = total_fees / 2;
-    fees = total_fees - half_fee;
-    burn = half_fee;
-  }
+  ulong burn = execution_fees / 2;
+  ulong fees = fd_ulong_sat_add( priority_fees, execution_fees - burn );
+
   if( FD_LIKELY( fees ) ) {
     // Look at collect_fees... I think this was where I saw the fee payout..
     FD_TXN_ACCOUNT_DECL( rec );
@@ -1211,8 +1201,8 @@ fd_runtime_pre_execute_check( fd_execute_txn_task_info_t * task_info ) {
     fd_dump_txn_to_protobuf( task_info->txn_ctx, task_info->txn_ctx->spad );
   }
 
-  /* Verify the transaction. This step involves processing the compute budget instructions and
-     precompiles (for now, until `move_precompile_verification_to_svm` is cleaned up). */
+  /* Verify the transaction. For now, this step only involves processing
+     the compute budget instructions. */
   err = fd_executor_verify_transaction( task_info->txn_ctx );
   if( FD_UNLIKELY( err!=FD_RUNTIME_EXECUTE_SUCCESS ) ) {
     task_info->txn->flags = 0U;
@@ -1619,7 +1609,7 @@ fd_runtime_process_txns_in_microblock_stream( fd_exec_slot_ctx_t * slot_ctx,
 
     /* Verify cost tracker limits (only for offline replay)
        https://github.com/anza-xyz/agave/blob/v2.2.0/ledger/src/blockstore_processor.rs#L284-L299 */
-    if( cost_tracker_opt!=NULL && FD_FEATURE_ACTIVE_BANK( slot_ctx->bank, apply_cost_tracker_during_replay ) ) {
+    if( cost_tracker_opt!=NULL ) {
       for( ulong i=exec_idx_start; i<curr_exec_idx; i++ ) {
 
         /* Skip any transactions that were not processed */
@@ -2272,21 +2262,6 @@ fd_runtime_process_new_epoch( fd_exec_slot_ctx_t * slot_ctx,
   /* Apply builtin program feature transitions
      https://github.com/anza-xyz/agave/blob/v2.1.0/runtime/src/bank.rs#L6621-L6624 */
   fd_apply_builtin_program_feature_transitions( slot_ctx, runtime_spad );
-
-  /* Change the speed of the poh clock
-     https://github.com/anza-xyz/agave/blob/v2.1.0/runtime/src/bank.rs#L6627-L6649 */
-
-  if( FD_FEATURE_JUST_ACTIVATED( slot_ctx, update_hashes_per_tick6 ) ) {
-    fd_bank_hashes_per_tick_set( slot_ctx->bank, UPDATED_HASHES_PER_TICK6 );
-  } else if( FD_FEATURE_JUST_ACTIVATED( slot_ctx, update_hashes_per_tick5 ) ) {
-    fd_bank_hashes_per_tick_set( slot_ctx->bank, UPDATED_HASHES_PER_TICK5 );
-  } else if( FD_FEATURE_JUST_ACTIVATED( slot_ctx, update_hashes_per_tick4 ) ) {
-    fd_bank_hashes_per_tick_set( slot_ctx->bank, UPDATED_HASHES_PER_TICK4 );
-  } else if( FD_FEATURE_JUST_ACTIVATED( slot_ctx, update_hashes_per_tick3 ) ) {
-    fd_bank_hashes_per_tick_set( slot_ctx->bank, UPDATED_HASHES_PER_TICK3 );
-  } else if( FD_FEATURE_JUST_ACTIVATED( slot_ctx, update_hashes_per_tick2 ) ) {
-    fd_bank_hashes_per_tick_set( slot_ctx->bank, UPDATED_HASHES_PER_TICK2 );
-  }
 
   /* Get the new rate activation epoch */
   int _err[1];
@@ -3611,9 +3586,7 @@ fd_runtime_block_execute_tpool( fd_exec_slot_ctx_t *            slot_ctx,
 
   /* Initialize the cost tracker when the feature is active */
   fd_cost_tracker_t * cost_tracker = fd_spad_alloc( runtime_spad, FD_COST_TRACKER_ALIGN, sizeof(fd_cost_tracker_t) );
-  if( FD_FEATURE_ACTIVE_BANK( slot_ctx->bank, apply_cost_tracker_during_replay ) ) {
-    fd_cost_tracker_init( cost_tracker, slot_ctx, runtime_spad );
-  }
+  fd_cost_tracker_init( cost_tracker, runtime_spad );
 
   /* We want to emulate microblock-by-microblock execution */
   ulong to_exec_idx = 0UL;
