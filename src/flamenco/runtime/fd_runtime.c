@@ -113,11 +113,13 @@ fd_runtime_update_leaders( fd_bank_t * bank,
 
   fd_epoch_schedule_t const * epoch_schedule = fd_bank_epoch_schedule_query( bank );
 
-  FD_LOG_INFO(( "schedule->slots_per_epoch = %lu", epoch_schedule->slots_per_epoch ));
-  FD_LOG_INFO(( "schedule->leader_schedule_slot_offset = %lu", epoch_schedule->leader_schedule_slot_offset ));
-  FD_LOG_INFO(( "schedule->warmup = %d", epoch_schedule->warmup ));
-  FD_LOG_INFO(( "schedule->first_normal_epoch = %lu", epoch_schedule->first_normal_epoch ));
-  FD_LOG_INFO(( "schedule->first_normal_slot = %lu", epoch_schedule->first_normal_slot ));
+  FD_LOG_WARNING(("SLOT %lu", bank->slot ));
+
+  FD_LOG_WARNING(( "schedule->slots_per_epoch = %lu", epoch_schedule->slots_per_epoch ));
+  FD_LOG_WARNING(( "schedule->leader_schedule_slot_offset = %lu", epoch_schedule->leader_schedule_slot_offset ));
+  FD_LOG_WARNING(( "schedule->warmup = %d", epoch_schedule->warmup ));
+  FD_LOG_WARNING(( "schedule->first_normal_epoch = %lu", epoch_schedule->first_normal_epoch ));
+  FD_LOG_WARNING(( "schedule->first_normal_slot = %lu", epoch_schedule->first_normal_slot ));
 
   fd_vote_accounts_global_t const *          epoch_vaccs   = fd_bank_epoch_stakes_locking_query( bank );
   fd_vote_accounts_pair_global_t_mapnode_t * vote_acc_pool = fd_vote_accounts_vote_accounts_pool_join( epoch_vaccs );

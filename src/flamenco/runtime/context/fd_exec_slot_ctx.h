@@ -61,8 +61,9 @@ fd_exec_slot_ctx_delete( void * mem );
    epoch context use same allocator.  Returns ctx on success.
    On failure, logs reason for error and returns NULL. */
 
-fd_exec_slot_ctx_t *
-fd_exec_slot_ctx_recover( fd_exec_slot_ctx_t *                ctx,
+int
+fd_exec_slot_ctx_recover( fd_banks_t *                        banks,
+                          fd_bank_t * *                       bank_out,
                           fd_solana_manifest_global_t const * manifest_global,
                           fd_spad_t *                         spad );
 

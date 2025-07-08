@@ -162,6 +162,10 @@ int
 runtime_replay( fd_ledger_args_t * ledger_args ) {
   int ret = 0;
 
+  ledger_args->slot_ctx->slot = ledger_args->slot_ctx->bank->slot;
+  ulong prev_slot  = ledger_args->slot_ctx->slot;
+  ulong start_slot = ledger_args->slot_ctx->slot + 1;
+
   fd_features_restore( ledger_args->slot_ctx->bank, ledger_args->slot_ctx->funk, ledger_args->slot_ctx->funk_txn, ledger_args->runtime_spad );
 
   fd_runtime_update_leaders( ledger_args->slot_ctx->bank, ledger_args->slot_ctx->slot, ledger_args->runtime_spad );
@@ -172,9 +176,6 @@ runtime_replay( fd_ledger_args_t * ledger_args ) {
   ulong             txn_cnt     = 0;
   ulong             slot_cnt    = 0;
   fd_blockstore_t * blockstore  = ledger_args->blockstore;
-
-  ulong prev_slot  = ledger_args->slot_ctx->slot;
-  ulong start_slot = ledger_args->slot_ctx->slot + 1;
 
   /* On demand rocksdb ingest */
   fd_rocksdb_t           rocks_db         = {0};

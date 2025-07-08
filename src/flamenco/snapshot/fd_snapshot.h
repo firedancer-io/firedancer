@@ -7,6 +7,7 @@
 
 #include "fd_snapshot_base.h"
 #include "../runtime/fd_runtime_public.h"
+#include "../runtime/fd_bank.h"
 #include "../../funk/fd_funk_txn.h"
 #include "../../ballet/lthash/fd_lthash.h"
 
@@ -116,21 +117,21 @@ fd_snapshot_get_slot( fd_snapshot_load_ctx_t * ctx );
 
 /* Generate a non-incremental hash of the entire account database, conditionally including in the epoch account hash. */
 int
-fd_snapshot_hash( fd_exec_slot_ctx_t *    slot_ctx,
+fd_snapshot_hash( fd_bank_t *             bank,
+                  fd_funk_t *             funk,
                   fd_hash_t *             accounts_hash,
-                  uint                    check_hash,
                   fd_spad_t *             runtime_spad,
                   fd_exec_para_cb_ctx_t * exec_para_ctx,
                   fd_lthash_value_t *     lt_hash );
 
 /* Generate an incremental hash of the entire account database, conditionally including in the epoch account hash. */
 int
-fd_snapshot_inc_hash( fd_exec_slot_ctx_t * slot_ctx,
+fd_snapshot_inc_hash( fd_bank_t *          bank,
+                      fd_funk_t *          funk,
                       fd_hash_t *          accounts_hash,
                       fd_funk_txn_t *      child_txn,
                       uint                 check_hash,
-                      fd_spad_t *          spad,
-                      fd_lthash_value_t *  lt_hash );
+                      fd_spad_t *          spad );
 
 FD_PROTOTYPES_END
 
