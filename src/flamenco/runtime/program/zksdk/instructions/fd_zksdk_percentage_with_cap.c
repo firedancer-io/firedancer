@@ -92,6 +92,7 @@ fd_zksdk_verify_proof_percentage_with_cap(
   fd_zksdk_transcript_challenge_scalar( c, transcript, FD_TRANSCRIPT_LITERAL("c") );
 
   fd_zksdk_transcript_append_scalar( transcript, FD_TRANSCRIPT_LITERAL("z_max"), proof->percentage_max_proof.z_max );
+  fd_zksdk_transcript_append_scalar( transcript, FD_TRANSCRIPT_LITERAL("c_max_proof"), proof->percentage_max_proof.c_max );
   fd_zksdk_transcript_append_scalar( transcript, FD_TRANSCRIPT_LITERAL("z_x"), proof->percentage_equality_proof.z_x );
   fd_zksdk_transcript_append_scalar( transcript, FD_TRANSCRIPT_LITERAL("z_delta_real"), proof->percentage_equality_proof.z_delta );
   fd_zksdk_transcript_append_scalar( transcript, FD_TRANSCRIPT_LITERAL("z_claimed"), proof->percentage_equality_proof.z_claimed );

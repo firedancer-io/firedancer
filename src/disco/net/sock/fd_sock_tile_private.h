@@ -21,7 +21,7 @@
 /* MAX_NET_OUTS controls the max number of RX links that a sock tile can
    serve. */
 
-#define MAX_NET_OUTS (4UL)
+#define MAX_NET_OUTS (5UL)
 
 /* Local metrics.  Periodically copied to the metric_in shm region. */
 

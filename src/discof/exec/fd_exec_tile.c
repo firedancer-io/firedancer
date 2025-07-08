@@ -144,12 +144,11 @@ execute_txn( fd_exec_tile_ctx_t * ctx ) {
   fd_exec_txn_ctx_setup( ctx->txn_ctx, txn_descriptor, &raw_txn );
   ctx->txn_ctx->capture_ctx = ctx->capture_ctx;
 
-  int err = fd_executor_setup_accessed_accounts_for_txn( ctx->txn_ctx );
-  if( FD_UNLIKELY( err ) ) {
-    task_info.txn->flags = 0U;
-    task_info.exec_res   = err;
-    return;
-  }
+  /* Set up the core account keys. These are the account keys directly
+     passed in via the serialized transaction, represented as an array.
+     Note that this does not include additional keys referenced in
+     address lookup tables. */
+  fd_executor_setup_txn_account_keys( ctx->txn_ctx );
 
   if( FD_UNLIKELY( fd_executor_txn_verify( ctx->txn_ctx )!=0 ) ) {
     FD_LOG_WARNING(( "sigverify failed: %s", FD_BASE58_ENC_64_ALLOCA( (uchar *)ctx->txn_ctx->_txn_raw->raw+ctx->txn_ctx->txn_descriptor->signature_off ) ));
@@ -158,8 +157,7 @@ execute_txn( fd_exec_tile_ctx_t * ctx ) {
     return;
   }
 
-  uchar dump_txn = !!( ctx->txn_ctx->capture_ctx && ctx->txn_ctx->slot >= ctx->txn_ctx->capture_ctx->dump_proto_start_slot && ctx->txn_ctx->capture_ctx->dump_txn_to_pb );
-  fd_runtime_pre_execute_check( &task_info, dump_txn );
+  fd_runtime_pre_execute_check( &task_info );
   if( FD_UNLIKELY( !( task_info.txn->flags & FD_TXN_P_FLAGS_SANITIZE_SUCCESS ) ) ) {
     return;
   }
@@ -540,6 +538,8 @@ unprivileged_init( fd_topo_t *      topo,
     ctx->capture_ctx->dump_instr_to_pb = tile->exec.dump_instr_to_pb;
     ctx->capture_ctx->dump_txn_to_pb = tile->exec.dump_txn_to_pb;
     ctx->capture_ctx->dump_syscall_to_pb = tile->exec.dump_syscall_to_pb;
+  } else {
+    ctx->capture_ctx = NULL;
   }
 }
 
