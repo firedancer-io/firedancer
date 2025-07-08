@@ -1,0 +1,31 @@
+# These are example parameters to overwrite for the privatenet cluster.
+# Refer to src/app/firedancer/config/default.toml for documentation.
+
+[consensus]
+    expected_shred_version = 36600 # make sure this is current
+[development]
+    sandbox = false
+    no_agave = true
+    no_clone = true
+[funk]
+    heap_size_gib = 20
+    max_account_records = 1048576
+    max_database_transactions = 512
+
+# Fill in the below
+
+[gossip]
+    port = 0
+    entrypoints = [""]
+[log]
+    path = ""
+[paths]
+    identity_key = ""
+    vote_account = ""
+[tiles]
+    [tiles.repair]
+        repair_intake_listen_port = 0
+        repair_server_listen_port = 0
+    [tiles.replay]
+        cluster_version = ""
+        snapshot = ""

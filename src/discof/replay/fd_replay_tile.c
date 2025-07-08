@@ -1937,9 +1937,6 @@ privileged_init( fd_topo_t *      topo,
   FD_TEST( sizeof(ulong) == getrandom( &ctx->status_cache_seed, sizeof(ulong), 0 ) );
 
   ctx->blockstore_fd = open( tile->replay.blockstore_file, O_RDWR | O_CREAT, 0666 );
-  if( FD_UNLIKELY( ctx->blockstore_fd == -1 ) ) {
-    FD_LOG_ERR(( "failed to open or create blockstore archival file %s %d %d %s", tile->replay.blockstore_file, ctx->blockstore_fd, errno, strerror(errno) ));
-  }
 
   /**********************************************************************/
   /* runtime public                                                      */

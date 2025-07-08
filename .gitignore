@@ -64,19 +64,18 @@ deps-bundle.tar.zst
 /book/bun.lockb
 
 # TVU
-mainnet.toml
-testnet.toml
-privatenet.toml
-localnet.toml
-sim.toml
-backtest.toml
-mainnet.sh
-testnet.sh
-privatenet.sh
-localnet.sh
-sim.sh
-backtest.sh
-local.toml
+/mainnet.toml
+/testnet.toml
+/privatenet.toml
+/localnet.toml
+/sim.toml
+/backtest.toml
+/mainnet.sh
+/testnet.sh
+/privatenet.sh
+/localnet.sh
+/sim.sh
+/backtest.sh
 
 # Python
 venv
