@@ -89,7 +89,10 @@ fd_snapshot_load_new( uchar *                mem,
                       const char *           snapshot_src,
                       int                    snapshot_src_type,
                       const char *           snapshot_dir,
-                      fd_exec_slot_ctx_t *   slot_ctx,
+                      fd_banks_t *           banks,
+                      fd_bank_t *            bank,
+                      fd_funk_t *            funk,
+                      fd_funk_txn_t *        funk_txn,
                       uint                   verify_hash,
                       uint                   check_hash,
                       int                    snapshot_type,
@@ -107,10 +110,10 @@ fd_snapshot_load_new( uchar *                mem,
   ctx->snapshot_src      = snapshot_src;
   ctx->snapshot_src_type = snapshot_src_type;
 
-  ctx->banks             = slot_ctx->banks;
-  ctx->bank              = slot_ctx->bank;
-  ctx->funk              = slot_ctx->funk;
-  ctx->funk_txn          = slot_ctx->funk_txn;
+  ctx->banks             = banks;
+  ctx->bank              = bank;
+  ctx->funk              = funk;
+  ctx->funk_txn          = funk_txn;
 
   ctx->verify_hash       = verify_hash;
   ctx->check_hash        = check_hash;
@@ -361,7 +364,10 @@ fd_bank_t *
 fd_snapshot_load_all( const char *         source_cstr,
                       int                  source_type,
                       const char *         snapshot_dir,
-                      fd_exec_slot_ctx_t * slot_ctx,
+                      fd_banks_t *         banks,
+                      fd_bank_t *          bank,
+                      fd_funk_t *          funk,
+                      fd_funk_txn_t *      funk_txn,
                       ulong *              base_slot_override,
                       fd_tpool_t *         tpool,
                       uint                 verify_hash,
@@ -382,7 +388,10 @@ fd_snapshot_load_all( const char *         source_cstr,
                                                        source_cstr,
                                                        source_type,
                                                        snapshot_dir,
-                                                       slot_ctx,
+                                                       banks,
+                                                       bank,
+                                                       funk,
+                                                       funk_txn,
                                                        verify_hash,
                                                        check_hash,
                                                        snapshot_type,
@@ -392,12 +401,11 @@ fd_snapshot_load_all( const char *         source_cstr,
                                                        &exec_para_ctx );
 
   fd_snapshot_load_init( ctx );
-  fd_runtime_update_slots_per_epoch( slot_ctx->bank, FD_DEFAULT_SLOTS_PER_EPOCH );
+  fd_runtime_update_slots_per_epoch( bank, FD_DEFAULT_SLOTS_PER_EPOCH );
   fd_snapshot_load_manifest_and_status_cache( ctx, base_slot_override,
     FD_SNAPSHOT_RESTORE_STATUS_CACHE | FD_SNAPSHOT_RESTORE_MANIFEST );
   fd_snapshot_load_accounts( ctx );
-  fd_bank_t * bank = fd_snapshot_load_fini( ctx );
-  return bank;
+  return fd_snapshot_load_fini( ctx );
   } FD_SPAD_FRAME_END;
 }
 
