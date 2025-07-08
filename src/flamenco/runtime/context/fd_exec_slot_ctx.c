@@ -322,15 +322,6 @@ fd_exec_slot_ctx_recover( fd_banks_t *                        banks,
 
   fd_bank_epoch_schedule_set( bank, old_bank->epoch_schedule );
 
-  fd_epoch_schedule_t const * epoch_schedule = fd_bank_epoch_schedule_query( bank );
-  FD_LOG_WARNING(( "schedule->slots_per_epoch = %lu", epoch_schedule->slots_per_epoch ));
-  FD_LOG_WARNING(( "schedule->leader_schedule_slot_offset = %lu", epoch_schedule->leader_schedule_slot_offset ));
-  FD_LOG_WARNING(( "schedule->warmup = %d", epoch_schedule->warmup ));
-  FD_LOG_WARNING(( "schedule->first_normal_epoch = %lu", epoch_schedule->first_normal_epoch ));
-  FD_LOG_WARNING(( "schedule->first_normal_slot = %lu", epoch_schedule->first_normal_slot ));
-
-
-
   /* Rent */
 
   fd_bank_rent_set( bank, old_bank->rent_collector.rent );

@@ -896,7 +896,7 @@ ingest( fd_ledger_args_t * args ) {
 
   /* Load in snapshot(s) */
   if( args->snapshot ) {
-    fd_snapshot_load_all( args->snapshot,
+    args->slot_ctx->bank = fd_snapshot_load_all( args->snapshot,
                           FD_SNAPSHOT_SRC_FILE,
                           NULL,
                           slot_ctx,
@@ -908,10 +908,13 @@ ingest( fd_ledger_args_t * args ) {
                           args->exec_spads,
                           args->exec_spad_cnt,
                           args->runtime_spad );
+    if( FD_UNLIKELY( !args->slot_ctx->bank ) ) {
+      FD_LOG_ERR(( "Failed to load snapshot" ));
+    }
     FD_LOG_NOTICE(( "imported records from snapshot" ));
   }
   if( args->incremental ) {
-    fd_snapshot_load_all( args->incremental,
+    args->slot_ctx->bank = fd_snapshot_load_all( args->incremental,
                           FD_SNAPSHOT_SRC_FILE,
                           NULL,
                           slot_ctx,
@@ -923,6 +926,9 @@ ingest( fd_ledger_args_t * args ) {
                           args->exec_spads,
                           args->exec_spad_cnt,
                           args->runtime_spad );
+    if( FD_UNLIKELY( !args->slot_ctx->bank ) ) {
+      FD_LOG_ERR(( "Failed to load incremental snapshot" ));
+    }
     FD_LOG_NOTICE(( "imported records from incremental snapshot" ));
   }
 
@@ -1070,7 +1076,7 @@ replay( fd_ledger_args_t * args ) {
 
   /* Load in snapshot(s) */
   if( args->snapshot ) {
-    fd_snapshot_load_all( args->snapshot,
+    args->slot_ctx->bank = fd_snapshot_load_all( args->snapshot,
                           FD_SNAPSHOT_SRC_FILE,
                           NULL,
                           args->slot_ctx,
@@ -1084,7 +1090,7 @@ replay( fd_ledger_args_t * args ) {
                           args->runtime_spad );
     FD_LOG_NOTICE(( "imported from snapshot" ));
     if( args->incremental ) {
-      fd_snapshot_load_all( args->incremental,
+      args->slot_ctx->bank = fd_snapshot_load_all( args->incremental,
                             FD_SNAPSHOT_SRC_FILE,
                             NULL,
                             args->slot_ctx,

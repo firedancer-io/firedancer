@@ -1353,8 +1353,9 @@ read_snapshot( void *              _ctx,
     /* If we don't have an incremental snapshot, load the manifest and the status cache and initialize
          the objects because we don't have these from the incremental snapshot. */
     if( strlen( incremental )<=0UL ) {
-      fd_snapshot_load_manifest_and_status_cache( snap_ctx, NULL,
+      ctx->slot_ctx->bank = fd_snapshot_load_manifest_and_status_cache( snap_ctx, NULL,
         FD_SNAPSHOT_RESTORE_MANIFEST | FD_SNAPSHOT_RESTORE_STATUS_CACHE );
+      ctx->slot_ctx->slot = ctx->slot_ctx->bank->slot;
       ctx->curr_slot = ctx->slot_ctx->slot;
       kickoff_repair_orphans( ctx, stem );
       /* If we don't have an incremental snapshot, we can still kick off
@@ -1366,25 +1367,27 @@ read_snapshot( void *              _ctx,
     }
     base_slot = fd_snapshot_get_slot( snap_ctx );
     fd_snapshot_load_accounts( snap_ctx );
-    fd_snapshot_load_fini( snap_ctx );
+    ctx->slot_ctx->bank = fd_snapshot_load_fini( snap_ctx );
+    ctx->slot_ctx->slot = ctx->slot_ctx->bank->slot;
   }
 
   if( strlen( incremental ) > 0 && strcmp( snapshot, "funk" ) != 0 ) {
 
     /* The slot of the full snapshot should be used as the base slot to verify the incremental snapshot,
        not the slot context's slot - which is the slot of the incremental, not the full snapshot. */
-    fd_snapshot_load_all( incremental,
-                          ctx->incremental_src_type,
-                          NULL,
-                          ctx->slot_ctx,
-                          &base_slot,
-                          NULL,
-                          false,
-                          false,
-                          FD_SNAPSHOT_TYPE_INCREMENTAL,
-                          ctx->exec_spads,
-                          ctx->exec_spad_cnt,
-                          ctx->runtime_spad );
+    ctx->slot_ctx->bank = fd_snapshot_load_all( incremental,
+        ctx->incremental_src_type,
+        NULL,
+        ctx->slot_ctx,
+        &base_slot,
+        NULL,
+        false,
+        false,
+        FD_SNAPSHOT_TYPE_INCREMENTAL,
+        ctx->exec_spads,
+        ctx->exec_spad_cnt,
+        ctx->runtime_spad );
+    ctx->slot_ctx->slot = ctx->slot_ctx->bank->slot;
     ctx->curr_slot = ctx->slot_ctx->slot;
     kickoff_repair_orphans( ctx, stem );
   }

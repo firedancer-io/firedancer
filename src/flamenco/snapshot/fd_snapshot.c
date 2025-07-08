@@ -154,7 +154,7 @@ fd_snapshot_load_init( fd_snapshot_load_ctx_t * ctx ) {
   }
 }
 
-void
+fd_bank_t *
 fd_snapshot_load_manifest_and_status_cache( fd_snapshot_load_ctx_t * ctx,
                                             ulong *                  base_slot_override,
                                             int                      restore_manifest_flags ) {
@@ -211,6 +211,7 @@ fd_snapshot_load_manifest_and_status_cache( fd_snapshot_load_ctx_t * ctx,
     FD_LOG_ERR(( "Failed to load snapshot (%d-%s)", err, fd_io_strerror( err ) ));
   }
 
+  return ctx->bank;
 }
 
 void
@@ -234,7 +235,7 @@ fd_snapshot_load_accounts( fd_snapshot_load_ctx_t * ctx ) {
 }
 
 #define FD_LTHASH_SNAPSHOT_HACK
-void
+fd_bank_t *
 fd_snapshot_load_fini( fd_snapshot_load_ctx_t * ctx ) {
   fd_snapshot_name_t const * name  = fd_snapshot_loader_get_name( ctx->loader );
   fd_hash_t          const * fhash = &name->fhash;
@@ -350,11 +351,13 @@ fd_snapshot_load_fini( fd_snapshot_load_ctx_t * ctx ) {
 
   fd_hashes_load( ctx->bank, ctx->funk, ctx->funk_txn );
 
+  return ctx->bank;
+
   /* We don't need to free any of the loader memory since it is allocated
      from a spad. */
 }
 
-void
+fd_bank_t *
 fd_snapshot_load_all( const char *         source_cstr,
                       int                  source_type,
                       const char *         snapshot_dir,
@@ -393,10 +396,8 @@ fd_snapshot_load_all( const char *         source_cstr,
   fd_snapshot_load_manifest_and_status_cache( ctx, base_slot_override,
     FD_SNAPSHOT_RESTORE_STATUS_CACHE | FD_SNAPSHOT_RESTORE_MANIFEST );
   fd_snapshot_load_accounts( ctx );
-  fd_snapshot_load_fini( ctx );
-
-  slot_ctx->bank = ctx->bank;
-
+  fd_bank_t * bank = fd_snapshot_load_fini( ctx );
+  return bank;
   } FD_SPAD_FRAME_END;
 }
 
