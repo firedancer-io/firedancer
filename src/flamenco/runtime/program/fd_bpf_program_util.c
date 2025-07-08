@@ -462,8 +462,7 @@ fd_bpf_scan_and_create_bpf_program_cache_entry( fd_bank_t *     bank,
 
     fd_pubkey_t const * pubkey = fd_type_pun_const( rec->pair.key[0].uc );
 
-
-    int res = fd_bpf_check_and_create_bpf_program_cache_entry( bank, funk, funk_txn, pubkey, runtime_spad );
+    int res = fd_bpf_check_and_create_bpf_program_cache_entry( bank, funk, cache_txn, pubkey, runtime_spad );
 
     if( res==0 ) {
       cnt++;
