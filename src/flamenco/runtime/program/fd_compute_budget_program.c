@@ -58,18 +58,12 @@ is_compute_budget_instruction( fd_txn_t const *       txn,
 
    https://github.com/anza-xyz/agave/blob/v2.1.13/runtime-transaction/src/compute_budget_instruction_details.rs#L211-L239 */
 FD_FN_PURE static inline ulong
-calculate_default_compute_unit_limit( fd_exec_txn_ctx_t const * ctx,
-                                      ulong                     num_builtin_instrs,
-                                      ulong                     num_non_builtin_instrs,
-                                      ulong                     num_non_compute_budget_instrs ) {
-  if( FD_FEATURE_ACTIVE_BANK( ctx->bank, reserve_minimal_cus_for_builtin_instructions ) ) {
-    /* https://github.com/anza-xyz/agave/blob/v2.1.13/runtime-transaction/src/compute_budget_instruction_details.rs#L227-L234 */
-    return fd_ulong_sat_add( fd_ulong_sat_mul( num_builtin_instrs, MAX_BUILTIN_ALLOCATION_COMPUTE_UNIT_LIMIT ),
-                             fd_ulong_sat_mul( num_non_builtin_instrs, DEFAULT_INSTRUCTION_COMPUTE_UNIT_LIMIT ) );
-  } else {
-    /* https://github.com/anza-xyz/agave/blob/v2.1.13/runtime-transaction/src/compute_budget_instruction_details.rs#L236-L237 */
-    return fd_ulong_sat_mul( num_non_compute_budget_instrs, DEFAULT_INSTRUCTION_COMPUTE_UNIT_LIMIT );
-  }
+calculate_default_compute_unit_limit( ulong num_builtin_instrs,
+                                      ulong num_non_builtin_instrs ) {
+  /* https://github.com/anza-xyz/agave/blob/v2.1.13/runtime-transaction/src/compute_budget_instruction_details.rs#L227-L234 */
+  return fd_ulong_sat_add( fd_ulong_sat_mul( num_builtin_instrs, MAX_BUILTIN_ALLOCATION_COMPUTE_UNIT_LIMIT ),
+                           fd_ulong_sat_mul( num_non_builtin_instrs, DEFAULT_INSTRUCTION_COMPUTE_UNIT_LIMIT ) );
+
 }
 
 /* https://github.com/anza-xyz/agave/blob/16de8b75ebcd57022409b422de557dd37b1de8db/compute-budget/src/compute_budget_processor.rs#L150-L153 */
@@ -92,7 +86,6 @@ fd_executor_compute_budget_program_execute_instructions( fd_exec_txn_ctx_t * ctx
 
   /* SIMD-170 introduces a conservative CU limit of 3,000 CUs per non-migrated native program,
      and 200,000 CUs for all other programs (including migrated builtins). */
-  ulong  num_non_compute_budget_instrs               = 0UL;
   ulong  num_builtin_instrs                          = 0UL;
   ulong  num_non_builtin_instrs                      = 0UL;
 
@@ -106,19 +99,15 @@ fd_executor_compute_budget_program_execute_instructions( fd_exec_txn_ctx_t * ctx
   for( ushort i=0; i<ctx->txn_descriptor->instr_cnt; i++ ) {
     fd_txn_instr_t const * instr = &ctx->txn_descriptor->instr[i];
 
-    /* Track builtin vs non-builtin metrics only if SIMD-170 is active */
-    if( FD_FEATURE_ACTIVE_BANK( ctx->bank, reserve_minimal_cus_for_builtin_instructions ) ) {
-      /* Only `FD_PROGRAM_KIND_BUILTIN` gets charged as a builtin instruction */
-      uchar program_kind = get_program_kind( ctx, instr );
-      if( program_kind==FD_PROGRAM_KIND_BUILTIN ) {
-        num_builtin_instrs++;
-      } else {
-        num_non_builtin_instrs++;
-      }
+    /* Only `FD_PROGRAM_KIND_BUILTIN` gets charged as a builtin instruction */
+    uchar program_kind = get_program_kind( ctx, instr );
+    if( program_kind==FD_PROGRAM_KIND_BUILTIN ) {
+      num_builtin_instrs++;
+    } else {
+      num_non_builtin_instrs++;
     }
 
     if( !is_compute_budget_instruction( ctx->txn_descriptor, ctx->_txn_raw, instr ) ) {
-      num_non_compute_budget_instrs++;
       continue;
     }
 
@@ -198,10 +187,7 @@ fd_executor_compute_budget_program_execute_instructions( fd_exec_txn_ctx_t * ctx
   if( has_compute_units_limit_update ) {
     ctx->compute_unit_limit = fd_ulong_min( FD_MAX_COMPUTE_UNIT_LIMIT, updated_compute_unit_limit );
   } else {
-    ctx->compute_unit_limit = fd_ulong_min( calculate_default_compute_unit_limit(ctx,
-                                                                                    num_builtin_instrs,
-                                                                                    num_non_builtin_instrs,
-                                                                                    num_non_compute_budget_instrs),
+    ctx->compute_unit_limit = fd_ulong_min( calculate_default_compute_unit_limit( num_builtin_instrs, num_non_builtin_instrs ),
                                             FD_MAX_COMPUTE_UNIT_LIMIT );
   }
   ctx->compute_meter = ctx->compute_unit_limit;

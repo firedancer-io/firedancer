@@ -49,7 +49,6 @@ FD_PROTOTYPES_BEGIN
 /* Initializes the cost tracker and allocates enough memory for the map */
 void
 fd_cost_tracker_init( fd_cost_tracker_t *        self,
-                      fd_exec_slot_ctx_t const * slot_ctx,
                       fd_spad_t *                spad );
 
 /* Modeled after `CostModel::calculate_cost_for_executed_transaction()`.
