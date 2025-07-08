@@ -134,7 +134,12 @@ fd_topo_wksp_new( fd_topo_t const *          topo,
 
     for( ulong j=0UL; callbacks[ j ]; j++ ) {
       if( FD_LIKELY( strcmp( callbacks[ j ]->name, obj->name ) ) ) continue;
+      long dt = -fd_log_wallclock();
       if( FD_LIKELY( callbacks[ j ]->new ) ) callbacks[ j ]->new( topo, obj );
+      dt += fd_log_wallclock();
+      if( FD_UNLIKELY( dt>100L*1000L*1000L ) ) {
+        FD_LOG_WARNING(("calling new on topology object `%s` took %ld ms", obj->name, dt/1000L/1000L ));
+      }
       break;
     }
   }
@@ -494,5 +499,5 @@ fd_topo_print_log( int         stdout,
   }
 
   if( FD_UNLIKELY( stdout ) ) FD_LOG_STDOUT(( "%s\n", message ));
-  else                        FD_LOG_NOTICE(( "%s", message ));
+  else                        FD_LOG_INFO(( "%s", message ));
 }

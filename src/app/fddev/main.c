@@ -1,5 +1,9 @@
 #include "main.h"
 
+#include "../shared_dev/boot/fd_dev_boot.h"
+#include "../fdctl/topology.h"
+#include "../fdctl/config.h"
+
 int
 main( int     argc,
       char ** argv ) {

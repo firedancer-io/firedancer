@@ -1,6 +1,7 @@
 #include "fd_gossip.h"
 #include "../../ballet/base58/fd_base58.h"
 #include "../../disco/keyguard/fd_keyguard.h"
+#include "../../ballet/sha256/fd_sha256.h"
 #include <math.h>
 #include "fd_contact_info.h"
 

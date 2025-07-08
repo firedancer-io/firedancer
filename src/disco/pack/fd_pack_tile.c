@@ -22,7 +22,8 @@
 #define IN_KIND_POH          (1UL)
 #define IN_KIND_BANK         (2UL)
 #define IN_KIND_SIGN         (3UL)
-#define IN_KIND_EXECUTED_TXN (4UL)
+#define IN_KIND_REPLAY       (4UL)
+#define IN_KIND_EXECUTED_TXN (5UL)
 
 /* Pace microblocks, but only slightly.  This helps keep performance
    more stable.  This limit is 2,000 microblocks/second/bank.  At 31
@@ -775,6 +776,7 @@ during_frag( fd_pack_ctx_t * ctx,
   uchar const * dcache_entry = fd_chunk_to_laddr_const( ctx->in[ in_idx ].mem, chunk );
 
   switch( ctx->in_kind[ in_idx ] ) {
+  case IN_KIND_REPLAY:
   case IN_KIND_POH: {
       /* Not interested in stamped microblocks, only leader updates. */
     if( fd_disco_poh_sig_pkt_type( sig )!=POH_PKT_TYPE_BECAME_LEADER ) return;
@@ -919,6 +921,7 @@ after_frag( fd_pack_ctx_t *     ctx,
   long now = fd_tickcount();
 
   switch( ctx->in_kind[ in_idx ] ) {
+  case IN_KIND_REPLAY:
   case IN_KIND_POH: {
     if( fd_disco_poh_sig_pkt_type( sig )!=POH_PKT_TYPE_BECAME_LEADER ) return;
 
@@ -1121,6 +1124,7 @@ unprivileged_init( fd_topo_t *      topo,
     else if( FD_LIKELY( !strcmp( link->name, "poh_pack"     ) ) ) ctx->in_kind[ i ] = IN_KIND_POH;
     else if( FD_LIKELY( !strcmp( link->name, "bank_pack"    ) ) ) ctx->in_kind[ i ] = IN_KIND_BANK;
     else if( FD_LIKELY( !strcmp( link->name, "sign_pack"    ) ) ) ctx->in_kind[ i ] = IN_KIND_SIGN;
+    else if( FD_LIKELY( !strcmp( link->name, "replay_pack"  ) ) ) ctx->in_kind[ i ] = IN_KIND_REPLAY;
     else if( FD_LIKELY( !strcmp( link->name, "executed_txn" ) ) ) ctx->in_kind[ i ] = IN_KIND_EXECUTED_TXN;
     else FD_LOG_ERR(( "pack tile has unexpected input link %lu %s", i, link->name ));
   }

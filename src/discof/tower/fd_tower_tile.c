@@ -1,5 +1,8 @@
 #define _GNU_SOURCE
 
+#include "../../util/fd_util.h"
+#include "generated/fd_tower_tile_seccomp.h"
+
 #include "../../choreo/fd_choreo.h"
 #include "../../disco/fd_disco.h"
 #include "../../disco/keyguard/fd_keyload.h"
@@ -12,7 +15,7 @@
 
 #define IN_KIND_GOSSIP ( 0)
 #define IN_KIND_REPLAY ( 1)
-#define IN_KIND_SHRED  ( 2)
+#define IN_KIND_STAKE  ( 2)
 #define IN_KIND_SIGN   ( 3)
 #define MAX_IN_LINKS   (16)
 
@@ -249,7 +252,7 @@ during_frag( ctx_t * ctx,
       break;
     }
 
-    case IN_KIND_SHRED:
+    case IN_KIND_STAKE:
       break;
 
     case IN_KIND_SIGN:
@@ -361,8 +364,9 @@ unprivileged_init( fd_topo_t *      topo,
       ctx->in_kind[ in_idx ] = IN_KIND_GOSSIP;
     } else if( 0==strcmp( link->name, "replay_tower" ) ) {
       ctx->in_kind[ in_idx ] = IN_KIND_REPLAY;
-    } else if( 0==strcmp( link->name, "stake_out" ) ) {
-      ctx->in_kind[ in_idx ] = IN_KIND_SHRED;
+    } else if( 0==strcmp( link->name, "replay_stake" ) ) {
+      /* TODO: Not used? */
+      ctx->in_kind[ in_idx ] = IN_KIND_STAKE;
     } else {
       FD_LOG_ERR(( "tower tile has unexpected input link %s", link->name ));
     }

@@ -6,8 +6,8 @@
 #include "../../../platform/fd_file_util.h"
 
 #include "../../../../ballet/shred/fd_shred.h"
-#include "../../../../disco/shred/fd_shredder.h"
 #include "../../../../ballet/poh/fd_poh.h"
+#include "../../../../disco/shred/fd_shredder.h"
 #include "../../../../disco/tiles.h"
 
 #include <unistd.h>

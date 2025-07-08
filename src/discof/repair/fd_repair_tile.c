@@ -1068,7 +1068,7 @@ unprivileged_init( fd_topo_t *      topo,
       continue;
     } else if( 0==strcmp( link->name, "gossip_repai" ) ) {
       ctx->in_kind[ in_idx ] = IN_KIND_CONTACT;
-    } else if( 0==strcmp( link->name, "stake_out" ) ) {
+    } else if( 0==strcmp( link->name, "replay_stake" ) ) {
       ctx->in_kind[ in_idx ] = IN_KIND_STAKE;
     } else if( 0==strcmp( link->name, "shred_repair" ) ) {
       ctx->in_kind[ in_idx ] = IN_KIND_SHRED;

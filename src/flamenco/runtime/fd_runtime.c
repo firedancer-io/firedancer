@@ -14,26 +14,22 @@
 #include "sysvar/fd_sysvar_epoch_schedule.h"
 #include "sysvar/fd_sysvar_recent_hashes.h"
 #include "sysvar/fd_sysvar_stake_history.h"
-#include "sysvar/fd_sysvar.h"
 #include "../../ballet/base58/fd_base58.h"
 #include "../../ballet/txn/fd_txn.h"
-#include "../../ballet/bmtree/fd_bmtree.h"
+#include "../../ballet/poh/fd_poh.h"
 
 #include "../stakes/fd_stakes.h"
 #include "../rewards/fd_rewards.h"
 
 #include "context/fd_exec_txn_ctx.h"
-#include "context/fd_exec_instr_ctx.h"
 #include "info/fd_microblock_batch_info.h"
 #include "info/fd_microblock_info.h"
 
 #include "program/fd_stake_program.h"
 #include "program/fd_builtin_programs.h"
-#include "program/fd_system_program.h"
 #include "program/fd_vote_program.h"
 #include "program/fd_bpf_program_util.h"
 #include "program/fd_bpf_loader_program.h"
-#include "program/fd_compute_budget_program.h"
 #include "program/fd_address_lookup_table_program.h"
 
 #include "sysvar/fd_sysvar_clock.h"
@@ -50,13 +46,11 @@
 #include "../types/fd_solana_block.pb.h"
 
 #include "fd_system_ids.h"
-#include "../vm/fd_vm.h"
 #include "fd_blockstore.h"
 #include "../../disco/pack/fd_pack.h"
 #include "../fd_rwlock.h"
 
 #include <stdio.h>
-#include <ctype.h>
 #include <unistd.h>
 #include <sys/stat.h>
 #include <sys/types.h>

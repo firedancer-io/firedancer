@@ -60,7 +60,6 @@ configure_stage_t * STAGES[] = {
   &fd_cfg_stage_netns,
   &fd_cfg_stage_hugetlbfs,
   &fd_cfg_stage_sysctl,
-  &fd_cfg_stage_hyperthreads,
   &fd_cfg_stage_ethtool_channels,
   &fd_cfg_stage_ethtool_gro,
   &fd_cfg_stage_ethtool_loopback,
@@ -76,8 +75,10 @@ extern fd_topo_run_tile_t fd_tile_sock;
 extern fd_topo_run_tile_t fd_tile_quic;
 extern fd_topo_run_tile_t fd_tile_verify;
 extern fd_topo_run_tile_t fd_tile_dedup;
-extern fd_topo_run_tile_t fd_tile_pack;
 extern fd_topo_run_tile_t fd_tile_resolv;
+extern fd_topo_run_tile_t fd_tile_pack;
+extern fd_topo_run_tile_t fd_tile_bank;
+extern fd_topo_run_tile_t fd_tile_poh;
 extern fd_topo_run_tile_t fd_tile_shred;
 extern fd_topo_run_tile_t fd_tile_sign;
 extern fd_topo_run_tile_t fd_tile_metric;
@@ -94,7 +95,6 @@ extern fd_topo_run_tile_t fd_tile_repair;
 extern fd_topo_run_tile_t fd_tile_replay;
 extern fd_topo_run_tile_t fd_tile_execor;
 extern fd_topo_run_tile_t fd_tile_writer;
-extern fd_topo_run_tile_t fd_tile_poh;
 extern fd_topo_run_tile_t fd_tile_send;
 extern fd_topo_run_tile_t fd_tile_tower;
 extern fd_topo_run_tile_t fd_tile_rpcserv;
@@ -115,8 +115,9 @@ fd_topo_run_tile_t * TILES[] = {
   &fd_tile_quic,
   &fd_tile_verify,
   &fd_tile_dedup,
-  &fd_tile_pack,
   &fd_tile_resolv,
+  &fd_tile_pack,
+  &fd_tile_bank,
   &fd_tile_shred,
   &fd_tile_sign,
   &fd_tile_metric,

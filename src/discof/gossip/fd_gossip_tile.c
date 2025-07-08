@@ -700,6 +700,8 @@ unprivileged_init( fd_topo_t *      topo,
       ctx->gossip_plugin_out_chunk  = ctx->gossip_plugin_out_chunk0;
       ctx->gossip_plugin_out_idx    = out_idx;
 
+    } else if( 0==strcmp( link->name, "gossip_shred" ) ) {
+
     } else {
       FD_LOG_ERR(( "gossip tile has unexpected output link %s", link->name ));
     }

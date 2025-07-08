@@ -253,9 +253,6 @@ user = ""
     file = "/tmp/default.blockstore"
 
 [consensus]
-    # TODO: ???
-    vote = true
-
     # The shred version is a small hash of the genesis block and any
     # subsequent hard forks.  The validator client uses it to filter
     # out any shred traffic from validators that disagree with this
@@ -939,7 +936,7 @@ user = ""
         # transactions fit in a block, this can be disabled to improve
         # performance.  It's not recommended (but allowed) to disable
         # this option in a production cluster.
-        use_consumed_cus = false
+        use_consumed_cus = true
 
         # The pack tile can schedule using different strategies with
         # different tradeoffs.  The primary tradeoff is that executing
@@ -950,7 +947,7 @@ user = ""
         # are raised, this trade-off will become less pronounced.
         #
         # The Firedancer team supports three different strategies which
-        # are described below.
+        # are described below:
         #
         #  "perf" (default)
         #   Try to fill the block as fast as possible using the highest-
@@ -965,7 +962,7 @@ user = ""
         #   fill it by the end.  This strategy optimizes for revenue
         #   from priority fees, but can result in blocks that are not
         #   always 100% full, and can be poor at capturing MEV if using
-        #   an external block builders.
+        #   an external block builder.
         #
         #   When using the balanced mode, there is no reason to increase
         #   bank tile count beyond the default of 4.
