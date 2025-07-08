@@ -321,6 +321,8 @@ struct fd_config {
   struct {
     struct {
       ulong max_routes;
+      ulong max_peer_routes;
+      ulong lock_cnt_peer_routes;
       ulong max_neighbors;
     } netlink;
 
