@@ -166,7 +166,7 @@ runtime_replay( fd_ledger_args_t * ledger_args ) {
 
   fd_runtime_update_leaders( ledger_args->slot_ctx->bank, ledger_args->slot_ctx->slot, ledger_args->runtime_spad );
 
-  fd_calculate_epoch_accounts_hash_values( ledger_args->slot_ctx );
+  fd_calculate_epoch_accounts_hash_values( ledger_args->slot_ctx->bank );
 
   long              replay_time = -fd_log_wallclock();
   ulong             txn_cnt     = 0;
@@ -523,7 +523,7 @@ fd_ledger_main_setup( fd_ledger_args_t * args ) {
   /* Finish other runtime setup steps */
   fd_features_restore( args->slot_ctx->bank, args->slot_ctx->funk, args->slot_ctx->funk_txn, args->runtime_spad );
   fd_runtime_update_leaders( args->slot_ctx->bank, args->slot_ctx->slot, args->runtime_spad );
-  fd_calculate_epoch_accounts_hash_values( args->slot_ctx );
+  fd_calculate_epoch_accounts_hash_values( args->slot_ctx->bank );
 
   /* After both snapshots have been loaded in, we can determine if we should
       start distributing rewards. */

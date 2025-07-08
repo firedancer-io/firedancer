@@ -234,7 +234,7 @@ fd_snapshot_load_fini( fd_snapshot_load_ctx_t * ctx ) {
       ctx->slot_ctx->funk,
       ctx->slot_ctx->funk_txn,
       ctx->runtime_spad );
-  fd_calculate_epoch_accounts_hash_values( ctx->slot_ctx );
+  fd_calculate_epoch_accounts_hash_values( ctx->slot_ctx->bank );
 
   int snapshots_lt_hash = FD_FEATURE_ACTIVE_BANK( ctx->slot_ctx->bank, snapshots_lt_hash );
   int accounts_lt_hash = FD_FEATURE_ACTIVE_BANK( ctx->slot_ctx->bank, accounts_lt_hash );
@@ -502,7 +502,7 @@ fd_snapshot_inc_hash( fd_exec_slot_ctx_t * slot_ctx,
   if( fd_should_snapshot_include_epoch_accounts_hash( slot_ctx ) ) {
     fd_sha256_t h;
     fd_hash_t   hash;
-    fd_accounts_hash_inc_only( slot_ctx, &hash, child_txn, do_hash_verify, spad );
+    fd_accounts_hash_inc_only( slot_ctx->bank, slot_ctx->funk, &hash, child_txn, do_hash_verify, spad );
 
     fd_sha256_init( &h );
     fd_sha256_append( &h, (uchar const *) hash.hash, sizeof( fd_hash_t ) );
@@ -511,5 +511,5 @@ fd_snapshot_inc_hash( fd_exec_slot_ctx_t * slot_ctx,
 
     return 0;
   }
-  return fd_accounts_hash_inc_only( slot_ctx, accounts_hash, child_txn, do_hash_verify, spad );
+  return fd_accounts_hash_inc_only( slot_ctx->bank, slot_ctx->funk, accounts_hash, child_txn, do_hash_verify, spad );
 }

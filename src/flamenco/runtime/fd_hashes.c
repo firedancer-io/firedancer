@@ -150,15 +150,15 @@ fd_hash_account_deltas( fd_pubkey_hash_pair_list_t * lists, ulong lists_len, fd_
 
 
 void
-fd_calculate_epoch_accounts_hash_values( fd_exec_slot_ctx_t * slot_ctx ) {
+fd_calculate_epoch_accounts_hash_values( fd_bank_t * bank ) {
   ulong slot_idx = 0;
-  fd_epoch_schedule_t const * epoch_schedule = fd_bank_epoch_schedule_query( slot_ctx->bank );
-  ulong epoch = fd_slot_to_epoch( epoch_schedule, slot_ctx->slot, &slot_idx );
+  fd_epoch_schedule_t const * epoch_schedule = fd_bank_epoch_schedule_query( bank );
+  ulong epoch = fd_slot_to_epoch( epoch_schedule, bank->slot, &slot_idx );
 
-  if( FD_FEATURE_ACTIVE_BANK( slot_ctx->bank, accounts_lt_hash) ) {
-    fd_bank_eah_start_slot_set( slot_ctx->bank, ULONG_MAX );
-    fd_bank_eah_stop_slot_set( slot_ctx->bank, ULONG_MAX );
-    fd_bank_eah_interval_set( slot_ctx->bank, ULONG_MAX );
+  if( FD_FEATURE_ACTIVE_BANK( bank, accounts_lt_hash) ) {
+    fd_bank_eah_start_slot_set( bank, ULONG_MAX );
+    fd_bank_eah_stop_slot_set( bank, ULONG_MAX );
+    fd_bank_eah_interval_set( bank, ULONG_MAX );
     return;
   }
 
@@ -175,23 +175,23 @@ fd_calculate_epoch_accounts_hash_values( fd_exec_slot_ctx_t * slot_ctx ) {
   const ulong MINIMUM_CALCULATION_INTERVAL = MAX_LOCKOUT_HISTORY + CALCULATION_INTERVAL_BUFFER;
 
   if( calculation_interval < MINIMUM_CALCULATION_INTERVAL ) {
-    fd_bank_eah_start_slot_set( slot_ctx->bank, ULONG_MAX );
-    fd_bank_eah_stop_slot_set( slot_ctx->bank, ULONG_MAX );
-    fd_bank_eah_interval_set( slot_ctx->bank, ULONG_MAX );
+    fd_bank_eah_start_slot_set( bank, ULONG_MAX );
+    fd_bank_eah_stop_slot_set( bank, ULONG_MAX );
+    fd_bank_eah_interval_set( bank, ULONG_MAX );
     return;
   }
 
-  fd_bank_eah_start_slot_set( slot_ctx->bank, first_slot_in_epoch + calculation_offset_start );
-  if( slot_ctx->slot > fd_bank_eah_start_slot_get( slot_ctx->bank ) ) {
-    fd_bank_eah_start_slot_set( slot_ctx->bank, ULONG_MAX );
+  fd_bank_eah_start_slot_set( bank, first_slot_in_epoch + calculation_offset_start );
+  if( bank->slot > fd_bank_eah_start_slot_get( bank ) ) {
+    fd_bank_eah_start_slot_set( bank, ULONG_MAX );
   }
 
-  fd_bank_eah_stop_slot_set( slot_ctx->bank, first_slot_in_epoch + calculation_offset_stop );
-  if( slot_ctx->slot > fd_bank_eah_stop_slot_get( slot_ctx->bank ) ) {
-    fd_bank_eah_stop_slot_set( slot_ctx->bank, ULONG_MAX );
+  fd_bank_eah_stop_slot_set( bank, first_slot_in_epoch + calculation_offset_stop );
+  if( bank->slot > fd_bank_eah_stop_slot_get( bank ) ) {
+    fd_bank_eah_stop_slot_set( bank, ULONG_MAX );
   }
 
-  fd_bank_eah_interval_set( slot_ctx->bank, calculation_interval );
+  fd_bank_eah_interval_set( bank, calculation_interval );
 
 }
 
@@ -1017,16 +1017,16 @@ fd_accounts_hash( fd_funk_t *             funk,
 }
 
 int
-fd_accounts_hash_inc_only( fd_exec_slot_ctx_t * slot_ctx,
-                           fd_hash_t *          accounts_hash,
-                           fd_funk_txn_t *      child_txn,
-                           ulong                do_hash_verify,
-                           fd_spad_t *          spad ) {
+fd_accounts_hash_inc_only( fd_bank_t *     bank,
+                           fd_funk_t *     funk,
+                           fd_hash_t *     accounts_hash,
+                           fd_funk_txn_t * child_txn,
+                           ulong           do_hash_verify,
+                           fd_spad_t *     spad ) {
   FD_LOG_NOTICE(( "accounts_hash_inc_only start for txn %p, do_hash_verify=%s", (void *)child_txn, do_hash_verify ? "true" : "false" ));
 
   FD_SPAD_FRAME_BEGIN( spad ) {
 
-  fd_funk_t * funk = slot_ctx->funk;
   fd_wksp_t * wksp = fd_funk_wksp( funk );
 
   // How many total records are we dealing with?
@@ -1070,13 +1070,10 @@ fd_accounts_hash_inc_only( fd_exec_slot_ctx_t * slot_ctx,
       fd_hash_t *h = (fd_hash_t *) metadata->hash;
       if ((h->ul[0] | h->ul[1] | h->ul[2] | h->ul[3]) == 0) {
         // By the time we fall into this case, we can assume the ignore_slot feature is enabled...
-        fd_hash_account_current( (uchar *) metadata->hash, NULL, metadata, fd_type_pun_const(rec->pair.key->uc), fd_account_meta_get_data(metadata), FD_HASH_JUST_ACCOUNT_HASH, fd_bank_features_query( slot_ctx->bank ) );
+        fd_hash_account_current( (uchar *) metadata->hash, NULL, metadata, fd_type_pun_const(rec->pair.key->uc), fd_account_meta_get_data(metadata), FD_HASH_JUST_ACCOUNT_HASH, fd_bank_features_query( bank ) );
       } else if( do_hash_verify ) {
         uchar hash[32];
-        // ulong old_slot = slot_ctx->slot;
-        // slot_ctx->slot = metadata->slot;
-        fd_hash_account_current( (uchar *) &hash, NULL, metadata, fd_type_pun_const(rec->pair.key->uc), fd_account_meta_get_data(metadata), FD_HASH_JUST_ACCOUNT_HASH, fd_bank_features_query( slot_ctx->bank ) );
-        // slot_ctx->slot = old_slot;
+        fd_hash_account_current( (uchar *) &hash, NULL, metadata, fd_type_pun_const(rec->pair.key->uc), fd_account_meta_get_data(metadata), FD_HASH_JUST_ACCOUNT_HASH, fd_bank_features_query( bank ) );
         if ( fd_account_meta_exists( metadata ) && memcmp( metadata->hash, &hash, 32 ) != 0 ) {
           FD_LOG_WARNING(( "snapshot hash (%s) doesn't match calculated hash (%s)", FD_BASE58_ENC_32_ALLOCA( metadata->hash ), FD_BASE58_ENC_32_ALLOCA( &hash ) ));
         }

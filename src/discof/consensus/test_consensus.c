@@ -536,7 +536,7 @@ main( void ) {
 //   /**********************************************************************/
 
 //   fd_fork_t *          snapshot_fork = fd_fork_pool_ele_acquire( forks->pool );
-//   fd_exec_slot_ctx_t * snapshot_slot_ctx =
+//    * snapshot_slot_ctx =
 //       fd_exec_slot_ctx_join( fd_exec_slot_ctx_new( &snapshot_fork->slot_ctx, valloc ) );
 //   FD_TEST( snapshot_slot_ctx );
 

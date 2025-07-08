@@ -3,9 +3,11 @@
 
 static void
 fd_runtime_fuzz_txn_ctx_destroy( fd_runtime_fuzz_runner_t * runner,
-                                 fd_exec_slot_ctx_t *       slot_ctx ) {
-  if( !slot_ctx ) return; // This shouldn't be false either
-  fd_funk_txn_t *       funk_txn  = slot_ctx->funk_txn;
+                                 fd_funk_txn_t *            funk_txn ) {
+
+  if( FD_UNLIKELY( !funk_txn ) ) {
+    return;
+  }
 
   fd_funk_txn_cancel( runner->funk, funk_txn, 1 );
 }
@@ -14,7 +16,7 @@ fd_runtime_fuzz_txn_ctx_destroy( fd_runtime_fuzz_runner_t * runner,
    a parsed txn descriptor on success and NULL on failure. */
 static fd_txn_p_t *
 fd_runtime_fuzz_txn_ctx_create( fd_runtime_fuzz_runner_t *         runner,
-                                fd_exec_slot_ctx_t *               slot_ctx,
+                                fd_funk_txn_t * *                 funk_txn_out,
                                 fd_exec_test_txn_context_t const * test_ctx ) {
   const uchar empty_bytes[64] = { 0 };
   fd_funk_t * funk = runner->funk;
@@ -28,23 +30,16 @@ fd_runtime_fuzz_txn_ctx_create( fd_runtime_fuzz_runner_t *         runner,
 
   fd_funk_txn_start_write( funk );
   fd_funk_txn_t * funk_txn = fd_funk_txn_prepare( funk, NULL, xid, 1 );
+  *funk_txn_out = funk_txn;
   fd_funk_txn_end_write( funk );
 
-  /* Allocate contexts */
-  assert( slot_ctx  );
 
-  /* Set up slot context */
-
-  slot_ctx->funk_txn     = funk_txn;
-  slot_ctx->funk         = funk;
-
-  slot_ctx->bank = runner->bank;
-  fd_bank_clear_bank( slot_ctx->bank );
+  fd_bank_clear_bank( runner->bank );
 
   /* Restore feature flags */
 
   fd_exec_test_feature_set_t const * feature_set = &test_ctx->epoch_ctx.features;
-  fd_features_t * features_bm = fd_bank_features_modify( slot_ctx->bank );
+  fd_features_t * features_bm = fd_bank_features_modify( runner->bank );
   if( !fd_runtime_fuzz_restore_features( features_bm, feature_set ) ) {
     return NULL;
   }
@@ -53,11 +48,10 @@ fd_runtime_fuzz_txn_ctx_create( fd_runtime_fuzz_runner_t *         runner,
   ulong slot = test_ctx->slot_ctx.slot ? test_ctx->slot_ctx.slot : 10; // Arbitrary default > 0
 
   /* Set slot bank variables (defaults obtained from GenesisConfig::default() in Agave) */
-  slot_ctx->slot = slot;
-  slot_ctx->bank->slot = slot;
+  runner->bank->slot = slot;
 
   /* Initialize builtin accounts */
-  fd_builtin_programs_init( slot_ctx->bank, slot_ctx->funk, slot_ctx->funk_txn );
+  fd_builtin_programs_init( runner->bank, funk, funk_txn );
 
   /* Load account states into funk (note this is different from the account keys):
     Account state = accounts to populate Funk
@@ -71,20 +65,20 @@ fd_runtime_fuzz_txn_ctx_create( fd_runtime_fuzz_runner_t *         runner,
 
   /* Setup Bank manager */
 
-  fd_bank_prev_slot_set( slot_ctx->bank, slot_ctx->slot - 1UL );
+  fd_bank_prev_slot_set( runner->bank, slot - 1UL );
 
-  fd_bank_lamports_per_signature_set( slot_ctx->bank, 5000UL );
+  fd_bank_lamports_per_signature_set( runner->bank, 5000UL );
 
-  fd_bank_prev_lamports_per_signature_set( slot_ctx->bank, 5000UL );
+  fd_bank_prev_lamports_per_signature_set( runner->bank, 5000UL );
 
-  fd_fee_rate_governor_t * fee_rate_governor = fd_bank_fee_rate_governor_modify( slot_ctx->bank );
+  fd_fee_rate_governor_t * fee_rate_governor = fd_bank_fee_rate_governor_modify( runner->bank );
   fee_rate_governor->burn_percent                  = 50;
   fee_rate_governor->min_lamports_per_signature    = 0;
   fee_rate_governor->max_lamports_per_signature    = 0;
   fee_rate_governor->target_lamports_per_signature = 10000;
   fee_rate_governor->target_signatures_per_slot    = 20000;
 
-  fd_bank_ticks_per_slot_set( slot_ctx->bank, 64 );
+  fd_bank_ticks_per_slot_set( runner->bank, 64 );
 
   /* Set epoch bank variables if not present (defaults obtained from GenesisConfig::default() in Agave) */
   fd_epoch_schedule_t default_epoch_schedule = {
@@ -99,21 +93,21 @@ fd_runtime_fuzz_txn_ctx_create( fd_runtime_fuzz_runner_t *         runner,
                                                 .exemption_threshold         = 2.0,
                                                 .burn_percent                = 50
                                                };
-  fd_bank_epoch_schedule_set( slot_ctx->bank, default_epoch_schedule );
+  fd_bank_epoch_schedule_set( runner->bank, default_epoch_schedule );
 
-  fd_bank_rent_set( slot_ctx->bank, default_rent );
+  fd_bank_rent_set( runner->bank, default_rent );
 
-  fd_bank_slots_per_year_set( slot_ctx->bank, SECONDS_PER_YEAR * (1000000000.0 / (double)6250000) / (double)(fd_bank_ticks_per_slot_get( slot_ctx->bank )) );
+  fd_bank_slots_per_year_set( runner->bank, SECONDS_PER_YEAR * (1000000000.0 / (double)6250000) / (double)(fd_bank_ticks_per_slot_get( runner->bank )) );
 
   // Override default values if provided
   fd_epoch_schedule_t * epoch_schedule = fd_sysvar_epoch_schedule_read( funk, funk_txn, runner->spad );
   if( epoch_schedule ) {
-    fd_bank_epoch_schedule_set( slot_ctx->bank, *epoch_schedule );
+    fd_bank_epoch_schedule_set( runner->bank, *epoch_schedule );
   }
 
   fd_rent_t const * rent = fd_sysvar_rent_read( funk, funk_txn, runner->spad );
   if( rent ) {
-    fd_bank_rent_set( slot_ctx->bank, *rent );
+    fd_bank_rent_set( runner->bank, *rent );
   }
 
   /* Provide default slot hashes of size 1 if not provided */
@@ -129,7 +123,7 @@ fd_runtime_fuzz_txn_ctx_create( fd_runtime_fuzz_runner_t *         runner,
       fd_slot_hash_t * dummy_elem = deq_fd_slot_hash_t_push_tail_nocopy( slot_hashes );
       memset( dummy_elem, 0, sizeof(fd_slot_hash_t) );
 
-      fd_sysvar_slot_hashes_write( slot_ctx->bank, slot_ctx->funk, slot_ctx->funk_txn, default_slot_hashes_global );
+      fd_sysvar_slot_hashes_write( runner->bank, funk, funk_txn, default_slot_hashes_global );
 
       fd_sysvar_slot_hashes_delete( fd_sysvar_slot_hashes_leave( default_slot_hashes_global, slot_hashes ) );
     } FD_SPAD_FRAME_END;
@@ -140,27 +134,27 @@ fd_runtime_fuzz_txn_ctx_create( fd_runtime_fuzz_runner_t *         runner,
   if( !stake_history ) {
     // Provide a 0-set default entry
     fd_epoch_stake_history_entry_pair_t entry = {0};
-    fd_sysvar_stake_history_init( slot_ctx->bank, slot_ctx->funk, slot_ctx->funk_txn );
-    fd_sysvar_stake_history_update( slot_ctx->bank, slot_ctx->funk, slot_ctx->funk_txn, &entry, runner->spad );
+    fd_sysvar_stake_history_init( runner->bank, funk, funk_txn );
+    fd_sysvar_stake_history_update( runner->bank, funk, funk_txn, &entry, runner->spad );
   }
 
   /* Provide default last restart slot sysvar if not provided */
   FD_TXN_ACCOUNT_DECL( acc );
   int err = fd_txn_account_init_from_funk_readonly( acc, &fd_sysvar_last_restart_slot_id, funk, funk_txn );
   if( err==FD_ACC_MGR_ERR_UNKNOWN_ACCOUNT ) {
-    fd_sysvar_last_restart_slot_init( slot_ctx->bank, slot_ctx->funk, slot_ctx->funk_txn );
+    fd_sysvar_last_restart_slot_init( runner->bank, funk, funk_txn );
   }
 
   /* Provide a default clock if not present */
   fd_sol_sysvar_clock_t const * clock = fd_sysvar_clock_read( funk, funk_txn, runner->spad );
   if( !clock ) {
-    fd_sysvar_clock_init( slot_ctx->bank, slot_ctx->funk, slot_ctx->funk_txn );
-    fd_sysvar_clock_update( slot_ctx->bank, slot_ctx->funk, slot_ctx->funk_txn, runner->spad );
+    fd_sysvar_clock_init( runner->bank, funk, funk_txn );
+    fd_sysvar_clock_update( runner->bank, funk, funk_txn, runner->spad );
   }
 
   /* Epoch schedule and rent get set from the epoch bank */
-  fd_sysvar_epoch_schedule_init( slot_ctx->bank, slot_ctx->funk, slot_ctx->funk_txn );
-  fd_sysvar_rent_init( slot_ctx->bank, slot_ctx->funk, slot_ctx->funk_txn );
+  fd_sysvar_epoch_schedule_init( runner->bank, funk, funk_txn );
+  fd_sysvar_rent_init( runner->bank, funk, funk_txn );
 
   /* Set the epoch rewards sysvar if partition epoch rewards feature is enabled
 
@@ -175,9 +169,9 @@ fd_runtime_fuzz_txn_ctx_create( fd_runtime_fuzz_runner_t *         runner,
     fd_point_value_t point_value = {0};
     fd_hash_t const * last_hash = test_ctx->blockhash_queue_count > 0 ? (fd_hash_t const *)test_ctx->blockhash_queue[0]->bytes : (fd_hash_t const *)empty_bytes;
     fd_sysvar_epoch_rewards_init(
-        slot_ctx->bank,
-        slot_ctx->funk,
-        slot_ctx->funk_txn,
+        runner->bank,
+        funk,
+        funk_txn,
         0UL,
         2UL,
         1UL,
@@ -201,7 +195,7 @@ fd_runtime_fuzz_txn_ctx_create( fd_runtime_fuzz_runner_t *         runner,
   ulong num_blockhashes = test_ctx->blockhash_queue_count;
 
   /* Blockhash queue init */
-  fd_block_hash_queue_global_t * block_hash_queue = fd_bank_block_hash_queue_modify( slot_ctx->bank );
+  fd_block_hash_queue_global_t * block_hash_queue = fd_bank_block_hash_queue_modify( runner->bank );
   uchar * last_hash_mem = (uchar *)fd_ulong_align_up( (ulong)block_hash_queue + sizeof(fd_block_hash_queue_global_t), alignof(fd_hash_t) );
   uchar * ages_pool_mem = (uchar *)fd_ulong_align_up( (ulong)last_hash_mem + sizeof(fd_hash_t), fd_hash_hash_age_pair_t_map_align() );
   fd_hash_hash_age_pair_t_mapnode_t * ages_pool = fd_hash_hash_age_pair_t_map_join( fd_hash_hash_age_pair_t_map_new( ages_pool_mem, 400 ) );
@@ -222,37 +216,37 @@ fd_runtime_fuzz_txn_ctx_create( fd_runtime_fuzz_runner_t *         runner,
   if( rbh_global && !deq_fd_block_block_hash_entry_t_empty( rbh->hashes ) ) {
     fd_block_block_hash_entry_t const * last = deq_fd_block_block_hash_entry_t_peek_head_const( rbh->hashes );
     if( last && last->fee_calculator.lamports_per_signature!=0UL ) {
-      fd_bank_lamports_per_signature_set( slot_ctx->bank, last->fee_calculator.lamports_per_signature );
-      fd_bank_prev_lamports_per_signature_set( slot_ctx->bank, last->fee_calculator.lamports_per_signature );
+      fd_bank_lamports_per_signature_set( runner->bank, last->fee_calculator.lamports_per_signature );
+      fd_bank_prev_lamports_per_signature_set( runner->bank, last->fee_calculator.lamports_per_signature );
     }
   }
 
   // Blockhash_queue[end] = last (latest) hash
   // Blockhash_queue[0] = genesis hash
   if( num_blockhashes > 0 ) {
-    fd_hash_t * genesis_hash = fd_bank_genesis_hash_modify( slot_ctx->bank );
+    fd_hash_t * genesis_hash = fd_bank_genesis_hash_modify( runner->bank );
     memcpy( genesis_hash->hash, test_ctx->blockhash_queue[0]->bytes, sizeof(fd_hash_t) );
 
     for( ulong i = 0; i < num_blockhashes; ++i ) {
       // Recent block hashes cap is 150 (actually 151), while blockhash queue capacity is 300 (actually 301)
       fd_block_block_hash_entry_t blockhash_entry;
       memcpy( &blockhash_entry.blockhash, test_ctx->blockhash_queue[i]->bytes, sizeof(fd_hash_t) );
-      fd_bank_poh_set( slot_ctx->bank, blockhash_entry.blockhash );
-      fd_sysvar_recent_hashes_update( slot_ctx->bank, slot_ctx->funk, slot_ctx->funk_txn, runner->spad );
+      fd_bank_poh_set( runner->bank, blockhash_entry.blockhash );
+      fd_sysvar_recent_hashes_update( runner->bank, funk, funk_txn, runner->spad );
     }
   } else {
     // Add a default empty blockhash and use it as genesis
     num_blockhashes = 1;
-    fd_hash_t * genesis_hash = fd_bank_genesis_hash_modify( slot_ctx->bank );
+    fd_hash_t * genesis_hash = fd_bank_genesis_hash_modify( runner->bank );
     memcpy( genesis_hash->hash, empty_bytes, sizeof(fd_hash_t) );
     fd_block_block_hash_entry_t blockhash_entry;
     memcpy( &blockhash_entry.blockhash, empty_bytes, sizeof(fd_hash_t) );
-    fd_bank_poh_set( slot_ctx->bank, blockhash_entry.blockhash );
-    fd_sysvar_recent_hashes_update( slot_ctx->bank, slot_ctx->funk, slot_ctx->funk_txn, runner->spad );
+    fd_bank_poh_set( runner->bank, blockhash_entry.blockhash );
+    fd_sysvar_recent_hashes_update( runner->bank, funk, funk_txn, runner->spad );
   }
 
   /* Add accounts to bpf program cache */
-  fd_bpf_scan_and_create_bpf_program_cache_entry( slot_ctx->bank, slot_ctx->funk, slot_ctx->funk_txn, runner->spad );
+  fd_bpf_scan_and_create_bpf_program_cache_entry( runner->bank, funk, funk_txn, runner->spad );
 
   /* Create the raw txn (https://solana.com/docs/core/transactions#transaction-size) */
   uchar * txn_raw_begin = fd_spad_alloc( runner->spad, alignof(uchar), 1232 );
@@ -283,7 +277,7 @@ fd_runtime_fuzz_txn_ctx_create( fd_runtime_fuzz_runner_t *         runner,
    Returns the task info. */
 static fd_execute_txn_task_info_t *
 fd_runtime_fuzz_txn_ctx_exec( fd_runtime_fuzz_runner_t * runner,
-                              fd_exec_slot_ctx_t *       slot_ctx,
+                              fd_funk_txn_t *            funk_txn,
                               fd_txn_p_t *               txn ) {
   fd_execute_txn_task_info_t * task_info = fd_spad_alloc( runner->spad, alignof(fd_execute_txn_task_info_t), sizeof(fd_execute_txn_task_info_t) );
   memset( task_info, 0, sizeof(fd_execute_txn_task_info_t) );
@@ -294,7 +288,7 @@ fd_runtime_fuzz_txn_ctx_exec( fd_runtime_fuzz_runner_t * runner,
   tpool->worker_cnt = 1;
   tpool->worker_max = 1;
 
-  fd_runtime_prepare_txns_start( slot_ctx->bank, slot_ctx->funk, slot_ctx->funk_txn, task_info, txn, 1UL, runner->spad );
+  fd_runtime_prepare_txns_start( runner->bank, runner->funk, funk_txn, task_info, txn, 1UL, runner->spad );
 
   /* Setup the spad for account allocation */
   task_info->txn_ctx->spad      = runner->spad;
@@ -307,9 +301,9 @@ fd_runtime_fuzz_txn_ctx_exec( fd_runtime_fuzz_runner_t * runner,
       task_info->exec_res    = fd_execute_txn( task_info );
   }
 
-  fd_bank_execution_fees_set( slot_ctx->bank, fd_bank_execution_fees_get( slot_ctx->bank ) + task_info->txn_ctx->execution_fee );
+  fd_bank_execution_fees_set( runner->bank, fd_bank_execution_fees_get( runner->bank ) + task_info->txn_ctx->execution_fee );
 
-  fd_bank_priority_fees_set( slot_ctx->bank, fd_bank_priority_fees_get( slot_ctx->bank ) + task_info->txn_ctx->priority_fee );
+  fd_bank_priority_fees_set( runner->bank, fd_bank_priority_fees_get( runner->bank ) + task_info->txn_ctx->priority_fee );
 
   return task_info;
 }
@@ -437,19 +431,16 @@ fd_runtime_fuzz_txn_run( fd_runtime_fuzz_runner_t * runner,
 
   FD_SPAD_FRAME_BEGIN( runner->spad ) {
 
-    /* Initialize memory */
-    uchar *               slot_ctx_mem = fd_spad_alloc( runner->spad, FD_EXEC_SLOT_CTX_ALIGN,  FD_EXEC_SLOT_CTX_FOOTPRINT  );
-    fd_exec_slot_ctx_t *  slot_ctx     = fd_exec_slot_ctx_join( fd_exec_slot_ctx_new( slot_ctx_mem ) );
-
     /* Setup the transaction context */
-    fd_txn_p_t * txn = fd_runtime_fuzz_txn_ctx_create( runner, slot_ctx, input );
+    fd_funk_txn_t * funk_txn = NULL;
+    fd_txn_p_t *    txn      = fd_runtime_fuzz_txn_ctx_create( runner, &funk_txn, input );
     if( txn==NULL ) {
-      fd_runtime_fuzz_txn_ctx_destroy( runner, slot_ctx );
+      fd_runtime_fuzz_txn_ctx_destroy( runner, funk_txn );
       return 0;
     }
 
     /* Execute the transaction against the runtime */
-    fd_execute_txn_task_info_t * task_info = fd_runtime_fuzz_txn_ctx_exec( runner, slot_ctx, txn );
+    fd_execute_txn_task_info_t * task_info = fd_runtime_fuzz_txn_ctx_exec( runner, funk_txn, txn );
     fd_exec_txn_ctx_t *          txn_ctx   = task_info->txn_ctx;
 
     int exec_res = task_info->exec_res;
@@ -505,7 +496,7 @@ fd_runtime_fuzz_txn_run( fd_runtime_fuzz_runner_t * runner,
       }
 
       ulong actual_end = FD_SCRATCH_ALLOC_FINI( l, 1UL );
-      fd_runtime_fuzz_txn_ctx_destroy( runner, slot_ctx );
+      fd_runtime_fuzz_txn_ctx_destroy( runner, funk_txn );
 
       *output = txn_result;
       return actual_end - (ulong)output_buf;
@@ -609,7 +600,7 @@ fd_runtime_fuzz_txn_run( fd_runtime_fuzz_runner_t * runner,
     }
 
     ulong actual_end = FD_SCRATCH_ALLOC_FINI( l, 1UL );
-    fd_runtime_fuzz_txn_ctx_destroy( runner, slot_ctx );
+    fd_runtime_fuzz_txn_ctx_destroy( runner, funk_txn );
 
     *output = txn_result;
     return actual_end - (ulong)output_buf;
