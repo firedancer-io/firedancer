@@ -167,7 +167,7 @@ runtime_replay( fd_ledger_args_t * ledger_args ) {
 
   fd_runtime_update_leaders( ledger_args->slot_ctx->bank, fd_bank_slot_get( ledger_args->slot_ctx->bank ), ledger_args->runtime_spad );
 
-  fd_calculate_epoch_accounts_hash_values( ledger_args->slot_ctx );
+  // fd_calculate_epoch_accounts_hash_values( ledger_args->slot_ctx );
 
   long              replay_time = -fd_log_wallclock();
   ulong             txn_cnt     = 0;
@@ -517,7 +517,7 @@ fd_ledger_main_setup( fd_ledger_args_t * args ) {
   /* Finish other runtime setup steps */
   fd_features_restore( args->slot_ctx, args->runtime_spad );
   fd_runtime_update_leaders( args->slot_ctx->bank, fd_bank_slot_get( args->slot_ctx->bank ), args->runtime_spad );
-  fd_calculate_epoch_accounts_hash_values( args->slot_ctx );
+  // fd_calculate_epoch_accounts_hash_values( args->slot_ctx );
 
   /* After both snapshots have been loaded in, we can determine if we should
       start distributing rewards. */
@@ -886,36 +886,36 @@ ingest( fd_ledger_args_t * args ) {
   // }
 
   /* Load in snapshot(s) */
-  if( args->snapshot ) {
-    fd_snapshot_load_all( args->snapshot,
-                          FD_SNAPSHOT_SRC_FILE,
-                          NULL,
-                          slot_ctx,
-                          NULL,
-                          args->tpool,
-                          args->verify_acc_hash,
-                          args->check_acc_hash ,
-                          FD_SNAPSHOT_TYPE_FULL,
-                          args->exec_spads,
-                          args->exec_spad_cnt,
-                          args->runtime_spad );
-    FD_LOG_NOTICE(( "imported records from snapshot" ));
-  }
-  if( args->incremental ) {
-    fd_snapshot_load_all( args->incremental,
-                          FD_SNAPSHOT_SRC_FILE,
-                          NULL,
-                          slot_ctx,
-                          NULL,
-                          args->tpool,
-                          args->verify_acc_hash,
-                          args->check_acc_hash,
-                          FD_SNAPSHOT_TYPE_INCREMENTAL,
-                          args->exec_spads,
-                          args->exec_spad_cnt,
-                          args->runtime_spad );
-    FD_LOG_NOTICE(( "imported records from incremental snapshot" ));
-  }
+  // if( args->snapshot ) {
+  //   fd_snapshot_load_all( args->snapshot,
+  //                         FD_SNAPSHOT_SRC_FILE,
+  //                         NULL,
+  //                         slot_ctx,
+  //                         NULL,
+  //                         args->tpool,
+  //                         args->verify_acc_hash,
+  //                         args->check_acc_hash ,
+  //                         FD_SNAPSHOT_TYPE_FULL,
+  //                         args->exec_spads,
+  //                         args->exec_spad_cnt,
+  //                         args->runtime_spad );
+  //   FD_LOG_NOTICE(( "imported records from snapshot" ));
+  // }
+  // if( args->incremental ) {
+  //   fd_snapshot_load_all( args->incremental,
+  //                         FD_SNAPSHOT_SRC_FILE,
+  //                         NULL,
+  //                         slot_ctx,
+  //                         NULL,
+  //                         args->tpool,
+  //                         args->verify_acc_hash,
+  //                         args->check_acc_hash,
+  //                         FD_SNAPSHOT_TYPE_INCREMENTAL,
+  //                         args->exec_spads,
+  //                         args->exec_spad_cnt,
+  //                         args->runtime_spad );
+  //   FD_LOG_NOTICE(( "imported records from incremental snapshot" ));
+  // }
 
   if( args->genesis ) {
     fd_runtime_read_genesis( slot_ctx, args->genesis, args->snapshot != NULL, NULL, args->runtime_spad );
@@ -1057,36 +1057,36 @@ replay( fd_ledger_args_t * args ) {
      that you need to load in snapshot(s). */
 
   /* Load in snapshot(s) */
-  if( args->snapshot ) {
-    fd_snapshot_load_all( args->snapshot,
-                          FD_SNAPSHOT_SRC_FILE,
-                          NULL,
-                          args->slot_ctx,
-                          NULL,
-                          args->tpool,
-                          args->verify_acc_hash,
-                          args->check_acc_hash,
-                          FD_SNAPSHOT_TYPE_FULL,
-                          args->exec_spads,
-                          args->exec_spad_cnt,
-                          args->runtime_spad );
-    FD_LOG_NOTICE(( "imported from snapshot" ));
-    if( args->incremental ) {
-      fd_snapshot_load_all( args->incremental,
-                            FD_SNAPSHOT_SRC_FILE,
-                            NULL,
-                            args->slot_ctx,
-                            NULL,
-                            args->tpool,
-                            args->verify_acc_hash,
-                            args->check_acc_hash,
-                            FD_SNAPSHOT_TYPE_INCREMENTAL,
-                            args->exec_spads,
-                            args->exec_spad_cnt,
-                            args->runtime_spad );
-      FD_LOG_NOTICE(( "imported from snapshot" ));
-    }
-  }
+  // if( args->snapshot ) {
+  //   fd_snapshot_load_all( args->snapshot,
+  //                         FD_SNAPSHOT_SRC_FILE,
+  //                         NULL,
+  //                         args->slot_ctx,
+  //                         NULL,
+  //                         args->tpool,
+  //                         args->verify_acc_hash,
+  //                         args->check_acc_hash,
+  //                         FD_SNAPSHOT_TYPE_FULL,
+  //                         args->exec_spads,
+  //                         args->exec_spad_cnt,
+  //                         args->runtime_spad );
+  //   FD_LOG_NOTICE(( "imported from snapshot" ));
+  //   if( args->incremental ) {
+  //     fd_snapshot_load_all( args->incremental,
+  //                           FD_SNAPSHOT_SRC_FILE,
+  //                           NULL,
+  //                           args->slot_ctx,
+  //                           NULL,
+  //                           args->tpool,
+  //                           args->verify_acc_hash,
+  //                           args->check_acc_hash,
+  //                           FD_SNAPSHOT_TYPE_INCREMENTAL,
+  //                           args->exec_spads,
+  //                           args->exec_spad_cnt,
+  //                           args->runtime_spad );
+  //     FD_LOG_NOTICE(( "imported from snapshot" ));
+  //   }
+  // }
 
   FD_LOG_NOTICE(( "Used memory in spad after loading in snapshot %lu", args->runtime_spad->mem_used ));
 
