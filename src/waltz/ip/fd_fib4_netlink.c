@@ -71,6 +71,15 @@ fd_fib4_netlink_translate( fd_fib4_t *             fib,
   struct rtattr * rat    = RTM_RTA( msg );
   long            rat_sz = (long)(int)RTM_PAYLOAD( msg_hdr );
 
+  if( FD_UNLIKELY(msg->rtm_flags & RTM_F_CLONED) ) {
+    return 0;
+  }
+
+  if( FD_UNLIKELY(msg->rtm_table != RT_TABLE_UNSPEC &&
+       msg->rtm_table != table_id ) ) {
+    return 0;
+  }
+
   switch( msg->rtm_type ) {
   case RTN_UNICAST:
     hop->rtype = FD_FIB4_RTYPE_UNICAST;
