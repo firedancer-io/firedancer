@@ -596,12 +596,14 @@ fd_runtime_is_epoch_boundary( fd_bank_t * bank,
    the bank hash.
  */
 void
-fd_runtime_block_pre_execute_process_new_epoch( fd_exec_slot_ctx_t * slot_ctx,
-                                                fd_tpool_t *         tpool,
-                                                fd_spad_t * *        exec_spads,
-                                                ulong                exec_spad_cnt,
-                                                fd_spad_t *          runtime_spad,
-                                                int *                is_epoch_boundary );
+fd_runtime_block_pre_execute_process_new_epoch( fd_bank_t *     bank,
+                                                fd_funk_t *     funk,
+                                                fd_funk_txn_t * funk_txn,
+                                                fd_tpool_t *    tpool,
+                                                fd_spad_t * *   exec_spads,
+                                                ulong           exec_spad_cnt,
+                                                fd_spad_t *     runtime_spad,
+                                                int *           is_epoch_boundary );
 
 /* This function is responsible for inserting fresh entries or updating existing entries in the program cache.
    When the client boots up, the program cache is empty. As programs get invoked, this function is responsible
@@ -626,9 +628,9 @@ fd_runtime_update_program_cache( fd_exec_slot_ctx_t * slot_ctx,
 /* Debugging Tools ************************************************************/
 
 void
-fd_runtime_checkpt( fd_capture_ctx_t *   capture_ctx,
-                    fd_exec_slot_ctx_t * slot_ctx,
-                    ulong                slot );
+fd_runtime_checkpt( fd_capture_ctx_t * capture_ctx,
+                    fd_funk_t *        funk,
+                    ulong              slot );
 
 /* Block Parsing **************************************************************/
 

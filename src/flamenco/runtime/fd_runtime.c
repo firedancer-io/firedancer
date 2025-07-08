@@ -3593,7 +3593,7 @@ fd_runtime_publish_old_txns( fd_exec_slot_ctx_t * slot_ctx,
   fd_funk_txn_pool_t * txnpool    = fd_funk_txn_pool( funk );
 
   if( capture_ctx != NULL ) {
-    fd_runtime_checkpt( capture_ctx, slot_ctx, slot_ctx->slot );
+    fd_runtime_checkpt( capture_ctx, slot_ctx->funk, slot_ctx->slot );
   }
 
   int do_eah = 0;
@@ -3748,34 +3748,36 @@ fd_runtime_block_execute_tpool( fd_exec_slot_ctx_t *            slot_ctx,
 }
 
 void
-fd_runtime_block_pre_execute_process_new_epoch( fd_exec_slot_ctx_t * slot_ctx,
-                                                fd_tpool_t *         tpool,
-                                                fd_spad_t * *        exec_spads,
-                                                ulong                exec_spad_cnt,
-                                                fd_spad_t *          runtime_spad,
-                                                int *                is_epoch_boundary ) {
+fd_runtime_block_pre_execute_process_new_epoch( fd_bank_t *     bank,
+                                                fd_funk_t *     funk,
+                                                fd_funk_txn_t * funk_txn,
+                                                fd_tpool_t *    tpool,
+                                                fd_spad_t * *   exec_spads,
+                                                ulong           exec_spad_cnt,
+                                                fd_spad_t *     runtime_spad,
+                                                int *           is_epoch_boundary ) {
 
   /* Update block height. */
-  fd_bank_block_height_set( slot_ctx->bank, fd_bank_block_height_get( slot_ctx->bank ) + 1UL );
+  fd_bank_block_height_set( bank, fd_bank_block_height_get( bank ) + 1UL );
 
-  if( slot_ctx->slot != 0UL ) {
-    fd_epoch_schedule_t const * epoch_schedule = fd_bank_epoch_schedule_query( slot_ctx->bank );
+  if( bank->slot != 0UL ) {
+    fd_epoch_schedule_t const * epoch_schedule = fd_bank_epoch_schedule_query( bank );
 
     ulong             slot_idx;
-    ulong             prev_epoch = fd_slot_to_epoch( epoch_schedule, fd_bank_prev_slot_get( slot_ctx->bank ), &slot_idx );
-    ulong             new_epoch  = fd_slot_to_epoch( epoch_schedule, slot_ctx->slot, &slot_idx );
+    ulong             prev_epoch = fd_slot_to_epoch( epoch_schedule, fd_bank_prev_slot_get( bank ), &slot_idx );
+    ulong             new_epoch  = fd_slot_to_epoch( epoch_schedule, bank->slot, &slot_idx );
     if( FD_UNLIKELY( slot_idx==1UL && new_epoch==0UL ) ) {
       /* The block after genesis has a height of 1. */
-      fd_bank_block_height_set( slot_ctx->bank, 1UL );
+      fd_bank_block_height_set( bank, 1UL );
     }
 
     if( FD_UNLIKELY( prev_epoch<new_epoch || !slot_idx ) ) {
       FD_LOG_DEBUG(( "Epoch boundary" ));
       /* Epoch boundary! */
       fd_runtime_process_new_epoch(
-          slot_ctx->bank,
-          slot_ctx->funk,
-          slot_ctx->funk_txn,
+          bank,
+          funk,
+          funk_txn,
           new_epoch - 1UL,
           tpool,
           exec_spads,
@@ -3787,12 +3789,12 @@ fd_runtime_block_pre_execute_process_new_epoch( fd_exec_slot_ctx_t * slot_ctx,
     *is_epoch_boundary = 0;
   }
 
-  if( FD_LIKELY( slot_ctx->slot!=0UL ) ) {
-    fd_distribute_partitioned_epoch_rewards( slot_ctx,
-                                             tpool,
-                                             exec_spads,
-                                             exec_spad_cnt,
-                                             runtime_spad );
+  if( FD_LIKELY( bank->slot!=0UL ) ) {
+    fd_distribute_partitioned_epoch_rewards(
+        bank,
+        funk,
+        funk_txn,
+        runtime_spad );
   }
 }
 
@@ -3844,7 +3846,9 @@ fd_runtime_block_eval_tpool( fd_exec_slot_ctx_t * slot_ctx,
     }
 
     int is_epoch_boundary = 0;
-    fd_runtime_block_pre_execute_process_new_epoch( slot_ctx,
+    fd_runtime_block_pre_execute_process_new_epoch( slot_ctx->bank,
+                                                    slot_ctx->funk,
+                                                    slot_ctx->funk_txn,
                                                     tpool,
                                                     exec_spads,
                                                     exec_spad_cnt,
@@ -3927,9 +3931,9 @@ fd_runtime_block_eval_tpool( fd_exec_slot_ctx_t * slot_ctx,
 /******************************************************************************/
 
 void
-fd_runtime_checkpt( fd_capture_ctx_t *   capture_ctx,
-                    fd_exec_slot_ctx_t * slot_ctx,
-                    ulong                slot ) {
+fd_runtime_checkpt( fd_capture_ctx_t * capture_ctx,
+                    fd_funk_t *        funk,
+                    ulong              slot ) {
   int is_checkpt_freq = capture_ctx != NULL && slot % capture_ctx->checkpt_freq == 0;
   int is_abort_slot   = slot == ULONG_MAX;
   if( !is_checkpt_freq && !is_abort_slot ) {
@@ -3944,7 +3948,7 @@ fd_runtime_checkpt( fd_capture_ctx_t *   capture_ctx,
     }
 
     unlink( capture_ctx->checkpt_path );
-    int err = fd_wksp_checkpt( fd_funk_wksp( slot_ctx->funk ), capture_ctx->checkpt_path, 0666, 0, NULL );
+    int err = fd_wksp_checkpt( fd_funk_wksp( funk ), capture_ctx->checkpt_path, 0666, 0, NULL );
     if ( err ) {
       FD_LOG_ERR(( "backup failed: error %d", err ));
     }

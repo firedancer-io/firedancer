@@ -312,7 +312,7 @@ runtime_replay( fd_ledger_args_t * ledger_args ) {
                         poh_hash ));
 
       if( ledger_args->checkpt_mismatch ) {
-        fd_runtime_checkpt( ledger_args->capture_ctx, ledger_args->slot_ctx, ULONG_MAX );
+        fd_runtime_checkpt( ledger_args->capture_ctx, ledger_args->slot_ctx->funk, ULONG_MAX );
       }
       if( ledger_args->abort_on_mismatch ) {
         ret = 1;
@@ -340,7 +340,7 @@ runtime_replay( fd_ledger_args_t * ledger_args ) {
                         bank_hash ));
 
       if( ledger_args->checkpt_mismatch ) {
-        fd_runtime_checkpt( ledger_args->capture_ctx, ledger_args->slot_ctx, ULONG_MAX );
+        fd_runtime_checkpt( ledger_args->capture_ctx, ledger_args->slot_ctx->funk, ULONG_MAX );
       }
       if( ledger_args->abort_on_mismatch ) {
         ret = 1;

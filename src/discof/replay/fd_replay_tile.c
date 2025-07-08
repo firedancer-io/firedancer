@@ -636,7 +636,7 @@ funk_and_txncache_publish( fd_replay_tile_ctx_t * ctx, ulong wmk, fd_funk_txn_xi
   funk_publish( ctx, to_root_txn, wmk );
 
   if( FD_UNLIKELY( ctx->capture_ctx ) ) {
-    fd_runtime_checkpt( ctx->capture_ctx, ctx->slot_ctx, wmk );
+    fd_runtime_checkpt( ctx->capture_ctx, ctx->slot_ctx->funk, wmk );
   }
 
 }
@@ -906,7 +906,9 @@ prepare_new_block_execution( fd_replay_tile_ctx_t * ctx,
   int is_epoch_boundary = 0;
   /* TODO: Currently all of the epoch boundary/rewards logic is not
      multhreaded at the epoch boundary. */
-  fd_runtime_block_pre_execute_process_new_epoch( ctx->slot_ctx,
+  fd_runtime_block_pre_execute_process_new_epoch( ctx->slot_ctx->bank,
+                                                  ctx->slot_ctx->funk,
+                                                  ctx->slot_ctx->funk_txn,
                                                   NULL,
                                                   ctx->exec_spads,
                                                   ctx->exec_spad_cnt,

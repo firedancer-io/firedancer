@@ -53,10 +53,12 @@ fd_sysvar_epoch_rewards_read( fd_funk_t *     funk,
    we need to ensure that the cache stays updated after each change (versus with other
    sysvars which only get updated once per slot and then synced up after) */
 void
-fd_sysvar_epoch_rewards_distribute( fd_exec_slot_ctx_t * slot_ctx,
-                                    ulong                distributed,
-                                    fd_spad_t *          runtime_spad ) {
-  fd_sysvar_epoch_rewards_t * epoch_rewards = fd_sysvar_epoch_rewards_read( slot_ctx->funk, slot_ctx->funk_txn, runtime_spad );
+fd_sysvar_epoch_rewards_distribute( fd_bank_t *     bank,
+                                    fd_funk_t *     funk,
+                                    fd_funk_txn_t * funk_txn,
+                                    ulong           distributed,
+                                    fd_spad_t *     runtime_spad ) {
+  fd_sysvar_epoch_rewards_t * epoch_rewards = fd_sysvar_epoch_rewards_read( funk, funk_txn, runtime_spad );
   if( FD_UNLIKELY( epoch_rewards == NULL ) ) {
     FD_LOG_ERR(( "failed to read sysvar epoch rewards" ));
   }
@@ -71,13 +73,15 @@ fd_sysvar_epoch_rewards_distribute( fd_exec_slot_ctx_t * slot_ctx,
 
   epoch_rewards->distributed_rewards += distributed;
 
-  write_epoch_rewards( slot_ctx->bank, slot_ctx->funk, slot_ctx->funk_txn, epoch_rewards );
+  write_epoch_rewards( bank, funk, funk_txn, epoch_rewards );
 }
 
 void
-fd_sysvar_epoch_rewards_set_inactive( fd_exec_slot_ctx_t * slot_ctx,
-                                      fd_spad_t *          runtime_spad ) {
-  fd_sysvar_epoch_rewards_t * epoch_rewards = fd_sysvar_epoch_rewards_read( slot_ctx->funk, slot_ctx->funk_txn, runtime_spad );
+fd_sysvar_epoch_rewards_set_inactive( fd_bank_t *     bank,
+                                      fd_funk_t *     funk,
+                                      fd_funk_txn_t * funk_txn,
+                                      fd_spad_t *     runtime_spad ) {
+  fd_sysvar_epoch_rewards_t * epoch_rewards = fd_sysvar_epoch_rewards_read( funk, funk_txn, runtime_spad );
   if( FD_UNLIKELY( epoch_rewards == NULL ) ) {
     FD_LOG_ERR(( "failed to read sysvar epoch rewards" ));
   }
@@ -88,7 +92,7 @@ fd_sysvar_epoch_rewards_set_inactive( fd_exec_slot_ctx_t * slot_ctx,
 
   epoch_rewards->active = 0;
 
-  write_epoch_rewards( slot_ctx->bank, slot_ctx->funk, slot_ctx->funk_txn, epoch_rewards );
+  write_epoch_rewards( bank, funk, funk_txn, epoch_rewards );
 }
 
 /* Create EpochRewards sysvar with calculated rewards
