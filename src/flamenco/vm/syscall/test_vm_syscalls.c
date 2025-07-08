@@ -222,9 +222,8 @@ main( int     argc,
   input_mem_regions[3] = (fd_vm_input_region_t){ .haddr = (ulong)input + 501UL, .region_sz = 499UL, .is_writable = 1, .vaddr_offset = 501UL };
 
   fd_valloc_t valloc = fd_libc_alloc_virtual();
-  fd_exec_slot_ctx_t  * slot_ctx  = fd_valloc_malloc( valloc, FD_EXEC_SLOT_CTX_ALIGN,    FD_EXEC_SLOT_CTX_FOOTPRINT );
 
-  fd_exec_instr_ctx_t * instr_ctx = test_vm_minimal_exec_instr_ctx( valloc, slot_ctx );
+  fd_exec_instr_ctx_t * instr_ctx = test_vm_minimal_exec_instr_ctx( valloc, 0UL );
 
   int vm_ok = !!fd_vm_init(
       /* vm                 */ vm,
@@ -764,7 +763,6 @@ main( int     argc,
   fd_vm_delete    ( fd_vm_leave    ( vm  ) );
   fd_sha256_delete( fd_sha256_leave( sha ) );
   fd_rng_delete   ( fd_rng_leave   ( rng ) );
-  fd_valloc_free( valloc, slot_ctx );
   test_vm_exec_instr_ctx_delete( instr_ctx, fd_libc_alloc_virtual() );
 
   FD_LOG_NOTICE(( "pass" ));

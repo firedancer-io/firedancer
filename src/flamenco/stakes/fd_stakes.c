@@ -285,7 +285,9 @@ compute_stake_delegations_tpool_task( void  *tpool,
 
 /* Populates vote accounts with updated delegated stake from the next cached epoch stakes into temp_info */
 void
-fd_populate_vote_accounts( fd_exec_slot_ctx_t *       slot_ctx,
+fd_populate_vote_accounts( fd_bank_t *                bank,
+                           fd_funk_t *                funk,
+                           fd_funk_txn_t *            funk_txn,
                            fd_stake_history_t const * history,
                            ulong *                    new_rate_activation_epoch,
                            fd_epoch_info_t *          temp_info,
@@ -296,12 +298,12 @@ fd_populate_vote_accounts( fd_exec_slot_ctx_t *       slot_ctx,
 
 
   /* Initialize a temporary vote states cache */
-  fd_account_keys_global_t *         vote_account_keys        = fd_bank_vote_account_keys_locking_modify( slot_ctx->bank );
+  fd_account_keys_global_t *         vote_account_keys        = fd_bank_vote_account_keys_locking_modify( bank );
   fd_account_keys_pair_t_mapnode_t * vote_account_keys_pool   = fd_account_keys_account_keys_pool_join( vote_account_keys );
   fd_account_keys_pair_t_mapnode_t * vote_account_keys_root   = fd_account_keys_account_keys_root_join( vote_account_keys );
   ulong                              vote_account_keys_map_sz = vote_account_keys_pool ? fd_account_keys_pair_t_map_size( vote_account_keys_pool, vote_account_keys_root ) : 0UL;
 
-  fd_stakes_global_t const *                 stakes                      = fd_bank_stakes_locking_query( slot_ctx->bank );
+  fd_stakes_global_t const *                 stakes                      = fd_bank_stakes_locking_query( bank );
   fd_vote_accounts_global_t const *          vote_accounts               = &stakes->vote_accounts;
   fd_vote_accounts_pair_global_t_mapnode_t * vote_accounts_pool          = fd_vote_accounts_vote_accounts_pool_join( vote_accounts );
   fd_vote_accounts_pair_global_t_mapnode_t * vote_accounts_root          = fd_vote_accounts_vote_accounts_root_join( vote_accounts );
@@ -328,7 +330,7 @@ fd_populate_vote_accounts( fd_exec_slot_ctx_t *       slot_ctx,
     fd_stake_weight_t_map_insert( pool, &root, entry );
   }
 
-  fd_bank_stakes_end_locking_query( slot_ctx->bank );
+  fd_bank_stakes_end_locking_query( bank );
 
   for( fd_account_keys_pair_t_mapnode_t * n = fd_account_keys_pair_t_map_minimum( vote_account_keys_pool, vote_account_keys_root );
         n;
@@ -344,7 +346,7 @@ fd_populate_vote_accounts( fd_exec_slot_ctx_t *       slot_ctx,
     }
   }
 
-  fd_bank_vote_account_keys_end_locking_modify( slot_ctx->bank );
+  fd_bank_vote_account_keys_end_locking_modify( bank );
 
   fd_compute_stake_delegations_t task_args  = {
     .epoch                     = stakes->epoch,
@@ -374,7 +376,7 @@ fd_populate_vote_accounts( fd_exec_slot_ctx_t *       slot_ctx,
      https://github.com/anza-xyz/agave/blob/v2.2.14/runtime/src/bank/partitioned_epoch_rewards/calculation.rs#L309 */
   ulong total_epoch_stake = 0UL;
 
-  fd_vote_accounts_global_t const *          next_epoch_stakes      = fd_bank_next_epoch_stakes_locking_query( slot_ctx->bank );
+  fd_vote_accounts_global_t const *          next_epoch_stakes      = fd_bank_next_epoch_stakes_locking_query( bank );
   fd_vote_accounts_pair_global_t_mapnode_t * next_epoch_stakes_pool = fd_vote_accounts_vote_accounts_pool_join( next_epoch_stakes );
   fd_vote_accounts_pair_global_t_mapnode_t * next_epoch_stakes_root = fd_vote_accounts_vote_accounts_root_join( next_epoch_stakes );
 
@@ -383,7 +385,7 @@ fd_populate_vote_accounts( fd_exec_slot_ctx_t *       slot_ctx,
        elem = fd_vote_accounts_pair_global_t_map_successor( next_epoch_stakes_pool, elem ) ) {
     fd_pubkey_t const * vote_account_pubkey = &elem->elem.key;
     FD_TXN_ACCOUNT_DECL( acc );
-    int rc = fd_txn_account_init_from_funk_readonly( acc, vote_account_pubkey, slot_ctx->funk, slot_ctx->funk_txn );
+    int rc = fd_txn_account_init_from_funk_readonly( acc, vote_account_pubkey, funk, funk_txn );
     FD_TEST( rc == 0 );
     uchar * data     = fd_solana_account_data_join( &elem->elem.value );
     ulong   data_len = elem->elem.value.data_len;
@@ -406,9 +408,9 @@ fd_populate_vote_accounts( fd_exec_slot_ctx_t *       slot_ctx,
       FD_LOG_WARNING(( "Failed to deserialize vote account" ));
     }
   }
-  fd_bank_next_epoch_stakes_end_locking_query( slot_ctx->bank );
+  fd_bank_next_epoch_stakes_end_locking_query( bank );
 
-  fd_bank_total_epoch_stake_set( slot_ctx->bank, total_epoch_stake );
+  fd_bank_total_epoch_stake_set( bank, total_epoch_stake );
 }
 
 /*

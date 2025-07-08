@@ -1143,8 +1143,8 @@ fd_runtime_block_execute_finalize_para( fd_bank_t *                      bank,
 /* Transaction Level Execution Management                                     */
 /******************************************************************************/
 
-/* fd_runtime_prepare_txns_start is responsible for setting up the task infos,
-   the slot_ctx, and for setting up the accessed accounts. */
+/* fd_runtime_prepare_txns_start is responsible for setting up the
+   task infos and for setting up the accessed accounts. */
 
 int
 fd_runtime_prepare_txns_start( fd_bank_t *                  bank,
@@ -1338,9 +1338,6 @@ fd_runtime_finalize_txn( fd_funk_t *                  funk,
 
   /* for all accounts, if account->is_verified==true, propagate update
      to cache entry. */
-
-  /* Store transaction info including logs */
-  // fd_runtime_finalize_txns_update_blockstore_meta( slot_ctx, task_info, 1UL );
 
   /* Collect fees */
 
@@ -1738,11 +1735,9 @@ fd_update_stake_delegations( fd_bank_t *       bank,
   fd_bank_stake_account_keys_end_locking_modify( bank );
 }
 
-/* Replace the stakes in T-2 (slot_ctx->slot_bank.epoch_stakes) by the stakes at T-1 (epoch_bank->next_epoch_stakes) */
+/* Replace the stakes in T-2 by the stakes at T-1 */
 static void
 fd_update_epoch_stakes( fd_bank_t * bank ) {
-
-  /* Copy epoch_bank->next_epoch_stakes into slot_ctx->slot_bank.epoch_stakes */
 
   ulong total_sz = sizeof(fd_vote_accounts_global_t) +
                    fd_vote_accounts_pair_global_t_map_footprint( 50000UL ) +
@@ -1758,7 +1753,6 @@ fd_update_epoch_stakes( fd_bank_t * bank ) {
 
 }
 
-/* Copy epoch_bank->stakes.vote_accounts into epoch_bank->next_epoch_stakes. */
 static void
 fd_update_next_epoch_stakes( fd_bank_t * bank ) {
 
@@ -1766,8 +1760,6 @@ fd_update_next_epoch_stakes( fd_bank_t * bank ) {
      could be laid out after the stake delegations from fd_stakes.
      The correct solution is to split out the stake delgations from the
      vote accounts in fd_stakes. */
-
-  /* Copy epoch_ctx->epoch_bank->stakes.vote_accounts into epoch_bank->next_epoch_stakes */
 
   ulong total_sz = sizeof(fd_vote_accounts_global_t) +
                    fd_vote_accounts_pair_global_t_map_footprint( 50000UL ) +
@@ -2282,13 +2274,13 @@ fd_runtime_is_epoch_boundary( fd_bank_t * bank, ulong curr_slot, ulong prev_slot
   Epoch before:     T-2
 
   In this function:
-  - stakes in T-2 (slot_ctx->slot_bank.epoch_stakes) should be replaced by T-1 (epoch_bank->next_epoch_stakes)
-  - stakes at T-1 (epoch_bank->next_epoch_stakes) should be replaced by updated stakes at T (stakes->vote_accounts)
-  - leader schedule should be calculated using new T-2 stakes (slot_ctx->slot_bank.epoch_stakes)
+  - stakes in T-2 should be replaced by T-1
+  - stakes at T-1 should be replaced by updated stakes at T
+  - leader schedule should be calculated using new T-2 stakes
 
   Invariant during an epoch T:
-  epoch_bank->next_epoch_stakes    holds the stakes at T-1
-  slot_ctx->slot_bank.epoch_stakes holds the stakes at T-2
+  bank's next_epoch_stakes holds the stakes at T-1
+  bank's epoch_stakes holds the stakes at T-2
  */
 /* process for the start of a new epoch */
 static void
@@ -2335,9 +2327,10 @@ fd_runtime_process_new_epoch( fd_bank_t *     bank,
   fd_epoch_info_t temp_info = {0};
   fd_epoch_info_new( &temp_info );
 
-  /* If appropiate, use the stakes at T-1 to generate the leader schedule instead of T-2.
-      This is due to a subtlety in how Agave's stake caches interact when loading from snapshots.
-      See the comment in fd_exec_slot_ctx_recover_. */
+  /* If appropiate, use the stakes at T-1 to generate the leader
+     schedule instead of T-2. This is due to a subtlety in how Agave's
+     stake caches interact when loading from snapshots. See the comment
+     in fd_bank_recover_from_snapshot_manifest. */
 
   if( fd_bank_use_prev_epoch_stake_get( bank ) == epoch ) {
     fd_update_epoch_stakes( bank );
@@ -2408,13 +2401,13 @@ fd_runtime_process_new_epoch( fd_bank_t *     bank,
       exec_spad_cnt,
       runtime_spad );
 
-  /* Replace stakes at T-2 (slot_ctx->slot_bank.epoch_stakes) by stakes at T-1 (epoch_bank->next_epoch_stakes) */
+  /* Replace stakes at T-2 by stakes at T-1 */
   fd_update_epoch_stakes( bank );
 
-  /* Replace stakes at T-1 (epoch_bank->next_epoch_stakes) by updated stakes at T (stakes->vote_accounts) */
+  /* Replace stakes at T-1 by updated stakes at T */
   fd_update_next_epoch_stakes( bank );
 
-  /* Update current leaders using slot_ctx->slot_bank.epoch_stakes (new T-2 stakes) */
+  /* Update current leaders using new T-2 stakes */
   fd_runtime_update_leaders( bank, bank->slot, runtime_spad );
 
   FD_LOG_NOTICE(( "fd_process_new_epoch end" ));
@@ -3071,12 +3064,6 @@ fd_runtime_init_bank_from_genesis( fd_bank_t *                 bank,
       }
     }
   }
-
-  // uchar * pool_mem = fd_spad_alloc( runtime_spad, fd_vote_accounts_pair_t_map_align(), fd_vote_accounts_pair_t_map_footprint( FD_HASH_FOOTPRINT * 400 ) );
-
-  // slot_ctx->slot_bank.epoch_stakes.vote_accounts_pool = fd_vote_accounts_pair_t_map_join( fd_vote_accounts_pair_t_map_new( pool_mem, FD_HASH_FOOTPRINT * 400 ) );
-  // slot_ctx->slot_bank.epoch_stakes.vote_accounts_root = NULL;
-
 
   fd_vote_accounts_global_t * epoch_stakes = fd_bank_epoch_stakes_locking_modify( bank );
   uchar * pool_mem = (uchar *)fd_ulong_align_up( (ulong)epoch_stakes + sizeof(fd_vote_accounts_global_t), fd_vote_accounts_pair_t_map_align() );
@@ -3892,11 +3879,8 @@ fd_runtime_block_eval_tpool( fd_banks_t *         banks,
 
   } while( 0 );
 
-  // FIXME: better way of using starting slot
   if( FD_UNLIKELY( FD_RUNTIME_EXECUTE_SUCCESS != ret ) ) {
     FD_LOG_WARNING(( "execution failure, code %d", ret ));
-    /* Skip over slot next time */
-    // slot_ctx->slot = slot+1UL;
     return ret;
   }
 
@@ -3917,8 +3901,6 @@ fd_runtime_block_eval_tpool( fd_banks_t *         banks,
   fd_bank_transaction_count_set( bank, fd_bank_transaction_count_get( bank ) + block_info.txn_cnt );
 
   fd_bank_prev_slot_set( bank, slot );
-  // FIXME: this shouldn't be doing this, it doesn't work with forking. punting changing it though
-  // slot_ctx->slot = slot+1UL;
 
   return 0;
 }

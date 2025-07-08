@@ -78,9 +78,8 @@ main( int     argc,
   set_memory_region( rodata, rodata_sz );
 
   fd_valloc_t valloc = fd_libc_alloc_virtual();
-  fd_exec_slot_ctx_t  * slot_ctx  = fd_valloc_malloc( valloc, FD_EXEC_SLOT_CTX_ALIGN,    FD_EXEC_SLOT_CTX_FOOTPRINT );
 
-  fd_exec_instr_ctx_t * instr_ctx = test_vm_minimal_exec_instr_ctx( valloc, slot_ctx );
+  fd_exec_instr_ctx_t * instr_ctx = test_vm_minimal_exec_instr_ctx( valloc, 0UL );
   fd_features_enable_all( &((fd_exec_txn_ctx_t *)instr_ctx->txn_ctx)->features );
 
   int vm_ok = !!fd_vm_init(
@@ -394,7 +393,6 @@ main( int     argc,
   fd_vm_delete    ( fd_vm_leave    ( vm  ) );
   fd_sha256_delete( fd_sha256_leave( sha ) );
   fd_rng_delete   ( fd_rng_leave   ( rng ) );
-  fd_valloc_free( valloc, slot_ctx );
   test_vm_exec_instr_ctx_delete( instr_ctx, fd_libc_alloc_virtual() );
 
   FD_LOG_NOTICE(( "pass" ));

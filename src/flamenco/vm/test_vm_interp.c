@@ -225,8 +225,7 @@ test_0cu_exit( void ) {
   ulong text_cnt = 3UL;
 
   fd_valloc_t valloc = fd_libc_alloc_virtual();
-  fd_exec_slot_ctx_t  * slot_ctx  = fd_valloc_malloc( valloc, FD_EXEC_SLOT_CTX_ALIGN,    FD_EXEC_SLOT_CTX_FOOTPRINT );
-  fd_exec_instr_ctx_t * instr_ctx = test_vm_minimal_exec_instr_ctx( valloc, slot_ctx );
+  fd_exec_instr_ctx_t * instr_ctx = test_vm_minimal_exec_instr_ctx( valloc, 0UL );
 
   /* Ensure the VM exits with success if the CU count after the final
      exit instruction reaches zero. */
@@ -293,7 +292,6 @@ test_0cu_exit( void ) {
   FD_TEST( fd_vm_exec    ( vm )==FD_VM_ERR_SIGCOST );
 
   fd_vm_delete( fd_vm_leave( vm ) );
-  fd_valloc_free( valloc, slot_ctx );
   test_vm_exec_instr_ctx_delete( instr_ctx, fd_libc_alloc_virtual() );
   fd_sha256_delete( fd_sha256_leave( sha ) );
 }
@@ -451,8 +449,7 @@ main( int     argc,
   fd_sbpf_syscalls_t * syscalls = fd_sbpf_syscalls_join( fd_sbpf_syscalls_new( _syscalls ) ); FD_TEST( syscalls );
 
   fd_valloc_t valloc = fd_libc_alloc_virtual();
-  fd_exec_slot_ctx_t  * slot_ctx  = fd_valloc_malloc( valloc, FD_EXEC_SLOT_CTX_ALIGN,    FD_EXEC_SLOT_CTX_FOOTPRINT );
-  fd_exec_instr_ctx_t * instr_ctx = test_vm_minimal_exec_instr_ctx( valloc, slot_ctx );
+  fd_exec_instr_ctx_t * instr_ctx = test_vm_minimal_exec_instr_ctx( valloc, 0UL );
 
   FD_TEST( fd_vm_syscall_register( syscalls, "accumulator", accumulator_syscall )==FD_VM_SUCCESS );
 
@@ -1107,7 +1104,6 @@ main( int     argc,
   free( text );
 
   fd_sbpf_syscalls_delete( fd_sbpf_syscalls_leave( syscalls ) );
-  fd_valloc_free( valloc, slot_ctx );
   test_vm_exec_instr_ctx_delete( instr_ctx, valloc );
 
   test_static_syscalls_list();

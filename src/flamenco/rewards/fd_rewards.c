@@ -1304,7 +1304,9 @@ fd_rewards_recalculate_partitioned_rewards( fd_exec_slot_ctx_t * slot_ctx,
     fd_bank_stakes_end_locking_query( slot_ctx->bank );
 
     /* NOTE: this is just a workaround for now to correctly populate epoch_info. */
-    fd_populate_vote_accounts( slot_ctx,
+    fd_populate_vote_accounts( slot_ctx->bank,
+                               slot_ctx->funk,
+                               slot_ctx->funk_txn,
                                stake_history,
                                new_warmup_cooldown_rate_epoch,
                                &epoch_info,

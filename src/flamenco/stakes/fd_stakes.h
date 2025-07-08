@@ -82,12 +82,6 @@ write_stake_state( fd_txn_account_t *    stake_acc_rec,
                    fd_stake_state_v2_t * stake_state );
 
 void
-fd_stakes_remove_stake_delegation( fd_exec_slot_ctx_t * slot_ctx, fd_borrowed_account_t * stake_account, ulong * new_rate_activation_epoch );
-
-void
-fd_stakes_upsert_stake_delegation( fd_exec_slot_ctx_t * slot_ctx, fd_borrowed_account_t * stake_account, ulong * new_rate_activation_epoch );
-
-void
 fd_refresh_vote_accounts( fd_bank_t *                bank,
                           fd_funk_t *                funk,
                           fd_funk_txn_t *            funk_txn,
@@ -102,14 +96,16 @@ fd_refresh_vote_accounts( fd_bank_t *                bank,
 /* A workaround to mimic Agave function get_epoch_reward_calculate_param_info
    https://github.com/anza-xyz/agave/blob/v2.2.14/runtime/src/bank/partitioned_epoch_rewards/calculation.rs#L299 */
 void
-fd_populate_vote_accounts( fd_exec_slot_ctx_t *       slot_ctx,
-                          fd_stake_history_t const * history,
-                          ulong *                    new_rate_activation_epoch,
-                          fd_epoch_info_t *          temp_info,
-                          fd_tpool_t *               tpool,
-                          fd_spad_t * *              exec_spads,
-                          ulong                      exec_spad_cnt,
-                          fd_spad_t *                runtime_spad );
+fd_populate_vote_accounts( fd_bank_t *                bank,
+                           fd_funk_t *                funk,
+                           fd_funk_txn_t *            funk_txn,
+                           fd_stake_history_t const * history,
+                           ulong *                    new_rate_activation_epoch,
+                           fd_epoch_info_t *          temp_info,
+                           fd_tpool_t *               tpool,
+                           fd_spad_t * *              exec_spads,
+                           ulong                      exec_spad_cnt,
+                           fd_spad_t *                runtime_spad );
 
 void
 fd_accumulate_stake_infos( fd_bank_t *                bank,
