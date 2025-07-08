@@ -281,6 +281,7 @@ push_state_flush( fd_gossip_t *   gossip,
   FD_STORE( ulong, &state->msg[ 36UL ], state->num_crds );
   /* Send the message */
   gossip->send_fn( gossip->send_ctx, state->msg, state->msg_sz, &state->push_dest, (ulong)now );
+  gossip->metrics->packets_tx[ state->msg[ 0 ] ]++; /* might be push or pull resp */
 
   /* Reset the push state */
   state->msg_sz     = 44UL; /* 4 byte tag + 32 byte sender pubkey */
@@ -322,11 +323,11 @@ push_state_insert( fd_gossip_t *                       gossip,
                                              origin_stake,
                                              0UL, /* ignore_prunes_if_peer_is_origin TODO */
                                              out_nodes );
-    for( ulong j=0UL; j<out_nodes_cnt; j++ ) {
-      ulong idx            = out_nodes[ j ];
-      push_state_t * state = &gossip->active_push_state[ idx ];
-      push_state_append_crds( gossip,
-                              state,
+  for( ulong j=0UL; j<out_nodes_cnt; j++ ) {
+    ulong idx            = out_nodes[ j ];
+    push_state_t * state = &gossip->active_push_state[ idx ];
+    push_state_append_crds( gossip,
+                            state,
                             payload+value->value_off,
                             value->length,
                             now );
@@ -606,6 +607,7 @@ rx_pull_response( fd_gossip_t *                          gossip,
   /* TODO: use epoch_duration and make timeouts ... ? */
 
   for( ulong i=0UL; i<pull_response->crds_values_len; i++ ) {
+    gossip->metrics->total_crds_values_rx++;
     fd_gossip_view_crds_value_t const * value = &pull_response->crds_values[ i ];
 
     int checks_res = fd_crds_checks_fast( gossip->crds,
@@ -613,6 +615,7 @@ rx_pull_response( fd_gossip_t *                          gossip,
                                              payload,
                                              0 /* from_push_msg m*/ );
     if( FD_UNLIKELY( !!checks_res ) ) {
+      checks_res < 0 ? gossip->metrics->too_old++ : gossip->metrics->duplicates++;
       continue;
     }
 
@@ -633,6 +636,7 @@ rx_pull_response( fd_gossip_t *                          gossip,
     /* https://github.com/anza-xyz/agave/blob/540d5bc56cd44e3cc61b179bd52e9a782a2c99e4/gossip/src/crds_gossip_pull.rs#L340-L351 */
     if( FD_UNLIKELY( accept_after_nanos>value->wallclock_nanos &&
                      !fd_crds_contact_info_lookup( gossip->crds, origin_pubkey ) ) ) {
+      gossip->metrics->too_old++;
       uchar candidate_hash[ 32UL ];
       fd_crds_genrate_hash( payload+value->value_off, value->length, candidate_hash );
       fd_crds_insert_failed_insert( gossip->crds, candidate_hash, now );
@@ -642,6 +646,8 @@ rx_pull_response( fd_gossip_t *                          gossip,
     int err = verify_crds_value( value, payload, gossip->sha512 );
     if( FD_UNLIKELY( err!=FD_ED25519_SUCCESS ) ) {
       continue;
+    } else {
+      gossip->metrics->verified[ FD_GOSSIP_MESSAGE_PULL_RESPONSE ]++;
     }
 
     fd_crds_entry_t const * candidate = fd_crds_insert( gossip->crds,
@@ -653,6 +659,7 @@ rx_pull_response( fd_gossip_t *                          gossip,
                                                         now,
                                                         stem );
     if( FD_UNLIKELY( !candidate ) ) continue;
+    gossip->metrics->upserted++;
     if( FD_UNLIKELY( fd_crds_entry_is_contact_info( candidate ) ) ){
       fd_contact_info_t const * contact_info = fd_crds_entry_contact_info( candidate );
       fd_ip4_port_t origin_addr              = fd_contact_info_gossip_socket( contact_info );
@@ -673,11 +680,11 @@ rx_pull_response( fd_gossip_t *                          gossip,
       }
     }
     push_state_insert( gossip,
-                        value,
-                        payload,
-                        origin_pubkey,
-                        origin_stake,
-                        now );
+                       value,
+                       payload,
+                       origin_pubkey,
+                       origin_stake,
+                       now );
   }
   return 0;
 }
@@ -702,12 +709,15 @@ process_push_crds( fd_gossip_t *                       gossip,
                                         payload,
                                         1 /* from_push_msg */ );
   if( FD_UNLIKELY( !!checks_res ) ) {
+    checks_res<0 ? gossip->metrics->too_old++ : gossip->metrics->duplicates;
     return checks_res;
   }
 
   int err = verify_crds_value( value, payload, gossip->sha512 );
   if( FD_UNLIKELY( err!=FD_ED25519_SUCCESS ) ) {
     return -1;
+  } else {
+    gossip->metrics->verified[ FD_GOSSIP_MESSAGE_PUSH ]++;
   }
 
   uchar const * origin_pubkey    = payload+value->pubkey_off;
@@ -724,6 +734,8 @@ process_push_crds( fd_gossip_t *                       gossip,
                                                       now,
                                                       stem );
   if( FD_UNLIKELY( !candidate ) ) return -1;
+
+  gossip->metrics->upserted++;
   if( FD_UNLIKELY( fd_crds_entry_is_contact_info( candidate ) ) ) {
     fd_contact_info_t const * contact_info = fd_crds_entry_contact_info( candidate );
     fd_ip4_port_t origin_addr              = fd_contact_info_gossip_socket( contact_info );
@@ -829,6 +841,7 @@ rx_ping( fd_gossip_t *           gossip,
   gossip->sign_fn( gossip->sign_ctx, pre_hash_img, 48UL, PONG_SIGN_TYPE, out_pong->signature );
 
   gossip->send_fn( gossip->send_ctx, (uchar *)out_payload, sizeof(out_payload), peer_address, (ulong)now );
+  gossip->metrics->packets_tx[ FD_GOSSIP_MESSAGE_PONG ]++;
   return 0;
 }
 
@@ -904,9 +917,11 @@ fd_gossip_rx( fd_gossip_t * gossip,
     FD_LOG_WARNING(( "Failed to decode gossip message" ));
     return -1;
   }
+  gossip->metrics->packets_rx[ view->tag ]++;
 
   error = verify_signatures( view, gossip_payload, gossip->sha512 );
   if( FD_UNLIKELY( error ) ) return error;
+  // gossip->metrics->verified[ view->tag ]++;
 
   // error = filter_shred_version( gossip, message );
   // if( FD_UNLIKELY( error ) ) return error;
@@ -945,6 +960,7 @@ fd_gossip_rx( fd_gossip_t * gossip,
       FD_LOG_CRIT(( "Unknown gossip message type %d", view->tag ));
       break;
   }
+  metrics_update( gossip );
 
   return error;
 }
@@ -974,6 +990,7 @@ tx_ping( fd_gossip_t * gossip,
     gossip->sign_fn( gossip->sign_ctx, out_ping->ping_token, 32UL, GOSSIP_SIGN_TYPE, out_ping->signature );
 
     gossip->send_fn( gossip->send_ctx, out_payload, sizeof(out_payload), peer_address, (ulong)now );
+    gossip->metrics->packets_tx[ FD_GOSSIP_MESSAGE_PING ]++;
   }
 }
 
@@ -1119,6 +1136,7 @@ tx_pull_request( fd_gossip_t * gossip,
                    payload_sz,
                    &peer_addr,
                    (ulong)now );
+  gossip->metrics->packets_tx[ FD_GOSSIP_MESSAGE_PULL_REQUEST ]++;
 }
 
 static inline long
@@ -1130,7 +1148,7 @@ next_pull_request( fd_gossip_t const * gossip,
      reduces 1024 to a lower amount as the table size shrinks...
      replicate this in the frequency domain. */
   /* TODO: Jitter */
-  return now+200L*1000L;
+  return now+1600L*1000L;
 }
 
 static inline void
@@ -1148,6 +1166,48 @@ rotate_active_set( fd_gossip_t * gossip,
                   gossip->identity_pubkey,
                   fd_contact_info_gossip_socket( new_peer ) );
 
+}
+
+
+
+static inline void
+metrics_print( fd_gossip_t * gossip ){
+  static fd_gossip_metrics_t prev_metrics[ 1 ];
+  fd_gossip_metrics_t *      metrics = gossip->metrics;
+
+  FD_LOG_NOTICE(( "========== GOSSIP METRICS ==========" ));
+  FD_LOG_NOTICE(( "Table size\t\t: %lu",     metrics->table_size ));
+  FD_LOG_NOTICE(( "Purged size\t\t: %lu",    metrics->purged_size ));
+  FD_LOG_NOTICE(( "Num peers\t\t: %lu",      fd_crds_peer_count( gossip->crds ) ));
+  FD_LOG_NOTICE(( "CRDS Rx\t\t: %lu",        metrics->total_crds_values_rx - prev_metrics->total_crds_values_rx ));
+  FD_LOG_NOTICE(( "CRDS Upserts\t\t: %lu",   metrics->upserted - prev_metrics->upserted ));
+  FD_LOG_NOTICE(( "CRDS Duplicates\t: %lu",  metrics->duplicates - prev_metrics->duplicates ));
+  FD_LOG_NOTICE(( "CRDS Too Old\t\t: %lu",   metrics->too_old - prev_metrics->too_old ));
+
+  FD_LOG_NOTICE(( "-------- Packets Received --------" ));
+  FD_LOG_NOTICE(( "Pull Requests\t: %lu",   metrics->packets_rx[ 0U ] - prev_metrics->packets_rx[ 0U ] ));
+  FD_LOG_NOTICE(( "Pull Responses\t: %lu",  metrics->packets_rx[ 1U ] - prev_metrics->packets_rx[ 1U ] ));
+  FD_LOG_NOTICE(( "Pushes\t\t: %lu",        metrics->packets_rx[ 2U ] - prev_metrics->packets_rx[ 2U ] ));
+  FD_LOG_NOTICE(( "Pings\t\t: %lu",         metrics->packets_rx[ 4U ] - prev_metrics->packets_rx[ 4U ] ));
+  FD_LOG_NOTICE(( "Pongs\t\t: %lu",         metrics->packets_rx[ 5U ] - prev_metrics->packets_rx[ 5U ] ));
+
+  // FD_LOG_NOTICE(( "-------- Packets verified ---------" ));
+  // FD_LOG_NOTICE(( "Pull Requests\t\t: %lu",   metrics->verified[ 0U ] - prev_metrics->verified[ 0U ] ));
+  // FD_LOG_NOTICE(( "Pull Responses\t: %lu",  metrics->verified[ 1U ] - prev_metrics->verified[ 1U ] ));
+  // FD_LOG_NOTICE(( "Pushes\t\t: %lu",        metrics->verified[ 2U ] - prev_metrics->verified[ 2U ] ));
+  // // FD_LOG_NOTICE(( "Prunes\t\t: %lu", metrics->verified[ 3U ] - prev_metrics->verified[ 3U ] ));
+  // FD_LOG_NOTICE(( "Pings\t\t\t: %lu",         metrics->verified[ 4U ] - prev_metrics->verified[ 4U ] ));
+  // FD_LOG_NOTICE(( "Pongs\t\t\t: %lu",         metrics->verified[ 5U ] - prev_metrics->verified[ 5U ] ));
+
+  FD_LOG_NOTICE(( "---------- Packets Sent ----------" ));
+  FD_LOG_NOTICE(( "Pull Requests\t: %lu",   metrics->packets_tx[ 0U ] - prev_metrics->packets_tx[ 0U ] ));
+  FD_LOG_NOTICE(( "Pull Responses\t: %lu",  metrics->packets_tx[ 1U ] - prev_metrics->packets_tx[ 1U ] ));
+  FD_LOG_NOTICE(( "Pushes\t\t: %lu",        metrics->packets_tx[ 2U ] - prev_metrics->packets_tx[ 2U ] ));
+  // FD_LOG_NOTICE(( "Prunes\t\t: %lu", metrics->packets_tx[ 3U ] - prev_metrics->packets_tx[ 3U ] ));
+  FD_LOG_NOTICE(( "Pings\t\t: %lu",         metrics->packets_tx[ 4U ] - prev_metrics->packets_tx[ 4U ] ));
+  FD_LOG_NOTICE(( "Pongs\t\t: %lu",         metrics->packets_tx[ 5U ] - prev_metrics->packets_tx[ 5U ] ));
+
+  *prev_metrics = *metrics;
 }
 
 
@@ -1171,6 +1231,11 @@ fd_gossip_advance( fd_gossip_t *       gossip,
     rotate_active_set( gossip, now );
     gossip->timers.next_active_set_refresh = now+300L*1000L*1000L; /* TODO: Jitter */
   }
+  if( FD_UNLIKELY( now>=gossip->timers.next_metrics_print ) ) {
+    metrics_print( gossip );
+    gossip->timers.next_metrics_print = now+10L*1000L*1000L*1000L;; /* TODO: Jitter */
+  }
+
   if( FD_UNLIKELY( now>=gossip->timers.next_flush_push_state ) ) {
     for( ulong i=0UL; i<FD_ACTIVE_SET_MAX_PEERS; i++ ) {
       if( !gossip->active_push_state[ i ].push_dest.l ) continue;

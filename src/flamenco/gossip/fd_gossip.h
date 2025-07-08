@@ -63,6 +63,16 @@ struct fd_gossip_metrics {
   ulong purged_size;
 
   ulong failed_size;
+
+  ulong packets_rx[ 6UL ];
+  ulong verified  [ 6UL ];
+
+  ulong packets_tx[ 6UL ];
+
+  ulong total_crds_values_rx;
+  ulong upserted;
+  ulong duplicates;
+  ulong too_old;
 };
 
 typedef struct fd_gossip_metrics fd_gossip_metrics_t;
