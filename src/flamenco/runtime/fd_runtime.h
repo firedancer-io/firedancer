@@ -680,11 +680,13 @@ fd_runtime_block_execute_tpool( fd_exec_slot_ctx_t *            slot_ctx,
 /* Genesis ********************************************************************/
 
 void
-fd_runtime_read_genesis( fd_exec_slot_ctx_t * slot_ctx,
-                         char const *         genesis_filepath,
-                         uchar                is_snapshot,
-                         fd_capture_ctx_t *   capture_ctx,
-                         fd_spad_t *          spad );
+fd_runtime_read_genesis( fd_bank_t *        bank,
+                         fd_funk_t *        funk,
+                         fd_funk_txn_t * *  funk_txn_out,
+                         char const *       genesis_filepath,
+                         uchar              is_snapshot,
+                         fd_capture_ctx_t * capture_ctx,
+                         fd_spad_t *        spad );
 
 FD_PROTOTYPES_END
 

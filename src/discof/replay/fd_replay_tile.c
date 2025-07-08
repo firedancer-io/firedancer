@@ -1550,11 +1550,14 @@ init_snapshot( fd_replay_tile_ctx_t * ctx,
     replay_plugin_publish( ctx, stem, FD_PLUGIN_MSG_START_PROGRESS, msg, sizeof(msg) );
   }
 
-  fd_runtime_read_genesis( ctx->slot_ctx,
-                           ctx->genesis,
-                           is_snapshot,
-                           ctx->capture_ctx,
-                           ctx->runtime_spad );
+  fd_runtime_read_genesis(
+      ctx->slot_ctx->bank,
+      ctx->slot_ctx->funk,
+      &ctx->slot_ctx->funk_txn,
+      ctx->genesis,
+      is_snapshot,
+      ctx->capture_ctx,
+      ctx->runtime_spad );
   /* We call this after fd_runtime_read_genesis, which sets up the
      slot_bank needed in blockstore_init. */
   /* FIXME: We should really only call this once. */

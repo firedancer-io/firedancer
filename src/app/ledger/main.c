@@ -921,7 +921,7 @@ ingest( fd_ledger_args_t * args ) {
   }
 
   if( args->genesis ) {
-    fd_runtime_read_genesis( slot_ctx, args->genesis, args->snapshot != NULL, NULL, args->runtime_spad );
+    fd_runtime_read_genesis( slot_ctx->bank, slot_ctx->funk, &slot_ctx->funk_txn, args->genesis, args->snapshot != NULL, NULL, args->runtime_spad );
   }
 
   /* At this point the account state has been ingested into funk. Intake rocksdb */
@@ -1099,7 +1099,7 @@ replay( fd_ledger_args_t * args ) {
   fd_ledger_capture_setup( args );
 
   if( args->genesis ) {
-    fd_runtime_read_genesis( args->slot_ctx, args->genesis, args->snapshot != NULL, args->capture_ctx, args->runtime_spad );
+    fd_runtime_read_genesis( args->slot_ctx->bank, args->slot_ctx->funk, &args->slot_ctx->funk_txn, args->genesis, args->snapshot != NULL, args->capture_ctx, args->runtime_spad );
   }
 
   fd_ledger_main_setup( args );
