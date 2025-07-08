@@ -245,17 +245,12 @@ user = ""
 
 # TODO: Relocate and document.
 [blockstore]
-    shred_max = 16384
-    block_max = 512
-    txn_max = 1048576
+    shred_max = 16_777_216
+    block_max = 4096
     idx_max = 512
-    alloc_max = 10737418240
-    file = "/tmp/default.blockstore"
+    alloc_max = 107_374_182_400
 
 [consensus]
-    # TODO: ???
-    vote = true
-
     # The shred version is a small hash of the genesis block and any
     # subsequent hard forks.  The validator client uses it to filter
     # out any shred traffic from validators that disagree with this
@@ -265,6 +260,29 @@ user = ""
     # automatically determined by copying the shred version that the
     # entrypoint validator is using.
     expected_shred_version = 0
+
+# This section configures the "funk" account database.  Currently, funk
+# stores all Solana accounts.  In future versions of Firedancer, most
+# accounts will be offloaded to the "groove" database.
+[funk]
+    # The size of the funk heap in gigabytes.  This value must be large
+    # enough to store all Solana accounts uncompressed.
+    heap_size_gib = 140
+
+    # The max amount of records that the funk instance can store.
+    # Each Solana account uses at least one record.  Additional records
+    # are used for account changes that are not yet finalized by
+    # consensus (typically takes 13 seconds).
+    max_account_records = 150_000_000
+
+    # The max amount of concurrent database transactions.  These are
+    # used to track conflicting versions of accounts until such
+    # conflicts are resolved by the consensus algorithm.  (Not to be
+    # confused with Solana transactions).
+    # The validator uses one database transaction for each Solana block
+    # that is not yet finalized.  It is not recommended to change this
+    # setting.
+    max_database_transactions = 2048
 
 [runtime]
     # Specifies the size in gigibytes of the runtime heap allocator.
@@ -293,29 +311,6 @@ user = ""
         snapshot_grace_period_seconds = 409
         max_vote_accounts = 2000000
         max_banks = 64
-
-# This section configures the "funk" account database.  Currently, funk
-# stores all Solana accounts.  In future versions of Firedancer, most
-# accounts will be offloaded to the "groove" database.
-[funk]
-    # The max amount of records that the funk instance can store.
-    # Each Solana account uses at least one record.  Additional records
-    # are used for account changes that are not yet finalized by
-    # consensus (typically takes 13 seconds).
-    max_account_records = 10_000_000
-
-    # The size of the funk heap in gigabytes.  This value must be large
-    # enough to store all Solana accounts uncompressed.
-    heap_size_gib = 32
-
-    # The max amount of concurrent database transactions.  These are
-    # used to track conflicting versions of accounts until such
-    # conflicts are resolved by the consensus algorithm.  (Not to be
-    # confused with Solana transactions).
-    # The validator uses one database transaction for each Solana block
-    # that is not yet finalized.  It is not recommended to change this
-    # setting.
-    max_database_transactions = 1024
 
 # This section configures the "groove" persistent account database.
 # [groove]
