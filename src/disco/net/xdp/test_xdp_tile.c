@@ -101,11 +101,11 @@ main( int     argc,
   FD_TEST( tx_link->mcache );
 
   /* Fib4 Routing Table setup */
-  ulong const fib4_max  = 8UL;
-  void * fib4_local_mem = fd_wksp_alloc_laddr( wksp, fd_fib4_align(), fd_fib4_footprint( fib4_max ), WKSP_TAG );
-  void * fib4_main_mem  = fd_wksp_alloc_laddr( wksp, fd_fib4_align(), fd_fib4_footprint( fib4_max ), WKSP_TAG );
-  FD_TEST( fd_fib4_new( fib4_local_mem, fib4_max ) );
-  FD_TEST( fd_fib4_new( fib4_main_mem,  fib4_max ) );
+  ulong const fib4_max      = 16UL;
+  void * fib4_local_mem     = fd_wksp_alloc_laddr( wksp, fd_fib4_align(), fd_fib4_footprint( fib4_max,fib4_max  ), WKSP_TAG );
+  void * fib4_main_mem      = fd_wksp_alloc_laddr( wksp, fd_fib4_align(), fd_fib4_footprint( fib4_max, fib4_max ), WKSP_TAG );
+  FD_TEST( fd_fib4_new( fib4_local_mem, fib4_max, fib4_max, 12345UL ) );
+  FD_TEST( fd_fib4_new( fib4_main_mem,  fib4_max, fib4_max, 12345UL ) );
   fd_topo_obj_t * topo_fib4_local = fd_topob_obj( topo, "fib4", "wksp" );
   fd_topo_obj_t * topo_fib4_main  = fd_topob_obj( topo, "fib4", "wksp" );
   topo_fib4_local->offset = (ulong)fib4_local_mem - (ulong)wksp;
@@ -279,30 +279,37 @@ main( int     argc,
   /* Basic routing tables */
   fd_fib4_t * fib_local = fd_fib4_join( fib4_local_mem ); FD_TEST( fib_local );
   fd_fib4_t * fib_main  = fd_fib4_join( fib4_main_mem  ); FD_TEST( fib_main  );
-  *fd_fib4_append( fib_local, FD_IP4_ADDR( 127,0,0,1 ), 32, 0U ) = (fd_fib4_hop_t) {
+
+  fd_fib4_hop_t hop1 = (fd_fib4_hop_t) {
     .if_idx  = IF_IDX_LO,
     .ip4_src = FD_IP4_ADDR( 127,0,0,1 ),
     .rtype   = FD_FIB4_RTYPE_LOCAL
   };
-  *fd_fib4_append( fib_main, FD_IP4_ADDR( 0,0,0,0 ), 0, 0U ) = (fd_fib4_hop_t) {
+  fd_fib4_hop_t hop2 = (fd_fib4_hop_t) {
     .if_idx  = IF_IDX_ETH1,
     .rtype   = FD_FIB4_RTYPE_UNICAST,
     .ip4_gw  = gw_ip4_addr
   };
-  *fd_fib4_append( fib_main, banned_ip4_addr, 32, 0U ) = (fd_fib4_hop_t) {
-    .if_idx  = IF_IDX_ETH0,
-    .rtype   = FD_FIB4_RTYPE_BLACKHOLE
-  };
-  *fd_fib4_append( fib_main, gre_outer_dst_ip, 32, 0U ) = (fd_fib4_hop_t) {
+  fd_fib4_hop_t hop3 = (fd_fib4_hop_t) {
     .if_idx  = IF_IDX_ETH0,
     .rtype   = FD_FIB4_RTYPE_UNICAST,
     .ip4_src = gre_outer_src_ip_fake
   };
-  *fd_fib4_append( fib_main, gre_dst_ip, 32, 0) = (fd_fib4_hop_t) {
+  fd_fib4_hop_t hop4 = (fd_fib4_hop_t) {
     .if_idx  = IF_IDX_GRE,
     .rtype   = FD_FIB4_RTYPE_UNICAST,
     .ip4_src = gre_src_ip
   };
+  fd_fib4_hop_t hop5 = (fd_fib4_hop_t) {
+    .if_idx  = IF_IDX_ETH0,
+    .rtype   = FD_FIB4_RTYPE_BLACKHOLE
+  };
+
+  FD_TEST( fd_fib4_insert( fib_local, FD_IP4_ADDR( 127,0,0,1 ), 32, 0U, &hop1 ) );
+  FD_TEST( fd_fib4_insert( fib_main,  FD_IP4_ADDR( 0,0,0,0 ), 0, 0U, &hop2 ) );
+  FD_TEST( fd_fib4_insert( fib_main,  gre_outer_dst_ip, 32, 0U, &hop3 ) );
+  FD_TEST( fd_fib4_insert( fib_main,  gre_dst_ip, 32, 0U, &hop4 ) );
+  FD_TEST( fd_fib4_insert( fib_main,  banned_ip4_addr, 32, 0U, &hop5 ) );
   ctx->fib_local = fib_local;
   ctx->fib_main = fib_main;
 

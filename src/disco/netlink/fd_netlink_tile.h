@@ -35,6 +35,7 @@ void
 fd_netlink_topo_create( fd_topo_tile_t * netlink_tile,
                         fd_topo_t *      topo,
                         ulong            netlnk_max_routes,
+                        ulong            netlnk_max_peer_routes,
                         ulong            netlnk_max_neighbors,
                         char const *     bind_interface );
 

@@ -1013,8 +1013,15 @@ dynamic_port_range = "8900-9000"
         # decrease performance.
         #
         # For virtually all cloud and bare-metal server providers, the
-        # number of routes per table does not exceed 16.
+        # number of routes per table does not exceed 16, excluding the
+        # /32 routes, see below.
         max_routes = 128
+
+        # This setting configures the maximum number of IPv4 routes with a
+        # /32 netmask per route table. This setting is relevant for Double Zero
+        # accelerated networking, which uses one /32 route per peer on the
+        # network. The number of /32 routes should not exceed 100,000.
+        max_peer_routes = 8192
 
         # The maximum number of Ethernet neighbors.
         #
