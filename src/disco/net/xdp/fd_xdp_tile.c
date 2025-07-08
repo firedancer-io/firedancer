@@ -360,7 +360,7 @@ net_is_fatal_xdp_error( int err ) {
 static void
 net_load_netdev_tbl( fd_net_ctx_t * ctx ) {
   /* Copy from double buffer */
-  if( FD_UNLIKELY( fd_dbl_buf_read( ctx->netdev_dbl_handle, ctx->netdev_buf_sz, ctx->netdev_buf, NULL ) ) == 0)  FD_LOG_ERR(("netdev table load failed"));
+  if( FD_UNLIKELY( !fd_dbl_buf_read( ctx->netdev_dbl_handle, ctx->netdev_buf_sz, ctx->netdev_buf, NULL ) ) )  FD_LOG_ERR(("netdev table load failed"));
 
   /* Recalculate the join handler to netdeb buf */
   if( FD_UNLIKELY( !fd_netdev_tbl_join( &ctx->netdev_tbl_handle, ctx->netdev_buf ) ) ) FD_LOG_ERR(("netdev table join failed"));
@@ -648,8 +648,8 @@ before_frag( fd_net_ctx_t * ctx,
     ctx->tx_op.src_ip  = 0;
     ctx->tx_op.use_gre = 0;
     if( FD_UNLIKELY( !net_tx_route( ctx, ctx->tx_op.gre_outer_dst_ip ) ) ) {
-    return 1; /* metrics incremented by net_tx_route */
-  }
+      return 1; /* metrics incremented by net_tx_route */
+    }
     if( ctx->tx_op.use_gre==1 ) {
       /* Only one layer of tunnelling supported */
       ctx->metrics.tx_route_fail_cnt++;
@@ -798,8 +798,13 @@ after_frag( fd_net_ctx_t *      ctx,
 
   /* Construct (inner) ip header */
   uint   ihl         = FD_IP4_GET_LEN( *(fd_ip4_hdr_t *)iphdr );
+  uint   ver         = FD_IP4_GET_VERSION( *(fd_ip4_hdr_t *)iphdr );
   uint   ip4_saddr   = FD_LOAD( uint, iphdr+12 );
   ushort ethertype   = FD_LOAD( ushort, frame+12 );
+  if( ethertype==fd_ushort_bswap( FD_ETH_HDR_TYPE_IP ) && ver!=0x4 ) {
+    ctx->metrics.tx_route_fail_cnt++; // Not an IPv4 packet. drop
+    return;
+  }
 
   if( ethertype==fd_ushort_bswap( FD_ETH_HDR_TYPE_IP ) && ip4_saddr==0 ) {
     if( FD_UNLIKELY( ctx->tx_op.src_ip==0 ||
@@ -853,59 +858,63 @@ net_rx_packet( fd_net_ctx_t * ctx,
                ulong          sz,
                uint *         freed_chunk ) {
 
-  uchar *       packet       = (uchar *)ctx->umem_frame0 + umem_off;
-  uchar const * packet_end   = packet + sz;
-  uchar *       iphdr        = packet + 14U;
-
-  /* Discard the GRE overhead (outer iphdr and gre hdr) */
-  if( iphdr[9] == FD_IP4_HDR_PROTOCOL_GRE ) {
-
-    if( FD_UNLIKELY( ctx->has_gre_interface==0 ) ) return;   // drop
-
-    ulong overhead           = FD_IP4_GET_LEN( *(fd_ip4_hdr_t *)iphdr ) + sizeof(fd_gre_hdr_t);
-
-    /* The new iphdr is where the inner iphdr was */
-    iphdr                    += overhead;
-
-    /* Copy over the eth_hdr */
-    fd_eth_hdr_t * new_packet = (fd_eth_hdr_t *)( (char *)iphdr - sizeof(fd_eth_hdr_t) );
-    fd_memcpy( new_packet, packet, sizeof(fd_eth_hdr_t) );
-
-    sz                        -= overhead;
-    packet                    = (uchar *)new_packet;
-    umem_off                  = (ulong)( packet - (uchar *)ctx->umem_frame0 );
+  if( FD_UNLIKELY( sz<sizeof(fd_eth_hdr_t)+sizeof(fd_ip4_hdr_t)+sizeof(fd_udp_hdr_t) ) ) {
+    FD_DTRACE_PROBE( net_tile_err_rx_undersz );
+    ctx->metrics.rx_undersz_cnt++;
+    return;
   }
 
+  uchar        * packet     = (uchar *)ctx->umem_frame0 + umem_off;
+  uchar const  * packet_end = packet + sz;
+  fd_ip4_hdr_t * iphdr      = (fd_ip4_hdr_t *)(packet + sizeof(fd_eth_hdr_t));
+
+  if( FD_UNLIKELY( ((fd_eth_hdr_t *)packet)->net_type!=fd_ushort_bswap( FD_ETH_HDR_TYPE_IP ) ) ) return;
+
+  /* Discard the GRE overhead (outer iphdr and gre hdr) */
+  if( iphdr->protocol == FD_IP4_HDR_PROTOCOL_GRE ) {
+    if( FD_UNLIKELY( ctx->has_gre_interface==0 ) ) return;         // drop. No gre interface in netdev table
+    if( FD_UNLIKELY( FD_IP4_GET_VERSION( *iphdr )!=0x4 ) ) return; // drop. IP version!=IPv4
+
+    ulong overhead  = FD_IP4_GET_LEN( *iphdr ) + sizeof(fd_gre_hdr_t);
+
+    if( FD_UNLIKELY( (uchar *)iphdr+overhead+sizeof(fd_ip4_hdr_t)>packet_end ) ) {
+      FD_DTRACE_PROBE( net_tile_err_rx_undersz );
+      ctx->metrics.rx_undersz_cnt++;  // inner ip4 header invalid
+      return;
+    }
+
+    /* The new iphdr is where the inner iphdr was. Copy over the eth_hdr */
+    iphdr              = (fd_ip4_hdr_t *)((uchar *)iphdr + overhead);
+    uchar * new_packet = (uchar *)iphdr - sizeof(fd_eth_hdr_t);
+    fd_memcpy( new_packet, packet, sizeof(fd_eth_hdr_t) );
+    sz                 -= overhead;
+    packet             = new_packet;
+    umem_off           = (ulong)( packet - (uchar *)ctx->umem_frame0 );
+  }
 
   /* Translate packet to UMEM frame index */
   ulong chunk       = ctx->umem_chunk0 + (umem_off>>FD_CHUNK_LG_SZ);
   ulong ctl         = umem_off & 0x3fUL;
 
-
-  /* Filter for UDP/IPv4 packets. Test for ethtype and ipproto in 1
-     branch */
-  uint test_ethip  = ( (uint)packet[12] << 16u ) | ( (uint)packet[13] << 8u ) | (uint)packet[23];
-  if( FD_UNLIKELY( test_ethip!=0x080011 ) ) {
-    FD_LOG_ERR(( "Firedancer received a packet from the XDP program that was either "
-                  "not an IPv4 packet, or not a UDP packet. It is likely your XDP program "
-                  "is not configured correctly." ));
-  }
+  /* Filter for UDP/IPv4 packets. */
+  if( FD_UNLIKELY( ( FD_IP4_GET_VERSION( *iphdr )!=0x4 ) ||
+                   ( iphdr->protocol!=FD_IP4_HDR_PROTOCOL_UDP ) ) ) return;
 
   /* IPv4 is variable-length, so lookup IHL to find start of UDP */
-  uint iplen        = FD_IP4_GET_LEN( *(fd_ip4_hdr_t *)iphdr );
-  uchar const * udp = iphdr + iplen;
+  uint iplen        = FD_IP4_GET_LEN( *iphdr );
+  uchar const * udp = (uchar *)iphdr + iplen;
 
-  /* Ignore if UDP header is too short */
-  if( FD_UNLIKELY( udp+8U > packet_end ) ) {
+  if( FD_UNLIKELY( udp+sizeof(fd_udp_hdr_t) > packet_end ) ) {
     FD_DTRACE_PROBE( net_tile_err_rx_undersz );
     ctx->metrics.rx_undersz_cnt++;
     return;
   }
 
   /* Extract IP dest addr and UDP src/dest port */
-  uint ip_srcaddr    =                  *(uint   *)( iphdr+12UL );
-  ushort udp_srcport = fd_ushort_bswap( *(ushort *)( udp+0UL    ) );
-  ushort udp_dstport = fd_ushort_bswap( *(ushort *)( udp+2UL    ) );
+  fd_udp_hdr_t * udp_hdr = (fd_udp_hdr_t *)udp;
+  uint ip_srcaddr        = iphdr->saddr;
+  ushort udp_srcport     = fd_ushort_bswap( udp_hdr->net_sport );
+  ushort udp_dstport     = fd_ushort_bswap( udp_hdr->net_dport );
 
   FD_DTRACE_PROBE_4( net_tile_pkt_rx, ip_srcaddr, udp_srcport, udp_dstport, sz );
 
