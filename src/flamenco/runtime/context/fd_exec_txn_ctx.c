@@ -287,8 +287,7 @@ fd_exec_txn_account_is_writable_idx_flat( const ulong           slot,
   /* See comments in fd_system_ids.h.
      https://github.com/anza-xyz/agave/blob/v2.1.11/sdk/program/src/message/sanitized.rs#L44 */
   if( fd_pubkey_is_active_reserved_key( addr_at_idx ) ||
-      ( FD_FEATURE_ACTIVE( slot, features, add_new_reserved_account_keys ) &&
-                           fd_pubkey_is_pending_reserved_key( addr_at_idx ) ) ||
+      fd_pubkey_is_pending_reserved_key( addr_at_idx ) ||
       ( FD_FEATURE_ACTIVE( slot, features, enable_secp256r1_precompile ) &&
                            fd_pubkey_is_secp256r1_key( addr_at_idx ) ) ) {
 

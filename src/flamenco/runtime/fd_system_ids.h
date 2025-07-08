@@ -60,7 +60,7 @@ extern const fd_pubkey_t fd_solana_migration_authority;
 
    To verify that the pubkey is a reserved key, the caller will need to check that either:
      1. The pubkey is in the set of active reserved keys
-     2. The pubkey is in the set of pending reserved keys, AND the `add_new_reserved_account_keys` feature is active.
+     2. The pubkey is in the set of pending reserved keys.
      3. The pubkey is the secp256r1 program id, AND the `enable_secp256r1_precompile` feature is active.
 
    If a pubkey is a reserved key, it will not be added to Agave's message writable accounts cache and thus

@@ -3166,24 +3166,19 @@ fd_stake_program_execute( fd_exec_instr_ctx_t * ctx ) {
    * https://github.com/anza-xyz/agave/blob/cdff19c7807b006dd63429114fb1d9573bf74172/programs/stake/src/stake_instruction.rs#L356
    */
   case fd_stake_instruction_enum_move_stake: {
-    // https://github.com/anza-xyz/agave/blob/cdff19c7807b006dd63429114fb1d9573bf74172/programs/stake/src/stake_instruction.rs#L359
-    if( FD_LIKELY( FD_FEATURE_ACTIVE_BANK( ctx->txn_ctx->bank, move_stake_and_move_lamports_ixs ) ) ) {
-      // https://github.com/anza-xyz/agave/blob/cdff19c7807b006dd63429114fb1d9573bf74172/programs/stake/src/stake_instruction.rs#L361
-      if( FD_UNLIKELY( ctx->instr->acct_cnt<3 ) )
-        return FD_EXECUTOR_INSTR_ERR_NOT_ENOUGH_ACC_KEYS;
+    // https://github.com/anza-xyz/agave/blob/cdff19c7807b006dd63429114fb1d9573bf74172/programs/stake/src/stake_instruction.rs#L361
+    if( FD_UNLIKELY( ctx->instr->acct_cnt<3 ) )
+      return FD_EXECUTOR_INSTR_ERR_NOT_ENOUGH_ACC_KEYS;
 
-      ulong lamports = instruction->inner.move_stake;
-      // https://github.com/anza-xyz/agave/blob/cdff19c7807b006dd63429114fb1d9573bf74172/programs/stake/src/stake_instruction.rs#L362
-      rc = move_stake( ctx,
-                       0UL,
-                       lamports,
-                       1UL,
-                       2UL,
-                       &ctx->txn_ctx->custom_err );
-    } else {
-      // https://github.com/anza-xyz/agave/blob/cdff19c7807b006dd63429114fb1d9573bf74172/programs/stake/src/stake_instruction.rs#L372
-      return FD_EXECUTOR_INSTR_ERR_INVALID_INSTR_DATA;
-    }
+    ulong lamports = instruction->inner.move_stake;
+    // https://github.com/anza-xyz/agave/blob/cdff19c7807b006dd63429114fb1d9573bf74172/programs/stake/src/stake_instruction.rs#L362
+    rc = move_stake( ctx,
+                     0UL,
+                     lamports,
+                     1UL,
+                     2UL,
+                     &ctx->txn_ctx->custom_err );
+
     break;
   }
   /* MoveLamports
@@ -3195,25 +3190,20 @@ fd_stake_program_execute( fd_exec_instr_ctx_t * ctx ) {
    * https://github.com/anza-xyz/agave/blob/cdff19c7807b006dd63429114fb1d9573bf74172/programs/stake/src/stake_instruction.rs#L375
    */
   case fd_stake_instruction_enum_move_lamports: {
-    // https://github.com/anza-xyz/agave/blob/cdff19c7807b006dd63429114fb1d9573bf74172/programs/stake/src/stake_instruction.rs#L378
-    if( FD_LIKELY( FD_FEATURE_ACTIVE_BANK( ctx->txn_ctx->bank, move_stake_and_move_lamports_ixs ) ) ) {
-      // https://github.com/anza-xyz/agave/blob/cdff19c7807b006dd63429114fb1d9573bf74172/programs/stake/src/stake_instruction.rs#L380
-      if( FD_UNLIKELY( ctx->instr->acct_cnt<3 ) )
-        return FD_EXECUTOR_INSTR_ERR_NOT_ENOUGH_ACC_KEYS;
+    // https://github.com/anza-xyz/agave/blob/cdff19c7807b006dd63429114fb1d9573bf74172/programs/stake/src/stake_instruction.rs#L380
+    if( FD_UNLIKELY( ctx->instr->acct_cnt<3 ) )
+      return FD_EXECUTOR_INSTR_ERR_NOT_ENOUGH_ACC_KEYS;
 
-      // https://github.com/anza-xyz/agave/blob/cdff19c7807b006dd63429114fb1d9573bf74172/programs/stake/src/stake_instruction.rs#L381
-      ulong lamports = instruction->inner.move_lamports;
+    // https://github.com/anza-xyz/agave/blob/cdff19c7807b006dd63429114fb1d9573bf74172/programs/stake/src/stake_instruction.rs#L381
+    ulong lamports = instruction->inner.move_lamports;
 
-      // https://github.com/anza-xyz/agave/blob/cdff19c7807b006dd63429114fb1d9573bf74172/programs/stake/src/stake_instruction.rs#L381
-      rc = move_lamports( ctx,
-                       0UL,
-                       lamports,
-                       1UL,
-                       2UL );
-    } else {
-      // https://github.com/anza-xyz/agave/blob/cdff19c7807b006dd63429114fb1d9573bf74172/programs/stake/src/stake_instruction.rs#L391
-      return FD_EXECUTOR_INSTR_ERR_INVALID_INSTR_DATA;
-    }
+    // https://github.com/anza-xyz/agave/blob/cdff19c7807b006dd63429114fb1d9573bf74172/programs/stake/src/stake_instruction.rs#L381
+    rc = move_lamports( ctx,
+                        0UL,
+                        lamports,
+                        1UL,
+                        2UL );
+
     break;
   }
   default:

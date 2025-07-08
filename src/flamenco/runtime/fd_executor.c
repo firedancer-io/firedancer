@@ -383,40 +383,6 @@ fd_executor_check_transactions( fd_exec_txn_ctx_t * txn_ctx ) {
   return FD_RUNTIME_EXECUTE_SUCCESS;
 }
 
-/* https://github.com/anza-xyz/agave/blob/v2.1.0/runtime/src/verify_precompiles.rs#L11-L34 */
-static int
-fd_executor_verify_precompiles( fd_exec_txn_ctx_t * txn_ctx ) {
-  ushort instr_cnt = txn_ctx->txn_descriptor->instr_cnt;
-  int    err       = 0;
-
-  for( ushort i=0; i<instr_cnt; i++ ) {
-    fd_instr_info_t const *  instr         = &txn_ctx->instr_infos[i];
-    fd_txn_account_t const * program_acc   = &txn_ctx->accounts[ instr->program_id ];
-    fd_exec_instr_fn_t       precompile_fn = fd_executor_lookup_native_precompile_program( program_acc );
-
-    /* We need to handle feature-gated precompiles here as well since they're not accounted for in the precompile lookup table. */
-    if( FD_LIKELY( precompile_fn==NULL ||
-                   ( !memcmp( program_acc->pubkey->key, &fd_solana_secp256r1_program_id.key, sizeof(fd_pubkey_t) ) &&
-                     !FD_FEATURE_ACTIVE_BANK( txn_ctx->bank, enable_secp256r1_precompile ) ) ) ) {
-      continue;
-    }
-
-    /* We can create a mock instr_ctx since we only need the txn_ctx and instr fields */
-    fd_exec_instr_ctx_t instr_ctx = {
-      .txn_ctx = txn_ctx,
-      .instr   = instr,
-    };
-
-    err = precompile_fn( &instr_ctx );
-    if( FD_UNLIKELY( err ) ) {
-      FD_TXN_ERR_FOR_LOG_INSTR( txn_ctx, err, i );
-      return FD_RUNTIME_TXN_ERR_INSTRUCTION_ERROR;
-    }
-  }
-
-  return FD_RUNTIME_EXECUTE_SUCCESS;
-}
-
 /* `verify_transaction()` is the first function called in the
    transaction execution pipeline. It is responsible for deserializing
    the transaction, verifying the message hash (sigverify), verifying
@@ -431,13 +397,6 @@ fd_executor_verify_precompiles( fd_exec_txn_ctx_t * txn_ctx ) {
 int
 fd_executor_verify_transaction( fd_exec_txn_ctx_t * txn_ctx ) {
   int err = FD_RUNTIME_EXECUTE_SUCCESS;
-
-  /* If the `move_precompile_verification_to_svm` feature is active, then we skip verifying the precompiles here.
-     https://github.com/anza-xyz/agave/blob/v2.3.1/runtime/src/bank.rs#L5726-L5727 */
-  if( !FD_FEATURE_ACTIVE( txn_ctx->slot, &txn_ctx->features, move_precompile_verification_to_svm ) ) {
-    err = fd_executor_verify_precompiles( txn_ctx );
-    if( FD_UNLIKELY( err ) ) return err;
-  }
 
   /* https://github.com/anza-xyz/agave/blob/v2.2.13/svm/src/transaction_processor.rs#L566-L569 */
   err = fd_executor_compute_budget_program_execute_instructions( txn_ctx );
@@ -1199,15 +1158,8 @@ fd_execute_instr( fd_exec_txn_ctx_t * txn_ctx,
         fd_exec_txn_ctx_reset_return_data( txn_ctx );
       }
 
-      /* Unconditionally execute the native program if precompile verification has been moved to svm,
-         or if the native program is not a precompile */
-      if( FD_LIKELY( FD_FEATURE_ACTIVE_BANK( txn_ctx->bank, move_precompile_verification_to_svm ) ||
-                    !is_precompile ) ) {
-        instr_exec_result = native_prog_fn( ctx );
-      } else {
-        /* The precompile was already executed at the transaction level, return success */
-        instr_exec_result = FD_EXECUTOR_INSTR_SUCCESS;
-      }
+      /* Execute the native program. */
+      instr_exec_result = native_prog_fn( ctx );
     } else {
       /* Unknown program. In this case specifically, we should not log the program id. */
       instr_exec_result = FD_EXECUTOR_INSTR_ERR_UNSUPPORTED_PROGRAM_ID;
