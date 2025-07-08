@@ -57,7 +57,7 @@ fd_runtime_fuzz_txn_ctx_create( fd_runtime_fuzz_runner_t *         runner,
   slot_ctx->bank->slot = slot;
 
   /* Initialize builtin accounts */
-  fd_builtin_programs_init( slot_ctx );
+  fd_builtin_programs_init( slot_ctx->bank, slot_ctx->funk, slot_ctx->funk_txn );
 
   /* Load account states into funk (note this is different from the account keys):
     Account state = accounts to populate Funk
@@ -140,7 +140,7 @@ fd_runtime_fuzz_txn_ctx_create( fd_runtime_fuzz_runner_t *         runner,
   if( !stake_history ) {
     // Provide a 0-set default entry
     fd_epoch_stake_history_entry_pair_t entry = {0};
-    fd_sysvar_stake_history_init( slot_ctx );
+    fd_sysvar_stake_history_init( slot_ctx->bank, slot_ctx->funk, slot_ctx->funk_txn );
     fd_sysvar_stake_history_update( slot_ctx->bank, slot_ctx->funk, slot_ctx->funk_txn, &entry, runner->spad );
   }
 
@@ -159,8 +159,8 @@ fd_runtime_fuzz_txn_ctx_create( fd_runtime_fuzz_runner_t *         runner,
   }
 
   /* Epoch schedule and rent get set from the epoch bank */
-  fd_sysvar_epoch_schedule_init( slot_ctx );
-  fd_sysvar_rent_init( slot_ctx );
+  fd_sysvar_epoch_schedule_init( slot_ctx->bank, slot_ctx->funk, slot_ctx->funk_txn );
+  fd_sysvar_rent_init( slot_ctx->bank, slot_ctx->funk, slot_ctx->funk_txn );
 
   /* Set the epoch rewards sysvar if partition epoch rewards feature is enabled
 

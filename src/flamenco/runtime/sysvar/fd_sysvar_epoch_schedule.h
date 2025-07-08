@@ -58,7 +58,9 @@ FD_PROTOTYPES_BEGIN
    account.  FIXME document what this actually does. */
 
 void
-fd_sysvar_epoch_schedule_init( fd_exec_slot_ctx_t * slot_ctx );
+fd_sysvar_epoch_schedule_init( fd_bank_t *     bank,
+                               fd_funk_t *     funk,
+                               fd_funk_txn_t * funk_txn );
 
 /* fd_sysvar_epoch_schedule_read reads the current value of the rent
    sysvar from funk. If the account doesn't exist in funk or if the account
@@ -73,7 +75,9 @@ fd_sysvar_epoch_schedule_read( fd_funk_t *     funk,
    schedule sysvar to funk. */
 
 void
-fd_sysvar_epoch_schedule_write( fd_exec_slot_ctx_t *        slot_ctx,
+fd_sysvar_epoch_schedule_write( fd_bank_t *                 bank,
+                                fd_funk_t *                 funk,
+                                fd_funk_txn_t *             funk_txn,
                                 fd_epoch_schedule_t const * epoch_schedule );
 
 /* fd_epoch_schedule_derive derives an epoch schedule config from the

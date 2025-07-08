@@ -49,10 +49,12 @@ fd_sysvar_stake_history_read( fd_funk_t *     funk,
 }
 
 void
-fd_sysvar_stake_history_init( fd_exec_slot_ctx_t * slot_ctx ) {
+fd_sysvar_stake_history_init( fd_bank_t *     bank,
+                              fd_funk_t *     funk,
+                              fd_funk_txn_t * funk_txn ) {
   fd_stake_history_t stake_history;
   fd_stake_history_new( &stake_history );
-  write_stake_history( slot_ctx->bank, slot_ctx->funk, slot_ctx->funk_txn, &stake_history );
+  write_stake_history( bank, funk, funk_txn, &stake_history );
 }
 
 void

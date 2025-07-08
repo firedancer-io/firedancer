@@ -2912,19 +2912,21 @@ fd_runtime_block_collect_txns( fd_runtime_block_info_t const * block_info,
 /*******************************************************************************/
 
 static void
-fd_runtime_init_program( fd_exec_slot_ctx_t * slot_ctx,
-                         fd_spad_t *          runtime_spad ) {
-  fd_sysvar_recent_hashes_init( slot_ctx->bank, slot_ctx->funk, slot_ctx->funk_txn, runtime_spad );
-  fd_sysvar_clock_init( slot_ctx->bank, slot_ctx->funk, slot_ctx->funk_txn );
-  fd_sysvar_slot_history_init( slot_ctx->bank, slot_ctx->funk, slot_ctx->funk_txn, runtime_spad );
-  fd_sysvar_slot_hashes_init( slot_ctx->bank, slot_ctx->funk, slot_ctx->funk_txn, runtime_spad );
-  fd_sysvar_epoch_schedule_init( slot_ctx );
-  fd_sysvar_rent_init( slot_ctx );
-  fd_sysvar_stake_history_init( slot_ctx );
-  fd_sysvar_last_restart_slot_init( slot_ctx->bank, slot_ctx->funk, slot_ctx->funk_txn );
+fd_runtime_init_program( fd_bank_t *     bank,
+                         fd_funk_t *     funk,
+                         fd_funk_txn_t * funk_txn,
+                         fd_spad_t *     runtime_spad ) {
+  fd_sysvar_recent_hashes_init( bank, funk, funk_txn, runtime_spad );
+  fd_sysvar_clock_init( bank, funk, funk_txn );
+  fd_sysvar_slot_history_init( bank, funk, funk_txn, runtime_spad );
+  fd_sysvar_slot_hashes_init( bank, funk, funk_txn, runtime_spad );
+  fd_sysvar_epoch_schedule_init( bank, funk, funk_txn );
+  fd_sysvar_rent_init( bank, funk, funk_txn );
+  fd_sysvar_stake_history_init( bank, funk, funk_txn );
+  fd_sysvar_last_restart_slot_init( bank, funk, funk_txn );
 
-  fd_builtin_programs_init( slot_ctx );
-  fd_stake_program_config_init( slot_ctx );
+  fd_builtin_programs_init( bank, funk, funk_txn );
+  fd_stake_program_config_init( funk, funk_txn );
 }
 
 static void
@@ -3236,7 +3238,7 @@ fd_runtime_process_genesis_block( fd_exec_slot_ctx_t * slot_ctx,
 
   fd_bank_total_compute_units_used_set( slot_ctx->bank, 0UL );
 
-  fd_runtime_init_program( slot_ctx, runtime_spad );
+  fd_runtime_init_program( slot_ctx->bank, slot_ctx->funk, slot_ctx->funk_txn, runtime_spad );
 
   fd_sysvar_slot_history_update( slot_ctx->bank, slot_ctx->funk, slot_ctx->funk_txn, runtime_spad );
 
@@ -3246,7 +3248,9 @@ fd_runtime_process_genesis_block( fd_exec_slot_ctx_t * slot_ctx,
 
   /* sort and update bank hash */
   fd_hash_t * bank_hash = fd_bank_bank_hash_modify( slot_ctx->bank );
-  int result = fd_update_hash_bank_tpool( slot_ctx,
+  int result = fd_update_hash_bank_tpool( slot_ctx->bank,
+                                          slot_ctx->funk,
+                                          slot_ctx->funk_txn,
                                           capture_ctx,
                                           bank_hash,
                                           0UL,
@@ -3535,7 +3539,7 @@ fd_runtime_poh_verify_tpool( fd_poh_verification_info_t * poh_verification_info,
 }
 
 static int
-fd_runtime_block_verify_tpool( fd_exec_slot_ctx_t *            slot_ctx,
+fd_runtime_block_verify_tpool( fd_bank_t *                     bank,
                                fd_blockstore_t *               blockstore,
                                fd_runtime_block_info_t const * block_info,
                                fd_hash_t const *               in_poh_hash,
@@ -3556,15 +3560,15 @@ fd_runtime_block_verify_tpool( fd_exec_slot_ctx_t *            slot_ctx,
 
   uchar * block_data = fd_spad_alloc( runtime_spad, 128UL, FD_SHRED_DATA_PAYLOAD_MAX_PER_SLOT );
   ulong   tick_res   = fd_runtime_block_verify_ticks( blockstore,
-                                                      slot_ctx->slot,
+                                                      bank->slot,
                                                       block_data,
                                                       FD_SHRED_DATA_PAYLOAD_MAX_PER_SLOT,
-                                                      fd_bank_tick_height_get( slot_ctx->bank ),
-                                                      fd_bank_max_tick_height_get( slot_ctx->bank ),
-                                                      fd_bank_hashes_per_tick_get( slot_ctx->bank ) );
+                                                      fd_bank_tick_height_get( bank ),
+                                                      fd_bank_max_tick_height_get( bank ),
+                                                      fd_bank_hashes_per_tick_get( bank ) );
 
   if( FD_UNLIKELY( tick_res != FD_BLOCK_OK ) ) {
-    FD_LOG_WARNING(( "failed to verify ticks res %lu slot %lu", tick_res, slot_ctx->slot ));
+    FD_LOG_WARNING(( "failed to verify ticks res %lu slot %lu", tick_res, bank->slot ));
     return -1;
   }
 
@@ -3880,7 +3884,7 @@ fd_runtime_block_eval_tpool( fd_exec_slot_ctx_t * slot_ctx,
 
     fd_hash_t poh_out = {0};
     fd_hash_t poh_in = fd_bank_poh_get( slot_ctx->bank );
-    if( FD_UNLIKELY( (ret = fd_runtime_block_verify_tpool( slot_ctx, blockstore, &block_info, &poh_in, &poh_out, tpool, runtime_spad )) != FD_RUNTIME_EXECUTE_SUCCESS ) ) {
+    if( FD_UNLIKELY( (ret = fd_runtime_block_verify_tpool( slot_ctx->bank, blockstore, &block_info, &poh_in, &poh_out, tpool, runtime_spad )) != FD_RUNTIME_EXECUTE_SUCCESS ) ) {
       break;
     }
 

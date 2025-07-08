@@ -244,7 +244,7 @@ fd_runtime_fuzz_instr_ctx_create( fd_runtime_fuzz_runner_t *           runner,
                                                   .first_normal_epoch          = 14UL,
                                                   .first_normal_slot           = 524256UL
                                                 };
-    fd_sysvar_epoch_schedule_write( slot_ctx, &sysvar_epoch_schedule );
+    fd_sysvar_epoch_schedule_write( slot_ctx->bank, slot_ctx->funk, slot_ctx->funk_txn, &sysvar_epoch_schedule );
   }
 
   /* Rent */
@@ -256,7 +256,7 @@ fd_runtime_fuzz_instr_ctx_create( fd_runtime_fuzz_runner_t *           runner,
                               .exemption_threshold     = 2.0,
                               .burn_percent            = 50
                             };
-    fd_sysvar_rent_write( slot_ctx, &sysvar_rent );
+    fd_sysvar_rent_write( slot_ctx->bank, slot_ctx->funk, slot_ctx->funk_txn, &sysvar_rent );
   }
 
   fd_sol_sysvar_last_restart_slot_t const * last_restart_slot = fd_sysvar_last_restart_slot_read( funk, funk_txn, runner->spad );

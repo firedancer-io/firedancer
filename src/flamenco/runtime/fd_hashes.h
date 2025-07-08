@@ -109,7 +109,9 @@ fd_account_hash( fd_funk_t *                    funk,
                  fd_features_t const *          features );
 
 int
-fd_update_hash_bank_tpool( fd_exec_slot_ctx_t * slot_ctx,
+fd_update_hash_bank_tpool( fd_bank_t *          bank,
+                           fd_funk_t *          funk,
+                           fd_funk_txn_t *      funk_txn,
                            fd_capture_ctx_t *   capture_ctx,
                            fd_hash_t *          hash,
                            ulong                signature_cnt,

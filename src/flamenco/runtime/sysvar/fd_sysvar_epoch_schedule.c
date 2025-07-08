@@ -31,7 +31,9 @@ fd_epoch_schedule_derive( fd_epoch_schedule_t * schedule,
 }
 
 void
-fd_sysvar_epoch_schedule_write( fd_exec_slot_ctx_t *        slot_ctx,
+fd_sysvar_epoch_schedule_write( fd_bank_t *                 bank,
+                                fd_funk_t *                 funk,
+                                fd_funk_txn_t *             funk_txn,
                                 fd_epoch_schedule_t const * epoch_schedule ) {
   ulong sz = fd_epoch_schedule_size( epoch_schedule );
   FD_LOG_INFO(("Writing epoch schedule size %lu", sz));
@@ -46,7 +48,7 @@ fd_sysvar_epoch_schedule_write( fd_exec_slot_ctx_t *        slot_ctx,
     FD_LOG_ERR(("fd_epoch_schedule_encode failed"));
   }
 
-  fd_sysvar_set( slot_ctx->bank, slot_ctx->funk, slot_ctx->funk_txn, &fd_sysvar_owner_id, &fd_sysvar_epoch_schedule_id, enc, sz, slot_ctx->slot );
+  fd_sysvar_set( bank, funk, funk_txn, &fd_sysvar_owner_id, &fd_sysvar_epoch_schedule_id, enc, sz, bank->slot );
 }
 
 fd_epoch_schedule_t *
@@ -76,9 +78,11 @@ fd_sysvar_epoch_schedule_read( fd_funk_t *     funk,
 }
 
 void
-fd_sysvar_epoch_schedule_init( fd_exec_slot_ctx_t * slot_ctx ) {
-  fd_epoch_schedule_t const * epoch_schedule = fd_bank_epoch_schedule_query( slot_ctx->bank );
-  fd_sysvar_epoch_schedule_write( slot_ctx, epoch_schedule );
+fd_sysvar_epoch_schedule_init( fd_bank_t *     bank,
+                               fd_funk_t *     funk,
+                               fd_funk_txn_t * funk_txn ) {
+  fd_epoch_schedule_t const * epoch_schedule = fd_bank_epoch_schedule_query( bank );
+  fd_sysvar_epoch_schedule_write( bank, funk, funk_txn, epoch_schedule );
 }
 
 /* https://github.com/solana-labs/solana/blob/88aeaa82a856fc807234e7da0b31b89f2dc0e091/sdk/program/src/epoch_schedule.rs#L105 */

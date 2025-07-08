@@ -49,7 +49,9 @@ FD_PROTOTYPES_BEGIN
 
 /* Initialize the builtin program accounts */
 void
-fd_builtin_programs_init( fd_exec_slot_ctx_t * slot_ctx );
+fd_builtin_programs_init( fd_bank_t *     bank,
+                          fd_funk_t *     funk,
+                          fd_funk_txn_t * funk_txn );
 
 void
 fd_write_builtin_account( fd_bank_t *       bank,
