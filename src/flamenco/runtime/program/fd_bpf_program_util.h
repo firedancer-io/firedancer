@@ -3,7 +3,6 @@
 
 #include "../../fd_flamenco_base.h"
 #include "../fd_acc_mgr.h"
-#include "../context/fd_exec_slot_ctx.h"
 #include "../../vm/syscall/fd_vm_syscall.h"
 #include "../fd_system_ids.h"
 

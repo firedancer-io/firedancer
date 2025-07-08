@@ -11,20 +11,20 @@
    a dcache region and formats it as a specific message type. */
 
 static inline ulong
-generate_stake_weight_msg( fd_exec_slot_ctx_t * slot_ctx,
-                           fd_spad_t          * runtime_spad,
-                           ulong                epoch,
-                           ulong              * stake_weight_msg_out ) {
+generate_stake_weight_msg( fd_bank_t * bank,
+                           fd_spad_t * runtime_spad,
+                           ulong       epoch,
+                           ulong *     stake_weight_msg_out ) {
 
   fd_stake_weight_msg_t *           stake_weight_msg = (fd_stake_weight_msg_t *)fd_type_pun( stake_weight_msg_out );
   fd_stake_weight_t     *           stake_weights    = (fd_stake_weight_t *)&stake_weight_msg_out[5];
-  fd_vote_accounts_global_t const * vote_accounts    = fd_bank_epoch_stakes_locking_query( slot_ctx->bank );
+  fd_vote_accounts_global_t const * vote_accounts    = fd_bank_epoch_stakes_locking_query( bank );
   ulong                             stake_weight_idx = fd_stake_weights_by_node( vote_accounts,
                                                                            stake_weights,
                                                                            runtime_spad );
-  fd_bank_epoch_stakes_end_locking_query( slot_ctx->bank );
+  fd_bank_epoch_stakes_end_locking_query( bank );
 
-  fd_epoch_schedule_t const * epoch_schedule = fd_bank_epoch_schedule_query( slot_ctx->bank );
+  fd_epoch_schedule_t const * epoch_schedule = fd_bank_epoch_schedule_query( bank );
 
   stake_weight_msg->epoch          = epoch;
   stake_weight_msg->staked_cnt     = stake_weight_idx;                           /* staked_cnt */

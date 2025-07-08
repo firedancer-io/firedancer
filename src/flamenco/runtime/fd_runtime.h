@@ -545,17 +545,6 @@ fd_runtime_prepare_txns_start( fd_bank_t *                  bank,
 void
 fd_runtime_pre_execute_check( fd_execute_txn_task_info_t * task_info );
 
-/* fd_runtime_process_txns is responsible for end-to-end preparing, executing,
-   and finalizing a list of transactions. It will execute all of the
-   transactions on a single core. */
-int
-fd_runtime_process_txns( fd_exec_slot_ctx_t * slot_ctx,
-                         fd_capture_ctx_t *   capture_ctx,
-                         fd_txn_p_t *         txns,
-                         ulong                txn_cnt,
-                         fd_spad_t *          exec_spad,
-                         fd_spad_t *          runtime_spad );
-
 /* fd_runtime_execute_txns_in_microblock_stream is responsible for end-to-end
    preparing, executing and finalizng a list of transactions. It assumes that
    all transactions are conflict-free. */

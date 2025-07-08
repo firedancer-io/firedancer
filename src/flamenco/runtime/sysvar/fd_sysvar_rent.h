@@ -6,8 +6,8 @@
 #include "../fd_bank.h"
 FD_PROTOTYPES_BEGIN
 
-/* fd_sysvar_rent_init copies the cached rent sysvar stored from
-   fd_exec_slot_ctx_t to the corresponding account in the database.
+/* fd_sysvar_rent_init copies the cached rent sysvar to the
+   corresponding account in the database.
    Note that it does NOT initialize global->bank.rent */
 
 void

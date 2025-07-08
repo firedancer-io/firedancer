@@ -552,7 +552,7 @@ fd_runtime_fuzz_block_ctx_exec( fd_runtime_fuzz_runner_t * runner,
 
   // Prepare. Execute. Finalize.
   FD_SPAD_FRAME_BEGIN( runtime_spad ) {
-    fd_rewards_recalculate_partitioned_rewards( slot_ctx, tpool, exec_spads, exec_spads_cnt, runtime_spad );
+    fd_rewards_recalculate_partitioned_rewards( slot_ctx->bank, slot_ctx->funk, slot_ctx->funk_txn, tpool, exec_spads, exec_spads_cnt, runtime_spad );
 
     /* Process new epoch may push a new spad frame onto the runtime spad. We should make sure this frame gets
        cleared (if it was allocated) before executing the block. */

@@ -528,7 +528,9 @@ fd_ledger_main_setup( fd_ledger_args_t * args ) {
   /* After both snapshots have been loaded in, we can determine if we should
       start distributing rewards. */
 
-  fd_rewards_recalculate_partitioned_rewards( args->slot_ctx,
+  fd_rewards_recalculate_partitioned_rewards( args->slot_ctx->bank,
+                                              args->slot_ctx->funk,
+                                              args->slot_ctx->funk_txn,
                                               args->tpool,
                                               args->exec_spads,
                                               args->exec_spad_cnt,

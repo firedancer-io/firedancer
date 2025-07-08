@@ -19,18 +19,15 @@ static fd_pubkey_t const test_program_pubkey = {
 static ulong const SPAD_MEM_MAX = 100UL << 20; /* 100MB */
 
 /* Test setup and teardown helpers */
-static fd_wksp_t * test_wksp = NULL;
-static fd_funk_t * test_funk = NULL;
-static fd_spad_t * test_spad = NULL;
-static fd_exec_slot_ctx_t * test_slot_ctx = NULL;
+static fd_wksp_t *     test_wksp     = NULL;
+static fd_funk_t *     test_funk     = NULL;
+static fd_spad_t *     test_spad     = NULL;
+static fd_funk_txn_t * test_funk_txn = NULL;
+static fd_bank_t *     test_bank     = NULL;
+static fd_banks_t *    test_banks    = NULL;
 
 static void
 test_teardown( void ) {
-  if( test_slot_ctx ) {
-    fd_exec_slot_ctx_leave( test_slot_ctx );
-    test_slot_ctx = NULL;
-  }
-
   if( test_spad ) {
     fd_spad_leave( test_spad );
     test_spad = NULL;
@@ -69,7 +66,7 @@ create_test_account( fd_pubkey_t const * pubkey,
   int err = fd_txn_account_init_from_funk_mutable( /* acc         */ acc,
                                                    /* pubkey      */ pubkey,
                                                    /* funk        */ test_funk,
-                                                   /* txn         */ test_slot_ctx->funk_txn,
+                                                   /* txn         */ test_funk_txn,
                                                    /* do_create   */ 1,
                                                    /* min_data_sz */ data_len );
   FD_TEST( !err );
@@ -88,7 +85,7 @@ create_test_account( fd_pubkey_t const * pubkey,
   /* make the account read-only by default */
   acc->vt->set_readonly( acc );
 
-  fd_txn_account_mutable_fini( acc, test_funk, test_slot_ctx->funk_txn );
+  fd_txn_account_mutable_fini( acc, test_funk, test_funk_txn );
 }
 
 /* Test 1: Account doesn't exist */
@@ -97,13 +94,13 @@ test_account_does_not_exist( void ) {
   FD_LOG_NOTICE(( "Testing: Account doesn't exist" ));
 
   fd_funk_txn_t * funk_txn = create_test_funk_txn();
-  test_slot_ctx->funk_txn = funk_txn;
+  test_funk_txn = funk_txn;
 
   /* Call with a non-existent pubkey */
   fd_pubkey_t const non_existent_pubkey = {0};
 
   /* This should return early without doing anything */
-  fd_bpf_program_update_program_cache( test_slot_ctx->bank, test_slot_ctx->funk, test_slot_ctx->funk_txn , &non_existent_pubkey, test_spad );
+  fd_bpf_program_update_program_cache( test_bank, test_funk, test_funk_txn , &non_existent_pubkey, test_spad );
 
   /* Verify no cache entry was created */
   fd_sbpf_validated_program_t const * valid_prog = NULL;
@@ -119,7 +116,7 @@ test_account_not_bpf_loader_owner( void ) {
   FD_LOG_NOTICE(( "Testing: Account exists but is not owned by a BPF loader" ));
 
   fd_funk_txn_t * funk_txn = create_test_funk_txn();
-  test_slot_ctx->funk_txn = funk_txn;
+  test_funk_txn = funk_txn;
 
   /* Create an account owned by a non-BPF loader */
   create_test_account( &test_program_pubkey,
@@ -129,7 +126,7 @@ test_account_not_bpf_loader_owner( void ) {
                        1 );
 
   /* This should return early without doing anything */
-  fd_bpf_program_update_program_cache( test_slot_ctx->bank, test_slot_ctx->funk, test_slot_ctx->funk_txn, &test_program_pubkey, test_spad );
+  fd_bpf_program_update_program_cache( test_bank, test_funk, test_funk_txn, &test_program_pubkey, test_spad );
 
   /* Verify no cache entry was created */
   fd_sbpf_validated_program_t const * valid_prog = NULL;
@@ -145,7 +142,7 @@ test_invalid_program_not_in_cache_first_time( void ) {
   FD_LOG_NOTICE(( "Testing: Program is not in cache yet (first time), but program fails validations" ));
 
   fd_funk_txn_t * funk_txn = create_test_funk_txn();
-  test_slot_ctx->funk_txn = funk_txn;
+  test_funk_txn = funk_txn;
 
   /* Create a BPF loader account */
   create_test_account( &test_program_pubkey,
@@ -155,7 +152,7 @@ test_invalid_program_not_in_cache_first_time( void ) {
                        1 );
 
   /* This should create a cache entry */
-  fd_bpf_program_update_program_cache( test_slot_ctx->bank, test_slot_ctx->funk, test_slot_ctx->funk_txn, &test_program_pubkey, test_spad );
+  fd_bpf_program_update_program_cache( test_bank, test_funk, test_funk_txn, &test_program_pubkey, test_spad );
 
   /* Verify cache entry was created */
   fd_sbpf_validated_program_t const * valid_prog = NULL;
@@ -174,7 +171,7 @@ test_valid_program_not_in_cache_first_time( void ) {
   FD_LOG_NOTICE(( "Testing: Program is not in cache yet (first time), but program passes validations" ));
 
   fd_funk_txn_t * funk_txn = create_test_funk_txn();
-  test_slot_ctx->funk_txn = funk_txn;
+  test_funk_txn = funk_txn;
 
   /* Create a BPF loader account */
   create_test_account( &test_program_pubkey,
@@ -184,7 +181,7 @@ test_valid_program_not_in_cache_first_time( void ) {
                        1 );
 
   /* This should create a cache entry */
-  fd_bpf_program_update_program_cache( test_slot_ctx->bank, test_slot_ctx->funk, test_slot_ctx->funk_txn, &test_program_pubkey, test_spad );
+  fd_bpf_program_update_program_cache( test_bank, test_funk, test_funk_txn, &test_program_pubkey, test_spad );
 
   /* Verify cache entry was created */
   fd_sbpf_validated_program_t const * valid_prog = NULL;
@@ -204,7 +201,7 @@ test_program_in_cache_needs_reverification( void ) {
   FD_LOG_NOTICE(( "Testing: Program is in cache but needs reverification (different epoch)" ));
 
   fd_funk_txn_t * funk_txn = create_test_funk_txn();
-  test_slot_ctx->funk_txn = funk_txn;
+  test_funk_txn = funk_txn;
 
   /* Create a BPF loader account */
   create_test_account( &test_program_pubkey,
@@ -214,7 +211,7 @@ test_program_in_cache_needs_reverification( void ) {
                        1 );
 
   /* First call to create cache entry */
-  fd_bpf_program_update_program_cache( test_slot_ctx->bank, test_slot_ctx->funk, test_slot_ctx->funk_txn, &test_program_pubkey, test_spad );
+  fd_bpf_program_update_program_cache( test_bank, test_funk, test_funk_txn, &test_program_pubkey, test_spad );
 
   /* Verify cache entry was created */
   fd_sbpf_validated_program_t const * valid_prog = NULL;
@@ -226,10 +223,10 @@ test_program_in_cache_needs_reverification( void ) {
   FD_TEST( valid_prog->last_epoch_verification_ran==1UL );
 
   /* Fast forward to next epoch */
-  test_slot_ctx->bank->slot += 432000UL;
+  test_bank->slot += 432000UL;
 
   /* This should trigger reverification */
-  fd_bpf_program_update_program_cache( test_slot_ctx->bank, test_slot_ctx->funk, test_slot_ctx->funk_txn, &test_program_pubkey, test_spad );
+  fd_bpf_program_update_program_cache( test_bank, test_funk, test_funk_txn, &test_program_pubkey, test_spad );
 
   /* Verify the cache entry was updated */
   err = fd_bpf_load_cache_entry( test_funk, funk_txn, &test_program_pubkey, &valid_prog );
@@ -277,16 +274,6 @@ main( int     argc,
 
   FD_SPAD_FRAME_BEGIN( test_spad ) {
 
-    /* Create slot context */
-    ulong slot_align = FD_EXEC_SLOT_CTX_ALIGN;
-    ulong slot_footprint = FD_EXEC_SLOT_CTX_FOOTPRINT;
-    uchar * slot_mem = fd_spad_alloc( test_spad, slot_align, slot_footprint );
-    test_slot_ctx = fd_exec_slot_ctx_join( fd_exec_slot_ctx_new( slot_mem ) );
-    FD_TEST( test_slot_ctx );
-
-    /* Set up slot context */
-    test_slot_ctx->funk = test_funk;
-
     /* Set up bank */
     ulong        banks_footprint = fd_banks_footprint( 1UL );
     uchar *      banks_mem       = fd_wksp_alloc_laddr( test_wksp, fd_banks_align(), banks_footprint, TEST_WKSP_TAG );
@@ -297,8 +284,8 @@ main( int     argc,
     fd_bank_t * bank = fd_banks_init_bank( banks, 433000UL );
     FD_TEST( bank );
 
-    test_slot_ctx->bank  = bank;
-    test_slot_ctx->banks = banks;
+    test_bank  = bank;
+    test_banks = banks;
 
     fd_epoch_schedule_t epoch_schedule = {
         .slots_per_epoch             = 432000UL,

@@ -2,10 +2,7 @@
 #define HEADER_fd_src_flamenco_runtime_program_fd_buildin_programs_h
 
 #include "../../fd_flamenco_base.h"
-#include "../../runtime/fd_system_ids.h"
-#include "../../features/fd_features.h"
-#include "../context/fd_exec_slot_ctx.h"
-#include "../fd_system_ids.h"
+#include "../fd_bank.h"
 #include "../fd_system_ids_pp.h"
 
 #define NO_ENABLE_FEATURE_ID ULONG_MAX
