@@ -2471,7 +2471,9 @@ fd_runtime_parse_microblock_hdr( void const *          buf FD_PARAM_UNUSED,
 }
 
 void
-fd_runtime_update_program_cache( fd_exec_slot_ctx_t * slot_ctx,
+fd_runtime_update_program_cache( fd_bank_t *          bank,
+                                 fd_funk_t *          funk,
+                                 fd_funk_txn_t *      funk_txn,
                                  fd_txn_p_t const *   txn_p,
                                  fd_spad_t *          runtime_spad ) {
   fd_txn_t const * txn_descriptor = TXN( txn_p );
@@ -2480,14 +2482,14 @@ fd_runtime_update_program_cache( fd_exec_slot_ctx_t * slot_ctx,
   fd_acct_addr_t const * acc_addrs = fd_txn_get_acct_addrs( txn_descriptor, txn_p );
   for( ushort acc_idx=0; acc_idx<txn_descriptor->acct_addr_cnt; acc_idx++ ) {
     fd_pubkey_t const * account = fd_type_pun_const( &acc_addrs[acc_idx] );
-    fd_bpf_program_update_program_cache( slot_ctx, account, runtime_spad );
+    fd_bpf_program_update_program_cache( bank, funk, funk_txn, account, runtime_spad );
   }
 
   if( txn_descriptor->transaction_version==FD_TXN_V0 ) {
 
     /* Iterate over account keys referenced in ALUTs */
     fd_acct_addr_t alut_accounts[256];
-    fd_slot_hashes_global_t const * slot_hashes_global = fd_sysvar_slot_hashes_read( slot_ctx->funk, slot_ctx->funk_txn, runtime_spad );
+    fd_slot_hashes_global_t const * slot_hashes_global = fd_sysvar_slot_hashes_read( funk, funk_txn, runtime_spad );
     if( FD_UNLIKELY( !slot_hashes_global ) ) {
       return;
     }
@@ -2496,9 +2498,9 @@ fd_runtime_update_program_cache( fd_exec_slot_ctx_t * slot_ctx,
 
     if( FD_UNLIKELY( fd_runtime_load_txn_address_lookup_tables( txn_descriptor,
                          txn_p->payload,
-                         slot_ctx->funk,
-                         slot_ctx->funk_txn,
-                         slot_ctx->slot,
+                         funk,
+                         funk_txn,
+                         bank->slot,
                          slot_hash,
                          alut_accounts ) ) ) {
       return;
@@ -2506,7 +2508,7 @@ fd_runtime_update_program_cache( fd_exec_slot_ctx_t * slot_ctx,
 
     for( ushort alut_idx=0; alut_idx<txn_descriptor->addr_table_adtl_cnt; alut_idx++ ) {
       fd_pubkey_t const * account = fd_type_pun_const( &alut_accounts[alut_idx] );
-      fd_bpf_program_update_program_cache( slot_ctx, account, runtime_spad );
+      fd_bpf_program_update_program_cache( bank, funk, funk_txn, account, runtime_spad );
     }
   }
 }
@@ -3583,23 +3585,25 @@ fd_runtime_block_verify_tpool( fd_exec_slot_ctx_t *            slot_ctx,
 
 /* Should only be called in offline replay */
 static int
-fd_runtime_publish_old_txns( fd_exec_slot_ctx_t * slot_ctx,
-                             fd_capture_ctx_t *   capture_ctx,
-                             fd_tpool_t *         tpool,
-                             fd_spad_t *          runtime_spad ) {
+fd_runtime_publish_old_txns( fd_banks_t *       banks,
+                             fd_bank_t *        bank,
+                             fd_funk_t *        funk,
+                             fd_funk_txn_t *    funk_txn,
+                             fd_capture_ctx_t * capture_ctx,
+                             fd_tpool_t *       tpool,
+                             fd_spad_t *        runtime_spad ) {
   /* Publish any transaction older than 31 slots */
-  fd_funk_txn_start_write( slot_ctx->funk );
-  fd_funk_t *          funk       = slot_ctx->funk;
-  fd_funk_txn_pool_t * txnpool    = fd_funk_txn_pool( funk );
+  fd_funk_txn_start_write( funk );
+  fd_funk_txn_pool_t * txnpool = fd_funk_txn_pool( funk );
 
   if( capture_ctx != NULL ) {
-    fd_runtime_checkpt( capture_ctx, slot_ctx->funk, slot_ctx->slot );
+    fd_runtime_checkpt( capture_ctx, funk, bank->slot );
   }
 
   int do_eah = 0;
 
   uint depth = 0;
-  for( fd_funk_txn_t * txn = slot_ctx->funk_txn; txn; txn = fd_funk_txn_parent(txn, txnpool) ) {
+  for( fd_funk_txn_t * txn = funk_txn; txn; txn = fd_funk_txn_parent(txn, txnpool) ) {
     if( ++depth == (FD_RUNTIME_OFFLINE_NUM_ROOT_BLOCKS - 1 ) ) {
       FD_LOG_DEBUG(("publishing %s (slot %lu)", FD_BASE58_ENC_32_ALLOCA( &txn->xid ), txn->xid.ul[0]));
 
@@ -3609,20 +3613,20 @@ fd_runtime_publish_old_txns( fd_exec_slot_ctx_t * slot_ctx,
 
       /* Also publish the bank */
       ulong slot = txn->xid.ul[0];
-      fd_banks_publish( slot_ctx->banks, slot );
+      fd_banks_publish( banks, slot );
 
-      if( txn->xid.ul[0] >= fd_bank_eah_start_slot_get( slot_ctx->bank ) ) {
-        if( !FD_FEATURE_ACTIVE_BANK( slot_ctx->bank, accounts_lt_hash ) ) {
+      if( txn->xid.ul[0] >= fd_bank_eah_start_slot_get( bank ) ) {
+        if( !FD_FEATURE_ACTIVE_BANK( bank, accounts_lt_hash ) ) {
           do_eah = 1;
         }
-        fd_bank_eah_start_slot_set( slot_ctx->bank, ULONG_MAX );
+        fd_bank_eah_start_slot_set( bank, ULONG_MAX );
       }
 
       break;
     }
   }
 
-  fd_funk_txn_end_write( slot_ctx->funk );
+  fd_funk_txn_end_write( funk );
 
   /* Do the EAH calculation after we have released the Funk lock, to avoid a deadlock */
   if( FD_UNLIKELY( do_eah ) ) {
@@ -3632,12 +3636,12 @@ fd_runtime_publish_old_txns( fd_exec_slot_ctx_t * slot_ctx,
     };
 
 
-    fd_hash_t * epoch_account_hash = fd_bank_epoch_account_hash_modify( slot_ctx->bank );
-    fd_accounts_hash( slot_ctx->funk,
-                      slot_ctx->slot,
+    fd_hash_t * epoch_account_hash = fd_bank_epoch_account_hash_modify( bank );
+    fd_accounts_hash( funk,
+                      bank->slot,
                       epoch_account_hash,
                       runtime_spad,
-                      fd_bank_features_query( slot_ctx->bank ),
+                      fd_bank_features_query( bank ),
                       &exec_para_ctx,
                       NULL );
   }
@@ -3696,7 +3700,7 @@ fd_runtime_block_execute_tpool( fd_exec_slot_ctx_t *            slot_ctx,
 
       /* Reverify programs for this epoch if needed */
       for( ulong txn_idx=0UL; txn_idx<mblock_txn_cnt; txn_idx++ ) {
-        fd_runtime_update_program_cache( slot_ctx, &mblock_txn_ptrs[txn_idx], runtime_spad );
+        fd_runtime_update_program_cache( slot_ctx->bank, slot_ctx->funk, slot_ctx->funk_txn, &mblock_txn_ptrs[txn_idx], runtime_spad );
       }
 
       res = fd_runtime_process_txns_in_microblock_stream( slot_ctx->bank,
@@ -3814,7 +3818,14 @@ fd_runtime_block_eval_tpool( fd_exec_slot_ctx_t * slot_ctx,
   /* offline replay */
   (void)scheduler;
 
-  int err = fd_runtime_publish_old_txns( slot_ctx, capture_ctx, tpool, runtime_spad );
+  int err = fd_runtime_publish_old_txns(
+      slot_ctx->banks,
+      slot_ctx->bank,
+      slot_ctx->funk,
+      slot_ctx->funk_txn,
+      capture_ctx,
+      tpool,
+      runtime_spad );
   if( err != 0 ) {
     return err;
   }

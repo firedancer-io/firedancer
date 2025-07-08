@@ -1079,7 +1079,7 @@ exec_slice( fd_replay_tile_ctx_t * ctx,
       /* Insert or reverify invoked programs for this epoch, if needed
          FIXME: this should be done during txn parsing so that we don't have to loop
          over all accounts a second time. */
-      fd_runtime_update_program_cache( ctx->slot_ctx, &txn_p, ctx->runtime_spad );
+      fd_runtime_update_program_cache( ctx->slot_ctx->bank, ctx->slot_ctx->funk, ctx->slot_ctx->funk_txn, &txn_p, ctx->runtime_spad );
 
       fd_fork_t * fork = fd_fork_frontier_ele_query( ctx->forks->frontier,
                                                      &slot,

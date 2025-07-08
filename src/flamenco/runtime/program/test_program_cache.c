@@ -103,7 +103,7 @@ test_account_does_not_exist( void ) {
   fd_pubkey_t const non_existent_pubkey = {0};
 
   /* This should return early without doing anything */
-  fd_bpf_program_update_program_cache( test_slot_ctx, &non_existent_pubkey, test_spad );
+  fd_bpf_program_update_program_cache( test_slot_ctx->bank, test_slot_ctx->funk, test_slot_ctx->funk_txn , &non_existent_pubkey, test_spad );
 
   /* Verify no cache entry was created */
   fd_sbpf_validated_program_t const * valid_prog = NULL;
@@ -129,7 +129,7 @@ test_account_not_bpf_loader_owner( void ) {
                        1 );
 
   /* This should return early without doing anything */
-  fd_bpf_program_update_program_cache( test_slot_ctx, &test_program_pubkey, test_spad );
+  fd_bpf_program_update_program_cache( test_slot_ctx->bank, test_slot_ctx->funk, test_slot_ctx->funk_txn, &test_program_pubkey, test_spad );
 
   /* Verify no cache entry was created */
   fd_sbpf_validated_program_t const * valid_prog = NULL;
@@ -155,7 +155,7 @@ test_invalid_program_not_in_cache_first_time( void ) {
                        1 );
 
   /* This should create a cache entry */
-  fd_bpf_program_update_program_cache( test_slot_ctx, &test_program_pubkey, test_spad );
+  fd_bpf_program_update_program_cache( test_slot_ctx->bank, test_slot_ctx->funk, test_slot_ctx->funk_txn, &test_program_pubkey, test_spad );
 
   /* Verify cache entry was created */
   fd_sbpf_validated_program_t const * valid_prog = NULL;
@@ -184,7 +184,7 @@ test_valid_program_not_in_cache_first_time( void ) {
                        1 );
 
   /* This should create a cache entry */
-  fd_bpf_program_update_program_cache( test_slot_ctx, &test_program_pubkey, test_spad );
+  fd_bpf_program_update_program_cache( test_slot_ctx->bank, test_slot_ctx->funk, test_slot_ctx->funk_txn, &test_program_pubkey, test_spad );
 
   /* Verify cache entry was created */
   fd_sbpf_validated_program_t const * valid_prog = NULL;
@@ -214,7 +214,7 @@ test_program_in_cache_needs_reverification( void ) {
                        1 );
 
   /* First call to create cache entry */
-  fd_bpf_program_update_program_cache( test_slot_ctx, &test_program_pubkey, test_spad );
+  fd_bpf_program_update_program_cache( test_slot_ctx->bank, test_slot_ctx->funk, test_slot_ctx->funk_txn, &test_program_pubkey, test_spad );
 
   /* Verify cache entry was created */
   fd_sbpf_validated_program_t const * valid_prog = NULL;
@@ -229,7 +229,7 @@ test_program_in_cache_needs_reverification( void ) {
   test_slot_ctx->bank->slot += 432000UL;
 
   /* This should trigger reverification */
-  fd_bpf_program_update_program_cache( test_slot_ctx, &test_program_pubkey, test_spad );
+  fd_bpf_program_update_program_cache( test_slot_ctx->bank, test_slot_ctx->funk, test_slot_ctx->funk_txn, &test_program_pubkey, test_spad );
 
   /* Verify the cache entry was updated */
   err = fd_bpf_load_cache_entry( test_funk, funk_txn, &test_program_pubkey, &valid_prog );

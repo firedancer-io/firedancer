@@ -520,9 +520,11 @@ fd_bpf_load_cache_entry( fd_funk_t const *                    funk,
 }
 
 void
-fd_bpf_program_update_program_cache( fd_exec_slot_ctx_t * slot_ctx,
-                                     fd_pubkey_t const *  program_pubkey,
-                                     fd_spad_t *          runtime_spad ) {
+fd_bpf_program_update_program_cache( fd_bank_t *         bank,
+                                     fd_funk_t *         funk,
+                                     fd_funk_txn_t *     funk_txn,
+                                     fd_pubkey_t const * program_pubkey,
+                                     fd_spad_t *         runtime_spad ) {
 FD_SPAD_FRAME_BEGIN( runtime_spad ) {
   FD_TXN_ACCOUNT_DECL( exec_rec );
   fd_funk_rec_key_t id = fd_acc_mgr_cache_key( program_pubkey );
@@ -530,8 +532,8 @@ FD_SPAD_FRAME_BEGIN( runtime_spad ) {
   /* No need to touch the cache if the account no longer exists. */
   if( FD_UNLIKELY( fd_txn_account_init_from_funk_readonly( exec_rec,
                                                            program_pubkey,
-                                                           slot_ctx->funk,
-                                                           slot_ctx->funk_txn ) ) ) {
+                                                           funk,
+                                                           funk_txn ) ) ) {
     return;
   }
 
@@ -544,16 +546,16 @@ FD_SPAD_FRAME_BEGIN( runtime_spad ) {
      `fd_bpf_create_bpf_program_cache_entry()` will insert the program into the cache and update the entry's flags
      accordingly if it fails verification. */
   fd_sbpf_validated_program_t const * prog = NULL;
-  int err = fd_bpf_load_cache_entry( slot_ctx->funk, slot_ctx->funk_txn, program_pubkey, &prog );
+  int err = fd_bpf_load_cache_entry( funk, funk_txn, program_pubkey, &prog );
   if( FD_UNLIKELY( err ) ) {
-    fd_bpf_create_bpf_program_cache_entry( slot_ctx->bank, slot_ctx->funk, slot_ctx->funk_txn, exec_rec, runtime_spad );
+    fd_bpf_create_bpf_program_cache_entry( bank, funk, funk_txn, exec_rec, runtime_spad );
     return;
   }
 
   /* At this point, the program is in the cache. We need to check the last verified epoch now to determine if it needs to be reverified.
      If it has already been reverified for the current epoch, then there is no need to do anything. */
-  fd_epoch_schedule_t const * epoch_schedule = fd_bank_epoch_schedule_query( slot_ctx->bank );
-  ulong current_epoch = fd_slot_to_epoch( epoch_schedule, slot_ctx->slot, NULL );
+  fd_epoch_schedule_t const * epoch_schedule = fd_bank_epoch_schedule_query( bank );
+  ulong current_epoch = fd_slot_to_epoch( epoch_schedule, bank->slot, NULL );
   if( FD_LIKELY( prog->last_epoch_verification_ran==current_epoch ) ) {
     return;
   }
@@ -563,28 +565,29 @@ FD_SPAD_FRAME_BEGIN( runtime_spad ) {
 
   /* Copy the record (if needed) down into the current funk txn from one of its ancestors. It is safe to
      pass in min_sz=0 because the record is known to exist in the cache already, and the record size will not change */
-  fd_funk_rec_try_clone_safe( slot_ctx->funk, slot_ctx->funk_txn, &id, 0UL, 0UL );
+  fd_funk_rec_try_clone_safe( funk, funk_txn, &id, 0UL, 0UL );
 
   /* Modify the record within the current funk txn */
   fd_funk_rec_query_t query[1];
-  fd_funk_rec_t * rec = fd_funk_rec_modify( slot_ctx->funk, slot_ctx->funk_txn, &id, query );
+  fd_funk_rec_t * rec = fd_funk_rec_modify( funk, funk_txn, &id, query );
 
   if( FD_UNLIKELY( !rec ) ) {
     /* The record does not exist (somehow). Ideally this should never happen since this function is called in a single-threaded context. */
     FD_LOG_CRIT(( "Failed to modify the BPF program cache record. Perhaps there is a race condition?" ));
   }
 
-  void *                        data          = fd_funk_val( rec, fd_funk_wksp( slot_ctx->funk ) );
+  void *                        data          = fd_funk_val( rec, fd_funk_wksp( funk ) );
   fd_sbpf_elf_info_t            elf_info      = {0};
   fd_sbpf_validated_program_t * modified_prog = (fd_sbpf_validated_program_t *)data;
 
   /* Get the program data from the account */
   ulong         program_data_len = 0UL;
-  uchar const * program_data     = fd_bpf_get_programdata_from_account( slot_ctx->funk,
-                                                                        slot_ctx->funk_txn,
-                                                                        exec_rec,
-                                                                        &program_data_len,
-                                                                        runtime_spad );
+  uchar const * program_data     = fd_bpf_get_programdata_from_account(
+      funk,
+      funk_txn,
+      exec_rec,
+      &program_data_len,
+      runtime_spad );
   if( FD_UNLIKELY( program_data==NULL ) ) {
     modified_prog->failed_verification = 1;
     fd_funk_rec_modify_publish( query );
@@ -592,7 +595,7 @@ FD_SPAD_FRAME_BEGIN( runtime_spad ) {
   }
 
   /* Parse the ELF info */
-  if( FD_UNLIKELY( fd_bpf_parse_elf_info( &elf_info, program_data, program_data_len, slot_ctx->bank ) ) ) {
+  if( FD_UNLIKELY( fd_bpf_parse_elf_info( &elf_info, program_data, program_data_len, bank ) ) ) {
     modified_prog->failed_verification = 1;
     fd_funk_rec_modify_publish( query );
     return;
@@ -601,7 +604,7 @@ FD_SPAD_FRAME_BEGIN( runtime_spad ) {
   /* Validate the sBPF program. This will set the program's flags accordingly. The return code does not matter here because we publish
      regardless of the return code. */
   modified_prog = fd_sbpf_validated_program_new( data, &elf_info );
-  fd_bpf_validate_sbpf_program( slot_ctx->bank, &elf_info, program_data, program_data_len, runtime_spad, modified_prog );
+  fd_bpf_validate_sbpf_program( bank, &elf_info, program_data, program_data_len, runtime_spad, modified_prog );
 
   if( modified_prog->failed_verification ) {
     FD_LOG_ERR(("program fialed veriifecation;"));

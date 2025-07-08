@@ -112,9 +112,11 @@ fd_bpf_get_programdata_from_account( fd_funk_t const *        funk,
    verification, it stays in the cache so that repeated calls won't DOS the validator by forcing reverifications (since we
    won't be able to distinguish failed verifications from new deployments). */
 void
-fd_bpf_program_update_program_cache( fd_exec_slot_ctx_t * slot_ctx,
-                                     fd_pubkey_t const *  program_pubkey,
-                                     fd_spad_t *          runtime_spad );
+fd_bpf_program_update_program_cache( fd_bank_t *         bank,
+                                     fd_funk_t *         funk,
+                                     fd_funk_txn_t *     funk_txn,
+                                     fd_pubkey_t const * program_pubkey,
+                                     fd_spad_t *         runtime_spad );
 
 FD_PROTOTYPES_END
 

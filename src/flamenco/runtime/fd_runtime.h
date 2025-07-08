@@ -621,9 +621,11 @@ fd_runtime_block_pre_execute_process_new_epoch( fd_bank_t *     bank,
 
    Note that ALUTs must be resolved because programs referenced in ALUTs can be invoked via CPI. */
 void
-fd_runtime_update_program_cache( fd_exec_slot_ctx_t * slot_ctx,
-                                 fd_txn_p_t const *   txn_p,
-                                 fd_spad_t *          runtime_spad );
+fd_runtime_update_program_cache( fd_bank_t *        bank,
+                                 fd_funk_t *        funk,
+                                 fd_funk_txn_t *    funk_txn,
+                                 fd_txn_p_t const * txn_p,
+                                 fd_spad_t *        runtime_spad );
 
 /* Debugging Tools ************************************************************/
 
