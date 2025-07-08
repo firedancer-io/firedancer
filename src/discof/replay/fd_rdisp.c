@@ -102,7 +102,7 @@ struct txn_node {
      that come into this node, which is less than UINT_MAX. */
   uint    in_degree;
   float   score;
-  uint    edge_cnt; /* also stores concurrency lane */
+  uint    edge_cnt; /* also stores concurrency lane and compressed slot number */
   edge2_t edges[128]; /* addressed [0, edge_cnt) */
 };
 typedef struct txn_node txn_node_t;
