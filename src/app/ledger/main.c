@@ -961,7 +961,7 @@ ingest( fd_ledger_args_t * args ) {
 #ifdef FD_FUNK_HANDHOLDING
   if( args->verify_funk ) {
     FD_LOG_NOTICE(( "fd_funk_verify() start" ));
-    if( fd_funk_verify( funk ) ) {
+    if( fd_funk_verify( args->funk ) ) {
       FD_LOG_ERR(( "fd_funk_verify() failed" ));
     }
   }
