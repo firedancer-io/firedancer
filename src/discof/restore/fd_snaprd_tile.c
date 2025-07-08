@@ -146,22 +146,16 @@
 
 /* TODO: these should be received from gossip */
 #define CLUSTER_SNAPSHOT_SLOT 0
-#define INITIAL_PEERS_TESTNET_COUNT 2UL
+#define INITIAL_PEERS_TESTNET_COUNT 1UL
 #define INITIAL_PEERS_PRIVATE_COUNT 1UL
 
-fd_snapshot_peer_t initial_peers_testnet[ 2UL ] = {
+fd_snapshot_peer_t initial_peers_testnet[ 1UL ] = {
   { .dest = {
     /* Solana testnet peer */
     .addr = FD_IP4_ADDR( 145, 40, 95, 69 ),
     .port = 8899
      },
   },
-  { .dest = {
-    /* A fast testnet peer from snapshot-finder script */
-    .addr = FD_IP4_ADDR( 177, 54, 155, 187 ),
-    .port = 8899
-     },
-  }
 };
 
 fd_snapshot_peer_t initial_peers_private[ 1UL ] = {

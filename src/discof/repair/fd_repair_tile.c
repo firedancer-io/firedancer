@@ -814,15 +814,15 @@ after_frag( fd_repair_tile_ctx_t * ctx,
 
     if( FD_UNLIKELY( is_fec_completes_msg( sz ) ) ) {
       fd_forest_ele_t * ele = NULL;
+      int slot_complete = !!(shred->data.flags & FD_SHRED_DATA_FLAG_SLOT_COMPLETE);
+      int data_complete = !!(shred->data.flags & FD_SHRED_DATA_FLAG_DATA_COMPLETE);
       for( uint idx = shred->fec_set_idx; idx <= shred->idx; idx++ ) {
-        ele = fd_forest_data_shred_insert( ctx->forest, shred->slot, shred->data.parent_off, idx, shred->fec_set_idx, 0, 0 );
+        ele = fd_forest_data_shred_insert( ctx->forest, shred->slot, shred->data.parent_off, idx, shred->fec_set_idx, idx == shred->idx, slot_complete && idx == shred->idx );
       }
       FD_TEST( ele ); /* must be non-empty */
-      fd_forest_ele_idxs_insert( ele->cmpl, shred->fec_set_idx );
+      ele->completed = 1;
 
       uchar * merkle        = ctx->buffer + FD_SHRED_DATA_HEADER_SZ;
-      int     data_complete = !!(shred->data.flags & FD_SHRED_DATA_FLAG_DATA_COMPLETE);
-      int     slot_complete = !!(shred->data.flags & FD_SHRED_DATA_FLAG_SLOT_COMPLETE);
 
       FD_TEST( fd_fec_pool_free( ctx->fec_chainer->pool ) );
       FD_TEST( !fd_fec_chainer_query( ctx->fec_chainer, shred->slot, shred->fec_set_idx ) );
@@ -859,37 +859,62 @@ after_frag( fd_repair_tile_ctx_t * ctx,
       int               data_complete = !!(shred->data.flags & FD_SHRED_DATA_FLAG_DATA_COMPLETE);
       int               slot_complete = !!(shred->data.flags & FD_SHRED_DATA_FLAG_SLOT_COMPLETE);
       fd_forest_ele_t * ele           = fd_forest_data_shred_insert( ctx->forest, shred->slot, shred->data.parent_off, shred->idx, shred->fec_set_idx, data_complete, slot_complete );
-
       /* Check if there are FECs to force complete. Algorithm: window
          through the idxs in interval [i, j). If j = next fec_set_idx
          then we know we can force complete the FEC set interval [i, j)
          (assuming it wasn't already completed based on `cmpl`). */
 
-      uint i = 0;
-      for( uint j = 1; j < ele->buffered_idx + 1; j++ ) { /* TODO iterate by word */
-        if( FD_UNLIKELY( fd_forest_ele_idxs_test( ele->cmpl, i ) && fd_forest_ele_idxs_test( ele->fecs, j ) ) ) {
-          i = j;
-        } else if( FD_UNLIKELY( fd_forest_ele_idxs_test( ele->fecs, j ) || j == ele->complete_idx ) ) {
-          if ( j == ele->complete_idx ) j++;
-          fd_forest_ele_idxs_insert( ele->cmpl, i );
-
-          /* Find the shred tile owning this FEC set. */
-
-          fd_fec_sig_t * fec_sig = fd_fec_sig_query( ctx->fec_sigs, (shred->slot << 32) | i, NULL );
-
-          ulong sig      = fd_ulong_load_8( fec_sig->sig );
-          ulong tile_idx = sig % ctx->shred_tile_cnt;
-          uint  last_idx = j - i - 1;
-
-          uchar * chunk = fd_chunk_to_laddr( ctx->shred_out_ctx[tile_idx].mem, ctx->shred_out_ctx[tile_idx].chunk );
-          memcpy( chunk, fec_sig->sig, sizeof(fd_ed25519_sig_t) );
-          fd_stem_publish( stem, ctx->shred_out_ctx[tile_idx].idx, last_idx, ctx->shred_out_ctx[tile_idx].chunk, sizeof(fd_ed25519_sig_t), 0UL, 0UL, 0UL );
-          ctx->shred_out_ctx[tile_idx].chunk = fd_dcache_compact_next( ctx->shred_out_ctx[tile_idx].chunk, sizeof(fd_ed25519_sig_t), ctx->shred_out_ctx[tile_idx].chunk0, ctx->shred_out_ctx[tile_idx].wmark );
-          i = j;
-        } else {
-          // FD_LOG_NOTICE(( "not a fec boundary %lu %u", ele->slot, j ));
-        }
+      /* We just added a data shred. This could allow either a) the current FEC set to be completed. or b) the previous FEC set to be completed. */
+      int force_complete = 0;
+      if( FD_UNLIKELY( !ele->completed && ele->data_cnt != UINT_MAX && ele->buffered_idx == ele->data_cnt - 1 ) ) {
+        ele->completed = 1;
+        force_complete = 1;
       }
+      /* Or the previous FEC set is completed. */
+      fd_forest_ele_t * parent_fec = fd_forest_pool_ele( fd_forest_pool( ctx->forest ), ele->parent );
+
+      if( FD_UNLIKELY( parent_fec &&!parent_fec->completed && parent_fec->data_cnt != UINT_MAX && parent_fec->buffered_idx == parent_fec->data_cnt - 1 ) ) {
+        parent_fec->completed = 1;
+        force_complete = 1;
+        ele = parent_fec;
+      }
+
+      if( FD_UNLIKELY( force_complete ) ) {
+        fd_fec_sig_t * fec_sig = fd_fec_sig_query( ctx->fec_sigs, (ele->slot << 32) | ele->fec_set_idx, NULL );
+
+        ulong sig      = fd_ulong_load_8( fec_sig->sig );
+        ulong tile_idx = sig % ctx->shred_tile_cnt;
+
+        uchar * chunk = fd_chunk_to_laddr( ctx->shred_out_ctx[tile_idx].mem, ctx->shred_out_ctx[tile_idx].chunk );
+        memcpy( chunk, fec_sig->sig, sizeof(fd_ed25519_sig_t) );
+        fd_stem_publish( stem, ctx->shred_out_ctx[tile_idx].idx, ele->data_cnt - 1, ctx->shred_out_ctx[tile_idx].chunk, sizeof(fd_ed25519_sig_t), 0UL, 0UL, 0UL );
+        ctx->shred_out_ctx[tile_idx].chunk = fd_dcache_compact_next( ctx->shred_out_ctx[tile_idx].chunk, sizeof(fd_ed25519_sig_t), ctx->shred_out_ctx[tile_idx].chunk0, ctx->shred_out_ctx[tile_idx].wmark );
+      }
+      //uint i = 0;
+      //for( uint j = 1; j < ele->buffered_idx + 1; j++ ) { /* TODO iterate by word */
+        //if( FD_UNLIKELY( fd_forest_ele_idxs_test( ele->cmpl, i ) && fd_forest_ele_idxs_test( ele->fecs, j ) ) ) {
+          //i = j;
+        //} else if( FD_UNLIKELY( fd_forest_ele_idxs_test( ele->fecs, j ) || j == ele->complete_idx ) ) {
+          //if ( j == ele->complete_idx ) j++;
+          //fd_forest_ele_idxs_insert( ele->cmpl, i );
+
+          ///* Find the shred tile owning this FEC set. */
+
+          //fd_fec_sig_t * fec_sig = fd_fec_sig_query( ctx->fec_sigs, (shred->slot << 32) | i, NULL );
+
+          //ulong sig      = fd_ulong_load_8( fec_sig->sig );
+          //ulong tile_idx = sig % ctx->shred_tile_cnt;
+          //uint  last_idx = j - i - 1;
+
+          //uchar * chunk = fd_chunk_to_laddr( ctx->shred_out_ctx[tile_idx].mem, ctx->shred_out_ctx[tile_idx].chunk );
+          //memcpy( chunk, fec_sig->sig, sizeof(fd_ed25519_sig_t) );
+          //fd_stem_publish( stem, ctx->shred_out_ctx[tile_idx].idx, last_idx, ctx->shred_out_ctx[tile_idx].chunk, sizeof(fd_ed25519_sig_t), 0UL, 0UL, 0UL );
+          //ctx->shred_out_ctx[tile_idx].chunk = fd_dcache_compact_next( ctx->shred_out_ctx[tile_idx].chunk, sizeof(fd_ed25519_sig_t), ctx->shred_out_ctx[tile_idx].chunk0, ctx->shred_out_ctx[tile_idx].wmark );
+          //i = j;
+        //} else {
+          //// FD_LOG_NOTICE(( "not a fec boundary %lu %u", ele->slot, j ));
+        //}
+      //}
     }
     return;
   }
@@ -954,9 +979,16 @@ after_credit( fd_repair_tile_ctx_t * ctx,
         !fd_forest_orphaned_iter_done( iter, orphaned, pool );
         iter = fd_forest_orphaned_iter_next( iter, orphaned, pool ) ) {
     fd_forest_ele_t * orphan = fd_forest_orphaned_iter_ele( iter, orphaned, pool );
-    if( fd_repair_need_orphan( ctx->repair, orphan->slot ) ) {
-      fd_repair_send_requests( ctx, stem, fd_needed_orphan, orphan->slot, UINT_MAX, now );
-      total_req += FD_REPAIR_NUM_NEEDED_PEERS;
+    if( FD_UNLIKELY( orphan->fec_set_idx == UINT_MAX ) ) {
+      if( fd_repair_need_orphan( ctx->repair, orphan->slot ) ) {
+        fd_repair_send_requests( ctx, stem, fd_needed_orphan, orphan->slot, 0, now );
+        total_req += FD_REPAIR_NUM_NEEDED_PEERS;
+      }
+    } else {
+      if( fd_repair_need_window_index( ctx->repair, orphan->slot, orphan->fec_set_idx - 1 ) ) {
+        fd_repair_send_requests( ctx, stem, fd_needed_window_index, orphan->slot, orphan->fec_set_idx - 1, now );
+        total_req += FD_REPAIR_NUM_NEEDED_PEERS;
+      }
     }
   }
 
