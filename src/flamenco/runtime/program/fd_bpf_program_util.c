@@ -197,15 +197,15 @@ fd_bpf_get_programdata_from_account( fd_funk_t const *        funk,
 
 /* Parse ELF info from programdata. */
 static int
-fd_bpf_parse_elf_info( fd_sbpf_elf_info_t * elf_info,
-                       uchar const *        program_data,
-                       ulong                program_data_len,
-                       fd_bank_t *          bank ) {
+fd_bpf_parse_elf_info( fd_sbpf_elf_info_t *       elf_info,
+                       uchar const *              program_data,
+                       ulong                      program_data_len,
+                       fd_exec_slot_ctx_t const * slot_ctx ) {
   uint min_sbpf_version, max_sbpf_version;
   fd_bpf_get_sbpf_versions( &min_sbpf_version,
                             &max_sbpf_version,
-                            bank->slot,
-                            fd_bank_features_query( bank ) );
+                            slot_ctx->slot,
+                            fd_bank_features_query( slot_ctx->bank ) );
   if( FD_UNLIKELY( !fd_sbpf_elf_peek( elf_info, program_data, program_data_len, /* deploy checks */ 0, min_sbpf_version, max_sbpf_version ) ) ) {
     FD_LOG_DEBUG(( "fd_sbpf_elf_peek() failed: %s", fd_sbpf_strerror() ));
     return -1;
@@ -227,7 +227,7 @@ fd_bpf_parse_elf_info( fd_sbpf_elf_info_t * elf_info,
    On success, `validated_prog` is updated with the loaded sBPF program metadata, as well as the `last_verified_epoch`
    and `failed_verification` flags. */
 static int
-fd_bpf_validate_sbpf_program( fd_bank_t *                   bank,
+fd_bpf_validate_sbpf_program( fd_exec_slot_ctx_t const *    slot_ctx,
                               fd_sbpf_elf_info_t const *    elf_info,
                               uchar const *                 program_data,
                               ulong                         program_data_len,
@@ -235,9 +235,9 @@ fd_bpf_validate_sbpf_program( fd_bank_t *                   bank,
                               fd_sbpf_validated_program_t * validated_prog /* out */ ) {
   /* Mark the program as validated for this epoch. */
 
-  fd_epoch_schedule_t const * epoch_schedule = fd_bank_epoch_schedule_query( bank );
+  fd_epoch_schedule_t const * epoch_schedule = fd_bank_epoch_schedule_query( slot_ctx->bank );
   validated_prog->last_epoch_verification_ran = fd_slot_to_epoch( epoch_schedule,
-                                                                  bank->slot,
+                                                                  slot_ctx->slot,
                                                                   NULL );
 
   ulong               prog_align     = fd_sbpf_program_align();
@@ -256,8 +256,8 @@ fd_bpf_validate_sbpf_program( fd_bank_t *                   bank,
   }
 
   fd_vm_syscall_register_slot( syscalls,
-                               bank->slot,
-                               fd_bank_features_query( bank ),
+                               slot_ctx->slot,
+                               fd_bank_features_query( slot_ctx->bank ),
                                0 );
 
   /* Load program. */
@@ -276,7 +276,7 @@ fd_bpf_validate_sbpf_program( fd_bank_t *                   bank,
     FD_LOG_CRIT(( "fd_vm_new() or fd_vm_join() failed" ));
   }
 
-  int direct_mapping = FD_FEATURE_ACTIVE( bank->slot, fd_bank_features_query( bank ), bpf_account_data_direct_mapping );
+  int direct_mapping = FD_FEATURE_ACTIVE( slot_ctx->slot, fd_bank_features_query( slot_ctx->bank ), bpf_account_data_direct_mapping );
 
   vm = fd_vm_init( vm,
                    NULL, /* OK since unused in `fd_vm_validate()` */
@@ -357,16 +357,16 @@ fd_publish_failed_verification_rec( fd_funk_t *             funk,
    The program will still be added to the cache even if verifications fail. This is to prevent a DOS
    vector where an attacker could spam invocations to programs that failed verification. */
 static void
-fd_bpf_create_bpf_program_cache_entry( fd_bank_t *              bank,
-                                       fd_funk_t *              funk,
-                                       fd_funk_txn_t *          funk_txn,
+fd_bpf_create_bpf_program_cache_entry( fd_exec_slot_ctx_t *     slot_ctx,
                                        fd_txn_account_t const * program_acc,
                                        fd_spad_t *              runtime_spad ) {
   FD_SPAD_FRAME_BEGIN( runtime_spad ) {
 
     /* Prepare the funk record for the program cache. */
     fd_pubkey_t const * program_pubkey = program_acc->pubkey;
-    fd_funk_rec_key_t   id             = fd_acc_mgr_cache_key( program_pubkey );
+    fd_funk_t *       funk             = slot_ctx->funk;
+    fd_funk_txn_t *   funk_txn         = slot_ctx->funk_txn;
+    fd_funk_rec_key_t id               = fd_acc_mgr_cache_key( program_pubkey );
 
     /* This prepare should never fail. */
     int funk_err = FD_FUNK_SUCCESS;
@@ -385,7 +385,7 @@ fd_bpf_create_bpf_program_cache_entry( fd_bank_t *              bank,
     }
 
     fd_sbpf_elf_info_t elf_info = {0};
-    if( FD_UNLIKELY( fd_bpf_parse_elf_info( &elf_info, program_data, program_data_len, bank ) ) ) {
+    if( FD_UNLIKELY( fd_bpf_parse_elf_info( &elf_info, program_data, program_data_len, slot_ctx ) ) ) {
       fd_publish_failed_verification_rec( funk, prepare, rec );
       return;
     }
@@ -404,7 +404,7 @@ fd_bpf_create_bpf_program_cache_entry( fd_bank_t *              bank,
 
     /* Note that the validated program points to the funk record data and writes into the record directly to avoid an expensive memcpy. */
     fd_sbpf_validated_program_t * validated_prog = fd_sbpf_validated_program_new( val, &elf_info );
-    int res = fd_bpf_validate_sbpf_program( bank, &elf_info, program_data, program_data_len, runtime_spad, validated_prog );
+    int res = fd_bpf_validate_sbpf_program( slot_ctx, &elf_info, program_data, program_data_len, runtime_spad, validated_prog );
     if( FD_UNLIKELY( res ) ) {
       fd_publish_failed_verification_rec( funk, prepare, rec );
       return;
@@ -415,13 +415,11 @@ fd_bpf_create_bpf_program_cache_entry( fd_bank_t *              bank,
 }
 
 static int
-fd_bpf_check_and_create_bpf_program_cache_entry( fd_bank_t *         bank,
-                                                 fd_funk_t *         funk,
-                                                 fd_funk_txn_t *     funk_txn,
-                                                 fd_pubkey_t const * pubkey,
-                                                 fd_spad_t *         runtime_spad ) {
+fd_bpf_check_and_create_bpf_program_cache_entry( fd_exec_slot_ctx_t * slot_ctx,
+                                                 fd_pubkey_t const *  pubkey,
+                                                 fd_spad_t *          runtime_spad ) {
   FD_TXN_ACCOUNT_DECL( exec_rec );
-  if( FD_UNLIKELY( fd_txn_account_init_from_funk_readonly( exec_rec, pubkey, funk, funk_txn ) != FD_ACC_MGR_SUCCESS ) ) {
+  if( FD_UNLIKELY( fd_txn_account_init_from_funk_readonly( exec_rec, pubkey, slot_ctx->funk, slot_ctx->funk_txn ) != FD_ACC_MGR_SUCCESS ) ) {
     return -1;
   }
 
@@ -429,28 +427,30 @@ fd_bpf_check_and_create_bpf_program_cache_entry( fd_bank_t *         bank,
     return -1;
   }
 
-  fd_bpf_create_bpf_program_cache_entry( bank, funk, funk_txn, exec_rec, runtime_spad );
+  fd_bpf_create_bpf_program_cache_entry( slot_ctx, exec_rec, runtime_spad );
 
   return 0;
 }
 
 int
-fd_bpf_scan_and_create_bpf_program_cache_entry( fd_bank_t *     bank,
-                                                fd_funk_t *     funk,
-                                                fd_funk_txn_t * funk_txn,
-                                                fd_spad_t * runtime_spad ) {
+fd_bpf_scan_and_create_bpf_program_cache_entry( fd_exec_slot_ctx_t * slot_ctx,
+                                                fd_spad_t *          runtime_spad ) {
+  fd_funk_t * funk = slot_ctx->funk;
   ulong       cnt  = 0UL;
 
   /* Use random-ish xid to avoid concurrency issues */
   fd_funk_txn_xid_t cache_xid = fd_funk_generate_xid();
 
   fd_funk_txn_start_write( funk );
-  fd_funk_txn_t * cache_txn = fd_funk_txn_prepare( funk, funk_txn, &cache_xid, 1 );
+  fd_funk_txn_t * cache_txn = fd_funk_txn_prepare( funk, slot_ctx->funk_txn, &cache_xid, 1 );
   if( !cache_txn ) {
     FD_LOG_ERR(( "fd_funk_txn_prepare() failed" ));
     return -1;
   }
   fd_funk_txn_end_write( funk );
+
+  fd_funk_txn_t * funk_txn = slot_ctx->funk_txn;
+  slot_ctx->funk_txn = cache_txn;
 
   fd_funk_txn_start_read( funk );
   for (fd_funk_rec_t const *rec = fd_funk_txn_first_rec( funk, funk_txn );
@@ -462,7 +462,7 @@ fd_bpf_scan_and_create_bpf_program_cache_entry( fd_bank_t *     bank,
 
     fd_pubkey_t const * pubkey = fd_type_pun_const( rec->pair.key[0].uc );
 
-    int res = fd_bpf_check_and_create_bpf_program_cache_entry( bank, funk, cache_txn, pubkey, runtime_spad );
+    int res = fd_bpf_check_and_create_bpf_program_cache_entry( slot_ctx, pubkey, runtime_spad );
 
     if( res==0 ) {
       cnt++;
@@ -479,6 +479,7 @@ fd_bpf_scan_and_create_bpf_program_cache_entry( fd_bank_t *     bank,
   }
   fd_funk_txn_end_write( funk );
 
+  slot_ctx->funk_txn = funk_txn;
   return 0;
 }
 
@@ -546,7 +547,7 @@ FD_SPAD_FRAME_BEGIN( runtime_spad ) {
   fd_sbpf_validated_program_t const * prog = NULL;
   int err = fd_bpf_load_cache_entry( slot_ctx->funk, slot_ctx->funk_txn, program_pubkey, &prog );
   if( FD_UNLIKELY( err ) ) {
-    fd_bpf_create_bpf_program_cache_entry( slot_ctx->bank, slot_ctx->funk, slot_ctx->funk_txn, exec_rec, runtime_spad );
+    fd_bpf_create_bpf_program_cache_entry( slot_ctx, exec_rec, runtime_spad );
     return;
   }
 
@@ -592,7 +593,7 @@ FD_SPAD_FRAME_BEGIN( runtime_spad ) {
   }
 
   /* Parse the ELF info */
-  if( FD_UNLIKELY( fd_bpf_parse_elf_info( &elf_info, program_data, program_data_len, slot_ctx->bank ) ) ) {
+  if( FD_UNLIKELY( fd_bpf_parse_elf_info( &elf_info, program_data, program_data_len, slot_ctx ) ) ) {
     modified_prog->failed_verification = 1;
     fd_funk_rec_modify_publish( query );
     return;
@@ -601,7 +602,7 @@ FD_SPAD_FRAME_BEGIN( runtime_spad ) {
   /* Validate the sBPF program. This will set the program's flags accordingly. The return code does not matter here because we publish
      regardless of the return code. */
   modified_prog = fd_sbpf_validated_program_new( data, &elf_info );
-  fd_bpf_validate_sbpf_program( slot_ctx->bank, &elf_info, program_data, program_data_len, runtime_spad, modified_prog );
+  fd_bpf_validate_sbpf_program( slot_ctx, &elf_info, program_data, program_data_len, runtime_spad, modified_prog );
 
   if( modified_prog->failed_verification ) {
     FD_LOG_ERR(("program fialed veriifecation;"));

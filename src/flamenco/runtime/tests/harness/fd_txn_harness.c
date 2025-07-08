@@ -70,7 +70,7 @@ fd_runtime_fuzz_txn_ctx_create( fd_runtime_fuzz_runner_t *         runner,
   }
 
   /* Add accounts to bpf program cache */
-  fd_bpf_scan_and_create_bpf_program_cache_entry( slot_ctx->bank, slot_ctx->funk, slot_ctx->funk_txn, runner->spad );
+  fd_bpf_scan_and_create_bpf_program_cache_entry( slot_ctx, runner->spad );
 
   /* Setup Bank manager */
 
