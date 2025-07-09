@@ -23,9 +23,10 @@ fd_sha256_core_shaext:
         shlq    $6,%rdx
         addq    %rsi,%rdx                                  # rdx = block + block_cnt*64
         leaq    fd_sha256_core_shaext_Kmask+128(%rip),%rax # rax = K + 128, mask at rax + 128 = K + 256 (aligned)
+        leaq    fd_sha256_core_endianness_swap_shuffle_mask+(%rip),%rcx # rcx = address of endianness shuffle mask
 	movdqu	(%rdi),%xmm1
 	movdqu	16(%rdi),%xmm2
-	movdqa	128(%rax),%xmm7
+	movdqa	(%rcx),%xmm7
 	pshufd	$27,%xmm1,%xmm0
 	pshufd	$177,%xmm1,%xmm1
 	pshufd	$27,%xmm2,%xmm2
@@ -190,7 +191,7 @@ fd_sha256_core_shaext:
 	sha256rnds2	%xmm1,%xmm2
 	pshufd	$14,%xmm0,%xmm0
 	sha256msg2	%xmm5,%xmm6
-	movdqa	128(%rax),%xmm7
+	movdqa	(%rcx),%xmm7
 	sha256rnds2	%xmm2,%xmm1
 	movdqa	112(%rax),%xmm0
 	paddd	%xmm6,%xmm0
@@ -211,9 +212,18 @@ fd_sha256_core_shaext:
 	movdqu	%xmm1,(%rdi)
 	movdqu	%xmm2,16(%rdi)
 	ret
+
 .size	fd_sha256_core_shaext, .-fd_sha256_core_shaext
         .align 128
         .type   fd_sha256_core_shaext_Kmask, @object
-        .size   fd_sha256_core_shaext_Kmask, 272
+        .size   fd_sha256_core_shaext_Kmask, 256
+#include "fd_sha256_K.h"
 fd_sha256_core_shaext_Kmask:
-.long	1116352408,1899447441,3049323471,3921009573,961987163,1508970993,2453635748,2870763221,3624381080,310598401,607225278,1426881987,1925078388,2162078206,2614888103,3248222580,3835390401,4022224774,264347078,604807628,770255983,1249150122,1555081692,1996064986,2554220882,2821834349,2952996808,3210313671,3336571891,3584528711,113926993,338241895,666307205,773529912,1294757372,1396182291,1695183700,1986661051,2177026350,2456956037,2730485921,2820302411,3259730800,3345764771,3516065817,3600352804,4094571909,275423344,430227734,506948616,659060556,883997877,958139571,1322822218,1537002063,1747873779,1955562222,2024104815,2227730452,2361852424,2428436474,2756734187,3204031479,3329325298,66051,67438087,134810123,202182159
+.long FD_SHA256_K
+
+.size fd_sha256_core_endianness_swap_shuffle_mask, .-fd_sha256_core_endianness_swap_shuffle_mask
+  .align 16
+  .type fd_sha256_core_endianness_swap_shuffle_mask, @object
+  .size fd_sha256_core_endianness_swap_shuffle_mask, 16
+fd_sha256_core_endianness_swap_shuffle_mask:
+.long 0x00010203,0x04050607,0x08090a0b,0x0c0d0e0f
