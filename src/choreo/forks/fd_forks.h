@@ -3,9 +3,6 @@
 
 #include "../../flamenco/runtime/context/fd_exec_slot_ctx.h"
 #include "../../flamenco/runtime/fd_blockstore.h"
-#include "../fd_choreo_base.h"
-#include "../ghost/fd_ghost.h"
-#include "../voter/fd_voter.h"
 
 /* FD_FORKS_USE_HANDHOLDING:  Define this to non-zero at compile time
    to turn on additional runtime checks and logging. */

@@ -19,40 +19,8 @@
    funk, funk_txn, status_cache should be passed in
    seperately.*/
 
-struct fd_exec_slot_ctx {
-  ulong                       magic; /* ==FD_EXEC_SLOT_CTX_MAGIC */
-
-  ulong                       slot;
-
-  fd_banks_t *                banks;
-  fd_bank_t *                 bank;
-
-  /* External joins, pointers to be set by caller */
-
-  fd_funk_t *                 funk;
-  fd_funk_txn_t *             funk_txn;
-
-  fd_txncache_t *             status_cache;
-};
-
-#define FD_EXEC_SLOT_CTX_ALIGN     (alignof(fd_exec_slot_ctx_t))
-#define FD_EXEC_SLOT_CTX_FOOTPRINT (sizeof (fd_exec_slot_ctx_t))
-#define FD_EXEC_SLOT_CTX_MAGIC     (0xC2287BA2A5E6FC3DUL) /* random */
 
 FD_PROTOTYPES_BEGIN
-
-void *
-fd_exec_slot_ctx_new( void * mem );
-
-fd_exec_slot_ctx_t *
-fd_exec_slot_ctx_join( void * mem );
-
-void *
-fd_exec_slot_ctx_leave( fd_exec_slot_ctx_t * ctx );
-
-void *
-fd_exec_slot_ctx_delete( void * mem );
-
 FD_PROTOTYPES_END
 
 #endif /* HEADER_fd_src_flamenco_runtime_context_fd_exec_slot_ctx_h */
