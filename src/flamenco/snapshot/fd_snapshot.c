@@ -62,7 +62,6 @@ restore_manifest( void *                              ctx,
 
   fd_bank_t * bank = NULL;
   int err = (!!fd_exec_slot_ctx_recover( load_ctx->banks, &bank, manifest, spad ) ? 0 : EINVAL);
-  FD_LOG_WARNING(("P %p", (void*)load_ctx));
   load_ctx->bank = bank;
   return err;
 }
