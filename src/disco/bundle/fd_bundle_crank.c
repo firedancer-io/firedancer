@@ -1,6 +1,10 @@
 #include "fd_bundle_crank.h"
 #include "../../flamenco/runtime/fd_pubkey_utils.h"
 
+#if FD_HAS_AVX
+#include "../../util/simd/fd_avx.h"
+#endif
+
 FD_STATIC_ASSERT( sizeof(fd_bundle_crank_tip_payment_config_t)==89UL, config_struct );
 
 #define MEMO_PROGRAM_ID 0x05U,0x4aU,0x53U,0x5aU,0x99U,0x29U,0x21U,0x06U,0x4dU,0x24U,0xe8U,0x71U,0x60U,0xdaU,0x38U,0x7cU, \

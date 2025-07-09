@@ -24,7 +24,7 @@
         keyguard tile verifies that all incoming requests are
         specifically formatted for that role. */
 
-#include "../fd_disco_base.h"
+#include "fd_keyguard.h"
 
 #define FD_KEYGUARD_CLIENT_ALIGN (128UL)
 #define FD_KEYGUARD_CLIENT_FOOTPRINT (128UL)

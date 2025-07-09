@@ -2,14 +2,13 @@
 #define HEADER_fd_src_flamenco_runtime_context_fd_exec_txn_ctx_h
 
 #include "fd_exec_instr_ctx.h"
-#include "../../../util/fd_util_base.h"
 #include "../../log_collector/fd_log_collector_base.h"
 #include "../../../ballet/txn/fd_txn.h"
 #include "../../features/fd_features.h"
-#include "../fd_acc_mgr.h"
 #include "../fd_txncache.h"
 #include "../fd_bank_hash_cmp.h"
 #include "../fd_bank.h"
+#include "../../../funk/fd_funk.h"
 
 /* Return data for syscalls */
 

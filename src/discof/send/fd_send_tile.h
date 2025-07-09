@@ -7,28 +7,15 @@
    eventually move to a separate consensus tile.*/
 #define _GNU_SOURCE
 
-#include "../../disco/metrics/fd_metrics.h"
-#include "../../disco/topo/fd_topo.h"
-#include "generated/fd_send_tile_seccomp.h"
-
-#include "../../util/fd_util.h"
 #include "../../util/net/fd_net_headers.h"
-
 #include "../../disco/stem/fd_stem.h"
-
 #include "../../disco/fd_disco.h"
 #include "../../disco/pack/fd_microblock.h"
-
-#include "../../disco/keyguard/fd_keyload.h"
-#include "../../disco/keyguard/fd_keyguard_client.h"
-#include "../../disco/keyguard/fd_keyguard.h"
-
-#include "../../flamenco/leaders/fd_multi_epoch_leaders.h"
-#include "../../flamenco/leaders/fd_leaders.h"
-#include "../../flamenco/gossip/fd_gossip.h"
-
-#include "../../waltz/quic/fd_quic.h"
 #include "../../disco/net/fd_net_tile.h"
+#include "../../disco/keyguard/fd_keyguard_client.h"
+#include "../../flamenco/leaders/fd_multi_epoch_leaders.h"
+#include "../../flamenco/gossip/fd_gossip.h"
+#include "../../waltz/quic/fd_quic.h"
 
 #define IN_KIND_SIGN   (0UL)
 #define IN_KIND_GOSSIP (1UL)
