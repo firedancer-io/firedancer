@@ -458,43 +458,6 @@ static FD_FN_UNUSED void fd_account_keys_account_keys_pool_update( fd_account_ke
 static FD_FN_UNUSED void fd_account_keys_account_keys_root_update( fd_account_keys_global_t * type, fd_account_keys_pair_t_mapnode_t * root ) {
   type->account_keys_root_offset = !!root ? (ulong)root - (ulong)type : 0UL;
 }
-/* fd_stake_weight_t assigns an Ed25519 public key (node identity) a stake weight number measured in lamports */
-/* Encoded Size: Fixed (40 bytes) */
-struct __attribute__((packed)) fd_stake_weight {
-  fd_pubkey_t key;
-  ulong stake;
-};
-typedef struct fd_stake_weight fd_stake_weight_t;
-#define FD_STAKE_WEIGHT_ALIGN (8UL)
-
-typedef struct fd_stake_weight_t_mapnode fd_stake_weight_t_mapnode_t;
-#define REDBLK_T fd_stake_weight_t_mapnode_t
-#define REDBLK_NAME fd_stake_weight_t_map
-#define REDBLK_IMPL_STYLE 1
-#include "../../util/tmpl/fd_redblack.c"
-struct fd_stake_weight_t_mapnode {
-    fd_stake_weight_t elem;
-    ulong redblack_parent;
-    ulong redblack_left;
-    ulong redblack_right;
-    int redblack_color;
-};
-static inline fd_stake_weight_t_mapnode_t *
-fd_stake_weight_t_map_join_new( void * * alloc_mem, ulong len ) {
-  if( FD_UNLIKELY( 0 == len ) ) len = 1; // prevent underflow
-  *alloc_mem = (void*)fd_ulong_align_up( (ulong)*alloc_mem, fd_stake_weight_t_map_align() );
-  void * map_mem = *alloc_mem;
-  *alloc_mem = (uchar *)*alloc_mem + fd_stake_weight_t_map_footprint( len );
-  return fd_stake_weight_t_map_join( fd_stake_weight_t_map_new( map_mem, len ) );
-}
-/* Encoded Size: Dynamic */
-struct fd_stake_weights {
-  fd_stake_weight_t_mapnode_t * stake_weights_pool;
-  fd_stake_weight_t_mapnode_t * stake_weights_root;
-};
-typedef struct fd_stake_weights fd_stake_weights_t;
-#define FD_STAKE_WEIGHTS_ALIGN alignof(fd_stake_weights_t)
-
 /* https://github.com/solana-labs/solana/blob/8f2c8b8388a495d2728909e30460aa40dcc5d733/sdk/program/src/stake/state.rs#L303 */
 /* Encoded Size: Fixed (64 bytes) */
 struct fd_delegation {
@@ -3955,26 +3918,6 @@ void * fd_account_keys_decode( void * mem, fd_bincode_decode_ctx_t * ctx );
 void * fd_account_keys_decode_global( void * mem, fd_bincode_decode_ctx_t * ctx );
 int fd_account_keys_encode_global( fd_account_keys_global_t const * self, fd_bincode_encode_ctx_t * ctx );
 ulong fd_account_keys_size_global( fd_account_keys_global_t const * self );
-
-static inline void fd_stake_weight_new( fd_stake_weight_t * self ) { fd_memset( self, 0, sizeof(fd_stake_weight_t) ); }
-int fd_stake_weight_encode( fd_stake_weight_t const * self, fd_bincode_encode_ctx_t * ctx );
-void fd_stake_weight_walk( void * w, fd_stake_weight_t const * self, fd_types_walk_fn_t fun, const char *name, uint level, uint varint );
-ulong fd_stake_weight_size( fd_stake_weight_t const * self );
-static inline ulong fd_stake_weight_align( void ) { return FD_STAKE_WEIGHT_ALIGN; }
-static inline int fd_stake_weight_decode_footprint( fd_bincode_decode_ctx_t * ctx, ulong * total_sz ) {
-  *total_sz += sizeof(fd_stake_weight_t);
-  if( (ulong)ctx->data + 40UL > (ulong)ctx->dataend ) { return FD_BINCODE_ERR_OVERFLOW; };
-  return 0;
-}
-void * fd_stake_weight_decode( void * mem, fd_bincode_decode_ctx_t * ctx );
-
-void fd_stake_weights_new( fd_stake_weights_t * self );
-int fd_stake_weights_encode( fd_stake_weights_t const * self, fd_bincode_encode_ctx_t * ctx );
-void fd_stake_weights_walk( void * w, fd_stake_weights_t const * self, fd_types_walk_fn_t fun, const char *name, uint level, uint varint );
-ulong fd_stake_weights_size( fd_stake_weights_t const * self );
-static inline ulong fd_stake_weights_align( void ) { return FD_STAKE_WEIGHTS_ALIGN; }
-int fd_stake_weights_decode_footprint( fd_bincode_decode_ctx_t * ctx, ulong * total_sz );
-void * fd_stake_weights_decode( void * mem, fd_bincode_decode_ctx_t * ctx );
 
 static inline void fd_delegation_new( fd_delegation_t * self ) { fd_memset( self, 0, sizeof(fd_delegation_t) ); }
 int fd_delegation_encode( fd_delegation_t const * self, fd_bincode_encode_ctx_t * ctx );

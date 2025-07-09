@@ -1,11 +1,11 @@
 #ifndef HEADER_fd_src_flamenco_runtime_fd_types_custom
 #define HEADER_fd_src_flamenco_runtime_fd_types_custom
 
+#include "../fd_flamenco_base.h"
 #include "fd_types_meta.h"
 #include "fd_bincode.h"
 #include "../../ballet/ed25519/fd_ed25519.h"
 #include "../../ballet/txn/fd_txn.h"
-#include "../../util/net/fd_ip4.h"
 
 #define FD_HASH_FOOTPRINT (32UL)
 #define FD_HASH_ALIGN (8UL)
@@ -204,5 +204,24 @@ int fd_tower_sync_decode_footprint_inner( fd_bincode_decode_ctx_t * ctx, ulong *
 void fd_tower_sync_decode_inner( void * struct_mem, void * * alloc_mem, fd_bincode_decode_ctx_t * ctx );
 
 FD_PROTOTYPES_END
+
+struct fd_stake_weight {
+  fd_pubkey_t key;
+  ulong stake;
+};
+typedef struct fd_stake_weight fd_stake_weight_t;
+
+struct fd_stake_weight_t_mapnode {
+    fd_stake_weight_t elem;
+    ulong redblack_parent;
+    ulong redblack_left;
+    ulong redblack_right;
+    int redblack_color;
+};
+typedef struct fd_stake_weight_t_mapnode fd_stake_weight_t_mapnode_t;
+#define REDBLK_T fd_stake_weight_t_mapnode_t
+#define REDBLK_NAME fd_stake_weight_t_map
+#define REDBLK_IMPL_STYLE 1
+#include "../../util/tmpl/fd_redblack.c"
 
 #endif /* HEADER_fd_src_flamenco_runtime_fd_types_custom */

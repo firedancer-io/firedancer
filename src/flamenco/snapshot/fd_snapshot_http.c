@@ -1,6 +1,6 @@
 #include "fd_snapshot_http.h"
 #include "../../waltz/http/picohttpparser.h"
-#include "fd_snapshot.h"
+#include "../../util/net/fd_ip4.h"
 
 #include <assert.h>
 #include <errno.h>
