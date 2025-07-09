@@ -1,6 +1,7 @@
 #include "../shared/fd_config.h"
 #include "../../util/pod/fd_pod_format.h"
 
+#include "../../discof/store/fd_store.h"
 #include "../../flamenco/runtime/fd_txncache.h"
 #include "../../flamenco/runtime/fd_blockstore.h"
 #include "../../flamenco/runtime/fd_runtime.h"
@@ -175,6 +176,31 @@ fd_topo_obj_callbacks_t fd_obj_cb_fec_sets = {
   .footprint = fec_sets_footprint,
   .align     = fec_sets_align,
   .new       = fec_sets_new,
+};
+
+static ulong
+store_footprint( fd_topo_t const * topo,
+                 fd_topo_obj_t const * obj ) {
+  return fd_store_footprint( VAL("fec_max") );
+}
+
+static ulong
+store_align( fd_topo_t const *     topo FD_FN_UNUSED,
+             fd_topo_obj_t const * obj  FD_FN_UNUSED ) {
+  return fd_store_align();
+}
+
+static void
+store_new( fd_topo_t const *     topo,
+           fd_topo_obj_t const * obj ) {
+  FD_TEST( fd_store_new( fd_topo_obj_laddr( topo, obj->id ), VAL("fec_max"), VAL("seed") ) );
+}
+
+fd_topo_obj_callbacks_t fd_obj_cb_store = {
+  .name      = "store",
+  .footprint = store_footprint,
+  .align     = store_align,
+  .new       = store_new,
 };
 
 static ulong
