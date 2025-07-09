@@ -2,6 +2,7 @@
 #define HEADER_fd_src_flamenco_vm_fd_vm_h
 
 #include "fd_vm_base.h"
+#include "../../ballet/sha256/fd_sha256.h"
 
 /* A fd_vm_t is an opaque handle of a virtual machine that can execute
    sBPF programs. */

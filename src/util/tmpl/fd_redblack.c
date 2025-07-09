@@ -70,7 +70,7 @@
      my_rb_node_t * my_rb_nearby(my_rb_node_t * pool, my_rb_node_t * root, my_rb_node_t * key);
      ulong my_rb_size(my_rb_node_t * pool, my_rb_node_t * root);
      int my_rb_verify(my_rb_node_t * pool, my_rb_node_t * root);
-     long my_rb_compare(my_rb_node_t * left, my_rb_node_t * right);
+     long my_rb_compare(my_rb_node_t const * left, my_rb_node_t const * right);
 
    The specific usage and semantics of these methods is given below.
 
@@ -99,7 +99,7 @@
    the left is less than, equal to, or greater than right. For
    example:
 
-     long my_rb_compare(my_node_t* left, my_node_t* right) {
+     long my_rb_compare(my_node_t const * left, my_node_t const * right) {
        return (long)(left->key - right->key);
      }
 
@@ -410,13 +410,13 @@ ulong REDBLK_(size)(REDBLK_T * pool, REDBLK_T * root);
 int REDBLK_(verify)(REDBLK_T * pool, REDBLK_T * root);
 
 /*
-  E.g. long my_rb_compare(my_node_t * left, my_node_t * right);
+  E.g. long my_rb_compare(my_node_t const * left, my_node_t const * right);
 
   Defined by application to implement key comparison. Returns a
   negative number, zero, or positive depending on whether the left is
   less than, equal to, or greater than right. For example:
 
-    long my_rb_compare(my_node_t* left, my_node_t* right) {
+    long my_rb_compare(my_node_t const * left, my_node_t const * right) {
       return (long)(left->key - right->key);
     }
 

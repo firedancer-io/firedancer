@@ -1,5 +1,4 @@
 #define _GNU_SOURCE  /* Enable GNU and POSIX extensions */
-#include "../../disco/tiles.h"
 #include "../../disco/topo/fd_topo.h"
 #include "../../disco/net/fd_net_tile.h"
 #include "../../flamenco/types/fd_types.h"
