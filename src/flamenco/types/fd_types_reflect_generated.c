@@ -3,7 +3,7 @@
 #include "fd_types_custom.h"
 #include "fd_types_reflect_private.h"
 #pragma GCC diagnostic ignored "-Wpedantic"
-ulong fd_types_vt_list_cnt = 251;
+ulong fd_types_vt_list_cnt = 249;
 fd_types_vt_t const fd_types_vt_list[] = {
   { .name="fd_hash", .name_len=7, .align=FD_HASH_ALIGN, .new_=(void *)fd_hash_new, .decode=(void *)fd_hash_decode, .size=(void *)fd_hash_size, .walk=(void *)fd_hash_walk, .decode_footprint=(void *)fd_hash_decode_footprint, .encode=(void *)fd_hash_encode  },
   { .name="fd_pubkey", .name_len=9, .align=FD_PUBKEY_ALIGN, .new_=(void *)fd_pubkey_new, .decode=(void *)fd_pubkey_decode, .size=(void *)fd_pubkey_size, .walk=(void *)fd_pubkey_walk, .decode_footprint=(void *)fd_pubkey_decode_footprint, .encode=(void *)fd_pubkey_encode  },
@@ -35,8 +35,6 @@ fd_types_vt_t const fd_types_vt_list[] = {
   { .name="fd_vote_accounts", .name_len=16, .align=FD_VOTE_ACCOUNTS_ALIGN, .new_=(void *)fd_vote_accounts_new, .decode=(void *)fd_vote_accounts_decode, .size=(void *)fd_vote_accounts_size, .walk=(void *)fd_vote_accounts_walk, .decode_footprint=(void *)fd_vote_accounts_decode_footprint, .encode=(void *)fd_vote_accounts_encode  },
   { .name="fd_account_keys_pair", .name_len=20, .align=FD_ACCOUNT_KEYS_PAIR_ALIGN, .new_=(void *)fd_account_keys_pair_new, .decode=(void *)fd_account_keys_pair_decode, .size=(void *)fd_account_keys_pair_size, .walk=(void *)fd_account_keys_pair_walk, .decode_footprint=(void *)fd_account_keys_pair_decode_footprint, .encode=(void *)fd_account_keys_pair_encode  },
   { .name="fd_account_keys", .name_len=15, .align=FD_ACCOUNT_KEYS_ALIGN, .new_=(void *)fd_account_keys_new, .decode=(void *)fd_account_keys_decode, .size=(void *)fd_account_keys_size, .walk=(void *)fd_account_keys_walk, .decode_footprint=(void *)fd_account_keys_decode_footprint, .encode=(void *)fd_account_keys_encode  },
-  { .name="fd_stake_weight", .name_len=15, .align=FD_STAKE_WEIGHT_ALIGN, .new_=(void *)fd_stake_weight_new, .decode=(void *)fd_stake_weight_decode, .size=(void *)fd_stake_weight_size, .walk=(void *)fd_stake_weight_walk, .decode_footprint=(void *)fd_stake_weight_decode_footprint, .encode=(void *)fd_stake_weight_encode  },
-  { .name="fd_stake_weights", .name_len=16, .align=FD_STAKE_WEIGHTS_ALIGN, .new_=(void *)fd_stake_weights_new, .decode=(void *)fd_stake_weights_decode, .size=(void *)fd_stake_weights_size, .walk=(void *)fd_stake_weights_walk, .decode_footprint=(void *)fd_stake_weights_decode_footprint, .encode=(void *)fd_stake_weights_encode  },
   { .name="fd_delegation", .name_len=13, .align=FD_DELEGATION_ALIGN, .new_=(void *)fd_delegation_new, .decode=(void *)fd_delegation_decode, .size=(void *)fd_delegation_size, .walk=(void *)fd_delegation_walk, .decode_footprint=(void *)fd_delegation_decode_footprint, .encode=(void *)fd_delegation_encode  },
   { .name="fd_delegation_pair", .name_len=18, .align=FD_DELEGATION_PAIR_ALIGN, .new_=(void *)fd_delegation_pair_new, .decode=(void *)fd_delegation_pair_decode, .size=(void *)fd_delegation_pair_size, .walk=(void *)fd_delegation_pair_walk, .decode_footprint=(void *)fd_delegation_pair_decode_footprint, .encode=(void *)fd_delegation_pair_encode  },
   { .name="fd_stake", .name_len=8, .align=FD_STAKE_ALIGN, .new_=(void *)fd_stake_new, .decode=(void *)fd_stake_decode, .size=(void *)fd_stake_size, .walk=(void *)fd_stake_walk, .decode_footprint=(void *)fd_stake_decode_footprint, .encode=(void *)fd_stake_encode  },

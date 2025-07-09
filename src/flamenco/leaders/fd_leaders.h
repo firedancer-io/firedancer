@@ -28,7 +28,6 @@
    rotation. */
 
 #include "fd_leaders_base.h"
-#include "../types/fd_types.h"
 #include "../../ballet/wsample/fd_wsample.h"
 
 #define FD_ULONG_MAX(  a, b ) (__builtin_choose_expr( __builtin_constant_p( a ) & __builtin_constant_p( b ),        \

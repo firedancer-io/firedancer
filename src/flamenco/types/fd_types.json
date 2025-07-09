@@ -286,23 +286,6 @@
       ]
     },
     {
-      "name": "stake_weight",
-      "packed": true,
-      "type": "struct",
-      "fields": [
-        { "name": "key", "type": "pubkey" },
-        { "name": "stake", "type": "ulong" }
-      ],
-      "comment": "fd_stake_weight_t assigns an Ed25519 public key (node identity) a stake weight number measured in lamports"
-    },
-    {
-      "name": "stake_weights",
-      "type": "struct",
-      "fields": [
-        { "name": "stake_weights", "type": "map", "element": "stake_weight", "key": "key" }
-      ]
-    },
-    {
       "name": "delegation",
       "type": "struct",
       "fields": [

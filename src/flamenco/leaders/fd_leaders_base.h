@@ -1,8 +1,7 @@
 #ifndef HEADER_fd_src_flamenco_leaders_fd_leaders_base_h
 #define HEADER_fd_src_flamenco_leaders_fd_leaders_base_h
 
-#include "../fd_flamenco_base.h"
-#include "../types/fd_types.h"
+#include "../types/fd_types_custom.h"
 
 #define MAX_SLOTS_PER_EPOCH   432000UL
 #define MAX_PUB_CNT           50000UL

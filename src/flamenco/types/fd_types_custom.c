@@ -343,3 +343,11 @@ void fd_vote_accounts_decode_inner_global( void * struct_mem, void * * alloc_mem
   self->vote_accounts_pool_offset = (ulong)fd_vote_accounts_pair_global_t_map_leave( vote_accounts_pool ) - (ulong)struct_mem;
   self->vote_accounts_root_offset = (ulong)vote_accounts_root - (ulong)struct_mem;
 }
+
+#define REDBLK_T fd_stake_weight_t_mapnode_t
+#define REDBLK_NAME fd_stake_weight_t_map
+#define REDBLK_IMPL_STYLE 2
+#include "../../util/tmpl/fd_redblack.c"
+long fd_stake_weight_t_map_compare( fd_stake_weight_t_mapnode_t * left, fd_stake_weight_t_mapnode_t * right ) {
+  return memcmp( left->elem.key.uc, right->elem.key.uc, sizeof(right->elem.key) );
+}
