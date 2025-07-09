@@ -1,6 +1,7 @@
 #include "fd_stakes.h"
 #include "../runtime/program/fd_stake_program.h"
 #include "../runtime/sysvar/fd_sysvar_stake_history.h"
+#include "../runtime/fd_acc_mgr.h"
 
 /* fd_stakes_accum_by_node converts Stakes (unordered list of (vote acc,
    active stake) tuples) to StakedNodes (rbtree mapping (node identity)

@@ -1,7 +1,7 @@
 #ifndef HEADER_fd_src_flamenco_snapshot_fd_snapshot_base_h
 #define HEADER_fd_src_flamenco_snapshot_fd_snapshot_base_h
 
-#include "../fd_flamenco_base.h"
+#include "../types/fd_types_custom.h"
 
 /* FD_SNAPSHOT_CREATE_{ALIGN,FOOTPRINT} are const-friendly versions
    of the memory region parameters for the fd_snapshot_create_t object. */

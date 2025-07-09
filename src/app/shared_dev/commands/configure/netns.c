@@ -2,6 +2,7 @@
 #include "../../../shared/commands/configure/configure.h"
 
 #include <errno.h>
+#include <stdlib.h> /* system */
 #include <sys/stat.h>
 
 #define NAME "netns"

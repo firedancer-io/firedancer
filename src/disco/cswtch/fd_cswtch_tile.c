@@ -4,6 +4,7 @@
 
 #include <fcntl.h>
 #include <errno.h>
+#include <stdlib.h>
 #include <sys/types.h> /* SEEK_SET */
 #include <time.h>
 #include <unistd.h>

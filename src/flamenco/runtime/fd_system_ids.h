@@ -1,7 +1,7 @@
 #ifndef HEADER_fd_src_flamenco_runtime_fd_system_ids_h
 #define HEADER_fd_src_flamenco_runtime_fd_system_ids_h
 
-#include "../fd_flamenco_base.h"
+#include "../types/fd_types_custom.h"
 
 FD_PROTOTYPES_BEGIN
 

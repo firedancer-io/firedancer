@@ -1,6 +1,5 @@
 ifdef FD_HAS_HOSTED
 ifdef FD_HAS_LINUX
-ifdef FD_HAS_SSE
 
 $(call make-lib,fddev_shared)
 
@@ -28,8 +27,9 @@ $(call add-objs,commands/pktgen/fd_pktgen_tile,fddev_shared)
 $(call add-objs,commands/configure/netns,fddev_shared)
 $(call add-objs,commands/configure/keys,fddev_shared)
 $(call add-objs,commands/configure/kill,fddev_shared)
+ifdef FD_HAS_INT128
 $(call add-objs,commands/configure/genesis,fddev_shared)
-
 endif
+
 endif
 endif

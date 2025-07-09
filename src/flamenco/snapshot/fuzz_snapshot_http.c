@@ -17,6 +17,7 @@
 #include <unistd.h>
 
 #include "../../util/sanitize/fd_fuzz.h"
+#include "../../util/net/fd_ip4.h"
 #include "fd_snapshot_http.h"
 
 struct shared_state {

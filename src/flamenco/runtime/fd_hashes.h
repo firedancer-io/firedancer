@@ -4,6 +4,7 @@
 #include "../fd_flamenco_base.h"
 #include "../types/fd_types.h"
 #include "../../ballet/lthash/fd_lthash.h"
+#include "../../funk/fd_funk.h"
 #include "fd_bank.h"
 #include "fd_runtime_public.h"
 

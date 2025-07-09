@@ -452,6 +452,7 @@ struct fd_topo_tile {
 
     struct {
       char  snapshots_path[ PATH_MAX ];
+      char  cluster[ 8UL ];
       int   incremental_snapshot_fetch;
       int   do_download;
       uint  maximum_local_snapshot_age;

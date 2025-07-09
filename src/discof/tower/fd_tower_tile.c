@@ -1,13 +1,9 @@
 #define _GNU_SOURCE
 
 #include "../../choreo/fd_choreo.h"
-#include "../../disco/fd_disco.h"
 #include "../../disco/keyguard/fd_keyload.h"
 #include "../../disco/topo/fd_topo.h"
-#include "../../disco/shred/fd_stake_ci.h"
-#include "../../flamenco/runtime/fd_runtime.h"
 #include "../../funk/fd_funk.h"
-#include "../../funk/fd_funk_val.h"
 #include "generated/fd_tower_tile_seccomp.h"
 
 #define IN_KIND_GOSSIP ( 0)

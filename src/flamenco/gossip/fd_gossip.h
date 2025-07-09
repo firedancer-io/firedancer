@@ -2,7 +2,6 @@
 #define HEADER_fd_src_flamenco_gossip_fd_gossip_h
 
 #include "../types/fd_types.h"
-#include "../../util/valloc/fd_valloc.h"
 #include "../../disco/metrics/generated/fd_metrics_gossip.h"
 #include "../../util/net/fd_net_headers.h" /* fd_ip4_port_t */
 #include "fd_contact_info.h"
