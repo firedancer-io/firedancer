@@ -141,6 +141,11 @@ fi
 
 echo_notice "Starting on-demand ingest and replay"
 echo "
+[snapshots]
+    incremental_snapshots = false
+    minimum_download_speed_mib = 0
+    maximum_local_snapshot_age = 0
+    maximum_download_retry_abort = 0
 [layout]
     affinity = \"auto\"
     bank_tile_count = 1
@@ -152,7 +157,6 @@ echo "
         end_slot = $END_SLOT
         archiver_path = \"$DUMP/$LEDGER/rocksdb\"
     [tiles.replay]
-        snapshot = \"$SNAPSHOT\"
         cluster_version = \"$CLUSTER_VERSION\"
         enable_features = [ $FORMATTED_ONE_OFFS ]
     [tiles.gui]
@@ -183,6 +187,7 @@ echo "
 [paths]
     identity_key = \"$DUMP_DIR/identity.json\"
     vote_account = \"$DUMP_DIR/vote.json\"
+    snapshots    = \"$DUMP/$LEDGER\"
 " > $DUMP_DIR/${LEDGER}_backtest.toml
 
 if [ ! -f $DUMP_DIR/identity.json ]; then

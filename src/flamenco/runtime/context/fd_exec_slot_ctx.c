@@ -48,7 +48,7 @@ fd_exec_slot_ctx_join( void * mem ) {
 }
 
 void *
-fd_exec_slot_ctx_leave( fd_exec_slot_ctx_t * ctx) {
+fd_exec_slot_ctx_leave( fd_exec_slot_ctx_t * ctx ) {
   if( FD_UNLIKELY( !ctx ) ) {
     FD_LOG_WARNING(( "NULL block" ));
     return NULL;

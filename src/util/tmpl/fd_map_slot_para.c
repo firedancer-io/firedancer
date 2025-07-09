@@ -167,7 +167,7 @@
      // implicitly) and NULL on failure (no changes, logs details).
 
      ulong     mymap_align    ( void );
-     ulong     mymap_footprint( ulong chain_cnt );
+     ulong     mymap_footprint( ulong ele_max, ulong lock_cnt, ulong probe_max );
      void *    mymap_new      ( void * shmem, ulong ele_max, ulong lock_cnt, ulong probe_max, ulong seed );
      mymap_t * mymap_join     ( void * ljoin, void * shmap, void * shele );
      void *    mymap_leave    ( mymap_t * join );

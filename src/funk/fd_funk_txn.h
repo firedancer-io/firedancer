@@ -409,6 +409,13 @@ fd_funk_txn_cancel_children( fd_funk_t *     funk,
                              fd_funk_txn_t * txn,
                              int             verbose );
 
+/* fd_funk_txn_cancel_root cancels all transactions, including the
+   root transaction.  Funk is guaranteed to be empty after calling
+   this function. */
+
+ulong
+fd_funk_txn_cancel_root( fd_funk_t * funk );
+
 /* fd_funk_txn_cancel_all cancels all in-preparation
    transactions. Only the last published transaction remains. */
 

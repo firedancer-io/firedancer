@@ -74,6 +74,17 @@ fd_account_meta_exists( fd_account_meta_t const * m ) {
 
 }
 
+/* Account meta helpers */
+static inline void *
+fd_account_meta_get_data( fd_account_meta_t * m ) {
+  return ((uchar *) m) + m->hlen;
+}
+
+static inline void const *
+fd_account_meta_get_data_const( fd_account_meta_t const * m ) {
+  return ((uchar const *) m) + m->hlen;
+}
+
 /* Funk key handling **************************************************/
 
 /* fd_acc_funk_key returns a fd_funk database key given an account

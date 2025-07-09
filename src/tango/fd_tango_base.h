@@ -283,7 +283,7 @@ fd_frag_meta_seq_query( fd_frag_meta_t const * meta ) { /* Assumed non-NULL */
 static inline __m128i
 fd_frag_meta_seq_sig_query( fd_frag_meta_t const * meta ) { /* Assumed non-NULL */
   FD_COMPILER_MFENCE();
-  __m128i sse0 = _mm_load_si128( &meta->sse0 );
+  __m128i sse0 = FD_VOLATILE_CONST( meta->sse0 );
   FD_COMPILER_MFENCE();
   return sse0;
 }
