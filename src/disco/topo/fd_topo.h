@@ -108,6 +108,7 @@ struct fd_topo_tile {
   char  name[ 7UL ];            /* The name of this tile.  There can be multiple of each tile name in a topology. */
   ulong kind_id;                /* The ID of this tile within its name.  If there are n tile of a particular name, they have IDs [0, N).  The pair (name, kind_id) uniquely identifies a tile, as does "id" on its own. */
   int   is_agave;               /* If the tile needs to run in the Agave (Anza) address space or not. */
+  int   allow_shutdown;         /* If the tile is allowed to shutdown gracefully.  If false, when the tile exits it will tear down the entire application. */
 
   ulong cpu_idx;                /* The CPU index to pin the tile on.  A value of ULONG_MAX or more indicates the tile should be floating and not pinned to a core. */
 
@@ -861,8 +862,7 @@ fd_topo_run_single_process( fd_topo_t *       topo,
                             int               agave,
                             uint              uid,
                             uint              gid,
-                            fd_topo_run_tile_t (* tile_run )( fd_topo_tile_t const * tile ),
-                            int *             done_futex );
+                            fd_topo_run_tile_t (* tile_run )( fd_topo_tile_t const * tile ) );
 
 /* fd_topo_run_tile runs the given tile directly within the current
    process (and thread).  The function will never return, as tiles are

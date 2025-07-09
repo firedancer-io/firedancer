@@ -204,6 +204,8 @@ struct fd_snaprd_tile {
   long                      wait_duration_nanos;
   int                       should_download;
 
+  int shutdown;
+
   struct {
     char path[ PATH_MAX ];
     int  do_download;
@@ -234,17 +236,6 @@ struct fd_snaprd_tile {
 typedef struct fd_snaprd_tile fd_snaprd_tile_t;
 
 /* SnapRd tile Helper functions ***************************************/
-
-__attribute__((noreturn)) FD_FN_UNUSED static void
-fd_snaprd_shutdown( void ) {
-  FD_COMPILER_MFENCE();
-  FD_MGAUGE_SET( TILE, STATUS, 2UL );
-  FD_COMPILER_MFENCE();
-
-  FD_LOG_INFO(( "snaprd: shutting down" ));
-
-  for(;;) pause();
-}
 
 static void
 fd_snaprd_accumulate_metrics( fd_snaprd_tile_t *             ctx,
@@ -416,7 +407,7 @@ handle_fini( fd_snaprd_tile_t * ctx,
                    0UL,
                    0UL );
 
-  fd_snaprd_shutdown( );
+  ctx->shutdown = 1;
 }
 
 static void
@@ -691,6 +682,11 @@ scratch_footprint( fd_topo_tile_t const * tile ) {
   return FD_LAYOUT_FINI( l, alignof(fd_snaprd_tile_t) );
 }
 
+static inline int
+should_shutdown( fd_snaprd_tile_t * ctx ) {
+  return ctx->shutdown;
+}
+
 static void
 metrics_write( fd_snaprd_tile_t * ctx ) {
   FD_MGAUGE_SET( SNAPRD, FULL_BYTES_READ,               ctx->metrics.full.bytes_read );
@@ -749,6 +745,8 @@ unprivileged_init( fd_topo_t *      topo,
   /* TODO: this might come from config later */
   ctx->wait_duration_nanos = 3UL * 1000000000UL; /* 3 seconds */
   ctx->state               = FD_SNAPRD_STATE_WAITING_FOR_PEERS;
+
+  ctx->shutdown            = 0;
 }
 
 #define STEM_BURST                  2UL
@@ -757,9 +755,10 @@ unprivileged_init( fd_topo_t *      topo,
 #define STEM_CALLBACK_CONTEXT_TYPE  fd_snaprd_tile_t
 #define STEM_CALLBACK_CONTEXT_ALIGN alignof(fd_snaprd_tile_t)
 
-#define STEM_CALLBACK_METRICS_WRITE metrics_write
-#define STEM_CALLBACK_DURING_FRAG   during_frag
-#define STEM_CALLBACK_AFTER_CREDIT  after_credit
+#define STEM_CALLBACK_SHOULD_SHUTDOWN should_shutdown
+#define STEM_CALLBACK_METRICS_WRITE   metrics_write
+#define STEM_CALLBACK_DURING_FRAG     during_frag
+#define STEM_CALLBACK_AFTER_CREDIT    after_credit
 
 #include "../../disco/stem/fd_stem.c"
 

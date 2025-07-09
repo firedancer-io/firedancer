@@ -147,7 +147,7 @@ load_cmd_fn( args_t *   args,
   FD_LOG_NOTICE(( "  --cu-price-spread %g",      (double)args->load.cu_price_spread        ));
 
   /* FIXME allow running sandboxed/multiprocess */
-  fd_topo_run_single_process( &config->topo, 0, config->uid, config->gid, fdctl_tile_run, NULL );
+  fd_topo_run_single_process( &config->topo, 0, config->uid, config->gid, fdctl_tile_run );
 
   /* Sleep parent thread forever, Ctrl+C will terminate. */
   for(;;) pause();

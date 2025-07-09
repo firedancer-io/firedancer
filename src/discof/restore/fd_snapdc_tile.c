@@ -43,6 +43,7 @@
 
 struct fd_snapdc_tile {
   int state;
+  int shutdown;
 
   fd_zstd_dstream_t * dstream;
 
@@ -82,18 +83,6 @@ struct fd_snapdc_tile {
 };
 typedef struct fd_snapdc_tile fd_snapdc_tile_t;
 
-/* TODO: this should be a commom tile helper that all tiles can use. */
-__attribute__((noreturn)) static void
-fd_snapdc_shutdown( void ) {
-  FD_COMPILER_MFENCE();
-  FD_MGAUGE_SET( TILE, STATUS, 2UL );
-  FD_COMPILER_MFENCE();
-
-  FD_LOG_INFO(("snapdc: shutting down"));
-
-  for(;;) pause();
-}
-
 static void
 fd_snapdc_accumulate_metrics( fd_snapdc_tile_t * ctx,
                               ulong              compressed_bytes,
@@ -119,6 +108,11 @@ scratch_footprint( fd_topo_tile_t const * tile ) {
   l = FD_LAYOUT_APPEND( l, alignof(fd_snapdc_tile_t), sizeof(fd_snapdc_tile_t)         );
   l = FD_LAYOUT_APPEND( l, fd_zstd_dstream_align(),   fd_zstd_dstream_footprint( ZSTD_WINDOW_SZ ) );
   return FD_LAYOUT_FINI( l, scratch_align() );
+}
+
+static inline int
+should_shutdown( fd_snapdc_tile_t * ctx ) {
+  return ctx->shutdown;
 }
 
 static void
@@ -149,7 +143,7 @@ handle_control_frag( fd_snapdc_tile_t *  ctx,
                        0UL,
                        0UL,
                        0UL );
-      fd_snapdc_shutdown();
+      ctx->shutdown = 1;
       break;
     }
     case FD_SNAPSHOT_MSG_CTRL_FULL_DONE: {
@@ -319,7 +313,8 @@ unprivileged_init( fd_topo_t *      topo,
   fd_snapdc_tile_t * ctx = FD_SCRATCH_ALLOC_APPEND( l, alignof(fd_snapdc_tile_t), sizeof(fd_snapdc_tile_t) );
   void * zstd_mem        = FD_SCRATCH_ALLOC_APPEND( l, fd_zstd_dstream_align(),   fd_zstd_dstream_footprint( ZSTD_WINDOW_SZ ) );
 
-  ctx->state   = FD_SNAPDC_STATE_WAITING;
+  ctx->state    = FD_SNAPDC_STATE_WAITING;
+  ctx->shutdown = 0;
   ctx->dstream = fd_zstd_dstream_new( zstd_mem, ZSTD_WINDOW_SZ );
   FD_TEST( ctx->dstream );
 
@@ -356,9 +351,10 @@ unprivileged_init( fd_topo_t *      topo,
 #define STEM_CALLBACK_CONTEXT_TYPE  fd_snapdc_tile_t
 #define STEM_CALLBACK_CONTEXT_ALIGN alignof(fd_snapdc_tile_t)
 
-#define STEM_CALLBACK_METRICS_WRITE metrics_write
-#define STEM_CALLBACK_DURING_FRAG   during_frag
-#define STEM_CALLBACK_AFTER_FRAG    after_frag
+#define STEM_CALLBACK_SHOULD_SHUTDOWN should_shutdown
+#define STEM_CALLBACK_METRICS_WRITE   metrics_write
+#define STEM_CALLBACK_DURING_FRAG     during_frag
+#define STEM_CALLBACK_AFTER_FRAG      after_frag
 
 #include "../../disco/stem/fd_stem.c"
 

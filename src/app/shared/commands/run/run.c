@@ -427,8 +427,13 @@ main_pid_namespace( void * _args ) {
           FD_LOG_ERR_NOEXIT(( "tile %s:%lu exited with signal %d (%s)", tile_name, tile_id, WTERMSIG( wstatus ), fd_io_strsignal( WTERMSIG( wstatus ) ) ));
           fd_sys_util_exit_group( WTERMSIG( wstatus ) ? WTERMSIG( wstatus ) : 1 );
         } else {
-          FD_LOG_ERR_NOEXIT(( "tile %s:%lu exited with code %d", tile_name, tile_id, WEXITSTATUS( wstatus ) ));
-          fd_sys_util_exit_group( WEXITSTATUS( wstatus ) ? WEXITSTATUS( wstatus ) : 1 );
+          int exit_code = WEXITSTATUS( wstatus );
+          if( FD_LIKELY( !exit_code && config->topo.tiles[ tile_idx ].allow_shutdown ) ) {
+            FD_LOG_INFO(( "tile %s:%lu exited gracefully with code %d", tile_name, tile_id, exit_code ));
+          } else {
+            FD_LOG_ERR_NOEXIT(( "tile %s:%lu exited with code %d", tile_name, tile_id, exit_code ));
+            fd_sys_util_exit_group( exit_code ? exit_code : 1 );
+          }
         }
       }
     }

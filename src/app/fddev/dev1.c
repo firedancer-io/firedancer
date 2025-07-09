@@ -113,7 +113,6 @@ dev1_cmd_fn( args_t *   args,
     fd_topo_run_tile( &config->topo, tile, config->development.sandbox, 1, config->development.core_dump, config->uid, config->gid, -1, NULL, NULL, runner );
   }
 
-  /* main functions should exit_group and never return, but just in case */
   fd_sys_util_exit_group( result );
 }
 

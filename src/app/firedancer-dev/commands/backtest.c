@@ -16,18 +16,18 @@
 */
 
 #include "../../firedancer/topology.h"
+#include "../../shared/commands/configure/configure.h"
 #include "../../shared/commands/run/run.h" /* initialize_workspaces */
 #include "../../shared/fd_config.h" /* config_t */
+#include "../../shared_dev/commands/dev.h"
 #include "../../../disco/tiles.h"
-#include "../../../disco/topo/fd_cpu_topo.h" /* fd_topo_cpus */
 #include "../../../disco/topo/fd_topob.h"
 #include "../../../util/pod/fd_pod_format.h"
 #include "../../../discof/replay/fd_replay_notif.h"
-#include "../../../flamenco/runtime/fd_runtime.h"
-#include "../../../flamenco/runtime/fd_txncache.h"
 #include "../../../discof/restore/utils/fd_snapshot_messages.h"
 
 #include <unistd.h> /* pause */
+
 extern fd_topo_obj_callbacks_t * CALLBACKS[];
 fd_topo_run_tile_t fdctl_tile_run( fd_topo_tile_t const * tile );
 
@@ -91,9 +91,12 @@ backtest_topo( config_t * config ) {
   fd_topob_wksp( topo, "snaprd" );
   fd_topob_wksp( topo, "snapdc" );
   fd_topob_wksp( topo, "snapin" );
-  fd_topob_tile( topo, "snaprd",  "snaprd",  "metric_in",  cpu_idx++, 0, 0 );
-  fd_topob_tile( topo, "snapdc",  "snapdc",  "metric_in",  cpu_idx++, 0, 0 );
+  fd_topo_tile_t * snaprd_tile = fd_topob_tile( topo, "snaprd",  "snaprd",  "metric_in",  cpu_idx++, 0, 0 );
+  fd_topo_tile_t * snapdc_tile = fd_topob_tile( topo, "snapdc",  "snapdc",  "metric_in",  cpu_idx++, 0, 0 );
   fd_topo_tile_t * snapin_tile = fd_topob_tile( topo, "snapin",  "snapin",  "metric_in",  cpu_idx++, 0, 0 );
+  snaprd_tile->allow_shutdown = 1;
+  snapdc_tile->allow_shutdown = 1;
+  snapin_tile->allow_shutdown = 1;
 
   /**********************************************************************/
   /* Setup backtest->replay link (repair_repla) in topo                 */
@@ -337,33 +340,33 @@ backtest_topo( config_t * config ) {
   fd_topo_print_log( /* stdout */ 1, topo );
 }
 
+extern int * fd_log_private_shared_lock;
+
 static void
 backtest_cmd_fn( args_t *   args FD_PARAM_UNUSED,
                 config_t * config ) {
   backtest_topo( config );
 
-  initialize_workspaces( config );
-  initialize_stacks( config );
-  fd_topo_t * topo = &config->topo;
-  fd_topo_join_workspaces( topo, FD_SHMEM_JOIN_MODE_READ_WRITE );
+  args_t configure_args = {
+    .configure.command = CONFIGURE_CMD_INIT,
+  };
 
-  fd_topo_run_single_process( topo, 2, config->uid, config->gid, fdctl_tile_run, NULL );
+  for( ulong i=0UL; STAGES[ i ]; i++ )
+    configure_args.configure.stages[ i ] = STAGES[ i ];
+  configure_cmd_fn( &configure_args, config );
+
+  run_firedancer_init( config, 1 );
+
+  fd_log_private_shared_lock[ 1 ] = 0;
+  fd_topo_join_workspaces( &config->topo, FD_SHMEM_JOIN_MODE_READ_WRITE );
+
+  fd_topo_run_single_process( &config->topo, 2, config->uid, config->gid, fdctl_tile_run );
   for(;;) pause();
 }
 
-static void
-backtest_cmd_perm( args_t *         args   FD_PARAM_UNUSED,
-                   fd_cap_chk_t *   chk    FD_PARAM_UNUSED,
-                   config_t const * config FD_PARAM_UNUSED ) {}
-
-static void
-backtest_cmd_args( int *    pargc FD_PARAM_UNUSED,
-                   char *** pargv FD_PARAM_UNUSED,
-                   args_t * args  FD_PARAM_UNUSED ) {}
-
 action_t fd_action_backtest = {
   .name = "backtest",
-  .args = backtest_cmd_args,
+  .args = NULL,
   .fn   = backtest_cmd_fn,
-  .perm = backtest_cmd_perm,
+  .perm = dev_cmd_perm,
 };

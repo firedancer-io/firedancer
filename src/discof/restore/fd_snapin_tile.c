@@ -88,6 +88,8 @@ struct fd_snapin_tile {
   /* TODO: remove when replay can receive the snapshot manifest. */
   ulong manifest_sz;
 
+  int shutdown;
+
   struct {
 
     fd_snapshot_parser_metrics_t full;
@@ -99,19 +101,12 @@ struct fd_snapin_tile {
 
 typedef struct fd_snapin_tile fd_snapin_tile_t;
 
-/* SnapIn Helper functions ********************************************/
-
-static void
-fd_snapin_shutdown( fd_snapin_tile_t * ctx ) {
-  FD_COMPILER_MFENCE();
-  FD_MGAUGE_SET( TILE, STATUS, 2UL );
-  FD_COMPILER_MFENCE();
-
-  FD_LOG_INFO(( "snapin: shutting down, inserted %lu accounts",
-                ctx->metrics.num_accounts_inserted ));
-
-  for(;;) pause();
+static inline int
+should_shutdown( fd_snapin_tile_t * ctx ) {
+  return ctx->shutdown;
 }
+
+/* SnapIn Helper functions ********************************************/
 
 static void
 fd_snapin_accumulate_metrics( fd_snapin_tile_t * ctx ) {
@@ -252,6 +247,8 @@ unprivileged_init( fd_topo_t *      topo,
   if( 0==strcmp( topo->links[tile->out_link_id[ MANIFEST_OUT_IDX ]].name, "snap_out" ) ) {
     manifest_cb = save_manifest;
   }
+
+  ctx->shutdown = 0;
 
   ctx->parser = fd_snapshot_parser_new( parser_mem,
                                         manifest_cb,
@@ -409,7 +406,7 @@ handle_control_frag( fd_snapin_tile_t *  ctx,
 
       ctx->state = FD_SNAPIN_STATE_DONE;
       fd_snapshot_parser_close( ctx->parser );
-      fd_snapin_shutdown( ctx );
+      ctx->shutdown = 1;
       break;
     }
     case FD_SNAPSHOT_MSG_CTRL_FULL_DONE: {
@@ -529,9 +526,10 @@ after_frag( fd_snapin_tile_t *  ctx,
 #define STEM_CALLBACK_CONTEXT_TYPE  fd_snapin_tile_t
 #define STEM_CALLBACK_CONTEXT_ALIGN alignof(fd_snapin_tile_t)
 
-#define STEM_CALLBACK_METRICS_WRITE metrics_write
-#define STEM_CALLBACK_DURING_FRAG   during_frag
-#define STEM_CALLBACK_AFTER_FRAG    after_frag
+#define STEM_CALLBACK_SHOULD_SHUTDOWN should_shutdown
+#define STEM_CALLBACK_METRICS_WRITE   metrics_write
+#define STEM_CALLBACK_DURING_FRAG     during_frag
+#define STEM_CALLBACK_AFTER_FRAG      after_frag
 
 #include "../../disco/stem/fd_stem.c"
 

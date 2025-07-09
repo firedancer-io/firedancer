@@ -11,6 +11,12 @@
    defined like #define STEM_CALLBACK_BEFORE_FRAG before_frag to
    tune the behavior of the stem_run loop.  The callbacks are:
 
+     SHOULD_SHUTDOWN
+   It is called at the beginning of each iteration of the stem run loop,
+   and if it returns non-zero, the stem will exit the run loop and
+   return from the stem_run function.  This is useful for shutting down
+   the tile.
+
      DURING_HOUSEKEEPING
    Is called during the housekeeping routine, which happens infrequently
    on a schedule determined by the stem (based on the lazy parameter,
@@ -338,6 +344,10 @@ STEM_(run1)( ulong                        in_cnt,
   long then = fd_tickcount();
   long now  = then;
   for(;;) {
+
+#ifdef STEM_CALLBACK_SHOULD_SHUTDOWN
+    if( FD_UNLIKELY( STEM_CALLBACK_SHOULD_SHUTDOWN( ctx ) ) ) break;
+#endif
 
     /* Do housekeeping at a low rate in the background */
 
@@ -724,6 +734,7 @@ STEM_(run)( fd_topo_t *      topo,
 #undef STEM_BURST
 #undef STEM_CALLBACK_CONTEXT_TYPE
 #undef STEM_LAZY
+#undef STEM_CALLBACK_SHOULD_SHUTDOWN
 #undef STEM_CALLBACK_DURING_HOUSEKEEPING
 #undef STEM_CALLBACK_METRICS_WRITE
 #undef STEM_CALLBACK_BEFORE_CREDIT

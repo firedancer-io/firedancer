@@ -436,9 +436,12 @@ fd_topo_initialize( config_t * config ) {
   fd_topo_tile_t * rpcserv_tile = NULL;
   if( enable_rpc ) rpcserv_tile =  fd_topob_tile( topo, "rpcsrv",  "rpcsrv",  "metric_in",  tile_to_cpu[ topo->tile_cnt ], 0,        0 );
 
-  fd_topob_tile( topo, "snaprd", "snaprd", "metric_in", tile_to_cpu[ topo->tile_cnt ], 0, 0 );
-  fd_topob_tile( topo, "snapdc", "snapdc", "metric_in", tile_to_cpu[ topo->tile_cnt ], 0, 0 );
-  fd_topo_tile_t * snapin_tile  =  fd_topob_tile( topo, "snapin", "snapin", "metric_in", tile_to_cpu[ topo->tile_cnt ], 0, 0 );
+  fd_topo_tile_t * snaprd_tile = fd_topob_tile( topo, "snaprd", "snaprd", "metric_in", tile_to_cpu[ topo->tile_cnt ], 0, 0 );
+  snaprd_tile->allow_shutdown = 1;
+  fd_topo_tile_t * snapdc_tile = fd_topob_tile( topo, "snapdc", "snapdc", "metric_in", tile_to_cpu[ topo->tile_cnt ], 0, 0 );
+  snapdc_tile->allow_shutdown = 1;
+  fd_topo_tile_t * snapin_tile = fd_topob_tile( topo, "snapin", "snapin", "metric_in", tile_to_cpu[ topo->tile_cnt ], 0, 0 );
+  snapin_tile->allow_shutdown = 1;
 
   /* Database cache */
 

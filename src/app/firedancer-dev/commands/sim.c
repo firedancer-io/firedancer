@@ -219,7 +219,7 @@ sim_cmd_fn( args_t *   args FD_PARAM_UNUSED,
   ulong * poh = fd_fseq_join( fd_topo_obj_laddr( topo, poh_slot_obj_id ) );
   fd_fseq_update( poh, 0UL );
 
-  fd_topo_run_single_process( topo, 2, config->uid, config->gid, fdctl_tile_run, NULL );
+  fd_topo_run_single_process( topo, 2, config->uid, config->gid, fdctl_tile_run );
   for(;;) pause();
 }
 

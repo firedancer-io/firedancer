@@ -185,5 +185,5 @@ bench_cmd_fn( args_t *   args,
   fd_topo_join_workspaces( &config->topo, FD_SHMEM_JOIN_MODE_READ_WRITE );
 
   /* FIXME allow running sandboxed/multiprocess */
-  fd_topo_run_single_process( &config->topo, 2, config->uid, config->gid, fdctl_tile_run, NULL );
+  fd_topo_run_single_process( &config->topo, 2, config->uid, config->gid, fdctl_tile_run );
 }
