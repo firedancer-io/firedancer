@@ -42,7 +42,7 @@ clone_labs_memory_space_tiles( config_t * config ) {
     }
   }
 
-  fd_topo_run_single_process( &config->topo, 1, config->uid, config->gid, fdctl_tile_run, NULL );
+  fd_topo_run_single_process( &config->topo, 1, config->uid, config->gid, fdctl_tile_run );
 }
 
 static int _fd_ext_larger_max_cost_per_block, _fd_ext_larger_shred_limits_per_block, _fd_ext_disable_status_cache;

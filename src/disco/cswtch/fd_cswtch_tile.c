@@ -77,6 +77,12 @@ before_credit( fd_cswtch_ctx_t *   ctx,
       contents_len += (ulong)n;
     }
 
+    if( FD_UNLIKELY( process_died ) ) {
+      /* The tile died, but it's a tile which is allowed to shutdown, so
+         just stop updating metrics for it. */
+      if( FD_UNLIKELY( ctx->metrics[ i ][ FD_METRICS_GAUGE_TILE_STATUS_OFF ] ) ) continue;
+    }
+
     /* Supervisor is going to bring the whole process tree down if any
        of the target PIDs died, so we can ignore this and wait. */
     if( FD_UNLIKELY( process_died ) ) {

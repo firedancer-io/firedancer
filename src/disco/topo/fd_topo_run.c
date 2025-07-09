@@ -136,7 +136,9 @@ fd_topo_run_tile( fd_topo_t *          topo,
     tile_run->unprivileged_init( topo, tile );
 
   tile_run->run( topo, tile );
-  FD_LOG_ERR(( "tile run loop returned" ));
+  if( FD_UNLIKELY( !tile->allow_shutdown ) ) FD_LOG_ERR(( "tile %s:%lu run loop returned", tile->name, tile->kind_id ));
+
+  FD_MGAUGE_SET( TILE, STATUS, 2UL );
 }
 
 typedef struct {
@@ -145,7 +147,6 @@ typedef struct {
   fd_topo_run_tile_t tile_run;
   uint               uid;
   uint               gid;
-  int *              done_futex;
   volatile int       copied;
   void *             stack_lo;
   void *             stack_hi;
@@ -163,16 +164,7 @@ run_tile_thread_main( void * _args ) {
   }
 
   fd_topo_run_tile( args.topo, args.tile, 0, 1, 1, args.uid, args.gid, -1, NULL, NULL, &args.tile_run );
-  if( FD_UNLIKELY( args.done_futex ) ) {
-    for(;;) {
-      if( FD_LIKELY( INT_MAX==FD_ATOMIC_CAS( args.done_futex, INT_MAX, (int)args.tile->id ) ) ) break;
-      FD_SPIN_PAUSE();
-    }
-    if( FD_UNLIKELY( -1==syscall( SYS_futex, args.done_futex, FUTEX_WAKE, INT_MAX, NULL, NULL, 0 ) ) )
-      FD_LOG_ERR(( "futex(FUTEX_WAKE) failed (%i-%s)", errno, fd_io_strerror( errno ) ));
-  } else {
-    FD_LOG_ERR(( "fd_topo_run_tile() returned" ));
-  }
+  FD_TEST( args.tile->allow_shutdown );
   return NULL;
 }
 
@@ -294,7 +286,6 @@ run_tile_thread( fd_topo_t *         topo,
                  fd_topo_run_tile_t  tile_run,
                  uint                uid,
                  uint                gid,
-                 int *               done_futex,
                  fd_cpuset_t const * floating_cpu_set,
                  int                 floating_priority ) {
   /* tpool will assign a thread later */
@@ -333,7 +324,6 @@ run_tile_thread( fd_topo_t *         topo,
     .tile_run   = tile_run,
     .uid        = uid,
     .gid        = gid,
-    .done_futex = done_futex,
     .copied     = 0,
     .stack_lo   = stack,
     .stack_hi   = (uchar *)stack + FD_TILE_PRIVATE_STACK_SZ
@@ -350,8 +340,7 @@ fd_topo_run_single_process( fd_topo_t *       topo,
                             int               agave,
                             uint              uid,
                             uint              gid,
-                            fd_topo_run_tile_t (* tile_run )( fd_topo_tile_t const * tile ),
-                            int *             done_futex ) {
+                            fd_topo_run_tile_t (* tile_run )( fd_topo_tile_t const * tile ) ) {
   /* Save the current affinity, it will be restored after creating any child tiles */
   FD_CPUSET_DECL( floating_cpu_set );
   if( FD_UNLIKELY( fd_cpuset_getaffinity( 0, floating_cpu_set ) ) )
@@ -367,7 +356,7 @@ fd_topo_run_single_process( fd_topo_t *       topo,
     if( agave==1 && !tile->is_agave ) continue;
 
     fd_topo_run_tile_t run_tile = tile_run( tile );
-    run_tile_thread( topo, tile, run_tile, uid, gid, done_futex, floating_cpu_set, save_priority );
+    run_tile_thread( topo, tile, run_tile, uid, gid, floating_cpu_set, save_priority );
   }
 
   fd_sandbox_switch_uid_gid( uid, gid );
