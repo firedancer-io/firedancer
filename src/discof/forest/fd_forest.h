@@ -47,8 +47,11 @@ struct __attribute__((aligned(128UL))) fd_forest_ele {
   ulong key;     /* slot | fec_set_idx */
   ulong slot;
   uint  fec_set_idx;
+  ushort parent_off;
+  int    data_complete;
 
-  ulong next;     /* internal use by fd_pool, fd_map_chain */
+  ulong next;     /* internal use by fd_pool, fd_map_chain for ancestry */
+  ulong next_ready; /* internal use by fd_map_chain for ready */
 
   ulong parent;   /* pool idx of the parent in the tree */
   ulong child;    /* pool idx of the left-child */
@@ -66,6 +69,10 @@ typedef struct fd_forest_ele fd_forest_ele_t;
 //ulong fd_hash_hash( const fd_hash_t * key, ulong seed ) {
   //return key->ul[0] ^ seed;
 //}
+
+#define FD_FEC_CHAINER_SUCCESS    ( 0)
+#define FD_FEC_CHAINER_ERR_UNIQUE (-1) /* key uniqueness conflict */
+#define FD_FEC_CHAINER_ERR_MERKLE (-2) /* chained merkle root conflict */
 
 #define POOL_NAME fd_forest_pool
 #define POOL_T    fd_forest_ele_t
@@ -90,6 +97,13 @@ typedef struct fd_forest_ele fd_forest_ele_t;
 #define DEQUE_NAME fd_forest_deque
 #define DEQUE_T    ulong
 #include "../../util/tmpl/fd_deque_dynamic.c"
+
+#define MAP_NAME  fd_forest_ready
+#define MAP_ELE_T fd_forest_ele_t
+#define MAP_KEY   key
+#define MAP_NEXT  next_ready
+#include "../../util/tmpl/fd_map_chain.c"
+
 
 /* fd_forest_t is the top-level structure that holds the root of
    the tree, as well as the memory pools and map structures.
@@ -150,6 +164,19 @@ typedef struct fd_forest_ele fd_forest_ele_t;
    This makes verification of the merkle chain easy.
  */
 
+struct fd_fec_out {
+  ulong  slot;
+  ushort parent_off;
+  uint   fec_set_idx;
+  int    data_complete;
+  int    slot_complete;
+  int    err;
+};
+typedef struct fd_fec_out fd_fec_out_t;
+
+#define DEQUE_NAME fd_fec_out
+#define DEQUE_T    fd_fec_out_t
+#include "../../util/tmpl/fd_deque_dynamic.c"
 struct __attribute__((aligned(128UL))) fd_forest {
   ulong root;           /* pool idx of the root */
   ulong iter;           /* pool idx of the iterator */
@@ -159,7 +186,11 @@ struct __attribute__((aligned(128UL))) fd_forest {
   ulong ancestry_gaddr; /* wksp_gaddr of fd_forest_ancestry */
   ulong frontier_gaddr; /* map of slot to ele (leaf that needs repair) */
   ulong orphaned_gaddr; /* map of parent_slot to singly-linked list of ele orphaned by that parent slot */
+  ulong ready_gaddr;    /* map of replay-ready frontier */
+
   ulong deque_gaddr;    /* wksp gaddr of fd_forest_deque. internal use only for BFSing */
+  ulong fec_out_gaddr;  /* deque of ele to deliver to application */
+
   ulong magic;          /* ==FD_FOREST_MAGIC */
 };
 typedef struct fd_forest fd_forest_t;
@@ -188,6 +219,8 @@ fd_forest_footprint( ulong ele_max ) {
     FD_LAYOUT_APPEND(
     FD_LAYOUT_APPEND(
     FD_LAYOUT_APPEND(
+    FD_LAYOUT_APPEND(
+    FD_LAYOUT_APPEND(
     FD_LAYOUT_INIT,
       alignof(fd_forest_t),         sizeof(fd_forest_t) ),
       fd_fseq_align(),              fd_fseq_footprint() ),
@@ -195,7 +228,9 @@ fd_forest_footprint( ulong ele_max ) {
       fd_forest_ancestry_align(),   fd_forest_ancestry_footprint( fec_max ) ),
       fd_forest_frontier_align(),   fd_forest_frontier_footprint( fec_max ) ),
       fd_forest_orphaned_align(),   fd_forest_orphaned_footprint( fec_max ) ),
+      fd_forest_ready_align(),      fd_forest_ready_footprint   ( fec_max ) ),
       fd_forest_deque_align(),      fd_forest_deque_footprint   ( fec_max ) ),
+      fd_fec_out_align(),           fd_fec_out_footprint        ( fec_max ) ),
     fd_forest_align() );
 }
 
@@ -331,6 +366,32 @@ fd_forest_orphaned_const( fd_forest_t const * forest ) {
   return fd_wksp_laddr_fast( fd_forest_wksp( forest ), forest->orphaned_gaddr );
 }
 
+/* fd_forest_{ready, ready_const} returns a pointer in the caller's
+   address space to forest's replay-ready fec map. */
+
+FD_FN_PURE static inline fd_forest_ready_t *
+fd_forest_ready( fd_forest_t * forest ) {
+  return fd_wksp_laddr_fast( fd_forest_wksp( forest ), forest->ready_gaddr );
+}
+
+FD_FN_PURE static inline fd_forest_ready_t const *
+fd_forest_ready_const( fd_forest_t const * forest ) {
+  return fd_wksp_laddr_fast( fd_forest_wksp( forest ), forest->ready_gaddr );
+}
+
+/* fd_forest_{fec_out, fec_out_const} returns a pointer in the caller's
+   address space to forest's fec_out deque. */
+
+FD_FN_PURE static inline fd_fec_out_t *
+fd_forest_fec_out( fd_forest_t * forest ) {
+  return fd_wksp_laddr_fast( fd_forest_wksp( forest ), forest->fec_out_gaddr );
+}
+
+FD_FN_PURE static inline fd_fec_out_t const *
+fd_forest_fec_out_const( fd_forest_t const * forest ) {
+  return fd_wksp_laddr_fast( fd_forest_wksp( forest ), forest->fec_out_gaddr );
+}
+
 /* fd_forest_root_slot returns forest's root slot.  Assumes
    forest is a current local join. */
 
@@ -343,12 +404,8 @@ fd_forest_root_slot( fd_forest_t const * forest ) {
 fd_forest_ele_t const *
 fd_forest_query_const( fd_forest_t const * forest, ulong slot, uint fec_set_idx );
 
-int
-fd_forest_fec_shred_test( fd_forest_t const * forest, ulong slot, uint shred_idx );
-
 void
-fd_forest_fec_remove( fd_forest_t * forest, ulong slot, uint fec_idx );
-
+fd_forest_fec_ready( fd_forest_t * forest, ulong slot, uint fec_set_idx, ushort parent_off, int data_complete, int slot_complete );
 
 /* Operations */
 
@@ -359,7 +416,7 @@ fd_forest_fec_remove( fd_forest_t * forest, ulong slot, uint fec_idx );
    Returns the inserted forest ele. */
 
 fd_forest_ele_t *
-fd_forest_data_shred_insert( fd_forest_t * forest, ulong slot, ushort parent_off, uint shred_idx, int slot_complete );
+fd_forest_data_shred_insert( fd_forest_t * forest, ulong slot, ushort parent_off, uint shred_idx, int data_complete, int slot_complete );
 
 /* fd_forest_publish publishes slot as the new forest root, setting
    the subtree beginning from slot as the new forest tree (ie. slot

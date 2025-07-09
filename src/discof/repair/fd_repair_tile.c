@@ -1,5 +1,4 @@
 /* Repair tile runs the repair protocol for a Firedancer node. */
-#include "fd_fec_chainer.h"
 #define _GNU_SOURCE
 
 #include "../../disco/topo/fd_topo.h"
@@ -18,8 +17,6 @@
 #include "../../util/net/fd_net_headers.h"
 
 #include "../forest/fd_forest.h"
-#include "fd_fec_repair.h"
-#include "fd_fec_chainer.h"
 
 #include <errno.h>
 
@@ -102,7 +99,6 @@ struct fd_repair_tile_ctx {
   fd_forest_t      * forest;
   fd_fec_sig_t     * fec_sigs;
   fd_reasm_t       * reasm;
-  fd_fec_chainer_t * fec_chainer;
   fd_forest_iter_t   repair_iter;
 
   ulong * turbine_slot0;
@@ -167,7 +163,6 @@ scratch_footprint( fd_topo_tile_t const * tile ) {
   l = FD_LAYOUT_APPEND( l, fd_fec_sig_align(),            fd_fec_sig_footprint( 20 ) );
   l = FD_LAYOUT_APPEND( l, fd_reasm_align(),              fd_reasm_footprint( 20 ) );
   // l = FD_LAYOUT_APPEND( l, fd_fec_repair_align(),         fd_fec_repair_footprint( ( 1<<20 ), tile->repair.shred_tile_cnt ) );
-  l = FD_LAYOUT_APPEND( l, fd_fec_chainer_align(),        fd_fec_chainer_footprint( 1 << 20 ) ); // TODO: fix this
   l = FD_LAYOUT_APPEND( l, fd_scratch_smem_align(),       fd_scratch_smem_footprint( FD_REPAIR_SCRATCH_MAX ) );
   l = FD_LAYOUT_APPEND( l, fd_scratch_fmem_align(),       fd_scratch_fmem_footprint( FD_REPAIR_SCRATCH_DEPTH ) );
   return FD_LAYOUT_FINI( l, scratch_align() );
@@ -767,8 +762,6 @@ after_frag( fd_repair_tile_ctx_t * ctx,
     if( FD_UNLIKELY( fd_forest_root_slot( ctx->forest ) == ULONG_MAX ) ) {
       FD_LOG_NOTICE(( "Forest initializing with root %lu", wmark ));
       fd_forest_init( ctx->forest, wmark );
-      uchar mr[ FD_SHRED_MERKLE_ROOT_SZ ] = { 0 }; /* FIXME */
-      fd_fec_chainer_init( ctx->fec_chainer, wmark, mr );
       FD_TEST( fd_forest_root_slot( ctx->forest ) != ULONG_MAX );
       ctx->prev_wmark = wmark;
     }
@@ -812,23 +805,14 @@ after_frag( fd_repair_tile_ctx_t * ctx,
        shred multiple times. */
 
     if( FD_UNLIKELY( is_fec_completes_msg( sz ) ) ) {
-      fd_forest_ele_t * ele = NULL;
-      int last_shred_is_slot_complete = !!(shred->data.flags & FD_SHRED_DATA_FLAG_SLOT_COMPLETE);
-      for( uint idx = shred->fec_set_idx; idx <= shred->idx; idx++ ) {
-        ele = fd_forest_data_shred_insert( ctx->forest, shred->slot, shred->data.parent_off, idx, last_shred_is_slot_complete && idx == shred->idx );
-      }
-      FD_TEST( ele ); /* must be non-empty */
-
-      uchar * merkle        = ctx->buffer + FD_SHRED_DATA_HEADER_SZ;
+      //uchar * merkle        = ctx->buffer + FD_SHRED_DATA_HEADER_SZ;
       int     data_complete = !!(shred->data.flags & FD_SHRED_DATA_FLAG_DATA_COMPLETE);
       int     slot_complete = !!(shred->data.flags & FD_SHRED_DATA_FLAG_SLOT_COMPLETE);
 
-      FD_TEST( fd_fec_pool_free( ctx->fec_chainer->pool ) );
-      FD_TEST( !fd_fec_chainer_query( ctx->fec_chainer, shred->slot, shred->fec_set_idx ) );
-      FD_TEST( fd_fec_chainer_insert( ctx->fec_chainer, shred->slot, shred->fec_set_idx, (ushort)(shred->idx - shred->fec_set_idx + 1), data_complete, slot_complete, shred->data.parent_off, merkle, merkle /* FIXME */ ) );
+      fd_forest_fec_ready( ctx->forest, shred->slot, shred->fec_set_idx, shred->data.parent_off, data_complete, slot_complete );
 
-      while( FD_LIKELY( !fd_fec_out_empty( ctx->fec_chainer->out ) ) ) {
-        fd_fec_out_t out = fd_fec_out_pop_head( ctx->fec_chainer->out );
+      while( FD_LIKELY( !fd_fec_out_empty( fd_forest_fec_out( ctx->forest ) ) ) ) {
+        fd_fec_out_t out = fd_fec_out_pop_head( fd_forest_fec_out( ctx->forest ) );
         if( FD_UNLIKELY( out.err != FD_FEC_CHAINER_SUCCESS ) ) FD_LOG_ERR(( "fec chainer err %d", out.err ));
         fd_reasm_t * reasm = fd_reasm_query( ctx->reasm, out.slot, NULL );
         if( FD_UNLIKELY( !reasm ) ) {
@@ -840,6 +824,7 @@ after_frag( fd_repair_tile_ctx_t * ctx,
           ulong sig   = fd_disco_repair_replay_sig( out.slot, out.parent_off, cnt, out.slot_complete );
           ulong tspub = fd_frag_meta_ts_comp( fd_tickcount() );
           reasm->cnt = out.fec_set_idx + FD_FEC_SHRED_CNT;
+          FD_LOG_INFO(( "replay slice %lu %u %d", out.slot, out.fec_set_idx, out.slot_complete ));
           fd_stem_publish( ctx->stem, REPLAY_OUT_IDX, sig, 0, 0, 0, tsorig, tspub );
           if( FD_UNLIKELY( out.slot_complete ) ) {
             fd_reasm_remove( ctx->reasm, reasm );
@@ -856,8 +841,9 @@ after_frag( fd_repair_tile_ctx_t * ctx,
     if( FD_LIKELY( !is_code ) ) {
       fd_repair_inflight_remove( ctx->repair, shred->slot, shred->idx );
 
+      int data_complete = !!(shred->data.flags & FD_SHRED_DATA_FLAG_DATA_COMPLETE);
       int slot_complete = !!(shred->data.flags & FD_SHRED_DATA_FLAG_SLOT_COMPLETE);
-      fd_forest_data_shred_insert( ctx->forest, shred->slot, shred->data.parent_off, shred->idx, slot_complete );
+      fd_forest_data_shred_insert( ctx->forest, shred->slot, shred->data.parent_off, shred->idx, data_complete, slot_complete );
     }
     return;
   }
@@ -1100,8 +1086,6 @@ unprivileged_init( fd_topo_t *      topo,
   // ctx->fec_repair = FD_SCRATCH_ALLOC_APPEND( l, fd_fec_repair_align(), fd_fec_repair_footprint(  ( 1<<20 ), tile->repair.shred_tile_cnt ) );
   /* Look at fec_repair.h for an explanation of this fec_max. */
 
-  ctx->fec_chainer = FD_SCRATCH_ALLOC_APPEND( l, fd_fec_chainer_align(), fd_fec_chainer_footprint( 1 << 20 ) );
-
   void * smem = FD_SCRATCH_ALLOC_APPEND( l, fd_scratch_smem_align(), fd_scratch_smem_footprint( FD_REPAIR_SCRATCH_MAX ) );
   void * fmem = FD_SCRATCH_ALLOC_APPEND( l, fd_scratch_fmem_align(), fd_scratch_fmem_footprint( FD_REPAIR_SCRATCH_DEPTH ) );
 
@@ -1153,7 +1137,6 @@ unprivileged_init( fd_topo_t *      topo,
   // ctx->fec_repair  = fd_fec_repair_join( fd_fec_repair_new( ctx->fec_repair, ( tile->repair.max_pending_shred_sets + 2 ), tile->repair.shred_tile_cnt,  0 ) );
   ctx->fec_sigs = fd_fec_sig_join( fd_fec_sig_new( ctx->fec_sigs, 20 ) );
   ctx->reasm = fd_reasm_join( fd_reasm_new( ctx->reasm, 20 ) );
-  ctx->fec_chainer = fd_fec_chainer_join( fd_fec_chainer_new( ctx->fec_chainer, 1 << 20, 0 ) );
   ctx->repair_iter = fd_forest_iter_init( ctx->forest );
   FD_TEST( fd_forest_iter_done( ctx->repair_iter, ctx->forest ) );
 

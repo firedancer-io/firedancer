@@ -39,11 +39,13 @@ fd_forest_new( void * shmem, ulong ele_max, ulong seed ) {
   FD_SCRATCH_ALLOC_INIT( l, shmem );
   forest          = FD_SCRATCH_ALLOC_APPEND( l, fd_forest_align(),          sizeof(fd_forest_t)                     );
   void * ver      = FD_SCRATCH_ALLOC_APPEND( l, fd_fseq_align(),            fd_fseq_footprint()                     );
-  void * pool     = FD_SCRATCH_ALLOC_APPEND( l, fd_forest_pool_align(),     fd_forest_pool_footprint( fec_max )     );
+  void * pool     = FD_SCRATCH_ALLOC_APPEND( l, fd_forest_pool_align(),     fd_forest_pool_footprint    ( fec_max ) );
   void * ancestry = FD_SCRATCH_ALLOC_APPEND( l, fd_forest_ancestry_align(), fd_forest_ancestry_footprint( fec_max ) );
   void * frontier = FD_SCRATCH_ALLOC_APPEND( l, fd_forest_frontier_align(), fd_forest_frontier_footprint( fec_max ) );
   void * orphaned = FD_SCRATCH_ALLOC_APPEND( l, fd_forest_orphaned_align(), fd_forest_orphaned_footprint( fec_max ) );
+  void * ready    = FD_SCRATCH_ALLOC_APPEND( l, fd_forest_ready_align(),    fd_forest_ready_footprint   ( fec_max ) );
   void * deque    = FD_SCRATCH_ALLOC_APPEND( l, fd_forest_deque_align(),    fd_forest_deque_footprint   ( fec_max ) );
+  void * fec_out  = FD_SCRATCH_ALLOC_APPEND( l, fd_fec_out_align(),         fd_fec_out_footprint        ( fec_max ) );
   FD_TEST( FD_SCRATCH_ALLOC_FINI( l, fd_forest_align() ) == (ulong)shmem + footprint );
 
   forest->root           = ULONG_MAX;
@@ -53,7 +55,9 @@ fd_forest_new( void * shmem, ulong ele_max, ulong seed ) {
   forest->ancestry_gaddr = fd_wksp_gaddr_fast( wksp, fd_forest_ancestry_join( fd_forest_ancestry_new( ancestry, fec_max, seed       ) ) );
   forest->frontier_gaddr = fd_wksp_gaddr_fast( wksp, fd_forest_frontier_join( fd_forest_frontier_new( frontier, fec_max, seed       ) ) );
   forest->orphaned_gaddr = fd_wksp_gaddr_fast( wksp, fd_forest_orphaned_join( fd_forest_orphaned_new( orphaned, fec_max, seed       ) ) );
+  forest->ready_gaddr    = fd_wksp_gaddr_fast( wksp, fd_forest_ready_join   ( fd_forest_ready_new   ( ready, fec_max, seed          ) ) );
   forest->deque_gaddr    = fd_wksp_gaddr_fast( wksp, fd_forest_deque_join   ( fd_forest_deque_new   ( deque,    fec_max             ) ) );
+  forest->fec_out_gaddr  = fd_wksp_gaddr_fast( wksp, fd_fec_out_join        ( fd_fec_out_new      ( fec_out, fec_max                    ) ) );
 
   FD_COMPILER_MFENCE();
   FD_VOLATILE( forest->magic ) = FD_FOREST_MAGIC;
@@ -125,6 +129,7 @@ fd_forest_init( fd_forest_t * forest, ulong root_slot ) {
   fd_forest_ele_t *      pool     = fd_forest_pool( forest );
   ulong                  null     = fd_forest_pool_idx_null( pool );
   fd_forest_frontier_t * frontier = fd_forest_frontier( forest );
+  fd_forest_ready_t *    ready    = fd_forest_ready( forest );
 
   /* Initialize the root node from a pool element. */
 
@@ -132,6 +137,8 @@ fd_forest_init( fd_forest_t * forest, ulong root_slot ) {
   root_ele->key              = root_slot << 32 | UINT_MAX;
   root_ele->slot             = root_slot;
   root_ele->fec_set_idx      = UINT_MAX;
+  root_ele->parent_off       = 0;
+  root_ele->data_complete    = 0;
   root_ele->parent           = null;
   root_ele->child            = null;
   root_ele->sibling          = null;
@@ -139,6 +146,7 @@ fd_forest_init( fd_forest_t * forest, ulong root_slot ) {
 
   forest->root = fd_forest_pool_idx( pool, root_ele );
   fd_forest_frontier_ele_insert( frontier, root_ele, pool ); /* cannot fail */
+  fd_forest_ready_ele_insert( ready, root_ele, pool ); /* cannot fail */
 
   /* Sanity checks. */
 
@@ -288,14 +296,16 @@ query( fd_forest_t * forest, ulong slot, uint fec_set_idx ) {
 }
 
 static fd_forest_ele_t *
-acquire( fd_forest_t * forest, ulong slot, uint fec_set_idx ) {
+acquire( fd_forest_t * forest, ulong slot, uint fec_set_idx, ushort parent_off ) {
   fd_forest_ele_t * pool = fd_forest_pool( forest );
   fd_forest_ele_t * ele  = fd_forest_pool_ele_acquire( pool );
   ulong             null = fd_forest_pool_idx_null( pool );
 
   ele->key     = slot << 32 | fec_set_idx;
   ele->slot    = slot;
-  ele->fec_set_idx = fec_set_idx;
+  ele->fec_set_idx   = fec_set_idx;
+  ele->parent_off    = parent_off;
+  ele->data_complete = 0;
   ele->next    = null;
   ele->parent  = null;
   ele->child   = null;
@@ -323,14 +333,14 @@ insert( fd_forest_t * forest, ulong slot, uint fec_set_idx, ushort parent_off ) 
 
   ulong parent_slot = slot - parent_off;
 
-  fd_forest_ele_t * ele   = acquire( forest, slot, fec_set_idx );
+  fd_forest_ele_t * ele   = acquire( forest, slot, fec_set_idx, parent_off );
   fd_forest_ele_t * child = ele;
   fd_forest_ele_t * parent;
   int fec_parent_idx = (int)(fec_set_idx) - FD_FEC_SHRED_CNT;
   while( FD_UNLIKELY( fec_parent_idx >= 0 )) {
     parent = query( forest, slot, (uint)fec_parent_idx );
     if( FD_UNLIKELY( !parent ) ) {
-      parent = acquire( forest, slot, (uint)fec_parent_idx );
+      parent = acquire( forest, slot, (uint)fec_parent_idx, parent_off );
       fd_forest_ancestry_ele_insert( fd_forest_ancestry( forest ), child, pool );
       link( forest, parent, child );
     } else {
@@ -413,7 +423,7 @@ fd_forest_query_const( fd_forest_t const * forest, ulong slot, uint fec_set_idx 
 
 
 fd_forest_ele_t *
-fd_forest_data_shred_insert( fd_forest_t * forest, ulong slot, ushort parent_off, uint shred_idx, int slot_complete ) {
+fd_forest_data_shred_insert( fd_forest_t * forest, ulong slot, ushort parent_off, uint shred_idx, int data_complete, int slot_complete ) {
 
   FD_LOG_INFO(( "fd_forest_data_shred_insert( forest, %lu, %u, %u, %d);", slot, parent_off, shred_idx, slot_complete ));
 # if FD_FOREST_USE_HANDHOLDING
@@ -435,10 +445,14 @@ fd_forest_data_shred_insert( fd_forest_t * forest, ulong slot, ushort parent_off
   fd_forest_ele_t * ele  = query( forest, slot, fec_set_idx );
   if( FD_UNLIKELY( !ele ) ) ele = insert( forest, slot, fec_set_idx, parent_off ); /* cannot fail */
 
+  if( FD_UNLIKELY( data_complete ) ) {
+    ele->data_complete = 1;
+  }
+
   if ( FD_UNLIKELY( slot_complete && ele->child == fd_forest_pool_idx_null( pool ) )) {
     /* link it to the sentinel */
     fd_forest_ele_t * sentinel = query( forest, slot, UINT_MAX );
-    sentinel = fd_ptr_if( !sentinel, acquire( forest, slot, UINT_MAX ), sentinel );
+    sentinel = fd_ptr_if( !sentinel, acquire( forest, slot, UINT_MAX, parent_off ), sentinel );
     fd_forest_orphaned_ele_remove( fd_forest_orphaned( forest ), &sentinel->key, NULL, pool );
     ancestry_frontier_remove( forest, slot, UINT_MAX );
     fd_forest_ancestry_ele_insert( fd_forest_ancestry( forest ), sentinel, pool );
@@ -459,10 +473,10 @@ fd_forest_data_shred_insert( fd_forest_t * forest, ulong slot, ushort parent_off
 
     fd_forest_ele_t * parent = query( forest, parent_slot, UINT_MAX ); /* sentinel for parent, may not exist */
     if( FD_UNLIKELY( !parent ) ) {
-      parent = acquire( forest, parent_slot, UINT_MAX );
+      parent = acquire( forest, parent_slot, UINT_MAX, parent_off );
       fd_forest_orphaned_ele_insert( fd_forest_orphaned( forest ), parent, pool ); /* update orphan root */
     }
-    fd_forest_orphaned_ele_remove( fd_forest_orphaned( forest ), &head->key, NULL,pool );
+    fd_forest_orphaned_ele_remove( fd_forest_orphaned( forest ), &head->key, NULL, pool );
     link( forest, parent, head );
   }
 
@@ -474,6 +488,53 @@ fd_forest_data_shred_insert( fd_forest_t * forest, ulong slot, ushort parent_off
     __asm__("int $3");
   }
   return ele;
+}
+
+void
+fd_forest_fec_ready( fd_forest_t * forest, ulong slot, uint fec_set_idx, ushort parent_off, int data_complete, int slot_complete ) {
+  fd_forest_ele_t   * pool  = fd_forest_pool( forest );
+  fd_forest_ready_t * ready = fd_forest_ready( forest );
+  ulong               null  = fd_forest_pool_idx_null( pool );
+  ulong             * deque = fd_forest_deque( forest );
+
+  for( uint i = 0; i < FD_FEC_SHRED_CNT; i++ ) {
+    fd_forest_data_shred_insert( forest, slot, parent_off, fec_set_idx + i, data_complete && i == FD_FEC_SHRED_CNT - 1, slot_complete && i == FD_FEC_SHRED_CNT - 1 );
+  }
+
+# if FD_FOREST_USE_HANDHOLDING
+  FD_TEST( fd_forest_deque_cnt( deque ) == 0 );
+# endif
+
+
+  fd_forest_ele_t * head = query( forest, slot, fec_set_idx );
+  if( FD_UNLIKELY( !head ) ) return;
+  fd_forest_deque_push_tail( deque, fd_forest_pool_idx( pool, head ) );
+
+  while( FD_LIKELY( fd_forest_deque_cnt( deque ) ) ) {
+    head = fd_forest_pool_ele( pool, fd_forest_deque_pop_head( deque ) );
+
+    /* if this FEC isn't completed, don't consider it. */
+    if( FD_UNLIKELY( head->buffered_idx != FD_FEC_SHRED_CNT - 1 ) ) continue;
+
+    /* if this FEC is completed, we need to check if the parent is exec ready */
+    fd_forest_ele_t * parent = fd_forest_pool_ele( pool, head->parent );
+    parent = fd_forest_ready_ele_remove( ready, &parent->key, NULL, pool );
+    if( FD_UNLIKELY( !parent ) ) continue;
+
+    /* parent is ready, and we are ready.*/
+    fd_forest_ready_ele_insert( fd_forest_ready( forest ), head, pool );
+    int is_slot_complete = head->child != fd_forest_pool_idx_null( pool ) && fd_forest_pool_ele( pool, head->child )->fec_set_idx == UINT_MAX;
+    if( FD_LIKELY( head->fec_set_idx != UINT_MAX ) ) { /* don't want to push out the sentinel FEC */
+      fd_fec_out_push_tail( fd_forest_fec_out( forest ), (fd_fec_out_t){ .slot = head->slot, .parent_off = head->parent_off, .fec_set_idx = head->fec_set_idx, .data_complete = head->data_complete, .slot_complete = is_slot_complete, .err = FD_FEC_CHAINER_SUCCESS } );
+    }
+
+    /* now lets check if our children are ready */
+    fd_forest_ele_t * child = fd_forest_pool_ele( pool, head->child );
+    while( FD_LIKELY( child ) ) {
+      fd_forest_deque_push_tail( deque, fd_forest_pool_idx( pool, child ) );
+      child = fd_forest_pool_ele( pool, child->sibling );
+    }
+  }
 }
 
 fd_forest_ele_t const *
@@ -507,7 +568,7 @@ fd_forest_publish( fd_forest_t * forest, ulong new_root_slot ) {
      very rarely given a well-functioning repair.  */
 
   if( FD_UNLIKELY( !new_root_ele ) ) {
-    new_root_ele = acquire( forest, new_root_slot, UINT_MAX );
+    new_root_ele = acquire( forest, new_root_slot, UINT_MAX, 0 );
     fd_forest_frontier_ele_insert( frontier, new_root_ele, pool );
   }
 

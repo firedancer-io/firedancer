@@ -1,3 +1,4 @@
+#if 0
 #ifndef HEADER_fd_src_discof_repair_fd_fec_chainer_h
 #define HEADER_fd_src_discof_repair_fd_fec_chainer_h
 
@@ -372,3 +373,4 @@ fd_fec_chainer_publish( fd_fec_chainer_t * chainer, ulong new_root );
 FD_PROTOTYPES_END
 
 #endif /* HEADER_fd_src_discof_repair_fd_fec_chainer_h */
+#endif

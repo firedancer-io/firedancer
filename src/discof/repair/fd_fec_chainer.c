@@ -1,3 +1,4 @@
+#if 0
 #include "fd_fec_chainer.h"
 
 void *
@@ -398,3 +399,4 @@ fd_fec_chainer_publish( fd_fec_chainer_t * chainer, ulong new_root_slot ) {
 
   chainer->root_fec = fd_fec_pool_idx( chainer->pool, new_root );
 }
+# endif
