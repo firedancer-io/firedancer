@@ -228,6 +228,7 @@ scratch_footprint( fd_topo_tile_t const * tile ) {
   l = FD_LAYOUT_APPEND( l, alignof(fd_snapin_tile_t),  sizeof(fd_snapin_tile_t)       );
   l = FD_LAYOUT_APPEND( l, fd_snapshot_parser_align(), fd_snapshot_parser_footprint() );
   l = FD_LAYOUT_APPEND( l, fd_scratch_smem_align(),    fd_scratch_smem_footprint( FD_SNAPIN_SCRATCH_MAX ) );
+  l = FD_LAYOUT_APPEND( l, fd_scratch_fmem_align(),    fd_scratch_fmem_footprint( FD_SNAPIN_SCRATCH_DEPTH ) );
   return FD_LAYOUT_FINI( l, alignof(fd_snapin_tile_t) );
 }
 

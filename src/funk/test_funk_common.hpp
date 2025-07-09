@@ -108,7 +108,7 @@ struct fake_funk {
 #ifdef FUNK_RECONNECT_TEST
       struct stat x;
       if( stat("/mnt/.fd/.gigantic/reconnect_test", &x) == 0) {
-        void * shmem = fd_shmem_join( "reconnect_test", FD_SHMEM_JOIN_MODE_READ_WRITE, NULL, NULL, NULL ); /* logs details */
+        void * shmem = fd_shmem_join( "reconnect_test", FD_SHMEM_JOIN_MODE_READ_WRITE, NULL, NULL, NULL, 1 ); /* logs details */
         FD_TEST( shmem != NULL );
         _wksp = fd_wksp_join( shmem );
         FD_TEST( _wksp != NULL );
@@ -132,7 +132,7 @@ struct fake_funk {
 
       } else {
         FD_TEST( !fd_shmem_create( "reconnect_test", FD_SHMEM_GIGANTIC_PAGE_SZ, 1U, fd_shmem_cpu_idx( numa_idx ), 0600 ) );
-        void * shmem = fd_shmem_join( "reconnect_test", FD_SHMEM_JOIN_MODE_READ_WRITE, NULL, NULL, NULL ); /* logs details */
+        void * shmem = fd_shmem_join( "reconnect_test", FD_SHMEM_JOIN_MODE_READ_WRITE, NULL, NULL, NULL, 1 ); /* logs details */
         void * wkspmem = fd_wksp_new( shmem, "reconect_test", 0U, 1024, FD_SHMEM_GIGANTIC_PAGE_SZ ); /* logs details */
         _wksp = fd_wksp_join( wkspmem );
         void * mem = fd_wksp_alloc_laddr( _wksp, fd_funk_align(), fd_funk_footprint( txn_max, rec_max ), FD_FUNK_MAGIC );
