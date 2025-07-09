@@ -189,11 +189,8 @@ static inline wu_t wu_ror_vector( wu_t a, wi_t b ) {
   return wu_or( wu_shr_vector( a, wi_and( b, m ) ), wu_shl_vector( a, wi_and( wi_neg( b ), m ) ) );
 }
 
-static inline wu_t wu_bswap( wu_t a ) {
-  wu_t m = wu_bcast( 0x00FF00FFU );                                            /* Probably hoisted */
-  wu_t t = wu_rol( a, 16 );                                                    /* Swap E/O 16-bit pairs */
-  return wu_or( wu_andnot( m, wu_shl( t, 8 ) ), wu_and( m, wu_shr( t, 8 ) ) ); /* Swap E/O  8-bit pairs */
-}
+#define wu_bswap( x ) _mm256_shuffle_epi8( (x), _mm256_setr_epi8( 3, 2, 1, 0, 7, 6, 5, 4,11,10, 9, 8, 15,14,13,12, \
+                                                                  3, 2, 1, 0, 7, 6, 5, 4,11,10, 9, 8, 15,14,13,12  ) )
 
 /* Logical operations */
 
