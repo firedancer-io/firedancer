@@ -8,9 +8,7 @@ $(call run-unit-test,test_quic_metrics)
 $(OBJDIR)/obj/disco/quic/test_quic_metrics.o: src/disco/quic/test_quic_metrics.txt
 endif
 
-ifdef FD_HAS_SSE
 ifdef FD_HAS_ALLOCA
 $(call add-hdrs,fd_quic_tile.h)
 $(call add-objs,fd_quic_tile,fd_disco)
-endif
 endif

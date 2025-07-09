@@ -3,7 +3,6 @@ ifdef FD_HAS_LINUX
 ifdef FD_HAS_ALLOCA
 ifdef FD_HAS_DOUBLE
 ifdef FD_HAS_INT128
-ifdef FD_HAS_SSE
 ifdef FD_HAS_ZSTD
 ifdef FD_HAS_SECP256K1
 
@@ -24,7 +23,6 @@ firedancer-dev: $(OBJDIR)/bin/firedancer-dev
 # $(call run-integration-test,test_fddev)
 else
 $(warning firedancer-dev build disabled due to lack of zstd)
-endif
 endif
 endif
 endif

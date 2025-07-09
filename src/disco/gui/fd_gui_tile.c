@@ -10,6 +10,7 @@
 #define DIST_COMPRESSION_LEVEL (19)
 
 #include <sys/socket.h> /* SOCK_CLOEXEC, SOCK_NONBLOCK needed for seccomp filter */
+#include <stdlib.h>
 #if defined(__aarch64__)
 #include "generated/fd_gui_tile_arm64_seccomp.h"
 #else

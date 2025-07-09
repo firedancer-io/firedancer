@@ -20,6 +20,7 @@
 #include "../../../../disco/quic/fd_quic_tile.h"
 #include "../../../../waltz/quic/log/fd_quic_log_user.h"
 #include "../../../../ballet/hex/fd_hex.h"
+#include <stdlib.h>
 
 /* Define global variables */
 
