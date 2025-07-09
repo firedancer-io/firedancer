@@ -212,6 +212,7 @@ struct fd_quic_conn {
   ulong                idle_timeout_ticks;
   ulong                last_activity;
   ulong                last_ack;
+  ulong                let_die_ticks; /* stop keep-alive after this time */
 
   /* round trip time related members */
   fd_rtt_estimate_t rtt[1];

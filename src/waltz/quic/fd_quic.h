@@ -555,6 +555,23 @@ FD_QUIC_API void
 fd_quic_conn_close( fd_quic_conn_t * conn,
                     uint             reason );
 
+/* fd_quic_conn_let_die stops keeping a conn alive after
+   'keep_alive_duration_ticks'. No-op if keep-alive is not configured.
+   Safe to call on a connection in any state.
+
+   If called multiple times on the same connection, only the latest
+   call will stay in effect. However, it may not take effect if we
+   already skipped a keep-alive due to a previous call. 'Undoing' a
+   previous call can be done by passing ULONG_MAX.
+
+   This function does NOT guarantee that the connection will be closed
+   immediately after the given duration. Rather, it just disables keep-alive
+   behavior after the given duration. */
+
+FD_QUIC_API void
+fd_quic_conn_let_die( fd_quic_conn_t * conn,
+                      ulong            keep_alive_duration_ticks );
+
 /* Service API ********************************************************/
 
 /* fd_quic_get_next_wakeup returns the next requested service time.

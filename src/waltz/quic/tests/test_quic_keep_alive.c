@@ -59,17 +59,24 @@ test_quic_keep_alive( fd_quic_t * client_quic, fd_quic_t * server_quic, int keep
   ulong const idle_timeout = client_quic->config.idle_timeout;
   ulong const timestep     = idle_timeout>>3;
 
-  for( int i=0; i<10; ++i ) {
-    now+=timestep;
-    fd_quic_service( client_quic );
-    fd_quic_service( server_quic );
+
+  for( int let_die=0; let_die<2; ++let_die ) {
+    for( int i=0; i<10; ++i ) {
+      now+=timestep;
+      fd_quic_service( client_quic );
+      fd_quic_service( server_quic );
+    }
+
+    if( keep_alive & !let_die ) {
+      FD_TEST( client_conn->state == FD_QUIC_CONN_STATE_ACTIVE );
+    } else {
+      FD_TEST( client_conn->state == FD_QUIC_CONN_STATE_DEAD ||
+              client_conn->state == FD_QUIC_CONN_STATE_INVALID );
+    }
+
+    fd_quic_conn_let_die( client_conn, timestep );
   }
-  if( keep_alive ) {
-    FD_TEST( client_conn->state == FD_QUIC_CONN_STATE_ACTIVE );
-  } else {
-    FD_TEST( client_conn->state == FD_QUIC_CONN_STATE_DEAD ||
-            client_conn->state == FD_QUIC_CONN_STATE_INVALID );
-  }
+
 }
 
 
