@@ -360,7 +360,7 @@ net_is_fatal_xdp_error( int err ) {
 static void
 net_load_netdev_tbl( fd_net_ctx_t * ctx ) {
   /* Copy from double buffer */
-  if( FD_UNLIKELY( fd_dbl_buf_read( ctx->netdev_dbl_handle, ctx->netdev_buf_sz, ctx->netdev_buf, NULL ) ) == 0)  FD_LOG_ERR(("netdev table load failed"));
+  if( FD_UNLIKELY( fd_dbl_buf_read( ctx->netdev_dbl_handle, ctx->netdev_buf_sz, ctx->netdev_buf, NULL )==0 ) )  FD_LOG_ERR(("netdev table load failed"));
 
   /* Recalculate the join handler to netdeb buf */
   if( FD_UNLIKELY( !fd_netdev_tbl_join( &ctx->netdev_tbl_handle, ctx->netdev_buf ) ) ) FD_LOG_ERR(("netdev table join failed"));
