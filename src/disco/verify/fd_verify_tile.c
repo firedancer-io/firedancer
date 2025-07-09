@@ -2,7 +2,7 @@
 #include "../fd_txn_m_t.h"
 #include "../metrics/fd_metrics.h"
 #include "generated/fd_verify_tile_seccomp.h"
-#include "../../flamenco/gossip/fd_gossip_update_msg.h"
+#include "../../flamenco/gossip/update/fd_gossip_update_msg.h"
 
 #include <linux/unistd.h>
 
@@ -218,7 +218,6 @@ unprivileged_init( fd_topo_t *      topo,
 
     if(      !strcmp( link->name, "quic_verify"  ) ) ctx->in_kind[ i ] = IN_KIND_QUIC;
     else if( !strcmp( link->name, "bundle_verif" ) ) ctx->in_kind[ i ] = IN_KIND_BUNDLE;
-    else if( !strcmp( link->name, "gossip_verif" ) ) ctx->in_kind[ i ] = IN_KIND_GOSSIP;
     else if( !strcmp( link->name, "send_txns"    ) ) ctx->in_kind[ i ] = IN_KIND_SEND;
     else if( !strcmp( link->name, "gossip_out"   ) ) ctx->in_kind[ i ] = IN_KIND_GOSSIP;
     else FD_LOG_ERR(( "unexpected link name %s", link->name ));
