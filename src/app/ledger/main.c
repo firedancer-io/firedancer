@@ -1065,7 +1065,6 @@ replay( fd_ledger_args_t * args ) {
 
   /* Load in snapshot(s) */
 
-  FD_LOG_WARNING(("%p funk %p funk_txn", (void*)args->funk, (void *)args->funk_txn ));
   if( args->snapshot ) {
     args->bank = fd_snapshot_load_all( args->snapshot,
         FD_SNAPSHOT_SRC_FILE,

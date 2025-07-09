@@ -60,9 +60,8 @@ restore_manifest( void *                              ctx,
                   fd_spad_t *                         spad ) {
   fd_snapshot_load_ctx_t * load_ctx = (fd_snapshot_load_ctx_t *)ctx;
 
-  fd_bank_t * bank = NULL;
-  int err = (!!fd_exec_slot_ctx_recover( load_ctx->banks, &bank, manifest, spad ) ? 0 : EINVAL);
-  load_ctx->bank = bank;
+  load_ctx->bank = fd_runtime_recover_bank( load_ctx->banks, manifest, spad );
+  int err = (!!load_ctx->bank ? 0 : EINVAL);
   return err;
 }
 
@@ -70,7 +69,8 @@ static int
 restore_status_cache( void *                  ctx,
                       fd_bank_slot_deltas_t * slot_deltas,
                       fd_spad_t *             spad ) {
-  return (!!fd_exec_slot_ctx_recover_status_cache( ctx, slot_deltas, spad ) ? 0 : EINVAL);
+  return 1;
+  return (!!fd_runtime_recover_status_cache( ctx, slot_deltas, spad ) ? 0 : EINVAL);
 }
 
 ulong

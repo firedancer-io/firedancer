@@ -302,6 +302,31 @@ FD_PROTOTYPES_BEGIN
 
 /* Runtime Helpers ************************************************************/
 
+/* fd_exec_slot_ctx_recover re-initializes the current epoch/slot
+   context and recovers it from the manifest of a Solana Labs snapshot.
+
+   Copies content of manifest to ctx.  The 'manifest' object may be
+   freed after this function returns.  Assumes that slot context and
+   epoch context use same allocator.  Returns ctx on success.
+   On failure, logs reason for error and returns NULL. */
+
+fd_bank_t *
+fd_runtime_recover_bank( fd_banks_t *                        banks,
+                         fd_solana_manifest_global_t const * manifest_global,
+                         fd_spad_t *                         spad );
+
+/* fd_exec_slot_ctx_recover re-initializes the current slot
+   context's status cache from the provided solana slot deltas.
+   Assumes objects in slot deltas were allocated using slot ctx valloc
+   (U.B. otherwise).
+   On return, slot deltas is destroyed.  Returns ctx on success.
+   On failure, logs reason for error and returns NULL. */
+
+fd_txncache_t *
+fd_runtime_recover_status_cache( fd_txncache_t *         status_cache,
+                                 fd_bank_slot_deltas_t * slot_deltas,
+                                 fd_spad_t *             runtime_spad );
+
 /*
    Returns 0 on success, and non zero otherwise.  On failure, the
    out values will not be modified.

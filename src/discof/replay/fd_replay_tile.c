@@ -656,18 +656,14 @@ restore_slot_ctx( fd_replay_tile_ctx_t * ctx,
   fd_solana_manifest_global_t * manifest_global
     = (fd_solana_manifest_global_t *)fd_chunk_to_laddr( fd_wksp_containing( ctx->manifest_dcache ), chunk );
 
-
-  fd_bank_t * manifest_bank = NULL;
-  int err = fd_exec_slot_ctx_recover(
+  ctx->bank = fd_runtime_recover_bank(
       ctx->banks,
-      &manifest_bank,
       manifest_global,
       ctx->runtime_spad );
-  if( FD_UNLIKELY( !err ) ) {
+
+  if( FD_UNLIKELY( !ctx->bank ) ) {
     FD_LOG_CRIT(( "Failed to restore slot context from snapshot manifest!" ));
   }
-
-  ctx->bank = manifest_bank;
 }
 
 static void
