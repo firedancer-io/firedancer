@@ -30,6 +30,7 @@ $(call add-objs,commands/configure/kill,fddev_shared)
 ifdef FD_HAS_INT128
 $(call add-objs,commands/configure/genesis,fddev_shared)
 endif
+$(call add-objs,commands/configure/normalpage,fddev_shared)
 
 endif
 endif

@@ -165,14 +165,23 @@ FD_PROTOTYPES_BEGIN
    region1_join("region1") which calls fd_shmem_join("region2") which
    calls join_func region2_join("region2") which calls
    shmem_join("region1")).  Such cycles will be detected, logged and
-   failed. */
+   failed.
+
+   If lock_pages is 1, the mapped region will be locked to physical DRAM
+   when it is mapped in, ensuring that the memory pages will not be swapped
+   out.  Most callers of this function should lock their pages, unless the
+   region is larger than the physical memory available.
+
+   IMPORTANT: not locking pages can lead to unexpected behaviour and
+   performance degradation, so is is highly recommended to lock pages. */
 
 void *
 fd_shmem_join( char const *               name,
                int                        mode,
                fd_shmem_joinleave_func_t  join_func,
                void *                     context,
-               fd_shmem_join_info_t *     opt_info );
+               fd_shmem_join_info_t *     opt_info,
+               int                        lock_pages );
 
 int
 fd_shmem_leave( void *                    join,
@@ -346,13 +355,37 @@ fd_shmem_create_multi( char const *  name,         /* Should point to cstr with 
                        ulong const * sub_cpu_idx,  /* Indexed [0,sub_cnt), each should be in [0,fd_shmem_cpu_cnt()) */
                        ulong         mode );       /* E.g. 0660 for user rw, group rw, world none */
 
+/* fd_shmem_create_multi_unlocked creates a shared memory region whose
+   name is given by the cstr pointed to by name backed by page_sz pages.
+   It functions the same as fd_shmem_create_multi, but the pages are not
+   locked, not pinned to any particular numa node, and have the default numa
+   mempolicy.
+
+   mode specifies the permissions for this region (the usual POSIX open
+   umask caveats apply).
+
+   Returns 0 on success and an strerror friendly error code on failure
+   (also logs extensive details on error).  Reasons for failure include
+   name is invalid (EINVAL), page_sz is invalid (EINVAL), page_cnt is
+   zero (EINVAL), cnt*page_sz overflows an off_t (EINVAL), open fails
+   (errno of the open, e.g. region with the same name and page_sz in the
+   thread domain already exists), ftruncate fails (errno of ftruncate,
+   e.g. no suitable memory available near cpu_idx), etc.
+*/
+
+int
+fd_shmem_create_multi_unlocked( char const * name,
+                                ulong        page_sz,
+                                ulong        page_cnt,
+                                ulong        mode );
+
 /* fd_shmem_update_multi updates a shared memory region created by
    fd_shmem_create_multi in place, to be as-if it was created with
    the provided parameters instead.
-   
+
    This can be preferable to deleting and recreating the shmem region
    because it prevents needing to zero all of the underlying memory.
-   
+
    WARNING: The memory returned will not be zeroed and the user will
    be able to read any contents that were in the previous workspace. */
 
@@ -449,7 +482,7 @@ fd_shmem_acquire( ulong page_sz,
    by fd_shmem_acquire.  This always succeeds from the caller's POV but
    logs details if there is any wonkiness under the hood.  It is fine to
    release subregions of individual previous acquisitions.
-   
+
    Returns 0 if successful, -1 for any errors. */
 
 int

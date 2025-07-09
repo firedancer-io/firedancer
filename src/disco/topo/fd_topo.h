@@ -35,6 +35,8 @@ typedef struct {
 
   ulong numa_idx;     /* The index of the NUMA node on the system that this workspace should be allocated from. */
 
+  int   is_locked;    /* If the workspace should use pages locked and pinned to a specific numa node. */
+
   /* Computed fields.  These are not supplied as configuration but calculated as needed. */
   struct {
     ulong page_sz;  /* The size of the pages that this workspace is backed by.  One of FD_PAGE_SIZE_*. */
