@@ -180,7 +180,7 @@ fd_snapshot_load_manifest_and_status_cache( fd_snapshot_load_ctx_t * ctx,
   if( FD_UNLIKELY( !fd_snapshot_loader_init( ctx->loader,
                                              ctx->restore,
                                              src,
-                                             base_slot_override ? *base_slot_override : ctx->slot_ctx->slot,
+                                             base_slot_override ? *base_slot_override : ctx->slot_ctx->bank->slot,
                                              1 ) ) ) {
     FD_LOG_ERR(( "Failed to init snapshot loader" ));
   }
@@ -462,7 +462,7 @@ fd_snapshot_hash( fd_exec_slot_ctx_t *    slot_ctx,
     fd_sha256_t h;
     fd_hash_t   hash;
     fd_accounts_hash( slot_ctx->funk,
-                      slot_ctx->slot,
+                      slot_ctx->bank->slot,
                       &hash,
                       runtime_spad,
                       fd_bank_features_query( slot_ctx->bank ),
@@ -477,7 +477,7 @@ fd_snapshot_hash( fd_exec_slot_ctx_t *    slot_ctx,
   }
 
   return fd_accounts_hash( slot_ctx->funk,
-                           slot_ctx->slot,
+                           slot_ctx->bank->slot,
                            accounts_hash,
                            runtime_spad,
                            fd_bank_features_query( slot_ctx->bank ),

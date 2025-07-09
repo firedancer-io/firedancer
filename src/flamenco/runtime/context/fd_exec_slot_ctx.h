@@ -20,19 +20,15 @@
    seperately.*/
 
 struct fd_exec_slot_ctx {
-  ulong                       magic; /* ==FD_EXEC_SLOT_CTX_MAGIC */
+  ulong           magic; /* ==FD_EXEC_SLOT_CTX_MAGIC */
 
-  ulong                       slot;
+  fd_banks_t *    banks;
+  fd_bank_t *     bank;
 
-  fd_banks_t *                banks;
-  fd_bank_t *                 bank;
+  fd_funk_t *     funk;
+  fd_funk_txn_t * funk_txn;
 
-  /* External joins, pointers to be set by caller */
-
-  fd_funk_t *                 funk;
-  fd_funk_txn_t *             funk_txn;
-
-  fd_txncache_t *             status_cache;
+  fd_txncache_t * status_cache;
 };
 
 #define FD_EXEC_SLOT_CTX_ALIGN     (alignof(fd_exec_slot_ctx_t))

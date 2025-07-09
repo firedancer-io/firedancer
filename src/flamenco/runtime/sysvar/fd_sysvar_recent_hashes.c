@@ -60,7 +60,7 @@ fd_sysvar_recent_hashes_init( fd_exec_slot_ctx_t * slot_ctx,
 
   FD_SPAD_FRAME_BEGIN( runtime_spad ) {
 
-  if( slot_ctx->slot != 0 ) {
+  if( slot_ctx->bank->slot != 0 ) {
     return;
   }
 
@@ -68,7 +68,7 @@ fd_sysvar_recent_hashes_init( fd_exec_slot_ctx_t * slot_ctx,
   uchar * enc = fd_spad_alloc( runtime_spad, FD_SPAD_ALIGN, sz );
   fd_memset( enc, 0, sz );
   encode_rbh_from_blockhash_queue( slot_ctx, enc );
-  fd_sysvar_set( slot_ctx->bank, slot_ctx->funk, slot_ctx->funk_txn, &fd_sysvar_owner_id, &fd_sysvar_recent_block_hashes_id, enc, sz, slot_ctx->slot );
+  fd_sysvar_set( slot_ctx->bank, slot_ctx->funk, slot_ctx->funk_txn, &fd_sysvar_owner_id, &fd_sysvar_recent_block_hashes_id, enc, sz, slot_ctx->bank->slot );
 
   } FD_SPAD_FRAME_END;
 }
@@ -140,7 +140,7 @@ fd_sysvar_recent_hashes_update( fd_exec_slot_ctx_t * slot_ctx, fd_spad_t * runti
                  &fd_sysvar_recent_block_hashes_id,
                  enc_start,
                  sz,
-                 slot_ctx->slot );
+                 slot_ctx->bank->slot );
   } FD_SPAD_FRAME_END;
 }
 

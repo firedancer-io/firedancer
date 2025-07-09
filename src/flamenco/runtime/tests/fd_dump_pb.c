@@ -516,7 +516,7 @@ create_block_context_protobuf_from_block( fd_exec_test_block_context_t * block_c
 
   /* BlockContext -> SlotContext */
   block_context->has_slot_ctx                       = true;
-  block_context->slot_ctx.slot                      = slot_ctx->slot;
+  block_context->slot_ctx.slot                      = slot_ctx->bank->slot;
   // HACK FOR NOW: block height gets incremented in process_new_epoch, so we should dump block height + 1
   block_context->slot_ctx.block_height              = fd_bank_block_height_get( slot_ctx->bank ) + 1UL;
   // fd_memcpy( block_context->slot_ctx.poh, &slot_ctx->slot_bank.poh, sizeof(fd_pubkey_t) ); // TODO: dump here when process epoch happens after poh verification
@@ -1107,7 +1107,7 @@ fd_dump_block_to_protobuf_tx_only( fd_runtime_block_info_t const * block_info,
     if( pb_encode( &stream, FD_EXEC_TEST_BLOCK_CONTEXT_FIELDS, block_context_msg ) ) {
       char output_filepath[256]; fd_memset( output_filepath, 0, sizeof(output_filepath) );
       char * position = fd_cstr_init( output_filepath );
-      position = fd_cstr_append_printf( position, "%s/block-%lu.blockctx", capture_ctx->dump_proto_output_dir, slot_ctx->slot );
+      position = fd_cstr_append_printf( position, "%s/block-%lu.blockctx", capture_ctx->dump_proto_output_dir, slot_ctx->bank->slot );
       fd_cstr_fini( position );
 
       FILE * file = fopen(output_filepath, "wb");
