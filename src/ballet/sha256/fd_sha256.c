@@ -225,11 +225,121 @@ fd_sha256_core_ref( uint *        state,
 
 #elif FD_SHA256_CORE_IMPL==1
 
-__attribute__((sysv_abi))
+/* _mm_sha256rnds2_epu32 does two rounds, one from the first uint in
+   wk and one from the second.  Since wk stores four rounds worth of
+   message schedule values, it makes sense for the macro to do four
+   rounds at a time.  We need to permute wk in between so that the
+   second call to the intrinsic will use the other values. */
+#define FOUR_ROUNDS( wk ) do {                                                               \
+      vu_t __wk = (wk);                                                                      \
+      vu_t temp_state = stateFEBA;                                                           \
+      stateFEBA = _mm_sha256rnds2_epu32( stateHGDC, stateFEBA, __wk );                       \
+      stateHGDC = temp_state;                                                                \
+                                                                                             \
+      temp_state = stateFEBA;                                                                \
+      stateFEBA = _mm_sha256rnds2_epu32( stateHGDC, stateFEBA, vu_permute( __wk, 2,3,0,1 ) );\
+      stateHGDC = temp_state;                                                                \
+    } while( 0 )
+
+
+/* For completeness, here's the documentation for _mm_sha256msg1_epu32
+   and _mm_sha256msg2_epu32 in a slightly reformatted way, where all
+   values are uints, and "-" indicates a don't-care value:
+
+       _mm_sha256msg1_epu32( (w[j  ], w[j+1], w[j+1], w[j+3]),
+                             (w[j+4], -,      -,      -     ) )
+         = ( w[j  ]+s0( w[j+1] ),  w[j+1]+s0( w[j+2] ),
+             w[j+2]+s0( w[j+3] ),  w[j+3]+s0( w[j+4] ) ).
+
+
+       _mm_sha256msg2_epu32( (v[j  ], v[j+1], v[j+1], v[j+3]),
+                             (-,      -,      w[j-2], w[j-1]) )
+         sets w[j  ] = v[j  ] + s1( w[j-2] ) and
+              w[j+1] = v[j+1] + s1( w[j-1] ), and then returns
+
+           ( v[j  ]+s1( w[j-2] ), v[j+1]+s1( w[j-1] ),
+             v[j+2]+s1( w[j  ] ), v[j+3]+s1( w[j+1] ) )   */
+
+
+/* w[i] for i>= 16 is w[i-16] + s0(w[i-15]) + w[i-7] + s1(w[i-2])
+   Since our vector size is 4 uints, it's only s1 that is a little
+   problematic, because it references items in the same vector.
+   Thankfully, the msg2 intrinsic takes care of the complexity, but we
+   need to execute it last.
+
+   We get w[i-16] and s0(s[i-15]) using the msg1 intrinsic, setting j =
+   i-16.  For example, to compute w1013, we pass in w0003 and w0407.
+   Then we can get w[i-7] by using the alignr instruction on
+   (w[i-8], w[i-7], w[i-6], w[i-5]) and (w[i-4], w[i-3], w[i-2], w[i-1])
+   to concatenate them and shift by one uint.  Continuing with the
+   example of w1013, we need w080b and w0c0f.  We then put
+             v[i] = w[i-16] + s0(w[i-15]) + w[i-7],
+   and invoke the msg2 intrinsic with j=i, which gives w[i], as desired.
+   Each invocation of NEXT_W computes 4 values of w. */
+
+#define NEXT_W( w_minus_16, w_minus_12, w_minus_8, w_minus_4 ) (__extension__({      \
+    vu_t __w_i_16_s0_i_15 = _mm_sha256msg1_epu32( w_minus_16, w_minus_12 );          \
+    vu_t __w_i_7          = _mm_alignr_epi8( w_minus_4, w_minus_8, 4 );              \
+    _mm_sha256msg2_epu32( vu_add( __w_i_7, __w_i_16_s0_i_15 ), w_minus_4 );          \
+    }))
+
 void
 fd_sha256_core_shaext( uint *        state,       /* 64-byte aligned, 8 entries */
-                       uchar const * block,       /* ideally 128-byte aligned (but not required), 128*block_cnt in size */
-                       ulong         block_cnt ); /* positive */
+                       uchar const * block,       /* ideally 128-byte aligned (but not required), 64*block_cnt in size */
+                       ulong         block_cnt ) {/* positive */
+  vu_t stateABCD = vu_ld( state     );
+  vu_t stateEFGH = vu_ld( state+4UL );
+
+  vu_t baseFEBA = vu_permute2( stateEFGH, stateABCD, 1, 0, 1, 0 );
+  vu_t baseHGDC = vu_permute2( stateEFGH, stateABCD, 3, 2, 3, 2 );
+
+  static uint const K[64] = {
+    0x428a2f98U, 0x71374491U, 0xb5c0fbcfU, 0xe9b5dba5U, 0x3956c25bU, 0x59f111f1U, 0x923f82a4U, 0xab1c5ed5U,
+    0xd807aa98U, 0x12835b01U, 0x243185beU, 0x550c7dc3U, 0x72be5d74U, 0x80deb1feU, 0x9bdc06a7U, 0xc19bf174U,
+    0xe49b69c1U, 0xefbe4786U, 0x0fc19dc6U, 0x240ca1ccU, 0x2de92c6fU, 0x4a7484aaU, 0x5cb0a9dcU, 0x76f988daU,
+    0x983e5152U, 0xa831c66dU, 0xb00327c8U, 0xbf597fc7U, 0xc6e00bf3U, 0xd5a79147U, 0x06ca6351U, 0x14292967U,
+    0x27b70a85U, 0x2e1b2138U, 0x4d2c6dfcU, 0x53380d13U, 0x650a7354U, 0x766a0abbU, 0x81c2c92eU, 0x92722c85U,
+    0xa2bfe8a1U, 0xa81a664bU, 0xc24b8b70U, 0xc76c51a3U, 0xd192e819U, 0xd6990624U, 0xf40e3585U, 0x106aa070U,
+    0x19a4c116U, 0x1e376c08U, 0x2748774cU, 0x34b0bcb5U, 0x391c0cb3U, 0x4ed8aa4aU, 0x5b9cca4fU, 0x682e6ff3U,
+    0x748f82eeU, 0x78a5636fU, 0x84c87814U, 0x8cc70208U, 0x90befffaU, 0xa4506cebU, 0xbef9a3f7U, 0xc67178f2U,
+  };
+
+  for( ulong b=0UL; b<block_cnt; b++ ) {
+    vu_t stateFEBA = baseFEBA;
+    vu_t stateHGDC = baseHGDC;
+
+    vu_t w0003 = vu_bswap( vu_ldu( block+64UL*b      ) );
+    vu_t w0407 = vu_bswap( vu_ldu( block+64UL*b+16UL ) );
+    vu_t w080b = vu_bswap( vu_ldu( block+64UL*b+32UL ) );
+    vu_t w0c0f = vu_bswap( vu_ldu( block+64UL*b+48UL ) );
+
+    /*                                              */ FOUR_ROUNDS( vu_add( w0003, vu_ld( K+ 0UL ) ) );
+    /*                                              */ FOUR_ROUNDS( vu_add( w0407, vu_ld( K+ 4UL ) ) );
+    /*                                              */ FOUR_ROUNDS( vu_add( w080b, vu_ld( K+ 8UL ) ) );
+    /*                                              */ FOUR_ROUNDS( vu_add( w0c0f, vu_ld( K+12UL ) ) );
+    vu_t w1013 = NEXT_W( w0003, w0407, w080b, w0c0f ); FOUR_ROUNDS( vu_add( w1013, vu_ld( K+16UL ) ) );
+    vu_t w1417 = NEXT_W( w0407, w080b, w0c0f, w1013 ); FOUR_ROUNDS( vu_add( w1417, vu_ld( K+20UL ) ) );
+    vu_t w181b = NEXT_W( w080b, w0c0f, w1013, w1417 ); FOUR_ROUNDS( vu_add( w181b, vu_ld( K+24UL ) ) );
+    vu_t w1c1f = NEXT_W( w0c0f, w1013, w1417, w181b ); FOUR_ROUNDS( vu_add( w1c1f, vu_ld( K+28UL ) ) );
+    vu_t w2023 = NEXT_W( w1013, w1417, w181b, w1c1f ); FOUR_ROUNDS( vu_add( w2023, vu_ld( K+32UL ) ) );
+    vu_t w2427 = NEXT_W( w1417, w181b, w1c1f, w2023 ); FOUR_ROUNDS( vu_add( w2427, vu_ld( K+36UL ) ) );
+    vu_t w282b = NEXT_W( w181b, w1c1f, w2023, w2427 ); FOUR_ROUNDS( vu_add( w282b, vu_ld( K+40UL ) ) );
+    vu_t w2c2f = NEXT_W( w1c1f, w2023, w2427, w282b ); FOUR_ROUNDS( vu_add( w2c2f, vu_ld( K+44UL ) ) );
+    vu_t w3033 = NEXT_W( w2023, w2427, w282b, w2c2f ); FOUR_ROUNDS( vu_add( w3033, vu_ld( K+48UL ) ) );
+    vu_t w3437 = NEXT_W( w2427, w282b, w2c2f, w3033 ); FOUR_ROUNDS( vu_add( w3437, vu_ld( K+52UL ) ) );
+    vu_t w383b = NEXT_W( w282b, w2c2f, w3033, w3437 ); FOUR_ROUNDS( vu_add( w383b, vu_ld( K+56UL ) ) );
+    vu_t w3c3f = NEXT_W( w2c2f, w3033, w3437, w383b ); FOUR_ROUNDS( vu_add( w3c3f, vu_ld( K+60UL ) ) );
+
+    baseFEBA = vu_add( baseFEBA, stateFEBA );
+    baseHGDC = vu_add( baseHGDC, stateHGDC );
+
+  }
+
+  stateABCD = vu_permute2( baseFEBA, baseHGDC, 3, 2, 3, 2 );
+  stateEFGH = vu_permute2( baseFEBA, baseHGDC, 1, 0, 1, 0 );
+  vu_st( state,     stateABCD );
+  vu_st( state+4UL, stateEFGH );
+}
 
 #define fd_sha256_core fd_sha256_core_shaext
 
@@ -439,38 +549,6 @@ fd_sha256_hash_32_repeated( void const * _data,
     vu_t stateFEBA = initialFEBA;
     vu_t stateHGDC = initialHGDC;
 
-    /* _mm_sha256rnds2_epu32 does two rounds, one from the first uint in
-       wk and one from the second.  Since wk stores four rounds worth of
-       message schedule values, it makes sense for the macro to do four
-       rounds at a time.  We need to permute wk in between so that the
-       second call to the intrinsic will use the other values. */
-#define FOUR_ROUNDS( wk ) do {                                                               \
-      vu_t __wk = (wk);                                                                      \
-      vu_t temp_state = stateFEBA;                                                           \
-      stateFEBA = _mm_sha256rnds2_epu32( stateHGDC, stateFEBA, __wk );                       \
-      stateHGDC = temp_state;                                                                \
-                                                                                             \
-      temp_state = stateFEBA;                                                                \
-      stateFEBA = _mm_sha256rnds2_epu32( stateHGDC, stateFEBA, vu_permute( __wk, 2,3,0,1 ) );\
-      stateHGDC = temp_state;                                                                \
-    } while( 0 )
-
-    /* w[i] for i>= 16 is w[i-16]+ s0(w[i-15]) + w[i-7] + s1(w[i-2])
-       Since our vector size is 4 uints, it's only s1 that is a little
-       problematic, because it references items in the same vector.
-       Thankfully, the msg2 intrinsic takes care of the complexity, but we
-       need to execute it last.
-
-       For w[16..19], we get w[i-16] and s0(s[i-15]) using the msg1
-       intrinsic on w0003 and w0407. w[i-7] comes from w080b and w0c0f
-       adjusted with alignr, and s1(w[i-2]) comes from the sum of the
-       previous values and w0c0f. */
-
-#define NEXT_W( w_minus_16, w_minus_12, w_minus_8, w_minus_4 ) (__extension__({      \
-    vu_t __w_i_16_s0_i_15 = _mm_sha256msg1_epu32( w_minus_16, w_minus_12 );          \
-    vu_t __w_i_7          = _mm_alignr_epi8( w_minus_4, w_minus_8, 4 );              \
-    _mm_sha256msg2_epu32( vu_add( __w_i_7, __w_i_16_s0_i_15 ), w_minus_4 );          \
-      }))
 
 
     /*                                              */ FOUR_ROUNDS( vu_add( w0003, vu_ld( fd_sha256_core_shaext_Kmask+ 0UL ) ) );
@@ -501,6 +579,8 @@ fd_sha256_hash_32_repeated( void const * _data,
   }
   vu_stu( hash,      vu_bswap( w0003 ) );
   vu_stu( hash+16UL, vu_bswap( w0407 ) );
+#undef FOUND_ROUNDS
+#undef NEXT_W
 
 #else
 
