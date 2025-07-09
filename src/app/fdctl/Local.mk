@@ -29,7 +29,6 @@ $(call add-objs,config,fd_fdctl)
 
 ifdef FD_HAS_HOSTED
 ifdef FD_HAS_THREADS
-ifdef FD_HAS_SSE
 
 .PHONY: fdctl cargo-validator cargo-solana cargo-ledger-tool rust solana check-agave-hash
 
@@ -133,7 +132,6 @@ $(OBJDIR)/bin/agave-ledger-tool: agave/target/$(RUST_PROFILE)/agave-ledger-tool
 
 agave-ledger-tool: $(OBJDIR)/bin/agave-ledger-tool
 
-endif
 endif
 endif
 endif

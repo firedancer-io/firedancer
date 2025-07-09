@@ -7,6 +7,7 @@
 #include "../../shared/commands/monitor/monitor.h"
 
 #include <stdio.h>
+#include <stdlib.h> /* setenv */
 #include <unistd.h>
 #include <sched.h>
 #include <fcntl.h>

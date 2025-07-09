@@ -2,6 +2,7 @@
 #include "../../../shared/commands/configure/configure.h"
 
 #include <errno.h>
+#include <stdlib.h> /* strtoul */
 #include <unistd.h>
 #include <stdio.h>
 #include <dirent.h>
