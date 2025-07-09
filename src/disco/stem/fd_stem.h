@@ -6,13 +6,11 @@
 #include <limits.h>
 #define FD_STEM_SCRATCH_ALIGN (128UL)
 #define FD_STEM_SPIN_THRESHOLD (10000L)
-#define FD_STEM_WAKE_THRESHOLD (10000UL)
 
 struct fd_stem_context {
    fd_frag_meta_t ** mcaches;
    ulong *           seqs;
    ulong *           depths;
-   ulong *           out_wake_cnt;
 
    ulong *           cr_avail;
    ulong             cr_decrement_amount;
@@ -52,9 +50,6 @@ fd_stem_publish( fd_stem_context_t * stem,
   uint * futex_flag = fd_mcache_futex_flag( stem->mcaches[ out_idx ] );
   *futex_flag = (uint)(seq + 1);
 
-  /* every time we publish, we reset the wake counter */
-  stem->out_wake_cnt[ out_idx ] = 0UL;
-
   *stem->cr_avail -= stem->cr_decrement_amount;
   *seqp = fd_seq_inc( seq, 1UL );
 }
@@ -67,9 +62,6 @@ fd_stem_advance( fd_stem_context_t * stem,
 
   uint * futex_flag = fd_mcache_futex_flag( stem->mcaches[ out_idx ] );
   *futex_flag = (uint)(seq + 1);
-  
-  /* every time we publish, we reset the wake counter */
-  stem->out_wake_cnt[ out_idx ] = 0UL;
 
   *stem->cr_avail -= stem->cr_decrement_amount;
   *seqp = fd_seq_inc( seq, 1UL );

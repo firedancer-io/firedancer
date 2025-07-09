@@ -190,18 +190,14 @@ STEM_(in_update)( fd_stem_tile_in_t * in ) {
 
 #if !(STEM_ALWAYS_SPINNING)
 static inline void
-STEM_(wake_downstream_consumers)( ulong out_cnt,
+STEM_(wake_consumers)( ulong out_cnt,
                                   fd_frag_meta_t ** out_mcache,
-                                  ulong * out_wake_cnt,
                                   uint * latest_futex_vals ) {
   for( ulong out_idx = 0; out_idx < out_cnt; out_idx++ ) {
-    if( out_wake_cnt[out_idx] > FD_STEM_WAKE_THRESHOLD ) {
-      uint * futex_flag = fd_mcache_futex_flag( out_mcache[ out_idx ] );
-      if( latest_futex_vals[out_idx] != *futex_flag ) {
-        fd_futex_wake( futex_flag, INT_MAX );
-        latest_futex_vals[out_idx] = *futex_flag;
-      }
-      out_wake_cnt[out_idx] = 0UL;
+    uint * futex_flag = fd_mcache_futex_flag( out_mcache[ out_idx ] );
+    if( latest_futex_vals[out_idx] != *futex_flag ) {
+      fd_futex_wake( futex_flag, INT_MAX );
+      latest_futex_vals[out_idx] = *futex_flag;
     }
   }
 }
@@ -215,7 +211,8 @@ STEM_(scratch_align)( void ) {
 FD_FN_PURE static inline ulong
 STEM_(scratch_footprint)( ulong in_cnt,
                           ulong out_cnt,
-                          ulong cons_cnt ) {
+                          ulong cons_cnt,
+                          ulong wake_out_cnt ) {
   ulong l = FD_LAYOUT_INIT;
   l = FD_LAYOUT_APPEND( l, alignof(fd_stem_tile_in_t), in_cnt*sizeof(fd_stem_tile_in_t)     );  /* in */
 #if !(STEM_ALWAYS_SPINNING)
@@ -223,12 +220,12 @@ STEM_(scratch_footprint)( ulong in_cnt,
 #endif
   l = FD_LAYOUT_APPEND( l, alignof(ulong),             out_cnt*sizeof(ulong)                ); /* out_depth */
   l = FD_LAYOUT_APPEND( l, alignof(ulong),             out_cnt*sizeof(ulong)                ); /* out_seq */
-  l = FD_LAYOUT_APPEND( l, alignof(ulong),             out_cnt*sizeof(ulong)                ); /* out_wake_cnt */
   l = FD_LAYOUT_APPEND( l, alignof(ulong const *),     cons_cnt*sizeof(ulong const *)       ); /* cons_fseq */
   l = FD_LAYOUT_APPEND( l, alignof(ulong *),           cons_cnt*sizeof(ulong *)             ); /* cons_slow */
   l = FD_LAYOUT_APPEND( l, alignof(ulong),             cons_cnt*sizeof(ulong)               ); /* cons_out */
   l = FD_LAYOUT_APPEND( l, alignof(ulong),             cons_cnt*sizeof(ulong)               ); /* cons_seq */
-  const ulong event_cnt = in_cnt + 1UL + cons_cnt;
+  l = FD_LAYOUT_APPEND( l, alignof(ulong),             wake_out_cnt*sizeof(ulong)           ); /* wake_out */
+  const ulong event_cnt = in_cnt + cons_cnt + wake_out_cnt + 1UL;
   l = FD_LAYOUT_APPEND( l, alignof(ushort),            event_cnt*sizeof(ushort)             ); /* event_map */
   return FD_LAYOUT_FINI( l, STEM_(scratch_align)() );
 }
@@ -242,7 +239,8 @@ STEM_(run1)( ulong                        in_cnt,
              ulong                        cons_cnt,
              ulong *                      _cons_out,
              ulong **                     _cons_fseq,
-            //  TODO: flag if consumers use cooperative scheduling
+             ulong                        wake_out_cnt,
+             ulong *                      _wake_out,
              ulong                        burst,
              long                         lazy,
              fd_rng_t *                   rng,
@@ -261,14 +259,16 @@ STEM_(run1)( ulong                        in_cnt,
   /* out frag stream state */
   ulong *        out_depth; /* ==fd_mcache_depth( out_mcache[out_idx] ) for out_idx in [0, out_cnt) */
   ulong *        out_seq;  /* next mux frag sequence number to publish for out_idx in [0, out_cnt) ]*/
-  ulong *        out_wake_cnt; /* number of loop iterations since last wake for out_idx in [0, out_cnt) */
 
   /* out flow control state */
   ulong          cr_avail;   /* number of flow control credits available to publish downstream, in [0,cr_max] */
   ulong const ** cons_fseq;  /* cons_fseq[cons_idx] for cons_idx in [0,cons_cnt) is where to receive fctl credits from consumers */
   ulong **       cons_slow;  /* cons_slow[cons_idx] for cons_idx in [0,cons_cnt) is where to accumulate slow events */
-  ulong *        cons_out;   /* cons_out[cons_idx] for cons_idx in [0,cons_ct) is which out the consumer consumes from ]*/
+  ulong *        cons_out;   /* cons_out[cons_idx] for cons_idx in [0,cons_ct) is which out the consumer consumes from */
   ulong *        cons_seq;   /* cons_seq [cons_idx] is the most recent observation of cons_fseq[cons_idx] */
+
+  /* out wake state */
+  ulong *        wake_out;   /* wake_out[wake_out_idx] for wake_out_idx in [0,wake_out_cnt) is which out to wake */
 
   /* housekeeping state */
   ulong    event_cnt; /* ==in_cnt+cons_cnt+1, total number of housekeeping events */
@@ -341,7 +341,6 @@ STEM_(run1)( ulong                        in_cnt,
 
   out_depth  = (ulong *)FD_SCRATCH_ALLOC_APPEND( l, alignof(ulong), out_cnt*sizeof(ulong) );
   out_seq    = (ulong *)FD_SCRATCH_ALLOC_APPEND( l, alignof(ulong), out_cnt*sizeof(ulong) );
-  out_wake_cnt = (ulong *)FD_SCRATCH_ALLOC_APPEND( l, alignof(ulong), out_cnt*sizeof(ulong) );
   latest_futex_vals = (uint *)FD_SCRATCH_ALLOC_APPEND( l, alignof(uint), out_cnt*sizeof(uint) );
 
   ulong cr_max = fd_ulong_if( !out_cnt, 128UL, ULONG_MAX );
@@ -352,7 +351,6 @@ STEM_(run1)( ulong                        in_cnt,
 
     out_depth[ out_idx ] = fd_mcache_depth( out_mcache[ out_idx ] );
     out_seq[ out_idx ] = 0UL;
-    out_wake_cnt[ out_idx ] = 0UL;
     latest_futex_vals[ out_idx ] = *fd_mcache_futex_flag_const(out_mcache[ out_idx ]);
 
     cr_max = fd_ulong_min( cr_max, out_depth[ out_idx ] );
@@ -371,6 +369,11 @@ STEM_(run1)( ulong                        in_cnt,
     cons_slow[ cons_idx ] = (ulong*)(fd_metrics_link_out( fd_metrics_base_tl, cons_idx ) + FD_METRICS_COUNTER_LINK_SLOW_COUNT_OFF);
     cons_seq [ cons_idx ] = fd_fseq_query( _cons_fseq[ cons_idx ] );
   }
+  
+  wake_out = (ulong *)FD_SCRATCH_ALLOC_APPEND( l, alignof(ulong), wake_out_cnt*sizeof(ulong) );
+  for( ulong wake_out_idx=0UL; wake_out_idx<wake_out_cnt; wake_out_idx++ ) {
+    wake_out[ wake_out_idx ] = _wake_out[ wake_out_idx ];
+  }
 
   /* housekeeping init */
 
@@ -381,11 +384,12 @@ STEM_(run1)( ulong                        in_cnt,
      cr_avail on the first run loop iteration and then update all the
      ins accordingly. */
 
-  event_cnt = in_cnt + 1UL + cons_cnt;
+  event_cnt = in_cnt + 1UL + cons_cnt + wake_out_cnt;
   event_map = (ushort *)FD_SCRATCH_ALLOC_APPEND( l, alignof(ushort), event_cnt*sizeof(ushort) );
   event_seq = 0UL;                                         event_map[ event_seq++ ] = (ushort)cons_cnt;
   for( ulong   in_idx=0UL;   in_idx< in_cnt;  in_idx++   ) event_map[ event_seq++ ] = (ushort)(in_idx+cons_cnt+1UL);
   for( ulong cons_idx=0UL; cons_idx<cons_cnt; cons_idx++ ) event_map[ event_seq++ ] = (ushort)cons_idx;
+  for( ulong wake_idx=0UL; wake_idx<wake_out_cnt; wake_idx++ ) event_map[ event_seq++ ] = (ushort)(wake_idx+in_cnt+cons_cnt+1UL);
   event_seq = 0UL;
 
   async_min = fd_tempo_async_min( lazy, event_cnt, (float)fd_tempo_tick_per_ns( NULL ) );
@@ -403,11 +407,6 @@ STEM_(run1)( ulong                        in_cnt,
 
   for(;;) {
 
-    /* Increment loop iteration counter for all outputs */
-    for( ulong out_idx=0UL; out_idx<out_cnt; out_idx++ ) {
-      out_wake_cnt[ out_idx ]++;
-    }
-
     /* Do housekeeping at a low rate in the background */
 
     ulong housekeeping_ticks = 0UL;
@@ -415,9 +414,10 @@ STEM_(run1)( ulong                        in_cnt,
       ulong event_idx = (ulong)event_map[ event_seq ];
 
       /* Do the next async event.  event_idx:
-            <out_cnt - receive credits from out event_idx
-           ==out_cnt - housekeeping
-            >out_cnt - send credits to in event_idx - out_cnt - 1.
+            <cons_cnt - receive credits from out [event_idx]
+           ==cons_cnt - housekeeping
+            >cons_cnt && <=cons_cnt+in_cnt - send credits to in [event_idx - cons_cnt - 1].
+            >cons_cnt+in_cnt - wake out link [event_idx - cons_cnt - in_cnt - 1].
          Branch hints and order are optimized for the case:
            out_cnt >~ in_cnt >~ 1. */
 
@@ -427,13 +427,24 @@ STEM_(run1)( ulong                        in_cnt,
         /* Receive flow control credits from this out. */
         cons_seq[ cons_idx ] = fd_fseq_query( cons_fseq[ cons_idx ] );
 
-      } else if( FD_LIKELY( event_idx>cons_cnt ) ) { /* in fctl for in in_idx */
+      } else if( FD_LIKELY( event_idx>cons_cnt && event_idx<=cons_cnt+in_cnt ) ) { /* in fctl for in in_idx */
         ulong in_idx = event_idx - cons_cnt - 1UL;
 
         /* Send flow control credits and drain flow control diagnostics
            for in_idx. */
 
         STEM_(in_update)( &in[ in_idx ] );
+
+      } else if( FD_LIKELY( event_idx>cons_cnt+in_cnt ) ) { /* wake event for out wake_idx*/
+        ulong wake_idx = event_idx - cons_cnt - in_cnt - 1UL;
+        ulong out_idx = wake_out[ wake_idx ];
+
+        /* Wake consumers waiting on this out */
+        uint * futex_flag = fd_mcache_futex_flag( out_mcache[ out_idx ] );
+        if( latest_futex_vals[out_idx] != *futex_flag ) {
+          fd_futex_wake( futex_flag, INT_MAX );
+          latest_futex_vals[out_idx] = *futex_flag;
+        }
 
       } else { /* event_idx==cons_cnt, housekeeping event */
       
@@ -476,7 +487,7 @@ STEM_(run1)( ulong                        in_cnt,
 #else
         (void)ctx;
 #endif
-      }
+      } 
 
       /* Select which event to do next (randomized round robin) and
          reload the housekeeping timer. */
@@ -523,11 +534,10 @@ STEM_(run1)( ulong                        in_cnt,
 
 /* By default, tiles are always spinning, except the ones that are configured to wait for futexes */ 
 #if !(STEM_ALWAYS_SPINNING)
-    STEM_(wake_downstream_consumers)( out_cnt, out_mcache, out_wake_cnt, latest_futex_vals );
 
     if (futex_wait_counter > FD_STEM_SPIN_THRESHOLD) { 
-      // should wake those downstream before we sleep
-      STEM_(wake_downstream_consumers)( out_cnt, out_mcache, out_wake_cnt, latest_futex_vals );
+      /* wake those downstream before we sleep */
+      STEM_(wake_consumers)( out_cnt, out_mcache, latest_futex_vals );
 
 #ifdef STEM_CALLBACK_GET_TILE_DEADLINE
       STEM_CALLBACK_GET_TILE_DEADLINE( ctx, &tile_deadline_ticks );
@@ -556,7 +566,6 @@ STEM_(run1)( ulong                        in_cnt,
       .mcaches             = out_mcache,
       .depths              = out_depth,
       .seqs                = out_seq,
-      .out_wake_cnt        = out_wake_cnt,
       .cr_avail            = &cr_avail,
       .cr_decrement_amount = fd_ulong_if( out_cnt>0UL, 1UL, 0UL ),
       .housekeeping_deadline_ticks = then,
@@ -833,6 +842,26 @@ STEM_(run)( fd_topo_t *      topo,
     }
   }
 
+  ulong wake_out_cnt = 0UL;
+  ulong wake_out[ FD_TOPO_MAX_LINKS ];
+  for( ulong k=0UL; k<tile->out_cnt; k++ ) {
+    int has_waiting_cons = 0;
+    for( ulong i=0UL; i<topo->tile_cnt && !has_waiting_cons; i++ ) {
+      fd_topo_tile_t * consumer_tile = &topo->tiles[ i ];
+      if( !consumer_tile->uses_cooperative_scheduling ) continue;
+      
+      for( ulong j=0UL; j<consumer_tile->in_cnt; j++ ) {
+        if( consumer_tile->in_link_id[ j ] == tile->out_link_id[ k ] ) {
+          has_waiting_cons = 1;
+          break;
+        }
+      }
+    }
+    if( has_waiting_cons ) {
+      wake_out[ wake_out_cnt++ ] = k;
+    }
+  }
+
   fd_rng_t rng[1];
   FD_TEST( fd_rng_join( fd_rng_new( rng, 0, 0UL ) ) );
 
@@ -846,10 +875,12 @@ STEM_(run)( fd_topo_t *      topo,
                reliable_cons_cnt,
                cons_out,
                cons_fseq,
+               wake_out_cnt,
+               wake_out,
                STEM_BURST,
                STEM_LAZY,
                rng,
-               fd_alloca( FD_STEM_SCRATCH_ALIGN, STEM_(scratch_footprint)( polled_in_cnt, tile->out_cnt, reliable_cons_cnt ) ),
+               fd_alloca( FD_STEM_SCRATCH_ALIGN, STEM_(scratch_footprint)( polled_in_cnt, tile->out_cnt, reliable_cons_cnt, wake_out_cnt ) ),
                ctx );
 }
 
