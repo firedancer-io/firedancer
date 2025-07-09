@@ -43,3 +43,8 @@ jobs:
           sudo prlimit --pid=$$ --nofile=1048576
           sudo prlimit --pid=$$ --memlock=unlimited
           DUMP_DIR=../dump make run-runtime-backtest
+
+      - name: fini
+        if: always()
+        run: |
+          sudo $OBJDIR/bin/firedancer-dev configure fini all --config ../dump/mainnet-308392063-v2.3.0_backtest.toml

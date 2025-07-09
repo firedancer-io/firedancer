@@ -24,6 +24,7 @@ THREAD_MEM_BOUND="--thread-mem-bound 0"
 CLUSTER_VERSION=""
 DUMP_DIR=${DUMP_DIR:="./dump"}
 ONE_OFFS="2B2SBNbUcr438LtGXNcJNBP2GBSxjx81F945SdSkUSfC,LTHasHQX6661DaDD4S6A2TFi6QBuiwXKv66fB1obfHq,LTdLt9Ycbyoipz5fLysCi1NnDnASsZfmJLJXts5ZxZz,LTsNAP8h1voEVVToMNBNqoiNQex4aqfUrbFhRH3mSQ2"
+HUGE_TLBFS_MOUNT_PATH="/mnt/.fd"
 
 while [[ $# -gt 0 ]]; do
   case $1 in
@@ -82,6 +83,11 @@ while [[ $# -gt 0 ]]; do
         ;;
     --tile-cpus)
         TILE_CPUS="--tile-cpus $2"
+        shift
+        shift
+        ;;
+    -h|--hugetlbfs-mount-path)
+        HUGE_TLBFS_MOUNT_PATH="$2"
         shift
         shift
         ;;
@@ -188,6 +194,8 @@ echo "
     identity_key = \"$DUMP_DIR/identity.json\"
     vote_account = \"$DUMP_DIR/vote.json\"
     snapshots    = \"$DUMP/$LEDGER\"
+[hugetlbfs]
+    mount_path = \"$HUGE_TLBFS_MOUNT_PATH\"
 " > $DUMP_DIR/${LEDGER}_backtest.toml
 
 if [ ! -f $DUMP_DIR/identity.json ]; then

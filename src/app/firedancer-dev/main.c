@@ -54,11 +54,13 @@ extern configure_stage_t fd_cfg_stage_kill;
 extern configure_stage_t fd_cfg_stage_netns;
 extern configure_stage_t fd_cfg_stage_genesis;
 extern configure_stage_t fd_cfg_stage_keys;
+extern configure_stage_t fd_cfg_stage_normalpage;
 
 configure_stage_t * STAGES[] = {
   &fd_cfg_stage_kill,
   &fd_cfg_stage_netns,
   &fd_cfg_stage_hugetlbfs,
+  &fd_cfg_stage_normalpage,
   &fd_cfg_stage_sysctl,
   &fd_cfg_stage_hyperthreads,
   &fd_cfg_stage_ethtool_channels,
