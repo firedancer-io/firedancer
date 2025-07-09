@@ -18,7 +18,6 @@ fd_epoch_new( void * shmem, ulong voter_max ) {
     return NULL;
   }
 
-  fd_memset( shmem, 0, footprint );
   fd_wksp_t * wksp = fd_wksp_containing( shmem );
   if( FD_UNLIKELY( !wksp ) ) {
     FD_LOG_WARNING(( "shmem must be part of a workspace" ));
