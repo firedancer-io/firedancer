@@ -277,8 +277,8 @@ backtest_topo( config_t * config ) {
       } else {
         FD_LOG_NOTICE(( "Found rocksdb path from config: %s", tile->archiver.archiver_path ));
       }
-    } else if( !fd_topo_configure_tile( tile, config ) ) {
-      FD_LOG_ERR(( "unknown tile name %lu `%s`", i, tile->name ));
+    } else {
+      fd_topo_configure_tile( tile, config );
     }
 
     /* Override */

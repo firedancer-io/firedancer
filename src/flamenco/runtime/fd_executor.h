@@ -7,7 +7,6 @@
 #include "../../ballet/block/fd_microblock.h"
 #include "../../disco/pack/fd_microblock.h"
 #include "../../ballet/txn/fd_txn.h"
-#include "../../ballet/poh/fd_poh.h"
 #include "../types/fd_types_yaml.h"
 #include "../log_collector/fd_log_collector.h"
 #include "tests/harness/generated/invoke.pb.h"
