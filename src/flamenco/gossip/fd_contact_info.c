@@ -44,7 +44,7 @@ fd_contact_info_convert_sockets( fd_contact_info_t const *             contact_i
   socket_ctx_t filled_up[ FD_CONTACT_INFO_SOCKET_MAX ];
   ulong filled_up_cnt = 0UL;
   for( ulong j=0; j<FD_CONTACT_INFO_SOCKET_MAX; j++ ) {
-    if( contact_info->sockets[j].l != FD_CONTACT_INFO_SOCKET_TAG_NULL ){
+    if( contact_info->sockets[j].l != FD_CONTACT_INFO_NULL_SOCKET ){
       filled_up[filled_up_cnt].socket = contact_info->sockets[j];
       /* Convert port to host order. Needed for sorting and because port info
          is encoded in host order in ContactInfo */

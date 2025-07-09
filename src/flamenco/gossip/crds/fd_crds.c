@@ -532,6 +532,7 @@ remove_contact_info( fd_crds_t *         crds,
     msg->tag = FD_GOSSIP_UPDATE_TAG_CONTACT_INFO_REMOVE;
     msg->wallclock_nanos = now;
     fd_memcpy( msg->origin_pubkey, ci->key.pubkey, 32UL );
+    msg->rm_contact_info_pool_idx = crds_contact_info_pool_idx( crds->contact_info.pool, ci->contact_info.ci );
 
     fd_gossip_tx_publish_chunk( crds->gossip_update,
                                 stem,
@@ -828,15 +829,17 @@ fd_crds_checks_fast( fd_crds_t *                         crds,
 
 static inline void
 publish_update_msg( fd_crds_t *                         crds,
-                       fd_crds_entry_t *                   entry,
-                       fd_gossip_view_crds_value_t const * entry_view,
-                       uchar const *                       payload,
-                       long                                now,
-                       fd_stem_context_t *                 stem ) {
+                    fd_crds_entry_t *                   entry,
+                    fd_gossip_view_crds_value_t const * entry_view,
+                    uchar const *                       payload,
+                    long                                now,
+                    fd_stem_context_t *                 stem ) {
   if( FD_UNLIKELY( !crds->gossip_update ) ) return;
-  if( FD_LIKELY( entry->key.tag!=FD_CRDS_TAG_CONTACT_INFO &&
-                 entry->key.tag!=FD_CRDS_TAG_LOWEST_SLOT &&
-                 entry->key.tag!=FD_CRDS_TAG_VOTE ) ) {
+  if( FD_LIKELY( entry->key.tag!=FD_CRDS_TAG_CONTACT_INFO    &&
+                 entry->key.tag!=FD_CRDS_TAG_LOWEST_SLOT     &&
+                 entry->key.tag!=FD_CRDS_TAG_VOTE            &&
+                 entry->key.tag!=FD_CRDS_TAG_DUPLICATE_SHRED &&
+                 entry->key.tag!=FD_CRDS_TAG_SNAPSHOT_HASHES ) ) {
     return;
   }
 
@@ -847,7 +850,8 @@ publish_update_msg( fd_crds_t *                         crds,
   switch( entry->key.tag ) {
     case FD_CRDS_TAG_CONTACT_INFO:
       msg->tag = FD_GOSSIP_UPDATE_TAG_CONTACT_INFO;
-      msg->contact_info = *entry->contact_info.ci->contact_info;
+      *msg->contact_info.contact_info = *entry->contact_info.ci->contact_info;
+      msg->contact_info.pool_idx = crds_contact_info_pool_idx( crds->contact_info.pool, entry->contact_info.ci );
       sz = FD_GOSSIP_UPDATE_SZ_CONTACT_INFO;
       break;
     case FD_CRDS_TAG_LOWEST_SLOT:
@@ -857,11 +861,39 @@ publish_update_msg( fd_crds_t *                         crds,
       break;
     case FD_CRDS_TAG_VOTE:
       msg->tag = FD_GOSSIP_UPDATE_TAG_VOTE;
-      /* TODO: measure update size instead */
+      /* TODO: dynamic sizing */
       sz = FD_GOSSIP_UPDATE_SZ_VOTE;
       msg->vote.vote_tower_index = entry->key.vote_index;
       msg->vote.txn_sz = entry_view->vote->txn_sz;
       fd_memcpy( msg->vote.txn, payload+entry_view->vote->txn_off, entry_view->vote->txn_sz );
+      break;
+    case FD_CRDS_TAG_DUPLICATE_SHRED:
+      msg->tag = FD_GOSSIP_UPDATE_TAG_DUPLICATE_SHRED;
+      /* TODO: dynamic sizing */
+      sz = FD_GOSSIP_UPDATE_SZ_DUPLICATE_SHRED;
+      {
+        fd_gossip_view_duplicate_shred_t const * ds = entry_view->duplicate_shred;
+        fd_gossip_upd_duplicate_shred_t *        ds_msg = &msg->duplicate_shred;
+        ds_msg->index       = ds->index;
+        ds_msg->slot        = ds->slot;
+        ds_msg->num_chunks  = ds->num_chunks;
+        ds_msg->chunk_index = ds->chunk_index;
+        ds_msg->chunk_len   = ds->chunk_len;
+        fd_memcpy( ds_msg->chunk, payload+ds->chunk_off, ds->chunk_len );
+      }
+      break;
+    case FD_CRDS_TAG_SNAPSHOT_HASHES:
+      msg->tag = FD_GOSSIP_UPDATE_TAG_SNAPSHOT_HASHES;
+      /* TODO: dynamic sizing */
+      sz = FD_GOSSIP_UPDATE_SZ_SNAPSHOT_HASHES;
+      {
+        fd_gossip_view_snapshot_hashes_t const * sh     = entry_view->snapshot_hashes;
+        fd_gossip_upd_snapshot_hashes_t *        sh_msg = &msg->snapshot_hashes;
+
+        sh_msg->inc_len = sh->inc_len;
+        fd_memcpy( sh_msg->full, payload+sh->full_off,            sizeof(fd_gossip_snapshot_hash_pair_t) );
+        fd_memcpy( sh_msg->inc,  payload+sh->inc_off, sh->inc_len*sizeof(fd_gossip_snapshot_hash_pair_t) );
+      }
       break;
     default:
       FD_LOG_ERR(( "impossible" ));
@@ -975,7 +1007,7 @@ fd_crds_insert( fd_crds_t *                         crds,
     }
   }
 
-  publish_update_msg( crds, candidate, candidate_view, payload, now, stem );
+  if( FD_LIKELY( !is_from_me ) ) publish_update_msg( crds, candidate, candidate_view, payload, now, stem );
   return candidate;
 }
 

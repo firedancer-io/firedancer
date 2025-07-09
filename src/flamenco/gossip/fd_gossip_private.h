@@ -37,7 +37,7 @@
 #define FD_GOSSIP_VALUE_VERSION                       ( 7)
 #define FD_GOSSIP_VALUE_NODE_INSTANCE                 ( 8)
 #define FD_GOSSIP_VALUE_DUPLICATE_SHRED               ( 9)
-#define FD_GOSSIP_VALUE_SNAPSHOT_HASHES               (10)
+#define FD_GOSSIP_VALUE_INC_SNAPSHOT_HASHES           (10)
 #define FD_GOSSIP_VALUE_CONTACT_INFO                  (11)
 #define FD_GOSSIP_VALUE_RESTART_LAST_VOTED_FORK_SLOTS (12)
 #define FD_GOSSIP_VALUE_RESTART_HEAVIEST_FORK         (13)
@@ -116,9 +116,23 @@ typedef struct fd_gossip_view_epoch_slots fd_gossip_view_epoch_slots_t;
 
 struct fd_gossip_view_duplicate_shred {
   ushort index;
+  ulong  slot;
+  uchar  num_chunks;
+  uchar  chunk_index;
+  ulong  chunk_len;
+  ushort chunk_off;
 };
 
 typedef struct fd_gossip_view_duplicate_shred fd_gossip_view_duplicate_shred_t;
+
+typedef struct fd_gossip_view_snapshot_hash_pair fd_gossip_view_snapshot_hash_pair_t;
+struct fd_gossip_view_snapshot_hashes {
+  ushort full_off; /* Offset to the full snapshot hashes (slot, hash) pair */
+  ulong  inc_len;
+  ushort inc_off;  /* Offset to start of incremental snapshot hashes pair */
+};
+
+typedef struct fd_gossip_view_snapshot_hashes fd_gossip_view_snapshot_hashes_t;
 
  /* Offsets are within full message payload, not the subset where the encoded
     CRDS value lies. */
@@ -139,6 +153,7 @@ struct fd_gossip_view_crds_value {
     fd_gossip_view_epoch_slots_t     epoch_slots[ 1 ];
     fd_gossip_view_duplicate_shred_t duplicate_shred[ 1 ];
     ulong                            lowest_slot;
+    fd_gossip_view_snapshot_hashes_t snapshot_hashes[ 1 ];
   };
 };
 
@@ -249,4 +264,13 @@ fd_gossip_contact_info_encode( fd_contact_info_t const * contact_info,
                                uchar *                   out_buf,
                                ulong                     out_buf_cap,
                                ulong *                   opt_encoded_sz );
+
+int
+fd_gossip_crds_vote_encode( uchar *       out_buf,
+                            ulong         out_buf_sz,
+                            uchar const * txn,
+                            ulong         txn_sz,
+                            uchar const * identity_pubkey,
+                            long          now,
+                            ulong *       opt_encoded_sz );
 #endif /* HEADER_fd_src_flamenco_gossip_fd_gossip_msg_h */

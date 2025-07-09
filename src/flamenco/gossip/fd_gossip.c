@@ -1097,6 +1097,69 @@ fd_gossip_rx( fd_gossip_t * gossip,
   return error;
 }
 
+int
+fd_gossip_push_vote( fd_gossip_t *       gossip,
+                     uchar const *       txn,
+                     ulong               txn_sz,
+                     fd_stem_context_t * stem,
+                     long                now ) {
+  /* TODO: we can avoid addt'l memcpy if we pass a propely laid out
+     crds buffer instead */
+  uchar crds_val[ 1232UL ];
+  ulong crds_val_sz;
+  fd_gossip_crds_vote_encode( crds_val,
+                              1232UL,
+                              txn,
+                              txn_sz,
+                              gossip->identity_pubkey,
+                              now,
+                              &crds_val_sz );
+  fd_gossip_view_crds_value_t value[1];
+
+  gossip->sign_fn( gossip->sign_ctx,
+                   crds_val+64UL,
+                   crds_val_sz-64UL,
+                   GOSSIP_SIGN_TYPE,
+                   crds_val );
+
+  value->tag                   = FD_GOSSIP_VALUE_VOTE;
+  value->value_off             = 0UL;
+  value->length                = (ushort)crds_val_sz;
+  value->pubkey_off            = 64UL+1UL; /* Signature + vote index */
+  value->wallclock_nanos       = now;
+  fd_gossip_view_vote_t * vote = value->vote;
+  vote->index                  = 0UL; /* TODO */
+  vote->txn_sz                 = (ushort)txn_sz;
+  vote->txn_off                = 64UL+1UL+32UL; /* Signature + vote index + pubkey */
+
+  int res = fd_crds_checks_fast( gossip->crds,
+                                 value,
+                                 crds_val,
+                                 0 );
+  if( FD_UNLIKELY( res ) ) {
+    return -1;
+  }
+  if( FD_UNLIKELY( !fd_crds_insert( gossip->crds,
+                                     value,
+                                     crds_val,
+                                     gossip->identity_stake,
+                                     res,
+                                     1, /* is_me */
+                                     now,
+                                     stem ) ) ) {
+    return -1;
+  }
+  /* TODO: Possibly flush if we want this out ASAP? */
+  push_state_insert( gossip,
+                     value,
+                     crds_val,
+                     gossip->identity_pubkey,
+                     gossip->identity_stake,
+                     stem,
+                     now );
+  return 0;
+}
+
 static void
 tx_ping( fd_gossip_t *       gossip,
          fd_stem_context_t * stem,

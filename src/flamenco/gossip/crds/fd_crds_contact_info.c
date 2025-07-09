@@ -17,8 +17,8 @@ typedef struct fd_crds_contact_info_entry fd_crds_contact_info_entry_t;
 
 int
 fd_crds_contact_info_init( fd_gossip_view_crds_value_t const * view,
-                               uchar const *                       payload,
-                               fd_contact_info_t *                 ci ) {
+                           uchar const *                       payload,
+                           fd_contact_info_t *                 ci ) {
   FD_TEST( view->tag==FD_GOSSIP_VALUE_CONTACT_INFO );
   fd_gossip_view_contact_info_t const * ci_view = view->contact_info;
 

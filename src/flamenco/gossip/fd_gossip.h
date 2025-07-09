@@ -214,6 +214,13 @@ fd_gossip_rx( fd_gossip_t *       gossip,
               long                now,
               fd_stem_context_t * stem );
 
+int
+fd_gossip_push_vote( fd_gossip_t *       gossip,
+                     uchar const *       txn,
+                     ulong               txn_sz,
+                     fd_stem_context_t * stem,
+                     long                now );
+
 FD_PROTOTYPES_END
 
 #endif /* HEADER_fd_src_flamenco_gossip_fd_gossip_h */
