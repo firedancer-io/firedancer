@@ -53,7 +53,6 @@ fd_runtime_fuzz_txn_ctx_create( fd_runtime_fuzz_runner_t *         runner,
   ulong slot = test_ctx->slot_ctx.slot ? test_ctx->slot_ctx.slot : 10; // Arbitrary default > 0
 
   /* Set slot bank variables (defaults obtained from GenesisConfig::default() in Agave) */
-  slot_ctx->slot = slot;
   slot_ctx->bank->slot = slot;
 
   /* Initialize builtin accounts */
@@ -71,7 +70,7 @@ fd_runtime_fuzz_txn_ctx_create( fd_runtime_fuzz_runner_t *         runner,
 
   /* Setup Bank manager */
 
-  fd_bank_prev_slot_set( slot_ctx->bank, slot_ctx->slot - 1UL );
+  fd_bank_prev_slot_set( slot_ctx->bank, slot_ctx->bank->slot - 1UL );
 
   fd_bank_lamports_per_signature_set( slot_ctx->bank, 5000UL );
 
@@ -189,8 +188,8 @@ fd_runtime_fuzz_txn_ctx_create( fd_runtime_fuzz_runner_t *         runner,
   }
 
   /* Blockhash queue is given in txn message. We need to populate the following two fields:
-     - slot_ctx->slot_bank.block_hash_queue
-     - slot_ctx->slot_bank.recent_block_hashes */
+     - block_hash_queue
+     - recent_block_hashes */
   ulong num_blockhashes = test_ctx->blockhash_queue_count;
 
   /* Blockhash queue init */

@@ -158,9 +158,6 @@ fd_forks_query_const( fd_forks_t const * forks, ulong slot ) {
 //   // fork is advancing
 //   FD_LOG_DEBUG(( "new block execution - slot: %lu, parent_slot: %lu", curr_slot, parent_slot ));
 
-//   fork->slot_ctx->slot_bank.prev_slot = fork->slot_ctx->slot;
-//   fork->slot_ctx->slot      = curr_slot;
-
 //   fork->slot_ctx.status_cache = status_cache;
 //   fd_funk_txn_xid_t xid;
 

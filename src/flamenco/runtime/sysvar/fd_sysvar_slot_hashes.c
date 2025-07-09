@@ -24,7 +24,7 @@ fd_sysvar_slot_hashes_write( fd_exec_slot_ctx_t *      slot_ctx,
   if( fd_slot_hashes_encode_global( slot_hashes_global, &ctx ) ) {
     FD_LOG_ERR(("fd_slot_hashes_encode failed"));
   }
-  fd_sysvar_set( slot_ctx->bank, slot_ctx->funk, slot_ctx->funk_txn, &fd_sysvar_owner_id, &fd_sysvar_slot_hashes_id, enc, slot_hashes_account_size, slot_ctx->slot );
+  fd_sysvar_set( slot_ctx->bank, slot_ctx->funk, slot_ctx->funk_txn, &fd_sysvar_owner_id, &fd_sysvar_slot_hashes_id, enc, slot_hashes_account_size, slot_ctx->bank->slot );
 }
 
 ulong
@@ -108,7 +108,7 @@ FD_SPAD_FRAME_BEGIN( runtime_spad ) {
        !deq_fd_slot_hash_t_iter_done( hashes, iter );
        iter = deq_fd_slot_hash_t_iter_next( hashes, iter ) ) {
     fd_slot_hash_t * ele = deq_fd_slot_hash_t_iter_ele( hashes, iter );
-    if( ele->slot == slot_ctx->slot ) {
+    if( ele->slot == slot_ctx->bank->slot ) {
       fd_hash_t const * bank_hash = fd_bank_bank_hash_query( slot_ctx->bank );
       memcpy( &ele->hash, bank_hash, sizeof(fd_hash_t) );
       found = 1;

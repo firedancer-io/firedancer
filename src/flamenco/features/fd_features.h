@@ -22,9 +22,9 @@
 #define FD_FEATURE_JUST_ACTIVATED_OFFSET_(_slot, _features, _offset)      (_slot == (_features).f[_offset>>3] )
 
 #define FD_FEATURE_SET_ACTIVE(_features, _feature_name, _slot)           ((_features)-> _feature_name = _slot)
-#define FD_FEATURE_JUST_ACTIVATED(_slot_ctx, _feature_name)               FD_FEATURE_JUST_ACTIVATED_( _slot_ctx->slot, fd_bank_features_get(_slot_ctx->bank), _feature_name )
+#define FD_FEATURE_JUST_ACTIVATED(_slot_ctx, _feature_name)               FD_FEATURE_JUST_ACTIVATED_( _slot_ctx->bank->slot, fd_bank_features_get(_slot_ctx->bank), _feature_name )
 #define FD_FEATURE_ACTIVE_OFFSET(_slot, _features, _offset)               FD_FEATURE_ACTIVE_OFFSET_( _slot, _features, _offset )
-#define FD_FEATURE_JUST_ACTIVATED_OFFSET(_slot_ctx, _offset)              FD_FEATURE_JUST_ACTIVATED_OFFSET_( _slot_ctx->slot, fd_bank_features_get(_slot_ctx->bank), _offset )
+#define FD_FEATURE_JUST_ACTIVATED_OFFSET(_slot_ctx, _offset)              FD_FEATURE_JUST_ACTIVATED_OFFSET_( _slot_ctx->bank->slot, fd_bank_features_get(_slot_ctx->bank), _offset )
 #define FD_FEATURE_ACTIVE(_slot, _features, _feature_name)                FD_FEATURE_ACTIVE_(_slot, _features, _feature_name)
 #define FD_FEATURE_ACTIVE_BANK(_bank, _feature_name)                      FD_FEATURE_ACTIVE_(_bank->slot, fd_bank_features_query( _bank ), _feature_name )
 

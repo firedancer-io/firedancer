@@ -270,14 +270,13 @@ fd_runtime_fuzz_instr_ctx_create( fd_runtime_fuzz_runner_t *           runner,
                    &fd_sysvar_last_restart_slot_id,
                    &restart.slot,
                    sizeof(ulong),
-                   slot_ctx->slot );
+                   slot_ctx->bank->slot );
 
   }
 
   /* Set slot bank variables */
   clock = fd_sysvar_clock_read( funk, funk_txn, runner->spad );
 
-  slot_ctx->slot = clock->slot;
   slot_ctx->bank->slot = clock->slot;
 
   /* Handle undefined behavior if sysvars are malicious (!!!) */

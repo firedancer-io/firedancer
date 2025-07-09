@@ -226,7 +226,7 @@ test_program_in_cache_needs_reverification( void ) {
   FD_TEST( valid_prog->last_epoch_verification_ran==1UL );
 
   /* Fast forward to next epoch */
-  test_slot_ctx->slot += 432000UL;
+  test_slot_ctx->bank->slot += 432000UL;
 
   /* This should trigger reverification */
   fd_bpf_program_update_program_cache( test_slot_ctx, &test_program_pubkey, test_spad );
@@ -286,7 +286,6 @@ main( int     argc,
 
     /* Set up slot context */
     test_slot_ctx->funk = test_funk;
-    test_slot_ctx->slot = 433000UL; // Epoch 1
 
     /* Set up bank */
     ulong        banks_footprint = fd_banks_footprint( 1UL );
@@ -295,7 +294,7 @@ main( int     argc,
 
     fd_banks_t * banks = fd_banks_join( fd_banks_new( banks_mem, 1UL ) );
     FD_TEST( banks );
-    fd_bank_t * bank = fd_banks_init_bank( banks, 433000UL );
+    fd_bank_t * bank = fd_banks_init_bank( banks, 433000UL ); // Epoch 1
     FD_TEST( bank );
 
     test_slot_ctx->bank  = bank;
