@@ -1099,10 +1099,14 @@ fd_http_server_ws_send( fd_http_server_t * http,
      and any connections that were previously using that allotted space
      are closed.  There is a small chance that ws_conn_id is one of
      those connections, and has therefore already been closed. */
-  if( FD_LIKELY( http->pollfds[ http->max_conns+ws_conn_id ].fd==-1 ) ) return -1;
+  if( FD_LIKELY( http->pollfds[ http->max_conns+ws_conn_id ].fd==-1 ) ) {
+    http->stage_len = 0;
+    return 0;
+  }
 
   if( FD_UNLIKELY( conn->send_frame_cnt==http->max_ws_send_frame_cnt ) ) {
     close_conn( http, ws_conn_id+http->max_conns, FD_HTTP_SERVER_CONNECTION_CLOSE_WS_CLIENT_TOO_SLOW );
+    http->stage_len = 0;
     return 0;
   }
 
