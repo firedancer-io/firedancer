@@ -469,6 +469,14 @@ fd_banks_clone_from_parent( fd_banks_t * banks,
   fd_bank_t *      bank_pool = fd_banks_get_bank_pool( banks );
   fd_banks_map_t * bank_map  = fd_banks_get_bank_map( banks );
 
+  /* See if we already recovered the bank */
+
+  fd_bank_t * old_bank = fd_banks_map_ele_query( bank_map, &slot, NULL, bank_pool );
+  if( FD_UNLIKELY( old_bank != NULL ) ) {
+    fd_rwlock_unwrite( &banks->rwlock );
+    return old_bank;
+  }
+
   /* First query for the parent bank */
 
   fd_bank_t * parent_bank = fd_banks_map_ele_query( bank_map, &parent_slot, NULL, bank_pool );
