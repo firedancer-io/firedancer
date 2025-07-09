@@ -682,7 +682,6 @@ fd_tower_threshold_check( fd_tower_t const *    tower,
 
 ulong
 fd_tower_reset_slot( fd_tower_t const * tower,
-                     fd_epoch_t const * epoch,
                      fd_ghost_t const * ghost );
 
 /* fd_tower_vote_slot returns the correct vote slot to pick given the

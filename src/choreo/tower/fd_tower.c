@@ -110,7 +110,7 @@ fd_tower_lockout_check( fd_tower_t const * tower,
      FIXME discuss if it is safe to assume that? */
 
   fd_tower_vote_t const * vote = fd_tower_votes_peek_index_const( tower, cnt - 1 );
-  fd_ghost_node_t const * root      = fd_ghost_root( ghost );
+  fd_ghost_ele_t const *  root = fd_ghost_root_const( ghost );
 
   int lockout_check = vote->slot < root->slot ||
                       fd_ghost_is_ancestor( ghost, vote->slot, slot );
@@ -128,7 +128,7 @@ fd_tower_switch_check( fd_tower_t const * tower,
   #endif
 
   fd_tower_vote_t const * vote = fd_tower_votes_peek_tail_const( tower );
-  fd_ghost_node_t const * root = fd_ghost_root( ghost );
+  fd_ghost_ele_t const *  root = fd_ghost_root_const( ghost );
 
   if( FD_UNLIKELY( vote->slot < root->slot ) ) {
 
@@ -168,27 +168,27 @@ fd_tower_switch_check( fd_tower_t const * tower,
   FD_TEST( !fd_ghost_is_ancestor( ghost, vote->slot, slot ) );
   #endif
 
-  fd_ghost_node_map_t const * node_map  = fd_ghost_node_map_const( ghost );
-  fd_ghost_node_t const *     node_pool = fd_ghost_node_pool_const( ghost );
-  fd_ghost_node_t const *     gca       = fd_ghost_gca( ghost, vote->slot, slot );
-  ulong gca_idx = fd_ghost_node_map_idx_query_const( node_map, &gca->slot, ULONG_MAX, node_pool );
+  fd_ghost_map_t const * map     = fd_ghost_map_const( ghost );
+  fd_ghost_ele_t const * pool    = fd_ghost_pool_const( ghost );
+  fd_ghost_ele_t const * gca     = fd_ghost_gca( ghost, vote->slot, slot );
+  ulong                  gca_idx = fd_ghost_map_idx_query_const( map, &gca->slot, ULONG_MAX, pool );
 
   /* gca_child is our latest_vote slot's ancestor that is also a direct
      child of GCA.  So we do not count it towards the stake of the
      different forks. */
 
-  fd_ghost_node_t const * gca_child = fd_ghost_query( ghost, vote->slot );
-  while( gca_child->parent_idx != gca_idx ) {
-    gca_child = fd_ghost_node_pool_ele_const( node_pool, gca_child->parent_idx );
+  fd_ghost_ele_t const * gca_child = fd_ghost_query_const( ghost, vote->slot );
+  while( FD_LIKELY( gca_child->parent != gca_idx ) ) {
+    gca_child = fd_ghost_pool_ele_const( pool, gca_child->parent );
   }
 
   ulong switch_stake = 0;
-  fd_ghost_node_t const * child = fd_ghost_child( ghost, gca );
+  fd_ghost_ele_t const * child = fd_ghost_child_const( ghost, gca );
   while( FD_LIKELY( child ) ) {
     if( FD_LIKELY( child != gca_child ) ) {
       switch_stake += child->weight;
     }
-    child = fd_ghost_node_pool_ele_const( node_pool, child->sibling_idx );
+    child = fd_ghost_pool_ele_const( pool, child->sibling );
   }
 
   double switch_pct = (double)switch_stake / (double)epoch->total_stake;
@@ -279,12 +279,11 @@ fd_tower_threshold_check( fd_tower_t const *    tower,
 
 ulong
 fd_tower_reset_slot( fd_tower_t const * tower,
-                     fd_epoch_t const * epoch,
                      fd_ghost_t const * ghost ) {
 
   fd_tower_vote_t const * vote = fd_tower_votes_peek_tail_const( tower );
-  fd_ghost_node_t const * root = fd_ghost_root( ghost );
-  fd_ghost_node_t const * head = fd_ghost_head( ghost, root );
+  fd_ghost_ele_t const *  root = fd_ghost_root_const( ghost );
+  fd_ghost_ele_t const *  head = fd_ghost_head( ghost, root );
 
   /* Reset to the ghost head if any of the following is true:
        1. haven't voted
@@ -301,10 +300,10 @@ fd_tower_reset_slot( fd_tower_t const * tower,
      Otherwise ghost and tower contain implementation bugs and/or are
      corrupt. */
 
-  fd_ghost_node_t const * vote_node = fd_ghost_query( ghost, vote->slot );
+  fd_ghost_ele_t const * vote_node = fd_ghost_query_const( ghost, vote->slot );
   #if FD_TOWER_USE_HANDHOLDING
   if( FD_UNLIKELY( !vote_node ) ) {
-    fd_ghost_print( ghost, epoch, root );
+    fd_ghost_print( ghost, 0, root );
     FD_LOG_ERR(( "[%s] invariant violation: unable to find last tower vote slot %lu in ghost.", __func__, vote->slot ));
   }
   #endif
@@ -324,8 +323,8 @@ fd_tower_vote_slot( fd_tower_t *          tower,
                     fd_tower_t *          scratch ) {
 
   fd_tower_vote_t const * vote = fd_tower_votes_peek_tail_const( tower );
-  fd_ghost_node_t const * root = fd_ghost_root( ghost );
-  fd_ghost_node_t const * head = fd_ghost_head( ghost, root );
+  fd_ghost_ele_t const *  root = fd_ghost_root_const( ghost );
+  fd_ghost_ele_t const *  head = fd_ghost_head( ghost, root );
 
   /* Vote for the ghost head if any of the following is true:
 
