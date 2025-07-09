@@ -222,7 +222,7 @@ after_frag( fd_gui_ctx_t *      ctx,
     fd_became_leader_t * became_leader = (fd_became_leader_t *)ctx->buf;
     fd_gui_became_leader( ctx->gui, fd_frag_meta_ts_decomp( tspub, fd_tickcount() ), fd_disco_poh_sig_slot( sig ), became_leader->slot_start_ns, became_leader->slot_end_ns, became_leader->limits.slot_max_cost, became_leader->max_microblocks_in_slot );
   } else if( FD_UNLIKELY( ctx->in_kind[ in_idx ]==IN_KIND_PACK_POH ) ) {
-    fd_gui_unbecame_leader( ctx->gui, fd_frag_meta_ts_decomp( tspub, fd_tickcount() ), fd_disco_poh_sig_slot( sig ), ((fd_done_packing_t *)ctx->buf)->microblocks_in_slot );
+    fd_gui_unbecame_leader( ctx->gui, fd_frag_meta_ts_decomp( tspub, fd_tickcount() ), fd_disco_bank_sig_slot( sig ), ((fd_done_packing_t *)ctx->buf)->microblocks_in_slot );
   } else if( FD_UNLIKELY( ctx->in_kind[ in_idx ]==IN_KIND_PACK_BANK ) ) {
     if( FD_LIKELY( fd_disco_poh_sig_pkt_type( sig )==POH_PKT_TYPE_MICROBLOCK ) ) {
       fd_microblock_bank_trailer_t * trailer = (fd_microblock_bank_trailer_t *)( ctx->buf+sz-sizeof(fd_microblock_bank_trailer_t) );
