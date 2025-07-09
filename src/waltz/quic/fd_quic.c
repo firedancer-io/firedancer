@@ -2957,7 +2957,7 @@ fd_quic_svc_poll( fd_quic_t *      quic,
         fd_quic_set_conn_state( conn, FD_QUIC_CONN_STATE_DEAD );
         quic->metrics.conn_timeout_cnt++;
       }
-    } else if( quic->config.keep_alive ) {
+    } else if( quic->config.keep_alive & !!(conn->let_die_ticks > now) ) {
       /* send PING */
       if( !( conn->flags & FD_QUIC_CONN_FLAGS_PING ) ) {
         conn->flags         |= FD_QUIC_CONN_FLAGS_PING;
@@ -4446,6 +4446,7 @@ fd_quic_conn_create( fd_quic_t *               quic,
   /* idle timeout */
   conn->idle_timeout_ticks  = config->idle_timeout;
   conn->last_activity       = state->now;
+  conn->let_die_ticks       = ULONG_MAX;
 
   /* update metrics */
   quic->metrics.conn_active_cnt++;
@@ -5644,4 +5645,11 @@ fd_quic_conn_close( fd_quic_conn_t * conn,
 
   /* set connection to be serviced ASAP */
   fd_quic_svc_schedule1( conn, FD_QUIC_SVC_INSTANT );
+}
+
+void
+fd_quic_conn_let_die( fd_quic_conn_t * conn,
+                      ulong            keep_alive_duration_ticks ) {
+  ulong const now = fd_quic_get_state( conn->quic )->now;
+  conn->let_die_ticks = fd_ulong_sat_add( now, keep_alive_duration_ticks );
 }
