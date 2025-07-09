@@ -219,13 +219,19 @@ fd_gossip_msg_crds_duplicate_shred_parse( fd_gossip_view_crds_value_t * crds_val
                                           uchar const *                 payload,
                                           ulong                         payload_sz,
                                           ushort                        start_offset ) {
+  fd_gossip_view_duplicate_shred_t * ds = crds_val->duplicate_shred;
+
   CHECK_INIT( payload, payload_sz, start_offset );
-  CHECK_LEFT(  2U ); crds_val->duplicate_shred->index = FD_LOAD( ushort, CURSOR )               ; INC(  2U );
-  CHECK_LEFT( 32U ); crds_val->pubkey_off = CUR_OFFSET                                          ; INC( 32U );
-  CHECK_LEFT(  8U ); crds_val->wallclock_nanos = FD_MILLI_TO_NANOSEC( FD_LOAD( ulong, CURSOR ) ); INC(  8U );
-  CHECKED_INC( 8U+4U+1U+1U+1U ); /* slot + (unused) + shred type + num chunks + chunk index */
-  CHECK_LEFT(  8U ); ulong chunk_len = FD_LOAD( ulong, CURSOR )                                 ; INC(  8U );
-  CHECKED_INC( chunk_len ); /* chunk data */
+
+  CHECK_LEFT(            2U ); ds->index = FD_LOAD( ushort, CURSOR )                                      ; INC(            2U );
+  CHECK_LEFT(           32U ); crds_val->pubkey_off = CUR_OFFSET                                          ; INC(           32U );
+  CHECK_LEFT(            8U ); crds_val->wallclock_nanos = FD_MILLI_TO_NANOSEC( FD_LOAD( ulong, CURSOR ) ); INC(            8U );
+  CHECK_LEFT(            8U ); ds->slot = FD_LOAD( ulong, CURSOR )                                        ; INC(            8U );
+  CHECKED_INC(        4U+1U ); /* (unused) + shred type (unused) */
+  CHECK_LEFT(            1U ); ds->num_chunks  = FD_LOAD( uchar, CURSOR )                                 ; INC(            1U );
+  CHECK_LEFT(            1U ); ds->chunk_index = FD_LOAD( uchar, CURSOR )                                 ; INC(            1U );
+  CHECK_LEFT(            8U ); ds->chunk_len   = FD_LOAD( ulong, CURSOR )                                 ; INC(            8U );
+  CHECK_LEFT( ds->chunk_len ); ds->chunk_off   = CUR_OFFSET                                               ; INC( ds->chunk_len );
   return BYTES_CONSUMED;
 }
 
@@ -235,13 +241,12 @@ fd_gossip_msg_crds_snapshot_hashes_parse( fd_gossip_view_crds_value_t * crds_val
                                           ulong                         payload_sz,
                                           ushort                        start_offset ) {
   CHECK_INIT( payload, payload_sz, start_offset );
-  CHECK_LEFT(  32U ); crds_val->pubkey_off = CUR_OFFSET                                        ; INC( 32U );
-  CHECKED_INC( 40U ); /* full: (slot, hash) */
-
-  CHECK_LEFT( 8U ); ulong incremental_len = FD_LOAD( ulong, CURSOR )                           ; INC(  8U );
-  CHECKED_INC( incremental_len*40U ); /* hashes */
-
-  CHECK_LEFT( 8U ); crds_val->wallclock_nanos = FD_MILLI_TO_NANOSEC( FD_LOAD( ulong, CURSOR ) ); INC(  8U );
+  CHECK_LEFT(                  32U ); crds_val->pubkey_off = CUR_OFFSET                                          ; INC(                 32U );
+  CHECK_LEFT(                  40U ); crds_val->snapshot_hashes->full_off = CUR_OFFSET                           ; INC(                 40U );
+  CHECK_LEFT(                   8U ); ulong incremental_len = FD_LOAD( ulong, CURSOR )                           ; INC(                  8U );
+  CHECK_LEFT(  incremental_len*40U ); crds_val->snapshot_hashes->inc_off = CUR_OFFSET                            ; INC( incremental_len*40U );
+  CHECK_LEFT(                   8U ); crds_val->wallclock_nanos = FD_MILLI_TO_NANOSEC( FD_LOAD( ulong, CURSOR ) ); INC(  8U );
+  crds_val->snapshot_hashes->inc_len = incremental_len;
   return BYTES_CONSUMED;
 }
 
@@ -371,7 +376,7 @@ fd_gossip_msg_crds_data_parse( fd_gossip_view_crds_value_t * crds_val,
       return fd_gossip_msg_crds_node_instance_parse( crds_val, payload, payload_sz, start_offset );
     case FD_GOSSIP_VALUE_DUPLICATE_SHRED:
       return fd_gossip_msg_crds_duplicate_shred_parse( crds_val, payload, payload_sz, start_offset );
-    case FD_GOSSIP_VALUE_SNAPSHOT_HASHES:
+    case FD_GOSSIP_VALUE_INC_SNAPSHOT_HASHES:
       return fd_gossip_msg_crds_snapshot_hashes_parse( crds_val, payload, payload_sz, start_offset );
     case FD_GOSSIP_VALUE_CONTACT_INFO:
       return fd_gossip_msg_crds_contact_info_parse( crds_val, payload, payload_sz, start_offset );

@@ -66,7 +66,7 @@ struct fd_contact_info {
 
 typedef struct fd_contact_info fd_contact_info_t;
 
-#define FD_CONTACT_INFO_SOCKET_TAG_NULL (0UL) /* Denotes an invalid/empty socket entry  */
+#define FD_CONTACT_INFO_NULL_SOCKET (0UL) /* Denotes an invalid/empty socket entry  */
 
 fd_ip4_port_t
 fd_contact_info_get_socket( fd_contact_info_t const * ci,
