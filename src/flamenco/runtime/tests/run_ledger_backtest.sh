@@ -145,6 +145,8 @@ if [[ "" == "$SNAPSHOT" && "" == "$RESTORE_ARCHIVE" ]]; then
   SNAPSHOT="--genesis $DUMP/$LEDGER/genesis.bin"
 fi
 
+chmod -R 0700 $DUMP/$LEDGER
+
 echo_notice "Starting on-demand ingest and replay"
 echo "
 [snapshots]

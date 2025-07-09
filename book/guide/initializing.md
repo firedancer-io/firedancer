@@ -30,9 +30,9 @@ where `mode` is one of:
  - `fini` Unconfigure (reverse) the stage if it is reversible.
 
 `stage` can be one or more of `hugetlbfs`, `sysctl`, `hyperthreads`,
-`ethtool-channels`, `ethtool-gro`, `ethtool-loopback` and these stages
-are described below. You can also use the stage `all` which will
-configure everything.
+`ethtool-channels`, `ethtool-gro`, `ethtool-loopback`, and `snapshots`
+and these stages are described below. You can also use the stage `all`
+which will configure everything.
 
 Stages have different privilege requirements, which you can see by
 trying to run the stage without privileges. The `check` mode never
@@ -208,3 +208,16 @@ Firedancer. It has no dependencies on any other stage.
 
 Changing device settings with `ethtool-loopback` requires root privileges,
 and cannot be performed with capabilities.
+
+## snapshots
+When starting up, validators must load a snapshot to catch up to the
+current state of the blockchain. Snapshots are downloaded from other
+validator peers in the cluster and are stored to a snapshots directory.
+
+In init, the snapshots configure phase will create the snapshots
+directory if it does not exist. In fini, the snapshots configure phase
+will remove the snapshots directory recursively.
+
+::: tip NOTE
+
+The snapshots configure phase is only enabled in the Firedancer binary.

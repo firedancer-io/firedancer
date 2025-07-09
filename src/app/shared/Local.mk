@@ -26,6 +26,7 @@ $(call add-objs,commands/configure/ethtool-loopback,fdctl_shared)
 $(call add-objs,commands/configure/hugetlbfs,fdctl_shared)
 $(call add-objs,commands/configure/hyperthreads,fdctl_shared)
 $(call add-objs,commands/configure/sysctl,fdctl_shared)
+$(call add-objs,commands/configure/snapshots,fdctl_shared)
 $(call add-objs,commands/monitor/monitor commands/monitor/helper,fdctl_shared)
 $(call add-objs,commands/run/run commands/run/run1,fdctl_shared)
 

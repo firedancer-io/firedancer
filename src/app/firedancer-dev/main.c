@@ -68,6 +68,7 @@ configure_stage_t * STAGES[] = {
   &fd_cfg_stage_ethtool_loopback,
   &fd_cfg_stage_keys,
   &fd_cfg_stage_genesis,
+  &fd_cfg_stage_snapshots,
   NULL,
 };
 
