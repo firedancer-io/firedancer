@@ -116,6 +116,11 @@ typedef struct fd_gossip_view_epoch_slots fd_gossip_view_epoch_slots_t;
 
 struct fd_gossip_view_duplicate_shred {
   ushort index;
+  ulong  slot;
+  uchar  num_chunks;
+  uchar  chunk_index;
+  ulong  chunk_len;
+  ushort chunk_off;
 };
 
 typedef struct fd_gossip_view_duplicate_shred fd_gossip_view_duplicate_shred_t;
@@ -249,4 +254,13 @@ fd_gossip_contact_info_encode( fd_contact_info_t const * contact_info,
                                uchar *                   out_buf,
                                ulong                     out_buf_cap,
                                ulong *                   opt_encoded_sz );
+
+int
+fd_gossip_crds_vote_encode( uchar *       out_buf,
+                            ulong         out_buf_sz,
+                            uchar const * txn,
+                            ulong         txn_sz,
+                            uchar const * identity_pubkey,
+                            long          now,
+                            ulong *       opt_encoded_sz );
 #endif /* HEADER_fd_src_flamenco_gossip_fd_gossip_msg_h */

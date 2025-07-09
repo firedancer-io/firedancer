@@ -13,8 +13,9 @@
 #define IN_KIND_NET           (0)
 #define IN_KIND_SHRED_VERSION (1)
 #define IN_KIND_SIGN          (2)
-#define IN_KIND_VOTER         (3)
-#define IN_KIND_RSTART        (4)
+#define IN_KIND_SEND          (3)
+#define IN_KIND_VOTER         (4)
+#define IN_KIND_RSTART        (5)
 
 typedef struct {
   fd_wksp_t * mem;
@@ -161,13 +162,13 @@ during_frag( fd_gossip_tile_ctx_t * ctx,
              ulong                  chunk,
              ulong                  sz,
              ulong                  ctl FD_PARAM_UNUSED ) {
-  if( FD_LIKELY( ctx->in_kind[ in_idx ]==IN_KIND_NET ) ) {
+  if( FD_LIKELY( ctx->in_kind[ in_idx ]==IN_KIND_NET || ctx->in_kind[ in_idx ]==IN_KIND_SEND ) ) {
     if( FD_UNLIKELY( chunk<ctx->in[ in_idx ].chunk0 || chunk>ctx->in[ in_idx ].wmark || sz>FD_NET_MTU ) )
       FD_LOG_ERR(( "chunk %lu %lu corrupt, not in range [%lu,%lu]", chunk, sz, ctx->in[in_idx].chunk0, ctx->in[in_idx].wmark ));
 
     uchar const * dcache_entry = (uchar const *)fd_chunk_to_laddr_const( ctx->in[ in_idx ].mem, chunk );
     fd_memcpy( ctx->buffer, dcache_entry, sz );
-  } else if( FD_LIKELY( ctx->in_kind[ in_idx ]==IN_KIND_SHRED_VERSION ) ) {
+  } else if( FD_UNLIKELY( ctx->in_kind[ in_idx ]==IN_KIND_SHRED_VERSION ) ) {
     if( FD_UNLIKELY( chunk<ctx->in[ in_idx ].chunk0 || chunk>ctx->in[ in_idx ].wmark || sz!=0UL ) )
       FD_LOG_ERR(( "chunk %lu %lu corrupt, not in range [%lu,%lu]", chunk, sz, ctx->in[in_idx].chunk0, ctx->in[in_idx].wmark ));
   } else {
@@ -185,8 +186,7 @@ after_frag( fd_gossip_tile_ctx_t * ctx,
             ulong                  tspub  FD_PARAM_UNUSED,
             fd_stem_context_t *    stem ) {
   long now = ctx->last_wallclock + (long)((double)(fd_tickcount()-ctx->last_tickcount)/ctx->ticks_per_ns);
-  if( FD_UNLIKELY( ctx->in_kind[ in_idx ]==IN_KIND_NET ) ) {
-
+  if( FD_LIKELY( ctx->in_kind[ in_idx ]==IN_KIND_NET ) ) {
     fd_gossip_advance( ctx->gossip, now, stem );
     fd_gossip_rx( ctx->gossip, ctx->buffer, sz, now, stem );
   } else if( FD_UNLIKELY( ctx->in_kind[ in_idx ]==IN_KIND_SHRED_VERSION ) ) {
@@ -194,6 +194,8 @@ after_frag( fd_gossip_tile_ctx_t * ctx,
     ctx->my_contact_info->shred_version   = (ushort)sig;
     ctx->my_contact_info->wallclock_nanos = now;
     fd_gossip_set_my_contact_info( ctx->gossip, ctx->my_contact_info, now );
+  } else if( FD_LIKELY( ctx->in_kind[ in_idx ]==IN_KIND_SEND ) ) {
+    fd_gossip_push_vote( ctx->gossip, ctx->buffer, sz, now, stem );
   } else {
     FD_LOG_ERR(( "unexpected in_kind %d", ctx->in_kind[ in_idx ] ));
   }
@@ -279,6 +281,8 @@ unprivileged_init( fd_topo_t *      topo,
       ctx->in_kind[ i ] = IN_KIND_VOTER;
     } else if( FD_UNLIKELY( !strcmp( link->name, "rstart_gossi" ) ) ) {
       ctx->in_kind[ i ] = IN_KIND_RSTART;
+    } else if( FD_UNLIKELY( !strcmp( link->name, "send_txns" ) ) ) {
+      ctx->in_kind[ i ] = IN_KIND_SEND;
     } else {
       FD_LOG_ERR(( "unexpected input link name %s", link->name ));
     }
