@@ -125,7 +125,7 @@ fd_disco_bank_sig( ulong slot,
 FD_FN_CONST static inline ulong fd_disco_bank_sig_slot( ulong sig ) { return (sig >> 32); }
 FD_FN_CONST static inline ulong fd_disco_bank_sig_pack_idx( ulong sig ) { return sig & 0xFFFFFFFFUL; }
 
-/* TODO remove with store_int */
+/* TODO remove */
 
 FD_FN_CONST static inline ulong
 fd_disco_replay_old_sig( ulong slot,
