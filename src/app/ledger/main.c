@@ -172,7 +172,7 @@ runtime_replay( fd_ledger_args_t * ledger_args ) {
 
   fd_features_restore( ledger_args->bank, ledger_args->funk, ledger_args->funk_txn, ledger_args->runtime_spad );
 
-  fd_runtime_update_leaders( ledger_args->bank, ledger_args->bank->slot, ledger_args->runtime_spad );
+  fd_runtime_update_leaders( ledger_args->bank, ledger_args->runtime_spad );
 
   fd_calculate_epoch_accounts_hash_values( ledger_args->bank );
 
@@ -527,7 +527,7 @@ fd_ledger_main_setup( fd_ledger_args_t * args ) {
 
   /* Finish other runtime setup steps */
   fd_features_restore( args->bank, args->funk, args->funk_txn, args->runtime_spad );
-  fd_runtime_update_leaders( args->bank, args->bank->slot, args->runtime_spad );
+  fd_runtime_update_leaders( args->bank, args->runtime_spad );
   fd_calculate_epoch_accounts_hash_values( args->bank );
 
   /* After both snapshots have been loaded in, we can determine if we should

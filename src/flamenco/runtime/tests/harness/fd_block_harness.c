@@ -398,7 +398,7 @@ fd_runtime_fuzz_block_ctx_create( fd_runtime_fuzz_runner_t *           runner,
   fd_bank_epoch_stakes_end_locking_modify( runner->bank );
 
   /* Update leader schedule */
-  fd_runtime_update_leaders( runner->bank, runner->bank->slot, runner->spad );
+  fd_runtime_update_leaders( runner->bank, runner->spad );
 
   /* Initialize the blockhash queue and recent blockhashes sysvar from the input blockhash queue */
   fd_block_hash_queue_global_t * block_hash_queue = fd_bank_block_hash_queue_modify( runner->bank );

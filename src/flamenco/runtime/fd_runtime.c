@@ -105,27 +105,17 @@ fd_runtime_update_slots_per_epoch( fd_bank_t * bank,
 }
 
 void
-fd_runtime_update_leaders( fd_bank_t * bank,
-                           ulong       slot,
-                           fd_spad_t * runtime_spad ) {
+fd_runtime_update_leaders( fd_bank_t * bank, fd_spad_t * runtime_spad ) {
 
   FD_SPAD_FRAME_BEGIN( runtime_spad ) {
 
   fd_epoch_schedule_t const * epoch_schedule = fd_bank_epoch_schedule_query( bank );
 
-  FD_LOG_WARNING(("SLOT %lu", bank->slot ));
-
-  FD_LOG_WARNING(( "schedule->slots_per_epoch = %lu", epoch_schedule->slots_per_epoch ));
-  FD_LOG_WARNING(( "schedule->leader_schedule_slot_offset = %lu", epoch_schedule->leader_schedule_slot_offset ));
-  FD_LOG_WARNING(( "schedule->warmup = %d", epoch_schedule->warmup ));
-  FD_LOG_WARNING(( "schedule->first_normal_epoch = %lu", epoch_schedule->first_normal_epoch ));
-  FD_LOG_WARNING(( "schedule->first_normal_slot = %lu", epoch_schedule->first_normal_slot ));
-
   fd_vote_accounts_global_t const *          epoch_vaccs   = fd_bank_epoch_stakes_locking_query( bank );
   fd_vote_accounts_pair_global_t_mapnode_t * vote_acc_pool = fd_vote_accounts_vote_accounts_pool_join( epoch_vaccs );
   fd_vote_accounts_pair_global_t_mapnode_t * vote_acc_root = fd_vote_accounts_vote_accounts_root_join( epoch_vaccs );
 
-  ulong epoch    = fd_slot_to_epoch( epoch_schedule, slot, NULL );
+  ulong epoch    = fd_slot_to_epoch( epoch_schedule, bank->slot, NULL );
   ulong slot0    = fd_epoch_slot0( epoch_schedule, epoch );
   ulong slot_cnt = fd_epoch_slot_cnt( epoch_schedule, epoch );
 
@@ -2410,7 +2400,7 @@ fd_runtime_process_new_epoch( fd_bank_t *     bank,
   fd_update_next_epoch_stakes( bank );
 
   /* Update current leaders using new T-2 stakes */
-  fd_runtime_update_leaders( bank, bank->slot, runtime_spad );
+  fd_runtime_update_leaders( bank, runtime_spad );
 
   FD_LOG_NOTICE(( "fd_process_new_epoch end" ));
 
@@ -3205,7 +3195,7 @@ fd_runtime_process_genesis_block( fd_bank_t *        bank,
 
   fd_sysvar_slot_history_update( bank, funk, funk_txn, runtime_spad );
 
-  fd_runtime_update_leaders( bank, 0, runtime_spad );
+  fd_runtime_update_leaders( bank, runtime_spad );
 
   fd_runtime_freeze( bank, funk, funk_txn, runtime_spad );
 
