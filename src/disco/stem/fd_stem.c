@@ -155,12 +155,8 @@
 #error "STEM_BURST must be defined"
 #endif
 
-#ifndef STEM_ALWAYS_SPINNING
-#define STEM_ALWAYS_SPINNING 1
-#endif
-
-#ifndef STEM_TIME_BEFORE_WAKE
-#define STEM_TIME_BEFORE_WAKE (0L) // 0 nanoseconds
+#ifndef STEM_CAN_SLEEP
+#define STEM_CAN_SLEEP 0
 #endif
 
 #ifndef STEM_CALLBACK_CONTEXT_TYPE
@@ -188,11 +184,11 @@ STEM_(in_update)( fd_stem_tile_in_t * in ) {
   accum[3] = 0U;              accum[4] = 0U;              accum[5] = 0U;
 }
 
-#if !(STEM_ALWAYS_SPINNING)
+#if STEM_CAN_SLEEP
 static inline void
-STEM_(wake_consumers)( ulong out_cnt,
-                                  fd_frag_meta_t ** out_mcache,
-                                  uint * latest_futex_vals ) {
+STEM_(wake_consumers)( ulong             out_cnt,
+                       fd_frag_meta_t ** out_mcache,
+                       uint *            latest_futex_vals ) {
   for( ulong out_idx = 0; out_idx < out_cnt; out_idx++ ) {
     uint * futex_flag = fd_mcache_futex_flag( out_mcache[ out_idx ] );
     if( latest_futex_vals[out_idx] != *futex_flag ) {
@@ -215,7 +211,7 @@ STEM_(scratch_footprint)( ulong in_cnt,
                           ulong wake_out_cnt ) {
   ulong l = FD_LAYOUT_INIT;
   l = FD_LAYOUT_APPEND( l, alignof(fd_stem_tile_in_t), in_cnt*sizeof(fd_stem_tile_in_t)     );  /* in */
-#if !(STEM_ALWAYS_SPINNING)
+#if STEM_CAN_SLEEP
   l = FD_LAYOUT_APPEND( l, alignof(struct futex_waitv), in_cnt*sizeof(struct futex_waitv) ); /* waiters */
 #endif
   l = FD_LAYOUT_APPEND( l, alignof(ulong),             out_cnt*sizeof(ulong)                ); /* out_depth */
@@ -241,6 +237,7 @@ STEM_(run1)( ulong                        in_cnt,
              ulong **                     _cons_fseq,
              ulong                        wake_out_cnt,
              ulong *                      _wake_out,
+             int                          sleeps,
              ulong                        burst,
              long                         lazy,
              fd_rng_t *                   rng,
@@ -251,14 +248,15 @@ STEM_(run1)( ulong                        in_cnt,
   fd_stem_tile_in_t * in;     /* in[in_seq] for in_seq in [0,in_cnt) has information about input fragment stream currently at
                                  position in_seq in the in_idx polling sequence.  The ordering of this array is continuously
                                  shuffled to avoid lighthousing effects in the output fragment stream at extreme fan-in and load */
-#if !(STEM_ALWAYS_SPINNING)
+#if STEM_CAN_SLEEP
   struct futex_waitv * waiters; /* array of futex waiters for each in */
+#else
+  (void)sleeps; /* only used when STEM_CAN_SLEEP is allowed */
 #endif
-  uint *         latest_futex_vals; /* array of latest futex values for each out */
-
   /* out frag stream state */
   ulong *        out_depth; /* ==fd_mcache_depth( out_mcache[out_idx] ) for out_idx in [0, out_cnt) */
   ulong *        out_seq;  /* next mux frag sequence number to publish for out_idx in [0, out_cnt) ]*/
+  uint *         latest_futex_vals; /* array of latest futex values for each out */
 
   /* out flow control state */
   ulong          cr_avail;   /* number of flow control credits available to publish downstream, in [0,cr_max] */
@@ -302,7 +300,7 @@ STEM_(run1)( ulong                        in_cnt,
   if( FD_UNLIKELY( !!in_cnt && !in_fseq   ) ) FD_LOG_ERR(( "NULL in_fseq"   ));
   if( FD_UNLIKELY( in_cnt > UINT_MAX ) )      FD_LOG_ERR(( "in_cnt too large" ));
 
-#if !(STEM_ALWAYS_SPINNING)
+#if STEM_CAN_SLEEP
   waiters = (struct futex_waitv *)FD_SCRATCH_ALLOC_APPEND( l, alignof(struct futex_waitv), in_cnt*sizeof(struct futex_waitv) );
   ulong futex_wait_counter = 0UL;
 #endif
@@ -327,7 +325,7 @@ STEM_(run1)( ulong                        in_cnt,
     this_in->accum[0] = 0U; this_in->accum[1] = 0U; this_in->accum[2] = 0U;
     this_in->accum[3] = 0U; this_in->accum[4] = 0U; this_in->accum[5] = 0U;
 
-#if !(STEM_ALWAYS_SPINNING)
+#if STEM_CAN_SLEEP
     waiters[in_idx].uaddr = (ulong)fd_mcache_futex_flag_const( this_in->mcache );
     waiters[in_idx].val = this_in->seq;
     waiters[in_idx].flags = FUTEX_32;
@@ -399,7 +397,7 @@ STEM_(run1)( ulong                        in_cnt,
   FD_MGAUGE_SET( TILE, STATUS, 1UL );
   long then = fd_tickcount();
   long now  = then;
-#if !(STEM_ALWAYS_SPINNING)
+#if STEM_CAN_SLEEP
   long approx_wallclock_ns = fd_log_wallclock();
   long approx_tickcount = then;
   long tile_deadline_ticks = LONG_MAX;
@@ -448,9 +446,11 @@ STEM_(run1)( ulong                        in_cnt,
 
       } else { /* event_idx==cons_cnt, housekeeping event */
       
-#if !(STEM_ALWAYS_SPINNING)
-        approx_wallclock_ns = fd_log_wallclock();
-        approx_tickcount = now;
+#if STEM_CAN_SLEEP
+        if (sleeps) { 
+          approx_wallclock_ns = fd_log_wallclock();
+          approx_tickcount = now;
+        }
 #endif
         /* Update metrics counters to external viewers */
         FD_COMPILER_MFENCE();
@@ -516,11 +516,13 @@ STEM_(run1)( ulong                        in_cnt,
           in_tmp         = in[ swap_idx ];
           in[ swap_idx ] = in[ 0        ];
           in[ 0        ] = in_tmp;
-#if !(STEM_ALWAYS_SPINNING)
-          struct futex_waitv waitv_tmp;
-          waitv_tmp      = waiters[ swap_idx ];
-          waiters[ swap_idx ] = waiters[ 0        ];
-          waiters[ 0        ] = waitv_tmp;
+#if STEM_CAN_SLEEP
+          if (sleeps) { 
+            struct futex_waitv waitv_tmp;
+            waitv_tmp      = waiters[ swap_idx ];
+            waiters[ swap_idx ] = waiters[ 0        ];
+            waiters[ 0        ] = waitv_tmp;
+          }
 #endif
         }
       }
@@ -533,9 +535,8 @@ STEM_(run1)( ulong                        in_cnt,
     }
 
 /* By default, tiles are always spinning, except the ones that are configured to wait for futexes */ 
-#if !(STEM_ALWAYS_SPINNING)
-
-    if (futex_wait_counter > FD_STEM_SPIN_THRESHOLD) { 
+#if STEM_CAN_SLEEP
+    if (sleeps && futex_wait_counter > FD_STEM_SPIN_THRESHOLD) { 
       /* wake those downstream before we sleep */
       STEM_(wake_consumers)( out_cnt, out_mcache, latest_futex_vals );
 
@@ -642,9 +643,11 @@ STEM_(run1)( ulong                        in_cnt,
     }
 #endif
 
-#if !(STEM_ALWAYS_SPINNING)
-    futex_wait_counter++;
+#if STEM_CAN_SLEEP
     ulong current_pos = in_seq;
+    if (sleeps) { 
+      futex_wait_counter++;
+    }
 #endif
 
     fd_stem_tile_in_t * this_in = &in[ in_seq ];
@@ -678,8 +681,10 @@ STEM_(run1)( ulong                        in_cnt,
       ulong * finish_regime = &metric_regime_ticks[6];
       if( FD_UNLIKELY( diff<0L ) ) { /* Overrun (impossible if in is honoring our flow control) */
         this_in->seq = seq_found; /* Resume from here (probably reasonably current, could query in mcache sync directly instead) */
-#if !(STEM_ALWAYS_SPINNING)
-        waiters[current_pos].val = this_in->seq;
+#if STEM_CAN_SLEEP
+        if (sleeps) { 
+          waiters[current_pos].val = this_in->seq;
+        }
 #endif
         housekeeping_regime = &metric_regime_ticks[1];
         prefrag_regime = &metric_regime_ticks[4];
@@ -719,9 +724,11 @@ STEM_(run1)( ulong                        in_cnt,
       this_in->seq   = this_in_seq;
       this_in->mline = this_in->mcache + fd_mcache_line_idx( this_in_seq, this_in->depth );
 
-#if !(STEM_ALWAYS_SPINNING)
-      waiters[current_pos].val = this_in_seq;
-      futex_wait_counter = 0;
+#if STEM_CAN_SLEEP
+      if (sleeps) { 
+        waiters[current_pos].val = this_in_seq;
+        futex_wait_counter = 0;
+      }
 #endif
 
       metric_regime_ticks[1] += housekeeping_ticks;
@@ -758,8 +765,10 @@ STEM_(run1)( ulong                        in_cnt,
 
     if( FD_UNLIKELY( fd_seq_ne( seq_test, seq_found ) ) ) { /* Overrun while reading (impossible if this_in honoring our fctl) */
       this_in->seq = seq_test; /* Resume from here (probably reasonably current, could query in mcache sync instead) */
-#if !(STEM_ALWAYS_SPINNING)
-      waiters[current_pos].val = seq_test;
+#if STEM_CAN_SLEEP
+      if (sleeps) { 
+        waiters[current_pos].val = seq_test;
+      }
 #endif
       fd_metrics_link_in( fd_metrics_base_tl, this_in->idx )[ FD_METRICS_COUNTER_LINK_OVERRUN_READING_COUNT_OFF ]++; /* No local accum since extremely rare, faster to use smaller cache line */
       fd_metrics_link_in( fd_metrics_base_tl, this_in->idx )[ FD_METRICS_COUNTER_LINK_OVERRUN_READING_FRAG_COUNT_OFF ] += (uint)fd_seq_diff( seq_test, seq_found ); /* No local accum since extremely rare, faster to use smaller cache line */
@@ -782,9 +791,11 @@ STEM_(run1)( ulong                        in_cnt,
     this_in->seq   = this_in_seq;
     this_in->mline = this_in->mcache + fd_mcache_line_idx( this_in_seq, this_in->depth );
 
-#if !(STEM_ALWAYS_SPINNING)
-    waiters[current_pos].val = this_in_seq;
-    futex_wait_counter = 0;
+#if STEM_CAN_SLEEP
+    if (sleeps) {
+      waiters[current_pos].val = this_in_seq;
+      futex_wait_counter = 0;
+    }
 #endif
 
     this_in->accum[ FD_METRICS_COUNTER_LINK_CONSUMED_COUNT_OFF ]++;
@@ -801,6 +812,11 @@ STEM_(run1)( ulong                        in_cnt,
 FD_FN_UNUSED static void
 STEM_(run)( fd_topo_t *      topo,
             fd_topo_tile_t * tile ) {
+
+#if !(STEM_CAN_SLEEP)
+  FD_TEST( !tile->sleeps );
+#endif
+
   const fd_frag_meta_t * in_mcache[ FD_TOPO_MAX_LINKS ];
   ulong * in_fseq[ FD_TOPO_MAX_TILE_IN_LINKS ];
 
@@ -848,7 +864,7 @@ STEM_(run)( fd_topo_t *      topo,
     int has_waiting_cons = 0;
     for( ulong i=0UL; i<topo->tile_cnt && !has_waiting_cons; i++ ) {
       fd_topo_tile_t * consumer_tile = &topo->tiles[ i ];
-      if( !consumer_tile->uses_cooperative_scheduling ) continue;
+      if( !consumer_tile->sleeps ) continue;
       
       for( ulong j=0UL; j<consumer_tile->in_cnt; j++ ) {
         if( consumer_tile->in_link_id[ j ] == tile->out_link_id[ k ] ) {
@@ -877,6 +893,7 @@ STEM_(run)( fd_topo_t *      topo,
                cons_fseq,
                wake_out_cnt,
                wake_out,
+               tile->sleeps,
                STEM_BURST,
                STEM_LAZY,
                rng,
@@ -887,7 +904,6 @@ STEM_(run)( fd_topo_t *      topo,
 #undef STEM_NAME
 #undef STEM_
 #undef STEM_BURST
-#undef STEM_TIME_BEFORE_WAKE
 #undef STEM_CALLBACK_CONTEXT_TYPE
 #undef STEM_LAZY
 #undef STEM_CALLBACK_DURING_HOUSEKEEPING

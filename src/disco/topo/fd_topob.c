@@ -140,7 +140,7 @@ fd_topob_tile( fd_topo_t *    topo,
   tile->id                  = topo->tile_cnt;
   tile->kind_id             = kind_id;
   tile->is_agave            = is_agave;
-  tile->uses_cooperative_scheduling = 0; /* TODO: make this a parameter */
+  tile->sleeps = 0; /* TODO: make this a parameter */
   tile->cpu_idx             = cpu_idx;
   tile->in_cnt              = 0UL;
   tile->out_cnt             = 0UL;
