@@ -146,9 +146,10 @@
 
 /* TODO: these should be received from gossip */
 #define CLUSTER_SNAPSHOT_SLOT 0
-#define INITIAL_PEERS_COUNT 2UL
+#define INITIAL_PEERS_TESTNET_COUNT 2UL
+#define INITIAL_PEERS_PRIVATE_COUNT 1UL
 
-fd_snapshot_peer_t initial_peers[ 2UL ] = {
+fd_snapshot_peer_t initial_peers_testnet[ 2UL ] = {
   { .dest = {
     /* Solana testnet peer */
     .addr = FD_IP4_ADDR( 145, 40, 95, 69 ),
@@ -163,20 +164,14 @@ fd_snapshot_peer_t initial_peers[ 2UL ] = {
   }
 };
 
-// fd_snapshot_peer_t initial_peers[ 2UL ] = {
-//   { .dest = {
-//     /* Solana testnet peer */
-//     .addr = FD_IP4_ADDR( 170, 39, 214, 146 ),
-//     .port = 8899
-//      },
-//   },
-//   { .dest = {
-//     /* A fast testnet peer from snapshot-finder script */
-//     .addr = FD_IP4_ADDR( 177, 54, 155, 187 ),
-//     .port = 8899
-//      },
-//   }
-// };
+fd_snapshot_peer_t initial_peers_private[ 1UL ] = {
+  { .dest = {
+    /* A private cluster peer */
+    .addr = FD_IP4_ADDR( 147, 28, 185, 47 ),
+    .port = 8899
+     },
+  }
+};
 
 /* fd_snaprd_download_pair indicates whether
    the full and incremental snapshots need to be downloaded or not. */
@@ -216,6 +211,7 @@ struct fd_snaprd_tile {
     uint maximum_local_snapshot_age;
     uint minimum_download_speed_mib;
     uint maximum_download_retry_abort;
+    char cluster[ 8UL ];
   } config;
 
   struct {
@@ -273,6 +269,7 @@ static void
 fd_snaprd_init_config( fd_snaprd_tile_t * ctx,
                        fd_topo_tile_t *   tile ) {
   fd_memcpy( ctx->config.path, tile->snaprd.snapshots_path, PATH_MAX );
+  fd_memcpy( ctx->config.cluster, tile->snaprd.cluster, sizeof(ctx->config.cluster) );
   ctx->config.incremental_snapshot_fetch   = tile->snaprd.incremental_snapshot_fetch;
   ctx->config.do_download                  = tile->snaprd.do_download;
   ctx->config.maximum_local_snapshot_age   = tile->snaprd.maximum_local_snapshot_age;
@@ -613,9 +610,21 @@ after_credit( fd_snaprd_tile_t *  ctx,
 
       /* Because we are not receiving from gossip right now, just
          set peers to be initial peers */
+      fd_snapshot_peer_t * initial_peers = NULL;
+      ulong                peers_cnt     = 0UL;
+      if( strcmp( ctx->config.cluster, "testnet" )==0 ) {
+        initial_peers = initial_peers_testnet;
+        peers_cnt     = INITIAL_PEERS_TESTNET_COUNT;
+      } else if( strcmp( ctx->config.cluster, "private" )== 0 ) {
+        initial_peers = initial_peers_private;;
+        peers_cnt     = INITIAL_PEERS_PRIVATE_COUNT;
+      } else {
+        FD_LOG_ERR(( "snaprd: unexpected cluster %s", ctx->config.cluster ));
+      }
+
       fd_snapshot_peers_manager_set_peers_testing( ctx->peers_manager,
                                                    initial_peers,
-                                                   INITIAL_PEERS_COUNT );
+                                                   peers_cnt );
       if( ctx->peers_manager->peers_cnt > 0 ) {
         ctx->wait_deadline_nanos = fd_log_wallclock() + ctx->wait_duration_nanos;
         ctx->state = FD_SNAPRD_STATE_COLLECTING_PEERS;

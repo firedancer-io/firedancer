@@ -135,6 +135,7 @@ struct fd_configf {
     char  known_validators[ 16 ][ 256 ];
     uint  minimum_download_speed_mib;
     uint  maximum_download_retry_abort;
+    char  cluster[ 8UL ];
   } snapshots;
 };
 
