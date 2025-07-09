@@ -120,7 +120,7 @@ setup_topo_funk( fd_topo_t *  topo,
 
 static int
 resolve_gossip_entrypoint( char const *    host_port,
-                          fd_ip4_port_t * ip4_port ) {
+                           fd_ip4_port_t * ip4_port ) {
 
   /* Split host:port */
 
@@ -926,12 +926,6 @@ fd_topo_configure_tile( fd_topo_tile_t * tile,
 
       tile->replay.funk_obj_id = fd_pod_query_ulong( config->topo.props, "funk", ULONG_MAX );
       tile->replay.plugins_enabled = fd_topo_find_tile( &config->topo, "plugin", 0UL ) != ULONG_MAX;
-
-      if( FD_UNLIKELY( !strncmp( config->tiles.replay.genesis,  "", 1 )
-                    && !strncmp( config->tiles.replay.snapshot, "", 1 ) ) ) {
-        fd_cstr_printf_check( config->tiles.replay.genesis, PATH_MAX, NULL, "%s/genesis.bin", config->paths.ledger );
-      }
-      strncpy( tile->replay.genesis, config->tiles.replay.genesis, sizeof(tile->replay.genesis) );
 
       setup_snapshots( config, tile );
 

@@ -16,6 +16,7 @@
 
 #include "../store/util.h"
 
+#include <errno.h>
 #include <unistd.h>
 #include <arpa/inet.h>
 #include <linux/unistd.h>
@@ -196,6 +197,89 @@ scratch_footprint( fd_topo_tile_t const * tile FD_PARAM_UNUSED ) {
   return FD_LAYOUT_FINI( l, scratch_align() );
 }
 
+static ushort
+try_parse_shred_version( uchar * bytes,
+                         ulong   bytes_len ) {
+  if( FD_UNLIKELY( bytes_len<4 ) ) return 0U; // header too short
+  if( FD_UNLIKELY( bytes[0]!=0 || bytes[1]!=0 || bytes[2]!=0 || bytes[4]!=0 ) ) return 0U; // incorrect header
+  // Skip over    12 bytes:
+  // HEADER    -   4 bytes
+  // IPv6_ADDR -   8 bytes OR
+  // IPv4_ADDR - 4+4 bytes
+  if( FD_UNLIKELY( bytes_len<13 ) ) return 0U;
+  if( FD_LIKELY( bytes[12]==1 ) ) {
+    // Some(shred_version)
+    if( FD_UNLIKELY( bytes_len<15 ) ) return 0U;
+    // shred_version - u16
+    uint16_t shred_version = (uint16_t)bytes[13] | ((uint16_t)bytes[14] << 8);
+    return (ushort)shred_version;
+  }
+  return 0U;
+}
+
+static void
+try_get_shred_version( uint    entrypoint_ip_addr,
+                       ushort  entrypoint_port,
+                       uchar * response,
+                       ulong   reponse_len ) {
+  int sock = socket( AF_INET, SOCK_STREAM, 0 );
+  if( FD_UNLIKELY( sock<0 ) ) {
+    FD_LOG_WARNING(( "socket() failed (%i-%s)", errno, fd_io_strerror( errno ) ));
+    return;
+  }
+
+  struct timeval timeout = {
+    .tv_sec  = 5,
+    .tv_usec = 0
+  };
+  if( FD_UNLIKELY( setsockopt( sock, SOL_SOCKET, SO_RCVTIMEO, &timeout, sizeof( timeout ) )<0 ||
+                   setsockopt( sock, SOL_SOCKET, SO_SNDTIMEO, &timeout, sizeof( timeout ) )<0 ) ) {
+    FD_LOG_WARNING(( "setsockopt() failed (%i-%s)", errno, fd_io_strerror( errno ) ));
+    close( sock );
+    return;
+  }
+
+  struct sockaddr_in addr = {
+    .sin_family = AF_INET,
+    .sin_addr   = { .s_addr = fd_uint_bswap( INADDR_ANY ) },
+    .sin_port   = 0,
+  };
+  if( FD_UNLIKELY( bind( sock, fd_type_pun( &addr ), sizeof( addr ) )<0 ) ) {
+    FD_LOG_WARNING(( "bind() failed (%i-%s)", errno, fd_io_strerror( errno ) ));
+    close( sock );
+    return;
+  }
+
+  struct sockaddr_in entrypoint_addr = {
+    .sin_family = AF_INET,
+    .sin_addr   = { .s_addr = entrypoint_ip_addr },
+    .sin_port   = fd_ushort_bswap( entrypoint_port ),
+  };
+  if( FD_UNLIKELY( connect( sock, fd_type_pun( &entrypoint_addr ), sizeof( entrypoint_addr ) )<0 ) ) {
+    FD_LOG_WARNING(( "connect() failed (%i-%s)", errno, fd_io_strerror( errno ) ));
+    close( sock );
+    return;
+  }
+
+  uchar bytes[ 21 ] = { 0 };
+  bytes[ 20 ] = '\n';
+  if( FD_UNLIKELY( write( sock, bytes, sizeof( bytes ) ) != 21 ) ) {
+    FD_LOG_WARNING(( "write() failed (%i-%s)", errno, fd_io_strerror( errno ) ));
+    shutdown( sock, SHUT_RDWR );
+    close( sock );
+    return;
+  }
+  if( FD_UNLIKELY( read( sock, response, reponse_len ) <= 0 ) ) {
+    FD_LOG_WARNING(( "read() failed (%i-%s)", errno, fd_io_strerror( errno ) ));
+    shutdown( sock, SHUT_RDWR );
+    close( sock );
+    return;
+  }
+
+  shutdown( sock, SHUT_RDWR );
+  close( sock );
+}
+
 static void
 send_packet( fd_gossip_tile_ctx_t * ctx,
              uint                   dst_ip_addr,
@@ -264,7 +348,7 @@ gossip_deliver_fun( fd_crds_data_t * data,
 
     if( FD_UNLIKELY( !ele &&
                      !fd_contact_info_table_is_full( ctx->contact_info_table ) ) ) {
-      ele = fd_contact_info_table_insert( ctx->contact_info_table, &contact_info_v2->from);
+      ele = fd_contact_info_table_insert( ctx->contact_info_table, &contact_info_v2->from );
       fd_contact_info_init( &ele->contact_info );
     }
 
@@ -756,6 +840,20 @@ unprivileged_init( fd_topo_t *      topo,
   ctx->gossip_config.sign_arg      = ctx;
   ctx->gossip_config.shred_version = (ushort)tile->gossip.expected_shred_version;
 
+  if( !ctx->gossip_config.shred_version ) {
+    for( ulong i=0UL; i<tile->gossip.entrypoints_cnt; i++ ) {
+      uchar response[27] = {0};
+      try_get_shred_version( tile->gossip.entrypoints[i].addr,
+                             fd_ushort_bswap( tile->gossip.entrypoints[i].port ),
+                             response, sizeof( response ) );
+      ushort shred_version = try_parse_shred_version( response, sizeof( response ) );
+      if( shred_version ) {
+        ctx->gossip_config.shred_version = shred_version;
+        break;
+      }
+    }
+  }
+
   if( fd_gossip_set_config( ctx->gossip, &ctx->gossip_config ) ) {
     FD_LOG_ERR( ( "error setting gossip config" ) );
   }
@@ -793,6 +891,10 @@ unprivileged_init( fd_topo_t *      topo,
 
   fd_shred_version = fd_fseq_join( fd_topo_obj_laddr( topo, poh_shred_obj_id ) );
   FD_TEST( fd_shred_version );
+
+  if( ctx->gossip_config.shred_version ) {
+    *fd_shred_version = ctx->gossip_config.shred_version;
+  }
 
   /* Initialize metrics to zero */
   memset( &ctx->metrics, 0, FD_GOSSIP_TILE_METRICS_FOOTPRINT );

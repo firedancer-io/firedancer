@@ -2233,19 +2233,6 @@ unprivileged_init( fd_topo_t *      topo,
     ctx->bundle.enabled = 0;
   }
 
-  ulong poh_shred_obj_id = fd_pod_query_ulong( topo->props, "poh_shred", ULONG_MAX );
-  FD_TEST( poh_shred_obj_id!=ULONG_MAX );
-
-  fd_shred_version = fd_fseq_join( fd_topo_obj_laddr( topo, poh_shred_obj_id ) );
-  FD_TEST( fd_shred_version );
-
-#ifdef FRANKENDANCER
-  poh_link_init( &gossip_dedup,          topo, tile, out1( topo, tile, "gossip_dedup" ).idx );
-  poh_link_init( &stake_out,             topo, tile, out1( topo, tile, "stake_out"    ).idx );
-  poh_link_init( &crds_shred,            topo, tile, out1( topo, tile, "crds_shred"   ).idx );
-  poh_link_init( &replay_resolv,         topo, tile, out1( topo, tile, "replay_resol" ).idx );
-#endif
-
   if( FD_LIKELY( tile->poh.plugins_enabled ) ) {
     poh_link_init( &replay_plugin,         topo, tile, out1( topo, tile, "replay_plugi" ).idx );
     poh_link_init( &gossip_plugin,         topo, tile, out1( topo, tile, "gossip_plugi" ).idx );

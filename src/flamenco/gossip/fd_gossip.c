@@ -734,7 +734,7 @@ fd_gossip_update_tpu_vote_addr( fd_gossip_t * glob, const fd_gossip_peer_addr_t 
 
 ushort
 fd_gossip_get_shred_version( fd_gossip_t const * glob ) {
-  return fd_contact_info_get_shred_version( &glob->my_contact);
+  return fd_contact_info_get_shred_version( &glob->my_contact );
 }
 
 void
