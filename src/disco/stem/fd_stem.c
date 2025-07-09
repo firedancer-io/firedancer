@@ -133,10 +133,6 @@
    This callback is not called when an overrun is detected in
    during_frag. */
 
-#if !FD_HAS_SSE
-#error "fd_stem requires SSE"
-#endif
-
 #if !FD_HAS_ALLOCA
 #error "fd_stem requires alloca"
 #endif
@@ -533,20 +529,18 @@ STEM_(run1)( ulong                        in_cnt,
     ulong                  this_in_seq   = this_in->seq;
     fd_frag_meta_t const * this_in_mline = this_in->mline; /* Already at appropriate line for this_in_seq */
 
+#if FD_HAS_SSE
     __m128i seq_sig = fd_frag_meta_seq_sig_query( this_in_mline );
-  #if FD_USING_CLANG
-      /* TODO: Clang optimizes extremely aggressively which breaks the
-         atomicity expected by seq_sig_query.  In particular, it replaces
-         the sequence query with a second load (immediately following
-         vector load).  The signature query a few lines down is still an
-         extract from the vector which then means that effectively the
-         signature is loaded before the sequence number.
-         Adding this clobbers of the vector prevents this optimization by
-         forcing the seq query to be an extract, but we probably want a
-         better long term solution. */
-      __asm__( "" : "+x"(seq_sig) );
-  #endif
     ulong seq_found = fd_frag_meta_sse0_seq( seq_sig );
+    ulong sig       = fd_frag_meta_sse0_sig( seq_sig );
+#else
+    /* Without SSE, seq and sig might be read from different frags (due
+       to overrun), which results in a before_frag and during_frag being
+       issued with incorrect arguments, but not after_frag. */
+    ulong seq_found = FD_VOLATILE_CONST( this_in_mline->seq );
+    ulong sig       = FD_VOLATILE_CONST( this_in_mline->sig );
+#endif
+    (void)sig;
 
     long diff = fd_seq_diff( this_in_seq, seq_found );
     if( FD_UNLIKELY( diff ) ) { /* Caught up or overrun, optimize for new frag case */
@@ -575,7 +569,6 @@ STEM_(run1)( ulong                        in_cnt,
       continue;
     }
 
-    ulong sig = fd_frag_meta_sse0_sig( seq_sig ); (void)sig;
 #ifdef STEM_CALLBACK_BEFORE_FRAG
     int filter = STEM_CALLBACK_BEFORE_FRAG( ctx, (ulong)this_in->idx, seq_found, sig );
     if( FD_UNLIKELY( filter<0 ) ) {
