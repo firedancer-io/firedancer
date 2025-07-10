@@ -107,7 +107,7 @@ Firedancer depends on the Agave validator, this will also build some
 Agave components.
 
 ```sh [bash]
-$ make -j fdctl solana
+$ make -j fdctl solana agave-ledger-tool
 ```
 
 You will need around 32GiB of available memory to build Firedancer.  If
