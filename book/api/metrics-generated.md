@@ -72,6 +72,11 @@
 | <span class="metrics-name">net_&#8203;xdp_&#8203;rx_&#8203;ring_&#8203;full</span> | counter | xdp_statistics_v1.rx_ring_full: Dropped due to rx ring being full |
 | <span class="metrics-name">net_&#8203;xdp_&#8203;rx_&#8203;fill_&#8203;ring_&#8203;empty_&#8203;descs</span> | counter | xdp_statistics_v1.rx_fill_ring_empty_descs: Failed to retrieve item from fill ring |
 | <span class="metrics-name">net_&#8203;xdp_&#8203;tx_&#8203;ring_&#8203;empty_&#8203;descs</span> | counter | xdp_statistics_v1.tx_ring_empty_descs: Failed to retrieve item from tx ring |
+| <span class="metrics-name">net_&#8203;rx_&#8203;gre_&#8203;cnt</span> | counter | Number of valid GRE packets received |
+| <span class="metrics-name">net_&#8203;rx_&#8203;gre_&#8203;invalid_&#8203;cnt</span> | counter | Number of invalid GRE packets received |
+| <span class="metrics-name">net_&#8203;rx_&#8203;gre_&#8203;ignored_&#8203;cnt</span> | counter | Number of received but ignored GRE packets |
+| <span class="metrics-name">net_&#8203;tx_&#8203;gre_&#8203;cnt</span> | counter | Number of GRE packet transmit jobs submitted |
+| <span class="metrics-name">net_&#8203;tx_&#8203;gre_&#8203;route_&#8203;fail_&#8203;cnt</span> | counter | Number of GRE packets transmit jobs dropped due to route failure |
 
 </div>
 
@@ -798,7 +803,7 @@
 
 | Metric | Type | Description |
 |--------|------|-------------|
-| <span class="metrics-name">snaprd_&#8203;state</span> | gauge | State of the tile. 0 = waiting for at least one peer from gossip, 1 = collecting peers from gossip, 2 = pinging peers, 3 = collecting ping responses, 4 = reading full snapshot file, 5 = reading incremental snapshot file, 6 = downloading full snapshot file, 7 = downloading incremental snapshot file, 8 = pinging peers before loading the incremental snapshot, 0 = collecting ping responses before loading the incremental snapshot, 10 = waiting for full snapshot to finish loading, 11 = waiting for incremental snapshot to finish loading, 12 = done  |
+| <span class="metrics-name">snaprd_&#8203;state</span> | gauge | State of the tile. 0 = waiting for at least one peer from gossip, 1 = collecting peers from gossip, 2 = pinging peers, 3 = collecting ping responses, 4 = reading full snapshot file, 5 = reading incremental snapshot file, 6 = downloading full snapshot file, 7 = downloading incremental snapshot file, 8 = pinging peers before loading the incremental snapshot, 0 = collecting ping responses before loading the incremental snapshot, 10 = waiting for full snapshot to finish loading, 11 = waiting for incremental snapshot to finish loading, 12 = done. |
 | <span class="metrics-name">snaprd_&#8203;full_&#8203;num_&#8203;retries</span> | counter | Number of times we aborted and retried full snapshot download because the peer was too slow |
 | <span class="metrics-name">snaprd_&#8203;incremental_&#8203;num_&#8203;retries</span> | counter | Number of times we aborted and retried incremental snapshot download because the peer was too slow |
 | <span class="metrics-name">snaprd_&#8203;full_&#8203;bytes_&#8203;read</span> | gauge | Number of bytes read so far from the full snapshot. Might decrease if snapshot load is aborted and restarted |
@@ -816,7 +821,7 @@
 
 | Metric | Type | Description |
 |--------|------|-------------|
-| <span class="metrics-name">snapdc_&#8203;state</span> | gauge | State of the tile. 0 = waiting for compressed byte stream, 1 = decompressing full snapshot, 2 = decompressing incremental snapshot, 3 = Done |
+| <span class="metrics-name">snapdc_&#8203;state</span> | gauge | State of the tile. 0 = waiting for compressed byte stream, 1 = decompressing full snapshot, 2 = decompressing incremental snapshot, 3 = done. |
 | <span class="metrics-name">snapdc_&#8203;full_&#8203;compressed_&#8203;bytes_&#8203;read</span> | gauge | Number of bytes read so far from the compressed full snapshot file. Might decrease if snapshot load is aborted and restarted |
 | <span class="metrics-name">snapdc_&#8203;full_&#8203;decompressed_&#8203;bytes_&#8203;read</span> | gauge | Number of bytes read so far from the decompressed file. Might decrease if snapshot load is aborted and restarted |
 | <span class="metrics-name">snapdc_&#8203;full_&#8203;decompressed_&#8203;bytes_&#8203;total</span> | gauge | Total size of the decompressed full snapshot file. Might change if snapshot load is aborted and restarted |
@@ -832,7 +837,7 @@
 
 | Metric | Type | Description |
 |--------|------|-------------|
-| <span class="metrics-name">snapin_&#8203;state</span> | gauge | State of the tile. 0 = waiting for decompressed snapshot bytestream, 1 = processing full snapshot, 2 = processing incremental snapshot, 3 = Done |
+| <span class="metrics-name">snapin_&#8203;state</span> | gauge | State of the tile. 0 = waiting for decompressed snapshot bytestream, 1 = processing full snapshot, 2 = processing incremental snapshot, 3 = done. |
 | <span class="metrics-name">snapin_&#8203;full_&#8203;accounts_&#8203;files_&#8203;processed</span> | gauge | Number of accounts files (appendvecs) processed in the full snapshot. Might decrease if snapshot load is aborted and restarted |
 | <span class="metrics-name">snapin_&#8203;full_&#8203;accounts_&#8203;files_&#8203;total</span> | gauge | Total number of accounts files in the full snapshot. Might change if snapshot load is aborted and restarted |
 | <span class="metrics-name">snapin_&#8203;incremental_&#8203;accounts_&#8203;files_&#8203;processed</span> | gauge | Number of accounts files (appendvecs) processed in the incremental snapshot. Might decrease if snapshot load is aborted and restarted |
