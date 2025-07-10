@@ -180,7 +180,7 @@ quic_service_duration_seconds_bucket{kind="quic",kind_id="0",le="+Inf"} 1368
 quic_service_duration_seconds_sum{kind="quic",kind_id="0"} 9.3999999999999995e-08
 quic_service_duration_seconds_count{kind="quic",kind_id="0"} 1368
 
-# HELP quic_receive_duration_seconds Duration spent receiving packets
+# HELP quic_receive_duration_seconds Duration spent processing packets
 # TYPE quic_receive_duration_seconds histogram
 quic_receive_duration_seconds_bucket{kind="quic",kind_id="0",le="8.9999999999999995e-09"} 95
 quic_receive_duration_seconds_bucket{kind="quic",kind_id="0",le="3.1e-08"} 191

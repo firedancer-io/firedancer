@@ -223,12 +223,7 @@ after_frag( fd_quic_ctx_t *     ctx,
     ulong   ip_sz  = sz - sizeof(fd_eth_hdr_t);
 
     fd_quic_t * quic = ctx->quic;
-    long dt = -fd_tickcount();
     fd_quic_process_packet( quic, ip_pkt, ip_sz );
-    dt += fd_tickcount();
-    fd_histf_sample( quic->metrics.receive_duration, (ulong)dt );
-    quic->metrics.net_rx_byte_cnt += sz;
-    quic->metrics.net_rx_pkt_cnt++;
   } else if( FD_LIKELY( proto==DST_PROTO_TPU_UDP ) ) {
     ulong network_hdr_sz = fd_disco_netmux_sig_hdr_sz( sig );
     if( FD_UNLIKELY( sz<=network_hdr_sz ) ) {
@@ -557,6 +552,7 @@ unprivileged_init( fd_topo_t *      topo,
   if( FD_UNLIKELY( scratch_top > (ulong)scratch + scratch_footprint( tile ) ) )
     FD_LOG_ERR(( "scratch overflow %lu %lu %lu", scratch_top - (ulong)scratch - scratch_footprint( tile ), scratch_top, (ulong)scratch + scratch_footprint( tile ) ));
 
+  /* Call new/join here rather than in fd_quic so min/max can differ across uses */
   fd_histf_join( fd_histf_new( ctx->quic->metrics.service_duration, FD_MHIST_SECONDS_MIN( QUIC, SERVICE_DURATION_SECONDS ),
                                                                     FD_MHIST_SECONDS_MAX( QUIC, SERVICE_DURATION_SECONDS ) ) );
   fd_histf_join( fd_histf_new( ctx->quic->metrics.receive_duration, FD_MHIST_SECONDS_MIN( QUIC, RECEIVE_DURATION_SECONDS ),

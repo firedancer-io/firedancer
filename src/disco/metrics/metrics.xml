@@ -209,7 +209,7 @@ metric introduced.
       <summary>Duration spent in service</summary>
     </histogram>
     <histogram name="ReceiveDurationSeconds" min="0.00000001" max="0.1" converter="seconds">
-      <summary>Duration spent receiving packets</summary>
+      <summary>Duration spent processing packets</summary>
     </histogram>
 
     <counter name="FrameFailParse" summary="Number of QUIC frames failed to parse." />
@@ -300,7 +300,7 @@ metric introduced.
       <summary>Duration spent in service</summary>
     </histogram>
     <histogram name="ReceiveDurationSeconds" min="0.00000001" max="0.1" converter="seconds">
-      <summary>Duration spent receiving packets</summary>
+      <summary>Duration spent processing packets</summary>
     </histogram>
 </tile>
 

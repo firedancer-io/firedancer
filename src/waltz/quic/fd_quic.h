@@ -372,7 +372,7 @@ union fd_quic_metrics {
 
     /* Performance metrics */
     fd_histf_t service_duration[ 1 ]; /* time spent in service */
-    fd_histf_t receive_duration[ 1 ]; /* time spent in RX calls */
+    fd_histf_t receive_duration[ 1 ]; /* time spent in process_packet calls */
   };
 };
 typedef union fd_quic_metrics fd_quic_metrics_t;

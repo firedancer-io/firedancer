@@ -383,10 +383,7 @@ after_frag( fd_send_tile_ctx_t * ctx,
     ulong       ip_sz  = sz - sizeof(fd_eth_hdr_t);
     fd_quic_t * quic   = ctx->quic;
 
-    long dt = -fd_tickcount();
     fd_quic_process_packet( quic, ip_pkt, ip_sz );
-    dt += fd_tickcount();
-    fd_histf_sample( quic->metrics.receive_duration, (ulong)dt );
   }
 
   if( FD_UNLIKELY( kind==IN_KIND_TOWER ) ) {
@@ -530,10 +527,11 @@ unprivileged_init( fd_topo_t *      topo,
   fd_quic_set_clock_tickcount( quic );
   FD_TEST_CUSTOM( fd_quic_init( quic ), "fd_quic_init failed" );
 
+  /* Call new/join here rather than in fd_quic so min/max can differ across uses */
   fd_histf_join( fd_histf_new( quic->metrics.service_duration, FD_MHIST_SECONDS_MIN( SEND, SERVICE_DURATION_SECONDS ),
-                                                                    FD_MHIST_SECONDS_MAX( SEND, SERVICE_DURATION_SECONDS ) ) );
+                                                               FD_MHIST_SECONDS_MAX( SEND, SERVICE_DURATION_SECONDS ) ) );
   fd_histf_join( fd_histf_new( quic->metrics.receive_duration, FD_MHIST_SECONDS_MIN( SEND, RECEIVE_DURATION_SECONDS ),
-                                                                    FD_MHIST_SECONDS_MAX( SEND, RECEIVE_DURATION_SECONDS ) ) );
+                                                               FD_MHIST_SECONDS_MAX( SEND, RECEIVE_DURATION_SECONDS ) ) );
 
   ctx->quic = quic;
 
