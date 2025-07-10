@@ -1,0 +1,6 @@
+$(call make-bin,count_ticks,count_ticks,fd_disco fd_ballet fd_util)
+$(call make-bin,analyze_txn,analyze_txn,fd_disco fd_ballet fd_util)
+$(call make-bin,test_rebates,test_rebates,fd_disco fd_ballet fd_util)
+$(call make-bin,nonleader_txn_timing,nonleader_txn_timing,fd_disco fd_ballet fd_util)
+$(call make-bin,restore_wksp,restore_wksp,fd_discoh fd_disco fd_ballet fd_util)
+$(call make-bin,trim,trim,fd_disco fd_ballet fd_util)
