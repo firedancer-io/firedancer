@@ -169,6 +169,9 @@ FD_STATIC_ASSERT( FD_SHRED_BLK_MAX == 32768, check all usages before changing th
 /* 36,536,320 bytes per slot */
 #define FD_SHRED_DATA_PAYLOAD_MAX_PER_SLOT (FD_SHRED_DATA_PAYLOAD_MAX * FD_SHRED_BLK_MAX)
 
+/* 32,856 bytes per slot */
+#define FD_SHRED_DATA_HEADER_MAX_PER_SLOT (FD_SHRED_DATA_HEADER_SZ * FD_SHRED_BLK_MAX)
+
 /* Offset of the shred variant. Used for parsing. */
 #define FD_SHRED_VARIANT_OFF 0x40
 

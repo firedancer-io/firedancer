@@ -496,7 +496,7 @@ fd_banks_clone_from_parent( fd_banks_t * banks,
 
   /* Now acquire a new bank */
 
-  FD_LOG_WARNING(( "fd_banks_pool_max: %lu, fd_banks_pool_free: %lu", fd_banks_pool_max( bank_pool ), fd_banks_pool_free( bank_pool ) ));
+  FD_LOG_NOTICE(( "slot: %lu, fd_banks_pool_max: %lu, fd_banks_pool_free: %lu", slot, fd_banks_pool_max( bank_pool ), fd_banks_pool_free( bank_pool ) ));
   fd_bank_t * new_bank = fd_banks_pool_ele_acquire( bank_pool );
   if( FD_UNLIKELY( !new_bank ) ) {
     FD_LOG_WARNING(( "Failed to acquire bank" ));

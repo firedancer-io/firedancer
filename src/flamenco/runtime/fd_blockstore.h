@@ -52,6 +52,13 @@
 
 #define FD_SLICE_MAX (FD_SHRED_DATA_PAYLOAD_MAX_PER_SLOT)
 
+/* FD_SLICE_MAX_WITH_HEADERS specifies the maximum size of all of the
+   shreds that can be in an entry batch. This is equivalent to max
+   number of shreds (including header and payload) that can be in a
+   single slot. */
+
+#define FD_SLICE_MAX_WITH_HEADERS (FD_SHRED_DATA_HEADER_MAX_PER_SLOT + FD_SHRED_DATA_PAYLOAD_MAX_PER_SLOT)
+
 /* 64 ticks per slot, and then one min size transaction per microblock
    for all the remaining microblocks.
    This bound should be used along with the transaction parser and tick

@@ -173,6 +173,7 @@ fd_exec_slot_ctx_recover( fd_exec_slot_ctx_t *                slot_ctx,
   if( FD_UNLIKELY( !slot_ctx->bank ) ) {
     FD_LOG_CRIT(( "fd_banks_clone_from_parent failed" ));
   }
+  FD_LOG_WARNING(( "recovering bank %lu", manifest->bank.slot ));
 
   fd_versioned_bank_global_t const * old_bank = &manifest->bank;
 

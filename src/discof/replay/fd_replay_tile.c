@@ -47,9 +47,9 @@
 
 #define PLUGIN_PUBLISH_TIME_NS ((long)60e9)
 
-#define REPAIR_IN_IDX  (0UL)
-#define PACK_IN_IDX    (1UL)
-#define SNAP_IN_IDX    (3UL)
+#define REPAIR_IN_IDX   (0UL)
+#define PACK_IN_IDX     (1UL)
+#define SNAP_IN_IDX     (3UL)
 
 #define EXEC_TXN_BUSY   (0xA)
 #define EXEC_TXN_READY  (0xB)
@@ -105,6 +105,9 @@ struct fd_replay_tile_ctx {
 
   // Stake weights output link defs
   fd_replay_out_link_t stake_out[1];
+
+  // Shredcap output link defs
+  fd_replay_out_link_t shredcap_out[1];
 
   ulong       tower_out_idx;
   fd_wksp_t * tower_out_mem;
@@ -1092,7 +1095,7 @@ prepare_new_block_execution( fd_replay_tile_ctx_t * ctx,
   ctx->slot_ctx->bank = fd_banks_clone_from_parent( ctx->banks, curr_slot, parent_slot );
 
   if( FD_UNLIKELY( !ctx->slot_ctx->bank ) ) {
-    FD_LOG_CRIT(( "invariant violation: bank is NULL" ));
+    FD_LOG_CRIT(( "invariant violation: bank is NULL curr_slot: %lu, parent_slot: %lu", curr_slot, parent_slot ));
   }
 
   /* if it is an epoch boundary, push out stake weights */
@@ -1466,7 +1469,7 @@ handle_slice( fd_replay_tile_ctx_t * ctx,
   fd_bank_shred_cnt_set( ctx->slot_ctx->bank, fd_bank_shred_cnt_get( ctx->slot_ctx->bank ) + data_cnt );
 
   if( FD_UNLIKELY( err ) ) {
-    FD_LOG_ERR(( "Failed to query blockstore for slot %lu", slot ));
+    FD_LOG_ERR(( "Failed to query blockstore for slot: %lu, err: %d", slot, err ));
   }
 }
 
@@ -1789,6 +1792,17 @@ after_credit( fd_replay_tile_ctx_t * ctx,
     fd_bank_hash_cmp_lock( bank_hash_cmp );
     fd_bank_hash_cmp_insert( bank_hash_cmp, curr_slot, bank_hash, 1, 0 );
 
+    if( ctx->shredcap_out->idx!=ULONG_MAX ) {
+      /* TODO: We need some way to define common headers. */
+      uchar *           chunk_laddr = fd_chunk_to_laddr( ctx->shredcap_out->mem, ctx->shredcap_out->chunk );
+      fd_hash_t const * bank_hash   = fd_bank_bank_hash_query( ctx->slot_ctx->bank );
+      ulong             slot        = fd_bank_slot_get( ctx->slot_ctx->bank );
+      memcpy( chunk_laddr, bank_hash, sizeof(fd_hash_t) );
+      memcpy( chunk_laddr+sizeof(fd_hash_t), &slot, sizeof(ulong) );
+      fd_stem_publish( stem, ctx->shredcap_out->idx, 0UL, ctx->shredcap_out->chunk, sizeof(fd_hash_t) + sizeof(ulong), 0UL, fd_frag_meta_ts_comp( fd_tickcount() ), fd_frag_meta_ts_comp( fd_tickcount() ) );
+      ctx->shredcap_out->chunk = fd_dcache_compact_next( ctx->shredcap_out->chunk, sizeof(fd_hash_t) + sizeof(ulong), ctx->shredcap_out->chunk0, ctx->shredcap_out->wmark );
+    }
+
     /* Try to move the bank hash comparison watermark forward */
     for( ulong cmp_slot = bank_hash_cmp->watermark + 1; cmp_slot < curr_slot; cmp_slot++ ) {
       if( FD_UNLIKELY( !ctx->enable_bank_hash_cmp ) ) {
@@ -1798,28 +1812,16 @@ after_credit( fd_replay_tile_ctx_t * ctx,
       int rc = fd_bank_hash_cmp_check( bank_hash_cmp, cmp_slot );
       switch ( rc ) {
         case -1:
-
           /* Mismatch */
-
-          //funk_cancel( ctx, cmp_slot );
-          //checkpt( ctx );
           FD_LOG_WARNING(( "Bank hash mismatch on slot: %lu. Halting.", cmp_slot ));
-
           break;
-
         case 0:
-
           /* Not ready */
-
           break;
-
         case 1:
-
           /* Match*/
-
           bank_hash_cmp->watermark = cmp_slot;
           break;
-
         default:;
       }
     }
@@ -2268,6 +2270,21 @@ unprivileged_init( fd_topo_t *      topo,
     ctx->notif_out->chunk      = ctx->notif_out->chunk0;
   } else {
     ctx->notif_out->mcache = NULL;
+  }
+
+  /* Setup shredcap tile output. This link should only exist if the
+     shredcap tile has been enabled. */
+  ulong replay_shredcap_idx = fd_topo_find_tile_out_link( topo, tile, "replay_scap", 0 );
+  if( FD_UNLIKELY( replay_shredcap_idx!=ULONG_MAX ) ) {
+    fd_topo_link_t * shredcap_out = &topo->links[ tile->out_link_id[ replay_shredcap_idx ] ];
+    FD_TEST( shredcap_out );
+    ctx->shredcap_out->idx    = replay_shredcap_idx;
+    ctx->shredcap_out->mem    = topo->workspaces[ topo->objs[ shredcap_out->dcache_obj_id ].wksp_id ].wksp;
+    ctx->shredcap_out->chunk0 = fd_dcache_compact_chunk0( ctx->shredcap_out->mem, shredcap_out->dcache );
+    ctx->shredcap_out->wmark  = fd_dcache_compact_wmark ( ctx->shredcap_out->mem, shredcap_out->dcache, shredcap_out->mtu );
+    ctx->shredcap_out->chunk  = ctx->shredcap_out->chunk0;
+  } else {
+    ctx->shredcap_out->idx    = ULONG_MAX;
   }
 
   /* Set up stake weights tile output */
