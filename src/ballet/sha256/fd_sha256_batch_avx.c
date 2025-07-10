@@ -1,6 +1,7 @@
 #define FD_SHA256_BATCH_IMPL 1
 
 #include "fd_sha256.h"
+#include "fd_sha256_constants.h"
 #include "../../util/simd/fd_avx.h"
 
 FD_STATIC_ASSERT( FD_SHA256_BATCH_MAX==8UL, compat );
@@ -111,14 +112,14 @@ fd_sha256_private_batch_avx( ulong          batch_cnt,
     }
   } while(0);
 
-  wu_t s0 = wu_bcast( 0x6a09e667U );
-  wu_t s1 = wu_bcast( 0xbb67ae85U );
-  wu_t s2 = wu_bcast( 0x3c6ef372U );
-  wu_t s3 = wu_bcast( 0xa54ff53aU );
-  wu_t s4 = wu_bcast( 0x510e527fU );
-  wu_t s5 = wu_bcast( 0x9b05688cU );
-  wu_t s6 = wu_bcast( 0x1f83d9abU );
-  wu_t s7 = wu_bcast( 0x5be0cd19U );
+  wu_t s0 = wu_bcast( FD_SHA256_INITIAL_A );
+  wu_t s1 = wu_bcast( FD_SHA256_INITIAL_B );
+  wu_t s2 = wu_bcast( FD_SHA256_INITIAL_C );
+  wu_t s3 = wu_bcast( FD_SHA256_INITIAL_D );
+  wu_t s4 = wu_bcast( FD_SHA256_INITIAL_E );
+  wu_t s5 = wu_bcast( FD_SHA256_INITIAL_F );
+  wu_t s6 = wu_bcast( FD_SHA256_INITIAL_G );
+  wu_t s7 = wu_bcast( FD_SHA256_INITIAL_H );
 
   wv_t wv_64        = wv_bcast( FD_SHA256_PRIVATE_BUF_MAX );
   wv_t W_sentinel   = wv_bcast( (ulong)scratch );
@@ -182,17 +183,6 @@ fd_sha256_private_batch_avx( ulong          batch_cnt,
 
     wu_t a = s0; wu_t b = s1; wu_t c = s2; wu_t d = s3; wu_t e = s4; wu_t f = s5; wu_t g = s6; wu_t h = s7;
 
-    static uint const K[64] = { /* FIXME: Reuse with other functions */
-      0x428a2f98U, 0x71374491U, 0xb5c0fbcfU, 0xe9b5dba5U, 0x3956c25bU, 0x59f111f1U, 0x923f82a4U, 0xab1c5ed5U,
-      0xd807aa98U, 0x12835b01U, 0x243185beU, 0x550c7dc3U, 0x72be5d74U, 0x80deb1feU, 0x9bdc06a7U, 0xc19bf174U,
-      0xe49b69c1U, 0xefbe4786U, 0x0fc19dc6U, 0x240ca1ccU, 0x2de92c6fU, 0x4a7484aaU, 0x5cb0a9dcU, 0x76f988daU,
-      0x983e5152U, 0xa831c66dU, 0xb00327c8U, 0xbf597fc7U, 0xc6e00bf3U, 0xd5a79147U, 0x06ca6351U, 0x14292967U,
-      0x27b70a85U, 0x2e1b2138U, 0x4d2c6dfcU, 0x53380d13U, 0x650a7354U, 0x766a0abbU, 0x81c2c92eU, 0x92722c85U,
-      0xa2bfe8a1U, 0xa81a664bU, 0xc24b8b70U, 0xc76c51a3U, 0xd192e819U, 0xd6990624U, 0xf40e3585U, 0x106aa070U,
-      0x19a4c116U, 0x1e376c08U, 0x2748774cU, 0x34b0bcb5U, 0x391c0cb3U, 0x4ed8aa4aU, 0x5b9cca4fU, 0x682e6ff3U,
-      0x748f82eeU, 0x78a5636fU, 0x84c87814U, 0x8cc70208U, 0x90befffaU, 0xa4506cebU, 0xbef9a3f7U, 0xc67178f2U,
-    };
-
 #   define Sigma0(x)  wu_xor( wu_rol(x,30), wu_xor( wu_rol(x,19), wu_rol(x,10) ) )
 #   define Sigma1(x)  wu_xor( wu_rol(x,26), wu_xor( wu_rol(x,21), wu_rol(x, 7) ) )
 #   define sigma0(x)  wu_xor( wu_rol(x,25), wu_xor( wu_rol(x,14), wu_shr(x, 3) ) )
@@ -214,39 +204,39 @@ fd_sha256_private_batch_avx( ulong          batch_cnt,
     wu_t T1;
     wu_t T2;
 
-    SHA_CORE( x0, wu_bcast( K[ 0] ) );
-    SHA_CORE( x1, wu_bcast( K[ 1] ) );
-    SHA_CORE( x2, wu_bcast( K[ 2] ) );
-    SHA_CORE( x3, wu_bcast( K[ 3] ) );
-    SHA_CORE( x4, wu_bcast( K[ 4] ) );
-    SHA_CORE( x5, wu_bcast( K[ 5] ) );
-    SHA_CORE( x6, wu_bcast( K[ 6] ) );
-    SHA_CORE( x7, wu_bcast( K[ 7] ) );
-    SHA_CORE( x8, wu_bcast( K[ 8] ) );
-    SHA_CORE( x9, wu_bcast( K[ 9] ) );
-    SHA_CORE( xa, wu_bcast( K[10] ) );
-    SHA_CORE( xb, wu_bcast( K[11] ) );
-    SHA_CORE( xc, wu_bcast( K[12] ) );
-    SHA_CORE( xd, wu_bcast( K[13] ) );
-    SHA_CORE( xe, wu_bcast( K[14] ) );
-    SHA_CORE( xf, wu_bcast( K[15] ) );
+    SHA_CORE( x0, wu_bcast( fd_sha256_K[ 0] ) );
+    SHA_CORE( x1, wu_bcast( fd_sha256_K[ 1] ) );
+    SHA_CORE( x2, wu_bcast( fd_sha256_K[ 2] ) );
+    SHA_CORE( x3, wu_bcast( fd_sha256_K[ 3] ) );
+    SHA_CORE( x4, wu_bcast( fd_sha256_K[ 4] ) );
+    SHA_CORE( x5, wu_bcast( fd_sha256_K[ 5] ) );
+    SHA_CORE( x6, wu_bcast( fd_sha256_K[ 6] ) );
+    SHA_CORE( x7, wu_bcast( fd_sha256_K[ 7] ) );
+    SHA_CORE( x8, wu_bcast( fd_sha256_K[ 8] ) );
+    SHA_CORE( x9, wu_bcast( fd_sha256_K[ 9] ) );
+    SHA_CORE( xa, wu_bcast( fd_sha256_K[10] ) );
+    SHA_CORE( xb, wu_bcast( fd_sha256_K[11] ) );
+    SHA_CORE( xc, wu_bcast( fd_sha256_K[12] ) );
+    SHA_CORE( xd, wu_bcast( fd_sha256_K[13] ) );
+    SHA_CORE( xe, wu_bcast( fd_sha256_K[14] ) );
+    SHA_CORE( xf, wu_bcast( fd_sha256_K[15] ) );
     for( ulong i=16UL; i<64UL; i+=16UL ) {
-      x0 = wu_add( wu_add( x0, sigma0(x1) ), wu_add( sigma1(xe), x9 ) ); SHA_CORE( x0, wu_bcast( K[i     ] ) );
-      x1 = wu_add( wu_add( x1, sigma0(x2) ), wu_add( sigma1(xf), xa ) ); SHA_CORE( x1, wu_bcast( K[i+ 1UL] ) );
-      x2 = wu_add( wu_add( x2, sigma0(x3) ), wu_add( sigma1(x0), xb ) ); SHA_CORE( x2, wu_bcast( K[i+ 2UL] ) );
-      x3 = wu_add( wu_add( x3, sigma0(x4) ), wu_add( sigma1(x1), xc ) ); SHA_CORE( x3, wu_bcast( K[i+ 3UL] ) );
-      x4 = wu_add( wu_add( x4, sigma0(x5) ), wu_add( sigma1(x2), xd ) ); SHA_CORE( x4, wu_bcast( K[i+ 4UL] ) );
-      x5 = wu_add( wu_add( x5, sigma0(x6) ), wu_add( sigma1(x3), xe ) ); SHA_CORE( x5, wu_bcast( K[i+ 5UL] ) );
-      x6 = wu_add( wu_add( x6, sigma0(x7) ), wu_add( sigma1(x4), xf ) ); SHA_CORE( x6, wu_bcast( K[i+ 6UL] ) );
-      x7 = wu_add( wu_add( x7, sigma0(x8) ), wu_add( sigma1(x5), x0 ) ); SHA_CORE( x7, wu_bcast( K[i+ 7UL] ) );
-      x8 = wu_add( wu_add( x8, sigma0(x9) ), wu_add( sigma1(x6), x1 ) ); SHA_CORE( x8, wu_bcast( K[i+ 8UL] ) );
-      x9 = wu_add( wu_add( x9, sigma0(xa) ), wu_add( sigma1(x7), x2 ) ); SHA_CORE( x9, wu_bcast( K[i+ 9UL] ) );
-      xa = wu_add( wu_add( xa, sigma0(xb) ), wu_add( sigma1(x8), x3 ) ); SHA_CORE( xa, wu_bcast( K[i+10UL] ) );
-      xb = wu_add( wu_add( xb, sigma0(xc) ), wu_add( sigma1(x9), x4 ) ); SHA_CORE( xb, wu_bcast( K[i+11UL] ) );
-      xc = wu_add( wu_add( xc, sigma0(xd) ), wu_add( sigma1(xa), x5 ) ); SHA_CORE( xc, wu_bcast( K[i+12UL] ) );
-      xd = wu_add( wu_add( xd, sigma0(xe) ), wu_add( sigma1(xb), x6 ) ); SHA_CORE( xd, wu_bcast( K[i+13UL] ) );
-      xe = wu_add( wu_add( xe, sigma0(xf) ), wu_add( sigma1(xc), x7 ) ); SHA_CORE( xe, wu_bcast( K[i+14UL] ) );
-      xf = wu_add( wu_add( xf, sigma0(x0) ), wu_add( sigma1(xd), x8 ) ); SHA_CORE( xf, wu_bcast( K[i+15UL] ) );
+      x0 = wu_add( wu_add( x0, sigma0(x1) ), wu_add( sigma1(xe), x9 ) ); SHA_CORE( x0, wu_bcast( fd_sha256_K[i     ] ) );
+      x1 = wu_add( wu_add( x1, sigma0(x2) ), wu_add( sigma1(xf), xa ) ); SHA_CORE( x1, wu_bcast( fd_sha256_K[i+ 1UL] ) );
+      x2 = wu_add( wu_add( x2, sigma0(x3) ), wu_add( sigma1(x0), xb ) ); SHA_CORE( x2, wu_bcast( fd_sha256_K[i+ 2UL] ) );
+      x3 = wu_add( wu_add( x3, sigma0(x4) ), wu_add( sigma1(x1), xc ) ); SHA_CORE( x3, wu_bcast( fd_sha256_K[i+ 3UL] ) );
+      x4 = wu_add( wu_add( x4, sigma0(x5) ), wu_add( sigma1(x2), xd ) ); SHA_CORE( x4, wu_bcast( fd_sha256_K[i+ 4UL] ) );
+      x5 = wu_add( wu_add( x5, sigma0(x6) ), wu_add( sigma1(x3), xe ) ); SHA_CORE( x5, wu_bcast( fd_sha256_K[i+ 5UL] ) );
+      x6 = wu_add( wu_add( x6, sigma0(x7) ), wu_add( sigma1(x4), xf ) ); SHA_CORE( x6, wu_bcast( fd_sha256_K[i+ 6UL] ) );
+      x7 = wu_add( wu_add( x7, sigma0(x8) ), wu_add( sigma1(x5), x0 ) ); SHA_CORE( x7, wu_bcast( fd_sha256_K[i+ 7UL] ) );
+      x8 = wu_add( wu_add( x8, sigma0(x9) ), wu_add( sigma1(x6), x1 ) ); SHA_CORE( x8, wu_bcast( fd_sha256_K[i+ 8UL] ) );
+      x9 = wu_add( wu_add( x9, sigma0(xa) ), wu_add( sigma1(x7), x2 ) ); SHA_CORE( x9, wu_bcast( fd_sha256_K[i+ 9UL] ) );
+      xa = wu_add( wu_add( xa, sigma0(xb) ), wu_add( sigma1(x8), x3 ) ); SHA_CORE( xa, wu_bcast( fd_sha256_K[i+10UL] ) );
+      xb = wu_add( wu_add( xb, sigma0(xc) ), wu_add( sigma1(x9), x4 ) ); SHA_CORE( xb, wu_bcast( fd_sha256_K[i+11UL] ) );
+      xc = wu_add( wu_add( xc, sigma0(xd) ), wu_add( sigma1(xa), x5 ) ); SHA_CORE( xc, wu_bcast( fd_sha256_K[i+12UL] ) );
+      xd = wu_add( wu_add( xd, sigma0(xe) ), wu_add( sigma1(xb), x6 ) ); SHA_CORE( xd, wu_bcast( fd_sha256_K[i+13UL] ) );
+      xe = wu_add( wu_add( xe, sigma0(xf) ), wu_add( sigma1(xc), x7 ) ); SHA_CORE( xe, wu_bcast( fd_sha256_K[i+14UL] ) );
+      xf = wu_add( wu_add( xf, sigma0(x0) ), wu_add( sigma1(xd), x8 ) ); SHA_CORE( xf, wu_bcast( fd_sha256_K[i+15UL] ) );
     }
 
 #   undef SHA_CORE
