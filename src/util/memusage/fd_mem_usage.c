@@ -17,7 +17,7 @@ typedef struct fd_mem_usage_private fd_mem_usage_private_t;
 static int fd_mem_usage_private_shared_lock_local[1] __attribute__((aligned(128))) = {0};
 volatile int * fd_mem_usage_private_shared_lock = fd_mem_usage_private_shared_lock_local;
 
-#define FD_MEM_USAGE_POOL_SIZE 2048
+#define FD_MEM_USAGE_POOL_SIZE (1U << 17)
 static fd_mem_usage_private_t   fd_mem_usage_pool[FD_MEM_USAGE_POOL_SIZE];
 static ulong                    fd_mem_usage_pool_used = 0;
 static fd_mem_usage_private_t * fd_mem_usage_private_head = NULL;
@@ -201,7 +201,7 @@ fd_mem_usage_printout( const char * filename ) {
 
   for( ulong i = 0; i < list_size; i++ ) {
     fd_mem_usage_private_t * p = list[i];
-    fprintf( f, "%-32s: mem=%p, usage=", p->descript, p->mem );
+    fprintf( f, "%-32s: mem=%p-%p, usage=", p->descript, p->mem, ((const char *)p->mem + p->usage) );
     if( p->usage < 1024 / 2 ) {
       fprintf( f, "%lu bytes\n", p->usage );
     } else if( p->usage < 1024 * 1024 / 2 ) {

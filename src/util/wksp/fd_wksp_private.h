@@ -116,6 +116,8 @@
 
    - stack_cidx and cycle_tag are for internal use */
 
+typedef void * fd_mem_usage_handle_t;
+
 /* TODO: Consider align 32/ footprint 96 without compressed indices if
    ever needing more than ~4B partitions. */
 
@@ -136,6 +138,8 @@ struct __attribute__((aligned(FD_WKSP_PRIVATE_PINFO_ALIGN))) fd_wksp_private_pin
   uint  same_cidx;      /* ",                fd_wksp_private_pinfo_cidx( FD_WKSP_INFO_IDX_NULL ) */
   uint  stack_cidx;     /* internal use */
   ulong cycle_tag;      /* internal use */
+
+  fd_mem_usage_handle_t mem_usage_handle; /* Handle for memory usage tracking */
 };
 
 typedef struct fd_wksp_private_pinfo fd_wksp_private_pinfo_t;
@@ -147,8 +151,6 @@ typedef struct fd_wksp_private_pinfo fd_wksp_private_pinfo_t;
 
 /* fd_wksp_private specifies the detailed layout of the internals of a
    fd_wksp_t */
-
-typedef void * fd_mem_usage_handle_t;
 
 struct fd_wksp_private {
 

@@ -1,4 +1,5 @@
 #include "fd_wksp_private.h"
+#include "../memusage/fd_mem_usage.h"
 
 /* fd_wksp_private_split_before splits a partition (index i2) into two
    smaller partitions and returns the partition index (i1) of the
@@ -178,6 +179,8 @@ fd_wksp_private_free( ulong                     i,        /* Partition to free, 
     return;
   }
 
+  fd_mem_usage_free_handle( pinfo[ i ].mem_usage_handle );
+
 # if FD_HAS_DEEPASAN
   /* Poison the data region of the now freed allocation. */
   fd_asan_poison( fd_wksp_laddr_fast( wksp, pinfo[ i ].gaddr_lo ), pinfo[ i ].gaddr_hi - pinfo[ i ].gaddr_lo );
@@ -344,6 +347,9 @@ fd_wksp_alloc_at_least( fd_wksp_t * wksp,
   FD_COMPILER_MFENCE();
   FD_VOLATILE( pinfo[ i ].tag ) = tag;
   FD_COMPILER_MFENCE();
+
+  pinfo[ i ].mem_usage_handle = fd_mem_usage_get_handle(
+    fd_wksp_laddr_fast( wksp, lo ), hi - lo, "  part %lu, tag %lu", i, tag );
 
 # if FD_HAS_DEEPASAN
   /* Unpoison the data region of the allocation */
