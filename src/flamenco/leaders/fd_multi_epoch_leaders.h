@@ -155,7 +155,7 @@ fd_multi_epoch_leaders_get_next_slot( fd_multi_epoch_leaders_t const * mleaders,
 
 /* ********    STAKE INFO UPDATE METHODS    ******** */
 
-/* fd_stake_ci_stake_msg_{init, fini} are used to handle messages
+/* fd_multi_epoch_leaders_stake_msg_{init, fini} are used to handle messages
    containing stake weight updates from the Rust side of the splice,.
    Since these messages arrive on a dcache and can get overrun, both
    expose a init/fini model. Calling init multiple times without calling

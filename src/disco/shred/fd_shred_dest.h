@@ -5,6 +5,7 @@
 #include "../../ballet/sha256/fd_sha256.h"
 #include "../../ballet/wsample/fd_wsample.h"
 #include "../../flamenco/leaders/fd_leaders.h"
+#include "../../util/net/fd_net_headers.h"
 
 /* This header defines a collection of methods for using stake weights
    to compute the destination of a specific shred for the leader and
@@ -20,20 +21,49 @@
    information using fd_shred_dest_idx_to_dest below. */
 typedef uint fd_shred_dest_idx_t;
 
-
 #define FD_SHRED_DEST_MAX_SHRED_CNT (134UL) /* DATA_SHREDS_MAX+PARITY_SHREDS_MAX */
 #define FD_SHRED_DEST_NO_DEST       (UINT_MAX)
 #define FD_SHRED_DEST_MAX_FANOUT    (1536UL)
+#define MAX_SHRED_DESTS             (MAX_STAKED_LEADERS)
 
-/* fd_shred_dest_weighted_t specifies a destination to which a shred might be
-   sent.  The information comes from Gossip typically. */
+/* fd_shred_dest_stake_ci_n_t specifies a destination to which a shred
+   might be sent, with a user-defined number of port<>ips stored.
+   The information comes from Gossip typically. */
+struct fd_shred_dest_stake_ci_n {
+  fd_pubkey_t   pubkey;         /* The validator's identity key */
+  ulong         stake_lamports; /* Stake, measured in lamports, or 0 for an unstaked validator */
+  fd_ip4_port_t sock_addr[];    /* Validator contact info: ip in network byte order, port in host byte order */
+};
+typedef struct fd_shred_dest_stake_ci_n fd_shred_dest_stake_ci_n_t;
+
+#define FD_SHRED_DEST_MAX_USER_CI_CNT (13UL)
+
+static inline FD_FN_CONST ulong
+fd_shred_dest_stake_ci_n_footprint( ulong user_ci_cnt ) {
+  FD_TEST( user_ci_cnt <= FD_SHRED_DEST_MAX_USER_CI_CNT );
+  return FD_ULONG_ALIGN_UP( sizeof(fd_shred_dest_stake_ci_n_t) + user_ci_cnt*sizeof(fd_ip4_port_t), 8UL );
+}
+
+static inline fd_shred_dest_stake_ci_n_t *
+fd_shred_dest_stake_ci_n_get_idx( fd_shred_dest_stake_ci_n_t const * base,
+                                  ulong                              idx,
+                                  ulong                              user_ci_cnt ) {
+  ulong const sz = fd_shred_dest_stake_ci_n_footprint( user_ci_cnt );
+  return fd_type_pun( (uchar*)base + idx*sz );
+}
+
+/* Special case of fd_shred_dest_t with n=1. Used by shred tile. */
 struct fd_shred_dest_weighted {
-  fd_pubkey_t  pubkey;   /* The validator's identity key */
-  ulong  stake_lamports; /* Stake, measured in lamports, or 0 for an unstaked validator */
-  uint   ip4;            /* The validator's IP address, in network byte order */
-  ushort port;           /* The TVU port, in host byte order */
-}; /* be careful ip and host are in different byte order */
+  fd_pubkey_t  pubkey;
+  ulong        stake_lamports;
+  uint         ip4;
+  ushort       port;
+};
 typedef struct fd_shred_dest_weighted fd_shred_dest_weighted_t;
+FD_STATIC_ASSERT( offsetof(fd_shred_dest_stake_ci_n_t, pubkey           ) == offsetof(fd_shred_dest_weighted_t, pubkey        ), "fd_shred_dest_stake_ci_n_t and fd_shred_dest_weighted_t have different offsets for pubkey" );
+FD_STATIC_ASSERT( offsetof(fd_shred_dest_stake_ci_n_t, stake_lamports   ) == offsetof(fd_shred_dest_weighted_t, stake_lamports), "fd_shred_dest_stake_ci_n_t and fd_shred_dest_weighted_t have different offsets for stake_lamports" );
+FD_STATIC_ASSERT( offsetof(fd_shred_dest_stake_ci_n_t, sock_addr[0].addr) == offsetof(fd_shred_dest_weighted_t, ip4           ), "fd_shred_dest_stake_ci_n_t and fd_shred_dest_weighted_t have different offsets for ip4" );
+FD_STATIC_ASSERT( offsetof(fd_shred_dest_stake_ci_n_t, sock_addr[0].port) == offsetof(fd_shred_dest_weighted_t, port          ), "fd_shred_dest_stake_ci_n_t and fd_shred_dest_weighted_t have different offsets for port" );
 
 /* Internal type, forward declared to be able to declare the struct
    here. */
@@ -50,12 +80,14 @@ struct __attribute__((aligned(FD_SHRED_DEST_ALIGN))) fd_shred_dest_private {
   /* null_dest is initialized to all zeros.  Returned when the destination
      doesn't exist (e.g. you've asked for the 5th destination, but you only
      need to send to 4 recipients. */
-  fd_shred_dest_weighted_t null_dest[1];
+  #define FD_SDEST_USER_TYPE_MAX_SZ (sizeof(fd_shred_dest_stake_ci_n_t) + 13*sizeof(fd_ip4_port_t))
+  uchar null_dest[FD_SDEST_USER_TYPE_MAX_SZ] __attribute__((aligned(alignof(fd_shred_dest_stake_ci_n_t))));
+  #undef FD_SDEST_USER_TYPE_MAX_SZ
 
   fd_epoch_leaders_t const * lsched;
 
   ulong cnt;
-  fd_shred_dest_weighted_t * all_destinations; /* a local copy, points to memory after the struct */
+  fd_shred_dest_stake_ci_n_t * all_destinations; /* a local copy, points to memory after the struct */
 
   fd_wsample_t * staked;
   struct {
@@ -71,6 +103,8 @@ struct __attribute__((aligned(FD_SHRED_DEST_ALIGN))) fd_shred_dest_private {
   pubkey_to_idx_t * pubkey_to_idx_map; /* maps pubkey -> [0, staked_cnt+unstaked_cnt) */
 
   ulong source_validator_orig_idx; /* in [0, staked_cnt+unstaked_cnt) */
+
+  ulong user_ci_cnt; /* number of fd_ip4_port_t's this shred dest tracks */
   /* Struct followed by:
      * pubkey_to_idx map
      * all_destinations
@@ -80,14 +114,22 @@ struct __attribute__((aligned(FD_SHRED_DEST_ALIGN))) fd_shred_dest_private {
 };
 typedef struct fd_shred_dest_private fd_shred_dest_t;
 
-
 /* fd_shred_dest_{align, footprint} return the alignment and footprint
    (respectively) required of a region of memory to format it as an
    fd_shred_dest_t object.  staked_cnt is the number of destinations
    with positive stake while unstaked_cnt is the number of destinations
-   with zero stake that this object can store. */
+   with zero stake that this object can store. user_ci_cnt describes
+   the number of ip<>port pairs this shred dest tracks */
 static inline ulong fd_shred_dest_align    ( void      ) { return FD_SHRED_DEST_ALIGN; }
-/*         */ ulong fd_shred_dest_footprint( ulong staked_cnt, ulong unstaked_cnt );
+/*         */ ulong fd_shred_dest_footprint( ulong staked_cnt, ulong unstaked_cnt, ulong user_ci_cnt );
+
+
+/* Returns the maximum footprint required for an fd_shred_dest_t object
+   with total_cnt destinations (staked+unstaked) and user_ci_cnt user
+   contact info elements. This does a dumb linear scan over non-negative
+   combinations of staked_cnt and unstaked_cnt. SLOW. */
+ulong
+fd_shred_dest_footprint_max( ulong total_cnt, ulong user_ci_cnt );
 
 /* fd_shred_dest_new formats a region of memory for use as an
    fd_shred_dest_t object. mem points to the first byte of a region of
@@ -119,12 +161,13 @@ static inline ulong fd_shred_dest_align    ( void      ) { return FD_SHRED_DEST_
    Returns mem on success and NULL on errors.  Logs a warning with
    details on errors. */
 void *
-fd_shred_dest_new( void                           * mem,
-                   fd_shred_dest_weighted_t const * info, /* Accessed [0, cnt) */
-                   ulong                            cnt,
-                   fd_epoch_leaders_t       const * lsched,
-                   fd_pubkey_t              const * source,
-                   ulong                            excluded_stake );
+fd_shred_dest_new( void                             * mem,
+                   fd_shred_dest_stake_ci_n_t const * info, /* Accessed byte [0, cnt*user_ci_cnt) */
+                   ulong                              cnt,
+                   fd_epoch_leaders_t         const * lsched,
+                   fd_pubkey_t                const * source,
+                   ulong                              excluded_stake,
+                   ulong                              user_ci_cnt );
 
 /* fd_shred_dest_join joins the caller to a region of memory formatted
    as an fd_shred_dest_t. fd_shred_dest_leave does the opposite.
@@ -209,16 +252,16 @@ fd_shred_dest_compute_children( fd_shred_dest_t          * sdest,
 
 /* fd_shred_dest_idx_to_dest maps a destination index (as produced by
    fd_shred_dest_compute_children or fd_shred_dest_compute_first) to an
-   actual destination.  The lifetime of the returned pointer is the same
+   actual destination. The lifetime of the returned pointer is the same
    as the lifetime of sdest.  idx==FD_SHRED_DEST_NO_DEST is fine, and
    this will return a pointer to a destination with all fields set to 0.
-   It's safe for the caller to update the IP, port, and mac fields of
-   the returned struct, although the caller must not modify the weight
-   or pubkey fields.  The caller can use this to update contact info for
-   a validator. */
-static inline fd_shred_dest_weighted_t *
+   It's safe for the caller to update the sock_addrs of the returned
+   struct, although the caller must not modify the pubkey or stake_lamports
+   fields.  The caller can use this to update contact info for a validator. */
+static inline fd_shred_dest_stake_ci_n_t *
 fd_shred_dest_idx_to_dest( fd_shred_dest_t * sdest, fd_shred_dest_idx_t idx ) {
-  return fd_ptr_if( idx!=FD_SHRED_DEST_NO_DEST, sdest->all_destinations + idx, sdest->null_dest );
+  fd_shred_dest_stake_ci_n_t * retval = fd_shred_dest_stake_ci_n_get_idx( sdest->all_destinations, idx, sdest->user_ci_cnt );
+  return fd_type_pun( fd_ptr_if( idx!=FD_SHRED_DEST_NO_DEST, retval, sdest->null_dest ) );
 }
 
 /* fd_shred_dest_idx_t maps a pubkey to a destination index, if the
