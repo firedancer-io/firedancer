@@ -1,4 +1,5 @@
 #include "fd_wksp_private.h"
+#include "../memusage/fd_mem_usage.h"
 #include <sys/mman.h>
 #include <errno.h>
 
@@ -183,6 +184,8 @@ fd_wksp_new( void *       shmem,
   wksp->cycle_tag      = 4UL;  /* Verify uses tags 0-3 */
   wksp->owner          = 0UL;  /* Mark as locked and in construction */
 
+  wksp->mem_usage_handle = fd_mem_usage_get_handle( wksp, footprint, "wksp %s", wksp->name );
+
   /* Note that wksp->owner was set to zero above, "locking" the wksp by
      group_id 0.  And the memset above set all the partition tags to
      zero such that there are no allocated partitions.  So once we set
@@ -269,6 +272,8 @@ fd_wksp_delete( void * shwksp ) {
     FD_LOG_WARNING(( "bad magic" ));
     return NULL;
   }
+
+  fd_mem_usage_free_handle( wksp->mem_usage_handle );
 
   /* TODO: consider testing owner */
 

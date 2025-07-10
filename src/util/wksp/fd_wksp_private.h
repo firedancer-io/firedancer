@@ -148,6 +148,8 @@ typedef struct fd_wksp_private_pinfo fd_wksp_private_pinfo_t;
 /* fd_wksp_private specifies the detailed layout of the internals of a
    fd_wksp_t */
 
+typedef void * fd_mem_usage_handle_t;
+
 struct fd_wksp_private {
 
   /* This point is FD_WKSP_ALIGN aligned */
@@ -171,6 +173,8 @@ struct fd_wksp_private {
   uint  part_free_cidx;            /* Treap of partitions that are currently free (tag==0), searchable by size */
   ulong cycle_tag;                 /* Used for cycle detection */
   ulong owner;                     /* thread group id of the owner or NULL otherwise */
+
+  fd_mem_usage_handle_t mem_usage_handle; /* Handle for memory usage tracking */
 
   /* IMPORTANT!  The "single-source-of-truth" for what is currently
      used (and its tags) is the set of non-zero tagged partitions in the

@@ -26,6 +26,9 @@ void fd_mem_usage_add( fd_mem_usage_handle_t handle, ulong usage );
 /* Subtract from the total memory usage associated with the handle. */
 void fd_mem_usage_sub( fd_mem_usage_handle_t handle, ulong usage );
 
+/* Print out the memory usage to a file. Use NULL for stderr. */
+void fd_mem_usage_printout( const char * filename );
+
 //#endif /* FD_MEM_USAGE_ENABLE */
 
 #endif /* FD_MEM_USAGE_H */

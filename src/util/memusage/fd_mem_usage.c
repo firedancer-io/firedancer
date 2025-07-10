@@ -18,14 +18,14 @@ static int fd_mem_usage_private_shared_lock_local[1] __attribute__((aligned(128)
 volatile int * fd_mem_usage_private_shared_lock = fd_mem_usage_private_shared_lock_local;
 
 #define FD_MEM_USAGE_POOL_SIZE 2048
-static fd_mem_usage_private_t fd_mem_usage_pool[FD_MEM_USAGE_POOL_SIZE];
-static ulong                  fd_mem_usage_pool_used = 0;
+static fd_mem_usage_private_t   fd_mem_usage_pool[FD_MEM_USAGE_POOL_SIZE];
+static ulong                    fd_mem_usage_pool_used = 0;
 static fd_mem_usage_private_t * fd_mem_usage_private_head = NULL;
 static fd_mem_usage_private_t * fd_mem_usage_private_tail = NULL;
 static fd_mem_usage_private_t * fd_mem_usage_private_free = NULL;
 
 static inline void
-  fd_mem_usage_private_lock( void ) {
+fd_mem_usage_private_lock( void ) {
   FD_COMPILER_MFENCE();
 # if FD_HAS_ATOMIC
   while(( FD_UNLIKELY( FD_ATOMIC_CAS( fd_mem_usage_private_shared_lock, 0, 1 ) ) )) ;
@@ -37,7 +37,7 @@ static inline void
 }
 
 static inline void
-  fd_mem_usage_private_unlock( void ) {
+fd_mem_usage_private_unlock( void ) {
   FD_COMPILER_MFENCE();
 # if FD_HAS_ATOMIC
   FD_VOLATILE( *fd_mem_usage_private_shared_lock ) = 0;
@@ -48,7 +48,7 @@ static inline void
 }
 
 fd_mem_usage_handle_t
-  fd_mem_usage_get_handle( void const * mem, ulong usage, const char * descript, ... ) {
+fd_mem_usage_get_handle( void const * mem, ulong usage, const char * descript, ... ) {
   fd_mem_usage_private_lock();
 
   fd_mem_usage_private_t * p;
@@ -85,7 +85,7 @@ fd_mem_usage_handle_t
 }
 
 void
-  fd_mem_usage_free_handle( fd_mem_usage_handle_t handle ) {
+fd_mem_usage_free_handle( fd_mem_usage_handle_t handle ) {
   fd_mem_usage_private_lock();
   fd_mem_usage_private_t * p = (fd_mem_usage_private_t *)handle;
   if ( p == NULL ) {
@@ -111,7 +111,7 @@ void
 }
 
 void
-  fd_mem_usage_set( fd_mem_usage_handle_t handle, ulong usage ) {
+fd_mem_usage_set( fd_mem_usage_handle_t handle, ulong usage ) {
   fd_mem_usage_private_lock();
 
   fd_mem_usage_private_t * p = (fd_mem_usage_private_t *)handle;
@@ -125,7 +125,7 @@ void
 }
 
 ulong
-  fd_mem_usage_get( fd_mem_usage_handle_t handle ) {
+fd_mem_usage_get( fd_mem_usage_handle_t handle ) {
   fd_mem_usage_private_lock();
 
   fd_mem_usage_private_t * p = (fd_mem_usage_private_t *)handle;
@@ -141,7 +141,7 @@ ulong
 }
 
 void
-  fd_mem_usage_add( fd_mem_usage_handle_t handle, ulong usage ) {
+fd_mem_usage_add( fd_mem_usage_handle_t handle, ulong usage ) {
   fd_mem_usage_private_lock();
 
   fd_mem_usage_private_t * p = (fd_mem_usage_private_t *)handle;
@@ -155,7 +155,10 @@ void
 }
 
 void
-  fd_mem_usage_sub( fd_mem_usage_handle_t handle, ulong usage ) {
+fd_mem_usage_sub( fd_mem_usage_handle_t handle, ulong usage ) {
+  if( handle == NULL ) {
+    return;
+  }
   fd_mem_usage_private_lock();
 
   fd_mem_usage_private_t * p = (fd_mem_usage_private_t *)handle;
@@ -164,6 +167,41 @@ void
     return;
   }
   p->usage -= usage;
+
+  fd_mem_usage_private_unlock();
+}
+
+void
+fd_mem_usage_printout( const char * filename ) {
+  fd_mem_usage_private_lock();
+
+  FILE * f = ( filename == NULL ) ? stderr : fopen( filename, "w" );
+  if( f == NULL ) {
+    fprintf( stderr, "fd_mem_usage_printout: failed to open file %s\n", filename );
+    fflush( stderr );
+    fd_mem_usage_private_unlock();
+    return;
+  }
+
+  fd_mem_usage_private_t * p = fd_mem_usage_private_head;
+  while( p != NULL ) {
+    fprintf( f, "%s: mem=%p, usage=", p->descript, p->mem );
+    if( p->usage < 1024 / 2 ) {
+      fprintf( f, "%lu bytes\n", p->usage );
+    } else if( p->usage < 1024 * 1024 / 2 ) {
+      fprintf( f, "%.2f KB\n", ((double)p->usage) * ( 1.0 / 1024.0 ) );
+    } else if( p->usage < 1024 * 1024 * 1024 / 2 ) {
+      fprintf( f, "%.2f MB\n", ((double)p->usage) * ( 1.0 / ( 1024.0 * 1024.0 ) ) );
+    } else {
+      fprintf( f, "%.2f GB\n", ((double)p->usage) * ( 1.0 / ( 1024.0 * 1024.0 * 1024.0 ) ) );
+    }
+    p = p->next;
+  }
+
+  fflush( f );
+  if( f != stderr ) {
+    fclose( f );
+  }
 
   fd_mem_usage_private_unlock();
 }
