@@ -190,6 +190,8 @@ fd_tls_sign( fd_tls_sign_t const * sign,
   sign->sign_fn( sign->ctx, sig, payload );
 }
 
+extern char const fd_tls13_cli_sign_prefix[ 98 ];
+
 /* Public API *********************************************************/
 
 /* Handshake state identifiers */
