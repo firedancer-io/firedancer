@@ -22,7 +22,7 @@
 struct fd_exec_slot_ctx {
   ulong           magic; /* ==FD_EXEC_SLOT_CTX_MAGIC */
 
-  fd_banks_t *    banks;
+  fd_banks_t *    banks; /* TODO: Remove fd_banks_t when fd_ledger is removed*/
   fd_bank_t *     bank;
 
   fd_funk_t *     funk;

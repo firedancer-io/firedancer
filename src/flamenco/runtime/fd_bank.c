@@ -472,9 +472,8 @@ fd_banks_clone_from_parent( fd_banks_t * banks,
   /* See if we already recovered the bank */
 
   fd_bank_t * old_bank = fd_banks_map_ele_query( bank_map, &slot, NULL, bank_pool );
-  if( FD_UNLIKELY( old_bank != NULL ) ) {
-    fd_rwlock_unwrite( &banks->rwlock );
-    return old_bank;
+  if( FD_UNLIKELY( !!old_bank ) ) {
+    FD_LOG_CRIT(( "Invariant violation: bank for slot %lu already exists", slot ));
   }
 
   /* First query for the parent bank */
