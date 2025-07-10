@@ -171,8 +171,8 @@ fd_active_set_rotate( fd_active_set_t *     active_set,
   }
 
   fd_bloom_initialize( replace->bloom, num_bloom_filter_items );
-  fd_bloom_insert( replace->bloom, new_peer->pubkey, 32UL );
-  fd_memcpy( replace->pubkey, new_peer->pubkey, 32UL );
+  fd_bloom_insert( replace->bloom, new_peer->pubkey.uc, 32UL );
+  fd_memcpy( replace->pubkey, new_peer->pubkey.uc, 32UL );
   entry->nodes_len = fd_ulong_min( entry->nodes_len+1UL, 12UL );
 
   if( opt_replaced_node_idx ) {

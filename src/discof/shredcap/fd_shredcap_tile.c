@@ -143,14 +143,14 @@ handle_new_contact_info( fd_capture_tile_ctx_t * ctx,
   if( FD_UNLIKELY( tvu.l!=FD_CONTACT_INFO_NULL_SOCKET ) ){
     snprintf( tvu_buf, sizeof(tvu_buf),
               "%u,%u(tvu),%s,%d\n",
-              tvu.addr, tvu.port, FD_BASE58_ENC_32_ALLOCA(msg->contact_info.pubkey), 1);
+              tvu.addr, tvu.port, FD_BASE58_ENC_32_ALLOCA(msg->contact_info.pubkey.uc), 1);
     int err = fd_io_buffered_ostream_write( &ctx->peers_ostream, tvu_buf, strlen(tvu_buf) );
     FD_TEST( err==0 );
   }
   if( FD_UNLIKELY( repair.l!=FD_CONTACT_INFO_NULL_SOCKET ) ){
     snprintf( repair_buf, sizeof(repair_buf),
               "%u,%u(repair),%s,%d\n",
-              repair.addr, repair.port, FD_BASE58_ENC_32_ALLOCA(msg->contact_info.pubkey), 1);
+              repair.addr, repair.port, FD_BASE58_ENC_32_ALLOCA(msg->contact_info.pubkey.uc), 1);
     int err = fd_io_buffered_ostream_write( &ctx->peers_ostream, repair_buf, strlen(repair_buf) );
     FD_TEST( err==0 );
   }

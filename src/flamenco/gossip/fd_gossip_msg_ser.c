@@ -134,7 +134,7 @@ fd_gossip_contact_info_encode( fd_contact_info_t const *     contact_info,
   INC( 64U ); /* Reserve space for signature */
 
   FD_STORE( uint, CURSOR, FD_GOSSIP_VALUE_CONTACT_INFO ) ; INC(  4U );
-  fd_memcpy( CURSOR, contact_info->pubkey, 32UL )        ; INC( 32U );
+  fd_memcpy( CURSOR, contact_info->pubkey.uc, 32UL )        ; INC( 32U );
 
   ulong wallclock = (ulong)FD_NANOSEC_TO_MILLI( contact_info->wallclock_nanos );
   INC( varint_encode( wallclock, CURSOR ) );

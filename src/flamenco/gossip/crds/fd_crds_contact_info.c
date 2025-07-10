@@ -25,7 +25,7 @@ fd_crds_contact_info_populate( fd_gossip_view_crds_value_t const * view,
   ci->instance_creation_wallclock_nanos = ci_view->instance_creation_wallclock_nanos;
   ci->wallclock_nanos                   = view->wallclock_nanos;
   ci->shred_version                     = ci_view->shred_version;
-  fd_memcpy( ci->pubkey, payload + view->pubkey_off, 32UL );
+  fd_memcpy( ci->pubkey.uc, payload + view->pubkey_off, 32UL );
 
   ci->version.major       = ci_view->version->major;
   ci->version.minor       = ci_view->version->minor;

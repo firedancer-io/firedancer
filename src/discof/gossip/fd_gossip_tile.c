@@ -124,7 +124,7 @@ during_housekeeping( fd_gossip_tile_ctx_t * ctx ) {
     /* TODO: Need some kind of state machine here, to ensure we switch
        in sync with the signing tile.  Currently, we might send out a
        badly signed message before the signing tile has switched. */
-    fd_memcpy( ctx->my_contact_info->pubkey, ctx->keyswitch->bytes, 32UL );
+    fd_memcpy( ctx->my_contact_info->pubkey.uc, ctx->keyswitch->bytes, 32UL );
     fd_gossip_set_my_contact_info( ctx->gossip, ctx->my_contact_info, ctx->last_wallclock );
 
     fd_keyswitch_state( ctx->keyswitch, FD_KEYSWITCH_STATE_COMPLETED );
@@ -212,7 +212,7 @@ privileged_init( fd_topo_t *      topo,
   if( FD_UNLIKELY( !strcmp( tile->gossip.identity_key_path, "" ) ) )
     FD_LOG_ERR(( "identity_key_path not set" ));
 
-  fd_memcpy( ctx->my_contact_info->pubkey, fd_type_pun_const( fd_keyload_load( tile->gossip.identity_key_path, /* pubkey only: */ 1 ) ), 32UL );
+  fd_memcpy( ctx->my_contact_info->pubkey.uc, fd_type_pun_const( fd_keyload_load( tile->gossip.identity_key_path, /* pubkey only: */ 1 ) ), 32UL );
   FD_TEST( 4UL==getrandom( &ctx->rng_seed, 4UL, 0 ) );
   FD_TEST( 8UL==getrandom( &ctx->rng_idx,  8UL, 0 ) );
 }
@@ -333,7 +333,7 @@ unprivileged_init( fd_topo_t *      topo,
   uchar * pubkey = fd_keyload_load( tile->gossip.identity_key_path, /* pubkey only: */ 1 );
 
   fd_contact_info_t * ci                = ctx->my_contact_info;
-  fd_memcpy( ci->pubkey, pubkey, 32UL );
+  fd_memcpy( ci->pubkey.uc, pubkey, 32UL );
   ci->wallclock_nanos                   = ctx->last_wallclock;
   ci->version.client                    = FD_GOSSIP_VERSION_CLIENT_FIREDANCER;
   ci->version.major                     = 42;

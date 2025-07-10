@@ -7,6 +7,7 @@
    https://github.com/anza-xyz/agave/blob/b11ca828cfc658b93cb86a6c5c70561875abe237/gossip/src/contact_info.rs# */
 
 #include "../../util/net/fd_net_headers.h" /* fd_ip4_port_t */
+#include "../types/fd_pubkey_type.h"
 
 /* Contact info v2 socket tag constants */
 #define FD_CONTACT_INFO_SOCKET_GOSSIP             ( 0)
@@ -44,7 +45,7 @@
    The struct is optimized for fast deserialization and slow
    serialization. */
 struct fd_contact_info {
-  uchar         pubkey[ 32UL ];
+  fd_pubkey_t   pubkey;
   ushort        shred_version; /* Shred version for this contact info */
 
   long          instance_creation_wallclock_nanos; /* Wallclock when node was initialized */

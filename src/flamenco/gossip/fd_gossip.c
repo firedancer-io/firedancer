@@ -24,7 +24,7 @@ struct stake_weight {
 };
 typedef struct stake_weight stake_weight_t;
 
-fd_pubkey_t pubkey_null = { .ui = {0UL,0UL,0UL,0UL} };
+fd_pubkey_t pubkey_null = { .ul = {0UL,0UL,0UL,0UL} };
 
 #define MAP_NAME               stake_map
 #define MAP_T                  stake_weight_t
@@ -33,7 +33,6 @@ fd_pubkey_t pubkey_null = { .ui = {0UL,0UL,0UL,0UL} };
 #define MAP_KEY_NULL           pubkey_null
 #define MAP_KEY_EQUAL(k0,k1)   (!(memcmp((k0).key,(k1).key,sizeof(fd_pubkey_t))))
 #define MAP_KEY_INVAL(k)       (MAP_KEY_EQUAL((k),MAP_KEY_NULL))
-#define MAP_KEY_EQUAL_IS_SLOW  1
 #define MAP_KEY_HASH(key)      ((key).ui[3])
 #define MAP_KEY_MOVE(k0,k1)    (fd_memcpy((k0).key,(k1).key,sizeof(fd_pubkey_t) ))
 #define MAP_KEY_EQUAL_IS_SLOW  1
@@ -378,7 +377,7 @@ void
 fd_gossip_set_my_contact_info( fd_gossip_t *             gossip,
                                fd_contact_info_t const * contact_info,
                                long                      now ) {
-  fd_memcpy( gossip->identity_pubkey, contact_info->pubkey, 32UL );
+  fd_memcpy( gossip->identity_pubkey, contact_info->pubkey.uc, 32UL );
   gossip->expected_shred_version = contact_info->shred_version;
 
   *gossip->my_contact_info.ci = *contact_info;
