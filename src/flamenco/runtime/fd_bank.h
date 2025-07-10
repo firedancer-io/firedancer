@@ -509,6 +509,26 @@ FD_BANKS_ITER(X)
 #undef HAS_COW_0
 #undef HAS_COW_1
 
+/* fd_banks_lock() and fd_banks_unlock() are locks to be acquired and
+   freed around accessing or modifying a specific bank. This is only
+   required if there is concurrent access to a bank while operations on
+   its underlying map are being performed.
+
+   Under the hood, this is a wrapper around fd_banks_t's rwlock.
+   This is done so a caller can safely read/write a specific bank.
+   Otherwise, we run the risk of accessing/modifying a bank that may be
+   freed. This is acquiring and freeing a read lock around fd_banks_t. */
+
+static inline void
+fd_banks_lock( fd_banks_t * banks ) {
+  fd_rwlock_read( &banks->rwlock );
+}
+
+static inline void
+fd_banks_unlock( fd_banks_t * banks ) {
+  fd_rwlock_unread( &banks->rwlock );
+}
+
 /* fd_banks_root returns the current root slot for the bank. */
 
 FD_FN_PURE static inline fd_bank_t const *
