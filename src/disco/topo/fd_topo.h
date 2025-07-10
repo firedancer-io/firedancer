@@ -448,6 +448,8 @@ struct fd_topo_tile {
       int requests_fd;
       int fecs_fd;
       int peers_fd;
+      int bank_hashes_fd;
+      int val_shreds_fd;
     } shredcap;
 
     struct {
