@@ -515,8 +515,6 @@ fd_snaprd_read_snapshot( fd_snaprd_tile_t * ctx,
            ctx->state==FD_SNAPRD_STATE_FULL_DOWNLOAD ||
            ctx->state==FD_SNAPRD_STATE_INCREMENTAL_DOWNLOAD );
 
-  if( FD_UNLIKELY( !*stem->cr_avail ) ) return;
-
   uchar * out     = fd_chunk_to_laddr( ctx->out.wksp, ctx->out.chunk );
   ulong   out_max = SNAP_READ_MAX;
   ulong   sz      = 0UL;
@@ -753,7 +751,7 @@ unprivileged_init( fd_topo_t *      topo,
   ctx->state               = FD_SNAPRD_STATE_WAITING_FOR_PEERS;
 }
 
-#define STEM_BURST                  4UL
+#define STEM_BURST                  2UL
 #define STEM_LAZY                   1e3L
 
 #define STEM_CALLBACK_CONTEXT_TYPE  fd_snaprd_tile_t
