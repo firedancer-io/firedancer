@@ -175,6 +175,11 @@ typedef struct {
   ulong send_fec_set_cnt;
   ulong tsorig;  /* timestamp of the last packet in compressed form */
 
+  uint nonce;
+  uint src_ip4_addr;
+  uint nonce_exists;
+  uint hdr_sz;
+
   /* Includes Ethernet, IP, UDP headers */
   ulong shred_buffer_sz;
   uchar shred_buffer[ FD_NET_MTU ];
@@ -762,6 +767,19 @@ after_frag( fd_shred_ctx_t *    ctx,
     uchar * shred_buffer    = ctx->shred_buffer;
     ulong   shred_buffer_sz = ctx->shred_buffer_sz;
 
+    fd_ip4_udp_hdrs_t * hdr  = (fd_ip4_udp_hdrs_t *)shred_buffer;
+    ctx->src_ip4_addr = hdr->ip4->saddr;
+    ctx->nonce_exists = 0;
+    ctx->nonce = 0;
+
+    ulong proto = fd_disco_netmux_sig_proto( sig );
+    if (proto == DST_PROTO_REPAIR) {
+      ctx->nonce = fd_uint_load_4(shred_buffer + shred_buffer_sz - sizeof(uint));
+      ctx->nonce_exists = 1;
+    }
+    // shred_buffer += ctx->hdr_sz;
+
+
     fd_shred_t const * shred = fd_shred_parse( shred_buffer, shred_buffer_sz );
 
     if( FD_UNLIKELY( !shred       ) ) { ctx->metrics->shred_processing_result[ 1 ]++; return; }
@@ -845,9 +863,18 @@ after_frag( fd_shred_ctx_t *    ctx,
         ulong sig = fd_disco_shred_repair_shred_sig( !!completes, shred->slot, shred->fec_set_idx, is_code, shred_idx_or_data_cnt );
 
         /* Copy the shred header into the frag and publish. */
-
         ulong sz = fd_shred_header_sz( shred->variant );
-        fd_memcpy( fd_chunk_to_laddr( ctx->repair_out_mem, ctx->repair_out_chunk ), shred, sz );
+
+        uchar* chunk = fd_chunk_to_laddr( ctx->repair_out_mem, ctx->repair_out_chunk); 
+        fd_memcpy(chunk, shred, sz );
+        fd_memcpy(chunk + sz, &ctx->src_ip4_addr, sizeof(ctx->src_ip4_addr));
+        sz += 4;
+
+        if (ctx->nonce_exists == 1) {
+            fd_memcpy(chunk + sz, &ctx->nonce, sizeof(ctx->nonce));
+            sz += 4;
+        }
+
         ulong tspub = fd_frag_meta_ts_comp( fd_tickcount() );
         fd_stem_publish( stem, ctx->repair_out_idx, sig, ctx->repair_out_chunk, sz, 0UL, ctx->tsorig, tspub );
         ctx->repair_out_chunk = fd_dcache_compact_next( ctx->repair_out_chunk, sz, ctx->repair_out_chunk0, ctx->repair_out_wmark );
