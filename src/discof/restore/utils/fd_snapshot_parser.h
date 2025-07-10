@@ -50,7 +50,7 @@ typedef struct fd_snapshot_accv_map fd_snapshot_accv_map_t;
 #define SNAP_FLAG_DONE    4
 
 /* TODO: bound out to real required maximum */
-#define SCRATCH_SZ 3*1024*1024*1024UL
+#define SCRATCH_SZ 4*1024*1024*1024UL
 
 struct fd_snapshot_parser;
 typedef struct fd_snapshot_parser fd_snapshot_parser_t;
