@@ -9,7 +9,7 @@ typedef void * fd_mem_usage_handle_t;
 
 /* Allocate a handle for memory usage tracking. The argument is a description in printf format.
    It is meant to describe the reason for the memory usage. */
-fd_mem_usage_handle_t fd_mem_usage_get_handle( void const * mem, ulong usage, const char * descript, ... );
+fd_mem_usage_handle_t fd_mem_usage_get_handle( void const * mem, ulong usage, const char * descript, ... ) __attribute__((format(printf, 3, 4)));
 
 /* Free the memory usage handle. */
 void fd_mem_usage_free_handle( fd_mem_usage_handle_t handle );

@@ -171,9 +171,25 @@ fd_mem_usage_sub( fd_mem_usage_handle_t handle, ulong usage ) {
   fd_mem_usage_private_unlock();
 }
 
+static int
+fd_mem_usage_private_compare( const void * a, const void * b ) {
+  fd_mem_usage_private_t * pa = *(fd_mem_usage_private_t **)a;
+  fd_mem_usage_private_t * pb = *(fd_mem_usage_private_t **)b;
+  return ( ( pa->mem > pb->mem ) ? 1 : ( ( pa->mem < pb->mem ) ? -1 : 0 ) );
+}
+
 void
 fd_mem_usage_printout( const char * filename ) {
   fd_mem_usage_private_lock();
+
+  fd_mem_usage_private_t * list[FD_MEM_USAGE_POOL_SIZE];
+  ulong list_size = 0;
+  fd_mem_usage_private_t * p = fd_mem_usage_private_head;
+  while( p != NULL ) {
+    list[list_size++] = p;
+    p = p->next;
+  }
+  qsort( list, list_size, sizeof(fd_mem_usage_private_t *), fd_mem_usage_private_compare );
 
   FILE * f = ( filename == NULL ) ? stderr : fopen( filename, "w" );
   if( f == NULL ) {
@@ -183,9 +199,9 @@ fd_mem_usage_printout( const char * filename ) {
     return;
   }
 
-  fd_mem_usage_private_t * p = fd_mem_usage_private_head;
-  while( p != NULL ) {
-    fprintf( f, "%s: mem=%p, usage=", p->descript, p->mem );
+  for( ulong i = 0; i < list_size; i++ ) {
+    fd_mem_usage_private_t * p = list[i];
+    fprintf( f, "%-32s: mem=%p, usage=", p->descript, p->mem );
     if( p->usage < 1024 / 2 ) {
       fprintf( f, "%lu bytes\n", p->usage );
     } else if( p->usage < 1024 * 1024 / 2 ) {
