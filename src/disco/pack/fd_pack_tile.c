@@ -1034,6 +1034,15 @@ after_frag( fd_pack_ctx_t *     ctx,
   update_metric_state( ctx, now, FD_PACK_METRIC_STATE_TRANSACTIONS, fd_pack_avail_txn_cnt( ctx->pack )>0 );
 }
 
+/* When not leader, we can sleep until the slot end */
+static void
+get_tile_deadline( fd_pack_ctx_t * ctx, long * deadline_ticks ) {
+  if( FD_UNLIKELY( ctx->leader_slot == ULONG_MAX ) ) {
+    long slot_end_ticks = ctx->approx_tickcount + (long)((double) (ctx->slot_end_ns - ctx->approx_wallclock_ns) * ctx->ticks_per_ns);
+    *deadline_ticks = slot_end_ticks; // TODO: should we make this LONG_MAX? at that point no point for this function?
+  }
+}
+
 static void
 privileged_init( fd_topo_t *      topo,
                  fd_topo_tile_t * tile ) {
@@ -1299,6 +1308,7 @@ populate_allowed_fds( fd_topo_t const *      topo,
     default lazy value computation) to ensure the random value chosen
     based on this won't lead to credit return stalls. */
 #define STEM_LAZY  (128L*3000L)
+#define STEM_CAN_SLEEP (1)
 
 #define STEM_CALLBACK_CONTEXT_TYPE  fd_pack_ctx_t
 #define STEM_CALLBACK_CONTEXT_ALIGN alignof(fd_pack_ctx_t)
@@ -1309,6 +1319,7 @@ populate_allowed_fds( fd_topo_t const *      topo,
 #define STEM_CALLBACK_DURING_FRAG         during_frag
 #define STEM_CALLBACK_AFTER_FRAG          after_frag
 #define STEM_CALLBACK_METRICS_WRITE       metrics_write
+#define STEM_CALLBACK_GET_TILE_DEADLINE   get_tile_deadline
 
 #include "../stem/fd_stem.c"
 
