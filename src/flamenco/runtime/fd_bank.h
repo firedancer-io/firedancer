@@ -451,6 +451,11 @@ FD_BANKS_ITER(X)
 #undef HAS_LOCK_0
 #undef HAS_LOCK_1
 
+static inline ulong
+fd_bank_slot_get( fd_bank_t * bank ) {
+  return bank->slot;
+}
+
 /* Simple getters and setters for members of fd_banks_t.*/
 
 static inline fd_bank_t *
@@ -504,7 +509,7 @@ FD_BANKS_ITER(X)
 #undef HAS_COW_0
 #undef HAS_COW_1
 
-/* fd_banks_root reutrns the current root slot for the bank. */
+/* fd_banks_root returns the current root slot for the bank. */
 
 FD_FN_PURE static inline fd_bank_t const *
 fd_banks_root( fd_banks_t const * banks ) {
