@@ -2399,10 +2399,10 @@ is_version_invalid( fd_quic_t * quic, uint version ) {
   return 0;
 }
 
-void
-fd_quic_process_packet( fd_quic_t * quic,
-                        uchar *     data,
-                        ulong       data_sz ) {
+static inline void
+fd_quic_process_packet_impl( fd_quic_t * quic,
+                             uchar *     data,
+                             ulong       data_sz ) {
 
   fd_quic_state_t * state = fd_quic_get_state( quic );
   state->now = fd_quic_now( quic );
@@ -2569,6 +2569,19 @@ fd_quic_process_packet( fd_quic_t * quic,
   fd_quic_process_quic_packet_v1( quic, &pkt, cur_ptr, cur_sz );
 }
 
+void
+fd_quic_process_packet( fd_quic_t * quic,
+                        uchar *     data,
+                        ulong       data_sz ) {
+  long dt = -fd_tickcount();
+  fd_quic_process_packet_impl( quic, data, data_sz );
+  dt += fd_tickcount();
+  fd_histf_sample( quic->metrics.receive_duration, (ulong)dt );
+
+  quic->metrics.net_rx_byte_cnt += data_sz;
+  quic->metrics.net_rx_pkt_cnt++;
+}
+
 /* main receive-side entry point */
 int
 fd_quic_aio_cb_receive( void *                    context,
@@ -2579,9 +2592,6 @@ fd_quic_aio_cb_receive( void *                    context,
   (void)flush;
 
   fd_quic_t * quic = context;
-
-  /* need tickcount for metrics */
-  long  now_ticks = fd_tickcount();
 
   FD_DEBUG(
     fd_quic_state_t * state = fd_quic_get_state( quic );
@@ -2595,7 +2605,6 @@ fd_quic_aio_cb_receive( void *                    context,
      as such, we simply forward each individual packet to a handling function */
   for( ulong j = 0; j < batch_cnt; ++j ) {
     fd_quic_process_packet( quic, batch[ j ].buf, batch[ j ].buf_sz );
-    quic->metrics.net_rx_byte_cnt += batch[ j ].buf_sz;
   }
 
   /* the assumption here at present is that any packet that could not be processed
@@ -2605,8 +2614,6 @@ fd_quic_aio_cb_receive( void *                    context,
     *opt_batch_idx = batch_cnt;
   }
 
-  quic->metrics.net_rx_pkt_cnt += batch_cnt;
-
   FD_DEBUG(
     t1 = fd_quic_now( quic );
     ulong delta = t1 - t0;
@@ -2614,10 +2621,6 @@ fd_quic_aio_cb_receive( void *                    context,
       FD_LOG_WARNING(( "CALLBACK - took %lu  t0: %lu  t1: %lu  batch_cnt: %lu", delta, t0, t1, (ulong)batch_cnt ));
     }
   )
-
-  long delta_ticks = fd_tickcount() - now_ticks;
-
-  fd_histf_sample( quic->metrics.receive_duration, (ulong)delta_ticks );
 
   return FD_AIO_SUCCESS;
 }

@@ -144,7 +144,7 @@
 | <span class="metrics-name">quic_&#8203;ack_&#8203;tx</span><br/>{quic_&#8203;ack_&#8203;tx="<span class="metrics-enum">drop</span>"} | counter | ACK events (out of buffers) |
 | <span class="metrics-name">quic_&#8203;ack_&#8203;tx</span><br/>{quic_&#8203;ack_&#8203;tx="<span class="metrics-enum">cancel</span>"} | counter | ACK events (ACK suppressed by handler) |
 | <span class="metrics-name">quic_&#8203;service_&#8203;duration_&#8203;seconds</span> | histogram | Duration spent in service |
-| <span class="metrics-name">quic_&#8203;receive_&#8203;duration_&#8203;seconds</span> | histogram | Duration spent receiving packets |
+| <span class="metrics-name">quic_&#8203;receive_&#8203;duration_&#8203;seconds</span> | histogram | Duration spent processing packets |
 | <span class="metrics-name">quic_&#8203;frame_&#8203;fail_&#8203;parse</span> | counter | Number of QUIC frames failed to parse. |
 | <span class="metrics-name">quic_&#8203;pkt_&#8203;crypto_&#8203;failed</span><br/>{quic_&#8203;enc_&#8203;level="<span class="metrics-enum">initial</span>"} | counter | Number of packets that failed decryption. (initial) |
 | <span class="metrics-name">quic_&#8203;pkt_&#8203;crypto_&#8203;failed</span><br/>{quic_&#8203;enc_&#8203;level="<span class="metrics-enum">early</span>"} | counter | Number of packets that failed decryption. (early data) |
@@ -788,7 +788,7 @@
 | <span class="metrics-name">send_&#8203;ack_&#8203;tx</span><br/>{quic_&#8203;ack_&#8203;tx="<span class="metrics-enum">drop</span>"} | counter | Total count of ACK frames transmitted (out of buffers) |
 | <span class="metrics-name">send_&#8203;ack_&#8203;tx</span><br/>{quic_&#8203;ack_&#8203;tx="<span class="metrics-enum">cancel</span>"} | counter | Total count of ACK frames transmitted (ACK suppressed by handler) |
 | <span class="metrics-name">send_&#8203;service_&#8203;duration_&#8203;seconds</span> | histogram | Duration spent in service |
-| <span class="metrics-name">send_&#8203;receive_&#8203;duration_&#8203;seconds</span> | histogram | Duration spent receiving packets |
+| <span class="metrics-name">send_&#8203;receive_&#8203;duration_&#8203;seconds</span> | histogram | Duration spent processing packets |
 
 </div>
 
@@ -798,7 +798,7 @@
 
 | Metric | Type | Description |
 |--------|------|-------------|
-| <span class="metrics-name">snaprd_&#8203;state</span> | gauge | State of the tile. 0 = waiting for at least one peer from gossip, 1 = collecting peers from gossip, 2 = pinging peers, 3 = collecting ping responses, 4 = reading full snapshot file, 5 = reading incremental snapshot file, 6 = downloading full snapshot file, 7 = downloading incremental snapshot file, 8 = pinging peers before loading the incremental snapshot, 0 = collecting ping responses before loading the incremental snapshot, 10 = waiting for full snapshot to finish loading, 11 = waiting for incremental snapshot to finish loading, 12 = done  |
+| <span class="metrics-name">snaprd_&#8203;state</span> | gauge | State of the tile. 0 = waiting for at least one peer from gossip, 1 = collecting peers from gossip, 2 = pinging peers, 3 = collecting ping responses, 4 = reading full snapshot file, 5 = reading incremental snapshot file, 6 = downloading full snapshot file, 7 = downloading incremental snapshot file, 8 = pinging peers before loading the incremental snapshot, 0 = collecting ping responses before loading the incremental snapshot, 10 = waiting for full snapshot to finish loading, 11 = waiting for incremental snapshot to finish loading, 12 = done. |
 | <span class="metrics-name">snaprd_&#8203;full_&#8203;num_&#8203;retries</span> | counter | Number of times we aborted and retried full snapshot download because the peer was too slow |
 | <span class="metrics-name">snaprd_&#8203;incremental_&#8203;num_&#8203;retries</span> | counter | Number of times we aborted and retried incremental snapshot download because the peer was too slow |
 | <span class="metrics-name">snaprd_&#8203;full_&#8203;bytes_&#8203;read</span> | gauge | Number of bytes read so far from the full snapshot. Might decrease if snapshot load is aborted and restarted |
@@ -816,7 +816,7 @@
 
 | Metric | Type | Description |
 |--------|------|-------------|
-| <span class="metrics-name">snapdc_&#8203;state</span> | gauge | State of the tile. 0 = waiting for compressed byte stream, 1 = decompressing full snapshot, 2 = decompressing incremental snapshot, 3 = Done |
+| <span class="metrics-name">snapdc_&#8203;state</span> | gauge | State of the tile. 0 = waiting for compressed byte stream, 1 = decompressing full snapshot, 2 = decompressing incremental snapshot, 3 = done. |
 | <span class="metrics-name">snapdc_&#8203;full_&#8203;compressed_&#8203;bytes_&#8203;read</span> | gauge | Number of bytes read so far from the compressed full snapshot file. Might decrease if snapshot load is aborted and restarted |
 | <span class="metrics-name">snapdc_&#8203;full_&#8203;decompressed_&#8203;bytes_&#8203;read</span> | gauge | Number of bytes read so far from the decompressed file. Might decrease if snapshot load is aborted and restarted |
 | <span class="metrics-name">snapdc_&#8203;full_&#8203;decompressed_&#8203;bytes_&#8203;total</span> | gauge | Total size of the decompressed full snapshot file. Might change if snapshot load is aborted and restarted |
@@ -832,7 +832,7 @@
 
 | Metric | Type | Description |
 |--------|------|-------------|
-| <span class="metrics-name">snapin_&#8203;state</span> | gauge | State of the tile. 0 = waiting for decompressed snapshot bytestream, 1 = processing full snapshot, 2 = processing incremental snapshot, 3 = Done |
+| <span class="metrics-name">snapin_&#8203;state</span> | gauge | State of the tile. 0 = waiting for decompressed snapshot bytestream, 1 = processing full snapshot, 2 = processing incremental snapshot, 3 = done. |
 | <span class="metrics-name">snapin_&#8203;full_&#8203;accounts_&#8203;files_&#8203;processed</span> | gauge | Number of accounts files (appendvecs) processed in the full snapshot. Might decrease if snapshot load is aborted and restarted |
 | <span class="metrics-name">snapin_&#8203;full_&#8203;accounts_&#8203;files_&#8203;total</span> | gauge | Total number of accounts files in the full snapshot. Might change if snapshot load is aborted and restarted |
 | <span class="metrics-name">snapin_&#8203;incremental_&#8203;accounts_&#8203;files_&#8203;processed</span> | gauge | Number of accounts files (appendvecs) processed in the incremental snapshot. Might decrease if snapshot load is aborted and restarted |
