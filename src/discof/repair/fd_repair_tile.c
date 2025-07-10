@@ -226,6 +226,17 @@ send_packet( fd_repair_tile_ctx_t * ctx,
   ctx->net_out_chunk = fd_dcache_compact_next( chunk, packet_sz, ctx->net_out_chunk0, ctx->net_out_wmark );
 }
 
+static void
+fd_repair_send_request( fd_repair_tile_ctx_t   * repair_tile_ctx,
+                        fd_stem_context_t      * stem,
+                        fd_repair_t            * glob,
+                        enum fd_needed_elem_type type,
+                        ulong                    slot,
+                        uint                     shred_index,
+                        fd_pubkey_t const      * recipient,
+                        long                     now );
+
+
 static inline void
 handle_new_cluster_contact_info( fd_repair_tile_ctx_t * ctx,
                                  uchar const *          buf,
@@ -247,12 +258,20 @@ handle_new_cluster_contact_info( fd_repair_tile_ctx_t * ctx,
       .port = fd_ushort_bswap( in_dests[i].udp_port ),
     };
     int dup = fd_repair_add_active_peer( ctx->repair, &repair_peer, in_dests[i].pubkey );
-    fd_repair_ledger_peer_add(
-        ctx->repair_ledger, 
-        in_dests[i].pubkey,
-        (fd_ip4_port_t){ .addr = in_dests[i].ip4_addr, .port = repair_peer.port },
-        fd_log_wallclock() 
-    );
+    fd_repair_ledger_peer_t * peer = fd_repair_ledger_peer_query( ctx->repair_ledger, in_dests[i].pubkey );
+    if (peer && !peer->pong_sent) {
+      fd_repair_send_request(ctx, ctx->stem, ctx->repair, 0, 0, 0, in_dests[i].pubkey, fd_log_wallclock());
+      peer->pong_sent = 1;
+      // FD_LOG_INFO(("Sent pong to peer: time: %lu", (ulong)fd_log_wallclock()));
+    } else {
+      fd_repair_ledger_peer_add(
+          ctx->repair_ledger, 
+          in_dests[i].pubkey,
+          (fd_ip4_port_t){ .addr = in_dests[i].ip4_addr, .port = repair_peer.port },
+          fd_log_wallclock() 
+      );
+    }
+
     if( !dup ) {
       ulong hash_src = 0xfffffUL & fd_ulong_hash( (ulong)in_dests[i].ip4_addr | ((ulong)repair_peer.port<<32) );
       FD_LOG_INFO(( "Added repair peer: pubkey %s hash_src %lu", FD_BASE58_ENC_32_ALLOCA(in_dests[i].pubkey), hash_src ));
@@ -443,7 +462,9 @@ fd_repair_ledger_select_peers(ctx->repair_ledger, FD_REPAIR_NUM_NEEDED_PEERS, se
 for( uint i=0; i<FD_REPAIR_NUM_NEEDED_PEERS; i++ ) {
     if( !selected_peers[i] ) break;
     fd_repair_send_request( ctx, stem, glob, type, slot, shred_index, selected_peers[i], now );
+      // FD_LOG_INFO(("Sent request to peer: time: %lu", (ulong)fd_log_wallclock()));
 }
+
 }
 
 

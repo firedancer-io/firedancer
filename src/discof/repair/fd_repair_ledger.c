@@ -401,6 +401,7 @@ fd_repair_ledger_peer_add( fd_repair_ledger_t *        repair_ledger,
   peer->ewma_hr           = 0UL;
   peer->ewma_rtt          = 0UL;
   peer->num_inflight_req  = 0UL;
+  peer->pong_sent         = 0;
 
   /* Insert into map */
   fd_repair_ledger_peer_map_ele_insert( peer_map, peer, peer_pool );

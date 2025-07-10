@@ -188,6 +188,7 @@ struct __attribute__((aligned(64UL))) fd_repair_ledger_peer {
   ulong         ewma_rtt;           /* exponentially weighted moving average RTT */
   ulong         num_inflight_req;   /* number of inflight requests to this peer */
   ulong         peer_list_idx;      /* index of the peer in the peer_list array */
+  uint          pong_sent;          /* 1 if pong has been sent to this peer */
 };
 typedef struct fd_repair_ledger_peer fd_repair_ledger_peer_t;
 
