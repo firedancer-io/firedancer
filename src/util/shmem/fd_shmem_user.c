@@ -110,8 +110,8 @@ fd_shmem_private_map_rand( ulong size,
     long n = getrandom( &ret_addr, sizeof(ret_addr), 0 );
     if( FD_UNLIKELY( n!=sizeof(ret_addr) ) ) FD_LOG_ERR(( "could not generate random address, getrandom() failed (%i-%s)", errno, fd_io_strerror( errno ) ));
 
-    /* Assume 48-bit virtual addressing */
-    ret_addr &= 0x0000FFFFFFFFFFFFUL;
+    /* Assume 47-bit virtual addressing */
+    ret_addr &= 0x00007FFFFFFFFFFFUL;
     ret_addr  = fd_ulong_align_up( ret_addr, align );
 
     if( fd_shmem_private_grab_region( ret_addr, size )!=MAP_FAILED ) {
