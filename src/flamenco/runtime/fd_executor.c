@@ -1255,7 +1255,7 @@ fd_exec_txn_ctx_from_exec_slot_ctx( fd_exec_slot_ctx_t const * slot_ctx,
 
   ctx->bank = slot_ctx->bank;
 
-  ctx->slot = slot_ctx->bank->slot;
+  ctx->slot = fd_bank_slot_get( slot_ctx->bank );
 
   ctx->features = fd_bank_features_get( ctx->bank );
 }

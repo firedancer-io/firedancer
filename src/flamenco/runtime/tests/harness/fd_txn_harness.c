@@ -70,7 +70,7 @@ fd_runtime_fuzz_txn_ctx_create( fd_runtime_fuzz_runner_t *         runner,
 
   /* Setup Bank manager */
 
-  fd_bank_prev_slot_set( slot_ctx->bank, slot_ctx->bank->slot - 1UL );
+  fd_bank_parent_slot_set( slot_ctx->bank, fd_bank_slot_get( slot_ctx->bank ) - 1UL );
 
   fd_bank_lamports_per_signature_set( slot_ctx->bank, 5000UL );
 

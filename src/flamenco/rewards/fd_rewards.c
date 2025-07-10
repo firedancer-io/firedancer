@@ -96,7 +96,7 @@ static double
 slot_in_year_for_inflation( fd_exec_slot_ctx_t * slot_ctx ) {
   fd_epoch_schedule_t const * epoch_schedule = fd_bank_epoch_schedule_query( slot_ctx->bank );
 
-  ulong num_slots = get_inflation_num_slots( slot_ctx, epoch_schedule, slot_ctx->bank->slot );
+  ulong num_slots = get_inflation_num_slots( slot_ctx, epoch_schedule, fd_bank_slot_get( slot_ctx->bank ) );
   return (double)num_slots / (double)fd_bank_slots_per_year_get( slot_ctx->bank );
 }
 
@@ -387,13 +387,14 @@ calculate_reward_points_partitioned( fd_exec_slot_ctx_t *       slot_ctx,
   int _err[1];
   ulong   new_warmup_cooldown_rate_epoch_val = 0UL;
   ulong * new_warmup_cooldown_rate_epoch     = &new_warmup_cooldown_rate_epoch_val;
-  int is_some = fd_new_warmup_cooldown_rate_epoch( slot_ctx->bank->slot,
-                                                   slot_ctx->funk,
-                                                   slot_ctx->funk_txn,
-                                                   runtime_spad,
-                                                   fd_bank_features_query( slot_ctx->bank ),
-                                                   new_warmup_cooldown_rate_epoch,
-                                                   _err );
+  int is_some = fd_new_warmup_cooldown_rate_epoch(
+      fd_bank_slot_get( slot_ctx->bank ),
+      slot_ctx->funk,
+      slot_ctx->funk_txn,
+      runtime_spad,
+      fd_bank_features_query( slot_ctx->bank ),
+      new_warmup_cooldown_rate_epoch,
+      _err );
   if( FD_UNLIKELY( !is_some ) ) {
     new_warmup_cooldown_rate_epoch = NULL;
   }
@@ -605,13 +606,14 @@ calculate_stake_vote_rewards( fd_exec_slot_ctx_t *                       slot_ct
   int _err[1];
   ulong   new_warmup_cooldown_rate_epoch_val = 0UL;
   ulong * new_warmup_cooldown_rate_epoch     = &new_warmup_cooldown_rate_epoch_val;
-  int is_some = fd_new_warmup_cooldown_rate_epoch( slot_ctx->bank->slot,
-                                                   slot_ctx->funk,
-                                                   slot_ctx->funk_txn,
-                                                   runtime_spad,
-                                                   fd_bank_features_query( slot_ctx->bank ),
-                                                   new_warmup_cooldown_rate_epoch,
-                                                   _err );
+  int is_some = fd_new_warmup_cooldown_rate_epoch(
+      fd_bank_slot_get( slot_ctx->bank ),
+      slot_ctx->funk,
+      slot_ctx->funk_txn,
+      runtime_spad,
+      fd_bank_features_query( slot_ctx->bank ),
+      new_warmup_cooldown_rate_epoch,
+      _err );
   if( FD_UNLIKELY( !is_some ) ) {
     new_warmup_cooldown_rate_epoch = NULL;
   }
@@ -839,7 +841,7 @@ calculate_rewards_for_partitioning( fd_exec_slot_ctx_t *                   slot_
   fd_stake_reward_calculation_t * stake_reward_calculation = &validator_result->calculate_stake_vote_rewards_result.stake_reward_calculation;
   fd_epoch_schedule_t const *     epoch_schedule           = fd_bank_epoch_schedule_query( slot_ctx->bank );
   ulong                           num_partitions           = get_reward_distribution_num_blocks( epoch_schedule,
-                                                                                                 slot_ctx->bank->slot,
+                                                                                                 fd_bank_slot_get( slot_ctx->bank ),
                                                                                                  stake_reward_calculation->stake_rewards_len );
   hash_rewards_into_partitions( stake_reward_calculation,
                                 parent_blockhash,
@@ -907,7 +909,7 @@ calculate_rewards_and_distribute_vote_rewards( fd_exec_slot_ctx_t *             
       FD_LOG_ERR(( "Unable to modify vote account" ));
     }
 
-    vote_rec->vt->set_slot( vote_rec, slot_ctx->bank->slot );
+    vote_rec->vt->set_slot( vote_rec, fd_bank_slot_get( slot_ctx->bank ) );
 
     if( FD_UNLIKELY( vote_rec->vt->checked_add_lamports( vote_rec, vote_reward_node->elem.vote_rewards ) ) ) {
       FD_LOG_ERR(( "Adding lamports to vote account would cause overflow" ));
@@ -949,7 +951,7 @@ distribute_epoch_reward_to_stake_acc( fd_exec_slot_ctx_t * slot_ctx,
     FD_LOG_ERR(( "Unable to modify stake account" ));
   }
 
-  stake_acc_rec->vt->set_slot( stake_acc_rec, slot_ctx->bank->slot );
+  stake_acc_rec->vt->set_slot( stake_acc_rec, fd_bank_slot_get( slot_ctx->bank ) );
 
   fd_stake_state_v2_t stake_state[1] = {0};
   if( fd_stake_get_state( stake_acc_rec, stake_state ) != 0 ) {
@@ -1103,7 +1105,7 @@ fd_distribute_partitioned_epoch_rewards( fd_exec_slot_ctx_t * slot_ctx,
   ulong distribution_end_exclusive         = distribution_starting_block_height + status->partitioned_stake_rewards.partitions_len;
 
   fd_epoch_schedule_t const * epoch_schedule = fd_bank_epoch_schedule_query( slot_ctx->bank );
-  ulong                       epoch          = fd_slot_to_epoch( epoch_schedule, slot_ctx->bank->slot, NULL );
+  ulong                       epoch          = fd_slot_to_epoch( epoch_schedule, fd_bank_slot_get( slot_ctx->bank ), NULL );
 
   if( FD_UNLIKELY( get_slots_in_epoch( epoch, epoch_schedule ) <= status->partitioned_stake_rewards.partitions_len ) ) {
     FD_LOG_ERR(( "Should not be distributing rewards" ));
@@ -1205,12 +1207,12 @@ fd_rewards_recalculate_partitioned_rewards( fd_exec_slot_ctx_t * slot_ctx,
     FD_LOG_NOTICE(( "epoch rewards is active" ));
 
     fd_epoch_schedule_t const * epoch_schedule = fd_bank_epoch_schedule_query( slot_ctx->bank );
-    ulong epoch          = fd_slot_to_epoch( epoch_schedule, slot_ctx->bank->slot, NULL );
+    ulong epoch          = fd_slot_to_epoch( epoch_schedule, fd_bank_slot_get( slot_ctx->bank ), NULL );
     ulong rewarded_epoch = fd_ulong_sat_sub( epoch, 1UL );
 
     int _err[1] = {0};
     ulong * new_warmup_cooldown_rate_epoch = fd_spad_alloc( runtime_spad, alignof(ulong), sizeof(ulong) );
-    int is_some = fd_new_warmup_cooldown_rate_epoch( slot_ctx->bank->slot,
+    int is_some = fd_new_warmup_cooldown_rate_epoch( fd_bank_slot_get( slot_ctx->bank ),
                                                      slot_ctx->funk,
                                                      slot_ctx->funk_txn,
                                                      runtime_spad,

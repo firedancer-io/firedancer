@@ -296,7 +296,7 @@ fd_exec_slot_ctx_recover( fd_exec_slot_ctx_t *                slot_ctx,
 
   /* Prev Slot */
 
-  fd_bank_prev_slot_set( slot_ctx->bank, old_bank->parent_slot );
+  fd_bank_parent_slot_set( slot_ctx->bank, old_bank->parent_slot );
 
   /* Execution Fees */
 
@@ -346,7 +346,7 @@ fd_exec_slot_ctx_recover( fd_exec_slot_ctx_t *                slot_ctx,
     fd_slot_pair_t const * tail = head + old_bank->hard_forks.hard_forks_len - 1UL;
 
     for( fd_slot_pair_t const *pair = tail; pair >= head; pair-- ) {
-      if( pair->slot <= slot_ctx->bank->slot ) {
+      if( pair->slot <= fd_bank_slot_get( slot_ctx->bank ) ) {
         fd_sol_sysvar_last_restart_slot_t * last_restart_slot = fd_bank_last_restart_slot_modify( slot_ctx->bank );
         last_restart_slot->slot = pair->slot;
         break;
@@ -369,7 +369,7 @@ fd_exec_slot_ctx_recover( fd_exec_slot_ctx_t *                slot_ctx,
   do {
 
     fd_epoch_schedule_t const * epoch_schedule = fd_bank_epoch_schedule_query( slot_ctx->bank );
-    ulong epoch = fd_slot_to_epoch( epoch_schedule, slot_ctx->bank->slot, NULL );
+    ulong epoch = fd_slot_to_epoch( epoch_schedule, fd_bank_slot_get( slot_ctx->bank ), NULL );
 
     /* We need to save the vote accounts for the current epoch and the next
        epoch as it is used to calculate the leader schedule at the epoch

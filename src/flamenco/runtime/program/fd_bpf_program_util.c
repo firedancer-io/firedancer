@@ -204,7 +204,7 @@ fd_bpf_parse_elf_info( fd_sbpf_elf_info_t *       elf_info,
   uint min_sbpf_version, max_sbpf_version;
   fd_bpf_get_sbpf_versions( &min_sbpf_version,
                             &max_sbpf_version,
-                            slot_ctx->bank->slot,
+                            fd_bank_slot_get( slot_ctx->bank ),
                             fd_bank_features_query( slot_ctx->bank ) );
   if( FD_UNLIKELY( !fd_sbpf_elf_peek( elf_info, program_data, program_data_len, /* deploy checks */ 0, min_sbpf_version, max_sbpf_version ) ) ) {
     FD_LOG_DEBUG(( "fd_sbpf_elf_peek() failed: %s", fd_sbpf_strerror() ));
@@ -237,7 +237,7 @@ fd_bpf_validate_sbpf_program( fd_exec_slot_ctx_t const *    slot_ctx,
 
   fd_epoch_schedule_t const * epoch_schedule = fd_bank_epoch_schedule_query( slot_ctx->bank );
   validated_prog->last_epoch_verification_ran = fd_slot_to_epoch( epoch_schedule,
-                                                                  slot_ctx->bank->slot,
+                                                                  fd_bank_slot_get( slot_ctx->bank ),
                                                                   NULL );
 
   ulong               prog_align     = fd_sbpf_program_align();
@@ -256,7 +256,7 @@ fd_bpf_validate_sbpf_program( fd_exec_slot_ctx_t const *    slot_ctx,
   }
 
   fd_vm_syscall_register_slot( syscalls,
-                               slot_ctx->bank->slot,
+                               fd_bank_slot_get( slot_ctx->bank ),
                                fd_bank_features_query( slot_ctx->bank ),
                                0 );
 
@@ -276,7 +276,7 @@ fd_bpf_validate_sbpf_program( fd_exec_slot_ctx_t const *    slot_ctx,
     FD_LOG_CRIT(( "fd_vm_new() or fd_vm_join() failed" ));
   }
 
-  int direct_mapping = FD_FEATURE_ACTIVE( slot_ctx->bank->slot, fd_bank_features_query( slot_ctx->bank ), bpf_account_data_direct_mapping );
+  int direct_mapping = FD_FEATURE_ACTIVE( fd_bank_slot_get( slot_ctx->bank ), fd_bank_features_query( slot_ctx->bank ), bpf_account_data_direct_mapping );
 
   vm = fd_vm_init( vm,
                    NULL, /* OK since unused in `fd_vm_validate()` */
@@ -554,7 +554,7 @@ FD_SPAD_FRAME_BEGIN( runtime_spad ) {
   /* At this point, the program is in the cache. We need to check the last verified epoch now to determine if it needs to be reverified.
      If it has already been reverified for the current epoch, then there is no need to do anything. */
   fd_epoch_schedule_t const * epoch_schedule = fd_bank_epoch_schedule_query( slot_ctx->bank );
-  ulong current_epoch = fd_slot_to_epoch( epoch_schedule, slot_ctx->bank->slot, NULL );
+  ulong current_epoch = fd_slot_to_epoch( epoch_schedule, fd_bank_slot_get( slot_ctx->bank ), NULL );
   if( FD_LIKELY( prog->last_epoch_verification_ran==current_epoch ) ) {
     return;
   }
