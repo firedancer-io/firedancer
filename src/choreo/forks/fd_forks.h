@@ -24,7 +24,7 @@ struct fd_fork {
                  be read or written to by downstream consumers (eg.
                  consensus, publishing) and should definitely not be
                  removed. */
-  uint  end_idx; /* the end_idx of the last batch executed on this fork */
+  uint  end_idx; /* the end_idx (inclusive) of the last shred of the last batch executed on this fork */
 };
 
 typedef struct fd_fork fd_fork_t;

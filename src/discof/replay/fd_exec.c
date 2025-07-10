@@ -39,19 +39,9 @@ fd_slice_exec_microblock_parse( fd_slice_exec_t * slice_exec_ctx ) {
 }
 
 void
-fd_slice_exec_reset( fd_slice_exec_t * slice_exec_ctx ) {
-  slice_exec_ctx->last_batch    = 0;
-  slice_exec_ctx->txns_rem      = 0;
-  slice_exec_ctx->mblks_rem     = 0;
-  slice_exec_ctx->sz            = 0;
-  slice_exec_ctx->wmark         = 0;
-  slice_exec_ctx->last_mblk_off = 0;
-}
-
-void
 fd_slice_exec_begin( fd_slice_exec_t * slice_exec_ctx,
-                     ulong slice_sz,
-                     int   last_batch ) {
+                     ulong             slice_sz,
+                     int               last_batch ) {
   slice_exec_ctx->sz         = slice_sz;
   slice_exec_ctx->last_batch = last_batch;
   slice_exec_ctx->txns_rem   = 0;

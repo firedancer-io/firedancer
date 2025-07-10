@@ -51,8 +51,13 @@ generate_hash_bank_msg( ulong                               task_infos_gaddr,
 
 /* Execution tracking helpers */
 
+#define FD_EXEC_FLAG_READY_NEW  (0x01UL) /* We've finished executing the current slice, and are ready to load another slice. */
+#define FD_EXEC_FLAG_EXECUTING  (0x02UL) /* We're executing conflict-free transactions as much as we can. */
+#define FD_EXEC_FLAG_FINALIZING (0x04UL) /* We've finished executing all slices in the current slot, and are ready to finalize the slot. */
+#define FD_EXEC_FLAG_BARRIER    (0x08UL) /* We've hit a barrier, and are waiting for in-flight transactions to commit. */
+
 struct fd_slice_exec {
-  uchar * buf;    /* Pointer to the memory region sized for max sz of a block. */
+  uchar * buf;       /* Pointer to the memory region sized for max sz of a block. */
   ulong   wmark;     /* Offset into slice where previous bytes have been executed, and following bytes have not. Will be on a transaction or microblock boundary. */
   ulong   sz;        /* Total bytes this slice occupies in mbatch memory. New slices are placed at this offset */
   ulong   mblks_rem; /* Number of microblocks remaining in the current batch iteration. */
@@ -77,13 +82,20 @@ void
 fd_slice_exec_microblock_parse( fd_slice_exec_t * slice_exec_ctx );
 
 void
-fd_slice_exec_reset( fd_slice_exec_t * slice_exec_ctx );
-
-void
 fd_slice_exec_begin( fd_slice_exec_t * slice_exec_ctx,
-                     ulong slice_sz,
-                     int   last_batch );
+                     ulong             slice_sz,
+                     int               last_batch );
 
+/* The following helpers indicate if
+
+   (1) There are more transactions to execute in the current microblock.
+   (2) There are more microblocks to execute in the current slice/batch (of microblocks).
+   (3) There are more slices/batches in the current slot.
+   (4) There is nothing more to execute in the current slot.
+
+   Together, they cover the full state space of slot execution, and they
+   are mutually exclusive, so one but only one of them is true at a
+   time. */
 static inline int
 fd_slice_exec_txn_ready( fd_slice_exec_t * slice_exec_ctx ) {
   return slice_exec_ctx->txns_rem > 0UL;
@@ -91,12 +103,12 @@ fd_slice_exec_txn_ready( fd_slice_exec_t * slice_exec_ctx ) {
 
 static inline int
 fd_slice_exec_microblock_ready( fd_slice_exec_t * slice_exec_ctx ) {
-  return slice_exec_ctx->txns_rem == 0 && slice_exec_ctx->mblks_rem > 0UL;
+  return slice_exec_ctx->mblks_rem > 0UL && slice_exec_ctx->txns_rem == 0UL;
 }
 
 static inline int
 fd_slice_exec_slice_ready( fd_slice_exec_t * slice_exec_ctx ) {
-  return slice_exec_ctx->txns_rem == 0 && slice_exec_ctx->mblks_rem == 0UL;
+  return !slice_exec_ctx->last_batch && slice_exec_ctx->mblks_rem == 0UL && slice_exec_ctx->txns_rem == 0UL;
 }
 
 static inline int
