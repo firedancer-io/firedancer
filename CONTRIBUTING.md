@@ -1,3 +1,5 @@
+For now, Firedancer does not accept external contributions.
+
 ## Firedancer Code Style Guide
 
 Below is an incomplete list of code style rules.
