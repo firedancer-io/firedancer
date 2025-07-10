@@ -164,11 +164,10 @@ during_frag( fd_writer_tile_ctx_t * ctx,
     info.txn_ctx  = ctx->txn_ctx[ in_idx ];
     info.exec_res = info.txn_ctx->exec_err;
 
-    if( !ctx->bank || info.txn_ctx->slot != fd_bank_slot_get( ctx->bank ) ) {
-      ctx->bank = fd_banks_get_bank( ctx->banks, info.txn_ctx->slot );
-      if( FD_UNLIKELY( !ctx->bank ) ) {
-        FD_LOG_CRIT(( "Could not find bank for slot %lu", info.txn_ctx->slot ));
-      }
+    fd_banks_lock( ctx->banks );
+    ctx->bank = fd_banks_get_bank( ctx->banks, info.txn_ctx->slot );
+    if( FD_UNLIKELY( !ctx->bank ) ) {
+      FD_LOG_CRIT(( "Could not find bank for slot %lu", info.txn_ctx->slot ));
     }
 
     if( !ctx->funk_txn || info.txn_ctx->slot != ctx->funk_txn->xid.ul[0] ) {
@@ -186,11 +185,6 @@ during_frag( fd_writer_tile_ctx_t * ctx,
     }
 
     if( FD_LIKELY( info.txn_ctx->flags & FD_TXN_P_FLAGS_EXECUTE_SUCCESS ) ) {
-      while( fd_writer_fseq_get_state( fd_fseq_query( ctx->fseq ) )!=FD_WRITER_STATE_READY ) {
-        /* Spin to wait for the replay tile to ack the previous txn
-           done. */
-        FD_SPIN_PAUSE();
-      }
       FD_SPAD_FRAME_BEGIN( ctx->spad ) {
         if( FD_UNLIKELY( !ctx->bank ) ) {
           FD_LOG_CRIT(( "No bank for slot %lu", info.txn_ctx->slot ));
@@ -198,6 +192,12 @@ during_frag( fd_writer_tile_ctx_t * ctx,
 
         fd_runtime_finalize_txn( ctx->funk, ctx->funk_txn, &info, ctx->spad, ctx->bank );
       } FD_SPAD_FRAME_END;
+      fd_banks_unlock( ctx->banks );
+      while( fd_writer_fseq_get_state( fd_fseq_query( ctx->fseq ) )!=FD_WRITER_STATE_READY ) {
+        /* Spin to wait for the replay tile to ack the previous txn
+           done. */
+        FD_SPIN_PAUSE();
+      }
     }
     /* Notify the replay tile. */
     fd_fseq_update( ctx->fseq, fd_writer_fseq_set_txn_done( msg->txn_id, msg->exec_tile_id ) );

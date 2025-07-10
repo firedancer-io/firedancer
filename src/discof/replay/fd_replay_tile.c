@@ -510,32 +510,6 @@ block_finalize_tiles_cb( void * para_arg_1,
   }
 }
 
-
-FD_FN_UNUSED static void
-checkpt( fd_replay_tile_ctx_t * ctx ) {
-  if( FD_UNLIKELY( ctx->slots_replayed_file ) ) fclose( ctx->slots_replayed_file );
-  if( FD_UNLIKELY( strcmp( ctx->blockstore_checkpt, "" ) ) ) {
-    int rc = fd_wksp_checkpt( ctx->blockstore_wksp, ctx->blockstore_checkpt, 0666, 0, NULL );
-    if( rc ) {
-      FD_LOG_ERR( ( "blockstore checkpt failed: error %d", rc ) );
-    }
-  }
-  int rc = fd_wksp_checkpt( ctx->funk->wksp, ctx->funk_checkpt, 0666, 0, NULL );
-  if( rc ) {
-    FD_LOG_ERR( ( "funk checkpt failed: error %d", rc ) );
-  }
-}
-
-static void FD_FN_UNUSED
-funk_cancel( fd_replay_tile_ctx_t * ctx, ulong mismatch_slot ) {
-  fd_funk_txn_start_write( ctx->funk );
-  fd_funk_txn_xid_t   xid          = { .ul = { mismatch_slot, mismatch_slot } };
-  fd_funk_txn_map_t * txn_map      = fd_funk_txn_map( ctx->funk );
-  fd_funk_txn_t *     mismatch_txn = fd_funk_txn_query( &xid, txn_map );
-  FD_TEST( fd_funk_txn_cancel( ctx->funk, mismatch_txn, 1 ) );
-  fd_funk_txn_end_write( ctx->funk );
-}
-
 static void
 txncache_publish( fd_replay_tile_ctx_t * ctx,
                   fd_funk_txn_t *        to_root_txn,
@@ -1048,6 +1022,10 @@ after_frag( fd_replay_tile_ctx_t *   ctx,
 
     if( FD_LIKELY( root <= fd_fseq_query( ctx->published_wmark ) ) ) return;
     FD_LOG_NOTICE(( "advancing root %lu => %lu", fd_fseq_query( ctx->published_wmark ), root ));
+
+    if( FD_UNLIKELY( ctx->slot_ctx->bank->slot==root ) ) {
+      FD_LOG_CRIT(( "invariant violation: root %lu is the same as the current slot %lu", root, ctx->slot_ctx->bank->slot ));
+    }
 
     ctx->root = root;
     if( FD_LIKELY( ctx->blockstore ) ) fd_blockstore_publish( ctx->blockstore, ctx->blockstore_fd, root );
@@ -1835,7 +1813,6 @@ after_credit( fd_replay_tile_ctx_t * ctx,
       int rc = fd_bank_hash_cmp_check( bank_hash_cmp, cmp_slot );
       switch ( rc ) {
         case -1:
-          /* Mismatch */
           FD_LOG_WARNING(( "Bank hash mismatch on slot: %lu. Halting.", cmp_slot ));
           break;
         case 0:

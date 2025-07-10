@@ -116,6 +116,7 @@ execute_txn( fd_exec_tile_ctx_t * ctx ) {
   ctx->txn_ctx->funk_txn = funk_txn;
 
   /* Get the bank for the given slot. */
+  fd_banks_lock( ctx->banks );
   ctx->bank = fd_banks_get_bank( ctx->banks, ctx->slot );
   if( FD_UNLIKELY( !ctx->bank ) ) {
     FD_LOG_ERR(( "Could not get bank for slot %lu", ctx->slot ));
@@ -153,11 +154,13 @@ execute_txn( fd_exec_tile_ctx_t * ctx ) {
     FD_LOG_WARNING(( "sigverify failed: %s", FD_BASE58_ENC_64_ALLOCA( (uchar *)ctx->txn_ctx->_txn_raw->raw+ctx->txn_ctx->txn_descriptor->signature_off ) ));
     task_info.txn->flags = 0U;
     task_info.exec_res   = FD_RUNTIME_TXN_ERR_SIGNATURE_FAILURE;
+    fd_banks_unlock( ctx->banks );
     return;
   }
 
   fd_runtime_pre_execute_check( &task_info );
   if( FD_UNLIKELY( !( task_info.txn->flags & FD_TXN_P_FLAGS_SANITIZE_SUCCESS ) ) ) {
+    fd_banks_unlock( ctx->banks );
     return;
   }
 
@@ -168,6 +171,7 @@ execute_txn( fd_exec_tile_ctx_t * ctx ) {
   if( FD_LIKELY( ctx->exec_res==FD_EXECUTOR_INSTR_SUCCESS ) ) {
     fd_txn_reclaim_accounts( task_info.txn_ctx );
   }
+  fd_banks_unlock( ctx->banks );
 
   } FD_SPAD_FRAME_END;
 }
@@ -190,6 +194,8 @@ hash_accounts( fd_exec_tile_ctx_t *                ctx,
   }
   fd_funk_txn_end_read( ctx->funk );
   ctx->txn_ctx->funk_txn = funk_txn;
+
+  fd_banks_lock( ctx->banks );
 
   ctx->bank = fd_banks_get_bank( ctx->banks, ctx->slot );
   if( FD_UNLIKELY( !ctx->bank ) ) {
@@ -224,6 +230,8 @@ hash_accounts( fd_exec_tile_ctx_t *                ctx,
                      ctx->txn_ctx->slot,
                      &ctx->txn_ctx->features );
   }
+
+  fd_banks_unlock( ctx->banks );
 }
 
 static void
