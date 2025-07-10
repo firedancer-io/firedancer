@@ -79,6 +79,13 @@ metric introduced.
     <counter name="XdpRxRingFull" summary="xdp_statistics_v1.rx_ring_full: Dropped due to rx ring being full" />
     <counter name="XdpRxFillRingEmptyDescs" summary="xdp_statistics_v1.rx_fill_ring_empty_descs: Failed to retrieve item from fill ring" />
     <counter name="XdpTxRingEmptyDescs" summary="xdp_statistics_v1.tx_ring_empty_descs: Failed to retrieve item from tx ring" />
+
+    <!-- GRE metrics -->
+    <counter name="RxGreCnt" summary="Number of valid GRE packets received" />
+    <counter name="RxGreInvalidCnt" summary="Number of invalid GRE packets received" />
+    <counter name="RxGreIgnoredCnt" summary="Number of received but ignored GRE packets" />
+    <counter name="TxGreCnt" summary="Number of GRE packet transmit jobs submitted" />
+    <counter name="TxGreRouteFailCnt" summary="Number of GRE packets transmit jobs dropped due to route failure" />
 </tile>
 
 <enum name="SockErr">

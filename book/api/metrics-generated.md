@@ -72,6 +72,11 @@
 | <span class="metrics-name">net_&#8203;xdp_&#8203;rx_&#8203;ring_&#8203;full</span> | counter | xdp_statistics_v1.rx_ring_full: Dropped due to rx ring being full |
 | <span class="metrics-name">net_&#8203;xdp_&#8203;rx_&#8203;fill_&#8203;ring_&#8203;empty_&#8203;descs</span> | counter | xdp_statistics_v1.rx_fill_ring_empty_descs: Failed to retrieve item from fill ring |
 | <span class="metrics-name">net_&#8203;xdp_&#8203;tx_&#8203;ring_&#8203;empty_&#8203;descs</span> | counter | xdp_statistics_v1.tx_ring_empty_descs: Failed to retrieve item from tx ring |
+| <span class="metrics-name">net_&#8203;rx_&#8203;gre_&#8203;cnt</span> | counter | Number of valid GRE packets received |
+| <span class="metrics-name">net_&#8203;rx_&#8203;gre_&#8203;invalid_&#8203;cnt</span> | counter | Number of invalid GRE packets received |
+| <span class="metrics-name">net_&#8203;rx_&#8203;gre_&#8203;ignored_&#8203;cnt</span> | counter | Number of received but ignored GRE packets |
+| <span class="metrics-name">net_&#8203;tx_&#8203;gre_&#8203;cnt</span> | counter | Number of GRE packet transmit jobs submitted |
+| <span class="metrics-name">net_&#8203;tx_&#8203;gre_&#8203;route_&#8203;fail_&#8203;cnt</span> | counter | Number of GRE packets transmit jobs dropped due to route failure |
 
 </div>
 

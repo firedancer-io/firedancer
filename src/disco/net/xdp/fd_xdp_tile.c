@@ -260,6 +260,12 @@ typedef struct {
 
     ulong xsk_tx_wakeup_cnt;
     ulong xsk_rx_wakeup_cnt;
+
+    ulong rx_gre_cnt;
+    ulong rx_gre_ignored_cnt;
+    ulong rx_gre_inv_pkt_cnt;
+    ulong tx_gre_cnt;
+    ulong tx_gre_route_fail_cnt;
   } metrics;
 } fd_net_ctx_t;
 
@@ -298,6 +304,12 @@ metrics_write( fd_net_ctx_t * ctx ) {
 
   FD_MCNT_SET( NET, XSK_TX_WAKEUP_CNT,    ctx->metrics.xsk_tx_wakeup_cnt    );
   FD_MCNT_SET( NET, XSK_RX_WAKEUP_CNT,    ctx->metrics.xsk_rx_wakeup_cnt    );
+
+  FD_MCNT_SET( NET, RX_GRE_CNT,            ctx->metrics.rx_gre_cnt            );
+  FD_MCNT_SET( NET, RX_GRE_INVALID_CNT,    ctx->metrics.rx_gre_inv_pkt_cnt    );
+  FD_MCNT_SET( NET, RX_GRE_IGNORED_CNT,    ctx->metrics.rx_gre_ignored_cnt    );
+  FD_MCNT_SET( NET, TX_GRE_CNT,            ctx->metrics.tx_gre_cnt            );
+  FD_MCNT_SET( NET, TX_GRE_ROUTE_FAIL_CNT, ctx->metrics.tx_gre_route_fail_cnt );
 }
 
 struct xdp_statistics_v0 {
@@ -640,7 +652,7 @@ before_frag( fd_net_ctx_t * ctx,
   if( ctx->tx_op.use_gre ) {
     uint inner_src_ip = ctx->tx_op.src_ip;
     if( FD_UNLIKELY( !inner_src_ip ) ) {
-      ctx->metrics.tx_route_fail_cnt++;
+      ctx->metrics.tx_gre_route_fail_cnt++;
       return 1;
     }
 
@@ -648,11 +660,12 @@ before_frag( fd_net_ctx_t * ctx,
     ctx->tx_op.src_ip  = 0;
     ctx->tx_op.use_gre = 0;
     if( FD_UNLIKELY( !net_tx_route( ctx, ctx->tx_op.gre_outer_dst_ip ) ) ) {
-      return 1; /* metrics incremented by net_tx_route */
+      ctx->metrics.tx_gre_route_fail_cnt++;
+      return 1;
     }
     if( ctx->tx_op.use_gre==1 ) {
       /* Only one layer of tunnelling supported */
-      ctx->metrics.tx_route_fail_cnt++;
+      ctx->metrics.tx_gre_route_fail_cnt++;
       return 1;
     }
     if( !ctx->tx_op.gre_outer_src_ip ) {
@@ -762,7 +775,7 @@ after_frag( fd_net_ctx_t *      ctx,
 
     /* For GRE packets, the ethertype will always be FD_ETH_HDR_TYPE_IP. outer source ip can't be 0 */
     if( FD_UNLIKELY( ctx->tx_op.gre_outer_src_ip==0 ) ) {
-      ctx->metrics.tx_route_fail_cnt++;
+      ctx->metrics.tx_gre_route_fail_cnt++;
       return;
     }
 
@@ -845,6 +858,7 @@ after_frag( fd_net_ctx_t *      ctx,
   FD_VOLATILE( *xsk->ring_tx.prod ) = tx_ring->cached_prod = tx_seq+1U;
   ctx->metrics.tx_submit_cnt++;
   ctx->metrics.tx_bytes_total += sz;
+  if( ctx->tx_op.use_gre ) ctx->metrics.tx_gre_cnt++;
   fd_net_flusher_inc( ctx->tx_flusher+xsk_idx, fd_tickcount() );
 
 }
@@ -870,10 +884,17 @@ net_rx_packet( fd_net_ctx_t * ctx,
 
   if( FD_UNLIKELY( ((fd_eth_hdr_t *)packet)->net_type!=fd_ushort_bswap( FD_ETH_HDR_TYPE_IP ) ) ) return;
 
+  int is_packet_gre = 0;
   /* Discard the GRE overhead (outer iphdr and gre hdr) */
   if( iphdr->protocol == FD_IP4_HDR_PROTOCOL_GRE ) {
-    if( FD_UNLIKELY( ctx->has_gre_interface==0 ) ) return;         // drop. No gre interface in netdev table
-    if( FD_UNLIKELY( FD_IP4_GET_VERSION( *iphdr )!=0x4 ) ) return; // drop. IP version!=IPv4
+    if( FD_UNLIKELY( ctx->has_gre_interface==0 ) ) {
+      ctx->metrics.rx_gre_ignored_cnt++; // drop. No gre interface in netdev table
+      return;
+    }
+    if( FD_UNLIKELY( FD_IP4_GET_VERSION( *iphdr )!=0x4 ) ) {
+      ctx->metrics.rx_gre_inv_pkt_cnt++; // drop. IP version!=IPv4
+      return;
+    }
 
     ulong overhead  = FD_IP4_GET_LEN( *iphdr ) + sizeof(fd_gre_hdr_t);
 
@@ -890,6 +911,7 @@ net_rx_packet( fd_net_ctx_t * ctx,
     sz                 -= overhead;
     packet             = new_packet;
     umem_off           = (ulong)( packet - (uchar *)ctx->umem_frame0 );
+    is_packet_gre      = 1;
   }
 
   /* Translate packet to UMEM frame index */
@@ -972,6 +994,7 @@ net_rx_packet( fd_net_ctx_t * ctx,
   /* Wind up for the next iteration */
   out->seq               = fd_seq_inc( out->seq, 1UL );
 
+  if( is_packet_gre ) ctx->metrics.rx_gre_cnt++;
   ctx->metrics.rx_pkt_cnt++;
   ctx->metrics.rx_bytes_total += sz;
 }
