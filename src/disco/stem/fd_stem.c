@@ -116,6 +116,31 @@
    respecting flow control, these may be corrupt or torn and should not
    be trusted, except for seq which is read atomically.
 
+      RETURNABLE_FRAG
+   Is called after the stem has received a new frag from an in, and
+   assumes that the stem cannot be overrun.  This special callback can
+   instruct the stem not to advance the input sequence number, and
+   instead return the fragment to the stem to be processed again.  This
+   is useful for processing partial data from fragments without copying
+   it.  This callback is unsafe in general contexts, since it assumes
+   that the frag will not be overwritten while the callback is running,
+   and that the frag data is valid throughout the function call.  It
+   should only be used when the stem is guaranteed to not be overrun.
+   This callback is not invoked if the stem is backpressured, as it
+   would not try and read a frag from an in in the first place (instead,
+   leaving it on the in mcache to backpressure the upstream producer).
+   in_idx will be the index of the in that the frag was received from.
+   seq, sig, chunk, and sz are the respective fields from the mcache
+   fragment that was received.  tsorig and tspub are the timestamps of
+   the fragment that was received, and are read atomically from shared
+   memory, so must both match each other from the published fragment
+   (aka. they will not be torn or partially overwritten).  The ctx is a
+   user-provided context object from when the stem tile was initialized.
+   The callback should return 1 if the fragment was not fully processed
+   and should be returned to the stem for further processing, or 0 if
+   the fragment was fully processed and the consumer link should be
+   advanced.
+
       AFTER_FRAG
    Is called immediately after the DURING_FRAG, along with an additional
    check that the reader was not overrun while handling the frag.  If
@@ -452,7 +477,7 @@ STEM_(run1)( ulong                        in_cnt,
       now = next;
     }
 
-#if defined(STEM_CALLBACK_BEFORE_CREDIT) || defined(STEM_CALLBACK_AFTER_CREDIT) || defined(STEM_CALLBACK_AFTER_FRAG)
+#if defined(STEM_CALLBACK_BEFORE_CREDIT) || defined(STEM_CALLBACK_AFTER_CREDIT) || defined(STEM_CALLBACK_AFTER_FRAG) || defined(STEM_CALLBACK_RETURNABLE_FRAG)
     fd_stem_context_t stem = {
       .mcaches             = out_mcache,
       .depths              = out_depth,
@@ -641,6 +666,17 @@ STEM_(run1)( ulong                        in_cnt,
       continue;
     }
 
+#ifdef STEM_CALLBACK_RETURNABLE_FRAG
+    int return_frag = STEM_CALLBACK_RETURNABLE_FRAG( ctx, (ulong)this_in->idx, seq_found, sig, chunk, sz, tsorig, tspub, &stem );
+    if( FD_UNLIKELY( return_frag ) ) {
+      metric_regime_ticks[1] += housekeeping_ticks;
+      long next = fd_tickcount();
+      metric_regime_ticks[4] += (ulong)(next - now);
+      now = next;
+      continue;
+    }
+#endif
+
 #ifdef STEM_CALLBACK_AFTER_FRAG
     STEM_CALLBACK_AFTER_FRAG( ctx, (ulong)this_in->idx, seq_found, sig, sz, tsorig, tspub, &stem );
 #endif
@@ -727,6 +763,18 @@ STEM_(run)( fd_topo_t *      topo,
                rng,
                fd_alloca( FD_STEM_SCRATCH_ALIGN, STEM_(scratch_footprint)( polled_in_cnt, tile->out_cnt, reliable_cons_cnt ) ),
                ctx );
+
+  if( FD_LIKELY( tile->allow_shutdown ) ) {
+    for( ulong i=0UL; i<tile->in_cnt; i++ ) {
+      if( FD_UNLIKELY( !tile->in_link_poll[ i ] || !tile->in_link_reliable[ i ] ) ) continue;
+
+      /* Return infinite credits on any reliable consumer links so that
+         producers now no longer expect us to consume. */
+      ulong fseq_id = tile->in_link_fseq_obj_id[ i ];
+      ulong * fseq = fd_topo_obj_laddr( topo, fseq_id );
+      fd_fseq_update( fseq, ULONG_MAX );
+    }
+  }
 }
 
 #undef STEM_NAME
@@ -741,4 +789,5 @@ STEM_(run)( fd_topo_t *      topo,
 #undef STEM_CALLBACK_AFTER_CREDIT
 #undef STEM_CALLBACK_BEFORE_FRAG
 #undef STEM_CALLBACK_DURING_FRAG
+#undef STEM_CALLBACK_RETURNABLE_FRAG
 #undef STEM_CALLBACK_AFTER_FRAG

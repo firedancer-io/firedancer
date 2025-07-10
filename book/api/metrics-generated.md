@@ -825,10 +825,8 @@
 | <span class="metrics-name">snapdc_&#8203;state</span> | gauge | State of the tile. 0 = waiting for compressed byte stream, 1 = decompressing full snapshot, 2 = decompressing incremental snapshot, 3 = done. |
 | <span class="metrics-name">snapdc_&#8203;full_&#8203;compressed_&#8203;bytes_&#8203;read</span> | gauge | Number of bytes read so far from the compressed full snapshot file. Might decrease if snapshot load is aborted and restarted |
 | <span class="metrics-name">snapdc_&#8203;full_&#8203;decompressed_&#8203;bytes_&#8203;read</span> | gauge | Number of bytes read so far from the decompressed file. Might decrease if snapshot load is aborted and restarted |
-| <span class="metrics-name">snapdc_&#8203;full_&#8203;decompressed_&#8203;bytes_&#8203;total</span> | gauge | Total size of the decompressed full snapshot file. Might change if snapshot load is aborted and restarted |
 | <span class="metrics-name">snapdc_&#8203;incremental_&#8203;compressed_&#8203;bytes_&#8203;read</span> | gauge | Number of bytes read so far from the compressed incremental snapshot file. Might decrease if snapshot load is aborted and restarted |
 | <span class="metrics-name">snapdc_&#8203;incremental_&#8203;decompressed_&#8203;bytes_&#8203;read</span> | gauge | Number of bytes read so far from the decompressed incremental snapshot file. Might decrease if snapshot load is aborted and restarted |
-| <span class="metrics-name">snapdc_&#8203;incremental_&#8203;decompressed_&#8203;bytes_&#8203;total</span> | gauge | Total size of the decompressed incremental snapshot file. Might change if snapshot load is aborted and restarted |
 
 </div>
 

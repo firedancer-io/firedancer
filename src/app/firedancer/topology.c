@@ -295,6 +295,8 @@ fd_topo_initialize( config_t * config ) {
   fd_topob_wksp( topo, "snapdc" );
   fd_topob_wksp( topo, "snaprd" );
   fd_topob_wksp( topo, "snapin" );
+  fd_topob_wksp( topo, "snapdc_rd" );
+  fd_topob_wksp( topo, "snapin_rd" );
   fd_topob_wksp( topo, "snap_stream" );
   fd_topob_wksp( topo, "snap_zstd" );
   fd_topob_wksp( topo, "snap_out" );
@@ -374,6 +376,8 @@ fd_topo_initialize( config_t * config ) {
   fd_topob_link( topo, "snap_zstd",   "snap_zstd",   512UL, 16384UL,                        1UL );
   fd_topob_link( topo, "snap_stream", "snap_stream", 512UL, USHORT_MAX,                     1UL );
   fd_topob_link( topo, "snap_out",    "snap_out",    128UL, sizeof(fd_snapshot_manifest_t), 1UL );
+  fd_topob_link( topo, "snapdc_rd",   "snapdc_rd",   128UL, 0UL,                            1UL );
+  fd_topob_link( topo, "snapin_rd",   "snapin_rd",   128UL, 0UL,                            1UL );
 
   /* Replay decoded manifest dcache topo obj */
   fd_topo_obj_t * replay_manifest_dcache = fd_topob_obj( topo, "dcache", "replay_manif" );
@@ -731,6 +735,11 @@ fd_topo_initialize( config_t * config ) {
   fd_topob_tile_in  ( topo, "snapin", 0UL, "metric_in", "snap_stream", 0UL, FD_TOPOB_RELIABLE, FD_TOPOB_POLLED   );
   fd_topob_tile_out( topo, "snapin", 0UL, "snap_out", 0UL );
   fd_topob_tile_in( topo, "replay", 0UL, "metric_in", "snap_out", 0UL, FD_TOPOB_RELIABLE, FD_TOPOB_POLLED );
+
+  fd_topob_tile_in( topo, "snaprd", 0UL, "metric_in", "snapdc_rd", 0UL, FD_TOPOB_RELIABLE, FD_TOPOB_POLLED );
+  fd_topob_tile_out( topo, "snapdc", 0UL, "snapdc_rd", 0UL );
+  fd_topob_tile_in( topo, "snaprd", 0UL, "metric_in", "snapin_rd", 0UL, FD_TOPOB_RELIABLE, FD_TOPOB_POLLED );
+  fd_topob_tile_out( topo, "snapin", 0UL, "snapin_rd", 0UL );
 
   if( config->tiles.archiver.enabled ) {
     fd_topob_wksp( topo, "arch_f" );
