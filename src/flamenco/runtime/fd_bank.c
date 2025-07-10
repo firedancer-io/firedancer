@@ -442,8 +442,6 @@ fd_banks_get_bank( fd_banks_t * banks, ulong slot ) {
 
   fd_bank_t * bank = NULL;
 
-  fd_rwlock_read( &banks->rwlock );
-
   fd_bank_t *      bank_pool = fd_banks_get_bank_pool( banks );
   fd_banks_map_t * bank_map  = fd_banks_get_bank_map( banks );
 
@@ -452,8 +450,6 @@ fd_banks_get_bank( fd_banks_t * banks, ulong slot ) {
     FD_LOG_WARNING(( "Failed to get bank" ));
     return NULL;
   }
-
-  fd_rwlock_unread( &banks->rwlock );
 
   return bank;
 }
