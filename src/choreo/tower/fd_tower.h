@@ -621,7 +621,9 @@ int
 fd_tower_switch_check( fd_tower_t const * tower,
                        fd_epoch_t const * epoch,
                        fd_ghost_t const * ghost,
-                       ulong              slot );
+                       fd_funk_t *        funk,
+                       ulong              switch_slot,
+                       fd_tower_t *       scratch );
 
 /* fd_tower_threshold_check checks if we pass the threshold required to
    vote for `slot`.  This is only relevant after voting for (and
