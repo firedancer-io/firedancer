@@ -482,7 +482,7 @@ after_credit( fd_gossip_tile_ctx_t * ctx,
       }
 
       {
-        ushort sender_socket_idx = ci->socket_tag_idx[ FD_GOSSIP_SOCKET_TAG_TPU_QUIC ];
+        ushort sender_socket_idx = ci->socket_tag_idx[ FD_GOSSIP_SOCKET_TAG_TPU_VOTE_QUIC ];
         if( sender_socket_idx == FD_CONTACT_INFO_SOCKET_TAG_NULL ) {
           ctx->metrics.zero_ipv4_contact_info[ FD_METRICS_ENUM_PEER_TYPES_V_SEND_IDX ] += 1UL;
           continue;

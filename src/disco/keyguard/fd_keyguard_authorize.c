@@ -1,6 +1,7 @@
 #include "fd_keyguard.h"
 #include "fd_keyguard_client.h"
 #include "../bundle/fd_bundle_crank_constants.h"
+#include "../../waltz/tls/fd_tls.h"
 
 struct fd_keyguard_sign_req {
   fd_keyguard_authority_t * authority;
@@ -98,6 +99,18 @@ fd_keyguard_authorize_repair( fd_keyguard_authority_t const * authority,
   return 1;
 }
 
+static int
+fd_keyguard_authorize_tls_cv( fd_keyguard_authority_t const * authority FD_PARAM_UNUSED,
+                              uchar const *                   data,
+                              ulong                           sz,
+                              int                             sign_type ) {
+  if( FD_UNLIKELY( sign_type != FD_KEYGUARD_SIGN_TYPE_ED25519 ) ) return 0;
+  if( FD_UNLIKELY( sz != 130 ) ) return 0;
+
+  /* validate client prefix against fd_tls */
+  return fd_memeq( fd_tls13_cli_sign_prefix, data, sizeof(fd_tls13_cli_sign_prefix) );
+}
+
 int
 fd_keyguard_payload_authorize( fd_keyguard_authority_t const * authority,
                                uchar const *                   data,
@@ -136,12 +149,17 @@ fd_keyguard_payload_authorize( fd_keyguard_authority_t const * authority,
 
   switch( role ) {
 
-  case FD_KEYGUARD_ROLE_SEND:
-    if( FD_UNLIKELY( payload_mask != FD_KEYGUARD_PAYLOAD_TXN ) ) {
-      FD_LOG_WARNING(( "unauthorized payload type for voter (mask=%#lx)", payload_mask ));
+  case FD_KEYGUARD_ROLE_SEND: {
+    int txn_ok = (!!( payload_mask & FD_KEYGUARD_PAYLOAD_TXN )) &&
+                 fd_keyguard_authorize_vote_txn( authority, data, sz, sign_type );
+    int tls_ok = (!!( payload_mask & FD_KEYGUARD_PAYLOAD_TLS_CV )) &&
+                 fd_keyguard_authorize_tls_cv( authority, data, sz, sign_type );
+    if( FD_UNLIKELY( !txn_ok && !tls_ok ) ) {
+      FD_LOG_WARNING(( "unauthorized payload type for send (mask=%#lx)", payload_mask ));
       return 0;
     }
-    return fd_keyguard_authorize_vote_txn( authority, data, sz, sign_type );
+    return 1;
+  }
 
   case FD_KEYGUARD_ROLE_GOSSIP: {
     int ping_ok   = (!!( payload_mask & FD_KEYGUARD_PAYLOAD_PING )) &&

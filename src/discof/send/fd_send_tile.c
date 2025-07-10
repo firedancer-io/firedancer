@@ -71,15 +71,16 @@ quic_tls_cv_sign( void *      signer_ctx,
                   uchar       signature[ static 64 ],
                   uchar const payload[ static 130 ] ) {
   fd_send_tile_ctx_t * ctx = signer_ctx;
-  fd_sha512_t * sha512 = fd_sha512_join( ctx->sha512 );
-  fd_ed25519_sign( signature, payload, 130UL, ctx->tls_pub_key, ctx->tls_priv_key, sha512 );
-  fd_sha512_leave( sha512 );
+  long dt = -fd_tickcount();
+  fd_keyguard_client_sign( ctx->keyguard_client, signature, payload, 130UL, FD_KEYGUARD_SIGN_TYPE_ED25519 );
+  dt += ( ctx->now = fd_tickcount() );
+  fd_histf_sample( ctx->metrics.sign_duration, (ulong)dt );
 }
 
 /* quic_now is used by quic to get current time */
 static ulong
 quic_now( void * _ctx ) {
-  fd_send_tile_ctx_t * ctx = (fd_send_tile_ctx_t *)_ctx;
+  fd_send_tile_ctx_t const * ctx = fd_type_pun_const( _ctx );
   return (ulong)ctx->now;
 }
 
@@ -167,11 +168,6 @@ quic_connect( fd_send_tile_ctx_t   * ctx,
   ushort dst_port = entry->udp_port;
 
   FD_TEST( entry->conn == NULL );
-
-  // if( FD_UNLIKELY( entry->conn ) ) {
-  //   /* close existing conn */
-  //   fd_quic_conn_close( entry->conn, 0 );
-  // }
 
   fd_quic_conn_t * conn = fd_quic_connect( ctx->quic, dst_ip, dst_port, ctx->src_ip_addr, ctx->src_port );
   if( FD_UNLIKELY( !conn ) ) {
@@ -313,7 +309,6 @@ before_credit( fd_send_tile_ctx_t * ctx,
   ctx->stem = stem;
 
   ctx->now = fd_tickcount();
-
   /* Publishes to mcache via callbacks */
   *charge_busy = fd_quic_service( ctx->quic );
 }
@@ -436,12 +431,13 @@ privileged_init( fd_topo_t *      topo,
 
   FD_SCRATCH_ALLOC_INIT( l, scratch );
   fd_send_tile_ctx_t * ctx = FD_SCRATCH_ALLOC_APPEND( l, alignof(fd_send_tile_ctx_t), sizeof(fd_send_tile_ctx_t) );
+  fd_memset( ctx, 0, sizeof(fd_send_tile_ctx_t) );
 
-  /* identity not used yet, but will be soon to sign quic txns */
   if( FD_UNLIKELY( !strcmp( tile->send.identity_key_path, "" ) ) )
     FD_LOG_ERR(( "identity_key_path not set" ));
 
-  ctx->identity_key[ 0 ] = *(fd_pubkey_t const *)fd_type_pun_const( fd_keyload_load( tile->send.identity_key_path, /* pubkey only: */ 1 ) );
+  ctx->identity_key[ 0 ] = *(fd_pubkey_t const *)(fd_keyload_load( tile->send.identity_key_path, /* pubkey only: */ 1 ) );
+  FD_LOG_NOTICE(( "identity_key: %s", FD_BASE58_ENC_32_ALLOCA( ctx->identity_key[ 0 ].key ) ));
 }
 
 static fd_send_link_in_t *
@@ -488,20 +484,11 @@ unprivileged_init( fd_topo_t *      topo,
   if( FD_UNLIKELY( !tile->out_cnt ) ) FD_LOG_ERR(( "send has no primary output link" ));
 
   /* Scratch mem setup */
-
   FD_SCRATCH_ALLOC_INIT( l, scratch );
   fd_send_tile_ctx_t * ctx = FD_SCRATCH_ALLOC_APPEND( l, alignof(fd_send_tile_ctx_t), sizeof(fd_send_tile_ctx_t) );
-  fd_memset( ctx, 0, sizeof(fd_send_tile_ctx_t) );
 
   ctx->mleaders = fd_multi_epoch_leaders_join( fd_multi_epoch_leaders_new( ctx->mleaders_mem ) );
   FD_TEST( ctx->mleaders );
-
-  if( FD_UNLIKELY( getrandom( ctx->tls_priv_key, ED25519_PRIV_KEY_SZ, 0 )!=ED25519_PRIV_KEY_SZ ) ) {
-    FD_LOG_ERR(( "getrandom failed (%i-%s)", errno, fd_io_strerror( errno ) ));
-  }
-  fd_sha512_t * sha512 = fd_sha512_join( fd_sha512_new( ctx->sha512 ) );
-  fd_ed25519_public_from_private( ctx->tls_pub_key, ctx->tls_priv_key, sha512 );
-  fd_sha512_leave( sha512 );
 
   fd_aio_t * quic_tx_aio = fd_aio_join( fd_aio_new( ctx->quic_tx_aio, ctx, quic_tx_aio_send ) );
   if( FD_UNLIKELY( !quic_tx_aio ) ) FD_LOG_ERR(( "fd_aio_join failed" ));
@@ -515,7 +502,7 @@ unprivileged_init( fd_topo_t *      topo,
   quic->config.keep_alive    = 1;
   quic->config.sign          = quic_tls_cv_sign;
   quic->config.sign_ctx      = ctx;
-  fd_memcpy( quic->config.identity_public_key, ctx->tls_pub_key, ED25519_PUB_KEY_SZ );
+  fd_memcpy( quic->config.identity_public_key, ctx->identity_key, sizeof(ctx->identity_key) );
 
   quic->cb.conn_hs_complete  = quic_hs_complete;
   quic->cb.conn_final        = quic_conn_final;
@@ -526,12 +513,6 @@ unprivileged_init( fd_topo_t *      topo,
   fd_quic_set_aio_net_tx( quic, quic_tx_aio );
   fd_quic_set_clock_tickcount( quic );
   FD_TEST_CUSTOM( fd_quic_init( quic ), "fd_quic_init failed" );
-
-  /* Call new/join here rather than in fd_quic so min/max can differ across uses */
-  fd_histf_join( fd_histf_new( quic->metrics.service_duration, FD_MHIST_SECONDS_MIN( SEND, SERVICE_DURATION_SECONDS ),
-                                                               FD_MHIST_SECONDS_MAX( SEND, SERVICE_DURATION_SECONDS ) ) );
-  fd_histf_join( fd_histf_new( quic->metrics.receive_duration, FD_MHIST_SECONDS_MIN( SEND, RECEIVE_DURATION_SECONDS ),
-                                                               FD_MHIST_SECONDS_MAX( SEND, RECEIVE_DURATION_SECONDS ) ) );
 
   ctx->quic = quic;
 
@@ -570,6 +551,17 @@ unprivileged_init( fd_topo_t *      topo,
 
   /* init metrics */
   fd_memset( &ctx->metrics, 0, sizeof(ctx->metrics) );
+  fd_histf_join( fd_histf_new( ctx->metrics.sign_duration,
+                                  FD_MHIST_SECONDS_MIN( SEND, SIGN_DURATION_SECONDS    ),
+                                  FD_MHIST_SECONDS_MAX( SEND, SIGN_DURATION_SECONDS    ) ) );
+
+  /* Call new/join here rather than in fd_quic so min/max can differ across uses */
+  fd_histf_join( fd_histf_new( quic->metrics.service_duration,
+                                  FD_MHIST_SECONDS_MIN( SEND, SERVICE_DURATION_SECONDS ),
+                                  FD_MHIST_SECONDS_MAX( SEND, SERVICE_DURATION_SECONDS ) ) );
+  fd_histf_join( fd_histf_new( quic->metrics.receive_duration,
+                                  FD_MHIST_SECONDS_MIN( SEND, RECEIVE_DURATION_SECONDS ),
+                                  FD_MHIST_SECONDS_MAX( SEND, RECEIVE_DURATION_SECONDS ) ) );
 
   ulong scratch_top = FD_SCRATCH_ALLOC_FINI( l, scratch_align() );
   if( FD_UNLIKELY( scratch_top != (ulong)scratch + scratch_footprint( tile ) ) ) {
@@ -613,6 +605,8 @@ metrics_write( fd_send_tile_ctx_t * ctx ) {
 
   FD_MCNT_ENUM_COPY( SEND, NEW_CONTACT_INFO, ctx->metrics.new_contact_info );
   FD_MCNT_ENUM_COPY( SEND, QUIC_SEND_RESULT, ctx->metrics.quic_send_result_cnt );
+
+  FD_MHIST_COPY( SEND, SIGN_DURATION_SECONDS, ctx->metrics.sign_duration );
 
   /* QUIC metrics */
   FD_MCNT_SET(       SEND, RECEIVED_BYTES,         ctx->quic->metrics.net_rx_byte_cnt );

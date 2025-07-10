@@ -62,7 +62,7 @@ typedef struct fd_send_conn_entry fd_send_conn_entry_t;
 
 
 struct fd_send_tile_ctx {
-  fd_pubkey_t identity_key[ 1 ];
+  fd_pubkey_t identity_key[ 1 ];   /* also tls pubkey */
   fd_pubkey_t vote_acct_addr[ 1 ];
 
   fd_multi_epoch_leaders_t * mleaders;
@@ -87,17 +87,11 @@ struct fd_send_tile_ctx {
   fd_quic_t * quic;
   fd_aio_t    quic_tx_aio[1];
 
-# define ED25519_PRIV_KEY_SZ (32)
-# define ED25519_PUB_KEY_SZ  (32)
-  uchar            tls_priv_key[ ED25519_PRIV_KEY_SZ ];
-  uchar            tls_pub_key [ ED25519_PUB_KEY_SZ  ];
-  fd_sha512_t      sha512[1]; /* used for signing */
-
   uchar quic_buf[ FD_NET_MTU ];
 
   fd_net_rx_bounds_t net_in_bounds;
 
-  // Connection map for outgoing QUIC connections using fd_map
+  /* Connection map for outgoing QUIC connections and contact info */
   fd_send_conn_entry_t * conn_map;
 
   fd_stem_context_t * stem;
@@ -114,6 +108,8 @@ struct fd_send_tile_ctx {
     /* Outcome of trying to send data over quic */
     ulong quic_send_result_cnt[FD_METRICS_ENUM_TXN_QUIC_SEND_RESULT_CNT];
 
+    /* Time spent waiting for tls_cv signatures */
+    fd_histf_t sign_duration[ 1 ];
   } metrics;
 
   uchar __attribute__((aligned(FD_MULTI_EPOCH_LEADERS_ALIGN))) mleaders_mem[ FD_MULTI_EPOCH_LEADERS_FOOTPRINT ];
