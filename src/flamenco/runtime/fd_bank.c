@@ -486,7 +486,7 @@ fd_banks_clone_from_parent( fd_banks_t * banks,
     return NULL;
   }
 
-  if( FD_UNLIKELY( parent_bank->slot != parent_slot ) ) {
+  if( FD_UNLIKELY( fd_bank_slot_get( parent_bank ) != parent_slot ) ) {
     FD_LOG_WARNING(( "Parent slot mismatch" ));
     fd_rwlock_unwrite( &banks->rwlock );
     return NULL;

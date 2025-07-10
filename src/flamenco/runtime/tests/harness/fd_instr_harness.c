@@ -270,7 +270,7 @@ fd_runtime_fuzz_instr_ctx_create( fd_runtime_fuzz_runner_t *           runner,
                    &fd_sysvar_last_restart_slot_id,
                    &restart.slot,
                    sizeof(ulong),
-                   slot_ctx->bank->slot );
+                   fd_bank_slot_get( slot_ctx->bank ) );
 
   }
 

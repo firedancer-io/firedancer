@@ -123,7 +123,7 @@ execute_txn( fd_exec_tile_ctx_t * ctx ) {
 
   /* Setup and execute the transaction.*/
   ctx->txn_ctx->bank     = ctx->bank;
-  ctx->txn_ctx->slot     = ctx->bank->slot;
+  ctx->txn_ctx->slot     = fd_bank_slot_get( ctx->bank );
   ctx->txn_ctx->features = fd_bank_features_get( ctx->bank );
 
   fd_execute_txn_task_info_t task_info = {
@@ -196,8 +196,8 @@ hash_accounts( fd_exec_tile_ctx_t *                ctx,
     FD_LOG_ERR(( "Could not get bank for slot %lu", ctx->slot ));
   }
 
-  ctx->txn_ctx->bank     = ctx->bank;
-  ctx->txn_ctx->slot     = ctx->bank->slot;
+  ctx->txn_ctx->bank = ctx->bank;
+  ctx->txn_ctx->slot = fd_bank_slot_get( ctx->bank );
 
   ulong start_idx = msg->start_idx;
   ulong end_idx   = msg->end_idx;

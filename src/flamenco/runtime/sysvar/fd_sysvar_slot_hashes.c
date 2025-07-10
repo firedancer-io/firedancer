@@ -24,7 +24,7 @@ fd_sysvar_slot_hashes_write( fd_exec_slot_ctx_t *      slot_ctx,
   if( fd_slot_hashes_encode_global( slot_hashes_global, &ctx ) ) {
     FD_LOG_ERR(("fd_slot_hashes_encode failed"));
   }
-  fd_sysvar_set( slot_ctx->bank, slot_ctx->funk, slot_ctx->funk_txn, &fd_sysvar_owner_id, &fd_sysvar_slot_hashes_id, enc, slot_hashes_account_size, slot_ctx->bank->slot );
+  fd_sysvar_set( slot_ctx->bank, slot_ctx->funk, slot_ctx->funk_txn, &fd_sysvar_owner_id, &fd_sysvar_slot_hashes_id, enc, slot_hashes_account_size, fd_bank_slot_get( slot_ctx->bank ) );
 }
 
 ulong
@@ -108,7 +108,7 @@ FD_SPAD_FRAME_BEGIN( runtime_spad ) {
        !deq_fd_slot_hash_t_iter_done( hashes, iter );
        iter = deq_fd_slot_hash_t_iter_next( hashes, iter ) ) {
     fd_slot_hash_t * ele = deq_fd_slot_hash_t_iter_ele( hashes, iter );
-    if( ele->slot == slot_ctx->bank->slot ) {
+    if( ele->slot == fd_bank_slot_get( slot_ctx->bank ) ) {
       fd_hash_t const * bank_hash = fd_bank_bank_hash_query( slot_ctx->bank );
       memcpy( &ele->hash, bank_hash, sizeof(fd_hash_t) );
       found = 1;
@@ -119,7 +119,7 @@ FD_SPAD_FRAME_BEGIN( runtime_spad ) {
     // https://github.com/firedancer-io/solana/blob/08a1ef5d785fe58af442b791df6c4e83fe2e7c74/runtime/src/bank.rs#L2371
     fd_slot_hash_t slot_hash = {
       .hash = fd_bank_bank_hash_get( slot_ctx->bank ), // parent hash?
-      .slot = fd_bank_prev_slot_get( slot_ctx->bank ),   // parent_slot
+      .slot = fd_bank_parent_slot_get( slot_ctx->bank ),   // parent_slot
     };
     FD_LOG_DEBUG(( "fd_sysvar_slot_hash_update:  slot %lu,  hash %s", slot_hash.slot, FD_BASE58_ENC_32_ALLOCA( slot_hash.hash.key ) ));
 

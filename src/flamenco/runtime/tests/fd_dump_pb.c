@@ -511,17 +511,17 @@ create_block_context_protobuf_from_block( fd_exec_test_block_context_t * block_c
                                                               PB_BYTES_ARRAY_T_ALLOCSIZE((FD_BLOCKHASH_QUEUE_MAX_ENTRIES + 1) * sizeof(pb_bytes_array_t *)) );
   block_context->blockhash_queue = output_blockhash_queue;
 
-  fd_block_hash_queue_global_t * bhq      = (fd_block_hash_queue_global_t *)&slot_ctx->bank->block_hash_queue[0];
+  fd_block_hash_queue_global_t const * bhq = fd_bank_block_hash_queue_query( slot_ctx->bank );
   dump_blockhash_queue( bhq, spad, block_context->blockhash_queue, &block_context->blockhash_queue_count );
 
   /* BlockContext -> SlotContext */
   block_context->has_slot_ctx                       = true;
-  block_context->slot_ctx.slot                      = slot_ctx->bank->slot;
+  block_context->slot_ctx.slot                      = fd_bank_slot_get( slot_ctx->bank );
   // HACK FOR NOW: block height gets incremented in process_new_epoch, so we should dump block height + 1
   block_context->slot_ctx.block_height              = fd_bank_block_height_get( slot_ctx->bank ) + 1UL;
   // fd_memcpy( block_context->slot_ctx.poh, &slot_ctx->slot_bank.poh, sizeof(fd_pubkey_t) ); // TODO: dump here when process epoch happens after poh verification
   fd_memcpy( block_context->slot_ctx.parent_bank_hash, fd_bank_bank_hash_query( slot_ctx->bank ), sizeof(fd_pubkey_t) );
-  block_context->slot_ctx.prev_slot                 = fd_bank_prev_slot_get( slot_ctx->bank );
+  block_context->slot_ctx.prev_slot                 = fd_bank_parent_slot_get( slot_ctx->bank );
   block_context->slot_ctx.prev_lps                  = fd_bank_prev_lamports_per_signature_get( slot_ctx->bank );
   block_context->slot_ctx.prev_epoch_capitalization = fd_bank_capitalization_get( slot_ctx->bank );
 
@@ -1107,7 +1107,7 @@ fd_dump_block_to_protobuf_tx_only( fd_runtime_block_info_t const * block_info,
     if( pb_encode( &stream, FD_EXEC_TEST_BLOCK_CONTEXT_FIELDS, block_context_msg ) ) {
       char output_filepath[256]; fd_memset( output_filepath, 0, sizeof(output_filepath) );
       char * position = fd_cstr_init( output_filepath );
-      position = fd_cstr_append_printf( position, "%s/block-%lu.blockctx", capture_ctx->dump_proto_output_dir, slot_ctx->bank->slot );
+      position = fd_cstr_append_printf( position, "%s/block-%lu.blockctx", capture_ctx->dump_proto_output_dir, fd_bank_slot_get( slot_ctx->bank ) );
       fd_cstr_fini( position );
 
       FILE * file = fopen(output_filepath, "wb");

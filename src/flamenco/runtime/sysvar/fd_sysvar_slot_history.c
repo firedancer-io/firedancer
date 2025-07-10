@@ -49,7 +49,7 @@ fd_sysvar_slot_history_write_history( fd_exec_slot_ctx_t *       slot_ctx,
   int err = fd_slot_history_encode_global( history, &ctx );
   if (0 != err)
     return err;
-  return fd_sysvar_set( slot_ctx->bank, slot_ctx->funk, slot_ctx->funk_txn, &fd_sysvar_owner_id, &fd_sysvar_slot_history_id, enc, sz, slot_ctx->bank->slot );
+  return fd_sysvar_set( slot_ctx->bank, slot_ctx->funk, slot_ctx->funk_txn, &fd_sysvar_owner_id, &fd_sysvar_slot_history_id, enc, sz, fd_bank_slot_get( slot_ctx->bank ) );
 }
 
 /* https://github.com/solana-labs/solana/blob/8f2c8b8388a495d2728909e30460aa40dcc5d733/sdk/program/src/slot_history.rs#L16 */
@@ -67,7 +67,7 @@ fd_sysvar_slot_history_init( fd_exec_slot_ctx_t * slot_ctx, fd_spad_t * runtime_
   fd_slot_history_global_t * history = (fd_slot_history_global_t *)mem;
   ulong *                    blocks  = (ulong *)fd_ulong_align_up( (ulong)((uchar*)history + sizeof(fd_slot_history_global_t)), alignof(ulong) );
 
-  history->next_slot          = slot_ctx->bank->slot + 1UL;
+  history->next_slot          = fd_bank_slot_get( slot_ctx->bank ) + 1UL;
   history->bits_bitvec_offset = (ulong)((uchar*)blocks - (uchar*)history);
   history->bits_len           = slot_history_max_entries;
   history->bits_bitvec_len    = blocks_len;
@@ -75,7 +75,7 @@ fd_sysvar_slot_history_init( fd_exec_slot_ctx_t * slot_ctx, fd_spad_t * runtime_
   memset( blocks, 0, sizeof(ulong) * blocks_len );
 
   /* TODO: handle slot != 0 init case */
-  fd_sysvar_slot_history_set( history, slot_ctx->bank->slot );
+  fd_sysvar_slot_history_set( history, fd_bank_slot_get( slot_ctx->bank ) );
   fd_sysvar_slot_history_write_history( slot_ctx, history );
   } FD_SPAD_FRAME_END;
 }
@@ -111,8 +111,8 @@ fd_sysvar_slot_history_update( fd_exec_slot_ctx_t * slot_ctx, fd_spad_t * runtim
   fd_slot_history_global_t * history = fd_slot_history_decode_global( mem, &ctx );
 
   /* https://github.com/solana-labs/solana/blob/8f2c8b8388a495d2728909e30460aa40dcc5d733/sdk/program/src/slot_history.rs#L48 */
-  fd_sysvar_slot_history_set( history, slot_ctx->bank->slot );
-  history->next_slot = slot_ctx->bank->slot + 1;
+  fd_sysvar_slot_history_set( history, fd_bank_slot_get( slot_ctx->bank ) );
+  history->next_slot = fd_bank_slot_get( slot_ctx->bank ) + 1;
 
   ulong sz = slot_history_min_account_size;
 

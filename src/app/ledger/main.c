@@ -164,7 +164,7 @@ runtime_replay( fd_ledger_args_t * ledger_args ) {
 
   fd_features_restore( ledger_args->slot_ctx, ledger_args->runtime_spad );
 
-  fd_runtime_update_leaders( ledger_args->slot_ctx->bank, ledger_args->slot_ctx->bank->slot, ledger_args->runtime_spad );
+  fd_runtime_update_leaders( ledger_args->slot_ctx->bank, fd_bank_slot_get( ledger_args->slot_ctx->bank ), ledger_args->runtime_spad );
 
   fd_calculate_epoch_accounts_hash_values( ledger_args->slot_ctx );
 
@@ -173,8 +173,8 @@ runtime_replay( fd_ledger_args_t * ledger_args ) {
   ulong             slot_cnt    = 0;
   fd_blockstore_t * blockstore  = ledger_args->blockstore;
 
-  ulong prev_slot  = ledger_args->slot_ctx->bank->slot;
-  ulong start_slot = ledger_args->slot_ctx->bank->slot + 1;
+  ulong prev_slot  = fd_bank_slot_get( ledger_args->slot_ctx->bank );
+  ulong start_slot = prev_slot + 1;
 
   /* On demand rocksdb ingest */
   fd_rocksdb_t           rocks_db         = {0};
@@ -218,7 +218,7 @@ runtime_replay( fd_ledger_args_t * ledger_args ) {
 
   for( ulong slot = start_slot; slot<=ledger_args->end_slot && !aborted; ++slot ) {
 
-    fd_bank_prev_slot_set( ledger_args->slot_ctx->bank, prev_slot );
+    fd_bank_parent_slot_set( ledger_args->slot_ctx->bank, prev_slot );
 
     FD_LOG_DEBUG(( "reading slot %lu", slot ));
 
@@ -519,7 +519,7 @@ fd_ledger_main_setup( fd_ledger_args_t * args ) {
 
   /* Finish other runtime setup steps */
   fd_features_restore( args->slot_ctx, args->runtime_spad );
-  fd_runtime_update_leaders( args->slot_ctx->bank, args->slot_ctx->bank->slot, args->runtime_spad );
+  fd_runtime_update_leaders( args->slot_ctx->bank, fd_bank_slot_get( args->slot_ctx->bank ), args->runtime_spad );
   fd_calculate_epoch_accounts_hash_values( args->slot_ctx );
 
   /* After both snapshots have been loaded in, we can determine if we should
@@ -926,11 +926,11 @@ ingest( fd_ledger_args_t * args ) {
 
   /* At this point the account state has been ingested into funk. Intake rocksdb */
   if( args->start_slot == 0 ) {
-    args->start_slot = slot_ctx->bank->slot + 1;
+    args->start_slot = fd_bank_slot_get( slot_ctx->bank ) + 1;
   }
   fd_blockstore_t * blockstore = args->blockstore;
   if( blockstore ) {
-    blockstore->shmem->lps = blockstore->shmem->hcs = blockstore->shmem->wmk = slot_ctx->bank->slot;
+    blockstore->shmem->lps = blockstore->shmem->hcs = blockstore->shmem->wmk = fd_bank_slot_get( slot_ctx->bank );
   }
 
   if( args->funk_only ) {
@@ -939,8 +939,8 @@ ingest( fd_ledger_args_t * args ) {
     FD_LOG_NOTICE(( "using shredcap" ));
     fd_shredcap_populate_blockstore( args->shredcap, blockstore, args->start_slot, args->end_slot );
   } else if( args->rocksdb_list[ 0UL ] ) {
-    if( args->end_slot >= slot_ctx->bank->slot + args->slot_history_max ) {
-      args->end_slot = slot_ctx->bank->slot + args->slot_history_max - 1;
+    if( args->end_slot >= fd_bank_slot_get( slot_ctx->bank ) + args->slot_history_max ) {
+      args->end_slot = fd_bank_slot_get( slot_ctx->bank ) + args->slot_history_max - 1;
     }
     ingest_rocksdb( args->rocksdb_list[ 0UL ], args->start_slot, args->end_slot,
                     blockstore, args->trash_hash, args->valloc );
@@ -1107,7 +1107,7 @@ replay( fd_ledger_args_t * args ) {
   fd_blockstore_init( args->blockstore,
                       -1,
                       FD_BLOCKSTORE_ARCHIVE_MIN_SIZE,
-                      args->slot_ctx->bank->slot );
+                      fd_bank_slot_get( args->slot_ctx->bank ) );
   fd_buf_shred_pool_reset( args->blockstore->shred_pool, 0 );
 
   FD_LOG_WARNING(( "setup done" ));

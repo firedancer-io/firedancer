@@ -164,7 +164,7 @@ during_frag( fd_writer_tile_ctx_t * ctx,
     info.txn_ctx  = ctx->txn_ctx[ in_idx ];
     info.exec_res = info.txn_ctx->exec_err;
 
-    if( !ctx->bank || info.txn_ctx->slot != ctx->bank->slot ) {
+    if( !ctx->bank || info.txn_ctx->slot != fd_bank_slot_get( ctx->bank ) ) {
       ctx->bank = fd_banks_get_bank( ctx->banks, info.txn_ctx->slot );
       if( FD_UNLIKELY( !ctx->bank ) ) {
         FD_LOG_CRIT(( "Could not find bank for slot %lu", info.txn_ctx->slot ));
@@ -176,7 +176,7 @@ during_frag( fd_writer_tile_ctx_t * ctx,
       if( FD_UNLIKELY( !txn_map->map ) ) {
         FD_LOG_CRIT(( "Could not find valid funk transaction map" ));
       }
-      fd_funk_txn_xid_t xid = { .ul = { ctx->bank->slot, ctx->bank->slot } };
+      fd_funk_txn_xid_t xid = { .ul = { fd_bank_slot_get( ctx->bank ), fd_bank_slot_get( ctx->bank ) } };
       fd_funk_txn_start_read( ctx->funk );
       ctx->funk_txn = fd_funk_txn_query( &xid, txn_map );
       if( FD_UNLIKELY( !ctx->funk_txn ) ) {

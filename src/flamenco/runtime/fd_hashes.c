@@ -142,7 +142,7 @@ void
 fd_calculate_epoch_accounts_hash_values( fd_exec_slot_ctx_t * slot_ctx ) {
   ulong slot_idx = 0;
   fd_epoch_schedule_t const * epoch_schedule = fd_bank_epoch_schedule_query( slot_ctx->bank );
-  ulong epoch = fd_slot_to_epoch( epoch_schedule, slot_ctx->bank->slot, &slot_idx );
+  ulong epoch = fd_slot_to_epoch( epoch_schedule, fd_bank_slot_get( slot_ctx->bank ), &slot_idx );
 
   if( FD_FEATURE_ACTIVE_BANK( slot_ctx->bank, accounts_lt_hash) ) {
     fd_bank_eah_start_slot_set( slot_ctx->bank, ULONG_MAX );
@@ -171,12 +171,12 @@ fd_calculate_epoch_accounts_hash_values( fd_exec_slot_ctx_t * slot_ctx ) {
   }
 
   fd_bank_eah_start_slot_set( slot_ctx->bank, first_slot_in_epoch + calculation_offset_start );
-  if( slot_ctx->bank->slot > fd_bank_eah_start_slot_get( slot_ctx->bank ) ) {
+  if( fd_bank_slot_get( slot_ctx->bank ) > fd_bank_eah_start_slot_get( slot_ctx->bank ) ) {
     fd_bank_eah_start_slot_set( slot_ctx->bank, ULONG_MAX );
   }
 
   fd_bank_eah_stop_slot_set( slot_ctx->bank, first_slot_in_epoch + calculation_offset_stop );
-  if( slot_ctx->bank->slot > fd_bank_eah_stop_slot_get( slot_ctx->bank ) ) {
+  if( fd_bank_slot_get( slot_ctx->bank ) > fd_bank_eah_stop_slot_get( slot_ctx->bank ) ) {
     fd_bank_eah_stop_slot_set( slot_ctx->bank, ULONG_MAX );
   }
 
@@ -192,8 +192,8 @@ fd_should_include_epoch_accounts_hash( fd_exec_slot_ctx_t * slot_ctx ) {
   }
 
   ulong calculation_stop = fd_bank_eah_stop_slot_get( slot_ctx->bank );
-  ulong prev_slot = fd_bank_prev_slot_get( slot_ctx->bank );
-  return prev_slot < calculation_stop && (slot_ctx->bank->slot >= calculation_stop);
+  ulong prev_slot = fd_bank_parent_slot_get( slot_ctx->bank );
+  return prev_slot < calculation_stop && (fd_bank_slot_get( slot_ctx->bank ) >= calculation_stop);
 }
 
 // slot_ctx should be const.
@@ -247,7 +247,7 @@ fd_hash_bank( fd_exec_slot_ctx_t *    slot_ctx,
     }
   }
 
-  if( capture_ctx != NULL && capture_ctx->capture != NULL && slot_ctx->bank->slot>=capture_ctx->solcap_start_slot ) {
+  if( capture_ctx != NULL && capture_ctx->capture != NULL && fd_bank_slot_get( slot_ctx->bank )>=capture_ctx->solcap_start_slot ) {
     uchar *lthash = NULL;
 
     if( FD_FEATURE_ACTIVE_BANK( slot_ctx->bank, accounts_lt_hash ) ) {
@@ -274,7 +274,7 @@ fd_hash_bank( fd_exec_slot_ctx_t *    slot_ctx,
                     "lthash:           %s\n"
                     "signature_count:  %lu\n"
                     "last_blockhash:   %s\n",
-                    slot_ctx->bank->slot,
+                    fd_bank_slot_get( slot_ctx->bank ),
                     FD_BASE58_ENC_32_ALLOCA( hash->hash ),
                     FD_BASE58_ENC_32_ALLOCA( fd_bank_prev_bank_hash_query( slot_ctx->bank ) ),
                     FD_LTHASH_ENC_32_ALLOCA( (fd_lthash_value_t *) fd_bank_lthash_query( slot_ctx->bank )->lthash ),
@@ -289,7 +289,7 @@ fd_hash_bank( fd_exec_slot_ctx_t *    slot_ctx,
                     "lthash:           %s\n"
                     "signature_count:  %lu\n"
                     "last_blockhash:   %s\n",
-                    slot_ctx->bank->slot,
+                    fd_bank_slot_get( slot_ctx->bank ),
                     FD_BASE58_ENC_32_ALLOCA( hash->hash ),
                     FD_BASE58_ENC_32_ALLOCA( fd_bank_prev_bank_hash_query( slot_ctx->bank ) ),
                     FD_BASE58_ENC_32_ALLOCA( account_delta_hash.hash ),
@@ -404,7 +404,7 @@ fd_account_hash_task( void * tpool,
                      slot_ctx->funk_txn,
                      task_info,
                      lthash,
-                     slot_ctx->bank->slot,
+                     fd_bank_slot_get( slot_ctx->bank ),
                      fd_bank_features_query( slot_ctx->bank )
       );
   }
@@ -505,7 +505,7 @@ fd_update_hash_bank_exec_hash( fd_exec_slot_ctx_t *           slot_ctx,
 
       /* Update hash */
       acc_rec->vt->set_hash( acc_rec, task_info->acc_hash );
-      acc_rec->vt->set_slot( acc_rec, slot_ctx->bank->slot );
+      acc_rec->vt->set_slot( acc_rec, fd_bank_slot_get( slot_ctx->bank ) );
 
       fd_txn_account_mutable_fini( acc_rec, funk, txn );
 
@@ -529,14 +529,14 @@ fd_update_hash_bank_exec_hash( fd_exec_slot_ctx_t *           slot_ctx,
                     "rent_epoch: %lu, "
                     "data_len: %lu",
                     acc_key_string,
-                    slot_ctx->bank->slot,
+                    fd_bank_slot_get( slot_ctx->bank ),
                     acc_rec->vt->get_lamports( acc_rec ),
                     owner_string,
                     acc_rec->vt->is_executable( acc_rec ) ? "true" : "false",
                     acc_rec->vt->get_rent_epoch( acc_rec ),
                     acc_rec->vt->get_data_len( acc_rec ) ));
 
-      if( capture_ctx != NULL && capture_ctx->capture != NULL && slot_ctx->bank->slot>=capture_ctx->solcap_start_slot ) {
+      if( capture_ctx != NULL && capture_ctx->capture != NULL && fd_bank_slot_get( slot_ctx->bank )>=capture_ctx->solcap_start_slot ) {
         fd_account_meta_t const * acc_meta = fd_funk_get_acc_meta_readonly( slot_ctx->funk,
                                                                             slot_ctx->funk_txn,
                                                                             task_info->acc_pubkey,
@@ -655,7 +655,7 @@ fd_update_hash_bank_tpool( fd_exec_slot_ctx_t * slot_ctx,
                        slot_ctx->funk_txn,
                        task_info,
                        &lt_hashes[ 0 ],
-                       slot_ctx->bank->slot,
+                       fd_bank_slot_get( slot_ctx->bank ),
                        fd_bank_features_query( slot_ctx->bank ) );
     }
   }
@@ -1076,10 +1076,7 @@ fd_accounts_hash_inc_only( fd_exec_slot_ctx_t * slot_ctx,
         fd_hash_account_current( (uchar *) metadata->hash, NULL, metadata, fd_type_pun_const(rec->pair.key->uc), fd_account_meta_get_data(metadata), FD_HASH_JUST_ACCOUNT_HASH, fd_bank_features_query( slot_ctx->bank ) );
       } else if( do_hash_verify ) {
         uchar hash[32];
-        // ulong old_slot = slot_ctx->bank->slot;
-        // slot_ctx->bank->slot = metadata->slot;
         fd_hash_account_current( (uchar *) &hash, NULL, metadata, fd_type_pun_const(rec->pair.key->uc), fd_account_meta_get_data(metadata), FD_HASH_JUST_ACCOUNT_HASH, fd_bank_features_query( slot_ctx->bank ) );
-        // slot_ctx->bank->slot = old_slot;
         if ( fd_account_meta_exists( metadata ) && memcmp( metadata->hash, &hash, 32 ) != 0 ) {
           FD_LOG_WARNING(( "snapshot hash (%s) doesn't match calculated hash (%s)", FD_BASE58_ENC_32_ALLOCA( metadata->hash ), FD_BASE58_ENC_32_ALLOCA( &hash ) ));
         }
