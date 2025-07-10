@@ -1,9 +1,11 @@
-#include "../../disco/tiles.h"
+#include "../../disco/topo/fd_topo.h"
 #include "generated/fd_exec_tile_seccomp.h"
 
 #include "../../util/pod/fd_pod_format.h"
+#include "../../disco/pack/fd_pack.h"
 #include "../../flamenco/runtime/context/fd_capture_ctx.h"
 #include "../../flamenco/runtime/fd_runtime.h"
+#include "../../flamenco/runtime/fd_runtime_err.h"
 #include "../../flamenco/runtime/fd_runtime_public.h"
 #include "../../flamenco/runtime/fd_executor.h"
 #include "../../flamenco/runtime/fd_hashes.h"
@@ -36,7 +38,6 @@ struct fd_exec_tile_ctx {
   /* Runtime public and local joins of its members. */
   fd_wksp_t *           runtime_public_wksp;
   fd_runtime_public_t * runtime_public;
-  fd_spad_t const *     runtime_spad;
 
   /* Shared bank hash cmp object. */
   fd_bank_hash_cmp_t * bank_hash_cmp;
@@ -430,11 +431,6 @@ unprivileged_init( fd_topo_t *      topo,
   ctx->runtime_public = fd_runtime_public_join( fd_topo_obj_laddr( topo, runtime_obj_id ) );
   if( FD_UNLIKELY( !ctx->runtime_public ) ) {
     FD_LOG_ERR(( "Failed to join runtime public" ));
-  }
-
-  ctx->runtime_spad = fd_runtime_public_spad( ctx->runtime_public );
-  if( FD_UNLIKELY( !ctx->runtime_spad ) ) {
-    FD_LOG_ERR(( "Failed to get and join runtime spad" ));
   }
 
   /********************************************************************/

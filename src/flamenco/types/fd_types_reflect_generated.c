@@ -3,7 +3,7 @@
 #include "fd_types_custom.h"
 #include "fd_types_reflect_private.h"
 #pragma GCC diagnostic ignored "-Wpedantic"
-ulong fd_types_vt_list_cnt = 249;
+ulong fd_types_vt_list_cnt = 248;
 fd_types_vt_t const fd_types_vt_list[] = {
   { .name="fd_hash", .name_len=7, .align=FD_HASH_ALIGN, .new_=(void *)fd_hash_new, .decode=(void *)fd_hash_decode, .size=(void *)fd_hash_size, .walk=(void *)fd_hash_walk, .decode_footprint=(void *)fd_hash_decode_footprint, .encode=(void *)fd_hash_encode  },
   { .name="fd_pubkey", .name_len=9, .align=FD_PUBKEY_ALIGN, .new_=(void *)fd_pubkey_new, .decode=(void *)fd_pubkey_decode, .size=(void *)fd_pubkey_size, .walk=(void *)fd_pubkey_walk, .decode_footprint=(void *)fd_pubkey_decode_footprint, .encode=(void *)fd_pubkey_encode  },
@@ -15,7 +15,6 @@ fd_types_vt_t const fd_types_vt_list[] = {
   { .name="fd_hash_age", .name_len=11, .align=FD_HASH_AGE_ALIGN, .new_=(void *)fd_hash_age_new, .decode=(void *)fd_hash_age_decode, .size=(void *)fd_hash_age_size, .walk=(void *)fd_hash_age_walk, .decode_footprint=(void *)fd_hash_age_decode_footprint, .encode=(void *)fd_hash_age_encode  },
   { .name="fd_hash_hash_age_pair", .name_len=21, .align=FD_HASH_HASH_AGE_PAIR_ALIGN, .new_=(void *)fd_hash_hash_age_pair_new, .decode=(void *)fd_hash_hash_age_pair_decode, .size=(void *)fd_hash_hash_age_pair_size, .walk=(void *)fd_hash_hash_age_pair_walk, .decode_footprint=(void *)fd_hash_hash_age_pair_decode_footprint, .encode=(void *)fd_hash_hash_age_pair_encode  },
   { .name="fd_block_hash_vec", .name_len=17, .align=FD_BLOCK_HASH_VEC_ALIGN, .new_=(void *)fd_block_hash_vec_new, .decode=(void *)fd_block_hash_vec_decode, .size=(void *)fd_block_hash_vec_size, .walk=(void *)fd_block_hash_vec_walk, .decode_footprint=(void *)fd_block_hash_vec_decode_footprint, .encode=(void *)fd_block_hash_vec_encode  },
-  { .name="fd_block_hash_queue", .name_len=19, .align=FD_BLOCK_HASH_QUEUE_ALIGN, .new_=(void *)fd_block_hash_queue_new, .decode=(void *)fd_block_hash_queue_decode, .size=(void *)fd_block_hash_queue_size, .walk=(void *)fd_block_hash_queue_walk, .decode_footprint=(void *)fd_block_hash_queue_decode_footprint, .encode=(void *)fd_block_hash_queue_encode  },
   { .name="fd_fee_rate_governor", .name_len=20, .align=FD_FEE_RATE_GOVERNOR_ALIGN, .new_=(void *)fd_fee_rate_governor_new, .decode=(void *)fd_fee_rate_governor_decode, .size=(void *)fd_fee_rate_governor_size, .walk=(void *)fd_fee_rate_governor_walk, .decode_footprint=(void *)fd_fee_rate_governor_decode_footprint, .encode=(void *)fd_fee_rate_governor_encode  },
   { .name="fd_slot_pair", .name_len=12, .align=FD_SLOT_PAIR_ALIGN, .new_=(void *)fd_slot_pair_new, .decode=(void *)fd_slot_pair_decode, .size=(void *)fd_slot_pair_size, .walk=(void *)fd_slot_pair_walk, .decode_footprint=(void *)fd_slot_pair_decode_footprint, .encode=(void *)fd_slot_pair_encode  },
   { .name="fd_hard_forks", .name_len=13, .align=FD_HARD_FORKS_ALIGN, .new_=(void *)fd_hard_forks_new, .decode=(void *)fd_hard_forks_decode, .size=(void *)fd_hard_forks_size, .walk=(void *)fd_hard_forks_walk, .decode_footprint=(void *)fd_hard_forks_decode_footprint, .encode=(void *)fd_hard_forks_encode  },

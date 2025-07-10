@@ -3,8 +3,6 @@
 
 #include "fd_harness_common.h"
 
-#include "../../../vm/fd_vm_base.h"
-
 #include "generated/elf.pb.h"
 
 FD_PROTOTYPES_BEGIN

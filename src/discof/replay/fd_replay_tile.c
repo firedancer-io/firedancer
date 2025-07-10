@@ -1,5 +1,7 @@
 #define _GNU_SOURCE
 #include "../../disco/tiles.h"
+#include "../../disco/topo/fd_topo.h"
+#include "../../disco/pack/fd_pack.h"
 #include "generated/fd_replay_tile_seccomp.h"
 
 #include "fd_replay_notif.h"
@@ -9,18 +11,16 @@
 #include "../../flamenco/runtime/fd_txncache.h"
 #include "../../flamenco/runtime/context/fd_capture_ctx.h"
 #include "../../flamenco/runtime/context/fd_exec_slot_ctx.h"
-#include "../../flamenco/runtime/program/fd_bpf_program_util.h"
-#include "../../flamenco/runtime/sysvar/fd_sysvar_slot_history.h"
-#include "../../flamenco/runtime/fd_hashes.h"
 #include "../../flamenco/runtime/fd_runtime_init.h"
+#include "../../flamenco/runtime/fd_hashes.h"
 #include "../../flamenco/snapshot/fd_snapshot.h"
-#include "../../flamenco/stakes/fd_stakes.h"
 #include "../../flamenco/runtime/fd_runtime.h"
+#include "../../flamenco/runtime/fd_runtime_err.h"
 #include "../../flamenco/runtime/fd_runtime_public.h"
 #include "../../flamenco/rewards/fd_rewards.h"
 #include "../../disco/metrics/fd_metrics.h"
-#include "../../choreo/fd_choreo.h"
 #include "../../disco/plugin/fd_plugin.h"
+#include "../../choreo/forks/fd_forks.h"
 #include "fd_exec.h"
 #include "../../discof/restore/utils/fd_snapshot_messages.h"
 
@@ -307,14 +307,15 @@ static void
 publish_stake_weights( fd_replay_tile_ctx_t * ctx,
                        fd_stem_context_t *    stem,
                        fd_exec_slot_ctx_t *   slot_ctx ) {
-  fd_epoch_schedule_t const * epoch_schedule = fd_bank_epoch_schedule_query( slot_ctx->bank );
+  fd_epoch_schedule_t epoch_schedule =
+      fd_sysvar_epoch_schedule_read_nofail( fd_bank_sysvar_cache_query( slot_ctx->bank ) );
 
   fd_vote_accounts_global_t const * epoch_stakes = fd_bank_epoch_stakes_locking_query( slot_ctx->bank );
   fd_vote_accounts_pair_global_t_mapnode_t * epoch_stakes_root = fd_vote_accounts_vote_accounts_root_join( epoch_stakes );
 
   if( epoch_stakes_root!=NULL ) {
     ulong * stake_weights_msg = fd_chunk_to_laddr( ctx->stake_out->mem, ctx->stake_out->chunk );
-    ulong epoch = fd_slot_to_leader_schedule_epoch( epoch_schedule, fd_bank_slot_get( slot_ctx->bank ) );
+    ulong epoch = fd_slot_to_leader_schedule_epoch( &epoch_schedule, fd_bank_slot_get( slot_ctx->bank ) );
     ulong stake_weights_sz = generate_stake_weight_msg( slot_ctx, ctx->runtime_spad, epoch - 1, stake_weights_msg );
     ulong stake_weights_sig = 4UL;
     fd_stem_publish( stem, 0UL, stake_weights_sig, ctx->stake_out->chunk, stake_weights_sz, 0UL, 0UL, fd_frag_meta_ts_comp( fd_tickcount() ) );
@@ -329,7 +330,7 @@ publish_stake_weights( fd_replay_tile_ctx_t * ctx,
 
   if( next_epoch_stakes_root!=NULL ) {
     ulong * stake_weights_msg = fd_chunk_to_laddr( ctx->stake_out->mem, ctx->stake_out->chunk );
-    ulong   epoch             = fd_slot_to_leader_schedule_epoch( epoch_schedule, fd_bank_slot_get( slot_ctx->bank ) ); /* epoch */
+    ulong epoch = fd_slot_to_leader_schedule_epoch( &epoch_schedule, fd_bank_slot_get( slot_ctx->bank ) ); /* epoch */
     ulong stake_weights_sz = generate_stake_weight_msg( slot_ctx, ctx->runtime_spad, epoch, stake_weights_msg );
     ulong stake_weights_sig = 4UL;
     fd_stem_publish( stem, 0UL, stake_weights_sig, ctx->stake_out->chunk, stake_weights_sz, 0UL, 0UL, fd_frag_meta_ts_comp( fd_tickcount() ) );
@@ -721,8 +722,9 @@ publish_slot_notifications( fd_replay_tile_ctx_t * ctx,
 
     msg->slot_exec.bank_hash = fd_bank_bank_hash_get( ctx->slot_ctx->bank );
 
-    fd_block_hash_queue_global_t const * block_hash_queue = fd_bank_block_hash_queue_query( ctx->slot_ctx->bank );
-    fd_hash_t * last_hash = fd_block_hash_queue_last_hash_join( block_hash_queue );
+    fd_blockhashes_t const * block_hash_queue = fd_bank_block_hash_queue_query( ctx->slot_ctx->bank );
+    fd_hash_t const * last_hash = fd_blockhashes_peek_last( block_hash_queue );
+    FD_TEST( last_hash );
     msg->slot_exec.block_hash = *last_hash;
 
     memcpy( &msg->slot_exec.identity, ctx->validator_identity_pubkey, sizeof( fd_pubkey_t ) );
@@ -789,7 +791,7 @@ init_after_snapshot( fd_replay_tile_ctx_t * ctx,
     /* FIXME: This branch does not set up a new block exec ctx
        properly. Needs to do whatever prepare_new_block_execution
        does, but just hacking that in breaks stuff. */
-    fd_runtime_update_leaders( ctx->slot_ctx->bank,
+    fd_runtime_update_leaders( ctx->slot_ctx,
                                fd_bank_slot_get( ctx->slot_ctx->bank ),
                                ctx->runtime_spad );
 
@@ -897,7 +899,7 @@ static void
 init_from_snapshot( fd_replay_tile_ctx_t * ctx,
                     fd_stem_context_t *    stem ) {
   fd_features_restore( ctx->slot_ctx, ctx->runtime_spad );
-  fd_calculate_epoch_accounts_hash_values( ctx->slot_ctx );
+  fd_calculate_epoch_accounts_hash_values( ctx->slot_ctx->bank );
 
   fd_slot_lthash_t const * lthash = fd_bank_lthash_query( ctx->slot_ctx->bank );
   if( fd_lthash_is_zero( (fd_lthash_value_t * )lthash ) ) {
@@ -921,9 +923,10 @@ init_from_snapshot( fd_replay_tile_ctx_t * ctx,
     fd_memcpy( (fd_lthash_value_t *)fd_type_pun(lthash_val->lthash), &lthash_buf, sizeof(lthash_buf) );
   }
 
-  fd_runtime_update_leaders( ctx->slot_ctx->bank,
-    fd_bank_slot_get( ctx->slot_ctx->bank ),
-    ctx->runtime_spad );
+  fd_runtime_update_leaders(
+      ctx->slot_ctx,
+      fd_bank_slot_get( ctx->slot_ctx->bank ),
+      ctx->runtime_spad );
 
   fd_runtime_read_genesis( ctx->slot_ctx,
                            ctx->genesis,
@@ -1271,12 +1274,12 @@ init_poh( fd_replay_tile_ctx_t * ctx ) {
   msg->ticks_per_slot   = fd_bank_ticks_per_slot_get( ctx->slot_ctx->bank );
   msg->tick_duration_ns = (ulong)(fd_bank_ns_per_slot_get( ctx->slot_ctx->bank )) / fd_bank_ticks_per_slot_get( ctx->slot_ctx->bank );
 
-  fd_block_hash_queue_global_t * bhq       = (fd_block_hash_queue_global_t *)&ctx->slot_ctx->bank->block_hash_queue[0];
-  fd_hash_t *                    last_hash = fd_block_hash_queue_last_hash_join( bhq );
+  fd_blockhashes_t const * bhq = fd_bank_block_hash_queue_query( ctx->slot_ctx->bank );
+  fd_hash_t const * last_hash = fd_blockhashes_peek_last( bhq );
   if( last_hash ) {
-    memcpy(msg->last_entry_hash, last_hash, sizeof(fd_hash_t));
+    memcpy( msg->last_entry_hash, last_hash, sizeof(fd_hash_t) );
   } else {
-    memset(msg->last_entry_hash, 0UL, sizeof(fd_hash_t));
+    memset( msg->last_entry_hash, 0UL,       sizeof(fd_hash_t) );
   }
   msg->tick_height = fd_bank_slot_get( ctx->slot_ctx->bank ) * msg->ticks_per_slot;
 
@@ -1842,8 +1845,9 @@ after_credit( fd_replay_tile_ctx_t * ctx,
     if( FD_LIKELY( ctx->tower_out_idx!=ULONG_MAX && !ctx->read_only ) ) {
       uchar * chunk_laddr = fd_chunk_to_laddr( ctx->tower_out_mem, ctx->tower_out_chunk );
       fd_hash_t const * bank_hash = fd_bank_bank_hash_query( ctx->slot_ctx->bank );
-      fd_block_hash_queue_global_t * block_hash_queue = (fd_block_hash_queue_global_t *)&ctx->slot_ctx->bank->block_hash_queue[0];
-      fd_hash_t * last_hash = fd_block_hash_queue_last_hash_join( block_hash_queue );
+      fd_blockhashes_t const * block_hash_queue = fd_bank_block_hash_queue_query( ctx->slot_ctx->bank );
+      fd_hash_t const * last_hash = fd_blockhashes_peek_last( block_hash_queue );
+      FD_TEST( last_hash );
 
       memcpy( chunk_laddr, bank_hash, sizeof(fd_hash_t) );
       memcpy( chunk_laddr+sizeof(fd_hash_t), last_hash, sizeof(fd_hash_t) );

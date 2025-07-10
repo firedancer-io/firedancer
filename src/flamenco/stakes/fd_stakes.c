@@ -3,6 +3,7 @@
 #include "../runtime/context/fd_exec_slot_ctx.h"
 #include "../runtime/program/fd_stake_program.h"
 #include "../runtime/sysvar/fd_sysvar_stake_history.h"
+#include "../runtime/fd_acc_mgr.h"
 
 /* fd_stakes_accum_by_node converts Stakes (unordered list of (vote acc,
    active stake) tuples) to StakedNodes (rbtree mapping (node identity)
@@ -152,18 +153,22 @@ fd_stake_weights_by_node( fd_vote_accounts_global_t const * accs,
 
   /* Create rb tree */
 
-  void * pool_mem = fd_spad_alloc( runtime_spad, rb_align, rb_footprint );
-  pool_mem = fd_stake_weight_t_map_new( pool_mem, vote_acc_cnt );
-  fd_stake_weight_t_mapnode_t * pool = fd_stake_weight_t_map_join( pool_mem );
-  if( FD_UNLIKELY( !pool_mem ) ) FD_LOG_CRIT(( "fd_stake_weights_new() failed" ));
+  ulong weights_cnt = 0UL;
+  FD_SPAD_FRAME_BEGIN( runtime_spad ) {
+    void * pool_mem = fd_spad_alloc_check( runtime_spad, rb_align, rb_footprint );
+    pool_mem = fd_stake_weight_t_map_new( pool_mem, vote_acc_cnt );
+    fd_stake_weight_t_mapnode_t * pool = fd_stake_weight_t_map_join( pool_mem );
+    if( FD_UNLIKELY( !pool_mem ) ) FD_LOG_CRIT(( "fd_stake_weights_new() failed" ));
 
-  /* Accumulate stakes to rb tree */
+    /* Accumulate stakes to rb tree */
 
-  fd_stake_weight_t_mapnode_t const * root = fd_stakes_accum_by_node( accs, pool, runtime_spad );
+    fd_stake_weight_t_mapnode_t const * root = fd_stakes_accum_by_node( accs, pool, runtime_spad );
 
-  /* Export to sorted list */
+    /* Export to sorted list */
 
-  ulong weights_cnt = fd_stakes_export( pool, root, weights );
+    weights_cnt = fd_stakes_export( pool, root, weights );
+  }
+  FD_SPAD_FRAME_END;
   fd_stake_weight_sort( weights, weights_cnt );
 
   return weights_cnt;
@@ -814,7 +819,8 @@ fd_stakes_activate_epoch( fd_exec_slot_ctx_t *  slot_ctx,
   /* Add a new entry to the Stake History sysvar for the previous epoch
      https://github.com/solana-labs/solana/blob/88aeaa82a856fc807234e7da0b31b89f2dc0e091/runtime/src/stakes.rs#L181-L192 */
 
-  fd_stake_history_t const * history = fd_sysvar_stake_history_read( slot_ctx->funk, slot_ctx->funk_txn, runtime_spad );
+  fd_sysvar_cache_t const * sysvar_cache = fd_bank_sysvar_cache_query( slot_ctx->bank );
+  fd_stake_history_t const * history = fd_sysvar_stake_history_join_const( sysvar_cache );
   if( FD_UNLIKELY( !history ) ) FD_LOG_ERR(( "StakeHistory sysvar is missing from sysvar cache" ));
 
   ulong stake_delegations_size = fd_delegation_pair_t_map_size(
@@ -846,6 +852,8 @@ fd_stakes_activate_epoch( fd_exec_slot_ctx_t *  slot_ctx,
                              exec_spad_cnt,
                              runtime_spad );
 
+  fd_sysvar_stake_history_leave_const( sysvar_cache, history );
+
   /* https://github.com/anza-xyz/agave/blob/v2.1.6/runtime/src/stakes.rs#L359 */
   fd_epoch_stake_history_entry_pair_t new_elem = {
     .epoch        = stakes->epoch,
@@ -856,7 +864,7 @@ fd_stakes_activate_epoch( fd_exec_slot_ctx_t *  slot_ctx,
     }
   };
 
-  fd_sysvar_stake_history_update( slot_ctx, &new_elem, runtime_spad );
+  fd_sysvar_stake_history_update( slot_ctx, &new_elem );
 
   fd_bank_stakes_end_locking_query( slot_ctx->bank );
 

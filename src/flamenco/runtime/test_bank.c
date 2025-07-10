@@ -81,7 +81,7 @@ main( int argc, char ** argv ) {
 
   fd_bank_t const * new_root = fd_banks_publish( banks, 7UL );
   FD_TEST( new_root );
-  FD_TEST( new_root->slot == 7UL );
+  FD_TEST( new_root->slot_ == 7UL );
   FD_TEST( new_root == bank7);
 
   fd_bank_t * bank10 = fd_banks_clone_from_parent( banks, 10UL, 7UL );

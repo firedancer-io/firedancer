@@ -22,7 +22,6 @@
 
 #define FD_VM_SUCCESS   ( 0) /* success */
 #define FD_VM_ERR_INVAL (-1) /* invalid request */
-#define FD_VM_ERR_AGAIN (-2) /* try again later */
 #define FD_VM_ERR_UNSUP (-3) /* unsupported request */
 #define FD_VM_ERR_PERM  (-4) /* unauthorized request */
 #define FD_VM_ERR_FULL  (-5) /* storage full */
@@ -105,7 +104,6 @@
 #define FD_VM_SYSCALL_ERR_ARITHMETIC_OVERFLOW                     (-21)
 
 /* These syscall errors are unique to Firedancer and do not have an Agave equivalent. */
-#define FD_VM_SYSCALL_ERR_INSTR_ERR                               (-22)
 #define FD_VM_SYSCALL_ERR_INVALID_PDA                             (-23) /* the computed pda was not a valid ed25519 point */
 #define FD_VM_SYSCALL_ERR_COMPUTE_BUDGET_EXCEEDED                 (-24) /* compute unit limit exceeded in syscall */
 #define FD_VM_SYSCALL_ERR_SEGFAULT                                (-25) /* illegal memory address (e.g. read/write to an address not backed by any memory) in syscall */

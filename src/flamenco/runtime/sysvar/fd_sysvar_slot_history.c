@@ -1,209 +1,137 @@
 #include "fd_sysvar_slot_history.h"
-#include "fd_sysvar.h"
-#include "fd_sysvar_rent.h"
-#include "../fd_executor_err.h"
+#include "fd_sysvar_cache.h"
+#include "../context/fd_exec_slot_ctx.h"
 #include "../fd_system_ids.h"
 
-/* FIXME These constants should be header defines */
-
-static const ulong slot_history_min_account_size = 131097;
-
-/* https://github.com/solana-labs/solana/blob/8f2c8b8388a495d2728909e30460aa40dcc5d733/sdk/program/src/slot_history.rs#L37 */
-static const ulong slot_history_max_entries = 1024 * 1024;
-
 /* TODO: move into separate bitvec library */
-static const ulong bits_per_block = 8 * sizeof(ulong);
+#define BITS_PER_BLOCK 64
 
-void
-fd_sysvar_slot_history_set( fd_slot_history_global_t * history,
-                            ulong                      i ) {
-  if( FD_UNLIKELY( i > history->next_slot && i - history->next_slot >= slot_history_max_entries ) ) {
-    FD_LOG_WARNING(( "Ignoring out of bounds (i=%lu next_slot=%lu)", i, history->next_slot ));
-    return;
-  }
+#define FD_SYSVAR_SLOT_HISTORY_BLOCK_CNT ( FD_SYSVAR_SLOT_HISTORY_MAX_ENTRIES / BITS_PER_BLOCK )
 
-  ulong * blocks     = (ulong *)((uchar*)history + history->bits_bitvec_offset);
-  ulong   blocks_len = history->bits_bitvec_len;
-
-  // Skipped slots, delete them from history
-  if( FD_UNLIKELY( blocks_len == 0 ) ) return;
-  for( ulong j = history->next_slot; j < i; j++ ) {
-    ulong block_idx = (j / bits_per_block) % (blocks_len);
-    blocks[ block_idx ] &= ~( 1UL << ( j % bits_per_block ) );
-  }
-  ulong block_idx = (i / bits_per_block) % (blocks_len);
-  blocks[ block_idx ] |= ( 1UL << ( i % bits_per_block ) );
+static ulong *
+bitvec_blocks( fd_slot_history_global_t * history ) {
+  FD_TEST( history->has_bits && history->bits_bitvec_len == FD_SYSVAR_SLOT_HISTORY_BLOCK_CNT );
+  return (ulong *)( (uchar *)history + history->bits_bitvec_offset );
 }
 
-FD_FN_UNUSED static const ulong blocks_len = slot_history_max_entries / bits_per_block;
+/* See bv::BitVec::set */
 
-int
-fd_sysvar_slot_history_write_history( fd_exec_slot_ctx_t *       slot_ctx,
-                                      fd_slot_history_global_t * history ) {
-  ulong sz = slot_history_min_account_size;
-  uchar enc[ sz ];
-  fd_memset( enc, 0, sz );
-  fd_bincode_encode_ctx_t ctx;
-  ctx.data    = enc;
-  ctx.dataend = enc + sz;
-  int err = fd_slot_history_encode_global( history, &ctx );
-  if (0 != err)
-    return err;
-  return fd_sysvar_set( slot_ctx->bank, slot_ctx->funk, slot_ctx->funk_txn, &fd_sysvar_owner_id, &fd_sysvar_slot_history_id, enc, sz, fd_bank_slot_get( slot_ctx->bank ) );
+static void
+bitvec_remove( fd_slot_history_global_t * history,
+               ulong                      slot ) {
+  FD_TEST( history->has_bits && slot < history->bits_len );
+  ulong * blocks = bitvec_blocks( history );
+  ulong   key    = slot / BITS_PER_BLOCK;
+  ulong   idx    = slot % BITS_PER_BLOCK;
+  blocks[ key ] &= ~( 1UL << idx );
 }
 
-/* https://github.com/solana-labs/solana/blob/8f2c8b8388a495d2728909e30460aa40dcc5d733/sdk/program/src/slot_history.rs#L16 */
+static void
+bitvec_insert( fd_slot_history_global_t * history,
+               ulong                      slot ) {
+  FD_TEST( history->has_bits && slot < history->bits_len );
+  ulong * blocks = bitvec_blocks( history );
+  ulong   key    = slot / BITS_PER_BLOCK;
+  ulong   idx    = slot % BITS_PER_BLOCK;
+  blocks[ key ] |= 1UL<<idx;
+}
+
+/* See solana_slot_history::SlotHistory::add
+   https://github.com/anza-xyz/solana-sdk/blob/slot-history%40v2.2.1/slot-history/src/lib.rs#L62 */
 
 void
-fd_sysvar_slot_history_init( fd_exec_slot_ctx_t * slot_ctx, fd_spad_t * runtime_spad ) {
+fd_sysvar_slot_history_add( fd_slot_history_global_t * history,
+                            ulong                      slot ) {
+
+  /* Sanity checks: This sysvar's dimensions are hardcoded */
+  FD_TEST( history->has_bits &&
+           history->bits_bitvec_len == FD_SYSVAR_SLOT_HISTORY_BLOCK_CNT &&
+           history->bits_len        == FD_SYSVAR_SLOT_HISTORY_MAX_ENTRIES );
+
+  /* https://github.com/anza-xyz/solana-sdk/blob/slot-history%40v2.2.1/slot-history/src/lib.rs#L63 */
+  if( slot > history->next_slot && slot - history->next_slot >= FD_SYSVAR_SLOT_HISTORY_MAX_ENTRIES ) {
+
+    /* https://github.com/anza-xyz/solana-sdk/blob/slot-history%40v2.2.1/slot-history/src/lib.rs#L64-L69 */
+    fd_memset( bitvec_blocks( history ), 0, sizeof(ulong) * FD_SYSVAR_SLOT_HISTORY_BLOCK_CNT );
+
+  } else {
+
+    /* https://github.com/anza-xyz/solana-sdk/blob/slot-history%40v2.2.1/slot-history/src/lib.rs#L71-L73
+       Obviously, there's room for optimization here, see src/util/tmpl/fd_set_dynamic.c */
+    for( ulong i=history->next_slot; i<slot; i++ ) {
+      bitvec_remove( history, i % FD_SYSVAR_SLOT_HISTORY_MAX_ENTRIES );
+    }
+
+  }
+
+  /* https://github.com/anza-xyz/solana-sdk/blob/slot-history%40v2.2.1/slot-history/src/lib.rs#L75-L76 */
+  bitvec_insert( history, slot % FD_SYSVAR_SLOT_HISTORY_MAX_ENTRIES );
+  history->next_slot = slot + 1UL;
+
+}
+
+/* See solana_slot_history::SlotHistory::default
+   https://github.com/anza-xyz/solana-sdk/blob/slot-history%40v2.2.1/slot-history/src/lib.rs#L29 */
+
+void
+fd_sysvar_slot_history_init( fd_exec_slot_ctx_t * slot_ctx,
+                             fd_spad_t *          runtime_spad ) {
+  ulong   sz_max = 0UL;
+  uchar * data   = fd_sysvar_cache_data_modify_prepare(
+      slot_ctx, &fd_sysvar_slot_history_id, NULL, &sz_max );
+  if( FD_UNLIKELY( !data ) ) FD_LOG_ERR(( "fd_sysvar_cache_data_modify_prepare(slot_history) failed" ));
+  FD_TEST( sz_max >= FD_SYSVAR_SLOT_HISTORY_BINCODE_SZ );
+
+  /* Construct a position-independent slot history object */
+  ulong block_cnt = FD_SYSVAR_SLOT_HISTORY_BLOCK_CNT;
+  ulong total_sz  = sizeof(fd_slot_history_global_t) + alignof(fd_slot_history_global_t) +
+                    (sizeof(ulong) + alignof(ulong)) * block_cnt;
+
   FD_SPAD_FRAME_BEGIN( runtime_spad ) {
-  /* Create a new slot history instance */
 
-  /* We need to construct the gaddr-aware slot history object */
-  ulong total_sz = sizeof(fd_slot_history_global_t) + alignof(fd_slot_history_global_t) +
-                   (sizeof(ulong) + alignof(ulong)) * blocks_len;
+    uchar * mem = fd_spad_alloc_check( runtime_spad, alignof(fd_slot_history_global_t), total_sz );
+    fd_slot_history_global_t * history = (fd_slot_history_global_t *)mem;
+    ulong *                    blocks  = (ulong *)fd_ulong_align_up( (ulong)((uchar*)history + sizeof(fd_slot_history_global_t)), alignof(ulong) );
 
-  uchar * mem = fd_spad_alloc( runtime_spad, alignof(fd_slot_history_global_t), total_sz );
-  fd_slot_history_global_t * history = (fd_slot_history_global_t *)mem;
-  ulong *                    blocks  = (ulong *)fd_ulong_align_up( (ulong)((uchar*)history + sizeof(fd_slot_history_global_t)), alignof(ulong) );
+    history->next_slot          = fd_bank_slot_get( slot_ctx->bank ) + 1UL;
+    history->bits_bitvec_offset = (ulong)((uchar*)blocks - (uchar*)history);
+    history->bits_len           = FD_SYSVAR_SLOT_HISTORY_MAX_ENTRIES;
+    history->bits_bitvec_len    = FD_SYSVAR_SLOT_HISTORY_BLOCK_CNT;
+    history->has_bits           = 1;
+    memset( blocks, 0, sizeof(ulong) * FD_SYSVAR_SLOT_HISTORY_BLOCK_CNT );
 
-  history->next_slot          = fd_bank_slot_get( slot_ctx->bank ) + 1UL;
-  history->bits_bitvec_offset = (ulong)((uchar*)blocks - (uchar*)history);
-  history->bits_len           = slot_history_max_entries;
-  history->bits_bitvec_len    = blocks_len;
-  history->has_bits           = 1;
-  memset( blocks, 0, sizeof(ulong) * blocks_len );
-
-  /* TODO: handle slot != 0 init case */
-  fd_sysvar_slot_history_set( history, fd_bank_slot_get( slot_ctx->bank ) );
-  fd_sysvar_slot_history_write_history( slot_ctx, history );
   } FD_SPAD_FRAME_END;
 }
 
-/* https://github.com/solana-labs/solana/blob/8f2c8b8388a495d2728909e30460aa40dcc5d733/runtime/src/bank.rs#L2345 */
-int
-fd_sysvar_slot_history_update( fd_exec_slot_ctx_t * slot_ctx, fd_spad_t * runtime_spad ) {
-  /* Set current_slot, and update next_slot */
+/* See solana_runtime::bank::Bank::update_slot_history
+   https://github.com/anza-xyz/agave/blob/v2.3.2/runtime/src/bank.rs#L2276 */
 
-  fd_pubkey_t const * key = &fd_sysvar_slot_history_id;
+void
+fd_sysvar_slot_history_update( fd_exec_slot_ctx_t * slot_ctx,
+                               fd_spad_t *          runtime_spad ) {
+  /* Create an empty sysvar account if it doesn't exist
+     https://github.com/anza-xyz/agave/blob/v2.3.2/runtime/src/bank.rs#L2281 */
 
-  FD_TXN_ACCOUNT_DECL( rec );
-  int err = fd_txn_account_init_from_funk_readonly( rec, key, slot_ctx->funk, slot_ctx->funk_txn );
-  if (err)
-    FD_LOG_CRIT(( "fd_txn_account_init_from_funk_readonly(slot_history) failed: %d", err ));
-
-  fd_bincode_decode_ctx_t ctx = {
-    .data    = rec->vt->get_data( rec ),
-    .dataend = rec->vt->get_data( rec ) + rec->vt->get_data_len( rec )
-  };
-
-  ulong total_sz = 0UL;
-  err = fd_slot_history_decode_footprint( &ctx, &total_sz );
-  if( FD_UNLIKELY( err ) ) {
-    FD_LOG_CRIT(( "fd_slot_history_decode_footprint failed %d", err ));
+  fd_sysvar_cache_t * sysvar_cache = fd_bank_sysvar_cache_modify( slot_ctx->bank );
+  if( FD_UNLIKELY( !fd_sysvar_cache_flags_exists( sysvar_cache->desc.slot_history.flags ) ) ) {
+    fd_sysvar_slot_history_init( slot_ctx, runtime_spad );
   }
 
-  uchar * mem = fd_spad_alloc( runtime_spad, fd_slot_history_align(), total_sz );
-  if( FD_UNLIKELY( !mem ) ) {
-    FD_LOG_CRIT(( "Unable to allocate memory for slot history" ));
-  }
+  /* Update an existing sysvar account, but abort if deserialization of
+     that existing account failed.
+     https://github.com/anza-xyz/agave/blob/v2.3.2/runtime/src/bank.rs#L2280 */
 
-  fd_slot_history_global_t * history = fd_slot_history_decode_global( mem, &ctx );
+  fd_slot_history_global_t * history = fd_sysvar_slot_history_join( sysvar_cache );
+  if( FD_UNLIKELY( !history ) ) FD_LOG_ERR(( "Slot history sysvar is invalid, cannot update" ));
 
-  /* https://github.com/solana-labs/solana/blob/8f2c8b8388a495d2728909e30460aa40dcc5d733/sdk/program/src/slot_history.rs#L48 */
-  fd_sysvar_slot_history_set( history, fd_bank_slot_get( slot_ctx->bank ) );
-  history->next_slot = fd_bank_slot_get( slot_ctx->bank ) + 1;
+  /* Advance to current slot, set this slot's bit.
+     https://github.com/anza-xyz/agave/blob/v2.3.2/runtime/src/bank.rs#L2282 */
 
-  ulong sz = slot_history_min_account_size;
+  fd_sysvar_slot_history_add( history, fd_bank_slot_get( slot_ctx->bank ) );
 
-  err = fd_txn_account_init_from_funk_mutable( rec, key, slot_ctx->funk, slot_ctx->funk_txn, 1, sz );
-  if (err)
-    FD_LOG_CRIT(( "fd_txn_account_init_from_funk_mutable(slot_history) failed: %d", err ));
+  /* Persist write */
 
-  fd_bincode_encode_ctx_t e_ctx = {
-    .data    = rec->vt->get_data_mut( rec ),
-    .dataend = rec->vt->get_data_mut( rec )+sz,
-  };
-
-  if( FD_UNLIKELY( fd_slot_history_encode_global( history, &e_ctx ) ) ) {
-    return FD_EXECUTOR_INSTR_ERR_CUSTOM_ERR;
-  }
-
-  fd_rent_t const * rent = fd_bank_rent_query( slot_ctx->bank );
-  rec->vt->set_lamports( rec, fd_rent_exempt_minimum_balance( rent, sz ) );
-
-  rec->vt->set_data_len( rec, sz );
-  rec->vt->set_owner( rec, &fd_sysvar_owner_id );
-
-  fd_txn_account_mutable_fini( rec, slot_ctx->funk, slot_ctx->funk_txn );
-
-  return 0;
+  fd_sysvar_slot_history_leave( sysvar_cache, history );
 }
 
-fd_slot_history_global_t *
-fd_sysvar_slot_history_read( fd_funk_t *     funk,
-                             fd_funk_txn_t * funk_txn,
-                             fd_spad_t *     spad ) {
-
-  /* Set current_slot, and update next_slot */
-
-  fd_pubkey_t const * key = &fd_sysvar_slot_history_id;
-
-  FD_TXN_ACCOUNT_DECL( rec );
-  int err = fd_txn_account_init_from_funk_readonly( rec, key, funk, funk_txn );
-  if( err ) {
-    FD_LOG_CRIT(( "fd_txn_account_init_from_funk_readonly(slot_history) failed: %d", err ));
-  }
-
-  /* This check is needed as a quirk of the fuzzer. If a sysvar account
-     exists in the accounts database, but doesn't have any lamports,
-     this means that the account does not exist. This wouldn't happen
-     in a real execution environment. */
-  if( FD_UNLIKELY( rec->vt->get_lamports( rec ) == 0UL ) ) {
-    return NULL;
-  }
-
-  fd_bincode_decode_ctx_t ctx = {
-    .data    = rec->vt->get_data( rec ),
-    .dataend = rec->vt->get_data( rec ) + rec->vt->get_data_len( rec )
-  };
-
-  ulong total_sz = 0UL;
-  err = fd_slot_history_decode_footprint( &ctx, &total_sz );
-  if( err ) {
-    FD_LOG_ERR(( "fd_slot_history_decode_footprint failed" ));
-  }
-
-  uchar * mem = fd_spad_alloc( spad, fd_slot_history_align(), total_sz );
-  if( !mem ) {
-    FD_LOG_ERR(( "Unable to allocate memory for slot history" ));
-  }
-
-  return fd_slot_history_decode_global( mem, &ctx );
-}
-
-int
-fd_sysvar_slot_history_find_slot( fd_slot_history_global_t const * history,
-                                  ulong                            slot,
-                                  fd_wksp_t *                      wksp ) {
-  (void)wksp;
-  ulong * blocks = (ulong *)((uchar*)history + history->bits_bitvec_offset);
-  if( FD_UNLIKELY( !blocks ) ) {
-    FD_LOG_ERR(( "Unable to find slot history blocks" ));
-  }
-  ulong blocks_len = history->bits_bitvec_len;
-
-
-  if( slot > history->next_slot - 1UL ) {
-    return FD_SLOT_HISTORY_SLOT_FUTURE;
-  } else if ( slot < fd_ulong_sat_sub( history->next_slot, slot_history_max_entries ) ) {
-    return FD_SLOT_HISTORY_SLOT_TOO_OLD;
-  } else {
-    ulong block_idx = (slot / bits_per_block) % blocks_len;
-    if( blocks[ block_idx ] & ( 1UL << ( slot % bits_per_block ) ) ) {
-      return FD_SLOT_HISTORY_SLOT_FOUND;
-    } else {
-      return FD_SLOT_HISTORY_SLOT_NOT_FOUND;
-    }
-  }
-}
+#undef BITS_PER_BLOCK

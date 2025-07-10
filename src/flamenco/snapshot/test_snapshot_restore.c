@@ -1,6 +1,7 @@
 #include "fd_snapshot_restore.h"
 #include "fd_snapshot_restore_private.h"
 #include "../runtime/fd_acc_mgr.h"
+#include "../../funk/fd_funk.h"
 #include <errno.h>
 
 static void

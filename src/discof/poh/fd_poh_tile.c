@@ -311,15 +311,16 @@
 #include "../../disco/tiles.h"
 #include "../../disco/bundle/fd_bundle_crank.h"
 #include "../../disco/pack/fd_pack.h"
+#include "../../disco/topo/fd_topo.h"
 #include "../../ballet/sha256/fd_sha256.h"
 #include "../../disco/metrics/fd_metrics.h"
-#include "../../util/pod/fd_pod.h"
 #include "../../disco/shred/fd_shredder.h"
 #include "../../disco/keyguard/fd_keyload.h"
 #include "../../disco/keyguard/fd_keyswitch.h"
 #include "../../disco/metrics/generated/fd_metrics_poh.h"
 #include "../../disco/plugin/fd_plugin.h"
 #include "../../flamenco/leaders/fd_multi_epoch_leaders.h"
+#include "../../util/pod/fd_pod.h"
 
 #include <string.h>
 

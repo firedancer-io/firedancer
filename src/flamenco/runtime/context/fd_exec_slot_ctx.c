@@ -1,5 +1,6 @@
 #include "fd_exec_slot_ctx.h"
 #include "../sysvar/fd_sysvar_epoch_schedule.h"
+#include "../sysvar/fd_sysvar_last_restart_slot.h"
 #include "../program/fd_vote_program.h"
 #include "../../../ballet/lthash/fd_lthash.h"
 
@@ -115,8 +116,6 @@ recover_clock( fd_exec_slot_ctx_t * slot_ctx, fd_spad_t * runtime_spad ) {
        n;
        n = fd_vote_accounts_pair_global_t_map_successor( vote_accounts_pool, n ) ) {
 
-    FD_SPAD_FRAME_BEGIN( runtime_spad ) {
-
     /* Extract vote timestamp of account */
     int err;
 
@@ -157,7 +156,6 @@ recover_clock( fd_exec_slot_ctx_t * slot_ctx, fd_spad_t * runtime_spad ) {
     if( slot != 0 || n->elem.stake != 0 ) {
       fd_vote_record_timestamp_vote_with_slot( &n->elem.key, timestamp, slot, slot_ctx->bank );
     }
-  } FD_SPAD_FRAME_END;
   }
 
   fd_bank_stakes_end_locking_query( slot_ctx->bank );
@@ -186,38 +184,10 @@ fd_exec_slot_ctx_recover( fd_exec_slot_ctx_t *                slot_ctx,
   /* Index vote accounts */
 
   /* Block Hash Queue */
-
-  fd_block_hash_queue_global_t * bhq = (fd_block_hash_queue_global_t *)&slot_ctx->bank->block_hash_queue[0];
-  uchar * last_hash_mem = (uchar *)fd_ulong_align_up( (ulong)bhq + sizeof(fd_block_hash_queue_global_t), alignof(fd_hash_t) );
-  uchar * ages_pool_mem = (uchar *)fd_ulong_align_up( (ulong)last_hash_mem + sizeof(fd_hash_t), fd_hash_hash_age_pair_t_map_align() );
-
-  fd_hash_hash_age_pair_t_mapnode_t * ages_pool = fd_hash_hash_age_pair_t_map_join( fd_hash_hash_age_pair_t_map_new( ages_pool_mem, 301 ) );
-  fd_hash_hash_age_pair_t_mapnode_t * ages_root = NULL;
-
-  bhq->last_hash_index = old_bank->blockhash_queue.last_hash_index;
-
-  fd_hash_t const * last_hash = fd_block_hash_vec_last_hash_join( &old_bank->blockhash_queue );
-
-  if( last_hash ) {
-    fd_memcpy( last_hash_mem, last_hash, sizeof(fd_hash_t) );
-  } else {
-    fd_memset( last_hash_mem, 0, sizeof(fd_hash_t) );
+  {
+    fd_blockhashes_t * bhq = fd_bank_block_hash_queue_modify( slot_ctx->bank );
+    FD_TEST( fd_blockhashes_recover( bhq, &old_bank->blockhash_queue ) );
   }
-  bhq->last_hash_offset = (ulong)last_hash_mem - (ulong)bhq;
-
-  fd_hash_hash_age_pair_t const * ages = fd_block_hash_vec_ages_join( &old_bank->blockhash_queue );
-
-  for( ulong i=0UL; i<old_bank->blockhash_queue.ages_len; i++ ) {
-    fd_hash_hash_age_pair_t const * elem = &ages[i];
-    fd_hash_hash_age_pair_t_mapnode_t * node = fd_hash_hash_age_pair_t_map_acquire( ages_pool );
-    node->elem = *elem;
-    fd_hash_hash_age_pair_t_map_insert( ages_pool, &ages_root, node );
-  }
-
-  fd_block_hash_queue_ages_pool_update( bhq, ages_pool );
-  fd_block_hash_queue_ages_root_update( bhq, ages_root );
-
-  bhq->max_age = old_bank->blockhash_queue.max_age;
 
   /* Bank Hash */
 
@@ -308,8 +278,10 @@ fd_exec_slot_ctx_recover( fd_exec_slot_ctx_t *                slot_ctx,
 
   /* PoH */
 
-  if( last_hash ) {
-    fd_bank_poh_set( slot_ctx->bank, *last_hash );
+  {
+    fd_blockhashes_t const * bhq = fd_bank_block_hash_queue_query( slot_ctx->bank );
+    fd_hash_t const * last_hash = fd_blockhashes_peek_last( bhq );
+    if( last_hash ) fd_bank_poh_set( slot_ctx->bank, *last_hash );
   }
 
   /* Prev Bank Hash */
@@ -318,11 +290,11 @@ fd_exec_slot_ctx_recover( fd_exec_slot_ctx_t *                slot_ctx,
 
   /* Epoch Schedule */
 
-  fd_bank_epoch_schedule_set( slot_ctx->bank, old_bank->epoch_schedule );
+  fd_sysvar_epoch_schedule_write( slot_ctx, &old_bank->epoch_schedule );
 
   /* Rent */
 
-  fd_bank_rent_set( slot_ctx->bank, old_bank->rent_collector.rent );
+  fd_sysvar_rent_write( slot_ctx, &old_bank->rent_collector.rent );
 
   /* Last Restart Slot */
 
@@ -333,26 +305,10 @@ fd_exec_slot_ctx_recover( fd_exec_slot_ctx_t *                slot_ctx,
      To find the last restart slot, take the highest hard fork slot
      number that is less or equal than the current slot number.
      (There might be some hard forks in the future, ignore these) */
-  do {
-    fd_sol_sysvar_last_restart_slot_t * last_restart_slot = fd_bank_last_restart_slot_modify( slot_ctx->bank );
-    last_restart_slot->slot = 0UL;
-
-    if( FD_UNLIKELY( old_bank->hard_forks.hard_forks_len == 0 ) ) {
-      /* SIMD-0047: The first restart slot should be `0` */
-      break;
-    }
-
-    fd_slot_pair_t const * head = fd_hard_forks_hard_forks_join( &old_bank->hard_forks );
-    fd_slot_pair_t const * tail = head + old_bank->hard_forks.hard_forks_len - 1UL;
-
-    for( fd_slot_pair_t const *pair = tail; pair >= head; pair-- ) {
-      if( pair->slot <= fd_bank_slot_get( slot_ctx->bank ) ) {
-        fd_sol_sysvar_last_restart_slot_t * last_restart_slot = fd_bank_last_restart_slot_modify( slot_ctx->bank );
-        last_restart_slot->slot = pair->slot;
-        break;
-      }
-    }
-  } while (0);
+  ulong const slot = fd_bank_slot_get( slot_ctx->bank );
+  fd_sol_sysvar_last_restart_slot_t lrs_sysvar = { fd_sysvar_last_restart_slot_derive( &old_bank->hard_forks, slot ) };
+  fd_bank_last_restart_slot_set( slot_ctx->bank, lrs_sysvar );
+  fd_sysvar_last_restart_slot_update( slot_ctx, lrs_sysvar.slot );
 
   /* FIXME: Remove the magic number here. */
   fd_clock_timestamp_votes_global_t * clock_timestamp_votes = fd_bank_clock_timestamp_votes_locking_modify( slot_ctx->bank );
@@ -368,8 +324,7 @@ fd_exec_slot_ctx_recover( fd_exec_slot_ctx_t *                slot_ctx,
   /* Move EpochStakes */
   do {
 
-    fd_epoch_schedule_t const * epoch_schedule = fd_bank_epoch_schedule_query( slot_ctx->bank );
-    ulong epoch = fd_slot_to_epoch( epoch_schedule, fd_bank_slot_get( slot_ctx->bank ), NULL );
+    ulong epoch = fd_bank_epoch_get( slot_ctx->bank );
 
     /* We need to save the vote accounts for the current epoch and the next
        epoch as it is used to calculate the leader schedule at the epoch

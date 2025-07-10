@@ -1,4 +1,6 @@
 #include "../tiles.h"
+#include "../fd_txn_m_t.h"
+#include "../topo/fd_topo.h"
 
 #include "generated/fd_pack_tile_seccomp.h"
 

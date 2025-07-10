@@ -2,17 +2,20 @@
 #include "../../flamenco/fd_flamenco.h"
 #include "../../flamenco/runtime/fd_hashes.h"
 #include "../../flamenco/types/fd_types.h"
+#include "../../flamenco/features/fd_features.h"
 #include "../../flamenco/runtime/fd_runtime.h"
+#include "../../flamenco/runtime/fd_runtime_init.h"
+#include "../../flamenco/runtime/fd_runtime_err.h"
 #include "../../flamenco/runtime/fd_runtime_public.h"
 #include "../../flamenco/runtime/fd_rocksdb.h"
-#include "../../flamenco/runtime/fd_txncache.h"
 #include "../../flamenco/rewards/fd_rewards.h"
 #include "../../ballet/base58/fd_base58.h"
 #include "../../flamenco/runtime/context/fd_capture_ctx.h"
 #include "../../flamenco/runtime/fd_blockstore.h"
 #include "../../flamenco/shredcap/fd_shredcap.h"
-#include "../../flamenco/runtime/program/fd_bpf_program_util.h"
 #include "../../flamenco/snapshot/fd_snapshot.h"
+
+#include <stdio.h>
 
 struct fd_ledger_args {
   fd_wksp_t *           wksp;                    /* wksp for blockstore */
@@ -164,9 +167,12 @@ runtime_replay( fd_ledger_args_t * ledger_args ) {
 
   fd_features_restore( ledger_args->slot_ctx, ledger_args->runtime_spad );
 
-  fd_runtime_update_leaders( ledger_args->slot_ctx->bank, fd_bank_slot_get( ledger_args->slot_ctx->bank ), ledger_args->runtime_spad );
+  fd_runtime_update_leaders(
+      ledger_args->slot_ctx,
+      fd_bank_slot_get( ledger_args->slot_ctx->bank ),
+      ledger_args->runtime_spad );
 
-  fd_calculate_epoch_accounts_hash_values( ledger_args->slot_ctx );
+  fd_calculate_epoch_accounts_hash_values( ledger_args->slot_ctx->bank );
 
   long              replay_time = -fd_log_wallclock();
   ulong             txn_cnt     = 0;
@@ -519,8 +525,8 @@ fd_ledger_main_setup( fd_ledger_args_t * args ) {
 
   /* Finish other runtime setup steps */
   fd_features_restore( args->slot_ctx, args->runtime_spad );
-  fd_runtime_update_leaders( args->slot_ctx->bank, fd_bank_slot_get( args->slot_ctx->bank ), args->runtime_spad );
-  fd_calculate_epoch_accounts_hash_values( args->slot_ctx );
+  fd_runtime_update_leaders( args->slot_ctx, fd_bank_slot_get( args->slot_ctx->bank ), args->runtime_spad );
+  fd_calculate_epoch_accounts_hash_values( args->slot_ctx->bank );
 
   /* After both snapshots have been loaded in, we can determine if we should
       start distributing rewards. */

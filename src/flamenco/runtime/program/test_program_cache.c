@@ -226,7 +226,7 @@ test_program_in_cache_needs_reverification( void ) {
   FD_TEST( valid_prog->last_epoch_verification_ran==1UL );
 
   /* Fast forward to next epoch */
-  test_slot_ctx->bank->slot += 432000UL;
+  test_slot_ctx->bank->slot_ += 432000UL;
 
   /* This should trigger reverification */
   fd_bpf_program_update_program_cache( test_slot_ctx, &test_program_pubkey, test_spad );
@@ -288,8 +288,8 @@ main( int     argc,
     test_slot_ctx->funk = test_funk;
 
     /* Set up bank */
-    ulong        banks_footprint = fd_banks_footprint( 1UL );
-    uchar *      banks_mem       = fd_wksp_alloc_laddr( test_wksp, fd_banks_align(), banks_footprint, TEST_WKSP_TAG );
+    ulong   banks_footprint = fd_banks_footprint( 1UL );
+    uchar * banks_mem       = fd_wksp_alloc_laddr( test_wksp, fd_banks_align(), banks_footprint, TEST_WKSP_TAG );
     FD_TEST( banks_mem );
 
     fd_banks_t * banks = fd_banks_join( fd_banks_new( banks_mem, 1UL ) );
@@ -300,14 +300,14 @@ main( int     argc,
     test_slot_ctx->bank  = bank;
     test_slot_ctx->banks = banks;
 
-    fd_epoch_schedule_t epoch_schedule = {
+    fd_epoch_schedule_t const epoch_schedule = {
         .slots_per_epoch             = 432000UL,
         .leader_schedule_slot_offset = 432000UL,
         .warmup                      = 0,
         .first_normal_epoch          = 0UL,
         .first_normal_slot           = 0UL
     };
-    fd_bank_epoch_schedule_set( bank, epoch_schedule );
+    fd_sysvar_epoch_schedule_write( test_slot_ctx, &epoch_schedule );
 
     test_account_does_not_exist();
     test_account_not_bpf_loader_owner();

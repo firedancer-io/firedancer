@@ -12,7 +12,6 @@ FD_STATIC_ASSERT( offsetof( fd_vm_t, heap )  % FD_VM_HOST_REGION_ALIGN == 0, vm_
 
 FD_STATIC_ASSERT( FD_VM_SUCCESS                         ==  0, vm_err );
 FD_STATIC_ASSERT( FD_VM_ERR_INVAL                       == -1, vm_err );
-FD_STATIC_ASSERT( FD_VM_ERR_AGAIN                       == -2, vm_err );
 FD_STATIC_ASSERT( FD_VM_ERR_UNSUP                       == -3, vm_err );
 FD_STATIC_ASSERT( FD_VM_ERR_PERM                        == -4, vm_err );
 FD_STATIC_ASSERT( FD_VM_ERR_FULL                        == -5, vm_err );
@@ -131,7 +130,6 @@ main( int     argc,
 # define TEST( err ) FD_LOG_NOTICE(( "Testing fd_vm_strerror( %-38s ) (%i-%s)", #err, err, fd_vm_strerror( err ) ))
   TEST( FD_VM_SUCCESS                          );
   TEST( FD_VM_ERR_INVAL                        );
-  TEST( FD_VM_ERR_AGAIN                        );
   TEST( FD_VM_ERR_UNSUP                        );
   TEST( FD_VM_ERR_PERM                         );
   TEST( FD_VM_ERR_FULL                         );
