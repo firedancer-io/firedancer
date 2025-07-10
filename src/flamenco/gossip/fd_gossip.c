@@ -1,5 +1,6 @@
 #include <math.h>
 #include "fd_gossip.h"
+#include "fd_bloom.h"
 #include "fd_contact_info.h"
 #include "fd_gossip_private.h"
 
@@ -15,10 +16,6 @@
 
 #define PONG_SIGN_TYPE                  FD_KEYGUARD_SIGN_TYPE_SHA256_ED25519
 #define GOSSIP_SIGN_TYPE                FD_KEYGUARD_SIGN_TYPE_ED25519
-
-/* TODO: hardcode a CRDS filter instead of using bloom tmpls ? */
-#define BLOOM_NAME    crds_bloom
-#include "tmpl/fd_bloom.c"
 
 struct stake_weight {
   fd_pubkey_t key;
@@ -81,7 +78,7 @@ struct fd_gossip_private {
   ulong               entrypoints_cnt;
 
   fd_rng_t *          rng;
-  crds_bloom_t *      bloom;
+  fd_bloom_t *        bloom;
 
   /* TODO: has_shred_version */
   ushort              expected_shred_version;
@@ -142,7 +139,7 @@ fd_gossip_footprint( ulong max_values ) {
   l = FD_LAYOUT_APPEND( l, fd_crds_align(), fd_crds_footprint( max_values, max_values*4 /* FIXME: figure out better numbers */ ) );
   l = FD_LAYOUT_APPEND( l, fd_active_set_align(), fd_active_set_footprint() );
   l = FD_LAYOUT_APPEND( l, fd_ping_tracker_align(), fd_ping_tracker_footprint() );
-  l = FD_LAYOUT_APPEND( l, crds_bloom_align(), crds_bloom_footprint( BLOOM_FALSE_POSITIVE_RATE, BLOOM_FILTER_MAX_BYTES ) );
+  l = FD_LAYOUT_APPEND( l, fd_bloom_align(), fd_bloom_footprint( BLOOM_FALSE_POSITIVE_RATE, BLOOM_FILTER_MAX_BYTES ) );
   l = FD_LAYOUT_APPEND( l, stake_map_align(), stake_map_footprint() );
   l = FD_LAYOUT_APPEND( l, alignof(uchar),  max_values/4*sizeof(failed_insert_t) ); /* failed inserts FIXME: figure out better numbers */
   l = FD_LAYOUT_FINI( l, fd_gossip_align() );
@@ -200,7 +197,7 @@ fd_gossip_new( void *                    shmem,
   void * crds           = FD_SCRATCH_ALLOC_APPEND( l, fd_crds_align(), fd_crds_footprint( max_values, max_values*4 ) );
   void * active_set     = FD_SCRATCH_ALLOC_APPEND( l, fd_active_set_align(), fd_active_set_footprint() );
   void * ping_tracker   = FD_SCRATCH_ALLOC_APPEND( l, fd_ping_tracker_align(), fd_ping_tracker_footprint() );
-  void * bloom          = FD_SCRATCH_ALLOC_APPEND( l, crds_bloom_align(), crds_bloom_footprint( BLOOM_FALSE_POSITIVE_RATE, BLOOM_FILTER_MAX_BYTES ) );
+  void * bloom          = FD_SCRATCH_ALLOC_APPEND( l, fd_bloom_align(), fd_bloom_footprint( BLOOM_FALSE_POSITIVE_RATE, BLOOM_FILTER_MAX_BYTES ) );
   void * stake_weights  = FD_SCRATCH_ALLOC_APPEND( l, stake_map_align(), stake_map_footprint() );
   void * failed_inserts = FD_SCRATCH_ALLOC_APPEND( l, alignof(uchar), max_values/4*sizeof(failed_insert_t) ); /* FIXME: figure out better numbers */
 
@@ -212,7 +209,7 @@ fd_gossip_new( void *                    shmem,
   gossip->crds          = fd_crds_join( fd_crds_new( crds, rng, max_values, max_values*4, gossip_update_out ) );
   gossip->active_set    = fd_active_set_join( fd_active_set_new( active_set, rng ) );
   gossip->ping_tracker  = fd_ping_tracker_join( fd_ping_tracker_new( ping_tracker, rng ) );
-  gossip->bloom         = crds_bloom_join( crds_bloom_new( bloom, rng, BLOOM_FALSE_POSITIVE_RATE, BLOOM_FILTER_MAX_BYTES ) );
+  gossip->bloom         = fd_bloom_join( fd_bloom_new( bloom, rng, BLOOM_FALSE_POSITIVE_RATE, BLOOM_FILTER_MAX_BYTES ) );
   gossip->stake_weights = stake_map_join( stake_map_new( stake_weights ) );
 
   gossip->failed_inserts.entries = (failed_insert_t *)failed_inserts;
@@ -561,7 +558,7 @@ rx_pull_request( fd_gossip_t *                         gossip,
     return -1;
   }
 
-  crds_bloom_t filter[1];
+  fd_bloom_t filter[1];
   filter->keys_len = pr_view->bloom_keys_len;
   filter->keys     = (ulong *)( payload + pr_view->bloom_keys_offset );
 
@@ -589,7 +586,7 @@ rx_pull_request( fd_gossip_t *                         gossip,
     /* TODO: Add jitter here? */
     // if( FD_UNLIKELY( fd_crds_value_wallclock( candidate )>contact_info->wallclock_nanos ) ) continue;
 
-    if( FD_UNLIKELY( !crds_bloom_contains( filter, fd_crds_entry_hash( candidate ), 32UL ) ) ) continue;
+    if( FD_UNLIKELY( !fd_bloom_contains( filter, fd_crds_entry_hash( candidate ), 32UL ) ) ) continue;
 
     uchar const * crds_val;
     ulong         crds_size;
@@ -1148,21 +1145,21 @@ tx_pull_request( fd_gossip_t * gossip,
   uint mask_bits        = _mask_bits >= 0.0 ? (uint)_mask_bits : 1UL;
   ulong mask            = fd_rng_ulong( gossip->rng ) & ((1UL<<mask_bits)-1UL);
 
-  crds_bloom_t * filter   = gossip->bloom;
-  crds_bloom_initialize( filter, (ulong)max_items+1 ); /* TODO: check cast */
+  fd_bloom_t * filter   = gossip->bloom;
+  fd_bloom_initialize( filter, (ulong)max_items+1 ); /* TODO: check cast */
 
   uchar iter_mem[ 16UL ];
 
   for( fd_crds_mask_iter_t * it = fd_crds_mask_iter_init( gossip->crds, mask, mask_bits, iter_mem );
        !fd_crds_mask_iter_done( it, gossip->crds );
        it = fd_crds_mask_iter_next( it, gossip->crds ) ) {
-    crds_bloom_insert( filter, fd_crds_entry_hash( fd_crds_mask_iter_entry( it, gossip->crds ) ), 32UL );
+    fd_bloom_insert( filter, fd_crds_entry_hash( fd_crds_mask_iter_entry( it, gossip->crds ) ), 32UL );
   }
 
   for( fd_crds_mask_iter_t * it = fd_crds_purged_mask_iter_init( gossip->crds, mask, mask_bits, iter_mem );
        !fd_crds_purged_mask_iter_done( it, gossip->crds );
        it = fd_crds_purged_mask_iter_next( it, gossip->crds ) ){
-    crds_bloom_insert( filter, fd_crds_purged_mask_iter_hash( it, gossip->crds ), 32UL );
+    fd_bloom_insert( filter, fd_crds_purged_mask_iter_hash( it, gossip->crds ), 32UL );
   }
 
   fd_contact_info_t const * peer = fd_crds_peer_sample( gossip->crds, gossip->rng );
