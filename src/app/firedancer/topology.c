@@ -354,6 +354,7 @@ fd_topo_initialize( config_t * config ) {
      tiles.  Right now, we don't.  So in reality there can be at most 1
      in-flight transaction per exec tile, and hence a depth of 1 is in
      theory sufficient for each exec_writer link. */
+
   FOR(exec_tile_cnt)   fd_topob_link( topo, "exec_writer",  "exec_writer",  128UL,                                    FD_EXEC_WRITER_MTU,            1UL );
 
   /**/                 fd_topob_link( topo, "gossip_verif", "gossip_verif", config->tiles.verify.receive_buffer_size, FD_TPU_MTU,                    1UL );
@@ -779,17 +780,31 @@ fd_topo_initialize( config_t * config ) {
   }
 
   if( config->tiles.shredcap.enabled ) {
-    fd_topob_wksp( topo, "shredcap" );
-    fd_topob_tile( topo, "shrdcp", "shredcap", "metric_in", tile_to_cpu[ topo->tile_cnt ], 0, 0 );
-    fd_topob_tile_in(  topo, "shrdcp", 0UL, "metric_in", "repair_net", 0UL, FD_TOPOB_UNRELIABLE, FD_TOPOB_POLLED );
+    fd_topob_wksp( topo, "scap" );
+
+    fd_topob_wksp( topo, "repair_scap" );
+    fd_topob_wksp( topo, "replay_scap" );
+
+    fd_topob_tile( topo, "scap", "scap", "metric_in", tile_to_cpu[ topo->tile_cnt ], 0, 0 );
+
+    fd_topob_link( topo, "repair_scap", "repair_scap", 128UL, FD_SLICE_MAX_WITH_HEADERS, 1UL );
+    fd_topob_link( topo, "replay_scap", "replay_scap", 128UL, sizeof(fd_hash_t)+sizeof(ulong), 1UL );
+
+    fd_topob_tile_in(  topo, "scap", 0UL, "metric_in", "repair_net", 0UL, FD_TOPOB_UNRELIABLE, FD_TOPOB_POLLED );
     for( ulong j=0UL; j<net_tile_cnt; j++ ) {
-      fd_topob_tile_in(  topo, "shrdcp", 0UL, "metric_in", "net_shred", j, FD_TOPOB_UNRELIABLE, FD_TOPOB_POLLED );
+      fd_topob_tile_in(  topo, "scap", 0UL, "metric_in", "net_shred", j, FD_TOPOB_UNRELIABLE, FD_TOPOB_POLLED );
     }
     for( ulong j=0UL; j<shred_tile_cnt; j++ ) {
-      fd_topob_tile_in(  topo, "shrdcp", 0UL, "metric_in", "shred_repair", j, FD_TOPOB_UNRELIABLE, FD_TOPOB_POLLED );
+      fd_topob_tile_in(  topo, "scap", 0UL, "metric_in", "shred_repair", j, FD_TOPOB_UNRELIABLE, FD_TOPOB_POLLED );
     }
-    fd_topob_tile_in( topo, "shrdcp", 0UL, "metric_in", "crds_shred", 0UL, FD_TOPOB_UNRELIABLE, FD_TOPOB_POLLED );
-    fd_topob_tile_in( topo, "shrdcp", 0UL, "metric_in", "gossip_repai", 0UL, FD_TOPOB_UNRELIABLE, FD_TOPOB_POLLED );
+    fd_topob_tile_in( topo, "scap", 0UL, "metric_in", "crds_shred", 0UL, FD_TOPOB_UNRELIABLE, FD_TOPOB_POLLED );
+    fd_topob_tile_in( topo, "scap", 0UL, "metric_in", "gossip_repai", 0UL, FD_TOPOB_UNRELIABLE, FD_TOPOB_POLLED );
+
+    fd_topob_tile_in( topo, "scap", 0UL, "metric_in", "repair_scap", 0UL, FD_TOPOB_RELIABLE, FD_TOPOB_POLLED );
+    fd_topob_tile_in( topo, "scap", 0UL, "metric_in", "replay_scap", 0UL, FD_TOPOB_RELIABLE, FD_TOPOB_POLLED );
+
+    fd_topob_tile_out( topo, "repair", 0UL, "repair_scap", 0UL );
+    fd_topob_tile_out( topo, "replay", 0UL, "replay_scap", 0UL );
   }
 
   fd_topob_wksp( topo, "replay_notif" );
@@ -1049,14 +1064,33 @@ fd_topo_configure_tile( fd_topo_tile_t * tile,
       tile->snapin.manifest_dcache_obj_id = fd_pod_query_ulong( config->topo.props, "manifest_dcache", ULONG_MAX );
     } else if( FD_UNLIKELY( !strcmp( tile->name, "arch_f" ) ||
                             !strcmp( tile->name, "arch_w" ) ) ) {
-      strncpy( tile->archiver.archiver_path, config->tiles.archiver.archiver_path, sizeof(tile->archiver.archiver_path) );
+      strncpy( tile->archiver.rocksdb_path, config->tiles.archiver.rocksdb_path, sizeof(tile->archiver.rocksdb_path) );
     } else if( FD_UNLIKELY( !strcmp( tile->name, "back" ) ) ) {
-        strncpy( tile->archiver.archiver_path, config->tiles.archiver.archiver_path, PATH_MAX );
         tile->archiver.end_slot = config->tiles.archiver.end_slot;
-        if( FD_UNLIKELY( 0==strlen( tile->archiver.archiver_path ) ) ) {
-          FD_LOG_ERR(( "`archiver.archiver_path` not specified in toml" ));
+        strncpy( tile->archiver.ingest_mode, config->tiles.archiver.ingest_mode, sizeof(tile->archiver.ingest_mode) );
+        if( FD_UNLIKELY( 0==strlen( tile->archiver.ingest_mode ) ) ) {
+          FD_LOG_ERR(( "`archiver.ingest_mode` not specified in toml" ));
         }
-    } else if( FD_UNLIKELY( !strcmp( tile->name, "shrdcp" ) ) ) {
+
+        /* Validate arguments based on the ingest mode */
+        if( !strcmp( tile->archiver.ingest_mode, "rocksdb" ) ) {
+          strncpy( tile->archiver.rocksdb_path, config->tiles.archiver.rocksdb_path, PATH_MAX );
+          if( FD_UNLIKELY( 0==strlen( tile->archiver.rocksdb_path ) ) ) {
+            FD_LOG_ERR(( "`archiver.rocksdb_path` not specified in toml" ));
+          }
+        } else if( !strcmp( tile->archiver.ingest_mode, "shredcap" ) ) {
+          strncpy( tile->archiver.shredcap_path, config->tiles.archiver.shredcap_path, PATH_MAX );
+          if( FD_UNLIKELY( 0==strlen( tile->archiver.shredcap_path ) ) ) {
+            FD_LOG_ERR(( "`archiver.shredcap_path` not specified in toml" ));
+          }
+          strncpy( tile->archiver.bank_hash_path, config->tiles.archiver.bank_hash_path, PATH_MAX );
+          if( FD_UNLIKELY( 0==strlen( tile->archiver.bank_hash_path ) ) ) {
+            FD_LOG_ERR(( "`archiver.bank_hash_path` not specified in toml" ));
+          }
+        } else {
+          FD_LOG_ERR(( "Invalid ingest mode: %s", tile->archiver.ingest_mode ));
+        }
+    } else if( FD_UNLIKELY( !strcmp( tile->name, "scap" ) ) ) {
       tile->shredcap.repair_intake_listen_port = config->tiles.repair.repair_intake_listen_port;
       strncpy( tile->shredcap.folder_path, config->tiles.shredcap.folder_path, sizeof(tile->shredcap.folder_path) );
       tile->shredcap.write_buffer_size = config->tiles.shredcap.write_buffer_size;

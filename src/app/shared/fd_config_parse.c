@@ -255,12 +255,15 @@ fd_config_extract_pod( uchar *       pod,
 
   CFG_POP      ( bool,   tiles.archiver.enabled                           );
   CFG_POP      ( ulong,  tiles.archiver.end_slot                          );
-  CFG_POP      ( cstr,   tiles.archiver.archiver_path                     );
+  CFG_POP      ( cstr,   tiles.archiver.rocksdb_path                      );
+  CFG_POP      ( cstr,   tiles.archiver.shredcap_path                     );
+  CFG_POP      ( cstr,   tiles.archiver.bank_hash_path                    );
+  CFG_POP      ( cstr,   tiles.archiver.ingest_mode                       );
 
   if( FD_UNLIKELY( config->is_firedancer ) ) {
-    CFG_POP      ( bool,    tiles.shredcap.enabled                           );
-    CFG_POP      ( cstr,    tiles.shredcap.folder_path                       );
-    CFG_POP      ( ulong,   tiles.shredcap.write_buffer_size                  );
+    CFG_POP      ( bool,    tiles.shredcap.enabled                        );
+    CFG_POP      ( cstr,    tiles.shredcap.folder_path                    );
+    CFG_POP      ( ulong,   tiles.shredcap.write_buffer_size              );
   }
 
   CFG_POP      ( bool,   development.sandbox                              );

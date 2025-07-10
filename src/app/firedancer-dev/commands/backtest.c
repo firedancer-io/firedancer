@@ -53,8 +53,7 @@ backtest_topo( config_t * config ) {
   /* Add the backtest tile to topo                                      */
   /**********************************************************************/
   fd_topob_wksp( topo, "back" );
-  fd_topo_tile_t * backtest_tile   = fd_topob_tile( topo, "back", "back", "metric_in", cpu_idx++, 0, 0 );
-  FD_LOG_NOTICE(( "Found rocksdb path from config: %s", backtest_tile->archiver.archiver_path ));
+  fd_topo_tile_t * backtest_tile = fd_topob_tile( topo, "back", "back", "metric_in", cpu_idx++, 0, 0 );
 
   /**********************************************************************/
   /* Add the replay tile to topo                                        */
@@ -249,7 +248,6 @@ backtest_topo( config_t * config ) {
 
   /* banks_obj shared by replay, exec and writer tiles */
   fd_topob_wksp( topo, "banks" );
-  FD_LOG_WARNING(("max_banks: %lu", config->firedancer.runtime.limits.max_banks));
   fd_topo_obj_t * banks_obj = setup_topo_banks( topo, "banks", config->firedancer.runtime.limits.max_banks );
   fd_topob_tile_uses( topo, replay_tile, banks_obj, FD_SHMEM_JOIN_MODE_READ_WRITE );
   FOR(exec_tile_cnt) fd_topob_tile_uses( topo, &topo->tiles[ fd_topo_find_tile( topo, "exec", i ) ], banks_obj, FD_SHMEM_JOIN_MODE_READ_WRITE );
@@ -320,15 +318,7 @@ backtest_topo( config_t * config ) {
 
   for( ulong i=0UL; i<topo->tile_cnt; i++ ) {
     fd_topo_tile_t * tile = &topo->tiles[ i ];
-    if( !strcmp( tile->name, "rocksdb" ) ) {
-      tile->archiver.end_slot = config->tiles.archiver.end_slot;
-      strncpy( tile->archiver.archiver_path, config->tiles.archiver.archiver_path, PATH_MAX );
-      if( FD_UNLIKELY( 0==strlen( tile->archiver.archiver_path ) ) ) {
-        FD_LOG_ERR(( "Rocksdb not found, check `archiver.archiver_path` in toml" ));
-      } else {
-        FD_LOG_NOTICE(( "Found rocksdb path from config: %s", tile->archiver.archiver_path ));
-      }
-    } else if( !fd_topo_configure_tile( tile, config ) ) {
+    if( !fd_topo_configure_tile( tile, config ) ) {
       FD_LOG_ERR(( "unknown tile name %lu `%s`", i, tile->name ));
     }
 

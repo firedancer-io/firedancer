@@ -161,7 +161,8 @@ echo "
     [tiles.archiver]
         enabled = true
         end_slot = $END_SLOT
-        archiver_path = \"$DUMP/$LEDGER/rocksdb\"
+        rocksdb_path = \"$DUMP/$LEDGER/rocksdb\"
+        ingest_mode = \"rocksdb\"
     [tiles.replay]
         cluster_version = \"$CLUSTER_VERSION\"
         enable_features = [ $FORMATTED_ONE_OFFS ]
@@ -170,7 +171,6 @@ echo "
 [blockstore]
     shred_max = 16777216
     block_max = 8192
-    txn_max = 1048576
     alloc_max = 10737418240
     file = \"$DUMP/$LEDGER/backtest.blockstore\"
 [funk]
@@ -181,8 +181,6 @@ echo "
     heap_size_gib = 100
     [runtime.limits]
         max_banks = 64
-[consensus]
-    vote = false
 [development]
     sandbox = false
     no_agave = true
@@ -221,7 +219,7 @@ echo_notice "Finished on-demand ingest and replay\n"
 
 echo "Log for ledger $LEDGER at $LOG"
 
-if grep -q "Rocksdb playback done." $LOG && ! grep -q "Bank hash mismatch!" $LOG;
+if grep -q "Backtest playback done." $LOG && ! grep -q "Bank hash mismatch!" $LOG;
 then
   exit 0
   #   rm $LOG

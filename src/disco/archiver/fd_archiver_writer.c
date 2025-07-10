@@ -116,9 +116,9 @@ privileged_init( fd_topo_t *      topo,
     FD_SCRATCH_ALLOC_APPEND( l, fd_alloc_align(), fd_alloc_footprint() );
     FD_SCRATCH_ALLOC_FINI( l, scratch_align() );
 
-    tile->archiver.archive_fd = open( tile->archiver.archiver_path, O_RDWR | O_CREAT | O_DIRECT, 0666 );
+    tile->archiver.archive_fd = open( tile->archiver.rocksdb_path, O_RDWR | O_CREAT | O_DIRECT, 0666 );
     if ( FD_UNLIKELY( tile->archiver.archive_fd == -1 ) ) {
-      FD_LOG_ERR(( "failed to open or create archive file %s %d %d %s", tile->archiver.archiver_path, tile->archiver.archive_fd, errno, strerror(errno) ));
+      FD_LOG_ERR(( "failed to open or create archive file %s %d %d %s", tile->archiver.rocksdb_path, tile->archiver.archive_fd, errno, strerror(errno) ));
     }
 }
 

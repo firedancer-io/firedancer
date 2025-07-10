@@ -10,9 +10,10 @@
 #include "../../ballet/base58/fd_base58.h"
 #include "../../flamenco/runtime/context/fd_capture_ctx.h"
 #include "../../flamenco/runtime/fd_blockstore.h"
-#include "../../flamenco/shredcap/fd_shredcap.h"
 #include "../../flamenco/runtime/program/fd_bpf_program_util.h"
 #include "../../flamenco/snapshot/fd_snapshot.h"
+#include <unistd.h>
+#include <sys/stat.h>
 
 struct fd_ledger_args {
   fd_wksp_t *           wksp;                    /* wksp for blockstore */
@@ -935,9 +936,6 @@ ingest( fd_ledger_args_t * args ) {
 
   if( args->funk_only ) {
     FD_LOG_NOTICE(( "using funk only, skipping blockstore ingest" ));
-  } else if( args->shredcap ) {
-    FD_LOG_NOTICE(( "using shredcap" ));
-    fd_shredcap_populate_blockstore( args->shredcap, blockstore, args->start_slot, args->end_slot );
   } else if( args->rocksdb_list[ 0UL ] ) {
     if( args->end_slot >= fd_bank_slot_get( slot_ctx->bank ) + args->slot_history_max ) {
       args->end_slot = fd_bank_slot_get( slot_ctx->bank ) + args->slot_history_max - 1;

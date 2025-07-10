@@ -427,7 +427,10 @@ struct fd_config {
     struct {
       int   enabled;
       ulong end_slot;
-      char  archiver_path[ PATH_MAX ];
+      char  rocksdb_path[ PATH_MAX ];
+      char  shredcap_path[ PATH_MAX ];
+      char  bank_hash_path[ PATH_MAX ];
+      char  ingest_mode[ 32 ];
     } archiver;
 
     struct {

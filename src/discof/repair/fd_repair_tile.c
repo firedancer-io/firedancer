@@ -30,10 +30,11 @@
 #define IN_KIND_SIGN    (4)
 #define MAX_IN_LINKS    (16)
 
-#define NET_OUT_IDX     (0)
-#define SIGN_OUT_IDX    (1)
-#define REPLAY_OUT_IDX  (2)
-#define ARCHIVE_OUT_IDX (3)
+#define NET_OUT_IDX      (0)
+#define SIGN_OUT_IDX     (1)
+#define REPLAY_OUT_IDX   (2)
+#define ARCHIVE_OUT_IDX  (3)
+#define SHREDCAP_OUT_IDX (4)
 
 #define MAX_REPAIR_PEERS 40200UL
 #define MAX_BUFFER_SIZE  ( MAX_REPAIR_PEERS * sizeof(fd_shred_dest_wire_t))
@@ -128,6 +129,13 @@ struct fd_repair_tile_ctx {
   ulong       replay_out_chunk0;
   ulong       replay_out_wmark;
   ulong       replay_out_chunk;
+
+  /* These will only be used if shredcap is enabled */
+  uint        shredcap_enabled;
+  fd_wksp_t * shredcap_out_mem;
+  ulong       shredcap_out_chunk0;
+  ulong       shredcap_out_wmark;
+  ulong       shredcap_out_chunk;
 
   uint                shred_tile_cnt;
   fd_repair_out_ctx_t shred_out_ctx[ MAX_SHRED_TILE_CNT ];
@@ -542,7 +550,6 @@ fd_repair_recv_pong(fd_repair_t * glob, fd_gossip_ping_t const * pong, fd_gossip
   val->good = 1;
 }
 
-
 static long
 repair_get_shred( ulong  slot,
                   uint   shred_idx,
@@ -733,6 +740,44 @@ fd_repair_recv_serv_packet( fd_repair_tile_ctx_t *        repair_tile_ctx,
 }
 
 static void
+publish_to_shredcap( fd_repair_tile_ctx_t * ctx,
+                     fd_fec_out_t *         out,
+                     uint                   shred_cnt,
+                     ulong                  tsorig,
+                     ulong                  tspub ) {
+  /* At this point we have a completed slice. We can query for
+    the shreds we need and send them to shredcap. We need to
+    query all of the shreds (header and payload) for all of
+    the shreds in the slice.
+
+    TODO: Consider changing this to stem_publish one shred at a time,
+    and use the sig to indicate if at the start or end of a slice. */
+  uint    end_idx    = out->fec_set_idx+out->data_cnt-1U;
+  uint    start_idx  = end_idx-shred_cnt+1U;
+  ulong   buf_sz     = 0UL;
+  uchar * dcache_buf = fd_chunk_to_laddr( ctx->shredcap_out_mem, ctx->shredcap_out_chunk );
+  for( uint shred_idx=start_idx; shred_idx<=end_idx; shred_idx++ ) {
+
+    long shred_sz = fd_buf_shred_query_copy_data( ctx->blockstore, out->slot, shred_idx, dcache_buf, FD_SHRED_MAX_SZ );
+    if( FD_UNLIKELY( shred_sz<0 ) ) {
+      FD_LOG_CRIT(( "shred copy data failed for slot %lu, idx %u", out->slot, shred_idx ));
+    }
+    fd_shred_t * cur_shred = (fd_shred_t *)fd_type_pun( dcache_buf );
+    if( FD_UNLIKELY( cur_shred->slot!=out->slot ) ) {
+      FD_LOG_CRIT(( "shred slot mismatch %lu != %lu", cur_shred->slot, out->slot ));
+    }
+    dcache_buf += (ulong)shred_sz;
+    buf_sz     += (ulong)shred_sz;
+  }
+
+  if( FD_UNLIKELY( buf_sz>FD_SLICE_MAX_WITH_HEADERS ) ) {
+    FD_LOG_CRIT(( "invariant violation: buf_sz %lu > FD_SLICE_MAX_WITH_HEADERS %lu", buf_sz, FD_SLICE_MAX_WITH_HEADERS ));
+  }
+  fd_stem_publish( ctx->stem, SHREDCAP_OUT_IDX, buf_sz, ctx->shredcap_out_chunk, buf_sz, 0, tsorig, tspub );
+  ctx->shredcap_out_chunk = fd_dcache_compact_next( ctx->shredcap_out_chunk, buf_sz, ctx->shredcap_out_chunk0, ctx->shredcap_out_wmark );
+}
+
+static void
 after_frag( fd_repair_tile_ctx_t * ctx,
             ulong                  in_idx,
             ulong                  seq    FD_PARAM_UNUSED,
@@ -837,10 +882,16 @@ after_frag( fd_repair_tile_ctx_t * ctx,
           reasm->cnt = 0;
         }
         if( FD_UNLIKELY( out.data_complete ) ) {
+
           uint  cnt   = out.fec_set_idx + out.data_cnt - reasm->cnt;
           ulong sig   = fd_disco_repair_replay_sig( out.slot, out.parent_off, cnt, out.slot_complete );
           ulong tspub = fd_frag_meta_ts_comp( fd_tickcount() );
-          reasm->cnt = out.fec_set_idx + out.data_cnt;
+          reasm->cnt  = out.fec_set_idx + out.data_cnt;
+
+          if( FD_UNLIKELY( ctx->shredcap_enabled ) ) {
+            publish_to_shredcap( ctx, &out, cnt, tsorig, tspub );
+          }
+
           fd_stem_publish( ctx->stem, REPLAY_OUT_IDX, sig, 0, 0, 0, tsorig, tspub );
           if( FD_UNLIKELY( out.slot_complete ) ) {
             fd_reasm_remove( ctx->reasm, reasm );
@@ -1115,7 +1166,7 @@ unprivileged_init( fd_topo_t *      topo,
       ctx->replay_out_wmark  = fd_dcache_compact_wmark( ctx->replay_out_mem, link->dcache, link->mtu );
       ctx->replay_out_chunk  = ctx->replay_out_chunk0;
 
-    } else if ( 0==strcmp( link->name, "repair_shred" ) ) {
+    } else if( 0==strcmp( link->name, "repair_shred" ) ) {
 
       fd_repair_out_ctx_t * shred_out = &ctx->shred_out_ctx[ shred_tile_idx++ ];
       shred_out->idx                  = out_idx;
@@ -1123,6 +1174,14 @@ unprivileged_init( fd_topo_t *      topo,
       shred_out->chunk0               = fd_dcache_compact_chunk0( shred_out->mem, link->dcache );
       shred_out->wmark                = fd_dcache_compact_wmark( shred_out->mem, link->dcache, link->mtu );
       shred_out->chunk                = shred_out->chunk0;
+
+    } else if( 0==strcmp( link->name, "repair_scap" ) ) {
+
+      ctx->shredcap_enabled    = 1;
+      ctx->shredcap_out_mem    = topo->workspaces[ topo->objs[ link->dcache_obj_id ].wksp_id ].wksp;
+      ctx->shredcap_out_chunk0 = fd_dcache_compact_chunk0( ctx->shredcap_out_mem, link->dcache );
+      ctx->shredcap_out_wmark  = fd_dcache_compact_wmark( ctx->shredcap_out_mem, link->dcache, link->mtu );
+      ctx->shredcap_out_chunk  = ctx->shredcap_out_chunk0;
 
     } else {
       FD_LOG_ERR(( "repair tile has unexpected output link %s", link->name ));
@@ -1286,8 +1345,11 @@ metrics_write( fd_repair_tile_ctx_t * ctx ) {
   fd_repair_update_repair_metrics( fd_repair_get_metrics( ctx->repair ) );
 }
 
-/* TODO: This is probably not correct. */
-#define STEM_BURST (2UL)
+/* TODO: This is not correct, but is temporary and will be fixed
+   when the new store is implemented allowing the burst to be increased.
+   The burst should be bounded by the number of stem_publishes that
+   occur in a single frag loop. */
+#define STEM_BURST (64UL)
 
 #define STEM_CALLBACK_CONTEXT_TYPE  fd_repair_tile_ctx_t
 #define STEM_CALLBACK_CONTEXT_ALIGN alignof(fd_repair_tile_ctx_t)
