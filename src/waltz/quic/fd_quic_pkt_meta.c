@@ -59,6 +59,14 @@ fd_quic_pkt_meta_remove_range( fd_quic_pkt_meta_ds_t * ds,
   return cnt_removed;
 }
 
+void
+fd_quic_pkt_meta_remove( fd_quic_pkt_meta_ds_t * ds,
+                         fd_quic_pkt_meta_t    * pool,
+                         fd_quic_pkt_meta_t    * pkt_meta ) {
+  fd_quic_pkt_meta_treap_ele_remove( ds, pkt_meta, pool );
+  fd_quic_pkt_meta_pool_ele_release( pool, pkt_meta );
+}
+
 fd_quic_pkt_meta_t *
 fd_quic_pkt_meta_min( fd_quic_pkt_meta_ds_t * ds,
                       fd_quic_pkt_meta_t    * pool ) {
@@ -67,6 +75,33 @@ fd_quic_pkt_meta_min( fd_quic_pkt_meta_ds_t * ds,
   if( FD_UNLIKELY( fd_quic_pkt_meta_ds_fwd_iter_done( iter ) ) ) return NULL;
   return fd_quic_pkt_meta_ds_fwd_iter_ele( iter, pool );
 }
+
+fd_quic_pkt_meta_ds_fwd_iter_t
+fd_quic_pkt_meta_ds_idx_le( fd_quic_pkt_meta_ds_t * ds,
+                            fd_quic_pkt_meta_t    * pool,
+                            ulong                   pkt_number ) {
+  /* One might first consider using le with composite key that sets
+     type and stream_id to their max values, and then traversing
+     back to the first pkt_meta with this pkt_number. But when we
+     have many concurrent streams, that's a lot of traversal.
+
+     We instead use lt to jump to the last pkt_meta right before
+     our query. Edge case: if next pkt_meta has the wrong pkt_num,
+     we know that 'pkt_number' is missing and should stick with prev */
+  fd_quic_pkt_meta_ds_fwd_iter_t prev = fd_quic_pkt_meta_treap_idx_lt( ds,
+                                         (fd_quic_pkt_meta_key_t){
+                                          .pkt_num = pkt_number & FD_QUIC_PKT_META_PKT_NUM_MASK,
+                                          .type = 0,
+                                          .stream_id = 0},
+                                         pool );
+  if( FD_UNLIKELY( fd_quic_pkt_meta_ds_fwd_iter_done( prev ) ) ) return prev;
+  fd_quic_pkt_meta_ds_fwd_iter_t next = fd_quic_pkt_meta_treap_fwd_iter_next( prev, pool );
+  if( FD_UNLIKELY( fd_quic_pkt_meta_ds_fwd_iter_done( next ) ) ) return prev;
+
+  fd_quic_pkt_meta_t * next_e = fd_quic_pkt_meta_ds_fwd_iter_ele( next, pool );
+  return next_e->key.pkt_num==pkt_number ? next : prev;
+}
+
 
 void
 fd_quic_pkt_meta_ds_clear( fd_quic_pkt_meta_tracker_t * tracker,
