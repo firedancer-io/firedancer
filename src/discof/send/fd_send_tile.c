@@ -847,7 +847,7 @@ metrics_write( fd_send_tile_ctx_t * ctx ) {
   FD_MCNT_SET(         SEND, PKT_UNDERSZ,                 ctx->quic->metrics.pkt_undersz_cnt         );
   FD_MCNT_SET(         SEND, PKT_OVERSZ,                  ctx->quic->metrics.pkt_oversz_cnt          );
   FD_MCNT_SET(         SEND, PKT_VERNEG,                  ctx->quic->metrics.pkt_verneg_cnt          );
-  FD_MCNT_SET(         SEND, PKT_RETRANSMISSIONS,         ctx->quic->metrics.pkt_retransmissions_cnt );
+  FD_MCNT_ENUM_COPY(   SEND, PKT_RETRANSMISSIONS,         ctx->quic->metrics.pkt_retransmissions_cnt            );
 
   FD_MCNT_SET(         SEND, HANDSHAKES_CREATED,          ctx->quic->metrics.hs_created_cnt          );
   FD_MCNT_SET(         SEND, HANDSHAKE_ERROR_ALLOC_FAIL,  ctx->quic->metrics.hs_err_alloc_fail_cnt   );

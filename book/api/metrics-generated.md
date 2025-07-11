@@ -179,7 +179,10 @@
 | <span class="metrics-name">quic_&#8203;pkt_&#8203;oversz</span> | counter | Number of QUIC packets dropped due to being too large. |
 | <span class="metrics-name">quic_&#8203;pkt_&#8203;verneg</span> | counter | Number of QUIC version negotiation packets received. |
 | <span class="metrics-name">quic_&#8203;retry_&#8203;sent</span> | counter | Number of QUIC Retry packets sent. |
-| <span class="metrics-name">quic_&#8203;pkt_&#8203;retransmissions</span> | counter | Number of QUIC packets that retransmitted. |
+| <span class="metrics-name">quic_&#8203;pkt_&#8203;retransmissions</span><br/>{quic_&#8203;enc_&#8203;level="<span class="metrics-enum">initial</span>"} | counter | Number of QUIC packets that retransmitted. (initial) |
+| <span class="metrics-name">quic_&#8203;pkt_&#8203;retransmissions</span><br/>{quic_&#8203;enc_&#8203;level="<span class="metrics-enum">early</span>"} | counter | Number of QUIC packets that retransmitted. (early data) |
+| <span class="metrics-name">quic_&#8203;pkt_&#8203;retransmissions</span><br/>{quic_&#8203;enc_&#8203;level="<span class="metrics-enum">handshake</span>"} | counter | Number of QUIC packets that retransmitted. (handshake) |
+| <span class="metrics-name">quic_&#8203;pkt_&#8203;retransmissions</span><br/>{quic_&#8203;enc_&#8203;level="<span class="metrics-enum">app</span>"} | counter | Number of QUIC packets that retransmitted. (app data) |
 
 </div>
 
@@ -804,7 +807,10 @@
 | <span class="metrics-name">send_&#8203;pkt_&#8203;undersz</span> | counter | Total count of undersized packets |
 | <span class="metrics-name">send_&#8203;pkt_&#8203;oversz</span> | counter | Total count of oversized packets |
 | <span class="metrics-name">send_&#8203;pkt_&#8203;verneg</span> | counter | Total count of version negotiation packets |
-| <span class="metrics-name">send_&#8203;pkt_&#8203;retransmissions</span> | counter | Total count of packet retransmissions |
+| <span class="metrics-name">send_&#8203;pkt_&#8203;retransmissions</span><br/>{quic_&#8203;enc_&#8203;level="<span class="metrics-enum">initial</span>"} | counter | Total count of QUIC packet retransmissions. (initial) |
+| <span class="metrics-name">send_&#8203;pkt_&#8203;retransmissions</span><br/>{quic_&#8203;enc_&#8203;level="<span class="metrics-enum">early</span>"} | counter | Total count of QUIC packet retransmissions. (early data) |
+| <span class="metrics-name">send_&#8203;pkt_&#8203;retransmissions</span><br/>{quic_&#8203;enc_&#8203;level="<span class="metrics-enum">handshake</span>"} | counter | Total count of QUIC packet retransmissions. (handshake) |
+| <span class="metrics-name">send_&#8203;pkt_&#8203;retransmissions</span><br/>{quic_&#8203;enc_&#8203;level="<span class="metrics-enum">app</span>"} | counter | Total count of QUIC packet retransmissions. (app data) |
 | <span class="metrics-name">send_&#8203;handshakes_&#8203;created</span> | counter | Total count of QUIC handshakes created |
 | <span class="metrics-name">send_&#8203;handshake_&#8203;error_&#8203;alloc_&#8203;fail</span> | counter | Total count of handshake allocation failures |
 | <span class="metrics-name">send_&#8203;handshake_&#8203;evicted</span> | counter | Total count of handshakes evicted |
