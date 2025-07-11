@@ -265,4 +265,7 @@ quic_retry_sent{kind="quic",kind_id="0"} 140
 
 # HELP quic_pkt_retransmissions Number of QUIC packets that retransmitted.
 # TYPE quic_pkt_retransmissions counter
-quic_pkt_retransmissions{kind="quic",kind_id="0"} 141
+quic_pkt_retransmissions{kind="quic",kind_id="0",quic_enc_level="initial"} 141
+quic_pkt_retransmissions{kind="quic",kind_id="0",quic_enc_level="early"} 142
+quic_pkt_retransmissions{kind="quic",kind_id="0",quic_enc_level="handshake"} 143
+quic_pkt_retransmissions{kind="quic",kind_id="0",quic_enc_level="app"} 144
