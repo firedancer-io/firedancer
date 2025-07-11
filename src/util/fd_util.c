@@ -19,6 +19,12 @@ fd_halt( void ) {
   fd_log_private_halt  ();
 }
 
+long
+_fd_tickcount( void const * _ ) {
+  (void)_;
+  return fd_tickcount();
+}
+
 #if FD_HAS_HOSTED
 
 #include <sched.h>
@@ -26,4 +32,3 @@ fd_halt( void ) {
 void fd_yield( void ) { sched_yield(); }
 
 #endif
-
