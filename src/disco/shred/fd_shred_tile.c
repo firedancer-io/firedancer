@@ -1248,6 +1248,7 @@ populate_allowed_fds( fd_topo_t const *      topo,
 }
 
 #define STEM_BURST (5UL)
+#define STEM_CAN_SLEEP (1)
 
 /* See explanation in fd_pack */
 #define STEM_LAZY  (128L*3000L)

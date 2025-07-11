@@ -120,7 +120,7 @@ get_tile_deadline( fd_quic_ctx_t * ctx,
                    long *          deadline_ticks ) {
   ulong next_wakeup_ticks = fd_quic_get_next_wakeup( ctx->quic );
   *deadline_ticks = (next_wakeup_ticks > 0UL && next_wakeup_ticks < LONG_MAX) ?
-                    (long)next_wakeup_ticks : LONG_MAX;
+                    (long)next_wakeup_ticks : LONG_MAX; // TODO: simple cast?
 }
 
 static inline void
@@ -620,7 +620,7 @@ populate_allowed_fds( fd_topo_t const *      topo,
 }
 
 #define STEM_BURST (1UL)
-#define STEM_ALWAYS_SPINNING (0)
+#define STEM_CAN_SLEEP (1)
 
 #define STEM_CALLBACK_CONTEXT_TYPE  fd_quic_ctx_t
 #define STEM_CALLBACK_CONTEXT_ALIGN alignof(fd_quic_ctx_t)

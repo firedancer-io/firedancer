@@ -596,6 +596,7 @@ unprivileged_init( fd_topo_t *      topo,
    microblocks cannot be conflicting. */
 
 #define STEM_BURST (5UL)
+#define STEM_CAN_SLEEP (1)
 
 /* See explanation in fd_pack */
 #define STEM_LAZY  (128L*3000L)

@@ -516,6 +516,7 @@ unprivileged_init( fd_topo_t *      topo,
 }
 
 #define STEM_BURST (1UL)
+#define STEM_CAN_SLEEP (1)
 
 #define STEM_CALLBACK_CONTEXT_TYPE  fd_resolv_ctx_t
 #define STEM_CALLBACK_CONTEXT_ALIGN alignof(fd_resolv_ctx_t)

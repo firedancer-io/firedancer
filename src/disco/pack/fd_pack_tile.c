@@ -1039,7 +1039,7 @@ static void
 get_tile_deadline( fd_pack_ctx_t * ctx, long * deadline_ticks ) {
   if( FD_UNLIKELY( ctx->leader_slot == ULONG_MAX ) ) {
     long slot_end_ticks = ctx->approx_tickcount + (long)((double) (ctx->slot_end_ns - ctx->approx_wallclock_ns) * ctx->ticks_per_ns);
-    *deadline_ticks = slot_end_ticks; // TODO: should we make this LONG_MAX? at that point no point for this function?
+    *deadline_ticks = slot_end_ticks;
   }
 }
 
