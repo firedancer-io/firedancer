@@ -302,6 +302,7 @@ STEM_(run1)( ulong                        in_cnt,
 
 #if STEM_CAN_SLEEP
   waiters = (struct futex_waitv *)FD_SCRATCH_ALLOC_APPEND( l, alignof(struct futex_waitv), in_cnt*sizeof(struct futex_waitv) );
+  ulong current_pos = in_seq;
   ulong futex_wait_counter = 0UL;
 #endif
 
@@ -447,10 +448,7 @@ STEM_(run1)( ulong                        in_cnt,
       } else { /* event_idx==cons_cnt, housekeeping event */
       
 #if STEM_CAN_SLEEP
-        if (sleeps) { 
-          approx_wallclock_ns = fd_log_wallclock();
-          approx_tickcount = now;
-        }
+        if( sleeps ) { approx_wallclock_ns = fd_log_wallclock(); approx_tickcount = now; }
 #endif
         /* Update metrics counters to external viewers */
         FD_COMPILER_MFENCE();
@@ -487,7 +485,7 @@ STEM_(run1)( ulong                        in_cnt,
 #else
         (void)ctx;
 #endif
-      } 
+      }
 
       /* Select which event to do next (randomized round robin) and
          reload the housekeeping timer. */
@@ -517,7 +515,7 @@ STEM_(run1)( ulong                        in_cnt,
           in[ swap_idx ] = in[ 0        ];
           in[ 0        ] = in_tmp;
 #if STEM_CAN_SLEEP
-          if (sleeps) { 
+          if( sleeps ) { 
             struct futex_waitv waitv_tmp;
             waitv_tmp           = waiters[ swap_idx ];
             waiters[ swap_idx ] = waiters[ 0        ];
@@ -543,6 +541,7 @@ STEM_(run1)( ulong                        in_cnt,
 #ifdef STEM_CALLBACK_GET_TILE_DEADLINE
       STEM_CALLBACK_GET_TILE_DEADLINE( ctx, &tile_deadline_ticks );
 #endif
+
       /* If set to <=0, it is critical we do not sleep */
       if( FD_UNLIKELY( tile_deadline_ticks<=0 ) ) futex_wait_counter = 0;
       else {
@@ -645,10 +644,8 @@ STEM_(run1)( ulong                        in_cnt,
 #endif
 
 #if STEM_CAN_SLEEP
-    ulong current_pos = in_seq;
-    if (sleeps) { 
-      futex_wait_counter++;
-    }
+    current_pos = in_seq;
+    if( sleeps ) futex_wait_counter++;
 #endif
 
     fd_stem_tile_in_t * this_in = &in[ in_seq ];
@@ -683,9 +680,7 @@ STEM_(run1)( ulong                        in_cnt,
       if( FD_UNLIKELY( diff<0L ) ) { /* Overrun (impossible if in is honoring our flow control) */
         this_in->seq = seq_found; /* Resume from here (probably reasonably current, could query in mcache sync directly instead) */
 #if STEM_CAN_SLEEP
-        if (sleeps) { 
-          waiters[current_pos].val = this_in->seq;
-        }
+        if( sleeps ) waiters[current_pos].val = this_in->seq;
 #endif
         housekeeping_regime = &metric_regime_ticks[1];
         prefrag_regime = &metric_regime_ticks[4];
@@ -726,10 +721,7 @@ STEM_(run1)( ulong                        in_cnt,
       this_in->mline = this_in->mcache + fd_mcache_line_idx( this_in_seq, this_in->depth );
 
 #if STEM_CAN_SLEEP
-      if (sleeps) { 
-        waiters[current_pos].val = this_in_seq;
-        futex_wait_counter = 0;
-      }
+      if( sleeps ) { waiters[current_pos].val = this_in_seq; futex_wait_counter = 0; }
 #endif
 
       metric_regime_ticks[1] += housekeeping_ticks;
@@ -767,9 +759,7 @@ STEM_(run1)( ulong                        in_cnt,
     if( FD_UNLIKELY( fd_seq_ne( seq_test, seq_found ) ) ) { /* Overrun while reading (impossible if this_in honoring our fctl) */
       this_in->seq = seq_test; /* Resume from here (probably reasonably current, could query in mcache sync instead) */
 #if STEM_CAN_SLEEP
-      if (sleeps) { 
-        waiters[current_pos].val = seq_test;
-      }
+      if( sleeps ) waiters[current_pos].val = seq_test;
 #endif
       fd_metrics_link_in( fd_metrics_base_tl, this_in->idx )[ FD_METRICS_COUNTER_LINK_OVERRUN_READING_COUNT_OFF ]++; /* No local accum since extremely rare, faster to use smaller cache line */
       fd_metrics_link_in( fd_metrics_base_tl, this_in->idx )[ FD_METRICS_COUNTER_LINK_OVERRUN_READING_FRAG_COUNT_OFF ] += (uint)fd_seq_diff( seq_test, seq_found ); /* No local accum since extremely rare, faster to use smaller cache line */
@@ -793,10 +783,7 @@ STEM_(run1)( ulong                        in_cnt,
     this_in->mline = this_in->mcache + fd_mcache_line_idx( this_in_seq, this_in->depth );
 
 #if STEM_CAN_SLEEP
-    if (sleeps) {
-      waiters[current_pos].val = this_in_seq;
-      futex_wait_counter = 0;
-    }
+    if( sleeps ) { waiters[current_pos].val = this_in_seq; futex_wait_counter = 0; }
 #endif
 
     this_in->accum[ FD_METRICS_COUNTER_LINK_CONSUMED_COUNT_OFF ]++;
