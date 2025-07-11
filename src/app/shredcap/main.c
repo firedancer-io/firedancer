@@ -1,5 +1,6 @@
 #include "../../flamenco/shredcap/fd_shredcap.h"
 #include "../../flamenco/fd_flamenco.h"
+#include "../../flamenco/runtime/fd_blockstore.h"
 
 /* fd_shredcap is a tool to ingest and verify rocksdb into a fd_shredcap capture.
    The main commands are "--cmd ingest and --cmd verify". By default, "ingest"
@@ -28,15 +29,10 @@ main( int argc, char ** argv ) {
   char const * wkspname     = fd_env_strip_cmdline_cstr ( &argc, &argv, "--wksp",        NULL, NULL                       );
   ulong pages               = fd_env_strip_cmdline_ulong( &argc, &argv, "--pages",       NULL, 5                          );
   char const * reset        = fd_env_strip_cmdline_cstr ( &argc, &argv, "--reset",       NULL, "false"                    );
-  char const * rocksdb_dir  = fd_env_strip_cmdline_cstr ( &argc, &argv, "--rocksdb",     NULL, NULL                       );
   ulong shred_max           = fd_env_strip_cmdline_ulong( &argc, &argv, "--shredmax",    NULL, 1UL << 17                  );
-  char const * capture_path = fd_env_strip_cmdline_cstr ( &argc, &argv, "--capturepath", NULL, NULL                       );
+
   char const * cmd          = fd_env_strip_cmdline_cstr ( &argc, &argv, "--cmd",         NULL, NULL                       );
-  ulong start_slot          = fd_env_strip_cmdline_ulong( &argc, &argv, "--startslot",   NULL, 0                          );
-  ulong end_slot            = fd_env_strip_cmdline_ulong( &argc, &argv, "--endslot",     NULL, ULONG_MAX                  );
-  ulong max_file_sz         = fd_env_strip_cmdline_ulong( &argc, &argv, "--maxfilesz",   NULL, DEFAULT_SHREDCAP_FILE_SIZE );
   ulong slot_history_max    = fd_env_strip_cmdline_ulong( &argc, &argv, "--slothistory", NULL, DEFAULT_SLOT_HISTORY_MAX   );
-  char const * do_verify    = fd_env_strip_cmdline_cstr ( &argc, &argv, "--doverify",    NULL, "true"                     );
 
   fd_wksp_t * wksp;
   if ( wkspname == NULL ) {
@@ -54,7 +50,7 @@ main( int argc, char ** argv ) {
   }
 
   char hostname[ 64UL ];
-  gethostname( hostname, sizeof(hostname) );
+  // gethostname( hostname, sizeof(hostname) );
   ulong hashseed = fd_hash( 0, hostname, strnlen( hostname, sizeof(hostname) ) );
 
   if( strcmp( reset, "true" ) == 0 ) {
@@ -99,26 +95,8 @@ main( int argc, char ** argv ) {
     FD_LOG_ERR(( "no command specified" ));
   }
 
-  if ( strcmp( cmd, "ingest" ) == 0 ) {
-    if( rocksdb_dir ) {
-      fd_shredcap_ingest_rocksdb_to_capture( rocksdb_dir, capture_path,
-                                               max_file_sz, start_slot, end_slot );
-      if ( strcmp( do_verify, "true" ) == 0 ) {
-        fd_shredcap_verify( capture_path, blockstore );
-      }
-    }
-  }
-  else if ( strcmp( cmd, "verify" ) == 0 ) {
-    fd_shredcap_verify( capture_path, blockstore );
-  }
-  else if ( strcmp( cmd, "populate" ) == 0 ) {
-    fd_shredcap_populate_blockstore( capture_path, blockstore, start_slot, end_slot );
-    // TODO: This should eventually extend to checkpointing just the blockstore
-    // such that it can be loaded in.
-  }
-  else {
-    FD_LOG_ERR(( "unknown command=%s", cmd ));
-  }
+  FD_LOG_ERR(( "unknown command=%s", cmd ));
+
   fd_scratch_detach( NULL );
   fd_wksp_free_laddr( smem );
   fd_wksp_free_laddr( fmem );

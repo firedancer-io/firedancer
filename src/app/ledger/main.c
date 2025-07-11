@@ -1,4 +1,7 @@
 #include <errno.h>
+#include <unistd.h>
+#include <sys/stat.h>
+
 #include "../../flamenco/fd_flamenco.h"
 #include "../../flamenco/runtime/fd_hashes.h"
 #include "../../flamenco/types/fd_types.h"
@@ -935,9 +938,6 @@ ingest( fd_ledger_args_t * args ) {
 
   if( args->funk_only ) {
     FD_LOG_NOTICE(( "using funk only, skipping blockstore ingest" ));
-  } else if( args->shredcap ) {
-    FD_LOG_NOTICE(( "using shredcap" ));
-    fd_shredcap_populate_blockstore( args->shredcap, blockstore, args->start_slot, args->end_slot );
   } else if( args->rocksdb_list[ 0UL ] ) {
     if( args->end_slot >= fd_bank_slot_get( slot_ctx->bank ) + args->slot_history_max ) {
       args->end_slot = fd_bank_slot_get( slot_ctx->bank ) + args->slot_history_max - 1;

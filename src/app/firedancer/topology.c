@@ -338,6 +338,7 @@ fd_topo_initialize( config_t * config ) {
      tiles.  Right now, we don't.  So in reality there can be at most 1
      in-flight transaction per exec tile, and hence a depth of 1 is in
      theory sufficient for each exec_writer link. */
+
   FOR(exec_tile_cnt)   fd_topob_link( topo, "exec_writer",  "exec_writer",  128UL,                                    FD_EXEC_WRITER_MTU,            1UL );
 
   /**/                 fd_topob_link( topo, "gossip_verif", "gossip_verif", config->tiles.verify.receive_buffer_size, FD_TPU_MTU,                    1UL );
@@ -747,7 +748,15 @@ fd_topo_initialize( config_t * config ) {
 
   if( config->tiles.shredcap.enabled ) {
     fd_topob_wksp( topo, "shredcap" );
+
+    fd_topob_wksp( topo, "repai_shrdcp" );
+    fd_topob_wksp( topo, "repla_shrdcp" );
+
     fd_topob_tile( topo, "shrdcp", "shredcap", "metric_in", tile_to_cpu[ topo->tile_cnt ], 0, 0 );
+
+    fd_topob_link( topo, "repai_shrdcp", "repai_shrdcp", 128UL, FD_SLICE_MAX, 1UL );
+    fd_topob_link( topo, "repla_shrdcp", "repla_shrdcp", 128UL, sizeof(fd_hash_t)+sizeof(ulong), 1UL );
+
     fd_topob_tile_in(  topo, "shrdcp", 0UL, "metric_in", "repair_net", 0UL, FD_TOPOB_UNRELIABLE, FD_TOPOB_POLLED );
     for( ulong j=0UL; j<net_tile_cnt; j++ ) {
       fd_topob_tile_in(  topo, "shrdcp", 0UL, "metric_in", "net_shred", j, FD_TOPOB_UNRELIABLE, FD_TOPOB_POLLED );
@@ -757,6 +766,12 @@ fd_topo_initialize( config_t * config ) {
     }
     fd_topob_tile_in( topo, "shrdcp", 0UL, "metric_in", "crds_shred", 0UL, FD_TOPOB_UNRELIABLE, FD_TOPOB_POLLED );
     fd_topob_tile_in( topo, "shrdcp", 0UL, "metric_in", "gossip_repai", 0UL, FD_TOPOB_UNRELIABLE, FD_TOPOB_POLLED );
+
+    fd_topob_tile_in( topo, "shrdcp", 0UL, "metric_in", "repai_shrdcp", 0UL, FD_TOPOB_RELIABLE, FD_TOPOB_POLLED );
+    fd_topob_tile_in( topo, "shrdcp", 0UL, "metric_in", "repla_shrdcp", 0UL, FD_TOPOB_RELIABLE, FD_TOPOB_POLLED );
+
+    fd_topob_tile_out( topo, "repair", 0UL, "repai_shrdcp", 0uL );
+    fd_topob_tile_out( topo, "replay", 0UL, "repla_shrdcp", 0UL );
   }
 
   fd_topob_wksp( topo, "replay_notif" );
@@ -1023,6 +1038,7 @@ fd_topo_configure_tile( fd_topo_tile_t * tile,
         if( FD_UNLIKELY( 0==strlen( tile->archiver.archiver_path ) ) ) {
           FD_LOG_ERR(( "`archiver.archiver_path` not specified in toml" ));
         }
+        strncpy( tile->archiver.ingest_mode, config->tiles.archiver.ingest_mode, sizeof(tile->archiver.ingest_mode) );
     } else if( FD_UNLIKELY( !strcmp( tile->name, "shrdcp" ) ) ) {
       tile->shredcap.repair_intake_listen_port = config->tiles.repair.repair_intake_listen_port;
       strncpy( tile->shredcap.folder_path, config->tiles.shredcap.folder_path, sizeof(tile->shredcap.folder_path) );

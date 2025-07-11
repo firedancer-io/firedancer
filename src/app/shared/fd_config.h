@@ -423,6 +423,7 @@ struct fd_config {
       int   enabled;
       ulong end_slot;
       char  archiver_path[ PATH_MAX ];
+      char  ingest_mode[ 32 ];
     } archiver;
 
     struct {

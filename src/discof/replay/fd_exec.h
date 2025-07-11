@@ -52,7 +52,7 @@ generate_hash_bank_msg( ulong                               task_infos_gaddr,
 /* Execution tracking helpers */
 
 struct fd_slice_exec {
-  uchar * buf;    /* Pointer to the memory region sized for max sz of a block. */
+  uchar * buf;       /* Pointer to the memory region sized for max sz of a block. */
   ulong   wmark;     /* Offset into slice where previous bytes have been executed, and following bytes have not. Will be on a transaction or microblock boundary. */
   ulong   sz;        /* Total bytes this slice occupies in mbatch memory. New slices are placed at this offset */
   ulong   mblks_rem; /* Number of microblocks remaining in the current batch iteration. */

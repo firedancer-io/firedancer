@@ -30,10 +30,11 @@
 #define IN_KIND_SIGN    (4)
 #define MAX_IN_LINKS    (16)
 
-#define NET_OUT_IDX     (0)
-#define SIGN_OUT_IDX    (1)
-#define REPLAY_OUT_IDX  (2)
-#define ARCHIVE_OUT_IDX (3)
+#define NET_OUT_IDX      (0)
+#define SIGN_OUT_IDX     (1)
+#define REPLAY_OUT_IDX   (2)
+#define ARCHIVE_OUT_IDX  (3)
+#define SHREDCAP_OUT_IDX (4)
 
 #define MAX_REPAIR_PEERS 40200UL
 #define MAX_BUFFER_SIZE  ( MAX_REPAIR_PEERS * sizeof(fd_shred_dest_wire_t))
@@ -128,6 +129,13 @@ struct fd_repair_tile_ctx {
   ulong       replay_out_chunk0;
   ulong       replay_out_wmark;
   ulong       replay_out_chunk;
+
+  /* These will only be used if shredcap is enabled */
+  uint        shredcap_enabled;
+  fd_wksp_t * shredcap_out_mem;
+  ulong       shredcap_out_chunk0;
+  ulong       shredcap_out_wmark;
+  ulong       shredcap_out_chunk;
 
   uint                shred_tile_cnt;
   fd_repair_out_ctx_t shred_out_ctx[ MAX_SHRED_TILE_CNT ];
@@ -839,6 +847,27 @@ after_frag( fd_repair_tile_ctx_t * ctx,
           ulong sig   = fd_disco_repair_replay_sig( out.slot, out.parent_off, cnt, out.slot_complete );
           ulong tspub = fd_frag_meta_ts_comp( fd_tickcount() );
           reasm->cnt = out.fec_set_idx + out.data_cnt;
+
+          if( FD_UNLIKELY( ctx->shredcap_enabled ) ) {
+            /* At this point we have a completed slice. We need to send
+               it to shredcap. */
+
+            ulong   buf_sz     = 0UL;
+            uchar * dcache_buf = fd_chunk_to_laddr( ctx->shredcap_out_mem, ctx->shredcap_out_chunk );
+
+            fd_blockstore_slice_query(
+                ctx->blockstore,
+                out.slot,
+                shred->fec_set_idx,
+                shred->fec_set_idx + 1UL,
+                FD_SLICE_MAX,
+                dcache_buf,
+                &buf_sz
+            );
+            fd_stem_publish( ctx->stem, SHREDCAP_OUT_IDX, 0UL, ctx->shredcap_out_chunk, buf_sz, 0, tsorig, tspub );
+            ctx->shredcap_out_chunk = fd_dcache_compact_next( ctx->shredcap_out_chunk, buf_sz, ctx->shredcap_out_chunk0, ctx->shredcap_out_wmark );
+          }
+
           fd_stem_publish( ctx->stem, REPLAY_OUT_IDX, sig, 0, 0, 0, tsorig, tspub );
           if( FD_UNLIKELY( out.slot_complete ) ) {
             fd_reasm_remove( ctx->reasm, reasm );
@@ -1121,6 +1150,14 @@ unprivileged_init( fd_topo_t *      topo,
       shred_out->chunk0               = fd_dcache_compact_chunk0( shred_out->mem, link->dcache );
       shred_out->wmark                = fd_dcache_compact_wmark( shred_out->mem, link->dcache, link->mtu );
       shred_out->chunk                = shred_out->chunk0;
+
+    } else if ( 0==strcmp( link->name, "repai_shrdcp" ) ) {
+
+      ctx->shredcap_enabled    = 1;
+      ctx->shredcap_out_mem    = topo->workspaces[ topo->objs[ link->dcache_obj_id ].wksp_id ].wksp;
+      ctx->shredcap_out_chunk0 = fd_dcache_compact_chunk0( ctx->shredcap_out_mem, link->dcache );
+      ctx->shredcap_out_wmark  = fd_dcache_compact_wmark( ctx->shredcap_out_mem, link->dcache, link->mtu );
+      ctx->shredcap_out_chunk  = ctx->shredcap_out_chunk0;
 
     } else {
       FD_LOG_ERR(( "repair tile has unexpected output link %s", link->name ));

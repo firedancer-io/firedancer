@@ -31,7 +31,7 @@
 #define SHRED_REPAIR     (2UL)
 #define GOSSIP_SHRED     (3UL)
 #define GOSSIP_REPAIR    (4UL)
-#define SHRED_SHRED_CAP  (5UL)
+#define REPAIR_SHRED_CAP (5UL)
 #define REPLAY_SHRED_CAP (6UL)
 
 typedef union {
@@ -90,26 +90,31 @@ struct fd_capture_tile_ctx {
 };
 typedef struct fd_capture_tile_ctx fd_capture_tile_ctx_t;
 
-/* TODO: These should be moved to their own header files that defines
-   header types. */
-
-struct __attribute__((packed)) fd_shred_cap_shred_header_msg  {
+struct __attribute__((packed)) fd_shredcap_slice_header_msg  {
   ulong magic;
   ulong version;
   ulong payload_sz;
 };
-typedef struct fd_shred_cap_shred_header_msg fd_shred_cap_shred_header_msg_t;
-#define FD_SHREDCAP_SHRED_HEADER_MAGIC   (0XF00F00F00UL)
-#define FD_SHREDCAP_SHRED_HEADER_VERSION (0x1UL)
+typedef struct fd_shredcap_slice_header_msg fd_shredcap_slice_header_msg_t;
+#define FD_SHREDCAP_SLICE_HEADER_MAGIC   (0XF00F00F00UL)
+#define FD_SHREDCAP_SLICE_HEADER_VERSION (0x1UL)
 
-
-struct __attribute__((packed)) fd_shred_cap_bank_hash_msg {
+struct __attribute__((packed)) fd_shredcap_slice_trailer_msg {
   ulong magic;
-  ulong version;
-  ulong slot;
-  fd_hash_t bank_hash;
 };
-typedef struct fd_shred_cap_bank_hash_msg fd_shred_cap_bank_hash_msg_t;
+typedef struct fd_shredcap_slice_trailer_msg fd_shredcap_slice_trailer_msg_t;
+#define FD_SHREDCAP_SLICE_TRAILER_MAGIC (0X79397939UL)
+
+
+struct __attribute__((packed)) fd_shredcap_bank_hash_msg {
+  ulong     slot;
+  fd_hash_t bank_hash;
+  ulong     magic;
+  ulong     version;
+};
+typedef struct fd_shredcap_bank_hash_msg fd_shredcap_bank_hash_msg_t;
+#define FD_SHREDCAP_BANK_HASH_MAGIC   (0X810810810UL)
+#define FD_SHREDCAP_BANK_HASH_VERSION (0x1UL)
 
 FD_FN_CONST static inline ulong
 scratch_align( void ) {
@@ -234,28 +239,34 @@ during_frag( fd_capture_tile_ctx_t * ctx,
     }
     fd_memcpy( ctx->repair_buffer, dcache_entry, sz );
     ctx->repair_buffer_sz = sz;
-  } else if( ctx->in_kind[ in_idx ] == SHRED_SHRED_CAP ) {
-
-    /* If a shred comes in from the shred tile, then we know that just
-       need to write a header and then the shred.  */
+  } else if( ctx->in_kind[ in_idx ] == REPAIR_SHRED_CAP ) {
     uchar const * dcache_entry = fd_chunk_to_laddr_const( ctx->in_links[ in_idx ].mem, chunk );
-    fd_shred_cap_shred_header_msg_t header = {
-      .magic      = FD_SHREDCAP_SHRED_HEADER_MAGIC,
-      .version    = FD_SHREDCAP_SHRED_HEADER_VERSION,
+    /* We expect to get all of the data shreds in an FEC set at once.
+       When we do we will write the header, the shreds, and then a
+       trailer. */
+    fd_shredcap_slice_header_msg_t header = {
+      .magic      = FD_SHREDCAP_SLICE_HEADER_MAGIC,
+      .version    = FD_SHREDCAP_SLICE_HEADER_VERSION,
       .payload_sz = sz,
     };
-    fd_io_buffered_ostream_write( &ctx->val_shreds_ostream, &header, sizeof(fd_shred_cap_shred_header_msg_t) );
+    fd_io_buffered_ostream_write( &ctx->val_shreds_ostream, &header, sizeof(fd_shredcap_slice_header_msg_t) );
     fd_io_buffered_ostream_write( &ctx->val_shreds_ostream, dcache_entry, sz );
+    fd_shredcap_slice_trailer_msg_t trailer = {
+      .magic = FD_SHREDCAP_SLICE_TRAILER_MAGIC,
+    };
+    fd_io_buffered_ostream_write( &ctx->val_shreds_ostream, &trailer, sizeof(fd_shredcap_slice_trailer_msg_t) );
 
   } else if( ctx->in_kind[ in_idx ] == REPLAY_SHRED_CAP ) {
 
    uchar const * dcache_entry = fd_chunk_to_laddr_const( ctx->in_links[ in_idx ].mem, chunk );
-   fd_shred_cap_shred_header_msg_t header = {
-     .magic      = FD_SHREDCAP_SHRED_HEADER_MAGIC,
-     .version    = FD_SHREDCAP_SHRED_HEADER_VERSION,
-     .payload_sz = sz,
+   fd_shredcap_bank_hash_msg_t bank_hash_msg = {
+     .magic      = FD_SHREDCAP_BANK_HASH_MAGIC,
+     .version    = FD_SHREDCAP_BANK_HASH_VERSION
    };
-   fd_io_buffered_ostream_write( &ctx->val_shreds_ostream, &header, sizeof(fd_shred_cap_shred_header_msg_t) );
+   fd_memcpy( &bank_hash_msg.bank_hash, dcache_entry, sizeof(fd_hash_t) );
+   fd_memcpy( &bank_hash_msg.slot, dcache_entry+sizeof(fd_hash_t), sizeof(ulong) );
+
+   fd_io_buffered_ostream_write( &ctx->bank_hashes_ostream, &bank_hash_msg, sizeof(fd_shredcap_bank_hash_msg_t) );
 
   } else {
     // contact infos can be copied into a buffer
@@ -386,7 +397,7 @@ after_frag( fd_capture_tile_ctx_t * ctx,
       int err = fd_io_buffered_ostream_write( &ctx->peers_ostream, peers_buf, strlen(peers_buf) );
       FD_TEST( err==0 );
     }
-  } else { // crds_shred contact infos
+  } else if( ctx->in_kind[ in_idx ] == GOSSIP_SHRED ) { // crds_shred contact infos
     handle_new_turbine_contact_info( ctx, ctx->contact_info_buffer );
   }
 }
@@ -441,7 +452,6 @@ privileged_init( fd_topo_t *      topo FD_PARAM_UNUSED,
   if ( FD_UNLIKELY( tile->shredcap.fecs_fd == -1 ) ) {
     FD_LOG_ERR(( "failed to open or create fec complete csv dump file %s %d %s", file_path, errno, strerror(errno) ));
   }
-  FD_LOG_NOTICE(( "Opening shred csv dump file at %s", file_path ));
 
   strcpy( file_path, tile->shredcap.folder_path );
   strcat( file_path, "/peers.csv" );
@@ -456,6 +466,7 @@ privileged_init( fd_topo_t *      topo FD_PARAM_UNUSED,
   if ( FD_UNLIKELY( tile->shredcap.val_shreds_fd == -1 ) ) {
     FD_LOG_ERR(( "failed to open or create val_shreds csv dump file %s %d %s", file_path, errno, strerror(errno) ));
   }
+  FD_LOG_NOTICE(( "Opening val_shreds binary dump file at %s", file_path ));
 
   strcpy( file_path, tile->shredcap.folder_path );
   strcat( file_path, "/bank_hashes.bin" );
@@ -463,6 +474,7 @@ privileged_init( fd_topo_t *      topo FD_PARAM_UNUSED,
   if ( FD_UNLIKELY( tile->shredcap.bank_hashes_fd == -1 ) ) {
     FD_LOG_ERR(( "failed to open or create bank_hashes csv dump file %s %d %s", file_path, errno, strerror(errno) ));
   }
+  FD_LOG_NOTICE(( "Opening bank_hashes binary dump file at %s", file_path ));
 }
 
 static void
@@ -523,6 +535,10 @@ unprivileged_init( fd_topo_t *      topo,
       ctx->in_kind[ i ] = GOSSIP_SHRED;
     } else if( 0==strcmp( link->name, "gossip_repai" ) ) {
       ctx->in_kind[ i ] = GOSSIP_REPAIR;
+    } else if( 0==strcmp( link->name, "repai_shrdcp" ) ) {
+      ctx->in_kind[ i ] = REPAIR_SHRED_CAP;
+    } else if( 0==strcmp( link->name, "repla_shrdcp" ) ) {
+      ctx->in_kind[ i ] = REPLAY_SHRED_CAP;
     } else {
       FD_LOG_ERR(( "repair tile has unexpected input link %s", link->name ));
     }

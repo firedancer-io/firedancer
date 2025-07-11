@@ -428,6 +428,7 @@ struct fd_topo_tile {
     struct {
       ulong end_slot;
       char  archiver_path[ PATH_MAX ];
+      char  ingest_mode[ 32 ];
 
       /* Set internally by the archiver tile */
       int archive_fd;
