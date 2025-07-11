@@ -1307,7 +1307,7 @@ fd_pack_insert_txn_fini( fd_pack_t  * pack,
   int is_vote          = est_result==1;
 
   int nonce_result = fd_pack_validate_durable_nonce( txne );
-  if( FD_UNLIKELY( !nonce_result ) ) REJECT( INVALID_NONCE );
+  if( FD_UNLIKELY( nonce_result!=1 ) ) REJECT( INVALID_NONCE );
   int is_durable_nonce = nonce_result==2;
   ord->txn->flags &= ~FD_TXN_P_FLAGS_DURABLE_NONCE;
   ord->txn->flags |= fd_uint_if( is_durable_nonce, FD_TXN_P_FLAGS_DURABLE_NONCE, 0U );
@@ -1458,7 +1458,7 @@ fd_pack_insert_bundle_fini( fd_pack_t          * pack,
     int est_result = fd_pack_estimate_rewards_and_compute( bundle[ i ], ord );
     if( FD_UNLIKELY( !est_result   ) ) { err = FD_PACK_INSERT_REJECT_ESTIMATION_FAIL; break; }
     int nonce_result = fd_pack_validate_durable_nonce( ord->txn_e );
-    if( FD_UNLIKELY( !nonce_result ) ) { err = FD_PACK_INSERT_REJECT_INVALID_NONCE;   break; }
+    if( FD_UNLIKELY( nonce_result!=1 ) ) { err = FD_PACK_INSERT_REJECT_INVALID_NONCE;   break; }
     int is_durable_nonce = nonce_result==2;
     any_nonce |= is_durable_nonce;
 
