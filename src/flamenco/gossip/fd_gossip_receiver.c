@@ -170,6 +170,11 @@ fd_gossip_receiver_process_update_msg( fd_gossip_receiver_t *             receiv
   }
 }
 
+ulong
+fd_gossip_receiver_num_peers( fd_gossip_receiver_t const * receiver ) {
+  return receiver_pool_used( receiver->pool );
+}
+
 fd_gossip_receiver_iter_t
 fd_gossip_receiver_iter_init( fd_gossip_receiver_t * receiver ) {
   return insert_dlist_iter_fwd_init( receiver->insert_dlist, receiver->pool );
