@@ -452,28 +452,43 @@ fd_quic_sample_rtt( fd_quic_conn_t * conn, long rtt_ticks, long ack_delay ) {
   })
 }
 
-/* fd_quic_calc_expiry returns the timestamp of the next expiry event. */
+/* fd_quic_calc_expiry_duration returns the duration to the next expiry event.
+   User should add the result to the base time to obtain the expiry timestamp.
+   Uses the loss detection timeout if 'ack_driven', otherwise uses the PTO. */
 
 static inline ulong
-fd_quic_calc_expiry( fd_quic_conn_t * conn, ulong now ) {
+fd_quic_calc_expiry_duration( fd_quic_conn_t * conn, int ack_driven ) {
   /* Instead of a full implementation of PTO, we're setting an expiry
      time per sent QUIC packet
-     This calculates the expiry time according to the PTO spec
+
+     If this calculation is ack-driven, use the time threshold:
+     6.1.2 Time Threshold
+     max(kTimeThreshold * max(smoothed_rtt, latest_rtt), kGranularity)
+     The RECOMMENDED time threshold (kTimeThreshold), expressed as an RTT multiplier, is 9/8
+
+     Otherwise, calculate the expiry time according to the PTO spec
      6.2.1. Computing PTO
      When an ack-eliciting packet is transmitted, the sender schedules
      a timer for the PTO period as follows:
-     PTO = smoothed_rtt + max(4*rttvar, kGranularity) + max_ack_delay  */
+     PTO = smoothed_rtt + max(4*rttvar, kGranularity) + max_ack_delay
+
+     Our granularity is O(ns), while recommended is 1ms --> We don't
+     have to worry about kGranularity.
+*/
 
   fd_rtt_estimate_t * rtt = conn->rtt;
 
-  ulong duration = (ulong)
-    ( rtt->smoothed_rtt
-        + (4.0f * rtt->var_rtt)
-        + conn->peer_max_ack_delay_ticks );
+  ulong pto_duration  = (ulong)( rtt->smoothed_rtt     +
+                                (4.0f * rtt->var_rtt) +
+                                conn->peer_max_ack_delay_ticks );
 
-  FD_DTRACE_PROBE_2( quic_calc_expiry, conn->our_conn_id, duration );
+  ulong loss_duration = (ulong)( 1.125f * fmaxf( rtt->smoothed_rtt, rtt->latest_rtt ) );
 
-  return now + (ulong)500e6; /* 500ms */
+  ulong duration = fd_ulong_if( ack_driven, loss_duration, pto_duration );
+
+  FD_DTRACE_PROBE_3( quic_calc_expiry, conn->our_conn_id, duration, ack_driven );
+
+  return duration;
 }
 
 uchar *
