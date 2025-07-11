@@ -44,7 +44,7 @@ fd_ssping_join( void * shping );
 /* Add a peer to be tracked by the snapshot pinger, which will from here
    until it is removed, constantly ping the node to maintain its
    status.
-   
+
    An address can be added multiple times, and the addresses are
    internally reference counted, so it will need a corresponding number
    of releases to be removed from ping tracking.

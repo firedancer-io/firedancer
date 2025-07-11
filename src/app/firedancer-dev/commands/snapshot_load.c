@@ -99,6 +99,15 @@ snapshot_load_topo( config_t *     config,
   snap_out_link->permit_no_consumers = 1;
   fd_topob_tile_out( topo, "snapin", 0UL, "snap_out", 0UL );
 
+  fd_topob_link( topo, "snapdc_rd", "snap_zstd", 128UL, 0UL, 1UL );
+  fd_topob_tile_in( topo, "snaprd", 0UL, "metric_in", "snapdc_rd", 0UL, FD_TOPOB_RELIABLE, FD_TOPOB_POLLED );
+  fd_topob_tile_out( topo, "snapdc", 0UL, "snapdc_rd", 0UL );
+
+  fd_topob_wksp( topo, "snapin_rd" );
+  fd_topob_link( topo, "snapin_rd", "snapin_rd", 128UL, 0UL, 1UL );
+  fd_topob_tile_in( topo, "snaprd", 0UL, "metric_in", "snapin_rd", 0UL, FD_TOPOB_RELIABLE, FD_TOPOB_POLLED );
+  fd_topob_tile_out( topo, "snapin", 0UL, "snapin_rd", 0UL );
+
   for( ulong i=0UL; i<topo->tile_cnt; i++ ) {
     fd_topo_tile_t * tile = &topo->tiles[ i ];
     if( !fd_topo_configure_tile( tile, config ) ) {
