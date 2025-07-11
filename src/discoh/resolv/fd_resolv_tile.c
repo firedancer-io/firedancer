@@ -175,7 +175,7 @@ static ulong _fd_ext_resolv_tile_cnt;
 
 ulong
 fd_ext_resolv_tile_cnt( void ) {
-  while( !_fd_ext_resolv_tile_cnt ) {}
+  while(  !FD_VOLATILE( _fd_ext_resolv_tile_cnt ) ) {}
   return _fd_ext_resolv_tile_cnt;
 }
 
