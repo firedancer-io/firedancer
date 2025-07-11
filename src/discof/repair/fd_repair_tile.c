@@ -104,6 +104,7 @@ struct fd_repair_tile_ctx {
   fd_reasm_t       * reasm;
   fd_fec_chainer_t * fec_chainer;
   fd_forest_iter_t   repair_iter;
+  ulong              orphan_priority[ 4096 ];
 
   ulong * turbine_slot0;
   ulong * turbine_slot;
@@ -942,6 +943,11 @@ after_frag( fd_repair_tile_ctx_t * ctx,
 
 #define MAX_REQ_PER_CREDIT 1
 
+#define SORT_NAME        sort_orphan_priority
+#define SORT_KEY_T       ulong
+#define SORT_BEFORE(a,b) ((a << 32)<(b << 32)) || ((uint) a < (uint) b)
+#include "../../util/tmpl/fd_sort.c"
+
 static inline void
 after_credit( fd_repair_tile_ctx_t * ctx,
               fd_stem_context_t *    stem FD_PARAM_UNUSED,
@@ -975,19 +981,29 @@ after_credit( fd_repair_tile_ctx_t * ctx,
   // Always request orphans
 
   int total_req = 0;
+  ulong orphan_cnt = 0;
   for( fd_forest_orphaned_iter_t iter = fd_forest_orphaned_iter_init( orphaned, pool );
         !fd_forest_orphaned_iter_done( iter, orphaned, pool );
         iter = fd_forest_orphaned_iter_next( iter, orphaned, pool ) ) {
     fd_forest_ele_t * orphan = fd_forest_orphaned_iter_ele( iter, orphaned, pool );
-    if( FD_UNLIKELY( orphan->fec_set_idx == UINT_MAX ) ) {
-      if( fd_repair_need_orphan( ctx->repair, orphan->slot ) ) {
-        fd_repair_send_requests( ctx, stem, fd_needed_orphan, orphan->slot, 0, now );
-        total_req += FD_REPAIR_NUM_NEEDED_PEERS;
+    ctx->orphan_priority[orphan_cnt++] = ( orphan->slot << 32 ) | orphan->fec_set_idx;
+  }
+
+  sort_orphan_priority_inplace( ctx->orphan_priority, orphan_cnt );
+
+  for( ulong i = 0; i < orphan_cnt; i++ ) {
+    ulong slot = ctx->orphan_priority[i] >> 32;
+    uint  fec_set_idx = (uint)ctx->orphan_priority[i];
+
+   if( FD_UNLIKELY( fec_set_idx == UINT_MAX ) ) {
+      if( fd_repair_need_orphan( ctx->repair, slot ) ) {
+        fd_repair_send_requests( ctx, stem, fd_needed_orphan, slot, 0, now );
+        break;
       }
     } else {
-      if( fd_repair_need_window_index( ctx->repair, orphan->slot, orphan->fec_set_idx - 1 ) ) {
-        fd_repair_send_requests( ctx, stem, fd_needed_window_index, orphan->slot, orphan->fec_set_idx - 1, now );
-        total_req += FD_REPAIR_NUM_NEEDED_PEERS;
+      if( fd_repair_need_window_index( ctx->repair, slot, fec_set_idx - 1 ) ) {
+        fd_repair_send_requests( ctx, stem, fd_needed_window_index, slot, fec_set_idx - 1, now );
+        break;
       }
     }
   }
