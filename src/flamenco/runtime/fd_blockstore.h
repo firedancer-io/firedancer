@@ -255,10 +255,12 @@ struct fd_block_info {
 
   /* Metadata */
 
+  /* To be banished after offline ledger replay is removed. These fields
+     are not used for replay. */
   ulong     block_height;
   fd_hash_t block_hash;
   fd_hash_t bank_hash;
-  fd_hash_t merkle_hash;    /* the last FEC set's merkle hash */
+
   ulong     fec_cnt;        /* the number of FEC sets in the slot */
   uchar     flags;
   long      ts;             /* the wallclock time when we finished receiving the block. */
@@ -804,16 +806,6 @@ fd_blockstore_slice_query( fd_blockstore_t * blockstore,
    blockstore. */
 int
 fd_blockstore_shreds_complete( fd_blockstore_t * blockstore, ulong slot );
-
-/* fd_blockstore_block_height_update sets the block height.
-
-   IMPORTANT!  Caller MUST NOT be in a block_map_t prepare when calling
-   this function. */
-void
-fd_blockstore_block_height_update( fd_blockstore_t * blockstore, ulong slot, ulong block_height );
-
-ulong
-fd_blockstore_block_height_query( fd_blockstore_t * blockstore, ulong slot );
 
 /* fd_blockstore_publish publishes all blocks until the current
    blockstore smr (`blockstore->smr`).  Publishing entails 1. pruning

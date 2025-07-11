@@ -801,7 +801,7 @@ init_after_snapshot( fd_replay_tile_ctx_t * ctx,
       fd_sha256_hash( poh->hash, 32UL, poh->hash );
     }
 
-    FD_TEST( fd_runtime_block_execute_prepare( ctx->slot_ctx, ctx->blockstore, ctx->runtime_spad ) == 0 );
+    FD_TEST( fd_runtime_block_execute_prepare( ctx->slot_ctx, ctx->runtime_spad ) == 0 );
     fd_runtime_block_info_t info = { .signature_cnt = 0 };
 
     fd_exec_para_cb_ctx_t exec_para_ctx_block_finalize = {
@@ -949,20 +949,7 @@ init_from_snapshot( fd_replay_tile_ctx_t * ctx,
 
   /* Publish slot notifs */
   ulong curr_slot = fd_bank_slot_get( ctx->slot_ctx->bank );
-  ulong block_entry_height = 0;
-
-  for(;;){
-    fd_block_map_query_t query[1] = { 0 };
-    int err = fd_block_map_query_try( ctx->blockstore->block_map, &curr_slot, NULL, query, 0 );
-    fd_block_info_t * block_info = fd_block_map_query_ele( query );
-    if( FD_UNLIKELY( err == FD_MAP_ERR_KEY   ) ) continue; /* FIXME: eventually need an error condition here.*/
-    if( FD_UNLIKELY( err == FD_MAP_ERR_AGAIN ) ) {
-      FD_LOG_WARNING(( "Waiting for block map query for slot %lu", curr_slot ));
-      continue;
-    };
-    block_entry_height = block_info->block_height;
-    if( FD_UNLIKELY( fd_block_map_query_test( query ) == FD_MAP_SUCCESS ) ) break;
-  }
+  ulong block_entry_height = fd_bank_block_height_get( ctx->slot_ctx->bank );
 
   publish_slot_notifications( ctx, stem, block_entry_height, curr_slot );
 
@@ -1062,56 +1049,6 @@ after_frag( fd_replay_tile_ctx_t *   ctx,
   }
 }
 
-// static void
-// send_tower_sync( fd_replay_tile_ctx_t * ctx ) {
-//   if( FD_UNLIKELY( !ctx->vote ) ) return;
-//   FD_LOG_NOTICE( ( "sending tower sync" ) );
-//   ulong vote_slot = fd_tower_votes_peek_tail_const( ctx->tower )->slot;
-//   fd_hash_t vote_bank_hash[1]  = { 0 };
-//   fd_hash_t vote_block_hash[1] = { 0 };
-
-//   /* guaranteed to be on frontier from caller check */
-//   fd_fork_t const * fork = fd_forks_query_const( ctx->forks, vote_slot );
-//   fd_memcpy( vote_bank_hash, &ctx->slot_ctx->slot_bank.banks_hash, sizeof(fd_hash_t) );
-
-//   int err = fd_blockstore_block_hash_query( ctx->blockstore, vote_slot, vote_block_hash );
-//   if( err ) FD_LOG_ERR(( "invariant violation: missing block hash for tower vote" ));
-
-//   /* Build a vote state update based on current tower votes. */
-
-//   fd_txn_p_t * txn = (fd_txn_p_t *)fd_chunk_to_laddr( ctx->send_out->mem, ctx->send_out->chunk );
-//   fd_tower_to_vote_txn( ctx->tower,
-//                         ctx->root,
-//                         vote_bank_hash,
-//                         vote_block_hash,
-//                         ctx->validator_identity,
-//                         ctx->vote_authority,
-//                         ctx->vote_acc,
-//                         txn,
-//                         ctx->runtime_spad );
-
-//   /* TODO: Can use a smaller size, adjusted for payload length */
-//   ulong msg_sz     = sizeof( fd_txn_p_t );
-//   ulong sig        = vote_slot;
-//   fd_mcache_publish( ctx->send_out->mcache,
-//                      ctx->send_out->depth,
-//                      ctx->send_out->seq,
-//                      sig,
-//                      ctx->send_out->chunk,
-//                      msg_sz,
-//                      0UL,
-//                      0,
-//                      0 );
-//   ctx->send_out->seq   = fd_seq_inc( ctx->send_out->seq, 1UL );
-//   ctx->send_out->chunk = fd_dcache_compact_next( ctx->send_out->chunk,
-//                                                   msg_sz,
-//                                                   ctx->send_out->chunk0,
-//                                                   ctx->send_out->wmark );
-
-//   /* Dump the latest sent tower into the tower checkpoint file */
-//   if( FD_LIKELY( ctx->tower_checkpt_fileno > 0 ) ) fd_restart_tower_checkpt( vote_bank_hash, ctx->tower, ctx->ghost, ctx->root, ctx->tower_checkpt_fileno );
-// }
-
 static fd_fork_t *
 prepare_new_block_execution( fd_replay_tile_ctx_t * ctx,
                              fd_stem_context_t *    stem,
@@ -1123,31 +1060,28 @@ prepare_new_block_execution( fd_replay_tile_ctx_t * ctx,
 
   int is_new_epoch_in_new_block = 0;
 
-  fd_fork_t * fork = fd_forks_prepare(
-      ctx->forks,
-      parent_slot,
-      ctx->funk,
-      ctx->blockstore,
-      ctx->runtime_spad );
+  fd_fork_t * fork = fd_forks_prepare( ctx->forks,
+                                       parent_slot,
+                                       ctx->funk,
+                                       ctx->runtime_spad );
 
   /* Now that we are executing this slot, we can remove the slot from
      the frontier in forks.*/
-  fd_fork_t * child = fd_fork_frontier_ele_remove(
-      ctx->forks->frontier,
-      &fork->slot,
-      NULL,
-      ctx->forks->pool );
+  fd_fork_t * child = fd_fork_frontier_ele_remove( ctx->forks->frontier,
+                                                   &fork->slot,
+                                                   NULL,
+                                                   ctx->forks->pool );
   child->slot    = curr_slot;
   child->end_idx = UINT_MAX; // reset end_idx from whatever was previously executed on this fork
 
   /* Insert new slot onto fork frontier */
-  if( FD_UNLIKELY( fd_fork_frontier_ele_query(
-        ctx->forks->frontier,
-        &curr_slot,
-        NULL,
-        ctx->forks->pool ) ) ) {
+  if( FD_UNLIKELY( fd_fork_frontier_ele_query( ctx->forks->frontier,
+                                               &curr_slot,
+                                               NULL,
+                                               ctx->forks->pool ) ) ) {
     FD_LOG_ERR( ( "invariant violation: child slot %lu was already in the frontier", curr_slot ) );
   }
+
   fd_fork_frontier_ele_insert( ctx->forks->frontier, child, ctx->forks->pool );
   fork->lock = 1;
   FD_TEST( fork == child );
@@ -1166,14 +1100,6 @@ prepare_new_block_execution( fd_replay_tile_ctx_t * ctx,
   if( fd_bank_slot_get( ctx->slot_ctx->bank ) != 0 ) {
     is_new_epoch_in_new_block = (int)fd_runtime_is_epoch_boundary( ctx->slot_ctx, curr_slot, parent_slot );
   }
-
-  /* Update starting PoH hash for the new slot for tick verification later */
-  fd_block_map_query_t query[1] = { 0 };
-  int err = fd_block_map_prepare( ctx->blockstore->block_map, &curr_slot, NULL, query, FD_MAP_FLAG_BLOCKING );
-  fd_block_info_t * curr_block_info = fd_block_map_query_ele( query );
-  if( FD_UNLIKELY( err == FD_MAP_ERR_FULL ) ) FD_LOG_ERR(("Block map prepare failed, likely corrupt."));
-  if( FD_UNLIKELY( curr_slot != curr_block_info->slot ) ) FD_LOG_ERR(("Block map prepare failed, likely corrupt."));
-  fd_block_map_publish( query );
 
   fd_bank_parent_slot_set( ctx->slot_ctx->bank, parent_slot );
 
@@ -1242,7 +1168,7 @@ prepare_new_block_execution( fd_replay_tile_ctx_t * ctx,
      an epoch). We pop a frame when rewards are done being distributed. */
   fd_spad_push( ctx->runtime_spad );
 
-  int res = fd_runtime_block_execute_prepare( ctx->slot_ctx, ctx->blockstore, ctx->runtime_spad );
+  int res = fd_runtime_block_execute_prepare( ctx->slot_ctx, ctx->runtime_spad );
   if( res != FD_RUNTIME_EXECUTE_SUCCESS ) {
     FD_LOG_ERR(( "block prep execute failed" ));
   }
@@ -1449,23 +1375,10 @@ exec_slice( fd_replay_tile_ctx_t * ctx, fd_stem_context_t * stem ) {
     fd_microblock_hdr_t * hdr = (fd_microblock_hdr_t *)fd_type_pun( ctx->slice_exec_ctx.buf + ctx->slice_exec_ctx.last_mblk_off );
 
     // Copy block hash to slot_bank poh for updating the sysvars
-    fd_block_map_query_t query[1] = { 0 };
-    fd_block_map_prepare( ctx->blockstore->block_map, &slot, NULL, query, FD_MAP_FLAG_BLOCKING );
-    fd_block_info_t * block_info = fd_block_map_query_ele( query );
-
     fd_hash_t * poh = fd_bank_poh_modify( ctx->slot_ctx->bank );
     memcpy( poh, hdr->hash, sizeof(fd_hash_t) );
 
-    block_info->flags = fd_uchar_set_bit( block_info->flags, FD_BLOCK_FLAG_PROCESSED );
-    FD_COMPILER_MFENCE();
-    block_info->flags = fd_uchar_clear_bit( block_info->flags, FD_BLOCK_FLAG_REPLAYING );
-    memcpy( &block_info->block_hash, hdr->hash, sizeof(fd_hash_t) );
-    fd_hash_t const * bank_hash = fd_bank_bank_hash_query( ctx->slot_ctx->bank );
-    memcpy( &block_info->bank_hash, bank_hash, sizeof(fd_hash_t) );
-
-    fd_block_map_publish( query );
     ctx->flags = EXEC_FLAG_FINISHED_SLOT;
-
     fd_slice_exec_reset( &ctx->slice_exec_ctx ); /* Reset ctx for next slot */
   }
 
@@ -1507,11 +1420,6 @@ handle_slice( fd_replay_tile_ctx_t * ctx,
 
   if( FD_UNLIKELY( parent_slot < fd_fseq_query( ctx->published_wmark ) ) ) {
     FD_LOG_WARNING(( "ignoring replay of slot %lu (parent: %lu). parent slot is earlier than our watermark %lu.", slot, parent_slot, fd_fseq_query( ctx->published_wmark ) ) );
-    return;
-  }
-
-  if( FD_UNLIKELY( !fd_blockstore_block_info_test( ctx->blockstore, parent_slot ) ) ) {
-    FD_LOG_WARNING(( "unable to find slot %lu's parent slot %lu block_info", slot, parent_slot ));
     return;
   }
 
@@ -1785,12 +1693,11 @@ after_credit( fd_replay_tile_ctx_t * ctx,
        as read-only. This happens when it has replayed through
        turbine_slot0. */
 
-    if( FD_UNLIKELY( ctx->read_only && fd_bank_slot_get( ctx->slot_ctx->bank ) >= fd_fseq_query( ctx->turbine_slot0 ) ) ) {
+    if( FD_UNLIKELY( ctx->read_only && curr_slot >= fd_fseq_query( ctx->turbine_slot0 ) ) ) {
       ctx->read_only = 0;
     }
 
-    ulong bank_slot = fd_bank_slot_get( ctx->slot_ctx->bank );
-    fd_fork_t * fork = fd_fork_frontier_ele_query( ctx->forks->frontier, &bank_slot, NULL, ctx->forks->pool );
+    fd_fork_t * fork = fd_fork_frontier_ele_query( ctx->forks->frontier, &curr_slot, NULL, ctx->forks->pool );
 
     FD_LOG_NOTICE(( "finished block - slot: %lu, parent_slot: %lu", curr_slot, fd_bank_parent_slot_get( ctx->slot_ctx->bank ) ));
 
@@ -1816,13 +1723,6 @@ after_credit( fd_replay_tile_ctx_t * ctx,
                                             ctx->runtime_spad,
                                             &exec_para_ctx_block_finalize );
 
-    /* Update blockstore with the freshly computed bank hash */
-    fd_block_map_query_t query[1] = { 0 };
-    fd_block_map_prepare( ctx->blockstore->block_map, &curr_slot, NULL, query, FD_MAP_FLAG_BLOCKING );
-    fd_block_info_t * block_info = fd_block_map_query_ele( query );
-    block_info->bank_hash = fd_bank_bank_hash_get( ctx->slot_ctx->bank );
-    fd_block_map_publish( query );
-
     fd_spad_pop( ctx->runtime_spad );
     FD_LOG_NOTICE(( "Spad memory after executing block %lu", ctx->runtime_spad->mem_used ));
 
@@ -1830,7 +1730,7 @@ after_credit( fd_replay_tile_ctx_t * ctx,
     /* Push notifications for slot updates and reset block_info flag */
     /**********************************************************************/
 
-    ulong block_entry_height = fd_blockstore_block_height_query( ctx->blockstore, curr_slot );
+    ulong block_entry_height = fd_bank_block_height_get( ctx->slot_ctx->bank );
     publish_slot_notifications( ctx, stem, block_entry_height, curr_slot );
 
     ctx->blockstore->shmem->lps = curr_slot;
