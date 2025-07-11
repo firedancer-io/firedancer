@@ -69,6 +69,7 @@ struct fd_snapshot_httpdl {
 
   uchar resp_buf[ FD_SNAPSHOT_HTTPDL_RESP_BUF_MAX ];
   ulong resp_tail;
+  ulong file_resp_tail;
   ulong resp_head;
 
   /* value from "content-length:" */
@@ -85,6 +86,7 @@ struct fd_snapshot_httpdl {
   /* Total written out so far */
 
   ulong write_total;
+  ulong file_write_total;
 
   /* full snapshot base slot used to verify incremental snapshot */
   ulong base_slot;

@@ -60,7 +60,7 @@ fd_snapshot_reader_new( void *                                    mem,
     void * full_snapshot_file_mem = FD_SCRATCH_ALLOC_APPEND( l,
                                                              fd_snapshot_file_align(),
                                                              fd_snapshot_file_footprint() );
-    int full_fd = open( full_snapshot_entry->filename, O_RDONLY|O_CLOEXEC );
+    int full_fd = open( full_snapshot_entry->filename, O_RDONLY|O_CLOEXEC|O_NONBLOCK );
     if( FD_UNLIKELY( full_fd<0 ) ) FD_LOG_ERR(( "open() failed (%i-%s)", errno, fd_io_strerror( errno ) ));
 
     FD_LOG_NOTICE(( "Retrieving full snapshot from %s", full_snapshot_entry->filename ));
@@ -78,7 +78,7 @@ fd_snapshot_reader_new( void *                                    mem,
     void * incremental_snapshot_file_mem = FD_SCRATCH_ALLOC_APPEND( l,
                                                                     fd_snapshot_file_align(),
                                                                     fd_snapshot_file_footprint() );
-    int inc_fd = open( incremental_snapshot_entry->inner.filename, O_RDONLY|O_CLOEXEC );
+    int inc_fd = open( incremental_snapshot_entry->inner.filename, O_RDONLY|O_CLOEXEC|O_NONBLOCK );
     if( FD_UNLIKELY( inc_fd<0 ) ) FD_LOG_ERR(( "open() failed (%i-%s)", errno, fd_io_strerror( errno ) ));
 
     FD_LOG_NOTICE(( "Retrieving incremental snapshot from %s", incremental_snapshot_entry->inner.filename ));
