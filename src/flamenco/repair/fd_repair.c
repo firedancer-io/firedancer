@@ -531,10 +531,11 @@ fd_repair_parse_shred_header( uchar const * buffer, fd_repair_ledger_t * repair_
   uint nonce = 0;
   uint src_ip4_addr = 0;
 
-  if (*sz == FD_SHRED_DATA_HEADER_SZ + FD_NONCE_SZ + FD_IP4_ADDR_SZ) {
-    nonce = fd_uint_load_4(buffer + FD_SHRED_DATA_HEADER_SZ);
+  if (*sz == FD_SHRED_DATA_HEADER_SZ + FD_IP4_ADDR_SZ + FD_NONCE_SZ) {
+    nonce = fd_uint_load_4(buffer + FD_SHRED_DATA_HEADER_SZ + FD_IP4_ADDR_SZ);
     *sz -= FD_NONCE_SZ;
-  } else if (*sz == FD_SHRED_DATA_HEADER_SZ + FD_IP4_ADDR_SZ) {
+  }
+  if (*sz == FD_SHRED_DATA_HEADER_SZ + FD_IP4_ADDR_SZ) {
     src_ip4_addr = fd_uint_load_4(buffer + FD_SHRED_DATA_HEADER_SZ);
     *sz -= FD_IP4_ADDR_SZ;
   }
