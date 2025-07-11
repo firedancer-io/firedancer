@@ -768,7 +768,6 @@ after_frag( fd_repair_tile_ctx_t * ctx,
 
     if( FD_UNLIKELY( ctx->prev_wmark < wmark ) ) {
       fd_forest_publish( ctx->forest, wmark );
-      fd_fec_chainer_publish( ctx->fec_chainer, wmark );
       ctx->prev_wmark  = wmark;
       // invalidate our repair iterator
       ctx->repair_iter = fd_forest_iter_init( ctx->forest );
@@ -908,10 +907,13 @@ after_credit( fd_repair_tile_ctx_t * ctx,
         !fd_forest_orphaned_iter_done( iter, orphaned, pool );
         iter = fd_forest_orphaned_iter_next( iter, orphaned, pool ) ) {
     fd_forest_ele_t * orphan = fd_forest_orphaned_iter_ele( iter, orphaned, pool );
-    if( fd_repair_need_orphan( ctx->repair, orphan->slot ) ) {
+    if( orphan->fec_set_idx == UINT_MAX && fd_repair_need_orphan( ctx->repair, orphan->slot ) ) {
       fd_repair_send_requests( ctx, stem, fd_needed_orphan, orphan->slot, UINT_MAX, now );
       total_req += FD_REPAIR_NUM_NEEDED_PEERS;
+    } else if( fd_repair_need_window_index( ctx->repair, orphan->slot, orphan->fec_set_idx - 32 ) ) {
+      
     }
+
   }
 
   if( FD_UNLIKELY( total_req >= MAX_REQ_PER_CREDIT ) ) {

@@ -371,6 +371,7 @@ int fd_fec_resolver_add_shred( fd_fec_resolver_t    * resolver,
       return FD_FEC_RESOLVER_SHRED_REJECTED;
   }
 
+  if( FD_UNLIKELY( shred->fec_set_idx % FD_REEDSOL_FEC_SHRED_CNT != 0 ) ) return FD_FEC_RESOLVER_SHRED_REJECTED;
 
   /* For the purposes of the shred header, tree_depth means the number
      of nodes, counting the leaf but excluding the root.  For bmtree,
@@ -395,7 +396,7 @@ int fd_fec_resolver_add_shred( fd_fec_resolver_t    * resolver,
   ulong in_type_idx = fd_ulong_if( is_data_shred, shred->idx - shred->fec_set_idx, shred->code.idx );
   ulong shred_idx   = fd_ulong_if( is_data_shred, in_type_idx, in_type_idx + shred->code.data_cnt  );
 
-  if( FD_UNLIKELY( in_type_idx >= fd_ulong_if( is_data_shred, FD_REEDSOL_DATA_SHREDS_MAX, FD_REEDSOL_PARITY_SHREDS_MAX ) ) )
+  if( FD_UNLIKELY( in_type_idx >= fd_ulong_if( is_data_shred, FD_REEDSOL_FEC_SHRED_CNT, FD_REEDSOL_FEC_SHRED_CNT ) ) )
     return FD_FEC_RESOLVER_SHRED_REJECTED;
   /* This, combined with the check on shred->code.data_cnt implies that
      shred_idx is in [0, DATA_SHREDS_MAX+PARITY_SHREDS_MAX). */

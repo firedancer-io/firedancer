@@ -494,7 +494,6 @@ void
 fd_forest_fec_ready( fd_forest_t * forest, ulong slot, uint fec_set_idx, ushort parent_off, int data_complete, int slot_complete ) {
   fd_forest_ele_t   * pool  = fd_forest_pool( forest );
   fd_forest_ready_t * ready = fd_forest_ready( forest );
-  ulong               null  = fd_forest_pool_idx_null( pool );
   ulong             * deque = fd_forest_deque( forest );
 
   for( uint i = 0; i < FD_FEC_SHRED_CNT; i++ ) {
