@@ -507,32 +507,6 @@ block_finalize_tiles_cb( void * para_arg_1,
   }
 }
 
-
-FD_FN_UNUSED static void
-checkpt( fd_replay_tile_ctx_t * ctx ) {
-  if( FD_UNLIKELY( ctx->slots_replayed_file ) ) fclose( ctx->slots_replayed_file );
-  if( FD_UNLIKELY( strcmp( ctx->blockstore_checkpt, "" ) ) ) {
-    int rc = fd_wksp_checkpt( ctx->blockstore_wksp, ctx->blockstore_checkpt, 0666, 0, NULL );
-    if( rc ) {
-      FD_LOG_ERR( ( "blockstore checkpt failed: error %d", rc ) );
-    }
-  }
-  int rc = fd_wksp_checkpt( ctx->funk->wksp, ctx->funk_checkpt, 0666, 0, NULL );
-  if( rc ) {
-    FD_LOG_ERR( ( "funk checkpt failed: error %d", rc ) );
-  }
-}
-
-static void FD_FN_UNUSED
-funk_cancel( fd_replay_tile_ctx_t * ctx, ulong mismatch_slot ) {
-  fd_funk_txn_start_write( ctx->funk );
-  fd_funk_txn_xid_t   xid          = { .ul = { mismatch_slot, mismatch_slot } };
-  fd_funk_txn_map_t * txn_map      = fd_funk_txn_map( ctx->funk );
-  fd_funk_txn_t *     mismatch_txn = fd_funk_txn_query( &xid, txn_map );
-  FD_TEST( fd_funk_txn_cancel( ctx->funk, mismatch_txn, 1 ) );
-  fd_funk_txn_end_write( ctx->funk );
-}
-
 static void
 txncache_publish( fd_replay_tile_ctx_t * ctx,
                   fd_funk_txn_t *        to_root_txn,
@@ -1050,6 +1024,10 @@ after_frag( fd_replay_tile_ctx_t *   ctx,
     if( FD_LIKELY( root <= fd_fseq_query( ctx->published_wmark ) ) ) return;
     FD_LOG_NOTICE(( "advancing root %lu => %lu", fd_fseq_query( ctx->published_wmark ), root ));
 
+    if( FD_UNLIKELY( ctx->slot_ctx->bank->slot==root ) ) {
+      FD_LOG_CRIT(( "invariant violation: root %lu is the same as the current slot %lu", root, ctx->slot_ctx->bank->slot ));
+    }
+
     ctx->root = root;
     if( FD_LIKELY( ctx->blockstore ) ) fd_blockstore_publish( ctx->blockstore, ctx->blockstore_fd, root );
     if( FD_LIKELY( ctx->forks ) ) fd_forks_publish( ctx->forks, root );
@@ -1061,56 +1039,6 @@ after_frag( fd_replay_tile_ctx_t *   ctx,
     on_snapshot_message( ctx, stem, ctx->_snap_out_chunk, sig );
   }
 }
-
-// static void
-// send_tower_sync( fd_replay_tile_ctx_t * ctx ) {
-//   if( FD_UNLIKELY( !ctx->vote ) ) return;
-//   FD_LOG_NOTICE( ( "sending tower sync" ) );
-//   ulong vote_slot = fd_tower_votes_peek_tail_const( ctx->tower )->slot;
-//   fd_hash_t vote_bank_hash[1]  = { 0 };
-//   fd_hash_t vote_block_hash[1] = { 0 };
-
-//   /* guaranteed to be on frontier from caller check */
-//   fd_fork_t const * fork = fd_forks_query_const( ctx->forks, vote_slot );
-//   fd_memcpy( vote_bank_hash, &ctx->slot_ctx->slot_bank.banks_hash, sizeof(fd_hash_t) );
-
-//   int err = fd_blockstore_block_hash_query( ctx->blockstore, vote_slot, vote_block_hash );
-//   if( err ) FD_LOG_ERR(( "invariant violation: missing block hash for tower vote" ));
-
-//   /* Build a vote state update based on current tower votes. */
-
-//   fd_txn_p_t * txn = (fd_txn_p_t *)fd_chunk_to_laddr( ctx->send_out->mem, ctx->send_out->chunk );
-//   fd_tower_to_vote_txn( ctx->tower,
-//                         ctx->root,
-//                         vote_bank_hash,
-//                         vote_block_hash,
-//                         ctx->validator_identity,
-//                         ctx->vote_authority,
-//                         ctx->vote_acc,
-//                         txn,
-//                         ctx->runtime_spad );
-
-//   /* TODO: Can use a smaller size, adjusted for payload length */
-//   ulong msg_sz     = sizeof( fd_txn_p_t );
-//   ulong sig        = vote_slot;
-//   fd_mcache_publish( ctx->send_out->mcache,
-//                      ctx->send_out->depth,
-//                      ctx->send_out->seq,
-//                      sig,
-//                      ctx->send_out->chunk,
-//                      msg_sz,
-//                      0UL,
-//                      0,
-//                      0 );
-//   ctx->send_out->seq   = fd_seq_inc( ctx->send_out->seq, 1UL );
-//   ctx->send_out->chunk = fd_dcache_compact_next( ctx->send_out->chunk,
-//                                                   msg_sz,
-//                                                   ctx->send_out->chunk0,
-//                                                   ctx->send_out->wmark );
-
-//   /* Dump the latest sent tower into the tower checkpoint file */
-//   if( FD_LIKELY( ctx->tower_checkpt_fileno > 0 ) ) fd_restart_tower_checkpt( vote_bank_hash, ctx->tower, ctx->ghost, ctx->root, ctx->tower_checkpt_fileno );
-// }
 
 static fd_fork_t *
 prepare_new_block_execution( fd_replay_tile_ctx_t * ctx,
@@ -1899,10 +1827,6 @@ after_credit( fd_replay_tile_ctx_t * ctx,
       switch ( rc ) {
         case -1:
 
-          /* Mismatch */
-
-          //funk_cancel( ctx, cmp_slot );
-          //checkpt( ctx );
           FD_LOG_WARNING(( "Bank hash mismatch on slot: %lu. Halting.", cmp_slot ));
 
           break;
