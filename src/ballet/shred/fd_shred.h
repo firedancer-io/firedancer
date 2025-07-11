@@ -90,6 +90,10 @@
 #define FD_SHRED_DATA_HEADER_SZ (0x58UL)
 /* FD_SHRED_CODE_HEADER_SZ: size of all headers for coding type shreds. */
 #define FD_SHRED_CODE_HEADER_SZ (0x59UL)
+
+# define FD_NONCE_SZ (4UL)
+# define FD_IP4_ADDR_SZ (4UL)
+
 /* This is a conservative bound.
    It's possible for a modified validator to create a data shred with
    this much payload.

@@ -109,8 +109,6 @@ struct fd_repair_tile_ctx {
   ulong * turbine_slot0;
   ulong * turbine_slot;
 
-  uint nonce;
-  uint src_ip4_addr;
   fd_repair_ledger_t * repair_ledger;
 
   uchar       identity_private_key[ 32 ];
@@ -420,14 +418,14 @@ fd_repair_send_request( fd_repair_tile_ctx_t   * repair_tile_ctx,
 
   ulong nonce = glob->next_nonce;
   fd_repair_ledger_req_insert(
-        repair_tile_ctx->repair_ledger,
-                      nonce,
-        (ulong)now,
-              recipient,
-                 peer->ip4,
-                      slot,
-           shred_index,
-            type
+                            repair_tile_ctx->repair_ledger,
+                            nonce,
+                            (ulong)now,
+                            recipient,
+                             peer->ip4,
+                            slot,
+                            shred_index,
+                            type
   );
 
 
@@ -815,26 +813,7 @@ after_frag( fd_repair_tile_ctx_t * ctx,
        must be the case if we have received a frag from shred, because
        shred requires stake weights, which implies a genesis or snapshot
        slot has been loaded. */
-    ctx->nonce = 0;
-    ctx->src_ip4_addr = 0;
-    if (sz == 96 || sz == 97) {
-          ctx->nonce = fd_uint_load_4(ctx->buffer + sz - sizeof(uint));
-          sz -= sizeof(uint);
-    }
-    if (sz == 92 || sz == 93) {
-          ctx->src_ip4_addr = fd_uint_load_4(ctx->buffer + sz - sizeof(uint));
-          sz -= sizeof(uint);
-    }
-    if (ctx->nonce != 0) {
-      fd_repair_ledger_req_t * req = fd_repair_ledger_req_query(ctx->repair_ledger, ctx->nonce);
-      if (req) {
-        fd_repair_ledger_peer_t * peer = fd_repair_ledger_peer_query(ctx->repair_ledger, &req->pubkey);
-        fd_repair_ledger_req_remove(ctx->repair_ledger, ctx->nonce);
-        if (peer) {
-          fd_repair_ledger_peer_update(ctx->repair_ledger, &peer->key, (fd_ip4_port_t){ .addr = ctx->src_ip4_addr, .port = 0 }, 1, fd_log_wallclock());
-        }
-      }
-    }
+    fd_repair_parse_shred_header( ctx->buffer, ctx->repair_ledger, &sz );
 
     ulong wmark = fd_fseq_query( ctx->wmark );
     if( FD_UNLIKELY( fd_forest_root_slot( ctx->forest ) == ULONG_MAX ) ) {

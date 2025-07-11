@@ -4,7 +4,7 @@
 #include "../gossip/fd_gossip.h"
 #include "../../ballet/shred/fd_shred.h"
 #include "../../disco/metrics/generated/fd_metrics_repair.h"
-
+#include "../../discof/repair/fd_repair_ledger.h"
 
 #define FD_REPAIR_DELIVER_FAIL_TIMEOUT -1
 #define FD_REPAIR_DELIVER_FAIL_REQ_LIMIT_EXCEEDED -2
@@ -326,6 +326,8 @@ void fd_repair_set_stake_weights_fini( fd_repair_t * repair );
 
 fd_repair_metrics_t *
 fd_repair_get_metrics( fd_repair_t * repair );
+
+void fd_repair_parse_shred_header( uchar const * buffer, fd_repair_ledger_t * repair_ledger, ulong * sz);
 
 
 #endif /* HEADER_fd_src_flamenco_repair_fd_repair_h */

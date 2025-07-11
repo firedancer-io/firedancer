@@ -525,3 +525,27 @@ fd_repair_metrics_t *
 fd_repair_get_metrics( fd_repair_t * repair ) {
   return &repair->metrics;
 }
+
+void
+fd_repair_parse_shred_header( uchar const * buffer, fd_repair_ledger_t * repair_ledger, ulong * sz) {
+  uint nonce = 0;
+  uint src_ip4_addr = 0;
+
+  if (*sz == FD_SHRED_DATA_HEADER_SZ + FD_NONCE_SZ + FD_IP4_ADDR_SZ) {
+    nonce = fd_uint_load_4(buffer + FD_SHRED_DATA_HEADER_SZ);
+    *sz -= FD_NONCE_SZ;
+  } else if (*sz == FD_SHRED_DATA_HEADER_SZ + FD_IP4_ADDR_SZ) {
+    src_ip4_addr = fd_uint_load_4(buffer + FD_SHRED_DATA_HEADER_SZ);
+    *sz -= FD_IP4_ADDR_SZ;
+  }
+  if (nonce != 0) {
+    fd_repair_ledger_req_t * req = fd_repair_ledger_req_query(repair_ledger, nonce);
+    if (req) {
+      fd_repair_ledger_peer_t * peer = fd_repair_ledger_peer_query(repair_ledger, &req->pubkey);
+      fd_repair_ledger_req_remove(repair_ledger, nonce);
+      if (peer) {
+        fd_repair_ledger_peer_update(repair_ledger, &peer->key, (fd_ip4_port_t){ .addr = src_ip4_addr, .port = 0 }, 1, fd_log_wallclock());
+        }
+      }
+    }
+}

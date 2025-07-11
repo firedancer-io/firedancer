@@ -175,11 +175,6 @@ typedef struct {
   ulong send_fec_set_cnt;
   ulong tsorig;  /* timestamp of the last packet in compressed form */
 
-  uint nonce;
-  uint src_ip4_addr;
-  uint nonce_exists;
-  uint hdr_sz;
-
   /* Includes Ethernet, IP, UDP headers */
   ulong shred_buffer_sz;
   uchar shred_buffer[ FD_NET_MTU ];
@@ -768,14 +763,14 @@ after_frag( fd_shred_ctx_t *    ctx,
     ulong   shred_buffer_sz = ctx->shred_buffer_sz;
 
     fd_ip4_udp_hdrs_t * hdr  = (fd_ip4_udp_hdrs_t *)shred_buffer;
-    ctx->src_ip4_addr = hdr->ip4->saddr;
-    ctx->nonce_exists = 0;
-    ctx->nonce = 0;
+    uint src_ip4_addr = hdr->ip4->saddr;
+    uint nonce_exists = 0;
+    uint nonce = 0;
 
     ulong proto = fd_disco_netmux_sig_proto( sig );
     if (proto == DST_PROTO_REPAIR) {
-      ctx->nonce = fd_uint_load_4(shred_buffer + shred_buffer_sz - sizeof(uint));
-      ctx->nonce_exists = 1;
+      nonce = fd_uint_load_4(shred_buffer + shred_buffer_sz - sizeof(uint));
+      nonce_exists = 1;
     }
     // shred_buffer += ctx->hdr_sz;
 
@@ -867,11 +862,11 @@ after_frag( fd_shred_ctx_t *    ctx,
 
         uchar* chunk = fd_chunk_to_laddr( ctx->repair_out_mem, ctx->repair_out_chunk); 
         fd_memcpy(chunk, shred, sz );
-        fd_memcpy(chunk + sz, &ctx->src_ip4_addr, sizeof(ctx->src_ip4_addr));
+        fd_memcpy(chunk + sz, &src_ip4_addr, sizeof(src_ip4_addr));
         sz += 4;
 
-        if (ctx->nonce_exists == 1) {
-            fd_memcpy(chunk + sz, &ctx->nonce, sizeof(ctx->nonce));
+        if (nonce_exists == 1) {
+            fd_memcpy(chunk + sz, &nonce, sizeof(nonce));
             sz += 4;
         }
 
