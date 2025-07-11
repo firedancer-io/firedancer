@@ -7,7 +7,8 @@ $(call add-objs,fd_bloom fd_active_set fd_ping_tracker,fd_flamenco)
 $(call add-hdrs,fd_contact_info.h)
 $(call add-objs,fd_contact_info,fd_flamenco)
 
-$(call add-hdrs,fd_gossip_update_msg.h)
+$(call add-hdrs,fd_gossip_update_msg.h fd_gossip_receiver.h)
+$(call add-objs,fd_gossip_receiver,fd_flamenco)
 
 $(call make-unit-test,test_bloom,test_bloom,fd_flamenco fd_util)
 $(call run-unit-test,test_bloom)
