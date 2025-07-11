@@ -346,9 +346,9 @@
    position 0 and epoch T+1 only had a published slot right at the end).
 
    There is a tighter bound: the block data limit of mainnet-beta is
-   currently FD_PACK_MAX_DATA_PER_BLOCK, or 27,332,342 bytes per slot.
+   currently FD_PACK_MAX_DATA_PER_BLOCK, or 27,319,824 bytes per slot.
    At 48 bytes per tick, it is not possible to publish a slot that skips
-   569,424 or more prior slots. */
+   569,163 or more prior ticks. */
 #define MAX_SKIPPED_TICKS (1UL+(FD_PACK_MAX_DATA_PER_BLOCK/48UL))
 
 #define IN_KIND_BANK  (0)
@@ -1753,6 +1753,28 @@ after_credit( fd_poh_ctx_t *      ctx,
 }
 
 static inline void
+get_tile_deadline( fd_poh_ctx_t * ctx,
+                   long *         deadline_ticks ) {
+
+  *deadline_ticks = 0L;
+
+  if( FD_UNLIKELY( ctx->next_leader_slot==ULONG_MAX ) ) return;
+
+  ulong max_slots_to_skip  = MAX_SKIPPED_TICKS / ctx->ticks_per_slot;
+  ulong slots_until_leader = ctx->next_leader_slot-ctx->slot;
+
+  if( FD_UNLIKELY( slots_until_leader<=max_slots_to_skip ) ) return;
+
+  ulong wake_at_slot   = ctx->next_leader_slot - max_slots_to_skip;
+  ulong slots_to_sleep = wake_at_slot - ctx->slot;
+
+  double ns_to_sleep          = (double)slots_to_sleep * ctx->slot_duration_ns;
+  double tempo_ticks_to_sleep = ns_to_sleep * fd_tempo_tick_per_ns( NULL );
+
+  *deadline_ticks = fd_tickcount() + (long)tempo_ticks_to_sleep;
+}
+
+static inline void
 during_housekeeping( fd_poh_ctx_t * ctx ) {
   if( FD_UNLIKELY( maybe_change_identity( ctx, 0 ) ) ) {
     ctx->next_leader_slot = next_leader_slot( ctx );
@@ -2365,6 +2387,8 @@ unprivileged_init( fd_topo_t *      topo,
 /* See explanation in fd_pack */
 #define STEM_LAZY  (128L*3000L)
 
+#define STEM_CAN_SLEEP 1
+
 #define STEM_CALLBACK_CONTEXT_TYPE  fd_poh_ctx_t
 #define STEM_CALLBACK_CONTEXT_ALIGN alignof(fd_poh_ctx_t)
 
@@ -2374,6 +2398,7 @@ unprivileged_init( fd_topo_t *      topo,
 #define STEM_CALLBACK_BEFORE_FRAG         before_frag
 #define STEM_CALLBACK_DURING_FRAG         during_frag
 #define STEM_CALLBACK_AFTER_FRAG          after_frag
+#define STEM_CALLBACK_GET_TILE_DEADLINE   get_tile_deadline
 
 #include "../../disco/stem/fd_stem.c"
 

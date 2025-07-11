@@ -256,7 +256,7 @@ STEM_(run1)( ulong                        in_cnt,
   /* out frag stream state */
   ulong *        out_depth; /* ==fd_mcache_depth( out_mcache[out_idx] ) for out_idx in [0, out_cnt) */
   ulong *        out_seq;  /* next mux frag sequence number to publish for out_idx in [0, out_cnt) ]*/
-  uint *         latest_futex_vals; /* array of latest futex values for each out */
+  uint *         last_futex; /* array of last futex values for each out */
 
   /* out flow control state */
   ulong          cr_avail;   /* number of flow control credits available to publish downstream, in [0,cr_max] */
@@ -326,10 +326,10 @@ STEM_(run1)( ulong                        in_cnt,
     this_in->accum[3] = 0U; this_in->accum[4] = 0U; this_in->accum[5] = 0U;
 
 #if STEM_CAN_SLEEP
-    waiters[in_idx].uaddr = (ulong)fd_mcache_futex_flag_const( this_in->mcache );
-    waiters[in_idx].val = this_in->seq;
-    waiters[in_idx].flags = FUTEX_32;
-    waiters[in_idx].__reserved= 0UL;
+    waiters[in_idx].uaddr      = (ulong)fd_mcache_futex_flag_const( this_in->mcache );
+    waiters[in_idx].val        = this_in->seq;
+    waiters[in_idx].flags      = FUTEX_32;
+    waiters[in_idx].__reserved = 0UL;
 #endif
   }
 
@@ -339,7 +339,7 @@ STEM_(run1)( ulong                        in_cnt,
 
   out_depth  = (ulong *)FD_SCRATCH_ALLOC_APPEND( l, alignof(ulong), out_cnt*sizeof(ulong) );
   out_seq    = (ulong *)FD_SCRATCH_ALLOC_APPEND( l, alignof(ulong), out_cnt*sizeof(ulong) );
-  latest_futex_vals = (uint *)FD_SCRATCH_ALLOC_APPEND( l, alignof(uint), out_cnt*sizeof(uint) );
+  last_futex = (uint *) FD_SCRATCH_ALLOC_APPEND( l, alignof(uint), out_cnt*sizeof(uint) );
 
   ulong cr_max = fd_ulong_if( !out_cnt, 128UL, ULONG_MAX );
 
@@ -349,7 +349,7 @@ STEM_(run1)( ulong                        in_cnt,
 
     out_depth[ out_idx ] = fd_mcache_depth( out_mcache[ out_idx ] );
     out_seq[ out_idx ] = 0UL;
-    latest_futex_vals[ out_idx ] = *fd_mcache_futex_flag_const(out_mcache[ out_idx ]);
+    last_futex[ out_idx ] = *fd_mcache_futex_flag_const(out_mcache[ out_idx ]);
 
     cr_max = fd_ulong_min( cr_max, out_depth[ out_idx ] );
   }
@@ -439,9 +439,9 @@ STEM_(run1)( ulong                        in_cnt,
 
         /* Wake consumers waiting on this out */
         uint * futex_flag = fd_mcache_futex_flag( out_mcache[ out_idx ] );
-        if( latest_futex_vals[out_idx] != *futex_flag ) {
+        if( last_futex[out_idx] != *futex_flag ) {
           fd_futex_wake( futex_flag, INT_MAX );
-          latest_futex_vals[out_idx] = *futex_flag;
+          last_futex[out_idx] = *futex_flag;
         }
 
       } else { /* event_idx==cons_cnt, housekeeping event */
@@ -519,7 +519,7 @@ STEM_(run1)( ulong                        in_cnt,
 #if STEM_CAN_SLEEP
           if (sleeps) { 
             struct futex_waitv waitv_tmp;
-            waitv_tmp      = waiters[ swap_idx ];
+            waitv_tmp           = waiters[ swap_idx ];
             waiters[ swap_idx ] = waiters[ 0        ];
             waiters[ 0        ] = waitv_tmp;
           }
@@ -536,28 +536,29 @@ STEM_(run1)( ulong                        in_cnt,
 
 /* By default, tiles are always spinning, except the ones that are configured to wait for futexes */ 
 #if STEM_CAN_SLEEP
-    if (sleeps && futex_wait_counter > FD_STEM_SPIN_THRESHOLD) { 
+    if( FD_LIKELY( sleeps && futex_wait_counter>FD_STEM_SPIN_THRESHOLD ) ) { 
       /* wake those downstream before we sleep */
-      STEM_(wake_consumers)( out_cnt, out_mcache, latest_futex_vals );
+      STEM_(wake_consumers)( out_cnt, out_mcache, last_futex );
 
 #ifdef STEM_CALLBACK_GET_TILE_DEADLINE
       STEM_CALLBACK_GET_TILE_DEADLINE( ctx, &tile_deadline_ticks );
 #endif
-      long nearest_deadline = fd_long_min(tile_deadline_ticks, then);
-      long ticks_until_deadline = nearest_deadline - approx_tickcount;
-      long ns_until_deadline = (long)((double)ticks_until_deadline / fd_tempo_tick_per_ns(NULL));
-      long deadline_ns = approx_wallclock_ns + ns_until_deadline;
+      /* If tile sets deadline to 0, it is critical we do not sleep */
+      if( FD_UNLIKELY( tile_deadline_ticks==0 ) ) futex_wait_counter = 0;
+      else {
+        long nearest_deadline     = fd_long_min( tile_deadline_ticks, then );
+        long ticks_until_deadline = nearest_deadline - approx_tickcount;
+        long ns_until_deadline    = (long)((double)ticks_until_deadline / fd_tempo_tick_per_ns(NULL));
+        long deadline_ns          = approx_wallclock_ns + ns_until_deadline;
 
-      struct timespec deadline = {
-        .tv_sec = deadline_ns / (long) 1e9,
-        .tv_nsec = deadline_ns % (long) 1e9,
-      };
+        struct timespec deadline = {
+          .tv_sec = deadline_ns / (long)1e9,
+          .tv_nsec = deadline_ns % (long)1e9,
+        };
 
-      long futex_result = fd_futex_waitv(waiters, (uint)in_cnt, &deadline, CLOCK_REALTIME);
-      if (FD_LIKELY(futex_result >= 0 || errno == EAGAIN)) {
-        futex_wait_counter = 0;
-      } else if (errno != ETIMEDOUT) { // TODO: account for other spurious errors (EINTR not allowed?)
-        FD_LOG_ERR(( "futex_waitv failed with result %ld errno %d", futex_result, errno ));
+        long futex_result = fd_futex_waitv(waiters, (uint)in_cnt, &deadline, CLOCK_REALTIME);
+        if     ( FD_LIKELY( futex_result>=0 || errno==EAGAIN ) ) futex_wait_counter = 0;
+        else if( FD_UNLIKELY( errno!=ETIMEDOUT) )                FD_LOG_ERR(( "futex_waitv failed with result %ld errno %d", futex_result, errno )); // TODO: account for other spurious errors (EINTR not allowed?)
       }
     }
 #endif
