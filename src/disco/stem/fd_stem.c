@@ -452,7 +452,7 @@ STEM_(run1)( ulong                        in_cnt,
       now = next;
     }
 
-#if defined(STEM_CALLBACK_BEFORE_CREDIT) || defined(STEM_CALLBACK_AFTER_CREDIT) || defined(STEM_CALLBACK_AFTER_FRAG)
+#if defined(STEM_CALLBACK_BEFORE_CREDIT) || defined(STEM_CALLBACK_AFTER_CREDIT) || defined(STEM_CALLBACK_AFTER_FRAG) || defined(STEM_CALLBACK_RETURNABLE_FRAG)
     fd_stem_context_t stem = {
       .mcaches             = out_mcache,
       .depths              = out_depth,
@@ -641,6 +641,17 @@ STEM_(run1)( ulong                        in_cnt,
       continue;
     }
 
+#ifdef STEM_CALLBACK_RETURNABLE_FRAG
+    int return_frag = STEM_CALLBACK_RETURNABLE_FRAG( ctx, (ulong)this_in->idx, seq_found, sig, chunk, sz, tsorig, tspub, &stem );
+    if( FD_UNLIKELY( return_frag ) ) {
+      metric_regime_ticks[1] += housekeeping_ticks;
+      long next = fd_tickcount();
+      metric_regime_ticks[4] += (ulong)(next - now);
+      now = next;
+      continue;
+    }
+#endif
+
 #ifdef STEM_CALLBACK_AFTER_FRAG
     STEM_CALLBACK_AFTER_FRAG( ctx, (ulong)this_in->idx, seq_found, sig, sz, tsorig, tspub, &stem );
 #endif
@@ -727,6 +738,18 @@ STEM_(run)( fd_topo_t *      topo,
                rng,
                fd_alloca( FD_STEM_SCRATCH_ALIGN, STEM_(scratch_footprint)( polled_in_cnt, tile->out_cnt, reliable_cons_cnt ) ),
                ctx );
+
+  if( FD_LIKELY( tile->allow_shutdown ) ) {
+    for( ulong i=0UL; i<tile->in_cnt; i++ ) {
+      if( FD_UNLIKELY( !tile->in_link_poll[ i ] || !tile->in_link_reliable[ i ] ) ) continue;
+
+      /* Return infinite credits on any reliable consumer links so that
+         producers now no longer expect us to consume. */
+      ulong fseq_id = tile->in_link_fseq_obj_id[ i ];
+      ulong * fseq = fd_topo_obj_laddr( topo, fseq_id );
+      fd_fseq_update( fseq, ULONG_MAX );
+    }
+  }
 }
 
 #undef STEM_NAME
