@@ -82,11 +82,14 @@ struct fd_snapin_tile {
   /* A shared dcache object between snapin and replay that holds the
      decoded solana manifest.
      TODO: remove when replay can receive the snapshot manifest. */
-  uchar *            replay_manifest_dcache;
-  ulong              replay_manifest_dcache_obj_id;
-
-  /* TODO: remove when replay can receive the snapshot manifest. */
-  ulong manifest_sz;
+  struct {
+    fd_wksp_t * wksp;
+    uchar *     dcache;
+    ulong       chunk0;
+    ulong       wmark;
+    ulong       chunk;
+    ulong       obj_id;
+  } replay_manifest_dcache;
 
   int shutdown;
 
@@ -117,13 +120,57 @@ fd_snapin_accumulate_metrics( fd_snapin_tile_t * ctx ) {
   }
 }
 
+static void
+send_manifest( fd_snapin_tile_t *  ctx,
+               fd_stem_context_t * stem,
+               ulong               manifest_sz ) {
+  ulong sig          = 0UL;
+  ulong external_sig = 0UL;
+  if( ctx->state == FD_SNAPIN_STATE_LOADING_FULL ) {
+    sig          = FD_FULL_SNAPSHOT_MANIFEST;
+    external_sig = FD_FULL_SNAPSHOT_MANIFEST_EXTERNAL;
+  } else if( ctx->state == FD_SNAPIN_STATE_LOADING_INCREMENTAL ) {
+    sig          = FD_INCREMENTAL_SNAPSHOT_MANIFEST;
+    external_sig = FD_INCREMENTAL_SNAPSHOT_MANIFEST_EXTERNAL;
+  }
+
+  /* Send snapshot manifest message over snap_out link */
+  fd_stem_publish( stem,
+    0UL,
+    sig,
+    ctx->manifest_out.chunk,
+    sizeof(fd_snapshot_manifest_t),
+    0UL,
+    0UL,
+    0UL );
+  ctx->manifest_out.chunk = fd_dcache_compact_next( ctx->manifest_out.chunk,
+                                                    sizeof(fd_snapshot_manifest_t),
+                                                    ctx->manifest_out.chunk0,
+                                                    ctx->manifest_out.wmark );
+
+  /* send manifest over replay manifest dcache */
+  fd_stem_publish( stem,
+                   0UL,
+                   external_sig,
+                   ctx->replay_manifest_dcache.chunk,
+                   manifest_sz,
+                   0UL,
+                   ctx->replay_manifest_dcache.obj_id,
+                   0UL );
+  ctx->replay_manifest_dcache.chunk = fd_dcache_compact_next( ctx->replay_manifest_dcache.chunk,
+                                                              manifest_sz,
+                                                              ctx->replay_manifest_dcache.chunk0,
+                                                              ctx->replay_manifest_dcache.wmark );
+}
+
 /* Snapshot parser callbacks ******************************************/
 
 static void
-save_manifest( fd_snapshot_parser_t *        parser,
-               void *                        _ctx,
-               fd_solana_manifest_global_t * manifest,
-               ulong                         manifest_sz ) {
+handle_manifest( fd_snapshot_parser_t *        parser,
+                 void *                        _ctx,
+                 fd_stem_context_t *           stem,
+                 fd_solana_manifest_global_t * manifest,
+                 ulong                         manifest_sz ) {
   (void)parser;
   fd_snapin_tile_t * ctx = fd_type_pun( _ctx );
 
@@ -135,10 +182,13 @@ save_manifest( fd_snapshot_parser_t *        parser,
   FD_LOG_NOTICE(( "Snapshot manifest loaded for slot %lu", snapshot_manifest_mem->slot ));
 
   /* Send decoded manifest to replay */
-  fd_memcpy( ctx->replay_manifest_dcache,
+  uchar * next_dcache_mem = fd_chunk_to_laddr( ctx->replay_manifest_dcache.wksp,
+                                               ctx->replay_manifest_dcache.chunk );
+  fd_memcpy( next_dcache_mem,
              manifest,
              manifest_sz );
-  ctx->manifest_sz = manifest_sz;
+
+  send_manifest( ctx, stem, manifest_sz );
 }
 
 static int
@@ -167,7 +217,9 @@ snapshot_is_duplicate_account( fd_snapshot_parser_t * parser,
 static void
 snapshot_insert_account( fd_snapshot_parser_t *          parser,
                          fd_solana_account_hdr_t const * hdr,
-                         void *                          _ctx ) {
+                         void *                          _ctx,
+                         fd_stem_context_t *             stem ) {
+  (void)stem;
   fd_snapin_tile_t * ctx = fd_type_pun( _ctx );
   fd_pubkey_t const * account_key  = fd_type_pun_const( hdr->meta.pubkey );
 
@@ -195,10 +247,13 @@ snapshot_insert_account( fd_snapshot_parser_t *          parser,
 }
 
 static void
-snapshot_copy_acc_data( fd_snapshot_parser_t * parser FD_PARAM_UNUSED,
+snapshot_copy_acc_data( fd_snapshot_parser_t * parser,
                         void *                 _ctx,
+                        fd_stem_context_t *    stem,
                         uchar const *          buf,
                         ulong                  data_sz ) {
+  (void)parser;
+  (void)stem;
   fd_snapin_tile_t * ctx = fd_type_pun( _ctx );
 
   if( ctx->acc_data ) {
@@ -208,8 +263,11 @@ snapshot_copy_acc_data( fd_snapshot_parser_t * parser FD_PARAM_UNUSED,
 }
 
 static void
-snapshot_reset_acc_data( fd_snapshot_parser_t * parser FD_PARAM_UNUSED,
-                         void *                 _ctx ) {
+snapshot_reset_acc_data( fd_snapshot_parser_t * parser,
+                         void *                 _ctx,
+                         fd_stem_context_t *   stem ) {
+  (void)parser;
+  (void)stem;
   fd_snapin_tile_t * ctx = fd_type_pun( _ctx );
   ctx->acc_data = NULL;
 }
@@ -245,7 +303,7 @@ unprivileged_init( fd_topo_t *      topo,
 
   fd_snapshot_parser_process_manifest_fn_t manifest_cb = NULL;
   if( 0==strcmp( topo->links[tile->out_link_id[ MANIFEST_OUT_IDX ]].name, "snap_out" ) ) {
-    manifest_cb = save_manifest;
+    manifest_cb = handle_manifest;
   }
 
   ctx->shutdown = 0;
@@ -276,17 +334,22 @@ unprivileged_init( fd_topo_t *      topo,
   ctx->metrics.incremental.accounts_processed       = 0UL;
   ctx->metrics.num_accounts_inserted                = 0UL;
 
-  /* join replay manifest dcache */
-  ctx->replay_manifest_dcache        = fd_topo_obj_laddr( topo, tile->snapin.manifest_dcache_obj_id );
-  ctx->replay_manifest_dcache_obj_id = tile->snapin.manifest_dcache_obj_id;
-  ctx->manifest_sz                   = 0UL;
-
   /* set up the manifest message producer */
   fd_topo_link_t * writer_link = &topo->links[ tile->out_link_id[ MANIFEST_OUT_IDX ] ];
   ctx->manifest_out.wksp    = topo->workspaces[ topo->objs[ writer_link->dcache_obj_id ].wksp_id ].wksp;
   ctx->manifest_out.chunk0  = fd_dcache_compact_chunk0( fd_wksp_containing( writer_link->dcache ), writer_link->dcache );
   ctx->manifest_out.wmark   = fd_dcache_compact_wmark ( ctx->manifest_out.wksp, writer_link->dcache, writer_link->mtu );
   ctx->manifest_out.chunk   = ctx->manifest_out.chunk0;
+
+  /* join replay manifest dcache */
+  ctx->replay_manifest_dcache.dcache  = fd_topo_obj_laddr( topo, tile->snapin.manifest_dcache_obj_id );
+  ctx->replay_manifest_dcache.wksp    = fd_wksp_containing( ctx->replay_manifest_dcache.dcache );
+  ctx->replay_manifest_dcache.obj_id  = tile->snapin.manifest_dcache_obj_id;
+  ctx->replay_manifest_dcache.chunk0  = fd_dcache_compact_chunk0( ctx->replay_manifest_dcache.wksp, ctx->replay_manifest_dcache.dcache );
+  ctx->replay_manifest_dcache.chunk   = ctx->replay_manifest_dcache.chunk0;
+  ctx->replay_manifest_dcache.wmark   = fd_dcache_compact_wmark( ctx->replay_manifest_dcache.wksp,
+                                                                 ctx->replay_manifest_dcache.dcache,
+                                                                  writer_link->mtu);
 
   /* set up in link */
   fd_topo_link_t const * in_link = &topo->links[ tile->in_link_id[ SNAPSHOT_IN_LINK_IDX ] ];
@@ -333,50 +396,6 @@ hard_reset_funk( fd_snapin_tile_t * ctx ) {
 }
 
 static void
-send_manifest( fd_snapin_tile_t * ctx,
-               fd_stem_context_t * stem ) {
-  /* Assumes the manifest is already mem copied into the snap_out
-     dcache and the replay_manifest_dcache from the save_manifest
-     callback. */
-  FD_TEST( ctx->manifest_sz );
-
-  ulong sig          = 0UL;
-  ulong external_sig = 0UL;
-  if( ctx->state == FD_SNAPIN_STATE_LOADING_FULL ) {
-    sig          = FD_FULL_SNAPSHOT_MANIFEST;
-    external_sig = FD_FULL_SNAPSHOT_MANIFEST_EXTERNAL;
-  } else if( ctx->state == FD_SNAPIN_STATE_LOADING_INCREMENTAL ) {
-    sig          = FD_INCREMENTAL_SNAPSHOT_MANIFEST;
-    external_sig = FD_INCREMENTAL_SNAPSHOT_MANIFEST_EXTERNAL;
-  }
-
-  /* Send snapshot manifest message over snap_out link */
-  fd_stem_publish( stem,
-    0UL,
-    sig,
-    ctx->manifest_out.chunk,
-    sizeof(fd_snapshot_manifest_t),
-    0UL,
-    0UL,
-    0UL );
-  ctx->manifest_out.chunk = fd_dcache_compact_next( ctx->manifest_out.chunk,
-                                                    sizeof(fd_snapshot_manifest_t),
-                                                    ctx->manifest_out.chunk0,
-                                                    ctx->manifest_out.wmark );
-
-  /* send manifest over replay manifest dcache */
-  ulong chunk = fd_dcache_compact_chunk0( fd_wksp_containing( ctx->replay_manifest_dcache ), ctx->replay_manifest_dcache );
-  fd_stem_publish( stem,
-                   0UL,
-                   external_sig,
-                   chunk,
-                   ctx->manifest_sz,
-                   0UL,
-                   ctx->replay_manifest_dcache_obj_id,
-                   0UL );
-}
-
-static void
 handle_control_frag( fd_snapin_tile_t *  ctx,
                      fd_stem_context_t * stem,
                      ulong               sig ) {
@@ -388,10 +407,6 @@ handle_control_frag( fd_snapin_tile_t *  ctx,
                                          ctx->funk_txn,
                                          0 );
       }
-
-      /* Once the snapshot is fully loaded, we can send the manifest
-         message over. */
-      send_manifest( ctx, stem );
 
       /* Notify consumers of manifest out that the snapshot is fully
          loaded. */
@@ -442,9 +457,10 @@ handle_control_frag( fd_snapin_tile_t *  ctx,
 }
 
 static void
-handle_data_frag( fd_snapin_tile_t * ctx,
-                  ulong              chunk,
-                  ulong              sz ) {
+handle_data_frag( fd_snapin_tile_t *  ctx,
+                  ulong               chunk,
+                  ulong               sz,
+                  fd_stem_context_t * stem ) {
   FD_TEST( ctx->state==FD_SNAPIN_STATE_LOADING_FULL ||
            ctx->state==FD_SNAPIN_STATE_LOADING_INCREMENTAL );
   FD_TEST( chunk>=ctx->in.chunk0 && chunk<=ctx->in.wmark );
@@ -465,7 +481,8 @@ handle_data_frag( fd_snapin_tile_t * ctx,
     }
     cur = fd_snapshot_parser_process_chunk( ctx->parser,
                                             cur,
-                                            (ulong)( chunk_end-cur ) );
+                                            (ulong)( chunk_end-cur ),
+                                            stem );
     if( FD_UNLIKELY( ctx->parser->flags ) ) {
       if( FD_UNLIKELY( ctx->parser->flags & SNAP_FLAG_FAILED ) ) {
         /* abort app if parser failed */
@@ -517,7 +534,7 @@ after_frag( fd_snapin_tile_t *  ctx,
 
   /* handle frag */
   if( FD_UNLIKELY( sz==0 ) ) handle_control_frag( ctx, stem, sig );
-  else                       handle_data_frag( ctx, ctx->in._chunk, sz );
+  else                       handle_data_frag( ctx, ctx->in._chunk, sz, stem );
 }
 
 #define STEM_BURST                  1UL
