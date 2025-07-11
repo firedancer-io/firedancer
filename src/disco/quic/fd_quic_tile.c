@@ -76,7 +76,8 @@ scratch_footprint( fd_topo_tile_t const * tile ) {
 static void
 legacy_stream_notify( fd_quic_ctx_t * ctx,
                       uchar *         packet,
-                      ulong           packet_sz ) {
+                      ulong           packet_sz,
+                      uint            ipv4 ) {
 
   long                tspub    = fd_tickcount();
   fd_tpu_reasm_t *    reasm    = ctx->reasm;
@@ -85,7 +86,7 @@ legacy_stream_notify( fd_quic_ctx_t * ctx,
   void *              base     = ctx->verify_out_mem;
   ulong               seq      = stem->seqs[0];
 
-  int err = fd_tpu_reasm_publish_fast( reasm, packet, packet_sz, mcache, base, seq, tspub );
+  int err = fd_tpu_reasm_publish_fast( reasm, packet, packet_sz, mcache, base, seq, tspub, ipv4, FD_TXN_M_TPU_SOURCE_UDP );
   if( FD_LIKELY( err==FD_TPU_REASM_SUCCESS ) ) {
     fd_stem_advance( stem, 0UL );
     ctx->metrics.txns_received_udp++;
@@ -248,7 +249,7 @@ after_frag( fd_quic_ctx_t *     ctx,
       return;
     }
 
-    legacy_stream_notify( ctx, ctx->buffer+network_hdr_sz, data_sz );
+    legacy_stream_notify( ctx, ctx->buffer+network_hdr_sz, data_sz, fd_disco_netmux_sig_ip( sig ) );
   }
 }
 
@@ -297,7 +298,7 @@ quic_stream_rx( fd_quic_conn_t * conn,
       ctx->metrics.quic_txn_too_large++;
       return FD_QUIC_SUCCESS; /* drop */
     }
-    int err = fd_tpu_reasm_publish_fast( reasm, data, data_sz, mcache, base, seq, tspub );
+    int err = fd_tpu_reasm_publish_fast( reasm, data, data_sz, mcache, base, seq, tspub, conn->host.ip_addr, FD_TXN_M_TPU_SOURCE_QUIC );
     if( FD_LIKELY( err==FD_TPU_REASM_SUCCESS ) ) {
       fd_stem_advance( stem, 0UL );
       ctx->metrics.txns_received_quic_fast++;
@@ -361,7 +362,7 @@ quic_stream_rx( fd_quic_conn_t * conn,
       ctx->metrics.quic_txn_too_small++;
       return FD_QUIC_SUCCESS; /* ignore */
     }
-    int pub_err = fd_tpu_reasm_publish( reasm, slot, mcache, base, seq, tspub );
+    int pub_err = fd_tpu_reasm_publish( reasm, slot, mcache, base, seq, tspub, conn->host.ip_addr, FD_TXN_M_TPU_SOURCE_QUIC );
     if( FD_UNLIKELY( pub_err!=FD_TPU_REASM_SUCCESS ) ) return FD_QUIC_SUCCESS; /* unreachable */
     ulong * rcv_cnt = (offset==0UL && fin) ? &ctx->metrics.txns_received_quic_fast : &ctx->metrics.txns_received_quic_frag;
     (*rcv_cnt)++;
@@ -397,7 +398,7 @@ quic_tx_aio_send( void *                    _ctx,
 
     /* send packets are just round-robined by sequence number, so for now
        just indicate where they came from so they don't bounce back */
-    ulong sig = fd_disco_netmux_sig( ip_dst, 0U, ip_dst, DST_PROTO_OUTGOING, FD_NETMUX_SIG_MIN_HDR_SZ );
+    ulong sig = fd_disco_netmux_sig( ip_dst, 0U, DST_PROTO_OUTGOING, FD_NETMUX_SIG_MIN_HDR_SZ );
 
     ulong chunk = ctx->net_out_chunk;
     ulong ctl   = fd_frag_meta_ctl( 0UL, 1, 1, 0 );
