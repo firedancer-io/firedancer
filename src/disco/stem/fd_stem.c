@@ -543,13 +543,13 @@ STEM_(run1)( ulong                        in_cnt,
 #ifdef STEM_CALLBACK_GET_TILE_DEADLINE
       STEM_CALLBACK_GET_TILE_DEADLINE( ctx, &tile_deadline_ticks );
 #endif
-      /* If tile sets deadline to 0, it is critical we do not sleep */
-      if( FD_UNLIKELY( tile_deadline_ticks==0 ) ) futex_wait_counter = 0;
+      /* If set to <=0, it is critical we do not sleep */
+      if( FD_UNLIKELY( tile_deadline_ticks<=0 ) ) futex_wait_counter = 0;
       else {
         long nearest_deadline     = fd_long_min( tile_deadline_ticks, then );
         long ticks_until_deadline = nearest_deadline - approx_tickcount;
         long ns_until_deadline    = (long)((double)ticks_until_deadline / fd_tempo_tick_per_ns(NULL));
-        long deadline_ns          = approx_wallclock_ns + ns_until_deadline;
+        long deadline_ns          = fd_long_max(0, approx_wallclock_ns + ns_until_deadline);
 
         struct timespec deadline = {
           .tv_sec = deadline_ns / (long)1e9,

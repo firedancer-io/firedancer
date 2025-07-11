@@ -30,6 +30,9 @@ fd_keyguard_client_sign( fd_keyguard_client_t * client,
 
   ulong sig = (ulong)(uint)sign_type;
   fd_mcache_publish( client->request, client->request_depth, client->request_seq, sig, 0UL, sign_data_len, 0UL, 0UL, 0UL );
+  // TODO: change to fd_stem_publish? temporary fix for sign tile (this is how shred sends it frags)
+  uint * futex_flag = fd_mcache_futex_flag( client->request );
+  *futex_flag = (uint)(client->request_seq + 1);
   client->request_seq = fd_seq_inc( client->request_seq, 1UL );
 
   fd_frag_meta_t meta;

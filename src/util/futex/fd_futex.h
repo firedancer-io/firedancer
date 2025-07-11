@@ -13,11 +13,6 @@
 long syscall(long number, ...);
 
 static inline long 
-fd_futex_wait(const uint32_t *addr, uint32_t val) {
-    return syscall(SYS_futex, addr, FUTEX_WAIT, val, NULL, NULL, 0);
-}
-
-static inline long 
 fd_futex_wake(uint32_t *addr, int n) {
     return syscall(SYS_futex, addr, FUTEX_WAKE, n, NULL, NULL, 0);
 }

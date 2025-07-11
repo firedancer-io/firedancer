@@ -777,6 +777,9 @@ net_rx_packet( fd_net_ctx_t * ctx,
   ulong tspub = (ulong)fd_frag_meta_ts_comp( fd_tickcount() );
   fd_mcache_publish( out->mcache, out->depth, out->seq, sig, chunk, sz, umem_lowbits, 0, tspub );
 
+  // TODO: change to fd_stem_publish?
+  uint * futex_flag = fd_mcache_futex_flag( out->mcache );
+  *futex_flag = (uint)(out->seq + 1);
   /* Wind up for the next iteration */
   out->seq = fd_seq_inc( out->seq, 1UL );
 
