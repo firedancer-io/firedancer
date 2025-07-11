@@ -169,7 +169,6 @@ fd_fork_t *
 fd_forks_prepare( fd_forks_t const *    forks,
                   ulong                 parent_slot,
                   fd_funk_t *           funk,
-                  fd_blockstore_t *     blockstore,
                   fd_spad_t *           runtime_spad );
 
 /* fd_forks_publish publishes a new root into forks.  Assumes root is a

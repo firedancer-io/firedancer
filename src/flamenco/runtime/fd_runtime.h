@@ -494,7 +494,6 @@ fd_runtime_poh_verify( fd_poh_verifier_t * poh_info );
 
 int
 fd_runtime_block_execute_prepare( fd_exec_slot_ctx_t * slot_ctx,
-                                  fd_blockstore_t *    blockstore,
                                   fd_spad_t *          runtime_spad );
 
 void
@@ -653,7 +652,6 @@ fd_runtime_block_eval_tpool( fd_exec_slot_ctx_t * slot_ctx,
 
 int
 fd_runtime_block_execute_tpool( fd_exec_slot_ctx_t *            slot_ctx,
-                                fd_blockstore_t *               blockstore,
                                 fd_capture_ctx_t *              capture_ctx,
                                 fd_runtime_block_info_t const * block_info,
                                 fd_tpool_t *                    tpool,

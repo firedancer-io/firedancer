@@ -970,16 +970,7 @@ fd_runtime_poh_verify( fd_poh_verifier_t * poh_info ) {
 
 int
 fd_runtime_block_execute_prepare( fd_exec_slot_ctx_t * slot_ctx,
-                                  fd_blockstore_t *    blockstore,
                                   fd_spad_t *          runtime_spad ) {
-
-
-  if( blockstore && fd_bank_slot_get( slot_ctx->bank ) != 0UL ) {
-    fd_blockstore_block_height_update( blockstore,
-                                       fd_bank_slot_get( slot_ctx->bank ),
-                                       fd_bank_block_height_get( slot_ctx->bank ) );
-  }
-
   fd_bank_execution_fees_set( slot_ctx->bank, 0UL );
 
   fd_bank_priority_fees_set( slot_ctx->bank, 0UL );
@@ -3553,7 +3544,6 @@ fd_runtime_publish_old_txns( fd_exec_slot_ctx_t * slot_ctx,
 
 int
 fd_runtime_block_execute_tpool( fd_exec_slot_ctx_t *            slot_ctx,
-                                fd_blockstore_t *               blockstore,
                                 fd_capture_ctx_t *              capture_ctx,
                                 fd_runtime_block_info_t const * block_info,
                                 fd_tpool_t *                    tpool,
@@ -3567,7 +3557,7 @@ fd_runtime_block_execute_tpool( fd_exec_slot_ctx_t *            slot_ctx,
 
   long block_execute_time = -fd_log_wallclock();
 
-  int res = fd_runtime_block_execute_prepare( slot_ctx, blockstore, runtime_spad );
+  int res = fd_runtime_block_execute_prepare( slot_ctx, runtime_spad );
   if( res != FD_RUNTIME_EXECUTE_SUCCESS ) {
     return res;
   }
@@ -3768,7 +3758,6 @@ fd_runtime_block_eval_tpool( fd_exec_slot_ctx_t * slot_ctx,
     }
 
     if( FD_UNLIKELY( (ret = fd_runtime_block_execute_tpool( slot_ctx,
-                                                            blockstore,
                                                             capture_ctx,
                                                             &block_info,
                                                             tpool,

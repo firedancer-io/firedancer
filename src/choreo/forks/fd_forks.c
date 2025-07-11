@@ -178,14 +178,7 @@ fd_fork_t *
 fd_forks_prepare( fd_forks_t const *    forks,
                   ulong                 parent_slot,
                   fd_funk_t *           funk,
-                  fd_blockstore_t *     blockstore,
                   fd_spad_t *           runtime_spad ) {
-
-  /* Check the parent block is present in the blockstore and executed. */
-
-  if( FD_UNLIKELY( !fd_blockstore_shreds_complete( blockstore, parent_slot ) ) ) {
-    FD_LOG_WARNING( ( "fd_forks_prepare missing parent_slot %lu", parent_slot ) );
-  }
 
   /* Query for parent_slot in the frontier. */
 
