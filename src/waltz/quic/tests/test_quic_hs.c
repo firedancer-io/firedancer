@@ -234,8 +234,14 @@ test_quic_hs_with_server_appdata( fd_quic_t * server_quic,
   fd_quic_get_state( server_quic )->now = fd_quic_get_state( client_quic )->now = test_now;
 
   /* Store initial retransmission counts */
-  ulong server_retx_before = server_quic->metrics.pkt_retransmissions_cnt;
-  ulong client_retx_before = client_quic->metrics.pkt_retransmissions_cnt;
+  ulong server_retx_before[4] = { server_quic->metrics.pkt_retransmissions_cnt[0],
+                                  server_quic->metrics.pkt_retransmissions_cnt[1],
+                                  server_quic->metrics.pkt_retransmissions_cnt[2],
+                                  server_quic->metrics.pkt_retransmissions_cnt[3] };
+  ulong client_retx_before[4] = { client_quic->metrics.pkt_retransmissions_cnt[0],
+                                  client_quic->metrics.pkt_retransmissions_cnt[1],
+                                  client_quic->metrics.pkt_retransmissions_cnt[2],
+                                  client_quic->metrics.pkt_retransmissions_cnt[3] };
 
   /* Client initiates connection */
   fd_quic_conn_t * client_conn = fd_quic_connect( client_quic, 0U, 0, 0U, 0, test_now );
@@ -270,11 +276,19 @@ test_quic_hs_with_server_appdata( fd_quic_t * server_quic,
   FD_TEST( server_conn->handshake_complete );
 
   /* Verify no retransmissions occurred */
-  ulong server_retx_after = server_quic->metrics.pkt_retransmissions_cnt;
-  ulong client_retx_after = client_quic->metrics.pkt_retransmissions_cnt;
+  ulong server_retx_after[4] = { server_quic->metrics.pkt_retransmissions_cnt[0],
+                                  server_quic->metrics.pkt_retransmissions_cnt[1],
+                                  server_quic->metrics.pkt_retransmissions_cnt[2],
+                                  server_quic->metrics.pkt_retransmissions_cnt[3] };
+  ulong client_retx_after[4] = { client_quic->metrics.pkt_retransmissions_cnt[0],
+                                  client_quic->metrics.pkt_retransmissions_cnt[1],
+                                  client_quic->metrics.pkt_retransmissions_cnt[2],
+                                  client_quic->metrics.pkt_retransmissions_cnt[3] };
 
-  FD_TEST( server_retx_after == server_retx_before );
-  FD_TEST( client_retx_after == client_retx_before );
+  for( uint j=0; j<4; ++j ) {
+    FD_TEST( server_retx_after[j] == server_retx_before[j] );
+    FD_TEST( client_retx_after[j] == client_retx_before[j] );
+  }
 
   /* Clean up */
   fd_quic_fini( server_quic );
@@ -297,8 +311,14 @@ test_quic_hs_with_client_appdata( fd_quic_t * server_quic,
   fd_quic_get_state( server_quic )->now = fd_quic_get_state( client_quic )->now = test_now;
 
   /* Store initial retransmission counts */
-  ulong server_retx_before = server_quic->metrics.pkt_retransmissions_cnt;
-  ulong client_retx_before = client_quic->metrics.pkt_retransmissions_cnt;
+  ulong server_retx_before[4] = { server_quic->metrics.pkt_retransmissions_cnt[0],
+                                  server_quic->metrics.pkt_retransmissions_cnt[1],
+                                  server_quic->metrics.pkt_retransmissions_cnt[2],
+                                  server_quic->metrics.pkt_retransmissions_cnt[3] };
+  ulong client_retx_before[4] = { client_quic->metrics.pkt_retransmissions_cnt[0],
+                                  client_quic->metrics.pkt_retransmissions_cnt[1],
+                                  client_quic->metrics.pkt_retransmissions_cnt[2],
+                                  client_quic->metrics.pkt_retransmissions_cnt[3] };
 
   /* Client initiates connection */
   fd_quic_conn_t * client_conn = fd_quic_connect( client_quic, 0U, 0, 0U, 0, test_now );
@@ -336,11 +356,19 @@ test_quic_hs_with_client_appdata( fd_quic_t * server_quic,
   FD_TEST( server_conn->handshake_complete );
 
   /* Verify no retransmissions occurred */
-  ulong server_retx_after = server_quic->metrics.pkt_retransmissions_cnt;
-  ulong client_retx_after = client_quic->metrics.pkt_retransmissions_cnt;
+  ulong server_retx_after[4] = { server_quic->metrics.pkt_retransmissions_cnt[0],
+                                  server_quic->metrics.pkt_retransmissions_cnt[1],
+                                  server_quic->metrics.pkt_retransmissions_cnt[2],
+                                  server_quic->metrics.pkt_retransmissions_cnt[3] };
+  ulong client_retx_after[4] = { client_quic->metrics.pkt_retransmissions_cnt[0],
+                                  client_quic->metrics.pkt_retransmissions_cnt[1],
+                                  client_quic->metrics.pkt_retransmissions_cnt[2],
+                                  client_quic->metrics.pkt_retransmissions_cnt[3] };
 
-  FD_TEST( server_retx_after == server_retx_before );
-  FD_TEST( client_retx_after == client_retx_before );
+  for( uint j=0; j<4; ++j ) {
+    FD_TEST( server_retx_after[j] == server_retx_before[j] );
+    FD_TEST( client_retx_after[j] == client_retx_before[j] );
+  }
 
   /* Clean up */
   fd_quic_fini( server_quic );
