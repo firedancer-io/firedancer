@@ -76,6 +76,14 @@ fd_quic_new_anonymous_small( fd_wksp_t * wksp,
                              int         role,
                              fd_rng_t *  rng );
 
+/* fd_quic_sync_clocks sets the clock of two QUICs to 'now'. */
+static inline void
+fd_quic_sync_clocks( fd_quic_t * quicA,
+                     fd_quic_t * quicB,
+                     long        now ) {
+  fd_quic_get_state( quicA )->now = fd_quic_get_state( quicB )->now = now;
+}
+
 /* fd_quic_virtual_pair_init sets up an aio loop between the two given QUIC
    objects.  That is, an fd_aio_send() call by quicA will trigger
    a synchronous callback to the aio receive to the quicB.  (FIXME This
@@ -159,6 +167,11 @@ struct fd_quic_netem {
 
   struct fd_quic_netem_reorder_buf reorder_buf[2];
   int                              reorder_mru; /* most recently written reorder buf */
+
+  ulong  drop_sequence; /* defines a drop-sequence for next 64 outgoing packets */
+
+  long * now_ptr;         /* points to test 'now' */
+  long   one_way_latency;
 };
 
 typedef struct fd_quic_netem fd_quic_netem_t;
@@ -166,7 +179,28 @@ typedef struct fd_quic_netem fd_quic_netem_t;
 fd_quic_netem_t *
 fd_quic_netem_init( fd_quic_netem_t * netem,
                     float             thres_drop,
-                    float             thres_reorder );
+                    float             thres_reorder,
+                    long            * now_ptr );
+
+/* fd_quic_netem_set_drop sets a drop sequence for outgoing packets.
+   'drop_sequence' is an ordered bitset interpreted from right to left,
+   where 1 signals a drop. This function can specify behavior for at most
+   the next 64 packets. Subsequent calls to this function overwrite the
+   previous call. Non-zero thres_drop and/or thres_reorder only apply if
+   packet is not dropped by the deterministic drop_sequence.
+   To get only deterministic drops, set thres_drop and thres_reorder to 0. */
+
+void
+fd_quic_netem_set_drop( fd_quic_netem_t * netem,
+                        ulong             drop_sequence );
+
+/* fd_quic_netem_set_one_way_latency sets the one_way_latency
+   for the network emulation. Each outgoing packet will increment
+   *now_ptr by one_way_latency. */
+
+void
+fd_quic_netem_set_one_way_latency( fd_quic_netem_t * netem,
+                                   long              one_way_latency );
 
 /* fd_quic_netem_send implements fd_aio_send for fd_quic_netem_t. */
 
