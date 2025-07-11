@@ -656,6 +656,7 @@ restore_slot_ctx( fd_replay_tile_ctx_t * ctx,
 
   fd_solana_manifest_global_t * manifest_global
     = (fd_solana_manifest_global_t *)fd_chunk_to_laddr( fd_wksp_containing( ctx->manifest_dcache ), chunk );
+
   fd_exec_slot_ctx_t * recovered_slot_ctx = fd_exec_slot_ctx_recover( ctx->slot_ctx,
                                                                       manifest_global,
                                                                       ctx->runtime_spad );
@@ -985,6 +986,7 @@ on_snapshot_message( fd_replay_tile_ctx_t * ctx,
     }
     case FD_FULL_SNAPSHOT_MANIFEST_EXTERNAL:
     case FD_INCREMENTAL_SNAPSHOT_MANIFEST_EXTERNAL: {
+      FD_LOG_NOTICE(( "Received decoded global snapshot manifest message" ));
       /* We may either receive a full snapshot manifest or an
          incremental snapshot manifest.  Note that this external message
          id is only used temporarily because replay cannot yet receive

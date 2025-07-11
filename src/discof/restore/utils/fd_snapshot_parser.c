@@ -337,8 +337,8 @@ fd_snapshot_parser_hdr_read_is_complete( fd_snapshot_parser_t const * self ) {
 
 static uchar const *
 fd_snapshot_parser_read_buffered( fd_snapshot_parser_t * self,
-                        uchar const *          buf,
-                        ulong                  bufsz ) {
+                                  uchar const *          buf,
+                                  ulong                  bufsz ) {
   /* Should not be called if read is complete */
   FD_TEST( self->buf_ctr < self->buf_sz );
 
@@ -414,8 +414,8 @@ fd_snapshot_parser_restore_account_hdr( fd_snapshot_parser_t * self ) {
 
 static uchar const *
 fd_snapshot_parser_read_account_hdr_chunk( fd_snapshot_parser_t * self,
-                                 uchar const *          buf,
-                                 ulong                  bufsz ) {
+                                           uchar const *          buf,
+                                           ulong                  bufsz ) {
   if( !self->accv_sz ) {
     /* Reached end of AppendVec */
     self->state   = SNAP_STATE_IGNORE;
@@ -429,25 +429,18 @@ fd_snapshot_parser_read_account_hdr_chunk( fd_snapshot_parser_t * self,
   self->accv_sz -= hdr_read;
   bufsz         -= hdr_read;
 
-  // ulong peek_sz = 0UL;
   if( FD_LIKELY( fd_snapshot_parser_hdr_read_is_complete( self ) ) ) {
     if( FD_UNLIKELY( 0!=fd_snapshot_parser_restore_account_hdr( self ) ) ) {
       return buf; /* parse error */
     }
-    // peek_sz = fd_ulong_min( self->acc_rem, bufsz );
   }
-
-  // self->acc_rem -= peek_sz;
-  // self->accv_sz -= peek_sz;
-  // buf_next         += peek_sz;
-
   return buf_next;
 }
 
 static uchar const *
 fd_snapshot_parser_read_account_chunk( fd_snapshot_parser_t * self,
-                             uchar const *      buf,
-                             ulong              bufsz ) {
+                                       uchar const *          buf,
+                                       ulong                  bufsz ) {
 
   ulong chunk_sz = fd_ulong_min( self->acc_rem, bufsz );
   if( FD_UNLIKELY( chunk_sz > self->accv_sz ) )

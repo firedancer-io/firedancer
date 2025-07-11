@@ -311,7 +311,7 @@ backtest_topo( config_t * config ) {
 
   /* Replay decoded manifest dcache topo obj */
   fd_topo_obj_t * replay_manifest_dcache = fd_topob_obj( topo, "dcache", "replay_manif" );
-  fd_pod_insertf_ulong( topo->props, 2UL << 30UL, "obj.%lu.data_sz", replay_manifest_dcache->id );
+  fd_pod_insertf_ulong( topo->props, (4 * 1UL << 30UL /* gib */), "obj.%lu.data_sz", replay_manifest_dcache->id );
   fd_pod_insert_ulong(  topo->props, "manifest_dcache", replay_manifest_dcache->id );
 
   fd_topob_tile_uses( topo, snapin_tile, funk_obj, FD_SHMEM_JOIN_MODE_READ_WRITE );

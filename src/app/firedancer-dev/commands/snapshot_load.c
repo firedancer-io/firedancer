@@ -46,7 +46,7 @@ snapshot_load_topo( config_t *     config,
      manifest */
   fd_topob_wksp( topo, "replay_manif" );
   fd_topo_obj_t * replay_manifest_dcache = fd_topob_obj( topo, "dcache", "replay_manif" );
-  fd_pod_insertf_ulong( topo->props, 1UL << 30UL, "obj.%lu.data_sz", replay_manifest_dcache->id );
+  fd_pod_insertf_ulong( topo->props, (4 * 1UL << 30UL /* gib */), "obj.%lu.data_sz", replay_manifest_dcache->id );
   fd_pod_insert_ulong(  topo->props, "manifest_dcache", replay_manifest_dcache->id );
 
   /* read() tile */

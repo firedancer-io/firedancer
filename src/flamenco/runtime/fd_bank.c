@@ -450,7 +450,6 @@ fd_banks_get_bank( fd_banks_t * banks, ulong slot ) {
   bank = fd_banks_map_ele_query( bank_map, &slot, NULL, bank_pool );
   if( FD_UNLIKELY( !bank ) ) {
     FD_LOG_WARNING(( "Failed to get bank" ));
-    return NULL;
   }
 
   fd_rwlock_unread( &banks->rwlock );

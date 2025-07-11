@@ -165,7 +165,7 @@ fd_snapshot_parser_reset( fd_snapshot_parser_t * self ) {
 }
 
 static inline fd_snapshot_parser_t *
-fd_snapshot_parser_new( void * mem,
+fd_snapshot_parser_new( void *                                   mem,
                         fd_snapshot_parser_process_manifest_fn_t manifest_cb,
                         fd_snapshot_process_acc_hdr_fn_t         acc_hdr_cb,
                         fd_snapshot_process_acc_data_fn_t        acc_data_cb,

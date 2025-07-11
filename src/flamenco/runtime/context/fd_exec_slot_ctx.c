@@ -168,8 +168,18 @@ fd_exec_slot_ctx_t *
 fd_exec_slot_ctx_recover( fd_exec_slot_ctx_t *                slot_ctx,
                           fd_solana_manifest_global_t const * manifest,
                           fd_spad_t *                         runtime_spad ) {
+  fd_bank_t * bank = fd_banks_get_bank( slot_ctx->banks, manifest->bank.slot );
+  if( FD_UNLIKELY( !!bank ) ) {
+    /* If the bank already exists, that means that we have already
+       restored the bank for this slot. Clear the bank to restore the new
+       manifest. */
+    fd_banks_clear_bank( slot_ctx->banks, bank );
+  } else {
+    bank = fd_banks_clone_from_parent( slot_ctx->banks, manifest->bank.slot, 0UL );
+  }
 
-  slot_ctx->bank = fd_banks_clone_from_parent( slot_ctx->banks, manifest->bank.slot, 0UL );
+  slot_ctx->bank = bank;
+
   if( FD_UNLIKELY( !slot_ctx->bank ) ) {
     FD_LOG_CRIT(( "fd_banks_clone_from_parent failed" ));
   }
