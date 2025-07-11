@@ -82,8 +82,9 @@ fd_snapshot_reader_set_source_incremental( fd_snapshot_reader_t * self ) {
   FD_TEST( self->full_src.this );
 
   /* There can be only be three different snapshot source configurations:
-     - Both full and incremental snapshot files exist on disk locally
-     - A valid local full snapshot file exists but no local incremental snapshot file exists
+     - Both full and incremental snapshot files exist on disk locally.
+     - A valid local full snapshot file exists but no local incremental
+       snapshot file exists.
      - Both the full and incremental snapshots must be downloaded */
   if( self->full_src.src_type == SRC_FILE ) {
     /* If the full snapshot was read from disk,
