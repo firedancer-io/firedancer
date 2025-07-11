@@ -263,6 +263,7 @@ typedef struct fd_pack_bitset_acct_mapping fd_pack_bitset_acct_mapping_t;
 #define MAP_KEY_HASH(key,seed) fd_hash( (seed), (key), 64UL )
 #include "../../util/tmpl/fd_map_chain.c"
 
+#define LOG_AND_SPIN(args) do{ FD_LOG_WARNING( args ); volatile ulong debug = 0; FD_COMPILER_FORGET( debug ); while( !debug ); } while( 0 )
 
 /* noncemap: A map from (nonce account, nonce authority, recent
    blockhash) to a durable nonce transaction containing it.  We only
@@ -316,6 +317,8 @@ noncemap_extract( fd_txn_e_t const   * k,
   /* The nonce authority must be a signer, so it must be an immediate
      account. */
   out->nonce_auth = accts+autho_idx;
+
+  if( FD_UNLIKELY( !(k->txnp->flags & FD_TXN_P_FLAGS_DURABLE_NONCE ) ) ) LOG_AND_SPIN(( "non-nonce txn in noncemap" ));
 }
 
 static inline int
@@ -353,7 +356,9 @@ noncemap_key_hash_internal( ulong              seed,
 #define MAP_KEY                _txn_e
 #define MAP_KEY_EQ(k0,k1)      noncemap_key_eq_internal( (k0), (k1) )
 #define MAP_KEY_HASH(key,seed) noncemap_key_hash_internal( (seed), (key) )
+#define SUPER_DEBUG 1
 #include "../../util/tmpl/fd_map_chain.c"
+#undef SUPER_DEBUG
 
 
 static const fd_acct_addr_t null_addr = { 0 };
@@ -600,6 +605,7 @@ struct fd_pack_private {
      map stores exactly the transactions in pool that have the nonce
      flag set. */
   noncemap_t * noncemap;
+  ulong        noncemap_cnt;
 
   sig2txn_t * signature_map; /* Stores pointers into pool for deleting by signature */
 
@@ -830,6 +836,7 @@ fd_pack_new( void                   * mem,
   pack->written_list_max = written_list_max;
 
   noncemap_new( _noncemap, nonce_chain_cnt, fd_rng_ulong( rng ) );
+  pack->noncemap_cnt = 0UL;
 
   sig2txn_new( _sig_map, sig_chain_cnt, fd_rng_ulong( rng ) );
 
@@ -1384,7 +1391,7 @@ fd_pack_insert_txn_fini( fd_pack_t  * pack,
 
   sig2txn_ele_insert( pack->signature_map, ord, pack->pool );
 
-  if( FD_UNLIKELY( is_durable_nonce ) ) noncemap_ele_insert( pack->noncemap, ord, pack->pool );
+  if( FD_UNLIKELY( is_durable_nonce ) ) { noncemap_ele_insert( pack->noncemap, ord, pack->pool ); FD_TEST( (++(pack->noncemap_cnt))<=pack->pending_txn_cnt ); }
 
   fd_pack_expq_t temp[ 1 ] = {{ .expires_at = expires_at, .txn = ord }};
   expq_insert( pack->expiration_q, temp );
@@ -1660,7 +1667,7 @@ insert_bundle_impl( fd_pack_t           * pack,
     treap_ele_insert( pack->pending_bundles, ord, pack->pool );
     pack->pending_txn_cnt++;
 
-    if( FD_UNLIKELY( ord->txn->flags & FD_TXN_P_FLAGS_DURABLE_NONCE ) ) noncemap_ele_insert( pack->noncemap, ord, pack->pool );
+    if( FD_UNLIKELY( ord->txn->flags & FD_TXN_P_FLAGS_DURABLE_NONCE ) ) { noncemap_ele_insert( pack->noncemap, ord, pack->pool ); FD_TEST( (++(pack->noncemap_cnt))<=pack->pending_txn_cnt ); }
     sig2txn_ele_insert( pack->signature_map, ord, pack->pool );
 
     fd_pack_expq_t temp[ 1 ] = {{ .expires_at = expires_at, .txn = ord }};
@@ -2011,7 +2018,7 @@ fd_pack_schedule_impl( fd_pack_t          * pack,
 
     *(use_by_bank_txn++) = use_by_bank_cnt;
 
-    if( FD_UNLIKELY( cur->txn->flags & FD_TXN_P_FLAGS_DURABLE_NONCE ) ) noncemap_ele_remove_fast( pack->noncemap, cur, pack->pool );
+    if( FD_UNLIKELY( cur->txn->flags & FD_TXN_P_FLAGS_DURABLE_NONCE ) ) { noncemap_ele_remove_fast( pack->noncemap, cur, pack->pool ); FD_TEST( ((pack->noncemap_cnt)--)>0UL ); }
     sig2txn_ele_remove_fast( pack->signature_map, cur, pool );
 
     cur->root = FD_ORD_TXN_ROOT_FREE;
@@ -2375,7 +2382,7 @@ fd_pack_try_schedule_bundle( fd_pack_t  * pack,
     pack->data_bytes_consumed   += cur->txn->payload_sz + MICROBLOCK_DATA_OVERHEAD;
     pack->microblock_cnt        += 1UL;
 
-    if( FD_UNLIKELY( cur->txn->flags & FD_TXN_P_FLAGS_DURABLE_NONCE ) ) noncemap_ele_remove_fast( pack->noncemap, cur, pack->pool );
+    if( FD_UNLIKELY( cur->txn->flags & FD_TXN_P_FLAGS_DURABLE_NONCE ) ) { noncemap_ele_remove_fast( pack->noncemap, cur, pack->pool ); FD_TEST( ((pack->noncemap_cnt)--)>0UL ); }
     sig2txn_ele_remove_fast( pack->signature_map, cur, pack->pool );
 
     cur->root = FD_ORD_TXN_ROOT_FREE;
@@ -2670,15 +2677,17 @@ fd_pack_end_block( fd_pack_t * pack ) {
 static void
 release_tree( treap_t           * treap,
               sig2txn_t         * signature_map,
+              noncemap_t        * noncemap,
               fd_pack_ord_txn_t * pool ) {
   treap_fwd_iter_t next;
   for( treap_fwd_iter_t it=treap_fwd_iter_init( treap, pool ); !treap_fwd_iter_idx( it ); it=next ) {
     next = treap_fwd_iter_next( it, pool );
     ulong idx = treap_fwd_iter_idx( it );
     pool[ idx ].root = FD_ORD_TXN_ROOT_FREE;
-    treap_idx_remove       ( treap,         idx, pool );
-    sig2txn_idx_remove_fast( signature_map, idx, pool );
-    trp_pool_idx_release   ( pool,          idx       );
+    treap_idx_remove        ( treap,         idx, pool );
+    sig2txn_idx_remove_fast ( signature_map, idx, pool );
+    trp_pool_idx_release    ( pool,          idx       );
+    noncemap_idx_remove_fast( noncemap,      idx, pool );
   }
 }
 
@@ -2695,9 +2704,9 @@ fd_pack_clear_all( fd_pack_t * pack ) {
   pack->pending_votes_smallest->cus   = ULONG_MAX;
   pack->pending_votes_smallest->bytes = ULONG_MAX;
 
-  release_tree( pack->pending,         pack->signature_map, pack->pool );
-  release_tree( pack->pending_votes,   pack->signature_map, pack->pool );
-  release_tree( pack->pending_bundles, pack->signature_map, pack->pool );
+  release_tree( pack->pending,         pack->signature_map, pack->noncemap, pack->pool );
+  release_tree( pack->pending_votes,   pack->signature_map, pack->noncemap, pack->pool );
+  release_tree( pack->pending_bundles, pack->signature_map, pack->noncemap, pack->pool );
 
   ulong extra_depth = fd_ulong_if( !!pack->bundle_meta_sz, 1UL+2UL*FD_PACK_MAX_TXN_PER_BUNDLE, 1UL );
   for( ulong i=0UL; i<pack->pack_depth+extra_depth; i++ ) {
@@ -2709,7 +2718,7 @@ fd_pack_clear_all( fd_pack_t * pack ) {
       fd_acct_addr_t penalty_acct = *ACCT_IDX_TO_PTR( FD_ORD_TXN_ROOT_PENALTY_ACCT_IDX( del->root ) );
       fd_pack_penalty_treap_t * penalty_treap = penalty_map_query( pack->penalty_treaps, penalty_acct, NULL );
       FD_TEST( penalty_treap );
-      release_tree( penalty_treap->penalty_treap, pack->signature_map, pack->pool );
+      release_tree( penalty_treap->penalty_treap, pack->signature_map, pack->noncemap, pack->pool );
     }
   }
 
@@ -2846,7 +2855,12 @@ delete_transaction( fd_pack_t         * pack,
   }
 
   if( FD_UNLIKELY( containing->txn->flags & FD_TXN_P_FLAGS_DURABLE_NONCE ) ) {
+    ulong search = noncemap_idx_query_const( pack->noncemap, containing->txn_e, ULONG_MAX, pack->pool );
+    if( FD_UNLIKELY( search==ULONG_MAX ) ) LOG_AND_SPIN(( "trying to delete nonce transaction %lu which was not found", (ulong)(containing-pack->pool) ));
     noncemap_ele_remove_fast( pack->noncemap, containing, pack->pool );
+    FD_TEST( ((pack->noncemap_cnt)--)>0UL );
+    search = noncemap_idx_query_const( pack->noncemap, containing->txn_e, ULONG_MAX, pack->pool );
+    if( FD_UNLIKELY( search!=ULONG_MAX ) ) LOG_AND_SPIN(( "after deleting %lu, still found %lu", (ulong)(containing-pack->pool), search ));
   }
   expq_remove( pack->expiration_q, containing->expq_idx );
   containing->root = FD_ORD_TXN_ROOT_FREE;

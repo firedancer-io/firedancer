@@ -767,6 +767,9 @@ MAP_(idx_query)( MAP_(t) *         join,
   /* Find the key */
 
   MAP_IDX_T * head = MAP_(private_chain)( map ) + MAP_(private_chain_idx)( key, map->seed, map->chain_cnt );
+#if SUPER_DEBUG
+  FD_LOG_INFO(( "idx_query checking chain %lu", (ulong)(head-MAP_(private_chain)( map )) ));
+#endif
   MAP_IDX_T * cur  = head;
   for(;;) {
     ulong ele_idx = MAP_(private_unbox)( *cur );
@@ -782,12 +785,18 @@ MAP_(idx_query)( MAP_(t) *         join,
         pool[ ele_idx ].MAP_NEXT = *head;
         *head = MAP_(private_box)( ele_idx );
       }
+#if SUPER_DEBUG
+      FD_LOG_INFO(( ".. found element %lx", ele_idx ));
+#endif
       return ele_idx;
     }
     cur = &pool[ ele_idx ].MAP_NEXT; /* Retain the pointer to next so we can rewrite it later. */
   }
 
   /* Not found */
+#if SUPER_DEBUG
+      FD_LOG_INFO(( ".. didn't find it" ));
+#endif
 
   return sentinel;
 }
@@ -810,6 +819,9 @@ MAP_(idx_insert)( MAP_(t) *   join,
   pool[ ele_idx ].MAP_NEXT = *head;
   *head = MAP_(private_box)( ele_idx );
 
+#if SUPER_DEBUG
+  FD_LOG_INFO(( "idx_insert inserted to chain %lu element %lx", (ulong)(head-MAP_(private_chain)( map )), ele_idx ));
+#endif
   return join;
 }
 
@@ -849,11 +861,20 @@ MAP_(idx_remove_fast)( MAP_(t) *   join,
   MAP_(private_t) * map = MAP_(private)( join );
 
   MAP_ELE_T * ele = pool+ele_idx;
+#if SUPER_DEBUG
+  FD_LOG_INFO(( "idx_remove_fast removing element %lx", ele_idx ));
+#endif
 
   if( FD_UNLIKELY( !MAP_(private_idx_is_null)( ele->MAP_NEXT ) ) )          pool[ ele->MAP_NEXT ].MAP_PREV = ele->MAP_PREV;
 
   if( FD_UNLIKELY( !MAP_(private_idx_is_null)( ele->MAP_PREV ) ) )          pool[ ele->MAP_PREV ].MAP_NEXT = ele->MAP_NEXT;
-  else { MAP_(private_chain)( map )[ MAP_(private_chain_idx)( &ele->MAP_KEY, map->seed, map->chain_cnt ) ] = ele->MAP_NEXT; }
+  else {
+    ulong chain = MAP_(private_chain_idx)( &ele->MAP_KEY, map->seed, map->chain_cnt );
+    MAP_(private_chain)( map )[ chain ] = ele->MAP_NEXT;
+#if SUPER_DEBUG
+    FD_LOG_INFO(( ".. removed it from head of chain %lu", chain ));
+#endif
+  }
 }
 #endif
 
