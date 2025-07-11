@@ -26,8 +26,8 @@ prodcons_topo( config_t * config ) {
   fd_topob_wksp( topo, "metric_in" );
   
   // Create tiles with simple CPU assignment (CPU 0 and 1)
-  fd_topob_tile( topo, "produc", "prod_wksp", "prod_wksp", 0, 0, 0 );
-  fd_topob_tile( topo, "consum", "cons_wksp", "cons_wksp", 1, 0, 0 );
+  fd_topob_tile( topo, "produc", "prod_wksp", "prod_wksp", 0, 0, 1, 0 );
+  fd_topob_tile( topo, "consum", "cons_wksp", "cons_wksp", 1, 0, 1, 0 );
   
   // Create single link between them
   // fd_topob_wksp( topo, "data_link" );

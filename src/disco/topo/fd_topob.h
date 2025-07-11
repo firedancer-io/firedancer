@@ -93,6 +93,7 @@ fd_topob_tile( fd_topo_t *    topo,
                char const *   metrics_wksp,
                ulong          cpu_idx,
                int            is_agave,
+               int            sleeps,
                int            uses_keyswitch );
 
 /* Add an input link to the tile.  If the tile is created with the

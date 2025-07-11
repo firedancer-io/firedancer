@@ -303,6 +303,10 @@ struct fd_config {
   } development;
 
   struct {
+    int low_power_mode;
+  } power;
+
+  struct {
     struct {
       ulong max_routes;
       ulong max_neighbors;
