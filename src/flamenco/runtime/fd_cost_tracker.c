@@ -1,4 +1,6 @@
 #include "fd_cost_tracker.h"
+#include "context/fd_exec_slot_ctx.h"
+#include "sysvar/fd_sysvar_recent_hashes.h"
 
 /* https://github.com/anza-xyz/agave/blob/v2.2.0/cost-model/src/cost_model.rs#L323-L328 */
 FD_FN_PURE static inline ulong

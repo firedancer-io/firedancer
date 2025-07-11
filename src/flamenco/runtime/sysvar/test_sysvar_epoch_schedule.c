@@ -94,11 +94,8 @@ test_epoch_schedule( fd_epoch_schedule_t const * t ) {
   }
 }
 
-int
-main( int     argc,
-      char ** argv ) {
-  fd_boot( &argc, &argv );
-
+void
+test_sysvar_epoch_schedule( void ) {
   for( fd_epoch_schedule_t const * vec = fd_epoch_schedule_test_vectors;
        vec->slots_per_epoch;       vec++ ) {
 
@@ -106,8 +103,4 @@ main( int     argc,
     test_epoch_schedule       ( vec );
 
   }
-
-  FD_LOG_NOTICE(( "pass" ));
-  fd_halt();
-  return 0;
 }

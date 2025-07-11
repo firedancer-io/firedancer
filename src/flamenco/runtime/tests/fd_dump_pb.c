@@ -363,32 +363,28 @@ dump_sanitized_transaction( fd_funk_t *                            funk,
 /** BLOCKHASH QUEUE DUMPING **/
 
 static void
-dump_blockhash_queue( fd_block_hash_queue_global_t const * queue,
-                      fd_spad_t *                          spad,
-                      pb_bytes_array_t **                  output_blockhash_queue,
-                      pb_size_t *                          output_blockhash_queue_count ) {
+dump_blockhash_queue( fd_blockhashes_t const * queue,
+                      fd_spad_t *              spad,
+                      pb_bytes_array_t **      output_blockhash_queue,
+                      pb_size_t *              output_blockhash_queue_count ) {
   pb_size_t cnt = 0;
-  fd_hash_hash_age_pair_t_mapnode_t * nn;
-
-  fd_hash_hash_age_pair_t_mapnode_t * ages_pool = fd_block_hash_queue_ages_pool_join( queue );
-  fd_hash_hash_age_pair_t_mapnode_t * ages_root = fd_block_hash_queue_ages_root_join( queue );
 
   // Iterate over all block hashes in the queue and save them in the output
-  for( fd_hash_hash_age_pair_t_mapnode_t * n = fd_hash_hash_age_pair_t_map_minimum( ages_pool, ages_root ); n; n = nn ) {
-    nn = fd_hash_hash_age_pair_t_map_successor( ages_pool, n );
-
+  ulong queue_index = 0UL;
+  for( fd_blockhash_deq_iter_t iter = fd_blockhash_deq_iter_init_rev( queue->d.deque );
+       !fd_blockhash_deq_iter_done( queue->d.deque, iter );
+       iter = fd_blockhash_deq_iter_prev( queue->d.deque, iter ) ) {
     /* Get the index in the blockhash queue
        - Lower index = newer
        - 0 will be the most recent blockhash
        - Index range is [0, max_age] (not a typo) */
-    ulong queue_index = queue->last_hash_index - n->elem.val.hash_index;
-    fd_hash_t blockhash = n->elem.key;
+    fd_hash_t blockhash = fd_blockhash_deq_iter_ele_const( queue->d.deque, iter )->hash;
 
     // Write the blockhash to the correct index (note we write in reverse order since in the Protobuf message, the oldest blockhash goes first)
     pb_bytes_array_t * output_blockhash = fd_spad_alloc( spad, alignof(pb_bytes_array_t), PB_BYTES_ARRAY_T_ALLOCSIZE(sizeof(fd_hash_t)) );
     output_blockhash->size = sizeof(fd_hash_t);
     fd_memcpy( output_blockhash->bytes, &blockhash, sizeof(fd_hash_t) );
-    output_blockhash_queue[FD_BLOCKHASH_QUEUE_MAX_ENTRIES - queue_index] = output_blockhash;
+    output_blockhash_queue[FD_BLOCKHASH_QUEUE_MAX_ENTRIES - queue_index++] = output_blockhash;
     cnt++;
   }
 
@@ -511,8 +507,11 @@ create_block_context_protobuf_from_block( fd_exec_test_block_context_t * block_c
                                                               PB_BYTES_ARRAY_T_ALLOCSIZE((FD_BLOCKHASH_QUEUE_MAX_ENTRIES + 1) * sizeof(pb_bytes_array_t *)) );
   block_context->blockhash_queue = output_blockhash_queue;
 
-  fd_block_hash_queue_global_t const * bhq = fd_bank_block_hash_queue_query( slot_ctx->bank );
-  dump_blockhash_queue( bhq, spad, block_context->blockhash_queue, &block_context->blockhash_queue_count );
+  dump_blockhash_queue(
+      fd_bank_block_hash_queue_query( slot_ctx->bank ),
+      spad,
+      block_context->blockhash_queue,
+      &block_context->blockhash_queue_count );
 
   /* BlockContext -> SlotContext */
   block_context->has_slot_ctx                       = true;
@@ -853,12 +852,11 @@ create_txn_context_protobuf_from_txn( fd_exec_test_txn_context_t * txn_context_m
      entries. We have this incorrect logic implemented in fd_sysvar_recent_hashes:register_blockhash and it's not a
      huge issue, but something to keep in mind. */
   pb_bytes_array_t ** output_blockhash_queue = fd_spad_alloc(
-                                                      spad,
-                                                      alignof(pb_bytes_array_t *),
-                                                      PB_BYTES_ARRAY_T_ALLOCSIZE((FD_BLOCKHASH_QUEUE_MAX_ENTRIES + 1) * sizeof(pb_bytes_array_t *)) );
+      spad,
+      alignof(pb_bytes_array_t *),
+      PB_BYTES_ARRAY_T_ALLOCSIZE((FD_BLOCKHASH_QUEUE_MAX_ENTRIES + 1) * sizeof(pb_bytes_array_t *)) );
   txn_context_msg->blockhash_queue = output_blockhash_queue;
-  fd_block_hash_queue_global_t * block_hash_queue = (fd_block_hash_queue_global_t *)&txn_ctx->bank->block_hash_queue[0];
-  dump_blockhash_queue( block_hash_queue, spad, output_blockhash_queue, &txn_context_msg->blockhash_queue_count );
+  dump_blockhash_queue( fd_bank_block_hash_queue_query( bank ), spad, output_blockhash_queue, &txn_context_msg->blockhash_queue_count );
 
   /* Transaction Context -> epoch_ctx */
   txn_context_msg->has_epoch_ctx = true;

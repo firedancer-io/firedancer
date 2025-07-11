@@ -1,4 +1,5 @@
 #include "../../disco/tiles.h"
+#include "../../disco/topo/fd_topo.h"
 #include "../../disco/metrics/fd_metrics.h"
 
 typedef struct {

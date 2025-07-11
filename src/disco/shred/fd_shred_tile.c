@@ -1,4 +1,5 @@
 #include "../tiles.h"
+#include "../topo/fd_topo.h"
 
 #include "generated/fd_shred_tile_seccomp.h"
 #include "../../util/pod/fd_pod_format.h"

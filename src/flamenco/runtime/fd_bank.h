@@ -5,6 +5,8 @@
 #include "../leaders/fd_leaders.h"
 #include "../features/fd_features.h"
 #include "../fd_rwlock.h"
+#include "fd_blockhashes.h"
+#include "sysvar/fd_sysvar_cache.h"
 
 FD_PROTOTYPES_BEGIN
 
@@ -132,7 +134,7 @@ FD_PROTOTYPES_BEGIN
   X(fd_clock_timestamp_votes_global_t, clock_timestamp_votes,       5000000UL,                                 128UL,                                      1,   1    )  /* TODO: This needs to get sized out */                      \
   X(fd_account_keys_global_t,          stake_account_keys,          100000000UL,                               128UL,                                      1,   1    )  /* Supports roughly 3M stake accounts */                     \
   X(fd_account_keys_global_t,          vote_account_keys,           3200000UL,                                 128UL,                                      1,   1    )  /* Supports roughly 100k vote accounts */                    \
-  X(fd_block_hash_queue_global_t,      block_hash_queue,            50000UL,                                   128UL,                                      0,   0    )  /* Block hash queue */                                       \
+  X(fd_blockhashes_t,                  block_hash_queue,            sizeof(fd_blockhashes_t),                  alignof(fd_blockhashes_t),                  0,   0    )  /* Block hash queue */                                       \
   X(fd_fee_rate_governor_t,            fee_rate_governor,           sizeof(fd_fee_rate_governor_t),            alignof(fd_fee_rate_governor_t),            0,   0    )  /* Fee rate governor */                                      \
   X(ulong,                             capitalization,              sizeof(ulong),                             alignof(ulong),                             0,   0    )  /* Capitalization */                                         \
   X(ulong,                             lamports_per_signature,      sizeof(ulong),                             alignof(ulong),                             0,   0    )  /* Lamports per signature */                                 \
@@ -167,9 +169,8 @@ FD_PROTOTYPES_BEGIN
   X(fd_hash_t,                         bank_hash,                   sizeof(fd_hash_t),                         alignof(fd_hash_t),                         0,   0    )  /* Bank hash */                                              \
   X(fd_hash_t,                         prev_bank_hash,              sizeof(fd_hash_t),                         alignof(fd_hash_t),                         0,   0    )  /* Previous bank hash */                                     \
   X(fd_hash_t,                         genesis_hash,                sizeof(fd_hash_t),                         alignof(fd_hash_t),                         0,   0    )  /* Genesis hash */                                           \
-  X(fd_epoch_schedule_t,               epoch_schedule,              sizeof(fd_epoch_schedule_t),               alignof(fd_epoch_schedule_t),               0,   0    )  /* Epoch schedule */                                         \
-  X(fd_rent_t,                         rent,                        sizeof(fd_rent_t),                         alignof(fd_rent_t),                         0,   0    )  /* Rent */                                                   \
   X(fd_slot_lthash_t,                  lthash,                      sizeof(fd_slot_lthash_t),                  alignof(fd_slot_lthash_t),                  0,   0    )  /* LTHash */                                                 \
+  X(fd_sysvar_cache_t,                 sysvar_cache,                FD_SYSVAR_CACHE_FOOTPRINT,                 FD_SYSVAR_CACHE_ALIGN,                      0,   0    )  /* Sysvar cache */                                           \
   X(fd_vote_accounts_global_t,         next_epoch_stakes,           200000000UL,                               128UL,                                      1,   1    )  /* Next epoch stakes, ~4K per account * 50k vote accounts */ \
                                                                                                                                                                         /* These are the stakes that determine the leader */         \
                                                                                                                                                                         /* schedule for the upcoming epoch.  If we are executing */  \
@@ -286,7 +287,7 @@ struct fd_bank {
   #define FD_BANK_HEADER_SIZE (40UL)
 
   /* Fields used for internal pool and bank management */
-  ulong             slot;        /* slot this node is tracking, also the map key */
+  ulong             slot_;       /* slot this node is tracking, also the map key */
   ulong             next;        /* reserved for internal use by fd_pool_para, fd_map_chain_para and fd_banks_publish */
   ulong             parent_idx;  /* index of the parent in the node pool */
   ulong             child_idx;   /* index of the left-child in the node pool */
@@ -396,7 +397,7 @@ fd_bank_footprint( void );
 
 #define MAP_NAME  fd_banks_map
 #define MAP_ELE_T fd_bank_t
-#define MAP_KEY   slot
+#define MAP_KEY   slot_
 #include "../../util/tmpl/fd_map_chain.c"
 #undef MAP_NAME
 #undef MAP_ELE_T
@@ -438,12 +439,12 @@ typedef struct fd_banks fd_banks_t;
   void fd_bank_##name##_end_locking_modify( fd_bank_t * bank );
 
 #define HAS_LOCK_0(type, name)                             \
-  type const * fd_bank_##name##_query( fd_bank_t * bank ); \
+  type const * fd_bank_##name##_query( fd_bank_t const * bank ); \
   type * fd_bank_##name##_modify( fd_bank_t * bank );
 
 #define X(type, name, footprint, align, cow, has_lock) \
   void fd_bank_##name##_set( fd_bank_t * bank, type value );       \
-  type fd_bank_##name##_get( fd_bank_t * bank );                   \
+  type fd_bank_##name##_get( fd_bank_t const * bank );             \
   HAS_LOCK_##has_lock(type, name)
 FD_BANKS_ITER(X)
 #undef X
@@ -452,9 +453,12 @@ FD_BANKS_ITER(X)
 #undef HAS_LOCK_1
 
 static inline ulong
-fd_bank_slot_get( fd_bank_t * bank ) {
-  return bank->slot;
+fd_bank_slot_get( fd_bank_t const * bank ) {
+  return bank->slot_;
 }
+
+ulong
+fd_bank_epoch_get( fd_bank_t const * bank );
 
 /* Simple getters and setters for members of fd_banks_t.*/
 

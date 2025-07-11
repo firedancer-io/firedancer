@@ -4,11 +4,6 @@
 
 #include "fd_instr_harness.h"
 #include "../../fd_system_ids.h"
-#include "../../sysvar/fd_sysvar_clock.h"
-#include "../../sysvar/fd_sysvar_epoch_schedule.h"
-#include "../../sysvar/fd_sysvar_recent_hashes.h"
-#include "../../sysvar/fd_sysvar_last_restart_slot.h"
-#include "../../sysvar/fd_sysvar_rent.h"
 
 int
 fd_runtime_fuzz_instr_ctx_create( fd_runtime_fuzz_runner_t *           runner,
@@ -44,15 +39,15 @@ fd_runtime_fuzz_instr_ctx_create( fd_runtime_fuzz_runner_t *           runner,
 
   /* Set up slot context */
 
-  slot_ctx->funk_txn     = funk_txn;
-  slot_ctx->funk         = funk;
+  slot_ctx->funk_txn = funk_txn;
+  slot_ctx->funk     = funk;
 
   /* Bank manager */
 
-  slot_ctx->bank = runner->bank;
-  fd_bank_clear_bank( slot_ctx->bank );
+  fd_bank_t * bank = slot_ctx->bank = runner->bank;
+  fd_bank_clear_bank( bank );
 
-  fd_features_t * features = fd_bank_features_modify( slot_ctx->bank );
+  fd_features_t * features = fd_bank_features_modify( bank );
   fd_exec_test_feature_set_t const * feature_set = &test_ctx->epoch_context.features;
   if( !fd_runtime_fuzz_restore_features( features, feature_set ) ) {
     return 0;
@@ -60,26 +55,14 @@ fd_runtime_fuzz_instr_ctx_create( fd_runtime_fuzz_runner_t *           runner,
 
   /* Set up epoch context. Defaults obtained from GenesisConfig::Default() */
 
-  fd_rent_t * rent_bm = fd_bank_rent_modify( slot_ctx->bank );
-  rent_bm->lamports_per_uint8_year = 3480;
-  rent_bm->exemption_threshold = 2;
-  rent_bm->burn_percent = 50;
-
-  /* Blockhash queue init */
-
-  fd_block_hash_queue_global_t * block_hash_queue = fd_bank_block_hash_queue_modify( slot_ctx->bank );
-
-  uchar * last_hash_mem = (uchar *)fd_ulong_align_up( (ulong)block_hash_queue + sizeof(fd_block_hash_queue_global_t), alignof(fd_hash_t) );
-  uchar * ages_pool_mem = (uchar *)fd_ulong_align_up( (ulong)last_hash_mem + sizeof(fd_hash_t), fd_hash_hash_age_pair_t_map_align() );
-  fd_hash_hash_age_pair_t_mapnode_t * ages_pool = fd_hash_hash_age_pair_t_map_join( fd_hash_hash_age_pair_t_map_new( ages_pool_mem, 400 ) );
-
-  block_hash_queue->max_age          = FD_BLOCKHASH_QUEUE_MAX_ENTRIES;
-  block_hash_queue->ages_root_offset = 0UL;
-  fd_block_hash_queue_ages_pool_update( block_hash_queue, ages_pool );
-  block_hash_queue->last_hash_index  = 0UL;
-  block_hash_queue->last_hash_offset = (ulong)last_hash_mem - (ulong)block_hash_queue;
-
-  memset( last_hash_mem, 0, sizeof(fd_hash_t) );
+  {
+    fd_rent_t const rent = {
+      .lamports_per_uint8_year = 3480,
+      .exemption_threshold = 2,
+      .burn_percent = 50
+    };
+    fd_sysvar_rent_write( slot_ctx, &rent );
+  }
 
   /* Set up txn context */
 
@@ -217,100 +200,56 @@ fd_runtime_fuzz_instr_ctx_create( fd_runtime_fuzz_runner_t *           runner,
   /* Fill missing sysvar cache values with defaults */
   /* We create mock accounts for each of the sysvars and hardcode the data fields before loading it into the account manager */
   /* We use Agave sysvar defaults for data field values */
+  fd_sysvar_cache_t * sysvar_cache = fd_bank_sysvar_cache_modify( slot_ctx->bank );
 
   /* Clock */
   // https://github.com/firedancer-io/solfuzz-agave/blob/agave-v2.0/src/lib.rs#L466-L474
-  fd_sol_sysvar_clock_t const * clock = fd_sysvar_clock_read( funk, funk_txn, runner->spad );
-  if( !clock ) {
+  if( !FD_SYSVAR_CACHE_EXISTS( sysvar_cache, clock ) ) {
     fd_sol_sysvar_clock_t sysvar_clock = {
-                                          .slot                  = 10UL,
-                                          .epoch_start_timestamp = 0L,
-                                          .epoch                 = 0UL,
-                                          .leader_schedule_epoch = 0UL,
-                                          .unix_timestamp        = 0L
-                                        };
-    fd_sysvar_clock_write( slot_ctx->bank, slot_ctx->funk, slot_ctx->funk_txn, &sysvar_clock );
+      .slot                  = 10UL,
+      .epoch_start_timestamp = 0L,
+      .epoch                 = 0UL,
+      .leader_schedule_epoch = 0UL,
+      .unix_timestamp        = 0L
+    };
+    fd_sysvar_clock_write( slot_ctx, &sysvar_clock );
   }
 
   /* Epoch schedule */
   // https://github.com/firedancer-io/solfuzz-agave/blob/agave-v2.0/src/lib.rs#L476-L483
-  fd_epoch_schedule_t const * epoch_schedule = fd_sysvar_epoch_schedule_read( funk, funk_txn, runner->spad );
-  if( !epoch_schedule ) {
+  if( !FD_SYSVAR_CACHE_EXISTS( sysvar_cache, epoch_schedule ) ) {
     fd_epoch_schedule_t sysvar_epoch_schedule = {
-                                                  .slots_per_epoch             = 432000UL,
-                                                  .leader_schedule_slot_offset = 432000UL,
-                                                  .warmup                      = 1,
-                                                  .first_normal_epoch          = 14UL,
-                                                  .first_normal_slot           = 524256UL
-                                                };
+      .slots_per_epoch             = 432000UL,
+      .leader_schedule_slot_offset = 432000UL,
+      .warmup                      = 1,
+      .first_normal_epoch          = 14UL,
+      .first_normal_slot           = 524256UL
+    };
     fd_sysvar_epoch_schedule_write( slot_ctx, &sysvar_epoch_schedule );
   }
 
   /* Rent */
   // https://github.com/firedancer-io/solfuzz-agave/blob/agave-v2.0/src/lib.rs#L487-L500
-  fd_rent_t const * rent = fd_sysvar_rent_read( funk, funk_txn, runner->spad );
-  if( !rent ) {
+  if( !FD_SYSVAR_CACHE_EXISTS( sysvar_cache, rent ) ) {
     fd_rent_t sysvar_rent = {
-                              .lamports_per_uint8_year = 3480UL,
-                              .exemption_threshold     = 2.0,
-                              .burn_percent            = 50
-                            };
+      .lamports_per_uint8_year = 3480UL,
+      .exemption_threshold     = 2.0,
+      .burn_percent            = 50
+    };
     fd_sysvar_rent_write( slot_ctx, &sysvar_rent );
   }
 
-  fd_sol_sysvar_last_restart_slot_t const * last_restart_slot = fd_sysvar_last_restart_slot_read( funk, funk_txn, runner->spad );
-  if( !last_restart_slot ) {
-
+  if( !FD_SYSVAR_CACHE_EXISTS( sysvar_cache, last_restart_slot ) ) {
     fd_sol_sysvar_last_restart_slot_t restart = { .slot = 5000UL };
-
-    fd_sysvar_set( slot_ctx->bank,
-                   slot_ctx->funk,
-                   slot_ctx->funk_txn,
-                   &fd_sysvar_owner_id,
-                   &fd_sysvar_last_restart_slot_id,
-                   &restart.slot,
-                   sizeof(ulong),
-                   fd_bank_slot_get( slot_ctx->bank ) );
-
+    fd_sysvar_last_restart_slot_write( slot_ctx, &restart );
   }
 
-  /* Set slot bank variables */
-  clock = fd_sysvar_clock_read( funk, funk_txn, runner->spad );
-
-  slot_ctx->bank->slot = clock->slot;
-
-  /* Handle undefined behavior if sysvars are malicious (!!!) */
-
-  epoch_schedule = fd_sysvar_epoch_schedule_read( funk, funk_txn, runner->spad );
-  if( epoch_schedule ) {
-    fd_bank_epoch_schedule_set( slot_ctx->bank, *epoch_schedule );
+  {
+    fd_sol_sysvar_clock_t const clock = fd_sysvar_clock_read_nofail( sysvar_cache );
+    slot_ctx->bank->slot_ = clock.slot;
   }
 
-  /* Override epoch bank rent setting */
-  rent = fd_sysvar_rent_read( funk, funk_txn, runner->spad );
-  if( rent ) {
-    fd_bank_rent_set( slot_ctx->bank, *rent );
-  }
-
-  /* Override most recent blockhash if given */
-  fd_recent_block_hashes_global_t const * rbh_global = fd_sysvar_recent_hashes_read( funk, funk_txn, runner->spad );
-  fd_recent_block_hashes_t rbh[1];
-  if( rbh_global ) {
-    rbh->hashes = deq_fd_block_block_hash_entry_t_join( (uchar*)rbh_global + rbh_global->hashes_offset );
-  }
-
-  if( rbh_global && !deq_fd_block_block_hash_entry_t_empty( rbh->hashes ) ) {
-    fd_block_block_hash_entry_t const * last = deq_fd_block_block_hash_entry_t_peek_tail_const( rbh->hashes );
-    if( last ) {
-      block_hash_queue = (fd_block_hash_queue_global_t *)&slot_ctx->bank->block_hash_queue[0];
-      fd_hash_t * last_hash = fd_block_hash_queue_last_hash_join( block_hash_queue );
-      fd_memcpy( last_hash, &last->blockhash, sizeof(fd_hash_t) );
-
-      fd_bank_lamports_per_signature_set( slot_ctx->bank, last->fee_calculator.lamports_per_signature );
-
-      fd_bank_prev_lamports_per_signature_set( slot_ctx->bank, last->fee_calculator.lamports_per_signature );
-    }
-  }
+  /* FIXME set bank "lamports_per_signature" from blockhash queue */
 
   /* Add accounts to bpf program cache */
   fd_bpf_scan_and_create_bpf_program_cache_entry( slot_ctx, runner->spad );

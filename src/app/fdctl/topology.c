@@ -3,6 +3,7 @@
 #include "../../disco/net/fd_net_tile.h"
 #include "../../disco/quic/fd_tpu.h"
 #include "../../disco/tiles.h"
+#include "../../disco/fd_txn_m_t.h"
 #include "../../disco/topo/fd_topob.h"
 #include "../../disco/topo/fd_cpu_topo.h"
 #include "../../disco/plugin/fd_plugin.h"

@@ -1,8 +1,9 @@
 #include "../bank/fd_bank_abi.h"
 
 #include "../../disco/tiles.h"
+#include "../../disco/fd_txn_m_t.h"
+#include "../../disco/topo/fd_topo.h"
 #include "../../disco/metrics/fd_metrics.h"
-#include "../../flamenco/runtime/fd_system_ids.h"
 #include "../../flamenco/runtime/fd_system_ids_pp.h"
 
 #if FD_HAS_AVX

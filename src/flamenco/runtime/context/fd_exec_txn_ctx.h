@@ -70,6 +70,7 @@ struct fd_exec_txn_ctx {
 
   /* All pointers starting here are valid local joins in txn execution. */
   fd_features_t                        features;
+  fd_sysvar_cache_t const * restrict   sysvar_cache;
   fd_txncache_t *                      status_cache;
   int                                  enable_exec_recording;
   fd_bank_hash_cmp_t *                 bank_hash_cmp;

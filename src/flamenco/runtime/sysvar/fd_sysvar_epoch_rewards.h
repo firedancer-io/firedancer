@@ -3,33 +3,25 @@
 
 #include "../../fd_flamenco_base.h"
 #include "../../types/fd_types.h"
-#include "../context/fd_exec_slot_ctx.h"
+
+#define FD_SYSVAR_EPOCH_REWARDS_BINCODE_SZ (81UL)
+
+#define FD_SYSVAR_EPOCH_REWARDS_OBJ_SZ (sizeof(fd_sysvar_epoch_rewards_t))
 
 FD_PROTOTYPES_BEGIN
-
-/* fd_sysvar_epoch_rewards_read reads the current value of the rent
-   sysvar from funk. If the account doesn't exist in funk or if the account
-   has zero lamports, this function returns NULL. */
-
-fd_sysvar_epoch_rewards_t *
-fd_sysvar_epoch_rewards_read( fd_funk_t *     funk,
-                              fd_funk_txn_t * funk_txn,
-                              fd_spad_t *     spad );
 
 /* Update EpochRewards sysvar with distributed rewards
 
    https://github.com/anza-xyz/agave/blob/cbc8320d35358da14d79ebcada4dfb6756ffac79/sdk/program/src/epoch_rewards.rs#L44 */
 void
 fd_sysvar_epoch_rewards_distribute( fd_exec_slot_ctx_t * slot_ctx,
-                                    ulong                distributed,
-                                    fd_spad_t *          runtime_spad );
+                                    ulong                distributed );
 
 /* Set the EpochRewards sysvar to inactive
 
     https://github.com/anza-xyz/agave/blob/cbc8320d35358da14d79ebcada4dfb6756ffac79/runtime/src/bank/partitioned_epoch_rewards/sysvar.rs#L82 */
 void
-fd_sysvar_epoch_rewards_set_inactive( fd_exec_slot_ctx_t * slot_ctx,
-                                      fd_spad_t *          runtime_spad );
+fd_sysvar_epoch_rewards_set_inactive( fd_exec_slot_ctx_t * slot_ctx );
 
 /* Initialize the EpochRewards sysvar account
 

@@ -3,17 +3,11 @@
 
 #include "stdarg.h"
 
-#include "../fd_flamenco_base.h"
-#include "fd_runtime_err.h"
-#include "fd_runtime_init.h"
 #include "fd_rocksdb.h"
 #include "fd_acc_mgr.h"
 #include "fd_hashes.h"
 #include "../features/fd_features.h"
 #include "fd_rent_lists.h"
-#include "../../ballet/poh/fd_poh.h"
-#include "../leaders/fd_leaders.h"
-#include "context/fd_exec_slot_ctx.h"
 #include "context/fd_capture_ctx.h"
 #include "context/fd_exec_txn_ctx.h"
 #include "info/fd_runtime_block_info.h"
@@ -43,8 +37,7 @@
 
 #define FD_RUNTIME_OFFLINE_NUM_ROOT_BLOCKS (6UL) /* 6 root blocks for offline replay */
 
-#define FD_BLOCKHASH_QUEUE_MAX_ENTRIES    (300UL)
-#define FD_RECENT_BLOCKHASHES_MAX_ENTRIES (150UL)
+#define FD_BLOCKHASH_QUEUE_MAX_ENTRIES (300UL)
 
 #define FD_RENT_EXEMPT_RENT_EPOCH (ULONG_MAX)
 
@@ -312,9 +305,9 @@ fd_runtime_compute_max_tick_height( ulong   ticks_per_slot,
                                     ulong * out_max_tick_height /* out */ );
 
 void
-fd_runtime_update_leaders( fd_bank_t * bank,
-                           ulong       slot,
-                           fd_spad_t * runtime_spad );
+fd_runtime_update_leaders( fd_exec_slot_ctx_t * slot_ctx,
+                           ulong                slot,
+                           fd_spad_t *          runtime_spad );
 
 /* TODO: Invoked by fd_executor: layering violation. Rent logic is deprecated
    and will be torn out entirely very soon. */
@@ -483,7 +476,7 @@ fd_runtime_load_txn_address_lookup_tables( fd_txn_t const * txn,
                                            fd_funk_t *      funk,
                                            fd_funk_txn_t *  funk_txn,
                                            ulong            slot,
-                                           fd_slot_hash_t * hashes,
+                                           fd_slot_hash_t const * hashes,
                                            fd_acct_addr_t * out_accts_alt );
 
 /* fd_runtime_poh_verify is responsible for verifying poh hashes while

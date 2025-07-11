@@ -307,6 +307,7 @@
         will always be 420,000. */
 
 #include "../../disco/tiles.h"
+#include "../../disco/topo/fd_topo.h"
 #include "../../disco/bundle/fd_bundle_crank.h"
 #include "../../disco/pack/fd_pack.h"
 #include "../../ballet/sha256/fd_sha256.h"

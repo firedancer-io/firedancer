@@ -1,6 +1,7 @@
 #include "fd_bank_abi.h"
 
 #include "../../disco/tiles.h"
+#include "../../disco/topo/fd_topo.h"
 #include "../../disco/pack/fd_pack.h"
 #include "../../disco/pack/fd_pack_cost.h"
 #include "../../ballet/blake3/fd_blake3.h"

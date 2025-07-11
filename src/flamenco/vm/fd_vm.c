@@ -34,7 +34,6 @@ fd_vm_syscall_strerror( int err ) {
   case FD_VM_SYSCALL_ERR_INVALID_POINTER:                        return "Invalid pointer";
   case FD_VM_SYSCALL_ERR_ARITHMETIC_OVERFLOW:                    return "Arithmetic overflow";
 
-  case FD_VM_SYSCALL_ERR_INSTR_ERR:                              return "Instruction error";
   case FD_VM_SYSCALL_ERR_INVALID_PDA:                            return "Invalid PDA";
   case FD_VM_SYSCALL_ERR_COMPUTE_BUDGET_EXCEEDED:                return "Compute budget exceeded";
   case FD_VM_SYSCALL_ERR_SEGFAULT:                               return "Segmentation fault";
@@ -102,7 +101,6 @@ fd_vm_strerror( int err ) {
   case FD_VM_ERR_FULL:  return "FULL storage full";
   case FD_VM_ERR_EMPTY: return "EMPTY nothing to do";
   case FD_VM_ERR_IO:    return "IO input-output error";
-  case FD_VM_ERR_AGAIN: return "AGAIN try again later";
 
   /* VM exec error codes */
 
