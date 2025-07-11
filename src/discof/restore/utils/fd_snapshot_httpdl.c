@@ -191,7 +191,7 @@ fd_snapshot_httpdl_init_connection( fd_snapshot_httpdl_t * self ) {
   struct sockaddr_in addr = {
     .sin_family = AF_INET,
     .sin_addr   = { .s_addr = self->ipv4 },
-    .sin_port   = fd_ushort_bswap( self->port ),
+    .sin_port   = self->port,
   };
 
   /* TODO consider using O_NONBLOCK socket so we can control the

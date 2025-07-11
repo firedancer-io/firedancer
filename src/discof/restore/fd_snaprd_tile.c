@@ -2,6 +2,7 @@
 #include "../../disco/metrics/fd_metrics.h"
 #include "utils/fd_snapshot_messages_internal.h"
 #include "utils/fd_snapshot_archive.h"
+#include "utils/fd_snapshot_peers_manager.h"
 #include "utils/fd_snapshot_reader.h"
 #include <fcntl.h>
 #include <stdlib.h>
@@ -146,32 +147,15 @@
 
 /* TODO: these should be received from gossip */
 #define CLUSTER_SNAPSHOT_SLOT 0
-#define INITIAL_PEERS_TESTNET_COUNT 2UL
-#define INITIAL_PEERS_PRIVATE_COUNT 1UL
 
-fd_snapshot_peer_t initial_peers_testnet[ 2UL ] = {
-  { .dest = {
-    /* Solana testnet peer */
-    .addr = FD_IP4_ADDR( 145, 40, 95, 69 ),
-    .port = 8899
-     },
-  },
-  { .dest = {
-    /* A fast testnet peer from snapshot-finder script */
-    .addr = FD_IP4_ADDR( 177, 54, 155, 187 ),
-    .port = 8899
-     },
-  }
-};
+#define GOSSIP_RECEIVER_NAME                        gossip_rx
+#define FD_GOSSIP_RECEIVER_SHOULD_INSERT(ci)        ( fd_contact_info_get_socket( ci,  FD_CONTACT_INFO_SOCKET_RPC ).l!=FD_CONTACT_INFO_NULL_SOCKET )
+#define FD_GOSSIP_RECEIVER_SHOULD_OVERRIDE(new,old) ( fd_contact_info_get_socket( new, FD_CONTACT_INFO_SOCKET_RPC ).l!= \
+                                                      fd_contact_info_get_socket( old, FD_CONTACT_INFO_SOCKET_RPC ).l )
 
-fd_snapshot_peer_t initial_peers_private[ 1UL ] = {
-  { .dest = {
-    /* A private cluster peer */
-    .addr = FD_IP4_ADDR( 147, 28, 185, 47 ),
-    .port = 8899
-     },
-  }
-};
+#include "../../flamenco/gossip/fd_gossip_receiver.c"
+
+
 
 /* fd_snaprd_download_pair indicates whether
    the full and incremental snapshots need to be downloaded or not. */
@@ -185,6 +169,12 @@ typedef struct fd_snaprd_download_pair fd_snaprd_download_pair_t;
 struct fd_snaprd_tile {
   /* Snapshot bytestream producer */
   struct {
+    fd_wksp_t * mem;
+    ulong       chunk0;
+    ulong       wmark;
+    ulong       mtu;
+  } gossip_in;
+  struct {
     fd_wksp_t *      wksp;
     ulong            chunk0;
     ulong            wmark;
@@ -197,6 +187,9 @@ struct fd_snaprd_tile {
 
   fd_snapshot_reader_t *        snapshot_reader;
   fd_snapshot_peers_manager_t * peers_manager;
+
+  gossip_rx_t *        gossip_receiver;
+  uchar                       gossip_rx_buf[ FD_GOSSIP_RECEIVER_FRAG_MAX_SZ ];
 
   /* State machine */
   int                       state;
@@ -244,6 +237,27 @@ fd_snaprd_shutdown( void ) {
   FD_LOG_INFO(( "snaprd: shutting down" ));
 
   for(;;) pause();
+}
+
+static void
+fd_snaprd_populate_peers_from_gossip( fd_snaprd_tile_t * ctx ) {
+  fd_ip4_port_t peers[ FD_SNAPSHOT_PEERS_MAX ];
+  ulong peers_cnt = gossip_rx_num_peers( ctx->gossip_receiver );
+  ulong num_peers_to_add = fd_ulong_min( peers_cnt, FD_SNAPSHOT_PEERS_MAX );
+
+  gossip_rx_iter_t iter = gossip_rx_iter_init( ctx->gossip_receiver );
+  ulong added_peers = 0UL;
+  for( ulong i=0UL; i<num_peers_to_add; i++ ){
+    if( FD_UNLIKELY( gossip_rx_iter_done( ctx->gossip_receiver, iter) ) ){
+      break;
+    }
+
+    fd_contact_info_t const * contact_info = gossip_rx_iter_ele_const( ctx->gossip_receiver, iter );
+    peers[ added_peers++ ] = contact_info->sockets[ FD_CONTACT_INFO_SOCKET_RPC ];
+    iter = gossip_rx_iter_next( ctx->gossip_receiver, iter );
+  }
+
+  fd_snapshot_peers_manager_set_peers( ctx->peers_manager, peers, added_peers );
 }
 
 static void
@@ -573,6 +587,17 @@ fd_snaprd_shared_state_transition( fd_snaprd_tile_t * ctx ) {
 
 /* snaprd callbacks ***************************************************/
 
+static int
+before_frag( fd_snaprd_tile_t * ctx FD_PARAM_UNUSED,
+             ulong              in_idx,
+             ulong              seq FD_PARAM_UNUSED,
+             ulong              sig ) {
+  if( FD_UNLIKELY( in_idx>0UL ) ) {
+    FD_LOG_ERR(( "snaprd: unexpected in_idx %lu", in_idx ));
+  }
+  return gossip_rx_sig_check( sig );
+}
+
 static void
 during_frag( fd_snaprd_tile_t * ctx,
              ulong              in_idx,
@@ -581,13 +606,31 @@ during_frag( fd_snaprd_tile_t * ctx,
              ulong              chunk,
              ulong              sz,
              ulong              ctl ) {
-  (void)ctx;
   (void)in_idx;
   (void)seq;
   (void)sig;
-  (void)chunk;
-  (void)sz;
   (void)ctl;
+
+  if( FD_UNLIKELY( chunk<ctx->gossip_in.chunk0 ||
+                   chunk>=ctx->gossip_in.wmark ) ) {
+    FD_LOG_ERR(( "snaprd: unexpected chunk %lu", chunk ));
+  }
+  if( FD_UNLIKELY( !gossip_rx_frag_sz_check( sz ) ) ) {
+    FD_LOG_ERR(( "snaprd: unexpected sz %lu", sz ));
+  }
+  fd_memcpy( ctx->gossip_rx_buf, fd_chunk_to_laddr( ctx->gossip_in.mem, chunk ), sz );
+}
+
+static void
+after_frag( fd_snaprd_tile_t *  ctx,
+            ulong               in_idx FD_PARAM_UNUSED,
+            ulong               seq FD_PARAM_UNUSED,
+            ulong               sig FD_PARAM_UNUSED,
+            ulong               sz FD_PARAM_UNUSED,
+            ulong               tsorig FD_PARAM_UNUSED,
+            ulong               tspub FD_PARAM_UNUSED,
+            fd_stem_context_t * stem FD_PARAM_UNUSED ) {
+  gossip_rx_process_update_msg( ctx->gossip_receiver, (fd_gossip_update_message_t *) ctx->gossip_rx_buf );
 }
 
 static void
@@ -610,22 +653,7 @@ after_credit( fd_snaprd_tile_t *  ctx,
 
       /* Because we are not receiving from gossip right now, just
          set peers to be initial peers */
-      fd_snapshot_peer_t * initial_peers = NULL;
-      ulong                peers_cnt     = 0UL;
-      if( strcmp( ctx->config.cluster, "testnet" )==0 ) {
-        initial_peers = initial_peers_testnet;
-        peers_cnt     = INITIAL_PEERS_TESTNET_COUNT;
-      } else if( strcmp( ctx->config.cluster, "private" )== 0 ) {
-        initial_peers = initial_peers_private;;
-        peers_cnt     = INITIAL_PEERS_PRIVATE_COUNT;
-      } else {
-        FD_LOG_ERR(( "snaprd: unexpected cluster %s", ctx->config.cluster ));
-      }
-
-      fd_snapshot_peers_manager_set_peers_testing( ctx->peers_manager,
-                                                   initial_peers,
-                                                   peers_cnt );
-      if( ctx->peers_manager->peers_cnt > 0 ) {
+      if( gossip_rx_num_peers( ctx->gossip_receiver ) > 0 ) {
         ctx->wait_deadline_nanos = fd_log_wallclock() + ctx->wait_duration_nanos;
         ctx->state = FD_SNAPRD_STATE_COLLECTING_PEERS;
       }
@@ -638,6 +666,7 @@ after_credit( fd_snaprd_tile_t *  ctx,
            collect more peers.  Now, we can initialize our snapshot
            reader and decide whether to download snapshots from the
            network or read snapshots from disk. */
+        fd_snaprd_populate_peers_from_gossip( ctx );
         fd_snaprd_init_reader( ctx );
       }
       break;
@@ -690,6 +719,7 @@ scratch_footprint( fd_topo_tile_t const * tile ) {
   l = FD_LAYOUT_APPEND( l, alignof(fd_snaprd_tile_t),         sizeof(fd_snaprd_tile_t)              );
   l = FD_LAYOUT_APPEND( l, fd_snapshot_reader_align(),        fd_snapshot_reader_footprint()        );
   l = FD_LAYOUT_APPEND( l, fd_snapshot_peers_manager_align(), fd_snapshot_peers_manager_footprint() );
+  l = FD_LAYOUT_APPEND( l, gossip_rx_align(),        gossip_rx_footprint()        );
   return FD_LAYOUT_FINI( l, alignof(fd_snaprd_tile_t) );
 }
 
@@ -712,7 +742,7 @@ privileged_init( fd_topo_t *      topo,
   fd_snaprd_tile_t * ctx     = FD_SCRATCH_ALLOC_APPEND( l, alignof(fd_snaprd_tile_t), sizeof(fd_snaprd_tile_t) );
   void * snapshot_reader_mem = FD_SCRATCH_ALLOC_APPEND( l, fd_snapshot_reader_align(), fd_snapshot_reader_footprint() );
   void * peers_manager_mem = FD_SCRATCH_ALLOC_APPEND( l, fd_snapshot_peers_manager_align(), fd_snapshot_peers_manager_footprint() );
-
+  void * gossip_receiver_mem = FD_SCRATCH_ALLOC_APPEND( l, gossip_rx_align(), gossip_rx_footprint() );
   fd_memset( ctx, 0, sizeof(fd_snaprd_tile_t) );
 
   fd_snaprd_init_config( ctx, tile );
@@ -720,14 +750,15 @@ privileged_init( fd_topo_t *      topo,
   /* initialized later when deciding whether to read or download snapshots */
   ctx->snapshot_reader = (fd_snapshot_reader_t *)snapshot_reader_mem;
   ctx->peers_manager   = fd_snapshot_peers_manager_new( peers_manager_mem );
+  ctx->gossip_receiver = gossip_rx_join( gossip_rx_new( gossip_receiver_mem ) );
 }
 
 static void
 unprivileged_init( fd_topo_t *      topo,
                    fd_topo_tile_t * tile ) {
   (void)topo;
-  if( FD_UNLIKELY( tile->in_cnt !=0UL ) ) {
-    FD_LOG_ERR(( "tile `" NAME "` has %lu ins, expected 0",  tile->in_cnt  ));
+  if( FD_UNLIKELY( tile->in_cnt !=1UL ) ) {
+    FD_LOG_ERR(( "tile `" NAME "` has %lu ins, expected 1",  tile->in_cnt  ));
   }
   if( FD_UNLIKELY( tile->out_cnt!=1UL ) ) {
     FD_LOG_ERR(( "tile `" NAME "` has %lu outs, expected 1", tile->out_cnt ));
@@ -737,6 +768,17 @@ unprivileged_init( fd_topo_t *      topo,
   fd_snaprd_tile_t * ctx               = FD_SCRATCH_ALLOC_APPEND( l,
                                                                   alignof(fd_snaprd_tile_t),
                                                                   sizeof(fd_snaprd_tile_t) );
+  fd_topo_link_t * in_link = &topo->links[ tile->in_link_id[ 0UL ] ];
+  if( 0!=strcmp( in_link->name, "gossip_out" ) ) {
+    FD_LOG_ERR(( "tile `" NAME "` has unexpected input link `%s`, expected `gossip_out`",
+                  in_link->name ));
+  }
+
+  ctx->gossip_in.mem    = topo->workspaces[ topo->objs[ in_link->dcache_obj_id ].wksp_id ].wksp;
+  ctx->gossip_in.chunk0 = fd_dcache_compact_chunk0( ctx->gossip_in.mem, in_link->dcache );
+  ctx->gossip_in.wmark  = fd_dcache_compact_wmark ( ctx->gossip_in.mem, in_link->dcache, in_link->mtu );
+  ctx->gossip_in.mtu    = in_link->mtu;
+
 
   ctx->metrics.full.bytes_read         = 0UL;
   ctx->metrics.incremental.bytes_read  = 0UL;
@@ -760,7 +802,9 @@ unprivileged_init( fd_topo_t *      topo,
 #define STEM_CALLBACK_CONTEXT_ALIGN alignof(fd_snaprd_tile_t)
 
 #define STEM_CALLBACK_METRICS_WRITE metrics_write
+#define STEM_CALLBACK_BEFORE_FRAG   before_frag
 #define STEM_CALLBACK_DURING_FRAG   during_frag
+#define STEM_CALLBACK_AFTER_FRAG    after_frag
 #define STEM_CALLBACK_AFTER_CREDIT  after_credit
 
 #include "../../disco/stem/fd_stem.c"
