@@ -1,6 +1,7 @@
 #include "../../disco/topo/fd_topo.h"
 #include "../../disco/metrics/fd_metrics.h"
 #include "utils/fd_snapshot_messages_internal.h"
+#include "utils/fd_snapshot_archive.h"
 #include "utils/fd_ssping.h"
 #include "utils/fd_sshttp.h"
 
@@ -106,6 +107,8 @@
    the tile has exited. */
 #define FD_SNAPRD_STATE_DONE                                 ( 8)
 
+#define CLUSTER_SNAPSHOT_SLOT 0
+
 struct fd_snaprd_tile {
   fd_ssping_t * ssping;
   fd_sshttp_t * sshttp;
@@ -116,14 +119,8 @@ struct fd_snaprd_tile {
   fd_ip4_port_t addr;
   int fd;
 
-  struct {
-    ulong full_snapshot_slot;
-    int   full_snapshot_fd;
-    char  full_snapshot_path[ PATH_MAX ];
-    ulong incremental_snapshot_slot;
-    int   incremental_snapshot_fd;
-    char  incremental_snapshot_path[ PATH_MAX ];
-  } local;
+  fd_full_snapshot_archive_entry_t        full_snapshot_entry;
+  fd_incremental_snapshot_archive_entry_t incremental_snapshot_entry;
 
   struct {
     int  do_download;
@@ -363,134 +360,54 @@ after_credit( fd_snaprd_tile_t *  ctx,
   }
 }
 
-/* Parses a snapshot filename like
-
-    incremental-snapshot-344185432-344209085-45eJ5C91fEenPRFc8NiqaDXMCHcPFwRUTMH3k1zY6a1B.tar.zst
-    snapshot-344185432-BSP9ztdFEjwvkBo2LhHA47g9Q3PDwja9x5fj7taFRKH5.tar.zst
-
-   into components.  Returns -1 on failure, and 0 on success.  On
-   success full_slot is set to the full slot number, and if it is an
-   incremental snapshot, incremental_slot is set to the incremental slot
-   number, otherwise incremental_slot is set to ULONG_MAX. */
-
-static int
-parse_filename( char *  _name,
-                ulong * full_slot,
-                ulong * incremental_slot ) {
-  char name[ PATH_MAX ] = {0};
-  strncpy( name, _name, PATH_MAX-1 );
-
-  char * ptr = name;
-  int is_incremental;
-  if( !strncmp( ptr, "incremental-snapshot-", 21UL ) ) {
-    is_incremental = 1;
-    ptr += 21UL;
-  } else if( !strncmp( ptr, "snapshot-", 9UL ) ) {
-    is_incremental = 0;
-    ptr += 9UL;
-  } else {
-    return -1;
-  }
-
-  char * next = strchr( ptr, '-' );
-  if( FD_UNLIKELY( !next ) ) return -1;
-
-  *next = '\0';
-  char * endptr;
-  ulong slot = strtoul( ptr, &endptr, 10 );
-  if( FD_UNLIKELY( *endptr!='\0' || slot==ULONG_MAX ) ) return -1;
-
-  *full_slot = slot;
-
-  if( is_incremental ) {
-    ptr = next + 1;
-    next = strchr( ptr, '-' );
-    if( FD_UNLIKELY( !next ) ) return -1;
-
-    *next = '\0';
-    slot = strtoul( ptr, &endptr, 10 );
-    if( FD_UNLIKELY( *endptr!='\0' || slot==ULONG_MAX ) ) return -1;
-
-    *incremental_slot = slot;
-  } else {
-    *incremental_slot = ULONG_MAX;
-  }
-
-  ptr = next + 1;
-  next = strchr( ptr, '.' );
-  if( FD_UNLIKELY( !next ) ) return -1;
-
-  if( !strncmp( next, ".tar.zst", 8UL ) ) return -1;
-  return 0;
-}
-
 static void
-determine_snapshots( char const * snapshot_dir,
-                     int          incremental_snapshot,
-                     ulong *      full_slot,
-                     ulong *      incremental_slot,
-                     char         full_path[ static PATH_MAX ],
-                     char         incremental_path[ static PATH_MAX ] ) {
-  *full_slot = ULONG_MAX;
-  *incremental_slot = ULONG_MAX;
+determine_snapshots( fd_snaprd_tile_t * ctx,
+                     char const *       snapshot_dir ) {
+  /* first, check if there are any full local snapshots and get the highest slot */
+  int res = fd_snapshot_archive_get_latest_full_snapshot( snapshot_dir,
+                                                          &ctx->full_snapshot_entry );
 
-  DIR * dir = opendir( snapshot_dir );
-  if( FD_UNLIKELY( !dir ) ) {
-    if( FD_LIKELY( errno==ENOENT ) ) return;
-    FD_LOG_ERR(( "opendir() failed `%s` (%i-%s)", snapshot_dir, errno, fd_io_strerror( errno ) ));
+  /* If we don't have any full snapshots in the snapshots archive path, we need to download  */
+  if( FD_UNLIKELY( res ) ) {
+    FD_LOG_NOTICE(( "Unable to find any local full snapshots in the "
+                    "snapshots path: %s. Downloading from peers.", snapshot_dir ));
+    return;
   }
 
-  struct dirent * entry;
-
-  errno = 0;
-  while(( entry = readdir( dir ) )) {
-    if( FD_LIKELY( !strcmp( entry->d_name, "." ) || !strcmp( entry->d_name, ".." ) ) ) continue;
-
-    ulong entry_full_slot, entry_incremental_slot;
-    if( FD_UNLIKELY( -1==parse_filename( entry->d_name, &entry_full_slot, &entry_incremental_slot ) ) ) {
-      FD_LOG_WARNING(( "unrecognized snapshot file `%s/%s` in snapshots directory", snapshot_dir, entry->d_name ));
-      continue;
+  ulong highest_slot = ctx->full_snapshot_entry.slot;
+  if( ctx->config.incremental_snapshot_fetch ) {
+    /* Next, get the incremental snapshot entry */
+    res = fd_snapshot_archive_get_latest_incremental_snapshot( snapshot_dir,
+                                                               &ctx->incremental_snapshot_entry );
+    if( FD_UNLIKELY( res ) ) {
+      /* there is no incremental snapshot entry */
+      FD_LOG_NOTICE(( "Unable to find any local incremental snapshots "
+                      "in the snapshots path %s. Downloading from peers.", snapshot_dir ));
     }
 
-    if( FD_LIKELY( *full_slot==ULONG_MAX || entry_full_slot>*full_slot ) ) {
-      *full_slot = entry_full_slot;
-      if( FD_UNLIKELY( !fd_cstr_printf_check( full_path, PATH_MAX, NULL, "%s/%s", snapshot_dir, entry->d_name ) ) ) {
-        FD_LOG_ERR(( "snapshot path too long `%s/%s`", snapshot_dir, entry->d_name ));
-      }
+    /* Validate the incremental snapshot builds off the full snapshot */
+    if( ctx->incremental_snapshot_entry.base_slot != ctx->full_snapshot_entry.slot ) {
+      FD_LOG_NOTICE(( "Local incremental snapshot at slot %lu does not build off the full snapshot at slot %lu. "
+                      "Downloading from peers.",
+                      ctx->incremental_snapshot_entry.slot,
+                      ctx->full_snapshot_entry.slot ));
+    }
+
+    highest_slot = ctx->incremental_snapshot_entry.slot;
+  }
+
+  /* Check that the snapshot age is within the maximum local snapshot age */
+  if( highest_slot >= fd_ulong_sat_sub( CLUSTER_SNAPSHOT_SLOT, ctx->config.maximum_local_snapshot_age ) ) {
+    FD_LOG_NOTICE(( "Re-using local full snapshot at slot %lu", ctx->full_snapshot_entry.slot ));
+    if( ctx->config.incremental_snapshot_fetch ) {
+      FD_LOG_NOTICE(( "Re-using local incremental snapshot at slot %lu", ctx->incremental_snapshot_entry.slot ));
+    }
+  } else {
+    FD_LOG_NOTICE(( "Local full snapshot at slot %lu is too old. ", ctx->full_snapshot_entry.slot ));
+    if( ctx->incremental_snapshot_entry.slot!=ULONG_MAX ) {
+      FD_LOG_NOTICE(( "Local incremental snapshot at slot %lu is too old. ", ctx->incremental_snapshot_entry.slot ));
     }
   }
-
-  if( FD_UNLIKELY( -1==closedir( dir ) ) ) FD_LOG_ERR(( "closedir() failed (%i-%s)", errno, fd_io_strerror( errno ) ));
-  if( FD_UNLIKELY( errno && errno!=ENOENT ) ) FD_LOG_ERR(( "readdir() failed (%i-%s)", errno, fd_io_strerror( errno ) ));
-
-  if( FD_UNLIKELY( !incremental_snapshot ) ) return;
-  if( FD_UNLIKELY( *full_slot==ULONG_MAX ) ) return;
-
-  dir = opendir( snapshot_dir );
-  if( FD_UNLIKELY( !dir ) ) {
-    if( FD_LIKELY( errno==ENOENT ) ) return;
-    FD_LOG_ERR(( "opendir() failed `%s` (%i-%s)", snapshot_dir, errno, fd_io_strerror( errno ) ));
-  }
-
-  errno = 0;
-  while(( entry = readdir( dir ) )) {
-    if( FD_LIKELY( !strcmp( entry->d_name, "." ) || !strcmp( entry->d_name, ".." ) ) ) continue;
-
-    ulong entry_full_slot, entry_incremental_slot;
-    if( FD_UNLIKELY( -1==parse_filename( entry->d_name, &entry_full_slot, &entry_incremental_slot ) ) ) continue; 
-
-    if( FD_UNLIKELY( *incremental_slot==ULONG_MAX || *full_slot!=entry_full_slot ) ) continue;
-
-    if( FD_LIKELY( *incremental_slot==ULONG_MAX || entry_incremental_slot>*incremental_slot ) ) {
-      *incremental_slot = entry_incremental_slot;
-      if( FD_UNLIKELY( !fd_cstr_printf_check( incremental_path, PATH_MAX, NULL, "%s/%s", snapshot_dir, entry->d_name ) ) ) {
-        FD_LOG_ERR(( "snapshot path too long `%s/%s`", snapshot_dir, entry->d_name ));
-      }
-    }
-  }
-
-  if( FD_UNLIKELY( -1==closedir( dir ) ) ) FD_LOG_ERR(( "closedir() failed (%i-%s)", errno, fd_io_strerror( errno ) ));
-  if( FD_UNLIKELY( errno && errno!=ENOENT ) ) FD_LOG_ERR(( "readdir() failed (%i-%s)", errno, fd_io_strerror( errno ) ));
 }
 
 static void
@@ -501,21 +418,16 @@ privileged_init( fd_topo_t *      topo,
   FD_SCRATCH_ALLOC_INIT( l, scratch );
   fd_snaprd_tile_t * ctx = FD_SCRATCH_ALLOC_APPEND( l, alignof(fd_snaprd_tile_t),  sizeof(fd_snaprd_tile_t) );
 
-  determine_snapshots( tile->snaprd.snapshots_path,
-                       tile->snaprd.incremental_snapshot_fetch,
-                       &ctx->local.full_snapshot_slot,
-                       &ctx->local.incremental_snapshot_slot,
-                       ctx->local.full_snapshot_path,
-                       ctx->local.incremental_snapshot_path );
+  determine_snapshots( ctx, tile->snaprd.snapshots_path );
 
-  if( FD_LIKELY( ctx->local.full_snapshot_slot!=ULONG_MAX ) ) {
-    ctx->local.full_snapshot_fd = open( ctx->local.full_snapshot_path, O_RDONLY|O_CLOEXEC|O_NONBLOCK );
-    if( FD_UNLIKELY( -1==ctx->local.full_snapshot_fd ) ) FD_LOG_ERR(( "open() failed `%s` (%i-%s)", ctx->local.full_snapshot_path, errno, fd_io_strerror( errno ) ));
+  if( FD_LIKELY( ctx->full_snapshot_entry.slot!=ULONG_MAX ) ) {
+    // ctx->local.full_snapshot_fd = open( ctx->local.full_snapshot_path, O_RDONLY|O_CLOEXEC|O_NONBLOCK );
+    // if( FD_UNLIKELY( -1==ctx->local.full_snapshot_fd ) ) FD_LOG_ERR(( "open() failed `%s` (%i-%s)", ctx->local.full_snapshot_path, errno, fd_io_strerror( errno ) ));
   }
 
-  if( FD_LIKELY( ctx->local.incremental_snapshot_slot!=ULONG_MAX ) ) {
-    ctx->local.incremental_snapshot_fd = open( ctx->local.incremental_snapshot_path, O_RDONLY|O_CLOEXEC|O_NONBLOCK );
-    if( FD_UNLIKELY( -1==ctx->local.incremental_snapshot_fd ) ) FD_LOG_ERR(( "open() failed `%s` (%i-%s)", ctx->local.incremental_snapshot_path, errno, fd_io_strerror( errno ) ));
+  if( FD_LIKELY( ctx->incremental_snapshot_entry.slot!=ULONG_MAX ) ) {
+    // ctx->local.incremental_snapshot_fd = open( ctx->local.incremental_snapshot_path, O_RDONLY|O_CLOEXEC|O_NONBLOCK );
+    // if( FD_UNLIKELY( -1==ctx->local.incremental_snapshot_fd ) ) FD_LOG_ERR(( "open() failed `%s` (%i-%s)", ctx->local.incremental_snapshot_path, errno, fd_io_strerror( errno ) ));
   }
 }
 

@@ -168,8 +168,8 @@ fd_ssping_new( void * shmem,
   struct pollfd * fds  = FD_SCRATCH_ALLOC_APPEND( l, sizeof(struct pollfd), max_peers*sizeof(struct pollfd) );
   ulong * fds_idx      = FD_SCRATCH_ALLOC_APPEND( l, sizeof(ulong), max_peers*sizeof(ulong) );
 
-  ssping->pool = peer_pool_join( peer_pool_new( _pool, max_peers ) );
-  ssping->map = peer_map_join( peer_map_new( _map, max_peers, seed ) );
+  ssping->pool        = peer_pool_join( peer_pool_new( _pool, max_peers ) );
+  ssping->map         = peer_map_join( peer_map_new( _map, max_peers, seed ) );
   ssping->score_treap = score_treap_join( score_treap_new( _score_treap, max_peers ) );
 
   ssping->unpinged   = deadline_list_join( deadline_list_new( _unpinged ) );
