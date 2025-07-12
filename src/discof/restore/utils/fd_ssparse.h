@@ -1,0 +1,4 @@
+#ifndef HEADER_fd_src_discof_restore_utils_fd_ssparse_h
+#define HEADER_fd_src_discof_restore_utils_fd_ssparse_h
+
+#endif /* HEADER_fd_src_discof_restore_utils_fd_ssparse_h */
