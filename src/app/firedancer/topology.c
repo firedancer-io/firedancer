@@ -112,9 +112,10 @@ setup_topo_funk( fd_topo_t *  topo,
   ulong wksp_idx = fd_topo_find_wksp( topo, wksp_name );
   FD_TEST( wksp_idx!=ULONG_MAX );
   fd_topo_wksp_t * wksp = &topo->workspaces[ wksp_idx ];
-  ulong part_max = fd_wksp_part_max_est( funk_footprint, 1U<<14U );
+  ulong part_max = fd_wksp_part_max_est( funk_footprint+(heap_size_gib*(1UL<<30)), 1U<<14U );
   if( FD_UNLIKELY( !part_max ) ) FD_LOG_ERR(( "fd_wksp_part_max_est(%lu,16KiB) failed", funk_footprint ));
   wksp->part_max += part_max;
+  wksp->is_locked = 0;
 
   return obj;
 }

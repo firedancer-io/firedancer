@@ -477,6 +477,9 @@ workspace_path( config_t const *       config,
     case FD_SHMEM_GIGANTIC_PAGE_SZ:
       mount_path = config->hugetlbfs.gigantic_page_mount_path;
       break;
+    case FD_SHMEM_NORMAL_PAGE_SZ:
+      mount_path = config->hugetlbfs.normal_page_mount_path;
+      break;
     default:
       FD_LOG_ERR(( "invalid page size %lu", wksp->page_sz ));
   }
@@ -516,6 +519,7 @@ warn_unknown_files( config_t const * config,
     int known_file = 0;
     for( ulong i=0UL; i<config->topo.wksp_cnt; i++ ) {
       fd_topo_wksp_t const * wksp = &config->topo.workspaces[ i ];
+      if( !wksp->is_locked ) continue;
 
       char expected_path[ PATH_MAX ];
       workspace_path( config, wksp, expected_path );
