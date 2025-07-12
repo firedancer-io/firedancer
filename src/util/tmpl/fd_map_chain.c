@@ -777,6 +777,7 @@ MAP_(idx_query)( MAP_(t) *         join,
 #if MAP_OPTIMIZE_RANDOM_ACCESS_REMOVAL
         if( FD_UNLIKELY( !MAP_(private_idx_is_null)( pool[ ele_idx ].MAP_NEXT ) ) ) pool[ pool[ ele_idx ].MAP_NEXT ].MAP_PREV = pool[ ele_idx ].MAP_PREV;
         pool[ ele_idx ].MAP_PREV = MAP_(private_box)( MAP_(private_idx_null)() );
+        pool[ *head   ].MAP_PREV = MAP_(private_box)( ele_idx );
 #endif
         *cur = pool[ ele_idx ].MAP_NEXT;
         pool[ ele_idx ].MAP_NEXT = *head;
@@ -936,14 +937,21 @@ MAP_(verify)( MAP_(t) const *   join,
   MAP_IDX_T const * chain = MAP_(private_chain_const)( map );
 
   ulong rem = ele_cnt; /* We can visit at most ele_cnt elements */
-  for( ulong chain_idx=0UL; chain_idx<chain_cnt; chain_idx++ )
+  for( ulong chain_idx=0UL; chain_idx<chain_cnt; chain_idx++ ) {
+    ulong prev_ele = MAP_(private_idx_null)();
+    (void)prev_ele;
     for( ulong ele_idx = MAP_(private_unbox)( chain[ chain_idx ] );
          !MAP_(private_idx_is_null)( ele_idx );
          ele_idx = MAP_(private_unbox)( pool[ ele_idx ].MAP_NEXT ) ) {
       MAP_TEST( rem ); rem--;                                                                      /* Check for cycles */
       MAP_TEST( ele_idx<ele_cnt );                                                                 /* Check valid element index */
       MAP_TEST( MAP_(private_chain_idx)( &pool[ ele_idx ].MAP_KEY, seed, chain_cnt )==chain_idx ); /* Check in correct chain */
+#if MAP_OPTIMIZE_RANDOM_ACCESS_REMOVAL
+      MAP_TEST( pool[ ele_idx ].MAP_PREV==prev_ele );
+      prev_ele = ele_idx;
+#endif
     }
+  }
 
   /* At this point, we know that there are no cycles in the map chains,
      all indices are inbounds and elements are in the correct chains for
