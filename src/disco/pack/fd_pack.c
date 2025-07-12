@@ -1099,7 +1099,7 @@ delete_worst( fd_pack_t * pack,
     switch( root_idx & FD_ORD_TXN_ROOT_TAG_MASK ) {
       default:
       case FD_ORD_TXN_ROOT_FREE: {
-        FD_TEST( 0 );
+        FD_LOG_CRIT(( "Double free detected" ));
         return -1; /* Can't be hit */
       }
       case FD_ORD_TXN_ROOT_PENDING: {
@@ -2670,15 +2670,19 @@ fd_pack_end_block( fd_pack_t * pack ) {
 static void
 release_tree( treap_t           * treap,
               sig2txn_t         * signature_map,
+              noncemap_t        * noncemap,
               fd_pack_ord_txn_t * pool ) {
   treap_fwd_iter_t next;
-  for( treap_fwd_iter_t it=treap_fwd_iter_init( treap, pool ); !treap_fwd_iter_idx( it ); it=next ) {
+  for( treap_fwd_iter_t it=treap_fwd_iter_init( treap, pool ); !treap_fwd_iter_done( it ); it=next ) {
     next = treap_fwd_iter_next( it, pool );
     ulong idx = treap_fwd_iter_idx( it );
     pool[ idx ].root = FD_ORD_TXN_ROOT_FREE;
     treap_idx_remove       ( treap,         idx, pool );
     sig2txn_idx_remove_fast( signature_map, idx, pool );
     trp_pool_idx_release   ( pool,          idx       );
+    if( pool[ idx ].txn->flags & FD_TXN_P_FLAGS_DURABLE_NONCE ) {
+      noncemap_idx_remove_fast( noncemap, idx, pool );
+    }
   }
 }
 
@@ -2695,12 +2699,12 @@ fd_pack_clear_all( fd_pack_t * pack ) {
   pack->pending_votes_smallest->cus   = ULONG_MAX;
   pack->pending_votes_smallest->bytes = ULONG_MAX;
 
-  release_tree( pack->pending,         pack->signature_map, pack->pool );
-  release_tree( pack->pending_votes,   pack->signature_map, pack->pool );
-  release_tree( pack->pending_bundles, pack->signature_map, pack->pool );
+  release_tree( pack->pending,         pack->signature_map, pack->noncemap, pack->pool );
+  release_tree( pack->pending_votes,   pack->signature_map, pack->noncemap, pack->pool );
+  release_tree( pack->pending_bundles, pack->signature_map, pack->noncemap, pack->pool );
 
-  ulong extra_depth = fd_ulong_if( !!pack->bundle_meta_sz, 1UL+2UL*FD_PACK_MAX_TXN_PER_BUNDLE, 1UL );
-  for( ulong i=0UL; i<pack->pack_depth+extra_depth; i++ ) {
+  ulong const pool_max = trp_pool_max( pack->pool );
+  for( ulong i=0UL; i<pool_max; i++ ) {
     if( FD_UNLIKELY( pack->pool[ i ].root!=FD_ORD_TXN_ROOT_FREE ) ) {
       fd_pack_ord_txn_t * const del = pack->pool + i;
       fd_txn_t * txn = TXN( del->txn );
@@ -2709,7 +2713,7 @@ fd_pack_clear_all( fd_pack_t * pack ) {
       fd_acct_addr_t penalty_acct = *ACCT_IDX_TO_PTR( FD_ORD_TXN_ROOT_PENALTY_ACCT_IDX( del->root ) );
       fd_pack_penalty_treap_t * penalty_treap = penalty_map_query( pack->penalty_treaps, penalty_acct, NULL );
       FD_TEST( penalty_treap );
-      release_tree( penalty_treap->penalty_treap, pack->signature_map, pack->pool );
+      release_tree( penalty_treap->penalty_treap, pack->signature_map, pack->noncemap, pack->pool );
     }
   }
 
@@ -2753,10 +2757,10 @@ delete_transaction( fd_pack_t         * pack,
   int root_idx = containing->root;
   fd_pack_penalty_treap_t * penalty_treap = NULL;
   switch( root_idx & FD_ORD_TXN_ROOT_TAG_MASK ) {
-    case FD_ORD_TXN_ROOT_FREE:             /* Should be impossible */                                                return 0;
-    case FD_ORD_TXN_ROOT_PENDING:          root = pack->pending;                                                     break;
-    case FD_ORD_TXN_ROOT_PENDING_VOTE:     root = pack->pending_votes;                                               break;
-    case FD_ORD_TXN_ROOT_PENDING_BUNDLE:   root = pack->pending_bundles;                                             break;
+    case FD_ORD_TXN_ROOT_FREE:           FD_LOG_CRIT(( "Double free detected" ));
+    case FD_ORD_TXN_ROOT_PENDING:        root = pack->pending;         break;
+    case FD_ORD_TXN_ROOT_PENDING_VOTE:   root = pack->pending_votes;   break;
+    case FD_ORD_TXN_ROOT_PENDING_BUNDLE: root = pack->pending_bundles; break;
     case FD_ORD_TXN_ROOT_PENALTY( 0 ): {
       fd_acct_addr_t penalty_acct = *ACCT_IDX_TO_PTR( FD_ORD_TXN_ROOT_PENALTY_ACCT_IDX( root_idx ) );
       penalty_treap = penalty_map_query( pack->penalty_treaps, penalty_acct, NULL );
@@ -3032,6 +3036,29 @@ fd_pack_verify( fd_pack_t * pack,
     sig2txn_key_cnt++;
   }
   VERIFY_TEST( txn_cnt==sig2txn_key_cnt, "extra signatures in sig2txn" );
+  VERIFY_TEST( !sig2txn_verify( pack->signature_map, trp_pool_max( pool ), pool ), "sig2txn corrupt" );
+
+  /* Count noncemap keys */
+  ulong noncemap_key_cnt = 0UL;
+  for( noncemap_iter_t iter = noncemap_iter_init( pack->noncemap, pool );
+      !noncemap_iter_done( iter, pack->noncemap, pool );
+      iter = noncemap_iter_next( iter, pack->noncemap, pool ) ) {
+    noncemap_key_cnt++;
+    /* Ensure element is in pool */
+    fd_pack_ord_txn_t const * ord = noncemap_iter_ele_const( iter, pack->noncemap, pool );
+    wrapped_sig_t sig = FD_LOAD( wrapped_sig_t, fd_txn_get_signatures( TXN( ord->txn ), ord->txn->payload ) );
+    FD_TEST( ord==sig2txn_ele_query_const( pack->signature_map, &sig, NULL, pool ) );
+  }
+  VERIFY_TEST( txn_cnt>=noncemap_key_cnt, "phantom txns in noncemap" );
+  VERIFY_TEST( !noncemap_verify( pack->noncemap, trp_pool_max( pool ), pool ), "noncemap corrupt" );
+
+  ulong slots_found = 0UL;
+  ulong const pool_max = trp_pool_max( pool );
+  for( ulong i=0UL; i<pool_max; i++ ) {
+    fd_pack_ord_txn_t * ord = pack->pool + i;
+    if( ord->root!=FD_ORD_TXN_ROOT_FREE ) slots_found++;
+  }
+  VERIFY_TEST( slots_found==txn_cnt, "phantom slots in pool" );
 
   bitset_map_join( _bitset_map_orig );
 
