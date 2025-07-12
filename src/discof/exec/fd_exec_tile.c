@@ -177,7 +177,6 @@ static void
 hash_accounts( fd_exec_tile_ctx_t *                ctx,
                fd_runtime_public_hash_bank_msg_t * msg ) {
 
-  ctx->slot = msg->slot;
   fd_funk_txn_map_t * txn_map = fd_funk_txn_map( ctx->funk );
   if( FD_UNLIKELY( !txn_map->map ) ) {
     FD_LOG_ERR(( "Could not find valid funk transaction map" ));
@@ -280,6 +279,7 @@ during_frag( fd_exec_tile_ctx_t * ctx,
     } else if( sig==EXEC_HASH_ACCS_SIG ) {
       fd_runtime_public_hash_bank_msg_t * msg = fd_chunk_to_laddr( ctx->replay_in_mem, chunk );
       FD_LOG_DEBUG(( "hash accs=%lu msg recvd", msg->end_idx - msg->start_idx ));
+      ctx->slot = msg->slot;
       hash_accounts( ctx, msg );
       return;
     } else if( sig==EXEC_SNAP_HASH_ACCS_CNT_SIG ) {
