@@ -508,7 +508,8 @@ extern ulong const fd_log_build_info_sz; /* == strlen( fd_log_build_info ) + 1UL
    involve system calls under the hood and is much slower than, say,
    RTSDC. */
 
-long fd_log_wallclock( void );
+#define fd_log_wallclock() _fd_log_wallclock( NULL )
+long _fd_log_wallclock( void const * _ ); /* fd_clock_func_t compat */
 
 /* fd_log_wallclock_cstr( t, buf ) pretty prints the wallclock
    measurement t as:
@@ -649,7 +650,6 @@ fd_log_private_boot_custom( int *        lock,
                             int          level_core,
                             int          log_fd,
                             char const * log_path );
-
 
 void
 fd_log_private_halt( void );

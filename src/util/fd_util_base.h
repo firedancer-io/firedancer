@@ -1278,6 +1278,8 @@ fd_hash_memcpy( ulong                    seed,
 #error "Unknown FD_TICKCOUNT_STYLE"
 #endif
 
+long _fd_tickcount( void const * _ ); /* fd_clock_func_t compat */
+
 #if FD_HAS_HOSTED
 
 /* fd_yield yields the calling thread to the operating system scheduler. */
