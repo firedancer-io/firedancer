@@ -230,51 +230,6 @@ fd_fec_resolver_shred_query( fd_fec_resolver_t      * resolver,
                              uint                     shred_idx,
                              uchar                  * out_shred );
 
-/* fd_fec_resolver_force_complete forces completion of a partial FEC set
-   in the FEC resolver.
-
-   API is similar to add_shred.  last_shred is what the caller has
-   determined to be the last shred in the FEC set.  out_fec_set is set
-   to a pointer to the complete FEC set on SHRED_COMPLETES.  Similar to
-   add_shred, see the long explanation at the top of this file for
-   details on the lifetime of out_fec_set.
-
-   Returns SHRED_COMPLETES when last_shred validates successfully with
-   the in-progress FEC set, SHRED_IGNORED if the FEC set containing
-   last_shred has already been completed (done) and SHRED_REJECTED when
-   the last_shred provided is obviously invalid or the in-progress FEC
-   does not validate.
-
-   This function is a temporary measure to address a current limitation
-   in the Repair protocol where it does not support requesting coding
-   shreds.  FEC resolver requires at least one coding shred to complete,
-   so this function is intended to be called when the caller knows FEC
-   set resolver has already received all the data shreds, but hasn't
-   gotten any coding shreds, but the caller has no way to recover the
-   coding shreds and make forward progress using the data shreds it does
-   already have available.
-
-   Note that forcing completion greatly reduces the amount of validation
-   performed on the FEC set.  It only checks that the data shreds are
-   consistent with one another.  If validation of the FEC set fails when
-   completing (other than issues with the last shred that are obviously
-   wrong eg. shred_idx > FD_REEDSOL_DATA_SHREDS_MAX), then the function,
-   similar to add_shred, will dump the in-progress FEC and add it to the
-   free list.  Caller should account for this ensure they only
-   force_complete when they are certain last shred is the in fact the
-   last shred, or the consequence is the entire FEC might be incorrectly
-   discarded too early.
-
-   The last_shred is used to derive the data_shred_cnt which is
-   otherwise only available after receiving a coding shred.  It is an
-   error to force completion of a FEC set that has already received at
-   least one parity shred. */
-
-int
-fd_fec_resolver_force_complete( fd_fec_resolver_t *   resolver,
-                                fd_shred_t const *    last_shred,
-                                fd_fec_set_t const ** out_fec_set );
-
 void * fd_fec_resolver_leave( fd_fec_resolver_t * resolver );
 void * fd_fec_resolver_delete( void * shmem );
 
