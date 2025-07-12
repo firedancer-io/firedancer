@@ -2,6 +2,7 @@
 #include "../../../util/archive/fd_tar.h"
 #include "../../../flamenco/runtime/fd_acc_mgr.h" /* FD_ACC_SZ_MAX */
 #include "../../../ballet/lthash/fd_lthash.h"
+#include "../../../disco/stem/fd_stem.h"
 #include <errno.h>
 #include <assert.h>
 #include <stdio.h>
@@ -29,10 +30,11 @@ fd_snapshot_parser_prepare_buf( fd_snapshot_parser_t * self,
 }
 
 static int
-fd_snapshot_parser_expect_account_hdr( fd_snapshot_parser_t * self ) {
+fd_snapshot_parser_expect_account_hdr( fd_snapshot_parser_t * self,
+                                       fd_stem_context_t *    stem ) {
 
   if( self->acc_done_cb ) {
-    self->acc_done_cb( self, self->cb_arg );
+    self->acc_done_cb( self, self->cb_arg, stem );
   }
 
   ulong accv_sz = self->accv_sz;
@@ -56,7 +58,8 @@ fd_snapshot_parser_expect_account_hdr( fd_snapshot_parser_t * self ) {
 static int
 fd_snapshot_parser_accv_prepare( fd_snapshot_parser_t * const self,
                                   fd_tar_meta_t const *  const meta,
-                                  ulong                  const real_sz ) {
+                                  ulong                  const real_sz,
+                                  fd_stem_context_t *    stem ) {
 
   if( FD_UNLIKELY( !fd_snapshot_parser_prepare_buf( self, sizeof(fd_solana_account_hdr_t) ) ) ) {
     FD_LOG_WARNING(( "Failed to allocate read buffer while restoring accounts from snapshot" ));
@@ -97,7 +100,7 @@ fd_snapshot_parser_accv_prepare( fd_snapshot_parser_t * const self,
 
   /* Prepare read of account header */
   FD_LOG_DEBUG(( "Loading account vec %s", meta->name ));
-  return fd_snapshot_parser_expect_account_hdr( self );
+  return fd_snapshot_parser_expect_account_hdr( self, stem );
 }
 
 /* fd_snapshot_restore_manifest_prepare prepares for consumption of the
@@ -129,7 +132,8 @@ fd_snapshot_parser_manifest_prepare( fd_snapshot_parser_t * self,
 static void
 fd_snapshot_parser_restore_file( void *                self_,
                                  fd_tar_meta_t const * meta,
-                                 ulong                 sz ) {
+                                 ulong                 sz,
+                                 fd_stem_context_t *   stem ) {
   fd_snapshot_parser_t * self = self_;
 
   self->buf_ctr = 0UL;  /* reset buffer */
@@ -146,7 +150,7 @@ fd_snapshot_parser_restore_file( void *                self_,
       self->flags |= SNAP_FLAG_FAILED;
       return;
     }
-    fd_snapshot_parser_accv_prepare( self, meta, sz );
+    fd_snapshot_parser_accv_prepare( self, meta, sz, stem );
   } else if( fd_memeq( meta->name, "snapshots/status_cache", sizeof("snapshots/status_cache") ) ) {
     /* TODO */
   } else if(0==strncmp( meta->name, "snapshots/", sizeof("snapshots/")-1 ) ) {
@@ -158,7 +162,8 @@ fd_snapshot_parser_restore_file( void *                self_,
 static uchar const *
 fd_snapshot_parser_tar_process_hdr( fd_snapshot_parser_t * self,
                                     uchar const *          cur,
-                                    uchar const *          end ) {
+                                    uchar const *          end,
+                                    fd_stem_context_t *    stem ) {
 
   fd_tar_meta_t const * hdr = (fd_tar_meta_t const *)self->buf;
 
@@ -194,14 +199,15 @@ fd_snapshot_parser_tar_process_hdr( fd_snapshot_parser_t * self,
   self->buf_ctr      = (ushort)0U;
 
   /* Call back to recipient */
-  fd_snapshot_parser_restore_file( self, hdr, file_sz );
+  fd_snapshot_parser_restore_file( self, hdr, file_sz, stem );
   return cur;
 }
 
 static uchar const *
 fd_snapshot_parser_tar_read_hdr( fd_snapshot_parser_t * self,
                                  uchar const *          cur,
-                                 ulong                  bufsz ) {
+                                 ulong                  bufsz,
+                                 fd_stem_context_t *    stem ) {
   uchar const * end = cur+bufsz;
 
   /* Skip padding */
@@ -223,7 +229,7 @@ fd_snapshot_parser_tar_read_hdr( fd_snapshot_parser_t * self,
 
   /* Handle complete header */
   if( FD_LIKELY( self->buf_ctr == sizeof(fd_tar_meta_t) ) ) {
-    cur = fd_snapshot_parser_tar_process_hdr( self, cur, end );
+    cur = fd_snapshot_parser_tar_process_hdr( self, cur, end, stem );
   }
 
   return cur;
@@ -272,7 +278,8 @@ fd_snapshot_parser_set_manifest_buf( fd_snapshot_parser_t * self ) {
    existing bank structure. */
 
 static void
-fd_snapshot_parser_restore_manifest( fd_snapshot_parser_t * self ) {
+fd_snapshot_parser_restore_manifest( fd_snapshot_parser_t * self,
+                                     fd_stem_context_t *    stem ) {
   /* Decode manifest placing dynamic data structures onto slot context
   heap.  Once the epoch context heap is separated out, we need to
   revisit this.
@@ -321,7 +328,7 @@ fd_snapshot_parser_restore_manifest( fd_snapshot_parser_t * self ) {
 
   /* manifest cb */
   if( self->manifest_cb ) {
-    self->manifest_cb( self, self->cb_arg, manifest, total_sz );
+    self->manifest_cb( self, self->cb_arg, stem, manifest, total_sz );
   }
 
   /* Discard buffer to reclaim heap space */
@@ -366,13 +373,14 @@ fd_snapshot_parser_read_discard( fd_snapshot_parser_t * self,
 static uchar const *
 fd_snapshot_parser_read_manifest_chunk( fd_snapshot_parser_t * self,
                                         uchar const *          buf,
-                                        ulong                  bufsz ) {
+                                        ulong                  bufsz,
+                                        fd_stem_context_t *    stem ) {
   uchar const * end = fd_snapshot_parser_read_buffered( self, buf, bufsz );
   ulong chunksz     = (ulong)(end - buf);
   ulong consumed_sz = chunksz;
 
   if( fd_snapshot_parser_hdr_read_is_complete( self ) ) {
-    fd_snapshot_parser_restore_manifest( self );
+    fd_snapshot_parser_restore_manifest( self, stem );
     self->state = SNAP_STATE_IGNORE;
   }
 
@@ -380,7 +388,8 @@ fd_snapshot_parser_read_manifest_chunk( fd_snapshot_parser_t * self,
 }
 
 static int
-fd_snapshot_parser_restore_account_hdr( fd_snapshot_parser_t * self ) {
+fd_snapshot_parser_restore_account_hdr( fd_snapshot_parser_t * self,
+                                        fd_stem_context_t *    stem ) {
   fd_solana_account_hdr_t const * hdr = fd_type_pun_const( self->buf );
 
   if( FD_UNLIKELY( hdr->meta.data_len > FD_ACC_SZ_MAX ) ) {
@@ -397,13 +406,13 @@ fd_snapshot_parser_restore_account_hdr( fd_snapshot_parser_t * self ) {
   }
 
   if( self->acc_hdr_cb ) {
-    self->acc_hdr_cb( self, hdr, self->cb_arg );
+    self->acc_hdr_cb( self, hdr, self->cb_arg, stem );
     self->metrics.accounts_processed++;
   }
 
   /* Next step */
   if( data_sz == 0UL ) {
-    return fd_snapshot_parser_expect_account_hdr( self );
+    return fd_snapshot_parser_expect_account_hdr( self, stem );
   }
 
   self->state   = SNAP_STATE_ACCOUNT_DATA;
@@ -414,8 +423,9 @@ fd_snapshot_parser_restore_account_hdr( fd_snapshot_parser_t * self ) {
 
 static uchar const *
 fd_snapshot_parser_read_account_hdr_chunk( fd_snapshot_parser_t * self,
-                                 uchar const *          buf,
-                                 ulong                  bufsz ) {
+                                           uchar const *          buf,
+                                           ulong                  bufsz,
+                                           fd_stem_context_t *    stem ) {
   if( !self->accv_sz ) {
     /* Reached end of AppendVec */
     self->state   = SNAP_STATE_IGNORE;
@@ -429,25 +439,19 @@ fd_snapshot_parser_read_account_hdr_chunk( fd_snapshot_parser_t * self,
   self->accv_sz -= hdr_read;
   bufsz         -= hdr_read;
 
-  // ulong peek_sz = 0UL;
   if( FD_LIKELY( fd_snapshot_parser_hdr_read_is_complete( self ) ) ) {
-    if( FD_UNLIKELY( 0!=fd_snapshot_parser_restore_account_hdr( self ) ) ) {
+    if( FD_UNLIKELY( 0!=fd_snapshot_parser_restore_account_hdr( self, stem ) ) ) {
       return buf; /* parse error */
     }
-    // peek_sz = fd_ulong_min( self->acc_rem, bufsz );
   }
-
-  // self->acc_rem -= peek_sz;
-  // self->accv_sz -= peek_sz;
-  // buf_next         += peek_sz;
-
   return buf_next;
 }
 
 static uchar const *
 fd_snapshot_parser_read_account_chunk( fd_snapshot_parser_t * self,
-                             uchar const *      buf,
-                             ulong              bufsz ) {
+                                       uchar const *          buf,
+                                       ulong                  bufsz,
+                                       fd_stem_context_t *    stem ) {
 
   ulong chunk_sz = fd_ulong_min( self->acc_rem, bufsz );
   if( FD_UNLIKELY( chunk_sz > self->accv_sz ) )
@@ -457,7 +461,7 @@ fd_snapshot_parser_read_account_chunk( fd_snapshot_parser_t * self,
 
     /* TODO: make callback here */
     if( self->acc_data_cb ) {
-        self->acc_data_cb( self, self->cb_arg, buf, chunk_sz );
+        self->acc_data_cb( self, self->cb_arg, stem, buf, chunk_sz );
     }
 
     self->acc_rem -= chunk_sz;
@@ -479,7 +483,7 @@ fd_snapshot_parser_read_account_chunk( fd_snapshot_parser_t * self,
       return buf;
     }
     if( self->acc_pad == 0UL ) {
-      return (0==fd_snapshot_parser_expect_account_hdr( self )) ? buf : NULL;
+      return (0==fd_snapshot_parser_expect_account_hdr( self, stem )) ? buf : NULL;
     }
   }
 
@@ -489,10 +493,11 @@ fd_snapshot_parser_read_account_chunk( fd_snapshot_parser_t * self,
 uchar const *
 fd_snapshot_parser_process_chunk( fd_snapshot_parser_t * self,
                                   uchar const *          buf,
-                                  ulong                  bufsz ) {
+                                  ulong                  bufsz,
+                                  fd_stem_context_t *    stem ) {
   uchar const * buf_next = NULL;
   if( FD_UNLIKELY( self->state==SNAP_STATE_TAR ) ) {
-    buf_next       = fd_snapshot_parser_tar_read_hdr( self, buf, bufsz );
+    buf_next       = fd_snapshot_parser_tar_read_hdr( self, buf, bufsz, stem );
     ulong consumed = (ulong)buf_next - (ulong)buf;
     self->goff    += consumed;
     self->goff    += self->tar_file_rem;
@@ -506,13 +511,13 @@ fd_snapshot_parser_process_chunk( fd_snapshot_parser_t * self,
     buf_next = fd_snapshot_parser_read_discard( self, buf, bufsz );
     break;
   case SNAP_STATE_MANIFEST:
-    buf_next = fd_snapshot_parser_read_manifest_chunk( self, buf, bufsz );
+    buf_next = fd_snapshot_parser_read_manifest_chunk( self, buf, bufsz, stem );
     break;
   case SNAP_STATE_ACCOUNT_HDR:
-    buf_next = fd_snapshot_parser_read_account_hdr_chunk( self, buf, bufsz );
+    buf_next = fd_snapshot_parser_read_account_hdr_chunk( self, buf, bufsz, stem );
     break;
   case SNAP_STATE_ACCOUNT_DATA:
-    buf_next = fd_snapshot_parser_read_account_chunk( self, buf, bufsz );
+    buf_next = fd_snapshot_parser_read_account_chunk( self, buf, bufsz, stem );
     break;
   default:
     FD_LOG_ERR(( "Invalid parser state %u (this is a bug)", self->state ));

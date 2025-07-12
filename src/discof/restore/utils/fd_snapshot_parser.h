@@ -52,29 +52,36 @@ typedef struct fd_snapshot_accv_map fd_snapshot_accv_map_t;
 /* TODO: bound out to real required maximum */
 #define SCRATCH_SZ 4*1024*1024*1024UL
 
+struct fd_stem_context;
+typedef struct fd_stem_context fd_stem_context_t;
+
 struct fd_snapshot_parser;
 typedef struct fd_snapshot_parser fd_snapshot_parser_t;
 
 typedef void
 (* fd_snapshot_parser_process_manifest_fn_t)( fd_snapshot_parser_t *        parser,
                                               void *                        _ctx,
+                                              fd_stem_context_t *           stem,
                                               fd_solana_manifest_global_t * manifest,
                                               ulong                         manifest_sz );
 
 typedef void
 (* fd_snapshot_process_acc_hdr_fn_t)( fd_snapshot_parser_t *          parser,
                                       fd_solana_account_hdr_t const * hdr,
-                                      void *                          _ctx );
+                                      void *                          _ctx,
+                                      fd_stem_context_t *             stem );
 
 typedef void
 (* fd_snapshot_process_acc_data_fn_t)( fd_snapshot_parser_t * parser,
                                        void *                 _ctx,
+                                       fd_stem_context_t *    stem,
                                        uchar const *          buf,
                                        ulong                  data_sz );
 
 typedef void
 (* fd_snapshot_process_acc_done_fn_t)( fd_snapshot_parser_t * parser,
-                                       void *                 _ctx );
+                                       void *                 _ctx,
+                                       fd_stem_context_t *    stem );
 
 struct fd_snapshot_parser_metrics {
   ulong accounts_files_processed;
@@ -166,7 +173,7 @@ fd_snapshot_parser_reset( fd_snapshot_parser_t * self ) {
 }
 
 static inline fd_snapshot_parser_t *
-fd_snapshot_parser_new( void * mem,
+fd_snapshot_parser_new( void *                                   mem,
                         fd_snapshot_parser_process_manifest_fn_t manifest_cb,
                         fd_snapshot_process_acc_hdr_fn_t         acc_hdr_cb,
                         fd_snapshot_process_acc_data_fn_t        acc_data_cb,
@@ -230,6 +237,7 @@ fd_snapshot_parser_get_metrics( fd_snapshot_parser_t * self ) {
 uchar const *
 fd_snapshot_parser_process_chunk( fd_snapshot_parser_t * self,
                                   uchar const *          buf,
-                                  ulong                  bufsz );
+                                  ulong                  bufsz,
+                                  fd_stem_context_t *    stem );
 
 #endif /* HEADER_fd_src_discof_restore_utils_fd_snapshot_parser_h */
