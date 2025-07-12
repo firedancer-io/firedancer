@@ -798,7 +798,9 @@ MAP_(idx_insert)( MAP_(t) *   join,
                   ulong       ele_idx,
                   MAP_ELE_T * pool ) {
 # if FD_TMPL_USE_HANDHOLDING && !MAP_MULTI
-  if( FD_UNLIKELY( MAP_(idx_query)( join, &pool[ ele_idx ].MAP_KEY, 0UL, pool ) ) ) FD_LOG_CRIT(( "ele_idx already in map" ));
+  if( FD_UNLIKELY( !MAP_(private_idx_is_null)( MAP_(idx_query)( join, &pool[ ele_idx ].MAP_KEY, MAP_(private_idx_null)(), pool ) ) ) ) {
+    FD_LOG_CRIT(( "ele_idx already in map" ));
+  }
 # endif
   MAP_(private_t) * map = MAP_(private)( join );
 

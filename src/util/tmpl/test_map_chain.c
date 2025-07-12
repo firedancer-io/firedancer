@@ -6,7 +6,10 @@
 #endif
 
 struct pair {
-  uint mykey;
+  union {
+    uint key;
+    uint mykey;
+  };
   uint mynext;
   uint myprev;
   uint val;
@@ -38,11 +41,10 @@ typedef struct pair pair_t;
 #define MAP_NAME          mapfr
 #define MAP_ELE_T         pair_t
 #define MAP_KEY_T         uint
-#define MAP_KEY           mykey
 #define MAP_IDX_T         uint
 #define MAP_NEXT          mynext
 #define MAP_PREV          myprev
-#define MAP_KEY_HASH(k,s) fd_ulong_hash( ((ulong)*(k)) ^ (s) )
+#define MAP_KEY_HASH(k,s) ( ( (ulong)*(k) + (seed) ) & 3 )
 #define MAP_OPTIMIZE_RANDOM_ACCESS_REMOVAL 1
 #define MAP_MULTI         1
 #include "fd_map_chain.c"
@@ -338,6 +340,28 @@ main( int     argc,
   FD_TEST( ele3==mapfr_ele_query_const( mapfr, &key, NULL, pool ) );
   mapfr_ele_remove_fast( mapfr, ele3, pool );
   FD_TEST( NULL==mapfr_ele_query_const( mapfr, &key, NULL, pool ) );
+
+  FD_LOG_NOTICE(( "Testing query" ));
+  ele1 = pool_ele_acquire( pool );
+  ele1->mykey = 0x15;
+  ele2 = pool_ele_acquire( pool );
+  ele2->mykey = 0x35;
+  ele3 = pool_ele_acquire( pool );
+  ele3->mykey = 0x15;
+  mapfr_ele_insert( mapfr, ele1, pool );
+  mapfr_ele_insert( mapfr, ele2, pool );
+  mapfr_ele_insert( mapfr, ele3, pool );
+  FD_TEST( ele2==mapfr_ele_query( mapfr, &ele2->mykey, NULL, pool ) );
+  FD_TEST( !mapfr_verify( mapfr, pool_max, pool ) );
+  mapfr_ele_remove_fast( mapfr, ele1, pool );
+  FD_TEST( !mapfr_verify( mapfr, pool_max, pool ) );
+  mapfr_ele_remove_fast( mapfr, ele2, pool );
+  FD_TEST( !mapfr_verify( mapfr, pool_max, pool ) );
+  mapfr_ele_remove_fast( mapfr, ele3, pool );
+  FD_TEST( !mapfr_verify( mapfr, pool_max, pool ) );
+  FD_TEST( !mapfr_ele_query_const( mapfr, &ele1->mykey, NULL, pool ) );
+  FD_TEST( !mapfr_ele_query_const( mapfr, &ele2->mykey, NULL, pool ) );
+  FD_TEST( !mapfr_ele_query_const( mapfr, &ele3->mykey, NULL, pool ) );
 
   FD_LOG_NOTICE(( "Testing leave and delete" ));
   FD_TEST( !map_delete( NULL  ) ); /* NULL map */
