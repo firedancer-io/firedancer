@@ -1325,8 +1325,9 @@ fd_pack_insert_txn_fini( fd_pack_t  * pack,
   /* If it's a durable nonce and we already have one, delete one or the
      other. */
   if( FD_UNLIKELY( is_durable_nonce ) ) {
-    fd_pack_ord_txn_t * same_nonce = noncemap_ele_query( pack->noncemap, txne, NULL, pack->pool );
-    if( FD_LIKELY( same_nonce ) ) { /* Seems like most nonce transactions are effectively duplicates */
+    ulong same_nonce_idx = noncemap_idx_query_const( pack->noncemap, txne, ULONG_MAX, pack->pool );
+    if( FD_LIKELY( same_nonce_idx!=ULONG_MAX ) ) { /* Seems like most nonce transactions are effectively duplicates */
+      fd_pack_ord_txn_t * same_nonce = &pack->pool[ same_nonce_idx ];
       if( FD_LIKELY( same_nonce->root == FD_ORD_TXN_ROOT_PENDING_BUNDLE || COMPARE_WORSE( ord, same_nonce ) ) ) REJECT( NONCE_PRIORITY );
       delete_transaction( pack, same_nonce, 0, 0 ); /* Not a bundle, so delete_full_bundle is 0 */
       replaces = 1;
@@ -1469,8 +1470,9 @@ fd_pack_insert_bundle_fini( fd_pack_t          * pack,
     ord->expires_at = expires_at;
 
     if( FD_UNLIKELY( is_durable_nonce ) ) {
-      fd_pack_ord_txn_t * same_nonce = noncemap_ele_query( pack->noncemap, ord->txn_e, NULL, pack->pool );
-      if( FD_LIKELY( same_nonce ) ) {
+      ulong same_nonce_idx = noncemap_idx_query_const( pack->noncemap, ord->txn_e, ULONG_MAX, pack->pool );
+      if( FD_LIKELY( same_nonce_idx!=ULONG_MAX ) ) {
+        fd_pack_ord_txn_t * same_nonce = &pack->pool[ same_nonce_idx ];
         /* bundles take priority over non-bundles, and earlier bundles
            take priority over later bundles. */
         if( FD_UNLIKELY( same_nonce->txn->flags & FD_TXN_P_FLAGS_BUNDLE ) ) {
