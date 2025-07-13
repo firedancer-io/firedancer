@@ -219,8 +219,9 @@ test_bundle_ping( fd_wksp_t * wksp ) {
   FD_TEST( charge_busy==0 );
   FD_TEST( fd_h2_rbuf_used_sz( grpc_client->frame_tx )==0 );
   FD_TEST( state->defer_reset==0 );
-  state->last_ping_tx_ticks -= (long)state->ping_threshold_ticks + 1L;
+  state->last_ping_tx_ticks -= (long)state->ping_threshold_ticks + (long)(state->ping_threshold_ticks>>1) + 1L;
   FD_TEST( fd_bundle_client_ping_is_timeout( state, old_ts )==0 );
+  state->ping_randomize = ULONG_MAX; /* max delay */
   FD_TEST( fd_bundle_client_ping_is_due( state, old_ts )==1 );
   charge_busy = 0;
   fd_bundle_client_step( state, &charge_busy );

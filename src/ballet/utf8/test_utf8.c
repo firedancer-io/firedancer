@@ -13,7 +13,6 @@ typedef struct fd_utf8_test_vector fd_utf8_test_vector_t;
    https://github.com/rust-lang/rust/blob/master/library/alloc/tests/str.rs */
 
 static fd_utf8_test_vector_t const _single_glyph_vec[] = {
-  { NULL,               0UL, 1 },
   { "\xc0\x80",         2UL, 0 },
   { "\xc0\xae",         2UL, 0 },
   { "\xe0\x80\x80",     3UL, 0 },
@@ -25,6 +24,7 @@ static fd_utf8_test_vector_t const _single_glyph_vec[] = {
   { "\xED\xBF\xBF",     3UL, 0 },
   { "\xC2\x80",         2UL, 1 },
   { "\xDF\xBF",         2UL, 1 },
+  { "\xE1\x9B\x89",     3UL, 1 },
   { "\xE0\xA0\x80",     3UL, 1 },
   { "\xED\x9F\xBF",     3UL, 1 },
   { "\xEE\x80\x80",     3UL, 1 },
@@ -41,17 +41,18 @@ main( int     argc,
 
   /* Check single glyphs */
 
+  FD_TEST( fd_utf8_verify( NULL, 0UL )==1 );
   for( fd_utf8_test_vector_t const * vec = _single_glyph_vec; vec->input; vec++ ) {
     FD_TEST( fd_utf8_verify( vec->input, vec->sz ) == vec->result );
 
     for( ulong sz=1UL; sz < vec->sz; sz++ ) {
       /* Smaller size */
-      FD_TEST( fd_utf8_verify( vec->input, sz ) == -1 );
+      FD_TEST( fd_utf8_verify( vec->input, sz )==0 );
       /* Insert null byte */
       char input[ 8 ];
       fd_memcpy( input, vec->input, vec->sz );
       input[ sz-1UL ] = '\0';
-      FD_TEST( fd_utf8_verify( input, vec->sz ) == -1 );
+      FD_TEST( fd_utf8_verify( input, vec->sz )==0 );
     }
   }
 
