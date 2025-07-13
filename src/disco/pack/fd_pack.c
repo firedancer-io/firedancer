@@ -1443,8 +1443,17 @@ fd_pack_insert_bundle_fini( fd_pack_t          * pack,
   if( FD_UNLIKELY( expires_at<pack->expire_before                                         ) ) err = FD_PACK_INSERT_REJECT_EXPIRED;
 
 
-  int replaces  = 0;
-  int any_nonce = 0;
+  int   replaces      = 0;
+  ulong nonce_txn_cnt = 0UL;
+
+  /* Collect nonce hashes to detect duplicate nonces.
+     Use a constant-time duplicate-detection algorithm -- Vacant entries
+     have the MSB set, occupied entries are the noncemap hash, with the
+     MSB set to 0. */
+  ulong nonce_hash63[ FD_PACK_MAX_TXN_PER_BUNDLE ];
+  for( ulong i=0UL; i<FD_PACK_MAX_TXN_PER_BUNDLE; i++ ) {
+    nonce_hash63[ i ] = ULONG_MAX-i;
+  }
 
   for( ulong i=0UL; (i<txn_cnt) && !err; i++ ) {
     fd_pack_ord_txn_t * ord = (fd_pack_ord_txn_t *)bundle[ i ];
@@ -1460,7 +1469,7 @@ fd_pack_insert_bundle_fini( fd_pack_t          * pack,
     int nonce_result = fd_pack_validate_durable_nonce( ord->txn_e );
     if( FD_UNLIKELY( !nonce_result ) ) { err = FD_PACK_INSERT_REJECT_INVALID_NONCE;   break; }
     int is_durable_nonce = nonce_result==2;
-    any_nonce |= is_durable_nonce;
+    nonce_txn_cnt += !!is_durable_nonce;
 
     bundle[ i ]->txnp->flags |= FD_TXN_P_FLAGS_BUNDLE;
     bundle[ i ]->txnp->flags &= ~(FD_TXN_P_FLAGS_INITIALIZER_BUNDLE | FD_TXN_P_FLAGS_DURABLE_NONCE);
@@ -1469,6 +1478,7 @@ fd_pack_insert_bundle_fini( fd_pack_t          * pack,
     ord->expires_at = expires_at;
 
     if( FD_UNLIKELY( is_durable_nonce ) ) {
+      nonce_hash63[ i ] = noncemap_key_hash( ord->txn_e, pack->noncemap->seed ) & 0x7FFFFFFFFFFFFFFFUL;
       fd_pack_ord_txn_t * same_nonce = noncemap_ele_query( pack->noncemap, ord->txn_e, NULL, pack->pool );
       if( FD_LIKELY( same_nonce ) ) {
         /* bundles take priority over non-bundles, and earlier bundles
@@ -1516,6 +1526,23 @@ fd_pack_insert_bundle_fini( fd_pack_t          * pack,
 
   if( FD_LIKELY( bundle_meta ) ) {
     memcpy( (uchar *)pack->bundle_meta + (ulong)((fd_pack_ord_txn_t *)bundle[0]-pack->pool)*pack->bundle_meta_sz, bundle_meta, pack->bundle_meta_sz );
+  }
+
+  if( FD_UNLIKELY( nonce_txn_cnt>1UL ) ) {
+    /* Do a ILP-friendly duplicate detect, naive O(n^2) algo.  With max
+       5 txns per bundle, this requires 10 comparisons.  ~ 25 cycle.  */
+    uint conflict_detected = 0u;
+    for( ulong i=0UL; i<FD_PACK_MAX_TXN_PER_BUNDLE-1; i++ ) {
+      for( ulong j=i+1; j<FD_PACK_MAX_TXN_PER_BUNDLE; j++ ) {
+        ulong const ele_i = nonce_hash63[ i ];
+        ulong const ele_j = nonce_hash63[ j ];
+        conflict_detected |= (ele_i==ele_j);
+      }
+    }
+    if( FD_UNLIKELY( conflict_detected ) ) {
+      fd_pack_insert_bundle_cancel( pack, bundle, txn_cnt );
+      return FD_PACK_INSERT_REJECT_NONCE_CONFLICT;
+    }
   }
 
   /* We put bundles in a treap just like all the other transactions, but
@@ -1633,7 +1660,7 @@ fd_pack_insert_bundle_fini( fd_pack_t          * pack,
      x+1) which is x++ */
   pack->relative_bundle_idx = fd_ulong_max( bundle_idx+1UL, pack->relative_bundle_idx );
 
-  return (0) | (replaces<<1) | (any_nonce<<2);
+  return (0) | (replaces<<1) | ((!!nonce_txn_cnt)<<2);
 }
 static inline void
 insert_bundle_impl( fd_pack_t           * pack,

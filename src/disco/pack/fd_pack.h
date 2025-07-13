@@ -289,6 +289,9 @@ void fd_pack_set_block_limits( fd_pack_t * pack, fd_pack_limits_t const * limits
       transaction, but the nonce authority did not sign the transaction.
     * BUNDLE_BLACKLIST: bundles are enabled and the transaction uses an
       account in the bundle blacklist.
+    * NONCE_CONFLICT: bundle with two transactions that attempt to lock
+      the exact same durable nonce (nonce account, authority, and block
+      hash).
 
     NOTE: The corresponding enum in metrics.xml must be kept in sync
     with any changes to these return values. */
@@ -311,14 +314,15 @@ void fd_pack_set_block_limits( fd_pack_t * pack, fd_pack_limits_t const * limits
 #define FD_PACK_INSERT_REJECT_WRITES_SYSVAR         (-11)
 #define FD_PACK_INSERT_REJECT_INVALID_NONCE         (-12)
 #define FD_PACK_INSERT_REJECT_BUNDLE_BLACKLIST      (-13)
+#define FD_PACK_INSERT_REJECT_NONCE_CONFLICT        (-14)
 
 /* The FD_PACK_INSERT_{ACCEPT, REJECT}_* values defined above are in the
    range [-FD_PACK_INSERT_RETVAL_OFF,
    -FD_PACK_INSERT_RETVAL_OFF+FD_PACK_INSERT_RETVAL_CNT ) */
-#define FD_PACK_INSERT_RETVAL_OFF 13
-#define FD_PACK_INSERT_RETVAL_CNT 20
+#define FD_PACK_INSERT_RETVAL_OFF 14
+#define FD_PACK_INSERT_RETVAL_CNT 21
 
-FD_STATIC_ASSERT( FD_PACK_INSERT_REJECT_BUNDLE_BLACKLIST>=-FD_PACK_INSERT_RETVAL_OFF, pack_retval );
+FD_STATIC_ASSERT( FD_PACK_INSERT_REJECT_NONCE_CONFLICT>=-FD_PACK_INSERT_RETVAL_OFF, pack_retval );
 FD_STATIC_ASSERT( FD_PACK_INSERT_ACCEPT_NONCE_NONVOTE_REPLACE<FD_PACK_INSERT_RETVAL_CNT-FD_PACK_INSERT_RETVAL_OFF, pack_retval );
 
 /* fd_pack_insert_txn_{init,fini,cancel} execute the process of

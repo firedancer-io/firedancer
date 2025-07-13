@@ -70,7 +70,8 @@ def print_sankey(summed: Dict[Tuple[str, Optional[str]], int]):
                    summed[('pack_transaction_inserted', 'nonce_nonvote_replace')]
 
     pack_invalid_bundle = summed[('pack_transaction_dropped_partial_bundle', None)]
-    pack_invalid = summed[('pack_transaction_inserted', 'bundle_blacklist')] + \
+    pack_invalid = summed[('pack_transaction_inserted', 'nonce_conflict')] + \
+                   summed[('pack_transaction_inserted', 'bundle_blacklist')] + \
                    summed[('pack_transaction_inserted', 'invalid_nonce')] + \
                    summed[('pack_transaction_inserted', 'write_sysvar')] + \
                    summed[('pack_transaction_inserted', 'estimation_fail')] + \
