@@ -376,6 +376,7 @@ metric introduced.
 
 <enum name="PackTxnInsertReturn">
     <!-- Note: You must keep the list of return values in fd_pack.h in sync with this list -->
+    <int value="-14" name="NonceConflict" label="Bundle with two conflicting durable nonce transactions" />
     <int value="-13" name="BundleBlacklist" label="Transaction uses an account on the bundle blacklist" />
     <int value="-12" name="InvalidNonce" label="Transaction is an invalid durable nonce transaction" />
     <int value="-11" name="WriteSysvar" label="Transaction tries to write to a sysvar" />
