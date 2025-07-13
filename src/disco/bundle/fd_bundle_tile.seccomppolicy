@@ -88,6 +88,8 @@ poll
 # resolv: configure UDP or TCP socket (for DNS queries)
 setsockopt: (or (and (eq (arg 1) SOL_SOCKET)
                      (eq (arg 2) SO_RCVBUF))
+                (and (eq (arg 1) SOL_TCP)
+                     (eq (arg 2) TCP_NODELAY))
                 (and (eq (arg 1) IPPROTO_TCP)
                      (eq (arg 2) TCP_FASTOPEN_CONNECT))
                 (and (eq (arg 1) IPPROTO_IPV6)
