@@ -1,5 +1,6 @@
 /* fd_bundle_client.c steps gRPC related tasks. */
 
+#define _GNU_SOURCE /* SOL_TCP */
 #include "fd_bundle_auth.h"
 #include "fd_bundle_tile_private.h"
 #include "proto/block_engine.pb.h"
@@ -19,6 +20,8 @@
 #include <poll.h> /* poll */
 #include <sys/socket.h> /* socket */
 #include <netinet/in.h>
+#include <netinet/ip.h>
+#include <netinet/tcp.h>
 
 #define FD_BUNDLE_CLIENT_REQUEST_TIMEOUT ((long)8e9) /* 8 seconds */
 
@@ -101,6 +104,11 @@ fd_bundle_client_create_conn( fd_bundle_tile_t * ctx ) {
 
   if( FD_UNLIKELY( 0!=setsockopt( tcp_sock, SOL_SOCKET, SO_RCVBUF, &ctx->so_rcvbuf, sizeof(int) ) ) ) {
     FD_LOG_ERR(( "setsockopt(SOL_SOCKET,SO_RCVBUF,%i) failed (%i-%s)", ctx->so_rcvbuf, errno, fd_io_strerror( errno ) ));
+  }
+
+  int tcp_nodelay = 1;
+  if( FD_UNLIKELY( 0!=setsockopt( tcp_sock, SOL_TCP, TCP_NODELAY, &tcp_nodelay, sizeof(int) ) ) ) {
+    FD_LOG_ERR(( "setsockopt failed (%d-%s)", errno, fd_io_strerror( errno ) ));
   }
 
   if( FD_UNLIKELY( fcntl( tcp_sock, F_SETFL, O_NONBLOCK )==-1 ) ) {

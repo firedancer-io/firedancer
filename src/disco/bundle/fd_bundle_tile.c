@@ -1,3 +1,4 @@
+#define _GNU_SOURCE
 #include "fd_bundle_tile_private.h"
 #include "../metrics/fd_metrics.h"
 #include "../topo/fd_topo.h"
