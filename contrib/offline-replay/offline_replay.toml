@@ -40,5 +40,3 @@
 [paths]
     identity_key = "{identity_key_path}"
     vote_account = "{vote_account_path}"
-[hugetlbfs]
-    mount_path = "/data/firedancer/mnt"
