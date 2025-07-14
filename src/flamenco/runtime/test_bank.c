@@ -77,6 +77,17 @@ main( int argc, char ** argv ) {
   FD_TEST( bank9 );
   FD_TEST( fd_bank_capitalization_get( bank9 ) == 2100UL );
 
+  /* Set some CoW fields. */
+  fd_account_keys_global_t * keys = fd_bank_vote_account_keys_locking_modify( bank9 );
+  keys->account_keys_pool_offset = 100UL;
+  keys->account_keys_root_offset = 100UL;
+  fd_bank_vote_account_keys_end_locking_modify( bank9 );
+
+  fd_account_keys_global_t * keys2 = fd_bank_stake_account_keys_locking_modify( bank9 );
+  keys2->account_keys_pool_offset = 101UL;
+  keys2->account_keys_root_offset = 101UL;
+  fd_bank_stake_account_keys_end_locking_modify( bank9 );
+
   /* Verify that the bank is published and that it is indeed bank7 */
 
   fd_bank_t const * new_root = fd_banks_publish( banks, 7UL );
@@ -91,6 +102,30 @@ main( int argc, char ** argv ) {
   fd_bank_t * bank11 = fd_banks_clone_from_parent( banks, 11UL, 9UL );
   FD_TEST( bank11 );
   FD_TEST( fd_bank_capitalization_get( bank11 ) == 2100UL );
+
+  fd_account_keys_global_t const * keys3 = fd_bank_vote_account_keys_locking_query( bank11 );
+  FD_TEST( keys3->account_keys_pool_offset == 100UL );
+  FD_TEST( keys3->account_keys_root_offset == 100UL );
+  fd_bank_vote_account_keys_end_locking_query( bank11 );
+
+  fd_account_keys_global_t const * keys4 = fd_bank_stake_account_keys_locking_query( bank11 );
+  FD_TEST( keys4->account_keys_pool_offset == 101UL );
+  FD_TEST( keys4->account_keys_root_offset == 101UL );
+  fd_bank_stake_account_keys_end_locking_query( bank11 );
+
+  keys = fd_bank_vote_account_keys_locking_modify( bank11 );
+  keys->account_keys_pool_offset = 200UL;
+  keys->account_keys_root_offset = 200UL;
+  fd_bank_vote_account_keys_end_locking_modify( bank11 );
+
+  fd_clock_timestamp_votes_global_t const * votes_const = fd_bank_clock_timestamp_votes_locking_query( bank11 );
+  FD_TEST( !votes_const );
+  fd_bank_clock_timestamp_votes_end_locking_query( bank11 );
+
+  fd_clock_timestamp_votes_global_t * votes = fd_bank_clock_timestamp_votes_locking_modify( bank11 );
+  votes->votes_pool_offset = 102UL;
+  votes->votes_root_offset = 102UL;
+  fd_bank_clock_timestamp_votes_end_locking_modify( bank11 );
 
   /* Now there should be 3 forks:
      1. 7 -> 8
@@ -107,6 +142,48 @@ main( int argc, char ** argv ) {
   FD_TEST( !!fd_banks_get_bank( banks, 8UL ) );
   FD_TEST( !!fd_banks_get_bank( banks, 9UL ) );
   FD_TEST( !!fd_banks_get_bank( banks, 10UL ) );
+
+  /* Verify that the CoW fields are properly set for bank11 */
+  keys3 = fd_bank_vote_account_keys_locking_query( bank11 );
+  FD_TEST( keys3->account_keys_pool_offset == 200UL );
+  FD_TEST( keys3->account_keys_root_offset == 200UL );
+  fd_bank_vote_account_keys_end_locking_query( bank11 );
+
+  keys4 = fd_bank_stake_account_keys_locking_query( bank11 );
+  FD_TEST( keys4->account_keys_pool_offset == 101UL );
+  FD_TEST( keys4->account_keys_root_offset == 101UL );
+  fd_bank_stake_account_keys_end_locking_query( bank11 );
+
+  votes_const = fd_bank_clock_timestamp_votes_locking_query( bank11 );
+  FD_TEST( votes->votes_pool_offset == 102UL );
+  FD_TEST( votes->votes_root_offset == 102UL );
+  fd_bank_clock_timestamp_votes_end_locking_query( bank11 );
+
+  /* Clear bank11, we need to make sure that the pool indices are
+     cleared and properly released.
+
+     We test the cases where:
+     1. Pool was not made dirty and had a non-null parent pool idx.
+     2. Pool was not made dirty and had a null parent pool idx.
+     3. Pool was made dirty and had a non-null parent pool idx.
+     4. Pool was made dirty and had a null parent pool idx. */
+  fd_banks_clear_bank( banks, bank11 );
+  FD_TEST( fd_bank_slot_get( bank11 ) == 11UL );
+  FD_TEST( fd_bank_capitalization_get( bank11 ) == 0UL );
+
+  keys3 = fd_bank_vote_account_keys_locking_query( bank11 );
+  FD_TEST( keys3->account_keys_pool_offset == 100UL );
+  FD_TEST( keys3->account_keys_root_offset == 100UL );
+  fd_bank_vote_account_keys_end_locking_query( bank11 );
+
+  keys4 = fd_bank_stake_account_keys_locking_query( bank11 );
+  FD_TEST( keys4->account_keys_pool_offset == 101UL );
+  FD_TEST( keys4->account_keys_root_offset == 101UL );
+  fd_bank_stake_account_keys_end_locking_query( bank11 );
+
+  votes_const = fd_bank_clock_timestamp_votes_locking_query( bank11 );
+  FD_TEST( !votes_const );
+  fd_bank_clock_timestamp_votes_end_locking_query( bank11 );
 
   FD_LOG_NOTICE(( "pass" ));
 

@@ -48,9 +48,9 @@ fd_runtime_fuzz_instr_ctx_create( fd_runtime_fuzz_runner_t *           runner,
   slot_ctx->funk         = funk;
 
   /* Bank manager */
-
+  slot_ctx->banks = runner->banks;
   slot_ctx->bank = runner->bank;
-  fd_bank_clear_bank( slot_ctx->bank );
+  fd_banks_clear_bank( slot_ctx->banks, slot_ctx->bank );
 
   fd_features_t * features = fd_bank_features_modify( slot_ctx->bank );
   fd_exec_test_feature_set_t const * feature_set = &test_ctx->epoch_context.features;

@@ -38,8 +38,9 @@ fd_runtime_fuzz_txn_ctx_create( fd_runtime_fuzz_runner_t *         runner,
   slot_ctx->funk_txn     = funk_txn;
   slot_ctx->funk         = funk;
 
-  slot_ctx->bank = runner->bank;
-  fd_bank_clear_bank( slot_ctx->bank );
+  slot_ctx->banks = runner->banks;
+  slot_ctx->bank  = runner->bank;
+  fd_banks_clear_bank( slot_ctx->banks, slot_ctx->bank );
 
   /* Restore feature flags */
 

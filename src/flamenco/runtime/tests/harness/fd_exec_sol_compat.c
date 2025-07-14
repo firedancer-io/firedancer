@@ -42,8 +42,9 @@ typedef struct {
 
 static sol_compat_features_t features;
 static uchar *               spad_mem;
-static fd_wksp_t *           wksp = NULL;
-static fd_bank_t *           bank = NULL;
+static fd_wksp_t *           wksp  = NULL;
+static fd_banks_t *          banks = NULL;
+static fd_bank_t *           bank  = NULL;
 
 #define WKSP_EXECUTE_ALLOC_TAG (2UL)
 #define WKSP_INIT_ALLOC_TAG    (3UL)
@@ -91,7 +92,7 @@ sol_compat_wksp_init( ulong wksp_page_sz ) {
     FD_LOG_CRIT(( "Unable to allocate memory for banks" ));
   }
 
-  fd_banks_t * banks = fd_banks_join( fd_banks_new( banks_mem, 1UL ) );
+  banks = fd_banks_join( fd_banks_new( banks_mem, 1UL ) );
   if( FD_UNLIKELY( !banks ) ) {
     FD_LOG_CRIT(( "Unable to create and join banks" ));
   }
@@ -149,7 +150,7 @@ sol_compat_setup_runner( void ) {
 
   // Setup test runner
   void * runner_mem = fd_wksp_alloc_laddr( wksp, fd_runtime_fuzz_runner_align(), fd_runtime_fuzz_runner_footprint(), WKSP_EXECUTE_ALLOC_TAG );
-  fd_runtime_fuzz_runner_t * runner = fd_runtime_fuzz_runner_new( runner_mem, spad_mem, bank, WKSP_EXECUTE_ALLOC_TAG );
+  fd_runtime_fuzz_runner_t * runner = fd_runtime_fuzz_runner_new( runner_mem, spad_mem, banks, bank, WKSP_EXECUTE_ALLOC_TAG );
   return runner;
 }
 

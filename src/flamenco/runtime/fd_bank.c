@@ -637,10 +637,10 @@ fd_banks_publish( fd_banks_t * banks, ulong slot ) {
     /* Decide if we need to free any CoW fields. We free a CoW member
        from its pool if the dirty flag is set unless it is the same
        pool that the new root uses. */
-    #define HAS_COW_1(name)                                                             \
-      if( head->name##_dirty && head->name##_pool_idx!=new_root->name##_pool_idx ) {    \
-        fd_bank_##name##_t * name##_pool = fd_banks_get_##name##_pool( banks );        \
-        fd_bank_##name##_pool_idx_release( name##_pool, head->name##_pool_idx );       \
+    #define HAS_COW_1(name)                                                          \
+      if( head->name##_dirty && head->name##_pool_idx!=new_root->name##_pool_idx ) { \
+        fd_bank_##name##_t * name##_pool = fd_banks_get_##name##_pool( banks );      \
+        fd_bank_##name##_pool_idx_release( name##_pool, head->name##_pool_idx );     \
       }
     /* Do nothing for these. */
     #define HAS_COW_0(name)
@@ -651,7 +651,6 @@ fd_banks_publish( fd_banks_t * banks, ulong slot ) {
     #undef X
     #undef HAS_COW_0
     #undef HAS_COW_1
-
 
     fd_banks_pool_ele_release( bank_pool, head );
     head = next;
@@ -684,15 +683,21 @@ fd_banks_publish( fd_banks_t * banks, ulong slot ) {
 }
 
 void
-fd_bank_clear_bank( fd_bank_t * bank ) {
+fd_banks_clear_bank( fd_banks_t * banks, fd_bank_t * bank ) {
 
-  #define HAS_COW_1(type, name, footprint) \
-    fd_bank_##name##_t * name##_pool = fd_bank_get_##name##_pool( bank ); \
-    if( bank->name##_pool_idx==fd_bank_##name##_pool_idx_null( name##_pool ) ) { \
-      return; \
-    } \
-    fd_bank_##name##_t * name##_ele = fd_bank_##name##_pool_ele( name##_pool, bank->name##_pool_idx ); \
-    fd_memset( name##_ele->data, 0, footprint );
+  /* Get the parent bank. */
+  fd_bank_t * parent_bank = fd_banks_pool_ele( fd_banks_get_bank_pool( banks ), bank->parent_idx );
+
+  #define HAS_COW_1(type, name, footprint)                                                                                  \
+    fd_bank_##name##_t * name##_pool = fd_bank_get_##name##_pool( bank );                                                   \
+    if( bank->name##_dirty ) {                                                                                              \
+      /* If the dirty flag is set, then we have a pool allocated for */                                                     \
+      /* this specific bank. We need to release the pool index and   */                                                     \
+      /* assign the bank to the idx corresponding to the parent.     */                                                     \
+      fd_bank_##name##_pool_idx_release( name##_pool, bank->name##_pool_idx );                                              \
+      bank->name##_dirty    = 0;                                                                                            \
+      bank->name##_pool_idx = !!parent_bank ? parent_bank->name##_pool_idx : fd_bank_##name##_pool_idx_null( name##_pool ); \
+    }
 
   #define HAS_COW_0(type, name, footprint) \
     fd_memset( bank->name, 0, footprint );
