@@ -16,3 +16,30 @@ write: (or (eq (arg 0) 2)
 #
 # arg 0 is the file descriptor to fsync.
 fsync: (eq (arg 0) logfile_fd)
+
+# cooperative scheduling: allow futex wake operations
+#
+# fd_futex_wake uses: syscall(SYS_futex, addr, FUTEX_WAKE, n, NULL, NULL, 0)
+#
+# arg 0: addr (varies - futex address)
+# arg 1: op (FUTEX_WAKE=1)
+# arg 2: n (varies - number to wake)
+# arg 3: timeout (always NULL)
+# arg 4: uaddr2 (always NULL)
+# arg 5: val3 (always 0)
+futex: (and (eq (arg 1) FUTEX_WAKE)
+            (eq (arg 3) 0)
+            (eq (arg 4) 0)
+            (eq (arg 5) 0))
+
+# cooperative scheduling: allow futex_waitv operations
+#
+# fd_futex_waitv uses: syscall(SYS_futex_waitv, waiters, nr_futexes, 0, timeout, clockid)
+#
+# arg 0: waiters (varies - pointer to array)
+# arg 1: nr_futexes (varies - number of futexes)
+# arg 2: flags (always 0)
+# arg 3: timeout (varies - can be NULL or pointer)
+# arg 4: clockid (CLOCK_REALTIME=0)
+futex_waitv: (and (eq (arg 2) 0)
+                  (eq (arg 4) CLOCK_REALTIME))

@@ -214,6 +214,8 @@ populate_allowed_fds( fd_topo_t const *      topo,
 /* See explanation in fd_pack */
 #define STEM_LAZY  (128L*3000L)
 
+#define STEM_CAN_SLEEP (1)
+
 #define STEM_CALLBACK_CONTEXT_TYPE  fd_plugin_ctx_t
 #define STEM_CALLBACK_CONTEXT_ALIGN alignof(fd_plugin_ctx_t)
 

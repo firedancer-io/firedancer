@@ -851,18 +851,16 @@ STEM_(run)( fd_topo_t *      topo,
     int has_waiting_cons = 0;
     for( ulong i=0UL; i<topo->tile_cnt && !has_waiting_cons; i++ ) {
       fd_topo_tile_t * consumer_tile = &topo->tiles[ i ];
-      if( FD_UNLIKELY( !consumer_tile->sleeps ) ) continue;
+      if( FD_LIKELY( !consumer_tile->sleeps ) ) continue;
 
       for( ulong j=0UL; j<consumer_tile->in_cnt; j++ ) {
-        if( consumer_tile->in_link_id[ j ] == tile->out_link_id[ k ] ) {
+        if( FD_UNLIKELY( consumer_tile->in_link_id[ j ] == tile->out_link_id[ k ] ) ) {
           has_waiting_cons = 1;
           break;
         }
       }
     }
-    if( has_waiting_cons ) {
-      wake_out[ wake_out_cnt++ ] = k;
-    }
+    if( FD_LIKELY( has_waiting_cons ) ) wake_out[ wake_out_cnt++ ] = k;
   }
 
   fd_rng_t rng[1];
