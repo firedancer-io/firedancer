@@ -72,7 +72,7 @@ test_bundle_env_create( test_bundle_env_t * env,
   fd_h2_conn_t * h2_conn = fd_grpc_client_h2_conn( state->grpc_client );
   h2_conn->flags = 0;
 
-  state->ping_threshold_ticks = fd_ulong_pow2_up( (ulong)( (double)1e9 * fd_tempo_tick_per_ns( NULL ) ) );
+  state->ping_threshold_ns = fd_ulong_pow2_up( (ulong)( (double)1e9 * fd_tempo_tick_per_ns( NULL ) ) );
 
   return env;
 }
@@ -80,13 +80,12 @@ test_bundle_env_create( test_bundle_env_t * env,
 FD_FN_UNUSED static void
 test_bundle_env_mock_conn_empty( test_bundle_env_t * env ) {
   fd_bundle_tile_t * ctx = env->state;
-  long const ts_start = fd_bundle_tickcount();
+  long const ts_start = fd_clock_now( ctx->clock );
   fd_rng_new( ctx->rng, 42U, 42UL );
   ctx->tcp_sock_connected = 1;
   ctx->auther.state       = FD_BUNDLE_AUTH_STATE_DONE_WAIT;
-  ctx->last_ping_rx_ticks = ts_start;
-  ctx->last_ping_tx_ticks = ts_start;
-  ctx->last_ping_tx_nanos = fd_log_wallclock();
+  ctx->last_ping_rx_ns    = ts_start;
+  ctx->last_ping_tx_ns    = ts_start;
   fd_rng_new( ctx->rng, 42U, 42UL );
   fd_bundle_client_set_ping_interval( ctx, (long)1e9 );
   FD_TEST( fd_bundle_client_ping_is_timeout( ctx, ts_start )==0 );
@@ -102,7 +101,7 @@ FD_FN_UNUSED static void
 test_bundle_env_mock_h2_hs( fd_bundle_tile_t * ctx ) {
   ctx->grpc_client->h2_hs_done  = 1;
   FD_TEST( !fd_grpc_client_request_is_blocked( ctx->grpc_client ) );
-  long const ts_start = fd_bundle_tickcount();
+  long const ts_start = fd_clock_now( ctx->clock );
   FD_TEST( !fd_bundle_tile_should_stall( ctx, ts_start ) );
 }
 

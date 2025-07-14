@@ -8,7 +8,7 @@
 #include "../../waltz/grpc/fd_grpc_client.h"
 #include "../../waltz/resolv/fd_netdb.h"
 #include "../../waltz/fd_rtt_est.h"
-#include "../../util/alloc/fd_alloc.h"
+#include "../../util/clock/fd_clock.h"
 
 #if FD_HAS_OPENSSL
 #include <openssl/ssl.h> /* SSL_CTX */
@@ -77,13 +77,17 @@ struct fd_bundle_tile {
   uint tcp_sock_connected : 1;
   uint defer_reset : 1;
 
+  /* Clock source (FIXME drive from fd_stem instead) */
+  uchar clock_mem[ FD_CLOCK_FOOTPRINT ] __attribute__((aligned(FD_CLOCK_ALIGN)));
+  fd_clock_t clock[1];
+  long       clock_recal_next;
+
   /* Keepalive via HTTP/2 PINGs (randomized) */
-  long  last_ping_tx_ticks;    /* last TX tickcount */
-  long  last_ping_tx_nanos;
-  long  last_ping_rx_ticks;    /* last RX tickcount */
+  long  last_ping_tx_ns;       /* last TX timestamp */
+  long  last_ping_rx_ns;       /* last RX timestamp */
   ulong ping_randomize;        /* random 64 bits */
-  ulong ping_threshold_ticks;  /* avg keepalive timeout in ticks, 2^n-1 */
-  ulong ping_deadline_ticks;   /* enforced keepalive timeout in ticks */
+  ulong ping_threshold_ns;     /* avg keepalive timeout in ticks, 2^n-1 */
+  ulong ping_deadline_ns;   /* enforced keepalive timeout in ticks */
   fd_rtt_estimate_t rtt[1];
 
   /* gRPC client */
@@ -101,7 +105,7 @@ struct fd_bundle_tile {
   uchar builder_commission;  /* in [0,100] (percent) */
   uchar builder_info_avail : 1;  /* Block builder info available? (potentially stale) */
   uchar builder_info_wait  : 1;  /* Request already in-flight? */
-  long  builder_info_valid_until_ticks;
+  long  builder_info_valid_until_ns;
 
   /* Bundle subscriptions */
   uchar packet_subscription_live : 1;  /* Want to subscribe to a stream? */
@@ -144,13 +148,6 @@ typedef struct fd_bundle_tile fd_bundle_tile_t;
 
 FD_PROTOTYPES_BEGIN
 
-/* fd_bundle_tickcount is an externally linked function wrapping
-   fd_tickcount().  This is backed by a weak symbol, allowing tests to
-   override the clock source. */
-
-long
-fd_bundle_tickcount( void );
-
 /* fd_bundle_client_grpc_callbacks provides callbacks for grpc_client. */
 
 extern fd_grpc_client_callbacks_t fd_bundle_client_grpc_callbacks;
@@ -171,7 +168,7 @@ fd_bundle_client_step( fd_bundle_tile_t * bundle,
 
 int
 fd_bundle_client_step_reconnect( fd_bundle_tile_t * ctx,
-                                 long               io_ticks );
+                                 long               timestamp_ns );
 
 /* fd_bundle_tile_backoff is called whenever an error occurs.  Stalls
    forward progress for a randomized amount of time to prevent error
@@ -280,16 +277,16 @@ fd_bundle_client_set_ping_interval( fd_bundle_tile_t * ctx,
 
 FD_FN_PURE int
 fd_bundle_client_ping_is_due( fd_bundle_tile_t const * ctx,
-                              long                     now_ticks );
+                              long                     timestamp_ns );
 
 /* fd_bundle_client_ping_is_timeout returns 1 if a ping timeout was
    detected, 0 otherwise. */
 
 FD_FN_PURE static inline int
 fd_bundle_client_ping_is_timeout( fd_bundle_tile_t const * ctx,
-                                  long                     now_ticks ) {
-  if( !ctx->ping_deadline_ticks ) return 0; /* timeout disabled */
-  return now_ticks > ctx->last_ping_rx_ticks + (long)ctx->ping_deadline_ticks;
+                                  long                     timestamp_ns ) {
+  if( !ctx->ping_deadline_ns ) return 0; /* timeout disabled */
+  return timestamp_ns > ctx->last_ping_rx_ns + (long)ctx->ping_deadline_ns;
 }
 
 /* fd_bundle_client_ping_tx enqueues a PING frame for sending.  Returns

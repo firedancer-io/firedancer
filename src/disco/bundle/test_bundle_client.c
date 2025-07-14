@@ -192,7 +192,7 @@ test_bundle_ping( fd_wksp_t * wksp ) {
 
   fd_bundle_tile_t * state       = env->state;
   fd_grpc_client_t * grpc_client = state->grpc_client;
-  long const old_ts = state->last_ping_rx_ticks;
+  long const old_ts = state->last_ping_rx_ns;
 
   /* PING ACK should update timer */
   grpc_client->conn->ping_tx = 1;
@@ -203,13 +203,13 @@ test_bundle_ping( fd_wksp_t * wksp ) {
   fd_h2_rbuf_push( grpc_client->frame_rx, &ping_ack_hdr, sizeof(fd_h2_frame_hdr_t) );
   ulong const ping_seq = 1UL;
   fd_h2_rbuf_push( grpc_client->frame_rx, &ping_seq, sizeof(ulong) );
-  FD_TEST( state->last_ping_rx_ticks==old_ts );
+  FD_TEST( state->last_ping_rx_ns==old_ts );
   int charge_busy = 0;
   fd_bundle_client_step( state, &charge_busy );
   FD_TEST( fd_h2_rbuf_used_sz( grpc_client->frame_rx )==0UL );
   FD_TEST( grpc_client->conn->ping_tx == 0 );
   FD_TEST( state->defer_reset==0 );
-  FD_TEST( state->last_ping_rx_ticks!=old_ts );
+  FD_TEST( state->last_ping_rx_ns!=old_ts );
   FD_TEST( fd_bundle_client_ping_is_timeout( state, old_ts )==0 );
   FD_TEST( fd_bundle_client_ping_is_due( state, old_ts )==0 );
 
@@ -219,7 +219,7 @@ test_bundle_ping( fd_wksp_t * wksp ) {
   FD_TEST( charge_busy==0 );
   FD_TEST( fd_h2_rbuf_used_sz( grpc_client->frame_tx )==0 );
   FD_TEST( state->defer_reset==0 );
-  state->last_ping_tx_ticks -= (long)state->ping_threshold_ticks + (long)(state->ping_threshold_ticks>>1) + 1L;
+  state->last_ping_tx_ns -= (long)state->ping_threshold_ns + (long)(state->ping_threshold_ns>>1) + 1L;
   FD_TEST( fd_bundle_client_ping_is_timeout( state, old_ts )==0 );
   state->ping_randomize = ULONG_MAX; /* max delay */
   FD_TEST( fd_bundle_client_ping_is_due( state, old_ts )==1 );
@@ -235,7 +235,7 @@ test_bundle_ping( fd_wksp_t * wksp ) {
 
   /* Check that last_ping_rx_ticks is recognized as disconnected */
   FD_TEST( fd_bundle_client_ping_is_timeout( state, old_ts )==0 );
-  state->last_ping_rx_ticks -= (long)state->ping_deadline_ticks * 2L;
+  state->last_ping_rx_ns -= (long)state->ping_deadline_ns * 2L;
   FD_TEST( fd_bundle_client_ping_is_timeout( state, old_ts )==1 );
 
   /* Stepping should cause a reset due to timeout */
@@ -370,7 +370,7 @@ test_bundle_client_status( fd_wksp_t * wksp ) {
   *state = state_backup;
 
   FD_TEST( fd_bundle_client_status( state )==2 );
-  state->last_ping_rx_ticks = fd_bundle_tickcount() - (long)state->ping_deadline_ticks * 2L;
+  state->last_ping_rx_ns = fd_clock_now( state->clock ) - (long)state->ping_deadline_ns * 2L;
   FD_TEST( fd_bundle_client_status( state )==0 );
   *state = state_backup;
 

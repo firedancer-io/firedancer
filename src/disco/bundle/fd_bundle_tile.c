@@ -78,7 +78,7 @@ fd_bundle_tile_housekeeping( fd_bundle_tile_t * ctx ) {
   long log_interval_ns = (long)30e9;
   int  status          = fd_bundle_client_status( ctx );
   long log_next_ns     = ctx->last_bundle_status_log_nanos + log_interval_ns;
-  long now_ns          = fd_log_wallclock();
+  long now_ns          = fd_clock_now( ctx->clock );
   if( FD_UNLIKELY( status!=FD_PLUGIN_MSG_BLOCK_ENGINE_UPDATE_STATUS_CONNECTED && now_ns>log_next_ns ) ) {
     FD_LOG_WARNING(( "No bundle server connection in the last %ld seconds", log_interval_ns/(long)1e9 ) );
     ctx->last_bundle_status_log_nanos = now_ns;
@@ -88,6 +88,16 @@ fd_bundle_tile_housekeeping( fd_bundle_tile_t * ctx ) {
     fd_memcpy( ctx->auther.pubkey, ctx->keyswitch->bytes, 32UL );
     fd_keyswitch_state( ctx->keyswitch, FD_KEYSWITCH_STATE_COMPLETED );
     ctx->defer_reset = 1;
+  }
+
+  if( now_ns >= ctx->clock_recal_next ) {
+    long x1; long y1;
+    int  err = fd_clock_joint_read( _fd_tickcount, NULL, _fd_log_wallclock, NULL, &x1, &y1, NULL );
+    if( FD_UNLIKELY( err ) ) {
+      FD_LOG_WARNING(( "fd_clock_joint_read failed (%i-%s); attempting to continue", err, fd_clock_strerror( err ) ));
+    } else {
+      ctx->clock_recal_next = fd_clock_recal( ctx->clock, x1, y1 );
+    }
   }
 }
 
@@ -116,7 +126,7 @@ fd_bundle_tile_publish_block_engine_update(
 
   update->status = (uchar)ctx->bundle_status_recent;
 
-  ulong tspub = (ulong)fd_frag_meta_ts_comp( fd_bundle_tickcount() );
+  ulong tspub = (ulong)fd_frag_meta_ts_comp( fd_tickcount() );
   fd_stem_publish(
       stem,
       ctx->plugin_out.idx,
@@ -547,7 +557,7 @@ unprivileged_init( fd_topo_t *      topo,
   ctx->so_rcvbuf = (int)so_rcvbuf;
 
   /* Set idle ping timer */
-  // fd_bundle_client_set_ping_interval( ctx, (long)tile->bundle.keepalive_interval_nanos );
+  fd_bundle_client_set_ping_interval( ctx, (long)tile->bundle.keepalive_interval_nanos );
 
   ctx->bundle_status_plugin = 127;
   ctx->bundle_status_recent = FD_PLUGIN_MSG_BLOCK_ENGINE_UPDATE_STATUS_DISCONNECTED;
