@@ -508,7 +508,7 @@ extern ulong const fd_log_build_info_sz; /* == strlen( fd_log_build_info ) + 1UL
    involve system calls under the hood and is much slower than, say,
    RTSDC. */
 
-#define fd_log_wallclock() _fd_log_wallclock( NULL )
+long fd_log_wallclock( void );
 long _fd_log_wallclock( void const * _ ); /* fd_clock_func_t compat */
 
 /* fd_log_wallclock_cstr( t, buf ) pretty prints the wallclock
