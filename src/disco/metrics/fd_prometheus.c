@@ -152,7 +152,7 @@ render_links_out( fd_prom_render_t *        r,
             if( FD_UNLIKELY( consumer_tile->in_link_id[ l ]==tile->out_link_id[ m ] && consumer_tile->in_link_reliable[ l ] ) ) {
               fd_topo_link_t const * link = &topo->links[ consumer_tile->in_link_id[ l ] ];
               ulong value = *(fd_metrics_link_out( tile->metrics, reliable_conns_idx ) + metric->offset );
-              render_link( r, metric, tile, link, value );
+              render_link( r, metric, consumer_tile, link, value );
               reliable_conns_idx++;
             }
           }
