@@ -587,8 +587,15 @@ fd_banks_clone_from_parent( fd_banks_t * banks,
 fd_bank_t const *
 fd_banks_publish( fd_banks_t * banks, ulong slot );
 
+/* fd_bank_clear_bank() clears the contents of a bank. This should ONLY
+   be used with banks that have no children.
+
+   This function will memset all non-CoW fields to 0.
+
+   For all non-CoW fields, we will reset the indices to its parent. */
+
 void
-fd_bank_clear_bank( fd_bank_t * bank );
+fd_banks_clear_bank( fd_banks_t * banks, fd_bank_t * bank );
 
 FD_PROTOTYPES_END
 

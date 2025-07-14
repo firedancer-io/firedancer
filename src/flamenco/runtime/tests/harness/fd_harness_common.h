@@ -10,10 +10,11 @@
    for all harnesses. */
 
 struct fd_runtime_fuzz_runner {
-  fd_funk_t   funk[1];
-  fd_wksp_t * wksp;
-  fd_spad_t * spad;
-  fd_bank_t * bank;
+  fd_funk_t    funk[1];
+  fd_wksp_t *  wksp;
+  fd_spad_t *  spad;
+  fd_banks_t * banks;
+  fd_bank_t *  bank;
 };
 typedef struct fd_runtime_fuzz_runner fd_runtime_fuzz_runner_t;
 
@@ -37,10 +38,11 @@ fd_runtime_fuzz_runner_footprint( void );
    NULL and logs reason for error. */
 
 fd_runtime_fuzz_runner_t *
-fd_runtime_fuzz_runner_new( void *      mem,
-                            void *      spad_mem,
-                            fd_bank_t * bank,
-                            ulong       wksp_tag );
+fd_runtime_fuzz_runner_new( void *       mem,
+                            void *       spad_mem,
+                            fd_banks_t * banks,
+                            fd_bank_t *  bank,
+                            ulong        wksp_tag );
 
 /* fd_runtime_fuzz_runner_delete frees wksp allocations managed by
    runner and returns the memory region backing runner itself back to
