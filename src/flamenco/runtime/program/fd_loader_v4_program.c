@@ -298,7 +298,7 @@ fd_loader_v4_program_instruction_set_program_length( fd_exec_instr_ctx_t *      
   }
 
   /* https://github.com/anza-xyz/agave/blob/v2.2.6/programs/loader-v4/src/lib.rs#L194-L195 */
-  uchar is_initialization = !!( new_size>0UL && fd_borrowed_account_get_data_len( &program )<LOADER_V4_PROGRAM_DATA_OFFSET );
+  uchar is_initialization = !!( fd_borrowed_account_get_data_len( &program )<LOADER_V4_PROGRAM_DATA_OFFSET );
 
   /* https://github.com/anza-xyz/agave/blob/v2.2.6/programs/loader-v4/src/lib.rs#L196-L220 */
   if( is_initialization ) {
