@@ -358,11 +358,16 @@ fd_log_group_id_query( ulong group_id ) {
 /* WALLCLOCK APIS *****************************************************/
 
 long
-_fd_log_wallclock( void const * _ ) {
-  (void)_;
+fd_log_wallclock( void ) {
   struct timespec ts[1];
   clock_gettime( CLOCK_REALTIME, ts );
   return ((long)1e9)*((long)ts->tv_sec) + (long)ts->tv_nsec;
+}
+
+long
+_fd_log_wallclock( void const * _ ) {
+  (void)_;
+  return fd_log_wallclock();
 }
 
 char *
