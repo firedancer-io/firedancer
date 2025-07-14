@@ -345,11 +345,6 @@ fd_vm_syscall_sol_secp256k1_recover( /**/            void *  _vm,
 
   FD_VM_CU_UPDATE( vm, FD_VM_SECP256K1_RECOVER_COST );
 
-  /* https://github.com/anza-xyz/agave/blob/v1.18.8/programs/bpf_loader/src/syscalls/mod.rs#L823-L840 */
-
-  uchar const * hash    = FD_VM_MEM_HADDR_LD( vm, hash_vaddr,      FD_VM_ALIGN_RUST_U8, 32UL );
-  uchar const * sig     = FD_VM_MEM_HADDR_LD( vm, signature_vaddr, FD_VM_ALIGN_RUST_U8, 64UL );
-
   /* https://github.com/anza-xyz/agave/blob/v2.3.1/programs/bpf_loader/src/syscalls/mod.rs#L952-L956 */
   fd_vm_haddr_query_t pubkey_result_query = {
     .vaddr    = result_vaddr,
@@ -360,6 +355,11 @@ fd_vm_syscall_sol_secp256k1_recover( /**/            void *  _vm,
 
   fd_vm_haddr_query_t * queries[] = { &pubkey_result_query };
   FD_VM_TRANSLATE_MUT( vm, queries );
+
+  /* https://github.com/anza-xyz/agave/blob/v2.3.1/programs/bpf_loader/src/syscalls/mod.rs#L957-L968 */
+
+  uchar const * hash = FD_VM_MEM_HADDR_LD( vm, hash_vaddr,      FD_VM_ALIGN_RUST_U8, 32UL );
+  uchar const * sig  = FD_VM_MEM_HADDR_LD( vm, signature_vaddr, FD_VM_ALIGN_RUST_U8, 64UL );
 
   /* CRITICAL */
 
