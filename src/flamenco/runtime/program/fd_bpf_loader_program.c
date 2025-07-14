@@ -2055,12 +2055,8 @@ process_loader_upgradeable_instruction( fd_exec_instr_ctx_t * instr_ctx ) {
         return err;
       }
 
-      /* https://github.com/anza-xyz/agave/blob/v2.2.6/programs/bpf_loader/src/lib.rs#L1429-L1433 */
-      if( FD_UNLIKELY( program_len==0UL ) ) {
-        err = fd_borrowed_account_set_owner( &program, &fd_solana_system_program_id );
-      } else {
-        err = fd_borrowed_account_set_owner( &program, &fd_solana_bpf_loader_v4_program_id );
-      }
+      /* https://github.com/anza-xyz/agave/blob/v2.3.1/programs/bpf_loader/src/lib.rs#L1268 */
+      err = fd_borrowed_account_set_owner( &program, &fd_solana_bpf_loader_v4_program_id );
       if( FD_UNLIKELY( err ) ) {
         return err;
       }
@@ -2283,12 +2279,6 @@ process_loader_upgradeable_instruction( fd_exec_instr_ctx_t * instr_ctx ) {
 
       /* https://github.com/anza-xyz/agave/blob/v2.2.6/programs/bpf_loader/src/lib.rs#L1502 */
       err = fd_borrowed_account_set_data_from_slice( &programdata, NULL, 0UL );
-      if( FD_UNLIKELY( err ) ) {
-        return err;
-      }
-
-      /* https://github.com/anza-xyz/agave/blob/v2.2.6/programs/bpf_loader/src/lib.rs#L1503 */
-      err = fd_borrowed_account_set_owner( &programdata, &fd_solana_system_program_id );
       if( FD_UNLIKELY( err ) ) {
         return err;
       }
