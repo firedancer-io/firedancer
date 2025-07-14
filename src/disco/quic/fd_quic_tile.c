@@ -119,8 +119,7 @@ static inline void
 get_tile_deadline( fd_quic_ctx_t * ctx,
                    long *          deadline_ticks ) {
   ulong next_wakeup_ticks = fd_quic_get_next_wakeup( ctx->quic );
-  *deadline_ticks = (next_wakeup_ticks > 0UL && next_wakeup_ticks < LONG_MAX) ?
-                    (long)next_wakeup_ticks : LONG_MAX; // TODO: simple cast?
+  *deadline_ticks = (long) next_wakeup_ticks;
 }
 
 static inline void

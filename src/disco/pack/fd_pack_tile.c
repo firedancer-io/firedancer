@@ -1034,13 +1034,10 @@ after_frag( fd_pack_ctx_t *     ctx,
   update_metric_state( ctx, now, FD_PACK_METRIC_STATE_TRANSACTIONS, fd_pack_avail_txn_cnt( ctx->pack )>0 );
 }
 
-/* When not leader, we can sleep until the slot end */
+/* When leader, we shouldn't sleep. When not leader, sleep until housekeeping deadline. */
 static void
 get_tile_deadline( fd_pack_ctx_t * ctx, long * deadline_ticks ) {
-  if( FD_UNLIKELY( ctx->leader_slot == ULONG_MAX ) ) {
-    long slot_end_ticks = ctx->approx_tickcount + (long)((double) (ctx->slot_end_ns - ctx->approx_wallclock_ns) * ctx->ticks_per_ns);
-    *deadline_ticks = slot_end_ticks;
-  }
+  if( FD_UNLIKELY( ctx->leader_slot != ULONG_MAX ) ) *deadline_ticks = 0L;
 }
 
 static void

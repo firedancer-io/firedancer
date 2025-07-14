@@ -5,7 +5,7 @@
 #include "../../util/futex/fd_futex.h"
 #include <limits.h>
 #define FD_STEM_SCRATCH_ALIGN (128UL)
-#define FD_STEM_SPIN_THRESHOLD (10000L)
+#define FD_STEM_SPIN_THRESHOLD (10000L) /* loop iterations before we potentially sleep */
 
 struct fd_stem_context {
    fd_frag_meta_t ** mcaches;

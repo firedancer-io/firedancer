@@ -184,20 +184,20 @@ STEM_(in_update)( fd_stem_tile_in_t * in ) {
   accum[3] = 0U;              accum[4] = 0U;              accum[5] = 0U;
 }
 
-#if STEM_CAN_SLEEP
 static inline void
-STEM_(wake_consumers)( ulong             out_cnt,
+STEM_(wake_consumers)( ulong             wake_out_cnt,
+                       ulong *           wake_out,
                        fd_frag_meta_t ** out_mcache,
                        uint *            latest_futex_vals ) {
-  for( ulong out_idx = 0; out_idx < out_cnt; out_idx++ ) {
+  for( ulong i = 0; i < wake_out_cnt; i++ ) {
+    ulong  out_idx     = wake_out[i];
     uint * futex_flag = fd_mcache_futex_flag( out_mcache[ out_idx ] );
-    if( latest_futex_vals[out_idx] != *futex_flag ) {
+    if( FD_LIKELY( latest_futex_vals[out_idx] != *futex_flag ) ) {
       fd_futex_wake( futex_flag, INT_MAX );
       latest_futex_vals[out_idx] = *futex_flag;
     }
   }
 }
-#endif
 
 FD_FN_PURE static inline ulong
 STEM_(scratch_align)( void ) {
@@ -302,7 +302,7 @@ STEM_(run1)( ulong                        in_cnt,
 
 #if STEM_CAN_SLEEP
   waiters = (struct futex_waitv *)FD_SCRATCH_ALLOC_APPEND( l, alignof(struct futex_waitv), in_cnt*sizeof(struct futex_waitv) );
-  ulong current_pos = in_seq;
+  ulong current_pos        = in_seq;
   ulong futex_wait_counter = 0UL;
 #endif
 
@@ -340,7 +340,7 @@ STEM_(run1)( ulong                        in_cnt,
 
   out_depth  = (ulong *)FD_SCRATCH_ALLOC_APPEND( l, alignof(ulong), out_cnt*sizeof(ulong) );
   out_seq    = (ulong *)FD_SCRATCH_ALLOC_APPEND( l, alignof(ulong), out_cnt*sizeof(ulong) );
-  last_futex = (uint *) FD_SCRATCH_ALLOC_APPEND( l, alignof(uint), out_cnt*sizeof(uint) );
+  last_futex = (uint *) FD_SCRATCH_ALLOC_APPEND( l, alignof(uint),  out_cnt*sizeof(uint)  );
 
   ulong cr_max = fd_ulong_if( !out_cnt, 128UL, ULONG_MAX );
 
@@ -385,9 +385,9 @@ STEM_(run1)( ulong                        in_cnt,
 
   event_cnt = in_cnt + 1UL + cons_cnt + wake_out_cnt;
   event_map = (ushort *)FD_SCRATCH_ALLOC_APPEND( l, alignof(ushort), event_cnt*sizeof(ushort) );
-  event_seq = 0UL;                                         event_map[ event_seq++ ] = (ushort)cons_cnt;
-  for( ulong   in_idx=0UL;   in_idx< in_cnt;  in_idx++   ) event_map[ event_seq++ ] = (ushort)(in_idx+cons_cnt+1UL);
-  for( ulong cons_idx=0UL; cons_idx<cons_cnt; cons_idx++ ) event_map[ event_seq++ ] = (ushort)cons_idx;
+  event_seq = 0UL;                                             event_map[ event_seq++ ] = (ushort)cons_cnt;
+  for( ulong   in_idx=0UL;   in_idx< in_cnt;  in_idx++   )     event_map[ event_seq++ ] = (ushort)(in_idx+cons_cnt+1UL);
+  for( ulong cons_idx=0UL; cons_idx<cons_cnt; cons_idx++ )     event_map[ event_seq++ ] = (ushort)cons_idx;
   for( ulong wake_idx=0UL; wake_idx<wake_out_cnt; wake_idx++ ) event_map[ event_seq++ ] = (ushort)(wake_idx+in_cnt+cons_cnt+1UL);
   event_seq = 0UL;
 
@@ -400,8 +400,7 @@ STEM_(run1)( ulong                        in_cnt,
   long now  = then;
 #if STEM_CAN_SLEEP
   long approx_wallclock_ns = fd_log_wallclock();
-  long approx_tickcount = then;
-  long tile_deadline_ticks = LONG_MAX;
+  long approx_tickcount    = then;
 #endif
 
   for(;;) {
@@ -418,7 +417,7 @@ STEM_(run1)( ulong                        in_cnt,
             >cons_cnt && <=cons_cnt+in_cnt - send credits to in [event_idx - cons_cnt - 1].
             >cons_cnt+in_cnt - wake out link [event_idx - cons_cnt - in_cnt - 1].
          Branch hints and order are optimized for the case:
-           out_cnt >~ in_cnt >~ 1. */
+           cons_cnt >~ in_cnt >~ wake_out_cnt >~ 1. */
 
       if( FD_LIKELY( event_idx<cons_cnt ) ) { /* cons fctl for cons cons_idx */
         ulong cons_idx = event_idx;
@@ -448,7 +447,7 @@ STEM_(run1)( ulong                        in_cnt,
       } else { /* event_idx==cons_cnt, housekeeping event */
       
 #if STEM_CAN_SLEEP
-        if( sleeps ) { approx_wallclock_ns = fd_log_wallclock(); approx_tickcount = now; }
+        if( FD_UNLIKELY( sleeps ) ) { approx_wallclock_ns = fd_log_wallclock(); approx_tickcount = now; }
 #endif
         /* Update metrics counters to external viewers */
         FD_COMPILER_MFENCE();
@@ -515,7 +514,7 @@ STEM_(run1)( ulong                        in_cnt,
           in[ swap_idx ] = in[ 0        ];
           in[ 0        ] = in_tmp;
 #if STEM_CAN_SLEEP
-          if( sleeps ) { 
+          if( FD_UNLIKELY( sleeps ) ) { 
             struct futex_waitv waitv_tmp;
             waitv_tmp           = waiters[ swap_idx ];
             waiters[ swap_idx ] = waiters[ 0        ];
@@ -534,10 +533,11 @@ STEM_(run1)( ulong                        in_cnt,
 
 /* By default, tiles are always spinning, except the ones that are configured to wait for futexes */ 
 #if STEM_CAN_SLEEP
-    if( FD_LIKELY( sleeps && futex_wait_counter>FD_STEM_SPIN_THRESHOLD ) ) { 
-      /* wake those downstream before we sleep */
-      STEM_(wake_consumers)( out_cnt, out_mcache, last_futex );
+    if( FD_UNLIKELY( sleeps && futex_wait_counter>FD_STEM_SPIN_THRESHOLD ) ) { 
+      /* Wake downstream consumers before we sleep */
+      STEM_(wake_consumers)( wake_out_cnt, wake_out, out_mcache, last_futex );
 
+      long tile_deadline_ticks = LONG_MAX;
 #ifdef STEM_CALLBACK_GET_TILE_DEADLINE
       STEM_CALLBACK_GET_TILE_DEADLINE( ctx, &tile_deadline_ticks );
 #endif
@@ -587,9 +587,8 @@ STEM_(run1)( ulong                        in_cnt,
      from not backpressured to backpressured. */
 
     if( FD_UNLIKELY( cr_avail<burst ) ) {
-      // TODO: if backpressured, we should wake on futexes so people wake up
-      // wake the slowest consumer link up
-      // OR can wake on every out link depending on profile of a loop iteration-- but im guessing slowing 1 run of loop too much?
+      /* Wake potentially waiting consumers if backpressured */
+      STEM_(wake_consumers)( wake_out_cnt, wake_out, out_mcache, last_futex );
       metric_backp_cnt += (ulong)!metric_in_backp;
       metric_in_backp   = 1UL;
       FD_SPIN_PAUSE();
@@ -645,7 +644,7 @@ STEM_(run1)( ulong                        in_cnt,
 
 #if STEM_CAN_SLEEP
     current_pos = in_seq;
-    if( sleeps ) futex_wait_counter++;
+    if( FD_UNLIKELY( sleeps ) ) futex_wait_counter++;
 #endif
 
     fd_stem_tile_in_t * this_in = &in[ in_seq ];
@@ -680,7 +679,7 @@ STEM_(run1)( ulong                        in_cnt,
       if( FD_UNLIKELY( diff<0L ) ) { /* Overrun (impossible if in is honoring our flow control) */
         this_in->seq = seq_found; /* Resume from here (probably reasonably current, could query in mcache sync directly instead) */
 #if STEM_CAN_SLEEP
-        if( sleeps ) waiters[current_pos].val = this_in->seq;
+        if( FD_UNLIKELY( sleeps ) ) waiters[current_pos].val = this_in->seq;
 #endif
         housekeeping_regime = &metric_regime_ticks[1];
         prefrag_regime = &metric_regime_ticks[4];
@@ -721,7 +720,7 @@ STEM_(run1)( ulong                        in_cnt,
       this_in->mline = this_in->mcache + fd_mcache_line_idx( this_in_seq, this_in->depth );
 
 #if STEM_CAN_SLEEP
-      if( sleeps ) { waiters[current_pos].val = this_in_seq; futex_wait_counter = 0; }
+      if( FD_UNLIKELY( sleeps ) ) { waiters[current_pos].val = this_in_seq; futex_wait_counter = 0; }
 #endif
 
       metric_regime_ticks[1] += housekeeping_ticks;
@@ -759,7 +758,7 @@ STEM_(run1)( ulong                        in_cnt,
     if( FD_UNLIKELY( fd_seq_ne( seq_test, seq_found ) ) ) { /* Overrun while reading (impossible if this_in honoring our fctl) */
       this_in->seq = seq_test; /* Resume from here (probably reasonably current, could query in mcache sync instead) */
 #if STEM_CAN_SLEEP
-      if( sleeps ) waiters[current_pos].val = seq_test;
+      if( FD_UNLIKELY( sleeps ) ) waiters[current_pos].val = seq_test;
 #endif
       fd_metrics_link_in( fd_metrics_base_tl, this_in->idx )[ FD_METRICS_COUNTER_LINK_OVERRUN_READING_COUNT_OFF ]++; /* No local accum since extremely rare, faster to use smaller cache line */
       fd_metrics_link_in( fd_metrics_base_tl, this_in->idx )[ FD_METRICS_COUNTER_LINK_OVERRUN_READING_FRAG_COUNT_OFF ] += (uint)fd_seq_diff( seq_test, seq_found ); /* No local accum since extremely rare, faster to use smaller cache line */
@@ -783,7 +782,7 @@ STEM_(run1)( ulong                        in_cnt,
     this_in->mline = this_in->mcache + fd_mcache_line_idx( this_in_seq, this_in->depth );
 
 #if STEM_CAN_SLEEP
-    if( sleeps ) { waiters[current_pos].val = this_in_seq; futex_wait_counter = 0; }
+    if( FD_UNLIKELY( sleeps ) ) { waiters[current_pos].val = this_in_seq; futex_wait_counter = 0; }
 #endif
 
     this_in->accum[ FD_METRICS_COUNTER_LINK_CONSUMED_COUNT_OFF ]++;
@@ -852,7 +851,7 @@ STEM_(run)( fd_topo_t *      topo,
     int has_waiting_cons = 0;
     for( ulong i=0UL; i<topo->tile_cnt && !has_waiting_cons; i++ ) {
       fd_topo_tile_t * consumer_tile = &topo->tiles[ i ];
-      if( !consumer_tile->sleeps ) continue;
+      if( FD_UNLIKELY( !consumer_tile->sleeps ) ) continue;
       
       for( ulong j=0UL; j<consumer_tile->in_cnt; j++ ) {
         if( consumer_tile->in_link_id[ j ] == tile->out_link_id[ k ] ) {

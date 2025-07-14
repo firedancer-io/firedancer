@@ -1752,26 +1752,15 @@ after_credit( fd_poh_ctx_t *      ctx,
   }
 }
 
+/* When less than max_slots_to_skip slots until leader, we shouldn't sleep. */
 static inline void
 get_tile_deadline( fd_poh_ctx_t * ctx,
                    long *         deadline_ticks ) {
 
-  *deadline_ticks = 0L;
-
-  if( FD_UNLIKELY( ctx->next_leader_slot==ULONG_MAX ) ) return;
-
   ulong max_slots_to_skip  = MAX_SKIPPED_TICKS / ctx->ticks_per_slot;
   ulong slots_until_leader = ctx->next_leader_slot-ctx->slot;
 
-  if( FD_UNLIKELY( slots_until_leader<=max_slots_to_skip ) ) return;
-
-  ulong wake_at_slot   = ctx->next_leader_slot - max_slots_to_skip;
-  ulong slots_to_sleep = wake_at_slot - ctx->slot;
-
-  double ns_to_sleep          = (double)slots_to_sleep * ctx->slot_duration_ns;
-  double tempo_ticks_to_sleep = ns_to_sleep * fd_tempo_tick_per_ns( NULL );
-
-  *deadline_ticks = fd_tickcount() + (long)tempo_ticks_to_sleep;
+  if( FD_UNLIKELY( slots_until_leader<=max_slots_to_skip ) ) *deadline_ticks = 0L;
 }
 
 static inline void
