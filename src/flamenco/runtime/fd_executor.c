@@ -18,6 +18,7 @@
 #include "program/fd_precompiles.h"
 #include "program/fd_stake_program.h"
 #include "program/fd_system_program.h"
+#include "program/fd_builtin_programs.h"
 #include "program/fd_vote_program.h"
 #include "program/fd_zk_elgamal_proof_program.h"
 #include "program/fd_bpf_program_util.h"
@@ -148,6 +149,17 @@ fd_executor_lookup_native_program( fd_txn_account_t const * prog_acc,
   }
 
   fd_pubkey_t const *         lookup_pubkey = is_native_program ? pubkey : owner;
+
+  /* Migrated programs must be executed via the corresponding BPF
+     loader(s), not natively. This check is performed at the transaction
+     level, but we re-check to please the instruction level (and below)
+     fuzzers. */
+  uchar has_migrated;
+  if( FD_UNLIKELY( fd_is_migrating_builtin_program( txn_ctx, lookup_pubkey, &has_migrated ) && has_migrated ) ) {
+    *native_prog_fn = NULL;
+    return FD_EXECUTOR_INSTR_ERR_UNSUPPORTED_PROGRAM_ID;
+  }
+
   fd_native_prog_info_t const null_function = {0};
   *native_prog_fn                           = fd_native_program_fn_lookup_tbl_query( lookup_pubkey, &null_function )->fn;
   return 0;
