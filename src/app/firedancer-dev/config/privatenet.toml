@@ -2,7 +2,7 @@
 # Refer to src/app/firedancer/config/default.toml for documentation.
 
 [consensus]
-    expected_shred_version = 36600 # make sure this is current
+    expected_shred_version = 13231 # make sure this is current
 [development]
     sandbox = false
     no_agave = true
