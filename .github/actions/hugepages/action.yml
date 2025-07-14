@@ -17,6 +17,7 @@ runs:
       run: |
         set -x
         sudo src/util/shmem/fd_shmem_cfg fini || true
+        findmnt -t hugetlbfs -n -o TARGET | xargs -r sudo umount || true
         sudo src/util/shmem/fd_shmem_cfg reset || true
         sudo src/util/shmem/fd_shmem_cfg init 0775 $USER "" || true
         [ $(cat /sys/devices/system/node/node0/hugepages/hugepages-1048576kB/nr_hugepages) -lt '${{ inputs.count_gigantic }}' ] && \

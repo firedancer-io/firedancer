@@ -47,4 +47,4 @@ jobs:
       - name: fini
         if: always()
         run: |
-          sudo $OBJDIR/bin/firedancer-dev configure fini all --config ../dump/mainnet-308392063-v2.3.0_backtest.toml
+          sudo $OBJDIR/bin/firedancer-dev configure fini all --config ../dump/mainnet-308392063-v2.3.0_backtest.toml || true
