@@ -52,9 +52,9 @@ before_credit( fd_metric_ctx_t *   ctx,
                fd_stem_context_t * stem,
                int *               charge_busy ) {
   long ticks_until_housekeeping = stem->housekeeping_deadline_ticks - fd_tickcount();
-  long ns_until_housekeeping = (long) ((double) ticks_until_housekeeping / fd_tempo_tick_per_ns( NULL ));
-  int timeout_ms = (int) (ns_until_housekeeping / 1000000L);
-  *charge_busy = fd_http_server_poll( ctx->metrics_server, fd_int_max(timeout_ms, 1) ); /* minimum 1ms */
+  long ns_until_housekeeping    = (long)((double)ticks_until_housekeeping / fd_tempo_tick_per_ns( NULL ));
+  int timeout_ms = (int)(ns_until_housekeeping / 1000000L);
+  *charge_busy   = fd_http_server_poll( ctx->metrics_server, fd_int_max(timeout_ms, 1) ); /* minimum 1ms */
 }
 
 static fd_http_server_response_t

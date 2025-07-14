@@ -435,7 +435,7 @@ STEM_(run1)( ulong                        in_cnt,
 
       } else if( FD_LIKELY( event_idx>cons_cnt+in_cnt ) ) { /* wake event for out wake_idx*/
         ulong wake_idx = event_idx - cons_cnt - in_cnt - 1UL;
-        ulong out_idx = wake_out[ wake_idx ];
+        ulong out_idx  = wake_out[ wake_idx ];
 
         /* Wake consumers waiting on this out */
         uint * futex_flag = fd_mcache_futex_flag( out_mcache[ out_idx ] );
