@@ -4,6 +4,7 @@
 #include "../../../disco/topo/fd_topo.h"
 #include "../../../discof/ipecho/fd_ipecho_client.h"
 
+#include <stdlib.h>
 #include <unistd.h>
 
 void
