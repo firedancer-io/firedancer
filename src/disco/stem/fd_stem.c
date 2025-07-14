@@ -190,7 +190,7 @@ STEM_(wake_consumers)( ulong             wake_out_cnt,
                        fd_frag_meta_t ** out_mcache,
                        uint *            latest_futex_vals ) {
   for( ulong i = 0; i < wake_out_cnt; i++ ) {
-    ulong  out_idx     = wake_out[i];
+    ulong  out_idx    = wake_out[i];
     uint * futex_flag = fd_mcache_futex_flag( out_mcache[ out_idx ] );
     if( FD_LIKELY( latest_futex_vals[out_idx] != *futex_flag ) ) {
       fd_futex_wake( futex_flag, INT_MAX );
@@ -251,7 +251,7 @@ STEM_(run1)( ulong                        in_cnt,
 #if STEM_CAN_SLEEP
   struct futex_waitv * waiters; /* array of futex waiters for each in */
 #else
-  (void)sleeps; /* only used when STEM_CAN_SLEEP is allowed */
+  (void)sleeps;
 #endif
   /* out frag stream state */
   ulong *        out_depth; /* ==fd_mcache_depth( out_mcache[out_idx] ) for out_idx in [0, out_cnt) */
@@ -368,7 +368,7 @@ STEM_(run1)( ulong                        in_cnt,
     cons_slow[ cons_idx ] = (ulong*)(fd_metrics_link_out( fd_metrics_base_tl, cons_idx ) + FD_METRICS_COUNTER_LINK_SLOW_COUNT_OFF);
     cons_seq [ cons_idx ] = fd_fseq_query( _cons_fseq[ cons_idx ] );
   }
-  
+
   wake_out = (ulong *)FD_SCRATCH_ALLOC_APPEND( l, alignof(ulong), wake_out_cnt*sizeof(ulong) );
   for( ulong wake_out_idx=0UL; wake_out_idx<wake_out_cnt; wake_out_idx++ ) {
     wake_out[ wake_out_idx ] = _wake_out[ wake_out_idx ];
@@ -445,7 +445,7 @@ STEM_(run1)( ulong                        in_cnt,
         }
 
       } else { /* event_idx==cons_cnt, housekeeping event */
-      
+
 #if STEM_CAN_SLEEP
         if( FD_UNLIKELY( sleeps ) ) { approx_wallclock_ns = fd_log_wallclock(); approx_tickcount = now; }
 #endif
@@ -514,7 +514,7 @@ STEM_(run1)( ulong                        in_cnt,
           in[ swap_idx ] = in[ 0        ];
           in[ 0        ] = in_tmp;
 #if STEM_CAN_SLEEP
-          if( FD_UNLIKELY( sleeps ) ) { 
+          if( FD_UNLIKELY( sleeps ) ) {
             struct futex_waitv waitv_tmp;
             waitv_tmp           = waiters[ swap_idx ];
             waiters[ swap_idx ] = waiters[ 0        ];
@@ -531,9 +531,9 @@ STEM_(run1)( ulong                        in_cnt,
       now = next;
     }
 
-/* By default, tiles are always spinning, except the ones that are configured to wait for futexes */ 
+/* By default, tiles are always spinning, except the ones that are configured to wait for futexes */
 #if STEM_CAN_SLEEP
-    if( FD_UNLIKELY( sleeps && futex_wait_counter>FD_STEM_SPIN_THRESHOLD ) ) { 
+    if( FD_UNLIKELY( sleeps && futex_wait_counter>FD_STEM_SPIN_THRESHOLD ) ) {
       /* Wake downstream consumers before we sleep */
       STEM_(wake_consumers)( wake_out_cnt, wake_out, out_mcache, last_futex );
 
@@ -852,7 +852,7 @@ STEM_(run)( fd_topo_t *      topo,
     for( ulong i=0UL; i<topo->tile_cnt && !has_waiting_cons; i++ ) {
       fd_topo_tile_t * consumer_tile = &topo->tiles[ i ];
       if( FD_UNLIKELY( !consumer_tile->sleeps ) ) continue;
-      
+
       for( ulong j=0UL; j<consumer_tile->in_cnt; j++ ) {
         if( consumer_tile->in_link_id[ j ] == tile->out_link_id[ k ] ) {
           has_waiting_cons = 1;
