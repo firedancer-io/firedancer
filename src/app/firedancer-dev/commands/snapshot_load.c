@@ -29,7 +29,8 @@ snapshot_load_topo( config_t *     config,
   fd_topo_obj_t * funk_obj = setup_topo_funk( topo, "funk",
       config->firedancer.funk.max_account_records,
       config->firedancer.funk.max_database_transactions,
-      config->firedancer.funk.heap_size_gib );
+      config->firedancer.funk.heap_size_gib,
+      config->firedancer.funk.lock_pages );
 
   static ushort tile_to_cpu[ FD_TILE_MAX ] = {0};
   if( args->snapshot_load.tile_cpus[0] ) {

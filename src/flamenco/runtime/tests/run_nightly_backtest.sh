@@ -103,6 +103,7 @@ echo "
     heap_size_gib = $FUNK_PAGES
     max_account_records = $INDEX_MAX
     max_database_transactions = 1024
+    lock_pages = true
 [runtime]
     heap_size_gib = 200
     [runtime.limits]

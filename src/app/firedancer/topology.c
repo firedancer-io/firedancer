@@ -74,7 +74,8 @@ setup_topo_funk( fd_topo_t *  topo,
                  char const * wksp_name,
                  ulong        max_account_records,
                  ulong        max_database_transactions,
-                 ulong        heap_size_gib ) {
+                 ulong        heap_size_gib,
+                 int          lock_pages ) {
   fd_topo_obj_t * obj = fd_topob_obj( topo, "funk", wksp_name );
   FD_TEST( fd_pod_insert_ulong(  topo->props, "funk", obj->id ) );
   FD_TEST( fd_pod_insertf_ulong( topo->props, max_account_records,       "obj.%lu.rec_max",  obj->id ) );
@@ -90,7 +91,7 @@ setup_topo_funk( fd_topo_t *  topo,
   ulong part_max = fd_wksp_part_max_est( funk_footprint+(heap_size_gib*(1UL<<30)), 1U<<14U );
   if( FD_UNLIKELY( !part_max ) ) FD_LOG_ERR(( "fd_wksp_part_max_est(%lu,16KiB) failed", funk_footprint ));
   wksp->part_max += part_max;
-  wksp->is_locked = 0;
+  wksp->is_locked = lock_pages;
 
   return obj;
 }
@@ -467,7 +468,8 @@ fd_topo_initialize( config_t * config ) {
   fd_topo_obj_t * funk_obj = setup_topo_funk( topo, "funk",
       config->firedancer.funk.max_account_records,
       config->firedancer.funk.max_database_transactions,
-      config->firedancer.funk.heap_size_gib );
+      config->firedancer.funk.heap_size_gib,
+      config->firedancer.funk.lock_pages );
 
   FOR(exec_tile_cnt)   fd_topob_tile_uses( topo, &topo->tiles[ fd_topo_find_tile( topo, "exec", i ) ], funk_obj, FD_SHMEM_JOIN_MODE_READ_WRITE );
   /*                */ fd_topob_tile_uses( topo, replay_tile,  funk_obj, FD_SHMEM_JOIN_MODE_READ_WRITE );

@@ -42,7 +42,7 @@ jobs:
         run: |
           sudo prlimit --pid=$$ --nofile=1048576
           sudo prlimit --pid=$$ --memlock=unlimited
-          DUMP_DIR=../dump make run-runtime-backtest
+          DUMP_DIR=../dump HUGE_TLBFS_MOUNT_PATH=/data/svc_firedancer/mnt/.fd make run-runtime-backtest
 
       - name: fini
         if: always()
