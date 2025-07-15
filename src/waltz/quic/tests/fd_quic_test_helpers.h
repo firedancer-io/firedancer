@@ -98,29 +98,6 @@ fd_quic_test_cb_tls_keylog( void *       quic_ctx,
 
 FD_PROTOTYPES_END
 
-/* fd_aio_eth_wrap is an fd_aio middleware that translates between a L2 (Ethernet) and L3 fd_aio.
-   Provides a simplistic Ethernet layer with hardcoded MAC addresses. */
-
-struct fd_aio_eth_wrap {
-  fd_aio_t     wrap_self;
-  fd_aio_t     unwrap_self;
-  fd_aio_t     wrap_next;
-  fd_aio_t     unwrap_next;
-  fd_eth_hdr_t template;
-};
-
-typedef struct fd_aio_eth_wrap fd_aio_eth_wrap_t;
-
-FD_PROTOTYPES_BEGIN
-
-fd_aio_t *
-fd_aio_eth_wrap( fd_aio_eth_wrap_t * wrap );
-
-fd_aio_t *
-fd_aio_eth_unwrap( fd_aio_eth_wrap_t * wrap );
-
-FD_PROTOTYPES_END
-
 /* fd_quic_udpsock is a command-line helper for creating an UDP channel
    over AF_XDP or UDP sockets. */
 
