@@ -11,6 +11,7 @@
 #include "../pack/fd_pack_pacing.h"
 
 #include <linux/unistd.h>
+#include <string.h>
 
 /* fd_pack is responsible for taking verified transactions, and
    arranging them into "microblocks" (groups) of transactions to
@@ -609,7 +610,7 @@ after_credit( fd_pack_ctx_t *     ctx,
       if( FD_LIKELY( txn_sz==0UL ) ) { /* Everything in good shape! */
         fd_pack_insert_bundle_cancel( ctx->pack, bundle, 1UL );
         fd_pack_set_initializer_bundles_ready( ctx->pack );
-        ctx->crank->metrics[ 0 ]++;
+        ctx->crank->metrics[ 0 ]++; /* BUNDLE_CRANK_STATUS_NOT_NEEDED */
       }
       else if( FD_LIKELY( txn_sz<ULONG_MAX ) ) {
         bundle[0]->txnp->payload_sz = (ushort)txn_sz;
@@ -624,7 +625,7 @@ after_credit( fd_pack_ctx_t *     ctx,
         int retval = fd_pack_insert_bundle_fini( ctx->pack, bundle, 1UL, ctx->leader_slot-1UL, 1, NULL );
         ctx->insert_result[ retval + FD_PACK_INSERT_RETVAL_OFF ]++;
         if( FD_UNLIKELY( retval<0 ) ) {
-          ctx->crank->metrics[ 3 ]++;
+          ctx->crank->metrics[ 3 ]++; /* BUNDLE_CRANK_STATUS_INSERTION_FAILED */
           FD_LOG_WARNING(( "inserting initializer bundle returned %i", retval ));
         } else {
           /* Update the cached copy of the on-chain state.  This seems a
@@ -646,12 +647,12 @@ after_credit( fd_pack_ctx_t *     ctx,
              that these are the right values to use. */
           fd_bundle_crank_apply( ctx->crank->gen, ctx->crank->prev_config, top_meta->commission_pubkey,
                                  ctx->crank->tip_receiver_owner, ctx->crank->epoch, top_meta->commission );
-          ctx->crank->metrics[ 1 ]++;
+          ctx->crank->metrics[ 1 ]++; /* BUNDLE_CRANK_STATUS_INSERTED */
         }
       } else {
         /* Already logged a warning in this case */
         fd_pack_insert_bundle_cancel( ctx->pack, bundle, 1UL );
-        ctx->crank->metrics[ 2 ]++;
+        ctx->crank->metrics[ 2 ]++; /* BUNDLE_CRANK_STATUS_CREATION_FAILED' */
       }
     }
   }
@@ -1270,6 +1271,7 @@ unprivileged_init( fd_topo_t *      topo,
   memset( ctx->current_bundle,     '\0', sizeof(ctx->current_bundle)     );
   memset( ctx->blk_engine_cfg,     '\0', sizeof(ctx->blk_engine_cfg)     );
   memset( ctx->last_sched_metrics, '\0', sizeof(ctx->last_sched_metrics) );
+  memset( ctx->crank->metrics,     '\0', sizeof(ctx->crank->metrics)     );
 
   FD_LOG_INFO(( "packing microblocks of at most %lu transactions to %lu bank tiles using strategy %i", EFFECTIVE_TXN_PER_MICROBLOCK, tile->pack.bank_tile_count, ctx->strategy ));
 

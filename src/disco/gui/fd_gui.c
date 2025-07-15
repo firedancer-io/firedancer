@@ -283,7 +283,11 @@ fd_gui_txn_waterfall_snap( fd_gui_t *               gui,
   fd_topo_tile_t const * pack = &topo->tiles[ fd_topo_find_tile( topo, "pack", 0UL ) ];
   volatile ulong const * pack_metrics = fd_metrics_tile( pack->metrics );
 
-  cur->out.pack_invalid_bundle = pack_metrics[ MIDX( COUNTER, PACK, TRANSACTION_DROPPED_PARTIAL_BUNDLE ) ];
+  cur->out.pack_invalid_bundle =
+      pack_metrics[ MIDX( COUNTER, PACK, TRANSACTION_DROPPED_PARTIAL_BUNDLE ) ]
+    + pack_metrics[ MIDX( COUNTER, PACK, BUNDLE_CRANK_STATUS_INSERTION_FAILED ) ]
+    + pack_metrics[ MIDX( COUNTER, PACK, BUNDLE_CRANK_STATUS_CREATION_FAILED ) ];
+
   cur->out.pack_invalid =
       pack_metrics[ MIDX( COUNTER, PACK, TRANSACTION_INSERTED_NONCE_CONFLICT ) ]
     + pack_metrics[ MIDX( COUNTER, PACK, TRANSACTION_INSERTED_BUNDLE_BLACKLIST ) ]
@@ -422,7 +426,11 @@ fd_gui_txn_waterfall_snap( fd_gui_t *               gui,
     bundle_txns_received = bundle_metrics[ MIDX( COUNTER, BUNDLE, TRANSACTION_RECEIVED ) ];
   }
 
-  cur->in.pack_cranked = pack_metrics[ MIDX( COUNTER, PACK, BUNDLE_CRANK_STATUS_INSERTED ) ];
+  cur->in.pack_cranked =
+      pack_metrics[ MIDX( COUNTER, PACK, BUNDLE_CRANK_STATUS_INSERTED ) ]
+    + pack_metrics[ MIDX( COUNTER, PACK, BUNDLE_CRANK_STATUS_INSERTION_FAILED ) ]
+    + pack_metrics[ MIDX( COUNTER, PACK, BUNDLE_CRANK_STATUS_CREATION_FAILED ) ];
+
   cur->in.gossip   = dedup_metrics[ MIDX( COUNTER, DEDUP, GOSSIPED_VOTES_RECEIVED ) ];
   cur->in.quic     = cur->out.tpu_quic_invalid +
                      cur->out.quic_overrun +
@@ -1755,6 +1763,7 @@ fd_gui_microblock_execution_begin( fd_gui_t *   gui,
     txn_entry->timestamp_delta_start_nanos = (int)((double)(tickcount - slot->txs.reference_ticks) / fd_tempo_tick_per_ns( NULL ));
     txn_entry->microblock_idx              = microblock_idx;
     txn_entry->flags                      |= (uchar)FD_GUI_TXN_FLAGS_STARTED;
+    txn_entry->flags                      &= (uchar)(~(uchar)(FD_GUI_TXN_FLAGS_IS_SIMPLE_VOTE | FD_GUI_TXN_FLAGS_FROM_BUNDLE));
     txn_entry->flags                      |= (uchar)fd_uint_if(txn_payload->flags & FD_TXN_P_FLAGS_IS_SIMPLE_VOTE, FD_GUI_TXN_FLAGS_IS_SIMPLE_VOTE, 0U);
     txn_entry->flags                      |= (uchar)fd_uint_if((txn_payload->flags & FD_TXN_P_FLAGS_BUNDLE) || (txn_payload->flags & FD_TXN_P_FLAGS_INITIALIZER_BUNDLE), FD_GUI_TXN_FLAGS_FROM_BUNDLE, 0U);
   }
@@ -1803,6 +1812,7 @@ fd_gui_microblock_execution_end( fd_gui_t *   gui,
     txn_entry->txn_preload_end_pct       = txn_preload_end_pct;
     txn_entry->tips                      = tips;
     txn_entry->flags                    |= (uchar)FD_GUI_TXN_FLAGS_ENDED;
+    txn_entry->flags                    &= (uchar)(~(uchar)FD_GUI_TXN_FLAGS_LANDED_IN_BLOCK);
     txn_entry->flags                    |= (uchar)fd_uint_if(txn_p->flags & FD_TXN_P_FLAGS_EXECUTE_SUCCESS, FD_GUI_TXN_FLAGS_LANDED_IN_BLOCK, 0U);
   }
 

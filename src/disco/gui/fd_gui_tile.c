@@ -81,8 +81,10 @@ typedef struct {
 
   /* This needs to be max(plugin_msg) across all kinds of messages.
      Currently this is just figured out manually, it's a gossip update
-     message assuming the table is completely full (40200) of peers. */
-  uchar      buf[ 8UL+FD_GUI_MAX_PEER_CNT*(58UL+12UL*34UL) ] __attribute__((aligned(8)));
+     message assuming the table is completely full (40200) of peers.
+
+     We also require an alignment of 64 to hold fd_txn_p_t structs. */
+  uchar      buf[ 8UL+FD_GUI_MAX_PEER_CNT*(58UL+12UL*34UL) ] __attribute__((aligned(64)));
 
   fd_http_server_t * gui_server;
 
