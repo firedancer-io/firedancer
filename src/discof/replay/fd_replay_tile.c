@@ -147,7 +147,14 @@ struct fd_replay_tile_ctx {
   /* Updated during execution */
 
   fd_exec_slot_ctx_t  * slot_ctx;
-  fd_slice_exec_t       slice_exec_ctx;
+
+  ulong *         exec_slice_deque; /* Deque of compact encodings of all the information needed to obtain
+                                       a slice from the blockstore. */
+  fd_slice_exec_t slice_exec_ctx;
+  ulong           slice_exec_flags;
+  int             exec_barrier;     /* Set to 1 if we need to poll to make sure that the exec-writer
+                                       pipeline has been fully drained and that there are no more in-flight
+                                       transactions. */
 
   /* TODO: Some of these arrays should be bitvecs that get masked into. */
   ulong                exec_cnt;
@@ -155,7 +162,6 @@ struct fd_replay_tile_ctx {
   uchar                exec_ready[ FD_PACK_MAX_BANK_TILES ]; /* Is tile ready */
   uint                 prev_ids  [ FD_PACK_MAX_BANK_TILES ]; /* Previous txn id if any */
   ulong *              exec_fseq [ FD_PACK_MAX_BANK_TILES ]; /* fseq of the last executed txn */
-  int                  block_finalizing;
 
   ulong                writer_cnt;
   ulong *              writer_fseq[ FD_PACK_MAX_BANK_TILES ];
@@ -233,12 +239,8 @@ struct fd_replay_tile_ctx {
                     validator could otherwise equivocate a previous vote
                     or block. */
 
-  int blocked_on_mblock; /* Flag used for synchronizing on mblock boundaries. */
-
   /* Metrics */
   fd_replay_tile_metrics_t metrics;
-
-  ulong * exec_slice_deque; /* Deque to buffer exec slices - lives in spad */
 
   ulong enable_bank_hash_cmp;
 
@@ -439,9 +441,7 @@ block_finalize_tiles_cb( void * para_arg_1,
   fd_stem_context_t *            stem       = (fd_stem_context_t *)para_arg_2;
   fd_accounts_hash_task_data_t * task_data  = (fd_accounts_hash_task_data_t *)fn_arg_1;
 
-  ulong cnt_per_worker;
-  if( ctx->exec_cnt>1 ) cnt_per_worker = (task_data->info_sz / (ctx->exec_cnt-1UL)) + 1UL; /* ??? */
-  else                  cnt_per_worker = task_data->info_sz;
+  ulong cnt_per_worker   = fd_ulong_align_up( task_data->info_sz, ctx->exec_cnt ) / ctx->exec_cnt;
   ulong task_infos_gaddr = fd_wksp_gaddr_fast( ctx->runtime_public_wksp, task_data->info );
 
   uchar hash_done[ FD_PACK_MAX_BANK_TILES ] = {0};
@@ -461,7 +461,7 @@ block_finalize_tiles_cb( void * para_arg_1,
       hash_done[ worker_idx ] = 1;
       continue;
     }
-    ulong end_idx = fd_ulong_sat_sub( start_idx + cnt_per_worker, 1UL );
+    ulong end_idx = start_idx + cnt_per_worker;
     if( end_idx >= task_data->info_sz ) {
       end_idx = fd_ulong_sat_sub( task_data->info_sz, 1UL );
     }
@@ -818,15 +818,13 @@ init_after_snapshot( fd_replay_tile_ctx_t * ctx,
                                             &exec_para_ctx_block_finalize );
 
     snapshot_slot = 1UL;
-
-    /* Now setup exec tiles for execution */
-    for( ulong i=0UL; i<ctx->exec_cnt; i++ ) {
-      ctx->exec_ready[ i ] = EXEC_TXN_READY;
-    }
   }
 
-  ctx->snapshot_slot = snapshot_slot;
-  ctx->flags         = EXEC_FLAG_READY_NEW;
+  ctx->snapshot_slot    = snapshot_slot;
+  ctx->slice_exec_flags = FD_EXEC_FLAG_READY_NEW;
+  for( ulong i=0UL; i<ctx->exec_cnt; i++ ) {
+    ctx->exec_ready[ i ] = EXEC_TXN_READY;
+  }
 
   /* Initialize consensus structures post-snapshot */
 
@@ -1150,15 +1148,6 @@ prepare_new_block_execution( fd_replay_tile_ctx_t * ctx,
       ctx->runtime_spad,
       &is_epoch_boundary );
 
-  /* FIXME: This breaks the concurrency model where we can change forks
-     in the middle of a block. */
-  /* At this point we need to notify all of the exec tiles and tell them
-     that a new slot is ready to be published. At this point, we should
-     also mark the tile as not being ready. */
-  for( ulong i=0UL; i<ctx->exec_cnt; i++ ) {
-    ctx->exec_ready[ i ] = EXEC_TXN_READY;
-  }
-
   /* We want to push on a spad frame before we start executing a block.
      Apart from allocations made at the epoch boundary, there should be no
      allocations that persist beyond the scope of a block. Before this point,
@@ -1239,7 +1228,7 @@ prepare_first_batch_execution( fd_replay_tile_ctx_t * ctx,
   if( fork==NULL ) {
     fork = prepare_new_block_execution( ctx, stem, slot, parent_slot, flags );
   } else {
-    FD_LOG_WARNING(("Fork for slot %lu already exists, so we don't make a new one. Restarting execution from batch %u", slot, fork->end_idx ));
+    FD_LOG_INFO(("Fork for slot %lu already exists, so we don't make a new one. Restarting execution from shred %u", slot, fork->end_idx+1U ));
     ctx->slot_ctx->bank = fd_banks_get_bank( ctx->banks, slot );
     if( FD_UNLIKELY( !ctx->slot_ctx->bank ) ) {
       FD_LOG_CRIT(( "Unable to get bank for slot %lu", slot ));
@@ -1263,8 +1252,17 @@ prepare_first_batch_execution( fd_replay_tile_ctx_t * ctx,
 
 }
 
+/* Dispatch transactions from the current microblock as much as we can.
+   If there's nothing more to dispatch from the current microblock, we
+   hit a barrier to make sure that all account changes are visible to
+   the next microblock. */
 static void
-exec_slice( fd_replay_tile_ctx_t * ctx, fd_stem_context_t * stem ) {
+fd_replay_exec_execute_slice( fd_replay_tile_ctx_t * ctx,
+                              fd_stem_context_t *    stem ) {
+
+  if( FD_UNLIKELY( ctx->slice_exec_flags!=FD_EXEC_FLAG_EXECUTING ) ) {
+    FD_LOG_CRIT(( "invariant violation: exec_flags: 0x%lx", ctx->slice_exec_flags ));
+  }
 
   /* Assumes that the slice exec ctx has buffered at least one slice.
      Then, for each microblock, round robin dispatch the transactions in
@@ -1286,17 +1284,7 @@ exec_slice( fd_replay_tile_ctx_t * ctx, fd_stem_context_t * stem ) {
     }
   }
 
-  if( ctx->blocked_on_mblock ) {
-    if( num_free_exec_tiles==ctx->exec_cnt ) {
-      ctx->blocked_on_mblock = 0;
-    } else {
-      return;
-    }
-  }
-
-  uchar start_num_free_exec_tiles = (uchar)ctx->exec_cnt;
   while( num_free_exec_tiles>0 ) {
-
     if( fd_slice_exec_txn_ready( &ctx->slice_exec_ctx ) ) {
       ulong tsorig = fd_frag_meta_ts_comp( fd_tickcount() );
 
@@ -1317,7 +1305,7 @@ exec_slice( fd_replay_tile_ctx_t * ctx, fd_stem_context_t * stem ) {
                                                      NULL,
                                                      ctx->forks->pool );
 
-      if( FD_UNLIKELY( !fork ) ) FD_LOG_ERR(( "Unable to select a fork" ));
+      if( FD_UNLIKELY( !fork ) ) FD_LOG_CRIT(( "unable to select a fork for executing slot %lu", slot ));
 
       fd_bank_txn_count_set( ctx->slot_ctx->bank, fd_bank_txn_count_get( ctx->slot_ctx->bank ) + 1 );
 
@@ -1330,56 +1318,13 @@ exec_slice( fd_replay_tile_ctx_t * ctx, fd_stem_context_t * stem ) {
       ulong tspub = fd_frag_meta_ts_comp( fd_tickcount() );
       fd_stem_publish( stem, exec_out->idx, EXEC_NEW_TXN_SIG, exec_out->chunk, sizeof(fd_runtime_public_txn_msg_t), 0UL, tsorig, tspub );
       exec_out->chunk = fd_dcache_compact_next( exec_out->chunk, sizeof(fd_runtime_public_txn_msg_t), exec_out->chunk0, exec_out->wmark );
-
-      continue;
+    } else {
+      break;
     }
-
-    /* If the current microblock is complete, and we still have mblks
-       to read, then advance to the next microblock */
-
-    if( fd_slice_exec_microblock_ready( &ctx->slice_exec_ctx ) ) {
-      ctx->blocked_on_mblock = 1;
-      fd_slice_exec_microblock_parse( &ctx->slice_exec_ctx );
-    }
-
-    /* Under this condition, we have finished executing all the
-       microblocks in the slice, and are ready to load another slice.
-       However, if just completed the last batch in the slot, we want
-       to be sure to finalize block execution (below). */
-
-    if( fd_slice_exec_slice_ready( &ctx->slice_exec_ctx )
-        && !ctx->slice_exec_ctx.last_batch ){
-      ctx->flags = EXEC_FLAG_READY_NEW;
-    }
-    break; /* block on microblock / batch */
   }
 
-  if( fd_slice_exec_slot_complete( &ctx->slice_exec_ctx ) ) {
-
-    if( num_free_exec_tiles != start_num_free_exec_tiles ) {
-      FD_LOG_DEBUG(( "blocked on exec tiles completing" ));
-      return;
-    }
-
-    FD_LOG_DEBUG(( "[%s] BLOCK EXECUTION COMPLETE", __func__ ));
-
-    /* At this point, the entire block has been executed. */
-    fd_fork_t * fork = fd_fork_frontier_ele_query( ctx->forks->frontier,
-                                                   &slot,
-                                                   NULL,
-                                                   ctx->forks->pool );
-    if( FD_UNLIKELY( !fork ) ) {
-      FD_LOG_ERR(( "Unable to select a fork" ));
-    }
-
-    fd_microblock_hdr_t * hdr = (fd_microblock_hdr_t *)fd_type_pun( ctx->slice_exec_ctx.buf + ctx->slice_exec_ctx.last_mblk_off );
-
-    // Copy block hash to slot_bank poh for updating the sysvars
-    fd_hash_t * poh = fd_bank_poh_modify( ctx->slot_ctx->bank );
-    memcpy( poh, hdr->hash, sizeof(fd_hash_t) );
-
-    ctx->flags = EXEC_FLAG_FINISHED_SLOT;
-    fd_slice_exec_reset( &ctx->slice_exec_ctx ); /* Reset ctx for next slot */
+  if( !fd_slice_exec_txn_ready( &ctx->slice_exec_ctx ) ) {
+    ctx->slice_exec_flags = FD_EXEC_FLAG_BARRIER;
   }
 
 }
@@ -1391,8 +1336,12 @@ exec_slice( fd_replay_tile_ctx_t * ctx, fd_stem_context_t * stem ) {
    them into the slice_exec_ctx. Assumes that replay is ready for a new
    slice (i.e., finished executing the previous slice). */
 static void
-handle_slice( fd_replay_tile_ctx_t * ctx,
-              fd_stem_context_t *    stem ) {
+fd_replay_exec_acquire_slice( fd_replay_tile_ctx_t * ctx,
+                              fd_stem_context_t *    stem ) {
+
+  if( FD_UNLIKELY( ctx->slice_exec_flags!=FD_EXEC_FLAG_READY_NEW ) ) {
+    FD_LOG_CRIT(( "invariant violation: exec_flags: 0x%lx", ctx->slice_exec_flags ));
+  }
 
   if( fd_exec_slice_cnt( ctx->exec_slice_deque )==0UL ) {
     FD_LOG_DEBUG(( "No slices to execute" ));
@@ -1400,10 +1349,6 @@ handle_slice( fd_replay_tile_ctx_t * ctx,
   }
 
   ulong sig = fd_exec_slice_pop_head( ctx->exec_slice_deque );
-
-  if( FD_UNLIKELY( ctx->flags!=EXEC_FLAG_READY_NEW ) ) {
-    FD_LOG_ERR(( "Replay is in unexpected state" ));
-  }
 
   /* Read in state to figure out data about the slice that we are about
      to read in. */
@@ -1432,25 +1377,31 @@ handle_slice( fd_replay_tile_ctx_t * ctx,
        Going to need to query the frontier for the fork, or create it
        if its not on the frontier. */
 
-    prepare_first_batch_execution( ctx, stem, slot, parent_slot );
-
     ulong turbine_slot = fd_fseq_query( ctx->turbine_slot );
 
     FD_LOG_NOTICE( ( "\n\n[Replay]\n"
+      "prev slot:       %lu\n"
+      "prev parent:     %lu\n"
       "slot:            %lu\n"
+      "parent:          %lu\n"
       "current turbine: %lu\n"
       "slots behind:    %lu\n"
       "live:            %d\n",
+      fd_bank_slot_get( ctx->slot_ctx->bank ),
+      fd_bank_parent_slot_get( ctx->slot_ctx->bank ),
       slot,
+      parent_slot,
       turbine_slot,
       turbine_slot - slot,
       ( turbine_slot - slot ) < 5 ) );
+
+    prepare_first_batch_execution( ctx, stem, slot, parent_slot );
   } else {
     /* continuing execution of the slot we have been doing */
   }
 
   /* Prepare batch for execution on following after_credit iteration */
-  ctx->flags = EXEC_FLAG_EXECUTING_SLICE;
+  ctx->slice_exec_flags = FD_EXEC_FLAG_EXECUTING;
   fd_fork_t * fork = fd_fork_frontier_ele_query( ctx->forks->frontier, &slot, NULL, ctx->forks->pool );
   ulong slice_sz;
   uint start_idx = fork->end_idx + 1;
@@ -1461,12 +1412,26 @@ handle_slice( fd_replay_tile_ctx_t * ctx,
                                        FD_SLICE_MAX,
                                        ctx->slice_exec_ctx.buf,
                                        &slice_sz );
+
+  if( FD_UNLIKELY( err ) ) {
+    FD_LOG_ERR(( "Failed to query blockstore for slot %lu", slot ));
+  }
   fork->end_idx += data_cnt;
   fd_slice_exec_begin( &ctx->slice_exec_ctx, slice_sz, slot_complete );
   fd_bank_shred_cnt_set( ctx->slot_ctx->bank, fd_bank_shred_cnt_get( ctx->slot_ctx->bank ) + data_cnt );
 
-  if( FD_UNLIKELY( err ) ) {
-    FD_LOG_ERR(( "Failed to query blockstore for slot %lu", slot ));
+  /* At this point we are ready to dispatch transactions from the new
+     slice.  The invariant is that we must have just cleared a barrier,
+     so check to make sure that invariant is held. */
+  int any_busy = 0;
+  for( ulong i=0UL; i<ctx->exec_cnt; i++ ) {
+    if( ctx->exec_ready[ i ]!=EXEC_TXN_READY ) {
+      FD_LOG_WARNING(( "exec tile %lu is still busy", i ));
+      any_busy = 1;
+    }
+  }
+  if( FD_UNLIKELY( any_busy ) ) {
+    FD_LOG_CRIT(( "invariant violation: exec tiles are still busy after clearing barrier" ));
   }
 }
 
@@ -1568,7 +1533,172 @@ publish_votes_to_plugin( fd_replay_tile_ctx_t * ctx,
 }
 
 static void
-handle_writer_state_updates( fd_replay_tile_ctx_t * ctx ) {
+fd_replay_exec_finalize_slot( fd_replay_tile_ctx_t * ctx,
+                              fd_stem_context_t *    stem ) {
+
+  if( FD_UNLIKELY( ctx->slice_exec_flags!=FD_EXEC_FLAG_FINALIZING ) ) {
+    FD_LOG_CRIT(( "invariant violation: exec_flags: 0x%lx", ctx->slice_exec_flags ));
+  }
+  if( FD_UNLIKELY( !fd_slice_exec_slot_complete( &ctx->slice_exec_ctx ) ) ) {
+    FD_LOG_CRIT(( "invariant violation: slot is not complete" ));
+  }
+
+  ulong       slot = fd_bank_slot_get( ctx->slot_ctx->bank );
+  fd_fork_t * fork = fd_fork_frontier_ele_query( ctx->forks->frontier,
+                                                 &slot,
+                                                 NULL,
+                                                 ctx->forks->pool );
+  if( FD_UNLIKELY( !fork ) ) {
+    FD_LOG_CRIT(( "unable to select a fork for completed slot %lu", slot ));
+  }
+
+  fd_microblock_hdr_t * hdr = (fd_microblock_hdr_t *)fd_type_pun( ctx->slice_exec_ctx.buf + ctx->slice_exec_ctx.last_mblk_off );
+
+  /* Copy block hash to bank poh for updating the sysvars. */
+  fd_hash_t * poh = fd_bank_poh_modify( ctx->slot_ctx->bank );
+  memcpy( poh, hdr->hash, sizeof(fd_hash_t) );
+
+  /* Check if the validator is caught up, and can safely be unmarked as
+     read-only.  This happens when it has replayed through
+     turbine_slot0. */
+
+  if( FD_UNLIKELY( ctx->read_only && slot >= fd_fseq_query( ctx->turbine_slot0 ) ) ) {
+    ctx->read_only = 0;
+  }
+
+  FD_LOG_NOTICE(( "finished block - slot: %lu, parent_slot: %lu", slot, fd_bank_parent_slot_get( ctx->slot_ctx->bank ) ));
+
+  /**************************************************************************************************/
+  /* Call fd_runtime_block_execute_finalize_tpool which updates sysvar and cleanup some other stuff */
+  /**************************************************************************************************/
+
+  fd_runtime_block_info_t runtime_block_info[1];
+  runtime_block_info->signature_cnt = fd_bank_signature_count_get( ctx->slot_ctx->bank );
+
+  fd_exec_para_cb_ctx_t exec_para_ctx_block_finalize = {
+    .func       = block_finalize_tiles_cb,
+    .para_arg_1 = ctx,
+    .para_arg_2 = stem,
+  };
+
+  fd_runtime_block_execute_finalize_para( ctx->slot_ctx,
+                                          ctx->capture_ctx,
+                                          runtime_block_info,
+                                          ctx->exec_cnt,
+                                          ctx->runtime_spad,
+                                          &exec_para_ctx_block_finalize );
+  fd_hash_t const * bank_hash = fd_bank_bank_hash_query( ctx->slot_ctx->bank );
+
+  /* FIXME This is totally broken now that we are doing fork
+     switching.  The frame we pop may not be the one we pushed for
+     this slot. */
+  fd_spad_pop( ctx->runtime_spad );
+  FD_LOG_NOTICE(( "Spad memory after executing block %lu", ctx->runtime_spad->mem_used ));
+
+  /**********************************************************************/
+  /* Push notifications for slot updates and reset block_info flag */
+  /**********************************************************************/
+
+  ulong block_entry_height = fd_bank_block_height_get( ctx->slot_ctx->bank );
+  publish_slot_notifications( ctx, stem, block_entry_height, slot );
+
+  ctx->blockstore->shmem->lps = slot;
+
+  FD_TEST(fork->slot == slot);
+  fork->lock = 0;
+
+  // FD_LOG_NOTICE(( "ulong_max? %d", ctx->tower_out_idx==ULONG_MAX ));
+  if( FD_LIKELY( ctx->tower_out_idx!=ULONG_MAX && !ctx->read_only ) ) {
+    uchar * chunk_laddr = fd_chunk_to_laddr( ctx->tower_out_mem, ctx->tower_out_chunk );
+    fd_block_hash_queue_global_t * block_hash_queue = (fd_block_hash_queue_global_t *)&ctx->slot_ctx->bank->block_hash_queue[0];
+    fd_hash_t * last_hash = fd_block_hash_queue_last_hash_join( block_hash_queue );
+
+    memcpy( chunk_laddr, bank_hash, sizeof(fd_hash_t) );
+    memcpy( chunk_laddr+sizeof(fd_hash_t), last_hash, sizeof(fd_hash_t) );
+    fd_stem_publish( stem, ctx->tower_out_idx, fd_bank_slot_get( ctx->slot_ctx->bank ) << 32UL | fd_bank_parent_slot_get( ctx->slot_ctx->bank ), ctx->tower_out_chunk, sizeof(fd_hash_t) * 2, 0UL, fd_frag_meta_ts_comp( fd_tickcount() ), fd_frag_meta_ts_comp( fd_tickcount() ) );
+  }
+
+  // if (FD_UNLIKELY( prev_confirmed!=ctx->forks->confirmed && ctx->plugin_out->mem ) ) {
+  //   ulong msg[ 1 ] = { ctx->forks->confirmed };
+  //   replay_plugin_publish( ctx, stem, FD_PLUGIN_MSG_SLOT_OPTIMISTICALLY_CONFIRMED, (uchar const *)msg, sizeof(msg) );
+  // }
+
+  // if (FD_UNLIKELY( prev_finalized!=ctx->forks->finalized && ctx->plugin_out->mem ) ) {
+  //   ulong msg[ 1 ] = { ctx->forks->finalized };
+  //   replay_plugin_publish( ctx, stem, FD_PLUGIN_MSG_SLOT_ROOTED, (uchar const *)msg, sizeof(msg) );
+  // }
+
+  /**********************************************************************/
+  /* Prepare bank for the next execution and write to debugging files   */
+  /**********************************************************************/
+
+  ulong prev_slot = fd_bank_slot_get( ctx->slot_ctx->bank );
+
+  fd_bank_execution_fees_set( ctx->slot_ctx->bank, 0UL );
+
+  fd_bank_priority_fees_set( ctx->slot_ctx->bank, 0UL );
+
+  if( FD_UNLIKELY( ctx->slots_replayed_file ) ) {
+    FD_LOG_DEBUG(( "writing %lu to slots file", prev_slot ));
+    fprintf( ctx->slots_replayed_file, "%lu\n", prev_slot );
+    fflush( ctx->slots_replayed_file );
+  }
+
+  if (NULL != ctx->capture_ctx) {
+    fd_solcap_writer_flush( ctx->capture_ctx->capture );
+  }
+
+  /**********************************************************************/
+  /* Bank hash comparison, and halt if there's a mismatch after replay  */
+  /**********************************************************************/
+
+  fd_bank_hash_cmp_t * bank_hash_cmp = ctx->bank_hash_cmp;
+  fd_bank_hash_cmp_lock( bank_hash_cmp );
+  fd_bank_hash_cmp_insert( bank_hash_cmp, slot, bank_hash, 1, 0 );
+
+  /* Try to move the bank hash comparison watermark forward */
+  for( ulong cmp_slot = bank_hash_cmp->watermark + 1; cmp_slot < slot; cmp_slot++ ) {
+    if( FD_UNLIKELY( !ctx->enable_bank_hash_cmp ) ) {
+      bank_hash_cmp->watermark = cmp_slot;
+      break;
+    }
+    int rc = fd_bank_hash_cmp_check( bank_hash_cmp, cmp_slot );
+    switch ( rc ) {
+      case -1:
+
+        /* Mismatch */
+
+        //funk_cancel( ctx, cmp_slot );
+        //checkpt( ctx );
+        FD_LOG_WARNING(( "Bank hash mismatch on slot: %lu. Halting.", cmp_slot ));
+
+        break;
+
+      case 0:
+
+        /* Not ready */
+
+        break;
+
+      case 1:
+
+        /* Match*/
+
+        bank_hash_cmp->watermark = cmp_slot;
+        break;
+
+      default:;
+    }
+  }
+
+  fd_bank_hash_cmp_unlock( bank_hash_cmp );
+
+  ctx->slice_exec_flags = FD_EXEC_FLAG_READY_NEW;
+
+}
+
+static void
+fd_replay_exec_tick( fd_replay_tile_ctx_t * ctx ) {
 
   for( ulong i=0UL; i<ctx->writer_cnt; i++ ) {
     ulong res = fd_fseq_query( ctx->writer_fseq[ i ] );
@@ -1589,10 +1719,16 @@ handle_writer_state_updates( fd_replay_tile_ctx_t * ctx ) {
         uint  txn_id       = fd_writer_fseq_get_txn_id( res );
         ulong exec_tile_id = fd_writer_fseq_get_exec_tile_id( res );
         if( ctx->exec_ready[ exec_tile_id ]==EXEC_TXN_BUSY && ctx->prev_ids[ exec_tile_id ]!=txn_id ) {
+          if( FD_UNLIKELY( txn_id - ctx->prev_ids[ exec_tile_id ] > 1 ) ) {
+            FD_LOG_CRIT(( "exec tile %lu txn id=%u has been finalized by writer tile %lu but the previous known txn id was %u implying that we skipped over a txn id", exec_tile_id, txn_id, i, ctx->prev_ids[ exec_tile_id ] ));
+          }
           FD_LOG_DEBUG(( "Ack that exec tile idx=%lu txn id=%u has been finalized by writer tile %lu", exec_tile_id, txn_id, i ));
           ctx->exec_ready[ exec_tile_id ] = EXEC_TXN_READY;
           ctx->prev_ids[ exec_tile_id ]   = txn_id;
           fd_fseq_update( ctx->writer_fseq[ i ], FD_WRITER_STATE_READY );
+        }
+        if( ctx->exec_ready[ exec_tile_id ]==EXEC_TXN_READY && ctx->prev_ids[ exec_tile_id ]!=txn_id ) {
+          FD_LOG_CRIT(( "exec tile %lu txn id=%u has been finalized by writer tile %lu but the previous known txn id was %u and exec tile busy flag is already cleared implying that someone overwrote the busy flag", exec_tile_id, txn_id, i, ctx->prev_ids[ exec_tile_id ] ));
         }
         break;
       }
@@ -1602,6 +1738,72 @@ handle_writer_state_updates( fd_replay_tile_ctx_t * ctx ) {
     }
   }
 
+}
+
+static int
+fd_exec_pipeline_is_drained( fd_replay_tile_ctx_t * ctx ) {
+  int all_ready = 1;
+  for( ulong i=0UL; i<ctx->exec_cnt; i++ ) {
+    if( ctx->exec_ready[ i ]==EXEC_TXN_BUSY ) {
+      all_ready = 0;
+      break;
+    }
+  }
+  return all_ready;
+}
+
+/* Keep advancing the execution state machine as much as we can.  As the
+   state machine advances, transactions might get dispatched into
+   execution worker tiles.  Return from this function only if it's no
+   longer possible to make progress.  That is, only if one of the
+   following conditions is true:
+   - We've hit a barrier.
+   - We need a new slice, but there's none available.
+   These conditions manifest as the state machine being stuck in a
+   certain state. */
+static void
+fd_replay_exec_tock( fd_replay_tile_ctx_t * ctx,
+                     fd_stem_context_t *    stem ) {
+  int state_changed = 1;
+  while( state_changed ) {
+    ulong old_state = ctx->slice_exec_flags;
+    switch( ctx->slice_exec_flags ) {
+      case FD_EXEC_FLAG_BARRIER:
+        if( fd_exec_pipeline_is_drained( ctx ) ) {
+          if( fd_slice_exec_microblock_ready( &ctx->slice_exec_ctx ) ) {
+            fd_slice_exec_microblock_parse( &ctx->slice_exec_ctx );
+            ctx->slice_exec_flags = FD_EXEC_FLAG_EXECUTING;
+          } else if( fd_slice_exec_slice_ready( &ctx->slice_exec_ctx ) ) {
+            ctx->slice_exec_flags = FD_EXEC_FLAG_READY_NEW;
+          } else if( fd_slice_exec_slot_complete( &ctx->slice_exec_ctx ) ) {
+            ctx->slice_exec_flags = FD_EXEC_FLAG_FINALIZING;
+          } else {
+            FD_LOG_CRIT(( "invariant violation: state machine bug" ));
+          }
+        } else {
+          /* No-op.
+
+             No state transition because there are still in-flight
+             transactions pending commit, so the barrier remains in
+             force. */
+        }
+        break;
+      case FD_EXEC_FLAG_READY_NEW:
+        fd_replay_exec_acquire_slice( ctx, stem );
+        break;
+      case FD_EXEC_FLAG_EXECUTING:
+        fd_replay_exec_execute_slice( ctx, stem );
+        break;
+      case FD_EXEC_FLAG_FINALIZING:
+        fd_replay_exec_finalize_slot( ctx, stem );
+        break;
+      default:
+        FD_LOG_CRIT(( "invariant violation: unexpected exec state: 0x%lx", ctx->slice_exec_flags ));
+    }
+    if( old_state==ctx->slice_exec_flags ) {
+      state_changed = 0;
+    }
+  }
 }
 
 static void
@@ -1667,166 +1869,15 @@ after_credit( fd_replay_tile_ctx_t * ctx,
     return;
   }
 
-  /* TODO: Consider moving state management to during_housekeeping */
+  /* Tick tock tick tock ...
 
-  /* Check all the writer link fseqs. */
-  handle_writer_state_updates( ctx );
-
-  /* If we are ready to process a new slice, we will poll for it and try
-     to setup execution for it. */
-  if( ctx->flags & EXEC_FLAG_READY_NEW ) {
-    handle_slice( ctx, stem );
-  }
-
-  /* If we are currently executing a slice, proceed. */
-  if( ctx->flags & EXEC_FLAG_EXECUTING_SLICE ) {
-    exec_slice( ctx, stem );
-  }
-
-  ulong curr_slot   = fd_bank_slot_get( ctx->slot_ctx->bank );
-  ulong flags       = ctx->flags;
-
-  /* Finished replaying a slot in this after_credit iteration. */
-  if( FD_UNLIKELY( flags & EXEC_FLAG_FINISHED_SLOT ) ){
-
-    /* Check if the validator is caught up, and can safely be unmarked
-       as read-only. This happens when it has replayed through
-       turbine_slot0. */
-
-    if( FD_UNLIKELY( ctx->read_only && curr_slot >= fd_fseq_query( ctx->turbine_slot0 ) ) ) {
-      ctx->read_only = 0;
-    }
-
-    fd_fork_t * fork = fd_fork_frontier_ele_query( ctx->forks->frontier, &curr_slot, NULL, ctx->forks->pool );
-
-    FD_LOG_NOTICE(( "finished block - slot: %lu, parent_slot: %lu", curr_slot, fd_bank_parent_slot_get( ctx->slot_ctx->bank ) ));
-
-    /**************************************************************************************************/
-    /* Call fd_runtime_block_execute_finalize_tpool which updates sysvar and cleanup some other stuff */
-    /**************************************************************************************************/
-
-    fd_runtime_block_info_t runtime_block_info[1];
-    runtime_block_info->signature_cnt = fd_bank_signature_count_get( ctx->slot_ctx->bank );
-
-    ctx->block_finalizing = 0;
-
-    fd_exec_para_cb_ctx_t exec_para_ctx_block_finalize = {
-      .func       = block_finalize_tiles_cb,
-      .para_arg_1 = ctx,
-      .para_arg_2 = stem,
-    };
-
-    fd_runtime_block_execute_finalize_para( ctx->slot_ctx,
-                                            ctx->capture_ctx,
-                                            runtime_block_info,
-                                            ctx->exec_cnt,
-                                            ctx->runtime_spad,
-                                            &exec_para_ctx_block_finalize );
-
-    fd_spad_pop( ctx->runtime_spad );
-    FD_LOG_NOTICE(( "Spad memory after executing block %lu", ctx->runtime_spad->mem_used ));
-
-    /**********************************************************************/
-    /* Push notifications for slot updates and reset block_info flag */
-    /**********************************************************************/
-
-    ulong block_entry_height = fd_bank_block_height_get( ctx->slot_ctx->bank );
-    publish_slot_notifications( ctx, stem, block_entry_height, curr_slot );
-
-    ctx->blockstore->shmem->lps = curr_slot;
-
-    FD_TEST(fork->slot == curr_slot);
-    fork->lock = 0;
-
-    // FD_LOG_NOTICE(( "ulong_max? %d", ctx->tower_out_idx==ULONG_MAX ));
-    if( FD_LIKELY( ctx->tower_out_idx!=ULONG_MAX && !ctx->read_only ) ) {
-      uchar * chunk_laddr = fd_chunk_to_laddr( ctx->tower_out_mem, ctx->tower_out_chunk );
-      fd_hash_t const * bank_hash = fd_bank_bank_hash_query( ctx->slot_ctx->bank );
-      fd_block_hash_queue_global_t * block_hash_queue = (fd_block_hash_queue_global_t *)&ctx->slot_ctx->bank->block_hash_queue[0];
-      fd_hash_t * last_hash = fd_block_hash_queue_last_hash_join( block_hash_queue );
-
-      memcpy( chunk_laddr, bank_hash, sizeof(fd_hash_t) );
-      memcpy( chunk_laddr+sizeof(fd_hash_t), last_hash, sizeof(fd_hash_t) );
-      fd_stem_publish( stem, ctx->tower_out_idx, fd_bank_slot_get( ctx->slot_ctx->bank ) << 32UL | fd_bank_parent_slot_get( ctx->slot_ctx->bank ), ctx->tower_out_chunk, sizeof(fd_hash_t) * 2, 0UL, fd_frag_meta_ts_comp( fd_tickcount() ), fd_frag_meta_ts_comp( fd_tickcount() ) );
-    }
-
-    // if (FD_UNLIKELY( prev_confirmed!=ctx->forks->confirmed && ctx->plugin_out->mem ) ) {
-    //   ulong msg[ 1 ] = { ctx->forks->confirmed };
-    //   replay_plugin_publish( ctx, stem, FD_PLUGIN_MSG_SLOT_OPTIMISTICALLY_CONFIRMED, (uchar const *)msg, sizeof(msg) );
-    // }
-
-    // if (FD_UNLIKELY( prev_finalized!=ctx->forks->finalized && ctx->plugin_out->mem ) ) {
-    //   ulong msg[ 1 ] = { ctx->forks->finalized };
-    //   replay_plugin_publish( ctx, stem, FD_PLUGIN_MSG_SLOT_ROOTED, (uchar const *)msg, sizeof(msg) );
-    // }
-
-    /**********************************************************************/
-    /* Prepare bank for the next execution and write to debugging files   */
-    /**********************************************************************/
-
-    ulong prev_slot = fd_bank_slot_get( ctx->slot_ctx->bank );
-
-    fd_bank_execution_fees_set( ctx->slot_ctx->bank, 0UL );
-
-    fd_bank_priority_fees_set( ctx->slot_ctx->bank, 0UL );
-
-    if( FD_UNLIKELY( ctx->slots_replayed_file ) ) {
-      FD_LOG_DEBUG(( "writing %lu to slots file", prev_slot ));
-      fprintf( ctx->slots_replayed_file, "%lu\n", prev_slot );
-      fflush( ctx->slots_replayed_file );
-    }
-
-    if (NULL != ctx->capture_ctx) {
-      fd_solcap_writer_flush( ctx->capture_ctx->capture );
-    }
-
-    /**********************************************************************/
-    /* Bank hash comparison, and halt if there's a mismatch after replay  */
-    /**********************************************************************/
-
-    fd_hash_t const * bank_hash = fd_bank_bank_hash_query( ctx->slot_ctx->bank );
-    fd_bank_hash_cmp_t * bank_hash_cmp = ctx->bank_hash_cmp;
-    fd_bank_hash_cmp_lock( bank_hash_cmp );
-    fd_bank_hash_cmp_insert( bank_hash_cmp, curr_slot, bank_hash, 1, 0 );
-
-    /* Try to move the bank hash comparison watermark forward */
-    for( ulong cmp_slot = bank_hash_cmp->watermark + 1; cmp_slot < curr_slot; cmp_slot++ ) {
-      if( FD_UNLIKELY( !ctx->enable_bank_hash_cmp ) ) {
-        bank_hash_cmp->watermark = cmp_slot;
-        break;
-      }
-      int rc = fd_bank_hash_cmp_check( bank_hash_cmp, cmp_slot );
-      switch ( rc ) {
-        case -1:
-
-          /* Mismatch */
-
-          //funk_cancel( ctx, cmp_slot );
-          //checkpt( ctx );
-          FD_LOG_WARNING(( "Bank hash mismatch on slot: %lu. Halting.", cmp_slot ));
-
-          break;
-
-        case 0:
-
-          /* Not ready */
-
-          break;
-
-        case 1:
-
-          /* Match*/
-
-          bank_hash_cmp->watermark = cmp_slot;
-          break;
-
-        default:;
-      }
-    }
-
-    fd_bank_hash_cmp_unlock( bank_hash_cmp );
-    ctx->flags = EXEC_FLAG_READY_NEW;
-  } // end of if( FD_UNLIKELY( ( flags & EXEC_FLAG_FINISHED_SLOT ) ) )
+     Every iteration of the run loop, we first try to ack execution
+     worker tiles, and update our local view of the state of workers.
+     That's a tick.  Then, given the latest observable state of worker
+     tiles, we try to advance execution as much as we can.  That's a
+     tock. */
+  fd_replay_exec_tick( ctx );
+  fd_replay_exec_tock( ctx, stem );
 
   long now = fd_log_wallclock();
   if( ctx->votes_plugin_out->mem && FD_UNLIKELY( ( now - ctx->last_plugin_push_time )>PLUGIN_PUBLISH_TIME_NS ) ) {

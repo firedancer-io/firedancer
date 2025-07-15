@@ -17,8 +17,7 @@
 #define EXEC_SNAP_HASH_ACCS_GATHER_SIG (0x193992UL)
 
 #define FD_WRITER_BOOT_SIG             (0xAABB0011UL)
-#define FD_WRITER_SLOT_SIG             (0xBBBB1122UL)
-#define FD_WRITER_TXN_SIG              (0xBBCC2233UL)
+#define FD_WRITER_TXN_SIG              (0xBBCC1122UL)
 
 #define FD_EXEC_STATE_NOT_BOOTED       (0xFFFFFFFFUL)
 #define FD_EXEC_STATE_BOOTED           (1<<1UL      )
