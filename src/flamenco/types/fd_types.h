@@ -3146,6 +3146,7 @@ struct fd_crds_data {
 typedef struct fd_crds_data fd_crds_data_t;
 #define FD_CRDS_DATA_ALIGN alignof(fd_crds_data_t)
 
+/* https://github.com/firedancer-io/agave/blob/540d5bc56cd44e3cc61b179bd52e9a782a2c99e4/bloom/src/bloom.rs#L26 */
 /* Encoded Size: Dynamic */
 struct fd_crds_bloom {
   ulong keys_len;
@@ -3159,6 +3160,7 @@ struct fd_crds_bloom {
 typedef struct fd_crds_bloom fd_crds_bloom_t;
 #define FD_CRDS_BLOOM_ALIGN alignof(fd_crds_bloom_t)
 
+/* https://github.com/firedancer-io/agave/blob/540d5bc56cd44e3cc61b179bd52e9a782a2c99e4/gossip/src/crds_gossip_pull.rs#L60 */
 /* Encoded Size: Dynamic */
 struct fd_crds_filter {
   fd_crds_bloom_t filter;

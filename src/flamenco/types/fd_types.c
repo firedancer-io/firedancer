@@ -8878,6 +8878,7 @@ static int fd_slot_history_decode_footprint_inner( fd_bincode_decode_ctx_t * ctx
       }
       if( FD_UNLIKELY( err!=FD_BINCODE_SUCCESS ) ) return err;
       inner_len = bits_bitvec_len;
+      if( inner_len==0 ) return FD_BINCODE_ERR_ENCODING;
     }
     ulong len;
     err = fd_bincode_uint64_decode( &len, ctx );
@@ -19339,6 +19340,7 @@ static int fd_gossip_slots_decode_footprint_inner( fd_bincode_decode_ctx_t * ctx
       }
       if( FD_UNLIKELY( err!=FD_BINCODE_SUCCESS ) ) return err;
       inner_len = slots_bitvec_len;
+      if( inner_len==0 ) return FD_BINCODE_ERR_ENCODING;
     }
     ulong len;
     err = fd_bincode_uint64_decode( &len, ctx );
@@ -20769,6 +20771,7 @@ static int fd_restart_raw_offsets_decode_footprint_inner( fd_bincode_decode_ctx_
       }
       if( FD_UNLIKELY( err!=FD_BINCODE_SUCCESS ) ) return err;
       inner_len = offsets_bitvec_len;
+      if( inner_len==0 ) return FD_BINCODE_ERR_ENCODING;
     }
     ulong len;
     err = fd_bincode_uint64_decode( &len, ctx );
@@ -21689,6 +21692,7 @@ static int fd_crds_bloom_decode_footprint_inner( fd_bincode_decode_ctx_t * ctx, 
       }
       if( FD_UNLIKELY( err!=FD_BINCODE_SUCCESS ) ) return err;
       inner_len = bits_bitvec_len;
+      if( inner_len==0 ) return FD_BINCODE_ERR_ENCODING;
     }
     ulong len;
     err = fd_bincode_uint64_decode( &len, ctx );
