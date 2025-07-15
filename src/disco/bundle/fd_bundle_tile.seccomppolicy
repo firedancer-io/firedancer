@@ -125,3 +125,18 @@ lseek: (and (or (eq (arg 0) etc_resolv_conf)
                 (eq (arg 0) etc_hosts_fd))
             (eq (arg 1) 0)
             (eq (arg 2) "SEEK_SET"))
+
+# cooperative scheduling: allow futex wake operations
+#
+# fd_futex_wake uses: syscall(SYS_futex, addr, FUTEX_WAKE, n, NULL, NULL, 0)
+#
+# arg 0: addr (varies - futex address)
+# arg 1: op (FUTEX_WAKE=1)
+# arg 2: n (varies - number to wake)
+# arg 3: timeout (always NULL)
+# arg 4: uaddr2 (always NULL)
+# arg 5: val3 (always 0)
+futex: (and (eq (arg 1) FUTEX_WAKE)
+            (eq (arg 3) 0)
+            (eq (arg 4) 0)
+            (eq (arg 5) 0))
