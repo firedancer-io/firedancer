@@ -386,7 +386,8 @@ struct rlimit_setting {
 void
 fd_sandbox_private_set_rlimits( ulong rlimit_file_cnt,
                                 ulong rlimit_address_space,
-                                ulong rlimit_data ) {
+                                ulong rlimit_data,
+                                int   dumpable ) {
   struct rlimit_setting rlimits[] = {
     { .resource=RLIMIT_NOFILE,     .limit=rlimit_file_cnt },
     /* The man page for setrlimit(2) states about RLIMIT_NICE:
@@ -425,6 +426,7 @@ fd_sandbox_private_set_rlimits( ulong rlimit_file_cnt,
   };
 
   for( ulong i=0UL; i<sizeof(rlimits)/sizeof(rlimits[ 0 ]); i++ ) {
+    if( dumpable && rlimits[i].resource==RLIMIT_CORE ) continue;
     struct rlimit limit = { .rlim_cur=rlimits[ i ].limit, .rlim_max=rlimits[ i ].limit };
     if( -1==setrlimit( rlimits[ i ].resource, &limit ) ) FD_LOG_ERR(( "setrlimit(%u) failed (%i-%s)", rlimits[ i ].resource, errno, fd_io_strerror( errno ) ));
   }
@@ -664,7 +666,7 @@ fd_sandbox_private_enter_no_seccomp( uint        desired_uid,
   fd_sandbox_private_landlock_restrict_self( allow_connect );
 
   /* And trim all the resource limits down to zero. */
-  fd_sandbox_private_set_rlimits( rlimit_file_cnt, rlimit_address_space, rlimit_data );
+  fd_sandbox_private_set_rlimits( rlimit_file_cnt, rlimit_address_space, rlimit_data, dumpable );
 
   /* And drop all the capabilities we have in the new user namespace. */
   fd_sandbox_private_drop_caps( cap_last_cap );
