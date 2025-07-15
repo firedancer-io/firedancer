@@ -6,6 +6,10 @@
 #include "../../util/pod/fd_pod_format.h"
 #include "../../disco/fd_disco.h"
 #include "../../discof/fd_discof.h"
+#include "../../flamenco/stakes/fd_stakes.h"
+#include "../../flamenco/runtime/sysvar/fd_sysvar_epoch_schedule.h"
+#include "../../disco/fd_disco.h"
+#include "../../util/pod/fd_pod_format.h"
 
 #include <errno.h>
 #include <fcntl.h>
@@ -33,6 +37,8 @@
 #define FD_SHREDCAP_DEFAULT_WRITER_BUF_SZ  (4096UL)  /* local filesystem block size */
 #define FD_SHREDCAP_ALLOC_TAG              (4UL)
 #define MAX_BUFFER_SIZE                    (20000UL * sizeof(fd_shred_dest_wire_t))
+#define MANIFEST_MAX_TOTAL_BANKS           (2UL) /* the minimum is 2 */
+#define MANIFEST_MAX_FORK_WIDTH            (1UL) /* banks are only needed during publish_stake_weights() */
 
 #define NET_SHRED        (0UL)
 #define REPAIR_NET       (1UL)
@@ -51,6 +57,19 @@ typedef union {
   fd_net_rx_bounds_t net_rx;
 } fd_capture_in_ctx_t;
 
+struct fd_stake_out_link {
+  ulong       idx;
+  fd_frag_meta_t * mcache;
+  ulong *          sync;
+  ulong            depth;
+  ulong            seq;
+  fd_wksp_t * mem;
+  ulong       chunk0;
+  ulong       wmark;
+  ulong       chunk;
+};
+typedef struct fd_stake_out_link fd_stake_out_link_t;
+
 struct fd_capture_tile_ctx {
   uchar               in_kind[ 32 ];
   fd_capture_in_ctx_t in_links[ 32 ];
@@ -63,6 +82,19 @@ struct fd_capture_tile_ctx {
 
   ulong repair_buffer_sz;
   uchar repair_buffer[ FD_NET_MTU ];
+
+  fd_stake_out_link_t  stake_out[1];
+  int                  enable_publish_stake_weights;
+  ulong *              manifest_wmark;
+  uchar *              manifest_bank_mem;
+  uchar *              mainfest_exec_slot_ctx_mem;
+  fd_exec_slot_ctx_t * manifest_exec_slot_ctx;
+  char                 manifest_path[ PATH_MAX ];
+  int                  manifest_load_done;
+  uchar *              manifest_spad_mem;
+  fd_spad_t *          manifest_spad;
+  uchar *              shared_spad_mem;
+  fd_spad_t *          shared_spad;
 
   fd_ip4_udp_hdrs_t intake_hdr[1];
 
@@ -103,10 +135,67 @@ scratch_align( void ) {
   return 4096UL;
 }
 
+FD_FN_CONST static inline ulong
+manifest_bank_align( void ) {
+  return fd_banks_align();
+}
+
+FD_FN_CONST static inline ulong
+manifest_bank_footprint( void ) {
+  return fd_banks_footprint( MANIFEST_MAX_TOTAL_BANKS, MANIFEST_MAX_FORK_WIDTH );
+}
+
+FD_FN_CONST static inline ulong
+manifest_load_align( void ) {
+  return 128UL;
+}
+
+FD_FN_CONST static inline ulong
+manifest_load_footprint( void ) {
+  /* A manifest typically requires 1GB, but closer to 2GB
+     have been observed in mainnet.  The footprint is then
+     set to 2GB.  TODO a future adjustment may be needed. */
+  return 2UL * FD_SHMEM_GIGANTIC_PAGE_SZ;
+}
+
+FD_FN_CONST static inline ulong
+manifest_spad_max_alloc_align( void ) {
+  return FD_SPAD_ALIGN;
+}
+
+FD_FN_CONST static inline ulong
+manifest_spad_max_alloc_footprint( void ) {
+  /* The amount of memory required in the manifest load
+     scratchpad to process it tends to be slightly larger
+     than the manifest load footprint. */
+  return manifest_load_footprint() + 128UL * FD_SHMEM_HUGE_PAGE_SZ;
+}
+
+FD_FN_CONST static inline ulong
+shared_spad_max_alloc_align( void ) {
+  return FD_SPAD_ALIGN;
+}
+
+FD_FN_CONST static inline ulong
+shared_spad_max_alloc_footprint( void ) {
+  /* The shared scratchpad is used by the manifest banks
+     and by the manifest load (but not at the same time).
+     The footprint for the banks needs to be equal to
+     banks footprint (at least for the current setup with
+     MANIFEST_MAX_TOTAL_BANKS==2). */
+  return fd_ulong_max( manifest_bank_footprint(), manifest_load_footprint() );
+}
+
 FD_FN_PURE static inline ulong
 loose_footprint( fd_topo_tile_t const * tile FD_PARAM_UNUSED ) {
-  return 1UL * FD_SHMEM_GIGANTIC_PAGE_SZ;
+  ulong footprint = sizeof(fd_capture_tile_ctx_t) + FD_EXEC_SLOT_CTX_FOOTPRINT
+                    + manifest_bank_footprint()
+                    + fd_spad_footprint( manifest_spad_max_alloc_footprint() )
+                    + fd_spad_footprint( shared_spad_max_alloc_footprint() )
+                    + fd_alloc_footprint();
+  return fd_ulong_align_up( footprint, FD_SHMEM_GIGANTIC_PAGE_SZ );
 }
+
 
 static ulong
 populate_allowed_seccomp( fd_topo_t const *      topo FD_PARAM_UNUSED,
@@ -123,14 +212,84 @@ populate_allowed_seccomp( fd_topo_t const *      topo FD_PARAM_UNUSED,
   return sock_filter_policy_fd_shredcap_tile_instr_cnt;
 }
 
-
 FD_FN_PURE static inline ulong
 scratch_footprint( fd_topo_tile_t const * tile ) {
   (void)tile;
   ulong l = FD_LAYOUT_INIT;
-  l = FD_LAYOUT_APPEND( l, alignof(fd_capture_tile_ctx_t), sizeof(fd_capture_tile_ctx_t) );
-  l = FD_LAYOUT_APPEND( l, fd_alloc_align(), fd_alloc_footprint() );
+  l = FD_LAYOUT_APPEND( l, alignof(fd_capture_tile_ctx_t),  sizeof(fd_capture_tile_ctx_t) );
+  l = FD_LAYOUT_APPEND( l, FD_EXEC_SLOT_CTX_ALIGN,          FD_EXEC_SLOT_CTX_FOOTPRINT );
+  l = FD_LAYOUT_APPEND( l, manifest_bank_align(),           manifest_bank_footprint() );
+  l = FD_LAYOUT_APPEND( l, manifest_spad_max_alloc_align(), fd_spad_footprint( manifest_spad_max_alloc_footprint() ) );
+  l = FD_LAYOUT_APPEND( l, shared_spad_max_alloc_align(),   fd_spad_footprint( shared_spad_max_alloc_footprint() ) );
+  l = FD_LAYOUT_APPEND( l, fd_alloc_align(),                fd_alloc_footprint() );
   return FD_LAYOUT_FINI( l, scratch_align() );
+}
+
+static inline ulong
+generate_stake_weight_msg( fd_exec_slot_ctx_t * slot_ctx,
+                           fd_spad_t          * runtime_spad,
+                           ulong                epoch,
+                           fd_vote_accounts_global_t const * vote_accounts,
+                           ulong              * stake_weight_msg_out ) {
+
+  fd_stake_weight_msg_t *           stake_weight_msg = (fd_stake_weight_msg_t *)fd_type_pun( stake_weight_msg_out );
+  fd_vote_stake_weight_t *          stake_weights    = stake_weight_msg->weights;
+  ulong                             stake_weight_idx = fd_stake_weights_by_node( vote_accounts,
+                                                                           stake_weights,
+                                                                           runtime_spad );
+  fd_epoch_schedule_t const * epoch_schedule = fd_bank_epoch_schedule_query( slot_ctx->bank );
+
+  stake_weight_msg->epoch          = epoch;
+  stake_weight_msg->staked_cnt     = stake_weight_idx;
+  stake_weight_msg->start_slot     = fd_epoch_slot0( epoch_schedule, stake_weight_msg_out[0] );
+  stake_weight_msg->slot_cnt       = epoch_schedule->slots_per_epoch;
+  stake_weight_msg->excluded_stake = 0UL;
+
+  return 5*sizeof(ulong) + (stake_weight_idx * sizeof(fd_stake_weight_t));
+}
+
+static void
+publish_stake_weights( fd_capture_tile_ctx_t * ctx,
+                       fd_stem_context_t *    stem,
+                       fd_solana_manifest_global_t const * manifest ) {
+  FD_SPAD_FRAME_BEGIN( ctx->shared_spad ) {
+
+    /* Process the manifest. */
+    ulong epoch                   = manifest->bank.stakes.epoch;
+    fd_exec_slot_ctx_t * slot_ctx = ctx->manifest_exec_slot_ctx;
+    fd_exec_slot_ctx_t * ret      = fd_exec_slot_ctx_recover( slot_ctx, manifest, ctx->shared_spad );
+    FD_TEST( ret==slot_ctx );
+
+    /* Publish current epoch. */
+    fd_vote_accounts_global_t const * vote_accounts = fd_bank_epoch_stakes_locking_query( slot_ctx->bank );
+    fd_vote_accounts_pair_global_t_mapnode_t * epoch_stakes_root = fd_vote_accounts_vote_accounts_root_join( vote_accounts );
+
+    if( epoch_stakes_root!=NULL ) {
+      ulong * stake_weights_msg = fd_chunk_to_laddr( ctx->stake_out->mem, ctx->stake_out->chunk );
+      ulong stake_weights_sz = generate_stake_weight_msg( slot_ctx, ctx->shared_spad, epoch, vote_accounts, stake_weights_msg );
+      ulong stake_weights_sig = 4UL;
+      fd_stem_publish( stem, 0UL, stake_weights_sig, ctx->stake_out->chunk, stake_weights_sz, 0UL, 0UL, fd_frag_meta_ts_comp( fd_tickcount() ) );
+      ctx->stake_out->chunk = fd_dcache_compact_next( ctx->stake_out->chunk, stake_weights_sz, ctx->stake_out->chunk0, ctx->stake_out->wmark );
+      FD_LOG_NOTICE(("sending current epoch stake weights - epoch: %lu, stake_weight_cnt: %lu, start_slot: %lu, slot_cnt: %lu", stake_weights_msg[0], stake_weights_msg[1], stake_weights_msg[2], stake_weights_msg[3]));
+    }
+
+    fd_bank_epoch_stakes_end_locking_query( slot_ctx->bank );
+
+    /* Publish next epoch. */
+    fd_vote_accounts_global_t const * next_vote_accounts = fd_bank_next_epoch_stakes_locking_query( slot_ctx->bank );
+    fd_vote_accounts_pair_global_t_mapnode_t * next_epoch_stakes_root = fd_vote_accounts_vote_accounts_root_join( next_vote_accounts );
+
+    if( next_epoch_stakes_root!=NULL ) {
+      ulong * stake_weights_msg = fd_chunk_to_laddr( ctx->stake_out->mem, ctx->stake_out->chunk );
+      ulong stake_weights_sz = generate_stake_weight_msg( slot_ctx, ctx->shared_spad, epoch + 1, next_vote_accounts, stake_weights_msg );
+      ulong stake_weights_sig = 4UL;
+      fd_stem_publish( stem, 0UL, stake_weights_sig, ctx->stake_out->chunk, stake_weights_sz, 0UL, 0UL, fd_frag_meta_ts_comp( fd_tickcount() ) );
+      ctx->stake_out->chunk = fd_dcache_compact_next( ctx->stake_out->chunk, stake_weights_sz, ctx->stake_out->chunk0, ctx->stake_out->wmark );
+      FD_LOG_NOTICE(("sending next epoch stake weights - epoch: %lu, stake_weight_cnt: %lu, start_slot: %lu, slot_cnt: %lu", stake_weights_msg[0], stake_weights_msg[1], stake_weights_msg[2], stake_weights_msg[3]));
+    }
+    fd_bank_next_epoch_stakes_end_locking_query( slot_ctx->bank );
+
+  } FD_SPAD_FRAME_END;
 }
 
 static inline int
@@ -163,7 +322,6 @@ handle_new_turbine_contact_info( fd_capture_tile_ctx_t * ctx,
     FD_TEST( err==0 );
   }
 }
-
 
 static int
 is_fec_completes_msg( ulong sz ) {
@@ -270,6 +428,54 @@ during_frag( fd_capture_tile_ctx_t * ctx,
     }
     uchar const * dcache_entry = fd_chunk_to_laddr_const( ctx->in_links[ in_idx ].mem, chunk );
     fd_memcpy( ctx->contact_info_buffer, dcache_entry, sz );
+  }
+}
+
+static void
+after_credit( fd_capture_tile_ctx_t * ctx,
+              fd_stem_context_t *     stem FD_PARAM_UNUSED,
+              int *                   opt_poll_in FD_PARAM_UNUSED,
+              int *                   charge_busy FD_PARAM_UNUSED ) {
+
+  if( FD_UNLIKELY( !ctx->manifest_load_done ) ) {
+    if( FD_LIKELY( !!strcmp( ctx->manifest_path, "") ) ) {
+      /* ctx->manifest_spad will hold the processed manifest. */
+      fd_spad_reset( ctx->manifest_spad );
+      fd_spad_push( ctx->manifest_spad );
+      /* do not pop from ctx->manifest_spad, the manifest needs
+         to remain available until a new manifest is processed. */
+
+      int fd = open( ctx->manifest_path, O_RDONLY );
+      if( FD_UNLIKELY( fd < 0 ) ) {
+        FD_LOG_WARNING(( "open(%s) failed (%d-%s)", ctx->manifest_path, errno, fd_io_strerror( errno ) ));
+        return;
+      }
+      FD_LOG_NOTICE(( "manifest %s.", ctx->manifest_path ));
+
+      fd_solana_manifest_global_t * manifest = NULL;
+      int err = 0;
+      FD_SPAD_FRAME_BEGIN( ctx->shared_spad ) {
+        /* alloc_max is slightly less than manifest_load_footprint(). */
+        uchar * buf       = fd_spad_alloc( ctx->shared_spad, manifest_load_align(), manifest_load_footprint() );
+        ulong   buf_sz    = 0;
+        FD_TEST( !fd_io_read( fd, buf/*dst*/, 0/*dst_min*/, manifest_load_footprint()-1UL /*dst_max*/, &buf_sz ) );
+        manifest = fd_bincode_decode_spad_global( solana_manifest, ctx->manifest_spad, buf, buf_sz, &err );
+      } FD_SPAD_FRAME_END;
+
+      if( FD_UNLIKELY( err ) ) {
+        FD_LOG_WARNING(( "fd_solana_manifest_decode failed (%d)", err ));
+        return;
+      }
+      FD_LOG_NOTICE(( "manifest bank slot %lu", manifest->bank.slot ));
+
+      fd_fseq_update( ctx->manifest_wmark, manifest->bank.slot /*root_slot*/ );
+
+      publish_stake_weights( ctx, stem, manifest );
+
+      //*charge_busy = 0;
+    }
+    /* No need to strcmp every time after_credit is called. */
+    ctx->manifest_load_done = 1;
   }
 }
 
@@ -510,8 +716,12 @@ unprivileged_init( fd_topo_t *      topo,
 
   void * scratch = fd_topo_obj_laddr( topo, tile->tile_obj_id );
   FD_SCRATCH_ALLOC_INIT( l, scratch );
-  fd_capture_tile_ctx_t * ctx = FD_SCRATCH_ALLOC_APPEND( l, alignof(fd_capture_tile_ctx_t), sizeof(fd_capture_tile_ctx_t) );
-  void * alloc_mem            = FD_SCRATCH_ALLOC_APPEND( l, fd_alloc_align(), fd_alloc_footprint() );
+  fd_capture_tile_ctx_t * ctx       = FD_SCRATCH_ALLOC_APPEND( l, alignof(fd_capture_tile_ctx_t),  sizeof(fd_capture_tile_ctx_t) );
+  void * mainfest_exec_slot_ctx_mem = FD_SCRATCH_ALLOC_APPEND( l, FD_EXEC_SLOT_CTX_ALIGN,          FD_EXEC_SLOT_CTX_FOOTPRINT );
+  void * manifest_bank_mem          = FD_SCRATCH_ALLOC_APPEND( l, manifest_bank_align(),           manifest_bank_footprint() );
+  void * manifest_spad_mem          = FD_SCRATCH_ALLOC_APPEND( l, manifest_spad_max_alloc_align(), fd_spad_footprint( manifest_spad_max_alloc_footprint() ) );
+  void * shared_spad_mem            = FD_SCRATCH_ALLOC_APPEND( l, shared_spad_max_alloc_align(),   fd_spad_footprint( shared_spad_max_alloc_footprint() ) );
+  void * alloc_mem                  = FD_SCRATCH_ALLOC_APPEND( l, fd_alloc_align(),                fd_alloc_footprint() );
   FD_SCRATCH_ALLOC_FINI( l, scratch_align() );
 
   /* Input links */
@@ -535,7 +745,7 @@ unprivileged_init( fd_topo_t *      topo,
     } else if( 0==strcmp( link->name, "replay_scap" ) ) {
       ctx->in_kind[ i ] = REPLAY_SHRED_CAP;
     } else {
-      FD_LOG_ERR(( "repair tile has unexpected input link %s", link->name ));
+      FD_LOG_ERR(( "scap tile has unexpected input link %s", link->name ));
     }
 
     ctx->in_links[ i ].mem    = link_wksp->wksp;
@@ -545,6 +755,53 @@ unprivileged_init( fd_topo_t *      topo,
 
   ctx->repair_intake_listen_port = tile->shredcap.repair_intake_listen_port;
   ctx->write_buf_sz = tile->shredcap.write_buffer_size ? tile->shredcap.write_buffer_size : FD_SHREDCAP_DEFAULT_WRITER_BUF_SZ;
+
+  /* Set up stake weights tile output */
+  ctx->stake_out->idx       = fd_topo_find_tile_out_link( topo, tile, "stake_out", 0 );
+  if( FD_LIKELY( ctx->stake_out->idx!=ULONG_MAX ) ) {
+    fd_topo_link_t * stake_weights_out = &topo->links[ tile->out_link_id[ ctx->stake_out->idx] ];
+    ctx->stake_out->mcache  = stake_weights_out->mcache;
+    ctx->stake_out->mem     = topo->workspaces[ topo->objs[ stake_weights_out->dcache_obj_id ].wksp_id ].wksp;
+    ctx->stake_out->sync    = fd_mcache_seq_laddr     ( ctx->stake_out->mcache );
+    ctx->stake_out->depth   = fd_mcache_depth         ( ctx->stake_out->mcache );
+    ctx->stake_out->seq     = fd_mcache_seq_query     ( ctx->stake_out->sync );
+    ctx->stake_out->chunk0  = fd_dcache_compact_chunk0( ctx->stake_out->mem, stake_weights_out->dcache );
+    ctx->stake_out->wmark   = fd_dcache_compact_wmark ( ctx->stake_out->mem, stake_weights_out->dcache, stake_weights_out->mtu );
+    ctx->stake_out->chunk   = ctx->stake_out->chunk0;
+  } else {
+    FD_LOG_WARNING(( "no connection to stake_out link" ));
+    memset( ctx->stake_out, 0, sizeof(fd_stake_out_link_t) );
+  }
+
+  /* If the manifest is enabled (for processing), the stake_out link
+     must be connected to the tile.  TODO in principle, it should be
+     possible to gate the remaining of the manifest-related config. */
+  ctx->enable_publish_stake_weights = tile->shredcap.enable_publish_stake_weights;
+  FD_LOG_NOTICE(( "enable_publish_stake_weights ? %d", ctx->enable_publish_stake_weights ));
+
+  /* manifest_wmark (root slot) */
+  ulong root_slot_obj_id = fd_pod_queryf_ulong( topo->props, ULONG_MAX, "root_slot" );
+  FD_TEST( root_slot_obj_id!=ULONG_MAX );
+  ctx->manifest_wmark = fd_fseq_join( fd_topo_obj_laddr( topo, root_slot_obj_id ) );
+  if( FD_UNLIKELY( !ctx->manifest_wmark ) ) FD_LOG_ERR(( "no root_slot fseq" ));
+  FD_TEST( ULONG_MAX==fd_fseq_query( ctx->manifest_wmark ) );
+
+  ctx->manifest_bank_mem    = manifest_bank_mem;
+
+  ctx->mainfest_exec_slot_ctx_mem    = mainfest_exec_slot_ctx_mem;
+  ctx->manifest_exec_slot_ctx        = fd_exec_slot_ctx_join( fd_exec_slot_ctx_new( ctx->mainfest_exec_slot_ctx_mem  ) );
+  FD_TEST( ctx->manifest_exec_slot_ctx );
+  ctx->manifest_exec_slot_ctx->banks = fd_banks_join( fd_banks_new( ctx->manifest_bank_mem, MANIFEST_MAX_TOTAL_BANKS, MANIFEST_MAX_FORK_WIDTH ) );
+  FD_TEST( ctx->manifest_exec_slot_ctx->banks );
+  ctx->manifest_exec_slot_ctx->bank  = fd_banks_init_bank( ctx->manifest_exec_slot_ctx->banks, 0UL );
+  FD_TEST( ctx->manifest_exec_slot_ctx->bank );
+
+  strncpy( ctx->manifest_path, tile->shredcap.manifest_path, PATH_MAX );
+  ctx->manifest_load_done   = 0;
+  ctx->manifest_spad_mem    = manifest_spad_mem;
+  ctx->manifest_spad        = fd_spad_join( fd_spad_new( ctx->manifest_spad_mem, manifest_spad_max_alloc_footprint() ) );
+  ctx->shared_spad_mem      = shared_spad_mem;
+  ctx->shared_spad          = fd_spad_join( fd_spad_new( ctx->shared_spad_mem, shared_spad_max_alloc_footprint() ) );
 
   /* Allocate the write buffers */
   ctx->alloc = fd_alloc_join( fd_alloc_new( alloc_mem, FD_SHREDCAP_ALLOC_TAG ), fd_tile_idx() );
@@ -580,6 +837,7 @@ unprivileged_init( fd_topo_t *      topo,
 #define STEM_CALLBACK_CONTEXT_TYPE  fd_capture_tile_ctx_t
 #define STEM_CALLBACK_CONTEXT_ALIGN alignof(fd_capture_tile_ctx_t)
 
+#define STEM_CALLBACK_AFTER_CREDIT after_credit
 #define STEM_CALLBACK_DURING_FRAG during_frag
 #define STEM_CALLBACK_AFTER_FRAG  after_frag
 #define STEM_CALLBACK_BEFORE_FRAG before_frag
