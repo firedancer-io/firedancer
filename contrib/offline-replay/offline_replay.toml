@@ -18,6 +18,7 @@
     heap_size_gib = {funk_pages}
     max_account_records = {index_max}
     max_database_transactions = 64
+    lock_pages = false
 [runtime]
     heap_size_gib = {heap_size}
     [runtime.limits]
