@@ -83,6 +83,14 @@ bind: (or (eq (arg 2) "sizeof(struct sockaddr_in)")
 # resolv: Wait for DNS responses
 poll
 
+# bundle: Wait for data on TCP socket with timeout based on housekeeping deadline
+# arg 0: fds (varies - pointer to pollfd struct)
+# arg 1: nfds (always 1 - single socket)
+# arg 2: timeout (varies - based on housekeeping deadline)
+# arg 3: sigmask (always NULL - no signal mask)
+ppoll: (and (eq (arg 1) 1)
+            (eq (arg 3) 0))
+
 # bundle: configure TCP socket (for gRPC connection)
 #
 # resolv: configure UDP or TCP socket (for DNS queries)

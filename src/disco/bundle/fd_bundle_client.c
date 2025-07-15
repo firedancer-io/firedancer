@@ -1,5 +1,6 @@
 /* fd_bundle_client.c steps gRPC related tasks. */
 
+#define _GNU_SOURCE
 #include "fd_bundle_auth.h"
 #include "fd_bundle_tile_private.h"
 #include "proto/block_engine.pb.h"
@@ -15,7 +16,7 @@
 #include <fcntl.h>
 #include <errno.h>
 #include <unistd.h> /* close */
-#include <poll.h> /* poll */
+#include <poll.h> /* poll, ppoll */
 #include <sys/socket.h> /* socket */
 #include <netinet/in.h>
 
@@ -155,7 +156,32 @@ fd_bundle_client_create_conn( fd_bundle_tile_t * ctx ) {
 
 static int
 fd_bundle_client_drive_io( fd_bundle_tile_t * ctx,
-                           int *              charge_busy ) {
+                           int *              charge_busy,
+                           long               deadline_ticks ) {
+  long ticks_until_deadline = deadline_ticks - fd_tickcount();
+  if( FD_LIKELY( ticks_until_deadline > 0 ) ) {
+    int sock_fd;
+#if FD_HAS_OPENSSL
+    if( ctx->is_ssl ) sock_fd = SSL_get_fd( ctx->ssl );
+    else              sock_fd = ctx->tcp_sock;
+#else
+    sock_fd = ctx->tcp_sock;
+#endif
+    FD_TEST(sock_fd >= 0); // TODO: Should be the case?
+
+    long timeout_ns = (long)((double)ticks_until_deadline / fd_tempo_tick_per_ns( NULL ));
+    struct timespec timeout = {
+        .tv_sec = timeout_ns / (long)1e9,
+        .tv_nsec = timeout_ns % (long)1e9
+    };
+
+    struct pollfd pfd = {
+        .fd = sock_fd,
+        .events = POLLIN
+    };
+    ppoll( &pfd, 1, &timeout, NULL );
+  }
+
 # if FD_HAS_OPENSSL
   if( ctx->is_ssl ) {
     return fd_grpc_client_rxtx_ossl( ctx->grpc_client, ctx->ssl, charge_busy );
@@ -298,7 +324,8 @@ fd_bundle_client_step_reconnect( fd_bundle_tile_t * ctx,
 
 static void
 fd_bundle_client_step1( fd_bundle_tile_t * ctx,
-                        int *              charge_busy ) {
+                        int *              charge_busy,
+                        long               deadline_ticks ) {
 
   /* Wait for TCP socket to connect */
   if( FD_UNLIKELY( !ctx->tcp_sock_connected ) ) {
@@ -342,7 +369,7 @@ fd_bundle_client_step1( fd_bundle_tile_t * ctx,
   }
 
   /* Drive I/O, SSL handshake, and any inflight requests */
-  if( FD_UNLIKELY( !fd_bundle_client_drive_io( ctx, charge_busy ) ||
+  if( FD_UNLIKELY( !fd_bundle_client_drive_io( ctx, charge_busy, deadline_ticks ) ||
                    ctx->defer_reset /* new error? */ ) ) {
     fd_bundle_client_reset( ctx );
     ctx->metrics.transport_fail_cnt++;
@@ -381,9 +408,10 @@ fd_bundle_client_log_status( fd_bundle_tile_t * ctx ) {
 
 void
 fd_bundle_client_step( fd_bundle_tile_t * ctx,
-                       int *              charge_busy ) {
+                       int *              charge_busy,
+                       long               deadline_ticks ) {
   /* Edge-trigger logging with rate limiting */
-  fd_bundle_client_step1( ctx, charge_busy );
+  fd_bundle_client_step1( ctx, charge_busy, deadline_ticks );
   fd_bundle_client_log_status( ctx );
 }
 

@@ -155,7 +155,8 @@ extern fd_grpc_client_callbacks_t fd_bundle_client_grpc_callbacks;
 
 void
 fd_bundle_client_step( fd_bundle_tile_t * bundle,
-                       int *              charge_busy );
+                       int *              charge_busy,
+                       long               deadline_ticks );
 
 /* fd_bundle_client_step_reconnect drives the 'reconnect' state machine.
    Once the HTTP/2 conn is established (SETTINGS exchanged), this
