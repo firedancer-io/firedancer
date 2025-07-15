@@ -55,7 +55,9 @@ unprivileged_init( fd_topo_t *      topo,
 static void
 before_credit( fd_pktgen_tile_ctx_t * ctx,
                fd_stem_context_t *    stem,
-               int *                  charge_busy ) {
+               int *                  charge_busy,
+               long                   stem_ts ) {
+  (void)stem_ts;
   if( FD_VOLATILE_CONST( fd_pktgen_active )!=1U ) return;
 
   *charge_busy = 1;

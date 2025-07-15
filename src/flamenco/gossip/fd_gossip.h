@@ -99,9 +99,6 @@ int fd_gossip_push_value( fd_gossip_t * glob, fd_crds_data_t* data, fd_hash_t * 
 /* Set the current protocol time in nanosecs. Call this as often as feasible. */
 void fd_gossip_settime( fd_gossip_t * glob, long ts );
 
-/* Get the current protocol time in nanosecs */
-long fd_gossip_gettime( fd_gossip_t * glob );
-
 /* Start timed events and other protocol behavior. settime MUST be called before this. */
 int fd_gossip_start( fd_gossip_t * glob );
 

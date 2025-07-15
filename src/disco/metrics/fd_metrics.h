@@ -5,7 +5,6 @@
 
 #include "generated/fd_metrics_all.h"
 
-#include "../../tango/tempo/fd_tempo.h"
 #include "../../util/hist/fd_histf.h"
 
 /* fd_metrics mostly defines way of laying out metrics in shared
@@ -92,9 +91,9 @@ extern FD_TL volatile ulong * fd_metrics_tl;
   } while(0)
 
 #define FD_MHIST_MIN( group, measurement ) (FD_METRICS_HISTOGRAM_##group##_##measurement##_MIN)
-#define FD_MHIST_SECONDS_MIN( group, measurement ) (fd_metrics_convert_seconds_to_ticks(FD_METRICS_HISTOGRAM_##group##_##measurement##_MIN))
+#define FD_MHIST_SECONDS_MIN( group, measurement ) ((ulong)(1e9*(FD_METRICS_HISTOGRAM_##group##_##measurement##_MIN)))
 #define FD_MHIST_MAX( group, measurement ) (FD_METRICS_HISTOGRAM_##group##_##measurement##_MAX)
-#define FD_MHIST_SECONDS_MAX( group, measurement ) (fd_metrics_convert_seconds_to_ticks(FD_METRICS_HISTOGRAM_##group##_##measurement##_MAX))
+#define FD_MHIST_SECONDS_MAX( group, measurement ) ((ulong)(1e9*(FD_METRICS_HISTOGRAM_##group##_##measurement##_MAX)))
 
 #define FD_MHIST_COPY( group, measurement, hist ) do {                   \
     ulong __fd_metrics_off = MIDX(HISTOGRAM, group, measurement);        \
@@ -164,27 +163,6 @@ fd_metrics_register( ulong * metrics ) {
   fd_metrics_base_tl = metrics;
   fd_metrics_tl = fd_metrics_tile( metrics );
   return metrics;
-}
-
-static inline ulong
-fd_metrics_convert_seconds_to_ticks( double seconds ) {
-  /* The tick_per_ns() value needs to be the same across the tile doing
-     the sampling and the tile doing the reporting so that they compute
-     the same bucket edges for histograms. */
-  double tick_per_ns = fd_tempo_tick_per_ns( NULL );
-  return (ulong)(seconds * tick_per_ns * 1e9);
-}
-
-static inline double
-fd_metrics_convert_ticks_to_seconds( ulong ticks ) {
-  double tick_per_ns = fd_tempo_tick_per_ns( NULL );
-  return (double)ticks / (tick_per_ns * 1e9);
-}
-
-static inline ulong
-fd_metrics_convert_ticks_to_nanoseconds( ulong ticks ) {
-  double tick_per_ns = fd_tempo_tick_per_ns( NULL );
-  return (ulong)((double)ticks / tick_per_ns);
 }
 
 static inline ulong * fd_metrics_join  ( void * mem ) { return mem; }

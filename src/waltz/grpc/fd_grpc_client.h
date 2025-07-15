@@ -62,26 +62,6 @@ struct fd_grpc_client_metrics {
   /* streams_active is the number of streams not in 'closed' state. */
   long streams_active;
 
-  /* rx_wait_ticks_cum is the cumulative time in ticks that incoming
-     gRPC messages were in a "waiting" state.  The waiting state begins
-     when the first byte of a HTTP/2 frame is received, and ends when
-     all gRPC message bytes are received.
-
-     This is a rough measure of server-to-client congestion.  On a
-     healthy connection, this value should be close to zero. */
-  long rx_wait_ticks_cum;
-
-  /* tx_wait_ticks_cum is the cumulative time in ticks that an outgoing
-     message was in a "waiting" state.  The waiting state begins when
-     a message is ready to be sent, and ends when all message bytes were
-     handed to the TCP layer.
-
-     This is a rough measure of client-to-server congestion, which can
-     be caused by the TCP server receive window, TCP client congestion
-     control, or HTTP/2 server flow control.  On a healthy connection,
-     this value should be close to zero. */
-  long tx_wait_ticks_cum;
-
 };
 
 typedef struct fd_grpc_client_metrics fd_grpc_client_metrics_t;

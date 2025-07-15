@@ -65,7 +65,8 @@ during_frag( fd_verify_ctx_t * ctx,
              ulong             sig FD_PARAM_UNUSED,
              ulong             chunk,
              ulong             sz,
-             ulong             ctl FD_PARAM_UNUSED ) {
+             ulong             ctl FD_PARAM_UNUSED,
+             long              stem_ts FD_PARAM_UNUSED ) {
 
   ulong in_kind = ctx->in_kind[ in_idx ];
   if( FD_UNLIKELY( in_kind==IN_KIND_QUIC || in_kind==IN_KIND_GOSSIP || in_kind==IN_KIND_SEND ) ) {
@@ -101,6 +102,7 @@ after_frag( fd_verify_ctx_t *   ctx,
             ulong               sz,
             ulong               tsorig,
             ulong               _tspub,
+            long                stem_ts,
             fd_stem_context_t * stem ) {
   (void)in_idx;
   (void)seq;
@@ -148,7 +150,7 @@ after_frag( fd_verify_ctx_t *   ctx,
   }
 
   ulong realized_sz = fd_txn_m_realized_footprint( txnm, 1, 0 );
-  ulong tspub = (ulong)fd_frag_meta_ts_comp( fd_tickcount() );
+  ulong tspub = (ulong)fd_frag_meta_ts_comp( stem_ts );
   fd_stem_publish( stem, 0UL, 0UL, ctx->out_chunk, realized_sz, 0UL, tsorig, tspub );
   ctx->out_chunk = fd_dcache_compact_next( ctx->out_chunk, realized_sz, ctx->out_chunk0, ctx->out_wmark );
 }

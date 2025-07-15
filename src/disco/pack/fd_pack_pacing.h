@@ -1,6 +1,9 @@
 #ifndef HEADER_fd_src_ballet_pack_fd_pack_pacing_h
 #define HEADER_fd_src_ballet_pack_fd_pack_pacing_h
 
+#include "../../util/bits/fd_bits.h"
+#include <math.h>
+
 /* One of the keys to packing well is properly pacing CU consumption.
    Without pacing, pack will end up filling the block with non-ideal
    transactions.  Since at the current limits, the banks can execute a
@@ -17,7 +20,7 @@ struct fd_pack_pacing_private {
   /* Number of CUs in the block */
   float max_cus;
 
-  float ticks_per_cu;
+  float ns_per_cu;
   float remaining_cus;
 };
 
@@ -25,14 +28,13 @@ typedef struct fd_pack_pacing_private fd_pack_pacing_t;
 
 
 /* fd_pack_pacing_init begins pacing for a slot which starts at now and
-   ends at t_end (both measured in fd_tickcount() space) and will
-   contain cus CUs.  cus in (0, 2^32). t_end - t_start should be about
-   400ms or less, but must be in (0, 2^32) as well. */
+   ends at t_end (both nanosecond wallclock timestamps) and will contain
+   cus CUs.  cus in (0, 2^32). t_end - t_start should be about 400ms or
+   less, but must be in (0, 2^32) as well. */
 static inline void
 fd_pack_pacing_init( fd_pack_pacing_t * pacer,
                      long               t_start,
                      long               t_end,
-                     float              ticks_per_ns,
                      ulong              max_cus ) {
 
   pacer->t_start = t_start;
@@ -42,19 +44,19 @@ fd_pack_pacing_init( fd_pack_pacing_t * pacer,
      fraction of the transactions land, etc.  It's hard to just come up
      with a value, but a small sample says 9 ns/CU is in the right
      ballpark. */
-  pacer->ticks_per_cu = 9.0f * ticks_per_ns;
+  pacer->ns_per_cu = 9.0f;
 
   /* Originally, we had all the lines ending 5% before t_end, but the
      better thing to do is to adjust max_cus up so that the 1 bank line
      ends 5% before t_end. */
-  pacer->max_cus = (float)max_cus + 0.05f * (float)(t_end-t_start)/pacer->ticks_per_cu;
+  pacer->max_cus = (float)max_cus + 0.05f * (float)(t_end-t_start)/pacer->ns_per_cu;
   pacer->remaining_cus = pacer->max_cus;
 }
 
 /* fd_pack_pacing_update_consumed_cus notes that the instantaneous value
    of consumed CUs may have updated.  pacer must be a local join.
    consumed_cus should be below the value of max_cus but it's treated as
-   max_cus if it's larger.  Now should be the time (in fd_tickcount
+   max_cus if it's larger.  Now should be the time (in fd_log_wallclock
    space) at which the measurement was taken.  */
 static inline void
 fd_pack_pacing_update_consumed_cus( fd_pack_pacing_t * pacer,
@@ -110,7 +112,7 @@ fd_pack_pacing_enabled_bank_cnt( fd_pack_pacing_t const * pacer,
      numerator is non-negative.  Ticks_per_cu is between 1 and 100, so
      it'll always fit in a ulong. */
   return (ulong)(pacer->remaining_cus/
-                 (float)(fd_long_max( 1L, pacer->t_end - now )) * pacer->ticks_per_cu );
+                 (float)(fd_long_max( 1L, pacer->t_end - now )) );
 }
 
 #endif /* HEADER_fd_src_ballet_pack_fd_pack_pacing_h */

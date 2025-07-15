@@ -161,42 +161,42 @@ quic_ack_tx{kind="quic",kind_id="0",quic_ack_tx="cancel"} 77
 
 # HELP quic_service_duration_seconds Duration spent in service
 # TYPE quic_service_duration_seconds histogram
-quic_service_duration_seconds_bucket{kind="quic",kind_id="0",le="8.9999999999999995e-09"} 78
+quic_service_duration_seconds_bucket{kind="quic",kind_id="0",le="9e-09"} 78
 quic_service_duration_seconds_bucket{kind="quic",kind_id="0",le="3.1e-08"} 157
-quic_service_duration_seconds_bucket{kind="quic",kind_id="0",le="9.9999999999999995e-08"} 237
-quic_service_duration_seconds_bucket{kind="quic",kind_id="0",le="3.1800000000000002e-07"} 318
-quic_service_duration_seconds_bucket{kind="quic",kind_id="0",le="1.0070000000000001e-06"} 400
-quic_service_duration_seconds_bucket{kind="quic",kind_id="0",le="3.1839999999999999e-06"} 483
+quic_service_duration_seconds_bucket{kind="quic",kind_id="0",le="1e-07"} 237
+quic_service_duration_seconds_bucket{kind="quic",kind_id="0",le="3.18e-07"} 318
+quic_service_duration_seconds_bucket{kind="quic",kind_id="0",le="1.007e-06"} 400
+quic_service_duration_seconds_bucket{kind="quic",kind_id="0",le="3.184e-06"} 483
 quic_service_duration_seconds_bucket{kind="quic",kind_id="0",le="1.0063e-05"} 567
-quic_service_duration_seconds_bucket{kind="quic",kind_id="0",le="3.1798999999999998e-05"} 652
-quic_service_duration_seconds_bucket{kind="quic",kind_id="0",le="0.000100479"} 738
-quic_service_duration_seconds_bucket{kind="quic",kind_id="0",le="0.00031749099999999999"} 825
-quic_service_duration_seconds_bucket{kind="quic",kind_id="0",le="0.001003196"} 913
-quic_service_duration_seconds_bucket{kind="quic",kind_id="0",le="0.003169856"} 1002
-quic_service_duration_seconds_bucket{kind="quic",kind_id="0",le="0.010015971"} 1092
-quic_service_duration_seconds_bucket{kind="quic",kind_id="0",le="0.031648018999999999"} 1183
-quic_service_duration_seconds_bucket{kind="quic",kind_id="0",le="0.099999999000000006"} 1275
+quic_service_duration_seconds_bucket{kind="quic",kind_id="0",le="3.1799e-05"} 652
+quic_service_duration_seconds_bucket{kind="quic",kind_id="0",le="0.00010048"} 738
+quic_service_duration_seconds_bucket{kind="quic",kind_id="0",le="0.00031749"} 825
+quic_service_duration_seconds_bucket{kind="quic",kind_id="0",le="0.0010032"} 913
+quic_service_duration_seconds_bucket{kind="quic",kind_id="0",le="0.0031699"} 1002
+quic_service_duration_seconds_bucket{kind="quic",kind_id="0",le="0.010016"} 1092
+quic_service_duration_seconds_bucket{kind="quic",kind_id="0",le="0.031648"} 1183
+quic_service_duration_seconds_bucket{kind="quic",kind_id="0",le="0.1"} 1275
 quic_service_duration_seconds_bucket{kind="quic",kind_id="0",le="+Inf"} 1368
-quic_service_duration_seconds_sum{kind="quic",kind_id="0"} 9.3999999999999995e-08
+quic_service_duration_seconds_sum{kind="quic",kind_id="0"} 9.4e-08
 quic_service_duration_seconds_count{kind="quic",kind_id="0"} 1368
 
 # HELP quic_receive_duration_seconds Duration spent processing packets
 # TYPE quic_receive_duration_seconds histogram
-quic_receive_duration_seconds_bucket{kind="quic",kind_id="0",le="8.9999999999999995e-09"} 95
+quic_receive_duration_seconds_bucket{kind="quic",kind_id="0",le="9e-09"} 95
 quic_receive_duration_seconds_bucket{kind="quic",kind_id="0",le="3.1e-08"} 191
-quic_receive_duration_seconds_bucket{kind="quic",kind_id="0",le="9.9999999999999995e-08"} 288
-quic_receive_duration_seconds_bucket{kind="quic",kind_id="0",le="3.1800000000000002e-07"} 386
-quic_receive_duration_seconds_bucket{kind="quic",kind_id="0",le="1.0070000000000001e-06"} 485
-quic_receive_duration_seconds_bucket{kind="quic",kind_id="0",le="3.1839999999999999e-06"} 585
+quic_receive_duration_seconds_bucket{kind="quic",kind_id="0",le="1e-07"} 288
+quic_receive_duration_seconds_bucket{kind="quic",kind_id="0",le="3.18e-07"} 386
+quic_receive_duration_seconds_bucket{kind="quic",kind_id="0",le="1.007e-06"} 485
+quic_receive_duration_seconds_bucket{kind="quic",kind_id="0",le="3.184e-06"} 585
 quic_receive_duration_seconds_bucket{kind="quic",kind_id="0",le="1.0063e-05"} 686
-quic_receive_duration_seconds_bucket{kind="quic",kind_id="0",le="3.1798999999999998e-05"} 788
-quic_receive_duration_seconds_bucket{kind="quic",kind_id="0",le="0.000100479"} 891
-quic_receive_duration_seconds_bucket{kind="quic",kind_id="0",le="0.00031749099999999999"} 995
-quic_receive_duration_seconds_bucket{kind="quic",kind_id="0",le="0.001003196"} 1100
-quic_receive_duration_seconds_bucket{kind="quic",kind_id="0",le="0.003169856"} 1206
-quic_receive_duration_seconds_bucket{kind="quic",kind_id="0",le="0.010015971"} 1313
-quic_receive_duration_seconds_bucket{kind="quic",kind_id="0",le="0.031648018999999999"} 1421
-quic_receive_duration_seconds_bucket{kind="quic",kind_id="0",le="0.099999999000000006"} 1530
+quic_receive_duration_seconds_bucket{kind="quic",kind_id="0",le="3.1799e-05"} 788
+quic_receive_duration_seconds_bucket{kind="quic",kind_id="0",le="0.00010048"} 891
+quic_receive_duration_seconds_bucket{kind="quic",kind_id="0",le="0.00031749"} 995
+quic_receive_duration_seconds_bucket{kind="quic",kind_id="0",le="0.0010032"} 1100
+quic_receive_duration_seconds_bucket{kind="quic",kind_id="0",le="0.0031699"} 1206
+quic_receive_duration_seconds_bucket{kind="quic",kind_id="0",le="0.010016"} 1313
+quic_receive_duration_seconds_bucket{kind="quic",kind_id="0",le="0.031648"} 1421
+quic_receive_duration_seconds_bucket{kind="quic",kind_id="0",le="0.1"} 1530
 quic_receive_duration_seconds_bucket{kind="quic",kind_id="0",le="+Inf"} 1640
 quic_receive_duration_seconds_sum{kind="quic",kind_id="0"} 1.11e-07
 quic_receive_duration_seconds_count{kind="quic",kind_id="0"} 1640

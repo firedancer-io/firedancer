@@ -310,6 +310,7 @@ static void
 publish_stake_weights( fd_replay_tile_ctx_t * ctx,
                        fd_stem_context_t *    stem,
                        fd_exec_slot_ctx_t *   slot_ctx ) {
+  long now = fd_stem_now( stem );
   fd_epoch_schedule_t const * epoch_schedule = fd_bank_epoch_schedule_query( slot_ctx->bank );
 
   fd_vote_accounts_global_t const * epoch_stakes = fd_bank_epoch_stakes_locking_query( slot_ctx->bank );
@@ -320,7 +321,7 @@ publish_stake_weights( fd_replay_tile_ctx_t * ctx,
     ulong epoch = fd_slot_to_leader_schedule_epoch( epoch_schedule, fd_bank_slot_get( slot_ctx->bank ) );
     ulong stake_weights_sz = generate_stake_weight_msg( slot_ctx, ctx->runtime_spad, epoch - 1, stake_weights_msg );
     ulong stake_weights_sig = 4UL;
-    fd_stem_publish( stem, 0UL, stake_weights_sig, ctx->stake_out->chunk, stake_weights_sz, 0UL, 0UL, fd_frag_meta_ts_comp( fd_tickcount() ) );
+    fd_stem_publish( stem, 0UL, stake_weights_sig, ctx->stake_out->chunk, stake_weights_sz, 0UL, 0UL, fd_frag_meta_ts_comp( now ) );
     ctx->stake_out->chunk = fd_dcache_compact_next( ctx->stake_out->chunk, stake_weights_sz, ctx->stake_out->chunk0, ctx->stake_out->wmark );
     FD_LOG_NOTICE(("sending current epoch stake weights - epoch: %lu, stake_weight_cnt: %lu, start_slot: %lu, slot_cnt: %lu", stake_weights_msg[0], stake_weights_msg[1], stake_weights_msg[2], stake_weights_msg[3]));
   }
@@ -335,7 +336,7 @@ publish_stake_weights( fd_replay_tile_ctx_t * ctx,
     ulong   epoch             = fd_slot_to_leader_schedule_epoch( epoch_schedule, fd_bank_slot_get( slot_ctx->bank ) ); /* epoch */
     ulong stake_weights_sz = generate_stake_weight_msg( slot_ctx, ctx->runtime_spad, epoch, stake_weights_msg );
     ulong stake_weights_sig = 4UL;
-    fd_stem_publish( stem, 0UL, stake_weights_sig, ctx->stake_out->chunk, stake_weights_sz, 0UL, 0UL, fd_frag_meta_ts_comp( fd_tickcount() ) );
+    fd_stem_publish( stem, 0UL, stake_weights_sig, ctx->stake_out->chunk, stake_weights_sz, 0UL, 0UL, fd_frag_meta_ts_comp( now ) );
     ctx->stake_out->chunk = fd_dcache_compact_next( ctx->stake_out->chunk, stake_weights_sz, ctx->stake_out->chunk0, ctx->stake_out->wmark );
     FD_LOG_NOTICE(("sending next epoch stake weights - epoch: %lu, stake_weight_cnt: %lu, start_slot: %lu, slot_cnt: %lu", stake_weights_msg[0], stake_weights_msg[1], stake_weights_msg[2], stake_weights_msg[3]));
   }
@@ -449,9 +450,6 @@ block_finalize_tiles_cb( void * para_arg_1,
 
   uchar hash_done[ FD_PACK_MAX_BANK_TILES ] = {0};
   for( ulong worker_idx=0UL; worker_idx<ctx->exec_cnt; worker_idx++ ) {
-
-    ulong tsorig = fd_frag_meta_ts_comp( fd_tickcount() );
-
     ulong lt_hash_gaddr = fd_wksp_gaddr_fast( ctx->runtime_public_wksp, &task_data->lthash_values[ worker_idx ] );
     if( FD_UNLIKELY( !lt_hash_gaddr ) ) {
       FD_LOG_ERR(( "lt_hash_gaddr is NULL" ));
@@ -474,14 +472,14 @@ block_finalize_tiles_cb( void * para_arg_1,
     fd_runtime_public_hash_bank_msg_t * hash_msg = (fd_runtime_public_hash_bank_msg_t *)fd_chunk_to_laddr( exec_out->mem, exec_out->chunk );
     generate_hash_bank_msg( task_infos_gaddr, lt_hash_gaddr, start_idx, end_idx, fd_bank_slot_get( ctx->slot_ctx->bank ), hash_msg );
 
-    ulong tspub = fd_frag_meta_ts_comp( fd_tickcount() );
+    ulong tspub = fd_frag_meta_ts_comp( fd_stem_now( stem ) );
     fd_stem_publish( stem,
                      exec_out->idx,
                      EXEC_HASH_ACCS_SIG,
                      exec_out->chunk,
                      sizeof(fd_runtime_public_hash_bank_msg_t),
                      0UL,
-                     tsorig,
+                     tspub,
                      tspub );
     exec_out->chunk = fd_dcache_compact_next( exec_out->chunk, sizeof(fd_runtime_public_hash_bank_msg_t), exec_out->chunk0, exec_out->wmark );
   }
@@ -681,13 +679,13 @@ kickoff_repair_orphans( fd_replay_tile_ctx_t * ctx, fd_stem_context_t * stem ) {
 
 static void
 replay_plugin_publish( fd_replay_tile_ctx_t * ctx,
-                       fd_stem_context_t * stem,
-                       ulong sig,
-                       uchar const * data,
-                       ulong data_sz ) {
-  uchar * dst = (uchar *)fd_chunk_to_laddr( ctx->plugin_out->mem, ctx->plugin_out->chunk );
+                       fd_stem_context_t *    stem,
+                       ulong                  sig,
+                       uchar const *          data,
+                       ulong                  data_sz ) {
+  uchar * dst = fd_chunk_to_laddr( ctx->plugin_out->mem, ctx->plugin_out->chunk );
   fd_memcpy( dst, data, data_sz );
-  ulong tspub = (ulong)fd_frag_meta_ts_comp( fd_tickcount() );
+  ulong tspub = fd_frag_meta_ts_comp( fd_stem_now( stem ) );
   fd_stem_publish( stem, ctx->plugin_out->idx, sig, ctx->plugin_out->chunk, data_sz, 0UL, 0UL, tspub );
   ctx->plugin_out->chunk = fd_dcache_compact_next( ctx->plugin_out->chunk, data_sz, ctx->plugin_out->chunk0, ctx->plugin_out->wmark );
 }
@@ -699,21 +697,10 @@ publish_slot_notifications( fd_replay_tile_ctx_t * ctx,
                             ulong                  curr_slot ) {
   if( FD_LIKELY( !ctx->notif_out->mcache ) ) return;
 
-  long notify_time_ns = -fd_log_wallclock();
-#define NOTIFY_START msg = fd_chunk_to_laddr( ctx->notif_out->mem, ctx->notif_out->chunk )
-#define NOTIFY_END                                                      \
-  fd_mcache_publish( ctx->notif_out->mcache, ctx->notif_out->depth, ctx->notif_out->seq, \
-                      0UL, ctx->notif_out->chunk, sizeof(fd_replay_notif_msg_t), 0UL, tsorig, tsorig ); \
-  ctx->notif_out->seq   = fd_seq_inc( ctx->notif_out->seq, 1UL );     \
-  ctx->notif_out->chunk = fd_dcache_compact_next( ctx->notif_out->chunk, sizeof(fd_replay_notif_msg_t), \
-                                                  ctx->notif_out->chunk0, ctx->notif_out->wmark ); \
-  msg = NULL
-
-  ulong tsorig = fd_frag_meta_ts_comp( fd_tickcount() );
-  fd_replay_notif_msg_t * msg = NULL;
+  ulong tsorig = fd_frag_meta_ts_comp( fd_stem_now( stem ) );
 
   {
-    NOTIFY_START;
+    fd_replay_notif_msg_t * msg = fd_chunk_to_laddr( ctx->notif_out->mem, ctx->notif_out->chunk );
     msg->type                        = FD_REPLAY_SLOT_TYPE;
     msg->slot_exec.slot              = curr_slot;
     msg->slot_exec.parent            = fd_bank_parent_slot_get( ctx->slot_ctx->bank );
@@ -730,16 +717,16 @@ publish_slot_notifications( fd_replay_tile_ctx_t * ctx,
 
     memcpy( &msg->slot_exec.identity, ctx->validator_identity_pubkey, sizeof( fd_pubkey_t ) );
     msg->slot_exec.ts = tsorig;
-    NOTIFY_END;
+
+    fd_mcache_publish( ctx->notif_out->mcache, ctx->notif_out->depth, ctx->notif_out->seq,
+                       0UL, ctx->notif_out->chunk, sizeof(fd_replay_notif_msg_t), 0UL, tsorig, tsorig );
+    ctx->notif_out->seq   = fd_seq_inc( ctx->notif_out->seq, 1UL );
+    ctx->notif_out->chunk = fd_dcache_compact_next( ctx->notif_out->chunk, sizeof(fd_replay_notif_msg_t),
+                                                    ctx->notif_out->chunk0, ctx->notif_out->wmark );
   }
   fd_bank_shred_cnt_set( ctx->slot_ctx->bank, 0UL );
 
   FD_TEST( curr_slot == fd_bank_slot_get( ctx->slot_ctx->bank ) );
-
-#undef NOTIFY_START
-#undef NOTIFY_END
-  notify_time_ns += fd_log_wallclock();
-  FD_LOG_DEBUG(("TIMING: notify_slot_time - slot: %lu, elapsed: %6.6f ms", curr_slot, (double)notify_time_ns * 1e-6));
 
   if( ctx->plugin_out->mem ) {
     /*
@@ -861,7 +848,8 @@ init_after_snapshot( fd_replay_tile_ctx_t * ctx,
         off += sizeof(ulong);
       }
     }
-    fd_stem_publish( stem, ctx->tower_out_idx, snapshot_slot << 32UL | UINT_MAX, ctx->tower_out_chunk, off, 0UL, (ulong)fd_log_wallclock(), (ulong)fd_log_wallclock() );
+    ulong tspub = fd_frag_meta_ts_comp( fd_stem_now( stem ) );
+    fd_stem_publish( stem, ctx->tower_out_idx, snapshot_slot << 32UL | UINT_MAX, ctx->tower_out_chunk, off, 0UL, tspub, tspub );
   }
 
   fd_bank_hash_cmp_t * bank_hash_cmp = ctx->bank_hash_cmp;
@@ -1022,12 +1010,14 @@ during_frag( fd_replay_tile_ctx_t * ctx,
              ulong                  sig,
              ulong                  chunk,
              ulong                  sz,
-             ulong                  ctl ) {
+             ulong                  ctl,
+             long                   stem_ts ) {
   (void)seq;
   (void)sig;
   (void)chunk;
   (void)sz;
   (void)ctl;
+  (void)stem_ts;
 
   if( FD_LIKELY( in_idx==SNAP_IN_IDX ) ) {
     ctx->_snap_out_chunk = chunk;
@@ -1042,6 +1032,7 @@ after_frag( fd_replay_tile_ctx_t *   ctx,
             ulong                    sz FD_PARAM_UNUSED,
             ulong                    tsorig FD_PARAM_UNUSED,
             ulong                    tspub FD_PARAM_UNUSED,
+            long                     stem_ts FD_PARAM_UNUSED,
             fd_stem_context_t *      stem FD_PARAM_UNUSED ) {
   if( FD_LIKELY( in_idx==ctx->tower_in_idx ) ) {
     ulong root = sig;
@@ -1068,7 +1059,7 @@ prepare_new_block_execution( fd_replay_tile_ctx_t * ctx,
                              ulong                  parent_slot,
                              ulong                  flags ) {
 
-  long prepare_time_ns = -fd_log_wallclock();
+  long prepare_time_ns = -fd_stem_now( stem );
 
   int is_new_epoch_in_new_block = 0;
 
@@ -1186,7 +1177,7 @@ prepare_new_block_execution( fd_replay_tile_ctx_t * ctx,
     publish_stake_weights( ctx, stem, ctx->slot_ctx );
   }
 
-  prepare_time_ns += fd_log_wallclock();
+  prepare_time_ns += fd_stem_now( stem );
   FD_LOG_DEBUG(("TIMING: prepare_time - slot: %lu, elapsed: %6.6f ms", curr_slot, (double)prepare_time_ns * 1e-6));
 
   return fork;
@@ -1307,7 +1298,7 @@ exec_slice( fd_replay_tile_ctx_t * ctx, fd_stem_context_t * stem ) {
   while( num_free_exec_tiles>0 ) {
 
     if( fd_slice_exec_txn_ready( &ctx->slice_exec_ctx ) ) {
-      ulong tsorig = fd_frag_meta_ts_comp( fd_tickcount() );
+      ulong tsorig = fd_frag_meta_ts_comp( fd_stem_now( stem ) );
 
       uchar                  exec_idx = to_exec[ num_free_exec_tiles-1 ];
       fd_replay_out_link_t * exec_out = &ctx->exec_out[ exec_idx ];
@@ -1336,7 +1327,7 @@ exec_slice( fd_replay_tile_ctx_t * ctx, fd_stem_context_t * stem ) {
       exec_msg->slot = fd_bank_slot_get( ctx->slot_ctx->bank );
 
       ctx->exec_ready[ exec_idx ] = EXEC_TXN_BUSY;
-      ulong tspub = fd_frag_meta_ts_comp( fd_tickcount() );
+      ulong tspub = fd_frag_meta_ts_comp( fd_stem_now( stem ) );
       fd_stem_publish( stem, exec_out->idx, EXEC_NEW_TXN_SIG, exec_out->chunk, sizeof(fd_runtime_public_txn_msg_t), 0UL, tsorig, tspub );
       exec_out->chunk = fd_dcache_compact_next( exec_out->chunk, sizeof(fd_runtime_public_txn_msg_t), exec_out->chunk0, exec_out->wmark );
 
@@ -1571,7 +1562,7 @@ publish_votes_to_plugin( fd_replay_tile_ctx_t * ctx,
 
   *(ulong *)dst = i;
 
-  ulong tspub = (ulong)fd_frag_meta_ts_comp( fd_tickcount() );
+  ulong tspub = (ulong)fd_frag_meta_ts_comp( fd_stem_now( stem ) );
   fd_stem_publish( stem, ctx->votes_plugin_out->idx, FD_PLUGIN_MSG_VOTE_ACCOUNT_UPDATE, ctx->votes_plugin_out->chunk, 0, 0UL, 0UL, tspub );
   ctx->votes_plugin_out->chunk = fd_dcache_compact_next( ctx->votes_plugin_out->chunk, 8UL + 40200UL*(58UL+12UL*34UL), ctx->votes_plugin_out->chunk0, ctx->votes_plugin_out->wmark );
 }
@@ -1659,7 +1650,8 @@ static void
 after_credit( fd_replay_tile_ctx_t * ctx,
               fd_stem_context_t *    stem,
               int *                  opt_poll_in FD_PARAM_UNUSED,
-              int *                  charge_busy FD_PARAM_UNUSED ) {
+              int *                  charge_busy FD_PARAM_UNUSED,
+              long                   stem_ts     FD_PARAM_UNUSED ) {
   if( !ctx->snapshot_init_done ) {
     if( ctx->plugin_out->mem ) {
       uchar msg[56];
@@ -1773,7 +1765,8 @@ after_credit( fd_replay_tile_ctx_t * ctx,
 
       memcpy( chunk_laddr, bank_hash, sizeof(fd_hash_t) );
       memcpy( chunk_laddr+sizeof(fd_hash_t), last_hash, sizeof(fd_hash_t) );
-      fd_stem_publish( stem, ctx->tower_out_idx, fd_bank_slot_get( ctx->slot_ctx->bank ) << 32UL | fd_bank_parent_slot_get( ctx->slot_ctx->bank ), ctx->tower_out_chunk, sizeof(fd_hash_t) * 2, 0UL, fd_frag_meta_ts_comp( fd_tickcount() ), fd_frag_meta_ts_comp( fd_tickcount() ) );
+      ulong tspub = fd_frag_meta_ts_comp( fd_stem_now( stem ) );
+      fd_stem_publish( stem, ctx->tower_out_idx, fd_bank_slot_get( ctx->slot_ctx->bank ) << 32UL | fd_bank_parent_slot_get( ctx->slot_ctx->bank ), ctx->tower_out_chunk, sizeof(fd_hash_t) * 2, 0UL, tspub, tspub );
     }
 
     // if (FD_UNLIKELY( prev_confirmed!=ctx->forks->confirmed && ctx->plugin_out->mem ) ) {
@@ -1853,9 +1846,8 @@ after_credit( fd_replay_tile_ctx_t * ctx,
     ctx->flags = EXEC_FLAG_READY_NEW;
   } // end of if( FD_UNLIKELY( ( flags & EXEC_FLAG_FINISHED_SLOT ) ) )
 
-  long now = fd_log_wallclock();
-  if( ctx->votes_plugin_out->mem && FD_UNLIKELY( ( now - ctx->last_plugin_push_time )>PLUGIN_PUBLISH_TIME_NS ) ) {
-    ctx->last_plugin_push_time = now;
+  if( ctx->votes_plugin_out->mem && FD_UNLIKELY( ( stem_ts - ctx->last_plugin_push_time )>PLUGIN_PUBLISH_TIME_NS ) ) {
+    ctx->last_plugin_push_time = stem_ts;
     publish_votes_to_plugin( ctx, stem );
   }
 

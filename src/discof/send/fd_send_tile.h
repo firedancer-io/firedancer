@@ -54,7 +54,7 @@ struct fd_send_conn_entry {
   fd_pubkey_t      pubkey;
   uint             hash;
   fd_quic_conn_t * conn;
-  long             last_ci_ticks;
+  long             last_ci_ns;
   uint             ip4_addr;
   ushort           udp_port;
 };
@@ -95,7 +95,6 @@ struct fd_send_tile_ctx {
   fd_send_conn_entry_t * conn_map;
 
   fd_stem_context_t * stem;
-  long                now;
 
   struct {
     ulong leader_not_found;        /* Number of times slot leader not found when voting. */
@@ -108,31 +107,15 @@ struct fd_send_tile_ctx {
     /* Outcome of trying to send data over quic */
     ulong quic_send_result_cnt[FD_METRICS_ENUM_TXN_QUIC_SEND_RESULT_CNT];
 
-    /* Time spent waiting for tls_cv signatures */
-    fd_histf_t sign_duration[ 1 ];
+    /* Time spent per high-level operation */
+    fd_histf_t sign_duration   [ 1 ];  /* TLS CertVerify signing */
+    fd_histf_t service_duration[ 1 ];  /* fd_quic_service */
+    fd_histf_t receive_duration[ 1 ];  /* fd_quic_process_packet */
   } metrics;
 
   uchar __attribute__((aligned(FD_MULTI_EPOCH_LEADERS_ALIGN))) mleaders_mem[ FD_MULTI_EPOCH_LEADERS_FOOTPRINT ];
 
 };
 typedef struct fd_send_tile_ctx fd_send_tile_ctx_t;
-
-
-/* A few larger functions to wrap QUIC interactions */
-
-/* quic_connect initiates a quic connection. It uses the contact info
-   stored in entry, and points the conn and entry to each other. Returns
-   a handle to the new connection, and NULL if creating it failed */
-fd_quic_conn_t *
-quic_connect( fd_send_tile_ctx_t   * ctx,
-              fd_send_conn_entry_t * entry );
-
-/* quic_send sends a payload to 'pubkey' via quic. Requires an already
-   established connection to 'pubkey'. */
-void
-quic_send( fd_send_tile_ctx_t  *  ctx,
-           fd_pubkey_t const   *  pubkey,
-           uchar const         *  payload,
-           ulong                  payload_sz );
 
 #endif

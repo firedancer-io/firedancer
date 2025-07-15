@@ -76,9 +76,10 @@ loose_footprint( fd_topo_tile_t const * tile FD_PARAM_UNUSED ) {
 
 static inline void
 before_credit( fd_rpcserv_tile_ctx_t * ctx,
-               fd_stem_context_t * stem,
-               int *               charge_busy ) {
-  (void)stem;
+               fd_stem_context_t *     stem,
+               int *                   charge_busy,
+               long                    stem_ts ) {
+  (void)stem; (void)stem_ts;
   *charge_busy = fd_rpc_ws_poll( ctx->ctx );
 }
 
@@ -89,7 +90,8 @@ during_frag( fd_rpcserv_tile_ctx_t * ctx,
              ulong                   sig FD_PARAM_UNUSED,
              ulong                   chunk,
              ulong                   sz,
-             ulong                   ctl FD_PARAM_UNUSED ) {
+             ulong                   ctl FD_PARAM_UNUSED,
+             long                    stem_ts FD_PARAM_UNUSED ) {
 
   if( FD_UNLIKELY( in_idx==REPLAY_NOTIF_IDX ) ) {
     if( FD_UNLIKELY( chunk<ctx->replay_notif_in_chunk0 || chunk>ctx->replay_notif_in_wmark ) ) {
@@ -118,12 +120,14 @@ after_frag( fd_rpcserv_tile_ctx_t * ctx,
             ulong                  sz,
             ulong                  tsorig,
             ulong                  tspub,
+            long                   stem_ts,
             fd_stem_context_t *    stem ) {
   (void)seq;
   (void)sig;
   (void)sz;
   (void)tsorig;
   (void)tspub;
+  (void)stem_ts;
   (void)stem;
 
   if( FD_LIKELY( in_idx==REPLAY_NOTIF_IDX ) ) {
