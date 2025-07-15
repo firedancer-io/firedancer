@@ -106,6 +106,8 @@ jobs:
         if: ${{ !contains(matrix.extras, 'no-deps') }}
 
       - uses: ./.github/actions/hugepages
+        with:
+          action: allocate
         if: ${{ matrix.targets != 'check' }}
 
       - uses: ./.github/actions/cpusonline
@@ -163,3 +165,9 @@ jobs:
           sudo prlimit --pid $$ --memlock=-1:-1
           source /opt/${{ matrix.compiler }}/${{ matrix.compiler }}-${{ matrix.compiler-version }}/activate
           make run-integration-test
+
+      - name: cleanup shmem pages
+        if: always()
+        uses: ./.github/actions/hugepages
+        with:
+          action: cleanup

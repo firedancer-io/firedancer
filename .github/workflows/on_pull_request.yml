@@ -15,12 +15,3 @@ jobs:
     if: github.event.pull_request.draft == false
     uses: ./.github/workflows/backtest.yml
     secrets: inherit
-
-  # firedancer:
-  #   if: github.event.pull_request.draft == false
-  #   uses: ./.github/workflows/test_firedancer_localnet.yml
-  #   secrets: inherit
-  # firedancer-shredcap:
-  #   if: github.event.pull_request.draft == false
-  #   uses: ./.github/workflows/test_firedancer_testnet_shredcap.yml
-  #   secrets: inherit

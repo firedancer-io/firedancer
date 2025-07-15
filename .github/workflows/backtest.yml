@@ -2,12 +2,9 @@ name: Replay Ledgers
 on:
   workflow_call:
     inputs:
-      coverage:
-        type: boolean
-        default: false
       machine:
         type: string
-        default: linux_gcc_zen2
+        default: "linux_gcc_zen2"
       extras:
         type: string
         default: "handholding"
@@ -28,11 +25,13 @@ jobs:
       - uses: ./.github/actions/deps
         with:
           extras: +dev
+
       - uses: ./.github/actions/hugepages
         with:
           # DO NOT CHANGE THESE VALUES - increasing the hugetlbfs reservations on the CI runners too high causes other jobs to be OOM-killed
           count_gigantic: 398
           count_huge: 535
+
       - uses: ./.github/actions/cpusonline
 
       - name: build
@@ -53,3 +52,9 @@ jobs:
         if: always()
         run: |
           sudo $OBJDIR/bin/firedancer-dev configure fini all --config ../dump/mainnet-308392063-v2.3.0_backtest.toml || true
+
+      - name: cleanup shmem pages
+        if: always()
+        uses: ./.github/actions/hugepages
+        with:
+          action: cleanup

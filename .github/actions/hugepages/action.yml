@@ -9,19 +9,42 @@ inputs:
     description: 'Number of gigantic pages'
     required: true
     default: '64'
+  shmem_path:
+    description: 'Base path for shmem mount'
+    required: false
+    default: '/mnt/.fd'
+  action:
+    description: 'Operation to perform'
+    required: true
+    choice:
+    - allocate
+    - cleanup
+
 outputs: {}
 runs:
   using: composite
   steps:
+
     - shell: bash
+      env:
+        FD_SHMEM_PATH: "${{ inputs.shmem_path }}"
       run: |
         set -x
-        sudo src/util/shmem/fd_shmem_cfg fini || true
-        findmnt -t hugetlbfs -n -o TARGET | xargs -r sudo umount || true
         sudo src/util/shmem/fd_shmem_cfg reset || true
+        sudo src/util/shmem/fd_shmem_cfg fini  || true
+
+    - if: "${{ inputs.action == 'allocate' }}"
+      shell: bash
+      env:
+        FD_SHMEM_PATH: "${{ inputs.shmem_path }}"
+      run: |
+        set -x
+        HUGE_PAGES=$(cat /sys/devices/system/node/node0/hugepages/hugepages-2048kB/nr_hugepages)
+        GIGA_PAGES=$(cat /sys/devices/system/node/node0/hugepages/hugepages-1048576kB/nr_hugepages)
         sudo src/util/shmem/fd_shmem_cfg init 0775 $USER "" || true
-        [ $(cat /sys/devices/system/node/node0/hugepages/hugepages-1048576kB/nr_hugepages) -lt '${{ inputs.count_gigantic }}' ] && \
-          sudo src/util/shmem/fd_shmem_cfg alloc '${{ inputs.count_gigantic }}' gigantic 0
-        [ $(cat /sys/devices/system/node/node0/hugepages/hugepages-2048kB/nr_hugepages) -lt '${{ inputs.count_huge }}' ] && \
+        if [[ $HUGE_PAGES -lt '${{ inputs.count_huge }}' ]]; then
           sudo src/util/shmem/fd_shmem_cfg alloc '${{ inputs.count_huge }}' huge 0
-        sudo chown -R $USER:$USER /mnt/.fd
+        fi
+        if [[ $GIGA_PAGES -lt '${{ inputs.count_gigantic }}' ]]; then
+          sudo src/util/shmem/fd_shmem_cfg alloc '${{ inputs.count_gigantic }}' gigantic 0
+        fi
