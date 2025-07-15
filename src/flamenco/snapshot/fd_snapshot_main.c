@@ -22,7 +22,6 @@
 #define OSTREAM_BUFSZ (32768UL)
 
 struct fd_snapshot_dumper {
-  fd_alloc_t * alloc;
   fd_funk_t    funk[1];
 
   fd_exec_slot_ctx_t *  slot_ctx;
@@ -74,11 +73,6 @@ fd_snapshot_dumper_delete( fd_snapshot_dumper_t * dumper ) {
     void * shfunk = NULL;
     fd_funk_leave( dumper->funk, &shfunk );
     fd_wksp_free_laddr( fd_funk_delete( shfunk ) );
-  }
-
-  if( dumper->alloc ) {
-    fd_wksp_free_laddr( fd_alloc_delete( fd_alloc_leave( dumper->alloc ) ) );
-    dumper->alloc = NULL;
   }
 
   if( dumper->csv_fd>=0 ) {
@@ -237,10 +231,6 @@ do_dump( fd_snapshot_dumper_t *    d,
     return EXIT_FAILURE;
 
   /* Create a heap */
-
-  ulong const fd_alloc_tag = 41UL;
-  d->alloc = fd_alloc_join( fd_alloc_new( fd_wksp_alloc_laddr( wksp, fd_alloc_align(), fd_alloc_footprint(), fd_alloc_tag ), fd_alloc_tag ), 0UL );
-  if( FD_UNLIKELY( !d->alloc ) ) { FD_LOG_WARNING(( "fd_alloc_join() failed" )); return EXIT_FAILURE; }
 
   fd_wksp_usage_t wksp_usage[1] = {0};
   fd_wksp_usage( wksp, NULL, 0UL, wksp_usage );
