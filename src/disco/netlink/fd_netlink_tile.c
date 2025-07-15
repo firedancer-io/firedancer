@@ -171,7 +171,7 @@ privileged_init( fd_topo_t *      topo,
   float const max_probes_per_second =   3.f;
   ulong const max_probe_burst       = 128UL;
   float const probe_delay_seconds   =  15.f;
-  fd_neigh4_prober_init( ctx->prober, max_probes_per_second, max_probe_burst, probe_delay_seconds );
+  fd_neigh4_prober_init( ctx->prober, max_probes_per_second, max_probe_burst, probe_delay_seconds, fd_log_wallclock() );
 
   /* Set duration of blocking reads in before_credit */
   struct timeval tv = { .tv_usec = 2000 }; /* 2ms */
@@ -213,7 +213,7 @@ unprivileged_init( fd_topo_t *      topo,
   ctx->action |= FD_NET_TILE_ACTION_ROUTE4_UPDATE;
   ctx->action |= FD_NET_TILE_ACTION_NEIGH_UPDATE;
 
-  ctx->update_backoff = (long)( fd_tempo_tick_per_ns( NULL ) * 10e6 ); /* 10ms */
+  ctx->update_backoff = (long)10e6; /* 10ms */
 }
 
 /* Begin stem methods
@@ -284,22 +284,22 @@ netlink_monitor_read( fd_netlink_tile_ctx_t * ctx,
 }
 
 static void
-during_housekeeping( fd_netlink_tile_ctx_t * ctx ) {
-  long now = fd_tickcount();
+during_housekeeping( fd_netlink_tile_ctx_t * ctx,
+                     long                    stem_ts ) {
   if( ctx->action & FD_NET_TILE_ACTION_LINK_UPDATE ) {
-    if( now < ctx->link_update_ts ) return;
+    if( stem_ts < ctx->link_update_ts ) return;
     ctx->action &= ~FD_NET_TILE_ACTION_LINK_UPDATE;
     fd_netdev_netlink_load_table( ctx->netdev_tbl, ctx->nl_req );
     fd_dbl_buf_insert( ctx->netdev_buf, ctx->netdev_local, ctx->netdev_sz );
-    ctx->link_update_ts = now+ctx->update_backoff;
+    ctx->link_update_ts = stem_ts+ctx->update_backoff;
     ctx->metrics.link_full_syncs++;
   }
   if( ctx->action & FD_NET_TILE_ACTION_ROUTE4_UPDATE ) {
-    if( now < ctx->route4_update_ts ) return;
+    if( stem_ts < ctx->route4_update_ts ) return;
     ctx->action &= ~FD_NET_TILE_ACTION_ROUTE4_UPDATE;
     fd_fib4_netlink_load_table( ctx->fib4_local, ctx->nl_req, RT_TABLE_LOCAL );
     fd_fib4_netlink_load_table( ctx->fib4_main,  ctx->nl_req, RT_TABLE_MAIN  );
-    ctx->route4_update_ts = now+ctx->update_backoff;
+    ctx->route4_update_ts = stem_ts+ctx->update_backoff;
     ctx->metrics.route_full_syncs++;
   }
   if( ctx->action & FD_NET_TILE_ACTION_NEIGH_UPDATE ) {
@@ -320,7 +320,9 @@ during_housekeeping( fd_netlink_tile_ctx_t * ctx ) {
 static void
 before_credit( fd_netlink_tile_ctx_t * ctx,
                fd_stem_context_t *     stem FD_PARAM_UNUSED,
-               int *                   charge_busy ) {
+               int *                   charge_busy,
+               long                    stem_ts ) {
+  (void)stem_ts;
 
   for(;;) {
     /* Clear socket buffer */
@@ -357,10 +359,10 @@ after_frag( fd_netlink_tile_ctx_t * ctx,
             ulong                   sz,
             ulong                   tsorig,
             ulong                   tspub,
+            long                    stem_ts,
             fd_stem_context_t *     stem ) {
-  (void)in_idx; (void)seq; (void)tsorig; (void)tspub; (void)stem;
+  (void)in_idx; (void)seq; (void)tsorig; (void)tspub; (void)stem_ts; (void)stem;
 
-  long now = fd_tickcount();
   ctx->idle_cnt = -1L;
 
   /* Parse request (fully contained in sig field) */
@@ -403,7 +405,7 @@ after_frag( fd_netlink_tile_ctx_t * ctx,
 
   /* Trigger neighbor solicit via netlink */
 
-  int probe_res = fd_neigh4_probe_rate_limited( ctx->prober, ele, ip4_addr, now );
+  int probe_res = fd_neigh4_probe_rate_limited( ctx->prober, ele, ip4_addr, stem_ts );
   if( probe_res==0 ) {
     ctx->metrics.neigh_solicits_sent++;
   } else if( probe_res>0 ) {

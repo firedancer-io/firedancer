@@ -791,7 +791,7 @@ main( int     argc,
 
     /* Get net tile to move RX frame->mline */
     fd_frag_meta_t const * mline = rx_link->mcache + fd_mcache_line_idx( stem->seqs[0], fd_mcache_depth( rx_link->mcache ) );
-    before_credit( ctx, stem, &charge_busy );
+    before_credit( ctx, stem, &charge_busy, 1L );
 
     /* Validate produced mline:  Check that the mline points to the same
        frame as the XDP packet we fed in.  The pointer might move
@@ -821,12 +821,12 @@ main( int     argc,
     /* during_frag */
     uchar * src = fd_chunk_to_laddr( ctx->in[ 0 ].mem, tx_chunk );
     fd_memcpy( src, during_frag_src, during_frag_src_sz );
-    during_frag( ctx, 0, tx_seq, 0, tx_chunk, during_frag_src_sz, 0 );
+    during_frag( ctx, 0, tx_seq, 0, tx_chunk, during_frag_src_sz, 0, 1L );
     FD_TEST( fd_memeq( ctx->tx_op.frame, during_frag_expected, during_frag_expected_sz ) );
 
     /* after_frag */
     ulong tx_metric_before = ctx->metrics.tx_submit_cnt;
-    after_frag( ctx, 0, tx_seq, 0, during_frag_expected_sz, 0, 0, NULL );
+    after_frag( ctx, 0, tx_seq, 0, during_frag_expected_sz, 0, 0, 1L, NULL );
     ulong tx_metric_after  = ctx->metrics.tx_submit_cnt;
     FD_TEST( tx_metric_before+1==tx_metric_after ); /* assert that XDP tile published a TX frame */
     struct xdp_desc * tx_ring_entry = &xsk->ring_tx.packet_ring[xdp_tx_ring_prod-1];

@@ -86,7 +86,8 @@ during_housekeeping_sensitive( fd_sign_ctx_t * ctx ) {
 }
 
 static inline void
-during_housekeeping( fd_sign_ctx_t * ctx ) {
+during_housekeeping( fd_sign_ctx_t * ctx,
+                     long            stem_ts FD_PARAM_UNUSED ) {
   during_housekeeping_sensitive( ctx );
 }
 
@@ -125,7 +126,8 @@ during_frag( void * _ctx,
              ulong  sig,
              ulong  chunk,
              ulong  sz,
-             ulong  ctl FD_PARAM_UNUSED ) {
+             ulong  ctl FD_PARAM_UNUSED,
+             long   stem_ts FD_PARAM_UNUSED ) {
   during_frag_sensitive( _ctx, in_idx, seq, sig, chunk, sz );
 }
 
@@ -195,6 +197,7 @@ after_frag( void *              _ctx,
             ulong               sz,
             ulong               tsorig,
             ulong               tspub,
+            long                stem_ts FD_FN_UNUSED,
             fd_stem_context_t * stem ) {
   after_frag_sensitive( _ctx, in_idx, seq, sig, sz, tsorig, tspub, stem );
 }

@@ -20,12 +20,12 @@ receive stake msg including pubkey:
 receive contact info:
   - Update contact info. NO_CONN -> CONN. If CONN and contact info changed,
     restart the conn.
-  - touch last_ci_ticks
+  - touch last_ci_ns
 
 Conn closed:
   - reconnect, unless contact info stale
 */
-#define CONTACT_INFO_STALE_TICKS (60e9L) /* ~60 seconds */
+#define CONTACT_INFO_STALE_NS (60e9L) /* ~60 seconds */
 
 #define MAP_NAME               fd_send_conn_map
 #define MAP_T                  fd_send_conn_entry_t
@@ -64,6 +64,12 @@ scratch_footprint( fd_topo_tile_t const * tile FD_PARAM_UNUSED) {
   return FD_LAYOUT_FINI( l, scratch_align() );
 }
 
+static void
+stem_run_init( fd_send_tile_ctx_t * ctx,
+               fd_stem_context_t * stem ) {
+  ctx->stem = stem;
+}
+
 /* QUIC callbacks */
 
 static void
@@ -71,17 +77,10 @@ quic_tls_cv_sign( void *      signer_ctx,
                   uchar       signature[ static 64 ],
                   uchar const payload[ static 130 ] ) {
   fd_send_tile_ctx_t * ctx = signer_ctx;
-  long dt = -fd_tickcount();
+  long dt = -fd_clock_now( ctx->stem );
   fd_keyguard_client_sign( ctx->keyguard_client, signature, payload, 130UL, FD_KEYGUARD_SIGN_TYPE_ED25519 );
-  dt += ( ctx->now = fd_tickcount() );
+  dt += fd_clock_now( ctx->stem );
   fd_histf_sample( ctx->metrics.sign_duration, (ulong)dt );
-}
-
-/* quic_now is used by quic to get current time */
-static ulong
-quic_now( void * _ctx ) {
-  fd_send_tile_ctx_t const * ctx = fd_type_pun_const( _ctx );
-  return (ulong)ctx->now;
 }
 
 /* quic_hs_complete is called when the QUIC handshake is complete
@@ -93,6 +92,10 @@ quic_hs_complete( fd_quic_conn_t * conn,
   if( FD_UNLIKELY( !entry ) ) return;
   FD_LOG_DEBUG(("send_tile: QUIC handshake complete for leader %s", FD_BASE58_ENC_32_ALLOCA( entry->pubkey.key )));
 }
+
+static fd_quic_conn_t *
+quic_connect( fd_send_tile_ctx_t   * ctx,
+              fd_send_conn_entry_t * entry );
 
 /* quic_conn_final is called when the QUIC connection dies.
    Reconnects if contact info is recent enough. */
@@ -106,7 +109,8 @@ quic_conn_final( fd_quic_conn_t * conn,
     FD_LOG_ERR(( "send_tile: Conn map entry not found in conn_final" ));
   }
 
-  if( ctx->now - entry->last_ci_ticks > CONTACT_INFO_STALE_TICKS ) {
+  long now = fd_clock_now( ctx->stem );
+  if( now - entry->last_ci_ns > CONTACT_INFO_STALE_NS ) {
     /* stale contact info, don't reconnect */
     entry->conn = NULL;
     ctx->metrics.contact_stale++;
@@ -146,8 +150,7 @@ quic_tx_aio_send( void *                    _ctx,
        just indicate where they came from so they don't bounce back */
     ulong sig = fd_disco_netmux_sig( ip_dst, 0U, ip_dst, DST_PROTO_OUTGOING, FD_NETMUX_SIG_MIN_HDR_SZ );
 
-    ulong tspub = (ulong)ctx->now;
-
+    ulong tspub = fd_frag_meta_ts_comp( fd_clock_now( ctx->stem ) );
     fd_stem_publish( ctx->stem, net_out_link->idx, sig, net_out_link->chunk, sz_l2, 0UL, 0, tspub );
     net_out_link->chunk = fd_dcache_compact_next( net_out_link->chunk, sz_l2, net_out_link->chunk0, net_out_link->wmark );
   }
@@ -161,7 +164,11 @@ quic_tx_aio_send( void *                    _ctx,
 
 /* QUIC conn management and wrappers */
 
-fd_quic_conn_t *
+/* quic_connect initiates a quic connection. It uses the contact info
+   stored in entry, and points the conn and entry to each other. Returns
+   a handle to the new connection, and NULL if creating it failed */
+
+static fd_quic_conn_t *
 quic_connect( fd_send_tile_ctx_t   * ctx,
               fd_send_conn_entry_t * entry ) {
   uint   dst_ip   = entry->ip4_addr;
@@ -195,7 +202,10 @@ get_quic_conn( fd_send_tile_ctx_t * ctx,
   return NULL;
 }
 
-void
+/* quic_send sends a payload to 'pubkey' via quic. Requires an already
+   established connection to 'pubkey'. */
+
+static void
 quic_send( fd_send_tile_ctx_t  *  ctx,
            fd_pubkey_t const   *  pubkey,
            uchar const         *  payload,
@@ -226,7 +236,8 @@ quic_send( fd_send_tile_ctx_t  *  ctx,
    and starts/restarts a connection if necessary. */
 static inline void
 handle_new_contact_info( fd_send_tile_ctx_t   * ctx,
-                         fd_shred_dest_wire_t * contact ) {
+                         fd_shred_dest_wire_t * contact,
+                         long                   now_ns ) {
   uint    new_ip   = contact->ip4_addr;
   ushort  new_port = contact->udp_port;
   if( FD_UNLIKELY( new_ip==0 || new_port==0 ) ) {
@@ -258,16 +269,17 @@ handle_new_contact_info( fd_send_tile_ctx_t   * ctx,
     ctx->metrics.new_contact_info[FD_METRICS_ENUM_NEW_CONTACT_OUTCOME_V_CHANGED_IDX]++;
   }
 
-  entry->last_ci_ticks = ctx->now;
+  entry->last_ci_ns = now_ns;
   quic_connect( ctx, entry );
   ctx->metrics.new_contact_info[FD_METRICS_ENUM_NEW_CONTACT_OUTCOME_V_CONNECT_IDX]++;
   return;
 }
 
 static inline void
-finalize_new_cluster_contact_info( fd_send_tile_ctx_t * ctx ) {
+finalize_new_cluster_contact_info( fd_send_tile_ctx_t * ctx,
+                                   long                 now_ns ) {
   for( ulong i=0UL; i<ctx->contact_cnt; i++ ) {
-    handle_new_contact_info( ctx, &ctx->contact_buf[i] );
+    handle_new_contact_info( ctx, &ctx->contact_buf[i], now_ns );
   }
 }
 
@@ -304,23 +316,22 @@ finalize_stake_msg( fd_send_tile_ctx_t * ctx ) {
 
 static inline void
 before_credit( fd_send_tile_ctx_t * ctx,
-               fd_stem_context_t  * stem,
-               int *                charge_busy ) {
-  ctx->stem = stem;
-
-  ctx->now = fd_tickcount();
+               fd_stem_context_t  * stem FD_PARAM_UNUSED,
+               int *                charge_busy,
+               long                 stem_ts FD_PARAM_UNUSED ) {
   /* Publishes to mcache via callbacks */
   *charge_busy = fd_quic_service( ctx->quic );
 }
 
 static void
 during_frag( fd_send_tile_ctx_t * ctx,
-             ulong                  in_idx,
-             ulong                  seq FD_PARAM_UNUSED,
-             ulong                  sig FD_PARAM_UNUSED,
-             ulong                  chunk,
-             ulong                  sz,
-             ulong                  ctl ) {
+             ulong                in_idx,
+             ulong                seq FD_PARAM_UNUSED,
+             ulong                sig FD_PARAM_UNUSED,
+             ulong                chunk,
+             ulong                sz,
+             ulong                ctl,
+             long                 stem_ts FD_PARAM_UNUSED ) {
 
   fd_send_link_in_t * in_link = &ctx->in_links[ in_idx ];
   if( FD_UNLIKELY( chunk<in_link->chunk0 || chunk>in_link->wmark ) ) {
@@ -364,14 +375,13 @@ after_frag( fd_send_tile_ctx_t * ctx,
             ulong                seq FD_PARAM_UNUSED,
             ulong                sig,
             ulong                sz,
-            ulong                tsorig FD_PARAM_UNUSED,
-            ulong                tspub FD_PARAM_UNUSED,
+            ulong                tsorig_comp FD_PARAM_UNUSED,
+            ulong                tspub_comp  FD_PARAM_UNUSED,
+            long                 stem_ts     FD_PARAM_UNUSED,
             fd_stem_context_t *  stem ) {
 
-  ctx->stem = stem;
-
   fd_send_link_in_t * in_link = &ctx->in_links[ in_idx ];
-  ulong                 kind  = in_link->kind;
+  ulong               kind    = in_link->kind;
 
   if( FD_UNLIKELY( kind==IN_KIND_NET ) ) {
     uchar     * ip_pkt = ctx->quic_buf + sizeof(fd_eth_hdr_t);
@@ -414,7 +424,7 @@ after_frag( fd_send_tile_ctx_t * ctx,
   }
 
   if( FD_UNLIKELY( kind==IN_KIND_GOSSIP ) ) {
-    finalize_new_cluster_contact_info( ctx );
+    finalize_new_cluster_contact_info( ctx, stem_ts );
     return;
   }
 
@@ -506,12 +516,9 @@ unprivileged_init( fd_topo_t *      topo,
 
   quic->cb.conn_hs_complete  = quic_hs_complete;
   quic->cb.conn_final        = quic_conn_final;
-  quic->cb.now               = quic_now;
-  quic->cb.now_ctx           = ctx;
   quic->cb.quic_ctx          = ctx;
 
   fd_quic_set_aio_net_tx( quic, quic_tx_aio );
-  fd_quic_set_clock_tickcount( quic );
   FD_TEST_CUSTOM( fd_quic_init( quic ), "fd_quic_init failed" );
 
   ctx->quic = quic;
@@ -556,10 +563,10 @@ unprivileged_init( fd_topo_t *      topo,
                                   FD_MHIST_SECONDS_MAX( SEND, SIGN_DURATION_SECONDS    ) ) );
 
   /* Call new/join here rather than in fd_quic so min/max can differ across uses */
-  fd_histf_join( fd_histf_new( quic->metrics.service_duration,
+  fd_histf_join( fd_histf_new( ctx->metrics.service_duration,
                                   FD_MHIST_SECONDS_MIN( SEND, SERVICE_DURATION_SECONDS ),
                                   FD_MHIST_SECONDS_MAX( SEND, SERVICE_DURATION_SECONDS ) ) );
-  fd_histf_join( fd_histf_new( quic->metrics.receive_duration,
+  fd_histf_join( fd_histf_new( ctx->metrics.receive_duration,
                                   FD_MHIST_SECONDS_MIN( SEND, RECEIVE_DURATION_SECONDS ),
                                   FD_MHIST_SECONDS_MAX( SEND, RECEIVE_DURATION_SECONDS ) ) );
 
@@ -647,8 +654,8 @@ metrics_write( fd_send_tile_ctx_t * ctx ) {
 
   FD_MCNT_SET(   SEND, FRAME_FAIL_PARSE,            ctx->quic->metrics.frame_rx_err_cnt );
 
-  FD_MHIST_COPY( SEND, SERVICE_DURATION_SECONDS,    ctx->quic->metrics.service_duration );
-  FD_MHIST_COPY( SEND, RECEIVE_DURATION_SECONDS,    ctx->quic->metrics.receive_duration );
+  FD_MHIST_COPY( SEND, SERVICE_DURATION_SECONDS,    ctx->metrics.service_duration );
+  FD_MHIST_COPY( SEND, RECEIVE_DURATION_SECONDS,    ctx->metrics.receive_duration );
 }
 
 
@@ -657,6 +664,7 @@ metrics_write( fd_send_tile_ctx_t * ctx ) {
 #define STEM_CALLBACK_CONTEXT_TYPE  fd_send_tile_ctx_t
 #define STEM_CALLBACK_CONTEXT_ALIGN alignof(fd_send_tile_ctx_t)
 
+#define STEM_CALLBACK_RUN_INIT      stem_run_init
 #define STEM_CALLBACK_DURING_FRAG   during_frag
 #define STEM_CALLBACK_AFTER_FRAG    after_frag
 #define STEM_CALLBACK_METRICS_WRITE metrics_write

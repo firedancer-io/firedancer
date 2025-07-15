@@ -374,7 +374,7 @@ after_credit_rocksdb( ctx_t *             ctx,
     .slot_complete = !!( prev->data.flags & FD_SHRED_DATA_FLAG_SLOT_COMPLETE )
   };
   ulong sig   = out.slot << 32 | out.fec_set_idx;
-  ulong tspub = fd_frag_meta_ts_comp( fd_tickcount() );
+  ulong tspub = fd_frag_meta_ts_comp( fd_stem_now( stem ) );
   memcpy( fd_chunk_to_laddr( ctx->replay_out_mem, ctx->replay_out_chunk ), &out, sizeof(fd_fec_out_t) );
   fd_stem_publish( stem, REPLAY_OUT_IDX, sig, ctx->replay_out_chunk, sizeof(fd_fec_out_t), 0, 0, tspub );
   ctx->replay_out_chunk = fd_dcache_compact_next( ctx->replay_out_chunk, sizeof(fd_fec_out_t), ctx->replay_out_chunk0, ctx->replay_out_wmark );
@@ -455,7 +455,7 @@ shredcap_notify_one_fec( ctx_t * ctx, fd_stem_context_t * stem ) {
   off += sizeof(fd_fec_out_t);
 
   ulong sig   = out->slot << 32 | out->fec_set_idx;
-  ulong tspub = fd_frag_meta_ts_comp( fd_tickcount() );
+  ulong tspub = fd_frag_meta_ts_comp( fd_stem_now( stem ) );
   fd_stem_publish( stem, REPLAY_OUT_IDX, sig, ctx->replay_out_chunk, sizeof(fd_fec_out_t), 0, 0, tspub );
   ctx->replay_out_chunk = fd_dcache_compact_next( ctx->replay_out_chunk, sizeof(fd_fec_out_t), ctx->replay_out_chunk0, ctx->replay_out_wmark );
 
@@ -474,7 +474,8 @@ static void
 after_credit( ctx_t *             ctx,
               fd_stem_context_t * stem,
               int *               opt_poll_in FD_PARAM_UNUSED,
-              int *               charge_busy FD_PARAM_UNUSED ) {
+              int *               charge_busy FD_PARAM_UNUSED,
+              long                stem_ts ) {
   if( ctx->ingest_mode==FD_BACKTEST_ROCKSDB_INGEST ) {
     after_credit_rocksdb( ctx, stem, opt_poll_in, charge_busy );
     return;
@@ -489,7 +490,7 @@ after_credit( ctx_t *             ctx,
     if( ctx->start_slot==ULONG_MAX ) ctx->start_slot=wmark;
     if( wmark!=ctx->replay_notification.slot_exec.slot ) return;
 
-    if( FD_UNLIKELY( ctx->replay_time==LONG_MAX) ) ctx->replay_time = -fd_log_wallclock();
+    if( FD_UNLIKELY( ctx->replay_time==LONG_MAX) ) ctx->replay_time = -stem_ts;
     ctx->playback_started=1;
 
     switch( ctx->ingest_mode ) {
@@ -517,8 +518,9 @@ during_frag( ctx_t * ctx,
              ulong   sig FD_PARAM_UNUSED,
              ulong   chunk,
              ulong   sz,
-             ulong   ctl FD_PARAM_UNUSED ) {
-  FD_TEST( !in_idx );
+             ulong   ctl     FD_PARAM_UNUSED,
+             long    stem_ts FD_PARAM_UNUSED ) {
+  FD_TEST( in_idx==0 );
   FD_TEST( sz==sizeof(fd_replay_notif_msg_t) );
   fd_memcpy( &ctx->replay_notification, fd_chunk_to_laddr( ctx->replay_in_mem, chunk ), sizeof(fd_replay_notif_msg_t) );
 }
@@ -619,6 +621,7 @@ after_frag( ctx_t *             ctx,
             ulong               sz FD_PARAM_UNUSED,
             ulong               tsorig,
             ulong               tspub,
+            long                stem_ts FD_PARAM_UNUSED,
             fd_stem_context_t * stem ) {
   if( FD_LIKELY( ctx->replay_notification.type==FD_REPLAY_SLOT_TYPE ) ) {
     fd_hash_t * bank_hash = &ctx->replay_notification.slot_exec.bank_hash;
@@ -639,7 +642,7 @@ after_frag( ctx_t *             ctx,
     notify_tower_root( ctx, stem, tsorig, tspub );
 
     if( FD_UNLIKELY( slot>=ctx->end_slot ) ) {
-      ctx->replay_time += fd_log_wallclock();
+      ctx->replay_time += fd_stem_now( stem );
       double replay_time_s = (double)ctx->replay_time * 1e-9;
       double sec_per_slot  = replay_time_s / (double)ctx->slot_cnt;
       FD_LOG_NOTICE((

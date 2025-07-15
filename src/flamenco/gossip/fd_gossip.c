@@ -2184,12 +2184,6 @@ fd_gossip_settime( fd_gossip_t * glob, long ts ) {
   glob->now = ts;
 }
 
-/* Get the current protocol time in nanosecs */
-long
-fd_gossip_gettime( fd_gossip_t * glob ) {
-  return glob->now;
-}
-
 /* Single pass values vector compaction. This
    preserves ordering, which means the push queue
    is unbroken. It is also performed in place which

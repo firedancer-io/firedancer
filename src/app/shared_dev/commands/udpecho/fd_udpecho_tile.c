@@ -51,7 +51,8 @@ during_frag( fd_udpecho_tile_ctx_t * ctx,
              ulong                   sig    FD_PARAM_UNUSED,
              ulong                   chunk,
              ulong                   sz,
-             ulong                   ctl ) {
+             ulong                   ctl,
+             long                    stem_ts FD_PARAM_UNUSED ) {
   FD_TEST( sz<=FD_NET_MTU );
   ctx->pkt_sz = 0;
 
@@ -118,6 +119,7 @@ after_frag( fd_udpecho_tile_ctx_t * ctx,
             ulong                   in_sz  FD_PARAM_UNUSED,
             ulong                   in_tsorig,
             ulong                   in_tspub FD_PARAM_UNUSED,
+            long                    stem_ts FD_PARAM_UNUSED,
             fd_stem_context_t *     stem ) {
   ulong out_sig   = fd_disco_netmux_sig( 0U, 0, ctx->ip4_dst, DST_PROTO_OUTGOING, 42 );
   ulong out_chunk = ctx->chunk;

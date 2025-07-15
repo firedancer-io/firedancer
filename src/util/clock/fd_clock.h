@@ -83,7 +83,7 @@
        void       * lmem    = ... alloc fd_clock_t compat local memory;
        void       * shclock = ... map fd_clock into the caller's local address space with the proper alignment and footprint;
        fd_clock_t * clock   = fd_clock_join( lmem, shclock, clock_x, args_x );
-       if( FD_UNLIKELY( !clock ) ) FD_LOG_ERR(( "fd_clock_new failed" ));
+       if( FD_UNLIKELY( !clock ) ) FD_LOG_ERR(( "fd_clock_join failed" ));
 
        ... at this point, clock==lmem is a current local join
 

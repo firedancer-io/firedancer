@@ -146,6 +146,8 @@ typedef struct {
   fd_keyswitch_t *     keyswitch;
   fd_keyguard_client_t keyguard_client[1];
 
+  fd_stem_context_t * stem;
+
   /* shred34 and fec_sets are very related: fec_sets[i] has pointers
      to the shreds in shred34[4*i + k] for k=0,1,2,3. */
   fd_shred34_t       * shred34;
@@ -178,7 +180,6 @@ typedef struct {
 
   ulong send_fec_set_idx[ FD_SHRED_BATCH_FEC_SETS_MAX ];
   ulong send_fec_set_cnt;
-  ulong tsorig;  /* timestamp of the last packet in compressed form */
 
   /* Includes Ethernet, IP, UDP headers */
   ulong shred_buffer_sz;
@@ -260,8 +261,16 @@ scratch_footprint( fd_topo_tile_t const * tile ) {
   return FD_LAYOUT_FINI( l, scratch_align() );
 }
 
+static void
+stem_run_init( fd_shred_ctx_t *    ctx,
+               fd_stem_context_t * stem ) {
+  ctx->stem = stem;
+}
+
 static inline void
-during_housekeeping( fd_shred_ctx_t * ctx ) {
+during_housekeeping( fd_shred_ctx_t * ctx,
+                     long             stem_ts ) {
+  (void)stem_ts;
   if( FD_UNLIKELY( fd_keyswitch_state_query( ctx->keyswitch )==FD_KEYSWITCH_STATE_SWITCH_PENDING ) ) {
     ulong seq_must_complete = ctx->keyswitch->param;
 
@@ -345,11 +354,10 @@ during_frag( fd_shred_ctx_t * ctx,
              ulong            sig,
              ulong            chunk,
              ulong            sz,
-             ulong            ctl ) {
+             ulong            ctl,
+             long             stem_ts FD_PARAM_UNUSED ) {
 
   ctx->skip_frag = 0;
-
-  ctx->tsorig = fd_frag_meta_ts_comp( fd_tickcount() );
 
   if( FD_UNLIKELY( ctx->in_kind[ in_idx ]==IN_KIND_REPAIR ) ) {
     if( FD_UNLIKELY( chunk<ctx->in[ in_idx ].chunk0 || chunk>ctx->in[ in_idx ].wmark ) )
@@ -517,7 +525,7 @@ during_frag( fd_shred_ctx_t * ctx,
           /* If it's our turn, shred this batch. FD_UNLIKELY because shred
              tile cnt generally >= 2 */
 
-          long shredding_timing = -fd_tickcount();
+          long shredding_timing = -fd_stem_now( ctx->stem );
 
           fd_memset( ctx->pending_batch.payload + ctx->pending_batch.pos, 0, padding_sz );
 
@@ -544,7 +552,7 @@ during_frag( fd_shred_ctx_t * ctx,
           }
 
           fd_shredder_fini_batch( ctx->shredder );
-          shredding_timing += fd_tickcount();
+          shredding_timing += fd_stem_now( ctx->stem );
 
           /* Update metrics */
           fd_histf_sample( ctx->metrics->batch_sz,             batch_sz /* without padding */    );
@@ -675,10 +683,9 @@ send_shred( fd_shred_ctx_t                 * ctx,
 #endif
 
   ulong pkt_sz = shred_sz + sizeof(fd_ip4_udp_hdrs_t);
-  ulong tspub  = fd_frag_meta_ts_comp( fd_tickcount() );
   ulong sig    = fd_disco_netmux_sig( dest->ip4, dest->port, dest->ip4, DST_PROTO_OUTGOING, sizeof(fd_ip4_udp_hdrs_t) );
   ulong const chunk = ctx->net_out_chunk;
-  fd_stem_publish( stem, NET_OUT_IDX, sig, chunk, pkt_sz, 0UL, tsorig, tspub );
+  fd_stem_publish( stem, NET_OUT_IDX, sig, chunk, pkt_sz, 0UL, tsorig, 0UL );
   ctx->net_out_chunk = fd_dcache_compact_next( chunk, pkt_sz, ctx->net_out_chunk0, ctx->net_out_wmark );
 }
 
@@ -688,13 +695,16 @@ after_frag( fd_shred_ctx_t *    ctx,
             ulong               seq,
             ulong               sig,
             ulong               sz,
-            ulong               tsorig,
+            ulong               _tsorig,
             ulong               _tspub,
+            long                stem_ts,
             fd_stem_context_t * stem ) {
+  ulong tsorig = fd_frag_meta_ts_comp( stem_ts );
   (void)seq;
   (void)sz;
-  (void)tsorig;
+  (void)_tsorig;
   (void)_tspub;
+  (void)stem_ts;
 
   if( FD_UNLIKELY( ctx->skip_frag ) ) return;
 
@@ -783,9 +793,9 @@ after_frag( fd_shred_ctx_t *    ctx,
     fd_fec_set_t const * out_fec_set[1];
     fd_shred_t const   * out_shred[1];
 
-    long add_shred_timing  = -fd_tickcount();
+    long add_shred_timing  = -fd_stem_now( ctx->stem );
     int rv = fd_fec_resolver_add_shred( ctx->resolver, shred, shred_buffer_sz, slot_leader->uc, out_fec_set, out_shred, &out_merkle_root );
-    add_shred_timing      +=  fd_tickcount();
+    add_shred_timing      +=  fd_stem_now( ctx->stem );
 
     fd_histf_sample( ctx->metrics->add_shred_timing, (ulong)add_shred_timing );
     ctx->metrics->shred_processing_result[ rv + FD_FEC_RESOLVER_ADD_SHRED_RETVAL_OFF+FD_SHRED_ADD_SHRED_EXTRA_RETVAL_CNT ]++;
@@ -836,8 +846,8 @@ after_frag( fd_shred_ctx_t *    ctx,
           fd_shred_dest_idx_t * dests = fd_shred_dest_compute_children( sdest, &shred, 1UL, ctx->scratchpad_dests, 1UL, fanout, fanout, max_dest_cnt );
           if( FD_UNLIKELY( !dests ) ) break;
 
-          for( ulong i=0UL; i<ctx->adtl_dests_retransmit_cnt; i++ ) send_shred( ctx, stem, *out_shred, ctx->adtl_dests_retransmit+i, ctx->tsorig );
-          for( ulong j=0UL; j<*max_dest_cnt; j++ ) send_shred( ctx, stem, *out_shred, fd_shred_dest_idx_to_dest( sdest, dests[ j ] ), ctx->tsorig );
+          for( ulong i=0UL; i<ctx->adtl_dests_retransmit_cnt; i++ ) send_shred( ctx, stem, *out_shred, ctx->adtl_dests_retransmit+i, tsorig );
+          for( ulong j=0UL; j<*max_dest_cnt; j++ ) send_shred( ctx, stem, *out_shred, fd_shred_dest_idx_to_dest( sdest, dests[ j ] ), tsorig );
         } while( 0 );
       }
 
@@ -856,8 +866,8 @@ after_frag( fd_shred_ctx_t *    ctx,
 
         ulong sz = fd_shred_header_sz( shred->variant );
         fd_memcpy( fd_chunk_to_laddr( ctx->repair_out_mem, ctx->repair_out_chunk ), shred, sz );
-        ulong tspub = fd_frag_meta_ts_comp( fd_tickcount() );
-        fd_stem_publish( stem, ctx->repair_out_idx, sig, ctx->repair_out_chunk, sz, 0UL, ctx->tsorig, tspub );
+        ulong tspub  = fd_frag_meta_ts_comp( fd_stem_now( stem ) );
+        fd_stem_publish( stem, ctx->repair_out_idx, sig, ctx->repair_out_chunk, sz, 0UL, tsorig, tspub );
         ctx->repair_out_chunk = fd_dcache_compact_next( ctx->repair_out_chunk, sz, ctx->repair_out_chunk0, ctx->repair_out_wmark );
       }
     }
@@ -975,8 +985,8 @@ after_frag( fd_shred_ctx_t *    ctx,
       memcpy( chunk+FD_SHRED_DATA_HEADER_SZ,                           out_merkle_root.hash,                                FD_SHRED_MERKLE_ROOT_SZ );
       memcpy( chunk+FD_SHRED_DATA_HEADER_SZ + FD_SHRED_MERKLE_ROOT_SZ, (uchar *)last + fd_shred_chain_off( last->variant ), FD_SHRED_MERKLE_ROOT_SZ );
       ulong sz    = FD_SHRED_DATA_HEADER_SZ + FD_SHRED_MERKLE_ROOT_SZ * 2;
-      ulong tspub = fd_frag_meta_ts_comp( fd_tickcount() );
-      fd_stem_publish( stem, ctx->repair_out_idx, sig, ctx->repair_out_chunk, sz, 0UL, ctx->tsorig, tspub );
+      ulong tspub = fd_frag_meta_ts_comp( fd_stem_now( stem ) );
+      fd_stem_publish( stem, ctx->repair_out_idx, sig, ctx->repair_out_chunk, sz, 0UL, tsorig, tspub );
       ctx->repair_out_chunk = fd_dcache_compact_next( ctx->repair_out_chunk, sz, ctx->repair_out_chunk0, ctx->repair_out_wmark );
 
     } else if( FD_UNLIKELY( ctx->store_out_idx != ULONG_MAX ) ) { /* frankendancer-only */
@@ -984,14 +994,14 @@ after_frag( fd_shred_ctx_t *    ctx,
       /* Send to the blockstore, skipping any empty shred34_t s. */
 
       ulong new_sig = ctx->in_kind[ in_idx ]!=IN_KIND_NET; /* sig==0 means the store tile will do extra checks */
-      ulong tspub = fd_frag_meta_ts_comp( fd_tickcount() );
-      fd_stem_publish( stem, 0UL, new_sig, fd_laddr_to_chunk( ctx->store_out_mem, s34+0UL ), sz0, 0UL, ctx->tsorig, tspub );
+      ulong tspub = fd_frag_meta_ts_comp( fd_stem_now( stem ) );
+      fd_stem_publish( stem, 0UL, new_sig, fd_laddr_to_chunk( ctx->store_out_mem, s34+0UL ), sz0, 0UL, tsorig, tspub );
       if( FD_UNLIKELY( s34[ 1 ].shred_cnt ) )
-        fd_stem_publish( stem, 0UL, new_sig, fd_laddr_to_chunk( ctx->store_out_mem, s34+1UL ), sz1, 0UL, ctx->tsorig, tspub );
+        fd_stem_publish( stem, 0UL, new_sig, fd_laddr_to_chunk( ctx->store_out_mem, s34+1UL ), sz1, 0UL, tsorig, tspub );
       if( FD_UNLIKELY( s34[ 2 ].shred_cnt ) )
-        fd_stem_publish( stem, 0UL, new_sig, fd_laddr_to_chunk( ctx->store_out_mem, s34+2UL), sz2, 0UL, ctx->tsorig, tspub );
+        fd_stem_publish( stem, 0UL, new_sig, fd_laddr_to_chunk( ctx->store_out_mem, s34+2UL), sz2, 0UL, tsorig, tspub );
       if( FD_UNLIKELY( s34[ 3 ].shred_cnt ) )
-        fd_stem_publish( stem, 0UL, new_sig, fd_laddr_to_chunk( ctx->store_out_mem, s34+3UL ), sz3, 0UL, ctx->tsorig, tspub );
+        fd_stem_publish( stem, 0UL, new_sig, fd_laddr_to_chunk( ctx->store_out_mem, s34+3UL ), sz3, 0UL, tsorig, tspub );
     }
 
     /* Compute all the destinations for all the new shreds */
@@ -1021,15 +1031,15 @@ after_frag( fd_shred_ctx_t *    ctx,
       *max_dest_cnt = 1UL;
       dests = fd_shred_dest_compute_first   ( sdest, new_shreds, k, ctx->scratchpad_dests );
       for( ulong i=0UL; i<k; i++ ) {
-        for( ulong j=0UL; j<ctx->adtl_dests_leader_cnt; j++ ) send_shred( ctx, stem, new_shreds[ i ], ctx->adtl_dests_leader+j, ctx->tsorig );
+        for( ulong j=0UL; j<ctx->adtl_dests_leader_cnt; j++ ) send_shred( ctx, stem, new_shreds[ i ], ctx->adtl_dests_leader+j, tsorig );
       }
     }
     if( FD_UNLIKELY( !dests ) ) return;
 
     /* Send only the ones we didn't receive. */
     for( ulong i=0UL; i<k; i++ ) {
-      for( ulong j=0UL; j<ctx->adtl_dests_retransmit_cnt; j++ ) send_shred( ctx, stem, new_shreds[ i ], ctx->adtl_dests_retransmit+j, ctx->tsorig );
-      for( ulong j=0UL; j<*max_dest_cnt; j++ ) send_shred( ctx, stem, new_shreds[ i ], fd_shred_dest_idx_to_dest( sdest, dests[ j*out_stride+i ]), ctx->tsorig );
+      for( ulong j=0UL; j<ctx->adtl_dests_retransmit_cnt; j++ ) send_shred( ctx, stem, new_shreds[ i ], ctx->adtl_dests_retransmit+j, tsorig );
+      for( ulong j=0UL; j<*max_dest_cnt; j++ ) send_shred( ctx, stem, new_shreds[ i ], fd_shred_dest_idx_to_dest( sdest, dests[ j*out_stride+i ]), tsorig );
     }
   }
 }
@@ -1352,6 +1362,7 @@ populate_allowed_fds( fd_topo_t const *      topo,
 #define STEM_CALLBACK_CONTEXT_TYPE  fd_shred_ctx_t
 #define STEM_CALLBACK_CONTEXT_ALIGN alignof(fd_shred_ctx_t)
 
+#define STEM_CALLBACK_RUN_INIT            stem_run_init
 #define STEM_CALLBACK_DURING_HOUSEKEEPING during_housekeeping
 #define STEM_CALLBACK_METRICS_WRITE       metrics_write
 #define STEM_CALLBACK_BEFORE_FRAG         before_frag

@@ -112,7 +112,8 @@ during_frag( fd_bank_ctx_t * ctx,
              ulong           sig    FD_PARAM_UNUSED,
              ulong           chunk,
              ulong           sz,
-             ulong           ctl    FD_PARAM_UNUSED ) {
+             ulong           ctl    FD_PARAM_UNUSED,
+             long            stem_ts FD_PARAM_UNUSED ) {
 
   uchar * src = (uchar *)fd_chunk_to_laddr( ctx->pack_in_mem, chunk );
   uchar * dst = (uchar *)fd_chunk_to_laddr( ctx->out_mem, ctx->out_chunk );
@@ -295,9 +296,9 @@ handle_microblock( fd_bank_ctx_t *     ctx,
   trailer->pack_txn_idx = ctx->_txn_idx;
   trailer->tips = 0UL;
 
-  long tickcount                 = fd_tickcount();
-  long microblock_start_ticks    = fd_frag_meta_ts_decomp( begin_tspub, tickcount );
-  long microblock_duration_ticks = fd_long_max(tickcount - microblock_start_ticks, 0L);
+  long now                       = fd_stem_now( stem );
+  long microblock_start_ticks    = fd_frag_meta_ts_decomp( begin_tspub, now );
+  long microblock_duration_ticks = fd_long_max(now - microblock_start_ticks, 0L);
 
   long tx_start_ticks       = (long)out_timestamps[ 0 ];
   long tx_load_end_ticks    = (long)out_timestamps[ 1 ];
@@ -326,7 +327,7 @@ handle_microblock( fd_bank_ctx_t *     ctx,
      transactions so the PoH tile can keep an accurate count of microblocks
      it has seen. */
   ulong new_sz = txn_cnt*sizeof(fd_txn_p_t) + sizeof(fd_microblock_trailer_t);
-  fd_stem_publish( stem, 0UL, bank_sig, ctx->out_chunk, new_sz, 0UL, 0UL, (ulong)fd_frag_meta_ts_comp( tickcount ) );
+  fd_stem_publish( stem, 0UL, bank_sig, ctx->out_chunk, new_sz, 0UL, 0UL, (ulong)fd_frag_meta_ts_comp( now ) );
   ctx->out_chunk = fd_dcache_compact_next( ctx->out_chunk, new_sz, ctx->out_chunk0, ctx->out_wmark );
 }
 
@@ -468,9 +469,9 @@ handle_bundle( fd_bank_ctx_t *     ctx,
 
     ulong bank_sig = fd_disco_bank_sig( slot, ctx->_pack_idx+i );
 
-    long tickcount                 = fd_tickcount();
-    long microblock_start_ticks    = fd_frag_meta_ts_decomp( begin_tspub, tickcount );
-    long microblock_duration_ticks = fd_long_max(tickcount - microblock_start_ticks, 0L);
+    long now                      = fd_stem_now( stem );
+    long microblock_start_ticks    = fd_frag_meta_ts_decomp( begin_tspub, now );
+    long microblock_duration_ticks = fd_long_max(now - microblock_start_ticks, 0L);
 
     long tx_start_ticks       = (long)out_timestamps[ 4*i + 0 ];
     long tx_load_end_ticks    = (long)out_timestamps[ 4*i + 1 ];
@@ -483,7 +484,7 @@ handle_bundle( fd_bank_ctx_t *     ctx,
     trailer->txn_preload_end_pct = (uchar)(((double)(tx_preload_end_ticks - microblock_start_ticks) * (double)UCHAR_MAX) / (double)microblock_duration_ticks);
 
     ulong new_sz = sizeof(fd_txn_p_t) + sizeof(fd_microblock_trailer_t);
-    fd_stem_publish( stem, 0UL, bank_sig, ctx->out_chunk, new_sz, 0UL, 0UL, (ulong)fd_frag_meta_ts_comp( tickcount ) );
+    fd_stem_publish( stem, 0UL, bank_sig, ctx->out_chunk, new_sz, 0UL, 0UL, (ulong)fd_frag_meta_ts_comp( now ) );
     ctx->out_chunk = fd_dcache_compact_next( ctx->out_chunk, new_sz, ctx->out_chunk0, ctx->out_wmark );
   }
 
@@ -498,6 +499,7 @@ after_frag( fd_bank_ctx_t *     ctx,
             ulong               sz,
             ulong               tsorig,
             ulong               tspub,
+            long                stem_ts,
             fd_stem_context_t * stem ) {
   (void)in_idx;
 
@@ -516,7 +518,7 @@ after_frag( fd_bank_ctx_t *     ctx,
      after_credit */
   ulong written_sz = 0UL;
   while( 0UL!=(written_sz=fd_pack_rebate_sum_report( ctx->rebater, fd_chunk_to_laddr( ctx->rebate_mem, ctx->rebate_chunk ) )) ) {
-    ulong tspub = (ulong)fd_frag_meta_ts_comp( fd_tickcount() );
+    ulong tspub = (ulong)fd_frag_meta_ts_comp( stem_ts );
     fd_stem_publish( stem, 1UL, slot, ctx->rebate_chunk, written_sz, 0UL, tsorig, tspub );
     ctx->rebate_chunk = fd_dcache_compact_next( ctx->rebate_chunk, written_sz, ctx->rebate_chunk0, ctx->rebate_wmark );
   }

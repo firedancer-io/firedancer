@@ -20,6 +20,8 @@ typedef struct {
   fd_quic_t * quic;
   fd_aio_t    quic_tx_aio[1];
 
+  long iter_ts; /* before_credit timestamp */
+
 # define ED25519_PRIV_KEY_SZ (32)
 # define ED25519_PUB_KEY_SZ  (32)
   uchar            tls_priv_key[ ED25519_PRIV_KEY_SZ ];
@@ -60,6 +62,9 @@ typedef struct {
     ulong udp_pkt_too_large;
     ulong quic_txn_too_small;
     ulong quic_txn_too_large;
+
+    fd_histf_t service_duration[1];
+    fd_histf_t receive_duration[1];
   } metrics;
 } fd_quic_ctx_t;
 

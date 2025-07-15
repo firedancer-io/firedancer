@@ -14,7 +14,6 @@ fd_aio_tango_send1( fd_aio_tango_tx_t *       self,
   ulong            wmark   = self->wmark;
   uchar const *    data    = pkt->buf;
   ulong            data_sz = pkt->buf_sz;
-  ulong            ts      = fd_frag_meta_ts_comp( fd_tickcount() );
 
   int som = 1;
   int eom = 0;
@@ -25,7 +24,7 @@ fd_aio_tango_send1( fd_aio_tango_tx_t *       self,
     ulong   ctl     = fd_frag_meta_ctl( orig, som, eom, 0 );
 
     fd_memcpy( frag, data, frag_sz );
-    fd_mcache_publish( mcache, depth, self->seq, sig, self->chunk, frag_sz, ctl, ts, ts );
+    fd_mcache_publish( mcache, depth, self->seq, sig, self->chunk, frag_sz, ctl, 0UL, 0UL );
 
     self->seq   = fd_seq_inc( self->seq, 1UL );
     self->chunk = fd_dcache_compact_next( self->chunk, frag_sz, chunk0, wmark );

@@ -1253,13 +1253,13 @@ fd_gui_printf_slot_transactions_request( fd_gui_t * gui,
           jsonp_long_as_str( gui, "start_timestamp_nanos", slot->txs.leader_start_time );
           jsonp_long_as_str( gui, "target_end_timestamp_nanos", slot->txs.leader_end_time );
           jsonp_open_array( gui, "txn_mb_start_timestamps_nanos" );
-            for( ulong i=0UL; i<txn_cnt; i++) jsonp_long_as_str( gui, NULL, slot->txs.reference_nanos + (long)gui->txs[ (slot->txs.start_offset + i)%FD_GUI_TXN_HISTORY_SZ ]->timestamp_delta_start_nanos );
+            for( ulong i=0UL; i<txn_cnt; i++) jsonp_long_as_str( gui, NULL, slot->txs.reference_ns + (long)gui->txs[ (slot->txs.start_offset + i)%FD_GUI_TXN_HISTORY_SZ ]->timestamp_delta_start_nanos );
           jsonp_close_array( gui );
           jsonp_open_array( gui, "txn_mb_end_timestamps_nanos" );
             /* clamp end_ts to start_ts + 1 */
             for( ulong i=0UL; i<txn_cnt; i++) {
-              jsonp_long_as_str( gui, NULL, slot->txs.reference_nanos + fd_long_max( (long)gui->txs[ (slot->txs.start_offset + i)%FD_GUI_TXN_HISTORY_SZ ]->timestamp_delta_end_nanos,
-                                                                                     (long)gui->txs[ (slot->txs.start_offset + i)%FD_GUI_TXN_HISTORY_SZ ]->timestamp_delta_start_nanos + 1L ) );
+              jsonp_long_as_str( gui, NULL, slot->txs.reference_ns + fd_long_max( (long)gui->txs[ (slot->txs.start_offset + i)%FD_GUI_TXN_HISTORY_SZ ]->timestamp_delta_end_nanos,
+                                                                                  (long)gui->txs[ (slot->txs.start_offset + i)%FD_GUI_TXN_HISTORY_SZ ]->timestamp_delta_start_nanos + 1L ) );
             }
           jsonp_close_array( gui );
           jsonp_open_array( gui, "txn_compute_units_requested" );
@@ -1291,7 +1291,7 @@ fd_gui_printf_slot_transactions_request( fd_gui_t * gui,
               fd_gui_txn_t * txn = gui->txs[ (slot->txs.start_offset + i)%FD_GUI_TXN_HISTORY_SZ ];
               long microblock_duration = (long)txn->timestamp_delta_end_nanos - (long)txn->timestamp_delta_start_nanos;
               long timestamp_delta_preload_end = (long)txn->timestamp_delta_start_nanos + (long)((double)txn->txn_preload_end_pct * (double)microblock_duration / (double)UCHAR_MAX);
-              jsonp_long_as_str( gui, NULL, slot->txs.reference_nanos + timestamp_delta_preload_end );
+              jsonp_long_as_str( gui, NULL, slot->txs.reference_ns + timestamp_delta_preload_end );
             }
           jsonp_close_array( gui );
           jsonp_open_array( gui, "txn_start_timestamps_nanos" );
@@ -1299,7 +1299,7 @@ fd_gui_printf_slot_transactions_request( fd_gui_t * gui,
               fd_gui_txn_t * txn = gui->txs[ (slot->txs.start_offset + i)%FD_GUI_TXN_HISTORY_SZ ];
               long microblock_duration = (long)txn->timestamp_delta_end_nanos - (long)txn->timestamp_delta_start_nanos;
               long timestamp_delta_validate_end = (long)txn->timestamp_delta_start_nanos + (long)((double)txn->txn_start_pct * (double)microblock_duration / (double)UCHAR_MAX);
-              jsonp_long_as_str( gui, NULL, slot->txs.reference_nanos + timestamp_delta_validate_end );
+              jsonp_long_as_str( gui, NULL, slot->txs.reference_ns + timestamp_delta_validate_end );
             }
           jsonp_close_array( gui );
           jsonp_open_array( gui, "txn_load_end_timestamps_nanos" );
@@ -1307,7 +1307,7 @@ fd_gui_printf_slot_transactions_request( fd_gui_t * gui,
               fd_gui_txn_t * txn = gui->txs[ (slot->txs.start_offset + i)%FD_GUI_TXN_HISTORY_SZ ];
               long microblock_duration = (long)txn->timestamp_delta_end_nanos - (long)txn->timestamp_delta_start_nanos;
               long timestamp_delta_load_end = (long)txn->timestamp_delta_start_nanos + (long)((double)txn->txn_load_end_pct * (double)microblock_duration / (double)UCHAR_MAX);
-              jsonp_long_as_str( gui, NULL, slot->txs.reference_nanos + timestamp_delta_load_end );
+              jsonp_long_as_str( gui, NULL, slot->txs.reference_ns + timestamp_delta_load_end );
             }
           jsonp_close_array( gui );
           jsonp_open_array( gui, "txn_end_timestamps_nanos" );
@@ -1315,7 +1315,7 @@ fd_gui_printf_slot_transactions_request( fd_gui_t * gui,
               fd_gui_txn_t * txn = gui->txs[ (slot->txs.start_offset + i)%FD_GUI_TXN_HISTORY_SZ ];
               long microblock_duration = (long)txn->timestamp_delta_end_nanos - (long)txn->timestamp_delta_start_nanos;
               long timestamp_delta_exec_end = (long)txn->timestamp_delta_start_nanos + (long)((double)txn->txn_end_pct * (double)microblock_duration / (double)UCHAR_MAX);
-              jsonp_long_as_str( gui, NULL, slot->txs.reference_nanos + timestamp_delta_exec_end );
+              jsonp_long_as_str( gui, NULL, slot->txs.reference_ns + timestamp_delta_exec_end );
             }
           jsonp_close_array( gui );
           jsonp_open_array( gui, "txn_arrival_timestamps_nanos" );

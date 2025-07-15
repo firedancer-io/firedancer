@@ -123,7 +123,8 @@ during_frag( fd_archiver_feeder_tile_ctx_t * ctx,
              ulong                           sig,
              ulong                           chunk,
              ulong                           sz,
-             ulong                           ctl FD_PARAM_UNUSED ) {
+             ulong                           ctl FD_PARAM_UNUSED,
+             long                            stem_ts FD_PARAM_UNUSED ) {
   /* TODO: filter by signature in before_credit */
   if( FD_UNLIKELY( chunk<ctx->in[ in_idx ].chunk0 || chunk>ctx->in[ in_idx ].wmark ) ) {
     FD_LOG_ERR(( "chunk %lu %lu corrupt, not in range [%lu,%lu]", chunk, sz, ctx->in[ in_idx ].chunk0, ctx->in[ in_idx ].wmark ));
@@ -156,6 +157,7 @@ after_frag( fd_archiver_feeder_tile_ctx_t * ctx,
             ulong                           sz,
             ulong                           tsorig,
             ulong                           tspub  FD_PARAM_UNUSED,
+            long                            stem_ts FD_PARAM_UNUSED,
             fd_stem_context_t *             stem ) {
   /* Publish the message to the queue */
   ulong full_sz = sz + FD_ARCHIVER_FRAG_HEADER_FOOTPRINT;

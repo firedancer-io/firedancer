@@ -53,7 +53,8 @@ during_frag( fd_plugin_ctx_t * ctx,
              ulong             sig,
              ulong             chunk,
              ulong             sz,
-             ulong             ctl FD_PARAM_UNUSED ) {
+             ulong             ctl FD_PARAM_UNUSED,
+             long              stem_ts FD_PARAM_UNUSED ) {
 
   uchar * src = (uchar *)fd_chunk_to_laddr( ctx->in[ in_idx ].mem, chunk );
   ulong * dst = (ulong *)fd_chunk_to_laddr( ctx->out_mem, ctx->out_chunk );
@@ -87,11 +88,13 @@ after_frag( fd_plugin_ctx_t *   ctx,
             ulong               sz,
             ulong               tsorig,
             ulong               tspub,
+            long                stem_ts,
             fd_stem_context_t * stem ) {
   (void)sz;
   (void)seq;
   (void)tsorig;
   (void)tspub;
+  (void)stem_ts;
 
   switch( ctx->in_kind[ in_idx ] ) {
     case IN_KIND_REPLAY: {

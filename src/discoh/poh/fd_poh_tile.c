@@ -649,7 +649,7 @@ poh_link_publish( poh_link_t *  link,
 
   uchar * dst = (uchar *)fd_chunk_to_laddr( link->mem, link->chunk );
   fd_memcpy( dst, data, data_sz );
-  ulong tspub = (ulong)fd_frag_meta_ts_comp( fd_tickcount() );
+  ulong tspub = fd_frag_meta_ts_comp( fd_stem_now( fd_poh_global_ctx->stem ) );
   fd_mcache_publish( link->mcache, link->depth, link->tx_seq, sig, link->chunk, data_sz, 0UL, 0UL, tspub );
   link->chunk = fd_dcache_compact_next( link->chunk, data_sz, link->chunk0, link->wmark );
   link->cr_avail--;
@@ -961,8 +961,7 @@ CALLED_FROM_RUST static void
 publish_became_leader( fd_poh_ctx_t * ctx,
                        ulong          slot,
                        ulong          epoch ) {
-  double tick_per_ns = fd_tempo_tick_per_ns( NULL );
-  fd_histf_sample( ctx->begin_leader_delay, (ulong)((double)(fd_log_wallclock()-ctx->reset_slot_start_ns)/tick_per_ns) );
+  fd_histf_sample( ctx->begin_leader_delay, (ulong)((double)(fd_log_wallclock()-ctx->reset_slot_start_ns)) );
 
   if( FD_UNLIKELY( ctx->lagged_consecutive_leader_start ) ) {
     /* If we are mirroring Agave behavior, the wall clock gets reset
@@ -977,7 +976,7 @@ publish_became_leader( fd_poh_ctx_t * ctx,
   fd_acct_addr_t                       tip_receiver_owner[1] = { 0 };
 
   if( FD_UNLIKELY( ctx->bundle.enabled ) ) {
-    long bundle_time = -fd_tickcount();
+    long bundle_time = -fd_stem_now( ctx->stem );
     fd_acct_addr_t tip_payment_config[1];
     fd_acct_addr_t tip_receiver[1];
     fd_bundle_crank_get_addresses( ctx->bundle.gen, epoch, tip_payment_config, tip_receiver );
@@ -998,7 +997,7 @@ publish_became_leader( fd_poh_ctx_t * ctx,
        should be treated the same), so we actually don't really care
        about the value of found{1,2}. */
     (void)found1; (void)found2;
-    bundle_time += fd_tickcount();
+    bundle_time += fd_stem_now( ctx->stem );
     fd_histf_sample( ctx->bundle_init_delay, (ulong)bundle_time );
   }
 
@@ -1409,7 +1408,7 @@ publish_tick( fd_poh_ctx_t *      ctx,
   fd_memcpy( tick->hash, hash, 32UL );
   tick->txn_cnt = 0UL;
 
-  ulong tspub = (ulong)fd_frag_meta_ts_comp( fd_tickcount() );
+  ulong tspub = (ulong)fd_frag_meta_ts_comp( fd_stem_now( ctx->stem ) );
   ulong sz = sizeof(fd_entry_batch_meta_t)+sizeof(fd_entry_batch_header_t);
   ulong sig = fd_disco_poh_sig( slot, POH_PKT_TYPE_MICROBLOCK, 0UL );
   fd_stem_publish( stem, ctx->shred_out->idx, sig, ctx->shred_out->chunk, sz, 0UL, 0UL, tspub );
@@ -1431,7 +1430,7 @@ publish_features_activation(  fd_poh_ctx_t *      ctx,
   fd_shred_features_activation_t * act_data = (fd_shred_features_activation_t *)dst;
   fd_memcpy( act_data, ctx->features_activation, sizeof(fd_shred_features_activation_t) );
 
-  ulong tspub = (ulong)fd_frag_meta_ts_comp( fd_tickcount() );
+  ulong tspub = (ulong)fd_frag_meta_ts_comp( fd_stem_now( ctx->stem ) );
   ulong sz = sizeof(fd_shred_features_activation_t);
   ulong sig = fd_disco_poh_sig( ctx->slot, POH_PKT_TYPE_FEAT_ACT_SLOT, 0UL );
   fd_stem_publish( stem, ctx->shred_out->idx, sig, ctx->shred_out->chunk, sz, 0UL, 0UL, tspub );
@@ -1443,7 +1442,9 @@ static inline void
 after_credit( fd_poh_ctx_t *      ctx,
               fd_stem_context_t * stem,
               int *               opt_poll_in,
-              int *               charge_busy ) {
+              int *               charge_busy,
+              long                stem_ts ) {
+  (void)stem_ts;
   ctx->stem = stem;
 
   FD_COMPILER_MFENCE();
@@ -1742,8 +1743,7 @@ after_credit( fd_poh_ctx_t *      ctx,
     no_longer_leader( ctx );
     ctx->expect_sequential_leader_slot = ctx->slot;
 
-    double tick_per_ns = fd_tempo_tick_per_ns( NULL );
-    fd_histf_sample( ctx->slot_done_delay, (ulong)((double)(fd_log_wallclock()-ctx->reset_slot_start_ns)/tick_per_ns) );
+    fd_histf_sample( ctx->slot_done_delay, (ulong)((double)(fd_log_wallclock()-ctx->reset_slot_start_ns)) );
     ctx->next_leader_slot = next_leader_slot( ctx );
 
     if( FD_UNLIKELY( ctx->slot>=ctx->next_leader_slot ) ) {
@@ -1756,7 +1756,9 @@ after_credit( fd_poh_ctx_t *      ctx,
 }
 
 static inline void
-during_housekeeping( fd_poh_ctx_t * ctx ) {
+during_housekeeping( fd_poh_ctx_t * ctx,
+                     long           stem_ts ) {
+  (void)stem_ts;
   if( FD_UNLIKELY( maybe_change_identity( ctx, 0 ) ) ) {
     ctx->next_leader_slot = next_leader_slot( ctx );
     FD_LOG_INFO(( "fd_poh_identity_changed(next_leader_slot=%lu)", ctx->next_leader_slot ));
@@ -1800,7 +1802,8 @@ during_frag( fd_poh_ctx_t * ctx,
              ulong          sig,
              ulong          chunk,
              ulong          sz,
-             ulong          ctl FD_PARAM_UNUSED ) {
+             ulong          ctl FD_PARAM_UNUSED,
+             long           stem_ts FD_PARAM_UNUSED ) {
   ctx->skip_frag = 0;
 
   if( FD_UNLIKELY( ctx->in_kind[ in_idx ]==IN_KIND_STAKE ) ) {
@@ -1910,7 +1913,7 @@ publish_microblock( fd_poh_ctx_t *      ctx,
      value of 3 credits, and at most we will publish_tick() once and
      then publish_became_leader() once, leaving one credit here to
      publish the microblock. */
-  ulong tspub = (ulong)fd_frag_meta_ts_comp( fd_tickcount() );
+  ulong tspub = fd_frag_meta_ts_comp( fd_stem_now( stem ) );
   ulong sz = sizeof(fd_entry_batch_meta_t)+sizeof(fd_entry_batch_header_t)+payload_sz;
   ulong new_sig = fd_disco_poh_sig( slot, POH_PKT_TYPE_MICROBLOCK, 0UL );
   fd_stem_publish( stem, ctx->shred_out->idx, new_sig, ctx->shred_out->chunk, sz, 0UL, 0UL, tspub );
@@ -1926,6 +1929,7 @@ after_frag( fd_poh_ctx_t *      ctx,
             ulong               sz,
             ulong               tsorig,
             ulong               tspub,
+            long                stem_ts,
             fd_stem_context_t * stem ) {
   (void)in_idx;
   (void)seq;
@@ -1972,8 +1976,7 @@ after_frag( fd_poh_ctx_t *      ctx,
   }
 
   if( FD_UNLIKELY( !ctx->microblocks_lower_bound ) ) {
-    double tick_per_ns = fd_tempo_tick_per_ns( NULL );
-    fd_histf_sample( ctx->first_microblock_delay, (ulong)((double)(fd_log_wallclock()-ctx->reset_slot_start_ns)/tick_per_ns) );
+    fd_histf_sample( ctx->first_microblock_delay, (ulong)((double)(stem_ts-ctx->reset_slot_start_ns)) );
   }
 
   ulong target_slot = fd_disco_bank_sig_slot( sig );

@@ -120,10 +120,11 @@ during_frag( fd_writer_tile_ctx_t * ctx,
              ulong                  sig,
              ulong                  chunk,
              ulong                  sz,
-             ulong                  ctl ) {
-
+             ulong                  ctl,
+             long                   stem_ts ) {
   (void)seq;
   (void)ctl;
+  (void)stem_ts;
 
   /* exec_writer is a reliable flow controlled link so we are not gonna
      bother with copying the incoming frag. */

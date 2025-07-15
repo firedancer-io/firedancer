@@ -49,8 +49,9 @@ scratch_footprint( fd_topo_tile_t const * tile ) {
 static inline void
 before_credit( fd_metric_ctx_t *   ctx,
                fd_stem_context_t * stem,
-               int *               charge_busy ) {
-  (void)stem;
+               int *               charge_busy,
+               long                stem_ts ) {
+  (void)stem; (void)stem_ts;
   *charge_busy = fd_http_server_poll( ctx->metrics_server, 1 ); /* 1ms */
 }
 

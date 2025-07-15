@@ -205,11 +205,10 @@ struct fd_gui_slot {
     long leader_start_time; /* UNIX timestamp of when we first became leader in this slot */
     long leader_end_time;   /* UNIX timestamp of when we stopped being leader in this slot */
 
-    long reference_ticks;   /* A somewhat arbitrary reference tickcount, that we use for compressing the tickcounts
+    long reference_ns;      /* A somewhat arbitrary reference duration, that we use for compressing the timestamps
                                of transaction start and end times in this slot.  It is, roughly (not exactly), the
-                               minimum of the first transaction start or end tickcount, and the time of the message
+                               minimum of the first transaction start or end wallclock, and the time of the message
                                from poh to pack telling it to become leader. */
-    long reference_nanos;   /* The UNIX timestamp in nanoseconds of the reference tick value above. */
 
     uint microblocks_upper_bound; /* An upper bound on the number of microblocks in the slot.  If the number of
                                      microblocks observed is equal to this, the slot can be considered over.

@@ -346,7 +346,7 @@ poll_rx_socket( fd_sock_tile_t *    ctx,
     /* unreachable if socket is in a valid state */
     FD_LOG_ERR(( "recvmmsg failed (%i-%s)", errno, fd_io_strerror( errno ) ));
   }
-  long ts = fd_tickcount();
+  long ts = fd_stem_now( stem );
   ctx->metrics.sys_recvmmsg_cnt++;
 
   if( FD_UNLIKELY( msg_cnt==0 ) ) return 0UL;
@@ -543,7 +543,8 @@ during_frag( fd_sock_tile_t * ctx,
              ulong            sig,
              ulong            chunk,
              ulong            sz,
-             ulong            ctl FD_PARAM_UNUSED ) {
+             ulong            ctl FD_PARAM_UNUSED,
+             long             stem_ts FD_PARAM_UNUSED ) {
   if( FD_UNLIKELY( chunk<ctx->link_tx[ in_idx ].chunk0 || chunk>ctx->link_tx[ in_idx ].wmark || sz>FD_NET_MTU ) ) {
     FD_LOG_ERR(( "chunk %lu %lu corrupt, not in range [%lu,%lu]", chunk, sz, ctx->link_tx[ in_idx ].chunk0, ctx->link_tx[ in_idx ].wmark ));
   }
@@ -622,6 +623,7 @@ after_frag( fd_sock_tile_t *    ctx,
             ulong               sz,
             ulong               tsorig FD_PARAM_UNUSED,
             ulong               tspub  FD_PARAM_UNUSED,
+            long                stem_ts FD_PARAM_UNUSED,
             fd_stem_context_t * stem   FD_PARAM_UNUSED ) {
   /* Commit the packet added in during_frag */
 
@@ -645,7 +647,8 @@ static inline void
 after_credit( fd_sock_tile_t *    ctx,
               fd_stem_context_t * stem,
               int *               poll_in FD_PARAM_UNUSED,
-              int *               charge_busy ) {
+              int *               charge_busy,
+              long                stem_ts FD_PARAM_UNUSED ) {
   if( ctx->tx_idle_cnt > 512 ) {
     if( ctx->batch_cnt ) {
       flush_tx_batch( ctx );

@@ -43,7 +43,8 @@ during_frag( fd_store_ctx_t * ctx,
              ulong            sig FD_PARAM_UNUSED,
              ulong            chunk,
              ulong            sz,
-             ulong            ctl FD_PARAM_UNUSED ) {
+             ulong            ctl FD_PARAM_UNUSED,
+             long             stem_ts FD_PARAM_UNUSED ) {
 
   if( FD_UNLIKELY( chunk<ctx->in[ in_idx ].chunk0 || chunk>ctx->in[ in_idx ].wmark || sz>FD_SHRED_STORE_MTU || sz<32UL ) )
     FD_LOG_ERR(( "chunk %lu %lu corrupt, not in range [%lu,%lu]", chunk, sz, ctx->in[ in_idx ].chunk0, ctx->in[ in_idx ].wmark ));
@@ -69,11 +70,13 @@ after_frag( fd_store_ctx_t *    ctx,
             ulong               sz,
             ulong               tsorig,
             ulong               tspub,
+            long                stem_ts,
             fd_stem_context_t * stem ) {
   (void)in_idx;
   (void)seq;
   (void)tsorig;
   (void)tspub;
+  (void)stem_ts;
   (void)stem;
 
   fd_shred34_t * shred34 = (fd_shred34_t *)ctx->mem;

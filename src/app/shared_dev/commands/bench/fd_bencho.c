@@ -51,11 +51,12 @@ scratch_footprint( fd_topo_tile_t const * tile ) {
 
 static int
 service_block_hash( fd_bencho_ctx_t *   ctx,
-                    fd_stem_context_t * stem ) {
+                    fd_stem_context_t * stem,
+                    long                stem_ts ) {
   int did_work = 0;
 
   if( FD_UNLIKELY( ctx->blockhash_state==FD_BENCHO_STATE_WAIT ) ) {
-    if( FD_LIKELY( fd_log_wallclock()>=ctx->blockhash_deadline ) )
+    if( FD_LIKELY( stem_ts>=ctx->blockhash_deadline ) )
       ctx->blockhash_state = FD_BENCHO_STATE_READY;
   }
 
@@ -64,7 +65,7 @@ service_block_hash( fd_bencho_ctx_t *   ctx,
     if( FD_UNLIKELY( ctx->blockhash_request<0L ) ) FD_LOG_ERR(( "failed to send RPC request" ));
 
     ctx->blockhash_state    = FD_BENCHO_STATE_SENT;
-    ctx->blockhash_deadline = fd_log_wallclock() + FD_BENCHO_RPC_RESPONSE_TIMEOUT;
+    ctx->blockhash_deadline = stem_ts + FD_BENCHO_RPC_RESPONSE_TIMEOUT;
 
     did_work = 1;
   }
@@ -72,15 +73,15 @@ service_block_hash( fd_bencho_ctx_t *   ctx,
   if( FD_UNLIKELY( ctx->blockhash_state==FD_BENCHO_STATE_SENT ) ) {
     fd_rpc_client_response_t * response = fd_rpc_client_status( ctx->rpc, ctx->blockhash_request, 0 );
     if( FD_UNLIKELY( response->status==FD_RPC_CLIENT_PENDING ) ) {
-      if( FD_UNLIKELY( fd_log_wallclock()>=ctx->blockhash_deadline ) )
+      if( FD_UNLIKELY( stem_ts>=ctx->blockhash_deadline ) )
         FD_LOG_WARNING(( "timed out waiting for RPC server to respond" ));
       return did_work;
     }
 
-    if( FD_UNLIKELY( fd_log_wallclock()<ctx->rpc_ready_deadline && response->status==FD_RPC_CLIENT_ERR_NETWORK ) ) {
+    if( FD_UNLIKELY( stem_ts<ctx->rpc_ready_deadline && response->status==FD_RPC_CLIENT_ERR_NETWORK ) ) {
       /* RPC server not yet responding, give it some more time... */
       ctx->blockhash_state = FD_BENCHO_STATE_WAIT;
-      ctx->blockhash_deadline = fd_log_wallclock() + 100L * 1000L * 1000L; /* 100 millis to retry */
+      ctx->blockhash_deadline = stem_ts + 100L * 1000L * 1000L; /* 100 millis to retry */
       fd_rpc_client_close( ctx->rpc, ctx->blockhash_request );
       return did_work;
     }
@@ -89,14 +90,14 @@ service_block_hash( fd_bencho_ctx_t *   ctx,
       FD_LOG_ERR(( "RPC server returned error %ld", response->status ));
 
     ctx->blockhash_state = FD_BENCHO_STATE_WAIT;
-    ctx->blockhash_deadline = fd_log_wallclock() + 400L * 1000L * 1000L; /* 400 millis til we fetch new blockhash */
+    ctx->blockhash_deadline = stem_ts + 400L * 1000L * 1000L; /* 400 millis til we fetch new blockhash */
     fd_memcpy( fd_chunk_to_laddr( ctx->mem, ctx->out_chunk ), response->result.latest_block_hash.block_hash, 32 );
     fd_stem_publish( stem, 0UL, 0UL, ctx->out_chunk, 32UL, 0UL, 0UL, 0UL );
     ctx->out_chunk = fd_dcache_compact_next( ctx->out_chunk, 32, ctx->out_chunk0, ctx->out_wmark );
 
     fd_rpc_client_close( ctx->rpc, ctx->blockhash_request );
     if( FD_UNLIKELY( !ctx->txncount_nextprint ) ) {
-      ctx->txncount_nextprint = fd_log_wallclock();
+      ctx->txncount_nextprint = stem_ts;
     }
 
     did_work = 1;
@@ -106,13 +107,14 @@ service_block_hash( fd_bencho_ctx_t *   ctx,
 }
 
 static int
-service_txn_count( fd_bencho_ctx_t * ctx ) {
+service_txn_count( fd_bencho_ctx_t * ctx,
+                   long              stem_ts ) {
   if( FD_UNLIKELY( !ctx->txncount_nextprint ) ) return 0;
 
   int did_work = 0;
 
   if( FD_UNLIKELY( ctx->txncount_state==FD_BENCHO_STATE_WAIT ) ) {
-    if( FD_LIKELY( fd_log_wallclock()>=ctx->txncount_deadline ) )
+    if( FD_LIKELY( stem_ts>=ctx->txncount_deadline ) )
       ctx->txncount_state = FD_BENCHO_STATE_READY;
   }
 
@@ -121,7 +123,7 @@ service_txn_count( fd_bencho_ctx_t * ctx ) {
     if( FD_UNLIKELY( ctx->txncount_request<0L ) ) FD_LOG_ERR(( "failed to send RPC request" ));
 
     ctx->txncount_state    = FD_BENCHO_STATE_SENT;
-    ctx->txncount_deadline = fd_log_wallclock() + FD_BENCHO_RPC_RESPONSE_TIMEOUT;
+    ctx->txncount_deadline = stem_ts + FD_BENCHO_RPC_RESPONSE_TIMEOUT;
 
     did_work = 1;
   }
@@ -158,12 +160,13 @@ static inline void
 after_credit( fd_bencho_ctx_t *   ctx,
               fd_stem_context_t * stem,
               int *               opt_poll_in,
-              int *               charge_busy ) {
+              int *               charge_busy,
+              long                stem_ts ) {
   (void)opt_poll_in;
 
   int did_work_rpc                = fd_rpc_client_service( ctx->rpc, 0 );
-  int did_work_service_block_hash = service_block_hash( ctx, stem );
-  int did_work_service_txn_count  = service_txn_count( ctx );
+  int did_work_service_block_hash = service_block_hash( ctx, stem, stem_ts );
+  int did_work_service_txn_count  = service_txn_count( ctx, stem_ts );
 
   *charge_busy = did_work_rpc | did_work_service_block_hash | did_work_service_txn_count;
 }

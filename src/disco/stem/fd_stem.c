@@ -11,6 +11,10 @@
    defined like #define STEM_CALLBACK_BEFORE_FRAG before_frag to
    tune the behavior of the stem_run loop.  The callbacks are:
 
+     RUN_INIT
+   Is called once at the beginning of the stem_run loop before any other
+   run looop callback.  This is useful for grabbing stem context bits.
+
      SHOULD_SHUTDOWN
    It is called at the beginning of each iteration of the stem run loop,
    and if it returns non-zero, the stem will exit the run loop and
@@ -217,7 +221,8 @@ STEM_(scratch_footprint)( ulong in_cnt,
                           ulong out_cnt,
                           ulong cons_cnt ) {
   ulong l = FD_LAYOUT_INIT;
-  l = FD_LAYOUT_APPEND( l, alignof(fd_stem_tile_in_t), in_cnt*sizeof(fd_stem_tile_in_t)     );  /* in */
+  l = FD_LAYOUT_APPEND( l, FD_CLOCK_ALIGN,             FD_CLOCK_FOOTPRINT                   ); /* clock */
+  l = FD_LAYOUT_APPEND( l, alignof(fd_stem_tile_in_t), in_cnt*sizeof(fd_stem_tile_in_t)     ); /* in */
   l = FD_LAYOUT_APPEND( l, alignof(ulong),             out_cnt*sizeof(ulong)                ); /* cr_avail */
   l = FD_LAYOUT_APPEND( l, alignof(ulong),             out_cnt*sizeof(ulong)                ); /* out_depth */
   l = FD_LAYOUT_APPEND( l, alignof(ulong),             out_cnt*sizeof(ulong)                ); /* out_seq */
@@ -266,13 +271,13 @@ STEM_(run1)( ulong                        in_cnt,
   ulong    event_cnt; /* ==in_cnt+cons_cnt+1, total number of housekeeping events */
   ulong    event_seq; /* current position in housekeeping event sequence, in [0,event_cnt) */
   ushort * event_map; /* current mapping of event_seq to event idx, event_map[ event_seq ] is next event to process */
-  ulong    async_min; /* minimum number of ticks between processing a housekeeping event, positive integer power of 2 */
+  ulong    async_min; /* minimum nanosecond duration between processing a housekeeping event, positive integer power of 2 */
 
   /* performance metrics */
   ulong metric_in_backp;  /* is the run loop currently backpressured by one or more of the outs, in [0,1] */
   ulong metric_backp_cnt; /* Accumulates number of transitions of tile to backpressured between housekeeping events */
 
-  ulong metric_regime_ticks[9];    /* How many ticks the tile has spent in each regime */
+  ulong metric_regime_ns[9];    /* How many nanos the tile has spent in each regime */
 
   if( FD_UNLIKELY( !scratch ) ) FD_LOG_ERR(( "NULL scratch" ));
   if( FD_UNLIKELY( !fd_ulong_is_aligned( (ulong)scratch, STEM_(scratch_align)() ) ) ) FD_LOG_ERR(( "misaligned scratch" ));
@@ -281,13 +286,31 @@ STEM_(run1)( ulong                        in_cnt,
       cleared during first housekeeping if credits available */
   metric_in_backp  = 1UL;
   metric_backp_cnt = 0UL;
-  memset( metric_regime_ticks, 0, sizeof( metric_regime_ticks ) );
+  memset( metric_regime_ns, 0, sizeof(metric_regime_ns) );
 
   /* in frag stream init */
 
   in_seq = 0UL; /* First in to poll */
 
   FD_SCRATCH_ALLOC_INIT( l, scratch );
+
+  /* Create a shared fd_clock object */
+  void * clock_mem  = FD_SCRATCH_ALLOC_APPEND( l, FD_CLOCK_ALIGN, FD_CLOCK_FOOTPRINT );
+  long   recal_avg  = (long)10e6; /* 10ms */
+  long   recal_jit  = 0L; /* default jitter */
+  double recal_hist = 0.; /* default clock rate estimation history */
+  double recal_frac = 0.; /* max clock drift fraction per epoch */
+  long init_x1, init_y1;
+  int clock_err = fd_clock_joint_read( _fd_tickcount, NULL, fd_log_wallclock_host, NULL, &init_x1, &init_y1, NULL );
+  if( FD_UNLIKELY( clock_err ) ) FD_LOG_ERR(( "fd_clock_joint_read failed (%i-%s)", clock_err, fd_clock_strerror( clock_err ) ));
+  double init_w  = fd_tempo_tick_per_ns( NULL );
+  void * shclock = fd_clock_new( clock_mem, recal_avg, recal_jit, recal_hist, recal_frac, init_x1, init_y1, init_w );
+  if( FD_UNLIKELY( !shclock ) ) FD_LOG_ERR(( "fd_clock_new failed" ));
+  fd_clock_t clock_ljoin[1];
+  fd_clock_t * clock = fd_clock_join( clock_ljoin, shclock, _fd_tickcount, NULL );
+  if( FD_UNLIKELY( !clock ) ) FD_LOG_ERR(( "fd_clock_join failed" ));
+  long recal_next = fd_clock_recal_next( clock );
+
   in = (fd_stem_tile_in_t *)FD_SCRATCH_ALLOC_APPEND( l, alignof(fd_stem_tile_in_t), in_cnt*sizeof(fd_stem_tile_in_t) );
 
   if( FD_UNLIKELY( !!in_cnt && !in_mcache ) ) FD_LOG_ERR(( "NULL in_mcache" ));
@@ -352,6 +375,7 @@ STEM_(run1)( ulong                        in_cnt,
   /* housekeeping init */
 
   if( lazy<=0L ) lazy = fd_tempo_lazy_default( cr_max );
+  lazy = fd_long_min( lazy, recal_avg );
   FD_LOG_INFO(( "Configuring housekeeping (lazy %li ns)", lazy ));
 
   /* Initialize the initial event sequence to immediately update
@@ -365,12 +389,27 @@ STEM_(run1)( ulong                        in_cnt,
   for( ulong cons_idx=0UL; cons_idx<cons_cnt; cons_idx++ ) event_map[ event_seq++ ] = (ushort)cons_idx;
   event_seq = 0UL;
 
-  async_min = fd_tempo_async_min( lazy, event_cnt, (float)fd_tempo_tick_per_ns( NULL ) );
+  async_min = fd_tempo_async_min( lazy, event_cnt, 1.f );
   if( FD_UNLIKELY( !async_min ) ) FD_LOG_ERR(( "bad lazy %lu %lu", (ulong)lazy, event_cnt ));
+
+  fd_stem_context_t stem = {
+    .mcaches             = out_mcache,
+    .depths              = out_depth,
+    .seqs                = out_seq,
+
+    .cr_avail            = cr_avail,
+    .min_cr_avail        = &min_cr_avail,
+    .cr_decrement_amount = fd_ulong_if( out_cnt>0UL, 1UL, 0UL ),
+  };
+  fd_clock_epoch_init( stem.epoch, shclock );
+
+#ifdef STEM_CALLBACK_RUN_INIT
+  STEM_CALLBACK_RUN_INIT( ctx, &stem );
+#endif
 
   FD_LOG_INFO(( "Running stem, cr_max = %lu", cr_max ));
   FD_MGAUGE_SET( TILE, STATUS, 1UL );
-  long then = fd_tickcount();
+  long then = fd_clock_now( clock );
   long now  = then;
   for(;;) {
 
@@ -380,7 +419,7 @@ STEM_(run1)( ulong                        in_cnt,
 
     /* Do housekeeping at a low rate in the background */
 
-    ulong housekeeping_ticks = 0UL;
+    ulong housekeeping_ns = 0UL;
     if( FD_UNLIKELY( (now-then)>=0L ) ) {
       ulong event_idx = (ulong)event_map[ event_seq ];
 
@@ -412,7 +451,7 @@ STEM_(run1)( ulong                        in_cnt,
         FD_MGAUGE_SET( TILE, HEARTBEAT,                 (ulong)now );
         FD_MGAUGE_SET( TILE, IN_BACKPRESSURE,           metric_in_backp );
         FD_MCNT_INC  ( TILE, BACKPRESSURE_COUNT,        metric_backp_cnt );
-        FD_MCNT_ENUM_COPY( TILE, REGIME_DURATION_NANOS, metric_regime_ticks );
+        FD_MCNT_ENUM_COPY( TILE, REGIME_DURATION_NANOS, metric_regime_ns );
 #ifdef STEM_CALLBACK_METRICS_WRITE
         STEM_CALLBACK_METRICS_WRITE( ctx );
 #endif
@@ -446,10 +485,22 @@ STEM_(run1)( ulong                        in_cnt,
         }
 
 #ifdef STEM_CALLBACK_DURING_HOUSEKEEPING
-        STEM_CALLBACK_DURING_HOUSEKEEPING( ctx );
+        STEM_CALLBACK_DURING_HOUSEKEEPING( ctx, now );
 #else
         (void)ctx;
 #endif
+      }
+
+      /* Clock recalibration */
+      if( FD_UNLIKELY( now>=recal_next ) ) {
+        long x1, y1;
+        int  err = fd_clock_joint_read( _fd_tickcount, NULL, fd_log_wallclock_host, NULL, &x1, &y1, NULL );
+        if( FD_UNLIKELY( err ) ) {
+          FD_LOG_WARNING(( "fd_clock_joint_read failed (%i-%s); attempting to continue", err, fd_clock_strerror( err ) ));
+        } else {
+          recal_next = fd_clock_recal( clock, x1, y1 );
+          fd_clock_epoch_refresh( stem.epoch, shclock );
+        }
       }
 
       /* Select which event to do next (randomized round robin) and
@@ -484,26 +535,14 @@ STEM_(run1)( ulong                        in_cnt,
 
       /* Reload housekeeping timer */
       then = now + (long)fd_tempo_async_reload( rng, async_min );
-      long next = fd_tickcount();
-      housekeeping_ticks = (ulong)(next - now);
+      long next = fd_stem_now( &stem );
+      housekeeping_ns = (ulong)(next - now);
       now = next;
     }
 
-#if defined(STEM_CALLBACK_BEFORE_CREDIT) || defined(STEM_CALLBACK_AFTER_CREDIT) || defined(STEM_CALLBACK_AFTER_FRAG) || defined(STEM_CALLBACK_RETURNABLE_FRAG)
-    fd_stem_context_t stem = {
-      .mcaches             = out_mcache,
-      .depths              = out_depth,
-      .seqs                = out_seq,
-
-      .cr_avail            = cr_avail,
-      .min_cr_avail        = &min_cr_avail,
-      .cr_decrement_amount = fd_ulong_if( out_cnt>0UL, 1UL, 0UL ),
-    };
-#endif
-
     int charge_busy_before = 0;
 #ifdef STEM_CALLBACK_BEFORE_CREDIT
-    STEM_CALLBACK_BEFORE_CREDIT( ctx, &stem, &charge_busy_before );
+    STEM_CALLBACK_BEFORE_CREDIT( ctx, &stem, &charge_busy_before, now );
 #endif
 
   /* Check if we are backpressured.  If so, count any transition into
@@ -518,9 +557,9 @@ STEM_(run1)( ulong                        in_cnt,
       metric_backp_cnt += (ulong)!metric_in_backp;
       metric_in_backp   = 1UL;
       FD_SPIN_PAUSE();
-      metric_regime_ticks[2] += housekeeping_ticks;
-      long next = fd_tickcount();
-      metric_regime_ticks[5] += (ulong)(next - now);
+      metric_regime_ns[2] += housekeeping_ns;
+      long next = fd_stem_now( &stem );
+      metric_regime_ns[5] += (ulong)(next - now);
       now = next;
       continue;
     }
@@ -529,11 +568,11 @@ STEM_(run1)( ulong                        in_cnt,
     int charge_busy_after = 0;
 #ifdef STEM_CALLBACK_AFTER_CREDIT
     int poll_in = 1;
-    STEM_CALLBACK_AFTER_CREDIT( ctx, &stem, &poll_in, &charge_busy_after );
+    STEM_CALLBACK_AFTER_CREDIT( ctx, &stem, &poll_in, &charge_busy_after, now );
     if( FD_UNLIKELY( !poll_in ) ) {
-      metric_regime_ticks[1] += housekeeping_ticks;
-      long next = fd_tickcount();
-      metric_regime_ticks[4] += (ulong)(next - now);
+      metric_regime_ns[1] += housekeeping_ns;
+      long next = fd_stem_now( &stem );
+      metric_regime_ns[4] += (ulong)(next - now);
       now = next;
       continue;
     }
@@ -545,14 +584,14 @@ STEM_(run1)( ulong                        in_cnt,
       int was_busy = 0;
       was_busy |= !!charge_busy_before;
       was_busy |= !!charge_busy_after;
-      metric_regime_ticks[ 0+was_busy ] += housekeeping_ticks;
-      long next = fd_tickcount();
-      metric_regime_ticks[ 3+was_busy ] += (ulong)(next - now);
+      metric_regime_ns[ 0+was_busy ] += housekeeping_ns;
+      long next = fd_stem_now( &stem );
+      metric_regime_ns[ 3+was_busy ] += (ulong)(next - now);
       now = next;
       continue;
     }
 
-    ulong prefrag_ticks = 0UL;
+    ulong prefrag_ns = 0UL;
 #if defined(STEM_CALLBACK_BEFORE_CREDIT) && defined(STEM_CALLBACK_AFTER_CREDIT)
     if( FD_LIKELY( charge_busy_before || charge_busy_after ) ) {
 #elif defined(STEM_CALLBACK_BEFORE_CREDIT)
@@ -562,8 +601,8 @@ STEM_(run1)( ulong                        in_cnt,
 #endif
 
 #if defined(STEM_CALLBACK_BEFORE_CREDIT) || defined(STEM_CALLBACK_AFTER_CREDIT)
-      long prefrag_next = fd_tickcount();
-      prefrag_ticks = (ulong)(prefrag_next - now);
+      long prefrag_next = fd_stem_now( &stem );
+      prefrag_ns = (ulong)(prefrag_next - now);
       now = prefrag_next;
     }
 #endif
@@ -592,14 +631,14 @@ STEM_(run1)( ulong                        in_cnt,
 
     long diff = fd_seq_diff( this_in_seq, seq_found );
     if( FD_UNLIKELY( diff ) ) { /* Caught up or overrun, optimize for new frag case */
-      ulong * housekeeping_regime = &metric_regime_ticks[0];
-      ulong * prefrag_regime = &metric_regime_ticks[3];
-      ulong * finish_regime = &metric_regime_ticks[6];
+      ulong * housekeeping_regime = &metric_regime_ns[0];
+      ulong * prefrag_regime      = &metric_regime_ns[3];
+      ulong * finish_regime       = &metric_regime_ns[6];
       if( FD_UNLIKELY( diff<0L ) ) { /* Overrun (impossible if in is honoring our flow control) */
         this_in->seq = seq_found; /* Resume from here (probably reasonably current, could query in mcache sync directly instead) */
-        housekeeping_regime = &metric_regime_ticks[1];
-        prefrag_regime = &metric_regime_ticks[4];
-        finish_regime = &metric_regime_ticks[7];
+        housekeeping_regime = &metric_regime_ns[1];
+        prefrag_regime      = &metric_regime_ns[4];
+        finish_regime       = &metric_regime_ns[7];
         this_in->accum[ FD_METRICS_COUNTER_LINK_OVERRUN_POLLING_COUNT_OFF ]++;
         this_in->accum[ FD_METRICS_COUNTER_LINK_OVERRUN_POLLING_FRAG_COUNT_OFF ] += (uint)(-diff);
 
@@ -609,9 +648,9 @@ STEM_(run1)( ulong                        in_cnt,
       }
 
       /* Don't bother with spin as polling multiple locations */
-      *housekeeping_regime += housekeeping_ticks;
-      *prefrag_regime += prefrag_ticks;
-      long next = fd_tickcount();
+      *housekeeping_regime += housekeeping_ns;
+      *prefrag_regime += prefrag_ns;
+      long next = fd_stem_now( &stem );
       *finish_regime += (ulong)(next - now);
       now = next;
       continue;
@@ -620,10 +659,10 @@ STEM_(run1)( ulong                        in_cnt,
 #ifdef STEM_CALLBACK_BEFORE_FRAG
     int filter = STEM_CALLBACK_BEFORE_FRAG( ctx, (ulong)this_in->idx, seq_found, sig );
     if( FD_UNLIKELY( filter<0 ) ) {
-      metric_regime_ticks[1] += housekeeping_ticks;
-      metric_regime_ticks[4] += prefrag_ticks;
-      long next = fd_tickcount();
-      metric_regime_ticks[7] += (ulong)(next - now);
+      metric_regime_ns[1] += housekeeping_ns;
+      metric_regime_ns[4] += prefrag_ns;
+      long next = fd_stem_now( &stem );
+      metric_regime_ns[7] += (ulong)(next - now);
       now = next;
       continue;
     } else if( FD_UNLIKELY( filter>0 ) ) {
@@ -634,10 +673,10 @@ STEM_(run1)( ulong                        in_cnt,
       this_in->seq   = this_in_seq;
       this_in->mline = this_in->mcache + fd_mcache_line_idx( this_in_seq, this_in->depth );
 
-      metric_regime_ticks[1] += housekeeping_ticks;
-      metric_regime_ticks[4] += prefrag_ticks;
-      long next = fd_tickcount();
-      metric_regime_ticks[7] += (ulong)(next - now);
+      metric_regime_ns[1] += housekeeping_ns;
+      metric_regime_ns[4] += prefrag_ns;
+      long next = fd_stem_now( &stem );
+      metric_regime_ns[7] += (ulong)(next - now);
       now = next;
       continue;
     }
@@ -659,7 +698,7 @@ STEM_(run1)( ulong                        in_cnt,
     ulong tspub    = (ulong)this_in_mline->tspub;  (void)tspub;
 
 #ifdef STEM_CALLBACK_DURING_FRAG
-    STEM_CALLBACK_DURING_FRAG( ctx, (ulong)this_in->idx, seq_found, sig, chunk, sz, ctl );
+    STEM_CALLBACK_DURING_FRAG( ctx, (ulong)this_in->idx, seq_found, sig, chunk, sz, ctl, now );
 #endif
 
     FD_COMPILER_MFENCE();
@@ -671,10 +710,10 @@ STEM_(run1)( ulong                        in_cnt,
       fd_metrics_link_in( fd_metrics_base_tl, this_in->idx )[ FD_METRICS_COUNTER_LINK_OVERRUN_READING_COUNT_OFF ]++; /* No local accum since extremely rare, faster to use smaller cache line */
       fd_metrics_link_in( fd_metrics_base_tl, this_in->idx )[ FD_METRICS_COUNTER_LINK_OVERRUN_READING_FRAG_COUNT_OFF ] += (uint)fd_seq_diff( seq_test, seq_found ); /* No local accum since extremely rare, faster to use smaller cache line */
       /* Don't bother with spin as polling multiple locations */
-      metric_regime_ticks[1] += housekeeping_ticks;
-      metric_regime_ticks[4] += prefrag_ticks;
-      long next = fd_tickcount();
-      metric_regime_ticks[7] += (ulong)(next - now);
+      metric_regime_ns[1] += housekeeping_ns;
+      metric_regime_ns[4] += prefrag_ns;
+      long next = fd_stem_now( &stem );
+      metric_regime_ns[7] += (ulong)(next - now);
       now = next;
       continue;
     }
@@ -682,16 +721,16 @@ STEM_(run1)( ulong                        in_cnt,
 #ifdef STEM_CALLBACK_RETURNABLE_FRAG
     int return_frag = STEM_CALLBACK_RETURNABLE_FRAG( ctx, (ulong)this_in->idx, seq_found, sig, chunk, sz, tsorig, tspub, &stem );
     if( FD_UNLIKELY( return_frag ) ) {
-      metric_regime_ticks[1] += housekeeping_ticks;
-      long next = fd_tickcount();
-      metric_regime_ticks[4] += (ulong)(next - now);
+      metric_regime_ns[1] += housekeeping_ns;
+      long next = fd_stem_now( &stem );
+      metric_regime_ns[4] += (ulong)(next - now);
       now = next;
       continue;
     }
 #endif
 
 #ifdef STEM_CALLBACK_AFTER_FRAG
-    STEM_CALLBACK_AFTER_FRAG( ctx, (ulong)this_in->idx, seq_found, sig, sz, tsorig, tspub, &stem );
+    STEM_CALLBACK_AFTER_FRAG( ctx, (ulong)this_in->idx, seq_found, sig, sz, tsorig, tspub, now, &stem );
 #endif
 
     /* Windup for the next in poll and accumulate diagnostics */
@@ -703,10 +742,10 @@ STEM_(run1)( ulong                        in_cnt,
     this_in->accum[ FD_METRICS_COUNTER_LINK_CONSUMED_COUNT_OFF ]++;
     this_in->accum[ FD_METRICS_COUNTER_LINK_CONSUMED_SIZE_BYTES_OFF ] += (uint)sz;
 
-    metric_regime_ticks[1] += housekeeping_ticks;
-    metric_regime_ticks[4] += prefrag_ticks;
-    long next = fd_tickcount();
-    metric_regime_ticks[7] += (ulong)(next - now);
+    metric_regime_ns[1] += housekeeping_ns;
+    metric_regime_ns[4] += prefrag_ns;
+    long next = fd_stem_now( &stem );
+    metric_regime_ns[7] += (ulong)(next - now);
     now = next;
   }
 }

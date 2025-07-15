@@ -76,14 +76,14 @@ metrics_write( fd_bundle_tile_t * ctx ) {
 }
 
 void
-fd_bundle_tile_housekeeping( fd_bundle_tile_t * ctx ) {
+fd_bundle_tile_housekeeping( fd_bundle_tile_t * ctx,
+                             long               stem_ts ) {
   long log_interval_ns = (long)30e9;
   int  status          = fd_bundle_client_status( ctx );
   long log_next_ns     = ctx->last_bundle_status_log_nanos + log_interval_ns;
-  long now_ns          = fd_log_wallclock();
-  if( FD_UNLIKELY( status!=FD_PLUGIN_MSG_BLOCK_ENGINE_UPDATE_STATUS_CONNECTED && now_ns>log_next_ns ) ) {
+  if( FD_UNLIKELY( status!=FD_PLUGIN_MSG_BLOCK_ENGINE_UPDATE_STATUS_CONNECTED && stem_ts>log_next_ns ) ) {
     FD_LOG_WARNING(( "No bundle server connection in the last %ld seconds", log_interval_ns/(long)1e9 ) );
-    ctx->last_bundle_status_log_nanos = now_ns;
+    ctx->last_bundle_status_log_nanos = stem_ts;
   }
 
   if( FD_UNLIKELY( fd_keyswitch_state_query( ctx->keyswitch )==FD_KEYSWITCH_STATE_SWITCH_PENDING ) ) {
@@ -136,7 +136,8 @@ static void
 after_credit( fd_bundle_tile_t *  ctx,
               fd_stem_context_t * stem,
               int *               opt_poll_in,
-              int *               charge_busy ) {
+              int *               charge_busy,
+              long                stem_ts FD_PARAM_UNUSED ) {
   (void)opt_poll_in;
   if( FD_UNLIKELY( !ctx->stem ) ) ctx->stem = stem;
   fd_bundle_client_step( ctx, charge_busy );
