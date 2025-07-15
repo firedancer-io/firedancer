@@ -222,6 +222,18 @@ for the different clusters are listed in the `default.toml` file in the
 [`reporting`](https://github.com/firedancer-io/firedancer/blob/main/src/app/fdctl/config/default.toml#L144)
 section.
 
+::: tip TIP
+
+If you currently run an Agave validator, you can generate a config file
+using the `toml-gen.py` utility. Paste your entire `agave-validator`
+commandline in a file (let's say `agave-cmdline.txt`) and run the utility:
+`python3 contrib/toml-gen.py -f agave-cmdline.txt`. If you have a `systemd`
+unit file, you can directly pass that in with an extra `--systemd` flag:
+`python3 contrib/toml-gen.py -f agave-systemd.service --systemd`. Note that
+Frankendancer does not support all of the flags the Agave client does.
+
+:::
+
 ### Permissions
 
 There are two users involved in running Firedancer. The user that you
