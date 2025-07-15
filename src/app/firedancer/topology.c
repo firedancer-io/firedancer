@@ -789,7 +789,7 @@ fd_topo_initialize( config_t * config ) {
     fd_topob_wksp( topo, "repair_scap" );
     fd_topob_wksp( topo, "replay_scap" );
 
-    fd_topob_tile( topo, "scap", "scap", "metric_in", tile_to_cpu[ topo->tile_cnt ], 0, 0 );
+    fd_topo_tile_t * scap_tile = fd_topob_tile( topo, "scap", "scap", "metric_in", tile_to_cpu[ topo->tile_cnt ], 0, 0 );
 
     fd_topob_link( topo, "repair_scap", "repair_scap", 128UL, FD_SLICE_MAX_WITH_HEADERS, 1UL );
     fd_topob_link( topo, "replay_scap", "replay_scap", 128UL, sizeof(fd_hash_t)+sizeof(ulong), 1UL );
@@ -809,6 +809,9 @@ fd_topo_initialize( config_t * config ) {
 
     fd_topob_tile_out( topo, "repair", 0UL, "repair_scap", 0UL );
     fd_topob_tile_out( topo, "replay", 0UL, "replay_scap", 0UL );
+
+    fd_topob_tile_uses( topo, scap_tile, root_slot_obj, FD_SHMEM_JOIN_MODE_READ_WRITE );
+    /* No default fd_topob_tile_in connection to stake_out */
   }
 
   fd_topob_wksp( topo, "replay_notif" );
@@ -1105,6 +1108,8 @@ fd_topo_configure_tile( fd_topo_tile_t * tile,
       tile->shredcap.repair_intake_listen_port = config->tiles.repair.repair_intake_listen_port;
       strncpy( tile->shredcap.folder_path, config->tiles.shredcap.folder_path, sizeof(tile->shredcap.folder_path) );
       tile->shredcap.write_buffer_size = config->tiles.shredcap.write_buffer_size;
+      tile->shredcap.enable_publish_stake_weights = 0; /* this is not part of the config */
+      strncpy( tile->shredcap.manifest_path, "", PATH_MAX ); /* this is not part of the config */
     } else {
       return 0;
     }

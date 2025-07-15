@@ -14,18 +14,16 @@ static inline ulong
 generate_stake_weight_msg( fd_exec_slot_ctx_t * slot_ctx,
                            fd_spad_t          * runtime_spad,
                            ulong                epoch,
+                           fd_vote_accounts_global_t const * vote_accounts,
                            ulong              * stake_weight_msg_out ) {
   /* This function needs to be completely rewritten for SIMD-0180.
      For now it's a hack that sends old data (pre SIMD-0180) in the new format. */
 
   fd_stake_weight_msg_t *           stake_weight_msg = (fd_stake_weight_msg_t *)fd_type_pun( stake_weight_msg_out );
   fd_vote_stake_weight_t *          stake_weights    = stake_weight_msg->weights;
-  fd_vote_accounts_global_t const * vote_accounts    = fd_bank_epoch_stakes_locking_query( slot_ctx->bank );
   ulong                             staked_cnt       = fd_stake_weights_by_node( vote_accounts,
                                                                            stake_weights,
                                                                            runtime_spad );
-  fd_bank_epoch_stakes_end_locking_query( slot_ctx->bank );
-
   fd_epoch_schedule_t const * epoch_schedule = fd_bank_epoch_schedule_query( slot_ctx->bank );
 
   stake_weight_msg->epoch          = epoch;
