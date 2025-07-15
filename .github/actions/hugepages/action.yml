@@ -4,7 +4,7 @@ inputs:
   count_huge:
     description: 'Number of huge pages'
     required: true
-    default: '128'
+    default: '160'
   count_gigantic:
     description: 'Number of gigantic pages'
     required: true
