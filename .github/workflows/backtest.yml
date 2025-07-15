@@ -2,15 +2,15 @@ name: Replay Ledgers
 on:
   workflow_call:
     inputs:
-      coverage:
-        type: boolean
-        default: false
       machine:
         type: string
-        default: linux_gcc_zen2
+        default: "linux_gcc_zen2"
       extras:
         type: string
         default: "handholding"
+      shmem_path:
+        type: string
+        default: "/data/svc_firedancer/mnt/.fd"
   workflow_dispatch:
 jobs:
   backtest-ledger-replay:
@@ -28,23 +28,34 @@ jobs:
       - uses: ./.github/actions/deps
         with:
           extras: +dev
+
       - uses: ./.github/actions/cpusonline
 
       - name: build
         run: |
-          make -j
+          make -j all firedancer-dev
 
       - name: find OBJDIR
         run: |
           echo OBJDIR=$(make help | grep OBJDIR | awk '{print $4}') >> $GITHUB_ENV
 
       - name: test replay ledgers
+        env:
+          FD_SHMEM_PATH: "${{ inputs.shmem_path }}"
         run: |
           sudo prlimit --pid=$$ --nofile=1048576
           sudo prlimit --pid=$$ --memlock=unlimited
           DUMP_DIR=../dump make run-runtime-backtest
 
-      - name: fini
+      - name: cleanup shmem pages
         if: always()
         run: |
-          sudo $OBJDIR/bin/firedancer-dev configure fini all --config ../dump/mainnet-308392063-v2.3.0_backtest.toml || true
+          CONFIG_TOML=$(ls -lt ../dump/*.toml | head -n1 | awk '{print $NF}')
+          sudo $OBJDIR/bin/firedancer-dev configure fini all --config $CONFIG_TOML
+
+      # - name: cleanup shmem pages again
+      #   if: always()
+      #   uses: ./.github/actions/hugepages
+      #   with:
+      #     action: cleanup
+      #     shmem_path: "${{ inputs.shmem_path }}"

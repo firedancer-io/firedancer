@@ -22,11 +22,14 @@ jobs:
       - uses: ./.github/actions/deps
         with:
           extras: +dev
+
       - uses: ./.github/actions/cpusonline
+
       - uses: ./.github/actions/hugepages
         with:
           count_gigantic: 60
           count_huge: 100 # TODO: this is required until we can handle anonymous workspaces and loose huge pages in fddev
+          action: allocate
 
       - uses: dtolnay/rust-toolchain@1.73.0
 
@@ -61,3 +64,9 @@ jobs:
           functionalities: search
           flags: ci
           token: ${{ secrets.CODECOV_TOKEN }}
+
+      - name: cleanup shmem pages
+        if: always()
+        uses: ./.github/actions/hugepages
+        with:
+          action: cleanup

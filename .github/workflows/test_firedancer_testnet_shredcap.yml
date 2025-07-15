@@ -22,11 +22,14 @@ jobs:
       - uses: ./.github/actions/deps
         with:
           extras: +dev
+
       - uses: ./.github/actions/cpusonline
+
       - uses: ./.github/actions/hugepages
         with:
           count_gigantic: 250
           count_huge: 1000 # TODO: this is required until we can handle anonymous workspaces and loose huge pages in fddev
+          action: allocate
 
       - name: build
         run: |
