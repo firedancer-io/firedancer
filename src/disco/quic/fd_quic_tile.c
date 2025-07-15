@@ -70,6 +70,12 @@ scratch_footprint( fd_topo_tile_t const * tile ) {
   return FD_LAYOUT_FINI( l, scratch_align() );
 }
 
+static void
+stem_run_init( fd_quic_ctx_t * ctx,
+               fd_stem_context_t * stem ) {
+  ctx->stem = stem;
+}
+
 /* legacy_stream_notify is called for transactions sent via TPU/UDP. For
    now both QUIC and non-QUIC transactions are accepted, with traffic
    type determined by port.
@@ -80,16 +86,16 @@ scratch_footprint( fd_topo_tile_t const * tile ) {
 static void
 legacy_stream_notify( fd_quic_ctx_t * ctx,
                       uchar *         packet,
-                      ulong           packet_sz ) {
+                      ulong           packet_sz,
+                      long            tsorig ) {
 
-  long                tspub    = fd_tickcount();
   fd_tpu_reasm_t *    reasm    = ctx->reasm;
   fd_stem_context_t * stem     = ctx->stem;
   fd_frag_meta_t *    mcache   = stem->mcaches[0];
   void *              base     = ctx->verify_out_mem;
   ulong               seq      = stem->seqs[0];
 
-  int err = fd_tpu_reasm_publish_fast( reasm, packet, packet_sz, mcache, base, seq, tspub );
+  int err = fd_tpu_reasm_publish_fast( reasm, packet, packet_sz, mcache, base, seq, tsorig );
   if( FD_LIKELY( err==FD_TPU_REASM_SUCCESS ) ) {
     fd_stem_advance( stem, 0UL );
     ctx->metrics.txns_received_udp++;
@@ -104,10 +110,9 @@ legacy_stream_notify( fd_quic_ctx_t * ctx,
    up the stack to the network itself. */
 static inline void
 before_credit( fd_quic_ctx_t *     ctx,
-               fd_stem_context_t * stem,
-               int *               charge_busy ) {
-  ctx->stem = stem;
-
+               fd_stem_context_t * stem FD_FN_UNUSED,
+               int *               charge_busy,
+               long                stem_ts FD_PARAM_UNUSED ) {
   /* Publishes to mcache via callbacks */
   *charge_busy = fd_quic_service( ctx->quic );
 }
@@ -171,8 +176,8 @@ metrics_write( fd_quic_ctx_t * ctx ) {
 
   FD_MCNT_ENUM_COPY( QUIC, ACK_TX, ctx->quic->metrics.ack_tx );
 
-  FD_MHIST_COPY( QUIC, SERVICE_DURATION_SECONDS, ctx->quic->metrics.service_duration );
-  FD_MHIST_COPY( QUIC, RECEIVE_DURATION_SECONDS, ctx->quic->metrics.receive_duration );
+  FD_MHIST_COPY( QUIC, SERVICE_DURATION_SECONDS, ctx->metrics.service_duration );
+  FD_MHIST_COPY( QUIC, RECEIVE_DURATION_SECONDS, ctx->metrics.receive_duration );
 }
 
 static int
@@ -199,7 +204,8 @@ during_frag( fd_quic_ctx_t * ctx,
              ulong           sig    FD_PARAM_UNUSED,
              ulong           chunk,
              ulong           sz,
-             ulong           ctl ) {
+             ulong           ctl,
+             long            stem_ts FD_PARAM_UNUSED ) {
   void const * src = fd_net_rx_translate_frag( &ctx->net_in_bounds[ in_idx ], chunk, ctl, sz );
 
   /* FIXME this copy could be eliminated by combining it with the decrypt operation */
@@ -214,6 +220,7 @@ after_frag( fd_quic_ctx_t *     ctx,
             ulong               sz,
             ulong               tsorig,
             ulong               tspub,
+            long                stem_ts,
             fd_stem_context_t * stem ) {
   (void)in_idx;
   (void)seq;
@@ -254,13 +261,8 @@ after_frag( fd_quic_ctx_t *     ctx,
       return;
     }
 
-    legacy_stream_notify( ctx, ctx->buffer+network_hdr_sz, data_sz );
+    legacy_stream_notify( ctx, ctx->buffer+network_hdr_sz, data_sz, stem_ts );
   }
-}
-
-static ulong
-quic_now( void * ctx FD_PARAM_UNUSED ) {
-  return (ulong)fd_tickcount();
 }
 
 static void
@@ -280,13 +282,13 @@ quic_stream_rx( fd_quic_conn_t * conn,
                 ulong            data_sz,
                 int              fin ) {
 
-  long                tspub    = fd_tickcount();
   fd_quic_t *         quic     = conn->quic;
   fd_quic_state_t *   state    = fd_quic_get_state( quic );  /* ugly */
   fd_quic_ctx_t *     ctx      = quic->cb.quic_ctx;
   fd_tpu_reasm_t *    reasm    = ctx->reasm;
   ulong               conn_uid = fd_quic_conn_uid( conn );
   fd_stem_context_t * stem     = ctx->stem;
+  long                tspub    = fd_stem_now( stem );
   fd_frag_meta_t *    mcache   = stem->mcaches[0];
   void *              base     = ctx->verify_out_mem;
   ulong               seq      = stem->seqs[0];
@@ -447,9 +449,9 @@ quic_tls_keylog( void *       _ctx,
 }
 
 static void
-during_housekeeping( fd_quic_ctx_t * ctx ) {
+during_housekeeping( fd_quic_ctx_t * ctx,
+                     long            now ) {
   if( FD_UNLIKELY( ctx->keylog_stream.wbuf ) ) {
-    long now = fd_log_wallclock();
     if( FD_UNLIKELY( now > ctx->keylog_next_flush ) ) {
       int err = fd_io_buffered_ostream_flush( &ctx->keylog_stream );
       if( FD_UNLIKELY( err ) ) {
@@ -500,6 +502,13 @@ quic_tls_cv_sign( void *      signer_ctx,
   fd_sha512_t * sha512 = fd_sha512_join( ctx->sha512 );
   fd_ed25519_sign( signature, payload, 130UL, ctx->tls_pub_key, ctx->tls_priv_key, sha512 );
   fd_sha512_leave( sha512 );
+}
+
+static ulong
+fd_quic_tile_now( void * ctx_ ) {
+  fd_quic_ctx_t *     ctx  = ctx_;
+  fd_stem_context_t * stem = ctx->stem;
+  return (ulong)fd_stem_now( stem );
 }
 
 static void
@@ -569,8 +578,8 @@ unprivileged_init( fd_topo_t *      topo,
   }
 
   quic->config.role                       = FD_QUIC_ROLE_SERVER;
-  quic->config.idle_timeout               = tile->quic.idle_timeout_millis * (ulong)1e6;
-  quic->config.ack_delay                  = tile->quic.ack_delay_millis * (ulong)1e6;
+  quic->config.idle_timeout               = (ulong)( tile->quic.idle_timeout_millis * (long)1e6 );
+  quic->config.ack_delay                  = (ulong)( tile->quic.ack_delay_millis    * (long)1e6 );
   quic->config.initial_rx_max_stream_data = FD_TXN_MTU;
   quic->config.retry                      = tile->quic.retry;
   fd_memcpy( quic->config.identity_public_key, ctx->tls_pub_key, ED25519_PUB_KEY_SZ );
@@ -580,16 +589,16 @@ unprivileged_init( fd_topo_t *      topo,
 
   quic->cb.conn_final       = quic_conn_final;
   quic->cb.stream_rx        = quic_stream_rx;
-  quic->cb.now              = quic_now;
-  quic->cb.now_ctx          = ctx;
   quic->cb.quic_ctx         = ctx;
   if( ctx->keylog_fd>=0 ) {
     quic->cb.tls_keylog = quic_tls_keylog;
     ctx->keylog_next_flush = fd_log_wallclock() + FD_QUIC_KEYLOG_FLUSH_INTERVAL_NS;
   }
 
+  quic->cb.now              = fd_quic_tile_now;
+  quic->cb.now_ctx          = ctx;
+
   fd_quic_set_aio_net_tx( quic, quic_tx_aio );
-  fd_quic_set_clock_tickcount( quic );
   if( FD_UNLIKELY( !fd_quic_init( quic ) ) ) FD_LOG_ERR(( "fd_quic_init failed" ));
 
   fd_topo_link_t * net_out = &topo->links[ tile->out_link_id[ 1 ] ];
@@ -616,10 +625,10 @@ unprivileged_init( fd_topo_t *      topo,
     FD_LOG_ERR(( "scratch overflow %lu %lu %lu", scratch_top - (ulong)scratch - scratch_footprint( tile ), scratch_top, (ulong)scratch + scratch_footprint( tile ) ));
 
   /* Call new/join here rather than in fd_quic so min/max can differ across uses */
-  fd_histf_join( fd_histf_new( ctx->quic->metrics.service_duration, FD_MHIST_SECONDS_MIN( QUIC, SERVICE_DURATION_SECONDS ),
-                                                                    FD_MHIST_SECONDS_MAX( QUIC, SERVICE_DURATION_SECONDS ) ) );
-  fd_histf_join( fd_histf_new( ctx->quic->metrics.receive_duration, FD_MHIST_SECONDS_MIN( QUIC, RECEIVE_DURATION_SECONDS ),
-                                                                    FD_MHIST_SECONDS_MAX( QUIC, RECEIVE_DURATION_SECONDS ) ) );
+  fd_histf_join( fd_histf_new( ctx->metrics.service_duration, FD_MHIST_SECONDS_MIN( QUIC, SERVICE_DURATION_SECONDS ),
+                                                              FD_MHIST_SECONDS_MAX( QUIC, SERVICE_DURATION_SECONDS ) ) );
+  fd_histf_join( fd_histf_new( ctx->metrics.receive_duration, FD_MHIST_SECONDS_MIN( QUIC, RECEIVE_DURATION_SECONDS ),
+                                                              FD_MHIST_SECONDS_MAX( QUIC, RECEIVE_DURATION_SECONDS ) ) );
 }
 
 static ulong
@@ -656,6 +665,7 @@ populate_allowed_fds( fd_topo_t const *      topo,
 #define STEM_CALLBACK_CONTEXT_TYPE  fd_quic_ctx_t
 #define STEM_CALLBACK_CONTEXT_ALIGN alignof(fd_quic_ctx_t)
 
+#define STEM_CALLBACK_RUN_INIT            stem_run_init
 #define STEM_CALLBACK_METRICS_WRITE       metrics_write
 #define STEM_CALLBACK_BEFORE_CREDIT       before_credit
 #define STEM_CALLBACK_BEFORE_FRAG         before_frag

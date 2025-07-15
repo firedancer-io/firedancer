@@ -43,12 +43,6 @@ txn_cmd_args( int *    pargc,
   args->txn.dst_port = fd_env_strip_cmdline_ushort( pargc, pargv, "--dst-port", NULL, 0 );
 }
 
-static ulong
-cb_now( void * context ) {
-  (void)context;
-  return (ulong)fd_log_wallclock();
-}
-
 static void
 cb_conn_hs_complete( fd_quic_conn_t * conn,
                      void *           quic_ctx ) {
@@ -85,7 +79,6 @@ send_quic_transactions( fd_quic_t *         quic,
   fd_quic_set_aio_net_tx( quic, udpsock->aio );
   FD_TEST( fd_quic_init( quic ) );
 
-  quic->cb.now              = cb_now;
   quic->cb.conn_final       = cb_conn_final;
   quic->cb.conn_hs_complete = cb_conn_hs_complete;
   quic->cb.stream_notify    = cb_stream_notify;

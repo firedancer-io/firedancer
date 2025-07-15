@@ -148,9 +148,6 @@ snapshot_load_cmd_fn( args_t *   args,
   fd_topo_join_workspaces( topo, FD_SHMEM_JOIN_MODE_READ_WRITE );
   fd_topo_fill( topo );
 
-  double tick_per_ns = fd_tempo_tick_per_ns( NULL );
-  double ns_per_tick = 1.0/tick_per_ns;
-
   long start = fd_log_wallclock();
   fd_topo_run_single_process( topo, 2, config->uid, config->gid, fdctl_tile_run );
 
@@ -209,12 +206,12 @@ snapshot_load_cmd_fn( args_t *   args,
     ulong acc_cnt      = snapin_metrics[ MIDX( GAUGE, SNAPIN, ACCOUNTS_INSERTED    ) ];
     printf( "bw=%4.0f MB/s backp=(%3.0f%%,%3.0f%%,%3.0f%%) busy=(%3.0f%%,%3.0f%%,%3.0f%%) acc=%3.1f M/s\n",
             (double)( total_off-total_off_old )/1e6,
-            ( (double)( snaprd_backp-snaprd_backp_old )*ns_per_tick )/1e7,
-            ( (double)( snapdc_backp-snapdc_backp_old )*ns_per_tick )/1e7,
-            ( (double)( snapin_backp-snapin_backp_old )*ns_per_tick )/1e7,
-            100-( ( (double)( snaprd_wait-snaprd_wait_old  )*ns_per_tick )/1e7 ),
-            100-( ( (double)( snapdc_wait-snapdc_wait_old  )*ns_per_tick )/1e7 ),
-            100-( ( (double)( snapin_wait-snapin_wait_old  )*ns_per_tick )/1e7 ),
+            ( (double)( snaprd_backp-snaprd_backp_old ) )/1e7,
+            ( (double)( snapdc_backp-snapdc_backp_old ) )/1e7,
+            ( (double)( snapin_backp-snapin_backp_old ) )/1e7,
+            100-( ( (double)( snaprd_wait-snaprd_wait_old ) )/1e7 ),
+            100-( ( (double)( snapdc_wait-snapdc_wait_old ) )/1e7 ),
+            100-( ( (double)( snapin_wait-snapin_wait_old ) )/1e7 ),
             (double)( acc_cnt-acc_cnt_old  )/1e6 );
     fflush( stdout );
     total_off_old    = total_off;

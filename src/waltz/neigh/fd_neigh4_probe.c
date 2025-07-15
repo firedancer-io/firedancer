@@ -1,5 +1,4 @@
 #include "fd_neigh4_probe.h"
-#include "../../tango/tempo/fd_tempo.h" /* fd_tempo_tick_per_ns */
 
 #include <errno.h>
 #include <sys/socket.h> /* socket(2) */
@@ -10,7 +9,8 @@ void
 fd_neigh4_prober_init( fd_neigh4_prober_t * prober,
                        float                max_probes_per_second,
                        ulong                max_probe_burst,
-                       float                probe_delay_seconds ) {
+                       float                probe_delay_seconds,
+                       long                 now_ts ) {
 
   int sock_fd = socket( AF_INET, SOCK_DGRAM, 0 );
   if( FD_UNLIKELY( sock_fd<0 ) ) {
@@ -35,14 +35,12 @@ fd_neigh4_prober_init( fd_neigh4_prober_t * prober,
                  sock_fd, errno, fd_io_strerror( errno ) ));
   }
 
-  float tick_per_ns = (float)fd_tempo_tick_per_ns( NULL );
-
   *prober = (fd_neigh4_prober_t) {
     .sock_fd     = sock_fd,
-    .probe_delay = (long)( tick_per_ns * probe_delay_seconds * 1e9f ),
+    .probe_delay = (long)( probe_delay_seconds * 1e9f ),
     .rate_limit  = (fd_token_bucket_t) {
-      .ts      = fd_tickcount(),
-      .rate    = tick_per_ns * (max_probes_per_second / 1e9f),
+      .ts      = now_ts,
+      .rate    = max_probes_per_second / 1e9f,
       .burst   = (float)max_probe_burst,
       .balance = 0.f
     },

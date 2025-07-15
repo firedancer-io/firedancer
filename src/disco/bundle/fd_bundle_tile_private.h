@@ -194,7 +194,8 @@ fd_bundle_tile_should_stall( fd_bundle_tile_t const * ctx,
 /* fd_bundle_tile_housekeeping runs periodically at a low frequency. */
 
 void
-fd_bundle_tile_housekeeping( fd_bundle_tile_t * ctx );
+fd_bundle_tile_housekeeping( fd_bundle_tile_t * ctx,
+                             long               stem_ts );
 
 /* fd_bundle_client_grpc_rx_start is the first RX callback of a stream. */
 

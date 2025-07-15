@@ -208,7 +208,8 @@ during_frag( ctx_t * ctx,
              ulong   sig,
              ulong   chunk,
              ulong   sz,
-             ulong   ctl FD_PARAM_UNUSED ) {
+             ulong   ctl FD_PARAM_UNUSED,
+             long    stem_ts FD_PARAM_UNUSED ) {
   uint             in_kind = ctx->in_kind[in_idx];
   in_ctx_t const * in_ctx  = &ctx->in_links[in_idx];
   switch( in_kind ) {
@@ -265,6 +266,7 @@ after_frag( ctx_t *             ctx,
             ulong               sz,
             ulong               tsorig,
             ulong               tspub   FD_PARAM_UNUSED,
+            long                stem_ts FD_PARAM_UNUSED,
             fd_stem_context_t * stem ) {
   uint in_kind = ctx->in_kind[in_idx];
   if( FD_UNLIKELY( in_kind != IN_KIND_REPLAY ) ) return;
@@ -301,8 +303,8 @@ after_frag( ctx_t *             ctx,
   ulong root = fd_tower_vote( ctx->tower, vote_slot );
   if( FD_LIKELY( root != FD_SLOT_NULL ) ) {
     fd_ghost_publish( ctx->ghost, root );
-    fd_stem_publish( stem, ctx->replay_out_idx, root, 0UL, 0UL, 0UL, tsorig, fd_frag_meta_ts_comp( fd_tickcount() ) );
     ctx->root = root;
+    fd_stem_publish( stem, ctx->replay_out_idx, root, 0UL, 0UL, 0UL, tsorig, fd_frag_meta_ts_comp( fd_stem_now( stem ) ) );
   }
 
   /* Send our updated tower to the cluster. */
@@ -311,7 +313,7 @@ after_frag( ctx_t *             ctx,
   fd_tower_to_vote_txn( ctx->tower, ctx->root, ctx->lockouts, &ctx->bank_hash, &ctx->block_hash, ctx->identity_key, ctx->identity_key, ctx->vote_acc, vote_txn );
   FD_TEST( !fd_tower_votes_empty( ctx->tower ) );
   FD_TEST( vote_txn->payload_sz > 0UL );
-  fd_stem_publish( stem, ctx->send_out_idx, vote_slot, ctx->send_out_chunk, sizeof(fd_txn_p_t), 0UL, tsorig, fd_frag_meta_ts_comp( fd_tickcount() ) );
+  fd_stem_publish( stem, ctx->send_out_idx, vote_slot, ctx->send_out_chunk, sizeof(fd_txn_p_t), 0UL, tsorig, fd_frag_meta_ts_comp( fd_stem_now( stem ) ) );
 
   fd_ghost_print( ctx->ghost, ctx->epoch->total_stake, fd_ghost_root( ctx->ghost ) );
   fd_tower_print( ctx->tower, ctx->root );
