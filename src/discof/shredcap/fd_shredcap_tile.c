@@ -54,7 +54,6 @@ struct fd_capture_tile_ctx {
   ulong repair_buffer_sz;
   uchar repair_buffer[ FD_NET_MTU ];
 
-
   fd_ip4_udp_hdrs_t intake_hdr[1];
 
   ulong now;
@@ -65,11 +64,13 @@ struct fd_capture_tile_ctx {
   fd_io_buffered_ostream_t repair_ostream;
   fd_io_buffered_ostream_t fecs_ostream;
   fd_io_buffered_ostream_t peers_ostream;
+  fd_io_buffered_ostream_t filtered_ostream;
 
   int  shreds_fd;
   int  requests_fd;
   int  fecs_fd;
   int  peers_fd;
+  int  filtered_fd;
 
   ulong write_buf_sz;
 
@@ -77,6 +78,7 @@ struct fd_capture_tile_ctx {
   uchar * requests_buf;
   uchar * fecs_buf;
   uchar * peers_buf;
+  uchar * filtered_buf;
 
   fd_alloc_t * alloc;
   uchar contact_info_buffer[ MAX_BUFFER_SIZE ];
@@ -104,7 +106,8 @@ populate_allowed_seccomp( fd_topo_t const *      topo FD_PARAM_UNUSED,
                                              (uint)tile->shredcap.shreds_fd,
                                              (uint)tile->shredcap.requests_fd,
                                              (uint)tile->shredcap.fecs_fd,
-                                             (uint)tile->shredcap.peers_fd );
+                                             (uint)tile->shredcap.peers_fd,
+                                             (uint)tile->shredcap.filtered_fd );
   return sock_filter_policy_fd_shredcap_tile_instr_cnt;
 }
 
@@ -165,10 +168,6 @@ during_frag( fd_capture_tile_ctx_t * ctx,
              ulong                   ctl ) {
   ctx->skip_frag = 0;
   if( ctx->in_kind[ in_idx ]==SHRED_REPAIR ) {
-    if( !is_fec_completes_msg( sz ) ) {
-      ctx->skip_frag = 1;
-      return;
-    }
     fd_memcpy( ctx->shred_buffer, fd_chunk_to_laddr_const( ctx->in_links[ in_idx ].mem, chunk ), sz );
     ctx->shred_buffer_sz = sz;
   } else if( ctx->in_kind[ in_idx ] == NET_SHRED ) {
@@ -228,7 +227,9 @@ after_frag( fd_capture_tile_ctx_t * ctx,
             fd_stem_context_t *     stem   FD_PARAM_UNUSED ) {
   if( FD_UNLIKELY( ctx->skip_frag ) ) return;
 
-  if( ctx->in_kind[ in_idx ] == SHRED_REPAIR ) {
+  long now = fd_log_wallclock();
+
+  if( ctx->in_kind[ in_idx ] == SHRED_REPAIR && is_fec_completes_msg( sz ) ) {
     /* This is a fec completes message! we can use it to check how long
        it takes to complete a fec */
 
@@ -238,12 +239,24 @@ after_frag( fd_capture_tile_ctx_t * ctx,
     char fec_complete[1024];
     snprintf( fec_complete, sizeof(fec_complete),
              "%ld,%lu,%u,%u,%u\n",
-              fd_log_wallclock(), shred->slot, ref_tick, shred->fec_set_idx, data_cnt );
+              now, shred->slot, ref_tick, shred->fec_set_idx, data_cnt );
 
     // Last shred is guaranteed to be a data shred
 
 
     int err = fd_io_buffered_ostream_write( &ctx->fecs_ostream, fec_complete, strlen(fec_complete) );
+    FD_TEST( err==0 );
+  } else if( ctx->in_kind[ in_idx ] == SHRED_REPAIR && !is_fec_completes_msg( sz ) ) {
+    /* This is a shred that made it out of the shred tile (deduped, cleansed, through backpressure) */
+    uint  nonce                 = fd_disco_shred_repair_shred_sig_nonce( sig );
+    int   is_turbine            = fd_disco_shred_repair_shred_sig_turbine( sig );
+
+    fd_shred_t const * shred = (fd_shred_t *)fd_type_pun( ctx->shred_buffer );
+
+    char filtered_buf[1024];
+    snprintf( filtered_buf, sizeof(filtered_buf),
+               "%ld,%lu,%d,%u,%u,%d,%u\n", now, shred->slot, fd_shred_is_data( shred->variant ), shred->fec_set_idx, shred->idx, is_turbine, nonce );
+    int err = fd_io_buffered_ostream_write( &ctx->filtered_ostream, filtered_buf, strlen(filtered_buf) );
     FD_TEST( err==0 );
   } else if( ctx->in_kind[ in_idx ] == NET_SHRED ) {
     /* TODO: leader schedule early exits in shred tile right around
@@ -274,7 +287,7 @@ after_frag( fd_capture_tile_ctx_t * ctx,
     char repair_data_buf[1024];
     snprintf( repair_data_buf, sizeof(repair_data_buf),
              "%u,%u,%ld,%lu,%u,%u,%u,%d,%d,%u\n",
-              src_ip4_addr, src_port, fd_log_wallclock(), slot, ref_tick, fec_idx, idx, is_turbine, is_data, nonce );
+              src_ip4_addr, src_port, now, slot, ref_tick, fec_idx, idx, is_turbine, is_data, nonce );
 
     int err = fd_io_buffered_ostream_write( &ctx->shred_ostream, repair_data_buf, strlen(repair_data_buf) );
     FD_TEST( err==0 );
@@ -321,7 +334,7 @@ after_frag( fd_capture_tile_ctx_t * ctx,
     char repair_data_buf[1024];
     snprintf( repair_data_buf, sizeof(repair_data_buf),
               "%u,%u,%ld,%u,%lu,%lu\n",
-              peer_ip4_addr, peer_port, fd_log_wallclock(), nonce, slot, shred_index );
+              peer_ip4_addr, peer_port, now, nonce, slot, shred_index );
     int err = fd_io_buffered_ostream_write( &ctx->repair_ostream, repair_data_buf, strlen(repair_data_buf) );
     FD_TEST( err==0 );
   } else if( ctx->in_kind[ in_idx ] == GOSSIP_REPAIR ) {
@@ -358,6 +371,8 @@ populate_allowed_fds( fd_topo_t const      * topo        FD_PARAM_UNUSED,
     out_fds[ out_cnt++ ] = tile->shredcap.fecs_fd; /* fec complete file */
   if( FD_LIKELY( -1!=tile->shredcap.peers_fd ) )
     out_fds[ out_cnt++ ] = tile->shredcap.peers_fd; /* peers file */
+  if( FD_LIKELY( -1!=tile->shredcap.filtered_fd ) )
+    out_fds[ out_cnt++ ] = tile->shredcap.filtered_fd; /* filtered file */
 
   return out_cnt;
 }
@@ -368,7 +383,7 @@ privileged_init( fd_topo_t *      topo FD_PARAM_UNUSED,
   char file_path[PATH_MAX];
   strcpy( file_path, tile->shredcap.folder_path );
   strcat( file_path, "/shred_data.csv" );
-  tile->shredcap.shreds_fd = open( file_path, O_WRONLY|O_CREAT|O_APPEND /*| O_DIRECT*/, 0644 );
+  tile->shredcap.shreds_fd = open( file_path, O_WRONLY|O_CREAT|O_APPEND|O_DIRECT, 0644 );
   if ( FD_UNLIKELY( tile->shredcap.shreds_fd == -1 ) ) {
     FD_LOG_ERR(( "failed to open or create shred csv dump file %s %d %s", file_path, errno, strerror(errno) ));
   }
@@ -393,6 +408,13 @@ privileged_init( fd_topo_t *      topo FD_PARAM_UNUSED,
   tile->shredcap.peers_fd = open( file_path, O_WRONLY|O_CREAT|O_APPEND /*| O_DIRECT*/, 0644 );
   if ( FD_UNLIKELY( tile->shredcap.peers_fd == -1 ) ) {
     FD_LOG_ERR(( "failed to open or create peers csv dump file %s %d %s", file_path, errno, strerror(errno) ));
+  }
+
+  strcpy( file_path, tile->shredcap.folder_path );
+  strcat( file_path, "/filtered.csv" );
+  tile->shredcap.filtered_fd = open( file_path, O_WRONLY|O_CREAT|O_APPEND /*| O_DIRECT*/, 0644 );
+  if ( FD_UNLIKELY( tile->shredcap.filtered_fd == -1 ) ) {
+    FD_LOG_ERR(( "failed to open or create filtered csv dump file %s %d %s", file_path, errno, strerror(errno) ));
   }
 }
 
@@ -478,14 +500,16 @@ unprivileged_init( fd_topo_t *      topo,
   init_file_handlers( ctx, &ctx->requests_fd, tile->shredcap.requests_fd, &ctx->requests_buf, &ctx->repair_ostream );
   init_file_handlers( ctx, &ctx->fecs_fd,     tile->shredcap.fecs_fd,     &ctx->fecs_buf,     &ctx->fecs_ostream );
   init_file_handlers( ctx, &ctx->peers_fd,    tile->shredcap.peers_fd,    &ctx->peers_buf,    &ctx->peers_ostream );
+  init_file_handlers( ctx, &ctx->filtered_fd, tile->shredcap.filtered_fd, &ctx->filtered_buf, &ctx->filtered_ostream );
 
   int err = fd_io_buffered_ostream_write( &ctx->shred_ostream,  "src_ip,src_port,timestamp,slot,ref_tick,fec_set_idx,idx,is_turbine,is_data,nonce\n", 81UL );
   err    |= fd_io_buffered_ostream_write( &ctx->repair_ostream, "dst_ip,dst_port,timestamp,nonce,slot,idx\n", 41UL );
   err    |= fd_io_buffered_ostream_write( &ctx->fecs_ostream,   "timestamp,slot,ref_tick,fec_set_idx,data_cnt\n", 45UL );
   err    |= fd_io_buffered_ostream_write( &ctx->peers_ostream,  "peer_ip4_addr,peer_port,pubkey,turbine\n", 48UL );
+  err    |= fd_io_buffered_ostream_write( &ctx->filtered_ostream, "timestamp,slot,fec_set_idx,is_data,shred_idx,is_turbine,nonce\n", 62UL );
 
   if( FD_UNLIKELY( err ) ) {
-    FD_LOG_ERR(( "failed to write header to any of the 4 files (%i-%s)", errno, fd_io_strerror( errno ) ));
+    FD_LOG_ERR(( "failed to write header to any of the 5 files (%i-%s)", errno, fd_io_strerror( errno ) ));
   }
 }
 

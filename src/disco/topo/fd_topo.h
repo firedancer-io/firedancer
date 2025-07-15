@@ -451,6 +451,7 @@ struct fd_topo_tile {
       int requests_fd;
       int fecs_fd;
       int peers_fd;
+      int filtered_fd;
     } shredcap;
 
     struct {

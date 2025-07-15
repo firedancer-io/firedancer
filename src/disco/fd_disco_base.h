@@ -185,29 +185,19 @@ FD_FN_CONST static inline ulong fd_disco_replay_old_sig_slot( ulong sig ) { retu
    are uniformly coding shreds and fixed size. */
 
 FD_FN_CONST static inline ulong
-fd_disco_shred_repair_shred_sig( int   completes,
-                                 ulong slot,
-                                 uint  fec_set_idx,
-                                 int   is_code,
-                                 uint  shred_idx_or_data_cnt ) {
-   ulong slot_ul                  = fd_ulong_min( slot, (ulong)UINT_MAX );
-   ulong shred_idx_or_data_cnt_ul = fd_ulong_min( (ulong)shred_idx_or_data_cnt, (ulong)FD_SHRED_BLK_MAX );
-   ulong fec_set_idx_ul           = fd_ulong_min( (ulong)fec_set_idx, (ulong)FD_SHRED_BLK_MAX );
-   ulong completes_ul             = !!completes;
-   ulong is_code_ul               = !!is_code;
+fd_disco_shred_repair_shred_sig( int   turbine,
+                                 uint  nonce ) {
+   ulong nonce_ul   = (ulong) nonce;
+   ulong turbine_ul = !!turbine;
 
-  return completes_ul << 63 | slot_ul << 31 | fec_set_idx_ul << 16 | is_code_ul << 15 | shred_idx_or_data_cnt_ul;
+  return turbine_ul << 63 | nonce_ul << 31;
 }
 
 /* fd_disco_shred_repair_shred_sig_{...} are accessors for the fields encoded
    in the sig described above. */
 
-FD_FN_CONST static inline int   fd_disco_shred_repair_shred_sig_completes  ( ulong sig ) { return       fd_ulong_extract_bit( sig, 63     ); }
-FD_FN_CONST static inline ulong fd_disco_shred_repair_shred_sig_slot       ( ulong sig ) { return       fd_ulong_extract    ( sig, 31, 62 ); }
-FD_FN_CONST static inline uint  fd_disco_shred_repair_shred_sig_fec_set_idx( ulong sig ) { return (uint)fd_ulong_extract    ( sig, 16, 30 ); }
-FD_FN_CONST static inline int   fd_disco_shred_repair_shred_sig_is_code    ( ulong sig ) { return       fd_ulong_extract_bit( sig, 15     ); }
-FD_FN_CONST static inline uint  fd_disco_shred_repair_shred_sig_shred_idx  ( ulong sig ) { return (uint)fd_ulong_extract_lsb( sig, 15     ); } /* only when is_code = 0 */
-FD_FN_CONST static inline uint  fd_disco_shred_repair_shred_sig_data_cnt   ( ulong sig ) { return (uint)fd_ulong_extract_lsb( sig, 15     ); } /* only when is_code = 1 */
+FD_FN_CONST static inline int   fd_disco_shred_repair_shred_sig_turbine    ( ulong sig ) { return       fd_ulong_extract_bit( sig, 63     ); }
+FD_FN_CONST static inline uint  fd_disco_shred_repair_shred_sig_nonce      ( ulong sig ) { return (uint)fd_ulong_extract    ( sig, 31, 62 ); }
 
 /*
    | slot (32) | fec_set_idx (15) | data_cnt (15) | is_data_complete (1) | is_batch_complete (1) |

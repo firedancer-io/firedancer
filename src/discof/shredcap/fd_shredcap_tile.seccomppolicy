@@ -2,7 +2,7 @@
 #             will open a log file on boot and write all messages there.
 #
 # archive_fd: The file that the archiver will be written to
-unsigned int logfile_fd, uint shreds_fd, uint requests_fd, uint fec_fd, uint peers_fd
+unsigned int logfile_fd, uint shreds_fd, uint requests_fd, uint fec_fd, uint peers_fd, uint filtered_fd
 
 # logging: all log messages are written to a file and/or pipe
 #
@@ -18,7 +18,8 @@ write: (or (eq (arg 0) 2)
            (eq (arg 0) requests_fd)
            (eq (arg 0) logfile_fd)
            (eq (arg 0) fec_fd)
-           (eq (arg 0) peers_fd))
+           (eq (arg 0) peers_fd)
+           (eq (arg 0) filtered_fd))
 
 # logging: 'WARNING' and above fsync the logfile to disk immediately
 #

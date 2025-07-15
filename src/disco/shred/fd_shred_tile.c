@@ -836,20 +836,16 @@ after_frag( fd_shred_ctx_t *    ctx,
       if( FD_LIKELY( ctx->repair_out_idx!=ULONG_MAX ) ) { /* Only send to repair in full Firedancer */
 
         /* Construct the sig from the shred. */
-
-        int  is_code               = fd_shred_is_code( fd_shred_type( shred->variant ) );
-        uint shred_idx_or_data_cnt = shred->idx;
-        int  completes             = 0;
-        if( FD_LIKELY( is_code ) ) shred_idx_or_data_cnt = shred->code.data_cnt;  /* optimize for code_cnt >= data_cnt */
-        else  completes = shred->data.flags & ( FD_SHRED_DATA_FLAG_SLOT_COMPLETE | FD_SHRED_DATA_FLAG_DATA_COMPLETE );
-        ulong sig = fd_disco_shred_repair_shred_sig( !!completes, shred->slot, shred->fec_set_idx, is_code, shred_idx_or_data_cnt );
+        int is_turbine = fd_disco_netmux_sig_proto( sig ) == DST_PROTO_SHRED;
+        uint nonce = is_turbine ? UINT_MAX: FD_LOAD(uint, ctx->shred_buffer + fd_shred_sz( shred ) );
+        ulong _sig = fd_disco_shred_repair_shred_sig( is_turbine, nonce );
 
         /* Copy the shred header into the frag and publish. */
 
         ulong sz = fd_shred_header_sz( shred->variant );
         fd_memcpy( fd_chunk_to_laddr( ctx->repair_out_mem, ctx->repair_out_chunk ), shred, sz );
         ulong tspub = fd_frag_meta_ts_comp( fd_tickcount() );
-        fd_stem_publish( stem, ctx->repair_out_idx, sig, ctx->repair_out_chunk, sz, 0UL, ctx->tsorig, tspub );
+        fd_stem_publish( stem, ctx->repair_out_idx, _sig, ctx->repair_out_chunk, sz, 0UL, ctx->tsorig, tspub );
         ctx->repair_out_chunk = fd_dcache_compact_next( ctx->repair_out_chunk, sz, ctx->repair_out_chunk0, ctx->repair_out_wmark );
       }
     }

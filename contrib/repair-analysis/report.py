@@ -553,7 +553,50 @@ def print_slots(repair_requests, shreds_data, snapshot_slot, first_turbine, pdf 
     print(f'\nFirst turbine slot + 50: {first_turbine + 50}')
     show_slot_repairs(repair_requests, shreds_data, first_turbine + 50, pdf, max_idx=100,  time_window=4000)
 
-def generate_report( log_path, request_data_path, shred_data_path, peers_data_path, fec_complete_path=None, pdf=None ):
+def compare_backpressure(filtered_data, shreds_data, snapshot_slot, first_turbine, pdf):
+    print('\n\033[1mBackpressure/Dedup Analysis\033[0m\n')
+    # check how many shreds get deduped
+
+    net_cnt = shreds_data.groupby('shred').size().reset_index(name='count').sort_values(by='count', ascending=False)
+    # check how many shreds get deduped
+    filtered_data['shred'] = filtered_data['slot'] + ( filtered_data['shred_idx'] / 100 )
+    dedup_cnt = filtered_data.groupby('shred').size().reset_index(name='count').sort_values(by='count', ascending=False)
+
+    print(" dfs head")
+    print( shreds_data.head(20) )
+    print( filtered_data.head(20) )
+
+    print(f"Raw shreds entering the shred tile: {net_cnt['count'].sum()}. The below is how many times shred sees the same shred: ")
+    describe = "\n".join('\t' + line for line in str(net_cnt['count'].describe()).splitlines()[1:])
+    print(describe)
+
+    print(f"Deduped shreds: {dedup_cnt['count'].sum()}. The below is how many times repair sees the same shred: ")
+    describe = "\n".join('\t' + line for line in str(dedup_cnt['count'].describe()).splitlines()[1:])
+    print(describe)
+
+    # print the time difference between when a shred enters the shred tile and when it makes it out to the repair tile.
+    # first make the unique id for shred and filtered data, which is slot + shred_idx + nonce
+
+    matched = filtered_data.merge(shreds_data, on=['shred', 'nonce'], how='left', suffixes=('_repair', '_shred'))
+    matched = matched[matched['is_turbine_shred'] == False]
+    matched['time_diff'] = ( matched['timestamp_repair'] - matched['timestamp_shred'] ) / 1_000_000 # convert to ms
+    print(matched['time_diff'].describe())
+
+    print( matched.head(20) )
+
+    # plot the time difference
+    fig = plt.figure(figsize=(12, 6))
+    sns.histplot(matched['time_diff'], bins=50, kde=True)
+    plt.title('Time Difference between Shred and Repair')
+    plt.xlabel('Time Difference (ms)')
+    plt.ylabel('Frequency')
+    plt.tight_layout()
+    pdf.savefig(fig, bbox_inches='tight')
+    plt.close(fig)
+
+    # how many non-duplicates
+
+def generate_report( log_path, request_data_path, shred_data_path, peers_data_path=None, fec_complete_path=None, filtered_path=None, pdf=None ):
     """
     Generate a report based on the peer response data.
 
@@ -594,6 +637,13 @@ def generate_report( log_path, request_data_path, shred_data_path, peers_data_pa
                                   on_bad_lines='skip',
                                   skipfooter=1 )
 
+    if filtered_path:
+        filtered_data = pd.read_csv(filtered_path,
+                                    dtype={'timestamp': int, 'slot': int, 'fec_set_idx': int, 'is_data': bool, 'shred_idx_or_data_cnt': int, 'is_turbine': bool, 'nonce': int },
+                                    on_bad_lines='skip',
+                                    skipfooter=1 )
+        filtered_data['shred_idx'] = filtered_data['shred_idx_or_data_cnt']
+
     sys.stdout.write('\033[K')
     sys.stdout.flush()
 
@@ -622,6 +672,10 @@ def generate_report( log_path, request_data_path, shred_data_path, peers_data_pa
 
         peer_stats( catchup, catchup_rq, live, live_rq, pdf )
 
+    if filtered_path:
+        compare_backpressure(filtered_data, shreds_data, snapshot_slot, first_turbine, pdf)
+
+
     if fec_complete_path:
         completion_times( fec_stats, shreds_data, first_turbine, pdf )
 
@@ -645,7 +699,8 @@ if __name__ == "__main__":
     csv_paths = { 'shred_data.csv'   : os.path.join(csv_path, 'shred_data.csv'),
                   'request_data.csv' : os.path.join(csv_path, 'request_data.csv'),
                   'peers_data.csv'   : os.path.join(csv_path, 'peers.csv'),
-                  'fec_complete.csv' : os.path.join(csv_path, 'fec_complete.csv') }
+                  'fec_complete.csv' : os.path.join(csv_path, 'fec_complete.csv'),
+                  'filtered.csv'     : os.path.join(csv_path, 'filtered.csv') }
 
     for csv_name, csv_path in csv_paths.items():
         if not os.path.exists(csv_path):
@@ -660,8 +715,9 @@ if __name__ == "__main__":
     generate_report(log_path,
                     csv_paths['request_data.csv'],
                     csv_paths['shred_data.csv'],
-                    csv_paths['peers_data.csv'],
-                    csv_paths['fec_complete.csv'],
+                    None,
+                    None,
+                    csv_paths['filtered.csv'],
                     pdf)
     print(f'Graphs generated at: {output_path}')
 
