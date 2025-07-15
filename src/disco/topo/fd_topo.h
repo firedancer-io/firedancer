@@ -451,6 +451,8 @@ struct fd_topo_tile {
       char   folder_path[ PATH_MAX ];
       ushort repair_intake_listen_port;
       ulong   write_buffer_size; /* Size of the write buffer for the capture tile */
+      int    enable_publish_stake_weights;
+      ulong  manifest_dcache_obj_id;
 
       /* Set internally by the capture tile */
       int shreds_fd;

@@ -185,6 +185,7 @@ extern action_t fd_action_gossip;
 extern action_t fd_action_sim;
 extern action_t fd_action_backtest;
 extern action_t fd_action_snapshot_load;
+extern action_t fd_action_repair;
 
 action_t * ACTIONS[] = {
   &fd_action_run,
@@ -213,6 +214,7 @@ action_t * ACTIONS[] = {
   &fd_action_sim,
   &fd_action_backtest,
   &fd_action_snapshot_load,
+  &fd_action_repair,
   NULL,
 };
 
