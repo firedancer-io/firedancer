@@ -101,13 +101,13 @@ fd_config_extract_podf( uchar *        pod,
   CFG_POP      ( ulong,  funk.heap_size_gib                               );
   CFG_POP      ( ulong,  funk.max_database_transactions                   );
 
-  CFG_POP       ( bool,   snapshots.incremental_snapshots                  );
-  CFG_POP       ( uint,   snapshots.maximum_local_snapshot_age             );
-  CFG_POP       ( bool,   snapshots.download                               );
-  CFG_POP_ARRAY ( cstr,   snapshots.known_validators                       );
-  CFG_POP       ( uint,   snapshots.minimum_download_speed_mib             );
-  CFG_POP       ( uint,   snapshots.maximum_download_retry_abort           );
-  CFG_POP       ( cstr,   snapshots.cluster                                 );
+  CFG_POP       ( bool,   snapshots.incremental_snapshots                 );
+  CFG_POP       ( uint,   snapshots.maximum_local_snapshot_age            );
+  CFG_POP       ( bool,   snapshots.download                              );
+  CFG_POP_ARRAY ( cstr,   snapshots.known_validators                      );
+  CFG_POP       ( uint,   snapshots.minimum_download_speed_mib            );
+  CFG_POP       ( uint,   snapshots.maximum_download_retry_abort          );
+  CFG_POP       ( cstr,   snapshots.cluster                               );
 
   return config;
 }
@@ -227,13 +227,13 @@ fd_config_extract_pod( uchar *       pod,
   CFG_POP      ( ushort, tiles.repair.repair_intake_listen_port           );
   CFG_POP      ( ushort, tiles.repair.repair_serve_listen_port            );
   CFG_POP      ( cstr,   tiles.repair.good_peer_cache_file                );
-  CFG_POP      ( ulong,  tiles.repair.slot_max                           );
+  CFG_POP      ( ulong,  tiles.repair.slot_max                            );
 
   CFG_POP      ( ulong,  capture.capture_start_slot                       );
   CFG_POP      ( cstr,   capture.solcap_capture                           );
   CFG_POP      ( cstr,   capture.dump_proto_dir                           );
   CFG_POP      ( bool,   capture.dump_syscall_to_pb                       );
-  CFG_POP      ( bool,   capture.dump_instr_to_pb                          );
+  CFG_POP      ( bool,   capture.dump_instr_to_pb                         );
   CFG_POP      ( bool,   capture.dump_txn_to_pb                           );
   CFG_POP      ( bool,   capture.dump_block_to_pb                         );
 
@@ -257,9 +257,9 @@ fd_config_extract_pod( uchar *       pod,
   CFG_POP      ( cstr,   tiles.archiver.archiver_path                     );
 
   if( FD_UNLIKELY( config->is_firedancer ) ) {
-    CFG_POP      ( bool,    tiles.shredcap.enabled                           );
-    CFG_POP      ( cstr,    tiles.shredcap.folder_path                       );
-    CFG_POP      ( ulong,   tiles.shredcap.write_buffer_size                  );
+    CFG_POP      ( bool,    tiles.shredcap.enabled                        );
+    CFG_POP      ( cstr,    tiles.shredcap.folder_path                    );
+    CFG_POP      ( ulong,   tiles.shredcap.write_buffer_size              );
   }
 
   CFG_POP      ( bool,   development.sandbox                              );

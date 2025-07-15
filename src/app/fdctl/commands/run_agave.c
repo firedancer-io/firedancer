@@ -95,7 +95,8 @@ agave_boot( config_t const * config ) {
     ADDH( "--expected-shred-version", config->consensus.expected_shred_version );
   if( !config->frankendancer.consensus.wait_for_vote_to_start_leader )
     ADD1( "--no-wait-for-vote-to-start-leader");
-  for( uint const * p = config->frankendancer.consensus.hard_fork_at_slots; *p; p++ ) ADDU( "--hard-fork", *p );
+  for( ulong i=0; i<config->frankendancer.consensus.hard_fork_at_slots_cnt; i++ )
+    ADDU( "--hard-fork", config->frankendancer.consensus.hard_fork_at_slots[ i ] );
   for( ulong i=0; i<config->frankendancer.consensus.known_validators_cnt; i++ )
     ADD( "--known-validator", config->frankendancer.consensus.known_validators[ i ] );
 
