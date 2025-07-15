@@ -243,59 +243,6 @@ fd_quic_virtual_pair_fini( fd_quic_virtual_pair_t * pair ) {
   fd_quic_set_aio_net_tx( pair->quic_b, NULL );
 }
 
-int
-fd_aio_eth_wrap_send( void *                    ctx,
-                      fd_aio_pkt_info_t const * batch,
-                      ulong                     batch_cnt,
-                      ulong *                   opt_batch_idx FD_PARAM_UNUSED,
-                      int                       flush ) {
-  fd_aio_eth_wrap_t * wrap = ctx;
-  static FD_TL uchar frame[ 4096 ];
-  for( ulong j=0UL; j<batch_cnt; j++ ) {
-    int flush2 = flush && (j+1==batch_cnt);
-    fd_aio_pkt_info_t pkt = {
-      .buf    = frame,
-      .buf_sz = (ushort)fd_uint_min( batch[j].buf_sz+14U, sizeof(frame) )
-    };
-    fd_memcpy( frame,    &wrap->template, sizeof(fd_eth_hdr_t) );
-    fd_memcpy( frame+14, batch[j].buf,    batch[j].buf_sz  );
-    fd_aio_send( &wrap->wrap_next, &pkt, 1UL, NULL, flush2 );
-  }
-  return FD_AIO_SUCCESS;
-}
-
-fd_aio_t *
-fd_aio_eth_wrap( fd_aio_eth_wrap_t * wrap ) {
-  wrap->wrap_self.ctx       = wrap;
-  wrap->wrap_self.send_func = fd_aio_eth_wrap_send;
-  return &wrap->wrap_self;
-}
-
-int
-fd_aio_eth_unwrap_send( void *                    ctx,
-                        fd_aio_pkt_info_t const * batch,
-                        ulong                     batch_cnt,
-                        ulong *                   opt_batch_idx FD_PARAM_UNUSED,
-                        int                       flush ) {
-  fd_aio_eth_wrap_t * wrap = ctx;
-  for( ulong j=0UL; j<batch_cnt; j++ ) {
-    int flush2 = flush && (j+1==batch_cnt);
-    fd_aio_pkt_info_t pkt = {
-      .buf    = (uchar *)batch[j].buf+14,
-      .buf_sz = (ushort)( fd_ushort_max( batch[j].buf_sz, 14 )-14 )
-    };
-    fd_aio_send( &wrap->unwrap_next, &pkt, 1UL, NULL, flush2 );
-  }
-  return FD_AIO_SUCCESS;
-}
-
-fd_aio_t *
-fd_aio_eth_unwrap( fd_aio_eth_wrap_t * wrap ) {
-  wrap->unwrap_self.ctx       = wrap;
-  wrap->unwrap_self.send_func = fd_aio_eth_unwrap_send;
-  return &wrap->unwrap_self;
-}
-
 fd_quic_udpsock_t *
 fd_quic_client_create_udpsock(fd_quic_udpsock_t * udpsock,
                               fd_wksp_t *      wksp,
