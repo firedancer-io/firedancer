@@ -354,7 +354,7 @@ class PrimitiveMember(TypeNode):
         "double" :    lambda n, varint, indent: print(f'{indent}  fd_bincode_double_decode_unsafe( &self->{n}, ctx );', file=body),
         "long" :      lambda n, varint, indent: print(f'{indent}  fd_bincode_uint64_decode_unsafe( (ulong *) &self->{n}, ctx );', file=body),
         "uint" :      lambda n, varint, indent: print(f'{indent}  fd_bincode_uint32_decode_unsafe( &self->{n}, ctx );', file=body),
-        "uint128" :   lambda n, varint, indent: print(f'{indent}  fd_bincode_uint128_decode_unsafe( &self->{n}, ctx );', file=body),
+         "uint128" :   lambda n, varint, indent: print(f'{indent}  fd_bincode_uint128_decode_unsafe( &self->{n}, ctx );', file=body),
         "bool" :      lambda n, varint, indent: print(f'{indent}  fd_bincode_bool_decode_unsafe( &self->{n}, ctx );', file=body),
         "uchar" :     lambda n, varint, indent: print(f'{indent}  fd_bincode_uint8_decode_unsafe( &self->{n}, ctx );', file=body),
         "uchar[32]" : lambda n, varint, indent: print(f'{indent}  fd_bincode_bytes_decode_unsafe( &self->{n}[0], sizeof(self->{n}), ctx );', file=body),
@@ -508,13 +508,15 @@ class StructMember(TypeNode):
         print(f'{indent}  if( FD_UNLIKELY( err ) ) return err;', file=body)
 
     def emitDecodeInner(self, indent=''):
-        print(f'{indent}  {namespace}_{self.type}_decode_inner( &self->{self.name}, alloc_mem, ctx );', file=body)
+        print(f'{indent}  err = {namespace}_{self.type}_decode_inner( &self->{self.name}, alloc_mem, ctx );', file=body)
+        print(f'{indent}  if( FD_UNLIKELY( err ) ) return err;', file=body)
 
     def emitDecodeInnerGlobal(self, indent=''):
         if self.type in flattypes:
-            print(f'{indent}  {namespace}_{self.type}_decode_inner( &self->{self.name}, alloc_mem, ctx );', file=body)
+            print(f'{indent}  err = {namespace}_{self.type}_decode_inner( &self->{self.name}, alloc_mem, ctx );', file=body)
         else:
-            print(f'{indent}  {namespace}_{self.type}_decode_inner_global( &self->{self.name}, alloc_mem, ctx );', file=body)
+            print(f'{indent}  err = {namespace}_{self.type}_decode_inner_global( &self->{self.name}, alloc_mem, ctx );', file=body)
+        print(f'{indent}  if( FD_UNLIKELY( err ) ) return err;', file=body)
 
     def emitEncode(self, indent=''):
         print(f'{indent}  err = {namespace}_{self.type}_encode( &self->{self.name}, ctx );', file=body)
@@ -685,7 +687,9 @@ class VectorMember(TypeNode):
                 print(f'{indent}      fd_bincode_{simpletypes[self.element]}_decode_unsafe( self->{self.name} + i, ctx );', file=body)
             else:
                 print(f'{indent}      {namespace}_{self.element}_new( self->{self.name} + i );', file=body)
-                print(f'{indent}      {namespace}_{self.element}_decode_inner( self->{self.name} + i, alloc_mem, ctx );', file=body)
+                print(f'{indent}      err = {namespace}_{self.element}_decode_inner( self->{self.name} + i, alloc_mem, ctx );', file=body)
+                print(f'{indent}      if( FD_UNLIKELY( err ) ) return err;', file=body)
+
 
             print(f'{indent}    }}', file=body)
 
@@ -722,9 +726,10 @@ class VectorMember(TypeNode):
             else:
                 print(f'      {namespace}_{self.element}_new( ({namespace}_{self.element}_t *)fd_type_pun(cur_mem + sizeof({el}_t) * i) );', file=body)
                 if self.element in flattypes:
-                    print(f'      {namespace}_{self.element}_decode_inner( cur_mem + sizeof({el}_t) * i, alloc_mem, ctx );', file=body)
+                    print(f'      err = {namespace}_{self.element}_decode_inner( cur_mem + sizeof({el}_t) * i, alloc_mem, ctx );', file=body)
                 else:
-                    print(f'      {namespace}_{self.element}_decode_inner_global( cur_mem + sizeof({el}_t) * i, alloc_mem, ctx );', file=body)
+                    print(f'      err = {namespace}_{self.element}_decode_inner_global( cur_mem + sizeof({el}_t) * i, alloc_mem, ctx );', file=body)
+                print(f'      if( FD_UNLIKELY( err ) ) return err;', file=body)
 
             print(f'{indent}    }}', file=body)
 
@@ -1103,7 +1108,8 @@ class StaticVectorMember(TypeNode):
         if self.element in simpletypes:
             print(f'    fd_bincode_{simpletypes[self.element]}_decode_unsafe( self->{self.name} + i, ctx );', file=body)
         else:
-            print(f'    {namespace}_{self.element}_decode_inner( self->{self.name} + i, alloc_mem, ctx );', file=body)
+            print(f'    int err = {namespace}_{self.element}_decode_inner( self->{self.name} + i, alloc_mem, ctx );', file=body)
+            print(f'    if( FD_UNLIKELY( err ) ) return err;', file=body)
         print('  }', file=body)
 
     def emitDecodeInnerGlobal(self):
@@ -1119,9 +1125,10 @@ class StaticVectorMember(TypeNode):
         if self.element in simpletypes:
             print(f'    fd_bincode_{simpletypes[self.element]}_decode_unsafe( self->{self.name} + i, ctx );', file=body)
         elif self.element in flattypes:
-            print(f'    {namespace}_{self.element}_decode_inner( self->{self.name} + i, alloc_mem, ctx );', file=body)
+            print(f'    int err = {namespace}_{self.element}_decode_inner( self->{self.name} + i, alloc_mem, ctx );', file=body)
         else:
-            print(f'    {namespace}_{self.element}_decode_inner_global( self->{self.name} + i, alloc_mem, ctx );', file=body)
+            print(f'    int err = {namespace}_{self.element}_decode_inner_global( self->{self.name} + i, alloc_mem, ctx );', file=body)
+        print(f'    if( FD_UNLIKELY( err ) ) return err;', file=body)
         print('  }', file=body)
 
     def emitEncode(self):
@@ -1410,7 +1417,8 @@ class DequeMember(TypeNode):
             print(f'    fd_bincode_{simpletypes[self.element]}_decode_unsafe( elem, ctx );', file=body)
         else:
             print(f'    {namespace}_{self.element}_new( elem );', file=body)
-            print(f'    {namespace}_{self.element}_decode_inner( elem, alloc_mem, ctx );', file=body)
+            print(f'    int err = {namespace}_{self.element}_decode_inner( elem, alloc_mem, ctx );', file=body)
+            print(f'    if( FD_UNLIKELY( err ) ) return err;', file=body)
 
         print('  }', file=body)
 
@@ -1451,9 +1459,10 @@ class DequeMember(TypeNode):
             # functionally it's the same as the non-global _new().
             print(f'    {namespace}_{self.element}_new( ({namespace}_{self.element}_t*)fd_type_pun( elem ) );', file=body)
             if self.element in flattypes:
-                print(f'    {namespace}_{self.element}_decode_inner( elem, alloc_mem, ctx );', file=body)
+                print(f'    int err = {namespace}_{self.element}_decode_inner( elem, alloc_mem, ctx );', file=body)
             else:
-                print(f'    {namespace}_{self.element}_decode_inner_global( elem, alloc_mem, ctx );', file=body)
+                print(f'    int err = {namespace}_{self.element}_decode_inner_global( elem, alloc_mem, ctx );', file=body)
+            print(f'    if( FD_UNLIKELY( err ) ) return err;', file=body)
         print('  }', file=body)
         leave = f'{namespace}_{self.element}_leave' if self.element in flattypes else f'{namespace}_{self.element}_global_leave'
         print(f'  self->{self.name}_offset = (ulong){prefix}_leave( {self.name} ) - (ulong)struct_mem;', file=body)
@@ -1830,7 +1839,8 @@ class MapMember(TypeNode):
         print(f'  for( ulong i=0; i < {self.name}_len; i++ ) {{', file=body)
         print(f'    {nodename} * node = {mapname}_acquire( self->{self.name}_pool );', file=body)
         print(f'    {namespace}_{self.element}_new( &node->elem );', file=body)
-        print(f'    {namespace}_{self.element}_decode_inner( &node->elem, alloc_mem, ctx );', file=body)
+        print(f'    int err = {namespace}_{self.element}_decode_inner( &node->elem, alloc_mem, ctx );', file=body)
+        print(f'    if( FD_UNLIKELY( err ) ) return err;', file=body)
         print(f'    {nodename} * out = NULL;;', file=body)
         print(f'    {mapname}_insert_or_replace( self->{self.name}_pool, &self->{self.name}_root, node, &out );', file=body)
         print(f'    if( out != NULL ) {{', file=body)
@@ -1862,9 +1872,10 @@ class MapMember(TypeNode):
         print(f'    {nodename} * node = {mapname}_acquire( {self.name}_pool );', file=body)
         print(f'    {namespace}_{self.element}_new( ({namespace}_{self.element}_t *)fd_type_pun(&node->elem) );', file=body)
         if self.element in flattypes:
-            print(f'    {namespace}_{self.element}_decode_inner( &node->elem, alloc_mem, ctx );', file=body)
+            print(f'    int err = {namespace}_{self.element}_decode_inner( &node->elem, alloc_mem, ctx );', file=body)
         else:
-            print(f'    {namespace}_{self.element}_decode_inner_global( &node->elem, alloc_mem, ctx );', file=body)
+            print(f'    int err = {namespace}_{self.element}_decode_inner_global( &node->elem, alloc_mem, ctx );', file=body)
+        print(f'    if( FD_UNLIKELY( err ) ) return err;', file=body)
         print(f'    {mapname}_insert( {self.name}_pool, &{self.name}_root, node );', file=body)
         print(f'  }}', file=body)
 
@@ -2116,7 +2127,8 @@ class PartitionMember(TypeNode):
         print(f'    for( ulong j=0; j < self->{self.name}_lengths[ i ]; j++ ) {{', file=body)
         print(f'      {dlist_t} * ele = {pool_name}_ele_acquire( self->pool );', file=body)
         print(f'      {dlist_t.rstrip("_t")}_new( ele );', file=body)
-        print(f'      {dlist_t.rstrip("_t")}_decode_inner( ele, alloc_mem, ctx );', file=body)
+        print(f'      int err = {dlist_t.rstrip("_t")}_decode_inner( ele, alloc_mem, ctx );', file=body)
+        print(f'      if( FD_UNLIKELY( err ) ) return err;', file=body)
         print(f'      {dlist_name}_ele_push_tail( &self->{self.name}[ i ], ele, self->pool );', file=body)
         print('    }', file=body)
         print('  }', file=body)
@@ -2146,7 +2158,8 @@ class PartitionMember(TypeNode):
         print(f'    for( ulong j=0; j < self->{self.name}_lengths[ i ]; j++ ) {{', file=body)
         print(f'      {dlist_t} * ele = {pool_name}_ele_acquire( pool );', file=body)
         print(f'      {dlist_t.rstrip("_t")}_new( ele );', file=body)
-        print(f'      {dlist_t.rstrip("_t")}_decode_inner( ele, alloc_mem, ctx );', file=body)
+        print(f'      int err = {dlist_t.rstrip("_t")}_decode_inner( ele, alloc_mem, ctx );', file=body)
+        print(f'      if( FD_UNLIKELY( err ) ) return err;', file=body)
         print(f'      {dlist_name}_ele_push_tail( &{self.name}[ i ], ele, pool );', file=body)
         print('    }', file=body)
         print('  }', file=body)
@@ -2363,7 +2376,8 @@ class TreapMember(TypeNode):
         print(f'  for( ulong i=0; i < {treap_name}_len; i++ ) {{', file=body)
         print(f'    {treap_t} * ele = {pool_name}_ele_acquire( self->pool );', file=body)
         print(f'    {treap_t.rstrip("_t")}_new( ele );', file=body)
-        print(f'    {treap_t.rstrip("_t")}_decode_inner( ele, alloc_mem, ctx );', file=body)
+        print(f'    int err = {treap_t.rstrip("_t")}_decode_inner( ele, alloc_mem, ctx );', file=body)
+        print(f'    if( FD_UNLIKELY( err ) ) return err;', file=body)
 
         if self.upsert:
             print(f'    {treap_t} * repeated_entry = {treap_name}_ele_query( self->treap, ele->epoch, self->pool );', file=body)
@@ -2396,7 +2410,8 @@ class TreapMember(TypeNode):
         print(f'  for( ulong i=0; i < {treap_name}_len; i++ ) {{', file=body)
         print(f'    {treap_t} * ele = {pool_name}_ele_acquire( pool );', file=body)
         print(f'    {treap_t.rstrip("_t")}_new( ele );', file=body)
-        print(f'    {treap_t.rstrip("_t")}_decode_inner( ele, alloc_mem, ctx );', file=body)
+        print(f'    int err = {treap_t.rstrip("_t")}_decode_inner( ele, alloc_mem, ctx );', file=body)
+        print(f'    if( FD_UNLIKELY( err ) ) return err;', file=body)
 
         if self.upsert:
             print(f'    {treap_t} * repeated_entry = {treap_name}_ele_query( treap, ele->epoch, pool );', file=body)
@@ -2639,7 +2654,8 @@ class DlistMember(TypeNode):
         print(f'  for( ulong i=0; i < self->{self.name}_len; i++ ) {{', file=body)
         print(f'    {dlist_t} * ele = {pool_name}_ele_acquire( self->pool );', file=body)
         print(f'    {dlist_t.rstrip("_t")}_new( ele );', file=body)
-        print(f'    {dlist_t.rstrip("_t")}_decode_inner( ele, alloc_mem, ctx );', file=body)
+        print(f'    int err = {dlist_t.rstrip("_t")}_decode_inner( ele, alloc_mem, ctx );', file=body)
+        print(f'    if( FD_UNLIKELY( err ) ) return err;', file=body)
         print(f'    {dlist_name}_ele_push_tail( self->{self.name}, ele, self->pool );', file=body)
         print('  }', file=body)
 
@@ -2661,7 +2677,8 @@ class DlistMember(TypeNode):
         print(f'  for( ulong i=0; i < self->{self.name}_len; i++ ) {{', file=body)
         print(f'    {dlist_t} * ele = {pool_name}_ele_acquire( pool );', file=body)
         print(f'    {dlist_t.rstrip("_t")}_new( ele );', file=body)
-        print(f'    {dlist_t.rstrip("_t")}_decode_inner( ele, alloc_mem, ctx );', file=body)
+        print(f'    int err = {dlist_t.rstrip("_t")}_decode_inner( ele, alloc_mem, ctx );', file=body)
+        print(f'    if( FD_UNLIKELY( err ) ) return err;', file=body)
         print(f'    {dlist_name}_ele_push_tail( {self.name}, ele, pool );', file=body)
         print('  }', file=body)
         print(f'  self->pool_offset = (ulong){pool_name}_leave( pool ) - (ulong)struct_mem;', file=body)
@@ -2868,7 +2885,8 @@ class OptionMember(TypeNode):
                 print(f'      self->{self.name} = *alloc_mem;', file=body)
                 print(f'      *alloc_mem = (uchar *)*alloc_mem + sizeof({el}_t);', file=body)
                 print(f'      {namespace}_{self.element}_new( self->{self.name} );', file=body)
-                print(f'      {namespace}_{self.element}_decode_inner( self->{self.name}, alloc_mem, ctx );', file=body)
+                print(f'      int err = {namespace}_{self.element}_decode_inner( self->{self.name}, alloc_mem, ctx );', file=body)
+                print(f'      if( FD_UNLIKELY( err ) ) return err;', file=body)
             print('    } else {', file=body)
             print(f'      self->{self.name} = NULL;', file=body)
             print('    }', file=body)
@@ -2888,9 +2906,10 @@ class OptionMember(TypeNode):
                 el = el.upper()
                 print(f'      {namespace}_{self.element}_new( ({namespace}_{self.element}_t *)fd_type_pun(&self->{self.name}) );', file=body)
                 if self.element in flattypes:
-                    print(f'      {namespace}_{self.element}_decode_inner( &self->{self.name}, alloc_mem, ctx );', file=body)
+                    print(f'      int err = {namespace}_{self.element}_decode_inner( &self->{self.name}, alloc_mem, ctx );', file=body)
                 else:
-                    print(f'      {namespace}_{self.element}_decode_inner_global( &self->{self.name}, alloc_mem, ctx );', file=body)
+                    print(f'      int err = {namespace}_{self.element}_decode_inner_global( &self->{self.name}, alloc_mem, ctx );', file=body)
+                print(f'      if( FD_UNLIKELY( err ) ) return err;', file=body)
             print('    }', file=body)
         else:
             print('    if( o ) {', file=body)
@@ -3124,7 +3143,8 @@ class ArrayMember(TypeNode):
         if self.element in simpletypes:
             print(f'    fd_bincode_{simpletypes[self.element]}_decode_unsafe( self->{self.name} + i, ctx );', file=body)
         else:
-            print(f'    {namespace}_{self.element}_decode_inner( self->{self.name} + i, alloc_mem, ctx );', file=body)
+            print(f'    int err = {namespace}_{self.element}_decode_inner( self->{self.name} + i, alloc_mem, ctx );', file=body)
+            print(f'    if( FD_UNLIKELY( err ) ) return err;', file=body)
         print('  }', file=body)
 
     def emitDecodeInnerGlobal(self):
@@ -3139,9 +3159,10 @@ class ArrayMember(TypeNode):
             print(f'    fd_bincode_{simpletypes[self.element]}_decode_unsafe( self->{self.name} + i, ctx );', file=body)
         else:
             if self.element in flattypes:
-                print(f'    {namespace}_{self.element}_decode_inner( self->{self.name} + i, alloc_mem, ctx );', file=body)
+                print(f'    int err = {namespace}_{self.element}_decode_inner( self->{self.name} + i, alloc_mem, ctx );', file=body)
             else:
-                print(f'    {namespace}_{self.element}_decode_inner_global( self->{self.name} + i, alloc_mem, ctx );', file=body)
+                print(f'    int err = {namespace}_{self.element}_decode_inner_global( self->{self.name} + i, alloc_mem, ctx );', file=body)
+            print(f'    if( FD_UNLIKELY( err ) ) return err;', file=body)
         print('  }', file=body)
 
     def emitEncode(self):
@@ -3307,9 +3328,9 @@ class OpaqueType(TypeNode):
         print(f'  return err;', file=body)
         print(f'}}', file=body)
 
-        print(f'static void {n}_decode_inner( void * struct_mem, void * * alloc_mem, fd_bincode_decode_ctx_t * ctx ) {{', file=body)
+        print(f'static int {n}_decode_inner( void * struct_mem, void * * alloc_mem, fd_bincode_decode_ctx_t * ctx ) {{', file=body)
         print(f'  fd_bincode_bytes_decode_unsafe( struct_mem, sizeof({n}_t), ctx );', file=body)
-        print(f'  return;', file=body)
+        print(f'  return FD_BINCODE_SUCCESS;', file=body)
         print(f'}}', file=body)
 
         print(f'void * {n}_decode( void * mem, fd_bincode_decode_ctx_t * ctx ) {{', file=body)
@@ -3378,7 +3399,8 @@ class StructType(TypeNode):
         encoders: Encoder configuration (if any)
         custom_decode_inner: Whether to use custom decode implementation
         normalizer: Optional normalizer function name
-        validator: Optional validator function name
+        footprint_validator: Optional validator function name
+        decode_validator: Optional validator function name
         attribute: C attribute string (alignment, packed, etc.)
         alignment: Alignment requirement in bytes
     """
@@ -3400,7 +3422,8 @@ class StructType(TypeNode):
         self.encoders = (json["encoders"] if "encoders" in json else None)
         self.custom_decode_inner = (json["custom_decode_inner"] if "custom_decode_inner" in json else False)
         self.normalizer = (json["normalizer"] if "normalizer" in json else None)
-        self.validator = (json["validator"] if "validator" in json else None)
+        self.footprint_validator = (json["footprint_validator"] if "footprint_validator" in json else None)
+        self.decode_validator = (json["decode_validator"] if "decode_validator" in json else None)
 
         # Handle alignment and packing attributes
         if "alignment" in json:
@@ -3557,8 +3580,8 @@ class StructType(TypeNode):
                 print(f'static inline int {n}_decode_footprint_inner( fd_bincode_decode_ctx_t * ctx, ulong * total_sz ) {{', file=body)
                 sz = self.fixedSize()
                 print(f'  if( (ulong)ctx->data + {self.fixedSize()}UL > (ulong)ctx->dataend ) {{ return FD_BINCODE_ERR_OVERFLOW; }};', file=body)
-                if self.validator is not None:
-                    print(f'  int err = {self.validator}( ctx );', file=body)
+                if self.footprint_validator is not None:
+                    print(f'  int err = {self.footprint_validator}( ctx );', file=body)
                     print(f'  if( FD_UNLIKELY( err != FD_BINCODE_SUCCESS ) )', file=body)
                     print(f'    return err;', file=body)
                 print(f'  ctx->data = (void *)( (ulong)ctx->data + {self.fixedSize()}UL );', file=body)
@@ -3568,8 +3591,8 @@ class StructType(TypeNode):
                 print(f'static int {n}_decode_footprint_inner( fd_bincode_decode_ctx_t * ctx, ulong * total_sz ) {{', file=body)
                 print(f'  if( ctx->data>=ctx->dataend ) {{ return FD_BINCODE_ERR_OVERFLOW; }};', file=body)
                 print(f'  int err = 0;', file=body)
-                if self.validator is not None:
-                    print(f'  err = {self.validator}( ctx );', file=body)
+                if self.footprint_validator is not None:
+                    print(f'  err = {self.footprint_validator}( ctx );', file=body)
                     print(f'  if( FD_UNLIKELY( err != FD_BINCODE_SUCCESS ) )', file=body)
                     print(f'    return err;', file=body)
                 for f in self.fields:
@@ -3588,14 +3611,20 @@ class StructType(TypeNode):
                 print(f'  return err;', file=body)
                 print(f'}}', file=body)
             if not self.custom_decode_inner:
-                print(f'static void {n}_decode_inner( void * struct_mem, void * * alloc_mem, fd_bincode_decode_ctx_t * ctx ) {{', file=body)
+                print(f'static int {n}_decode_inner( void * struct_mem, void * * alloc_mem, fd_bincode_decode_ctx_t * ctx ) {{', file=body)
                 print(f'  {n}_t * self = ({n}_t *)struct_mem;', file=body)
+                print(f'  int err = FD_BINCODE_SUCCESS;', file=body)
                 for f in self.fields:
                     if hasattr(f, "ignore_underflow") and f.ignore_underflow:
-                        print('  if( ctx->data == ctx->dataend ) return;', file=body)
+                        print('  if( ctx->data == ctx->dataend ) return FD_BINCODE_SUCCESS;', file=body)
                     f.emitDecodeInner()
                 if self.normalizer is not None:
                     print(f'  {self.normalizer}( self );', file=body)
+                if self.decode_validator is not None:
+                    print(f'  err = {self.decode_validator}( ctx, self );', file=body)
+                    print(f'  if( FD_UNLIKELY( err != FD_BINCODE_SUCCESS ) )', file=body)
+                    print(f'    return err;', file=body)
+                print('  return FD_BINCODE_SUCCESS;', file=body)
                 print(f'}}', file=body)
 
             print(f'void * {n}_decode( void * mem, fd_bincode_decode_ctx_t * ctx ) {{', file=body)
@@ -3603,18 +3632,25 @@ class StructType(TypeNode):
             print(f'  {n}_new( self );', file=body)
             print(f'  void * alloc_region = (uchar *)mem + sizeof({n}_t);', file=body)
             print(f'  void * * alloc_mem = &alloc_region;', file=body)
-            print(f'  {n}_decode_inner( mem, alloc_mem, ctx );', file=body)
+            print(f'  ctx->err = {n}_decode_inner( mem, alloc_mem, ctx );', file=body)
+            print(f'  if( ctx->err != FD_BINCODE_SUCCESS ) return NULL;', file=body)
             print(f'  return self;', file=body)
             print(f'}}', file=body)
 
             if self.produce_global and not self.isFlat():
                 if not self.custom_decode_inner:
-                    print(f'static void {n}_decode_inner_global( void * struct_mem, void * * alloc_mem, fd_bincode_decode_ctx_t * ctx ) {{', file=body)
+                    print(f'static int {n}_decode_inner_global( void * struct_mem, void * * alloc_mem, fd_bincode_decode_ctx_t * ctx ) {{', file=body)
                     print(f'  {n}_global_t * self = ({n}_global_t *)struct_mem;', file=body)
+                    print(f'  int err = FD_BINCODE_SUCCESS;', file=body)
                     for f in self.fields:
                         if hasattr(f, "ignore_underflow") and f.ignore_underflow:
-                            print('  if( ctx->data == ctx->dataend ) return;', file=body)
+                            print('  if( ctx->data == ctx->dataend ) return FD_BINCODE_SUCCESS;', file=body)
                         f.emitDecodeInnerGlobal()
+                    if self.decode_validator is not None:
+                        print(f'  err = {self.decode_validator}( ctx, self );', file=body)
+                        print(f'  if( FD_UNLIKELY( err != FD_BINCODE_SUCCESS ) )', file=body)
+                        print(f'    return err;', file=body)
+                    print('  return FD_BINCODE_SUCCESS;', file=body)
                     print(f'}}', file=body)
 
                 print(f'void * {n}_decode_global( void * mem, fd_bincode_decode_ctx_t * ctx ) {{', file=body)
@@ -3622,7 +3658,8 @@ class StructType(TypeNode):
                 print(f'  {n}_new( ({n}_t *)self );', file=body)
                 print(f'  void * alloc_region = (uchar *)mem + sizeof({n}_global_t);', file=body)
                 print(f'  void * * alloc_mem = &alloc_region;', file=body)
-                print(f'  {n}_decode_inner_global( mem, alloc_mem, ctx );', file=body)
+                print(f'  ctx->err = {n}_decode_inner_global( mem, alloc_mem, ctx );', file=body)
+                print(f'  if( ctx->err != FD_BINCODE_SUCCESS ) return NULL;', file=body)
                 print(f'  return self;', file=body)
                 print(f'}}', file=body)
 
@@ -3869,31 +3906,35 @@ class EnumType(TypeNode):
         print("}", file=body)
 
         if not self.isFixedSize():
-            print(f'static void {n}_inner_decode_inner( {n}_inner_t * self, void * * alloc_mem, {self.repr} discriminant, fd_bincode_decode_ctx_t * ctx ) {{', file=body)
+            print(f'static int {n}_inner_decode_inner( {n}_inner_t * self, void * * alloc_mem, {self.repr} discriminant, fd_bincode_decode_ctx_t * ctx ) {{', file=body)
             print('  switch (discriminant) {', file=body)
             for i, v in enumerate(self.variants):
                 print(f'  case {i}: {{', file=body)
                 if not isinstance(v, str):
+                    print(f'  int err;', file=body)
                     v.emitDecodeInner(indent)
                 print('    break;', file=body)
                 print('  }', file=body)
             print('  }', file=body)
+            print('  return FD_BINCODE_SUCCESS;', file=body)
             print("}", file=body)
 
 
             if self.produce_global and not self.isFlat():
-                print(f'static void {n}_inner_decode_inner_global( {n}_inner_global_t * self, void * * alloc_mem, {self.repr} discriminant, fd_bincode_decode_ctx_t * ctx ) {{', file=body)
+                print(f'static int {n}_inner_decode_inner_global( {n}_inner_global_t * self, void * * alloc_mem, {self.repr} discriminant, fd_bincode_decode_ctx_t * ctx ) {{', file=body)
                 print('  switch (discriminant) {', file=body)
                 for i, v in enumerate(self.variants):
                     print(f'  case {i}: {{', file=body)
                     if not isinstance(v, str):
+                        print(f'  int err;', file=body)
                         v.emitDecodeInnerGlobal(indent)
                     print('    break;', file=body)
                     print('  }', file=body)
                 print('  }', file=body)
+                print('  return FD_BINCODE_SUCCESS;', file=body)
                 print("}", file=body)
 
-        print(f'static void {n}_decode_inner( void * struct_mem, void * * alloc_mem, fd_bincode_decode_ctx_t * ctx ) {{', file=body)
+        print(f'static int  {n}_decode_inner( void * struct_mem, void * * alloc_mem, fd_bincode_decode_ctx_t * ctx ) {{', file=body)
         print(f'  {n}_t * self = ({n}_t *)struct_mem;', file=body)
         if self.compact:
             print('  ushort tmp = 0;', file=body)
@@ -3902,7 +3943,9 @@ class EnumType(TypeNode):
         else:
             print(f'  fd_bincode_{self.repr_codec_stem}_decode_unsafe( &self->discriminant, ctx );', file=body)
         if not self.isFixedSize():
-            print(f'  {n}_inner_decode_inner( &self->inner, alloc_mem, self->discriminant, ctx );', file=body)
+            print(f'  return {n}_inner_decode_inner( &self->inner, alloc_mem, self->discriminant, ctx );', file=body)
+        else:
+            print('  return FD_BINCODE_SUCCESS;', file=body)
         print(f'}}', file=body)
 
         print(f'void * {n}_decode( void * mem, fd_bincode_decode_ctx_t * ctx ) {{', file=body)
@@ -3910,7 +3953,8 @@ class EnumType(TypeNode):
         print(f'  {n}_new( self );', file=body)
         print(f'  void * alloc_region = (uchar *)mem + sizeof({n}_t);', file=body)
         print(f'  void * * alloc_mem = &alloc_region;', file=body)
-        print(f'  {n}_decode_inner( mem, alloc_mem, ctx );', file=body)
+        print(f'  ctx->err = {n}_decode_inner( mem, alloc_mem, ctx );', file=body)
+        print(f'  if( ctx->err != FD_BINCODE_SUCCESS ) return NULL;', file=body)
         print(f'  return self;', file=body)
         print(f'}}', file=body)
 
@@ -3943,7 +3987,7 @@ class EnumType(TypeNode):
             print("}", file=body)
             print("", file=body)
 
-            print(f'static void {n}_decode_inner_global( void * struct_mem, void * * alloc_mem, fd_bincode_decode_ctx_t * ctx ) {{', file=body)
+            print(f'static int {n}_decode_inner_global( void * struct_mem, void * * alloc_mem, fd_bincode_decode_ctx_t * ctx ) {{', file=body)
             print(f'  {n}_global_t * self = ({n}_global_t *)struct_mem;', file=body)
             if self.compact:
                 print('  ushort tmp = 0;', file=body)
@@ -3952,7 +3996,9 @@ class EnumType(TypeNode):
             else:
                 print(f'  fd_bincode_{self.repr_codec_stem}_decode_unsafe( &self->discriminant, ctx );', file=body)
             if not self.isFixedSize():
-                print(f'  {n}_inner_decode_inner_global( &self->inner, alloc_mem, self->discriminant, ctx );', file=body)
+                print(f'  return {n}_inner_decode_inner_global( &self->inner, alloc_mem, self->discriminant, ctx );', file=body)
+            else:
+                print('  return FD_BINCODE_SUCCESS;', file=body)
             print(f'}}', file=body)
 
             print(f'void * {n}_decode_global( void * mem, fd_bincode_decode_ctx_t * ctx ) {{', file=body)
@@ -3960,7 +4006,8 @@ class EnumType(TypeNode):
             print(f'  {n}_new( self );', file=body)
             print(f'  void * alloc_region = (uchar *)mem + sizeof({n}_t);', file=body)
             print(f'  void * * alloc_mem = &alloc_region;', file=body)
-            print(f'  {n}_decode_inner_global( mem, alloc_mem, ctx );', file=body)
+            print(f'  ctx->err = {n}_decode_inner_global( mem, alloc_mem, ctx );', file=body)
+            print(f'  if( ctx->err != FD_BINCODE_SUCCESS ) return NULL;', file=body)
             print(f'  return self;', file=body)
             print(f'}}', file=body)
 

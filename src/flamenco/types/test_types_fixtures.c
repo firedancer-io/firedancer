@@ -157,7 +157,7 @@ test_yaml( test_fixture_t const * t ) {
   }
 
   FD_TEST( fd_scratch_publish_is_safe( decoded+total_sz ) );
-  t->decode( decoded, decode );
+  FD_TEST( t->decode( decoded, decode ) != NULL );;
   fd_scratch_publish( decoded+total_sz );
 
   /* Encode YAML */
