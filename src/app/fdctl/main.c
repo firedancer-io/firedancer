@@ -8,7 +8,6 @@ char const * FD_BINARY_NAME = "fdctl";
 
 extern fd_topo_obj_callbacks_t fd_obj_cb_mcache;
 extern fd_topo_obj_callbacks_t fd_obj_cb_dcache;
-extern fd_topo_obj_callbacks_t fd_obj_cb_cnc;
 extern fd_topo_obj_callbacks_t fd_obj_cb_fseq;
 extern fd_topo_obj_callbacks_t fd_obj_cb_metrics;
 extern fd_topo_obj_callbacks_t fd_obj_cb_opaque;
@@ -21,7 +20,6 @@ extern fd_topo_obj_callbacks_t fd_obj_cb_tile;
 fd_topo_obj_callbacks_t * CALLBACKS[] = {
   &fd_obj_cb_mcache,
   &fd_obj_cb_dcache,
-  &fd_obj_cb_cnc,
   &fd_obj_cb_fseq,
   &fd_obj_cb_metrics,
   &fd_obj_cb_opaque,
