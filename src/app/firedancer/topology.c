@@ -266,6 +266,7 @@ fd_topo_initialize( config_t * config ) {
   fd_topob_wksp( topo, "gossip_verif" );
   fd_topob_wksp( topo, "gossip_tower" );
   fd_topob_wksp( topo, "replay_tower" );
+  fd_topob_wksp( topo, "root_out"     );
 
   fd_topob_wksp( topo, "repair_sign"  );
   fd_topob_wksp( topo, "sign_repair"  );
@@ -361,7 +362,7 @@ fd_topo_initialize( config_t * config ) {
   /**/                 fd_topob_link( topo, "gossip_verif", "gossip_verif", config->tiles.verify.receive_buffer_size, FD_TPU_MTU,                    1UL );
   /**/                 fd_topob_link( topo, "gossip_tower", "gossip_tower", 128UL,                                    FD_TPU_MTU,                    1UL );
   /**/                 fd_topob_link( topo, "replay_tower", "replay_tower", 128UL,                                    65536UL,                       1UL );
-  /**/                 fd_topob_link( topo, "tower_replay", "replay_tower", 128UL,                                    0,                             1UL );
+  /**/                 fd_topob_link( topo, "root_out",     "root_out",     128UL,                                    0,                             1UL );
 
   /**/                 fd_topob_link( topo, "crds_shred",   "crds_shred",   128UL,                                    8UL  + 40200UL * 38UL,         1UL );
   /**/                 fd_topob_link( topo, "gossip_repai", "gossip_repai", 128UL,                                    40200UL * 38UL, 1UL );
@@ -678,7 +679,7 @@ fd_topo_initialize( config_t * config ) {
   /**/                 fd_topob_tile_in(  topo, "tower",   0UL,          "metric_in", "gossip_tower", 0UL,           FD_TOPOB_UNRELIABLE, FD_TOPOB_POLLED ); /* No reliable consumers of networking fragments, may be dropped or overrun */
   /**/                 fd_topob_tile_in(  topo, "tower",   0UL,          "metric_in", "replay_tower", 0UL,           FD_TOPOB_RELIABLE,   FD_TOPOB_POLLED );
 
-  /**/                 fd_topob_tile_out( topo, "tower",  0UL,                        "tower_replay", 0UL                                                   );
+  /**/                 fd_topob_tile_out( topo, "tower",  0UL,                        "root_out",     0UL                                                   );
   /**/                 fd_topob_tile_out( topo, "tower",  0UL,                        "tower_send",   0UL                                                   );
 
   /* Sign links don't need to be reliable because they are synchronous,
@@ -706,13 +707,14 @@ fd_topo_initialize( config_t * config ) {
 
   FOR(net_tile_cnt)    fd_topob_tile_in(  topo, "repair",  0UL,          "metric_in", "net_repair",    i,            FD_TOPOB_UNRELIABLE, FD_TOPOB_POLLED   ); /* No reliable consumers of networking fragments, may be dropped or overrun */
   /**/                 fd_topob_tile_in(  topo, "repair",  0UL,          "metric_in", "gossip_repai",  0UL,          FD_TOPOB_UNRELIABLE, FD_TOPOB_POLLED   );
+  /**/                 fd_topob_tile_in(  topo, "repair",  0UL,          "metric_in",  "root_out",     0UL,          FD_TOPOB_UNRELIABLE, FD_TOPOB_POLLED   ); /* unreliable, because next root slot subsumes prev root slot */
   /**/                 fd_topob_tile_in(  topo, "repair",  0UL,          "metric_in", "stake_out",     0UL,          FD_TOPOB_UNRELIABLE, FD_TOPOB_POLLED   );
   FOR(shred_tile_cnt)  fd_topob_tile_in(  topo, "repair",  0UL,          "metric_in", "shred_repair",  i,            FD_TOPOB_RELIABLE,   FD_TOPOB_POLLED   );
 
   /**/                 fd_topob_tile_in(  topo, "replay",  0UL,          "metric_in", "repair_repla",  0UL,          FD_TOPOB_RELIABLE,   FD_TOPOB_POLLED  );
   /**/                 fd_topob_tile_out( topo, "replay",  0UL,                       "stake_out",     0UL                                                  );
   /**/                 fd_topob_tile_in(  topo, "replay",  0UL,          "metric_in", "pack_replay",   0UL,          FD_TOPOB_RELIABLE,   FD_TOPOB_POLLED   );
-  /**/                 fd_topob_tile_in(  topo, "replay",  0UL,          "metric_in", "tower_replay",  0UL,          FD_TOPOB_RELIABLE,   FD_TOPOB_POLLED   );
+  /**/                 fd_topob_tile_in(  topo, "replay",  0UL,          "metric_in", "root_out",      0UL,          FD_TOPOB_UNRELIABLE, FD_TOPOB_POLLED   ); /* unreliable, because next root slot subsumes prev root slot */
   /**/                 fd_topob_tile_out( topo, "replay",  0UL,                       "replay_tower",  0UL                                                  );
   FOR(bank_tile_cnt)   fd_topob_tile_out( topo, "replay",  0UL,                       "replay_poh",    i                                                    );
   FOR(exec_tile_cnt)   fd_topob_tile_out( topo, "replay",  0UL,                       "replay_exec",   i                                                    ); /* TODO check order in fd_replay.c macros*/
@@ -894,8 +896,8 @@ fd_topo_configure_tile( fd_topo_tile_t * tile,
       tile->net.quic_transaction_listen_port   = config->tiles.quic.quic_transaction_listen_port;
       tile->net.legacy_transaction_listen_port = config->tiles.quic.regular_transaction_listen_port;
       tile->net.gossip_listen_port             = config->gossip.port;
-      tile->net.repair_intake_listen_port      = config->tiles.repair.repair_intake_listen_port;
-      tile->net.repair_serve_listen_port       = config->tiles.repair.repair_serve_listen_port;
+      tile->net.repair_intake_listen_port      = config->tiles.repair.client_port;
+      tile->net.repair_serve_listen_port       = config->tiles.repair.server_port;
       tile->net.send_src_port                  = config->tiles.send.send_src_port;
 
     } else if( FD_UNLIKELY( !strcmp( tile->name, "netlnk" ) ) ) {
@@ -940,21 +942,18 @@ fd_topo_configure_tile( fd_topo_tile_t * tile,
       tile->gossip.tpu_port             = config->tiles.quic.regular_transaction_listen_port;
       tile->gossip.tpu_quic_port        = config->tiles.quic.quic_transaction_listen_port;
       tile->gossip.tpu_vote_port        = config->tiles.quic.regular_transaction_listen_port; /* TODO: support separate port for tpu vote */
-      tile->gossip.repair_serve_port    = config->tiles.repair.repair_serve_listen_port;
+      tile->gossip.repair_serve_port    = config->tiles.repair.server_port;
       tile->gossip.entrypoints_cnt      = fd_ulong_min( config->gossip.resolved_entrypoints_cnt, FD_TOPO_GOSSIP_ENTRYPOINTS_MAX );
       fd_memcpy( tile->gossip.entrypoints, config->gossip.resolved_entrypoints, tile->gossip.entrypoints_cnt * sizeof(fd_ip4_port_t) );
 
     } else if( FD_UNLIKELY( !strcmp( tile->name, "repair" ) ) ) {
-      tile->repair.max_pending_shred_sets    = config->tiles.shred.max_pending_shred_sets;
-      tile->repair.repair_intake_listen_port = config->tiles.repair.repair_intake_listen_port;
-      tile->repair.repair_serve_listen_port  = config->tiles.repair.repair_serve_listen_port;
-      tile->repair.slot_max                  = config->tiles.repair.slot_max;
-      strncpy( tile->repair.good_peer_cache_file, config->tiles.repair.good_peer_cache_file, sizeof(tile->repair.good_peer_cache_file) );
-
       strncpy( tile->repair.identity_key_path, config->paths.identity_key, sizeof(tile->repair.identity_key_path) );
+      tile->repair.client_port            = config->tiles.repair.client_port;
+      tile->repair.server_port            = config->tiles.repair.server_port;
+      tile->repair.blk_max                = config->tiles.repair.slot_max;
+      tile->repair.fec_max                = config->tiles.shred.max_pending_shred_sets;
 
     } else if( FD_UNLIKELY( !strcmp( tile->name, "replay" ) )) {
-
       tile->replay.fec_max = config->tiles.shred.max_pending_shred_sets;
       tile->replay.max_vote_accounts = config->firedancer.runtime.limits.max_vote_accounts;
 
@@ -1093,7 +1092,7 @@ fd_topo_configure_tile( fd_topo_tile_t * tile,
           FD_LOG_ERR(( "Invalid ingest mode: %s", tile->archiver.ingest_mode ));
         }
     } else if( FD_UNLIKELY( !strcmp( tile->name, "scap" ) ) ) {
-      tile->shredcap.repair_intake_listen_port = config->tiles.repair.repair_intake_listen_port;
+      tile->shredcap.repair_intake_listen_port = config->tiles.repair.client_port;
       strncpy( tile->shredcap.folder_path, config->tiles.shredcap.folder_path, sizeof(tile->shredcap.folder_path) );
       tile->shredcap.write_buffer_size = config->tiles.shredcap.write_buffer_size;
     } else {

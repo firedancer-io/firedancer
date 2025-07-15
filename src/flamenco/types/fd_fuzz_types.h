@@ -3632,6 +3632,26 @@ void *fd_addrlut_instruction_generate( void *mem, void **alloc_mem, fd_rng_t * r
   return mem;
 }
 
+void *fd_pingpong_ping_generate( void *mem, void **alloc_mem, fd_rng_t * rng ) {
+  fd_pingpong_ping_t *self = (fd_pingpong_ping_t *) mem;
+  *alloc_mem = (uchar *) *alloc_mem + sizeof(fd_pingpong_ping_t);
+  fd_pingpong_ping_new(mem);
+  fd_pubkey_generate( &self->from, alloc_mem, rng );
+  fd_hash_generate( &self->token, alloc_mem, rng );
+  fd_signature_generate( &self->signature, alloc_mem, rng );
+  return mem;
+}
+
+void *fd_pingpong_pong_generate( void *mem, void **alloc_mem, fd_rng_t * rng ) {
+  fd_pingpong_pong_t *self = (fd_pingpong_pong_t *) mem;
+  *alloc_mem = (uchar *) *alloc_mem + sizeof(fd_pingpong_pong_t);
+  fd_pingpong_pong_new(mem);
+  fd_pubkey_generate( &self->from, alloc_mem, rng );
+  fd_hash_generate( &self->hash, alloc_mem, rng );
+  fd_signature_generate( &self->signature, alloc_mem, rng );
+  return mem;
+}
+
 void *fd_repair_request_header_generate( void *mem, void **alloc_mem, fd_rng_t * rng ) {
   fd_repair_request_header_t *self = (fd_repair_request_header_t *) mem;
   *alloc_mem = (uchar *) *alloc_mem + sizeof(fd_repair_request_header_t);
@@ -3673,19 +3693,10 @@ void *fd_repair_orphan_generate( void *mem, void **alloc_mem, fd_rng_t * rng ) {
   return mem;
 }
 
-void *fd_repair_ancestor_hashes_generate( void *mem, void **alloc_mem, fd_rng_t * rng ) {
-  fd_repair_ancestor_hashes_t *self = (fd_repair_ancestor_hashes_t *) mem;
-  *alloc_mem = (uchar *) *alloc_mem + sizeof(fd_repair_ancestor_hashes_t);
-  fd_repair_ancestor_hashes_new(mem);
-  fd_repair_request_header_generate( &self->header, alloc_mem, rng );
-  self->slot = fd_rng_ulong( rng );
-  return mem;
-}
-
 void fd_repair_protocol_inner_generate( fd_repair_protocol_inner_t * self, void **alloc_mem, uint discriminant, fd_rng_t * rng ) {
   switch (discriminant) {
   case 7: {
-    fd_gossip_ping_generate( &self->pong, alloc_mem, rng );
+    fd_pingpong_pong_generate( &self->pong, alloc_mem, rng );
     break;
   }
   case 8: {
@@ -3698,10 +3709,6 @@ void fd_repair_protocol_inner_generate( fd_repair_protocol_inner_t * self, void 
   }
   case 10: {
     fd_repair_orphan_generate( &self->orphan, alloc_mem, rng );
-    break;
-  }
-  case 11: {
-    fd_repair_ancestor_hashes_generate( &self->ancestor_hashes, alloc_mem, rng );
     break;
   }
   }
@@ -3718,7 +3725,7 @@ void *fd_repair_protocol_generate( void *mem, void **alloc_mem, fd_rng_t * rng )
 void fd_repair_response_inner_generate( fd_repair_response_inner_t * self, void **alloc_mem, uint discriminant, fd_rng_t * rng ) {
   switch (discriminant) {
   case 0: {
-    fd_gossip_ping_generate( &self->ping, alloc_mem, rng );
+    fd_pingpong_ping_generate( &self->ping, alloc_mem, rng );
     break;
   }
   }

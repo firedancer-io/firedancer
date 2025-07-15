@@ -3401,6 +3401,7 @@ class StructType(TypeNode):
         self.custom_decode_inner = (json["custom_decode_inner"] if "custom_decode_inner" in json else False)
         self.normalizer = (json["normalizer"] if "normalizer" in json else None)
         self.validator = (json["validator"] if "validator" in json else None)
+        self.alignof = (json["alignof"] if "alignof" in json else False)
 
         # Handle alignment and packing attributes
         if "alignment" in json:
@@ -3471,7 +3472,7 @@ class StructType(TypeNode):
         print("};", file=header)
         print(f'typedef struct {n} {n}_t;', file=header)
 
-        if int(self.alignment) > 0:
+        if not self.alignof and int(self.alignment) > 0:
             print(f"#define {n.upper()}_ALIGN ({self.alignment}UL)", file=header)
         else:
             print(f"#define {n.upper()}_ALIGN alignof({n}_t)", file=header)
@@ -3678,6 +3679,7 @@ class EnumType(TypeNode):
                 self.variants.append(parseMember(self.fullname, f))
             else:
                 self.variants.append(str(f['name']))
+        self.alignof = (json["alignof"] if "alignof" in json else False)
         self.comment = (json["comment"] if "comment" in json else None)
         if "alignment" in json:
             self.attribute = f'__attribute__((aligned({json["alignment"]}UL))) '
@@ -3773,7 +3775,7 @@ class EnumType(TypeNode):
             print(f'  {n}_inner_t inner;', file=header)
         print("};", file=header)
         print(f"typedef struct {n} {n}_t;", file=header)
-        if self.alignment > 0:
+        if not self.alignof and self.alignment > 0:
             print(f"#define {n.upper()}_ALIGN ({self.alignment}UL)", file=header)
         else:
             print(f"#define {n.upper()}_ALIGN alignof({n}_t)", file=header)

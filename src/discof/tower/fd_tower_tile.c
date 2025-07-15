@@ -1,4 +1,5 @@
-#define _GNU_SOURCE
+#include "../../disco/tiles.h"
+#include "generated/fd_tower_tile_seccomp.h"
 
 #include "../../choreo/fd_choreo.h"
 #include "../../disco/keyguard/fd_keyload.h"
@@ -33,7 +34,7 @@ typedef struct {
   uchar    in_kind [MAX_IN_LINKS];
   in_ctx_t in_links[MAX_IN_LINKS];
 
-  ulong replay_out_idx;
+  ulong root_out_idx;
 
   ulong       send_out_idx;
   fd_wksp_t * send_out_mem;
@@ -276,6 +277,7 @@ after_frag( ctx_t *             ctx,
     FD_TEST( fd_funk_txn_map( ctx->funk ) );
     update_epoch( ctx, sz );
     fd_ghost_init( ctx->ghost, slot );
+    fd_stem_publish( stem, ctx->root_out_idx, slot, 0UL, 0UL, 0UL, tsorig, fd_frag_meta_ts_comp( fd_tickcount() ) );
     return;
   }
 
@@ -300,7 +302,7 @@ after_frag( ctx_t *             ctx,
   ulong root = fd_tower_vote( ctx->tower, vote_slot );
   if( FD_LIKELY( root != FD_SLOT_NULL ) ) {
     fd_ghost_publish( ctx->ghost, root );
-    fd_stem_publish( stem, ctx->replay_out_idx, root, 0UL, 0UL, 0UL, tsorig, fd_frag_meta_ts_comp( fd_tickcount() ) );
+    fd_stem_publish( stem, ctx->root_out_idx, root, 0UL, 0UL, 0UL, tsorig, fd_frag_meta_ts_comp( fd_tickcount() ) );
     ctx->root = root;
   }
 
@@ -368,8 +370,8 @@ unprivileged_init( fd_topo_t *      topo,
     ctx->in_links[ in_idx ].mtu    = link->mtu;
   }
 
-  ctx->replay_out_idx = fd_topo_find_tile_out_link( topo, tile, "tower_replay", 0 );
-  FD_TEST( ctx->replay_out_idx!= ULONG_MAX );
+  ctx->root_out_idx = fd_topo_find_tile_out_link( topo, tile, "root_out", 0 );
+  FD_TEST( ctx->root_out_idx!= ULONG_MAX );
 
   ctx->send_out_idx = fd_topo_find_tile_out_link( topo, tile, "tower_send", 0 );
   FD_TEST( ctx->send_out_idx!=ULONG_MAX );
@@ -382,13 +384,10 @@ unprivileged_init( fd_topo_t *      topo,
 }
 
 static ulong
-populate_allowed_seccomp( fd_topo_t const *      topo,
-                          fd_topo_tile_t const * tile,
+populate_allowed_seccomp( fd_topo_t const *      topo FD_PARAM_UNUSED,
+                          fd_topo_tile_t const * tile FD_PARAM_UNUSED,
                           ulong                  out_cnt,
                           struct sock_filter *   out ) {
-  (void)topo;
-  (void)tile;
-
   populate_sock_filter_policy_fd_tower_tile( out_cnt, out, (uint)fd_log_private_logfile_fd() );
   return sock_filter_policy_fd_tower_tile_instr_cnt;
 }

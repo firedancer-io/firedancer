@@ -81,7 +81,7 @@ typedef struct {
   ulong                  replay_in_wmark;
   fd_replay_notif_msg_t  replay_notification;
 
-  ulong                  tower_replay_out_idx;
+  ulong                  root_out_idx;
 
   ulong                  playback_started;
   ulong                  end_slot;
@@ -158,7 +158,7 @@ notify_tower_root( ctx_t *             ctx,
   ulong replayed_slot = ctx->replay_notification.slot_exec.slot;
   ulong root          = fd_tower_vote( ctx->tower, replayed_slot );
   if( FD_LIKELY( root != FD_SLOT_NULL ) ) {
-    fd_stem_publish( stem, ctx->tower_replay_out_idx, root, 0UL, 0UL, 0UL, tsorig, tspub );
+    fd_stem_publish( stem, ctx->root_out_idx, root, 0UL, 0UL, 0UL, tsorig, tspub );
   }
 }
 
@@ -205,8 +205,8 @@ unprivileged_init( fd_topo_t *      topo,
   ctx->replay_in_chunk0           = fd_dcache_compact_chunk0( ctx->replay_in_mem, replay_in_link->dcache );
   ctx->replay_in_wmark            = fd_dcache_compact_wmark( ctx->replay_in_mem, replay_in_link->dcache, replay_in_link->mtu );
 
-  ctx->tower_replay_out_idx = fd_topo_find_tile_out_link( topo, tile, "tower_replay", 0 );
-  FD_TEST( ctx->tower_replay_out_idx!= ULONG_MAX );
+  ctx->root_out_idx = fd_topo_find_tile_out_link( topo, tile, "root_out", 0 );
+  FD_TEST( ctx->root_out_idx!= ULONG_MAX );
 
   ctx->playback_started           = 0;
   ctx->end_slot          = tile->archiver.end_slot;

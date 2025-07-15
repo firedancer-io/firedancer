@@ -3260,9 +3260,29 @@ struct fd_addrlut_instruction {
 typedef struct fd_addrlut_instruction fd_addrlut_instruction_t;
 #define FD_ADDRLUT_INSTRUCTION_ALIGN alignof(fd_addrlut_instruction_t)
 
+/* technically |token| >= 8, but set to 32 bytes. https://github.com/anza-xyz/agave/blob/v2.3.0/gossip/src/ping_pong.rs#L30 */
+/* Encoded Size: Fixed (128 bytes) */
+struct __attribute__((packed)) fd_pingpong_ping {
+  fd_pubkey_t from;
+  fd_hash_t token;
+  fd_signature_t signature;
+};
+typedef struct fd_pingpong_ping fd_pingpong_ping_t;
+#define FD_PINGPONG_PING_ALIGN alignof(fd_pingpong_ping_t)
+
+/* https://github.com/anza-xyz/agave/blob/v2.3.0/gossip/src/ping_pong.rs#L39 */
+/* Encoded Size: Fixed (128 bytes) */
+struct __attribute__((packed)) fd_pingpong_pong {
+  fd_pubkey_t from;
+  fd_hash_t hash;
+  fd_signature_t signature;
+};
+typedef struct fd_pingpong_pong fd_pingpong_pong_t;
+#define FD_PINGPONG_PONG_ALIGN alignof(fd_pingpong_pong_t)
+
 /* https://github.com/anza-xyz/agave/blob/v2.2.7/core/src/repair/serve_repair.rs#L204-L210 */
 /* Encoded Size: Fixed (140 bytes) */
-struct fd_repair_request_header {
+struct __attribute__((packed)) fd_repair_request_header {
   fd_signature_t signature;
   fd_pubkey_t sender;
   fd_pubkey_t recipient;
@@ -3272,8 +3292,9 @@ struct fd_repair_request_header {
 typedef struct fd_repair_request_header fd_repair_request_header_t;
 #define FD_REPAIR_REQUEST_HEADER_ALIGN alignof(fd_repair_request_header_t)
 
+/* https://github.com/anza-xyz/agave/blob/v2.3.0/core/src/repair/serve_repair.rs#L242 */
 /* Encoded Size: Fixed (156 bytes) */
-struct fd_repair_window_index {
+struct __attribute__((packed)) fd_repair_window_index {
   fd_repair_request_header_t header;
   ulong slot;
   ulong shred_index;
@@ -3281,8 +3302,9 @@ struct fd_repair_window_index {
 typedef struct fd_repair_window_index fd_repair_window_index_t;
 #define FD_REPAIR_WINDOW_INDEX_ALIGN alignof(fd_repair_window_index_t)
 
+/* https://github.com/anza-xyz/agave/blob/v2.3.0/core/src/repair/serve_repair.rs#L247 */
 /* Encoded Size: Fixed (156 bytes) */
-struct fd_repair_highest_window_index {
+struct __attribute__((packed)) fd_repair_highest_window_index {
   fd_repair_request_header_t header;
   ulong slot;
   ulong shred_index;
@@ -3290,32 +3312,25 @@ struct fd_repair_highest_window_index {
 typedef struct fd_repair_highest_window_index fd_repair_highest_window_index_t;
 #define FD_REPAIR_HIGHEST_WINDOW_INDEX_ALIGN alignof(fd_repair_highest_window_index_t)
 
+/* https://github.com/anza-xyz/agave/blob/v2.3.0/core/src/repair/serve_repair.rs#L252 */
 /* Encoded Size: Fixed (148 bytes) */
-struct fd_repair_orphan {
+struct __attribute__((packed)) fd_repair_orphan {
   fd_repair_request_header_t header;
   ulong slot;
 };
 typedef struct fd_repair_orphan fd_repair_orphan_t;
 #define FD_REPAIR_ORPHAN_ALIGN alignof(fd_repair_orphan_t)
 
-/* Encoded Size: Fixed (148 bytes) */
-struct fd_repair_ancestor_hashes {
-  fd_repair_request_header_t header;
-  ulong slot;
-};
-typedef struct fd_repair_ancestor_hashes fd_repair_ancestor_hashes_t;
-#define FD_REPAIR_ANCESTOR_HASHES_ALIGN alignof(fd_repair_ancestor_hashes_t)
-
-union fd_repair_protocol_inner {
-  fd_gossip_ping_t pong;
+union __attribute__((packed)) fd_repair_protocol_inner {
+  fd_pingpong_pong_t pong;
   fd_repair_window_index_t window_index;
   fd_repair_highest_window_index_t highest_window_index;
   fd_repair_orphan_t orphan;
-  fd_repair_ancestor_hashes_t ancestor_hashes;
 };
 typedef union fd_repair_protocol_inner fd_repair_protocol_inner_t;
 
-struct fd_repair_protocol {
+/* https://github.com/anza-xyz/agave/blob/v2.3.0/core/src/repair/serve_repair.rs#L233 */
+struct __attribute__((packed)) fd_repair_protocol {
   uint discriminant;
   fd_repair_protocol_inner_t inner;
 };
@@ -3323,7 +3338,7 @@ typedef struct fd_repair_protocol fd_repair_protocol_t;
 #define FD_REPAIR_PROTOCOL_ALIGN alignof(fd_repair_protocol_t)
 
 union fd_repair_response_inner {
-  fd_gossip_ping_t ping;
+  fd_pingpong_ping_t ping;
 };
 typedef union fd_repair_response_inner fd_repair_response_inner_t;
 
@@ -6083,6 +6098,30 @@ fd_addrlut_instruction_enum_extend_lut = 2,
 fd_addrlut_instruction_enum_deactivate_lut = 3,
 fd_addrlut_instruction_enum_close_lut = 4,
 };
+static inline void fd_pingpong_ping_new( fd_pingpong_ping_t * self ) { fd_memset( self, 0, sizeof(fd_pingpong_ping_t) ); }
+int fd_pingpong_ping_encode( fd_pingpong_ping_t const * self, fd_bincode_encode_ctx_t * ctx );
+void fd_pingpong_ping_walk( void * w, fd_pingpong_ping_t const * self, fd_types_walk_fn_t fun, const char *name, uint level, uint varint );
+ulong fd_pingpong_ping_size( fd_pingpong_ping_t const * self );
+static inline ulong fd_pingpong_ping_align( void ) { return FD_PINGPONG_PING_ALIGN; }
+static inline int fd_pingpong_ping_decode_footprint( fd_bincode_decode_ctx_t * ctx, ulong * total_sz ) {
+  *total_sz += sizeof(fd_pingpong_ping_t);
+  if( (ulong)ctx->data + 128UL > (ulong)ctx->dataend ) { return FD_BINCODE_ERR_OVERFLOW; };
+  return 0;
+}
+void * fd_pingpong_ping_decode( void * mem, fd_bincode_decode_ctx_t * ctx );
+
+static inline void fd_pingpong_pong_new( fd_pingpong_pong_t * self ) { fd_memset( self, 0, sizeof(fd_pingpong_pong_t) ); }
+int fd_pingpong_pong_encode( fd_pingpong_pong_t const * self, fd_bincode_encode_ctx_t * ctx );
+void fd_pingpong_pong_walk( void * w, fd_pingpong_pong_t const * self, fd_types_walk_fn_t fun, const char *name, uint level, uint varint );
+ulong fd_pingpong_pong_size( fd_pingpong_pong_t const * self );
+static inline ulong fd_pingpong_pong_align( void ) { return FD_PINGPONG_PONG_ALIGN; }
+static inline int fd_pingpong_pong_decode_footprint( fd_bincode_decode_ctx_t * ctx, ulong * total_sz ) {
+  *total_sz += sizeof(fd_pingpong_pong_t);
+  if( (ulong)ctx->data + 128UL > (ulong)ctx->dataend ) { return FD_BINCODE_ERR_OVERFLOW; };
+  return 0;
+}
+void * fd_pingpong_pong_decode( void * mem, fd_bincode_decode_ctx_t * ctx );
+
 static inline void fd_repair_request_header_new( fd_repair_request_header_t * self ) { fd_memset( self, 0, sizeof(fd_repair_request_header_t) ); }
 int fd_repair_request_header_encode( fd_repair_request_header_t const * self, fd_bincode_encode_ctx_t * ctx );
 void fd_repair_request_header_walk( void * w, fd_repair_request_header_t const * self, fd_types_walk_fn_t fun, const char *name, uint level, uint varint );
@@ -6131,18 +6170,6 @@ static inline int fd_repair_orphan_decode_footprint( fd_bincode_decode_ctx_t * c
 }
 void * fd_repair_orphan_decode( void * mem, fd_bincode_decode_ctx_t * ctx );
 
-static inline void fd_repair_ancestor_hashes_new( fd_repair_ancestor_hashes_t * self ) { fd_memset( self, 0, sizeof(fd_repair_ancestor_hashes_t) ); }
-int fd_repair_ancestor_hashes_encode( fd_repair_ancestor_hashes_t const * self, fd_bincode_encode_ctx_t * ctx );
-void fd_repair_ancestor_hashes_walk( void * w, fd_repair_ancestor_hashes_t const * self, fd_types_walk_fn_t fun, const char *name, uint level, uint varint );
-ulong fd_repair_ancestor_hashes_size( fd_repair_ancestor_hashes_t const * self );
-static inline ulong fd_repair_ancestor_hashes_align( void ) { return FD_REPAIR_ANCESTOR_HASHES_ALIGN; }
-static inline int fd_repair_ancestor_hashes_decode_footprint( fd_bincode_decode_ctx_t * ctx, ulong * total_sz ) {
-  *total_sz += sizeof(fd_repair_ancestor_hashes_t);
-  if( (ulong)ctx->data + 148UL > (ulong)ctx->dataend ) { return FD_BINCODE_ERR_OVERFLOW; };
-  return 0;
-}
-void * fd_repair_ancestor_hashes_decode( void * mem, fd_bincode_decode_ctx_t * ctx );
-
 void fd_repair_protocol_new_disc( fd_repair_protocol_t * self, uint discriminant );
 void fd_repair_protocol_new( fd_repair_protocol_t * self );
 int fd_repair_protocol_encode( fd_repair_protocol_t const * self, fd_bincode_encode_ctx_t * ctx );
@@ -6152,26 +6179,26 @@ static inline ulong fd_repair_protocol_align( void ) { return FD_REPAIR_PROTOCOL
 int fd_repair_protocol_decode_footprint( fd_bincode_decode_ctx_t * ctx, ulong * total_sz );
 void * fd_repair_protocol_decode( void * mem, fd_bincode_decode_ctx_t * ctx );
 
-FD_FN_PURE uchar fd_repair_protocol_is_LegacyWindowIndex( fd_repair_protocol_t const * self );
-FD_FN_PURE uchar fd_repair_protocol_is_LegacyHighestWindowIndex( fd_repair_protocol_t const * self );
-FD_FN_PURE uchar fd_repair_protocol_is_LegacyOrphan( fd_repair_protocol_t const * self );
-FD_FN_PURE uchar fd_repair_protocol_is_LegacyWindowIndexWithNonce( fd_repair_protocol_t const * self );
-FD_FN_PURE uchar fd_repair_protocol_is_LegacyHighestWindowIndexWithNonce( fd_repair_protocol_t const * self );
-FD_FN_PURE uchar fd_repair_protocol_is_LegacyOrphanWithNonce( fd_repair_protocol_t const * self );
-FD_FN_PURE uchar fd_repair_protocol_is_LegacyAncestorHashes( fd_repair_protocol_t const * self );
+FD_FN_PURE uchar fd_repair_protocol_is_legacy_window_index( fd_repair_protocol_t const * self );
+FD_FN_PURE uchar fd_repair_protocol_is_legacy_highest_window_index( fd_repair_protocol_t const * self );
+FD_FN_PURE uchar fd_repair_protocol_is_legacy_orphan( fd_repair_protocol_t const * self );
+FD_FN_PURE uchar fd_repair_protocol_is_legacy_window_index_with_nonce( fd_repair_protocol_t const * self );
+FD_FN_PURE uchar fd_repair_protocol_is_legacy_highest_window_index_with_nonce( fd_repair_protocol_t const * self );
+FD_FN_PURE uchar fd_repair_protocol_is_legacy_orphan_with_nonce( fd_repair_protocol_t const * self );
+FD_FN_PURE uchar fd_repair_protocol_is_legacy_ancestor_hashes( fd_repair_protocol_t const * self );
 FD_FN_PURE uchar fd_repair_protocol_is_pong( fd_repair_protocol_t const * self );
 FD_FN_PURE uchar fd_repair_protocol_is_window_index( fd_repair_protocol_t const * self );
 FD_FN_PURE uchar fd_repair_protocol_is_highest_window_index( fd_repair_protocol_t const * self );
 FD_FN_PURE uchar fd_repair_protocol_is_orphan( fd_repair_protocol_t const * self );
 FD_FN_PURE uchar fd_repair_protocol_is_ancestor_hashes( fd_repair_protocol_t const * self );
 enum {
-fd_repair_protocol_enum_LegacyWindowIndex = 0,
-fd_repair_protocol_enum_LegacyHighestWindowIndex = 1,
-fd_repair_protocol_enum_LegacyOrphan = 2,
-fd_repair_protocol_enum_LegacyWindowIndexWithNonce = 3,
-fd_repair_protocol_enum_LegacyHighestWindowIndexWithNonce = 4,
-fd_repair_protocol_enum_LegacyOrphanWithNonce = 5,
-fd_repair_protocol_enum_LegacyAncestorHashes = 6,
+fd_repair_protocol_enum_legacy_window_index = 0,
+fd_repair_protocol_enum_legacy_highest_window_index = 1,
+fd_repair_protocol_enum_legacy_orphan = 2,
+fd_repair_protocol_enum_legacy_window_index_with_nonce = 3,
+fd_repair_protocol_enum_legacy_highest_window_index_with_nonce = 4,
+fd_repair_protocol_enum_legacy_orphan_with_nonce = 5,
+fd_repair_protocol_enum_legacy_ancestor_hashes = 6,
 fd_repair_protocol_enum_pong = 7,
 fd_repair_protocol_enum_window_index = 8,
 fd_repair_protocol_enum_highest_window_index = 9,
