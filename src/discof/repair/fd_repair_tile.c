@@ -842,6 +842,7 @@ after_frag( fd_repair_tile_ctx_t * ctx,
     fd_fseq_update( ctx->turbine_slot, fd_ulong_max( shred->slot, fd_fseq_query( ctx->turbine_slot ) ) );
     if( FD_UNLIKELY( shred->slot <= fd_forest_root_slot( ctx->forest ) ) ) return; /* shred too old */
 
+    /* TODO add automated caught-up test */
 
     /* Insert the shred sig (shared by all shred members in the FEC set)
        into the map. */
@@ -1075,6 +1076,7 @@ during_housekeeping( fd_repair_tile_ctx_t * ctx ) {
     return;
   }
 }
+
 static void
 privileged_init( fd_topo_t *      topo,
                  fd_topo_tile_t * tile ) {
@@ -1196,7 +1198,6 @@ unprivileged_init( fd_topo_t *      topo,
 
   /* Scratch mem setup */
 
-  ctx->blockstore = &ctx->blockstore_ljoin;
   ctx->repair     = FD_SCRATCH_ALLOC_APPEND( l, fd_repair_align(), fd_repair_footprint() );
   ctx->forest = FD_SCRATCH_ALLOC_APPEND( l, fd_forest_align(), fd_forest_footprint( tile->repair.slot_max ) );
   ctx->fec_sigs = FD_SCRATCH_ALLOC_APPEND( l, fd_fec_sig_align(), fd_fec_sig_footprint( 20 ) );
@@ -1237,16 +1238,19 @@ unprivileged_init( fd_topo_t *      topo,
   }
 
   /* Blockstore setup */
+  ctx->blockstore = NULL;
   ulong blockstore_obj_id = fd_pod_queryf_ulong( topo->props, ULONG_MAX, "blockstore" );
-  FD_TEST( blockstore_obj_id!=ULONG_MAX );
-  ctx->blockstore_wksp = topo->workspaces[ topo->objs[ blockstore_obj_id ].wksp_id ].wksp;
-
-  if( ctx->blockstore_wksp==NULL ) {
-    FD_LOG_ERR(( "no blocktore workspace" ));
+  if( FD_UNLIKELY( blockstore_obj_id==ULONG_MAX ) ) {
+    FD_LOG_WARNING(( "no blockstore_obj_id" ));
+  } else {
+    ctx->blockstore_wksp = topo->workspaces[ topo->objs[ blockstore_obj_id ].wksp_id ].wksp;
+    if( FD_UNLIKELY( ctx->blockstore_wksp==NULL ) ) {
+      FD_LOG_WARNING(( "no blocktore workspace" ));
+    } else {
+      ctx->blockstore = fd_blockstore_join( &ctx->blockstore_ljoin, fd_topo_obj_laddr( topo, blockstore_obj_id ) );
+      FD_TEST( ctx->blockstore!=NULL );
+    }
   }
-
-  ctx->blockstore = fd_blockstore_join( &ctx->blockstore_ljoin, fd_topo_obj_laddr( topo, blockstore_obj_id ) );
-  FD_TEST( ctx->blockstore!=NULL );
 
   FD_LOG_NOTICE(( "repair starting" ));
 
