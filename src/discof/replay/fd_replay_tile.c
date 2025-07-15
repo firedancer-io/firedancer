@@ -893,6 +893,15 @@ init_after_snapshot( fd_replay_tile_ctx_t * ctx,
     fd_fseq_update( ctx->published_wmark, root );
   }
 
+  /* Now that the snapshot(s) are done loading, we can mark all of the
+     exec tiles as ready. */
+  for( ulong i=0UL; i<ctx->exec_cnt; i++ ) {
+    if( ctx->exec_ready[ i ] == EXEC_TXN_BUSY ) {
+      ctx->exec_ready[ i ] = EXEC_TXN_READY;
+    }
+  }
+
+
   FD_LOG_NOTICE(( "snapshot slot %lu", snapshot_slot ));
 }
 
@@ -1158,9 +1167,6 @@ prepare_new_block_execution( fd_replay_tile_ctx_t * ctx,
   /* At this point we need to notify all of the exec tiles and tell them
      that a new slot is ready to be published. At this point, we should
      also mark the tile as not being ready. */
-  for( ulong i=0UL; i<ctx->exec_cnt; i++ ) {
-    ctx->exec_ready[ i ] = EXEC_TXN_READY;
-  }
 
   /* We want to push on a spad frame before we start executing a block.
      Apart from allocations made at the epoch boundary, there should be no
@@ -1690,7 +1696,24 @@ after_credit( fd_replay_tile_ctx_t * ctx,
   ulong flags       = ctx->flags;
 
   /* Finished replaying a slot in this after_credit iteration. */
-  if( FD_UNLIKELY( flags & EXEC_FLAG_FINISHED_SLOT ) ){
+  if( FD_UNLIKELY( flags & EXEC_FLAG_FINISHED_SLOT ) ) {
+
+    /* We shouldn't try to finalize a block until all of the exec tiles
+       are ready. */
+    /* TODO: This needs to get handled in a much cleaner way. Block
+       finalization should not need to be done multithreaded anyways. */
+    while( true ) {
+      ulong free_cnt = 0UL;
+      for( ulong i=0UL; i<ctx->exec_cnt; i++ ) {
+        if( ctx->exec_ready[ i ] == EXEC_TXN_READY ) {
+          free_cnt++;
+        }
+      }
+      if( free_cnt==ctx->exec_cnt ) {
+        break;
+      }
+      handle_writer_state_updates( ctx );
+    }
 
     /* Check if the validator is caught up, and can safely be unmarked
        as read-only. This happens when it has replayed through
