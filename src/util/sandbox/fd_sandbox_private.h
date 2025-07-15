@@ -134,12 +134,15 @@ fd_sandbox_private_pivot_root( void );
    rlimit_file_cnt argument, RLIMIT_AS which is restricted to the
    provided rlimit_address_space argument, RLIMIT_DATA which is
    restricted to the provided rlimit_data argument, and RLIMIT_CPU,
-   RLIMIT_FSIZE, and RLIMIT_RSS which are left as they are (unlimited). */
+   RLIMIT_FSIZE, and RLIMIT_RSS which are left as they are (unlimited).
+
+   If the dumpable bit is set to 1, RLIMIT_CORE is left unchanged. */
 
 void
 fd_sandbox_private_set_rlimits( ulong rlimit_file_cnt,
                                 ulong rlimit_address_space,
-                                ulong rlimit_data );
+                                ulong rlimit_data,
+                                int   dumpable );
 
 /* Read the value of cap_last_cap from /proc/sys/kernel/cap_last_cap
    and return it.  Any error reading or parsing the file will log an
