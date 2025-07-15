@@ -921,6 +921,7 @@ class BitVectorMember(TypeNode):
         self.vector_member.emitDecodeFootprint('    ')
         print('      if( FD_UNLIKELY( err!=FD_BINCODE_SUCCESS ) ) return err;', file=body)
         print(f'      inner_len = {self.vector_member.name}_len;', file=body)
+        print('      if( inner_len==0 ) return FD_BINCODE_ERR_ENCODING;', file=body)
         print('    }', file=body)
         print('    ulong len;', file=body)
         print('    err = fd_bincode_uint64_decode( &len, ctx );', file=body)

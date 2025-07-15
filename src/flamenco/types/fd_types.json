@@ -2157,7 +2157,8 @@
         { "name": "keys", "type": "vector", "element": "ulong" },
         { "name": "bits", "type": "bitvec", "element": "ulong" },
         { "name": "num_bits_set", "type": "ulong" }
-      ]
+      ],
+      "comment": "https://github.com/firedancer-io/agave/blob/540d5bc56cd44e3cc61b179bd52e9a782a2c99e4/bloom/src/bloom.rs#L26"
     },
     {
       "name": "crds_filter",
@@ -2166,7 +2167,8 @@
         { "name": "filter", "type": "crds_bloom" },
         { "name": "mask", "type": "ulong" },
         { "name": "mask_bits", "type": "uint" }
-      ]
+      ],
+      "comment": "https://github.com/firedancer-io/agave/blob/540d5bc56cd44e3cc61b179bd52e9a782a2c99e4/gossip/src/crds_gossip_pull.rs#L60"
     },
     {
       "name": "crds_value",
