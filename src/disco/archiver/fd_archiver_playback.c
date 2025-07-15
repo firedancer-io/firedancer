@@ -25,8 +25,6 @@ receiver tiles.
 #define NET_SHRED_OUT_IDX  (0UL)
 #define NET_REPAIR_OUT_IDX (1UL)
 
-#define FD_ARCHIVER_PLAYBACK_ALLOC_TAG   (3UL)
-
 #define FD_ARCHIVER_STARTUP_DELAY_SECONDS (1)
 #define FD_ARCHIVE_PLAYBACK_BUFFER_SZ      (FD_SHMEM_GIGANTIC_PAGE_SZ)
 
@@ -61,9 +59,6 @@ struct fd_archiver_playback_tile_ctx {
   ulong notified;
 
   fd_archiver_playback_out_ctx_t out[ 32 ];
-
-  fd_alloc_t * alloc;
-  fd_valloc_t  valloc;
 
   ulong playback_done;
   ulong done_time;
@@ -119,6 +114,7 @@ scratch_footprint( fd_topo_tile_t const * tile ) {
   (void)tile;
   ulong l = FD_LAYOUT_INIT;
   l = FD_LAYOUT_APPEND( l, alignof(fd_archiver_playback_tile_ctx_t), sizeof(fd_archiver_playback_tile_ctx_t) );
+  l = FD_LAYOUT_APPEND( l, 4096, FD_ARCHIVE_PLAYBACK_BUFFER_SZ );
   return FD_LAYOUT_FINI( l, scratch_align() );
 }
 
@@ -130,7 +126,7 @@ privileged_init( fd_topo_t *      topo,
     FD_SCRATCH_ALLOC_INIT( l, scratch );
     fd_archiver_playback_tile_ctx_t * ctx = FD_SCRATCH_ALLOC_APPEND( l, alignof(fd_archiver_playback_tile_ctx_t), sizeof(fd_archiver_playback_tile_ctx_t) );
     memset( ctx, 0, sizeof(fd_archiver_playback_tile_ctx_t) );
-    FD_SCRATCH_ALLOC_APPEND( l, fd_alloc_align(), fd_alloc_footprint() );
+    ctx->istream_buf = FD_SCRATCH_ALLOC_APPEND( l, 4096, FD_ARCHIVE_PLAYBACK_BUFFER_SZ );
     FD_SCRATCH_ALLOC_FINI( l, scratch_align() );
 
     tile->archiver.archive_fd = open( tile->archiver.rocksdb_path, O_RDONLY | O_DIRECT, 0666 );
@@ -146,23 +142,10 @@ unprivileged_init( fd_topo_t *      topo,
   void * scratch = fd_topo_obj_laddr( topo, tile->tile_obj_id );
   FD_SCRATCH_ALLOC_INIT( l, scratch );
   fd_archiver_playback_tile_ctx_t * ctx = FD_SCRATCH_ALLOC_APPEND( l, alignof(fd_archiver_playback_tile_ctx_t), sizeof(fd_archiver_playback_tile_ctx_t) );
-  void * alloc_shmem                    = FD_SCRATCH_ALLOC_APPEND( l, fd_alloc_align(), fd_alloc_footprint() );
+  ctx->istream_buf = FD_SCRATCH_ALLOC_APPEND( l, 4096, FD_ARCHIVE_PLAYBACK_BUFFER_SZ );
   FD_SCRATCH_ALLOC_FINI( l, scratch_align() );
 
   ctx->tick_per_ns = fd_tempo_tick_per_ns( NULL );
-
-  /* Allocator */
-  ctx->alloc = fd_alloc_join( fd_alloc_new( alloc_shmem, FD_ARCHIVER_PLAYBACK_ALLOC_TAG ), fd_tile_idx() );
-  if( FD_UNLIKELY( !ctx->alloc ) ) {
-    FD_LOG_ERR( ( "fd_alloc_join failed" ) );
-  }
-  ctx->valloc = fd_alloc_virtual( ctx->alloc );
-
-  /* Allocate output buffer */
-  ctx->istream_buf = fd_valloc_malloc( ctx->valloc, 4096, FD_ARCHIVE_PLAYBACK_BUFFER_SZ );
-  if( FD_UNLIKELY( !ctx->istream_buf ) ) {
-    FD_LOG_ERR(( "failed to allocate input buffer" ));
-  }
 
   /* initialize the file reader */
   fd_io_buffered_istream_init( &ctx->istream, tile->archiver.archive_fd, ctx->istream_buf, FD_ARCHIVE_PLAYBACK_BUFFER_SZ );

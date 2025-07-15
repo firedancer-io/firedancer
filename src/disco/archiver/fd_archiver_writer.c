@@ -50,9 +50,6 @@ struct fd_archiver_writer_tile_ctx {
   fd_io_buffered_ostream_t archive_ostream;
 
   uchar frag_buf[FD_ARCHIVER_WRITER_FRAG_BUF_SZ];
-
-  fd_alloc_t * alloc;
-  fd_valloc_t  valloc;
 };
 typedef struct fd_archiver_writer_tile_ctx fd_archiver_writer_tile_ctx_t;
 
@@ -102,6 +99,7 @@ scratch_footprint( fd_topo_tile_t const * tile ) {
   (void)tile;
   ulong l = FD_LAYOUT_INIT;
   l = FD_LAYOUT_APPEND( l, alignof(fd_archiver_writer_tile_ctx_t), sizeof(fd_archiver_writer_tile_ctx_t) );
+  l = FD_LAYOUT_APPEND( l, 4096, FD_ARCHIVER_WRITER_OUT_BUF_SZ );
   return FD_LAYOUT_FINI( l, scratch_align() );
 }
 
@@ -113,7 +111,7 @@ privileged_init( fd_topo_t *      topo,
     FD_SCRATCH_ALLOC_INIT( l, scratch );
     fd_archiver_writer_tile_ctx_t * ctx = FD_SCRATCH_ALLOC_APPEND( l, alignof(fd_archiver_writer_tile_ctx_t), sizeof(fd_archiver_writer_tile_ctx_t) );
     memset( ctx, 0, sizeof(fd_archiver_writer_tile_ctx_t) );
-    FD_SCRATCH_ALLOC_APPEND( l, fd_alloc_align(), fd_alloc_footprint() );
+    ctx->out_buf = FD_SCRATCH_ALLOC_APPEND( l, 4096, FD_ARCHIVER_WRITER_OUT_BUF_SZ );
     FD_SCRATCH_ALLOC_FINI( l, scratch_align() );
 
     tile->archiver.archive_fd = open( tile->archiver.rocksdb_path, O_RDWR | O_CREAT | O_DIRECT, 0666 );
@@ -129,7 +127,7 @@ unprivileged_init( fd_topo_t *      topo,
   void * scratch = fd_topo_obj_laddr( topo, tile->tile_obj_id );
   FD_SCRATCH_ALLOC_INIT( l, scratch );
   fd_archiver_writer_tile_ctx_t * ctx = FD_SCRATCH_ALLOC_APPEND( l, alignof(fd_archiver_writer_tile_ctx_t), sizeof(fd_archiver_writer_tile_ctx_t) );
-  void * alloc_shmem                  = FD_SCRATCH_ALLOC_APPEND( l, fd_alloc_align(), fd_alloc_footprint() );
+  ctx->out_buf = FD_SCRATCH_ALLOC_APPEND( l, 4096, FD_ARCHIVER_WRITER_OUT_BUF_SZ );
   FD_SCRATCH_ALLOC_FINI( l, scratch_align() );
 
   /* Setup the archive tile to be in the expected state */
@@ -151,19 +149,6 @@ unprivileged_init( fd_topo_t *      topo,
     ctx->in[ i ].mem    = link_wksp->wksp;
     ctx->in[ i ].chunk0 = fd_dcache_compact_chunk0( ctx->in[ i ].mem, link->dcache );
     ctx->in[ i ].wmark  = fd_dcache_compact_wmark ( ctx->in[ i ].mem, link->dcache, link->mtu );
-  }
-
-  /* Allocator */
-  ctx->alloc = fd_alloc_join( fd_alloc_new( alloc_shmem, FD_ARCHIVER_WRITER_ALLOC_TAG ), fd_tile_idx() );
-  if( FD_UNLIKELY( !ctx->alloc ) ) {
-    FD_LOG_ERR( ( "fd_alloc_join failed" ) );
-  }
-  ctx->valloc = fd_alloc_virtual( ctx->alloc );
-
-  /* Allocate output buffer */
-  ctx->out_buf = fd_valloc_malloc( ctx->valloc, 4096, FD_ARCHIVER_WRITER_OUT_BUF_SZ );
-  if( FD_UNLIKELY( !ctx->out_buf ) ) {
-    FD_LOG_ERR(( "failed to allocate output buffer" ));
   }
 
   /* Initialize output stream */
