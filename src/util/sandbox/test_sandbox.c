@@ -391,7 +391,7 @@ test_resource_limits_inner( void ) {
 
   TEST_FORK_EXIT_CODE( (void)0, 0 );
 
-  fd_sandbox_private_set_rlimits( 0UL, 0UL, 0UL );
+  fd_sandbox_private_set_rlimits( 0UL, 0UL, 0UL, 0 );
 
   for( ulong i=0UL; i<sizeof( rlimits )/sizeof( rlimits[ 0 ] ); i++ ) {
     struct rlimit rlim;
