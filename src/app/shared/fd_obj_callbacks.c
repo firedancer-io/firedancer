@@ -77,31 +77,6 @@ fd_topo_obj_callbacks_t fd_obj_cb_dcache = {
 };
 
 static ulong
-cnc_footprint( fd_topo_t const *     topo FD_FN_UNUSED,
-               fd_topo_obj_t const * obj  FD_FN_UNUSED ) {
-  return fd_cnc_footprint( 0UL );
-}
-
-static ulong
-cnc_align( fd_topo_t const *     topo FD_FN_UNUSED,
-           fd_topo_obj_t const * obj  FD_FN_UNUSED ) {
-  return fd_cnc_align();
-}
-
-static void
-cnc_new( fd_topo_t const *     topo,
-         fd_topo_obj_t const * obj ) {
-  FD_TEST( fd_cnc_new( fd_topo_obj_laddr( topo, obj->id ), 0UL, 0, fd_tickcount() ) );
-}
-
-fd_topo_obj_callbacks_t fd_obj_cb_cnc = {
-  .name      = "cnc",
-  .footprint = cnc_footprint,
-  .align     = cnc_align,
-  .new       = cnc_new,
-};
-
-static ulong
 fseq_footprint( fd_topo_t const *     topo FD_FN_UNUSED,
                 fd_topo_obj_t const * obj  FD_FN_UNUSED ) {
   return fd_fseq_footprint();
