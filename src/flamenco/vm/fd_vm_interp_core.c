@@ -1202,9 +1202,9 @@ interp_exec:
     reg[ dst ] = (ulong)( (long)reg_dst % (long)(int)imm );
   FD_VM_INTERP_INSTR_END;
 
-  FD_VM_INTERP_BRANCH_BEGIN(0xf7) /* FD_SBPF_OP_HOR64 */
+  FD_VM_INTERP_INSTR_BEGIN(0xf7) /* FD_SBPF_OP_HOR64 */
     reg[ dst ] = reg_dst | (((ulong)imm) << 32);
-  FD_VM_INTERP_BRANCH_END;
+  FD_VM_INTERP_INSTR_END;
 
   FD_VM_INTERP_INSTR_BEGIN(0xfe) /* FD_SBPF_OP_SREM64_REG */
     if( FD_UNLIKELY( !reg_src ) ) goto sigfpe;
