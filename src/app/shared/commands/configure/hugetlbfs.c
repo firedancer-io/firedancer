@@ -230,16 +230,10 @@ fini( config_t const * config,
       int              pre_init ) {
   (void)pre_init;
 
-  /* Not used by fdctl but might be created by other debugging tools
-     on the system. */
-
-  char normal_page_mount_path[ PATH_MAX ];
-  FD_TEST( fd_cstr_printf_check( normal_page_mount_path, PATH_MAX, NULL, "%s/.normal", config->hugetlbfs.mount_path ) );
-
   const char * mount_path[ 3 ] = {
     config->hugetlbfs.huge_page_mount_path,
     config->hugetlbfs.gigantic_page_mount_path,
-    normal_page_mount_path,
+    config->hugetlbfs.normal_page_mount_path,
   };
 
   for( ulong i=0UL; i<3UL; i++ ) {
@@ -338,9 +332,16 @@ check( config_t const * config ) {
           PARTIALLY_CONFIGURED( "mount `%s` is on unrecognized device, expected `none`", mount_path[ i ] );
         }
 
+        /* Resolve symlinks for mount_path as the mounts table has the resolved paths */
+        char resolved_mount_path[ PATH_MAX ];
+        if( FD_UNLIKELY( !realpath( mount_path[ i ], resolved_mount_path ) ) ) {
+          FD_LOG_WARNING(( "realpath() failed (%i-%s)", errno, fd_io_strerror( errno ) ));
+          PARTIALLY_CONFIGURED( "mount path `%s` cannot be resolved", mount_path[ i ] );
+        }
+
         char * path1 = strtok_r( NULL, " ", &saveptr );
         if( FD_UNLIKELY( !path1 ) ) FD_LOG_ERR(( "error parsing `/proc/self/mounts`, line `%s`", line ));
-        if( FD_UNLIKELY( strcmp( path1, mount_path[ i ] ) ) ) {
+        if( FD_UNLIKELY( strcmp( path1, resolved_mount_path ) ) ) {
           if( FD_UNLIKELY( fclose( fp ) ) )
             FD_LOG_ERR(( "error closing `/proc/self/mounts` (%i-%s)", errno, fd_io_strerror( errno ) ));
           PARTIALLY_CONFIGURED( "mount `%s` is on unrecognized path, expected `%s`", path1, mount_path[ i ] );
