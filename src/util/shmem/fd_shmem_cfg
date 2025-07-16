@@ -53,10 +53,23 @@ get_page_free() {
 }
 
 try_defrag_memory() {
+  # Synchronize cached writes to disk
+  sync
+
   echo 1 > /proc/sys/vm/compact_memory # This is a best effort, we don't care if it fails
   if [ "$?" = "0" ]; then
     # Wait a tiny bit on success to let the O/S try to do some of
     # this in the background
+    sleep 0.25
+  fi
+
+  echo 3 > /proc/sys/vm/drop_caches # Also best effort
+  if [ "$?" = "0" ]; then
+    sleep 0.25
+  fi
+
+  echo 1 > /proc/sys/vm/compact_memory
+  if [ "$?" = "0" ]; then
     sleep 0.25
   fi
 }
