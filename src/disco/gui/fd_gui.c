@@ -26,6 +26,8 @@ fd_gui_new( void *             shmem,
             char const *       version,
             char const *       cluster,
             uchar const *      identity_key,
+            int                has_vote_key,
+            uchar const *      vote_key,
             int                is_voting,
             int                schedule_strategy,
             fd_topo_t *        topo ) {
@@ -61,6 +63,16 @@ fd_gui_new( void *             shmem,
   memcpy( gui->summary.identity_key->uc, identity_key, 32UL );
   fd_base58_encode_32( identity_key, NULL, gui->summary.identity_key_base58 );
   gui->summary.identity_key_base58[ FD_BASE58_ENCODED_32_SZ-1UL ] = '\0';
+
+  if( FD_LIKELY( has_vote_key ) ) {
+    gui->summary.has_vote_key = 1;
+    memcpy( gui->summary.vote_key->uc, vote_key, 32UL );
+    fd_base58_encode_32( vote_key, NULL, gui->summary.vote_key_base58 );
+    gui->summary.vote_key_base58[ FD_BASE58_ENCODED_32_SZ-1UL ] = '\0';
+  } else {
+    gui->summary.has_vote_key = 0;
+    memset( gui->summary.vote_key_base58, 0, sizeof(gui->summary.vote_key_base58) );
+  }
 
   gui->summary.version                       = version;
   gui->summary.cluster                       = cluster;
@@ -136,6 +148,9 @@ fd_gui_set_identity( fd_gui_t *    gui,
 
   fd_gui_printf_identity_key( gui );
   fd_http_server_ws_broadcast( gui->http );
+
+  fd_gui_printf_identity_balance( gui );
+  fd_http_server_ws_broadcast( gui->http );
 }
 
 void
@@ -147,6 +162,7 @@ fd_gui_ws_open( fd_gui_t * gui,
     fd_gui_printf_cluster,
     fd_gui_printf_commit_hash,
     fd_gui_printf_identity_key,
+    fd_gui_printf_vote_key,
     fd_gui_printf_startup_time_nanos,
     fd_gui_printf_vote_state,
     fd_gui_printf_vote_distance,

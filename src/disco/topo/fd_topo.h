@@ -276,6 +276,7 @@ struct fd_topo_tile {
 
       char   cluster[ 32 ];
       char   identity_key_path[ PATH_MAX ];
+      char   vote_key_path[ PATH_MAX ];
 
       ulong  max_http_connections;
       ulong  max_websocket_connections;

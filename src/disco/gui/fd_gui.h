@@ -282,6 +282,9 @@ struct fd_gui {
 
   struct {
     fd_pubkey_t identity_key[ 1 ];
+    int         has_vote_key;
+    fd_pubkey_t vote_key[ 1 ];
+    char vote_key_base58[ FD_BASE58_ENCODED_32_SZ ];
     char identity_key_base58[ FD_BASE58_ENCODED_32_SZ ];
 
     char const * version;
@@ -421,6 +424,8 @@ fd_gui_new( void *             shmem,
             char const *       version,
             char const *       cluster,
             uchar const *      identity_key,
+            int                has_vote_key,
+            uchar const *      vote_key,
             int                is_voting,
             int                schedule_strategy,
             fd_topo_t *        topo );
