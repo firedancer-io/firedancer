@@ -31,8 +31,8 @@ jobs:
       - uses: ./.github/actions/hugepages
         with:
           # DO NOT CHANGE THESE VALUES - increasing the hugetlbfs reservations on the CI runners too high causes other jobs to be OOM-killed
-          count_gigantic: 400
-          count_huge: 540
+          count_gigantic: 398
+          count_huge: 535
       - uses: ./.github/actions/cpusonline
 
       - name: build
