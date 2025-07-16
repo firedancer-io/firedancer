@@ -321,6 +321,10 @@ struct fd_config {
 
     struct {
       char affinity[ AFFINITY_SZ ];
+    } udpecho;
+
+    struct {
+      char affinity[ AFFINITY_SZ ];
     } snapshot_load;
   } development;
 
