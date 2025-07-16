@@ -436,13 +436,13 @@ interp_exec:
     reg[ dst ] = reg_dst - (ulong)(long)(int)imm;
   FD_VM_INTERP_INSTR_END;
 
-  FD_VM_INTERP_INSTR_BEGIN(0x18) /* FD_SBPF_OP_LDQ */
+  FD_VM_INTERP_BRANCH_BEGIN(0x18) /* FD_SBPF_OP_LDQ */
     pc++;
     ic_correction++;
     /* No need to check pc because it's already checked during validation.
        if( FD_UNLIKELY( pc>=text_cnt ) ) goto sigsplit; // Note: untaken branches don't consume BTB */
     reg[ dst ] = (ulong)((ulong)imm | ((ulong)fd_vm_instr_imm( text[ pc ] ) << 32));
-  FD_VM_INTERP_INSTR_END;
+  FD_VM_INTERP_BRANCH_END;
 
   FD_VM_INTERP_INSTR_BEGIN(0x1c) /* FD_SBPF_OP_SUB_REG */
     reg[ dst ] = (ulong)(uint)( (int)reg_dst - (int)reg_src );
