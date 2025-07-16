@@ -262,6 +262,7 @@ struct fd_config {
     char  mount_path[ PATH_MAX ];
     char  max_page_size[ 16 ];
     ulong gigantic_page_threshold_mib;
+    int   allow_hugepage_increase;
   } hugetlbfs;
 
   fd_config_net_t net;

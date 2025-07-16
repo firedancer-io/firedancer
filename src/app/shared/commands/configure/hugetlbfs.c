@@ -79,6 +79,11 @@ init( config_t const * config ) {
 
         ulong additional_pages_needed = required_pages[ j ]-free_pages;
 
+        if( FD_UNLIKELY( !config->hugetlbfs.allow_hugepage_increase && additional_pages_needed>0 ) ) {
+          FD_LOG_ERR(( "trying to increase the number of %s pages on NUMA node %lu by %lu to %lu. increasing hugepage reservations is not allowed when hugetlbfs.allow_hugepage_increase is false",
+            PAGE_NAMES[ j ], i, additional_pages_needed, required_pages[ j ] ));
+        }
+
         FD_LOG_NOTICE(( "RUN: `echo \"%u\" > %s`", (uint)(total_pages+additional_pages_needed), total_page_path ));
         if( FD_UNLIKELY( -1==fd_file_util_write_uint( total_page_path, (uint)(total_pages+additional_pages_needed) ) ) )
           FD_LOG_ERR(( "could not increase the number of %s pages on NUMA node %lu (%i-%s)", PAGE_NAMES[ j ], i, errno, fd_io_strerror( errno ) ));
