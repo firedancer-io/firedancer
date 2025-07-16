@@ -7,6 +7,13 @@ FD_IMPORT_BINARY( test_bundle_response, "src/disco/bundle/test_bundle_response.b
 
 __attribute__((weak)) char const fdctl_version_string[] = "0.0.0";
 
+static long g_clock = 1L;
+
+__attribute__((weak)) long
+fd_bundle_now( void ) {
+  return g_clock;
+}
+
 /* Test that packets and bundles get forwarded correctly to Firedancer
    components. */
 
@@ -192,9 +199,19 @@ test_bundle_ping( fd_wksp_t * wksp ) {
 
   fd_bundle_tile_t * state       = env->state;
   fd_grpc_client_t * grpc_client = state->grpc_client;
-  long const old_ts = state->last_ping_rx_ticks;
+  long const ts_ping_tx = g_clock;
+  fd_keepalive_tx( state->keepalive, state->rng, ts_ping_tx );
+  state->grpc_client->conn->ping_tx = 1;
+  FD_TEST( state->keepalive->inflight==1 );
+  FD_TEST( !!state->keepalive->ts_deadline );
+  FD_TEST( state->keepalive->ts_next_tx >= ts_ping_tx + (state->keepalive->interval>>1) );
+  FD_TEST( state->keepalive->ts_last_tx==ts_ping_tx );
+  FD_TEST( fd_keepalive_is_timeout( state->keepalive, ts_ping_tx )==0 );
+  FD_TEST( fd_keepalive_should_tx ( state->keepalive, ts_ping_tx )==0 );
 
   /* PING ACK should update timer */
+  g_clock += (long)10e6; /* 10ms passed */
+  long const ts_ping_rx = g_clock;
   grpc_client->conn->ping_tx = 1;
   fd_h2_frame_hdr_t ping_ack_hdr = {
     .typlen = fd_h2_frame_typlen( FD_H2_FRAME_TYPE_PING, 8UL ),
@@ -203,40 +220,47 @@ test_bundle_ping( fd_wksp_t * wksp ) {
   fd_h2_rbuf_push( grpc_client->frame_rx, &ping_ack_hdr, sizeof(fd_h2_frame_hdr_t) );
   ulong const ping_seq = 1UL;
   fd_h2_rbuf_push( grpc_client->frame_rx, &ping_seq, sizeof(ulong) );
-  FD_TEST( state->last_ping_rx_ticks==old_ts );
   int charge_busy = 0;
   fd_bundle_client_step( state, &charge_busy );
   FD_TEST( fd_h2_rbuf_used_sz( grpc_client->frame_rx )==0UL );
   FD_TEST( grpc_client->conn->ping_tx == 0 );
   FD_TEST( state->defer_reset==0 );
-  FD_TEST( state->last_ping_rx_ticks!=old_ts );
-  FD_TEST( fd_bundle_client_ping_is_timeout( state, old_ts )==0 );
-  FD_TEST( fd_bundle_client_ping_is_due( state, old_ts )==0 );
+  FD_TEST( state->keepalive->ts_last_tx==ts_ping_tx );
+  FD_TEST( state->keepalive->ts_last_rx==ts_ping_rx );
+  FD_TEST( !state->keepalive->inflight );
+  FD_TEST( state->metrics.ping_ack_cnt==1UL );
+  FD_TEST( state->rtt->latest_rtt==10e6f );
+  FD_TEST( fd_keepalive_is_timeout( state->keepalive, ts_ping_rx )==0 );
+  FD_TEST( fd_keepalive_should_tx ( state->keepalive, ts_ping_rx )==0 );
 
   /* Test PING TX */
+  g_clock = state->keepalive->ts_next_tx;
+  long const ts_ping_tx2 = g_clock;
+  FD_TEST( fd_keepalive_is_timeout( state->keepalive, ts_ping_tx2 )==0 );
+  FD_TEST( fd_keepalive_should_tx ( state->keepalive, ts_ping_tx2 )==1 );
+  FD_TEST( state->keepalive->inflight==0 );
   charge_busy = 0;
   fd_bundle_client_step( state, &charge_busy );
-  FD_TEST( charge_busy==0 );
-  FD_TEST( fd_h2_rbuf_used_sz( grpc_client->frame_tx )==0 );
   FD_TEST( state->defer_reset==0 );
-  state->last_ping_tx_ticks -= (long)state->ping_threshold_ticks + (long)(state->ping_threshold_ticks>>1) + 1L;
-  FD_TEST( fd_bundle_client_ping_is_timeout( state, old_ts )==0 );
-  state->ping_randomize = ULONG_MAX; /* max delay */
-  FD_TEST( fd_bundle_client_ping_is_due( state, old_ts )==1 );
-  charge_busy = 0;
-  fd_bundle_client_step( state, &charge_busy );
+  FD_TEST( fd_keepalive_is_timeout( state->keepalive, ts_ping_tx2 )==0 );
+  FD_TEST( fd_keepalive_should_tx ( state->keepalive, ts_ping_tx2 )==0 );
+  FD_TEST( state->keepalive->inflight==1 );
   FD_TEST( charge_busy==1 );
   FD_TEST( fd_h2_rbuf_used_sz( grpc_client->frame_tx )==sizeof(fd_h2_ping_t) );
   fd_h2_ping_t ping;
   fd_h2_rbuf_pop_copy( grpc_client->frame_tx, &ping, sizeof(fd_h2_ping_t) );
   FD_TEST( ping.hdr.typlen==fd_h2_frame_typlen( FD_H2_FRAME_TYPE_PING, 8UL ) );
   FD_TEST( ping.hdr.flags==0 );
-  FD_TEST( fd_bundle_client_ping_is_due( state, old_ts )==0 );
+  FD_TEST( state->keepalive->inflight==1 );
+  charge_busy = 0;
+  fd_bundle_client_step( state, &charge_busy );
+  FD_TEST( charge_busy==0 );
+  FD_TEST( fd_h2_rbuf_used_sz( grpc_client->frame_tx )==0 );
 
-  /* Check that last_ping_rx_ticks is recognized as disconnected */
-  FD_TEST( fd_bundle_client_ping_is_timeout( state, old_ts )==0 );
-  state->last_ping_rx_ticks -= (long)state->ping_deadline_ticks * 2L;
-  FD_TEST( fd_bundle_client_ping_is_timeout( state, old_ts )==1 );
+  /* Test timeout */
+  g_clock = state->keepalive->ts_deadline + 1L;
+  long const ts_ping_timeout = g_clock;
+  FD_TEST( fd_keepalive_is_timeout( state->keepalive, ts_ping_timeout )==1 );
 
   /* Stepping should cause a reset due to timeout */
   fd_bundle_client_step( state, &charge_busy );
@@ -370,7 +394,8 @@ test_bundle_client_status( fd_wksp_t * wksp ) {
   *state = state_backup;
 
   FD_TEST( fd_bundle_client_status( state )==2 );
-  state->last_ping_rx_ticks = fd_bundle_tickcount() - (long)state->ping_deadline_ticks * 2L;
+  state->keepalive->inflight     = 1;
+  state->keepalive->ts_deadline -= g_clock-1L;
   FD_TEST( fd_bundle_client_status( state )==0 );
   *state = state_backup;
 
