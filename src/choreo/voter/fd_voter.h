@@ -18,6 +18,15 @@ FD_STATIC_ASSERT(FD_VOTER_STATE_V0_23_5 ==fd_vote_state_versioned_enum_v0_23_5, 
 FD_STATIC_ASSERT(FD_VOTER_STATE_V1_14_11==fd_vote_state_versioned_enum_v1_14_11, FD_VOTER_STATE_V1_14_11);
 FD_STATIC_ASSERT(FD_VOTER_STATE_CURRENT ==fd_vote_state_versioned_enum_current,  FD_VOTER_STATE_CURRENT );
 
+/* Useful to keep both the block_id and slot in the vote record,
+   for handling equivocation cases. Potentially re-evaluate removing the
+   slot altogether.*/
+struct fd_vote_record {
+  ulong     slot;
+  fd_hash_t hash;
+};
+typedef struct fd_vote_record fd_vote_record_t;
+
 /* A fd_voter_t describes a voter.  The voter is generic to the context
    in which it is used, eg. it might be a voter in a slot-level context
    in which its stake value may be different from the same voter in an
@@ -40,9 +49,9 @@ struct fd_voter {
      fd_ghost. */
 
   ulong stake;       /* voter's stake */
-  ulong replay_vote; /* cached read of last tower vote via replay */
-  ulong gossip_vote; /* cached read of last tower vote via gossip */
-  ulong rooted_vote; /* cached read of last tower root via replay */
+  fd_vote_record_t replay_vote; /* cached read of last tower vote via replay */
+  fd_vote_record_t gossip_vote; /* cached read of last tower vote via gossip */
+  fd_vote_record_t rooted_vote; /* cached read of last tower root via replay */
 };
 typedef struct fd_voter fd_voter_t;
 

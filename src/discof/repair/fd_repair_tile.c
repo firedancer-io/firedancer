@@ -843,16 +843,17 @@ after_frag( fd_repair_tile_ctx_t * ctx,
           reasm->cnt = out.fec_set_idx + out.data_cnt;
 
 
-          ulong chunk = 0;
+          ulong chunku = 0;
           ulong sz    = 0;
           if( FD_UNLIKELY( out.slot_complete ) ) {
             fd_reasm_remove( ctx->reasm, reasm );
-            memcpy( fd_chunk_to_laddr( ctx->replay_out_mem, ctx->replay_out_chunk ), fd_fec_chainer_query( ctx->fec_chainer, out.slot, out.fec_set_idx )->merkle_root, sizeof(fd_hash_t) );
-            chunk = ctx->replay_out_chunk;
-            sz    = sizeof(fd_hash_t);
-            FD_LOG_NOTICE(( "publishing bid for slot %lu, block_id: %s", fd_disco_repair_replay_sig_slot( sig ), FD_BASE58_ENC_32_ALLOCA(fd_chunk_to_laddr( ctx->replay_out_mem, ctx->replay_out_chunk) ) ));
+            uchar * chunk = fd_chunk_to_laddr( ctx->replay_out_mem, ctx->replay_out_chunk );
+            memcpy( chunk, &fd_fec_chainer_query( ctx->fec_chainer, out.slot, out.fec_set_idx )->merkle_root, sizeof(fd_hash_t) );
+            FD_LOG_NOTICE(( "publishing bid for slot %lu, block_id: %s", out.slot, FD_BASE58_ENC_32_ALLOCA( chunk ) ));
+            chunku = ctx->replay_out_chunk;
+            sz     = sizeof(fd_hash_t);
           }
-          fd_stem_publish( ctx->stem, REPLAY_OUT_IDX, sig, chunk, sz, 0, tsorig, tspub );
+          fd_stem_publish( ctx->stem, REPLAY_OUT_IDX, sig, chunku, sz, 0, tsorig, tspub );
           ctx->replay_out_chunk = fd_dcache_compact_next( ctx->replay_out_chunk, sz, ctx->replay_out_chunk0, ctx->replay_out_wmark );
         }
       }
