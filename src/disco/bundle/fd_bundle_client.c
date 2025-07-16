@@ -159,22 +159,14 @@ fd_bundle_client_drive_io( fd_bundle_tile_t * ctx,
                            int *              charge_busy,
                            long               deadline_ticks ) {
   long ticks_until_deadline = deadline_ticks - fd_tickcount();
+  // TODO: use the keepalive deadline too after catching up with main (should be in main)
   if( FD_LIKELY( ticks_until_deadline > 0 ) ) {
-    int sock_fd;
-#if FD_HAS_OPENSSL
-    if( ctx->is_ssl ) sock_fd = SSL_get_fd( ctx->ssl );
-    else              sock_fd = ctx->tcp_sock;
-#else
-    sock_fd = ctx->tcp_sock;
-#endif
-    FD_TEST(sock_fd >= 0); // TODO: Should be the case?
-
+    int sock_fd = ctx->tcp_sock;
     long timeout_ns = (long)((double)ticks_until_deadline / fd_tempo_tick_per_ns( NULL ));
     struct timespec timeout = {
         .tv_sec = timeout_ns / (long)1e9,
         .tv_nsec = timeout_ns % (long)1e9
     };
-
     struct pollfd pfd = {
         .fd = sock_fd,
         .events = POLLIN
