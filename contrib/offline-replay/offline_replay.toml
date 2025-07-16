@@ -7,10 +7,9 @@
     [tiles.archiver]
         enabled = true
         end_slot = {end_slot}
-        archiver_path = "{ledger}/rocksdb"
-        file = "{ledger}/backtest.blockstore"
+        ingest_mode = "rocksdb"
+        rocksdb_path = "{ledger}/rocksdb"
     [tiles.replay]
-        snapshot = "{snapshot}"
         cluster_version = "{cluster_version}"
     [tiles.gui]
         enabled = false
@@ -41,5 +40,11 @@
 [paths]
     identity_key = "{identity_key_path}"
     vote_account = "{vote_account_path}"
+    snapshots = "{ledger}"
 [hugetlbfs]
     mount_path = "/data/firedancer/mnt"
+[snapshots]
+    incremental_snapshots = false
+    minimum_download_speed_mib = 0
+    maximum_local_snapshot_age = 0
+    maximum_download_retry_abort = 0
