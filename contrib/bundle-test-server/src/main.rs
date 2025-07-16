@@ -1,4 +1,3 @@
-use std::iter;
 use std::pin::Pin;
 
 use crate::proto::auth::{self, Token};
@@ -6,12 +5,12 @@ use crate::proto::auth::auth_service_server::{AuthService, AuthServiceServer};
 use crate::proto::bundle::{Bundle, BundleUuid};
 use crate::proto::packet::{Packet, PacketBatch};
 use chrono::{Duration, Utc};
-use futures::{stream, StreamExt};
 use log::info;
 use prost_types::Timestamp;
 use tonic::{transport::Server, Request, Response, Status};
 use futures_util::stream::Stream;
 use base64::prelude::*;
+use tokio::sync::mpsc;
 
 use crate::proto::block_engine::block_engine_validator_server::{BlockEngineValidator, BlockEngineValidatorServer};
 use crate::proto::block_engine::{SubscribePacketsRequest, SubscribePacketsResponse, SubscribeBundlesRequest, SubscribeBundlesResponse, BlockBuilderFeeInfoRequest, BlockBuilderFeeInfoResponse};
@@ -52,8 +51,10 @@ impl BlockEngineValidator for BlockEngineValidatorService {
         &self,
         _request: Request<SubscribePacketsRequest>,
     ) -> Result<Response<Self::SubscribePacketsStream>, Status> {
-        Ok(Response::new(stream::iter(iter::repeat_with(|| {
-            Ok(SubscribePacketsResponse {
+        let (tx, rx) = mpsc::channel(16);
+        tokio::spawn(async move {
+            info!("Packet stream start");
+            let msg = SubscribePacketsResponse {
                 header: None,
                 batch: Some(PacketBatch {
                     packets: vec![
@@ -67,16 +68,25 @@ impl BlockEngineValidator for BlockEngineValidatorService {
                         },
                     ],
                 }),
-            })
-        })).boxed()))
+            };
+            loop {
+                if tx.send(Ok(msg.clone())).await.is_err() {
+                    info!("Packet stream stop");
+                    break;
+                }
+            }
+        });
+        Ok(Response::new(Box::pin(tokio_stream::wrappers::ReceiverStream::new(rx))))
     }
 
     async fn subscribe_bundles(
         &self,
         _request: Request<SubscribeBundlesRequest>,
     ) -> Result<Response<Self::SubscribeBundlesStream>, Status> {
-        Ok(Response::new(stream::iter(iter::repeat_with(|| {
-            Ok(SubscribeBundlesResponse {
+        let (tx, rx) = mpsc::channel(16);
+        tokio::spawn(async move {
+            info!("Bundle stream start");
+            let msg = SubscribeBundlesResponse {
                 bundles: vec![
                     BundleUuid {
                         uuid: "00000000-0000-0000-0000-000000000000".to_string(),
@@ -99,8 +109,15 @@ impl BlockEngineValidator for BlockEngineValidatorService {
                         })
                     },
                 ]
-            })
-        })).boxed()))
+            };
+            loop {
+                if tx.send(Ok(msg.clone())).await.is_err() {
+                    info!("Bundle stream stop");
+                    break;
+                }
+            }
+        });
+        Ok(Response::new(Box::pin(tokio_stream::wrappers::ReceiverStream::new(rx))))
     }
 
     async fn get_block_builder_fee_info(
@@ -123,8 +140,10 @@ pub struct Auth;
 impl AuthService for Auth {
     async fn generate_auth_challenge(
         &self,
-        _request: Request<auth::GenerateAuthChallengeRequest>,
+        request: Request<auth::GenerateAuthChallengeRequest>,
     ) -> Result<Response<auth::GenerateAuthChallengeResponse>, Status> {
+        let req_data = request.into_inner();
+        info!("Received auth challenge request from {}", bs58::encode(&req_data.pubkey).into_string());
         Ok(Response::new(auth::GenerateAuthChallengeResponse {
             challenge: "012345678".to_string(),
         }))
