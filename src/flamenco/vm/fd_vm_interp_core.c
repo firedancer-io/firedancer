@@ -285,19 +285,13 @@
      itself as all branch instructions are single word).
 
      Each instruction costs 1 cu (syscalls can cost extra on top of
-     this that is accounted separately in CALL_IMM below).  Since there
-     could have been multiword instructions in this segment, at start of
-     such a segment, we zero out the accumulator ic_correction and have
-     every multiword instruction in the segment accumulate the number of
-     extra text words it has to this variable.  (Sigh ... it would be a
-     lot simpler to bill based on text words processed but this would be
-     very difficult to make this protocol change at this point.)
+     this that is accounted separately in CALL_IMM below).
 
      When we encounter a branch at pc, the number of instructions
      processed (and thus the number of compute units to bill for that
      segment) is thus:
 
-       pc - pc0 + 1 - ic_correction
+       pc - pc0 + 1
 
      IMPORTANT SAFETY TIP!  This implies the worst case interval before
      checking the cu budget is the worst case text_cnt.  But since all
@@ -307,17 +301,17 @@
      LIMITS. */
 
   ulong pc0           = pc;
-  ulong ic_correction = 0UL;
+  ulong linear_ic     = 0UL;
 
 # define FD_VM_INTERP_BRANCH_BEGIN(opcode)                                                              \
   interp_##opcode:                                                                                      \
     /* Bill linear text segment and this branch instruction as per the above */                         \
-    ic_correction = pc - pc0 + 1UL - ic_correction;                                                     \
-    ic += ic_correction;                                                                                \
-    if( FD_UNLIKELY( ic_correction>cu ) ) goto sigcost; /* Note: untaken branches don't consume BTB */  \
-    cu -= ic_correction;                                                                                \
+    linear_ic = pc - pc0 + 1UL;                                                                         \
+    ic += linear_ic;                                                                                    \
+    if( FD_UNLIKELY( linear_ic>cu ) ) goto sigcost; /* Note: untaken branches don't consume BTB */      \
+    cu -= linear_ic;                                                                                    \
     /* At this point, cu>=0 */                                                                          \
-    ic_correction = 0UL;
+    linear_ic = 0UL;
 
   /* FIXME: debatable if it is better to do pc++ here or have the
      instruction implementations do it in their code path. */
@@ -379,7 +373,7 @@ interp_exec:
      instruction execution starts here such that this is only point
      where exe tracing diagnostics are needed. */
   if( FD_UNLIKELY( pc>=text_cnt ) ) goto sigtext;
-  fd_vm_trace_event_exe( vm->trace, pc, ic + ( pc - pc0 - ic_correction ), cu, reg, vm->text + pc, vm->text_cnt - pc, ic_correction, frame_cnt );
+  fd_vm_trace_event_exe( vm->trace, pc, ic + ( pc - pc0 ), cu, reg, vm->text + pc, vm->text_cnt - pc, 0UL, frame_cnt );
 # endif
 
   FD_VM_INTERP_INSTR_EXEC;
@@ -436,13 +430,12 @@ interp_exec:
     reg[ dst ] = reg_dst - (ulong)(long)(int)imm;
   FD_VM_INTERP_INSTR_END;
 
-  FD_VM_INTERP_INSTR_BEGIN(0x18) /* FD_SBPF_OP_LDQ */
+  FD_VM_INTERP_BRANCH_BEGIN(0x18) /* FD_SBPF_OP_LDQ */
     pc++;
-    ic_correction++;
     /* No need to check pc because it's already checked during validation.
        if( FD_UNLIKELY( pc>=text_cnt ) ) goto sigsplit; // Note: untaken branches don't consume BTB */
     reg[ dst ] = (ulong)((ulong)imm | ((ulong)fd_vm_instr_imm( text[ pc ] ) << 32));
-  FD_VM_INTERP_INSTR_END;
+  FD_VM_INTERP_BRANCH_END;
 
   FD_VM_INTERP_INSTR_BEGIN(0x1c) /* FD_SBPF_OP_SUB_REG */
     reg[ dst ] = (ulong)(uint)( (int)reg_dst - (int)reg_src );
@@ -1225,23 +1218,22 @@ interp_exec:
      instruction and the number of non-branching instructions that have
      not yet been reflected in ic and cu is:
 
-       pc - pc0 + 1 - ic_correction
+       pc - pc0 + 1
 
      as per the accounting described above. +1 to include the faulting
      instruction itself.
 
      Note that, for a sigtext caused by a branch instruction, pc0==pc
-     (from the BRANCH_END) and ic_correction==0 (from the BRANCH_BEGIN)
-     such that the below does not change the already current values in
-     ic and cu.  Thus it also "does the right thing" in both the
-     non-branching and branching cases for sigtext.  The same applies to
-     sigsplit. */
+     (from the BRANCH_END) such that the below does not change the
+     already current values in ic and cu.  Thus it also
+     "does the right thing" in both the non-branching and branching
+     cases for sigtext.  The same applies to sigsplit. */
 
 #define FD_VM_INTERP_FAULT                                                                 \
-  ic_correction = pc - pc0 + 1UL - ic_correction;                                          \
-  ic += ic_correction;                                                                     \
-  if ( FD_UNLIKELY( ic_correction > cu ) ) err = FD_VM_ERR_EBPF_EXCEEDED_MAX_INSTRUCTIONS; \
-  cu -= fd_ulong_min( ic_correction, cu )
+  linear_ic = pc - pc0 + 1UL;                                                              \
+  ic += linear_ic;                                                                         \
+  if ( FD_UNLIKELY( linear_ic > cu ) ) err = FD_VM_ERR_EBPF_EXCEEDED_MAX_INSTRUCTIONS;     \
+  cu -= fd_ulong_min( linear_ic, cu )
 
 sigtext:     err = FD_VM_ERR_EBPF_EXECUTION_OVERRUN;                                     FD_VM_INTERP_FAULT;                    goto interp_halt;
 sigtextbr:   err = FD_VM_ERR_EBPF_CALL_OUTSIDE_TEXT_SEGMENT;                             /* ic current */     /* cu current */  goto interp_halt;
@@ -1328,22 +1320,22 @@ interp_halt:
       ### How does this relate to our interpreter?
 
       This process is similar to FD_VM_INTERP_BRANCH_BEGIN.
-      We just deal with the IM form throughout (with vm->cu and ic_correction).
+      We just deal with the IM form throughout (with vm->cu and linear_ic).
       If we break down step 1 from above with what we know about IM and IM',
       we get the following:
         1. IM = IM' - (pc + 1)
            IM = (IM + pc0') - (pc + 1)
            IM = IM + (pc0' - (pc + 1))
            IM = IM - ((pc + 1) - pc0')
-           IM = IM - ic_correction
+           IM = IM - linear_ic
       Here, ((pc + 1) - pc0') is the number of instrutions executed in the current
-      linear run. This is the same as our ic_correction(*) in FD_VM_INTERP_BRANCH_BEGIN.
+      linear run. This is the same as our linear_ic(*) in FD_VM_INTERP_BRANCH_BEGIN.
 
       If we replace IM with cu, this effectively becomes the
-           cu -= ic_correction
+           cu -= linear_ic
       line in FD_VM_INTERP_BRANCH_BEGIN.
 
-      (*) Note: ic_correction (also) takes two forms. It is either the instruction
+      (*) Note: linear_ic (also) takes two forms. It is either the instruction
       accumulator or the number of instructions executed in the current linear run.
       It (transiently) takes the latter form during FD_VM_INTERP_BRANCH_BEGIN and
       FD_VM_INTERP_FAULT, and the former form otherwise.
@@ -1384,9 +1376,9 @@ interp_halt:
     IM <= ic
     IM <= pc - pc0
     IM < pc - pc0 + 1 # all unsigned integers
-    IM < ic_correction
+    IM < linear_ic
 
-    This is analagous to the ic_correction>cu check in VM_INTERP_BRANCH_BEGIN.
+    This is analagous to the linear_ic>cu check in VM_INTERP_BRANCH_BEGIN.
 
    # (TODO) Text Overrun (sigtext/sigsplit):
 
