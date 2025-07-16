@@ -81,8 +81,8 @@ fd_slice_exec_reset( fd_slice_exec_t * slice_exec_ctx );
 
 void
 fd_slice_exec_begin( fd_slice_exec_t * slice_exec_ctx,
-                     ulong slice_sz,
-                     int   last_batch );
+                     ulong             slice_sz,
+                     int               last_batch );
 
 static inline int
 fd_slice_exec_txn_ready( fd_slice_exec_t * slice_exec_ctx ) {
