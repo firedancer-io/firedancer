@@ -24,3 +24,4 @@ dump/test-vectors/vm_interp/fixtures/latest/e0d8da79888696b0e1a820c1a7e453169670
 dump/test-vectors/vm_interp/fixtures/latest/f0d189518d4ac5c5f85436ae05ef886e817ce8de_345393.fix
 dump/test-vectors/vm_interp/fixtures/latest/f369fda1a7fa95147ac5c2fd1528cd5a20aa38cb_2907171.fix
 dump/test-vectors/vm_interp/fixtures/latest/interp_cu_off_by_one_1.fix
+dump/test-vectors/vm_interp/fixtures/latest/hor64_no_branching.fix
