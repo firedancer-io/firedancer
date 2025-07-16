@@ -872,6 +872,14 @@ dynamic_port_range = "8900-9000"
     # max_page_size.
     gigantic_page_threshold_mib = 128
 
+    # Whether the hugetlbfs configure stage is allowed to increase the
+    # number of huge or gigantic pages available on the system.  If not
+    # allowed, and the system does not have enough huge or gigantic
+    # pages available to run the application, configuration will fail
+    # with an error.  If allowed, configuration will attempt to reserve
+    # enough pages from the kernel that running will always succeed.
+    allow_hugepage_increase = true
+
 # The network stack is provided by net tiles, which are responsible for
 # sending and receiving packets on the network.
 #

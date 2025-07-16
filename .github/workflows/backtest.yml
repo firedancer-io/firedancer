@@ -28,6 +28,11 @@ jobs:
       - uses: ./.github/actions/deps
         with:
           extras: +dev
+      - uses: ./.github/actions/hugepages
+        with:
+          # DO NOT CHANGE THESE VALUES - increasing the hugetlbfs reservations on the CI runners too high causes other jobs to be OOM-killed
+          count_gigantic: 400
+          count_huge: 540
       - uses: ./.github/actions/cpusonline
 
       - name: build
@@ -42,7 +47,7 @@ jobs:
         run: |
           sudo prlimit --pid=$$ --nofile=1048576
           sudo prlimit --pid=$$ --memlock=unlimited
-          DUMP_DIR=../dump make run-runtime-backtest
+          DUMP_DIR=../dump HUGE_TLBFS_ALLOW_HUGEPAGE_INCREASE=false make run-runtime-backtest
 
       - name: fini
         if: always()
