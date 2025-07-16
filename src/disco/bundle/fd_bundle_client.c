@@ -26,8 +26,8 @@
 #define FD_BUNDLE_CLIENT_REQUEST_TIMEOUT ((long)8e9) /* 8 seconds */
 
 __attribute__((weak)) long
-fd_bundle_tickcount( void ) {
-  return fd_tickcount();
+fd_bundle_now( void ) {
+  return fd_log_wallclock();
 }
 
 void
@@ -48,7 +48,7 @@ fd_bundle_client_reset( fd_bundle_tile_t * ctx ) {
   ctx->bundle_subscription_live = 0;
   ctx->bundle_subscription_wait = 0;
 
-  ctx->rtt->is_rtt_valid = 0;
+  memset( ctx->rtt, 0, sizeof(fd_rtt_estimate_t) );
 
 # if FD_HAS_OPENSSL
   if( FD_UNLIKELY( ctx->ssl ) ) {
@@ -57,7 +57,7 @@ fd_bundle_client_reset( fd_bundle_tile_t * ctx ) {
   }
 # endif
 
-  fd_bundle_tile_backoff( ctx, fd_bundle_tickcount() );
+  fd_bundle_tile_backoff( ctx, fd_bundle_now() );
 
   fd_bundle_auther_reset( &ctx->auther );
   fd_grpc_client_reset( ctx->grpc_client );
@@ -167,8 +167,7 @@ fd_bundle_client_create_conn( fd_bundle_tile_t * ctx ) {
 # endif /* FD_HAS_OPENSSL */
 
   fd_grpc_client_reset( ctx->grpc_client );
-  ctx->last_ping_tx_ticks = fd_bundle_tickcount();
-  ctx->last_ping_tx_nanos = fd_log_wallclock();
+  fd_keepalive_init( ctx->keepalive, ctx->rng, ctx->keepalive_interval, ctx->keepalive_interval, fd_bundle_now() );
 }
 
 static int
@@ -258,25 +257,15 @@ fd_bundle_client_send_ping( fd_bundle_tile_t * ctx ) {
   fd_h2_rbuf_t * rbuf_tx = fd_grpc_client_rbuf_tx( ctx->grpc_client );
 
   if( FD_LIKELY( fd_h2_tx_ping( conn, rbuf_tx ) ) ) {
-    ctx->last_ping_tx_ticks = fd_bundle_tickcount();
-    ctx->last_ping_tx_nanos = fd_log_wallclock();
-    ctx->ping_randomize     = fd_rng_ulong( ctx->rng );
+    long now = fd_bundle_now();
+    fd_keepalive_tx( ctx->keepalive, ctx->rng, now );
+    FD_LOG_DEBUG(( "Keepalive TX (deadline=+%gs)", (double)( ctx->keepalive->ts_deadline-now )/1e9 ));
   }
-}
-
-FD_FN_PURE int
-fd_bundle_client_ping_is_due( fd_bundle_tile_t const * ctx,
-                              long                     now_ticks ) {
-  ulong delay_min = ctx->ping_threshold_ticks>>1;
-  ulong delay_rng = ctx->ping_threshold_ticks & ctx->ping_randomize;
-  ulong delay     = delay_min + delay_rng;
-  long  deadline  = ctx->last_ping_tx_ticks + (long)delay;
-  return now_ticks >= deadline;
 }
 
 int
 fd_bundle_client_step_reconnect( fd_bundle_tile_t * ctx,
-                                 long               io_ticks ) {
+                                 long               now ) {
   /* Drive auth */
   if( FD_UNLIKELY( ctx->auther.needs_poll ) ) {
     fd_bundle_auther_poll( &ctx->auther, ctx->grpc_client, ctx->keyguard_client );
@@ -285,7 +274,7 @@ fd_bundle_client_step_reconnect( fd_bundle_tile_t * ctx,
   if( FD_UNLIKELY( ctx->auther.state!=FD_BUNDLE_AUTH_STATE_DONE_WAIT ) ) return 0;
 
   /* Request block builder info */
-  int const builder_info_expired = ( ctx->builder_info_valid_until_ticks - io_ticks )<0;
+  int const builder_info_expired = ( ctx->builder_info_valid_until - now )<0;
   if( FD_UNLIKELY( ( ( !ctx->builder_info_avail ) |
                      ( !builder_info_expired    ) ) &
                    ( !ctx->builder_info_wait      ) ) ) {
@@ -306,7 +295,7 @@ fd_bundle_client_step_reconnect( fd_bundle_tile_t * ctx,
   }
 
   /* Send a PING */
-  if( FD_UNLIKELY( fd_bundle_client_ping_is_due( ctx, io_ticks ) ) ) {
+  if( FD_UNLIKELY( fd_keepalive_should_tx( ctx->keepalive, now ) ) ) {
     fd_bundle_client_send_ping( ctx );
     return 1;
   }
@@ -351,7 +340,7 @@ fd_bundle_client_step1( fd_bundle_tile_t * ctx,
   /* gRPC conn died? */
   if( FD_UNLIKELY( !ctx->grpc_client ) ) {
   reconnect:
-    if( FD_UNLIKELY( fd_bundle_tile_should_stall( ctx, fd_bundle_tickcount() ) ) ) {
+    if( FD_UNLIKELY( fd_bundle_tile_should_stall( ctx, fd_bundle_now() ) ) ) {
       return;
     }
     fd_bundle_client_create_conn( ctx );
@@ -360,10 +349,11 @@ fd_bundle_client_step1( fd_bundle_tile_t * ctx,
   }
 
   /* Did a HTTP/2 PING time out */
-  long check_ts = fd_bundle_tickcount();
-  if( FD_UNLIKELY( fd_bundle_client_ping_is_timeout( ctx, check_ts ) ) ) {
+  long check_ts = fd_bundle_now();
+  if( FD_UNLIKELY( fd_keepalive_is_timeout( ctx->keepalive, check_ts ) ) ) {
     FD_LOG_WARNING(( "Bundle gRPC timed out (HTTP/2 PING went unanswered for %.2f seconds)",
-                    ( (double)ctx->ping_deadline_ticks / fd_tempo_tick_per_ns( NULL ) )*1e-9 ));
+                     (double)( check_ts - ctx->keepalive->ts_last_tx )/1e9 ));
+    ctx->keepalive->inflight = 0;
     ctx->defer_reset = 1;
     *charge_busy = 1;
     return;
@@ -380,7 +370,7 @@ fd_bundle_client_step1( fd_bundle_tile_t * ctx,
 
   /* Are we ready to issue a new request? */
   if( FD_UNLIKELY( fd_grpc_client_request_is_blocked( ctx->grpc_client ) ) ) return;
-  long io_ts = fd_bundle_tickcount();
+  long io_ts = fd_bundle_now();
   if( FD_UNLIKELY( fd_bundle_tile_should_stall( ctx, io_ts ) ) ) return;
 
   *charge_busy |= fd_bundle_client_step_reconnect( ctx, io_ts );
@@ -417,17 +407,17 @@ fd_bundle_client_step( fd_bundle_tile_t * ctx,
 
 void
 fd_bundle_tile_backoff( fd_bundle_tile_t * ctx,
-                        long               ts_ticks ) {
+                        long               now ) {
   uint iter = ctx->backoff_iter;
-  if( ts_ticks < ctx->backoff_reset ) iter = 0U;
+  if( now < ctx->backoff_reset ) iter = 0U;
   iter++;
 
   /* FIXME proper backoff */
-  long wait_ticks = (long)( 2e9 * fd_tempo_tick_per_ns( NULL ) );
-  wait_ticks = (long)( fd_rng_ulong( ctx->rng ) & ( (1UL<<fd_ulong_find_msb_w_default( (ulong)wait_ticks, 0 ))-1UL ) );
+  long wait_ns = (long)2e9;
+  wait_ns = (long)( fd_rng_ulong( ctx->rng ) & ( (1UL<<fd_ulong_find_msb_w_default( (ulong)wait_ns, 0 ))-1UL ) );
 
-  ctx->backoff_until = ts_ticks +   wait_ticks;
-  ctx->backoff_reset = ts_ticks + 2*wait_ticks;
+  ctx->backoff_until = now +   wait_ns;
+  ctx->backoff_reset = now + 2*wait_ns;
 
   ctx->backoff_iter = iter;
 }
@@ -484,7 +474,7 @@ fd_bundle_tile_publish_bundle_txn(
     FD_LOG_CRIT(( "ctx->stem not set. This is a bug." ));
   }
 
-  ulong tspub = (ulong)fd_frag_meta_ts_comp( fd_bundle_tickcount() );
+  ulong tspub = (ulong)fd_frag_meta_ts_comp( fd_bundle_now() );
   fd_stem_publish( ctx->stem, ctx->verify_out.idx, sig, ctx->verify_out.chunk, sz, 0UL, 0UL, tspub );
   ctx->verify_out.chunk = fd_dcache_compact_next( ctx->verify_out.chunk, sz, ctx->verify_out.chunk0, ctx->verify_out.wmark );
   ctx->metrics.txn_received_cnt++;
@@ -519,7 +509,7 @@ fd_bundle_tile_publish_txn(
     FD_LOG_CRIT(( "ctx->stem not set. This is a bug." ));
   }
 
-  ulong tspub = (ulong)fd_frag_meta_ts_comp( fd_bundle_tickcount() );
+  ulong tspub = (ulong)fd_frag_meta_ts_comp( fd_bundle_now() );
   fd_stem_publish( ctx->stem, ctx->verify_out.idx, sig, ctx->verify_out.chunk, sz, 0UL, 0UL, tspub );
   ctx->verify_out.chunk = fd_dcache_compact_next( ctx->verify_out.chunk, sz, ctx->verify_out.chunk0, ctx->verify_out.wmark );
   ctx->metrics.txn_received_cnt++;
@@ -727,9 +717,9 @@ fd_bundle_client_handle_builder_fee_info(
     return;
   }
 
-  long validity_duration_ticks = (long)( fd_tempo_tick_per_ns( NULL ) * (60e9 * 5.) ); /* 5 minutes */
+  long validity_duration_ns = (long)( 60e9 * 5. ); /* 5 minutes */
   ctx->builder_info_avail = 1;
-  ctx->builder_info_valid_until_ticks = fd_bundle_tickcount() + validity_duration_ticks;
+  ctx->builder_info_valid_until = fd_bundle_now() + validity_duration_ns;
 }
 
 static void
@@ -771,13 +761,13 @@ fd_bundle_client_grpc_rx_msg(
   case FD_BUNDLE_CLIENT_REQ_Auth_GenerateAuthChallenge:
     if( FD_UNLIKELY( !fd_bundle_auther_handle_challenge_resp( &ctx->auther, protobuf, protobuf_sz ) ) ) {
       ctx->metrics.decode_fail_cnt++;
-      fd_bundle_tile_backoff( ctx, fd_bundle_tickcount() );
+      fd_bundle_tile_backoff( ctx, fd_bundle_now() );
     }
     break;
   case FD_BUNDLE_CLIENT_REQ_Auth_GenerateAuthTokens:
     if( FD_UNLIKELY( !fd_bundle_auther_handle_tokens_resp( &ctx->auther, protobuf, protobuf_sz ) ) ) {
       ctx->metrics.decode_fail_cnt++;
-      fd_bundle_tile_backoff( ctx, fd_bundle_tickcount() );
+      fd_bundle_tile_backoff( ctx, fd_bundle_now() );
     }
     break;
   case FD_BUNDLE_CLIENT_REQ_Bundle_SubscribeBundles:
@@ -797,7 +787,7 @@ fd_bundle_client_grpc_rx_msg(
 static void
 fd_bundle_client_request_failed( fd_bundle_tile_t * ctx,
                                  ulong              request_ctx ) {
-  fd_bundle_tile_backoff( ctx, fd_bundle_tickcount() );
+  fd_bundle_tile_backoff( ctx, fd_bundle_now() );
   switch( request_ctx ) {
   case FD_BUNDLE_CLIENT_REQ_Auth_GenerateAuthChallenge:
   case FD_BUNDLE_CLIENT_REQ_Auth_GenerateAuthTokens:
@@ -829,7 +819,7 @@ fd_bundle_client_grpc_rx_end(
   case FD_BUNDLE_CLIENT_REQ_Bundle_SubscribePackets:
     ctx->packet_subscription_live = 0;
     ctx->packet_subscription_wait = 0;
-    fd_bundle_tile_backoff( ctx, fd_bundle_tickcount() );
+    fd_bundle_tile_backoff( ctx, fd_bundle_now() );
     ctx->defer_reset = 1;
     FD_LOG_INFO(( "SubscribePackets stream failed (gRPC status %u-%s). Reconnecting ...",
                   resp->grpc_status, fd_grpc_status_cstr( resp->grpc_status ) ));
@@ -837,7 +827,7 @@ fd_bundle_client_grpc_rx_end(
   case FD_BUNDLE_CLIENT_REQ_Bundle_SubscribeBundles:
     ctx->bundle_subscription_live = 0;
     ctx->bundle_subscription_wait = 0;
-    fd_bundle_tile_backoff( ctx, fd_bundle_tickcount() );
+    fd_bundle_tile_backoff( ctx, fd_bundle_now() );
     ctx->defer_reset = 1;
     FD_LOG_INFO(( "SubscribeBundles stream failed (gRPC status %u-%s). Reconnecting ...",
                   resp->grpc_status, fd_grpc_status_cstr( resp->grpc_status ) ));
@@ -877,10 +867,12 @@ fd_bundle_client_grpc_rx_timeout(
 static void
 fd_bundle_client_grpc_ping_ack( void * app_ctx ) {
   fd_bundle_tile_t * ctx = app_ctx;
-  ctx->last_ping_rx_ticks = fd_bundle_tickcount();
+  long rtt_sample = fd_keepalive_rx( ctx->keepalive, fd_bundle_now() );
+  if( FD_LIKELY( rtt_sample ) ) {
+    fd_rtt_sample( ctx->rtt, (float)rtt_sample, 0 );
+    FD_LOG_DEBUG(( "Keepalive ACK" ));
+  }
   ctx->metrics.ping_ack_cnt++;
-  long rtt_sample = fd_log_wallclock() - ctx->last_ping_tx_nanos;
-  fd_rtt_sample( ctx->rtt, (float)rtt_sample, 0 );
 }
 
 fd_grpc_client_callbacks_t fd_bundle_client_grpc_callbacks = {
@@ -934,7 +926,7 @@ fd_bundle_client_status( fd_bundle_tile_t const * ctx ) {
     return CONNECTING; /* not fully connected */
   }
 
-  if( FD_UNLIKELY( fd_bundle_client_ping_is_timeout( ctx, fd_bundle_tickcount() ) ) ) {
+  if( FD_UNLIKELY( fd_keepalive_is_timeout( ctx->keepalive, fd_bundle_now() ) ) ) {
     return DISCONNECTED; /* possible timeout */
   }
 
@@ -966,13 +958,4 @@ fd_bundle_request_ctx_cstr( ulong request_ctx ) {
   default:
     return "unknown";
   }
-}
-
-void
-fd_bundle_client_set_ping_interval( fd_bundle_tile_t * ctx,
-                                    long               ping_interval_ns ) {
-  ctx->ping_threshold_ticks = fd_ulong_pow2_up( (ulong)
-      ( (double)ping_interval_ns * fd_tempo_tick_per_ns( NULL ) ) );
-  ctx->ping_randomize = fd_rng_ulong( ctx->rng );
-  ctx->ping_deadline_ticks = 4UL * ctx->ping_threshold_ticks;
 }

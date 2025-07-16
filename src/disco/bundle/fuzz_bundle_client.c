@@ -9,7 +9,7 @@
    For now, this fuzzer does not support timeouts. */
 
 long
-fd_bundle_tickcount( void ) {
+fd_bundle_now( void ) {
   return 2UL;
 }
 

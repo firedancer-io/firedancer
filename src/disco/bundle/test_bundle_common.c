@@ -2,7 +2,6 @@
 #include "fd_bundle_auth.h"
 #include "fd_bundle_tile_private.h"
 #include "../../waltz/grpc/fd_grpc_client_private.h"
-#include "../../waltz/h2/fd_h2_conn.h"
 #include <sys/socket.h>
 #include <unistd.h>
 
@@ -72,7 +71,12 @@ test_bundle_env_create( test_bundle_env_t * env,
   fd_h2_conn_t * h2_conn = fd_grpc_client_h2_conn( state->grpc_client );
   h2_conn->flags = 0;
 
-  state->ping_threshold_ticks = fd_ulong_pow2_up( (ulong)( (double)1e9 * fd_tempo_tick_per_ns( NULL ) ) );
+  FD_TEST( fd_rng_new( state->rng, 0U, 0UL ) );
+  long ka_interval = (long)1e9;
+  long ka_timeout  = (long)1e9;
+  long now = fd_bundle_now();
+  FD_TEST( fd_keepalive_init( state->keepalive, state->rng, ka_interval, ka_timeout, now ) );
+  FD_TEST( state->keepalive->ts_next_tx >= now + (state->keepalive->interval>>1) );
 
   return env;
 }
@@ -80,17 +84,15 @@ test_bundle_env_create( test_bundle_env_t * env,
 FD_FN_UNUSED static void
 test_bundle_env_mock_conn_empty( test_bundle_env_t * env ) {
   fd_bundle_tile_t * ctx = env->state;
-  long const ts_start = fd_bundle_tickcount();
+  long const ts_start = fd_bundle_now();
   fd_rng_new( ctx->rng, 42U, 42UL );
-  ctx->tcp_sock_connected = 1;
-  ctx->auther.state       = FD_BUNDLE_AUTH_STATE_DONE_WAIT;
-  ctx->last_ping_rx_ticks = ts_start;
-  ctx->last_ping_tx_ticks = ts_start;
-  ctx->last_ping_tx_nanos = fd_log_wallclock();
+  ctx->tcp_sock_connected    = 1;
+  ctx->auther.state          = FD_BUNDLE_AUTH_STATE_DONE_WAIT;
+  ctx->keepalive->ts_last_tx = ts_start;
+  ctx->keepalive->ts_last_rx = ts_start;
   fd_rng_new( ctx->rng, 42U, 42UL );
-  fd_bundle_client_set_ping_interval( ctx, (long)1e9 );
-  FD_TEST( fd_bundle_client_ping_is_timeout( ctx, ts_start )==0 );
-  FD_TEST( !fd_bundle_client_ping_is_due( ctx, ts_start ) );
+  FD_TEST( !fd_keepalive_is_timeout( ctx->keepalive, ts_start ) );
+  FD_TEST( !fd_keepalive_should_tx ( ctx->keepalive, ts_start ) );
 
   int sockpair[2] = { -1, -1 };
   FD_TEST( 0==socketpair( AF_UNIX, SOCK_STREAM, 0, sockpair ) );
@@ -102,7 +104,7 @@ FD_FN_UNUSED static void
 test_bundle_env_mock_h2_hs( fd_bundle_tile_t * ctx ) {
   ctx->grpc_client->h2_hs_done  = 1;
   FD_TEST( !fd_grpc_client_request_is_blocked( ctx->grpc_client ) );
-  long const ts_start = fd_bundle_tickcount();
+  long const ts_start = fd_bundle_now();
   FD_TEST( !fd_bundle_tile_should_stall( ctx, ts_start ) );
 }
 

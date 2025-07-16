@@ -2,6 +2,7 @@
 #define HEADER_fd_src_disco_bundle_fd_bundle_tile_private_h
 
 #include "fd_bundle_auth.h"
+#include "fd_keepalive.h"
 #include "../stem/fd_stem.h"
 #include "../keyguard/fd_keyswitch.h"
 #include "../keyguard/fd_keyguard_client.h"
@@ -78,12 +79,8 @@ struct fd_bundle_tile {
   uint defer_reset : 1;
 
   /* Keepalive via HTTP/2 PINGs (randomized) */
-  long  last_ping_tx_ticks;    /* last TX tickcount */
-  long  last_ping_tx_nanos;
-  long  last_ping_rx_ticks;    /* last RX tickcount */
-  ulong ping_randomize;        /* random 64 bits */
-  ulong ping_threshold_ticks;  /* avg keepalive timeout in ticks, 2^n-1 */
-  ulong ping_deadline_ticks;   /* enforced keepalive timeout in ticks */
+  long              keepalive_interval;
+  fd_keepalive_t    keepalive[1];
   fd_rtt_estimate_t rtt[1];
 
   /* gRPC client */
@@ -101,7 +98,7 @@ struct fd_bundle_tile {
   uchar builder_commission;  /* in [0,100] (percent) */
   uchar builder_info_avail : 1;  /* Block builder info available? (potentially stale) */
   uchar builder_info_wait  : 1;  /* Request already in-flight? */
-  long  builder_info_valid_until_ticks;
+  long  builder_info_valid_until;
 
   /* Bundle subscriptions */
   uchar packet_subscription_live : 1;  /* Want to subscribe to a stream? */
@@ -144,12 +141,12 @@ typedef struct fd_bundle_tile fd_bundle_tile_t;
 
 FD_PROTOTYPES_BEGIN
 
-/* fd_bundle_tickcount is an externally linked function wrapping
-   fd_tickcount().  This is backed by a weak symbol, allowing tests to
+/* fd_bundle_now is an externally linked function wrapping
+   fd_log_wallclock.  This is backed by a weak symbol, allowing tests to
    override the clock source. */
 
 long
-fd_bundle_tickcount( void );
+fd_bundle_now( void );
 
 /* fd_bundle_client_grpc_callbacks provides callbacks for grpc_client. */
 
@@ -171,7 +168,7 @@ fd_bundle_client_step( fd_bundle_tile_t * bundle,
 
 int
 fd_bundle_client_step_reconnect( fd_bundle_tile_t * ctx,
-                                 long               io_ticks );
+                                 long               now );
 
 /* fd_bundle_tile_backoff is called whenever an error occurs.  Stalls
    forward progress for a randomized amount of time to prevent error
@@ -179,15 +176,15 @@ fd_bundle_client_step_reconnect( fd_bundle_tile_t * ctx,
 
 void
 fd_bundle_tile_backoff( fd_bundle_tile_t * ctx,
-                        long               tickcount );
+                        long               now );
 
 /* fd_bundle_tile_should_stall returns 1 if forward progress should be
    temporarily prevented due to an error. */
 
 FD_FN_PURE static inline int
 fd_bundle_tile_should_stall( fd_bundle_tile_t const * ctx,
-                             long                     tickcount ) {
-  return tickcount < ctx->backoff_until;
+                             long                     now ) {
+  return now < ctx->backoff_until;
 }
 
 /* fd_bundle_tile_housekeeping runs periodically at a low frequency. */
@@ -264,33 +261,6 @@ fd_bundle_request_ctx_cstr( ulong request_ctx );
 
 void
 fd_bundle_client_reset( fd_bundle_tile_t * ctx );
-
-/* Keepalive **********************************************************/
-
-/* fd_bundle_client_set_ping_interval configures the approx HTTP/2 PING
-   interval.  ping_interval_ns is a rough hint, the effective ping
-   interval will be more aggressive. */
-
-void
-fd_bundle_client_set_ping_interval( fd_bundle_tile_t * ctx,
-                                    long               ping_interval_ns );
-
-/* fd_bundle_client_ping_is_due returns 1 if a ping is due for sending,
-   0 otherwise. */
-
-FD_FN_PURE int
-fd_bundle_client_ping_is_due( fd_bundle_tile_t const * ctx,
-                              long                     now_ticks );
-
-/* fd_bundle_client_ping_is_timeout returns 1 if a ping timeout was
-   detected, 0 otherwise. */
-
-FD_FN_PURE static inline int
-fd_bundle_client_ping_is_timeout( fd_bundle_tile_t const * ctx,
-                                  long                     now_ticks ) {
-  if( !ctx->ping_deadline_ticks ) return 0; /* timeout disabled */
-  return now_ticks > ctx->last_ping_rx_ticks + (long)ctx->ping_deadline_ticks;
-}
 
 /* fd_bundle_client_ping_tx enqueues a PING frame for sending.  Returns
    1 on success and 0 on failure (occurs when frame_tx buf is full). */
