@@ -214,6 +214,14 @@ fd_gui_printf_identity_key( fd_gui_t * gui ) {
 }
 
 void
+fd_gui_printf_vote_key( fd_gui_t * gui ) {
+  jsonp_open_envelope( gui, "summary", "vote_key" );
+    if( FD_LIKELY( gui->summary.has_vote_key ) ) jsonp_string( gui, "value", gui->summary.vote_key_base58 );
+    else                                         jsonp_null( gui, "value" );
+  jsonp_close_envelope( gui );
+}
+
+void
 fd_gui_printf_startup_time_nanos( fd_gui_t * gui ) {
   jsonp_open_envelope( gui, "summary", "startup_time_nanos" );
     jsonp_long_as_str( gui, "value", gui->summary.startup_time_nanos );

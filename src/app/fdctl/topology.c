@@ -492,6 +492,7 @@ fd_topo_initialize( config_t * config ) {
       tile->gui.is_voting = strcmp( config->paths.vote_account, "" );
       strncpy( tile->gui.cluster, config->cluster, sizeof(tile->gui.cluster) );
       strncpy( tile->gui.identity_key_path, config->paths.identity_key, sizeof(tile->gui.identity_key_path) );
+      strncpy( tile->gui.vote_key_path, config->paths.vote_account, sizeof(tile->gui.vote_key_path) );
       tile->gui.max_http_connections      = config->tiles.gui.max_http_connections;
       tile->gui.max_websocket_connections = config->tiles.gui.max_websocket_connections;
       tile->gui.max_http_request_length   = config->tiles.gui.max_http_request_length;
