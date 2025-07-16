@@ -502,14 +502,29 @@ extern ulong const fd_log_build_info_sz; /* == strlen( fd_log_build_info ) + 1UL
 
 /* Logging helper APIs ************************************************/
 
-/* fd_log_wallclock() reads the host's wallclock as ns since the UNIX
-   epoch GMT.  On x86, this uses clock_gettime/CLOCK_REALTIME under the
-   hood and is reasonably cheap (~25-50 ns nowadays).  But it still may
-   involve system calls under the hood and is much slower than, say,
-   RTSDC. */
+/* fd_log_wallclock_host( NULL ) reads the host's wallclock as ns since
+   the UNIX epoch GMT.  On x86, this uses clock_gettime/CLOCK_REALTIME
+   under the hood and is reasonably cheap (~25-50 ns nowadays).  But it
+   still may involve system calls under the hood and is much slower
+   than, say, RTSDC. */
 
-long fd_log_wallclock( void );
-long _fd_log_wallclock( void const * _ ); /* fd_clock_func_t compat */
+long fd_log_wallclock_host( void const * _ ); /* fd_clock_func_t compat */
+
+/* fd_log_wallclock reads the log's timesource to get the ns since the
+   UNIX epoch GMT.  By default, this is fd_log_wallclock_host but the
+   thread group can be configures this to use an alternative time source
+   if desired. */
+
+long fd_log_wallclock( void ); /* FIXME: Make fd_clock_func_t compat */
+
+/* fd_log_wallclock_set configures the log to use "clock( args )" as its
+   time source.  This time source should report ns since the UNIX epoch
+   GMT.  There should be no concurrent users of the log when this is
+   called. */
+
+void
+fd_log_wallclock_set( fd_clock_func_t clock,
+                      void const *    args );
 
 /* fd_log_wallclock_cstr( t, buf ) pretty prints the wallclock
    measurement t as:

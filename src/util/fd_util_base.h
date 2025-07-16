@@ -1075,6 +1075,22 @@ fd_type_pun_const( void const * p ) {
 
 #endif
 
+/* An ideal fd_clock_func_t is a function such that:
+
+     long dx = clock( args );
+     ... stuff ...
+     dx = clock( args ) - dx;
+
+   yields a strictly positive dx where dx approximates the amount of
+   wallclock time elapsed on the caller in some clock specific unit
+   (e.g. nanoseconds, CPU ticks, etc) for a reasonable amount of "stuff"
+   (including no "stuff").  args allows arbitrary clock specific context
+   to be passed to the clock implication.  (clocks that need a non-const
+   args can cast away the const in the implementation or cast the
+   function pointer as necessary.) */
+
+typedef long (*fd_clock_func_t)( void const * args );
+
 FD_PROTOTYPES_BEGIN
 
 /* fd_memcpy(d,s,sz):  On modern x86 in some circumstances, rep mov will
