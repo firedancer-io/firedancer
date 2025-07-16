@@ -12,6 +12,7 @@ struct test_bundle_env {
   ulong             stem_seqs    [1];
   ulong             stem_depths  [1];
   ulong             stem_cr_avail[1];
+  ulong             stem_min_cr_avail[1];
   fd_frag_meta_t *  out_mcache;
   uchar *           out_dcache;
   int               server_sock;
@@ -45,11 +46,13 @@ test_bundle_env_create( test_bundle_env_t * env,
   env->stem_seqs    [0] = 0UL;
   env->stem_depths  [0] = mcache_depth;
   env->stem_cr_avail[0] = ULONG_MAX;
+  env->stem_min_cr_avail[0] = 0UL;
   *env->stem = (fd_stem_context_t) {
     .mcaches  = &env->out_mcache,
-    .seqs     = env->stem_seqs,
-    .depths   = env->stem_depths,
-    .cr_avail = env->stem_cr_avail,
+    .seqs         = env->stem_seqs,
+    .depths       = env->stem_depths,
+    .cr_avail     = env->stem_cr_avail,
+    .min_cr_avail = env->stem_min_cr_avail,
     .cr_decrement_amount = 0UL
   };
   env->server_sock = -1;
