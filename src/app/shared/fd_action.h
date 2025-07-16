@@ -93,6 +93,11 @@ union fdctl_args {
   struct {
     char tile_cpus[ 256UL ];
   } snapshot_load;
+
+  struct {
+    ushort listen_port;
+  } udpecho;
+
 };
 
 typedef union fdctl_args args_t;

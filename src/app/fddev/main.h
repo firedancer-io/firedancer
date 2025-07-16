@@ -77,6 +77,7 @@ extern fd_topo_run_tile_t fd_tile_resolv;
 extern fd_topo_run_tile_t fd_tile_poh;
 extern fd_topo_run_tile_t fd_tile_bank;
 extern fd_topo_run_tile_t fd_tile_store;
+extern fd_topo_run_tile_t fd_tile_udpecho;
 
 fd_topo_run_tile_t * TILES[] = {
   &fd_tile_net,
@@ -101,6 +102,7 @@ fd_topo_run_tile_t * TILES[] = {
   &fd_tile_poh,
   &fd_tile_bank,
   &fd_tile_store,
+  &fd_tile_udpecho,
   NULL,
 };
 
@@ -126,6 +128,7 @@ extern action_t fd_action_load;
 extern action_t fd_action_pktgen;
 extern action_t fd_action_quic_trace;
 extern action_t fd_action_txn;
+extern action_t fd_action_udpecho;
 extern action_t fd_action_wksp;
 
 action_t * ACTIONS[] = {
@@ -151,6 +154,7 @@ action_t * ACTIONS[] = {
   &fd_action_pktgen,
   &fd_action_quic_trace,
   &fd_action_txn,
+  &fd_action_udpecho,
   &fd_action_wksp,
   NULL,
 };

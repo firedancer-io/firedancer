@@ -67,7 +67,6 @@ pktgen_topo( config_t * config ) {
 
   /* Create dummy RX link */
   fd_topos_net_rx_link( topo, "net_quic", 0UL, config->net.ingress_buffer_size );
-  fd_topob_tile_out( topo, "net", 0UL, "net_quic", 0UL );
   fd_topob_tile_in( topo, "pktgen", 0UL, "metric_in", "net_quic", 0UL, FD_TOPOB_UNRELIABLE, FD_TOPOB_POLLED );
 
   fd_topos_net_tile_finish( topo, 0UL );

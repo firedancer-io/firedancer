@@ -1507,3 +1507,9 @@ user = ""
         # - 'ip neigh get <NEXTHOP> dev <INTERFACE>' returns REACHABLE
         # If these requirements are not met, no packets will be sent out.
         fake_dst_ip = ""  # e.g. "192.0.2.64"
+
+    # The following options relate to the 'fddev udpecho' tool only.
+    # This testing feature echos back incoming UDP packets using the
+    # production networking stack.
+    [development.udpecho]
+        affinity = "auto"
