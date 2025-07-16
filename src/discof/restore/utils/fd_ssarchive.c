@@ -114,8 +114,8 @@ fd_ssarchive_latest_pair( char const * directory,
   if( FD_UNLIKELY( -1==closedir( dir ) ) ) FD_LOG_ERR(( "closedir() failed (%i-%s)", errno, fd_io_strerror( errno ) ));
   if( FD_UNLIKELY( errno && errno!=ENOENT ) ) FD_LOG_ERR(( "readdir() failed (%i-%s)", errno, fd_io_strerror( errno ) ));
 
-  if( FD_UNLIKELY( !incremental_snapshot ) ) return 0;
   if( FD_UNLIKELY( *full_slot==ULONG_MAX ) ) return -1;
+  if( FD_UNLIKELY( !incremental_snapshot ) ) return 0;
 
   dir = opendir( directory );
   if( FD_UNLIKELY( !dir ) ) {
