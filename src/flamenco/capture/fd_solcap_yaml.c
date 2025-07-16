@@ -469,7 +469,6 @@ int
 main( int     argc,
       char ** argv ) {
   fd_boot( &argc, &argv );
-  fd_flamenco_boot( &argc, &argv );
 
   /* Command line handling */
 
@@ -565,7 +564,6 @@ main( int     argc,
   fd_wksp_free_laddr( fd_scratch_detach( NULL ) );
   fd_wksp_free_laddr( fmem                      );
   fclose( file );
-  fd_flamenco_halt();
   fd_halt();
   return 0;
 }

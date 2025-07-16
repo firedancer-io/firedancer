@@ -467,8 +467,6 @@ allocator_setup( fd_wksp_t * wksp ) {
 
 void
 fd_ledger_capture_setup( fd_ledger_args_t * args ) {
-  fd_flamenco_boot( NULL, NULL );
-
   /* Setup capture context */
   int has_solcap           = args->capture_fpath && args->capture_fpath[0] != '\0';
   int has_checkpt          = args->checkpt_path && args->checkpt_path[0] != '\0';
@@ -516,8 +514,6 @@ fd_ledger_capture_setup( fd_ledger_args_t * args ) {
 
 void
 fd_ledger_main_setup( fd_ledger_args_t * args ) {
-  fd_flamenco_boot( NULL, NULL );
-
   /* Finish other runtime setup steps */
   fd_features_restore( args->slot_ctx, args->runtime_spad );
   fd_runtime_update_leaders( args->slot_ctx->bank, fd_bank_slot_get( args->slot_ctx->bank ), args->runtime_spad );
@@ -1127,7 +1123,6 @@ initial_setup( int argc, char ** argv, fd_ledger_args_t * args ) {
   }
 
   fd_boot( &argc, &argv );
-  fd_flamenco_boot( &argc, &argv );
 
   char const * wksp_name             = fd_env_strip_cmdline_cstr  ( &argc, &argv, "--wksp-name",             NULL, NULL                                               );
   ulong        funk_page_cnt         = fd_env_strip_cmdline_ulong ( &argc, &argv, "--funk-page-cnt",         NULL, 5                                                  );

@@ -28,7 +28,6 @@ int
 main( int     argc,
       char ** argv ) {
   fd_boot( &argc, &argv );
-  fd_flamenco_boot( &argc, &argv );
 
   /* Command line handling */
 
@@ -113,7 +112,6 @@ main( int     argc,
 
   fd_scratch_pop();
   fd_scratch_detach( NULL );
-  fd_flamenco_halt();
   fd_halt();
   return 0;
 }

@@ -60,7 +60,6 @@ sol_compat_init( int log_level ) {
   fd_log_enable_unclean_exit();
   fd_boot( &argc, &argv_ );
   fd_log_level_logfile_set( log_level );
-  fd_flamenco_boot( NULL, NULL );
   fd_log_level_core_set(4);  /* abort on FD_LOG_ERR */
 
   sol_compat_wksp_init( FD_SHMEM_NORMAL_PAGE_SZ );

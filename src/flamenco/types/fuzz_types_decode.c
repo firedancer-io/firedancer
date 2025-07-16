@@ -100,14 +100,12 @@ LLVMFuzzerInitialize( int  *   argc,
   /* Set up shell without signal handlers */
   putenv( "FD_LOG_BACKTRACE=0" );
   fd_boot( argc, argv );
-  fd_flamenco_boot( argc, argv );
 
   static uchar scratch_mem [ 1UL<<30 ];  /* 1 GB */
   static ulong scratch_fmem[ 4UL ] __attribute((aligned(FD_SCRATCH_FMEM_ALIGN)));
   fd_scratch_attach( scratch_mem, scratch_fmem, 1UL<<30, 4UL );
 
   atexit( fd_halt );
-  atexit( fd_flamenco_halt );
   atexit( fd_scratch_detach_null );
   return 0;
 }

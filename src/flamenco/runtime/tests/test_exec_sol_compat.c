@@ -58,7 +58,6 @@ int
 main( int     argc,
       char ** argv ) {
   fd_boot( &argc, &argv );
-  fd_flamenco_boot( NULL, NULL );
   ulong wksp_page_sz = fd_env_strip_cmdline_ulong( &argc, &argv, "--wksp-page-sz", "SOL_COMPAT_WKSP_PAGE_SZ", ULONG_MAX );
   if( wksp_page_sz == ULONG_MAX ) {
     wksp_page_sz = FD_SHMEM_NORMAL_PAGE_SZ;
