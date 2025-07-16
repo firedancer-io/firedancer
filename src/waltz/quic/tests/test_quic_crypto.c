@@ -140,6 +140,12 @@ test_quic_nonce( void ) {
   FD_TEST( 0==memcmp( nonce, expected_nonce, sizeof( expected_nonce ) ) );
 }
 
+#if FD_HAS_AESNI || FD_HAS_GFNI
+#define BENCH_ITER 1000000UL
+#else
+#define BENCH_ITER   10000UL
+#endif
+
 int
 main( int     argc,
       char ** argv ) {
@@ -352,7 +358,7 @@ main( int     argc,
     }
 
     /* for real */
-    ulong iter = 1000000UL;
+    ulong iter = BENCH_ITER;
     long  dt   = -fd_log_wallclock();
     for( ulong rem=iter; rem; rem-- ) {
       fd_quic_crypto_decrypt_hdr( buf2, sz, 0,       &client_keys );
@@ -376,7 +382,7 @@ main( int     argc,
     }
 
     /* for real */
-    ulong iter = 1000000UL;
+    ulong iter = BENCH_ITER;
     long  dt   = -fd_log_wallclock();
     for( ulong rem=iter; rem; rem-- ) {
       ulong out_sz_ = out_sz;
