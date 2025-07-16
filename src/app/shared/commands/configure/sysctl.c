@@ -72,6 +72,12 @@ static const sysctl_param_t xdp_params[] = {
     WARN_MINIMUM,
     0,
   },
+  {
+    "/proc/sys/net/ipv4/conf/lo/route_localnet",
+    1,
+    ENFORCE_MINIMUM,
+    1,
+  },
   {0}
 };
 
