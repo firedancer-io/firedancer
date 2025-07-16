@@ -73,17 +73,6 @@
     be replayed.  The new Dispatcher will change this by taking a FEC
     set as input instead. */
 
-typedef struct {
-  ulong     slot;
-  fd_hash_t block_id; /* we in fact need to store multiple block ids, but can mempool later i guess */
-} bid_t;
-
-#define MAP_NAME    fd_bid_map
-#define MAP_T       bid_t
-#define MAP_KEY     slot
-#define MAP_MEMOIZE 0
-#include "../../util/tmpl/fd_map_dynamic.c"
-
 /* An estimate of the max number of transactions in a block.  If there are more
    transactions, they must be split into multiple sets. */
 #define MAX_TXNS_PER_REPLAY ( ( FD_SHRED_BLK_MAX * FD_SHRED_MAX_SZ) / FD_TXN_MIN_SERIALIZED_SZ )
@@ -785,6 +774,10 @@ init_after_snapshot( fd_replay_tile_ctx_t * ctx,
     FD_LOG_CRIT(( "Failed to initialize snapshot fork" ));
   }
 
+  fd_hash_t * block_id = fd_bank_block_id_modify( ctx->slot_ctx->bank );
+  memset( block_id, 0, sizeof(fd_hash_t) );
+  block_id->key[0] = UCHAR_MAX; /* TODO: would be good to have the actual block id of the snapshot slot */
+
   fd_stakes_global_t const *        stakes        = fd_bank_stakes_locking_query( ctx->slot_ctx->bank );
   fd_vote_accounts_global_t const * vote_accounts = &stakes->vote_accounts;
 
@@ -795,7 +788,9 @@ init_after_snapshot( fd_replay_tile_ctx_t * ctx,
 
   if( FD_LIKELY( ctx->tower_out_idx!=ULONG_MAX ) ) {
     uchar * chunk_laddr = fd_chunk_to_laddr( ctx->tower_out_mem, ctx->tower_out_chunk );
-    ulong   off         = 0;
+    memcpy( chunk_laddr, block_id, sizeof(fd_hash_t) );
+
+    ulong off = sizeof(fd_hash_t);
     for( fd_vote_accounts_pair_global_t_mapnode_t * curr = fd_vote_accounts_pair_global_t_map_minimum( vote_accounts_pool, vote_accounts_root );
         curr;
         curr = fd_vote_accounts_pair_global_t_map_successor( vote_accounts_pool, curr ) ) {
@@ -809,6 +804,7 @@ init_after_snapshot( fd_replay_tile_ctx_t * ctx,
       }
     }
     fd_stem_publish( stem, ctx->tower_out_idx, snapshot_slot << 32UL | UINT_MAX, ctx->tower_out_chunk, off, 0UL, (ulong)fd_log_wallclock(), (ulong)fd_log_wallclock() );
+    ctx->tower_out_chunk = fd_dcache_compact_next( ctx->tower_out_chunk, off, ctx->tower_out_chunk0, ctx->tower_out_wmark );
   }
 
   fd_bank_hash_cmp_t * bank_hash_cmp = ctx->bank_hash_cmp;
@@ -1568,9 +1564,16 @@ get_free_exec_tiles( fd_replay_tile_ctx_t * ctx, uchar * exec_free_idx ) {
 static void
 exec_slice_fini_slot( fd_replay_tile_ctx_t * ctx, fd_stem_context_t * stem ) {
 
+  ulong curr_slot = fd_bank_slot_get( ctx->slot_ctx->bank );
+
   fd_microblock_hdr_t * hdr = (fd_microblock_hdr_t *)fd_type_pun( ctx->slice_exec_ctx.buf + ctx->slice_exec_ctx.last_mblk_off );
   fd_hash_t * poh = fd_bank_poh_modify( ctx->slot_ctx->bank );
   memcpy( poh, hdr->hash, sizeof(fd_hash_t) );
+
+  block_id_map_t * bid = block_id_map_query( ctx->block_id_map, curr_slot, NULL );
+  FD_TEST( bid ); /* must exist */
+  fd_hash_t * block_id = fd_bank_block_id_modify( ctx->slot_ctx->bank );
+  memcpy( block_id, &bid->block_id, sizeof(fd_hash_t) );
 
   /* Reset ctx for next slot */
   fd_slice_exec_reset( &ctx->slice_exec_ctx );
@@ -1593,7 +1596,6 @@ exec_slice_fini_slot( fd_replay_tile_ctx_t * ctx, fd_stem_context_t * stem ) {
                                           ctx->runtime_spad,
                                           &exec_para_ctx_block_finalize );
 
-  ulong curr_slot = fd_bank_slot_get( ctx->slot_ctx->bank );
 
   ulong block_entry_height = fd_bank_block_height_get( ctx->slot_ctx->bank );
   publish_slot_notifications( ctx, stem, block_entry_height, curr_slot );
@@ -1607,10 +1609,16 @@ exec_slice_fini_slot( fd_replay_tile_ctx_t * ctx, fd_stem_context_t * stem ) {
   if( FD_LIKELY( ctx->tower_out_idx!=ULONG_MAX && !ctx->read_only ) ) {
     uchar * chunk_laddr = fd_chunk_to_laddr( ctx->tower_out_mem, ctx->tower_out_chunk );
     fd_hash_t const * bank_hash = fd_bank_bank_hash_query( ctx->slot_ctx->bank );
+    fd_hash_t const * block_id  = fd_bank_block_id_query ( ctx->slot_ctx->bank );
+    fd_hash_t const * parent_id = fd_bank_block_id_query( fd_banks_get_bank( ctx->banks, fd_bank_parent_slot_get( ctx->slot_ctx->bank ) ) ); /* FIXME: its cooked : (. parent could be equivocated  */
     fd_blockhashes_t const * blockhashes = fd_bank_block_hash_queue_query( ctx->slot_ctx->bank );
-    memcpy( chunk_laddr, bank_hash, sizeof(fd_hash_t) );
-    memcpy( chunk_laddr+sizeof(fd_hash_t), fd_blockhashes_peek_last( blockhashes ), sizeof(fd_hash_t) );
-    fd_stem_publish( stem, ctx->tower_out_idx, fd_bank_slot_get( ctx->slot_ctx->bank ) << 32UL | fd_bank_parent_slot_get( ctx->slot_ctx->bank ), ctx->tower_out_chunk, sizeof(fd_hash_t) * 2, 0UL, fd_frag_meta_ts_comp( fd_tickcount() ), fd_frag_meta_ts_comp( fd_tickcount() ) );
+
+    memcpy( chunk_laddr,                     bank_hash,                               sizeof(fd_hash_t) );
+    memcpy( chunk_laddr+sizeof(fd_hash_t),   fd_blockhashes_peek_last( blockhashes ), sizeof(fd_hash_t) );
+    memcpy( chunk_laddr+sizeof(fd_hash_t)*2, block_id,                                sizeof(fd_hash_t) );
+    memcpy( chunk_laddr+sizeof(fd_hash_t)*3, parent_id,                               sizeof(fd_hash_t) );
+    fd_stem_publish( stem, ctx->tower_out_idx, fd_bank_slot_get( ctx->slot_ctx->bank ) << 32UL | fd_bank_parent_slot_get( ctx->slot_ctx->bank ), ctx->tower_out_chunk, sizeof(fd_hash_t) * 4, 0UL, fd_frag_meta_ts_comp( fd_tickcount() ), fd_frag_meta_ts_comp( fd_tickcount() ) );
+    ctx->tower_out_chunk = fd_dcache_compact_next( ctx->tower_out_chunk, sizeof(fd_hash_t) * 4, ctx->tower_out_chunk0, ctx->tower_out_wmark );
   }
 
   /**********************************************************************/
@@ -2009,8 +2017,6 @@ unprivileged_init( fd_topo_t *      topo,
   fd_features_enable_one_offs( features, one_off_features, (uint)tile->replay.enable_features_cnt, 0UL );
 
   ctx->forks = fd_forks_join( fd_forks_new( forks_mem, FD_BLOCK_MAX, 42UL ) );
-
-  ctx->bid_map = fd_bid_map_join( fd_bid_map_new( bid_map_mem, 16 ) );
 
   /**********************************************************************/
   /* bank_hash_cmp                                                      */

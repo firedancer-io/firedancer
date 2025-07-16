@@ -1,6 +1,7 @@
 #define _GNU_SOURCE
 
 #include "../../choreo/fd_choreo.h"
+#include "../../util/pod/fd_pod_format.h"
 #include "../../disco/keyguard/fd_keyload.h"
 #include "../../disco/topo/fd_topo.h"
 #include "../../funk/fd_funk.h"
@@ -51,8 +52,11 @@ typedef struct {
   ulong        confirmed; /* highest confirmed slot (2/3 of stake has voted) */
   ulong        finalized; /* highest finalized slot (2/3 of stake has rooted) */
 
-  fd_hash_t                   bank_hash;
-  fd_hash_t                   block_hash;
+  fd_hash_t                   bank_hash;   /* bank hash of the slot received from replay */
+  fd_hash_t                   block_hash;  /* last microblock header hash of slot received from replay */
+  fd_hash_t                   slot_hash;   /* hash_id of the slot received from replay (block id)*/
+  fd_hash_t                   parent_hash; /* parent hash_id of the slot received from replay */
+
   fd_gossip_duplicate_shred_t duplicate_shred;
   uchar                       duplicate_shred_chunk[FD_EQVOC_PROOF_CHUNK_SZ];
   uchar *                     epoch_voters_buf;
@@ -90,10 +94,10 @@ update_epoch( ctx_t * ctx, ulong sz ) {
     FD_TEST( fd_epoch_voters_query( epoch_voters, voter->key, NULL ) );
 #   endif
 
-    voter->stake       = stake;
-    voter->replay_vote = FD_SLOT_NULL;
-    voter->gossip_vote = FD_SLOT_NULL;
-    voter->rooted_vote = FD_SLOT_NULL;
+    voter->stake            = stake;
+    voter->replay_vote.slot = FD_SLOT_NULL;
+    voter->gossip_vote.slot = FD_SLOT_NULL;
+    voter->rooted_vote.slot = FD_SLOT_NULL;
 
     ctx->epoch->total_stake += stake;
   }
@@ -134,14 +138,11 @@ update_ghost( ctx_t * ctx, fd_funk_txn_t * txn ) {
 
     /* Only process votes for slots >= root. Ghost requires vote slot
         to already exist in the ghost tree. */
-
     if( FD_LIKELY( vote != FD_SLOT_NULL && vote >= fd_ghost_root( ghost )->slot ) ) {
-      fd_ghost_replay_vote( ghost, voter, vote );
-
       /* Check if it has crossed the equivocation safety and optimistic
          confirmation thresholds. */
 
-      fd_ghost_ele_t const * ele = fd_ghost_query( ghost, vote );
+      fd_ghost_ele_t const * ele = fd_ghost_query_const( ghost, fd_ghost_hash( ghost, vote ) );
 
       /* Error if the node's vote slot is not in ghost. This is an
          invariant violation, because we know their tower must be on the
@@ -151,7 +152,7 @@ update_ghost( ctx_t * ctx, fd_funk_txn_t * txn ) {
 
       if( FD_UNLIKELY( !ele ) ) FD_LOG_ERR(( "[%s] voter %s's vote slot %lu was not in ghost", __func__, FD_BASE58_ENC_32_ALLOCA(&voter->key), vote ));
 
-      fd_ghost_replay_vote( ghost, voter, vote );
+      fd_ghost_replay_vote( ghost, voter, &ele->key );
       double pct = (double)ele->replay_stake / (double)epoch->total_stake;
       if( FD_UNLIKELY( pct > FD_CONFIRMED_PCT ) ) ctx->confirmed = fd_ulong_max( ctx->confirmed, ele->slot );
     }
@@ -160,7 +161,7 @@ update_ghost( ctx_t * ctx, fd_funk_txn_t * txn ) {
         other voters' roots that precede the ghost root. */
 
     if( FD_LIKELY( root != FD_SLOT_NULL && root >= fd_ghost_root( ghost )->slot ) ) {
-      fd_ghost_ele_t const * ele = fd_ghost_query( ghost, root );
+      fd_ghost_ele_t const * ele = fd_ghost_query( ghost, fd_ghost_hash( ghost, root ) );
 
       /* Error if the node's root slot is not in ghost. This is an
          invariant violation, because we know their tower must be on the
@@ -176,6 +177,7 @@ update_ghost( ctx_t * ctx, fd_funk_txn_t * txn ) {
     }
   }
 }
+
 
 FD_FN_CONST static inline ulong
 scratch_align( void ) {
@@ -238,10 +240,14 @@ during_frag( ctx_t * ctx,
       ulong parent_slot = fd_ulong_extract_lsb( sig, 32 );
       uchar const * chunk_laddr = fd_chunk_to_laddr_const( in_ctx->mem, chunk );
       if( FD_UNLIKELY( parent_slot == UINT_MAX /* no parent, so snapshot slot */ ) ) {
-        fd_memcpy( ctx->epoch_voters_buf, chunk_laddr, sz );
+        memcpy   ( ctx->slot_hash.uc,     chunk_laddr,                     sizeof(fd_hash_t) );
+        fd_memcpy( ctx->epoch_voters_buf, chunk_laddr + sizeof(fd_hash_t), sz - sizeof(fd_hash_t) );
       } else {
-        memcpy( ctx->bank_hash.uc,  chunk_laddr,                   sizeof(fd_hash_t) );
-        memcpy( ctx->block_hash.uc, chunk_laddr+sizeof(fd_hash_t), sizeof(fd_hash_t) );
+        memcpy( ctx->bank_hash.uc,   chunk_laddr,                     sizeof(fd_hash_t) );
+        memcpy( ctx->block_hash.uc,  chunk_laddr+1*sizeof(fd_hash_t), sizeof(fd_hash_t) );
+        memcpy( ctx->slot_hash.uc,   chunk_laddr+2*sizeof(fd_hash_t), sizeof(fd_hash_t) );
+        memcpy( ctx->parent_hash.uc, chunk_laddr+3*sizeof(fd_hash_t), sizeof(fd_hash_t) );
+        /* FIXME: worth making a repair->replay packed msg to directly cast? */
       }
       break;
     }
@@ -275,8 +281,8 @@ after_frag( ctx_t *             ctx,
   if( FD_UNLIKELY( (uint)parent_slot == UINT_MAX ) ) { /* snapshot slot */
     FD_TEST( ctx->funk );
     FD_TEST( fd_funk_txn_map( ctx->funk ) );
-    update_epoch( ctx, sz );
-    fd_ghost_init( ctx->ghost, slot );
+    update_epoch( ctx, sz - sizeof(fd_hash_t) );
+    fd_ghost_init( ctx->ghost, slot, &ctx->slot_hash );
     return;
   }
 
@@ -291,7 +297,7 @@ after_frag( ctx_t *             ctx,
 
   if( FD_UNLIKELY( fd_tower_votes_empty( ctx->tower ) ) ) fd_tower_from_vote_acc( ctx->tower, ctx->funk, funk_txn, &ctx->funk_key );
 
-  fd_ghost_ele_t const * ghost_ele = fd_ghost_insert( ctx->ghost, parent_slot, slot );
+  fd_ghost_ele_t const * ghost_ele  = fd_ghost_insert( ctx->ghost, &ctx->parent_hash, slot, &ctx->slot_hash, ctx->epoch->total_stake );
   FD_TEST( ghost_ele );
   update_ghost( ctx, funk_txn );
 
@@ -300,7 +306,8 @@ after_frag( ctx_t *             ctx,
 
   ulong root = fd_tower_vote( ctx->tower, vote_slot );
   if( FD_LIKELY( root != FD_SLOT_NULL ) ) {
-    fd_ghost_publish( ctx->ghost, root );
+    fd_hash_t const * root_bid = fd_ghost_hash( ctx->ghost, root );
+    fd_ghost_publish( ctx->ghost, root_bid );
     fd_stem_publish( stem, ctx->replay_out_idx, root, 0UL, 0UL, 0UL, tsorig, fd_frag_meta_ts_comp( fd_tickcount() ) );
     ctx->root = root;
   }
