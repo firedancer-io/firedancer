@@ -26,7 +26,7 @@ struct __attribute__((aligned(1UL))) fd_archiver_frag_header {
   /* The identifier of the tile that the frag was received from */
   uint tile_id;
   /* Number of ns since the previous fragment */
-  ulong ns_since_prev_fragment;
+  long  ns_since_prev_fragment;
   /* Size of the fragment data portion, immediately following this header */
   ulong sz;
   /* Signature of the fragment */

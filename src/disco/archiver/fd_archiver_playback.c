@@ -51,17 +51,14 @@ struct fd_archiver_playback_tile_ctx {
 
   fd_archiver_playback_stats_t stats;
 
-  double tick_per_ns;
-
-  ulong prev_publish_time;
-  ulong now;
+  long  prev_publish_time;
   ulong need_notify;
   ulong notified;
 
   fd_archiver_playback_out_ctx_t out[ 32 ];
 
   ulong playback_done;
-  ulong done_time;
+  long  done_time;
   ulong playback_started;
   ulong playback_cnt[FD_ARCHIVER_TILE_CNT];
 
@@ -145,8 +142,6 @@ unprivileged_init( fd_topo_t *      topo,
   ctx->istream_buf = FD_SCRATCH_ALLOC_APPEND( l, 4096, FD_ARCHIVE_PLAYBACK_BUFFER_SZ );
   FD_SCRATCH_ALLOC_FINI( l, scratch_align() );
 
-  ctx->tick_per_ns = fd_tempo_tick_per_ns( NULL );
-
   /* initialize the file reader */
   fd_io_buffered_istream_init( &ctx->istream, tile->archiver.archive_fd, ctx->istream_buf, FD_ARCHIVE_PLAYBACK_BUFFER_SZ );
 
@@ -169,7 +164,6 @@ unprivileged_init( fd_topo_t *      topo,
 
   ctx->playback_done                            = 0;
   ctx->playback_started                         = 0;
-  ctx->now                                      = 0;
   ctx->prev_publish_time                        = 0;
   /* for now, we require a notification before playback another frag */
   FD_TEST( tile->in_cnt==1 );
@@ -188,11 +182,6 @@ unprivileged_init( fd_topo_t *      topo,
 }
 
 static void
-during_housekeeping( fd_archiver_playback_tile_ctx_t * ctx ) {
-  ctx->now =(ulong)((double)(fd_tickcount()) / ctx->tick_per_ns);
-}
-
-static void
 after_frag( fd_archiver_playback_tile_ctx_t * ctx,
             ulong                             in_idx,
             ulong                             seq    FD_PARAM_UNUSED,
@@ -200,18 +189,20 @@ after_frag( fd_archiver_playback_tile_ctx_t * ctx,
             ulong                             sz     FD_PARAM_UNUSED,
             ulong                             tsorig FD_PARAM_UNUSED,
             ulong                             tspub  FD_PARAM_UNUSED,
+            long                              stem_ts FD_PARAM_UNUSED,
             fd_stem_context_t *               stem   FD_PARAM_UNUSED ) {
   if( FD_UNLIKELY( in_idx!=0 ) ) FD_LOG_ERR(( "Playback seems corrupted." ));
   ctx->notified = 1;
 }
 
 static inline void
-after_credit( fd_archiver_playback_tile_ctx_t *     ctx,
-              fd_stem_context_t *                   stem,
-              int *                                 opt_poll_in FD_PARAM_UNUSED,
-              int *                                 charge_busy FD_PARAM_UNUSED ) {
+after_credit( fd_archiver_playback_tile_ctx_t * ctx,
+              fd_stem_context_t *               stem,
+              int *                             opt_poll_in FD_PARAM_UNUSED,
+              int *                             charge_busy FD_PARAM_UNUSED,
+              long                              stem_ts ) {
   if( FD_UNLIKELY( ctx->playback_done ) ) {
-    if( ctx->now>ctx->done_time+1000000000UL*5UL ) {
+    if( stem_ts > ctx->done_time+(long)5e9 ) {
       FD_LOG_ERR(( "Playback is done with %lu shred frags and %lu repair frags.",
                    ctx->playback_cnt[FD_ARCHIVER_TILE_ID_SHRED],
                    ctx->playback_cnt[FD_ARCHIVER_TILE_ID_REPAIR] ));
@@ -242,14 +233,14 @@ after_credit( fd_archiver_playback_tile_ctx_t *     ctx,
   if( FD_UNLIKELY( header->magic != FD_ARCHIVER_HEADER_MAGIC ) ) {
     FD_LOG_WARNING(( "bad magic in archive header: %lu", header->magic ));
     ctx->playback_done = 1;
-    ctx->done_time     = ctx->now;
+    ctx->done_time     = stem_ts;
     return;
   }
 
   /* Determine if we should wait before publishing this
      need to delay if now > (when we should publish it)  */
   if( ctx->prev_publish_time != 0UL &&
-    ( ctx->now < ( ctx->prev_publish_time + header->ns_since_prev_fragment ) )) {
+    ( stem_ts < ( ctx->prev_publish_time + header->ns_since_prev_fragment ) )) {
     return;
   }
 
@@ -262,7 +253,7 @@ after_credit( fd_archiver_playback_tile_ctx_t *     ctx,
   if( FD_UNLIKELY( fd_io_buffered_istream_read( &ctx->istream, &header_tmp, FD_ARCHIVER_FRAG_HEADER_FOOTPRINT ) )) {
     FD_LOG_WARNING(( "failed to consume header" ));
     ctx->playback_done = 1;
-    ctx->done_time     = ctx->now;
+    ctx->done_time     = stem_ts;
     return;
   }
 
@@ -286,7 +277,7 @@ after_credit( fd_archiver_playback_tile_ctx_t *     ctx,
   if( FD_UNLIKELY( fd_io_buffered_istream_read( &ctx->istream, dst, header_tmp.sz ) ) ) {
     FD_LOG_WARNING(( "failed to consume frag" ));
     ctx->playback_done = 1;
-    ctx->done_time     = ctx->now;
+    ctx->done_time     = stem_ts;
     return;
   }
 
@@ -300,7 +291,7 @@ after_credit( fd_archiver_playback_tile_ctx_t *     ctx,
                                                            header_tmp.sz,
                                                            ctx->out[ out_link_idx ].chunk0,
                                                            ctx->out[ out_link_idx ].wmark );
-  ctx->prev_publish_time = ctx->now;
+  ctx->prev_publish_time = stem_ts;
 }
 
 #define STEM_BURST (1UL)
@@ -311,7 +302,6 @@ after_credit( fd_archiver_playback_tile_ctx_t *     ctx,
 
 #define STEM_CALLBACK_AFTER_CREDIT        after_credit
 #define STEM_CALLBACK_AFTER_FRAG          after_frag
-#define STEM_CALLBACK_DURING_HOUSEKEEPING during_housekeeping
 
 #include "../stem/fd_stem.c"
 

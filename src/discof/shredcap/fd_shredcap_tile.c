@@ -177,7 +177,8 @@ during_frag( fd_capture_tile_ctx_t * ctx,
              ulong                   sig,
              ulong                   chunk,
              ulong                   sz,
-             ulong                   ctl ) {
+             ulong                   ctl,
+             long                    stem_ts FD_PARAM_UNUSED ) {
   ctx->skip_frag = 0;
   if( ctx->in_kind[ in_idx ]==SHRED_REPAIR ) {
     if( !is_fec_completes_msg( sz ) ) {
@@ -281,6 +282,7 @@ after_frag( fd_capture_tile_ctx_t * ctx,
             ulong                   sz,
             ulong                   tsorig FD_PARAM_UNUSED,
             ulong                   tspub  FD_PARAM_UNUSED,
+            long                    stem_ts,
             fd_stem_context_t *     stem   FD_PARAM_UNUSED ) {
   if( FD_UNLIKELY( ctx->skip_frag ) ) return;
 
@@ -294,7 +296,7 @@ after_frag( fd_capture_tile_ctx_t * ctx,
     char fec_complete[1024];
     snprintf( fec_complete, sizeof(fec_complete),
              "%ld,%lu,%u,%u,%u\n",
-              fd_log_wallclock(), shred->slot, ref_tick, shred->fec_set_idx, data_cnt );
+             stem_ts, shred->slot, ref_tick, shred->fec_set_idx, data_cnt );
 
     // Last shred is guaranteed to be a data shred
 
@@ -330,7 +332,7 @@ after_frag( fd_capture_tile_ctx_t * ctx,
     char repair_data_buf[1024];
     snprintf( repair_data_buf, sizeof(repair_data_buf),
              "%u,%u,%ld,%lu,%u,%u,%u,%d,%d,%u\n",
-              src_ip4_addr, src_port, fd_log_wallclock(), slot, ref_tick, fec_idx, idx, is_turbine, is_data, nonce );
+              src_ip4_addr, src_port, stem_ts, slot, ref_tick, fec_idx, idx, is_turbine, is_data, nonce );
 
     int err = fd_io_buffered_ostream_write( &ctx->shred_ostream, repair_data_buf, strlen(repair_data_buf) );
     FD_TEST( err==0 );
@@ -377,7 +379,7 @@ after_frag( fd_capture_tile_ctx_t * ctx,
     char repair_data_buf[1024];
     snprintf( repair_data_buf, sizeof(repair_data_buf),
               "%u,%u,%ld,%u,%lu,%lu\n",
-              peer_ip4_addr, peer_port, fd_log_wallclock(), nonce, slot, shred_index );
+              peer_ip4_addr, peer_port, stem_ts, nonce, slot, shred_index );
     int err = fd_io_buffered_ostream_write( &ctx->repair_ostream, repair_data_buf, strlen(repair_data_buf) );
     FD_TEST( err==0 );
   } else if( ctx->in_kind[ in_idx ] == GOSSIP_REPAIR ) {

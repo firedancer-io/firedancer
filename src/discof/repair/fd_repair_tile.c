@@ -193,6 +193,12 @@ repair_signer( void *        signer_ctx,
 }
 
 static void
+stem_run_init( fd_repair_tile_ctx_t * ctx,
+               fd_stem_context_t *    stem ) {
+  ctx->stem = stem;
+}
+
+static void
 send_packet( fd_repair_tile_ctx_t * ctx,
              fd_stem_context_t *    stem,
              int                    is_intake,
@@ -200,8 +206,7 @@ send_packet( fd_repair_tile_ctx_t * ctx,
              ushort                 dst_port,
              uint                   src_ip_addr,
              uchar const *          payload,
-             ulong                  payload_sz,
-             ulong                  tsorig ) {
+             ulong                  payload_sz ) {
   uchar * packet = fd_chunk_to_laddr( ctx->net_out_mem, ctx->net_out_chunk );
   fd_ip4_udp_hdrs_t * hdr = (fd_ip4_udp_hdrs_t *)packet;
   *hdr = *(is_intake ? ctx->intake_hdr : ctx->serve_hdr);
@@ -220,11 +225,10 @@ send_packet( fd_repair_tile_ctx_t * ctx,
   fd_memcpy( packet+sizeof(fd_ip4_udp_hdrs_t), payload, payload_sz );
   hdr->udp->check = 0U;
 
-  ulong tspub     = fd_frag_meta_ts_comp( fd_tickcount() );
   ulong sig       = fd_disco_netmux_sig( dst_ip_addr, dst_port, dst_ip_addr, DST_PROTO_OUTGOING, sizeof(fd_ip4_udp_hdrs_t) );
   ulong packet_sz = payload_sz + sizeof(fd_ip4_udp_hdrs_t);
   ulong chunk     = ctx->net_out_chunk;
-  fd_stem_publish( stem, ctx->net_out_idx, sig, chunk, packet_sz, 0UL, tsorig, tspub );
+  fd_stem_publish( stem, ctx->net_out_idx, sig, chunk, packet_sz, 0UL, 0UL, 0UL );
   ctx->net_out_chunk = fd_dcache_compact_next( chunk, packet_sz, ctx->net_out_chunk0, ctx->net_out_wmark );
 }
 
@@ -319,8 +323,7 @@ fd_repair_recv_clnt_packet( fd_repair_tile_ctx_t *        repair_tile_ctx,
         {
           uchar buf[1024];
           ulong buflen = fd_repair_handle_ping( repair_tile_ctx, glob, &gmsg->inner.ping, src_addr, dst_ip4_addr, buf, sizeof(buf) );
-          ulong tsorig = fd_frag_meta_ts_comp( fd_tickcount() );
-          send_packet( repair_tile_ctx, stem, 1, src_addr->addr, src_addr->port, dst_ip4_addr, buf, buflen, tsorig );
+          send_packet( repair_tile_ctx, stem, 1, src_addr->addr, src_addr->port, dst_ip4_addr, buf, buflen );
           break;
         }
       }
@@ -402,9 +405,8 @@ fd_repair_send_request( fd_repair_tile_ctx_t   * repair_tile_ctx,
 
   uchar buf[1024];
   ulong buflen       = fd_repair_sign_and_send( repair_tile_ctx, &protocol, &active->addr, buf, sizeof(buf) );
-  ulong tsorig       = fd_frag_meta_ts_comp( fd_tickcount() );
   uint  src_ip4_addr = 0U; /* unknown */
-  send_packet( repair_tile_ctx, stem, 1, active->addr.addr, active->addr.port, src_ip4_addr, buf, buflen, tsorig );
+  send_packet( repair_tile_ctx, stem, 1, active->addr.addr, active->addr.port, src_ip4_addr, buf, buflen );
 }
 
 static void
@@ -446,7 +448,8 @@ during_frag( fd_repair_tile_ctx_t * ctx,
              ulong                  sig FD_PARAM_UNUSED,
              ulong                  chunk,
              ulong                  sz,
-             ulong                  ctl ) {
+             ulong                  ctl,
+             long                   stem_ts FD_PARAM_UNUSED ) {
   ctx->skip_frag = 0;
 
   uchar const * dcache_entry;
@@ -692,7 +695,7 @@ fd_repair_recv_serv_packet( fd_repair_tile_ctx_t *        repair_tile_ctx,
       val->good = 0;
       uchar buf[1024];
       ulong buflen = fd_repair_send_ping( repair_tile_ctx, glob, val, buf, sizeof(buf) );
-      send_packet( repair_tile_ctx, stem, 0, peer_addr->addr, peer_addr->port, self_ip4_addr, buf, buflen, fd_frag_meta_ts_comp( fd_tickcount() ) );
+      send_packet( repair_tile_ctx, stem, 0, peer_addr->addr, peer_addr->port, self_ip4_addr, buf, buflen );
     } else {
       uchar buf[FD_SHRED_MAX_SZ + sizeof(uint)];
       switch( protocol->discriminant ) {
@@ -701,7 +704,7 @@ fd_repair_recv_serv_packet( fd_repair_tile_ctx_t *        repair_tile_ctx,
           long sz = repair_get_shred( wi->slot, (uint)wi->shred_index, buf, FD_SHRED_MAX_SZ, repair_tile_ctx );
           if( sz < 0 ) break;
           *(uint *)(buf + sz) = wi->header.nonce;
-          send_packet( repair_tile_ctx, stem, 0, peer_addr->addr, peer_addr->port, self_ip4_addr, buf, (ulong)sz + sizeof(uint), fd_frag_meta_ts_comp( fd_tickcount() ) );
+          send_packet( repair_tile_ctx, stem, 0, peer_addr->addr, peer_addr->port, self_ip4_addr, buf, (ulong)sz + sizeof(uint) );
           break;
         }
 
@@ -710,7 +713,7 @@ fd_repair_recv_serv_packet( fd_repair_tile_ctx_t *        repair_tile_ctx,
           long sz = repair_get_shred( wi->slot, UINT_MAX, buf, FD_SHRED_MAX_SZ, repair_tile_ctx );
           if( sz < 0 ) break;
           *(uint *)(buf + sz) = wi->header.nonce;
-          send_packet( repair_tile_ctx, stem, 0, peer_addr->addr, peer_addr->port, self_ip4_addr, buf, (ulong)sz + sizeof(uint), fd_frag_meta_ts_comp( fd_tickcount() ) );
+          send_packet( repair_tile_ctx, stem, 0, peer_addr->addr, peer_addr->port, self_ip4_addr, buf, (ulong)sz + sizeof(uint) );
           break;
         }
 
@@ -724,7 +727,7 @@ fd_repair_recv_serv_packet( fd_repair_tile_ctx_t *        repair_tile_ctx,
             long sz = repair_get_shred( slot, UINT_MAX, buf, FD_SHRED_MAX_SZ, repair_tile_ctx );
             if( sz < 0 ) continue;
             *(uint *)(buf + sz) = wi->header.nonce;
-            send_packet( repair_tile_ctx, stem, 0, peer_addr->addr, peer_addr->port, self_ip4_addr, buf, (ulong)sz + sizeof(uint), fd_frag_meta_ts_comp( fd_tickcount() ) );
+            send_packet( repair_tile_ctx, stem, 0, peer_addr->addr, peer_addr->port, self_ip4_addr, buf, (ulong)sz + sizeof(uint) );
           }
           break;
         }
@@ -785,11 +788,10 @@ after_frag( fd_repair_tile_ctx_t * ctx,
             ulong                  sz,
             ulong                  tsorig,
             ulong                  tspub  FD_PARAM_UNUSED,
+            long                   stem_ts FD_PARAM_UNUSED,
             fd_stem_context_t *    stem ) {
 
   if( FD_UNLIKELY( ctx->skip_frag ) ) return;
-
-  ctx->stem = stem;
 
   uint in_kind = ctx->in_kind[ in_idx ];
   if( FD_UNLIKELY( in_kind==IN_KIND_CONTACT ) ) {
@@ -885,7 +887,7 @@ after_frag( fd_repair_tile_ctx_t * ctx,
 
           uint  cnt   = out.fec_set_idx + out.data_cnt - reasm->cnt;
           ulong sig   = fd_disco_repair_replay_sig( out.slot, out.parent_off, cnt, out.slot_complete );
-          ulong tspub = fd_frag_meta_ts_comp( fd_tickcount() );
+          ulong tspub = fd_frag_meta_ts_comp( stem_ts );
           reasm->cnt  = out.fec_set_idx + out.data_cnt;
 
           if( FD_UNLIKELY( ctx->shredcap_enabled ) ) {
@@ -972,7 +974,8 @@ static inline void
 after_credit( fd_repair_tile_ctx_t * ctx,
               fd_stem_context_t *    stem FD_PARAM_UNUSED,
               int *                  opt_poll_in FD_PARAM_UNUSED,
-              int *                  charge_busy ) {
+              int *                  charge_busy,
+              long                   stem_ts FD_PARAM_UNUSED) {
   /* TODO: Don't charge the tile as busy if after_credit isn't actually
      doing any work. */
   *charge_busy = 1;
@@ -1062,19 +1065,16 @@ after_credit( fd_repair_tile_ctx_t * ctx,
 }
 
 static inline void
-during_housekeeping( fd_repair_tile_ctx_t * ctx ) {
-  fd_repair_settime( ctx->repair, fd_log_wallclock() );
+during_housekeeping( fd_repair_tile_ctx_t * ctx,
+                     long                   stem_ts ) {
+  fd_repair_settime( ctx->repair, stem_ts );
 
-  long now = fd_log_wallclock();
-  if( FD_UNLIKELY( now - ctx->tsprint > (long)1e9 ) ) {
+  if( FD_UNLIKELY( stem_ts - ctx->tsprint > (long)1e9 ) ) {
     fd_forest_print( ctx->forest );
-    ctx->tsprint = fd_log_wallclock();
-  }
-
-  if( FD_UNLIKELY( !ctx->stem ) ) {
-    return;
+    ctx->tsprint = stem_ts;
   }
 }
+
 static void
 privileged_init( fd_topo_t *      topo,
                  fd_topo_tile_t * tile ) {
@@ -1354,6 +1354,7 @@ metrics_write( fd_repair_tile_ctx_t * ctx ) {
 #define STEM_CALLBACK_CONTEXT_TYPE  fd_repair_tile_ctx_t
 #define STEM_CALLBACK_CONTEXT_ALIGN alignof(fd_repair_tile_ctx_t)
 
+#define STEM_CALLBACK_RUN_INIT            stem_run_init
 #define STEM_CALLBACK_AFTER_CREDIT        after_credit
 #define STEM_CALLBACK_BEFORE_FRAG         before_frag
 #define STEM_CALLBACK_DURING_FRAG         during_frag

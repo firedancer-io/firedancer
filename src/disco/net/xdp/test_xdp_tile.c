@@ -454,7 +454,7 @@ main( int     argc,
   fd_memcpy( rx_packet, &rx_pkt_gre, sizeof(rx_pkt_gre) );
   ctx->rr_idx = 0U;
   ctx->has_gre_interface = 1;
-  before_credit(ctx,stem,&charge_busy);
+  before_credit( ctx,stem,&charge_busy, 0L );
   fd_frag_meta_t const *mline = tx_link->mcache + fd_mcache_line_idx( tx_link_mcache_seq, fd_mcache_depth(tx_link->mcache) );
   FD_TEST( mline );
   FD_TEST( mline->sz==sizeof(rx_pkt_parsed) );
@@ -484,7 +484,7 @@ main( int     argc,
   fd_memset( ctx->tx_op.frame, 0, frame_sz );
 
   /* during_frag */
-  during_frag( ctx, 0, 0, 0, chunk, sizeof(tx_pkt), 0 );
+  during_frag( ctx, 0, 0, 0, chunk, sizeof(tx_pkt), 0, 0L );
 
   /* after_frag */
   struct {
@@ -547,7 +547,7 @@ main( int     argc,
   fd_memcpy( tx_pkt_after_frag.eth.src, eth0_src_mac_addr, 6 );
   FD_STORE( ushort, &tx_pkt_after_frag.outer_ip4.check, fd_ip4_hdr_check( &tx_pkt_after_frag.outer_ip4 ) );
   FD_STORE( ushort, &tx_pkt_after_frag.inner_ip4.check, fd_ip4_hdr_check( &tx_pkt_after_frag.inner_ip4 ) );
-  after_frag( ctx, 0, 0, 0, sizeof(tx_pkt), 0, 0, NULL );
+  after_frag( ctx, 0, 0, 0, sizeof(tx_pkt), 0, 0, 1L, NULL );
   struct xdp_desc * tx_ring_entry = &xsk->ring_tx.packet_ring[0];
   FD_TEST( tx_ring_entry );
   FD_TEST( tx_ring_entry->len==sizeof(tx_pkt_after_frag) );

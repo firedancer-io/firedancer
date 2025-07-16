@@ -206,7 +206,8 @@ during_frag( fd_resolv_ctx_t * ctx,
              ulong             sig FD_PARAM_UNUSED,
              ulong             chunk,
              ulong             sz,
-             ulong             ctl FD_PARAM_UNUSED ) {
+             ulong             ctl     FD_PARAM_UNUSED,
+             long              stem_ts FD_PARAM_UNUSED ) {
 
   if( FD_UNLIKELY( chunk<ctx->in[ in_idx ].chunk0 || chunk>ctx->in[ in_idx ].wmark || sz>ctx->in[ in_idx ].mtu ) )
     FD_LOG_ERR(( "chunk %lu %lu corrupt, not in range [%lu,%lu]", chunk, sz, ctx->in[ in_idx ].chunk0, ctx->in[ in_idx ].wmark ));
@@ -229,7 +230,8 @@ during_frag( fd_resolv_ctx_t * ctx,
 static inline int
 publish_txn( fd_resolv_ctx_t *          ctx,
              fd_stem_context_t *        stem,
-             fd_stashed_txn_m_t const * stashed ) {
+             fd_stashed_txn_m_t const * stashed,
+             long                       stem_ts ) {
   fd_txn_m_t *     txnm = (fd_txn_m_t *)fd_chunk_to_laddr( ctx->out_mem, ctx->out_chunk );
   fd_memcpy( txnm, stashed->_, fd_txn_m_realized_footprint( (fd_txn_m_t *)stashed->_, 1, 0 ) );
 
@@ -251,7 +253,7 @@ publish_txn( fd_resolv_ctx_t *          ctx,
   }
 
   ulong realized_sz = fd_txn_m_realized_footprint( txnm, 1, 1 );
-  ulong tspub = fd_frag_meta_ts_comp( fd_tickcount() );
+  ulong tspub = fd_frag_meta_ts_comp( stem_ts );
   fd_stem_publish( stem, 0UL, txnm->reference_slot, ctx->out_chunk, realized_sz, 0UL, 0UL, tspub );
   ctx->out_chunk = fd_dcache_compact_next( ctx->out_chunk, realized_sz, ctx->out_chunk0, ctx->out_wmark );
 
@@ -262,7 +264,8 @@ static inline void
 after_credit( fd_resolv_ctx_t *   ctx,
               fd_stem_context_t * stem,
               int *               opt_poll_in,
-              int *               charge_busy ) {
+              int *               charge_busy,
+              long                stem_ts ) {
   if( FD_LIKELY( ctx->flush_pool_idx==ULONG_MAX ) ) return;
 
   *charge_busy = 1;
@@ -270,7 +273,7 @@ after_credit( fd_resolv_ctx_t *   ctx,
 
   ulong next = map_chain_idx_next_const( ctx->flush_pool_idx, ULONG_MAX, ctx->pool );
   map_chain_idx_remove_fast( ctx->map_chain, ctx->flush_pool_idx, ctx->pool );
-  if( FD_LIKELY( publish_txn( ctx, stem, pool_ele( ctx->pool, ctx->flush_pool_idx ) ) ) ) {
+  if( FD_LIKELY( publish_txn( ctx, stem, pool_ele( ctx->pool, ctx->flush_pool_idx ), stem_ts ) ) ) {
     ctx->metrics.stash[ FD_METRICS_ENUM_RESOLVE_STASH_OPERATION_V_PUBLISHED_IDX ]++;
   } else {
     ctx->metrics.stash[ FD_METRICS_ENUM_RESOLVE_STASH_OPERATION_V_REMOVED_IDX ]++;
@@ -309,6 +312,7 @@ after_frag( fd_resolv_ctx_t *   ctx,
             ulong               sz,
             ulong               tsorig,
             ulong               _tspub,
+            long                stem_ts,
             fd_stem_context_t * stem ) {
   (void)seq;
   (void)sz;
@@ -449,7 +453,7 @@ after_frag( fd_resolv_ctx_t *   ctx,
   }
 
   ulong realized_sz = fd_txn_m_realized_footprint( txnm, 1, 1 );
-  ulong tspub = fd_frag_meta_ts_comp( fd_tickcount() );
+  ulong tspub = fd_frag_meta_ts_comp( stem_ts );
   fd_stem_publish( stem, 0UL, txnm->reference_slot, ctx->out_chunk, realized_sz, 0UL, tsorig, tspub );
   ctx->out_chunk = fd_dcache_compact_next( ctx->out_chunk, realized_sz, ctx->out_chunk0, ctx->out_wmark );
 }

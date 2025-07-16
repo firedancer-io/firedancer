@@ -30,7 +30,6 @@ monitor_cmd_args( int *    pargc,
   args->monitor.dt_max          = fd_env_strip_cmdline_long( pargc, pargv, "--dt-max",   NULL,  133333333.          );
   args->monitor.duration        = fd_env_strip_cmdline_long( pargc, pargv, "--duration", NULL,          0.          );
   args->monitor.seed            = fd_env_strip_cmdline_uint( pargc, pargv, "--seed",     NULL, (uint)fd_tickcount() );
-  args->monitor.ns_per_tic      = 1./fd_tempo_tick_per_ns( NULL ); /* calibrate during init */
 
   args->monitor.with_bench     = fd_env_strip_cmdline_contains( pargc, pargv, "--bench" );
   args->monitor.with_sankey    = fd_env_strip_cmdline_contains( pargc, pargv, "--sankey" );

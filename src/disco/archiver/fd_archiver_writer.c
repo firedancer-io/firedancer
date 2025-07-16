@@ -43,9 +43,7 @@ struct fd_archiver_writer_tile_ctx {
 
   fd_archiver_writer_stats_t stats;
 
-  ulong now;
-  ulong  last_packet_ns;
-  double tick_per_ns;
+  long last_packet_ns;
 
   fd_io_buffered_ostream_t archive_ostream;
 
@@ -159,13 +157,6 @@ unprivileged_init( fd_topo_t *      topo,
     FD_ARCHIVER_WRITER_OUT_BUF_SZ ) ) ) {
     FD_LOG_ERR(( "failed to initialize ostream" ));
   }
-
-  ctx->tick_per_ns = fd_tempo_tick_per_ns( NULL );
-}
-
-static void
-during_housekeeping( fd_archiver_writer_tile_ctx_t * ctx ) {
-  ctx->now =(ulong)((double)(fd_tickcount()) / ctx->tick_per_ns);
 }
 
 static inline void
@@ -175,7 +166,8 @@ during_frag( fd_archiver_writer_tile_ctx_t * ctx,
              ulong                           sig     FD_PARAM_UNUSED,
              ulong                           chunk,
              ulong                           sz,
-             ulong                           ctl FD_PARAM_UNUSED ) {
+             ulong                           ctl     FD_PARAM_UNUSED,
+             long                            stem_ts ) {
   if( FD_UNLIKELY( chunk<ctx->in[ in_idx ].chunk0 || chunk>ctx->in[ in_idx ].wmark || sz<FD_ARCHIVER_FRAG_HEADER_FOOTPRINT ) ) {
     FD_LOG_ERR(( "chunk %lu %lu corrupt, not in range [%lu,%lu]", chunk, sz, ctx->in[ in_idx ].chunk0, ctx->in[ in_idx ].wmark ));
   }
@@ -188,19 +180,18 @@ during_frag( fd_archiver_writer_tile_ctx_t * ctx,
   FD_TEST(( header->magic == FD_ARCHIVER_HEADER_MAGIC ));
 
   /* Set the relative delay on the packet */
-  ulong now_ns = ctx->now;
   if( ctx->last_packet_ns == 0UL ) {
     header->ns_since_prev_fragment = 0L;
   } else {
-    header->ns_since_prev_fragment = now_ns - ctx->last_packet_ns;
+    header->ns_since_prev_fragment = stem_ts - ctx->last_packet_ns;
   }
-  ctx->last_packet_ns = now_ns;
+  ctx->last_packet_ns = stem_ts;
 
   /* Copy fragment into buffer */
   fd_memcpy( ctx->frag_buf, src, sz );
 
-  ctx->stats.net_shred_in_cnt   += header->tile_id == FD_ARCHIVER_TILE_ID_SHRED;
-  ctx->stats.net_repair_in_cnt  += header->tile_id == FD_ARCHIVER_TILE_ID_REPAIR;
+  ctx->stats.net_shred_in_cnt  += header->tile_id == FD_ARCHIVER_TILE_ID_SHRED;
+  ctx->stats.net_repair_in_cnt += header->tile_id == FD_ARCHIVER_TILE_ID_REPAIR;
 }
 
 static inline void
@@ -211,6 +202,7 @@ after_frag( fd_archiver_writer_tile_ctx_t * ctx,
             ulong                           sz,
             ulong                           tsorig FD_PARAM_UNUSED,
             ulong                           tspub  FD_PARAM_UNUSED,
+            long                            stem_ts FD_PARAM_UNUSED,
             fd_stem_context_t *             stem   FD_PARAM_UNUSED ) {
   /* Write frag to file */
   int err = fd_io_buffered_ostream_write( &ctx->archive_ostream, ctx->frag_buf, sz );
@@ -225,9 +217,8 @@ after_frag( fd_archiver_writer_tile_ctx_t * ctx,
 #define STEM_CALLBACK_CONTEXT_TYPE  fd_archiver_writer_tile_ctx_t
 #define STEM_CALLBACK_CONTEXT_ALIGN alignof(fd_archiver_writer_tile_ctx_t)
 
-#define STEM_CALLBACK_DURING_FRAG          during_frag
-#define STEM_CALLBACK_AFTER_FRAG           after_frag
-#define STEM_CALLBACK_DURING_HOUSEKEEPING  during_housekeeping
+#define STEM_CALLBACK_DURING_FRAG during_frag
+#define STEM_CALLBACK_AFTER_FRAG  after_frag
 
 #include "../stem/fd_stem.c"
 
