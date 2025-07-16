@@ -440,14 +440,18 @@ fd_banks_init_bank( fd_banks_t * banks, ulong slot ) {
 fd_bank_t *
 fd_banks_get_bank( fd_banks_t * banks, ulong slot ) {
 
-  fd_bank_t * bank = NULL;
-
   fd_bank_t *      bank_pool = fd_banks_get_bank_pool( banks );
   fd_banks_map_t * bank_map  = fd_banks_get_bank_map( banks );
 
-  bank = fd_banks_map_ele_query( bank_map, &slot, NULL, bank_pool );
+  ulong idx = fd_banks_map_idx_query_const( bank_map, &slot, ULONG_MAX, bank_pool );
+  if( FD_UNLIKELY( idx==ULONG_MAX ) ) {
+    FD_LOG_WARNING(( "Failed to get bank idx for slot %lu", slot ));
+    return NULL;
+  }
+
+  fd_bank_t * bank = fd_banks_pool_ele( bank_pool, idx );
   if( FD_UNLIKELY( !bank ) ) {
-    FD_LOG_WARNING(( "Failed to get bank" ));
+    FD_LOG_WARNING(( "Failed to get bank for slot %lu", slot ));
     return NULL;
   }
 
