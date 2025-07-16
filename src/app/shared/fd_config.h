@@ -140,7 +140,7 @@ struct fd_configf {
   } snapshots;
 
   struct {
-    ulong fec_max;
+    ulong max_completed_shred_sets;
   } store;
 };
 
