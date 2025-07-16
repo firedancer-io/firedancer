@@ -2890,7 +2890,7 @@ fd_quic_svc_poll( fd_quic_t *      quic,
             max_idle_timeout value advertised by both endpoints." */
         FD_DEBUG( FD_LOG_WARNING(("%s  conn %p  conn_idx: %u  closing due to idle timeout (%g ms)",
             conn->server?"SERVER":"CLIENT",
-            (void *)conn, conn->conn_idx, (double)fd_quic_ticks_to_us(conn->idle_timeout_ticks) / 1e3 )); )
+            (void *)conn, conn->conn_idx, (double)fd_quic_ticks_to_us( quic, conn->idle_timeout_ticks ) / 1e3 )); )
 
         fd_quic_set_conn_state( conn, FD_QUIC_CONN_STATE_DEAD );
         quic->metrics.conn_timeout_cnt++;
@@ -2924,7 +2924,7 @@ fd_quic_svc_poll( fd_quic_t *      quic,
     break;
   default:
     /* prep idle timeout or keep alive at idle timeout/2 */
-    fd_quic_svc_prep_schedule( conn, state->now + (conn->idle_timeout_ticks>>(quic->config.keep_alive)) );
+    fd_quic_svc_prep_schedule( conn, conn->last_activity + (conn->idle_timeout_ticks>>(quic->config.keep_alive)) );
     fd_quic_svc_schedule( state->svc_timers, conn );
     break;
   }

@@ -19,10 +19,7 @@ typedef fd_quic_svc_event_t fd_quic_svc_queue_prq_t;
 
 ulong
 fd_quic_svc_timers_footprint( ulong max_conn ) {
-  ulong offset = 0UL;
-  offset       = fd_ulong_align_up( offset, fd_quic_svc_queue_prq_align() );
-  offset      += fd_quic_svc_queue_prq_footprint( max_conn );
-  return offset;
+  return fd_quic_svc_queue_prq_footprint( max_conn );
 }
 
 ulong
