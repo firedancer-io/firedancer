@@ -41,6 +41,17 @@
 #define DEQUE_MAX  USHORT_MAX
 #include "../../util/tmpl/fd_deque.c"
 
+typedef struct {
+  ulong     slot;
+  fd_hash_t block_id; /* we in fact need to store multiple block ids, but can mempool later i guess */
+} bid_t;
+
+#define MAP_NAME    fd_bid_map
+#define MAP_T       bid_t
+#define MAP_KEY     slot
+#define MAP_MEMOIZE 0
+#include "../../util/tmpl/fd_map_dynamic.c"
+
 /* An estimate of the max number of transactions in a block.  If there are more
    transactions, they must be split into multiple sets. */
 #define MAX_TXNS_PER_REPLAY ( ( FD_SHRED_BLK_MAX * FD_SHRED_MAX_SZ) / FD_TXN_MIN_SERIALIZED_SZ )
@@ -239,6 +250,7 @@ struct fd_replay_tile_ctx {
   fd_replay_tile_metrics_t metrics;
 
   ulong * exec_slice_deque; /* Deque to buffer exec slices - lives in spad */
+  bid_t * bid_map;          /* Map of slot -> block_id */
 
   ulong enable_bank_hash_cmp;
 
@@ -274,6 +286,7 @@ scratch_footprint( fd_topo_tile_t const * tile FD_PARAM_UNUSED ) {
     l = FD_LAYOUT_APPEND( l, FD_BMTREE_COMMIT_ALIGN, FD_BMTREE_COMMIT_FOOTPRINT(0) );
   }
   l = FD_LAYOUT_APPEND( l, 128UL, FD_SLICE_MAX );
+  l = FD_LAYOUT_APPEND( l, fd_bid_map_align(), fd_bid_map_footprint( 16 ) ); /* should be cfdable to [repair.slot_max] */
   l = FD_LAYOUT_FINI  ( l, scratch_align() );
   return l;
 }
@@ -296,7 +309,6 @@ before_frag( fd_replay_tile_ctx_t * ctx,
 
     FD_LOG_DEBUG(( "rx slice from repair tile %lu %u", fd_disco_repair_replay_sig_slot( sig ), fd_disco_repair_replay_sig_data_cnt( sig ) ));
     fd_exec_slice_push_tail( ctx->exec_slice_deque, sig );
-    return 1;
   }
   return 0;
 }
@@ -1019,6 +1031,13 @@ during_frag( fd_replay_tile_ctx_t * ctx,
 
   if( FD_LIKELY( in_idx==SNAP_IN_IDX ) ) {
     ctx->_snap_out_chunk = chunk;
+  } else if( in_idx==REPAIR_IN_IDX ) {
+    if( FD_UNLIKELY( fd_disco_repair_replay_sig_slot_complete( sig ) ) ) {
+      FD_LOG_NOTICE(( "inserting bid for slot %lu, block_id: %s", fd_disco_repair_replay_sig_slot( sig ), FD_BASE58_ENC_32_ALLOCA(ctx->repair_in_mem) ));
+      bid_t * bid = fd_bid_map_insert( ctx->bid_map, fd_disco_repair_replay_sig_slot( sig ) );
+      FD_TEST( bid ); /* equivocating slot !!! :OOO */
+      memcpy( &bid->block_id, ctx->repair_in_mem, sizeof(fd_hash_t) );
+    }
   }
 }
 
@@ -1377,6 +1396,12 @@ exec_slice( fd_replay_tile_ctx_t * ctx, fd_stem_context_t * stem ) {
     // Copy block hash to slot_bank poh for updating the sysvars
     fd_hash_t * poh = fd_bank_poh_modify( ctx->slot_ctx->bank );
     memcpy( poh, hdr->hash, sizeof(fd_hash_t) );
+
+    bid_t * bid = fd_bid_map_query( ctx->bid_map, slot, NULL );
+    FD_TEST( bid ); /* must exist */
+    fd_hash_t * block_id = fd_bank_block_id_modify( ctx->slot_ctx->bank );
+    memcpy( block_id, &bid->block_id, sizeof(fd_hash_t) );
+    fd_bid_map_remove( ctx->bid_map, bid );
 
     ctx->flags = EXEC_FLAG_FINISHED_SLOT;
     fd_slice_exec_reset( &ctx->slice_exec_ctx ); /* Reset ctx for next slot */
@@ -1902,6 +1927,7 @@ unprivileged_init( fd_topo_t *      topo,
     ctx->bmtree[i]           = FD_SCRATCH_ALLOC_APPEND( l, FD_BMTREE_COMMIT_ALIGN, FD_BMTREE_COMMIT_FOOTPRINT(0) );
   }
   void * slice_buf                    = FD_SCRATCH_ALLOC_APPEND( l, 128UL, FD_SLICE_MAX );
+  void * bid_map_mem                  = FD_SCRATCH_ALLOC_APPEND( l, fd_bid_map_align(), fd_bid_map_footprint( 16 ) );
   ulong  scratch_alloc_mem            = FD_SCRATCH_ALLOC_FINI  ( l, scratch_align() );
 
   if( FD_UNLIKELY( scratch_alloc_mem != ( (ulong)scratch + scratch_footprint( tile ) ) ) ) {
@@ -2076,6 +2102,8 @@ unprivileged_init( fd_topo_t *      topo,
   fd_features_enable_one_offs( features, one_off_features, (uint)tile->replay.enable_features_cnt, 0UL );
 
   ctx->forks = fd_forks_join( fd_forks_new( forks_mem, FD_BLOCK_MAX, 42UL ) );
+
+  ctx->bid_map = fd_bid_map_join( fd_bid_map_new( bid_map_mem, 16 ) );
 
   /**********************************************************************/
   /* bank_hash_cmp                                                      */
