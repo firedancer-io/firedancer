@@ -77,10 +77,6 @@ main( int argc, char ** argv ) {
   test_voter_v1_14_11();
   test_voter_current();
 
-
-
-  // fd_flamenco_boot( &argc, &argv );
-
   // /* keys */
   // uchar       validator_identity_keypair[64];
   // fd_pubkey_t vote_acct_addr;

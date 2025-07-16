@@ -3,8 +3,7 @@
 int
 main( int     argc,
       char ** argv ) {
-  fd_boot         ( &argc, &argv );
-  fd_flamenco_boot( &argc, &argv );
+  fd_boot( &argc, &argv );
 
   static const uchar buf32[ 32UL ] =
       { 0xad,0x23,0x76,0x6d,0xde,0xe6,0xe9,0x9c,0xa3,0x34,0x0e,0xe5,0xbe,0xac,0x08,0x84,
@@ -33,7 +32,6 @@ main( int     argc,
   FD_TEST( len==strlen( expected ) );
 
   FD_LOG_NOTICE(( "pass" ));
-  fd_flamenco_halt();
   fd_halt();
   return 0;
 }

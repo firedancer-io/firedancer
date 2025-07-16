@@ -4,7 +4,6 @@ int
 main( int     argc,
       char ** argv ) {
   fd_boot( &argc, &argv );
-  fd_flamenco_boot( &argc, &argv );
 
   double inf   = fd_double( fd_dblbits_pack( 0UL, 0x7FFUL, 0UL ) );
   double ninf  = fd_double( fd_dblbits_pack( 1UL, 0x7FFUL, 0UL ) );
@@ -22,7 +21,6 @@ main( int     argc,
   FD_TEST( fd_rust_cast_double_to_ulong( max  )   == ULONG_MAX );
   FD_TEST( fd_rust_cast_double_to_ulong( max_1  ) == ULONG_MAX );
 
-  fd_flamenco_halt();
   fd_halt();
   return 0;
 }

@@ -470,7 +470,6 @@
 // int
 // main( int argc, char ** argv ) {
 //   fd_boot( &argc, &argv );
-//   fd_flamenco_boot( &argc, &argv );
 //   fd_metrics_register( (ulong *)fd_metrics_new( metrics_scratch, 0UL, 0UL ) );
 
 //   const char * gossip_peer_addr =

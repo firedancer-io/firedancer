@@ -324,8 +324,7 @@ main_loop( int * argc, char *** argv, fd_repair_t * glob, fd_repair_config_t * c
 }
 
 int main(int argc, char **argv) {
-  fd_boot         ( &argc, &argv );
-  fd_flamenco_boot( &argc, &argv );
+  fd_boot( &argc, &argv );
 
   fd_valloc_t valloc = fd_libc_alloc_virtual();
 

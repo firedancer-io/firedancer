@@ -173,7 +173,6 @@ int
 main( int     argc,
       char ** argv ) {
   fd_boot( &argc, &argv );
-  fd_flamenco_boot( &argc, &argv );
 
   for( int i=1; i<argc; i++ )
     if( 0==strcmp( argv[i], "--help" ) ) return usage();
@@ -293,7 +292,6 @@ main( int     argc,
   fd_wksp_free_laddr( fmem                      );
   fclose( file );
   fd_wksp_detach( wksp );
-  fd_flamenco_halt();
   fd_halt();
   return res;
 }
