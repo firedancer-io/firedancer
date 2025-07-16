@@ -4,7 +4,7 @@
 #include "../log/fd_log.h"
 
 /* fd_clock provides a persistent interprocess shared memory object for
-   synchronizing a pair of clocks and using that the synchronization
+   synchronizing a pair of clocks and using that synchronization
    lockfree between an arbitrary number of observer threads and a
    calibrating thread.
 
@@ -24,6 +24,10 @@
    restriction is that different threads should not attempt to calibrate
    a fd_clock at the same time.  Among other things, this means that
    single threaded modes of operation are supported.
+
+   Many of the below APIs make a best effort to handle common clock
+   dysfunctions (like getting stepping backwards due to operators / NTP
+   manipulating the underlying clock hardware out-of-band).
 
    Summary usage:
 
@@ -71,7 +75,7 @@
        void * shclock = fd_clock_new( shmem, recal_avg, recal_jit, recal_hist, recal_frac, init_x1, init_y1, init_w );
        if( FD_UNLIKELY( !shclock ) ) FD_LOG_ERR(( "fd_clock_new failed" ));
 
-       ... at this point, shclock==shmem and is ready for to joined by
+       ... at this point, shclock==shmem and is ready to be joined by
        ... observing threads and the calibrating thread
 
      ... join a fd_clock (clock_x/args_x are how to read the x-clock on the caller)
@@ -128,8 +132,8 @@
          ...
          if( FD_UNLIKELY( now>=recal_next ) ) {
 
-           ... as per the above, user can use other methods for joint
-           ... reading the x-clock and y-clock if applicable
+           ... as per the above, user can use other methods to joint
+           ... read the x-clock and y-clock if applicable
 
            long x1;
            long y1;
@@ -167,7 +171,7 @@
          ...
          long x   = ... an x-clock observation, e.g. clock_x( args_x ), hardware tickcount, etc;
          ...
-         long now = fd_clock_y( epoch, x ); ... O(1) ns
+         long now = fd_clock_epoch_y( epoch, x ); ... O(1) ns
          ...
 
        }
@@ -187,27 +191,11 @@
 #define FD_CLOCK_ALIGN     (128UL)
 #define FD_CLOCK_FOOTPRINT (640UL)
 
-/* An ideal fd_clock_func_t is a function such that:
-
-     long dx = clock( args );
-     ... stuff ...
-     dx = clock( args ) - dx;
-
-   yields a strictly positive dx where dx approximates the amount of
-   wallclock time elapsed in some clock specific unit (e.g. nanoseconds,
-   CPU ticks, etc) for a reasonable amount of "stuff" (including no
-   "stuff").  args allows arbitrary clock specific context to be passed
-   to the clock function.  Many of the below APIs make best efforts to
-   handle common clock dysfunctions (like getting stepping backwards due
-   to operators / NTP manipulating the underlying clock hardware
-   out-of-band).  (Applications that need a non-const args can cast away
-   the const or cast the function pointer as necessary.) */
-
-typedef long (*fd_clock_func_t)( void const * args );
-
-/* A fd_clock_shmem_t is a quasi-opaque handle that to a shared memory
-   region used to hold the state of a fd_clock.  A fd_clock_t is a
-   quasi-opaque handle to a join to a fd_clock. */
+/* A fd_clock_shmem_t is a quasi-opaque handle to a shared memory region
+   used to hold the state of a fd_clock.  A fd_clock_t is a quasi-opaque
+   handle that describes a local join to a fd_clock.  A fd_clock_epoch_t
+   is a quasi-opaque handle that describes the relationship between the
+   x-clock and y-clock in an epoch for use by the advanced APIs. */
 
 struct fd_clock_shmem_private;
 typedef struct fd_clock_shmem_private fd_clock_shmem_t;
@@ -215,10 +203,38 @@ typedef struct fd_clock_shmem_private fd_clock_shmem_t;
 struct fd_clock_private;
 typedef struct fd_clock_private fd_clock_t;
 
-/* A fd_clock_epoch_t gives a linear approximation to the relationship
-   between two clocks over a clock epoch for use by the advanced APIs. */
+struct fd_clock_epoch_private;
+typedef struct fd_clock_epoch_private fd_clock_epoch_t;
 
-struct __attribute__((aligned(128))) fd_clock_epoch { /* double cache line alignment to avoid false sharing */
+/* fd_clock private API **********************************************/
+
+/* This is exposed here to facilitate inlining of various clock
+   operations for use in high performance contexts. */
+
+/* FD_CLOCK_JOINT_READ_CNT gives the number of iterations used by
+   fd_clock_joint_read.  Larger values cost linearly more but can
+   improve joint read accuracy approximately hyperbolically in an
+   statistical extremal value sense (assuming clock read timing is
+   shifted exponentially distributed).  Must be at least 1. */
+
+#define FD_CLOCK_JOINT_READ_CNT (3UL)
+
+/* Internals of a fd_clock_shmem_t */
+
+/* FD_CLOCK_EPOCH_CNT gives the number of epochs parameters to cache.
+   Must be a positive integer power of 2.  Larger than 1 is strongly
+   recommended to reduce collision risks between observer threads and
+   the calibrating thread. */
+
+#define FD_CLOCK_EPOCH_CNT (4UL)
+
+/* FD_CLOCK_MAGIC specifies the fd_clock shared memory region layout. */
+
+#define FD_CLOCK_MAGIC (0xfdc101c3a61c0000UL) /* fd clock magic ver 0 */
+
+/* Internals of a fd_clock_epoch_t */
+
+struct __attribute__((aligned(128))) fd_clock_epoch_private { /* double cache line alignment to avoid false sharing */
 
   /* seq0 is the epoch's sequence number. */
 
@@ -256,46 +272,21 @@ struct __attribute__((aligned(128))) fd_clock_epoch { /* double cache line align
 
   double m;
 
-  /* seq1==seq0 when parameters are valid.  To update epoch parameters,
-     first, seq1 is updated (marking the parameters as invalid).  Then
-     the above parameters are updated.  Last, seq0 is updated (marking
-     parameters as valid again).  Since sequence number wrapping is not
-     an issue practically (would take eons), observers read this
-     structure sequentially forward (seq0->params->seq1) and then
-     validate seq0==seq1 to do a non-blocking lockfree read.  Assumes
-     the usual write visibility ordering properties common on x86. */
+  /* seq1==seq0 when the above parameters are valid.  To update epoch
+     parameters, first, seq1 is updated (marking the parameters as
+     invalid).  Then the above parameters are updated.  Last, seq0 is
+     updated (marking parameters as valid again).  Since sequence number
+     wrapping is not an issue practically (would take eons), observers
+     read this structure sequentially forward (seq0->params->seq1) and
+     then validate seq0==seq1 to do a non-blocking lockfree read.
+     Assumes the usual write visibility ordering properties common on
+     x86. */
 
   ulong seq1;
 
 };
 
-typedef struct fd_clock_epoch fd_clock_epoch_t;
-
-/* fd_clock private API **********************************************/
-
-/* This is exposed here to facilitate inlining of various clock
-   operations for use in high performance contexts. */
-
-/* FD_CLOCK_JOINT_READ_CNT gives the number of iterations used by
-   fd_clock_joint_read.  Larger values cost linearly more but can
-   improve joint read accuracy approximately hyperbolically in an
-   statistical extremal value sense (assuming clock read timing is a
-   shifted exponentially distributed).  Must be at least 1. */
-
-#define FD_CLOCK_JOINT_READ_CNT (3UL)
-
 /* Internals of a fd_clock_shmem_t */
-
-/* FD_CLOCK_EPOCH_CNT gives the number of epochs parameters to cache.
-   Must be a positive integer power of 2.  Larger than 1 is strongly
-   recommended to reduce collision risks between observer threads and
-   the calibrating thread. */
-
-#define FD_CLOCK_EPOCH_CNT (4UL)
-
-/* FD_CLOCK_MAGIC specifies the fd_clock shared memory region layout. */
-
-#define FD_CLOCK_MAGIC (0xfdc101c3a61c0000UL) /* fd clock magic ver 0 */
 
 struct __attribute__((aligned(128))) fd_clock_shmem_private {
 
@@ -303,9 +294,9 @@ struct __attribute__((aligned(128))) fd_clock_shmem_private {
 
   ulong magic; /* == FD_CLOCK_MAGIC */
 
-  /* clock epochs have sequence numbers.  seq is the most recent
-     epoch sequence number published by the calibrating thread.  That
-     is, epochs [0,seq] are guaranteed to have been published, seq+1 is
+  /* clock epochs have sequence numbers.  seq is the most recent epoch
+     sequence number published by the calibrating thread.  That is,
+     epochs [0,seq] are guaranteed to have been published, seq+1 is
      either not published or in the process of getting published.
      [seq+2,inf) have definitely not been published. */
   /* FIXME: consider using a versioned lock here to make recalibration
@@ -313,8 +304,8 @@ struct __attribute__((aligned(128))) fd_clock_shmem_private {
 
   ulong seq;
 
-  /* recal_next gives the recommended time on the y-clock when to
-     recalibrate next, in y-ticks. */
+  /* recal_next gives the recommended time on the y-clock when to next
+     recalibrate, in y-ticks. */
 
   long recal_next;
 
@@ -332,16 +323,16 @@ struct __attribute__((aligned(128))) fd_clock_shmem_private {
   ulong  recal_mask;  /* == 2*pow2_dn(recal_jit)-1 */
 
   /* recal_avg is the recommended average interval between
-     recalibrations in y-ticks.  Shorter values increase overhead,
+     recalibrations, in y-ticks.  Shorter values increase overhead,
      increase cache traffic between the calibrating thread and observer
      threads and eventually degrade accuracy due to quantization errors
      and synchronization errors in x-clock / y-clock joint reads that
-     get relatively worse as the interval intervals.  Longer values
-     decrease overheads and reduce cache traffic but also eventually
-     degrade accuracy due to various long timescale sources of clock
-     drift / non-linearites (e.g. thermal changes).
+     get relatively worse for smaller intervals.  Longer values decrease
+     overheads and reduce cache traffic but also eventually degrade
+     accuracy due to various long timescale sources of clock drift /
+     non-linearites (e.g. thermal changes).
 
-     In short, when synchronizing two clocks, there is an optimal value
+     That is, when synchronizing two clocks, there is an optimal value
      in the middle for recal avg that gets the best overall tradeoff
      between sync accuracy and sync overhead.  For typical real world
      use cases (e.g. the CPU invariant tickcount and the system
@@ -349,23 +340,22 @@ struct __attribute__((aligned(128))) fd_clock_shmem_private {
      accuracy.
 
      Similarly, recal_jit is the recommended jitter between
-     recalibrations in y-ticks.  This is a positive value much less than
-     recal_avg.  In short, it is really bad idea to do anything in
+     recalibrations, in y-ticks.  This is a positive value much less
+     than recal_avg.  In short, it is really bad idea to do anything in
      distributed systems on completely regular intervals because as such
      can become a source of all sorts of subtle and not-so-subtle
-     anomalies.  Values of 1/128 of recal_avg are reasonable for most
-     apps.
+     anomalies.  ~1/128 of recal_avg is reasonable for most apps.
 
      recal_hist gives roughly how many recent epochs to use for
-     estimating the recent clock rate.  Smaller values allow for more
-     adaptivity when syncing low quality clocks.  Larger values allow
-     higher accuracy when syncing in high quality clocks.  Positive, 3
-     is a reasonable value for most apps.
+     estimating the recent relative clock rate.  Smaller values allow
+     for more adaptivity when syncing low quality clocks.  Larger values
+     allow higher accuracy when syncing in high quality clocks.
+     Positive, 3 is a reasonable value for most apps.
 
      recal_frac gives what fraction of clock drift observed at the end
-     of an epoch should try to be absorbed over the next epoch.  Values
-     not in (0,2) are likely unstable.  Values near 1 are recommended.
-     1 is a reasonable value for most apps. */
+     of an epoch the clock should try to be absorb over the next epoch.
+     Values not in (0,2) are likely unstable.  Values near 1 are
+     recommended.  1 is a reasonable value for most apps. */
 
   long   recal_avg;  /* positive */
   long   recal_jit;  /* in [1,recal_avg] */
@@ -387,8 +377,8 @@ struct __attribute__((aligned(128))) fd_clock_shmem_private {
 
        idx = seq & (FD_CLOCK_EPOCH_CNT-1)
 
-     Each epoch is on their own cache line pair to minimize false
-     sharing between the calibrating thread and observer threads. */
+     Each epoch is on its own cache line pair to minimize false sharing
+     between the calibrating thread and observer threads. */
 
   fd_clock_epoch_t epoch[ FD_CLOCK_EPOCH_CNT ];
 
@@ -454,21 +444,22 @@ static inline void * fd_clock_shclock( fd_clock_t * clock ) { return clock->shcl
 /* fd_clock_now returns an estimate of the y-clock (which is typically
    the slow-but-accurate global reference clock with the desired units
    ... e.g. the system wallclock in ns) by making a local observation of
-   the x-clock (which is typically is fast-but-inaccurate local
+   the x-clock (which is typically the fast-but-inaccurate local
    tickcounter not in the desired units ... e.g. the CPU invariant
    tickcounter in CPU ticks).  Assumes the clock has been recently
-   calibrated.  Does no input argument checking.  For common clock-x /
-   clock-y pairs, usually several fold faster, more deterministic and
+   calibrated.  Does no input argument checking.  For common x-clock /
+   y-clock pairs, usually several times faster, more deterministic and
    comparable accuracy to reading the y-clock.  The return value should
    be interpreted as just before when the call returned (as opposed to,
    say, just after when the call was entered).
 
    This is a composite of several of the advanced observer API calls.
-   As such, that can accelerated further by deconstructing the call into
-   lazily loading clock epoch parameters in tile housekeeping and using
-   the lazily loaded epoch directly in the tile run loop.  Typically
-   gets O(1) ns overhead with optimal cache and NUMA behavior between
-   the calibrating thread and all the concurrent observer threads. */
+   As such, this can be accelerated further by deconstructing the call
+   into lazily loading clock epoch parameters in tile housekeeping and
+   using the lazily loaded epoch directly in the tile run loop.  The
+   result typically has O(1) ns overhead with optimal cache and NUMA
+   behavior between the calibrating thread and all the concurrent
+   observer threads. */
 
 long
 fd_clock_now( void const * clock ); /* fd_clock_func_t compat */
@@ -477,7 +468,8 @@ fd_clock_now( void const * clock ); /* fd_clock_func_t compat */
 
 /* fd_clock_{recal_next,err_cnt} returns the {time on the y-clock when
    it is recommended to recalibrate the clock next,number of errors
-   detected with the underlying clock sources}. */
+   detected with the underlying clock sources since clock was created/
+   counter was last reset}. */
 
 static inline long  fd_clock_recal_next( fd_clock_t const * clock ) { return clock->shclock->recal_next; }
 static inline ulong fd_clock_err_cnt   ( fd_clock_t const * clock ) { return clock->shclock->err_cnt;    }
@@ -497,7 +489,7 @@ static inline void fd_clock_reset_err_cnt( fd_clock_t * clock ) { clock->shclock
    x-clock in the interval [x-dx,x+dx].  Does no input argument
    checking.
 
-   Returns a negative integer error code on failure.  On return, *opt_x
+   Returns a FD_CLOCK_ERR code (negative) on failure.  On return, *opt_x
    / *opt_y / *opt_dx are unchanged.  Reasons for failure include ERR_X
    / ERR_Y (the x-clock / y-clock showed a negative clock interval
    between adjacent calls ... i.e the clocks passed to joint_read aren't
@@ -516,10 +508,10 @@ fd_clock_joint_read( fd_clock_func_t clock_x, void const * args_x,
                      fd_clock_func_t clock_y, void const * args_y,
                      long * opt_x, long * opt_y, long * opt_dx );
 
-/* fd_clock_recal and fd_clock_step end the current epoch for clock
-   and start a new epoch.  The new epoch will start at the time x1 on
-   the x-clock and y1 gives the time observed on the y-clock at x1.
-   Ideally, x1 and y1 have been recently jointly read (e.g. read via
+/* fd_clock_recal and fd_clock_step end clock's current epoch and start
+   a new epoch.  The new epoch will start at the time x1 on the x-clock.
+   y1 gives the time jointly observed on the y-clock at x1.  Ideally, x1
+   and y1 have been recently jointly read (e.g. read via
    fd_clock_joint_read immediately before calling this or by any other
    suitable method for the specific clock pair).  Returns the
    recommended time on the y-clock when to recalibrate next.
@@ -527,16 +519,16 @@ fd_clock_joint_read( fd_clock_func_t clock_x, void const * args_x,
    For fd_clock_recal, the step will be such that monotonicity of
    y-clock estimates will be strictly preserved if the underlying clocks
    are proper clocks.  If this detects the underlying clocks are not
-   well-behaved (e.g. getting stepped backward out-of-band), this will
-   make a best effort to handle such and record the potential
-   monotonicity failure.
+   well-behaved (e.g. were stepped backward out-of-band), this will make
+   a best effort to handle such and record the potential monotonicity
+   failure.
 
    For fd_clock_step, the clock will be stepped to x1,y1 with a x-tick
    per y-tick rate of w1 without regard for whether or not that
    preserves monotonicity with the most recent epoch.  This can be used
    to recover a dormant clock after a long period of no calibration or
-   to handle situations where the calibrating thread explicity nows the
-   the x-clock and/or y-clock were stepped out-of-band (e.g.  the
+   to handle situations where the calibrating thread explicity knows the
+   the x-clock and/or y-clock were stepped out-of-band (e.g. the
    superuser manually changing the time on the system wallclock). */
 
 long fd_clock_recal( fd_clock_t * clock, long x1, long y1 );
@@ -568,9 +560,9 @@ fd_clock_seq( fd_clock_shmem_t const * shclock ) {
    seq to the most recent published sequence number and try again.
 
    Otherwise (epoch->seq0==epoch->seq1), *epoch contains the parameters
-   for epoch->seq0.  If delta=seq-epoch->seq0 is positive / negative,
-   the caller is ahead / behind of the calibrating thread (and the
-   magnitude gives a rough estimate of how far).  If delta==0, the
+   for epoch->seq0.  If delta=(long)(seq-epoch->seq0) is positive /
+   negative, the caller is ahead / behind of the calibrating thread (and
+   the magnitude gives a rough estimate of how far).  If delta==0, the
    desired parameters are in *epoch.
 
    This is a compiler memory fence.  Does no input argument checking.
@@ -625,9 +617,9 @@ fd_clock_epoch_init( fd_clock_epoch_t       * epoch,
 }
 
 /* fd_clock_epoch_refresh refreshes epoch with parameters of the current
-   epoch as observed at some point in time during the call assuming that
-   epoch contains previous published epoch parameters.  Does no input
-   argument checking.  Returns epoch. */
+   epoch as observed at some point in time during the call, assuming
+   that epoch contains previous published epoch parameters.  Does no
+   input argument checking.  Returns epoch. */
 
 static inline fd_clock_epoch_t *
 fd_clock_epoch_refresh( fd_clock_epoch_t       * epoch,
@@ -636,31 +628,31 @@ fd_clock_epoch_refresh( fd_clock_epoch_t       * epoch,
   return epoch;
 }
 
-/* fd_clock_{x0,y0,w,y0_eff,m} returns the {raw x-clock epoch start
-   time, raw y-clock epoch start time, estimated recent average x-tick
-   per y-tick rate at epoch start,effective epoch y-clock start time,
-   y-tick per x-tick conversion In effect for this epoch}.
+/* fd_clock_epoch_{x0,y0,w,y0_eff,m} returns the {raw x-clock epoch
+   start time, raw y-clock epoch start time, estimated recent average
+   x-tick per y-tick rate at epoch start,effective epoch y-clock start
+   time, y-tick per x-tick conversion In effect for this epoch}.
    Specifically, this epoch estimates the y-clock from the x-clock
    observation x_obs via:
 
      y_est = y0_eff + round( m*(x_obs-x0) ) */
 
-static inline long   fd_clock_x0    ( fd_clock_epoch_t const * epoch ) { return epoch->x0;     }
-static inline long   fd_clock_y0    ( fd_clock_epoch_t const * epoch ) { return epoch->y0;     }
-static inline double fd_clock_w     ( fd_clock_epoch_t const * epoch ) { return epoch->w;      }
-static inline long   fd_clock_y0_eff( fd_clock_epoch_t const * epoch ) { return epoch->y0_eff; }
-static inline double fd_clock_m     ( fd_clock_epoch_t const * epoch ) { return epoch->m;      }
+static inline long   fd_clock_epoch_x0    ( fd_clock_epoch_t const * epoch ) { return epoch->x0;     }
+static inline long   fd_clock_epoch_y0    ( fd_clock_epoch_t const * epoch ) { return epoch->y0;     }
+static inline double fd_clock_epoch_w     ( fd_clock_epoch_t const * epoch ) { return epoch->w;      }
+static inline long   fd_clock_epoch_y0_eff( fd_clock_epoch_t const * epoch ) { return epoch->y0_eff; }
+static inline double fd_clock_epoch_m     ( fd_clock_epoch_t const * epoch ) { return epoch->m;      }
 
-/* fd_clock_y returns an estimate of what would have been observed on
-   the y-clock given the observation x from the x-clock and the clock
+/* fd_clock_epoch_y returns an estimate of what would have been observed
+   on the y-clock given the observation x from the x-clock and the clock
    synchronization parameters in epoch.  Does no input argument
    checking.  Ideally x should have been observed during the epoch but
    reads from just before or just after the epoch are typically usable
    too. */
 
 static inline long
-fd_clock_y( fd_clock_epoch_t const * epoch,
-            long                     x ) {
+fd_clock_epoch_y( fd_clock_epoch_t const * epoch,
+                  long                     x ) {
   return epoch->y0_eff + (long)(0.5 + epoch->m*(double)(x-epoch->x0));
 }
 

@@ -39,14 +39,14 @@
      delta_w(epoch) = -----------------------------------------
                         y_obs(epoch_end) - y_obs(epoch_start)
 
-   Assuming quitely reasonably delta_x(sample) all have the same mean
+   Assuming, quite reasonably, delta_x(sample) all have the same mean
    (or, even stronger but still reasonable, are IID), w_obs(epoch) is an
    unbiased estimate of w_actual(epoch).
 
-   We expect w_actual(epoch) to be nearly constant from epoch to epoch
-   (i.e. these are clocks), we can use a decaying average filter to
-   compute an estimate of w(next_epoch) given an estimate for this epoch
-   w_est(epoch) and w_obs(epoch):
+   Since we expect w_actual(epoch) to be nearly constant from epoch to
+   epoch (i.e. these are clocks), we can use a decaying average filter
+   to compute an estimate of w(next_epoch) given an estimate for this
+   epoch w_est(epoch) and w_obs(epoch):
 
      w_est(next_epoch) = w_est(epoch) + alpha ( w_obs(epoch) - w_est(epoch) )
 
@@ -69,7 +69,7 @@
    Given a reasonably accurate w_est(next_epoch), we want to create a
    relationship between the x-clock and y-clock that preserves
    monotonicity of y_est from epoch to epoch while having no asymptotic
-   clock drift estimates between y_est and y.
+   clock drift between y_est and y_obs.
 
    To that end, if y_est(epoch_end) is less than or equal to
    y_obs(epoch_end), we can correct for all accumulated clock drift
@@ -84,7 +84,7 @@
    greater than y_obs(epoch_end).  In this case, let frac be the
    fraction of this clock drift we want to absorb during the next epoch.
    If we know the next clock epoch will be at most epoch_max y-ticks
-   long, we can reduce m(next_epoch) to absorb the bias:
+   long, we can reduce m(next_epoch) to absorb the drift:
 
      y_eff(next_epoch_start) = y_est(epoch_end)
 
@@ -96,15 +96,15 @@
 
      beta = frac / epoch_max
 
-   To insure m(next_epoch) as always positive (and thus preserve
+   To insure m(next_epoch) is always positive (and thus preserve
    monotonicity), we tweak the above into:
 
                                                       1
      m(next_epoch) = --------------------------------------------------------------------
                      w_est(next_epoch) ( 1 + beta ( y_est(epoch_end) - y_obs(epoch_end) )
 
-   This is asymptotically identical to the the above in the (common
-   case) limit:
+   This is asymptotically identical to the above in the (common case)
+   limit:
 
      beta (y_est-y_obs) << 1.
 
@@ -334,7 +334,7 @@ fd_clock_now( void const * _clock ) {
     if( FD_LIKELY( (seq0==seq1) & (epoch->seq0==seq0) & (epoch->seq1==seq0) ) ) break;
     FD_SPIN_PAUSE();
   }
-  return fd_clock_y( epoch, x_obs );
+  return fd_clock_epoch_y( epoch, x_obs );
 }
 
 int
@@ -374,13 +374,13 @@ fd_clock_joint_read( fd_clock_func_t clock_x, void const * args_x,
 }
 
 static inline long
-fd_clock_epoch_next( fd_clock_shmem_t * shclock,
-                     long               x0,
-                     long               y0,
-                     double             w,
-                     long               y0_eff,
-                     double             m,
-                     int                err ) {
+fd_clock_next( fd_clock_shmem_t * shclock,
+               long               x0,
+               long               y0,
+               double             w,
+               long               y0_eff,
+               double             m,
+               int                err ) {
 
   ulong seq        = shclock->seq     + 1UL;
   long  recal_next = (y0_eff + shclock->recal_min) + (long)(fd_ulong_hash( FD_CLOCK_MAGIC ^ (ulong)x0 ) & shclock->recal_mask);
@@ -432,6 +432,8 @@ fd_clock_recal( fd_clock_t * clock,
   double m1;
   int    err;
 
+  /* FIXME: Consider tighter rate interval?  (E.g. 0.9765625 / 1.024) */
+
   if( FD_UNLIKELY( !((dx>0L) & (dy>0L) & ((0.5*w0)<w_obs) & (w_obs<(2.0*w0))) ) ) {
 
     /* At this point, the x-clock didn't step forward between recals,
@@ -470,8 +472,8 @@ fd_clock_recal( fd_clock_t * clock,
        the y-ticks per x-ticks conversion rate m1 this epoch.
 
        Otherwise, we can't microstep the fd_clock backward while
-       preserving monotonicity.  To correct an overestimate at this
-       epoch, we reduce the conversion rate to approximately absorb
+       ensuring monotonicity on observers.  To correct the overestimate
+       this epoch, we reduce the conversion rate to approximately absorb
        recal_frac the overestimate over the coming epoch.  The reduction
        is such that, asymptotically, the resulting conversion should
        always be positive.
@@ -485,7 +487,7 @@ fd_clock_recal( fd_clock_t * clock,
 
   }
 
-  return fd_clock_epoch_next( shclock, x1, y1, w1, y1_eff, m1, err );
+  return fd_clock_next( shclock, x1, y1, w1, y1_eff, m1, err );
 }
 
 long
@@ -493,7 +495,7 @@ fd_clock_step( fd_clock_t * clock,
                long         x0,
                long         y0,
                double       w ) {
-  return fd_clock_epoch_next( clock->shclock, x0, y0, w, y0, 1./w, 0 );
+  return fd_clock_next( clock->shclock, x0, y0, w, y0, 1./w, 0 ); /* FIXME: Consider treating these as a "err" */
 }
 
 char const *
