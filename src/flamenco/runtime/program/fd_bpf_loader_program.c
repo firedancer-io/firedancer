@@ -218,8 +218,8 @@ fd_deploy_program( fd_exec_instr_ctx_t * instr_ctx,
   vm = fd_vm_init(
     /* vm                 */ vm,
     /* instr_ctx          */ instr_ctx,
-    /* heap_max           */ instr_ctx->txn_ctx->heap_size,
-    /* entry_cu           */ instr_ctx->txn_ctx->compute_meter,
+    /* heap_max           */ instr_ctx->txn_ctx->compute_budget_details.heap_size,
+    /* entry_cu           */ instr_ctx->txn_ctx->compute_budget_details.compute_meter,
     /* rodata             */ prog->rodata,
     /* rodata_sz          */ prog->rodata_sz,
     /* text               */ prog->text,
@@ -442,8 +442,8 @@ fd_bpf_execute( fd_exec_instr_ctx_t * instr_ctx, fd_sbpf_validated_program_t con
   fd_vm_t _vm[1];
   fd_vm_t * vm = fd_vm_join( fd_vm_new( _vm ) );
 
-  ulong pre_insn_cus = instr_ctx->txn_ctx->compute_meter;
-  ulong heap_max     = instr_ctx->txn_ctx->heap_size;
+  ulong pre_insn_cus = instr_ctx->txn_ctx->compute_budget_details.compute_meter;
+  ulong heap_max     = instr_ctx->txn_ctx->compute_budget_details.heap_size;
 
   /* For dumping syscalls for seed corpora */
   int dump_syscall_to_pb = instr_ctx->txn_ctx->capture_ctx &&
@@ -455,7 +455,7 @@ fd_bpf_execute( fd_exec_instr_ctx_t * instr_ctx, fd_sbpf_validated_program_t con
     /* vm                    */ vm,
     /* instr_ctx             */ instr_ctx,
     /* heap_max              */ heap_max, /* TODO: configure heap allocator */
-    /* entry_cu              */ instr_ctx->txn_ctx->compute_meter,
+    /* entry_cu              */ instr_ctx->txn_ctx->compute_budget_details.compute_meter,
     /* rodata                */ prog->rodata,
     /* rodata_sz             */ prog->rodata_sz,
     /* text                  */ (ulong *)((ulong)prog->rodata + (ulong)prog->text_off), /* Note: text_off is byte offset */
@@ -498,7 +498,7 @@ fd_bpf_execute( fd_exec_instr_ctx_t * instr_ctx, fd_sbpf_validated_program_t con
 #endif
 
   /* https://github.com/anza-xyz/agave/blob/v2.2.0/programs/bpf_loader/src/lib.rs#L1440-L1447 */
-  ulong heap_size = instr_ctx->txn_ctx->heap_size;
+  ulong heap_size = instr_ctx->txn_ctx->compute_budget_details.heap_size;
   ulong heap_cost = FD_VM_HEAP_COST;
   ulong heap_cost_result = calculate_heap_cost( heap_size, heap_cost );
 
@@ -509,7 +509,7 @@ fd_bpf_execute( fd_exec_instr_ctx_t * instr_ctx, fd_sbpf_validated_program_t con
   vm->cu -= heap_cost_result;
 
   int exec_err = fd_vm_exec( vm );
-  instr_ctx->txn_ctx->compute_meter = vm->cu;
+  instr_ctx->txn_ctx->compute_budget_details.compute_meter = vm->cu;
 
   if( FD_UNLIKELY( vm->trace ) ) {
     err = fd_vm_trace_printf( vm->trace, vm->syscalls );
@@ -544,7 +544,7 @@ fd_bpf_execute( fd_exec_instr_ctx_t * instr_ctx, fd_sbpf_validated_program_t con
     /* (SIMD-182) Consume ALL requested CUs on non-Syscall errors */
     if( FD_FEATURE_ACTIVE_BANK( instr_ctx->txn_ctx->bank, deplete_cu_meter_on_vm_failure ) &&
         exec_err!=FD_VM_ERR_EBPF_SYSCALL_ERROR ) {
-      instr_ctx->txn_ctx->compute_meter = 0UL;
+      instr_ctx->txn_ctx->compute_budget_details.compute_meter = 0UL;
     }
 
     /* Direct mapping access violation case

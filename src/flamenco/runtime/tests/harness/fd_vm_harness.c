@@ -476,7 +476,7 @@ fd_runtime_fuzz_vm_syscall_run( fd_runtime_fuzz_runner_t * runner,
   fd_vm_init( vm,
               ctx,
               input->vm_ctx.heap_max,
-              ctx->txn_ctx->compute_meter,
+              ctx->txn_ctx->compute_budget_details.compute_meter,
               rodata,
               rodata_sz,
               NULL, // TODO

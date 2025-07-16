@@ -469,16 +469,15 @@ fd_runtime_fuzz_txn_run( fd_runtime_fuzz_runner_t * runner,
     txn_result->instruction_error                 = 0;
     txn_result->instruction_error_index           = 0;
     txn_result->custom_error                      = 0;
-    txn_result->executed_units                    = txn_ctx->compute_unit_limit - txn_ctx->compute_meter;
     txn_result->has_fee_details                   = false;
-    txn_result->loaded_accounts_data_size         = task_info->txn_ctx->loaded_accounts_data_size;
+    txn_result->loaded_accounts_data_size         = txn_ctx->loaded_accounts_data_size;
 
     if( txn_result->sanitization_error ) {
       /* Collect fees for transactions that failed to load */
       if( task_info->txn->flags & FD_TXN_P_FLAGS_FEES_ONLY ) {
         txn_result->has_fee_details                = true;
-        txn_result->fee_details.prioritization_fee = task_info->txn_ctx->priority_fee;
-        txn_result->fee_details.transaction_fee    = task_info->txn_ctx->execution_fee;
+        txn_result->fee_details.prioritization_fee = txn_ctx->priority_fee;
+        txn_result->fee_details.transaction_fee    = txn_ctx->execution_fee;
       }
 
       if( exec_res==FD_RUNTIME_TXN_ERR_INSTRUCTION_ERROR ) {
@@ -521,8 +520,10 @@ fd_runtime_fuzz_txn_run( fd_runtime_fuzz_runner_t * runner,
     }
 
     txn_result->has_fee_details                = true;
-    txn_result->fee_details.transaction_fee    = task_info->txn_ctx->execution_fee;
-    txn_result->fee_details.prioritization_fee = task_info->txn_ctx->priority_fee;
+    txn_result->fee_details.transaction_fee    = txn_ctx->execution_fee;
+    txn_result->fee_details.prioritization_fee = txn_ctx->priority_fee;
+    txn_result->executed_units                 = txn_ctx->compute_budget_details.compute_unit_limit - txn_ctx->compute_budget_details.compute_meter;
+
 
     /* Rent is only collected on successfully loaded transactions */
     txn_result->rent                           = txn_ctx->collected_rent;

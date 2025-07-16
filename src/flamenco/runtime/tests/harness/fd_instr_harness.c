@@ -102,12 +102,12 @@ fd_runtime_fuzz_instr_ctx_create( fd_runtime_fuzz_runner_t *           runner,
                                       NULL );
   fd_exec_txn_ctx_setup_basic( txn_ctx );
 
-  txn_ctx->txn_descriptor     = txn_descriptor;
-  txn_ctx->compute_unit_limit = test_ctx->cu_avail;
-  txn_ctx->compute_meter      = test_ctx->cu_avail;
-  txn_ctx->vote_accounts_pool = NULL;
-  txn_ctx->spad               = runner->spad;
-  txn_ctx->instr_info_cnt     = 1UL;
+  txn_ctx->txn_descriptor                            = txn_descriptor;
+  txn_ctx->compute_budget_details.compute_unit_limit = test_ctx->cu_avail;
+  txn_ctx->compute_budget_details.compute_meter      = test_ctx->cu_avail;
+  txn_ctx->vote_accounts_pool                        = NULL;
+  txn_ctx->spad                                      = runner->spad;
+  txn_ctx->instr_info_cnt                            = 1UL;
 
   /* Set up instruction context */
 
@@ -430,7 +430,7 @@ fd_runtime_fuzz_instr_run( fd_runtime_fuzz_runner_t * runner,
   /* Capture error code */
 
   effects->result   = -exec_result;
-  effects->cu_avail = ctx->txn_ctx->compute_meter;
+  effects->cu_avail = ctx->txn_ctx->compute_budget_details.compute_meter;
 
   if( exec_result == FD_EXECUTOR_INSTR_ERR_CUSTOM_ERR ) {
     effects->custom_err     = ctx->txn_ctx->custom_err;

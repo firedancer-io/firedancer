@@ -1418,7 +1418,7 @@ fd_runtime_finalize_txn( fd_funk_t *                  funk,
   }
 
   ulong * total_compute_units_used = fd_bank_total_compute_units_used_modify( bank );
-  FD_ATOMIC_FETCH_AND_ADD( total_compute_units_used, txn_ctx->compute_unit_limit - txn_ctx->compute_meter );
+  FD_ATOMIC_FETCH_AND_ADD( total_compute_units_used, txn_ctx->compute_budget_details.compute_unit_limit - txn_ctx->compute_budget_details.compute_meter );
 
 }
 
@@ -1530,8 +1530,8 @@ fd_runtime_prepare_execute_finalize_txn_task( void * tpool,
 
    load_and_execute_transactions() contains the function check_transactions().
    This contains check_age() and check_status_cache() which is paralleled by
-   fd_check_transaction_age() and fd_executor_check_status_cache()
-   respectively.
+   fd_executor_check_transaction_age_and_compute_budget_limits() and
+   fd_executor_check_status_cache() respectively.
 
    load_and_execute_sanitized_transactions() contains validate_fees()
    which is responsible for executing the compute budget instructions,

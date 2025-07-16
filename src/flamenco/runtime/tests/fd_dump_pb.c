@@ -965,7 +965,7 @@ create_instr_context_protobuf_from_instructions( fd_exec_test_instr_context_t * 
   fd_memcpy( instr_context->data->bytes, instr->data, instr->data_sz );
 
   /* Compute Units */
-  instr_context->cu_avail = txn_ctx->compute_meter;
+  instr_context->cu_avail = txn_ctx->compute_budget_details.compute_meter;
 
   /* Slot Context */
   instr_context->has_slot_context = true;
@@ -1213,8 +1213,8 @@ FD_SPAD_FRAME_BEGIN( vm->instr_ctx->txn_ctx->spad ) {
 
   /* SyscallContext -> syscall_invocation -> heap_prefix */
   sys_ctx.syscall_invocation.heap_prefix = fd_spad_alloc( vm->instr_ctx->txn_ctx->spad, 8UL, PB_BYTES_ARRAY_T_ALLOCSIZE( vm->heap_max ) );
-  sys_ctx.syscall_invocation.heap_prefix->size = (pb_size_t) vm->instr_ctx->txn_ctx->heap_size;
-  fd_memcpy( sys_ctx.syscall_invocation.heap_prefix->bytes, vm->heap, vm->instr_ctx->txn_ctx->heap_size );
+  sys_ctx.syscall_invocation.heap_prefix->size = (pb_size_t) vm->instr_ctx->txn_ctx->compute_budget_details.heap_size;
+  fd_memcpy( sys_ctx.syscall_invocation.heap_prefix->bytes, vm->heap, vm->instr_ctx->txn_ctx->compute_budget_details.heap_size );
 
   /* SyscallContext -> syscall_invocation -> stack_prefix */
   pb_size_t stack_sz = (pb_size_t)FD_VM_STACK_MAX;
