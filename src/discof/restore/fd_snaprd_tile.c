@@ -427,12 +427,7 @@ privileged_init( fd_topo_t *      topo,
   ulong incremental_slot = ULONG_MAX;
   char full_path[ PATH_MAX ] = {0};
   char incremental_path[ PATH_MAX ] = {0};
-  if( FD_UNLIKELY( -1==fd_ssarchive_latest_pair( tile->snaprd.snapshots_path,
-                                                 tile->snaprd.incremental_snapshot_fetch,
-                                                 &full_slot,
-                                                 &incremental_slot,
-                                                 full_path,
-                                                 incremental_path ) ) ) {
+  if( 1 ) {
     ctx->local.full_snapshot_slot = ULONG_MAX;
     ctx->local.incremental_snapshot_slot = ULONG_MAX;
   } else {
