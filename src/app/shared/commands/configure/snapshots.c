@@ -21,18 +21,10 @@ check( config_t const * config ) {
   CONFIGURE_OK();
 }
 
-static void
-fini( config_t const * config,
-      int              pre_init ) {
-  (void)pre_init;
-  if( -1==fd_file_util_rmtree( config->paths.snapshots, 1 ) )
-    FD_LOG_ERR(( "rmtree `%s` failed (%i-%s)", config->paths.snapshots, errno, fd_io_strerror( errno ) ));
-}
-
 configure_stage_t fd_cfg_stage_snapshots = {
   .name            = "snapshots",
   .always_recreate = 0,
   .init            = init,
-  .fini            = fini,
+  .fini            = NULL,
   .check           = check,
 };
