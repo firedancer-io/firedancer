@@ -2,16 +2,12 @@
 #define HEADER_fd_src_flamenco_runtime_program_fd_compute_budget_program_h
 
 #include "../../fd_flamenco_base.h"
-#include "../context/fd_exec_instr_ctx.h"
 
 /* FIXME: put these elsewhere */
 #define FD_MIN_HEAP_FRAME_BYTES (32 * 1024)     /* Min heap size */
 #define FD_MAX_HEAP_FRAME_BYTES (256 * 1024)    /* Max heap size */
 #define FD_HEAP_FRAME_BYTES_GRANULARITY (1024)  /* Heap frame requests must be a multiple of this number */
 #define FD_MAX_COMPUTE_UNIT_LIMIT (1400000)     /* Max compute unit limit */
-
-#define FD_COMPUTE_BUDGET_PRIORITIZATION_FEE_TYPE_COMPUTE_UNIT_PRICE (0)
-#define FD_COMPUTE_BUDGET_PRIORITIZATION_FEE_TYPE_DEPRECATED         (1)
 
 /* SIMD-170 defines new default compute units for builtin, non-builtin, and migrated programs:
    - Any non-migrated builtins have a conservative default CU limit of 3,000 CUs.
@@ -23,6 +19,15 @@
 #define FD_PROGRAM_KIND_MIGRATING_BUILTIN (2)
 
 FD_PROTOTYPES_BEGIN
+
+/* Validates the requested compute budget limits. Returns an error if
+   the requested heap size is invalid, or if the loaded accounts data
+   size limit is 0. Also bounds the compute unit and loaded
+   accounts data size limits to a specified min / max value.
+
+   https://github.com/anza-xyz/agave/blob/v2.3.1/compute-budget-instruction/src/compute_budget_instruction_details.rs#L101-L153 */
+int
+fd_sanitize_compute_unit_limits( fd_exec_txn_ctx_t * ctx );
 
 int
 fd_executor_compute_budget_program_execute_instructions( fd_exec_txn_ctx_t * ctx );

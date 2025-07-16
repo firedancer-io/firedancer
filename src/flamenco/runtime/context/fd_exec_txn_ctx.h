@@ -9,6 +9,7 @@
 #include "../fd_bank_hash_cmp.h"
 #include "../fd_bank.h"
 #include "../../../funk/fd_funk.h"
+#include "../fd_compute_budget_details.h"
 
 /* Return data for syscalls */
 
@@ -80,16 +81,13 @@ struct fd_exec_txn_ctx {
 
   fd_spad_t *                          spad;                                        /* Sized out to handle the worst case footprint of single transaction execution. */
   fd_wksp_t *                          spad_wksp;                                   /* Workspace for the spad. */
+
+  fd_compute_budget_details_t          compute_budget_details;                      /* Compute budget details */
+
   /* Fields below here are not guaranteed to be local joins in txn execution. */
 
   ulong                                paid_fees;
-  ulong                                compute_unit_limit;                          /* Compute unit limit for this transaction. */
-  ulong                                compute_unit_price;                          /* Compute unit price for this transaction. */
-  ulong                                compute_meter;                               /* Remaining compute units */
-  ulong                                heap_size;                                   /* Heap size for VMs for this transaction. */
-  ulong                                loaded_accounts_data_size_limit;             /* Loaded accounts data size limit for this transaction. */
   ulong                                loaded_accounts_data_size;                   /* The actual transaction loaded data size */
-  uint                                 prioritization_fee_type;                     /* The type of prioritization fee to use. */
   fd_txn_t const *                     txn_descriptor;                              /* Descriptor of the transaction. */
   fd_rawtxn_b_t                        _txn_raw[1];                                 /* Raw bytes of the transaction. */
   uint                                 custom_err;                                  /* When a custom error is returned, this is where the numeric value gets stashed */

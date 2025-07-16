@@ -174,21 +174,16 @@ fd_exec_txn_ctx_get_key_of_account_at_index( fd_exec_txn_ctx_t *  ctx,
 
 void
 fd_exec_txn_ctx_setup_basic( fd_exec_txn_ctx_t * ctx ) {
-  ctx->compute_unit_limit = 200000;
-  ctx->compute_unit_price = 0;
-  ctx->compute_meter      = 200000;
-  ctx->prioritization_fee_type = FD_COMPUTE_BUDGET_PRIORITIZATION_FEE_TYPE_DEPRECATED;
-  ctx->custom_err         = UINT_MAX;
+  fd_compute_budget_details_new( &ctx->compute_budget_details );
 
-  ctx->instr_stack_sz                  = 0;
-  ctx->accounts_cnt                    = 0UL;
-  ctx->executable_cnt                  = 0UL;
-  ctx->paid_fees                       = 0UL;
-  ctx->heap_size                       = FD_VM_HEAP_DEFAULT;
-  ctx->loaded_accounts_data_size_limit = FD_VM_LOADED_ACCOUNTS_DATA_SIZE_LIMIT;
-  ctx->loaded_accounts_data_size       = 0UL;
-  ctx->accounts_resize_delta           = 0UL;
-  ctx->collected_rent                  = 0UL;
+  ctx->custom_err                = UINT_MAX;
+  ctx->instr_stack_sz            = 0;
+  ctx->accounts_cnt              = 0UL;
+  ctx->executable_cnt            = 0UL;
+  ctx->paid_fees                 = 0UL;
+  ctx->loaded_accounts_data_size = 0UL;
+  ctx->accounts_resize_delta     = 0UL;
+  ctx->collected_rent            = 0UL;
 
   ctx->num_instructions = 0;
   memset( ctx->return_data.program_id.key, 0, sizeof(fd_pubkey_t) );

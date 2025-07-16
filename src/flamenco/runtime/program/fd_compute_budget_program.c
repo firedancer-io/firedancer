@@ -8,6 +8,7 @@
 #include "../context/fd_exec_slot_ctx.h"
 #include "../../vm/fd_vm.h"
 #include "fd_builtin_programs.h"
+#include "../fd_compute_budget_details.h"
 
 #define DEFAULT_INSTRUCTION_COMPUTE_UNIT_LIMIT    (200000UL)
 #define DEFAULT_COMPUTE_UNITS                     (150UL)
@@ -72,29 +73,51 @@ sanitize_requested_heap_size( ulong bytes ) {
   return !(bytes>FD_MAX_HEAP_FRAME_BYTES || bytes<FD_MIN_HEAP_FRAME_BYTES || bytes%FD_HEAP_FRAME_BYTES_GRANULARITY);
 }
 
-/* NOTE: At this point, the transaction context has NOT been fully initialized (namely, the accounts). The accounts are NOT safe to access.
+int
+fd_sanitize_compute_unit_limits( fd_exec_txn_ctx_t * ctx ) {
+  fd_compute_budget_details_t * details = &ctx->compute_budget_details;
 
-   https://github.com/anza-xyz/agave/blob/16de8b75ebcd57022409b422de557dd37b1de8db/compute-budget/src/compute_budget_processor.rs#L69-L148 */
+  /* https://github.com/anza-xyz/agave/blob/v2.3.1/compute-budget-instruction/src/compute_budget_instruction_details.rs#L106-L119 */
+  if( details->has_requested_heap_size ) {
+    if( FD_UNLIKELY( !sanitize_requested_heap_size( details->heap_size ) ) ) {
+      FD_TXN_ERR_FOR_LOG_INSTR( ctx, FD_EXECUTOR_INSTR_ERR_INVALID_INSTR_DATA, details->requested_heap_size_instr_index );
+      return FD_RUNTIME_TXN_ERR_INSTRUCTION_ERROR;
+    }
+  }
+
+  /* https://github.com/anza-xyz/agave/blob/v2.3.1/compute-budget-instruction/src/compute_budget_instruction_details.rs#L122-L128 */
+  if( !details->has_compute_units_limit_update ) {
+    details->compute_unit_limit = calculate_default_compute_unit_limit( details->num_builtin_instrs,
+                                                                        details->num_non_builtin_instrs );
+  }
+  details->compute_unit_limit = fd_ulong_min( FD_MAX_COMPUTE_UNIT_LIMIT, details->compute_unit_limit );
+  details->compute_meter      = details->compute_unit_limit;
+
+  /* https://github.com/anza-xyz/agave/blob/v2.3.1/compute-budget-instruction/src/compute_budget_instruction_details.rs#L136-L145 */
+  if( details->has_loaded_accounts_data_size_limit_update ) {
+    if( FD_UNLIKELY( details->loaded_accounts_data_size_limit==0UL ) ) {
+      return FD_RUNTIME_TXN_ERR_INVALID_LOADED_ACCOUNTS_DATA_SIZE_LIMIT;
+    }
+    details->loaded_accounts_data_size_limit = fd_ulong_min( FD_VM_LOADED_ACCOUNTS_DATA_SIZE_LIMIT,
+                                                             details->loaded_accounts_data_size_limit );
+  }
+
+  return FD_RUNTIME_EXECUTE_SUCCESS;
+}
+
+/* Like Agave, this function is called during transaction verification
+   and is responsible for simply reading and decoding the compute budget
+   instruction data. Throws an error if any compute budget instruction
+   in the transaction has invalid instruction data, or if there are duplicate
+   compute budget instructions.
+
+   NOTE: At this point, the transaction context has NOT been fully
+   initialized (namely, the accounts). The accounts are NOT safe to access.
+
+   https://github.com/anza-xyz/agave/blob/v2.3.1/compute-budget-instruction/src/compute_budget_instruction_details.rs#L54-L99 */
 int
 fd_executor_compute_budget_program_execute_instructions( fd_exec_txn_ctx_t * ctx ) {
-  uint   has_compute_units_limit_update              = 0UL;
-  uint   has_compute_units_price_update              = 0UL;
-  uint   has_requested_heap_size                     = 0UL;
-  uint   has_loaded_accounts_data_size_limit_update  = 0UL;
-
-  ushort requested_heap_size_instr_index             = 0;
-
-  /* SIMD-170 introduces a conservative CU limit of 3,000 CUs per non-migrated native program,
-     and 200,000 CUs for all other programs (including migrated builtins). */
-  ulong  num_builtin_instrs                          = 0UL;
-  ulong  num_non_builtin_instrs                      = 0UL;
-
-  uint   updated_compute_unit_limit                  = 0U;
-  uint   updated_requested_heap_size                 = 0U;
-  uint   updated_loaded_accounts_data_size_limit     = 0U;
-  ulong  updated_compute_unit_price                  = 0UL;
-
-  uint prioritization_fee_type = FD_COMPUTE_BUDGET_PRIORITIZATION_FEE_TYPE_COMPUTE_UNIT_PRICE;
+  fd_compute_budget_details_t * details = &ctx->compute_budget_details;
 
   for( ushort i=0; i<ctx->txn_descriptor->instr_cnt; i++ ) {
     fd_txn_instr_t const * instr = &ctx->txn_descriptor->instr[i];
@@ -102,9 +125,9 @@ fd_executor_compute_budget_program_execute_instructions( fd_exec_txn_ctx_t * ctx
     /* Only `FD_PROGRAM_KIND_BUILTIN` gets charged as a builtin instruction */
     uchar program_kind = get_program_kind( ctx, instr );
     if( program_kind==FD_PROGRAM_KIND_BUILTIN ) {
-      num_builtin_instrs++;
+      details->num_builtin_instrs++;
     } else {
-      num_non_builtin_instrs++;
+      details->num_non_builtin_instrs++;
     }
 
     if( !is_compute_budget_instruction( ctx->txn_descriptor, ctx->_txn_raw, instr ) ) {
@@ -126,45 +149,40 @@ fd_executor_compute_budget_program_execute_instructions( fd_exec_txn_ctx_t * ctx
 
     switch( instruction->discriminant ) {
       case fd_compute_budget_program_instruction_enum_request_heap_frame: {
-        if( FD_UNLIKELY( has_requested_heap_size ) ) {
+        if( FD_UNLIKELY( details->has_requested_heap_size ) ) {
           return FD_RUNTIME_TXN_ERR_DUPLICATE_INSTRUCTION;
         }
 
-        has_requested_heap_size     = 1U;
-        updated_requested_heap_size = instruction->inner.request_heap_frame;
-        requested_heap_size_instr_index = i;
-
+        details->has_requested_heap_size         = 1;
+        details->heap_size                       = instruction->inner.request_heap_frame;
+        details->requested_heap_size_instr_index = i;
         break;
       }
       case fd_compute_budget_program_instruction_enum_set_compute_unit_limit: {
-        if( FD_UNLIKELY( has_compute_units_limit_update ) ) {
+        if( FD_UNLIKELY( details->has_compute_units_limit_update ) ) {
           return FD_RUNTIME_TXN_ERR_DUPLICATE_INSTRUCTION;
         }
 
-        has_compute_units_limit_update  = 1U;
-        updated_compute_unit_limit      = instruction->inner.set_compute_unit_limit;
-
+        details->has_compute_units_limit_update = 1;
+        details->compute_unit_limit             = instruction->inner.set_compute_unit_limit;
         break;
       }
       case fd_compute_budget_program_instruction_enum_set_compute_unit_price: {
-        if( FD_UNLIKELY( has_compute_units_price_update ) ) {
+        if( FD_UNLIKELY( details->has_compute_units_price_update ) ) {
           return FD_RUNTIME_TXN_ERR_DUPLICATE_INSTRUCTION;
         }
 
-        has_compute_units_price_update = 1U;
-        prioritization_fee_type        = FD_COMPUTE_BUDGET_PRIORITIZATION_FEE_TYPE_COMPUTE_UNIT_PRICE;
-        updated_compute_unit_price     = instruction->inner.set_compute_unit_price;
-
+        details->has_compute_units_price_update = 1;
+        details->compute_unit_price             = instruction->inner.set_compute_unit_price;
         break;
       }
       case fd_compute_budget_program_instruction_enum_set_loaded_accounts_data_size_limit: {
-          if( FD_UNLIKELY( has_loaded_accounts_data_size_limit_update ) ) {
+          if( FD_UNLIKELY( details->has_loaded_accounts_data_size_limit_update ) ) {
             return FD_RUNTIME_TXN_ERR_DUPLICATE_INSTRUCTION;
           }
 
-          has_loaded_accounts_data_size_limit_update = 1U;
-          updated_loaded_accounts_data_size_limit    = instruction->inner.set_loaded_accounts_data_size_limit;
-
+          details->has_loaded_accounts_data_size_limit_update = 1;
+          details->loaded_accounts_data_size_limit            = instruction->inner.set_loaded_accounts_data_size_limit;
           break;
       }
       default: {
@@ -174,41 +192,8 @@ fd_executor_compute_budget_program_execute_instructions( fd_exec_txn_ctx_t * ctx
     }
   }
 
-  /* https://github.com/anza-xyz/agave/blob/v2.1/runtime-transaction/src/compute_budget_instruction_details.rs#L51-L64 */
-  if( has_requested_heap_size ) {
-    if( FD_UNLIKELY( !sanitize_requested_heap_size( updated_requested_heap_size ) ) ) {
-      FD_TXN_ERR_FOR_LOG_INSTR( ctx, FD_EXECUTOR_INSTR_ERR_INVALID_INSTR_DATA, requested_heap_size_instr_index );
-      return FD_RUNTIME_TXN_ERR_INSTRUCTION_ERROR;
-    }
-    ctx->heap_size = updated_requested_heap_size;
-  }
-
-  /* https://github.com/anza-xyz/agave/blob/v2.1.13/runtime-transaction/src/compute_budget_instruction_details.rs#L137-L143 */
-  if( has_compute_units_limit_update ) {
-    ctx->compute_unit_limit = fd_ulong_min( FD_MAX_COMPUTE_UNIT_LIMIT, updated_compute_unit_limit );
-  } else {
-    ctx->compute_unit_limit = fd_ulong_min( calculate_default_compute_unit_limit( num_builtin_instrs, num_non_builtin_instrs ),
-                                            FD_MAX_COMPUTE_UNIT_LIMIT );
-  }
-  ctx->compute_meter = ctx->compute_unit_limit;
-
-  if( has_compute_units_price_update ) {
-    ctx->prioritization_fee_type = prioritization_fee_type;
-    ctx->compute_unit_price      = updated_compute_unit_price;
-  }
-
-  /* https://github.com/anza-xyz/agave/blob/v2.1/runtime-transaction/src/compute_budget_instruction_details.rs#L84-L93 */
-  if( has_loaded_accounts_data_size_limit_update ) {
-    if( FD_UNLIKELY( updated_loaded_accounts_data_size_limit==0UL ) ) {
-      return FD_RUNTIME_TXN_ERR_INVALID_LOADED_ACCOUNTS_DATA_SIZE_LIMIT;
-    }
-    ctx->loaded_accounts_data_size_limit =
-      fd_ulong_min( FD_VM_LOADED_ACCOUNTS_DATA_SIZE_LIMIT, updated_loaded_accounts_data_size_limit );
-  }
-
   return FD_RUNTIME_EXECUTE_SUCCESS;
 }
-
 
 int fd_compute_budget_program_execute( fd_exec_instr_ctx_t * ctx ) {
   FD_EXEC_CU_UPDATE( ctx, DEFAULT_COMPUTE_UNITS );

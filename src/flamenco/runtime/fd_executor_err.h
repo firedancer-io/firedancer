@@ -94,7 +94,4 @@
 #define FD_EXECUTOR_PRECOMPILE_ERR_DATA_OFFSET                   ( 3 )
 #define FD_EXECUTOR_PRECOMPILE_ERR_INSTR_DATA_SIZE               ( 4 )
 
-#define FD_COMPUTE_BUDGET_PRIORITIZATION_FEE_TYPE_COMPUTE_UNIT_PRICE (0)
-#define FD_COMPUTE_BUDGET_PRIORITIZATION_FEE_TYPE_DEPRECATED         (1)
-
 #endif /* HEADER_fd_src_flamenco_runtime_fd_executor_err_h */

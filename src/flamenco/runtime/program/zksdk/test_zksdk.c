@@ -40,7 +40,7 @@ create_test_ctx( fd_exec_instr_ctx_t * ctx,
   // This is just minimally setting the instr data so we can test zkp verification
   // TODO: properly load tx
   ctx->txn_ctx = txn_ctx;
-  txn_ctx->compute_meter = compute_meter;
+  txn_ctx->compute_budget_details.compute_meter = compute_meter;
   ctx->instr = instr;
   instr->data = &tx[instr_off];
   instr->data_sz = (ushort)(tx_len - instr_off); //TODO: this only works if the instruction is the last one

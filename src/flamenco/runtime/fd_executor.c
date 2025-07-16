@@ -377,16 +377,38 @@ fd_executor_check_status_cache( fd_exec_txn_ctx_t * txn_ctx ) {
   return 0;
 }
 
-/* https://github.com/anza-xyz/agave/blob/ced98f1ebe73f7e9691308afa757323003ff744f/runtime/src/bank.rs#L3596-L3605 */
-int
-fd_executor_check_transactions( fd_exec_txn_ctx_t * txn_ctx ) {
-  /* https://github.com/anza-xyz/agave/blob/ced98f1ebe73f7e9691308afa757323003ff744f/runtime/src/bank.rs#L3603 */
+/* https://github.com/anza-xyz/agave/blob/v2.3.1/runtime/src/bank/check_transactions.rs#L77-L141 */
+static int
+fd_executor_check_transaction_age_and_compute_budget_limits( fd_exec_txn_ctx_t * txn_ctx ) {
+  /* Note that in Agave, although this function is called after the
+     compute budget limits are sanitized, if the transaction age checks
+     fail, then we return the transaction age error instead of the
+     compute budget error.
+     https://github.com/anza-xyz/agave/blob/v2.3.1/runtime/src/bank/check_transactions.rs#L128-L136 */
   int err = fd_check_transaction_age( txn_ctx );
   if( FD_UNLIKELY( err!=FD_RUNTIME_EXECUTE_SUCCESS ) ) {
     return err;
   }
 
-  /* https://github.com/anza-xyz/agave/blob/ced98f1ebe73f7e9691308afa757323003ff744f/runtime/src/bank.rs#L3604 */
+  /* https://github.com/anza-xyz/agave/blob/v2.3.1/runtime/src/bank/check_transactions.rs#L103 */
+  err = fd_sanitize_compute_unit_limits( txn_ctx );
+  if( FD_UNLIKELY( err!=FD_RUNTIME_EXECUTE_SUCCESS ) ) {
+    return err;
+  }
+
+  return FD_RUNTIME_EXECUTE_SUCCESS;
+}
+
+/* https://github.com/anza-xyz/agave/blob/v2.3.1/runtime/src/bank/check_transactions.rs#L61-L75 */
+int
+fd_executor_check_transactions( fd_exec_txn_ctx_t * txn_ctx ) {
+  /* https://github.com/anza-xyz/agave/blob/v2.3.1/runtime/src/bank/check_transactions.rs#L68-L73 */
+  int err = fd_executor_check_transaction_age_and_compute_budget_limits( txn_ctx );
+  if( FD_UNLIKELY( err!=FD_RUNTIME_EXECUTE_SUCCESS ) ) {
+    return err;
+  }
+
+  /* https://github.com/anza-xyz/agave/blob/v2.3.1/runtime/src/bank/check_transactions.rs#L74 */
   err = fd_executor_check_status_cache( txn_ctx );
   if( FD_UNLIKELY( err!=FD_RUNTIME_EXECUTE_SUCCESS ) ) {
     return err;
@@ -495,7 +517,7 @@ load_transaction_account( fd_exec_txn_ctx_t * txn_ctx,
    https://github.com/anza-xyz/agave/blob/v2.2.0/svm/src/account_loader.rs#L393-L534 */
 int
 fd_executor_load_transaction_accounts( fd_exec_txn_ctx_t * txn_ctx ) {
-  ulong                       requested_loaded_accounts_data_size = txn_ctx->loaded_accounts_data_size_limit;
+  ulong                       requested_loaded_accounts_data_size = txn_ctx->compute_budget_details.loaded_accounts_data_size_limit;
   fd_epoch_schedule_t const * schedule                            = fd_sysvar_epoch_schedule_read( txn_ctx->funk, txn_ctx->funk_txn, txn_ctx->spad );
   if( FD_UNLIKELY( !schedule ) ) {
     FD_LOG_ERR(( "Unable to read and decode epoch schedule sysvar" ));
@@ -650,35 +672,12 @@ fd_executor_validate_account_locks( fd_exec_txn_ctx_t const * txn_ctx ) {
   return FD_RUNTIME_EXECUTE_SUCCESS;
 }
 
-static void
-compute_priority_fee( fd_exec_txn_ctx_t const * txn_ctx,
-                      ulong *                   fee,
-                      ulong *                   priority ) {
-  switch( txn_ctx->prioritization_fee_type ) {
-  case FD_COMPUTE_BUDGET_PRIORITIZATION_FEE_TYPE_DEPRECATED: {
-    if( !txn_ctx->compute_unit_limit ) {
-      *priority = 0UL;
-    }
-    else {
-      uint128 micro_lamport_fee = (uint128)txn_ctx->compute_unit_price * (uint128)MICRO_LAMPORTS_PER_LAMPORT;
-      uint128 _priority         = micro_lamport_fee / (uint128)txn_ctx->compute_unit_limit;
-      *priority                 = _priority > (uint128)ULONG_MAX ? ULONG_MAX : (ulong)_priority;
-    }
-
-    *fee = txn_ctx->compute_unit_price;
-    return;
-
-  } case FD_COMPUTE_BUDGET_PRIORITIZATION_FEE_TYPE_COMPUTE_UNIT_PRICE: {
-    uint128 micro_lamport_fee = (uint128)txn_ctx->compute_unit_price * (uint128)txn_ctx->compute_unit_limit;
-    *priority                 = txn_ctx->compute_unit_price;
-    uint128 _fee              = (micro_lamport_fee + (uint128)(MICRO_LAMPORTS_PER_LAMPORT - 1)) / (uint128)(MICRO_LAMPORTS_PER_LAMPORT);
-    *fee                      = _fee > (uint128)ULONG_MAX ? ULONG_MAX : (ulong)_fee;
-    return;
-
-  }
-  default:
-    __builtin_unreachable();
-  }
+/* https://github.com/anza-xyz/agave/blob/v2.3.1/compute-budget/src/compute_budget_limits.rs#L62-L70 */
+static ulong
+fd_get_prioritization_fee( fd_compute_budget_details_t const * compute_budget_details ) {
+  uint128 micro_lamport_fee = fd_uint128_sat_mul( compute_budget_details->compute_unit_price, compute_budget_details->compute_unit_limit );
+  uint128 fee = fd_uint128_sat_add( micro_lamport_fee, MICRO_LAMPORTS_PER_LAMPORT-1UL ) / MICRO_LAMPORTS_PER_LAMPORT;
+  return fee>(uint128)ULONG_MAX ? ULONG_MAX : (ulong)fee;
 }
 
 static ulong
@@ -693,11 +692,9 @@ fd_executor_calculate_fee( fd_exec_txn_ctx_t *  txn_ctx,
                           fd_rawtxn_b_t const * txn_raw,
                           ulong *               ret_execution_fee,
                           ulong *               ret_priority_fee) {
-
-  // https://github.com/firedancer-io/solana/blob/08a1ef5d785fe58af442b791df6c4e83fe2e7c74/runtime/src/bank.rs#L4443
-  ulong priority     = 0UL;
-  ulong priority_fee = 0UL;
-  compute_priority_fee( txn_ctx, &priority_fee, &priority );
+  /* The execution fee is just the signature fee. The priority fee
+     is calculated based on the compute budget details.
+     https://github.com/anza-xyz/agave/blob/v2.3.1/fee/src/lib.rs#L66-L83 */
 
   // let signature_fee = Self::get_num_signatures_in_message(message) .saturating_mul(fee_structure.lamports_per_signature);
   ulong num_signatures = txn_descriptor->signature_cnt;
@@ -715,52 +712,8 @@ fd_executor_calculate_fee( fd_exec_txn_ctx_t *  txn_ctx,
     }
   }
 
-  ulong signature_fee = fd_executor_lamports_per_signature( fd_bank_fee_rate_governor_query( txn_ctx->bank ) ) * num_signatures;
-
-  // TODO: as far as I can tell, this is always 0
-  //
-  //            let write_lock_fee = Self::get_num_write_locks_in_message(message)
-  //                .saturating_mul(fee_structure.lamports_per_write_lock);
-  ulong lamports_per_write_lock = 0UL;
-  ulong write_lock_fee          = fd_ulong_sat_mul(fd_txn_account_cnt(txn_descriptor, FD_TXN_ACCT_CAT_WRITABLE), lamports_per_write_lock);
-
-  // TODO: the fee_structure bin is static and default..
-  //        let loaded_accounts_data_size_cost = if include_loaded_account_data_size_in_fee {
-  //            FeeStructure::calculate_memory_usage_cost(
-  //                budget_limits.loaded_accounts_data_size_limit,
-  //                budget_limits.heap_cost,
-  //            )
-  //        } else {
-  //            0_u64
-  //        };
-  //        let total_compute_units =
-  //            loaded_accounts_data_size_cost.saturating_add(budget_limits.compute_unit_limit);
-  //        let compute_fee = self
-  //            .compute_fee_bins
-  //            .iter()
-  //            .find(|bin| total_compute_units <= bin.limit)
-  //            .map(|bin| bin.fee)
-  //            .unwrap_or_else(|| {
-  //                self.compute_fee_bins
-  //                    .last()
-  //                    .map(|bin| bin.fee)
-  //                    .unwrap_or_default()
-  //            });
-
-  // https://github.com/anza-xyz/agave/blob/2e6ca8c1f62db62c1db7f19c9962d4db43d0d550/sdk/src/fee.rs#L203-L206
-  ulong execution_fee = fd_ulong_sat_add( signature_fee, write_lock_fee );
-
-  if( execution_fee >= ULONG_MAX ) {
-    *ret_execution_fee = ULONG_MAX;
-  } else {
-    *ret_execution_fee = execution_fee;
-  }
-
-  if( priority_fee >= ULONG_MAX ) {
-    *ret_priority_fee = ULONG_MAX;
-  } else {
-    *ret_priority_fee = priority_fee;
-  }
+  *ret_execution_fee = fd_executor_lamports_per_signature( fd_bank_fee_rate_governor_query( txn_ctx->bank ) ) * num_signatures;
+  *ret_priority_fee  = fd_get_prioritization_fee( &txn_ctx->compute_budget_details );
 }
 
 /* This function creates a rollback account for just the fee payer. Although Agave
