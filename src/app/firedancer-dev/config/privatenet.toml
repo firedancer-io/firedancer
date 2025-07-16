@@ -28,4 +28,5 @@
         repair_server_listen_port = 0
     [tiles.replay]
         cluster_version = ""
-        snapshot = ""
+[snapshots]
+    cluster = "private"
