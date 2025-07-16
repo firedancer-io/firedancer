@@ -847,6 +847,10 @@ init_after_snapshot( fd_replay_tile_ctx_t * ctx,
     FD_LOG_CRIT(( "Failed to initialize snapshot fork" ));
   }
 
+  fd_hash_t * block_id = fd_bank_block_id_modify( ctx->slot_ctx->bank );
+  memset( block_id, 0, sizeof(fd_hash_t) );
+  block_id->key[0] = UCHAR_MAX; /* TODO: would be nice to have the actual block id of the snapshot slot */
+
   fd_stakes_global_t const *        stakes        = fd_bank_stakes_locking_query( ctx->slot_ctx->bank );
   fd_vote_accounts_global_t const * vote_accounts = &stakes->vote_accounts;
 
@@ -1033,10 +1037,11 @@ during_frag( fd_replay_tile_ctx_t * ctx,
     ctx->_snap_out_chunk = chunk;
   } else if( in_idx==REPAIR_IN_IDX ) {
     if( FD_UNLIKELY( fd_disco_repair_replay_sig_slot_complete( sig ) ) ) {
-      FD_LOG_NOTICE(( "inserting bid for slot %lu, block_id: %s", fd_disco_repair_replay_sig_slot( sig ), FD_BASE58_ENC_32_ALLOCA(ctx->repair_in_mem) ));
+      uchar const * dcache_entry = fd_chunk_to_laddr_const( ctx->repair_in_mem, chunk );
+      FD_LOG_NOTICE(( "inserting bid for slot %lu, block_id: %s", fd_disco_repair_replay_sig_slot( sig ), FD_BASE58_ENC_32_ALLOCA(dcache_entry) ));
       bid_t * bid = fd_bid_map_insert( ctx->bid_map, fd_disco_repair_replay_sig_slot( sig ) );
       FD_TEST( bid ); /* equivocating slot !!! :OOO */
-      memcpy( &bid->block_id, ctx->repair_in_mem, sizeof(fd_hash_t) );
+      memcpy( &bid->block_id, dcache_entry, sizeof(fd_hash_t) );
     }
   }
 }

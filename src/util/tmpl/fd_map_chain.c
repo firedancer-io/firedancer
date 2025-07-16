@@ -947,7 +947,9 @@ MAP_(verify)( MAP_(t) const *   join,
          ele_idx = MAP_(private_unbox)( pool[ ele_idx ].MAP_NEXT ) ) {
       MAP_TEST( rem ); rem--;                                                                      /* Check for cycles */
       MAP_TEST( ele_idx<ele_cnt );                                                                 /* Check valid element index */
-      MAP_TEST( MAP_(private_chain_idx)( &pool[ ele_idx ].MAP_KEY, seed, chain_cnt )==chain_idx ); /* Check in correct chain */
+      if( MAP_(private_chain_idx)( &pool[ ele_idx ].MAP_KEY, seed, chain_cnt )!=chain_idx ){
+        __asm__("int $3");
+      } /* Check in correct chain */
 #if MAP_OPTIMIZE_RANDOM_ACCESS_REMOVAL
       MAP_TEST( pool[ ele_idx ].MAP_PREV==prev_ele );
       prev_ele = ele_idx;

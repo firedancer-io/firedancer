@@ -35,11 +35,51 @@
 
    In-memory representation:
 
-   - Each tree ele is keyed by slot number.
+   There are two maps, both backed by the same pool of tree elements.
+
+   - One map is keyed by slot number, and one map is keyed by block_id (bid).
+
+   - The elements in the slot map are a subset of the elements in the
+     bid map.
 
    - Each tree ele tracks the amount of stake (`stake`) that has voted
      for its slot, as well as the recursive sum of stake for the subtree
      rooted at that ele (`weight`).
+
+   The map keyed by slot is the "happy tree." i.e. the first version of
+   a block we see and replay is going to be the version visible in the
+   slot map. This is also the version of the slot that our tower is
+   referring to. The map keyed by block_id maintains every block that
+   we've seen evidence of, including the equivocating blocks.
+
+        0
+       / \
+      1   1'
+     / \   \
+    2   4   3
+
+   The first version of block 1 we see / replay is going to be the
+   version visible in the slot map. Block 1' will be available in the
+   hash-keyed tree, but not in the slot map. Block 3 will also be
+   available in the slot-keyed tree, despite being a descendant of
+   something not existing in the slot map.
+
+   Thus in ghost,
+
+   map_slot: 0, 1, 2, 4, 3
+   map_hash: 1'
+
+   Whatever is in the slot map is the slot referenced to by tower. Tower
+   is *pure* and has no notion of duplicitness. So tower just needs to
+   worry about querying ghost_map_slot for the proper block_id.
+
+   When tower is switching to a fork off a different duplicate block,
+   i.e. it was originally voting 1-2-4 and is switching to 1'-3 fork,
+   ghost will need to itself swap the corresponding ghost block_id in
+   the map_slot to the map_hash and vice versa.
+
+   map_slot: 0, 1', 2, 4, 3
+   map_hash: 1
 
    Link to original GHOST paper: https://eprint.iacr.org/2013/881.pdf.
    This is simply a reference for those curious about the etymology, and
@@ -65,8 +105,10 @@
    operations from processes with separate local ghost joins. */
 
 struct __attribute__((aligned(128UL))) fd_ghost_ele {
-  ulong             slot;         /* slot this ele is tracking, also the map key */
-  ulong             next;         /* reserved for internal use by fd_pool, fd_map_chain and fd_ghost_publish */
+  fd_hash_t         key;          /* block_id (merkle root of the last FEC set in the slot) */
+  ulong             slot;         /* slot this ele is tracking */
+  ulong             next;         /* reserved for internal use by fd_pool, slot fd_map_chain and fd_ghost_publish */
+  ulong             nexts;        /* reserved for internal use by slot fd_map_chain */
   ulong             parent;       /* pool idx of the parent */
   ulong             child;        /* pool idx of the left-child */
   ulong             sibling;      /* pool idx of the right-sibling */
@@ -82,9 +124,18 @@ typedef struct fd_ghost_ele fd_ghost_ele_t;
 #define POOL_T    fd_ghost_ele_t
 #include "../../util/tmpl/fd_pool.c"
 
-#define MAP_NAME  fd_ghost_map
-#define MAP_ELE_T fd_ghost_ele_t
-#define MAP_KEY   slot
+#define MAP_NAME               fd_ghost_map_hash
+#define MAP_ELE_T              fd_ghost_ele_t
+#define MAP_KEY_T              fd_hash_t
+#define MAP_KEY_EQ(k0,k1)      (!memcmp((k0),(k1), sizeof(fd_hash_t)))
+#define MAP_KEY_HASH(key,seed) (fd_hash((seed),(key),sizeof(fd_hash_t)))
+#define MAP_NEXT               next
+#include "../../util/tmpl/fd_map_chain.c"
+
+#define MAP_NAME           fd_ghost_map_slot
+#define MAP_ELE_T          fd_ghost_ele_t
+#define MAP_KEY            slot
+#define MAP_NEXT           nexts
 #include "../../util/tmpl/fd_map_chain.c"
 
 /* fd_ghost_t is the top-level structure that holds the root of the
@@ -118,7 +169,8 @@ struct __attribute__((aligned(128UL))) fd_ghost {
   ulong seed;        /* seed for various hashing function used under the hood, arbitrary */
   ulong root;        /* pool idx of the root */
   ulong pool_gaddr;  /* wksp gaddr of the pool backing this ghost, non-zero gaddr */
-  ulong map_gaddr;   /* wksp gaddr of the map (for fast O(1) querying by slot) backing this ghost, non-zero gaddr */
+  ulong map_hash_gaddr;   /* wksp gaddr of the map (for fast O(1) querying by hash) backing this ghost, non-zero gaddr */
+  ulong map_slot_gaddr;   /* wksp gaddr of the map (for fast O(1) querying by slot) backing this ghost, non-zero gaddr */
 
   /* version fseq. query pre & post read. if value is ULONG_MAX, ghost
      is uninitialized or invalid.
@@ -150,11 +202,13 @@ fd_ghost_footprint( ulong ele_max ) {
     FD_LAYOUT_APPEND(
     FD_LAYOUT_APPEND(
     FD_LAYOUT_APPEND(
+    FD_LAYOUT_APPEND(
     FD_LAYOUT_INIT,
       alignof(fd_ghost_t),   sizeof(fd_ghost_t)                 ),
       fd_fseq_align(),       fd_fseq_footprint()                ),
       fd_ghost_pool_align(), fd_ghost_pool_footprint( ele_max ) ),
-      fd_ghost_map_align(),  fd_ghost_map_footprint( ele_max )  ),
+      fd_ghost_map_hash_align(),  fd_ghost_map_hash_footprint( ele_max )  ),
+      fd_ghost_map_slot_align(),  fd_ghost_map_slot_footprint( ele_max )  ),
     fd_ghost_align() );
 }
 
@@ -200,7 +254,7 @@ fd_ghost_delete( void * ghost );
    ghost's memory, ie. the caller of fd_ghost_new. */
 
 void
-fd_ghost_init( fd_ghost_t * ghost, ulong root );
+fd_ghost_init( fd_ghost_t * ghost, ulong root, fd_hash_t * block_id );
 
 /* Accessors */
 
@@ -218,14 +272,16 @@ fd_ghost_wksp( fd_ghost_t const * ghost ) {
    address space to the corresponding ghost field.  const versions for
    each are also provided. */
 
-FD_FN_PURE static inline ulong                * fd_ghost_ver       ( fd_ghost_t       * ghost ) { return fd_wksp_laddr_fast     ( fd_ghost_wksp( ghost ),       ghost->ver_gaddr  ); }
-FD_FN_PURE static inline ulong const          * fd_ghost_ver_const ( fd_ghost_t const * ghost ) { return fd_wksp_laddr_fast     ( fd_ghost_wksp( ghost ),       ghost->ver_gaddr  ); }
-FD_FN_PURE static inline fd_ghost_ele_t       * fd_ghost_pool      ( fd_ghost_t       * ghost ) { return fd_wksp_laddr_fast     ( fd_ghost_wksp( ghost ),       ghost->pool_gaddr ); }
-FD_FN_PURE static inline fd_ghost_ele_t const * fd_ghost_pool_const( fd_ghost_t const * ghost ) { return fd_wksp_laddr_fast     ( fd_ghost_wksp( ghost ),       ghost->pool_gaddr ); }
-FD_FN_PURE static inline fd_ghost_map_t       * fd_ghost_map       ( fd_ghost_t       * ghost ) { return fd_wksp_laddr_fast     ( fd_ghost_wksp( ghost ),       ghost->map_gaddr  ); }
-FD_FN_PURE static inline fd_ghost_map_t const * fd_ghost_map_const ( fd_ghost_t const * ghost ) { return fd_wksp_laddr_fast     ( fd_ghost_wksp( ghost ),       ghost->map_gaddr  ); }
-FD_FN_PURE static inline fd_ghost_ele_t       * fd_ghost_root      ( fd_ghost_t       * ghost ) { return fd_ghost_pool_ele      ( fd_ghost_pool( ghost ),       ghost->root       ); }
-FD_FN_PURE static inline fd_ghost_ele_t const * fd_ghost_root_const( fd_ghost_t const * ghost ) { return fd_ghost_pool_ele_const( fd_ghost_pool_const( ghost ), ghost->root       ); }
+FD_FN_PURE static inline ulong                     * fd_ghost_ver           ( fd_ghost_t       * ghost ) { return fd_wksp_laddr_fast( fd_ghost_wksp( ghost ), ghost->ver_gaddr      ); }
+FD_FN_PURE static inline ulong const               * fd_ghost_ver_const     ( fd_ghost_t const * ghost ) { return fd_wksp_laddr_fast( fd_ghost_wksp( ghost ), ghost->ver_gaddr      ); }
+FD_FN_PURE static inline fd_ghost_ele_t            * fd_ghost_pool          ( fd_ghost_t       * ghost ) { return fd_wksp_laddr_fast( fd_ghost_wksp( ghost ), ghost->pool_gaddr     ); }
+FD_FN_PURE static inline fd_ghost_ele_t const      * fd_ghost_pool_const    ( fd_ghost_t const * ghost ) { return fd_wksp_laddr_fast( fd_ghost_wksp( ghost ), ghost->pool_gaddr     ); }
+FD_FN_PURE static inline fd_ghost_map_hash_t       * fd_ghost_map_hash      ( fd_ghost_t       * ghost ) { return fd_wksp_laddr_fast( fd_ghost_wksp( ghost ), ghost->map_hash_gaddr ); }
+FD_FN_PURE static inline fd_ghost_map_hash_t const * fd_ghost_map_hash_const( fd_ghost_t const * ghost ) { return fd_wksp_laddr_fast( fd_ghost_wksp( ghost ), ghost->map_hash_gaddr ); }
+FD_FN_PURE static inline fd_ghost_map_slot_t       * fd_ghost_map_slot      ( fd_ghost_t       * ghost ) { return fd_wksp_laddr_fast( fd_ghost_wksp( ghost ), ghost->map_slot_gaddr ); }
+FD_FN_PURE static inline fd_ghost_map_slot_t const * fd_ghost_map_slot_const( fd_ghost_t const * ghost ) { return fd_wksp_laddr_fast( fd_ghost_wksp( ghost ), ghost->map_slot_gaddr ); }
+FD_FN_PURE static inline fd_ghost_ele_t            * fd_ghost_root          ( fd_ghost_t       * ghost ) { return fd_ghost_pool_ele      ( fd_ghost_pool( ghost ),       ghost->root ); }
+FD_FN_PURE static inline fd_ghost_ele_t const      * fd_ghost_root_const    ( fd_ghost_t const * ghost ) { return fd_ghost_pool_ele_const( fd_ghost_pool_const( ghost ), ghost->root ); }
 
 /* fd_ghost_{parent,child,sibling} returns a pointer in the caller's
    address space to the corresponding {parent,left-child,right-sibling}
@@ -243,17 +299,25 @@ FD_FN_PURE static inline fd_ghost_ele_t const * fd_ghost_root_const( fd_ghost_t 
 /* fd_ghost_query returns the ele keyed by `slot`, NULL if not found. */
 
 FD_FN_PURE static inline fd_ghost_ele_t *
-fd_ghost_query( fd_ghost_t * ghost, ulong slot ) {
-  fd_ghost_map_t * map  = fd_ghost_map ( ghost );
-  fd_ghost_ele_t * pool = fd_ghost_pool( ghost );
-  return fd_ghost_map_ele_query( map, &slot, NULL, pool );
+fd_ghost_query( fd_ghost_t * ghost, fd_hash_t const * block_id ) {
+  fd_ghost_map_hash_t * map  = fd_ghost_map_hash( ghost );
+  fd_ghost_ele_t      * pool = fd_ghost_pool( ghost );
+  return fd_ghost_map_hash_ele_query( map, block_id, NULL, pool );
 }
 
 FD_FN_PURE static inline fd_ghost_ele_t const *
-fd_ghost_query_const( fd_ghost_t const * ghost, ulong slot ) {
-  fd_ghost_map_t const * map  = fd_ghost_map_const ( ghost );
-  fd_ghost_ele_t const * pool = fd_ghost_pool_const( ghost );
-  return fd_ghost_map_ele_query_const( map, &slot, NULL, pool );
+fd_ghost_query_const( fd_ghost_t const * ghost, fd_hash_t const * block_id ) {
+  fd_ghost_map_hash_t const * map  = fd_ghost_map_hash_const ( ghost );
+  fd_ghost_ele_t      const * pool = fd_ghost_pool_const( ghost );
+  return fd_ghost_map_hash_ele_query_const( map, block_id, NULL, pool );
+}
+
+FD_FN_PURE static inline fd_hash_t const *
+fd_ghost_block_id( fd_ghost_t const * ghost, ulong slot ) {
+  fd_ghost_map_slot_t const * maps = fd_ghost_map_slot_const( ghost );
+  fd_ghost_ele_t      const * pool = fd_ghost_pool_const( ghost );
+  fd_ghost_ele_t      const * ele  = fd_ghost_map_slot_ele_query_const( maps, &slot, NULL, pool );
+  return ele ? &ele->key : NULL;
 }
 
 /* fd_ghost_head greedily traverses the ghost beginning from `root` (not
@@ -271,14 +335,14 @@ fd_ghost_head( fd_ghost_t const * ghost, fd_ghost_ele_t const * root );
    non-NULL if slot1 and slot2 are both present. */
 
 fd_ghost_ele_t const *
-fd_ghost_gca( fd_ghost_t const * ghost, ulong slot1, ulong slot2 );
+fd_ghost_gca( fd_ghost_t const * ghost, fd_hash_t const * slot1, fd_hash_t const * slot2 );
 
 /* fd_ghost_is_ancestor returns 1 if `ancestor` is `slot`'s ancestor, 0
    otherwise.  Also returns 0 if either `ancestor` or `slot` are not in
    ghost. */
 
 int
-fd_ghost_is_ancestor( fd_ghost_t const * ghost, ulong ancestor, ulong slot );
+fd_ghost_is_ancestor( fd_ghost_t const * ghost, fd_hash_t const * ancestor, fd_hash_t const * slot );
 
 /* Operations */
 
@@ -289,7 +353,7 @@ fd_ghost_is_ancestor( fd_ghost_t const * ghost, ulong ancestor, ulong slot );
    inserted ghost ele. */
 
 fd_ghost_ele_t *
-fd_ghost_insert( fd_ghost_t * ghost, ulong parent_slot, ulong slot );
+fd_ghost_insert( fd_ghost_t * ghost, fd_hash_t * parent_slot, ulong slot, fd_hash_t * block_id );
 
 /* fd_ghost_replay_vote votes for slot, adding pubkey's stake to the
    `stake` field for slot and to the `weight` field for both slot and
@@ -305,7 +369,7 @@ fd_ghost_insert( fd_ghost_t * ghost, ulong parent_slot, ulong slot );
    bounded to O(h), where h is the height of ghost. */
 
 void
-fd_ghost_replay_vote( fd_ghost_t * ghost, fd_voter_t * voter, ulong slot );
+fd_ghost_replay_vote( fd_ghost_t * ghost, fd_voter_t * voter, fd_hash_t const * block_id );
 
 /* fd_ghost_gossip_vote adds stake amount to the gossip_stake field of
    slot.
@@ -339,7 +403,7 @@ fd_ghost_rooted_vote( fd_ghost_t * ghost, fd_voter_t * voter, ulong root );
    slot is present in ghost.  Returns the new root. */
 
 fd_ghost_ele_t const *
-fd_ghost_publish( fd_ghost_t * ghost, ulong slot );
+fd_ghost_publish( fd_ghost_t * ghost, fd_hash_t * block_id );
 
 /* Misc */
 
