@@ -138,9 +138,9 @@ fd_epoch_init( fd_epoch_t *                      epoch,
 
       voter->stake = curr->elem.stake;
 
-      voter->replay_vote = FD_SLOT_NULL;
-      voter->gossip_vote = FD_SLOT_NULL;
-      voter->rooted_vote = FD_SLOT_NULL;
+      voter->replay_vote.slot = FD_SLOT_NULL;
+      voter->gossip_vote.slot = FD_SLOT_NULL;
+      voter->rooted_vote.slot = FD_SLOT_NULL;
     }
     epoch->total_stake += curr->elem.stake;
   }

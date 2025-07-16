@@ -785,6 +785,10 @@ init_after_snapshot( fd_replay_tile_ctx_t * ctx,
     FD_LOG_CRIT(( "Failed to initialize snapshot fork" ));
   }
 
+  fd_hash_t * block_id = fd_bank_block_id_modify( ctx->slot_ctx->bank );
+  memset( block_id, 0, sizeof(fd_hash_t) );
+  block_id->key[0] = UCHAR_MAX; /* TODO: would be good to have the actual block id of the snapshot slot */
+
   fd_stakes_global_t const *        stakes        = fd_bank_stakes_locking_query( ctx->slot_ctx->bank );
   fd_vote_accounts_global_t const * vote_accounts = &stakes->vote_accounts;
 
@@ -795,7 +799,9 @@ init_after_snapshot( fd_replay_tile_ctx_t * ctx,
 
   if( FD_LIKELY( ctx->tower_out_idx!=ULONG_MAX ) ) {
     uchar * chunk_laddr = fd_chunk_to_laddr( ctx->tower_out_mem, ctx->tower_out_chunk );
-    ulong   off         = 0;
+    memcpy( chunk_laddr, block_id, sizeof(fd_hash_t) );
+
+    ulong off = sizeof(fd_hash_t);
     for( fd_vote_accounts_pair_global_t_mapnode_t * curr = fd_vote_accounts_pair_global_t_map_minimum( vote_accounts_pool, vote_accounts_root );
         curr;
         curr = fd_vote_accounts_pair_global_t_map_successor( vote_accounts_pool, curr ) ) {
@@ -1607,10 +1613,15 @@ exec_slice_fini_slot( fd_replay_tile_ctx_t * ctx, fd_stem_context_t * stem ) {
   if( FD_LIKELY( ctx->tower_out_idx!=ULONG_MAX && !ctx->read_only ) ) {
     uchar * chunk_laddr = fd_chunk_to_laddr( ctx->tower_out_mem, ctx->tower_out_chunk );
     fd_hash_t const * bank_hash = fd_bank_bank_hash_query( ctx->slot_ctx->bank );
+    fd_hash_t const * block_id  = fd_bank_block_id_query ( ctx->slot_ctx->bank );
+    fd_hash_t const * parent_id = fd_bank_block_id_query( fd_banks_get_bank( ctx->banks, fd_bank_parent_slot_get( ctx->slot_ctx->bank ) ) ); /* FIXME: its cooked : (. parent could be equivocated  */
     fd_blockhashes_t const * blockhashes = fd_bank_block_hash_queue_query( ctx->slot_ctx->bank );
-    memcpy( chunk_laddr, bank_hash, sizeof(fd_hash_t) );
-    memcpy( chunk_laddr+sizeof(fd_hash_t), fd_blockhashes_peek_last( blockhashes ), sizeof(fd_hash_t) );
-    fd_stem_publish( stem, ctx->tower_out_idx, fd_bank_slot_get( ctx->slot_ctx->bank ) << 32UL | fd_bank_parent_slot_get( ctx->slot_ctx->bank ), ctx->tower_out_chunk, sizeof(fd_hash_t) * 2, 0UL, fd_frag_meta_ts_comp( fd_tickcount() ), fd_frag_meta_ts_comp( fd_tickcount() ) );
+
+    memcpy( chunk_laddr,                     bank_hash,                               sizeof(fd_hash_t) );
+    memcpy( chunk_laddr+sizeof(fd_hash_t),   fd_blockhashes_peek_last( blockhashes ), sizeof(fd_hash_t) );
+    memcpy( chunk_laddr+sizeof(fd_hash_t)*2, block_id,                                sizeof(fd_hash_t) );
+    memcpy( chunk_laddr+sizeof(fd_hash_t)*3, parent_id,                               sizeof(fd_hash_t) );
+    fd_stem_publish( stem, ctx->tower_out_idx, fd_bank_slot_get( ctx->slot_ctx->bank ) << 32UL | fd_bank_parent_slot_get( ctx->slot_ctx->bank ), ctx->tower_out_chunk, sizeof(fd_hash_t) * 4, 0UL, fd_frag_meta_ts_comp( fd_tickcount() ), fd_frag_meta_ts_comp( fd_tickcount() ) );
   }
 
   /**********************************************************************/
@@ -2009,8 +2020,6 @@ unprivileged_init( fd_topo_t *      topo,
   fd_features_enable_one_offs( features, one_off_features, (uint)tile->replay.enable_features_cnt, 0UL );
 
   ctx->forks = fd_forks_join( fd_forks_new( forks_mem, FD_BLOCK_MAX, 42UL ) );
-
-  ctx->bid_map = fd_bid_map_join( fd_bid_map_new( bid_map_mem, 16 ) );
 
   /**********************************************************************/
   /* bank_hash_cmp                                                      */
