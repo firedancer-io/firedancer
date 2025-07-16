@@ -358,16 +358,26 @@ fd_log_group_id_query( ulong group_id ) {
 /* WALLCLOCK APIS *****************************************************/
 
 long
-fd_log_wallclock( void ) {
+fd_log_wallclock_host( void const * _ ) {
+  (void)_;
   struct timespec ts[1];
   clock_gettime( CLOCK_REALTIME, ts );
   return ((long)1e9)*((long)ts->tv_sec) + (long)ts->tv_nsec;
 }
 
+static fd_clock_func_t fd_log_private_clock_func = fd_log_wallclock_host;
+static void const *    fd_log_private_clock_args = NULL;
+
 long
-_fd_log_wallclock( void const * _ ) {
-  (void)_;
-  return fd_log_wallclock();
+fd_log_wallclock( void ) {
+  return fd_log_private_clock_func( fd_log_private_clock_args );
+}
+
+void
+fd_log_wallclock_set( fd_clock_func_t clock,
+                      void const *    args ) {
+  fd_log_private_clock_func = clock;
+  fd_log_private_clock_args = args;
 }
 
 char *
@@ -1370,6 +1380,9 @@ fd_log_private_halt( void ) {
   fd_log_private_level_stderr   = 0;
   fd_log_private_level_logfile  = 0;
   fd_log_private_colorize       = 0;
+
+  fd_log_private_clock_func     = fd_log_wallclock_host;
+  fd_log_private_clock_args     = NULL;
 
   fd_log_private_user[0]        = '\0';
   fd_log_private_user_id_init   = 0;

@@ -208,7 +208,7 @@ main( int     argc,
   FD_EXPECT_LOG_CRIT( map_new( mem,                  -1 ) );
   FD_EXPECT_LOG_CRIT( map_new( mem,                  64 ) );
 
-  map = map_new( mem, LG_SLOT_CNT ); FD_TEST( map );
+  map = map_join( map_new( mem, LG_SLOT_CNT ) ); FD_TEST( map );
   FD_EXPECT_LOG_CRIT( map_insert  ( map, map_key_null() ) );
   FD_EXPECT_LOG_CRIT( map_query   ( map, map_key_null(), 0UL ) );
 #if MEMOIZE
