@@ -13,6 +13,7 @@ struct fd_stem_context {
    ulong *           depths;
 
    ulong *           cr_avail;
+   ulong *           min_cr_avail;
    ulong             cr_decrement_amount;
 
    long              housekeeping_deadline_ticks;
@@ -48,9 +49,10 @@ fd_stem_publish( fd_stem_context_t * stem,
   fd_mcache_publish( stem->mcaches[ out_idx ], stem->depths[ out_idx ], seq, sig, chunk, sz, ctl, tsorig, tspub );
 
   uint * futex_flag = fd_mcache_futex_flag( stem->mcaches[ out_idx ] );
-  *futex_flag = (uint)(seq + 1);
+  *futex_flag       = (uint)(seq + 1);
 
-  *stem->cr_avail -= stem->cr_decrement_amount;
+  stem->cr_avail[ out_idx ] -= stem->cr_decrement_amount;
+  *stem->min_cr_avail        = fd_ulong_min( stem->cr_avail[ out_idx ], *stem->min_cr_avail );
   *seqp = fd_seq_inc( seq, 1UL );
 }
 
@@ -61,9 +63,10 @@ fd_stem_advance( fd_stem_context_t * stem,
   ulong   seq  = *seqp;
 
   uint * futex_flag = fd_mcache_futex_flag( stem->mcaches[ out_idx ] );
-  *futex_flag = (uint)(seq + 1);
+  *futex_flag       = (uint)(seq + 1);
 
-  *stem->cr_avail -= stem->cr_decrement_amount;
+  stem->cr_avail[ out_idx ] -= stem->cr_decrement_amount;
+  *stem->min_cr_avail        = fd_ulong_min( stem->cr_avail[ out_idx ], *stem->min_cr_avail );
   *seqp = fd_seq_inc( seq, 1UL );
   return seq;
 }

@@ -214,6 +214,7 @@ STEM_(scratch_footprint)( ulong in_cnt,
 #if STEM_CAN_SLEEP
   l = FD_LAYOUT_APPEND( l, alignof(struct futex_waitv), in_cnt*sizeof(struct futex_waitv) ); /* waiters */
 #endif
+  l = FD_LAYOUT_APPEND( l, alignof(ulong),             out_cnt*sizeof(ulong)                ); /* cr_avail */
   l = FD_LAYOUT_APPEND( l, alignof(ulong),             out_cnt*sizeof(ulong)                ); /* out_depth */
   l = FD_LAYOUT_APPEND( l, alignof(ulong),             out_cnt*sizeof(ulong)                ); /* out_seq */
   l = FD_LAYOUT_APPEND( l, alignof(ulong const *),     cons_cnt*sizeof(ulong const *)       ); /* cons_fseq */
@@ -259,11 +260,12 @@ STEM_(run1)( ulong                        in_cnt,
   uint *         last_futex; /* array of last futex values for each out */
 
   /* out flow control state */
-  ulong          cr_avail;   /* number of flow control credits available to publish downstream, in [0,cr_max] */
-  ulong const ** cons_fseq;  /* cons_fseq[cons_idx] for cons_idx in [0,cons_cnt) is where to receive fctl credits from consumers */
-  ulong **       cons_slow;  /* cons_slow[cons_idx] for cons_idx in [0,cons_cnt) is where to accumulate slow events */
-  ulong *        cons_out;   /* cons_out[cons_idx] for cons_idx in [0,cons_ct) is which out the consumer consumes from */
-  ulong *        cons_seq;   /* cons_seq [cons_idx] is the most recent observation of cons_fseq[cons_idx] */
+  ulong *        cr_avail;     /* number of flow control credits available to publish downstream across all outs */
+  ulong          min_cr_avail; /* minimum number of flow control credits available to publish downstream */
+  ulong const ** cons_fseq;    /* cons_fseq[cons_idx] for cons_idx in [0,cons_cnt) is where to receive fctl credits from consumers */
+  ulong **       cons_slow;    /* cons_slow[cons_idx] for cons_idx in [0,cons_cnt) is where to accumulate slow events */
+  ulong *        cons_out;     /* cons_out[cons_idx] for cons_idx in [0,cons_ct) is which out the consumer consumes from */
+  ulong *        cons_seq;     /* cons_seq [cons_idx] is the most recent observation of cons_fseq[cons_idx] */
 
   /* out wake state */
   ulong *        wake_out;   /* wake_out[wake_out_idx] for wake_out_idx in [0,wake_out_cnt) is which out to wake */
@@ -336,7 +338,8 @@ STEM_(run1)( ulong                        in_cnt,
 
   /* out frag stream init */
 
-  cr_avail = 0UL;
+  cr_avail     = (ulong *)FD_SCRATCH_ALLOC_APPEND( l, alignof(ulong), out_cnt*sizeof(ulong) );
+  min_cr_avail = 0UL;
 
   out_depth  = (ulong *)FD_SCRATCH_ALLOC_APPEND( l, alignof(ulong), out_cnt*sizeof(ulong) );
   out_seq    = (ulong *)FD_SCRATCH_ALLOC_APPEND( l, alignof(ulong), out_cnt*sizeof(ulong) );
@@ -353,6 +356,7 @@ STEM_(run1)( ulong                        in_cnt,
     last_futex[ out_idx ] = *fd_mcache_futex_flag_const(out_mcache[ out_idx ]);
 
     cr_max = fd_ulong_min( cr_max, out_depth[ out_idx ] );
+    cr_avail[ out_idx ] = out_depth[ out_idx ];
   }
 
   cons_fseq = (ulong const **)FD_SCRATCH_ALLOC_APPEND( l, alignof(ulong const *), cons_cnt*sizeof(ulong const *) );
@@ -462,13 +466,21 @@ STEM_(run1)( ulong                        in_cnt,
         metric_backp_cnt = 0UL;
 
         /* Receive flow control credits */
-        if( FD_LIKELY( cr_avail<cr_max ) ) {
+        if( FD_LIKELY( min_cr_avail<cr_max ) ) {
           ulong slowest_cons = ULONG_MAX;
-          cr_avail = cr_max;
+          min_cr_avail       = cr_max;
+          for( ulong out_idx=0; out_idx<out_cnt; out_idx++ ) {
+            cr_avail[ out_idx ] = out_depth[ out_idx ];
+          }
+
           for( ulong cons_idx=0UL; cons_idx<cons_cnt; cons_idx++ ) {
-            ulong cons_cr_avail = (ulong)fd_long_max( (long)cr_max-fd_long_max( fd_seq_diff( out_seq[ cons_out[ cons_idx ] ], cons_seq[ cons_idx ] ), 0L ), 0L );
-            slowest_cons = fd_ulong_if( cons_cr_avail<cr_avail, cons_idx, slowest_cons );
-            cr_avail     = fd_ulong_min( cons_cr_avail, cr_avail );
+            ulong out_idx = cons_out[ cons_idx ];
+            ulong cons_cr_avail = (ulong)fd_long_max( (long)out_depth[ out_idx ] - fd_long_max( fd_seq_diff( out_seq[ out_idx ], cons_seq[ cons_idx ] ), 0L ), 0L );
+
+            slowest_cons = fd_ulong_if( cons_cr_avail<min_cr_avail, cons_idx, slowest_cons );
+
+            cr_avail[ out_idx ] = fd_ulong_min( cr_avail[ out_idx ], cons_cr_avail );
+            min_cr_avail        = fd_ulong_min( cons_cr_avail, min_cr_avail );
           }
 
           /* See notes above about use of quasi-atomic diagnostic accum */
@@ -567,7 +579,8 @@ STEM_(run1)( ulong                        in_cnt,
       .mcaches             = out_mcache,
       .depths              = out_depth,
       .seqs                = out_seq,
-      .cr_avail            = &cr_avail,
+      .cr_avail            = cr_avail,
+      .min_cr_avail        = &min_cr_avail,
       .cr_decrement_amount = fd_ulong_if( out_cnt>0UL, 1UL, 0UL ),
       .housekeeping_deadline_ticks = then,
     };
@@ -586,7 +599,7 @@ STEM_(run1)( ulong                        in_cnt,
      different threads of execution.  We only count the transition
      from not backpressured to backpressured. */
 
-    if( FD_UNLIKELY( cr_avail<burst ) ) {
+    if( FD_UNLIKELY( min_cr_avail<burst ) ) {
       /* Wake potentially waiting consumers if backpressured */
       STEM_(wake_consumers)( wake_out_cnt, wake_out, out_mcache, last_futex );
       metric_backp_cnt += (ulong)!metric_in_backp;
