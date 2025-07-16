@@ -34,7 +34,6 @@
 #define SIGN_OUT_IDX     (1)
 #define REPLAY_OUT_IDX   (2)
 #define ARCHIVE_OUT_IDX  (3)
-#define SHREDCAP_OUT_IDX (4)
 
 #define MAX_REPAIR_PEERS 40200UL
 #define MAX_BUFFER_SIZE  ( MAX_REPAIR_PEERS * sizeof(fd_shred_dest_wire_t))
@@ -131,6 +130,7 @@ struct fd_repair_tile_ctx {
   ulong       replay_out_chunk;
 
   /* These will only be used if shredcap is enabled */
+  uint        shredcap_out_idx;
   uint        shredcap_enabled;
   fd_wksp_t * shredcap_out_mem;
   ulong       shredcap_out_chunk0;
@@ -773,7 +773,7 @@ publish_to_shredcap( fd_repair_tile_ctx_t * ctx,
   if( FD_UNLIKELY( buf_sz>FD_SLICE_MAX_WITH_HEADERS ) ) {
     FD_LOG_CRIT(( "invariant violation: buf_sz %lu > FD_SLICE_MAX_WITH_HEADERS %lu", buf_sz, FD_SLICE_MAX_WITH_HEADERS ));
   }
-  fd_stem_publish( ctx->stem, SHREDCAP_OUT_IDX, buf_sz, ctx->shredcap_out_chunk, buf_sz, 0, tsorig, tspub );
+  fd_stem_publish( ctx->stem, ctx->shredcap_out_idx, buf_sz, ctx->shredcap_out_chunk, buf_sz, 0, tsorig, tspub );
   ctx->shredcap_out_chunk = fd_dcache_compact_next( ctx->shredcap_out_chunk, buf_sz, ctx->shredcap_out_chunk0, ctx->shredcap_out_wmark );
 }
 
@@ -1178,6 +1178,7 @@ unprivileged_init( fd_topo_t *      topo,
     } else if( 0==strcmp( link->name, "repair_scap" ) ) {
 
       ctx->shredcap_enabled    = 1;
+      ctx->shredcap_out_idx    = out_idx;
       ctx->shredcap_out_mem    = topo->workspaces[ topo->objs[ link->dcache_obj_id ].wksp_id ].wksp;
       ctx->shredcap_out_chunk0 = fd_dcache_compact_chunk0( ctx->shredcap_out_mem, link->dcache );
       ctx->shredcap_out_wmark  = fd_dcache_compact_wmark( ctx->shredcap_out_mem, link->dcache, link->mtu );
