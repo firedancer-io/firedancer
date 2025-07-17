@@ -53,14 +53,6 @@
 /* TODO: increase this to default once we have enough memory to support a 95G status cache. */
 #define MAX_CACHE_TXNS_PER_SLOT (FD_TXNCACHE_DEFAULT_MAX_TRANSACTIONS_PER_SLOT / 8)
 
-void
-block_finalize_tpool_wrapper( void * para_arg_1,
-                              void * para_arg_2,
-                              void * arg_1,
-                              void * arg_2,
-                              void * arg_3,
-                              void * arg_4 );
-
 struct fd_execute_txn_task_info {
   fd_spad_t * *       spads;
   fd_spad_t *         spad;
@@ -498,25 +490,18 @@ fd_runtime_block_execute_prepare( fd_exec_slot_ctx_t * slot_ctx,
 
 void
 fd_runtime_block_execute_finalize_start( fd_exec_slot_ctx_t *             slot_ctx,
-                                         fd_spad_t *                      runtime_spad,
-                                         fd_accounts_hash_task_data_t * * task_data,
-                                         ulong                            lt_hash_cnt );
+                                         fd_spad_t *                      runtime_spad );
 
 int
 fd_runtime_block_execute_finalize_finish( fd_exec_slot_ctx_t *             slot_ctx,
                                           fd_capture_ctx_t *               capture_ctx,
-                                          fd_runtime_block_info_t const *  block_info,
-                                          fd_spad_t *                      runtime_spad,
-                                          fd_accounts_hash_task_data_t *   task_data,
-                                          ulong                            lt_hash_cnt );
+                                          fd_runtime_block_info_t const *  block_info );
 
 int
 fd_runtime_block_execute_finalize_para( fd_exec_slot_ctx_t *             slot_ctx,
                                         fd_capture_ctx_t *               capture_ctx,
                                         fd_runtime_block_info_t const *  block_info,
-                                        ulong                            worker_cnt,
-                                        fd_spad_t *                      runtime_spad,
-                                        fd_exec_para_cb_ctx_t *          exec_para_ctx );
+                                        fd_spad_t *                      runtime_spad );
 
 /* Transaction Level Execution Management *************************************/
 
