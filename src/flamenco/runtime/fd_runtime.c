@@ -1710,15 +1710,10 @@ static void
 fd_update_epoch_stakes( fd_exec_slot_ctx_t * slot_ctx ) {
 
   /* Copy epoch_bank->next_epoch_stakes into fd_bank_slot_get( slot_ctx->bank )_bank.epoch_stakes */
-
-  ulong total_sz = sizeof(fd_vote_accounts_global_t) +
-                   fd_vote_accounts_pair_global_t_map_footprint( 50000UL ) +
-                   4000 * 50000UL;
-
   fd_vote_accounts_global_t const * next_epoch_stakes = fd_bank_next_epoch_stakes_locking_query( slot_ctx->bank );
 
   fd_vote_accounts_global_t * epoch_stakes = fd_bank_epoch_stakes_locking_modify( slot_ctx->bank );
-  fd_memcpy( epoch_stakes, next_epoch_stakes, total_sz );
+  fd_memcpy( epoch_stakes, next_epoch_stakes, fd_bank_epoch_stakes_footprint );
   fd_bank_epoch_stakes_end_locking_modify( slot_ctx->bank );
 
   fd_bank_next_epoch_stakes_end_locking_query( slot_ctx->bank );
@@ -1735,17 +1730,11 @@ fd_update_next_epoch_stakes( fd_exec_slot_ctx_t * slot_ctx ) {
      vote accounts in fd_stakes. */
 
   /* Copy stakes->vote_accounts into next_epoch_stakes */
-
-  ulong total_sz = sizeof(fd_vote_accounts_global_t) +
-                   fd_vote_accounts_pair_global_t_map_footprint( 50000UL ) +
-                   4000 * 50000UL;
-
   fd_stakes_global_t const *        stakes = fd_bank_stakes_locking_query( slot_ctx->bank );
   fd_vote_accounts_global_t const * vote_stakes = &stakes->vote_accounts;
 
-
   fd_vote_accounts_global_t * next_epoch_stakes = fd_bank_next_epoch_stakes_locking_modify( slot_ctx->bank );
-  fd_memcpy( next_epoch_stakes, vote_stakes, total_sz );
+  fd_memcpy( next_epoch_stakes, vote_stakes, fd_bank_next_epoch_stakes_footprint );
   fd_bank_next_epoch_stakes_end_locking_modify( slot_ctx->bank );
 
   fd_bank_stakes_end_locking_query( slot_ctx->bank );
