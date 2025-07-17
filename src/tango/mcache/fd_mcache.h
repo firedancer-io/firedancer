@@ -32,9 +32,9 @@
    in [1,64).  LG_INTERLEAVE should be in [0,FD_MCACHE_BLOCK).  BLOCK ==
    2^LG_BLOCK.  See below for more details. */
 
-#define FD_MCACHE_LG_BLOCK      (7)
+#define FD_MCACHE_LG_BLOCK      (0)
 #define FD_MCACHE_LG_INTERLEAVE (0)
-#define FD_MCACHE_BLOCK         (128UL) /* == 2^FD_MCACHE_LG_BLOCK, explicit to workaround compiler limitations */
+#define FD_MCACHE_BLOCK         (1UL) /* == 2^FD_MCACHE_LG_BLOCK, explicit to workaround compiler limitations */
 
 FD_PROTOTYPES_BEGIN
 

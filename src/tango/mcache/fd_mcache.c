@@ -13,6 +13,8 @@ fd_mcache_footprint( ulong depth,
   if( FD_UNLIKELY( depth>ULONG_MAX/sizeof(fd_frag_meta_t) ) ) return 0UL; /* too large depth */
   if( FD_UNLIKELY( !fd_ulong_is_pow2( depth )             ) ) return 0UL; /* non-power-of-two depth */
   ulong meta_footprint = depth*sizeof( fd_frag_meta_t ); /* no overflow */
+  if( FD_UNLIKELY( fd_ulong_align_up( meta_footprint, FD_MCACHE_ALIGN )<meta_footprint ) ) return 0UL; /* too large depth */
+  meta_footprint = fd_ulong_align_up( meta_footprint, FD_MCACHE_ALIGN );
 
   ulong app_footprint = fd_ulong_align_up( app_sz, FD_MCACHE_ALIGN );
   if( FD_UNLIKELY( app_footprint<app_sz ) ) return 0UL; /* overflow */
