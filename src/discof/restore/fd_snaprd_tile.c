@@ -1,7 +1,7 @@
 #include "utils/fd_ssping.h"
 #include "utils/fd_sshttp.h"
 #include "utils/fd_ssctrl.h"
-#include "utils/fd_ssarchive.h"
+#include "utils/fd_snapshot_archive.h"
 
 #include "../../disco/topo/fd_topo.h"
 #include "../../disco/metrics/fd_metrics.h"
@@ -47,13 +47,12 @@ struct fd_snaprd_tile {
 
   fd_ip4_port_t addr;
 
+  fd_full_snapshot_archive_entry_t        full_snapshot_entry;
+  fd_incremental_snapshot_archive_entry_t incremental_snapshot_entry;
+
   struct {
-    ulong full_snapshot_slot;
     int   full_snapshot_fd;
-    char  full_snapshot_path[ PATH_MAX ];
-    ulong incremental_snapshot_slot;
     int   incremental_snapshot_fd;
-    char  incremental_snapshot_path[ PATH_MAX ];
   } local;
 
   struct {
@@ -267,8 +266,8 @@ after_credit( fd_snaprd_tile_t *  ctx,
       }
 
       ulong highest_cluster_slot = 0UL; /* TODO: Implement, using incremental snapshot slot for age */
-      if( FD_LIKELY( ctx->local.full_snapshot_slot!=ULONG_MAX && ctx->local.full_snapshot_slot>=fd_ulong_sat_sub( highest_cluster_slot, ctx->config.maximum_local_snapshot_age ) ) ) {
-        FD_LOG_NOTICE(( "Loading full snapshot from local file `%s`", ctx->local.full_snapshot_path ));
+      if( FD_LIKELY( ctx->full_snapshot_entry.slot!=ULONG_MAX && ctx->full_snapshot_entry.slot>=fd_ulong_sat_sub( highest_cluster_slot, ctx->config.maximum_local_snapshot_age ) ) ) {
+        FD_LOG_NOTICE(( "Loading full snapshot from local file `%s`", ctx->full_snapshot_entry.path ));
         ctx->state = FD_SNAPRD_STATE_READING_FULL_FILE;
       } else {
         FD_LOG_NOTICE(( "Downloading full snapshot from http://" FD_IP4_ADDR_FMT ":%hu/snapshot.tar.bz2", FD_IP4_ADDR_FMT_ARGS( best.addr ), best.port ));
@@ -312,7 +311,7 @@ after_credit( fd_snaprd_tile_t *  ctx,
         break;
       }
 
-      FD_LOG_NOTICE(( "Reading incremental snapshot from local file `%s`", ctx->local.incremental_snapshot_path ));
+      FD_LOG_NOTICE(( "Reading incremental snapshot from local file `%s`", ctx->incremental_snapshot_entry.path ));
       ctx->state = FD_SNAPRD_STATE_READING_INCREMENTAL_FILE;
       break;
     case FD_SNAPRD_STATE_FLUSHING_FULL_HTTP:
@@ -380,10 +379,10 @@ after_frag( fd_snaprd_tile_t *  ctx,
       case FD_SNAPRD_STATE_READING_FULL_FILE:
       case FD_SNAPRD_STATE_FLUSHING_FULL_FILE:
       case FD_SNAPRD_STATE_FLUSHING_FULL_FILE_RESET:
-        FD_LOG_ERR(( "Error reading snapshot from local file `%s`", ctx->local.full_snapshot_path ));
+        FD_LOG_ERR(( "Error reading snapshot from local file `%s`", ctx->full_snapshot_entry.path ));
       case FD_SNAPRD_STATE_READING_INCREMENTAL_FILE:
       case FD_SNAPRD_STATE_FLUSHING_INCREMENTAL_FILE:
-        FD_LOG_ERR(( "Error reading snapshot from local file `%s`", ctx->local.incremental_snapshot_path ));
+        FD_LOG_ERR(( "Error reading snapshot from local file `%s`", ctx->incremental_snapshot_entry.path ));
       case FD_SNAPRD_STATE_READING_FULL_HTTP:
       case FD_SNAPRD_STATE_READING_INCREMENTAL_HTTP:
         FD_LOG_NOTICE(( "Error downloading snapshot from http://" FD_IP4_ADDR_FMT ":%hu/snapshot.tar.bz2",
@@ -416,6 +415,73 @@ after_frag( fd_snaprd_tile_t *  ctx,
 }
 
 static void
+init_config( fd_snaprd_tile_t * ctx,
+             fd_topo_tile_t *   tile ) {
+  ctx->config.incremental_snapshot_fetch = tile->snaprd.incremental_snapshot_fetch;
+  ctx->config.do_download                = tile->snaprd.do_download;
+  ctx->config.maximum_local_snapshot_age = tile->snaprd.maximum_local_snapshot_age;
+  ctx->config.minimum_download_speed_mib = tile->snaprd.minimum_download_speed_mib;
+
+  if( FD_UNLIKELY( !tile->snaprd.maximum_download_retry_abort ) ) {
+    ctx->config.maximum_download_retry_abort = UINT_MAX;
+  } else {
+    ctx->config.maximum_download_retry_abort = tile->snaprd.maximum_download_retry_abort;
+  }
+}
+
+static void
+find_snapshots( fd_snaprd_tile_t * ctx,
+                char const *       snapshots_path ) {
+  int download_full = 0;
+  int download_incremental = 0;
+
+  /* first, check if there are any full local snapshots and get the highest slot */
+  int res = fd_snapshot_archive_get_latest_full_snapshot(
+              snapshots_path,
+              &ctx->full_snapshot_entry );
+
+  /* If we don't have any full snapshots in the snapshots archive path, we need to download  */
+  if( FD_UNLIKELY( res ) ) {
+    FD_LOG_NOTICE(( "Unable to find any local full snapshots in the "
+                    "snapshots path: %s. Downloading from peers.", snapshots_path ));
+    download_full        = 1;
+    download_incremental = 1;
+  }
+
+  if( ctx->full_snapshot_entry.slot!=ULONG_MAX && ctx->config.incremental_snapshot_fetch ) {
+    /* Next, get the incremental snapshot entry */
+    res = fd_snapshot_archive_get_latest_incremental_snapshot(
+            snapshots_path,
+            &ctx->incremental_snapshot_entry );
+    if( FD_UNLIKELY( res ) ) {
+      /* there is no incremental snapshot entry */
+      FD_LOG_NOTICE(( "Unable to find any local incremental snapshots "
+                    "in the snapshots path %s. Downloading from peers.", snapshots_path ));
+      download_incremental = 1;
+    }
+
+    /* Validate the incremental snapshot builds off the full snapshot */
+    if( ctx->incremental_snapshot_entry.base_slot!=ctx->full_snapshot_entry.slot ) {
+      FD_LOG_NOTICE(( "Local incremental snapshot at slot %lu does not build off "
+                      "the local full snapshot at slot %lu. Downloading from peers.",
+                      ctx->incremental_snapshot_entry.slot,
+                      ctx->full_snapshot_entry.slot ));
+      download_incremental = 1;
+    }
+  } else {
+    ctx->incremental_snapshot_entry.base_slot = ULONG_MAX;
+    ctx->incremental_snapshot_entry.slot      = ULONG_MAX;
+  }
+
+  int download = download_full || download_incremental;
+  if( download && !ctx->config.do_download ) {
+    FD_LOG_ERR(( "The validator was configued to disable snapshot downloads. "
+      "Please reconfigure the validator by setting [snapshots.do_download] to true." ));
+  }
+}
+
+
+static void
 privileged_init( fd_topo_t *      topo,
                  fd_topo_tile_t * tile ) {
   void * scratch = fd_topo_obj_laddr( topo, tile->tile_obj_id );
@@ -423,32 +489,17 @@ privileged_init( fd_topo_t *      topo,
   FD_SCRATCH_ALLOC_INIT( l, scratch );
   fd_snaprd_tile_t * ctx = FD_SCRATCH_ALLOC_APPEND( l, alignof(fd_snaprd_tile_t),  sizeof(fd_snaprd_tile_t) );
 
-  ulong full_slot = ULONG_MAX;
-  ulong incremental_slot = ULONG_MAX;
-  char full_path[ PATH_MAX ] = {0};
-  char incremental_path[ PATH_MAX ] = {0};
-  if( FD_UNLIKELY( -1==fd_ssarchive_latest_pair( tile->snaprd.snapshots_path,
-                                                 tile->snaprd.incremental_snapshot_fetch,
-                                                 &full_slot,
-                                                 &incremental_slot,
-                                                 full_path,
-                                                 incremental_path ) ) ) {
-    ctx->local.full_snapshot_slot = ULONG_MAX;
-    ctx->local.incremental_snapshot_slot = ULONG_MAX;
-  } else {
-    FD_TEST( full_slot!=ULONG_MAX );
-    ctx->local.full_snapshot_slot = full_slot;
-    ctx->local.incremental_snapshot_slot = incremental_slot;
+  init_config( ctx, tile );
+  find_snapshots( ctx, tile->snaprd.snapshots_path );
 
-    strncpy( ctx->local.full_snapshot_path, full_path, PATH_MAX );
-    ctx->local.full_snapshot_fd = open( ctx->local.full_snapshot_path, O_RDONLY|O_CLOEXEC|O_NONBLOCK );
-    if( FD_UNLIKELY( -1==ctx->local.full_snapshot_fd ) ) FD_LOG_ERR(( "open() failed `%s` (%i-%s)", ctx->local.full_snapshot_path, errno, fd_io_strerror( errno ) ));
+  if( ctx->full_snapshot_entry.slot!=ULONG_MAX ) {
+    ctx->local.full_snapshot_fd = open( ctx->full_snapshot_entry.path, O_RDONLY|O_CLOEXEC|O_NONBLOCK );
+    if( FD_UNLIKELY( -1==ctx->local.full_snapshot_fd ) ) FD_LOG_ERR(( "open() failed `%s` (%i-%s)", ctx->full_snapshot_entry.path, errno, fd_io_strerror( errno ) ));
+  }
 
-    if( FD_LIKELY( incremental_slot!=ULONG_MAX ) ) {
-      strncpy( ctx->local.incremental_snapshot_path, incremental_path, PATH_MAX );
-      ctx->local.incremental_snapshot_fd = open( ctx->local.incremental_snapshot_path, O_RDONLY|O_CLOEXEC|O_NONBLOCK );
-      if( FD_UNLIKELY( -1==ctx->local.incremental_snapshot_fd ) ) FD_LOG_ERR(( "open() failed `%s` (%i-%s)", ctx->local.incremental_snapshot_path, errno, fd_io_strerror( errno ) ));
-    }
+  if( ctx->incremental_snapshot_entry.slot!=ULONG_MAX ) {
+    ctx->local.incremental_snapshot_fd = open( ctx->incremental_snapshot_entry.path, O_RDONLY|O_CLOEXEC|O_NONBLOCK );
+    if( FD_UNLIKELY( -1==ctx->local.incremental_snapshot_fd ) ) FD_LOG_ERR(( "open() failed `%s` (%i-%s)", ctx->incremental_snapshot_entry.path, errno, fd_io_strerror( errno ) ));
   }
 }
 
@@ -467,14 +518,6 @@ unprivileged_init( fd_topo_t *      topo,
   ctx->malformed = 0;
 
   fd_memset( &ctx->metrics, 0, sizeof(ctx->metrics) );
-
-  ctx->config.incremental_snapshot_fetch = tile->snaprd.incremental_snapshot_fetch;
-  ctx->config.do_download                = tile->snaprd.do_download;
-  ctx->config.maximum_local_snapshot_age = tile->snaprd.maximum_local_snapshot_age;
-  ctx->config.minimum_download_speed_mib = tile->snaprd.minimum_download_speed_mib;
-
-  if( FD_UNLIKELY( !tile->snaprd.maximum_download_retry_abort ) ) ctx->config.maximum_download_retry_abort = UINT_MAX;
-  else                                                            ctx->config.maximum_download_retry_abort = tile->snaprd.maximum_download_retry_abort;
 
   ctx->ssping = fd_ssping_join( fd_ssping_new( _ssping, 65536UL, 1UL ) );
   FD_TEST( ctx->ssping );
