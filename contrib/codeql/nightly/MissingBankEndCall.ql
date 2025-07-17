@@ -20,7 +20,7 @@ string capTarget(FunctionCall f) {
   result = f.getTarget().getName().regexpCapture("fd_bank_((?!.*(?:^|_)end(?:_|$)).+?)_locking_.*", 1)
 }
 
-/* required for primitive infite type string (base) to be bound in
+/* required for primitive infinite type string (base) to be bound in
    forward and backward execution */
 string genAll() {
   exists(FunctionCall f |

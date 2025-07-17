@@ -39,7 +39,7 @@ class ShouldBePure extends ShouldBeFunc {
 }
 
 string directOrNot(Function off) {
-  /* alternativly we could make this query a path-query */
+  /* alternatively we could make this query a path-query */
   result = "is" and off instanceof RFunc
   or
   result = "is called by a" and off instanceof ShouldBeFunc
