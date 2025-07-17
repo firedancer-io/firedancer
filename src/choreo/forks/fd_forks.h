@@ -166,10 +166,7 @@ fd_forks_advance( fd_forks_t const * forks, fd_fork_t * fork, ulong slot );
    already rooted past it. */
 
 fd_fork_t *
-fd_forks_prepare( fd_forks_t const *    forks,
-                  ulong                 parent_slot,
-                  fd_funk_t *           funk,
-                  fd_spad_t *           runtime_spad );
+fd_forks_prepare( fd_forks_t const * forks, ulong parent_slot );
 
 /* fd_forks_publish publishes a new root into forks.  Assumes root is a
    valid slot that exists in the cluster and has already been replayed.

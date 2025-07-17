@@ -755,6 +755,9 @@ fd_new_warmup_cooldown_rate_epoch( ulong                     slot,
                                    fd_features_t const *     features,
                                    /* out */ ulong *         epoch,
                                    int *                     err ) {
+
+  FD_SPAD_FRAME_BEGIN( spad ) {
+
   *err = 0;
   fd_epoch_schedule_t const * epoch_schedule = fd_sysvar_epoch_schedule_read( funk, funk_txn, spad );
 
@@ -770,6 +773,8 @@ fd_new_warmup_cooldown_rate_epoch( ulong                     slot,
     return 1;
   }
   return 0;
+
+  } FD_SPAD_FRAME_END;
 }
 
 /**********************************************************************/

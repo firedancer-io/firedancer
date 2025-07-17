@@ -53,6 +53,8 @@ void
 fd_sysvar_epoch_rewards_distribute( fd_exec_slot_ctx_t * slot_ctx,
                                     ulong                distributed,
                                     fd_spad_t *          runtime_spad ) {
+  FD_SPAD_FRAME_BEGIN( runtime_spad ) {
+
   fd_sysvar_epoch_rewards_t * epoch_rewards = fd_sysvar_epoch_rewards_read( slot_ctx->funk, slot_ctx->funk_txn, runtime_spad );
   if( FD_UNLIKELY( epoch_rewards == NULL ) ) {
     FD_LOG_ERR(( "failed to read sysvar epoch rewards" ));
@@ -69,6 +71,8 @@ fd_sysvar_epoch_rewards_distribute( fd_exec_slot_ctx_t * slot_ctx,
   epoch_rewards->distributed_rewards += distributed;
 
   write_epoch_rewards( slot_ctx, epoch_rewards );
+
+  } FD_SPAD_FRAME_END;
 }
 
 void

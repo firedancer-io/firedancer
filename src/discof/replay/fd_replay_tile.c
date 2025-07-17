@@ -158,7 +158,6 @@ struct fd_replay_tile_ctx {
   uchar                exec_ready[ FD_PACK_MAX_BANK_TILES ]; /* Is tile ready */
   uint                 prev_ids  [ FD_PACK_MAX_BANK_TILES ]; /* Previous txn id if any */
   ulong *              exec_fseq [ FD_PACK_MAX_BANK_TILES ]; /* fseq of the last executed txn */
-  int                  block_finalizing;
 
   ulong                writer_cnt;
   ulong *              writer_fseq[ FD_PACK_MAX_BANK_TILES ];
@@ -234,8 +233,6 @@ struct fd_replay_tile_ctx {
                     This restriction is for safety reasons: the
                     validator could otherwise equivocate a previous vote
                     or block. */
-
-  int blocked_on_mblock; /* Flag used for synchronizing on mblock boundaries. */
 
   /* Metrics */
   fd_replay_tile_metrics_t metrics;
@@ -1267,11 +1264,7 @@ handle_new_slot( fd_replay_tile_ctx_t * ctx,
 
   /* This means we want to execute a slice on a new slot. This means
       we have to update our forks and create a new bank/funk_txn. */
-  fd_fork_t * fork = fd_forks_prepare(
-      ctx->forks,
-      parent_slot,
-      ctx->funk,
-      ctx->runtime_spad );
+  fd_fork_t * fork = fd_forks_prepare( ctx->forks, parent_slot );
   if( FD_UNLIKELY( !fork ) ) {
     FD_LOG_CRIT(( "invariant violation: failed to prepare fork for slot: %lu", slot ));
   }
@@ -1515,6 +1508,7 @@ get_free_exec_tiles( fd_replay_tile_ctx_t * ctx, uchar * exec_free_idx ) {
 
 static void
 exec_slice_fini_slot( fd_replay_tile_ctx_t * ctx, fd_stem_context_t * stem ) {
+
   fd_microblock_hdr_t * hdr = (fd_microblock_hdr_t *)fd_type_pun( ctx->slice_exec_ctx.buf + ctx->slice_exec_ctx.last_mblk_off );
   fd_hash_t * poh = fd_bank_poh_modify( ctx->slot_ctx->bank );
   memcpy( poh, hdr->hash, sizeof(fd_hash_t) );
@@ -1526,8 +1520,6 @@ exec_slice_fini_slot( fd_replay_tile_ctx_t * ctx, fd_stem_context_t * stem ) {
 
   fd_runtime_block_info_t runtime_block_info[1];
   runtime_block_info->signature_cnt = fd_bank_signature_count_get( ctx->slot_ctx->bank );
-
-  ctx->block_finalizing = 0;
 
   fd_exec_para_cb_ctx_t exec_para_ctx_block_finalize = {
     .func       = block_finalize_tiles_cb,

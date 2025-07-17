@@ -175,10 +175,7 @@ fd_forks_query_const( fd_forks_t const * forks, ulong slot ) {
 // }
 
 fd_fork_t *
-fd_forks_prepare( fd_forks_t const *    forks,
-                  ulong                 parent_slot,
-                  fd_funk_t *           funk,
-                  fd_spad_t *           runtime_spad ) {
+fd_forks_prepare( fd_forks_t const * forks, ulong parent_slot ) {
 
   /* Query for parent_slot in the frontier. */
 
@@ -198,13 +195,6 @@ fd_forks_prepare( fd_forks_t const *    forks,
     fork->slot = parent_slot;
     fork->lock = 1;
     fork->end_idx = UINT_MAX;
-
-    /* Restore and decode w/ funk */
-
-    (void)runtime_spad;
-    (void)funk;
-    // slot_ctx_restore( fork->slot, funk, blockstore, runtime_spad, slot_ctx );
-
 
     /* Add to frontier */
 
