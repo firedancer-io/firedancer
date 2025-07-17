@@ -7,6 +7,7 @@
 #include "../../disco/net/fd_net_tile.h"
 #include "../../disco/quic/fd_tpu.h"
 #include "../../disco/tiles.h"
+#include "../../disco/plugin/fd_plugin.h"
 #include "../../disco/topo/fd_topob.h"
 #include "../../disco/topo/fd_cpu_topo.h"
 #include "../../util/pod/fd_pod_format.h"
@@ -778,19 +779,19 @@ fd_topo_initialize( config_t * config ) {
     fd_topob_wksp( topo, "plugin_out"   );
     fd_topob_wksp( topo, "plugin"       );
 
-    /**/                 fd_topob_link( topo, "plugin_out",   "plugin_out",   128UL,                                    8UL+40200UL*(58UL+12UL*34UL), 1UL );
-    /**/                 fd_topob_link( topo, "replay_plugi", "plugin_in",    128UL,                                    4098*8UL,               1UL );
-    /**/                 fd_topob_link( topo, "votes_plugin", "plugin_in",    128UL,                                    8UL+40200UL*(58UL+12UL*34UL), 1UL );
+    /**/                 fd_topob_link( topo, "plugin_out",   "plugin_out",   128UL,                                    8UL+40200UL*(58UL+12UL*34UL),         1UL );
+    /**/                 fd_topob_link( topo, "replay_plugi", "plugin_in",    128UL,                                    4098*8UL,                             1UL );
+    /**/                 fd_topob_link( topo, "snaprd_plugi", "plugin_in",    128UL,                                    sizeof(fd_restore_snapshot_update_t), 1UL );
 
     /**/                 fd_topob_tile( topo, "plugin",  "plugin",  "metric_in",  tile_to_cpu[ topo->tile_cnt ], 0, 0 );
 
     /**/                 fd_topob_tile_out( topo, "replay", 0UL,                        "replay_plugi", 0UL                                                  );
-    /**/                 fd_topob_tile_out( topo, "replay", 0UL,                        "votes_plugin", 0UL                                                  );
-    /**/                 fd_topob_tile_out( topo, "plugin", 0UL,                        "plugin_out", 0UL                                                    );
+    /**/                 fd_topob_tile_out( topo, "plugin", 0UL,                        "plugin_out",   0UL                                                  );
+    /**/                 fd_topob_tile_out( topo, "snaprd", 0UL,                        "snaprd_plugi", 0UL                                                  );
 
     /**/                 fd_topob_tile_in(  topo, "plugin", 0UL,           "metric_in", "replay_plugi", 0UL,          FD_TOPOB_RELIABLE,   FD_TOPOB_POLLED );
     /**/                 fd_topob_tile_in(  topo, "plugin", 0UL,           "metric_in", "stake_out",    0UL,          FD_TOPOB_RELIABLE,   FD_TOPOB_POLLED );
-    /**/                 fd_topob_tile_in(  topo, "plugin", 0UL,           "metric_in", "votes_plugin", 0UL,          FD_TOPOB_RELIABLE,   FD_TOPOB_POLLED );
+    /**/                 fd_topob_tile_in(  topo, "plugin", 0UL,           "metric_in", "snaprd_plugi", 0UL,          FD_TOPOB_RELIABLE,   FD_TOPOB_POLLED );
   }
 
   fd_topob_wksp( topo, "writ_repl" );
@@ -800,8 +801,9 @@ fd_topo_initialize( config_t * config ) {
 
   if( FD_LIKELY( config->tiles.gui.enabled ) ) {
     fd_topob_wksp( topo, "gui"          );
-    /**/                 fd_topob_tile(     topo, "gui",     "gui",     "metric_in",  tile_to_cpu[ topo->tile_cnt ], 0, 1 );
-    /**/                 fd_topob_tile_in(  topo, "gui",    0UL,        "metric_in",     "plugin_out",   0UL,          FD_TOPOB_RELIABLE,   FD_TOPOB_POLLED );
+    /**/                 fd_topob_tile(     topo, "gui",    "gui",     "metric_in",  tile_to_cpu[ topo->tile_cnt ], 0, 1 );
+    /**/                 fd_topob_tile_in(  topo, "gui",    0UL,       "metric_in",  "plugin_out",    0UL,         FD_TOPOB_RELIABLE,   FD_TOPOB_POLLED );
+    FOR(shred_tile_cnt)  fd_topob_tile_in(  topo, "gui",    0UL,       "metric_in",  "shred_repair",  i,           FD_TOPOB_RELIABLE,   FD_TOPOB_POLLED );
   }
 
   FOR(net_tile_cnt) fd_topos_net_tile_finish( topo, i );

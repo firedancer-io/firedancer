@@ -43,6 +43,44 @@
 #define FD_GUI_START_PROGRESS_TYPE_WAITING_FOR_SUPERMAJORITY          (11)
 #define FD_GUI_START_PROGRESS_TYPE_RUNNING                            (12)
 
+#define FD_GUI_BOOT_PROGRESS_TYPE_JOINING_GOSSIP               ( 0)
+#define FD_GUI_BOOT_PROGRESS_TYPE_LOADING_FULL_SNAPSHOT        ( 1)
+#define FD_GUI_BOOT_PROGRESS_TYPE_LOADING_INCREMENTAL_SNAPSHOT ( 2)
+#define FD_GUI_BOOT_PROGRESS_TYPE_CATCHING_UP                  ( 3)
+#define FD_GUI_BOOT_PROGRESS_TYPE_RUNNING                      ( 4)
+
+#define FD_GUI_BOOT_PROGRESS_FULL_SNAPSHOT_IDX        (0UL)
+#define FD_GUI_BOOT_PROGRESS_INCREMENTAL_SNAPSHOT_IDX (1UL)
+
+#define FD_GUI_GOSSIP_ENTRY_CNT                               (14UL)
+#define FD_GUI_GOSSIP_ENTRY_CONTACT_INFO_V1_IDX               ( 0UL)
+#define FD_GUI_GOSSIP_ENTRY_VOTE_IDX                          ( 1UL)
+#define FD_GUI_GOSSIP_ENTRY_LOWEST_SLOT_IDX                   ( 2UL)
+#define FD_GUI_GOSSIP_ENTRY_SNAPSHOT_HASHES_IDX               ( 3UL)
+#define FD_GUI_GOSSIP_ENTRY_ACCOUNTS_HASHES_IDX               ( 4UL)
+#define FD_GUI_GOSSIP_ENTRY_EPOCH_SLOTS_IDX                   ( 5UL)
+#define FD_GUI_GOSSIP_ENTRY_VERSION_V1_IDX                    ( 6UL)
+#define FD_GUI_GOSSIP_ENTRY_VERSION_V2_IDX                    ( 7UL)
+#define FD_GUI_GOSSIP_ENTRY_NODE_INSTANCE_IDX                 ( 8UL)
+#define FD_GUI_GOSSIP_ENTRY_DUPLICATE_SHRED_IDX               ( 9UL)
+#define FD_GUI_GOSSIP_ENTRY_INCREMENTAL_SNAPSHOT_HASHES_IDX   (10UL)
+#define FD_GUI_GOSSIP_ENTRY_CONTACT_INFO_V2_IDX               (11UL)
+#define FD_GUI_GOSSIP_ENTRY_RESTART_LAST_VOTED_FORK_SLOTS_IDX (12UL)
+#define FD_GUI_GOSSIP_ENTRY_RESTART_HEAVIEST_FORK_IDX         (13UL)
+
+#define FD_GUI_GOSSIP_MESSAGE_CNT               (6UL)
+#define FD_GUI_GOSSIP_MESSAGE_PULL_REQUEST_IDX  (0UL)
+#define FD_GUI_GOSSIP_MESSAGE_PULL_RESPONSE_IDX (1UL)
+#define FD_GUI_GOSSIP_MESSAGE_PUSH_IDX          (2UL)
+#define FD_GUI_GOSSIP_MESSAGE_PING_IDX          (3UL)
+#define FD_GUI_GOSSIP_MESSAGE_PONG_IDX          (4UL)
+#define FD_GUI_GOSSIP_MESSAGE_PRUNE_IDX         (5UL)
+
+
+#define FD_GUI_EMA_FILTER_ALPHA ((double)0.05)
+
+#define FD_GUI_GOSSIP_NETWORK_STATS_PEER_CNT (64UL)
+
 /* Ideally, we would store an entire epoch's worth of transactions.  If
    we assume any given validator will have at most 5% stake, and average
    transactions per slot is around 10_000, then an epoch will have about
@@ -178,6 +216,50 @@ struct fd_gui_tile_stats {
 
 typedef struct fd_gui_tile_stats fd_gui_tile_stats_t;
 
+struct fd_gui_gossip_stats {
+      long  sample_time;
+      ulong network_health_pull_response_msg_rx_success;
+      ulong network_health_pull_response_msg_rx_failure;
+      ulong network_health_push_msg_rx_success;
+      ulong network_health_push_msg_rx_failure;
+      ulong network_health_push_crds_rx_duplicate;
+      ulong network_health_pull_response_crds_rx_duplicate;
+      ulong network_health_push_crds_rx_success;
+      ulong network_health_push_crds_rx_failure;
+      ulong network_health_pull_response_crds_rx_success;
+      ulong network_health_pull_response_crds_rx_failure;
+      ulong network_health_push_msg_tx;
+      ulong network_health_pull_response_msg_tx;
+      ulong network_health_total_stake; /* lamports */
+      ulong network_health_total_peers;
+      ulong network_health_connected_stake; /* lamports */
+      ulong network_health_connected_staked_peers;
+      ulong network_health_connected_unstaked_peers;
+      ulong network_ingress_total_bytes;
+      ulong network_ingress_peer_sz;
+      char  network_ingress_peer_names[ FD_GUI_GOSSIP_NETWORK_STATS_PEER_CNT ][ 64 ]; /* maintain the top 64 peers */
+      ulong network_ingress_peer_bytes[ 64 ];
+      ulong network_egress_total_bytes;
+      ulong network_egress_peer_sz;
+      char  network_egress_peer_names[ FD_GUI_GOSSIP_NETWORK_STATS_PEER_CNT ][ 64 ]; /* maintain the top 64 peers */
+      ulong network_egress_peer_bytes[ 64 ];
+      ulong storage_capacity;
+      ulong storage_expired_cnt;
+      ulong storage_evicted_cnt;
+      ulong storage_active_cnt[   FD_GUI_GOSSIP_ENTRY_CNT ];
+      ulong storage_cnt_tx    [   FD_GUI_GOSSIP_ENTRY_CNT ];
+      ulong storage_bytes_tx  [   FD_GUI_GOSSIP_ENTRY_CNT ];
+      ulong messages_push_rx_cnt;
+      ulong messages_push_tx_cnt;
+      ulong messages_pull_response_rx_cnt;
+      ulong messages_pull_response_tx_cnt;
+      ulong messages_bytes_rx [ FD_GUI_GOSSIP_MESSAGE_CNT ];
+      ulong messages_count_rx [ FD_GUI_GOSSIP_MESSAGE_CNT ];
+      ulong messages_bytes_tx [ FD_GUI_GOSSIP_MESSAGE_CNT ];
+      ulong messages_count_tx [ FD_GUI_GOSSIP_MESSAGE_CNT ];
+};
+typedef struct fd_gui_gossip_stats fd_gui_gossip_stats_t;
+
 #define FD_GUI_SLOT_LEADER_UNSTARTED (0UL)
 #define FD_GUI_SLOT_LEADER_STARTED   (1UL)
 #define FD_GUI_SLOT_LEADER_ENDED     (2UL)
@@ -292,6 +374,7 @@ struct fd_gui {
     char vote_key_base58[ FD_BASE58_ENCODED_32_SZ ];
     char identity_key_base58[ FD_BASE58_ENCODED_32_SZ ];
 
+    int          is_full_client;
     char const * version;
     char const * cluster;
 
@@ -300,32 +383,75 @@ struct fd_gui {
 
     long  startup_time_nanos;
 
-    uchar startup_progress;
-    int   startup_got_full_snapshot;
+    union {
+      struct { /* used in frankendancer */
+      uchar phase;
+      int   startup_got_full_snapshot;
 
-    ulong  startup_incremental_snapshot_slot;
-    uint   startup_incremental_snapshot_peer_ip_addr;
-    ushort startup_incremental_snapshot_peer_port;
-    double startup_incremental_snapshot_elapsed_secs;
-    double startup_incremental_snapshot_remaining_secs;
-    double startup_incremental_snapshot_throughput;
-    ulong  startup_incremental_snapshot_total_bytes;
-    ulong  startup_incremental_snapshot_current_bytes;
+      ulong  startup_incremental_snapshot_slot;
+      uint   startup_incremental_snapshot_peer_ip_addr;
+        ushort startup_incremental_snapshot_peer_port;
+        double startup_incremental_snapshot_elapsed_secs;
+        double startup_incremental_snapshot_remaining_secs;
+        double startup_incremental_snapshot_throughput;
+        ulong  startup_incremental_snapshot_total_bytes;
+        ulong  startup_incremental_snapshot_current_bytes;
 
-    ulong  startup_full_snapshot_slot;
-    uint   startup_full_snapshot_peer_ip_addr;
-    ushort startup_full_snapshot_peer_port;
-    double startup_full_snapshot_elapsed_secs;
-    double startup_full_snapshot_remaining_secs;
-    double startup_full_snapshot_throughput;
-    ulong  startup_full_snapshot_total_bytes;
-    ulong  startup_full_snapshot_current_bytes;
+        ulong  startup_full_snapshot_slot;
+        uint   startup_full_snapshot_peer_ip_addr;
+        ushort startup_full_snapshot_peer_port;
+        double startup_full_snapshot_elapsed_secs;
+        double startup_full_snapshot_remaining_secs;
+        double startup_full_snapshot_throughput;
+        ulong  startup_full_snapshot_total_bytes;
+        ulong  startup_full_snapshot_current_bytes;
 
-    ulong startup_ledger_slot;
-    ulong startup_ledger_max_slot;
+        ulong startup_ledger_slot;
+        ulong startup_ledger_max_slot;
 
-    ulong startup_waiting_for_supermajority_slot;
-    ulong startup_waiting_for_supermajority_stake_pct;
+        ulong startup_waiting_for_supermajority_slot;
+        ulong startup_waiting_for_supermajority_stake_pct;
+      } startup_progress;
+      struct { /* used in the full client */
+        uchar phase;
+        long joining_gossip_time_nanos;
+        struct {
+          ulong  slot;
+          uint   peer_addr;
+          ushort peer_port;
+          ulong  total_bytes; /* compressed */
+          long   reset_time_nanos; /* since this phase can reset, we keep a reset timestamp for proper timekeeping */
+          long   sample_time_nanos;
+          ulong  reset_cnt;
+
+          ulong  read_bytes; /* compressed */
+          double read_throughput_ema; /* EMA filtered throughput, in compressed bytes / ns */
+          long   read_remaining_nanos;
+          char   read_path[ PATH_MAX ];
+
+          ulong  decompress_decompressed_bytes; /* decompressed */
+          ulong  decompress_compressed_bytes; /* compressed */
+          double decompress_throughput_ema; /* compressed */
+          long   decompress_remaining_nanos;
+
+          ulong  insert_bytes; /* decompressed */
+          double insert_throughput_ema; /* decompressed */
+          long   insert_remaining_nanos;
+          char   insert_path[ PATH_MAX ];
+          ulong  insert_accounts_current;
+          double insert_accounts_throughput_ema;
+        } loading_snapshot[ 2UL ];
+
+        long  catching_up_time_nanos;
+        ulong catching_up_first_turbine_slot;
+        ulong catching_up_latest_turbine_slot;
+        ulong catching_up_latest_repair_slot;
+        ulong catching_up_latest_replay_slot;
+      } boot_progress;
+    };
+
+    fd_gui_gossip_stats_t gossip_stats_current[ 1 ];
+    fd_gui_gossip_stats_t gossip_stats_reference[ 1 ];
 
     int schedule_strategy;
 
@@ -340,11 +466,15 @@ struct fd_gui {
     ulong resolv_tile_cnt;
     ulong bank_tile_cnt;
     ulong shred_tile_cnt;
+    ulong bundle_tile_cnt;
+    ulong gossip_tile_cnt;
+    ulong gossvf_tile_cnt;
 
     ulong slot_rooted;
     ulong slot_optimistically_confirmed;
     ulong slot_completed;
     ulong slot_estimated;
+    ulong slot_turbine; /* full client only */
 
     ulong estimated_tps_history_idx;
     ulong estimated_tps_history[ FD_GUI_TPS_HISTORY_SAMPLE_CNT ][ 3UL ];
@@ -431,6 +561,7 @@ fd_gui_new( void *             shmem,
             uchar const *      identity_key,
             int                has_vote_key,
             uchar const *      vote_key,
+            int                is_full_client,
             int                is_voting,
             int                schedule_strategy,
             fd_topo_t *        topo );
@@ -494,6 +625,10 @@ fd_gui_microblock_execution_end( fd_gui_t *   gui,
                                  uchar        txn_end_pct,
                                  uchar        txn_preload_end_pct,
                                  ulong        tips );
+
+void
+fd_gui_turbine_slot_complete( fd_gui_t *   gui, ulong slot );
+
 
 int
 fd_gui_poll( fd_gui_t * gui );
