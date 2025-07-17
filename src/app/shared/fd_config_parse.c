@@ -38,7 +38,6 @@ fd_config_extract_podh( uchar *        pod,
   CFG_POP      ( cstr,   ledger.snapshot_archive_format                   );
 
   CFG_POP      ( bool,   gossip.port_check                                );
-  CFG_POP      ( cstr,   gossip.host                                      );
 
   CFG_POP      ( bool,   consensus.snapshot_fetch                         );
   CFG_POP      ( bool,   consensus.genesis_fetch                          );
@@ -141,6 +140,7 @@ fd_config_extract_pod( uchar *       pod,
 
   CFG_POP_ARRAY( cstr,   gossip.entrypoints                               );
   CFG_POP      ( ushort, gossip.port                                      );
+  CFG_POP      ( cstr,   gossip.host                                      );
 
   CFG_POP      ( ushort, consensus.expected_shred_version                 );
 

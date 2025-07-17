@@ -231,6 +231,11 @@ user = ""
     # to successfully join the cluster.
     port = 8001
 
+    # DNS name or IP address to advertise to the network in gossip.  If
+    # none is provided, the default is the IP address of the interface
+    # specified in `[net.interface]`.
+    host = ""
+
 # Snapshots are a periodic view of the ledger at a point in time.  They
 # are used to enable validators to join the network quickly, as they do
 # not need to replay all transactions since genesis, just those since a
