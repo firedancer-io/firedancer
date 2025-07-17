@@ -10,6 +10,7 @@
 #include "../../disco/pack/fd_pack.h"
 #include "../../disco/pack/fd_pack_cost.h"
 #include "../../disco/shred/fd_stake_ci.h"
+#include "../../disco/plugin/fd_plugin.h"
 
 FD_FN_CONST ulong
 fd_gui_align( void ) {
@@ -22,16 +23,18 @@ fd_gui_footprint( void ) {
 }
 
 void *
-fd_gui_new( void *             shmem,
-            fd_http_server_t * http,
-            char const *       version,
-            char const *       cluster,
-            uchar const *      identity_key,
-            int                has_vote_key,
-            uchar const *      vote_key,
-            int                is_voting,
-            int                schedule_strategy,
-            fd_topo_t *        topo ) {
+fd_gui_new( void *                shmem,
+            fd_http_server_t *    http,
+            char const *          version,
+            char const *          cluster,
+            uchar const *         identity_key,
+            int                   has_vote_key,
+            uchar const *         vote_key,
+            int                   is_full_client,
+            int                   is_voting,
+            int                   schedule_strategy,
+            fd_topo_t *           topo,
+            fd_gui_peers_ctx_t *  peers ) {
 
   if( FD_UNLIKELY( !shmem ) ) {
     FD_LOG_WARNING(( "NULL shmem" ));
@@ -75,15 +78,30 @@ fd_gui_new( void *             shmem,
     memset( gui->summary.vote_key_base58, 0, sizeof(gui->summary.vote_key_base58) );
   }
 
+  gui->summary.is_full_client                = is_full_client;
   gui->summary.version                       = version;
   gui->summary.cluster                       = cluster;
   gui->summary.startup_time_nanos            = gui->next_sample_400millis;
 
-  gui->summary.startup_progress                       = FD_GUI_START_PROGRESS_TYPE_INITIALIZING;
-  gui->summary.startup_got_full_snapshot              = 0;
-  gui->summary.startup_full_snapshot_slot             = 0;
-  gui->summary.startup_incremental_snapshot_slot      = 0;
-  gui->summary.startup_waiting_for_supermajority_slot = ULONG_MAX;
+  if( FD_UNLIKELY( is_full_client ) ) {
+    gui->summary.boot_progress.phase = FD_GUI_BOOT_PROGRESS_TYPE_JOINING_GOSSIP;
+    gui->summary.boot_progress.joining_gossip_time_nanos = gui->next_sample_400millis;
+    for( ulong i=0UL; i<2UL; i++ ) {
+      gui->summary.boot_progress.loading_snapshot[ i ].reset_cnt = ULONG_MAX; /* ensures other fields are reset initially */
+      gui->summary.boot_progress.loading_snapshot[ i ].read_path[ 0 ] = '\0';
+      gui->summary.boot_progress.loading_snapshot[ i ].insert_path[ 0 ] = '\0';
+    }
+    gui->summary.boot_progress.catching_up_first_turbine_slot  = 0UL;
+    gui->summary.boot_progress.catching_up_latest_repair_slot  = 0UL;
+    gui->summary.boot_progress.catching_up_latest_replay_slot  = 0UL;
+    gui->summary.boot_progress.catching_up_latest_turbine_slot = 0UL;
+  } else {
+    gui->summary.startup_progress.phase = FD_GUI_START_PROGRESS_TYPE_INITIALIZING;
+    gui->summary.startup_progress.startup_got_full_snapshot              = 0;
+    gui->summary.startup_progress.startup_full_snapshot_slot             = 0;
+    gui->summary.startup_progress.startup_incremental_snapshot_slot      = 0;
+    gui->summary.startup_progress.startup_waiting_for_supermajority_slot = ULONG_MAX;
+  }
 
   gui->summary.identity_account_balance      = 0UL;
   gui->summary.vote_account_balance          = 0UL;
@@ -99,11 +117,16 @@ fd_gui_new( void *             shmem,
   gui->summary.resolv_tile_cnt = fd_topo_tile_name_cnt( gui->topo, "resolv" );
   gui->summary.bank_tile_cnt   = fd_topo_tile_name_cnt( gui->topo, "bank"   );
   gui->summary.shred_tile_cnt  = fd_topo_tile_name_cnt( gui->topo, "shred"  );
+  gui->summary.bundle_tile_cnt = fd_topo_tile_name_cnt( gui->topo, "bundle"  );
+  gui->summary.gossip_tile_cnt = fd_topo_tile_name_cnt( gui->topo, "gossip"  );
+  gui->summary.gossvf_tile_cnt = fd_topo_tile_name_cnt( gui->topo, "gossvf"  );
 
   gui->summary.slot_rooted                   = 0UL;
   gui->summary.slot_optimistically_confirmed = 0UL;
   gui->summary.slot_completed                = 0UL;
   gui->summary.slot_estimated                = 0UL;
+  gui->summary.slot_turbine                  = 0UL;
+  gui->summary.slot_turbine_first            = ULONG_MAX;
 
   gui->summary.estimated_tps_history_idx = 0UL;
   memset( gui->summary.estimated_tps_history, 0, sizeof(gui->summary.estimated_tps_history) );
@@ -120,6 +143,9 @@ fd_gui_new( void *             shmem,
   gui->summary.tile_timers_history_idx = 0UL;
   for( ulong i=0UL; i<FD_GUI_TILE_TIMER_LEADER_CNT; i++ ) gui->summary.tile_timers_leader_history_slot[ i ] = ULONG_MAX;
 
+  memset( &gui->summary.gossip_stats_current, 0, sizeof(gui->summary.gossip_stats_current) );
+  *gui->summary.gossip_stats_reference = *gui->summary.gossip_stats_current;
+
   gui->block_engine.has_block_engine = 0;
 
   gui->epoch.has_epoch[ 0 ] = 0;
@@ -128,6 +154,8 @@ fd_gui_new( void *             shmem,
   gui->gossip.peer_cnt               = 0UL;
   gui->vote_account.vote_account_cnt = 0UL;
   gui->validator_info.info_cnt       = 0UL;
+
+  gui->peers = peers;
 
   for( ulong i=0UL; i<FD_GUI_SLOTS_CNT; i++ ) gui->slots[ i ]->slot = ULONG_MAX;
   gui->pack_txn_idx = 0UL;
@@ -158,7 +186,8 @@ void
 fd_gui_ws_open( fd_gui_t * gui,
                 ulong      ws_conn_id ) {
   void (* printers[] )( fd_gui_t * gui ) = {
-    fd_gui_printf_startup_progress,
+    fd_gui_printf_client,
+    gui->summary.is_full_client ? fd_gui_printf_boot_progress : fd_gui_printf_startup_progress,
     fd_gui_printf_version,
     fd_gui_printf_cluster,
     fd_gui_printf_commit_hash,
@@ -534,6 +563,360 @@ fd_gui_tile_stats_snap( fd_gui_t *                     gui,
   stats->bank_txn_exec_cnt = waterfall->out.block_fail + waterfall->out.block_success;
 }
 
+static ulong
+fd_gui_sum_tiles_counter( fd_gui_t * gui, char const * name, ulong tile_cnt, ulong metric_idx ) {
+  ulong total = 0UL;
+  for( ulong i = 0UL; i < tile_cnt; i++ ) {
+    fd_topo_tile_t const * tile = &gui->topo->tiles[ fd_topo_find_tile( gui->topo, name, i ) ];
+    volatile ulong const * tile_metrics = fd_metrics_tile( tile->metrics );
+
+    total += tile_metrics[ metric_idx ];
+  }
+  return total;
+}
+
+/* full firedancer only */
+static void
+fd_gui_run_gossip_stats_snap( fd_gui_t * gui, fd_gui_gossip_stats_t * gossip_stats, long now_nanos ) {
+  gossip_stats->sample_time = now_nanos;
+  gossip_stats->network_health_pull_response_msg_rx_success =
+      fd_gui_sum_tiles_counter( gui, "gossvf", gui->summary.gossvf_tile_cnt, MIDX( COUNTER, GOSSVF, MESSAGE_RX_COUNT_SUCCESS_PULL_RESPONSE ) );
+  gossip_stats->network_health_pull_response_msg_rx_failure =
+      fd_gui_sum_tiles_counter( gui, "gossvf", gui->summary.gossvf_tile_cnt, MIDX( COUNTER, GOSSVF, MESSAGE_RX_COUNT_DROPPED_PULL_RESPONSE_NO_VALID_CRDS ) );
+  gossip_stats->network_health_push_msg_rx_success =
+      fd_gui_sum_tiles_counter( gui, "gossvf", gui->summary.gossvf_tile_cnt, MIDX( COUNTER, GOSSVF, MESSAGE_RX_COUNT_SUCCESS_PUSH ) );
+  gossip_stats->network_health_push_msg_rx_failure =
+      fd_gui_sum_tiles_counter( gui, "gossvf", gui->summary.gossvf_tile_cnt, MIDX( COUNTER, GOSSVF, MESSAGE_RX_COUNT_DROPPED_PUSH_NO_VALID_CRDS ) );
+  gossip_stats->network_health_push_crds_rx_success = 
+      fd_gui_sum_tiles_counter( gui, "gossip", 1UL, MIDX( COUNTER, GOSSIP, CRDS_RX_COUNT_UPSERTED_PUSH ) );
+  gossip_stats->network_health_push_crds_rx_failure = 
+      fd_gui_sum_tiles_counter( gui, "gossip", 1UL, MIDX( COUNTER, GOSSIP, CRDS_RX_COUNT_DROPPED_PUSH_STALE ) )
+    + fd_gui_sum_tiles_counter( gui, "gossip", 1UL, MIDX( COUNTER, GOSSIP, CRDS_RX_COUNT_DROPPED_PUSH_DUPLICATE ) )
+    + fd_gui_sum_tiles_counter( gui, "gossvf", gui->summary.gossvf_tile_cnt, MIDX( COUNTER, GOSSVF, CRDS_RX_COUNT_DROPPED_PUSH_SIGNATURE ) )
+    + fd_gui_sum_tiles_counter( gui, "gossvf", gui->summary.gossvf_tile_cnt, MIDX( COUNTER, GOSSVF, CRDS_RX_COUNT_DROPPED_PUSH_RELAYER_NO_CONTACT_INFO ) )
+    + fd_gui_sum_tiles_counter( gui, "gossvf", gui->summary.gossvf_tile_cnt, MIDX( COUNTER, GOSSVF, CRDS_RX_COUNT_DROPPED_PUSH_RELAYER_SHRED_VERSION ) )
+    + fd_gui_sum_tiles_counter( gui, "gossvf", gui->summary.gossvf_tile_cnt, MIDX( COUNTER, GOSSVF, CRDS_RX_COUNT_DROPPED_PUSH_ORIGIN_NO_CONTACT_INFO ) )
+    + fd_gui_sum_tiles_counter( gui, "gossvf", gui->summary.gossvf_tile_cnt, MIDX( COUNTER, GOSSVF, CRDS_RX_COUNT_DROPPED_PUSH_ORIGIN_SHRED_VERSION ) )
+    + fd_gui_sum_tiles_counter( gui, "gossvf", gui->summary.gossvf_tile_cnt, MIDX( COUNTER, GOSSVF, CRDS_RX_COUNT_DROPPED_PUSH_INACTIVE ) )
+    + fd_gui_sum_tiles_counter( gui, "gossvf", gui->summary.gossvf_tile_cnt, MIDX( COUNTER, GOSSVF, CRDS_RX_COUNT_DROPPED_PUSH_WALLCLOCK ) );
+  gossip_stats->network_health_pull_response_crds_rx_success =
+      fd_gui_sum_tiles_counter( gui, "gossip", 1UL, MIDX( COUNTER, GOSSIP, CRDS_RX_COUNT_UPSERTED_PULL_RESPONSE ) );
+  gossip_stats->network_health_pull_response_crds_rx_failure =
+      fd_gui_sum_tiles_counter( gui, "gossip", 1UL, MIDX( COUNTER, GOSSIP, CRDS_RX_COUNT_DROPPED_PULL_RESPONSE_STALE ) )
+    + fd_gui_sum_tiles_counter( gui, "gossip", 1UL, MIDX( COUNTER, GOSSIP, CRDS_RX_COUNT_DROPPED_PULL_RESPONSE_WALLCLOCK ) )
+    + fd_gui_sum_tiles_counter( gui, "gossip", 1UL, MIDX( COUNTER, GOSSIP, CRDS_RX_COUNT_DROPPED_PULL_RESPONSE_DUPLICATE ) )
+    + fd_gui_sum_tiles_counter( gui, "gossvf", gui->summary.gossvf_tile_cnt, MIDX( COUNTER, GOSSVF, CRDS_RX_COUNT_DROPPED_PULL_RESPONSE_DUPLICATE ) )
+    + fd_gui_sum_tiles_counter( gui, "gossvf", gui->summary.gossvf_tile_cnt, MIDX( COUNTER, GOSSVF, CRDS_RX_COUNT_DROPPED_PULL_RESPONSE_SIGNATURE ) )
+    + fd_gui_sum_tiles_counter( gui, "gossvf", gui->summary.gossvf_tile_cnt, MIDX( COUNTER, GOSSVF, CRDS_RX_COUNT_DROPPED_PULL_RESPONSE_RELAYER_SHRED_VERSION ) )
+    + fd_gui_sum_tiles_counter( gui, "gossvf", gui->summary.gossvf_tile_cnt, MIDX( COUNTER, GOSSVF, CRDS_RX_COUNT_DROPPED_PULL_RESPONSE_ORIGIN_NO_CONTACT_INFO ) )
+    + fd_gui_sum_tiles_counter( gui, "gossvf", gui->summary.gossvf_tile_cnt, MIDX( COUNTER, GOSSVF, CRDS_RX_COUNT_DROPPED_PULL_RESPONSE_ORIGIN_SHRED_VERSION ) )
+    + fd_gui_sum_tiles_counter( gui, "gossvf", gui->summary.gossvf_tile_cnt, MIDX( COUNTER, GOSSVF, CRDS_RX_COUNT_DROPPED_PULL_RESPONSE_INACTIVE ) );
+  gossip_stats->network_health_push_crds_rx_duplicate =
+      fd_gui_sum_tiles_counter( gui, "gossip", 1UL, MIDX( COUNTER, GOSSIP, CRDS_RX_COUNT_DROPPED_PUSH_DUPLICATE ) );
+  gossip_stats->network_health_pull_response_crds_rx_duplicate =
+      fd_gui_sum_tiles_counter( gui, "gossip", 1UL, MIDX( COUNTER, GOSSIP, CRDS_RX_COUNT_DROPPED_PULL_RESPONSE_DUPLICATE ) )
+    + fd_gui_sum_tiles_counter( gui, "gossvf", gui->summary.gossvf_tile_cnt, MIDX( COUNTER, GOSSVF, CRDS_RX_COUNT_DROPPED_PULL_RESPONSE_DUPLICATE ) );
+
+  gossip_stats->network_health_total_stake = 0UL; /* todo ... fetch from RPC */
+  gossip_stats->network_health_total_peers = 0UL; /* todo ... fetch from RPC */
+
+  gossip_stats->network_health_connected_stake = fd_gui_sum_tiles_counter( gui, "gossip", 1UL, MIDX( GAUGE, GOSSIP, CRDS_PEER_TOTAL_STAKE ) );
+  gossip_stats->network_health_connected_staked_peers = fd_gui_sum_tiles_counter( gui, "gossip", 1UL, MIDX( GAUGE, GOSSIP, CRDS_PEER_STAKED_COUNT ) );
+  gossip_stats->network_health_connected_unstaked_peers = fd_gui_sum_tiles_counter( gui, "gossip", 1UL, MIDX( GAUGE, GOSSIP, CRDS_PEER_UNSTAKED_COUNT ) );
+
+  gossip_stats->network_ingress_peer_sz = 0UL; /* todo ... */
+  gossip_stats->network_ingress_total_bytes =
+      fd_gui_sum_tiles_counter( gui, "gossvf", gui->summary.gossvf_tile_cnt, MIDX( COUNTER, GOSSVF, MESSAGE_RX_BYTES_SUCCESS_PULL_REQUEST) )
+    + fd_gui_sum_tiles_counter( gui, "gossvf", gui->summary.gossvf_tile_cnt, MIDX( COUNTER, GOSSVF, MESSAGE_RX_BYTES_SUCCESS_PULL_RESPONSE) )
+    + fd_gui_sum_tiles_counter( gui, "gossvf", gui->summary.gossvf_tile_cnt, MIDX( COUNTER, GOSSVF, MESSAGE_RX_BYTES_SUCCESS_PUSH) )
+    + fd_gui_sum_tiles_counter( gui, "gossvf", gui->summary.gossvf_tile_cnt, MIDX( COUNTER, GOSSVF, MESSAGE_RX_BYTES_SUCCESS_PRUNE) )
+    + fd_gui_sum_tiles_counter( gui, "gossvf", gui->summary.gossvf_tile_cnt, MIDX( COUNTER, GOSSVF, MESSAGE_RX_BYTES_SUCCESS_PING) )
+    + fd_gui_sum_tiles_counter( gui, "gossvf", gui->summary.gossvf_tile_cnt, MIDX( COUNTER, GOSSVF, MESSAGE_RX_BYTES_SUCCESS_PONG) )
+    + fd_gui_sum_tiles_counter( gui, "gossvf", gui->summary.gossvf_tile_cnt, MIDX( COUNTER, GOSSVF, MESSAGE_RX_BYTES_DROPPED_UNPARSEABLE) )
+    + fd_gui_sum_tiles_counter( gui, "gossvf", gui->summary.gossvf_tile_cnt, MIDX( COUNTER, GOSSVF, MESSAGE_RX_BYTES_DROPPED_PULL_REQUEST_NOT_CONTACT_INFO) )
+    + fd_gui_sum_tiles_counter( gui, "gossvf", gui->summary.gossvf_tile_cnt, MIDX( COUNTER, GOSSVF, MESSAGE_RX_BYTES_DROPPED_PULL_REQUEST_LOOPBACK) )
+    + fd_gui_sum_tiles_counter( gui, "gossvf", gui->summary.gossvf_tile_cnt, MIDX( COUNTER, GOSSVF, MESSAGE_RX_BYTES_DROPPED_PULL_REQUEST_INACTIVE) )
+    + fd_gui_sum_tiles_counter( gui, "gossvf", gui->summary.gossvf_tile_cnt, MIDX( COUNTER, GOSSVF, MESSAGE_RX_BYTES_DROPPED_PULL_REQUEST_WALLCLOCK) )
+    + fd_gui_sum_tiles_counter( gui, "gossvf", gui->summary.gossvf_tile_cnt, MIDX( COUNTER, GOSSVF, MESSAGE_RX_BYTES_DROPPED_PULL_REQUEST_SIGNATURE) )
+    + fd_gui_sum_tiles_counter( gui, "gossvf", gui->summary.gossvf_tile_cnt, MIDX( COUNTER, GOSSVF, MESSAGE_RX_BYTES_DROPPED_PULL_REQUEST_SHRED_VERSION) )
+    + fd_gui_sum_tiles_counter( gui, "gossvf", gui->summary.gossvf_tile_cnt, MIDX( COUNTER, GOSSVF, MESSAGE_RX_BYTES_DROPPED_PRUNE_DESTINATION) )
+    + fd_gui_sum_tiles_counter( gui, "gossvf", gui->summary.gossvf_tile_cnt, MIDX( COUNTER, GOSSVF, MESSAGE_RX_BYTES_DROPPED_PRUNE_WALLCLOCK) )
+    + fd_gui_sum_tiles_counter( gui, "gossvf", gui->summary.gossvf_tile_cnt, MIDX( COUNTER, GOSSVF, MESSAGE_RX_BYTES_DROPPED_PRUNE_SIGNATURE) )
+    + fd_gui_sum_tiles_counter( gui, "gossvf", gui->summary.gossvf_tile_cnt, MIDX( COUNTER, GOSSVF, MESSAGE_RX_BYTES_DROPPED_PUSH_NO_VALID_CRDS) )
+    + fd_gui_sum_tiles_counter( gui, "gossvf", gui->summary.gossvf_tile_cnt, MIDX( COUNTER, GOSSVF, MESSAGE_RX_BYTES_DROPPED_PULL_RESPONSE_NO_VALID_CRDS) )
+    + fd_gui_sum_tiles_counter( gui, "gossvf", gui->summary.gossvf_tile_cnt, MIDX( COUNTER, GOSSVF, MESSAGE_RX_BYTES_DROPPED_PING_SIGNATURE) )
+    + fd_gui_sum_tiles_counter( gui, "gossvf", gui->summary.gossvf_tile_cnt, MIDX( COUNTER, GOSSVF, MESSAGE_RX_BYTES_DROPPED_PONG_SIGNATURE) );
+
+  gossip_stats->network_egress_peer_sz = 0UL; /* todo ... */
+  gossip_stats->network_egress_total_bytes =
+      fd_gui_sum_tiles_counter( gui, "gossip", 1UL, MIDX( COUNTER, GOSSIP, MESSAGE_TX_BYTES_PING ) )
+    + fd_gui_sum_tiles_counter( gui, "gossip", 1UL, MIDX( COUNTER, GOSSIP, MESSAGE_TX_BYTES_PONG ) )
+    + fd_gui_sum_tiles_counter( gui, "gossip", 1UL, MIDX( COUNTER, GOSSIP, MESSAGE_TX_BYTES_PRUNE ) )
+    + fd_gui_sum_tiles_counter( gui, "gossip", 1UL, MIDX( COUNTER, GOSSIP, MESSAGE_TX_BYTES_PULL_REQUEST ) )
+    + fd_gui_sum_tiles_counter( gui, "gossip", 1UL, MIDX( COUNTER, GOSSIP, MESSAGE_TX_BYTES_PULL_RESPONSE ) )
+    + fd_gui_sum_tiles_counter( gui, "gossip", 1UL, MIDX( COUNTER, GOSSIP, MESSAGE_TX_BYTES_PUSH ) );
+
+  gossip_stats->storage_capacity = fd_gui_sum_tiles_counter( gui, "gossip", 1UL, MIDX( GAUGE, GOSSIP, CRDS_CAPACITY ) );
+  gossip_stats->storage_expired_cnt = fd_gui_sum_tiles_counter( gui, "gossip", 1UL, MIDX( COUNTER, GOSSIP, CRDS_EXPIRED_COUNT ) );
+  gossip_stats->storage_evicted_cnt = fd_gui_sum_tiles_counter( gui, "gossip", 1UL, MIDX( COUNTER, GOSSIP, CRDS_EVICTED_COUNT ) );
+
+  gossip_stats->storage_active_cnt[ FD_GUI_GOSSIP_ENTRY_CONTACT_INFO_V1_IDX               ] = fd_gui_sum_tiles_counter( gui, "gossip", 1UL, MIDX( GAUGE, GOSSIP, CRDS_COUNT_CONTACT_INFO_V1 )               );
+  gossip_stats->storage_active_cnt[ FD_GUI_GOSSIP_ENTRY_VOTE_IDX                          ] = fd_gui_sum_tiles_counter( gui, "gossip", 1UL, MIDX( GAUGE, GOSSIP, CRDS_COUNT_VOTE )                          );
+  gossip_stats->storage_active_cnt[ FD_GUI_GOSSIP_ENTRY_LOWEST_SLOT_IDX                   ] = fd_gui_sum_tiles_counter( gui, "gossip", 1UL, MIDX( GAUGE, GOSSIP, CRDS_COUNT_LOWEST_SLOT )                   );
+  gossip_stats->storage_active_cnt[ FD_GUI_GOSSIP_ENTRY_SNAPSHOT_HASHES_IDX               ] = fd_gui_sum_tiles_counter( gui, "gossip", 1UL, MIDX( GAUGE, GOSSIP, CRDS_COUNT_SNAPSHOT_HASHES )               );
+  gossip_stats->storage_active_cnt[ FD_GUI_GOSSIP_ENTRY_ACCOUNTS_HASHES_IDX               ] = fd_gui_sum_tiles_counter( gui, "gossip", 1UL, MIDX( GAUGE, GOSSIP, CRDS_COUNT_ACCOUNTS_HASHES )               );
+  gossip_stats->storage_active_cnt[ FD_GUI_GOSSIP_ENTRY_EPOCH_SLOTS_IDX                   ] = fd_gui_sum_tiles_counter( gui, "gossip", 1UL, MIDX( GAUGE, GOSSIP, CRDS_COUNT_EPOCH_SLOTS )                   );
+  gossip_stats->storage_active_cnt[ FD_GUI_GOSSIP_ENTRY_VERSION_V1_IDX                    ] = fd_gui_sum_tiles_counter( gui, "gossip", 1UL, MIDX( GAUGE, GOSSIP, CRDS_COUNT_VERSION_V1 )                    );
+  gossip_stats->storage_active_cnt[ FD_GUI_GOSSIP_ENTRY_VERSION_V2_IDX                    ] = fd_gui_sum_tiles_counter( gui, "gossip", 1UL, MIDX( GAUGE, GOSSIP, CRDS_COUNT_VERSION_V2 )                    );
+  gossip_stats->storage_active_cnt[ FD_GUI_GOSSIP_ENTRY_NODE_INSTANCE_IDX                 ] = fd_gui_sum_tiles_counter( gui, "gossip", 1UL, MIDX( GAUGE, GOSSIP, CRDS_COUNT_NODE_INSTANCE )                 );
+  gossip_stats->storage_active_cnt[ FD_GUI_GOSSIP_ENTRY_DUPLICATE_SHRED_IDX               ] = fd_gui_sum_tiles_counter( gui, "gossip", 1UL, MIDX( GAUGE, GOSSIP, CRDS_COUNT_DUPLICATE_SHRED )               );
+  gossip_stats->storage_active_cnt[ FD_GUI_GOSSIP_ENTRY_INCREMENTAL_SNAPSHOT_HASHES_IDX   ] = fd_gui_sum_tiles_counter( gui, "gossip", 1UL, MIDX( GAUGE, GOSSIP, CRDS_COUNT_INCREMENTAL_SNAPSHOT_HASHES )   );
+  gossip_stats->storage_active_cnt[ FD_GUI_GOSSIP_ENTRY_CONTACT_INFO_V2_IDX               ] = fd_gui_sum_tiles_counter( gui, "gossip", 1UL, MIDX( GAUGE, GOSSIP, CRDS_COUNT_CONTACT_INFO_V2 )               );
+  gossip_stats->storage_active_cnt[ FD_GUI_GOSSIP_ENTRY_RESTART_LAST_VOTED_FORK_SLOTS_IDX ] = fd_gui_sum_tiles_counter( gui, "gossip", 1UL, MIDX( GAUGE, GOSSIP, CRDS_COUNT_RESTART_LAST_VOTED_FORK_SLOTS ) );
+  gossip_stats->storage_active_cnt[ FD_GUI_GOSSIP_ENTRY_RESTART_HEAVIEST_FORK_IDX         ] = fd_gui_sum_tiles_counter( gui, "gossip", 1UL, MIDX( GAUGE, GOSSIP, CRDS_COUNT_RESTART_HEAVIEST_FORK )         );
+  
+  gossip_stats->storage_cnt_tx[ FD_GUI_GOSSIP_ENTRY_CONTACT_INFO_V1_IDX ] =
+      fd_gui_sum_tiles_counter( gui, "gossip", 1UL, MIDX( COUNTER, GOSSIP, CRDS_TX_PUSH_COUNT_CONTACT_INFO_V1 ) )
+    + fd_gui_sum_tiles_counter( gui, "gossip", 1UL, MIDX( COUNTER, GOSSIP, CRDS_TX_PULL_RESPONSE_COUNT_CONTACT_INFO_V1 ) );
+  gossip_stats->storage_cnt_tx[ FD_GUI_GOSSIP_ENTRY_VOTE_IDX ] =
+      fd_gui_sum_tiles_counter( gui, "gossip", 1UL, MIDX( COUNTER, GOSSIP, CRDS_TX_PUSH_COUNT_VOTE ) )
+    + fd_gui_sum_tiles_counter( gui, "gossip", 1UL, MIDX( COUNTER, GOSSIP, CRDS_TX_PULL_RESPONSE_COUNT_VOTE ) );
+  gossip_stats->storage_cnt_tx[ FD_GUI_GOSSIP_ENTRY_LOWEST_SLOT_IDX ] =
+      fd_gui_sum_tiles_counter( gui, "gossip", 1UL, MIDX( COUNTER, GOSSIP, CRDS_TX_PUSH_COUNT_LOWEST_SLOT ) )
+    + fd_gui_sum_tiles_counter( gui, "gossip", 1UL, MIDX( COUNTER, GOSSIP, CRDS_TX_PULL_RESPONSE_COUNT_LOWEST_SLOT ) );
+  gossip_stats->storage_cnt_tx[ FD_GUI_GOSSIP_ENTRY_SNAPSHOT_HASHES_IDX ] =
+      fd_gui_sum_tiles_counter( gui, "gossip", 1UL, MIDX( COUNTER, GOSSIP, CRDS_TX_PUSH_COUNT_SNAPSHOT_HASHES ) )
+    + fd_gui_sum_tiles_counter( gui, "gossip", 1UL, MIDX( COUNTER, GOSSIP, CRDS_TX_PULL_RESPONSE_COUNT_SNAPSHOT_HASHES ) );
+  gossip_stats->storage_cnt_tx[ FD_GUI_GOSSIP_ENTRY_ACCOUNTS_HASHES_IDX ] =
+      fd_gui_sum_tiles_counter( gui, "gossip", 1UL, MIDX( COUNTER, GOSSIP, CRDS_TX_PUSH_COUNT_ACCOUNTS_HASHES ) )
+    + fd_gui_sum_tiles_counter( gui, "gossip", 1UL, MIDX( COUNTER, GOSSIP, CRDS_TX_PULL_RESPONSE_COUNT_ACCOUNTS_HASHES ) );
+  gossip_stats->storage_cnt_tx[ FD_GUI_GOSSIP_ENTRY_EPOCH_SLOTS_IDX ] =
+      fd_gui_sum_tiles_counter( gui, "gossip", 1UL, MIDX( COUNTER, GOSSIP, CRDS_TX_PUSH_COUNT_EPOCH_SLOTS ) )
+    + fd_gui_sum_tiles_counter( gui, "gossip", 1UL, MIDX( COUNTER, GOSSIP, CRDS_TX_PULL_RESPONSE_COUNT_EPOCH_SLOTS ) );
+  gossip_stats->storage_cnt_tx[ FD_GUI_GOSSIP_ENTRY_VERSION_V1_IDX ] =
+      fd_gui_sum_tiles_counter( gui, "gossip", 1UL, MIDX( COUNTER, GOSSIP, CRDS_TX_PUSH_COUNT_VERSION_V1 ) )
+    + fd_gui_sum_tiles_counter( gui, "gossip", 1UL, MIDX( COUNTER, GOSSIP, CRDS_TX_PULL_RESPONSE_COUNT_VERSION_V1 ) );
+  gossip_stats->storage_cnt_tx[ FD_GUI_GOSSIP_ENTRY_VERSION_V2_IDX ] =
+      fd_gui_sum_tiles_counter( gui, "gossip", 1UL, MIDX( COUNTER, GOSSIP, CRDS_TX_PUSH_COUNT_VERSION_V2 ) )
+    + fd_gui_sum_tiles_counter( gui, "gossip", 1UL, MIDX( COUNTER, GOSSIP, CRDS_TX_PULL_RESPONSE_COUNT_VERSION_V2 ) );
+  gossip_stats->storage_cnt_tx[ FD_GUI_GOSSIP_ENTRY_NODE_INSTANCE_IDX ] =
+      fd_gui_sum_tiles_counter( gui, "gossip", 1UL, MIDX( COUNTER, GOSSIP, CRDS_TX_PUSH_COUNT_NODE_INSTANCE ) )
+    + fd_gui_sum_tiles_counter( gui, "gossip", 1UL, MIDX( COUNTER, GOSSIP, CRDS_TX_PULL_RESPONSE_COUNT_NODE_INSTANCE ) );
+  gossip_stats->storage_cnt_tx[ FD_GUI_GOSSIP_ENTRY_DUPLICATE_SHRED_IDX ] =
+      fd_gui_sum_tiles_counter( gui, "gossip", 1UL, MIDX( COUNTER, GOSSIP, CRDS_TX_PUSH_COUNT_DUPLICATE_SHRED ) )
+    + fd_gui_sum_tiles_counter( gui, "gossip", 1UL, MIDX( COUNTER, GOSSIP, CRDS_TX_PULL_RESPONSE_COUNT_DUPLICATE_SHRED ) );
+  gossip_stats->storage_cnt_tx[ FD_GUI_GOSSIP_ENTRY_INCREMENTAL_SNAPSHOT_HASHES_IDX ] =
+      fd_gui_sum_tiles_counter( gui, "gossip", 1UL, MIDX( COUNTER, GOSSIP, CRDS_TX_PUSH_COUNT_INCREMENTAL_SNAPSHOT_HASHES ) )
+    + fd_gui_sum_tiles_counter( gui, "gossip", 1UL, MIDX( COUNTER, GOSSIP, CRDS_TX_PULL_RESPONSE_COUNT_INCREMENTAL_SNAPSHOT_HASHES ) );
+  gossip_stats->storage_cnt_tx[ FD_GUI_GOSSIP_ENTRY_CONTACT_INFO_V2_IDX ] =
+      fd_gui_sum_tiles_counter( gui, "gossip", 1UL, MIDX( COUNTER, GOSSIP, CRDS_TX_PUSH_COUNT_CONTACT_INFO_V2 ) )
+    + fd_gui_sum_tiles_counter( gui, "gossip", 1UL, MIDX( COUNTER, GOSSIP, CRDS_TX_PULL_RESPONSE_COUNT_CONTACT_INFO_V2 ) );
+  gossip_stats->storage_cnt_tx[ FD_GUI_GOSSIP_ENTRY_RESTART_LAST_VOTED_FORK_SLOTS_IDX ] =
+      fd_gui_sum_tiles_counter( gui, "gossip", 1UL, MIDX( COUNTER, GOSSIP, CRDS_TX_PUSH_COUNT_RESTART_LAST_VOTED_FORK_SLOTS ) )
+    + fd_gui_sum_tiles_counter( gui, "gossip", 1UL, MIDX( COUNTER, GOSSIP, CRDS_TX_PULL_RESPONSE_COUNT_RESTART_LAST_VOTED_FORK_SLOTS ) );
+  gossip_stats->storage_cnt_tx[ FD_GUI_GOSSIP_ENTRY_RESTART_HEAVIEST_FORK_IDX ] =
+      fd_gui_sum_tiles_counter( gui, "gossip", 1UL, MIDX( COUNTER, GOSSIP, CRDS_TX_PUSH_COUNT_RESTART_HEAVIEST_FORK ) )
+    + fd_gui_sum_tiles_counter( gui, "gossip", 1UL, MIDX( COUNTER, GOSSIP, CRDS_TX_PULL_RESPONSE_COUNT_RESTART_HEAVIEST_FORK ) );
+
+  gossip_stats->storage_bytes_tx[ FD_GUI_GOSSIP_ENTRY_CONTACT_INFO_V1_IDX ] =
+      fd_gui_sum_tiles_counter( gui, "gossip", 1UL, MIDX( COUNTER, GOSSIP, CRDS_TX_PUSH_BYTES_CONTACT_INFO_V1 ) )
+    + fd_gui_sum_tiles_counter( gui, "gossip", 1UL, MIDX( COUNTER, GOSSIP, CRDS_TX_PULL_RESPONSE_BYTES_CONTACT_INFO_V1 ) );
+  gossip_stats->storage_bytes_tx[ FD_GUI_GOSSIP_ENTRY_VOTE_IDX ] =
+      fd_gui_sum_tiles_counter( gui, "gossip", 1UL, MIDX( COUNTER, GOSSIP, CRDS_TX_PUSH_BYTES_VOTE ) )
+    + fd_gui_sum_tiles_counter( gui, "gossip", 1UL, MIDX( COUNTER, GOSSIP, CRDS_TX_PULL_RESPONSE_BYTES_VOTE ) );
+  gossip_stats->storage_bytes_tx[ FD_GUI_GOSSIP_ENTRY_LOWEST_SLOT_IDX ] =
+      fd_gui_sum_tiles_counter( gui, "gossip", 1UL, MIDX( COUNTER, GOSSIP, CRDS_TX_PUSH_BYTES_LOWEST_SLOT ) )
+    + fd_gui_sum_tiles_counter( gui, "gossip", 1UL, MIDX( COUNTER, GOSSIP, CRDS_TX_PULL_RESPONSE_BYTES_LOWEST_SLOT ) );
+  gossip_stats->storage_bytes_tx[ FD_GUI_GOSSIP_ENTRY_SNAPSHOT_HASHES_IDX ] =
+      fd_gui_sum_tiles_counter( gui, "gossip", 1UL, MIDX( COUNTER, GOSSIP, CRDS_TX_PUSH_BYTES_SNAPSHOT_HASHES ) )
+    + fd_gui_sum_tiles_counter( gui, "gossip", 1UL, MIDX( COUNTER, GOSSIP, CRDS_TX_PULL_RESPONSE_BYTES_SNAPSHOT_HASHES ) );
+  gossip_stats->storage_bytes_tx[ FD_GUI_GOSSIP_ENTRY_ACCOUNTS_HASHES_IDX ] =
+      fd_gui_sum_tiles_counter( gui, "gossip", 1UL, MIDX( COUNTER, GOSSIP, CRDS_TX_PUSH_BYTES_ACCOUNTS_HASHES ) )
+    + fd_gui_sum_tiles_counter( gui, "gossip", 1UL, MIDX( COUNTER, GOSSIP, CRDS_TX_PULL_RESPONSE_BYTES_ACCOUNTS_HASHES ) );
+  gossip_stats->storage_bytes_tx[ FD_GUI_GOSSIP_ENTRY_EPOCH_SLOTS_IDX ] =
+      fd_gui_sum_tiles_counter( gui, "gossip", 1UL, MIDX( COUNTER, GOSSIP, CRDS_TX_PUSH_BYTES_EPOCH_SLOTS ) )
+    + fd_gui_sum_tiles_counter( gui, "gossip", 1UL, MIDX( COUNTER, GOSSIP, CRDS_TX_PULL_RESPONSE_BYTES_EPOCH_SLOTS ) );
+  gossip_stats->storage_bytes_tx[ FD_GUI_GOSSIP_ENTRY_VERSION_V1_IDX ] =
+      fd_gui_sum_tiles_counter( gui, "gossip", 1UL, MIDX( COUNTER, GOSSIP, CRDS_TX_PUSH_BYTES_VERSION_V1 ) )
+    + fd_gui_sum_tiles_counter( gui, "gossip", 1UL, MIDX( COUNTER, GOSSIP, CRDS_TX_PULL_RESPONSE_BYTES_VERSION_V1 ) );
+  gossip_stats->storage_bytes_tx[ FD_GUI_GOSSIP_ENTRY_VERSION_V2_IDX ] =
+      fd_gui_sum_tiles_counter( gui, "gossip", 1UL, MIDX( COUNTER, GOSSIP, CRDS_TX_PUSH_BYTES_VERSION_V2 ) )
+    + fd_gui_sum_tiles_counter( gui, "gossip", 1UL, MIDX( COUNTER, GOSSIP, CRDS_TX_PULL_RESPONSE_BYTES_VERSION_V2 ) );
+  gossip_stats->storage_bytes_tx[ FD_GUI_GOSSIP_ENTRY_NODE_INSTANCE_IDX ] =
+      fd_gui_sum_tiles_counter( gui, "gossip", 1UL, MIDX( COUNTER, GOSSIP, CRDS_TX_PUSH_BYTES_NODE_INSTANCE ) )
+    + fd_gui_sum_tiles_counter( gui, "gossip", 1UL, MIDX( COUNTER, GOSSIP, CRDS_TX_PULL_RESPONSE_BYTES_NODE_INSTANCE ) );
+  gossip_stats->storage_bytes_tx[ FD_GUI_GOSSIP_ENTRY_DUPLICATE_SHRED_IDX ] =
+      fd_gui_sum_tiles_counter( gui, "gossip", 1UL, MIDX( COUNTER, GOSSIP, CRDS_TX_PUSH_BYTES_DUPLICATE_SHRED ) )
+    + fd_gui_sum_tiles_counter( gui, "gossip", 1UL, MIDX( COUNTER, GOSSIP, CRDS_TX_PULL_RESPONSE_BYTES_DUPLICATE_SHRED ) );
+  gossip_stats->storage_bytes_tx[ FD_GUI_GOSSIP_ENTRY_INCREMENTAL_SNAPSHOT_HASHES_IDX ] =
+      fd_gui_sum_tiles_counter( gui, "gossip", 1UL, MIDX( COUNTER, GOSSIP, CRDS_TX_PUSH_BYTES_INCREMENTAL_SNAPSHOT_HASHES ) )
+    + fd_gui_sum_tiles_counter( gui, "gossip", 1UL, MIDX( COUNTER, GOSSIP, CRDS_TX_PULL_RESPONSE_BYTES_INCREMENTAL_SNAPSHOT_HASHES ) );
+  gossip_stats->storage_bytes_tx[ FD_GUI_GOSSIP_ENTRY_CONTACT_INFO_V2_IDX ] =
+      fd_gui_sum_tiles_counter( gui, "gossip", 1UL, MIDX( COUNTER, GOSSIP, CRDS_TX_PUSH_BYTES_CONTACT_INFO_V2 ) )
+    + fd_gui_sum_tiles_counter( gui, "gossip", 1UL, MIDX( COUNTER, GOSSIP, CRDS_TX_PULL_RESPONSE_BYTES_CONTACT_INFO_V2 ) );
+  gossip_stats->storage_bytes_tx[ FD_GUI_GOSSIP_ENTRY_RESTART_LAST_VOTED_FORK_SLOTS_IDX ] =
+      fd_gui_sum_tiles_counter( gui, "gossip", 1UL, MIDX( COUNTER, GOSSIP, CRDS_TX_PUSH_BYTES_RESTART_LAST_VOTED_FORK_SLOTS ) )
+    + fd_gui_sum_tiles_counter( gui, "gossip", 1UL, MIDX( COUNTER, GOSSIP, CRDS_TX_PULL_RESPONSE_BYTES_RESTART_LAST_VOTED_FORK_SLOTS ) );
+  gossip_stats->storage_bytes_tx[ FD_GUI_GOSSIP_ENTRY_RESTART_HEAVIEST_FORK_IDX ] =
+      fd_gui_sum_tiles_counter( gui, "gossip", 1UL, MIDX( COUNTER, GOSSIP, CRDS_TX_PUSH_BYTES_RESTART_HEAVIEST_FORK ) )
+    + fd_gui_sum_tiles_counter( gui, "gossip", 1UL, MIDX( COUNTER, GOSSIP, CRDS_TX_PULL_RESPONSE_BYTES_RESTART_HEAVIEST_FORK ) );
+
+  gossip_stats->messages_bytes_rx[ FD_GUI_GOSSIP_MESSAGE_PULL_REQUEST_IDX  ] = fd_gui_sum_tiles_counter( gui, "gossvf", gui->summary.gossvf_tile_cnt, MIDX( COUNTER, GOSSVF, MESSAGE_RX_BYTES_SUCCESS_PULL_REQUEST ) );
+  gossip_stats->messages_bytes_rx[ FD_GUI_GOSSIP_MESSAGE_PULL_RESPONSE_IDX ] = fd_gui_sum_tiles_counter( gui, "gossvf", gui->summary.gossvf_tile_cnt, MIDX( COUNTER, GOSSVF, MESSAGE_RX_BYTES_SUCCESS_PULL_RESPONSE ) );
+  gossip_stats->messages_bytes_rx[ FD_GUI_GOSSIP_MESSAGE_PUSH_IDX          ] = fd_gui_sum_tiles_counter( gui, "gossvf", gui->summary.gossvf_tile_cnt, MIDX( COUNTER, GOSSVF, MESSAGE_RX_BYTES_SUCCESS_PUSH ) );
+  gossip_stats->messages_bytes_rx[ FD_GUI_GOSSIP_MESSAGE_PING_IDX          ] = fd_gui_sum_tiles_counter( gui, "gossvf", gui->summary.gossvf_tile_cnt, MIDX( COUNTER, GOSSVF, MESSAGE_RX_BYTES_SUCCESS_PING ) );
+  gossip_stats->messages_bytes_rx[ FD_GUI_GOSSIP_MESSAGE_PONG_IDX          ] = fd_gui_sum_tiles_counter( gui, "gossvf", gui->summary.gossvf_tile_cnt, MIDX( COUNTER, GOSSVF, MESSAGE_RX_BYTES_SUCCESS_PONG ) );
+  gossip_stats->messages_bytes_rx[ FD_GUI_GOSSIP_MESSAGE_PRUNE_IDX         ] = fd_gui_sum_tiles_counter( gui, "gossvf", gui->summary.gossvf_tile_cnt, MIDX( COUNTER, GOSSVF, MESSAGE_RX_BYTES_SUCCESS_PRUNE ) );
+
+  gossip_stats->messages_count_rx[ FD_GUI_GOSSIP_MESSAGE_PULL_REQUEST_IDX  ] =
+      fd_gui_sum_tiles_counter( gui, "gossvf", gui->summary.gossvf_tile_cnt, MIDX( COUNTER, GOSSVF, MESSAGE_RX_COUNT_SUCCESS_PULL_REQUEST ) )
+    + fd_gui_sum_tiles_counter( gui, "gossvf", gui->summary.gossvf_tile_cnt, MIDX( COUNTER, GOSSVF, MESSAGE_RX_COUNT_DROPPED_PULL_REQUEST_NOT_CONTACT_INFO ) )
+    + fd_gui_sum_tiles_counter( gui, "gossvf", gui->summary.gossvf_tile_cnt, MIDX( COUNTER, GOSSVF, MESSAGE_RX_COUNT_DROPPED_PULL_REQUEST_LOOPBACK ) )
+    + fd_gui_sum_tiles_counter( gui, "gossvf", gui->summary.gossvf_tile_cnt, MIDX( COUNTER, GOSSVF, MESSAGE_RX_COUNT_DROPPED_PULL_REQUEST_INACTIVE ) )
+    + fd_gui_sum_tiles_counter( gui, "gossvf", gui->summary.gossvf_tile_cnt, MIDX( COUNTER, GOSSVF, MESSAGE_RX_COUNT_DROPPED_PULL_REQUEST_WALLCLOCK ) )
+    + fd_gui_sum_tiles_counter( gui, "gossvf", gui->summary.gossvf_tile_cnt, MIDX( COUNTER, GOSSVF, MESSAGE_RX_COUNT_DROPPED_PULL_REQUEST_SIGNATURE ) )
+    + fd_gui_sum_tiles_counter( gui, "gossvf", gui->summary.gossvf_tile_cnt, MIDX( COUNTER, GOSSVF, MESSAGE_RX_COUNT_DROPPED_PULL_REQUEST_SHRED_VERSION ) );
+  gossip_stats->messages_count_rx[ FD_GUI_GOSSIP_MESSAGE_PULL_RESPONSE_IDX ] =
+      fd_gui_sum_tiles_counter( gui, "gossvf", gui->summary.gossvf_tile_cnt, MIDX( COUNTER, GOSSVF, MESSAGE_RX_COUNT_SUCCESS_PULL_RESPONSE ) )
+    + fd_gui_sum_tiles_counter( gui, "gossvf", gui->summary.gossvf_tile_cnt, MIDX( COUNTER, GOSSVF, MESSAGE_RX_COUNT_DROPPED_PULL_RESPONSE_NO_VALID_CRDS ) );
+  gossip_stats->messages_count_rx[ FD_GUI_GOSSIP_MESSAGE_PUSH_IDX          ] =
+      fd_gui_sum_tiles_counter( gui, "gossvf", gui->summary.gossvf_tile_cnt, MIDX( COUNTER, GOSSVF, MESSAGE_RX_COUNT_SUCCESS_PUSH ) )
+    + fd_gui_sum_tiles_counter( gui, "gossvf", gui->summary.gossvf_tile_cnt, MIDX( COUNTER, GOSSVF, MESSAGE_RX_COUNT_DROPPED_PUSH_NO_VALID_CRDS ) );
+  gossip_stats->messages_count_rx[ FD_GUI_GOSSIP_MESSAGE_PING_IDX          ] =
+      fd_gui_sum_tiles_counter( gui, "gossvf", gui->summary.gossvf_tile_cnt, MIDX( COUNTER, GOSSVF, MESSAGE_RX_COUNT_SUCCESS_PING ) )
+    + fd_gui_sum_tiles_counter( gui, "gossvf", gui->summary.gossvf_tile_cnt, MIDX( COUNTER, GOSSVF, MESSAGE_RX_COUNT_DROPPED_PING_SIGNATURE ) );
+  gossip_stats->messages_count_rx[ FD_GUI_GOSSIP_MESSAGE_PONG_IDX          ] =
+      fd_gui_sum_tiles_counter( gui, "gossvf", gui->summary.gossvf_tile_cnt, MIDX( COUNTER, GOSSVF, MESSAGE_RX_COUNT_SUCCESS_PONG ) )
+    + fd_gui_sum_tiles_counter( gui, "gossvf", gui->summary.gossvf_tile_cnt, MIDX( COUNTER, GOSSVF, MESSAGE_RX_COUNT_DROPPED_PONG_SIGNATURE ) );
+  gossip_stats->messages_count_rx[ FD_GUI_GOSSIP_MESSAGE_PRUNE_IDX         ] =
+      fd_gui_sum_tiles_counter( gui, "gossvf", gui->summary.gossvf_tile_cnt, MIDX( COUNTER, GOSSVF, MESSAGE_RX_COUNT_SUCCESS_PRUNE ) )
+    + fd_gui_sum_tiles_counter( gui, "gossvf", gui->summary.gossvf_tile_cnt, MIDX( COUNTER, GOSSVF, MESSAGE_RX_COUNT_DROPPED_PRUNE_DESTINATION ) )
+    + fd_gui_sum_tiles_counter( gui, "gossvf", gui->summary.gossvf_tile_cnt, MIDX( COUNTER, GOSSVF, MESSAGE_RX_COUNT_DROPPED_PRUNE_WALLCLOCK ) )
+    + fd_gui_sum_tiles_counter( gui, "gossvf", gui->summary.gossvf_tile_cnt, MIDX( COUNTER, GOSSVF, MESSAGE_RX_COUNT_DROPPED_PRUNE_SIGNATURE ) );
+
+  gossip_stats->messages_bytes_tx[ FD_GUI_GOSSIP_MESSAGE_PULL_REQUEST_IDX  ] = fd_gui_sum_tiles_counter( gui, "gossip", 1UL, MIDX( COUNTER, GOSSIP, MESSAGE_TX_BYTES_PULL_REQUEST ) );
+  gossip_stats->messages_bytes_tx[ FD_GUI_GOSSIP_MESSAGE_PULL_RESPONSE_IDX ] = fd_gui_sum_tiles_counter( gui, "gossip", 1UL, MIDX( COUNTER, GOSSIP, MESSAGE_TX_BYTES_PULL_RESPONSE ) );
+  gossip_stats->messages_bytes_tx[ FD_GUI_GOSSIP_MESSAGE_PUSH_IDX          ] = fd_gui_sum_tiles_counter( gui, "gossip", 1UL, MIDX( COUNTER, GOSSIP, MESSAGE_TX_BYTES_PUSH ) );
+  gossip_stats->messages_bytes_tx[ FD_GUI_GOSSIP_MESSAGE_PING_IDX          ] = fd_gui_sum_tiles_counter( gui, "gossip", 1UL, MIDX( COUNTER, GOSSIP, MESSAGE_TX_BYTES_PING ) );
+  gossip_stats->messages_bytes_tx[ FD_GUI_GOSSIP_MESSAGE_PONG_IDX          ] = fd_gui_sum_tiles_counter( gui, "gossip", 1UL, MIDX( COUNTER, GOSSIP, MESSAGE_TX_BYTES_PONG ) );
+  gossip_stats->messages_bytes_tx[ FD_GUI_GOSSIP_MESSAGE_PRUNE_IDX         ] = fd_gui_sum_tiles_counter( gui, "gossip", 1UL, MIDX( COUNTER, GOSSIP, MESSAGE_TX_BYTES_PRUNE ) );
+
+  gossip_stats->messages_count_tx[ FD_GUI_GOSSIP_MESSAGE_PULL_REQUEST_IDX  ] = fd_gui_sum_tiles_counter( gui, "gossip", 1UL, MIDX( COUNTER, GOSSIP, MESSAGE_TX_COUNT_PULL_REQUEST ) );
+  gossip_stats->messages_count_tx[ FD_GUI_GOSSIP_MESSAGE_PULL_RESPONSE_IDX ] = fd_gui_sum_tiles_counter( gui, "gossip", 1UL, MIDX( COUNTER, GOSSIP, MESSAGE_TX_COUNT_PULL_RESPONSE ) );
+  gossip_stats->messages_count_tx[ FD_GUI_GOSSIP_MESSAGE_PUSH_IDX          ] = fd_gui_sum_tiles_counter( gui, "gossip", 1UL, MIDX( COUNTER, GOSSIP, MESSAGE_TX_COUNT_PUSH ) );
+  gossip_stats->messages_count_tx[ FD_GUI_GOSSIP_MESSAGE_PING_IDX          ] = fd_gui_sum_tiles_counter( gui, "gossip", 1UL, MIDX( COUNTER, GOSSIP, MESSAGE_TX_COUNT_PING ) );
+  gossip_stats->messages_count_tx[ FD_GUI_GOSSIP_MESSAGE_PONG_IDX          ] = fd_gui_sum_tiles_counter( gui, "gossip", 1UL, MIDX( COUNTER, GOSSIP, MESSAGE_TX_COUNT_PONG ) );
+  gossip_stats->messages_count_tx[ FD_GUI_GOSSIP_MESSAGE_PRUNE_IDX         ] = fd_gui_sum_tiles_counter( gui, "gossip", 1UL, MIDX( COUNTER, GOSSIP, MESSAGE_TX_COUNT_PRUNE ) );
+
+}
+
+static void
+fd_gui_run_boot_progress( fd_gui_t * gui, long now_nanos ) {
+  fd_topo_tile_t const * snaprd = &gui->topo->tiles[ fd_topo_find_tile( gui->topo, "snaprd", 0UL ) ];
+  volatile ulong * snaprd_metrics = fd_metrics_tile( snaprd->metrics );
+
+  fd_topo_tile_t const * snapdc = &gui->topo->tiles[ fd_topo_find_tile( gui->topo, "snapdc", 0UL ) ];
+  volatile ulong * snapdc_metrics = fd_metrics_tile( snapdc->metrics );
+
+  fd_topo_tile_t const * snapin = &gui->topo->tiles[ fd_topo_find_tile( gui->topo, "snapin", 0UL ) ];
+  volatile ulong * snapin_metrics = fd_metrics_tile( snapin->metrics );
+
+  ulong snapshot_phase = snaprd_metrics[ MIDX( GAUGE, SNAPRD, STATE ) ];
+
+  switch ( gui->summary.boot_progress.phase ) {
+    case FD_GUI_BOOT_PROGRESS_TYPE_JOINING_GOSSIP: {
+      gui->summary.boot_progress.joining_gossip_time_nanos = now_nanos;
+      if( FD_UNLIKELY( snapshot_phase >= 2UL ) ) {
+        gui->summary.boot_progress.phase = FD_GUI_BOOT_PROGRESS_TYPE_LOADING_FULL_SNAPSHOT;
+        gui->summary.boot_progress.loading_snapshot[ FD_GUI_BOOT_PROGRESS_FULL_SNAPSHOT_IDX ].sample_time_nanos = now_nanos;
+      }
+      break;
+    }
+    case FD_GUI_BOOT_PROGRESS_TYPE_LOADING_FULL_SNAPSHOT:
+    case FD_GUI_BOOT_PROGRESS_TYPE_LOADING_INCREMENTAL_SNAPSHOT: {
+      ulong snapshot_idx = fd_ulong_if( gui->summary.boot_progress.phase==FD_GUI_BOOT_PROGRESS_TYPE_LOADING_FULL_SNAPSHOT, FD_GUI_BOOT_PROGRESS_FULL_SNAPSHOT_IDX, FD_GUI_BOOT_PROGRESS_INCREMENTAL_SNAPSHOT_IDX );
+      ulong _retry_cnt = fd_ulong_if( snapshot_idx==FD_GUI_BOOT_PROGRESS_FULL_SNAPSHOT_IDX, snaprd_metrics[ MIDX( GAUGE, SNAPRD, FULL_DOWNLOAD_RETRIES ) ], snaprd_metrics[ MIDX( GAUGE, SNAPRD, INCREMENTAL_DOWNLOAD_RETRIES ) ]);
+
+      /* reset boot state if necessary */
+      if( FD_UNLIKELY( gui->summary.boot_progress.loading_snapshot[ snapshot_idx ].reset_cnt!=_retry_cnt ) ) {
+        gui->summary.boot_progress.loading_snapshot[ snapshot_idx ].reset_time_nanos = now_nanos;
+        gui->summary.boot_progress.loading_snapshot[ snapshot_idx ].reset_cnt = _retry_cnt;
+
+        gui->summary.boot_progress.loading_snapshot[ snapshot_idx ].read_throughput_ema = 0.;
+        gui->summary.boot_progress.loading_snapshot[ snapshot_idx ].decompress_throughput_ema = 0.;
+        gui->summary.boot_progress.loading_snapshot[ snapshot_idx ].insert_throughput_ema = 0.;
+        gui->summary.boot_progress.loading_snapshot[ snapshot_idx ].insert_accounts_throughput_ema = 0.;
+      }
+
+#define EMA_FILTER(filt, sample) filt = (FD_GUI_EMA_FILTER_ALPHA * (sample)) + (( 1. - FD_GUI_EMA_FILTER_ALPHA ) * (filt))
+
+      ulong _total_bytes                   = fd_ulong_if( snapshot_idx==FD_GUI_BOOT_PROGRESS_FULL_SNAPSHOT_IDX, snaprd_metrics[ MIDX( GAUGE, SNAPRD, FULL_BYTES_TOTAL ) ],             snaprd_metrics[ MIDX( GAUGE, SNAPRD, INCREMENTAL_BYTES_TOTAL ) ]             );
+      ulong _read_bytes                    = fd_ulong_if( snapshot_idx==FD_GUI_BOOT_PROGRESS_FULL_SNAPSHOT_IDX, snaprd_metrics[ MIDX( GAUGE, SNAPRD, FULL_BYTES_READ ) ],              snaprd_metrics[ MIDX( GAUGE, SNAPRD, INCREMENTAL_BYTES_READ ) ]              );
+      ulong _decompress_decompressed_bytes = fd_ulong_if( snapshot_idx==FD_GUI_BOOT_PROGRESS_FULL_SNAPSHOT_IDX, snapdc_metrics[ MIDX( GAUGE, SNAPDC, FULL_DECOMPRESSED_BYTES_READ ) ], snapdc_metrics[ MIDX( GAUGE, SNAPDC, INCREMENTAL_DECOMPRESSED_BYTES_READ ) ] );
+      ulong _decompress_compressed_bytes   = fd_ulong_if( snapshot_idx==FD_GUI_BOOT_PROGRESS_FULL_SNAPSHOT_IDX, snapdc_metrics[ MIDX( GAUGE, SNAPDC, FULL_COMPRESSED_BYTES_READ ) ],   snapdc_metrics[ MIDX( GAUGE, SNAPDC, INCREMENTAL_COMPRESSED_BYTES_READ ) ]   );
+      ulong _insert_bytes                  = fd_ulong_if( snapshot_idx==FD_GUI_BOOT_PROGRESS_FULL_SNAPSHOT_IDX, snapin_metrics[ MIDX( GAUGE, SNAPIN, FULL_BYTES_READ ) ],              snapin_metrics[ MIDX( GAUGE, SNAPIN, INCREMENTAL_BYTES_READ ) ]              );
+      ulong _insert_accounts               = snapin_metrics[ MIDX( GAUGE, SNAPIN, ACCOUNTS_INSERTED ) ];
+
+      /* metadata */
+      ulong _nanos_elapsed_since_last_sample                                        = (ulong)fd_long_max(now_nanos - gui->summary.boot_progress.loading_snapshot[ snapshot_idx ].sample_time_nanos, 1L);
+      gui->summary.boot_progress.loading_snapshot[ snapshot_idx ].total_bytes       = _total_bytes;
+      gui->summary.boot_progress.loading_snapshot[ snapshot_idx ].sample_time_nanos = now_nanos;
+
+      /* read stage */
+      ulong _read_throughput_ema_sample = (ulong)fd_long_max( (long)_read_bytes - (long)gui->summary.boot_progress.loading_snapshot[ snapshot_idx ].read_bytes, 0L );
+      EMA_FILTER( gui->summary.boot_progress.loading_snapshot[ snapshot_idx ].read_throughput_ema, (double)_read_throughput_ema_sample / (double)_nanos_elapsed_since_last_sample );
+
+      gui->summary.boot_progress.loading_snapshot[ snapshot_idx ].read_bytes           = _read_bytes;
+      gui->summary.boot_progress.loading_snapshot[ snapshot_idx ].read_remaining_nanos = (long)((double)(gui->summary.boot_progress.loading_snapshot[ snapshot_idx ].total_bytes - _read_bytes) / gui->summary.boot_progress.loading_snapshot[ snapshot_idx ].read_throughput_ema);
+
+      /* decompress stage */
+      ulong _decompress_bytes_since_last_sample = (ulong)fd_long_max( (long)_decompress_compressed_bytes - (long)gui->summary.boot_progress.loading_snapshot[ snapshot_idx ].decompress_compressed_bytes, 0L );
+      EMA_FILTER( gui->summary.boot_progress.loading_snapshot[ snapshot_idx ].decompress_throughput_ema, (double)_decompress_bytes_since_last_sample / (double)_nanos_elapsed_since_last_sample );
+
+      gui->summary.boot_progress.loading_snapshot[ snapshot_idx ].decompress_compressed_bytes   = _decompress_compressed_bytes;
+      gui->summary.boot_progress.loading_snapshot[ snapshot_idx ].decompress_decompressed_bytes = _decompress_decompressed_bytes;
+      gui->summary.boot_progress.loading_snapshot[ snapshot_idx ].decompress_remaining_nanos    = (long)((double)(gui->summary.boot_progress.loading_snapshot[ snapshot_idx ].total_bytes - _decompress_compressed_bytes) / gui->summary.boot_progress.loading_snapshot[ snapshot_idx ].decompress_throughput_ema);
+
+      /* insert stage */
+      ulong _insert_bytes_since_last_sample = (ulong)fd_long_max( (long)_insert_bytes - (long)gui->summary.boot_progress.loading_snapshot[ snapshot_idx ].insert_bytes, 0L);
+      EMA_FILTER( gui->summary.boot_progress.loading_snapshot[ snapshot_idx ].insert_throughput_ema, (double)_insert_bytes_since_last_sample / (double)_nanos_elapsed_since_last_sample );
+      gui->summary.boot_progress.loading_snapshot[ snapshot_idx ].insert_bytes = _insert_bytes;
+
+      /* Use the latest compression ratio to estimate decompressed size */
+      double _compression_ratio_estimate = (double)gui->summary.boot_progress.loading_snapshot[ snapshot_idx ].decompress_decompressed_bytes/(double)gui->summary.boot_progress.loading_snapshot[ snapshot_idx ].decompress_compressed_bytes;
+      ulong _total_size_estimate = (ulong)((double)gui->summary.boot_progress.loading_snapshot[ snapshot_idx ].total_bytes * _compression_ratio_estimate);
+      gui->summary.boot_progress.loading_snapshot[ snapshot_idx ].insert_remaining_nanos = (long)((double)(_total_size_estimate - _insert_bytes) / gui->summary.boot_progress.loading_snapshot[ snapshot_idx ].insert_throughput_ema);
+      ulong _insert_accounts_since_last_sample = (ulong)fd_long_max( (long)_insert_accounts - (long)gui->summary.boot_progress.loading_snapshot[ snapshot_idx ].insert_accounts_current, 0L);
+      EMA_FILTER( gui->summary.boot_progress.loading_snapshot[ snapshot_idx ].insert_accounts_throughput_ema, (double)_insert_accounts_since_last_sample / (double)_nanos_elapsed_since_last_sample );
+      gui->summary.boot_progress.loading_snapshot[ snapshot_idx ].insert_accounts_current = _insert_accounts;
+
+#undef EMA_FILTER
+
+      if( FD_UNLIKELY( snapshot_phase >= 8UL ) ) {
+        gui->summary.boot_progress.phase = FD_GUI_BOOT_PROGRESS_TYPE_LOADING_INCREMENTAL_SNAPSHOT;
+        gui->summary.boot_progress.loading_snapshot[ FD_GUI_BOOT_PROGRESS_INCREMENTAL_SNAPSHOT_IDX ].sample_time_nanos = now_nanos;
+      }
+      if( FD_UNLIKELY( gui->summary.slot_turbine && gui->summary.slot_completed ) ) {
+        gui->summary.boot_progress.phase                           = FD_GUI_BOOT_PROGRESS_TYPE_CATCHING_UP;
+        gui->summary.boot_progress.catching_up_time_nanos          = now_nanos;
+        gui->summary.boot_progress.catching_up_first_turbine_slot  = gui->summary.slot_turbine_first;
+      }
+
+      break;
+    }
+    case FD_GUI_BOOT_PROGRESS_TYPE_CATCHING_UP: {
+      gui->summary.boot_progress.catching_up_time_nanos          = now_nanos;
+      gui->summary.boot_progress.catching_up_latest_turbine_slot = gui->summary.slot_turbine;
+      gui->summary.boot_progress.catching_up_latest_repair_slot  = 0; /* todo */
+      gui->summary.boot_progress.catching_up_latest_replay_slot  = gui->summary.slot_completed;
+
+      if( FD_UNLIKELY( gui->summary.slot_turbine < gui->summary.slot_completed + 5L) ) gui->summary.boot_progress.phase = FD_GUI_BOOT_PROGRESS_TYPE_RUNNING;
+      break;
+    }
+    case FD_GUI_BOOT_PROGRESS_TYPE_RUNNING: break;
+    default: FD_LOG_ERR(( "unknown boot progress phase: %d", gui->summary.boot_progress.phase ));
+  }
+}
 int
 fd_gui_poll( fd_gui_t * gui ) {
   long now = fd_log_wallclock();
@@ -541,6 +924,11 @@ fd_gui_poll( fd_gui_t * gui ) {
   int did_work = 0;
 
   if( FD_LIKELY( now>gui->next_sample_400millis ) ) {
+    *gui->summary.gossip_stats_reference = *gui->summary.gossip_stats_current;
+    fd_gui_run_gossip_stats_snap( gui, gui->summary.gossip_stats_current, now );
+    fd_gui_printf_gossip_stats( gui );
+    fd_http_server_ws_broadcast( gui->http );
+
     fd_gui_estimated_tps_snap( gui );
     fd_gui_printf_estimated_tps( gui );
     fd_http_server_ws_broadcast( gui->http );
@@ -559,6 +947,12 @@ fd_gui_poll( fd_gui_t * gui ) {
     fd_gui_printf_live_tile_stats( gui, gui->summary.tile_stats_reference, gui->summary.tile_stats_current );
     fd_http_server_ws_broadcast( gui->http );
 
+    if( FD_UNLIKELY( gui->summary.is_full_client && gui->summary.boot_progress.phase!=FD_GUI_BOOT_PROGRESS_TYPE_RUNNING ) ) {
+      fd_gui_run_boot_progress( gui, now );
+      fd_gui_printf_boot_progress( gui );
+      fd_http_server_ws_broadcast( gui->http );
+    }
+
     gui->next_sample_100millis += 100L*1000L*1000L;
     did_work = 1;
   }
@@ -576,6 +970,7 @@ fd_gui_poll( fd_gui_t * gui ) {
   return did_work;
 }
 
+/* frankendancer only */
 static void
 fd_gui_handle_gossip_update( fd_gui_t *    gui,
                              uchar const * msg ) {
@@ -704,6 +1099,7 @@ fd_gui_handle_gossip_update( fd_gui_t *    gui,
   fd_http_server_ws_broadcast( gui->http );
 }
 
+/* frankendancer only */
 static void
 fd_gui_handle_vote_account_update( fd_gui_t *    gui,
                                    uchar const * msg ) {
@@ -800,6 +1196,7 @@ fd_gui_handle_vote_account_update( fd_gui_t *    gui,
   fd_http_server_ws_broadcast( gui->http );
 }
 
+/* frankendancer only */
 static void
 fd_gui_handle_validator_info_update( fd_gui_t *    gui,
                                      uchar const * msg ) {
@@ -893,7 +1290,7 @@ fd_gui_request_slot( fd_gui_t *    gui,
   ulong _slot = slot_param->valueulong;
   fd_gui_slot_t const * slot = gui->slots[ _slot % FD_GUI_SLOTS_CNT ];
   if( FD_UNLIKELY( slot->slot!=_slot || slot->slot==ULONG_MAX ) ) {
-    fd_gui_printf_null_query_response( gui, "slot", "query", request_id );
+    fd_gui_printf_null_query_response( gui->http, "slot", "query", request_id );
     FD_TEST( !fd_http_server_ws_send( gui->http, ws_conn_id ) );
     return 0;
   }
@@ -914,7 +1311,7 @@ fd_gui_request_slot_transactions( fd_gui_t *    gui,
   ulong _slot = slot_param->valueulong;
   fd_gui_slot_t const * slot = gui->slots[ _slot % FD_GUI_SLOTS_CNT ];
   if( FD_UNLIKELY( slot->slot!=_slot || slot->slot==ULONG_MAX ) ) {
-    fd_gui_printf_null_query_response( gui, "slot", "query", request_id );
+    fd_gui_printf_null_query_response( gui->http, "slot", "query", request_id );
     FD_TEST( !fd_http_server_ws_send( gui->http, ws_conn_id ) );
     return 0;
   }
@@ -935,7 +1332,7 @@ fd_gui_request_slot_detailed( fd_gui_t *    gui,
   ulong _slot = slot_param->valueulong;
   fd_gui_slot_t const * slot = gui->slots[ _slot % FD_GUI_SLOTS_CNT ];
   if( FD_UNLIKELY( slot->slot!=_slot || slot->slot==ULONG_MAX ) ) {
-    fd_gui_printf_null_query_response( gui, "slot", "query", request_id );
+    fd_gui_printf_null_query_response( gui->http, "slot", "query", request_id );
     FD_TEST( !fd_http_server_ws_send( gui->http, ws_conn_id ) );
     return 0;
   }
@@ -1519,16 +1916,16 @@ fd_gui_handle_start_progress( fd_gui_t *    gui,
 
   switch (type) {
     case 0:
-      gui->summary.startup_progress = FD_GUI_START_PROGRESS_TYPE_INITIALIZING;
+      gui->summary.startup_progress.phase = FD_GUI_START_PROGRESS_TYPE_INITIALIZING;
       FD_LOG_INFO(( "progress: initializing" ));
       break;
     case 1: {
       char const * snapshot_type;
-      if( FD_UNLIKELY( gui->summary.startup_got_full_snapshot ) ) {
-        gui->summary.startup_progress = FD_GUI_START_PROGRESS_TYPE_SEARCHING_FOR_INCREMENTAL_SNAPSHOT;
+      if( FD_UNLIKELY( gui->summary.startup_progress.startup_got_full_snapshot ) ) {
+        gui->summary.startup_progress.phase = FD_GUI_START_PROGRESS_TYPE_SEARCHING_FOR_INCREMENTAL_SNAPSHOT;
         snapshot_type = "incremental";
       } else {
-        gui->summary.startup_progress = FD_GUI_START_PROGRESS_TYPE_SEARCHING_FOR_FULL_SNAPSHOT;
+        gui->summary.startup_progress.phase = FD_GUI_START_PROGRESS_TYPE_SEARCHING_FOR_FULL_SNAPSHOT;
         snapshot_type = "full";
       }
       FD_LOG_INFO(( "progress: searching for %s snapshot", snapshot_type ));
@@ -1537,70 +1934,70 @@ fd_gui_handle_start_progress( fd_gui_t *    gui,
     case 2: {
       uchar is_full_snapshot = msg[ 1 ];
       if( FD_LIKELY( is_full_snapshot ) ) {
-          gui->summary.startup_progress = FD_GUI_START_PROGRESS_TYPE_DOWNLOADING_FULL_SNAPSHOT;
-          gui->summary.startup_full_snapshot_slot = *((ulong *)(msg + 2));
-          gui->summary.startup_full_snapshot_peer_ip_addr = *((uint *)(msg + 10));
-          gui->summary.startup_full_snapshot_peer_port = *((ushort *)(msg + 14));
-          gui->summary.startup_full_snapshot_total_bytes = *((ulong *)(msg + 16));
-          gui->summary.startup_full_snapshot_current_bytes = *((ulong *)(msg + 24));
-          gui->summary.startup_full_snapshot_elapsed_secs = *((double *)(msg + 32));
-          gui->summary.startup_full_snapshot_remaining_secs = *((double *)(msg + 40));
-          gui->summary.startup_full_snapshot_throughput = *((double *)(msg + 48));
-          FD_LOG_INFO(( "progress: downloading full snapshot: slot=%lu", gui->summary.startup_full_snapshot_slot ));
+          gui->summary.startup_progress.phase = FD_GUI_START_PROGRESS_TYPE_DOWNLOADING_FULL_SNAPSHOT;
+          gui->summary.startup_progress.startup_full_snapshot_slot = *((ulong *)(msg + 2));
+          gui->summary.startup_progress.startup_full_snapshot_peer_ip_addr = *((uint *)(msg + 10));
+          gui->summary.startup_progress.startup_full_snapshot_peer_port = *((ushort *)(msg + 14));
+          gui->summary.startup_progress.startup_full_snapshot_total_bytes = *((ulong *)(msg + 16));
+          gui->summary.startup_progress.startup_full_snapshot_current_bytes = *((ulong *)(msg + 24));
+          gui->summary.startup_progress.startup_full_snapshot_elapsed_secs = *((double *)(msg + 32));
+          gui->summary.startup_progress.startup_full_snapshot_remaining_secs = *((double *)(msg + 40));
+          gui->summary.startup_progress.startup_full_snapshot_throughput = *((double *)(msg + 48));
+          FD_LOG_INFO(( "progress: downloading full snapshot: slot=%lu", gui->summary.startup_progress.startup_full_snapshot_slot ));
       } else {
-          gui->summary.startup_progress = FD_GUI_START_PROGRESS_TYPE_DOWNLOADING_INCREMENTAL_SNAPSHOT;
-          gui->summary.startup_incremental_snapshot_slot = *((ulong *)(msg + 2));
-          gui->summary.startup_incremental_snapshot_peer_ip_addr = *((uint *)(msg + 10));
-          gui->summary.startup_incremental_snapshot_peer_port = *((ushort *)(msg + 14));
-          gui->summary.startup_incremental_snapshot_total_bytes = *((ulong *)(msg + 16));
-          gui->summary.startup_incremental_snapshot_current_bytes = *((ulong *)(msg + 24));
-          gui->summary.startup_incremental_snapshot_elapsed_secs = *((double *)(msg + 32));
-          gui->summary.startup_incremental_snapshot_remaining_secs = *((double *)(msg + 40));
-          gui->summary.startup_incremental_snapshot_throughput = *((double *)(msg + 48));
-          FD_LOG_INFO(( "progress: downloading incremental snapshot: slot=%lu", gui->summary.startup_incremental_snapshot_slot ));
+          gui->summary.startup_progress.phase = FD_GUI_START_PROGRESS_TYPE_DOWNLOADING_INCREMENTAL_SNAPSHOT;
+          gui->summary.startup_progress.startup_incremental_snapshot_slot = *((ulong *)(msg + 2));
+          gui->summary.startup_progress.startup_incremental_snapshot_peer_ip_addr = *((uint *)(msg + 10));
+          gui->summary.startup_progress.startup_incremental_snapshot_peer_port = *((ushort *)(msg + 14));
+          gui->summary.startup_progress.startup_incremental_snapshot_total_bytes = *((ulong *)(msg + 16));
+          gui->summary.startup_progress.startup_incremental_snapshot_current_bytes = *((ulong *)(msg + 24));
+          gui->summary.startup_progress.startup_incremental_snapshot_elapsed_secs = *((double *)(msg + 32));
+          gui->summary.startup_progress.startup_incremental_snapshot_remaining_secs = *((double *)(msg + 40));
+          gui->summary.startup_progress.startup_incremental_snapshot_throughput = *((double *)(msg + 48));
+          FD_LOG_INFO(( "progress: downloading incremental snapshot: slot=%lu", gui->summary.startup_progress.startup_incremental_snapshot_slot ));
       }
       break;
     }
     case 3: {
-      gui->summary.startup_got_full_snapshot = 1;
+      gui->summary.startup_progress.startup_got_full_snapshot = 1;
       break;
     }
     case 4:
-      gui->summary.startup_progress = FD_GUI_START_PROGRESS_TYPE_CLEANING_BLOCK_STORE;
+      gui->summary.startup_progress.phase = FD_GUI_START_PROGRESS_TYPE_CLEANING_BLOCK_STORE;
       FD_LOG_INFO(( "progress: cleaning block store" ));
       break;
     case 5:
-      gui->summary.startup_progress = FD_GUI_START_PROGRESS_TYPE_CLEANING_ACCOUNTS;
+      gui->summary.startup_progress.phase = FD_GUI_START_PROGRESS_TYPE_CLEANING_ACCOUNTS;
       FD_LOG_INFO(( "progress: cleaning accounts" ));
       break;
     case 6:
-      gui->summary.startup_progress = FD_GUI_START_PROGRESS_TYPE_LOADING_LEDGER;
+      gui->summary.startup_progress.phase = FD_GUI_START_PROGRESS_TYPE_LOADING_LEDGER;
       FD_LOG_INFO(( "progress: loading ledger" ));
       break;
     case 7: {
-      gui->summary.startup_progress = FD_GUI_START_PROGRESS_TYPE_PROCESSING_LEDGER;
-      gui->summary.startup_ledger_slot = fd_ulong_load_8( msg + 1 );
-      gui->summary.startup_ledger_max_slot = fd_ulong_load_8( msg + 9 );
-      FD_LOG_INFO(( "progress: processing ledger: slot=%lu, max_slot=%lu", gui->summary.startup_ledger_slot, gui->summary.startup_ledger_max_slot ));
+      gui->summary.startup_progress.phase = FD_GUI_START_PROGRESS_TYPE_PROCESSING_LEDGER;
+      gui->summary.startup_progress.startup_ledger_slot = fd_ulong_load_8( msg + 1 );
+      gui->summary.startup_progress.startup_ledger_max_slot = fd_ulong_load_8( msg + 9 );
+      FD_LOG_INFO(( "progress: processing ledger: slot=%lu, max_slot=%lu", gui->summary.startup_progress.startup_ledger_slot, gui->summary.startup_progress.startup_ledger_max_slot ));
       break;
     }
     case 8:
-      gui->summary.startup_progress = FD_GUI_START_PROGRESS_TYPE_STARTING_SERVICES;
+      gui->summary.startup_progress.phase = FD_GUI_START_PROGRESS_TYPE_STARTING_SERVICES;
       FD_LOG_INFO(( "progress: starting services" ));
       break;
     case 9:
-      gui->summary.startup_progress = FD_GUI_START_PROGRESS_TYPE_HALTED;
+      gui->summary.startup_progress.phase = FD_GUI_START_PROGRESS_TYPE_HALTED;
       FD_LOG_INFO(( "progress: halted" ));
       break;
     case 10: {
-      gui->summary.startup_progress = FD_GUI_START_PROGRESS_TYPE_WAITING_FOR_SUPERMAJORITY;
-      gui->summary.startup_waiting_for_supermajority_slot = fd_ulong_load_8( msg + 1 );
-      gui->summary.startup_waiting_for_supermajority_stake_pct = fd_ulong_load_8( msg + 9 );
-      FD_LOG_INFO(( "progress: waiting for supermajority: slot=%lu, gossip_stake_percent=%lu", gui->summary.startup_waiting_for_supermajority_slot, gui->summary.startup_waiting_for_supermajority_stake_pct ));
+      gui->summary.startup_progress.phase = FD_GUI_START_PROGRESS_TYPE_WAITING_FOR_SUPERMAJORITY;
+      gui->summary.startup_progress.startup_waiting_for_supermajority_slot = fd_ulong_load_8( msg + 1 );
+      gui->summary.startup_progress.startup_waiting_for_supermajority_stake_pct = fd_ulong_load_8( msg + 9 );
+      FD_LOG_INFO(( "progress: waiting for supermajority: slot=%lu, gossip_stake_percent=%lu", gui->summary.startup_progress.startup_waiting_for_supermajority_slot, gui->summary.startup_progress.startup_waiting_for_supermajority_stake_pct ));
       break;
     }
     case 11:
-      gui->summary.startup_progress = FD_GUI_START_PROGRESS_TYPE_RUNNING;
+      gui->summary.startup_progress.phase = FD_GUI_START_PROGRESS_TYPE_RUNNING;
       FD_LOG_INFO(( "progress: running" ));
       break;
     default:
@@ -1638,6 +2035,16 @@ fd_gui_handle_block_engine_update( fd_gui_t *    gui,
 
   fd_gui_printf_block_engine( gui );
   fd_http_server_ws_broadcast( gui->http );
+}
+
+static void
+fd_gui_handle_snapshot_update( fd_gui_t *    gui,
+                               fd_restore_snapshot_update_t * msg ) {
+  ulong snapshot_idx = fd_ulong_if( msg->type==FD_PLUGIN_MSG_SNAPSHOT_TYPE_FULL, FD_GUI_BOOT_PROGRESS_FULL_SNAPSHOT_IDX, FD_GUI_BOOT_PROGRESS_INCREMENTAL_SNAPSHOT_IDX );
+  gui->summary.boot_progress.loading_snapshot[ snapshot_idx ].slot = msg->slot;
+  gui->summary.boot_progress.loading_snapshot[ snapshot_idx ].peer_addr = msg->peer_addr;
+  gui->summary.boot_progress.loading_snapshot[ snapshot_idx ].peer_port = msg->peer_port;
+  fd_cstr_printf_check( gui->summary.boot_progress.loading_snapshot[ snapshot_idx ].read_path, sizeof(gui->summary.boot_progress.loading_snapshot[ snapshot_idx ].read_path), NULL, "%s", msg->read_path );
 }
 
 void
@@ -1702,6 +2109,10 @@ fd_gui_plugin_message( fd_gui_t *    gui,
     }
     case FD_PLUGIN_MSG_BLOCK_ENGINE_UPDATE: {
       fd_gui_handle_block_engine_update( gui, msg );
+      break;
+    }
+    case FD_PLUGIN_MSG_SNAPSHOT_UPDATE: {
+      fd_gui_handle_snapshot_update( gui, (fd_restore_snapshot_update_t *)msg );
       break;
     }
     default:
@@ -1847,4 +2258,12 @@ fd_gui_microblock_execution_end( fd_gui_t *   gui,
   }
 
   slot->txs.end_microblocks = slot->txs.end_microblocks + (uint)txn_cnt;
+}
+
+void
+fd_gui_turbine_slot_complete( fd_gui_t * gui, ulong slot ) {
+  gui->summary.slot_turbine = slot;
+
+  /* The first turbine slot is the first encountered slot */
+  gui->summary.slot_turbine_first = fd_ulong_if( gui->summary.slot_turbine_first==ULONG_MAX, slot, gui->summary.slot_turbine_first );
 }

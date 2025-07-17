@@ -9,6 +9,7 @@
 #include "../../flamenco/gossip/fd_gossip_types.h"
 #include "../../discof/restore/utils/fd_ssmsg.h"
 #include "../../flamenco/fd_flamenco_base.h"
+#include "../../disco/plugin/fd_plugin.h"
 
 #define LOGGING 0
 
@@ -47,6 +48,12 @@ typedef struct {
   ulong       send_out_chunk0;
   ulong       send_out_wmark;
   ulong       send_out_chunk;
+
+  ulong       plugin_out_idx;
+  fd_wksp_t * plugin_out_mem;
+  ulong       plugin_out_chunk0;
+  ulong       plugin_out_wmark;
+  ulong       plugin_out_chunk;
 
   fd_epoch_t * epoch;
   fd_ghost_t * ghost;
@@ -196,6 +203,10 @@ after_frag_replay( ctx_t * ctx, fd_replay_slot_info_t * slot_info, ulong tsorig,
   FD_TEST( !fd_tower_votes_empty( ctx->tower ) );
   FD_TEST( vote_txn->payload_sz > 0UL );
   fd_stem_publish( stem, ctx->send_out_idx, vote_slot, ctx->send_out_chunk, sizeof(fd_txn_p_t), 0UL, tsorig, fd_frag_meta_ts_comp( fd_tickcount() ) );
+
+  fd_plugin_msg_slot_reset_t * slot_reset_msg = (fd_plugin_msg_slot_reset_t *)fd_chunk_to_laddr( ctx->plugin_out_mem, ctx->plugin_out_chunk );
+  slot_reset_msg->slot = fd_tower_reset_slot_trace( ctx->tower, ctx->ghost, &slot_reset_msg->last_voted_slot, ULONG_MAX, &slot_reset_msg->parent_cnt, FD_PLUGIN_MSG_SLOT_RESET_MAX_PARENT_CNT, slot_reset_msg->parents );
+  fd_stem_publish( stem, ctx->plugin_out_idx, FD_PLUGIN_MSG_SLOT_RESET, ctx->plugin_out_chunk, sizeof(fd_plugin_msg_slot_reset_t), 0UL, tsorig, fd_frag_meta_ts_comp( fd_tickcount() ) );
 
 # if LOGGING
   fd_ghost_print( ctx->ghost, ctx->epoch->total_stake, fd_ghost_root( ctx->ghost ) );
@@ -392,6 +403,15 @@ unprivileged_init( fd_topo_t *      topo,
   ctx->send_out_wmark       = fd_dcache_compact_wmark ( ctx->send_out_mem, send_out->dcache, send_out->mtu );
   ctx->send_out_chunk       = ctx->send_out_chunk0;
   FD_TEST( fd_dcache_compact_is_safe( ctx->send_out_mem, send_out->dcache, send_out->mtu, send_out->depth ) );
+
+  ctx->plugin_out_idx = fd_topo_find_tile_out_link( topo, tile, "tower_plugin", 0 );
+  FD_TEST( ctx->plugin_out_idx!=ULONG_MAX );
+  fd_topo_link_t * plugin_out = &topo->links[ tile->out_link_id[ ctx->plugin_out_idx ] ];
+  ctx->plugin_out_mem         = topo->workspaces[ topo->objs[ plugin_out->dcache_obj_id ].wksp_id ].wksp;
+  ctx->plugin_out_chunk0      = fd_dcache_compact_chunk0( ctx->plugin_out_mem, plugin_out->dcache );
+  ctx->plugin_out_wmark       = fd_dcache_compact_wmark ( ctx->plugin_out_mem, plugin_out->dcache, plugin_out->mtu );
+  ctx->plugin_out_chunk       = ctx->plugin_out_chunk0;
+  FD_TEST( fd_dcache_compact_is_safe( ctx->plugin_out_mem, plugin_out->dcache, plugin_out->mtu, plugin_out->depth ) );
 }
 
 static ulong

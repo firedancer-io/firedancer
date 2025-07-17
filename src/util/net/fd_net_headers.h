@@ -64,6 +64,36 @@ union fd_ip4_port {
   ulong l;
 };
 
+/* Helper method to strip Ethernet, IPv4 (no options), and UDP headers
+   from a raw packet payload.  Returns 1 on success and 0 on failure */
+
+static inline int
+fd_ip4_udp_hdr_strip( uchar const *       data,
+                      ulong               data_sz,
+                      uchar ** const      payload,
+                      ulong *             payload_sz,
+                      fd_ip4_udp_hdrs_t * hdrs ) {
+  fd_eth_hdr_t const * eth = (fd_eth_hdr_t const *)data;
+  fd_ip4_hdr_t const * ip4 = (fd_ip4_hdr_t const *)( (ulong)eth + sizeof(fd_eth_hdr_t) );
+  fd_udp_hdr_t const * udp = (fd_udp_hdr_t const *)( (ulong)ip4 + FD_IP4_GET_LEN( *ip4 ) );
+
+  fd_memcpy( hdrs->eth, eth, sizeof(fd_eth_hdr_t) );
+  fd_memcpy( hdrs->ip4, ip4, sizeof(fd_ip4_hdr_t) );
+  fd_memcpy( hdrs->udp, udp, sizeof(fd_udp_hdr_t) );
+
+  if( FD_UNLIKELY( (ulong)udp+sizeof(fd_udp_hdr_t) > (ulong)eth+data_sz ) ) return 0;
+  ulong udp_sz = fd_ushort_bswap( udp->net_len );
+  if( FD_UNLIKELY( udp_sz<sizeof(fd_udp_hdr_t) ) ) return 0;
+  ulong payload_sz_ = udp_sz-sizeof(fd_udp_hdr_t);
+
+  *payload     = (uchar *)( (ulong)udp + sizeof(fd_udp_hdr_t) );
+  *payload_sz  = payload_sz_;
+
+  if( FD_UNLIKELY( (ulong)(*payload)+payload_sz_>(ulong)data+data_sz ) ) return 0;
+
+  return 1;
+}
+
 typedef union fd_ip4_port fd_ip4_port_t;
 
 #endif /* HEADER_fd_src_util_net_headers_h */

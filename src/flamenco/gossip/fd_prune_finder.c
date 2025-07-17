@@ -57,7 +57,7 @@ fd_prune_finder_record( fd_prune_finder_t * pf,
                         uchar const *       origin_pubkey,
                         uchar const *       relayer_pubkey,
                         ulong               num_dups ) {
-  fd_prune_origin_t * origin = origin_map_ele_query( pf->origins, fd_type_pun_const( origin_pubkey ), NULL, pf->pool );
+  fd_prune_origin_t * origin = origin_map_elze_query( pf->origins, fd_type_pun_const( origin_pubkey ), NULL, pf->pool );
 
   if( FD_UNLIKELY( !origin ) ) {
     if( FD_LIKELY( fd_pool_free( pf->pool ) ) ) {
