@@ -42,7 +42,6 @@ struct fd_configh {
 
   struct {
     int    port_check;
-    char   host[ 256 ];
   } gossip;
 
   struct {
@@ -232,7 +231,8 @@ struct fd_config {
     char          entrypoints[ FD_CONFIG_GOSSIP_ENTRYPOINTS_MAX ][ 262 ];
     ulong         resolved_entrypoints_cnt; /* ??? why during config ... */
     fd_ip4_port_t resolved_entrypoints[ FD_CONFIG_GOSSIP_ENTRYPOINTS_MAX ];
-    ushort port;
+    ushort        port;
+    char          host[ 256 ];
   } gossip;
 
   struct {

@@ -134,8 +134,32 @@ setup_topo_txncache( fd_topo_t *  topo,
 }
 
 static int
+resolve_address( char const * address,
+                 uint       * ip_addr ) {
+  struct addrinfo hints = { .ai_family = AF_INET };
+  struct addrinfo * res;
+  int err = getaddrinfo( address, NULL, &hints, &res );
+  if( FD_UNLIKELY( err ) ) {
+    FD_LOG_WARNING(( "cannot resolve address \"%s\": %i-%s", address, err, gai_strerror( err ) ));
+    return 0;
+  }
+
+  int resolved = 0;
+  for( struct addrinfo * cur=res; cur; cur=cur->ai_next ) {
+    if( FD_UNLIKELY( cur->ai_addr->sa_family!=AF_INET ) ) continue;
+    struct sockaddr_in const * addr = (struct sockaddr_in const *)cur->ai_addr;
+    *ip_addr = addr->sin_addr.s_addr;
+    resolved = 1;
+    break;
+  }
+
+  freeaddrinfo( res );
+  return resolved;
+}
+
+static int
 resolve_gossip_entrypoint( char const *    host_port,
-                          fd_ip4_port_t * ip4_port ) {
+                           fd_ip4_port_t * ip4_port ) {
 
   /* Split host:port */
 
@@ -163,25 +187,7 @@ resolve_gossip_entrypoint( char const *    host_port,
   ip4_port->port = (ushort)fd_ushort_bswap( (ushort)port );
 
   /* Resolve hostname */
-
-  struct addrinfo hints = { .ai_family = AF_INET };
-  struct addrinfo * res;
-  int err = getaddrinfo( fqdn, NULL, &hints, &res );
-  if( FD_UNLIKELY( err ) ) {
-    FD_LOG_WARNING(( "cannot resolve [gossip.entrypoints] entry \"%s\": %i-%s", fqdn, err, gai_strerror( err ) ));
-    return 0;
-  }
-
-  int resolved = 0;
-  for( struct addrinfo * cur=res; cur; cur=cur->ai_next ) {
-    if( FD_UNLIKELY( cur->ai_addr->sa_family!=AF_INET ) ) continue;
-    struct sockaddr_in const * addr = (struct sockaddr_in const *)cur->ai_addr;
-    ip4_port->addr = addr->sin_addr.s_addr;
-    resolved = 1;
-    break;
-  }
-
-  freeaddrinfo( res );
+  int resolved = resolve_address( fqdn, &ip4_port->addr );
   return resolved;
 }
 
@@ -930,7 +936,12 @@ fd_topo_configure_tile( fd_topo_tile_t * tile,
       tile->shred.larger_shred_limits_per_block = config->development.bench.larger_shred_limits_per_block;
 
     } else if( FD_UNLIKELY( !strcmp( tile->name, "gossip" ) ) ) {
-      tile->gossip.ip_addr = config->net.ip_addr;
+      if( FD_UNLIKELY( strcmp( config->gossip.host, "" ) ) ) {
+        if( !resolve_address( config->gossip.host, &tile->gossip.ip_addr ) )
+          FD_LOG_ERR(( "could not resolve [gossip.host] %s", config->gossip.host ));
+      } else {
+        tile->gossip.ip_addr = config->net.ip_addr;
+      }
       strncpy( tile->gossip.identity_key_path, config->paths.identity_key, sizeof(tile->gossip.identity_key_path) );
       tile->gossip.gossip_listen_port =  config->gossip.port;
       tile->gossip.tvu_port = config->tiles.shred.shred_listen_port;
