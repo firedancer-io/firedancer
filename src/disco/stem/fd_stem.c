@@ -92,8 +92,9 @@
    filter the fragment based on its signature.  If the return value is
    non-zero, the frag will be skipped completely, no fragment data will
    be read, and the in will be advanced so that we now wait for the next
-   fragment.  The ctx is a user-provided context object from when the
-   stem tile was initialized.
+   fragment.  If the return value is -1, then the frag is returned back
+   to the message queue and will be reprocessed.  The ctx is a
+   user-provided context object from when the stem tile was initialized.
 
       DURING_FRAG
    Is called after the stem has received a new frag from an in, but

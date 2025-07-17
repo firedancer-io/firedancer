@@ -37,7 +37,7 @@
 
 #define DEQUE_NAME fd_exec_slice
 #define DEQUE_T    ulong
-#define DEQUE_MAX  USHORT_MAX
+#define DEQUE_MAX  (16384UL)
 #include "../../util/tmpl/fd_deque.c"
 
 /* An estimate of the max number of transactions in a block.  If there are more
@@ -290,7 +290,7 @@ before_frag( fd_replay_tile_ctx_t * ctx,
        This will eventually cause backpressure to the repair system. */
     if( FD_UNLIKELY( fd_exec_slice_full( ctx->exec_slice_deque ) ) ) return -1;
 
-    FD_LOG_DEBUG(( "rx slice from repair tile %lu %u", fd_disco_repair_replay_sig_slot( sig ), fd_disco_repair_replay_sig_data_cnt( sig ) ));
+    FD_LOG_DEBUG(( "recv slice from repair tile %lu %u", fd_disco_repair_replay_sig_slot( sig ), fd_disco_repair_replay_sig_data_cnt( sig ) ));
     fd_exec_slice_push_tail( ctx->exec_slice_deque, sig );
     return 1;
   }
@@ -1316,6 +1316,8 @@ handle_new_slice( fd_replay_tile_ctx_t * ctx, fd_stem_context_t * stem ) {
   int    slot_complete = fd_disco_repair_replay_sig_slot_complete( sig );
   ulong  parent_slot   = slot - parent_off;
 
+  FD_LOG_DEBUG(( "executing slice from slot %lu %u", slot, data_cnt ));
+
   if( FD_UNLIKELY( slot<fd_fseq_query( ctx->published_wmark ) ) ) {
     FD_LOG_WARNING(( "ignoring replay of slot %lu (parent: %lu). earlier than our watermark %lu.", slot, parent_slot, fd_fseq_query( ctx->published_wmark ) ));
     return;
@@ -1567,6 +1569,7 @@ after_credit( fd_replay_tile_ctx_t * ctx,
               fd_stem_context_t *    stem,
               int *                  opt_poll_in FD_PARAM_UNUSED,
               int *                  charge_busy FD_PARAM_UNUSED ) {
+
   if( !ctx->snapshot_init_done ) {
     if( ctx->plugin_out->mem ) {
       uchar msg[56];
