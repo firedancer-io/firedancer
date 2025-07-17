@@ -357,9 +357,9 @@ FD_STATIC_ASSERT( FD_PACK_INSERT_ACCEPT_NONCE_NONVOTE_REPLACE<FD_PACK_INSERT_RET
    returns one of the FD_PACK_INSERT_ACCEPT_* or FD_PACK_INSERT_REJECT_*
    codes explained above.
  */
-fd_txn_e_t * fd_pack_insert_txn_init  ( fd_pack_t * pack                                     );
-int          fd_pack_insert_txn_fini  ( fd_pack_t * pack, fd_txn_e_t * txn, ulong expires_at );
-void         fd_pack_insert_txn_cancel( fd_pack_t * pack, fd_txn_e_t * txn                   );
+fd_txn_e_t * fd_pack_insert_txn_init  ( fd_pack_t * pack                                                         );
+int          fd_pack_insert_txn_fini  ( fd_pack_t * pack, fd_txn_e_t * txn, ulong expires_at, ulong * delete_cnt );
+void         fd_pack_insert_txn_cancel( fd_pack_t * pack, fd_txn_e_t * txn                                       );
 
 /* fd_pack_insert_bundle_{init,fini,cancel} are parallel to the
    similarly named fd_pack_insert_txn functions but can be used to
@@ -430,14 +430,15 @@ void         fd_pack_insert_txn_cancel( fd_pack_t * pack, fd_txn_e_t * txn      
    fd_pack_insert_bundle_fini returns one of the FD_PACK_INSERT_ACCEPT_*
    or FD_PACK_INSERT_REJECT_* codes explained above.  If there are
    multiple reasons for rejecting a bundle, the which of the reasons it
-   returns is unspecified.
+   returns is unspecified.  delete_cnt is the number of existing
+   transactions that were deleted as a side effect of insertion.
 
    These functions must not be called if the pack object was initialized
    with bundle_meta_sz==0. */
 
 fd_txn_e_t * const * fd_pack_insert_bundle_init  ( fd_pack_t * pack, fd_txn_e_t *       * bundle, ulong txn_cnt                                        );
 int                  fd_pack_insert_bundle_fini  ( fd_pack_t * pack, fd_txn_e_t * const * bundle, ulong txn_cnt,
-                                                   ulong expires_at, int initializer_bundle, void const * bundle_meta );
+                                                   ulong expires_at, int initializer_bundle, void const * bundle_meta, ulong * delete_cnt );
 void                 fd_pack_insert_bundle_cancel( fd_pack_t * pack, fd_txn_e_t * const * bundle, ulong txn_cnt                                        );
 
 
@@ -655,7 +656,7 @@ ulong fd_pack_expire_before( fd_pack_t * pack, ulong expire_before );
    nonzero count of the number of transactions deleted, if the
    transaction was found (and then removed) and 0 if not.  The count
    might be >1 if a bundle was caused to be deleted. */
-int fd_pack_delete_transaction( fd_pack_t * pack, fd_ed25519_sig_t const * sig0 );
+ulong fd_pack_delete_transaction( fd_pack_t * pack, fd_ed25519_sig_t const * sig0 );
 
 /* fd_pack_end_block resets some state to prepare for the next block.
    Specifically, the per-block limits are cleared and transactions in

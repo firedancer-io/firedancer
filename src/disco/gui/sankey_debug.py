@@ -10,108 +10,114 @@ def scrape_url(url: str) -> str:
     response.encoding = 'utf-8'
     return response.text
 
-def parse_prometheus_text(text: str) -> Dict[Tuple[str, Optional[str]], int]:
+def parse_prometheus_text(text: str) -> Dict[Tuple[str, str, Optional[str]], int]:
     pattern = re.compile(r'(\w+){kind="(\w+)",kind_id="(\d+)"(,link_kind="(\w+)",link_kind_id="\d+")?(,\w+="(\w+)")?} (\d+)')
-    result: Dict[Tuple[str, Optional[str]], int] = {}
+    result: Dict[Tuple[str, str, Optional[str]], int] = {}
 
     for line in text.splitlines():
         match = pattern.match(line)
         if match:
-            metric_name, _kind, _kind_id, _link, link_kind_id, _, variant, value = match.groups()
-            if link_kind_id is not None:
-                variant = link_kind_id
-            if (metric_name, variant) not in result:
-                result[(metric_name, variant)] = 0
-            result[(metric_name, variant)] += int(value)
+            metric_name, kind, _kind_id, _link, link_kind_id, _, variant, value = match.groups()
+            result.setdefault((kind, metric_name, variant if link_kind_id is None else link_kind_id), 0)
+            result[(kind, metric_name, variant if link_kind_id is None else link_kind_id)] += int(value)
 
     return result
 
-def print_sankey(summed: Dict[Tuple[str, Optional[str]], int]):
-    in_block_engine = summed[('bundle_transaction_received', None)] if ('bundle_transaction_received', None) in summed else 0
-    in_gossip = summed[('dedup_gossiped_votes_received', None)]
-    in_udp = summed[('quic_txns_received', 'udp')]
-    in_quic = summed[('quic_txns_received', 'quic_fast')] + summed[('quic_txns_received', 'quic_frag')]
+def get_link_count(summed: Dict[Tuple[str, str, Optional[str]], int], metric: str, link: Optional[str] = None, consumer: Optional[str] = None) -> int:
+    if consumer is not None:
+        return summed.get((consumer, metric, link), 0)
 
-    verify_overrun = summed[('link_overrun_reading_frag_count', 'quic_verify')] + \
-                     int(summed[('link_overrun_polling_frag_count', 'quic_verify')] / 6)
-    verify_failed = summed[('verify_transaction_verify_failure', None)] + summed[('verify_transaction_bundle_peer_failure', None)]
-    verify_parse = summed[('verify_transaction_parse_failure', None)]
-    verify_dedup = summed[('verify_transaction_dedup_failure', None)]
+    all_consumers = set(key[0] for key in summed if key[1:] == (metric, link))
+    return sum(summed.get((consumer, metric, link), 0) for consumer in all_consumers)
 
-    dedup_dedup = summed[('dedup_transaction_dedup_failure', None)] + summed[('dedup_transaction_bundle_peer_failure', None)]
+def print_sankey(summed: Dict[Tuple[str, str, Optional[str]], int]):
+    in_block_engine = get_link_count(summed, metric='bundle_transaction_received')
+    in_gossip = get_link_count(summed, metric='dedup_gossiped_votes_received')
+    in_udp = get_link_count(summed, metric='quic_txns_received', link='udp')
+    in_quic = get_link_count(summed, metric='quic_txns_received', link='quic_fast') + get_link_count(summed, metric='quic_txns_received', link='quic_frag')
 
-    resolv_failed = summed[('resolv_blockhash_expired', None)] + \
-                    summed[('resolv_no_bank_drop', None)] + \
-                    summed[('resolv_transaction_bundle_peer_failure', None)] + \
-                    summed[('resolv_lut_resolved', 'account_not_found')] + \
-                    summed[('resolv_lut_resolved', 'account_uninitialized')] + \
-                    summed[('resolv_lut_resolved', 'invalid_account_data')] + \
-                    summed[('resolv_lut_resolved', 'invalid_account_owner')] + \
-                    summed[('resolv_lut_resolved', 'invalid_lookup_index')] + \
-                    summed[('resolv_stash_operation', 'overrun')]
+    verify_overrun = get_link_count(summed, metric='link_overrun_reading_frag_count', link='quic_verify') + \
+                     int(get_link_count(summed, metric='link_overrun_polling_frag_count', link='quic_verify') / 6)
+    verify_failed = get_link_count(summed, metric='verify_transaction_verify_failure') + get_link_count(summed, metric='verify_transaction_bundle_peer_failure')
+    verify_parse = get_link_count(summed, metric='verify_transaction_parse_failure')
+    verify_dedup = get_link_count(summed, metric='verify_transaction_dedup_failure')
 
-    resolv_retained = summed[('resolv_stash_operation', 'inserted')] - \
-                      summed[('resolv_stash_operation', 'overrun')] - \
-                      summed[('resolv_stash_operation', 'published')] - \
-                      summed[('resolv_stash_operation', 'removed')]
+    dedup_dedup = get_link_count(summed, metric='dedup_transaction_dedup_failure') + get_link_count(summed, metric='dedup_transaction_bundle_peer_failure')
 
-    pack_cranked = summed[('pack_bundle_crank_status', 'inserted')]
+    resolv_failed = get_link_count(summed, metric='resolv_blockhash_expired') + \
+                    get_link_count(summed, metric='resolv_no_bank_drop') + \
+                    get_link_count(summed, metric='resolv_transaction_bundle_peer_failure') + \
+                    get_link_count(summed, metric='resolv_lut_resolved', link='account_not_found') + \
+                    get_link_count(summed, metric='resolv_lut_resolved', link='account_uninitialized') + \
+                    get_link_count(summed, metric='resolv_lut_resolved', link='invalid_account_data') + \
+                    get_link_count(summed, metric='resolv_lut_resolved', link='invalid_account_owner') + \
+                    get_link_count(summed, metric='resolv_lut_resolved', link='invalid_lookup_index') + \
+                    get_link_count(summed, metric='resolv_stash_operation', link='overrun')
 
-    pack_retained = summed[('pack_available_transactions', 'all')]
+    resolv_retained = get_link_count(summed, metric='resolv_stash_operation', link='inserted') - \
+                      get_link_count(summed, metric='resolv_stash_operation', link='overrun') - \
+                      get_link_count(summed, metric='resolv_stash_operation', link='published') - \
+                      get_link_count(summed, metric='resolv_stash_operation', link='removed')
 
-    pack_leader_slot = summed[('pack_transaction_inserted', 'priority')] + \
-                       summed[('pack_transaction_inserted', 'nonvote_replace')] + \
-                       summed[('pack_transaction_inserted', 'vote_replace')]
+    pack_cranked = get_link_count(summed, metric='pack_bundle_crank_status', link='inserted')
 
-    pack_expired = summed[('pack_transaction_expired', None)] + \
-                   summed[('pack_transaction_deleted', None)] + \
-                   summed[('pack_transaction_inserted', 'expired')] + \
-                   summed[('pack_transaction_inserted', 'nonce_priority')] + \
-                   summed[('pack_transaction_inserted', 'nonce_nonvote_replace')]
+    pack_retained = get_link_count(summed, metric='pack_available_transactions', link='all')
 
-    pack_invalid_bundle = summed[('pack_transaction_dropped_partial_bundle', None)]
-    pack_invalid = summed[('pack_transaction_inserted', 'nonce_conflict')] + \
-                   summed[('pack_transaction_inserted', 'bundle_blacklist')] + \
-                   summed[('pack_transaction_inserted', 'invalid_nonce')] + \
-                   summed[('pack_transaction_inserted', 'write_sysvar')] + \
-                   summed[('pack_transaction_inserted', 'estimation_fail')] + \
-                   summed[('pack_transaction_inserted', 'duplicate_account')] + \
-                   summed[('pack_transaction_inserted', 'too_many_accounts')] + \
-                   summed[('pack_transaction_inserted', 'too_large')] + \
-                   summed[('pack_transaction_inserted', 'addr_lut')] + \
-                   summed[('pack_transaction_inserted', 'unaffordable')] + \
-                   summed[('pack_transaction_inserted', 'duplicate')]
+    pack_leader_slot = get_link_count(summed, metric='pack_transaction_inserted', link='priority') + \
+                       get_link_count(summed, metric='pack_transaction_inserted', link='nonvote_replace') + \
+                       get_link_count(summed, metric='pack_transaction_inserted', link='vote_replace')
 
-    bank_invalid = summed[('bank_processing_failed', None)] + \
-                   summed[('bank_precompile_verify_failure', None)] + \
-                   summed[('bank_transaction_load_address_tables', 'account_not_found')] + \
-                   summed[('bank_transaction_load_address_tables', 'invalid_account_data')] + \
-                   summed[('bank_transaction_load_address_tables', 'invalid_account_owner')] + \
-                   summed[('bank_transaction_load_address_tables', 'invalid_index')] + \
-                   summed[('bank_transaction_load_address_tables', 'slot_hashes_sysvar_not_found')]
+    pack_expired = get_link_count(summed, metric='pack_transaction_expired') + \
+                   get_link_count(summed, metric='pack_transaction_deleted') + \
+                   get_link_count(summed, metric='pack_transaction_inserted', link='expired') + \
+                   get_link_count(summed, metric='pack_transaction_inserted', link='nonce_priority') + \
+                   get_link_count(summed, metric='pack_transaction_inserted', link='nonce_nonvote_replace')
 
-    block_fail = summed[('bank_executed_failed_transactions', None)] + summed[('bank_fee_only_transactions', None)]
+    pack_invalid_bundle = get_link_count(summed, metric='pack_transaction_dropped_partial_bundle')
+    pack_invalid = get_link_count(summed, metric='pack_transaction_inserted', link='nonce_conflict') + \
+                   get_link_count(summed, metric='pack_transaction_inserted', link='bundle_blacklist') + \
+                   get_link_count(summed, metric='pack_transaction_inserted', link='invalid_nonce') + \
+                   get_link_count(summed, metric='pack_transaction_inserted', link='write_sysvar') + \
+                   get_link_count(summed, metric='pack_transaction_inserted', link='estimation_fail') + \
+                   get_link_count(summed, metric='pack_transaction_inserted', link='duplicate_account') + \
+                   get_link_count(summed, metric='pack_transaction_inserted', link='too_many_accounts') + \
+                   get_link_count(summed, metric='pack_transaction_inserted', link='too_large') + \
+                   get_link_count(summed, metric='pack_transaction_inserted', link='addr_lut') + \
+                   get_link_count(summed, metric='pack_transaction_inserted', link='unaffordable') + \
+                   get_link_count(summed, metric='pack_transaction_inserted', link='duplicate')
 
-    block_success = summed[('bank_successful_transactions', None)]
+    bank_invalid = get_link_count(summed, metric='bank_processing_failed') + \
+                   get_link_count(summed, metric='bank_precompile_verify_failure') + \
+                   get_link_count(summed, metric='bank_transaction_load_address_tables', link='account_not_found') + \
+                   get_link_count(summed, metric='bank_transaction_load_address_tables', link='invalid_account_data') + \
+                   get_link_count(summed, metric='bank_transaction_load_address_tables', link='invalid_account_owner') + \
+                   get_link_count(summed, metric='bank_transaction_load_address_tables', link='invalid_index') + \
+                   get_link_count(summed, metric='bank_transaction_load_address_tables', link='slot_hashes_sysvar_not_found')
 
-    recon_verify_in = summed[('link_consumed_count', 'quic_verify')] + (summed[('link_consumed_count', 'bundle_verif')] if ('link_consumed_count', 'bundle_verif') in summed else 0)
-    recon_verify_out = summed[('link_consumed_count', 'verify_dedup')]
+    block_fail = get_link_count(summed, metric='bank_executed_failed_transactions') + get_link_count(summed, metric='bank_fee_only_transactions')
 
-    recon_dedup_in = summed[('link_consumed_count', 'verify_dedup')] + summed[('link_consumed_count', 'gossip_dedup')]
-    recon_dedup_out = summed[('link_consumed_count', 'dedup_resolv')]
+    block_success = get_link_count(summed, metric='bank_successful_transactions')
 
-    recon_resolv_in = summed[('link_consumed_count', 'dedup_resolv')]
-    recon_resolv_out = summed[('link_consumed_count', 'resolv_pack')]
+    recon_verify_in = get_link_count(summed, metric='link_consumed_count', link='quic_verify') + get_link_count(summed, metric='link_consumed_count', link='bundle_verif')
+    recon_verify_out = get_link_count(summed, metric='link_consumed_count', link='verify_dedup')
 
-    recon_pack_in = summed[('link_consumed_count', 'resolv_pack')]
+    recon_dedup_in = get_link_count(summed, metric='link_consumed_count', link='verify_dedup') + get_link_count(summed, metric='link_consumed_count', link='gossip_dedup')
+    recon_dedup_out = get_link_count(summed, metric='link_consumed_count', link='dedup_resolv')
+
+    recon_resolv_in = get_link_count(summed, metric='link_consumed_count', link='dedup_resolv')
+    recon_resolv_out = get_link_count(summed, metric='link_consumed_count', link='resolv_pack')
+
+    recon_pack_in = get_link_count(summed, metric='link_consumed_count', link='resolv_pack') + get_link_count(summed, metric='pack_bundle_crank_status', link='inserted')
+    recon_pack_out = get_link_count(summed, metric='link_consumed_count', link='pack_bank', consumer='gui') # the gui only consumes txn frags on the pack_bank link, so we can use to for reconciling the pack_out count
 
     print(f"""
 block_engine:         {in_block_engine:10,}
 gossip:               {in_gossip:10,}
 udp:                  {in_udp:10,}
 quic:                 {in_quic:10,}
+pack_cranked          {pack_cranked:10,}
 ----------------------------------------
-IN TOTAL:             {in_block_engine + in_gossip + in_udp + in_quic:10,}
+IN TOTAL:             {in_block_engine + in_gossip + in_udp + in_quic + pack_cranked:10,}
 
 verify_overrun:       {verify_overrun:10,}
 verify_failed:        {verify_failed:10,}
@@ -148,6 +154,7 @@ pack_invalid_bundle   {pack_invalid_bundle:10,}
 COMPUTED PACK IN:     {pack_cranked + in_block_engine + in_udp + in_quic + in_gossip - verify_overrun - verify_failed - verify_parse - verify_dedup - dedup_dedup - resolv_retained - resolv_failed:10,}
 COMPUTED PACK OUT:    {pack_cranked + in_block_engine + in_udp + in_quic + in_gossip - verify_overrun - verify_failed - verify_parse - verify_dedup - dedup_dedup - resolv_retained - resolv_failed - pack_retained - pack_leader_slot - pack_expired - pack_invalid - pack_invalid_bundle:10,}
 RECONCILE PACK IN:    {recon_pack_in:10,}
+RECONCILE PACK OUT:   {recon_pack_out:10,}
 
 bank_invalid:         {bank_invalid:10,}
 

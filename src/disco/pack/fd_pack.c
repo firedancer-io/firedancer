@@ -680,7 +680,7 @@ typedef struct fd_pack_private fd_pack_t;
 FD_STATIC_ASSERT( offsetof(fd_pack_t, pending_txn_cnt)==FD_PACK_PENDING_TXN_CNT_OFF, txn_cnt_off );
 
 /* Forward-declare some helper functions */
-static int delete_transaction( fd_pack_t * pack, fd_pack_ord_txn_t * txn, int delete_full_bundle, int move_from_penalty_treap );
+static ulong delete_transaction( fd_pack_t * pack, fd_pack_ord_txn_t * txn, int delete_full_bundle, int move_from_penalty_treap );
 static inline void insert_bundle_impl( fd_pack_t * pack, ulong bundle_idx, ulong txn_cnt, fd_pack_ord_txn_t * * bundle, ulong expires_at );
 
 FD_FN_PURE ulong
@@ -1026,10 +1026,12 @@ void         fd_pack_insert_txn_cancel( fd_pack_t * pack, fd_txn_e_t * txn ) { t
 
 /* Tries to find the worst transaction in any treap in pack.  If that
    transaction's score is worse than or equal to threshold_score, it
-   deletes it and returns 1.  If it's higher than threshold_score, it
-   returns 0.  To force this function to delete the worst transaction if
-   there are any eligible ones, pass FLT_MAX as threshold_score. */
-static inline int
+   initiates a delete and returns the number of deleted transactions
+   (potentially more than 1 for a bundle).  If it's higher than
+   threshold_score, it returns 0.  To force this function to delete the
+   worst transaction if there are any eligible ones, pass FLT_MAX as
+   threshold_score. */
+static inline ulong
 delete_worst( fd_pack_t * pack,
               float       threshold_score,
               int         is_vote ) {
@@ -1100,7 +1102,7 @@ delete_worst( fd_pack_t * pack,
       default:
       case FD_ORD_TXN_ROOT_FREE: {
         FD_LOG_CRIT(( "Double free detected" ));
-        return -1; /* Can't be hit */
+        return ULONG_MAX; /* Can't be hit */
       }
       case FD_ORD_TXN_ROOT_PENDING: {
         treap = pack->pending;
@@ -1155,8 +1157,7 @@ delete_worst( fd_pack_t * pack,
   if( FD_UNLIKELY( !worst                      ) ) return 0;
   if( FD_UNLIKELY( threshold_score<worst_score ) ) return 0;
 
-  delete_transaction( pack, worst, 1, 1 );
-  return 1;
+  return delete_transaction( pack, worst, 1, 1 );
 }
 
 static inline int
@@ -1287,7 +1288,8 @@ populate_bitsets( fd_pack_t         * pack,
 int
 fd_pack_insert_txn_fini( fd_pack_t  * pack,
                          fd_txn_e_t * txne,
-                         ulong        expires_at ) {
+                         ulong        expires_at,
+                         ulong      * delete_cnt ) {
 
   fd_pack_ord_txn_t * ord = (fd_pack_ord_txn_t *)txne;
 
@@ -1322,20 +1324,24 @@ fd_pack_insert_txn_fini( fd_pack_t  * pack,
   if( FD_UNLIKELY( expires_at<pack->expire_before                          ) ) REJECT( EXPIRED          );
 
   int replaces = 0;
+  *delete_cnt = 0UL;
   /* If it's a durable nonce and we already have one, delete one or the
      other. */
   if( FD_UNLIKELY( is_durable_nonce ) ) {
     fd_pack_ord_txn_t * same_nonce = noncemap_ele_query( pack->noncemap, txne, NULL, pack->pool );
     if( FD_LIKELY( same_nonce ) ) { /* Seems like most nonce transactions are effectively duplicates */
       if( FD_LIKELY( same_nonce->root == FD_ORD_TXN_ROOT_PENDING_BUNDLE || COMPARE_WORSE( ord, same_nonce ) ) ) REJECT( NONCE_PRIORITY );
-      delete_transaction( pack, same_nonce, 0, 0 ); /* Not a bundle, so delete_full_bundle is 0 */
+      ulong _delete_cnt = delete_transaction( pack, same_nonce, 0, 0 ); /* Not a bundle, so delete_full_bundle is 0 */
+      *delete_cnt += _delete_cnt;
       replaces = 1;
     }
   }
 
   if( FD_UNLIKELY( pack->pending_txn_cnt == pack->pack_depth ) ) {
     float threshold_score = (float)ord->rewards/(float)ord->compute_est;
-    if( FD_UNLIKELY( !delete_worst( pack, threshold_score, is_vote ) ) )       REJECT( PRIORITY         );
+    ulong _delete_cnt = delete_worst( pack, threshold_score, is_vote );
+    *delete_cnt += _delete_cnt;
+    if( FD_UNLIKELY( !_delete_cnt ) ) REJECT( PRIORITY );
     replaces = 1;
   }
 
@@ -1427,9 +1433,11 @@ fd_pack_insert_bundle_fini( fd_pack_t          * pack,
                             ulong                txn_cnt,
                             ulong                expires_at,
                             int                  initializer_bundle,
-                            void const *         bundle_meta ) {
+                            void         const * bundle_meta,
+                            ulong              * delete_cnt ) {
 
   int err = 0;
+  *delete_cnt = 0UL;
 
   ulong pending_b_txn_cnt = treap_ele_cnt( pack->pending_bundles );
     /* We want to prevent bundles from consuming the whole treap, but in
@@ -1487,7 +1495,8 @@ fd_pack_insert_bundle_fini( fd_pack_t          * pack,
           err = FD_PACK_INSERT_REJECT_NONCE_PRIORITY;
           break;
         } else {
-          delete_transaction( pack, same_nonce, 0, 0 );
+          ulong _delete_cnt = delete_transaction( pack, same_nonce, 0, 0 );
+          *delete_cnt += _delete_cnt;
           replaces = 1;
         }
       }
@@ -1509,11 +1518,16 @@ fd_pack_insert_bundle_fini( fd_pack_t          * pack,
     int is_ib = !!(cur->txn->flags & FD_TXN_P_FLAGS_INITIALIZER_BUNDLE);
 
     /* Delete the previous IB if there is one */
-    if( FD_UNLIKELY( is_ib && 0UL==RC_TO_REL_BUNDLE_IDX( cur->rewards, cur->compute_est ) ) ) delete_transaction( pack, cur, 1, 0 );
+    if( FD_UNLIKELY( is_ib && 0UL==RC_TO_REL_BUNDLE_IDX( cur->rewards, cur->compute_est ) ) ) {
+      ulong _delete_cnt = delete_transaction( pack, cur, 1, 0 );
+      *delete_cnt += _delete_cnt;
+    }
   }
 
   while( FD_UNLIKELY( pack->pending_txn_cnt+txn_cnt > pack->pack_depth ) ) {
-    if( FD_UNLIKELY( !delete_worst( pack, FLT_MAX, 0 ) ) ) {
+    ulong _delete_cnt = delete_worst( pack, FLT_MAX, 0 );
+    *delete_cnt += _delete_cnt;
+    if( FD_UNLIKELY( !_delete_cnt ) ) {
       fd_pack_insert_bundle_cancel( pack, bundle, txn_cnt );
       return FD_PACK_INSERT_REJECT_PRIORITY;
     }
@@ -2614,8 +2628,9 @@ fd_pack_expire_before( fd_pack_t * pack,
     /* All the transactions in the same bundle have the same expiration
        time, so this loop will end up deleting them all, even with
        delete_full_bundle set to 0. */
-    FD_TEST( delete_transaction( pack, expired, 0, 1 ) );
-    deleted_cnt++;
+    ulong _delete_cnt = delete_transaction( pack, expired, 0, 1 );
+    deleted_cnt += _delete_cnt;
+    FD_TEST( _delete_cnt );
   }
 
   pack->expire_before = expire_before;
@@ -2770,7 +2785,7 @@ fd_pack_clear_all( fd_pack_t * pack ) {
    If move_from_penalty_treap is non-zero and the transaction to delete
    is in the pending treap, move the best transaction in any of the
    conflicting penalty treaps to the pending treap (if there is one). */
-static int
+static ulong
 delete_transaction( fd_pack_t         * pack,
                     fd_pack_ord_txn_t * containing,
                     int                 delete_full_bundle,
@@ -2797,6 +2812,7 @@ delete_transaction( fd_pack_t         * pack,
     }
   }
 
+  ulong delete_cnt = 0UL;
   if( FD_UNLIKELY( delete_full_bundle & (root==pack->pending_bundles) ) ) {
     /* When we delete, the structure of the treap may move around, but
        pointers to inside the pool will remain valid */
@@ -2830,7 +2846,7 @@ delete_transaction( fd_pack_t         * pack,
 
     /* Delete them each, setting delete_full_bundle to 0 to avoid
        infinite recursion. */
-    for( ulong k=0UL; k<cnt; k++ ) delete_transaction( pack, bundle_ptrs[ k ], 0, 0 );
+    for( ulong k=0UL; k<cnt; k++ ) delete_cnt += delete_transaction( pack, bundle_ptrs[ k ], 0, 0 );
   }
 
 
@@ -2885,19 +2901,20 @@ delete_transaction( fd_pack_t         * pack,
   sig2txn_ele_remove_fast( pack->signature_map, containing, pack->pool );
   trp_pool_ele_release( pack->pool, containing );
 
+  delete_cnt += 1UL;
   pack->pending_txn_cnt--;
 
   if( FD_UNLIKELY( penalty_treap && treap_ele_cnt( root )==0UL ) ) {
     penalty_map_remove( pack->penalty_treaps, penalty_treap );
   }
 
-  return 1;
+  return delete_cnt;
 }
 
-int
+ulong
 fd_pack_delete_transaction( fd_pack_t              * pack,
                             fd_ed25519_sig_t const * sig0 ) {
-  int cnt = 0;
+  ulong cnt = 0;
   ulong next = ULONG_MAX;
   for( ulong idx = sig2txn_idx_query_const( pack->signature_map, (wrapped_sig_t const *)sig0, ULONG_MAX, pack->pool );
       idx!=ULONG_MAX; idx=next ) {
