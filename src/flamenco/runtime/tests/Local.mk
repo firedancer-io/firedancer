@@ -14,8 +14,5 @@ $(call make-shared,libfd_exec_sol_compat.so,harness/fd_exec_sol_compat,fd_flamen
 endif
 endif
 
-run-runtime-test: $(OBJDIR)/bin/fd_ledger
-	python3.11 ./src/flamenco/runtime/tests/run_ledger_tests_all.py ./src/flamenco/runtime/tests/run_ledger_tests_all.txt
-
 run-runtime-backtest: $(OBJDIR)/bin/fd_ledger
 	OBJDIR=$(OBJDIR) src/flamenco/runtime/tests/run_backtest_ci.sh

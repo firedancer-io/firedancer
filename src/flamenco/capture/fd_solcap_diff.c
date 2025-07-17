@@ -63,13 +63,6 @@ fd_solcap_account_tbl_lt( fd_solcap_account_tbl_t const * a,
 #define SORT_KEY_T       fd_solcap_account_tbl_t
 #define SORT_BEFORE(a,b) fd_solcap_account_tbl_lt( &(a), &(b) )
 #include "../../util/tmpl/fd_sort.c"
-
-/* TODO this differ is currently a separate file, but it would make
-        sense to move/copy it to fd_ledger.  Doing so would enable
-        a fast feedback cycle wherein a developer supplies the expected
-        (Labs) capture to fd_ledger, then automatically runs the
-        differ after each execution. */
-
 struct fd_solcap_differ {
   fd_solcap_chunk_iter_t iter    [2];
   fd_solcap_BankPreimage preimage[2];

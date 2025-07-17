@@ -267,20 +267,6 @@ compute_stake_delegations( fd_epoch_info_t *                temp_info,
 
 }
 
-static void
-compute_stake_delegations_tpool_task( void  *tpool,
-                                      ulong t0 FD_PARAM_UNUSED,      ulong t1 FD_PARAM_UNUSED,
-                                      void  *args,
-                                      void  *reduce FD_PARAM_UNUSED, ulong stride FD_PARAM_UNUSED,
-                                      ulong l0 FD_PARAM_UNUSED,      ulong l1 FD_PARAM_UNUSED,
-                                      ulong m0,                      ulong m1,
-                                      ulong n0 FD_PARAM_UNUSED,      ulong n1 FD_PARAM_UNUSED  ) {
-  fd_epoch_info_t *                temp_info  = (fd_epoch_info_t *)tpool;
-  fd_compute_stake_delegations_t * task_args  = (fd_compute_stake_delegations_t *)args;
-  ulong                            worker_idx = fd_tile_idx();
-
-  compute_stake_delegations( temp_info, task_args, worker_idx, m0, m1 );
-}
 
 /* Populates vote accounts with updated delegated stake from the next cached epoch stakes into temp_info */
 void
@@ -288,9 +274,7 @@ fd_populate_vote_accounts( fd_exec_slot_ctx_t *       slot_ctx,
                            fd_stake_history_t const * history,
                            ulong *                    new_rate_activation_epoch,
                            fd_epoch_info_t *          temp_info,
-                           fd_tpool_t *               tpool,
                            fd_spad_t * *              exec_spads,
-                           ulong                      exec_spad_cnt,
                            fd_spad_t *                runtime_spad ) {
 
 
@@ -355,16 +339,7 @@ fd_populate_vote_accounts( fd_exec_slot_ctx_t *       slot_ctx,
     .spads                     = exec_spads,
   };
 
-  if( !!tpool ) {
-    ulong tpool_worker_cnt = fd_tpool_worker_cnt( tpool );
-    ulong worker_cnt       = fd_ulong_min( temp_info->stake_infos_len,
-                                           fd_ulong_min( tpool_worker_cnt, exec_spad_cnt ) );
-    // Now we can iterate over each stake delegation in parallel and fill the delegations map
-    fd_tpool_exec_all_batch( tpool, 0UL, worker_cnt, compute_stake_delegations_tpool_task, temp_info, &task_args, NULL, 1UL, 0UL, temp_info->stake_infos_len );
-
-  } else {
-    compute_stake_delegations( temp_info, &task_args, 0UL, 0UL, temp_info->stake_infos_len );
-  }
+  compute_stake_delegations( temp_info, &task_args, 0UL, 0UL, temp_info->stake_infos_len );
 
   // Iterate over each vote account in the epoch stakes cache and populate the new vote accounts pool
   /* NOTE: we use epoch_bank->next_epoch_stakes because Agave indexes their epoch stakes cache by leader schedule epoch.
@@ -424,9 +399,7 @@ fd_refresh_vote_accounts( fd_exec_slot_ctx_t *       slot_ctx,
                           fd_stake_history_t const * history,
                           ulong *                    new_rate_activation_epoch,
                           fd_epoch_info_t *          temp_info,
-                          fd_tpool_t *               tpool,
                           fd_spad_t * *              exec_spads,
-                          ulong                      exec_spad_cnt,
                           fd_spad_t *                runtime_spad ) {
 
   fd_stakes_global_t *                       stakes                    = fd_bank_stakes_locking_modify( slot_ctx->bank );
@@ -487,16 +460,7 @@ fd_refresh_vote_accounts( fd_exec_slot_ctx_t *       slot_ctx,
     .spads                     = exec_spads,
   };
 
-  if( !!tpool ) {
-    ulong tpool_worker_cnt = fd_tpool_worker_cnt( tpool );
-    ulong worker_cnt       = fd_ulong_min( temp_info->stake_infos_len,
-                                           fd_ulong_min( tpool_worker_cnt, exec_spad_cnt ) );
-    // Now we can iterate over each stake delegation in parallel and fill the delegations map
-    fd_tpool_exec_all_batch( tpool, 0UL, worker_cnt, compute_stake_delegations_tpool_task, temp_info, &task_args, NULL, 1UL, 0UL, temp_info->stake_infos_len );
-
-  } else {
-    compute_stake_delegations( temp_info, &task_args, 0UL, 0UL, temp_info->stake_infos_len );
-  }
+  compute_stake_delegations( temp_info, &task_args, 0UL, 0UL, temp_info->stake_infos_len );
 
   // Iterate over each vote account in the epoch stakes cache and populate the new vote accounts pool
   ulong total_epoch_stake = 0UL;
@@ -676,7 +640,6 @@ fd_accumulate_stake_infos( fd_exec_slot_ctx_t const * slot_ctx,
                            ulong *                    new_rate_activation_epoch,
                            fd_stake_history_entry_t * accumulator,
                            fd_epoch_info_t *          temp_info,
-                           fd_tpool_t *               tpool,
                            fd_spad_t * *              exec_spads,
                            ulong                      exec_spads_cnt,
                            fd_spad_t *                runtime_spad ) {
@@ -693,9 +656,7 @@ fd_accumulate_stake_infos( fd_exec_slot_ctx_t const * slot_ctx,
 
   /* Batch up the stake info accumulations via tpool. Currently this is only marginally more efficient because we
      do not have access to iterators at a specific index in constant or logarithmic time. */
-  ulong tpool_worker_cnt                                   = !!tpool ? fd_tpool_worker_cnt( tpool ) : 1UL;
-  ulong worker_cnt                                         = fd_ulong_min( stake_delegations_pool_sz,
-                                                                           fd_ulong_min( tpool_worker_cnt, exec_spads_cnt ) );
+  ulong worker_cnt                                         = fd_ulong_min( stake_delegations_pool_sz,exec_spads_cnt );
 
   fd_delegation_pair_t_mapnode_t ** batch_delegation_roots = fd_spad_alloc( runtime_spad, alignof(fd_delegation_pair_t_mapnode_t *),
                                                                                       ( worker_cnt + 1 )*sizeof(fd_delegation_pair_t_mapnode_t *) );
@@ -731,16 +692,12 @@ fd_accumulate_stake_infos( fd_exec_slot_ctx_t const * slot_ctx,
     .epoch                     = stakes->epoch,
   };
 
-  if( !!tpool ) {
-    fd_tpool_exec_all_batch( tpool, 0UL, worker_cnt, accumulate_stake_cache_delegations_tpool_task,
-                             batch_delegation_roots, &task_args, NULL,
-                             1UL, 0UL, stake_delegations_pool_sz );
-  } else {
-    accumulate_stake_cache_delegations( batch_delegation_roots,
-                                        &task_args,
-                                        0UL,
-                                        NULL );
-  }
+
+  accumulate_stake_cache_delegations( batch_delegation_roots,
+                                      &task_args,
+                                      0UL,
+                                      NULL );
+
   temp_info->stake_infos_new_keys_start_idx = temp_info->stake_infos_len;
 
   fd_account_keys_global_t const *   stake_account_keys = fd_bank_stake_account_keys_locking_query( slot_ctx->bank );
@@ -795,7 +752,6 @@ void
 fd_stakes_activate_epoch( fd_exec_slot_ctx_t *  slot_ctx,
                           ulong *               new_rate_activation_epoch,
                           fd_epoch_info_t *     temp_info,
-                          fd_tpool_t *          tpool,
                           fd_spad_t * *         exec_spads,
                           ulong                 exec_spad_cnt,
                           fd_spad_t *           runtime_spad ) {
@@ -846,7 +802,6 @@ fd_stakes_activate_epoch( fd_exec_slot_ctx_t *  slot_ctx,
                              new_rate_activation_epoch,
                              &accumulator,
                              temp_info,
-                             tpool,
                              exec_spads,
                              exec_spad_cnt,
                              runtime_spad );

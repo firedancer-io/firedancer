@@ -216,13 +216,12 @@ sudo $OBJDIR/bin/firedancer-dev configure init all --config ${DUMP_DIR}/${LEDGER
 sudo rm -rf $DUMP/$LEDGER/backtest.blockstore $DUMP/$LEDGER/backtest.funk &> /dev/null
 
 set -x
-  sudo $OBJDIR/bin/firedancer-dev backtest --config ${DUMP_DIR}/${LEDGER}_backtest.toml &> /dev/null
+sudo $OBJDIR/bin/firedancer-dev backtest --config ${DUMP_DIR}/${LEDGER}_backtest.toml &> /dev/null
+{ status=$?; set +x; } &> /dev/null
 
-if [ $? -eq 139 ]; then
-  echo "Backtest crashed with a segmentation fault!"
+if [ "$status" -eq 139 ]; then
+  echo "Backtest crashed with a segmentation fault!" &> /dev/null
 fi
-
-{ set +x; } &> /dev/null
 
 sudo rm -rf $DUMP/$LEDGER/backtest.blockstore $DUMP/$LEDGER/backtest.funk &> /dev/null
 

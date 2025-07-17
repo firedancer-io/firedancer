@@ -354,29 +354,13 @@ calculate_points_range( fd_epoch_info_pair_t const *      stake_infos,
 
 }
 
-static void
-calculate_points_tpool_task( void  *tpool,
-                             ulong t0 FD_PARAM_UNUSED,      ulong t1 FD_PARAM_UNUSED,
-                             void  *args,
-                             void  *reduce FD_PARAM_UNUSED, ulong stride FD_PARAM_UNUSED,
-                             ulong l0 FD_PARAM_UNUSED,      ulong l1 FD_PARAM_UNUSED,
-                             ulong m0,                      ulong m1,
-                             ulong n0 FD_PARAM_UNUSED,      ulong n1 FD_PARAM_UNUSED ) {
-  fd_epoch_info_pair_t const *      stake_infos                    = ((fd_epoch_info_pair_t const *)tpool);
-  fd_calculate_points_task_args_t * task_args                      = (fd_calculate_points_task_args_t *)args;
-
-  calculate_points_range( stake_infos, task_args, m0, m1 );
-}
-
 /* Calculates epoch reward points from stake/vote accounts.
-
     https://github.com/anza-xyz/agave/blob/cbc8320d35358da14d79ebcada4dfb6756ffac79/runtime/src/bank/partitioned_epoch_rewards/calculation.rs#L472 */
 static void
 calculate_reward_points_partitioned( fd_exec_slot_ctx_t *       slot_ctx,
                                      fd_stake_history_t const * stake_history,
                                      ulong                      rewards,
                                      fd_point_value_t *         result,
-                                     fd_tpool_t *               tpool,
                                      fd_epoch_info_t *          temp_info,
                                      fd_spad_t *                runtime_spad ) {
 
@@ -408,13 +392,7 @@ calculate_reward_points_partitioned( fd_exec_slot_ctx_t *       slot_ctx,
     .total_points                   = &points,
   };
 
-  if( !!tpool ) {
-    fd_tpool_exec_all_batch( tpool, 0UL, fd_tpool_worker_cnt( tpool ), calculate_points_tpool_task,
-                             temp_info->stake_infos, &task_args, NULL,
-                             1UL, 0UL, temp_info->stake_infos_len );
-  } else {
-    calculate_points_range( temp_info->stake_infos, &task_args, 0UL, temp_info->stake_infos_len );
-  }
+  calculate_points_range( temp_info->stake_infos, &task_args, 0UL, temp_info->stake_infos_len );
 
   if( points > 0 ) {
     result->points  = points;
@@ -563,21 +541,6 @@ calculate_stake_vote_rewards_account( fd_epoch_info_t const *                   
 
 }
 
-/* Calculate the partitioned stake rewards for a single stake/vote account pair, updates result with these. */
-static void
-calculate_stake_vote_rewards_account_tpool_task( void  *tpool,
-                                                 ulong t0 FD_PARAM_UNUSED,      ulong t1 FD_PARAM_UNUSED,
-                                                 void  *args,
-                                                 void  *reduce FD_PARAM_UNUSED, ulong stride FD_PARAM_UNUSED,
-                                                 ulong l0 FD_PARAM_UNUSED,      ulong l1 FD_PARAM_UNUSED,
-                                                 ulong m0,                      ulong m1,
-                                                 ulong n0 FD_PARAM_UNUSED,      ulong n1 FD_PARAM_UNUSED ) {
-
-  fd_epoch_info_t const *                             temp_info                      = ((fd_epoch_info_t const *)tpool);
-  fd_calculate_stake_vote_rewards_task_args_t const * task_args                      = (fd_calculate_stake_vote_rewards_task_args_t const *)args;
-  calculate_stake_vote_rewards_account( temp_info, task_args, m0, m1 );
-}
-
 /* Calculates epoch rewards for stake/vote accounts.
    Returns vote rewards, stake rewards, and the sum of all stake rewards in lamports.
 
@@ -598,7 +561,6 @@ calculate_stake_vote_rewards( fd_exec_slot_ctx_t *                       slot_ct
                               fd_point_value_t *                         point_value,
                               fd_calculate_stake_vote_rewards_result_t * result,
                               fd_epoch_info_t *                          temp_info,
-                              fd_tpool_t *                               tpool,
                               fd_spad_t * *                              exec_spads,
                               ulong                                      exec_spad_cnt,
                               fd_spad_t *                                runtime_spad ) {
@@ -679,13 +641,7 @@ calculate_stake_vote_rewards( fd_exec_slot_ctx_t *                       slot_ct
 
   /* Loop over all the delegations
      https://github.com/anza-xyz/agave/blob/cbc8320d35358da14d79ebcada4dfb6756ffac79/runtime/src/bank/partitioned_epoch_rewards/calculation.rs#L367  */
-  if( !!tpool ) {
-    fd_tpool_exec_all_batch( tpool, 0UL, fd_tpool_worker_cnt( tpool ), calculate_stake_vote_rewards_account_tpool_task,
-                             temp_info, &task_args,
-                             NULL, 1UL, 0UL, temp_info->stake_infos_len );
-  } else {
-    calculate_stake_vote_rewards_account( temp_info, &task_args, 0UL, temp_info->stake_infos_len );
-  }
+  calculate_stake_vote_rewards_account( temp_info, &task_args, 0UL, temp_info->stake_infos_len );
 }
 
 /* Calculate epoch reward and return vote and stake rewards.
@@ -697,7 +653,6 @@ calculate_validator_rewards( fd_exec_slot_ctx_t *                      slot_ctx,
                              ulong                                     rewards,
                              fd_calculate_validator_rewards_result_t * result,
                              fd_epoch_info_t *                         temp_info,
-                             fd_tpool_t *                              tpool,
                              fd_spad_t * *                             exec_spads,
                              ulong                                     exec_spad_cnt,
                              fd_spad_t *                               runtime_spad ) {
@@ -712,7 +667,6 @@ calculate_validator_rewards( fd_exec_slot_ctx_t *                      slot_ctx,
                                        stake_history,
                                        rewards,
                                        &result->point_value,
-                                       tpool,
                                        temp_info,
                                        runtime_spad );
 
@@ -723,7 +677,6 @@ calculate_validator_rewards( fd_exec_slot_ctx_t *                      slot_ctx,
                                 &result->point_value,
                                 &result->calculate_stake_vote_rewards_result,
                                 temp_info,
-                                tpool,
                                 exec_spads,
                                 exec_spad_cnt,
                                 runtime_spad );
@@ -815,7 +768,6 @@ calculate_rewards_for_partitioning( fd_exec_slot_ctx_t *                   slot_
                                     const fd_hash_t *                      parent_blockhash,
                                     fd_partitioned_rewards_calculation_t * result,
                                     fd_epoch_info_t *                      temp_info,
-                                    fd_tpool_t *                           tpool,
                                     fd_spad_t * *                          exec_spads,
                                     ulong                                  exec_spad_cnt,
                                     fd_spad_t *                            runtime_spad ) {
@@ -833,7 +785,6 @@ calculate_rewards_for_partitioning( fd_exec_slot_ctx_t *                   slot_
                                rewards.validator_rewards,
                                validator_result,
                                temp_info,
-                               tpool,
                                exec_spads,
                                exec_spad_cnt,
                                runtime_spad );
@@ -871,7 +822,6 @@ calculate_rewards_and_distribute_vote_rewards( fd_exec_slot_ctx_t *             
                                                fd_hash_t const *                                           parent_blockhash,
                                                fd_calculate_rewards_and_distribute_vote_rewards_result_t * result,
                                                fd_epoch_info_t *                                           temp_info,
-                                               fd_tpool_t *                                                tpool,
                                                fd_spad_t * *                                               exec_spads,
                                                ulong                                                       exec_spad_cnt,
                                                fd_spad_t *                                                 runtime_spad ) {
@@ -883,7 +833,6 @@ calculate_rewards_and_distribute_vote_rewards( fd_exec_slot_ctx_t *             
                                       parent_blockhash,
                                       rewards_calc_result,
                                       temp_info,
-                                      tpool,
                                       exec_spads,
                                       exec_spad_cnt,
                                       runtime_spad );
@@ -1130,7 +1079,6 @@ fd_begin_partitioned_rewards( fd_exec_slot_ctx_t * slot_ctx,
                               fd_hash_t const *    parent_blockhash,
                               ulong                parent_epoch,
                               fd_epoch_info_t *    temp_info,
-                              fd_tpool_t *         tpool,
                               fd_spad_t * *        exec_spads,
                               ulong                exec_spad_cnt,
                               fd_spad_t *          runtime_spad ) {
@@ -1142,7 +1090,6 @@ fd_begin_partitioned_rewards( fd_exec_slot_ctx_t * slot_ctx,
                                                  parent_blockhash,
                                                  rewards_result,
                                                  temp_info,
-                                                 tpool,
                                                  exec_spads,
                                                  exec_spad_cnt,
                                                  runtime_spad );
@@ -1172,7 +1119,6 @@ fd_begin_partitioned_rewards( fd_exec_slot_ctx_t * slot_ctx,
     https://github.com/anza-xyz/agave/blob/v2.2.14/runtime/src/bank/partitioned_epoch_rewards/calculation.rs#L521 */
 void
 fd_rewards_recalculate_partitioned_rewards( fd_exec_slot_ctx_t * slot_ctx,
-                                            fd_tpool_t *         tpool,
                                             fd_spad_t * *        exec_spads,
                                             ulong                exec_spad_cnt,
                                             fd_spad_t *          runtime_spad ) {
@@ -1242,7 +1188,6 @@ fd_rewards_recalculate_partitioned_rewards( fd_exec_slot_ctx_t * slot_ctx,
                                new_warmup_cooldown_rate_epoch,
                                &_accumulator,
                                &epoch_info,
-                               tpool,
                                exec_spads,
                                exec_spad_cnt,
                                runtime_spad );
@@ -1254,9 +1199,7 @@ fd_rewards_recalculate_partitioned_rewards( fd_exec_slot_ctx_t * slot_ctx,
                                stake_history,
                                new_warmup_cooldown_rate_epoch,
                                &epoch_info,
-                               tpool,
                                exec_spads,
-                               exec_spad_cnt,
                                runtime_spad );
     /* In future, the calculation will be cached in the snapshot, but for now we just re-calculate it
         (as Agave does). */
@@ -1267,7 +1210,6 @@ fd_rewards_recalculate_partitioned_rewards( fd_exec_slot_ctx_t * slot_ctx,
                                   &point_value,
                                   calculate_stake_vote_rewards_result,
                                   &epoch_info,
-                                  tpool,
                                   exec_spads,
                                   exec_spad_cnt,
                                   runtime_spad );
