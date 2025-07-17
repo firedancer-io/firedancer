@@ -180,17 +180,11 @@ fd_runtime_fuzz_block_update_prev_epoch_votes_cache( fd_vote_accounts_pair_globa
   }
 }
 
-static void FD_FN_UNUSED
+static void
 fd_runtime_fuzz_block_ctx_destroy( fd_runtime_fuzz_runner_t * runner,
-                                   fd_exec_slot_ctx_t *       slot_ctx,
-                                   fd_wksp_t *                wksp,
-                                   fd_alloc_t *               alloc ) {
-  if( !slot_ctx ) return; // This shouldn't be false either
-
-  fd_wksp_free_laddr( fd_alloc_delete( fd_alloc_leave( alloc ) ) );
-  fd_wksp_detach( wksp );
-
+                                   fd_wksp_t *                wksp ) {
   fd_funk_txn_cancel_all( runner->funk, 1 );
+  fd_wksp_detach( wksp );
 }
 
 /* Sets up block execution context from an input test case to execute against the runtime.
@@ -580,14 +574,13 @@ fd_runtime_fuzz_block_run( fd_runtime_fuzz_runner_t * runner,
   FD_SPAD_FRAME_BEGIN( runner->spad ) {
     /* Initialize memory */
     fd_wksp_t *           wksp          = fd_wksp_attach( "wksp" );
-    fd_alloc_t *          alloc         = fd_alloc_join( fd_alloc_new( fd_wksp_alloc_laddr( wksp, fd_alloc_align(), fd_alloc_footprint(), 2 ), 2 ), 0 );
     uchar *               slot_ctx_mem  = fd_spad_alloc( runner->spad, FD_EXEC_SLOT_CTX_ALIGN,  FD_EXEC_SLOT_CTX_FOOTPRINT );
     fd_exec_slot_ctx_t *  slot_ctx      = fd_exec_slot_ctx_join ( fd_exec_slot_ctx_new ( slot_ctx_mem ) );
 
     /* Set up the block execution context */
     fd_runtime_block_info_t * block_info = fd_runtime_fuzz_block_ctx_create( runner, slot_ctx, input );
     if( block_info==NULL ) {
-      fd_runtime_fuzz_block_ctx_destroy( runner, slot_ctx, wksp, alloc );
+      fd_runtime_fuzz_block_ctx_destroy( runner, wksp );
       return 0;
     }
 
@@ -617,7 +610,7 @@ fd_runtime_fuzz_block_run( fd_runtime_fuzz_runner_t * runner,
     fd_memcpy( effects->bank_hash, bank_hash.hash, sizeof(fd_hash_t) );
 
     ulong actual_end = FD_SCRATCH_ALLOC_FINI( l, 1UL );
-    fd_runtime_fuzz_block_ctx_destroy( runner, slot_ctx, wksp, alloc );
+    fd_runtime_fuzz_block_ctx_destroy( runner, wksp );
 
     *output = effects;
     return actual_end - (ulong)output_buf;
