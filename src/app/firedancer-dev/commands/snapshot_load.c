@@ -120,7 +120,6 @@ snapshot_load_topo( config_t *     config,
     fd_topob_auto_layout( topo, 0 );
   }
   fd_topob_finish( topo, CALLBACKS );
-  fd_topo_print_log( /* stdout */ 1, topo );
 }
 
 static void
@@ -169,7 +168,6 @@ snapshot_load_cmd_fn( args_t *   args,
 
   double tick_per_ns = fd_tempo_tick_per_ns( NULL );
   double ns_per_tick = 1.0/tick_per_ns;
-
 
   long start = fd_log_wallclock();
   fd_topo_run_single_process( topo, 2, config->uid, config->gid, fdctl_tile_run );

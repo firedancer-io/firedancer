@@ -224,7 +224,7 @@ follow_redirect( fd_sshttp_t *        http,
     return FD_SSHTTP_ADVANCE_ERROR;
   }
 
-  FD_LOG_NOTICE(( "Following redirect to http://" FD_IP4_ADDR_FMT ":%hu%.*s",
+  FD_LOG_NOTICE(( "following redirect to http://" FD_IP4_ADDR_FMT ":%hu%.*s",
                   FD_IP4_ADDR_FMT_ARGS( http->addr.addr ), http->addr.port,
                   (int)headers[ 0 ].value_len, headers[ 0 ].value ));
 
