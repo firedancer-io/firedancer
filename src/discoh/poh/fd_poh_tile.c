@@ -441,6 +441,11 @@ typedef struct {
      implement for now. */
   uint expect_pack_idx;
 
+  /* If we have received the slot done message from pack yet.  We are
+     not allowed to fully finish hashing the block until this happens so
+     that we know which slot the slot_done message is arriving for. */
+  int slot_done;
+
   /* The PoH tile must never drop microblocks that get committed by the
      bank, so it needs to always be able to mixin a microblock hash.
      Mixing in requires incrementing the hashcnt, so we need to ensure
@@ -1091,6 +1096,7 @@ fd_ext_poh_begin_leader( void const * bank,
   }
 
   ctx->current_leader_bank     = bank;
+  ctx->slot_done               = 0;
   ctx->microblocks_lower_bound = 0UL;
   ctx->cus_used                = 0UL;
 
@@ -1497,6 +1503,11 @@ after_credit( fd_poh_ctx_t *      ctx,
      that we can mixin any potential microblocks still coming from the
      pack tile for this slot. */
   ulong max_remaining_microblocks = ctx->max_microblocks_per_slot - ctx->microblocks_lower_bound;
+
+  /* We don't want to tick over (finish) the slot until pack tell us
+     it's done. */
+  if( FD_LIKELY( !ctx->slot_done && is_leader ) ) max_remaining_microblocks = fd_ulong_max( 1UL, max_remaining_microblocks );
+
   /* With hashcnt_per_tick hashes per tick, we actually get
      hashcnt_per_tick-1 chances to mixin a microblock.  For each tick
      span that we need to reserve, we also need to reserve the hashcnt
@@ -1844,6 +1855,7 @@ during_frag( fd_poh_ctx_t * ctx,
                   ctx->slot,
                   ctx->microblocks_lower_bound,
                   done_packing->microblocks_in_slot ));
+    ctx->slot_done = 1;
     ctx->microblocks_lower_bound += ctx->max_microblocks_per_slot - done_packing->microblocks_in_slot;
     return;
   } else {
@@ -2229,6 +2241,7 @@ unprivileged_init( fd_topo_t *      topo,
   ctx->lagged_consecutive_leader_start = tile->poh.lagged_consecutive_leader_start;
   ctx->expect_sequential_leader_slot = ULONG_MAX;
 
+  ctx->slot_done               = 0;
   ctx->expect_pack_idx         = 0U;
   ctx->microblocks_lower_bound = 0UL;
 
