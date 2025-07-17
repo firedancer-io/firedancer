@@ -25,6 +25,10 @@ fd_sshttp_new( void * shmem );
 fd_sshttp_t *
 fd_sshttp_join( void * sshttp );
 
+/* Returns a pointer to the snapshot name */
+char const *
+fd_sshttp_snapshot_name( fd_sshttp_t * http );
+
 void
 fd_sshttp_init( fd_sshttp_t * http,
                 fd_ip4_port_t addr,

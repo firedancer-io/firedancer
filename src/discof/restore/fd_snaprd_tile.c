@@ -10,6 +10,7 @@
 #include <fcntl.h>
 #include <string.h>
 #include <unistd.h>
+#include <stdio.h>
 
 #define NAME "snaprd"
 
@@ -36,6 +37,8 @@
 #define FD_SNAPRD_STATE_FLUSHING_INCREMENTAL_HTTP (11) /* Incremental snapshot was downloaded ok, confirm it decompressed and inserted ok */
 #define FD_SNAPRD_STATE_SHUTDOWN                  (12) /* The tile is done, and has likely already exited */
 
+#define SNAPRD_FILE_BUF_SZ (1024UL * 1024UL) /* 1 MiB */
+
 struct fd_snaprd_tile {
   fd_ssping_t * ssping;
   fd_sshttp_t * sshttp;
@@ -49,15 +52,28 @@ struct fd_snaprd_tile {
   fd_ip4_port_t addr;
 
   struct {
+    uchar file_buffer[ SNAPRD_FILE_BUF_SZ ];
+    ulong file_buffer_pos;
+    ulong file_buffer_sz;
+    ulong file_write_pos;
+    char  full_snapshot_path[ PATH_MAX ];
+    char  incremental_snapshot_path[ PATH_MAX ];
+    int   dir_fd;
+    int   full_snapshot_fd;
+    int   incremental_snapshot_fd;
+  } local_out;
+
+  struct {
     ulong full_snapshot_slot;
     int   full_snapshot_fd;
     char  full_snapshot_path[ PATH_MAX ];
     ulong incremental_snapshot_slot;
     int   incremental_snapshot_fd;
     char  incremental_snapshot_path[ PATH_MAX ];
-  } local;
+  } local_in;
 
   struct {
+    char path[ PATH_MAX ];
     int  do_download;
     int  incremental_snapshot_fetch;
     uint maximum_local_snapshot_age;
@@ -69,12 +85,14 @@ struct fd_snaprd_tile {
     struct {
       ulong bytes_read;
       ulong bytes_total;
+      ulong bytes_written;
       uint  num_retries;
     } full;
 
     struct {
       ulong bytes_read;
       ulong bytes_total;
+      ulong bytes_written;
       uint  num_retries;
     } incremental;
   } metrics;
@@ -129,7 +147,7 @@ read_file_data( fd_snaprd_tile_t *  ctx,
 
   FD_TEST( ctx->state==FD_SNAPRD_STATE_READING_INCREMENTAL_FILE || ctx->state==FD_SNAPRD_STATE_READING_FULL_FILE );
   int full = ctx->state==FD_SNAPRD_STATE_READING_FULL_FILE;
-  long result = read( full ? ctx->local.full_snapshot_fd : ctx->local.incremental_snapshot_fd , out, ctx->out.mtu );
+  long result = read( full ? ctx->local_in.full_snapshot_fd : ctx->local_in.incremental_snapshot_fd , out, ctx->out.mtu );
   if( FD_UNLIKELY( -1==result && errno==EAGAIN ) ) return;
   else if( FD_UNLIKELY( -1==result ) ) FD_LOG_ERR(( "read() failed (%i-%s)", errno, fd_io_strerror( errno ) ));
 
@@ -174,14 +192,21 @@ read_http_data( fd_snaprd_tile_t *  ctx,
                 long                now ) {
   uchar * out = fd_chunk_to_laddr( ctx->out.wksp, ctx->out.chunk );
 
-  ulong data_len = ctx->out.mtu;
+  if( ctx->local_out.file_write_pos==ctx->local_out.file_buffer_pos &&
+    ctx->local_out.file_buffer_pos==ctx->local_out.file_buffer_sz ) {
+    ctx->local_out.file_buffer_pos = 0UL;
+    ctx->local_out.file_write_pos  = 0UL;
+  }
+
+  ulong avail_buffer_sz = ctx->local_out.file_buffer_sz-ctx->local_out.file_buffer_pos;
+  ulong data_len = fd_ulong_min( avail_buffer_sz, ctx->out.mtu );
   int result = fd_sshttp_advance( ctx->sshttp, &data_len, out, now );
 
   switch( result ) {
     case FD_SSHTTP_ADVANCE_AGAIN: break;
     case FD_SSHTTP_ADVANCE_ERROR: {
       FD_LOG_NOTICE(( "error downloading snapshot from http://" FD_IP4_ADDR_FMT ":%hu/snapshot.tar.bz2",
-                      FD_IP4_ADDR_FMT_ARGS( ctx->addr.addr ), ctx->addr.port ));
+                     FD_IP4_ADDR_FMT_ARGS( ctx->addr.addr ), ctx->addr.port ));
       fd_ssping_invalidate( ctx->ssping, ctx->addr, now );
       fd_stem_publish( stem, 0UL, FD_SNAPSHOT_MSG_CTRL_RESET_FULL, 0UL, 0UL, 0UL, 0UL, 0UL );
       ctx->state = FD_SNAPRD_STATE_FLUSHING_FULL_HTTP_RESET;
@@ -189,11 +214,22 @@ read_http_data( fd_snaprd_tile_t *  ctx,
       break;
     }
     case FD_SSHTTP_ADVANCE_DONE: {
+      int full = ctx->state==FD_SNAPRD_STATE_READING_FULL_HTTP;
+      char const * old_path = full ? ctx->local_out.full_snapshot_path : ctx->local_out.incremental_snapshot_path;
+      char rename_path[ PATH_MAX ];
+      FD_TEST( fd_cstr_printf_check( rename_path, PATH_MAX, NULL, "%s/%s", ctx->config.path, fd_sshttp_snapshot_name( ctx->sshttp ) ) );
+      int err = renameat( ctx->local_out.dir_fd, old_path, ctx->local_out.dir_fd, rename_path );
+      if( FD_UNLIKELY( err ) ) {
+        FD_LOG_WARNING(( "failed to rename snapshot file from `%s` to `%s` (%d-%s)",
+                         old_path, rename_path, errno, fd_io_strerror( errno ) ));
+      }
+
       switch( ctx->state ) {
-        case FD_SNAPRD_STATE_READING_INCREMENTAL_HTTP:
+        case FD_SNAPRD_STATE_READING_INCREMENTAL_HTTP: {
           fd_stem_publish( stem, 0UL, FD_SNAPSHOT_MSG_CTRL_DONE, 0UL, 0UL, 0UL, 0UL, 0UL );
           ctx->state = FD_SNAPRD_STATE_FLUSHING_INCREMENTAL_HTTP;
           break;
+        }
         case FD_SNAPRD_STATE_READING_FULL_HTTP:
           if( FD_LIKELY( ctx->config.incremental_snapshot_fetch ) ) {
             fd_stem_publish( stem, 0UL, FD_SNAPSHOT_MSG_CTRL_EOF_FULL, 0UL, 0UL, 0UL, 0UL, 0UL );
@@ -205,23 +241,54 @@ read_http_data( fd_snaprd_tile_t *  ctx,
         default:
           break;
       }
+
       break;
     }
     case FD_SSHTTP_ADVANCE_DATA: {
+      fd_stem_publish( stem, 0UL, FD_SNAPSHOT_MSG_DATA, ctx->out.chunk, data_len, 0UL, 0UL, 0UL );
+      ctx->out.chunk = fd_dcache_compact_next( ctx->out.chunk, data_len, ctx->out.chunk0, ctx->out.wmark );
+
+      FD_TEST( ctx->local_out.file_buffer_pos + data_len <= ctx->local_out.file_buffer_sz );
+      fd_memcpy( ctx->local_out.file_buffer + ctx->local_out.file_buffer_pos, out, data_len );
+      ctx->local_out.file_buffer_pos += data_len;
+
+      int full                   = ctx->state==FD_SNAPRD_STATE_READING_FULL_HTTP;
+      int fd                     = full ? ctx->local_out.full_snapshot_fd : ctx->local_out.incremental_snapshot_fd;
+      ulong bytes_written        = full ? ctx->metrics.full.bytes_written : ctx->metrics.incremental.bytes_written;
+      char const * snapshot_path = full ? ctx->local_out.full_snapshot_path : ctx->local_out.incremental_snapshot_path;
+
+      ulong write_sz   = ctx->local_out.file_buffer_pos - ctx->local_out.file_write_pos;
+      ulong written_sz = 0UL;
+      int err = fd_io_write( fd,
+                             ctx->local_out.file_buffer+ctx->local_out.file_write_pos,
+                             write_sz,
+                             write_sz,
+                             &written_sz );
+      if( FD_UNLIKELY( err ) && err!=EAGAIN ) {
+        if( FD_UNLIKELY( err==ENOSPC ) ) {
+          FD_LOG_ERR(( "Out of disk space when writing %lu bytes to %s with size %lu", write_sz, snapshot_path, bytes_written ));
+        } else {
+          FD_LOG_ERR(( "fd_io_write() failed with (%i-%s) when writing %lu bytes to %s with size %lu",
+                       err, fd_io_strerror( err ), write_sz, snapshot_path, bytes_written ));
+        }
+      }
+
+      ctx->local_out.file_write_pos += written_sz;
+
       switch( ctx->state ) {
         case FD_SNAPRD_STATE_READING_INCREMENTAL_HTTP:
           ctx->metrics.incremental.bytes_read += data_len;
+          ctx->metrics.incremental.bytes_written += written_sz;
           break;
         case FD_SNAPRD_STATE_READING_FULL_HTTP:
           ctx->metrics.full.bytes_read += data_len;
+          ctx->metrics.full.bytes_written += written_sz;
           break;
         default:
           FD_LOG_ERR(( "unexpected state %d", ctx->state ));
           break;
       }
 
-      fd_stem_publish( stem, 0UL, FD_SNAPSHOT_MSG_DATA, ctx->out.chunk, data_len, 0UL, 0UL, 0UL );
-      ctx->out.chunk = fd_dcache_compact_next( ctx->out.chunk, data_len, ctx->out.chunk0, ctx->out.wmark );
       break;
     }
     default:
@@ -270,8 +337,8 @@ after_credit( fd_snaprd_tile_t *  ctx,
       }
 
       ulong highest_cluster_slot = 0UL; /* TODO: Implement, using incremental snapshot slot for age */
-      if( FD_LIKELY( ctx->local.full_snapshot_slot!=ULONG_MAX && ctx->local.full_snapshot_slot>=fd_ulong_sat_sub( highest_cluster_slot, ctx->config.maximum_local_snapshot_age ) ) ) {
-        FD_LOG_NOTICE(( "loading full snapshot from local file `%s`", ctx->local.full_snapshot_path ));
+      if( FD_LIKELY( ctx->local_in.full_snapshot_slot!=ULONG_MAX && ctx->local_in.full_snapshot_slot>=fd_ulong_sat_sub( highest_cluster_slot, ctx->config.maximum_local_snapshot_age ) ) ) {
+        FD_LOG_NOTICE(( "loading full snapshot from local file `%s`", ctx->local_in.full_snapshot_path ));
         ctx->state = FD_SNAPRD_STATE_READING_FULL_FILE;
       } else {
         FD_LOG_NOTICE(( "downloading full snapshot from http://" FD_IP4_ADDR_FMT ":%hu/snapshot.tar.bz2", FD_IP4_ADDR_FMT_ARGS( best.addr ), best.port ));
@@ -315,7 +382,7 @@ after_credit( fd_snaprd_tile_t *  ctx,
         break;
       }
 
-      FD_LOG_NOTICE(( "reading incremental snapshot from local file `%s`", ctx->local.incremental_snapshot_path ));
+      FD_LOG_NOTICE(( "reading incremental snapshot from local file `%s`", ctx->local_in.incremental_snapshot_path ));
       ctx->state = FD_SNAPRD_STATE_READING_INCREMENTAL_FILE;
       break;
     case FD_SNAPRD_STATE_FLUSHING_FULL_HTTP:
@@ -383,10 +450,10 @@ after_frag( fd_snaprd_tile_t *  ctx,
       case FD_SNAPRD_STATE_READING_FULL_FILE:
       case FD_SNAPRD_STATE_FLUSHING_FULL_FILE:
       case FD_SNAPRD_STATE_FLUSHING_FULL_FILE_RESET:
-        FD_LOG_ERR(( "Error reading snapshot from local file `%s`", ctx->local.full_snapshot_path ));
+        FD_LOG_ERR(( "error reading snapshot from local file `%s`", ctx->local_in.full_snapshot_path ));
       case FD_SNAPRD_STATE_READING_INCREMENTAL_FILE:
       case FD_SNAPRD_STATE_FLUSHING_INCREMENTAL_FILE:
-        FD_LOG_ERR(( "Error reading snapshot from local file `%s`", ctx->local.incremental_snapshot_path ));
+        FD_LOG_ERR(( "error reading snapshot from local file `%s`", ctx->local_in.incremental_snapshot_path ));
       case FD_SNAPRD_STATE_READING_FULL_HTTP:
       case FD_SNAPRD_STATE_READING_INCREMENTAL_HTTP:
         FD_LOG_NOTICE(( "error downloading snapshot from http://" FD_IP4_ADDR_FMT ":%hu/snapshot.tar.bz2",
@@ -441,25 +508,37 @@ privileged_init( fd_topo_t *      topo,
                                                  &incremental_slot,
                                                  full_path,
                                                  incremental_path ) ) ) {
-    ctx->local.full_snapshot_slot = ULONG_MAX;
-    ctx->local.incremental_snapshot_slot = ULONG_MAX;
+    ctx->local_in.full_snapshot_slot        = ULONG_MAX;
+    ctx->local_in.incremental_snapshot_slot = ULONG_MAX;
+
+    ctx->local_out.dir_fd = open( tile->snaprd.snapshots_path, O_DIRECTORY|O_CLOEXEC );
+    if( FD_UNLIKELY( -1==ctx->local_out.dir_fd ) ) FD_LOG_ERR(( "open() failed `%s` (%i-%s)", tile->snaprd.snapshots_path, errno, fd_io_strerror( errno ) ));
+
+    FD_TEST( fd_cstr_printf_check( ctx->local_out.full_snapshot_path, PATH_MAX, NULL, "%s/snapshot.tar.bz2-partial", tile->snaprd.snapshots_path ) );
+    ctx->local_out.full_snapshot_fd = openat( ctx->local_out.dir_fd, "snapshot.tar.bz2-partial", O_WRONLY|O_CREAT|O_TRUNC|O_NONBLOCK, S_IRUSR|S_IWUSR );
+    if( FD_UNLIKELY( -1==ctx->local_out.full_snapshot_fd ) ) FD_LOG_ERR(( "open() failed `%s` (%i-%s)", ctx->local_out.full_snapshot_path, errno, fd_io_strerror( errno ) ));
+
+    FD_TEST( fd_cstr_printf_check( ctx->local_out.incremental_snapshot_path, PATH_MAX, NULL, "%s/incremental-snapshot.tar.bz2-partial", tile->snaprd.snapshots_path ) );
+    ctx->local_out.incremental_snapshot_fd = openat( ctx->local_out.dir_fd, "incremental-snapshot.tar.bz2-partial", O_WRONLY|O_CREAT|O_TRUNC|O_NONBLOCK, S_IRUSR|S_IWUSR );
+    if( FD_UNLIKELY( -1==ctx->local_out.incremental_snapshot_fd ) ) FD_LOG_ERR(( "open() failed `%s` (%i-%s)", ctx->local_out.incremental_snapshot_path, errno, fd_io_strerror( errno ) ));
+
   } else {
     FD_TEST( full_slot!=ULONG_MAX );
-    ctx->local.full_snapshot_slot = full_slot;
-    ctx->local.incremental_snapshot_slot = incremental_slot;
+    ctx->local_in.full_snapshot_slot = full_slot;
+    ctx->local_in.incremental_snapshot_slot = incremental_slot;
 
-    strncpy( ctx->local.full_snapshot_path, full_path, PATH_MAX );
-    ctx->local.full_snapshot_fd = open( ctx->local.full_snapshot_path, O_RDONLY|O_CLOEXEC|O_NONBLOCK );
-    if( FD_UNLIKELY( -1==ctx->local.full_snapshot_fd ) ) FD_LOG_ERR(( "open() failed `%s` (%i-%s)", ctx->local.full_snapshot_path, errno, fd_io_strerror( errno ) ));
+    strncpy( ctx->local_in.full_snapshot_path, full_path, PATH_MAX );
+    ctx->local_in.full_snapshot_fd = open( ctx->local_in.full_snapshot_path, O_RDONLY|O_CLOEXEC|O_NONBLOCK );
+    if( FD_UNLIKELY( -1==ctx->local_in.full_snapshot_fd ) ) FD_LOG_ERR(( "open() failed `%s` (%i-%s)", ctx->local_in.full_snapshot_path, errno, fd_io_strerror( errno ) ));
 
     if( tile->snaprd.incremental_snapshot_fetch ) {
       FD_TEST( incremental_slot!=ULONG_MAX );
     }
 
     if( FD_LIKELY( incremental_slot!=ULONG_MAX ) ) {
-      strncpy( ctx->local.incremental_snapshot_path, incremental_path, PATH_MAX );
-      ctx->local.incremental_snapshot_fd = open( ctx->local.incremental_snapshot_path, O_RDONLY|O_CLOEXEC|O_NONBLOCK );
-      if( FD_UNLIKELY( -1==ctx->local.incremental_snapshot_fd ) ) FD_LOG_ERR(( "open() failed `%s` (%i-%s)", ctx->local.incremental_snapshot_path, errno, fd_io_strerror( errno ) ));
+      strncpy( ctx->local_in.incremental_snapshot_path, incremental_path, PATH_MAX );
+      ctx->local_in.incremental_snapshot_fd = open( ctx->local_in.incremental_snapshot_path, O_RDONLY|O_CLOEXEC|O_NONBLOCK );
+      if( FD_UNLIKELY( -1==ctx->local_in.incremental_snapshot_fd ) ) FD_LOG_ERR(( "open() failed `%s` (%i-%s)", ctx->local_in.incremental_snapshot_path, errno, fd_io_strerror( errno ) ));
     }
 
     if( FD_UNLIKELY( tile->snaprd.maximum_local_snapshot_age==0 ) ) {
@@ -488,6 +567,7 @@ unprivileged_init( fd_topo_t *      topo,
 
   fd_memset( &ctx->metrics, 0, sizeof(ctx->metrics) );
 
+  fd_memcpy( ctx->config.path, tile->snaprd.snapshots_path, PATH_MAX );
   ctx->config.incremental_snapshot_fetch = tile->snaprd.incremental_snapshot_fetch;
   ctx->config.do_download                = tile->snaprd.do_download;
   ctx->config.maximum_local_snapshot_age = tile->snaprd.maximum_local_snapshot_age;
@@ -526,6 +606,10 @@ unprivileged_init( fd_topo_t *      topo,
   ctx->out.wmark  = fd_dcache_compact_wmark ( ctx->out.wksp, topo->links[ tile->out_link_id[ 0 ] ].dcache, topo->links[ tile->out_link_id[ 0 ] ].mtu );
   ctx->out.chunk  = ctx->out.chunk0;
   ctx->out.mtu    = topo->links[ tile->out_link_id[ 0 ] ].mtu;
+
+  ctx->local_out.file_buffer_sz  = SNAPRD_FILE_BUF_SZ;
+  ctx->local_out.file_buffer_pos = 0UL;
+  ctx->local_out.file_write_pos  = 0UL;
 }
 
 #define STEM_BURST 2UL /* One control message, and one data message */
