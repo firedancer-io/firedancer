@@ -15,8 +15,8 @@ FD_STATIC_ASSERT( FD_CLOCK_FOOTPRINT==640UL, unit_test );
 static fd_clock_shmem_t shmem[1];
 static fd_clock_t       lmem[1];
 
-static long bad_clock_x( void const * _ ) { return -_fd_tickcount    ( _ ); }
-static long bad_clock_y( void const * _ ) { return -_fd_log_wallclock( _ ); }
+static long bad_clock_x( void const * _ ) { return -_fd_tickcount        ( _ ); }
+static long bad_clock_y( void const * _ ) { return -fd_log_wallclock_host( _ ); }
 
 int
 main( int     argc,
@@ -38,8 +38,8 @@ main( int     argc,
 
   FD_LOG_NOTICE(( "Testing fd_clock_joint_read" ));
 
-  fd_clock_func_t clock_x = _fd_tickcount;     void const * args_x = NULL;
-  fd_clock_func_t clock_y = _fd_log_wallclock; void const * args_y = NULL;
+  fd_clock_func_t clock_x = _fd_tickcount;         void const * args_x = NULL;
+  fd_clock_func_t clock_y = fd_log_wallclock_host; void const * args_y = NULL;
 
   long   init_x0 = -1L;
   long   init_y0 = -2L;
@@ -188,12 +188,12 @@ main( int     argc,
        before the measurement. */
 
     fd_clock_now( clock );
-    fd_log_wallclock();
+    fd_log_wallclock_host( NULL );
 
     long t0             = fd_tickcount();
     long now_est_before = fd_clock_now( clock );
     long t1             = fd_tickcount();
-    long now_wc         = fd_log_wallclock();
+    long now_wc         = fd_log_wallclock_host( NULL );
     long t2             = fd_tickcount();
     long now_est_after  = fd_clock_now( clock );
     long t3             = fd_tickcount();
@@ -243,7 +243,7 @@ main( int     argc,
       double rms_sync_err       = sqrt( fmax(      one_cnt *(double)sum_sync_err_sq       - avg_sync_err      *avg_sync_err,       0. ) );
 
       /* Try to correct for the overhead of the tickcount from the
-         fd_clock_now and fd_log_wallclock measurements */
+         fd_clock_now and fd_log_wallclock_host measurements */
 
       avg_cost_now_est -= avg_cost_tickcount;
       avg_cost_now_wc  -= avg_cost_tickcount;
@@ -263,12 +263,12 @@ main( int     argc,
           else                         FD_LOG_NOTICE((   "%13li | %7.3f%% | %7.3f%%", HIST_MIN+(long)idx, pct, cum_pct ));
         }
       }
-      FD_LOG_NOTICE(( "recal err_cnt          %lu",                 fd_clock_err_cnt( clock )              ));
-      FD_LOG_NOTICE(( "wallclock obs          %li",                 cnt                                    ));
-      FD_LOG_NOTICE(( "fd_tickcount     cost  %.3e +/- %.3e ticks", avg_cost_tickcount, rms_cost_tickcount ));
-      FD_LOG_NOTICE(( "fd_clock_now     cost  %.3e +/- %.3e ticks", avg_cost_now_est,   rms_cost_now_est   ));
-      FD_LOG_NOTICE(( "fd_log_wallclock cost  %.3e +/- %.3e ticks", avg_cost_now_wc,    rms_cost_now_wc    ));
-      FD_LOG_NOTICE(( "sync_err               %.3e +/- %.3e ns",    avg_sync_err,       rms_sync_err       ));
+      FD_LOG_NOTICE(( "recal err_cnt               %lu",                 fd_clock_err_cnt( clock )              ));
+      FD_LOG_NOTICE(( "wallclock obs               %li",                 cnt                                    ));
+      FD_LOG_NOTICE(( "fd_tickcount          cost  %.3e +/- %.3e ticks", avg_cost_tickcount, rms_cost_tickcount ));
+      FD_LOG_NOTICE(( "fd_clock_now          cost  %.3e +/- %.3e ticks", avg_cost_now_est,   rms_cost_now_est   ));
+      FD_LOG_NOTICE(( "fd_log_wallclock_host cost  %.3e +/- %.3e ticks", avg_cost_now_wc,    rms_cost_now_wc    ));
+      FD_LOG_NOTICE(( "sync_err                    %.3e +/- %.3e ns",    avg_sync_err,       rms_sync_err       ));
 
       fd_clock_reset_err_cnt( clock ); FD_TEST( !fd_clock_err_cnt( clock ) );
 
@@ -307,11 +307,11 @@ main( int     argc,
   FD_TEST( fd_clock_seq( _shclock )==epoch->seq0         );
   FD_TEST( epoch->seq0==epoch->seq1                      );
 
-  FD_TEST( fd_clock_x0    ( epoch )==epoch->x0           );
-  FD_TEST( fd_clock_y0    ( epoch )==epoch->y0           );
-  FD_TEST( fd_clock_w     ( epoch )==epoch->w            );
-  FD_TEST( fd_clock_y0_eff( epoch )==epoch->y0_eff       );
-  FD_TEST( fd_clock_m     ( epoch )==epoch->m            );
+  FD_TEST( fd_clock_epoch_x0    ( epoch )==epoch->x0     );
+  FD_TEST( fd_clock_epoch_y0    ( epoch )==epoch->y0     );
+  FD_TEST( fd_clock_epoch_w     ( epoch )==epoch->w      );
+  FD_TEST( fd_clock_epoch_y0_eff( epoch )==epoch->y0_eff );
+  FD_TEST( fd_clock_epoch_m     ( epoch )==epoch->m      );
 
   now_est_last = fd_clock_now( clock );
   stat_next    = now_est_last + tau_stat;
@@ -338,12 +338,12 @@ main( int     argc,
 
     /* Make a measurement */
 
-    fd_log_wallclock(); /* See note above about warmup */
+    fd_log_wallclock_host( NULL ); /* See note above about warmup */
 
     long t0      = fd_tickcount();
-    long now_wc  = fd_log_wallclock();
+    long now_wc  = fd_log_wallclock_host( NULL );
     long t1      = fd_tickcount();
-    long now_est = fd_clock_y( epoch, t0 + ((t1-t0)>>1) );
+    long now_est = fd_clock_epoch_y( epoch, t0 + ((t1-t0)>>1) );
     long t2      = fd_tickcount();
 
     /* Test monotonicity */
@@ -377,11 +377,11 @@ main( int     argc,
       double rms_sync_err     = sqrt( fmax( one_cnt*(double)sum_sync_err_sq     - avg_sync_err    *avg_sync_err,     0. ) );
 
       /* Try to correct for the overhead of the tickcount from the
-         fd_clock_now and fd_log_wallclock measurements.  Note that a
-         negative value is possible because we aren't being very precise
-         and the CPU and compiler might reorder a lot of the operations.
-         Thus, a negative value here should be interpreted as
-         "negligible" cost. */
+         fd_clock_now and fd_log_wallclock_host measurements.  Note that
+         a negative value is possible because we aren't being very
+         precise and the CPU and compiler might reorder a lot of the
+         operations.  Thus, a negative value here should be interpreted
+         as "negligible" cost. */
 
       avg_cost_now_est -= avg_cost_tickcount;
 
@@ -399,10 +399,10 @@ main( int     argc,
           else                         FD_LOG_NOTICE((   "%13li | %7.3f%% | %7.3f%%", HIST_MIN+(long)idx, pct, cum_pct ));
         }
       }
-      FD_LOG_NOTICE(( "recal err_cnt   %lu",                 fd_clock_err_cnt( clock )          ));
-      FD_LOG_NOTICE(( "wallclock obs   %li",                 cnt                                ));
-      FD_LOG_NOTICE(( "fd_clock_y cost %.3e +/- %.3e ticks", avg_cost_now_est, rms_cost_now_est ));
-      FD_LOG_NOTICE(( "sync_err        %.3e +/- %.3e ns",    avg_sync_err,     rms_sync_err     ));
+      FD_LOG_NOTICE(( "recal err_cnt         %lu",                 fd_clock_err_cnt( clock )          ));
+      FD_LOG_NOTICE(( "wallclock obs         %li",                 cnt                                ));
+      FD_LOG_NOTICE(( "fd_clock_epoch_y cost %.3e +/- %.3e ticks", avg_cost_now_est, rms_cost_now_est ));
+      FD_LOG_NOTICE(( "sync_err              %.3e +/- %.3e ns",    avg_sync_err,     rms_sync_err     ));
 
       fd_clock_reset_err_cnt( clock ); FD_TEST( !fd_clock_err_cnt( clock ) );
 
