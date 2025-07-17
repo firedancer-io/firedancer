@@ -179,8 +179,8 @@ read_http_data( fd_snaprd_tile_t *  ctx,
   switch( result ) {
     case FD_SSHTTP_ADVANCE_AGAIN: break;
     case FD_SSHTTP_ADVANCE_ERROR: {
-      FD_LOG_NOTICE(( "Error downloading snapshot from http://" FD_IP4_ADDR_FMT ":%hu/snapshot.tar.bz2",
-                     FD_IP4_ADDR_FMT_ARGS( ctx->addr.addr ), ctx->addr.port ));
+      FD_LOG_NOTICE(( "error downloading snapshot from http://" FD_IP4_ADDR_FMT ":%hu/snapshot.tar.bz2",
+                      FD_IP4_ADDR_FMT_ARGS( ctx->addr.addr ), ctx->addr.port ));
       fd_ssping_invalidate( ctx->ssping, ctx->addr, now );
       fd_stem_publish( stem, 0UL, FD_SNAPSHOT_MSG_CTRL_RESET_FULL, 0UL, 0UL, 0UL, 0UL, 0UL );
       ctx->state = FD_SNAPRD_STATE_FLUSHING_FULL_HTTP_RESET;
@@ -268,10 +268,10 @@ after_credit( fd_snaprd_tile_t *  ctx,
 
       ulong highest_cluster_slot = 0UL; /* TODO: Implement, using incremental snapshot slot for age */
       if( FD_LIKELY( ctx->local.full_snapshot_slot!=ULONG_MAX && ctx->local.full_snapshot_slot>=fd_ulong_sat_sub( highest_cluster_slot, ctx->config.maximum_local_snapshot_age ) ) ) {
-        FD_LOG_NOTICE(( "Loading full snapshot from local file `%s`", ctx->local.full_snapshot_path ));
+        FD_LOG_NOTICE(( "loading full snapshot from local file `%s`", ctx->local.full_snapshot_path ));
         ctx->state = FD_SNAPRD_STATE_READING_FULL_FILE;
       } else {
-        FD_LOG_NOTICE(( "Downloading full snapshot from http://" FD_IP4_ADDR_FMT ":%hu/snapshot.tar.bz2", FD_IP4_ADDR_FMT_ARGS( best.addr ), best.port ));
+        FD_LOG_NOTICE(( "downloading full snapshot from http://" FD_IP4_ADDR_FMT ":%hu/snapshot.tar.bz2", FD_IP4_ADDR_FMT_ARGS( best.addr ), best.port ));
         ctx->addr  = best;
         ctx->state = FD_SNAPRD_STATE_READING_FULL_HTTP;
         fd_sshttp_init( ctx->sshttp, best, "/snapshot.tar.bz2", 17UL, now );
@@ -312,7 +312,7 @@ after_credit( fd_snaprd_tile_t *  ctx,
         break;
       }
 
-      FD_LOG_NOTICE(( "Reading incremental snapshot from local file `%s`", ctx->local.incremental_snapshot_path ));
+      FD_LOG_NOTICE(( "reading incremental snapshot from local file `%s`", ctx->local.incremental_snapshot_path ));
       ctx->state = FD_SNAPRD_STATE_READING_INCREMENTAL_FILE;
       break;
     case FD_SNAPRD_STATE_FLUSHING_FULL_HTTP:
@@ -332,7 +332,7 @@ after_credit( fd_snaprd_tile_t *  ctx,
         break;
       }
 
-      FD_LOG_NOTICE(( "Downloading incremental snapshot from http://" FD_IP4_ADDR_FMT ":%hu/incremental-snapshot.tar.bz2", FD_IP4_ADDR_FMT_ARGS( ctx->addr.addr ), ctx->addr.port ));
+      FD_LOG_NOTICE(( "downloading incremental snapshot from http://" FD_IP4_ADDR_FMT ":%hu/incremental-snapshot.tar.bz2", FD_IP4_ADDR_FMT_ARGS( ctx->addr.addr ), ctx->addr.port ));
       fd_sshttp_init( ctx->sshttp, ctx->addr, "/incremental-snapshot.tar.bz2", 29UL, fd_log_wallclock() );
       ctx->state = FD_SNAPRD_STATE_READING_INCREMENTAL_HTTP;
       break;
@@ -386,7 +386,7 @@ after_frag( fd_snaprd_tile_t *  ctx,
         FD_LOG_ERR(( "Error reading snapshot from local file `%s`", ctx->local.incremental_snapshot_path ));
       case FD_SNAPRD_STATE_READING_FULL_HTTP:
       case FD_SNAPRD_STATE_READING_INCREMENTAL_HTTP:
-        FD_LOG_NOTICE(( "Error downloading snapshot from http://" FD_IP4_ADDR_FMT ":%hu/snapshot.tar.bz2",
+        FD_LOG_NOTICE(( "error downloading snapshot from http://" FD_IP4_ADDR_FMT ":%hu/snapshot.tar.bz2",
                         FD_IP4_ADDR_FMT_ARGS( ctx->addr.addr ), ctx->addr.port ));
         fd_sshttp_cancel( ctx->sshttp );
         fd_ssping_invalidate( ctx->ssping, ctx->addr, fd_log_wallclock() );
@@ -395,7 +395,7 @@ after_frag( fd_snaprd_tile_t *  ctx,
         break;
       case FD_SNAPRD_STATE_FLUSHING_FULL_HTTP:
       case FD_SNAPRD_STATE_FLUSHING_INCREMENTAL_HTTP:
-        FD_LOG_NOTICE(( "Error downloading snapshot from http://" FD_IP4_ADDR_FMT ":%hu/snapshot.tar.bz2",
+        FD_LOG_NOTICE(( "error downloading snapshot from http://" FD_IP4_ADDR_FMT ":%hu/snapshot.tar.bz2",
                         FD_IP4_ADDR_FMT_ARGS( ctx->addr.addr ), ctx->addr.port ));
         fd_sshttp_cancel( ctx->sshttp );
         fd_ssping_invalidate( ctx->ssping, ctx->addr, fd_log_wallclock() );

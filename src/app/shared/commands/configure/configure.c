@@ -75,7 +75,7 @@ configure_stage( configure_stage_t * stage,
                  configure_cmd_t     command,
                  config_t const *    config ) {
   if( FD_UNLIKELY( stage->enabled && !stage->enabled( config ) ) ) {
-    FD_LOG_NOTICE(( "%s ... skipping .. not enabled", stage->name ));
+    FD_LOG_INFO(( "%s ... skipping .. not enabled", stage->name ));
     return 0;
   }
 
@@ -96,7 +96,7 @@ configure_stage( configure_stage_t * stage,
         if( FD_UNLIKELY( result.result == CONFIGURE_PARTIALLY_CONFIGURED && !stage->always_recreate ) )
           FD_LOG_ERR(( "%s ... clean was unable to get back to an unconfigured state ... %s", stage->name, result.message ));
       } else {
-        FD_LOG_NOTICE(( "%s ... already valid", stage->name ));
+        FD_LOG_INFO(( "%s ... already valid", stage->name ));
         return 0;
       }
 

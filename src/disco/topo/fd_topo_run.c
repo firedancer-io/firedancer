@@ -29,7 +29,7 @@ initialize_logging( char const * tile_name,
   fd_log_thread_set( thread_name );
   fd_log_private_stack_discover( FD_TILE_PRIVATE_STACK_SZ,
                                  &fd_tile_private_stack0, &fd_tile_private_stack1 );
-  FD_LOG_NOTICE(( "booting tile %s pid:%lu tid:%lu", thread_name, fd_log_group_id(), tid ));
+  FD_LOG_INFO(( "booting tile %s pid:%lu tid:%lu", thread_name, fd_log_group_id(), tid ));
 }
 
 static void
@@ -341,6 +341,9 @@ fd_topo_run_single_process( fd_topo_t *       topo,
                             uint              uid,
                             uint              gid,
                             fd_topo_run_tile_t (* tile_run )( fd_topo_tile_t const * tile ) ) {
+  FD_LOG_NOTICE(( "running single threaded topology with %lu tiles and %lu GiB memory",
+                  topo->tile_cnt, fd_topo_mlock( topo ) / (1UL << 30) ));
+
   /* Save the current affinity, it will be restored after creating any child tiles */
   FD_CPUSET_DECL( floating_cpu_set );
   if( FD_UNLIKELY( fd_cpuset_getaffinity( 0, floating_cpu_set ) ) )
