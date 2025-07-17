@@ -18,13 +18,14 @@ fd_epoch_leaders_footprint( ulong pub_cnt,
 }
 
 void *
-fd_epoch_leaders_new( void  *                   shmem,
-                      ulong                     epoch,
-                      ulong                     slot0,
-                      ulong                     slot_cnt,
-                      ulong                     pub_cnt,
-                      fd_stake_weight_t const * stakes,
-                      ulong                     excluded_stake ) {
+fd_epoch_leaders_new( void                               * shmem,
+                      ulong                                epoch,
+                      ulong                                slot0,
+                      ulong                                slot_cnt,
+                      ulong                                pub_cnt,
+                      fd_voter_node_stake_weight_t const * stakes,
+                      ulong                                excluded_stake,
+                      uchar                                keyed_by_vote_acc ) {
   if( FD_UNLIKELY( !shmem ) ) {
     FD_LOG_WARNING(( "NULL shmem" ));
     return NULL;

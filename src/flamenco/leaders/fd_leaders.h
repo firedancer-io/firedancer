@@ -95,6 +95,7 @@ fd_epoch_leaders_footprint( ulong pub_cnt,
    pub_cnt is the number of unique public keys in this schedule.
    `stakes` points to the first entry of pub_cnt entries of stake
    weights sorted by tuple (stake, pubkey) in descending order.
+   if `keyed_by_vote_acc` is 1, it indicates
 
    If `stakes` does not include all staked nodes, e.g. in the case of an
    attack that swamps the network with fake validators, `stakes` should
@@ -105,13 +106,14 @@ fd_epoch_leaders_footprint( ulong pub_cnt,
    Does NOT retain a read interest in stakes upon return.
    The caller is not joined to the object on return. */
 void *
-fd_epoch_leaders_new( void                    * shmem,
-                      ulong                     epoch,
-                      ulong                     slot0,
-                      ulong                     slot_cnt,
-                      ulong                     pub_cnt,
-                      fd_stake_weight_t const * stakes, /* indexed [0, pub_cnt) */
-                      ulong                     excluded_stake );
+fd_epoch_leaders_new( void                               * shmem,
+                      ulong                                epoch,
+                      ulong                                slot0,
+                      ulong                                slot_cnt,
+                      ulong                                pub_cnt,
+                      fd_voter_node_stake_weight_t const * stakes, /* indexed [0, pub_cnt) */
+                      ulong                                excluded_stake,
+                      uchar                                keyed_by_vote_acc );
 
 /* fd_epoch_leaders_join joins the caller to the leader schedule object.
    fd_epoch_leaders_leave undoes an existing join. */
