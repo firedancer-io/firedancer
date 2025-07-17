@@ -127,35 +127,6 @@ void *fd_block_hash_vec_generate( void *mem, void **alloc_mem, fd_rng_t * rng ) 
   return mem;
 }
 
-void *fd_block_hash_queue_generate( void *mem, void **alloc_mem, fd_rng_t * rng ) {
-  fd_block_hash_queue_t *self = (fd_block_hash_queue_t *) mem;
-  *alloc_mem = (uchar *) *alloc_mem + sizeof(fd_block_hash_queue_t);
-  fd_block_hash_queue_new(mem);
-  self->last_hash_index = fd_rng_ulong( rng );
-  {
-    uchar is_null = fd_rng_uchar( rng ) % 2;
-    if( !is_null ) {
-      self->last_hash = (fd_hash_t *) *alloc_mem;
-      *alloc_mem = (uchar *) *alloc_mem + sizeof(fd_hash_t);
-      fd_hash_new( self->last_hash );
-      fd_hash_generate( self->last_hash, alloc_mem, rng );
-    }
-    else {
-    self->last_hash = NULL;
-    }
-  }
-  ulong ages_len = fd_rng_ulong( rng ) % 8;
-  self->ages_pool = fd_hash_hash_age_pair_t_map_join_new( alloc_mem, fd_ulong_max( ages_len, 400 ) );
-  self->ages_root = NULL;
-  for( ulong i=0; i < ages_len; i++ ) {
-    fd_hash_hash_age_pair_t_mapnode_t * node = fd_hash_hash_age_pair_t_map_acquire( self->ages_pool );
-    fd_hash_hash_age_pair_generate( &node->elem, alloc_mem, rng );
-    fd_hash_hash_age_pair_t_map_insert( self->ages_pool, &self->ages_root, node );
-  }
-  self->max_age = fd_rng_ulong( rng );
-  return mem;
-}
-
 void *fd_fee_rate_governor_generate( void *mem, void **alloc_mem, fd_rng_t * rng ) {
   fd_fee_rate_governor_t *self = (fd_fee_rate_governor_t *) mem;
   *alloc_mem = (uchar *) *alloc_mem + sizeof(fd_fee_rate_governor_t);

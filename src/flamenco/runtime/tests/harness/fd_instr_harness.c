@@ -67,19 +67,9 @@ fd_runtime_fuzz_instr_ctx_create( fd_runtime_fuzz_runner_t *           runner,
 
   /* Blockhash queue init */
 
-  fd_block_hash_queue_global_t * block_hash_queue = fd_bank_block_hash_queue_modify( slot_ctx->bank );
-
-  uchar * last_hash_mem = (uchar *)fd_ulong_align_up( (ulong)block_hash_queue + sizeof(fd_block_hash_queue_global_t), alignof(fd_hash_t) );
-  uchar * ages_pool_mem = (uchar *)fd_ulong_align_up( (ulong)last_hash_mem + sizeof(fd_hash_t), fd_hash_hash_age_pair_t_map_align() );
-  fd_hash_hash_age_pair_t_mapnode_t * ages_pool = fd_hash_hash_age_pair_t_map_join( fd_hash_hash_age_pair_t_map_new( ages_pool_mem, 400 ) );
-
-  block_hash_queue->max_age          = FD_BLOCKHASH_QUEUE_MAX_ENTRIES;
-  block_hash_queue->ages_root_offset = 0UL;
-  fd_block_hash_queue_ages_pool_update( block_hash_queue, ages_pool );
-  block_hash_queue->last_hash_index  = 0UL;
-  block_hash_queue->last_hash_offset = (ulong)last_hash_mem - (ulong)block_hash_queue;
-
-  memset( last_hash_mem, 0, sizeof(fd_hash_t) );
+  ulong blockhash_seed; FD_TEST( fd_rng_secure( &blockhash_seed, sizeof(ulong) ) );
+  fd_blockhashes_t * blockhashes = fd_blockhashes_init( fd_bank_block_hash_queue_modify( slot_ctx->bank ), blockhash_seed );
+  fd_memset( fd_blockhash_deq_push_tail_nocopy( blockhashes->d.deque ), 0, sizeof(fd_hash_t) );
 
   /* Set up txn context */
 
@@ -292,18 +282,14 @@ fd_runtime_fuzz_instr_ctx_create( fd_runtime_fuzz_runner_t *           runner,
   }
 
   /* Override most recent blockhash if given */
-  fd_recent_block_hashes_global_t const * rbh_global = fd_sysvar_recent_hashes_read( funk, funk_txn, runner->spad );
-  fd_recent_block_hashes_t rbh[1];
-  if( rbh_global ) {
-    rbh->hashes = deq_fd_block_block_hash_entry_t_join( (uchar*)rbh_global + rbh_global->hashes_offset );
-  }
-
-  if( rbh_global && !deq_fd_block_block_hash_entry_t_empty( rbh->hashes ) ) {
+  fd_recent_block_hashes_t const * rbh = fd_sysvar_recent_hashes_read( funk, funk_txn, runner->spad );
+  if( rbh && !deq_fd_block_block_hash_entry_t_empty( rbh->hashes ) ) {
     fd_block_block_hash_entry_t const * last = deq_fd_block_block_hash_entry_t_peek_tail_const( rbh->hashes );
     if( last ) {
-      block_hash_queue = (fd_block_hash_queue_global_t *)&slot_ctx->bank->block_hash_queue[0];
-      fd_hash_t * last_hash = fd_block_hash_queue_last_hash_join( block_hash_queue );
-      fd_memcpy( last_hash, &last->blockhash, sizeof(fd_hash_t) );
+      fd_blockhashes_t * blockhashes = fd_bank_block_hash_queue_modify( slot_ctx->bank );
+      fd_blockhashes_pop_new( blockhashes );
+      fd_blockhash_info_t * info = fd_blockhashes_push_new( blockhashes, &last->blockhash );
+      info->fee_calculator = last->fee_calculator;
 
       fd_bank_lamports_per_signature_set( slot_ctx->bank, last->fee_calculator.lamports_per_signature );
 
