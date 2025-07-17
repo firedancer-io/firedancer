@@ -48,38 +48,28 @@ typedef struct fd_snapshot_accv_map fd_snapshot_accv_map_t;
 #define SNAP_FLAG_FAILED  1
 #define SNAP_FLAG_DONE    2
 
-/* TODO: bound out to real required maximum */
-#define SCRATCH_SZ 4*1024*1024*1024UL
-
 struct fd_snapshot_parser;
 typedef struct fd_snapshot_parser fd_snapshot_parser_t;
 
 typedef void
-(* fd_snapshot_parser_process_manifest_fn_t)( fd_snapshot_parser_t *        parser,
-                                              void *                        _ctx,
-                                              fd_solana_manifest_global_t * manifest,
-                                              ulong                         manifest_sz );
+(* fd_snapshot_parser_process_manifest_fn_t)( void * _ctx,
+                                              ulong  manifest_sz );
 
 typedef void
-(* fd_snapshot_process_acc_hdr_fn_t)( fd_snapshot_parser_t *          parser,
-                                      fd_solana_account_hdr_t const * hdr,
-                                      void *                          _ctx );
+(* fd_snapshot_process_acc_hdr_fn_t)( void *                          _ctx,
+                                      fd_solana_account_hdr_t const * hdr );
 
 typedef void
-(* fd_snapshot_process_acc_data_fn_t)( fd_snapshot_parser_t * parser,
-                                       void *                 _ctx,
-                                       uchar const *          buf,
-                                       ulong                  data_sz );
-
-typedef void
-(* fd_snapshot_process_acc_done_fn_t)( fd_snapshot_parser_t * parser,
-                                       void *                 _ctx );
+(* fd_snapshot_process_acc_data_fn_t)( void *        _ctx,
+                                       uchar const * buf,
+                                       ulong         data_sz );
 
 struct fd_snapshot_parser_metrics {
   ulong accounts_files_processed;
   ulong accounts_files_total;
   ulong accounts_processed;
 };
+
 typedef struct fd_snapshot_parser_metrics fd_snapshot_parser_metrics_t;
 
 struct fd_snapshot_parser {
@@ -118,7 +108,6 @@ struct fd_snapshot_parser {
   fd_snapshot_parser_process_manifest_fn_t manifest_cb;
   fd_snapshot_process_acc_hdr_fn_t         acc_hdr_cb;
   fd_snapshot_process_acc_data_fn_t        acc_data_cb;
-  fd_snapshot_process_acc_done_fn_t        acc_done_cb;
   void * cb_arg;
 
   /* Metrics */
@@ -136,7 +125,7 @@ fd_snapshot_parser_footprint( void ) {
   ulong l = FD_LAYOUT_INIT;
   l = FD_LAYOUT_APPEND( l, alignof(fd_snapshot_parser_t), sizeof(fd_snapshot_parser_t)     );
   l = FD_LAYOUT_APPEND( l, fd_snapshot_accv_map_align(),  fd_snapshot_accv_map_footprint() );
-  l = FD_LAYOUT_APPEND( l, 16UL,                          SCRATCH_SZ                       );
+  l = FD_LAYOUT_APPEND( l, 16UL,                          1UL<<31UL                        );
   return l;
 }
 
@@ -149,8 +138,16 @@ fd_snapshot_parser_reset_tar( fd_snapshot_parser_t * self ) {
   self->tar_file_rem    = 0UL;
 }
 
+/* Reset the snapshot parser on a new stream.  As part of stream
+   decoding, the manifest is written to an output buffer so that the
+   caller can send it to interested parties.  The location to place the
+   manifest should be given in the manifest_buf and manifest_bufsz
+   parameters. */
+
 static inline void
-fd_snapshot_parser_reset( fd_snapshot_parser_t * self ) {
+fd_snapshot_parser_reset( fd_snapshot_parser_t * self,
+                          uchar *                manifest_buf,
+                          ulong                  manifest_bufsz ) {
   self->flags = 0UL;
   fd_snapshot_parser_reset_tar( self );
   self->manifest_done = 0;
@@ -162,15 +159,17 @@ fd_snapshot_parser_reset( fd_snapshot_parser_t * self ) {
   self->accv_slot                        = 0UL;
   self->accv_id                          = 0UL;
   fd_snapshot_accv_map_clear( self->accv_map );
+
+  self->manifest_buf = manifest_buf;
+  self->manifest_bufsz = manifest_bufsz;
 }
 
 static inline fd_snapshot_parser_t *
-fd_snapshot_parser_new( void * mem,
+fd_snapshot_parser_new( void *                                   mem,
+                        void *                                   cb_arg,
                         fd_snapshot_parser_process_manifest_fn_t manifest_cb,
                         fd_snapshot_process_acc_hdr_fn_t         acc_hdr_cb,
-                        fd_snapshot_process_acc_data_fn_t        acc_data_cb,
-                        fd_snapshot_process_acc_done_fn_t        acc_done_cb,
-                        void *                                   cb_arg ) {
+                        fd_snapshot_process_acc_data_fn_t        acc_data_cb ) {
   if( FD_UNLIKELY( !mem ) ) {
     FD_LOG_WARNING(( "NULL mem" ));
     return NULL;
@@ -182,7 +181,9 @@ fd_snapshot_parser_new( void * mem,
   }
 
   FD_SCRATCH_ALLOC_INIT( l, mem );
-  fd_snapshot_parser_t * self = (fd_snapshot_parser_t *)FD_SCRATCH_ALLOC_APPEND( l, alignof(fd_snapshot_parser_t), sizeof(fd_snapshot_parser_t) );
+  fd_snapshot_parser_t * self = FD_SCRATCH_ALLOC_APPEND( l, alignof(fd_snapshot_parser_t), sizeof(fd_snapshot_parser_t)     );
+  void * accv_map_mem         = FD_SCRATCH_ALLOC_APPEND( l, fd_snapshot_accv_map_align(),  fd_snapshot_accv_map_footprint() );
+  void * _buf_mem             = FD_SCRATCH_ALLOC_APPEND( l, 16UL,                          1UL<<31UL                        );
 
   self->state         = SNAP_STATE_TAR;
   self->flags         = 0;
@@ -190,20 +191,16 @@ fd_snapshot_parser_new( void * mem,
 
   self->buf_sz  = 0UL;
   self->buf_ctr = 0UL;
-  self->buf_max = SCRATCH_SZ;
-
-  void * accv_map_mem = FD_SCRATCH_ALLOC_APPEND( l, fd_snapshot_accv_map_align(), fd_snapshot_accv_map_footprint() );
-  void * buf_mem      = FD_SCRATCH_ALLOC_APPEND( l, 16UL, SCRATCH_SZ );
+  self->buf_max = 1UL<<31UL;
 
   self->accv_map = fd_snapshot_accv_map_join( fd_snapshot_accv_map_new( accv_map_mem ) );
   FD_TEST( self->accv_map );
 
-  self->buf = buf_mem;
+  self->buf = _buf_mem;
 
   self->manifest_cb = manifest_cb;
   self->acc_hdr_cb  = acc_hdr_cb;
   self->acc_data_cb = acc_data_cb;
-  self->acc_done_cb = acc_done_cb;
   self->cb_arg      = cb_arg;
 
   self->metrics.accounts_files_processed = 0UL;

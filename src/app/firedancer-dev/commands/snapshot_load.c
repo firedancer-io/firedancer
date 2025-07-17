@@ -1,11 +1,11 @@
 #include "../../firedancer/topology.h"
+#include "../../platform/fd_sys_util.h"
 #include "../../shared/commands/configure/configure.h"
 #include "../../shared/commands/run/run.h"
 #include "../../../disco/metrics/fd_metrics.h"
 #include "../../../disco/topo/fd_topob.h"
-#include "../../../util/pod/fd_pod_format.h"
 #include "../../../util/tile/fd_tile_private.h"
-#include "../../../discof/restore/utils/fd_snapshot_messages.h"
+#include "../../../discof/restore/utils/fd_ssmsg.h"
 #include <sys/resource.h>
 #include <linux/capability.h>
 #include <unistd.h>
@@ -43,13 +43,6 @@ snapshot_load_topo( config_t *     config,
   fd_topob_wksp( topo, "metric" );
   fd_topob_tile( topo, "metric",  "metric", "metric_in", tile_to_cpu[0], 0, 0 );
 
-  /* shared dcache between snapin and replay to store the decoded solana
-     manifest */
-  fd_topob_wksp( topo, "replay_manif" );
-  fd_topo_obj_t * replay_manifest_dcache = fd_topob_obj( topo, "dcache", "replay_manif" );
-  fd_pod_insertf_ulong( topo->props, 1UL << 30UL, "obj.%lu.data_sz", replay_manifest_dcache->id );
-  fd_pod_insert_ulong(  topo->props, "manifest_dcache", replay_manifest_dcache->id );
-
   /* read() tile */
   fd_topob_wksp( topo, "snaprd" );
   fd_topo_tile_t * snaprd_tile = fd_topob_tile( topo, "snaprd", "snaprd", "snaprd", tile_to_cpu[1], 0, 0 );
@@ -62,11 +55,11 @@ snapshot_load_topo( config_t *     config,
 
   /* Compressed data stream */
   fd_topob_wksp( topo, "snap_zstd" );
-  fd_topob_link( topo, "snap_zstd", "snap_zstd", 512UL, 16384, 1UL );
+  fd_topob_link( topo, "snap_zstd", "snap_zstd", 8192UL, 16384, 1UL );
 
   /* Uncompressed data stream */
   fd_topob_wksp( topo, "snap_stream" );
-  fd_topob_link( topo, "snap_stream", "snap_stream", 512UL, USHORT_MAX, 1UL );
+  fd_topob_link( topo, "snap_stream", "snap_stream", 2048UL, USHORT_MAX, 1UL );
 
   /* snaprd tile -> compressed stream */
   fd_topob_tile_out( topo, "snaprd", 0UL, "snap_zstd", 0UL );
@@ -89,14 +82,10 @@ snapshot_load_topo( config_t *     config,
   fd_topob_tile_uses( topo, snapin_tile, funk_obj, FD_SHMEM_JOIN_MODE_READ_WRITE );
   snapin_tile->snapin.funk_obj_id = funk_obj->id;
 
-  /* snapin replay manifest dcache access */
-  fd_topob_tile_uses( topo, snapin_tile, replay_manifest_dcache, FD_SHMEM_JOIN_MODE_READ_WRITE );
-  snapin_tile->snapin.manifest_dcache_obj_id = replay_manifest_dcache->id;
-
   /* snapshot manifest out link */
   fd_topob_wksp( topo, "snap_out" );
-  fd_topo_link_t * snap_out_link = fd_topob_link( topo, "snap_out", "snap_out",   128UL, sizeof(fd_snapshot_manifest_t), 1UL );
-  /* snapshot load topology doesn't consume from snap out link */
+  FD_TEST( sizeof(fd_snapshot_manifest_t)<(5UL*(1UL<<30UL)) );
+  fd_topo_link_t * snap_out_link = fd_topob_link( topo, "snap_out", "snap_out", 2UL, 5UL*(1UL<<30UL), 1UL );
   snap_out_link->permit_no_consumers = 1;
   fd_topob_tile_out( topo, "snapin", 0UL, "snap_out", 0UL );
 
@@ -165,6 +154,7 @@ snapshot_load_cmd_fn( args_t *   args,
 
   fd_log_private_shared_lock[ 1 ] = 0;
   fd_topo_join_workspaces( topo, FD_SHMEM_JOIN_MODE_READ_WRITE );
+  fd_topo_fill( topo );
 
   double tick_per_ns = fd_tempo_tick_per_ns( NULL );
   double ns_per_tick = 1.0/tick_per_ns;
@@ -197,12 +187,20 @@ snapshot_load_cmd_fn( args_t *   args,
   puts( "- acc:   Number of accounts"               );
   puts( "" );
   puts( "-------------backp=(snaprd,snapdc,snapin) busy=(snaprd,snapdc,snapin)---------------" );
+  long next = start+1000L*1000L*1000L;
   for(;;) {
     ulong snaprd_status = FD_VOLATILE_CONST( snaprd_metrics[ MIDX( GAUGE, TILE, STATUS ) ] );
     ulong snapdc_status = FD_VOLATILE_CONST( snapdc_metrics[ MIDX( GAUGE, TILE, STATUS ) ] );
     ulong snapin_status = FD_VOLATILE_CONST( snapin_metrics[ MIDX( GAUGE, TILE, STATUS ) ] );
 
     if( FD_UNLIKELY( snaprd_status==2UL && snapdc_status==2UL && snapin_status == 2UL ) ) break;
+
+    long cur = fd_log_wallclock();
+    if( FD_UNLIKELY( cur<next ) ) {
+      long sleep_nanos = fd_long_min( 1000L*1000L, next-cur );
+      FD_TEST( !fd_sys_util_nanosleep(  (uint)(sleep_nanos/(1000L*1000L*1000L)), (uint)(sleep_nanos%(1000L*1000L*1000L)) ) );
+      continue;
+    }
 
     ulong total_off    = snaprd_metrics[ MIDX( GAUGE, SNAPRD, FULL_BYTES_READ ) ] +
                          snaprd_metrics[ MIDX( GAUGE, SNAPRD, INCREMENTAL_BYTES_READ ) ];
@@ -235,7 +233,8 @@ snapshot_load_cmd_fn( args_t *   args,
     snapin_backp_old = snapin_backp;
     snapin_wait_old  = snapin_wait;
     acc_cnt_old      = acc_cnt;
-    sleep( 1 );
+
+    next+=1000L*1000L*1000L;
   }
 
   long end = fd_log_wallclock();

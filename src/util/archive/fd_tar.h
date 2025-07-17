@@ -5,7 +5,7 @@
    format. This is not a general-purpose TAR implementation.  It is
    currently only intended for loading and writing Solana snapshots. */
 
-#include "../io/fd_io.h"
+#include "../bits/fd_bits.h"
 
 /* File Format ********************************************************/
 

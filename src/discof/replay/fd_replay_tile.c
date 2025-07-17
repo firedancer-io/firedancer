@@ -22,7 +22,7 @@
 #include "../../choreo/fd_choreo.h"
 #include "../../disco/plugin/fd_plugin.h"
 #include "fd_exec.h"
-#include "../../discof/restore/utils/fd_snapshot_messages.h"
+#include "../../discof/restore/utils/fd_ssmsg.h"
 
 #include <arpa/inet.h>
 #include <errno.h>
@@ -47,14 +47,23 @@
 
 #define PLUGIN_PUBLISH_TIME_NS ((long)60e9)
 
-#define REPAIR_IN_IDX   (0UL)
-#define PACK_IN_IDX     (1UL)
-#define SNAP_IN_IDX     (3UL)
+#define IN_KIND_REPAIR (0)
+#define IN_KIND_PACK   (1)
+#define IN_KIND_TOWER  (2)
+#define IN_KIND_SNAP   (3)
 
 #define EXEC_TXN_BUSY   (0xA)
 #define EXEC_TXN_READY  (0xB)
 
 #define BANK_HASH_CMP_LG_MAX (16UL)
+
+struct fd_replay_in_link {
+  fd_wksp_t * mem;
+  ulong       chunk0;
+  ulong       wmark;
+};
+
+typedef struct fd_replay_in_link fd_replay_in_link_t;
 
 struct fd_replay_out_link {
   ulong            idx;
@@ -87,18 +96,8 @@ struct fd_replay_tile_ctx {
   fd_wksp_t  * runtime_public_wksp;
   fd_runtime_public_t * runtime_public;
 
-  // Store tile input
-  fd_wksp_t * repair_in_mem;
-  ulong       repair_in_chunk0;
-  ulong       repair_in_wmark;
-
-  // Pack tile input
-  fd_wksp_t * pack_in_mem;
-  ulong       pack_in_chunk0;
-  ulong       pack_in_wmark;
-
-  /* Tower tile input */
-  ulong tower_in_idx;
+  int in_kind[ 64 ];
+  fd_replay_in_link_t in[ 64 ];
 
   // Notification output defs
   fd_replay_out_link_t notif_out[1];
@@ -246,7 +245,6 @@ struct fd_replay_tile_ctx {
 
   /* A hack to get the chunk in after_frag.  Revist as needed. */
   ulong         _snap_out_chunk;
-  uchar const * manifest_dcache;          /* Dcache to receive decoded solana manifest */
 };
 typedef struct fd_replay_tile_ctx fd_replay_tile_ctx_t;
 
@@ -287,7 +285,7 @@ before_frag( fd_replay_tile_ctx_t * ctx,
              ulong                  sig ) {
   (void)seq;
 
-  if( in_idx==REPAIR_IN_IDX ) {
+  if( FD_UNLIKELY( ctx->in_kind[ in_idx ]==IN_KIND_REPAIR ) ) {
     /* If the internal slice buffer is full, there is nowhere for the
        fragment to go and we cannot pull it off the incoming queue yet.
        This will eventually cause backpressure to the repair system. */
@@ -615,11 +613,10 @@ funk_and_txncache_publish( fd_replay_tile_ctx_t * ctx, ulong wmk, fd_funk_txn_xi
 
 static void
 restore_slot_ctx( fd_replay_tile_ctx_t * ctx,
+                  fd_wksp_t *            mem,
                   ulong                  chunk ) {
   /* Use the full snapshot manifest to initialize the slot context */
-  uchar * slot_ctx_mem        = fd_spad_alloc_check( ctx->runtime_spad,
-                                                     FD_EXEC_SLOT_CTX_ALIGN,
-                                                     FD_EXEC_SLOT_CTX_FOOTPRINT );
+  uchar * slot_ctx_mem        = fd_spad_alloc_check( ctx->runtime_spad, FD_EXEC_SLOT_CTX_ALIGN, FD_EXEC_SLOT_CTX_FOOTPRINT );
   ctx->slot_ctx               = fd_exec_slot_ctx_join( fd_exec_slot_ctx_new( slot_ctx_mem ) );
   ctx->slot_ctx->banks        = ctx->banks;
   ctx->slot_ctx->bank         = fd_banks_get_bank( ctx->banks, 0UL );
@@ -627,8 +624,8 @@ restore_slot_ctx( fd_replay_tile_ctx_t * ctx,
   ctx->slot_ctx->funk         = ctx->funk;
   ctx->slot_ctx->status_cache = ctx->status_cache;
 
-  fd_solana_manifest_global_t * manifest_global
-    = (fd_solana_manifest_global_t *)fd_chunk_to_laddr( fd_wksp_containing( ctx->manifest_dcache ), chunk );
+  uchar const * data = fd_chunk_to_laddr( mem, chunk );
+  fd_solana_manifest_global_t * manifest_global = (fd_solana_manifest_global_t*)fd_ulong_align_up( (ulong)data+sizeof(fd_snapshot_manifest_t), FD_SOLANA_MANIFEST_GLOBAL_ALIGN );
   fd_exec_slot_ctx_t * recovered_slot_ctx = fd_exec_slot_ctx_recover( ctx->slot_ctx,
                                                                       manifest_global,
                                                                       ctx->runtime_spad );
@@ -940,9 +937,11 @@ init_from_snapshot( fd_replay_tile_ctx_t * ctx,
 static void
 on_snapshot_message( fd_replay_tile_ctx_t * ctx,
                      fd_stem_context_t *    stem,
+                     ulong                  in_idx,
                      ulong                  chunk,
                      ulong                  sig ) {
-  if( sig==FD_SNAPSHOT_DONE ) {
+  ulong msg = fd_ssmsg_sig_message( sig );
+  if( FD_LIKELY( msg==FD_SSMSG_DONE ) ) {
     /* An end of message notification indicates the snapshot is loaded.
        Replay is able to start executing from this point onwards. */
     /* TODO: replay should finish booting. Could make replay a
@@ -953,30 +952,20 @@ on_snapshot_message( fd_replay_tile_ctx_t * ctx,
     return;
   }
 
-  switch( sig ) {
-    case FD_FULL_SNAPSHOT_MANIFEST: {
-      /* A snapshot manifest message contains information needed to
-       initialize a bank to start replaying slots from the snapshot slot. */
-      FD_LOG_INFO(("Received full snapshot manifest message"));
-      break;
-    }
-    case FD_INCREMENTAL_SNAPSHOT_MANIFEST: {
-      FD_LOG_INFO(("Received incremental snapshot manifest message"));
-      return;
-    }
-    case FD_FULL_SNAPSHOT_MANIFEST_EXTERNAL:
-    case FD_INCREMENTAL_SNAPSHOT_MANIFEST_EXTERNAL: {
+  switch( msg ) {
+    case FD_SSMSG_MANIFEST_FULL:
+    case FD_SSMSG_MANIFEST_INCREMENTAL: {
       /* We may either receive a full snapshot manifest or an
          incremental snapshot manifest.  Note that this external message
          id is only used temporarily because replay cannot yet receive
          the firedancer-internal snapshot manifest message. */
-      restore_slot_ctx( ctx, chunk );
+      restore_slot_ctx( ctx, ctx->in[ in_idx ].mem, chunk );
       /* kick off repair orphans */
       kickoff_repair_orphans( ctx, stem );
       break;
     }
     default: {
-      FD_LOG_WARNING(("Received unknown snapshot message with sig %lu", sig ));
+      FD_LOG_ERR(( "Received unknown snapshot message with msg %lu", msg ));
       return;
     }
   }
@@ -998,9 +987,7 @@ during_frag( fd_replay_tile_ctx_t * ctx,
   (void)sz;
   (void)ctl;
 
-  if( FD_LIKELY( in_idx==SNAP_IN_IDX ) ) {
-    ctx->_snap_out_chunk = chunk;
-  }
+  if( FD_UNLIKELY( ctx->in_kind[ in_idx ]==IN_KIND_SNAP ) ) ctx->_snap_out_chunk = chunk;
 }
 
 static void
@@ -1012,7 +999,7 @@ after_frag( fd_replay_tile_ctx_t *   ctx,
             ulong                    tsorig FD_PARAM_UNUSED,
             ulong                    tspub FD_PARAM_UNUSED,
             fd_stem_context_t *      stem FD_PARAM_UNUSED ) {
-  if( FD_LIKELY( in_idx==ctx->tower_in_idx ) ) {
+  if( FD_UNLIKELY( ctx->in_kind[ in_idx ]==IN_KIND_TOWER ) ) {
     ulong root = sig;
 
     if( FD_LIKELY( root <= fd_fseq_query( ctx->published_wmark ) ) ) return;
@@ -1029,8 +1016,8 @@ after_frag( fd_replay_tile_ctx_t *   ctx,
     if( FD_LIKELY( ctx->banks ) ) fd_banks_publish( ctx->banks, root );
 
     fd_fseq_update( ctx->published_wmark, root );
-  } else if( in_idx==SNAP_IN_IDX ) {
-    on_snapshot_message( ctx, stem, ctx->_snap_out_chunk, sig );
+  } else if( FD_UNLIKELY( ctx->in_kind[ in_idx ]==IN_KIND_SNAP ) ) {
+    on_snapshot_message( ctx, stem, in_idx, ctx->_snap_out_chunk, sig );
   }
 }
 
@@ -1762,19 +1749,7 @@ privileged_init( fd_topo_t *      topo,
 static void
 unprivileged_init( fd_topo_t *      topo,
                    fd_topo_tile_t * tile ) {
-
-  FD_LOG_NOTICE(("Starting unprivileged init"));
   void * scratch = fd_topo_obj_laddr( topo, tile->tile_obj_id );
-  if( FD_UNLIKELY( tile->in_cnt < 4 ||
-                   strcmp( topo->links[ tile->in_link_id[ PACK_IN_IDX ] ].name, "pack_replay")   ||
-                   strcmp( topo->links[ tile->in_link_id[ REPAIR_IN_IDX  ] ].name, "repair_repla" ) ||
-                   strcmp( topo->links[ tile->in_link_id[ SNAP_IN_IDX  ] ].name, "snap_out" ) ) ) {
-    FD_LOG_ERR(( "replay tile has none or unexpected input links %lu %s %s %s %s",
-                 tile->in_cnt, topo->links[ tile->in_link_id[ 0 ] ].name,
-                 topo->links[ tile->in_link_id[ 1 ] ].name,
-                 topo->links[ tile->in_link_id[ 2 ] ].name,
-                 topo->links[ tile->in_link_id[ 3 ] ].name ));
-  }
 
   /**********************************************************************/
   /* scratch (bump)-allocate memory owned by the replay tile            */
@@ -2125,21 +2100,28 @@ unprivileged_init( fd_topo_t *      topo,
   /* links                                                              */
   /**********************************************************************/
 
-  /* Setup store tile input */
-  fd_topo_link_t * repair_in_link = &topo->links[ tile->in_link_id[ REPAIR_IN_IDX ] ];
-  ctx->repair_in_mem              = topo->workspaces[ topo->objs[ repair_in_link->dcache_obj_id ].wksp_id ].wksp;
-  ctx->repair_in_chunk0           = fd_dcache_compact_chunk0( ctx->repair_in_mem, repair_in_link->dcache );
-  ctx->repair_in_wmark            = fd_dcache_compact_wmark( ctx->repair_in_mem, repair_in_link->dcache, repair_in_link->mtu );
+  for( ulong i=0UL; i<tile->in_cnt; i++ ) {
+    fd_topo_link_t * link = &topo->links[ tile->in_link_id[ i ] ];
+    fd_topo_wksp_t * link_wksp = &topo->workspaces[ topo->objs[ link->dcache_obj_id ].wksp_id ];
 
-  /* Setup pack tile input */
-  fd_topo_link_t * pack_in_link = &topo->links[ tile->in_link_id[ PACK_IN_IDX ] ];
-  ctx->pack_in_mem              = topo->workspaces[ topo->objs[ pack_in_link->dcache_obj_id ].wksp_id ].wksp;
-  ctx->pack_in_chunk0           = fd_dcache_compact_chunk0( ctx->pack_in_mem, pack_in_link->dcache );
-  ctx->pack_in_wmark            = fd_dcache_compact_wmark( ctx->pack_in_mem, pack_in_link->dcache, pack_in_link->mtu );
+    if( FD_LIKELY( link->dcache ) ) {
+      ctx->in[ i ].mem    = link_wksp->wksp;
+      ctx->in[ i ].chunk0 = fd_dcache_compact_chunk0( ctx->in[ i ].mem, link->dcache );
+      ctx->in[ i ].wmark  = fd_dcache_compact_wmark ( ctx->in[ i ].mem, link->dcache, link->mtu );
+    }
 
-  /* Setup tower tile input */
-  ctx->tower_in_idx = fd_topo_find_tile_in_link( topo, tile, "tower_replay", 0 );
-  if( FD_UNLIKELY( ctx->tower_in_idx==ULONG_MAX ) ) FD_LOG_WARNING(( "replay tile is missing tower input link %lu", ctx->tower_in_idx ));
+    if(        !strcmp( link->name, "pack_replay" ) ) {
+      ctx->in_kind[ i ] = IN_KIND_PACK;
+    } else if( !strcmp( link->name, "repair_repla" ) ) {
+      ctx->in_kind[ i ] = IN_KIND_REPAIR;
+    } else if( !strcmp( link->name, "snap_out"  ) ) {
+      ctx->in_kind[ i ] = IN_KIND_SNAP;
+    } else if( !strcmp( link->name, "tower_replay" ) ) {
+      ctx->in_kind[ i ] = IN_KIND_TOWER;
+    } else {
+      FD_LOG_ERR(( "unexpected input link name %s", link->name ));
+    }
+  }
 
   ulong replay_notif_idx = fd_topo_find_tile_out_link( topo, tile, "replay_notif", 0 );
   if( FD_UNLIKELY( replay_notif_idx!=ULONG_MAX ) ) {
@@ -2232,9 +2214,6 @@ unprivileged_init( fd_topo_t *      topo,
   }
 
   ctx->enable_bank_hash_cmp = tile->replay.enable_bank_hash_cmp;
-
-  /* join dcache from wksp */
-  ctx->manifest_dcache = (uchar const *)topo->workspaces[ topo->objs[ tile->replay.manifest_dcache_obj_id ].wksp_id ].wksp;
 
   FD_LOG_NOTICE(("Finished unprivileged init"));
 }

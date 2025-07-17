@@ -1,27 +1,23 @@
-#ifndef HEADER_fd_src_discof_restore_utils_fd_snapshot_messages_h
-#define HEADER_fd_src_discof_restore_utils_fd_snapshot_messages_h
+#ifndef HEADER_fd_src_discof_restore_utils_fd_ssmsg_h
+#define HEADER_fd_src_discof_restore_utils_fd_ssmsg_h
 
 #include "../../../flamenco/types/fd_types.h"
 
-/* Message signatures */
+#define FD_SSMSG_MANIFEST_FULL        (0) /* A snapshot manifest message from the full snapshot */
+#define FD_SSMSG_MANIFEST_INCREMENTAL (1) /* A snapshot manifest message from the incremental snapshot */
+#define FD_SSMSG_DONE                 (2) /* Indicates the snapshot is fully loaded and tiles are shutting down */
 
-/* Indicates a snapshot manifest message from the full snapshot. */
-#define FD_FULL_SNAPSHOT_MANIFEST                 (0)
-/* Indicates a snapshot manifest message from the incremental
-   snapshot. */
-#define FD_INCREMENTAL_SNAPSHOT_MANIFEST          (1)
-/* Indicates a decoded solana manifest message from the full snapshot.
-   The decoded solana manifest is sent into a shared dcache buffer. */
-#define FD_FULL_SNAPSHOT_MANIFEST_EXTERNAL        (2)
-/* Indicates a decoded solana manifest message from the incremental
-   snapshot.  The decoded solana manifest is sent into a shared dcache
-   buffer. */
-#define FD_INCREMENTAL_SNAPSHOT_MANIFEST_EXTERNAL (3)
-/* Indicates the snapshot is fully loaded. */
-#define FD_SNAPSHOT_DONE                          (4)
+/* TODO: Bound this correctly */
+#define MAX_STAKE_DELEGATIONS (10UL*1024UL*1024UL)
 
-/* Defines the snapshot manifest message that is broadcast from
-   the snapshot tiles when loading a snapshot. */
+FD_FN_CONST static inline ulong
+fd_ssmsg_sig( ulong message,
+              ulong manifest_size ) {
+  return (manifest_size << 2) | (message & 0x3UL);
+}
+
+FD_FN_CONST static inline ulong fd_ssmsg_sig_manifest_size( ulong sig ) { return (sig >> 2); }
+FD_FN_CONST static inline ulong fd_ssmsg_sig_message( ulong sig ) { return (sig & 0x3UL); }
 
 struct fd_snapshot_manifest_vote_account {
   /* The pubkey of the vote account */
@@ -60,7 +56,7 @@ typedef struct fd_snapshot_manifest_stake_delegation fd_snapshot_manifest_stake_
 
 struct fd_snapshot_manifest_epoch_stakes {
   ulong                                   stakes_len;
-  fd_snapshot_manifest_stake_delegation_t stakes[ 1024 * 1024UL ]; /* TODO: Bound correctly */
+  fd_snapshot_manifest_stake_delegation_t stakes[ MAX_STAKE_DELEGATIONS ];
 };
 
 typedef struct fd_snapshot_manifest_epoch_stakes fd_snapshot_manifest_epoch_stakes_t;
@@ -350,4 +346,4 @@ fd_snapshot_manifest_init_from_solana_manifest( void *                        me
 
 FD_PROTOTYPES_END
 
-#endif /* HEADER_fd_src_discof_restore_utils_fd_snapshot_messages_h */
+#endif /* HEADER_fd_src_discof_restore_utils_fd_ssmsg_h */

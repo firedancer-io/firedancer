@@ -11,7 +11,6 @@
     no producer-------------  stake_out, send_out, poh_out
                 store_replay,
                 pack_replay,
-                batch_replay
 
 */
 
@@ -24,7 +23,6 @@
 #include "../../../disco/topo/fd_topob.h"
 #include "../../../util/pod/fd_pod_format.h"
 #include "../../../discof/replay/fd_replay_notif.h"
-#include "../../../discof/restore/utils/fd_snapshot_messages.h"
 
 #include <unistd.h> /* pause */
 
@@ -116,13 +114,9 @@ backtest_topo( config_t * config ) {
   /* Setup pack/batch->replay links in topo w/o a producer              */
   /**********************************************************************/
   fd_topob_wksp( topo, "pack_replay" );
-  fd_topob_wksp( topo, "batch_replay" );
   fd_topob_link( topo, "pack_replay", "pack_replay", 65536UL, USHORT_MAX, 1UL );
-  fd_topob_link( topo, "batch_replay", "batch_replay", 128UL, 32UL, 1UL );
   fd_topob_tile_in( topo, "replay", 0UL, "metric_in", "pack_replay", 0UL, FD_TOPOB_RELIABLE, FD_TOPOB_POLLED );
-  fd_topob_tile_in( topo, "replay", 0UL, "metric_in", "batch_replay", 0UL, FD_TOPOB_RELIABLE, FD_TOPOB_POLLED );
   topo->links[ replay_tile->in_link_id[ fd_topo_find_tile_in_link( topo, replay_tile, "pack_replay", 0 ) ] ].permit_no_producers = 1;
-  topo->links[ replay_tile->in_link_id[ fd_topo_find_tile_in_link( topo, replay_tile, "batch_replay", 0 ) ] ].permit_no_producers = 1;
 
   /**********************************************************************/
   /* Setup snapshot links in topo                                       */
@@ -133,10 +127,10 @@ backtest_topo( config_t * config ) {
   fd_topob_wksp( topo, "snapin_rd" );
   fd_topob_wksp( topo, "snap_out" );
   fd_topob_wksp( topo, "replay_manif" );
-  fd_topob_link( topo, "snap_out", "snap_out",   128UL, sizeof(fd_snapshot_manifest_t), 1UL );
+  fd_topob_link( topo, "snap_out", "snap_out", 2UL, 5UL*(1UL<<30UL), 1UL );
 
-  fd_topob_link( topo, "snap_zstd",   "snap_zstd",   512UL, 16384UL,    1UL );
-  fd_topob_link( topo, "snap_stream", "snap_stream", 512UL, USHORT_MAX, 1UL );
+  fd_topob_link( topo, "snap_zstd",   "snap_zstd",   8192UL, 16384UL,    1UL );
+  fd_topob_link( topo, "snap_stream", "snap_stream", 2048UL, USHORT_MAX, 1UL );
   fd_topob_link( topo, "snapdc_rd", "snapdc_rd", 128UL, 0UL, 1UL );
   fd_topob_link( topo, "snapin_rd", "snapin_rd", 128UL, 0UL, 1UL );
 
