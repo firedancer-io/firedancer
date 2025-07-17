@@ -1,7 +1,8 @@
 #include "fd_snapshot_parser.h"
+#include "fd_ssmsg.h"
 #include "../../../util/archive/fd_tar.h"
 #include "../../../flamenco/runtime/fd_acc_mgr.h" /* FD_ACC_SZ_MAX */
-#include "../../../ballet/lthash/fd_lthash.h"
+
 #include <errno.h>
 #include <assert.h>
 #include <stdio.h>
@@ -30,11 +31,6 @@ fd_snapshot_parser_prepare_buf( fd_snapshot_parser_t * self,
 
 static int
 fd_snapshot_parser_expect_account_hdr( fd_snapshot_parser_t * self ) {
-
-  if( self->acc_done_cb ) {
-    self->acc_done_cb( self, self->cb_arg );
-  }
-
   ulong accv_sz = self->accv_sz;
   if( accv_sz < sizeof(fd_solana_account_hdr_t) ) {
     if( FD_LIKELY( accv_sz==0UL ) ) {
@@ -261,12 +257,6 @@ fd_snapshot_parser_accv_index( fd_snapshot_parser_t *             self,
   return 0;
 }
 
-static void
-fd_snapshot_parser_set_manifest_buf( fd_snapshot_parser_t * self ) {
-  self->manifest_buf   = (uchar *)fd_ulong_align_up( (ulong)self->buf + self->buf_sz, fd_solana_manifest_align() );
-  self->manifest_bufsz = (ulong)( self->buf + self->buf_max - self->manifest_buf );
-}
-
 /* snapshot_restore_manifest imports a snapshot manifest into the
    given slot context.  Also populates the accv index.  Destroys the
    existing bank structure. */
@@ -282,11 +272,9 @@ fd_snapshot_parser_restore_manifest( fd_snapshot_parser_t * self ) {
   - Fixing the decoder (does 2 walks in decode_footprint, decode)
   - Unpack directly into slot_ctx */
 
-  long dt = -fd_log_wallclock();
-
   fd_bincode_decode_ctx_t decode = {
-  .data    = self->buf,
-  .dataend = self->buf + self->buf_sz
+    .data    = self->buf,
+    .dataend = self->buf + self->buf_sz
   };
 
   ulong total_sz = 0UL;
@@ -295,22 +283,14 @@ fd_snapshot_parser_restore_manifest( fd_snapshot_parser_t * self ) {
     FD_LOG_ERR(( "fd_solana_manifest_decode_footprint failed (%d)", err ));
   }
 
-  fd_snapshot_parser_set_manifest_buf( self );
-
-  FD_LOG_INFO(("total_sz for manifest is %lu", total_sz));
-  if( FD_UNLIKELY( total_sz > self->manifest_bufsz ) ) {
-  FD_LOG_ERR(( "Cannot decode snapshot. Insufficient scratch buffer size (need %lu, have %lu bytes)",
-              (ulong)self->manifest_buf + total_sz - (ulong)self->buf, self->buf_max ));
-  }
-  fd_solana_manifest_global_t * manifest = fd_solana_manifest_decode_global( self->manifest_buf, &decode );
-  fd_slot_lthash_t * lthash = (fd_slot_lthash_t *)( (uchar *)manifest + manifest->lthash_offset );
-
-  if( manifest->lthash_offset ) {
-    FD_LOG_INFO(( "snapshot acc hash is %s", FD_LTHASH_ENC_32_ALLOCA( (fd_lthash_value_t *) (lthash->lthash) )));
+  ulong decoded_manifest_offset = fd_ulong_align_up( sizeof(fd_snapshot_manifest_t), FD_SOLANA_MANIFEST_GLOBAL_ALIGN );
+  if( FD_UNLIKELY( decoded_manifest_offset+total_sz>self->manifest_bufsz ) ) {
+    FD_LOG_ERR(( "Cannot decode snapshot. Insufficient scratch buffer size (need %lu, %lu raw, have %lu bytes)",
+                 decoded_manifest_offset+total_sz, total_sz, self->manifest_bufsz ));
   }
 
-  dt += fd_log_wallclock();
-  FD_LOG_INFO(( "Snapshot manifest decode took %.2g seconds", (double)dt/1e9 ));
+  fd_solana_manifest_global_t * manifest = fd_solana_manifest_decode_global( self->manifest_buf+decoded_manifest_offset, &decode );
+  fd_snapshot_manifest_init_from_solana_manifest( self->manifest_buf, manifest );
 
   /* Read AccountVec map */
 
@@ -320,9 +300,7 @@ fd_snapshot_parser_restore_manifest( fd_snapshot_parser_t * self ) {
   }
 
   /* manifest cb */
-  if( self->manifest_cb ) {
-    self->manifest_cb( self, self->cb_arg, manifest, total_sz );
-  }
+  if( FD_LIKELY( self->manifest_cb ) ) self->manifest_cb( self->cb_arg, total_sz );
 
   /* Discard buffer to reclaim heap space */
 
@@ -396,13 +374,13 @@ fd_snapshot_parser_restore_account_hdr( fd_snapshot_parser_t * self ) {
     FD_LOG_ERR(( "Oversize account found (%lu bytes)", data_sz ));
   }
 
-  if( self->acc_hdr_cb ) {
-    self->acc_hdr_cb( self, hdr, self->cb_arg );
+  if( FD_LIKELY( self->acc_hdr_cb ) ) {
+    self->acc_hdr_cb(  self->cb_arg, hdr );
     self->metrics.accounts_processed++;
   }
 
   /* Next step */
-  if( data_sz == 0UL ) {
+  if( FD_LIKELY( data_sz == 0UL ) ) {
     return fd_snapshot_parser_expect_account_hdr( self );
   }
 
@@ -414,9 +392,9 @@ fd_snapshot_parser_restore_account_hdr( fd_snapshot_parser_t * self ) {
 
 static uchar const *
 fd_snapshot_parser_read_account_hdr_chunk( fd_snapshot_parser_t * self,
-                                 uchar const *          buf,
-                                 ulong                  bufsz ) {
-  if( !self->accv_sz ) {
+                                           uchar const *          buf,
+                                           ulong                  bufsz ) {
+  if( FD_UNLIKELY( !self->accv_sz ) ) {
     /* Reached end of AppendVec */
     self->state   = SNAP_STATE_IGNORE;
     self->buf_ctr = self->buf_sz = 0UL;
@@ -446,8 +424,8 @@ fd_snapshot_parser_read_account_hdr_chunk( fd_snapshot_parser_t * self,
 
 static uchar const *
 fd_snapshot_parser_read_account_chunk( fd_snapshot_parser_t * self,
-                             uchar const *      buf,
-                             ulong              bufsz ) {
+                                       uchar const *          buf,
+                                       ulong                  bufsz ) {
 
   ulong chunk_sz = fd_ulong_min( self->acc_rem, bufsz );
   if( FD_UNLIKELY( chunk_sz > self->accv_sz ) )
@@ -456,9 +434,7 @@ fd_snapshot_parser_read_account_chunk( fd_snapshot_parser_t * self,
   if( FD_LIKELY( chunk_sz ) ) {
 
     /* TODO: make callback here */
-    if( self->acc_data_cb ) {
-        self->acc_data_cb( self, self->cb_arg, buf, chunk_sz );
-    }
+    if( FD_LIKELY( self->acc_data_cb ) ) self->acc_data_cb( self->cb_arg, buf, chunk_sz );
 
     self->acc_rem -= chunk_sz;
     self->accv_sz -= chunk_sz;
@@ -467,18 +443,18 @@ fd_snapshot_parser_read_account_chunk( fd_snapshot_parser_t * self,
 
   }
 
-  if( self->acc_rem == 0UL ) {
+  if( FD_UNLIKELY( self->acc_rem == 0UL ) ) {
     ulong pad_sz = fd_ulong_min( fd_ulong_min( self->acc_pad, bufsz ), self->accv_sz );
     buf              += pad_sz;
     bufsz            -= pad_sz;
     self->acc_pad -= pad_sz;
     self->accv_sz -= pad_sz;
 
-    if( self->accv_sz == 0UL ) {
+    if( FD_UNLIKELY( self->accv_sz == 0UL ) ) {
       self->state = SNAP_STATE_IGNORE;
       return buf;
     }
-    if( self->acc_pad == 0UL ) {
+    if( FD_UNLIKELY( self->acc_pad == 0UL ) ) {
       return (0==fd_snapshot_parser_expect_account_hdr( self )) ? buf : NULL;
     }
   }
@@ -502,17 +478,17 @@ fd_snapshot_parser_process_chunk( fd_snapshot_parser_t * self,
   bufsz = fd_ulong_min( bufsz, self->tar_file_rem );
 
   switch( self->state ) {
+  case SNAP_STATE_ACCOUNT_DATA:
+    buf_next = fd_snapshot_parser_read_account_chunk( self, buf, bufsz );
+    break;
+  case SNAP_STATE_ACCOUNT_HDR:
+    buf_next = fd_snapshot_parser_read_account_hdr_chunk( self, buf, bufsz );
+    break;
   case SNAP_STATE_IGNORE:
     buf_next = fd_snapshot_parser_read_discard( self, buf, bufsz );
     break;
   case SNAP_STATE_MANIFEST:
     buf_next = fd_snapshot_parser_read_manifest_chunk( self, buf, bufsz );
-    break;
-  case SNAP_STATE_ACCOUNT_HDR:
-    buf_next = fd_snapshot_parser_read_account_hdr_chunk( self, buf, bufsz );
-    break;
-  case SNAP_STATE_ACCOUNT_DATA:
-    buf_next = fd_snapshot_parser_read_account_chunk( self, buf, bufsz );
     break;
   default:
     FD_LOG_ERR(( "Invalid parser state %u (this is a bug)", self->state ));

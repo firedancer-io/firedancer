@@ -8,10 +8,8 @@
 #include "../../disco/topo/fd_cpu_topo.h"
 #include "../../util/pod/fd_pod_format.h"
 #include "../../flamenco/runtime/fd_blockstore.h"
-#include "../../flamenco/runtime/fd_txncache.h"
-#include "../../flamenco/snapshot/fd_snapshot_base.h"
 #include "../../util/tile/fd_tile_private.h"
-#include "../../discof/restore/utils/fd_snapshot_messages.h"
+#include "../../discof/restore/utils/fd_ssmsg.h"
 
 #include <sys/random.h>
 #include <sys/types.h>
@@ -388,17 +386,17 @@ fd_topo_initialize( config_t * config ) {
   /**/                 fd_topob_link( topo, "pack_replay",  "pack_replay",  65536UL,                                  USHORT_MAX,                    1UL   );
   /**/                 fd_topob_link( topo, "poh_pack",     "replay_poh",   128UL,                                    sizeof(fd_became_leader_t) ,   1UL   );
 
-  /**/                 fd_topob_link( topo, "tower_send",   "tower_send", 65536UL,                                  sizeof(fd_txn_p_t),            1UL   );
-  /**/                 fd_topob_link( topo, "send_txns",    "send_txns",  128UL,                                    FD_TXN_MTU,                    1UL   );
-  /**/                 fd_topob_link( topo, "send_sign",    "send_sign",  128UL,                                    FD_TXN_MTU,                    1UL   );
-  /**/                 fd_topob_link( topo, "sign_send",    "sign_send",  128UL,                                    64UL,                          1UL   );
+  /**/                 fd_topob_link( topo, "tower_send",   "tower_send",   65536UL,                                  sizeof(fd_txn_p_t),            1UL   );
+  /**/                 fd_topob_link( topo, "send_txns",    "send_txns",    128UL,                                    FD_TXN_MTU,                    1UL   );
+  /**/                 fd_topob_link( topo, "send_sign",    "send_sign",    128UL,                                    FD_TXN_MTU,                    1UL   );
+  /**/                 fd_topob_link( topo, "sign_send",    "sign_send",    128UL,                                    64UL,                          1UL   );
 
-  /* Snapshot tiles links */
-  fd_topob_link( topo, "snap_zstd",   "snap_zstd",   512UL, 16384UL,                        1UL );
-  fd_topob_link( topo, "snap_stream", "snap_stream", 512UL, USHORT_MAX,                     1UL );
-  fd_topob_link( topo, "snap_out",    "snap_out",    128UL, sizeof(fd_snapshot_manifest_t), 1UL );
-  fd_topob_link( topo, "snapdc_rd",   "snapdc_rd",   128UL, 0UL,                            1UL );
-  fd_topob_link( topo, "snapin_rd",   "snapin_rd",   128UL, 0UL,                            1UL );
+  FD_TEST( sizeof(fd_snapshot_manifest_t)<=(5UL*(1UL<<30UL)) );
+  /**/                 fd_topob_link( topo, "snap_zstd",    "snap_zstd",    8192UL,                                   16384UL,                       1UL );
+  /**/                 fd_topob_link( topo, "snap_stream",  "snap_stream",  2048UL,                                   USHORT_MAX,                    1UL );
+  /**/                 fd_topob_link( topo, "snap_out",     "snap_out",     2UL,                                      5UL*(1UL<<30UL),               1UL );
+  /**/                 fd_topob_link( topo, "snapdc_rd",    "snapdc_rd",    128UL,                                    0UL,                           1UL );
+  /**/                 fd_topob_link( topo, "snapin_rd",    "snapin_rd",    128UL,                                    0UL,                           1UL );
 
   /* Replay decoded manifest dcache topo obj */
   fd_topo_obj_t * replay_manifest_dcache = fd_topob_obj( topo, "dcache", "replay_manif" );
@@ -1004,7 +1002,6 @@ fd_topo_configure_tile( fd_topo_tile_t * tile,
       tile->replay.dump_block_to_pb = config->capture.dump_block_to_pb;
 
       FD_TEST( tile->replay.funk_obj_id == fd_pod_query_ulong( config->topo.props, "funk", ULONG_MAX ) );
-      tile->replay.manifest_dcache_obj_id = fd_pod_query_ulong( config->topo.props, "manifest_dcache", ULONG_MAX );
 
     } else if( FD_UNLIKELY( !strcmp( tile->name, "sign" ) ) ) {
       strncpy( tile->sign.identity_key_path, config->paths.identity_key, sizeof(tile->sign.identity_key_path) );
@@ -1075,7 +1072,6 @@ fd_topo_configure_tile( fd_topo_tile_t * tile,
 
     } else if( FD_UNLIKELY( !strcmp( tile->name, "snapin" ) ) ) {
       tile->snapin.funk_obj_id            = fd_pod_query_ulong( config->topo.props, "funk",      ULONG_MAX );
-      tile->snapin.manifest_dcache_obj_id = fd_pod_query_ulong( config->topo.props, "manifest_dcache", ULONG_MAX );
     } else if( FD_UNLIKELY( !strcmp( tile->name, "arch_f" ) ||
                             !strcmp( tile->name, "arch_w" ) ) ) {
       strncpy( tile->archiver.rocksdb_path, config->tiles.archiver.rocksdb_path, sizeof(tile->archiver.rocksdb_path) );

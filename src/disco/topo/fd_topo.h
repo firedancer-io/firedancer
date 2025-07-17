@@ -471,7 +471,6 @@ struct fd_topo_tile {
 
     struct {
       ulong funk_obj_id;
-      ulong manifest_dcache_obj_id;
     } snapin;
 
   };

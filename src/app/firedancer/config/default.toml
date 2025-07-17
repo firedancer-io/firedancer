@@ -368,7 +368,7 @@ user = ""
     # Each Solana account uses at least one record.  Additional records
     # are used for account changes that are not yet finalized by
     # consensus (typically takes 13 seconds).
-    max_account_records = 150_000_000
+    max_account_records = 300_000_000
 
     # The max amount of concurrent database transactions.  These are
     # used to track conflicting versions of accounts until such

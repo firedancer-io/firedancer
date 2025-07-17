@@ -1,4 +1,5 @@
-#include "fd_snapshot_messages.h"
+#include "fd_ssmsg.h"
+
 #include "../../../flamenco/types/fd_types.h"
 
 static void
@@ -11,9 +12,10 @@ fd_snapshot_manifest_init_epoch_stakes_elem( fd_snapshot_manifest_t *           
   fd_stake_pair_t_mapnode_t * stake_delegations_root = fd_stakes_stake_stake_delegations_root_join( &epoch_stakes->inner.Current.stakes );
   snapshot_manifest->epoch_stakes[idx].stakes_len = fd_stake_pair_t_map_size( stake_delegations_pool,
                                                                               stake_delegations_pool );
-  if( snapshot_manifest->epoch_stakes[idx].stakes_len > 61024 * 1024UL ) {
-    FD_LOG_ERR(("resize snapshot manifest stakes len to be at least %lu", snapshot_manifest->epoch_stakes[idx].stakes_len ));
-  }
+
+  ulong num_stake_delegations = fd_stake_pair_t_map_size( stake_delegations_pool, stake_delegations_root );
+  if( FD_UNLIKELY( num_stake_delegations>MAX_STAKE_DELEGATIONS ) ) FD_LOG_ERR(( "too many stake delegations (%lu) max is %lu", num_stake_delegations, MAX_STAKE_DELEGATIONS ));
+
   ulong i = 0UL;
   for ( fd_stake_pair_t_mapnode_t * n = fd_stake_pair_t_map_minimum( stake_delegations_pool,
                                                                      stake_delegations_root);
@@ -21,6 +23,8 @@ fd_snapshot_manifest_init_epoch_stakes_elem( fd_snapshot_manifest_t *           
         n = fd_stake_pair_t_map_successor( stake_delegations_pool, n ) ) {
     fd_pubkey_t const * stake_account_pubkey = &n->elem.account;
     fd_pubkey_t const * vote_account_pubkey  = &n->elem.stake.delegation.voter_pubkey;
+    FD_TEST( idx<sizeof(snapshot_manifest->epoch_stakes)/sizeof(snapshot_manifest->epoch_stakes[0]) );
+    FD_TEST( i<sizeof(snapshot_manifest->epoch_stakes[idx].stakes)/sizeof(snapshot_manifest->epoch_stakes[idx].stakes[0]) );
     fd_memcpy( snapshot_manifest->epoch_stakes[idx].stakes[i].vote_account_pubkey, vote_account_pubkey, sizeof(fd_pubkey_t) );
     fd_memcpy( snapshot_manifest->epoch_stakes[idx].stakes[i].stake_account_pubkey, stake_account_pubkey, sizeof(fd_pubkey_t) );
     snapshot_manifest->epoch_stakes[idx].stakes[i].stake = n->elem.stake.delegation.stake;
@@ -76,13 +80,21 @@ fd_snapshot_manifest_init_vote_accounts( fd_snapshot_manifest_t *       snapshot
     fd_pubkey_t const * pubkey = &n->elem.key;
     fd_memcpy( snapshot_manifest->vote_accounts[i].vote_account_pubkey, pubkey, sizeof(fd_pubkey_t) );
 
-    int err;
-    fd_scratch_push();
-    fd_vote_state_versioned_t * vs = fd_bincode_decode_scratch( vote_state_versioned,
-                                                                 (uchar *)( (uchar *)&n->elem.value + n->elem.value.data_offset ),
-                                                                 n->elem.value.data_len,
-                                                                 &err );
-    fd_scratch_pop();
+    void const * const buf_    = ((uchar *)( (uchar *)&n->elem.value + n->elem.value.data_offset ));
+    ulong        const buf_sz_ = (n->elem.value.data_len);
+
+    fd_bincode_decode_ctx_t ctx = {
+      .data    = (void const *)( buf_ ),
+      .dataend = (void const *)( (ulong)ctx.data + buf_sz_ )
+    };
+
+    ulong total_sz = 0UL;
+    int err = fd_vote_state_versioned_decode_footprint( &ctx, &total_sz );
+
+    uchar scratch[ 1UL<<20UL ] __attribute__((aligned(FD_VOTE_STATE_VERSIONED_ALIGN)));
+    FD_TEST( err==FD_BINCODE_SUCCESS && total_sz<=sizeof(scratch ) );
+    fd_vote_state_versioned_t * vs = fd_vote_state_versioned_decode( scratch, &ctx );
+
     fd_vote_epoch_credits_t * epoch_credits;
     uchar commission;
     switch( vs->discriminant ) {
