@@ -37,7 +37,6 @@ struct fd_writer_tile_ctx {
   /* Runtime public and local joins of its members. */
   fd_wksp_t const *           runtime_public_wksp;
   fd_runtime_public_t const * runtime_public;
-  fd_spad_t const *           runtime_spad;
 
   /* Local joins of exec spads.  Read-only. */
   fd_spad_t *                 exec_spad[ FD_PACK_MAX_BANK_TILES ];
@@ -285,11 +284,6 @@ unprivileged_init( fd_topo_t *      topo,
   ctx->runtime_public = fd_runtime_public_join( fd_topo_obj_laddr( topo, runtime_obj_id ) );
   if( FD_UNLIKELY( !ctx->runtime_public ) ) {
     FD_LOG_ERR(( "Failed to join runtime public" ));
-  }
-
-  ctx->runtime_spad = fd_runtime_public_spad( ctx->runtime_public );
-  if( FD_UNLIKELY( !ctx->runtime_spad ) ) {
-    FD_LOG_ERR(( "Failed to get and join runtime spad" ));
   }
 
   /********************************************************************/
