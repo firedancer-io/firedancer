@@ -2151,11 +2151,16 @@ fd_runtime_process_new_epoch( fd_exec_slot_ctx_t * slot_ctx,
 
   /* Distribute rewards */
 
-  fd_block_hash_queue_global_t const * bhq              = fd_bank_block_hash_queue_query( slot_ctx->bank );
-  fd_hash_t const *                    parent_blockhash = fd_block_hash_queue_last_hash_join( bhq );
+  fd_hash_t parent_blockhash = {0};
+  {
+    fd_blockhashes_t const * bhq = fd_bank_block_hash_queue_query( slot_ctx->bank );
+    fd_hash_t const * bhq_last = fd_blockhashes_peek_last( bhq );
+    FD_TEST( bhq_last );
+    parent_blockhash = *bhq_last;
+  }
 
   fd_begin_partitioned_rewards( slot_ctx,
-                                parent_blockhash,
+                                &parent_blockhash,
                                 parent_epoch,
                                 &temp_info,
                                 exec_spads,
@@ -2483,25 +2488,15 @@ fd_runtime_init_bank_from_genesis( fd_exec_slot_ctx_t *        slot_ctx,
 
   fd_bank_inflation_set( slot_ctx->bank, genesis_block->inflation );
 
-  fd_block_hash_queue_global_t *      block_hash_queue = (fd_block_hash_queue_global_t *)&slot_ctx->bank->block_hash_queue[0];
-  uchar *                             last_hash_mem    = (uchar *)fd_ulong_align_up( (ulong)block_hash_queue + sizeof(fd_block_hash_queue_global_t), alignof(fd_hash_t) );
-  uchar *                             ages_pool_mem    = (uchar *)fd_ulong_align_up( (ulong)last_hash_mem + sizeof(fd_hash_t), fd_hash_hash_age_pair_t_map_align() );
-  fd_hash_hash_age_pair_t_mapnode_t * ages_pool        = fd_hash_hash_age_pair_t_map_join( fd_hash_hash_age_pair_t_map_new( ages_pool_mem, 400 ) );
-  fd_hash_hash_age_pair_t_mapnode_t * ages_root        = NULL;
-
-  fd_hash_hash_age_pair_t_mapnode_t * node = fd_hash_hash_age_pair_t_map_acquire( ages_pool );
-  node->elem = (fd_hash_hash_age_pair_t){
-    .key = *genesis_hash,
-    .val = (fd_hash_age_t){ .hash_index = 0UL, .fee_calculator = (fd_fee_calculator_t){ .lamports_per_signature = 0UL }, .timestamp = (ulong)fd_log_wallclock() }
-  };
-  fd_hash_hash_age_pair_t_map_insert( ages_pool, &ages_root, node );
-  fd_memcpy( last_hash_mem, genesis_hash, FD_HASH_FOOTPRINT );
-
-  block_hash_queue->last_hash_index  = 0UL;
-  block_hash_queue->last_hash_offset = (ulong)last_hash_mem - (ulong)block_hash_queue;
-  block_hash_queue->ages_pool_offset = (ulong)fd_hash_hash_age_pair_t_map_leave( ages_pool ) - (ulong)block_hash_queue;
-  block_hash_queue->ages_root_offset = (ulong)ages_root - (ulong)block_hash_queue;
-  block_hash_queue->max_age          = FD_BLOCKHASH_QUEUE_MAX_ENTRIES;
+  {
+    /* FIXME Why is there a previous blockhash at genesis?  Why is the
+             last_hash field an option type in Agave, if even the first
+             real block has a previous blockhash? */
+    ulong seed; FD_TEST( fd_rng_secure( &seed, sizeof(ulong) ) );
+    fd_blockhashes_t *    bhq  = fd_blockhashes_init( fd_bank_block_hash_queue_modify( slot_ctx->bank ), seed );
+    fd_blockhash_info_t * info = fd_blockhashes_push_new( bhq, genesis_hash );
+    info->fee_calculator.lamports_per_signature = 0UL;
+  }
 
   fd_bank_fee_rate_governor_set( slot_ctx->bank, genesis_block->fee_rate_governor );
 

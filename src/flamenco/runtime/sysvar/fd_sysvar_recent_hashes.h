@@ -13,6 +13,13 @@
 
 #define FD_SYSVAR_RECENT_HASHES_CAP (150UL)
 
+/* FD_SYSVAR_RECENT_HASHES_BINCODE_SZ is the serialized size of the
+   recent block hashes sysvar account.  (static/hardcoded)
+
+   Agave v2.2.1: https://github.com/anza-xyz/solana-sdk/blob/slot-history%40v2.2.1/sysvar/src/recent_blockhashes.rs#L157 */
+
+#define FD_SYSVAR_RECENT_HASHES_BINCODE_SZ (6008UL)
+
 FD_PROTOTYPES_BEGIN
 
 /* The recent hashes sysvar */
@@ -32,7 +39,7 @@ fd_sysvar_recent_hashes_update( fd_exec_slot_ctx_t * slot_ctx,
    If the account doesn't exist in funk or if the account has zero
    lamports, this function returns NULL. */
 
-fd_recent_block_hashes_global_t *
+fd_recent_block_hashes_t *
 fd_sysvar_recent_hashes_read( fd_funk_t * funk, fd_funk_txn_t * funk_txn, fd_spad_t * spad );
 
 FD_PROTOTYPES_END

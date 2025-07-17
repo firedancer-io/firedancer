@@ -71,64 +71,6 @@ FD_FN_UNUSED static fd_hash_hash_age_pair_t * fd_block_hash_vec_ages_join( fd_bl
 FD_FN_UNUSED static void fd_block_hash_vec_ages_update( fd_block_hash_vec_global_t * struct_mem, fd_hash_hash_age_pair_t * vec ) {
   struct_mem->ages_offset = !!vec ? (ulong)vec - (ulong)struct_mem : 0UL;
 }
-typedef struct fd_hash_hash_age_pair_t_mapnode fd_hash_hash_age_pair_t_mapnode_t;
-#define REDBLK_T fd_hash_hash_age_pair_t_mapnode_t
-#define REDBLK_NAME fd_hash_hash_age_pair_t_map
-#define REDBLK_IMPL_STYLE 1
-#include "../../util/tmpl/fd_redblack.c"
-struct fd_hash_hash_age_pair_t_mapnode {
-    fd_hash_hash_age_pair_t elem;
-    ulong redblack_parent;
-    ulong redblack_left;
-    ulong redblack_right;
-    int redblack_color;
-};
-static inline fd_hash_hash_age_pair_t_mapnode_t *
-fd_hash_hash_age_pair_t_map_join_new( void * * alloc_mem, ulong len ) {
-  if( FD_UNLIKELY( 0 == len ) ) len = 1; // prevent underflow
-  *alloc_mem = (void*)fd_ulong_align_up( (ulong)*alloc_mem, fd_hash_hash_age_pair_t_map_align() );
-  void * map_mem = *alloc_mem;
-  *alloc_mem = (uchar *)*alloc_mem + fd_hash_hash_age_pair_t_map_footprint( len );
-  return fd_hash_hash_age_pair_t_map_join( fd_hash_hash_age_pair_t_map_new( map_mem, len ) );
-}
-/* Encoded Size: Dynamic */
-struct __attribute__((aligned(128UL))) fd_block_hash_queue {
-  ulong last_hash_index;
-  fd_hash_t * last_hash;
-  fd_hash_hash_age_pair_t_mapnode_t * ages_pool;
-  fd_hash_hash_age_pair_t_mapnode_t * ages_root;
-  ulong max_age;
-};
-typedef struct fd_block_hash_queue fd_block_hash_queue_t;
-#define FD_BLOCK_HASH_QUEUE_ALIGN (128UL)
-
-struct __attribute__((aligned(128UL))) fd_block_hash_queue_global {
-  ulong last_hash_index;
-  ulong last_hash_offset;
-  ulong ages_pool_offset;
-  ulong ages_root_offset;
-  ulong max_age;
-};
-typedef struct fd_block_hash_queue_global fd_block_hash_queue_global_t;
-#define FD_BLOCK_HASH_QUEUE_GLOBAL_ALIGN (128UL)
-
-FD_FN_UNUSED static fd_hash_t * fd_block_hash_queue_last_hash_join( fd_block_hash_queue_global_t const * struct_mem ) {
-  return struct_mem->last_hash_offset ? (fd_hash_t *)fd_type_pun( (uchar *)struct_mem + struct_mem->last_hash_offset ) : NULL;
-}
-static FD_FN_UNUSED fd_hash_hash_age_pair_t_mapnode_t * fd_block_hash_queue_ages_pool_join( fd_block_hash_queue_global_t const * type ) {
-  if( FD_UNLIKELY( !type ) ) return NULL;
-  return !!type->ages_pool_offset ? (fd_hash_hash_age_pair_t_mapnode_t *)fd_hash_hash_age_pair_t_map_join( fd_type_pun( (uchar *)type + type->ages_pool_offset ) ) : NULL;
-}
-static FD_FN_UNUSED fd_hash_hash_age_pair_t_mapnode_t * fd_block_hash_queue_ages_root_join( fd_block_hash_queue_global_t const * type ) {
-  if( FD_UNLIKELY( !type ) ) return NULL;
-  return !!type->ages_root_offset ? (fd_hash_hash_age_pair_t_mapnode_t *)fd_type_pun( (uchar *)type + type->ages_root_offset ) : NULL;
-}
-static FD_FN_UNUSED void fd_block_hash_queue_ages_pool_update( fd_block_hash_queue_global_t * type, fd_hash_hash_age_pair_t_mapnode_t * pool ) {
-  type->ages_pool_offset = !!pool ? (ulong)fd_hash_hash_age_pair_t_map_leave( pool ) - (ulong)type : 0UL;
-}
-static FD_FN_UNUSED void fd_block_hash_queue_ages_root_update( fd_block_hash_queue_global_t * type, fd_hash_hash_age_pair_t_mapnode_t * root ) {
-  type->ages_root_offset = !!root ? (ulong)root - (ulong)type : 0UL;
-}
 /* Encoded Size: Fixed (33 bytes) */
 struct fd_fee_rate_governor {
   ulong target_lamports_per_signature;
@@ -3710,17 +3652,6 @@ void * fd_block_hash_vec_decode( void * mem, fd_bincode_decode_ctx_t * ctx );
 void * fd_block_hash_vec_decode_global( void * mem, fd_bincode_decode_ctx_t * ctx );
 int fd_block_hash_vec_encode_global( fd_block_hash_vec_global_t const * self, fd_bincode_encode_ctx_t * ctx );
 ulong fd_block_hash_vec_size_global( fd_block_hash_vec_global_t const * self );
-
-void fd_block_hash_queue_new( fd_block_hash_queue_t * self );
-int fd_block_hash_queue_encode( fd_block_hash_queue_t const * self, fd_bincode_encode_ctx_t * ctx );
-void fd_block_hash_queue_walk( void * w, fd_block_hash_queue_t const * self, fd_types_walk_fn_t fun, const char *name, uint level, uint varint );
-ulong fd_block_hash_queue_size( fd_block_hash_queue_t const * self );
-static inline ulong fd_block_hash_queue_align( void ) { return FD_BLOCK_HASH_QUEUE_ALIGN; }
-int fd_block_hash_queue_decode_footprint( fd_bincode_decode_ctx_t * ctx, ulong * total_sz );
-void * fd_block_hash_queue_decode( void * mem, fd_bincode_decode_ctx_t * ctx );
-void * fd_block_hash_queue_decode_global( void * mem, fd_bincode_decode_ctx_t * ctx );
-int fd_block_hash_queue_encode_global( fd_block_hash_queue_global_t const * self, fd_bincode_encode_ctx_t * ctx );
-ulong fd_block_hash_queue_size_global( fd_block_hash_queue_global_t const * self );
 
 static inline void fd_fee_rate_governor_new( fd_fee_rate_governor_t * self ) { fd_memset( self, 0, sizeof(fd_fee_rate_governor_t) ); }
 int fd_fee_rate_governor_encode( fd_fee_rate_governor_t const * self, fd_bincode_encode_ctx_t * ctx );
