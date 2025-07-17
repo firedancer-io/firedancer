@@ -1264,11 +1264,6 @@ fd_runtime_update_lthash_with_account( fd_funk_t *        funk,
     account->vt->get_data( account ),
     new_hash );
 
-  /* FIXME: when should we remove accounts from funk? Should probably move this to txn_account_save */
-  if( FD_UNLIKELY( account->vt->get_lamports( account ) == 0 ) ) {
-    fd_funk_rec_remove( funk, funk_txn, fd_type_pun_const( account->pubkey ), NULL, funk_txn->xid.ul[0] );
-  }
-
   /* Add the new hash of the account to the bank lthash */
   fd_lthash_add( bank_lthash, new_hash );
 
