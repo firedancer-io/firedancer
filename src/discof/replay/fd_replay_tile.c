@@ -1063,7 +1063,7 @@ handle_writer_state_updates( fd_replay_tile_ctx_t * ctx ) {
     uint state = fd_writer_fseq_get_state( res );
     switch( state ) {
       case FD_WRITER_STATE_NOT_BOOTED:
-        FD_LOG_WARNING(( "writer tile idx=%lu is still booting", i ));
+        // FD_LOG_WARNING(( "writer tile idx=%lu is still booting", i ));
         break;
       case FD_WRITER_STATE_READY:
         /* No-op. */

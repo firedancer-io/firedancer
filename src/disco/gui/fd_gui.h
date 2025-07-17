@@ -42,6 +42,14 @@
 #define FD_GUI_START_PROGRESS_TYPE_WAITING_FOR_SUPERMAJORITY          (11)
 #define FD_GUI_START_PROGRESS_TYPE_RUNNING                            (12)
 
+#define FD_GUI_BOOT_PROGRESS_TYPE_JOINING_GOSSIP               ( 0)
+#define FD_GUI_BOOT_PROGRESS_TYPE_LOADING_FULL_SNAPSHOT        ( 1)
+#define FD_GUI_BOOT_PROGRESS_TYPE_LOADING_INCREMENTAL_SNAPSHOT ( 2)
+#define FD_GUI_BOOT_PROGRESS_TYPE_CATCHING_UP                  ( 3)
+#define FD_GUI_BOOT_PROGRESS_TYPE_RUNNING                      ( 4)
+
+#define FD_GUI_EMA_FILTER_ALPHA ((double)0.05)
+
 /* Ideally, we would store an entire epoch's worth of transactions.  If
    we assume any given validator will have at most 5% stake, and average
    transactions per slot is around 10_000, then an epoch will have about
@@ -287,6 +295,7 @@ struct fd_gui {
     char vote_key_base58[ FD_BASE58_ENCODED_32_SZ ];
     char identity_key_base58[ FD_BASE58_ENCODED_32_SZ ];
 
+    int          is_full_client;
     char const * version;
     char const * cluster;
 
@@ -295,32 +304,73 @@ struct fd_gui {
 
     long  startup_time_nanos;
 
-    uchar startup_progress;
-    int   startup_got_full_snapshot;
+    union {
+      struct {
+        uchar phase;
+        int   startup_got_full_snapshot;
 
-    ulong  startup_incremental_snapshot_slot;
-    uint   startup_incremental_snapshot_peer_ip_addr;
-    ushort startup_incremental_snapshot_peer_port;
-    double startup_incremental_snapshot_elapsed_secs;
-    double startup_incremental_snapshot_remaining_secs;
-    double startup_incremental_snapshot_throughput;
-    ulong  startup_incremental_snapshot_total_bytes;
-    ulong  startup_incremental_snapshot_current_bytes;
+        ulong  startup_incremental_snapshot_slot;
+        uint   startup_incremental_snapshot_peer_ip_addr;
+        ushort startup_incremental_snapshot_peer_port;
+        double startup_incremental_snapshot_elapsed_secs;
+        double startup_incremental_snapshot_remaining_secs;
+        double startup_incremental_snapshot_throughput;
+        ulong  startup_incremental_snapshot_total_bytes;
+        ulong  startup_incremental_snapshot_current_bytes;
 
-    ulong  startup_full_snapshot_slot;
-    uint   startup_full_snapshot_peer_ip_addr;
-    ushort startup_full_snapshot_peer_port;
-    double startup_full_snapshot_elapsed_secs;
-    double startup_full_snapshot_remaining_secs;
-    double startup_full_snapshot_throughput;
-    ulong  startup_full_snapshot_total_bytes;
-    ulong  startup_full_snapshot_current_bytes;
+        ulong  startup_full_snapshot_slot;
+        uint   startup_full_snapshot_peer_ip_addr;
+        ushort startup_full_snapshot_peer_port;
+        double startup_full_snapshot_elapsed_secs;
+        double startup_full_snapshot_remaining_secs;
+        double startup_full_snapshot_throughput;
+        ulong  startup_full_snapshot_total_bytes;
+        ulong  startup_full_snapshot_current_bytes;
 
-    ulong startup_ledger_slot;
-    ulong startup_ledger_max_slot;
+        ulong startup_ledger_slot;
+        ulong startup_ledger_max_slot;
 
-    ulong startup_waiting_for_supermajority_slot;
-    ulong startup_waiting_for_supermajority_stake_pct;
+        ulong startup_waiting_for_supermajority_slot;
+        ulong startup_waiting_for_supermajority_stake_pct;
+      } startup_progress;
+      struct {
+        uchar phase;
+        long joining_gossip_time_nanos;
+        struct {
+          ulong  slot;
+          uint   peer_ip_addr;
+          ushort peer_port;
+          ulong  total_bytes; /* compressed */
+          long   reset_time_nanos; /* since this phase can reset, we keep a reset timestamp for proper timekeeping */
+          long   sample_time_nanos;
+          ulong  reset_cnt;
+
+          ulong  read_bytes; /* compressed */
+          double read_throughput_ema; /* EMA filtered throughput, in compressed bytes / ns */
+          long   read_remaining_nanos;
+          char   read_path[ PATH_MAX ];
+
+          ulong  decompress_decompressed_bytes; /* decompressed */
+          ulong  decompress_compressed_bytes; /* compressed */
+          double decompress_throughput_ema; /* compressed */
+          long   decompress_remaining_nanos;
+
+          ulong  insert_bytes; /* decompressed */
+          double insert_throughput_ema; /* decompressed */
+          long   insert_remaining_nanos;
+          char   insert_path[ PATH_MAX ];
+          ulong  insert_accounts_current;
+          double insert_accounts_throughput_ema;
+        } loading_full_snapshot, loading_incremental_snapshot;
+
+        long  catching_up_time_nanos;
+        ulong catching_up_min_turbine_slot;
+        ulong catching_up_max_turbine_slot;
+        ulong catching_up_min_repair_slot;
+        ulong catching_up_max_repair_slot;
+        ulong catching_up_max_replay_slot;
+      } boot_progress;
+    };
 
     int schedule_strategy;
 
@@ -426,6 +476,7 @@ fd_gui_new( void *             shmem,
             uchar const *      identity_key,
             int                has_vote_key,
             uchar const *      vote_key,
+            int                is_full_client,
             int                is_voting,
             int                schedule_strategy,
             fd_topo_t *        topo );

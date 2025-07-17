@@ -27,11 +27,11 @@
 #define FD_SNAPRD_STATE_READING_FULL_FILE         ( 2) /* Full file looks better than peer, reading it from disk */
 #define FD_SNAPRD_STATE_FLUSHING_FULL_FILE        ( 3) /* Full file was read ok, confirm it decompressed and inserted ok */
 #define FD_SNAPRD_STATE_FLUSHING_FULL_FILE_RESET  ( 4) /* Resetting to load full snapshot from file again, confirm decompress and inserter are reset too */
-#define FD_SNAPRD_STATE_READING_INCREMENTAL_FILE  ( 5) /* Incremental file looks better than peer, reading it from disk */
-#define FD_SNAPRD_STATE_FLUSHING_INCREMENTAL_FILE ( 6) /* Incremental file was read ok, confirm it decompressed and inserted ok */
-#define FD_SNAPRD_STATE_READING_FULL_HTTP         ( 7) /* Peer was selected, reading full snapshot from HTTP */
-#define FD_SNAPRD_STATE_FLUSHING_FULL_HTTP        ( 8) /* Full snapshot was downloaded ok, confirm it decompressed and inserted ok */
-#define FD_SNAPRD_STATE_FLUSHING_FULL_HTTP_RESET  ( 9) /* Resetting to load full snapshot from HTTP again, confirm decompress and inserter are reset too */
+#define FD_SNAPRD_STATE_READING_FULL_HTTP         ( 5) /* Peer was selected, reading full snapshot from HTTP */
+#define FD_SNAPRD_STATE_FLUSHING_FULL_HTTP        ( 6) /* Full snapshot was downloaded ok, confirm it decompressed and inserted ok */
+#define FD_SNAPRD_STATE_FLUSHING_FULL_HTTP_RESET  ( 7) /* Resetting to load full snapshot from HTTP again, confirm decompress and inserter are reset too */
+#define FD_SNAPRD_STATE_READING_INCREMENTAL_FILE  ( 8) /* Incremental file looks better than peer, reading it from disk */
+#define FD_SNAPRD_STATE_FLUSHING_INCREMENTAL_FILE ( 9) /* Incremental file was read ok, confirm it decompressed and inserted ok */
 #define FD_SNAPRD_STATE_READING_INCREMENTAL_HTTP  (10) /* Peer was selected, reading incremental snapshot from HTTP */
 #define FD_SNAPRD_STATE_FLUSHING_INCREMENTAL_HTTP (11) /* Incremental snapshot was downloaded ok, confirm it decompressed and inserted ok */
 #define FD_SNAPRD_STATE_SHUTDOWN                  (12) /* The tile is done, and has likely already exited */

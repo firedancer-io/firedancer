@@ -7,6 +7,7 @@
    messages into the GUI outgoing message buffer, where they can be sent
    to a specific WebSocket client, or broadcast out to all clients. */
 
+void fd_gui_printf_client( fd_gui_t * gui );
 void fd_gui_printf_version( fd_gui_t * gui );
 void fd_gui_printf_cluster( fd_gui_t * gui );
 void fd_gui_printf_commit_hash( fd_gui_t * gui );
@@ -18,6 +19,7 @@ void fd_gui_printf_vote_distance( fd_gui_t * gui );
 void fd_gui_printf_skipped_history( fd_gui_t * gui );
 void fd_gui_printf_tps_history( fd_gui_t * gui );
 void fd_gui_printf_startup_progress( fd_gui_t * gui );
+void fd_gui_printf_boot_progress( fd_gui_t * gui );
 void fd_gui_printf_block_engine( fd_gui_t * gui );
 void fd_gui_printf_tiles( fd_gui_t * gui );
 void fd_gui_printf_schedule_strategy( fd_gui_t * gui );
