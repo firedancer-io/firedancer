@@ -42,6 +42,12 @@
 #define FD_GUI_START_PROGRESS_TYPE_WAITING_FOR_SUPERMAJORITY          (11)
 #define FD_GUI_START_PROGRESS_TYPE_RUNNING                            (12)
 
+#define FD_GUI_BOOT_PROGRESS_TYPE_JOINING_GOSSIP        ( 0)
+#define FD_GUI_BOOT_PROGRESS_TYPE_LOADING_FULL_SNAPSHOT ( 1)
+#define FD_GUI_BOOT_PROGRESS_TYPE_LOADING_INCR_SNAPSHOT ( 2)
+#define FD_GUI_BOOT_PROGRESS_TYPE_CATCHING_UP           ( 3)
+#define FD_GUI_BOOT_PROGRESS_TYPE_RUNNING               ( 4)
+
 /* Ideally, we would store an entire epoch's worth of transactions.  If
    we assume any given validator will have at most 5% stake, and average
    transactions per slot is around 10_000, then an epoch will have about
@@ -287,6 +293,7 @@ struct fd_gui {
     char vote_key_base58[ FD_BASE58_ENCODED_32_SZ ];
     char identity_key_base58[ FD_BASE58_ENCODED_32_SZ ];
 
+    int          is_full_client;
     char const * version;
     char const * cluster;
 
@@ -295,32 +302,98 @@ struct fd_gui {
 
     long  startup_time_nanos;
 
-    uchar startup_progress;
-    int   startup_got_full_snapshot;
+    union {
+      struct {
+        uchar phase;
+        int   startup_got_full_snapshot;
 
-    ulong  startup_incremental_snapshot_slot;
-    uint   startup_incremental_snapshot_peer_ip_addr;
-    ushort startup_incremental_snapshot_peer_port;
-    double startup_incremental_snapshot_elapsed_secs;
-    double startup_incremental_snapshot_remaining_secs;
-    double startup_incremental_snapshot_throughput;
-    ulong  startup_incremental_snapshot_total_bytes;
-    ulong  startup_incremental_snapshot_current_bytes;
+        ulong  startup_incremental_snapshot_slot;
+        uint   startup_incremental_snapshot_peer_ip_addr;
+        ushort startup_incremental_snapshot_peer_port;
+        double startup_incremental_snapshot_elapsed_secs;
+        double startup_incremental_snapshot_remaining_secs;
+        double startup_incremental_snapshot_throughput;
+        ulong  startup_incremental_snapshot_total_bytes;
+        ulong  startup_incremental_snapshot_current_bytes;
 
-    ulong  startup_full_snapshot_slot;
-    uint   startup_full_snapshot_peer_ip_addr;
-    ushort startup_full_snapshot_peer_port;
-    double startup_full_snapshot_elapsed_secs;
-    double startup_full_snapshot_remaining_secs;
-    double startup_full_snapshot_throughput;
-    ulong  startup_full_snapshot_total_bytes;
-    ulong  startup_full_snapshot_current_bytes;
+        ulong  startup_full_snapshot_slot;
+        uint   startup_full_snapshot_peer_ip_addr;
+        ushort startup_full_snapshot_peer_port;
+        double startup_full_snapshot_elapsed_secs;
+        double startup_full_snapshot_remaining_secs;
+        double startup_full_snapshot_throughput;
+        ulong  startup_full_snapshot_total_bytes;
+        ulong  startup_full_snapshot_current_bytes;
 
-    ulong startup_ledger_slot;
-    ulong startup_ledger_max_slot;
+        ulong startup_ledger_slot;
+        ulong startup_ledger_max_slot;
 
-    ulong startup_waiting_for_supermajority_slot;
-    ulong startup_waiting_for_supermajority_stake_pct;
+        ulong startup_waiting_for_supermajority_slot;
+        ulong startup_waiting_for_supermajority_stake_pct;
+      } startup_progress;
+      struct {
+        uchar phase;
+        long  total_elapsed_ns;
+
+        long joining_gossip_elapsed_ns;
+
+        ulong  loading_full_snapshot_slot;
+        uint   loading_full_snapshot_peer_ip_addr;
+        ushort loading_full_snapshot_peer_port;
+        char   loading_full_snapshot_peer_identity_pubkey[ FD_BASE58_ENCODED_32_SZ ];
+        long   loading_full_snapshot_elapsed_ns;
+        ulong  loading_full_snapshot_total_bytes;
+        ulong  loading_full_snapshot_current_bytes;
+        ulong  loading_full_snapshot_read_bytes;
+        double loading_full_snapshot_read_throughput;
+        long   loading_full_snapshot_read_remaining_ns;
+        long   loading_full_snapshot_read_elapsed_ns;
+        char   loading_full_snapshot_read_url[ PATH_MAX ];
+        ulong  loading_full_snapshot_decompress_bytes;
+        double loading_full_snapshot_decompress_throughput;
+        long   loading_full_snapshot_decompress_remaining_ns;
+        long   loading_full_snapshot_decompress_elapsed_ns;
+        ulong  loading_full_snapshot_insert_bytes;
+        double loading_full_snapshot_insert_throughput;
+        long   loading_full_snapshot_insert_remaining_ns;
+        long   loading_full_snapshot_insert_elapsed_ns;
+        char   loading_full_snapshot_insert_path[ PATH_MAX ];
+        double loading_full_snapshot_insert_accounts_throughput;
+        ulong  loading_full_snapshot_insert_accounts_total;
+
+        ulong  loading_incr_snapshot_slot;
+        uint   loading_incr_snapshot_peer_ip_addr;
+        ushort loading_incr_snapshot_peer_port;
+        char   loading_incr_snapshot_peer_identity_pubkey[ FD_BASE58_ENCODED_32_SZ ];
+        long   loading_incr_snapshot_elapsed_ns;
+        ulong  loading_incr_snapshot_total_bytes;
+        ulong  loading_incr_snapshot_current_bytes;
+        ulong  loading_incr_snapshot_read_bytes;
+        double loading_incr_snapshot_read_throughput;
+        long   loading_incr_snapshot_read_remaining_ns;
+        long   loading_incr_snapshot_read_elapsed_ns;
+        char   loading_incr_snapshot_read_url[ PATH_MAX ];
+        ulong  loading_incr_snapshot_decompress_bytes;
+        double loading_incr_snapshot_decompress_throughput;
+        long   loading_incr_snapshot_decompress_remaining_ns;
+        long   loading_incr_snapshot_decompress_elapsed_ns;
+        ulong  loading_incr_snapshot_insert_bytes;
+        double loading_incr_snapshot_insert_throughput;
+        long   loading_incr_snapshot_insert_remaining_ns;
+        long   loading_incr_snapshot_insert_elapsed_ns;
+        char   loading_incr_snapshot_insert_path[ PATH_MAX ];
+        double loading_incr_snapshot_insert_accounts_throughput;
+        ulong  loading_incr_snapshot_insert_accounts_total;
+
+        long  catching_up_elapsed_ns;
+        ulong catching_up_min_turbine_slot;
+        ulong catching_up_max_turbine_slot;
+        ulong catching_up_min_repair_slot;
+        ulong catching_up_max_repair_slot;
+        ulong catching_up_min_replay_slot;
+        ulong catching_up_max_replay_slot;
+      } boot_progress;
+    };
 
     int schedule_strategy;
 
@@ -426,6 +499,7 @@ fd_gui_new( void *             shmem,
             uchar const *      identity_key,
             int                has_vote_key,
             uchar const *      vote_key,
+            int                is_full_client,
             int                is_voting,
             int                schedule_strategy,
             fd_topo_t *        topo );

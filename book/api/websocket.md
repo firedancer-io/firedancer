@@ -130,6 +130,35 @@ will be republished to make sure it reflects the new fork choice.
 ### summary
 A set of high level informational fields about the validator.
 
+#### `summary.client`
+| frequency   | type           | example         |
+|-------------|----------------|-----------------|
+| *Once*      | `string`       | "frankendancer" |
+
+The client of the running validator. This can be either `frankendancer`
+or `firedancer`. Certain websocket messages are exclusive to one client
+or the other. Eventually, firedancer will replace frankendancer
+permanently and those messages may be phased out.
+
+##### frankendancer messages
+- summary.startup_progress
+
+##### firedancer messages
+- summary.boot_progress
+- gossip.network_stats
+
+::: details Example
+
+```json
+{
+    "topic": "summary",
+    "key": "client",
+    "value": "frankendancer"
+}
+```
+
+:::
+
 #### `summary.ping`
 | frequency   | type           | example |
 |-------------|----------------|---------|
@@ -324,6 +353,153 @@ The phases are,
 | ledger_max_slot                                 | `number\|null` | If the phase is at least `processing_ledger` or later, this is the maximum slot we need to replay up to in the ledger. Otherwise it is `null` |
 | waiting_for_supermajority_slot                  | `number\|null` | If the phase is at least `waiting_for_supermajority` or later, and we are stopped waiting for supermajority, this is the slot that we are stopped at. Otherwise it is `null` |
 | waiting_for_supermajority_stake_percent         | `number\|null` | If the phase is at least `waiting_for_supermajority` or later, and we are stopped waiting for supermajority, this is the percentage of stake that is currently online and gossiping to our node. Otherwise it is `null`. The validator will proceed with starting up once the stake percent reaches 80 |
+
+#### `summary.boot_progress`
+| frequency       | type              | example |
+|-----------------|-------------------|---------|
+| *Once* + *Live* | `BootProgress`    |  below  |
+
+Information about the validators progress in starting up. There are
+various stages of starting up which the validator goes through in order
+before it is ready.
+
+The phases are,
+
+| Phase                              | Description |
+|------------------------------------|-------------|
+| joining_gossip                     | The validator has just booted and has started looking for RPC services to download snapshots from |
+| loading_full_snapshot              | The validator has found an RPC peer to download a full snapshot.  The snapshot is being downloaded, decompressed, and inserted into the client database |
+| loading_incremental_snapshot       | The validator has found an RPC peer to download a incremental snapshot.  The snapshot is being downloaded, decompressed, and inserted into the client database |
+| catching_up                        | The validator is replaying / repairing an missing slots up to the move tip of the chain |
+| running                            | The validator is fully booted and running normally |
+
+::: details Example
+
+```json
+{
+	"topic": "summary",
+	"key": "boot_progress",
+	"value": {
+        "phase": "loading_full_snapshot",
+        "total_elapsed_ms": "12123",
+        "joining_gossip_elapsed_ms": "9321",
+        "loading_full_snapshot_slot": "291059318",
+        "loading_full_snapshot_peer": "145.40.125.99:8899",
+        "loading_full_snapshot_peer_identity": "Fe4StcZSQ228dKK2hni7aCP7ZprNhj8QKWzFe5usGFYF",
+        "loading_full_snapshot_elapsed_ms": 3213,
+        "loading_full_snapshot_total_bytes": 123456,
+        "loading_full_snapshot_current_bytes": 12345,
+        "loading_full_snapshot_read_bytes": 12345,
+        "loading_full_snapshot_read_throughput": 17193374.123,
+        "loading_full_snapshot_read_remaining_ms": 54321,
+        "loading_full_snapshot_read_elapsed_ms": 12345,
+        "loading_full_snapshot_read_url": "https://192.168.0.1/snapshot-full-123456.tar.zst",
+        "loading_full_snapshot_decompress_bytes": 12345,
+        "loading_full_snapshot_decompress_throughput": 17193374.123,
+        "loading_full_snapshot_decompress_remaining_ms": 54321,
+        "loading_full_snapshot_decompress_elapsed_ms": 12345,
+        "loading_full_snapshot_insert_bytes": 12345,
+        "loading_full_snapshot_insert_throughput": 17193374.123,
+        "loading_full_snapshot_insert_remaining_ms": 54321,
+        "loading_full_snapshot_insert_elapsed_ms": 12345,
+        "loading_full_snapshot_insert_path": "/data/accounts-database",
+        "loading_full_snapshot_insert_accounts_throughput": 1300000,
+        "loading_full_snapshot_insert_accounts_total": 412000000,
+        "loading_incr_snapshot_slot": null,
+        "loading_incr_snapshot_peer": null,
+        "loading_incr_snapshot_peer_identity": null,
+        "loading_incr_snapshot_elapsed_ms": null,
+        "loading_incr_snapshot_total_bytes": null,
+        "loading_incr_snapshot_current_bytes": null,
+        "loading_incr_snapshot_read_bytes": null,
+        "loading_incr_snapshot_read_throughput": null,
+        "loading_incr_snapshot_read_remaining_ms": null,
+        "loading_incr_snapshot_read_elapsed_ms": null,
+        "loading_incr_snapshot_read_url": null,
+        "loading_incr_snapshot_decompress_bytes": null,
+        "loading_incr_snapshot_decompress_throughput": null,
+        "loading_incr_snapshot_decompress_remaining_ms": null,
+        "loading_incr_snapshot_decompress_elapsed_ms": null,
+        "loading_incr_snapshot_insert_bytes": null,
+        "loading_incr_snapshot_insert_throughput": null,
+        "loading_incr_snapshot_insert_remaining_ms": null,
+        "loading_incr_snapshot_insert_elapsed_ms": null,
+        "loading_incr_snapshot_insert_path": null,
+        "loading_incr_snapshot_insert_accounts_throughput": null,
+        "loading_incr_snapshot_insert_accounts_total": null,
+        "catching_up_elapsed_ms": null,
+        "catching_up_min_turbine_slot": null,
+        "catching_up_max_turbine_slot": null,
+        "catching_up_min_repair_slot": null,
+        "catching_up_max_repair_slot": null,
+        "catching_up_min_replay_slot": null,
+        "catching_up_max_replay_slot": null
+	}
+}
+```
+
+:::
+
+**`BootProgress`**
+| Field                                            | Type            | Description |
+|--------------------------------------------------|-----------------|-------------|
+| phase                                            | `string`        | One of `joining_gossip`, `loading_full_snapshot`, `loading_incremental_snapshot`, `catching_up`, or `running`. This indicates the current phase of the boot process. |
+| total_elapsed_ms                                 | `number`        | The total amount of time, in milliseconds, that has elapsed since the boot process began. |
+| joining_gossip_elapsed_ms                        | `number\|null`  | If the phase is `joining_gossip`, this is the duration, in milliseconds, spent joining the gossip network. Otherwise, `null`. |
+| loading_full_snapshot_reset_cnt                  | `number\|null`  | If the phase is at least `loading_full_snapshot` or later, this is the number of times the load for the full snapshot failed and the phase was restarted from scratch. A snapshot load may fail due to an unreliable or underperforming network connection. Otherwise, `null`. |
+| loading_full_snapshot_slot                       | `number\|null`  | If the phase is at least `loading_full_snapshot` or later, this is the slot of the full snapshot being loaded. Otherwise, `null`. |
+| loading_full_snapshot_peer                       | `string\|null`  | If the phase is at least `loading_full_snapshot`, this is the peer RPC IP address + port from which the full snapshot is being loaded. Otherwise, `null`. |
+| loading_full_snapshot_peer_identity              | `string\|null`  | If the phase is at least `loading_full_snapshot`, this is the unique base58 identity of the peer providing the full snapshot. Otherwise, `null`. |
+| loading_full_snapshot_elapsed_ms                 | `number\|null`  | If the phase is at least `loading_full_snapshot`, this is the duration, in milliseconds, that the validator has been loading the full snapshot. Otherwise, `null`. |
+| loading_full_snapshot_total_bytes                | `number\|null`  | If the phase is at least `loading_full_snapshot`, this is the (compressed) total size of the full snapshot being loaded, in bytes. Otherwise, `null`. |
+| loading_full_snapshot_current_bytes              | `number\|null`  | If the phase is at least `loading_full_snapshot`, this is the (decompressed) size of the full snapshot that has already been loaded, in bytes. Otherwise, `null`. |
+| loading_full_snapshot_read_bytes                 | `number\|null`  | If the phase is at least `loading_full_snapshot`, this is the (compressed) total number of bytes read from disk for the full snapshot. Otherwise, `null`. |
+| loading_full_snapshot_read_throughput            | `number\|null`  | If the phase is at least `loading_full_snapshot`, this is the (compressed) current read throughput for the full snapshot in bytes per second. Otherwise, `null`. |
+| loading_full_snapshot_read_remaining_ms          | `number\|null`  | If the phase is at least `loading_full_snapshot`, this is the estimated time remaining, in milliseconds, to complete reading the full snapshot. Otherwise, `null`. |
+| loading_full_snapshot_read_elapsed_ms            | `number\|null`  | If the phase is at least `loading_full_snapshot`, this is the elapsed time, in milliseconds, spent reading the full snapshot. Otherwise, `null`. |
+| loading_full_snapshot_read_url                   | `string\|null`  | If the phase is at least `loading_full_snapshot`, this is the url from which the full snapshot is being read. Otherwise, `null`. |
+| loading_full_snapshot_decompress_bytes           | `number\|null`  | If the phase is at least `loading_full_snapshot`, this is the (compressed) number of bytes processed by decompress from the full snapshot so far. Otherwise, `null`. |
+| loading_full_snapshot_decompress_throughput      | `number\|null`  | If the phase is at least `loading_full_snapshot`, this is the (compressed) throughput of decompress from the full snapshot in bytes per second. Otherwise, `null`. |
+| loading_full_snapshot_decompress_remaining_ms    | `number\|null`  | If the phase is at least `loading_full_snapshot`, this is the estimated time remaining, in milliseconds, to complete decompressing the full snapshot. Otherwise, `null`. |
+| loading_full_snapshot_decompress_elapsed_ms      | `number\|null`  | If the phase is at least `loading_full_snapshot`, this is the elapsed time, in milliseconds, spent decompressing the full snapshot. Otherwise, `null`. |
+| loading_full_snapshot_insert_bytes               | `number\|null`  | If the phase is at least `loading_full_snapshot`, this is the (compressed) number of bytes processed from the full snapshot by the snapshot insert time so far. Otherwise, `null`. |
+| loading_full_snapshot_insert_throughput          | `number\|null`  | If the phase is at least `loading_full_snapshot`, this is the (compressed) insertion throughput in bytes per second for the full snapshot. Otherwise, `null`. |
+| loading_full_snapshot_insert_remaining_ms        | `number\|null`  | If the phase is at least `loading_full_snapshot`, this is the estimated time remaining, in milliseconds, to complete inserting data from the full snapshot. Otherwise, `null`. |
+| loading_full_snapshot_insert_elapsed_ms          | `number\|null`  | If the phase is at least `loading_full_snapshot`, this is the elapsed time, in milliseconds, spent inserting data from the full snapshot. Otherwise, `null`. |
+| loading_full_snapshot_insert_path                | `string\|null`  | If the phase is at least `loading_full_snapshot`, this is the file path into which the data is being inserted during the full snapshot process. Otherwise, `null`. |
+| loading_full_snapshot_insert_accounts_throughput | `number\|null`  | If the phase is at least `loading_full_snapshot`, this is the throughput for inserting accounts from the full snapshot into the validator's accounts database. Otherwise, `null`. |
+| loading_full_snapshot_insert_accounts_total      | `number\|null`  | If the phase is at least `loading_full_snapshot`, this is the total number of accounts inserted from the full snapshot into the validator's accounts database. Otherwise, `null`. |
+| loading_incr_snapshot_reset_cnt                  | `number\|null`  | If the phase is at least `loading_incr_snapshot` or later, this is the number of times the load for the incremental snapshot failed and the phase was restarted from scratch. A snapshot load may fail due to an unreliable or underperforming network connection. Otherwise, `null`. |
+| loading_incr_snapshot_slot                       | `number\|null`  | If the phase is at least `loading_incr_snapshot` or later, this is the slot of the incremental snapshot being loaded. Otherwise, `null`. |
+| loading_incr_snapshot_peer                       | `string\|null`  | If the phase is at least `loading_incr_snapshot`, this is the peer RPC IP address + port from which the incremental snapshot is being loaded. Otherwise, `null`. |
+| loading_incr_snapshot_peer_identity              | `string\|null`  | If the phase is at least `loading_incr_snapshot`, this is the unique base58 identity of the peer providing the incremental snapshot. Otherwise, `null`. |
+| loading_incr_snapshot_elapsed_ms                 | `number\|null`  | If the phase is at least `loading_incr_snapshot`, this is the duration, in milliseconds, that the validator has been loading the incremental snapshot. Otherwise, `null`. |
+| loading_incr_snapshot_total_bytes                | `number\|null`  | If the phase is at least `loading_incr_snapshot`, this is the (compressed) total size of the incremental snapshot being loaded, in bytes. Otherwise, `null`. |
+| loading_incr_snapshot_current_bytes              | `number\|null`  | If the phase is at least `loading_incr_snapshot`, this is the (decompressed) size of the incremental snapshot that has already been loaded, in bytes. Otherwise, `null`. |
+| loading_incr_snapshot_read_bytes                 | `number\|null`  | If the phase is at least `loading_incr_snapshot`, this is the (compressed) total number of bytes read from disk for the incremental snapshot. Otherwise, `null`. |
+| loading_incr_snapshot_read_throughput            | `number\|null`  | If the phase is at least `loading_incr_snapshot`, this is the (compressed) current read throughput for the incremental snapshot in bytes per second. Otherwise, `null`. |
+| loading_incr_snapshot_read_remaining_ms          | `number\|null`  | If the phase is at least `loading_incr_snapshot`, this is the estimated time remaining, in milliseconds, to complete reading the incremental snapshot. Otherwise, `null`. |
+| loading_incr_snapshot_read_elapsed_ms            | `number\|null`  | If the phase is at least `loading_incr_snapshot`, this is the elapsed time, in milliseconds, spent reading the incremental snapshot. Otherwise, `null`. |
+| loading_incr_snapshot_read_url                   | `string\|null`  | If the phase is at least `loading_incr_snapshot`, this is the url from which the incremental snapshot is being read. Otherwise, `null`. |
+| loading_incr_snapshot_decompress_bytes           | `number\|null`  | If the phase is at least `loading_incr_snapshot`, this is the (compressed) number of bytes processed by decompress from the incremental snapshot so far. Otherwise, `null`. |
+| loading_incr_snapshot_decompress_throughput      | `number\|null`  | If the phase is at least `loading_incr_snapshot`, this is the (compressed) throughput of decompress from the incremental snapshot in bytes per second. Otherwise, `null`. |
+| loading_incr_snapshot_decompress_remaining_ms    | `number\|null`  | If the phase is at least `loading_incr_snapshot`, this is the estimated time remaining, in milliseconds, to complete decompressing the incremental snapshot. Otherwise, `null`. |
+| loading_incr_snapshot_decompress_elapsed_ms      | `number\|null`  | If the phase is at least `loading_incr_snapshot`, this is the elapsed time, in milliseconds, spent decompressing the incremental snapshot. Otherwise, `null`. |
+| loading_incr_snapshot_insert_bytes               | `number\|null`  | If the phase is at least `loading_incr_snapshot`, this is the (compressed) number of bytes processed from the incremental snapshot by the snapshot insert time so far. Otherwise, `null`. |
+| loading_incr_snapshot_insert_throughput          | `number\|null`  | If the phase is at least `loading_incr_snapshot`, this is the (compressed) insertion throughput in bytes per second for the incremental snapshot. Otherwise, `null`. |
+| loading_incr_snapshot_insert_remaining_ms        | `number\|null`  | If the phase is at least `loading_incr_snapshot`, this is the estimated time remaining, in milliseconds, to complete inserting data from the incremental snapshot. Otherwise, `null`. |
+| loading_incr_snapshot_insert_elapsed_ms          | `number\|null`  | If the phase is at least `loading_incr_snapshot`, this is the elapsed time, in milliseconds, spent inserting data from the incremental snapshot. Otherwise, `null`. |
+| loading_incr_snapshot_insert_path                | `string\|null`  | If the phase is at least `loading_incr_snapshot`, this is the file path into which the data is being inserted during the incremental snapshot process. Otherwise, `null`. |
+| loading_incr_snapshot_insert_accounts_throughput | `number\|null`  | If the phase is at least `loading_incr_snapshot`, this is the throughput for inserting accounts from the incremental snapshot into the validator's accounts database. Otherwise, `null`. |
+| loading_incr_snapshot_insert_accounts_total      | `number\|null`  | If the phase is at least `loading_incr_snapshot`, this is the total number of accounts inserted from the incremental snapshot into the validator's accounts database. Otherwise, `null`. |
+| catching_up_elapsed_ms                           | `number\|null`  | If the phase is `catching_up`, this is the duration, in milliseconds, the validator has spent catching up to the current slot. Otherwise, `null`. |
+| catching_up_min_turbine_slot                     | `number\|null`  | If the phase is `catching_up`, this is the minimum slot received through the Turbine gossip network. Otherwise, `null`. |
+| catching_up_max_turbine_slot                     | `number\|null`  | If the phase is `catching_up`, this is the maximum slot received through the Turbine gossip network. Otherwise, `null`. |
+| catching_up_min_repair_slot                      | `number\|null`  | If the phase is `catching_up`, this is the minimum slot received through repair requests. Otherwise, `null`. |
+| catching_up_max_repair_slot                      | `number\|null`  | If the phase is `catching_up`, this is the maximum slot received through repair requests. Otherwise, `null`. |
+| catching_up_min_replay_slot                      | `number\|null`  | If the phase is `catching_up`, this is the minimum slot replayed in the ledger. Otherwise, `null`. |
+| catching_up_max_replay_slot                      | `number\|null`  | If the phase is `catching_up`, this is the maximum slot replayed in the ledger. Otherwise, `null`. |
+
 
 #### `summary.schedule_strategy`
 | frequency  | type     | example |
@@ -818,6 +994,108 @@ epoch T, it is published as `end_slot` in epoch T-2 is rooted. The
 epoch is speculatively known as soon as `end_slot` in epoch T-2 is
 completed, rather than rooted, but no speculative epoch information is
 published until the epoch is finalized by rooting the slot.
+
+### gossip
+Information about the validator's connection to the gossip network.
+
+#### `gossip.network_stats`
+| frequency       | type                 | example     |
+|-----------------|----------------------|-------------|
+| *Once* + *Live* | `GossipNetworkStats` | below       |
+
+::: details Example
+
+```json
+{
+    "health": {
+        "rx_push_pct": 98,
+        "duplicate_pct": 24,
+        "bad_pct": 2,
+        "pull_already_known_pct": 10,
+        "total_stake": "12345923874",
+        "total_peers": "1001",
+        "connected_stake": "1234000",
+        "connected_peers": 1432,
+    },
+    "ingress": {
+        "total_throughput": 1234000,
+        "peer_names": [
+            "Coinbase 02",
+            "Figment",
+            "Jupiter",
+        ],
+        "peer_throughputs": [
+            12349,
+            9294,
+            7134989,
+        ]
+    },
+    "egress": {
+        "total_throughput": 1234000,
+        "peer_names": [
+            "Coinbase 02",
+            "Figment",
+            "Jupiter",
+        ],
+        "peer_throughputs": [
+            12349,
+            9294,
+            7134989,
+        ]
+    },
+    "storage": {
+        "total_bytes": 1234000,
+        "peer_names": [
+            "Coinbase 02",
+            "Figment",
+            "Jupiter",
+        ],
+        "peer_bytes": [
+            12349,
+            9294,
+            7134989,
+        ]
+    },
+}
+```
+
+:::
+
+**`GossipNetworkStats`**
+| Field      | Type    | Description |
+|------------|---------|-------------|
+| health     | `GossipNetworkStake`   | Aggregate statistics related to the health of the gossip network and the amount of connected peers / stake |
+| ingress    | `GossipNetworkTraffic` | Network statistics showing the total amount of ingress network traffic as well as per-peer traffic |
+| egress     | `GossipNetworkTraffic` | Network statistics showing the total amount of egress network traffic as well as per-peer traffic |
+| storage    | `GossipStorageUtil`    | Storage statistics showing the total storage utilization as well as per-peer utilization required for our copy of the Cluster Replicated Data Store (crds), which refer to as the "gossip table" below |
+
+
+**`GossipNetworkHealth`**
+| Field      | Type         | Description |
+|------------|--------------|-------------|
+| rx_push_pct            | `number` | The percentage of all received and deserialized gossip messages that are push messages, taken over the previous 5 second window |
+| duplicate_pct          | `number` | The percentage of all received and deserialized gossip messages that are duplicates, taken over the previous 5 second window.  A duplicate message will contain an origin peer/timestamp that we have already seen |
+| bad_pct                | `number` | The percentage of all received gossip messages that failed to successfully deserialize and insert into the gossip table, taken over the previous 5 second window |
+| pull_already_known_pct | `number` | The percentage of all gossip table entries that we received from push messages (as opposed to pull response messages), taken over the last 5 second window |
+| total_stake            | `number` | The total active stake on the solana network for the current epoch. The information is derived from the getLeaderSchedule rpc call at startup |
+| total_peers            | `number` | The total number of peers on the solana network.  This information is derived from a getClusterNodes rpc call at startup |
+| connected_stake        | `number` | The sum of active stake across all peers with a ContactInfo entry in the gossip table.  The stake quantity is taken from the leader schedule, and reflects the activate stake at the start of the current epoch |
+| connected_peers        | `number` | The number of currently connected peers|
+
+**`GossipNetworkTraffic`**
+| Field      | Type    | Description |
+|------------|---------|-------------|
+| total_throughput | `number`   | The network throughput in bytes per second |
+| peer_names       | `string[]` | Represents a subset of peers on the gossip network which have a large contribution to our ingress/egress traffic.  A "large" peer will have a average throughput (taken over the previous 5 second window) larger than some fixed threshold |
+| peer_throughputs | `number[]` | A list of network ingress/egress throughputs in bytes per second. The peer name for each entry is the corresponding entry in `peer_names` |
+
+**`GossipStorageUtil`**
+| Field      | Type    | Description |
+|------------|---------|-------------|
+| total_bytes     | `number`   | The total size of our instance of the Cluster Replicated Data Store (crds) |
+| peer_names      | `string[]` | Represents a subset of peers on the gossip network which have a large contribution to the gossip table, either through push or pull response messages. A "large" contribution will have stored bytes be larger than some fixed threshold |
+| peer_bytes      | `number[]` | A list of storage sizes in bytes where each entry has a corresponding entry in `peer_names` |
+
 
 ### peers
 Information about validator peers from the cluster. Peer data is sourced
