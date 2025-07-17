@@ -13,7 +13,6 @@
 #include "../../flamenco/runtime/sysvar/fd_sysvar_slot_history.h"
 #include "../../flamenco/runtime/fd_hashes.h"
 #include "../../flamenco/runtime/fd_runtime_init.h"
-#include "../../flamenco/snapshot/fd_snapshot.h"
 #include "../../flamenco/stakes/fd_stakes.h"
 #include "../../flamenco/runtime/fd_runtime.h"
 #include "../../flamenco/runtime/fd_runtime_public.h"
@@ -334,94 +333,6 @@ publish_stake_weights( fd_replay_tile_ctx_t * ctx,
     FD_LOG_NOTICE(("sending next epoch stake weights - epoch: %lu, stake_weight_cnt: %lu, start_slot: %lu, slot_cnt: %lu", stake_weights_msg[0], stake_weights_msg[1], stake_weights_msg[2], stake_weights_msg[3]));
   }
   fd_bank_next_epoch_stakes_end_locking_query( slot_ctx->bank );
-}
-
-static void
-snapshot_hash_tiles_cb( void * para_arg_1,
-                        void * para_arg_2,
-                        void * fn_arg_1,
-                        void * fn_arg_2 FD_PARAM_UNUSED,
-                        void * fn_arg_3 FD_PARAM_UNUSED,
-                        void * fn_arg_4 FD_PARAM_UNUSED ) {
-
-  fd_replay_tile_ctx_t    * ctx       = (fd_replay_tile_ctx_t *)para_arg_1;
-  fd_stem_context_t       * stem      = (fd_stem_context_t    *)para_arg_2;
-  fd_subrange_task_info_t * task_info = (fd_subrange_task_info_t *)fn_arg_1;
-
-  ulong num_lists = ctx->exec_cnt;
-  FD_LOG_NOTICE(( "launching %lu hash tasks", num_lists ));
-  fd_pubkey_hash_pair_list_t * lists         = fd_spad_alloc( ctx->runtime_spad, alignof(fd_pubkey_hash_pair_list_t), num_lists * sizeof(fd_pubkey_hash_pair_list_t) );
-  fd_lthash_value_t *          lthash_values = fd_spad_alloc( ctx->runtime_spad, FD_LTHASH_VALUE_ALIGN, num_lists * FD_LTHASH_VALUE_FOOTPRINT );
-  for( ulong i = 0; i < num_lists; i++ ) {
-    fd_lthash_zero( &lthash_values[i] );
-  }
-
-  task_info->num_lists     = num_lists;
-  task_info->lists         = lists;
-  task_info->lthash_values = lthash_values;
-
-  for( ulong i=0UL; i<ctx->exec_cnt; i++ ) {
-    fd_stem_publish( stem, ctx->exec_out[i].idx, EXEC_SNAP_HASH_ACCS_CNT_SIG, ctx->exec_out[i].chunk, 0UL, 0UL, 0UL, 0UL );
-    ctx->exec_out[i].chunk = fd_dcache_compact_next( ctx->exec_out[i].chunk, 0UL, ctx->exec_out[i].chunk0, ctx->exec_out[i].wmark );
-  }
-
-  uchar cnt_done[ FD_PACK_MAX_BANK_TILES ] = {0};
-  for( ;; ) {
-    uchar wait_cnt = 0;
-    for( ulong i=0UL; i<ctx->exec_cnt; i++ ) {
-      if( !cnt_done[ i ] ) {
-        ulong res   = fd_fseq_query( ctx->exec_fseq[ i ] );
-        uint  state = fd_exec_fseq_get_state( res );
-        if( state==FD_EXEC_STATE_SNAP_CNT_DONE ) {
-          FD_LOG_DEBUG(( "Acked hash cnt msg" ));
-          cnt_done[ i ] = 1;
-          task_info->lists[ i ].pairs = fd_spad_alloc( ctx->runtime_spad,
-                                                       FD_PUBKEY_HASH_PAIR_ALIGN,
-                                                       fd_exec_fseq_get_pairs_len( res ) * sizeof(fd_pubkey_hash_pair_t) );
-        } else {
-          wait_cnt++;
-        }
-      }
-    }
-    if( !wait_cnt ) {
-      break;
-    }
-  }
-
-  for( ulong i=0UL; i<ctx->exec_cnt; i++ ) {
-
-    fd_replay_out_link_t * exec_out = &ctx->exec_out[ i ];
-
-    fd_runtime_public_snap_hash_msg_t * gather_msg = (fd_runtime_public_snap_hash_msg_t *)fd_chunk_to_laddr( exec_out->mem, exec_out->chunk );
-
-    gather_msg->lt_hash_value_out_gaddr = fd_wksp_gaddr_fast( ctx->runtime_public_wksp, &lthash_values[i] );
-    gather_msg->num_pairs_out_gaddr     = fd_wksp_gaddr_fast( ctx->runtime_public_wksp, &task_info->lists[i].pairs_len );
-    gather_msg->pairs_gaddr             = fd_wksp_gaddr_fast( ctx->runtime_public_wksp, task_info->lists[i].pairs );
-
-    fd_stem_publish( stem, ctx->exec_out[i].idx, EXEC_SNAP_HASH_ACCS_GATHER_SIG, ctx->exec_out[i].chunk, sizeof(fd_runtime_public_snap_hash_msg_t), 0UL, 0UL, 0UL );
-    ctx->exec_out[i].chunk = fd_dcache_compact_next( ctx->exec_out[i].chunk, sizeof(fd_runtime_public_snap_hash_msg_t), ctx->exec_out[i].chunk0, ctx->exec_out[i].wmark );
-  }
-
-
-  memset( cnt_done, 0, sizeof(cnt_done) );
-  for( ;; ) {
-    uchar wait_cnt = 0;
-    for( ulong i=0UL; i<ctx->exec_cnt; i++ ) {
-      if( !cnt_done[ i ] ) {
-        ulong res   = fd_fseq_query( ctx->exec_fseq[ i ] );
-        uint  state = fd_exec_fseq_get_state( res );
-        if( state==FD_EXEC_STATE_SNAP_GATHER_DONE ) {
-          FD_LOG_DEBUG(( "Acked hash gather msg" ));
-          cnt_done[ i ] = 1;
-        } else {
-          wait_cnt++;
-        }
-      }
-    }
-    if( !wait_cnt ) {
-      break;
-    }
-  }
 }
 
 static void
@@ -748,7 +659,6 @@ init_after_snapshot( fd_replay_tile_ctx_t * ctx,
      start distributing rewards. */
 
   fd_rewards_recalculate_partitioned_rewards( ctx->slot_ctx,
-                                              NULL,
                                               ctx->exec_spads,
                                               ctx->exec_spad_cnt,
                                               ctx->runtime_spad );
@@ -876,28 +786,6 @@ init_from_snapshot( fd_replay_tile_ctx_t * ctx,
                     fd_stem_context_t *    stem ) {
   fd_features_restore( ctx->slot_ctx, ctx->runtime_spad );
   fd_calculate_epoch_accounts_hash_values( ctx->slot_ctx );
-
-  fd_slot_lthash_t const * lthash = fd_bank_lthash_query( ctx->slot_ctx->bank );
-  if( fd_lthash_is_zero( (fd_lthash_value_t * )lthash ) ) {
-    /* calculate and send lthash to exec tiles */
-    fd_exec_para_cb_ctx_t exec_para_ctx_snap = {
-      .func       = snapshot_hash_tiles_cb,
-      .para_arg_1 = ctx,
-      .para_arg_2 = stem,
-    };
-
-    fd_hash_t accounts_hash;
-    fd_lthash_value_t lthash_buf;
-    fd_lthash_zero(&lthash_buf);
-    fd_snapshot_hash( ctx->slot_ctx,
-                      &accounts_hash,
-                      1,
-                      ctx->runtime_spad,
-                      &exec_para_ctx_snap,
-                      &lthash_buf );
-    fd_slot_lthash_t * lthash_val = fd_bank_lthash_modify( ctx->slot_ctx->bank );
-    fd_memcpy( (fd_lthash_value_t *)fd_type_pun(lthash_val->lthash), &lthash_buf, sizeof(lthash_buf) );
-  }
 
   fd_runtime_update_leaders( ctx->slot_ctx->bank,
     fd_bank_slot_get( ctx->slot_ctx->bank ),
@@ -1329,7 +1217,6 @@ handle_new_slot( fd_replay_tile_ctx_t * ctx,
   int is_epoch_boundary = 0;
   fd_runtime_block_pre_execute_process_new_epoch(
       ctx->slot_ctx,
-      NULL,
       ctx->exec_spads,
       ctx->exec_spad_cnt,
       ctx->runtime_spad,

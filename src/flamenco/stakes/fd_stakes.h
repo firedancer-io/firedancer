@@ -55,7 +55,6 @@ void
 fd_stakes_activate_epoch( fd_exec_slot_ctx_t *  slot_ctx,
                           ulong *               new_rate_activation_epoch,
                           fd_epoch_info_t *     temp_info,
-                          fd_tpool_t *          tpool,
                           fd_spad_t * *         exec_spads,
                           ulong                 exec_spad_cnt,
                           fd_spad_t *           runtime_spad );
@@ -87,9 +86,7 @@ fd_refresh_vote_accounts( fd_exec_slot_ctx_t *       slot_ctx,
                           fd_stake_history_t const * history,
                           ulong *                    new_rate_activation_epoch,
                           fd_epoch_info_t *          temp_info,
-                          fd_tpool_t *               tpool,
                           fd_spad_t * *              exec_spads,
-                          ulong                      exec_spad_cnt,
                           fd_spad_t *                runtime_spad );
 
 /* A workaround to mimic Agave function get_epoch_reward_calculate_param_info
@@ -99,9 +96,7 @@ fd_populate_vote_accounts( fd_exec_slot_ctx_t *       slot_ctx,
                           fd_stake_history_t const * history,
                           ulong *                    new_rate_activation_epoch,
                           fd_epoch_info_t *          temp_info,
-                          fd_tpool_t *               tpool,
                           fd_spad_t * *              exec_spads,
-                          ulong                      exec_spad_cnt,
                           fd_spad_t *                runtime_spad );
 
 void
@@ -111,7 +106,6 @@ fd_accumulate_stake_infos( fd_exec_slot_ctx_t const * slot_ctx,
                            ulong *                    new_rate_activation_epoch,
                            fd_stake_history_entry_t * accumulator,
                            fd_epoch_info_t *          temp_info,
-                           fd_tpool_t *               tpool,
                            fd_spad_t * *              exec_spads,
                            ulong                      exec_spads_cnt,
                            fd_spad_t *                runtime_spad );

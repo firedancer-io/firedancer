@@ -2233,7 +2233,6 @@ fd_runtime_is_epoch_boundary( fd_exec_slot_ctx_t * slot_ctx, ulong curr_slot, ul
 static void
 fd_runtime_process_new_epoch( fd_exec_slot_ctx_t * slot_ctx,
                               ulong                parent_epoch,
-                              fd_tpool_t *         tpool,
                               fd_spad_t * *        exec_spads,
                               ulong                exec_spad_cnt,
                               fd_spad_t *          runtime_spad ) {
@@ -2286,7 +2285,6 @@ fd_runtime_process_new_epoch( fd_exec_slot_ctx_t * slot_ctx,
   fd_stakes_activate_epoch( slot_ctx,
                             new_rate_activation_epoch,
                             &temp_info,
-                            tpool,
                             exec_spads,
                             exec_spad_cnt,
                             runtime_spad );
@@ -2310,9 +2308,7 @@ fd_runtime_process_new_epoch( fd_exec_slot_ctx_t * slot_ctx,
                             history,
                             new_rate_activation_epoch,
                             &temp_info,
-                            tpool,
                             exec_spads,
-                            exec_spad_cnt,
                             runtime_spad );
 
   /* Distribute rewards */
@@ -2324,7 +2320,6 @@ fd_runtime_process_new_epoch( fd_exec_slot_ctx_t * slot_ctx,
                                 parent_blockhash,
                                 parent_epoch,
                                 &temp_info,
-                                tpool,
                                 exec_spads,
                                 exec_spad_cnt,
                                 runtime_spad );
@@ -2574,207 +2569,6 @@ fd_raw_block_txn_iter_ele( fd_raw_block_txn_iter_t iter, fd_txn_p_t * out_txn ) 
   fd_memcpy( out_txn->payload, iter.orig_data + iter.curr_offset, payload_sz );
   out_txn->payload_sz = (ushort)payload_sz;
   iter.curr_txn_sz    = payload_sz;
-}
-
-/******************************************************************************/
-/* Block Parsing logic (Only for offline replay)                              */
-/******************************************************************************/
-
-/* The below runtime block parsing and block destroying logic is ONLY used in
-   offline replay to simulate the block parsing/freeing that would occur in
-   the full, live firedancer client. This is done via two APIs:
-   fd_runtime_block_prepare and fd_runtime_block_destroy. */
-
-/* Helpers for fd_runtime_block_prepare */
-
-static int
-fd_runtime_parse_microblock_txns( void const *                buf,
-                                  ulong                       buf_sz,
-                                  fd_microblock_hdr_t const * microblock_hdr,
-                                  fd_txn_p_t *                out_txns,
-                                  ulong *                     out_signature_cnt,
-                                  ulong *                     out_account_cnt,
-                                  ulong *                     out_microblock_txns_sz ) {
-
-  ulong buf_off       = 0UL;
-  ulong signature_cnt = 0UL;
-  ulong account_cnt   = 0UL;
-
-  for( ulong i=0UL; i<microblock_hdr->txn_cnt; i++ ) {
-    ulong payload_sz = 0UL;
-    ulong txn_sz     = fd_txn_parse_core( (uchar const *)buf + buf_off,
-                                          fd_ulong_min( buf_sz-buf_off, FD_TXN_MTU ),
-                                          TXN( &out_txns[i] ),
-                                          NULL,
-                                          &payload_sz );
-    if( FD_UNLIKELY( !txn_sz || txn_sz>FD_TXN_MTU || !payload_sz  ) ) {
-      return -1;
-    }
-
-    fd_memcpy( out_txns[i].payload, (uchar *)buf + buf_off, payload_sz );
-    out_txns[i].payload_sz = (ushort)payload_sz;
-
-    signature_cnt += TXN( &out_txns[i] )->signature_cnt;
-    account_cnt   += fd_txn_account_cnt( TXN(&out_txns[i]), FD_TXN_ACCT_CAT_ALL );
-    buf_off       += payload_sz;
-  }
-
-  *out_signature_cnt      = signature_cnt;
-  *out_account_cnt        = account_cnt;
-  *out_microblock_txns_sz = buf_off;
-
-  return 0;
-}
-
-static int
-fd_runtime_microblock_prepare( void const *           buf,
-                               ulong                  buf_sz,
-                               fd_spad_t *            runtime_spad,
-                               fd_microblock_info_t * out_microblock_info ) {
-
-  fd_microblock_info_t microblock_info = {
-    .signature_cnt  = 0UL,
-  };
-  ulong buf_off = 0UL;
-  ulong hdr_sz  = sizeof(fd_microblock_hdr_t);
-  if( FD_UNLIKELY( fd_runtime_parse_microblock_hdr( buf, buf_sz ) ) ) {
-    return -1;
-  }
-  microblock_info.microblock.hdr = (fd_microblock_hdr_t const *)buf;
-  buf_off += hdr_sz;
-
-  ulong txn_cnt        = microblock_info.microblock.hdr->txn_cnt;
-  microblock_info.txns = fd_spad_alloc( runtime_spad, alignof(fd_txn_p_t), txn_cnt * sizeof(fd_txn_p_t) );
-  ulong txns_sz        = 0UL;
-  if( FD_UNLIKELY( fd_runtime_parse_microblock_txns( (uchar *)buf + buf_off,
-                                                     buf_sz - buf_off,
-                                                     microblock_info.microblock.hdr,
-                                                     microblock_info.txns,
-                                                     &microblock_info.signature_cnt,
-                                                     &microblock_info.account_cnt,
-                                                     &txns_sz ) ) ) {
-    return -1;
-  }
-
-  buf_off                          += txns_sz;
-  microblock_info.raw_microblock_sz = buf_off;
-  *out_microblock_info              = microblock_info;
-
-  return 0;
-}
-
-static int
-fd_runtime_microblock_batch_prepare( void const *                 buf,
-                                     ulong                        buf_sz,
-                                     fd_spad_t *                  runtime_spad,
-                                     fd_microblock_batch_info_t * out_microblock_batch_info ) {
-
-  fd_microblock_batch_info_t microblock_batch_info = {
-    .raw_microblock_batch = buf,
-    .signature_cnt        = 0UL,
-    .txn_cnt              = 0UL,
-    .account_cnt          = 0UL,
-  };
-  ulong buf_off = 0UL;
-
-  if( FD_UNLIKELY( buf_sz<sizeof(ulong) ) ) {
-    FD_LOG_WARNING(( "microblock batch buffer too small" ));
-    return -1;
-  }
-  ulong microblock_cnt = FD_LOAD( ulong, buf );
-  buf_off             += sizeof(ulong);
-
-  microblock_batch_info.microblock_cnt   = microblock_cnt;
-  microblock_batch_info.microblock_infos = fd_spad_alloc( runtime_spad, alignof(fd_microblock_info_t), microblock_cnt * sizeof(fd_microblock_info_t) );
-
-  ulong signature_cnt = 0UL;
-  ulong txn_cnt       = 0UL;
-  ulong account_cnt   = 0UL;
-  for( ulong i=0UL; i<microblock_cnt; i++ ) {
-    fd_microblock_info_t * microblock_info = &microblock_batch_info.microblock_infos[i];
-    if( FD_UNLIKELY( fd_runtime_microblock_prepare( (uchar const *)buf + buf_off, buf_sz - buf_off, runtime_spad, microblock_info ) ) ) {
-      return -1;
-    }
-
-    signature_cnt += microblock_info->signature_cnt;
-    txn_cnt       += microblock_info->microblock.hdr->txn_cnt;
-    account_cnt   += microblock_info->account_cnt;
-    buf_off       += microblock_info->raw_microblock_sz;
-  }
-
-  microblock_batch_info.signature_cnt           = signature_cnt;
-  microblock_batch_info.txn_cnt                 = txn_cnt;
-  microblock_batch_info.account_cnt             = account_cnt;
-  microblock_batch_info.raw_microblock_batch_sz = buf_off;
-
-  *out_microblock_batch_info                    = microblock_batch_info;
-
-  return 0;
-}
-
-/* This function is used for parsing/preparing blocks during offline runtime replay. */
-static int
-fd_runtime_block_prepare( fd_blockstore_t         * blockstore,
-                          fd_block_t              * block,
-                          ulong                     slot,
-                          fd_spad_t               * runtime_spad,
-                          fd_runtime_block_info_t * out_block_info ) {
-  uchar const *                  buf         = fd_blockstore_block_data_laddr( blockstore, block );
-  ulong const                    buf_sz      = block->data_sz;
-  fd_block_entry_batch_t const * batch_laddr = fd_blockstore_block_batch_laddr( blockstore, block );
-  ulong const                    batch_cnt   = block->batch_cnt;
-
-  fd_runtime_block_info_t block_info = {
-      .raw_block    = buf,
-      .raw_block_sz = buf_sz,
-  };
-
-  ulong microblock_batch_cnt        = 0UL;
-  ulong microblock_cnt              = 0UL;
-  ulong signature_cnt               = 0UL;
-  ulong txn_cnt                     = 0UL;
-  ulong account_cnt                 = 0UL;
-  block_info.microblock_batch_infos = fd_spad_alloc( runtime_spad, alignof(fd_microblock_batch_info_t), block->batch_cnt * sizeof(fd_microblock_batch_info_t) );
-
-  ulong buf_off = 0UL;
-  for( microblock_batch_cnt=0UL; microblock_batch_cnt < batch_cnt; microblock_batch_cnt++ ) {
-    ulong const batch_end_off = batch_laddr[ microblock_batch_cnt ].end_off;
-    fd_microblock_batch_info_t * microblock_batch_info = block_info.microblock_batch_infos + microblock_batch_cnt;
-    if( FD_UNLIKELY( fd_runtime_microblock_batch_prepare( buf + buf_off, batch_end_off - buf_off, runtime_spad, microblock_batch_info ) ) ) {
-      return -1;
-    }
-
-    signature_cnt  += microblock_batch_info->signature_cnt;
-    txn_cnt        += microblock_batch_info->txn_cnt;
-    account_cnt    += microblock_batch_info->account_cnt;
-    microblock_cnt += microblock_batch_info->microblock_cnt;
-
-    uchar allow_trailing = 1UL;
-    buf_off += microblock_batch_info->raw_microblock_batch_sz;
-    if( FD_UNLIKELY( buf_off > batch_end_off ) ) {
-      FD_LOG_ERR(( "parser error: shouldn't have been allowed to read past batch boundary" ));
-    }
-    if( FD_UNLIKELY( buf_off < batch_end_off ) ) {
-      if( FD_LIKELY( allow_trailing ) ) {
-        FD_LOG_NOTICE(( "ignoring %lu trailing bytes in slot %lu batch %lu", batch_end_off-buf_off, slot, microblock_batch_cnt ));
-      }
-      if( FD_UNLIKELY( !allow_trailing ) ) {
-        FD_LOG_WARNING(( "%lu trailing bytes in slot %lu batch %lu", batch_end_off-buf_off, slot, microblock_batch_cnt ));
-        return -1;
-      }
-    }
-    buf_off = batch_end_off;
-  }
-
-  block_info.microblock_batch_cnt = microblock_batch_cnt;
-  block_info.microblock_cnt       = microblock_cnt;
-  block_info.signature_cnt        = signature_cnt;
-  block_info.txn_cnt              = txn_cnt;
-  block_info.account_cnt          = account_cnt;
-
-  *out_block_info = block_info;
-
-  return 0;
 }
 
 /* Block collecting (Only for offline replay) */
@@ -3302,243 +3096,6 @@ struct fd_poh_verification_info {
 };
 typedef struct fd_poh_verification_info fd_poh_verification_info_t;
 
-static void
-fd_runtime_microblock_verify_info_collect( fd_microblock_info_t const * microblock_info,
-                                           fd_hash_t            const * in_poh_hash,
-                                           fd_poh_verification_info_t * poh_verification_info ) {
-  poh_verification_info->microblock_info = microblock_info;
-  poh_verification_info->in_poh_hash     = in_poh_hash;
-  poh_verification_info->success         = 0;
-}
-
-static void
-fd_runtime_microblock_batch_verify_info_collect( fd_microblock_batch_info_t const * microblock_batch_info,
-                                                 fd_hash_t                  const * in_poh_hash,
-                                                 fd_poh_verification_info_t *       poh_verification_info ) {
-  for( ulong i=0UL; i<microblock_batch_info->microblock_cnt; i++ ) {
-    fd_microblock_info_t const * microblock_info = &microblock_batch_info->microblock_infos[i];
-    fd_runtime_microblock_verify_info_collect( microblock_info, in_poh_hash, &poh_verification_info[i] );
-    in_poh_hash = (fd_hash_t const *)&microblock_info->microblock.hdr->hash;
-  }
-}
-
-static void
-fd_runtime_block_verify_info_collect( fd_runtime_block_info_t const *      block_info,
-                                      fd_hash_t       const *      in_poh_hash,
-                                      fd_poh_verification_info_t * poh_verification_info)
-{
-  for( ulong i=0UL; i<block_info->microblock_batch_cnt; i++ ) {
-    fd_microblock_batch_info_t const * microblock_batch_info = &block_info->microblock_batch_infos[i];
-
-    fd_runtime_microblock_batch_verify_info_collect( microblock_batch_info, in_poh_hash, poh_verification_info );
-    in_poh_hash            = (fd_hash_t const *)poh_verification_info[microblock_batch_info->microblock_cnt - 1].microblock_info->microblock.hdr->hash;
-    poh_verification_info += microblock_batch_info->microblock_cnt;
-  }
-}
-
-static void
-fd_runtime_poh_verify_wide_task( void * tpool,
-                                 ulong  t0 FD_PARAM_UNUSED,
-                                 ulong  t1 FD_PARAM_UNUSED,
-                                 void * args FD_PARAM_UNUSED,
-                                 void * reduce FD_PARAM_UNUSED,
-                                 ulong  stride FD_PARAM_UNUSED,
-                                 ulong  l0 FD_PARAM_UNUSED,
-                                 ulong  l1 FD_PARAM_UNUSED,
-                                 ulong  m0,
-                                 ulong  m1 FD_PARAM_UNUSED,
-                                 ulong  n0 FD_PARAM_UNUSED,
-                                 ulong  n1 FD_PARAM_UNUSED ) {
-  fd_poh_verification_info_t * poh_info = (fd_poh_verification_info_t *)tpool + m0;
-
-  fd_hash_t out_poh_hash = *poh_info->in_poh_hash;
-  fd_hash_t init_poh_hash_cpy = *poh_info->in_poh_hash;
-
-  fd_microblock_info_t const *microblock_info = poh_info->microblock_info;
-  ulong hash_cnt = microblock_info->microblock.hdr->hash_cnt;
-  ulong txn_cnt = microblock_info->microblock.hdr->txn_cnt;
-
-  if( !txn_cnt ) { /* microblock is a tick */
-    fd_poh_append( &out_poh_hash, hash_cnt );
-  } else {
-    if( hash_cnt ) {
-      fd_poh_append(&out_poh_hash, hash_cnt - 1);
-    }
-
-    ulong                 leaf_cnt = microblock_info->signature_cnt;
-    uchar *               commit   = fd_alloca_check( FD_WBMTREE32_ALIGN, fd_wbmtree32_footprint(leaf_cnt));
-    fd_wbmtree32_leaf_t * leafs    = fd_alloca_check(alignof(fd_wbmtree32_leaf_t), sizeof(fd_wbmtree32_leaf_t) * leaf_cnt);
-    uchar *               mbuf     = fd_alloca_check( 1UL, leaf_cnt * (sizeof(fd_ed25519_sig_t) + 1) );
-
-    fd_wbmtree32_t *      tree = fd_wbmtree32_init(commit, leaf_cnt);
-    fd_wbmtree32_leaf_t * l    = &leafs[0];
-
-    /* Loop across transactions */
-    for( ulong txn_idx=0UL; txn_idx<txn_cnt; txn_idx++ ) {
-      fd_txn_p_t          * txn_p      = &microblock_info->txns[txn_idx];
-      fd_txn_t      const * txn        = (fd_txn_t const *) txn_p->_;
-      fd_rawtxn_b_t const   raw_txn[1] = {{ .raw = txn_p->payload, .txn_sz = (ushort)txn_p->payload_sz } };
-
-      /* Loop across signatures */
-      fd_ed25519_sig_t const * sigs = (fd_ed25519_sig_t const *)((ulong)raw_txn->raw + (ulong)txn->signature_off);
-      for( ulong j=0UL; j<txn->signature_cnt; j++ ) {
-        l->data     = (uchar *)&sigs[j];
-        l->data_len = sizeof(fd_ed25519_sig_t);
-        l++;
-      }
-    }
-
-    fd_wbmtree32_append( tree, leafs, leaf_cnt, mbuf );
-    uchar * root = fd_wbmtree32_fini( tree );
-    fd_poh_mixin( &out_poh_hash, root );
-  }
-
-  if( FD_UNLIKELY( memcmp(microblock_info->microblock.hdr->hash, out_poh_hash.hash, sizeof(fd_hash_t)) ) ) {
-    FD_LOG_WARNING(( "poh mismatch (bank: %s, entry: %s. INIT: %s)",
-        FD_BASE58_ENC_32_ALLOCA( out_poh_hash.hash ),
-        FD_BASE58_ENC_32_ALLOCA( microblock_info->microblock.hdr->hash ),
-        FD_BASE58_ENC_32_ALLOCA(&init_poh_hash_cpy) ));
-    poh_info->success = -1;
-  }
-}
-
-static int
-fd_runtime_poh_verify_tpool( fd_poh_verification_info_t * poh_verification_info,
-                             ulong                        poh_verification_info_cnt,
-                             fd_tpool_t *                 tpool ) {
-  fd_tpool_exec_all_rrobin( tpool,
-                            0,
-                            fd_tpool_worker_cnt( tpool ),
-                            fd_runtime_poh_verify_wide_task,
-                            poh_verification_info,
-                            NULL,
-                            NULL,
-                            1,
-                            0,
-                            poh_verification_info_cnt );
-
-  for( ulong i=0UL; i<poh_verification_info_cnt; i++ ) {
-    if( poh_verification_info[i].success ) {
-      return -1;
-    }
-  }
-
-  return 0;
-}
-
-static int
-fd_runtime_block_verify_tpool( fd_exec_slot_ctx_t *            slot_ctx,
-                               fd_blockstore_t *               blockstore,
-                               fd_runtime_block_info_t const * block_info,
-                               fd_hash_t const *               in_poh_hash,
-                               fd_hash_t *                     out_poh_hash,
-                               fd_tpool_t *                    tpool,
-                               fd_spad_t *                     runtime_spad ) {
-
-  FD_SPAD_FRAME_BEGIN( runtime_spad ) {
-
-  long block_verify_time = -fd_log_wallclock();
-
-  fd_hash_t                    tmp_in_poh_hash           = *in_poh_hash;
-  ulong                        poh_verification_info_cnt = block_info->microblock_cnt;
-  fd_poh_verification_info_t * poh_verification_info     = fd_spad_alloc( runtime_spad,
-                                                                          alignof(fd_poh_verification_info_t),
-                                                                          poh_verification_info_cnt * sizeof(fd_poh_verification_info_t) );
-  fd_runtime_block_verify_info_collect( block_info, &tmp_in_poh_hash, poh_verification_info );
-
-  uchar * block_data = fd_spad_alloc( runtime_spad, 128UL, FD_SHRED_DATA_PAYLOAD_MAX_PER_SLOT );
-  ulong   tick_res   = fd_runtime_block_verify_ticks( blockstore,
-                                                      fd_bank_slot_get( slot_ctx->bank ),
-                                                      block_data,
-                                                      FD_SHRED_DATA_PAYLOAD_MAX_PER_SLOT,
-                                                      fd_bank_tick_height_get( slot_ctx->bank ),
-                                                      fd_bank_max_tick_height_get( slot_ctx->bank ),
-                                                      fd_bank_hashes_per_tick_get( slot_ctx->bank ) );
-
-  if( FD_UNLIKELY( tick_res != FD_BLOCK_OK ) ) {
-    FD_LOG_WARNING(( "failed to verify ticks res %lu slot %lu", tick_res, fd_bank_slot_get( slot_ctx->bank ) ));
-    return -1;
-  }
-
-  /* poh_verification_info is now in order information of all the microblocks */
-
-  int result = fd_runtime_poh_verify_tpool( poh_verification_info, poh_verification_info_cnt, tpool );
-  fd_memcpy( out_poh_hash->hash, poh_verification_info[poh_verification_info_cnt - 1].microblock_info->microblock.hdr->hash, sizeof(fd_hash_t) );
-
-  block_verify_time          += fd_log_wallclock();
-  double block_verify_time_ms = (double)block_verify_time * 1e-6;
-
-  FD_LOG_INFO(( "verified block successfully - elapsed: %6.6f ms", block_verify_time_ms ));
-
-  return result;
-
-  } FD_SPAD_FRAME_END;
-}
-
-/* Should only be called in offline replay */
-static int
-fd_runtime_publish_old_txns( fd_exec_slot_ctx_t * slot_ctx,
-                             fd_capture_ctx_t *   capture_ctx,
-                             fd_tpool_t *         tpool,
-                             fd_spad_t *          runtime_spad ) {
-  /* Publish any transaction older than 31 slots */
-  fd_funk_txn_start_write( slot_ctx->funk );
-  fd_funk_t *          funk       = slot_ctx->funk;
-  fd_funk_txn_pool_t * txnpool    = fd_funk_txn_pool( funk );
-
-  if( capture_ctx != NULL ) {
-    fd_runtime_checkpt( capture_ctx, slot_ctx, fd_bank_slot_get( slot_ctx->bank ) );
-  }
-
-  int do_eah = 0;
-
-  uint depth = 0;
-  for( fd_funk_txn_t * txn = slot_ctx->funk_txn; txn; txn = fd_funk_txn_parent(txn, txnpool) ) {
-    if( ++depth == (FD_RUNTIME_OFFLINE_NUM_ROOT_BLOCKS - 1 ) ) {
-      FD_LOG_DEBUG(("publishing %s (slot %lu)", FD_BASE58_ENC_32_ALLOCA( &txn->xid ), txn->xid.ul[0]));
-
-      if( FD_UNLIKELY( !fd_funk_txn_publish( funk, txn, 1 ) ) ) {
-        FD_LOG_ERR(( "No transactions were published" ));
-      }
-
-      /* Also publish the bank */
-      ulong slot = txn->xid.ul[0];
-      fd_banks_publish( slot_ctx->banks, slot );
-
-      if( txn->xid.ul[0] >= fd_bank_eah_start_slot_get( slot_ctx->bank ) ) {
-        if( !FD_FEATURE_ACTIVE_BANK( slot_ctx->bank, accounts_lt_hash ) ) {
-          do_eah = 1;
-        }
-        fd_bank_eah_start_slot_set( slot_ctx->bank, ULONG_MAX );
-      }
-
-      break;
-    }
-  }
-
-  fd_funk_txn_end_write( slot_ctx->funk );
-
-  /* Do the EAH calculation after we have released the Funk lock, to avoid a deadlock */
-  if( FD_UNLIKELY( do_eah ) ) {
-    fd_exec_para_cb_ctx_t exec_para_ctx = {
-      .func       = fd_accounts_hash_counter_and_gather_tpool_cb,
-      .para_arg_1 = tpool
-    };
-
-
-    fd_hash_t * epoch_account_hash = fd_bank_epoch_account_hash_modify( slot_ctx->bank );
-    fd_accounts_hash( slot_ctx->funk,
-                      fd_bank_slot_get( slot_ctx->bank ),
-                      epoch_account_hash,
-                      runtime_spad,
-                      fd_bank_features_query( slot_ctx->bank ),
-                      &exec_para_ctx,
-                      NULL );
-  }
-
-  return 0;
-}
-
 int
 fd_runtime_block_execute_tpool( fd_exec_slot_ctx_t *            slot_ctx,
                                 fd_capture_ctx_t *              capture_ctx,
@@ -3632,7 +3189,6 @@ fd_runtime_block_execute_tpool( fd_exec_slot_ctx_t *            slot_ctx,
 
 void
 fd_runtime_block_pre_execute_process_new_epoch( fd_exec_slot_ctx_t * slot_ctx,
-                                                fd_tpool_t *         tpool,
                                                 fd_spad_t * *        exec_spads,
                                                 ulong                exec_spad_cnt,
                                                 fd_spad_t *          runtime_spad,
@@ -3657,7 +3213,6 @@ fd_runtime_block_pre_execute_process_new_epoch( fd_exec_slot_ctx_t * slot_ctx,
       /* Epoch boundary! */
       fd_runtime_process_new_epoch( slot_ctx,
                                     new_epoch - 1UL,
-                                    tpool,
                                     exec_spads,
                                     exec_spad_cnt,
                                     runtime_spad );
@@ -3670,124 +3225,6 @@ fd_runtime_block_pre_execute_process_new_epoch( fd_exec_slot_ctx_t * slot_ctx,
   if( FD_LIKELY( fd_bank_slot_get( slot_ctx->bank )!=0UL ) ) {
     fd_distribute_partitioned_epoch_rewards( slot_ctx, runtime_spad );
   }
-}
-
-int
-fd_runtime_block_eval_tpool( fd_exec_slot_ctx_t * slot_ctx,
-                             ulong                slot,
-                             fd_block_t *         block,
-                             fd_capture_ctx_t *   capture_ctx,
-                             fd_tpool_t *         tpool,
-                             ulong                scheduler,
-                             ulong *              txn_cnt,
-                             fd_spad_t * *        exec_spads,
-                             ulong                exec_spad_cnt,
-                             fd_spad_t *          runtime_spad,
-                             fd_blockstore_t *    blockstore ) {
-
-  /* offline replay */
-  (void)scheduler;
-
-  int err = fd_runtime_publish_old_txns( slot_ctx, capture_ctx, tpool, runtime_spad );
-  if( err != 0 ) {
-    return err;
-  }
-
-  fd_funk_t * funk = slot_ctx->funk;
-
-  long block_eval_time = -fd_log_wallclock();
-  fd_runtime_block_info_t block_info;
-  int ret = FD_RUNTIME_EXECUTE_SUCCESS;
-  do {
-
-    /* Start a new funk txn. */
-
-    fd_funk_txn_xid_t xid = { .ul = { slot, slot } };
-    fd_funk_txn_start_write( funk );
-    slot_ctx->funk_txn = fd_funk_txn_prepare( funk, slot_ctx->funk_txn, &xid, 1 );
-    fd_funk_txn_end_write( funk );
-
-    /* Capturing block-agnostic state in preparation for the epoch boundary */
-    uchar dump_block = capture_ctx && slot >= capture_ctx->dump_proto_start_slot && capture_ctx->dump_block_to_pb;
-    fd_exec_test_block_context_t * block_ctx = NULL;
-    if( FD_UNLIKELY( dump_block ) ) {
-      /* TODO: This probably should get allocated from a separate spad for the capture ctx */
-      block_ctx = fd_spad_alloc( runtime_spad, alignof(fd_exec_test_block_context_t), sizeof(fd_exec_test_block_context_t) );
-      fd_memset( block_ctx, 0, sizeof(fd_exec_test_block_context_t) );
-      fd_dump_block_to_protobuf( slot_ctx, capture_ctx, runtime_spad, block_ctx );
-    }
-
-    int is_epoch_boundary = 0;
-    fd_runtime_block_pre_execute_process_new_epoch( slot_ctx,
-                                                    tpool,
-                                                    exec_spads,
-                                                    exec_spad_cnt,
-                                                    runtime_spad,
-                                                    &is_epoch_boundary );
-
-    /* All runtime allocations here are scoped to the end of a block. */
-    FD_SPAD_FRAME_BEGIN( runtime_spad ) {
-
-    if( FD_UNLIKELY( (ret = fd_runtime_block_prepare( blockstore,
-                                                      block,
-                                                      slot,
-                                                      runtime_spad,
-                                                      &block_info )) != FD_RUNTIME_EXECUTE_SUCCESS ) ) {
-      break;
-    }
-    *txn_cnt = block_info.txn_cnt;
-
-    fd_hash_t poh_out = {0};
-    fd_hash_t poh_in = fd_bank_poh_get( slot_ctx->bank );
-    if( FD_UNLIKELY( (ret = fd_runtime_block_verify_tpool( slot_ctx, blockstore, &block_info, &poh_in, &poh_out, tpool, runtime_spad )) != FD_RUNTIME_EXECUTE_SUCCESS ) ) {
-      break;
-    }
-
-    fd_bank_poh_set( slot_ctx->bank, poh_out );
-
-    /* Dump the remainder of the block after preparation, POH verification, etc */
-    if( FD_UNLIKELY( dump_block ) ) {
-      fd_dump_block_to_protobuf_tx_only( &block_info, slot_ctx, capture_ctx, runtime_spad, block_ctx );
-    }
-
-    if( FD_UNLIKELY( (ret = fd_runtime_block_execute_tpool( slot_ctx,
-                                                            capture_ctx,
-                                                            &block_info,
-                                                            tpool,
-                                                            exec_spads,
-                                                            exec_spad_cnt,
-                                                            runtime_spad )) != FD_RUNTIME_EXECUTE_SUCCESS ) ) {
-      break;
-    }
-
-    } FD_SPAD_FRAME_END;
-
-  } while( 0 );
-
-  if( FD_UNLIKELY( FD_RUNTIME_EXECUTE_SUCCESS != ret ) ) {
-    FD_LOG_WARNING(( "execution failure, code %d", ret ));
-    return ret;
-  }
-
-  block_eval_time          += fd_log_wallclock();
-  double block_eval_time_ms = (double)block_eval_time * 1e-6;
-  double tps                = (double) block_info.txn_cnt / ((double)block_eval_time * 1e-9);
-  fd_epoch_leaders_t const * leaders = fd_bank_epoch_leaders_locking_query( slot_ctx->bank );
-  fd_pubkey_t const *        leader  = fd_epoch_leaders_get( leaders, slot );
-  FD_LOG_INFO(( "evaluated block successfully - slot: %lu, elapsed: %6.6f ms, signatures: %lu, txns: %lu, tps: %6.6f, leader: %s",
-                slot,
-                block_eval_time_ms,
-                block_info.signature_cnt,
-                block_info.txn_cnt,
-                tps,
-                FD_BASE58_ENC_32_ALLOCA( leader ) ));
-  fd_bank_epoch_leaders_end_locking_query( slot_ctx->bank );
-
-  fd_bank_transaction_count_set( slot_ctx->bank, fd_bank_transaction_count_get( slot_ctx->bank ) + block_info.txn_cnt );
-
-  fd_bank_parent_slot_set( slot_ctx->bank, slot );
-
-  return 0;
 }
 
 /******************************************************************************/
