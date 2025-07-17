@@ -26,10 +26,10 @@ test_bundle_env_create( test_bundle_env_t * env,
                         fd_wksp_t *         wksp ) {
   fd_memset( env, 0, sizeof(test_bundle_env_t) );
 
-  ulong const mcache_depth = FD_MCACHE_BLOCK;
+  ulong const mcache_depth = 128UL;
   fd_frag_meta_t * mcache = fd_mcache_join( fd_mcache_new(
       fd_wksp_alloc_laddr( wksp, fd_mcache_align(), fd_mcache_footprint( mcache_depth, 0UL ), 1UL ),
-      FD_MCACHE_BLOCK, 0UL, 0UL ) );
+      128UL, 0UL, 0UL ) );
   FD_TEST( mcache );
 
   ulong const mtu = FD_TPU_PARSED_MTU;
