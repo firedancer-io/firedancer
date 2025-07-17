@@ -333,8 +333,8 @@ remove_ib( fd_pack_ctx_t * ctx ) {
   /* It's likely the initializer bundle is long scheduled, but we want to
      try deleting it just in case. */
   if( FD_UNLIKELY( ctx->crank->enabled & ctx->crank->ib_inserted ) ) {
-    int deleted = fd_pack_delete_transaction( ctx->pack, (fd_ed25519_sig_t const *)ctx->crank->last_sig );
-    FD_MCNT_INC( PACK, TRANSACTION_DELETED, (ulong)deleted );
+    ulong deleted = fd_pack_delete_transaction( ctx->pack, (fd_ed25519_sig_t const *)ctx->crank->last_sig );
+    FD_MCNT_INC( PACK, TRANSACTION_DELETED, deleted );
   }
   ctx->crank->ib_inserted = 0;
 }
@@ -455,9 +455,12 @@ insert_from_extra( fd_pack_ctx_t * ctx ) {
 
   ulong blockhash_slot = insert->txnp->blockhash_slot;
 
+  ulong deleted;
   long insert_duration = -fd_tickcount();
-  int result = fd_pack_insert_txn_fini( ctx->pack, spot, blockhash_slot );
+  int result = fd_pack_insert_txn_fini( ctx->pack, spot, blockhash_slot, &deleted );
   insert_duration      += fd_tickcount();
+
+  FD_MCNT_INC( PACK, TRANSACTION_DELETED, deleted );
   ctx->insert_result[ result + FD_PACK_INSERT_RETVAL_OFF ]++;
   fd_histf_sample( ctx->insert_duration, (ulong)insert_duration );
   FD_MCNT_INC( PACK, TRANSACTION_INSERTED_FROM_EXTRA, 1UL );
@@ -622,7 +625,9 @@ after_credit( fd_pack_ctx_t *     ctx,
         memcpy( ctx->crank->last_sig, bundle[0]->txnp->payload+1UL, 64UL );
 
         ctx->crank->ib_inserted = 1;
-        int retval = fd_pack_insert_bundle_fini( ctx->pack, bundle, 1UL, ctx->leader_slot-1UL, 1, NULL );
+        ulong deleted;
+        int retval = fd_pack_insert_bundle_fini( ctx->pack, bundle, 1UL, ctx->leader_slot-1UL, 1, NULL, &deleted );
+        FD_MCNT_INC( PACK, TRANSACTION_DELETED, deleted );
         ctx->insert_result[ retval + FD_PACK_INSERT_RETVAL_OFF ]++;
         if( FD_UNLIKELY( retval<0 ) ) {
           ctx->crank->metrics[ 3 ]++; /* BUNDLE_CRANK_STATUS_INSERTION_FAILED */
@@ -1017,18 +1022,22 @@ after_frag( fd_pack_ctx_t *     ctx,
     if( FD_UNLIKELY( ctx->is_bundle ) ) {
       if( FD_UNLIKELY( ctx->current_bundle->txn_cnt==0UL ) ) return;
       if( FD_UNLIKELY( ++(ctx->current_bundle->txn_received)==ctx->current_bundle->txn_cnt ) ) {
+        ulong deleted;
         long insert_duration = -fd_tickcount();
-        int result = fd_pack_insert_bundle_fini( ctx->pack, ctx->current_bundle->bundle, ctx->current_bundle->txn_cnt, ctx->current_bundle->min_blockhash_slot, 0, ctx->blk_engine_cfg );
+        int result = fd_pack_insert_bundle_fini( ctx->pack, ctx->current_bundle->bundle, ctx->current_bundle->txn_cnt, ctx->current_bundle->min_blockhash_slot, 0, ctx->blk_engine_cfg, &deleted );
         insert_duration      += fd_tickcount();
+        FD_MCNT_INC( PACK, TRANSACTION_DELETED, deleted );
         ctx->insert_result[ result + FD_PACK_INSERT_RETVAL_OFF ] += ctx->current_bundle->txn_received;
         fd_histf_sample( ctx->insert_duration, (ulong)insert_duration );
         ctx->current_bundle->bundle = NULL;
       }
     } else {
       ulong blockhash_slot = sig;
+      ulong deleted;
       long insert_duration = -fd_tickcount();
-      int result = fd_pack_insert_txn_fini( ctx->pack, ctx->cur_spot, blockhash_slot );
+      int result = fd_pack_insert_txn_fini( ctx->pack, ctx->cur_spot, blockhash_slot, &deleted );
       insert_duration      += fd_tickcount();
+      FD_MCNT_INC( PACK, TRANSACTION_DELETED, deleted );
       ctx->insert_result[ result + FD_PACK_INSERT_RETVAL_OFF ]++;
       fd_histf_sample( ctx->insert_duration, (ulong)insert_duration );
       if( FD_LIKELY( result>=0 ) ) ctx->last_successful_insert = now;
@@ -1039,8 +1048,8 @@ after_frag( fd_pack_ctx_t *     ctx,
     break;
   }
   case IN_KIND_EXECUTED_TXN: {
-    int deleted = fd_pack_delete_transaction( ctx->pack, fd_type_pun( ctx->executed_txn_sig ) );
-    FD_MCNT_INC( PACK, TRANSACTION_DELETED, (ulong)deleted );
+    ulong deleted = fd_pack_delete_transaction( ctx->pack, fd_type_pun( ctx->executed_txn_sig ) );
+    FD_MCNT_INC( PACK, TRANSACTION_DELETED, deleted );
     break;
   }
   }
