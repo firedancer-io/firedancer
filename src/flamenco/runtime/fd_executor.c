@@ -1183,25 +1183,6 @@ fd_txn_reclaim_accounts( fd_exec_txn_ctx_t * txn_ctx ) {
   }
 }
 
-int
-fd_executor_is_blockhash_valid_for_age( fd_block_hash_queue_global_t const * block_hash_queue,
-                                        fd_hash_t const *                    blockhash,
-                                        ulong                                max_age ) {
-  fd_hash_hash_age_pair_t_mapnode_t key;
-  fd_memcpy( key.elem.key.uc, blockhash, sizeof(fd_hash_t) );
-
-  fd_hash_hash_age_pair_t_mapnode_t * ages_pool = fd_block_hash_queue_ages_pool_join( block_hash_queue );
-  fd_hash_hash_age_pair_t_mapnode_t * ages_root = fd_block_hash_queue_ages_root_join( block_hash_queue );
-
-  fd_hash_hash_age_pair_t_mapnode_t * hash_age = fd_hash_hash_age_pair_t_map_find( ages_pool, ages_root, &key );
-  if( hash_age==NULL ) {
-    return 0;
-  }
-
-  ulong age = block_hash_queue->last_hash_index-hash_age->elem.val.hash_index;
-  return age<=max_age;
-}
-
 void
 fd_exec_txn_ctx_from_exec_slot_ctx( fd_exec_slot_ctx_t const * slot_ctx,
                                     fd_exec_txn_ctx_t *        ctx,
