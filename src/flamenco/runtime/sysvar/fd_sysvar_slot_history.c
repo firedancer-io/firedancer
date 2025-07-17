@@ -85,6 +85,8 @@ int
 fd_sysvar_slot_history_update( fd_exec_slot_ctx_t * slot_ctx, fd_spad_t * runtime_spad ) {
   /* Set current_slot, and update next_slot */
 
+  FD_SPAD_FRAME_BEGIN( runtime_spad ) {
+
   fd_pubkey_t const * key = &fd_sysvar_slot_history_id;
 
   FD_TXN_ACCOUNT_DECL( rec );
@@ -138,6 +140,8 @@ fd_sysvar_slot_history_update( fd_exec_slot_ctx_t * slot_ctx, fd_spad_t * runtim
   fd_txn_account_mutable_fini( rec, slot_ctx->funk, slot_ctx->funk_txn );
 
   return 0;
+
+  } FD_SPAD_FRAME_END;
 }
 
 fd_slot_history_global_t *

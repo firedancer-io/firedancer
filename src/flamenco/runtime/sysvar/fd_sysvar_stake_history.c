@@ -57,6 +57,8 @@ void
 fd_sysvar_stake_history_update( fd_exec_slot_ctx_t *                  slot_ctx,
                                 fd_epoch_stake_history_entry_pair_t * pair,
                                 fd_spad_t *                           runtime_spad ) {
+  FD_SPAD_FRAME_BEGIN( runtime_spad ) {
+
   // Need to make this maybe zero copies of map...
   fd_stake_history_t * stake_history = fd_sysvar_stake_history_read( slot_ctx->funk, slot_ctx->funk_txn, runtime_spad );
 
@@ -79,4 +81,6 @@ fd_sysvar_stake_history_update( fd_exec_slot_ctx_t *                  slot_ctx,
   stake_history->fd_stake_history[ idx ].entry.deactivating = pair->entry.deactivating;
 
   write_stake_history( slot_ctx, stake_history );
+
+  } FD_SPAD_FRAME_END;
 }

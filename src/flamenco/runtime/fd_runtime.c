@@ -473,6 +473,8 @@ fd_runtime_block_sysvar_update_pre_execute( fd_exec_slot_ctx_t * slot_ctx,
   // );
   /* https://github.com/firedancer-io/solana/blob/dab3da8e7b667d7527565bddbdbecf7ec1fb868e/runtime/src/bank.rs#L1312-L1314 */
 
+  FD_SPAD_FRAME_BEGIN( runtime_spad ) {
+
   fd_runtime_new_fee_rate_governor_derived( slot_ctx->bank, fd_bank_parent_signature_cnt_get( slot_ctx->bank ) );
 
   // TODO: move all these out to a fd_sysvar_update() call...
@@ -487,6 +489,8 @@ fd_runtime_block_sysvar_update_pre_execute( fd_exec_slot_ctx_t * slot_ctx,
     fd_sysvar_slot_hashes_update( slot_ctx, runtime_spad );
   }
   fd_sysvar_last_restart_slot_update( slot_ctx, runtime_spad );
+
+  } FD_SPAD_FRAME_END;
 
   return 0;
 }
@@ -1095,6 +1099,8 @@ fd_runtime_block_execute_finalize_para( fd_exec_slot_ctx_t *             slot_ct
                                         fd_spad_t *                      runtime_spad,
                                         fd_exec_para_cb_ctx_t *          exec_para_ctx ) {
 
+  FD_SPAD_FRAME_BEGIN( runtime_spad ) {
+
   fd_accounts_hash_task_data_t * task_data = NULL;
 
   fd_runtime_block_execute_finalize_start( slot_ctx, runtime_spad, &task_data, worker_cnt );
@@ -1105,6 +1111,8 @@ fd_runtime_block_execute_finalize_para( fd_exec_slot_ctx_t *             slot_ct
   fd_exec_para_call_func( exec_para_ctx );
 
   fd_runtime_block_execute_finalize_finish( slot_ctx, capture_ctx, block_info, runtime_spad, task_data, worker_cnt );
+
+  } FD_SPAD_FRAME_END;
 
   return 0;
 }
@@ -2242,6 +2250,8 @@ fd_runtime_process_new_epoch( fd_exec_slot_ctx_t * slot_ctx,
                               fd_spad_t *          runtime_spad ) {
   FD_LOG_NOTICE(( "fd_process_new_epoch start" ));
 
+  FD_SPAD_FRAME_BEGIN( runtime_spad ) {
+
   long start = fd_log_wallclock();
 
   ulong                       slot;
@@ -2306,16 +2316,7 @@ fd_runtime_process_new_epoch( fd_exec_slot_ctx_t * slot_ctx,
     FD_LOG_ERR(( "StakeHistory sysvar could not be read and decoded" ));
   }
 
-  /* In order to correctly handle the lifetimes of allocations for partitioned
-     epoch rewards, we will push a spad frame when rewards partitioning starts.
-     We will only pop this frame when all of the rewards for the epoch have
-     been distributed. As a note, this is technically not the most optimal use
-     of memory as some data structures used can be freed when this function
-     exits, but this is okay since the additional allocations are on the order
-     of a few megabytes and are freed after a few thousand slots. */
-
-  fd_spad_push( runtime_spad );
-
+  /* FIXME: There are allocations made in here that are persisted. */
   fd_refresh_vote_accounts( slot_ctx,
                             history,
                             new_rate_activation_epoch,
@@ -2327,7 +2328,7 @@ fd_runtime_process_new_epoch( fd_exec_slot_ctx_t * slot_ctx,
 
   /* Distribute rewards */
 
-  fd_block_hash_queue_global_t const * bhq              = (fd_block_hash_queue_global_t *)&slot_ctx->bank->block_hash_queue[0];
+  fd_block_hash_queue_global_t const * bhq              = fd_bank_block_hash_queue_query( slot_ctx->bank );
   fd_hash_t const *                    parent_blockhash = fd_block_hash_queue_last_hash_join( bhq );
 
   fd_begin_partitioned_rewards( slot_ctx,
@@ -2354,6 +2355,8 @@ fd_runtime_process_new_epoch( fd_exec_slot_ctx_t * slot_ctx,
 
   long end = fd_log_wallclock();
   FD_LOG_NOTICE(("fd_process_new_epoch took %ld ns", end - start));
+
+  } FD_SPAD_FRAME_END;
 }
 
 /******************************************************************************/
@@ -2383,6 +2386,8 @@ fd_runtime_update_program_cache( fd_exec_slot_ctx_t * slot_ctx,
                                  fd_txn_p_t const *   txn_p,
                                  fd_spad_t *          runtime_spad ) {
   fd_txn_t const * txn_descriptor = TXN( txn_p );
+
+  FD_SPAD_FRAME_BEGIN( runtime_spad ) {
 
   /* Iterate over account keys referenced directly in the transaction first */
   fd_acct_addr_t const * acc_addrs = fd_txn_get_acct_addrs( txn_descriptor, txn_p );
@@ -2417,6 +2422,8 @@ fd_runtime_update_program_cache( fd_exec_slot_ctx_t * slot_ctx,
       fd_bpf_program_update_program_cache( slot_ctx, account, runtime_spad );
     }
   }
+
+  } FD_SPAD_FRAME_END;
 }
 
 /* if we are currently in the middle of a batch, batch_cnt will include the current batch.
@@ -3672,11 +3679,7 @@ fd_runtime_block_pre_execute_process_new_epoch( fd_exec_slot_ctx_t * slot_ctx,
   }
 
   if( FD_LIKELY( fd_bank_slot_get( slot_ctx->bank )!=0UL ) ) {
-    fd_distribute_partitioned_epoch_rewards( slot_ctx,
-                                             tpool,
-                                             exec_spads,
-                                             exec_spad_cnt,
-                                             runtime_spad );
+    fd_distribute_partitioned_epoch_rewards( slot_ctx, runtime_spad );
   }
 }
 

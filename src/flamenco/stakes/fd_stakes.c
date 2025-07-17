@@ -503,6 +503,7 @@ fd_refresh_vote_accounts( fd_exec_slot_ctx_t *       slot_ctx,
   for( fd_vote_accounts_pair_global_t_mapnode_t * elem = fd_vote_accounts_pair_global_t_map_minimum( stakes_vote_accounts_pool, stakes_vote_accounts_root );
        elem;
        elem = fd_vote_accounts_pair_global_t_map_successor( stakes_vote_accounts_pool, elem ) ) {
+
     fd_pubkey_t const *         vote_account_pubkey = &elem->elem.key;
     fd_vote_state_versioned_t * vote_state          = deserialize_and_update_vote_account( slot_ctx,
                                                                                            elem,
@@ -513,6 +514,9 @@ fd_refresh_vote_accounts( fd_exec_slot_ctx_t *       slot_ctx,
     if( FD_LIKELY( vote_state ) ) {
       total_epoch_stake += elem->elem.stake;
       // Insert into the temporary vote states cache
+      /* FIXME: This copy copies over some local pointers, which means
+         that the allocation done when deserializing the vote account
+         is not freed until the end of the epoch boundary processing. */
       fd_vote_info_pair_t_mapnode_t * new_vote_state_node = fd_vote_info_pair_t_map_acquire( temp_info->vote_states_pool );
       new_vote_state_node->elem.account = *vote_account_pubkey;
       new_vote_state_node->elem.state   = *vote_state;
@@ -587,7 +591,6 @@ accumulate_stake_cache_delegations( fd_delegation_pair_t_mapnode_t * *      dele
   fd_stake_history_t const *              history                   = task_args->stake_history;
   ulong *                                 new_rate_activation_epoch = task_args->new_rate_activation_epoch;
   fd_stake_history_entry_t *              accumulator               = task_args->accumulator;
-  fd_spad_t *                             spad                      = task_args->spads[worker_idx];
   fd_delegation_pair_t_mapnode_t *        delegations_pool          = task_args->stake_delegations_pool;
   fd_epoch_info_t *                       temp_info                 = task_args->temp_info;
   ulong                                   epoch                     = task_args->epoch;
@@ -596,54 +599,51 @@ accumulate_stake_cache_delegations( fd_delegation_pair_t_mapnode_t * *      dele
   ulong activating   = 0UL;
   ulong deactivating = 0UL;
 
-  FD_SPAD_FRAME_BEGIN( spad ) {
-    for( fd_delegation_pair_t_mapnode_t * n =  delegations_roots[worker_idx];
-                                          n != end_node;
-                                          n =  fd_delegation_pair_t_map_successor( delegations_pool, n ) ) {
+  for( fd_delegation_pair_t_mapnode_t * n =  delegations_roots[worker_idx];
+                                        n != end_node;
+                                        n =  fd_delegation_pair_t_map_successor( delegations_pool, n ) ) {
 
-      FD_TXN_ACCOUNT_DECL( acc );
-      int rc = fd_txn_account_init_from_funk_readonly( acc,
-                                                       &n->elem.account,
-                                                       slot_ctx->funk,
-                                                       slot_ctx->funk_txn );
-      if( FD_UNLIKELY( rc!=FD_ACC_MGR_SUCCESS || acc->vt->get_lamports( acc )==0UL ) ) {
-        FD_LOG_WARNING(("Failed to init account"));
-        continue;
-      }
-
-      fd_stake_state_v2_t stake_state;
-      rc = fd_stake_get_state( acc, &stake_state );
-      if( FD_UNLIKELY( rc != 0 ) ) {
-        FD_LOG_WARNING(("Failed to get stake state"));
-        continue;
-      }
-
-      if( FD_UNLIKELY( !fd_stake_state_v2_is_stake( &stake_state ) ) ) {
-        FD_LOG_WARNING(("Not a stake"));
-        continue;
-      }
-
-      if( FD_UNLIKELY( stake_state.inner.stake.stake.delegation.stake == 0 ) ) {
-        continue;
-      }
-
-      fd_delegation_t * delegation = &stake_state.inner.stake.stake.delegation;
-
-      ulong delegation_idx = FD_ATOMIC_FETCH_AND_ADD( &temp_info->stake_infos_len, 1UL );
-      temp_info->stake_infos[delegation_idx].stake   = stake_state.inner.stake.stake;
-      temp_info->stake_infos[delegation_idx].account = n->elem.account;
-
-      fd_stake_history_entry_t new_entry = fd_stake_activating_and_deactivating( delegation, epoch, history, new_rate_activation_epoch );
-      effective    += new_entry.effective;
-      activating   += new_entry.activating;
-      deactivating += new_entry.deactivating;
+    FD_TXN_ACCOUNT_DECL( acc );
+    int rc = fd_txn_account_init_from_funk_readonly( acc,
+                                                      &n->elem.account,
+                                                      slot_ctx->funk,
+                                                      slot_ctx->funk_txn );
+    if( FD_UNLIKELY( rc!=FD_ACC_MGR_SUCCESS || acc->vt->get_lamports( acc )==0UL ) ) {
+      FD_LOG_WARNING(("Failed to init account"));
+      continue;
     }
 
-    FD_ATOMIC_FETCH_AND_ADD( &accumulator->effective,    effective );
-    FD_ATOMIC_FETCH_AND_ADD( &accumulator->activating,   activating );
-    FD_ATOMIC_FETCH_AND_ADD( &accumulator->deactivating, deactivating );
+    fd_stake_state_v2_t stake_state;
+    rc = fd_stake_get_state( acc, &stake_state );
+    if( FD_UNLIKELY( rc != 0 ) ) {
+      FD_LOG_WARNING(("Failed to get stake state"));
+      continue;
+    }
 
-  } FD_SPAD_FRAME_END;
+    if( FD_UNLIKELY( !fd_stake_state_v2_is_stake( &stake_state ) ) ) {
+      FD_LOG_WARNING(("Not a stake"));
+      continue;
+    }
+
+    if( FD_UNLIKELY( stake_state.inner.stake.stake.delegation.stake == 0 ) ) {
+      continue;
+    }
+
+    fd_delegation_t * delegation = &stake_state.inner.stake.stake.delegation;
+
+    ulong delegation_idx = FD_ATOMIC_FETCH_AND_ADD( &temp_info->stake_infos_len, 1UL );
+    temp_info->stake_infos[delegation_idx].stake   = stake_state.inner.stake.stake;
+    temp_info->stake_infos[delegation_idx].account = n->elem.account;
+
+    fd_stake_history_entry_t new_entry = fd_stake_activating_and_deactivating( delegation, epoch, history, new_rate_activation_epoch );
+    effective    += new_entry.effective;
+    activating   += new_entry.activating;
+    deactivating += new_entry.deactivating;
+  }
+
+  FD_ATOMIC_FETCH_AND_ADD( &accumulator->effective,    effective );
+  FD_ATOMIC_FETCH_AND_ADD( &accumulator->activating,   activating );
+  FD_ATOMIC_FETCH_AND_ADD( &accumulator->deactivating, deactivating );
 
 }
 
@@ -681,6 +681,8 @@ fd_accumulate_stake_infos( fd_exec_slot_ctx_t const * slot_ctx,
                            ulong                      exec_spads_cnt,
                            fd_spad_t *                runtime_spad ) {
 
+  FD_SPAD_FRAME_BEGIN( runtime_spad ) {
+
   fd_delegation_pair_t_mapnode_t * stake_delegations_pool = fd_stakes_stake_delegations_pool_join( stakes );
   fd_delegation_pair_t_mapnode_t * stake_delegations_root = fd_stakes_stake_delegations_root_join( stakes );
 
@@ -694,6 +696,7 @@ fd_accumulate_stake_infos( fd_exec_slot_ctx_t const * slot_ctx,
   ulong tpool_worker_cnt                                   = !!tpool ? fd_tpool_worker_cnt( tpool ) : 1UL;
   ulong worker_cnt                                         = fd_ulong_min( stake_delegations_pool_sz,
                                                                            fd_ulong_min( tpool_worker_cnt, exec_spads_cnt ) );
+
   fd_delegation_pair_t_mapnode_t ** batch_delegation_roots = fd_spad_alloc( runtime_spad, alignof(fd_delegation_pair_t_mapnode_t *),
                                                                                       ( worker_cnt + 1 )*sizeof(fd_delegation_pair_t_mapnode_t *) );
 
@@ -783,6 +786,8 @@ fd_accumulate_stake_infos( fd_exec_slot_ctx_t const * slot_ctx,
   }
 
   fd_bank_stake_account_keys_end_locking_query( slot_ctx->bank );
+
+  } FD_SPAD_FRAME_END;
 }
 
 /* https://github.com/solana-labs/solana/blob/88aeaa82a856fc807234e7da0b31b89f2dc0e091/runtime/src/stakes.rs#L169 */

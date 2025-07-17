@@ -1073,15 +1073,8 @@ distribute_epoch_rewards_in_partition( fd_partitioned_stake_rewards_dlist_t * pa
 
    https://github.com/anza-xyz/agave/blob/cbc8320d35358da14d79ebcada4dfb6756ffac79/runtime/src/bank/partitioned_epoch_rewards/distribution.rs#L42 */
 void
-fd_distribute_partitioned_epoch_rewards( fd_exec_slot_ctx_t * slot_ctx,
-                                         fd_tpool_t *         tpool,
-                                         fd_spad_t * *        exec_spads,
-                                         ulong                exec_spad_cnt,
-                                         fd_spad_t *          runtime_spad ) {
+fd_distribute_partitioned_epoch_rewards( fd_exec_slot_ctx_t * slot_ctx, fd_spad_t * runtime_spad ) {
 
-  (void)tpool;
-  (void)exec_spads;
-  (void)exec_spad_cnt;
 
   fd_epoch_reward_status_global_t const * epoch_reward_status = fd_bank_epoch_reward_status_locking_query( slot_ctx->bank );
 
@@ -1193,12 +1186,6 @@ fd_rewards_recalculate_partitioned_rewards( fd_exec_slot_ctx_t * slot_ctx,
   FD_LOG_NOTICE(( "recalculating partitioned rewards" ));
 
   if( FD_UNLIKELY( epoch_rewards->active ) ) {
-
-    /* If epoch rewards are active, we must calculate the rewards partitions
-       so we can start distributing. For the same reason as described in
-       fd_runtime_process_new_epoch, we must push on a spad frame at this
-       point. */
-    fd_spad_push( runtime_spad );
 
     /* If partitioned rewards are active, the rewarded epoch is always the immediately
         preceeding epoch.
