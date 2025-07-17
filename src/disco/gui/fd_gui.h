@@ -43,6 +43,19 @@
 #define FD_GUI_START_PROGRESS_TYPE_WAITING_FOR_SUPERMAJORITY          (11)
 #define FD_GUI_START_PROGRESS_TYPE_RUNNING                            (12)
 
+#define FD_GUI_BOOT_PROGRESS_TYPE_JOINING_GOSSIP               ( 0)
+#define FD_GUI_BOOT_PROGRESS_TYPE_LOADING_FULL_SNAPSHOT        ( 1)
+#define FD_GUI_BOOT_PROGRESS_TYPE_LOADING_INCREMENTAL_SNAPSHOT ( 2)
+#define FD_GUI_BOOT_PROGRESS_TYPE_CATCHING_UP                  ( 3)
+#define FD_GUI_BOOT_PROGRESS_TYPE_RUNNING                      ( 4)
+
+#define FD_GUI_BOOT_PROGRESS_FULL_SNAPSHOT_IDX        (0UL)
+#define FD_GUI_BOOT_PROGRESS_INCREMENTAL_SNAPSHOT_IDX (1UL)
+
+#define FD_GUI_EMA_FILTER_ALPHA ((double)0.05)
+
+#define FD_GUI_GOSSIP_NETWORK_STATS_PEER_CNT (64UL)
+
 /* Ideally, we would store an entire epoch's worth of transactions.  If
    we assume any given validator will have at most 5% stake, and average
    transactions per slot is around 10_000, then an epoch will have about
@@ -291,6 +304,7 @@ struct fd_gui {
     char vote_key_base58[ FD_BASE58_ENCODED_32_SZ ];
     char identity_key_base58[ FD_BASE58_ENCODED_32_SZ ];
 
+    int          is_full_client;
     char const * version;
     char const * cluster;
 
@@ -299,32 +313,96 @@ struct fd_gui {
 
     long  startup_time_nanos;
 
-    uchar startup_progress;
-    int   startup_got_full_snapshot;
+    union {
+      struct { /* used in frankendancer */
+      uchar phase;
+      int   startup_got_full_snapshot;
 
-    ulong  startup_incremental_snapshot_slot;
-    uint   startup_incremental_snapshot_peer_ip_addr;
-    ushort startup_incremental_snapshot_peer_port;
-    double startup_incremental_snapshot_elapsed_secs;
-    double startup_incremental_snapshot_remaining_secs;
-    double startup_incremental_snapshot_throughput;
-    ulong  startup_incremental_snapshot_total_bytes;
-    ulong  startup_incremental_snapshot_current_bytes;
+      ulong  startup_incremental_snapshot_slot;
+      uint   startup_incremental_snapshot_peer_ip_addr;
+        ushort startup_incremental_snapshot_peer_port;
+        double startup_incremental_snapshot_elapsed_secs;
+        double startup_incremental_snapshot_remaining_secs;
+        double startup_incremental_snapshot_throughput;
+        ulong  startup_incremental_snapshot_total_bytes;
+        ulong  startup_incremental_snapshot_current_bytes;
 
-    ulong  startup_full_snapshot_slot;
-    uint   startup_full_snapshot_peer_ip_addr;
-    ushort startup_full_snapshot_peer_port;
-    double startup_full_snapshot_elapsed_secs;
-    double startup_full_snapshot_remaining_secs;
-    double startup_full_snapshot_throughput;
-    ulong  startup_full_snapshot_total_bytes;
-    ulong  startup_full_snapshot_current_bytes;
+        ulong  startup_full_snapshot_slot;
+        uint   startup_full_snapshot_peer_ip_addr;
+        ushort startup_full_snapshot_peer_port;
+        double startup_full_snapshot_elapsed_secs;
+        double startup_full_snapshot_remaining_secs;
+        double startup_full_snapshot_throughput;
+        ulong  startup_full_snapshot_total_bytes;
+        ulong  startup_full_snapshot_current_bytes;
 
-    ulong startup_ledger_slot;
-    ulong startup_ledger_max_slot;
+        ulong startup_ledger_slot;
+        ulong startup_ledger_max_slot;
 
-    ulong startup_waiting_for_supermajority_slot;
-    ulong startup_waiting_for_supermajority_stake_pct;
+        ulong startup_waiting_for_supermajority_slot;
+        ulong startup_waiting_for_supermajority_stake_pct;
+      } startup_progress;
+      struct { /* used in the full client */
+        uchar phase;
+        long joining_gossip_time_nanos;
+        struct {
+          ulong  slot;
+          uint   peer_addr;
+          ushort peer_port;
+          ulong  total_bytes; /* compressed */
+          long   reset_time_nanos; /* since this phase can reset, we keep a reset timestamp for proper timekeeping */
+          long   sample_time_nanos;
+          ulong  reset_cnt;
+
+          ulong  read_bytes; /* compressed */
+          double read_throughput_ema; /* EMA filtered throughput, in compressed bytes / ns */
+          long   read_remaining_nanos;
+          char   read_path[ PATH_MAX ];
+
+          ulong  decompress_decompressed_bytes; /* decompressed */
+          ulong  decompress_compressed_bytes; /* compressed */
+          double decompress_throughput_ema; /* compressed */
+          long   decompress_remaining_nanos;
+
+          ulong  insert_bytes; /* decompressed */
+          double insert_throughput_ema; /* decompressed */
+          long   insert_remaining_nanos;
+          char   insert_path[ PATH_MAX ];
+          ulong  insert_accounts_current;
+          double insert_accounts_throughput_ema;
+        } loading_snapshot[ 2UL ];
+
+        long  catching_up_time_nanos;
+        ulong catching_up_first_turbine_slot;
+        ulong catching_up_latest_turbine_slot;
+        ulong catching_up_latest_repair_slot;
+        ulong catching_up_latest_replay_slot;
+      } boot_progress;
+    };
+
+    struct {
+      uchar health_rx_push_pct;
+      uchar health_duplicate_pct;
+      uchar health_bad_pct;
+      uchar health_pull_alread_known_pct;
+      ulong health_total_stake; /* lamports */
+      ulong health_total_peers;
+      ulong health_connected_stake; /* lamports */
+      ulong health_connected_peers;
+
+      double ingress_total_throughput_ema; /* bytes per nanosecond */
+      char   ingress_peer_names[ FD_GUI_GOSSIP_NETWORK_STATS_PEER_CNT ][ 64 ]; /* maintain the top 64 peers */
+      double ingress_peer_throughputs_ema[ 64 ]; /* bytes per nanosecond */
+
+      double egress_total_throughput_ema; /* bytes per nanosecond */
+      char   egress_peer_names[ FD_GUI_GOSSIP_NETWORK_STATS_PEER_CNT ][ 64 ]; /* maintain the top 64 peers */
+      double egress_peer_throughputs_ema[ 64 ]; /* bytes per nanosecond */
+
+      ulong storage_total_bytes;
+      char  storage_peer_names[ FD_GUI_GOSSIP_NETWORK_STATS_PEER_CNT ][ 64 ]; /* maintain the top 64 peers */
+      ulong storage_peer_bytes[ 64 ];
+
+    } gossip_network_stats;
 
     int schedule_strategy;
 
@@ -433,6 +511,7 @@ fd_gui_new( void *             shmem,
             uchar const *      identity_key,
             int                has_vote_key,
             uchar const *      vote_key,
+            int                is_full_client,
             int                is_voting,
             int                schedule_strategy,
             fd_topo_t *        topo );

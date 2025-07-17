@@ -291,10 +291,20 @@ fd_gui_printf_tps_history( fd_gui_t * gui ) {
 }
 
 void
+fd_gui_printf_client( fd_gui_t * gui ) {
+  jsonp_open_envelope( gui, "summary", "client" );
+    jsonp_open_array( gui, "value" );
+      if( FD_LIKELY( gui->summary.is_full_client ) ) jsonp_string( gui, NULL, "firedancer" );
+      else                                           jsonp_string( gui, NULL, "frankendancer" );
+    jsonp_close_array( gui );
+  jsonp_close_envelope( gui );
+}
+
+void
 fd_gui_printf_startup_progress( fd_gui_t * gui ) {
   char const * phase;
 
-  switch( gui->summary.startup_progress ) {
+  switch( gui->summary.startup_progress.phase ) {
     case FD_GUI_START_PROGRESS_TYPE_INITIALIZING:
       phase = "initializing";
       break;
@@ -335,23 +345,23 @@ fd_gui_printf_startup_progress( fd_gui_t * gui ) {
       phase = "running";
       break;
     default:
-      FD_LOG_ERR(( "unknown phase %d", gui->summary.startup_progress ));
+      FD_LOG_ERR(( "unknown phase %d", gui->summary.startup_progress.phase ));
   }
 
   jsonp_open_envelope( gui, "summary", "startup_progress" );
     jsonp_open_object( gui, "value" );
       jsonp_string( gui, "phase", phase );
-      if( FD_LIKELY( gui->summary.startup_progress>=FD_GUI_START_PROGRESS_TYPE_DOWNLOADING_FULL_SNAPSHOT) ) {
+      if( FD_LIKELY( gui->summary.startup_progress.phase>=FD_GUI_START_PROGRESS_TYPE_DOWNLOADING_FULL_SNAPSHOT) ) {
         char peer_addr[ 64 ];
-        FD_TEST( fd_cstr_printf_check( peer_addr, sizeof(peer_addr), NULL, FD_IP4_ADDR_FMT ":%u", FD_IP4_ADDR_FMT_ARGS(gui->summary.startup_full_snapshot_peer_ip_addr), gui->summary.startup_full_snapshot_peer_port ) );
+        FD_TEST( fd_cstr_printf_check( peer_addr, sizeof(peer_addr), NULL, FD_IP4_ADDR_FMT ":%u", FD_IP4_ADDR_FMT_ARGS(gui->summary.startup_progress.startup_full_snapshot_peer_ip_addr), gui->summary.startup_progress.startup_full_snapshot_peer_port ) );
 
         jsonp_string( gui, "downloading_full_snapshot_peer", peer_addr );
-        jsonp_ulong( gui, "downloading_full_snapshot_slot", gui->summary.startup_full_snapshot_slot );
-        jsonp_double( gui, "downloading_full_snapshot_elapsed_secs", gui->summary.startup_full_snapshot_elapsed_secs );
-        jsonp_double( gui, "downloading_full_snapshot_remaining_secs", gui->summary.startup_full_snapshot_remaining_secs );
-        jsonp_double( gui, "downloading_full_snapshot_throughput", gui->summary.startup_full_snapshot_throughput );
-        jsonp_ulong( gui, "downloading_full_snapshot_total_bytes", gui->summary.startup_full_snapshot_total_bytes );
-        jsonp_ulong( gui, "downloading_full_snapshot_current_bytes", gui->summary.startup_full_snapshot_current_bytes );
+        jsonp_ulong( gui, "downloading_full_snapshot_slot", gui->summary.startup_progress.startup_full_snapshot_slot );
+        jsonp_double( gui, "downloading_full_snapshot_elapsed_secs", gui->summary.startup_progress.startup_full_snapshot_elapsed_secs );
+        jsonp_double( gui, "downloading_full_snapshot_remaining_secs", gui->summary.startup_progress.startup_full_snapshot_remaining_secs );
+        jsonp_double( gui, "downloading_full_snapshot_throughput", gui->summary.startup_progress.startup_full_snapshot_throughput );
+        jsonp_ulong( gui, "downloading_full_snapshot_total_bytes", gui->summary.startup_progress.startup_full_snapshot_total_bytes );
+        jsonp_ulong( gui, "downloading_full_snapshot_current_bytes", gui->summary.startup_progress.startup_full_snapshot_current_bytes );
       } else {
         jsonp_null( gui, "downloading_full_snapshot_peer" );
         jsonp_null( gui, "downloading_full_snapshot_slot" );
@@ -362,17 +372,17 @@ fd_gui_printf_startup_progress( fd_gui_t * gui ) {
         jsonp_null( gui, "downloading_full_snapshot_current_bytes" );
       }
 
-      if( FD_LIKELY( gui->summary.startup_progress>=FD_GUI_START_PROGRESS_TYPE_DOWNLOADING_INCREMENTAL_SNAPSHOT) ) {
+      if( FD_LIKELY( gui->summary.startup_progress.phase>=FD_GUI_START_PROGRESS_TYPE_DOWNLOADING_INCREMENTAL_SNAPSHOT) ) {
         char peer_addr[ 64 ];
-        FD_TEST( fd_cstr_printf_check( peer_addr, sizeof(peer_addr), NULL, FD_IP4_ADDR_FMT ":%u", FD_IP4_ADDR_FMT_ARGS(gui->summary.startup_incremental_snapshot_peer_ip_addr), gui->summary.startup_incremental_snapshot_peer_port ) );
+        FD_TEST( fd_cstr_printf_check( peer_addr, sizeof(peer_addr), NULL, FD_IP4_ADDR_FMT ":%u", FD_IP4_ADDR_FMT_ARGS(gui->summary.startup_progress.startup_incremental_snapshot_peer_ip_addr), gui->summary.startup_progress.startup_incremental_snapshot_peer_port ) );
 
         jsonp_string( gui, "downloading_incremental_snapshot_peer", peer_addr );
-        jsonp_ulong( gui, "downloading_incremental_snapshot_slot", gui->summary.startup_incremental_snapshot_slot );
-        jsonp_double( gui, "downloading_incremental_snapshot_elapsed_secs", gui->summary.startup_incremental_snapshot_elapsed_secs );
-        jsonp_double( gui, "downloading_incremental_snapshot_remaining_secs", gui->summary.startup_incremental_snapshot_remaining_secs );
-        jsonp_double( gui, "downloading_incremental_snapshot_throughput", gui->summary.startup_incremental_snapshot_throughput );
-        jsonp_ulong( gui, "downloading_incremental_snapshot_total_bytes", gui->summary.startup_incremental_snapshot_total_bytes );
-        jsonp_ulong( gui, "downloading_incremental_snapshot_current_bytes", gui->summary.startup_incremental_snapshot_current_bytes );
+        jsonp_ulong( gui, "downloading_incremental_snapshot_slot", gui->summary.startup_progress.startup_incremental_snapshot_slot );
+        jsonp_double( gui, "downloading_incremental_snapshot_elapsed_secs", gui->summary.startup_progress.startup_incremental_snapshot_elapsed_secs );
+        jsonp_double( gui, "downloading_incremental_snapshot_remaining_secs", gui->summary.startup_progress.startup_incremental_snapshot_remaining_secs );
+        jsonp_double( gui, "downloading_incremental_snapshot_throughput", gui->summary.startup_progress.startup_incremental_snapshot_throughput );
+        jsonp_ulong( gui, "downloading_incremental_snapshot_total_bytes", gui->summary.startup_progress.startup_incremental_snapshot_total_bytes );
+        jsonp_ulong( gui, "downloading_incremental_snapshot_current_bytes", gui->summary.startup_progress.startup_incremental_snapshot_current_bytes );
       } else {
         jsonp_null( gui, "downloading_incremental_snapshot_peer" );
         jsonp_null( gui, "downloading_incremental_snapshot_slot" );
@@ -383,21 +393,182 @@ fd_gui_printf_startup_progress( fd_gui_t * gui ) {
         jsonp_null( gui, "downloading_incremental_snapshot_current_bytes" );
       }
 
-      if( FD_LIKELY( gui->summary.startup_progress>=FD_GUI_START_PROGRESS_TYPE_PROCESSING_LEDGER) ) {
-        jsonp_ulong( gui, "ledger_slot",     gui->summary.startup_ledger_slot );
-        jsonp_ulong( gui, "ledger_max_slot", gui->summary.startup_ledger_max_slot );
+      if( FD_LIKELY( gui->summary.startup_progress.phase>=FD_GUI_START_PROGRESS_TYPE_PROCESSING_LEDGER) ) {
+        jsonp_ulong( gui, "ledger_slot",     gui->summary.startup_progress.startup_ledger_slot );
+        jsonp_ulong( gui, "ledger_max_slot", gui->summary.startup_progress.startup_ledger_max_slot );
       } else {
         jsonp_null( gui, "ledger_slot" );
         jsonp_null( gui, "ledger_max_slot" );
       }
 
-      if( FD_LIKELY( gui->summary.startup_progress>=FD_GUI_START_PROGRESS_TYPE_WAITING_FOR_SUPERMAJORITY ) && gui->summary.startup_waiting_for_supermajority_slot!=ULONG_MAX ) {
-        jsonp_ulong( gui, "waiting_for_supermajority_slot",      gui->summary.startup_waiting_for_supermajority_slot );
-        jsonp_ulong( gui, "waiting_for_supermajority_stake_percent", gui->summary.startup_waiting_for_supermajority_stake_pct );
+      if( FD_LIKELY( gui->summary.startup_progress.phase>=FD_GUI_START_PROGRESS_TYPE_WAITING_FOR_SUPERMAJORITY ) && gui->summary.startup_progress.startup_waiting_for_supermajority_slot!=ULONG_MAX ) {
+        jsonp_ulong( gui, "waiting_for_supermajority_slot",      gui->summary.startup_progress.startup_waiting_for_supermajority_slot );
+        jsonp_ulong( gui, "waiting_for_supermajority_stake_percent", gui->summary.startup_progress.startup_waiting_for_supermajority_stake_pct );
       } else {
         jsonp_null( gui, "waiting_for_supermajority_slot" );
         jsonp_null( gui, "waiting_for_supermajority_stake_percent" );
       }
+    jsonp_close_object( gui );
+  jsonp_close_envelope( gui );
+}
+
+void
+fd_gui_printf_boot_progress( fd_gui_t * gui ) {
+  const double _ns_per_sec = 1000000000.0;
+
+  jsonp_open_envelope( gui, "summary", "boot_progress" );
+    jsonp_open_object( gui, "value" );
+      switch( gui->summary.boot_progress.phase ) {
+        case FD_GUI_BOOT_PROGRESS_TYPE_JOINING_GOSSIP:
+          jsonp_string( gui, "phase", "joining_gossip" );
+          jsonp_double( gui, "total_elapsed", (double)(gui->summary.boot_progress.joining_gossip_time_nanos - gui->summary.startup_time_nanos) / _ns_per_sec );
+          break;
+        case FD_GUI_BOOT_PROGRESS_TYPE_LOADING_FULL_SNAPSHOT:
+          jsonp_string( gui, "phase", "loading_full_snapshot" );
+          jsonp_double( gui, "total_elapsed", (double)(gui->summary.boot_progress.loading_snapshot[ FD_GUI_BOOT_PROGRESS_FULL_SNAPSHOT_IDX ].sample_time_nanos - gui->summary.startup_time_nanos) / _ns_per_sec );
+          break;
+        case FD_GUI_BOOT_PROGRESS_TYPE_LOADING_INCREMENTAL_SNAPSHOT:
+          jsonp_string( gui, "phase", "loading_incr_snapshot" );
+          jsonp_double( gui, "total_elapsed", (double)(gui->summary.boot_progress.loading_snapshot[ FD_GUI_BOOT_PROGRESS_INCREMENTAL_SNAPSHOT_IDX ].sample_time_nanos - gui->summary.startup_time_nanos) / _ns_per_sec );
+          break;
+        case FD_GUI_BOOT_PROGRESS_TYPE_CATCHING_UP:
+          jsonp_string( gui, "phase", "catching_up" );
+          jsonp_double( gui, "total_elapsed", (double)(gui->summary.boot_progress.catching_up_time_nanos - gui->summary.startup_time_nanos) / _ns_per_sec );
+          break;
+        case FD_GUI_BOOT_PROGRESS_TYPE_RUNNING:
+          jsonp_string( gui, "phase", "running" );
+          jsonp_double( gui, "total_elapsed", (double)(gui->summary.boot_progress.catching_up_time_nanos - gui->summary.startup_time_nanos) / _ns_per_sec );
+          break;
+        default:
+          FD_LOG_ERR(( "unknown phase %d", gui->summary.startup_progress.phase ));
+      }
+
+      jsonp_long( gui, "joining_gossip_elapsed", (gui->summary.boot_progress.joining_gossip_time_nanos - gui->summary.startup_time_nanos) / 1000000L );
+
+#define HANDLE_SNAPSHOT_STATE(snapshot_type, snapshot_type_upper) \
+      if( FD_LIKELY( gui->summary.boot_progress.phase>=FD_GUI_BOOT_PROGRESS_TYPE_LOADING_##snapshot_type_upper##_SNAPSHOT )) { \
+        char peer_addr[ 64UL ]; \
+        ulong snapshot_idx = FD_GUI_BOOT_PROGRESS_##snapshot_type_upper##_SNAPSHOT_IDX; \
+        FD_TEST( fd_cstr_printf_check( peer_addr, sizeof(peer_addr), NULL, FD_IP4_ADDR_FMT ":%u", FD_IP4_ADDR_FMT_ARGS(gui->summary.boot_progress.loading_snapshot[ snapshot_idx ].peer_addr), gui->summary.boot_progress.loading_snapshot[ snapshot_idx ].peer_port ) ); \
+        if( FD_LIKELY( gui->summary.boot_progress.loading_snapshot[ snapshot_idx ].peer_addr!=0U ) ) jsonp_string( gui, "loading_" FD_STRINGIFY(snapshot_type) "_snapshot_peer", peer_addr ); \
+        else jsonp_null( gui, "loading_" FD_STRINGIFY(snapshot_type) "_snapshot_peer" ); /* local snapshots don't have a peer */ \
+        jsonp_double      ( gui, "loading_" FD_STRINGIFY(snapshot_type) "_snapshot_elapsed",                       (double)(gui->summary.boot_progress.loading_snapshot[ snapshot_idx ].sample_time_nanos - gui->summary.boot_progress.loading_snapshot[ snapshot_idx ].reset_time_nanos) / _ns_per_sec ); \
+        jsonp_ulong       ( gui, "loading_" FD_STRINGIFY(snapshot_type) "_snapshot_reset_cnt",                     gui->summary.boot_progress.loading_snapshot[ snapshot_idx ].reset_cnt                                            ); \
+        jsonp_ulong       ( gui, "loading_" FD_STRINGIFY(snapshot_type) "_snapshot_slot",                          gui->summary.boot_progress.loading_snapshot[ snapshot_idx ].slot                                                 ); \
+        jsonp_ulong_as_str( gui, "loading_" FD_STRINGIFY(snapshot_type) "_snapshot_total_bytes",                   gui->summary.boot_progress.loading_snapshot[ snapshot_idx ].total_bytes                                          ); \
+        jsonp_double      ( gui, "loading_" FD_STRINGIFY(snapshot_type) "_snapshot_read_elapsed",                  (double)gui->summary.boot_progress.loading_snapshot[ snapshot_idx ].sample_time_nanos / _ns_per_sec              ); \
+        jsonp_ulong_as_str( gui, "loading_" FD_STRINGIFY(snapshot_type) "_snapshot_read_bytes",                    gui->summary.boot_progress.loading_snapshot[ snapshot_idx ].read_bytes                                           ); \
+        jsonp_double      ( gui, "loading_" FD_STRINGIFY(snapshot_type) "_snapshot_read_throughput",               gui->summary.boot_progress.loading_snapshot[ snapshot_idx ].read_throughput_ema * _ns_per_sec                    ); \
+        jsonp_double      ( gui, "loading_" FD_STRINGIFY(snapshot_type) "_snapshot_read_remaining",                (double)gui->summary.boot_progress.loading_snapshot[ snapshot_idx ].read_remaining_nanos / _ns_per_sec           ); \
+        jsonp_string      ( gui, "loading_" FD_STRINGIFY(snapshot_type) "_snapshot_read_path",                      gui->summary.boot_progress.loading_snapshot[ snapshot_idx ].read_path                                            ); \
+        jsonp_ulong_as_str( gui, "loading_" FD_STRINGIFY(snapshot_type) "_snapshot_decompress_decompressed_bytes", gui->summary.boot_progress.loading_snapshot[ snapshot_idx ].decompress_decompressed_bytes                        ); \
+        jsonp_ulong_as_str( gui, "loading_" FD_STRINGIFY(snapshot_type) "_snapshot_decompress_compressed_bytes",   gui->summary.boot_progress.loading_snapshot[ snapshot_idx ].decompress_compressed_bytes                          ); \
+        jsonp_double      ( gui, "loading_" FD_STRINGIFY(snapshot_type) "_snapshot_decompress_throughput",         gui->summary.boot_progress.loading_snapshot[ snapshot_idx ].decompress_throughput_ema * _ns_per_sec              ); \
+        jsonp_double      ( gui, "loading_" FD_STRINGIFY(snapshot_type) "_snapshot_decompress_remaining",          (double)gui->summary.boot_progress.loading_snapshot[ snapshot_idx ].decompress_remaining_nanos / _ns_per_sec     ); \
+        jsonp_ulong_as_str( gui, "loading_" FD_STRINGIFY(snapshot_type) "_snapshot_insert_bytes",                  gui->summary.boot_progress.loading_snapshot[ snapshot_idx ].insert_bytes                                         ); \
+        jsonp_double      ( gui, "loading_" FD_STRINGIFY(snapshot_type) "_snapshot_insert_throughput",             gui->summary.boot_progress.loading_snapshot[ snapshot_idx ].insert_throughput_ema * _ns_per_sec                  ); \
+        jsonp_double      ( gui, "loading_" FD_STRINGIFY(snapshot_type) "_snapshot_insert_remaining",              (double)gui->summary.boot_progress.loading_snapshot[ snapshot_idx ].insert_remaining_nanos / _ns_per_sec         ); \
+        jsonp_double      ( gui, "loading_" FD_STRINGIFY(snapshot_type) "_snapshot_insert_accounts_throughput",    (double)gui->summary.boot_progress.loading_snapshot[ snapshot_idx ].insert_accounts_throughput_ema * _ns_per_sec ); \
+        jsonp_ulong       ( gui, "loading_" FD_STRINGIFY(snapshot_type) "_snapshot_insert_accounts_current",       gui->summary.boot_progress.loading_snapshot[ snapshot_idx ].insert_accounts_current                              ); \
+      } else { \
+        jsonp_null( gui, "loading_" FD_STRINGIFY(snapshot_type) "_snapshot_peer"                          ); \
+        jsonp_null( gui, "loading_" FD_STRINGIFY(snapshot_type) "_snapshot_elapsed"                       ); \
+        jsonp_null( gui, "loading_" FD_STRINGIFY(snapshot_type) "_snapshot_reset_cnt"                     ); \
+        jsonp_null( gui, "loading_" FD_STRINGIFY(snapshot_type) "_snapshot_slot"                          ); \
+        jsonp_null( gui, "loading_" FD_STRINGIFY(snapshot_type) "_snapshot_total_bytes"                   ); \
+        jsonp_null( gui, "loading_" FD_STRINGIFY(snapshot_type) "_snapshot_read_elapsed"                  ); \
+        jsonp_null( gui, "loading_" FD_STRINGIFY(snapshot_type) "_snapshot_read_bytes"                    ); \
+        jsonp_null( gui, "loading_" FD_STRINGIFY(snapshot_type) "_snapshot_read_throughput"               ); \
+        jsonp_null( gui, "loading_" FD_STRINGIFY(snapshot_type) "_snapshot_read_remaining"                ); \
+        jsonp_null( gui, "loading_" FD_STRINGIFY(snapshot_type) "_snapshot_read_path"                      ); \
+        jsonp_null( gui, "loading_" FD_STRINGIFY(snapshot_type) "_snapshot_decompress_decompressed_bytes" ); \
+        jsonp_null( gui, "loading_" FD_STRINGIFY(snapshot_type) "_snapshot_decompress_compressed_bytes"   ); \
+        jsonp_null( gui, "loading_" FD_STRINGIFY(snapshot_type) "_snapshot_decompress_throughput"         ); \
+        jsonp_null( gui, "loading_" FD_STRINGIFY(snapshot_type) "_snapshot_decompress_remaining"          ); \
+        jsonp_null( gui, "loading_" FD_STRINGIFY(snapshot_type) "_snapshot_insert_bytes"                  ); \
+        jsonp_null( gui, "loading_" FD_STRINGIFY(snapshot_type) "_snapshot_insert_throughput"             ); \
+        jsonp_null( gui, "loading_" FD_STRINGIFY(snapshot_type) "_snapshot_insert_remaining"              ); \
+        jsonp_null( gui, "loading_" FD_STRINGIFY(snapshot_type) "_snapshot_insert_accounts_throughput"    ); \
+        jsonp_null( gui, "loading_" FD_STRINGIFY(snapshot_type) "_snapshot_insert_accounts_current"       ); \
+      }
+
+    HANDLE_SNAPSHOT_STATE(full, FULL)
+    HANDLE_SNAPSHOT_STATE(incremental, INCREMENTAL)
+#undef HANDLE_SNAPSHOT_STATE
+
+    if( FD_LIKELY( gui->summary.boot_progress.phase>=FD_GUI_BOOT_PROGRESS_TYPE_CATCHING_UP )) {
+      jsonp_double( gui, "catching_up_elapsed",          (double)(gui->summary.boot_progress.catching_up_time_nanos - gui->summary.boot_progress.loading_snapshot[ FD_GUI_BOOT_PROGRESS_INCREMENTAL_SNAPSHOT_IDX ].sample_time_nanos) / _ns_per_sec );
+      jsonp_ulong ( gui, "catching_up_first_turbine_slot", gui->summary.boot_progress.catching_up_first_turbine_slot );
+      jsonp_ulong ( gui, "catching_up_latest_turbine_slot", gui->summary.boot_progress.catching_up_latest_turbine_slot );
+      jsonp_ulong ( gui, "catching_up_latest_repair_slot",  gui->summary.boot_progress.catching_up_latest_repair_slot  );
+      jsonp_ulong ( gui, "catching_up_latest_replay_slot",  gui->summary.boot_progress.catching_up_latest_replay_slot  );
+    } else {
+      jsonp_null( gui, "catching_up_elapsed"          );
+      jsonp_null( gui, "catching_up_first_turbine_slot" );
+      jsonp_null( gui, "catching_up_latest_turbine_slot" );
+      jsonp_null( gui, "catching_up_latest_repair_slot"  );
+      jsonp_null( gui, "catching_up_latest_replay_slot"  );
+    }
+
+    jsonp_close_object( gui );
+  jsonp_close_envelope( gui );
+}
+
+void
+fd_gui_printf_gossip_network_stats( fd_gui_t * gui ) {
+  double _ns_per_sec = 1000000000.0;
+  jsonp_open_envelope( gui, "gossip", "network_stats" );
+    jsonp_open_object( gui, "value" );
+
+      jsonp_open_object( gui, "health" );
+        jsonp_ulong       ( gui, "rx_push",            (ulong)gui->summary.gossip_network_stats.health_rx_push_pct           );
+        jsonp_ulong       ( gui, "duplicate",          (ulong)gui->summary.gossip_network_stats.health_duplicate_pct         );
+        jsonp_ulong       ( gui, "bad",                (ulong)gui->summary.gossip_network_stats.health_bad_pct               );
+        jsonp_ulong       ( gui, "pull_already_known", (ulong)gui->summary.gossip_network_stats.health_pull_alread_known_pct );
+        jsonp_ulong_as_str( gui, "total_stake",        (ulong)gui->summary.gossip_network_stats.health_total_stake           );
+        jsonp_ulong       ( gui, "total_peers",        (ulong)gui->summary.gossip_network_stats.health_total_peers           );
+        jsonp_ulong_as_str( gui, "connected_stake",    (ulong)gui->summary.gossip_network_stats.health_connected_stake       );
+        jsonp_ulong       ( gui, "connected_peers",    (ulong)gui->summary.gossip_network_stats.health_connected_peers       );
+      jsonp_close_object( gui );
+
+      jsonp_open_object( gui, "ingress" );
+        jsonp_double( gui, "total_throughput_ema", gui->summary.gossip_network_stats.ingress_total_throughput_ema * _ns_per_sec );
+        jsonp_open_array( gui, "peer_names" );
+          for( ulong i=0UL; i<FD_GUI_GOSSIP_NETWORK_STATS_PEER_CNT; i++ )
+            jsonp_string( gui, NULL, gui->summary.gossip_network_stats.ingress_peer_names[ i ] );
+        jsonp_close_array( gui );
+
+        jsonp_open_array( gui, "peer_throughputs_ema" );
+          for( ulong i=0UL; i<FD_GUI_GOSSIP_NETWORK_STATS_PEER_CNT; i++ )
+            jsonp_double( gui, NULL, gui->summary.gossip_network_stats.ingress_peer_throughputs_ema[ i ] * _ns_per_sec );
+        jsonp_close_array( gui );
+      jsonp_close_object( gui );
+
+      jsonp_open_object( gui, "egress" );
+        jsonp_double( gui, "total_throughput_ema", gui->summary.gossip_network_stats.egress_total_throughput_ema * _ns_per_sec );
+        jsonp_open_array( gui, "peer_names" );
+          for( ulong i=0UL; i<FD_GUI_GOSSIP_NETWORK_STATS_PEER_CNT; i++ )
+            jsonp_string( gui, NULL, gui->summary.gossip_network_stats.egress_peer_names[ i ] );
+        jsonp_close_array( gui );
+
+        jsonp_open_array( gui, "peer_throughputs_ema" );
+          for( ulong i=0UL; i<FD_GUI_GOSSIP_NETWORK_STATS_PEER_CNT; i++ )
+            jsonp_double( gui, NULL, gui->summary.gossip_network_stats.egress_peer_throughputs_ema[ i ] * _ns_per_sec );
+        jsonp_close_array( gui );
+      jsonp_close_object( gui );
+
+      jsonp_open_object( gui, "storage" );
+        jsonp_ulong( gui, "total_bytes", gui->summary.gossip_network_stats.storage_total_bytes );
+        jsonp_open_array( gui, "peer_names" );
+          for( ulong i=0UL; i<FD_GUI_GOSSIP_NETWORK_STATS_PEER_CNT; i++ )
+            jsonp_string( gui, NULL, gui->summary.gossip_network_stats.egress_peer_names[ i ] );
+        jsonp_close_array( gui );
+
+        jsonp_open_array( gui, "peer_bytes" );
+          for( ulong i=0UL; i<FD_GUI_GOSSIP_NETWORK_STATS_PEER_CNT; i++ )
+            jsonp_ulong( gui, NULL, gui->summary.gossip_network_stats.storage_peer_bytes[ i ] );
+        jsonp_close_array( gui );
+      jsonp_close_object( gui );
     jsonp_close_object( gui );
   jsonp_close_envelope( gui );
 }

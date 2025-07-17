@@ -22,7 +22,6 @@
 struct fd_sshttp_private {
   int  state;
   long deadline;
-  int  full;
 
   int   hops;
 
@@ -36,10 +35,13 @@ struct fd_sshttp_private {
   ulong response_len;
   char  response[ USHORT_MAX ];
 
-  char full_snapshot_name[ PATH_MAX ];
-  char incremental_snapshot_name[ PATH_MAX ];
+  struct {
+    char name[ PATH_MAX ];
+    ulong slot;
+  } full_snapshot, incremental_snapshot;
 
   ulong content_len;
+  ulong content_len_total;
 
   ulong magic;
 };
@@ -108,6 +110,7 @@ fd_sshttp_init( fd_sshttp_t * http,
                 fd_ip4_port_t addr,
                 char const *  path,
                 ulong         path_len,
+                int           reset,
                 long          now ) {
   FD_TEST( http->state==FD_SSHTTP_STATE_INIT );
 
@@ -146,6 +149,14 @@ fd_sshttp_init( fd_sshttp_t * http,
 
   http->state    = FD_SSHTTP_STATE_REQ;
   http->deadline = now + 500L*1000L*1000L;
+
+  if( FD_LIKELY( reset ) ) {
+    fd_memset( &http->incremental_snapshot, 0, sizeof(http->incremental_snapshot) );
+    fd_memset( &http->full_snapshot, 0, sizeof(http->full_snapshot) );
+    http->content_len = 0UL;
+    http->content_len_total = 0UL;
+    http->response_len = 0UL;
+  }
 }
 
 void
@@ -232,9 +243,11 @@ follow_redirect( fd_sshttp_t *        http,
       fd_base58_encode_32( decoded_hash, NULL, encoded_hash );
 
       if( FD_LIKELY( incremental_entry_slot!=ULONG_MAX ) ) {
-        FD_TEST( fd_cstr_printf_check( http->incremental_snapshot_name, PATH_MAX, NULL, "incremental-snapshot-%lu-%lu-%s.tar.zst", full_entry_slot, incremental_entry_slot, encoded_hash ) );
+        FD_TEST( fd_cstr_printf_check( http->incremental_snapshot.name, PATH_MAX, NULL, "incremental-snapshot-%lu-%lu-%s.tar.zst", full_entry_slot, incremental_entry_slot, encoded_hash ) );
+        http->incremental_snapshot.slot = incremental_entry_slot;
       } else {
-        FD_TEST( fd_cstr_printf_check( http->full_snapshot_name, PATH_MAX, NULL, "snapshot-%lu-%s.tar.zst", full_entry_slot, encoded_hash ) );
+        FD_TEST( fd_cstr_printf_check( http->full_snapshot.name, PATH_MAX, NULL, "snapshot-%lu-%s.tar.zst", full_entry_slot, encoded_hash ) );
+        http->full_snapshot.slot = full_entry_slot;
       }
       break;
     }
@@ -263,7 +276,7 @@ follow_redirect( fd_sshttp_t *        http,
                   (int)headers[ 0 ].value_len, headers[ 0 ].value ));
 
   fd_sshttp_cancel( http );
-  fd_sshttp_init( http, http->addr, location, location_len, now );
+  fd_sshttp_init( http, http->addr, location, location_len, 0, now );
 
   return FD_SSHTTP_ADVANCE_AGAIN;
 }
@@ -324,11 +337,13 @@ read_response( fd_sshttp_t * http,
   }
 
   http->content_len = ULONG_MAX;
+  http->content_len_total = ULONG_MAX;
   for( ulong i=0UL; i<header_cnt; i++ ) {
     if( FD_LIKELY( headers[i].name_len!=14UL ) ) continue;
     if( FD_LIKELY( strncasecmp( headers[i].name, "content-length", 14UL ) ) ) continue;
 
     http->content_len = strtoul( headers[i].value, NULL, 10 );
+    http->content_len_total = http->content_len;
     break;
   }
 
@@ -378,10 +393,20 @@ read_body( fd_sshttp_t * http,
 
 void
 fd_sshttp_snapshot_names( fd_sshttp_t * http,
-                         char const **  full_snapshot_name,
-                         char const **  incremental_snapshot_name ) {
-  *full_snapshot_name        = http->full_snapshot_name;
-  *incremental_snapshot_name = http->incremental_snapshot_name;
+                          ulong       * opt_full_snapshot_slot,
+                          ulong       * opt_incremental_snapshot_slot,
+                          char const ** opt_full_snapshot_name,
+                          char const ** opt_incremental_snapshot_name ) {
+  if( FD_UNLIKELY( !!opt_full_snapshot_name        )) *opt_full_snapshot_name        = http->full_snapshot.name;
+  if( FD_UNLIKELY( !!opt_full_snapshot_slot        )) *opt_full_snapshot_slot        = http->full_snapshot.slot;
+  if( FD_UNLIKELY( !!opt_incremental_snapshot_name )) *opt_incremental_snapshot_name = http->incremental_snapshot.name;
+  if( FD_UNLIKELY( !!opt_incremental_snapshot_slot )) *opt_incremental_snapshot_slot = http->incremental_snapshot.slot;
+}
+
+void
+fd_sshttp_download_size( fd_sshttp_t * http,
+                         ulong       * size ) {
+  *size = http->content_len_total;
 }
 
 int
