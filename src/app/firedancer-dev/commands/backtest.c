@@ -24,7 +24,6 @@
 #include "../../../disco/topo/fd_topob.h"
 #include "../../../util/pod/fd_pod_format.h"
 #include "../../../discof/replay/fd_replay_notif.h"
-#include "../../../discof/restore/utils/fd_snapshot_messages.h"
 
 #include <unistd.h> /* pause */
 
@@ -133,7 +132,7 @@ backtest_topo( config_t * config ) {
   fd_topob_wksp( topo, "snapin_rd" );
   fd_topob_wksp( topo, "snap_out" );
   fd_topob_wksp( topo, "replay_manif" );
-  fd_topob_link( topo, "snap_out", "snap_out",   128UL, sizeof(fd_snapshot_manifest_t), 1UL );
+  fd_topob_link( topo, "snap_out", "snap_out", 4UL, 1UL<<31UL, 1UL );
 
   fd_topob_link( topo, "snap_zstd",   "snap_zstd",   512UL, 16384UL,    1UL );
   fd_topob_link( topo, "snap_stream", "snap_stream", 512UL, USHORT_MAX, 1UL );

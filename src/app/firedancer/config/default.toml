@@ -704,7 +704,7 @@ user = ""
     # named .huge under this path, or if the entire path already exists,
     # will use it as-is.  If the mount already exists it should be
     # writable by the Firedancer user.
-    mount_path = "/mnt/.fd"
+    mount_path = "/data/.fd"
 
     # The largest supported page size on the system.  Possible values
     # are either "huge" (2 MiB) or "gigantic" (1 GiB).  Larger sizes

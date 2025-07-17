@@ -1,4 +1,5 @@
-#include "fd_snapshot_messages.h"
+#include "fd_ssmsg.h"
+
 #include "../../../flamenco/types/fd_types.h"
 
 static void

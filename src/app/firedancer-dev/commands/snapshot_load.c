@@ -3,9 +3,8 @@
 #include "../../shared/commands/run/run.h"
 #include "../../../disco/metrics/fd_metrics.h"
 #include "../../../disco/topo/fd_topob.h"
-#include "../../../util/pod/fd_pod_format.h"
 #include "../../../util/tile/fd_tile_private.h"
-#include "../../../discof/restore/utils/fd_snapshot_messages.h"
+#include "../../../discof/restore/utils/fd_ssmsg.h"
 #include <sys/resource.h>
 #include <linux/capability.h>
 #include <unistd.h>
@@ -42,13 +41,6 @@ snapshot_load_topo( config_t *     config,
   fd_topob_wksp( topo, "metric_in" );
   fd_topob_wksp( topo, "metric" );
   fd_topob_tile( topo, "metric",  "metric", "metric_in", tile_to_cpu[0], 0, 0 );
-
-  /* shared dcache between snapin and replay to store the decoded solana
-     manifest */
-  fd_topob_wksp( topo, "replay_manif" );
-  fd_topo_obj_t * replay_manifest_dcache = fd_topob_obj( topo, "dcache", "replay_manif" );
-  fd_pod_insertf_ulong( topo->props, 1UL << 30UL, "obj.%lu.data_sz", replay_manifest_dcache->id );
-  fd_pod_insert_ulong(  topo->props, "manifest_dcache", replay_manifest_dcache->id );
 
   /* read() tile */
   fd_topob_wksp( topo, "snaprd" );
@@ -89,14 +81,10 @@ snapshot_load_topo( config_t *     config,
   fd_topob_tile_uses( topo, snapin_tile, funk_obj, FD_SHMEM_JOIN_MODE_READ_WRITE );
   snapin_tile->snapin.funk_obj_id = funk_obj->id;
 
-  /* snapin replay manifest dcache access */
-  fd_topob_tile_uses( topo, snapin_tile, replay_manifest_dcache, FD_SHMEM_JOIN_MODE_READ_WRITE );
-  snapin_tile->snapin.manifest_dcache_obj_id = replay_manifest_dcache->id;
-
   /* snapshot manifest out link */
   fd_topob_wksp( topo, "snap_out" );
-  fd_topo_link_t * snap_out_link = fd_topob_link( topo, "snap_out", "snap_out",   128UL, sizeof(fd_snapshot_manifest_t), 1UL );
-  /* snapshot load topology doesn't consume from snap out link */
+  FD_TEST( sizeof(fd_snapshot_manifest_t)<(1UL<<31UL) );
+  fd_topo_link_t * snap_out_link = fd_topob_link( topo, "snap_out", "snap_out", 4UL, 1UL<<31UL, 1UL );
   snap_out_link->permit_no_consumers = 1;
   fd_topob_tile_out( topo, "snapin", 0UL, "snap_out", 0UL );
 
@@ -166,10 +154,10 @@ snapshot_load_cmd_fn( args_t *   args,
 
   fd_log_private_shared_lock[ 1 ] = 0;
   fd_topo_join_workspaces( topo, FD_SHMEM_JOIN_MODE_READ_WRITE );
+  fd_topo_fill( topo );
 
   double tick_per_ns = fd_tempo_tick_per_ns( NULL );
   double ns_per_tick = 1.0/tick_per_ns;
-
 
   long start = fd_log_wallclock();
   fd_topo_run_single_process( topo, 2, config->uid, config->gid, fdctl_tile_run );
