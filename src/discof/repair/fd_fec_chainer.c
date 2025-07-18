@@ -220,8 +220,19 @@ link_orphans( fd_fec_chainer_t * chainer ) {
        a new fork) and deliver to `out`. */
 
     fd_fec_frontier_ele_insert( chainer->frontier, ele, chainer->pool );
-    // FD_LOG_NOTICE(( "pushing tail %lu %u %u %d %d", ele->slot, ele->fec_set_idx, ele->data_cnt, ele->data_complete, ele->slot_complete ));
-    fd_fec_out_push_tail( chainer->out, (fd_fec_out_t){ .slot = ele->slot, .parent_off = ele->parent_off, .fec_set_idx = ele->fec_set_idx, .data_cnt = ele->data_cnt, .data_complete = ele->data_complete, .slot_complete = ele->slot_complete, .err = FD_FEC_CHAINER_SUCCESS } );
+    fd_hash_t merkle_root;
+    memcpy( merkle_root.uc, ele->merkle_root, FD_SHRED_MERKLE_ROOT_SZ );
+    fd_fec_out_t out = {
+      .err            = FD_FEC_CHAINER_SUCCESS,
+      .slot           = ele->slot,
+      .parent_off     = ele->parent_off,
+      .fec_set_idx    = ele->fec_set_idx,
+      .data_cnt       = ele->data_cnt,
+      .data_complete  = ele->data_complete,
+      .slot_complete  = ele->slot_complete,
+      .merkle_root    = merkle_root
+    };
+    fd_fec_out_push_tail( chainer->out, out );
 
     /* Check whether any of ele's children are orphaned and can be
        chained into the frontier. */
@@ -262,7 +273,9 @@ fd_fec_chainer_insert( fd_fec_chainer_t * chainer,
   // FD_LOG_NOTICE(( "inserting %lu %u %u %d %d", slot, fec_set_idx, data_cnt, data_complete, slot_complete ));
 
   if( FD_UNLIKELY( fd_fec_chainer_query( chainer, slot, fec_set_idx ) ) ) {
-    fd_fec_out_push_tail( chainer->out, (fd_fec_out_t){ slot, parent_off, fec_set_idx, data_cnt, data_complete, slot_complete, .err = FD_FEC_CHAINER_ERR_UNIQUE } );
+    fd_hash_t merkle_root_;
+    memcpy( merkle_root_.uc, merkle_root, FD_SHRED_MERKLE_ROOT_SZ );
+    fd_fec_out_push_tail( chainer->out, (fd_fec_out_t){ .err = FD_FEC_CHAINER_ERR_UNIQUE, slot, parent_off, fec_set_idx, data_cnt, data_complete, slot_complete, .merkle_root = merkle_root_ } );
     return NULL;
   }
 

@@ -1203,7 +1203,7 @@ user = ""
         # startup, when the validator is catching up from the snapshot
         # slot, but still maintaining and receiving new turbine slots.
         # Must be power of 2
-        slot_max = 4096
+        slot_max = 65536
 
     [tiles.replay]
         cluster_version =  "1.18.0"

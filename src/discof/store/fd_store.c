@@ -123,9 +123,10 @@ fd_store_insert( fd_store_t * store,
   fec->child            = null;
   fec->sibling          = null;
   fec->data_sz          = data_sz;
-  memcpy( fec->data, data, data_sz );
-  fd_store_map_ele_insert( fd_store_map( store ), fec, fd_store_pool( store ) );
+  if( FD_LIKELY  ( data && data_sz     ) ) memcpy( fec->data, data, data_sz );
   if( FD_UNLIKELY( store->root == null ) ) store->root = fd_store_pool_idx( pool, fec );
+  fd_store_map_ele_insert( fd_store_map( store ), fec, pool );
+  // FD_LOG_NOTICE(( "insert: %s %lu", FD_BASE58_ENC_32_ALLOCA( fec->key.uc ), fec->data_sz ));
   return fec;
 }
 
@@ -186,7 +187,7 @@ fd_store_publish( fd_store_t  * store,
         tail       = fd_store_pool_ele( pool, tail->next );                   /* push onto BFS queue (so descendants can be pruned) */
         tail->next = null;                                                    /* clear map next */
       }
-      child = fd_store_pool_ele( pool, child->sibling ); /* right-sibling */
+      child = fd_store_pool_ele( pool, child->sibling );                      /* right-sibling */
     }
     fd_store_fec_t * next = fd_store_pool_ele( pool, head->next ); /* pophead */
     fd_store_pool_ele_release( pool, head );                       /* release */
