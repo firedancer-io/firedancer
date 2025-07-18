@@ -1045,9 +1045,6 @@ fd_runtime_update_lthash_with_account( fd_funk_t *        funk,
   fd_lthash_value_t * bank_lthash = fd_type_pun( fd_bank_lthash_locking_modify( bank ) );
 
   /* Look up the previous version of the account from Funk */
-  /* FIXME: This isn't going to work if we reference the same account twice in the same transaction.
-            How do we determine the last hash we added to the bank lthash?
-   */
   FD_TXN_ACCOUNT_DECL( previous_account_version );
   int err = fd_txn_account_init_from_funk_readonly( previous_account_version, account->pubkey, funk, funk_txn );
   if( FD_UNLIKELY( err!=FD_ACC_MGR_SUCCESS && err!=FD_ACC_MGR_ERR_UNKNOWN_ACCOUNT ) ) {
