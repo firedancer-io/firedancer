@@ -122,7 +122,7 @@ fd_dev_main( int          argc,
 
   int is_allowed_live = action->is_diagnostic==1;
   if( FD_UNLIKELY( config.is_live_cluster && !is_allowed_live ) )
-    FD_LOG_ERR(( "The `fddev` command is for development and test environments but your "
+    FD_LOG_WARNING(( "The `fddev` command is for development and test environments but your "
                  "configuration targets a live cluster. Use `fdctl` if this is a "
                  "production environment" ));
 
