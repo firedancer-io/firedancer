@@ -37,7 +37,7 @@
 
 #define DEQUE_NAME fd_exec_slice
 #define DEQUE_T    ulong
-#define DEQUE_MAX  (4096UL)
+#define DEQUE_MAX  (256UL)
 #include "../../util/tmpl/fd_deque.c"
 
 /* An estimate of the max number of transactions in a block.  If there are more
