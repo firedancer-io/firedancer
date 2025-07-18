@@ -795,6 +795,72 @@ test_duplicate_simple( fd_wksp_t * wksp ){
   FD_TEST( !fd_ghost_verify( ghost ) );
 }
 
+void
+test_many_duplicates( fd_wksp_t * wksp ){
+  ulong node_max = 16;
+  void * mem = fd_wksp_alloc_laddr( wksp,
+                                    fd_ghost_align(),
+                                    fd_ghost_footprint( node_max ),
+                                    1UL );
+  FD_TEST( mem );
+
+  fd_ghost_t * ghost = fd_ghost_join( fd_ghost_new( mem, node_max, 0UL ) );
+  fd_ghost_map_slot_t * map_slot = fd_ghost_map_slot( ghost );
+  fd_ghost_ele_t * pool = fd_ghost_pool( ghost );
+
+  fd_hash_t hash_1 = { .key = { 1 } };
+  fd_hash_t hash_2 = { .key = { 2 } };
+  fd_hash_t hash_2_prime = { .key = { 2, 1 } };
+  fd_hash_t hash_3 = { .key = { 3 } };
+  fd_hash_t hash_3_prime = { .key = { 3, 1 } };
+  fd_hash_t hash_4 = { .key = { 4 } };
+  fd_hash_t hash_4_prime = { .key = { 4, 1 } };
+  fd_hash_t hash_4_prime_prime = { .key = { 4, 1, 1 } };
+
+    /* 1
+      / \
+    2   2'
+    |   |
+    3   3'
+    / \  |
+  4  4' 4'' */
+
+  fd_ghost_init( ghost, 1, &hash_1 );
+
+  /* Slots I see initially*/
+
+  fd_ghost_insert( ghost, &hash_1, 2, &hash_2 );
+  fd_ghost_insert( ghost, &hash_2, 3, &hash_3 );
+  fd_ghost_insert( ghost, &hash_3, 4, &hash_4 );
+
+  /* Evidence of duplicates */
+
+  fd_ghost_insert( ghost, &hash_1, 2, &hash_2_prime );
+  fd_ghost_insert( ghost, &hash_2_prime, 3, &hash_3_prime );
+  fd_ghost_insert( ghost, &hash_3_prime, 4, &hash_4_prime_prime );
+  fd_ghost_insert( ghost, &hash_3, 4, &hash_4_prime );
+
+  ulong visible_slots[4] = { 3, 1, 2, 4 };
+  fd_hash_t visible_hashes[4] = { hash_3, hash_1, hash_2, hash_4 };
+  int cnt = 0;
+  for( fd_ghost_map_slot_iter_t iter = fd_ghost_map_slot_iter_init( map_slot, pool );
+       !fd_ghost_map_slot_iter_done( iter, map_slot, pool );
+       iter = fd_ghost_map_slot_iter_next( iter, map_slot, pool ) ) {
+    fd_ghost_ele_t const * ele = fd_ghost_map_slot_iter_ele( iter, map_slot, pool );
+    FD_LOG_NOTICE(( "ele->slot: %lu, visible_slots[cnt]: %lu", ele->slot, visible_slots[cnt] ));
+    FD_TEST( ele->slot == visible_slots[cnt] );
+    FD_TEST( memcmp( &ele->key, &visible_hashes[cnt], sizeof(fd_hash_t) ) == 0 );
+    cnt++;
+  }
+  FD_TEST( cnt == 4 );
+
+  fd_ghost_print( ghost, 10, fd_ghost_root( ghost ) );
+
+  /* Vote down the left branch */
+  fd_voter_t v1 = { .key = { { 1 } }, .stake = 10, .replay_vote = { .slot = FD_SLOT_NULL } };
+  fd_ghost_replay_vote( ghost, &v1, &hash_4 );
+}
+
 int
 main( int argc, char ** argv ) {
   fd_boot( &argc, &argv );
@@ -806,6 +872,7 @@ main( int argc, char ** argv ) {
   FD_TEST( wksp );
 
   test_duplicate_simple( wksp );
+  test_many_duplicates( wksp );
   // test_ghost_print( wksp );
   test_ghost_simple( wksp );
   test_ghost_publish_left( wksp );
