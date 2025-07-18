@@ -422,12 +422,7 @@
 #include "../fd_choreo_base.h"
 #include "../epoch/fd_epoch.h"
 #include "../ghost/fd_ghost.h"
-#include "../voter/fd_voter.h"
 #include "../../disco/pack/fd_microblock.h"
-#include "../../flamenco/runtime/fd_blockstore.h"
-#include "../../flamenco/runtime/fd_system_ids.h"
-#include "../../flamenco/txn/fd_txn_generate.h"
-#include "../../funk/fd_funk.h"
 
 /* FD_TOWER_USE_HANDHOLDING:  Define this to non-zero at compile time
    to turn on additional runtime checks and logging. */

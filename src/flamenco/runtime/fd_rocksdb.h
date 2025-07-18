@@ -2,7 +2,7 @@
 #define HEADER_fd_src_flamenco_runtime_fd_rocksdb_h
 
 #include "../../ballet/block/fd_microblock.h"
-#include "fd_blockstore.h"
+#include "../types/fd_types.h"
 
 /** allocations made for offline-replay in the blockstore */
 struct fd_block {
@@ -29,28 +29,6 @@ struct fd_block {
   ulong micros_cnt;
 };
 typedef struct fd_block fd_block_t;
-
-FD_PROTOTYPES_BEGIN
-
-/* fd_blockstore_block_data_laddr returns a local pointer to the block's
-   data.  The returned pointer lifetime is until the block is removed. */
-
-FD_FN_PURE static inline uchar *
-fd_blockstore_block_data_laddr( fd_blockstore_t * blockstore, fd_block_t * block ) {
-  return fd_wksp_laddr_fast( fd_blockstore_wksp( blockstore ), block->data_gaddr );
-}
-
-FD_FN_PURE static inline fd_block_entry_batch_t *
-fd_blockstore_block_batch_laddr( fd_blockstore_t * blockstore, fd_block_t * block ) {
-  return fd_wksp_laddr_fast( fd_blockstore_wksp( blockstore ), block->batch_gaddr );
-}
-
-FD_FN_PURE static inline fd_block_micro_t *
-fd_blockstore_block_micro_laddr( fd_blockstore_t * blockstore, fd_block_t * block ) {
-  return fd_wksp_laddr_fast( fd_blockstore_wksp( blockstore ), block->micros_gaddr );
-}
-
-FD_PROTOTYPES_END
 
 #if FD_HAS_ROCKSDB
 
@@ -261,15 +239,6 @@ fd_rocksdb_insert_entry( fd_rocksdb_t * db,
                          const char *   value,
                          ulong          value_len );
 
-/* Import from rocksdb into blockstore */
-
-int
-fd_rocksdb_import_block_blockstore( fd_rocksdb_t *    db,
-                                    fd_slot_meta_t *  m,
-                                    fd_blockstore_t * blockstore,
-                                    const uchar *     hash_override,
-                                    fd_valloc_t       valloc );
-
 int
 fd_rocksdb_import_block_shredcap( fd_rocksdb_t *             db,
                                   fd_slot_meta_t *           metadata,
@@ -277,36 +246,6 @@ fd_rocksdb_import_block_shredcap( fd_rocksdb_t *             db,
                                   fd_io_buffered_ostream_t * bank_hash_ostream,
                                   fd_valloc_t                valloc );
 
-/* fd_blockstore_block_query queries blockstore for block at slot.
-   Returns a pointer to the block or NULL if not in blockstore.  The
-   returned pointer lifetime is until the block is removed.  Check
-   return value for error info.
-
-   In theory the caller does not need to wrap this function in a
-   start/end read. What is being read lives in the block_info object,
-   and this function does a valid concurrent read for the block_gaddr.
-   The fd_block_t object itself has no such guarantees, and needs a
-   read/write lock to modify. */
-void
-fd_blockstore_block_allocs_remove( fd_blockstore_t * blockstore, ulong slot );
-
-static inline fd_block_t *
-fd_blockstore_block_query(fd_blockstore_t *blockstore, ulong slot){
-  int err = FD_MAP_ERR_AGAIN;
-  ulong query_block_gaddr = 0;
-  while( err == FD_MAP_ERR_AGAIN ){
-    fd_block_map_query_t quer[1] = { 0 };
-    err = fd_block_map_query_try( blockstore->block_map, &slot, NULL, quer, 0 );
-    fd_block_info_t * query = fd_block_map_query_ele( quer );
-    if ( err == FD_MAP_ERR_KEY ) return NULL;
-    if ( FD_UNLIKELY( err == FD_MAP_ERR_AGAIN ) ) continue;
-    /* later change this to all shreds received */
-    if( FD_UNLIKELY( query->block_gaddr == 0 ) ) return NULL;
-    query_block_gaddr = query->block_gaddr;
-    err = fd_block_map_query_test( quer );
-  }
-  return fd_wksp_laddr_fast( fd_blockstore_wksp( blockstore ), query_block_gaddr );
-}
 
 FD_PROTOTYPES_END
 
