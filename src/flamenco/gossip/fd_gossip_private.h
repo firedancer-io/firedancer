@@ -42,6 +42,8 @@
 #define FD_GOSSIP_VALUE_RESTART_LAST_VOTED_FORK_SLOTS (12)
 #define FD_GOSSIP_VALUE_RESTART_HEAVIEST_FORK         (13)
 
+#define FD_GOSSIP_VALUE_COUNT                         (14)
+
 
 /* Gossip messages encode wallclock in millis, while we
    parse them into nanoseconds for internal use. */
