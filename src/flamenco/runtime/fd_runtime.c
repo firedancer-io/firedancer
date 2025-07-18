@@ -1035,11 +1035,102 @@ fd_runtime_block_execute_finalize_finish( fd_exec_slot_ctx_t *             slot_
 
 }
 
+static void
+fd_runtime_update_lthash_with_account( fd_funk_t *        funk,
+                                       fd_funk_txn_t *    funk_txn,
+                                       fd_txn_account_t * account,
+                                       fd_bank_t *        bank ) {
+
+  /* Subtract the old hash of the account from the bank lthash */
+  fd_lthash_value_t * bank_lthash = fd_type_pun( fd_bank_lthash_locking_modify( bank ) );
+
+  /* Look up the previous version of the account from Funk */
+  /* FIXME: This isn't going to work if we reference the same account twice in the same transaction.
+            How do we determine the last hash we added to the bank lthash?
+   */
+  FD_TXN_ACCOUNT_DECL( previous_account_version );
+  int err = fd_txn_account_init_from_funk_readonly( previous_account_version, account->pubkey, funk, funk_txn );
+  if( FD_UNLIKELY( err!=FD_ACC_MGR_SUCCESS && err!=FD_ACC_MGR_ERR_UNKNOWN_ACCOUNT ) ) {
+    FD_LOG_ERR(( "Failed to read old account version from Funk" ));
+    return;
+  }
+
+  /* Hash the old version of the account */
+  if( err != FD_ACC_MGR_ERR_UNKNOWN_ACCOUNT ) {
+    fd_lthash_value_t old_hash[1];
+    fd_hash_account_lthash_value(
+      account->pubkey,
+      previous_account_version->vt->get_meta( previous_account_version ),
+      previous_account_version->vt->get_data( previous_account_version ),
+      old_hash );
+    FD_LOG_WARNING(( "Subtracting old hash of account %s (old_hash: %s) from bank lthash: %s", FD_BASE58_ENC_32_ALLOCA( account->pubkey ), FD_LTHASH_ENC_32_ALLOCA( old_hash ), FD_LTHASH_ENC_32_ALLOCA( bank_lthash ) ));
+    fd_lthash_sub( bank_lthash, old_hash );
+    FD_LOG_WARNING(( "New bank lthash: %s", FD_LTHASH_ENC_32_ALLOCA( bank_lthash ) ));
+  }
+
+  /* Hash the new version of the account */
+  fd_lthash_value_t new_hash[1];
+  fd_account_meta_t const * meta = account->vt->get_meta( account );
+  fd_hash_account_lthash_value(
+    account->pubkey,
+    meta,
+    account->vt->get_data( account ),
+    new_hash );
+  FD_LOG_WARNING(( "adding account %s with hash %s", FD_BASE58_ENC_32_ALLOCA( account->pubkey ), FD_LTHASH_ENC_32_ALLOCA( new_hash ) ));
+  FD_LOG_WARNING(( "Adding new hash of account %s (new_hash: %s) to bank lthash: %s", FD_BASE58_ENC_32_ALLOCA( account->pubkey ), FD_LTHASH_ENC_32_ALLOCA( new_hash ), FD_LTHASH_ENC_32_ALLOCA( bank_lthash ) ));
+
+  /* Add the new hash of the account to the bank lthash */
+  fd_lthash_add( bank_lthash, new_hash );
+
+  FD_LOG_WARNING(( "New bank lthash: %s", FD_LTHASH_ENC_32_ALLOCA( bank_lthash ) ));
+
+  fd_bank_lthash_end_locking_modify( bank );
+}
+
+static void
+fd_bank_lthash_update_sysvars( fd_exec_slot_ctx_t * slot_ctx ) {
+  fd_funk_t *     funk     = slot_ctx->funk;
+  fd_funk_txn_t * funk_txn = slot_ctx->funk_txn;
+  fd_bank_t *     bank     = slot_ctx->bank;
+
+  /* Update lthash for each sysvar */
+  fd_pubkey_t const * sysvar_ids[] = {
+    &fd_sysvar_recent_block_hashes_id,
+    &fd_sysvar_clock_id,
+    &fd_sysvar_slot_history_id,
+    &fd_sysvar_slot_hashes_id,
+    &fd_sysvar_epoch_schedule_id,
+    &fd_sysvar_epoch_rewards_id,
+    &fd_sysvar_fees_id,
+    &fd_sysvar_rent_id,
+    &fd_sysvar_stake_history_id,
+    &fd_sysvar_last_restart_slot_id,
+    &fd_sysvar_instructions_id,
+    &fd_sysvar_rewards_id
+  };
+
+  for( ulong i=0; i<sizeof(sysvar_ids)/sizeof(sysvar_ids[0]); i++ ) {
+    FD_TXN_ACCOUNT_DECL( acc );
+    int err = fd_txn_account_init_from_funk_readonly( acc, sysvar_ids[i], funk, funk_txn );
+    if( FD_UNLIKELY( err!=FD_ACC_MGR_SUCCESS && err!=FD_ACC_MGR_ERR_UNKNOWN_ACCOUNT ) ) {
+      FD_LOG_ERR(( "Failed to read sysvar account from Funk" ));
+      return;
+    }
+
+    /* Only update lthash if account exists */
+    if( err==FD_ACC_MGR_SUCCESS ) {
+      fd_runtime_update_lthash_with_account( funk, funk_txn, acc, bank );
+    }
+  }
+}
+
 int
 fd_runtime_block_execute_finalize_para( fd_exec_slot_ctx_t *             slot_ctx,
                                         fd_capture_ctx_t *               capture_ctx,
                                         fd_runtime_block_info_t const *  block_info,
                                         fd_spad_t *                      runtime_spad ) {
+  fd_bank_lthash_update_sysvars( slot_ctx );
+
   fd_runtime_block_execute_finalize_start( slot_ctx, runtime_spad );
 
   fd_runtime_block_execute_finalize_finish( slot_ctx, capture_ctx, block_info );
@@ -1228,57 +1319,6 @@ fd_runtime_pre_execute_check( fd_execute_txn_task_info_t * task_info ) {
    */
 }
 
-static void
-fd_runtime_update_lthash_with_account( fd_funk_t *        funk,
-                                       fd_funk_txn_t *    funk_txn,
-                                       fd_txn_account_t * account,
-                                       fd_bank_t *        bank ) {
-
-  /* Subtract the old hash of the account from the bank lthash */
-  fd_lthash_value_t * bank_lthash = fd_type_pun( fd_bank_lthash_locking_modify( bank ) );
-
-  /* Look up the previous version of the account from Funk */
-  /* FIXME: This isn't going to work if we reference the same account twice in the same transaction.
-            How do we determine the last hash we added to the bank lthash?
-   */
-  FD_TXN_ACCOUNT_DECL( previous_account_version );
-  int err = fd_txn_account_init_from_funk_readonly( previous_account_version, account->pubkey, funk, funk_txn );
-  if( FD_UNLIKELY( err!=FD_ACC_MGR_SUCCESS && err!=FD_ACC_MGR_ERR_UNKNOWN_ACCOUNT ) ) {
-    FD_LOG_ERR(( "Failed to read old account version from Funk" ));
-    return;
-  }
-
-  /* Hash the old version of the account */
-  if( err != FD_ACC_MGR_ERR_UNKNOWN_ACCOUNT ) {
-    fd_lthash_value_t old_hash[1];
-    fd_hash_account_lthash_value(
-      account->pubkey,
-      previous_account_version->vt->get_meta( previous_account_version ),
-      previous_account_version->vt->get_data( previous_account_version ),
-      old_hash );
-    FD_LOG_WARNING(( "Subtracting old hash of account %s (old_hash: %s) from bank lthash: %s", FD_BASE58_ENC_32_ALLOCA( account->pubkey ), FD_LTHASH_ENC_32_ALLOCA( old_hash ), FD_LTHASH_ENC_32_ALLOCA( bank_lthash ) ));
-    fd_lthash_sub( bank_lthash, old_hash );
-    FD_LOG_WARNING(( "New bank lthash: %s", FD_LTHASH_ENC_32_ALLOCA( bank_lthash ) ));
-  }
-
-  /* Hash the new version of the account */
-  fd_lthash_value_t new_hash[1];
-  fd_account_meta_t const * meta = account->vt->get_meta( account );
-  fd_hash_account_lthash_value(
-    account->pubkey,
-    meta,
-    account->vt->get_data( account ),
-    new_hash );
-  FD_LOG_WARNING(( "adding account %s with hash %s", FD_BASE58_ENC_32_ALLOCA( account->pubkey ), FD_LTHASH_ENC_32_ALLOCA( new_hash ) ));
-  FD_LOG_WARNING(( "Adding new hash of account %s (new_hash: %s) to bank lthash: %s", FD_BASE58_ENC_32_ALLOCA( account->pubkey ), FD_LTHASH_ENC_32_ALLOCA( new_hash ), FD_LTHASH_ENC_32_ALLOCA( bank_lthash ) ));
-
-  /* Add the new hash of the account to the bank lthash */
-  fd_lthash_add( bank_lthash, new_hash );
-
-  FD_LOG_WARNING(( "New bank lthash: %s", FD_LTHASH_ENC_32_ALLOCA( bank_lthash ) ));
-
-  fd_bank_lthash_end_locking_modify( bank );
-}
 
 /* fd_runtime_finalize_txn is a helper used by the non-tpool transaction
    executor to finalize borrowed account changes back into funk. It also
@@ -1414,6 +1454,7 @@ fd_runtime_finalize_txn( fd_funk_t *                  funk,
   FD_ATOMIC_FETCH_AND_ADD( total_compute_units_used, txn_ctx->compute_budget_details.compute_unit_limit - txn_ctx->compute_budget_details.compute_meter );
 
 }
+
 
 /* fd_runtime_prepare_and_execute_txn is the main entrypoint into the executor
    tile. At this point, the slot and epoch context should NOT be changed.
