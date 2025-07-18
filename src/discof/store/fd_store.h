@@ -253,12 +253,12 @@ fd_store_wksp( fd_store_t const * store ) {
    to the corresponding store field.  const versions for each are also
    provided. */
 
-FD_FN_PURE static inline fd_store_fec_t       * fd_store_pool        ( fd_store_t       * store ) { return fd_wksp_laddr_fast     ( fd_store_wksp      ( store ), store->pool_gaddr ); }
-FD_FN_PURE static inline fd_store_fec_t const * fd_store_pool_const  ( fd_store_t const * store ) { return fd_wksp_laddr_fast     ( fd_store_wksp      ( store ), store->pool_gaddr ); }
-FD_FN_PURE static inline fd_store_map_t       * fd_store_map         ( fd_store_t       * store ) { return fd_wksp_laddr_fast     ( fd_store_wksp      ( store ), store->map_gaddr  ); }
-FD_FN_PURE static inline fd_store_map_t const * fd_store_map_const   ( fd_store_t const * store ) { return fd_wksp_laddr_fast     ( fd_store_wksp      ( store ), store->map_gaddr  ); }
-FD_FN_PURE static inline fd_store_fec_t       * fd_store_root        ( fd_store_t       * store ) { return fd_store_pool_ele      ( fd_store_pool      ( store ), store->root       ); }
-FD_FN_PURE static inline fd_store_fec_t const * fd_store_root_const  ( fd_store_t const * store ) { return fd_store_pool_ele_const( fd_store_pool_const( store ), store->root       ); }
+FD_FN_PURE static inline fd_store_fec_t       * fd_store_pool      ( fd_store_t       * store ) { return fd_wksp_laddr_fast     ( fd_store_wksp      ( store ), store->pool_gaddr ); }
+FD_FN_PURE static inline fd_store_fec_t const * fd_store_pool_const( fd_store_t const * store ) { return fd_wksp_laddr_fast     ( fd_store_wksp      ( store ), store->pool_gaddr ); }
+FD_FN_PURE static inline fd_store_map_t       * fd_store_map       ( fd_store_t       * store ) { return fd_wksp_laddr_fast     ( fd_store_wksp      ( store ), store->map_gaddr  ); }
+FD_FN_PURE static inline fd_store_map_t const * fd_store_map_const ( fd_store_t const * store ) { return fd_wksp_laddr_fast     ( fd_store_wksp      ( store ), store->map_gaddr  ); }
+FD_FN_PURE static inline fd_store_fec_t       * fd_store_root      ( fd_store_t       * store ) { return fd_store_pool_ele      ( fd_store_pool      ( store ), store->root       ); }
+FD_FN_PURE static inline fd_store_fec_t const * fd_store_root_const( fd_store_t const * store ) { return fd_store_pool_ele_const( fd_store_pool_const( store ), store->root       ); }
 
 /* fd_store_{parent,child,sibling} returns a pointer in the caller's
    address space to the corresponding {parent,left-child,right-sibling}

@@ -38,6 +38,7 @@ backtest_topo( config_t * config ) {
   topo->max_page_size = fd_cstr_to_shmem_page_sz( config->hugetlbfs.max_page_size );
   topo->gigantic_page_threshold = config->hugetlbfs.gigantic_page_threshold_mib << 20;
 
+
   ulong cpu_idx = 0;
 
   /**********************************************************************/
@@ -211,12 +212,12 @@ backtest_topo( config_t * config ) {
 
   fd_topob_wksp( topo, "slot_fseqs"  ); /* fseqs for marked slots eg. turbine slot */
 
-  /* blockstore_obj shared by replay and backtest tiles */
-  fd_topob_wksp( topo, "blockstore" );
-  fd_topo_obj_t * blockstore_obj = setup_topo_blockstore( topo, "blockstore", config->firedancer.blockstore.shred_max, config->firedancer.blockstore.block_max, config->firedancer.blockstore.idx_max, config->firedancer.blockstore.alloc_max );
-  fd_topob_tile_uses( topo, replay_tile, blockstore_obj, FD_SHMEM_JOIN_MODE_READ_WRITE );
-  fd_topob_tile_uses( topo, backtest_tile, blockstore_obj, FD_SHMEM_JOIN_MODE_READ_WRITE );
-  FD_TEST( fd_pod_insertf_ulong( topo->props, blockstore_obj->id, "blockstore" ) );
+  fd_topob_wksp( topo, "store" );
+  FD_LOG_NOTICE(( "Using store %lu", config->firedancer.store.max_completed_shred_sets ));
+  fd_topo_obj_t * store_obj = setup_topo_store( topo, "store", config->firedancer.store.max_completed_shred_sets );
+  fd_topob_tile_uses( topo, backtest_tile, store_obj, FD_SHMEM_JOIN_MODE_READ_WRITE );
+  fd_topob_tile_uses( topo, replay_tile, store_obj, FD_SHMEM_JOIN_MODE_READ_WRITE );
+  FD_TEST( fd_pod_insertf_ulong( topo->props, store_obj->id, "store" ) );
 
   fd_topo_obj_t * root_slot_obj = fd_topob_obj( topo, "fseq", "slot_fseqs" );
   fd_topob_tile_uses( topo, backtest_tile,  root_slot_obj, FD_SHMEM_JOIN_MODE_READ_ONLY  );
