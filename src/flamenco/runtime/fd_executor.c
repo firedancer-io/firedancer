@@ -517,9 +517,10 @@ load_transaction_account( fd_exec_txn_ctx_t * txn_ctx,
    https://github.com/anza-xyz/agave/blob/v2.2.0/svm/src/account_loader.rs#L393-L534 */
 int
 fd_executor_load_transaction_accounts( fd_exec_txn_ctx_t * txn_ctx ) {
-  ulong                       requested_loaded_accounts_data_size = txn_ctx->compute_budget_details.loaded_accounts_data_size_limit;
-  fd_epoch_schedule_t const * schedule                            = fd_sysvar_epoch_schedule_read( txn_ctx->funk, txn_ctx->funk_txn, txn_ctx->spad );
-  if( FD_UNLIKELY( !schedule ) ) {
+  ulong requested_loaded_accounts_data_size = txn_ctx->compute_budget_details.loaded_accounts_data_size_limit;
+
+  fd_epoch_schedule_t schedule[1];
+  if( FD_UNLIKELY( !fd_sysvar_epoch_schedule_read( txn_ctx->funk, txn_ctx->funk_txn, schedule ) ) ) {
     FD_LOG_ERR(( "Unable to read and decode epoch schedule sysvar" ));
   }
 

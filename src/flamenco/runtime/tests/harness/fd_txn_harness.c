@@ -106,8 +106,8 @@ fd_runtime_fuzz_txn_ctx_create( fd_runtime_fuzz_runner_t *         runner,
   fd_bank_slots_per_year_set( slot_ctx->bank, SECONDS_PER_YEAR * (1000000000.0 / (double)6250000) / (double)(fd_bank_ticks_per_slot_get( slot_ctx->bank )) );
 
   // Override default values if provided
-  fd_epoch_schedule_t * epoch_schedule = fd_sysvar_epoch_schedule_read( funk, funk_txn, runner->spad );
-  if( epoch_schedule ) {
+  fd_epoch_schedule_t epoch_schedule[1];
+  if( fd_sysvar_epoch_schedule_read( funk, funk_txn, epoch_schedule ) ) {
     fd_bank_epoch_schedule_set( slot_ctx->bank, *epoch_schedule );
   }
 
@@ -170,8 +170,8 @@ fd_runtime_fuzz_txn_ctx_create( fd_runtime_fuzz_runner_t *         runner,
      THIS MAY CHANGE IN THE FUTURE. If there are other parts of transaction execution that use
      the epoch rewards sysvar, we may need to update this.
   */
-  fd_sysvar_epoch_rewards_t * epoch_rewards = fd_sysvar_epoch_rewards_read( funk, funk_txn, runner->spad );
-  if( !epoch_rewards ) {
+  fd_sysvar_epoch_rewards_t epoch_rewards[1];
+  if( !fd_sysvar_epoch_rewards_read( funk, funk_txn, epoch_rewards ) ) {
     fd_point_value_t point_value = {0};
     fd_hash_t const * last_hash = test_ctx->blockhash_queue_count > 0 ? (fd_hash_t const *)test_ctx->blockhash_queue[0]->bytes : (fd_hash_t const *)empty_bytes;
     fd_sysvar_epoch_rewards_init( slot_ctx, 0UL, 2UL, 1UL, point_value, last_hash);

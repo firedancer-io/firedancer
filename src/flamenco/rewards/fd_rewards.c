@@ -361,8 +361,7 @@ calculate_reward_points_partitioned( fd_exec_slot_ctx_t *       slot_ctx,
                                      fd_stake_history_t const * stake_history,
                                      ulong                      rewards,
                                      fd_point_value_t *         result,
-                                     fd_epoch_info_t *          temp_info,
-                                     fd_spad_t *                runtime_spad ) {
+                                     fd_epoch_info_t *          temp_info ) {
 
   uint128 points = 0;
   ulong minimum_stake_delegation = get_minimum_stake_delegation( slot_ctx );
@@ -375,7 +374,6 @@ calculate_reward_points_partitioned( fd_exec_slot_ctx_t *       slot_ctx,
       fd_bank_slot_get( slot_ctx->bank ),
       slot_ctx->funk,
       slot_ctx->funk_txn,
-      runtime_spad,
       fd_bank_features_query( slot_ctx->bank ),
       new_warmup_cooldown_rate_epoch,
       _err );
@@ -572,7 +570,6 @@ calculate_stake_vote_rewards( fd_exec_slot_ctx_t *                       slot_ct
       fd_bank_slot_get( slot_ctx->bank ),
       slot_ctx->funk,
       slot_ctx->funk_txn,
-      runtime_spad,
       fd_bank_features_query( slot_ctx->bank ),
       new_warmup_cooldown_rate_epoch,
       _err );
@@ -667,8 +664,7 @@ calculate_validator_rewards( fd_exec_slot_ctx_t *                      slot_ctx,
                                        stake_history,
                                        rewards,
                                        &result->point_value,
-                                       temp_info,
-                                       runtime_spad );
+                                       temp_info );
 
   /* Calculate the stake and vote rewards for each account */
   calculate_stake_vote_rewards( slot_ctx,
@@ -987,8 +983,7 @@ set_epoch_reward_status_active( fd_exec_slot_ctx_t *             slot_ctx,
 static void
 distribute_epoch_rewards_in_partition( fd_partitioned_stake_rewards_dlist_t * partition,
                                        fd_stake_reward_t *                    pool,
-                                       fd_exec_slot_ctx_t *                   slot_ctx,
-                                       fd_spad_t *                            runtime_spad ) {
+                                       fd_exec_slot_ctx_t *                   slot_ctx ) {
 
   ulong lamports_distributed = 0UL;
   ulong lamports_burned      = 0UL;
@@ -1010,8 +1005,7 @@ distribute_epoch_rewards_in_partition( fd_partitioned_stake_rewards_dlist_t * pa
 
   /* Update the epoch rewards sysvar with the amount distributed and burnt */
   fd_sysvar_epoch_rewards_distribute( slot_ctx,
-                                      lamports_distributed + lamports_burned,
-                                      runtime_spad );
+                                      lamports_distributed + lamports_burned );
 
   FD_LOG_DEBUG(( "lamports burned: %lu, lamports distributed: %lu", lamports_burned, lamports_distributed ));
 
@@ -1022,8 +1016,7 @@ distribute_epoch_rewards_in_partition( fd_partitioned_stake_rewards_dlist_t * pa
 
    https://github.com/anza-xyz/agave/blob/cbc8320d35358da14d79ebcada4dfb6756ffac79/runtime/src/bank/partitioned_epoch_rewards/distribution.rs#L42 */
 void
-fd_distribute_partitioned_epoch_rewards( fd_exec_slot_ctx_t * slot_ctx, fd_spad_t * runtime_spad ) {
-
+fd_distribute_partitioned_epoch_rewards( fd_exec_slot_ctx_t * slot_ctx ) {
 
   fd_epoch_reward_status_global_t const * epoch_reward_status = fd_bank_epoch_reward_status_locking_query( slot_ctx->bank );
 
@@ -1057,8 +1050,7 @@ fd_distribute_partitioned_epoch_rewards( fd_exec_slot_ctx_t * slot_ctx, fd_spad_
     ulong partition_index = height - distribution_starting_block_height;
     distribute_epoch_rewards_in_partition( &partitions[ partition_index ],
                                            pool,
-                                           slot_ctx,
-                                           runtime_spad );
+                                           slot_ctx );
   }
 
   fd_bank_epoch_reward_status_end_locking_query( slot_ctx->bank );
@@ -1066,7 +1058,7 @@ fd_distribute_partitioned_epoch_rewards( fd_exec_slot_ctx_t * slot_ctx, fd_spad_
   /* If we have finished distributing rewards, set the status to inactive */
   if( fd_ulong_sat_add( height, 1UL ) >= distribution_end_exclusive ) {
     set_epoch_reward_status_inactive( slot_ctx );
-    fd_sysvar_epoch_rewards_set_inactive( slot_ctx, runtime_spad );
+    fd_sysvar_epoch_rewards_set_inactive( slot_ctx );
   }
 }
 
@@ -1122,8 +1114,8 @@ fd_rewards_recalculate_partitioned_rewards( fd_exec_slot_ctx_t * slot_ctx,
                                             fd_spad_t * *        exec_spads,
                                             ulong                exec_spad_cnt,
                                             fd_spad_t *          runtime_spad ) {
-  fd_sysvar_epoch_rewards_t * epoch_rewards = fd_sysvar_epoch_rewards_read( slot_ctx->funk, slot_ctx->funk_txn, runtime_spad );
-  if( FD_UNLIKELY( epoch_rewards == NULL ) ) {
+  fd_sysvar_epoch_rewards_t epoch_rewards[1];
+  if( FD_UNLIKELY( !fd_sysvar_epoch_rewards_read( slot_ctx->funk, slot_ctx->funk_txn, epoch_rewards ) ) ) {
     FD_LOG_NOTICE(( "Failed to read or decode epoch rewards sysvar - may not have been created yet" ));
     set_epoch_reward_status_inactive( slot_ctx );
     return;
@@ -1148,7 +1140,6 @@ fd_rewards_recalculate_partitioned_rewards( fd_exec_slot_ctx_t * slot_ctx,
     int is_some = fd_new_warmup_cooldown_rate_epoch( fd_bank_slot_get( slot_ctx->bank ),
                                                      slot_ctx->funk,
                                                      slot_ctx->funk_txn,
-                                                     runtime_spad,
                                                      fd_bank_features_query( slot_ctx->bank ),
                                                      new_warmup_cooldown_rate_epoch,
                                                      _err );

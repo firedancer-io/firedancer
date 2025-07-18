@@ -2101,7 +2101,6 @@ fd_runtime_process_new_epoch( fd_exec_slot_ctx_t * slot_ctx,
   int     is_some                       = fd_new_warmup_cooldown_rate_epoch( fd_bank_slot_get( slot_ctx->bank ),
                                                                              slot_ctx->funk,
                                                                              slot_ctx->funk_txn,
-                                                                             runtime_spad,
                                                                              fd_bank_features_query( slot_ctx->bank ),
                                                                              new_rate_activation_epoch,
                                                                              _err );
@@ -3049,7 +3048,7 @@ fd_runtime_block_pre_execute_process_new_epoch( fd_exec_slot_ctx_t * slot_ctx,
   }
 
   if( FD_LIKELY( fd_bank_slot_get( slot_ctx->bank )!=0UL ) ) {
-    fd_distribute_partitioned_epoch_rewards( slot_ctx, runtime_spad );
+    fd_distribute_partitioned_epoch_rewards( slot_ctx );
   }
 }
 

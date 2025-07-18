@@ -20,7 +20,6 @@ int
 fd_new_warmup_cooldown_rate_epoch( ulong                     slot,
                                    fd_funk_t *               funk,
                                    fd_funk_txn_t *           funk_txn,
-                                   fd_spad_t *               spad,
                                    fd_features_t const *     features,
                                    /* out */ ulong *         epoch,
                                    int *                     err );

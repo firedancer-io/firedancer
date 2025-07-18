@@ -234,15 +234,15 @@ fd_runtime_fuzz_instr_ctx_create( fd_runtime_fuzz_runner_t *           runner,
 
   /* Epoch schedule */
   // https://github.com/firedancer-io/solfuzz-agave/blob/agave-v2.0/src/lib.rs#L476-L483
-  fd_epoch_schedule_t const * epoch_schedule = fd_sysvar_epoch_schedule_read( funk, funk_txn, runner->spad );
-  if( !epoch_schedule ) {
+  fd_epoch_schedule_t epoch_schedule[1];
+  if( FD_UNLIKELY( !fd_sysvar_epoch_schedule_read( funk, funk_txn, epoch_schedule ) ) ) {
     fd_epoch_schedule_t sysvar_epoch_schedule = {
-                                                  .slots_per_epoch             = 432000UL,
-                                                  .leader_schedule_slot_offset = 432000UL,
-                                                  .warmup                      = 1,
-                                                  .first_normal_epoch          = 14UL,
-                                                  .first_normal_slot           = 524256UL
-                                                };
+      .slots_per_epoch             = 432000UL,
+      .leader_schedule_slot_offset = 432000UL,
+      .warmup                      = 1,
+      .first_normal_epoch          = 14UL,
+      .first_normal_slot           = 524256UL
+    };
     fd_sysvar_epoch_schedule_write( slot_ctx, &sysvar_epoch_schedule );
   }
 
@@ -281,8 +281,7 @@ fd_runtime_fuzz_instr_ctx_create( fd_runtime_fuzz_runner_t *           runner,
 
   /* Handle undefined behavior if sysvars are malicious (!!!) */
 
-  epoch_schedule = fd_sysvar_epoch_schedule_read( funk, funk_txn, runner->spad );
-  if( epoch_schedule ) {
+  if( fd_sysvar_epoch_schedule_read( funk, funk_txn, epoch_schedule ) ) {
     fd_bank_epoch_schedule_set( slot_ctx->bank, *epoch_schedule );
   }
 

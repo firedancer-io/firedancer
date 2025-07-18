@@ -88,10 +88,9 @@ fd_vm_syscall_sol_get_epoch_schedule_sysvar( /**/            void *  _vm,
   fd_vm_haddr_query_t * queries[] = { &var_query };
   FD_VM_TRANSLATE_MUT( vm, queries );
 
-  fd_epoch_schedule_t * schedule = fd_sysvar_epoch_schedule_read( instr_ctx->txn_ctx->funk,
-                                                                  instr_ctx->txn_ctx->funk_txn,
-                                                                  instr_ctx->txn_ctx->spad );
-  if( FD_UNLIKELY( schedule == NULL ) ) {
+  fd_epoch_schedule_t schedule[1];
+  if( FD_UNLIKELY( !fd_sysvar_epoch_schedule_read(
+      instr_ctx->txn_ctx->funk, instr_ctx->txn_ctx->funk_txn, schedule ) ) ) {
     FD_LOG_ERR(( "failed to read sysvar epoch schedule" ));
   }
 
@@ -643,10 +642,9 @@ fd_vm_syscall_sol_get_epoch_rewards_sysvar( /**/            void *  _vm,
 
   void * out = FD_VM_MEM_HADDR_ST( vm, out_vaddr, FD_VM_ALIGN_RUST_SYSVAR_EPOCH_REWARDS, sizeof(fd_sysvar_epoch_rewards_t) );
 
-  fd_sysvar_epoch_rewards_t const * epoch_rewards = fd_sysvar_epoch_rewards_read( instr_ctx->txn_ctx->funk,
-                                                                                  instr_ctx->txn_ctx->funk_txn,
-                                                                                  instr_ctx->txn_ctx->spad );
-  if( FD_UNLIKELY( !epoch_rewards ) ) {
+  fd_sysvar_epoch_rewards_t epoch_rewards[1];
+  if( FD_UNLIKELY( !fd_sysvar_epoch_rewards_read(
+      instr_ctx->txn_ctx->funk, instr_ctx->txn_ctx->funk_txn, epoch_rewards ) ) ) {
     FD_LOG_ERR(( "failed to read sysvar epoch rewards" ));
   }
 
