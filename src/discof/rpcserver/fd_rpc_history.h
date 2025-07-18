@@ -13,7 +13,7 @@ typedef struct fd_rpc_txn_key fd_rpc_txn_key_t;
 
 fd_rpc_history_t * fd_rpc_history_create(fd_rpcserver_args_t * args);
 
-void fd_rpc_history_save(fd_rpc_history_t * hist, fd_blockstore_t * blockstore, fd_replay_notif_msg_t * msg);
+void fd_rpc_history_save(fd_rpc_history_t * hist, fd_replay_notif_msg_t * msg);
 
 ulong fd_rpc_history_first_slot(fd_rpc_history_t * hist);
 

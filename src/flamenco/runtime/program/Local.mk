@@ -51,7 +51,7 @@ $(call add-objs,fd_native_cpi,fd_flamenco)
 ### Tests
 ifdef FD_HAS_HOSTED
 ifdef FD_HAS_SECP256K1
-$(call make-unit-test,test_program_cache,test_program_cache,fd_flamenco fd_ballet fd_util fd_funk)
+$(call make-unit-test,test_program_cache,test_program_cache,fd_flamenco fd_ballet fd_funk fd_util)
 $(call run-unit-test,test_program_cache)
 endif
 endif
