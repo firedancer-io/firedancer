@@ -27,7 +27,7 @@ typedef struct {
 
 struct fd_gossip_tile_ctx {
   fd_gossip_t *        gossip;
-
+  ulong                gossip_max_entries;
   fd_contact_info_t    my_contact_info[1];
 
   uint                 rng_seed;
@@ -135,16 +135,36 @@ during_housekeeping( fd_gossip_tile_ctx_t * ctx ) {
 
 static inline void
 metrics_write( fd_gossip_tile_ctx_t * ctx ) {
-  (void)ctx;
-  // fd_gossip_metrics_t const * metrics = fd_gossip_metrics( ctx->gossip );
+  fd_gossip_metrics_t const * metrics = fd_gossip_metrics( ctx->gossip );
+  /* CRDS Table */
+  FD_MGAUGE_SET(       GOSSIP, TABLE_SIZE,        metrics->crds_table->total_ele_cnt );
+  FD_MGAUGE_ENUM_COPY( GOSSIP, TABLE_CRDS_COUNTS, metrics->crds_table->ele_cnt.crd );
+  FD_MGAUGE_SET(       GOSSIP, PURGED_SIZE,       metrics->crds_table->table_purged_cnt );
+  FD_MGAUGE_SET(       GOSSIP, VISIBLE_STAKE,     metrics->crds_table->visible_stake );
+  FD_MGAUGE_SET(       GOSSIP, STAKED_PEER_COUNT,  metrics->crds_table->staked_peer_cnt );
+  FD_MGAUGE_SET(       GOSSIP, UNSTAKED_PEER_COUNT, metrics->crds_table->unstaked_peer_cnt );
 
-  // FD_MGAUGE_SET( GOSSIP, TABLE_SIZE,    metrics->table_size    );
-  // FD_MGAUGE_SET( GOSSIP, TABLE_EXPIRED, metrics->table_expired );
-  // FD_MGAUGE_SET( GOSSIP, TABLE_EVICTED, metrics->table_evicted );
+  #define COPY_MSG_RX( name, msg_traffic ) \
+    FD_MCNT_ENUM_COPY( GOSSIP, name##_COUNT, msg_traffic->count.msg ); \
+    FD_MCNT_ENUM_COPY( GOSSIP, name##_BYTES, msg_traffic->bytes.msg );
 
-  // FD_MGAUGE_SET( GOSSIP, PURGED_SIZE,   metrics->purged_size   );
+  COPY_MSG_RX( MESSAGE_RECEIVED, metrics->rx );
+  COPY_MSG_RX( MESSAGE_SENT,     metrics->tx );
 
-  // FD_MGAUGE_SET( GOSSIP, FAILED_SIZE,   metrics->failed_size   );
+  #define COPY_CRDS_INSERT( route, insert ) \
+    FD_MCNT_ENUM_COPY( GOSSIP, CRDS_##route##_RX_COUNT, insert->rx_count.crd ); \
+    FD_MCNT_ENUM_COPY( GOSSIP, CRDS_##route##_RX_BYTES, insert->rx_bytes.crd ); \
+    FD_MCNT_ENUM_COPY( GOSSIP, CRDS_##route##_UPSERTED, insert->upserted.crd ); \
+    FD_MCNT_ENUM_COPY( GOSSIP, CRDS_##route##_DUPLICATES, insert->duplicates.crd ); \
+    FD_MCNT_ENUM_COPY( GOSSIP, CRDS_##route##_OLD, insert->too_old.crd );
+
+
+  COPY_CRDS_INSERT( PUSH, metrics->push );
+  COPY_CRDS_INSERT( PULL, metrics->pull );
+
+  /* TX */
+  FD_MCNT_ENUM_COPY( GOSSIP, CRDS_SENT_COUNT,    metrics->crds_tx.count->crd );
+  FD_MCNT_ENUM_COPY( GOSSIP, CRDS_SENT_BYTES,    metrics->crds_tx.bytes->crd );
 }
 
 void
@@ -262,16 +282,13 @@ unprivileged_init( fd_topo_t *      topo,
   void * _stake_weights      = FD_SCRATCH_ALLOC_APPEND( l, alignof(fd_stake_weight_t),    MAX_STAKED_LEADERS*sizeof(fd_stake_weight_t) );
 
   // fd_memset( ctx, 0, sizeof(fd_gossip_tile_ctx_t) );
-
+  ctx->gossip_max_entries = tile->gossip.max_entries;
   ctx->stake_weights    = (fd_stake_weight_t *)_stake_weights;
   fd_rng_t rng[ 1 ];
   FD_TEST( fd_rng_join( fd_rng_new( rng, ctx->rng_seed, ctx->rng_idx ) ) );
 
   FD_MGAUGE_SET( GOSSIP, SHRED_VERSION, tile->gossip.expected_shred_version );
-
   FD_MGAUGE_SET( GOSSIP, TABLE_CAPACITY,  tile->gossip.max_entries );
-  FD_MGAUGE_SET( GOSSIP, PURGED_CAPACITY, tile->gossip.max_purged  );
-  FD_MGAUGE_SET( GOSSIP, FAILED_CAPACITY, tile->gossip.max_failed  );
 
   ctx->keyswitch = fd_keyswitch_join( fd_topo_obj_laddr( topo, tile->keyswitch_obj_id ) );
   FD_TEST( ctx->keyswitch );
@@ -385,7 +402,7 @@ unprivileged_init( fd_topo_t *      topo,
 
   ctx->gossip = fd_gossip_join( fd_gossip_new( gossip,
                                                rng,
-                                               tile->gossip.max_entries,
+                                               ctx->gossip_max_entries,
                                                tile->gossip.entrypoints_cnt,
                                                tile->gossip.entrypoints,
                                                ctx->my_contact_info,

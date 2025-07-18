@@ -6,6 +6,7 @@
 #include "fd_contact_info.h"
 #include "../types/fd_types.h"
 #include "fd_gossip_out.h"
+#include "fd_gossip_metrics.h"
 
 /* TODO: When we get a pull request, respond with ContactInfos first if
    we have any available that are responsive. */
@@ -55,35 +56,7 @@
 struct fd_gossip_private;
 typedef struct fd_gossip_private fd_gossip_t;
 
-struct crds_metrics{
-  ulong values_rx;
-  ulong upserted;
-  ulong duplicates;
-  ulong too_old;
-};
 
-typedef struct crds_metrics crds_metrics_t;
-
-struct fd_gossip_metrics {
-  ulong table_size;
-  ulong table_expired;
-  ulong table_evicted;
-
-  ulong purged_size;
-
-  ulong failed_size;
-
-  ulong packets_rx[ 6UL ];
-  ulong verified  [ 6UL ];
-
-  ulong packets_tx[ 6UL ];
-
-  crds_metrics_t push[1];
-  crds_metrics_t pull[1];
-
-};
-
-typedef struct fd_gossip_metrics fd_gossip_metrics_t;
 
 typedef void (*fd_gossip_send_fn)( void *                 ctx,
                                    fd_stem_context_t *    stem,
