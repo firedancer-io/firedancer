@@ -582,4 +582,31 @@ static inline int fd_archive_decode_check_length( fd_bincode_decode_ctx_t * ctx,
 #define fd_bincode_decode_scratch( type, buf, buf_sz, perr ) \
   fd_bincode_decode1_scratch( type, buf, buf_sz, perr, NULL )
 
+/* fd_bincode_decode_static decodes a statically-sized bincode type.
+
+   Example usage:
+
+   fd_epoch_schedule_t es[1]; int err;
+   if( FD_UNLIKELY( fd_bincode_decode_static( epoch_schedule, es, buf, bufsz, &err ) ) ) {
+     ... parse fail ...
+     return;
+   }
+   ... parse success ... */
+
+#define fd_bincode_decode_static( type, out, buf, buf_sz, perr )       \
+  __extension__({                                                      \
+    void const * const buf_    = (buf);                                \
+    ulong        const buf_sz_ = (buf_sz);                             \
+    fd_##type##_t *    res     = NULL;                                 \
+    fd_bincode_decode_ctx_t ctx = {0};                                 \
+    ctx.data    = (void const *)( buf_ );                              \
+    ctx.dataend = (void const *)( (ulong)ctx.data + buf_sz_ );         \
+    ulong total_sz = 0UL;                                              \
+    int err = fd_##type##_decode_footprint( &ctx, &total_sz );         \
+    if( FD_LIKELY( err==FD_BINCODE_SUCCESS ) ) {                       \
+      res = fd_##type##_decode( (out), &ctx );                         \
+    }                                                                  \
+    res;                                                               \
+  })
+
 #endif /* HEADER_fd_src_util_encoders_fd_bincode_h */

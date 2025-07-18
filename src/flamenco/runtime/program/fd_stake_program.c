@@ -748,20 +748,15 @@ stake_deactivate( fd_stake_t * stake, ulong epoch, uint * custom_err ) {
 
 // https://github.com/anza-xyz/agave/blob/c8685ce0e1bb9b26014f1024de2cd2b8c308cbde/programs/stake/src/stake_state.rs#L62
 int
-fd_new_warmup_cooldown_rate_epoch( ulong                     slot,
-                                   fd_funk_t *               funk,
-                                   fd_funk_txn_t *           funk_txn,
-                                   fd_spad_t *               spad,
-                                   fd_features_t const *     features,
-                                   /* out */ ulong *         epoch,
-                                   int *                     err ) {
-
-  FD_SPAD_FRAME_BEGIN( spad ) {
-
+fd_new_warmup_cooldown_rate_epoch( ulong                 slot,
+                                   fd_funk_t *           funk,
+                                   fd_funk_txn_t *       funk_txn,
+                                   fd_features_t const * features,
+                                   /* out */ ulong *     epoch,
+                                   int *                 err ) {
   *err = 0;
-  fd_epoch_schedule_t const * epoch_schedule = fd_sysvar_epoch_schedule_read( funk, funk_txn, spad );
-
-  if( FD_UNLIKELY( !epoch_schedule ) ) {
+  fd_epoch_schedule_t epoch_schedule[1];
+  if( FD_UNLIKELY( !fd_sysvar_epoch_schedule_read( funk, funk_txn, epoch_schedule ) ) ) {
     *epoch = ULONG_MAX;
     *err   = FD_EXECUTOR_INSTR_ERR_UNSUPPORTED_SYSVAR;
     return 1;
@@ -773,8 +768,6 @@ fd_new_warmup_cooldown_rate_epoch( ulong                     slot,
     return 1;
   }
   return 0;
-
-  } FD_SPAD_FRAME_END;
 }
 
 /**********************************************************************/
@@ -842,7 +835,6 @@ get_if_mergeable( fd_exec_instr_ctx_t *         invoke_context, // not const to 
     int   is_some = fd_new_warmup_cooldown_rate_epoch( invoke_context->txn_ctx->slot,
                                                        invoke_context->txn_ctx->funk,
                                                        invoke_context->txn_ctx->funk_txn,
-                                                       invoke_context->txn_ctx->spad,
                                                        &invoke_context->txn_ctx->features,
                                                        &new_rate_activation_epoch,
                                                        &err );
@@ -1157,7 +1149,6 @@ get_stake_status( fd_exec_instr_ctx_t const *    invoke_context,
   int   is_some = fd_new_warmup_cooldown_rate_epoch( invoke_context->txn_ctx->slot,
                                                      invoke_context->txn_ctx->funk,
                                                      invoke_context->txn_ctx->funk_txn,
-                                                     invoke_context->txn_ctx->spad,
                                                      &invoke_context->txn_ctx->features,
                                                      &new_rate_activation_epoch,
                                                      &err );
@@ -1198,7 +1189,6 @@ redelegate_stake( fd_exec_instr_ctx_t const *   ctx,
   int   is_some = fd_new_warmup_cooldown_rate_epoch( ctx->txn_ctx->slot,
                                                      ctx->txn_ctx->funk,
                                                      ctx->txn_ctx->funk_txn,
-                                                     ctx->txn_ctx->spad,
                                                      &ctx->txn_ctx->features,
                                                      &new_rate_activation_epoch,
                                                      &err );
@@ -2564,10 +2554,9 @@ fd_stake_program_execute( fd_exec_instr_ctx_t * ctx ) {
 
   int epoch_rewards_active = 0;
 
-  fd_sysvar_epoch_rewards_t * epoch_rewards = fd_sysvar_epoch_rewards_read( ctx->txn_ctx->funk, ctx->txn_ctx->funk_txn, ctx->txn_ctx->spad );{
-    if( FD_LIKELY( epoch_rewards ) ) {
-      epoch_rewards_active = epoch_rewards->active;
-    }
+  fd_sysvar_epoch_rewards_t epoch_rewards[1];
+  if( FD_LIKELY( fd_sysvar_epoch_rewards_read( ctx->txn_ctx->funk, ctx->txn_ctx->funk_txn, epoch_rewards ) ) ) {
+    epoch_rewards_active = epoch_rewards->active;
   }
 
   if( epoch_rewards_active && instruction->discriminant!=fd_stake_instruction_enum_get_minimum_delegation ) {
@@ -2848,7 +2837,6 @@ fd_stake_program_execute( fd_exec_instr_ctx_t * ctx ) {
     int   is_some = fd_new_warmup_cooldown_rate_epoch( ctx->txn_ctx->slot,
                                                        ctx->txn_ctx->funk,
                                                        ctx->txn_ctx->funk_txn,
-                                                       ctx->txn_ctx->spad,
                                                        &ctx->txn_ctx->features,
                                                        &new_rate_activation_epoch,
                                                        &err );

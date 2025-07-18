@@ -50,8 +50,7 @@ fd_rewards_recalculate_partitioned_rewards( fd_exec_slot_ctx_t * slot_ctx,
                                             fd_spad_t *          runtime_spad );
 
 void
-fd_distribute_partitioned_epoch_rewards( fd_exec_slot_ctx_t * slot_ctx,
-                                         fd_spad_t *          runtime_spad );
+fd_distribute_partitioned_epoch_rewards( fd_exec_slot_ctx_t * slot_ctx );
 
 FD_PROTOTYPES_END
 

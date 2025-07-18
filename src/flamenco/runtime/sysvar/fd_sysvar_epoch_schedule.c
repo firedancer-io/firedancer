@@ -50,9 +50,9 @@ fd_sysvar_epoch_schedule_write( fd_exec_slot_ctx_t *        slot_ctx,
 }
 
 fd_epoch_schedule_t *
-fd_sysvar_epoch_schedule_read( fd_funk_t *     funk,
-                               fd_funk_txn_t * funk_txn,
-                               fd_spad_t *     spad ) {
+fd_sysvar_epoch_schedule_read( fd_funk_t *           funk,
+                               fd_funk_txn_t *       funk_txn,
+                               fd_epoch_schedule_t * out ) {
 
   FD_TXN_ACCOUNT_DECL( acc );
   int err = fd_txn_account_init_from_funk_readonly( acc, &fd_sysvar_epoch_schedule_id, funk, funk_txn );
@@ -68,8 +68,8 @@ fd_sysvar_epoch_schedule_read( fd_funk_t *     funk,
     return NULL;
   }
 
-  return fd_bincode_decode_spad(
-      epoch_schedule, spad,
+  return fd_bincode_decode_static(
+      epoch_schedule, out,
       acc->vt->get_data( acc ),
       acc->vt->get_data_len( acc ),
       &err );
