@@ -35,7 +35,7 @@ git checkout -q $GIT_REF
 cd ../..
 
 LOG=$LOG_PATH/test_exec_block
-find dump/test-vectors/block/fixtures/* -type f -name '*.fix' | xargs -P $NUM_PROCESSES -n 1000 ./$OBJDIR/unit-test/test_exec_sol_compat --log-path $LOG --wksp-page-sz 1073741824 --tile-cpus 5-6
+find dump/test-vectors/block/fixtures/* -type f -name '*.fix' | xargs -P $NUM_PROCESSES -n 1000 ./$OBJDIR/unit-test/test_exec_sol_compat --log-path $LOG --wksp-page-sz 1073741824
 
 LOG=$LOG_PATH/test_exec_syscall
 find dump/test-vectors/syscall/fixtures/* -type f -name '*.fix' | xargs -P $NUM_PROCESSES -n 1000 ./$OBJDIR/unit-test/test_exec_sol_compat --log-path $LOG --wksp-page-sz 1073741824
