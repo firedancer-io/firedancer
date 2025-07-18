@@ -106,7 +106,7 @@ backtest_topo( config_t * config ) {
      batches from the CLI-specified source (eg. RocksDB). */
 
   fd_topob_wksp( topo, "repair_repla" );
-  fd_topob_link( topo, "repair_repla", "repair_repla", 65536UL, sizeof(ulong), 1UL );
+  fd_topob_link( topo, "repair_repla", "repair_repla", 256UL, sizeof(ulong), 1UL );
   fd_topob_tile_in( topo, "replay", 0UL, "metric_in", "repair_repla", 0UL, FD_TOPOB_RELIABLE, FD_TOPOB_POLLED );
   fd_topob_tile_out( topo, "back", 0UL, "repair_repla", 0UL );
 
