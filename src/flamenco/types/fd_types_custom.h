@@ -4,6 +4,7 @@
 #include "../fd_flamenco_base.h"
 #include "fd_types_meta.h"
 #include "fd_bincode.h"
+#include "../../ballet/bmtree/fd_bmtree.h"
 #include "../../ballet/ed25519/fd_ed25519.h"
 #include "../../ballet/txn/fd_txn.h"
 
@@ -24,9 +25,10 @@ union __attribute__((packed)) fd_hash {
   uint  ui  [ FD_HASH_FOOTPRINT / sizeof(uint)  ];
   uchar uc  [ FD_HASH_FOOTPRINT ];
 };
-
 typedef union fd_hash fd_hash_t;
 typedef union fd_hash fd_pubkey_t;
+
+FD_STATIC_ASSERT( sizeof(fd_hash_t) == sizeof(fd_bmtree_node_t), hash incompatibility ); /* various areas of Firedancer code use fd_hash_t as the type for merkle roots */
 
 FD_FN_PURE static inline int
 fd_hash_eq( fd_hash_t const * a,

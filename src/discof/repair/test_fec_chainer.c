@@ -9,14 +9,14 @@ test_fec_ordering( fd_wksp_t * wksp ){
   FD_TEST( mem );
   fd_fec_chainer_t * chainer = fd_fec_chainer_join( fd_fec_chainer_new( mem, fec_max, 0UL ) );
 
-  uchar mr_root[FD_SHRED_MERKLE_ROOT_SZ] = { 1 };
-  uchar mr1_0  [FD_SHRED_MERKLE_ROOT_SZ] = { 2 };
-  uchar mr1_32 [FD_SHRED_MERKLE_ROOT_SZ] = { 3 };
-  uchar mr2_0  [FD_SHRED_MERKLE_ROOT_SZ] = { 4 };
-  uchar mr2_32 [FD_SHRED_MERKLE_ROOT_SZ] = { 5 };
-  uchar mr3_0  [FD_SHRED_MERKLE_ROOT_SZ] = { 6 };
-  uchar mr3_32 [FD_SHRED_MERKLE_ROOT_SZ] = { 7 };
-  uchar mr3_64 [FD_SHRED_MERKLE_ROOT_SZ] = { 8 };
+  fd_hash_t mr_root[1] = {{{ 1 }}};
+  fd_hash_t mr1_0  [1] = {{{ 2 }}};
+  fd_hash_t mr1_32 [1] = {{{ 3 }}};
+  fd_hash_t mr2_0  [1] = {{{ 4 }}};
+  fd_hash_t mr2_32 [1] = {{{ 5 }}};
+  fd_hash_t mr3_0  [1] = {{{ 6 }}};
+  fd_hash_t mr3_32 [1] = {{{ 7 }}};
+  fd_hash_t mr3_64 [1] = {{{ 8 }}};
 
   /* Receive (0, 64) -> (1, 32) -> (1, 0) -> (2, 0) -> (3, 64) -> (2, 32) -> (3, 32) -> (3, 0) */
   ulong keys[7] = { 1UL << 32 | 0,
@@ -101,23 +101,25 @@ test_fec_ordering( fd_wksp_t * wksp ){
      because (4, 0) is a child. But since (4, 0) is an invalid child, it
      shouldn't actually be inserted into the frontier. */
 
-  fd_fec_ele_t * f4_0 = fd_fec_chainer_insert( chainer, 4, 0, 32, 0, 0, 1, (uchar[FD_SHRED_MERKLE_ROOT_SZ]){ 9 }, (uchar[FD_SHRED_MERKLE_ROOT_SZ]){ 42 } /* invalid chained merkle root */ );
+  fd_hash_t hash9[1] = { { { 9 } } };
+  fd_hash_t hash42[1] = { { { 42 } } };
+  fd_fec_ele_t * f4_0 = fd_fec_chainer_insert( chainer, 4, 0, 32, 0, 0, 1, hash9, hash42 /* invalid chained merkle root */ );
   FD_TEST( !fd_fec_frontier_ele_query( chainer->frontier, &f4_0->key, NULL, chainer->pool ) );
   FD_TEST(  fd_fec_ancestry_ele_query( chainer->ancestry, &f3_64->key, NULL, chainer->pool ) );
   FD_TEST(  fd_fec_out_cnt( chainer->out ) == 1 );
   *actual   = fd_fec_out_pop_head( chainer->out );
-  *expected = (fd_fec_out_t){ 4, 0, .err = FD_FEC_CHAINER_ERR_MERKLE };
+  *expected = (fd_fec_out_t){ .err = FD_FEC_CHAINER_ERR_MERKLE, 4, 0 };
   FD_TEST( 0 == memcmp( actual, expected, sizeof(fd_fec_out_t) ) );
 
   /* Equivocating FEC (slot 3, fec_set_idx 0) that chains off slot 2
      instead of slot 1 (parent_off = 1 instead of 2) with the correct
      chained merkle root. */
 
-  fd_fec_ele_t * f3_0_eqvoc = fd_fec_chainer_insert( chainer, 3, 0, 32, 0, 0, 1, (uchar[FD_SHRED_MERKLE_ROOT_SZ]){ 9 }, mr2_32 );
+  fd_fec_ele_t * f3_0_eqvoc = fd_fec_chainer_insert( chainer, 3, 0, 32, 0, 0, 1, hash9, mr2_32 );
   FD_TEST( !f3_0_eqvoc );
   FD_TEST(  fd_fec_out_cnt( chainer->out ) == 1 );
   *actual   = fd_fec_out_pop_head( chainer->out );
-  *expected = (fd_fec_out_t){ 3, 0, .err = FD_FEC_CHAINER_ERR_UNIQUE };
+  *expected = (fd_fec_out_t){ .err = FD_FEC_CHAINER_ERR_UNIQUE, 3, 0 };
   FD_TEST( 0 == memcmp( actual, expected, sizeof(fd_fec_out_t) ) );
 
   /* TODO more robust testing */
@@ -134,10 +136,10 @@ test_single_fec( fd_wksp_t * wksp ){
   FD_TEST( mem );
   fd_fec_chainer_t * chainer = fd_fec_chainer_join( fd_fec_chainer_new( mem, fec_max, 0UL ) );
 
-  uchar mr_root[FD_SHRED_MERKLE_ROOT_SZ] = { 1 };
-  uchar mr1_0  [FD_SHRED_MERKLE_ROOT_SZ] = { 2 };
-  uchar mr2_0  [FD_SHRED_MERKLE_ROOT_SZ] = { 4 };
-  uchar mr3_0  [FD_SHRED_MERKLE_ROOT_SZ] = { 6 };
+  fd_hash_t mr_root[1] = {{{ 1 }}};
+  fd_hash_t mr1_0  [1] = {{{ 2 }}};
+  fd_hash_t mr2_0  [1] = {{{ 4 }}};
+  fd_hash_t mr3_0  [1] = {{{ 6 }}};
 
   /* Receive (0, 64) -> (1, 0) -> (3, 0) -> (2, 0)
      single FEC slots */
@@ -191,7 +193,7 @@ test_publish( fd_wksp_t * wksp ){
   FD_TEST( mem );
   fd_fec_chainer_t * chainer = fd_fec_chainer_join( fd_fec_chainer_new( mem, fec_max, 0UL ) );
 
-  uchar mr_root[FD_SHRED_MERKLE_ROOT_SZ] = { 1 };
+  fd_hash_t mr_root[1] = {{{ 1 }}};
   fd_fec_ele_t * f0_64 = fd_fec_chainer_init( chainer, 1, mr_root );
 
   FD_TEST( fd_fec_frontier_ele_query( chainer->frontier, &f0_64->key, NULL, chainer->pool ) == f0_64 );

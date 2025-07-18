@@ -1,6 +1,8 @@
 #include "fd_store.h"
 #include "../../flamenco/fd_flamenco_base.h"
 
+static const fd_hash_t hash_null = { 0 };
+
 void *
 fd_store_new( void * shmem, ulong fec_max, ulong seed ) {
 
@@ -27,6 +29,7 @@ fd_store_new( void * shmem, ulong fec_max, ulong seed ) {
   }
 
   fd_memset( shmem, 0, footprint );
+  fec_max = fd_ulong_pow2_up( fec_max ); /* required by map_chain */
 
   FD_SCRATCH_ALLOC_INIT( l, shmem );
   fd_store_t * store = FD_SCRATCH_ALLOC_APPEND( l, fd_store_align(),      sizeof( fd_store_t )               );
@@ -34,12 +37,12 @@ fd_store_new( void * shmem, ulong fec_max, ulong seed ) {
   void *       map   = FD_SCRATCH_ALLOC_APPEND( l, fd_store_map_align(),  fd_store_map_footprint ( fec_max ) );
   FD_TEST( FD_SCRATCH_ALLOC_FINI( l, fd_store_align() ) == (ulong)shmem + footprint );
 
-  store->seed        = seed;
-  store->root        = ULONG_MAX;
   store->store_gaddr = fd_wksp_gaddr_fast( wksp, store                                                         );
   store->pool_gaddr  = fd_wksp_gaddr_fast( wksp, fd_store_pool_join( fd_store_pool_new( pool, fec_max      ) ) );
   store->map_gaddr   = fd_wksp_gaddr_fast( wksp, fd_store_map_join ( fd_store_map_new ( map, fec_max, seed ) ) );
 
+  store->seed = seed;
+  store->root = fd_store_pool_idx_null( fd_store_pool( store ) );
   FD_COMPILER_MFENCE();
   FD_VOLATILE( store->magic ) = FD_STORE_MAGIC;
   FD_COMPILER_MFENCE();
@@ -104,37 +107,32 @@ fd_store_delete( void * store ) {
 
 fd_store_fec_t *
 fd_store_insert( fd_store_t * store,
-                 fd_hash_t  * merkle_root,
-                 uchar      * data,
-                 ulong        data_sz ) {
-
+                 fd_hash_t  * merkle_root ) {
 # if FD_STORE_USE_HANDHOLDING /* FIXME eviction? max bound guaranteed for worst-case? */
   if( FD_UNLIKELY( !fd_store_pool_free( fd_store_pool( store ) ) ) ) { FD_LOG_WARNING(( "store full"                                                              )); return NULL; }
-  if( FD_UNLIKELY( data_sz > FD_STORE_DATA_MAX                   ) ) { FD_LOG_WARNING(( "data_sz %lu > FD_STORE_DATA_MAX", data_sz                                )); return NULL; }
-  if( FD_UNLIKELY( fd_store_query_const( store, merkle_root )    ) ) { FD_LOG_WARNING(( "merkle root %s already in store", FD_BASE58_ENC_32_ALLOCA( merkle_root ) )); return NULL; }
+  if( FD_UNLIKELY( fd_store_query_const( store, merkle_root )    ) ) { FD_LOG_WARNING(( "merkle root %s already in store", FD_BASE58_ENC_32_ALLOCA( merkle_root ) )); __asm__("int $3"); }
 # endif
 
   fd_store_fec_t * pool = fd_store_pool( store );
   ulong            null = fd_store_pool_idx_null( pool );
   fd_store_fec_t * fec  = fd_store_pool_ele_acquire( pool );
   fec->key              = *merkle_root;
+  fec->cmr              = hash_null;
   fec->next             = null;
   fec->parent           = null;
   fec->child            = null;
   fec->sibling          = null;
-  fec->data_sz          = data_sz;
-  memcpy( fec->data, data, data_sz );
-  fd_store_map_ele_insert( fd_store_map( store ), fec, fd_store_pool( store ) );
+  fec->data_sz          = 0UL;
   if( FD_UNLIKELY( store->root == null ) ) store->root = fd_store_pool_idx( pool, fec );
+  fd_store_map_ele_insert( fd_store_map( store ), fec, pool );
   return fec;
 }
 
 fd_store_fec_t *
 fd_store_link( fd_store_t * store, fd_hash_t * merkle_root, fd_hash_t * chained_merkle_root ) {
-
 # if FD_STORE_USE_HANDHOLDING
   if( FD_UNLIKELY( !fd_store_query_const( store, merkle_root         ) ) ) { FD_LOG_WARNING(( "missing merkle root %s",         FD_BASE58_ENC_32_ALLOCA( merkle_root         ) ) ); return NULL; }
-  if( FD_UNLIKELY( !fd_store_query_const( store, chained_merkle_root ) ) ) { FD_LOG_WARNING(( "missing chained merkle root %s", FD_BASE58_ENC_32_ALLOCA( chained_merkle_root ) ) ); return NULL; }
+  if( FD_UNLIKELY( !fd_store_query_const( store, chained_merkle_root ) ) ) { FD_LOG_WARNING(( "missing chained merkle root %s", FD_BASE58_ENC_32_ALLOCA( chained_merkle_root ) ) ); __asm__("int $3"); }
 # endif
 
   fd_store_map_t * map    = fd_store_map( store );
@@ -183,16 +181,52 @@ fd_store_publish( fd_store_t  * store,
     while( FD_LIKELY( child ) ) {                                             /* iterate over children */
       if( FD_LIKELY( child != newr ) ) {                                      /* stop at new root */
         tail->next = fd_store_map_idx_remove( map, &child->key, null, pool ); /* remove node from map to reuse `.next` */
+        FD_LOG_NOTICE(( "removing %s", FD_BASE58_ENC_32_ALLOCA( &child->key ) ));
         tail       = fd_store_pool_ele( pool, tail->next );                   /* push onto BFS queue (so descendants can be pruned) */
         tail->next = null;                                                    /* clear map next */
       }
-      child = fd_store_pool_ele( pool, child->sibling ); /* right-sibling */
+      child = fd_store_pool_ele( pool, child->sibling );                      /* right-sibling */
     }
     fd_store_fec_t * next = fd_store_pool_ele( pool, head->next ); /* pophead */
     fd_store_pool_ele_release( pool, head );                       /* release */
     head = next;                                                   /* advance */
   }
   newr->parent = null;                            /* unlink old root */
+  FD_LOG_NOTICE(( "setting root %s", FD_BASE58_ENC_32_ALLOCA( &newr->key ) ));
   store->root  = fd_store_pool_idx( pool, newr ); /* replace with new root */
   return newr;
+}
+
+#include <stdio.h>
+
+static void
+print( fd_store_t const * store, fd_store_fec_t const * fec, int space, const char * prefix ) {
+  fd_store_fec_t const * pool = fd_store_pool_const( store );
+
+  if( fec == NULL ) return;
+
+  if( space > 0 ) printf( "\n" );
+  for( int i = 0; i < space; i++ )
+    printf( " " );
+  printf( "%s%s", prefix, FD_BASE58_ENC_32_ALLOCA( &fec->key ) );
+
+  fd_store_fec_t const * curr = fd_store_pool_ele_const( pool, fec->child );
+  char new_prefix[1024]; /* FIXME size this correctly */
+  while( curr ) {
+    if( fd_store_pool_ele_const( pool, curr->sibling ) ) {
+      sprintf( new_prefix, "├── " ); /* branch indicating more siblings follow */
+      print( store, curr, space + 4, new_prefix );
+    } else {
+      sprintf( new_prefix, "└── " ); /* end branch */
+      print( store, curr, space + 4, new_prefix );
+    }
+    curr = fd_store_pool_ele_const( pool, curr->sibling );
+  }
+}
+
+void
+fd_store_print( fd_store_t const * store ) {
+  FD_LOG_NOTICE( ( "\n\n[Store]" ) );
+  print( store, fd_store_root_const( store ), 0, "" );
+  printf( "\n\n" );
 }

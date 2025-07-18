@@ -405,8 +405,8 @@ int fd_fec_resolver_add_shred( fd_fec_resolver_t    * resolver,
   if( FD_UNLIKELY( tree_depth>FD_SHRED_MERKLE_LAYER_CNT-1UL             ) ) return FD_FEC_RESOLVER_SHRED_REJECTED;
   if( FD_UNLIKELY( fd_bmtree_depth( shred_idx+1UL ) > tree_depth+1UL ) ) return FD_FEC_RESOLVER_SHRED_REJECTED;
 
-  if( FD_UNLIKELY( !ctx ) ) {
-    /* This is the first shred in the FEC set */
+  if( FD_UNLIKELY( !ctx ) ) { /* This is the first shred in the FEC set */
+
     if( FD_UNLIKELY( freelist_cnt( free_list )<=partial_depth ) ) {
       /* Packet loss is really high and we have a lot of in-progress FEC
          sets that we haven't been able to finish.  Take the resources
@@ -495,7 +495,7 @@ int fd_fec_resolver_add_shred( fd_fec_resolver_t    * resolver,
     }
 
     fd_shred_merkle_t const * proof = fd_shred_merkle_nodes( shred );
-    int rv = fd_bmtree_commitp_insert_with_proof( ctx->tree, shred_idx, leaf, (uchar const *)proof, tree_depth, NULL );
+    int rv = fd_bmtree_commitp_insert_with_proof( ctx->tree, shred_idx, leaf, (uchar const *)proof, tree_depth, out_merkle_root );
     if( !rv ) return FD_FEC_RESOLVER_SHRED_REJECTED;
   }
 
@@ -526,6 +526,7 @@ int fd_fec_resolver_add_shred( fd_fec_resolver_t    * resolver,
   *out_shred = (fd_shred_t const *)dst;
 
   /* Do we have enough to begin reconstruction? */
+
   if( FD_LIKELY( ctx->total_rx_shred_cnt < ctx->set->data_shred_cnt ) ) return FD_FEC_RESOLVER_SHRED_OKAY;
 
   /* At this point, the FEC set is either valid or permanently invalid,
@@ -729,9 +730,10 @@ fd_fec_resolver_shred_query( fd_fec_resolver_t      * resolver,
    requesting coding shreds is made available. */
 
 int
-fd_fec_resolver_force_complete( fd_fec_resolver_t *   resolver,
-                                fd_shred_t const *    last_shred,
-                                fd_fec_set_t const ** out_fec_set ) {
+fd_fec_resolver_force_complete( fd_fec_resolver_t  *  resolver,
+                                fd_shred_t const   *  last_shred,
+                                fd_fec_set_t const ** out_fec_set,
+                                fd_bmtree_node_t   *  out_merkle_root ) {
 
   /* Error if last_shred is obviously invalid... don't even
      try to process the associated FEC set. */
@@ -799,7 +801,8 @@ fd_fec_resolver_force_complete( fd_fec_resolver_t *   resolver,
                            (uchar *)base_data_shred+fd_shred_chain_off( base_data_shred->variant ), FD_SHRED_MERKLE_ROOT_SZ );
   }
 
-  if( FD_UNLIKELY( reject ) ) {
+  int    valid_mr   = fd_shred_merkle_root( last_shred, ctx->tree, out_merkle_root );
+  if( FD_UNLIKELY( reject || !valid_mr ) ) {
     freelist_push_tail( resolver->free_list,        ctx->set  );
     bmtrlist_push_tail( resolver->bmtree_free_list, ctx->tree );
     FD_MCNT_INC( SHRED, FEC_REJECTED_FATAL, 1UL );

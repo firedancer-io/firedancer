@@ -271,9 +271,10 @@ fd_fec_resolver_shred_query( fd_fec_resolver_t      * resolver,
    least one parity shred. */
 
 int
-fd_fec_resolver_force_complete( fd_fec_resolver_t *   resolver,
-                                fd_shred_t const *    last_shred,
-                                fd_fec_set_t const ** out_fec_set );
+fd_fec_resolver_force_complete( fd_fec_resolver_t  *  resolver,
+                                fd_shred_t const   *  last_shred,
+                                fd_fec_set_t const ** out_fec_set,
+                                fd_bmtree_node_t   *  out_merkle_root );
 
 void * fd_fec_resolver_leave( fd_fec_resolver_t * resolver );
 void * fd_fec_resolver_delete( void * shmem );

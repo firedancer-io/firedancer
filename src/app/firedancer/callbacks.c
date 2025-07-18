@@ -1,7 +1,7 @@
 #include "../shared/fd_config.h"
 #include "../../util/pod/fd_pod_format.h"
 
-#include "../../discof/store/fd_store.h"
+#include "../../disco/store/fd_store.h"
 #include "../../flamenco/runtime/fd_txncache.h"
 #include "../../flamenco/runtime/fd_blockstore.h"
 #include "../../flamenco/runtime/fd_runtime.h"
