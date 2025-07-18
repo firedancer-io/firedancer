@@ -3,7 +3,7 @@
 #include "fd_types.h"
 #include "fd_types_meta.h"
 #ifndef SOURCE_fd_src_flamenco_types_fd_types_c
-#error "fd_types_custom.c is part of the fd_types.c compile unit"
+#error "fd_types_custom.c is part of the fd_types.c compile uint"
 #endif /* !SOURCE_fd_src_flamenco_types_fd_types_c */
 
 #include "../runtime/fd_system_ids.h"
@@ -65,7 +65,7 @@ fd_flamenco_txn_decode( void * mem, fd_bincode_decode_ctx_t * ctx ) {
   return self;
 }
 
-int
+void
 fd_flamenco_txn_decode_inner( void * struct_mem, void * * alloc_mem, fd_bincode_decode_ctx_t * ctx ) {
   fd_flamenco_txn_t * self = (fd_flamenco_txn_t *)struct_mem;
   static FD_TL fd_txn_parse_counters_t counters[1];
@@ -77,15 +77,13 @@ fd_flamenco_txn_decode_inner( void * struct_mem, void * * alloc_mem, fd_bincode_
                                    counters,
                                    &sz );
   if( FD_UNLIKELY( !res ) ) {
-    // Footprint should have protected us above so we should never get here...
-    FD_LOG_WARNING(( "Failed to decode txn (fd_txn.c:%lu)",
+    FD_LOG_ERR(( "Failed to decode txn (fd_txn.c:%lu)",
                  counters->failure_ring[ counters->failure_cnt % FD_TXN_PARSE_COUNTERS_RING_SZ ] ));
-    return FD_BINCODE_ERR_UNDERFLOW;
+    return;
   }
   fd_memcpy( self->raw, ctx->data, sz );
   self->raw_sz = sz;
   ctx->data = (void *)( (ulong)ctx->data + sz );
-  return FD_BINCODE_SUCCESS;
 }
 
 void
@@ -137,12 +135,10 @@ int fd_tower_sync_encode( fd_tower_sync_t const * self, fd_bincode_encode_ctx_t 
   FD_LOG_ERR(( "todo"));
 }
 
-static int fd_hash_decode_inner( void * struct_mem, void * * alloc_mem, fd_bincode_decode_ctx_t * ctx );
+static void fd_hash_decode_inner( void * struct_mem, void * * alloc_mem, fd_bincode_decode_ctx_t * ctx );
 static int fd_hash_decode_footprint_inner( fd_bincode_decode_ctx_t * ctx, ulong * total_sz );
-static int fd_lockout_offset_decode_inner( void * struct_mem, void * * alloc_mem, fd_bincode_decode_ctx_t * ctx );
+static void fd_lockout_offset_decode_inner( void * struct_mem, void * * alloc_mem, fd_bincode_decode_ctx_t * ctx );
 static int fd_lockout_offset_decode_footprint_inner( fd_bincode_decode_ctx_t * ctx, ulong * total_sz );
-static int fd_vote_accounts_pair_decode_inner( void * struct_mem, void * * alloc_mem, fd_bincode_decode_ctx_t * ctx );
-static int fd_vote_accounts_pair_decode_inner_global( void * struct_mem, void * * alloc_mem, fd_bincode_decode_ctx_t * ctx );
 
 int fd_tower_sync_decode_footprint_inner( fd_bincode_decode_ctx_t * ctx, ulong * total_sz ) {
   /* This is a modified version of fd_compact_tower_sync_decode_footprint_inner() */
@@ -214,7 +210,7 @@ int fd_tower_sync_decode_footprint( fd_bincode_decode_ctx_t * ctx, ulong * total
   return err;
 }
 
-int fd_tower_sync_decode_inner( void * struct_mem, void * * alloc_mem, fd_bincode_decode_ctx_t * ctx ) {
+void fd_tower_sync_decode_inner( void * struct_mem, void * * alloc_mem, fd_bincode_decode_ctx_t * ctx ) {
   fd_tower_sync_t * self = (fd_tower_sync_t *)struct_mem;
   self->has_root = 1;
   fd_bincode_uint64_decode_unsafe( &self->root, ctx );
@@ -227,7 +223,7 @@ int fd_tower_sync_decode_inner( void * struct_mem, void * * alloc_mem, fd_bincod
 
   /* NOTE: Agave does a a checked add on the sum of the root with all of the
      lockout offsets in their custom deserializer for tower sync votes. If the
-     checked add is violated (this should never happen), the decode will
+     checked add is violated (this should never happen), the deocder will
      return NULL.  */
 
   // https://github.com/anza-xyz/agave/blob/v2.0.1/sdk/program/src/vote/state/mod.rs#L1062-L1077
@@ -253,7 +249,6 @@ int fd_tower_sync_decode_inner( void * struct_mem, void * * alloc_mem, fd_bincod
     }
   }
   fd_hash_decode_inner( &self->block_id, alloc_mem, ctx );
-  return FD_BINCODE_SUCCESS;
 }
 
 void * fd_tower_sync_decode( void * mem, fd_bincode_decode_ctx_t * ctx ) {
@@ -298,7 +293,7 @@ fd_rust_duration_footprint_validator ( fd_bincode_decode_ctx_t * ctx ) {
   return FD_BINCODE_SUCCESS;
 }
 
-int fd_vote_accounts_decode_inner( void * struct_mem, void * * alloc_mem, fd_bincode_decode_ctx_t * ctx ) {
+void fd_vote_accounts_decode_inner( void * struct_mem, void * * alloc_mem, fd_bincode_decode_ctx_t * ctx ) {
   fd_vote_accounts_t * self = (fd_vote_accounts_t *)struct_mem;
   ulong vote_accounts_len;
   fd_bincode_uint64_decode_unsafe( &vote_accounts_len, ctx );
@@ -322,10 +317,9 @@ int fd_vote_accounts_decode_inner( void * struct_mem, void * * alloc_mem, fd_bin
       }
     }
   }
-  return FD_BINCODE_SUCCESS;
 }
 
-int fd_vote_accounts_decode_inner_global( void * struct_mem, void * * alloc_mem, fd_bincode_decode_ctx_t * ctx ) {
+void fd_vote_accounts_decode_inner_global( void * struct_mem, void * * alloc_mem, fd_bincode_decode_ctx_t * ctx ) {
   fd_vote_accounts_global_t * self = (fd_vote_accounts_global_t *)struct_mem;
   ulong vote_accounts_len;
   fd_bincode_uint64_decode_unsafe( &vote_accounts_len, ctx );
@@ -348,7 +342,6 @@ int fd_vote_accounts_decode_inner_global( void * struct_mem, void * * alloc_mem,
   }
   self->vote_accounts_pool_offset = (ulong)fd_vote_accounts_pair_global_t_map_leave( vote_accounts_pool ) - (ulong)struct_mem;
   self->vote_accounts_root_offset = (ulong)vote_accounts_root - (ulong)struct_mem;
-  return FD_BINCODE_SUCCESS;
 }
 
 #define REDBLK_T fd_stake_weight_t_mapnode_t
@@ -357,135 +350,4 @@ int fd_vote_accounts_decode_inner_global( void * struct_mem, void * * alloc_mem,
 #include "../../util/tmpl/fd_redblack.c"
 long fd_stake_weight_t_map_compare( fd_stake_weight_t_mapnode_t * left, fd_stake_weight_t_mapnode_t * right ) {
   return memcmp( left->elem.key.uc, right->elem.key.uc, sizeof(right->elem.key) );
-}
-
-/* Validates the integrity of ContactInfo v2 address and socket data structures.
-   This is the C equivalent of sanitize_entries() in Agave's contact_info.rs.
-
-   ContactInfo v2 uses a compact representation where:
-   - IP addresses are stored in a separate vector (addrs)
-   - Socket entries reference addresses by index and have cumulative port offsets
-   - Each socket has a unique protocol key (gossip, tpu, rpc, etc.)
-
-   This function ensures the data structure is internally consistent and prevents
-   various attack vectors like integer overflows or invalid references.
-
-   Returns FD_BINCODE_SUCCESS on valid data, FD_BINCODE_ERR_ENCODING on validation failure.
-
-   Reference: https://github.com/firedancer-io/agave/blob/540d5bc56cd44e3cc61b179bd52e9a782a2c99e4/gossip/src/contact_info.rs#L599 */
-int fd_sanitize_entries( fd_gossip_contact_info_v2_t *self) {
-
-  /* =======================================================================
-     VALIDATION 1: IP ADDRESS UNIQUENESS
-     ======================================================================= */
-
-  /* Ensure all IP addresses in the addrs vector are unique.
-
-     DIFFERENCE FROM RUST:
-     - Rust uses HashSet::insert() which is O(n) average case
-     - C implementation uses nested loops with memcmp() which is O(n²)
-     - Trade-off: C version is simpler but less efficient for large addr lists
-
-     In practice, ContactInfo typically has <10 addresses so performance difference is minimal. */
-  for( ulong i = 0; i < self->addrs_len; i++ ) {
-    for( ulong j = i + 1; j < self->addrs_len; j++ ) {
-      if( FD_UNLIKELY( 0 == memcmp( &self->addrs[i], &self->addrs[j], sizeof(fd_gossip_ip_addr_t) ) ) ) {
-        return FD_BINCODE_ERR_ENCODING; // Duplicate IP address detected
-      }
-    }
-  }
-
-  /* =======================================================================
-     VALIDATION 2: SOCKET KEY UNIQUENESS
-     ======================================================================= */
-
-  /* Ensure all socket entries have unique protocol keys (gossip=0, rpc=2, tpu=5, etc.).
-     Uses a 256-bit bitmask to efficiently track which keys have been seen.
-
-     SAME AS RUST: Both implementations use identical 4×64-bit bitmask approach.
-     This allows O(1) duplicate detection for any 8-bit key value. */
-  ulong mask[4] = {0}; // 256-bit bitmask: each bit represents one possible key (0-255)
-  for( ulong i = 0; i < self->sockets_len; i++ ) {
-    uchar key = self->sockets[i].key;
-    ulong mask_idx = key / 64;     // Which of the 4 ulong values to use
-    ulong bit = 1UL << (key % 64); // Which bit within that ulong
-
-    if( FD_UNLIKELY( (mask[mask_idx] & bit) != 0 ) ) {
-      return FD_BINCODE_ERR_ENCODING; // Duplicate socket key detected
-    }
-    mask[mask_idx] |= bit; // Mark this key as seen
-  }
-
-  /* =======================================================================
-     VALIDATION 3: ADDRESS REFERENCE INTEGRITY
-     ======================================================================= */
-
-  /* Verify bidirectional consistency between addrs and sockets:
-     1. Every socket.index must reference a valid address (< addrs_len)
-     2. Every address must be referenced by at least one socket
-
-     This prevents:
-     - Out-of-bounds array access attacks
-     - Unused/orphaned addresses that waste space
-     - Invalid socket configurations */
-  if( self->addrs_len > 0 ) {
-    /* Track which addresses are referenced by sockets.
-
-       DIFFERENCE FROM RUST:
-       - Rust uses Vec<bool> allocated on heap
-       - C uses fd_alloca() for stack allocation (more efficient for small sizes)
-       - Both use the same boolean array algorithm */
-    uchar *hits = (uchar*)fd_alloca( 1, self->addrs_len );
-    fd_memset( hits, 0, self->addrs_len );
-
-    /* Mark all addresses that are referenced by sockets */
-    for( ulong i = 0; i < self->sockets_len; i++ ) {
-      uchar index = self->sockets[i].index;
-
-      /* Check for both out-of-bounds access */
-      if( FD_UNLIKELY( index >= self->addrs_len ) ) {
-        return FD_BINCODE_ERR_ENCODING; // Invalid/duplicate IP address index
-      }
-      hits[index] = 1;
-    }
-
-    /* Ensure every address is used by at least one socket */
-    for( ulong i = 0; i < self->addrs_len; i++ ) {
-      if( FD_UNLIKELY( !hits[i] ) ) {
-        return FD_BINCODE_ERR_ENCODING; // Unused IP address detected
-      }
-    }
-  } else if( self->sockets_len > 0 ) {
-    return FD_BINCODE_ERR_ENCODING; // Unused IP address detected
-  }
-
-  /* =======================================================================
-     VALIDATION 4: PORT OFFSET OVERFLOW PROTECTION
-     ======================================================================= */
-
-  /* ContactInfo uses cumulative port offsets to save space:
-     - Socket 0: port = base_port + offset[0]
-     - Socket 1: port = base_port + offset[0] + offset[1]
-     - Socket 2: port = base_port + offset[0] + offset[1] + offset[2]
-     - etc.
-
-     Must ensure the sum doesn't exceed 16-bit port number range (0-65535).
-
-     SAME AS RUST: Both use 16-bit arithmetic and check for overflow.
-     Rust uses checked_add() + try_fold(), C uses manual overflow detection. */
-  ushort total_offset = 0;
-  for( ulong i = 0; i < self->sockets_len; i++ ) {
-    /* Check if adding this offset would cause 16-bit integer overflow */
-    if( FD_UNLIKELY( total_offset > USHRT_MAX - self->sockets[i].offset ) ) {
-      return FD_BINCODE_ERR_ENCODING; // Port offset overflow would occur
-    }
-    total_offset += self->sockets[i].offset;
-  }
-
-  return FD_BINCODE_SUCCESS;
-}
-int fd_gossip_contact_info_v2_validator( fd_bincode_decode_ctx_t * ctx, fd_gossip_contact_info_v2_t * self ) {
-  int err = fd_sanitize_entries( self);
-  if( FD_UNLIKELY( err ) ) return err;
-  return FD_BINCODE_SUCCESS;
 }

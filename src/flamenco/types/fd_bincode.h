@@ -37,8 +37,6 @@ struct fd_bincode_decode_ctx {
   void const * data;
   /* End of buffer */
   void const * dataend;
-  /* error code on decode */
-  int err;
 };
 typedef struct fd_bincode_decode_ctx fd_bincode_decode_ctx_t;
 
@@ -512,7 +510,6 @@ static inline int fd_archive_decode_check_length( fd_bincode_decode_ctx_t * ctx,
         FD_LOG_ERR(( "fd_bincode_" #type "_decode failed: out of memory (decode requires %lu+%lu bytes, but only %lu bytes free in spad)", align-1UL, total_sz, fd_spad_mem_free( spad_ ) )); \
       }                                                                \
       out = fd_##type##_decode( mem, &ctx );                           \
-      if( FD_UNLIKELY ( ctx.err != FD_BINCODE_SUCCESS ) ) err = ctx.err; \
       if( psz_ ) *psz_ = (ulong)ctx.data - (ulong)buf_;                \
     }                                                                  \
     if( perr_ ) *perr_ = err;                                          \
@@ -540,7 +537,6 @@ static inline int fd_archive_decode_check_length( fd_bincode_decode_ctx_t * ctx,
         FD_LOG_ERR(( "fd_bincode_" #type "_decode failed: out of memory (decode requires %lu+%lu bytes, but only %lu bytes free in spad)", align-1UL, total_sz, fd_spad_mem_free( spad_ ) )); \
       }                                                                       \
       out = fd_##type##_decode_global( mem, &ctx );                           \
-      if( FD_UNLIKELY ( ctx.err != FD_BINCODE_SUCCESS ) ) err = ctx.err;     \
       if( psz_ ) *psz_ = (ulong)ctx.data - (ulong)buf_;                       \
     }                                                                         \
     if( perr_ ) *perr_ = err;                                                 \
@@ -577,7 +573,6 @@ static inline int fd_archive_decode_check_length( fd_bincode_decode_ctx_t * ctx,
       }                                                                \
       void * mem = fd_scratch_alloc( align, total_sz );                \
       out = fd_##type##_decode( mem, &ctx );                           \
-      if( FD_UNLIKELY ( ctx.err != FD_BINCODE_SUCCESS ) ) err = ctx.err; \
       if( psz_ ) *psz_ = (ulong)ctx.data - (ulong)buf_;                \
     }                                                                  \
     if( perr_ ) *perr_ = err;                                          \
