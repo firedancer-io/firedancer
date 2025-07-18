@@ -50,11 +50,11 @@ fd_rtt_sample( fd_rtt_estimate_t * est,
   /* min_rtt is estimated from rtt_ticks without adjusting for ack_delay */
   est->min_rtt = fminf( prev_min_rtt, latest_rtt );
 
+  est->latest_rtt = latest_rtt;
+
   /* smoothed_rtt is calculated from adjusted rtt_ticks
      except: ack_delay must not be subtracted if the result would be less than minrtt */
   float adj_rtt = fmaxf( est->min_rtt, latest_rtt - ack_delay );
-
-  est->latest_rtt = adj_rtt;
 
   /* Taken directly from RFC 9002 Section 5.3 */
   if( FD_UNLIKELY( !est->is_rtt_valid ) ) {

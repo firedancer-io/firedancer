@@ -383,8 +383,10 @@ main( int argc, char ** argv ) {
   FD_LOG_NOTICE(( "Attaching AIOs" ));
   fd_quic_netem_t mitm_client_to_server;
   fd_quic_netem_t mitm_server_to_client;
-  fd_quic_netem_init( &mitm_client_to_server, 0.01f, 0.01f );
-  fd_quic_netem_init( &mitm_server_to_client, 0.01f, 0.01f );
+
+  ulong _null[1];
+  fd_quic_netem_init( &mitm_client_to_server, 0.01f, 0.01f, _null );
+  fd_quic_netem_init( &mitm_server_to_client, 0.01f, 0.01f, _null );
 
   fd_quic_set_aio_net_tx( client_quic, &mitm_client_to_server.local );
   mitm_client_to_server.dst = vp.aio_a2b;
