@@ -341,10 +341,6 @@ fd_runtime_fuzz_block_ctx_create( fd_runtime_fuzz_runner_t *           runner,
   fd_stakes_stake_delegations_pool_update( stakes, stake_delegations_pool );
   fd_stakes_stake_delegations_root_update( stakes, stake_delegations_root );
 
-
-  /* Add accounts to bpf program cache */
-  fd_bpf_scan_and_create_bpf_program_cache_entry( slot_ctx, runner->spad );
-
   /* Finish init epoch bank sysvars */
   fd_epoch_schedule_t epoch_schedule_[1];
   fd_epoch_schedule_t * epoch_schedule = fd_sysvar_epoch_schedule_read( funk, funk_txn, epoch_schedule_ );
@@ -356,6 +352,9 @@ fd_runtime_fuzz_block_ctx_create( fd_runtime_fuzz_runner_t *           runner,
   stakes->epoch = fd_slot_to_epoch( epoch_schedule, test_ctx->slot_ctx.prev_slot, NULL );
 
   fd_bank_stakes_end_locking_modify( slot_ctx->bank );
+
+  /* Add accounts to bpf program cache */
+  fd_bpf_scan_and_create_bpf_program_cache_entry( slot_ctx, runner->spad );
 
   fd_vote_accounts_global_t * vote_accounts = fd_bank_next_epoch_stakes_locking_modify( slot_ctx->bank );
   pool_mem = (uchar *)fd_ulong_align_up( (ulong)vote_accounts + sizeof(fd_vote_accounts_global_t), fd_vote_accounts_pair_global_t_map_align() );
