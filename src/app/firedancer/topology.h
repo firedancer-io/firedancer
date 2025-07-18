@@ -14,24 +14,13 @@ void
 fd_topo_initialize( fd_config_t * config );
 
 fd_topo_obj_t *
-setup_topo_blockstore( fd_topo_t *  topo,
-                       char const * wksp_name,
-                       ulong        shred_max,
-                       ulong        block_max,
-                       ulong        idx_max,
-                       ulong        alloc_max );
+setup_topo_bank_hash_cmp( fd_topo_t * topo, char const * wksp_name );
 
 fd_topo_obj_t *
-setup_topo_runtime_pub( fd_topo_t *  topo,
-                        char const * wksp_name,
-                        ulong        mem_max );
-
-fd_topo_obj_t *
-setup_topo_txncache( fd_topo_t *  topo,
-                     char const * wksp_name,
-                     ulong        max_rooted_slots,
-                     ulong        max_live_slots,
-                     ulong        max_txn_per_slot );
+setup_topo_banks( fd_topo_t *  topo,
+                  char const * wksp_name,
+                  ulong        max_total_banks,
+                  ulong        max_fork_width );
 
 fd_topo_obj_t *
 setup_topo_funk( fd_topo_t *  topo,
@@ -42,13 +31,21 @@ setup_topo_funk( fd_topo_t *  topo,
                  int          lock_pages );
 
 fd_topo_obj_t *
-setup_topo_banks( fd_topo_t *  topo,
-                  char const * wksp_name,
-                  ulong        max_total_banks,
-                  ulong        max_fork_width );
+setup_topo_runtime_pub( fd_topo_t *  topo,
+                        char const * wksp_name,
+                        ulong        mem_max );
 
 fd_topo_obj_t *
-setup_topo_bank_hash_cmp( fd_topo_t * topo, char const * wksp_name );
+setup_topo_store( fd_topo_t *  topo,
+                  char const * wksp_name,
+                  ulong        fec_max );
+
+fd_topo_obj_t *
+setup_topo_txncache( fd_topo_t *  topo,
+                     char const * wksp_name,
+                     ulong        max_rooted_slots,
+                     ulong        max_live_slots,
+                     ulong        max_txn_per_slot );
 
 int
 fd_topo_configure_tile( fd_topo_tile_t * tile,

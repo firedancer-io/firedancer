@@ -40,13 +40,13 @@
 #define MANIFEST_MAX_TOTAL_BANKS           (2UL) /* the minimum is 2 */
 #define MANIFEST_MAX_FORK_WIDTH            (1UL) /* banks are only needed during publish_stake_weights() */
 
-#define NET_SHRED        (0UL)
-#define REPAIR_NET       (1UL)
-#define SHRED_REPAIR     (2UL)
-#define GOSSIP_SHRED     (3UL)
-#define GOSSIP_REPAIR    (4UL)
-#define REPAIR_SHRED_CAP (5UL)
-#define REPLAY_SHRED_CAP (6UL)
+#define NET_SHRED       (0UL)
+#define REPAIR_NET      (1UL)
+#define SHRED_REPAIR    (2UL)
+#define GOSSIP_SHRED    (3UL)
+#define GOSSIP_REPAIR   (4UL)
+#define REPAIR_SHREDCAP (5UL)
+#define REPLAY_SHREDCAP (6UL)
 
 typedef union {
   struct {
@@ -298,7 +298,7 @@ before_frag( fd_capture_tile_ctx_t * ctx,
              ulong            seq FD_PARAM_UNUSED,
              ulong            sig ) {
   if( FD_LIKELY( ctx->in_kind[ in_idx ]==NET_SHRED ) ) {
-    return (fd_disco_netmux_sig_proto( sig )!=DST_PROTO_SHRED) & (fd_disco_netmux_sig_proto( sig )!=DST_PROTO_REPAIR);
+    return (int)(fd_disco_netmux_sig_proto( sig )!=DST_PROTO_SHRED) & (int)(fd_disco_netmux_sig_proto( sig )!=DST_PROTO_REPAIR);
   }
   return 0;
 }
@@ -379,9 +379,12 @@ during_frag( fd_capture_tile_ctx_t * ctx,
     }
     fd_memcpy( ctx->repair_buffer, dcache_entry, sz );
     ctx->repair_buffer_sz = sz;
-  } else if( ctx->in_kind[ in_idx ] == REPAIR_SHRED_CAP ) {
+  } else if( ctx->in_kind[ in_idx ] == REPAIR_SHREDCAP ) {
 
     uchar const * dcache_entry = fd_chunk_to_laddr_const( ctx->in_links[ in_idx ].mem, chunk );
+
+    /* FIXME this should all be happening in after_frag */
+
     /* We expect to get all of the data shreds in a batch at once.  When
        we do we will write the header, the shreds, and a trailer. */
     ulong payload_sz = sig;
@@ -408,7 +411,9 @@ during_frag( fd_capture_tile_ctx_t * ctx,
       FD_LOG_CRIT(( "failed to write slice trailer %d", err ));
     }
 
-  } else if( ctx->in_kind[ in_idx ] == REPLAY_SHRED_CAP ) {
+  } else if( ctx->in_kind[ in_idx ] == REPLAY_SHREDCAP ) {
+
+    /* FIXME this should all be happening in after_frag */
 
    uchar const * dcache_entry = fd_chunk_to_laddr_const( ctx->in_links[ in_idx ].mem, chunk );
    fd_shredcap_bank_hash_msg_t bank_hash_msg = {
@@ -741,9 +746,9 @@ unprivileged_init( fd_topo_t *      topo,
     } else if( 0==strcmp( link->name, "gossip_repai" ) ) {
       ctx->in_kind[ i ] = GOSSIP_REPAIR;
     } else if( 0==strcmp( link->name, "repair_scap" ) ) {
-      ctx->in_kind[ i ] = REPAIR_SHRED_CAP;
+      ctx->in_kind[ i ] = REPAIR_SHREDCAP;
     } else if( 0==strcmp( link->name, "replay_scap" ) ) {
-      ctx->in_kind[ i ] = REPLAY_SHRED_CAP;
+      ctx->in_kind[ i ] = REPLAY_SHREDCAP;
     } else {
       FD_LOG_ERR(( "scap tile has unexpected input link %s", link->name ));
     }

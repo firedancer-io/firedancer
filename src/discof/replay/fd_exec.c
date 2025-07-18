@@ -1,4 +1,5 @@
 #include "fd_exec.h"
+#include "../../ballet/block/fd_microblock.h"
 
 #include "../../ballet/block/fd_microblock.h"
 

@@ -115,8 +115,6 @@ echo "
     txn_max = 1048576
     alloc_max = 10737418240
     file = \"dump/$LEDGER/backtest.blockstore\"
-[store]
-    max_completed_shred_sets = 32000
 [consensus]
     vote = false
 [development]

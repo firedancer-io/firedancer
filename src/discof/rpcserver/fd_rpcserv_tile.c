@@ -8,7 +8,6 @@
 
 #include "../rpcserver/fd_rpc_service.h"
 
-#include "../../flamenco/runtime/fd_blockstore.h"
 #include "../../flamenco/leaders/fd_multi_epoch_leaders.h"
 #include "../../util/pod/fd_pod_format.h"
 #include "../../disco/keyguard/fd_keyload.h"
@@ -25,6 +24,7 @@ struct fd_rpcserv_tile_ctx {
   fd_rpcserver_args_t args;
 
   fd_rpc_ctx_t * ctx;
+  fd_store_t * store;
 
   fd_pubkey_t      identity_key;
   fd_keyswitch_t * keyswitch;
@@ -37,8 +37,6 @@ struct fd_rpcserv_tile_ctx {
   fd_wksp_t * stake_in_mem;
   ulong       stake_in_chunk0;
   ulong       stake_in_wmark;
-
-  int blockstore_fd;
 
   uchar __attribute__((aligned(FD_MULTI_EPOCH_LEADERS_ALIGN))) mleaders_mem[ FD_MULTI_EPOCH_LEADERS_FOOTPRINT ];
 };
@@ -174,16 +172,10 @@ privileged_init( fd_topo_t *      topo,
   args->spad = fd_spad_join( fd_spad_new( spad_mem_cur, FD_RPC_SCRATCH_MAX ) );
 
   /* Blockstore setup */
-  ulong blockstore_obj_id = fd_pod_queryf_ulong( topo->props, ULONG_MAX, "blockstore" );
-  FD_TEST( blockstore_obj_id!=ULONG_MAX );
-  args->blockstore = fd_blockstore_join( &args->blockstore_ljoin, fd_topo_obj_laddr( topo, blockstore_obj_id ) );
-  FD_TEST( args->blockstore!=NULL );
-  ctx->blockstore_fd = open( tile->replay.blockstore_file, O_RDONLY );
-  if ( FD_UNLIKELY(ctx->blockstore_fd == -1) ){
-    FD_LOG_WARNING(("%s: %s", tile->replay.blockstore_file, strerror( errno )));
-  }
-
-  args->blockstore_fd = ctx->blockstore_fd;
+  ulong store_obj_id = fd_pod_queryf_ulong( topo->props, ULONG_MAX, "store" );
+  FD_TEST( store_obj_id!=ULONG_MAX );
+  args->store = fd_store_join( ctx->store );
+  FD_TEST( args->store!=NULL );
 
   args->block_index_max = tile->rpcserv.block_index_max;
   args->txn_index_max = tile->rpcserv.txn_index_max;
@@ -253,7 +245,7 @@ populate_allowed_seccomp( fd_topo_t const *      topo,
   FD_SCRATCH_ALLOC_INIT( l, scratch );
   fd_rpcserv_tile_ctx_t * ctx = FD_SCRATCH_ALLOC_APPEND( l, alignof(fd_rpcserv_tile_ctx_t), sizeof(fd_rpcserv_tile_ctx_t) );
 
-  populate_sock_filter_policy_fd_rpcserv_tile( out_cnt, out, (uint)fd_log_private_logfile_fd(), (uint)fd_rpc_ws_fd( ctx->ctx ), (uint)ctx->blockstore_fd );
+  populate_sock_filter_policy_fd_rpcserv_tile( out_cnt, out, (uint)fd_log_private_logfile_fd(), (uint)fd_rpc_ws_fd( ctx->ctx ) );
   return sock_filter_policy_fd_rpcserv_tile_instr_cnt;
 }
 
@@ -273,7 +265,6 @@ populate_allowed_fds( fd_topo_t const *      topo,
   if( FD_LIKELY( -1!=fd_log_private_logfile_fd() ) )
     out_fds[ out_cnt++ ] = fd_log_private_logfile_fd(); /* logfile */
   out_fds[ out_cnt++ ] = fd_rpc_ws_fd( ctx->ctx ); /* listen socket */
-  out_fds[ out_cnt++ ] = ctx->blockstore_fd;
   return out_cnt;
 }
 
