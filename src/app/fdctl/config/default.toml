@@ -457,9 +457,11 @@ dynamic_port_range = "8900-9000"
     # `--identity` argument.
     identity_path = ""
 
-    # Absolute path to a `keypair.json` containing the  voting account
-    # of the validator.  If no voting account is provided, voting will
-    # be disabled and the validator will cast no votes.
+    # Absolute path to a `keypair.json` containing the voting account
+    # of the validator.  You can alternatively provide the base58
+    # encoded pubkey of the vote account to use with this validator.  If
+    # no voting account is provided, voting will be disabled and the
+    # validator will cast no votes.
     #
     # Two substitutions will be performed on this string.  If "{user}"
     # is present it will be replaced with the user running Firedancer,

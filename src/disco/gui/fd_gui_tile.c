@@ -95,8 +95,8 @@ typedef struct {
   fd_keyswitch_t * keyswitch;
   uchar const *    identity_key;
 
-  int              has_vote_key;
-  uchar const *    vote_key;
+  int               has_vote_key;
+  fd_pubkey_t const vote_key[ 1UL ];
 
   ulong           in_kind[ 64UL ];
   ulong           in_bank_idx[ 64UL ];
@@ -388,7 +388,10 @@ privileged_init( fd_topo_t *      topo,
     ctx->has_vote_key = 0;
   } else {
     ctx->has_vote_key = 1;
-    ctx->vote_key = fd_keyload_load( tile->gui.vote_key_path, /* pubkey only: */ 1 );
+    if( FD_UNLIKELY( !fd_base58_decode_32( tile->gui.vote_key_path, (uchar *)ctx->vote_key->uc ) ) ) {
+      const uchar * vote_key = fd_keyload_load( tile->gui.vote_key_path, /* pubkey only: */ 1 );
+      fd_memcpy( (uchar *)ctx->vote_key->uc, vote_key, 32UL );
+    }
   }
 }
 
@@ -501,7 +504,7 @@ unprivileged_init( fd_topo_t *      topo,
   FD_TEST( fd_cstr_printf_check( ctx->version_string, sizeof( ctx->version_string ), NULL, "%s", fdctl_version_string ) );
 
   ctx->topo = topo;
-  ctx->gui  = fd_gui_join( fd_gui_new( _gui, ctx->gui_server, ctx->version_string, tile->gui.cluster, ctx->identity_key, ctx->has_vote_key, ctx->vote_key, tile->gui.is_voting, tile->gui.schedule_strategy, ctx->topo ) );
+  ctx->gui  = fd_gui_join( fd_gui_new( _gui, ctx->gui_server, ctx->version_string, tile->gui.cluster, ctx->identity_key, ctx->has_vote_key, ctx->vote_key->uc, tile->gui.is_voting, tile->gui.schedule_strategy, ctx->topo ) );
   FD_TEST( ctx->gui );
 
   ctx->keyswitch = fd_keyswitch_join( fd_topo_obj_laddr( topo, tile->keyswitch_obj_id ) );

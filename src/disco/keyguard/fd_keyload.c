@@ -15,7 +15,7 @@ fd_keyload_read( int          key_fd,
                  uchar *      keypair ) {
 #define KEY_PARSE_ERR( ... ) \
   FD_LOG_ERR(( "Error while parsing the validator identity key at path " \
-               "`%s` specified by [consensus.identity_path] in the "     \
+               "`%s` specified by [consensus.{identity|vote_account}_path] in the "     \
                "configuration TOML file. Solana key files are "         \
                "formatted as a 64-element JSON array. " __VA_ARGS__ ))
 #define KEY_SZ 64UL
