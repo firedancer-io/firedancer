@@ -2,6 +2,7 @@
 #include "fd_gossip.h"
 #include "fd_bloom.h"
 #include "fd_contact_info.h"
+#include "fd_gossip_metrics.h"
 #include "fd_gossip_private.h"
 
 #include "crds/fd_crds.h"
@@ -9,6 +10,9 @@
 #include "fd_ping_tracker.h"
 #include "../../ballet/ed25519/fd_ed25519.h"
 #include "../../disco/keyguard/fd_keyguard.h"
+
+FD_STATIC_ASSERT( FD_GOSSIP_MESSAGE_LAST+1UL==GOSSIP_MESSAGE_TYPES_COUNT,
+                  "GOSSIP_MESSAGE_LAST does not match FD_GOSSIP_MESSAGE_LAST+1UL, please update accordingly" );
 
 #define BLOOM_FILTER_MAX_BYTES          (512UL) /* TODO: Calculate for worst case contactinfo */
 #define BLOOM_FALSE_POSITIVE_RATE       (  0.1)
@@ -177,7 +181,6 @@ struct fd_gossip_private {
     long next_active_set_refresh;
     long next_contact_info_refresh;
     long next_flush_push_state;
-    long next_metrics_print;
   } timers;
 
   /* Callbacks */
@@ -270,7 +273,7 @@ fd_gossip_new( void *                    shmem,
   gossip->entrypoints_cnt = entrypoints_cnt;
   fd_memcpy( gossip->entrypoints, entrypoints, entrypoints_cnt*sizeof(fd_ip4_port_t) );
 
-  gossip->crds          = fd_crds_join( fd_crds_new( crds, rng, max_values, max_values*4, gossip_update_out ) );
+  gossip->crds          = fd_crds_join( fd_crds_new( crds, rng, max_values, max_values*4, gossip->metrics->crds_table, gossip_update_out ) );
   gossip->active_set    = fd_active_set_join( fd_active_set_new( active_set, rng ) );
   gossip->ping_tracker  = fd_ping_tracker_join( fd_ping_tracker_new( ping_tracker, rng ) );
   gossip->bloom         = fd_bloom_join( fd_bloom_new( bloom, rng, BLOOM_FALSE_POSITIVE_RATE, BLOOM_FILTER_MAX_BYTES ) );
@@ -323,13 +326,8 @@ fd_gossip_join( void * shgossip ) {
   return (fd_gossip_t *)shgossip;
 }
 
-static inline void
-metrics_update( fd_gossip_t * gossip ) {
-  fd_gossip_metrics_t * metrics = gossip->metrics;
-
-  metrics->table_size  = fd_crds_len( gossip->crds );
-  metrics->purged_size = fd_crds_purged_len( gossip->crds );
-}
+fd_gossip_metrics_t const *
+fd_gossip_metrics( fd_gossip_t const * gossip ){ return gossip->metrics; }
 
 static int
 is_entrypoint( fd_gossip_t const *   gossip,
@@ -356,7 +354,8 @@ push_state_flush( fd_gossip_t *       gossip,
   if( FD_LIKELY( state->push_dest.l ) ){
     gossip->send_fn( gossip->send_ctx, stem, state->msg, state->msg_sz, &state->push_dest, (ulong)now );
     uint msg_type = FD_LOAD( uint, state->msg );
-    gossip->metrics->packets_tx[ msg_type ]++; /* might be push or pull resp */
+    gossip->metrics->tx->count.msg[ msg_type ]++;
+    gossip->metrics->tx->bytes.msg[ msg_type ] += state->msg_sz;
   }
 
   /* Reset the push state */
@@ -733,17 +732,19 @@ rx_pull_response( fd_gossip_t *                          gossip,
                   fd_stem_context_t *                    stem,
                   long                                   now ) {
   /* TODO: use epoch_duration and make timeouts ... ? */
-
+  fd_gossip_metrics_crds_insert_t * pull_metrics = gossip->metrics->pull;
   for( ulong i=0UL; i<pull_response->crds_values_len; i++ ) {
-    gossip->metrics->pull->values_rx++;
     fd_gossip_view_crds_value_t const * value = &pull_response->crds_values[ i ];
+    pull_metrics->rx_count.crd[ value->tag ]++;
+    pull_metrics->rx_bytes.crd[ value->tag ] += value->length;
 
     int checks_res = fd_crds_checks_fast( gossip->crds,
                                              value,
                                              payload,
                                              0 /* from_push_msg m*/ );
     if( FD_UNLIKELY( !!checks_res ) ) {
-      checks_res < 0 ? gossip->metrics->pull->too_old++ : gossip->metrics->pull->duplicates++;
+      checks_res < 0 ? pull_metrics->too_old.crd[ value->tag ]++
+                     : pull_metrics->duplicates.crd[ value->tag ]++;
       continue;
     }
 
@@ -764,7 +765,7 @@ rx_pull_response( fd_gossip_t *                          gossip,
     /* https://github.com/anza-xyz/agave/blob/540d5bc56cd44e3cc61b179bd52e9a782a2c99e4/gossip/src/crds_gossip_pull.rs#L340-L351 */
     if( FD_UNLIKELY( accept_after_nanos>value->wallclock_nanos &&
                      !fd_crds_contact_info_lookup( gossip->crds, origin_pubkey ) ) ) {
-      gossip->metrics->pull->too_old++;
+      pull_metrics->too_old.crd[ value->tag ]++;
       uchar candidate_hash[ 32UL ];
       fd_crds_genrate_hash( payload+value->value_off, value->length, candidate_hash );
       fd_crds_insert_failed_insert( gossip->crds, candidate_hash, now );
@@ -772,11 +773,7 @@ rx_pull_response( fd_gossip_t *                          gossip,
     }
 
     int err = verify_crds_value( value, payload, gossip->sha512 );
-    if( FD_UNLIKELY( err!=FD_ED25519_SUCCESS ) ) {
-      continue;
-    } else {
-      gossip->metrics->verified[ FD_GOSSIP_MESSAGE_PULL_RESPONSE ]++;
-    }
+    if( FD_UNLIKELY( err!=FD_ED25519_SUCCESS ) ) continue;
 
     fd_crds_entry_t const * candidate = fd_crds_insert( gossip->crds,
                                                         value,
@@ -787,7 +784,7 @@ rx_pull_response( fd_gossip_t *                          gossip,
                                                         now,
                                                         stem );
     if( FD_UNLIKELY( !candidate ) ) continue;
-    gossip->metrics->pull->upserted++;
+    pull_metrics->upserted.crd[ value->tag ]++;
     if( FD_UNLIKELY( fd_crds_entry_is_contact_info( candidate ) ) ){
       fd_contact_info_t const * contact_info = fd_crds_entry_contact_info( candidate );
       fd_ip4_port_t origin_addr              = fd_contact_info_gossip_socket( contact_info );
@@ -825,7 +822,9 @@ process_push_crds( fd_gossip_t *                       gossip,
                    uchar const *                       payload,
                    long                                now,
                    fd_stem_context_t *                 stem ) {
-  gossip->metrics->push->values_rx++;
+  fd_gossip_metrics_crds_insert_t * push_metrics = gossip->metrics->push;
+  push_metrics->rx_count.crd[ value->tag ]++;
+  push_metrics->rx_bytes.crd[ value->tag ] += value->length;
   /* TODO: pretty sure this is 15s now. */
   if( FD_UNLIKELY( value->wallclock_nanos<now-30L*1000L*1000L*1000L || value->wallclock_nanos>now+30L*1000L*1000L*1000L ) ) return -1;
   /* overrides_fast here, either count duplicates or purge if older (how!?) */
@@ -839,15 +838,14 @@ process_push_crds( fd_gossip_t *                       gossip,
                                         payload,
                                         1 /* from_push_msg */ );
   if( FD_UNLIKELY( !!checks_res ) ) {
-    checks_res<0 ? gossip->metrics->push->too_old++ : gossip->metrics->push->duplicates++;
+    checks_res<0 ? push_metrics->too_old.crd[ value->tag ]++
+                   : push_metrics->duplicates.crd[ value->tag ]++;
     return checks_res;
   }
 
   int err = verify_crds_value( value, payload, gossip->sha512 );
   if( FD_UNLIKELY( err!=FD_ED25519_SUCCESS ) ) {
     return -1;
-  } else {
-    gossip->metrics->verified[ FD_GOSSIP_MESSAGE_PUSH ]++;
   }
 
   uchar const * origin_pubkey    = payload+value->pubkey_off;
@@ -865,7 +863,7 @@ process_push_crds( fd_gossip_t *                       gossip,
                                                       stem );
   if( FD_UNLIKELY( !candidate ) ) return -1;
 
-  gossip->metrics->push->upserted++;
+  push_metrics->upserted.crd[ value->tag ]++;
   if( FD_UNLIKELY( fd_crds_entry_is_contact_info( candidate ) ) ) {
     fd_contact_info_t const * contact_info = fd_crds_entry_contact_info( candidate );
     fd_ip4_port_t origin_addr              = fd_contact_info_gossip_socket( contact_info );
@@ -973,7 +971,10 @@ rx_ping( fd_gossip_t *           gossip,
   gossip->sign_fn( gossip->sign_ctx, pre_hash_img, 48UL, PONG_SIGN_TYPE, out_pong->signature );
 
   gossip->send_fn( gossip->send_ctx, stem, (uchar *)out_payload, sizeof(out_payload), peer_address, (ulong)now );
-  gossip->metrics->packets_tx[ FD_GOSSIP_MESSAGE_PONG ]++;
+
+  gossip->metrics->tx->count.msg[ FD_GOSSIP_MESSAGE_PONG ]++;
+  gossip->metrics->tx->bytes.msg[ FD_GOSSIP_MESSAGE_PONG ] += sizeof(out_payload);
+
   return 0;
 }
 
@@ -1049,7 +1050,8 @@ fd_gossip_rx( fd_gossip_t * gossip,
     FD_LOG_WARNING(( "Failed to decode gossip message" ));
     return -1;
   }
-  gossip->metrics->packets_rx[ view->tag ]++;
+  gossip->metrics->rx->count.msg[ view->tag ]++;
+  gossip->metrics->rx->bytes.msg[ view->tag ] += gossip_payload_sz;
 
   error = verify_signatures( view, gossip_payload, gossip->sha512 );
   if( FD_UNLIKELY( error ) ) return error;
@@ -1092,8 +1094,6 @@ fd_gossip_rx( fd_gossip_t * gossip,
       FD_LOG_CRIT(( "Unknown gossip message type %d", view->tag ));
       break;
   }
-  metrics_update( gossip );
-
   return error;
 }
 
@@ -1185,7 +1185,9 @@ tx_ping( fd_gossip_t *       gossip,
 
     gossip->sign_fn( gossip->sign_ctx, out_ping->ping_token, 32UL, GOSSIP_SIGN_TYPE, out_ping->signature );
     gossip->send_fn( gossip->send_ctx, stem, out_payload, sizeof(out_payload), peer_address, (ulong)now );
-    gossip->metrics->packets_tx[ FD_GOSSIP_MESSAGE_PING ]++;
+
+    gossip->metrics->tx->count.msg[ FD_GOSSIP_MESSAGE_PING ]++;
+    gossip->metrics->tx->bytes.msg[ FD_GOSSIP_MESSAGE_PING ] += sizeof(out_payload);
   }
 }
 
@@ -1332,7 +1334,8 @@ tx_pull_request( fd_gossip_t *       gossip,
                    payload_sz,
                    &peer_addr,
                    (ulong)now );
-  gossip->metrics->packets_tx[ FD_GOSSIP_MESSAGE_PULL_REQUEST ]++;
+  gossip->metrics->tx->count.msg[ FD_GOSSIP_MESSAGE_PULL_REQUEST ]++;
+  gossip->metrics->tx->bytes.msg[ FD_GOSSIP_MESSAGE_PULL_REQUEST ] += payload_sz;
 }
 
 static inline long
@@ -1362,6 +1365,7 @@ rotate_active_set( fd_gossip_t *       gossip,
   push_state_new( pstate_pool_ele( gossip->active_pset->pool, replaced_idx ),
                   gossip->identity_pubkey,
                   fd_contact_info_gossip_socket( new_peer ) );
+
 }
 
 static inline void
@@ -1376,57 +1380,6 @@ flush_stale_push_states( fd_gossip_t * gossip,
     push_set_flush_idx( gossip, push_set, pstate_pool_idx( push_set->pool, state ), stem, now );
   }
 }
-
-
-static inline void
-metrics_print_crds( crds_metrics_t const * new, crds_metrics_t const * old ) {
-  FD_LOG_NOTICE(( "Total Rx\t\t: %lu", new->values_rx - old->values_rx ));
-  FD_LOG_NOTICE(( "Upserts\t\t: %lu",   new->upserted - old->upserted ));
-  FD_LOG_NOTICE(( "Duplicates\t\t: %lu",  new->duplicates - old->duplicates ));
-  FD_LOG_NOTICE(( "Too Old\t\t: %lu",   new->too_old - old->too_old ));
-}
-
-static inline void
-metrics_print( fd_gossip_t * gossip ){
-  static fd_gossip_metrics_t prev_metrics[ 1 ];
-  fd_gossip_metrics_t *      metrics = gossip->metrics;
-
-  FD_LOG_NOTICE(( "========== GOSSIP METRICS ==========" ));
-  FD_LOG_NOTICE(( "Table size\t\t: %lu",     metrics->table_size ));
-  FD_LOG_NOTICE(( "Purged size\t\t: %lu",    metrics->purged_size ));
-  FD_LOG_NOTICE(( "Num peers\t\t: %lu",      fd_crds_peer_count( gossip->crds ) ));
-
-  FD_LOG_NOTICE(("---------- Push Ingress ----------"));
-  metrics_print_crds( metrics->push, prev_metrics->push );
-  FD_LOG_NOTICE(("--------- Pull Ingress -----------"));
-  metrics_print_crds( metrics->pull, prev_metrics->pull );
-
-  FD_LOG_NOTICE(( "-------- Packets Received --------" ));
-  FD_LOG_NOTICE(( "Pull Requests\t: %lu",   metrics->packets_rx[ 0U ] - prev_metrics->packets_rx[ 0U ] ));
-  FD_LOG_NOTICE(( "Pull Responses\t: %lu",  metrics->packets_rx[ 1U ] - prev_metrics->packets_rx[ 1U ] ));
-  FD_LOG_NOTICE(( "Pushes\t\t: %lu",        metrics->packets_rx[ 2U ] - prev_metrics->packets_rx[ 2U ] ));
-  FD_LOG_NOTICE(( "Pings\t\t: %lu",         metrics->packets_rx[ 4U ] - prev_metrics->packets_rx[ 4U ] ));
-  FD_LOG_NOTICE(( "Pongs\t\t: %lu",         metrics->packets_rx[ 5U ] - prev_metrics->packets_rx[ 5U ] ));
-
-  // FD_LOG_NOTICE(( "-------- Packets verified ---------" ));
-  // FD_LOG_NOTICE(( "Pull Requests\t\t: %lu",   metrics->verified[ 0U ] - prev_metrics->verified[ 0U ] ));
-  // FD_LOG_NOTICE(( "Pull Responses\t: %lu",  metrics->verified[ 1U ] - prev_metrics->verified[ 1U ] ));
-  // FD_LOG_NOTICE(( "Pushes\t\t: %lu",        metrics->verified[ 2U ] - prev_metrics->verified[ 2U ] ));
-  // // FD_LOG_NOTICE(( "Prunes\t\t: %lu", metrics->verified[ 3U ] - prev_metrics->verified[ 3U ] ));
-  // FD_LOG_NOTICE(( "Pings\t\t\t: %lu",         metrics->verified[ 4U ] - prev_metrics->verified[ 4U ] ));
-  // FD_LOG_NOTICE(( "Pongs\t\t\t: %lu",         metrics->verified[ 5U ] - prev_metrics->verified[ 5U ] ));
-
-  FD_LOG_NOTICE(( "---------- Packets Sent ----------" ));
-  FD_LOG_NOTICE(( "Pull Requests\t: %lu",   metrics->packets_tx[ 0U ] - prev_metrics->packets_tx[ 0U ] ));
-  FD_LOG_NOTICE(( "Pull Responses\t: %lu",  metrics->packets_tx[ 1U ] - prev_metrics->packets_tx[ 1U ] ));
-  FD_LOG_NOTICE(( "Pushes\t\t: %lu",        metrics->packets_tx[ 2U ] - prev_metrics->packets_tx[ 2U ] ));
-  // FD_LOG_NOTICE(( "Prunes\t\t: %lu", metrics->packets_tx[ 3U ] - prev_metrics->packets_tx[ 3U ] ));
-  FD_LOG_NOTICE(( "Pings\t\t: %lu",         metrics->packets_tx[ 4U ] - prev_metrics->packets_tx[ 4U ] ));
-  FD_LOG_NOTICE(( "Pongs\t\t: %lu",         metrics->packets_tx[ 5U ] - prev_metrics->packets_tx[ 5U ] ));
-
-  *prev_metrics = *metrics;
-}
-
 
 void
 fd_gossip_advance( fd_gossip_t *       gossip,

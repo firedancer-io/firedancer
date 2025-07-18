@@ -5,6 +5,7 @@
 #include "../../../util/net/fd_net_headers.h"
 #include "../fd_gossip_private.h"
 #include "../fd_gossip_out.h"
+#include "../fd_gossip_metrics.h"
 
 struct fd_crds_entry_private;
 typedef struct fd_crds_entry_private fd_crds_entry_t;
@@ -22,6 +23,7 @@ typedef struct fd_crds_mask_iter_private fd_crds_mask_iter_t;
 #define CRDS_MAX_CONTACT_INFO_LG (15)
 #define CRDS_MAX_CONTACT_INFO    (1<<CRDS_MAX_CONTACT_INFO_LG) /* 32768 */
 
+
 FD_PROTOTYPES_BEGIN
 
 FD_FN_CONST ulong
@@ -31,14 +33,17 @@ FD_FN_CONST ulong
 fd_crds_footprint( ulong ele_max,
                    ulong purged_max );
 
-/* gossip_update_out holds the info to the gossip out link used to publish
+/* metrics is a pointer to a fd_crds_table_metrics_t structure that will be
+   updated with the current CRDS table metrics.
+   gossip_update_out holds the info to the gossip out link used to publish
    gossip message updates */
 void *
-fd_crds_new( void *               shmem,
-             fd_rng_t *           rng,
-             ulong                ele_max,
-             ulong                purged_max,
-             fd_gossip_out_ctx_t * gossip_update_out  );
+fd_crds_new( void *                    shmem,
+             fd_rng_t *                rng,
+             ulong                     ele_max,
+             ulong                     purged_max,
+             fd_crds_table_metrics_t * metrics,
+             fd_gossip_out_ctx_t *     gossip_update_out  );
 
 fd_crds_t *
 fd_crds_join( void * shcrds );
