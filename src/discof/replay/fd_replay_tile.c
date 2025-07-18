@@ -602,8 +602,9 @@ publish_slot_notifications( fd_replay_tile_ctx_t * ctx,
 
     msg->slot_exec.bank_hash = fd_bank_bank_hash_get( ctx->slot_ctx->bank );
 
-    fd_block_hash_queue_global_t const * block_hash_queue = fd_bank_block_hash_queue_query( ctx->slot_ctx->bank );
-    fd_hash_t * last_hash = fd_block_hash_queue_last_hash_join( block_hash_queue );
+    fd_blockhashes_t const * block_hash_queue = fd_bank_block_hash_queue_query( ctx->slot_ctx->bank );
+    fd_hash_t const * last_hash = fd_blockhashes_peek_last( block_hash_queue );
+    FD_TEST( last_hash );
     msg->slot_exec.block_hash = *last_hash;
 
     memcpy( &msg->slot_exec.identity, ctx->validator_identity_pubkey, sizeof( fd_pubkey_t ) );
@@ -923,12 +924,12 @@ init_poh( fd_replay_tile_ctx_t * ctx ) {
   msg->ticks_per_slot   = fd_bank_ticks_per_slot_get( ctx->slot_ctx->bank );
   msg->tick_duration_ns = (ulong)(fd_bank_ns_per_slot_get( ctx->slot_ctx->bank )) / fd_bank_ticks_per_slot_get( ctx->slot_ctx->bank );
 
-  fd_block_hash_queue_global_t * bhq       = (fd_block_hash_queue_global_t *)&ctx->slot_ctx->bank->block_hash_queue[0];
-  fd_hash_t *                    last_hash = fd_block_hash_queue_last_hash_join( bhq );
+  fd_blockhashes_t const * bhq = fd_bank_block_hash_queue_query( ctx->slot_ctx->bank );
+  fd_hash_t const * last_hash = fd_blockhashes_peek_last( bhq );
   if( last_hash ) {
-    memcpy(msg->last_entry_hash, last_hash, sizeof(fd_hash_t));
+    memcpy( msg->last_entry_hash, last_hash, sizeof(fd_hash_t) );
   } else {
-    memset(msg->last_entry_hash, 0UL, sizeof(fd_hash_t));
+    memset( msg->last_entry_hash, 0UL,       sizeof(fd_hash_t) );
   }
   msg->tick_height = fd_bank_slot_get( ctx->slot_ctx->bank ) * msg->ticks_per_slot;
 
@@ -1426,11 +1427,9 @@ exec_slice_fini_slot( fd_replay_tile_ctx_t * ctx, fd_stem_context_t * stem ) {
   if( FD_LIKELY( ctx->tower_out_idx!=ULONG_MAX && !ctx->read_only ) ) {
     uchar * chunk_laddr = fd_chunk_to_laddr( ctx->tower_out_mem, ctx->tower_out_chunk );
     fd_hash_t const * bank_hash = fd_bank_bank_hash_query( ctx->slot_ctx->bank );
-    fd_block_hash_queue_global_t * block_hash_queue = (fd_block_hash_queue_global_t *)&ctx->slot_ctx->bank->block_hash_queue[0];
-    fd_hash_t * last_hash = fd_block_hash_queue_last_hash_join( block_hash_queue );
-
+    fd_blockhashes_t const * blockhashes = fd_bank_block_hash_queue_query( ctx->slot_ctx->bank );
     memcpy( chunk_laddr, bank_hash, sizeof(fd_hash_t) );
-    memcpy( chunk_laddr+sizeof(fd_hash_t), last_hash, sizeof(fd_hash_t) );
+    memcpy( chunk_laddr+sizeof(fd_hash_t), fd_blockhashes_peek_last( blockhashes ), sizeof(fd_hash_t) );
     fd_stem_publish( stem, ctx->tower_out_idx, fd_bank_slot_get( ctx->slot_ctx->bank ) << 32UL | fd_bank_parent_slot_get( ctx->slot_ctx->bank ), ctx->tower_out_chunk, sizeof(fd_hash_t) * 2, 0UL, fd_frag_meta_ts_comp( fd_tickcount() ), fd_frag_meta_ts_comp( fd_tickcount() ) );
   }
 

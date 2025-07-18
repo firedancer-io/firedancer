@@ -52,12 +52,12 @@ require_acct_recent_blockhashes( fd_exec_instr_ctx_t *        ctx,
     if( FD_UNLIKELY( err ) ) return err;
   } while(0);
 
-  fd_recent_block_hashes_global_t const * rbh_global = fd_sysvar_recent_hashes_read( ctx->txn_ctx->funk, ctx->txn_ctx->funk_txn, ctx->txn_ctx->spad );
-  if( FD_UNLIKELY( !rbh_global ) ) {
+  fd_recent_block_hashes_t const * rbh = fd_sysvar_recent_hashes_read( ctx->txn_ctx->funk, ctx->txn_ctx->funk_txn, ctx->txn_ctx->spad );
+  if( FD_UNLIKELY( !rbh ) ) {
     return FD_EXECUTOR_INSTR_ERR_UNSUPPORTED_SYSVAR;
   }
 
-  (*out)->hashes = deq_fd_block_block_hash_entry_t_join( (uchar*)rbh_global + rbh_global->hashes_offset );
+  (*out)->hashes = rbh->hashes;
 
   return FD_EXECUTOR_INSTR_SUCCESS;
 }
@@ -73,8 +73,8 @@ most_recent_block_hash( fd_exec_instr_ctx_t * ctx,
   /* The environment config blockhash comes from `bank.last_blockhash_and_lamports_per_signature()`,
      which takes the top element from the blockhash queue.
      https://github.com/anza-xyz/agave/blob/v2.1.6/programs/system/src/system_instruction.rs#L47 */
-  fd_block_hash_queue_global_t const * block_hash_queue = fd_bank_block_hash_queue_query( ctx->txn_ctx->bank );
-  fd_hash_t const *                    last_hash        = fd_block_hash_queue_last_hash_join( block_hash_queue );
+  fd_blockhashes_t const * blockhashes = fd_bank_block_hash_queue_query( ctx->txn_ctx->bank );
+  fd_hash_t const *        last_hash   = fd_blockhashes_peek_last( blockhashes );
   if( FD_UNLIKELY( last_hash==NULL ) ) {
     // Agave panics if this blockhash was never set at the start of the txn batch
     ctx->txn_ctx->custom_err = FD_SYSTEM_PROGRAM_ERR_NONCE_NO_RECENT_BLOCKHASHES;
@@ -877,8 +877,12 @@ fd_system_program_exec_upgrade_nonce_account( fd_exec_instr_ctx_t * ctx ) {
    Note: We check 151 and not 150 due to a known bug in agave. */
 int
 fd_check_transaction_age( fd_exec_txn_ctx_t * txn_ctx ) {
-  fd_block_hash_queue_global_t const * block_hash_queue = fd_bank_block_hash_queue_query( txn_ctx->bank );
-  fd_hash_t *                          last_blockhash   = fd_block_hash_queue_last_hash_join( block_hash_queue );
+  fd_blockhashes_t const * block_hash_queue = fd_bank_block_hash_queue_query( txn_ctx->bank );
+  fd_hash_t const *        last_blockhash   = fd_blockhashes_peek_last( block_hash_queue );
+  if( FD_UNLIKELY( !last_blockhash ) ) {
+    /* FIXME What does Agave do here? */
+    return FD_RUNTIME_TXN_ERR_BLOCKHASH_NOT_FOUND;
+  }
 
   /* check_transaction_age */
   fd_hash_t   next_durable_nonce   = {0};
@@ -890,7 +894,7 @@ fd_check_transaction_age( fd_exec_txn_ctx_t * txn_ctx ) {
   /* get_hash_info_if_valid. Check 151 hashes from the block hash queue and its
      age to see if it is valid. */
 
-  if( fd_executor_is_blockhash_valid_for_age( block_hash_queue, recent_blockhash, FD_RECENT_BLOCKHASHES_MAX_ENTRIES ) ) {
+  if( fd_blockhashes_check_age( block_hash_queue, recent_blockhash, FD_SYSVAR_RECENT_HASHES_CAP ) ) {
     return FD_RUNTIME_EXECUTE_SUCCESS;
   }
 

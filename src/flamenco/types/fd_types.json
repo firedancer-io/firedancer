@@ -85,18 +85,6 @@
       ]
     },
     {
-      "name": "block_hash_queue",
-      "type": "struct",
-      "global": true,
-      "alignment": "128",
-      "fields": [
-        { "name": "last_hash_index", "type": "ulong" },
-        { "name": "last_hash", "type": "option", "element": "hash" },
-        { "name": "ages", "type": "map", "element": "hash_hash_age_pair", "key": "key", "minalloc": 400 },
-        { "name": "max_age", "type": "ulong" }
-      ]
-    },
-    {
       "name": "fee_rate_governor",
       "type": "struct",
       "fields": [
