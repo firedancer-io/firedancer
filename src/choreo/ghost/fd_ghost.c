@@ -271,9 +271,9 @@ fd_ghost_insert( fd_ghost_t * ghost, fd_hash_t * parent_bid, ulong slot, fd_hash
 
 # if FD_GHOST_USE_HANDHOLDING
   if( FD_UNLIKELY( fd_ghost_query( ghost, bid ) ) ) { FD_LOG_WARNING(( "[%s] block_id %s already in ghost.", __func__, FD_BASE58_ENC_32_ALLOCA(bid)  )); return NULL; }
-  if( FD_UNLIKELY( !parent                           ) ) { FD_LOG_WARNING(( "[%s] missing `parent_id` %s.",       __func__, FD_BASE58_ENC_32_ALLOCA(parent_bid) )); return NULL; }
-  if( FD_UNLIKELY( !fd_ghost_pool_free( pool )       ) ) { FD_LOG_WARNING(( "[%s] ghost full.",                   __func__                                     )); return NULL; }
-  if( FD_UNLIKELY( slot <= root->slot                ) ) { FD_LOG_WARNING(( "[%s] slot %lu <= root %lu",          __func__, slot, root->slot                   )); return NULL; }
+  if( FD_UNLIKELY( !parent                      ) ) { FD_LOG_WARNING(( "[%s] missing `parent_id` %s.",       __func__, FD_BASE58_ENC_32_ALLOCA(parent_bid) )); return NULL; }
+  if( FD_UNLIKELY( !fd_ghost_pool_free( pool )  ) ) { FD_LOG_WARNING(( "[%s] ghost full.",                   __func__                                     )); return NULL; }
+  if( FD_UNLIKELY( slot <= root->slot           ) ) { FD_LOG_WARNING(( "[%s] slot %lu <= root %lu",          __func__, slot, root->slot                   )); return NULL; }
 # endif
 
   FD_LOG_DEBUG(( "[%s] slot: %lu. parent: %lu.", __func__, slot, parent->slot ));
@@ -340,18 +340,6 @@ fd_ghost_head( fd_ghost_t const * ghost, fd_ghost_ele_t const * root ) {
   }
   return head;
 }
-
-fd_ghost_ele_t const *
-fd_ghost_slot_query( fd_ghost_t const * ghost, ulong slot ) {
-  fd_ghost_ele_t const * root = fd_ghost_root_const( ghost );
-  fd_ghost_ele_t const * curr = root;
-  while( FD_LIKELY( curr ) ) {
-    if( FD_LIKELY( curr->slot == slot ) ) return curr;
-    curr = fd_ghost_pool_ele_const( fd_ghost_pool_const( ghost ), curr->parent );
-  }
-  return NULL;
-}
-
 
 void
 fd_ghost_replay_vote( fd_ghost_t * ghost, fd_voter_t * voter, fd_hash_t const * vote_bid ) {
