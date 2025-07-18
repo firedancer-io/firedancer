@@ -1269,6 +1269,7 @@ fd_runtime_update_lthash_with_account( fd_funk_t *        funk,
     meta,
     account->vt->get_data( account ),
     new_hash );
+  FD_LOG_WARNING(( "adding account %s with hash %s", FD_BASE58_ENC_32_ALLOCA( account->pubkey ), FD_LTHASH_ENC_32_ALLOCA( new_hash ) ));
   FD_LOG_WARNING(( "Adding new hash of account %s (new_hash: %s) to bank lthash: %s", FD_BASE58_ENC_32_ALLOCA( account->pubkey ), FD_LTHASH_ENC_32_ALLOCA( new_hash ), FD_LTHASH_ENC_32_ALLOCA( bank_lthash ) ));
 
   /* Add the new hash of the account to the bank lthash */
