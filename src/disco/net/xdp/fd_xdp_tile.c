@@ -528,13 +528,17 @@ during_housekeeping( fd_net_ctx_t * ctx ) {
 }
 
 
-/* net_tx_route resolves the destination interface index, src MAC address,
-   and dst MAC address.  Returns 1 on success, 0 on failure.  On success,
-   tx_op->{if_idx,mac_addrs} is set. */
+/* net_tx_route resolves the xsk index, src ip address, src MAC address, and
+   dst MAC address.  Returns 1 on success, 0 on failure.
+   On success, tx_op->{xsk_idx,src_ip,mac_addrs} is set, and if the dst_ip
+   belongs to a GRE interface, is_gre_inf will set to 1 and
+   tx_op->{gre_outer_src_ip, gre_outer_dst_ip} will be loaded from the netdev
+   table. is_gre_inf is set to 0 if dst_ip doesn't belong to a GRE interface. */
 
 static int
 net_tx_route( fd_net_ctx_t * ctx,
-              uint           dst_ip ) {
+              uint           dst_ip,
+              uint         * is_gre_inf ) {
 
   /* Route lookup */
 
@@ -567,6 +571,8 @@ net_tx_route( fd_net_ctx_t * ctx,
   ctx->tx_op.src_ip  = ip4_src;
   ctx->tx_op.xsk_idx = UINT_MAX;
 
+  FD_TEST( is_gre_inf );
+  *is_gre_inf = 0;
   if( netdev->dev_type==ARPHRD_LOOPBACK ) {
     /* Set Ethernet src and dst address to 00:00:00:00:00:00 */
     memset( ctx->tx_op.mac_addrs, 0, 12UL );
@@ -578,7 +584,7 @@ net_tx_route( fd_net_ctx_t * ctx,
     /* skip MAC addrs lookup for GRE inner dst ip */
     if( netdev->gre_src_ip ) ctx->tx_op.gre_outer_src_ip = netdev->gre_src_ip;
     ctx->tx_op.gre_outer_dst_ip = netdev->gre_dst_ip;
-    ctx->tx_op.use_gre = 1;
+    *is_gre_inf = 1;
     return 1;
   }
 
@@ -640,30 +646,34 @@ before_frag( fd_net_ctx_t * ctx,
   uint net_tile_cnt = ctx->net_tile_cnt;
   uint hash         = (uint)fd_disco_netmux_sig_hash( sig );
   uint target_idx   = hash % net_tile_cnt;
+  uint net_tile_id  = ctx->net_tile_id;
+  uint dst_ip       = fd_disco_netmux_sig_dst_ip( sig );
 
-  uint dst_ip = fd_disco_netmux_sig_dst_ip( sig );
-  if( FD_UNLIKELY( !net_tx_route( ctx, dst_ip ) ) ) {
+  ctx->tx_op.use_gre          = 0;
+  ctx->tx_op.gre_outer_dst_ip = 0;
+  ctx->tx_op.gre_outer_src_ip = 0;
+  uint is_gre_inf             = 0;
+
+  if( FD_UNLIKELY( !net_tx_route( ctx, dst_ip, &is_gre_inf ) ) ) {
     return 1; /* metrics incremented by net_tx_route */
   }
 
-  uint net_tile_id = ctx->net_tile_id;
   uint xsk_idx     = ctx->tx_op.xsk_idx;
 
-  if( ctx->tx_op.use_gre ) {
+  if( is_gre_inf ) {
     uint inner_src_ip = ctx->tx_op.src_ip;
     if( FD_UNLIKELY( !inner_src_ip ) ) {
       ctx->metrics.tx_gre_route_fail_cnt++;
       return 1;
     }
-
     /* Find the MAC addrs for the eth hdr, and src ip for outer ip4 hdr if not found in netdev tbl */
     ctx->tx_op.src_ip  = 0;
-    ctx->tx_op.use_gre = 0;
-    if( FD_UNLIKELY( !net_tx_route( ctx, ctx->tx_op.gre_outer_dst_ip ) ) ) {
+    is_gre_inf         = 0;
+    if( FD_UNLIKELY( !net_tx_route( ctx, ctx->tx_op.gre_outer_dst_ip, &is_gre_inf ) ) ) {
       ctx->metrics.tx_gre_route_fail_cnt++;
       return 1;
     }
-    if( ctx->tx_op.use_gre==1 ) {
+    if( is_gre_inf ) {
       /* Only one layer of tunnelling supported */
       ctx->metrics.tx_gre_route_fail_cnt++;
       return 1;
@@ -673,7 +683,6 @@ before_frag( fd_net_ctx_t * ctx,
     }
     ctx->tx_op.use_gre = 1; /* indicate to during_frag to use GRE header */
     ctx->tx_op.src_ip  = inner_src_ip;
-
     xsk_idx = XSK_IDX_MAIN;
   }
 
@@ -896,7 +905,7 @@ net_rx_packet( fd_net_ctx_t * ctx,
       return;
     }
 
-    ulong overhead  = FD_IP4_GET_LEN( *iphdr ) + sizeof(fd_gre_hdr_t);
+    ulong overhead = FD_IP4_GET_LEN( *iphdr ) + sizeof(fd_gre_hdr_t);
 
     if( FD_UNLIKELY( (uchar *)iphdr+overhead+sizeof(fd_ip4_hdr_t)>packet_end ) ) {
       FD_DTRACE_PROBE( net_tile_err_rx_undersz );
@@ -1081,8 +1090,8 @@ net_rx_event( fd_net_ctx_t * ctx,
   if( FD_LIKELY( freed_chunk!=UINT_MAX ) ) {
     if( FD_UNLIKELY( ( freed_chunk < ctx->umem_chunk0 ) |
                      ( freed_chunk > ctx->umem_wmark ) ) ) {
-      FD_LOG_ERR(( "mcache corruption detected: chunk=%u chunk0=%u wmark=%u",
-                   freed_chunk, ctx->umem_chunk0, ctx->umem_wmark ));
+      FD_LOG_CRIT(( "mcache corruption detected: chunk=%u chunk0=%u wmark=%u",
+                    freed_chunk, ctx->umem_chunk0, ctx->umem_wmark ));
     }
     ulong freed_off = (freed_chunk - ctx->umem_chunk0)<<FD_CHUNK_LG_SZ;
     fill_ring->frame_ring[ fill_prod&fill_mask ] = freed_off & (~frame_mask);
