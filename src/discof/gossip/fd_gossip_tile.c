@@ -14,8 +14,6 @@
 #include "../../util/net/fd_udp.h"
 #include "../../util/net/fd_net_headers.h"
 
-#include "../store/util.h"
-
 #include <unistd.h>
 #include <arpa/inet.h>
 #include <linux/unistd.h>
@@ -38,6 +36,13 @@ static ulong
 fd_pubkey_hash( fd_pubkey_t const * key, ulong seed ) {
   return fd_hash( seed, key->key, sizeof(fd_pubkey_t) );
 }
+
+struct fd_contact_info_elem {
+  fd_pubkey_t key;
+  ulong next;
+  fd_contact_info_t contact_info;
+};
+typedef struct fd_contact_info_elem fd_contact_info_elem_t;
 
 /* Contact info table */
 #define MAP_NAME     fd_contact_info_table

@@ -179,13 +179,11 @@ echo "
 [runtime]
     heap_size_gib = 50
     [runtime.limits]
-        max_banks = 64
+        max_banks = 128
 [development]
     sandbox = false
     no_agave = true
     no_clone = true
-[store]
-    max_completed_shred_sets = 32000
 [log]
     level_stderr = \"INFO\"
     path = \"$LOG\"

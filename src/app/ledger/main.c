@@ -1,14 +1,11 @@
 #include "../../flamenco/types/fd_types.h"
 #include "../../flamenco/runtime/fd_rocksdb.h"
 #include "../../flamenco/runtime/context/fd_capture_ctx.h"
-#include "../../flamenco/runtime/fd_blockstore.h"
 #include <unistd.h>
 #include <sys/stat.h>
 
 struct fd_ledger_args {
   fd_wksp_t *           wksp;                    /* wksp for blockstore */
-  fd_blockstore_t       blockstore_ljoin;
-  fd_blockstore_t *     blockstore;              /* blockstore for replay */
   char const *          cmd;                     /* user passed command to fd_ledger */
   ulong                 start_slot;              /* start slot for offline replay */
   ulong                 end_slot;                /* end slot for offline replay */
@@ -50,8 +47,7 @@ void
 ingest_rocksdb( char const *      file,
                 ulong             start_slot,
                 ulong             end_slot,
-                fd_blockstore_t * blockstore,
-                ulong             trash_hash,
+                FD_PARAM_UNUSED ulong             trash_hash,
                 fd_valloc_t       valloc ) {
 
   fd_rocksdb_t rocks_db;
@@ -104,11 +100,6 @@ ingest_rocksdb( char const *      file,
       FD_LOG_WARNING(( "imported %lu blocks", blk_cnt ));
     }
 
-    int err = fd_rocksdb_import_block_blockstore( &rocks_db,
-                                                  &slot_meta,
-                                                  blockstore,
-                                                  (slot == trash_hash) ? trash_hash_buf : NULL,
-                                                  valloc );
     if( FD_UNLIKELY( err ) ) {
       FD_LOG_ERR(( "fd_rocksdb_get_block failed" ));
     }
@@ -134,31 +125,31 @@ ingest_rocksdb( char const *      file,
   FD_LOG_NOTICE(( "ingested %lu blocks", blk_cnt ));
 }
 
-void
-init_blockstore( fd_ledger_args_t * args ) {
-  fd_wksp_tag_query_info_t info;
-  ulong blockstore_tag = FD_BLOCKSTORE_MAGIC;
-  void * shmem;
-  if( fd_wksp_tag_query( args->wksp, &blockstore_tag, 1, &info, 1 ) > 0 ) {
-    shmem = fd_wksp_laddr_fast( args->wksp, info.gaddr_lo );
-    args->blockstore = fd_blockstore_join( &args->blockstore_ljoin, shmem );
-    if( args->blockstore->shmem->magic != FD_BLOCKSTORE_MAGIC ) {
-      FD_LOG_ERR(( "failed to join a blockstore" ));
-    }
-    FD_LOG_NOTICE(( "joined blockstore" ));
-  } else {
-    shmem = fd_wksp_alloc_laddr( args->wksp, fd_blockstore_align(), fd_blockstore_footprint( args->shred_max, args->slot_history_max, 16 ), blockstore_tag );
-    if( shmem == NULL ) {
-      FD_LOG_ERR(( "failed to allocate a blockstore" ));
-    }
-    args->blockstore = fd_blockstore_join( &args->blockstore_ljoin, fd_blockstore_new( shmem, 1, args->hashseed, args->shred_max, args->slot_history_max, 16 ) );
-    if( args->blockstore->shmem->magic != FD_BLOCKSTORE_MAGIC ) {
-      fd_wksp_free_laddr( shmem );
-      FD_LOG_ERR(( "failed to allocate a blockstore" ));
-    }
-    FD_LOG_NOTICE(( "allocating a new blockstore" ));
-  }
-}
+// void
+// init_blockstore( fd_ledger_args_t * args ) {
+//   fd_wksp_tag_query_info_t info;
+//   ulong blockstore_tag = FD_BLOCKSTORE_MAGIC;
+//   void * shmem;
+//   if( fd_wksp_tag_query( args->wksp, &blockstore_tag, 1, &info, 1 ) > 0 ) {
+//     shmem = fd_wksp_laddr_fast( args->wksp, info.gaddr_lo );
+//     args->blockstore = fd_blockstore_join( &args->blockstore_ljoin, shmem );
+//     if( args->blockstore->shmem->magic != FD_BLOCKSTORE_MAGIC ) {
+//       FD_LOG_ERR(( "failed to join a blockstore" ));
+//     }
+//     FD_LOG_NOTICE(( "joined blockstore" ));
+//   } else {
+//     shmem = fd_wksp_alloc_laddr( args->wksp, fd_blockstore_align(), fd_blockstore_footprint( args->shred_max, args->slot_history_max, 16 ), blockstore_tag );
+//     if( shmem == NULL ) {
+//       FD_LOG_ERR(( "failed to allocate a blockstore" ));
+//     }
+//     args->blockstore = fd_blockstore_join( &args->blockstore_ljoin, fd_blockstore_new( shmem, 1, args->hashseed, args->shred_max, args->slot_history_max, 16 ) );
+//     if( args->blockstore->shmem->magic != FD_BLOCKSTORE_MAGIC ) {
+//       fd_wksp_free_laddr( shmem );
+//       FD_LOG_ERR(( "failed to allocate a blockstore" ));
+//     }
+//     FD_LOG_NOTICE(( "allocating a new blockstore" ));
+//   }
+// }
 
 void
 wksp_restore( fd_ledger_args_t * args ) {
@@ -219,14 +210,13 @@ minify( fd_ledger_args_t * args ) {
       blockstore will be populated. This will be used to look up transactions
       which can be quickly queried */
   if( args->copy_txn_status ) {
-    init_blockstore( args );
-    /* Ingest block range into blockstore */
-    ingest_rocksdb( args->rocksdb_path,
-                    args->start_slot,
-                    args->end_slot,
-                    args->blockstore,
-                    ULONG_MAX,
-                    args->valloc );
+    // /* Ingest block range into blockstore */
+    // ingest_rocksdb( args->rocksdb_path,
+    //                 args->start_slot,
+    //                 args->end_slot,
+    //                 args->blockstore,
+    //                 ULONG_MAX,
+    //                 args->valloc );
 
   } else {
     FD_LOG_NOTICE(( "skipping copying of transaction statuses" ));

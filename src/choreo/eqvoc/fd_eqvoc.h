@@ -4,7 +4,6 @@
 #include "../../ballet/shred/fd_shred.h"
 #include "../../flamenco/leaders/fd_leaders.h"
 #include "../fd_choreo_base.h"
-#include "../../flamenco/runtime/fd_blockstore.h"
 
 /* fd_eqvoc presents an API for detecting and sending / receiving proofs
    of equivocation.
@@ -447,7 +446,7 @@ fd_eqvoc_proof_shred2_const( fd_eqvoc_proof_t const * proof ) {
    hash chains from the last FEC set in parent slot's merkle hash. */
 
 int
-fd_eqvoc_slot_verify( fd_eqvoc_t const * eqvoc, fd_blockstore_t * blockstore, ulong slot );
+fd_eqvoc_slot_verify( fd_eqvoc_t const * eqvoc, ulong slot );
 
 /* fd_eqvoc_from_chunks reconstructs shred1_out and shred2_out from
    `chunks` which is an array of "duplicate shred" gossip msgs. Shred1
