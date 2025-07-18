@@ -224,4 +224,29 @@ typedef struct fd_stake_weight_t_mapnode fd_stake_weight_t_mapnode_t;
 #define REDBLK_IMPL_STYLE 1
 #include "../../util/tmpl/fd_redblack.c"
 
+/* TODO: This type only exists so that we don't conflict with other parts
+   of the codebase that uses `fd_stake_weight_t`. This may be removable
+   in the future. */
+struct fd_voter_node_stake_weight {
+  fd_pubkey_t key;
+  fd_pubkey_t node_id;
+  fd_pubkey_t voter_pubkey;
+  ulong stake;
+};
+typedef struct fd_voter_node_stake_weight fd_voter_node_stake_weight_t;
+
+struct fd_voter_node_stake_weight_t_mapnode {
+  fd_voter_node_stake_weight_t elem;
+  ulong redblack_parent;
+  ulong redblack_left;
+  ulong redblack_right;
+  int redblack_color;
+};
+typedef struct fd_voter_node_stake_weight_t_mapnode fd_voter_node_stake_weight_t_mapnode_t;
+#define REDBLK_T fd_voter_node_stake_weight_t_mapnode_t
+#define REDBLK_NAME fd_voter_node_stake_weight_t_map
+#define REDBLK_IMPL_STYLE 1
+#include "../../util/tmpl/fd_redblack.c"
+
+
 #endif /* HEADER_fd_src_flamenco_runtime_fd_types_custom */

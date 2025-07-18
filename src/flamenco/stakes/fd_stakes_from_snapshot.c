@@ -85,8 +85,8 @@ _get_stake_weights( fd_solana_manifest_t const * manifest,
   /* FIXME: This will crash because the spad is not set up and no accs
      are passed in. */
 
-  ulong weight_cnt = fd_stake_weights_by_node( NULL, weights, NULL );
-  if( FD_UNLIKELY( weight_cnt==ULONG_MAX ) ) FD_LOG_ERR(( "fd_stake_weights_by_node() failed" ));
+  ulong weight_cnt = fd_get_stake_weights( NULL, weights, NULL, 1 );
+  if( FD_UNLIKELY( weight_cnt==ULONG_MAX ) ) FD_LOG_ERR(( "fd_get_stake_weights() failed" ));
 
   *out_cnt = weight_cnt;
   return weights;

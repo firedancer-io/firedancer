@@ -6,7 +6,7 @@
 
 FD_PROTOTYPES_BEGIN
 
-/* fd_stake_weights_by_node converts Stakes (unordered list of (vote
+/* fd_get_stake_weights converts Stakes (unordered list of (vote
    acc, active stake) tuples) to an ordered list of (stake, node
    identity) sorted by (stake descending, node identity descending).
 
@@ -46,9 +46,10 @@ struct fd_accumulate_delegations_task_args {
 typedef struct fd_accumulate_delegations_task_args fd_accumulate_delegations_task_args_t;
 
 ulong
-fd_stake_weights_by_node( fd_vote_accounts_global_t const * accs,
-                          fd_stake_weight_t *               weights,
-                          fd_spad_t *                       runtime_spad );
+fd_get_stake_weights( fd_vote_accounts_global_t const * accs,
+                      fd_stake_weight_t *               weights,
+                      fd_spad_t *                       runtime_spad,
+                      uchar                             by_node );
 
 
 void
