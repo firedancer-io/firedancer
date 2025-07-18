@@ -22,6 +22,13 @@
 #define FD_SHMEM_UNLOCK ((void)0)
 #endif
 
+#define FD_SHMEM_PRIVATE_MAP_LG_SLOT_CNT (8)
+#define FD_SHMEM_PRIVATE_MAP_SLOT_CNT    (1UL<<FD_SHMEM_PRIVATE_MAP_LG_SLOT_CNT)
+FD_STATIC_ASSERT( FD_SHMEM_JOIN_MAX < FD_SHMEM_PRIVATE_MAP_SLOT_CNT, increase_lg_slot_count );
+
+extern fd_shmem_join_info_t fd_shmem_private_map[ FD_SHMEM_PRIVATE_MAP_SLOT_CNT ]; /* Empty on thread group start */
+extern ulong                fd_shmem_private_map_cnt;                              /* 0 on thread group start */
+
 FD_PROTOTYPES_BEGIN
 
 /* NUMA backend ******************************************************/

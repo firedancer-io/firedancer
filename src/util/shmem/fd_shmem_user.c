@@ -31,10 +31,6 @@ fd_shmem_private_key( fd_shmem_private_key_t * key,
 
 static fd_shmem_private_key_t const fd_shmem_private_key_null; /* Will be zeros at thread group start */
 
-#define FD_SHMEM_PRIVATE_MAP_LG_SLOT_CNT (8)
-#define FD_SHMEM_PRIVATE_MAP_SLOT_CNT    (1UL<<FD_SHMEM_PRIVATE_MAP_LG_SLOT_CNT)
-FD_STATIC_ASSERT( FD_SHMEM_JOIN_MAX < FD_SHMEM_PRIVATE_MAP_SLOT_CNT, increase_lg_slot_count );
-
 #define MAP_NAME              fd_shmem_private_map
 #define MAP_T                 fd_shmem_join_info_t
 #define MAP_LG_SLOT_CNT       FD_SHMEM_PRIVATE_MAP_LG_SLOT_CNT
@@ -122,8 +118,8 @@ fd_shmem_private_map_rand( ulong size,
   FD_LOG_ERR(( "unable to find random address for memory map after 1000 attempts" ));
 }
 
-static fd_shmem_join_info_t fd_shmem_private_map[ FD_SHMEM_PRIVATE_MAP_SLOT_CNT ]; /* Empty on thread group start */
-static ulong                fd_shmem_private_map_cnt;                              /* 0 on thread group start */
+fd_shmem_join_info_t fd_shmem_private_map[ FD_SHMEM_PRIVATE_MAP_SLOT_CNT ]; /* Empty on thread group start */
+ulong                fd_shmem_private_map_cnt;                              /* 0 on thread group start */
 
 void *
 fd_shmem_join( char const *               name,
