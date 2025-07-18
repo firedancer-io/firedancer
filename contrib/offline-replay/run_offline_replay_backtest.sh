@@ -171,7 +171,6 @@ while true; do
 
             export ledger=$LEDGER_DIR
             echo "ledger: $ledger"
-            export snapshot=$(ls $LEDGER_REPLAY_SNAPSHOT)
             export end_slot=$ROCKSDB_ROOTED_MAX
             export funk_pages=$BACKTEST_FUNK_PAGES
             export index_max=$INDEX_MAX
@@ -182,7 +181,6 @@ while true; do
             export log=$TEMP_LOG
 
             sed -i "s#{ledger}#${ledger}#g" "$LEDGER_DIR/offline_replay.toml"
-            sed -i "s#{snapshot}#${snapshot}#g" "$LEDGER_DIR/offline_replay.toml"
             sed -i "s#{end_slot}#${end_slot}#g" "$LEDGER_DIR/offline_replay.toml"
             sed -i "s#{funk_pages}#${funk_pages}#g" "$LEDGER_DIR/offline_replay.toml"
             sed -i "s#{index_max}#${index_max}#g" "$LEDGER_DIR/offline_replay.toml"
@@ -369,9 +367,8 @@ while true; do
                 send_mismatch_slack_message "Mismatch ledger uploaded to gs://firedancer-ci-resources/$(basename $MISMATCH_TAR)"
 
                 ledger_name=$(basename $MISMATCH_DIR)
-                snapshot_name=$(basename $MISMATCH_SNAPSHOT_FILE)
                 end_slot=$((NEXT_ROOTED_SLOT+5))
-                send_slack_message "Command to reproduce mismatch: \`\`\`src/flamenco/runtime/tests/run_ledger_backtest.sh -l $ledger_name -s $snapshot_name -y 10 -m 2000000 -e $end_slot -c $FD_CLUSTER_VERSION\`\`\`"
+                send_slack_message "Command to reproduce mismatch: \`\`\`src/flamenco/runtime/tests/run_ledger_backtest.sh -l $ledger_name -y 10 -m 2000000 -e $end_slot -c $FD_CLUSTER_VERSION\`\`\`"
 
             fi
         done

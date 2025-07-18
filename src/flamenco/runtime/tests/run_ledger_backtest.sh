@@ -12,7 +12,6 @@ POSITION_ARGS=()
 OBJDIR=${OBJDIR:-build/native/gcc}
 
 LEDGER=""
-SNAPSHOT=""
 RESTORE_ARCHIVE=""
 END_SLOT="1010"
 FUNK_PAGES="16"
@@ -36,11 +35,6 @@ while [[ $# -gt 0 ]]; do
        ;;
     -l|--ledger)
        LEDGER="$2"
-       shift
-       shift
-       ;;
-    -s|--snapshot)
-       SNAPSHOT="$LEDGER/$2"
        shift
        shift
        ;;
@@ -132,18 +126,6 @@ if [[ ! -e $DUMP/$LEDGER && SKIP_INGEST -eq 0 ]]; then
   else
     gcloud storage cat gs://firedancer-ci-resources/$LEDGER.tar.gz | tee $DUMP/$LEDGER.tar.gz | tar zxf - -C $DUMP
   fi
-fi
-
-if [[ "" != "$SNAPSHOT" ]]; then
-  SNAPSHOT="$DUMP/$SNAPSHOT"
-fi
-
-if [[ "" != "$RESTORE_ARCHIVE" ]]; then
-  RESTORE_ARCHIVE="--restore-archive $DUMP/$RESTORE_ARCHIVE"
-fi
-
-if [[ "" == "$SNAPSHOT" && "" == "$RESTORE_ARCHIVE" ]]; then
-  SNAPSHOT="--genesis $DUMP/$LEDGER/genesis.bin"
 fi
 
 chmod -R 0700 $DUMP/$LEDGER
