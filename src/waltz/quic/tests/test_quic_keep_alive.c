@@ -35,8 +35,8 @@ test_quic_keep_alive( fd_quic_t * client_quic, fd_quic_t * server_quic, int keep
 
   FD_TEST( fd_quic_init( server_quic ) );
   FD_TEST( fd_quic_init( client_quic ) );
-  fd_quic_svc_validate( server_quic );
-  fd_quic_svc_validate( client_quic );
+  fd_quic_state_validate( server_quic );
+  fd_quic_state_validate( client_quic );
 
   fd_quic_conn_t * client_conn = fd_quic_connect( client_quic, 0U, 0, 0U, 0 );
   FD_TEST( client_conn );
@@ -53,12 +53,10 @@ test_quic_keep_alive( fd_quic_t * client_quic, fd_quic_t * server_quic, int keep
     }
   }
 
-  /* FIXME: when svc_queue fixed, make sure these are different
-     and use idle_timeout = their min */
-  FD_TEST( client_quic->config.idle_timeout == server_quic->config.idle_timeout );
-  ulong const idle_timeout = client_quic->config.idle_timeout;
+  ulong const idle_timeout = client_conn->idle_timeout_ticks;
   ulong const timestep     = idle_timeout>>3;
 
+  FD_TEST( idle_timeout == fd_ulong_min( client_quic->config.idle_timeout, server_quic->config.idle_timeout ));
 
   for( int let_die=0; let_die<2; ++let_die ) {
     for( int i=0; i<10; ++i ) {
@@ -128,6 +126,12 @@ main( int argc, char ** argv ) {
   server_quic->config.initial_rx_max_stream_data = 1<<16;
   client_quic->config.initial_rx_max_stream_data = 1<<16;
 
+  server_quic->config.idle_timeout = 1e7;
+  client_quic->config.idle_timeout = 1e9;
+
+  server_quic->config.ack_delay = 1e6;
+  client_quic->config.ack_delay = 1e6;
+
   fd_quic_virtual_pair_t vp;
   fd_quic_virtual_pair_init( &vp, server_quic, client_quic );
 
@@ -145,5 +149,3 @@ main( int argc, char ** argv ) {
   fd_halt();
   return 0;
 }
-
-
