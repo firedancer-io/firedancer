@@ -107,8 +107,8 @@
 struct __attribute__((aligned(128UL))) fd_ghost_ele {
   fd_hash_t         key;          /* block_id (merkle root of the last FEC set in the slot) */
   ulong             slot;         /* slot this ele is tracking */
-  ulong             next;         /* reserved for internal use by fd_pool, slot fd_map_chain and fd_ghost_publish */
-  ulong             nexts;        /* reserved for internal use by slot fd_map_chain */
+  ulong             next;         /* reserved for internal use by fd_pool, map_hash fd_map_chain and fd_ghost_publish */
+  ulong             nexts;        /* reserved for internal use by map_slot fd_map_chain */
   ulong             parent;       /* pool idx of the parent */
   ulong             child;        /* pool idx of the left-child */
   ulong             sibling;      /* pool idx of the right-sibling */
@@ -248,7 +248,7 @@ fd_ghost_delete( void * ghost );
 /* fd_ghost_init initializes a ghost.  Assumes ghost is a valid local
    join and no one else is joined.  root is the initial root ghost will
    use.  This is the snapshot slot if booting from a snapshot, 0 if the
-   genesis slot.
+   genesis slot. Block_id is the block_id of the initial root.
 
    In general, this should be called by the same process that formatted
    ghost's memory, ie. the caller of fd_ghost_new. */
@@ -296,7 +296,8 @@ FD_FN_PURE static inline fd_ghost_ele_t const      * fd_ghost_root_const    ( fd
  FD_FN_PURE static inline fd_ghost_ele_t       * fd_ghost_sibling      ( fd_ghost_t       * ghost, fd_ghost_ele_t       * ele ) { return fd_ghost_pool_ele      ( fd_ghost_pool      ( ghost ), ele->sibling ); }
  FD_FN_PURE static inline fd_ghost_ele_t const * fd_ghost_sibling_const( fd_ghost_t const * ghost, fd_ghost_ele_t const * ele ) { return fd_ghost_pool_ele_const( fd_ghost_pool_const( ghost ), ele->sibling ); }
 
-/* fd_ghost_query returns the ele keyed by `slot`, NULL if not found. */
+/* fd_ghost_{query,query_const} returns the ele keyed by `block_id`,
+   NULL if not found. */
 
 FD_FN_PURE static inline fd_ghost_ele_t *
 fd_ghost_query( fd_ghost_t * ghost, fd_hash_t const * block_id ) {
@@ -311,6 +312,9 @@ fd_ghost_query_const( fd_ghost_t const * ghost, fd_hash_t const * block_id ) {
   fd_ghost_ele_t      const * pool = fd_ghost_pool_const( ghost );
   return fd_ghost_map_hash_ele_query_const( map, block_id, NULL, pool );
 }
+
+/* fd_ghost_block_id returns the block_id of the ele keyed by `slot`.
+   NULL if the slot is not found. */
 
 FD_FN_PURE static inline fd_hash_t const *
 fd_ghost_block_id( fd_ghost_t const * ghost, ulong slot ) {
@@ -329,13 +333,13 @@ fd_ghost_block_id( fd_ghost_t const * ghost, ulong slot ) {
 fd_ghost_ele_t const *
 fd_ghost_head( fd_ghost_t const * ghost, fd_ghost_ele_t const * root );
 
-/* fd_ghost_gca returns the greatest common ancestor of slot1, slot2 in
-   ghost.  Assumes slot1 or slot2 are present in ghost (warns and
+/* fd_ghost_gca returns the greatest common ancestor of block1, block2
+   in ghost.  Assumes block1 or block2 are present in ghost (warns and
    returns NULL with handholding enabled).  This is guaranteed to be
-   non-NULL if slot1 and slot2 are both present. */
+   non-NULL if block1 and block2 are both present. */
 
 fd_ghost_ele_t const *
-fd_ghost_gca( fd_ghost_t const * ghost, fd_hash_t const * slot1, fd_hash_t const * slot2 );
+fd_ghost_gca( fd_ghost_t const * ghost, fd_hash_t const * bid1, fd_hash_t const * bid2 );
 
 /* fd_ghost_is_ancestor returns 1 if `ancestor` is `slot`'s ancestor, 0
    otherwise.  Also returns 0 if either `ancestor` or `slot` are not in
@@ -346,23 +350,24 @@ fd_ghost_is_ancestor( fd_ghost_t const * ghost, fd_hash_t const * ancestor, fd_h
 
 /* Operations */
 
-/* fd_ghost_insert inserts a new ele keyed by `slot` into the ghost.
-   Assumes slot >= ghost->smr, slot is not already in ghost, parent_slot
-   is already in ghost, and the ele pool has a free element (if
-   handholding is enabled, explicitly checks and errors).  Returns the
-   inserted ghost ele. */
+/* fd_ghost_insert inserts a new ele keyed by `block_id`, for the slot
+   `slot` into the ghost. Inserts an ele keyed by `slot` into the slot
+   map if one doesn't already exist as well. Assumes slot >= ghost->smr,
+   parent_block_id is already in ghost, and the ele pool has a free
+   element (if handholding is enabled, explicitly checks and errors).
+   Returns the inserted ghost ele. */
 
 fd_ghost_ele_t *
-fd_ghost_insert( fd_ghost_t * ghost, fd_hash_t * parent_slot, ulong slot, fd_hash_t * block_id );
+fd_ghost_insert( fd_ghost_t * ghost, fd_hash_t * parent_bid, ulong slot, fd_hash_t * block_id );
 
-/* fd_ghost_replay_vote votes for slot, adding pubkey's stake to the
+/* fd_ghost_replay_vote votes for block_id, adding pubkey's stake to the
    `stake` field for slot and to the `weight` field for both slot and
    slot's ancestors.  If pubkey has previously voted, pubkey's stake is
    also subtracted from `weight` for its previous vote slot and its
    ancestors.
 
    Assumes slot is present in ghost (if handholding is enabled,
-   explicitly checks and errors).  Returns the ghost ele keyed by slot.
+   explicitly checks and errors).
 
    TODO the implementation can be made more efficient by
    short-circuiting and doing fewer traversals.  Currently this is
