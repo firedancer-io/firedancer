@@ -3041,7 +3041,7 @@ struct fd_gossip_socket_entry {
 typedef struct fd_gossip_socket_entry fd_gossip_socket_entry_t;
 #define FD_GOSSIP_SOCKET_ENTRY_ALIGN alignof(fd_gossip_socket_entry_t)
 
-/* https://github.com/firedancer-io/agave/blob/540d5bc56cd44e3cc61b179bd52e9a782a2c99e4/gossip/src/contact_info.rs#L84 */
+/* https://github.com/firedancer-io/agave/blob/540d5bc56cd44e3cc61b179bd52e9a782a2c99e4/gossip/src/contact_info.rs#L85 */
 /* Encoded Size: Dynamic */
 struct fd_gossip_contact_info_v2 {
   fd_pubkey_t from;
@@ -3139,7 +3139,6 @@ union fd_crds_data_inner {
 };
 typedef union fd_crds_data_inner fd_crds_data_inner_t;
 
-/* https://github.com/firedancer-io/agave/blob/540d5bc56cd44e3cc61b179bd52e9a782a2c99e4/gossip/src/crds_data.rs#L44 */
 struct fd_crds_data {
   uint discriminant;
   fd_crds_data_inner_t inner;

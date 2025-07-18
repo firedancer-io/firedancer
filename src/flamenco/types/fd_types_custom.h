@@ -183,7 +183,7 @@ fd_flamenco_txn_decode_footprint_inner( fd_bincode_decode_ctx_t * ctx, ulong * t
 void *
 fd_flamenco_txn_decode( void * mem, fd_bincode_decode_ctx_t * ctx );
 
-int
+void
 fd_flamenco_txn_decode_inner( void * struct_mem, void * * alloc_mem, fd_bincode_decode_ctx_t * ctx );
 
 /* Represents the lamport balance associated with an account. */
@@ -197,11 +197,11 @@ fd_rust_duration_normalize ( fd_rust_duration_t * );
 int
 fd_rust_duration_footprint_validator ( fd_bincode_decode_ctx_t * ctx );
 
-int fd_vote_accounts_decode_inner( void * struct_mem, void * * alloc_mem, fd_bincode_decode_ctx_t * ctx );
-int fd_vote_accounts_decode_inner_global( void * struct_mem, void * * alloc_mem, fd_bincode_decode_ctx_t * ctx );
+void fd_vote_accounts_decode_inner( void * struct_mem, void * * alloc_mem, fd_bincode_decode_ctx_t * ctx );
+void fd_vote_accounts_decode_inner_global( void * struct_mem, void * * alloc_mem, fd_bincode_decode_ctx_t * ctx );
 
 int fd_tower_sync_decode_footprint_inner( fd_bincode_decode_ctx_t * ctx, ulong * total_sz );
-int fd_tower_sync_decode_inner( void * struct_mem, void * * alloc_mem, fd_bincode_decode_ctx_t * ctx );
+void fd_tower_sync_decode_inner( void * struct_mem, void * * alloc_mem, fd_bincode_decode_ctx_t * ctx );
 
 FD_PROTOTYPES_END
 
@@ -223,10 +223,5 @@ typedef struct fd_stake_weight_t_mapnode fd_stake_weight_t_mapnode_t;
 #define REDBLK_NAME fd_stake_weight_t_map
 #define REDBLK_IMPL_STYLE 1
 #include "../../util/tmpl/fd_redblack.c"
-
-struct fd_gossip_contact_info_v2;
-typedef struct fd_gossip_contact_info_v2 fd_gossip_contact_info_v2_t;
-
-int fd_gossip_contact_info_v2_validator( fd_bincode_decode_ctx_t * ctx, fd_gossip_contact_info_v2_t * self );
 
 #endif /* HEADER_fd_src_flamenco_runtime_fd_types_custom */
