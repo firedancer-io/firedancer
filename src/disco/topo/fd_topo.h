@@ -473,6 +473,22 @@ struct fd_topo_tile {
       ulong funk_obj_id;
     } snapin;
 
+    struct {
+      ulong tcache_depth;
+      ulong tcache_map_cnt;
+      uint  rng_seq;
+    } test_dedup_rx;
+
+    struct {
+      ulong pkt_framing;
+      ulong pkt_payload_max;
+      float burst_tau;
+      float burst_avg;
+      uint  dup_thresh;
+      float dup_avg_age;
+      uint  rng_seq;
+    } test_dedup_tx;
+
   };
 };
 

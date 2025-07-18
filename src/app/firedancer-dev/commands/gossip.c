@@ -88,7 +88,6 @@ gossip_topo( config_t * config ) {
 
   fd_topos_net_tile_finish( topo, 0UL );
   fd_topob_auto_layout( topo, 0 );
-  topo->agave_affinity_cnt = 0;
   fd_topob_finish( topo, CALLBACKS );
   fd_topo_print_log( /* stdout */ 1, topo );
 }
