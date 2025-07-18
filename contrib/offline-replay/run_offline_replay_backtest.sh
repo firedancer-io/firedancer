@@ -236,11 +236,11 @@ while true; do
 
                 if [ -z "$MISMATCH_LOG" ]; then
                     CURRENT_FAILURE_COUNT=$((CURRENT_FAILURE_COUNT + 1))
-                    MISMATCH_SLOT=$(awk '/\[Replay\]/ {getline; if ($1 == "slot:") slot=$2} END {print slot}' "$LOG")
+                    MISMATCH_SLOT=$(tail -n 100 "$LOG" | awk '/\[Replay\]/ {getline; if ($1 == "slot:") slot=$2; getline; if ($1 == "bank") last_bank_slot=slot} END {print last_bank_slot}')
                     send_slack_message "@here Failure occurred on slot: \`$MISMATCH_SLOT\`. Minimizing failure"
                 else
                     CURRENT_MISMATCH_COUNT=$((CURRENT_MISMATCH_COUNT + 1))
-                    MISMATCH_SLOT=$(echo "$MISMATCH_LOG" | awk -F 'slot=' '{print $2}' | awk '{print $1}')
+                    MISMATCH_SLOT=$(tail -n 100 "$LOG" | awk '/Bank hash mismatch/ {match($0, /slot=[0-9]+/, a); if (a[0]) slot=substr(a[0],6)} END {print slot}')
                     send_slack_message "@here Mismatch occurred on slot: \`$MISMATCH_SLOT\`. Minimizing mismatch"
                 fi
 
