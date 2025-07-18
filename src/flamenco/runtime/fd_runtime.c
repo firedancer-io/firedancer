@@ -1238,6 +1238,9 @@ fd_runtime_update_lthash_with_account( fd_funk_t *        funk,
   fd_lthash_value_t * bank_lthash = fd_type_pun( fd_bank_lthash_locking_modify( bank ) );
 
   /* Look up the previous version of the account from Funk */
+  /* FIXME: This isn't going to work if we reference the same account twice in the same transaction.
+            How do we determine the last hash we added to the bank lthash?
+   */
   FD_TXN_ACCOUNT_DECL( previous_account_version );
   int err = fd_txn_account_init_from_funk_readonly( previous_account_version, account->pubkey, funk, funk_txn );
   if( FD_UNLIKELY( err!=FD_ACC_MGR_SUCCESS && err!=FD_ACC_MGR_ERR_UNKNOWN_ACCOUNT ) ) {
@@ -1253,7 +1256,9 @@ fd_runtime_update_lthash_with_account( fd_funk_t *        funk,
       previous_account_version->vt->get_meta( previous_account_version ),
       previous_account_version->vt->get_data( previous_account_version ),
       old_hash );
+    FD_LOG_WARNING(( "Subtracting old hash of account %s (old_hash: %s) from bank lthash: %s", FD_BASE58_ENC_32_ALLOCA( account->pubkey ), FD_LTHASH_ENC_32_ALLOCA( old_hash ), FD_LTHASH_ENC_32_ALLOCA( bank_lthash ) ));
     fd_lthash_sub( bank_lthash, old_hash );
+    FD_LOG_WARNING(( "New bank lthash: %s", FD_LTHASH_ENC_32_ALLOCA( bank_lthash ) ));
   }
 
   /* Hash the new version of the account */
@@ -1263,9 +1268,12 @@ fd_runtime_update_lthash_with_account( fd_funk_t *        funk,
     account->vt->get_meta( account ),
     account->vt->get_data( account ),
     new_hash );
+  FD_LOG_WARNING(( "Adding new hash of account %s (new_hash: %s) to bank lthash: %s", FD_BASE58_ENC_32_ALLOCA( account->pubkey ), FD_LTHASH_ENC_32_ALLOCA( new_hash ), FD_LTHASH_ENC_32_ALLOCA( bank_lthash ) ));
 
   /* Add the new hash of the account to the bank lthash */
   fd_lthash_add( bank_lthash, new_hash );
+
+  FD_LOG_WARNING(( "New bank lthash: %s", FD_LTHASH_ENC_32_ALLOCA( bank_lthash ) ));
 
   fd_bank_lthash_end_locking_modify( bank );
 }

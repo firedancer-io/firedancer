@@ -543,6 +543,8 @@ fd_exec_slot_ctx_recover( fd_exec_slot_ctx_t *                slot_ctx,
     fd_lthash_zero( (fd_lthash_value_t *)lthash->lthash );
   }
 
+  FD_LOG_WARNING(( "lthash from manifest: %s", FD_LTHASH_ENC_32_ALLOCA( (fd_lthash_value_t *)lthash ) ));
+
   fd_bank_lthash_end_locking_modify( slot_ctx->bank );
   /* Setup next epoch stakes */
 
