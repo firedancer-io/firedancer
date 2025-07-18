@@ -35,7 +35,7 @@ fd_hash_account_lthash_value( fd_pubkey_t const       * pubkey,
   fd_blake3_append( b3, &account->info.lamports, sizeof( ulong ) );
   fd_blake3_append( b3, data, account->dlen );
   fd_blake3_append( b3, &executable, sizeof( uchar ) );
-  fd_blake3_append( b3, &account->info.owner, FD_PUBKEY_FOOTPRINT );
+  fd_blake3_append( b3, account->info.owner, FD_PUBKEY_FOOTPRINT );
   fd_blake3_append( b3, pubkey, FD_PUBKEY_FOOTPRINT );
   fd_blake3_fini_varlen( b3, lthash_out->bytes, FD_LTHASH_LEN_BYTES );
 
