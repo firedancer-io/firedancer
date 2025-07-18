@@ -256,9 +256,9 @@ fd_ghost_verify( fd_ghost_t const * ghost ) {
 }
 
 fd_ghost_ele_t *
-fd_ghost_insert( fd_ghost_t * ghost, fd_hash_t * parent_id, ulong slot, fd_hash_t * block_id ) {
+fd_ghost_insert( fd_ghost_t * ghost, fd_hash_t * parent_bid, ulong slot, fd_hash_t * bid ) {
   VER_INC;
-  FD_LOG_NOTICE(( "[%s] slot: %lu, %s. parent: %s.", __func__, slot, FD_BASE58_ENC_32_ALLOCA(block_id), FD_BASE58_ENC_32_ALLOCA(parent_id) ));
+  FD_LOG_NOTICE(( "[%s] slot: %lu, %s. parent: %s.", __func__, slot, FD_BASE58_ENC_32_ALLOCA(bid), FD_BASE58_ENC_32_ALLOCA(parent_bid) ));
 
 # if FD_GHOST_USE_HANDHOLDING
   FD_TEST( ghost->magic == FD_GHOST_MAGIC );
@@ -266,12 +266,12 @@ fd_ghost_insert( fd_ghost_t * ghost, fd_hash_t * parent_id, ulong slot, fd_hash_
 
   fd_ghost_ele_t *       pool   = fd_ghost_pool( ghost );
   ulong                  null   = fd_ghost_pool_idx_null( pool );
-  fd_ghost_ele_t *       parent = fd_ghost_query( ghost, parent_id );
+  fd_ghost_ele_t *       parent = fd_ghost_query( ghost, parent_bid );
   fd_ghost_ele_t const * root   = fd_ghost_root( ghost );
 
 # if FD_GHOST_USE_HANDHOLDING
-  if( FD_UNLIKELY( fd_ghost_query( ghost, block_id ) ) ) { FD_LOG_WARNING(( "[%s] block_id %s already in ghost.", __func__, FD_BASE58_ENC_32_ALLOCA(block_id)  )); return NULL; }
-  if( FD_UNLIKELY( !parent                           ) ) { FD_LOG_WARNING(( "[%s] missing `parent_id` %s.",       __func__, FD_BASE58_ENC_32_ALLOCA(parent_id) )); return NULL; }
+  if( FD_UNLIKELY( fd_ghost_query( ghost, bid ) ) ) { FD_LOG_WARNING(( "[%s] block_id %s already in ghost.", __func__, FD_BASE58_ENC_32_ALLOCA(bid)  )); return NULL; }
+  if( FD_UNLIKELY( !parent                           ) ) { FD_LOG_WARNING(( "[%s] missing `parent_id` %s.",       __func__, FD_BASE58_ENC_32_ALLOCA(parent_bid) )); return NULL; }
   if( FD_UNLIKELY( !fd_ghost_pool_free( pool )       ) ) { FD_LOG_WARNING(( "[%s] ghost full.",                   __func__                                     )); return NULL; }
   if( FD_UNLIKELY( slot <= root->slot                ) ) { FD_LOG_WARNING(( "[%s] slot %lu <= root %lu",          __func__, slot, root->slot                   )); return NULL; }
 # endif
@@ -279,7 +279,7 @@ fd_ghost_insert( fd_ghost_t * ghost, fd_hash_t * parent_id, ulong slot, fd_hash_
   FD_LOG_DEBUG(( "[%s] slot: %lu. parent: %lu.", __func__, slot, parent->slot ));
 
   fd_ghost_ele_t * ele = fd_ghost_pool_ele_acquire( pool );
-  ele->key             = *block_id;
+  ele->key             = *bid;
   ele->slot            = slot;
   ele->next            = null;
   ele->nexts           = null;
@@ -354,16 +354,16 @@ fd_ghost_slot_query( fd_ghost_t const * ghost, ulong slot ) {
 
 
 void
-fd_ghost_replay_vote( fd_ghost_t * ghost, fd_voter_t * voter, fd_hash_t const * block_id ) {
+fd_ghost_replay_vote( fd_ghost_t * ghost, fd_voter_t * voter, fd_hash_t const * vote_bid ) {
   VER_INC;
 
   fd_ghost_ele_t *       pool = fd_ghost_pool( ghost );
   fd_vote_record_t       vote = voter->replay_vote;
   fd_ghost_ele_t const * root = fd_ghost_root( ghost );
-  fd_ghost_ele_t const * vote_ele = fd_ghost_query_const( ghost, block_id );
+  fd_ghost_ele_t const * vote_ele = fd_ghost_query_const( ghost, vote_bid );
   ulong slot = vote_ele->slot;
 
-  FD_LOG_NOTICE(( "[%s] %s replay vote %s, %lu, last: %lu", __func__, FD_BASE58_ENC_32_ALLOCA(&voter->key), FD_BASE58_ENC_32_ALLOCA(block_id), slot, vote.slot ));
+  FD_LOG_NOTICE(( "[%s] %s replay vote %s, %lu, last: %lu", __func__, FD_BASE58_ENC_32_ALLOCA(&voter->key), FD_BASE58_ENC_32_ALLOCA(vote_bid), slot, vote.slot ));
 
   /* Short-circuit if the vote slot is older than the root. */
 
@@ -372,7 +372,7 @@ fd_ghost_replay_vote( fd_ghost_t * ghost, fd_voter_t * voter, fd_hash_t const * 
   /* Short-circuit if the vote is unchanged. It's possible that voter is
      switching from A to A', which should be a slashable offense. */
 
-  if( FD_UNLIKELY( memcmp( &vote.block_id, block_id, sizeof(fd_hash_t) ) == 0 ) ) return;
+  if( FD_UNLIKELY( memcmp( &vote.block_id, vote_bid, sizeof(fd_hash_t) ) == 0 ) ) return;
 
   /* Short-circuit if this vote slot < the last vote slot we processed
      for this voter. The order we replay forks is non-deterministic due
@@ -411,7 +411,7 @@ fd_ghost_replay_vote( fd_ghost_t * ghost, fd_voter_t * voter, fd_hash_t const * 
      vote is switched from a previous vote that was on a missing ele
      (pruned), or the regular case */
 
-  ele = fd_ghost_query( ghost, block_id );
+  ele = fd_ghost_query( ghost, vote_bid );
   if( FD_UNLIKELY( !ele ) ) FD_LOG_CRIT(( "corrupt ghost" ));
 
   FD_LOG_DEBUG(( "[%s] adding (%s, %lu, %lu)", __func__, FD_BASE58_ENC_32_ALLOCA( &voter->key ), voter->stake, slot ));
@@ -424,7 +424,7 @@ fd_ghost_replay_vote( fd_ghost_t * ghost, fd_voter_t * voter, fd_hash_t const * 
     ancestor = fd_ghost_parent( ghost, ancestor );
   }
   voter->replay_vote.slot     = slot;      /* update the cached replay vote slot on voter */
-  voter->replay_vote.block_id = *block_id; /* update the cached replay vote block_id on voter */
+  voter->replay_vote.block_id = *vote_bid; /* update the cached replay vote block_id on voter */
 }
 
 void
@@ -501,14 +501,14 @@ fd_ghost_publish( fd_ghost_t * ghost, fd_hash_t * block_id ) {
 }
 
 fd_ghost_ele_t const *
-fd_ghost_gca( fd_ghost_t const * ghost, fd_hash_t const * block_id1, fd_hash_t const * block_id2 ) {
+fd_ghost_gca( fd_ghost_t const * ghost, fd_hash_t const * bid1, fd_hash_t const * bid2 ) {
   fd_ghost_ele_t const * pool = fd_ghost_pool_const( ghost );
-  fd_ghost_ele_t const * ele1 = fd_ghost_query_const( ghost, block_id1 );
-  fd_ghost_ele_t const * ele2 = fd_ghost_query_const( ghost, block_id2 );
+  fd_ghost_ele_t const * ele1 = fd_ghost_query_const( ghost, bid1 );
+  fd_ghost_ele_t const * ele2 = fd_ghost_query_const( ghost, bid2 );
 
 # if FD_GHOST_USE_HANDHOLDING
-  if( FD_UNLIKELY( !ele1 ) ) { FD_LOG_WARNING(( "block_id1 %s missing", FD_BASE58_ENC_32_ALLOCA(block_id1) )); return NULL; }
-  if( FD_UNLIKELY( !ele2 ) ) { FD_LOG_WARNING(( "block_id2 %s missing", FD_BASE58_ENC_32_ALLOCA(block_id2) )); return NULL; }
+  if( FD_UNLIKELY( !ele1 ) ) { FD_LOG_WARNING(( "block_id1 %s missing", FD_BASE58_ENC_32_ALLOCA(bid1) )); return NULL; }
+  if( FD_UNLIKELY( !ele2 ) ) { FD_LOG_WARNING(( "block_id2 %s missing", FD_BASE58_ENC_32_ALLOCA(bid2) )); return NULL; }
 # endif
 
   /* Find the greatest common ancestor. */
