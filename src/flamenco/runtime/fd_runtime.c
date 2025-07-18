@@ -1058,39 +1058,6 @@ fd_runtime_block_execute_finalize_finish( fd_exec_slot_ctx_t *             slot_
 
 }
 
-void
-block_finalize_tpool_wrapper( void * para_arg_1,
-                              void * para_arg_2 FD_PARAM_UNUSED,
-                              void * arg_1,
-                              void * arg_2,
-                              void * arg_3,
-                              void * arg_4 FD_PARAM_UNUSED ) {
-  fd_tpool_t *                   tpool      = (fd_tpool_t *)para_arg_1;
-  fd_accounts_hash_task_data_t * task_data  = (fd_accounts_hash_task_data_t *)arg_1;
-  ulong                          worker_cnt = (ulong)arg_2;
-  fd_exec_slot_ctx_t *           slot_ctx   = (fd_exec_slot_ctx_t *)arg_3;
-
-  ulong cnt_per_worker = (worker_cnt>1) ? (task_data->info_sz / (worker_cnt-1UL)) + 1UL : task_data->info_sz;
-  for( ulong worker_idx=1UL; worker_idx<worker_cnt; worker_idx++ ) {
-    ulong start_idx = (worker_idx-1UL) * cnt_per_worker;
-    if( start_idx >= task_data->info_sz ) {
-      worker_cnt = worker_idx;
-      break;
-    }
-    ulong end_idx = fd_ulong_sat_sub((worker_idx) * cnt_per_worker, 1UL);
-    if( end_idx >= task_data->info_sz )
-      end_idx = fd_ulong_sat_sub( task_data->info_sz, 1UL );;
-    fd_tpool_exec( tpool, worker_idx, fd_account_hash_task,
-                   task_data, start_idx, end_idx,
-                   &task_data->lthash_values[worker_idx], slot_ctx, 0UL,
-                   0UL, 0UL, worker_idx, 0UL, 0UL, 0UL );
-  }
-
-  for( ulong worker_idx=1UL; worker_idx<worker_cnt; worker_idx++ ) {
-    fd_tpool_wait( tpool, worker_idx );
-  }
-}
-
 int
 fd_runtime_block_execute_finalize_para( fd_exec_slot_ctx_t *             slot_ctx,
                                         fd_capture_ctx_t *               capture_ctx,
@@ -1484,39 +1451,6 @@ fd_runtime_prepare_and_execute_txn( fd_exec_slot_ctx_t const *   slot_ctx,
 
 }
 
-static void
-fd_runtime_prepare_execute_finalize_txn_task( void * tpool,
-                                              ulong  t0,
-                                              ulong  t1,
-                                              void * args,
-                                              void * reduce,
-                                              ulong  stride FD_PARAM_UNUSED,
-                                              ulong  l0     FD_PARAM_UNUSED,
-                                              ulong  l1     FD_PARAM_UNUSED,
-                                              ulong  m0     FD_PARAM_UNUSED,
-                                              ulong  m1     FD_PARAM_UNUSED,
-                                              ulong  n0     FD_PARAM_UNUSED,
-                                              ulong  n1     FD_PARAM_UNUSED ) {
-
-  fd_exec_slot_ctx_t *         slot_ctx     = (fd_exec_slot_ctx_t *)tpool;
-  fd_capture_ctx_t *           capture_ctx  = (fd_capture_ctx_t *)t0;
-  fd_txn_p_t *                 txn          = (fd_txn_p_t *)t1;
-  fd_execute_txn_task_info_t * task_info    = (fd_execute_txn_task_info_t *)args;
-  fd_spad_t *                  exec_spad    = (fd_spad_t *)reduce;
-
-  fd_runtime_prepare_and_execute_txn( slot_ctx,
-                                      txn,
-                                      task_info,
-                                      exec_spad,
-                                      capture_ctx );
-
-  if( FD_UNLIKELY( !( task_info->txn->flags & FD_TXN_P_FLAGS_EXECUTE_SUCCESS ) ) ) {
-    return;
-  }
-
-  fd_runtime_finalize_txn( slot_ctx->funk, slot_ctx->funk_txn, task_info, task_info->txn_ctx->spad, slot_ctx->bank );
-}
-
 /* fd_executor_txn_verify and fd_runtime_pre_execute_check are responisble
    for the bulk of the pre-transaction execution checks in the runtime.
    They aim to preserve the ordering present in the Agave client to match
@@ -1549,101 +1483,6 @@ fd_runtime_prepare_execute_finalize_txn_task( void * tpool,
    also checks the total data size of the accounts in load_accounts() and
    validates the program accounts in load_transaction_accounts(). This
    is paralled by fd_executor_load_transaction_accounts(). */
-
-int
-fd_runtime_process_txns_in_microblock_stream( fd_exec_slot_ctx_t * slot_ctx,
-                                              fd_capture_ctx_t *   capture_ctx,
-                                              fd_txn_p_t *         txns,
-                                              ulong                txn_cnt,
-                                              fd_tpool_t *         tpool,
-                                              fd_spad_t * *        exec_spads,
-                                              ulong                exec_spad_cnt,
-                                              fd_spad_t *          runtime_spad,
-                                              fd_cost_tracker_t *  cost_tracker_opt ) {
-
-  int res = 0;
-
-  for( ulong i=0UL; i<txn_cnt; i++ ) {
-    txns[i].flags = FD_TXN_P_FLAGS_SANITIZE_SUCCESS;
-  }
-
-  fd_execute_txn_task_info_t * task_infos = fd_spad_alloc( runtime_spad,
-                                                           alignof(fd_execute_txn_task_info_t),
-                                                           txn_cnt * sizeof(fd_execute_txn_task_info_t) );
-
-  ulong curr_exec_idx = 0UL;
-  while( curr_exec_idx<txn_cnt ) {
-    ulong exec_idx_start = curr_exec_idx;
-
-    // Push a new spad frame for each exec spad
-    for( ulong worker_idx=1UL; worker_idx<exec_spad_cnt; worker_idx++ ) {
-      fd_spad_push( exec_spads[ worker_idx ] );
-    }
-
-    for( ulong worker_idx=1UL; worker_idx<exec_spad_cnt; worker_idx++ ) {
-      if( curr_exec_idx>=txn_cnt ) {
-        break;
-      }
-      if( !fd_tpool_worker_idle( tpool, worker_idx ) ) {
-        continue;
-      }
-
-      task_infos[ curr_exec_idx ].spad    = exec_spads[ worker_idx ];
-      task_infos[ curr_exec_idx ].txn     = &txns[ curr_exec_idx ];
-      task_infos[ curr_exec_idx ].txn_ctx = fd_spad_alloc( task_infos[ curr_exec_idx ].spad,
-                                                           FD_EXEC_TXN_CTX_ALIGN,
-                                                           FD_EXEC_TXN_CTX_FOOTPRINT );
-      if( FD_UNLIKELY( !task_infos[ curr_exec_idx ].txn_ctx ) ) {
-        FD_LOG_ERR(( "failed to allocate txn ctx" ));
-      }
-
-      fd_tpool_exec( tpool, worker_idx, fd_runtime_prepare_execute_finalize_txn_task,
-                     slot_ctx, (ulong)capture_ctx, (ulong)task_infos[curr_exec_idx].txn,
-                     &task_infos[ curr_exec_idx ], exec_spads[ worker_idx ], 0UL,
-                     0UL, 0UL, 0UL, 0UL, 0UL, 0UL );
-
-      curr_exec_idx++;
-    }
-
-    /* Wait for the workers to finish before we try to dispatch them a new task */
-    for( ulong worker_idx=1UL; worker_idx<exec_spad_cnt; worker_idx++ ) {
-      fd_tpool_wait( tpool, worker_idx );
-    }
-
-    /* Verify cost tracker limits (only for offline replay)
-       https://github.com/anza-xyz/agave/blob/v2.2.0/ledger/src/blockstore_processor.rs#L284-L299 */
-    if( cost_tracker_opt!=NULL ) {
-      for( ulong i=exec_idx_start; i<curr_exec_idx; i++ ) {
-
-        /* Skip any transactions that were not processed */
-        fd_execute_txn_task_info_t const * task_info = &task_infos[ i ];
-        if( FD_UNLIKELY( !( task_info->txn->flags & FD_TXN_P_FLAGS_EXECUTE_SUCCESS ) ) ) continue;
-
-        fd_exec_txn_ctx_t const * txn_ctx          = task_info->txn_ctx;
-        fd_transaction_cost_t     transaction_cost = fd_calculate_cost_for_executed_transaction( task_info->txn_ctx,
-                                                                                                 runtime_spad );
-
-        /* https://github.com/anza-xyz/agave/blob/v2.2.0/ledger/src/blockstore_processor.rs#L302-L307 */
-        res = fd_cost_tracker_try_add( cost_tracker_opt, txn_ctx, &transaction_cost );
-        if( FD_UNLIKELY( res ) ) {
-          FD_LOG_WARNING(( "Block cost limits exceeded for slot %lu", fd_bank_slot_get( slot_ctx->bank ) ));
-          break;
-        }
-      }
-    }
-
-    // Pop the spad frame
-    for( ulong worker_idx=1UL; worker_idx<exec_spad_cnt; worker_idx++ ) {
-      fd_spad_pop( exec_spads[ worker_idx ] );
-    }
-
-    /* If there was a error with cost tracker calculations, return the error */
-    if( FD_UNLIKELY( res ) ) return res;
-  }
-
-  return 0;
-
-}
 
 /******************************************************************************/
 /* Epoch Boundary                                                             */
@@ -3097,13 +2936,10 @@ struct fd_poh_verification_info {
 typedef struct fd_poh_verification_info fd_poh_verification_info_t;
 
 int
-fd_runtime_block_execute_tpool( fd_exec_slot_ctx_t *            slot_ctx,
-                                fd_capture_ctx_t *              capture_ctx,
-                                fd_runtime_block_info_t const * block_info,
-                                fd_tpool_t *                    tpool,
-                                fd_spad_t * *                   exec_spads,
-                                ulong                           exec_spad_cnt,
-                                fd_spad_t *                     runtime_spad ) {
+fd_runtime_block_execute( fd_exec_slot_ctx_t *            slot_ctx,
+                          fd_capture_ctx_t *              capture_ctx,
+                          fd_runtime_block_info_t const * block_info,
+                          fd_spad_t *                     runtime_spad ) {
 
   if ( capture_ctx != NULL && capture_ctx->capture && fd_bank_slot_get( slot_ctx->bank )>=capture_ctx->solcap_start_slot ) {
     fd_solcap_writer_set_slot( capture_ctx->capture, fd_bank_slot_get( slot_ctx->bank ) );
@@ -3143,15 +2979,12 @@ fd_runtime_block_execute_tpool( fd_exec_slot_ctx_t *            slot_ctx,
         fd_runtime_update_program_cache( slot_ctx, &mblock_txn_ptrs[txn_idx], runtime_spad );
       }
 
-      res = fd_runtime_process_txns_in_microblock_stream( slot_ctx,
-                                                          capture_ctx,
-                                                          mblock_txn_ptrs,
-                                                          mblock_txn_cnt,
-                                                          tpool,
-                                                          exec_spads,
-                                                          exec_spad_cnt,
-                                                          runtime_spad,
-                                                          cost_tracker );
+      res = fd_runtime_process_txns_in_microblock_stream_sequential( slot_ctx,
+                                                                     capture_ctx,
+                                                                     mblock_txn_ptrs,
+                                                                     mblock_txn_cnt,
+                                                                     runtime_spad,
+                                                                     cost_tracker );
       if( FD_UNLIKELY( res!=FD_RUNTIME_EXECUTE_SUCCESS ) ) {
         return res;
       }
@@ -3160,17 +2993,10 @@ fd_runtime_block_execute_tpool( fd_exec_slot_ctx_t *            slot_ctx,
 
   long block_finalize_time = -fd_log_wallclock();
 
-  fd_exec_para_cb_ctx_t exec_para_ctx = {
-    .func       = block_finalize_tpool_wrapper,
-    .para_arg_1 = tpool
-  };
-
-  res = fd_runtime_block_execute_finalize_para( slot_ctx,
-                                                capture_ctx,
-                                                block_info,
-                                                fd_tpool_worker_cnt( tpool ),
-                                                runtime_spad,
-                                                &exec_para_ctx );
+  res = fd_runtime_block_execute_finalize_sequential( slot_ctx,
+                                                      capture_ctx,
+                                                      block_info,
+                                                      runtime_spad );
   if( FD_UNLIKELY( res!=FD_RUNTIME_EXECUTE_SUCCESS ) ) {
     return res;
   }
@@ -3255,3 +3081,89 @@ fd_runtime_checkpt( fd_capture_ctx_t *   capture_ctx,
     }
   }
 }
+
+int
+fd_runtime_process_txns_in_microblock_stream_sequential( fd_exec_slot_ctx_t * slot_ctx,
+                                                         fd_capture_ctx_t *   capture_ctx,
+                                                         fd_txn_p_t *         txns,
+                                                         ulong                txn_cnt,
+                                                         fd_spad_t *          runtime_spad,
+                                                         fd_cost_tracker_t *  cost_tracker_opt ) {
+
+  int res = 0;
+
+  for( ulong i=0UL; i<txn_cnt; i++ ) {
+    txns[i].flags = FD_TXN_P_FLAGS_SANITIZE_SUCCESS;
+  }
+
+  fd_execute_txn_task_info_t * task_infos = fd_spad_alloc( runtime_spad,
+                                                           alignof(fd_execute_txn_task_info_t),
+                                                           txn_cnt * sizeof(fd_execute_txn_task_info_t) );
+
+  for( ulong i=0UL; i<txn_cnt; i++ ) {
+    task_infos[ i ].spad    = runtime_spad;
+    task_infos[ i ].txn     = &txns[ i ];
+    task_infos[ i ].txn_ctx = fd_spad_alloc( task_infos[ i ].spad,
+                                             FD_EXEC_TXN_CTX_ALIGN,
+                                             FD_EXEC_TXN_CTX_FOOTPRINT );
+    if( FD_UNLIKELY( !task_infos[ i ].txn_ctx ) ) {
+      FD_LOG_ERR(( "failed to allocate txn ctx" ));
+    }
+
+    fd_runtime_prepare_and_execute_txn( slot_ctx,
+                                        &txns[ i ],
+                                        &task_infos[ i ],
+                                        runtime_spad,
+                                        capture_ctx );
+
+    if( FD_UNLIKELY( !( task_infos[ i ].txn->flags & FD_TXN_P_FLAGS_EXECUTE_SUCCESS ) ) ) {
+      continue;
+    }
+
+    fd_runtime_finalize_txn( slot_ctx->funk, slot_ctx->funk_txn, &task_infos[ i ], task_infos[ i ].txn_ctx->spad, slot_ctx->bank );
+
+    if( cost_tracker_opt!=NULL ) {
+      fd_execute_txn_task_info_t const * task_info = &task_infos[ i ];
+      if( FD_UNLIKELY( !( task_info->txn->flags & FD_TXN_P_FLAGS_EXECUTE_SUCCESS ) ) ) continue;
+
+      fd_exec_txn_ctx_t const * txn_ctx          = task_info->txn_ctx;
+      fd_transaction_cost_t     transaction_cost = fd_calculate_cost_for_executed_transaction( task_info->txn_ctx,
+                                                                                               runtime_spad );
+
+      res = fd_cost_tracker_try_add( cost_tracker_opt, txn_ctx, &transaction_cost );
+      if( FD_UNLIKELY( res ) ) {
+        FD_LOG_WARNING(( "Block cost limits exceeded for slot %lu", fd_bank_slot_get( slot_ctx->bank ) ));
+        break;
+      }
+    }
+  }
+
+  return res;
+}
+
+int
+fd_runtime_block_execute_finalize_sequential( fd_exec_slot_ctx_t *             slot_ctx,
+                                              fd_capture_ctx_t *               capture_ctx,
+                                              fd_runtime_block_info_t const *  block_info,
+                                              fd_spad_t *                      runtime_spad ) {
+
+  FD_SPAD_FRAME_BEGIN( runtime_spad ) {
+
+  fd_accounts_hash_task_data_t * task_data = NULL;
+
+  fd_runtime_block_execute_finalize_start( slot_ctx, runtime_spad, &task_data, 1UL );
+
+  if( task_data && task_data->info_sz > 0UL ) {
+    for( ulong i=0UL; i<task_data->info_sz; i++ ) {
+      fd_account_hash_task( task_data, i, i, &task_data->lthash_values[0], slot_ctx, 0UL,
+                           0UL, 0UL, 0UL, 0UL, 0UL, 0UL );
+    }
+  }
+
+  fd_runtime_block_execute_finalize_finish( slot_ctx, capture_ctx, block_info, runtime_spad, task_data, 1UL );
+
+  } FD_SPAD_FRAME_END;
+
+  return 0;
+}
+

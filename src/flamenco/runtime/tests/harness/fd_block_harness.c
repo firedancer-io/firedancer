@@ -527,37 +527,19 @@ fd_runtime_fuzz_block_ctx_exec( fd_runtime_fuzz_runner_t * runner,
                                 fd_runtime_block_info_t *  block_info ) {
   int res = 0;
 
-  /* Initialize tpool and spad(s) */
-  ulong        worker_max = FD_BLOCK_HARNESS_TPOOL_WORKER_CNT;
-  void *       tpool_mem  = fd_spad_alloc( runner->spad, FD_TPOOL_ALIGN, FD_TPOOL_FOOTPRINT( worker_max ) );
-  fd_tpool_t * tpool      = fd_tpool_init( tpool_mem, worker_max, 0UL );
-  fd_tpool_worker_push( tpool, 1UL );
-
   fd_spad_t * runtime_spad = runner->spad;
-
-  /* Format chunks of memory for the exec spads
-     TODO: This memory needs a better bound. */
-  fd_spad_t * exec_spads[FD_BLOCK_HARNESS_TPOOL_WORKER_CNT] = { 0 };
-  ulong       exec_spads_cnt                                = FD_BLOCK_HARNESS_TPOOL_WORKER_CNT;
-  for( ulong i=0UL; i<worker_max; i++ ) {
-    void *      exec_spad_mem = fd_spad_alloc( runtime_spad, FD_SPAD_ALIGN, FD_SPAD_FOOTPRINT( FD_BLOCK_HARNESS_MEM_PER_SPAD ) );
-    fd_spad_t * exec_spad     = fd_spad_join( fd_spad_new( exec_spad_mem, FD_BLOCK_HARNESS_MEM_PER_SPAD ) );
-    exec_spads[i] = exec_spad;
-  }
 
   // Prepare. Execute. Finalize.
   FD_SPAD_FRAME_BEGIN( runtime_spad ) {
-    fd_rewards_recalculate_partitioned_rewards( slot_ctx, exec_spads, exec_spads_cnt, runtime_spad );
+    fd_rewards_recalculate_partitioned_rewards( slot_ctx, NULL, 0UL, runtime_spad );
 
     /* Process new epoch may push a new spad frame onto the runtime spad. We should make sure this frame gets
        cleared (if it was allocated) before executing the block. */
     int   is_epoch_boundary = 0;
-    fd_runtime_block_pre_execute_process_new_epoch( slot_ctx, exec_spads, exec_spads_cnt, runtime_spad, &is_epoch_boundary );
+    fd_runtime_block_pre_execute_process_new_epoch( slot_ctx, NULL, 0UL, runtime_spad, &is_epoch_boundary );
 
-    res = fd_runtime_block_execute_tpool( slot_ctx, NULL, block_info, tpool, exec_spads, exec_spads_cnt, runtime_spad );
+    res = fd_runtime_block_execute( slot_ctx, NULL, block_info, runtime_spad );
   } FD_SPAD_FRAME_END;
-
-  fd_tpool_worker_pop( tpool );
 
   return res;
 }

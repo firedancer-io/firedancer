@@ -53,14 +53,6 @@
 /* TODO: increase this to default once we have enough memory to support a 95G status cache. */
 #define MAX_CACHE_TXNS_PER_SLOT (FD_TXNCACHE_DEFAULT_MAX_TRANSACTIONS_PER_SLOT / 8)
 
-void
-block_finalize_tpool_wrapper( void * para_arg_1,
-                              void * para_arg_2,
-                              void * arg_1,
-                              void * arg_2,
-                              void * arg_3,
-                              void * arg_4 );
-
 struct fd_execute_txn_task_info {
   fd_spad_t * *       spads;
   fd_spad_t *         spad;
@@ -545,21 +537,6 @@ fd_runtime_process_txns( fd_exec_slot_ctx_t * slot_ctx,
                          fd_spad_t *          exec_spad,
                          fd_spad_t *          runtime_spad );
 
-/* fd_runtime_execute_txns_in_microblock_stream is responsible for end-to-end
-   preparing, executing and finalizng a list of transactions. It assumes that
-   all transactions are conflict-free. */
-
-int
-fd_runtime_process_txns_in_microblock_stream( fd_exec_slot_ctx_t * slot_ctx,
-                                              fd_capture_ctx_t *   capture_ctx,
-                                              fd_txn_p_t *         all_txns,
-                                              ulong                total_txn_cnt,
-                                              fd_tpool_t *         tpool,
-                                              fd_spad_t * *        exec_spads,
-                                              ulong                exec_spad_cnt,
-                                              fd_spad_t *          runtime_spad,
-                                              fd_cost_tracker_t *  cost_tracker_opt );
-
 void
 fd_runtime_finalize_txn( fd_funk_t *                  funk,
                          fd_funk_txn_t *              funk_txn,
@@ -637,15 +614,24 @@ fd_raw_block_txn_iter_ele( fd_raw_block_txn_iter_t iter, fd_txn_p_t * out_txn );
 /* Offline Replay *************************************************************/
 
 int
-fd_runtime_block_execute_tpool( fd_exec_slot_ctx_t *            slot_ctx,
-                                fd_capture_ctx_t *              capture_ctx,
-                                fd_runtime_block_info_t const * block_info,
-                                fd_tpool_t *                    tpool,
-                                fd_spad_t * *                   exec_spads,
-                                ulong                           exec_spad_cnt,
-                                fd_spad_t *                     runtime_spad );
+fd_runtime_block_execute( fd_exec_slot_ctx_t *            slot_ctx,
+                          fd_capture_ctx_t *              capture_ctx,
+                          fd_runtime_block_info_t const * block_info,
+                          fd_spad_t *                     runtime_spad );
 
-/* Genesis ********************************************************************/
+int
+fd_runtime_process_txns_in_microblock_stream_sequential( fd_exec_slot_ctx_t * slot_ctx,
+                                                         fd_capture_ctx_t *   capture_ctx,
+                                                         fd_txn_p_t *         txns,
+                                                         ulong                txn_cnt,
+                                                         fd_spad_t *          runtime_spad,
+                                                         fd_cost_tracker_t *  cost_tracker_opt );
+
+int
+fd_runtime_block_execute_finalize_sequential( fd_exec_slot_ctx_t *             slot_ctx,
+                                              fd_capture_ctx_t *               capture_ctx,
+                                              fd_runtime_block_info_t const *  block_info,
+                                              fd_spad_t *                      runtime_spad );
 
 void
 fd_runtime_read_genesis( fd_exec_slot_ctx_t * slot_ctx,
