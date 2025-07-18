@@ -457,6 +457,8 @@ user = ""
     # currently 32768 but can be reduced to 1024 once shred sets are
     # restricted to always be size 32).  The default is approximately
     # 1000 banks with this calculation (rounded to nearest power-of-2).
+    #
+    # This value will be rounded up to the nearest power-of-2.
     max_completed_shred_sets = 1_048_576
 
 # CPU cores in Firedancer are carefully managed.  Where a typical

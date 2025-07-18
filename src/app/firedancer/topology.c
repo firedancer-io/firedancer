@@ -1,5 +1,6 @@
 #include "topology.h"
 
+#include "../../discof/repair/fd_fec_chainer.h"
 #include "../../discof/replay/fd_replay_notif.h"
 #include "../../disco/net/fd_net_tile.h"
 #include "../../disco/quic/fd_tpu.h"
@@ -7,9 +8,9 @@
 #include "../../disco/topo/fd_topob.h"
 #include "../../disco/topo/fd_cpu_topo.h"
 #include "../../util/pod/fd_pod_format.h"
-#include "../../flamenco/runtime/fd_blockstore.h"
 #include "../../util/tile/fd_tile_private.h"
 #include "../../discof/restore/utils/fd_ssmsg.h"
+#include "../../flamenco/runtime/fd_runtime.h"
 
 #include <sys/random.h>
 #include <sys/types.h>
@@ -17,33 +18,6 @@
 #include <netdb.h>
 
 extern fd_topo_obj_callbacks_t * CALLBACKS[];
-
-fd_topo_obj_t *
-setup_topo_blockstore( fd_topo_t *  topo,
-                       char const * wksp_name,
-                       ulong        shred_max,
-                       ulong        block_max,
-                       ulong        idx_max,
-                       ulong        alloc_max ) {
-  fd_topo_obj_t * obj = fd_topob_obj( topo, "blockstore", wksp_name );
-
-  ulong seed;
-  FD_TEST( sizeof(ulong) == getrandom( &seed, sizeof(ulong), 0 ) );
-
-  FD_TEST( fd_pod_insertf_ulong( topo->props, 1UL,        "obj.%lu.wksp_tag",   obj->id ) );
-  FD_TEST( fd_pod_insertf_ulong( topo->props, seed,       "obj.%lu.seed",       obj->id ) );
-  FD_TEST( fd_pod_insertf_ulong( topo->props, shred_max,  "obj.%lu.shred_max",  obj->id ) );
-  FD_TEST( fd_pod_insertf_ulong( topo->props, block_max,  "obj.%lu.block_max",  obj->id ) );
-  FD_TEST( fd_pod_insertf_ulong( topo->props, idx_max,    "obj.%lu.idx_max",    obj->id ) );
-  FD_TEST( fd_pod_insertf_ulong( topo->props, alloc_max,  "obj.%lu.alloc_max",  obj->id ) );
-
-  /* DO NOT MODIFY LOOSE WITHOUT CHANGING HOW BLOCKSTORE ALLOCATES INTERNAL STRUCTURES */
-
-  ulong blockstore_footprint = fd_blockstore_footprint( shred_max, block_max, idx_max ) + alloc_max;
-  FD_TEST( fd_pod_insertf_ulong( topo->props, blockstore_footprint,  "obj.%lu.loose", obj->id ) );
-
-  return obj;
-}
 
 fd_topo_obj_t *
 setup_topo_bank_hash_cmp( fd_topo_t * topo, char const * wksp_name ) {
@@ -299,7 +273,6 @@ fd_topo_initialize( config_t * config ) {
   fd_topob_wksp( topo, "bh_cmp" );
   fd_topob_wksp( topo, "exec"        );
   fd_topob_wksp( topo, "writer"      );
-  fd_topob_wksp( topo, "blockstore"  );
   fd_topob_wksp( topo, "store"       );
   fd_topob_wksp( topo, "fec_sets"    );
   fd_topob_wksp( topo, "tcache"      );
@@ -379,12 +352,12 @@ fd_topo_initialize( config_t * config ) {
   /**/                 fd_topob_link( topo, "repair_sign",  "repair_sign",  128UL,                                    2048UL,                        1UL );
   FOR(shred_tile_cnt)  fd_topob_link( topo, "shred_repair", "shred_repair", pending_fec_shreds_depth,                 FD_SHRED_REPAIR_MTU,           2UL /* at most 2 msgs per after_frag */ );
 
-  FOR(shred_tile_cnt)  fd_topob_link( topo, "repair_shred", "shred_repair", pending_fec_shreds_depth,                 sizeof(fd_ed25519_sig_t),      1UL );
-  /**/                 fd_topob_link( topo, "sign_repair",  "sign_repair",  128UL,                                    64UL,                          1UL );
-  /**/                 fd_topob_link( topo, "repair_repla", "repair_repla", 65536UL,                                  FD_DISCO_REPAIR_REPLAY_MTU,    1UL );
-  FOR(bank_tile_cnt)   fd_topob_link( topo, "replay_poh",   "replay_poh",   128UL,                                    (4096UL*sizeof(fd_txn_p_t))+sizeof(fd_microblock_trailer_t), 1UL  );
-  /**/                 fd_topob_link( topo, "poh_shred",    "poh_shred",    16384UL,                                  USHORT_MAX,                    1UL   );
-  /**/                 fd_topob_link( topo, "poh_pack",     "replay_poh",   128UL,                                    sizeof(fd_became_leader_t) ,   1UL   );
+  FOR(shred_tile_cnt)  fd_topob_link( topo, "repair_shred", "shred_repair", pending_fec_shreds_depth,                 sizeof(fd_ed25519_sig_t),                                    1UL );
+  /**/                 fd_topob_link( topo, "sign_repair",  "sign_repair",  128UL,                                    64UL,                                                        1UL );
+  /**/                 fd_topob_link( topo, "repair_repla", "repair_repla", 65536UL,                                  sizeof(fd_fec_out_t),                                        1UL );
+  /**/                 fd_topob_link( topo, "poh_shred",    "poh_shred",    16384UL,                                  USHORT_MAX,                                                  1UL );
+  /**/                 fd_topob_link( topo, "poh_pack",     "replay_poh",   128UL,                                    sizeof(fd_became_leader_t) ,                                 1UL );
+  FOR(bank_tile_cnt)   fd_topob_link( topo, "replay_poh",   "replay_poh",   128UL,                                    (4096UL*sizeof(fd_txn_p_t))+sizeof(fd_microblock_trailer_t), 1UL );
 
   /**/                 fd_topob_link( topo, "tower_send",   "tower_send",   65536UL,                                  sizeof(fd_txn_p_t),            1UL   );
   /**/                 fd_topob_link( topo, "send_txns",    "send_txns",    128UL,                                    FD_TXN_MTU,                    1UL   );
@@ -479,21 +452,6 @@ fd_topo_initialize( config_t * config ) {
   /*                */ fd_topob_tile_uses( topo, replay_tile,  funk_obj, FD_SHMEM_JOIN_MODE_READ_WRITE );
   if(rpcserv_tile)     fd_topob_tile_uses( topo, rpcserv_tile, funk_obj, FD_SHMEM_JOIN_MODE_READ_WRITE );
   FOR(writer_tile_cnt) fd_topob_tile_uses( topo,  &topo->tiles[ fd_topo_find_tile( topo, "writer", i ) ], funk_obj, FD_SHMEM_JOIN_MODE_READ_WRITE );
-
-  /* Setup a shared wksp object for the blockstore. */
-  fd_topo_obj_t * blockstore_obj = setup_topo_blockstore( topo,
-                                                          "blockstore",
-                                                          config->firedancer.blockstore.shred_max,
-                                                          config->firedancer.blockstore.block_max,
-                                                          config->firedancer.blockstore.idx_max,
-                                                          config->firedancer.blockstore.alloc_max );
-  fd_topob_tile_uses( topo, replay_tile, blockstore_obj, FD_SHMEM_JOIN_MODE_READ_WRITE );
-  fd_topob_tile_uses( topo, repair_tile, blockstore_obj, FD_SHMEM_JOIN_MODE_READ_ONLY );
-  if( enable_rpc ) {
-    fd_topob_tile_uses( topo, rpcserv_tile, blockstore_obj, FD_SHMEM_JOIN_MODE_READ_ONLY );
-  }
-
-  FD_TEST( fd_pod_insertf_ulong( topo->props, blockstore_obj->id, "blockstore" ) );
 
   /* Setup a shared wksp object for banks. */
 
@@ -867,7 +825,6 @@ fd_topo_initialize( config_t * config ) {
   if( FD_UNLIKELY( is_auto_affinity ) ) fd_topob_auto_layout( topo, 0 );
 
   fd_topob_finish( topo, CALLBACKS );
-  FD_TEST( blockstore_obj->id );
 
   const char * status_cache = config->tiles.replay.status_cache;
   if ( strlen( status_cache ) > 0 ) {

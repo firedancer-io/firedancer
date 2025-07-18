@@ -166,11 +166,8 @@ echo "
         enable_features = [ $FORMATTED_ONE_OFFS ]
     [tiles.gui]
         enabled = false
-[blockstore]
-    shred_max = 16777216
-    block_max = 8192
-    alloc_max = 10737418240
-    file = \"$DUMP/$LEDGER/backtest.blockstore\"
+[store]
+    max_completed_shred_sets = 32768
 [funk]
     heap_size_gib = $FUNK_PAGES
     max_account_records = $INDEX_MAX
@@ -179,14 +176,12 @@ echo "
 [runtime]
     heap_size_gib = 50
     [runtime.limits]
-        max_total_banks = 128
+        max_total_banks = 46
         max_fork_width = 32
 [development]
     sandbox = false
     no_agave = true
     no_clone = true
-[store]
-    max_completed_shred_sets = 32000
 [log]
     level_stderr = \"INFO\"
     path = \"$LOG\"

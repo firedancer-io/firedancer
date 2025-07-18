@@ -3,8 +3,8 @@
 
 #include "../replay/fd_replay_notif.h"
 
+#include "../../disco/store/fd_store.h"
 #include "../../flamenco/leaders/fd_multi_epoch_leaders.h"
-#include "../../flamenco/runtime/fd_blockstore.h"
 #include "../../waltz/http/fd_http_server.h"
 
 #include <netinet/in.h>
@@ -14,9 +14,6 @@ typedef struct fd_rpc_ctx fd_rpc_ctx_t;
 struct fd_rpcserver_args {
   int                        offline;
   fd_funk_t                  funk[1];
-  fd_blockstore_t            blockstore_ljoin;
-  fd_blockstore_t          * blockstore;
-  int                        blockstore_fd;
   fd_multi_epoch_leaders_t * leaders;
   ushort                     port;
   fd_http_server_params_t    params;
@@ -29,6 +26,7 @@ struct fd_rpcserver_args {
 
   /* Bump allocator */
   fd_spad_t                * spad;
+  fd_store_t               * store;
 };
 typedef struct fd_rpcserver_args fd_rpcserver_args_t;
 

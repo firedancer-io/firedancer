@@ -1,6 +1,11 @@
 #ifndef HEADER_fd_src_flamenco_runtime_context_fd_exec_slot_ctx_h
 #define HEADER_fd_src_flamenco_runtime_context_fd_exec_slot_ctx_h
 
+#include "../../../funk/fd_funk.h"
+#include "../../../util/rng/fd_rng.h"
+#include "../../../util/wksp/fd_wksp.h"
+
+#include "../../types/fd_types.h"
 #include "../fd_txncache.h"
 #include "../fd_bank.h"
 #include "../../types/fd_types.h"

@@ -11,10 +11,6 @@ $(call add-objs,fd_bank_hash_cmp,fd_flamenco)
 $(call add-hdrs,fd_blockhashes.h)
 $(call add-objs,fd_blockhashes,fd_flamenco)
 
-$(call add-hdrs,fd_blockstore.h fd_rwseq_lock.h)
-$(call add-objs,fd_blockstore,fd_flamenco)
-$(call make-unit-test,test_blockstore,test_blockstore, fd_flamenco fd_util fd_ballet,$(SECP256K1_LIBS))
-
 $(call add-hdrs,fd_executor.h)
 $(call add-objs,fd_executor,fd_flamenco)
 
@@ -70,7 +66,6 @@ $(call run-unit-test,test_system_ids,)
 ifdef FD_HAS_ROCKSDB
 $(call add-hdrs,fd_rocksdb.h)
 $(call add-objs,fd_rocksdb,fd_flamenco)
-$(call make-bin,fd_blockstore_tool,fd_blockstore_tool,fd_util fd_flamenco fd_ballet fd_util, $(ROCKSDB_LIBS))
 endif
 
 ifdef FD_HAS_ATOMIC

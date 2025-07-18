@@ -4,10 +4,18 @@
 #include "../../util/fd_util.h"
 
 #include "../../ballet/txn/fd_txn.h"
-#include "../../flamenco/runtime/fd_blockstore.h"
 #include "../../discof/replay/fd_replay_notif.h"
 
 typedef struct fd_webserver fd_webserver_t;
+
+/* Rewards assigned after block is executed */
+
+struct fd_block_rewards {
+  ulong collected_fees;
+  fd_hash_t leader;
+  ulong post_balance;
+};
+typedef struct fd_block_rewards fd_block_rewards_t;
 
 typedef enum {
   FD_ENC_BASE58, FD_ENC_BASE64, FD_ENC_BASE64_ZSTD, FD_ENC_JSON, FD_ENC_JSON_PARSED
