@@ -104,7 +104,7 @@ fd_fec_chainer_delete( void * shchainer ) {
 }
 
 fd_fec_ele_t *
-fd_fec_chainer_init( fd_fec_chainer_t * chainer, ulong slot, uchar merkle_root[static FD_SHRED_MERKLE_ROOT_SZ] ) {
+fd_fec_chainer_init( fd_fec_chainer_t * chainer, ulong slot, fd_hash_t const * merkle_root ) {
   FD_TEST( fd_fec_pool_free( chainer->pool ) );
   fd_fec_ele_t * root = fd_fec_pool_ele_acquire( chainer->pool );
   FD_TEST( root );
@@ -220,8 +220,22 @@ link_orphans( fd_fec_chainer_t * chainer ) {
        a new fork) and deliver to `out`. */
 
     fd_fec_frontier_ele_insert( chainer->frontier, ele, chainer->pool );
-    // FD_LOG_NOTICE(( "pushing tail %lu %u %u %d %d", ele->slot, ele->fec_set_idx, ele->data_cnt, ele->data_complete, ele->slot_complete ));
-    fd_fec_out_push_tail( chainer->out, (fd_fec_out_t){ .slot = ele->slot, .parent_off = ele->parent_off, .fec_set_idx = ele->fec_set_idx, .data_cnt = ele->data_cnt, .data_complete = ele->data_complete, .slot_complete = ele->slot_complete, .err = FD_FEC_CHAINER_SUCCESS } );
+    fd_hash_t merkle_root;
+    memcpy( merkle_root.uc, ele->merkle_root, FD_SHRED_MERKLE_ROOT_SZ );
+    fd_hash_t chained_root;
+    memcpy( chained_root.uc, ele->chained_merkle_root, FD_SHRED_MERKLE_ROOT_SZ );
+    fd_fec_out_t out = {
+      .err            = FD_FEC_CHAINER_SUCCESS,
+      .slot           = ele->slot,
+      .parent_off     = ele->parent_off,
+      .fec_set_idx    = ele->fec_set_idx,
+      .data_cnt       = ele->data_cnt,
+      .data_complete  = ele->data_complete,
+      .slot_complete  = ele->slot_complete,
+      .merkle_root    = merkle_root,
+      .chained_root   = chained_root
+    };
+    fd_fec_out_push_tail( chainer->out, out );
 
     /* Check whether any of ele's children are orphaned and can be
        chained into the frontier. */
@@ -256,13 +270,17 @@ fd_fec_chainer_insert( fd_fec_chainer_t * chainer,
                        int                data_complete,
                        int                slot_complete,
                        ushort             parent_off,
-                       uchar const        merkle_root[static FD_SHRED_MERKLE_ROOT_SZ],
-                       uchar const        chained_merkle_root[static FD_SHRED_MERKLE_ROOT_SZ] ) {
+                       fd_hash_t const *  merkle_root,
+                       fd_hash_t const *  chained_merkle_root ) {
   ulong key = slot << 32 | fec_set_idx;
   // FD_LOG_NOTICE(( "inserting %lu %u %u %d %d", slot, fec_set_idx, data_cnt, data_complete, slot_complete ));
 
   if( FD_UNLIKELY( fd_fec_chainer_query( chainer, slot, fec_set_idx ) ) ) {
-    fd_fec_out_push_tail( chainer->out, (fd_fec_out_t){ slot, parent_off, fec_set_idx, data_cnt, data_complete, slot_complete, .err = FD_FEC_CHAINER_ERR_UNIQUE } );
+    fd_hash_t merkle_root_;
+    memcpy( merkle_root_.uc, merkle_root, FD_SHRED_MERKLE_ROOT_SZ );
+    fd_hash_t chained_merkle_root_;
+    memcpy( chained_merkle_root_.uc, chained_merkle_root, FD_SHRED_MERKLE_ROOT_SZ );
+    fd_fec_out_push_tail( chainer->out, (fd_fec_out_t){ .err = FD_FEC_CHAINER_ERR_UNIQUE, slot, parent_off, fec_set_idx, data_cnt, data_complete, slot_complete, .merkle_root = merkle_root_ , .chained_root = chained_merkle_root_ } );
     return NULL;
   }
 

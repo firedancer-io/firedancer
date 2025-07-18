@@ -27,6 +27,7 @@ fd_store_new( void * shmem, ulong fec_max, ulong seed ) {
   }
 
   fd_memset( shmem, 0, footprint );
+  fec_max = fd_ulong_pow2_up( fec_max ); /* required by map_chain */
 
   FD_SCRATCH_ALLOC_INIT( l, shmem );
   fd_store_t * store = FD_SCRATCH_ALLOC_APPEND( l, fd_store_align(),      sizeof( fd_store_t )               );
@@ -104,13 +105,10 @@ fd_store_delete( void * store ) {
 
 fd_store_fec_t *
 fd_store_insert( fd_store_t * store,
-                 fd_hash_t  * merkle_root,
-                 uchar      * data,
-                 ulong        data_sz ) {
+                 fd_hash_t  * merkle_root ) {
 
 # if FD_STORE_USE_HANDHOLDING /* FIXME eviction? max bound guaranteed for worst-case? */
   if( FD_UNLIKELY( !fd_store_pool_free( fd_store_pool( store ) ) ) ) { FD_LOG_WARNING(( "store full"                                                              )); return NULL; }
-  if( FD_UNLIKELY( data_sz > FD_STORE_DATA_MAX                   ) ) { FD_LOG_WARNING(( "data_sz %lu > FD_STORE_DATA_MAX", data_sz                                )); return NULL; }
   if( FD_UNLIKELY( fd_store_query_const( store, merkle_root )    ) ) { FD_LOG_WARNING(( "merkle root %s already in store", FD_BASE58_ENC_32_ALLOCA( merkle_root ) )); return NULL; }
 # endif
 
@@ -122,10 +120,8 @@ fd_store_insert( fd_store_t * store,
   fec->parent           = null;
   fec->child            = null;
   fec->sibling          = null;
-  fec->data_sz          = data_sz;
-  memcpy( fec->data, data, data_sz );
-  fd_store_map_ele_insert( fd_store_map( store ), fec, fd_store_pool( store ) );
   if( FD_UNLIKELY( store->root == null ) ) store->root = fd_store_pool_idx( pool, fec );
+  fd_store_map_ele_insert( fd_store_map( store ), fec, pool );
   return fec;
 }
 
@@ -186,7 +182,7 @@ fd_store_publish( fd_store_t  * store,
         tail       = fd_store_pool_ele( pool, tail->next );                   /* push onto BFS queue (so descendants can be pruned) */
         tail->next = null;                                                    /* clear map next */
       }
-      child = fd_store_pool_ele( pool, child->sibling ); /* right-sibling */
+      child = fd_store_pool_ele( pool, child->sibling );                      /* right-sibling */
     }
     fd_store_fec_t * next = fd_store_pool_ele( pool, head->next ); /* pophead */
     fd_store_pool_ele_release( pool, head );                       /* release */

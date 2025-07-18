@@ -184,8 +184,6 @@ echo "
     sandbox = false
     no_agave = true
     no_clone = true
-[store]
-    max_completed_shred_sets = 32000
 [log]
     level_stderr = \"INFO\"
     path = \"$LOG\"

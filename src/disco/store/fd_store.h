@@ -129,7 +129,7 @@
 
    67 shreds per FEC set * 955 payloads per shred = 63985 bytes max. */
 
-#define FD_STORE_DATA_MAX (63985UL) /* FIXME fixed-32 */
+#define FD_STORE_DATA_MAX (63985UL) /* TODO fixed-32 */
 
 /* fd_store_fec describes a store element (FEC set).  The pointer fields
    implement a left-child, right-sibling n-ary tree. */
@@ -150,7 +150,7 @@ struct __attribute__((aligned(128UL))) fd_store_fec {
 
   /* Data */
 
-  ulong data_sz;                 /* FIXME fixed-32. sz of the FEC set payload, guaranteed < FD_STORE_DATA_MAX */
+  ulong data_sz;                 /* TODO fixed-32. sz of the FEC set payload, guaranteed < FD_STORE_DATA_MAX */
   uchar data[FD_STORE_DATA_MAX]; /* FEC set payload = coalesced data shreds (byte array) */
 };
 typedef struct fd_store_fec fd_store_fec_t;
@@ -163,7 +163,7 @@ typedef struct fd_store_fec fd_store_fec_t;
 #define MAP_ELE_T              fd_store_fec_t
 #define MAP_KEY_T              fd_hash_t
 #define MAP_KEY_EQ(k0,k1)      (!memcmp((k0),(k1), sizeof(fd_hash_t)))
-#define MAP_KEY_HASH(key,seed) (fd_hash((seed),(key),sizeof(fd_hash_t)))
+#define MAP_KEY_HASH(key,seed) (fd_hash((seed),(key),sizeof(fd_hash_t))) /* TODO re-design store hash function for multiple shred tiles */
 #include "../../util/tmpl/fd_map_chain.c"
 
 struct fd_store {
@@ -253,12 +253,12 @@ fd_store_wksp( fd_store_t const * store ) {
    to the corresponding store field.  const versions for each are also
    provided. */
 
-FD_FN_PURE static inline fd_store_fec_t       * fd_store_pool        ( fd_store_t       * store ) { return fd_wksp_laddr_fast     ( fd_store_wksp      ( store ), store->pool_gaddr ); }
-FD_FN_PURE static inline fd_store_fec_t const * fd_store_pool_const  ( fd_store_t const * store ) { return fd_wksp_laddr_fast     ( fd_store_wksp      ( store ), store->pool_gaddr ); }
-FD_FN_PURE static inline fd_store_map_t       * fd_store_map         ( fd_store_t       * store ) { return fd_wksp_laddr_fast     ( fd_store_wksp      ( store ), store->map_gaddr  ); }
-FD_FN_PURE static inline fd_store_map_t const * fd_store_map_const   ( fd_store_t const * store ) { return fd_wksp_laddr_fast     ( fd_store_wksp      ( store ), store->map_gaddr  ); }
-FD_FN_PURE static inline fd_store_fec_t       * fd_store_root        ( fd_store_t       * store ) { return fd_store_pool_ele      ( fd_store_pool      ( store ), store->root       ); }
-FD_FN_PURE static inline fd_store_fec_t const * fd_store_root_const  ( fd_store_t const * store ) { return fd_store_pool_ele_const( fd_store_pool_const( store ), store->root       ); }
+FD_FN_PURE static inline fd_store_fec_t       * fd_store_pool      ( fd_store_t       * store ) { return fd_wksp_laddr_fast     ( fd_store_wksp      ( store ), store->pool_gaddr ); }
+FD_FN_PURE static inline fd_store_fec_t const * fd_store_pool_const( fd_store_t const * store ) { return fd_wksp_laddr_fast     ( fd_store_wksp      ( store ), store->pool_gaddr ); }
+FD_FN_PURE static inline fd_store_map_t       * fd_store_map       ( fd_store_t       * store ) { return fd_wksp_laddr_fast     ( fd_store_wksp      ( store ), store->map_gaddr  ); }
+FD_FN_PURE static inline fd_store_map_t const * fd_store_map_const ( fd_store_t const * store ) { return fd_wksp_laddr_fast     ( fd_store_wksp      ( store ), store->map_gaddr  ); }
+FD_FN_PURE static inline fd_store_fec_t       * fd_store_root      ( fd_store_t       * store ) { return fd_store_pool_ele      ( fd_store_pool      ( store ), store->root       ); }
+FD_FN_PURE static inline fd_store_fec_t const * fd_store_root_const( fd_store_t const * store ) { return fd_store_pool_ele_const( fd_store_pool_const( store ), store->root       ); }
 
 /* fd_store_{parent,child,sibling} returns a pointer in the caller's
    address space to the corresponding {parent,left-child,right-sibling}
@@ -294,10 +294,9 @@ fd_store_query_const( fd_store_t const * store, fd_hash_t * merkle_root ) {
 /* Operations */
 
 /* fd_store_insert inserts a new FEC set keyed by merkle.  Returns the
-   newly inserted fd_store_fec_t.  Copies data and data_sz into its
-   corresponding fields and copies at most FD_STORE_DATA_MAX bytes from
-   data (if handholding is enabled, it will abort the caller with a
-   descriptive error message if data_sz is too large).
+   newly inserted fd_store_fec_t.  Each fd_store_fec_t can hold at most
+   FD_STORE_DATA_MAX bytes of data, and caller is responsible for
+   copying into the region.
 
    Assumes store is a current local join and has space for another
    element.  Does additional checks when handholding is enabled and
@@ -307,16 +306,14 @@ fd_store_query_const( fd_store_t const * store, fd_hash_t * merkle_root ) {
 
    Assumes caller has already acquired the appropriate lock via
    fd_rwlock_read or fd_rwlock_write.  See top-level documentation for
-   why this operation may only require a read lock and not a write.
+   why this operation may only require a read lock (vs. write).
 
    IMPORTANT SAFETY TIP!  Caller should only call fd_rwlock_unread when
    they no longer retain interest in the returned pointer. */
 
 fd_store_fec_t *
 fd_store_insert( fd_store_t * store,
-                 fd_hash_t  * merkle_root,
-                 uchar      * data,
-                 ulong        data_sz /* FIXME fixed-32 */ );
+                 fd_hash_t  * merkle_root );
 
 /* fd_store_link queries for and links the child keyed by merkle_root to
    parent keyed by chained_merkle_root.  Returns a pointer to the child.

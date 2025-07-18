@@ -31,14 +31,13 @@ test_store_simple( fd_wksp_t * wksp ) {
   fd_hash_t mr4 = { { 4 } };
   fd_hash_t mr5 = { { 5 } };
   fd_hash_t mr6 = { { 6 } };
-  uchar data[1] = { 0 };
-  fd_store_insert( store, &mr0, data, sizeof(data) );
-  fd_store_insert( store, &mr1, data, sizeof(data) );
-  fd_store_insert( store, &mr2, data, sizeof(data) );
-  fd_store_insert( store, &mr4, data, sizeof(data) );
-  fd_store_insert( store, &mr3, data, sizeof(data) );
-  fd_store_insert( store, &mr5, data, sizeof(data) );
-  fd_store_insert( store, &mr6, data, sizeof(data) );
+  fd_store_insert( store, &mr0 );
+  fd_store_insert( store, &mr1 );
+  fd_store_insert( store, &mr2 );
+  fd_store_insert( store, &mr4 );
+  fd_store_insert( store, &mr3 );
+  fd_store_insert( store, &mr5 );
+  fd_store_insert( store, &mr6 );
 
   fd_store_fec_t const * fec0 = fd_store_query_const( store, &mr0 );
   fd_store_fec_t const * fec1 = fd_store_query_const( store, &mr1 );
