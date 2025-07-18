@@ -106,7 +106,7 @@ test_fec_ordering( fd_wksp_t * wksp ){
   FD_TEST(  fd_fec_ancestry_ele_query( chainer->ancestry, &f3_64->key, NULL, chainer->pool ) );
   FD_TEST(  fd_fec_out_cnt( chainer->out ) == 1 );
   *actual   = fd_fec_out_pop_head( chainer->out );
-  *expected = (fd_fec_out_t){ 4, 0, .err = FD_FEC_CHAINER_ERR_MERKLE };
+  *expected = (fd_fec_out_t){ .err = FD_FEC_CHAINER_ERR_MERKLE, 4, 0 };
   FD_TEST( 0 == memcmp( actual, expected, sizeof(fd_fec_out_t) ) );
 
   /* Equivocating FEC (slot 3, fec_set_idx 0) that chains off slot 2
@@ -117,7 +117,7 @@ test_fec_ordering( fd_wksp_t * wksp ){
   FD_TEST( !f3_0_eqvoc );
   FD_TEST(  fd_fec_out_cnt( chainer->out ) == 1 );
   *actual   = fd_fec_out_pop_head( chainer->out );
-  *expected = (fd_fec_out_t){ 3, 0, .err = FD_FEC_CHAINER_ERR_UNIQUE };
+  *expected = (fd_fec_out_t){ .err = FD_FEC_CHAINER_ERR_UNIQUE, 3, 0 };
   FD_TEST( 0 == memcmp( actual, expected, sizeof(fd_fec_out_t) ) );
 
   /* TODO more robust testing */

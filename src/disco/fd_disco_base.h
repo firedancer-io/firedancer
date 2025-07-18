@@ -4,6 +4,7 @@
 #include "../tango/fd_tango.h"
 #include "../ballet/shred/fd_shred.h"
 #include "../ballet/txn/fd_txn.h"
+#include "../flamenco/types/fd_types_custom.h"
 
 #include "../util/wksp/fd_wksp_private.h"
 
@@ -257,8 +258,6 @@ FD_FN_CONST static inline ulong  fd_disco_repair_replay_sig_slot         ( ulong
 FD_FN_CONST static inline ushort fd_disco_repair_replay_sig_parent_off   ( ulong sig ) { return (ushort)fd_ulong_extract    ( sig, 16, 31 ); }
 FD_FN_CONST static inline uint   fd_disco_repair_replay_sig_data_cnt     ( ulong sig ) { return (uint)  fd_ulong_extract    ( sig, 1,  15 ); }
 FD_FN_CONST static inline int    fd_disco_repair_replay_sig_slot_complete( ulong sig ) { return         fd_ulong_extract_bit( sig, 0      ); }
-
-#define FD_DISCO_REPAIR_REPLAY_MTU (sizeof(ulong) + sizeof(ushort) + sizeof(uint) + sizeof(int))
 
 FD_FN_PURE static inline ulong
 fd_disco_compact_chunk0( void * wksp ) {
