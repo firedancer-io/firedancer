@@ -98,6 +98,29 @@ union fdctl_args {
     ushort listen_port;
   } udpecho;
 
+  struct {
+    char  affinity[ AFFINITY_SZ ];
+
+    ulong tx_cnt;
+    ulong tx_depth;
+    ulong tx_mtu;
+    ulong tcache_depth;
+    ulong tcache_map_cnt;
+    ulong dedup_depth;
+    ulong dedup_cr_max;
+    long  dedup_lazy;
+    ulong rx_cnt;
+    ulong test_depth;
+    ulong test_map_cnt;
+    float burst_avg;
+
+    ulong pkt_payload_max;
+    ulong pkt_framing;
+    float pkt_bw;
+    float dup_frac;
+    float dup_avg_age;
+  } test_dedup;
+
 };
 
 typedef union fdctl_args args_t;
