@@ -237,8 +237,8 @@ main( int     argc,
   FD_TEST( tx_link->dcache );
 
   ulong       tx_seq    = 0UL;
-  ulong const tx_chunk0 = fd_dcache_compact_chunk0( tx_mcache_mem, tx_link->dcache );
-  ulong const tx_wmark  = fd_dcache_compact_wmark( tx_mcache_mem, tx_link->dcache, FD_NET_MTU );
+  ulong const tx_chunk0 = fd_dcache_compact_chunk0( fd_wksp_containing( app_tx_dcache_mem ), tx_link->dcache );
+  ulong const tx_wmark  = fd_dcache_compact_wmark( fd_wksp_containing( app_tx_dcache_mem ), tx_link->dcache, FD_NET_MTU );
   ulong       tx_chunk  = tx_chunk0;
 
   /* Fib4 Routing Table setup */
@@ -529,6 +529,8 @@ main( int     argc,
   } tx_pkt_before_during_frag = {
     .eth = {
       .net_type = fd_ushort_bswap( FD_ETH_HDR_TYPE_IP ),
+      .dst      = {0xff,0xff,0xff,0xff,0xff,0xff},
+      .src      = {0xff,0xff,0xff,0xff,0xff,0xff}
     },
     .ip4 = {
       .verihl      = FD_IP4_VERIHL( 4, 5 ),
@@ -555,12 +557,13 @@ main( int     argc,
       .net_type = fd_ushort_bswap( FD_ETH_HDR_TYPE_IP )
     },
     .outer_ip4 = {
-      .verihl      = FD_IP4_VERIHL( 4, 5 ),
-      .ttl         = 64,
-      .protocol    = FD_IP4_HDR_PROTOCOL_GRE,
-      .net_tot_len = fd_ushort_bswap( sizeof(fd_ip4_hdr_t) + sizeof(fd_gre_hdr_t) + 31 ),
-      .saddr       = gre0_outer_src_ip,
-      .daddr       = gre0_outer_dst_ip
+      .verihl       = FD_IP4_VERIHL( 4, 5 ),
+      .ttl          = 64,
+      .protocol     = FD_IP4_HDR_PROTOCOL_GRE,
+      .net_tot_len  = fd_ushort_bswap( sizeof(fd_ip4_hdr_t) + sizeof(fd_gre_hdr_t) + 31 ),
+      .net_frag_off = fd_ushort_bswap( FD_IP4_HDR_FRAG_OFF_DF ),
+      .saddr        = gre0_outer_src_ip,
+      .daddr        = gre0_outer_dst_ip
     },
     .gre = {
       .flags_version = FD_GRE_HDR_FLG_VER_BASIC,
