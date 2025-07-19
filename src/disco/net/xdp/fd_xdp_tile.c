@@ -799,19 +799,27 @@ after_frag( fd_net_ctx_t *      ctx,
     ushort  outer_net_tot_len = sizeof(fd_ip4_hdr_t) + sizeof(fd_gre_hdr_t) + fd_ushort_bswap( ( (fd_ip4_hdr_t *)inner_iphdr )->net_tot_len  );
 
     /* Construct outer ip header */
-    FD_STORE( uchar,  outer_iphdr,    0x45 );  // outer_iphdr->verihl = 0x45;
-    FD_STORE( ushort, outer_iphdr+2,  fd_ushort_bswap( outer_net_tot_len ) );
-    FD_STORE( uchar,  outer_iphdr+8,  64 );    // ttl = 64
-    FD_STORE( uchar,  outer_iphdr+9,  FD_IP4_HDR_PROTOCOL_GRE );
-    FD_STORE( uint,   outer_iphdr+12, ctx->tx_op.gre_outer_src_ip );
-    FD_STORE( uint,   outer_iphdr+16, ctx->tx_op.gre_outer_dst_ip );
-    /* Compute checksum for the outer hdr */
-    FD_STORE( ushort, outer_iphdr+10, 0 );
-    FD_STORE( ushort, outer_iphdr+10, fd_ip4_hdr_check_fast( outer_iphdr ) );
+    fd_ip4_hdr_t ip4_outer = (fd_ip4_hdr_t) {
+      .verihl       = FD_IP4_VERIHL( 4,5 ),
+      .tos          = 0,
+      .net_tot_len  = fd_ushort_bswap( outer_net_tot_len ),
+      .net_id       = 0,
+      .net_frag_off = fd_ushort_bswap( FD_IP4_HDR_FRAG_OFF_DF ),
+      .ttl          = 64,
+      .protocol     = FD_IP4_HDR_PROTOCOL_GRE,
+      .check        = 0,
+      .saddr        = ctx->tx_op.gre_outer_src_ip,
+      .daddr        = ctx->tx_op.gre_outer_dst_ip,
+    };
+    ip4_outer.check = fd_ip4_hdr_check_fast( &ip4_outer );
+    FD_STORE( fd_ip4_hdr_t, outer_iphdr, ip4_outer );
 
     /* Construct gre header */
-    FD_STORE( ushort, gre_hdr,   0 );
-    FD_STORE( ushort, gre_hdr+2, fd_ushort_bswap( FD_ETH_HDR_TYPE_IP ) );
+    fd_gre_hdr_t gre_hdr_ = {
+      .flags_version = FD_GRE_HDR_FLG_VER_BASIC,
+      .protocol      = fd_ushort_bswap( FD_ETH_HDR_TYPE_IP )
+    };
+    FD_STORE( fd_gre_hdr_t, gre_hdr, gre_hdr_ );
 
     iphdr   = inner_iphdr;
     sz      = sizeof(fd_eth_hdr_t) + outer_net_tot_len;
