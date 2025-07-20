@@ -3502,7 +3502,10 @@ class StructType(TypeNode):
             print(f"void {n}_new( {n}_t * self );", file=header)
         print(f"int {n}_encode( {n}_t const * self, fd_bincode_encode_ctx_t * ctx );", file=header)
         print(f"void {n}_walk( void * w, {n}_t const * self, fd_types_walk_fn_t fun, const char *name, uint level, uint varint );", file=header)
-        print(f"ulong {n}_size( {n}_t const * self );", file=header)
+        if self.isFixedSize():
+            print(f'static inline ulong {n}_size( {n}_t const * self ) {{ (void)self; return {self.fixedSize()}UL; }}', file=header)
+        else:
+            print(f"ulong {n}_size( {n}_t const * self );", file=header)
         print(f'static inline ulong {n}_align( void ) {{ return {n.upper()}_ALIGN; }}', file=header)
         if self.isFixedSize() and self.isFuzzy():
             print(f'static inline int {n}_decode_footprint( fd_bincode_decode_ctx_t * ctx, ulong * total_sz ) {{', file=header)
@@ -3643,14 +3646,14 @@ class StructType(TypeNode):
         print(f'  fun( w, self, name, FD_FLAMENCO_TYPE_MAP_END, "{n}", level--, 0 );', file=body)
         print("}", file=body)
 
-
-        print(f'ulong {n}_size( {n}_t const * self ) {{', file=body)
-        print('  ulong size = 0;', file=body)
-        for f in self.fields:
-            f.emitSize('')
-        print('  return size;', file=body)
-        print("}", file=body)
-        print("", file=body)
+        if not self.isFixedSize():
+            print(f'ulong {n}_size( {n}_t const * self ) {{', file=body)
+            print('  ulong size = 0;', file=body)
+            for f in self.fields:
+                f.emitSize('')
+            print('  return size;', file=body)
+            print("}", file=body)
+            print("", file=body)
 
         if self.produce_global and not self.isFlat():
             print(f'ulong {n}_size_global( {n}_global_t const * self ) {{', file=body)
