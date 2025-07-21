@@ -231,7 +231,7 @@ typedef struct fd_epoch_stake_history_entry_pair fd_epoch_stake_history_entry_pa
 #define FD_EPOCH_STAKE_HISTORY_ENTRY_PAIR_ALIGN alignof(fd_epoch_stake_history_entry_pair_t)
 
 /* https://github.com/firedancer-io/solana/blob/v1.17/sdk/program/src/stake_history.rs#L12-L75 */
-/* Encoded Size: Dynamic */
+/* Encoded Size: Fixed (16392 bytes) */
 struct fd_stake_history {
   ulong fd_stake_history_len;
   ulong fd_stake_history_size;
@@ -3824,7 +3824,7 @@ void * fd_epoch_stake_history_entry_pair_decode( void * mem, fd_bincode_decode_c
 void fd_stake_history_new( fd_stake_history_t * self );
 int fd_stake_history_encode( fd_stake_history_t const * self, fd_bincode_encode_ctx_t * ctx );
 void fd_stake_history_walk( void * w, fd_stake_history_t const * self, fd_types_walk_fn_t fun, const char *name, uint level, uint varint );
-ulong fd_stake_history_size( fd_stake_history_t const * self );
+static inline ulong fd_stake_history_size( fd_stake_history_t const * self ) { (void)self; return 16392UL; }
 static inline ulong fd_stake_history_align( void ) { return FD_STAKE_HISTORY_ALIGN; }
 int fd_stake_history_decode_footprint( fd_bincode_decode_ctx_t * ctx, ulong * total_sz );
 void * fd_stake_history_decode( void * mem, fd_bincode_decode_ctx_t * ctx );

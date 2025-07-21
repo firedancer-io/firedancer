@@ -1023,7 +1023,10 @@ class StaticVectorMember(TypeNode):
         self.ignore_underflow = (bool(json["ignore_underflow"]) if "ignore_underflow" in json else False)
 
     def isFixedSize(self):
-        return False
+        return self.element in fixedsizetypes
+
+    def fixedSize(self):
+        return 8 + self.size * fixedsizetypes[self.element]
 
     def isFlat(self):
           return self.element in flattypes
@@ -1834,7 +1837,6 @@ class MapMember(TypeNode):
         print(f'    {nodename} * out = NULL;;', file=body)
         print(f'    {mapname}_insert_or_replace( self->{self.name}_pool, &self->{self.name}_root, node, &out );', file=body)
         print(f'    if( out != NULL ) {{', file=body)
-        print(f'      // Unclear how to release the memory...', file=body)
         print(f'      {mapname}_release( self->{self.name}_pool, out );', file=body)
         print(f'    }}', file=body)
         print('  }', file=body)
@@ -1960,7 +1962,7 @@ class MapMember(TypeNode):
         mapname = element_type + "_map"
         nodename = element_type + "_mapnode_t"
 
-        print(f'  {nodename} * {self.name}_pool = !!self->{self.name}_pool_offset ? ({nodename} *){mapname}_join( fd_type_pun( (uchar *)self + self->{self.name}_pool_offset ) ) : NULL; // bruuu', file=body)
+        print(f'  {nodename} * {self.name}_pool = !!self->{self.name}_pool_offset ? ({nodename} *){mapname}_join( fd_type_pun( (uchar *)self + self->{self.name}_pool_offset ) ) : NULL;', file=body)
         print(f'  {nodename} * {self.name}_root = !!self->{self.name}_root_offset ? ({nodename} *)fd_type_pun( (uchar *)self + self->{self.name}_root_offset ) : NULL;', file=body)
         print(f'  if( {self.name}_root ) {{', file=body)
         if self.compact:

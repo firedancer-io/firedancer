@@ -629,7 +629,6 @@ static void fd_block_hash_queue_decode_inner( void * struct_mem, void * * alloc_
     fd_hash_hash_age_pair_t_mapnode_t * out = NULL;;
     fd_hash_hash_age_pair_t_map_insert_or_replace( self->ages_pool, &self->ages_root, node, &out );
     if( out != NULL ) {
-      // Unclear how to release the memory...
       fd_hash_hash_age_pair_t_map_release( self->ages_pool, out );
     }
   }
@@ -731,7 +730,7 @@ ulong fd_block_hash_queue_size_global( fd_block_hash_queue_global_t const * self
   if( NULL != last_hash ) {
     size += fd_hash_size( last_hash );
   }
-  fd_hash_hash_age_pair_t_mapnode_t * ages_pool = !!self->ages_pool_offset ? (fd_hash_hash_age_pair_t_mapnode_t *)fd_hash_hash_age_pair_t_map_join( fd_type_pun( (uchar *)self + self->ages_pool_offset ) ) : NULL; // bruuu
+  fd_hash_hash_age_pair_t_mapnode_t * ages_pool = !!self->ages_pool_offset ? (fd_hash_hash_age_pair_t_mapnode_t *)fd_hash_hash_age_pair_t_map_join( fd_type_pun( (uchar *)self + self->ages_pool_offset ) ) : NULL;
   fd_hash_hash_age_pair_t_mapnode_t * ages_root = !!self->ages_root_offset ? (fd_hash_hash_age_pair_t_mapnode_t *)fd_type_pun( (uchar *)self + self->ages_root_offset ) : NULL;
   if( ages_root ) {
     size += sizeof(ulong);
@@ -1307,14 +1306,6 @@ void fd_stake_history_walk( void * w, fd_stake_history_t const * self, fd_types_
   fun( w, NULL, "fd_stake_history", FD_FLAMENCO_TYPE_ARR_END, "epoch_stake_history_entry_pair[]", level--, 0 );
   fun( w, self, name, FD_FLAMENCO_TYPE_MAP_END, "fd_stake_history", level--, 0 );
 }
-ulong fd_stake_history_size( fd_stake_history_t const * self ) {
-  ulong size = 0;
-  size += sizeof(ulong);
-  for( ulong i=0; i<self->fd_stake_history_len; i++ )
-    size += fd_epoch_stake_history_entry_pair_size( self->fd_stake_history + i );
-  return size;
-}
-
 int fd_solana_account_encode( fd_solana_account_t const * self, fd_bincode_encode_ctx_t * ctx ) {
   int err;
   err = fd_bincode_uint64_encode( self->lamports, ctx );
@@ -1911,7 +1902,7 @@ ulong fd_vote_accounts_size( fd_vote_accounts_t const * self ) {
 
 ulong fd_vote_accounts_size_global( fd_vote_accounts_global_t const * self ) {
   ulong size = 0;
-  fd_vote_accounts_pair_global_t_mapnode_t * vote_accounts_pool = !!self->vote_accounts_pool_offset ? (fd_vote_accounts_pair_global_t_mapnode_t *)fd_vote_accounts_pair_global_t_map_join( fd_type_pun( (uchar *)self + self->vote_accounts_pool_offset ) ) : NULL; // bruuu
+  fd_vote_accounts_pair_global_t_mapnode_t * vote_accounts_pool = !!self->vote_accounts_pool_offset ? (fd_vote_accounts_pair_global_t_mapnode_t *)fd_vote_accounts_pair_global_t_map_join( fd_type_pun( (uchar *)self + self->vote_accounts_pool_offset ) ) : NULL;
   fd_vote_accounts_pair_global_t_mapnode_t * vote_accounts_root = !!self->vote_accounts_root_offset ? (fd_vote_accounts_pair_global_t_mapnode_t *)fd_type_pun( (uchar *)self + self->vote_accounts_root_offset ) : NULL;
   if( vote_accounts_root ) {
     size += sizeof(ulong);
@@ -2030,7 +2021,6 @@ static void fd_account_keys_decode_inner( void * struct_mem, void * * alloc_mem,
     fd_account_keys_pair_t_mapnode_t * out = NULL;;
     fd_account_keys_pair_t_map_insert_or_replace( self->account_keys_pool, &self->account_keys_root, node, &out );
     if( out != NULL ) {
-      // Unclear how to release the memory...
       fd_account_keys_pair_t_map_release( self->account_keys_pool, out );
     }
   }
@@ -2097,7 +2087,7 @@ ulong fd_account_keys_size( fd_account_keys_t const * self ) {
 
 ulong fd_account_keys_size_global( fd_account_keys_global_t const * self ) {
   ulong size = 0;
-  fd_account_keys_pair_t_mapnode_t * account_keys_pool = !!self->account_keys_pool_offset ? (fd_account_keys_pair_t_mapnode_t *)fd_account_keys_pair_t_map_join( fd_type_pun( (uchar *)self + self->account_keys_pool_offset ) ) : NULL; // bruuu
+  fd_account_keys_pair_t_mapnode_t * account_keys_pool = !!self->account_keys_pool_offset ? (fd_account_keys_pair_t_mapnode_t *)fd_account_keys_pair_t_map_join( fd_type_pun( (uchar *)self + self->account_keys_pool_offset ) ) : NULL;
   fd_account_keys_pair_t_mapnode_t * account_keys_root = !!self->account_keys_root_offset ? (fd_account_keys_pair_t_mapnode_t *)fd_type_pun( (uchar *)self + self->account_keys_root_offset ) : NULL;
   if( account_keys_root ) {
     size += sizeof(ulong);
@@ -2352,7 +2342,6 @@ static void fd_stakes_decode_inner( void * struct_mem, void * * alloc_mem, fd_bi
     fd_delegation_pair_t_mapnode_t * out = NULL;;
     fd_delegation_pair_t_map_insert_or_replace( self->stake_delegations_pool, &self->stake_delegations_root, node, &out );
     if( out != NULL ) {
-      // Unclear how to release the memory...
       fd_delegation_pair_t_map_release( self->stake_delegations_pool, out );
     }
   }
@@ -2437,7 +2426,7 @@ ulong fd_stakes_size( fd_stakes_t const * self ) {
 ulong fd_stakes_size_global( fd_stakes_global_t const * self ) {
   ulong size = 0;
   size += fd_vote_accounts_size_global( &self->vote_accounts );
-  fd_delegation_pair_t_mapnode_t * stake_delegations_pool = !!self->stake_delegations_pool_offset ? (fd_delegation_pair_t_mapnode_t *)fd_delegation_pair_t_map_join( fd_type_pun( (uchar *)self + self->stake_delegations_pool_offset ) ) : NULL; // bruuu
+  fd_delegation_pair_t_mapnode_t * stake_delegations_pool = !!self->stake_delegations_pool_offset ? (fd_delegation_pair_t_mapnode_t *)fd_delegation_pair_t_map_join( fd_type_pun( (uchar *)self + self->stake_delegations_pool_offset ) ) : NULL;
   fd_delegation_pair_t_mapnode_t * stake_delegations_root = !!self->stake_delegations_root_offset ? (fd_delegation_pair_t_mapnode_t *)fd_type_pun( (uchar *)self + self->stake_delegations_root_offset ) : NULL;
   if( stake_delegations_root ) {
     size += sizeof(ulong);
@@ -2551,7 +2540,6 @@ static void fd_stakes_stake_decode_inner( void * struct_mem, void * * alloc_mem,
     fd_stake_pair_t_mapnode_t * out = NULL;;
     fd_stake_pair_t_map_insert_or_replace( self->stake_delegations_pool, &self->stake_delegations_root, node, &out );
     if( out != NULL ) {
-      // Unclear how to release the memory...
       fd_stake_pair_t_map_release( self->stake_delegations_pool, out );
     }
   }
@@ -2636,7 +2624,7 @@ ulong fd_stakes_stake_size( fd_stakes_stake_t const * self ) {
 ulong fd_stakes_stake_size_global( fd_stakes_stake_global_t const * self ) {
   ulong size = 0;
   size += fd_vote_accounts_size_global( &self->vote_accounts );
-  fd_stake_pair_t_mapnode_t * stake_delegations_pool = !!self->stake_delegations_pool_offset ? (fd_stake_pair_t_mapnode_t *)fd_stake_pair_t_map_join( fd_type_pun( (uchar *)self + self->stake_delegations_pool_offset ) ) : NULL; // bruuu
+  fd_stake_pair_t_mapnode_t * stake_delegations_pool = !!self->stake_delegations_pool_offset ? (fd_stake_pair_t_mapnode_t *)fd_stake_pair_t_map_join( fd_type_pun( (uchar *)self + self->stake_delegations_pool_offset ) ) : NULL;
   fd_stake_pair_t_mapnode_t * stake_delegations_root = !!self->stake_delegations_root_offset ? (fd_stake_pair_t_mapnode_t *)fd_type_pun( (uchar *)self + self->stake_delegations_root_offset ) : NULL;
   if( stake_delegations_root ) {
     size += sizeof(ulong);
@@ -3080,7 +3068,6 @@ static void fd_epoch_stakes_decode_inner( void * struct_mem, void * * alloc_mem,
     fd_pubkey_node_vote_accounts_pair_t_mapnode_t * out = NULL;;
     fd_pubkey_node_vote_accounts_pair_t_map_insert_or_replace( self->node_id_to_vote_accounts_pool, &self->node_id_to_vote_accounts_root, node, &out );
     if( out != NULL ) {
-      // Unclear how to release the memory...
       fd_pubkey_node_vote_accounts_pair_t_map_release( self->node_id_to_vote_accounts_pool, out );
     }
   }
@@ -3095,7 +3082,6 @@ static void fd_epoch_stakes_decode_inner( void * struct_mem, void * * alloc_mem,
     fd_pubkey_pubkey_pair_t_mapnode_t * out = NULL;;
     fd_pubkey_pubkey_pair_t_map_insert_or_replace( self->epoch_authorized_voters_pool, &self->epoch_authorized_voters_root, node, &out );
     if( out != NULL ) {
-      // Unclear how to release the memory...
       fd_pubkey_pubkey_pair_t_map_release( self->epoch_authorized_voters_pool, out );
     }
   }
@@ -3199,7 +3185,7 @@ ulong fd_epoch_stakes_size_global( fd_epoch_stakes_global_t const * self ) {
   ulong size = 0;
   size += fd_stakes_size_global( &self->stakes );
   size += sizeof(ulong);
-  fd_pubkey_node_vote_accounts_pair_global_t_mapnode_t * node_id_to_vote_accounts_pool = !!self->node_id_to_vote_accounts_pool_offset ? (fd_pubkey_node_vote_accounts_pair_global_t_mapnode_t *)fd_pubkey_node_vote_accounts_pair_global_t_map_join( fd_type_pun( (uchar *)self + self->node_id_to_vote_accounts_pool_offset ) ) : NULL; // bruuu
+  fd_pubkey_node_vote_accounts_pair_global_t_mapnode_t * node_id_to_vote_accounts_pool = !!self->node_id_to_vote_accounts_pool_offset ? (fd_pubkey_node_vote_accounts_pair_global_t_mapnode_t *)fd_pubkey_node_vote_accounts_pair_global_t_map_join( fd_type_pun( (uchar *)self + self->node_id_to_vote_accounts_pool_offset ) ) : NULL;
   fd_pubkey_node_vote_accounts_pair_global_t_mapnode_t * node_id_to_vote_accounts_root = !!self->node_id_to_vote_accounts_root_offset ? (fd_pubkey_node_vote_accounts_pair_global_t_mapnode_t *)fd_type_pun( (uchar *)self + self->node_id_to_vote_accounts_root_offset ) : NULL;
   if( node_id_to_vote_accounts_root ) {
     size += sizeof(ulong);
@@ -3211,7 +3197,7 @@ ulong fd_epoch_stakes_size_global( fd_epoch_stakes_global_t const * self ) {
   } else {
     size += sizeof(ulong);
   }
-  fd_pubkey_pubkey_pair_t_mapnode_t * epoch_authorized_voters_pool = !!self->epoch_authorized_voters_pool_offset ? (fd_pubkey_pubkey_pair_t_mapnode_t *)fd_pubkey_pubkey_pair_t_map_join( fd_type_pun( (uchar *)self + self->epoch_authorized_voters_pool_offset ) ) : NULL; // bruuu
+  fd_pubkey_pubkey_pair_t_mapnode_t * epoch_authorized_voters_pool = !!self->epoch_authorized_voters_pool_offset ? (fd_pubkey_pubkey_pair_t_mapnode_t *)fd_pubkey_pubkey_pair_t_map_join( fd_type_pun( (uchar *)self + self->epoch_authorized_voters_pool_offset ) ) : NULL;
   fd_pubkey_pubkey_pair_t_mapnode_t * epoch_authorized_voters_root = !!self->epoch_authorized_voters_root_offset ? (fd_pubkey_pubkey_pair_t_mapnode_t *)fd_type_pun( (uchar *)self + self->epoch_authorized_voters_root_offset ) : NULL;
   if( epoch_authorized_voters_root ) {
     size += sizeof(ulong);
@@ -5011,7 +4997,6 @@ static void fd_versioned_epoch_stakes_current_decode_inner( void * struct_mem, v
     fd_pubkey_node_vote_accounts_pair_t_mapnode_t * out = NULL;;
     fd_pubkey_node_vote_accounts_pair_t_map_insert_or_replace( self->node_id_to_vote_accounts_pool, &self->node_id_to_vote_accounts_root, node, &out );
     if( out != NULL ) {
-      // Unclear how to release the memory...
       fd_pubkey_node_vote_accounts_pair_t_map_release( self->node_id_to_vote_accounts_pool, out );
     }
   }
@@ -5026,7 +5011,6 @@ static void fd_versioned_epoch_stakes_current_decode_inner( void * struct_mem, v
     fd_pubkey_pubkey_pair_t_mapnode_t * out = NULL;;
     fd_pubkey_pubkey_pair_t_map_insert_or_replace( self->epoch_authorized_voters_pool, &self->epoch_authorized_voters_root, node, &out );
     if( out != NULL ) {
-      // Unclear how to release the memory...
       fd_pubkey_pubkey_pair_t_map_release( self->epoch_authorized_voters_pool, out );
     }
   }
@@ -5130,7 +5114,7 @@ ulong fd_versioned_epoch_stakes_current_size_global( fd_versioned_epoch_stakes_c
   ulong size = 0;
   size += fd_stakes_stake_size_global( &self->stakes );
   size += sizeof(ulong);
-  fd_pubkey_node_vote_accounts_pair_global_t_mapnode_t * node_id_to_vote_accounts_pool = !!self->node_id_to_vote_accounts_pool_offset ? (fd_pubkey_node_vote_accounts_pair_global_t_mapnode_t *)fd_pubkey_node_vote_accounts_pair_global_t_map_join( fd_type_pun( (uchar *)self + self->node_id_to_vote_accounts_pool_offset ) ) : NULL; // bruuu
+  fd_pubkey_node_vote_accounts_pair_global_t_mapnode_t * node_id_to_vote_accounts_pool = !!self->node_id_to_vote_accounts_pool_offset ? (fd_pubkey_node_vote_accounts_pair_global_t_mapnode_t *)fd_pubkey_node_vote_accounts_pair_global_t_map_join( fd_type_pun( (uchar *)self + self->node_id_to_vote_accounts_pool_offset ) ) : NULL;
   fd_pubkey_node_vote_accounts_pair_global_t_mapnode_t * node_id_to_vote_accounts_root = !!self->node_id_to_vote_accounts_root_offset ? (fd_pubkey_node_vote_accounts_pair_global_t_mapnode_t *)fd_type_pun( (uchar *)self + self->node_id_to_vote_accounts_root_offset ) : NULL;
   if( node_id_to_vote_accounts_root ) {
     size += sizeof(ulong);
@@ -5142,7 +5126,7 @@ ulong fd_versioned_epoch_stakes_current_size_global( fd_versioned_epoch_stakes_c
   } else {
     size += sizeof(ulong);
   }
-  fd_pubkey_pubkey_pair_t_mapnode_t * epoch_authorized_voters_pool = !!self->epoch_authorized_voters_pool_offset ? (fd_pubkey_pubkey_pair_t_mapnode_t *)fd_pubkey_pubkey_pair_t_map_join( fd_type_pun( (uchar *)self + self->epoch_authorized_voters_pool_offset ) ) : NULL; // bruuu
+  fd_pubkey_pubkey_pair_t_mapnode_t * epoch_authorized_voters_pool = !!self->epoch_authorized_voters_pool_offset ? (fd_pubkey_pubkey_pair_t_mapnode_t *)fd_pubkey_pubkey_pair_t_map_join( fd_type_pun( (uchar *)self + self->epoch_authorized_voters_pool_offset ) ) : NULL;
   fd_pubkey_pubkey_pair_t_mapnode_t * epoch_authorized_voters_root = !!self->epoch_authorized_voters_root_offset ? (fd_pubkey_pubkey_pair_t_mapnode_t *)fd_type_pun( (uchar *)self + self->epoch_authorized_voters_root_offset ) : NULL;
   if( epoch_authorized_voters_root ) {
     size += sizeof(ulong);
@@ -9324,7 +9308,6 @@ static void fd_clock_timestamp_votes_decode_inner( void * struct_mem, void * * a
     fd_clock_timestamp_vote_t_mapnode_t * out = NULL;;
     fd_clock_timestamp_vote_t_map_insert_or_replace( self->votes_pool, &self->votes_root, node, &out );
     if( out != NULL ) {
-      // Unclear how to release the memory...
       fd_clock_timestamp_vote_t_map_release( self->votes_pool, out );
     }
   }
@@ -9391,7 +9374,7 @@ ulong fd_clock_timestamp_votes_size( fd_clock_timestamp_votes_t const * self ) {
 
 ulong fd_clock_timestamp_votes_size_global( fd_clock_timestamp_votes_global_t const * self ) {
   ulong size = 0;
-  fd_clock_timestamp_vote_t_mapnode_t * votes_pool = !!self->votes_pool_offset ? (fd_clock_timestamp_vote_t_mapnode_t *)fd_clock_timestamp_vote_t_map_join( fd_type_pun( (uchar *)self + self->votes_pool_offset ) ) : NULL; // bruuu
+  fd_clock_timestamp_vote_t_mapnode_t * votes_pool = !!self->votes_pool_offset ? (fd_clock_timestamp_vote_t_mapnode_t *)fd_clock_timestamp_vote_t_map_join( fd_type_pun( (uchar *)self + self->votes_pool_offset ) ) : NULL;
   fd_clock_timestamp_vote_t_mapnode_t * votes_root = !!self->votes_root_offset ? (fd_clock_timestamp_vote_t_mapnode_t *)fd_type_pun( (uchar *)self + self->votes_root_offset ) : NULL;
   if( votes_root ) {
     size += sizeof(ulong);
@@ -10365,7 +10348,6 @@ static void fd_calculate_stake_vote_rewards_result_decode_inner( void * struct_m
     fd_vote_reward_t_mapnode_t * out = NULL;;
     fd_vote_reward_t_map_insert_or_replace( self->vote_reward_map_pool, &self->vote_reward_map_root, node, &out );
     if( out != NULL ) {
-      // Unclear how to release the memory...
       fd_vote_reward_t_map_release( self->vote_reward_map_pool, out );
     }
   }
@@ -10621,7 +10603,6 @@ static void fd_partitioned_rewards_calculation_decode_inner( void * struct_mem, 
     fd_vote_reward_t_mapnode_t * out = NULL;;
     fd_vote_reward_t_map_insert_or_replace( self->vote_reward_map_pool, &self->vote_reward_map_root, node, &out );
     if( out != NULL ) {
-      // Unclear how to release the memory...
       fd_vote_reward_t_map_release( self->vote_reward_map_pool, out );
     }
   }
@@ -25560,7 +25541,6 @@ static void fd_epoch_info_decode_inner( void * struct_mem, void * * alloc_mem, f
     fd_vote_info_pair_t_mapnode_t * out = NULL;;
     fd_vote_info_pair_t_map_insert_or_replace( self->vote_states_pool, &self->vote_states_root, node, &out );
     if( out != NULL ) {
-      // Unclear how to release the memory...
       fd_vote_info_pair_t_map_release( self->vote_states_pool, out );
     }
   }
@@ -25875,7 +25855,6 @@ static void fd_account_costs_decode_inner( void * struct_mem, void * * alloc_mem
     fd_account_costs_pair_t_mapnode_t * out = NULL;;
     fd_account_costs_pair_t_map_insert_or_replace( self->account_costs_pool, &self->account_costs_root, node, &out );
     if( out != NULL ) {
-      // Unclear how to release the memory...
       fd_account_costs_pair_t_map_release( self->account_costs_pool, out );
     }
   }
