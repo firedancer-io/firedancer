@@ -1023,7 +1023,10 @@ class StaticVectorMember(TypeNode):
         self.ignore_underflow = (bool(json["ignore_underflow"]) if "ignore_underflow" in json else False)
 
     def isFixedSize(self):
-        return False
+        return self.element in fixedsizetypes
+
+    def fixedSize(self):
+        return 8 + self.size * fixedsizetypes[self.element]
 
     def isFlat(self):
           return self.element in flattypes
@@ -1834,7 +1837,6 @@ class MapMember(TypeNode):
         print(f'    {nodename} * out = NULL;;', file=body)
         print(f'    {mapname}_insert_or_replace( self->{self.name}_pool, &self->{self.name}_root, node, &out );', file=body)
         print(f'    if( out != NULL ) {{', file=body)
-        print(f'      // Unclear how to release the memory...', file=body)
         print(f'      {mapname}_release( self->{self.name}_pool, out );', file=body)
         print(f'    }}', file=body)
         print('  }', file=body)
@@ -1960,7 +1962,7 @@ class MapMember(TypeNode):
         mapname = element_type + "_map"
         nodename = element_type + "_mapnode_t"
 
-        print(f'  {nodename} * {self.name}_pool = !!self->{self.name}_pool_offset ? ({nodename} *){mapname}_join( fd_type_pun( (uchar *)self + self->{self.name}_pool_offset ) ) : NULL; // bruuu', file=body)
+        print(f'  {nodename} * {self.name}_pool = !!self->{self.name}_pool_offset ? ({nodename} *){mapname}_join( fd_type_pun( (uchar *)self + self->{self.name}_pool_offset ) ) : NULL;', file=body)
         print(f'  {nodename} * {self.name}_root = !!self->{self.name}_root_offset ? ({nodename} *)fd_type_pun( (uchar *)self + self->{self.name}_root_offset ) : NULL;', file=body)
         print(f'  if( {self.name}_root ) {{', file=body)
         if self.compact:
@@ -3502,7 +3504,10 @@ class StructType(TypeNode):
             print(f"void {n}_new( {n}_t * self );", file=header)
         print(f"int {n}_encode( {n}_t const * self, fd_bincode_encode_ctx_t * ctx );", file=header)
         print(f"void {n}_walk( void * w, {n}_t const * self, fd_types_walk_fn_t fun, const char *name, uint level, uint varint );", file=header)
-        print(f"ulong {n}_size( {n}_t const * self );", file=header)
+        if self.isFixedSize():
+            print(f'static inline ulong {n}_size( {n}_t const * self ) {{ (void)self; return {self.fixedSize()}UL; }}', file=header)
+        else:
+            print(f"ulong {n}_size( {n}_t const * self );", file=header)
         print(f'static inline ulong {n}_align( void ) {{ return {n.upper()}_ALIGN; }}', file=header)
         if self.isFixedSize() and self.isFuzzy():
             print(f'static inline int {n}_decode_footprint( fd_bincode_decode_ctx_t * ctx, ulong * total_sz ) {{', file=header)
@@ -3643,14 +3648,14 @@ class StructType(TypeNode):
         print(f'  fun( w, self, name, FD_FLAMENCO_TYPE_MAP_END, "{n}", level--, 0 );', file=body)
         print("}", file=body)
 
-
-        print(f'ulong {n}_size( {n}_t const * self ) {{', file=body)
-        print('  ulong size = 0;', file=body)
-        for f in self.fields:
-            f.emitSize('')
-        print('  return size;', file=body)
-        print("}", file=body)
-        print("", file=body)
+        if not self.isFixedSize():
+            print(f'ulong {n}_size( {n}_t const * self ) {{', file=body)
+            print('  ulong size = 0;', file=body)
+            for f in self.fields:
+                f.emitSize('')
+            print('  return size;', file=body)
+            print("}", file=body)
+            print("", file=body)
 
         if self.produce_global and not self.isFlat():
             print(f'ulong {n}_size_global( {n}_global_t const * self ) {{', file=body)

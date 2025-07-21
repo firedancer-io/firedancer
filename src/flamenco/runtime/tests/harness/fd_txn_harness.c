@@ -88,17 +88,17 @@ fd_runtime_fuzz_txn_ctx_create( fd_runtime_fuzz_runner_t *         runner,
 
   /* Set epoch bank variables if not present (defaults obtained from GenesisConfig::default() in Agave) */
   fd_epoch_schedule_t default_epoch_schedule = {
-                                                .slots_per_epoch             = 432000,
-                                                .leader_schedule_slot_offset = 432000,
-                                                .warmup                      = 1,
-                                                .first_normal_epoch          = 14,
-                                                .first_normal_slot           = 524256
-                                               };
-  fd_rent_t           default_rent           = {
-                                                .lamports_per_uint8_year     = 3480,
-                                                .exemption_threshold         = 2.0,
-                                                .burn_percent                = 50
-                                               };
+    .slots_per_epoch             = 432000,
+    .leader_schedule_slot_offset = 432000,
+    .warmup                      = 1,
+    .first_normal_epoch          = 14,
+    .first_normal_slot           = 524256
+  };
+  fd_rent_t default_rent = {
+    .lamports_per_uint8_year = 3480,
+    .exemption_threshold     = 2.0,
+    .burn_percent            = 50
+  };
   fd_bank_epoch_schedule_set( slot_ctx->bank, default_epoch_schedule );
 
   fd_bank_rent_set( slot_ctx->bank, default_rent );
@@ -194,25 +194,17 @@ fd_runtime_fuzz_txn_ctx_create( fd_runtime_fuzz_runner_t *         runner,
   ulong num_blockhashes = test_ctx->blockhash_queue_count;
 
   /* Blockhash queue init */
-  fd_block_hash_queue_global_t * block_hash_queue = fd_bank_block_hash_queue_modify( slot_ctx->bank );
-  uchar * last_hash_mem = (uchar *)fd_ulong_align_up( (ulong)block_hash_queue + sizeof(fd_block_hash_queue_global_t), alignof(fd_hash_t) );
-  uchar * ages_pool_mem = (uchar *)fd_ulong_align_up( (ulong)last_hash_mem + sizeof(fd_hash_t), fd_hash_hash_age_pair_t_map_align() );
-  fd_hash_hash_age_pair_t_mapnode_t * ages_pool = fd_hash_hash_age_pair_t_map_join( fd_hash_hash_age_pair_t_map_new( ages_pool_mem, 400 ) );
-
-  block_hash_queue->max_age          = FD_BLOCKHASH_QUEUE_MAX_ENTRIES;
-  block_hash_queue->ages_root_offset = 0UL;
-  fd_block_hash_queue_ages_pool_update( block_hash_queue, ages_pool );
-  block_hash_queue->last_hash_index  = 0UL;
-  block_hash_queue->last_hash_offset = (ulong)last_hash_mem - (ulong)block_hash_queue;
+  ulong blockhash_seed; FD_TEST( fd_rng_secure( &blockhash_seed, sizeof(ulong) ) );
+  fd_blockhashes_t * blockhashes = fd_blockhashes_init( fd_bank_block_hash_queue_modify( slot_ctx->bank ), blockhash_seed );
 
   // Save lamports per signature for most recent blockhash, if sysvar cache contains recent block hashes
-  fd_recent_block_hashes_global_t const * rbh_global = fd_sysvar_recent_hashes_read( funk, funk_txn, runner->spad );
+  fd_recent_block_hashes_t const * rbh_sysvar = fd_sysvar_recent_hashes_read( funk, funk_txn, runner->spad );
   fd_recent_block_hashes_t rbh[1];
-  if( rbh_global ) {
-    rbh->hashes = deq_fd_block_block_hash_entry_t_join( (uchar*)rbh_global + rbh_global->hashes_offset );
+  if( rbh_sysvar ) {
+    rbh->hashes = rbh_sysvar->hashes;
   }
 
-  if( rbh_global && !deq_fd_block_block_hash_entry_t_empty( rbh->hashes ) ) {
+  if( rbh_sysvar && !deq_fd_block_block_hash_entry_t_empty( rbh->hashes ) ) {
     fd_block_block_hash_entry_t const * last = deq_fd_block_block_hash_entry_t_peek_head_const( rbh->hashes );
     if( last && last->fee_calculator.lamports_per_signature!=0UL ) {
       fd_bank_lamports_per_signature_set( slot_ctx->bank, last->fee_calculator.lamports_per_signature );
@@ -227,10 +219,14 @@ fd_runtime_fuzz_txn_ctx_create( fd_runtime_fuzz_runner_t *         runner,
     memcpy( genesis_hash->hash, test_ctx->blockhash_queue[0]->bytes, sizeof(fd_hash_t) );
 
     for( ulong i = 0; i < num_blockhashes; ++i ) {
+      fd_hash_t blockhash = FD_LOAD( fd_hash_t, test_ctx->blockhash_queue[i]->bytes );
+      /* Drop duplicate blockhashes */
+      if( FD_UNLIKELY( fd_blockhash_map_idx_remove( blockhashes->map, &blockhash, ULONG_MAX, blockhashes->d.deque )!=ULONG_MAX ) ) {
+        FD_LOG_WARNING(( "Fuzz input has a duplicate blockhash %s at index %lu",
+                         FD_BASE58_ENC_32_ALLOCA( blockhash.hash ), i ));
+      }
       // Recent block hashes cap is 150 (actually 151), while blockhash queue capacity is 300 (actually 301)
-      fd_block_block_hash_entry_t blockhash_entry;
-      memcpy( &blockhash_entry.blockhash, test_ctx->blockhash_queue[i]->bytes, sizeof(fd_hash_t) );
-      fd_bank_poh_set( slot_ctx->bank, blockhash_entry.blockhash );
+      fd_bank_poh_set( slot_ctx->bank, blockhash );
       fd_sysvar_recent_hashes_update( slot_ctx, runner->spad );
     }
   } else {

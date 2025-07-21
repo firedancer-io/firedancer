@@ -104,11 +104,6 @@ fd_executor_txn_check( fd_exec_txn_ctx_t * txn_ctx );
 void
 fd_txn_reclaim_accounts( fd_exec_txn_ctx_t * txn_ctx );
 
-int
-fd_executor_is_blockhash_valid_for_age( fd_block_hash_queue_global_t const * block_hash_queue,
-                                        fd_hash_t const *                    blockhash,
-                                        ulong                                max_age );
-
 /* fd_io_strerror converts an FD_EXECUTOR_INSTR_ERR_{...} code into a
    human readable cstr.  The lifetime of the returned pointer is
    infinite and the call itself is thread safe.  The returned pointer is

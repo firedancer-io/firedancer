@@ -44,6 +44,7 @@ struct fd_snaprd_tile {
   int   malformed;
   long  deadline_nanos;
   ulong ack_cnt;
+  int   peer_selection;
 
   fd_ip4_port_t addr;
 
@@ -239,7 +240,9 @@ after_credit( fd_snaprd_tile_t *  ctx,
   (void)charge_busy;
 
   long now = fd_log_wallclock();
-  fd_ssping_advance( ctx->ssping, now );
+  if( FD_LIKELY( ctx->peer_selection ) ) {
+    fd_ssping_advance( ctx->ssping, now );
+  }
 
   /* All control fragments sent by the snaprd tile must be fully
      acknowledged by all downstream consumers before processing can
@@ -423,6 +426,11 @@ privileged_init( fd_topo_t *      topo,
   FD_SCRATCH_ALLOC_INIT( l, scratch );
   fd_snaprd_tile_t * ctx = FD_SCRATCH_ALLOC_APPEND( l, alignof(fd_snaprd_tile_t),  sizeof(fd_snaprd_tile_t) );
 
+  /* By default, the snaprd tile selects peers and its initial state is
+     WAITING_FOR_PEERS. */
+  ctx->peer_selection = 1;
+  ctx->state          = FD_SNAPRD_STATE_WAITING_FOR_PEERS;
+
   ulong full_slot = ULONG_MAX;
   ulong incremental_slot = ULONG_MAX;
   char full_path[ PATH_MAX ] = {0};
@@ -444,10 +452,23 @@ privileged_init( fd_topo_t *      topo,
     ctx->local.full_snapshot_fd = open( ctx->local.full_snapshot_path, O_RDONLY|O_CLOEXEC|O_NONBLOCK );
     if( FD_UNLIKELY( -1==ctx->local.full_snapshot_fd ) ) FD_LOG_ERR(( "open() failed `%s` (%i-%s)", ctx->local.full_snapshot_path, errno, fd_io_strerror( errno ) ));
 
+    if( tile->snaprd.incremental_snapshot_fetch ) {
+      FD_TEST( incremental_slot!=ULONG_MAX );
+    }
+
     if( FD_LIKELY( incremental_slot!=ULONG_MAX ) ) {
       strncpy( ctx->local.incremental_snapshot_path, incremental_path, PATH_MAX );
       ctx->local.incremental_snapshot_fd = open( ctx->local.incremental_snapshot_path, O_RDONLY|O_CLOEXEC|O_NONBLOCK );
       if( FD_UNLIKELY( -1==ctx->local.incremental_snapshot_fd ) ) FD_LOG_ERR(( "open() failed `%s` (%i-%s)", ctx->local.incremental_snapshot_path, errno, fd_io_strerror( errno ) ));
+    }
+
+    if( FD_UNLIKELY( tile->snaprd.maximum_local_snapshot_age==0 ) ) {
+      /* Disable peer selection if we are reading snapshots from disk
+         and there is no maximum local snapshot age set.
+         Set the initial state to READING_FULL_FILE to avoid peer
+         selection logic. */
+      ctx->peer_selection = 0;
+      ctx->state          = FD_SNAPRD_STATE_READING_FULL_FILE;
     }
   }
 }
@@ -462,7 +483,6 @@ unprivileged_init( fd_topo_t *      topo,
   void * _sshttp          = FD_SCRATCH_ALLOC_APPEND( l, fd_sshttp_align(),          fd_sshttp_footprint()          );
   void * _ssping          = FD_SCRATCH_ALLOC_APPEND( l, fd_ssping_align(),          fd_ssping_footprint( 65536UL ) );
 
-  ctx->state = FD_SNAPRD_STATE_WAITING_FOR_PEERS;
   ctx->ack_cnt = 0UL;
   ctx->malformed = 0;
 

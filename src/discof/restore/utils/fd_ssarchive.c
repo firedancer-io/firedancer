@@ -103,7 +103,7 @@ fd_ssarchive_latest_pair( char const * directory,
       continue;
     }
 
-    if( FD_LIKELY( *full_slot==ULONG_MAX || entry_full_slot>*full_slot ) ) {
+    if( FD_LIKELY( entry_incremental_slot==ULONG_MAX && (entry_full_slot>*full_slot || *full_slot==ULONG_MAX) ) ) {
       *full_slot = entry_full_slot;
       if( FD_UNLIKELY( !fd_cstr_printf_check( full_path, PATH_MAX, NULL, "%s/%s", directory, entry->d_name ) ) ) {
         FD_LOG_ERR(( "snapshot path too long `%s/%s`", directory, entry->d_name ));

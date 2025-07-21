@@ -8,6 +8,11 @@ $(call add-objs,fd_txn_account,fd_flamenco)
 $(call add-hdrs,fd_bank_hash_cmp.h fd_rwseq_lock.h)
 $(call add-objs,fd_bank_hash_cmp,fd_flamenco)
 
+$(call add-hdrs,fd_blockhashes.h)
+$(call add-objs,fd_blockhashes,fd_flamenco)
+$(call make-unit-test,test_blockhashes,test_blockhashes,fd_flamenco fd_ballet fd_util)
+$(call run-unit-test,test_blockhashes)
+
 $(call add-hdrs,fd_blockstore.h fd_rwseq_lock.h)
 $(call add-objs,fd_blockstore,fd_flamenco)
 $(call make-unit-test,test_blockstore,test_blockstore, fd_flamenco fd_util fd_ballet,$(SECP256K1_LIBS))

@@ -551,6 +551,20 @@ fd_cstr_to_shmem_page_sz( char const * cstr );
 FD_FN_CONST char const *
 fd_shmem_page_sz_to_cstr( ulong page_sz );
 
+/* fd_shmem_iter_begin returns a pointer to the first join info in the
+   process. Returns NULL if there are no more joins. */
+
+fd_shmem_join_info_t const * fd_shmem_iter_begin( void );
+
+/* fd_shmem_iter_next returns the next join info in the process.
+   Returns NULL if there are no more joins */
+
+fd_shmem_join_info_t const * fd_shmem_iter_next( fd_shmem_join_info_t const * iter );
+
+static inline int fd_shmem_iter_done( fd_shmem_join_info_t const * iter ) {
+  return (iter == NULL);
+}
+
 /* These functions are for fd_shmem internal use only. */
 
 void

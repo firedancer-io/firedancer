@@ -12,37 +12,21 @@ FD_STATIC_ASSERT( offsetof( fd_vm_t, heap )  % FD_VM_HOST_REGION_ALIGN == 0, vm_
 
 FD_STATIC_ASSERT( FD_VM_SUCCESS                         ==  0, vm_err );
 FD_STATIC_ASSERT( FD_VM_ERR_INVAL                       == -1, vm_err );
-FD_STATIC_ASSERT( FD_VM_ERR_AGAIN                       == -2, vm_err );
 FD_STATIC_ASSERT( FD_VM_ERR_UNSUP                       == -3, vm_err );
-FD_STATIC_ASSERT( FD_VM_ERR_PERM                        == -4, vm_err );
 FD_STATIC_ASSERT( FD_VM_ERR_FULL                        == -5, vm_err );
 FD_STATIC_ASSERT( FD_VM_ERR_EMPTY                       == -6, vm_err );
 FD_STATIC_ASSERT( FD_VM_ERR_IO                          == -7, vm_err );
 
-FD_STATIC_ASSERT( FD_VM_ERR_SIGTEXT                     == -8, vm_err );
-FD_STATIC_ASSERT( FD_VM_ERR_SIGSPLIT                    == -9, vm_err );
-FD_STATIC_ASSERT( FD_VM_ERR_SIGCALL                     ==-10, vm_err );
-FD_STATIC_ASSERT( FD_VM_ERR_SIGSTACK                    ==-11, vm_err );
-FD_STATIC_ASSERT( FD_VM_ERR_SIGILL                      ==-12, vm_err );
-FD_STATIC_ASSERT( FD_VM_ERR_SIGSEGV                     ==-13, vm_err );
-FD_STATIC_ASSERT( FD_VM_ERR_SIGBUS                      ==-14, vm_err );
-FD_STATIC_ASSERT( FD_VM_ERR_SIGRDONLY                   ==-15, vm_err );
-FD_STATIC_ASSERT( FD_VM_ERR_SIGCOST                     ==-16, vm_err );
 FD_STATIC_ASSERT( FD_VM_ERR_SIGFPE                      ==-18, vm_err );
-FD_STATIC_ASSERT( FD_VM_ERR_SIGFPE_OF                   ==-19, vm_err );
-FD_STATIC_ASSERT( FD_VM_ERR_SIGSYSCALL                  ==-20, vm_err );
-FD_STATIC_ASSERT( FD_VM_ERR_SIGABORT                    ==-21, vm_err );
 
 FD_STATIC_ASSERT( FD_VM_ERR_INVALID_OPCODE              ==-25, vm_err );
 FD_STATIC_ASSERT( FD_VM_ERR_INVALID_SRC_REG             ==-26, vm_err );
 FD_STATIC_ASSERT( FD_VM_ERR_INVALID_DST_REG             ==-27, vm_err );
-FD_STATIC_ASSERT( FD_VM_ERR_INF_LOOP                    ==-28, vm_err );
 FD_STATIC_ASSERT( FD_VM_ERR_JMP_OUT_OF_BOUNDS           ==-29, vm_err );
 FD_STATIC_ASSERT( FD_VM_ERR_JMP_TO_ADDL_IMM             ==-30, vm_err );
 FD_STATIC_ASSERT( FD_VM_ERR_INVALID_END_IMM             ==-31, vm_err );
 FD_STATIC_ASSERT( FD_VM_ERR_INCOMPLETE_LDQ              ==-32, vm_err );
 FD_STATIC_ASSERT( FD_VM_ERR_LDQ_NO_ADDL_IMM             ==-33, vm_err );
-FD_STATIC_ASSERT( FD_VM_ERR_NO_SUCH_EXT_CALL            ==-34, vm_err );
 
 /* Verify limits */
 
@@ -131,33 +115,19 @@ main( int     argc,
 # define TEST( err ) FD_LOG_NOTICE(( "Testing fd_vm_strerror( %-38s ) (%i-%s)", #err, err, fd_vm_strerror( err ) ))
   TEST( FD_VM_SUCCESS                          );
   TEST( FD_VM_ERR_INVAL                        );
-  TEST( FD_VM_ERR_AGAIN                        );
   TEST( FD_VM_ERR_UNSUP                        );
-  TEST( FD_VM_ERR_PERM                         );
   TEST( FD_VM_ERR_FULL                         );
   TEST( FD_VM_ERR_EMPTY                        );
   TEST( FD_VM_ERR_IO                           );
 
-  TEST( FD_VM_ERR_SIGTEXT                      );
-  TEST( FD_VM_ERR_SIGSPLIT                     );
-  TEST( FD_VM_ERR_SIGCALL                      );
-  TEST( FD_VM_ERR_SIGSTACK                     );
-  TEST( FD_VM_ERR_SIGILL                       );
-  TEST( FD_VM_ERR_SIGSEGV                      );
-  TEST( FD_VM_ERR_SIGBUS                       );
-  TEST( FD_VM_ERR_SIGRDONLY                    );
-  TEST( FD_VM_ERR_SIGCOST                      );
-
   TEST( FD_VM_ERR_INVALID_OPCODE               );
   TEST( FD_VM_ERR_INVALID_SRC_REG              );
   TEST( FD_VM_ERR_INVALID_DST_REG              );
-  TEST( FD_VM_ERR_INF_LOOP                     );
   TEST( FD_VM_ERR_JMP_OUT_OF_BOUNDS            );
   TEST( FD_VM_ERR_JMP_TO_ADDL_IMM              );
   TEST( FD_VM_ERR_INVALID_END_IMM              );
   TEST( FD_VM_ERR_INCOMPLETE_LDQ               );
   TEST( FD_VM_ERR_LDQ_NO_ADDL_IMM              );
-  TEST( FD_VM_ERR_NO_SUCH_EXT_CALL             );
 # undef TEST
 
   FD_LOG_NOTICE(( "Testing fd_vm_disasm" ));
