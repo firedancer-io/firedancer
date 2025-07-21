@@ -445,6 +445,16 @@
 
 </div>
 
+## Metric Tile
+
+<div class="metrics">
+
+| Metric | Type | Description |
+|--------|------|-------------|
+| <span class="metrics-name">metric_&#8203;boot_&#8203;timestamp_&#8203;nanos</span> | gauge | Timestamp when validator was started (nanoseconds since epoch) |
+
+</div>
+
 ## Replay Tile
 
 <div class="metrics">
