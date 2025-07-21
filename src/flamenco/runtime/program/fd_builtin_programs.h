@@ -9,14 +9,20 @@
 #include "../fd_system_ids_pp.h"
 
 #define NO_ENABLE_FEATURE_ID ULONG_MAX
+#define FD_CORE_BPF_MIGRATION_TARGET_BUILTIN   (0)
+#define FD_CORE_BPF_MIGRATION_TARGET_STATELESS (1)
 
-/* https://github.com/anza-xyz/agave/blob/v2.1.0/runtime/src/bank/builtins/core_bpf_migration/mod.rs#L43-L66
-   Configuration for migrating a built-in program to Core BPF */
+/* https://github.com/anza-xyz/agave/blob/v2.3.0/builtins/src/core_bpf_migration.rs#L17-L43
+   Configuration for migrating a built-in program to Core BPF.
+   - `migration_target` is one of
+      FD_CORE_BPF_MIGRATION_TARGET_{BUILTIN,STATELESS}. */
 struct fd_core_bpf_migration_config {
   fd_pubkey_t const * source_buffer_address;
   fd_pubkey_t *       upgrade_authority_address;
   ulong               enable_feature_offset;
+  uchar               migration_target;
   fd_pubkey_t const * builtin_program_id;
+  fd_hash_t const *   verified_build_hash;
 };
 typedef struct fd_core_bpf_migration_config fd_core_bpf_migration_config_t;
 

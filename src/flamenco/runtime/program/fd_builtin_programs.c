@@ -34,36 +34,76 @@
         verify_fn                                         \
     }
 
-#define NO_CORE_BPF_MIGRATION_CONFIG NULL
+/* Core BPF migration configs */
+static const fd_core_bpf_migration_config_t BUILTIN_TO_CORE_BPF_STAKE_PROGRAM_CONFIG = {
+    &fd_solana_stake_program_buffer_address,
+    NULL,
+    offsetof(fd_features_t, migrate_stake_program_to_core_bpf),
+    FD_CORE_BPF_MIGRATION_TARGET_BUILTIN,
+    &fd_solana_stake_program_id,
+    NULL
+};
+static const fd_core_bpf_migration_config_t * const MIGRATE_BUILTIN_TO_CORE_BPF_STAKE_PROGRAM_CONFIG = &BUILTIN_TO_CORE_BPF_STAKE_PROGRAM_CONFIG;
 
-#define DEFINE_CORE_BPF_MIGRATION_CONFIG(name, buffer_address, feature_offset, program_id) \
-    static const fd_core_bpf_migration_config_t name = {                                   \
-        buffer_address,                                                                    \
-        NULL,                                                                              \
-        offsetof(fd_features_t, feature_offset),                                           \
-        program_id                                                                         \
-    };                                                                                     \
-    static const fd_core_bpf_migration_config_t * const MIGRATE_##name = &name
+static const fd_core_bpf_migration_config_t BUILTIN_TO_CORE_BPF_CONFIG_PROGRAM_CONFIG = {
+    &fd_solana_config_program_buffer_address,
+    NULL,
+    offsetof(fd_features_t, migrate_config_program_to_core_bpf),
+    FD_CORE_BPF_MIGRATION_TARGET_BUILTIN,
+    &fd_solana_config_program_id,
+    NULL
+};
+static const fd_core_bpf_migration_config_t * const MIGRATE_BUILTIN_TO_CORE_BPF_CONFIG_PROGRAM_CONFIG = &BUILTIN_TO_CORE_BPF_CONFIG_PROGRAM_CONFIG;
 
-DEFINE_CORE_BPF_MIGRATION_CONFIG(BUILTIN_TO_CORE_BPF_STAKE_PROGRAM_CONFIG,                &fd_solana_stake_program_buffer_address,                migrate_stake_program_to_core_bpf,                &fd_solana_stake_program_id);
-DEFINE_CORE_BPF_MIGRATION_CONFIG(BUILTIN_TO_CORE_BPF_CONFIG_PROGRAM_CONFIG,               &fd_solana_config_program_buffer_address,               migrate_config_program_to_core_bpf,               &fd_solana_config_program_id);
-DEFINE_CORE_BPF_MIGRATION_CONFIG(BUILTIN_TO_CORE_BPF_ADDRESS_LOOKUP_TABLE_PROGRAM_CONFIG, &fd_solana_address_lookup_table_program_buffer_address, migrate_address_lookup_table_program_to_core_bpf, &fd_solana_address_lookup_table_program_id);
-DEFINE_CORE_BPF_MIGRATION_CONFIG(STATELESS_TO_CORE_BPF_FEATURE_GATE_PROGRAM_CONFIG,       &fd_solana_feature_program_buffer_address,              migrate_feature_gate_program_to_core_bpf,         &fd_solana_feature_program_id);
+static const fd_core_bpf_migration_config_t BUILTIN_TO_CORE_BPF_ADDRESS_LOOKUP_TABLE_PROGRAM_CONFIG = {
+    &fd_solana_address_lookup_table_program_buffer_address,
+    NULL,
+    offsetof(fd_features_t, migrate_address_lookup_table_program_to_core_bpf),
+    FD_CORE_BPF_MIGRATION_TARGET_BUILTIN,
+    &fd_solana_address_lookup_table_program_id,
+    NULL
+};
+static const fd_core_bpf_migration_config_t * const MIGRATE_BUILTIN_TO_CORE_BPF_ADDRESS_LOOKUP_TABLE_PROGRAM_CONFIG = &BUILTIN_TO_CORE_BPF_ADDRESS_LOOKUP_TABLE_PROGRAM_CONFIG;
 
-#define SYSTEM_PROGRAM_BUILTIN                BUILTIN_PROGRAM(&fd_solana_system_program_id,                 "system_program",                        NO_ENABLE_FEATURE_ID,                                             NO_CORE_BPF_MIGRATION_CONFIG)
-#define VOTE_PROGRAM_BUILTIN                  BUILTIN_PROGRAM(&fd_solana_vote_program_id,                   "vote_program",                          NO_ENABLE_FEATURE_ID,                                             NO_CORE_BPF_MIGRATION_CONFIG)
-#define STAKE_PROGRAM_BUILTIN                 BUILTIN_PROGRAM(&fd_solana_stake_program_id,                  "stake_program",                         NO_ENABLE_FEATURE_ID,                                             MIGRATE_BUILTIN_TO_CORE_BPF_STAKE_PROGRAM_CONFIG)
-#define CONFIG_PROGRAM_BUILTIN                BUILTIN_PROGRAM(&fd_solana_config_program_id,                 "config_program",                        NO_ENABLE_FEATURE_ID,                                             MIGRATE_BUILTIN_TO_CORE_BPF_CONFIG_PROGRAM_CONFIG)
-#define LOADER_V4_BUILTIN                     BUILTIN_PROGRAM(&fd_solana_bpf_loader_v4_program_id,          "loader_v4",                             offsetof(fd_features_t, enable_loader_v4),                        NO_CORE_BPF_MIGRATION_CONFIG)
-#define ADDRESS_LOOKUP_TABLE_PROGRAM_BUILTIN  BUILTIN_PROGRAM(&fd_solana_address_lookup_table_program_id,   "address_lookup_table_program",          NO_ENABLE_FEATURE_ID,                                             MIGRATE_BUILTIN_TO_CORE_BPF_ADDRESS_LOOKUP_TABLE_PROGRAM_CONFIG)
-#define BPF_LOADER_DEPRECATED_BUILTIN         BUILTIN_PROGRAM(&fd_solana_bpf_loader_deprecated_program_id,  "solana_bpf_loader_deprecated_program",  NO_ENABLE_FEATURE_ID,                                             NO_CORE_BPF_MIGRATION_CONFIG)
-#define BPF_LOADER_BUILTIN                    BUILTIN_PROGRAM(&fd_solana_bpf_loader_program_id,             "solana_bpf_loader_program",             NO_ENABLE_FEATURE_ID,                                             NO_CORE_BPF_MIGRATION_CONFIG)
-#define BPF_LOADER_UPGRADEABLE_BUILTIN        BUILTIN_PROGRAM(&fd_solana_bpf_loader_upgradeable_program_id, "solana_bpf_loader_upgradeable_program", NO_ENABLE_FEATURE_ID,                                             NO_CORE_BPF_MIGRATION_CONFIG)
-#define COMPUTE_BUDGET_PROGRAM_BUILTIN        BUILTIN_PROGRAM(&fd_solana_compute_budget_program_id,         "compute_budget_program",                NO_ENABLE_FEATURE_ID,                                             NO_CORE_BPF_MIGRATION_CONFIG)
-#define ZK_TOKEN_PROOF_PROGRAM_BUILTIN        BUILTIN_PROGRAM(&fd_solana_zk_token_proof_program_id,         "zk_token_proof_program",                offsetof(fd_features_t, zk_token_sdk_enabled),                    NO_CORE_BPF_MIGRATION_CONFIG)
-#define ZK_ELGAMAL_PROOF_PROGRAM_BUILTIN      BUILTIN_PROGRAM(&fd_solana_zk_elgamal_proof_program_id,       "zk_elgamal_proof_program",              offsetof(fd_features_t, zk_elgamal_proof_program_enabled),        NO_CORE_BPF_MIGRATION_CONFIG)
+static const fd_core_bpf_migration_config_t STATELESS_TO_CORE_BPF_FEATURE_GATE_PROGRAM_CONFIG = {
+    &fd_solana_feature_program_buffer_address,
+    NULL,
+    offsetof(fd_features_t, migrate_feature_gate_program_to_core_bpf),
+    FD_CORE_BPF_MIGRATION_TARGET_STATELESS,
+    &fd_solana_feature_program_id,
+    NULL
+};
+static const fd_core_bpf_migration_config_t * const MIGRATE_STATELESS_TO_CORE_BPF_FEATURE_GATE_PROGRAM_CONFIG = &STATELESS_TO_CORE_BPF_FEATURE_GATE_PROGRAM_CONFIG;
 
-#define FEATURE_PROGRAM_BUILTIN               STATELESS_BUILTIN(&fd_solana_feature_program_id, MIGRATE_STATELESS_TO_CORE_BPF_FEATURE_GATE_PROGRAM_CONFIG)
+/* 192ed727334abe822d5accba8b886e25f88b03c76973c2e7290cfb55b9e1115f */
+#define SLASHING_PROG_HASH_SIMD_204 0x19U,0x2eU,0xd7U,0x27U,0x33U,0x4aU,0xbeU,0x82U,0x2dU,0x5aU,0xccU,0xbaU,0x8bU,0x88U,0x6eU,0x25U, \
+                                    0xf8U,0x8bU,0x03U,0xc7U,0x69U,0x73U,0xc2U,0xe7U,0x29U,0x0cU,0xfbU,0x55U,0xb9U,0xe1U,0x11U,0x5fU
+const fd_hash_t fd_solana_slashing_program_verified_build_hash_simd_204 = { .uc = { SLASHING_PROG_HASH_SIMD_204 } };
+static const fd_core_bpf_migration_config_t STATELESS_TO_CORE_BPF_SLASHING_PROGRAM_CONFIG = {
+    &fd_solana_slashing_program_buffer_address,
+    NULL,
+    offsetof(fd_features_t, enshrine_slashing_program),
+    FD_CORE_BPF_MIGRATION_TARGET_STATELESS,
+    &fd_solana_slashing_program_id,
+    &fd_solana_slashing_program_verified_build_hash_simd_204
+};
+static const fd_core_bpf_migration_config_t * const MIGRATE_STATELESS_TO_CORE_BPF_SLASHING_PROGRAM_CONFIG = &STATELESS_TO_CORE_BPF_SLASHING_PROGRAM_CONFIG;
+
+#define SYSTEM_PROGRAM_BUILTIN                BUILTIN_PROGRAM(&fd_solana_system_program_id,                 "system_program",                        NO_ENABLE_FEATURE_ID,                                      NULL)
+#define VOTE_PROGRAM_BUILTIN                  BUILTIN_PROGRAM(&fd_solana_vote_program_id,                   "vote_program",                          NO_ENABLE_FEATURE_ID,                                      NULL)
+#define STAKE_PROGRAM_BUILTIN                 BUILTIN_PROGRAM(&fd_solana_stake_program_id,                  "stake_program",                         NO_ENABLE_FEATURE_ID,                                      MIGRATE_BUILTIN_TO_CORE_BPF_STAKE_PROGRAM_CONFIG)
+#define CONFIG_PROGRAM_BUILTIN                BUILTIN_PROGRAM(&fd_solana_config_program_id,                 "config_program",                        NO_ENABLE_FEATURE_ID,                                      MIGRATE_BUILTIN_TO_CORE_BPF_CONFIG_PROGRAM_CONFIG)
+#define LOADER_V4_BUILTIN                     BUILTIN_PROGRAM(&fd_solana_bpf_loader_v4_program_id,          "loader_v4",                             offsetof(fd_features_t, enable_loader_v4),                 NULL)
+#define ADDRESS_LOOKUP_TABLE_PROGRAM_BUILTIN  BUILTIN_PROGRAM(&fd_solana_address_lookup_table_program_id,   "address_lookup_table_program",          NO_ENABLE_FEATURE_ID,                                      MIGRATE_BUILTIN_TO_CORE_BPF_ADDRESS_LOOKUP_TABLE_PROGRAM_CONFIG)
+#define BPF_LOADER_DEPRECATED_BUILTIN         BUILTIN_PROGRAM(&fd_solana_bpf_loader_deprecated_program_id,  "solana_bpf_loader_deprecated_program",  NO_ENABLE_FEATURE_ID,                                      NULL)
+#define BPF_LOADER_BUILTIN                    BUILTIN_PROGRAM(&fd_solana_bpf_loader_program_id,             "solana_bpf_loader_program",             NO_ENABLE_FEATURE_ID,                                      NULL)
+#define BPF_LOADER_UPGRADEABLE_BUILTIN        BUILTIN_PROGRAM(&fd_solana_bpf_loader_upgradeable_program_id, "solana_bpf_loader_upgradeable_program", NO_ENABLE_FEATURE_ID,                                      NULL)
+#define COMPUTE_BUDGET_PROGRAM_BUILTIN        BUILTIN_PROGRAM(&fd_solana_compute_budget_program_id,         "compute_budget_program",                NO_ENABLE_FEATURE_ID,                                      NULL)
+#define ZK_TOKEN_PROOF_PROGRAM_BUILTIN        BUILTIN_PROGRAM(&fd_solana_zk_token_proof_program_id,         "zk_token_proof_program",                offsetof(fd_features_t, zk_token_sdk_enabled),             NULL)
+#define ZK_ELGAMAL_PROOF_PROGRAM_BUILTIN      BUILTIN_PROGRAM(&fd_solana_zk_elgamal_proof_program_id,       "zk_elgamal_proof_program",              offsetof(fd_features_t, zk_elgamal_proof_program_enabled), NULL)
+
+#define FEATURE_PROGRAM_BUILTIN               STATELESS_BUILTIN(&fd_solana_feature_program_id,  MIGRATE_STATELESS_TO_CORE_BPF_FEATURE_GATE_PROGRAM_CONFIG)
+#define SLASHING_PROGRAM_BUILTIN              STATELESS_BUILTIN(&fd_solana_slashing_program_id, MIGRATE_STATELESS_TO_CORE_BPF_SLASHING_PROGRAM_CONFIG)
 
 #define SECP256R1_PROGRAM_PRECOMPILE          PRECOMPILE(&fd_solana_secp256r1_program_id,          offsetof(fd_features_t, enable_secp256r1_precompile), fd_precompile_secp256r1_verify)
 #define KECCAK_SECP_PROGRAM_PRECOMPILE        PRECOMPILE(&fd_solana_keccak_secp_256k_program_id,   NO_ENABLE_FEATURE_ID,                                 fd_precompile_secp256k1_verify)
@@ -71,7 +111,8 @@ DEFINE_CORE_BPF_MIGRATION_CONFIG(STATELESS_TO_CORE_BPF_FEATURE_GATE_PROGRAM_CONF
 
 /* https://github.com/anza-xyz/agave/blob/v2.1.0/runtime/src/bank/builtins/mod.rs#L133-L143 */
 static const fd_stateless_builtin_program_t stateless_programs_builtins[] = {
-    FEATURE_PROGRAM_BUILTIN
+    FEATURE_PROGRAM_BUILTIN,
+    SLASHING_PROGRAM_BUILTIN
 };
 #define STATELESS_BUILTINS_COUNT (sizeof(stateless_programs_builtins) / sizeof(fd_stateless_builtin_program_t))
 
