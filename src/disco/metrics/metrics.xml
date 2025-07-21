@@ -851,9 +851,11 @@ metric introduced.
     <counter name="FullNumRetries" summary="Number of times we aborted and retried full snapshot download because the peer was too slow" />
     <counter name="IncrementalNumRetries" summary="Number of times we aborted and retried incremental snapshot download because the peer was too slow" />
     <gauge name="FullBytesRead" summary="Number of bytes read so far from the full snapshot. Might decrease if snapshot load is aborted and restarted" />
+    <gauge name="FullBytesWritten" summary="Number of bytes written so far from the full snapshot. Might decrease if snapshot load is aborted and restarted" />
     <gauge name="FullBytesTotal" summary="Total size of the full snapshot file. Might change if snapshot load is aborted and restarted" />
     <gauge name="FullDownloadRetries" summary="Number of times we retried the full snapshot download because the peer was too slow" />
     <gauge name="IncrementalBytesRead" summary="Number of bytes read so far from the incremental snapshot. Might decrease if snapshot load is aborted and restarted" />
+    <gauge name="IncrementalBytesWritten" summary="Number of bytes written so far from the incremental snapshot. Might decrease if snapshot load is aborted and restarted" />
     <gauge name="IncrementalBytesTotal" summary="Total size of the incremental snapshot file. Might change if snapshot load is aborted and restarted" />
     <gauge name="IncrementalDownloadRetries" summary="Number of times we retried the incremental snapshot download because the peer was too slow" />
 </tile>
@@ -868,12 +870,8 @@ metric introduced.
 
 <tile name="snapin">
     <gauge name="State" summary="State of the tile. 0 = waiting for decompressed snapshot bytestream, 1 = processing full snapshot, 2 = processing incremental snapshot, 3 = done." />
-    <gauge name="FullAccountsFilesProcessed" summary="Number of accounts files (appendvecs) processed in the full snapshot. Might decrease if snapshot load is aborted and restarted" />
-    <gauge name="FullAccountsFilesTotal" summary="Total number of accounts files in the full snapshot. Might change if snapshot load is aborted and restarted" />
-    <gauge name="IncrementalAccountsFilesProcessed" summary="Number of accounts files (appendvecs) processed in the incremental snapshot. Might decrease if snapshot load is aborted and restarted" />
-    <gauge name="IncrementalAccountsFilesTotal" summary="Total number of accounts files in the full snapshot. Might change if snapshot load is aborted and restarted" />
-    <gauge name="FullAccountsProcessed" summary="Number of accounts processed in the full snapshot. Might decrease if snapshot load is aborted and restarted" />
-    <gauge name="IncrementalAccountsProcessed" summary="Number of accounts processed in the incremental snapshot. Might decrease if snapshot load is aborted and restarted" />
+    <gauge name="FullBytesRead" summary="Number of bytes read so far from the full snapshot. Might decrease if snapshot load is aborted and restarted" />
+    <gauge name="IncrementalBytesRead" summary="Number of bytes read so far from the incremental snapshot. Might decrease if snapshot load is aborted and restarted" />
     <gauge name="AccountsInserted" summary="Number of accounts inserted during snpashot loading. Might decrease if snapshot load is aborted and restarted" />
 </tile>
 
