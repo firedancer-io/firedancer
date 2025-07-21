@@ -422,6 +422,7 @@ struct fd_config {
       char  tower_checkpt[ PATH_MAX ];
       ulong enable_features_cnt;
       char  enable_features[ 16 ][ FD_BASE58_ENCODED_32_SZ ];
+      ulong max_exec_slices;
     } replay;
 
     struct {
