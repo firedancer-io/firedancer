@@ -349,7 +349,7 @@ fd_bundle_client_step1( fd_bundle_tile_t * ctx,
   }
 
   /* Did a HTTP/2 PING time out */
-  long check_ts = fd_bundle_now();
+  long check_ts = ctx->cached_ts = fd_bundle_now();
   if( FD_UNLIKELY( fd_keepalive_is_timeout( ctx->keepalive, check_ts ) ) ) {
     FD_LOG_WARNING(( "Bundle gRPC timed out (HTTP/2 PING went unanswered for %.2f seconds)",
                      (double)( check_ts - ctx->keepalive->ts_last_tx )/1e9 ));
@@ -563,6 +563,15 @@ fd_bundle_client_visit_pb_bundle_txn(
   return true;
 }
 
+static void
+fd_bundle_client_sample_rx_delay(
+    fd_bundle_tile_t *                ctx,
+    google_protobuf_Timestamp const * ts
+) {
+  ulong tsorig = (ulong)ts->seconds*(ulong)1e9 + (ulong)ts->nanos;
+  fd_histf_sample( ctx->metrics.msg_rx_delay, fd_ulong_sat_sub( (ulong)ctx->cached_ts, tsorig ) );
+}
+
 /* Called for each BundleUuid in a SubscribeBundlesResponse. */
 
 static bool
@@ -614,6 +623,8 @@ fd_bundle_client_visit_pb_bundle_uuid(
     FD_LOG_WARNING(( "Protobuf decode of (bundle.BundleUuid) failed (internal error): %s", istream->errmsg ));
     return false;
   }
+
+  fd_bundle_client_sample_rx_delay( ctx, &bundle.bundle.header.ts );
 
   return true;
 }
@@ -689,6 +700,8 @@ fd_bundle_client_handle_packet_batch(
     FD_LOG_WARNING(( "Protobuf decode of (block_engine.SubscribePacketsResponse) failed" ));
     return;
   }
+
+  fd_bundle_client_sample_rx_delay( ctx, &res.header.ts );
 }
 
 /* Handle a BlockBuilderFeeInfoResponse from a GetBlockBuilderFeeInfo
