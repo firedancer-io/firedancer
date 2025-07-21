@@ -837,6 +837,20 @@ on_snapshot_message( fd_replay_tile_ctx_t * ctx,
        state machine and set the state here accordingly. */
     FD_LOG_INFO(("Snapshot loaded, replay can start executing"));
     ctx->snapshot_init_done = 1;
+    /* Kickoff repair orphans after the snapshots are done loading. If
+       we kickoff repair after we receive a full manifest, we might try
+       to repair a slot that is potentially huge amount of slots behind
+       turbine causing our repair buffers to fill up. Instead, we should
+       wait until we are done receiving all the snapshots.
+
+       TODO: Eventually, this logic should be cased out more:
+       1. If we just have a full snapshot, load in the slot_ctx for the
+          slot ctx and kickoff repair as soon as the manifest is
+          received.
+       2. If we are loading a full and incremental snapshot, we should
+          only load in the slot_ctx and kickoff repair for the
+          incremental snapshot. */
+    kickoff_repair_orphans( ctx, stem );
     init_from_snapshot( ctx, stem );
     return;
   }
@@ -849,8 +863,6 @@ on_snapshot_message( fd_replay_tile_ctx_t * ctx,
          id is only used temporarily because replay cannot yet receive
          the firedancer-internal snapshot manifest message. */
       restore_slot_ctx( ctx, ctx->in[ in_idx ].mem, chunk );
-      /* kick off repair orphans */
-      kickoff_repair_orphans( ctx, stem );
       break;
     }
     default: {
