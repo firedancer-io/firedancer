@@ -1248,6 +1248,11 @@ user = ""
         # Maximum number of exec slices that can be buffered in the deque.
         max_exec_slices = 65536
 
+    [tiles.send]
+        # The port the send tile uses for QUIC, to send votes and other
+        # transactions. It also uses this as the UDP src port.
+        send_src_port = 9006
+
     # The metric tile receives metrics updates published from the rest
     # of the tiles and serves them via. a Prometheus compatible HTTP
     # endpoint.
