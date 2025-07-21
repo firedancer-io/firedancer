@@ -20,6 +20,7 @@ TRASH_HASH=""
 LOG="/tmp/ledger_log$$"
 TILE_CPUS="--tile-cpus 5-15"
 THREAD_MEM_BOUND="--thread-mem-bound 0"
+INGEST_MDOE="rocksdb"
 CLUSTER_VERSION=""
 DUMP_DIR=${DUMP_DIR:="./dump"}
 ONE_OFFS="2B2SBNbUcr438LtGXNcJNBP2GBSxjx81F945SdSkUSfC,LTHasHQX6661DaDD4S6A2TFi6QBuiwXKv66fB1obfHq,LTdLt9Ycbyoipz5fLysCi1NnDnASsZfmJLJXts5ZxZz,LTsNAP8h1voEVVToMNBNqoiNQex4aqfUrbFhRH3mSQ2"
@@ -70,6 +71,11 @@ while [[ $# -gt 0 ]]; do
        ;;
     -o|--one-offs)
        ONE_OFFS="$2"
+       shift
+       ;;
+    -i|--ingest-mode)
+       INGEST_MDOE="$2"
+       shift
        shift
        ;;
     --zst)
@@ -147,7 +153,9 @@ echo "
         enabled = true
         end_slot = $END_SLOT
         rocksdb_path = \"$DUMP/$LEDGER/rocksdb\"
-        ingest_mode = \"rocksdb\"
+        shredcap_path = \"$DUMP/$LEDGER/slices.bin\"
+        bank_hash_path = \"$DUMP/$LEDGER/bank_hashes.bin\"
+        ingest_mode = \"$INGEST_MDOE\"
     [tiles.replay]
         cluster_version = \"$CLUSTER_VERSION\"
         enable_features = [ $FORMATTED_ONE_OFFS ]
