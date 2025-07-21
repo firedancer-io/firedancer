@@ -112,7 +112,10 @@
 | <span class="metrics-name">quic_&#8203;connections_&#8203;retried</span> | counter | Number of connections established with retry. |
 | <span class="metrics-name">quic_&#8203;connection_&#8203;error_&#8203;no_&#8203;slots</span> | counter | Number of connections that failed to create due to lack of slots. |
 | <span class="metrics-name">quic_&#8203;connection_&#8203;error_&#8203;retry_&#8203;fail</span> | counter | Number of connections that failed during retry (e.g. invalid token). |
-| <span class="metrics-name">quic_&#8203;pkt_&#8203;no_&#8203;conn</span> | counter | Number of packets with an unknown connection ID. |
+| <span class="metrics-name">quic_&#8203;pkt_&#8203;no_&#8203;conn</span><br/>{quic_&#8203;pkt_&#8203;handle="<span class="metrics-enum">initial</span>"} | counter | Number of packets with an unknown connection ID. (initial) |
+| <span class="metrics-name">quic_&#8203;pkt_&#8203;no_&#8203;conn</span><br/>{quic_&#8203;pkt_&#8203;handle="<span class="metrics-enum">retry</span>"} | counter | Number of packets with an unknown connection ID. (retry) |
+| <span class="metrics-name">quic_&#8203;pkt_&#8203;no_&#8203;conn</span><br/>{quic_&#8203;pkt_&#8203;handle="<span class="metrics-enum">handshake</span>"} | counter | Number of packets with an unknown connection ID. (handshake) |
+| <span class="metrics-name">quic_&#8203;pkt_&#8203;no_&#8203;conn</span><br/>{quic_&#8203;pkt_&#8203;handle="<span class="metrics-enum">one_&#8203;rtt</span>"} | counter | Number of packets with an unknown connection ID. (1-RTT) |
 | <span class="metrics-name">quic_&#8203;frame_&#8203;tx_&#8203;alloc</span><br/>{frame_&#8203;tx_&#8203;alloc_&#8203;result="<span class="metrics-enum">success</span>"} | counter | Results of attempts to acquire QUIC frame metadata. (Success) |
 | <span class="metrics-name">quic_&#8203;frame_&#8203;tx_&#8203;alloc</span><br/>{frame_&#8203;tx_&#8203;alloc_&#8203;result="<span class="metrics-enum">fail_&#8203;empty_&#8203;pool</span>"} | counter | Results of attempts to acquire QUIC frame metadata. (PktMetaPoolEmpty) |
 | <span class="metrics-name">quic_&#8203;frame_&#8203;tx_&#8203;alloc</span><br/>{frame_&#8203;tx_&#8203;alloc_&#8203;result="<span class="metrics-enum">fail_&#8203;conn_&#8203;max</span>"} | counter | Results of attempts to acquire QUIC frame metadata. (ConnMaxedInflightFrames) |
@@ -748,7 +751,10 @@
 | <span class="metrics-name">send_&#8203;pkt_&#8203;no_&#8203;key</span><br/>{quic_&#8203;enc_&#8203;level="<span class="metrics-enum">early</span>"} | counter | Total count of packets with no key (early data) |
 | <span class="metrics-name">send_&#8203;pkt_&#8203;no_&#8203;key</span><br/>{quic_&#8203;enc_&#8203;level="<span class="metrics-enum">handshake</span>"} | counter | Total count of packets with no key (handshake) |
 | <span class="metrics-name">send_&#8203;pkt_&#8203;no_&#8203;key</span><br/>{quic_&#8203;enc_&#8203;level="<span class="metrics-enum">app</span>"} | counter | Total count of packets with no key (app data) |
-| <span class="metrics-name">send_&#8203;pkt_&#8203;no_&#8203;conn</span> | counter | Total count of packets with no connection |
+| <span class="metrics-name">send_&#8203;pkt_&#8203;no_&#8203;conn</span><br/>{quic_&#8203;pkt_&#8203;handle="<span class="metrics-enum">initial</span>"} | counter | Total count of packets with no connection (initial) |
+| <span class="metrics-name">send_&#8203;pkt_&#8203;no_&#8203;conn</span><br/>{quic_&#8203;pkt_&#8203;handle="<span class="metrics-enum">retry</span>"} | counter | Total count of packets with no connection (retry) |
+| <span class="metrics-name">send_&#8203;pkt_&#8203;no_&#8203;conn</span><br/>{quic_&#8203;pkt_&#8203;handle="<span class="metrics-enum">handshake</span>"} | counter | Total count of packets with no connection (handshake) |
+| <span class="metrics-name">send_&#8203;pkt_&#8203;no_&#8203;conn</span><br/>{quic_&#8203;pkt_&#8203;handle="<span class="metrics-enum">one_&#8203;rtt</span>"} | counter | Total count of packets with no connection (1-RTT) |
 | <span class="metrics-name">send_&#8203;pkt_&#8203;tx_&#8203;alloc_&#8203;fail</span> | counter | Total count of packet TX allocation failures |
 | <span class="metrics-name">send_&#8203;pkt_&#8203;net_&#8203;header_&#8203;invalid</span> | counter | Total count of packets with invalid network headers |
 | <span class="metrics-name">send_&#8203;pkt_&#8203;quic_&#8203;header_&#8203;invalid</span> | counter | Total count of packets with invalid QUIC headers |
@@ -837,8 +843,12 @@
 | Metric | Type | Description |
 |--------|------|-------------|
 | <span class="metrics-name">snapin_&#8203;state</span> | gauge | State of the tile. 0 = waiting for decompressed snapshot bytestream, 1 = processing full snapshot, 2 = processing incremental snapshot, 3 = done. |
+| <span class="metrics-name">snapin_&#8203;full_&#8203;accounts_&#8203;files_&#8203;processed</span> | gauge | Number of accounts files (appendvecs) processed in the full snapshot. Might decrease if snapshot load is aborted and restarted |
+| <span class="metrics-name">snapin_&#8203;full_&#8203;accounts_&#8203;files_&#8203;total</span> | gauge | Total number of accounts files in the full snapshot. Might change if snapshot load is aborted and restarted |
+| <span class="metrics-name">snapin_&#8203;incremental_&#8203;accounts_&#8203;files_&#8203;processed</span> | gauge | Number of accounts files (appendvecs) processed in the incremental snapshot. Might decrease if snapshot load is aborted and restarted |
+| <span class="metrics-name">snapin_&#8203;incremental_&#8203;accounts_&#8203;files_&#8203;total</span> | gauge | Total number of accounts files in the full snapshot. Might change if snapshot load is aborted and restarted |
+| <span class="metrics-name">snapin_&#8203;full_&#8203;accounts_&#8203;processed</span> | gauge | Number of accounts processed in the full snapshot. Might decrease if snapshot load is aborted and restarted |
+| <span class="metrics-name">snapin_&#8203;incremental_&#8203;accounts_&#8203;processed</span> | gauge | Number of accounts processed in the incremental snapshot. Might decrease if snapshot load is aborted and restarted |
 | <span class="metrics-name">snapin_&#8203;accounts_&#8203;inserted</span> | gauge | Number of accounts inserted during snpashot loading. Might decrease if snapshot load is aborted and restarted |
-| <span class="metrics-name">snapin_&#8203;full_&#8203;bytes_&#8203;read</span> | gauge | Number of bytes read so far from the full snapshot. Might decrease if snapshot load is aborted and restarted |
-| <span class="metrics-name">snapin_&#8203;incremental_&#8203;bytes_&#8203;read</span> | gauge | Number of bytes read so far from the incremental snapshot. Might decrease if snapshot load is aborted and restarted |
 
 </div>
