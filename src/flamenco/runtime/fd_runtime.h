@@ -3,7 +3,6 @@
 
 #include "stdarg.h"
 
-#include "../fd_flamenco_base.h"
 #include "fd_runtime_err.h"
 #include "fd_runtime_init.h"
 #include "fd_rocksdb.h"
@@ -11,9 +10,6 @@
 #include "fd_hashes.h"
 #include "../features/fd_features.h"
 #include "fd_rent_lists.h"
-#include "../../ballet/poh/fd_poh.h"
-#include "../leaders/fd_leaders.h"
-#include "context/fd_exec_slot_ctx.h"
 #include "context/fd_capture_ctx.h"
 #include "context/fd_exec_txn_ctx.h"
 #include "info/fd_runtime_block_info.h"
@@ -472,7 +468,7 @@ fd_runtime_load_txn_address_lookup_tables( fd_txn_t const * txn,
                                            fd_funk_t *      funk,
                                            fd_funk_txn_t *  funk_txn,
                                            ulong            slot,
-                                           fd_slot_hash_t * hashes,
+                                           fd_slot_hash_t const * hashes,
                                            fd_acct_addr_t * out_accts_alt );
 
 /* fd_runtime_poh_verify is responsible for verifying poh hashes while
