@@ -201,7 +201,7 @@ while true; do
             set -x
                 $OBJDIR/bin/firedancer-dev backtest --config $LEDGER_DIR/offline_replay.toml &> /dev/null
 
-            if grep -q "Rocksdb playback done." $TEMP_LOG && ! grep -q "Bank hash mismatch!" $TEMP_LOG;
+            if grep -q "Backtest playback done." $TEMP_LOG && ! grep -q "Bank hash mismatch!" $TEMP_LOG;
             then
                 status=0
             else

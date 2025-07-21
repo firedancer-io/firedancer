@@ -137,7 +137,7 @@ set -x
 
 { set +x; } &> /dev/null
 
-if grep -q "Rocksdb playback done." $LOG && ! grep -q "Bank hash mismatch!" $LOG;
+if grep -q "Backtest playback done." $LOG && ! grep -q "Bank hash mismatch!" $LOG;
 then
     status=0
 else
