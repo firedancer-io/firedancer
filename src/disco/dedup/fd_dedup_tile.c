@@ -1,8 +1,6 @@
-#include "../tiles.h"
-
+#include "../topo/fd_topo.h"
+#include "../fd_txn_m_t.h"
 #include "generated/fd_dedup_tile_seccomp.h"
-
-#include "../verify/fd_verify_tile.h"
 #include "../metrics/fd_metrics.h"
 
 #include <linux/unistd.h>

@@ -1,4 +1,5 @@
 #include "fd_elf_harness.h"
+#include "../../../vm/fd_vm_base.h"
 
 ulong
 fd_runtime_fuzz_sbpf_load_run( fd_runtime_fuzz_runner_t * runner,

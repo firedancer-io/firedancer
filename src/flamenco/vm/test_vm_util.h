@@ -3,6 +3,7 @@
 
 #include "fd_vm.h"
 #include "../runtime/context/fd_exec_instr_ctx.h"
+#include "../runtime/context/fd_exec_slot_ctx.h"
 #include "../../util/valloc/fd_valloc.h"
 
 #define TEST_VM_REJECT_CALLX_R10_FEATURE_PREFIX (0x7e787d5c6d662d23)

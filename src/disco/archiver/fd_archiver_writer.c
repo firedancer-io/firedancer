@@ -1,6 +1,6 @@
 #define _GNU_SOURCE  /* Enable GNU and POSIX extensions */
 
-#include "../tiles.h"
+#include "../topo/fd_topo.h"
 
 #include "fd_archiver.h"
 #include <errno.h>

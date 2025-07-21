@@ -1,5 +1,5 @@
 #define _GNU_SOURCE
-#include "../tiles.h"
+#include "../topo/fd_topo.h"
 
 #include "generated/fd_sign_tile_seccomp.h"
 

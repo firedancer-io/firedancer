@@ -712,13 +712,15 @@ fd_runtime_block_verify_ticks( fd_blockstore_t * blockstore,
 }
 
 int
-fd_runtime_load_txn_address_lookup_tables( fd_txn_t const * txn,
-                                           uchar const *    payload,
-                                           fd_funk_t *      funk,
-                                           fd_funk_txn_t *  funk_txn,
-                                           ulong            slot,
-                                           fd_slot_hash_t * hashes,
-                                           fd_acct_addr_t * out_accts_alt ) {
+fd_runtime_load_txn_address_lookup_tables(
+    fd_txn_t const *       txn,
+    uchar const *          payload,
+    fd_funk_t *            funk,
+    fd_funk_txn_t *        funk_txn,
+    ulong                  slot,
+    fd_slot_hash_t const * hashes, /* deque */
+    fd_acct_addr_t *       out_accts_alt
+) {
 
   if( FD_LIKELY( txn->transaction_version!=FD_TXN_V0 ) ) return FD_RUNTIME_EXECUTE_SUCCESS;
 

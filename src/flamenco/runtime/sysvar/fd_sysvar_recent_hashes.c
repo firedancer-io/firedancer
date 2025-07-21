@@ -1,18 +1,16 @@
 #include "fd_sysvar_recent_hashes.h"
 #include "../fd_acc_mgr.h"
 #include "fd_sysvar.h"
-#include "../fd_runtime.h"
 #include "../fd_system_ids.h"
+#include "../context/fd_exec_slot_ctx.h"
 
 /* Skips fd_types encoding preflight checks and directly serializes the
    blockhash queue into a buffer representing account data for the
    recent blockhashes sysvar. */
 
 static void
-encode_rbh_from_blockhash_queue( fd_exec_slot_ctx_t * slot_ctx,
-                                 uchar                out_mem[ FD_SYSVAR_RECENT_HASHES_BINCODE_SZ ] ) {
-  fd_blockhashes_t const * bhq = fd_bank_block_hash_queue_query( slot_ctx->bank );
-
+encode_rbh_from_blockhash_queue( fd_blockhashes_t const * bhq,
+                                 uchar                    out_mem[ FD_SYSVAR_RECENT_HASHES_BINCODE_SZ ] ) {
   ulong queue_sz = fd_blockhash_deq_cnt( bhq->d.deque );
   ulong out_max  = fd_ulong_min( queue_sz, FD_SYSVAR_RECENT_HASHES_CAP );
 
@@ -50,7 +48,7 @@ fd_sysvar_recent_hashes_init( fd_exec_slot_ctx_t * slot_ctx,
   ulong   sz  = FD_SYSVAR_RECENT_HASHES_BINCODE_SZ;
   uchar * enc = fd_spad_alloc( runtime_spad, FD_SPAD_ALIGN, sz );
   fd_memset( enc, 0, sz );
-  encode_rbh_from_blockhash_queue( slot_ctx, enc );
+  encode_rbh_from_blockhash_queue( fd_bank_block_hash_queue_query( slot_ctx->bank ), enc );
   fd_sysvar_set( slot_ctx->bank, slot_ctx->funk, slot_ctx->funk_txn, &fd_sysvar_owner_id, &fd_sysvar_recent_block_hashes_id, enc, sz, fd_bank_slot_get( slot_ctx->bank ) );
 
   } FD_SPAD_FRAME_END;
@@ -86,7 +84,7 @@ fd_sysvar_recent_hashes_update( fd_exec_slot_ctx_t * slot_ctx, fd_spad_t * runti
   fd_memset( enc, 0, sz );
 
   /* Encode the recent blockhashes */
-  encode_rbh_from_blockhash_queue( slot_ctx, enc );
+  encode_rbh_from_blockhash_queue( fd_bank_block_hash_queue_query( slot_ctx->bank ), enc );
 
   /* Set the sysvar from the encoded data */
   fd_sysvar_set( slot_ctx->bank,

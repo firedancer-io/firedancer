@@ -1,12 +1,12 @@
 #define _GNU_SOURCE
-#include "../../disco/tiles.h"
+#include "../../disco/pack/fd_pack.h"
+#include "../../disco/topo/fd_topo.h"
 #include "generated/fd_writer_tile_seccomp.h"
 
 #include "../../util/pod/fd_pod_format.h"
 
 #include "../../flamenco/runtime/fd_runtime.h"
 #include "../../flamenco/runtime/fd_runtime_public.h"
-#include "../../flamenco/runtime/fd_executor.h"
 
 #include "../../funk/fd_funk.h"
 
