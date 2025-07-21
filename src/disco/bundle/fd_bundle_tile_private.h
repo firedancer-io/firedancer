@@ -10,6 +10,7 @@
 #include "../../waltz/resolv/fd_netdb.h"
 #include "../../waltz/fd_rtt_est.h"
 #include "../../util/alloc/fd_alloc.h"
+#include "../../util/hist/fd_histf.h"
 
 #if FD_HAS_OPENSSL
 #include <openssl/ssl.h> /* SSL_CTX */
@@ -38,6 +39,8 @@ struct fd_bundle_metrics {
   ulong decode_fail_cnt;
   ulong transport_fail_cnt;
   ulong missing_builder_info_fail_cnt;
+
+  fd_histf_t msg_rx_delay[1];
 };
 
 typedef struct fd_bundle_metrics fd_bundle_metrics_t;
@@ -77,6 +80,7 @@ struct fd_bundle_tile {
   int  so_rcvbuf;
   uint tcp_sock_connected : 1;
   uint defer_reset : 1;
+  long cached_ts;
 
   /* Keepalive via HTTP/2 PINGs (randomized) */
   long              keepalive_interval;

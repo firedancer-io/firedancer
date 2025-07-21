@@ -335,6 +335,9 @@ metric introduced.
     <gauge name="RttSample" summary="Latest RTT sample at scrape time (nanoseconds)" />
     <gauge name="RttSmoothed" summary="RTT moving average (nanoseconds)" />
     <gauge name="RttVar" summary="RTT variance (nanoseconds)" />
+    <histogram name="MessageRxDelay" min="0.0001" max="1.0" converter="seconds">
+        <summary>Message receive delay in seconds from bundle server to bundle client</summary>
+    </histogram>
 </tile>
 
 <tile name="verify">
