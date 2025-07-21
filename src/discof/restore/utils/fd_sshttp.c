@@ -1,8 +1,10 @@
 #define _GNU_SOURCE
 #include "fd_sshttp.h"
+#include "fd_ssarchive.h"
 
 #include "../../../waltz/http/picohttpparser.h"
 #include "../../../util/log/fd_log.h"
+#include "../../../flamenco/types/fd_types_custom.h"
 
 #include <unistd.h>
 #include <errno.h>
@@ -20,6 +22,7 @@
 struct fd_sshttp_private {
   int  state;
   long deadline;
+  int  full;
 
   int   hops;
 
@@ -32,6 +35,9 @@ struct fd_sshttp_private {
 
   ulong response_len;
   char  response[ USHORT_MAX ];
+
+  char full_snapshot_name[ PATH_MAX ];
+  char incremental_snapshot_name[ PATH_MAX ];
 
   ulong content_len;
 
@@ -138,7 +144,7 @@ fd_sshttp_init( fd_sshttp_t * http,
     }
   }
 
-  http->state = FD_SSHTTP_STATE_REQ;
+  http->state    = FD_SSHTTP_STATE_REQ;
   http->deadline = now + 500L*1000L*1000L;
 }
 
@@ -201,7 +207,35 @@ follow_redirect( fd_sshttp_t *        http,
       }
 
       location_len = headers[ i ].value_len;
-      location = headers[ i ].value;
+      location     = headers[ i ].value;
+
+      if( FD_UNLIKELY( location_len>=PATH_MAX-1UL ) ) {
+        fd_sshttp_cancel( http );
+        return FD_SSHTTP_ADVANCE_ERROR;
+      }
+
+      char snapshot_name[ PATH_MAX ];
+      fd_memcpy( snapshot_name, location+1UL, location_len-1UL );
+      snapshot_name[ location_len-1UL ] = '\0';
+
+      ulong full_entry_slot, incremental_entry_slot;
+      uchar decoded_hash[ FD_HASH_FOOTPRINT ];
+      int err = fd_ssarchive_parse_filename( snapshot_name, &full_entry_slot, &incremental_entry_slot, decoded_hash );
+
+      if( FD_UNLIKELY( err ) ) {
+        FD_LOG_WARNING(( "unrecognized snapshot file `%s` in redirect location header", snapshot_name ));
+        fd_sshttp_cancel( http );
+        return FD_SSHTTP_ADVANCE_ERROR;
+      }
+
+      char encoded_hash[ FD_BASE58_ENCODED_32_SZ ];
+      fd_base58_encode_32( decoded_hash, NULL, encoded_hash );
+
+      if( FD_LIKELY( incremental_entry_slot!=ULONG_MAX ) ) {
+        FD_TEST( fd_cstr_printf_check( http->incremental_snapshot_name, PATH_MAX, NULL, "incremental-snapshot-%lu-%lu-%s.tar.zst", full_entry_slot, incremental_entry_slot, encoded_hash ) );
+      } else {
+        FD_TEST( fd_cstr_printf_check( http->full_snapshot_name, PATH_MAX, NULL, "snapshot-%lu-%s.tar.zst", full_entry_slot, encoded_hash ) );
+      }
       break;
     }
   }
@@ -340,6 +374,14 @@ read_body( fd_sshttp_t * http,
   http->content_len -= (ulong)read;
 
   return FD_SSHTTP_ADVANCE_DATA;
+}
+
+void
+fd_sshttp_snapshot_names( fd_sshttp_t * http,
+                         char const **  full_snapshot_name,
+                         char const **  incremental_snapshot_name ) {
+  *full_snapshot_name        = http->full_snapshot_name;
+  *incremental_snapshot_name = http->incremental_snapshot_name;
 }
 
 int

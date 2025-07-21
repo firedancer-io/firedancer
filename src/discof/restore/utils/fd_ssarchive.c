@@ -6,28 +6,11 @@
 #include <dirent.h>
 #include <stdlib.h>
 
-/* Parses a snapshot filename like
-
-    incremental-snapshot-344185432-344209085-45eJ5C91fEenPRFc8NiqaDXMCHcPFwRUTMH3k1zY6a1B.tar.zst
-    snapshot-344185432-BSP9ztdFEjwvkBo2LhHA47g9Q3PDwja9x5fj7taFRKH5.tar.zst
-
-   into components.  Returns one of FD_SSARCHIVE_PARSE_*.  On success
-   the snapshot will be either a FULL or INCREMENTAL parse result.  If
-   incremental, the incremental slot will be set to ULONG_MAX, otherwise
-   it is set to the incremental slot number.  On success, the full slot
-   and the snapshot hash are always set.  The hash will be the base58
-   decoded hash. */
-
 int
-fd_ssarchive_parse( char const * filename,
-                    ulong *      full_slot,
-                    ulong *      incremental_slot,
-                    uchar        hash[ static 32UL ] );
-
-static int
-parse_filename( char *  _name,
-                ulong * full_slot,
-                ulong * incremental_slot ) {
+fd_ssarchive_parse_filename( char *  _name,
+                             ulong * full_slot,
+                             ulong * incremental_slot,
+                             uchar   hash[ static FD_HASH_FOOTPRINT ] ) {
   char name[ PATH_MAX ] = {0};
   strncpy( name, _name, PATH_MAX-1 );
 
@@ -71,6 +54,17 @@ parse_filename( char *  _name,
   next = strchr( ptr, '.' );
   if( FD_UNLIKELY( !next ) ) return -1;
 
+  ulong sz = (ulong)(next - ptr);
+
+  if( FD_UNLIKELY( sz>FD_BASE58_ENCODED_32_LEN ) ) return -1;
+
+  char encoded_hash[ FD_BASE58_ENCODED_32_SZ ];
+  fd_memcpy( encoded_hash, ptr, sz );
+  encoded_hash[ sz ] = '\0';
+  uchar * result = fd_base58_decode_32( encoded_hash, hash );
+
+  if( FD_UNLIKELY( !result ) ) return -1;
+
   if( FD_UNLIKELY( strncmp( next, ".tar.zst", 8UL ) ) ) return -1;
   return 0;
 }
@@ -98,7 +92,8 @@ fd_ssarchive_latest_pair( char const * directory,
     if( FD_LIKELY( !strcmp( entry->d_name, "." ) || !strcmp( entry->d_name, ".." ) ) ) continue;
 
     ulong entry_full_slot, entry_incremental_slot;
-    if( FD_UNLIKELY( -1==parse_filename( entry->d_name, &entry_full_slot, &entry_incremental_slot ) ) ) {
+    uchar decoded_hash[ FD_HASH_FOOTPRINT ];
+    if( FD_UNLIKELY( -1==fd_ssarchive_parse_filename( entry->d_name, &entry_full_slot, &entry_incremental_slot, decoded_hash ) ) ) {
       FD_LOG_WARNING(( "unrecognized snapshot file `%s/%s` in snapshots directory", directory, entry->d_name ));
       continue;
     }
@@ -128,7 +123,8 @@ fd_ssarchive_latest_pair( char const * directory,
     if( FD_LIKELY( !strcmp( entry->d_name, "." ) || !strcmp( entry->d_name, ".." ) ) ) continue;
 
     ulong entry_full_slot, entry_incremental_slot;
-    if( FD_UNLIKELY( -1==parse_filename( entry->d_name, &entry_full_slot, &entry_incremental_slot ) ) ) continue;
+    uchar decoded_hash[ FD_HASH_FOOTPRINT ];
+    if( FD_UNLIKELY( -1==fd_ssarchive_parse_filename( entry->d_name, &entry_full_slot, &entry_incremental_slot, decoded_hash ) ) ) continue;
 
     if( FD_UNLIKELY( entry_incremental_slot==ULONG_MAX || *full_slot!=entry_full_slot ) ) continue;
 
