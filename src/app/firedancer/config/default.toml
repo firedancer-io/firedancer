@@ -1208,6 +1208,9 @@ user = ""
     [tiles.replay]
         cluster_version =  "1.18.0"
 
+        # Maximum number of exec slices that can be buffered in the deque.
+        max_exec_slices = 65536
+
     # The metric tile receives metrics updates published from the rest
     # of the tiles and serves them via. a Prometheus compatible HTTP
     # endpoint.

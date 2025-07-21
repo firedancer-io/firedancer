@@ -989,6 +989,8 @@ fd_topo_configure_tile( fd_topo_tile_t * tile,
       strncpy( tile->replay.cluster_version, config->tiles.replay.cluster_version, sizeof(tile->replay.cluster_version) );
       strncpy( tile->replay.tower_checkpt, config->tiles.replay.tower_checkpt, sizeof(tile->replay.tower_checkpt) );
 
+      tile->replay.max_exec_slices = config->tiles.replay.max_exec_slices;
+
       /* not specified by [tiles.replay] */
 
       strncpy( tile->replay.identity_key_path, config->paths.identity_key, sizeof(tile->replay.identity_key_path) );

@@ -37,8 +37,8 @@
 
 #define DEQUE_NAME fd_exec_slice
 #define DEQUE_T    ulong
-#define DEQUE_MAX  (256UL)
-#include "../../util/tmpl/fd_deque.c"
+#include "../../util/tmpl/fd_deque_dynamic.c"
+#define DEFAULT_MAX_EXEC_SLICES (65536UL)
 
 /* An estimate of the max number of transactions in a block.  If there are more
    transactions, they must be split into multiple sets. */
@@ -2109,8 +2109,9 @@ unprivileged_init( fd_topo_t *      topo,
 
   FD_TEST( ctx->runtime_public!=NULL );
 
-  uchar * deque_mem     = fd_spad_alloc_check( ctx->runtime_spad, fd_exec_slice_align(), fd_exec_slice_footprint() );
-  ctx->exec_slice_deque = fd_exec_slice_join( fd_exec_slice_new( deque_mem ) );
+  ulong max_exec_slices = tile->replay.max_exec_slices ? tile->replay.max_exec_slices : DEFAULT_MAX_EXEC_SLICES;
+  uchar * deque_mem = fd_spad_alloc_check( ctx->runtime_spad, fd_exec_slice_align(), fd_exec_slice_footprint( max_exec_slices ) );
+  ctx->exec_slice_deque = fd_exec_slice_join( fd_exec_slice_new( deque_mem, max_exec_slices ) );
   if( FD_UNLIKELY( !ctx->exec_slice_deque ) ) {
     FD_LOG_ERR(( "failed to join and create exec slice deque" ));
   }
