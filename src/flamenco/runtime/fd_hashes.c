@@ -140,9 +140,8 @@ fd_hash_account_deltas( fd_pubkey_hash_pair_list_t * lists, ulong lists_len, fd_
 
 void
 fd_calculate_epoch_accounts_hash_values( fd_exec_slot_ctx_t * slot_ctx ) {
-  ulong slot_idx = 0;
   fd_epoch_schedule_t const * epoch_schedule = fd_bank_epoch_schedule_query( slot_ctx->bank );
-  ulong epoch = fd_slot_to_epoch( epoch_schedule, fd_bank_slot_get( slot_ctx->bank ), &slot_idx );
+  ulong epoch = fd_slot_to_epoch( epoch_schedule, fd_bank_slot_get( slot_ctx->bank ), NULL );
 
   if( FD_FEATURE_ACTIVE_BANK( slot_ctx->bank, accounts_lt_hash) ) {
     fd_bank_eah_start_slot_set( slot_ctx->bank, ULONG_MAX );
@@ -151,8 +150,8 @@ fd_calculate_epoch_accounts_hash_values( fd_exec_slot_ctx_t * slot_ctx ) {
     return;
   }
 
-  ulong slots_per_epoch = fd_epoch_slot_cnt( epoch_schedule, epoch );
-  ulong first_slot_in_epoch           = fd_epoch_slot0   ( epoch_schedule, epoch );
+  ulong slots_per_epoch     = fd_epoch_slot_cnt( epoch_schedule, epoch );
+  ulong first_slot_in_epoch = fd_epoch_slot0   ( epoch_schedule, epoch );
 
   ulong calculation_offset_start = slots_per_epoch / 4;
   ulong calculation_offset_stop = slots_per_epoch / 4 * 3;

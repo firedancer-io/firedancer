@@ -221,9 +221,9 @@ fd_runtime_fuzz_block_ctx_create( fd_runtime_fuzz_runner_t *           runner,
   /* Set up slot context */
   ulong slot = test_ctx->slot_ctx.slot;
 
-  slot_ctx->funk_txn = funk_txn;
-  slot_ctx->funk     = funk;
-  runner->bank->slot = slot;
+  slot_ctx->funk_txn  = funk_txn;
+  slot_ctx->funk      = funk;
+  runner->bank->slot_ = slot;
 
   fd_hash_t * bank_hash = fd_bank_bank_hash_modify( slot_ctx->bank );
   fd_memcpy( bank_hash, test_ctx->slot_ctx.parent_bank_hash, sizeof(fd_hash_t) );
@@ -240,7 +240,7 @@ fd_runtime_fuzz_block_ctx_create( fd_runtime_fuzz_runner_t *           runner,
   fd_clock_timestamp_votes_votes_root_update( clock_timestamp_votes, clock_root );
   fd_bank_clock_timestamp_votes_end_locking_modify( slot_ctx->bank );
 
-  slot_ctx->bank->slot = slot;
+  slot_ctx->bank->slot_ = slot;
 
   fd_bank_block_height_set( slot_ctx->bank, test_ctx->slot_ctx.block_height );
 
