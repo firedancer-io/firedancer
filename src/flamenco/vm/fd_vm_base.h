@@ -26,39 +26,14 @@
 
 #define FD_VM_SUCCESS   ( 0) /* success */
 #define FD_VM_ERR_INVAL (-1) /* invalid request */
-#define FD_VM_ERR_AGAIN (-2) /* try again later */
 #define FD_VM_ERR_UNSUP (-3) /* unsupported request */
-#define FD_VM_ERR_PERM  (-4) /* unauthorized request */
 #define FD_VM_ERR_FULL  (-5) /* storage full */
 #define FD_VM_ERR_EMPTY (-6) /* nothing to do */
 #define FD_VM_ERR_IO    (-7) /* input-output error */
 
 /* VM exec error codes:  These are only produced by the VM itself. */
 
-#define FD_VM_ERR_SIGTEXT     ( -8) /* illegal program counter (e.g. execution ran off end of program, jump to outside the program) */
-#define FD_VM_ERR_SIGSPLIT    ( -9) /* split multiword instruction (e.g. jump into the middle of a multiword instruction) */
-#define FD_VM_ERR_SIGCALL     (-10) /* illegal call (e.g. call target is not the start of function) */
-#define FD_VM_ERR_SIGSTACK    (-11) /* call depth limit exceeded */
-#define FD_VM_ERR_SIGILL      (-12) /* illegal instruction (e.g. opcode is not valid) */
-#define FD_VM_ERR_SIGSEGV     (-13) /* illegal memory address (e.g. read/write to an address not backed by any memory) */
-#define FD_VM_ERR_SIGBUS      (-14) /* misaligned memory address (e.g. read/write to an address with inappropriate alignment) */
-#define FD_VM_ERR_SIGRDONLY   (-15) /* illegal write (e.g. write to a read only address) */
-#define FD_VM_ERR_SIGCOST     (-16) /* compute unit limit exceeded */
-// #define FD_VM_ERR_INVALID_PDA (-17) /* (deprecated, moved to syscall error) the computed pda was not a valid ed25519 point */
 #define FD_VM_ERR_SIGFPE      (-18) /* divide by zero */
-#define FD_VM_ERR_SIGFPE_OF   (-19) /* divide overflow */
-#define FD_VM_ERR_SIGSYSCALL  (-20) /* Generic syscall error */
-#define FD_VM_ERR_SIGABORT    (-21) /* Generic abort error (used in JIT) */
-
-/* (DEPRECATED) VM syscall error codes.  These are only produced by fd_vm_syscall
-   implementations. */
-
-// #define FD_VM_ERR_ABORT                        (-119) /* FIXME: description */
-// #define FD_VM_ERR_PANIC                        (-120) /* FIXME: description */
-// #define FD_VM_ERR_MEM_OVERLAP                  (-121) /* FIXME: description */
-// #define FD_VM_ERR_INSTR_ERR                    (-22) /* FIXME: description  */
-// #define FD_VM_ERR_INVOKE_CONTEXT_BORROW_FAILED (-23) /* FIXME: description  */
-// #define FD_VM_ERR_RETURN_DATA_TOO_LARGE        (-24) /* FIXME: description  */
 
 /* sBPF validation error codes.  These are only produced by
    fd_vm_validate.  FIXME: Consider having fd_vm_validate return
@@ -69,13 +44,11 @@
 #define FD_VM_ERR_INVALID_OPCODE    (-25) /* detected an invalid opcode */
 #define FD_VM_ERR_INVALID_SRC_REG   (-26) /* detected an invalid source register */
 #define FD_VM_ERR_INVALID_DST_REG   (-27) /* detected an invalid destination register */
-#define FD_VM_ERR_INF_LOOP          (-28) /* detected an infinite loop */
 #define FD_VM_ERR_JMP_OUT_OF_BOUNDS (-29) /* detected an out of bounds jump */
 #define FD_VM_ERR_JMP_TO_ADDL_IMM   (-30) /* detected a jump to an addl imm */
 #define FD_VM_ERR_INVALID_END_IMM   (-31) /* detected an invalid immediate for an endianness conversion instruction */
 #define FD_VM_ERR_INCOMPLETE_LDQ    (-32) /* detected an incomplete ldq at program end */
 #define FD_VM_ERR_LDQ_NO_ADDL_IMM   (-33) /* detected a ldq without an addl imm following it */
-#define FD_VM_ERR_NO_SUCH_EXT_CALL  (-34) /* detected a call imm with no function was registered for that immediate */
 #define FD_VM_ERR_INVALID_REG       (-35) /* detected an invalid register */
 #define FD_VM_ERR_BAD_TEXT          (-36) /* detected a bad text section (overflow, outside rodata boundary, etc.,)*/
 #define FD_VM_SH_OVERFLOW           (-37) /* detected a shift overflow, equivalent to VeriferError::ShiftWithOverflow */
