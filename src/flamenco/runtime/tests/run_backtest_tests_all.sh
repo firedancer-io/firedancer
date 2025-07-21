@@ -80,3 +80,4 @@ src/flamenco/runtime/tests/run_ledger_backtest.sh -l testnet-336218682-v2.3.0 -y
 src/flamenco/runtime/tests/run_ledger_backtest.sh -l testnet-340269866-v2.3.0 -y 5 -m 2000000 -e 340269872 -c 2.3.0
 src/flamenco/runtime/tests/run_ledger_backtest.sh -l testnet-340272018-v2.3.0 -y 5 -m 2000000 -e 340272024 -c 2.3.0
 src/flamenco/runtime/tests/run_ledger_backtest.sh -l devnet-390056400-v2.3.0 -y 10 -m 2000000 -e 390056406 -c 2.3.0
+src/flamenco/runtime/tests/run_ledger_backtest.sh -l localnet-1678201-v2.3.0 -y 1 -m 2000000 -e 1679200 -c 2.3.0 -i shredcap
