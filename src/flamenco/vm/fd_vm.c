@@ -98,40 +98,24 @@ fd_vm_strerror( int err ) {
   case FD_VM_SUCCESS:   return "SUCCESS success";
   case FD_VM_ERR_INVAL: return "INVAL invalid request";
   case FD_VM_ERR_UNSUP: return "UNSUP unsupported request";
-  case FD_VM_ERR_PERM:  return "PERM unauthorized request";
   case FD_VM_ERR_FULL:  return "FULL storage full";
   case FD_VM_ERR_EMPTY: return "EMPTY nothing to do";
   case FD_VM_ERR_IO:    return "IO input-output error";
-  case FD_VM_ERR_AGAIN: return "AGAIN try again later";
 
   /* VM exec error codes */
 
-  case FD_VM_ERR_SIGTEXT:     return "SIGTEXT illegal program counter";
-  case FD_VM_ERR_SIGSPLIT:    return "SIGSPLIT split multiword instruction";
-  case FD_VM_ERR_SIGCALL:     return "unsupported BPF instruction";
-  case FD_VM_ERR_SIGSTACK:    return "SIGSTACK call depth limit exceeded";
-  case FD_VM_ERR_SIGILL:      return "SIGILL illegal instruction";
-  case FD_VM_ERR_SIGSEGV:     return "SIGSEGV illegal memory address";
-  case FD_VM_ERR_SIGBUS:      return "SIGBUS misaligned memory address";
-  case FD_VM_ERR_SIGRDONLY:   return "SIGRDONLY illegal write";
-  case FD_VM_ERR_SIGCOST:     return "SIGCOST compute unit limit exceeded";
   case FD_VM_ERR_SIGFPE:      return "SIGFPE division by zero";
-  case FD_VM_ERR_SIGFPE_OF:   return "SIGFPE division overflow";
-  case FD_VM_ERR_SIGSYSCALL:  return "SIGSYSCALL syscall error";
-  case FD_VM_ERR_SIGABORT:    return "SIGABORT abort error";
 
   /* VM validate error codes */
 
   case FD_VM_ERR_INVALID_OPCODE:    return "INVALID_OPCODE detected an invalid opcode";
   case FD_VM_ERR_INVALID_SRC_REG:   return "INVALID_SRC_REG detected an invalid source register";
   case FD_VM_ERR_INVALID_DST_REG:   return "INVALID_DST_REG detected an invalid destination register";
-  case FD_VM_ERR_INF_LOOP:          return "INF_LOOP detected an infinite loop";
   case FD_VM_ERR_JMP_OUT_OF_BOUNDS: return "JMP_OUT_OF_BOUNDS detected an out of bounds jump";
   case FD_VM_ERR_JMP_TO_ADDL_IMM:   return "JMP_TO_ADDL_IMM detected a jump to an addl imm";
   case FD_VM_ERR_INVALID_END_IMM:   return "INVALID_END_IMM detected an invalid immediate for an endianness conversion instruction";
   case FD_VM_ERR_INCOMPLETE_LDQ:    return "INCOMPLETE_LDQ detected an incomplete ldq at program end";
   case FD_VM_ERR_LDQ_NO_ADDL_IMM:   return "LDQ_NO_ADDL_IMM detected a ldq without an addl imm following it";
-  case FD_VM_ERR_NO_SUCH_EXT_CALL:  return "NO_SUCH_EXT_CALL detected a call imm with no function was registered for that immediate";
   case FD_VM_ERR_INVALID_REG:       return "INVALID_REG detected an invalid register number in a callx instruction";
   case FD_VM_ERR_BAD_TEXT:          return "BAD_TEXT detected a bad text section";
   case FD_VM_SH_OVERFLOW:           return "SH_OVERFLOW detected a shift overflow in an instruction";
