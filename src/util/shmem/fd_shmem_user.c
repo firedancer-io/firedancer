@@ -561,4 +561,22 @@ fd_shmem_leave_anonymous( void *                 join,
   return 0;
 }
 
+fd_shmem_join_info_t const *
+fd_shmem_iter_begin( void ) {
+  fd_shmem_join_info_t const * map = fd_shmem_private_map;
+  for( ulong slot_idx=0UL; slot_idx<FD_SHMEM_PRIVATE_MAP_SLOT_CNT; slot_idx++ ) {
+    if( !fd_shmem_private_map_key_inval( map[slot_idx].key ) ) return &map[slot_idx];
+  }
+  return NULL;
+}
+
+fd_shmem_join_info_t const *
+fd_shmem_iter_next( fd_shmem_join_info_t const * iter ) {
+  fd_shmem_join_info_t const * map = fd_shmem_private_map;
+  for( ulong slot_idx=(ulong)(iter-map) + 1UL; slot_idx<FD_SHMEM_PRIVATE_MAP_SLOT_CNT; slot_idx++ ) {
+    if( !fd_shmem_private_map_key_inval( map[slot_idx].key ) ) return &map[slot_idx];
+  }
+  return NULL;
+}
+
 #endif
