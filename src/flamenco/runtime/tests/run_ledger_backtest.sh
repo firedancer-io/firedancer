@@ -26,6 +26,7 @@ DUMP_DIR=${DUMP_DIR:="./dump"}
 ONE_OFFS="2B2SBNbUcr438LtGXNcJNBP2GBSxjx81F945SdSkUSfC,LTHasHQX6661DaDD4S6A2TFi6QBuiwXKv66fB1obfHq,LTdLt9Ycbyoipz5fLysCi1NnDnASsZfmJLJXts5ZxZz,LTsNAP8h1voEVVToMNBNqoiNQex4aqfUrbFhRH3mSQ2"
 HUGE_TLBFS_MOUNT_PATH=${HUGE_TLBFS_MOUNT_PATH:="/mnt/.fd"}
 HUGE_TLBFS_ALLOW_HUGEPAGE_INCREASE=${HUGE_TLBFS_ALLOW_HUGEPAGE_INCREASE:="true"}
+HAS_INCREMENTAL="false"
 
 while [[ $# -gt 0 ]]; do
   case $1 in
@@ -92,6 +93,10 @@ while [[ $# -gt 0 ]]; do
         shift
         shift
         ;;
+    -v|--has-incremental)
+       HAS_INCREMENTAL="$2"
+       shift
+       ;;
     -*|--*)
        echo "unknown option $1"
        exit 1
@@ -139,7 +144,7 @@ chmod -R 0700 $DUMP/$LEDGER
 echo_notice "Starting on-demand ingest and replay"
 echo "
 [snapshots]
-    incremental_snapshots = false
+    incremental_snapshots = $HAS_INCREMENTAL
     minimum_download_speed_mib = 0
     maximum_local_snapshot_age = 0
     maximum_download_retry_abort = 0
@@ -172,7 +177,7 @@ echo "
     max_database_transactions = 64
     lock_pages = true
 [runtime]
-    heap_size_gib = 100
+    heap_size_gib = 50
     [runtime.limits]
         max_banks = 64
 [development]
