@@ -24,10 +24,11 @@
 #define IN_KIND_NET    (4UL)
 
 /* Send votes to leaders for next SEND_TO_LEADER_CNT slots */
-#define SEND_TO_LEADER_CNT 4UL
+#define SEND_TO_LEADER_CNT (4UL )
+#define CONNECT_AHEAD_CNT  (10UL)
 
-#define QUIC_IDLE_TIMEOUT_NS (2e9)  /* 2 seconds */
-#define QUIC_ACK_DELAY_NS    (25e6) /* 25ms */
+#define QUIC_IDLE_TIMEOUT_NS (2e9)  /*  2 s  */
+#define QUIC_ACK_DELAY_NS    (25e6) /* 25 ms */
 
 struct fd_send_link_in {
   fd_wksp_t *  mem;
@@ -57,6 +58,7 @@ struct fd_send_conn_entry {
   long             last_ci_ticks;
   uint             ip4_addr;
   ushort           udp_port;
+  int              got_ci_msg;
 };
 typedef struct fd_send_conn_entry fd_send_conn_entry_t;
 
@@ -94,6 +96,8 @@ struct fd_send_tile_ctx {
   /* Connection map for outgoing QUIC connections and contact info */
   fd_send_conn_entry_t * conn_map;
 
+  ulong housekeeping_ctr;
+
   fd_stem_context_t * stem;
   long                now;
 
@@ -101,6 +105,9 @@ struct fd_send_tile_ctx {
     ulong leader_not_found;        /* Number of times slot leader not found when voting. */
     ulong contact_stale;           /* Number of reconnects skipped due to stale contact info */
     ulong quic_conn_create_failed; /* QUIC connection creation failed */
+    ulong quic_hs_complete;
+    ulong staked_no_ci;
+    ulong stale_ci;
 
     /* Handling of new contact info */
     ulong new_contact_info[FD_METRICS_ENUM_NEW_CONTACT_OUTCOME_CNT];
@@ -116,23 +123,5 @@ struct fd_send_tile_ctx {
 
 };
 typedef struct fd_send_tile_ctx fd_send_tile_ctx_t;
-
-
-/* A few larger functions to wrap QUIC interactions */
-
-/* quic_connect initiates a quic connection. It uses the contact info
-   stored in entry, and points the conn and entry to each other. Returns
-   a handle to the new connection, and NULL if creating it failed */
-fd_quic_conn_t *
-quic_connect( fd_send_tile_ctx_t   * ctx,
-              fd_send_conn_entry_t * entry );
-
-/* quic_send sends a payload to 'pubkey' via quic. Requires an already
-   established connection to 'pubkey'. */
-void
-quic_send( fd_send_tile_ctx_t  *  ctx,
-           fd_pubkey_t const   *  pubkey,
-           uchar const         *  payload,
-           ulong                  payload_sz );
 
 #endif

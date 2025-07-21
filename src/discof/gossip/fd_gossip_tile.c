@@ -118,6 +118,7 @@ struct fd_gossip_tile_ctx {
   ulong       send_contact_out_chunk0;
   ulong       send_contact_out_wmark;
   ulong       send_contact_out_chunk;
+  ulong       send_contact_out_idx;
 
   fd_frag_meta_t * verify_out_mcache;
   ulong *          verify_out_sync;
@@ -496,7 +497,7 @@ after_credit( fd_gossip_tile_ctx_t * ctx,
       }
 
       {
-        ushort sender_socket_idx = ci->socket_tag_idx[ FD_GOSSIP_SOCKET_TAG_TPU_VOTE_QUIC ];
+        ushort sender_socket_idx = ci->socket_tag_idx[ FD_GOSSIP_SOCKET_TAG_TPU_QUIC ];
         if( sender_socket_idx == FD_CONTACT_INFO_SOCKET_TAG_NULL ) {
           ctx->metrics.zero_ipv4_contact_info[ FD_METRICS_ENUM_PEER_TYPES_V_SEND_IDX ] += 1UL;
           continue;
@@ -545,12 +546,16 @@ after_credit( fd_gossip_tile_ctx_t * ctx,
     }
 
     if( send_peers_cnt>0 && ctx->send_contact_out_mcache ) {
-      ulong send_contact_sz  = (send_peers_cnt * sizeof(fd_shred_dest_wire_t));
-      ulong send_contact_sig = 4UL;
-      fd_mcache_publish( ctx->send_contact_out_mcache, ctx->send_contact_out_depth, ctx->send_contact_out_seq, send_contact_sig, ctx->send_contact_out_chunk,
-        send_contact_sz, 0UL, tsorig, tspub );
-      ctx->send_contact_out_seq   = fd_seq_inc( ctx->send_contact_out_seq, 1UL );
-      ctx->send_contact_out_chunk = fd_dcache_compact_next( ctx->send_contact_out_chunk, send_contact_sz, ctx->send_contact_out_chunk0, ctx->send_contact_out_wmark );
+      while( send_peers_cnt ) {
+        ulong send_batch_cnt   = fd_ulong_min( send_peers_cnt, 1500UL );
+        /* */ send_peers_cnt  -= send_batch_cnt;
+        ulong send_contact_sz  = (send_batch_cnt * sizeof(fd_shred_dest_wire_t));
+        ulong send_contact_sig = 4UL;
+
+        fd_stem_publish( ctx->stem, ctx->send_contact_out_idx, send_contact_sig, ctx->send_contact_out_chunk,
+          send_contact_sz, 0UL, 0, tspub );
+        ctx->send_contact_out_chunk = fd_dcache_compact_next( ctx->send_contact_out_chunk, send_contact_sz, ctx->send_contact_out_chunk0, ctx->send_contact_out_wmark );
+      }
     }
   }
 
@@ -692,7 +697,7 @@ unprivileged_init( fd_topo_t *      topo,
       ctx->send_contact_out_chunk0 = fd_dcache_compact_chunk0( ctx->send_contact_out_mem, link->dcache );
       ctx->send_contact_out_wmark  = fd_dcache_compact_wmark ( ctx->send_contact_out_mem, link->dcache, link->mtu );
       ctx->send_contact_out_chunk  = ctx->send_contact_out_chunk0;
-
+      ctx->send_contact_out_idx    = out_idx;
     } else if( 0==strcmp( link->name, "gossip_tower" ) ) {
 
       ctx->tower_out_idx         = fd_topo_find_tile_out_link( topo, tile, "gossip_tower", 0 );
@@ -905,7 +910,7 @@ metrics_write( fd_gossip_tile_ctx_t * ctx ) {
   fd_gossip_update_gossip_metrics( fd_gossip_get_metrics( ctx->gossip ) );
 }
 
-#define STEM_BURST (1UL)
+#define STEM_BURST (30UL)
 
 #define STEM_CALLBACK_CONTEXT_TYPE  fd_gossip_tile_ctx_t
 #define STEM_CALLBACK_CONTEXT_ALIGN alignof(fd_gossip_tile_ctx_t)

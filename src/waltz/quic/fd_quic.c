@@ -4541,7 +4541,7 @@ fd_quic_conn_create( fd_quic_t *               quic,
   quic->metrics.conn_created_cnt++;
 
   /* immediately schedule it */
-  fd_quic_svc_schedule( state, conn, FD_QUIC_SVC_WAIT );
+  fd_quic_svc_schedule( state, conn, FD_QUIC_SVC_INSTANT );
 
   /* return connection */
   return conn;
