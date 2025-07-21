@@ -1,4 +1,5 @@
 #include "fd_prometheus.h"
+#include "fd_metrics.h"
 #include "../../waltz/http/fd_http_server.h"
 #include "../../util/net/fd_ip4.h"
 
@@ -30,6 +31,8 @@ typedef struct {
   fd_topo_t * topo;
 
   fd_http_server_t * metrics_server;
+
+  long boot_ts;
 } fd_metric_ctx_t;
 
 FD_FN_CONST static inline ulong
@@ -87,6 +90,11 @@ metrics_http_request( fd_http_server_request_t const * request ) {
 }
 
 static void
+metrics_write( fd_metric_ctx_t * ctx ) {
+  FD_MGAUGE_SET( METRIC, BOOT_TIMESTAMP_NANOS, (ulong)ctx->boot_ts );
+}
+
+static void
 privileged_init( fd_topo_t *      topo,
                  fd_topo_tile_t * tile ) {
   void * scratch = fd_topo_obj_laddr( topo, tile->tile_obj_id );
@@ -112,6 +120,7 @@ unprivileged_init( fd_topo_t *      topo,
   fd_metric_ctx_t * ctx = FD_SCRATCH_ALLOC_APPEND( l, alignof( fd_metric_ctx_t ), sizeof( fd_metric_ctx_t ) );
 
   ctx->topo = topo;
+  ctx->boot_ts = fd_log_wallclock();
 
   ulong scratch_top = FD_SCRATCH_ALLOC_FINI( l, 1UL );
   if( FD_UNLIKELY( scratch_top > (ulong)scratch + scratch_footprint( tile ) ) )
@@ -159,6 +168,7 @@ populate_allowed_fds( fd_topo_t const *      topo,
 #define STEM_CALLBACK_CONTEXT_ALIGN alignof(fd_metric_ctx_t)
 
 #define STEM_CALLBACK_BEFORE_CREDIT before_credit
+#define STEM_CALLBACK_METRICS_WRITE metrics_write
 
 #include "../stem/fd_stem.c"
 
