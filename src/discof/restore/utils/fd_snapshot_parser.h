@@ -18,7 +18,7 @@ struct fd_snapshot_accv_key {
 typedef struct fd_snapshot_accv_key fd_snapshot_accv_key_t;
 
 static const fd_snapshot_accv_key_t
-fd_snapshot_accv_key_null = { 0UL, 0UL };
+fd_snapshot_accv_key_null = { ULONG_MAX, ULONG_MAX };
 
 FD_FN_PURE static inline ulong
 fd_snapshot_accv_key_hash( fd_snapshot_accv_key_t key ) {
@@ -38,7 +38,7 @@ typedef struct fd_snapshot_accv_map fd_snapshot_accv_map_t;
 #define MAP_LG_SLOT_CNT       23  /* 8.39 million */
 #define MAP_KEY_T             fd_snapshot_accv_key_t
 #define MAP_KEY_NULL          fd_snapshot_accv_key_null
-#define MAP_KEY_INVAL(k)      ( ((k).slot==0UL) & ((k).id==0UL) )
+#define MAP_KEY_INVAL(k)      ( ((k).slot==ULONG_MAX) & ((k).id==ULONG_MAX) )
 #define MAP_KEY_EQUAL(k0,k1)  ( ((k0).slot==(k1).slot) & ((k0).id==(k1).id) )
 #define MAP_KEY_EQUAL_IS_SLOW 0
 #define MAP_HASH_T            ulong
