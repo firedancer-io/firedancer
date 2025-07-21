@@ -906,8 +906,9 @@ after_frag( fd_replay_tile_ctx_t *   ctx,
     if( FD_LIKELY( root <= fd_fseq_query( ctx->published_wmark ) ) ) return;
     FD_LOG_NOTICE(( "advancing root %lu => %lu", fd_fseq_query( ctx->published_wmark ), root ));
 
-    if( FD_UNLIKELY( ctx->slot_ctx->bank->slot==root ) ) {
-      FD_LOG_CRIT(( "invariant violation: root %lu is the same as the current slot %lu", root, ctx->slot_ctx->bank->slot ));
+    ulong const slot = fd_bank_slot_get( ctx->slot_ctx->bank );
+    if( FD_UNLIKELY( slot==root ) ) {
+      FD_LOG_CRIT(( "invariant violation: root %lu is the same as the current slot %lu", root, slot ));
     }
 
     ctx->root = root;

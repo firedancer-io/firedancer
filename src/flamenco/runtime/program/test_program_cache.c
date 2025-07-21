@@ -226,7 +226,7 @@ test_program_in_cache_needs_reverification( void ) {
   FD_TEST( valid_prog->last_epoch_verification_ran==1UL );
 
   /* Fast forward to next epoch */
-  test_slot_ctx->bank->slot += 432000UL;
+  test_slot_ctx->bank->slot_ += 432000UL;
 
   /* This should trigger reverification */
   fd_bpf_program_update_program_cache( test_slot_ctx, &test_program_pubkey, test_spad );

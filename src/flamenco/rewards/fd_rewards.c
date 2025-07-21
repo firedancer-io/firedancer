@@ -1131,13 +1131,13 @@ fd_rewards_recalculate_partitioned_rewards( fd_exec_slot_ctx_t * slot_ctx,
         https://github.com/anza-xyz/agave/blob/2316fea4c0852e59c071f72d72db020017ffd7d0/runtime/src/bank/partitioned_epoch_rewards/calculation.rs#L566 */
     FD_LOG_NOTICE(( "epoch rewards is active" ));
 
-    fd_epoch_schedule_t const * epoch_schedule = fd_bank_epoch_schedule_query( slot_ctx->bank );
-    ulong epoch          = fd_slot_to_epoch( epoch_schedule, fd_bank_slot_get( slot_ctx->bank ), NULL );
-    ulong rewarded_epoch = fd_ulong_sat_sub( epoch, 1UL );
+    ulong const slot           = fd_bank_slot_get( slot_ctx->bank );
+    ulong const epoch          = fd_bank_epoch_get( slot_ctx->bank );
+    ulong const rewarded_epoch = fd_ulong_sat_sub( epoch, 1UL );
 
     int _err[1] = {0};
     ulong * new_warmup_cooldown_rate_epoch = fd_spad_alloc( runtime_spad, alignof(ulong), sizeof(ulong) );
-    int is_some = fd_new_warmup_cooldown_rate_epoch( fd_bank_slot_get( slot_ctx->bank ),
+    int is_some = fd_new_warmup_cooldown_rate_epoch( slot,
                                                      slot_ctx->funk,
                                                      slot_ctx->funk_txn,
                                                      fd_bank_features_query( slot_ctx->bank ),

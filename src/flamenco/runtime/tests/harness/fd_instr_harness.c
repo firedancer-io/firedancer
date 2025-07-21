@@ -267,7 +267,7 @@ fd_runtime_fuzz_instr_ctx_create( fd_runtime_fuzz_runner_t *           runner,
   /* Set slot bank variables */
   clock = fd_sysvar_clock_read( funk, funk_txn, runner->spad );
 
-  slot_ctx->bank->slot = clock->slot;
+  slot_ctx->bank->slot_ = clock->slot;
 
   /* Handle undefined behavior if sysvars are malicious (!!!) */
 

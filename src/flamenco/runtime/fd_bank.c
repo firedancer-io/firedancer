@@ -1,5 +1,5 @@
 #include "fd_bank.h"
-#include "../../util/fd_util_base.h"
+#include "sysvar/fd_sysvar_epoch_schedule.h"
 
 ulong
 fd_bank_align( void ) {
@@ -72,7 +72,7 @@ fd_bank_footprint( void ) {
 
 #define HAS_LOCK_0(type, name) \
   type const *                                             \
-  fd_bank_##name##_query( fd_bank_t * bank ) {             \
+  fd_bank_##name##_query( fd_bank_t const * bank ) {       \
     return (type const *)fd_type_pun_const( bank->name );  \
   }                                                        \
   type *                                                   \
@@ -107,7 +107,7 @@ fd_bank_footprint( void ) {
     FD_STORE( type, bank->name, value );                    \
   }                                                         \
   type                                                      \
-  fd_bank_##name##_get( fd_bank_t * bank ) {                \
+  fd_bank_##name##_get( fd_bank_t const * bank ) {          \
     type val = FD_LOAD( type, bank->name );                 \
     return val;                                             \
   }
@@ -397,7 +397,7 @@ fd_banks_init_bank( fd_banks_t * banks, ulong slot ) {
   memset( bank, 0, fd_bank_footprint() );
 
   ulong null_idx = fd_banks_pool_idx_null( bank_pool );
-  bank->slot        = slot;
+  bank->slot_       = slot;
   bank->next        = null_idx;
   bank->parent_idx  = null_idx;
   bank->child_idx   = null_idx;
@@ -513,7 +513,7 @@ fd_banks_clone_from_parent( fd_banks_t * banks,
 
   ulong null_idx = fd_banks_pool_idx_null( bank_pool );
 
-  new_bank->slot        = slot;
+  new_bank->slot_       = slot;
   new_bank->next        = null_idx;
   new_bank->parent_idx  = null_idx;
   new_bank->child_idx   = null_idx;
@@ -613,7 +613,7 @@ fd_banks_publish( fd_banks_t * banks, ulong slot ) {
     return NULL;
   }
 
-  fd_bank_t * head = fd_banks_map_ele_remove( bank_map, &old_root->slot, NULL, bank_pool );
+  fd_bank_t * head = fd_banks_map_ele_remove( bank_map, &old_root->slot_, NULL, bank_pool );
   head->next       = fd_banks_pool_idx_null( bank_pool );
   fd_bank_t * tail = head;
 
@@ -626,10 +626,11 @@ fd_banks_publish( fd_banks_t * banks, ulong slot ) {
 
         /* Remove the child from the map first and push onto the
            frontier list that needs to be iterated through */
-        tail->next = fd_banks_map_idx_remove( bank_map,
-                                              &child->slot,
-                                              fd_banks_pool_idx_null( bank_pool ),
-                                              bank_pool );
+        tail->next = fd_banks_map_idx_remove(
+            bank_map,
+            &child->slot_,
+            fd_banks_pool_idx_null( bank_pool ),
+            bank_pool );
 
         tail       = fd_banks_pool_ele( bank_pool, tail->next );
         tail->next = fd_banks_pool_idx_null( bank_pool );

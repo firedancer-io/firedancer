@@ -347,9 +347,7 @@ fd_exec_slot_ctx_recover( fd_exec_slot_ctx_t *                slot_ctx,
 
   /* Move EpochStakes */
   do {
-
-    fd_epoch_schedule_t const * epoch_schedule = fd_bank_epoch_schedule_query( slot_ctx->bank );
-    ulong epoch = fd_slot_to_epoch( epoch_schedule, fd_bank_slot_get( slot_ctx->bank ), NULL );
+    ulong epoch = fd_bank_epoch_get( slot_ctx->bank );
 
     /* We need to save the vote accounts for the current epoch and the next
        epoch as it is used to calculate the leader schedule at the epoch
@@ -606,4 +604,10 @@ fd_exec_slot_ctx_recover_status_cache( fd_exec_slot_ctx_t *    ctx,
 
   } FD_SPAD_FRAME_END;
   return ctx;
+}
+
+ulong
+fd_bank_epoch_get( fd_bank_t const * bank ) {
+  fd_epoch_schedule_t epoch_schedule = fd_bank_epoch_schedule_get( bank );
+  return fd_slot_to_epoch( &epoch_schedule, fd_bank_slot_get( bank ), NULL );
 }

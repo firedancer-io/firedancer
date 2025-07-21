@@ -287,7 +287,7 @@ struct fd_bank {
   #define FD_BANK_HEADER_SIZE (40UL)
 
   /* Fields used for internal pool and bank management */
-  ulong             slot;        /* slot this node is tracking, also the map key */
+  ulong             slot_;       /* slot this node is tracking, also the map key */
   ulong             next;        /* reserved for internal use by fd_pool_para, fd_map_chain_para and fd_banks_publish */
   ulong             parent_idx;  /* index of the parent in the node pool */
   ulong             child_idx;   /* index of the left-child in the node pool */
@@ -397,7 +397,7 @@ fd_bank_footprint( void );
 
 #define MAP_NAME  fd_banks_map
 #define MAP_ELE_T fd_bank_t
-#define MAP_KEY   slot
+#define MAP_KEY   slot_
 #include "../../util/tmpl/fd_map_chain.c"
 #undef MAP_NAME
 #undef MAP_ELE_T
@@ -438,13 +438,13 @@ typedef struct fd_banks fd_banks_t;
   type * fd_bank_##name##_locking_modify( fd_bank_t * bank );      \
   void fd_bank_##name##_end_locking_modify( fd_bank_t * bank );
 
-#define HAS_LOCK_0(type, name)                             \
-  type const * fd_bank_##name##_query( fd_bank_t * bank ); \
+#define HAS_LOCK_0(type, name)                                   \
+  type const * fd_bank_##name##_query( fd_bank_t const * bank ); \
   type * fd_bank_##name##_modify( fd_bank_t * bank );
 
-#define X(type, name, footprint, align, cow, has_lock) \
+#define X(type, name, footprint, align, cow, has_lock)             \
   void fd_bank_##name##_set( fd_bank_t * bank, type value );       \
-  type fd_bank_##name##_get( fd_bank_t * bank );                   \
+  type fd_bank_##name##_get( fd_bank_t const * bank );             \
   HAS_LOCK_##has_lock(type, name)
 FD_BANKS_ITER(X)
 #undef X
@@ -453,9 +453,12 @@ FD_BANKS_ITER(X)
 #undef HAS_LOCK_1
 
 static inline ulong
-fd_bank_slot_get( fd_bank_t * bank ) {
-  return bank->slot;
+fd_bank_slot_get( fd_bank_t const * bank ) {
+  return bank->slot_;
 }
+
+ulong
+fd_bank_epoch_get( fd_bank_t const * bank );
 
 /* Simple getters and setters for members of fd_banks_t.*/
 
