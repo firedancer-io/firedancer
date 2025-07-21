@@ -34,7 +34,6 @@ void
 fd_sysvar_epoch_schedule_write( fd_exec_slot_ctx_t *        slot_ctx,
                                 fd_epoch_schedule_t const * epoch_schedule ) {
   ulong sz = fd_epoch_schedule_size( epoch_schedule );
-  FD_LOG_INFO(("Writing epoch schedule size %lu", sz));
   /* TODO remove alloca */
   uchar enc[ sz ];
   memset( enc, 0, sz );
