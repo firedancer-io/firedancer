@@ -212,12 +212,14 @@ handle_control_frag( fd_snapin_tile_t *  ctx,
       ctx->full = 1;
       fd_snapshot_parser_reset( ctx->ssparse, fd_chunk_to_laddr( ctx->manifest_out.wksp, ctx->manifest_out.chunk ), ctx->manifest_out.mtu );
       fd_funk_txn_cancel_root( ctx->funk );
+      ctx->state = FD_SNAPIN_STATE_LOADING;
       break;
     case FD_SNAPSHOT_MSG_CTRL_RESET_INCREMENTAL:
       ctx->full = 0;
       fd_snapshot_parser_reset( ctx->ssparse, fd_chunk_to_laddr( ctx->manifest_out.wksp, ctx->manifest_out.chunk ), ctx->manifest_out.mtu );
       if( FD_UNLIKELY( !ctx->funk_txn ) ) fd_funk_txn_cancel_root( ctx->funk );
       else                                fd_funk_txn_cancel( ctx->funk, ctx->funk_txn, 0 );
+      ctx->state = FD_SNAPIN_STATE_LOADING;
       break;
     case FD_SNAPSHOT_MSG_CTRL_EOF_FULL:
       FD_TEST( ctx->full );
@@ -231,7 +233,8 @@ handle_control_frag( fd_snapin_tile_t *  ctx,
 
       fd_funk_txn_xid_t incremental_xid = fd_funk_generate_xid();
       ctx->funk_txn = fd_funk_txn_prepare( ctx->funk, ctx->funk_txn, &incremental_xid, 0 );
-      ctx->full = 0;
+      ctx->full     = 0;
+      ctx->state    = FD_SNAPIN_STATE_LOADING;
       break;
     case FD_SNAPSHOT_MSG_CTRL_DONE:
       if( FD_UNLIKELY( ctx->state!=FD_SNAPIN_STATE_DONE ) ) {
