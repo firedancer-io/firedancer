@@ -178,14 +178,16 @@ def execution_stats( log_path, pdf ):
             snapshot_slot = int(tokens[-1])
             snapshot_loaded_ts = f'{tokens[1]} {tokens[2]}'
 
-        if first_turbine and f'finished block - slot: {first_turbine}' in line:
+        if  f'slot: {first_turbine}' in line:
             tokens = line.split()
             first_turbine_exec_ts = f'{tokens[1]} {tokens[2]}'
             break
 
     for line in lines[::-1]:  # Iterate in reverse to find the last matching line
-        if 'finished block - slot:' in line:
-            last_executed = int(line.split()[12][:-1])  # 13th word (index 12 in 0-based indexing)
+        if 'slot:      ' in line:
+            tokens = line.split()
+            print(tokens)
+            last_executed = int(tokens[tokens.index('slot:') + 1])
             break
 
     if snapshot_slot is None:
@@ -398,14 +400,24 @@ def completion_times( fec_stats, shred_data, first_turbine, pdf ):
     fec_stats_dedup = fec_stats.drop_duplicates(subset=['slot', 'fec_set_idx'], keep='first')
 
     slot_completion = fec_stats_dedup.groupby('slot').apply( lambda slot: pd.concat( [ slot.iloc[0],
-                                                                                    slot.iloc[-1]
-                                                                                    ]))
-    slot_completion.drop(columns=['slot', 'slot'], inplace=True)
+                                                                                       slot.iloc[-1]  ]))
+    slot_completion.drop(columns=['slot'], inplace=True)
     slot_completion.columns = ['timestamp_fec0', 'ref_tick_fec0', 'fec_set_idx_fec0', 'data_cnt_fec0', 'first_shred_ts_fec0',
         'time_to_complete_fec0', 'time_to_complete(ms)_fec0', 'timestamp_fec1',
         'ref_tick_fec1', 'fec_set_idx_fec1', 'data_cnt_fec1', 'first_shred_ts_fec1', 'time_to_complete_fec1',
         'time_to_complete(ms)_fec1']
-    slot_completion['first_shred_in_slot'] = slot_completion.index.map( lambda slot: shred_data[shred_data['slot'] == slot]['timestamp'].min() )
+
+    # index the earliest shreds in the slot that aren't the last shred in the slot
+    last_shred_idx_in_slot = shred_data.groupby('slot').agg({'idx': 'max'}).reset_index()
+    last_shred_idx_in_slot['shred'] = last_shred_idx_in_slot['slot'] + ( last_shred_idx_in_slot['idx'] / 10000 )
+    # drop all any shred that appears in the last_shred_idx_in_slot
+    strip = shred_data[~shred_data['shred'].isin(last_shred_idx_in_slot['shred'])]
+    first_shred_in_slot = strip.groupby('slot').agg({'timestamp': 'min'}).reset_index() # minimum timestamp of remaining rows
+
+    slot_completion['first_shred_real_in_slot'] = slot_completion.index.map( lambda slot: shred_data[shred_data['slot'] == slot]['timestamp'].min() ) # actual first shred in the slot is the orphan req
+    #slot_completion['first_shred_in_slot'] = slot_completion.index.map( lambda slot: first_shred_in_slot[first_shred_in_slot['slot'] == slot]['timestamp'].values[0] ) # slot.00 is the first shred in the slot
+    slot_completion['first_shred_in_slot'] = slot_completion.index.map( lambda slot: first_shred_in_slot[first_shred_in_slot['slot'] == slot]['timestamp'].values[0] ) # slot.00 is the first shred in the slot
+
     slot_completion['time_slot_complete(ms)'] = ( slot_completion['timestamp_fec1'] - slot_completion['first_shred_in_slot'] ) / 1_000_000  # Convert to milliseconds
 
     #plot slots in order
@@ -597,7 +609,8 @@ def generate_report( log_path, request_data_path, shred_data_path, peers_data_pa
     sys.stdout.write('\033[K')
     sys.stdout.flush()
 
-    shreds_data['shred']      = shreds_data['slot'] + ( shreds_data['idx'] / 100 )
+    shreds_data['shred']      = shreds_data['slot'] + ( shreds_data['idx'] / 10000 )
+
     #repair_requests['pubkey'] = repair_requests['pubkey'].str.slice(0, 8)           #shortening pubkey for better readability
 
     # There is a specific case where replay takes some time to propagate stake ci, and
@@ -607,6 +620,8 @@ def generate_report( log_path, request_data_path, shred_data_path, peers_data_pa
 
     first_turbine_accept_ts = shreds_data[shreds_data['slot'] == first_turbine]['timestamp'].min()
 
+    print(f'First turbine accept time: {first_turbine_accept_ts}')
+
     catchup = shreds_data[shreds_data['slot'].between(snapshot_slot, first_turbine - 1)]
     live    = shreds_data[shreds_data['slot'].between(first_turbine, last_executed)]
 
@@ -614,12 +629,12 @@ def generate_report( log_path, request_data_path, shred_data_path, peers_data_pa
     if request_data_path:
         catchup_rq = repair_requests[repair_requests['slot'].between(snapshot_slot, first_turbine - 1)]
         live_rq    = repair_requests[repair_requests['slot'].between(first_turbine, last_executed)]
-
         turbine_stats(catchup, live)
 
-        catchup = catchup[catchup['timestamp'] >= first_turbine_accept_ts]  # only keep shreds that were accepted after the first turbine
-        shreds_data = shreds_data[shreds_data['timestamp'] >= first_turbine_accept_ts]  # only keep shreds that were accepted after the first turbine
+    catchup = catchup[catchup['timestamp'] >= first_turbine_accept_ts]  # only keep shreds that were accepted after the first turbine
+    shreds_data = shreds_data[shreds_data['timestamp'] >= first_turbine_accept_ts]  # only keep shreds that were accepted after the first turbine
 
+    if peers_data_path:
         peer_stats( catchup, catchup_rq, live, live_rq, pdf )
 
     if fec_complete_path:
