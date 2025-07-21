@@ -8,7 +8,6 @@ void
 fd_sysvar_last_restart_slot_init( fd_exec_slot_ctx_t * slot_ctx ) {
 
   if( !FD_FEATURE_ACTIVE_BANK( slot_ctx->bank, last_restart_slot_sysvar ) ) {
-    FD_LOG_INFO(( "sysvar LastRestartSlot not supported by this ledger version!" ));
     return;
   }
 

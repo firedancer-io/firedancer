@@ -492,13 +492,14 @@ sol_compat_txn_fixture( fd_runtime_fuzz_runner_t * runner,
 
   int ok = 0;
   FD_SPAD_FRAME_BEGIN( runner->spad ) {
-  // Execute
-  void * output = NULL;
-  sol_compat_execute_wrapper( runner, &fixture->input, &output, fd_runtime_fuzz_txn_run );
-
-  // Compare effects
-  fd_exec_test_txn_result_t * effects = (fd_exec_test_txn_result_t *) output;
-  ok = sol_compat_cmp_txn( &fixture->output, effects );
+    // Execute
+    void * output = NULL;
+    sol_compat_execute_wrapper( runner, &fixture->input, &output, fd_runtime_fuzz_txn_run );
+    if( FD_LIKELY( output ) ) {
+      // Compare effects
+      fd_exec_test_txn_result_t * effects = output;
+      ok = sol_compat_cmp_txn( &fixture->output, effects );
+    }
   } FD_SPAD_FRAME_END;
 
   // Cleanup
