@@ -255,17 +255,17 @@ metric introduced.
 
 
 <enum name="NewContactOutcome">
-    <int value="0" name="Connect" label="Initiated connection" />
-    <int value="1" name="Unroutable" label="Skipped (unroutable)" />
-    <int value="2" name="Unstaked" label="Skipped (unstaked)" />
-    <int value="3" name="Changed" label="Contact info changed" />
-    <int value="4" name="NoChange" label="Contact info unchanged" />
+    <int value="0" name="Unroutable" label="Skipped (unroutable)" />
+    <int value="1" name="Unstaked" label="Skipped (unstaked)" />
+    <int value="2" name="Changed" label="Contact info changed" />
+    <int value="3" name="NoChange" label="Contact info unchanged" />
 </enum>
 
 <enum name="TxnQuicSendResult">
     <int value="0" name="Success" label="Success" />
-    <int value="1" name="NoConn" label="No QUIC connection" />
-    <int value="2" name="NoStream" label="No QUIC stream" />
+    <int value="1" name="NoCi" label="No contact info" />
+    <int value="2" name="NoConn" label="No QUIC connection" />
+    <int value="3" name="NoStream" label="No QUIC stream" />
 </enum>
 
 <tile name="send">
@@ -275,6 +275,9 @@ metric introduced.
     <counter name="ContactStale" summary="Total number of reconnects skipped due to stale contact info" />
     <counter name="QuicSendResult" enum="TxnQuicSendResult" summary="Total number of transactions we attempted to send via QUIC" />
     <counter name="QuicConnCreateFailed" summary="Total number of QUIC connection creation failures" />
+    <counter name="HandshakeComplete" summary="Total number of times we completed a handshake" />
+    <gauge name="StakedNoCi" summary="Last counted # staked accounts without contact info" />
+    <gauge name="StaleCi" summary="Last counted # staked accounts with stale contact info" />
 
     <!-- QUIC packet metrics -->
     <counter name="ReceivedPackets" summary="Total count of QUIC packets received" />
