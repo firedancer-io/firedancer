@@ -1,4 +1,6 @@
+#define _GNU_SOURCE
 #include "fd_ssping.h"
+#include "fd_ssresolve.h"
 
 #include "../../../util/bits/fd_bits.h"
 #include "../../../util/log/fd_log.h"
@@ -9,6 +11,7 @@
 #include <sys/socket.h>
 #include <netinet/in.h>
 #include <netinet/ip_icmp.h>
+#include <netinet/tcp.h>
 
 #define PEER_STATE_UNPINGED   0
 #define PEER_STATE_PINGED     1
@@ -16,13 +19,31 @@
 #define PEER_STATE_REFRESHING 3
 #define PEER_STATE_INVALID    4
 
-#define PEER_DEADLINE_NANOS_PING    (1L*1000L*1000L*1000L)     /* 1 second */
+#define PEER_DEADLINE_NANOS_PING    (2L*1000L*1000L*1000L)     /* 2 seconds */
 #define PEER_DEADLINE_NANOS_VALID   (2L*60L*1000L*1000L*1000L) /* 2 minutes */
 #define PEER_DEADLINE_NANOS_INVALID (5L*60L*1000L*1000L*1000L) /* 5 minutes */
 
 struct fd_ssping_peer {
-  ulong         refcnt;
-  fd_ip4_port_t addr;
+  ulong            refcnt;
+  fd_ip4_port_t    addr;
+
+  fd_ssresolve_t * full_ssresolve;
+  fd_ssresolve_t * inc_ssresolve;
+
+  struct {
+
+    struct {
+      ulong     slot;
+      fd_hash_t hash;
+    } full;
+
+    struct {
+      ulong     base_slot;
+      ulong     slot;
+      fd_hash_t hash;
+    } incremental;
+
+  } snapshot_info;
 
   struct {
     ulong next;
@@ -50,6 +71,8 @@ struct fd_ssping_peer {
   } fd;
 
   int   state;
+  ulong full_latency_nanos;
+  ulong incremental_latency_nanos;
   ulong latency_nanos;
   long  deadline_nanos;
 };
@@ -131,8 +154,13 @@ fd_ssping_footprint( ulong max_peers ) {
   l = FD_LAYOUT_APPEND( l, deadline_list_align(), deadline_list_footprint() );
   l = FD_LAYOUT_APPEND( l, deadline_list_align(), deadline_list_footprint() );
   l = FD_LAYOUT_APPEND( l, deadline_list_align(), deadline_list_footprint() );
-  l = FD_LAYOUT_APPEND( l, sizeof(struct pollfd), max_peers*sizeof(struct pollfd) );
-  l = FD_LAYOUT_APPEND( l, sizeof(ulong),         max_peers*sizeof(ulong) );
+  l = FD_LAYOUT_APPEND( l, sizeof(struct pollfd), max_peers*sizeof(struct pollfd)*2UL );
+  l = FD_LAYOUT_APPEND( l, sizeof(ulong),         max_peers*sizeof(ulong)*2UL );
+
+  for( ulong i=0UL; i<max_peers*2UL; i++ ) {
+    l = FD_LAYOUT_APPEND( l, fd_ssresolve_align(), fd_ssresolve_footprint() );
+  }
+
   return FD_LAYOUT_FINI( l, FD_SSPING_ALIGN );
 }
 
@@ -156,20 +184,20 @@ fd_ssping_new( void * shmem,
   }
 
   FD_SCRATCH_ALLOC_INIT( l, shmem );
-  fd_ssping_t * ssping = FD_SCRATCH_ALLOC_APPEND( l, FD_SSPING_ALIGN,     sizeof(fd_ssping_t) );
-  void * _pool         = FD_SCRATCH_ALLOC_APPEND( l, peer_pool_align(),   peer_pool_footprint( max_peers ) );
-  void * _map          = FD_SCRATCH_ALLOC_APPEND( l, peer_map_align(),    peer_map_footprint( max_peers ) );
-  void * _score_treap  = FD_SCRATCH_ALLOC_APPEND( l, score_treap_align(), score_treap_footprint( max_peers ) );
+  fd_ssping_t * ssping = FD_SCRATCH_ALLOC_APPEND( l, FD_SSPING_ALIGN,       sizeof(fd_ssping_t) );
+  void * _pool         = FD_SCRATCH_ALLOC_APPEND( l, peer_pool_align(),     peer_pool_footprint( max_peers ) );
+  void * _map          = FD_SCRATCH_ALLOC_APPEND( l, peer_map_align(),      peer_map_footprint( max_peers ) );
+  void * _score_treap  = FD_SCRATCH_ALLOC_APPEND( l, score_treap_align(),   score_treap_footprint( max_peers ) );
   void * _unpinged     = FD_SCRATCH_ALLOC_APPEND( l, deadline_list_align(), deadline_list_footprint() );
   void * _pinged       = FD_SCRATCH_ALLOC_APPEND( l, deadline_list_align(), deadline_list_footprint() );
   void * _valid        = FD_SCRATCH_ALLOC_APPEND( l, deadline_list_align(), deadline_list_footprint() );
   void * _refreshing   = FD_SCRATCH_ALLOC_APPEND( l, deadline_list_align(), deadline_list_footprint() );
   void * _invalid      = FD_SCRATCH_ALLOC_APPEND( l, deadline_list_align(), deadline_list_footprint() );
-  struct pollfd * fds  = FD_SCRATCH_ALLOC_APPEND( l, sizeof(struct pollfd), max_peers*sizeof(struct pollfd) );
-  ulong * fds_idx      = FD_SCRATCH_ALLOC_APPEND( l, sizeof(ulong), max_peers*sizeof(ulong) );
+  struct pollfd * _fds = FD_SCRATCH_ALLOC_APPEND( l, sizeof(struct pollfd), max_peers*sizeof(struct pollfd)*2UL );
+  ulong * fds_idx      = FD_SCRATCH_ALLOC_APPEND( l, sizeof(ulong), max_peers*sizeof(ulong)*2UL );
 
-  ssping->pool = peer_pool_join( peer_pool_new( _pool, max_peers ) );
-  ssping->map = peer_map_join( peer_map_new( _map, max_peers, seed ) );
+  ssping->pool        = peer_pool_join( peer_pool_new( _pool, max_peers ) );
+  ssping->map         = peer_map_join( peer_map_new( _map, max_peers, seed ) );
   ssping->score_treap = score_treap_join( score_treap_new( _score_treap, max_peers ) );
 
   ssping->unpinged   = deadline_list_join( deadline_list_new( _unpinged ) );
@@ -178,9 +206,17 @@ fd_ssping_new( void * shmem,
   ssping->refreshing = deadline_list_join( deadline_list_new( _refreshing ) );
   ssping->invalid    = deadline_list_join( deadline_list_new( _invalid ) );
 
-  ssping->fds_len = 0UL;
-  ssping->fds     = fds;
-  ssping->fds_idx = fds_idx;
+  ssping->fds_len  = 0UL;
+  ssping->fds      = _fds;
+  ssping->fds_idx  = fds_idx;
+
+  FD_TEST( peer_pool_max( ssping->pool )==max_peers );
+  for( ulong i=0UL; i<peer_pool_max( ssping->pool ); i++ ) {
+    void * _full_ssresolve = FD_SCRATCH_ALLOC_APPEND( l, fd_ssresolve_align(), fd_ssresolve_footprint() );
+    void * _inc_ssresolve  = FD_SCRATCH_ALLOC_APPEND( l, fd_ssresolve_align(), fd_ssresolve_footprint() );
+    ssping->pool[ i ].full_ssresolve = fd_ssresolve_join( fd_ssresolve_new( _full_ssresolve ) );
+    ssping->pool[ i ].inc_ssresolve  = fd_ssresolve_join( fd_ssresolve_new( _inc_ssresolve ) );
+  }
 
   FD_COMPILER_MFENCE();
   FD_VOLATILE( ssping->magic ) = FD_SSPING_MAGIC;
@@ -222,6 +258,11 @@ fd_ssping_add( fd_ssping_t * ssping,
     peer->refcnt = 0UL;
     peer->state  = PEER_STATE_UNPINGED;
     peer->addr   = addr;
+    peer->snapshot_info.full.slot             = ULONG_MAX;
+    peer->snapshot_info.incremental.base_slot = ULONG_MAX;
+    peer->snapshot_info.incremental.slot      = ULONG_MAX;
+    peer->full_latency_nanos        = 0UL;
+    peer->incremental_latency_nanos = 0UL;
     peer_map_ele_insert( ssping->map, peer, ssping->pool );
     deadline_list_ele_push_tail( ssping->unpinged, peer, ssping->pool );
   }
@@ -238,13 +279,20 @@ remove_ping_fd( fd_ssping_t * ssping,
     return;
   }
 
-  ssping->fds[ idx ] = ssping->fds[ ssping->fds_len-1UL ];
-  ssping->fds_idx[ idx ] = ssping->fds_idx[ ssping->fds_len-1UL ];
+  ulong full_idx = idx;
+  ulong inc_idx  = idx+1UL;
 
-  fd_ssping_peer_t * peer = peer_pool_ele( ssping->pool, ssping->fds_idx[ idx ] );
-  peer->fd.idx = idx;
-
+  ssping->fds[ inc_idx ]     = ssping->fds[ ssping->fds_len-1UL ];
+  ssping->fds_idx[ inc_idx ] = ssping->fds_idx[ ssping->fds_len-1UL ];
   ssping->fds_len--;
+
+  ssping->fds[ full_idx ]     = ssping->fds[ ssping->fds_len-1UL ];
+  ssping->fds_idx[ full_idx ] = ssping->fds_idx[ ssping->fds_len-1UL ];
+  ssping->fds_len--;
+
+  FD_TEST( ssping->fds_idx[ full_idx ]== ssping->fds_idx[ inc_idx ] );
+  fd_ssping_peer_t * peer = peer_pool_ele( ssping->pool, ssping->fds_idx[ full_idx ] );
+  peer->fd.idx = full_idx;
 }
 
 void
@@ -333,43 +381,71 @@ poll_advance( fd_ssping_t * ssping,
   else if( FD_UNLIKELY( -1==nfds ) ) FD_LOG_ERR(( "poll failed (%i-%s)", errno, strerror( errno ) ));
 
   for( ulong i=0UL; i<ssping->fds_len; i++ ) {
+    fd_ssping_peer_t * peer = peer_pool_ele( ssping->pool, ssping->fds_idx[ i ] );
     struct pollfd * pfd = &ssping->fds[ i ];
     if( FD_UNLIKELY( pfd->revents & (POLLERR|POLLHUP) ) ) {
       unping_peer( ssping, peer_pool_ele( ssping->pool, ssping->fds_idx[ i ] ), now );
       continue;
     }
 
-    if( FD_LIKELY( pfd->revents & POLLOUT ) ) {
-      struct icmphdr icmp_hdr = (struct icmphdr){
-        .type             = ICMP_ECHO,
-        .code             = 0,
-        .un.echo.id       = 0, /* Automatically set by kernel for a ping socket */
-        .un.echo.sequence = 0, /* Only one ping goes out per socket, so nothing to change */
-        .checksum         = 0  /* Will be calculated by the kernel */
-      };
-
-      long result = send( pfd->fd, &icmp_hdr, sizeof(icmp_hdr), 0 );
-      if( FD_UNLIKELY( !result ) ) continue;
-      if( FD_UNLIKELY( -1==result && errno==EAGAIN ) ) continue;
-      else if( FD_UNLIKELY( -1==result ) ) {
-        unping_peer( ssping, peer_pool_ele( ssping->pool, ssping->fds_idx[ i ] ), now );
-        continue;
-      }
-      pfd->revents &= ~POLLOUT;
+    int full = i&1UL ? 0 : 1; /* even indices are full, odd indices are incremental */
+    fd_ssresolve_t * ssresolve = full ? peer->full_ssresolve : peer->inc_ssresolve;
+    if( FD_UNLIKELY( now>peer->deadline_nanos ) ) {
+      unping_peer( ssping, peer, now );
+      continue;
     }
 
-    if( FD_LIKELY( pfd->revents & POLLIN ) ) {
-      struct icmphdr icmp_hdr;
-      long result = recv( pfd->fd, &icmp_hdr, sizeof(icmp_hdr), 0 );
-      if( FD_UNLIKELY( -1==result && errno==EAGAIN ) ) continue;
-      else if( FD_UNLIKELY( -1==result || (ulong)result<sizeof(icmp_hdr) || icmp_hdr.type!=ICMP_ECHOREPLY ) ) {
-        unping_peer( ssping, peer_pool_ele( ssping->pool, ssping->fds_idx[ i ] ), now );
-        continue;
+    if( FD_LIKELY( !fd_ssresolve_is_done( ssresolve ) ) ) {
+      if( FD_LIKELY( pfd->revents & POLLOUT ) ) {
+        int res = fd_ssresolve_advance_poll_out( ssresolve );
+
+        if( FD_UNLIKELY( res==FD_SSRESOLVE_ADVANCE_ERROR ) ) {
+          unping_peer( ssping, peer_pool_ele( ssping->pool, ssping->fds_idx[ i ] ), now );
+          continue;
+        }
+
+        pfd->revents &= ~POLLOUT;
       }
 
-      fd_ssping_peer_t * peer = peer_pool_ele( ssping->pool, ssping->fds_idx[ i ] );
-      FD_TEST( peer->deadline_nanos>now );
-      peer->latency_nanos = PEER_DEADLINE_NANOS_PING - (ulong)(peer->deadline_nanos - now);
+      if( FD_LIKELY( pfd->revents & POLLIN ) ) {
+        fd_ssresolve_result_t resolve_result;
+        int res = fd_ssresolve_advance_poll_in( ssresolve, &resolve_result );
+
+        if( FD_UNLIKELY( res==FD_SSRESOLVE_ADVANCE_ERROR ) ) {
+          unping_peer( ssping, peer_pool_ele( ssping->pool, ssping->fds_idx[ i ] ), now );
+          continue;
+        } else if( FD_UNLIKELY( res==FD_SSRESOLVE_ADVANCE_AGAIN ) ) {
+          continue;
+        } else { /* FD_SSRESOLVE_ADVANCE_SUCCESS */
+          FD_TEST( peer->deadline_nanos>now );
+          if( resolve_result.base_slot==ULONG_MAX ) {
+            peer->snapshot_info.full.slot = resolve_result.slot;
+            memcpy( &peer->snapshot_info.full.hash, &resolve_result.hash, sizeof(fd_hash_t) );
+            peer->full_latency_nanos = PEER_DEADLINE_NANOS_PING - (ulong)(peer->deadline_nanos - now);
+          } else {
+            peer->snapshot_info.incremental.base_slot = resolve_result.base_slot;
+            peer->snapshot_info.incremental.slot      = resolve_result.slot;
+            memcpy( &peer->snapshot_info.incremental.hash, &resolve_result.hash, sizeof(fd_hash_t) );
+            peer->incremental_latency_nanos = PEER_DEADLINE_NANOS_PING - (ulong)(peer->deadline_nanos - now);
+          }
+        }
+      }
+    }
+
+    /* Once both the full and incremental snapshots are resolved, we can
+       mark the peer valid and remove the peer from the list of peers to
+       ping. */
+    if( fd_ssresolve_is_done( peer->full_ssresolve ) &&
+        fd_ssresolve_is_done( peer->inc_ssresolve ) ) {
+      FD_LOG_NOTICE(("successfully resolved snapshots for peer " FD_IP4_ADDR_FMT ":%hu "
+                    "with full slot %lu, incremental base slot %lu and incremental slot %lu",
+                    FD_IP4_ADDR_FMT_ARGS( peer->addr.addr ), peer->addr.port,
+                    peer->snapshot_info.full.slot,
+                    peer->snapshot_info.incremental.base_slot,
+                    peer->snapshot_info.incremental.slot ));
+      peer->latency_nanos = (peer->full_latency_nanos + peer->incremental_latency_nanos) / 2UL;
+      FD_LOG_NOTICE(( "full latency is %lu, incremental latency is %lu, latency is %lu",
+                      peer->full_latency_nanos, peer->incremental_latency_nanos, peer->latency_nanos ));
 
       if( FD_LIKELY( peer->state==PEER_STATE_REFRESHING ) ) {
         score_treap_ele_remove( ssping->score_treap, peer, ssping->pool );
@@ -382,16 +458,21 @@ poll_advance( fd_ssping_t * ssping,
       deadline_list_ele_remove( ssping->pinged, peer, ssping->pool );
       deadline_list_ele_push_tail( ssping->valid, peer, ssping->pool );
       score_treap_ele_insert( ssping->score_treap, peer, ssping->pool );
-      remove_ping_fd( ssping, i );
+      remove_ping_fd( ssping, peer->fd.idx );
     }
   }
 }
 
 static int
-peer_connect( fd_ssping_t *      ssping,
-              fd_ssping_peer_t * peer ) {
-  int sockfd = socket( PF_INET, SOCK_DGRAM|SOCK_NONBLOCK, IPPROTO_ICMP );
+create_socket( fd_ssping_t *      ssping,
+               fd_ssping_peer_t * peer ) {
+  int sockfd = socket( PF_INET, SOCK_STREAM|SOCK_NONBLOCK, 0 );
   if( FD_UNLIKELY( -1==sockfd ) ) FD_LOG_ERR(( "socket failed (%i-%s)", errno, strerror( errno ) ));
+
+  int optval = 1;
+  if( FD_UNLIKELY( -1==setsockopt( sockfd, SOL_TCP, TCP_NODELAY, &optval, sizeof(int) ) ) ) {
+    FD_LOG_ERR(( "setsockopt() failed (%d-%s)", errno, fd_io_strerror( errno ) ));
+  }
 
   struct sockaddr_in addr = {
     .sin_family = AF_INET,
@@ -409,9 +490,27 @@ peer_connect( fd_ssping_t *      ssping,
     .events  = POLLIN|POLLOUT,
     .revents = 0
   };
+
+  return 0;
+}
+
+static int
+peer_connect( fd_ssping_t *      ssping,
+              fd_ssping_peer_t * peer ) {
+  int err;
+  err = create_socket( ssping, peer ); /* full */
+  if( FD_UNLIKELY( err ) ) return err;
   ssping->fds_idx[ ssping->fds_len ] = peer_pool_idx( ssping->pool, peer );
   peer->fd.idx = ssping->fds_len;
   ssping->fds_len++;
+
+  err = create_socket( ssping, peer ); /* incremental */
+  if( FD_UNLIKELY( err ) ) return err;
+  ssping->fds_idx[ ssping->fds_len ] = peer_pool_idx( ssping->pool, peer );
+  ssping->fds_len++;
+
+  fd_ssresolve_init( peer->full_ssresolve, peer->addr, ssping->fds[ peer->fd.idx ].fd, 1 );
+  fd_ssresolve_init( peer->inc_ssresolve, peer->addr, ssping->fds[ peer->fd.idx+1UL ].fd, 0 );
 
   return 0;
 }
