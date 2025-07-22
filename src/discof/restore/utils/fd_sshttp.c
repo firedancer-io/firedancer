@@ -53,7 +53,7 @@ FD_FN_CONST ulong
 fd_sshttp_footprint( void ) {
   ulong l;
   l = FD_LAYOUT_INIT;
-  l = FD_LAYOUT_APPEND( l, FD_SSHTTP_ALIGN,       sizeof(fd_sshttp_t) );
+  l = FD_LAYOUT_APPEND( l, FD_SSHTTP_ALIGN, sizeof(fd_sshttp_t) );
   return FD_LAYOUT_FINI( l, FD_SSHTTP_ALIGN );
 }
 
