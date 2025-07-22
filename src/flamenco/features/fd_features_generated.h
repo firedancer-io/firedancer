@@ -8,7 +8,7 @@
 #endif
 
 /* FEATURE_ID_CNT is the number of features in ids */
-#define FD_FEATURE_ID_CNT (235UL)
+#define FD_FEATURE_ID_CNT (236UL)
 union fd_features {
   ulong f[ FD_FEATURE_ID_CNT ];
   struct {
@@ -247,5 +247,6 @@ union fd_features {
     /* 0x210aba8db8103506 */ ulong mask_out_rent_epoch_in_vm_serialization;
     /* 0xec3a4c069e71cb0e */ ulong disable_zk_elgamal_proof_program;
     /* 0xbbec21266d76cb0e */ ulong reenable_zk_elgamal_proof_program;
+    /* 0xe72f76507222e3bb */ ulong formalize_loaded_transaction_data_size;
   };
 };
