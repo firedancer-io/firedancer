@@ -6,6 +6,7 @@
 #include "../../waltz/xdp/fd_xdp1.h"
 #include "../../ballet/base58/fd_base58.h"
 #include "../../util/net/fd_net_headers.h"
+#include "../../flamenco/types/fd_types_custom.h"
 
 /* Maximum number of workspaces that may be present in a topology. */
 #define FD_TOPO_MAX_WKSPS         (256UL)
@@ -492,6 +493,8 @@ struct fd_topo_tile {
       uint  maximum_local_snapshot_age;
       uint  minimum_download_speed_mib;
       uint  maximum_download_retry_abort;
+      char known_validators[ 16UL ][ 256UL ];
+      ulong known_validators_cnt;
     } snaprd;
 
     struct {

@@ -81,12 +81,14 @@ struct fd_snaprd_tile {
   } local_in;
 
   struct {
-    char path[ PATH_MAX ];
-    int  do_download;
-    int  incremental_snapshot_fetch;
-    uint maximum_local_snapshot_age;
-    uint minimum_download_speed_mib;
-    uint maximum_download_retry_abort;
+    char        path[ PATH_MAX ];
+    int         do_download;
+    int         incremental_snapshot_fetch;
+    uint        maximum_local_snapshot_age;
+    uint        minimum_download_speed_mib;
+    uint        maximum_download_retry_abort;
+    ulong       known_validators_cnt;
+    fd_pubkey_t known_validators[ 16 ];
   } config;
 
   struct {
@@ -707,7 +709,6 @@ unprivileged_init( fd_topo_t *      topo,
   fd_snaprd_tile_t * ctx  = FD_SCRATCH_ALLOC_APPEND( l, alignof(fd_snaprd_tile_t),  sizeof(fd_snaprd_tile_t)       );
   void * _sshttp          = FD_SCRATCH_ALLOC_APPEND( l, fd_sshttp_align(),          fd_sshttp_footprint()          );
   void * _ssping          = FD_SCRATCH_ALLOC_APPEND( l, fd_ssping_align(),          fd_ssping_footprint( 65536UL ) );
-  // void * _gossip_peers_rx = FD_SCRATCH_ALLOC_APPEND( l, gossip_peers_rx_align(),    gossip_peers_rx_footprint()    );
   void * _ci_table        = FD_SCRATCH_ALLOC_APPEND( l, alignof(fd_contact_info_t), sizeof(fd_contact_info_t) * FD_CONTACT_INFO_TABLE_SIZE );
 
   ctx->ack_cnt = 0UL;
@@ -723,6 +724,17 @@ unprivileged_init( fd_topo_t *      topo,
   ctx->config.do_download                = tile->snaprd.do_download;
   ctx->config.maximum_local_snapshot_age = tile->snaprd.maximum_local_snapshot_age;
   ctx->config.minimum_download_speed_mib = tile->snaprd.minimum_download_speed_mib;
+  ctx->config.known_validators_cnt       = tile->snaprd.known_validators_cnt;
+
+  for( ulong i=0UL; i<tile->snaprd.known_validators_cnt; i++ ) {
+    uchar * decoded = fd_base58_decode_32( tile->snaprd.known_validators[ i ], ctx->config.known_validators[ i ].uc );
+
+    if( FD_UNLIKELY( !decoded ) ) {
+      FD_LOG_ERR(( "failed to decode known validator pubkey %s", tile->snaprd.known_validators[ i ] ));
+    } else {
+      FD_LOG_WARNING(("got validator pubkey %s", FD_BASE58_ENC_32_ALLOCA( ctx->config.known_validators[ i ].uc ) ));
+    }
+  }
 
   if( FD_UNLIKELY( !tile->snaprd.maximum_download_retry_abort ) ) ctx->config.maximum_download_retry_abort = UINT_MAX;
   else                                                            ctx->config.maximum_download_retry_abort = tile->snaprd.maximum_download_retry_abort;

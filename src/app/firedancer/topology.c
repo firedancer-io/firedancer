@@ -211,7 +211,14 @@ setup_snapshots( config_t *       config,
   tile->snaprd.maximum_local_snapshot_age   = config->firedancer.snapshots.maximum_local_snapshot_age;
   tile->snaprd.minimum_download_speed_mib   = config->firedancer.snapshots.minimum_download_speed_mib;
   tile->snaprd.maximum_download_retry_abort = config->firedancer.snapshots.maximum_download_retry_abort;
-  /* TODO: set up known validators and known validators cnt */
+  tile->snaprd.known_validators_cnt         = config->firedancer.snapshots.known_validators_cnt;
+
+  ulong known_validators_cnt = tile->snaprd.known_validators_cnt;
+  if( FD_UNLIKELY( known_validators_cnt>16UL ) ) {
+    FD_LOG_ERR(( "too many known validators (%lu), maximum is 16", known_validators_cnt ));
+  }
+
+  fd_memcpy( tile->snaprd.known_validators, config->firedancer.snapshots.known_validators, known_validators_cnt * 256UL);
 }
 
 void
