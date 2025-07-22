@@ -1239,20 +1239,6 @@ fd_bank_lthash_update_sysvars( fd_exec_slot_ctx_t * slot_ctx ) {
   }
 }
 
-int
-fd_runtime_block_execute_finalize_para( fd_exec_slot_ctx_t *             slot_ctx,
-                                        fd_capture_ctx_t *               capture_ctx,
-                                        fd_runtime_block_info_t const *  block_info,
-                                        fd_spad_t *                      runtime_spad ) {
-  fd_runtime_block_execute_finalize_start( slot_ctx, runtime_spad );
-
-  fd_bank_lthash_update_sysvars( slot_ctx );
-
-  fd_runtime_block_execute_finalize_finish( slot_ctx, capture_ctx, block_info );
-
-  return 0;
-}
-
 /******************************************************************************/
 /* Transaction Level Execution Management                                     */
 /******************************************************************************/
@@ -3353,6 +3339,8 @@ fd_runtime_block_execute_finalize_sequential( fd_exec_slot_ctx_t *             s
   FD_SPAD_FRAME_BEGIN( runtime_spad ) {
 
   fd_runtime_block_execute_finalize_start( slot_ctx, runtime_spad );
+
+  fd_bank_lthash_update_sysvars( slot_ctx );
 
   fd_runtime_block_execute_finalize_finish( slot_ctx, capture_ctx, block_info );
 

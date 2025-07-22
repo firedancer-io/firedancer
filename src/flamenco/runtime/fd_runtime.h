@@ -494,12 +494,6 @@ fd_runtime_block_execute_finalize_finish( fd_exec_slot_ctx_t *             slot_
                                           fd_capture_ctx_t *               capture_ctx,
                                           fd_runtime_block_info_t const *  block_info );
 
-int
-fd_runtime_block_execute_finalize_para( fd_exec_slot_ctx_t *             slot_ctx,
-                                        fd_capture_ctx_t *               capture_ctx,
-                                        fd_runtime_block_info_t const *  block_info,
-                                        fd_spad_t *                      runtime_spad );
-
 /* Transaction Level Execution Management *************************************/
 
 /* fd_runtime_prepare_txns_start and fd_runtime_pre_execute_check are only
