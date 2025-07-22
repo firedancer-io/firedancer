@@ -10,6 +10,8 @@
 
 #define NAME "snapin"
 
+#define ACCV_LG_SLOT_CNT 23 /* 8.39 million AppendVecs ought to be enough */
+
 /* The snapin tile is a state machine that parses and loads a full
    and optionally an incremental snapshot.  It is currently responsible
    for loading accounts into an in-memory database, though this may
@@ -69,8 +71,8 @@ static ulong
 scratch_footprint( fd_topo_tile_t const * tile ) {
   (void)tile;
   ulong l = FD_LAYOUT_INIT;
-  l = FD_LAYOUT_APPEND( l, alignof(fd_snapin_tile_t),  sizeof(fd_snapin_tile_t)       );
-  l = FD_LAYOUT_APPEND( l, fd_snapshot_parser_align(), fd_snapshot_parser_footprint() );
+  l = FD_LAYOUT_APPEND( l, alignof(fd_snapin_tile_t),  sizeof(fd_snapin_tile_t) );
+  l = FD_LAYOUT_APPEND( l, fd_snapshot_parser_align(), fd_snapshot_parser_footprint( ACCV_LG_SLOT_CNT ) );
   return FD_LAYOUT_FINI( l, alignof(fd_snapin_tile_t) );
 }
 
@@ -292,8 +294,8 @@ unprivileged_init( fd_topo_t *      topo,
   void * scratch = fd_topo_obj_laddr( topo, tile->tile_obj_id );
 
   FD_SCRATCH_ALLOC_INIT( l, scratch );
-  fd_snapin_tile_t * ctx = FD_SCRATCH_ALLOC_APPEND( l, alignof(fd_snapin_tile_t),  sizeof(fd_snapin_tile_t)       );
-  void * _ssparse        = FD_SCRATCH_ALLOC_APPEND( l, fd_snapshot_parser_align(), fd_snapshot_parser_footprint() );
+  fd_snapin_tile_t * ctx = FD_SCRATCH_ALLOC_APPEND( l, alignof(fd_snapin_tile_t),  sizeof(fd_snapin_tile_t) );
+  void * _ssparse        = FD_SCRATCH_ALLOC_APPEND( l, fd_snapshot_parser_align(), fd_snapshot_parser_footprint( ACCV_LG_SLOT_CNT ) );
 
   ctx->full = 1;
   ctx->state = FD_SNAPIN_STATE_LOADING;
@@ -301,7 +303,7 @@ unprivileged_init( fd_topo_t *      topo,
   FD_TEST( fd_funk_join( ctx->funk, fd_topo_obj_laddr( topo, tile->snapin.funk_obj_id ) ) );
   ctx->funk_txn = fd_funk_txn_query( fd_funk_root( ctx->funk ), ctx->funk->txn_map );
 
-  ctx->ssparse = fd_snapshot_parser_new( _ssparse, ctx, manifest_cb, account_cb, account_data_cb );
+  ctx->ssparse = fd_snapshot_parser_new( _ssparse, ACCV_LG_SLOT_CNT, ctx, manifest_cb, account_cb, account_data_cb );
 
   FD_TEST( ctx->ssparse );
 

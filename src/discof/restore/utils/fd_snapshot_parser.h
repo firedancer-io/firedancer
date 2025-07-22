@@ -21,8 +21,11 @@ static const fd_snapshot_accv_key_t
 fd_snapshot_accv_key_null = { ULONG_MAX, ULONG_MAX };
 
 FD_FN_PURE static inline ulong
-fd_snapshot_accv_key_hash( fd_snapshot_accv_key_t key ) {
-  return fd_hash( 0x39c49607bf16463aUL, &key, sizeof(fd_snapshot_accv_key_t) );
+fd_snapshot_accv_key_hash( fd_snapshot_accv_key_t key,
+                           ulong                  seed ) {
+  /* AccountVec's are rare when restoring (less than ~100 thousand per
+     second), so we don't need a high-performance hash function. */
+  return fd_hash( seed, &key, sizeof(fd_snapshot_accv_key_t) );
 }
 
 struct fd_snapshot_accv_map {
@@ -33,17 +36,18 @@ struct fd_snapshot_accv_map {
 
 typedef struct fd_snapshot_accv_map fd_snapshot_accv_map_t;
 
+extern ulong fd_snapshot_accv_seed;
+
 #define MAP_NAME              fd_snapshot_accv_map
 #define MAP_T                 fd_snapshot_accv_map_t
-#define MAP_LG_SLOT_CNT       23  /* 8.39 million */
 #define MAP_KEY_T             fd_snapshot_accv_key_t
 #define MAP_KEY_NULL          fd_snapshot_accv_key_null
 #define MAP_KEY_INVAL(k)      ( ((k).slot==ULONG_MAX) & ((k).id==ULONG_MAX) )
 #define MAP_KEY_EQUAL(k0,k1)  ( ((k0).slot==(k1).slot) & ((k0).id==(k1).id) )
 #define MAP_KEY_EQUAL_IS_SLOW 0
 #define MAP_HASH_T            ulong
-#define MAP_KEY_HASH(k0)      fd_snapshot_accv_key_hash(k0)
-#include "../../../util/tmpl/fd_map.c"
+#define MAP_KEY_HASH(k0)      fd_snapshot_accv_key_hash( k0, fd_snapshot_accv_seed )
+#include "../../../util/tmpl/fd_map_dynamic.c"
 
 #define SNAP_FLAG_FAILED  1
 #define SNAP_FLAG_DONE    2
@@ -94,9 +98,10 @@ struct fd_snapshot_parser {
   ulong tar_file_rem; /* number of stream bytes in current TAR file */
 
   /* Snapshot file parser */
-  ulong   accv_slot;  /* account vec slot */
-  ulong   accv_id;    /* account vec index */
-  ulong   accv_sz;    /* account vec size */
+  ulong   accv_slot;     /* account vec slot */
+  ulong   accv_id;       /* account vec index */
+  ulong   accv_sz;       /* account vec size */
+  ulong   accv_key_max;  /* max account vec count */
   fd_snapshot_accv_map_t * accv_map;
 
   /* Account defrag */
@@ -120,14 +125,8 @@ fd_snapshot_parser_align( void ) {
   return fd_ulong_max( alignof(fd_snapshot_parser_t), fd_snapshot_accv_map_align() );
 }
 
-FD_FN_CONST static inline ulong
-fd_snapshot_parser_footprint( void ) {
-  ulong l = FD_LAYOUT_INIT;
-  l = FD_LAYOUT_APPEND( l, alignof(fd_snapshot_parser_t), sizeof(fd_snapshot_parser_t)     );
-  l = FD_LAYOUT_APPEND( l, fd_snapshot_accv_map_align(),  fd_snapshot_accv_map_footprint() );
-  l = FD_LAYOUT_APPEND( l, 16UL,                          1UL<<31UL                        );
-  return l;
-}
+FD_FN_CONST ulong
+fd_snapshot_parser_footprint( int accv_lg_slot_cnt );
 
 static inline void
 fd_snapshot_parser_reset_tar( fd_snapshot_parser_t * self ) {
@@ -164,53 +163,13 @@ fd_snapshot_parser_reset( fd_snapshot_parser_t * self,
   self->manifest_bufsz = manifest_bufsz;
 }
 
-static inline fd_snapshot_parser_t *
-fd_snapshot_parser_new( void *                                   mem,
-                        void *                                   cb_arg,
+fd_snapshot_parser_t *
+fd_snapshot_parser_new( void * mem,
+                        int    accv_lg_slot_cnt,
+                        void * cb_arg,
                         fd_snapshot_parser_process_manifest_fn_t manifest_cb,
                         fd_snapshot_process_acc_hdr_fn_t         acc_hdr_cb,
-                        fd_snapshot_process_acc_data_fn_t        acc_data_cb ) {
-  if( FD_UNLIKELY( !mem ) ) {
-    FD_LOG_WARNING(( "NULL mem" ));
-    return NULL;
-  }
-
-  if( FD_UNLIKELY( !fd_ulong_is_aligned( (ulong)mem, fd_snapshot_parser_align() ) ) ) {
-    FD_LOG_WARNING(( "unaligned mem" ));
-    return NULL;
-  }
-
-  FD_SCRATCH_ALLOC_INIT( l, mem );
-  fd_snapshot_parser_t * self = FD_SCRATCH_ALLOC_APPEND( l, alignof(fd_snapshot_parser_t), sizeof(fd_snapshot_parser_t)     );
-  void * accv_map_mem         = FD_SCRATCH_ALLOC_APPEND( l, fd_snapshot_accv_map_align(),  fd_snapshot_accv_map_footprint() );
-  void * _buf_mem             = FD_SCRATCH_ALLOC_APPEND( l, 16UL,                          1UL<<31UL                        );
-
-  self->state         = SNAP_STATE_TAR;
-  self->flags         = 0;
-  self->manifest_done = 0;
-
-  self->buf_sz  = 0UL;
-  self->buf_ctr = 0UL;
-  self->buf_max = 1UL<<31UL;
-
-  self->accv_map = fd_snapshot_accv_map_join( fd_snapshot_accv_map_new( accv_map_mem ) );
-  FD_TEST( self->accv_map );
-
-  self->buf = _buf_mem;
-
-  self->manifest_cb = manifest_cb;
-  self->acc_hdr_cb  = acc_hdr_cb;
-  self->acc_data_cb = acc_data_cb;
-  self->cb_arg      = cb_arg;
-
-  self->metrics.accounts_files_processed = 0UL;
-  self->metrics.accounts_files_total     = 0UL;
-  self->metrics.accounts_processed       = 0UL;
-  self->processing_accv                  = 0;
-  self->goff                             = 0UL;
-
-  return self;
-}
+                        fd_snapshot_process_acc_data_fn_t        acc_data_cb );
 
 static inline void
 fd_snapshot_parser_close( fd_snapshot_parser_t * self ) {
