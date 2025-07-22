@@ -172,9 +172,8 @@ fd_runtime_fuzz_txn_ctx_create( fd_runtime_fuzz_runner_t *         runner,
   */
   fd_sysvar_epoch_rewards_t epoch_rewards[1];
   if( !fd_sysvar_epoch_rewards_read( funk, funk_txn, epoch_rewards ) ) {
-    fd_point_value_t point_value = {0};
     fd_hash_t const * last_hash = test_ctx->blockhash_queue_count > 0 ? (fd_hash_t const *)test_ctx->blockhash_queue[0]->bytes : (fd_hash_t const *)empty_bytes;
-    fd_sysvar_epoch_rewards_init( slot_ctx, 0UL, 2UL, 1UL, point_value, last_hash);
+    fd_sysvar_epoch_rewards_init( slot_ctx, 0UL, 2UL, 1UL, 0UL, 0UL, last_hash);
   }
 
   /* A NaN rent exemption threshold is U.B. in Solana Labs */

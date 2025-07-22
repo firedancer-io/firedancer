@@ -2,13 +2,8 @@
 #define HEADER_fd_src_flamenco_runtime_program_fd_reward_h
 
 #include "../fd_flamenco_base.h"
-#include "../runtime/context/fd_exec_instr_ctx.h"
-#include "../runtime/program/fd_stake_program.h"
+#include "fd_rewards_base.h"
 #include "../runtime/program/fd_vote_program.h"
-#include "../runtime/sysvar/fd_sysvar.h"
-#include "../runtime/sysvar/fd_sysvar_epoch_rewards.h"
-#include "../runtime/sysvar/fd_sysvar_epoch_schedule.h"
-#include "../stakes/fd_stakes.h"
 
 FD_PROTOTYPES_BEGIN
 

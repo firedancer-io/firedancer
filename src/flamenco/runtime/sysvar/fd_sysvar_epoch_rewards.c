@@ -94,22 +94,22 @@ fd_sysvar_epoch_rewards_init( fd_exec_slot_ctx_t * slot_ctx,
                               ulong                distributed_rewards,
                               ulong                distribution_starting_block_height,
                               ulong                num_partitions,
-                              fd_point_value_t     point_value,
+                              ulong                total_rewards,
+                              uint128              total_points,
                               fd_hash_t const *    last_blockhash ) {
   fd_sysvar_epoch_rewards_t epoch_rewards = {
     .distribution_starting_block_height = distribution_starting_block_height,
     .num_partitions                     = num_partitions,
-    .total_points                       = point_value.points,
-    .total_rewards                      = point_value.rewards,
+    .total_points                       = total_points,
+    .total_rewards                      = total_rewards,
     .distributed_rewards                = distributed_rewards,
-    .active                             = 1
+    .active                             = 1,
+    .parent_blockhash                   = *last_blockhash
   };
 
   if( FD_UNLIKELY( epoch_rewards.total_rewards<distributed_rewards ) ) {
     FD_LOG_ERR(( "total rewards overflow" ));
   }
-
-  fd_memcpy( &epoch_rewards.parent_blockhash, last_blockhash, FD_HASH_FOOTPRINT );
 
   write_epoch_rewards( slot_ctx, &epoch_rewards );
 }

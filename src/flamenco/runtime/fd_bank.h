@@ -4,7 +4,9 @@
 #include "../types/fd_types.h"
 #include "../leaders/fd_leaders.h"
 #include "../features/fd_features.h"
+#include "../rewards/fd_epoch_rewards.h"
 #include "../fd_rwlock.h"
+#include "fd_runtime_const.h"
 #include "fd_blockhashes.h"
 
 FD_PROTOTYPES_BEGIN
@@ -14,18 +16,15 @@ FD_PROTOTYPES_BEGIN
 /* TODO: Some optimizations, cleanups, future work:
    1. Simple data types (ulong, int, etc) should be stored as their
       underlying type instead of a byte array.
-   2. Remove the slot_ctx entirely and just use the bank struct
-      directly in the runtime.
-   3. For some of the more complex types in the bank, we should provide
+   2. For some of the more complex types in the bank, we should provide
       a way to layout the data ahead of time instead of manually.
       calculating the offsets/layout of the offset-based struct.
-      This could likely be emitted from fd_types
-   4. Perhaps make the query/modify scoping more explicit. Right now,
+      This should be done as types are split out from fd_types.h
+   3. Perhaps make the query/modify scoping more explicit. Right now,
       the caller is free to use the API wrong if there are no locks.
       Maybe just expose a different API if there are no locks?
-   5. Rename fd_banks_t to fd_bank_mgr_t.
-   7. Add locks around the CoW pools.
-   8. Rename locks to suffix with _query_locking and _query_locking_end
+   4. Rename fd_banks_t to fd_bank_mgr_t.
+   6. Rename locks to suffix with _query_locking and _query_locking_end
   */
 
 /* A fd_bank_t struct is the represenation of the bank state on Solana
@@ -178,8 +177,10 @@ FD_PROTOTYPES_BEGIN
                                                                                                                                                                         /* E-1 and they determined the leader schedule for epoch */  \
                                                                                                                                                                         /* E+1. */                                                   \
   X(fd_vote_accounts_global_t,         epoch_stakes,                200000000UL,                               128UL,                                      1,   1    )  /* Epoch stakes ~4K per account * 50k vote accounts */       \
-  X(fd_epoch_reward_status_global_t,   epoch_reward_status,         160000000UL,                               128UL,                                      1,   1    )  /* Epoch reward status */                                    \
-  X(fd_epoch_leaders_t,                epoch_leaders,               1000000UL,                                 128UL,                                      1,   1    )  /* Epoch leaders */                                          \
+  X(fd_epoch_rewards_t,                epoch_rewards,               FD_EPOCH_REWARDS_FOOTPRINT,                FD_EPOCH_REWARDS_ALIGN,                     1,   1    )  /* Epoch rewards */                                          \
+  X(fd_epoch_leaders_t,                epoch_leaders,               FD_RUNTIME_MAX_EPOCH_LEADERS,              FD_EPOCH_LEADERS_ALIGN,                     1,   1    )  /* Epoch leaders. If our system supports 100k vote accs, */  \
+                                                                                                                                                                        /* then there can be 100k unique leaders in the worst */     \
+                                                                                                                                                                        /* case. We also can assume 432k slots per epoch. */         \
   X(fd_stakes_global_t,                stakes,                      400000000UL,                               128UL,                                      1,   1    )  /* Stakes */                                                 \
   X(fd_features_t,                     features,                    sizeof(fd_features_t),                     alignof(fd_features_t),                     0,   0    )  /* Features */                                               \
   X(ulong,                             txn_count,                   sizeof(ulong),                             alignof(ulong),                             0,   0    )  /* Transaction count */                                      \
@@ -254,12 +255,6 @@ FD_PROTOTYPES_BEGIN
 #undef POOL_NAME
 #undef POOL_T
 
-#define POOL_NAME fd_bank_epoch_reward_status_pool
-#define POOL_T    fd_bank_epoch_reward_status_t
-#include "../../util/tmpl/fd_pool.c"
-#undef POOL_NAME
-#undef POOL_T
-
 #define POOL_NAME fd_bank_epoch_leaders_pool
 #define POOL_T    fd_bank_epoch_leaders_t
 #include "../../util/tmpl/fd_pool.c"
@@ -268,6 +263,12 @@ FD_PROTOTYPES_BEGIN
 
 #define POOL_NAME fd_bank_stakes_pool
 #define POOL_T    fd_bank_stakes_t
+#include "../../util/tmpl/fd_pool.c"
+#undef POOL_NAME
+#undef POOL_T
+
+#define POOL_NAME fd_bank_epoch_rewards_pool
+#define POOL_T    fd_bank_epoch_rewards_t
 #include "../../util/tmpl/fd_pool.c"
 #undef POOL_NAME
 #undef POOL_T
@@ -367,7 +368,6 @@ FD_BANKS_ITER(X)
 #undef HAS_COW_0
 #undef HAS_COW_1
 
-
 /* fd_bank_t is the alignment for the bank state. */
 
 ulong
@@ -404,15 +404,15 @@ fd_bank_footprint( void );
 #undef MAP_KEY
 
 struct fd_banks {
-  ulong             magic;     /* ==FD_BANKS_MAGIC */
-  ulong             max_banks; /* Maximum number of banks */
-  ulong             root;      /* root slot */
-  ulong             root_idx;  /* root idx */
+  ulong             magic;       /* ==FD_BANKS_MAGIC */
+  ulong             max_banks;   /* Maximum number of banks */
+  ulong             root;        /* root slot */
+  ulong             root_idx;    /* root idx */
 
   fd_rwlock_t       rwlock;      /* rwlock for fd_banks_t */
 
   ulong             pool_offset; /* offset of pool from banks */
-  ulong             map_offset; /* offset of map from banks */
+  ulong             map_offset;  /* offset of map from banks */
 
   /* Layout all CoW pools. */
 
@@ -430,7 +430,8 @@ struct fd_banks {
 };
 typedef struct fd_banks fd_banks_t;
 
-/* Bank accesssors */
+/* Bank accesssors. Different accessors are emitted for different types
+   depending on if the field has a lock or not. */
 
 #define HAS_LOCK_1(type, name) \
   type const * fd_bank_##name##_locking_query( fd_bank_t * bank ); \
