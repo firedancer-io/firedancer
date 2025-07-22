@@ -15,7 +15,7 @@ make distclean && make clean
 ./deps.sh nuke
 FD_AUTO_INSTALL_PACKAGES=1 ./deps.sh +dev fetch check install
 source ~/.cargo/env
-make -j
+EXTRAS=offline-replay make -j
 
 send_slack_message() {
     local MESSAGE="$1"
