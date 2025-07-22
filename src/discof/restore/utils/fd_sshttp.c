@@ -19,6 +19,8 @@
 #define FD_SSHTTP_STATE_RESP  (2) /* receiving response headers */
 #define FD_SSHTTP_STATE_DL    (3) /* downloading response body */
 
+#define FD_SSHTTP_FILE_BUF_SZ (1024UL * 1024UL) /* 1 MiB */
+
 struct fd_sshttp_private {
   int  state;
   long deadline;
@@ -37,6 +39,17 @@ struct fd_sshttp_private {
 
   char snapshot_name[ PATH_MAX ];
 
+  struct {
+    uchar        write_buffer[ FD_SSHTTP_FILE_BUF_SZ ];
+    ulong        write_buffer_pos;
+    ulong        write_buffer_len;
+    ulong        write_buffer_sz;
+    ulong        write_total;
+    char const * snapshot_path;
+    int          snapshot_fd;
+  } out;
+
+  ulong orig_content_len;
   ulong content_len;
 
   ulong magic;
@@ -106,6 +119,8 @@ fd_sshttp_init( fd_sshttp_t * http,
                 fd_ip4_port_t addr,
                 char const *  path,
                 ulong         path_len,
+                char const *  snapshot_path,
+                int           snapshot_fd,
                 long          now ) {
   FD_TEST( http->state==FD_SSHTTP_STATE_INIT );
 
@@ -144,6 +159,13 @@ fd_sshttp_init( fd_sshttp_t * http,
 
   http->state = FD_SSHTTP_STATE_REQ;
   http->deadline = now + 500L*1000L*1000L;
+
+  http->out.snapshot_path    = snapshot_path;
+  http->out.snapshot_fd      = snapshot_fd;
+  http->out.write_buffer_pos = 0UL;
+  http->out.write_buffer_len = 0UL;
+  http->out.write_buffer_sz  = FD_SSHTTP_FILE_BUF_SZ;
+  http->out.write_total      = 0UL;
 }
 
 void
@@ -261,9 +283,69 @@ follow_redirect( fd_sshttp_t *        http,
                   (int)headers[ 0 ].value_len, headers[ 0 ].value ));
 
   fd_sshttp_cancel( http );
-  fd_sshttp_init( http, http->addr, location, location_len, now );
+  fd_sshttp_init( http, http->addr, location, location_len, http->out.snapshot_path, http->out.snapshot_fd, now );
 
   return FD_SSHTTP_ADVANCE_AGAIN;
+}
+
+static ulong
+fd_sshttp_buf_avail( fd_sshttp_t * http ) {
+  return http->out.write_buffer_sz - http->out.write_buffer_len;
+}
+
+/* fd_sshttp_write_file writes to the current snapshot file on disk.
+   Returns the number of bytes written. */
+static ulong
+fd_sshttp_write_file( fd_sshttp_t * http,
+                      uchar *       buf,
+                      ulong         data_len ) {
+  long res = write( http->out.snapshot_fd, buf, data_len );
+
+  if( FD_UNLIKELY( -1==res && errno==EAGAIN ) ) {
+    return 0UL;
+  } else if( FD_UNLIKELY( -1==res && errno==ENOSPC ) ) {
+    FD_LOG_ERR(( "Out of disk space when writing out snapshot data to `%s`", http->out.snapshot_path ));
+  } else if( FD_UNLIKELY( -1==res ) ) {
+    FD_LOG_ERR(( "write() failed (%i-%s)", errno, fd_io_strerror( errno ) ));
+  }
+
+  http->out.write_total += (ulong)res;
+  return (ulong)res;
+}
+
+/* fd_sshttp_flush attempts to flush remaining bytes in the write buffer
+   into the snapshot file on disk.  Returns 1 if the write buffer is
+   fully flushed and 0 otherwise. */
+static int
+fd_sshttp_flush( fd_sshttp_t * http ) {
+  if( !http->out.write_buffer_len ) return 1;
+
+  ulong write_sz              = http->out.write_buffer_len - http->out.write_buffer_pos;
+  ulong bytes_written         = fd_sshttp_write_file( http, http->out.write_buffer + http->out.write_buffer_pos, write_sz );
+  http->out.write_buffer_pos += bytes_written;
+
+  if( FD_LIKELY( http->out.write_buffer_pos==http->out.write_buffer_len ) ) {
+    http->out.write_buffer_pos = 0UL;
+    http->out.write_buffer_len = 0UL;
+  }
+
+  return 0;
+}
+
+static void
+fd_sshttp_write( fd_sshttp_t * http,
+                 uchar *       data,
+                 ulong         data_len ) {
+  if( !http->out.write_buffer_len && http->out.snapshot_fd!=-1 ) {
+    /* We can write directly to the file as long as the write buffer is
+       empty and the file descriptor exists. */
+    ulong bytes_written = fd_sshttp_write_file( http, data, data_len );
+    if( FD_UNLIKELY( bytes_written<data_len ) ) {
+      /* Buffer any unwritten bytes as needed into the write buffer. */
+      fd_memcpy( http->out.write_buffer + http->out.write_buffer_len, data + bytes_written, data_len - bytes_written );
+      http->out.write_buffer_len += data_len - bytes_written;
+    }
+  }
 }
 
 static int
@@ -326,7 +408,8 @@ read_response( fd_sshttp_t * http,
     if( FD_LIKELY( headers[i].name_len!=14UL ) ) continue;
     if( FD_LIKELY( strncasecmp( headers[i].name, "content-length", 14UL ) ) ) continue;
 
-    http->content_len = strtoul( headers[i].value, NULL, 10 );
+    http->content_len      = strtoul( headers[i].value, NULL, 10 );
+    http->orig_content_len = http->content_len;
     break;
   }
 
@@ -339,8 +422,9 @@ read_response( fd_sshttp_t * http,
   http->state = FD_SSHTTP_STATE_DL;
   if( FD_UNLIKELY( (ulong)parsed<http->response_len ) ) {
     FD_TEST( *data_len>=http->response_len-(ulong)parsed );
-    *data_len = http->response_len - (ulong)parsed;
+    *data_len = fd_ulong_min( fd_sshttp_buf_avail( http ), http->response_len - (ulong)parsed );
     fd_memcpy( data, http->response+parsed, *data_len );
+    fd_sshttp_write( http, data, *data_len );
     http->content_len -= *data_len;
     return FD_SSHTTP_ADVANCE_DATA;
   } else {
@@ -354,10 +438,17 @@ read_body( fd_sshttp_t * http,
            ulong *       data_len,
            uchar *       data ) {
   if( FD_UNLIKELY( !http->content_len ) ) {
-    fd_sshttp_cancel( http );
-    http->state = FD_SSHTTP_STATE_INIT;
-    return FD_SSHTTP_ADVANCE_DONE;
+    if( FD_LIKELY( fd_sshttp_flush( http ) ) ) {
+      FD_TEST( http->out.write_total==http->orig_content_len );
+      fd_sshttp_cancel( http );
+      http->state = FD_SSHTTP_STATE_INIT;
+      return FD_SSHTTP_ADVANCE_DONE;
+    } else {
+      return FD_SSHTTP_ADVANCE_AGAIN;
+    }
   }
+
+  *data_len = fd_ulong_min( fd_sshttp_buf_avail( http ), *data_len );
 
   long read = recv( http->sockfd, data, fd_ulong_min( *data_len, http->content_len ), 0 );
   if( FD_UNLIKELY( -1==read && errno==EAGAIN ) ) return FD_SSHTTP_ADVANCE_AGAIN;
@@ -368,14 +459,17 @@ read_body( fd_sshttp_t * http,
 
   if( FD_UNLIKELY( !read ) ) return FD_SSHTTP_ADVANCE_AGAIN;
 
-  *data_len = (ulong)read;
+  *data_len          = (ulong)read;
   http->content_len -= (ulong)read;
+
+  fd_sshttp_write( http, data, *data_len );
 
   return FD_SSHTTP_ADVANCE_DATA;
 }
 
 char const *
 fd_sshttp_snapshot_name( fd_sshttp_t * http ) {
+  FD_TEST( http->snapshot_name[ 0 ] );
   return http->snapshot_name;
 }
 
@@ -385,6 +479,7 @@ fd_sshttp_advance( fd_sshttp_t * http,
                    uchar *       data,
                    long          now ) {
   /* TODO: Add timeouts ... */
+  fd_sshttp_flush( http );
 
   switch( http->state ) {
     case FD_SSHTTP_STATE_INIT: return FD_SSHTTP_ADVANCE_AGAIN;

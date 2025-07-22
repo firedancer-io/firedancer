@@ -34,6 +34,8 @@ fd_sshttp_init( fd_sshttp_t * http,
                 fd_ip4_port_t addr,
                 char const *  path,
                 ulong         path_len,
+                char const *  snapshot_path,
+                int           snapshot_fd,
                 long          now );
 
 void
