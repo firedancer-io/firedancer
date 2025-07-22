@@ -1608,6 +1608,12 @@ fd_feature_id_t const ids[] = {
     .name                      = "reenable_zk_elgamal_proof_program",
     .cleaned_up                = {UINT_MAX, UINT_MAX, UINT_MAX} },
 
+  { .index                     = offsetof(fd_features_t, enshrine_slashing_program)>>3,
+    .id                        = {"\x0c\xe8\xe3\x0a\x1b\x9d\x30\xc1\x5d\x98\x93\xa3\x19\x40\xb4\xc8\x7f\x92\x5b\x24\x5e\x7a\xe6\xec\x6b\xe8\x87\xd5\xaa\x22\xb2\x6d"},
+                                 /* sProgVaNWkYdP2eTRAy1CPrgb3b9p8yXCASrPEqo6VJ */
+    .name                      = "enshrine_slashing_program",
+    .cleaned_up                = {UINT_MAX, UINT_MAX, UINT_MAX} },
+
   { .index = ULONG_MAX }
 };
 /* TODO replace this with fd_map_perfect */
@@ -1849,6 +1855,7 @@ fd_feature_id_query( ulong prefix ) {
   case 0x210aba8db8103506: return &ids[ 232 ];
   case 0xec3a4c069e71cb0e: return &ids[ 233 ];
   case 0xbbec21266d76cb0e: return &ids[ 234 ];
+  case 0xc1309d1b0ae3e80c: return &ids[ 235 ];
   default: break;
   }
   return NULL;
@@ -2089,4 +2096,5 @@ FD_STATIC_ASSERT( offsetof( fd_features_t, vote_only_retransmitter_signed_fec_se
 FD_STATIC_ASSERT( offsetof( fd_features_t, mask_out_rent_epoch_in_vm_serialization                 )>>3==232UL, layout );
 FD_STATIC_ASSERT( offsetof( fd_features_t, disable_zk_elgamal_proof_program                        )>>3==233UL, layout );
 FD_STATIC_ASSERT( offsetof( fd_features_t, reenable_zk_elgamal_proof_program                       )>>3==234UL, layout );
+FD_STATIC_ASSERT( offsetof( fd_features_t, enshrine_slashing_program                               )>>3==235UL, layout );
 FD_STATIC_ASSERT( sizeof( fd_features_t )>>3==FD_FEATURE_ID_CNT, layout );

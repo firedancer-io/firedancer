@@ -43,6 +43,7 @@ extern const fd_pubkey_t fd_solana_spl_native_mint_id;
 extern const fd_pubkey_t fd_solana_spl_token_id;
 extern const fd_pubkey_t fd_solana_zk_token_proof_program_id;
 extern const fd_pubkey_t fd_solana_zk_elgamal_proof_program_id;
+extern const fd_pubkey_t fd_solana_slashing_program_id;
 
 /* Buffer accounts for BPF migrations
    https://github.com/anza-xyz/agave/blob/v2.1.6/runtime/src/bank/builtins/mod.rs#L151-L165 */
@@ -50,6 +51,7 @@ extern const fd_pubkey_t fd_solana_address_lookup_table_program_buffer_address;
 extern const fd_pubkey_t fd_solana_config_program_buffer_address;
 extern const fd_pubkey_t fd_solana_feature_program_buffer_address;
 extern const fd_pubkey_t fd_solana_stake_program_buffer_address;
+extern const fd_pubkey_t fd_solana_slashing_program_buffer_address;
 
 /* BPF migration authority
    https://github.com/anza-xyz/agave/blob/v2.2.6/programs/bpf_loader/src/lib.rs#L399-L401 */
