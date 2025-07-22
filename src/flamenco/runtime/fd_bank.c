@@ -48,6 +48,9 @@ fd_bank_footprint( void ) {
       fd_bank_##name##_t * bank_##name = fd_bank_##name##_pool_ele( name##_pool, bank->name##_pool_idx );          \
       return (type *)bank_##name->data;                                                                            \
     }                                                                                                              \
+    if( FD_UNLIKELY( !fd_bank_##name##_pool_free( name##_pool ) ) ) {                                              \
+      FD_LOG_CRIT(( "Failed to acquire " #name " pool element: pool is full" ));                                   \
+    }                                                                                                              \
     fd_bank_##name##_t * child_##name = fd_bank_##name##_pool_ele_acquire( name##_pool );                          \
     if( FD_UNLIKELY( !child_##name ) ) {                                                                           \
       FD_LOG_CRIT(( "Failed to acquire " #name " pool element" ));                                                 \

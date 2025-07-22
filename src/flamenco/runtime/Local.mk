@@ -58,7 +58,7 @@ $(call make-unit-test,test_txn_rw_conflicts,test_txn_rw_conflicts,fd_flamenco fd
 endif
 
 ifdef FD_HAS_ATOMIC
-$(call add-hdrs,fd_runtime.h fd_runtime_init.h fd_runtime_err.h)
+$(call add-hdrs,fd_runtime.h fd_runtime_init.h fd_runtime_err.h fd_runtime_const.h)
 $(call add-objs,fd_runtime fd_runtime_init ,fd_flamenco)
 endif
 

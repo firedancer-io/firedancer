@@ -590,24 +590,6 @@ fd_runtime_checkpt( fd_capture_ctx_t *   capture_ctx,
                     fd_exec_slot_ctx_t * slot_ctx,
                     ulong                slot );
 
-/* Block Parsing **************************************************************/
-
-/* Live Replay APIs */
-
-fd_raw_block_txn_iter_t
-fd_raw_block_txn_iter_init( uchar const *                  orig_data,
-                            fd_block_entry_batch_t const * batches,
-                            ulong                          batch_cnt );
-
-ulong
-fd_raw_block_txn_iter_done( fd_raw_block_txn_iter_t iter );
-
-fd_raw_block_txn_iter_t
-fd_raw_block_txn_iter_next( fd_raw_block_txn_iter_t iter );
-
-void
-fd_raw_block_txn_iter_ele( fd_raw_block_txn_iter_t iter, fd_txn_p_t * out_txn );
-
 /* Offline Replay *************************************************************/
 
 int
