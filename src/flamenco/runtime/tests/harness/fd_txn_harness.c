@@ -35,8 +35,8 @@ fd_runtime_fuzz_txn_ctx_create( fd_runtime_fuzz_runner_t *         runner,
 
   /* Set up slot context */
 
-  slot_ctx->funk_txn     = funk_txn;
-  slot_ctx->funk         = funk;
+  slot_ctx->funk_txn = funk_txn;
+  slot_ctx->funk     = funk;
 
   slot_ctx->banks = runner->banks;
   slot_ctx->bank  = runner->bank;
@@ -86,81 +86,63 @@ fd_runtime_fuzz_txn_ctx_create( fd_runtime_fuzz_runner_t *         runner,
 
   fd_bank_ticks_per_slot_set( slot_ctx->bank, 64 );
 
-  /* Set epoch bank variables if not present (defaults obtained from GenesisConfig::default() in Agave) */
-  fd_epoch_schedule_t default_epoch_schedule = {
-    .slots_per_epoch             = 432000,
-    .leader_schedule_slot_offset = 432000,
-    .warmup                      = 1,
-    .first_normal_epoch          = 14,
-    .first_normal_slot           = 524256
-  };
-  fd_rent_t default_rent = {
-    .lamports_per_uint8_year = 3480,
-    .exemption_threshold     = 2.0,
-    .burn_percent            = 50
-  };
-  fd_bank_epoch_schedule_set( slot_ctx->bank, default_epoch_schedule );
+  /* Restore sysvars from account context */
+  FD_TEST( fd_sysvar_cache_restore( slot_ctx )==0 );
+  fd_sysvar_cache_t * sysvar_cache = fd_bank_sysvar_cache_modify( slot_ctx->bank );
 
-  fd_bank_rent_set( slot_ctx->bank, default_rent );
+  /* Set epoch bank variables if not present (defaults obtained from GenesisConfig::default() in Agave) */
+
+  if( !fd_sysvar_rent_is_valid( sysvar_cache ) ) {
+    fd_rent_t const default_rent = {
+      .lamports_per_uint8_year     = 3480,
+      .exemption_threshold         = 2.0,
+      .burn_percent                = 50
+    };
+    fd_sysvar_rent_write( slot_ctx, &default_rent );
+  }
+  if( !fd_sysvar_epoch_schedule_is_valid( sysvar_cache ) ) {
+    fd_epoch_schedule_t const default_epoch_schedule = {
+      .slots_per_epoch             = 432000,
+      .leader_schedule_slot_offset = 432000,
+      .warmup                      = 1,
+      .first_normal_epoch          = 14,
+      .first_normal_slot           = 524256
+    };
+    fd_sysvar_epoch_schedule_write( slot_ctx, &default_epoch_schedule );
+  }
 
   fd_bank_slots_per_year_set( slot_ctx->bank, SECONDS_PER_YEAR * (1000000000.0 / (double)6250000) / (double)(fd_bank_ticks_per_slot_get( slot_ctx->bank )) );
 
-  // Override default values if provided
-  fd_epoch_schedule_t epoch_schedule[1];
-  if( fd_sysvar_epoch_schedule_read( funk, funk_txn, epoch_schedule ) ) {
-    fd_bank_epoch_schedule_set( slot_ctx->bank, *epoch_schedule );
-  }
-
-  fd_rent_t const * rent = fd_sysvar_rent_read( funk, funk_txn, runner->spad );
-  if( rent ) {
-    fd_bank_rent_set( slot_ctx->bank, *rent );
-  }
-
   /* Provide default slot hashes of size 1 if not provided */
-  fd_slot_hashes_global_t * slot_hashes = fd_sysvar_slot_hashes_read( funk, funk_txn, runner->spad );
-  if( !slot_hashes ) {
-    FD_SPAD_FRAME_BEGIN( runner->spad ) {
-      /* The offseted gaddr aware types need the memory for the entire
-         struct to be allocated out of a contiguous memory region. */
-      fd_slot_hash_t * slot_hashes                          = NULL;
-      void * mem                                            = fd_spad_alloc( runner->spad, FD_SYSVAR_SLOT_HASHES_ALIGN, fd_sysvar_slot_hashes_footprint( 1UL ) );
-      fd_slot_hashes_global_t * default_slot_hashes_global  = fd_sysvar_slot_hashes_join( fd_sysvar_slot_hashes_new( mem, 1UL ), &slot_hashes );
-
-      fd_slot_hash_t * dummy_elem = deq_fd_slot_hash_t_push_tail_nocopy( slot_hashes );
-      memset( dummy_elem, 0, sizeof(fd_slot_hash_t) );
-
-      fd_sysvar_slot_hashes_write( slot_ctx, default_slot_hashes_global );
-
-      fd_sysvar_slot_hashes_delete( fd_sysvar_slot_hashes_leave( default_slot_hashes_global, slot_hashes ) );
-    } FD_SPAD_FRAME_END;
+  if( !fd_sysvar_slot_hashes_is_valid( sysvar_cache ) ) {
+    fd_sysvar_slot_hashes_init( slot_ctx );
+    ulong sz_max = 0UL;
+    uchar * sysvar_data = fd_sysvar_cache_data_modify_prepare(
+        slot_ctx, &fd_sysvar_slot_hashes_id, NULL, &sz_max );
+    fd_memset( sysvar_data, 0, FD_SYSVAR_SLOT_HASHES_BINCODE_SZ );
+    FD_TEST( sysvar_data && sz_max>=48 );
+    FD_STORE( ulong, sysvar_data, 1UL );
+    fd_sysvar_cache_data_modify_commit( slot_ctx, &fd_sysvar_slot_hashes_id, FD_SYSVAR_SLOT_HASHES_BINCODE_SZ );
   }
 
   /* Provide default stake history if not provided */
-  fd_stake_history_t * stake_history = fd_sysvar_stake_history_read( funk, funk_txn, runner->spad );
-  if( !stake_history ) {
+  if( !fd_sysvar_stake_history_is_valid( sysvar_cache ) ) {
     // Provide a 0-set default entry
     fd_epoch_stake_history_entry_pair_t entry = {0};
     fd_sysvar_stake_history_init( slot_ctx );
-    fd_sysvar_stake_history_update( slot_ctx, &entry, runner->spad );
+    fd_sysvar_stake_history_update( slot_ctx, &entry );
   }
 
   /* Provide default last restart slot sysvar if not provided */
-  FD_TXN_ACCOUNT_DECL( acc );
-  int err = fd_txn_account_init_from_funk_readonly( acc, &fd_sysvar_last_restart_slot_id, funk, funk_txn );
-  if( err==FD_ACC_MGR_ERR_UNKNOWN_ACCOUNT ) {
+  if( !fd_sysvar_last_restart_slot_is_valid( sysvar_cache ) ) {
     fd_sysvar_last_restart_slot_init( slot_ctx );
   }
 
   /* Provide a default clock if not present */
-  fd_sol_sysvar_clock_t const * clock = fd_sysvar_clock_read( funk, funk_txn, runner->spad );
-  if( !clock ) {
-    fd_sysvar_clock_init( slot_ctx->bank, slot_ctx->funk, slot_ctx->funk_txn );
-    fd_sysvar_clock_update( slot_ctx->bank, slot_ctx->funk, slot_ctx->funk_txn, runner->spad );
+  if( !fd_sysvar_clock_is_valid( sysvar_cache ) ) {
+    fd_sysvar_clock_init( slot_ctx );
+    fd_sysvar_clock_update( slot_ctx, runner->spad );
   }
-
-  /* Epoch schedule and rent get set from the epoch bank */
-  fd_sysvar_epoch_schedule_init( slot_ctx );
-  fd_sysvar_rent_init( slot_ctx );
 
   /* Set the epoch rewards sysvar if partition epoch rewards feature is enabled
 
@@ -170,10 +152,9 @@ fd_runtime_fuzz_txn_ctx_create( fd_runtime_fuzz_runner_t *         runner,
      THIS MAY CHANGE IN THE FUTURE. If there are other parts of transaction execution that use
      the epoch rewards sysvar, we may need to update this.
   */
-  fd_sysvar_epoch_rewards_t epoch_rewards[1];
-  if( !fd_sysvar_epoch_rewards_read( funk, funk_txn, epoch_rewards ) ) {
+  if( !fd_sysvar_epoch_rewards_is_valid( sysvar_cache ) ) {
     fd_hash_t const * last_hash = test_ctx->blockhash_queue_count > 0 ? (fd_hash_t const *)test_ctx->blockhash_queue[0]->bytes : (fd_hash_t const *)empty_bytes;
-    fd_sysvar_epoch_rewards_init( slot_ctx, 0UL, 2UL, 1UL, 0UL, 0UL, last_hash);
+    fd_sysvar_epoch_rewards_init( slot_ctx, 0UL, 2UL, 1UL, 0UL, 0UL, last_hash );
   }
 
   /* Blockhash queue is given in txn message. We need to populate the following two fields:
@@ -186,14 +167,9 @@ fd_runtime_fuzz_txn_ctx_create( fd_runtime_fuzz_runner_t *         runner,
   fd_blockhashes_t * blockhashes = fd_blockhashes_init( fd_bank_block_hash_queue_modify( slot_ctx->bank ), blockhash_seed );
 
   // Save lamports per signature for most recent blockhash, if sysvar cache contains recent block hashes
-  fd_recent_block_hashes_t const * rbh_sysvar = fd_sysvar_recent_hashes_read( funk, funk_txn, runner->spad );
-  fd_recent_block_hashes_t rbh[1];
-  if( rbh_sysvar ) {
-    rbh->hashes = rbh_sysvar->hashes;
-  }
-
-  if( rbh_sysvar && !deq_fd_block_block_hash_entry_t_empty( rbh->hashes ) ) {
-    fd_block_block_hash_entry_t const * last = deq_fd_block_block_hash_entry_t_peek_head_const( rbh->hashes );
+  fd_block_block_hash_entry_t const * rbh = fd_sysvar_recent_hashes_join_const( sysvar_cache );
+  if( FD_UNLIKELY( rbh && !deq_fd_block_block_hash_entry_t_empty( rbh ) ) ) {
+    fd_block_block_hash_entry_t const * last = deq_fd_block_block_hash_entry_t_peek_head_const( rbh );
     if( last && last->fee_calculator.lamports_per_signature!=0UL ) {
       fd_bank_lamports_per_signature_set( slot_ctx->bank, last->fee_calculator.lamports_per_signature );
       fd_bank_prev_lamports_per_signature_set( slot_ctx->bank, last->fee_calculator.lamports_per_signature );
@@ -215,7 +191,7 @@ fd_runtime_fuzz_txn_ctx_create( fd_runtime_fuzz_runner_t *         runner,
       }
       // Recent block hashes cap is 150 (actually 151), while blockhash queue capacity is 300 (actually 301)
       fd_bank_poh_set( slot_ctx->bank, blockhash );
-      fd_sysvar_recent_hashes_update( slot_ctx, runner->spad );
+      fd_sysvar_recent_hashes_update( slot_ctx );
     }
   } else {
     // Add a default empty blockhash and use it as genesis
@@ -225,7 +201,7 @@ fd_runtime_fuzz_txn_ctx_create( fd_runtime_fuzz_runner_t *         runner,
     fd_block_block_hash_entry_t blockhash_entry;
     memcpy( &blockhash_entry.blockhash, empty_bytes, sizeof(fd_hash_t) );
     fd_bank_poh_set( slot_ctx->bank, blockhash_entry.blockhash );
-    fd_sysvar_recent_hashes_update( slot_ctx, runner->spad );
+    fd_sysvar_recent_hashes_update( slot_ctx );
   }
 
   /* Add accounts to bpf program cache */

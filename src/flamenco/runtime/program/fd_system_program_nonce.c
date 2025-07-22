@@ -2,10 +2,9 @@
 #include "../fd_borrowed_account.h"
 #include "../fd_acc_mgr.h"
 #include "../fd_system_ids.h"
-#include "../context/fd_exec_slot_ctx.h"
 #include "../context/fd_exec_txn_ctx.h"
-#include "../sysvar/fd_sysvar_rent.h"
 #include "../sysvar/fd_sysvar_recent_hashes.h"
+#include "../sysvar/fd_sysvar_rent.h"
 #include "../fd_executor.h"
 
 static int
@@ -27,37 +26,31 @@ require_acct( fd_exec_instr_ctx_t * ctx,
 static int
 require_acct_rent( fd_exec_instr_ctx_t * ctx,
                    ushort                idx,
-                   fd_rent_t const **    out_rent ) {
+                   fd_rent_t *           out_rent ) {
 
   do {
     int err = require_acct( ctx, idx, &fd_sysvar_rent_id );
     if( FD_UNLIKELY( err ) ) return err;
   } while(0);
 
-  fd_rent_t const * rent = fd_sysvar_rent_read( ctx->txn_ctx->funk, ctx->txn_ctx->funk_txn, ctx->txn_ctx->spad );
-  if( FD_UNLIKELY( !rent ) )
+  if( FD_UNLIKELY( !fd_sysvar_rent_read( ctx->sysvar_cache, out_rent ) ) )
     return FD_EXECUTOR_INSTR_ERR_UNSUPPORTED_SYSVAR;
 
-  *out_rent = rent;
   return FD_EXECUTOR_INSTR_SUCCESS;
 }
 
 static int
-require_acct_recent_blockhashes( fd_exec_instr_ctx_t *        ctx,
-                                 ushort                       idx,
-                                 fd_recent_block_hashes_t * * out ) {
+require_acct_recent_blockhashes( fd_exec_instr_ctx_t * ctx,
+                                 ushort                idx ) {
 
   do {
     int err = require_acct( ctx, idx, &fd_sysvar_recent_block_hashes_id );
     if( FD_UNLIKELY( err ) ) return err;
   } while(0);
 
-  fd_recent_block_hashes_t const * rbh = fd_sysvar_recent_hashes_read( ctx->txn_ctx->funk, ctx->txn_ctx->funk_txn, ctx->txn_ctx->spad );
-  if( FD_UNLIKELY( !rbh ) ) {
+  if( FD_UNLIKELY( !fd_sysvar_recent_hashes_is_valid( ctx->sysvar_cache ) ) ) {
     return FD_EXECUTOR_INSTR_ERR_UNSUPPORTED_SYSVAR;
   }
-
-  (*out)->hashes = rbh->hashes;
 
   return FD_EXECUTOR_INSTR_SUCCESS;
 }
@@ -268,18 +261,14 @@ fd_system_program_exec_advance_nonce_account( fd_exec_instr_ctx_t * ctx ) {
 
   /* https://github.com/solana-labs/solana/blob/v1.17.23/programs/system/src/system_processor.rs#L427-L432 */
 
-  fd_recent_block_hashes_t   recent_blockhashes_obj;
-  fd_recent_block_hashes_t * recent_blockhashes = &recent_blockhashes_obj;
   do {
-    err = require_acct_recent_blockhashes( ctx, 1UL, &recent_blockhashes );
+    err = require_acct_recent_blockhashes( ctx, 1UL );
     if( FD_UNLIKELY( err ) ) return err;
   } while(0);
 
-  fd_block_block_hash_entry_t const * hashes = recent_blockhashes->hashes;
-
   /* https://github.com/solana-labs/solana/blob/v1.17.23/programs/system/src/system_processor.rs#L433-L439 */
 
-  if( FD_UNLIKELY( deq_fd_block_block_hash_entry_t_empty( hashes ) ) ) {
+  if( FD_UNLIKELY( fd_blockhash_deq_empty( fd_bank_block_hash_queue_query( ctx->txn_ctx->bank )->d.deque ) ) ) {
     fd_log_collector_msg_literal( ctx, "Advance nonce account: recent blockhash list is empty" );
     ctx->txn_ctx->custom_err = FD_SYSTEM_PROGRAM_ERR_NONCE_NO_RECENT_BLOCKHASHES;
     return FD_EXECUTOR_INSTR_ERR_CUSTOM_ERR;
@@ -480,16 +469,14 @@ fd_system_program_exec_withdraw_nonce_account( fd_exec_instr_ctx_t * ctx,
 
   /* https://github.com/solana-labs/solana/blob/v1.17.23/programs/system/src/system_processor.rs#L445-L449 */
 
-  fd_recent_block_hashes_t   recent_blockhashes_obj;
-  fd_recent_block_hashes_t * recent_blockhashes = &recent_blockhashes_obj;
   do {
-    int err = require_acct_recent_blockhashes( ctx, 2UL, &recent_blockhashes );
+    int err = require_acct_recent_blockhashes( ctx, 2UL );
     if( FD_UNLIKELY( err ) ) return err;
   } while(0);
 
   /* https://github.com/solana-labs/solana/blob/v1.17.23/programs/system/src/system_processor.rs#L450 */
 
-  fd_rent_t const * rent = NULL;
+  fd_rent_t rent;
   do {
     int err = require_acct_rent( ctx, 3UL, &rent );
     if( FD_UNLIKELY( err ) ) return err;
@@ -497,7 +484,7 @@ fd_system_program_exec_withdraw_nonce_account( fd_exec_instr_ctx_t * ctx,
 
   /* https://github.com/solana-labs/solana/blob/v1.17.23/programs/system/src/system_processor.rs#L451-L460 */
 
-  return fd_system_program_withdraw_nonce_account( ctx, requested_lamports, rent );
+  return fd_system_program_withdraw_nonce_account( ctx, requested_lamports, &rent );
 }
 
 /* https://github.com/solana-labs/solana/blob/v1.17.23/programs/system/src/system_instruction.rs#L153-L198
@@ -633,18 +620,14 @@ fd_system_program_exec_initialize_nonce_account( fd_exec_instr_ctx_t * ctx,
 
   /* https://github.com/solana-labs/solana/blob/v1.17.23/programs/system/src/system_processor.rs#L466-L471 */
 
-  fd_recent_block_hashes_t   recent_blockhashes_obj;
-  fd_recent_block_hashes_t * recent_blockhashes = &recent_blockhashes_obj;
   do {
-    err = require_acct_recent_blockhashes( ctx, 1UL, &recent_blockhashes );
+    err = require_acct_recent_blockhashes( ctx, 1UL );
     if( FD_UNLIKELY( err ) ) return err;
   } while(0);
 
-  fd_block_block_hash_entry_t const * hashes = recent_blockhashes->hashes;
-
   /* https://github.com/solana-labs/solana/blob/v1.17.23/programs/system/src/system_processor.rs#L472-L478 */
 
-  if( FD_UNLIKELY( deq_fd_block_block_hash_entry_t_empty( hashes ) ) ) {
+  if( FD_UNLIKELY( fd_blockhash_deq_empty( fd_bank_block_hash_queue_query( ctx->txn_ctx->bank )->d.deque ) ) ) {
     fd_log_collector_msg_literal( ctx, "Initialize nonce account: recent blockhash list is empty" );
     ctx->txn_ctx->custom_err = FD_SYSTEM_PROGRAM_ERR_NONCE_NO_RECENT_BLOCKHASHES;
     return FD_EXECUTOR_INSTR_ERR_CUSTOM_ERR;
@@ -652,7 +635,7 @@ fd_system_program_exec_initialize_nonce_account( fd_exec_instr_ctx_t * ctx,
 
   /* https://github.com/solana-labs/solana/blob/v1.17.23/programs/system/src/system_processor.rs#L479 */
 
-  fd_rent_t const * rent = NULL;
+  fd_rent_t rent;
   do {
     err = require_acct_rent( ctx, 2UL, &rent );
     if( FD_UNLIKELY( err ) ) return err;
@@ -660,7 +643,7 @@ fd_system_program_exec_initialize_nonce_account( fd_exec_instr_ctx_t * ctx,
 
   /* https://github.com/solana-labs/solana/blob/v1.17.23/programs/system/src/system_processor.rs#L480 */
 
-  err = fd_system_program_initialize_nonce_account( ctx, &account, authorized, rent );
+  err = fd_system_program_initialize_nonce_account( ctx, &account, authorized, &rent );
 
   /* Implicit drop */
 

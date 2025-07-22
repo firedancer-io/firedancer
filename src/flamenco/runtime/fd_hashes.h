@@ -192,7 +192,7 @@ fd_accounts_check_lthash( fd_funk_t *      funk,
                           fd_features_t  * features );
 
 void
-fd_calculate_epoch_accounts_hash_values(fd_exec_slot_ctx_t * slot_ctx);
+fd_calculate_epoch_accounts_hash_values( fd_bank_t * bank );
 
 int
 fd_accounts_hash_inc_only( fd_exec_slot_ctx_t * slot_ctx,
