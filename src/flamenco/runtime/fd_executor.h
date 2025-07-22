@@ -15,6 +15,10 @@
 #include "../features/fd_features.h"
 #include "fd_runtime.h"
 
+/* https://github.com/anza-xyz/agave/blob/v2.3.1/svm/src/account_loader.rs#L40-L47 */
+#define FD_TRANSACTION_ACCOUNT_BASE_SIZE  (64UL)
+#define FD_ADDRESS_LOOKUP_TABLE_BASE_SIZE (8248UL)
+
 #define FD_FEE_PAYER_TXN_IDX (0UL)
 
 /* FD_EXEC_CU_UPDATE consumes CUs from the current instr ctx

@@ -3160,4 +3160,3 @@ fd_runtime_block_execute_finalize_sequential( fd_exec_slot_ctx_t *             s
 
   return 0;
 }
-

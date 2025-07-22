@@ -1608,6 +1608,12 @@ fd_feature_id_t const ids[] = {
     .name                      = "reenable_zk_elgamal_proof_program",
     .cleaned_up                = {UINT_MAX, UINT_MAX, UINT_MAX} },
 
+  { .index                     = offsetof(fd_features_t, formalize_loaded_transaction_data_size)>>3,
+    .id                        = {"\xbb\xe3\x22\x72\x50\x76\x2f\xe7\x43\x75\x35\x06\xc2\x69\x5a\x06\x5f\x21\xef\x12\xcf\x24\x33\x0e\x1a\xa7\x37\xbe\x4b\xb8\xee\xb3"},
+                                 /* DeS7sR48ZcFTUmt5FFEVDr1v1bh73aAbZiZq3SYr8Eh8 */
+    .name                      = "formalize_loaded_transaction_data_size",
+    .cleaned_up                = {UINT_MAX, UINT_MAX, UINT_MAX} },
+
   { .index = ULONG_MAX }
 };
 /* TODO replace this with fd_map_perfect */
@@ -1849,6 +1855,7 @@ fd_feature_id_query( ulong prefix ) {
   case 0x210aba8db8103506: return &ids[ 232 ];
   case 0xec3a4c069e71cb0e: return &ids[ 233 ];
   case 0xbbec21266d76cb0e: return &ids[ 234 ];
+  case 0xe72f76507222e3bb: return &ids[ 235 ];
   default: break;
   }
   return NULL;
@@ -2089,4 +2096,5 @@ FD_STATIC_ASSERT( offsetof( fd_features_t, vote_only_retransmitter_signed_fec_se
 FD_STATIC_ASSERT( offsetof( fd_features_t, mask_out_rent_epoch_in_vm_serialization                 )>>3==232UL, layout );
 FD_STATIC_ASSERT( offsetof( fd_features_t, disable_zk_elgamal_proof_program                        )>>3==233UL, layout );
 FD_STATIC_ASSERT( offsetof( fd_features_t, reenable_zk_elgamal_proof_program                       )>>3==234UL, layout );
+FD_STATIC_ASSERT( offsetof( fd_features_t, formalize_loaded_transaction_data_size                  )>>3==235UL, layout );
 FD_STATIC_ASSERT( sizeof( fd_features_t )>>3==FD_FEATURE_ID_CNT, layout );
