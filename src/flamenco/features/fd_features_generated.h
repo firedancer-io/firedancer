@@ -247,5 +247,6 @@ union fd_features {
     /* 0x210aba8db8103506 */ ulong mask_out_rent_epoch_in_vm_serialization;
     /* 0xec3a4c069e71cb0e */ ulong disable_zk_elgamal_proof_program;
     /* 0xbbec21266d76cb0e */ ulong reenable_zk_elgamal_proof_program;
+    /* 0x3711b30f40730240 */ ulong enable_vote_address_leader_schedule;
   };
 };
