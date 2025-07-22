@@ -12,4 +12,7 @@ ifndef FD_HAS_UBSAN
 # don't bother building it if FD_HAS_UBSAN is defined.
 $(call make-unit-test,test_util_base,test_util_base,fd_util)
 $(call run-unit-test,test_util_base,)
+ifdef FD_HAS_HOSTED
+$(call make-fuzz-test,fuzz_hash,fuzz_hash,fd_util)
+endif
 endif
