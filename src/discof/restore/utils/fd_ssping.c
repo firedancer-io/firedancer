@@ -1,4 +1,6 @@
+#define _GNU_SOURCE
 #include "fd_ssping.h"
+#include "fd_ssresolve.h"
 
 #include "../../../util/bits/fd_bits.h"
 #include "../../../util/log/fd_log.h"
@@ -9,6 +11,7 @@
 #include <sys/socket.h>
 #include <netinet/in.h>
 #include <netinet/ip_icmp.h>
+#include <netinet/tcp.h>
 
 #define PEER_STATE_UNPINGED   0
 #define PEER_STATE_PINGED     1
@@ -16,13 +19,25 @@
 #define PEER_STATE_REFRESHING 3
 #define PEER_STATE_INVALID    4
 
-#define PEER_DEADLINE_NANOS_PING    (1L*1000L*1000L*1000L)     /* 1 second */
+#define PEER_DEADLINE_NANOS_PING    (2L*1000L*1000L*1000L)     /* 1 second */
 #define PEER_DEADLINE_NANOS_VALID   (2L*60L*1000L*1000L*1000L) /* 2 minutes */
 #define PEER_DEADLINE_NANOS_INVALID (5L*60L*1000L*1000L*1000L) /* 5 minutes */
 
 struct fd_ssping_peer {
-  ulong         refcnt;
-  fd_ip4_port_t addr;
+  ulong            refcnt;
+  fd_ip4_port_t    addr;
+
+  /* TODO: how do I hide the ssresolve struct and not have to alloc it
+     somewhere else? */
+  fd_ssresolve_t   ssresolve[1];
+
+  struct {
+    ulong     full_slot;
+    ulong     incremental_base_slot;
+    ulong     incremental_slot;
+    fd_hash_t full_hash;
+    fd_hash_t incremental_hash;
+  } snapshot_info;
 
   struct {
     ulong next;
@@ -50,6 +65,8 @@ struct fd_ssping_peer {
   } fd;
 
   int   state;
+  ulong full_latency_nanos;
+  ulong incremental_latency_nanos;
   ulong latency_nanos;
   long  deadline_nanos;
 };
@@ -168,8 +185,8 @@ fd_ssping_new( void * shmem,
   struct pollfd * fds  = FD_SCRATCH_ALLOC_APPEND( l, sizeof(struct pollfd), max_peers*sizeof(struct pollfd) );
   ulong * fds_idx      = FD_SCRATCH_ALLOC_APPEND( l, sizeof(ulong), max_peers*sizeof(ulong) );
 
-  ssping->pool = peer_pool_join( peer_pool_new( _pool, max_peers ) );
-  ssping->map = peer_map_join( peer_map_new( _map, max_peers, seed ) );
+  ssping->pool        = peer_pool_join( peer_pool_new( _pool, max_peers ) );
+  ssping->map         = peer_map_join( peer_map_new( _map, max_peers, seed ) );
   ssping->score_treap = score_treap_join( score_treap_new( _score_treap, max_peers ) );
 
   ssping->unpinged   = deadline_list_join( deadline_list_new( _unpinged ) );
@@ -222,6 +239,13 @@ fd_ssping_add( fd_ssping_t * ssping,
     peer->refcnt = 0UL;
     peer->state  = PEER_STATE_UNPINGED;
     peer->addr   = addr;
+    peer->snapshot_info.full_slot             = ULONG_MAX;
+    peer->snapshot_info.incremental_base_slot = ULONG_MAX;
+    peer->snapshot_info.incremental_slot      = ULONG_MAX;
+    peer->full_latency_nanos        = 0UL;
+    peer->incremental_latency_nanos = 0UL;
+    fd_ssresolve_t * ssresolve = fd_ssresolve_join( fd_ssresolve_new( peer->ssresolve ) );
+    FD_TEST( ssresolve );
     peer_map_ele_insert( ssping->map, peer, ssping->pool );
     deadline_list_ele_push_tail( ssping->unpinged, peer, ssping->pool );
   }
@@ -339,37 +363,69 @@ poll_advance( fd_ssping_t * ssping,
       continue;
     }
 
-    if( FD_LIKELY( pfd->revents & POLLOUT ) ) {
-      struct icmphdr icmp_hdr = (struct icmphdr){
-        .type             = ICMP_ECHO,
-        .code             = 0,
-        .un.echo.id       = 0, /* Automatically set by kernel for a ping socket */
-        .un.echo.sequence = 0, /* Only one ping goes out per socket, so nothing to change */
-        .checksum         = 0  /* Will be calculated by the kernel */
-      };
+    fd_ssping_peer_t * peer = peer_pool_ele( ssping->pool, ssping->fds_idx[ i ] );
+    if( FD_UNLIKELY( now>peer->deadline_nanos ) ) {
+      FD_LOG_ERR(( "peer " FD_IP4_ADDR_FMT ":%hu ping deadline expired (%ld > %ld)",
+                   FD_IP4_ADDR_FMT_ARGS( peer->addr.addr ), peer->addr.port,
+                   now, peer->deadline_nanos ));
+      unping_peer( ssping, peer, now );
+      continue;
+    }
 
-      long result = send( pfd->fd, &icmp_hdr, sizeof(icmp_hdr), 0 );
-      if( FD_UNLIKELY( !result ) ) continue;
-      if( FD_UNLIKELY( -1==result && errno==EAGAIN ) ) continue;
-      else if( FD_UNLIKELY( -1==result ) ) {
+    if( FD_LIKELY( pfd->revents & POLLOUT ) ) {
+      int res = fd_ssresolve_advance_poll_out( peer->ssresolve, pfd->fd, peer->addr );
+
+      if( res==FD_SSRESOLVE_ADVANCE_ERROR ) {
         unping_peer( ssping, peer_pool_ele( ssping->pool, ssping->fds_idx[ i ] ), now );
         continue;
+      } else if( res==FD_SSRESOLVE_ADVANCE_AGAIN ) {
+        continue;
       }
+
       pfd->revents &= ~POLLOUT;
     }
 
     if( FD_LIKELY( pfd->revents & POLLIN ) ) {
-      struct icmphdr icmp_hdr;
-      long result = recv( pfd->fd, &icmp_hdr, sizeof(icmp_hdr), 0 );
-      if( FD_UNLIKELY( -1==result && errno==EAGAIN ) ) continue;
-      else if( FD_UNLIKELY( -1==result || (ulong)result<sizeof(icmp_hdr) || icmp_hdr.type!=ICMP_ECHOREPLY ) ) {
+      fd_ssresolve_result_t resolve_result;
+      int res = fd_ssresolve_advance_poll_in( peer->ssresolve, pfd->fd, &resolve_result );
+
+      if( res==FD_SSRESOLVE_ADVANCE_ERROR ) {
         unping_peer( ssping, peer_pool_ele( ssping->pool, ssping->fds_idx[ i ] ), now );
+        continue;
+      } else if( res==FD_SSRESOLVE_ADVANCE_AGAIN ) {
         continue;
       }
 
-      fd_ssping_peer_t * peer = peer_pool_ele( ssping->pool, ssping->fds_idx[ i ] );
-      FD_TEST( peer->deadline_nanos>now );
-      peer->latency_nanos = PEER_DEADLINE_NANOS_PING - (ulong)(peer->deadline_nanos - now);
+      if( FD_LIKELY( res==FD_SSRESOLVE_ADVANCE_SUCCESS ) ) {
+        FD_TEST( peer->deadline_nanos>now );
+        if( resolve_result.base_slot==ULONG_MAX ) {
+          peer->snapshot_info.full_slot = resolve_result.slot;
+          memcpy( &peer->snapshot_info.full_hash, &resolve_result.hash, sizeof(fd_hash_t) );
+          peer->full_latency_nanos = PEER_DEADLINE_NANOS_PING - (ulong)(peer->deadline_nanos - now);
+        } else {
+          peer->snapshot_info.incremental_base_slot = resolve_result.base_slot;
+          peer->snapshot_info.incremental_slot      = resolve_result.slot;
+          memcpy( &peer->snapshot_info.incremental_hash, &resolve_result.hash, sizeof(fd_hash_t) );
+          peer->incremental_latency_nanos = PEER_DEADLINE_NANOS_PING - (ulong)(peer->deadline_nanos - now) - peer->full_latency_nanos;
+        }
+      }
+    }
+
+    /* Once both the full and incremental snapshots are resolved, we can
+       mark the peer valid and remove the peer from the list of peers to
+       ping. */
+    if( peer->full_latency_nanos && peer->incremental_latency_nanos ) {
+      FD_TEST( fd_ssresolve_is_done( peer->ssresolve ) );
+      FD_LOG_INFO(("successfully resolved snapshots for peer " FD_IP4_ADDR_FMT ":%hu "
+                    "with full slot %lu, incremental base slot %lu and incremental slot %lu",
+                    FD_IP4_ADDR_FMT_ARGS( peer->addr.addr ), peer->addr.port,
+                    peer->snapshot_info.full_slot,
+                    peer->snapshot_info.incremental_base_slot,
+                    peer->snapshot_info.incremental_slot ));
+      FD_LOG_INFO(("full latency is %lu, incremental latency is %lu",
+                      peer->full_latency_nanos, peer->incremental_latency_nanos ));
+      peer->latency_nanos = (peer->full_latency_nanos + peer->incremental_latency_nanos) / 2UL;
+      FD_LOG_INFO(("latency is %lu", peer->latency_nanos ));
 
       if( FD_LIKELY( peer->state==PEER_STATE_REFRESHING ) ) {
         score_treap_ele_remove( ssping->score_treap, peer, ssping->pool );
@@ -390,8 +446,13 @@ poll_advance( fd_ssping_t * ssping,
 static int
 peer_connect( fd_ssping_t *      ssping,
               fd_ssping_peer_t * peer ) {
-  int sockfd = socket( PF_INET, SOCK_DGRAM|SOCK_NONBLOCK, IPPROTO_ICMP );
+  int sockfd = socket( PF_INET, SOCK_STREAM|SOCK_NONBLOCK, 0 );
   if( FD_UNLIKELY( -1==sockfd ) ) FD_LOG_ERR(( "socket failed (%i-%s)", errno, strerror( errno ) ));
+
+  int optval = 1;
+  if( FD_UNLIKELY( -1==setsockopt( sockfd, SOL_TCP, TCP_NODELAY, &optval, sizeof(int) ) ) ) {
+    FD_LOG_ERR(( "setsockopt() failed (%d-%s)", errno, fd_io_strerror( errno ) ));
+  }
 
   struct sockaddr_in addr = {
     .sin_family = AF_INET,
@@ -412,6 +473,8 @@ peer_connect( fd_ssping_t *      ssping,
   ssping->fds_idx[ ssping->fds_len ] = peer_pool_idx( ssping->pool, peer );
   peer->fd.idx = ssping->fds_len;
   ssping->fds_len++;
+
+  fd_ssresolve_init( peer->ssresolve );
 
   return 0;
 }
