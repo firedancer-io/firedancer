@@ -219,5 +219,14 @@ action_t * ACTIONS[] = {
 int
 main( int     argc,
       char ** argv ) {
-  return fd_dev_main( argc, argv, 1, (char const *)firedancer_default_config, firedancer_default_config_sz, fd_topo_initialize );
+  void (* topo_init )( config_t * config );
+  if ( argc == 0 ) {
+    topo_init = fd_topo_initialize;
+  } else if( 0==strcmp( argv[1], "backtest" ) ) {
+    topo_init = backtest_topo_initialize;
+  } else {
+    FD_LOG_ERR(( "unknown firedancer-dev action `%s`", argv[1] ));
+  }
+
+  return fd_dev_main( argc, argv, 1, (char const *)firedancer_default_config, firedancer_default_config_sz, topo_init );
 }

@@ -53,6 +53,9 @@ int
 fd_topo_configure_tile( fd_topo_tile_t * tile,
                         fd_config_t *    config );
 
+void
+backtest_topo_initialize( config_t * config );
+
 FD_PROTOTYPES_END
 
 #endif /* HEADER_fd_src_app_firedancer_topology_h */

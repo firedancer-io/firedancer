@@ -44,7 +44,6 @@ void
 flame_cmd_args( int *    pargc,
                 char *** pargv,
                 args_t * args ) {
-
   if( FD_UNLIKELY( !*pargc ) ) FD_LOG_ERR(( "usage: flame [all|tile|tile:idx|agave]" ));
   strncpy( args->flame.name, **pargv, sizeof( args->flame.name ) - 1 );
 
