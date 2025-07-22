@@ -1274,6 +1274,21 @@ user = ""
     [tiles.archiver]
         enabled = false
 
+    # The capture tile receives messages from replay and writer tiles
+    # and writes them to a solcap file for debugging and analysis.
+    # This tile is responsible for capturing account data, bank preimages,
+    # and other blockchain state for offline analysis.
+    [tiles.capture]
+        # Whether the capture tile is enabled. When enabled, the capture
+        # tile will write data to solcap files in the capture directory.
+        enabled = false
+
+        # The base directory where capture files will be written.
+        # If not specified, defaults to a 'capture' subdirectory under
+        # the base path. The capture tile will create a 'capture.solcap'
+        # file in this directory.
+        capture_dir = ""
+
 # These options can be useful for development, but should not be used
 # when connecting to a live cluster, as they may cause the validator to
 # be unstable or have degraded performance or security.  The program

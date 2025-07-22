@@ -344,6 +344,10 @@ struct fd_topo_tile {
     } writer;
 
     struct {
+      char base_dir[ PATH_MAX ];
+    } capture;
+
+    struct {
       ushort send_to_port;
       uint   send_to_ip_addr;
       ulong  conn_cnt;

@@ -108,6 +108,7 @@ extern fd_topo_run_tile_t fd_tile_archiver_feeder;
 extern fd_topo_run_tile_t fd_tile_archiver_writer;
 extern fd_topo_run_tile_t fd_tile_archiver_playback;
 extern fd_topo_run_tile_t fd_tile_shredcap;
+extern fd_topo_run_tile_t fd_tile_capture;
 
 extern fd_topo_run_tile_t fd_tile_snaprd;
 extern fd_topo_run_tile_t fd_tile_snapdc;
@@ -145,6 +146,7 @@ fd_topo_run_tile_t * TILES[] = {
   &fd_tile_archiver_writer,
   &fd_tile_archiver_playback,
   &fd_tile_shredcap,
+  &fd_tile_capture,
 #if FD_HAS_ROCKSDB
   &fd_tile_backtest,
 #endif
