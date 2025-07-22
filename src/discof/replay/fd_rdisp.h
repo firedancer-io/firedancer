@@ -48,50 +48,89 @@
           ---------------------------------------------- DISPATCHED
 
 
-   Additionally, fd_rdisp is slot-aware, and even somewhat fork-aware.
-   Prior to inserting a transaction, an insert_slot must be added,
-   optionally chaining it to a parent. Then, when a transaction is
-   inserted, the caller must specify the insert_slot it is part of.
+   Additionally, fd_rdisp is block-aware, and even somewhat fork-aware.
+   Prior to inserting a transaction, an block must be added.  Then, when
+   a transaction is inserted, the caller must specify the block it is
+   part of.
 
-   Using the parent information, fd_rdisp stores these slots in a
-   "linear forest" representation, that is, a collection of path graphs.
-   In each path in the path graph, transactions can only be added to the
-   last slot and scheduled from the first slot.  Each path graph may
-   occupy a resource that fd_rdisp calls a concurrency lane.
+   At all times, each block is either STAGED or UNSTAGED.  Blocks that
+   are STAGED benefit from the full parallelization-maximizing dispatch,
+   but at most four linear chains of blocks can be STAGED at any time.
+   Assuming the limit of four is still satisfied, when a block is added,
+   it may be added as STAGED.  Otherwise, if it's added as UNSTAGED, it
+   may be promoted to STAGED later, though this is worse for performance
+   than adding it as STAGED initially.  Blocks may be demoted from
+   STAGED to UNSTAGED only if the linear chain doesn't contain any
+   PENDING, READY, or DISPATCHED transactions.
 
-   Consider the following example:
+   Prior to properly introducing staging lanes, we need to introduce two
+   more concepts.  A block can be insert-ready, schedule-ready, neither,
+   or both.  A block must be insert-ready to call fd_rdisp_add_txn on
+   it; a block must be schedule-ready to call get_next_ready on it.
+   Various functions either require or modify these properties of a
+   block.  These properties are necessary but not sufficient for the
+   respective functions to succeed; for example, a block may be
+   schedule-ready but empty, in which case, scheduling will still not
+   succeed.  An UNSTAGED block is always both insert-ready and
+   schedule-ready.
+
+   A staging lane can contain a single block or a sequence of blocks.
+   When a staging lane contains more than one block, some restrictions
+   apply, namely, only the first block in the sequence is
+   schedule-ready, and only the last block in the sequence is
+   insert-ready, where first and last are determined by the order in
+   which the block is staged.  Although this restriction makes the
+   interface a bit more complicated, it's driven by performance
+   requirements and common use cases.  Basically, there's no use for
+   being able to replay a block before we've replayed its parent block.
+
+   Basically, rdisp is designed to handle three situations well:
+    * The normal case, where replay is pretty much caught up, and there
+      are only one or two forks, containing only one or two un-replayed
+      blocks each.
+    * The startup case, where repair is far ahead of replay, but there's
+      only a single fork, or very few forks
+    * The DoS case, where there are many forks, perhaps duplicate
+      blocks, and we don't know which to prioritize yet, but we will
+      execute some, and prune the rest later.  This includes the case
+      where we stop receiving transactions from some of the forks but
+      don't know that the block has ended.
+
+   In the normal case, there are few enough unreplayed blocks that it
+   doesn't really matter how the staging lanes are used.  For the
+   startup case, the long linear chains of blocks can all be STAGED using
+   the same lane with no performance degradation.  In the DoS case, most
+   of the forks will be UNSTAGED, and using some combination of
+   replaying, cancelling, and demoting blocks, staging lanes can be freed
+   up so that the canonical chain can emerge.
+
+   Consider the following example of storing a fork tree in staging
+   lanes:
     - Slot 10's parent is not specified
     - Slot 11's parent is slot 10
     - Slot 13's parent is slot 11
     - Slot 14's parent is also slot 11
 
-   That produces the following linear forest representation.
-
-                     10 --> 11 --> 13
-                     14
-
-   Note that the information about slot 14's parent being slot 11 is
-   lost in this representation.
-
-   Concurrency lane occupation is lazy, and only happens when actual
-   transactions are inserted for the slots.  If all four slots mentioned
-   have transactions in them, then this occupies two concurrency lanes.
-   In this state, calls to schedule transactions from slot 10 can be
-   intermixed with calls to schedule transactions from slot 14
-   aribitrarily.  In this state, calls to schedule from slot 11 or 13
-   are not allowed.
-
-   Slots stop occupying a concurrency lane as soon as there are no
-   transactions for that insert_slot in any of the PENDING, READY, or
-   DISPATCHED states.  The caller doesn't need to do anything special to
-   free it.  This means the exact concurrency lane a slot occupies can
-   change, but this is not exposed at all to the caller.
-
-   If a transaction is added but all the concurrency lanes are full, the
-   transaction is added to a deferred queue. */
+   Since the caller chooses the staging lane, the caller may choose
+   between
+             Lane 0: 10 --> 11 --> 13
+             Lane 1: 14
+   and
+             Lane 0: 10 --> 11 --> 14
+             Lane 1: 13.
+   or any of the various combinations that consume more staging lanes.
+   Note that the concept of staging lanes is a performance optimization,
+   not a safety feature.  With the first arrangment, the caller cannot
+   call get_next_ready on slot 13 in between slots 10 and 11, but
+   there's no issue with calling it on slot 14 then, which would
+   obiously result in an incorrectreplay.  It's ultimately the callers
+   responsibility to ensure correct replay. */
 
 #define FD_RDISP_MAX_DEPTH      0x7FFFFFUL /* 23 bit numbers, approx 8M */
-#define FD_RDISP_MAX_SLOT_DEPTH 0x7FFFFFUL /* Also 23 bits, but for a different reason */
+#define FD_RDISP_MAX_BLOCK_DEPTH 0x7FFFFFUL /* Also 23 bits, but for a different reason */
+
+struct fd_rdisp;
+typedef struct fd_rdisp fd_rdisp_t;
 
 FD_PROTOTYPES_BEGIN
 
@@ -99,92 +138,97 @@ FD_PROTOTYPES_BEGIN
    footprint in bytes for a region of memory to be used as a dispatcher.
    depth is the maximum number of transaction indices that can be
    tracked at a time.  Depth must be at least 2 and cannot exceed
-   FD_RDISP_MAX_DEPTH.  slot_depth is the maximum number of slots that
-   this dispatcher can track.  slot_depth must be at least 4 and cannot
-   exceed FD_RDISP_MAX_SLOT_DEPTH. */
+   FD_RDISP_MAX_DEPTH.  block_depth is the maximum number of blocks that
+   this dispatcher can track.  block_depth must be at least 4 and cannot
+   exceed FD_RDISP_MAX_BLOCK_DEPTH. */
 ulong fd_rdisp_align    ( void        );
-ulong fd_rdisp_footprint( ulong depth, ulong slot_depth );
+ulong fd_rdisp_footprint( ulong depth, ulong block_depth );
 
 
 /* TODO: document */
 void *
 fd_rdisp_new( void * mem,
               ulong  depth,
-              ulong  slot_depth );
+              ulong  block_depth );
 
 fd_rdisp_t *
 fd_rdisp_join( void * mem );
 
 
-/* fd_rdisp_add_slot allocates a new slot with the tag new_slot from
-   disp's internal pool.  new_slot must not be the invalid slot value,
-   and it must be distinct from all other values passed as new_slot in
-   all prior calls to fd_rdisp_add_slot.  parent_slot may be the invalid
-   slot value (e.g. for the first slot after a snapshot), or it may be
-   the tag of a previously added slot that has been marked as DONE.  If
-   parent_slot is a recognized slot tag, then transactions inserted with
-   a slot tag of new_slot cannot be scheduled until all transactions
-   inserted with a slot tag of parent_slot have completed.
+/* fd_rdisp_add_block allocates a new block with the tag new_block from
+   disp's internal pool.  new_block must not be the invalid block tag
+   value, and it must be distinct from all other values passed as
+   new_block in all prior calls to fd_rdisp_add_block.
 
-   On successful return, the tag new_slot will be useful for other
-   functions that take a slot tag.  This slot will not be marked as
-   DONE.
+   staging_lane must be either [0,4) or FD_RDISP_UNSTAGED.  If
+   staging_lane is FD_RDISP_UNSTAGED, the block will be UNSTAGED (see
+   the long comment at the beginning of this header), schedule-ready,
+   and insert-ready.
+   If staging_lane is in [0, 4), the block will be STAGED, and it will
+   be insert-ready.  If the specified staging lane contained any blocks
+   at the time of the call, the last one will no longer be insert-ready,
+   making this the only insert-ready block in the lane.  If the
+   specified staging lane did not contain any blocks at the time of the
+   call, then the newly added block will also be schedule-ready.
 
-   Returns 0 on okay, and a negative value on error:
-   -1 means that it's out of resources.
-   -2 means that new_slot tag was already a known slot tag. */
+   On successful return, the tag new_block will be usable for other
+   functions that take a slot block.
+
+   Returns 0 on success, and -1 on error, which can only happen if out
+   of resources (the number of unremoved blocks is greater than or equal
+   to the block_depth) or if new_block was already known. */
 int
-fd_rdisp_add_slot( fd_rdisp_t          * disp,
-                   FD_RDISP_SLOT_TAG_T   new_slot,
-                   FD_RDISP_SLOT_TAG_T   parent_slot );
+fd_rdisp_add_block( fd_rdisp_t *          disp,
+                    FD_RDISP_BLOCK_TAG_T  new_block,
+                    ulong                 staging_lane );
 
-/* fd_rdisp_mark_slot_done marks a slot (identified by tag slot) as
-   DONE.  A slot that is marked as DONE is elegible to be the parent of
-   a subsequent slot.  A slot that is marked as DONE may NOT have more
-   transactions added.  Only slots marked as DONE are elegible for
-   automatic cleanup.  Importantly, slots do not need to be marked as
-   DONE for transacactions to be scheduled from them.
-   disp must be a valid local join of a replay dispatcher.  slot must be
-   the tag of a previously added slot.  */
+/* fd_rdisp_remove_block deallocates a previously-allocated block with
+   the block tag block, freeing all resources associated with it.  block
+   must be empty (not contain any transactions in the PENDING, READY, or
+   DISPATCHED states), and schedule-ready.
+   Returns 0 on success, and -1 if block is not known.  After a
+   successful return, the block tag block will not be known. */
+int
+fd_rdisp_remove_block( fd_rdisp_t *          disp,
+                       FD_RDISP_BLOCK_TAG_T  block );
+
+
+/* fd_rdisp_abandon_block is similar to remove_block, but works when the
+   block contains transactions.  If immediately transitions all
+   transactions part of the block to FREE, and then removes the block as
+   in fd_rdisp_remove_block.  Note that if a transaction is DISPATCHED
+   at the time of the call complete_txn should NOT be called on that
+   transaction index when it completes.  slot must be schedule-ready.
+
+   Returns 0 on success, and -1 if block is not known.  After a
+   successful return, the block tag block will not be known. */
 void
-fd_rdisp_mark_slot_done( fd_rdisp_t          * disp,
-                         FD_RDISP_SLOT_TAG_T   slot );
-
-
-/* fd_rdisp_cancel_slot marks the slot with tag slot DONE (if not
-   already marked as DONE), and then immediately transitions all pending
-   transactions with slot tag slot to FREE.  This triggers the automatic
-   cleanup of the slot.  If the specified slot is not known, this is a
-   no-op. */
-void
-fd_rdisp_cancel_slot( fd_rdisp_t          * disp,
-                      FD_RDISP_SLOT_TAG_T   slot );
-
-/* You may notice there's no fd_rdisp_release_slot or similar.  Slots
-   are automatically released when they are marked as DONE and none of
-   the transactions added with the associated tag are in the PENDING,
-   READY, or DISPATCHED states. */
+fd_rdisp_abandon_block( fd_rdisp_t          * disp,
+                        FD_RDISP_BLOCK_TAG_T  block );
 
 
 
-/* fd_rdisp_add_txn adds a transaction to the slot with tag insert_slot
-   in serial order.  That means that this dispatcher will ensure this
-   transaction appears to execute after each transaction added to this
-   slot in a prior call.
+/* fd_rdisp_add_txn adds a transaction to the block with tag
+   insert_block in serial order.  That means that this dispatcher will
+   ensure this transaction appears to execute after each transaction
+   added to this slot in a prior call.
+
+   insert_block must be a known block that is schedule-ready.  txn,
+   payload, and alts describe the transaction to be added.  txn must be
+   the result of parsing payload, and alts contains the expansion and
+   selection of the address lookup tables mentioned in the transaction
+   (i.e. all the writable accounts followed by all the read-only
+   accounts).
 
    Shockingly, this dispatcher does not retain any read interest (much
-   less write interest) in the transaction.  On success, it returns a
-   transaction index that was previously in the FREE state.  This API is
-   designed to facilitate a model of use where the replay tile copies
-   the incoming transaction to a region of private memory, adds it to
-   this dispatcher, and then copies it (using non-temporal stores) to
-   the output dcache at a location determined by the returned index.
-   Although there are two memcpys in this approach, it tends to result
-   in fewer cache misses.
-
-   Returns 0 and does not add the transaction on failure.  Fails if
-   there were no free transaction indices, if the slot with tag
-   insert_slot did not exist, or if it was marked as DONE.
+   less write interest) in the transaction (txn, payload, or alts).  On
+   success, it returns a transaction index that was previously in the
+   FREE state.  This API is designed to facilitate a model of use where
+   the replay tile copies the incoming transaction to a region of
+   private memory, adds it to this dispatcher, and then copies it (using
+   non-temporal stores) to the output dcache at a location determined by
+   the returned index.  Although there are two memcpys in this approach,
+   it tends to result in fewer cache misses.
 
    If serializing is non-zero, this transaction will be a serialization
    point: all transactions added prior to this one must complete before
@@ -196,28 +240,35 @@ fd_rdisp_cancel_slot( fd_rdisp_t          * disp,
    executed the transaction to populate that part of the address lookup
    table yet.
 
+   Returns 0 and does not add the transaction on failure.  Fails if
+   there were no free transaction indices, if the slot with tag
+   insert_block did not exist, or if it was not schedule-ready.
+
    At the time this function returns, the returned transaction index
-   will be in the PENDING or READY state. */
+   will be in the PENDING or READY state, depending on whether it
+   conflicts with something previously inserted. */
 ulong
 fd_rdisp_add_txn( fd_rdisp_t          *  disp,
-                  FD_RDISP_SLOT_TAG_T    insert_slot,
+                  FD_RDISP_BLOCK_TAG_T   insert_block,
                   fd_txn_t const       * txn,
                   uchar const          * payload,
                   fd_acct_addr_t const * alts,
                   int                    serializing );
 
 /* fd_rdisp_get_next_ready returns the transaction index of a READY
-   transaction that was inserted with slot tag schedule_slot if one
-   exists, and 0 otherwise.  If there are multiple READY transactions,
-   which exact one is returned is arbitrary.  That said, this function
-   does make some effort to pick one that (upon completion) will unlock
-   more parallelism.  disp must be a valid local join.  At the time this
-   function returns, the returned transaction index (if nonzero) will
-   transition to the DISPATCHED state.  If schedule_slot is not the head
-   of a concurrency lane, this returns 0. */
+   transaction that was inserted with block tag schedule_block if one
+   exists, and 0 otherwise.  The block with the tag schedule_block must
+   be schedule-ready.
+
+   If there are multiple READY transactions, which exact one is returned
+   is arbitrary.  That said, this function does make some effort to pick
+   one that (upon completion) will unlock more parallelism.  disp must
+   be a valid local join.  At the time this function returns, the
+   returned transaction index (if nonzero) will transition to the
+   DISPATCHED state. */
 ulong
-fd_rdisp_get_next_ready( fd_rdisp_t          * disp,
-                         FD_RDISP_SLOT_TAG_T   schedule_slot );
+fd_rdisp_get_next_ready( fd_rdisp_t           * disp,
+                         FD_RDISP_BLOCK_TAG_T   schedule_block );
 
 /* fd_rdisp_complete_txn notifies the dispatcher that the
    specified transaction (which must have been in the DISPATCHED state)
@@ -230,14 +281,14 @@ fd_rdisp_complete_txn( fd_rdisp_t * disp,
                        ulong        txn_idx );
 
 
-/* fd_rdisp_concurrecny_lane_info copies the current insert and schedule
-   slots for the first out_cnt concurrency lane.  Returns how many
-   concurrency lanes' data was populated. */
+typedef struct {
+  int TODO;
+} fd_rdisp_staging_lane_info_t;
+/* fd_rdisp_staging_lane_info copies the current staging lane info to
+   out.  Returns a 4-bit bitset of which entries are non-empty. */
 ulong
-fd_rdisp_concurrency_lane_info( fd_rdisp_t    const * disp,
-                                FD_RDISP_SLOT_TAG_T * out_insert,
-                                FD_RDISP_SLOT_TAG_T * out_sched,
-                                ulong                 out_cnt );
+fd_rdisp_staging_lane_info( fd_rdisp_t           const * disp,
+                            fd_rdisp_staging_lane_info_t out_sched[ static 4 ] );
 
 
 void *
