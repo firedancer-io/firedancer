@@ -314,14 +314,12 @@ struct fd_snapshot_manifest {
 
        E-2 - We need epoch stakes from two epochs ago to calculate the
              leader schedule for the current epoch E.
-       E-1 - We need
-             epoch stakes from one epoch ago to calculate the leader
-             schedule for the next epoch E+1.
-      E   - We need epoch stakes
-             for the current epoch, which we will then incrementally
-             update as the epoch continues, to eventually (when the
-             epoch finishes) calculate the leader schedule for next next
-             epoch E+2.
+       E-1 - We need epoch stakes from one epoch ago to calculate the
+             leader schedule for the next epoch E+1.
+       E   - We need epoch stakes for the current epoch, which we will
+             then incrementally update as the epoch continues, to
+             eventually (when the epoch finishes) calculate the leader
+             schedule for next next epoch E+2.
 
      The epoch stakes are stored in an array, where epoch_stakes[0] is
      the list of current epoch stakes, and epoch_stakes[1] is for the

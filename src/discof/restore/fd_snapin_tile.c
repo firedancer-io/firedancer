@@ -90,7 +90,7 @@ manifest_cb( void * _ctx,
              ulong  manifest_sz ) {
   fd_snapin_tile_t * ctx = (fd_snapin_tile_t*)_ctx;
 
-  ulong sz = fd_ulong_align_up( sizeof(fd_snapshot_manifest_t), FD_SOLANA_MANIFEST_GLOBAL_ALIGN )+manifest_sz;
+  ulong sz = sizeof(fd_snapshot_manifest_t)+manifest_sz;
   FD_TEST( sz<=ctx->manifest_out.mtu );
   ulong sig = ctx->full ? fd_ssmsg_sig( FD_SSMSG_MANIFEST_FULL, manifest_sz ) :
                           fd_ssmsg_sig( FD_SSMSG_MANIFEST_INCREMENTAL, manifest_sz );
@@ -123,6 +123,8 @@ account_cb( void *                          _ctx,
             fd_solana_account_hdr_t const * hdr ) {
   fd_snapin_tile_t * ctx = (fd_snapin_tile_t*)_ctx;
 
+  if( 1) return;
+
   if( FD_UNLIKELY( is_duplicate_account( ctx, hdr->meta.pubkey ) ) ) {
     ctx->acc_data = NULL;
     return;
@@ -152,6 +154,7 @@ account_data_cb( void *        _ctx,
                  uchar const * buf,
                  ulong         data_sz ) {
   fd_snapin_tile_t * ctx = (fd_snapin_tile_t*)_ctx;
+  if( 1) return;
   if( FD_UNLIKELY( !ctx->acc_data ) ) return;
 
   fd_memcpy( ctx->acc_data, buf, data_sz );

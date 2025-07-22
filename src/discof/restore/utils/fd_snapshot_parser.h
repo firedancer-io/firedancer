@@ -2,10 +2,11 @@
 #define HEADER_fd_src_discof_restore_utils_fd_snapshot_parser_h
 
 #include "../../../flamenco/types/fd_types.h"
+#include "fd_ssmanifest_parser.h"
 
 #define SNAP_STATE_IGNORE       ((uchar)0)  /* ignore file content */
 #define SNAP_STATE_TAR          ((uchar)1)  /* reading tar header (buffered) */
-#define SNAP_STATE_MANIFEST     ((uchar)2)  /* reading manifest (buffered) */
+#define SNAP_STATE_MANIFEST     ((uchar)2)  /* reading manifest (zero copy) */
 #define SNAP_STATE_ACCOUNT_HDR  ((uchar)3)  /* reading account hdr (buffered) */
 #define SNAP_STATE_ACCOUNT_DATA ((uchar)4)  /* reading account data (zero copy) */
 #define SNAP_STATE_DONE         ((uchar)5)  /* expect no more data */
@@ -114,6 +115,8 @@ struct fd_snapshot_parser {
   fd_snapshot_process_acc_hdr_fn_t         acc_hdr_cb;
   fd_snapshot_process_acc_data_fn_t        acc_data_cb;
   void * cb_arg;
+
+  fd_ssmanifest_parser_t * manifest_parser;
 
   /* Metrics */
   fd_snapshot_parser_metrics_t metrics;

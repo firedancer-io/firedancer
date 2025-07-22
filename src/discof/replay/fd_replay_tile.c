@@ -526,6 +526,8 @@ static void
 restore_slot_ctx( fd_replay_tile_ctx_t * ctx,
                   fd_wksp_t *            mem,
                   ulong                  chunk ) {
+  AAAA .... DECODE NOW
+
   /* Use the full snapshot manifest to initialize the slot context */
   uchar * slot_ctx_mem        = fd_spad_alloc_check( ctx->runtime_spad, FD_EXEC_SLOT_CTX_ALIGN, FD_EXEC_SLOT_CTX_FOOTPRINT );
   ctx->slot_ctx               = fd_exec_slot_ctx_join( fd_exec_slot_ctx_new( slot_ctx_mem ) );
