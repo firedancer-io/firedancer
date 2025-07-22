@@ -7,6 +7,79 @@
 #include <assert.h>
 #include <stdio.h>
 
+ulong fd_snapshot_accv_seed;
+
+FD_FN_CONST ulong
+fd_snapshot_parser_footprint( int accv_lg_slot_cnt ) {
+  ulong map_fp = fd_snapshot_accv_map_footprint( accv_lg_slot_cnt );
+  if( FD_UNLIKELY( !map_fp ) ) return 0UL;
+  ulong l = FD_LAYOUT_INIT;
+  l = FD_LAYOUT_APPEND( l, alignof(fd_snapshot_parser_t), sizeof(fd_snapshot_parser_t) );
+  l = FD_LAYOUT_APPEND( l, fd_snapshot_accv_map_align(),  map_fp                       );
+  l = FD_LAYOUT_APPEND( l, 16UL,                          1UL<<31UL                    );
+  return FD_LAYOUT_FINI( l, fd_snapshot_parser_align() );
+}
+
+fd_snapshot_parser_t *
+fd_snapshot_parser_new( void * mem,
+                        int    accv_lg_slot_cnt,
+                        void * cb_arg,
+                        fd_snapshot_parser_process_manifest_fn_t manifest_cb,
+                        fd_snapshot_process_acc_hdr_fn_t         acc_hdr_cb,
+                        fd_snapshot_process_acc_data_fn_t        acc_data_cb ) {
+  FD_ONCE_BEGIN {
+    FD_TEST( fd_rng_secure( &fd_snapshot_accv_seed, sizeof(ulong) ) );
+  }
+  FD_ONCE_END;
+
+  if( FD_UNLIKELY( !mem ) ) {
+    FD_LOG_WARNING(( "NULL mem" ));
+    return NULL;
+  }
+  if( FD_UNLIKELY( !fd_ulong_is_aligned( (ulong)mem, fd_snapshot_parser_align() ) ) ) {
+    FD_LOG_WARNING(( "unaligned mem" ));
+    return NULL;
+  }
+  ulong footprint = fd_snapshot_parser_footprint( accv_lg_slot_cnt );
+  if( FD_UNLIKELY( !footprint ) ) FD_LOG_ERR(( "Invalid accv_lg_slot_cnt %d", accv_lg_slot_cnt ));
+
+  FD_SCRATCH_ALLOC_INIT( l, mem );
+  fd_snapshot_parser_t * self = FD_SCRATCH_ALLOC_APPEND( l, alignof(fd_snapshot_parser_t), sizeof(fd_snapshot_parser_t) );
+  void * accv_map_mem         = FD_SCRATCH_ALLOC_APPEND( l, fd_snapshot_accv_map_align(),  fd_snapshot_accv_map_footprint( accv_lg_slot_cnt ) );
+  void * _buf_mem             = FD_SCRATCH_ALLOC_APPEND( l, 16UL,                          1UL<<31UL                    );
+  ulong  mem_end              = FD_SCRATCH_ALLOC_FINI( l, fd_snapshot_parser_align() );
+  if( FD_UNLIKELY( mem_end-(ulong)mem != footprint ) ) FD_LOG_CRIT(( "Memory layout bug detected" ));
+
+  self->state         = SNAP_STATE_TAR;
+  self->flags         = 0;
+  self->manifest_done = 0;
+
+  self->buf_sz  = 0UL;
+  self->buf_ctr = 0UL;
+  self->buf_max = 1UL<<31UL;
+
+  self->accv_map = fd_snapshot_accv_map_join( fd_snapshot_accv_map_new( accv_map_mem, accv_lg_slot_cnt ) );
+  FD_TEST( self->accv_map );
+
+  self->buf = _buf_mem;
+
+  self->manifest_cb = manifest_cb;
+  self->acc_hdr_cb  = acc_hdr_cb;
+  self->acc_data_cb = acc_data_cb;
+  self->cb_arg      = cb_arg;
+
+  self->metrics.accounts_files_processed = 0UL;
+  self->metrics.accounts_files_total     = 0UL;
+  self->metrics.accounts_processed       = 0UL;
+  self->processing_accv                  = 0;
+  self->goff                             = 0UL;
+
+  /* Bound AppendVec map utilization to 75% */
+  self->accv_key_max = (ulong)( (float)(1UL<<accv_lg_slot_cnt) * 0.75f );
+
+  return self;
+}
+
 static void
 fd_snapshot_parser_discard_buf( fd_snapshot_parser_t * self ) {
   self->buf_ctr = 0UL;
@@ -230,13 +303,22 @@ fd_snapshot_parser_tar_read_hdr( fd_snapshot_parser_t * self,
    error code. */
 
 static int
-fd_snapshot_parser_accv_index( fd_snapshot_parser_t *             self,
-                              fd_solana_manifest_global_t const * manifest ) {
+fd_snapshot_parser_accv_index( fd_snapshot_parser_t *              self,
+                               fd_solana_manifest_global_t const * manifest ) {
   fd_snapshot_slot_acc_vecs_global_t * slots
       = fd_solana_accounts_db_fields_storages_join( &manifest->accounts_db );
   for( ulong i=0UL; i < manifest->accounts_db.storages_len; i++ ) {
     fd_snapshot_slot_acc_vecs_global_t * slot = &slots[ i ];
     fd_snapshot_acc_vec_t * account_vecs = fd_snapshot_slot_acc_vecs_account_vecs_join( slot );
+
+    ulong key_used_cnt      = fd_snapshot_accv_map_key_cnt( self->accv_map );
+    ulong key_used_post_cnt = key_used_cnt + slot->account_vecs_len;
+    if( FD_UNLIKELY( key_used_post_cnt > self->accv_key_max ) ) {
+      FD_LOG_WARNING(( "Snapshot is incompatible with this Firedancer build (too many account vecs: cnt=%lu max=%lu)",
+                       key_used_post_cnt, self->accv_key_max ));
+      return ENOMEM;
+    }
+
     for( ulong j=0UL; j < slot->account_vecs_len; j++ ) {
       fd_snapshot_acc_vec_t * accv = &account_vecs[ j ];
 
@@ -244,6 +326,7 @@ fd_snapshot_parser_accv_index( fd_snapshot_parser_t *             self,
       fd_snapshot_accv_key_t key = { .slot = slot->slot, .id = accv->id };
       fd_snapshot_accv_map_t * rec = fd_snapshot_accv_map_insert( self->accv_map, key );
       if( FD_UNLIKELY( !rec ) ) {
+        /* unreachable since map size is checked above */
         FD_LOG_WARNING(( "fd_snapshot_accv_map_insert failed" ));
         return ENOMEM;
       }
