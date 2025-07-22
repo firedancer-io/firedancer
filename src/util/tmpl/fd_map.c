@@ -207,6 +207,18 @@
 #define MAP_KEY key
 #endif
 
+#ifndef MAP_KEY_NULL
+#if defined(MAP_KEY_INVAL)
+#error "MAP_KEY_INVAL is defined but MAP_KEY_NULL is not"
+#endif
+#endif
+
+#ifndef MAP_KEY_INVAL
+#if defined(MAP_KEY_NULL)
+#error "MAP_KEY_NULL is defined but MAP_KEY_INVAL is not"
+#endif
+#endif
+
 /* MAP_KEY_NULL is a key that will never be inserted. */
 
 #ifndef MAP_KEY_NULL
@@ -425,7 +437,7 @@ MAP_(query)( MAP_T *   map,
              MAP_KEY_T key,
              MAP_T *   null ) {
 # if FD_TMPL_USE_HANDHOLDING
-  if( FD_UNLIKELY( MAP_KEY_INVAL( key ) ) ) FD_LOG_CRIT(( "invalid key" ));
+  if( FD_UNLIKELY( MAP_(key_inval)( key ) ) ) FD_LOG_CRIT(( "invalid key" ));
 # endif
   MAP_HASH_T hash = MAP_(key_hash)( key );
   ulong slot = MAP_(private_start)( hash );

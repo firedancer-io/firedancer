@@ -12,13 +12,14 @@ struct fd_bank_hash_cmp_entry {
   ulong     stakes[8];
   ulong     cnt;
   int       overflow;
-  int       rooted;
 };
 typedef struct fd_bank_hash_cmp_entry fd_bank_hash_cmp_entry_t;
-#define MAP_NAME        fd_bank_hash_cmp_map
-#define MAP_T           fd_bank_hash_cmp_entry_t
-#define MAP_KEY         slot
-#define MAP_LG_SLOT_CNT (16) /* 0.25 fill ratio */
+#define MAP_NAME         fd_bank_hash_cmp_map
+#define MAP_T            fd_bank_hash_cmp_entry_t
+#define MAP_KEY          slot
+#define MAP_KEY_NULL     ULONG_MAX
+#define MAP_KEY_INVAL(k) ((k)==ULONG_MAX)
+#define MAP_LG_SLOT_CNT  (16) /* 0.25 fill ratio */
 #include "../../util/tmpl/fd_map.c"
 
 struct fd_bank_hash_cmp {

@@ -1961,13 +1961,6 @@ process_vote_state_update( fd_borrowed_account_t *       vote_account,
           0,
           fd_query_pubkey_stake( vote_account->acct->pubkey,
           &stakes->vote_accounts ) );
-
-      if( FD_LIKELY( vote_state_update->has_root ) ) {
-        fd_bank_hash_cmp_entry_t * cmp =
-          fd_bank_hash_cmp_map_query( bank_hash_cmp->map, vote_state_update->root, NULL );
-        if( FD_LIKELY( cmp ) ) cmp->rooted = 1;
-      }
-
       fd_bank_hash_cmp_unlock( bank_hash_cmp );
     }
   }
@@ -2051,12 +2044,6 @@ process_tower_sync( fd_borrowed_account_t *       vote_account,
           0,
           fd_query_pubkey_stake( vote_account->acct->pubkey,
           &stakes->vote_accounts ) );
-      if( FD_LIKELY( tower_sync->has_root ) ) {
-        fd_bank_hash_cmp_entry_t * cmp =
-          fd_bank_hash_cmp_map_query( bank_hash_cmp->map, tower_sync->root, NULL );
-        if( FD_LIKELY( cmp ) ) cmp->rooted = 1;
-      }
-
       fd_bank_hash_cmp_unlock( bank_hash_cmp );
     }
     fd_bank_stakes_end_locking_query( ctx->txn_ctx->bank );
