@@ -43,7 +43,7 @@ pktgen_topo( config_t * config ) {
   }
   if( FD_LIKELY( !is_auto_affinity ) ) {
     if( FD_UNLIKELY( affinity_tile_cnt!=4UL ) )
-      FD_LOG_ERR(( "Invalid [development.pktgen.affinity]: must include exactly three CPUs" ));
+      FD_LOG_ERR(( "Invalid [development.pktgen.affinity]: must include exactly 4 CPUs" ));
   }
 
   /* Reset topology from scratch */
@@ -71,7 +71,6 @@ pktgen_topo( config_t * config ) {
 
   fd_topos_net_tile_finish( topo, 0UL );
   if( FD_UNLIKELY( is_auto_affinity ) ) fd_topob_auto_layout( topo, 0 );
-  topo->agave_affinity_cnt = 0;
   fd_topob_finish( topo, CALLBACKS );
   fd_topo_print_log( /* stdout */ 1, topo );
 }
