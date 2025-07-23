@@ -67,3 +67,8 @@ getsockopt: (and (or (eq (arg 0) xsk_fd)
                      (eq (arg 0) lo_xsk_fd))
                  (eq (arg 1) SOL_XDP)
                  (eq (arg 2) XDP_STATISTICS))
+
+# low_power_mode: stem calls fd_log_sleep to reduce CPU usage when
+#                 the tile is idle. Can be enabled by configuration.
+sched_yield
+clock_nanosleep

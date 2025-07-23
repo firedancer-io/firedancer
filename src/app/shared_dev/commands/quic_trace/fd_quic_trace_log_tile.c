@@ -79,6 +79,7 @@ fd_quic_trace_log_tile( fd_frag_meta_t const * in_mcache ) {
              /* cons_out   */ NULL,
              /* cons_fseq  */ NULL,
              /* cons_depth */ NULL,
+             /* sleeps     */ 0,
              /* stem_burst */ 1UL,
              /* stem_lazy  */ 0L,
              /* rng        */ rng,

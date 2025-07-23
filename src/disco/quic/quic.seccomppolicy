@@ -20,3 +20,8 @@ fsync: (eq (arg 0) logfile_fd)
 
 # QUIC uses getrandom for cryptographically secure randomness.
 getrandom
+
+# low_power_mode: stem calls fd_log_sleep to reduce CPU usage when
+#                 the tile is idle. Can be enabled by configuration.
+sched_yield
+clock_nanosleep

@@ -362,8 +362,8 @@ run_monitor( config_t const * config,
     char now_cstr[ FD_LOG_WALLCLOCK_CSTR_BUF_SZ ];
     if( !monitor_pane ) {
       PRINT( "snapshot for %s | Use TAB to switch panes" TEXT_NEWLINE, fd_log_wallclock_cstr( now, now_cstr ) );
-      PRINT( "    tile |     pid |      stale | heart | nivcsw              | nvcsw               | in backp |           backp cnt |  %% hkeep |  %% wait  |  %% backp | %% finish" TEXT_NEWLINE );
-      PRINT( "---------+---------+------------+-------+---------------------+---------------------+----------+---------------------+----------+----------+----------+----------" TEXT_NEWLINE );
+      PRINT( "    tile |     pid |      stale | heart | nivcsw              | nvcsw               | in backp |           backp cnt |  %% hkeep |  %% wait  |  %% backp | %% finish |  %% sleep" TEXT_NEWLINE );
+      PRINT( "---------+---------+------------+-------+---------------------+---------------------+----------+---------------------+----------+----------+----------+----------+-----------" TEXT_NEWLINE );
       for( ulong tile_idx=0UL; tile_idx<topo->tile_cnt; tile_idx++ ) {
         tile_snap_t * prv = &tile_snap_prv[ tile_idx ];
         tile_snap_t * cur = &tile_snap_cur[ tile_idx ];
@@ -385,6 +385,9 @@ run_monitor( config_t const * config,
         ulong cur_backp_ticks      = cur->regime_ticks[5];
         ulong prv_backp_ticks      = prv->regime_ticks[5];
 
+        ulong cur_sleeping_ticks   = cur->regime_ticks[8];
+        ulong prv_sleeping_ticks   = prv->regime_ticks[8];
+
         ulong cur_processing_ticks = cur->regime_ticks[4]+cur->regime_ticks[7];
         ulong prv_processing_ticks = prv->regime_ticks[4]+prv->regime_ticks[7];
 
@@ -392,6 +395,7 @@ run_monitor( config_t const * config,
         PRINT( " | " ); printf_pct( &buf, &buf_sz, cur_wait_ticks,       prv_wait_ticks,       0., tile_total_ticks( cur ), tile_total_ticks( prv ), DBL_MIN );
         PRINT( " | " ); printf_pct( &buf, &buf_sz, cur_backp_ticks,      prv_backp_ticks,      0., tile_total_ticks( cur ), tile_total_ticks( prv ), DBL_MIN );
         PRINT( " | " ); printf_pct( &buf, &buf_sz, cur_processing_ticks, prv_processing_ticks, 0., tile_total_ticks( cur ), tile_total_ticks( prv ), DBL_MIN );
+        PRINT( " | " ); printf_pct( &buf, &buf_sz, cur_sleeping_ticks,   prv_sleeping_ticks,   0., tile_total_ticks( cur ), tile_total_ticks( prv ), DBL_MIN );
         PRINT( TEXT_NEWLINE );
       }
     } else {

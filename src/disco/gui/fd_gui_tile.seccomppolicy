@@ -67,3 +67,8 @@ close: (not (or (eq (arg 0) 2)
 #
 # arg 2 is the timeout.
 poll: (eq (arg 2) 0)
+
+# low_power_mode: stem calls fd_log_sleep to reduce CPU usage when
+#                 the tile is idle. Can be enabled by configuration.
+sched_yield
+clock_nanosleep

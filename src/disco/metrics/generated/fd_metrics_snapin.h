@@ -3,25 +3,25 @@
 #include "../fd_metrics_base.h"
 #include "fd_metrics_enums.h"
 
-#define FD_METRICS_GAUGE_SNAPIN_STATE_OFF  (16UL)
+#define FD_METRICS_GAUGE_SNAPIN_STATE_OFF  (17UL)
 #define FD_METRICS_GAUGE_SNAPIN_STATE_NAME "snapin_state"
 #define FD_METRICS_GAUGE_SNAPIN_STATE_TYPE (FD_METRICS_TYPE_GAUGE)
 #define FD_METRICS_GAUGE_SNAPIN_STATE_DESC "State of the tile. 0 = waiting for decompressed snapshot bytestream, 1 = processing full snapshot, 2 = processing incremental snapshot, 3 = done."
 #define FD_METRICS_GAUGE_SNAPIN_STATE_CVT  (FD_METRICS_CONVERTER_NONE)
 
-#define FD_METRICS_GAUGE_SNAPIN_FULL_BYTES_READ_OFF  (17UL)
+#define FD_METRICS_GAUGE_SNAPIN_FULL_BYTES_READ_OFF  (18UL)
 #define FD_METRICS_GAUGE_SNAPIN_FULL_BYTES_READ_NAME "snapin_full_bytes_read"
 #define FD_METRICS_GAUGE_SNAPIN_FULL_BYTES_READ_TYPE (FD_METRICS_TYPE_GAUGE)
 #define FD_METRICS_GAUGE_SNAPIN_FULL_BYTES_READ_DESC "Number of bytes read so far from the full snapshot. Might decrease if snapshot load is aborted and restarted"
 #define FD_METRICS_GAUGE_SNAPIN_FULL_BYTES_READ_CVT  (FD_METRICS_CONVERTER_NONE)
 
-#define FD_METRICS_GAUGE_SNAPIN_INCREMENTAL_BYTES_READ_OFF  (18UL)
+#define FD_METRICS_GAUGE_SNAPIN_INCREMENTAL_BYTES_READ_OFF  (19UL)
 #define FD_METRICS_GAUGE_SNAPIN_INCREMENTAL_BYTES_READ_NAME "snapin_incremental_bytes_read"
 #define FD_METRICS_GAUGE_SNAPIN_INCREMENTAL_BYTES_READ_TYPE (FD_METRICS_TYPE_GAUGE)
 #define FD_METRICS_GAUGE_SNAPIN_INCREMENTAL_BYTES_READ_DESC "Number of bytes read so far from the incremental snapshot. Might decrease if snapshot load is aborted and restarted"
 #define FD_METRICS_GAUGE_SNAPIN_INCREMENTAL_BYTES_READ_CVT  (FD_METRICS_CONVERTER_NONE)
 
-#define FD_METRICS_GAUGE_SNAPIN_ACCOUNTS_INSERTED_OFF  (19UL)
+#define FD_METRICS_GAUGE_SNAPIN_ACCOUNTS_INSERTED_OFF  (20UL)
 #define FD_METRICS_GAUGE_SNAPIN_ACCOUNTS_INSERTED_NAME "snapin_accounts_inserted"
 #define FD_METRICS_GAUGE_SNAPIN_ACCOUNTS_INSERTED_TYPE (FD_METRICS_TYPE_GAUGE)
 #define FD_METRICS_GAUGE_SNAPIN_ACCOUNTS_INSERTED_DESC "Number of accounts inserted during snpashot loading. Might decrease if snapshot load is aborted and restarted"

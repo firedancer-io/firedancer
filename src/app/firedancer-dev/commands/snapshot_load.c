@@ -41,16 +41,16 @@ snapshot_load_topo( config_t *     config,
   /* metrics tile *****************************************************/
   fd_topob_wksp( topo, "metric_in" );
   fd_topob_wksp( topo, "metric" );
-  fd_topob_tile( topo, "metric",  "metric", "metric_in", tile_to_cpu[0], 0, 0 );
+  fd_topob_tile( topo, "metric",  "metric", "metric_in", tile_to_cpu[0], 0, 0, 0 );
 
   /* read() tile */
   fd_topob_wksp( topo, "snaprd" );
-  fd_topo_tile_t * snaprd_tile = fd_topob_tile( topo, "snaprd", "snaprd", "snaprd", tile_to_cpu[1], 0, 0 );
+  fd_topo_tile_t * snaprd_tile = fd_topob_tile( topo, "snaprd", "snaprd", "snaprd", tile_to_cpu[1], 0, 0, 0 );
   snaprd_tile->allow_shutdown = 1;
 
   /* "snapdc": Zstandard decompress tile */
   fd_topob_wksp( topo, "snapdc" );
-  fd_topo_tile_t * snapdc_tile = fd_topob_tile( topo, "snapdc", "snapdc", "snapdc", tile_to_cpu[2], 0, 0 );
+  fd_topo_tile_t * snapdc_tile = fd_topob_tile( topo, "snapdc", "snapdc", "snapdc", tile_to_cpu[2], 0, 0, 0 );
   snapdc_tile->allow_shutdown = 1;
 
   /* Compressed data stream */
@@ -72,7 +72,7 @@ snapshot_load_topo( config_t *     config,
 
   /* "snapin": Snapshot parser tile */
   fd_topob_wksp( topo, "snapin" );
-  fd_topo_tile_t * snapin_tile = fd_topob_tile( topo, "snapin", "snapin", "snapin", tile_to_cpu[3], 0, 0 );
+  fd_topo_tile_t * snapin_tile = fd_topob_tile( topo, "snapin", "snapin", "snapin", tile_to_cpu[3], 0, 0, 0 );
   snapin_tile->allow_shutdown = 1;
 
   /* uncompressed stream -> snapin tile */
