@@ -154,6 +154,7 @@ struct fd_gui_tile_timers {
 
   ulong caughtup_postfrag_ticks;
   ulong processing_postfrag_ticks;
+  ulong sleeping_ticks;
 };
 
 typedef struct fd_gui_tile_timers fd_gui_tile_timers_t;
