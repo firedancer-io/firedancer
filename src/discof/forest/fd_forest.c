@@ -823,11 +823,12 @@ ancestry_print3( fd_forest_t const * forest, fd_forest_ele_t const * ele, int sp
 
 void
 fd_forest_ancestry_print( fd_forest_t const * forest ) {
+  fflush(stdout);
   FD_LOG_NOTICE(("\n\n[Ancestry]\n\n" ) );
 
   ancestry_print3( forest, fd_forest_pool_ele_const( fd_forest_pool_const( forest ), forest->root ), 0, "[", NULL, 0 );
   //ancestry_print( forest, fd_forest_pool_ele_const( fd_forest_pool_const( forest ), forest->root ), 0, "" );
-
+  fflush(stdout);
 }
 
 void
