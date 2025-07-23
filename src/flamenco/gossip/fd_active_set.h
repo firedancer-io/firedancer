@@ -119,17 +119,16 @@ fd_active_set_prunes( fd_active_set_t * active_set,
                       ulong *           opt_out_node_idx );
 
 /* fd_active_set_rotate chooses a random active set entry to swap/introduce
-   a peer into and returns the chosen peer's contact info. The peer is sampled
-   from a distribution (provided by crds) specific to the active set bucket.
+   a peer into. The peer is sampled from a distribution
+   (provided by crds) specific to the active set bucket.
 
-   opt_replaced_node_idx supplies the index that is being replaced within the
+   returns the index that is being replaced within the
    300 peer set. This allows users to maintain data structures that track the
-   active set. */
+   active set. Returns ULONG_MAX if no peer replacement is found. */
 
-fd_contact_info_t const *
+ulong
 fd_active_set_rotate( fd_active_set_t *     active_set,
-                      fd_crds_t *           crds,
-                      ulong *               opt_replaced_node_idx );
+                      fd_crds_t *           crds );
 
 FD_PROTOTYPES_END
 

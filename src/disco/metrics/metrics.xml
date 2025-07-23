@@ -718,10 +718,10 @@ metric introduced.
     <gauge name="UnstakedPeerCount" label="The number of peers in the CRDS table that are not staked" />
     <gauge name="StakedPeerCount"   label="The number of peers in the CRDS table that are staked" />
 
-    <counter name="MessageReceivedCount"    label="Number of gossip messages received"            enum="GossipMessage"/>
-    <counter name="MessageReceivedBytes"    label="Number of bytes received in gossip messages"   enum="GossipMessage" />
-    <counter name="MessageSentCount"        label="Number of gossip messages sent"                enum="GossipMessage" />
-    <counter name="MessageSentBytes"        label="Number of bytes sent in gossip messages"       enum="GossipMessage" />
+    <counter name="MessageRxCount"    label="Number of gossip messages received"            enum="GossipMessage"/>
+    <counter name="MessageRxBytes"    label="Number of bytes received in gossip messages"   enum="GossipMessage" />
+    <counter name="MessageTxCount"        label="Number of gossip messages sent"                enum="GossipMessage" />
+    <counter name="MessageTxBytes"        label="Number of bytes sent in gossip messages"       enum="GossipMessage" />
 
     <counter name="CrdsPushRxCount"     label="Number of CRDS values received from push messages"             enum="CrdsValue" />
     <counter name="CrdsPushRxBytes"     label="Number of bytes received in CRDS push messages"                enum="CrdsValue" />
@@ -735,8 +735,10 @@ metric introduced.
     <counter name="CrdsPullDuplicates"  label="Number of CRDS values that were duplicates in pull response messages"    enum="CrdsValue" />
     <counter name="CrdsPullOld"         label="Number of CRDS values that were old in pull response messages"           enum="CrdsValue" />
 
-    <counter name="CrdsSentCount" label="Number of CRDS values sent"              enum="CrdsValue" />
-    <counter name="CrdsSentBytes" label="Number of bytes sent in CRDS messages"   enum="CrdsValue" />
+    <counter name="CrdsPushTxCount" label="Number of CRDS values sent"                            enum="CrdsValue" />
+    <counter name="CrdsPushTxBytes" label="Number of bytes sent in CRDS messages"                 enum="CrdsValue" />
+    <counter name="CrdsPullTxCount" label="Number of CRDS values sent in pull response messages"  enum="CrdsValue" />
+    <counter name="CrdsPullTxBytes" label="Number of bytes sent in CRDS pull response messages"   enum="CrdsValue" />
 </tile>
 
 <enum name="NetlinkMsg">

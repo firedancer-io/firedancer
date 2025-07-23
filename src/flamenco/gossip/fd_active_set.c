@@ -145,10 +145,9 @@ fd_active_set_prunes( fd_active_set_t * active_set,
   }
 }
 
-fd_contact_info_t const *
+ulong
 fd_active_set_rotate( fd_active_set_t *     active_set,
-                      fd_crds_t *           crds,
-                      ulong *               opt_replaced_node_idx ) {
+                      fd_crds_t *           crds ) {
   ulong num_bloom_filter_items = fd_ulong_max( fd_crds_peer_count( crds ), 512UL );
 
   ulong bucket = fd_rng_ulong_roll( active_set->rng, 25UL );
@@ -167,16 +166,12 @@ fd_active_set_rotate( fd_active_set_t *     active_set,
 
   fd_contact_info_t const * new_peer = fd_crds_bucket_sample_and_remove( crds, active_set->rng, bucket );
   if( FD_UNLIKELY( !new_peer ) ) {
-    return NULL;
+    return ULONG_MAX;
   }
 
   fd_bloom_initialize( replace->bloom, num_bloom_filter_items );
   fd_bloom_insert( replace->bloom, new_peer->pubkey.uc, 32UL );
   fd_memcpy( replace->pubkey, new_peer->pubkey.uc, 32UL );
   entry->nodes_len = fd_ulong_min( entry->nodes_len+1UL, 12UL );
-
-  if( opt_replaced_node_idx ) {
-    *opt_replaced_node_idx = bucket*12UL + replace_idx;
-  }
-  return new_peer;
+  return bucket*12UL+replace_idx;
 }

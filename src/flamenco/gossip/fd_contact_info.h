@@ -40,10 +40,7 @@
    is in-line with Agave's behavior when populating its
    contact_info_v2.
 
-   https://github.com/anza-xyz/agave/blob/b11ca828cfc658b93cb86a6c5c70561875abe237/gossip/src/contact_info.rs#L342
-
-   The struct is optimized for fast deserialization and slow
-   serialization. */
+   https://github.com/anza-xyz/agave/blob/b11ca828cfc658b93cb86a6c5c70561875abe237/gossip/src/contact_info.rs#L342 */
 struct fd_contact_info {
   fd_pubkey_t   pubkey;
   ushort        shred_version;

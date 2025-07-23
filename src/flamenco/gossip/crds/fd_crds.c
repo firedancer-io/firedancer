@@ -1102,7 +1102,7 @@ fd_crds_entry_contact_info( fd_crds_entry_t const * entry ) {
 }
 
 
-fd_contact_info_t *
+fd_contact_info_t const *
 fd_crds_contact_info_lookup( fd_crds_t const * crds,
                               uchar const *     pubkey ){
   fd_crds_key_t key         = make_contact_info_key( pubkey );

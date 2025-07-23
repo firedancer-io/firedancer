@@ -4,6 +4,7 @@
 #include "fd_contact_info.h"
 #include "fd_gossip_metrics.h"
 #include "fd_gossip_private.h"
+#include "fd_gossip_crds_msg_builder.h"
 
 #include "crds/fd_crds.h"
 #include "fd_active_set.h"
@@ -44,113 +45,7 @@ fd_pubkey_t pubkey_null = { .ul = {0UL,0UL,0UL,0UL} };
 
 #include "../../util/tmpl/fd_map.c"
 
-/* Push State holds a gossip push message buffer for
-   a valid push destination (e.g., peers in the active set
-   or entrypoints). This should be flushed out to the network
-   once capacity is reached.
-
-   TODO: move this to a separate CRDS Builder/set API */
-struct push_state {
-  uchar            msg[ 1232UL ];
-  ulong            msg_sz;    /* Also functions as cursor */
-  ulong            num_crds;
-  fd_ip4_port_t    push_dest;
-  uchar            has_my_ci;
-
-  struct {
-    ulong next;
-  } pool;
-  struct{
-    long  wallclock_nanos;
-    ulong prev;
-    ulong next;
-  } last_hit;
-};
-
-typedef struct push_state push_state_t;
-
-static void
-push_state_reset( push_state_t * state,
-                  uchar const *  identity_pubkey ) {
-  FD_STORE( uint, state->msg, FD_GOSSIP_MESSAGE_PUSH );
-  fd_memcpy( &state->msg[ 4 ], identity_pubkey, 32UL );
-  state->msg_sz       = 44UL; /* 4 byte tag + 32 byte sender pubkey + 8 byte crds len*/
-  state->num_crds     = 0UL;
-  state->has_my_ci    = 0U;
-  state->push_dest.l  = 0UL;
-}
-
-static void
-push_state_new( push_state_t * state,
-                uchar const * identity_pubkey,
-                fd_ip4_port_t push_dest ) {
-  push_state_reset( state, identity_pubkey );
-  state->push_dest = push_dest;
-}
-
-#define POOL_NAME pstate_pool
-#define POOL_T    push_state_t
-#define POOL_NEXT pool.next
-#include "../../util/tmpl/fd_pool.c"
-
-#define DLIST_NAME  pset_last_hit
-#define DLIST_ELE_T push_state_t
-#define DLIST_PREV  last_hit.prev
-#define DLIST_NEXT  last_hit.next
-
-#include "../../util/tmpl/fd_dlist.c"
-
-struct push_set {
-  push_state_t *        pool;
-  pset_last_hit_t * last_hit;
-};
-
-typedef struct push_set push_set_t;
-
-ulong
-push_set_align( void ) {
-  return pstate_pool_align();
-}
-
-ulong
-push_set_footprint( ulong ele_max ) {
-  ulong l;
-  l = FD_LAYOUT_INIT;
-  l = FD_LAYOUT_APPEND( l, pstate_pool_align(), pstate_pool_footprint( ele_max ) );
-  l = FD_LAYOUT_APPEND( l, pset_last_hit_align(), pset_last_hit_footprint() );
-  l = FD_LAYOUT_APPEND( l, alignof(push_set_t), sizeof(push_set_t) );
-  l = FD_LAYOUT_FINI( l, push_set_align() );
-  return l;
-}
-
-void *
-push_set_new( void * shmem,
-               ulong ele_max ) {
-  if( FD_UNLIKELY( !shmem ) ) {
-    FD_LOG_ERR(( "NULL shmem" ));
-  }
-  if( FD_UNLIKELY( !fd_ulong_is_aligned( (ulong)shmem, push_set_align() ) ) ) {
-    FD_LOG_ERR(( "misaligned shmem" ));
-  }
-
-  FD_SCRATCH_ALLOC_INIT( l, shmem );
-  void *       _pool          = FD_SCRATCH_ALLOC_APPEND( l, pstate_pool_align(), pstate_pool_footprint( ele_max ) );
-  void *       _last_appended = FD_SCRATCH_ALLOC_APPEND( l, pset_last_hit_align(), pset_last_hit_footprint() );
-  push_set_t * push_set       = FD_SCRATCH_ALLOC_APPEND( l, alignof(push_set_t), sizeof(push_set_t) );
-
-  push_set->pool          = pstate_pool_join( pstate_pool_new( _pool, ele_max ) );
-  push_set->last_hit = pset_last_hit_join( pset_last_hit_new( _last_appended ) );
-
-  return (void *)push_set;
-}
-
-push_set_t *
-push_set_join( void * shpool ) {
-  if( FD_UNLIKELY( !shpool ) ) {
-    FD_LOG_ERR(( "NULL shpool" ));
-  }
-  return (push_set_t *)shpool;
-}
+#include "fd_push_set_private.c"
 
 struct fd_gossip_private {
   uchar               identity_pubkey[ 32UL ];
@@ -196,15 +91,10 @@ struct fd_gossip_private {
     fd_contact_info_t ci[1];
   } my_contact_info;
 
-  /* Push state for each peer in the active set and entrypoints
-     (16 max total). active_push_state tracks the active set, and must be
-     flushed prior to a call to fd_active_set_rotate or fd_active_set_prune. */
-  push_set_t *        active_pset;
-
-  /* entry_ps is a separate push set that is used on a separate regime,
-     typically at bootup when the active set is sparse  */
-  push_set_t *        entry_pset;
-
+  /* Push state for each peer in the active set. Tracks the active set,
+     and must be flushed prior to a call to fd_active_set_rotate or
+     fd_active_set_prune. */
+  push_set_t *          active_pset;
   fd_gossip_out_ctx_t * gossip_net_out;
 };
 
@@ -224,11 +114,9 @@ fd_gossip_footprint( ulong max_values ) {
   l = FD_LAYOUT_APPEND( l, fd_bloom_align(), fd_bloom_footprint( BLOOM_FALSE_POSITIVE_RATE, BLOOM_FILTER_MAX_BYTES ) );
   l = FD_LAYOUT_APPEND( l, stake_map_align(), stake_map_footprint() );
   l = FD_LAYOUT_APPEND( l, push_set_align(), push_set_footprint( FD_ACTIVE_SET_MAX_PEERS ) );
-  l = FD_LAYOUT_APPEND( l, push_set_align(), push_set_footprint( 16UL ) );
   l = FD_LAYOUT_FINI( l, fd_gossip_align() );
   return l;
 }
-
 
 
 void *
@@ -266,7 +154,6 @@ fd_gossip_new( void *                    shmem,
   void * bloom          = FD_SCRATCH_ALLOC_APPEND( l, fd_bloom_align(), fd_bloom_footprint( BLOOM_FALSE_POSITIVE_RATE, BLOOM_FILTER_MAX_BYTES ) );
   void * stake_weights  = FD_SCRATCH_ALLOC_APPEND( l, stake_map_align(), stake_map_footprint() );
   void * active_ps      = FD_SCRATCH_ALLOC_APPEND( l, push_set_align(), push_set_footprint( FD_ACTIVE_SET_MAX_PEERS ) );
-  void * entry_ps       = FD_SCRATCH_ALLOC_APPEND( l, push_set_align(), push_set_footprint( 16UL ) );
 
   gossip->gossip_net_out  = gossip_net_out;
 
@@ -279,7 +166,6 @@ fd_gossip_new( void *                    shmem,
   gossip->bloom         = fd_bloom_join( fd_bloom_new( bloom, rng, BLOOM_FALSE_POSITIVE_RATE, BLOOM_FILTER_MAX_BYTES ) );
   gossip->stake_weights = stake_map_join( stake_map_new( stake_weights ) );
   gossip->active_pset   = push_set_join( push_set_new( active_ps, FD_ACTIVE_SET_MAX_PEERS ) );
-  gossip->entry_pset    = push_set_join( push_set_new( entry_ps, 16UL ) );
 
   fd_sha512_init( gossip->sha512 );
   gossip->rng = rng;
@@ -288,27 +174,6 @@ fd_gossip_new( void *                    shmem,
   gossip->send_ctx  = send_ctx;
   gossip->sign_fn   = sign_fn;
   gossip->sign_ctx  = sign_ctx;
-
-  /* Initializing a push set is weird. We "acquire" all elements in the
-     respective pools, effectively treating them as static arrays.
-     We use fd_pool APIs because fd_dlist doesn't work otherwise and
-     there are no suitable linked list APIs */
-  push_set_t * ps = gossip->active_pset;
-  for( ulong i=0UL; i<FD_ACTIVE_SET_MAX_PEERS; i++ ) {
-    push_state_t * entry = pstate_pool_ele_acquire( ps->pool );
-    push_state_reset( entry, gossip->identity_pubkey );
-    entry->last_hit.wallclock_nanos = now;
-    pset_last_hit_ele_push_tail( ps->last_hit, entry, ps->pool );
-  }
-  ps = gossip->entry_pset;
-  for( ulong i=0UL; i<entrypoints_cnt; i++ ) {
-    push_state_t * entry = pstate_pool_ele_acquire( gossip->entry_pset->pool );
-    /* Entrypoint ip destinations are known, so we use new instead of
-       reset */
-    push_state_new( entry, gossip->identity_pubkey, gossip->entrypoints[i] );
-    entry->last_hit.wallclock_nanos = now;
-    pset_last_hit_ele_push_tail( ps->last_hit, entry, ps->pool );
-  }
 
   fd_gossip_set_my_contact_info( gossip, my_contact_info, now );
   return gossip;
@@ -345,88 +210,58 @@ random_entrypoint( fd_gossip_t const * gossip ) {
 }
 
 static void
-push_state_flush( fd_gossip_t *       gossip,
-                  push_state_t *      state,
-                  fd_stem_context_t * stem,
-                  long                now ) {
-  if( FD_UNLIKELY( !state->num_crds ) ) return;
-  FD_STORE( ulong, &state->msg[ 36UL ], state->num_crds );
-  if( FD_LIKELY( state->push_dest.l ) ){
-    gossip->send_fn( gossip->send_ctx, stem, state->msg, state->msg_sz, &state->push_dest, (ulong)now );
-    uint msg_type = FD_LOAD( uint, state->msg );
-    gossip->metrics->tx->count.msg[ msg_type ]++;
-    gossip->metrics->tx->bytes.msg[ msg_type ] += state->msg_sz;
+crds_builder_flush( fd_gossip_t *                  gossip,
+                    fd_gossip_crds_msg_builder_t * builder,
+                    fd_stem_context_t *            stem,
+                    fd_ip4_port_t                  dest_addr,
+                    long                           now ) {
+  if( FD_UNLIKELY( fd_gossip_crds_msg_builder_get_crds_len( builder )==0UL ) ) {
+    /* Nothing to flush */
+    return;
   }
+  gossip->send_fn( gossip->send_ctx, stem, builder->msg, builder->msg_sz, &dest_addr, (ulong)now );
+  uint msg_type = fd_gossip_crds_msg_builder_get_msg_type( builder );
+  gossip->metrics->tx->count.msg[ msg_type ]++;
+  gossip->metrics->tx->bytes.msg[ msg_type ] += builder->msg_sz;
 
-  /* Reset the push state */
-  state->msg_sz                        = 44UL; /* 4 byte tag + 32 byte sender pubkey */
-  state->num_crds                      = 0UL;
-  state->has_my_ci                     = 0;
-}
+  fd_gossip_metrics_crds_traffic_t * metrics = msg_type==FD_GOSSIP_MESSAGE_PUSH ? gossip->metrics->push_tx : gossip->metrics->pull_tx;
 
-static void
-push_state_append_crds( fd_gossip_t *       gossip,
-                        push_state_t *      state,
-                        uchar const *       crds_bytes,
-                        ulong               crds_sz,
-                        fd_stem_context_t * stem,
-                        long                now ) {
-  ulong remaining_space = fd_ulong_sat_sub( sizeof(state->msg), state->msg_sz );
-  if( FD_UNLIKELY( remaining_space<crds_sz ) ) {
-    push_state_flush( gossip, state, stem, now );
-    remaining_space = fd_ulong_sat_sub( sizeof(state->msg), state->msg_sz );
+  ulong crds_len = fd_gossip_crds_msg_builder_get_crds_len( builder );
+  for( ulong i=0UL; i<crds_len; i++ ) {
+    fd_gossip_crds_builder_crds_meta_t * meta = &builder->crds_meta[ i ];
+    metrics->count.crd[ meta->tag ]++;
+    metrics->bytes.crd[ meta->tag ] += meta->sz;
   }
-  if( FD_UNLIKELY( remaining_space<crds_sz ) ) {
-    FD_LOG_CRIT(( "Not enough space in push state to append CRDS value of size %lu even after flushing", crds_sz ));
+  fd_gossip_crds_msg_builder_reset( builder );
+}
+
+/* Note: NOT a no-op in the case contact info does not exist. We
+   push it back to the last-hit queue instead.
+
+   TODO: Is this desired behavior? */
+static void
+active_push_set_flush( fd_gossip_t *       gossip,
+                       push_set_t *        pset,
+                       ulong               idx,
+                       fd_stem_context_t * stem,
+                       long                now ) {
+  fd_contact_info_t const * ci = fd_crds_contact_info_lookup( gossip->crds,
+                                                              fd_active_set_node_pubkey( gossip->active_set, idx ) );
+  push_set_entry_t * state = pset_entry_pool_ele( pset->pool, idx );
+  if( FD_LIKELY( ci ) ) {
+    crds_builder_flush( gossip, state->builder, stem, fd_contact_info_gossip_socket( ci ), now );
   }
-  fd_memcpy( &state->msg[ state->msg_sz ], crds_bytes, crds_sz );
-  state->msg_sz   += crds_sz;
-  state->num_crds += 1UL;
-}
-
-static void
-push_set_pop_append( push_set_t *   pset,
-                     push_state_t * state,
-                     long           now ) {
-  state->last_hit.wallclock_nanos = now;
-  pset_last_hit_ele_remove( pset->last_hit, state, pset->pool );
-  pset_last_hit_ele_push_tail( pset->last_hit, state, pset->pool );
-}
-
-static void
-push_set_flush_idx( fd_gossip_t *       gossip,
-                    push_set_t *        pset,
-                    ulong               idx,
-                    fd_stem_context_t * stem,
-                    long                now ) {
-  push_state_t * state = pstate_pool_ele( pset->pool, idx );
-  push_state_flush( gossip, state, stem, now );
-  push_set_pop_append( pset, state, now );
-}
-
-
-
-static void
-push_set_append_crds_idx( fd_gossip_t *       gossip,
-                          push_set_t *        pset,
-                          ulong               idx,
-                          uchar const *       crds_bytes,
-                          ulong               crds_sz,
-                          fd_stem_context_t * stem,
-                          long                now ) {
-  push_state_t * state = pstate_pool_ele( pset->pool, idx );
-  push_state_append_crds( gossip, state, crds_bytes, crds_sz, stem, now );
   push_set_pop_append( pset, state, now );
 }
 
 static void
-push_state_insert( fd_gossip_t *                       gossip,
-                   fd_gossip_view_crds_value_t const * value,
-                   uchar const *                       payload,
-                   uchar const *                       origin_pubkey,
-                   ulong                               origin_stake,
-                    fd_stem_context_t *                stem,
-                   long                                now ) {
+active_push_set_insert( fd_gossip_t *                       gossip,
+                        uchar const *                       crds_val,
+                        ulong                               crds_sz,
+                        uchar const *                       origin_pubkey,
+                        ulong                               origin_stake,
+                        fd_stem_context_t *                 stem,
+                        long                                now ) {
   ulong out_nodes[ 12UL ];
   ulong out_nodes_cnt = fd_active_set_nodes( gossip->active_set,
                                              gossip->identity_pubkey,
@@ -437,13 +272,12 @@ push_state_insert( fd_gossip_t *                       gossip,
                                              out_nodes );
   for( ulong j=0UL; j<out_nodes_cnt; j++ ) {
     ulong idx            = out_nodes[ j ];
-    push_set_append_crds_idx( gossip,
-                              gossip->active_pset,
-                              idx,
-                              payload+value->value_off,
-                              value->length,
-                              stem,
-                              now );
+    push_set_entry_t * entry = pset_entry_pool_ele( gossip->active_pset->pool, idx );
+    if( FD_UNLIKELY( fd_gossip_crds_msg_builder_needs_flush( entry->builder, crds_sz ) ) ) {
+      active_push_set_flush( gossip, gossip->active_pset, idx, stem, now );
+    }
+    fd_gossip_crds_msg_builder_append( entry->builder, crds_val, crds_sz );
+    push_set_pop_append( gossip->active_pset, entry, now );
   }
 }
 
@@ -451,30 +285,13 @@ static void
 push_my_contact_info( fd_gossip_t * gossip,
                       fd_stem_context_t * stem,
                       long now ){
-  for( ulong i=0UL; i<FD_ACTIVE_SET_MAX_PEERS; i++ ) {
-    push_state_t * state = pstate_pool_ele( gossip->active_pset->pool, i );
-    if( state->has_my_ci ) continue;
-    push_set_append_crds_idx( gossip,
-                              gossip->active_pset,
-                              i,
-                              gossip->my_contact_info.crds_val,
-                              gossip->my_contact_info.crds_val_sz,
-                              stem,
-                              now );
-    state->has_my_ci = 1;
-  }
-  for( ulong i=0UL; i<gossip->entrypoints_cnt; i++ ) {
-    push_state_t * state = pstate_pool_ele( gossip->entry_pset->pool, i );
-    if( state->has_my_ci ) continue;
-    push_set_append_crds_idx( gossip,
-                              gossip->entry_pset,
-                              i,
-                              gossip->my_contact_info.crds_val,
-                              gossip->my_contact_info.crds_val_sz,
-                              stem,
-                              now );
-    state->has_my_ci = 1;
-  }
+  active_push_set_insert( gossip,
+                          gossip->my_contact_info.crds_val,
+                          gossip->my_contact_info.crds_val_sz,
+                          gossip->identity_pubkey,
+                          gossip->identity_stake,
+                          stem,
+                          now );
 }
 
 static inline void
@@ -698,10 +515,8 @@ rx_pull_request( fd_gossip_t *                         gossip,
   if( FD_UNLIKELY( contact_info->wallclock_nanos<clamp_wallclock_lower_nanos ||
                    contact_info->wallclock_nanos>clamp_wallclock_upper_nanos ) ) return -1;
 
-  /* We use push_state since a pullresponse is identical save for the message discriminant */
-  push_state_t pull_resp[1];
-  push_state_new( pull_resp, gossip->identity_pubkey, *peer_addr );
-  pull_resp->msg[ 0 ] = FD_GOSSIP_MESSAGE_PULL_RESPONSE;
+  fd_gossip_crds_msg_builder_t pull_resp[1];
+  fd_gossip_crds_msg_builder_init( pull_resp, gossip->identity_pubkey, FD_GOSSIP_MESSAGE_PULL_RESPONSE );
 
   uchar iter_mem[ 16UL ];
 
@@ -718,9 +533,12 @@ rx_pull_request( fd_gossip_t *                         gossip,
     uchar const * crds_val;
     ulong         crds_size;
     fd_crds_entry_value( candidate, &crds_val, &crds_size );
-    push_state_append_crds( gossip, pull_resp, crds_val, crds_size, stem, now );
+    if( FD_UNLIKELY( fd_gossip_crds_msg_builder_needs_flush( pull_resp, crds_size ) ) ) {
+      crds_builder_flush( gossip, pull_resp, stem, *peer_addr, now );
+    }
+    fd_gossip_crds_msg_builder_append( pull_resp, crds_val, crds_size );
   }
-  push_state_flush( gossip, pull_resp, stem, now );
+  crds_builder_flush( gossip, pull_resp, stem, *peer_addr, now );
   return 0;
 }
 
@@ -732,11 +550,11 @@ rx_pull_response( fd_gossip_t *                          gossip,
                   fd_stem_context_t *                    stem,
                   long                                   now ) {
   /* TODO: use epoch_duration and make timeouts ... ? */
-  fd_gossip_metrics_crds_insert_t * pull_metrics = gossip->metrics->pull;
+  fd_gossip_metrics_crds_insert_t * pull_metrics = gossip->metrics->pull_rx;
   for( ulong i=0UL; i<pull_response->crds_values_len; i++ ) {
     fd_gossip_view_crds_value_t const * value = &pull_response->crds_values[ i ];
-    pull_metrics->rx_count.crd[ value->tag ]++;
-    pull_metrics->rx_bytes.crd[ value->tag ] += value->length;
+    pull_metrics->rx.count.crd[ value->tag ]++;
+    pull_metrics->rx.bytes.crd[ value->tag ] += value->length;
 
     int checks_res = fd_crds_checks_fast( gossip->crds,
                                              value,
@@ -804,13 +622,13 @@ rx_pull_response( fd_gossip_t *                          gossip,
                                 now );
       }
     }
-    push_state_insert( gossip,
-                       value,
-                       payload,
-                       origin_pubkey,
-                       origin_stake,
-                       stem,
-                       now );
+    active_push_set_insert( gossip,
+                            payload+value->value_off,
+                            value->length,
+                            origin_pubkey,
+                            origin_stake,
+                            stem,
+                            now );
   }
   return 0;
 }
@@ -822,9 +640,9 @@ process_push_crds( fd_gossip_t *                       gossip,
                    uchar const *                       payload,
                    long                                now,
                    fd_stem_context_t *                 stem ) {
-  fd_gossip_metrics_crds_insert_t * push_metrics = gossip->metrics->push;
-  push_metrics->rx_count.crd[ value->tag ]++;
-  push_metrics->rx_bytes.crd[ value->tag ] += value->length;
+  fd_gossip_metrics_crds_insert_t * push_metrics = gossip->metrics->push_rx;
+  push_metrics->rx.count.crd[ value->tag ]++;
+  push_metrics->rx.bytes.crd[ value->tag ] += value->length;
   /* TODO: pretty sure this is 15s now. */
   if( FD_UNLIKELY( value->wallclock_nanos<now-30L*1000L*1000L*1000L || value->wallclock_nanos>now+30L*1000L*1000L*1000L ) ) return -1;
   /* overrides_fast here, either count duplicates or purge if older (how!?) */
@@ -883,13 +701,13 @@ process_push_crds( fd_gossip_t *                       gossip,
                             now );
     }
   }
-  push_state_insert( gossip,
-                     value,
-                     payload,
-                     origin_pubkey,
-                     origin_stake,
-                     stem,
-                     now );
+  active_push_set_insert( gossip,
+                          payload+value->value_off,
+                          value->length,
+                          origin_pubkey,
+                          origin_stake,
+                          stem,
+                          now );
   return 0;
 }
 
@@ -1140,23 +958,23 @@ fd_gossip_push_vote( fd_gossip_t *       gossip,
     return -1;
   }
   if( FD_UNLIKELY( !fd_crds_insert( gossip->crds,
-                                     value,
-                                     crds_val,
-                                     gossip->identity_stake,
-                                     res,
-                                     1, /* is_me */
-                                     now,
-                                     stem ) ) ) {
+                                    value,
+                                    crds_val,
+                                    gossip->identity_stake,
+                                    res,
+                                    1, /* is_me */
+                                    now,
+                                    stem ) ) ) {
     return -1;
   }
   /* TODO: Possibly flush if we want this out ASAP? */
-  push_state_insert( gossip,
-                     value,
-                     crds_val,
-                     gossip->identity_pubkey,
-                     gossip->identity_stake,
-                     stem,
-                     now );
+  active_push_set_insert( gossip,
+                          crds_val,
+                          crds_val_sz,
+                          gossip->identity_pubkey,
+                          gossip->identity_stake,
+                          stem,
+                          now );
   return 0;
 }
 
@@ -1354,30 +1172,35 @@ static inline void
 rotate_active_set( fd_gossip_t *       gossip,
                    fd_stem_context_t * stem,
                    long                now ) {
-  ulong replaced_idx;
-  fd_contact_info_t const * new_peer = fd_active_set_rotate( gossip->active_set, gossip->crds, &replaced_idx );
-  if( FD_UNLIKELY( !new_peer ) ) {
+  push_set_t * pset          = gossip->active_pset;
+  ulong        replaced_idx  = fd_active_set_rotate( gossip->active_set, gossip->crds );
+  if( FD_UNLIKELY( replaced_idx==ULONG_MAX ) ) {
     return;
   }
-
-  push_set_flush_idx( gossip, gossip->active_pset, replaced_idx, stem, now );
-
-  push_state_new( pstate_pool_ele( gossip->active_pset->pool, replaced_idx ),
-                  gossip->identity_pubkey,
-                  fd_contact_info_gossip_socket( new_peer ) );
-
+  push_set_entry_t * entry = pset_entry_pool_ele( pset->pool, replaced_idx );
+  if( FD_LIKELY( entry->pool.in_use ) ) {
+    active_push_set_flush( gossip, pset, replaced_idx, stem, now );
+  } else {
+    entry->pool.in_use              = 1U;
+    entry->last_hit.wallclock_nanos = now;
+    pset_last_hit_ele_push_tail( pset->last_hit, entry, pset->pool );
+  }
+  fd_gossip_crds_msg_builder_init( entry->builder, gossip->identity_pubkey, FD_GOSSIP_MESSAGE_PUSH );
 }
 
 static inline void
-flush_stale_push_states( fd_gossip_t * gossip,
-                         push_set_t  * push_set,
+flush_stale_push_states( fd_gossip_t *       gossip,
                          fd_stem_context_t * stem,
-                         long          now ) {
+                         long                now ) {
   long stale_if_before = now-1*1000L*1000L;
+  push_set_t * push_set = gossip->active_pset;
+  if( FD_UNLIKELY( pset_last_hit_is_empty( push_set->last_hit, push_set->pool ) ) ) return;
+
   for(;;) {
-    push_state_t * state = pset_last_hit_ele_peek_head( push_set->last_hit, push_set->pool );
-    if( FD_UNLIKELY( state->last_hit.wallclock_nanos>stale_if_before ) ) break;
-    push_set_flush_idx( gossip, push_set, pstate_pool_idx( push_set->pool, state ), stem, now );
+    push_set_entry_t * entry     = pset_last_hit_ele_peek_head( push_set->last_hit, push_set->pool );
+    ulong              entry_idx = pset_entry_pool_idx( push_set->pool, entry );
+    if( FD_UNLIKELY( entry->last_hit.wallclock_nanos>stale_if_before ) ) break;
+    active_push_set_flush( gossip, push_set, entry_idx, stem, now );
   }
 }
 
@@ -1387,8 +1210,7 @@ fd_gossip_advance( fd_gossip_t *       gossip,
                    fd_stem_context_t * stem ) {
   fd_crds_expire( gossip->crds, now, stem );
   tx_ping( gossip, stem, now );
-  flush_stale_push_states( gossip, gossip->active_pset, stem, now );
-  flush_stale_push_states( gossip, gossip->entry_pset, stem, now );
+  flush_stale_push_states( gossip, stem, now );
   if( FD_UNLIKELY( now>=gossip->timers.next_pull_request ) ) {
     tx_pull_request( gossip, stem, now );
     gossip->timers.next_pull_request = next_pull_request( gossip, now );

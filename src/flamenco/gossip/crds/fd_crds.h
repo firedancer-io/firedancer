@@ -201,7 +201,7 @@ fd_crds_entry_contact_info( fd_crds_entry_t const * entry );
    structure corresponding to pubkey. returns NULL if there is no such
    entry. */
 
-fd_contact_info_t *
+fd_contact_info_t const *
 fd_crds_contact_info_lookup( fd_crds_t const * crds,
                              uchar const *     pubkey );
 
