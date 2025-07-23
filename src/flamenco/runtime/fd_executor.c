@@ -165,43 +165,6 @@ fd_executor_lookup_native_program( fd_txn_account_t const * prog_acc,
   return 0;
 }
 
-static int
-fd_executor_is_system_nonce_account( fd_txn_account_t * account, fd_spad_t * exec_spad ) {
-  if( memcmp( account->vt->get_owner( account ), fd_solana_system_program_id.uc, sizeof(fd_pubkey_t) ) == 0 ) {
-    if( !account->vt->get_data_len( account ) ) {
-      return 0;
-    } else {
-      if( account->vt->get_data_len( account )!=FD_SYSTEM_PROGRAM_NONCE_DLEN ) {
-        return -1;
-      }
-
-      int err;
-      fd_nonce_state_versions_t * versions = fd_bincode_decode_spad(
-          nonce_state_versions, exec_spad,
-          account->vt->get_data( account ),
-          account->vt->get_data_len( account ),
-          &err );
-      if( FD_UNLIKELY( err ) ) {
-        return -1;
-      }
-
-      fd_nonce_state_t * state = NULL;
-      if( fd_nonce_state_versions_is_current( versions ) ) {
-        state = &versions->inner.current;
-      } else {
-        state = &versions->inner.legacy;
-      }
-
-      if( fd_nonce_state_is_initialized( state ) ) {
-        return 1;
-      }
-
-    }
-  }
-
-  return -1;
-}
-
 /* https://github.com/anza-xyz/agave/blob/v2.2.13/svm-rent-collector/src/svm_rent_collector.rs#L117-L136 */
 static uchar
 fd_executor_rent_transition_allowed( fd_rent_state_t const * pre_rent_state,
@@ -285,15 +248,15 @@ fd_validate_fee_payer( fd_txn_account_t * account,
   }
 
   /* https://github.com/anza-xyz/agave/blob/v2.2.13/svm/src/account_loader.rs#L305-L308 */
-  int is_nonce = fd_executor_is_system_nonce_account( account, exec_spad );
-  if( FD_UNLIKELY( is_nonce<0 ) ) {
+  int system_account_kind = fd_get_system_account_kind( account, exec_spad );
+  if( FD_UNLIKELY( system_account_kind==FD_SYSTEM_PROGRAM_NONCE_ACCOUNT_KIND_UNKNOWN ) ) {
     return FD_RUNTIME_TXN_ERR_INVALID_ACCOUNT_FOR_FEE;
   }
 
   /* https://github.com/anza-xyz/agave/blob/v2.2.13/svm/src/account_loader.rs#L309-L318 */
   ulong min_balance = 0UL;
-  if( is_nonce ) {
-    min_balance = fd_rent_exempt_minimum_balance( rent, 80 );
+  if( system_account_kind==FD_SYSTEM_PROGRAM_NONCE_ACCOUNT_KIND_NONCE ) {
+    min_balance = fd_rent_exempt_minimum_balance( rent, FD_SYSTEM_PROGRAM_NONCE_DLEN );
   }
 
   /* https://github.com/anza-xyz/agave/blob/v2.2.13/svm/src/account_loader.rs#L320-L327 */
