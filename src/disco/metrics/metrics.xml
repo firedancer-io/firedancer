@@ -875,6 +875,61 @@ metric introduced.
     <gauge name="AccountsInserted" summary="Number of accounts inserted during snpashot loading. Might decrease if snapshot load is aborted and restarted" />
 </tile>
 
+<tile name="qblast">
+    <!-- qblast-specific metrics -->
+    <counter name="HandshakesCompleted" summary="Number of QUIC handshakes completed by qblast" />
+    <counter name="NoConn" summary="Number of times qblast had no connection available" />
+    <counter name="NoStream" summary="Number of times qblast could not create a stream" />
+    <counter name="StreamFailed" summary="Number of times qblast stream send failed" />
+
+    <!-- QUIC internal metrics re-exposed under qblast namespace -->
+    <counter name="QuicReceivedPackets" summary="Number of QUIC packets received" />
+    <counter name="QuicReceivedBytes" summary="Total bytes received via QUIC" />
+    <counter name="QuicSentPackets" summary="Number of QUIC packets sent" />
+    <counter name="QuicSentBytes" summary="Total bytes sent via QUIC" />
+    <counter name="QuicRetrySent" summary="Number of QUIC Retry packets sent" />
+
+    <gauge name="QuicConnectionsActive" summary="Number of active QUIC connections" />
+    <counter name="QuicConnectionsCreated" summary="Total number of QUIC connections created" />
+    <counter name="QuicConnectionsClosed" summary="Number of QUIC connections closed" />
+    <counter name="QuicConnectionsAborted" summary="Number of QUIC connections aborted" />
+    <counter name="QuicConnectionsTimedOut" summary="Number of QUIC connections timed out" />
+    <counter name="QuicConnectionsRetried" summary="Number of QUIC connections retried" />
+
+    <counter name="QuicConnectionErrorNoSlots" summary="Number of connection errors due to no slots" />
+    <counter name="QuicConnectionErrorRetryFail" summary="Number of connection retry failures" />
+
+    <counter name="QuicPktCryptoFailed" enum="QuicEncLevel" summary="Number of packets with crypto failures" />
+    <counter name="QuicPktNoKey" enum="QuicEncLevel" summary="Number of packets with no key" />
+    <counter name="QuicPktNoConn" summary="Number of packets with no connection" />
+    <counter name="QuicFrameTxAlloc" enum="FrameTxAllocResult" summary="QUIC frame metadata allocation results" />
+    <counter name="QuicPktNetHeaderInvalid" summary="Number of packets with invalid network headers" />
+    <counter name="QuicPktQuicHeaderInvalid" summary="Number of packets with invalid QUIC headers" />
+    <counter name="QuicPktUndersz" summary="Number of undersized QUIC packets" />
+    <counter name="QuicPktOversz" summary="Number of oversized QUIC packets" />
+    <counter name="QuicPktVerneg" summary="Number of QUIC version negotiation packets" />
+    <counter name="QuicPktRetransmissions" summary="Number of QUIC packet retransmissions" />
+
+    <counter name="QuicHandshakesCreated" summary="Number of QUIC handshakes created" />
+    <counter name="QuicHandshakeErrorAllocFail" summary="Number of handshake allocation failures" />
+    <counter name="QuicHandshakeEvicted" summary="Number of handshakes evicted" />
+
+    <counter name="QuicStreamReceivedEvents" summary="Number of QUIC stream events received" />
+    <counter name="QuicStreamReceivedBytes" summary="Total bytes received via QUIC streams" />
+
+    <counter name="QuicReceivedFrames" enum="QuicFrameType" summary="Number of QUIC frames received" />
+    <counter name="QuicFrameFailParse" summary="Number of QUIC frame parse failures" />
+
+    <counter name="QuicAckTx" enum="QuicAckTx" summary="Number of QUIC ACK frames transmitted" />
+
+    <histogram name="QuicServiceDurationSeconds" min="0.00000001" max="0.1" converter="seconds">
+      <summary>Duration spent in QUIC service</summary>
+    </histogram>
+    <histogram name="QuicReceiveDurationSeconds" min="0.00000001" max="0.1" converter="seconds">
+      <summary>Duration spent processing QUIC packets</summary>
+    </histogram>
+</tile>
+
 <tile name="metric">
     <gauge name="BootTimestampNanos" summary="Timestamp when validator was started (nanoseconds since epoch)" />
 </tile>

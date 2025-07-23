@@ -443,6 +443,14 @@ struct fd_topo_tile {
     } pktgen;
 
     struct {
+      uint   dst_ip;
+      ushort dst_port;
+      uint   src_ip;
+      ushort src_port;
+      ulong  conn_target;
+    } qblast;
+
+    struct {
       ulong end_slot;
       char  rocksdb_path[ PATH_MAX ];
       char  shredcap_path[ PATH_MAX ];

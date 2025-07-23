@@ -855,3 +855,82 @@
 | <span class="metrics-name">snapin_&#8203;accounts_&#8203;inserted</span> | gauge | Number of accounts inserted during snpashot loading. Might decrease if snapshot load is aborted and restarted |
 
 </div>
+
+## Qblast Tile
+
+<div class="metrics">
+
+| Metric | Type | Description |
+|--------|------|-------------|
+| <span class="metrics-name">qblast_&#8203;handshakes_&#8203;completed</span> | counter | Number of QUIC handshakes completed by qblast |
+| <span class="metrics-name">qblast_&#8203;no_&#8203;conn</span> | counter | Number of times qblast had no connection available |
+| <span class="metrics-name">qblast_&#8203;no_&#8203;stream</span> | counter | Number of times qblast could not create a stream |
+| <span class="metrics-name">qblast_&#8203;stream_&#8203;failed</span> | counter | Number of times qblast stream send failed |
+| <span class="metrics-name">qblast_&#8203;quic_&#8203;received_&#8203;packets</span> | counter | Number of QUIC packets received |
+| <span class="metrics-name">qblast_&#8203;quic_&#8203;received_&#8203;bytes</span> | counter | Total bytes received via QUIC |
+| <span class="metrics-name">qblast_&#8203;quic_&#8203;sent_&#8203;packets</span> | counter | Number of QUIC packets sent |
+| <span class="metrics-name">qblast_&#8203;quic_&#8203;sent_&#8203;bytes</span> | counter | Total bytes sent via QUIC |
+| <span class="metrics-name">qblast_&#8203;quic_&#8203;retry_&#8203;sent</span> | counter | Number of QUIC Retry packets sent |
+| <span class="metrics-name">qblast_&#8203;quic_&#8203;connections_&#8203;active</span> | gauge | Number of active QUIC connections |
+| <span class="metrics-name">qblast_&#8203;quic_&#8203;connections_&#8203;created</span> | counter | Total number of QUIC connections created |
+| <span class="metrics-name">qblast_&#8203;quic_&#8203;connections_&#8203;closed</span> | counter | Number of QUIC connections closed |
+| <span class="metrics-name">qblast_&#8203;quic_&#8203;connections_&#8203;aborted</span> | counter | Number of QUIC connections aborted |
+| <span class="metrics-name">qblast_&#8203;quic_&#8203;connections_&#8203;timed_&#8203;out</span> | counter | Number of QUIC connections timed out |
+| <span class="metrics-name">qblast_&#8203;quic_&#8203;connections_&#8203;retried</span> | counter | Number of QUIC connections retried |
+| <span class="metrics-name">qblast_&#8203;quic_&#8203;connection_&#8203;error_&#8203;no_&#8203;slots</span> | counter | Number of connection errors due to no slots |
+| <span class="metrics-name">qblast_&#8203;quic_&#8203;connection_&#8203;error_&#8203;retry_&#8203;fail</span> | counter | Number of connection retry failures |
+| <span class="metrics-name">qblast_&#8203;quic_&#8203;pkt_&#8203;crypto_&#8203;failed</span><br/>{quic_&#8203;enc_&#8203;level="<span class="metrics-enum">initial</span>"} | counter | Number of packets with crypto failures (initial) |
+| <span class="metrics-name">qblast_&#8203;quic_&#8203;pkt_&#8203;crypto_&#8203;failed</span><br/>{quic_&#8203;enc_&#8203;level="<span class="metrics-enum">early</span>"} | counter | Number of packets with crypto failures (early data) |
+| <span class="metrics-name">qblast_&#8203;quic_&#8203;pkt_&#8203;crypto_&#8203;failed</span><br/>{quic_&#8203;enc_&#8203;level="<span class="metrics-enum">handshake</span>"} | counter | Number of packets with crypto failures (handshake) |
+| <span class="metrics-name">qblast_&#8203;quic_&#8203;pkt_&#8203;crypto_&#8203;failed</span><br/>{quic_&#8203;enc_&#8203;level="<span class="metrics-enum">app</span>"} | counter | Number of packets with crypto failures (app data) |
+| <span class="metrics-name">qblast_&#8203;quic_&#8203;pkt_&#8203;no_&#8203;key</span><br/>{quic_&#8203;enc_&#8203;level="<span class="metrics-enum">initial</span>"} | counter | Number of packets with no key (initial) |
+| <span class="metrics-name">qblast_&#8203;quic_&#8203;pkt_&#8203;no_&#8203;key</span><br/>{quic_&#8203;enc_&#8203;level="<span class="metrics-enum">early</span>"} | counter | Number of packets with no key (early data) |
+| <span class="metrics-name">qblast_&#8203;quic_&#8203;pkt_&#8203;no_&#8203;key</span><br/>{quic_&#8203;enc_&#8203;level="<span class="metrics-enum">handshake</span>"} | counter | Number of packets with no key (handshake) |
+| <span class="metrics-name">qblast_&#8203;quic_&#8203;pkt_&#8203;no_&#8203;key</span><br/>{quic_&#8203;enc_&#8203;level="<span class="metrics-enum">app</span>"} | counter | Number of packets with no key (app data) |
+| <span class="metrics-name">qblast_&#8203;quic_&#8203;pkt_&#8203;no_&#8203;conn</span> | counter | Number of packets with no connection |
+| <span class="metrics-name">qblast_&#8203;quic_&#8203;frame_&#8203;tx_&#8203;alloc</span><br/>{frame_&#8203;tx_&#8203;alloc_&#8203;result="<span class="metrics-enum">success</span>"} | counter | QUIC frame metadata allocation results (Success) |
+| <span class="metrics-name">qblast_&#8203;quic_&#8203;frame_&#8203;tx_&#8203;alloc</span><br/>{frame_&#8203;tx_&#8203;alloc_&#8203;result="<span class="metrics-enum">fail_&#8203;empty_&#8203;pool</span>"} | counter | QUIC frame metadata allocation results (PktMetaPoolEmpty) |
+| <span class="metrics-name">qblast_&#8203;quic_&#8203;frame_&#8203;tx_&#8203;alloc</span><br/>{frame_&#8203;tx_&#8203;alloc_&#8203;result="<span class="metrics-enum">fail_&#8203;conn_&#8203;max</span>"} | counter | QUIC frame metadata allocation results (ConnMaxedInflightFrames) |
+| <span class="metrics-name">qblast_&#8203;quic_&#8203;pkt_&#8203;net_&#8203;header_&#8203;invalid</span> | counter | Number of packets with invalid network headers |
+| <span class="metrics-name">qblast_&#8203;quic_&#8203;pkt_&#8203;quic_&#8203;header_&#8203;invalid</span> | counter | Number of packets with invalid QUIC headers |
+| <span class="metrics-name">qblast_&#8203;quic_&#8203;pkt_&#8203;undersz</span> | counter | Number of undersized QUIC packets |
+| <span class="metrics-name">qblast_&#8203;quic_&#8203;pkt_&#8203;oversz</span> | counter | Number of oversized QUIC packets |
+| <span class="metrics-name">qblast_&#8203;quic_&#8203;pkt_&#8203;verneg</span> | counter | Number of QUIC version negotiation packets |
+| <span class="metrics-name">qblast_&#8203;quic_&#8203;pkt_&#8203;retransmissions</span> | counter | Number of QUIC packet retransmissions |
+| <span class="metrics-name">qblast_&#8203;quic_&#8203;handshakes_&#8203;created</span> | counter | Number of QUIC handshakes created |
+| <span class="metrics-name">qblast_&#8203;quic_&#8203;handshake_&#8203;error_&#8203;alloc_&#8203;fail</span> | counter | Number of handshake allocation failures |
+| <span class="metrics-name">qblast_&#8203;quic_&#8203;handshake_&#8203;evicted</span> | counter | Number of handshakes evicted |
+| <span class="metrics-name">qblast_&#8203;quic_&#8203;stream_&#8203;received_&#8203;events</span> | counter | Number of QUIC stream events received |
+| <span class="metrics-name">qblast_&#8203;quic_&#8203;stream_&#8203;received_&#8203;bytes</span> | counter | Total bytes received via QUIC streams |
+| <span class="metrics-name">qblast_&#8203;quic_&#8203;received_&#8203;frames</span><br/>{quic_&#8203;frame_&#8203;type="<span class="metrics-enum">unknown</span>"} | counter | Number of QUIC frames received (Unknown frame type) |
+| <span class="metrics-name">qblast_&#8203;quic_&#8203;received_&#8203;frames</span><br/>{quic_&#8203;frame_&#8203;type="<span class="metrics-enum">ack</span>"} | counter | Number of QUIC frames received (ACK frame) |
+| <span class="metrics-name">qblast_&#8203;quic_&#8203;received_&#8203;frames</span><br/>{quic_&#8203;frame_&#8203;type="<span class="metrics-enum">reset_&#8203;stream</span>"} | counter | Number of QUIC frames received (RESET_STREAM frame) |
+| <span class="metrics-name">qblast_&#8203;quic_&#8203;received_&#8203;frames</span><br/>{quic_&#8203;frame_&#8203;type="<span class="metrics-enum">stop_&#8203;sending</span>"} | counter | Number of QUIC frames received (STOP_SENDING frame) |
+| <span class="metrics-name">qblast_&#8203;quic_&#8203;received_&#8203;frames</span><br/>{quic_&#8203;frame_&#8203;type="<span class="metrics-enum">crypto</span>"} | counter | Number of QUIC frames received (CRYPTO frame) |
+| <span class="metrics-name">qblast_&#8203;quic_&#8203;received_&#8203;frames</span><br/>{quic_&#8203;frame_&#8203;type="<span class="metrics-enum">new_&#8203;token</span>"} | counter | Number of QUIC frames received (NEW_TOKEN frame) |
+| <span class="metrics-name">qblast_&#8203;quic_&#8203;received_&#8203;frames</span><br/>{quic_&#8203;frame_&#8203;type="<span class="metrics-enum">stream</span>"} | counter | Number of QUIC frames received (STREAM frame) |
+| <span class="metrics-name">qblast_&#8203;quic_&#8203;received_&#8203;frames</span><br/>{quic_&#8203;frame_&#8203;type="<span class="metrics-enum">max_&#8203;data</span>"} | counter | Number of QUIC frames received (MAX_DATA frame) |
+| <span class="metrics-name">qblast_&#8203;quic_&#8203;received_&#8203;frames</span><br/>{quic_&#8203;frame_&#8203;type="<span class="metrics-enum">max_&#8203;stream_&#8203;data</span>"} | counter | Number of QUIC frames received (MAX_STREAM_DATA frame) |
+| <span class="metrics-name">qblast_&#8203;quic_&#8203;received_&#8203;frames</span><br/>{quic_&#8203;frame_&#8203;type="<span class="metrics-enum">max_&#8203;streams</span>"} | counter | Number of QUIC frames received (MAX_STREAMS frame) |
+| <span class="metrics-name">qblast_&#8203;quic_&#8203;received_&#8203;frames</span><br/>{quic_&#8203;frame_&#8203;type="<span class="metrics-enum">data_&#8203;blocked</span>"} | counter | Number of QUIC frames received (DATA_BLOCKED frame) |
+| <span class="metrics-name">qblast_&#8203;quic_&#8203;received_&#8203;frames</span><br/>{quic_&#8203;frame_&#8203;type="<span class="metrics-enum">stream_&#8203;data_&#8203;blocked</span>"} | counter | Number of QUIC frames received (STREAM_DATA_BLOCKED frame) |
+| <span class="metrics-name">qblast_&#8203;quic_&#8203;received_&#8203;frames</span><br/>{quic_&#8203;frame_&#8203;type="<span class="metrics-enum">streams_&#8203;blocked</span>"} | counter | Number of QUIC frames received (STREAMS_BLOCKED(bidi) frame) |
+| <span class="metrics-name">qblast_&#8203;quic_&#8203;received_&#8203;frames</span><br/>{quic_&#8203;frame_&#8203;type="<span class="metrics-enum">new_&#8203;conn_&#8203;id</span>"} | counter | Number of QUIC frames received (NEW_CONN_ID frame) |
+| <span class="metrics-name">qblast_&#8203;quic_&#8203;received_&#8203;frames</span><br/>{quic_&#8203;frame_&#8203;type="<span class="metrics-enum">retire_&#8203;conn_&#8203;id</span>"} | counter | Number of QUIC frames received (RETIRE_CONN_ID frame) |
+| <span class="metrics-name">qblast_&#8203;quic_&#8203;received_&#8203;frames</span><br/>{quic_&#8203;frame_&#8203;type="<span class="metrics-enum">path_&#8203;challenge</span>"} | counter | Number of QUIC frames received (PATH_CHALLENGE frame) |
+| <span class="metrics-name">qblast_&#8203;quic_&#8203;received_&#8203;frames</span><br/>{quic_&#8203;frame_&#8203;type="<span class="metrics-enum">path_&#8203;response</span>"} | counter | Number of QUIC frames received (PATH_RESPONSE frame) |
+| <span class="metrics-name">qblast_&#8203;quic_&#8203;received_&#8203;frames</span><br/>{quic_&#8203;frame_&#8203;type="<span class="metrics-enum">conn_&#8203;close_&#8203;quic</span>"} | counter | Number of QUIC frames received (CONN_CLOSE(transport) frame) |
+| <span class="metrics-name">qblast_&#8203;quic_&#8203;received_&#8203;frames</span><br/>{quic_&#8203;frame_&#8203;type="<span class="metrics-enum">conn_&#8203;close_&#8203;app</span>"} | counter | Number of QUIC frames received (CONN_CLOSE(app) frame) |
+| <span class="metrics-name">qblast_&#8203;quic_&#8203;received_&#8203;frames</span><br/>{quic_&#8203;frame_&#8203;type="<span class="metrics-enum">handshake_&#8203;done</span>"} | counter | Number of QUIC frames received (HANDSHAKE_DONE frame) |
+| <span class="metrics-name">qblast_&#8203;quic_&#8203;received_&#8203;frames</span><br/>{quic_&#8203;frame_&#8203;type="<span class="metrics-enum">ping</span>"} | counter | Number of QUIC frames received (PING frame) |
+| <span class="metrics-name">qblast_&#8203;quic_&#8203;received_&#8203;frames</span><br/>{quic_&#8203;frame_&#8203;type="<span class="metrics-enum">padding</span>"} | counter | Number of QUIC frames received (PADDING frame) |
+| <span class="metrics-name">qblast_&#8203;quic_&#8203;frame_&#8203;fail_&#8203;parse</span> | counter | Number of QUIC frame parse failures |
+| <span class="metrics-name">qblast_&#8203;quic_&#8203;ack_&#8203;tx</span><br/>{quic_&#8203;ack_&#8203;tx="<span class="metrics-enum">noop</span>"} | counter | Number of QUIC ACK frames transmitted (non-ACK-eliciting packet) |
+| <span class="metrics-name">qblast_&#8203;quic_&#8203;ack_&#8203;tx</span><br/>{quic_&#8203;ack_&#8203;tx="<span class="metrics-enum">new</span>"} | counter | Number of QUIC ACK frames transmitted (new ACK range) |
+| <span class="metrics-name">qblast_&#8203;quic_&#8203;ack_&#8203;tx</span><br/>{quic_&#8203;ack_&#8203;tx="<span class="metrics-enum">merged</span>"} | counter | Number of QUIC ACK frames transmitted (merged into existing ACK range) |
+| <span class="metrics-name">qblast_&#8203;quic_&#8203;ack_&#8203;tx</span><br/>{quic_&#8203;ack_&#8203;tx="<span class="metrics-enum">drop</span>"} | counter | Number of QUIC ACK frames transmitted (out of buffers) |
+| <span class="metrics-name">qblast_&#8203;quic_&#8203;ack_&#8203;tx</span><br/>{quic_&#8203;ack_&#8203;tx="<span class="metrics-enum">cancel</span>"} | counter | Number of QUIC ACK frames transmitted (ACK suppressed by handler) |
+| <span class="metrics-name">qblast_&#8203;quic_&#8203;service_&#8203;duration_&#8203;seconds</span> | histogram | Duration spent in QUIC service |
+| <span class="metrics-name">qblast_&#8203;quic_&#8203;receive_&#8203;duration_&#8203;seconds</span> | histogram | Duration spent processing QUIC packets |
+
+</div>

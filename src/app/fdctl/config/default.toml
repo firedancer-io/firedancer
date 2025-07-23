@@ -1740,6 +1740,18 @@ dynamic_port_range = "8900-9000"
         # If these requirements are not met, no packets will be sent out.
         fake_dst_ip = ""  # e.g. "192.0.2.64"
 
+    # The following options relate to the 'fddev qblast' tool only.
+    # qblast tests QUIC connection handling by handling many quic connections
+    # to some specified QUIC server.
+    [development.qblast]
+        # Which cores to run the 'net' and 'qblast' tiles on.
+        # By default, cores will be automatically selected.
+        # This setting overrides [layout.affinity] above.
+        affinity = "auto"
+
+        # Source port for generated packets
+        src_port = 9091
+
     # The following options relate to the 'fddev udpecho' tool only.
     # This testing feature echos back incoming UDP packets using the
     # production networking stack.

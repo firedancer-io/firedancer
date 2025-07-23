@@ -87,6 +87,7 @@ extern fd_topo_run_tile_t fd_tile_benchg;
 extern fd_topo_run_tile_t fd_tile_benchs;
 extern fd_topo_run_tile_t fd_tile_bundle;
 extern fd_topo_run_tile_t fd_tile_pktgen;
+extern fd_topo_run_tile_t fd_tile_qblast;
 extern fd_topo_run_tile_t fd_tile_udpecho;
 
 extern fd_topo_run_tile_t fd_tile_gossip;
@@ -147,6 +148,7 @@ fd_topo_run_tile_t * TILES[] = {
   &fd_tile_benchg,
   &fd_tile_benchs,
   &fd_tile_pktgen,
+  &fd_tile_qblast,
   &fd_tile_udpecho,
   &fd_tile_snaprd,
   &fd_tile_snapdc,
@@ -172,6 +174,7 @@ extern action_t fd_action_flame;
 extern action_t fd_action_help;
 extern action_t fd_action_load;
 extern action_t fd_action_pktgen;
+extern action_t fd_action_qblast;
 extern action_t fd_action_quic_trace;
 extern action_t fd_action_txn;
 extern action_t fd_action_udpecho;
@@ -200,6 +203,7 @@ action_t * ACTIONS[] = {
   &fd_action_flame,
   &fd_action_load,
   &fd_action_pktgen,
+  &fd_action_qblast,
   &fd_action_quic_trace,
   &fd_action_txn,
   &fd_action_udpecho,

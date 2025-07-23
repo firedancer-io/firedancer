@@ -98,6 +98,14 @@ union fdctl_args {
     ushort listen_port;
   } udpecho;
 
+  struct {
+    char         server_ip[16];   /* IPv4 address string */
+    ushort       server_port;
+    ulong        conn_cnt;
+    char         src_ip[16];      /* IPv4 address string */
+    ushort       src_port;
+  } qblast;
+
 };
 
 typedef union fdctl_args args_t;

@@ -311,6 +311,9 @@ fd_config_extract_pod( uchar *       pod,
   CFG_POP      ( cstr,   development.pktgen.affinity                      );
   CFG_POP      ( cstr,   development.pktgen.fake_dst_ip                   );
 
+  CFG_POP      ( cstr,   development.qblast.affinity                  );
+  CFG_POP      ( ushort, development.qblast.src_port                  );
+
   CFG_POP      ( cstr,   development.udpecho.affinity                     );
 
   if( FD_UNLIKELY( config->is_firedancer ) ) {
