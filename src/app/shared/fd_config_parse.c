@@ -190,6 +190,7 @@ fd_config_extract_pod( uchar *       pod,
   CFG_POP      ( uint,   tiles.quic.idle_timeout_millis                   );
   CFG_POP      ( uint,   tiles.quic.ack_delay_millis                      );
   CFG_POP      ( bool,   tiles.quic.retry                                 );
+  CFG_POP      ( cstr,   tiles.quic.ssl_key_log_file                      );
 
   CFG_POP      ( uint,   tiles.verify.signature_cache_size                );
   CFG_POP      ( uint,   tiles.verify.receive_buffer_size                 );

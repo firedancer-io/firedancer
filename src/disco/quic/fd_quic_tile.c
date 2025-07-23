@@ -5,14 +5,18 @@
 #include "fd_tpu.h"
 #include "../../waltz/quic/fd_quic_private.h"
 #include "generated/quic_seccomp.h"
+#include "../../util/io/fd_io.h"
 #include "../../util/net/fd_eth.h"
 
 #include <errno.h>
+#include <fcntl.h>
 #include <linux/unistd.h>
 #include <sys/random.h>
 
 #define OUT_IDX_VERIFY 0
 #define OUT_IDX_NET    1
+
+#define FD_QUIC_KEYLOG_FLUSH_INTERVAL_NS ((long)100e6)
 
 /* fd_quic_tile provides a TPU server tile.
 
@@ -414,9 +418,65 @@ quic_tx_aio_send( void *                    _ctx,
 }
 
 static void
+quic_tls_keylog( void *       _ctx,
+                 char const * line ) {
+  fd_quic_ctx_t *            ctx = _ctx;
+  fd_io_buffered_ostream_t * os  = &ctx->keylog_stream;
+
+  /* Lazily flush ostream */
+  ulong line_sz = strlen( line )+1;
+  ulong peek_sz = fd_io_buffered_ostream_peek_sz( os );
+  if( FD_UNLIKELY( peek_sz<line_sz ) ) {
+    int err = fd_io_buffered_ostream_flush( os );
+    if( FD_UNLIKELY( err ) ) {
+      FD_LOG_ERR(( "fd_io_buffered_ostream_flush(keylog) failed (%i-%s)", errno, fd_io_strerror( errno ) ));
+    }
+    peek_sz = fd_io_buffered_ostream_peek_sz( os );
+  }
+  if( FD_UNLIKELY( peek_sz<line_sz ) ) {
+    FD_LOG_ERR(( "keylog buffer too small (buf_sz=%lu, line_sz=%lu)", peek_sz, line_sz ));
+  }
+
+  /* Append line */
+  char * cur = fd_io_buffered_ostream_peek( os );
+  cur = fd_cstr_append_text( cur, line, strlen( line ) );
+  cur = fd_cstr_append_char( cur, '\n' );
+  fd_io_buffered_ostream_seek( os, line_sz );
+}
+
+static void
+during_housekeeping( fd_quic_ctx_t * ctx ) {
+  if( FD_UNLIKELY( ctx->keylog_stream.wbuf ) ) {
+    long now = fd_log_wallclock();
+    if( FD_UNLIKELY( now > ctx->keylog_next_flush ) ) {
+      int err = fd_io_buffered_ostream_flush( &ctx->keylog_stream );
+      if( FD_UNLIKELY( err ) ) {
+        FD_LOG_ERR(( "fd_io_buffered_ostream_flush(keylog) failed (%i-%s)", errno, fd_io_strerror( errno ) ));
+      }
+      ctx->keylog_next_flush = now + FD_QUIC_KEYLOG_FLUSH_INTERVAL_NS;
+    }
+  }
+}
+
+static void
 privileged_init( fd_topo_t *      topo,
                  fd_topo_tile_t * tile ) {
-  (void)topo; (void)tile;
+  fd_quic_ctx_t * ctx = fd_topo_obj_laddr( topo, tile->tile_obj_id );
+  if( FD_UNLIKELY( topo->objs[ tile->tile_obj_id ].footprint < scratch_footprint( tile ) ) ) {
+    FD_LOG_ERR(( "insufficient tile scratch space" ));
+  }
+  fd_memset( ctx, 0, sizeof(fd_quic_ctx_t) );
+  ctx->keylog_fd = -1;
+
+  if( 0!=strcmp( tile->quic.key_log_path, "" ) ) {
+    ctx->keylog_fd = open( tile->quic.key_log_path, O_WRONLY|O_CREAT|O_APPEND, 0644 );
+    if( FD_UNLIKELY( ctx->keylog_fd<0 ) ) {
+      FD_LOG_ERR(( "open(%s, O_WRONLY|O_CREAT|O_APPEND, 0644) failed (%i-%s)",
+                   tile->quic.key_log_path, errno, fd_io_strerror( errno ) ));
+    }
+    fd_io_buffered_ostream_init( &ctx->keylog_stream, ctx->keylog_fd, ctx->keylog_buf, sizeof(ctx->keylog_buf) );
+    FD_LOG_WARNING(( "Logging QUIC encryption keys to %s", tile->quic.key_log_path ));
+  }
 
   /* The fd_quic implementation calls fd_log_wallclock() internally
      which itself calls clock_gettime() which on most kernels is not a
@@ -444,9 +504,6 @@ static void
 unprivileged_init( fd_topo_t *      topo,
                    fd_topo_tile_t * tile ) {
   void * scratch = fd_topo_obj_laddr( topo, tile->tile_obj_id );
-  if( FD_UNLIKELY( topo->objs[ tile->tile_obj_id ].footprint < scratch_footprint( tile ) ) ) {
-    FD_LOG_ERR(( "insufficient tile scratch space" ));
-  }
 
   if( FD_UNLIKELY( tile->in_cnt==0 ) ) {
     FD_LOG_ERR(( "quic tile has no input links" ));
@@ -472,7 +529,7 @@ unprivileged_init( fd_topo_t *      topo,
 
   FD_SCRATCH_ALLOC_INIT( l, scratch );
   fd_quic_ctx_t * ctx = FD_SCRATCH_ALLOC_APPEND( l, alignof( fd_quic_ctx_t ), sizeof( fd_quic_ctx_t ) );
-  fd_memset( ctx, 0, sizeof(fd_quic_ctx_t) );
+  FD_TEST( (ulong)ctx==(ulong)scratch );
 
   for( ulong i=0; i<tile->in_cnt; i++ ) {
     fd_topo_link_t * link = &topo->links[ tile->in_link_id[ i ] ];
@@ -524,6 +581,10 @@ unprivileged_init( fd_topo_t *      topo,
   quic->cb.now              = quic_now;
   quic->cb.now_ctx          = ctx;
   quic->cb.quic_ctx         = ctx;
+  if( ctx->keylog_fd>=0 ) {
+    quic->cb.tls_keylog = quic_tls_keylog;
+    ctx->keylog_next_flush = fd_log_wallclock() + FD_QUIC_KEYLOG_FLUSH_INTERVAL_NS;
+  }
 
   fd_quic_set_aio_net_tx( quic, quic_tx_aio );
   fd_quic_set_clock_tickcount( quic );
@@ -564,10 +625,8 @@ populate_allowed_seccomp( fd_topo_t const *      topo,
                           fd_topo_tile_t const * tile,
                           ulong                  out_cnt,
                           struct sock_filter *   out ) {
-  (void)topo;
-  (void)tile;
-
-  populate_sock_filter_policy_quic( out_cnt, out, (uint)fd_log_private_logfile_fd() );
+  fd_quic_ctx_t const * ctx = fd_topo_obj_laddr( topo, tile->tile_obj_id );
+  populate_sock_filter_policy_quic( out_cnt, out, (uint)fd_log_private_logfile_fd(), (uint)ctx->keylog_fd );
   return sock_filter_policy_quic_instr_cnt;
 }
 
@@ -576,15 +635,16 @@ populate_allowed_fds( fd_topo_t const *      topo,
                       fd_topo_tile_t const * tile,
                       ulong                  out_fds_cnt,
                       int *                  out_fds ) {
-  (void)topo;
-  (void)tile;
+  fd_quic_ctx_t * ctx = fd_topo_obj_laddr( topo, tile->tile_obj_id );
 
-  if( FD_UNLIKELY( out_fds_cnt<2UL ) ) FD_LOG_ERR(( "out_fds_cnt %lu", out_fds_cnt ));
+  if( FD_UNLIKELY( out_fds_cnt<3UL ) ) FD_LOG_ERR(( "out_fds_cnt %lu", out_fds_cnt ));
 
   ulong out_cnt = 0UL;
   out_fds[ out_cnt++ ] = 2; /* stderr */
   if( FD_LIKELY( -1!=fd_log_private_logfile_fd() ) )
     out_fds[ out_cnt++ ] = fd_log_private_logfile_fd(); /* logfile */
+  if( ctx->keylog_fd!=-1 )
+    out_fds[ out_cnt++ ] = ctx->keylog_fd;
   return out_cnt;
 }
 
@@ -594,11 +654,12 @@ populate_allowed_fds( fd_topo_t const *      topo,
 #define STEM_CALLBACK_CONTEXT_TYPE  fd_quic_ctx_t
 #define STEM_CALLBACK_CONTEXT_ALIGN alignof(fd_quic_ctx_t)
 
-#define STEM_CALLBACK_METRICS_WRITE metrics_write
-#define STEM_CALLBACK_BEFORE_CREDIT before_credit
-#define STEM_CALLBACK_BEFORE_FRAG   before_frag
-#define STEM_CALLBACK_DURING_FRAG   during_frag
-#define STEM_CALLBACK_AFTER_FRAG    after_frag
+#define STEM_CALLBACK_METRICS_WRITE       metrics_write
+#define STEM_CALLBACK_BEFORE_CREDIT       before_credit
+#define STEM_CALLBACK_BEFORE_FRAG         before_frag
+#define STEM_CALLBACK_DURING_FRAG         during_frag
+#define STEM_CALLBACK_AFTER_FRAG          after_frag
+#define STEM_CALLBACK_DURING_HOUSEKEEPING during_housekeeping
 
 #include "../stem/fd_stem.c"
 
