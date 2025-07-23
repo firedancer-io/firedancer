@@ -369,10 +369,7 @@ poll_advance( fd_ssping_t * ssping,
     }
 
     fd_ssping_peer_t * peer = peer_pool_ele( ssping->pool, ssping->fds_idx[ i ] );
-    if( FD_UNLIKELY( now>peer->deadline_nanos ) ) {
-      FD_LOG_ERR(( "peer " FD_IP4_ADDR_FMT ":%hu ping deadline expired (%ld > %ld)",
-                   FD_IP4_ADDR_FMT_ARGS( peer->addr.addr ), peer->addr.port,
-                   now, peer->deadline_nanos ));
+    if( FD_UNLIKELY( now>peer->deadline_nanos || fd_ssresolve_is_done( peer->ssresolve ) ) ) {
       unping_peer( ssping, peer, now );
       continue;
     }

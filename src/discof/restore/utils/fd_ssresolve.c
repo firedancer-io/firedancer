@@ -95,8 +95,6 @@ fd_ssresolve_render_req( fd_ssresolve_t * ssresolve,
   ssresolve->request_sent = 0UL;
   ssresolve->response_len = 0UL;
 
-  FD_LOG_WARNING(("rendering request for " FD_IP4_ADDR_FMT ":%hu",
-                  FD_IP4_ADDR_FMT_ARGS( addr.addr ), addr.port ));
   switch( ssresolve->state ) {
     case FD_SSRESOLVE_STATE_FULL_REQ: {
       FD_TEST( fd_cstr_printf_check( ssresolve->request, sizeof(ssresolve->request), &ssresolve->request_len,
@@ -268,8 +266,7 @@ fd_ssresolve_advance_poll_out( fd_ssresolve_t *        ssresolve,
       break;
     }
     case FD_SSRESOLVE_STATE_FULL_RESP:
-    case FD_SSRESOLVE_STATE_INC_RESP:
-    case FD_SSRESOLVE_STATE_DONE: {
+    case FD_SSRESOLVE_STATE_INC_RESP: {
       res = FD_SSRESOLVE_ADVANCE_PASS;
       break;
     }
@@ -293,8 +290,7 @@ fd_ssresolve_advance_poll_in( fd_ssresolve_t *        ssresolve,
       break;
     }
     case FD_SSRESOLVE_STATE_FULL_REQ:
-    case FD_SSRESOLVE_STATE_INC_REQ:
-    case FD_SSRESOLVE_STATE_DONE: {
+    case FD_SSRESOLVE_STATE_INC_REQ: {
       res = FD_SSRESOLVE_ADVANCE_PASS;
       break;
     }
