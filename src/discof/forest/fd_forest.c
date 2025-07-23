@@ -6,6 +6,8 @@ static void ver_inc( ulong ** ver ) {
 
 #define VER_INC ulong * ver __attribute__((cleanup(ver_inc))) = fd_forest_ver( forest ); ver_inc( &ver )
 
+#define FD_FOREST_PRINT 1
+
 void *
 fd_forest_new( void * shmem, ulong ele_max, ulong seed ) {
   FD_TEST( fd_ulong_is_pow2( ele_max ) );
@@ -186,6 +188,23 @@ fd_forest_verify( fd_forest_t const * forest ) {
   if( fd_forest_ancestry_verify( fd_forest_ancestry_const( forest ), fd_forest_pool_max( pool ), pool ) == -1 ) return -1;
   if( fd_forest_frontier_verify( fd_forest_frontier_const( forest ), fd_forest_pool_max( pool ), pool ) == -1 ) return -1;
 
+  fd_forest_frontier_t const * frontier = fd_forest_frontier_const( forest );
+  fd_forest_orphaned_t const * orphaned = fd_forest_orphaned_const( forest );
+  fd_forest_ancestry_t const * ancestry = fd_forest_ancestry_const( forest );
+
+  /* Invariant: elements can only appear in one of the three maps. */
+  for( fd_forest_frontier_iter_t iter = fd_forest_frontier_iter_init( frontier, pool ); !fd_forest_frontier_iter_done( iter, frontier, pool ); iter = fd_forest_frontier_iter_next( iter, frontier, pool ) ) {
+    fd_forest_ele_t const * ele = fd_forest_frontier_iter_ele_const( iter, frontier, pool );
+    if( fd_forest_ancestry_ele_query_const( ancestry, &ele->slot, NULL, pool ) ) return -1;
+    if( fd_forest_orphaned_ele_query_const( orphaned, &ele->slot, NULL, pool ) ) return -1;
+  }
+
+  for( fd_forest_orphaned_iter_t iter = fd_forest_orphaned_iter_init( orphaned, pool ); !fd_forest_orphaned_iter_done( iter, orphaned, pool ); iter = fd_forest_orphaned_iter_next( iter, orphaned, pool ) ) {
+    fd_forest_ele_t const * ele = fd_forest_orphaned_iter_ele_const( iter, orphaned, pool );
+    if( fd_forest_ancestry_ele_query_const( ancestry, &ele->slot, NULL, pool ) ) return -1;
+    if( fd_forest_frontier_ele_query_const( frontier, &ele->slot, NULL, pool ) ) return -1;
+  }
+
   return 0;
 }
 
@@ -249,7 +268,8 @@ advance_frontier( fd_forest_t * forest, ulong slot, ushort parent_off ) {
   FD_TEST( fd_forest_deque_cnt( queue ) == 0 );
 # endif
 
-  /* BFS elements as pool idxs */
+  /* BFS elements as pool idxs.
+     Invariant: whatever is in the queue, must be on the frontier. */
   fd_forest_deque_push_tail( queue, fd_forest_pool_idx( pool, ele ) );
   while( FD_LIKELY( fd_forest_deque_cnt( queue ) ) ) {
     fd_forest_ele_t * head  = fd_forest_pool_ele( pool, fd_forest_deque_pop_head( queue ) );
@@ -332,7 +352,8 @@ insert( fd_forest_t * forest, ulong slot, ushort parent_off ) {
     }
     if( FD_UNLIKELY( !ancestor ) ) {
       /* Did not find ancestor on frontier OR orphan, which means it must be behind the frontier barrier. */
-      fd_forest_frontier_ele_insert( fd_forest_frontier( forest ), ele, pool );
+      fd_forest_ancestry_ele_remove( fd_forest_ancestry( forest ), &ele->slot, NULL, pool );
+      fd_forest_frontier_ele_insert( fd_forest_frontier( forest ), ele,              pool );
     }
   }
   return ele;
@@ -826,8 +847,6 @@ fd_forest_ancestry_print( fd_forest_t const * forest ) {
   FD_LOG_NOTICE(("\n\n[Ancestry]\n\n" ) );
 
   ancestry_print3( forest, fd_forest_pool_ele_const( fd_forest_pool_const( forest ), forest->root ), 0, "[", NULL, 0 );
-  //ancestry_print( forest, fd_forest_pool_ele_const( fd_forest_pool_const( forest ), forest->root ), 0, "" );
-
 }
 
 void
@@ -860,8 +879,12 @@ fd_forest_orphaned_print( fd_forest_t const * forest ) {
 void
 fd_forest_print( fd_forest_t const * forest ) {
   if( FD_UNLIKELY( forest->root == ULONG_MAX ) ) return;
+# if FD_FOREST_PRINT
   fd_forest_ancestry_print( forest );
   fd_forest_frontier_print( forest );
   fd_forest_orphaned_print( forest );
   printf("\n\n");
+# endif
 }
+
+#undef FD_FOREST_PRINT
