@@ -229,6 +229,7 @@ fd_gui_tile_timers_snap( fd_gui_t * gui ) {
     cur[ i ].backpressure_prefrag_ticks      = tile_metrics[ MIDX( COUNTER, TILE, REGIME_DURATION_NANOS_BACKPRESSURE_PREFRAG ) ];
     cur[ i ].caughtup_postfrag_ticks         = tile_metrics[ MIDX( COUNTER, TILE, REGIME_DURATION_NANOS_CAUGHT_UP_POSTFRAG ) ];
     cur[ i ].processing_postfrag_ticks       = tile_metrics[ MIDX( COUNTER, TILE, REGIME_DURATION_NANOS_PROCESSING_POSTFRAG ) ];
+    cur[ i ].sleeping_ticks                  = tile_metrics[ MIDX( COUNTER, TILE, REGIME_DURATION_NANOS_SLEEPING ) ];
   }
 }
 
