@@ -26,6 +26,25 @@
 #include "../../ballet/sbpf/fd_sbpf_loader.h"
 #include "fd_runtime_public.h"
 
+/* Forward declarations */
+struct fd_stem_context;
+typedef struct fd_stem_context fd_stem_context_t;
+
+struct fd_replay_out_link {
+  ulong            idx;
+
+  fd_frag_meta_t * mcache;
+  ulong *          sync;
+  ulong            depth;
+  ulong            seq;
+
+  fd_wksp_t * mem;
+  ulong       chunk0;
+  ulong       wmark;
+  ulong       chunk;
+};
+typedef struct fd_replay_out_link fd_replay_out_link_t;
+
 /* Various constant values used by the runtime. */
 
 #define MICRO_LAMPORTS_PER_LAMPORT (1000000UL)
@@ -492,7 +511,9 @@ fd_runtime_block_execute_finalize_start( fd_exec_slot_ctx_t *             slot_c
 int
 fd_runtime_block_execute_finalize_finish( fd_exec_slot_ctx_t *             slot_ctx,
                                           fd_capture_ctx_t *               capture_ctx,
-                                          fd_runtime_block_info_t const *  block_info );
+                                          fd_runtime_block_info_t const *  block_info,
+                                          fd_stem_context_t *              stem,
+                                          fd_replay_out_link_t *           capture_out );
 
 /* Transaction Level Execution Management *************************************/
 
@@ -601,7 +622,9 @@ int
 fd_runtime_block_execute( fd_exec_slot_ctx_t *            slot_ctx,
                           fd_capture_ctx_t *              capture_ctx,
                           fd_runtime_block_info_t const * block_info,
-                          fd_spad_t *                     runtime_spad );
+                          fd_spad_t *                     runtime_spad,
+                          fd_stem_context_t *             stem,
+                          fd_replay_out_link_t *          capture_out );
 
 int
 fd_runtime_process_txns_in_microblock_stream_sequential( fd_exec_slot_ctx_t * slot_ctx,
@@ -615,7 +638,9 @@ int
 fd_runtime_block_execute_finalize_sequential( fd_exec_slot_ctx_t *             slot_ctx,
                                               fd_capture_ctx_t *               capture_ctx,
                                               fd_runtime_block_info_t const *  block_info,
-                                              fd_spad_t *                      runtime_spad );
+                                              fd_spad_t *                      runtime_spad,
+                                              fd_stem_context_t *              stem,
+                                              fd_replay_out_link_t *           capture_out );
 
 void
 fd_runtime_read_genesis( fd_exec_slot_ctx_t * slot_ctx,

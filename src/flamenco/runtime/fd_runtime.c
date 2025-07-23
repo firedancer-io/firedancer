@@ -19,6 +19,8 @@
 #include "../../ballet/base58/fd_base58.h"
 #include "../../ballet/txn/fd_txn.h"
 #include "../../ballet/bmtree/fd_bmtree.h"
+#include "../../disco/capture/fd_capture.h"
+#include "../../disco/stem/fd_stem.h"
 
 #include "../stakes/fd_stakes.h"
 #include "../rewards/fd_rewards.h"
@@ -1185,13 +1187,17 @@ fd_runtime_block_execute_finalize_start( fd_exec_slot_ctx_t *             slot_c
 int
 fd_runtime_block_execute_finalize_finish( fd_exec_slot_ctx_t *             slot_ctx,
                                           fd_capture_ctx_t *               capture_ctx,
-                                          fd_runtime_block_info_t const *  block_info ) {
+                                          fd_runtime_block_info_t const *  block_info,
+                                          fd_stem_context_t *              stem,
+                                          fd_replay_out_link_t *           capture_out ) {
 
   fd_hash_t * bank_hash = fd_bank_bank_hash_modify( slot_ctx->bank );
   int err = fd_update_hash_bank_exec_hash( slot_ctx,
                                            bank_hash,
                                            capture_ctx,
-                                           block_info->signature_cnt );
+                                           block_info->signature_cnt,
+                                           stem,
+                                           capture_out );
 
   if( FD_UNLIKELY( err ) ) {
     FD_LOG_ERR(( "Unable to hash at end of slot" ));
@@ -3127,10 +3133,27 @@ int
 fd_runtime_block_execute( fd_exec_slot_ctx_t *            slot_ctx,
                           fd_capture_ctx_t *              capture_ctx,
                           fd_runtime_block_info_t const * block_info,
-                          fd_spad_t *                     runtime_spad ) {
+                          fd_spad_t *                     runtime_spad,
+                          fd_stem_context_t *             stem,
+                          fd_replay_out_link_t *          capture_out ) {
 
   if ( capture_ctx != NULL && capture_ctx->capture && fd_bank_slot_get( slot_ctx->bank )>=capture_ctx->solcap_start_slot ) {
-    fd_solcap_writer_set_slot( capture_ctx->capture, fd_bank_slot_get( slot_ctx->bank ) );
+    if( stem && capture_out && capture_out->idx != ULONG_MAX ) {
+      /* Send message to capture tile */
+      void * msg = fd_chunk_to_laddr( capture_out->mem, capture_out->chunk );
+      fd_capture_msg_set_slot_t * slot_msg = fd_capture_msg_set_slot( msg, fd_bank_slot_get( slot_ctx->bank ) );
+      if( FD_LIKELY( slot_msg ) ) {
+        ulong sig  = FD_CAPTURE_MSG_TYPE_SET_SLOT;
+        ulong sz   = sizeof(fd_capture_msg_set_slot_t);
+        ulong ctl  = 0UL;
+        ulong tspub = (ulong)fd_frag_meta_ts_comp( fd_tickcount() );
+        
+        fd_stem_publish( stem, capture_out->idx, sig, capture_out->chunk, sz, ctl, 0UL, tspub );
+        
+        capture_out->chunk = fd_dcache_compact_next( capture_out->chunk, sz,
+                                                      capture_out->chunk0, capture_out->wmark );
+      }
+    }
   }
 
   long block_execute_time = -fd_log_wallclock();
@@ -3184,7 +3207,9 @@ fd_runtime_block_execute( fd_exec_slot_ctx_t *            slot_ctx,
   res = fd_runtime_block_execute_finalize_sequential( slot_ctx,
                                                       capture_ctx,
                                                       block_info,
-                                                      runtime_spad );
+                                                      runtime_spad,
+                                                      stem,
+                                                      capture_out );
   if( FD_UNLIKELY( res!=FD_RUNTIME_EXECUTE_SUCCESS ) ) {
     return res;
   }
@@ -3334,7 +3359,9 @@ int
 fd_runtime_block_execute_finalize_sequential( fd_exec_slot_ctx_t *             slot_ctx,
                                               fd_capture_ctx_t *               capture_ctx,
                                               fd_runtime_block_info_t const *  block_info,
-                                              fd_spad_t *                      runtime_spad ) {
+                                              fd_spad_t *                      runtime_spad,
+                                              fd_stem_context_t *              stem,
+                                              fd_replay_out_link_t *           capture_out ) {
 
   FD_SPAD_FRAME_BEGIN( runtime_spad ) {
 
@@ -3342,7 +3369,7 @@ fd_runtime_block_execute_finalize_sequential( fd_exec_slot_ctx_t *             s
 
   fd_bank_lthash_update_sysvars( slot_ctx );
 
-  fd_runtime_block_execute_finalize_finish( slot_ctx, capture_ctx, block_info );
+  fd_runtime_block_execute_finalize_finish( slot_ctx, capture_ctx, block_info, stem, capture_out );
 
   } FD_SPAD_FRAME_END;
 

@@ -523,7 +523,7 @@ fd_runtime_fuzz_block_ctx_exec( fd_runtime_fuzz_runner_t * runner,
     int   is_epoch_boundary = 0;
     fd_runtime_block_pre_execute_process_new_epoch( slot_ctx, &runtime_spad, 1UL, runtime_spad, &is_epoch_boundary );
 
-    res = fd_runtime_block_execute( slot_ctx, NULL, block_info, runtime_spad );
+    res = fd_runtime_block_execute( slot_ctx, NULL, block_info, runtime_spad, NULL, NULL );
   } FD_SPAD_FRAME_END;
 
   return res;

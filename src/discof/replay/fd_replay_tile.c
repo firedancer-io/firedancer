@@ -249,31 +249,6 @@ struct fd_replay_tile_ctx {
 };
 typedef struct fd_replay_tile_ctx fd_replay_tile_ctx_t;
 
-/* Helper functions to send messages to the capture tile */
-
-static inline void
-send_capture_set_slot( fd_replay_tile_ctx_t * ctx, 
-                       fd_stem_context_t *    stem,
-                       ulong                  slot ) {
-  if( FD_UNLIKELY( ctx->capture_out->idx == ULONG_MAX ) ) return;
-  
-  void * msg = fd_chunk_to_laddr( ctx->capture_out->mem, ctx->capture_out->chunk );
-  fd_capture_msg_set_slot_t * slot_msg = fd_capture_msg_set_slot( msg, slot );
-  if( FD_UNLIKELY( !slot_msg ) ) {
-    FD_LOG_WARNING(( "Failed to create capture set_slot message" ));
-    return;
-  }
-  
-  ulong sig  = FD_CAPTURE_MSG_TYPE_SET_SLOT;
-  ulong sz   = sizeof(fd_capture_msg_set_slot_t);
-  ulong ctl  = 0UL;
-  ulong tspub = (ulong)fd_frag_meta_ts_comp( fd_tickcount() );
-  
-  fd_stem_publish( stem, ctx->capture_out->idx, sig, ctx->capture_out->chunk, sz, ctl, 0UL, tspub );
-  
-  ctx->capture_out->chunk = fd_dcache_compact_next( ctx->capture_out->chunk, sz,
-                                                     ctx->capture_out->chunk0, ctx->capture_out->wmark );
-}
 
 FD_FN_CONST static inline ulong
 scratch_align( void ) {
@@ -1228,9 +1203,7 @@ handle_slot_change( fd_replay_tile_ctx_t * ctx,
     handle_new_slot( ctx, stem, slot, parent_slot );
   }
 
-  if( ctx->capture_ctx ) {
-    send_capture_set_slot( ctx, stem, slot );
-  }
+  /* Slot tracking is now handled by the runtime functions with message passing */
 }
 
 static void
