@@ -44,6 +44,35 @@
 #define IN_KIND_GOSSIP  (1)
 #define MAX_IN_LINKS    (3)
 
+struct fd_snapshot_hashes_map {
+  fd_pubkey_t key;
+  uint        hash;
+
+  struct {
+    ulong     slot;
+    fd_hash_t hash;
+  } full;
+
+  struct {
+    ulong base_slot;
+    ulong slot;
+    fd_hash_t hash;
+  } incremental;
+};
+
+typedef struct fd_snapshot_hashes_map fd_snapshot_hashes_map_t;
+
+#define MAP_NAME             fd_snapshot_hashes_map
+#define MAP_T                fd_snapshot_hashes_map_t
+#define MAP_KEY_T            fd_pubkey_t
+#define MAP_KEY_NULL         (fd_pubkey_t){0}
+#define MAP_KEY_EQUAL(k0,k1) (!(memcmp((k0).key,(k1).key,sizeof(fd_pubkey_t))))
+#define MAP_KEY_INVAL(k)     (MAP_KEY_EQUAL((k),MAP_KEY_NULL))
+#define MAP_KEY_HASH(key)    ((key).ui[3])
+#define MAP_KEY_EQUAL_IS_SLOW  1
+#define MAP_LG_SLOT_CNT        4
+#include "../../util/tmpl/fd_map.c"
+
 struct fd_snaprd_tile {
   fd_ssping_t * ssping;
   fd_sshttp_t * sshttp;
@@ -70,6 +99,8 @@ struct fd_snaprd_tile {
   } local_out;
 
   uchar in_kind[ MAX_IN_LINKS ];
+
+  fd_snapshot_hashes_map_t * sshashes_map;
 
   struct {
     ulong full_snapshot_slot;
@@ -139,10 +170,11 @@ static ulong
 scratch_footprint( fd_topo_tile_t const * tile ) {
   (void)tile;
   ulong l = FD_LAYOUT_INIT;
-  l = FD_LAYOUT_APPEND( l, alignof(fd_snaprd_tile_t),  sizeof(fd_snaprd_tile_t)       );
-  l = FD_LAYOUT_APPEND( l, fd_sshttp_align(),          fd_sshttp_footprint()          );
-  l = FD_LAYOUT_APPEND( l, fd_ssping_align(),          fd_ssping_footprint( 65536UL ) );
-  l = FD_LAYOUT_APPEND( l, alignof(fd_contact_info_t), sizeof(fd_contact_info_t) * FD_CONTACT_INFO_TABLE_SIZE );
+  l = FD_LAYOUT_APPEND( l, alignof(fd_snaprd_tile_t),      sizeof(fd_snaprd_tile_t)       );
+  l = FD_LAYOUT_APPEND( l, fd_sshttp_align(),              fd_sshttp_footprint()          );
+  l = FD_LAYOUT_APPEND( l, fd_ssping_align(),              fd_ssping_footprint( 65536UL ) );
+  l = FD_LAYOUT_APPEND( l, alignof(fd_contact_info_t),     sizeof(fd_contact_info_t) * FD_CONTACT_INFO_TABLE_SIZE );
+  l = FD_LAYOUT_APPEND( l, fd_snapshot_hashes_map_align(), fd_snapshot_hashes_map_footprint() );
   return FD_LAYOUT_FINI( l, alignof(fd_snaprd_tile_t) );
 }
 
@@ -556,6 +588,8 @@ after_frag( fd_snaprd_tile_t *  ctx,
           fd_contact_info_t * new = msg->contact_info.contact_info;
           fd_ip4_port_t new_addr  = fd_contact_info_get_socket( new, FD_CONTACT_INFO_SOCKET_RPC );
           if( new_addr.l ) {
+            FD_LOG_WARNING(("adding contact info for peer "FD_IP4_ADDR_FMT ":%hu ",
+                            FD_IP4_ADDR_FMT_ARGS( new_addr.addr ), fd_ushort_bswap( new_addr.port ) ));
             fd_ssping_add( ctx->ssping, new_addr );
           }
           *cur = *new;
@@ -565,13 +599,60 @@ after_frag( fd_snaprd_tile_t *  ctx,
           fd_contact_info_t * cur  = &ctx->gossip.ci_table[ msg->rm_contact_info_pool_idx ];
           fd_ip4_port_t       addr = fd_contact_info_get_socket( cur, FD_CONTACT_INFO_SOCKET_RPC );
           if( addr.l ) {
+            FD_LOG_WARNING(("removing contact info for peer "FD_IP4_ADDR_FMT ":%hu ",
+              FD_IP4_ADDR_FMT_ARGS( addr.addr ), fd_ushort_bswap( addr.port ) ));
             fd_ssping_remove( ctx->ssping, addr );
           }
         }
         break;
-      case FD_GOSSIP_UPDATE_TAG_SNAPSHOT_HASHES:
-        /* TODO */
+      case FD_GOSSIP_UPDATE_TAG_SNAPSHOT_HASHES: {
+        fd_pubkey_t pubkey;
+        fd_memcpy( &pubkey, msg->origin_pubkey, sizeof(fd_pubkey_t) );
+
+        int is_known_validator = 0;
+        for( ulong i=0UL; i<ctx->config.known_validators_cnt; i++ ) {
+          if( memcmp( &ctx->config.known_validators[ i ], &pubkey, sizeof(fd_pubkey_t) )==0 ) {
+            is_known_validator = 1;
+            break;
+          }
+        }
+
+        FD_LOG_WARNING(("encountered pubkey %s with full slot %lu and incremental slot %lu",
+          FD_BASE58_ENC_32_ALLOCA( pubkey.hash ), msg->snapshot_hashes.full->slot, msg->snapshot_hashes.inc[ 0 ].slot ));
+
+        /* if the pubkey is from a known validator, then query the snapshot hashes map */
+        if( is_known_validator ) {
+          fd_snapshot_hashes_map_t * entry = fd_snapshot_hashes_map_query( ctx->sshashes_map, pubkey, NULL );
+          /* if this is not true, then iterate through incremental snapshot hashes
+               and find latest one. */
+          FD_TEST( msg->snapshot_hashes.inc_len==1UL );
+          int replace_entry = 0;
+          if( FD_LIKELY( entry  ) ) {
+            /* if the slot in the snapshot hashes message is greater than the current entry, replace it. */
+            if( msg->snapshot_hashes.full->slot>entry->full.slot ||
+                msg->snapshot_hashes.inc[ 0 ].slot>entry->incremental.slot ) {
+                FD_LOG_WARNING(("removing old entry for pubkey %s with full slot %lu and incremental slot %lu",
+                                FD_BASE58_ENC_32_ALLOCA( pubkey.hash ), entry->full.slot, entry->incremental.slot ));
+              fd_snapshot_hashes_map_remove( ctx->sshashes_map, entry );
+              replace_entry = 1;
+            }
+          }
+
+          if( FD_UNLIKELY( !entry || replace_entry ) ) {
+            fd_snapshot_hashes_map_t * entry = fd_snapshot_hashes_map_insert( ctx->sshashes_map, pubkey );
+            entry->full.slot = msg->snapshot_hashes.full->slot;
+            fd_memcpy( &entry->full.hash, &msg->snapshot_hashes.full->hash, sizeof(fd_hash_t) );
+
+            entry->incremental.base_slot = msg->snapshot_hashes.full->slot;
+            entry->incremental.slot      = msg->snapshot_hashes.inc[ 0 ].slot;
+            fd_memcpy( &entry->incremental.hash, &msg->snapshot_hashes.inc[ 0 ].hash, sizeof(fd_hash_t) );
+
+            FD_LOG_WARNING(( "adding entry for pubkey %s with full slot %lu and incremental slot %lu",
+                             FD_BASE58_ENC_32_ALLOCA( pubkey.hash ), entry->full.slot, entry->incremental.slot ));
+          }
+        }
         break;
+      }
     }
 
   } else {
@@ -706,10 +787,11 @@ unprivileged_init( fd_topo_t *      topo,
   void * scratch = fd_topo_obj_laddr( topo, tile->tile_obj_id );
 
   FD_SCRATCH_ALLOC_INIT( l, scratch );
-  fd_snaprd_tile_t * ctx  = FD_SCRATCH_ALLOC_APPEND( l, alignof(fd_snaprd_tile_t),  sizeof(fd_snaprd_tile_t)       );
-  void * _sshttp          = FD_SCRATCH_ALLOC_APPEND( l, fd_sshttp_align(),          fd_sshttp_footprint()          );
-  void * _ssping          = FD_SCRATCH_ALLOC_APPEND( l, fd_ssping_align(),          fd_ssping_footprint( 65536UL ) );
-  void * _ci_table        = FD_SCRATCH_ALLOC_APPEND( l, alignof(fd_contact_info_t), sizeof(fd_contact_info_t) * FD_CONTACT_INFO_TABLE_SIZE );
+  fd_snaprd_tile_t * ctx   = FD_SCRATCH_ALLOC_APPEND( l, alignof(fd_snaprd_tile_t),  sizeof(fd_snaprd_tile_t)       );
+  void * _sshttp           = FD_SCRATCH_ALLOC_APPEND( l, fd_sshttp_align(),          fd_sshttp_footprint()          );
+  void * _ssping           = FD_SCRATCH_ALLOC_APPEND( l, fd_ssping_align(),          fd_ssping_footprint( 65536UL ) );
+  void * _ci_table         = FD_SCRATCH_ALLOC_APPEND( l, alignof(fd_contact_info_t), sizeof(fd_contact_info_t) * FD_CONTACT_INFO_TABLE_SIZE );
+  void * _sshashes_map_mem = FD_SCRATCH_ALLOC_APPEND( l, fd_snapshot_hashes_map_align(), fd_snapshot_hashes_map_footprint() );
 
   ctx->ack_cnt = 0UL;
   ctx->malformed = 0;
@@ -794,6 +876,9 @@ unprivileged_init( fd_topo_t *      topo,
   ctx->out.wmark  = fd_dcache_compact_wmark ( ctx->out.wksp, topo->links[ tile->out_link_id[ 0 ] ].dcache, topo->links[ tile->out_link_id[ 0 ] ].mtu );
   ctx->out.chunk  = ctx->out.chunk0;
   ctx->out.mtu    = topo->links[ tile->out_link_id[ 0 ] ].mtu;
+
+  ctx->sshashes_map = fd_snapshot_hashes_map_join( fd_snapshot_hashes_map_new( _sshashes_map_mem ) );
+  FD_TEST( ctx->sshashes_map );
 }
 
 #define STEM_BURST 2UL /* One control message, and one data message */

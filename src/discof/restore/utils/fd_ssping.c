@@ -32,11 +32,16 @@ struct fd_ssping_peer {
   fd_ssresolve_t   ssresolve[1];
 
   struct {
-    ulong     full_slot;
-    ulong     incremental_base_slot;
-    ulong     incremental_slot;
-    fd_hash_t full_hash;
-    fd_hash_t incremental_hash;
+    struct {
+      ulong     slot;
+      fd_hash_t hash;
+    } full;
+
+    struct {
+      ulong     base_slot;
+      ulong     slot;
+      fd_hash_t hash;
+    } incremental;
   } snapshot_info;
 
   struct {
@@ -239,9 +244,9 @@ fd_ssping_add( fd_ssping_t * ssping,
     peer->refcnt = 0UL;
     peer->state  = PEER_STATE_UNPINGED;
     peer->addr   = addr;
-    peer->snapshot_info.full_slot             = ULONG_MAX;
-    peer->snapshot_info.incremental_base_slot = ULONG_MAX;
-    peer->snapshot_info.incremental_slot      = ULONG_MAX;
+    peer->snapshot_info.full.slot             = ULONG_MAX;
+    peer->snapshot_info.incremental.base_slot = ULONG_MAX;
+    peer->snapshot_info.incremental.slot      = ULONG_MAX;
     peer->full_latency_nanos        = 0UL;
     peer->incremental_latency_nanos = 0UL;
     fd_ssresolve_t * ssresolve = fd_ssresolve_join( fd_ssresolve_new( peer->ssresolve ) );
@@ -399,13 +404,13 @@ poll_advance( fd_ssping_t * ssping,
       if( FD_LIKELY( res==FD_SSRESOLVE_ADVANCE_SUCCESS ) ) {
         FD_TEST( peer->deadline_nanos>now );
         if( resolve_result.base_slot==ULONG_MAX ) {
-          peer->snapshot_info.full_slot = resolve_result.slot;
-          memcpy( &peer->snapshot_info.full_hash, &resolve_result.hash, sizeof(fd_hash_t) );
+          peer->snapshot_info.full.slot = resolve_result.slot;
+          memcpy( &peer->snapshot_info.full.hash, &resolve_result.hash, sizeof(fd_hash_t) );
           peer->full_latency_nanos = PEER_DEADLINE_NANOS_PING - (ulong)(peer->deadline_nanos - now);
         } else {
-          peer->snapshot_info.incremental_base_slot = resolve_result.base_slot;
-          peer->snapshot_info.incremental_slot      = resolve_result.slot;
-          memcpy( &peer->snapshot_info.incremental_hash, &resolve_result.hash, sizeof(fd_hash_t) );
+          peer->snapshot_info.incremental.base_slot = resolve_result.base_slot;
+          peer->snapshot_info.incremental.slot      = resolve_result.slot;
+          memcpy( &peer->snapshot_info.incremental.hash, &resolve_result.hash, sizeof(fd_hash_t) );
           peer->incremental_latency_nanos = PEER_DEADLINE_NANOS_PING - (ulong)(peer->deadline_nanos - now) - peer->full_latency_nanos;
         }
       }
@@ -419,9 +424,9 @@ poll_advance( fd_ssping_t * ssping,
       FD_LOG_INFO(("successfully resolved snapshots for peer " FD_IP4_ADDR_FMT ":%hu "
                     "with full slot %lu, incremental base slot %lu and incremental slot %lu",
                     FD_IP4_ADDR_FMT_ARGS( peer->addr.addr ), peer->addr.port,
-                    peer->snapshot_info.full_slot,
-                    peer->snapshot_info.incremental_base_slot,
-                    peer->snapshot_info.incremental_slot ));
+                    peer->snapshot_info.full.slot,
+                    peer->snapshot_info.incremental.base_slot,
+                    peer->snapshot_info.incremental.slot ));
       FD_LOG_INFO(("full latency is %lu, incremental latency is %lu",
                       peer->full_latency_nanos, peer->incremental_latency_nanos ));
       peer->latency_nanos = (peer->full_latency_nanos + peer->incremental_latency_nanos) / 2UL;
