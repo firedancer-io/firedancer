@@ -10,6 +10,7 @@
 #include "tls/fd_quic_tls.h"
 #include "fd_quic_stream_pool.h"
 #include "fd_quic_pretty_print.h"
+#include "fd_quic_svc_q.h"
 #include <math.h>
 
 #include "../../util/log/fd_dtrace.h"
@@ -41,22 +42,7 @@
 
 #define FD_QUIC_MAGIC (0xdadf8cfa01cc5460UL)
 
-/* FD_QUIC_SVC_{...} specify connection timer types. */
 
-#define FD_QUIC_SVC_INSTANT (0U)  /* as soon as possible */
-#define FD_QUIC_SVC_ACK_TX  (1U)  /* within local max_ack_delay (ACK TX coalesce) */
-#define FD_QUIC_SVC_WAIT    (2U)  /* within min(idle_timeout, peer max_ack_delay) */
-#define FD_QUIC_SVC_CNT     (3U)  /* number of FD_QUIC_SVC_{...} levels */
-
-/* fd_quic_svc_queue_t is a simple doubly linked list. */
-
-struct fd_quic_svc_queue {
-  /* FIXME track count */ // uint cnt;
-  uint head;
-  uint tail;
-};
-
-typedef struct fd_quic_svc_queue fd_quic_svc_queue_t;
 
 
 /* fd_quic_state_t is the internal state of an fd_quic_t.  Valid for
@@ -96,8 +82,6 @@ struct __attribute__((aligned(16UL))) fd_quic_state_private {
   fd_quic_stream_pool_t * stream_pool;    /* stream pool, nullable */
   fd_quic_pkt_meta_t    * pkt_meta_pool;
   fd_rng_t                _rng[1];        /* random number generator */
-  fd_quic_svc_queue_t     svc_queue[ FD_QUIC_SVC_CNT ]; /* dlists */
-  ulong                   svc_delay[ FD_QUIC_SVC_CNT ]; /* target service delay */
 
   /* need to be able to access connections by index */
   ulong                   conn_base;      /* address of array of all connections */
@@ -118,6 +102,9 @@ struct __attribute__((aligned(16UL))) fd_quic_state_private {
 
   /* Scratch space for packet protection */
   uchar                   crypt_scratch[FD_QUIC_MTU];
+
+  /* the timer structs, large private fields / data follow */
+  fd_quic_svc_timers_t  * svc_timers;
 };
 
 /* FD_QUIC_STATE_OFF is the offset of fd_quic_state_t within fd_quic_t. */
@@ -194,20 +181,6 @@ fd_quic_conn_service( fd_quic_t *      quic,
                       fd_quic_conn_t * conn,
                       ulong            now );
 
-/* fd_quic_svc_schedule installs a connection timer.  svc_type is in
-   [0,FD_QUIC_SVC_CNT) and specifies the timer delay.  Lower timers
-   override higher ones. */
-
-void
-fd_quic_svc_schedule( fd_quic_state_t * state,
-                      fd_quic_conn_t *  conn,
-                      uint              svc_type );
-
-static inline void
-fd_quic_svc_schedule1( fd_quic_conn_t * conn,
-                       uint             svc_type ) {
-  fd_quic_svc_schedule( fd_quic_get_state( conn->quic ), conn, svc_type );
-}
 
 /* Memory management **************************************************/
 
@@ -452,28 +425,43 @@ fd_quic_sample_rtt( fd_quic_conn_t * conn, long rtt_ticks, long ack_delay ) {
   })
 }
 
-/* fd_quic_calc_expiry returns the timestamp of the next expiry event. */
+/* fd_quic_calc_expiry_duration returns the duration to the next expiry event.
+   User should add the result to the base time to obtain the expiry timestamp.
+   Uses the loss detection timeout if 'ack_driven', otherwise uses the PTO. */
 
 static inline ulong
-fd_quic_calc_expiry( fd_quic_conn_t * conn, ulong now ) {
+fd_quic_calc_expiry_duration( fd_quic_conn_t * conn, int ack_driven ) {
   /* Instead of a full implementation of PTO, we're setting an expiry
      time per sent QUIC packet
-     This calculates the expiry time according to the PTO spec
+
+     If this calculation is ack-driven, use the time threshold:
+     6.1.2 Time Threshold
+     max(kTimeThreshold * max(smoothed_rtt, latest_rtt), kGranularity)
+     The RECOMMENDED time threshold (kTimeThreshold), expressed as an RTT multiplier, is 9/8
+
+     Otherwise, calculate the expiry time according to the PTO spec
      6.2.1. Computing PTO
      When an ack-eliciting packet is transmitted, the sender schedules
      a timer for the PTO period as follows:
-     PTO = smoothed_rtt + max(4*rttvar, kGranularity) + max_ack_delay  */
+     PTO = smoothed_rtt + max(4*rttvar, kGranularity) + max_ack_delay
+
+     Our granularity is O(ns), while recommended is 1ms --> We don't
+     have to worry about kGranularity.
+*/
 
   fd_rtt_estimate_t * rtt = conn->rtt;
 
-  ulong duration = (ulong)
-    ( rtt->smoothed_rtt
-        + (4.0f * rtt->var_rtt)
-        + conn->peer_max_ack_delay_ticks );
+  ulong pto_duration  = (ulong)( rtt->smoothed_rtt     +
+                                (4.0f * rtt->var_rtt) +
+                                conn->peer_max_ack_delay_ticks );
 
-  FD_DTRACE_PROBE_2( quic_calc_expiry, conn->our_conn_id, duration );
+  ulong loss_duration = (ulong)( 1.125f * fmaxf( rtt->smoothed_rtt, rtt->latest_rtt ) );
 
-  return now + (ulong)500e6; /* 500ms */
+  ulong duration = fd_ulong_if( ack_driven, loss_duration, pto_duration );
+
+  FD_DTRACE_PROBE_3( quic_calc_expiry, conn->our_conn_id, duration, ack_driven );
+
+  return duration;
 }
 
 uchar *

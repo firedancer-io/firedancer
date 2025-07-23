@@ -157,6 +157,11 @@ struct fd_quic_netem {
 
   struct fd_quic_netem_reorder_buf reorder_buf[2];
   int                              reorder_mru; /* most recently written reorder buf */
+
+  ulong drop_sequence;
+
+  ulong * now_ptr;
+  ulong   one_way_latency;
 };
 
 typedef struct fd_quic_netem fd_quic_netem_t;
@@ -164,7 +169,28 @@ typedef struct fd_quic_netem fd_quic_netem_t;
 fd_quic_netem_t *
 fd_quic_netem_init( fd_quic_netem_t * netem,
                     float             thres_drop,
-                    float             thres_reorder );
+                    float             thres_reorder,
+                    ulong           * now_ptr );
+
+/* fd_quic_netem_set_drop sets a drop sequence for outgoing packets.
+   'drop_sequence' is an ordered bitset interpreted from right to left,
+   where 1 signals a drop. This function can specify behavior for at most
+   the next 64 packets. Subsequent calls to this function overwrite the
+   previous call. Non-zero thres_drop and/or thres_reorder only apply if
+   packet is not dropped by the deterministic drop_sequence.
+   To get only deterministic drops, set thres_drop and thres_reorder to 0. */
+
+void
+fd_quic_netem_set_drop( fd_quic_netem_t * netem,
+                        ulong             drop_sequence );
+
+/* fd_quic_netem_set_one_way_latency sets the one_way_latency
+   for the network emulation. It increments by one_way_latency
+   the clock pointed to by now_ptr from init  */
+
+void
+fd_quic_netem_set_one_way_latency( fd_quic_netem_t * netem,
+                                   ulong             one_way_latency );
 
 /* fd_quic_netem_send implements fd_aio_send for fd_quic_netem_t. */
 

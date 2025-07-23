@@ -19,10 +19,7 @@ typedef fd_quic_svc_event_t fd_quic_svc_queue_prq_t;
 
 ulong
 fd_quic_svc_timers_footprint( ulong max_conn ) {
-  ulong offset = 0UL;
-  offset       = fd_ulong_align_up( offset, fd_quic_svc_queue_prq_align() );
-  offset      += fd_quic_svc_queue_prq_footprint( max_conn );
-  return offset;
+  return fd_quic_svc_queue_prq_footprint( max_conn );
 }
 
 ulong
@@ -78,8 +75,18 @@ fd_quic_svc_cancel( fd_quic_svc_timers_t * timers,
 void
 fd_quic_svc_schedule( fd_quic_svc_timers_t * timers,
                       fd_quic_conn_t       * conn ) {
+
+  /* if conn null or invalid, do not schedule */
+  if( FD_UNLIKELY( !conn || conn->state == FD_QUIC_CONN_STATE_INVALID ) ) {
+    /* cleaner/safer to check in here for now. If function call overhead
+       becomes a constraint, move check to caller */
+    return;
+  }
+
   ulong idx    = conn->svc_meta.idx;
   ulong expiry = conn->svc_meta.next_timeout;
+
+  conn->svc_meta.next_timeout = ULONG_MAX; /* reset next_timeout */
 
   if( FD_UNLIKELY( idx != FD_QUIC_SVC_IDX_INVAL ) ) {
     /* find current expiry */
@@ -95,6 +102,7 @@ fd_quic_svc_schedule( fd_quic_svc_timers_t * timers,
       conn->svc_meta.idx = FD_QUIC_SVC_IDX_INVAL;
     }
   }
+  /* TODO: potential perf improvement combining remove and insert(?) */
 
   /* insert new element */
   fd_quic_svc_event_t e = {
@@ -160,4 +168,9 @@ fd_quic_svc_get_event( fd_quic_svc_timers_t * timers,
   ulong idx = conn->svc_meta.idx;
   if( idx == FD_QUIC_SVC_IDX_INVAL ) return NULL;
   return timers + idx;
+}
+
+ulong
+fd_quic_svc_cnt_events( fd_quic_svc_timers_t * timers ) {
+  return fd_quic_svc_queue_prq_cnt( timers );
 }
