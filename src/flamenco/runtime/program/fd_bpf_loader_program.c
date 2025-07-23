@@ -95,16 +95,18 @@ program_error_to_instr_error( ulong  err,
 
 /* TODO: This can be combined with the other bpf loader state decode function */
 fd_bpf_upgradeable_loader_state_t *
-read_bpf_upgradeable_loader_state_for_program( fd_exec_txn_ctx_t *                 txn_ctx,
-                                               ushort                              program_id,
-                                               int *                               opt_err ) {
+read_bpf_upgradeable_loader_state_for_program( fd_exec_txn_ctx_t * txn_ctx,
+                                               ushort              program_id,
+                                               int *               opt_err ) {
   fd_txn_account_t * rec = NULL;
   int err = fd_exec_txn_ctx_get_account_at_index( txn_ctx,
                                                   program_id,
                                                   &rec,
                                                   fd_txn_account_check_exists );
   if( FD_UNLIKELY( err ) ) {
-    *opt_err = err;
+    if( opt_err ) {
+      *opt_err = err;
+    }
     return NULL;
   }
 
@@ -115,7 +117,9 @@ read_bpf_upgradeable_loader_state_for_program( fd_exec_txn_ctx_t *              
       rec->vt->get_data_len( rec ),
       &err );
   if( FD_UNLIKELY( err ) ) {
-    *opt_err = FD_EXECUTOR_INSTR_ERR_INVALID_ACC_DATA;
+    if( opt_err ) {
+      *opt_err = FD_EXECUTOR_INSTR_ERR_INVALID_ACC_DATA;
+    }
     return NULL;
   }
   return res;
