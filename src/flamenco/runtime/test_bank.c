@@ -27,9 +27,14 @@ main( int argc, char ** argv ) {
   fd_bank_t * bank = fd_banks_init_bank( banks, 1UL );
   FD_TEST( bank );
 
+  fd_banks_set_ele_delta( bank, 1UL );
+
   /* Set some fields */
   fd_bank_capitalization_set( bank, 1000UL );
   FD_TEST( fd_bank_capitalization_get( bank ) == 1000UL );
+
+  FD_TEST( fd_bank_get_full_ele_root( banks ) == 0UL );
+  FD_TEST( fd_banks_get_full_ele_frontier( banks, bank ) == 1UL );
 
   /* Create some ancestry */
 
@@ -37,11 +42,18 @@ main( int argc, char ** argv ) {
   FD_TEST( bank2 );
   FD_TEST( fd_bank_capitalization_get( bank2 ) == 1000UL );
 
+  fd_banks_set_ele_delta( bank2, 2UL );
+  FD_TEST( fd_banks_get_full_ele_frontier( banks, bank2 ) == 1UL + 2UL );
+
+
   fd_bank_t * bank3 = fd_banks_clone_from_parent( banks, 3UL, 1UL );
   FD_TEST( bank3 );
   FD_TEST( fd_bank_capitalization_get( bank3) == 1000UL );
   fd_bank_capitalization_set( bank3, 2000UL );
   FD_TEST( fd_bank_capitalization_get( bank3 ) == 2000UL );
+
+  fd_banks_set_ele_delta( bank3, 4UL );
+  FD_TEST( fd_banks_get_full_ele_frontier( banks, bank3 ) == 1UL + 4UL );
 
   fd_bank_t * bank4 = fd_banks_clone_from_parent( banks, 4UL, 3UL );
   FD_TEST( bank4 );
@@ -59,9 +71,13 @@ main( int argc, char ** argv ) {
   fd_bank_capitalization_set( bank6, 2100UL );
   FD_TEST( fd_bank_capitalization_get( bank6 ) == 2100UL );
 
+  fd_banks_set_ele_delta( bank6, 8UL );
+
   fd_bank_t * bank7 = fd_banks_clone_from_parent( banks, 7UL, 6UL );
   FD_TEST( bank7 );
   FD_TEST( fd_bank_capitalization_get( bank7 ) == 2100UL );
+
+  fd_banks_set_ele_delta( bank7, 16UL );
 
   /* At this point there are these forks:
      1. 1 -> 2 -> 6 -> 7
@@ -90,10 +106,15 @@ main( int argc, char ** argv ) {
 
   /* Verify that the bank is published and that it is indeed bank7 */
 
+  FD_TEST( fd_banks_get_full_ele_frontier( banks, bank7 ) == 1UL + 2UL + 8UL + 16UL );
+  FD_TEST( fd_bank_get_full_ele_root( banks ) == 0UL );
+
   fd_bank_t const * new_root = fd_banks_publish( banks, 7UL );
   FD_TEST( new_root );
   FD_TEST( fd_bank_slot_get( new_root )==7UL );
-  FD_TEST( new_root == bank7);
+  FD_TEST( new_root == bank7 );
+
+  FD_TEST( fd_bank_get_full_ele_root( banks ) == 1UL + 2UL + 8UL + 16UL );
 
   fd_bank_t * bank10 = fd_banks_clone_from_parent( banks, 10UL, 7UL );
   FD_TEST( bank10 );
@@ -102,6 +123,10 @@ main( int argc, char ** argv ) {
   fd_bank_t * bank11 = fd_banks_clone_from_parent( banks, 11UL, 9UL );
   FD_TEST( bank11 );
   FD_TEST( fd_bank_capitalization_get( bank11 ) == 2100UL );
+
+  fd_banks_set_ele_delta( bank11, 32UL );
+  FD_TEST( fd_bank_get_full_ele_root( banks ) == 1UL + 2UL + 8UL + 16UL );
+  FD_TEST( fd_banks_get_full_ele_frontier( banks, bank11 ) == 1UL + 2UL + 8UL + 16UL + 32UL );
 
   fd_account_keys_global_t const * keys3 = fd_bank_vote_account_keys_locking_query( bank11 );
   FD_TEST( keys3->account_keys_pool_offset == 100UL );
@@ -184,6 +209,13 @@ main( int argc, char ** argv ) {
   votes_const = fd_bank_clock_timestamp_votes_locking_query( bank11 );
   FD_TEST( !votes_const );
   fd_bank_clock_timestamp_votes_end_locking_query( bank11 );
+
+  FD_TEST( fd_banks_get_full_ele_frontier( banks, bank11 ) == 1UL + 2UL + 8UL + 16UL + 32UL );
+
+  fd_banks_publish( banks, 11UL );
+
+  /* Make sure that the root doesn't get double counted*/
+  FD_TEST( fd_bank_get_full_ele_root( banks ) == 1UL + 2UL + 8UL + 16UL + 32UL );
 
   FD_LOG_NOTICE(( "pass" ));
 

@@ -121,6 +121,48 @@ FD_BANKS_ITER(X)
 #undef HAS_LOCK_0
 #undef HAS_LOCK_1
 
+ulong
+fd_banks_get_full_ele_frontier( fd_banks_t * banks, fd_bank_t * bank ) {
+
+  /* TODO:FIXME: DELTA STUFF HERE */
+
+  /* Naively what we want to do is iterate from the old root to the new
+     root and apply the delta to the full state iteratively. */
+
+  /* First copy the root element to the frontier element. */
+  fd_memcpy( banks->ele_full_frontier, banks->ele_full_root, sizeof(ulong) );
+
+  /* First, gather all of the pool indicies that we want to apply deltas
+     for in reverse order starting from the new root. We want to exclude
+     the old root since its delta has been applied previously. */
+  ulong pool_indicies[ banks->max_banks ];
+  ulong pool_indicies_len = 0UL;
+
+  fd_bank_t * bank_pool = fd_banks_get_bank_pool( banks );
+
+  ulong curr_idx = fd_banks_pool_idx( bank_pool, bank );
+  while( curr_idx!=fd_banks_pool_idx_null( bank_pool ) ) {
+    pool_indicies[pool_indicies_len++] = curr_idx;
+    fd_bank_t * curr_bank = fd_banks_pool_ele( bank_pool, curr_idx );
+    curr_idx = curr_bank->parent_idx;
+  }
+
+  /* We have populated all of the indicies that we need to apply deltas
+     from in reverse order. */
+
+  for( ulong i=pool_indicies_len; i>0; i-- ) {
+    ulong idx = pool_indicies[i-1UL];
+    fd_banks_apply_delta( banks, fd_banks_pool_ele( bank_pool, idx ), 0 );
+  }
+
+  /* We have now applied all of the deltas including the new root. We
+     need to mark the rooted bank as being not dirty so we don't double
+     apply a delta. */
+
+  /* TODO:FIXME: DELTA STUFF ENDS HERE */
+  return *(ulong *)fd_type_pun( banks->ele_full_frontier );
+}
+
 /**********************************************************************/
 
 ulong
@@ -581,6 +623,12 @@ fd_banks_clone_from_parent( fd_banks_t * banks,
   #undef HAS_LOCK_0
   #undef HAS_LOCK_1
 
+  /* TODO:FIXME: DELTA STUFF HERE */
+
+  new_bank->ele_delta_dirty = 0;
+
+  /* TODO:FIXME: DELTA STUFF ENDS HERE */
+
   fd_rwlock_unwrite( &banks->rwlock );
 
   return new_bank;
@@ -612,6 +660,39 @@ fd_banks_publish( fd_banks_t * banks, ulong slot ) {
     fd_rwlock_unwrite( &banks->rwlock );
     return NULL;
   }
+
+  /* TODO:FIXME: DELTA STUFF HERE */
+
+  /* Naively what we want to do is iterate from the old root to the new
+     root and apply the delta to the full state iteratively. */
+
+  /* First, gather all of the pool indicies that we want to apply deltas
+     for in reverse order starting from the new root. We want to exclude
+     the old root since its delta has been applied previously. */
+  ulong pool_indicies[ banks->max_banks ];
+  ulong pool_indicies_len = 0UL;
+
+  ulong curr_idx     = fd_banks_pool_idx( bank_pool, new_root );
+  while( curr_idx!=fd_banks_pool_idx_null( bank_pool ) ) {
+    pool_indicies[pool_indicies_len++] = curr_idx;
+    fd_bank_t * curr_bank = fd_banks_pool_ele( bank_pool, curr_idx );
+    curr_idx = curr_bank->parent_idx;
+  }
+
+  /* We have populated all of the indicies that we need to apply deltas
+     from in reverse order. */
+
+  for( ulong i=pool_indicies_len; i>0; i-- ) {
+    ulong idx = pool_indicies[i-1UL];
+    fd_banks_apply_delta( banks, fd_banks_pool_ele( bank_pool, idx ), 1 );
+  }
+
+  /* We have now applied all of the deltas including the new root. We
+     need to mark the rooted bank as being not dirty so we don't double
+     apply a delta. */
+  new_root->ele_delta_dirty = 0;
+
+  /* TODO:FIXME: DELTA STUFF ENDS HERE */
 
   fd_bank_t * head = fd_banks_map_ele_remove( bank_map, &old_root->slot_, NULL, bank_pool );
   head->next       = fd_banks_pool_idx_null( bank_pool );
