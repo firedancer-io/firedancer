@@ -1,27 +1,11 @@
-# These are example parameters to overwrite for the testnet cluster.
+# These are sample parameters to overwrite to join the testnet cluster.
 # Refer to src/app/firedancer/config/default.toml for documentation.
 
 [consensus]
-    expected_shred_version = 9065 # make sure this is current
-[development]
-    sandbox = false
-    no_agave = true
-    no_clone = true
-
-# Fill in the below
-
+    expected_shred_version = 0
 [gossip]
-    port = 0
-    entrypoints = [""]
-[log]
-    path = ""
-[paths]
-    identity_key = ""
-    vote_account = ""
-[tiles]
-    [tiles.repair]
-        repair_intake_listen_port = 0
-        repair_server_listen_port = 0
-    [tiles.replay]
-        cluster_version = ""
-        snapshot = ""
+    entrypoints = [
+        "entrypoint1.testnet.solana.com:8001",
+        "entrypoint2.testnet.solana.com:8001",
+        "entrypoint3.testnet.solana.com:8001",
+    ]
