@@ -6,25 +6,7 @@
 #define FD_CRDS_ALIGN 8UL
 #define FD_CRDS_MAGIC (0xf17eda2c37c7d50UL) /* firedancer crds version 0*/
 
-/* TODO: Use fd_gossip_private.h macros instead */
-#define FD_CRDS_TAG_LEGACY_CONTACT_INFO           ( 0)
-#define FD_CRDS_TAG_VOTE                          ( 1)
-#define FD_CRDS_TAG_LOWEST_SLOT                   ( 2)
-#define FD_CRDS_TAG_SNAPSHOT_HASHES               ( 3)
-#define FD_CRDS_TAG_ACCOUNT_HASHES                ( 4)
-#define FD_CRDS_TAG_EPOCH_SLOTS                   ( 5)
-#define FD_CRDS_TAG_LEGACY_VERSION_V1             ( 6)
-#define FD_CRDS_TAG_LEGACY_VERSION_V2             ( 7)
-#define FD_CRDS_TAG_NODE_INSTANCE                 ( 8)
-#define FD_CRDS_TAG_DUPLICATE_SHRED               ( 9)
-#define FD_CRDS_TAG_INC_SNAPSHOT_HASHES           (10)
-#define FD_CRDS_TAG_CONTACT_INFO                  (11)
-#define FD_CRDS_TAG_RESTART_LAST_VOTED_FORK_SLOTS (12)
-#define FD_CRDS_TAG_RESTART_HEAVIEST_FORK         (13)
-
-#define FD_CRDS_TAG_COUNT                         (14)
-
-FD_STATIC_ASSERT( FD_CRDS_TAG_COUNT==GOSSIP_CRDS_TYPES_COUNT,
+FD_STATIC_ASSERT( FD_GOSSIP_VALUE_COUNT==GOSSIP_CRDS_TYPES_COUNT,
                   "Gossip CRDS tag count does not match GOSSIP_CRDS_TYPES_COUNT, please update" );
 
 #include "fd_crds_contact_info.c"
@@ -226,13 +208,13 @@ lookup_hash( fd_crds_key_t const * key,
   ulong hash = fd_hash( seed, &key->tag, 1UL );
   hash = fd_hash( hash, key->pubkey, 32UL );
   switch( key->tag ) {
-    case FD_CRDS_TAG_VOTE:
+    case FD_GOSSIP_VALUE_VOTE:
       hash = fd_hash( hash, &key->vote_index, 1UL );
       break;
-    case FD_CRDS_TAG_EPOCH_SLOTS:
+    case FD_GOSSIP_VALUE_EPOCH_SLOTS:
       hash = fd_hash( hash, &key->epoch_slots_index, 1UL );
       break;
-    case FD_CRDS_TAG_DUPLICATE_SHRED:
+    case FD_GOSSIP_VALUE_DUPLICATE_SHRED:
       hash = fd_hash( hash, &key->duplicate_shred_index, 2UL );
       break;
     default:
@@ -247,11 +229,11 @@ lookup_eq( fd_crds_key_t const * key0,
   if( FD_UNLIKELY( key0->tag!=key1->tag ) ) return 0;
   if( FD_UNLIKELY( !!memcmp( key0->pubkey, key1->pubkey, 32UL ) ) ) return 0;
   switch( key0->tag ) {
-    case FD_CRDS_TAG_VOTE:
+    case FD_GOSSIP_VALUE_VOTE:
       return key0->vote_index==key1->vote_index;
-    case FD_CRDS_TAG_EPOCH_SLOTS:
+    case FD_GOSSIP_VALUE_EPOCH_SLOTS:
       return key0->epoch_slots_index==key1->epoch_slots_index;
-    case FD_CRDS_TAG_DUPLICATE_SHRED:
+    case FD_GOSSIP_VALUE_DUPLICATE_SHRED:
       return key0->duplicate_shred_index==key1->duplicate_shred_index;
     default:
       break;
@@ -602,7 +584,7 @@ fd_crds_expire( fd_crds_t *         crds,
     evict_treap_ele_remove( crds->evict_treap, head, crds->pool );
     fd_crds_release( crds, head );
 
-    if( FD_UNLIKELY( head->key.tag==FD_CRDS_TAG_CONTACT_INFO ) ) {
+    if( FD_UNLIKELY( head->key.tag==FD_GOSSIP_VALUE_CONTACT_INFO ) ) {
       remove_contact_info( crds, head, now, stem );
     }
   }
@@ -622,7 +604,7 @@ fd_crds_expire( fd_crds_t *         crds,
     evict_treap_ele_remove( crds->evict_treap, head, crds->pool );
     fd_crds_release( crds, head );
 
-    if( FD_UNLIKELY( head->key.tag==FD_CRDS_TAG_CONTACT_INFO ) ) {
+    if( FD_UNLIKELY( head->key.tag==FD_GOSSIP_VALUE_CONTACT_INFO ) ) {
       remove_contact_info( crds, head, now, stem );
     }
   }
@@ -671,7 +653,7 @@ fd_crds_acquire( fd_crds_t *         crds,
 
     hash_treap_ele_remove( crds->hash_treap, evict, crds->pool );
     lookup_map_ele_remove( crds->lookup_map, &evict->key, NULL, crds->pool );
-    if( FD_UNLIKELY( evict->key.tag==FD_CRDS_TAG_CONTACT_INFO ) ) {
+    if( FD_UNLIKELY( evict->key.tag==FD_GOSSIP_VALUE_CONTACT_INFO ) ) {
       remove_contact_info( crds, evict, now, stem );
     }
 
@@ -701,13 +683,13 @@ generate_key( fd_gossip_view_crds_value_t const * view,
   fd_memcpy( out_key->pubkey, payload+view->pubkey_off, 32UL );
 
   switch( out_key->tag ) {
-    case FD_CRDS_TAG_VOTE:
+    case FD_GOSSIP_VALUE_VOTE:
       out_key->vote_index = view->vote->index;
       break;
-    case FD_CRDS_TAG_EPOCH_SLOTS:
+    case FD_GOSSIP_VALUE_EPOCH_SLOTS:
       out_key->epoch_slots_index = view->epoch_slots->index;
       break;
-    case FD_CRDS_TAG_DUPLICATE_SHRED:
+    case FD_GOSSIP_VALUE_DUPLICATE_SHRED:
       out_key->duplicate_shred_index = view->duplicate_shred->index;
       break;
     default:
@@ -730,9 +712,9 @@ crds_entry_init( fd_gossip_view_crds_value_t const * view,
   fd_crds_genrate_hash( payload+view->value_off, view->length, out_value->value_hash );
   out_value->hash.hash = fd_ulong_load_8( out_value->value_hash );
 
-  if( FD_UNLIKELY( view->tag==FD_CRDS_TAG_NODE_INSTANCE ) ) {
+  if( FD_UNLIKELY( view->tag==FD_GOSSIP_VALUE_NODE_INSTANCE ) ) {
     fd_memcpy( out_value->node_instance.token, payload + view->node_instance->token_off, 32UL );
-  } else if( FD_UNLIKELY( key->tag==FD_CRDS_TAG_CONTACT_INFO ) ) {
+  } else if( FD_UNLIKELY( key->tag==FD_GOSSIP_VALUE_CONTACT_INFO ) ) {
     out_value->contact_info.instance_creation_wallclock_nanos = view->contact_info->instance_creation_wallclock_nanos;
     /* Contact Info entry will be added to sampler upon successful insertion */
     out_value->contact_info.sampler_idx = SAMPLE_IDX_SENTINEL;
@@ -783,13 +765,13 @@ overrides_fast( fd_crds_entry_t const *             existing,
   long candidate_ci_onset = candidate->contact_info->instance_creation_wallclock_nanos;
 
   switch( candidate->tag ) {
-    case FD_CRDS_TAG_CONTACT_INFO:
+    case FD_GOSSIP_VALUE_CONTACT_INFO:
       if( FD_UNLIKELY( candidate_ci_onset>existing_ci_onset ) ) return 1;
       else if( FD_UNLIKELY( candidate_ci_onset<existing_ci_onset ) ) return 0;
       else if( FD_UNLIKELY( candidate_wc>existing_wc ) ) return 1;
       else if( FD_UNLIKELY( candidate_wc<existing_wc ) ) return 0;
       break;
-    case FD_CRDS_TAG_NODE_INSTANCE:
+    case FD_GOSSIP_VALUE_NODE_INSTANCE:
       if( FD_LIKELY( !memcmp( payload+candidate->node_instance->token_off, existing->node_instance.token, 32UL ) ) ) break;
       else if( FD_LIKELY( memcmp( payload+candidate->pubkey_off, existing->key.pubkey, 32UL ) ) ) break;
       else if( FD_UNLIKELY( candidate_wc>existing_wc ) ) return 1;
@@ -869,11 +851,11 @@ publish_update_msg( fd_crds_t *                         crds,
                     long                                now,
                     fd_stem_context_t *                 stem ) {
   if( FD_UNLIKELY( !crds->gossip_update ) ) return;
-  if( FD_LIKELY( entry->key.tag!=FD_CRDS_TAG_CONTACT_INFO    &&
-                 entry->key.tag!=FD_CRDS_TAG_LOWEST_SLOT     &&
-                 entry->key.tag!=FD_CRDS_TAG_VOTE            &&
-                 entry->key.tag!=FD_CRDS_TAG_DUPLICATE_SHRED &&
-                 entry->key.tag!=FD_CRDS_TAG_SNAPSHOT_HASHES ) ) {
+  if( FD_LIKELY( entry->key.tag!=FD_GOSSIP_VALUE_CONTACT_INFO    &&
+                 entry->key.tag!=FD_GOSSIP_VALUE_LOWEST_SLOT     &&
+                 entry->key.tag!=FD_GOSSIP_VALUE_VOTE            &&
+                 entry->key.tag!=FD_GOSSIP_VALUE_DUPLICATE_SHRED &&
+                 entry->key.tag!=FD_GOSSIP_VALUE_INC_SNAPSHOT_HASHES ) ) {
     return;
   }
 
@@ -882,18 +864,18 @@ publish_update_msg( fd_crds_t *                         crds,
   fd_memcpy( msg->origin_pubkey, entry->key.pubkey, 32UL );
   ulong sz;
   switch( entry->key.tag ) {
-    case FD_CRDS_TAG_CONTACT_INFO:
+    case FD_GOSSIP_VALUE_CONTACT_INFO:
       msg->tag = FD_GOSSIP_UPDATE_TAG_CONTACT_INFO;
       *msg->contact_info.contact_info = *entry->contact_info.ci->contact_info;
       msg->contact_info.pool_idx = crds_contact_info_pool_idx( crds->contact_info.pool, entry->contact_info.ci );
       sz = FD_GOSSIP_UPDATE_SZ_CONTACT_INFO;
       break;
-    case FD_CRDS_TAG_LOWEST_SLOT:
+    case FD_GOSSIP_VALUE_LOWEST_SLOT:
       msg->tag = FD_GOSSIP_UPDATE_TAG_LOWEST_SLOT;
       sz = FD_GOSSIP_UPDATE_SZ_LOWEST_SLOT;
       msg->lowest_slot = entry_view->lowest_slot;
       break;
-    case FD_CRDS_TAG_VOTE:
+    case FD_GOSSIP_VALUE_VOTE:
       msg->tag = FD_GOSSIP_UPDATE_TAG_VOTE;
       /* TODO: dynamic sizing */
       sz = FD_GOSSIP_UPDATE_SZ_VOTE;
@@ -901,7 +883,7 @@ publish_update_msg( fd_crds_t *                         crds,
       msg->vote.txn_sz = entry_view->vote->txn_sz;
       fd_memcpy( msg->vote.txn, payload+entry_view->vote->txn_off, entry_view->vote->txn_sz );
       break;
-    case FD_CRDS_TAG_DUPLICATE_SHRED:
+    case FD_GOSSIP_VALUE_DUPLICATE_SHRED:
       msg->tag = FD_GOSSIP_UPDATE_TAG_DUPLICATE_SHRED;
       /* TODO: dynamic sizing */
       sz = FD_GOSSIP_UPDATE_SZ_DUPLICATE_SHRED;
@@ -916,7 +898,7 @@ publish_update_msg( fd_crds_t *                         crds,
         fd_memcpy( ds_msg->chunk, payload+ds->chunk_off, ds->chunk_len );
       }
       break;
-    case FD_CRDS_TAG_SNAPSHOT_HASHES:
+    case FD_GOSSIP_VALUE_INC_SNAPSHOT_HASHES:
       msg->tag = FD_GOSSIP_UPDATE_TAG_SNAPSHOT_HASHES;
       /* TODO: dynamic sizing */
       sz = FD_GOSSIP_UPDATE_SZ_SNAPSHOT_HASHES;
@@ -991,7 +973,7 @@ fd_crds_insert( fd_crds_t *                         crds,
 
     insert_purged( crds, replace->value_hash, now );
 
-    if( FD_UNLIKELY( replace->key.tag==FD_CRDS_TAG_CONTACT_INFO ) ) {
+    if( FD_UNLIKELY( replace->key.tag==FD_GOSSIP_VALUE_CONTACT_INFO ) ) {
       crds_contact_info_dlist_ele_remove( crds->contact_info.dlist, replace, crds->pool );
       candidate->contact_info.ci = replace->contact_info.ci;
 
@@ -1025,7 +1007,7 @@ fd_crds_insert( fd_crds_t *                         crds,
     hash_treap_ele_remove( crds->hash_treap, replace, crds->pool );
     lookup_map_ele_remove( crds->lookup_map, &replace->key, NULL, crds->pool );
     fd_crds_release( crds, replace );
-  } else if( candidate->key.tag==FD_CRDS_TAG_CONTACT_INFO ) {
+  } else if( candidate->key.tag==FD_GOSSIP_VALUE_CONTACT_INFO ) {
     if( FD_UNLIKELY( !crds_contact_info_pool_free( crds->contact_info.pool ) ) ) {
       FD_LOG_ERR(( "TODO: contact info pool exhausted, implement LRU based eviction?" ));
     }
@@ -1049,7 +1031,7 @@ fd_crds_insert( fd_crds_t *                         crds,
   hash_treap_ele_insert( crds->hash_treap, candidate, crds->pool );
   lookup_map_ele_insert( crds->lookup_map, candidate, crds->pool );
 
-  if( FD_UNLIKELY( candidate->key.tag==FD_CRDS_TAG_CONTACT_INFO ) ) {
+  if( FD_UNLIKELY( candidate->key.tag==FD_GOSSIP_VALUE_CONTACT_INFO ) ) {
     fd_crds_contact_info_init( candidate_view, payload, candidate->contact_info.ci->contact_info );
     crds_contact_info_dlist_ele_push_tail( crds->contact_info.dlist, candidate, crds->pool );
     if( FD_UNLIKELY( !is_replacing && !is_from_me ) ) {
@@ -1086,14 +1068,14 @@ fd_crds_entry_hash( fd_crds_entry_t const * entry ) {
 inline static fd_crds_key_t
 make_contact_info_key( uchar const * pubkey ) {
   fd_crds_key_t key[1];
-  key->tag = FD_CRDS_TAG_CONTACT_INFO;
+  key->tag = FD_GOSSIP_VALUE_CONTACT_INFO;
   fd_memcpy( key->pubkey, pubkey, 32UL );
   return *key;
 }
 
 int
 fd_crds_entry_is_contact_info(  fd_crds_entry_t const * entry ) {
-  return entry->key.tag==FD_CRDS_TAG_CONTACT_INFO;
+  return entry->key.tag==FD_GOSSIP_VALUE_CONTACT_INFO;
 }
 
 fd_contact_info_t *
