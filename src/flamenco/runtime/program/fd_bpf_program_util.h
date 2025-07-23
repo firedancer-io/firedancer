@@ -56,11 +56,6 @@ fd_sbpf_validated_program_align( void );
 ulong
 fd_sbpf_validated_program_footprint( fd_sbpf_elf_info_t const * elf_info );
 
-/* FIXME: Implement this (or remove?) */
-ulong
-fd_sbpf_validated_program_from_sbpf_program( fd_sbpf_program_t const *     prog,
-                                             fd_sbpf_validated_program_t * valid_prog );
-
 int
 fd_bpf_scan_and_create_bpf_program_cache_entry( fd_exec_slot_ctx_t * slot_ctx,
                                                 fd_spad_t *          runtime_spad );
