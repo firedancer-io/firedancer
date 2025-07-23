@@ -280,7 +280,11 @@ void
 fd_ssping_remove( fd_ssping_t * ssping,
                   fd_ip4_port_t addr ) {
   fd_ssping_peer_t * peer = peer_map_ele_query( ssping->map, &addr, NULL, ssping->pool );
-  FD_TEST( peer );
+
+  if( FD_UNLIKELY( !peer ) ) {
+    return;
+  }
+
   FD_TEST( peer->refcnt );
   peer->refcnt--;
   if( FD_LIKELY( !peer->refcnt ) ) {
