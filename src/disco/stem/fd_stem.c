@@ -190,6 +190,16 @@
 #define STEM_LAZY (0L)
 #endif
 
+#define STEM_SHUTDOWN_SEQ (ULONG_MAX-1UL)
+
+#ifndef STEM_IDLE_SLEEP_ENABLED
+#define STEM_IDLE_SLEEP_ENABLED (1)
+#endif
+
+#ifndef STEM_IDLE_THRESHOLD
+#define STEM_IDLE_THRESHOLD (2048UL)
+#endif
+
 static inline void
 STEM_(in_update)( fd_stem_tile_in_t * in ) {
   fd_fseq_update( in->fseq, in->seq );
@@ -239,16 +249,18 @@ STEM_(run1)( ulong                        in_cnt,
              ulong                        cons_cnt,
              ulong *                      _cons_out,
              ulong **                     _cons_fseq,
+             int                          idle_sleep,
              ulong                        burst,
              long                         lazy,
              fd_rng_t *                   rng,
              void *                       scratch,
              STEM_CALLBACK_CONTEXT_TYPE * ctx ) {
   /* in frag stream state */
-  ulong               in_seq; /* current position in input poll sequence, in [0,in_cnt) */
-  fd_stem_tile_in_t * in;     /* in[in_seq] for in_seq in [0,in_cnt) has information about input fragment stream currently at
-                                 position in_seq in the in_idx polling sequence.  The ordering of this array is continuously
-                                 shuffled to avoid lighthousing effects in the output fragment stream at extreme fan-in and load */
+  ulong               in_seq;        /* current position in input poll sequence, in [0,in_cnt) */
+  fd_stem_tile_in_t * in;            /* in[in_seq] for in_seq in [0,in_cnt) has information about input fragment stream currently at
+                                        position in_seq in the in_idx polling sequence.  The ordering of this array is continuously
+                                        shuffled to avoid lighthousing effects in the output fragment stream at extreme fan-in and load */
+  ulong               idle_iter_cnt; /* consecutive iterations without processing any fragments, tile can sleep when threshold is exceeded */
 
   /* out frag stream state */
   ulong *        out_depth; /* ==fd_mcache_depth( out_mcache[out_idx] ) for out_idx in [0, out_cnt) */
@@ -263,10 +275,11 @@ STEM_(run1)( ulong                        in_cnt,
   ulong *        cons_seq;     /* cons_seq [cons_idx] is the most recent observation of cons_fseq[cons_idx] */
 
   /* housekeeping state */
-  ulong    event_cnt; /* ==in_cnt+cons_cnt+1, total number of housekeeping events */
-  ulong    event_seq; /* current position in housekeeping event sequence, in [0,event_cnt) */
-  ushort * event_map; /* current mapping of event_seq to event idx, event_map[ event_seq ] is next event to process */
-  ulong    async_min; /* minimum number of ticks between processing a housekeeping event, positive integer power of 2 */
+  ulong    event_cnt;    /* ==in_cnt+cons_cnt+1, total number of housekeeping events */
+  ulong    event_seq;    /* current position in housekeeping event sequence, in [0,event_cnt) */
+  ushort * event_map;    /* current mapping of event_seq to event idx, event_map[ event_seq ] is next event to process */
+  ulong    async_min;    /* minimum number of ticks between processing a housekeeping event, positive integer power of 2 */
+  double   ticks_per_ns; /* ticks per nanosecond for timing calculations */
 
   /* performance metrics */
   ulong metric_in_backp;  /* is the run loop currently backpressured by one or more of the outs, in [0,1] */
@@ -313,6 +326,12 @@ STEM_(run1)( ulong                        in_cnt,
     this_in->accum[0] = 0U; this_in->accum[1] = 0U; this_in->accum[2] = 0U;
     this_in->accum[3] = 0U; this_in->accum[4] = 0U; this_in->accum[5] = 0U;
   }
+
+  idle_iter_cnt = 0;
+#if !STEM_IDLE_SLEEP_ENABLED
+  (void)idle_sleep;
+  (void)idle_iter_cnt;
+#endif
 
   /* out frag stream init */
 
@@ -365,7 +384,8 @@ STEM_(run1)( ulong                        in_cnt,
   for( ulong cons_idx=0UL; cons_idx<cons_cnt; cons_idx++ ) event_map[ event_seq++ ] = (ushort)cons_idx;
   event_seq = 0UL;
 
-  async_min = fd_tempo_async_min( lazy, event_cnt, (float)fd_tempo_tick_per_ns( NULL ) );
+  ticks_per_ns = fd_tempo_tick_per_ns( NULL );
+  async_min    = fd_tempo_async_min( lazy, event_cnt, (float)ticks_per_ns );
   if( FD_UNLIKELY( !async_min ) ) FD_LOG_ERR(( "bad lazy %lu %lu", (ulong)lazy, event_cnt ));
 
   FD_LOG_INFO(( "Running stem, cr_max = %lu", cr_max ));
@@ -489,6 +509,22 @@ STEM_(run1)( ulong                        in_cnt,
       now = next;
     }
 
+    idle_iter_cnt++;
+
+#if STEM_IDLE_SLEEP_ENABLED
+    if ( FD_UNLIKELY( idle_sleep && idle_iter_cnt>STEM_IDLE_THRESHOLD ) ) {
+      long ticks_until_deadline = then - now;
+      long ns_until_deadline    = (long)((double)ticks_until_deadline / ticks_per_ns);
+      fd_log_sleep( ns_until_deadline );
+
+      metric_regime_ticks[0] += housekeeping_ticks;
+      housekeeping_ticks      = 0;
+      long next = fd_tickcount();
+      metric_regime_ticks[8] += (ulong)(next - now);
+      now = next;
+    }
+#endif
+
 #if defined(STEM_CALLBACK_BEFORE_CREDIT) || defined(STEM_CALLBACK_AFTER_CREDIT) || defined(STEM_CALLBACK_AFTER_FRAG) || defined(STEM_CALLBACK_RETURNABLE_FRAG)
     fd_stem_context_t stem = {
       .mcaches             = out_mcache,
@@ -548,6 +584,7 @@ STEM_(run1)( ulong                        in_cnt,
       if( FD_UNLIKELY( was_busy ) ) metric_regime_ticks[3] += (ulong)(next - now);
       else                          metric_regime_ticks[6] += (ulong)(next - now);
       now = next;
+      if( FD_UNLIKELY( was_busy ) ) idle_iter_cnt = 0;
       continue;
     }
 
@@ -564,6 +601,7 @@ STEM_(run1)( ulong                        in_cnt,
       long prefrag_next = fd_tickcount();
       prefrag_ticks = (ulong)(prefrag_next - now);
       now = prefrag_next;
+      idle_iter_cnt = 0;
     }
 #endif
 
@@ -694,6 +732,7 @@ STEM_(run1)( ulong                        in_cnt,
 #endif
 
     /* Windup for the next in poll and accumulate diagnostics */
+    idle_iter_cnt  = 0;
 
     this_in_seq    = fd_seq_inc( this_in_seq, 1UL );
     this_in->seq   = this_in_seq;
@@ -767,6 +806,7 @@ STEM_(run)( fd_topo_t *      topo,
                reliable_cons_cnt,
                cons_out,
                cons_fseq,
+               tile->idle_sleep,
                STEM_BURST,
                STEM_LAZY,
                rng,

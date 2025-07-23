@@ -33,8 +33,10 @@ fsync: (eq (arg 0) logfile_fd)
 #
 # The monitor calls fd_log_wait_until() to wait until the diagnostic
 # output screen should be refreshed, and that function can call
-# nanosleep depending on the amount of time left to wait.
-nanosleep
+# clock_nanosleep (syscall used by glibc's nanosleep) depending
+# on the amount of time left to wait.
+clock_nanosleep: (and (eq (arg 0) CLOCK_REALTIME)
+                      (eq (arg 1) 0))
 
 # monitor: wait until we need to print again
 #

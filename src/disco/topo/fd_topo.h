@@ -121,6 +121,7 @@ struct fd_topo_tile {
   ulong kind_id;                /* The ID of this tile within its name.  If there are n tile of a particular name, they have IDs [0, N).  The pair (name, kind_id) uniquely identifies a tile, as does "id" on its own. */
   int   is_agave;               /* If the tile needs to run in the Agave (Anza) address space or not. */
   int   allow_shutdown;         /* If the tile is allowed to shutdown gracefully.  If false, when the tile exits it will tear down the entire application. */
+  int   idle_sleep;             /* If the tile should sleep when idle. */
 
   ulong cpu_idx;                /* The CPU index to pin the tile on.  A value of ULONG_MAX or more indicates the tile should be floating and not pinned to a core. */
 
@@ -522,6 +523,8 @@ struct fd_topo {
 
   ulong          max_page_size; /* 2^21 or 2^30 */
   ulong          gigantic_page_threshold; /* see [hugetlbfs.gigantic_page_threshold_mib]*/
+
+  int            low_power_mode;
 };
 typedef struct fd_topo fd_topo_t;
 

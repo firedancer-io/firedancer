@@ -142,6 +142,7 @@ fd_topob_tile( fd_topo_t *    topo,
   tile->id                  = topo->tile_cnt;
   tile->kind_id             = kind_id;
   tile->is_agave            = is_agave;
+  tile->idle_sleep          = topo->low_power_mode;
   tile->cpu_idx             = cpu_idx;
   tile->in_cnt              = 0UL;
   tile->out_cnt             = 0UL;

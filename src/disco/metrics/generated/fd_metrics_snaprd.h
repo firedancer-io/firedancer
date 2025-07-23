@@ -3,67 +3,67 @@
 #include "../fd_metrics_base.h"
 #include "fd_metrics_enums.h"
 
-#define FD_METRICS_GAUGE_SNAPRD_STATE_OFF  (16UL)
+#define FD_METRICS_GAUGE_SNAPRD_STATE_OFF  (17UL)
 #define FD_METRICS_GAUGE_SNAPRD_STATE_NAME "snaprd_state"
 #define FD_METRICS_GAUGE_SNAPRD_STATE_TYPE (FD_METRICS_TYPE_GAUGE)
 #define FD_METRICS_GAUGE_SNAPRD_STATE_DESC "State of the tile. 0 = waiting for at least one peer from gossip, 1 = collecting peers from gossip, 2 = pinging peers, 3 = collecting ping responses, 4 = reading full snapshot file, 5 = reading incremental snapshot file, 6 = downloading full snapshot file, 7 = downloading incremental snapshot file, 8 = pinging peers before loading the incremental snapshot, 0 = collecting ping responses before loading the incremental snapshot, 10 = waiting for full snapshot to finish loading, 11 = waiting for incremental snapshot to finish loading, 12 = done."
 #define FD_METRICS_GAUGE_SNAPRD_STATE_CVT  (FD_METRICS_CONVERTER_NONE)
 
-#define FD_METRICS_COUNTER_SNAPRD_FULL_NUM_RETRIES_OFF  (17UL)
+#define FD_METRICS_COUNTER_SNAPRD_FULL_NUM_RETRIES_OFF  (18UL)
 #define FD_METRICS_COUNTER_SNAPRD_FULL_NUM_RETRIES_NAME "snaprd_full_num_retries"
 #define FD_METRICS_COUNTER_SNAPRD_FULL_NUM_RETRIES_TYPE (FD_METRICS_TYPE_COUNTER)
 #define FD_METRICS_COUNTER_SNAPRD_FULL_NUM_RETRIES_DESC "Number of times we aborted and retried full snapshot download because the peer was too slow"
 #define FD_METRICS_COUNTER_SNAPRD_FULL_NUM_RETRIES_CVT  (FD_METRICS_CONVERTER_NONE)
 
-#define FD_METRICS_COUNTER_SNAPRD_INCREMENTAL_NUM_RETRIES_OFF  (18UL)
+#define FD_METRICS_COUNTER_SNAPRD_INCREMENTAL_NUM_RETRIES_OFF  (19UL)
 #define FD_METRICS_COUNTER_SNAPRD_INCREMENTAL_NUM_RETRIES_NAME "snaprd_incremental_num_retries"
 #define FD_METRICS_COUNTER_SNAPRD_INCREMENTAL_NUM_RETRIES_TYPE (FD_METRICS_TYPE_COUNTER)
 #define FD_METRICS_COUNTER_SNAPRD_INCREMENTAL_NUM_RETRIES_DESC "Number of times we aborted and retried incremental snapshot download because the peer was too slow"
 #define FD_METRICS_COUNTER_SNAPRD_INCREMENTAL_NUM_RETRIES_CVT  (FD_METRICS_CONVERTER_NONE)
 
-#define FD_METRICS_GAUGE_SNAPRD_FULL_BYTES_READ_OFF  (19UL)
+#define FD_METRICS_GAUGE_SNAPRD_FULL_BYTES_READ_OFF  (20UL)
 #define FD_METRICS_GAUGE_SNAPRD_FULL_BYTES_READ_NAME "snaprd_full_bytes_read"
 #define FD_METRICS_GAUGE_SNAPRD_FULL_BYTES_READ_TYPE (FD_METRICS_TYPE_GAUGE)
 #define FD_METRICS_GAUGE_SNAPRD_FULL_BYTES_READ_DESC "Number of bytes read so far from the full snapshot. Might decrease if snapshot load is aborted and restarted"
 #define FD_METRICS_GAUGE_SNAPRD_FULL_BYTES_READ_CVT  (FD_METRICS_CONVERTER_NONE)
 
-#define FD_METRICS_GAUGE_SNAPRD_FULL_BYTES_WRITTEN_OFF  (20UL)
+#define FD_METRICS_GAUGE_SNAPRD_FULL_BYTES_WRITTEN_OFF  (21UL)
 #define FD_METRICS_GAUGE_SNAPRD_FULL_BYTES_WRITTEN_NAME "snaprd_full_bytes_written"
 #define FD_METRICS_GAUGE_SNAPRD_FULL_BYTES_WRITTEN_TYPE (FD_METRICS_TYPE_GAUGE)
 #define FD_METRICS_GAUGE_SNAPRD_FULL_BYTES_WRITTEN_DESC "Number of bytes written so far from the full snapshot. Might decrease if snapshot load is aborted and restarted"
 #define FD_METRICS_GAUGE_SNAPRD_FULL_BYTES_WRITTEN_CVT  (FD_METRICS_CONVERTER_NONE)
 
-#define FD_METRICS_GAUGE_SNAPRD_FULL_BYTES_TOTAL_OFF  (21UL)
+#define FD_METRICS_GAUGE_SNAPRD_FULL_BYTES_TOTAL_OFF  (22UL)
 #define FD_METRICS_GAUGE_SNAPRD_FULL_BYTES_TOTAL_NAME "snaprd_full_bytes_total"
 #define FD_METRICS_GAUGE_SNAPRD_FULL_BYTES_TOTAL_TYPE (FD_METRICS_TYPE_GAUGE)
 #define FD_METRICS_GAUGE_SNAPRD_FULL_BYTES_TOTAL_DESC "Total size of the full snapshot file. Might change if snapshot load is aborted and restarted"
 #define FD_METRICS_GAUGE_SNAPRD_FULL_BYTES_TOTAL_CVT  (FD_METRICS_CONVERTER_NONE)
 
-#define FD_METRICS_GAUGE_SNAPRD_FULL_DOWNLOAD_RETRIES_OFF  (22UL)
+#define FD_METRICS_GAUGE_SNAPRD_FULL_DOWNLOAD_RETRIES_OFF  (23UL)
 #define FD_METRICS_GAUGE_SNAPRD_FULL_DOWNLOAD_RETRIES_NAME "snaprd_full_download_retries"
 #define FD_METRICS_GAUGE_SNAPRD_FULL_DOWNLOAD_RETRIES_TYPE (FD_METRICS_TYPE_GAUGE)
 #define FD_METRICS_GAUGE_SNAPRD_FULL_DOWNLOAD_RETRIES_DESC "Number of times we retried the full snapshot download because the peer was too slow"
 #define FD_METRICS_GAUGE_SNAPRD_FULL_DOWNLOAD_RETRIES_CVT  (FD_METRICS_CONVERTER_NONE)
 
-#define FD_METRICS_GAUGE_SNAPRD_INCREMENTAL_BYTES_READ_OFF  (23UL)
+#define FD_METRICS_GAUGE_SNAPRD_INCREMENTAL_BYTES_READ_OFF  (24UL)
 #define FD_METRICS_GAUGE_SNAPRD_INCREMENTAL_BYTES_READ_NAME "snaprd_incremental_bytes_read"
 #define FD_METRICS_GAUGE_SNAPRD_INCREMENTAL_BYTES_READ_TYPE (FD_METRICS_TYPE_GAUGE)
 #define FD_METRICS_GAUGE_SNAPRD_INCREMENTAL_BYTES_READ_DESC "Number of bytes read so far from the incremental snapshot. Might decrease if snapshot load is aborted and restarted"
 #define FD_METRICS_GAUGE_SNAPRD_INCREMENTAL_BYTES_READ_CVT  (FD_METRICS_CONVERTER_NONE)
 
-#define FD_METRICS_GAUGE_SNAPRD_INCREMENTAL_BYTES_WRITTEN_OFF  (24UL)
+#define FD_METRICS_GAUGE_SNAPRD_INCREMENTAL_BYTES_WRITTEN_OFF  (25UL)
 #define FD_METRICS_GAUGE_SNAPRD_INCREMENTAL_BYTES_WRITTEN_NAME "snaprd_incremental_bytes_written"
 #define FD_METRICS_GAUGE_SNAPRD_INCREMENTAL_BYTES_WRITTEN_TYPE (FD_METRICS_TYPE_GAUGE)
 #define FD_METRICS_GAUGE_SNAPRD_INCREMENTAL_BYTES_WRITTEN_DESC "Number of bytes written so far from the incremental snapshot. Might decrease if snapshot load is aborted and restarted"
 #define FD_METRICS_GAUGE_SNAPRD_INCREMENTAL_BYTES_WRITTEN_CVT  (FD_METRICS_CONVERTER_NONE)
 
-#define FD_METRICS_GAUGE_SNAPRD_INCREMENTAL_BYTES_TOTAL_OFF  (25UL)
+#define FD_METRICS_GAUGE_SNAPRD_INCREMENTAL_BYTES_TOTAL_OFF  (26UL)
 #define FD_METRICS_GAUGE_SNAPRD_INCREMENTAL_BYTES_TOTAL_NAME "snaprd_incremental_bytes_total"
 #define FD_METRICS_GAUGE_SNAPRD_INCREMENTAL_BYTES_TOTAL_TYPE (FD_METRICS_TYPE_GAUGE)
 #define FD_METRICS_GAUGE_SNAPRD_INCREMENTAL_BYTES_TOTAL_DESC "Total size of the incremental snapshot file. Might change if snapshot load is aborted and restarted"
 #define FD_METRICS_GAUGE_SNAPRD_INCREMENTAL_BYTES_TOTAL_CVT  (FD_METRICS_CONVERTER_NONE)
 
-#define FD_METRICS_GAUGE_SNAPRD_INCREMENTAL_DOWNLOAD_RETRIES_OFF  (26UL)
+#define FD_METRICS_GAUGE_SNAPRD_INCREMENTAL_DOWNLOAD_RETRIES_OFF  (27UL)
 #define FD_METRICS_GAUGE_SNAPRD_INCREMENTAL_DOWNLOAD_RETRIES_NAME "snaprd_incremental_download_retries"
 #define FD_METRICS_GAUGE_SNAPRD_INCREMENTAL_DOWNLOAD_RETRIES_TYPE (FD_METRICS_TYPE_GAUGE)
 #define FD_METRICS_GAUGE_SNAPRD_INCREMENTAL_DOWNLOAD_RETRIES_DESC "Number of times we retried the incremental snapshot download because the peer was too slow"
