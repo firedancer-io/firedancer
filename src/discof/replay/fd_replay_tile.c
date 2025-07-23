@@ -65,21 +65,7 @@ struct fd_replay_in_link {
 
 typedef struct fd_replay_in_link fd_replay_in_link_t;
 
-struct fd_replay_out_link {
-  ulong            idx;
-
-  fd_frag_meta_t * mcache;
-  ulong *          sync;
-  ulong            depth;
-  ulong            seq;
-
-  fd_wksp_t * mem;
-  ulong       chunk0;
-  ulong       wmark;
-  ulong       chunk;
-
-};
-typedef struct fd_replay_out_link fd_replay_out_link_t;
+/* fd_replay_out_link_t is defined in fd_runtime.h */
 
 struct fd_replay_tile_metrics {
   ulong slot;
@@ -584,7 +570,9 @@ init_after_snapshot( fd_replay_tile_ctx_t * ctx,
     fd_runtime_block_execute_finalize_sequential( ctx->slot_ctx,
                                             ctx->capture_ctx,
                                             &info,
-                                            ctx->runtime_spad );
+                                            ctx->runtime_spad,
+                                            stem,
+                                            ctx->capture_out );
 
     snapshot_slot = 1UL;
 
@@ -1306,7 +1294,9 @@ exec_slice_fini_slot( fd_replay_tile_ctx_t * ctx, fd_stem_context_t * stem ) {
   fd_runtime_block_execute_finalize_sequential( ctx->slot_ctx,
                                           ctx->capture_ctx,
                                           runtime_block_info,
-                                          ctx->runtime_spad );
+                                          ctx->runtime_spad,
+                                          stem,
+                                          ctx->capture_out );
 
   ulong curr_slot = fd_bank_slot_get( ctx->slot_ctx->bank );
 
