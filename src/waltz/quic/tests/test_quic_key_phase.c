@@ -143,6 +143,8 @@ client_fibre_fn( void * vp_arg ) {
     fd_fibre_wait_until( (long)next_wakeup );
   }
 
+  FD_TEST( conn->state == FD_QUIC_CONN_STATE_ACTIVE );
+
   next_send = now;
 
   uint last_key_phase = conn->key_phase;
@@ -328,6 +330,8 @@ main( int argc, char ** argv ) {
   server_quic->cb.now_ctx = NULL;
 
   server_quic->config.initial_rx_max_stream_data = 1<<15;
+
+  client_quic->config.keep_alive = 1;
 
   fd_quic_virtual_pair_t vp;
   fd_quic_virtual_pair_init( &vp, /*a*/ client_quic, /*b*/ server_quic );
