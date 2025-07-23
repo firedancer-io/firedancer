@@ -1101,6 +1101,11 @@ dynamic_port_range = "8900-9000"
         # determines whether the feature is enabled in the validator.
         retry = true
 
+        # Log TLS encryption keys to decrypt QUIC traffic to this file
+        # path in NSS SSLKEYLOGFILE format.  An empty string (the
+        # default) disables key logging.
+        ssl_key_log_file = ""
+
     # Verify tiles perform signature verification of incoming
     # transactions, making sure that the data is well-formed, and that
     # it is signed by the appropriate private key.

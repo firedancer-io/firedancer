@@ -193,6 +193,7 @@ struct fd_topo_tile {
       ulong  idle_timeout_millis;
       uint   ack_delay_millis;
       int    retry;
+      char   key_log_path[ PATH_MAX ];
     } quic;
 
     struct {

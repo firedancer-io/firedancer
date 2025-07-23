@@ -6,6 +6,7 @@
 #include "../topo/fd_topo.h"
 #include "../net/fd_net_tile.h"
 #include "../../waltz/quic/fd_quic.h"
+#include "../../util/io/fd_io.h"
 
 #define FD_QUIC_TILE_IN_MAX (8UL)
 
@@ -38,6 +39,11 @@ typedef struct {
   ulong       net_out_chunk;
 
   fd_wksp_t * verify_out_mem;
+
+  long                     keylog_next_flush;
+  int                      keylog_fd;
+  fd_io_buffered_ostream_t keylog_stream;
+  char                     keylog_buf[ 4096 ];
 
   struct {
     ulong txns_received_udp;

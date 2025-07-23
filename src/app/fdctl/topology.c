@@ -385,6 +385,7 @@ fd_topo_initialize( config_t * config ) {
       tile->quic.idle_timeout_millis            = config->tiles.quic.idle_timeout_millis;
       tile->quic.ack_delay_millis               = config->tiles.quic.ack_delay_millis;
       tile->quic.retry                          = config->tiles.quic.retry;
+      fd_cstr_fini( fd_cstr_append_cstr_safe( fd_cstr_init( tile->quic.key_log_path ), config->tiles.quic.ssl_key_log_file, sizeof(tile->quic.key_log_path) ) );
 
     } else if( FD_UNLIKELY( !strcmp( tile->name, "bundle" ) ) ) {
       strncpy( tile->bundle.url, config->tiles.bundle.url, sizeof(tile->bundle.url) );

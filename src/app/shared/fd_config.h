@@ -346,6 +346,8 @@ struct fd_config {
       uint idle_timeout_millis;
       uint ack_delay_millis;
       int  retry;
+
+      char ssl_key_log_file[ PATH_MAX ];
     } quic;
 
     struct {
