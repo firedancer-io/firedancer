@@ -1,5 +1,6 @@
 #define _GNU_SOURCE
 #include "../../disco/tiles.h"
+#include "../../disco/capture/fd_capture.h"
 #include "generated/fd_replay_tile_seccomp.h"
 
 #include "fd_replay_notif.h"
@@ -116,6 +117,7 @@ struct fd_replay_tile_ctx {
   // Inputs to plugin/gui
   fd_replay_out_link_t plugin_out[1];
   fd_replay_out_link_t votes_plugin_out[1];
+  fd_replay_out_link_t capture_out[1];
   long                 last_plugin_push_time;
 
   char const * blockstore_checkpt;
@@ -246,6 +248,32 @@ struct fd_replay_tile_ctx {
   ulong         _snap_out_chunk;
 };
 typedef struct fd_replay_tile_ctx fd_replay_tile_ctx_t;
+
+/* Helper functions to send messages to the capture tile */
+
+static inline void
+send_capture_set_slot( fd_replay_tile_ctx_t * ctx, 
+                       fd_stem_context_t *    stem,
+                       ulong                  slot ) {
+  if( FD_UNLIKELY( ctx->capture_out->idx == ULONG_MAX ) ) return;
+  
+  void * msg = fd_chunk_to_laddr( ctx->capture_out->mem, ctx->capture_out->chunk );
+  fd_capture_msg_set_slot_t * slot_msg = fd_capture_msg_set_slot( msg, slot );
+  if( FD_UNLIKELY( !slot_msg ) ) {
+    FD_LOG_WARNING(( "Failed to create capture set_slot message" ));
+    return;
+  }
+  
+  ulong sig  = FD_CAPTURE_MSG_TYPE_SET_SLOT;
+  ulong sz   = sizeof(fd_capture_msg_set_slot_t);
+  ulong ctl  = 0UL;
+  ulong tspub = (ulong)fd_frag_meta_ts_comp( fd_tickcount() );
+  
+  fd_stem_publish( stem, ctx->capture_out->idx, sig, ctx->capture_out->chunk, sz, ctl, 0UL, tspub );
+  
+  ctx->capture_out->chunk = fd_dcache_compact_next( ctx->capture_out->chunk, sz,
+                                                     ctx->capture_out->chunk0, ctx->capture_out->wmark );
+}
 
 FD_FN_CONST static inline ulong
 scratch_align( void ) {
@@ -1201,7 +1229,7 @@ handle_slot_change( fd_replay_tile_ctx_t * ctx,
   }
 
   if( ctx->capture_ctx ) {
-    fd_solcap_writer_set_slot( ctx->capture_ctx->capture, slot );
+    send_capture_set_slot( ctx, stem, slot );
   }
 }
 
@@ -1988,6 +2016,20 @@ unprivileged_init( fd_topo_t *      topo,
   if( strnlen( tile->replay.slots_replayed, sizeof(tile->replay.slots_replayed) )>0UL ) {
     ctx->slots_replayed_file = fopen( tile->replay.slots_replayed, "w" );
     FD_TEST( ctx->slots_replayed_file );
+  }
+
+  /* Set up capture tile output */
+  ulong replay_capture_idx = fd_topo_find_tile_out_link( topo, tile, "replay_capture", 0 );
+  if( FD_UNLIKELY( replay_capture_idx!=ULONG_MAX ) ) {
+    fd_topo_link_t * capture_out = &topo->links[ tile->out_link_id[ replay_capture_idx ] ];
+    FD_TEST( capture_out );
+    ctx->capture_out->idx    = replay_capture_idx;
+    ctx->capture_out->mem    = topo->workspaces[ topo->objs[ capture_out->dcache_obj_id ].wksp_id ].wksp;
+    ctx->capture_out->chunk0 = fd_dcache_compact_chunk0( ctx->capture_out->mem, capture_out->dcache );
+    ctx->capture_out->wmark  = fd_dcache_compact_wmark ( ctx->capture_out->mem, capture_out->dcache, capture_out->mtu );
+    ctx->capture_out->chunk  = ctx->capture_out->chunk0;
+  } else {
+    ctx->capture_out->idx = ULONG_MAX;
   }
 
   FD_TEST( ctx->runtime_public!=NULL );
