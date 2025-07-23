@@ -2572,10 +2572,18 @@ struct fd_bpf_upgradeable_loader_program_instruction_extend_program {
 typedef struct fd_bpf_upgradeable_loader_program_instruction_extend_program fd_bpf_upgradeable_loader_program_instruction_extend_program_t;
 #define FD_BPF_UPGRADEABLE_LOADER_PROGRAM_INSTRUCTION_EXTEND_PROGRAM_ALIGN alignof(fd_bpf_upgradeable_loader_program_instruction_extend_program_t)
 
+/* Encoded Size: Fixed (4 bytes) */
+struct fd_bpf_upgradeable_loader_program_instruction_extend_program_checked {
+  uint additional_bytes;
+};
+typedef struct fd_bpf_upgradeable_loader_program_instruction_extend_program_checked fd_bpf_upgradeable_loader_program_instruction_extend_program_checked_t;
+#define FD_BPF_UPGRADEABLE_LOADER_PROGRAM_INSTRUCTION_EXTEND_PROGRAM_CHECKED_ALIGN alignof(fd_bpf_upgradeable_loader_program_instruction_extend_program_checked_t)
+
 union fd_bpf_upgradeable_loader_program_instruction_inner {
   fd_bpf_upgradeable_loader_program_instruction_write_t write;
   fd_bpf_upgradeable_loader_program_instruction_deploy_with_max_data_len_t deploy_with_max_data_len;
   fd_bpf_upgradeable_loader_program_instruction_extend_program_t extend_program;
+  fd_bpf_upgradeable_loader_program_instruction_extend_program_checked_t extend_program_checked;
 };
 typedef union fd_bpf_upgradeable_loader_program_instruction_inner fd_bpf_upgradeable_loader_program_instruction_inner_t;
 
@@ -5402,6 +5410,18 @@ static inline int fd_bpf_upgradeable_loader_program_instruction_extend_program_d
 }
 void * fd_bpf_upgradeable_loader_program_instruction_extend_program_decode( void * mem, fd_bincode_decode_ctx_t * ctx );
 
+static inline void fd_bpf_upgradeable_loader_program_instruction_extend_program_checked_new( fd_bpf_upgradeable_loader_program_instruction_extend_program_checked_t * self ) { fd_memset( self, 0, sizeof(fd_bpf_upgradeable_loader_program_instruction_extend_program_checked_t) ); }
+int fd_bpf_upgradeable_loader_program_instruction_extend_program_checked_encode( fd_bpf_upgradeable_loader_program_instruction_extend_program_checked_t const * self, fd_bincode_encode_ctx_t * ctx );
+void fd_bpf_upgradeable_loader_program_instruction_extend_program_checked_walk( void * w, fd_bpf_upgradeable_loader_program_instruction_extend_program_checked_t const * self, fd_types_walk_fn_t fun, const char *name, uint level, uint varint );
+static inline ulong fd_bpf_upgradeable_loader_program_instruction_extend_program_checked_size( fd_bpf_upgradeable_loader_program_instruction_extend_program_checked_t const * self ) { (void)self; return 4UL; }
+static inline ulong fd_bpf_upgradeable_loader_program_instruction_extend_program_checked_align( void ) { return FD_BPF_UPGRADEABLE_LOADER_PROGRAM_INSTRUCTION_EXTEND_PROGRAM_CHECKED_ALIGN; }
+static inline int fd_bpf_upgradeable_loader_program_instruction_extend_program_checked_decode_footprint( fd_bincode_decode_ctx_t * ctx, ulong * total_sz ) {
+  *total_sz += sizeof(fd_bpf_upgradeable_loader_program_instruction_extend_program_checked_t);
+  if( (ulong)ctx->data + 4UL > (ulong)ctx->dataend ) { return FD_BINCODE_ERR_OVERFLOW; };
+  return 0;
+}
+void * fd_bpf_upgradeable_loader_program_instruction_extend_program_checked_decode( void * mem, fd_bincode_decode_ctx_t * ctx );
+
 void fd_bpf_upgradeable_loader_program_instruction_new_disc( fd_bpf_upgradeable_loader_program_instruction_t * self, uint discriminant );
 void fd_bpf_upgradeable_loader_program_instruction_new( fd_bpf_upgradeable_loader_program_instruction_t * self );
 int fd_bpf_upgradeable_loader_program_instruction_encode( fd_bpf_upgradeable_loader_program_instruction_t const * self, fd_bincode_encode_ctx_t * ctx );
@@ -5420,6 +5440,7 @@ FD_FN_PURE uchar fd_bpf_upgradeable_loader_program_instruction_is_close( fd_bpf_
 FD_FN_PURE uchar fd_bpf_upgradeable_loader_program_instruction_is_extend_program( fd_bpf_upgradeable_loader_program_instruction_t const * self );
 FD_FN_PURE uchar fd_bpf_upgradeable_loader_program_instruction_is_set_authority_checked( fd_bpf_upgradeable_loader_program_instruction_t const * self );
 FD_FN_PURE uchar fd_bpf_upgradeable_loader_program_instruction_is_migrate( fd_bpf_upgradeable_loader_program_instruction_t const * self );
+FD_FN_PURE uchar fd_bpf_upgradeable_loader_program_instruction_is_extend_program_checked( fd_bpf_upgradeable_loader_program_instruction_t const * self );
 enum {
 fd_bpf_upgradeable_loader_program_instruction_enum_initialize_buffer = 0,
 fd_bpf_upgradeable_loader_program_instruction_enum_write = 1,
@@ -5430,6 +5451,7 @@ fd_bpf_upgradeable_loader_program_instruction_enum_close = 5,
 fd_bpf_upgradeable_loader_program_instruction_enum_extend_program = 6,
 fd_bpf_upgradeable_loader_program_instruction_enum_set_authority_checked = 7,
 fd_bpf_upgradeable_loader_program_instruction_enum_migrate = 8,
+fd_bpf_upgradeable_loader_program_instruction_enum_extend_program_checked = 9,
 };
 void fd_bpf_upgradeable_loader_state_buffer_new( fd_bpf_upgradeable_loader_state_buffer_t * self );
 int fd_bpf_upgradeable_loader_state_buffer_encode( fd_bpf_upgradeable_loader_state_buffer_t const * self, fd_bincode_encode_ctx_t * ctx );

@@ -15919,6 +15919,35 @@ void fd_bpf_upgradeable_loader_program_instruction_extend_program_walk( void * w
   fun( w, &self->additional_bytes, "additional_bytes", FD_FLAMENCO_TYPE_UINT, "uint", level, 0  );
   fun( w, self, name, FD_FLAMENCO_TYPE_MAP_END, "fd_bpf_upgradeable_loader_program_instruction_extend_program", level--, 0 );
 }
+int fd_bpf_upgradeable_loader_program_instruction_extend_program_checked_encode( fd_bpf_upgradeable_loader_program_instruction_extend_program_checked_t const * self, fd_bincode_encode_ctx_t * ctx ) {
+  int err;
+  err = fd_bincode_uint32_encode( self->additional_bytes, ctx );
+  if( FD_UNLIKELY( err ) ) return err;
+  return FD_BINCODE_SUCCESS;
+}
+static inline int fd_bpf_upgradeable_loader_program_instruction_extend_program_checked_decode_footprint_inner( fd_bincode_decode_ctx_t * ctx, ulong * total_sz ) {
+  if( (ulong)ctx->data + 4UL > (ulong)ctx->dataend ) { return FD_BINCODE_ERR_OVERFLOW; };
+  ctx->data = (void *)( (ulong)ctx->data + 4UL );
+  return 0;
+}
+static void fd_bpf_upgradeable_loader_program_instruction_extend_program_checked_decode_inner( void * struct_mem, void * * alloc_mem, fd_bincode_decode_ctx_t * ctx ) {
+  fd_bpf_upgradeable_loader_program_instruction_extend_program_checked_t * self = (fd_bpf_upgradeable_loader_program_instruction_extend_program_checked_t *)struct_mem;
+  fd_bincode_uint32_decode_unsafe( &self->additional_bytes, ctx );
+}
+void * fd_bpf_upgradeable_loader_program_instruction_extend_program_checked_decode( void * mem, fd_bincode_decode_ctx_t * ctx ) {
+  fd_bpf_upgradeable_loader_program_instruction_extend_program_checked_t * self = (fd_bpf_upgradeable_loader_program_instruction_extend_program_checked_t *)mem;
+  fd_bpf_upgradeable_loader_program_instruction_extend_program_checked_new( self );
+  void * alloc_region = (uchar *)mem + sizeof(fd_bpf_upgradeable_loader_program_instruction_extend_program_checked_t);
+  void * * alloc_mem = &alloc_region;
+  fd_bpf_upgradeable_loader_program_instruction_extend_program_checked_decode_inner( mem, alloc_mem, ctx );
+  return self;
+}
+void fd_bpf_upgradeable_loader_program_instruction_extend_program_checked_walk( void * w, fd_bpf_upgradeable_loader_program_instruction_extend_program_checked_t const * self, fd_types_walk_fn_t fun, const char *name, uint level, uint varint ) {
+  (void) varint;
+  fun( w, self, name, FD_FLAMENCO_TYPE_MAP, "fd_bpf_upgradeable_loader_program_instruction_extend_program_checked", level++, 0 );
+  fun( w, &self->additional_bytes, "additional_bytes", FD_FLAMENCO_TYPE_UINT, "uint", level, 0  );
+  fun( w, self, name, FD_FLAMENCO_TYPE_MAP_END, "fd_bpf_upgradeable_loader_program_instruction_extend_program_checked", level--, 0 );
+}
 FD_FN_PURE uchar fd_bpf_upgradeable_loader_program_instruction_is_initialize_buffer(fd_bpf_upgradeable_loader_program_instruction_t const * self) {
   return self->discriminant == 0;
 }
@@ -15945,6 +15974,9 @@ FD_FN_PURE uchar fd_bpf_upgradeable_loader_program_instruction_is_set_authority_
 }
 FD_FN_PURE uchar fd_bpf_upgradeable_loader_program_instruction_is_migrate(fd_bpf_upgradeable_loader_program_instruction_t const * self) {
   return self->discriminant == 8;
+}
+FD_FN_PURE uchar fd_bpf_upgradeable_loader_program_instruction_is_extend_program_checked(fd_bpf_upgradeable_loader_program_instruction_t const * self) {
+  return self->discriminant == 9;
 }
 void fd_bpf_upgradeable_loader_program_instruction_inner_new( fd_bpf_upgradeable_loader_program_instruction_inner_t * self, uint discriminant );
 int fd_bpf_upgradeable_loader_program_instruction_inner_decode_footprint( uint discriminant, fd_bincode_decode_ctx_t * ctx, ulong * total_sz ) {
@@ -15981,6 +16013,11 @@ int fd_bpf_upgradeable_loader_program_instruction_inner_decode_footprint( uint d
     return FD_BINCODE_SUCCESS;
   }
   case 8: {
+    return FD_BINCODE_SUCCESS;
+  }
+  case 9: {
+    err = fd_bpf_upgradeable_loader_program_instruction_extend_program_checked_decode_footprint_inner( ctx, total_sz );
+    if( FD_UNLIKELY( err ) ) return err;
     return FD_BINCODE_SUCCESS;
   }
   default: return FD_BINCODE_ERR_ENCODING;
@@ -16033,6 +16070,10 @@ static void fd_bpf_upgradeable_loader_program_instruction_inner_decode_inner( fd
   case 8: {
     break;
   }
+  case 9: {
+    fd_bpf_upgradeable_loader_program_instruction_extend_program_checked_decode_inner( &self->extend_program_checked, alloc_mem, ctx );
+    break;
+  }
   }
 }
 static void fd_bpf_upgradeable_loader_program_instruction_decode_inner( void * struct_mem, void * * alloc_mem, fd_bincode_decode_ctx_t * ctx ) {
@@ -16078,6 +16119,10 @@ void fd_bpf_upgradeable_loader_program_instruction_inner_new( fd_bpf_upgradeable
     break;
   }
   case 8: {
+    break;
+  }
+  case 9: {
+    fd_bpf_upgradeable_loader_program_instruction_extend_program_checked_new( &self->extend_program_checked );
     break;
   }
   default: break; // FD_LOG_ERR(( "unhandled type"));
@@ -16135,6 +16180,11 @@ void fd_bpf_upgradeable_loader_program_instruction_walk( void * w, fd_bpf_upgrad
     fun( w, self, "migrate", FD_FLAMENCO_TYPE_ENUM_DISC, "discriminant", level, 0 );
     break;
   }
+  case 9: {
+    fun( w, self, "extend_program_checked", FD_FLAMENCO_TYPE_ENUM_DISC, "discriminant", level, 0 );
+    fd_bpf_upgradeable_loader_program_instruction_extend_program_checked_walk( w, &self->inner.extend_program_checked, fun, "extend_program_checked", level, 0 );
+    break;
+  }
   }
   fun( w, self, name, FD_FLAMENCO_TYPE_ENUM_END, "fd_bpf_upgradeable_loader_program_instruction", level--, 0 );
 }
@@ -16152,6 +16202,10 @@ ulong fd_bpf_upgradeable_loader_program_instruction_size( fd_bpf_upgradeable_loa
   }
   case 6: {
     size += fd_bpf_upgradeable_loader_program_instruction_extend_program_size( &self->inner.extend_program );
+    break;
+  }
+  case 9: {
+    size += fd_bpf_upgradeable_loader_program_instruction_extend_program_checked_size( &self->inner.extend_program_checked );
     break;
   }
   }
@@ -16173,6 +16227,11 @@ int fd_bpf_upgradeable_loader_program_instruction_inner_encode( fd_bpf_upgradeab
   }
   case 6: {
     err = fd_bpf_upgradeable_loader_program_instruction_extend_program_encode( &self->extend_program, ctx );
+    if( FD_UNLIKELY( err ) ) return err;
+    break;
+  }
+  case 9: {
+    err = fd_bpf_upgradeable_loader_program_instruction_extend_program_checked_encode( &self->extend_program_checked, ctx );
     if( FD_UNLIKELY( err ) ) return err;
     break;
   }

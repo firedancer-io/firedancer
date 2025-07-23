@@ -1666,6 +1666,13 @@
       ]
     },
     {
+      "name": "bpf_upgradeable_loader_program_instruction_extend_program_checked",
+      "type": "struct",
+      "fields": [
+        { "name": "additional_bytes", "type": "uint" }
+      ]
+    },
+    {
       "name": "bpf_upgradeable_loader_program_instruction",
       "type": "enum",
       "variants": [
@@ -1677,7 +1684,8 @@
         { "name": "close" },
         { "name": "extend_program", "type": "bpf_upgradeable_loader_program_instruction_extend_program" },
         { "name": "set_authority_checked" },
-        { "name": "migrate" }
+        { "name": "migrate" },
+        { "name": "extend_program_checked", "type": "bpf_upgradeable_loader_program_instruction_extend_program_checked" }
       ]
     },
     {

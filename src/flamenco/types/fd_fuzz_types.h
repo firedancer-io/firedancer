@@ -2584,6 +2584,14 @@ void *fd_bpf_upgradeable_loader_program_instruction_extend_program_generate( voi
   return mem;
 }
 
+void *fd_bpf_upgradeable_loader_program_instruction_extend_program_checked_generate( void *mem, void **alloc_mem, fd_rng_t * rng ) {
+  fd_bpf_upgradeable_loader_program_instruction_extend_program_checked_t *self = (fd_bpf_upgradeable_loader_program_instruction_extend_program_checked_t *) mem;
+  *alloc_mem = (uchar *) *alloc_mem + sizeof(fd_bpf_upgradeable_loader_program_instruction_extend_program_checked_t);
+  fd_bpf_upgradeable_loader_program_instruction_extend_program_checked_new(mem);
+  self->additional_bytes = fd_rng_uint( rng );
+  return mem;
+}
+
 void fd_bpf_upgradeable_loader_program_instruction_inner_generate( fd_bpf_upgradeable_loader_program_instruction_inner_t * self, void **alloc_mem, uint discriminant, fd_rng_t * rng ) {
   switch (discriminant) {
   case 1: {
@@ -2598,13 +2606,17 @@ void fd_bpf_upgradeable_loader_program_instruction_inner_generate( fd_bpf_upgrad
     fd_bpf_upgradeable_loader_program_instruction_extend_program_generate( &self->extend_program, alloc_mem, rng );
     break;
   }
+  case 9: {
+    fd_bpf_upgradeable_loader_program_instruction_extend_program_checked_generate( &self->extend_program_checked, alloc_mem, rng );
+    break;
+  }
   }
 }
 void *fd_bpf_upgradeable_loader_program_instruction_generate( void *mem, void **alloc_mem, fd_rng_t * rng ) {
   fd_bpf_upgradeable_loader_program_instruction_t *self = (fd_bpf_upgradeable_loader_program_instruction_t *) mem;
   *alloc_mem = (uchar *) *alloc_mem + sizeof(fd_bpf_upgradeable_loader_program_instruction_t);
   fd_bpf_upgradeable_loader_program_instruction_new(mem);
-  self->discriminant = fd_rng_uint( rng ) % 9;
+  self->discriminant = fd_rng_uint( rng ) % 10;
   fd_bpf_upgradeable_loader_program_instruction_inner_generate( &self->inner, alloc_mem, self->discriminant, rng );
   return mem;
 }
