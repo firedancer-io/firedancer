@@ -447,7 +447,14 @@ fd_bpf_execute( fd_exec_instr_ctx_t * instr_ctx, fd_sbpf_validated_program_t con
   fd_vm_t * vm = fd_vm_join( fd_vm_new( _vm ) );
 
   ulong pre_insn_cus = instr_ctx->txn_ctx->compute_budget_details.compute_meter;
-  ulong heap_max     = instr_ctx->txn_ctx->compute_budget_details.heap_size;
+  ulong heap_size    = instr_ctx->txn_ctx->compute_budget_details.heap_size;
+
+  /* https://github.com/anza-xyz/agave/blob/v2.3.1/programs/bpf_loader/src/lib.rs#L275-L278 */
+  ulong heap_cost = calculate_heap_cost( heap_size, FD_VM_HEAP_COST );
+  int heap_cost_result = fd_exec_consume_cus( instr_ctx->txn_ctx, heap_cost );
+  if( FD_UNLIKELY( heap_cost_result ) ) {
+    return FD_EXECUTOR_INSTR_ERR_PROGRAM_ENVIRONMENT_SETUP_FAILURE;
+  }
 
   /* For dumping syscalls for seed corpora */
   int dump_syscall_to_pb = instr_ctx->txn_ctx->capture_ctx &&
@@ -458,7 +465,7 @@ fd_bpf_execute( fd_exec_instr_ctx_t * instr_ctx, fd_sbpf_validated_program_t con
   vm = fd_vm_init(
     /* vm                    */ vm,
     /* instr_ctx             */ instr_ctx,
-    /* heap_max              */ heap_max, /* TODO: configure heap allocator */
+    /* heap_max              */ heap_size,
     /* entry_cu              */ instr_ctx->txn_ctx->compute_budget_details.compute_meter,
     /* rodata                */ prog->rodata,
     /* rodata_sz             */ prog->rodata_sz,
@@ -500,17 +507,6 @@ fd_bpf_execute( fd_exec_instr_ctx_t * instr_ctx, fd_sbpf_validated_program_t con
     if( FD_UNLIKELY( !vm->trace ) ) FD_LOG_ERR(( "unable to create trace; make sure you've compiled with sufficient spad size " ));
   }
 #endif
-
-  /* https://github.com/anza-xyz/agave/blob/v2.2.0/programs/bpf_loader/src/lib.rs#L1440-L1447 */
-  ulong heap_size = instr_ctx->txn_ctx->compute_budget_details.heap_size;
-  ulong heap_cost = FD_VM_HEAP_COST;
-  ulong heap_cost_result = calculate_heap_cost( heap_size, heap_cost );
-
-  if( FD_UNLIKELY( heap_cost_result>vm->cu ) ) {
-    return FD_EXECUTOR_INSTR_ERR_PROGRAM_ENVIRONMENT_SETUP_FAILURE;
-  }
-
-  vm->cu -= heap_cost_result;
 
   int exec_err = fd_vm_exec( vm );
   instr_ctx->txn_ctx->compute_budget_details.compute_meter = vm->cu;
