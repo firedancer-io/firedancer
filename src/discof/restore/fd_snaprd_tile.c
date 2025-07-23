@@ -848,7 +848,7 @@ unprivileged_init( fd_topo_t *      topo,
     }
   }
 
-  if( FD_UNLIKELY( !has_gossip_in ) ) {
+  // if( FD_UNLIKELY( !has_gossip_in ) ) {
     if( FD_LIKELY( !strcmp( tile->snaprd.cluster, "testnet" ) ) ) {
       fd_ip4_port_t initial_peers[ 3UL ] = {
         { .addr = FD_IP4_ADDR( 145, 40 , 95 , 69  ), .port = fd_ushort_bswap(8899) }, /* Solana testnet peer */
@@ -866,7 +866,7 @@ unprivileged_init( fd_topo_t *      topo,
     } else {
       FD_LOG_ERR(( "unexpected cluster %s", tile->snaprd.cluster ));
     }
-  }
+  // }
 
 
   if( FD_UNLIKELY( tile->out_cnt!=1UL ) ) FD_LOG_ERR(( "tile `" NAME "` has %lu outs, expected 1", tile->out_cnt ));

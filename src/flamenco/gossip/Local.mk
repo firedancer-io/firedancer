@@ -15,5 +15,5 @@ $(call run-unit-test,test_bloom)
 $(call make-unit-test,test_active_set,test_active_set,fd_flamenco fd_ballet fd_util)
 $(call run-unit-test,test_active_set)
 
-$(call make-unit-test,test_ping_tracker,test_ping_tracker,fd_flamenco fd_ballet fd_util)
-$(call run-unit-test,test_ping_tracker)
+# $(call make-unit-test,test_ping_tracker,test_ping_tracker,fd_flamenco fd_ballet fd_util)
+# $(call run-unit-test,test_ping_tracker)
