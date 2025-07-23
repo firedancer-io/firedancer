@@ -609,6 +609,10 @@ after_frag( fd_snaprd_tile_t *  ctx,
         fd_pubkey_t pubkey;
         fd_memcpy( &pubkey, msg->origin_pubkey, sizeof(fd_pubkey_t) );
 
+        FD_LOG_WARNING(("encountered pubkey %s with full slot %lu and incremental slot %lu",
+          FD_BASE58_ENC_32_ALLOCA( pubkey.hash ), msg->snapshot_hashes.full->slot, msg->snapshot_hashes.inc[ 0 ].slot ));
+
+        /* TODO: use a hash set for faster lookup */
         int is_known_validator = 0;
         for( ulong i=0UL; i<ctx->config.known_validators_cnt; i++ ) {
           if( memcmp( &ctx->config.known_validators[ i ], &pubkey, sizeof(fd_pubkey_t) )==0 ) {
@@ -616,9 +620,6 @@ after_frag( fd_snaprd_tile_t *  ctx,
             break;
           }
         }
-
-        FD_LOG_WARNING(("encountered pubkey %s with full slot %lu and incremental slot %lu",
-          FD_BASE58_ENC_32_ALLOCA( pubkey.hash ), msg->snapshot_hashes.full->slot, msg->snapshot_hashes.inc[ 0 ].slot ));
 
         /* if the pubkey is from a known validator, then query the snapshot hashes map */
         if( is_known_validator ) {
@@ -848,7 +849,7 @@ unprivileged_init( fd_topo_t *      topo,
     }
   }
 
-  // if( FD_UNLIKELY( !has_gossip_in ) ) {
+  if( FD_UNLIKELY( !has_gossip_in ) ) {
     if( FD_LIKELY( !strcmp( tile->snaprd.cluster, "testnet" ) ) ) {
       fd_ip4_port_t initial_peers[ 3UL ] = {
         { .addr = FD_IP4_ADDR( 145, 40 , 95 , 69  ), .port = fd_ushort_bswap(8899) }, /* Solana testnet peer */
@@ -866,7 +867,7 @@ unprivileged_init( fd_topo_t *      topo,
     } else {
       FD_LOG_ERR(( "unexpected cluster %s", tile->snaprd.cluster ));
     }
-  // }
+  }
 
 
   if( FD_UNLIKELY( tile->out_cnt!=1UL ) ) FD_LOG_ERR(( "tile `" NAME "` has %lu outs, expected 1", tile->out_cnt ));
