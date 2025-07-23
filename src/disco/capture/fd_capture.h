@@ -12,7 +12,7 @@
    API for messages sent across input links:
    - write_account(key, meta, data, data_sz, hash)
    - set_slot(slot)
-   - write_bank_preimage(bank_hash, prev_bank_hash, account_delta_hash, 
+   - write_bank_preimage(bank_hash, prev_bank_hash, account_delta_hash,
                          accounts_lt_hash_checksum, poh_hash, signature_cnt)
 */
 
@@ -71,7 +71,6 @@ extern fd_topo_run_tile_t fd_tile_capture;
    message including header and payload. */
 static inline fd_capture_msg_hdr_t *
 fd_capture_msg_new( void * buf, ulong type, ulong size ) {
-  if( FD_UNLIKELY( !buf ) ) return NULL;
   fd_capture_msg_hdr_t * hdr = (fd_capture_msg_hdr_t *)buf;
   hdr->magic = FD_CAPTURE_MSG_MAGIC;
   hdr->type = type;
@@ -80,17 +79,15 @@ fd_capture_msg_new( void * buf, ulong type, ulong size ) {
 }
 
 /* fd_capture_msg_set_slot creates a set_slot message */
-static inline fd_capture_msg_set_slot_t *
+static inline void
 fd_capture_msg_set_slot( void * buf, ulong slot ) {
   fd_capture_msg_hdr_t * hdr = fd_capture_msg_new( buf, FD_CAPTURE_MSG_TYPE_SET_SLOT, sizeof(fd_capture_msg_set_slot_t) );
-  if( FD_UNLIKELY( !hdr ) ) return NULL;
   fd_capture_msg_set_slot_t * msg = (fd_capture_msg_set_slot_t *)hdr;
   msg->slot = slot;
-  return msg;
 }
 
 /* fd_capture_msg_write_account creates a write_account message */
-static inline fd_capture_msg_write_account_t *
+static inline void
 fd_capture_msg_write_account( void *                           buf,
                               void const *                     key,
                               fd_solana_account_meta_t const * meta,
@@ -98,17 +95,15 @@ fd_capture_msg_write_account( void *                           buf,
                               ulong                            data_sz ) {
   ulong msg_sz = sizeof(fd_capture_msg_write_account_t) + data_sz;
   fd_capture_msg_hdr_t * hdr = fd_capture_msg_new( buf, FD_CAPTURE_MSG_TYPE_WRITE_ACCOUNT, msg_sz );
-  if( FD_UNLIKELY( !hdr ) ) return NULL;
   fd_capture_msg_write_account_t * msg = (fd_capture_msg_write_account_t *)hdr;
   fd_memcpy( msg->key, key, 32 );
   msg->meta = *meta;
   fd_memcpy( msg->hash, hash, 32 );
   msg->data_sz = data_sz;
-  return msg;
 }
 
 /* fd_capture_msg_write_bank_preimage creates a write_bank_preimage message */
-static inline fd_capture_msg_write_bank_preimage_t *
+static inline void
 fd_capture_msg_write_bank_preimage( void *       buf,
                                     void const * bank_hash,
                                     void const * prev_bank_hash,
@@ -117,7 +112,6 @@ fd_capture_msg_write_bank_preimage( void *       buf,
                                     void const * poh_hash,
                                     ulong        signature_cnt ) {
   fd_capture_msg_hdr_t * hdr = fd_capture_msg_new( buf, FD_CAPTURE_MSG_TYPE_WRITE_BANK_PREIMAGE, sizeof(fd_capture_msg_write_bank_preimage_t) );
-  if( FD_UNLIKELY( !hdr ) ) return NULL;
   fd_capture_msg_write_bank_preimage_t * msg = (fd_capture_msg_write_bank_preimage_t *)hdr;
   fd_memcpy( msg->bank_hash, bank_hash, 32 );
   fd_memcpy( msg->prev_bank_hash, prev_bank_hash, 32 );
@@ -125,7 +119,6 @@ fd_capture_msg_write_bank_preimage( void *       buf,
   fd_memcpy( msg->accounts_lt_hash_checksum, accounts_lt_hash_checksum, 32 );
   fd_memcpy( msg->poh_hash, poh_hash, 32 );
   msg->signature_cnt = signature_cnt;
-  return msg;
 }
 
 #endif /* HEADER_fd_src_disco_capture_fd_capture_h */

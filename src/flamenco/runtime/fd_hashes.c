@@ -88,7 +88,12 @@ fd_hash_bank( fd_exec_slot_ctx_t *    slot_ctx,
 
       /* Send message to capture tile */
       void * msg = fd_chunk_to_laddr( capture_out->mem, capture_out->chunk );
-      fd_capture_msg_write_bank_preimage_t * preimage_msg = fd_capture_msg_write_bank_preimage(
+      if( FD_UNLIKELY( !msg ) ) {
+        FD_LOG_ERR(( "invariant violation: msg is NULL" ));
+        return;
+      }
+
+      fd_capture_msg_write_bank_preimage(
           msg,
           hash->hash,
           fd_bank_prev_bank_hash_query( slot_ctx->bank ),
@@ -96,18 +101,16 @@ fd_hash_bank( fd_exec_slot_ctx_t *    slot_ctx,
           lthash_checksum,
           fd_bank_poh_query( slot_ctx->bank )->hash,
           fd_bank_signature_count_get( slot_ctx->bank ) );
-      
-      if( FD_LIKELY( preimage_msg ) ) {
-        ulong sig  = FD_CAPTURE_MSG_TYPE_WRITE_BANK_PREIMAGE;
-        ulong sz   = sizeof(fd_capture_msg_write_bank_preimage_t);
-        ulong ctl  = 0UL;
-        ulong tspub = (ulong)fd_frag_meta_ts_comp( fd_tickcount() );
-        
-        fd_stem_publish( stem, capture_out->idx, sig, capture_out->chunk, sz, ctl, 0UL, tspub );
-        
-        capture_out->chunk = fd_dcache_compact_next( capture_out->chunk, sz,
-                                                      capture_out->chunk0, capture_out->wmark );
-      }
+
+      ulong sig  = FD_CAPTURE_MSG_TYPE_WRITE_BANK_PREIMAGE;
+      ulong sz   = sizeof(fd_capture_msg_write_bank_preimage_t);
+      ulong ctl  = 0UL;
+      ulong tspub = (ulong)fd_frag_meta_ts_comp( fd_tickcount() );
+
+      fd_stem_publish( stem, capture_out->idx, sig, capture_out->chunk, sz, ctl, 0UL, tspub );
+
+      capture_out->chunk = fd_dcache_compact_next( capture_out->chunk, sz,
+                                                    capture_out->chunk0, capture_out->wmark );
     }
   }
 

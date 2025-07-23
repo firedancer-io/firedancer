@@ -3141,18 +3141,20 @@ fd_runtime_block_execute( fd_exec_slot_ctx_t *            slot_ctx,
     if( stem && capture_out && capture_out->idx != ULONG_MAX ) {
       /* Send message to capture tile */
       void * msg = fd_chunk_to_laddr( capture_out->mem, capture_out->chunk );
-      fd_capture_msg_set_slot_t * slot_msg = fd_capture_msg_set_slot( msg, fd_bank_slot_get( slot_ctx->bank ) );
-      if( FD_LIKELY( slot_msg ) ) {
-        ulong sig  = FD_CAPTURE_MSG_TYPE_SET_SLOT;
-        ulong sz   = sizeof(fd_capture_msg_set_slot_t);
-        ulong ctl  = 0UL;
-        ulong tspub = (ulong)fd_frag_meta_ts_comp( fd_tickcount() );
-        
-        fd_stem_publish( stem, capture_out->idx, sig, capture_out->chunk, sz, ctl, 0UL, tspub );
-        
-        capture_out->chunk = fd_dcache_compact_next( capture_out->chunk, sz,
-                                                      capture_out->chunk0, capture_out->wmark );
+      if( FD_UNLIKELY( !msg ) ) {
+        FD_LOG_ERR(( "invariant violation: msg is NULL" ));
       }
+
+      fd_capture_msg_set_slot( msg, fd_bank_slot_get( slot_ctx->bank ) );
+      ulong sig  = FD_CAPTURE_MSG_TYPE_SET_SLOT;
+      ulong sz   = sizeof(fd_capture_msg_set_slot_t);
+      ulong ctl  = 0UL;
+      ulong tspub = (ulong)fd_frag_meta_ts_comp( fd_tickcount() );
+
+      fd_stem_publish( stem, capture_out->idx, sig, capture_out->chunk, sz, ctl, 0UL, tspub );
+
+      capture_out->chunk = fd_dcache_compact_next( capture_out->chunk, sz,
+                                                      capture_out->chunk0, capture_out->wmark );
     }
   }
 
