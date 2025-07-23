@@ -582,17 +582,21 @@ after_frag( fd_snaprd_tile_t *  ctx,
       case FD_GOSSIP_UPDATE_TAG_CONTACT_INFO: {
           fd_contact_info_t * cur  = &ctx->gossip.ci_table[ msg->contact_info.pool_idx ];
           fd_ip4_port_t       cur_addr = fd_contact_info_get_socket( &ctx->gossip.ci_table[ msg->contact_info.pool_idx ], FD_CONTACT_INFO_SOCKET_RPC );
-          if( cur_addr.l ){
-            fd_ssping_remove( ctx->ssping, cur_addr );
-          }
+
           fd_contact_info_t * new = msg->contact_info.contact_info;
           fd_ip4_port_t new_addr  = fd_contact_info_get_socket( new, FD_CONTACT_INFO_SOCKET_RPC );
-          if( new_addr.l ) {
-            FD_LOG_WARNING(("adding contact info for peer "FD_IP4_ADDR_FMT ":%hu ",
-                            FD_IP4_ADDR_FMT_ARGS( new_addr.addr ), fd_ushort_bswap( new_addr.port ) ));
-            fd_ssping_add( ctx->ssping, new_addr );
+
+          if( cur_addr.l!=new_addr.l ) {
+            fd_ssping_remove( ctx->ssping, cur_addr );
+
+            if( new_addr.l ) {
+              FD_LOG_WARNING(("adding contact info for peer "FD_IP4_ADDR_FMT ":%hu ",
+                              FD_IP4_ADDR_FMT_ARGS( new_addr.addr ), fd_ushort_bswap( new_addr.port ) ));
+              fd_ssping_add( ctx->ssping, new_addr );
+            }
+
+            *cur = *new;
           }
-          *cur = *new;
         }
         break;
       case FD_GOSSIP_UPDATE_TAG_CONTACT_INFO_REMOVE: {
