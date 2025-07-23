@@ -148,23 +148,26 @@ metrics_write( fd_gossip_tile_ctx_t * ctx ) {
     FD_MCNT_ENUM_COPY( GOSSIP, name##_COUNT, msg_traffic->count.msg ); \
     FD_MCNT_ENUM_COPY( GOSSIP, name##_BYTES, msg_traffic->bytes.msg );
 
-  COPY_MSG_RX( MESSAGE_RECEIVED, metrics->rx );
-  COPY_MSG_RX( MESSAGE_SENT,     metrics->tx );
+  COPY_MSG_RX( MESSAGE_RX, metrics->rx );
+  COPY_MSG_RX( MESSAGE_TX,     metrics->tx );
+
+  #define COPY_CRDS_TRAFFIC( route, traffic ) \
+    FD_MCNT_ENUM_COPY( GOSSIP, CRDS_##route##_COUNT,    traffic.count.crd ); \
+    FD_MCNT_ENUM_COPY( GOSSIP, CRDS_##route##_BYTES,    traffic.bytes.crd );
 
   #define COPY_CRDS_INSERT( route, insert ) \
-    FD_MCNT_ENUM_COPY( GOSSIP, CRDS_##route##_RX_COUNT, insert->rx_count.crd ); \
-    FD_MCNT_ENUM_COPY( GOSSIP, CRDS_##route##_RX_BYTES, insert->rx_bytes.crd ); \
+    COPY_CRDS_TRAFFIC( route##_RX, insert->rx ); \
     FD_MCNT_ENUM_COPY( GOSSIP, CRDS_##route##_UPSERTED, insert->upserted.crd ); \
     FD_MCNT_ENUM_COPY( GOSSIP, CRDS_##route##_DUPLICATES, insert->duplicates.crd ); \
     FD_MCNT_ENUM_COPY( GOSSIP, CRDS_##route##_OLD, insert->too_old.crd );
 
 
-  COPY_CRDS_INSERT( PUSH, metrics->push );
-  COPY_CRDS_INSERT( PULL, metrics->pull );
+  COPY_CRDS_INSERT( PUSH, metrics->push_rx );
+  COPY_CRDS_INSERT( PULL, metrics->pull_rx );
 
   /* TX */
-  FD_MCNT_ENUM_COPY( GOSSIP, CRDS_SENT_COUNT,    metrics->crds_tx.count->crd );
-  FD_MCNT_ENUM_COPY( GOSSIP, CRDS_SENT_BYTES,    metrics->crds_tx.bytes->crd );
+  COPY_CRDS_TRAFFIC( PUSH_TX, metrics->push_tx[0] );
+  COPY_CRDS_TRAFFIC( PULL_TX, metrics->pull_tx[0] );
 }
 
 void

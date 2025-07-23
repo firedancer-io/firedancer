@@ -21,12 +21,17 @@ struct fd_gossip_metrics_crds {
 };
 typedef struct fd_gossip_metrics_crds fd_gossip_metrics_crds_t;
 
+struct fd_gossip_metrics_crds_traffic {
+  fd_gossip_metrics_crds_t count;
+  fd_gossip_metrics_crds_t bytes;
+};
+typedef struct fd_gossip_metrics_crds_traffic fd_gossip_metrics_crds_traffic_t;
+
 struct fd_gossip_metrics_crds_insert {
-  fd_gossip_metrics_crds_t rx_count;
-  fd_gossip_metrics_crds_t rx_bytes;
-  fd_gossip_metrics_crds_t upserted;
-  fd_gossip_metrics_crds_t duplicates;
-  fd_gossip_metrics_crds_t too_old;
+  fd_gossip_metrics_crds_traffic_t rx;
+  fd_gossip_metrics_crds_t         upserted;
+  fd_gossip_metrics_crds_t         duplicates;
+  fd_gossip_metrics_crds_t         too_old;
 };
 
 typedef struct fd_gossip_metrics_crds_insert fd_gossip_metrics_crds_insert_t;
@@ -49,13 +54,11 @@ struct fd_gossip_metrics {
   fd_gossip_metrics_message_traffic_t rx[1];
   fd_gossip_metrics_message_traffic_t tx[1];
 
-  fd_gossip_metrics_crds_insert_t     push[1];
-  fd_gossip_metrics_crds_insert_t     pull[1];
+  fd_gossip_metrics_crds_insert_t     push_rx[1];
+  fd_gossip_metrics_crds_insert_t     pull_rx[1];
 
-  struct {
-    fd_gossip_metrics_crds_t          count[1];
-    fd_gossip_metrics_crds_t          bytes[1];
-  } crds_tx;
+  fd_gossip_metrics_crds_traffic_t    push_tx[1];
+  fd_gossip_metrics_crds_traffic_t    pull_tx[1];
 };
 
 typedef struct fd_gossip_metrics fd_gossip_metrics_t;
