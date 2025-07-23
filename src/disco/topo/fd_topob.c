@@ -377,7 +377,8 @@ fd_topob_auto_layout( fd_topo_t * topo,
     "pktgen",
     "snaprd", /* FIREDANCER only */
     "snapdc", /* FIREDANCER only */
-    "snapin"  /* FIREDANCER only */
+    "snapin", /* FIREDANCER only */
+    "cap"     /* FIREDANCER only */
   };
 
   char const * CRITICAL_TILES[] = {

@@ -39,20 +39,20 @@ struct fd_capture_tile_ctx {
   void *               writer_mem;
   int                  capture_fd;
   FILE *               capture_file;
-  
+
   fd_capture_in_ctx_t in[ 32 ];
-  
+
   fd_capture_tile_stats_t stats;
-  
+
   ulong current_slot;
-  
+
   uchar frag_buf[FD_CAPTURE_FRAG_BUF_SZ];
 };
 typedef struct fd_capture_tile_ctx fd_capture_tile_ctx_t;
 
 FD_FN_CONST static inline ulong
 scratch_align( void ) {
-  return fd_ulong_max( fd_ulong_max( alignof(fd_capture_tile_ctx_t), 
+  return fd_ulong_max( fd_ulong_max( alignof(fd_capture_tile_ctx_t),
                                       fd_solcap_writer_align() ),
                        4096UL );
 }
@@ -82,15 +82,15 @@ populate_allowed_fds( fd_topo_t const *      topo,
   (void)topo;
   (void)tile;
   (void)out_fds_cnt;
-  
+
   ulong out_cnt = 0UL;
-  
+
   out_fds[ out_cnt++ ] = 2; /* stderr */
   if( FD_LIKELY( -1!=fd_log_private_logfile_fd() ) )
     out_fds[ out_cnt++ ] = fd_log_private_logfile_fd(); /* logfile */
-  
+
   /* capture file fd will be added in privileged_init */
-  
+
   return out_cnt;
 }
 
@@ -107,22 +107,21 @@ static void
 privileged_init( fd_topo_t *      topo,
                  fd_topo_tile_t * tile ) {
   void * scratch = fd_topo_obj_laddr( topo, tile->tile_obj_id );
-  
+
   FD_SCRATCH_ALLOC_INIT( l, scratch );
   fd_capture_tile_ctx_t * ctx = FD_SCRATCH_ALLOC_APPEND( l, alignof(fd_capture_tile_ctx_t), sizeof(fd_capture_tile_ctx_t) );
   memset( ctx, 0, sizeof(fd_capture_tile_ctx_t) );
   ctx->writer_mem = FD_SCRATCH_ALLOC_APPEND( l, fd_solcap_writer_align(), fd_solcap_writer_footprint() );
   FD_SCRATCH_ALLOC_FINI( l, scratch_align() );
-  
+
   /* Open capture file */
-  char capture_path[256];
-  snprintf( capture_path, sizeof(capture_path), "capture.solcap" );
-  
-  ctx->capture_fd = open( capture_path, O_RDWR | O_CREAT | O_TRUNC, 0666 );
+  FD_LOG_WARNING(( "capture path: %s", tile->capture.capture_path ));
+
+  ctx->capture_fd = open( tile->capture.capture_path, O_RDWR | O_CREAT | O_TRUNC, 0666 );
   if( FD_UNLIKELY( ctx->capture_fd == -1 ) ) {
-    FD_LOG_ERR(( "failed to open or create capture file %s: %d %s", capture_path, errno, strerror(errno) ));
+    FD_LOG_ERR(( "failed to open or create capture file %s: %d %s", tile->capture.capture_path, errno, strerror(errno) ));
   }
-  
+
   /* Convert fd to FILE* for solcap writer */
   ctx->capture_file = fdopen( ctx->capture_fd, "w+b" );
   if( FD_UNLIKELY( !ctx->capture_file ) ) {
@@ -134,33 +133,33 @@ static void
 unprivileged_init( fd_topo_t *      topo,
                    fd_topo_tile_t * tile ) {
   void * scratch = fd_topo_obj_laddr( topo, tile->tile_obj_id );
-  
+
   FD_SCRATCH_ALLOC_INIT( l, scratch );
   fd_capture_tile_ctx_t * ctx = FD_SCRATCH_ALLOC_APPEND( l, alignof(fd_capture_tile_ctx_t), sizeof(fd_capture_tile_ctx_t) );
   ctx->writer_mem = FD_SCRATCH_ALLOC_APPEND( l, fd_solcap_writer_align(), fd_solcap_writer_footprint() );
   FD_SCRATCH_ALLOC_FINI( l, scratch_align() );
-  
+
   /* Initialize solcap writer */
   ctx->writer = fd_solcap_writer_new( ctx->writer_mem );
   if( FD_UNLIKELY( !ctx->writer ) ) {
     FD_LOG_ERR(( "failed to create solcap writer" ));
   }
-  
+
   ctx->writer = fd_solcap_writer_init( ctx->writer, ctx->capture_file );
   if( FD_UNLIKELY( !ctx->writer ) ) {
     FD_LOG_ERR(( "failed to initialize solcap writer" ));
   }
-  
+
   /* Input links */
   for( ulong i=0; i<tile->in_cnt; i++ ) {
     fd_topo_link_t * link = &topo->links[ tile->in_link_id[ i ] ];
     fd_topo_wksp_t * link_wksp = &topo->workspaces[ topo->objs[ link->dcache_obj_id ].wksp_id ];
-    
+
     ctx->in[ i ].mem    = link_wksp->wksp;
     ctx->in[ i ].chunk0 = fd_dcache_compact_chunk0( ctx->in[ i ].mem, link->dcache );
     ctx->in[ i ].wmark  = fd_dcache_compact_wmark ( ctx->in[ i ].mem, link->dcache, link->mtu );
   }
-  
+
   ctx->current_slot = 0UL;
 }
 
@@ -180,34 +179,34 @@ during_frag( fd_capture_tile_ctx_t * ctx,
   if( FD_UNLIKELY( chunk<ctx->in[ in_idx ].chunk0 || chunk>ctx->in[ in_idx ].wmark ) ) {
     FD_LOG_ERR(( "chunk %lu corrupt, not in range [%lu,%lu]", chunk, ctx->in[ in_idx ].chunk0, ctx->in[ in_idx ].wmark ));
   }
-  
+
   /* Get the fragment data */
   void * src = fd_chunk_to_laddr( ctx->in[in_idx].mem, chunk );
-  
+
   /* Parse message header */
   if( FD_UNLIKELY( sz < sizeof(fd_capture_msg_hdr_t) ) ) {
     FD_LOG_WARNING(( "fragment too small for header: %lu", sz ));
     return;
   }
-  
+
   fd_capture_msg_hdr_t const * hdr = (fd_capture_msg_hdr_t const *)src;
-  
+
   if( FD_UNLIKELY( hdr->magic != FD_CAPTURE_MSG_MAGIC ) ) {
     FD_LOG_WARNING(( "invalid message magic: %lx", hdr->magic ));
     return;
   }
-  
+
   if( FD_UNLIKELY( hdr->size != sz ) ) {
     FD_LOG_WARNING(( "message size mismatch: header=%lu, frag=%lu", hdr->size, sz ));
     return;
   }
-  
+
   /* Copy fragment to buffer for processing */
   if( FD_UNLIKELY( sz > FD_CAPTURE_FRAG_BUF_SZ ) ) {
     FD_LOG_WARNING(( "fragment too large: %lu > %lu", sz, FD_CAPTURE_FRAG_BUF_SZ ));
     return;
   }
-  
+
   fd_memcpy( ctx->frag_buf, src, sz );
 }
 
@@ -220,9 +219,9 @@ after_frag( fd_capture_tile_ctx_t * ctx,
             ulong                   tsorig FD_PARAM_UNUSED,
             ulong                   tspub  FD_PARAM_UNUSED,
             fd_stem_context_t *     stem   FD_PARAM_UNUSED ) {
-  
+
   fd_capture_msg_hdr_t const * hdr = (fd_capture_msg_hdr_t const *)ctx->frag_buf;
-  
+
   switch( hdr->type ) {
     case FD_CAPTURE_MSG_TYPE_SET_SLOT: {
       if( FD_UNLIKELY( sz != sizeof(fd_capture_msg_set_slot_t) ) ) {
@@ -230,31 +229,31 @@ after_frag( fd_capture_tile_ctx_t * ctx,
         ctx->stats.write_err_cnt++;
         return;
       }
-      
+
       fd_capture_msg_set_slot_t const * msg = (fd_capture_msg_set_slot_t const *)ctx->frag_buf;
       fd_solcap_writer_set_slot( ctx->writer, msg->slot );
       ctx->current_slot = msg->slot;
       ctx->stats.slot_set_cnt++;
       break;
     }
-    
+
     case FD_CAPTURE_MSG_TYPE_WRITE_ACCOUNT: {
       if( FD_UNLIKELY( sz < sizeof(fd_capture_msg_write_account_t) ) ) {
         FD_LOG_WARNING(( "invalid write_account message size: %lu", sz ));
         ctx->stats.write_err_cnt++;
         return;
       }
-      
+
       fd_capture_msg_write_account_t const * msg = (fd_capture_msg_write_account_t const *)ctx->frag_buf;
       void const * data = (uchar const *)(msg + 1);
-      
+
       if( FD_UNLIKELY( sz != sizeof(fd_capture_msg_write_account_t) + msg->data_sz ) ) {
-        FD_LOG_WARNING(( "write_account message size mismatch: %lu != %lu", 
+        FD_LOG_WARNING(( "write_account message size mismatch: %lu != %lu",
                          sz, sizeof(fd_capture_msg_write_account_t) + msg->data_sz ));
         ctx->stats.write_err_cnt++;
         return;
       }
-      
+
       int err = fd_solcap_write_account( ctx->writer, msg->key, &msg->meta, data, msg->data_sz, msg->hash );
       if( FD_UNLIKELY( err ) ) {
         FD_LOG_WARNING(( "failed to write account: %d", err ));
@@ -264,16 +263,16 @@ after_frag( fd_capture_tile_ctx_t * ctx,
       }
       break;
     }
-    
+
     case FD_CAPTURE_MSG_TYPE_WRITE_BANK_PREIMAGE: {
       if( FD_UNLIKELY( sz != sizeof(fd_capture_msg_write_bank_preimage_t) ) ) {
         FD_LOG_WARNING(( "invalid write_bank_preimage message size: %lu", sz ));
         ctx->stats.write_err_cnt++;
         return;
       }
-      
+
       fd_capture_msg_write_bank_preimage_t const * msg = (fd_capture_msg_write_bank_preimage_t const *)ctx->frag_buf;
-      
+
       int err = fd_solcap_write_bank_preimage( ctx->writer,
                                                 msg->bank_hash,
                                                 msg->prev_bank_hash,
@@ -289,7 +288,7 @@ after_frag( fd_capture_tile_ctx_t * ctx,
       }
       break;
     }
-    
+
     default:
       FD_LOG_WARNING(( "unknown message type: %lu", hdr->type ));
       ctx->stats.write_err_cnt++;
@@ -311,7 +310,7 @@ after_frag( fd_capture_tile_ctx_t * ctx,
 #include "../stem/fd_stem.c"
 
 fd_topo_run_tile_t fd_tile_capture = {
-  .name                     = "capture",
+  .name                     = "cap",
   .loose_footprint          = loose_footprint,
   .populate_allowed_seccomp = populate_allowed_seccomp,
   .populate_allowed_fds     = populate_allowed_fds,

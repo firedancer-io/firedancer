@@ -84,6 +84,14 @@ backtest_topo( config_t * config ) {
   FOR(writer_tile_cnt) fd_topob_tile( topo, "writer",  "writer",  "metric_in",  cpu_idx++, 0, 0 );
 
   /**********************************************************************/
+  /* Add the capture tile to topo                                       */
+  /**********************************************************************/
+  if( config->tiles.capture.enabled ) {
+    fd_topob_wksp( topo, "cap" );
+    fd_topob_tile( topo, "cap", "cap", "metric_in", cpu_idx++, 0, 0 );
+  }
+
+  /**********************************************************************/
   /* Add the snapshot tiles to topo                                       */
   /**********************************************************************/
   fd_topob_wksp( topo, "snaprd" );
@@ -204,6 +212,27 @@ backtest_topo( config_t * config ) {
   FOR(exec_tile_cnt) fd_topob_tile_out( topo, "exec", i, "exec_writer", i );
   FOR(writer_tile_cnt) for( ulong j=0UL; j<exec_tile_cnt; j++ )
     fd_topob_tile_in( topo, "writer", i, "metric_in", "exec_writer", j, FD_TOPOB_RELIABLE, FD_TOPOB_POLLED );
+
+  /**********************************************************************/
+  /* Setup capture tile links in topo                                   */
+  /**********************************************************************/
+  if( config->tiles.capture.enabled ) {
+    /* Create workspaces for capture links */
+    fd_topob_wksp( topo, "replay_cap" );
+    fd_topob_wksp( topo, "writer_cap" );
+    
+    /* Create replay->capture link */
+    fd_topob_link( topo, "replay_cap", "replay_cap", 128UL, 16UL*1024UL*1024UL, 1UL );
+    fd_topob_tile_out( topo, "replay", 0UL, "replay_cap", 0UL );
+    fd_topob_tile_in( topo, "cap", 0UL, "metric_in", "replay_cap", 0UL, FD_TOPOB_RELIABLE, FD_TOPOB_POLLED );
+    
+    /* Create writer->capture links */
+    FOR(writer_tile_cnt) {
+      fd_topob_link( topo, "writer_cap", "writer_cap", 128UL, 16UL*1024UL*1024UL, 1UL );
+      fd_topob_tile_out( topo, "writer", i, "writer_cap", i );
+      fd_topob_tile_in( topo, "cap", 0UL, "metric_in", "writer_cap", i, FD_TOPOB_RELIABLE, FD_TOPOB_POLLED );
+    }
+  }
 
   /**********************************************************************/
   /* Setup the shared objs used by replay and exec tiles                */

@@ -344,7 +344,7 @@ struct fd_topo_tile {
     } writer;
 
     struct {
-      char base_dir[ PATH_MAX ];
+      char capture_path[ PATH_MAX ];
     } capture;
 
     struct {

@@ -449,7 +449,7 @@ struct fd_config {
 
     struct {
       int   enabled;
-      char  capture_dir[ PATH_MAX ];
+      char  capture_path[ PATH_MAX ];
     } capture;
 
   } tiles;

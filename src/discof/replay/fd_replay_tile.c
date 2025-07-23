@@ -1982,7 +1982,7 @@ unprivileged_init( fd_topo_t *      topo,
   }
 
   /* Set up capture tile output */
-  ulong replay_capture_idx = fd_topo_find_tile_out_link( topo, tile, "replay_capture", 0 );
+  ulong replay_capture_idx = fd_topo_find_tile_out_link( topo, tile, "replay_cap", 0 );
   if( FD_UNLIKELY( replay_capture_idx!=ULONG_MAX ) ) {
     fd_topo_link_t * capture_out = &topo->links[ tile->out_link_id[ replay_capture_idx ] ];
     FD_TEST( capture_out );

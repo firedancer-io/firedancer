@@ -319,6 +319,11 @@ fd_topo_initialize( config_t * config ) {
   fd_topob_wksp( topo, "snap_zstd" );
   fd_topob_wksp( topo, "snap_out" );
   fd_topob_wksp( topo, "replay_manif" );
+  if( config->tiles.capture.enabled ) {
+    fd_topob_wksp( topo, "cap" );
+    fd_topob_wksp( topo, "replay_cap" );
+    fd_topob_wksp( topo, "writer_cap" );
+  }
 
   fd_topob_wksp( topo, "slot_fseqs"  ); /* fseqs for marked slots eg. turbine slot */
   if( enable_rpc ) fd_topob_wksp( topo, "rpcsrv" );
@@ -364,8 +369,8 @@ fd_topo_initialize( config_t * config ) {
 
   /* Capture tile links */
   if( config->tiles.capture.enabled ) {
-    /**/                 fd_topob_link( topo, "replay_capture", "replay_capture", 128UL,                                 16UL*1024UL*1024UL,           1UL );
-    FOR(writer_tile_cnt) fd_topob_link( topo, "writer_capture", "writer_capture", 128UL,                                 16UL*1024UL*1024UL,           1UL );
+                      fd_topob_link( topo, "replay_cap", "replay_cap", 128UL,                                 16UL*1024UL*1024UL,           1UL );
+    FOR(writer_tile_cnt) fd_topob_link( topo, "writer_cap", "writer_cap", 128UL,                                 16UL*1024UL*1024UL,           1UL );
   }
 
   /**/                 fd_topob_link( topo, "gossip_verif", "gossip_verif", config->tiles.verify.receive_buffer_size, FD_TPU_MTU,                    1UL );
@@ -462,8 +467,8 @@ fd_topo_initialize( config_t * config ) {
   FOR(exec_tile_cnt)               fd_topob_tile( topo, "exec",    "exec",    "metric_in",  tile_to_cpu[ topo->tile_cnt ], 0,        0 );
   /**/                             fd_topob_tile( topo, "tower",   "tower",   "metric_in",  tile_to_cpu[ topo->tile_cnt ], 0,        0 );
   FOR(writer_tile_cnt)             fd_topob_tile( topo, "writer",  "writer",  "metric_in",  tile_to_cpu[ topo->tile_cnt ], 0,        0 );
-  
-  if( config->tiles.capture.enabled ) fd_topob_tile( topo, "capture", "capture", "metric_in",  tile_to_cpu[ topo->tile_cnt ], 0,        0 );
+
+  if( config->tiles.capture.enabled ) fd_topob_tile( topo, "cap", "cap", "metric_in",  tile_to_cpu[ topo->tile_cnt ], 0,        0 );
 
   fd_topo_tile_t * rpcserv_tile = NULL;
   if( enable_rpc ) rpcserv_tile =  fd_topob_tile( topo, "rpcsrv",  "rpcsrv",  "metric_in",  tile_to_cpu[ topo->tile_cnt ], 0,        0 );
@@ -738,10 +743,10 @@ fd_topo_initialize( config_t * config ) {
 
   /* Capture tile inputs from replay and writer tiles */
   if( config->tiles.capture.enabled ) {
-    /**/                 fd_topob_tile_out( topo, "replay",  0UL,                       "replay_capture", 0UL                                                  );
-    /**/                 fd_topob_tile_in(  topo, "capture", 0UL,          "metric_in", "replay_capture", 0UL,          FD_TOPOB_RELIABLE,   FD_TOPOB_POLLED   );
-    FOR(writer_tile_cnt) fd_topob_tile_out( topo, "writer",  i,                         "writer_capture", i                                                    );
-    FOR(writer_tile_cnt) fd_topob_tile_in(  topo, "capture", 0UL,          "metric_in", "writer_capture", i,            FD_TOPOB_RELIABLE,   FD_TOPOB_POLLED   );
+    /**/                 fd_topob_tile_out( topo, "replay",  0UL,                       "replay_cap", 0UL                                                  );
+    /**/                 fd_topob_tile_in(  topo, "cap", 0UL,          "metric_in", "replay_cap", 0UL,          FD_TOPOB_RELIABLE,   FD_TOPOB_POLLED   );
+    FOR(writer_tile_cnt) fd_topob_tile_out( topo, "writer",  i,                         "writer_cap", i                                                    );
+    FOR(writer_tile_cnt) fd_topob_tile_in(  topo, "cap", 0UL,          "metric_in", "writer_cap", i,            FD_TOPOB_RELIABLE,   FD_TOPOB_POLLED   );
   }
 
   /**/                 fd_topob_tile_in ( topo, "send",   0UL,         "metric_in", "stake_out",     0UL,    FD_TOPOB_UNRELIABLE, FD_TOPOB_POLLED   );
@@ -1084,11 +1089,9 @@ fd_topo_configure_tile( fd_topo_tile_t * tile,
       tile->exec.dump_syscall_to_pb = config->capture.dump_syscall_to_pb;
     } else if( FD_UNLIKELY( !strcmp( tile->name, "writer" ) ) ) {
       tile->writer.funk_obj_id = fd_pod_query_ulong( config->topo.props, "funk", ULONG_MAX );
-    } else if( FD_UNLIKELY( !strcmp( tile->name, "capture" ) ) ) {
-      if( config->tiles.capture.capture_dir[0] != '\0' ) {
-        strncpy( tile->capture.base_dir, config->tiles.capture.capture_dir, sizeof(tile->capture.base_dir) );
-      } else {
-        fd_cstr_printf_check( tile->capture.base_dir, sizeof(tile->capture.base_dir), NULL, "%s/capture", config->paths.base );
+    } else if( FD_UNLIKELY( !strcmp( tile->name, "cap" ) ) ) {
+      if( config->tiles.capture.capture_path[0] != '\0' ) {
+        strncpy( tile->capture.capture_path, config->tiles.capture.capture_path, sizeof(tile->capture.capture_path) );
       }
     } else if( FD_UNLIKELY( !strcmp( tile->name, "snaprd" ) ) ) {
       setup_snapshots( config, tile );
