@@ -907,7 +907,7 @@ fd_check_transaction_age( fd_exec_txn_ctx_t * txn_ctx ) {
   /* https://github.com/anza-xyz/agave/blob/16de8b75ebcd57022409b422de557dd37b1de8db/runtime/src/bank.rs#L3603-L3620*/
   /* load_message_nonce_account */
 
-  /* https://github.com/anza-xyz/agave/blob/16de8b75ebcd57022409b422de557dd37b1de8db/sdk/program/src/message/sanitized.rs#L345-L371 */
+  /* https://github.com/anza-xyz/agave/blob/v2.3.1/svm-transaction/src/svm_message.rs#L87-L119 */
   /* get_durable_nonce */
   if( FD_UNLIKELY( !txn_ctx->txn_descriptor->instr_cnt ) ) {
     return FD_RUNTIME_TXN_ERR_BLOCKHASH_NOT_FOUND;
@@ -924,19 +924,30 @@ fd_check_transaction_age( fd_exec_txn_ctx_t * txn_ctx ) {
   }
   uchar const * instr_data  = fd_txn_get_instr_data( txn_instr, txn_ctx->_txn_raw->raw );
   uchar const * instr_accts = fd_txn_get_instr_accts( txn_instr, txn_ctx->_txn_raw->raw );
+  uchar         nonce_idx   = instr_accts[0];
 
-  /* https://github.com/anza-xyz/agave/blob/16de8b75ebcd57022409b422de557dd37b1de8db/sdk/program/src/message/sanitized.rs#L356-L358 */
+  /* https://github.com/anza-xyz/agave/blob/v2.3.1/svm-transaction/src/svm_message.rs#L99-L105 */
   if( FD_UNLIKELY( txn_instr->data_sz<4UL || FD_LOAD( uint, instr_data ) !=
                    (uint)fd_system_program_instruction_enum_advance_nonce_account ) ) {
     return FD_RUNTIME_TXN_ERR_BLOCKHASH_NOT_FOUND;
   }
-  if( FD_UNLIKELY( !fd_exec_txn_ctx_account_is_writable_idx( txn_ctx, instr_accts[0] ) ) ) {
+
+  /* Nonce account must be...
+     - writable
+     - statically included in the transaction account keys (if SIMD-242
+       is active)
+     https://github.com/anza-xyz/agave/blob/v2.3.1/svm-transaction/src/svm_message.rs#L110-L111 */
+  if( FD_UNLIKELY( !fd_exec_txn_ctx_account_is_writable_idx( txn_ctx, nonce_idx ) ) ) {
+    return FD_RUNTIME_TXN_ERR_BLOCKHASH_NOT_FOUND;
+  }
+  if( FD_UNLIKELY( FD_FEATURE_ACTIVE_BANK( txn_ctx->bank, require_static_nonce_account ) &&
+                   nonce_idx>=txn_ctx->txn_descriptor->acct_addr_cnt ) ) {
     return FD_RUNTIME_TXN_ERR_BLOCKHASH_NOT_FOUND;
   }
 
   FD_TXN_ACCOUNT_DECL( durable_nonce_rec );
   int err = fd_txn_account_init_from_funk_readonly( durable_nonce_rec,
-                                                    &txn_ctx->account_keys[ instr_accts[0] ],
+                                                    &txn_ctx->account_keys[ nonce_idx ],
                                                     txn_ctx->funk,
                                                     txn_ctx->funk_txn );
   if( FD_UNLIKELY( err!=FD_ACC_MGR_SUCCESS ) ) {
