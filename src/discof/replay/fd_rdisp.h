@@ -1,6 +1,8 @@
 #ifndef HEADER_fd_src_discof_replay_fd_rdisp_h
 #define HEADER_fd_src_discof_replay_fd_rdisp_h
 
+#include "../../disco/fd_disco_base.h"
+
 /* fd_rdisp defines methods for building a DAG (directed acyclic graph)
    of transactions, and executing them in the appropriate order with the
    maximum amount of parallelism.
@@ -126,11 +128,16 @@
    obiously result in an incorrectreplay.  It's ultimately the callers
    responsibility to ensure correct replay. */
 
-#define FD_RDISP_MAX_DEPTH      0x7FFFFFUL /* 23 bit numbers, approx 8M */
+#define FD_RDISP_MAX_DEPTH       0x7FFFFFUL /* 23 bit numbers, approx 8M */
 #define FD_RDISP_MAX_BLOCK_DEPTH 0x7FFFFFUL /* Also 23 bits, but for a different reason */
+#define FD_RDISP_UNSTAGED        ULONG_MAX
 
 struct fd_rdisp;
 typedef struct fd_rdisp fd_rdisp_t;
+
+/* fd_rdisp is set up so that the tag of a block can be adjusted to
+   account for differences in handling duplicate blocks/equivocation. */
+#define FD_RDISP_BLOCK_TAG_T ulong
 
 FD_PROTOTYPES_BEGIN
 
@@ -172,7 +179,7 @@ fd_rdisp_join( void * mem );
    call, then the newly added block will also be schedule-ready.
 
    On successful return, the tag new_block will be usable for other
-   functions that take a slot block.
+   functions that take a block tag block.
 
    Returns 0 on success, and -1 on error, which can only happen if out
    of resources (the number of unremoved blocks is greater than or equal
@@ -198,20 +205,52 @@ fd_rdisp_remove_block( fd_rdisp_t *          disp,
    transactions part of the block to FREE, and then removes the block as
    in fd_rdisp_remove_block.  Note that if a transaction is DISPATCHED
    at the time of the call complete_txn should NOT be called on that
-   transaction index when it completes.  slot must be schedule-ready.
+   transaction index when it completes.  The specified block must be
+   schedule-ready.
 
    Returns 0 on success, and -1 if block is not known.  After a
    successful return, the block tag block will not be known. */
-void
+int
 fd_rdisp_abandon_block( fd_rdisp_t          * disp,
                         FD_RDISP_BLOCK_TAG_T  block );
 
 
+/* fd_rdisp_{promote,demote}_block modify whether a block is STAGED or
+   UNSTAGED.  Specifically, promote_block promotes the specified block
+   from UNSTAGED to STAGED, using the specified staging_lane.
+   demote_block demotes the specified block from STAGED to UNSTAGED.
+   disp must be a valid local join.  If the block tag block is not
+   known, or is not in the requisite state (UNSTAGED from promote,
+   STAGED for demote), returns -1.
+
+   When promote_block promotes the specified block, it is placed at the
+   end of the linear chain in the specified staging_lane.  That means
+   the operation is as if abandon_block were called on the specified
+   block, then add_block with the specified staging_lane, and then all
+   transactions in the PENDING and READY states in this block were
+   re-added in the same order they were originally added.  It is
+   undefined behavior if the specified block contains any transactions
+   in the DISPATCHED stage.  As in add_block, upon successful return,
+   the specified block will be insert-ready, but will only be
+   schedule-ready the the specified staging lane was empty at the time
+   of the call.
+
+   demote_block has the additional requirement that the specified block
+   must be schedule-ready and empty, that is, not containing any
+   transactions in the PENDING, READY, or DISPATCHED states. */
+
+int
+fd_rdisp_promote_block( fd_rdisp_t *          disp,
+                        FD_RDISP_BLOCK_TAG_T  block,
+                        ulong                 staging_lane );
+int
+fd_rdisp_demote_block( fd_rdisp_t *          disp,
+                       FD_RDISP_BLOCK_TAG_T  block );
 
 /* fd_rdisp_add_txn adds a transaction to the block with tag
    insert_block in serial order.  That means that this dispatcher will
    ensure this transaction appears to execute after each transaction
-   added to this slot in a prior call.
+   added to this block in a prior call.
 
    insert_block must be a known block that is schedule-ready.  txn,
    payload, and alts describe the transaction to be added.  txn must be
@@ -241,7 +280,7 @@ fd_rdisp_abandon_block( fd_rdisp_t          * disp,
    table yet.
 
    Returns 0 and does not add the transaction on failure.  Fails if
-   there were no free transaction indices, if the slot with tag
+   there were no free transaction indices, if the block with tag
    insert_block did not exist, or if it was not schedule-ready.
 
    At the time this function returns, the returned transaction index

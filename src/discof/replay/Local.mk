@@ -1,3 +1,4 @@
+$(call add-objs,fd_rdisp_simple,fd_discof)
 ifdef FD_HAS_INT128
 $(call add-hdrs,fd_replay_notif.h)
 $(call add-objs,fd_exec,fd_discof)

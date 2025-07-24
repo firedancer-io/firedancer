@@ -54,6 +54,11 @@
    there are any writers.  Otherwise, it becomes a successor of the node
    that last referenced the account. */
 
+/* For a task like this with lots of graph traversal and pointer
+   chasing, performance is typically limited by memory latency.  That
+   means that the more that can fit in cache, the better the
+   performance.  This implementation uses a lot of bit-packing to
+   improve cache footprint. */
 
 /* The following structs are all very local to this compilation unit,
    and so they don't have globally acceptable type names (e.g.
