@@ -33,17 +33,21 @@ fd_ghost_new( void * shmem, ulong ele_max, ulong seed ) {
 
   fd_memset( shmem, 0, footprint );
 
+  int elg_max = fd_ulong_find_msb( fd_ulong_pow2_up( ele_max ) );
+
   FD_SCRATCH_ALLOC_INIT( l, shmem );
   fd_ghost_t * ghost = FD_SCRATCH_ALLOC_APPEND( l, fd_ghost_align(),          sizeof( fd_ghost_t )                   );
   void *       pool  = FD_SCRATCH_ALLOC_APPEND( l, fd_ghost_pool_align(),     fd_ghost_pool_footprint    ( ele_max ) );
   void *       hash  = FD_SCRATCH_ALLOC_APPEND( l, fd_ghost_hash_map_align(), fd_ghost_hash_map_footprint( ele_max ) );
   void *       slot  = FD_SCRATCH_ALLOC_APPEND( l, fd_ghost_slot_map_align(), fd_ghost_slot_map_footprint( ele_max ) );
+  void *       dup   = FD_SCRATCH_ALLOC_APPEND( l, fd_dup_seen_map_align(),   fd_dup_seen_map_footprint  ( elg_max ) );
   void *       ver   = FD_SCRATCH_ALLOC_APPEND( l, fd_fseq_align(),           fd_fseq_footprint()                    );
   FD_TEST( FD_SCRATCH_ALLOC_FINI( l, fd_ghost_align() ) == (ulong)shmem + footprint );
 
   ghost->pool_gaddr     = fd_wksp_gaddr_fast( wksp, fd_ghost_pool_join    ( fd_ghost_pool_new    ( pool, ele_max       ) ) );
   ghost->hash_map_gaddr = fd_wksp_gaddr_fast( wksp, fd_ghost_hash_map_join( fd_ghost_hash_map_new( hash, ele_max, seed ) ) );
   ghost->slot_map_gaddr = fd_wksp_gaddr_fast( wksp, fd_ghost_slot_map_join( fd_ghost_slot_map_new( slot, ele_max, seed ) ) );
+  ghost->dup_map_gaddr  = fd_wksp_gaddr_fast( wksp, fd_dup_seen_map_join( fd_dup_seen_map_new( dup, elg_max ) ) );
   ghost->ver_gaddr      = fd_wksp_gaddr_fast( wksp, fd_fseq_join          ( fd_fseq_new          ( ver,  ULONG_MAX     ) ) );
 
   ghost->ghost_gaddr = fd_wksp_gaddr_fast( wksp, ghost );
@@ -119,10 +123,18 @@ maps_insert( fd_ghost_t * ghost, fd_ghost_ele_t * ele ) {
   fd_ghost_hash_map_t * maph = fd_ghost_hash_map( ghost );
   fd_ghost_slot_map_t * maps = fd_ghost_slot_map( ghost );
   fd_ghost_ele_t      * pool = fd_ghost_pool( ghost );
+  ulong                 null = fd_ghost_pool_idx_null( pool );
 
   FD_TEST( fd_ghost_hash_map_ele_insert( maph, ele, pool ) ); /* cannot fail */
-  if( FD_LIKELY( fd_ghost_slot_map_ele_query( maps, &ele->slot, NULL, pool ) == NULL ) ) {
+  fd_ghost_ele_t * ele_slot = fd_ghost_slot_map_ele_query( maps, &ele->slot, NULL, pool );
+  if( FD_LIKELY( !ele_slot ) ) {
    fd_ghost_slot_map_ele_insert( maps, ele, pool ); /* cannot fail */
+  } else {
+    /* If the slot is already in the map, then we have a duplicate */
+    while( FD_UNLIKELY( ele_slot->twin != null ) ) {
+      ele_slot = fd_ghost_pool_ele( pool, ele_slot->twin );
+    }
+    ele_slot->twin = fd_ghost_pool_idx( pool, ele );
   }
 }
 
@@ -176,6 +188,7 @@ fd_ghost_init( fd_ghost_t * ghost, ulong root_slot, fd_hash_t * hash_id ) {
   root->slot            = root_slot;
   root->next            = null;
   root->nexts           = null;
+  root->twin            = null;
   root->parent          = null;
   root->child           = null;
   root->sibling         = null;
@@ -281,6 +294,7 @@ fd_ghost_insert( fd_ghost_t * ghost, fd_hash_t const * parent_hash, ulong slot, 
   fd_ghost_ele_t * ele = fd_ghost_pool_ele_acquire( pool );
   ele->key             = *hash_id;
   ele->slot            = slot;
+  ele->twin            = null;
   ele->next            = null;
   ele->nexts           = null;
   ele->parent          = null;
@@ -291,7 +305,6 @@ fd_ghost_insert( fd_ghost_t * ghost, fd_hash_t const * parent_hash, ulong slot, 
   ele->gossip_stake    = 0;
   ele->rooted_stake    = 0;
   ele->valid           = 1;
-
   ele->parent = fd_ghost_pool_idx( pool, parent );
   if( FD_LIKELY( parent->child == null ) ) {
     parent->child = fd_ghost_pool_idx( pool, ele ); /* left-child */
@@ -301,6 +314,11 @@ fd_ghost_insert( fd_ghost_t * ghost, fd_hash_t const * parent_hash, ulong slot, 
     curr->sibling = fd_ghost_pool_idx( pool, ele ); /* right-sibling */
   }
   maps_insert( ghost, ele );
+
+  /* Checks if block has a duplicate already in ghost (i.e., already replayed) */
+  if( FD_UNLIKELY( fd_dup_seen_map_query( fd_ghost_dup_map( ghost ), slot, NULL ) ) ) {
+    fd_ghost_mark_invalid( ghost, slot );
+  }
   return ele;
 }
 
@@ -536,9 +554,26 @@ fd_ghost_is_ancestor( fd_ghost_t const * ghost, fd_hash_t const * ancestor, fd_h
 }
 
 void
-fd_ghost_mark_valid( fd_ghost_t * ghost, ulong slot FD_PARAM_UNUSED, fd_hash_t * bid ) {
+fd_ghost_mark_valid( fd_ghost_t * ghost, ulong slot FD_PARAM_UNUSED, fd_hash_t const * bid ) {
   fd_ghost_ele_t * ele = fd_ghost_query( ghost, bid );
   if( FD_LIKELY( ele ) ) ele->valid = 1;
+}
+
+void
+fd_ghost_mark_invalid( fd_ghost_t * ghost, ulong slot ) {
+  fd_ghost_ele_t  * pool = fd_ghost_pool( ghost );
+  ulong             null = fd_ghost_pool_idx_null( pool );
+  fd_hash_t const * hid  = fd_ghost_hash_id( ghost, slot );
+  if( !hid ) return;
+  /* TODO: consider LOG_ERR here, mark_invalid should never get called on a non-replayed slot */
+
+  fd_ghost_ele_t * ele = fd_ghost_query( ghost, hid );
+  if( FD_LIKELY( ele ) ) ele->valid = 0;
+  while( FD_UNLIKELY( ele->twin != null ) ) {
+    fd_ghost_ele_t * twin = fd_ghost_pool_ele( pool, ele->twin );
+    twin->valid = 0;
+    ele = twin;
+  }
 }
 
 #include <stdio.h>

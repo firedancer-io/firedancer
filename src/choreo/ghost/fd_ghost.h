@@ -136,6 +136,7 @@ struct __attribute__((aligned(128UL))) fd_ghost_ele {
   ulong             slot;         /* slot this ele is tracking */
   ulong             next;         /* reserved for internal use by fd_pool, hash_map fd_map_chain and fd_ghost_publish */
   ulong             nexts;        /* reserved for internal use by slot_map fd_map_chain */
+  ulong             twin;         /* pool idx of a duplicate of this slot */
   ulong             parent;       /* pool idx of the parent */
   ulong             child;        /* pool idx of the left-child */
   ulong             sibling;      /* pool idx of the right-sibling */
@@ -144,6 +145,7 @@ struct __attribute__((aligned(128UL))) fd_ghost_ele {
   ulong             gossip_stake; /* total stake from gossip votes for this slot */
   ulong             rooted_stake; /* replay stake that has rooted this slot */
   int               valid;        /* whether this ele is valid for fork choice */
+  int               replayed;     /* whether this ele has been replayed */
 };
 typedef struct fd_ghost_ele fd_ghost_ele_t;
 
@@ -164,6 +166,17 @@ typedef struct fd_ghost_ele fd_ghost_ele_t;
 #define MAP_KEY            slot
 #define MAP_NEXT           nexts
 #include "../../util/tmpl/fd_map_chain.c"
+
+struct fd_dup_seen {
+   ulong slot;
+};
+typedef struct fd_dup_seen fd_dup_seen_t;
+
+#define MAP_NAME     fd_dup_seen_map
+#define MAP_T        fd_dup_seen_t
+#define MAP_KEY      slot
+#define MAP_MEMOIZE  0
+#include "../../util/tmpl/fd_map_dynamic.c"
 
 /* fd_ghost_t is the top-level structure that holds the root of the
    tree, as well as the memory pools and map structures for tracking
@@ -199,6 +212,7 @@ struct __attribute__((aligned(128UL))) fd_ghost {
   ulong hash_map_gaddr;   /* wksp gaddr of the map (for fast O(1) querying by hash) backing this ghost, non-zero gaddr */
   ulong slot_map_gaddr;   /* wksp gaddr of the map (for fast O(1) querying by slot) backing this ghost, non-zero gaddr */
 
+  ulong dup_map_gaddr;    /* wksp gaddr of the map (for fast O(1) querying, non-zero gaddr */
   /* version fseq. query pre & post read. if value is ULONG_MAX, ghost
      is uninitialized or invalid.
 
@@ -224,18 +238,21 @@ fd_ghost_align( void ) {
 
 FD_FN_CONST static inline ulong
 fd_ghost_footprint( ulong ele_max ) {
+  int lg_ele_max = fd_ulong_find_msb( fd_ulong_pow2_up( ele_max ) );
   return FD_LAYOUT_FINI(
     FD_LAYOUT_APPEND(
     FD_LAYOUT_APPEND(
     FD_LAYOUT_APPEND(
     FD_LAYOUT_APPEND(
     FD_LAYOUT_APPEND(
+    FD_LAYOUT_APPEND(
     FD_LAYOUT_INIT,
-      alignof(fd_ghost_t),   sizeof(fd_ghost_t)                 ),
-      fd_fseq_align(),       fd_fseq_footprint()                ),
-      fd_ghost_pool_align(), fd_ghost_pool_footprint( ele_max ) ),
-      fd_ghost_hash_map_align(),  fd_ghost_hash_map_footprint( ele_max )  ),
-      fd_ghost_slot_map_align(),  fd_ghost_slot_map_footprint( ele_max )  ),
+      alignof(fd_ghost_t),       sizeof(fd_ghost_t)                        ),
+      fd_fseq_align(),           fd_fseq_footprint()                       ),
+      fd_ghost_pool_align(),     fd_ghost_pool_footprint    ( ele_max )    ),
+      fd_ghost_hash_map_align(), fd_ghost_hash_map_footprint( ele_max )    ),
+      fd_ghost_slot_map_align(), fd_ghost_slot_map_footprint( ele_max )    ),
+      fd_dup_seen_map_align(),   fd_dup_seen_map_footprint  ( lg_ele_max ) ),
     fd_ghost_align() );
 }
 
@@ -307,6 +324,8 @@ FD_FN_PURE static inline fd_ghost_hash_map_t       * fd_ghost_hash_map      ( fd
 FD_FN_PURE static inline fd_ghost_hash_map_t const * fd_ghost_hash_map_const( fd_ghost_t const * ghost ) { return fd_wksp_laddr_fast( fd_ghost_wksp( ghost ), ghost->hash_map_gaddr ); }
 FD_FN_PURE static inline fd_ghost_slot_map_t       * fd_ghost_slot_map      ( fd_ghost_t       * ghost ) { return fd_wksp_laddr_fast( fd_ghost_wksp( ghost ), ghost->slot_map_gaddr ); }
 FD_FN_PURE static inline fd_ghost_slot_map_t const * fd_ghost_slot_map_const( fd_ghost_t const * ghost ) { return fd_wksp_laddr_fast( fd_ghost_wksp( ghost ), ghost->slot_map_gaddr ); }
+FD_FN_PURE static inline fd_dup_seen_t             * fd_ghost_dup_map       ( fd_ghost_t       * ghost ) { return fd_wksp_laddr_fast( fd_ghost_wksp( ghost ), ghost->dup_map_gaddr ); }
+FD_FN_PURE static inline fd_dup_seen_t       const * fd_ghost_dup_map_const ( fd_ghost_t const * ghost ) { return fd_wksp_laddr_fast( fd_ghost_wksp( ghost ), ghost->dup_map_gaddr ); }
 FD_FN_PURE static inline fd_ghost_ele_t            * fd_ghost_root          ( fd_ghost_t       * ghost ) { return fd_ghost_pool_ele      ( fd_ghost_pool( ghost ),       ghost->root ); }
 FD_FN_PURE static inline fd_ghost_ele_t const      * fd_ghost_root_const    ( fd_ghost_t const * ghost ) { return fd_ghost_pool_ele_const( fd_ghost_pool_const( ghost ), ghost->root ); }
 
@@ -351,10 +370,13 @@ fd_ghost_hash_id( fd_ghost_t const * ghost, ulong slot ) {
   return ele ? &ele->key : NULL;
 }
 
-/* fd_ghost_mark_valid marks the fork under the correct duplicate as valid. */
+/* fd_ghost_mark_{valid,invalid} marks the fork under the correct duplicate as valid. */
 
 void
-fd_ghost_mark_valid( fd_ghost_t * ghost, ulong slot, fd_hash_t * bid );
+fd_ghost_mark_valid( fd_ghost_t * ghost, ulong slot, fd_hash_t const * bid );
+
+void
+fd_ghost_mark_invalid( fd_ghost_t * ghost, ulong slot );
 
 /* fd_ghost_head greedily traverses the ghost beginning from `root` (not
    necessarily the root of the ghost tree) and returns the heaviest leaf
@@ -472,6 +494,42 @@ fd_ghost_verify( fd_ghost_t const * ghost );
 
 void
 fd_ghost_print( fd_ghost_t const * ghost, ulong total_stake, fd_ghost_ele_t const * ele );
+
+static int FD_FN_UNUSED
+is_duplicate_confirmed( fd_ghost_t * ghost, fd_hash_t const * hash, ulong total_stake ) {
+  fd_ghost_ele_t const * ele = fd_ghost_query( ghost, hash );
+  if( FD_UNLIKELY( !ele ) ) {
+    FD_LOG_WARNING(( "[%s] slot %s was not in ghost", __func__, FD_BASE58_ENC_32_ALLOCA(hash) ));
+    return 0;
+  }
+  double pct = (double)( ele->replay_stake + ele->gossip_stake ) / (double)total_stake;
+  return pct > FD_EQVOCSAFE_PCT;
+}
+
+/* Duplicate confirmed signal */
+
+static void FD_FN_UNUSED
+process_duplicate_confirmed( fd_ghost_t * ghost, ulong slot, fd_hash_t const * hash ) {
+  fd_ghost_ele_t const * confirmed = fd_ghost_query( ghost, hash );
+  fd_ghost_ele_t const * current   = fd_ghost_query( ghost, fd_ghost_hash_id( ghost, slot ) );
+  if( FD_UNLIKELY( !confirmed ) ) FD_LOG_WARNING(( "[%s] duplicate confirmed slot %lu, %s not in ghost. Need to repair & replay. ", __func__, slot, FD_BASE58_ENC_32_ALLOCA(hash) ) );
+  if( FD_UNLIKELY( !current ) )   FD_LOG_ERR(( "[%s] slot %lu doesn't exist in ghost, but we're processing a duplicate confirmed signal for it.", __func__, slot ));
+
+  fd_ghost_mark_valid( ghost, slot, hash );
+}
+
+static void FD_FN_UNUSED
+process_duplicate( fd_ghost_t * ghost, ulong slot ) {
+  fd_dup_seen_t * dup_map = fd_ghost_dup_map( ghost );
+  fd_dup_seen_map_insert( dup_map, slot );
+
+  if( fd_ghost_hash_id( ghost, slot ) ) {
+    /* slot is already replayed, so we can immediately mark invalid */
+    FD_LOG_WARNING(( "[%s] duplicate message for slot %lu, marking invalid", __func__, slot ));
+    fd_ghost_mark_invalid( ghost, slot );
+    return;
+  }
+}
 
 FD_PROTOTYPES_END
 
