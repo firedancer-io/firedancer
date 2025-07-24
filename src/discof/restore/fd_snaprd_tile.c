@@ -659,7 +659,13 @@ unprivileged_init( fd_topo_t *      topo,
     };
 
     for( ulong i=0UL; i<1UL; i++ ) fd_ssping_add( ctx->ssping, initial_peers[ i ] );
-  } else {
+  } else if (FD_LIKELY( !strcmp( tile->snaprd.cluster, "mainnet" ) ) ) {
+    fd_ip4_port_t initial_peers[ 1UL ] = {
+      { .addr = FD_IP4_ADDR( 149, 255, 37, 130 ), .port = 8899 }
+    };
+    for( ulong i=0UL; i<1UL; i++ ) fd_ssping_add( ctx->ssping, initial_peers[ i ] );
+  }
+  else {
     FD_LOG_ERR(( "unexpected cluster %s", tile->snaprd.cluster ));
   }
 
