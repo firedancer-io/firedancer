@@ -10,7 +10,9 @@
 #include "../../../tango/dcache/fd_dcache.h"
 #include "../../../tango/mcache/fd_mcache.h"
 
+#if defined(__GNUC__) && (__GNUC__ >= 9)
 #pragma GCC diagnostic ignored "-Waddress-of-packed-member"
+#endif
 
 #define WKSP_TAG  1UL
 #define SHRED_PORT ((ushort)4242)
