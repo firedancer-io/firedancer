@@ -11,3 +11,5 @@ $(call run-unit-test,test_txn_parse,)
 $(call run-unit-test,test_txn,)
 $(call run-unit-test,test_compact_u16,)
 
+$(call add-hdrs,fd_txn_build.h)
+$(call add-objs,fd_txn_build,fd_ballet)
