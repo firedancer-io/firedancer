@@ -53,7 +53,7 @@ fd_sysvar_set( fd_bank_t *          bank,
   rec->vt->set_owner( rec, owner );
   rec->vt->set_slot( rec, slot );
 
-  fd_runtime_update_lthash_with_account_prev_hash( rec, &prev_lthash_value, bank );
+  fd_runtime_update_lthash_with_account_prev_hash( rec, &prev_lthash_value, bank, NULL, NULL );
 
   fd_txn_account_mutable_fini( rec, funk, funk_txn );
   return 0;

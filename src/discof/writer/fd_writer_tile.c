@@ -9,6 +9,7 @@
 #include "../../flamenco/runtime/fd_executor.h"
 
 #include "../../funk/fd_funk.h"
+#include "../../disco/capture/fd_capture.h"
 
 struct fd_writer_tile_in_ctx {
   fd_wksp_t * mem;
@@ -33,6 +34,9 @@ struct fd_writer_tile_ctx {
 
   /* Link management. */
   fd_writer_tile_in_ctx_t     exec_writer_in[ FD_PACK_MAX_BANK_TILES ];
+
+  /* Capture output link */
+  fd_replay_out_link_t        capture_out[1];
 
   /* Runtime public and local joins of its members. */
   fd_wksp_t const *           runtime_public_wksp;
@@ -338,6 +342,24 @@ unprivileged_init( fd_topo_t *      topo,
   ctx->banks = fd_banks_join( fd_topo_obj_laddr( topo, banks_obj_id ) );
   if( FD_UNLIKELY( !ctx->banks ) ) {
     FD_LOG_ERR(( "Failed to join banks" ));
+  }
+
+  /********************************************************************/
+  /* Setup capture output link                                        */
+  /********************************************************************/
+
+  /* Set up capture tile output */
+  ulong writer_capture_idx = fd_topo_find_tile_out_link( topo, tile, "writer_cap", ctx->tile_idx );
+  if( FD_UNLIKELY( writer_capture_idx!=ULONG_MAX ) ) {
+    fd_topo_link_t * capture_out = &topo->links[ tile->out_link_id[ writer_capture_idx ] ];
+    FD_TEST( capture_out );
+    ctx->capture_out->idx    = writer_capture_idx;
+    ctx->capture_out->mem    = topo->workspaces[ topo->objs[ capture_out->dcache_obj_id ].wksp_id ].wksp;
+    ctx->capture_out->chunk0 = fd_dcache_compact_chunk0( ctx->capture_out->mem, capture_out->dcache );
+    ctx->capture_out->wmark  = fd_dcache_compact_wmark ( ctx->capture_out->mem, capture_out->dcache, capture_out->mtu );
+    ctx->capture_out->chunk  = ctx->capture_out->chunk0;
+  } else {
+    ctx->capture_out->idx = ULONG_MAX;
   }
 }
 

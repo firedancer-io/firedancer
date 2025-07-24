@@ -1754,7 +1754,8 @@ unprivileged_init( fd_topo_t *      topo,
     ctx->capture_ctx = NULL;
   }
 
-  if( strlen(tile->replay.solcap_capture) > 0 ) {
+  /* Disable direct solcap writing in replay tile - capture tile will handle it */
+  if( 0 && strlen(tile->replay.solcap_capture) > 0 ) {
     ctx->capture_ctx->checkpt_freq = ULONG_MAX;
     ctx->capture_file = fopen( tile->replay.solcap_capture, "w+" );
     if( FD_UNLIKELY( !ctx->capture_file ) ) {

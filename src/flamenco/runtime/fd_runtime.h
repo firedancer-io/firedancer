@@ -506,7 +506,9 @@ fd_runtime_block_execute_prepare( fd_exec_slot_ctx_t * slot_ctx,
 
 void
 fd_runtime_block_execute_finalize_start( fd_exec_slot_ctx_t *             slot_ctx,
-                                         fd_spad_t *                      runtime_spad );
+                                         fd_spad_t *                      runtime_spad,
+                                         fd_stem_context_t *              stem,
+                                         fd_replay_out_link_t *           capture_out );
 
 int
 fd_runtime_block_execute_finalize_finish( fd_exec_slot_ctx_t *             slot_ctx,
@@ -547,7 +549,10 @@ fd_runtime_finalize_txn( fd_funk_t *                  funk,
                          fd_funk_txn_t *              funk_txn,
                          fd_execute_txn_task_info_t * task_info,
                          fd_spad_t *                  finalize_spad,
-                         fd_bank_t *                  bank );
+                         fd_bank_t *                  bank,
+                         fd_exec_slot_ctx_t *         slot_ctx,
+                         fd_stem_context_t *          stem,
+                         fd_replay_out_link_t *       capture_out );
 
 /* Epoch Boundary *************************************************************/
 
@@ -627,12 +632,14 @@ fd_runtime_block_execute( fd_exec_slot_ctx_t *            slot_ctx,
                           fd_replay_out_link_t *          capture_out );
 
 int
-fd_runtime_process_txns_in_microblock_stream_sequential( fd_exec_slot_ctx_t * slot_ctx,
-                                                         fd_capture_ctx_t *   capture_ctx,
-                                                         fd_txn_p_t *         txns,
-                                                         ulong                txn_cnt,
-                                                         fd_spad_t *          runtime_spad,
-                                                         fd_cost_tracker_t *  cost_tracker_opt );
+fd_runtime_process_txns_in_microblock_stream_sequential( fd_exec_slot_ctx_t *    slot_ctx,
+                                                         fd_capture_ctx_t *      capture_ctx,
+                                                         fd_txn_p_t *            txns,
+                                                         ulong                   txn_cnt,
+                                                         fd_spad_t *             runtime_spad,
+                                                         fd_cost_tracker_t *     cost_tracker_opt,
+                                                         fd_stem_context_t *     stem,
+                                                         fd_replay_out_link_t *  capture_out );
 
 int
 fd_runtime_block_execute_finalize_sequential( fd_exec_slot_ctx_t *             slot_ctx,
@@ -651,9 +658,11 @@ fd_runtime_read_genesis( fd_exec_slot_ctx_t * slot_ctx,
 
 /* Hashing  ********************************************************************/
 void
-fd_runtime_update_lthash_with_account_prev_hash( fd_txn_account_t *   account,
-                                                 fd_lthash_value_t *  old_hash,
-                                                 fd_bank_t *          bank );
+fd_runtime_update_lthash_with_account_prev_hash( fd_txn_account_t *      account,
+                                                 fd_lthash_value_t *     old_hash,
+                                                 fd_bank_t *             bank,
+                                                 fd_stem_context_t *     stem,
+                                                 fd_replay_out_link_t *  capture_out );
 
 FD_PROTOTYPES_END
 

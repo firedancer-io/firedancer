@@ -228,9 +228,11 @@ fd_runtime_validate_fee_collector( fd_bank_t *              bank,
 }
 
 void
-fd_runtime_update_lthash_with_account_prev_hash( fd_txn_account_t *   account,
-                                                 fd_lthash_value_t *  old_hash,
-                                                 fd_bank_t *          bank ) {
+fd_runtime_update_lthash_with_account_prev_hash( fd_txn_account_t *      account,
+                                                 fd_lthash_value_t *     old_hash,
+                                                 fd_bank_t *             bank,
+                                                 fd_stem_context_t *     stem,
+                                                 fd_replay_out_link_t *  capture_out ) {
   /* Subtract the old hash of the account from the bank lthash */
   fd_lthash_value_t * bank_lthash = fd_type_pun( fd_bank_lthash_locking_modify( bank ) );
   FD_LOG_WARNING(( "Subtracting old hash of account %s (old_hash: %s) from bank lthash: %s", FD_BASE58_ENC_32_ALLOCA( account->pubkey ), FD_LTHASH_ENC_32_ALLOCA( old_hash ), FD_LTHASH_ENC_32_ALLOCA( bank_lthash ) ));
@@ -254,13 +256,52 @@ fd_runtime_update_lthash_with_account_prev_hash( fd_txn_account_t *   account,
   FD_LOG_WARNING(( "New bank lthash: %s", FD_LTHASH_ENC_32_ALLOCA( bank_lthash ) ));
 
   fd_bank_lthash_end_locking_modify( bank );
+
+  /* Send WRITE_ACCOUNT message to capture tile if capture is enabled */
+  if( stem && capture_out && capture_out->idx != ULONG_MAX ) {
+    
+    /* Calculate message size */
+    ulong data_len = account->vt->get_data_len( account );
+    ulong msg_sz = sizeof(fd_capture_msg_write_account_t) + data_len;
+    
+    /* Get chunk for message */
+    void * msg = fd_chunk_to_laddr( capture_out->mem, capture_out->chunk );
+    if( FD_UNLIKELY( !msg ) ) {
+      FD_LOG_ERR(( "invariant violation: msg is NULL" ));
+      return;
+    }
+
+    /* Create the message */
+    fd_capture_msg_write_account( msg,
+                                  account->pubkey->key,
+                                  &meta->info,
+                                  new_hash,
+                                  data_len );
+    
+    /* Copy account data after the message header */
+    fd_capture_msg_write_account_t * write_msg = (fd_capture_msg_write_account_t *)msg;
+    fd_memcpy( (uchar *)(write_msg + 1), account->vt->get_data( account ), data_len );
+    
+    /* Publish the message */
+    ulong sig  = FD_CAPTURE_MSG_TYPE_WRITE_ACCOUNT;
+    ulong ctl  = 0UL;
+    ulong tspub = (ulong)fd_frag_meta_ts_comp( fd_tickcount() );
+    
+    fd_stem_publish( stem, capture_out->idx, sig, capture_out->chunk, msg_sz, ctl, 0UL, tspub );
+    
+    /* Move to next chunk */
+    capture_out->chunk = fd_dcache_compact_next( capture_out->chunk, msg_sz,
+                                                  capture_out->chunk0, capture_out->wmark );
+  }
 }
 
 static void
-fd_runtime_update_lthash_with_account( fd_funk_t *        funk,
-                                       fd_funk_txn_t *    funk_txn,
-                                       fd_txn_account_t * account,
-                                       fd_bank_t *        bank ) {
+fd_runtime_update_lthash_with_account( fd_funk_t *             funk,
+                                       fd_funk_txn_t *         funk_txn,
+                                       fd_txn_account_t *      account,
+                                       fd_bank_t *             bank,
+                                       fd_stem_context_t *     stem,
+                                       fd_replay_out_link_t *  capture_out ) {
 
   /* Look up the previous version of the account from Funk */
   FD_TXN_ACCOUNT_DECL( previous_account_version );
@@ -280,13 +321,15 @@ fd_runtime_update_lthash_with_account( fd_funk_t *        funk,
       old_hash );
   }
 
-  fd_runtime_update_lthash_with_account_prev_hash( account, old_hash, bank );
+  fd_runtime_update_lthash_with_account_prev_hash( account, old_hash, bank, stem, capture_out );
 }
 
 static int
-fd_runtime_run_incinerator( fd_bank_t *     bank,
-                            fd_funk_t *     funk,
-                            fd_funk_txn_t * funk_txn ) {
+fd_runtime_run_incinerator( fd_bank_t *             bank,
+                            fd_funk_t *             funk,
+                            fd_funk_txn_t *         funk_txn,
+                            fd_stem_context_t *     stem,
+                            fd_replay_out_link_t *  capture_out ) {
   FD_TXN_ACCOUNT_DECL( rec );
 
   int err = fd_txn_account_init_from_funk_mutable( rec,
@@ -310,14 +353,17 @@ fd_runtime_run_incinerator( fd_bank_t *     bank,
   fd_bank_capitalization_set( bank, new_capitalization );
 
   rec->vt->set_lamports( rec, 0UL );
-  fd_runtime_update_lthash_with_account_prev_hash( rec, &prev_lthash_value, bank );
+  fd_runtime_update_lthash_with_account_prev_hash( rec, &prev_lthash_value, bank, stem, capture_out );
   fd_txn_account_mutable_fini( rec, funk, funk_txn );
 
   return 0;
 }
 
 static void
-fd_runtime_freeze( fd_exec_slot_ctx_t * slot_ctx, fd_spad_t * runtime_spad ) {
+fd_runtime_freeze( fd_exec_slot_ctx_t *   slot_ctx, 
+                   fd_spad_t *            runtime_spad,
+                   fd_stem_context_t *    stem,
+                   fd_replay_out_link_t * capture_out ) {
 
   FD_TXN_ACCOUNT_DECL( old_recent_blockhashes_rec );
   int err = fd_txn_account_init_from_funk_readonly( old_recent_blockhashes_rec, &fd_sysvar_recent_block_hashes_id, slot_ctx->funk, slot_ctx->funk_txn );
@@ -338,7 +384,7 @@ fd_runtime_freeze( fd_exec_slot_ctx_t * slot_ctx, fd_spad_t * runtime_spad ) {
   if (err) {
     FD_LOG_WARNING(( "fd_txn_account_init_from_funk_readonly(recent_blockhashes) failed: %d", err ));
   }
-  fd_runtime_update_lthash_with_account_prev_hash(recent_blockhashes_rec, &old_recent_blockhashes_lthash, slot_ctx->bank);
+  fd_runtime_update_lthash_with_account_prev_hash(recent_blockhashes_rec, &old_recent_blockhashes_lthash, slot_ctx->bank, stem, capture_out);
 
   ulong execution_fees = fd_bank_execution_fees_get( slot_ctx->bank );
   ulong priority_fees  = fd_bank_priority_fees_get( slot_ctx->bank );
@@ -401,7 +447,7 @@ fd_runtime_freeze( fd_exec_slot_ctx_t * slot_ctx, fd_spad_t * runtime_spad ) {
       rec->vt->checked_add_lamports( rec, fees );
       rec->vt->set_slot( rec, fd_bank_slot_get( slot_ctx->bank ) );
 
-      fd_runtime_update_lthash_with_account_prev_hash( rec, old_hash, slot_ctx->bank );
+      fd_runtime_update_lthash_with_account_prev_hash( rec, old_hash, slot_ctx->bank, stem, capture_out );
       fd_txn_account_mutable_fini( rec, slot_ctx->funk, slot_ctx->funk_txn );
 
     } while(0);
@@ -415,7 +461,7 @@ fd_runtime_freeze( fd_exec_slot_ctx_t * slot_ctx, fd_spad_t * runtime_spad ) {
     fd_bank_priority_fees_set( slot_ctx->bank, 0UL );
   }
 
-  fd_runtime_run_incinerator( slot_ctx->bank, slot_ctx->funk, slot_ctx->funk_txn );
+  fd_runtime_run_incinerator( slot_ctx->bank, slot_ctx->funk, slot_ctx->funk_txn, stem, capture_out );
 
 }
 
@@ -1151,7 +1197,9 @@ fd_runtime_block_execute_prepare( fd_exec_slot_ctx_t * slot_ctx,
 
 void
 fd_runtime_block_execute_finalize_start( fd_exec_slot_ctx_t *             slot_ctx,
-                                         fd_spad_t *                      runtime_spad ) {
+                                         fd_spad_t *                      runtime_spad,
+                                         fd_stem_context_t *              stem,
+                                         fd_replay_out_link_t *           capture_out ) {
 
   fd_lthash_value_t old_slot_history_lthash = {0};
   FD_TXN_ACCOUNT_DECL( old_rec );
@@ -1172,10 +1220,10 @@ fd_runtime_block_execute_finalize_start( fd_exec_slot_ctx_t *             slot_c
   if (err) {
     FD_LOG_WARNING(( "fd_txn_account_init_from_funk_readonly(slot_history) failed: %d", err ));
   }
-  fd_runtime_update_lthash_with_account_prev_hash(rec, &old_slot_history_lthash, slot_ctx->bank);
+  fd_runtime_update_lthash_with_account_prev_hash(rec, &old_slot_history_lthash, slot_ctx->bank, stem, capture_out);
 
   /* This slot is now "frozen" and can't be changed anymore. */
-  fd_runtime_freeze( slot_ctx, runtime_spad );
+  fd_runtime_freeze( slot_ctx, runtime_spad, stem, capture_out );
 
   int result = fd_bpf_scan_and_create_bpf_program_cache_entry( slot_ctx, runtime_spad );
   if( FD_UNLIKELY( result ) ) {
@@ -1437,7 +1485,10 @@ fd_runtime_finalize_txn( fd_funk_t *                  funk,
                          fd_funk_txn_t *              funk_txn,
                          fd_execute_txn_task_info_t * task_info,
                          fd_spad_t *                  finalize_spad,
-                         fd_bank_t *                  bank ) {
+                         fd_bank_t *                  bank,
+                         fd_exec_slot_ctx_t *         slot_ctx,
+                         fd_stem_context_t *          stem,
+                         fd_replay_out_link_t *       capture_out ) {
 
   /* for all accounts, if account->is_verified==true, propagate update
      to cache entry. */
@@ -2931,9 +2982,11 @@ fd_runtime_init_bank_from_genesis( fd_exec_slot_ctx_t *        slot_ctx,
 }
 
 static int
-fd_runtime_process_genesis_block( fd_exec_slot_ctx_t * slot_ctx,
-                                  fd_capture_ctx_t *   capture_ctx FD_PARAM_UNUSED,
-                                  fd_spad_t *          runtime_spad ) {
+fd_runtime_process_genesis_block( fd_exec_slot_ctx_t *   slot_ctx,
+                                  fd_capture_ctx_t *     capture_ctx FD_PARAM_UNUSED,
+                                  fd_spad_t *            runtime_spad,
+                                  fd_stem_context_t *    stem,
+                                  fd_replay_out_link_t * capture_out ) {
 
 
   fd_hash_t * poh = fd_bank_poh_modify( slot_ctx->bank );
@@ -2962,7 +3015,7 @@ fd_runtime_process_genesis_block( fd_exec_slot_ctx_t * slot_ctx,
 
   fd_runtime_update_leaders( slot_ctx->bank, 0, runtime_spad );
 
-  fd_runtime_freeze( slot_ctx, runtime_spad );
+  fd_runtime_freeze( slot_ctx, runtime_spad, stem, capture_out );
 
   /* FIXME: add in single-threaded bank hash calculation for genesis account */
   // /* sort and update bank hash */
@@ -3197,7 +3250,9 @@ fd_runtime_block_execute( fd_exec_slot_ctx_t *            slot_ctx,
                                                                      mblock_txn_ptrs,
                                                                      mblock_txn_cnt,
                                                                      runtime_spad,
-                                                                     cost_tracker );
+                                                                     cost_tracker,
+                                                                     stem,
+                                                                     capture_out );
       if( FD_UNLIKELY( res!=FD_RUNTIME_EXECUTE_SUCCESS ) ) {
         return res;
       }
@@ -3299,12 +3354,14 @@ fd_runtime_checkpt( fd_capture_ctx_t *   capture_ctx,
 }
 
 int
-fd_runtime_process_txns_in_microblock_stream_sequential( fd_exec_slot_ctx_t * slot_ctx,
-                                                         fd_capture_ctx_t *   capture_ctx,
-                                                         fd_txn_p_t *         txns,
-                                                         ulong                txn_cnt,
-                                                         fd_spad_t *          runtime_spad,
-                                                         fd_cost_tracker_t *  cost_tracker_opt ) {
+fd_runtime_process_txns_in_microblock_stream_sequential( fd_exec_slot_ctx_t *    slot_ctx,
+                                                         fd_capture_ctx_t *      capture_ctx,
+                                                         fd_txn_p_t *            txns,
+                                                         ulong                   txn_cnt,
+                                                         fd_spad_t *             runtime_spad,
+                                                         fd_cost_tracker_t *     cost_tracker_opt,
+                                                         fd_stem_context_t *     stem,
+                                                         fd_replay_out_link_t *  capture_out ) {
 
   int res = 0;
 
@@ -3336,7 +3393,7 @@ fd_runtime_process_txns_in_microblock_stream_sequential( fd_exec_slot_ctx_t * sl
       continue;
     }
 
-    fd_runtime_finalize_txn( slot_ctx->funk, slot_ctx->funk_txn, &task_infos[ i ], task_infos[ i ].txn_ctx->spad, slot_ctx->bank );
+    fd_runtime_finalize_txn( slot_ctx->funk, slot_ctx->funk_txn, &task_infos[ i ], task_infos[ i ].txn_ctx->spad, slot_ctx->bank, slot_ctx, stem, capture_out );
 
     if( cost_tracker_opt!=NULL ) {
       fd_execute_txn_task_info_t const * task_info = &task_infos[ i ];
@@ -3367,7 +3424,7 @@ fd_runtime_block_execute_finalize_sequential( fd_exec_slot_ctx_t *             s
 
   FD_SPAD_FRAME_BEGIN( runtime_spad ) {
 
-  fd_runtime_block_execute_finalize_start( slot_ctx, runtime_spad );
+  fd_runtime_block_execute_finalize_start( slot_ctx, runtime_spad, stem, capture_out );
 
   fd_bank_lthash_update_sysvars( slot_ctx );
 
