@@ -9,7 +9,7 @@
 #include "../../flamenco/runtime/fd_txncache.h"
 #include "../../flamenco/runtime/context/fd_capture_ctx.h"
 #include "../../flamenco/runtime/context/fd_exec_slot_ctx.h"
-#include "../../flamenco/runtime/program/fd_bpf_program_util.h"
+#include "../../flamenco/runtime/program/fd_program_cache.h"
 #include "../../flamenco/runtime/sysvar/fd_sysvar_slot_history.h"
 #include "../../flamenco/runtime/fd_hashes.h"
 #include "../../flamenco/runtime/fd_runtime_init.h"

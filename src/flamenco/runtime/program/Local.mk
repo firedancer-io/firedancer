@@ -8,8 +8,8 @@ $(call add-objs,fd_builtin_programs,fd_flamenco)
 $(call add-hdrs,fd_bpf_loader_serialization.h)
 $(call add-objs,fd_bpf_loader_serialization,fd_flamenco)
 
-$(call add-hdrs,fd_bpf_program_util.h)
-$(call add-objs,fd_bpf_program_util,fd_flamenco)
+$(call add-hdrs,fd_program_cache.h)
+$(call add-objs,fd_program_cache,fd_flamenco)
 
 ### Precompiles
 
