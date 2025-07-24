@@ -15,6 +15,9 @@ struct fd_runtime_fuzz_runner {
   fd_spad_t *  spad;
   fd_banks_t * banks;
   fd_bank_t *  bank;
+
+  fd_solcap_writer_t * solcap;
+  void *               solcap_file; /* FILE * */
 };
 typedef struct fd_runtime_fuzz_runner fd_runtime_fuzz_runner_t;
 

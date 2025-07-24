@@ -523,7 +523,22 @@ fd_runtime_fuzz_block_ctx_exec( fd_runtime_fuzz_runner_t * runner,
     int   is_epoch_boundary = 0;
     fd_runtime_block_pre_execute_process_new_epoch( slot_ctx, &runtime_spad, 1UL, runtime_spad, &is_epoch_boundary );
 
-    res = fd_runtime_block_execute( slot_ctx, NULL, block_info, runtime_spad );
+    fd_capture_ctx_t * capture_ctx = NULL;
+    fd_capture_ctx_t capture_ctx_[1];
+    if( runner->solcap ) {
+      capture_ctx_[0] = (fd_capture_ctx_t) {
+        .capture            = runner->solcap,
+        .capture_txns       = 1,
+        .dump_instr_to_pb   = 1,
+        .dump_txn_to_pb     = 1,
+        .dump_block_to_pb   = 1,
+        .dump_syscall_to_pb = 1,
+        .dump_elf_to_pb     = 1
+      };
+      capture_ctx = capture_ctx_;
+    }
+
+    res = fd_runtime_block_execute( slot_ctx, capture_ctx, block_info, runtime_spad );
   } FD_SPAD_FRAME_END;
 
   return res;
