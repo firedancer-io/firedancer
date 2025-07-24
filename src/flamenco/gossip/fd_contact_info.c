@@ -151,10 +151,11 @@ fd_contact_info_to_update_msg( fd_contact_info_t const * contact_info,
     ushort socket_tag = socket_entry->key;
 
     /* NOTE: We use FD_GOSSIP_UPDATE_MSG_NUM_SOCKETS instead of FD_GOSSIP_SOCKET_TAG_MAX
-       since they aren't strictly the same. */
+       since they aren't strictly the same. At this moment
+       FD_GOSSIP_UPDATE_MSG is missing the TVU_QUIC */
 
     if( FD_UNLIKELY( socket_tag >= FD_GOSSIP_UPDATE_MSG_NUM_SOCKETS ) ){
-      FD_LOG_WARNING(( "Unsupported socket tag in update msg %u", socket_tag ));
+      FD_LOG_DEBUG(( "Unsupported socket tag in update msg %u", socket_tag ));
       continue;
     }
     if( FD_UNLIKELY( !fd_gossip_ip_addr_is_ip4( &ci_v2->addrs[ socket_entry->index ] ))){
