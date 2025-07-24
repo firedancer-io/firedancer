@@ -281,7 +281,7 @@ unprivileged_init( fd_topo_t *      topo,
   FD_LOG_NOTICE(("Finished unprivileged init"));
 }
 
-static void
+FD_FN_UNUSED static void
 rocksdb_notify_one_batch( ctx_t * ctx, fd_stem_context_t * stem ) {
 
   /* Read shreds out until we have assembled a complete batch. When
@@ -304,6 +304,31 @@ rocksdb_notify_one_batch( ctx_t * ctx, fd_stem_context_t * stem ) {
       ulong tspub = fd_frag_meta_ts_comp( fd_tickcount() );
       fd_stem_publish( stem, REPLAY_OUT_IDX, sig, 0, 0, 0, tspub, tspub );
       break;
+    }
+  }
+}
+
+static void
+notify_one_slot( ctx_t * ctx, fd_stem_context_t * stem ) {
+  uint entry_batch_start_idx = 0;
+  int  slot_complete         = 0;
+  while( !slot_complete ) {
+    ulong sz                 = 0;
+    fd_shred_t const * shred = rocksdb_get_shred( ctx, &sz );
+    if( FD_UNLIKELY( shred==NULL ) ) {
+      break;
+    } else {
+      fd_blockstore_shred_insert( ctx->blockstore, shred );
+      if( !!(shred->data.flags & FD_SHRED_DATA_FLAG_DATA_COMPLETE) ) {
+        slot_complete = !!(shred->data.flags & FD_SHRED_DATA_FLAG_SLOT_COMPLETE);
+        /* Notify the replay tile after inserting a FEC set */
+        FD_LOG_DEBUG(( "%lu:[%u, %u] notifies replay", shred->slot, entry_batch_start_idx, shred->idx ));
+        uint  cnt             = shred->idx+1-entry_batch_start_idx;
+        entry_batch_start_idx = shred->idx+1;
+        ulong sig             = fd_disco_repair_replay_sig( shred->slot, (ushort)(shred->slot - ctx->rocksdb_slot_meta.parent_slot), cnt, slot_complete );
+        ulong tspub           = fd_frag_meta_ts_comp( fd_tickcount() );
+        fd_stem_publish( stem, REPLAY_OUT_IDX, sig, 0, 0, 0, tspub, tspub );
+      }
     }
   }
 }
@@ -428,6 +453,7 @@ after_credit( ctx_t *             ctx,
           FD_LOG_CRIT(( "Failed at seeking rocksdb root iter for slot=%lu", wmark ));
         }
         ctx->rocksdb_iter = rocksdb_create_iterator_cf(ctx->rocksdb.db, ctx->rocksdb.ro, ctx->rocksdb.cf_handles[FD_ROCKSDB_CFIDX_DATA_SHRED]);
+        notify_one_slot( ctx, stem );
         break;
       case FD_BACKTEST_SHREDCAP_INGEST:
         break;
@@ -440,7 +466,7 @@ after_credit( ctx_t *             ctx,
      batches that are ready to be executed. */
   switch( ctx->ingest_mode ) {
     case FD_BACKTEST_ROCKSDB_INGEST:
-      rocksdb_notify_one_batch( ctx, stem );
+      // rocksdb_notify_one_batch( ctx, stem );
       break;
     case FD_BACKTEST_SHREDCAP_INGEST:
       shredcap_notify_one_batch( ctx, stem );
@@ -569,6 +595,7 @@ after_frag( ctx_t *             ctx,
     switch( ctx->ingest_mode ) {
       case FD_BACKTEST_ROCKSDB_INGEST:
         rocksdb_bank_hash_check( ctx, slot, bank_hash );
+        notify_one_slot( ctx, stem );
         break;
       case FD_BACKTEST_SHREDCAP_INGEST:
         shredcap_bank_hash_check( ctx, slot, bank_hash );
