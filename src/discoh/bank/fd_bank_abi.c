@@ -265,7 +265,8 @@ struct ABI_ALIGN(8UL) fd_bank_abi_txn_private {
       ulong num_secp256r1_instruction_signatures;
     }; /* TransactionSignatureDetails */
 
-    uchar is_simple_vote_transaction; /* same as is_simple_vote_tx */
+    ushort instruction_data_len;
+    uchar  is_simple_vote_transaction; /* same as is_simple_vote_tx */
   }; /* parts of the TransactionMeta */
 
   struct ABI_ALIGN(8UL) {
@@ -294,6 +295,8 @@ FD_STATIC_ASSERT( offsetof( struct fd_bank_abi_txn_private, compute_budget_instr
 FD_STATIC_ASSERT( offsetof( struct fd_bank_abi_txn_private, compute_budget_instruction_details.num_non_migratable_builtin_instructions)==62, bank_abi );
 FD_STATIC_ASSERT( offsetof( struct fd_bank_abi_txn_private, compute_budget_instruction_details.num_non_builtin_instructions)==64, bank_abi );
 FD_STATIC_ASSERT( offsetof( struct fd_bank_abi_txn_private, compute_budget_instruction_details.migrating_builtin)==66, bank_abi );
+FD_STATIC_ASSERT( offsetof( struct fd_bank_abi_txn_private, is_simple_vote_tx)==0x180, bank_abi );
+FD_STATIC_ASSERT( offsetof( struct fd_bank_abi_txn_private, is_simple_vote_transaction)==0x8a, bank_abi );
 
 FD_STATIC_ASSERT( offsetof( struct fd_bank_abi_txn_private, message)          -offsetof(struct fd_bank_abi_txn_private, signatures_cap)==24, bank_abi );
 FD_STATIC_ASSERT( offsetof( struct fd_bank_abi_txn_private, message_hash)     -offsetof(struct fd_bank_abi_txn_private, signatures_cap)==208, bank_abi );
@@ -483,6 +486,7 @@ fd_bank_abi_txn_init( fd_bank_abi_txn_t * out_txn,
   fd_compute_budget_program_state_t cbp_state[1];
   fd_compute_budget_program_init( cbp_state );
 
+  ulong instr_data_sz = 0UL;
   fd_acct_addr_t const * addr_base = fd_txn_get_acct_addrs( txn, payload );
   const fd_bank_abi_prog_map_t non_builtin[1] = { { .category = CATEGORY_NON_BUILTIN } };
   for( ulong i=0UL; i<txn->instr_cnt; i++ ) {
@@ -497,11 +501,13 @@ fd_bank_abi_txn_init( fd_bank_abi_txn_t * out_txn,
       (txn->instr[i].data_sz>0) ? (ulong)payload[ txn->instr[i].data_off ] : 0UL;
 
     instr_cnt[ prog_map_query( prog_id, non_builtin )->category ]++;
+    instr_data_sz += txn->instr[i].data_sz;
 
     if( FD_UNLIKELY( hash_or_def==HASH( COMPUTE_BUDGET_PROG_ID ) ) ) {
       fd_compute_budget_program_parse( payload+txn->instr[i].data_off, txn->instr[i].data_sz, cbp_state );
     }
   }
+  out_txn->instruction_data_len       = (ushort)instr_data_sz; /* fd_txn_parse ensures this is less than MTU, so the cast is safe */
   out_txn->num_transaction_signatures = fd_txn_account_cnt( txn, FD_TXN_ACCT_CAT_SIGNER );
   out_txn->num_secp256k1_instruction_signatures = sig_counters[ HASH( KECCAK_SECP_PROG_ID ) ];
   out_txn->num_ed25519_instruction_signatures   = sig_counters[ HASH( ED25519_SV_PROG_ID  ) ];
