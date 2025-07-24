@@ -796,7 +796,7 @@ after_frag( fd_net_ctx_t *      ctx,
     uchar * inner_iphdr       = gre_hdr + sizeof(fd_gre_hdr_t);
 
     /* outer hdr + gre hdr + inner net_tot_len */
-    ushort  outer_net_tot_len = sizeof(fd_ip4_hdr_t) + sizeof(fd_gre_hdr_t) + fd_ushort_bswap( ( (fd_ip4_hdr_t *)inner_iphdr )->net_tot_len  );
+    ushort  outer_net_tot_len = (ushort)( sizeof(fd_ip4_hdr_t) + sizeof(fd_gre_hdr_t) + fd_ushort_bswap( ( (fd_ip4_hdr_t *)inner_iphdr )->net_tot_len ) );
 
     /* Construct outer ip header */
     fd_ip4_hdr_t ip4_outer = (fd_ip4_hdr_t) {
