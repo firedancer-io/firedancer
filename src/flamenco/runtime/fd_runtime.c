@@ -1421,7 +1421,7 @@ fd_runtime_prepare_and_execute_txn( fd_exec_slot_ctx_t const *   slot_ctx,
 
   res = fd_execute_txn_prepare_start( slot_ctx, txn_ctx, txn_descriptor, &raw_txn );
   if( FD_UNLIKELY( res ) ) {
-    txn->flags = 0U;
+    task_info->txn->flags = 0U;
     return -1;
   }
 
@@ -3096,7 +3096,6 @@ fd_runtime_process_txns_in_microblock_stream_sequential( fd_exec_slot_ctx_t * sl
 
   for( ulong i=0UL; i<txn_cnt; i++ ) {
     task_infos[ i ].spad    = runtime_spad;
-    task_infos[ i ].txn     = &txns[ i ];
     task_infos[ i ].txn_ctx = fd_spad_alloc( task_infos[ i ].spad,
                                              FD_EXEC_TXN_CTX_ALIGN,
                                              FD_EXEC_TXN_CTX_FOOTPRINT );
