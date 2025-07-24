@@ -6,7 +6,7 @@
 
    Address: BPFLoaderUpgradeab1e11111111111111111111111 */
 
-#include "fd_bpf_program_util.h"
+#include "fd_program_cache.h"
 
 /* https://github.com/anza-xyz/agave/blob/77daab497df191ef485a7ad36ed291c1874596e5/programs/bpf_loader/src/lib.rs#L67-L69 */
 #define DEFAULT_LOADER_COMPUTE_UNITS     (570UL )

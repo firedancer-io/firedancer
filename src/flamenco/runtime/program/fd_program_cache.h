@@ -1,5 +1,5 @@
-#ifndef HEADER_fd_src_flamenco_runtime_program_fd_bpf_program_util_h
-#define HEADER_fd_src_flamenco_runtime_program_fd_bpf_program_util_h
+#ifndef HEADER_fd_src_flamenco_runtime_program_fd_program_cache_h
+#define HEADER_fd_src_flamenco_runtime_program_fd_program_cache_h
 
 #include "../../fd_flamenco_base.h"
 #include "../fd_acc_mgr.h"
@@ -109,4 +109,4 @@ fd_bpf_program_update_program_cache( fd_exec_slot_ctx_t * slot_ctx,
 
 FD_PROTOTYPES_END
 
-#endif /* HEADER_fd_src_flamenco_runtime_program_fd_bpf_program_util_h */
+#endif /* HEADER_fd_src_flamenco_runtime_program_fd_program_cache_h */

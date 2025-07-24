@@ -31,7 +31,7 @@
 #include "program/fd_builtin_programs.h"
 #include "program/fd_system_program.h"
 #include "program/fd_vote_program.h"
-#include "program/fd_bpf_program_util.h"
+#include "program/fd_program_cache.h"
 #include "program/fd_bpf_loader_program.h"
 #include "program/fd_compute_budget_program.h"
 #include "program/fd_address_lookup_table_program.h"
