@@ -24,7 +24,9 @@ fd_epoch_leaders_new( void  *                   shmem,
                       ulong                     slot_cnt,
                       ulong                     pub_cnt,
                       fd_stake_weight_t const * stakes,
-                      ulong                     excluded_stake ) {
+                      ulong                     excluded_stake,
+                      ulong                     vote_keyed_lsched ) {
+  (void)vote_keyed_lsched;
   if( FD_UNLIKELY( !shmem ) ) {
     FD_LOG_WARNING(( "NULL shmem" ));
     return NULL;

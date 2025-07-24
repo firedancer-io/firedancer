@@ -18,6 +18,7 @@ FD_STATIC_ASSERT(MULTI_EPOCH_LEADERS_EPOCH_CNT == 2UL, "This implementation depe
 
 struct fd_multi_epoch_leaders_priv {
   fd_epoch_leaders_t * lsched       [ MULTI_EPOCH_LEADERS_EPOCH_CNT ];
+  fd_vote_stake_weight_t vote_stake_weight [ MAX_STAKED_LEADERS ];
   fd_stake_weight_t    stake_weight [ MAX_STAKED_LEADERS ];
 
   /* has that epoch's mem experienced a stake_msg_fini? */
@@ -28,6 +29,7 @@ struct fd_multi_epoch_leaders_priv {
     ulong slot_cnt;
     ulong staked_cnt;
     ulong excluded_stake;
+    ulong vote_keyed_lsched;
   } scratch[1];
 
   _lsched_t _lsched[MULTI_EPOCH_LEADERS_EPOCH_CNT];

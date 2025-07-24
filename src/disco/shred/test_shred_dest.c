@@ -16,6 +16,8 @@ FD_STATIC_ASSERT( FD_SHRED_DEST_ALIGN==alignof(fd_shred_dest_t), shred_dest_alig
 
 FD_STATIC_ASSERT( sizeof(fd_shred_dest_weighted_t)==48UL, dest_info_construction );
 
+const ulong vote_keyed_lsched = 0UL;
+
 static void
 test_compute_first_matches_agave( void ) {
   ulong cnt = t1_dest_info_sz / sizeof(fd_shred_dest_weighted_t);
@@ -32,7 +34,7 @@ test_compute_first_matches_agave( void ) {
   FD_TEST( fd_shred_dest_footprint   ( staked, staked-cnt ) <= TEST_MAX_FOOTPRINT );
   FD_TEST( fd_epoch_leaders_footprint( cnt, 10000UL       ) <= TEST_MAX_FOOTPRINT );
 
-  fd_epoch_leaders_t * lsched = fd_epoch_leaders_join( fd_epoch_leaders_new( _l_footprint, 0UL, 0UL, 10000UL, staked, stakes, 0UL ) );
+  fd_epoch_leaders_t * lsched = fd_epoch_leaders_join( fd_epoch_leaders_new( _l_footprint, 0UL, 0UL, 10000UL, staked, stakes, 0UL, vote_keyed_lsched ) );
   FD_TEST( lsched );
 
   fd_shred_dest_t * sdest = fd_shred_dest_join( fd_shred_dest_new( _sd_footprint, info, cnt, lsched, src_key, 0UL ) );
@@ -84,7 +86,7 @@ test_compute_children_matches_agave( void ) {
   FD_TEST( fd_shred_dest_footprint   ( staked, cnt-staked ) <= TEST_MAX_FOOTPRINT );
   FD_TEST( fd_epoch_leaders_footprint( cnt,        2000UL ) <= TEST_MAX_FOOTPRINT );
 
-  fd_epoch_leaders_t * lsched = fd_epoch_leaders_join( fd_epoch_leaders_new( _l_footprint, 0UL, 0UL, 4000UL, staked, stakes, 0UL ) );
+  fd_epoch_leaders_t * lsched = fd_epoch_leaders_join( fd_epoch_leaders_new( _l_footprint, 0UL, 0UL, 4000UL, staked, stakes, 0UL, vote_keyed_lsched ) );
 
   fd_shred_dest_t * sdest = fd_shred_dest_join( fd_shred_dest_new( _sd_footprint, info, cnt, lsched, src_key, 0UL ) );
 
@@ -187,7 +189,7 @@ test_batching( void ) {
       info[i].ip4 = (uint)i;
     }
     fd_pubkey_t * src_key = &(info[0].pubkey);
-    fd_epoch_leaders_t * lsched = fd_epoch_leaders_join( fd_epoch_leaders_new( _l_footprint, 0UL, 0UL, 100UL, cnt, stakes, 0UL ) );
+    fd_epoch_leaders_t * lsched = fd_epoch_leaders_join( fd_epoch_leaders_new( _l_footprint, 0UL, 0UL, 100UL, cnt, stakes, 0UL, vote_keyed_lsched ) );
     fd_shred_dest_t * sdest = fd_shred_dest_join( fd_shred_dest_new( _sd_footprint, info, cnt, lsched, src_key, 0UL ) );
 
 #define BATCH_CNT 5
@@ -259,7 +261,7 @@ test_vary_stake( void ) {
     stakes[31].key.uc[0] = 0;
     stakes[30].stake = stakes[31].stake = prev-1UL;
 
-    fd_epoch_leaders_t * lsched = fd_epoch_leaders_join( fd_epoch_leaders_new( _l_footprint, 0UL, 0UL, 100UL, cnt, stakes, 0UL ) );
+    fd_epoch_leaders_t * lsched = fd_epoch_leaders_join( fd_epoch_leaders_new( _l_footprint, 0UL, 0UL, 100UL, cnt, stakes, 0UL, vote_keyed_lsched ) );
     test_distribution_is_tree( info, 32UL, lsched, 6+fd_rng_ulong_roll(r, 25UL ), fd_rng_ulong_roll( r, 100UL ), fd_rng_int_roll( r, 2 ), fd_rng_ulong_roll( r, 100UL ) );
     fd_epoch_leaders_delete( fd_epoch_leaders_leave( lsched ) );
   }
@@ -279,7 +281,7 @@ test_t1_vary_radix( void ) {
     staked += (info[i].stake_lamports>0UL);
   }
 
-  fd_epoch_leaders_t * lsched = fd_epoch_leaders_join( fd_epoch_leaders_new( _l_footprint, 0UL, 0UL, 4000UL, staked, stakes, 0UL ) );
+  fd_epoch_leaders_t * lsched = fd_epoch_leaders_join( fd_epoch_leaders_new( _l_footprint, 0UL, 0UL, 4000UL, staked, stakes, 0UL, vote_keyed_lsched ) );
   for( ulong fanout=35UL; fanout<650UL; fanout+=11UL ) {
     FD_LOG_NOTICE(( "Fanout: %lu", fanout ));
     test_distribution_is_tree( info, cnt, lsched, fanout, fd_rng_ulong_roll( r, 4000UL ), fd_rng_int_roll( r, 2 ), fd_rng_ulong_roll( r, 100UL ) );
@@ -301,7 +303,7 @@ test_change_contact( void ) {
     staked += (info[i].stake_lamports>0UL);
   }
 
-  fd_epoch_leaders_t * lsched = fd_epoch_leaders_join( fd_epoch_leaders_new( _l_footprint, 0UL, 0UL, 10000UL, staked, stakes, 0UL ) );
+  fd_epoch_leaders_t * lsched = fd_epoch_leaders_join( fd_epoch_leaders_new( _l_footprint, 0UL, 0UL, 10000UL, staked, stakes, 0UL, vote_keyed_lsched ) );
 
   fd_shred_dest_t * sdest = fd_shred_dest_join( fd_shred_dest_new( _sd_footprint, info, cnt, lsched, src_key, 0UL ) );
   fd_shred_dest_idx_to_dest( sdest, (ushort)0 )->ip4 = 12U;
@@ -321,7 +323,7 @@ test_errors( void ) {
   memset( &(stakes[0].key), 1, 32UL );
   stakes[0].stake = 100UL;
   fd_pubkey_t const * src_key = (fd_pubkey_t const *)t1_pubkey;
-  fd_epoch_leaders_t * lsched = fd_epoch_leaders_join( fd_epoch_leaders_new( _l_footprint, 0UL, 0UL, 10000UL, 1UL, stakes, 0UL ) );
+  fd_epoch_leaders_t * lsched = fd_epoch_leaders_join( fd_epoch_leaders_new( _l_footprint, 0UL, 0UL, 10000UL, 1UL, stakes, 0UL, vote_keyed_lsched ) );
 
   fd_shred_dest_t * sdest = fd_shred_dest_join( fd_shred_dest_new( _sd_footprint, NULL, 0UL, lsched, src_key, 0UL ) );
   FD_TEST( sdest==NULL );
@@ -351,9 +353,9 @@ test_indeterminate( void ) {
   FD_TEST( lf_trunc + fd_epoch_leaders_footprint( truncated_cnt, 4000UL ) < _l_footprint + TEST_MAX_FOOTPRINT );
 
   fd_epoch_leaders_t * lsched_full  = fd_epoch_leaders_join( fd_epoch_leaders_new( lf_full,  0UL, 0UL, 4000UL, staked_cnt,
-                                                                                   stakes, 0UL            ) );
+                                                                                   stakes, 0UL,            vote_keyed_lsched ) );
   fd_epoch_leaders_t * lsched_trunc = fd_epoch_leaders_join( fd_epoch_leaders_new( lf_trunc, 0UL, 0UL, 4000UL, truncated_cnt,
-                                                                                   stakes, excluded_stake ) );
+                                                                                   stakes, excluded_stake, vote_keyed_lsched ) );
 
   uchar * sf_full  = _sd_footprint;
   uchar * sf_trunc = _sd_footprint + fd_shred_dest_footprint( staked_cnt, 0UL );
@@ -448,7 +450,7 @@ test_performance( void ) {
   FD_TEST( fd_epoch_leaders_footprint( cnt,       10000UL ) <= TEST_MAX_FOOTPRINT  );
 
   long dt = -fd_log_wallclock();
-  fd_epoch_leaders_t * lsched = fd_epoch_leaders_join( fd_epoch_leaders_new( _l_footprint, 0UL, 0UL, 10000UL, staked, stakes, 0UL ) );
+  fd_epoch_leaders_t * lsched = fd_epoch_leaders_join( fd_epoch_leaders_new( _l_footprint, 0UL, 0UL, 10000UL, staked, stakes, 0UL, vote_keyed_lsched ) );
   fd_shred_dest_t    * sdest  = fd_shred_dest_join   ( fd_shred_dest_new   ( _sd_footprint, info, cnt, lsched, src_key, 0UL ) );
   dt += fd_log_wallclock();
 

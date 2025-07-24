@@ -15,24 +15,35 @@ generate_stake_weight_msg( fd_exec_slot_ctx_t * slot_ctx,
                            fd_spad_t          * runtime_spad,
                            ulong                epoch,
                            ulong              * stake_weight_msg_out ) {
+  /* This function needs to be completely rewritten for SIMD-0180.
+     For now it's a hack that sends old data (pre SIMD-0180) in the new format. */
 
   fd_stake_weight_msg_t *           stake_weight_msg = (fd_stake_weight_msg_t *)fd_type_pun( stake_weight_msg_out );
-  fd_stake_weight_t     *           stake_weights    = (fd_stake_weight_t *)&stake_weight_msg_out[5];
+  fd_vote_stake_weight_t *          stake_weights    = stake_weight_msg->weights;
+  fd_stake_weight_t *               old_stake_weights = fd_type_pun( stake_weights ); /* dirty hack */
   fd_vote_accounts_global_t const * vote_accounts    = fd_bank_epoch_stakes_locking_query( slot_ctx->bank );
-  ulong                             stake_weight_idx = fd_stake_weights_by_node( vote_accounts,
-                                                                           stake_weights,
+  ulong                             staked_cnt       = fd_stake_weights_by_node( vote_accounts,
+                                                                           old_stake_weights,
                                                                            runtime_spad );
   fd_bank_epoch_stakes_end_locking_query( slot_ctx->bank );
+
+  /* FIXME: SIMD-0180 */
+  for( int i=(int)staked_cnt-1; i>=0; i-- ) {
+    stake_weights[ i ].stake = old_stake_weights[ i ].stake;
+    memcpy( stake_weights[ i ].id_key.uc, old_stake_weights[ i ].key.uc, sizeof(fd_pubkey_t) );
+    memcpy( stake_weights[ i ].vote_key.uc, old_stake_weights[ i ].key.uc, sizeof(fd_pubkey_t) );
+  }
 
   fd_epoch_schedule_t const * epoch_schedule = fd_bank_epoch_schedule_query( slot_ctx->bank );
 
   stake_weight_msg->epoch          = epoch;
-  stake_weight_msg->staked_cnt     = stake_weight_idx;                           /* staked_cnt */
+  stake_weight_msg->staked_cnt     = staked_cnt;                           /* staked_cnt */
   stake_weight_msg->start_slot     = fd_epoch_slot0( epoch_schedule, stake_weight_msg_out[0] ); /* start_slot */
   stake_weight_msg->slot_cnt       = epoch_schedule->slots_per_epoch; /* slot_cnt */
   stake_weight_msg->excluded_stake = 0UL;                                        /* excluded stake */
+  stake_weight_msg->vote_keyed_lsched = 0UL;
 
-  return 5*sizeof(ulong) + (stake_weight_idx * sizeof(fd_stake_weight_t));
+  return fd_stake_weight_msg_sz( staked_cnt );
 }
 
 static inline void

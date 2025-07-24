@@ -154,13 +154,15 @@ fd_runtime_update_leaders( fd_bank_t * bank,
     }
 
     void * epoch_leaders_mem = fd_bank_epoch_leaders_locking_modify( bank );
+    ulong vote_keyed_lsched = 0; /* FIXME: SIMD-0180 */
     fd_epoch_leaders_t * leaders = fd_epoch_leaders_join( fd_epoch_leaders_new( epoch_leaders_mem,
                                                                                            epoch,
                                                                                            slot0,
                                                                                            slot_cnt,
                                                                                            stake_weight_cnt,
                                                                                            epoch_weights,
-                                                                                           0UL ) );
+                                                                                           0UL,
+                                                                                           vote_keyed_lsched ) );
     fd_bank_epoch_leaders_end_locking_modify( bank );
     if( FD_UNLIKELY( !leaders ) ) {
       FD_LOG_ERR(( "Unable to init and join fd_epoch_leaders" ));

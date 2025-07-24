@@ -111,7 +111,8 @@ fd_epoch_leaders_new( void                    * shmem,
                       ulong                     slot_cnt,
                       ulong                     pub_cnt,
                       fd_stake_weight_t const * stakes, /* indexed [0, pub_cnt) */
-                      ulong                     excluded_stake );
+                      ulong                     excluded_stake,
+                      ulong                     vote_keyed_lsched );
 
 /* fd_epoch_leaders_join joins the caller to the leader schedule object.
    fd_epoch_leaders_leave undoes an existing join. */
