@@ -22,27 +22,27 @@
 #include "../util/tmpl/fd_map_chain_para.c"
 
 /* TODO: remove this lock */
-#include "../flamenco/fd_rwlock.h"
-static fd_rwlock_t funk_txn_lock[ 1 ] = {0};
+#include "../flamenco/fd_rwlock_recursive.h"
+static fd_rwlock_recursive_t funk_txn_lock[ 1 ] = {0};
 
 void
 fd_funk_txn_start_read( fd_funk_t * funk FD_PARAM_UNUSED ) {
-  fd_rwlock_read( funk_txn_lock );
+  fd_rwlock_recursive_read( funk_txn_lock );
 }
 
 void
 fd_funk_txn_end_read( fd_funk_t * funk FD_PARAM_UNUSED ) {
-  fd_rwlock_unread( funk_txn_lock );
+  fd_rwlock_recursive_unread( funk_txn_lock );
 }
 
 void
 fd_funk_txn_start_write( fd_funk_t * funk FD_PARAM_UNUSED ) {
-  fd_rwlock_write( funk_txn_lock );
+  fd_rwlock_recursive_write( funk_txn_lock );
 }
 
 void
 fd_funk_txn_end_write( fd_funk_t * funk FD_PARAM_UNUSED ) {
-  fd_rwlock_unwrite( funk_txn_lock );
+  fd_rwlock_recursive_unwrite( funk_txn_lock );
 }
 
 fd_funk_txn_t *

@@ -116,6 +116,8 @@ fd_funk_rec_query_try_global( fd_funk_t const *         funk,
   }
 #endif
 
+  fd_funk_txn_start_read( NULL );
+
   /* Look for the first element in the hash chain with the right
      record key. This takes advantage of the fact that elements with
      the same record key appear on the same hash chain in order of
@@ -154,6 +156,7 @@ fd_funk_rec_query_try_global( fd_funk_t const *         funk,
           if( txn_out ) *txn_out = cur_txn;
           query->ele = ( FD_UNLIKELY( ele->flags & FD_FUNK_REC_FLAG_ERASE ) ? NULL :
                          (fd_funk_rec_t *)ele );
+          fd_funk_txn_end_read( NULL );
           return query->ele;
         }
 
@@ -161,6 +164,7 @@ fd_funk_rec_query_try_global( fd_funk_t const *         funk,
       }
     }
   }
+  fd_funk_txn_end_read( NULL );
   return NULL;
 }
 
@@ -273,6 +277,7 @@ fd_funk_rec_publish( fd_funk_t *             funk,
   uint * rec_head_idx = prepare->rec_head_idx;
   uint * rec_tail_idx = prepare->rec_tail_idx;
 
+  fd_funk_txn_start_write( funk );
   /* Lock the txn */
   while( FD_ATOMIC_CAS( prepare->txn_lock, 0, 1 ) ) FD_SPIN_PAUSE();
 
@@ -293,6 +298,7 @@ fd_funk_rec_publish( fd_funk_t *             funk,
   }
 
   FD_VOLATILE( *prepare->txn_lock ) = 0;
+  fd_funk_txn_end_write( funk );
 }
 
 void
@@ -505,6 +511,7 @@ fd_funk_rec_hard_remove( fd_funk_t *               funk,
     lock = &txn->lock;
   }
 
+  fd_funk_txn_start_write( NULL );
   while( FD_ATOMIC_CAS( lock, 0, 1 ) ) FD_SPIN_PAUSE();
 
   fd_funk_rec_t * rec = NULL;
@@ -514,6 +521,7 @@ fd_funk_rec_hard_remove( fd_funk_t *               funk,
     if( FD_UNLIKELY( err == FD_MAP_ERR_AGAIN ) ) continue;
     if( err == FD_MAP_ERR_KEY ) {
       FD_VOLATILE( *lock ) = 0;
+      fd_funk_txn_end_write( NULL );
       return;
     }
     if( FD_UNLIKELY( err != FD_MAP_SUCCESS ) ) FD_LOG_CRIT(( "map corruption" ));
@@ -536,6 +544,7 @@ fd_funk_rec_hard_remove( fd_funk_t *               funk,
   }
 
   FD_VOLATILE( *lock ) = 0;
+  fd_funk_txn_end_write( NULL );
 
   fd_funk_val_flush( rec, funk->alloc, funk->wksp );
   fd_funk_rec_pool_release( funk->rec_pool, rec, 1 );

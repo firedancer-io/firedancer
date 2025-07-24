@@ -1,0 +1,224 @@
+#ifndef HEADER_fd_src_flamenco_rwlock_recursive_h
+#define HEADER_fd_src_flamenco_rwlock_recursive_h
+
+/* A recursive/reentrant read-write spin lock:
+   - Reentrant: the same thread can acquire the lock multiple times (up
+     to 32 nested levels)
+   - Supports read-read, write-write, and write-read nesting
+   - Does NOT support read-write upgrades
+
+   If you think you need this lock, you don't.
+
+   If you still think you need this lock, you probably still don't.
+
+   Rather than gratuitously and promiscuously locking everywhere, you
+   should design your interfaces to have a locking version and a locked
+   version, and take locks exactly once.
+
+   If you are really absolutely sure that you need this lock ...
+   read-write upgrades are intentionally unsupported because it is a
+   recipe for deadlocks.
+
+   Also, someone once said:
+
+   > It should be requisite for every new hire to spend a full day
+   > simpsons-style writing over and over on a whiteboard "I will not
+   > try to write shared state concurrency"
+
+   There is some truth to this.  We wrote this lock to tide us over some
+   shared state concurrency mess until we had a message passing
+   replacement. */
+
+#include "../util/log/fd_log.h"
+
+#define FD_RWLOCK_RECURSIVE_MAX_DEPTH 32U
+
+struct fd_rwlock_recursive {
+  volatile ulong  write_owner;      /* Write lock owner thread ID (0 if no write owner) */
+  volatile ushort state;            /* Lock state:
+                                       0x0000: Unlocked
+                                       0x0001-0xFFFE: Number of active readers (1..65534)
+                                       0xFFFF: Write locked */
+  volatile uchar  write_count;      /* Number of recursive write locks held by write owner */
+  volatile uchar  write_read_count; /* Number of recursive read locks held by write owner */
+
+  uchar _pad[64UL-sizeof(ulong)-sizeof(ushort)-sizeof(uchar)-sizeof(uchar)];
+};
+
+typedef struct fd_rwlock_recursive fd_rwlock_recursive_t;
+
+FD_PROTOTYPES_BEGIN
+
+static inline void
+fd_rwlock_recursive_new( fd_rwlock_recursive_t * lock ) {
+  lock->state            = 0;
+  lock->write_owner      = 0;
+  lock->write_count      = 0;
+  lock->write_read_count = 0;
+}
+
+static inline void
+fd_rwlock_recursive_write( fd_rwlock_recursive_t * lock ) {
+  FD_LOG_INFO(( "fd_rwlock_recursive_write: tid=%lu", fd_log_tid() ));
+#if FD_HAS_THREADS
+  ulong tid = fd_log_tid();
+
+  /* Already own write lock */
+  if( FD_LIKELY( lock->write_owner==tid ) ) {
+    if( FD_UNLIKELY( (lock->write_count+lock->write_read_count)>=FD_RWLOCK_RECURSIVE_MAX_DEPTH ) ) {
+      FD_LOG_CRIT(( "recursion depth exceeded (%u >= %u)", (uint)(lock->write_count+lock->write_read_count), FD_RWLOCK_RECURSIVE_MAX_DEPTH ));
+    }
+    lock->write_count++;
+    /* No need to fence here, we're already holding the lock */
+    return;
+  }
+
+  /* Acquire write lock */
+  for(;;) {
+    ushort cur_state = FD_VOLATILE_CONST( lock->state );
+
+    if( cur_state==0 ) {
+      /* Unlocked - can acquire write lock immediately */
+      if( FD_LIKELY( FD_ATOMIC_CAS( &lock->state, 0, 0xFFFF )==0 ) ) {
+        lock->write_owner      = tid;
+        lock->write_count      = 1;
+        lock->write_read_count = 0;
+        FD_COMPILER_MFENCE();
+        return;
+      }
+    }
+
+    /* Either write locked or has readers - wait
+
+       If we ourselves held a read lock coming into this, we'd deadlock
+       here. */
+    FD_SPIN_PAUSE();
+  }
+#else
+  if( lock->write_owner == 1 ) {
+    lock->write_count++;
+  } else {
+    lock->state            = 0xFFFF;
+    lock->write_owner      = 1;
+    lock->write_count      = 1;
+    lock->write_read_count = 0;
+  }
+#endif
+}
+
+static inline void
+fd_rwlock_recursive_read( fd_rwlock_recursive_t * lock ) {
+  FD_LOG_INFO(( "fd_rwlock_recursive_read: tid=%lu", fd_log_tid() ));
+#if FD_HAS_THREADS
+  ulong tid = fd_log_tid();
+
+  /* Already own write lock - just track as nested read */
+  if( FD_LIKELY( lock->write_owner==tid ) ) {
+    if( FD_UNLIKELY( (lock->write_count+lock->write_read_count)>=FD_RWLOCK_RECURSIVE_MAX_DEPTH ) ) {
+      FD_LOG_CRIT(( "recursion depth exceeded (%u >= %u)", (uint)(lock->write_count+lock->write_read_count), FD_RWLOCK_RECURSIVE_MAX_DEPTH ));
+    }
+    lock->write_read_count++;
+    /* No need to fence here, we're already holding the lock */
+    return;
+  }
+
+  /* Normal read lock acquisition */
+  for(;;) {
+    ushort cur_state = FD_VOLATILE_CONST( lock->state );
+
+    if( cur_state<0xFFFE ) {
+      /* Not write locked and room for more readers */
+      if( FD_LIKELY( FD_ATOMIC_CAS( &lock->state, cur_state, cur_state+1 )==cur_state ) ) {
+        FD_COMPILER_MFENCE();
+        return;
+      }
+    } else if( FD_UNLIKELY( cur_state==0xFFFE ) ) {
+      FD_LOG_CRIT(( "too many read lock acquisitions" ));
+    }
+
+    FD_SPIN_PAUSE();
+  }
+#else
+  if( lock->write_owner == 1 ) {
+    /* We own write lock */
+    lock->write_read_count++;
+  } else {
+    /* Normal read lock */
+    lock->state++;
+  }
+#endif
+}
+
+static inline void
+fd_rwlock_recursive_unlock( fd_rwlock_recursive_t * lock, int is_write ) {
+  FD_LOG_INFO(( "fd_rwlock_recursive_unlock: tid=%lu, is_write=%d", fd_log_tid(), is_write ));
+  FD_COMPILER_MFENCE();
+
+#if FD_HAS_THREADS
+  ulong tid = fd_log_tid();
+
+  /* Check if we own the write lock */
+  if( lock->write_owner==tid ) {
+    if( FD_UNLIKELY( (lock->write_count+lock->write_read_count)==0 ) ) {
+      FD_LOG_CRIT(( "unlock with zero lock count" ));
+    }
+
+    /* Decrement the appropriate counter based on lock type */
+    if( is_write ) {
+      if( FD_UNLIKELY( lock->write_count == 0 ) ) {
+        FD_LOG_CRIT(( "write unlock with zero write count" ));
+      }
+      lock->write_count--;
+    } else {
+      if( FD_UNLIKELY( lock->write_read_count == 0 ) ) {
+        FD_LOG_CRIT(( "read unlock with zero read count" ));
+      }
+      lock->write_read_count--;
+    }
+
+    if( FD_UNLIKELY( lock->write_count==0 && lock->write_read_count>0 ) ) {
+      FD_LOG_CRIT(( "write unlock with zero write count and non-zero read count" ));
+    }
+
+    if( lock->write_count==0 ) {
+      /* Last unlock - release write lock entirely */
+      lock->write_owner = 0;
+      FD_COMPILER_MFENCE();
+      lock->state = 0;
+    }
+    /* else: still have nested locks, maintain write lock */
+  } else {
+    /* Must be a plain read lock */
+    if( FD_UNLIKELY( is_write ) ) {
+      FD_LOG_CRIT(( "write unlock without holding write lock" ));
+    }
+    FD_ATOMIC_FETCH_AND_SUB( &lock->state, 1 );
+  }
+#else
+  if( lock->write_owner == 1 ) {
+    if( is_write ) {
+      lock->write_count--;
+    } else {
+      lock->write_read_count--;
+    }
+    if( (lock->write_count+lock->write_read_count)==0 ) {
+      lock->write_owner = 0;
+      lock->state       = 0;
+    }
+  } else {
+    lock->state--;
+  }
+#endif
+}
+
+static inline void fd_rwlock_recursive_unwrite( fd_rwlock_recursive_t * lock ) {
+  fd_rwlock_recursive_unlock( lock, 1 );
+}
+
+static inline void fd_rwlock_recursive_unread( fd_rwlock_recursive_t * lock ) {
+  fd_rwlock_recursive_unlock( lock, 0 );
+}
+
+FD_PROTOTYPES_END
+
+#endif /* HEADER_fd_src_flamenco_rwlock_recursive_h */

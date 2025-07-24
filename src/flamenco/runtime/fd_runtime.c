@@ -2214,6 +2214,8 @@ fd_runtime_update_program_cache( fd_exec_slot_ctx_t * slot_ctx,
                                  fd_spad_t *          runtime_spad ) {
   fd_txn_t const * txn_descriptor = TXN( txn_p );
 
+  fd_funk_txn_start_write( NULL );
+
   FD_SPAD_FRAME_BEGIN( runtime_spad ) {
 
   /* Iterate over account keys referenced directly in the transaction first */
@@ -2229,6 +2231,7 @@ fd_runtime_update_program_cache( fd_exec_slot_ctx_t * slot_ctx,
     fd_acct_addr_t alut_accounts[256];
     fd_slot_hashes_global_t const * slot_hashes_global = fd_sysvar_slot_hashes_read( slot_ctx->funk, slot_ctx->funk_txn, runtime_spad );
     if( FD_UNLIKELY( !slot_hashes_global ) ) {
+      fd_funk_txn_end_write( NULL );
       return;
     }
 
@@ -2241,6 +2244,7 @@ fd_runtime_update_program_cache( fd_exec_slot_ctx_t * slot_ctx,
                          fd_bank_slot_get( slot_ctx->bank ),
                          slot_hash,
                          alut_accounts ) ) ) {
+      fd_funk_txn_end_write( NULL );
       return;
     }
 
@@ -2251,6 +2255,8 @@ fd_runtime_update_program_cache( fd_exec_slot_ctx_t * slot_ctx,
   }
 
   } FD_SPAD_FRAME_END;
+
+  fd_funk_txn_end_write( NULL );
 }
 
 /* if we are currently in the middle of a batch, batch_cnt will include the current batch.

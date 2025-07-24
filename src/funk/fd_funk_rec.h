@@ -228,7 +228,19 @@ fd_funk_rec_query_try( fd_funk_t *               funk,
 
 int fd_funk_rec_query_test( fd_funk_rec_query_t * query );
 
-/* fd_funk_rec_query_try_global is the same as fd_funk_rec_query_try but
+/* IMPORTANT SAFETY TIP:
+   This function is not actually safe in any way shape or form.  It
+   fails to check for concurrent operations on the lockless funk rec map
+   chains.  It also does not guard funk txn parent traversal against
+   concurrent operations.  So the caller is expected to hold a lock on
+   funk before initiating this query.  Otherwise, the caller might end
+   up getting a record that was never valid at any point during the
+   query.  Even then, the returned record may no longer be valid at any
+   point in time after the caller releases its lock on funk.  Avoid
+   using this function like the plague.
+   FIXME: REMOVE OR REWRITE THIS FUNCTION
+
+   fd_funk_rec_query_try_global is the same as fd_funk_rec_query_try but
    will query txn's ancestors for key from youngest to oldest if key is
    not part of txn.  As such, the txn of the returned record may not
    match txn but will be the txn of most recent ancestor with the key

@@ -449,7 +449,7 @@ fd_bpf_scan_and_create_bpf_program_cache_entry( fd_exec_slot_ctx_t * slot_ctx,
   fd_funk_txn_t * funk_txn = slot_ctx->funk_txn;
   slot_ctx->funk_txn = cache_txn;
 
-  fd_funk_txn_start_read( funk );
+  fd_funk_txn_start_write( funk );
   for (fd_funk_rec_t const *rec = fd_funk_txn_first_rec( funk, funk_txn );
        NULL != rec;
        rec = fd_funk_txn_next_rec( funk, rec )) {
@@ -465,7 +465,7 @@ fd_bpf_scan_and_create_bpf_program_cache_entry( fd_exec_slot_ctx_t * slot_ctx,
       cnt++;
     }
   }
-  fd_funk_txn_end_read( funk );
+  fd_funk_txn_end_write( funk );
 
   FD_LOG_DEBUG(( "loaded program cache: %lu", cnt));
 
