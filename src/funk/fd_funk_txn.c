@@ -983,7 +983,26 @@ fd_funk_txn_valid( fd_funk_t const * funk, fd_funk_txn_t const * txn ) {
   ulong txn_max = fd_funk_txn_pool_ele_max( funk->txn_pool );
   if( txn_idx>=txn_max || txn != txn_idx + funk->txn_pool->ele ) return 0;
   fd_funk_txn_map_query_t query[1];
-  if( FD_UNLIKELY( fd_funk_txn_map_query_try( funk->txn_map, &txn->xid, NULL, query, 0 ) ) ) return 0;
-  if( fd_funk_txn_map_query_ele( query ) != txn ) return 0;
+  int    err  = FD_MAP_ERR_AGAIN;
+  while( err == FD_MAP_ERR_AGAIN ) {
+    err = fd_funk_txn_map_query_try( funk->txn_map, &txn->xid, NULL, query, 0 );
+    if( FD_UNLIKELY( err == FD_MAP_ERR_KEY ) ) {
+      FD_LOG_DEBUG(( "fd_funk_txn_map_query_try() failed: %d on chain %lu", err, fd_funk_txn_map_iter_chain_idx( funk->txn_map, &txn->xid ) ));
+      return 0;
+    }
+    if( FD_UNLIKELY( err == FD_MAP_ERR_CORRUPT ) ) {
+      FD_LOG_WARNING(( "fd_funk_txn_map_query_try() failed: %d on chain %lu", err, fd_funk_txn_map_iter_chain_idx( funk->txn_map, &txn->xid ) ));
+      return 0;
+    }
+    if( FD_LIKELY( err == FD_MAP_SUCCESS ) ) {
+      if( fd_funk_txn_map_query_ele( query ) != txn ) {
+        FD_LOG_WARNING(( "fd_funk_txn_map_query_ele() failed: %p != %p", (void *)fd_funk_txn_map_query_ele( query ), (void *)txn ));
+        return 0;
+      }
+      break;
+    }
+    /* Normally we'd do this, but we didn't really do any non-atomic reads of element fields.
+       err = fd_funk_txn_map_query_test( query ); */
+  }
   return 1;
 }
