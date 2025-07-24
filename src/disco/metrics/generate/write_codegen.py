@@ -13,6 +13,8 @@ def _write_metric(f: TextIO, metric: Metric, prefix: str):
     converter = 'NONE'
     if isinstance(metric, HistogramMetric):
         converter = metric.converter.name
+    elif hasattr(metric, 'converter'):
+        converter = metric.converter.name
 
     f.write(f'#define FD_METRICS_{metric.type.name.upper()}_{prefix.upper()}_{full_name}_OFF  ({metric.offset}UL)\n')
     f.write(f'#define FD_METRICS_{metric.type.name.upper()}_{prefix.upper()}_{full_name}_NAME "{prefix}_{full_name.lower()}"\n')

@@ -40,6 +40,7 @@ class MetricType(Enum):
 class HistogramConverter(Enum):
     NONE = 0
     SECONDS = 1
+    NANOSECONDS = 2
 
 class EnumValue:
     def __init__(self, value: int, name: str, label: str):
@@ -68,8 +69,9 @@ class Metric:
         return 1
 
 class CounterMetric(Metric):
-    def __init__(self, name: str, tile: Optional[Tile], description: str, clickhouse_exclude: bool):
+    def __init__(self, name: str, tile: Optional[Tile], description: str, clickhouse_exclude: bool, converter: HistogramConverter = HistogramConverter.NONE):
         super().__init__(MetricType.COUNTER, name, tile, description, clickhouse_exclude)
+        self.converter = converter
 
 class GaugeMetric(Metric):
     def __init__(self, name: str, tile: Optional[Tile], description: str, clickhouse_exclude: bool):
@@ -87,10 +89,11 @@ class HistogramMetric(Metric):
         return 136
 
 class CounterEnumMetric(Metric):
-    def __init__(self, name: str, tile: Optional[Tile], description: str, clickhouse_exclude: bool, enum: MetricEnum):
+    def __init__(self, name: str, tile: Optional[Tile], description: str, clickhouse_exclude: bool, enum: MetricEnum, converter: HistogramConverter = HistogramConverter.NONE):
         super().__init__(MetricType.COUNTER, name, tile, description, clickhouse_exclude)
-
+        self.type = MetricType.COUNTER
         self.enum = enum
+        self.converter = converter
 
     def footprint(self) -> int:
         return 8 * len(self.enum.values)
@@ -161,10 +164,16 @@ def parse_metric(tile: Optional[Tile], metric: ET.Element, enums: Dict[str, Metr
         clickhouse_exclude = metric.attrib['clickhouse_exclude'] == 'true'
 
     if metric.tag == 'counter':
+        converter = HistogramConverter.NONE
+        if 'converter' in metric.attrib:
+            converter_str = metric.attrib['converter'].upper()
+            if converter_str in HistogramConverter.__members__:
+                converter = HistogramConverter[converter_str]
+
         if 'enum' in metric.attrib:
-            return CounterEnumMetric(name, tile, description, clickhouse_exclude, enums[metric.attrib['enum']])
+            return CounterEnumMetric(name, tile, description, clickhouse_exclude, enums[metric.attrib['enum']], converter)
         else:
-            return CounterMetric(name, tile, description, clickhouse_exclude)
+            return CounterMetric(name, tile, description, clickhouse_exclude, converter)
     elif metric.tag == 'gauge':
         if 'enum' in metric.attrib:
             return GaugeEnumMetric(name, tile, description, clickhouse_exclude, enums[metric.attrib['enum']])
