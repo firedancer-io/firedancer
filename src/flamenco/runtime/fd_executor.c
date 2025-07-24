@@ -148,7 +148,7 @@ fd_executor_lookup_native_program( fd_txn_account_t const * prog_acc,
     }
   }
 
-  fd_pubkey_t const *         lookup_pubkey = is_native_program ? pubkey : owner;
+  fd_pubkey_t const * lookup_pubkey = is_native_program ? pubkey : owner;
 
   /* Migrated programs must be executed via the corresponding BPF
      loader(s), not natively. This check is performed at the transaction
