@@ -5,7 +5,7 @@
 #include "../../../../ballet/nanopb/pb_decode.h"
 
 #include "../../fd_executor_err.h"
-#include "../../../fd_flamenco.h"
+#include "../../../capture/fd_solcap_writer.h"
 #include "../../../features/fd_features.h"
 #include "../../../../ballet/shred/fd_shred.h"
 
@@ -22,6 +22,9 @@
 #include "generated/shred.pb.h"
 #include "generated/vm.pb.h"
 #include "generated/type.pb.h"
+
+#include <errno.h>
+#include <stdio.h>
 
 /* FIXME: Spad isn't properly sized out or cleaned up */
 
@@ -54,7 +57,7 @@ sol_compat_init( int log_level ) {
   int argc = 1;
   char * argv[2] = { (char *)"fd_exec_sol_compat", NULL };
   char ** argv_ = argv;
-  if ( !getenv( "FD_LOG_PATH" ) ) {
+  if( !getenv( "FD_LOG_PATH" ) ) {
     setenv( "FD_LOG_PATH", "", 1 );
   }
   fd_log_enable_unclean_exit();
@@ -150,12 +153,34 @@ sol_compat_setup_runner( void ) {
   // Setup test runner
   void * runner_mem = fd_wksp_alloc_laddr( wksp, fd_runtime_fuzz_runner_align(), fd_runtime_fuzz_runner_footprint(), WKSP_EXECUTE_ALLOC_TAG );
   fd_runtime_fuzz_runner_t * runner = fd_runtime_fuzz_runner_new( runner_mem, spad_mem, banks, bank, WKSP_EXECUTE_ALLOC_TAG );
+
+  char const * solcap_path = getenv( "FD_SOLCAP" );
+  if( solcap_path ) {
+    runner->solcap_file = fopen( solcap_path, "w" );
+    if( FD_UNLIKELY( !runner->solcap_file ) ) {
+      FD_LOG_ERR(( "fopen($FD_SOLCAP=%s) failed (%i-%s)", solcap_path, errno, fd_io_strerror( errno ) ));
+    }
+    FD_LOG_NOTICE(( "Logging to solcap file %s", solcap_path ));
+
+    void * solcap_mem = fd_wksp_alloc_laddr( runner->wksp, fd_solcap_writer_align(), fd_solcap_writer_footprint(), 1UL );
+    runner->solcap = fd_solcap_writer_new( solcap_mem );
+    FD_TEST( runner->solcap );
+    FD_TEST( fd_solcap_writer_init( solcap_mem, runner->solcap_file ) );
+  }
+
   return runner;
 }
 
 void
 sol_compat_cleanup_runner( fd_runtime_fuzz_runner_t * runner ) {
   /* Cleanup test runner */
+  if( runner->solcap ) {
+    fd_solcap_writer_flush( runner->solcap );
+    fd_wksp_free_laddr( fd_solcap_writer_delete( runner->solcap ) );
+    runner->solcap = NULL;
+    fclose( runner->solcap_file );
+    runner->solcap_file = NULL;
+  }
   fd_wksp_free_laddr( fd_runtime_fuzz_runner_delete( runner ) );
 }
 
