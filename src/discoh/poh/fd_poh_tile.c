@@ -1506,7 +1506,7 @@ after_credit( fd_poh_ctx_t *      ctx,
 
   /* We don't want to tick over (finish) the slot until pack tell us
      it's done. */
-  if( FD_LIKELY( !ctx->slot_done && is_leader ) ) max_remaining_microblocks = fd_ulong_max( 1UL, max_remaining_microblocks );
+  if( FD_LIKELY( !ctx->slot_done && is_leader && max_remaining_microblocks==0UL ) ) return;
 
   /* With hashcnt_per_tick hashes per tick, we actually get
      hashcnt_per_tick-1 chances to mixin a microblock.  For each tick
@@ -1815,12 +1815,9 @@ during_frag( fd_poh_ctx_t * ctx,
 
   ulong slot;
   switch( ctx->in_kind[ in_idx ] ) {
-    case IN_KIND_BANK: {
-      slot = fd_disco_bank_sig_slot( sig );
-      break;
-    }
+    case IN_KIND_BANK:
     case IN_KIND_PACK: {
-      slot = fd_disco_poh_sig_slot( sig );
+      slot = fd_disco_bank_sig_slot( sig );
       break;
     }
     default:
