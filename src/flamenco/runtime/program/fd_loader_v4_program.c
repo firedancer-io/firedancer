@@ -505,7 +505,7 @@ fd_loader_v4_program_instruction_deploy( fd_exec_instr_ctx_t * instr_ctx ) {
      end of the slot. Since programs cannot be invoked until the next slot anyways, doing this is okay.
 
      https://github.com/anza-xyz/agave/blob/v2.2.13/programs/loader-v4/src/lib.rs#L309-L316 */
-  err = fd_deploy_program( instr_ctx, programdata, buffer_dlen - LOADER_V4_PROGRAM_DATA_OFFSET, instr_ctx->txn_ctx->spad );
+  err = fd_deploy_program( instr_ctx, program.acct->pubkey, programdata, buffer_dlen - LOADER_V4_PROGRAM_DATA_OFFSET, instr_ctx->txn_ctx->spad );
   if( FD_UNLIKELY( err ) ) {
     return FD_EXECUTOR_INSTR_ERR_INVALID_ACC_DATA;
   }
@@ -855,17 +855,17 @@ fd_loader_v4_program_execute( fd_exec_instr_ctx_t * instr_ctx ) {
 
       /* See note in `fd_bpf_loader_program_execute()` as to why we must tie the cache into consensus :(
          https://github.com/anza-xyz/agave/blob/v2.2.6/programs/loader-v4/src/lib.rs#L522-L528 */
-      fd_sbpf_validated_program_t const * prog = NULL;
-      if( FD_UNLIKELY( fd_bpf_load_cache_entry( instr_ctx->txn_ctx->funk,
-                                                instr_ctx->txn_ctx->funk_txn,
-                                                program_id,
-                                                &prog )!=0 ) ) {
+      fd_program_cache_entry_t const * cache_entry = NULL;
+      if( FD_UNLIKELY( fd_program_cache_load_entry( instr_ctx->txn_ctx->funk,
+                                                    instr_ctx->txn_ctx->funk_txn,
+                                                    program_id,
+                                                    &cache_entry )!=0 ) ) {
         fd_log_collector_msg_literal( instr_ctx, "Program is not cached" );
         return FD_EXECUTOR_INSTR_ERR_UNSUPPORTED_PROGRAM_ID;
       }
 
       /* The program may be in the cache but could have failed verification in the current epoch. */
-      if( FD_UNLIKELY( prog->failed_verification ) ) {
+      if( FD_UNLIKELY( cache_entry->failed_verification ) ) {
         fd_log_collector_msg_literal( instr_ctx, "Program is not deployed" );
         return FD_EXECUTOR_INSTR_ERR_UNSUPPORTED_PROGRAM_ID;
       }
@@ -903,7 +903,7 @@ fd_loader_v4_program_execute( fd_exec_instr_ctx_t * instr_ctx ) {
       fd_borrowed_account_drop( &program );
 
       /* https://github.com/anza-xyz/agave/blob/v2.2.6/programs/loader-v4/src/lib.rs#L542 */
-      rc = fd_bpf_execute( instr_ctx, prog, 0 );
+      rc = fd_bpf_execute( instr_ctx, cache_entry, 0 );
     }
 
     return rc;

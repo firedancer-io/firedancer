@@ -25,7 +25,7 @@
 #include "program/fd_stake_program.h"
 #include "program/fd_builtin_programs.h"
 #include "program/fd_vote_program.h"
-#include "program/fd_bpf_program_util.h"
+#include "program/fd_program_cache.h"
 #include "program/fd_bpf_loader_program.h"
 #include "program/fd_address_lookup_table_program.h"
 
@@ -1027,12 +1027,6 @@ fd_runtime_block_execute_finalize_start( fd_exec_slot_ctx_t *             slot_c
   /* This slot is now "frozen" and can't be changed anymore. */
   fd_runtime_freeze( slot_ctx );
 
-  int result = fd_bpf_scan_and_create_bpf_program_cache_entry( slot_ctx, runtime_spad );
-  if( FD_UNLIKELY( result ) ) {
-    FD_LOG_WARNING(( "update bpf program cache failed" ));
-    return;
-  }
-
   /* Collect list of changed accounts to be added to bank hash */
   *task_data = fd_spad_alloc( runtime_spad,
                               alignof(fd_accounts_hash_task_data_t),
@@ -1390,6 +1384,16 @@ fd_runtime_finalize_txn( fd_funk_t *                  funk,
 
       fd_txn_account_save( &txn_ctx->accounts[i], funk, funk_txn, txn_ctx->spad_wksp );
     }
+
+    /* We need to queue any existing program accounts that may have
+       been deployed / upgraded for reverification in the program
+       cache since their programdata may have changed. ELF / sBPF
+       metadata will need to be updated. */
+      ulong current_slot = fd_bank_slot_get( bank );
+      for( uchar i=0; i<txn_ctx->programs_to_reverify_cnt; i++ ) {
+        fd_pubkey_t const * program_key = &txn_ctx->programs_to_reverify[i];
+        fd_program_cache_queue_program_for_reverification( funk, funk_txn, program_key, current_slot );
+      }
   }
 
   int is_vote = fd_txn_is_simple_vote_transaction( txn_ctx->txn_descriptor, txn_ctx->_txn_raw->raw );
@@ -1889,6 +1893,7 @@ fd_migrate_builtin_to_core_bpf( fd_exec_slot_ctx_t * slot_ctx,
   /* Deploy the new target Core BPF program.
      https://github.com/anza-xyz/agave/blob/v2.1.0/runtime/src/bank/builtins/core_bpf_migration/mod.rs#L268-L271 */
   err = fd_directly_invoke_loader_v3_deploy( slot_ctx,
+                                             builtin_program_id,
                                              new_target_program_data_account->vt->get_data( new_target_program_data_account ) + PROGRAMDATA_METADATA_SIZE,
                                              new_target_program_data_account->vt->get_data_len( new_target_program_data_account ) - PROGRAMDATA_METADATA_SIZE,
                                              runtime_spad );
@@ -2222,7 +2227,7 @@ fd_runtime_update_program_cache( fd_exec_slot_ctx_t * slot_ctx,
   fd_acct_addr_t const * acc_addrs = fd_txn_get_acct_addrs( txn_descriptor, txn_p );
   for( ushort acc_idx=0; acc_idx<txn_descriptor->acct_addr_cnt; acc_idx++ ) {
     fd_pubkey_t const * account = fd_type_pun_const( &acc_addrs[acc_idx] );
-    fd_bpf_program_update_program_cache( slot_ctx, account, runtime_spad );
+    fd_program_cache_update_program( slot_ctx, account, runtime_spad );
   }
 
   if( txn_descriptor->transaction_version==FD_TXN_V0 ) {
@@ -2236,6 +2241,11 @@ fd_runtime_update_program_cache( fd_exec_slot_ctx_t * slot_ctx,
 
     fd_slot_hash_t * slot_hash = deq_fd_slot_hash_t_join( (uchar *)slot_hashes_global + slot_hashes_global->hashes_offset );
 
+    /* TODO: This is done twice, once in the replay tile and once in the
+       exec tile. We should consolidate the account resolution into a
+       single place, but also keep in mind from a conformance
+       perspective that these ALUT resolution checks happen after some
+       things like compute budget instruction parsing */
     if( FD_UNLIKELY( fd_runtime_load_txn_address_lookup_tables(
           txn_descriptor,
           txn_p->payload,
@@ -2249,7 +2259,7 @@ fd_runtime_update_program_cache( fd_exec_slot_ctx_t * slot_ctx,
 
     for( ushort alut_idx=0; alut_idx<txn_descriptor->addr_table_adtl_cnt; alut_idx++ ) {
       fd_pubkey_t const * account = fd_type_pun_const( &alut_accounts[alut_idx] );
-      fd_bpf_program_update_program_cache( slot_ctx, account, runtime_spad );
+      fd_program_cache_update_program( slot_ctx, account, runtime_spad );
     }
   }
 
