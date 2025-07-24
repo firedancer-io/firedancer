@@ -180,6 +180,8 @@ fd_exec_txn_ctx_setup_basic( fd_exec_txn_ctx_t * ctx ) {
   ctx->instr_stack_sz            = 0;
   ctx->accounts_cnt              = 0UL;
   ctx->executable_cnt            = 0UL;
+  ctx->programs_to_reverify_cnt  = 0UL;
+
   ctx->paid_fees                 = 0UL;
   ctx->loaded_accounts_data_size = 0UL;
   ctx->accounts_resize_delta     = 0UL;

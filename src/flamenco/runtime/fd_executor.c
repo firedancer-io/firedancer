@@ -20,6 +20,7 @@
 #include "program/fd_vote_program.h"
 #include "program/fd_zk_elgamal_proof_program.h"
 #include "sysvar/fd_sysvar_cache.h"
+#include "program/fd_program_cache.h"
 #include "sysvar/fd_sysvar_epoch_schedule.h"
 #include "sysvar/fd_sysvar_instructions.h"
 #include "sysvar/fd_sysvar_rent.h"

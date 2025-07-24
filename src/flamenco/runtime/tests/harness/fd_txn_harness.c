@@ -229,8 +229,8 @@ fd_runtime_fuzz_txn_ctx_create( fd_runtime_fuzz_runner_t *         runner,
   /* Restore sysvars from account context */
   fd_sysvar_cache_restore_fuzz( slot_ctx );
 
-  /* Add accounts to bpf program cache */
-  fd_bpf_scan_and_create_bpf_program_cache_entry( slot_ctx, runner->spad );
+  /* Refresh the program cache */
+  fd_runtime_fuzz_refresh_program_cache( slot_ctx, test_ctx->account_shared_data, test_ctx->account_shared_data_count, runner->spad );
 
   /* Create the raw txn (https://solana.com/docs/core/transactions#transaction-size) */
   uchar * txn_raw_begin = fd_spad_alloc( runner->spad, alignof(uchar), 1232 );

@@ -106,6 +106,15 @@ struct fd_exec_txn_ctx {
   fd_txn_account_t                executable_accounts[ MAX_TX_ACCOUNT_LOCKS ]; /* Array of BPF upgradeable loader program data accounts */
   fd_txn_account_t                accounts[ MAX_TX_ACCOUNT_LOCKS ];            /* Array of borrowed accounts accessed by this transaction. */
 
+  /* When a program is deployed or upgraded, we must queue it to be
+     updated in the program cache (if it exists already) so that
+     the cache entry's ELF / sBPF information can be updated for future
+     executions. We keep an array of pubkeys for the transaction to
+     track which programs need to be reverified. The actual queueing
+     for reverification is done in the transaction finalization step. */
+  uchar                           programs_to_reverify_cnt;
+  fd_pubkey_t                     programs_to_reverify[ MAX_TX_ACCOUNT_LOCKS ];
+
   /* The next three fields describe Agave's "rollback" accounts, which
      are copies of the fee payer and (if applicable) nonce account. If the
      transaction fails to load, the fee payer is still debited the transaction fee,

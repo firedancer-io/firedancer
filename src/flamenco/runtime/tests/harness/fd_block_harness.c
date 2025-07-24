@@ -353,8 +353,8 @@ fd_runtime_fuzz_block_ctx_create( fd_runtime_fuzz_runner_t *           runner,
 
   fd_bank_stakes_end_locking_modify( slot_ctx->bank );
 
-  /* Add accounts to bpf program cache */
-  fd_bpf_scan_and_create_bpf_program_cache_entry( slot_ctx, runner->spad );
+  /* Refresh the program cache */
+  fd_runtime_fuzz_refresh_program_cache( slot_ctx, test_ctx->acct_states, test_ctx->acct_states_count, runner->spad );
 
   fd_vote_accounts_global_t * vote_accounts = fd_bank_next_epoch_stakes_locking_modify( slot_ctx->bank );
   pool_mem = (uchar *)fd_ulong_align_up( (ulong)vote_accounts + sizeof(fd_vote_accounts_global_t), fd_vote_accounts_pair_global_t_map_align() );
