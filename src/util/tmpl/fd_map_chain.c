@@ -352,6 +352,14 @@
 #define MAP_OPTIMIZE_RANDOM_ACCESS_REMOVAL 0
 #endif
 
+/* MAP_INSERT_FENCE prevents the compiler from reordering the two
+   operations: setting the next pointer of the new chain head and
+   updating the chain head. */
+
+#ifndef MAP_INSERT_FENCE
+#define MAP_INSERT_FENCE 0
+#endif
+
 /* Implementation *****************************************************/
 
 /* Constructors and verification log details on failure (rest only needs
@@ -811,6 +819,9 @@ MAP_(idx_insert)( MAP_(t) *   join,
   pool[ ele_idx ].MAP_PREV = MAP_(private_box)( MAP_(private_idx_null)() );
 # endif
   pool[ ele_idx ].MAP_NEXT = *head;
+# if MAP_INSERT_FENCE
+  FD_COMPILER_MFENCE();
+# endif
   *head = MAP_(private_box)( ele_idx );
 
   return join;
