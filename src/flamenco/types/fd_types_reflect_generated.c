@@ -254,4 +254,5 @@ fd_types_vt_t const fd_types_vt_list[] = {
   { .name="fd_cost_tracker", .name_len=15, .align=FD_COST_TRACKER_ALIGN, .new_=(void *)fd_cost_tracker_new, .decode=(void *)fd_cost_tracker_decode, .size=(void *)fd_cost_tracker_size, .walk=(void *)fd_cost_tracker_walk, .decode_footprint=(void *)fd_cost_tracker_decode_footprint, .encode=(void *)fd_cost_tracker_encode  },
   { .name="fd_rent_paying", .name_len=14, .align=FD_RENT_PAYING_ALIGN, .new_=(void *)fd_rent_paying_new, .decode=(void *)fd_rent_paying_decode, .size=(void *)fd_rent_paying_size, .walk=(void *)fd_rent_paying_walk, .decode_footprint=(void *)fd_rent_paying_decode_footprint, .encode=(void *)fd_rent_paying_encode  },
   { .name="fd_rent_state", .name_len=13, .align=FD_RENT_STATE_ALIGN, .new_=(void *)fd_rent_state_new, .decode=(void *)fd_rent_state_decode, .size=(void *)fd_rent_state_size, .walk=(void *)fd_rent_state_walk, .decode_footprint=(void *)fd_rent_state_decode_footprint, .encode=(void *)fd_rent_state_encode  },
+  { .name=NULL }
 };
