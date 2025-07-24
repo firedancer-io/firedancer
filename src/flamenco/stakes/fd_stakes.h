@@ -22,6 +22,21 @@ FD_PROTOTYPES_BEGIN
    bump allocator space available. */
 #define STAKE_ACCOUNT_SIZE ( 200 )
 
+struct fd_stake_account_slim {
+  fd_pubkey_t                  key;
+  fd_delegation_t              delegation;
+};
+typedef struct fd_stake_account_slim fd_stake_account_slim_t;
+
+#define FD_STAKE_ACCOUNTS_SLIM_MAX (50000)
+struct __attribute__((aligned(64UL))) fd_stakes_slim {
+  ulong epoch;
+  ulong stake_accounts_cnt;
+  fd_stake_account_slim_t stake_accounts[FD_STAKE_ACCOUNTS_SLIM_MAX]; /* Sorted by key */
+};
+typedef struct fd_stakes_slim fd_stakes_slim_t;
+#define FD_STAKES_SLIM_ALIGN (64UL)
+
 struct fd_compute_stake_delegations {
    ulong                           epoch;
    fd_stake_history_t const *      stake_history;
@@ -44,6 +59,13 @@ struct fd_accumulate_delegations_task_args {
    ulong                              epoch;
 };
 typedef struct fd_accumulate_delegations_task_args fd_accumulate_delegations_task_args_t;
+
+fd_stake_account_slim_t *
+fd_stake_accounts_search( fd_stakes_slim_t const * accts, fd_pubkey_t const * key );
+
+void
+fd_stakes_import( fd_stakes_slim_t *                  dst,
+                  fd_solana_manifest_global_t const * manifest );
 
 ulong
 fd_stake_weights_by_node( fd_vote_accounts_global_t const * accs,
@@ -101,7 +123,7 @@ fd_populate_vote_accounts( fd_exec_slot_ctx_t *       slot_ctx,
 
 void
 fd_accumulate_stake_infos( fd_exec_slot_ctx_t const * slot_ctx,
-                           fd_stakes_global_t const * stakes,
+                           fd_stakes_slim_t const *   stakes,
                            fd_stake_history_t const * history,
                            ulong *                    new_rate_activation_epoch,
                            fd_stake_history_entry_t * accumulator,

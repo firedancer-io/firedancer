@@ -1156,14 +1156,11 @@ fd_rewards_recalculate_partitioned_rewards( fd_exec_slot_ctx_t * slot_ctx,
                                      .rewards = epoch_rewards->total_rewards };
 
     /* Populate vote and stake state info from vote and stakes cache for the stake vote rewards calculation */
-    fd_stakes_global_t const *       stakes                 = fd_bank_stakes_locking_query( slot_ctx->bank );
-    fd_delegation_pair_t_mapnode_t * stake_delegations_pool = fd_stakes_stake_delegations_pool_join( stakes );
-    fd_delegation_pair_t_mapnode_t * stake_delegations_root = fd_stakes_stake_delegations_root_join( stakes );
-
+    fd_stakes_slim_t const *       stakes                 = fd_bank_stakes_locking_query( slot_ctx->bank );
     fd_epoch_info_t epoch_info = {0};
     fd_epoch_info_new( &epoch_info );
 
-    ulong stake_delegation_sz  = fd_delegation_pair_t_map_size( stake_delegations_pool, stake_delegations_root );
+    ulong stake_delegation_sz  = stakes->stake_accounts_cnt;
     epoch_info.stake_infos_len = 0UL;
     epoch_info.stake_infos     = fd_spad_alloc( runtime_spad, FD_EPOCH_INFO_PAIR_ALIGN, sizeof(fd_epoch_info_pair_t)*stake_delegation_sz );
 

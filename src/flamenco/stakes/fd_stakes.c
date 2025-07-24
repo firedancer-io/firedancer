@@ -4,6 +4,27 @@
 #include "../runtime/program/fd_stake_program.h"
 #include "../runtime/sysvar/fd_sysvar_stake_history.h"
 
+void
+fd_stakes_import( fd_stakes_slim_t *                  dst,
+                  fd_solana_manifest_global_t const * manifest ) {
+
+  fd_delegation_pair_t_mapnode_t * src_pool = fd_stakes_stake_delegations_pool_join( &manifest->bank.stakes );
+  fd_delegation_pair_t_mapnode_t * src_root = fd_stakes_stake_delegations_root_join( &manifest->bank.stakes );
+  dst->epoch = manifest->bank.epoch;
+  dst->stake_accounts_cnt = 0UL;
+  for( fd_delegation_pair_t_mapnode_t * n = fd_delegation_pair_t_map_minimum( src_pool, src_root );
+       n;
+       n = fd_delegation_pair_t_map_successor( src_pool, n ) ) {
+    if( dst->stake_accounts_cnt >= FD_STAKE_ACCOUNTS_SLIM_MAX ) {
+      FD_LOG_ERR(( "dst->stake_accounts_cnt >= FD_STAKE_ACCOUNTS_SLIM_MAX" ));
+      return;
+    }
+    fd_stake_account_slim_t * acct = &dst->stake_accounts[dst->stake_accounts_cnt++];
+    acct->key = n->elem.account;
+    acct->delegation = n->elem.delegation;
+  }
+}
+
 /* fd_stakes_accum_by_node converts Stakes (unordered list of (vote acc,
    active stake) tuples) to StakedNodes (rbtree mapping (node identity)
    => (active stake) ordered by node identity).  Returns the tree root. */
@@ -635,7 +656,7 @@ accumulate_stake_cache_delegations_tpool_task( void  *tpool,
    be recomputed on every access, especially at the epoch boundary. Also collects stats in `accumulator` */
 void
 fd_accumulate_stake_infos( fd_exec_slot_ctx_t const * slot_ctx,
-                           fd_stakes_global_t const * stakes,
+                           fd_stakes_slim_t const *   stakes,
                            fd_stake_history_t const * history,
                            ulong *                    new_rate_activation_epoch,
                            fd_stake_history_entry_t * accumulator,
@@ -646,10 +667,7 @@ fd_accumulate_stake_infos( fd_exec_slot_ctx_t const * slot_ctx,
 
   FD_SPAD_FRAME_BEGIN( runtime_spad ) {
 
-  fd_delegation_pair_t_mapnode_t * stake_delegations_pool = fd_stakes_stake_delegations_pool_join( stakes );
-  fd_delegation_pair_t_mapnode_t * stake_delegations_root = fd_stakes_stake_delegations_root_join( stakes );
-
-  ulong stake_delegations_pool_sz = fd_delegation_pair_t_map_size( stake_delegations_pool, stake_delegations_root );
+  ulong stake_delegations_pool_sz = stakes->stake_accounts_cnt;
   if( FD_UNLIKELY( stake_delegations_pool_sz==0UL ) ) {
     return;
   }
@@ -658,8 +676,8 @@ fd_accumulate_stake_infos( fd_exec_slot_ctx_t const * slot_ctx,
      do not have access to iterators at a specific index in constant or logarithmic time. */
   ulong worker_cnt                                         = fd_ulong_min( stake_delegations_pool_sz,exec_spads_cnt );
 
-  fd_delegation_pair_t_mapnode_t ** batch_delegation_roots = fd_spad_alloc( runtime_spad, alignof(fd_delegation_pair_t_mapnode_t *),
-                                                                                      ( worker_cnt + 1 )*sizeof(fd_delegation_pair_t_mapnode_t *) );
+  fd_stake_account_slim_t const** batch_delegation_roots = fd_spad_alloc( runtime_spad, alignof(fd_stake_account_slim_t *),
+                                                                      ( worker_cnt + 1 )*sizeof(fd_stake_account_slim_t *) );
 
   ulong * idx_starts = fd_spad_alloc( runtime_spad, alignof(ulong), worker_cnt * sizeof(ulong) );
 
@@ -672,11 +690,9 @@ fd_accumulate_stake_infos( fd_exec_slot_ctx_t const * slot_ctx,
 
   ulong batch_idx = 0UL;
   ulong iter_idx  = 0UL;
-  for( fd_delegation_pair_t_mapnode_t * n = fd_delegation_pair_t_map_minimum( stake_delegations_pool, stake_delegations_root );
-      n;
-      n = fd_delegation_pair_t_map_successor( stake_delegations_pool, n ) ) {
-    if( iter_idx++==idx_starts[batch_idx] ) {
-      batch_delegation_roots[batch_idx++] = n;
+  for( ulong idx=0; idx<stakes->stake_accounts_cnt; ++idx ) {
+    if( idx==idx_starts[batch_idx] ) {
+      batch_delegation_roots[batch_idx++] = &stakes->stake_accounts[idx];
     }
   }
   batch_delegation_roots[worker_cnt] = NULL;
@@ -688,7 +704,6 @@ fd_accumulate_stake_infos( fd_exec_slot_ctx_t const * slot_ctx,
     .accumulator               = accumulator,
     .temp_info                 = temp_info,
     .spads                     = exec_spads,
-    .stake_delegations_pool    = stake_delegations_pool,
     .epoch                     = stakes->epoch,
   };
 
