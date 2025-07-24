@@ -12,6 +12,24 @@
 
 extern fd_topo_obj_callbacks_t * CALLBACKS[];
 
+static void
+parse_ip_port( const char * name, const char * ip_port, fd_topo_ip_port_t *parsed_ip_port) {
+  char buf[ sizeof( "255.255.255.255:65536" ) ];
+  memcpy( buf, ip_port, sizeof( buf ) );
+  char *ip_end = strchr( buf, ':' );
+  if( FD_UNLIKELY( !ip_end ) )
+    FD_LOG_ERR(( "[%s] must in the form ip:port", name ));
+  *ip_end = '\0';
+
+  if( FD_UNLIKELY( !fd_cstr_to_ip4_addr( buf, &( parsed_ip_port->ip ) ) ) ) {
+    FD_LOG_ERR(( "could not parse IP %s in [%s]", buf, name ));
+  }
+
+  parsed_ip_port->port = fd_cstr_to_ushort( ip_end+1 );
+  if( FD_UNLIKELY( !parsed_ip_port->port ) )
+    FD_LOG_ERR(( "could not parse port %s in [%s]", ip_end+1, name ));
+}
+
 void
 fd_topo_initialize( config_t * config ) {
   ulong net_tile_cnt    = config->layout.net_tile_count;
@@ -455,22 +473,15 @@ fd_topo_initialize( config_t * config ) {
       tile->shred.expected_shred_version        = config->consensus.expected_shred_version;
       tile->shred.shred_listen_port             = config->tiles.shred.shred_listen_port;
       tile->shred.larger_shred_limits_per_block = config->development.bench.larger_shred_limits_per_block;
-      char   adtl_dest[ sizeof("255.255.255.255:65536") ];
-      memcpy( adtl_dest, config->tiles.shred.additional_shred_destination, sizeof(adtl_dest) );
-      if( FD_UNLIKELY( strcmp( adtl_dest, "" ) ) ) {
-        char * ip_end = strchr( adtl_dest, ':' );
-        if( FD_UNLIKELY( !ip_end ) ) FD_LOG_ERR(( "[tiles.shred.additional_shred_destination] must be empty or in the form ip:port" ));
-        *ip_end = '\0';
-
-        if( FD_UNLIKELY( !fd_cstr_to_ip4_addr( adtl_dest, &(tile->shred.adtl_dest.ip) ) ) ) {
-          FD_LOG_ERR(( "could not parse IP %s in [tiles.shred.additional_shred_destination]", adtl_dest ));
-        }
-
-        tile->shred.adtl_dest.port = fd_cstr_to_ushort( ip_end+1 );
-        if( FD_UNLIKELY( !tile->shred.adtl_dest.port ) ) FD_LOG_ERR(( "could not parse port %s in [tiles.shred.additional_shred_destination]", ip_end+1 ));
-      } else {
-        tile->shred.adtl_dest.ip   = 0U;
-        tile->shred.adtl_dest.port = 0;
+      for( ulong i=0UL; i<config->tiles.shred.additional_shred_destinations_retransmit_cnt; i++ ) {
+        parse_ip_port( "tiles.shred.additional_shred_destinations_retransmit",
+                       config->tiles.shred.additional_shred_destinations_retransmit[ i ],
+                       &tile->shred.adtl_dests_retransmit[ i ] );
+      }
+      for( ulong i=0UL; i<config->tiles.shred.additional_shred_destinations_leader_cnt; i++ ) {
+        parse_ip_port( "tiles.shred.additional_shred_destinations_leader",
+                       config->tiles.shred.additional_shred_destinations_leader[ i ],
+                       &tile->shred.adtl_dests_leader[ i ] );
       }
 
     } else if( FD_UNLIKELY( !strcmp( tile->name, "store" ) ) ) {
