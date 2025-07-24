@@ -1,197 +1,199 @@
 #ifndef HEADER_fd_src_flamenco_gossip_fd_gossip_h
 #define HEADER_fd_src_flamenco_gossip_fd_gossip_h
 
-#include "../types/fd_types.h"
-#include "../../disco/metrics/generated/fd_metrics_gossip.h"
-#include "../../util/net/fd_net_headers.h" /* fd_ip4_port_t */
+#include "../../util/rng/fd_rng.h"
+#include "../../util/net/fd_net_headers.h"
 #include "fd_contact_info.h"
+#include "../types/fd_types.h"
+#include "fd_gossip_out.h"
+#include "fd_gossip_metrics.h"
 
-/* Max number of validators that can be known */
-#define FD_PEER_KEY_MAX (1<<14)
-/* Number of recognized CRDS enum members */
-#define FD_KNOWN_CRDS_ENUM_MAX (14UL)
+/* TODO: When we get a pull request, respond with ContactInfos first if
+   we have any available that are responsive. */
+
+/* The Solana gossip protocol is used so that distributed nodes can
+   share key-value pairs and reach an eventually consistent consensus on
+   what's in the key-value store.
+
+   It is peer to peer, and proceeds with these key pieces:
+
+    - To join the cluster, a node must first contact a known node
+      (an entrypoint) and register itself, by sending its own contact
+      information key-value pair.  Contact information is the UDP
+      address and port.
+
+    - The cluster will then agree on that key-value pair, and start
+      broadcasting updates to the node.
+
+    - Each node must periodically send new messages it has received to
+      a (somewhat) random selection of peers (referred to as the active
+      set).
+
+    - In addition, each node can periodically send a "pull request" to
+      a random selection of peers, asking them to send any messages
+      they have that the node does not.  This is used to ensure that
+      nodes are eventually consistent in case they miss some pushed
+      messages.  Bloom filters are used to track which messages have
+      been received, and to avoid sending duplicates.
+
+    - Each node can also send prune messages to peers, asking them
+      to stop forwarding (pushing) messages from a particular origin.
+      This is used to avoid receiving too many duplicate messages from
+      the same origin.
+
+    - Nodes with stake are always considered part of the network, but
+      low staked nodes need to maintain a connection by responding to
+      ping messages.  These pings are to prevent DDoS attacks which
+      reflect off gossip nodes.
+
+   Other than this, everything else is implementation details.  For
+   specifics on the network and wire protocol, see https://github.com/eigerco/solana-spec/blob/main/gossip-protocol-spec.md
+   and for more details on the Agave implementation, see https://github.com/eigerco/solana-spec/blob/main/implementation-details.md
+
+   The Solana gossip protocol is heavily based on Plum Tree, see
+   https://www.dpss.inesc-id.pt/~ler/reports/srds07.pdf for details. */
+
+struct fd_gossip_private;
+typedef struct fd_gossip_private fd_gossip_t;
 
 
-enum fd_gossip_crds_route {
-    FD_GOSSIP_CRDS_ROUTE_PULL_RESP,
-    FD_GOSSIP_CRDS_ROUTE_PUSH,
-    FD_GOSSIP_CRDS_ROUTE_INTERNAL,
 
-    /* Add entries above this one */
-    FD_GOSSIP_CRDS_ROUTE_ENUM_CNT
-  };
+typedef void (*fd_gossip_send_fn)( void *                 ctx,
+                                   fd_stem_context_t *    stem,
+                                   uchar const *          data,
+                                   ulong                  sz,
+                                   fd_ip4_port_t const *  peer_address,
+                                   ulong                  now );
 
-typedef enum fd_gossip_crds_route fd_gossip_crds_route_t;
+typedef void (*fd_gossip_sign_fn)( void *         ctx,
+                                   uchar const *  data,
+                                   ulong          sz,
+                                   int            sign_type,
+                                   uchar *        out_signature );
 
-/* Global state of gossip protocol */
-typedef struct fd_gossip fd_gossip_t;
-ulong         fd_gossip_align    ( void );
-ulong         fd_gossip_footprint( void );
-void *        fd_gossip_new      ( void * shmem, ulong seed );
-fd_gossip_t * fd_gossip_join     ( void * shmap );
-void *        fd_gossip_leave    ( fd_gossip_t * join );
-void *        fd_gossip_delete   ( void * shmap );
+FD_PROTOTYPES_BEGIN
 
-typedef union fd_ip4_port fd_gossip_peer_addr_t;
+FD_FN_CONST ulong
+fd_gossip_align( void );
 
-int
-fd_gossip_from_soladdr(fd_gossip_peer_addr_t * dst, fd_gossip_socket_addr_t const * src );
+FD_FN_CONST ulong
+fd_gossip_footprint( ulong max_values );
 
-int
-fd_gossip_to_soladdr( fd_gossip_socket_addr_t * dst, fd_gossip_peer_addr_t const * src );
+void *
+fd_gossip_new( void *                    shmem,
+               fd_rng_t *                rng,
+               ulong                     max_values,
+               ulong                     entrypoints_cnt,
+               fd_ip4_port_t const *     entrypoints,
+               fd_contact_info_t const * my_contact_info,
+               long                      now,
+               fd_gossip_send_fn         send_fn,
+               void *                    send_ctx,
+               fd_gossip_sign_fn         sign_fn,
+               void *                    sign_ctx,
+               fd_gossip_out_ctx_t *     gossip_update_out,
+               fd_gossip_out_ctx_t *     gossip_net_out );
 
-/* Callback when a new message is received */
-typedef void (*fd_gossip_data_deliver_fun)(fd_crds_data_t* data, void* arg);
+fd_gossip_t *
+fd_gossip_join( void * shgossip );
 
-/* Callback for sending a packet. addr is the address of the destination. */
-typedef void (*fd_gossip_send_packet_fun)( uchar const * msg, size_t msglen, fd_gossip_peer_addr_t const * addr, void * arg );
+fd_gossip_metrics_t const *
+fd_gossip_metrics( fd_gossip_t const * gossip );
 
-/* Callback for signing */
-typedef void (*fd_gossip_sign_fun)( void * ctx, uchar * sig, uchar const * buffer, ulong len, int sign_type );
+/* fd_gossip stores the node's contact info for various purposes:
 
-struct fd_gossip_config {
-    fd_pubkey_t * public_key;
-    long node_outset; /* timestamp (in ms) when node's pubkey was set */
-    fd_gossip_peer_addr_t my_addr;
-    fd_gossip_version_v3_t my_version;
-    ushort shred_version;
-    fd_gossip_data_deliver_fun deliver_fun;
-    void * deliver_arg;
-    fd_gossip_send_packet_fun send_fun;
-    void * send_arg;
-    fd_gossip_sign_fun sign_fun;
-    void * sign_arg;
-};
-typedef struct fd_gossip_config fd_gossip_config_t;
+      - The pubkey specified in contact_info will serve as the
+        identity key, used in various checks of the rx path.
 
-/* Initialize the gossip data structure */
-int fd_gossip_set_config( fd_gossip_t * glob, const fd_gossip_config_t * config );
+      - If the shred version specified in the contact_info is non-zero,
+        it will be used to determine whether to accept or drop incoming
+        messages from peers.
 
-/* Update the binding addr */
-int fd_gossip_update_addr( fd_gossip_t * glob, const fd_gossip_peer_addr_t * addr );
+      - The contact info will be periodically gossiped to peers via
+        push messages.
 
-/* Update the repair service addr */
-int fd_gossip_update_repair_addr( fd_gossip_t * glob, const fd_gossip_peer_addr_t * serve );
+        - contact_info should have its wallclock correctly updated
+          in order to avoid timeouts on peers
 
-/* Update the tvu rx addr */
-int
-fd_gossip_update_tvu_addr( fd_gossip_t * glob,
-                           fd_gossip_peer_addr_t const * tvu );
-
-/* Update the tpu addr */
-int
-fd_gossip_update_tpu_addr( fd_gossip_t * glob,
-                           fd_gossip_peer_addr_t const * tpu,
-                           fd_gossip_peer_addr_t const * tpu_quic );
-
-/* Update the tpu vote addr */
-int fd_gossip_update_tpu_vote_addr( fd_gossip_t * glob, const fd_gossip_peer_addr_t * tpu_vote );
-
-/* Set the shred version (after receiving a contact info msg) */
-void fd_gossip_set_shred_version( fd_gossip_t * glob, ushort shred_version );
-
-/* Add a peer to talk to */
-int fd_gossip_add_active_peer( fd_gossip_t * glob, fd_gossip_peer_addr_t const * addr );
-
-/* Publish an outgoing value. The source id and wallclock are set by this function. The gossip key for the value is optionally returned. */
-int fd_gossip_push_value( fd_gossip_t * glob, fd_crds_data_t* data, fd_hash_t * key_opt );
-
-/* Set the current protocol time in nanosecs. Call this as often as feasible. */
-void fd_gossip_settime( fd_gossip_t * glob, long ts );
-
-/* Get the current protocol time in nanosecs */
-long fd_gossip_gettime( fd_gossip_t * glob );
-
-/* Start timed events and other protocol behavior. settime MUST be called before this. */
-int fd_gossip_start( fd_gossip_t * glob );
-
-/* Dispatch timed events and other protocol behavior. This should be
- * called inside the main spin loop. calling settime first is recommended. */
-int fd_gossip_continue( fd_gossip_t * glob );
-
-/* Pass a raw gossip packet into the protocol. addr is the address of the sender */
-int fd_gossip_recv_packet( fd_gossip_t * glob, uchar const * msg, ulong msglen, fd_gossip_peer_addr_t const * addr );
-
-const char * fd_gossip_addr_str( char * dst, ulong dstlen, fd_gossip_peer_addr_t const * src );
-
-ushort fd_gossip_get_shred_version( fd_gossip_t const * glob );
-
-void fd_gossip_set_stake_weights( fd_gossip_t * gossip, fd_stake_weight_t const * stake_weights, ulong stake_weights_cnt );
-
-/* fd_gossip_set_entrypoints sets ip and ports for initial known
-   validators to gossip to.  These values are set by the operator
-   at startup.  This function should only be called at startup. */
+          TODO: update wallclock ourselves? */
 void
-fd_gossip_set_entrypoints( fd_gossip_t *         gossip,
-                           fd_ip4_port_t const * entrypoints,
-                           ulong                 entrypoint_cnt );
+fd_gossip_set_my_contact_info( fd_gossip_t *             gossip,
+                               fd_contact_info_t const * contact_info,
+                               long                      now );
 
-uint fd_gossip_is_allowed_entrypoint( fd_gossip_t * gossip, fd_gossip_peer_addr_t * addr );
+void
+fd_gossip_stakes_update( fd_gossip_t *             gossip,
+                         fd_stake_weight_t const * stake_weights,
+                         ulong                     stake_weights_cnt );
 
-/* Gossip Metrics */
-struct fd_gossip_metrics {
-  /* Receive Packets */
-  ulong recv_pkt_cnt;
-  ulong recv_pkt_corrupted_msg;
+/* fd_gossip_advance advances the gossip protocol to the provided time,
+   performing any necessary updates and actions along the way.  The
+   actions performed include,
 
-  /* Receive Gossip Messages */
-  ulong recv_message[FD_METRICS_COUNTER_GOSSIP_RECEIVED_GOSSIP_MESSAGES_CNT];
-  ulong recv_unknown_message;
+   Advancing gossip forward will cause a variety of things to happen,
 
-  /* Receive CRDS */
-  ulong recv_crds[FD_GOSSIP_CRDS_ROUTE_ENUM_CNT][FD_METRICS_ENUM_CRDS_VALUE_CNT];
-  ulong recv_crds_duplicate_message[FD_GOSSIP_CRDS_ROUTE_ENUM_CNT][FD_METRICS_ENUM_CRDS_VALUE_CNT];
-  ulong recv_crds_drop_reason[FD_METRICS_COUNTER_GOSSIP_RECEIVED_CRDS_DROP_CNT];
+    - Pings will be sent to any peer nodes that are not validated, or
+      need their token refreshed.
+
+    - Old entries in the CRDS will be expired.
+
+    - Partially constructed push messages may need to be periodically
+      flushed.
+
+    - A new pull request will be periodically sent out to a random peer,
+      to request any messages we might be missing.
+
+    - Contact info messages will be periodically sent out to a random
+      selection of peers, to inform them of our current contact info.
+
+    - The active set of peers that we are pushing to will be
+      periodically rotated, with one new peer entering and one old peer
+      leaving, based on stake weights.
 
 
-  /* Push CRDS value */
-  ulong push_crds[FD_KNOWN_CRDS_ENUM_MAX];
-  ulong push_crds_duplicate[FD_METRICS_COUNTER_GOSSIP_PUSH_CRDS_DUPLICATE_MESSAGE_CNT];
-  ulong push_crds_drop_reason[FD_METRICS_COUNTER_GOSSIP_PUSH_CRDS_DROP_CNT];
-  ulong push_crds_queue_cnt;
+   Only actions which are necessary and useful will be performed, and
+   the function is idempotent and fast otherwise.  advance should be
+   called as often as possible. */
 
-  /* Value DS sizes */
-  ulong value_meta_cnt;
-  ulong value_vec_cnt;
+void
+fd_gossip_advance( fd_gossip_t *       gossip,
+                   long                now,
+                   fd_stem_context_t * stem );
 
-  /* Active Push Destinations */
-  ulong active_push_destinations;
-  ulong refresh_push_states_failcnt;
+/* fd_gossip_rx handles an incoming packet received on the gossip socket
+   from the network.  It is expected that the packet is a UDP packet but
+   otherwise no assumptions are made about the contents of the packet,
+   in particular it might be malformed, corrupted, malicious, and so on.
 
-  /* Pull Requests/Responses */
-  ulong handle_pull_req_fails[FD_METRICS_COUNTER_GOSSIP_PULL_REQ_FAIL_CNT];
-  ulong handle_pull_req_bloom_filter_result[FD_METRICS_COUNTER_GOSSIP_PULL_REQ_BLOOM_FILTER_CNT]; /* TODO: per host? */
-  ulong handle_pull_req_npackets; /* TODO: per host? */
+   now is the current time in nanoseconds, and is used to determine
+   whether the packet is stale or not, and to update the internal state
+   of the gossip protocol.
 
-  /* Receive Prune Messages */
-  ulong handle_prune_fails[FD_METRICS_COUNTER_GOSSIP_PRUNE_FAIL_COUNT_CNT];
+   Receiving a packet might cause response packets to need to be sent
+   back to the gossip network.  The response packets are queued for
+   later sending.  The caller is responsible for sending the response
+   packets by calling fd_gossip_tx().
 
-  /* Send Prune Messages */
-  ulong make_prune_stale_entry; /* TODO: per host? */
-  ulong make_prune_high_duplicates; /* TODO: per host? */
-  ulong make_prune_requested_origins; /* TODO: per host? */
-  ulong make_prune_sign_data_encode_failed;
+   Returns 0 on success, and an error code on failure.  Receive side
+   errors are entirely recoverable and do not interrupt the operation of
+   the gossip protocol.  It is highly advised to terminate the
+   application on a DUPLICATE_INSTANCE error to prevent slashable
+   activity. */
 
-  /* Send Gossip Messages */
-  ulong send_message[FD_METRICS_COUNTER_GOSSIP_SENT_GOSSIP_MESSAGES_CNT];
+int
+fd_gossip_rx( fd_gossip_t *       gossip,
+              uchar const *       data,
+              ulong               data_sz,
+              long                now,
+              fd_stem_context_t * stem );
 
-  /* Send Packets */
-  ulong send_packet_cnt;
+int
+fd_gossip_push_vote( fd_gossip_t *       gossip,
+                     uchar const *       txn,
+                     ulong               txn_sz,
+                     fd_stem_context_t * stem,
+                     long                now );
 
-  /* Ping/Pong */
-  ulong send_ping_events[FD_METRICS_COUNTER_GOSSIP_SEND_PING_EVENT_CNT];
-  ulong recv_ping_invalid_signature;
-
-  ulong recv_pong_events[FD_METRICS_COUNTER_GOSSIP_RECV_PONG_EVENT_CNT];
-
-  /* Peers (all known validators) */
-  ulong gossip_peer_cnt[FD_METRICS_GAUGE_GOSSIP_GOSSIP_PEER_COUNTS_CNT];
-  /* TODO: Lock metrics */
-};
-typedef struct fd_gossip_metrics fd_gossip_metrics_t;
-#define FD_GOSSIP_METRICS_FOOTPRINT ( sizeof( fd_gossip_metrics_t ) )
-
-fd_gossip_metrics_t *
-fd_gossip_get_metrics( fd_gossip_t * gossip );
+FD_PROTOTYPES_END
 
 #endif /* HEADER_fd_src_flamenco_gossip_fd_gossip_h */

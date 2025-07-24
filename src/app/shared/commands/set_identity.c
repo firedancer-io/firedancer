@@ -102,7 +102,10 @@
            the identity key to authenticate the sender.
        (d) Bundle.  The validator must authenticate to any connected
            bundle server with the identity key to prove it is on the
-           leader schedule. */
+           leader schedule.,
+       (e) Gossip. The gossip tile sends out ContactInfo messages with
+           our identity key, and also uses the identity key to sign
+           outgoing gossip messages. */
 #define FD_SET_IDENTITY_STATE_ALL_SWITCH_REQUESTED  (6UL)
 
 /* State 7: ALL_SWITCHED
