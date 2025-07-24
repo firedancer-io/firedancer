@@ -1640,7 +1640,7 @@ fd_execute_txn( fd_execute_txn_task_info_t * task_info ) {
       into the replay tile once it is implemented. */
   int err = fd_executor_txn_check( txn_ctx );
   if( FD_UNLIKELY( err!=FD_EXECUTOR_INSTR_SUCCESS ) ) {
-    FD_LOG_WARNING(( "fd_executor_txn_check failed (%d)", err ));
+    FD_LOG_DEBUG(( "fd_executor_txn_check failed (%d)", err ));
     return err;
   }
   return 0;
