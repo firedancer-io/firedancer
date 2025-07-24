@@ -1187,16 +1187,18 @@ user = ""
         # this one.
         shred_listen_port = 8003
 
-        # Shreds can also be forwarded to a specific address, for
-        # example to run an unstaked RPC or for archiving.  If
-        # additional_shred_destination is not empty, each new, valid
+        # Shreds can also be forwarded to specific addresses, for
+        # example to run an unstaked RPC or for archiving.  Each new, valid
         # shred that the validator receives will be forwarded to the
-        # specified address.  additional_shred_destination must be in
-        # the form "ip:port", for example "1.2.3.4:5566".  Shreds will
-        # be sent to this destination first, prior to sending to other
-        # validators.  This applies to leader slots and non-leader
-        # slots.
-        additional_shred_destination = ""
+        # addresses specified in additional_shred_destinations_retransmit.
+        # Each shred that the validor produced when it is leader will be
+        # sent to the addresses specified in
+        # additional_shred_destinations_leader.  Destinations must be in the
+        # form "ip:port", for example "1.2.3.4:5566".  Shreds will
+        # be sent to these destinations first, prior to sending to other
+        # validators.
+        additional_shred_destinations_retransmit = []
+        additional_shred_destinations_leader = []
 
     # TODO: DOCS
     [tiles.repair]

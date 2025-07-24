@@ -214,9 +214,10 @@ fd_config_extract_pod( uchar *       pod,
 
   CFG_POP      ( bool,   tiles.poh.lagged_consecutive_leader_start        );
 
-  CFG_POP      ( uint,   tiles.shred.max_pending_shred_sets               );
-  CFG_POP      ( ushort, tiles.shred.shred_listen_port                    );
-  CFG_POP      ( cstr,   tiles.shred.additional_shred_destination         );
+  CFG_POP      ( uint,   tiles.shred.max_pending_shred_sets                   );
+  CFG_POP      ( ushort, tiles.shred.shred_listen_port                        );
+  CFG_POP_ARRAY( cstr,   tiles.shred.additional_shred_destinations_retransmit );
+  CFG_POP_ARRAY( cstr,   tiles.shred.additional_shred_destinations_leader     );
 
   CFG_POP      ( cstr,   tiles.metric.prometheus_listen_address           );
   CFG_POP      ( ushort, tiles.metric.prometheus_listen_port              );
