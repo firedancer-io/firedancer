@@ -1,4 +1,7 @@
 #include "fd_harness_common.h"
+#include "../../fd_system_ids.h"
+#include "../../context/fd_exec_slot_ctx.h"
+#include "../../sysvar/fd_sysvar_recent_hashes.h"
 
 ulong
 fd_runtime_fuzz_runner_align( void ) {
@@ -129,4 +132,78 @@ fd_runtime_fuzz_restore_features( fd_features_t *                    features,
     fd_features_set( features, id, 0UL );
   }
   return 1;
+}
+
+/* Below is completely nonsensical.  These solfuzz routines only exist
+   to keep compatibility with very broken behavior that was once added
+   by someone who did not understand sysvar and bank data structures.  */
+
+/* Peek the newest 'blockhash' + 'lamports per signature' value of the
+   'recent blockhashes' sysvar account even if the sysvar account is
+   oversize.
+   However, ignore the value if the sysvar account's length prefix is
+   larger than the account size.  This logic is nonsense. */
+
+void
+fd_solfuzz_restore_lamports_per_signature( fd_exec_slot_ctx_t * slot_ctx ) {
+  FD_TXN_ACCOUNT_DECL( rec );
+  int db_ok = fd_txn_account_init_from_funk_readonly( rec, &fd_sysvar_recent_block_hashes_id, slot_ctx->funk, slot_ctx->funk_txn );
+  if( db_ok!=FD_ACC_MGR_SUCCESS ) return;
+  if( FD_UNLIKELY( rec->vt->get_lamports( rec )==0 ) ) return;
+  uchar const * const data    = rec->vt->get_data( rec );
+  ulong         const data_sz = rec->vt->get_data_len( rec );
+
+  /* Peek the RBH sysvar.  The first 8 bytes is a length prefix, which
+     is followed by a sequence of 40 byte large objects.  Read the first
+     entry, which is the newest one. */
+  if( FD_UNLIKELY( data_sz<8UL ) ) return;
+  ulong const entry_cnt = FD_LOAD( ulong, data );
+  if( FD_UNLIKELY( !entry_cnt ) ) return;
+  ulong serialized_sz;
+  if( FD_UNLIKELY( __builtin_umull_overflow( entry_cnt,     40UL, &serialized_sz ) ) ) return;
+  if( FD_UNLIKELY( __builtin_uaddl_overflow( serialized_sz,  8UL, &serialized_sz ) ) ) return;
+  if( FD_UNLIKELY( serialized_sz>data_sz ) ) return;
+
+  /* Update bank fields */
+  ulong lamports_per_sig = FD_LOAD( ulong, data+40UL );
+  fd_bank_lamports_per_signature_set     ( slot_ctx->bank, lamports_per_sig );
+  fd_bank_prev_lamports_per_signature_set( slot_ctx->bank, lamports_per_sig );
+}
+
+void
+fd_solfuzz_restore_instr_blockhash_queue( fd_exec_slot_ctx_t * slot_ctx ) {
+  fd_blockhashes_t * blockhashes = fd_bank_block_hash_queue_modify( slot_ctx->bank );
+  fd_blockhashes_init( blockhashes, blockhashes->map->seed ); /* clear */
+
+  /* Peek the RBH sysvar.  Read the last entry, which is the oldest one. */
+  FD_TXN_ACCOUNT_DECL( rec );
+  int db_ok = fd_txn_account_init_from_funk_readonly( rec, &fd_sysvar_recent_block_hashes_id, slot_ctx->funk, slot_ctx->funk_txn );
+  if( db_ok!=FD_ACC_MGR_SUCCESS ) return;
+  if( FD_UNLIKELY( rec->vt->get_lamports( rec )==0 ) ) return;
+  uchar const * const acc_data    = rec->vt->get_data( rec );
+  ulong         const acc_data_sz = rec->vt->get_data_len( rec );
+  if( FD_UNLIKELY( acc_data_sz<8UL ) ) return;
+  ulong const entry_cnt = FD_LOAD( ulong, acc_data );
+  if( FD_UNLIKELY( !entry_cnt ) ) return;
+  ulong serialized_sz;
+  if( FD_UNLIKELY( __builtin_umull_overflow( entry_cnt,     40UL, &serialized_sz ) ) ) return;
+  if( FD_UNLIKELY( __builtin_uaddl_overflow( serialized_sz,  8UL, &serialized_sz ) ) ) return;
+  if( FD_UNLIKELY( serialized_sz>acc_data_sz ) ) return;
+  fd_hash_t blockhash        = FD_LOAD( fd_hash_t, acc_data+serialized_sz-40UL );
+  ulong     lamports_per_sig = FD_LOAD( ulong,     acc_data+serialized_sz- 8UL );
+
+  /* Update the bank's blockhash queue (write the first/only entry) */
+  fd_blockhash_info_t * info = fd_blockhashes_push_new( blockhashes, &blockhash );
+  info->fee_calculator = (fd_fee_calculator_t) { .lamports_per_signature = lamports_per_sig };
+  fd_bank_lamports_per_signature_set     ( slot_ctx->bank, lamports_per_sig );
+  fd_bank_prev_lamports_per_signature_set( slot_ctx->bank, lamports_per_sig );
+
+  /* Update the sysvar cache's object and data content, and the RBH
+     sysvar account. */
+  ulong sz_max = 0UL;
+  uchar * data = fd_sysvar_cache_data_modify_prepare( slot_ctx, &fd_sysvar_recent_block_hashes_id, NULL, &sz_max );
+  if( FD_UNLIKELY( !data ) ) FD_LOG_ERR(( "fd_sysvar_cache_data_modify_prepare(recent_block_hashes) failed" ));
+  FD_TEST( sz_max>=FD_SYSVAR_RECENT_HASHES_BINCODE_SZ );
+  fd_sysvar_recent_hashes_encode( fd_bank_block_hash_queue_query( slot_ctx->bank ), data );
+  fd_sysvar_cache_data_modify_commit( slot_ctx, &fd_sysvar_recent_block_hashes_id, FD_SYSVAR_RECENT_HASHES_BINCODE_SZ );
 }

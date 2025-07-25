@@ -56,21 +56,31 @@ sysvar_data_fill( fd_sysvar_cache_t *  cache,
   return fd_sysvar_obj_restore( cache, desc, pos, log_fails );
 }
 
-int
-fd_sysvar_cache_restore( fd_exec_slot_ctx_t * slot_ctx ) {
-
+static int
+fd_sysvar_cache_restore1( fd_exec_slot_ctx_t * slot_ctx,
+                          int                  log_fails ) {
   fd_sysvar_cache_t * cache = fd_sysvar_cache_join( fd_sysvar_cache_new(
       fd_bank_sysvar_cache_modify( slot_ctx->bank ) ) );
 
   int saw_err = 0;
   for( ulong i=0UL; i<FD_SYSVAR_CACHE_ENTRY_CNT; i++ ) {
-    int err = sysvar_data_fill( cache, slot_ctx, i, 1 );
+    int err = sysvar_data_fill( cache, slot_ctx, i, log_fails );
     if( err ) saw_err = 1;
   }
 
   fd_sysvar_cache_leave( cache );
 
   return !saw_err;
+}
+
+int
+fd_sysvar_cache_restore( fd_exec_slot_ctx_t * slot_ctx ) {
+  return fd_sysvar_cache_restore1( slot_ctx, 1 );
+}
+
+void
+fd_sysvar_cache_restore_fuzz( fd_exec_slot_ctx_t * slot_ctx ) {
+  (void)fd_sysvar_cache_restore1( slot_ctx, 0 );
 }
 
 void
@@ -203,25 +213,6 @@ fd_sysvar_cache_data_modify_commit(
   SIMPLE_SYSVAR_WRITE( name, name2, fd_##type##_t, type )
 FD_SYSVAR_SIMPLE_ITER( SIMPLE_SYSVAR )
 #undef SIMPLE_SYSVAR
-
-void
-fd_sysvar_recent_hashes_leave(
-    fd_exec_slot_ctx_t *          slot_ctx,
-    fd_block_block_hash_entry_t * hashes
-) {
-  ulong const idx = FD_SYSVAR_recent_hashes_IDX;
-  fd_sysvar_cache_t * cache = fd_bank_sysvar_cache_modify( slot_ctx->bank );
-  if( FD_UNLIKELY( FD_VOLATILE_CONST( cache->desc[ idx ].flags )!=FD_SYSVAR_FLAG_WRITE_LOCK ) ) {
-    FD_LOG_CRIT(( "unmatched sysvar leave" ));
-  }
-  fd_recent_block_hashes_global_t const * var = (void *)cache->obj_recent_hashes;
-  if( FD_UNLIKELY( !hashes ||
-                   (ulong)deq_fd_block_block_hash_entry_t_leave( hashes ) !=
-                   (ulong)var+var->hashes_offset ) ) {
-    FD_LOG_CRIT(( "sysvar leave called with invalid pointer" ));
-  }
-  sysvar_write_through( slot_ctx, cache, idx, 0UL );
-}
 
 void
 fd_sysvar_slot_hashes_leave(

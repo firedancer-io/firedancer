@@ -7,9 +7,9 @@
    blockhash queue into a buffer representing account data for the
    recent blockhashes sysvar. */
 
-static void
-encode_rbh_from_blockhash_queue( fd_blockhashes_t const * bhq,
-                                 uchar                    out_mem[ FD_SYSVAR_RECENT_HASHES_BINCODE_SZ ] ) {
+void
+fd_sysvar_recent_hashes_encode( fd_blockhashes_t const * bhq,
+                                uchar                    out_mem[ FD_SYSVAR_RECENT_HASHES_BINCODE_SZ ] ) {
   ulong queue_sz = fd_blockhash_deq_cnt( bhq->d.deque );
   ulong out_max  = fd_ulong_min( queue_sz, FD_SYSVAR_RECENT_HASHES_CAP );
 
@@ -72,6 +72,6 @@ fd_sysvar_recent_hashes_update( fd_exec_slot_ctx_t * slot_ctx ) {
   uchar * data = fd_sysvar_cache_data_modify_prepare( slot_ctx, &fd_sysvar_recent_block_hashes_id, NULL, &sz_max );
   if( FD_UNLIKELY( !data ) ) FD_LOG_ERR(( "fd_sysvar_cache_data_modify_prepare(recent_block_hashes) failed" ));
   FD_TEST( sz_max>=FD_SYSVAR_RECENT_HASHES_BINCODE_SZ );
-  encode_rbh_from_blockhash_queue( fd_bank_block_hash_queue_query( slot_ctx->bank ), data );
+  fd_sysvar_recent_hashes_encode( fd_bank_block_hash_queue_query( slot_ctx->bank ), data );
   fd_sysvar_cache_data_modify_commit( slot_ctx, &fd_sysvar_recent_block_hashes_id, FD_SYSVAR_RECENT_HASHES_BINCODE_SZ );
 }

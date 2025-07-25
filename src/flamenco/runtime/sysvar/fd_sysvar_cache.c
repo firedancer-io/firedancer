@@ -145,41 +145,6 @@ FD_SYSVAR_SIMPLE_ITER( SIMPLE_SYSVAR )
 #undef SIMPLE_SYSVAR
 #undef SIMPLE_SYSVAR_READ
 
-fd_block_block_hash_entry_t * /* deque */
-fd_sysvar_recent_hashes_join(
-    fd_exec_slot_ctx_t * slot_ctx
-) {
-  ulong const idx = FD_SYSVAR_recent_hashes_IDX;
-  fd_sysvar_cache_t * cache = fd_bank_sysvar_cache_modify( slot_ctx->bank );
-  if( FD_UNLIKELY( !fd_sysvar_recent_hashes_is_valid( cache ) ) ) return NULL;
-  FD_VOLATILE( cache->desc[ idx ].flags ) = FD_SYSVAR_FLAG_WRITE_LOCK; /* FIXME consider CAS */
-  cache->desc[ idx ].data_sz = 0U;
-  fd_recent_block_hashes_global_t * rbh = (void *)cache->obj_recent_hashes;
-  fd_block_block_hash_entry_t * deq = deq_fd_block_block_hash_entry_t_join( (uchar *)rbh+rbh->hashes_offset );
-  /* If the above is_valid check is passed, then join is guaranteed to succeed */
-  if( FD_UNLIKELY( !deq ) ) FD_LOG_CRIT(( "recent blockhashes sysvar corruption detected" ));
-  return deq;
-}
-
-fd_block_block_hash_entry_t const * /* deque */
-fd_sysvar_recent_hashes_join_const(
-    fd_sysvar_cache_t const * cache
-) {
-  if( FD_UNLIKELY( !fd_sysvar_recent_hashes_is_valid( cache ) ) ) return NULL;
-  fd_recent_block_hashes_global_t * var = (void *)cache->obj_recent_hashes;
-  fd_block_block_hash_entry_t * deq = deq_fd_block_block_hash_entry_t_join( (uchar *)var+var->hashes_offset );
-  if( FD_UNLIKELY( !deq ) ) FD_LOG_CRIT(( "recent blockhashes sysvar corruption detected" ));
-  return deq; /* demote to const ptr */
-}
-
-void
-fd_sysvar_recent_hashes_leave_const(
-    fd_sysvar_cache_t const *           sysvar_cache,
-    fd_block_block_hash_entry_t const * hashes_deque
-) {
-  (void)sysvar_cache; (void)hashes_deque;
-}
-
 fd_slot_hash_t *
 fd_sysvar_slot_hashes_join(
     fd_exec_slot_ctx_t * slot_ctx

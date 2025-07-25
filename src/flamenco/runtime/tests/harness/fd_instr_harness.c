@@ -196,8 +196,10 @@ fd_runtime_fuzz_instr_ctx_create( fd_runtime_fuzz_runner_t *           runner,
     }
   }
 
+  fd_solfuzz_restore_lamports_per_signature( slot_ctx );
+
   /* Restore sysvar cache */
-  FD_TEST( fd_sysvar_cache_restore( slot_ctx )==0 );
+  fd_sysvar_cache_restore_fuzz( slot_ctx );
   ctx->sysvar_cache = fd_bank_sysvar_cache_modify( slot_ctx->bank );
 
   /* Fill missing sysvar cache values with defaults */
@@ -254,20 +256,7 @@ fd_runtime_fuzz_instr_ctx_create( fd_runtime_fuzz_runner_t *           runner,
   }
 
   /* Override most recent blockhash if given */
-  fd_block_block_hash_entry_t const * rbh = fd_sysvar_recent_hashes_join_const( sysvar_cache );
-  if( rbh && !deq_fd_block_block_hash_entry_t_empty( rbh ) ) {
-    fd_block_block_hash_entry_t const * last = deq_fd_block_block_hash_entry_t_peek_tail_const( rbh );
-    if( last ) {
-      fd_blockhashes_t * blockhashes = fd_bank_block_hash_queue_modify( slot_ctx->bank );
-      fd_blockhashes_pop_new( blockhashes );
-      fd_blockhash_info_t * info = fd_blockhashes_push_new( blockhashes, &last->blockhash );
-      info->fee_calculator = last->fee_calculator;
-
-      fd_bank_lamports_per_signature_set( slot_ctx->bank, last->fee_calculator.lamports_per_signature );
-
-      fd_bank_prev_lamports_per_signature_set( slot_ctx->bank, last->fee_calculator.lamports_per_signature );
-    }
-  }
+  fd_solfuzz_restore_instr_blockhash_queue( slot_ctx );
 
   /* Add accounts to bpf program cache */
   fd_bpf_scan_and_create_bpf_program_cache_entry( slot_ctx, runner->spad );

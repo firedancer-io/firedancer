@@ -915,22 +915,6 @@
       "comment": "https://github.com/solana-labs/solana/blob/8f2c8b8388a495d2728909e30460aa40dcc5d733/sdk/program/src/slot_hashes.rs#L31"
     },
     {
-      "name": "block_block_hash_entry",
-      "type": "struct",
-      "fields": [
-          { "name": "blockhash", "type": "hash" },
-          { "name": "fee_calculator", "type": "fee_calculator" }
-      ]
-    },
-    {
-      "name": "recent_block_hashes",
-      "type": "struct",
-      "global": true,
-      "fields": [
-          { "name": "hashes", "type": "deque", "element": "block_block_hash_entry", "min": 151 }
-      ]
-    },
-    {
       "name": "slot_meta",
       "type": "struct",
       "fields": [

@@ -1617,45 +1617,6 @@ typedef struct fd_slot_hashes_global fd_slot_hashes_global_t;
 static FD_FN_UNUSED fd_slot_hash_t * fd_slot_hashes_hashes_join( fd_slot_hashes_global_t * type ) { // deque
   return type->hashes_offset ? (fd_slot_hash_t *)deq_fd_slot_hash_t_join( fd_type_pun( (uchar *)type + type->hashes_offset ) ) : NULL;
 }
-/* Encoded Size: Fixed (40 bytes) */
-struct fd_block_block_hash_entry {
-  fd_hash_t blockhash;
-  fd_fee_calculator_t fee_calculator;
-};
-typedef struct fd_block_block_hash_entry fd_block_block_hash_entry_t;
-#define FD_BLOCK_BLOCK_HASH_ENTRY_ALIGN alignof(fd_block_block_hash_entry_t)
-
-#define DEQUE_NAME deq_fd_block_block_hash_entry_t
-#define DEQUE_T fd_block_block_hash_entry_t
-#include "../../util/tmpl/fd_deque_dynamic.c"
-#undef DEQUE_NAME
-#undef DEQUE_T
-#undef DEQUE_MAX
-static inline fd_block_block_hash_entry_t *
-deq_fd_block_block_hash_entry_t_join_new( void * * alloc_mem, ulong max ) {
-  if( FD_UNLIKELY( 0 == max ) ) max = 1; // prevent underflow
-  *alloc_mem = (void*)fd_ulong_align_up( (ulong)*alloc_mem, deq_fd_block_block_hash_entry_t_align() );
-  void * deque_mem = *alloc_mem;
-  *alloc_mem = (uchar *)*alloc_mem + deq_fd_block_block_hash_entry_t_footprint( max );
-  return deq_fd_block_block_hash_entry_t_join( deq_fd_block_block_hash_entry_t_new( deque_mem, max ) );
-}
-
-/* Encoded Size: Dynamic */
-struct fd_recent_block_hashes {
-  fd_block_block_hash_entry_t * hashes; /* fd_deque_dynamic (min cnt 151) */
-};
-typedef struct fd_recent_block_hashes fd_recent_block_hashes_t;
-#define FD_RECENT_BLOCK_HASHES_ALIGN alignof(fd_recent_block_hashes_t)
-
-struct fd_recent_block_hashes_global {
-  ulong hashes_offset; /* fd_deque_dynamic (min cnt 151) */
-};
-typedef struct fd_recent_block_hashes_global fd_recent_block_hashes_global_t;
-#define FD_RECENT_BLOCK_HASHES_GLOBAL_ALIGN alignof(fd_recent_block_hashes_global_t)
-
-static FD_FN_UNUSED fd_block_block_hash_entry_t * fd_recent_block_hashes_hashes_join( fd_recent_block_hashes_global_t * type ) { // deque
-  return type->hashes_offset ? (fd_block_block_hash_entry_t *)deq_fd_block_block_hash_entry_t_join( fd_type_pun( (uchar *)type + type->hashes_offset ) ) : NULL;
-}
 /* Encoded Size: Dynamic */
 struct fd_slot_meta {
   ulong slot;
@@ -4492,29 +4453,6 @@ void * fd_slot_hashes_decode( void * mem, fd_bincode_decode_ctx_t * ctx );
 void * fd_slot_hashes_decode_global( void * mem, fd_bincode_decode_ctx_t * ctx );
 int fd_slot_hashes_encode_global( fd_slot_hashes_global_t const * self, fd_bincode_encode_ctx_t * ctx );
 ulong fd_slot_hashes_size_global( fd_slot_hashes_global_t const * self );
-
-static inline void fd_block_block_hash_entry_new( fd_block_block_hash_entry_t * self ) { fd_memset( self, 0, sizeof(fd_block_block_hash_entry_t) ); }
-int fd_block_block_hash_entry_encode( fd_block_block_hash_entry_t const * self, fd_bincode_encode_ctx_t * ctx );
-void fd_block_block_hash_entry_walk( void * w, fd_block_block_hash_entry_t const * self, fd_types_walk_fn_t fun, const char *name, uint level, uint varint );
-static inline ulong fd_block_block_hash_entry_size( fd_block_block_hash_entry_t const * self ) { (void)self; return 40UL; }
-static inline ulong fd_block_block_hash_entry_align( void ) { return FD_BLOCK_BLOCK_HASH_ENTRY_ALIGN; }
-static inline int fd_block_block_hash_entry_decode_footprint( fd_bincode_decode_ctx_t * ctx, ulong * total_sz ) {
-  *total_sz += sizeof(fd_block_block_hash_entry_t);
-  if( (ulong)ctx->data + 40UL > (ulong)ctx->dataend ) { return FD_BINCODE_ERR_OVERFLOW; };
-  return 0;
-}
-void * fd_block_block_hash_entry_decode( void * mem, fd_bincode_decode_ctx_t * ctx );
-
-void fd_recent_block_hashes_new( fd_recent_block_hashes_t * self );
-int fd_recent_block_hashes_encode( fd_recent_block_hashes_t const * self, fd_bincode_encode_ctx_t * ctx );
-void fd_recent_block_hashes_walk( void * w, fd_recent_block_hashes_t const * self, fd_types_walk_fn_t fun, const char *name, uint level, uint varint );
-ulong fd_recent_block_hashes_size( fd_recent_block_hashes_t const * self );
-static inline ulong fd_recent_block_hashes_align( void ) { return FD_RECENT_BLOCK_HASHES_ALIGN; }
-int fd_recent_block_hashes_decode_footprint( fd_bincode_decode_ctx_t * ctx, ulong * total_sz );
-void * fd_recent_block_hashes_decode( void * mem, fd_bincode_decode_ctx_t * ctx );
-void * fd_recent_block_hashes_decode_global( void * mem, fd_bincode_decode_ctx_t * ctx );
-int fd_recent_block_hashes_encode_global( fd_recent_block_hashes_global_t const * self, fd_bincode_encode_ctx_t * ctx );
-ulong fd_recent_block_hashes_size_global( fd_recent_block_hashes_global_t const * self );
 
 void fd_slot_meta_new( fd_slot_meta_t * self );
 int fd_slot_meta_encode( fd_slot_meta_t const * self, fd_bincode_encode_ctx_t * ctx );
