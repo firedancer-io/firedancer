@@ -342,6 +342,13 @@ struct fd_bank {
   #undef HAS_LOCK_0
   #undef HAS_LOCK_1
 
+  /* TODO:FIXME: DELTA SUTFF HERE */
+  /* Now define all of the delta fields here.
+     TODO: consider wrapping this up into a macro. */
+
+  uchar ele_delta[sizeof(ulong)] __attribute__((aligned(alignof(ulong))));
+  int   ele_delta_dirty;
+
 };
 typedef struct fd_bank fd_bank_t;
 
@@ -427,8 +434,47 @@ struct fd_banks {
   #undef X
   #undef HAS_COW_0
   #undef HAS_COW_1
+
+  /* TODO:FIXME: DELTA SUTFF HERE */
+  uchar ele_full_root    [sizeof(ulong)] __attribute__((aligned(alignof(ulong))));
+  uchar ele_full_frontier[sizeof(ulong)] __attribute__((aligned(alignof(ulong))));
 };
 typedef struct fd_banks fd_banks_t;
+
+/* TODO:FIXME: DELTA STUFF HERE */
+
+/* fd_banks_apply_delta should only be used to apply the delta from a
+   bank to the full state. */
+
+static void FD_FN_UNUSED
+fd_banks_apply_delta( fd_banks_t * banks, fd_bank_t * bank, int is_root ) {
+
+  if( !bank->ele_delta_dirty ) {
+    return;
+  }
+
+  ulong * ele_full_ulong  = is_root ? (ulong *)fd_type_pun( banks->ele_full_root ) : (ulong *)fd_type_pun( banks->ele_full_frontier );
+  ulong * ele_delta_ulong = (ulong *)fd_type_pun( bank->ele_delta );
+
+  (*ele_full_ulong) += (*ele_delta_ulong);
+}
+
+static ulong FD_FN_UNUSED
+fd_bank_get_full_ele_root( fd_banks_t * banks ) {
+  return *(ulong *)fd_type_pun( banks->ele_full_root );
+}
+
+static void FD_FN_UNUSED
+fd_banks_set_ele_delta( fd_bank_t * bank, ulong value ) {
+  bank->ele_delta_dirty = 1;
+  ulong * ele_delta_ulong = (ulong *)fd_type_pun( bank->ele_delta );
+  (*ele_delta_ulong) = value;
+}
+
+/* The full element only lives in the root. So, what we need to do is
+   iterate from the root to the bank and sum up all of the deltas. */
+ulong
+fd_banks_get_full_ele_frontier( fd_banks_t * banks, fd_bank_t * bank );
 
 /* Bank accesssors */
 
