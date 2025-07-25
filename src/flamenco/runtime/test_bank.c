@@ -13,10 +13,10 @@ main( int argc, char ** argv ) {
                                                 0UL );
   FD_TEST( wksp );
 
-  uchar * mem = fd_wksp_alloc_laddr( wksp, fd_banks_align(), fd_banks_footprint( 16UL ), 1UL );
+  uchar * mem = fd_wksp_alloc_laddr( wksp, fd_banks_align(), fd_banks_footprint( 16UL, 2UL ), 1UL );
   FD_TEST( mem );
 
-  mem = fd_banks_new( mem, 16UL );
+  mem = fd_banks_new( mem, 16UL, 2UL );
   FD_TEST( mem );
 
   /* Init banks */
@@ -28,6 +28,7 @@ main( int argc, char ** argv ) {
   FD_TEST( bank );
 
   /* Set some fields */
+
   fd_bank_capitalization_set( bank, 1000UL );
   FD_TEST( fd_bank_capitalization_get( bank ) == 1000UL );
 
@@ -36,6 +37,12 @@ main( int argc, char ** argv ) {
   fd_bank_t * bank2 = fd_banks_clone_from_parent( banks, 2UL, 1UL );
   FD_TEST( bank2 );
   FD_TEST( fd_bank_capitalization_get( bank2 ) == 1000UL );
+  /* At this point, the first epoch leaders has been allocated from the
+     pool that is limited to 2 instances. */
+  fd_epoch_leaders_t * epoch_leaders = fd_bank_epoch_leaders_locking_modify( bank2 );
+  FD_TEST( epoch_leaders );
+  fd_bank_epoch_leaders_end_locking_modify( bank2 );
+
 
   fd_bank_t * bank3 = fd_banks_clone_from_parent( banks, 3UL, 1UL );
   FD_TEST( bank3 );
@@ -43,9 +50,21 @@ main( int argc, char ** argv ) {
   fd_bank_capitalization_set( bank3, 2000UL );
   FD_TEST( fd_bank_capitalization_get( bank3 ) == 2000UL );
 
+  /* At this point, the second epoch leaders has been allocated from the
+     pool that is limited to 2 instances. */
+
+  fd_epoch_leaders_t * epoch_leaders2 = fd_bank_epoch_leaders_locking_modify( bank3 );
+  FD_TEST( epoch_leaders2 );
+  fd_bank_epoch_leaders_end_locking_modify( bank3 );
+
   fd_bank_t * bank4 = fd_banks_clone_from_parent( banks, 4UL, 3UL );
   FD_TEST( bank4 );
   FD_TEST( fd_bank_capitalization_get( bank4 ) == 2000UL );
+
+  /* Trying to allocate a new epoch leaders should fail because the pool
+     now has no free elements. */
+
+  FD_TEST( !fd_bank_epoch_leaders_pool_free( fd_bank_get_epoch_leaders_pool( bank4 ) ) );
 
   fd_bank_t * bank5 = fd_banks_clone_from_parent( banks, 5UL, 3UL );
   FD_TEST( bank5 );
@@ -72,16 +91,20 @@ main( int argc, char ** argv ) {
   FD_TEST( bank8 );
   FD_TEST( fd_bank_capitalization_get( bank8 ) == 2100UL );
 
-
   fd_bank_t * bank9 = fd_banks_clone_from_parent( banks, 9UL, 7UL );
   FD_TEST( bank9 );
   FD_TEST( fd_bank_capitalization_get( bank9 ) == 2100UL );
 
   /* Set some CoW fields. */
+
   fd_account_keys_global_t * keys = fd_bank_vote_account_keys_locking_modify( bank9 );
   keys->account_keys_pool_offset = 100UL;
   keys->account_keys_root_offset = 100UL;
   fd_bank_vote_account_keys_end_locking_modify( bank9 );
+
+  /* Check that are now 15 free pool elements. */
+
+  FD_TEST( fd_bank_vote_account_keys_pool_free( fd_bank_get_vote_account_keys_pool( bank9 ) ) == 15UL );
 
   fd_account_keys_global_t * keys2 = fd_bank_stake_account_keys_locking_modify( bank9 );
   keys2->account_keys_pool_offset = 101UL;
@@ -93,15 +116,25 @@ main( int argc, char ** argv ) {
   fd_bank_t const * new_root = fd_banks_publish( banks, 7UL );
   FD_TEST( new_root );
   FD_TEST( fd_bank_slot_get( new_root )==7UL );
-  FD_TEST( new_root == bank7);
+  FD_TEST( new_root == bank7 );
 
   fd_bank_t * bank10 = fd_banks_clone_from_parent( banks, 10UL, 7UL );
   FD_TEST( bank10 );
   FD_TEST( fd_bank_capitalization_get( bank10 ) == 2100UL );
 
+  /* At this point, there should be an epoch leader pool element that is
+     freed up. */
+  FD_TEST( fd_bank_epoch_leaders_pool_free( fd_bank_get_epoch_leaders_pool( bank10 ) ) == 1UL );
+  fd_epoch_leaders_t * epoch_leaders3 = fd_bank_epoch_leaders_locking_modify( bank10 );
+  FD_TEST( epoch_leaders3 );
+  fd_bank_epoch_leaders_end_locking_modify( bank10 );
+
   fd_bank_t * bank11 = fd_banks_clone_from_parent( banks, 11UL, 9UL );
   FD_TEST( bank11 );
   FD_TEST( fd_bank_capitalization_get( bank11 ) == 2100UL );
+
+  /* Again, there are no free epoch leader pool elements. */
+  FD_TEST( !fd_bank_epoch_leaders_pool_free( fd_bank_get_epoch_leaders_pool( bank11 ) ) );
 
   fd_account_keys_global_t const * keys3 = fd_bank_vote_account_keys_locking_query( bank11 );
   FD_TEST( keys3->account_keys_pool_offset == 100UL );
@@ -184,6 +217,12 @@ main( int argc, char ** argv ) {
   votes_const = fd_bank_clock_timestamp_votes_locking_query( bank11 );
   FD_TEST( !votes_const );
   fd_bank_clock_timestamp_votes_end_locking_query( bank11 );
+
+  FD_TEST( fd_banks_leave( banks ) );
+  FD_TEST( fd_banks_join( fd_banks_leave( banks ) ) == banks );
+  uchar * deleted_banks_mem = fd_banks_delete( fd_banks_leave( banks ) );
+  FD_TEST( deleted_banks_mem == mem );
+  FD_TEST( fd_banks_join( deleted_banks_mem ) == NULL );
 
   FD_LOG_NOTICE(( "pass" ));
 

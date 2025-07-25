@@ -418,7 +418,25 @@ user = ""
         max_transactions_per_slot = 65536
         snapshot_grace_period_seconds = 409
         max_vote_accounts = 2000000
-        max_banks = 64
+
+        # max_total_banks and max_fork_width are parameters used to size
+        # out the total memory footprint of the bank in the runtime. The
+        # bank represents all of the in-memory state in the runtime that
+        # is not stored as an account. Examples of members of the bank
+        # are the total capitalization of the chain and the vote account
+        # states for previous epochs.
+
+        # max_total_banks specifies the maximum number of unrooted slots
+        # that the firedancer can support. This will define the max
+        # amount of time that the full firedancer client can stay up
+        # without falling over.
+        max_total_banks = 128
+        # max_fork_width specifies the maximum number of forks that will
+        # play through the same slot. Specifically, the maximum number
+        # of forks that will compute the epoch boundary. If the number
+        # of forks that play through the epoch boundary is greater than
+        # max_fork_width, the client will crash.
+        max_fork_width = 32
 
 # This section configures the "groove" persistent account database.
 # [groove]
