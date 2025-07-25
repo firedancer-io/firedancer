@@ -3,6 +3,7 @@
 
 #include "fd_executor_err.h"
 #include "fd_executor_setup.h"
+#include "fd_txn_loader.h"
 #include "context/fd_exec_txn_ctx.h"
 #include "context/fd_exec_instr_ctx.h"
 #include "../../ballet/block/fd_microblock.h"
@@ -15,6 +16,8 @@
 #include "tests/harness/generated/txn.pb.h"
 #include "../features/fd_features.h"
 #include "fd_runtime.h"
+
+#define FD_FEE_PAYER_TXN_IDX (0UL)
 
 /* https://github.com/anza-xyz/agave/blob/v2.3.1/svm/src/account_loader.rs#L40-L47 */
 #define FD_TRANSACTION_ACCOUNT_BASE_SIZE  (64UL)
@@ -105,9 +108,6 @@ fd_txn_reclaim_accounts( fd_exec_txn_ctx_t * txn_ctx );
 
 FD_FN_CONST char const *
 fd_executor_instr_strerror( int err );
-
-int
-fd_executor_load_transaction_accounts( fd_exec_txn_ctx_t * txn_ctx );
 
 int
 fd_executor_validate_account_locks( fd_exec_txn_ctx_t const * txn_ctx );

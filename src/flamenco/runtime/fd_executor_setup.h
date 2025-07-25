@@ -1,19 +1,30 @@
 #ifndef HEADER_fd_src_flamenco_runtime_fd_executor_setup_h
 #define HEADER_fd_src_flamenco_runtime_fd_executor_setup_h
 
-#include "fd_executor.h"
-#include "program/fd_bpf_loader_program.h"
+#include "../fd_flamenco_base.h"
+#include "context/fd_exec_txn_ctx.h"
 
-#define FD_FEE_PAYER_TXN_IDX (0UL)
+/* Functions in fd_executor_setup are responsible for setting up
+   transaction execution context such as...
+   - Core txn ctx fields
+   - Loading in statically-referenced accounts from the serialized
+     transaction message from funk
+   - Resolving address lookup tables and loading referenced accounts
+     from funk
+   -  */
 
 FD_PROTOTYPES_BEGIN
 
 void
 fd_executor_setup_accounts_for_txn( fd_exec_txn_ctx_t * txn_ctx );
 
+/* Simply unpacks the account keys from the serialized transaction and sets them in the txn_ctx. */
 void
 fd_executor_setup_txn_account_keys( fd_exec_txn_ctx_t * txn_ctx );
 
+/* Resolves any address lookup tables referenced in the transaction and adds
+   them to the transaction's account keys. Returns 0 on success or if the transaction
+   is a legacy transaction, and 1 on failure. */
 int
 fd_executor_setup_txn_alut_account_keys( fd_exec_txn_ctx_t * txn_ctx );
 

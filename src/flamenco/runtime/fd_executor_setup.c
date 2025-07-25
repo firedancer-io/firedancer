@@ -1,4 +1,7 @@
 #include "fd_executor_setup.h"
+#include "fd_executor.h"
+#include "program/fd_bpf_loader_program.h"
+#include "sysvar/fd_sysvar_slot_hashes.h"
 
 static void
 fd_executor_setup_instr_infos_from_txn_instrs( fd_exec_txn_ctx_t * txn_ctx ) {
@@ -39,6 +42,8 @@ fd_executor_setup_executable_account( fd_exec_txn_ctx_t * txn_ctx,
     (*executable_idx)++;
   }
 }
+
+/**** PUBLIC FUNCTIONS ****/
 
 fd_txn_account_t *
 fd_executor_setup_txn_account( fd_exec_txn_ctx_t * txn_ctx,
@@ -110,6 +115,43 @@ fd_executor_setup_accounts_for_txn( fd_exec_txn_ctx_t * txn_ctx ) {
 
   /* Set up instr infos from the txn descriptor. No Agave equivalent to this function. */
   fd_executor_setup_instr_infos_from_txn_instrs( txn_ctx );
+}
+
+void
+fd_executor_setup_txn_account_keys( fd_exec_txn_ctx_t * txn_ctx ) {
+  txn_ctx->accounts_cnt = (uchar)txn_ctx->txn_descriptor->acct_addr_cnt;
+  fd_pubkey_t * tx_accs = (fd_pubkey_t *)((uchar *)txn_ctx->_txn_raw->raw + txn_ctx->txn_descriptor->acct_addr_off);
+
+  // Set up accounts in the transaction body and perform checks
+  for( ulong i = 0UL; i < txn_ctx->txn_descriptor->acct_addr_cnt; i++ ) {
+    txn_ctx->account_keys[i] = tx_accs[i];
+  }
+}
+
+int
+fd_executor_setup_txn_alut_account_keys( fd_exec_txn_ctx_t * txn_ctx ) {
+  if( txn_ctx->txn_descriptor->transaction_version == FD_TXN_V0 ) {
+    /* https://github.com/anza-xyz/agave/blob/368ea563c423b0a85cc317891187e15c9a321521/runtime/src/bank/address_lookup_table.rs#L44-L48 */
+    fd_slot_hashes_global_t const * slot_hashes_global = fd_sysvar_slot_hashes_read( txn_ctx->funk, txn_ctx->funk_txn, txn_ctx->spad );
+    if( FD_UNLIKELY( !slot_hashes_global ) ) {
+      return FD_RUNTIME_TXN_ERR_ACCOUNT_NOT_FOUND;
+    }
+
+    fd_slot_hash_t * slot_hash = deq_fd_slot_hash_t_join( (uchar *)slot_hashes_global + slot_hashes_global->hashes_offset );
+
+    fd_acct_addr_t * accts_alt = (fd_acct_addr_t *) fd_type_pun( &txn_ctx->account_keys[txn_ctx->accounts_cnt] );
+    int err = fd_runtime_load_txn_address_lookup_tables( txn_ctx->txn_descriptor,
+                                                         txn_ctx->_txn_raw->raw,
+                                                         txn_ctx->funk,
+                                                         txn_ctx->funk_txn,
+                                                         txn_ctx->slot,
+                                                         slot_hash,
+                                                         accts_alt );
+    txn_ctx->accounts_cnt += txn_ctx->txn_descriptor->addr_table_adtl_cnt;
+    if( FD_UNLIKELY( err!=FD_RUNTIME_EXECUTE_SUCCESS ) ) return err;
+
+  }
+  return FD_RUNTIME_EXECUTE_SUCCESS;
 }
 
 void
