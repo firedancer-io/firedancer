@@ -8,6 +8,13 @@
 struct fd_sshashes_private;
 typedef struct fd_sshashes_private fd_sshashes_t;
 
+struct fd_sshashes_entry {
+  ulong slot;
+  uchar sshash[ FD_HASH_FOOTPRINT ];
+};
+
+typedef struct fd_sshashes_entry fd_sshashes_entry_t;
+
 #define FD_SSHASHES_MAGIC (0xF17EDA2CE555710) /* FIREDANCER HTTP RESOLVE V0 */
 
 FD_PROTOTYPES_BEGIN
@@ -27,12 +34,20 @@ fd_sshashes_join( void * _sshashes_map );
 #define FD_SSHASHES_ERROR   (-1)
 #define FD_SSHASHES_SUCCESS ( 0)
 
+int
+fd_sshashes_query( fd_sshashes_t * sshashes,
+                   fd_sshashes_entry_t * full_entry,
+                   fd_sshashes_entry_t * inc_entry );
+
 /* fd_sshashes_update updates the internal snapshot hashes map with a new
    snapshot hashes message. */
 int
 fd_sshashes_update( fd_sshashes_t *                         map,
                     uchar const                             pubkey[ static FD_HASH_FOOTPRINT ],
                     fd_gossip_upd_snapshot_hashes_t const * snapshot_hashes );
+
+void
+fd_sshashes_clear( fd_sshashes_t * sshashes );
 
 FD_PROTOTYPES_END
 

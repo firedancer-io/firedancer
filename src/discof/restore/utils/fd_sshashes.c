@@ -159,7 +159,7 @@ fd_sshashes_try_insert_incremental( fd_sshashes_map_t * full_entry,
     FD_LOG_ERR(("fd_sshashes_map_t full_entry->inc_sshashes_cnt >= FD_SSHASHES_MAX"));
   }
 
-  fd_sshashes_map_t * new_entry = fd_sshashes_map_insert( full_entry, key );
+  fd_sshashes_map_t * new_entry = fd_sshashes_map_insert( full_entry->inc_sshashes_map, key );
 
   if( FD_UNLIKELY( !new_entry ) ) {
     return FD_SSHASHES_ERROR;
@@ -269,6 +269,35 @@ fd_sshashes_try_insert( fd_sshashes_t *                         sshashes,
 }
 
 int
+fd_sshashes_query( fd_sshashes_t * sshashes,
+                   fd_sshashes_entry_t * full_entry,
+                   fd_sshashes_entry_t * inc_entry ) {
+  fd_sshashes_key_t key = { .slot = full_entry->slot };
+  fd_sshashes_map_t * entry = fd_sshashes_map_query( sshashes->map, key, NULL );
+
+  if( FD_UNLIKELY( !entry ) ) {
+    return FD_SSHASHES_ERROR;
+  }
+
+  if( memcmp( entry->sshash, full_entry->sshash, FD_HASH_FOOTPRINT )!=0 ) {
+    return FD_SSHASHES_ERROR;
+  }
+
+  fd_sshashes_key_t inc_key = { .slot = inc_entry->slot };
+  fd_sshashes_map_t * incremental = fd_sshashes_map_query( entry->inc_sshashes_map, inc_key, NULL );
+
+  if( FD_UNLIKELY( !incremental ) ) {
+    return FD_SSHASHES_ERROR;
+  }
+
+  if( memcmp( incremental->sshash, inc_entry->sshash, FD_HASH_FOOTPRINT )!=0 ) {
+    return FD_SSHASHES_ERROR;
+  }
+
+  return FD_SSHASHES_SUCCESS;
+}
+
+int
 fd_sshashes_update( fd_sshashes_t *                         sshashes,
                     uchar const                             pubkey[ static FD_HASH_FOOTPRINT ],
                     fd_gossip_upd_snapshot_hashes_t const * snapshot_hashes ) {
@@ -306,4 +335,10 @@ fd_sshashes_update( fd_sshashes_t *                         sshashes,
   }
 
   return FD_SSHASHES_SUCCESS;
+}
+
+void
+fd_sshashes_clear( fd_sshashes_t * sshashes ) {
+  fd_sshashes_latest_msg_map_clear( sshashes->latest_msg_map );
+  fd_sshashes_map_clear( sshashes->map );
 }
