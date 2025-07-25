@@ -341,6 +341,24 @@ fd_topob_auto_layout( fd_topo_t * topo,
      tiles to CPU cores in NUMA sequential order, except for a few tiles
      which should be floating. */
 
+  fd_topo_cpus_t cpus[1];
+  fd_topo_cpus_init( cpus );
+
+  if( FD_UNLIKELY( topo->low_power_mode ) ) {
+    FD_LOG_INFO(( "Auto affinity with low power mode enabled - setting all tiles to floating, and giving Agave all the cores" ));
+    for( ulong i=0UL; i<topo->tile_cnt; i++ ) {
+      topo->tiles[ i ].cpu_idx = ULONG_MAX;
+    }
+
+    for( ulong i=0UL; i<cpus->cpu_cnt; i++ ) {
+      if( FD_UNLIKELY( !cpus->cpu[ i ].online ) ) continue;
+      if( FD_LIKELY( topo->agave_affinity_cnt<sizeof(topo->agave_affinity_cpu_idx)/sizeof(topo->agave_affinity_cpu_idx[0]) ) ) {
+        topo->agave_affinity_cpu_idx[ topo->agave_affinity_cnt++ ] = i;
+      }
+    }
+    return;
+  }
+
   char const * FLOATING[] = {
     "netlnk",
     "metric",
@@ -391,9 +409,6 @@ fd_topob_auto_layout( fd_topo_t * topo,
     fd_topo_tile_t * tile = &topo->tiles[ i ];
     tile->cpu_idx = ULONG_MAX;
   }
-
-  fd_topo_cpus_t cpus[1];
-  fd_topo_cpus_init( cpus );
 
   ulong cpu_ordering[ FD_TILE_MAX ] = { 0UL };
   int   pairs_assigned[ FD_TILE_MAX ] = { 0 };
