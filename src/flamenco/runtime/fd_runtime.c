@@ -2512,15 +2512,12 @@ fd_runtime_init_bank_from_genesis( fd_exec_slot_ctx_t *        slot_ctx,
 
   /* Derive epoch stakes */
 
-  fd_stakes_global_t * stakes_global = fd_bank_stakes_locking_modify( slot_ctx->bank );
-
-  uchar * vacc_pool_mem = (uchar *)fd_ulong_align_up( (ulong)stakes_global + sizeof(fd_stakes_global_t), fd_vote_accounts_pair_global_t_map_align() );
-  fd_vote_accounts_pair_global_t_mapnode_t * vacc_pool = fd_vote_accounts_pair_global_t_map_join( fd_vote_accounts_pair_global_t_map_new( vacc_pool_mem, 5000UL ) );
+  fd_vote_accounts_global_t * next_next_epoch_stakes = fd_bank_next_next_epoch_stakes_locking_modify( slot_ctx->bank );
+  uchar * next_next_epoch_stakes_pool_mem = (uchar *)fd_ulong_align_up((ulong)next_next_epoch_stakes + sizeof(fd_vote_accounts_global_t), alignof(fd_vote_accounts_pair_global_t_mapnode_t));
+  fd_vote_accounts_pair_global_t_mapnode_t * vacc_pool = fd_vote_accounts_pair_global_t_map_join( fd_vote_accounts_pair_global_t_map_new( next_next_epoch_stakes_pool_mem, 50000UL ) );
   fd_vote_accounts_pair_global_t_mapnode_t * vacc_root = NULL;
 
-  uchar * sacc_pool_mem = (uchar *)fd_ulong_align_up( (ulong)vacc_pool + fd_vote_accounts_pair_global_t_map_footprint( 5000UL ), fd_delegation_pair_t_map_align() );
-  fd_delegation_pair_t_mapnode_t * sacc_pool = fd_delegation_pair_t_map_join( fd_delegation_pair_t_map_new( sacc_pool_mem, 5000UL ) );
-  fd_delegation_pair_t_mapnode_t * sacc_root = NULL;
+  fd_stakes_slim_t * stakes = fd_bank_stakes_locking_modify( slot_ctx->bank );
 
   fd_acc_lamports_t capitalization = 0UL;
 
@@ -2564,18 +2561,15 @@ fd_runtime_init_bank_from_genesis( fd_exec_slot_ctx_t *        slot_ctx,
       if( !stake_state.inner.stake.stake.delegation.stake ) {
         continue;
       }
-      fd_delegation_pair_t_mapnode_t   query_node = {0};
-      fd_memcpy(&query_node.elem.account, acc->key.key, sizeof(fd_pubkey_t));
-      fd_delegation_pair_t_mapnode_t * node = fd_delegation_pair_t_map_find( sacc_pool, sacc_root, &query_node );
-
+      fd_stake_account_slim_t * node = fd_stake_accounts_search( stakes, (fd_pubkey_t *)&acc->key.key );
       if( !node ) {
-        node = fd_delegation_pair_t_map_acquire( sacc_pool );
-        fd_memcpy( &node->elem.account, acc->key.key, sizeof(fd_pubkey_t) );
-        node->elem.delegation = stake_state.inner.stake.stake.delegation;
-        fd_delegation_pair_t_map_insert( sacc_pool, &sacc_root, node );
+        FD_TEST( stakes->stake_accounts_cnt < FD_STAKE_ACCOUNTS_SLIM_MAX );
+        node = &stakes->stake_accounts[stakes->stake_accounts_cnt++];
+        fd_memcpy( &node->key, acc->key.key, sizeof(fd_pubkey_t) );
+        node->delegation = stake_state.inner.stake.stake.delegation;
       } else {
-        fd_memcpy( &node->elem.account, acc->key.key, sizeof(fd_pubkey_t) );
-        node->elem.delegation = stake_state.inner.stake.stake.delegation;
+        fd_memcpy( &node->key, acc->key.key, sizeof(fd_pubkey_t) );
+        node->delegation = stake_state.inner.stake.stake.delegation;
       }
     } else if( !memcmp(acc->account.owner.key, fd_solana_feature_program_id.key, sizeof(fd_pubkey_t)) ) {
       /* Feature Account */
@@ -2615,17 +2609,21 @@ fd_runtime_init_bank_from_genesis( fd_exec_slot_ctx_t *        slot_ctx,
     }
   }
 
-  fd_bank_next_epoch_stakes_end_locking_modify( slot_ctx->bank );
+  fd_vote_accounts_vote_accounts_pool_update( next_next_epoch_stakes, vacc_pool );
+  fd_vote_accounts_vote_accounts_root_update( next_next_epoch_stakes, vacc_root );
+
+  fd_bank_next_next_epoch_stakes_end_locking_modify( slot_ctx->bank );
+  fd_bank_stakes_end_locking_modify( slot_ctx->bank );
 
   fd_vote_accounts_global_t * epoch_stakes = fd_bank_epoch_stakes_locking_modify( slot_ctx->bank );
-  uchar * pool_mem = (uchar *)epoch_stakes + sizeof(fd_vote_accounts_global_t);
+  uchar * pool_mem = (uchar *)fd_ulong_align_up((ulong)epoch_stakes + sizeof(fd_vote_accounts_global_t), alignof(fd_vote_accounts_pair_global_t_mapnode_t));
   fd_vote_accounts_pair_global_t_mapnode_t * vote_accounts_pool = fd_vote_accounts_pair_global_t_map_join( fd_vote_accounts_pair_global_t_map_new( pool_mem, 50000UL ) );
   fd_vote_accounts_pair_global_t_mapnode_t * vote_accounts_root = NULL;
 
   uchar * epoch_stakes_vote_acc_region_curr = (uchar *)fd_ulong_align_up( (ulong)vote_accounts_pool + fd_vote_accounts_pair_global_t_map_footprint( 50000UL ), 8UL );
 
   fd_vote_accounts_global_t * next_epoch_stakes = fd_bank_next_epoch_stakes_locking_modify( slot_ctx->bank );
-  uchar * next_pool_mem = (uchar *)next_epoch_stakes + sizeof(fd_vote_accounts_global_t);
+  uchar * next_pool_mem = (uchar *)fd_ulong_align_up((ulong)next_epoch_stakes + sizeof(fd_vote_accounts_global_t), alignof(fd_vote_accounts_pair_global_t_mapnode_t));
   fd_vote_accounts_pair_global_t_mapnode_t * next_pool = fd_vote_accounts_pair_global_t_map_join( fd_vote_accounts_pair_global_t_map_new( next_pool_mem, 50000UL ) );
   fd_vote_accounts_pair_global_t_mapnode_t * next_root = NULL;
 
@@ -2677,19 +2675,17 @@ fd_runtime_init_bank_from_genesis( fd_exec_slot_ctx_t *        slot_ctx,
 
       fd_vote_accounts_pair_global_t_map_insert( next_pool, &next_root, next_e );
     }
-
   }
 
-  for( fd_delegation_pair_t_mapnode_t *n = fd_delegation_pair_t_map_minimum( sacc_pool, sacc_root );
-       n;
-       n = fd_delegation_pair_t_map_successor( sacc_pool, n )) {
-    fd_vote_accounts_pair_global_t_mapnode_t query_voter = {0};
-    query_voter.elem.key = n->elem.delegation.voter_pubkey;
+   for( ulong i=0UL; i<stakes->stake_accounts_cnt; i++ ) {
+     fd_stake_account_slim_t * node = &stakes->stake_accounts[i];
+     fd_vote_accounts_pair_global_t_mapnode_t query_voter = {0};
+     query_voter.elem.key = node->delegation.voter_pubkey;
 
     fd_vote_accounts_pair_global_t_mapnode_t * voter = fd_vote_accounts_pair_global_t_map_find( vacc_pool, vacc_root, &query_voter );
 
     if( !!voter ) {
-      voter->elem.stake = fd_ulong_sat_add( voter->elem.stake, n->elem.delegation.stake );
+      voter->elem.stake = fd_ulong_sat_add( voter->elem.stake, node->delegation.stake );
     }
   }
 
