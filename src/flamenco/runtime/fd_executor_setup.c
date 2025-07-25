@@ -111,3 +111,36 @@ fd_executor_setup_accounts_for_txn( fd_exec_txn_ctx_t * txn_ctx ) {
   /* Set up instr infos from the txn descriptor. No Agave equivalent to this function. */
   fd_executor_setup_instr_infos_from_txn_instrs( txn_ctx );
 }
+
+void
+fd_executor_setup_txn_ctx_from_slot_ctx( fd_exec_slot_ctx_t const * slot_ctx,
+                                         fd_exec_txn_ctx_t *        ctx,
+                                         fd_wksp_t const *          funk_wksp,
+                                         fd_wksp_t const *          runtime_pub_wksp,
+                                         ulong                      funk_txn_gaddr,
+                                         ulong                      funk_gaddr,
+                                         fd_bank_hash_cmp_t *       bank_hash_cmp ) {
+
+  ctx->runtime_pub_wksp = (fd_wksp_t *)runtime_pub_wksp;
+
+  ctx->funk_txn = fd_wksp_laddr( funk_wksp, funk_txn_gaddr );
+  if( FD_UNLIKELY( !ctx->funk_txn ) ) {
+    FD_LOG_ERR(( "Could not find valid funk transaction" ));
+  }
+
+  if( FD_UNLIKELY( !fd_funk_join( ctx->funk, fd_wksp_laddr( funk_wksp, funk_gaddr ) ) ) ) {
+    FD_LOG_ERR(( "Could not find valid funk %lu", funk_gaddr ));
+  }
+
+  ctx->status_cache = slot_ctx->status_cache;
+
+  ctx->bank_hash_cmp = bank_hash_cmp;
+
+  ctx->enable_exec_recording = fd_bank_enable_exec_recording_get( slot_ctx->bank );
+
+  ctx->bank = slot_ctx->bank;
+
+  ctx->slot = fd_bank_slot_get( slot_ctx->bank );
+
+  ctx->features = fd_bank_features_get( ctx->bank );
+}

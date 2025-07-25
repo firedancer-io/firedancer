@@ -135,15 +135,6 @@ int
 fd_instr_stack_pop( fd_exec_txn_ctx_t *       txn_ctx,
                     fd_instr_info_t const *   instr );
 
-void
-fd_exec_txn_ctx_from_exec_slot_ctx( fd_exec_slot_ctx_t const * slot_ctx,
-                                    fd_exec_txn_ctx_t *        ctx,
-                                    fd_wksp_t const *          funk_wksp,
-                                    fd_wksp_t const *          runtime_pub_wksp,
-                                    ulong                      funk_txn_gaddr,
-                                    ulong                      funk_gaddr,
-                                    fd_bank_hash_cmp_t *       bank_hash_cmp );
-
 FD_PROTOTYPES_END
 
 #endif /* HEADER_fd_src_flamenco_runtime_fd_executor_h */
