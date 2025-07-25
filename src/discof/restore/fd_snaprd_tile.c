@@ -615,69 +615,10 @@ after_frag( fd_snaprd_tile_t *  ctx,
           break;
         }
 
+        FD_LOG_WARNING(("updating sshashes for pubkey %s with full slot %lu and incremental slot %lu",
+          FD_BASE58_ENC_32_ALLOCA( pubkey.hash ), msg->snapshot_hashes.full->slot, msg->snapshot_hashes.inc[ 0 ].slot ));
+
         fd_sshashes_update( ctx->sshashes, msg->origin_pubkey, &msg->snapshot_hashes );
-
-      //   ulong num_entries = fd_sshashes_map_slot_cnt();
-      //   int invalid_snapshot_hash = 0;
-      //   for( ulong i=0UL; i<num_entries; i++ ) {
-      //     fd_sshashes_t * entry = &ctx->sshashes_map[ i ];
-      //     if( fd_sshashes_map_key_inval( entry->key ) ) continue;
-
-      //     /* A snapshot hashes message is invalid if it contains the
-      //        same full or incremental slot as any existing snapshot
-      //        hashes message and differs in the hash value. */
-
-      //     if( entry->key.slot==msg->snapshot_hashes.full->slot &&
-      //         memcmp( entry->key.hash, msg->snapshot_hashes.full->hash, FD_HASH_FOOTPRINT )!=0 ) {
-      //         invalid_snapshot_hash = 1;
-      //         break;
-      //     }
-
-      //     if( entry->incremental.slot==msg->snapshot_hashes.inc[ 0 ].slot &&
-      //         memcmp( entry->incremental.hash.hash, msg->snapshot_hashes.inc[ 0 ].hash, sizeof(fd_hash_t) )!=0 ) {
-      //         invalid_snapshot_hash = 1;
-      //         break;
-      //     }
-      //   }
-
-      //   if( invalid_snapshot_hash ) {
-      //     /* skip snapshot hash messages whose slots match other
-      //        snapshot hashes from known validators but whose hashes
-      //        differ */
-      //     break;
-      //   }
-
-      //   fd_snapshot_hashes_t * entry = fd_snapshot_hashes_map_query( ctx->sshashes_map, pubkey, NULL );
-      //   /* if this is not true, then iterate through incremental
-      //      snapshot hashes and find latest one. */
-      //   FD_TEST( msg->snapshot_hashes.inc_len==1UL );
-      //   int replace_entry = 0;
-      //   if( FD_LIKELY( entry  ) ) {
-      //     /* if the slot in the snapshot hashes message is greater than the current entry, replace it. */
-      //     if( msg->snapshot_hashes.full->slot>entry->full.slot ||
-      //         msg->snapshot_hashes.inc[ 0 ].slot>entry->incremental.slot ) {
-      //         FD_LOG_WARNING(("removing old entry for pubkey %s with full slot %lu and incremental slot %lu",
-      //                         FD_BASE58_ENC_32_ALLOCA( pubkey.hash ), entry->full.slot, entry->incremental.slot ));
-      //       fd_snapshot_hashes_map_remove( ctx->sshashes_map, entry );
-      //       replace_entry = 1;
-      //     }
-      //   }
-
-      //   if( FD_UNLIKELY( !entry || replace_entry ) ) {
-      //     fd_snapshot_hashes_t * entry = fd_snapshot_hashes_map_insert( ctx->sshashes_map, pubkey );
-      //     entry->full.slot = msg->snapshot_hashes.full->slot;
-      //     fd_memcpy( &entry->full.hash, &msg->snapshot_hashes.full->hash, sizeof(fd_hash_t) );
-
-      //     entry->incremental.base_slot = msg->snapshot_hashes.full->slot;
-      //     entry->incremental.slot      = msg->snapshot_hashes.inc[ 0 ].slot;
-      //     fd_memcpy( &entry->incremental.hash, &msg->snapshot_hashes.inc[ 0 ].hash, sizeof(fd_hash_t) );
-
-      //     ulong cur_highest_cluster_slot = ctx->highest_cluster_slot==ULONG_MAX ? 0UL : ctx->highest_cluster_slot;
-      //     ctx->highest_cluster_slot = fd_ulong_max( cur_highest_cluster_slot, entry->incremental.slot );
-
-      //     FD_LOG_WARNING(( "adding entry for pubkey %s with full slot %lu and incremental slot %lu",
-      //                      FD_BASE58_ENC_32_ALLOCA( pubkey.hash ), entry->full.slot, entry->incremental.slot ));
-      //   }
         break;
       }
     }

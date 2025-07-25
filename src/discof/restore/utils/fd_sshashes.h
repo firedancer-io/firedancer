@@ -8,6 +8,8 @@
 struct fd_sshashes_private;
 typedef struct fd_sshashes_private fd_sshashes_t;
 
+#define FD_SSHASHES_MAGIC (0xF17EDA2CE555710) /* FIREDANCER HTTP RESOLVE V0 */
+
 FD_PROTOTYPES_BEGIN
 
 FD_FN_CONST ulong
