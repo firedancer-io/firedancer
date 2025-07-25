@@ -131,7 +131,7 @@ fd_rdisp_new( void * mem,
 }
 
 fd_rdisp_t *
-fd_disp_join( void * mem ) {
+fd_rdisp_join( void * mem ) {
   fd_rdisp_t * disp = (fd_rdisp_t *)mem;
 
   ulong depth       = disp->depth;
@@ -160,11 +160,13 @@ int
 fd_rdisp_add_block( fd_rdisp_t          * disp,
                    FD_RDISP_BLOCK_TAG_T   new_block,
                    ulong                  staging_lane ) {
-  if( FD_UNLIKELY( !block_pool_free( disp->block_pool )                                                             ) ) return -1;
-  if( FD_UNLIKELY(  ULONG_MAX==block_map_idx_query_const( disp->blockmap, &new_block, ULONG_MAX, disp->block_pool ) ) ) return -1;
-  fd_rdisp_blockinfo_t * block = block_pool_ele_acquire( disp->block_pool );
+  fd_rdisp_blockinfo_t * block_pool = disp->block_pool;
+
+  if( FD_UNLIKELY( !block_pool_free( block_pool )                                                             ) ) return -1;
+  if( FD_UNLIKELY(  ULONG_MAX!=block_map_idx_query_const( disp->blockmap, &new_block, ULONG_MAX, block_pool ) ) ) return -1;
+  fd_rdisp_blockinfo_t * block = block_pool_ele_acquire( block_pool );
   block->block = new_block;
-  block_map_ele_insert( disp->blockmap, block, disp->block_pool );
+  block_map_ele_insert( disp->blockmap, block, block_pool );
 
   block->inserted_cnt = 0U;
   block->insert_ready = 1;
@@ -174,11 +176,12 @@ fd_rdisp_add_block( fd_rdisp_t          * disp,
 
   if( FD_UNLIKELY( staging_lane==FD_RDISP_UNSTAGED ) ) block->schedule_ready = 1;
   else {
+    block_slist_t * sl = disp->lanes + staging_lane;
+
     block->schedule_ready = (uint)(1 & (disp->free_lanes >> staging_lane));
     disp->free_lanes &= ~(1 << staging_lane);
-    fd_rdisp_blockinfo_t * tail = block_slist_ele_peek_tail( disp->lanes + staging_lane, disp->block_pool );
-    if( FD_LIKELY( tail ) ) tail->insert_ready = 0;
-    block_slist_ele_push_tail( disp->lanes + staging_lane, block, disp->block_pool );
+    if( FD_LIKELY( !block_slist_is_empty( sl, block_pool ) ) )  block_slist_ele_peek_tail( sl, block_pool )->insert_ready = 0;
+    block_slist_ele_push_tail( sl, block, block_pool );
   }
   return 0;
 }
@@ -186,7 +189,9 @@ fd_rdisp_add_block( fd_rdisp_t          * disp,
 int
 fd_rdisp_remove_block( fd_rdisp_t          * disp,
                        FD_RDISP_BLOCK_TAG_T   block_tag ) {
-  fd_rdisp_blockinfo_t * block   = block_map_ele_query( disp->blockmap, &block_tag, NULL, disp->block_pool );
+  fd_rdisp_blockinfo_t * block_pool = disp->block_pool;
+
+  fd_rdisp_blockinfo_t * block   = block_map_ele_query( disp->blockmap, &block_tag, NULL, block_pool );
   if( FD_UNLIKELY( block==NULL ) ) return -1;
 
   FD_TEST( block->schedule_ready );
@@ -194,14 +199,15 @@ fd_rdisp_remove_block( fd_rdisp_t          * disp,
 
   if( FD_LIKELY( block->staged ) ) {
     ulong staging_lane = (ulong)block->staging_lane;
-    FD_TEST( block==block_slist_ele_peek_head( disp->lanes + staging_lane, disp->block_pool ) );
-    block_slist_idx_pop_head( disp->lanes + staging_lane, disp->block_pool );
-    fd_rdisp_blockinfo_t * new_head = block_slist_ele_peek_head( disp->lanes + staging_lane, disp->block_pool );
-    if( FD_LIKELY( new_head ) ) new_head->schedule_ready = 1;
-    else                        disp->free_lanes |= 1<<staging_lane;
+    block_slist_t * sl = disp->lanes + staging_lane;
+
+    FD_TEST( block==block_slist_ele_peek_head( sl, block_pool ) );
+    block_slist_idx_pop_head( sl, block_pool );
+    if( FD_LIKELY( !block_slist_is_empty( sl, block_pool ) ) ) block_slist_ele_peek_head( sl, block_pool )->schedule_ready = 1;
+    else                                                       disp->free_lanes |= 1<<staging_lane;
   }
   txn_ll_delete( txn_ll_leave( block->ll ) );
-  block_pool_idx_release( disp->block_pool, block_map_idx_remove( disp->blockmap, &block_tag, ULONG_MAX, disp->block_pool ) );
+  block_pool_idx_release( block_pool, block_map_idx_remove( disp->blockmap, &block_tag, ULONG_MAX, block_pool ) );
 
   return 0;
 }
@@ -210,6 +216,8 @@ fd_rdisp_remove_block( fd_rdisp_t          * disp,
 int
 fd_rdisp_abandon_block( fd_rdisp_t          * disp,
                         FD_RDISP_BLOCK_TAG_T   block_tag ) {
+  fd_rdisp_blockinfo_t * block_pool = disp->block_pool;
+
   fd_rdisp_blockinfo_t * block   = block_map_ele_query( disp->blockmap, &block_tag, NULL, disp->block_pool );
   if( FD_UNLIKELY( block==NULL ) ) return -1;
 
@@ -220,11 +228,12 @@ fd_rdisp_abandon_block( fd_rdisp_t          * disp,
 
   if( FD_LIKELY( block->staged ) ) {
     ulong staging_lane = (ulong)block->staging_lane;
-    FD_TEST( block==block_slist_ele_peek_head( disp->lanes + staging_lane, disp->block_pool ) );
-    block_slist_idx_pop_head( disp->lanes + staging_lane, disp->block_pool );
-    fd_rdisp_blockinfo_t * new_head = block_slist_ele_peek_head( disp->lanes + staging_lane, disp->block_pool );
-    if( FD_LIKELY( new_head ) ) new_head->schedule_ready = 1;
-    else                        disp->free_lanes |= 1<<staging_lane;
+    block_slist_t * sl = disp->lanes + staging_lane;
+
+    FD_TEST( block==block_slist_ele_peek_head( sl, block_pool ) );
+    block_slist_idx_pop_head( sl, block_pool );
+    if( FD_LIKELY( !block_slist_is_empty( sl, block_pool ) ) ) block_slist_ele_peek_head( sl, block_pool )->schedule_ready = 1;
+    else                                                       disp->free_lanes |= 1<<staging_lane;
   }
   txn_ll_delete( txn_ll_leave( block->ll ) );
   block_pool_idx_release( disp->block_pool, block_map_idx_remove( disp->blockmap, &block_tag, ULONG_MAX, disp->block_pool ) );
@@ -236,7 +245,10 @@ int
 fd_rdisp_promote_block( fd_rdisp_t *          disp,
                         FD_RDISP_BLOCK_TAG_T  block_tag,
                         ulong                 staging_lane ) {
-  fd_rdisp_blockinfo_t * block   = block_map_ele_query( disp->blockmap, &block_tag, NULL, disp->block_pool );
+  fd_rdisp_blockinfo_t * block_pool = disp->block_pool;
+  block_slist_t * sl = disp->lanes + staging_lane;
+
+  fd_rdisp_blockinfo_t * block   = block_map_ele_query( disp->blockmap, &block_tag, NULL, block_pool );
   if( FD_UNLIKELY( block==NULL   ) ) return -1;
   if( FD_UNLIKELY( block->staged ) ) return -1;
 
@@ -246,9 +258,8 @@ fd_rdisp_promote_block( fd_rdisp_t *          disp,
   block->schedule_ready = (uint)(1 & (disp->free_lanes >> staging_lane));
 
   disp->free_lanes &= ~(1 << staging_lane);
-  fd_rdisp_blockinfo_t * tail = block_slist_ele_peek_tail( disp->lanes + staging_lane, disp->block_pool );
-  if( FD_LIKELY( tail ) ) tail->insert_ready = 0;
-  block_slist_ele_push_tail( disp->lanes + staging_lane, block, disp->block_pool );
+  if( FD_LIKELY( !block_slist_is_empty( sl, block_pool ) ) )  block_slist_ele_peek_tail( sl, block_pool )->insert_ready = 0;
+  block_slist_ele_push_tail( disp->lanes + staging_lane, block, block_pool );
 
   int dispatched = 0;
   for( txn_ll_iter_t iter = txn_ll_iter_init( block->ll, disp->pool );
@@ -267,20 +278,24 @@ fd_rdisp_promote_block( fd_rdisp_t *          disp,
 int
 fd_rdisp_demote_block( fd_rdisp_t *          disp,
                        FD_RDISP_BLOCK_TAG_T  block_tag ) {
-  fd_rdisp_blockinfo_t * block   = block_map_ele_query( disp->blockmap, &block_tag, NULL, disp->block_pool );
+  fd_rdisp_blockinfo_t * block_pool = disp->block_pool;
+
+  fd_rdisp_blockinfo_t * block   = block_map_ele_query( disp->blockmap, &block_tag, NULL, block_pool );
   if( FD_UNLIKELY(  block==NULL           ) ) return -1;
   if( FD_UNLIKELY( !block->staged         ) ) return -1;
   if( FD_UNLIKELY(  block->schedule_ready ) ) return -1;
   if( FD_UNLIKELY( !txn_ll_is_empty( block->ll, disp->pool ) ) ) FD_LOG_ERR(( "demote_block called with non-empty block" ));
   ulong staging_lane = block->staging_lane;
   block->staged = 0;
-  /* staged and schedule_ready means it must be the head of the staging lane */
-  FD_TEST( block_slist_ele_peek_head( disp->lanes + staging_lane, disp->block_pool )==block );
-  block_slist_idx_pop_head( disp->lanes + staging_lane, disp->block_pool );
 
-  fd_rdisp_blockinfo_t * new_head = block_slist_ele_peek_head( disp->lanes + staging_lane, disp->block_pool );
-  if( FD_LIKELY( new_head ) ) new_head->schedule_ready = 1;
-  else                        disp->free_lanes |= 1<<staging_lane;
+  block_slist_t * sl = disp->lanes + staging_lane;
+
+  /* staged and schedule_ready means it must be the head of the staging lane */
+  FD_TEST( block_slist_ele_peek_head( disp->lanes + staging_lane, block_pool )==block );
+  block_slist_idx_pop_head( disp->lanes + staging_lane, block_pool );
+
+  if( FD_LIKELY( !block_slist_is_empty( sl, block_pool ) ) ) block_slist_ele_peek_head( sl, block_pool )->schedule_ready = 1;
+  else                                                       disp->free_lanes |= 1<<staging_lane;
   return 0;
 }
 
@@ -321,9 +336,10 @@ fd_rdisp_get_next_ready( fd_rdisp_t           * disp,
   fd_rdisp_blockinfo_t * block   = block_map_ele_query( disp->blockmap, &schedule_block, NULL, disp->block_pool );
   if( FD_UNLIKELY( !block || !block->schedule_ready ) ) return 0UL;
 
+  if( FD_UNLIKELY( txn_ll_is_empty( block->ll, disp->pool ) ) ) return 0UL;
   ulong idx = txn_ll_idx_peek_head( block->ll, disp->pool );
   fd_rdisp_txn_t * rtxn = disp->pool + idx;
-  if( FD_UNLIKELY( !rtxn || rtxn->dispatched ) ) return 0UL;
+  if( FD_UNLIKELY( rtxn->dispatched ) ) return 0UL;
 
   rtxn->dispatched = 1;
   return idx;
@@ -343,3 +359,14 @@ fd_rdisp_complete_txn( fd_rdisp_t * disp,
   FD_TEST( rtxn==txn_ll_ele_peek_head( block->ll, disp->pool ) );
   txn_ll_ele_pop_head( block->ll, disp->pool );
 }
+
+
+ulong
+fd_rdisp_staging_lane_info( fd_rdisp_t           const * disp,
+                            fd_rdisp_staging_lane_info_t out_sched[ static 4 ] ) {
+  (void)out_sched; /* TODO: poplulate */
+  return (ulong)disp->free_lanes;
+}
+
+void * fd_rdisp_leave ( fd_rdisp_t * disp ) { return disp; }
+void * fd_rdisp_delete( void * mem        ) { return  mem; }
