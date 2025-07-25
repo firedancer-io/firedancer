@@ -1,6 +1,7 @@
 #define _GNU_SOURCE
 #include "fd_ssping.h"
 #include "fd_ssresolve.h"
+#include "fd_sshashes.h"
 
 #include "../../../util/bits/fd_bits.h"
 #include "../../../util/log/fd_log.h"
@@ -560,6 +561,20 @@ fd_ssping_advance( fd_ssping_t * ssping,
   }
 
   poll_advance( ssping, now );
+}
+
+void
+fd_ssping_update_scores( fd_ssping_t *   ssping,
+                         fd_sshashes_t * sshashes ) {
+  for( score_treap_fwd_iter_t iter=score_treap_fwd_iter_init( ssping->score_treap, ssping->pool );
+       !score_treap_fwd_iter_done( iter );
+       iter=score_treap_fwd_iter_next( iter, ssping->pool) ) {
+    fd_ssping_peer_t const * peer = score_treap_fwd_iter_ele( iter, ssping->pool );
+    FD_TEST( peer->state==PEER_STATE_VALID || peer->state==PEER_STATE_REFRESHING );
+    (void)sshashes;
+  }
+
+
 }
 
 fd_ip4_port_t

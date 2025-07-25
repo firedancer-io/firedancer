@@ -2,6 +2,7 @@
 #include "utils/fd_sshttp.h"
 #include "utils/fd_ssctrl.h"
 #include "utils/fd_ssarchive.h"
+#include "utils/fd_sshashes.h"
 
 #include "../../disco/topo/fd_topo.h"
 #include "../../disco/metrics/fd_metrics.h"
@@ -44,26 +45,15 @@
 #define IN_KIND_GOSSIP  (1)
 #define MAX_IN_LINKS    (3)
 
-struct fd_snapshot_hashes_map {
+struct fd_known_validator {
   fd_pubkey_t key;
   uint        hash;
-
-  struct {
-    ulong     slot;
-    fd_hash_t hash;
-  } full;
-
-  struct {
-    ulong base_slot;
-    ulong slot;
-    fd_hash_t hash;
-  } incremental;
 };
 
-typedef struct fd_snapshot_hashes_map fd_snapshot_hashes_map_t;
+typedef struct fd_known_validator fd_known_validator_t;
 
-#define MAP_NAME             fd_snapshot_hashes_map
-#define MAP_T                fd_snapshot_hashes_map_t
+#define MAP_NAME             fd_known_validators_set
+#define MAP_T                fd_known_validator_t
 #define MAP_KEY_T            fd_pubkey_t
 #define MAP_KEY_NULL         (fd_pubkey_t){0}
 #define MAP_KEY_EQUAL(k0,k1) (!(memcmp((k0).key,(k1).key,sizeof(fd_pubkey_t))))
@@ -82,6 +72,7 @@ struct fd_snaprd_tile {
   long  deadline_nanos;
   ulong ack_cnt;
   int   peer_selection;
+  ulong highest_cluster_slot;
 
   fd_ip4_port_t addr;
 
@@ -100,7 +91,7 @@ struct fd_snaprd_tile {
 
   uchar in_kind[ MAX_IN_LINKS ];
 
-  fd_snapshot_hashes_map_t * sshashes_map;
+  fd_sshashes_t *     sshashes;
 
   struct {
     ulong full_snapshot_slot;
@@ -112,14 +103,14 @@ struct fd_snaprd_tile {
   } local_in;
 
   struct {
-    char        path[ PATH_MAX ];
-    int         do_download;
-    int         incremental_snapshot_fetch;
-    uint        maximum_local_snapshot_age;
-    uint        minimum_download_speed_mib;
-    uint        maximum_download_retry_abort;
-    ulong       known_validators_cnt;
-    fd_pubkey_t known_validators[ 16 ];
+    char                   path[ PATH_MAX ];
+    int                    do_download;
+    int                    incremental_snapshot_fetch;
+    uint                   maximum_local_snapshot_age;
+    uint                   minimum_download_speed_mib;
+    uint                   maximum_download_retry_abort;
+    ulong                  known_validators_cnt;
+    fd_known_validator_t * known_validators_set;
   } config;
 
   struct {
@@ -170,11 +161,12 @@ static ulong
 scratch_footprint( fd_topo_tile_t const * tile ) {
   (void)tile;
   ulong l = FD_LAYOUT_INIT;
-  l = FD_LAYOUT_APPEND( l, alignof(fd_snaprd_tile_t),      sizeof(fd_snaprd_tile_t)       );
-  l = FD_LAYOUT_APPEND( l, fd_sshttp_align(),              fd_sshttp_footprint()          );
-  l = FD_LAYOUT_APPEND( l, fd_ssping_align(),              fd_ssping_footprint( 65536UL ) );
-  l = FD_LAYOUT_APPEND( l, alignof(fd_contact_info_t),     sizeof(fd_contact_info_t) * FD_CONTACT_INFO_TABLE_SIZE );
-  l = FD_LAYOUT_APPEND( l, fd_snapshot_hashes_map_align(), fd_snapshot_hashes_map_footprint() );
+  l = FD_LAYOUT_APPEND( l, alignof(fd_snaprd_tile_t),  sizeof(fd_snaprd_tile_t)       );
+  l = FD_LAYOUT_APPEND( l, fd_sshttp_align(),          fd_sshttp_footprint()          );
+  l = FD_LAYOUT_APPEND( l, fd_ssping_align(),          fd_ssping_footprint( 65536UL ) );
+  l = FD_LAYOUT_APPEND( l, alignof(fd_contact_info_t), sizeof(fd_contact_info_t) * FD_CONTACT_INFO_TABLE_SIZE );
+  l = FD_LAYOUT_APPEND( l, fd_sshashes_align(),        fd_sshashes_footprint() );
+  l = FD_LAYOUT_APPEND( l, fd_alloc_align(),           fd_alloc_footprint() );
   return FD_LAYOUT_FINI( l, alignof(fd_snaprd_tile_t) );
 }
 
@@ -428,8 +420,9 @@ after_credit( fd_snaprd_tile_t *  ctx,
         break;
       }
 
-      ulong highest_cluster_slot = 0UL; /* TODO: Implement, using incremental snapshot slot for age */
-      if( FD_LIKELY( ctx->local_in.full_snapshot_slot!=ULONG_MAX && ctx->local_in.full_snapshot_slot>=fd_ulong_sat_sub( highest_cluster_slot, ctx->config.maximum_local_snapshot_age ) ) ) {
+      ulong highest_cluster_slot = ctx->highest_cluster_slot;
+      ulong highest_local_slot = ctx->local_in.incremental_snapshot_slot!=ULONG_MAX ? ctx->local_in.incremental_snapshot_slot : ctx->local_in.full_snapshot_slot;
+      if( FD_LIKELY( highest_local_slot!=ULONG_MAX && highest_local_slot>=fd_ulong_sat_sub( highest_cluster_slot, ctx->config.maximum_local_snapshot_age ) ) ) {
         FD_LOG_NOTICE(( "loading full snapshot from local file `%s`", ctx->local_in.full_snapshot_path ));
         ctx->state = FD_SNAPRD_STATE_READING_FULL_FILE;
       } else {
@@ -616,46 +609,75 @@ after_frag( fd_snaprd_tile_t *  ctx,
         FD_LOG_WARNING(("encountered pubkey %s with full slot %lu and incremental slot %lu",
           FD_BASE58_ENC_32_ALLOCA( pubkey.hash ), msg->snapshot_hashes.full->slot, msg->snapshot_hashes.inc[ 0 ].slot ));
 
-        /* TODO: use a hash set for faster lookup */
-        int is_known_validator = 0;
-        for( ulong i=0UL; i<ctx->config.known_validators_cnt; i++ ) {
-          if( memcmp( &ctx->config.known_validators[ i ], &pubkey, sizeof(fd_pubkey_t) )==0 ) {
-            is_known_validator = 1;
-            break;
-          }
+        fd_known_validator_t * known_validator = fd_known_validators_set_query( ctx->config.known_validators_set, pubkey, NULL );
+        if( FD_UNLIKELY( !known_validator ) ) {
+          /* skip snapshot hashes message not from known validators */
+          break;
         }
 
-        /* if the pubkey is from a known validator, then query the snapshot hashes map */
-        if( is_known_validator ) {
-          fd_snapshot_hashes_map_t * entry = fd_snapshot_hashes_map_query( ctx->sshashes_map, pubkey, NULL );
-          /* if this is not true, then iterate through incremental snapshot hashes
-               and find latest one. */
-          FD_TEST( msg->snapshot_hashes.inc_len==1UL );
-          int replace_entry = 0;
-          if( FD_LIKELY( entry  ) ) {
-            /* if the slot in the snapshot hashes message is greater than the current entry, replace it. */
-            if( msg->snapshot_hashes.full->slot>entry->full.slot ||
-                msg->snapshot_hashes.inc[ 0 ].slot>entry->incremental.slot ) {
-                FD_LOG_WARNING(("removing old entry for pubkey %s with full slot %lu and incremental slot %lu",
-                                FD_BASE58_ENC_32_ALLOCA( pubkey.hash ), entry->full.slot, entry->incremental.slot ));
-              fd_snapshot_hashes_map_remove( ctx->sshashes_map, entry );
-              replace_entry = 1;
-            }
-          }
+        fd_sshashes_update( ctx->sshashes, msg->origin_pubkey, &msg->snapshot_hashes );
 
-          if( FD_UNLIKELY( !entry || replace_entry ) ) {
-            fd_snapshot_hashes_map_t * entry = fd_snapshot_hashes_map_insert( ctx->sshashes_map, pubkey );
-            entry->full.slot = msg->snapshot_hashes.full->slot;
-            fd_memcpy( &entry->full.hash, &msg->snapshot_hashes.full->hash, sizeof(fd_hash_t) );
+      //   ulong num_entries = fd_sshashes_map_slot_cnt();
+      //   int invalid_snapshot_hash = 0;
+      //   for( ulong i=0UL; i<num_entries; i++ ) {
+      //     fd_sshashes_t * entry = &ctx->sshashes_map[ i ];
+      //     if( fd_sshashes_map_key_inval( entry->key ) ) continue;
 
-            entry->incremental.base_slot = msg->snapshot_hashes.full->slot;
-            entry->incremental.slot      = msg->snapshot_hashes.inc[ 0 ].slot;
-            fd_memcpy( &entry->incremental.hash, &msg->snapshot_hashes.inc[ 0 ].hash, sizeof(fd_hash_t) );
+      //     /* A snapshot hashes message is invalid if it contains the
+      //        same full or incremental slot as any existing snapshot
+      //        hashes message and differs in the hash value. */
 
-            FD_LOG_WARNING(( "adding entry for pubkey %s with full slot %lu and incremental slot %lu",
-                             FD_BASE58_ENC_32_ALLOCA( pubkey.hash ), entry->full.slot, entry->incremental.slot ));
-          }
-        }
+      //     if( entry->key.slot==msg->snapshot_hashes.full->slot &&
+      //         memcmp( entry->key.hash, msg->snapshot_hashes.full->hash, FD_HASH_FOOTPRINT )!=0 ) {
+      //         invalid_snapshot_hash = 1;
+      //         break;
+      //     }
+
+      //     if( entry->incremental.slot==msg->snapshot_hashes.inc[ 0 ].slot &&
+      //         memcmp( entry->incremental.hash.hash, msg->snapshot_hashes.inc[ 0 ].hash, sizeof(fd_hash_t) )!=0 ) {
+      //         invalid_snapshot_hash = 1;
+      //         break;
+      //     }
+      //   }
+
+      //   if( invalid_snapshot_hash ) {
+      //     /* skip snapshot hash messages whose slots match other
+      //        snapshot hashes from known validators but whose hashes
+      //        differ */
+      //     break;
+      //   }
+
+      //   fd_snapshot_hashes_t * entry = fd_snapshot_hashes_map_query( ctx->sshashes_map, pubkey, NULL );
+      //   /* if this is not true, then iterate through incremental
+      //      snapshot hashes and find latest one. */
+      //   FD_TEST( msg->snapshot_hashes.inc_len==1UL );
+      //   int replace_entry = 0;
+      //   if( FD_LIKELY( entry  ) ) {
+      //     /* if the slot in the snapshot hashes message is greater than the current entry, replace it. */
+      //     if( msg->snapshot_hashes.full->slot>entry->full.slot ||
+      //         msg->snapshot_hashes.inc[ 0 ].slot>entry->incremental.slot ) {
+      //         FD_LOG_WARNING(("removing old entry for pubkey %s with full slot %lu and incremental slot %lu",
+      //                         FD_BASE58_ENC_32_ALLOCA( pubkey.hash ), entry->full.slot, entry->incremental.slot ));
+      //       fd_snapshot_hashes_map_remove( ctx->sshashes_map, entry );
+      //       replace_entry = 1;
+      //     }
+      //   }
+
+      //   if( FD_UNLIKELY( !entry || replace_entry ) ) {
+      //     fd_snapshot_hashes_t * entry = fd_snapshot_hashes_map_insert( ctx->sshashes_map, pubkey );
+      //     entry->full.slot = msg->snapshot_hashes.full->slot;
+      //     fd_memcpy( &entry->full.hash, &msg->snapshot_hashes.full->hash, sizeof(fd_hash_t) );
+
+      //     entry->incremental.base_slot = msg->snapshot_hashes.full->slot;
+      //     entry->incremental.slot      = msg->snapshot_hashes.inc[ 0 ].slot;
+      //     fd_memcpy( &entry->incremental.hash, &msg->snapshot_hashes.inc[ 0 ].hash, sizeof(fd_hash_t) );
+
+      //     ulong cur_highest_cluster_slot = ctx->highest_cluster_slot==ULONG_MAX ? 0UL : ctx->highest_cluster_slot;
+      //     ctx->highest_cluster_slot = fd_ulong_max( cur_highest_cluster_slot, entry->incremental.slot );
+
+      //     FD_LOG_WARNING(( "adding entry for pubkey %s with full slot %lu and incremental slot %lu",
+      //                      FD_BASE58_ENC_32_ALLOCA( pubkey.hash ), entry->full.slot, entry->incremental.slot ));
+      //   }
         break;
       }
     }
@@ -792,12 +814,12 @@ unprivileged_init( fd_topo_t *      topo,
   void * scratch = fd_topo_obj_laddr( topo, tile->tile_obj_id );
 
   FD_SCRATCH_ALLOC_INIT( l, scratch );
-  fd_snaprd_tile_t * ctx   = FD_SCRATCH_ALLOC_APPEND( l, alignof(fd_snaprd_tile_t),  sizeof(fd_snaprd_tile_t)       );
-  void * _sshttp           = FD_SCRATCH_ALLOC_APPEND( l, fd_sshttp_align(),          fd_sshttp_footprint()          );
-  void * _ssping           = FD_SCRATCH_ALLOC_APPEND( l, fd_ssping_align(),          fd_ssping_footprint( 65536UL ) );
-  void * _ci_table         = FD_SCRATCH_ALLOC_APPEND( l, alignof(fd_contact_info_t), sizeof(fd_contact_info_t) * FD_CONTACT_INFO_TABLE_SIZE );
-  void * _sshashes_map_mem = FD_SCRATCH_ALLOC_APPEND( l, fd_snapshot_hashes_map_align(), fd_snapshot_hashes_map_footprint() );
-
+  fd_snaprd_tile_t * ctx           = FD_SCRATCH_ALLOC_APPEND( l, alignof(fd_snaprd_tile_t),  sizeof(fd_snaprd_tile_t)       );
+  void * _sshttp                   = FD_SCRATCH_ALLOC_APPEND( l, fd_sshttp_align(),          fd_sshttp_footprint()          );
+  void * _ssping                   = FD_SCRATCH_ALLOC_APPEND( l, fd_ssping_align(),          fd_ssping_footprint( 65536UL ) );
+  void * _ci_table                 = FD_SCRATCH_ALLOC_APPEND( l, alignof(fd_contact_info_t), sizeof(fd_contact_info_t) * FD_CONTACT_INFO_TABLE_SIZE );
+  void * _sshashes_mem             = FD_SCRATCH_ALLOC_APPEND( l, fd_sshashes_align(), fd_sshashes_footprint() );
+  void * _known_validators_set_mem = FD_SCRATCH_ALLOC_APPEND( l, fd_known_validators_set_align(), fd_known_validators_set_footprint() );
   ctx->ack_cnt = 0UL;
   ctx->malformed = 0;
 
@@ -812,14 +834,17 @@ unprivileged_init( fd_topo_t *      topo,
   ctx->config.maximum_local_snapshot_age = tile->snaprd.maximum_local_snapshot_age;
   ctx->config.minimum_download_speed_mib = tile->snaprd.minimum_download_speed_mib;
   ctx->config.known_validators_cnt       = tile->snaprd.known_validators_cnt;
+  ctx->config.known_validators_set       = fd_known_validators_set_join( fd_known_validators_set_new( _known_validators_set_mem ) );
 
   for( ulong i=0UL; i<tile->snaprd.known_validators_cnt; i++ ) {
-    uchar * decoded = fd_base58_decode_32( tile->snaprd.known_validators[ i ], ctx->config.known_validators[ i ].uc );
+    fd_pubkey_t known_validator_pubkey;
+    uchar * decoded = fd_base58_decode_32( tile->snaprd.known_validators[ i ], known_validator_pubkey.uc );
+    fd_known_validators_set_insert( ctx->config.known_validators_set, known_validator_pubkey );
 
     if( FD_UNLIKELY( !decoded ) ) {
       FD_LOG_ERR(( "failed to decode known validator pubkey %s", tile->snaprd.known_validators[ i ] ));
     } else {
-      FD_LOG_WARNING(("got validator pubkey %s", FD_BASE58_ENC_32_ALLOCA( ctx->config.known_validators[ i ].uc ) ));
+      FD_LOG_WARNING(("got validator pubkey %s", FD_BASE58_ENC_32_ALLOCA( known_validator_pubkey.hash ) ));
     }
   }
 
@@ -882,8 +907,10 @@ unprivileged_init( fd_topo_t *      topo,
   ctx->out.chunk  = ctx->out.chunk0;
   ctx->out.mtu    = topo->links[ tile->out_link_id[ 0 ] ].mtu;
 
-  ctx->sshashes_map = fd_snapshot_hashes_map_join( fd_snapshot_hashes_map_new( _sshashes_map_mem ) );
-  FD_TEST( ctx->sshashes_map );
+  ctx->sshashes = fd_sshashes_join( fd_sshashes_new( _sshashes_mem ) );
+  FD_TEST( ctx->sshashes );
+
+  ctx->highest_cluster_slot = ULONG_MAX;
 }
 
 #define STEM_BURST 2UL /* One control message, and one data message */
