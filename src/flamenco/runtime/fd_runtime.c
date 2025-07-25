@@ -1220,7 +1220,7 @@ fd_runtime_pre_execute_check( fd_execute_txn_task_info_t * task_info ) {
   }
 
   /* https://github.com/anza-xyz/agave/blob/ced98f1ebe73f7e9691308afa757323003ff744f/svm/src/transaction_processor.rs#L284-L296 */
-  err = fd_executor_load_transaction_accounts( txn_ctx );
+  err = fd_txn_loader_load_transaction_accounts( txn_ctx );
   if( FD_UNLIKELY( err!=FD_RUNTIME_EXECUTE_SUCCESS ) ) {
     /* Regardless of whether transaction accounts were loaded successfully, the transaction is
         included in the block and transaction fees are collected.
@@ -1482,7 +1482,7 @@ fd_runtime_prepare_and_execute_txn( fd_exec_slot_ctx_t const *   slot_ctx,
    and fd_executor_collect_fees(). load_and_execute_sanitized_transactions()
    also checks the total data size of the accounts in load_accounts() and
    validates the program accounts in load_transaction_accounts(). This
-   is paralled by fd_executor_load_transaction_accounts(). */
+   is paralled by fd_txn_loader_load_transaction_accounts(). */
 
 /******************************************************************************/
 /* Epoch Boundary                                                             */

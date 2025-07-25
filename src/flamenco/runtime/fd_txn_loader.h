@@ -15,7 +15,7 @@ FD_PROTOTYPES_BEGIN
 
 /* https://github.com/anza-xyz/agave/blob/v2.3.1/svm/src/account_loader.rs#L518-L548 */
 int
-fd_executor_load_transaction_accounts( fd_exec_txn_ctx_t * txn_ctx );
+fd_txn_loader_load_transaction_accounts( fd_exec_txn_ctx_t * txn_ctx );
 
 FD_PROTOTYPES_END
 

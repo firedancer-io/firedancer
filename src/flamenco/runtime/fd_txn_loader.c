@@ -426,7 +426,7 @@ load_transaction_accounts_simd_186( fd_exec_txn_ctx_t * txn_ctx ) {
 /**** PUBLIC FUNCTIONS ****/
 
 int
-fd_executor_load_transaction_accounts( fd_exec_txn_ctx_t * txn_ctx ) {
+fd_txn_loader_load_transaction_accounts( fd_exec_txn_ctx_t * txn_ctx ) {
   if( FD_FEATURE_ACTIVE_BANK( txn_ctx->bank, formalize_loaded_transaction_data_size ) ) {
     return load_transaction_accounts_simd_186( txn_ctx );
   } else {
