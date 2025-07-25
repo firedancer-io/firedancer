@@ -1514,7 +1514,7 @@ exec_slice_fini_slot( fd_replay_tile_ctx_t * ctx, fd_stem_context_t * stem ) {
 
 static void
 exec_and_handle_slice( fd_replay_tile_ctx_t * ctx, fd_stem_context_t * stem ) {
-  fd_funk_txn_debug_print_on();
+  // fd_funk_txn_debug_print_on();
   uchar exec_free_idx[ FD_PACK_MAX_BANK_TILES ];
   ulong free_exec_cnt = get_free_exec_tiles( ctx, exec_free_idx );
 

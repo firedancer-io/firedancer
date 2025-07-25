@@ -50,6 +50,11 @@ typedef struct fd_rwlock_recursive fd_rwlock_recursive_t;
 
 FD_PROTOTYPES_BEGIN
 
+static inline ulong
+fd_rwlock_recursive_tid( void ) {
+  return (fd_log_tid()<<12)+fd_log_thread_id();
+}
+
 static inline void
 fd_rwlock_recursive_new( fd_rwlock_recursive_t * lock ) {
   lock->state            = 0;
@@ -61,10 +66,10 @@ fd_rwlock_recursive_new( fd_rwlock_recursive_t * lock ) {
 static inline void
 fd_rwlock_recursive_write( fd_rwlock_recursive_t * lock ) {
   if( lock->debug_print ) {
-    FD_LOG_INFO(( "fd_rwlock_recursive_write: tid=%lu", fd_log_tid() ));
+    FD_LOG_INFO(( "fd_rwlock_recursive_write: tid=%lu", fd_rwlock_recursive_tid() ));
   }
 #if FD_HAS_THREADS
-  ulong tid = fd_log_tid();
+  ulong tid = fd_rwlock_recursive_tid();
 
   /* Already own write lock */
   if( FD_LIKELY( lock->write_owner==tid ) ) {
@@ -112,10 +117,10 @@ fd_rwlock_recursive_write( fd_rwlock_recursive_t * lock ) {
 static inline void
 fd_rwlock_recursive_read( fd_rwlock_recursive_t * lock ) {
   if( lock->debug_print ) {
-    FD_LOG_INFO(( "fd_rwlock_recursive_read: tid=%lu", fd_log_tid() ));
+    FD_LOG_INFO(( "fd_rwlock_recursive_read: tid=%lu", fd_rwlock_recursive_tid() ));
   }
 #if FD_HAS_THREADS
-  ulong tid = fd_log_tid();
+  ulong tid = fd_rwlock_recursive_tid();
 
   /* Already own write lock - just track as nested read */
   if( FD_LIKELY( lock->write_owner==tid ) ) {
@@ -157,12 +162,12 @@ fd_rwlock_recursive_read( fd_rwlock_recursive_t * lock ) {
 static inline void
 fd_rwlock_recursive_unlock( fd_rwlock_recursive_t * lock, int is_write ) {
   if( lock->debug_print ) {
-    FD_LOG_INFO(( "fd_rwlock_recursive_unlock: tid=%lu, is_write=%d", fd_log_tid(), is_write ));
+    FD_LOG_INFO(( "fd_rwlock_recursive_unlock: tid=%lu, is_write=%d", fd_rwlock_recursive_tid(), is_write ));
   }
   FD_COMPILER_MFENCE();
 
 #if FD_HAS_THREADS
-  ulong tid = fd_log_tid();
+  ulong tid = fd_rwlock_recursive_tid();
 
   /* Check if we own the write lock */
   if( lock->write_owner==tid ) {
