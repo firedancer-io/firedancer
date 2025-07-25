@@ -2518,6 +2518,7 @@ fd_runtime_init_bank_from_genesis( fd_exec_slot_ctx_t *        slot_ctx,
   fd_vote_accounts_pair_global_t_mapnode_t * vacc_root = NULL;
 
   fd_stakes_slim_t * stakes = fd_bank_stakes_locking_modify( slot_ctx->bank );
+  stakes->stake_accounts_cnt = 0UL;
 
   fd_acc_lamports_t capitalization = 0UL;
 

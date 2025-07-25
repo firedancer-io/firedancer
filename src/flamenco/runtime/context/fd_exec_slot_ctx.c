@@ -93,16 +93,9 @@ fd_exec_slot_ctx_delete( void * mem ) {
 static int
 recover_clock( fd_exec_slot_ctx_t * slot_ctx, fd_spad_t * runtime_spad ) {
 
-  fd_stakes_global_t const * stakes = fd_bank_stakes_locking_query( slot_ctx->bank );
-  if( FD_UNLIKELY( stakes==NULL ) ) {
-    FD_LOG_WARNING(( "stakes is NULL" ));
-    fd_bank_stakes_end_locking_query( slot_ctx->bank );
-    return 0;
-  }
-
-  fd_vote_accounts_global_t const *          vote_accounts      = &stakes->vote_accounts;
-  fd_vote_accounts_pair_global_t_mapnode_t * vote_accounts_pool = fd_vote_accounts_vote_accounts_pool_join( vote_accounts );
-  fd_vote_accounts_pair_global_t_mapnode_t * vote_accounts_root = fd_vote_accounts_vote_accounts_root_join( vote_accounts );
+  fd_vote_accounts_global_t * stakes = fd_bank_next_next_epoch_stakes_locking_modify( slot_ctx->bank );
+  fd_vote_accounts_pair_global_t_mapnode_t * vote_accounts_pool = fd_vote_accounts_vote_accounts_pool_join( stakes );
+  fd_vote_accounts_pair_global_t_mapnode_t * vote_accounts_root = fd_vote_accounts_vote_accounts_root_join( stakes );
 
   if( FD_UNLIKELY( !vote_accounts_pool ) ) {
     FD_LOG_CRIT(( "vote_accounts_pool is NULL" ));
@@ -177,11 +170,8 @@ fd_exec_slot_ctx_recover( fd_exec_slot_ctx_t *                slot_ctx,
 
   fd_versioned_bank_global_t const * old_bank = &manifest->bank;
 
-  ulong stakes_sz = fd_stakes_size_global( &manifest->bank.stakes );
-  fd_stakes_global_t * stakes = fd_bank_stakes_locking_modify( slot_ctx->bank );
-  fd_memcpy( stakes, &manifest->bank.stakes, stakes_sz );
-  /* Verify stakes */
-
+  fd_stakes_slim_t * stakes = fd_bank_stakes_locking_modify( slot_ctx->bank );
+  fd_stakes_import( stakes, manifest );
   fd_bank_stakes_end_locking_modify( slot_ctx->bank );
 
   /* Index vote accounts */
