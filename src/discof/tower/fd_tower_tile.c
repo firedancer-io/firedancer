@@ -4,6 +4,7 @@
 #include "../../disco/keyguard/fd_keyload.h"
 #include "../../disco/topo/fd_topo.h"
 #include "../../funk/fd_funk.h"
+#include "../../flamenco/fd_flamenco_base.h"
 #include "generated/fd_tower_tile_seccomp.h"
 
 #define IN_KIND_GOSSIP ( 0)
@@ -343,7 +344,11 @@ unprivileged_init( fd_topo_t *      topo,
   ctx->epoch_voters_buf = voter_mem;
 
   memcpy( ctx->identity_key->uc, fd_keyload_load( tile->tower.identity_key_path, 1 ), sizeof(fd_pubkey_t) );
-  memcpy( ctx->vote_acc->uc, fd_keyload_load( tile->tower.vote_acc_path, 1 ), sizeof(fd_pubkey_t) );
+
+  if( FD_UNLIKELY( !fd_base58_decode_32( tile->tower.vote_acc_path, ctx->vote_acc->uc ) ) ) {
+    const uchar * vote_key = fd_keyload_load( tile->tower.vote_acc_path, 1 );
+    memcpy( ctx->vote_acc->uc, vote_key, sizeof(fd_pubkey_t) );
+  }
 
   memset( ctx->funk_key.uc, 0, sizeof(fd_funk_rec_key_t) );
   memcpy( ctx->funk_key.uc, ctx->vote_acc->uc, sizeof(fd_pubkey_t) );
