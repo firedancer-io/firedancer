@@ -18,10 +18,15 @@ generate_stake_msg( uchar *      _buf,
   buf->slot_cnt       = SLOTS_PER_EPOCH;
   buf->staked_cnt     = strlen(stakers);
   buf->excluded_stake = 0UL;
+  buf->vote_keyed_lsched = 0UL;
 
   ulong i = 0UL;
   for(; *stakers; stakers++, i++ ) {
-    memset( buf->weights[i].key.uc, *stakers, sizeof(fd_pubkey_t) );
+    /* for simplicity use vote==id, but see test_staked_by_vote()
+       where we test cases in which id is repeated.
+       (vote is not used, so it doesn't matter if it's repeated or not) */
+    memset( buf->weights[i].vote_key.uc, *stakers, sizeof(fd_pubkey_t) );
+    memset( buf->weights[i].id_key.uc, *stakers, sizeof(fd_pubkey_t) );
     buf->weights[i].stake = 1000UL/(i+1UL);
   }
   return fd_type_pun( _buf );
@@ -342,12 +347,17 @@ test_limits( void ) {
     buf->slot_cnt               = SLOTS_PER_EPOCH;
     buf->staked_cnt             = 0UL;
     buf->excluded_stake         = 0UL;
+    buf->vote_keyed_lsched      = 0UL;
 
     for( ulong i=0UL; i<stake_weight_cnt; i++ ) {
       ulong stake = 2000000000UL/(i+1UL);
       if( FD_LIKELY( i<40200UL ) ) {
-        memset( buf->weights[i].key.uc, 127-((int)i%96), sizeof(fd_pubkey_t) );
-        if( FD_LIKELY( 127UL-i!=(ulong)'I' ) ) FD_STORE( ulong, buf->weights[i].key.uc, fd_ulong_bswap( i ) );
+        memset( buf->weights[i].vote_key.uc, 127-((int)i%96), sizeof(fd_pubkey_t) );
+        memset( buf->weights[i].id_key.uc, 127-((int)i%96), sizeof(fd_pubkey_t) );
+        if( FD_LIKELY( 127UL-i!=(ulong)'I' ) ) {
+          FD_STORE( ulong, buf->weights[i].vote_key.uc, fd_ulong_bswap( i ) );
+          FD_STORE( ulong, buf->weights[i].id_key.uc, fd_ulong_bswap( i ) );
+        }
         buf->weights[i].stake = stake;
         buf->staked_cnt++;
       } else {
@@ -408,6 +418,33 @@ test_set_identity( void ) {
   fd_stake_ci_set_identity( info, new );
 }
 
+ void
+test_staked_by_vote( void ) {
+  fd_stake_ci_t * info = fd_stake_ci_join( fd_stake_ci_new( _info, identity_key ) );
+  fd_stake_weight_msg_t * msg;
+
+  msg = generate_stake_msg( stake_msg, 0UL, "I"   );
+  msg->vote_keyed_lsched = 1;
+  fd_stake_ci_stake_msg_init( info, msg );  fd_stake_ci_stake_msg_fini( info );
+  check_destinations( info, 0UL, "I",   "" );
+
+  msg = generate_stake_msg( stake_msg, 0UL, "ABC"   );
+  msg->vote_keyed_lsched = 1;
+  fd_stake_ci_stake_msg_init( info, msg );  fd_stake_ci_stake_msg_fini( info );
+  check_destinations( info, 0UL, "ABC",   "I" );
+
+  fd_stake_ci_stake_msg_init( info, generate_stake_msg( stake_msg, 0UL, "ABBB"   ) );  fd_stake_ci_stake_msg_fini( info );
+  check_destinations( info, 0UL, "BA",   "I" );
+
+  fd_stake_ci_stake_msg_init( info, generate_stake_msg( stake_msg, 0UL, "ABBA"   ) );  fd_stake_ci_stake_msg_fini( info );
+  check_destinations( info, 0UL, "AB",   "I" );
+  fd_stake_ci_stake_msg_init( info, generate_stake_msg( stake_msg, 1UL, "ABACBADACBE" ) );  fd_stake_ci_stake_msg_fini( info );
+  check_destinations( info, 0UL, "AB",   "I" );
+  check_destinations( info, 1UL, "ABCDE", "I" );
+
+  fd_stake_ci_delete( fd_stake_ci_leave( info ) );
+}
+
 int
 main( int     argc,
       char ** argv ) {
@@ -434,6 +471,7 @@ main( int     argc,
   test_changing_contact_info();
   test_limits();
   test_set_identity();
+  test_staked_by_vote();
 
   FD_LOG_NOTICE(( "pass" ));
   fd_halt();

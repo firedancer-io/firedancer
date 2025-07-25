@@ -13,11 +13,12 @@ fd_multi_epoch_leaders_new( void * shmem ) {
   }
 
   fd_multi_epoch_leaders_t * leaders = (fd_multi_epoch_leaders_t *)shmem;
+  leaders->scratch->vote_keyed_lsched = 0;
 
   /* Initialize all epochs to satisfy invariants */
-  fd_stake_weight_t dummy_stakes[ 1 ] = {{ .key = {{0}}, .stake = 1UL }};
+  fd_vote_stake_weight_t dummy_stakes[ 1 ] = {{ .vote_key = {{0}}, .id_key = {{0}}, .stake = 1UL }};
   for( ulong i=0UL; i<MULTI_EPOCH_LEADERS_EPOCH_CNT; i++ ) {
-    leaders->lsched[i] = fd_epoch_leaders_join( fd_epoch_leaders_new( leaders->_lsched[i], i, 0UL, 1UL, 1UL, dummy_stakes, 0UL ) );
+    leaders->lsched[i] = fd_epoch_leaders_join( fd_epoch_leaders_new( leaders->_lsched[i], i, 0UL, 1UL, 1UL, dummy_stakes, 0UL, leaders->scratch->vote_keyed_lsched ) );
     FD_TEST( leaders->lsched[i] );
     leaders->init_done[i] = 0;
   }
@@ -104,8 +105,9 @@ fd_multi_epoch_leaders_stake_msg_init( fd_multi_epoch_leaders_t    * mleaders,
   mleaders->scratch->slot_cnt       = msg->slot_cnt;
   mleaders->scratch->staked_cnt     = msg->staked_cnt;
   mleaders->scratch->excluded_stake = msg->excluded_stake;
+  mleaders->scratch->vote_keyed_lsched = msg->vote_keyed_lsched;
 
-  fd_memcpy( mleaders->stake_weight, msg->weights, msg->staked_cnt*sizeof(fd_stake_weight_t) );
+  fd_memcpy( mleaders->vote_stake_weight, msg->weights, msg->staked_cnt*sizeof(fd_vote_stake_weight_t) );
 }
 
 void
@@ -115,9 +117,10 @@ fd_multi_epoch_leaders_stake_msg_fini( fd_multi_epoch_leaders_t * mleaders ) {
   const ulong slot_cnt       = mleaders->scratch->slot_cnt;
   const ulong pub_cnt        = mleaders->scratch->staked_cnt;
   const ulong excluded_stake = mleaders->scratch->excluded_stake;
+  const ulong vote_keyed_lsched = mleaders->scratch->vote_keyed_lsched;
   const ulong epoch_idx      = epoch % MULTI_EPOCH_LEADERS_EPOCH_CNT;
 
-  fd_stake_weight_t const * stakes = mleaders->stake_weight;
+  fd_vote_stake_weight_t * stakes = mleaders->vote_stake_weight;
 
   /* Clear old data */
   fd_epoch_leaders_delete( fd_epoch_leaders_leave( mleaders->lsched[epoch_idx] ) );
@@ -126,7 +129,7 @@ fd_multi_epoch_leaders_stake_msg_fini( fd_multi_epoch_leaders_t * mleaders ) {
   uchar *  lsched_mem        = mleaders->_lsched[epoch_idx];
   mleaders->lsched[epoch_idx] = fd_epoch_leaders_join( fd_epoch_leaders_new(
                                     lsched_mem, epoch, slot0, slot_cnt,
-                                    pub_cnt, stakes, excluded_stake ) );
+                                    pub_cnt, stakes, excluded_stake, vote_keyed_lsched ) );
   mleaders->init_done[epoch_idx] = 1;
 }
 

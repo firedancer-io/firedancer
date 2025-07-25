@@ -18,7 +18,7 @@ FD_STATIC_ASSERT(MULTI_EPOCH_LEADERS_EPOCH_CNT == 2UL, "This implementation depe
 
 struct fd_multi_epoch_leaders_priv {
   fd_epoch_leaders_t * lsched       [ MULTI_EPOCH_LEADERS_EPOCH_CNT ];
-  fd_stake_weight_t    stake_weight [ MAX_STAKED_LEADERS ];
+  fd_vote_stake_weight_t vote_stake_weight [ MAX_STAKED_LEADERS ];
 
   /* has that epoch's mem experienced a stake_msg_fini? */
   int                  init_done    [ MULTI_EPOCH_LEADERS_EPOCH_CNT ];
@@ -28,6 +28,7 @@ struct fd_multi_epoch_leaders_priv {
     ulong slot_cnt;
     ulong staked_cnt;
     ulong excluded_stake;
+    ulong vote_keyed_lsched;
   } scratch[1];
 
   _lsched_t _lsched[MULTI_EPOCH_LEADERS_EPOCH_CNT];
@@ -92,9 +93,9 @@ fd_multi_epoch_leaders_delete( void * shleaders );
    initialized. The pointer lifetime is until the next leave on mleaders.
    However, cnt is the valid length for stake_weights only until the next
    call to stake_msg_init. */
-FD_FN_PURE static inline fd_stake_weight_t const *
+FD_FN_PURE static inline fd_vote_stake_weight_t const *
 fd_multi_epoch_leaders_get_stake_weights( fd_multi_epoch_leaders_t const * mleaders ) {
-   return fd_ptr_if( mleaders->init_done[0] | mleaders->init_done[1], (fd_stake_weight_t const *)mleaders->stake_weight, NULL );
+   return fd_ptr_if( mleaders->init_done[0] | mleaders->init_done[1], (fd_vote_stake_weight_t const *)mleaders->vote_stake_weight, NULL );
 }
 FD_FN_PURE static inline ulong
 fd_multi_epoch_leaders_get_stake_cnt( fd_multi_epoch_leaders_t const * mleaders ) {

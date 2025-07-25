@@ -108,7 +108,13 @@ fd_shred_dest_new( void                           * mem,
 
   pubkey_to_idx_t * pubkey_to_idx_map = pubkey_to_idx_join( pubkey_to_idx_new( _map, lg_cnt ) );
   for( ulong i=0UL; i<cnt; i++ ) {
-    pubkey_to_idx_insert( pubkey_to_idx_map, info[i].pubkey )->idx = i;
+    /* we should never have duplicates in info[i].pubkey, but in case
+       of duplicates it's better to skip than to segfault. */
+    pubkey_to_idx_t * inserted = pubkey_to_idx_insert( pubkey_to_idx_map, info[i].pubkey );
+    if( FD_UNLIKELY( !inserted ) ) {
+      continue;
+    }
+    inserted->idx = i;
   }
   pubkey_to_idx_t * query = pubkey_to_idx_query( pubkey_to_idx_map, *source, NULL );
   if( FD_UNLIKELY( !query ) ) {
