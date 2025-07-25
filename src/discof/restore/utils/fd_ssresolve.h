@@ -18,23 +18,10 @@ typedef struct fd_ssresolve_result fd_ssresolve_result_t;
 
 /* fd_ssresolve is responsible for resolving snapshots from a given
    peer by sending http requests and parsing http redirect responses.
-   
+
    It is used by fd_ssping_t to ping and resolve snapshots for each
    peer. */
-struct fd_ssresolve_private {
-  int  state;
-  long deadline;
-
-  char  request[ 4096UL ];
-  ulong request_sent;
-  ulong request_len;
-
-  ulong response_len;
-  char  response[ USHORT_MAX ];
-
-  ulong magic;
-};
-
+struct fd_ssresolve_private;
 typedef struct fd_ssresolve_private fd_ssresolve_t;
 
 FD_PROTOTYPES_BEGIN
@@ -52,25 +39,24 @@ fd_ssresolve_t *
 fd_ssresolve_join( void * ssresolve );
 
 void
-fd_ssresolve_init( fd_ssresolve_t * ssresolve );
+fd_ssresolve_init( fd_ssresolve_t * ssresolve,
+                   fd_ip4_port_t    addr,
+                   int              sockfd,
+                   int              full );
 
 #define FD_SSRESOLVE_ADVANCE_ERROR   (-1) /* fatal error */
 #define FD_SSRESOLVE_ADVANCE_AGAIN   ( 0) /* try again */
-#define FD_SSRESOLVE_ADVANCE_PASS    ( 1) /* no-op */
-#define FD_SSRESOLVE_ADVANCE_SUCCESS ( 2) /* success */
+#define FD_SSRESOLVE_ADVANCE_SUCCESS ( 1) /* success */
 
 /* fd_ssresolve_advance_poll_out advances the ssresolve state machine
-   when the given socket file descriptor is ready for sending data. */
+   when its socket file descriptor is ready for sending data. */
 int
-fd_ssresolve_advance_poll_out( fd_ssresolve_t * ssresolve,
-                               int              sockfd,
-                               fd_ip4_port_t    addr );
+fd_ssresolve_advance_poll_out( fd_ssresolve_t * ssresolve );
 
 /* fd_ssresolve_advance_poll_in advances the ssresolve state machine
-   when the given socket file descriptor is ready for receiving data. */
+   when its socket file descriptor is ready for receiving data. */
 int
 fd_ssresolve_advance_poll_in( fd_ssresolve_t *        ssresolve,
-                              int                     sockfd,
                               fd_ssresolve_result_t * result );
 
 int

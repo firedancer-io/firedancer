@@ -6,17 +6,9 @@ struct fd_sshashes_key {
 
 typedef struct fd_sshashes_key fd_sshashes_key_t;
 
-struct fd_sshashes_inc_map {
-  fd_sshashes_key_t key;
-  ulong             hash;
-  uchar             sshash[ FD_HASH_FOOTPRINT ];
-};
-
-typedef struct fd_sshashes_inc_map fd_sshashes_inc_map_t;
-
-FD_FN_PURE static ulong
+FD_FN_PURE static uint
 fd_sshashes_key_hash( fd_sshashes_key_t key ) {
-  return fd_hash( 0x39c49607bf16463aUL, &key, sizeof(fd_sshashes_key_t) );
+  return (uint)fd_hash( 0x39c49607bf16463aUL, &key, sizeof(fd_sshashes_key_t) );
 }
 
 struct fd_sshashes_map;
@@ -53,16 +45,16 @@ struct fd_sshashes_latest_msg_key {
 typedef struct fd_sshashes_latest_msg_key fd_sshashes_latest_msg_key_t;
 
 struct fd_sshashes_latest_msg_map {
-    fd_sshashes_latest_msg_key_t key;
-    ulong                        hash;
+  fd_sshashes_latest_msg_key_t    key;
+  uint                            hash;
   fd_gossip_upd_snapshot_hashes_t msg;
 };
 
 typedef struct fd_sshashes_latest_msg_map fd_sshashes_latest_msg_map_t;
 
-FD_FN_PURE static ulong
+FD_FN_PURE static uint
 fd_sshashes_latest_msg_key_hash( fd_sshashes_latest_msg_key_t key ) {
-  return fd_hash( 0x39c49607bf16463aUL, &key, sizeof(fd_sshashes_latest_msg_key_t) );
+  return (uint)fd_hash( 0x39c49607bf16463aUL, &key, sizeof(fd_sshashes_latest_msg_key_t) );
 }
 
 #define MAP_NAME             fd_sshashes_latest_msg_map
@@ -81,6 +73,8 @@ fd_sshashes_latest_msg_key_hash( fd_sshashes_latest_msg_key_t key ) {
 struct fd_sshashes_private {
   fd_sshashes_map_t *            map;
   fd_sshashes_latest_msg_map_t * latest_msg_map;
+
+  ulong                          magic; /* ==FD_SSHASHES_MAGIC */
 };
 
 typedef struct fd_sshashes_private fd_sshashes_private_t;
@@ -126,6 +120,32 @@ fd_sshashes_new( void * shmem ) {
     FD_TEST( entry->inc_sshashes_map );
   }
 
+  FD_COMPILER_MFENCE();
+  FD_VOLATILE( sshashes->magic ) = FD_SSHASHES_MAGIC;
+  FD_COMPILER_MFENCE();
+
+  return sshashes;
+}
+
+fd_sshashes_t *
+fd_sshashes_join( void * shhashes ) {
+  if( FD_UNLIKELY( !shhashes ) ) {
+    FD_LOG_WARNING(( "NULL shhashes" ));
+    return NULL;
+  }
+
+  if( FD_UNLIKELY( !fd_ulong_is_aligned( (ulong)shhashes, fd_sshashes_align() ) ) ) {
+    FD_LOG_WARNING(( "misaligned shhashes" ));
+    return NULL;
+  }
+
+  fd_sshashes_t * sshashes = (fd_sshashes_t *)shhashes;
+
+  if( FD_UNLIKELY( sshashes->magic!=FD_SSHASHES_MAGIC ) ) {
+    FD_LOG_WARNING(( "bad magic" ));
+    return NULL;
+  }
+
   return sshashes;
 }
 
@@ -147,6 +167,8 @@ fd_sshashes_try_insert_incremental( fd_sshashes_map_t * full_entry,
 
   fd_memcpy( new_entry->sshash, sshash, FD_HASH_FOOTPRINT );
   full_entry->inc_sshashes_cnt++;
+
+  return FD_SSHASHES_SUCCESS;
 }
 
 static int
@@ -255,21 +277,23 @@ fd_sshashes_update( fd_sshashes_t *                         sshashes,
   fd_memcpy( latest_msg_key.pubkey, pubkey, FD_HASH_FOOTPRINT );
   fd_sshashes_latest_msg_map_t * latest_msg = fd_sshashes_latest_msg_map_query( sshashes->latest_msg_map, latest_msg_key, NULL );
 
-  ulong highest_new_incremental_slot = ULONG_MAX;
-  for( ulong i=0UL; i<snapshot_hashes->inc_len; i++ ) {
-    if( highest_new_incremental_slot==ULONG_MAX || snapshot_hashes->inc[ i ].slot>highest_new_incremental_slot ) {
-      highest_new_incremental_slot = snapshot_hashes->inc[ i ].slot;
-    }
-  }
-
-  ulong highest_existing_incremental_slot = ULONG_MAX;
-  for( ulong i=0UL; i<latest_msg->msg.inc_len; i++ ) {
-    if( highest_existing_incremental_slot==ULONG_MAX || latest_msg->msg.inc[ i ].slot>highest_existing_incremental_slot ) {
-      highest_existing_incremental_slot = latest_msg->msg.inc[ i ].slot;
-    }
-  }
+  FD_TEST( snapshot_hashes->inc_len==1UL );
 
   if( FD_LIKELY( latest_msg ) ) {
+    ulong highest_new_incremental_slot = ULONG_MAX;
+    for( ulong i=0UL; i<snapshot_hashes->inc_len; i++ ) {
+      if( highest_new_incremental_slot==ULONG_MAX || snapshot_hashes->inc[ i ].slot>highest_new_incremental_slot ) {
+        highest_new_incremental_slot = snapshot_hashes->inc[ i ].slot;
+      }
+    }
+
+    ulong highest_existing_incremental_slot = ULONG_MAX;
+    for( ulong i=0UL; i<latest_msg->msg.inc_len; i++ ) {
+      if( highest_existing_incremental_slot==ULONG_MAX || latest_msg->msg.inc[ i ].slot>highest_existing_incremental_slot ) {
+        highest_existing_incremental_slot = latest_msg->msg.inc[ i ].slot;
+      }
+    }
+
     if( FD_UNLIKELY( snapshot_hashes->full->slot>latest_msg->msg.full->slot ||
         (snapshot_hashes->full->slot==latest_msg->msg.full->slot &&
         highest_new_incremental_slot>highest_existing_incremental_slot ) ) ) {

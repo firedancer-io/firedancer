@@ -13,11 +13,27 @@
 #include <netinet/tcp.h>
 #include <netinet/in.h>
 
-#define FD_SSRESOLVE_STATE_FULL_REQ  (0) /* sending request for full snapshot */
-#define FD_SSRESOLVE_STATE_FULL_RESP (1) /* receiving full snapshot response */
-#define FD_SSRESOLVE_STATE_INC_REQ   (2) /* sending request for incremental snapshot */
-#define FD_SSRESOLVE_STATE_INC_RESP  (3) /* receiving incremental snapshot response */
-#define FD_SSRESOLVE_STATE_DONE      (4) /* done */
+#define FD_SSRESOLVE_STATE_REQ  (0) /* sending request for snapshot */
+#define FD_SSRESOLVE_STATE_RESP (1) /* receiving snapshot response */
+#define FD_SSRESOLVE_STATE_DONE (2) /* done */
+
+struct fd_ssresolve_private {
+  int  state;
+  long deadline;
+
+  fd_ip4_port_t addr;
+  int           sockfd;
+  int           full;
+
+  char  request[ 4096UL ];
+  ulong request_sent;
+  ulong request_len;
+
+  ulong response_len;
+  char  response[ USHORT_MAX ];
+
+  ulong magic;
+};
 
 FD_FN_CONST ulong
 fd_ssresolve_align( void ) {
@@ -47,7 +63,10 @@ fd_ssresolve_new( void * shmem ) {
   FD_SCRATCH_ALLOC_INIT( l, shmem );
   fd_ssresolve_t * ssresolve = FD_SCRATCH_ALLOC_APPEND( l, FD_SSRESOLVE_ALIGN, sizeof(fd_ssresolve_t) );
 
-  fd_ssresolve_init( ssresolve );
+  ssresolve->state        = FD_SSRESOLVE_STATE_REQ;
+  ssresolve->request_sent = 0UL;
+  ssresolve->request_len  = 0UL;
+  ssresolve->response_len = 0UL;
 
   FD_COMPILER_MFENCE();
   FD_VOLATILE( ssresolve->magic ) = FD_SSRESOLVE_MAGIC;
@@ -79,11 +98,15 @@ fd_ssresolve_join( void * _ssresolve ) {
 }
 
 void
-fd_ssresolve_init( fd_ssresolve_t * ssresolve ) {
-  ssresolve->state = FD_SSRESOLVE_STATE_FULL_REQ;
+fd_ssresolve_init( fd_ssresolve_t * ssresolve,
+                   fd_ip4_port_t    addr,
+                   int              sockfd,
+                   int              full ) {
+  ssresolve->addr   = addr;
+  ssresolve->sockfd = sockfd;
+  ssresolve->full   = full;
 
-  fd_memset( ssresolve->request, 0, sizeof(ssresolve->request) );
-  fd_memset( ssresolve->response, 0, sizeof(ssresolve->response) );
+  ssresolve->state        = FD_SSRESOLVE_STATE_REQ;
   ssresolve->request_sent = 0UL;
   ssresolve->request_len  = 0UL;
   ssresolve->response_len = 0UL;
@@ -92,43 +115,34 @@ fd_ssresolve_init( fd_ssresolve_t * ssresolve ) {
 static void
 fd_ssresolve_render_req( fd_ssresolve_t * ssresolve,
                          fd_ip4_port_t    addr ) {
-  ssresolve->request_sent = 0UL;
-  ssresolve->response_len = 0UL;
-
-  switch( ssresolve->state ) {
-    case FD_SSRESOLVE_STATE_FULL_REQ: {
-      FD_TEST( fd_cstr_printf_check( ssresolve->request, sizeof(ssresolve->request), &ssresolve->request_len,
+  if( FD_LIKELY( ssresolve->full ) ) {
+    FD_TEST( fd_cstr_printf_check( ssresolve->request, sizeof(ssresolve->request), &ssresolve->request_len,
            "GET %.*s HTTP/1.1\r\n"
            "User-Agent: Firedancer\r\n"
            "Accept: */*\r\n"
            "Accept-Encoding: identity\r\n"
            "Host: " FD_IP4_ADDR_FMT "\r\n\r\n",
            17, "/snapshot.tar.bz2", FD_IP4_ADDR_FMT_ARGS( addr.addr ) ) );
-      break;
-    }
-    case FD_SSRESOLVE_STATE_INC_REQ: {
-      FD_TEST( fd_cstr_printf_check( ssresolve->request, sizeof(ssresolve->request), &ssresolve->request_len,
+  } else {
+    FD_TEST( fd_cstr_printf_check( ssresolve->request, sizeof(ssresolve->request), &ssresolve->request_len,
            "GET %.*s HTTP/1.1\r\n"
            "User-Agent: Firedancer\r\n"
            "Accept: */*\r\n"
            "Accept-Encoding: identity\r\n"
            "Host: " FD_IP4_ADDR_FMT "\r\n\r\n",
            29, "/incremental-snapshot.tar.bz2", FD_IP4_ADDR_FMT_ARGS( addr.addr ) ) );
-      break;
-    }
   }
 }
 
 static int
-fd_ssresolve_send_request( fd_ssresolve_t * ssresolve,
-                           int              sockfd,
-                           fd_ip4_port_t    addr ) {
-  FD_TEST( ssresolve->state==FD_SSRESOLVE_STATE_FULL_REQ ||
-          ssresolve->state==FD_SSRESOLVE_STATE_INC_REQ );
+fd_ssresolve_send_request( fd_ssresolve_t * ssresolve ) {
+  FD_TEST( ssresolve->state==FD_SSRESOLVE_STATE_REQ );
 
-  fd_ssresolve_render_req( ssresolve, addr );
+  if( FD_UNLIKELY( !ssresolve->request_len ) ) {
+    fd_ssresolve_render_req( ssresolve, ssresolve->addr );
+  }
 
-  long sent = send( sockfd, ssresolve->request+ssresolve->request_sent, ssresolve->request_len-ssresolve->request_sent, 0 );
+  long sent = send( ssresolve->sockfd, ssresolve->request+ssresolve->request_sent, ssresolve->request_len-ssresolve->request_sent, 0 );
   if( FD_UNLIKELY( -1==sent && errno==EAGAIN ) ) return FD_SSRESOLVE_ADVANCE_AGAIN;
   else if( FD_UNLIKELY( -1==sent ) ) {
     return FD_SSRESOLVE_ADVANCE_ERROR;
@@ -136,11 +150,7 @@ fd_ssresolve_send_request( fd_ssresolve_t * ssresolve,
 
   ssresolve->request_sent += (ulong)sent;
   if( FD_UNLIKELY( ssresolve->request_sent==ssresolve->request_len ) ) {
-    if( ssresolve->state==FD_SSRESOLVE_STATE_FULL_REQ ) {
-      ssresolve->state = FD_SSRESOLVE_STATE_FULL_RESP;
-    } else {
-      ssresolve->state = FD_SSRESOLVE_STATE_INC_RESP;
-    }
+    ssresolve->state = FD_SSRESOLVE_STATE_RESP;
     return FD_SSRESOLVE_ADVANCE_SUCCESS;
   }
 
@@ -183,7 +193,7 @@ fd_ssresolve_parse_redirect( fd_ssresolve_t *        ssresolve,
     return FD_SSRESOLVE_ADVANCE_ERROR;
   }
 
-  if( incremental_entry_slot==ULONG_MAX ) {
+  if( FD_LIKELY( incremental_entry_slot==ULONG_MAX ) ) {
     result->slot      = full_entry_slot;
     result->base_slot = ULONG_MAX;
   } else {
@@ -192,22 +202,15 @@ fd_ssresolve_parse_redirect( fd_ssresolve_t *        ssresolve,
   }
   fd_memcpy( result->hash.hash, decoded_hash, FD_HASH_FOOTPRINT );
 
-  if( ssresolve->state==FD_SSRESOLVE_STATE_FULL_RESP ) {
-    ssresolve->state = FD_SSRESOLVE_STATE_INC_REQ;
-  } else {
-    ssresolve->state = FD_SSRESOLVE_STATE_DONE;
-  }
-
+  ssresolve->state = FD_SSRESOLVE_STATE_DONE;
   return FD_SSRESOLVE_ADVANCE_SUCCESS;
 }
 
 static int
 fd_ssresolve_read_response( fd_ssresolve_t *        ssresolve,
-                            int                     sockfd,
                             fd_ssresolve_result_t * result ) {
-  FD_TEST( ssresolve->state==FD_SSRESOLVE_STATE_FULL_RESP ||
-           ssresolve->state==FD_SSRESOLVE_STATE_INC_RESP );
-  long read = recv( sockfd, ssresolve->response+ssresolve->response_len, sizeof(ssresolve->response)-ssresolve->response_len, 0 );
+  FD_TEST( ssresolve->state==FD_SSRESOLVE_STATE_RESP );
+  long read = recv( ssresolve->sockfd, ssresolve->response+ssresolve->response_len, sizeof(ssresolve->response)-ssresolve->response_len, 0 );
   if( FD_UNLIKELY( -1==read && errno==EAGAIN ) ) return FD_SSRESOLVE_ADVANCE_AGAIN;
   else if( FD_UNLIKELY( -1==read ) ) {
     FD_LOG_WARNING(( "recv() failed (%d-%s)", errno, fd_io_strerror( errno ) ));
@@ -252,22 +255,15 @@ fd_ssresolve_read_response( fd_ssresolve_t *        ssresolve,
 }
 
 int
-fd_ssresolve_advance_poll_out( fd_ssresolve_t *        ssresolve,
-                               int                     sockfd,
-                               fd_ip4_port_t           addr ) {
+fd_ssresolve_advance_poll_out( fd_ssresolve_t *        ssresolve ) {
   int res;
   switch( ssresolve->state ) {
-    case FD_SSRESOLVE_STATE_FULL_REQ: {
-      res = fd_ssresolve_send_request( ssresolve, sockfd, addr );
+    case FD_SSRESOLVE_STATE_REQ: {
+      res = fd_ssresolve_send_request( ssresolve );
       break;
     }
-    case FD_SSRESOLVE_STATE_INC_REQ: {
-      res = fd_ssresolve_send_request( ssresolve, sockfd, addr );
-      break;
-    }
-    case FD_SSRESOLVE_STATE_FULL_RESP:
-    case FD_SSRESOLVE_STATE_INC_RESP: {
-      res = FD_SSRESOLVE_ADVANCE_PASS;
+    case FD_SSRESOLVE_STATE_RESP: {
+      res = FD_SSRESOLVE_ADVANCE_AGAIN;
       break;
     }
     default: {
@@ -280,18 +276,15 @@ fd_ssresolve_advance_poll_out( fd_ssresolve_t *        ssresolve,
 
 int
 fd_ssresolve_advance_poll_in( fd_ssresolve_t *        ssresolve,
-                              int                     sockfd,
                               fd_ssresolve_result_t * result ) {
   int res;
   switch( ssresolve->state ) {
-    case FD_SSRESOLVE_STATE_FULL_RESP:
-    case FD_SSRESOLVE_STATE_INC_RESP: {
-      res = fd_ssresolve_read_response( ssresolve, sockfd, result );
+    case FD_SSRESOLVE_STATE_RESP: {
+      res = fd_ssresolve_read_response( ssresolve, result );
       break;
     }
-    case FD_SSRESOLVE_STATE_FULL_REQ:
-    case FD_SSRESOLVE_STATE_INC_REQ: {
-      res = FD_SSRESOLVE_ADVANCE_PASS;
+    case FD_SSRESOLVE_STATE_REQ: {
+      res = FD_SSRESOLVE_ADVANCE_AGAIN;
       break;
     }
     default: {
