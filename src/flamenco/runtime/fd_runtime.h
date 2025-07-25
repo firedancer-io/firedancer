@@ -501,8 +501,10 @@ void
 fd_runtime_poh_verify( fd_poh_verifier_t * poh_info );
 
 int
-fd_runtime_block_execute_prepare( fd_exec_slot_ctx_t * slot_ctx,
-                                  fd_spad_t *          runtime_spad );
+fd_runtime_block_execute_prepare( fd_exec_slot_ctx_t *   slot_ctx,
+                                  fd_spad_t *            runtime_spad,
+                                  fd_stem_context_t *    stem,
+                                  fd_replay_out_link_t * capture_out );
 
 void
 fd_runtime_block_execute_finalize_start( fd_exec_slot_ctx_t *             slot_ctx,
@@ -550,7 +552,6 @@ fd_runtime_finalize_txn( fd_funk_t *                  funk,
                          fd_execute_txn_task_info_t * task_info,
                          fd_spad_t *                  finalize_spad,
                          fd_bank_t *                  bank,
-                         fd_exec_slot_ctx_t *         slot_ctx,
                          fd_stem_context_t *          stem,
                          fd_replay_out_link_t *       capture_out );
 
@@ -570,11 +571,13 @@ fd_runtime_is_epoch_boundary( fd_exec_slot_ctx_t * slot_ctx,
    the bank hash.
  */
 void
-fd_runtime_block_pre_execute_process_new_epoch( fd_exec_slot_ctx_t * slot_ctx,
-                                                fd_spad_t * *        exec_spads,
-                                                ulong                exec_spad_cnt,
-                                                fd_spad_t *          runtime_spad,
-                                                int *                is_epoch_boundary );
+fd_runtime_block_pre_execute_process_new_epoch( fd_exec_slot_ctx_t *   slot_ctx,
+                                                fd_spad_t * *          exec_spads,
+                                                ulong                  exec_spad_cnt,
+                                                fd_spad_t *            runtime_spad,
+                                                int *                  is_epoch_boundary,
+                                                fd_stem_context_t *    stem,
+                                                fd_replay_out_link_t * capture_out );
 
 /* This function is responsible for inserting fresh entries or updating existing entries in the program cache.
    When the client boots up, the program cache is empty. As programs get invoked, this function is responsible
@@ -650,11 +653,13 @@ fd_runtime_block_execute_finalize_sequential( fd_exec_slot_ctx_t *             s
                                               fd_replay_out_link_t *           capture_out );
 
 void
-fd_runtime_read_genesis( fd_exec_slot_ctx_t * slot_ctx,
-                         char const *         genesis_filepath,
-                         uchar                is_snapshot,
-                         fd_capture_ctx_t *   capture_ctx,
-                         fd_spad_t *          spad );
+fd_runtime_read_genesis( fd_exec_slot_ctx_t *   slot_ctx,
+                         char const *           genesis_filepath,
+                         uchar                  is_snapshot,
+                         fd_capture_ctx_t *     capture_ctx,
+                         fd_spad_t *            spad,
+                         fd_stem_context_t *    stem,
+                         fd_replay_out_link_t * capture_out );
 
 /* Hashing  ********************************************************************/
 void

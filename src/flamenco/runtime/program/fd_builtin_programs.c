@@ -149,10 +149,12 @@ static fd_core_bpf_migration_config_t const * migrating_builtins[] = {
 
 /* https://github.com/solana-labs/solana/blob/8f2c8b8388a495d2728909e30460aa40dcc5d733/sdk/src/native_loader.rs#L19 */
 void
-fd_write_builtin_account( fd_exec_slot_ctx_t * slot_ctx,
-                          fd_pubkey_t const    pubkey,
-                          char const *         data,
-                          ulong                sz ) {
+fd_write_builtin_account( fd_exec_slot_ctx_t *   slot_ctx,
+                          fd_pubkey_t const      pubkey,
+                          char const *           data,
+                          ulong                  sz,
+                          fd_stem_context_t *    stem,
+                          fd_replay_out_link_t * capture_out ) {
 
   fd_funk_t *         funk = slot_ctx->funk;
   fd_funk_txn_t *     txn  = slot_ctx->funk_txn;
@@ -173,7 +175,7 @@ fd_write_builtin_account( fd_exec_slot_ctx_t * slot_ctx,
   rec->vt->set_executable( rec, 1 );
   rec->vt->set_owner( rec, &fd_solana_native_loader_id );
 
-  fd_runtime_update_lthash_with_account_prev_hash( rec, &prev_lthash_value, slot_ctx->bank );
+  fd_runtime_update_lthash_with_account_prev_hash( rec, &prev_lthash_value, slot_ctx->bank, stem, capture_out );
 
   fd_txn_account_mutable_fini( rec, funk, txn );
 
@@ -219,7 +221,7 @@ write_inline_spl_native_mint_program_account( fd_exec_slot_ctx_t * slot_ctx ) {
   FD_TEST( !err );
 }
 
-void fd_builtin_programs_init( fd_exec_slot_ctx_t * slot_ctx ) {
+void fd_builtin_programs_init( fd_exec_slot_ctx_t * slot_ctx, fd_stem_context_t * stem, fd_replay_out_link_t * capture_out ) {
   // https://github.com/anza-xyz/agave/blob/v2.0.1/runtime/src/bank/builtins/mod.rs#L33
   fd_builtin_program_t const * builtins = fd_builtins();
   for( ulong i=0UL; i<fd_num_builtins(); i++ ) {
@@ -228,31 +230,31 @@ void fd_builtin_programs_init( fd_exec_slot_ctx_t * slot_ctx ) {
     } else if( builtins[i].enable_feature_offset!=NO_ENABLE_FEATURE_ID && !FD_FEATURE_ACTIVE_OFFSET( fd_bank_slot_get( slot_ctx->bank ), fd_bank_features_get( slot_ctx->bank ), builtins[i].enable_feature_offset ) ) {
       continue;
     } else {
-      fd_write_builtin_account( slot_ctx, *builtins[i].pubkey, builtins[i].data, strlen(builtins[i].data) );
+      fd_write_builtin_account( slot_ctx, *builtins[i].pubkey, builtins[i].data, strlen(builtins[i].data), stem, capture_out );
     }
   }
 
   //TODO: remove when no longer necessary
   if( FD_FEATURE_ACTIVE_BANK( slot_ctx->bank, zk_token_sdk_enabled ) ) {
-    fd_write_builtin_account( slot_ctx, fd_solana_zk_token_proof_program_id, "zk_token_proof_program", 22UL );
+    fd_write_builtin_account( slot_ctx, fd_solana_zk_token_proof_program_id, "zk_token_proof_program", 22UL, stem, capture_out );
   }
 
   if( FD_FEATURE_ACTIVE_BANK( slot_ctx->bank, zk_elgamal_proof_program_enabled ) ) {
-    fd_write_builtin_account( slot_ctx, fd_solana_zk_elgamal_proof_program_id, "zk_elgamal_proof_program", 24UL );
+    fd_write_builtin_account( slot_ctx, fd_solana_zk_elgamal_proof_program_id, "zk_elgamal_proof_program", 24UL, stem, capture_out );
   }
 
   /* Precompiles have empty account data */
   if( fd_bank_cluster_version_get( slot_ctx->bank ).major == 1 ) {
     char data[1] = {1};
-    fd_write_builtin_account( slot_ctx, fd_solana_keccak_secp_256k_program_id, data, 1 );
-    fd_write_builtin_account( slot_ctx, fd_solana_ed25519_sig_verify_program_id, data, 1 );
+    fd_write_builtin_account( slot_ctx, fd_solana_keccak_secp_256k_program_id, data, 1, stem, capture_out );
+    fd_write_builtin_account( slot_ctx, fd_solana_ed25519_sig_verify_program_id, data, 1, stem, capture_out );
     if( FD_FEATURE_ACTIVE_BANK( slot_ctx->bank, enable_secp256r1_precompile ) )
-      fd_write_builtin_account( slot_ctx, fd_solana_secp256r1_program_id, data, 1 );
+      fd_write_builtin_account( slot_ctx, fd_solana_secp256r1_program_id, data, 1, stem, capture_out );
   } else {
-    fd_write_builtin_account( slot_ctx, fd_solana_keccak_secp_256k_program_id, "", 0 );
-    fd_write_builtin_account( slot_ctx, fd_solana_ed25519_sig_verify_program_id, "", 0 );
+    fd_write_builtin_account( slot_ctx, fd_solana_keccak_secp_256k_program_id, "", 0, stem, capture_out );
+    fd_write_builtin_account( slot_ctx, fd_solana_ed25519_sig_verify_program_id, "", 0, stem, capture_out );
     if( FD_FEATURE_ACTIVE_BANK( slot_ctx->bank, enable_secp256r1_precompile ) )
-      fd_write_builtin_account( slot_ctx, fd_solana_secp256r1_program_id, "", 0 );
+      fd_write_builtin_account( slot_ctx, fd_solana_secp256r1_program_id, "", 0, stem, capture_out );
   }
 
   /* Inline SPL token mint program ("inlined to avoid an external dependency on the spl-token crate") */

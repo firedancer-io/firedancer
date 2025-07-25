@@ -7,6 +7,8 @@
 #include "../context/fd_exec_slot_ctx.h"
 #include "../fd_system_ids.h"
 #include "../fd_system_ids_pp.h"
+#include "../../../disco/stem/fd_stem.h"
+#include "../fd_hashes.h"
 
 #define NO_ENABLE_FEATURE_ID ULONG_MAX
 
@@ -49,13 +51,17 @@ FD_PROTOTYPES_BEGIN
 
 /* Initialize the builtin program accounts */
 void
-fd_builtin_programs_init( fd_exec_slot_ctx_t * slot_ctx );
+fd_builtin_programs_init( fd_exec_slot_ctx_t *   slot_ctx,
+                           fd_stem_context_t *    stem,
+                           fd_replay_out_link_t * capture_out );
 
 void
-fd_write_builtin_account( fd_exec_slot_ctx_t * slot_ctx,
-                          fd_pubkey_t const    pubkey,
-                          char const *         data,
-                          ulong                sz );
+fd_write_builtin_account( fd_exec_slot_ctx_t *   slot_ctx,
+                          fd_pubkey_t const      pubkey,
+                          char const *           data,
+                          ulong                  sz,
+                          fd_stem_context_t *    stem,
+                          fd_replay_out_link_t * capture_out );
 
 fd_builtin_program_t const *
 fd_builtins( void );

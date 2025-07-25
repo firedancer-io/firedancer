@@ -52,6 +52,12 @@ struct fd_writer_tile_ctx {
   /* Local join of bank manager. R/W */
   fd_banks_t *                 banks;
   fd_bank_t *                  bank;
+
+  /* State management - transaction finalization in the after_frag callback. */
+  int do_finalization;
+  fd_execute_txn_task_info_t  info;
+  uint                        txn_id;
+  uchar                       exec_tile_id;
 };
 typedef struct fd_writer_tile_ctx fd_writer_tile_ctx_t;
 
@@ -188,26 +194,53 @@ during_frag( fd_writer_tile_ctx_t * ctx,
     }
 
     if( FD_LIKELY( info.txn_ctx->flags & FD_TXN_P_FLAGS_EXECUTE_SUCCESS ) ) {
-      FD_SPAD_FRAME_BEGIN( ctx->spad ) {
-        if( FD_UNLIKELY( !ctx->bank ) ) {
-          FD_LOG_CRIT(( "No bank for slot %lu", info.txn_ctx->slot ));
-        }
+      ctx->do_finalization = 1;
+      ctx->info = info;
+      ctx->txn_id = msg->txn_id;
+      ctx->exec_tile_id = msg->exec_tile_id;
+    } else {
+      FD_LOG_CRIT(( "Unknown sig %lu", sig ));
+    }
+  }
 
-        fd_runtime_finalize_txn( ctx->funk, ctx->funk_txn, &info, ctx->spad, ctx->bank );
+  fd_banks_unlock( ctx->banks );
+}
+
+static void
+after_frag( fd_writer_tile_ctx_t *   ctx,
+            ulong                    in_idx FD_PARAM_UNUSED,
+            ulong                    seq FD_PARAM_UNUSED,
+            ulong                    sig,
+            ulong                    sz FD_PARAM_UNUSED,
+            ulong                    tsorig FD_PARAM_UNUSED,
+            ulong                    tspub FD_PARAM_UNUSED,
+            fd_stem_context_t *      stem FD_PARAM_UNUSED ) {
+
+  if( FD_LIKELY( sig == FD_WRITER_TXN_SIG ) ) {
+
+    if( FD_UNLIKELY( !ctx->bank ) ) {
+      FD_LOG_CRIT(( "No bank for slot %lu", ctx->info.txn_ctx->slot ));
+    }
+
+    if( FD_UNLIKELY( ctx->do_finalization ) ) {
+      ctx->do_finalization = 0;
+
+      fd_banks_lock( ctx->banks );
+      FD_SPAD_FRAME_BEGIN( ctx->spad ) {
+        fd_runtime_finalize_txn( ctx->funk, ctx->funk_txn, &ctx->info, ctx->spad, ctx->bank, stem, ctx->capture_out );
       } FD_SPAD_FRAME_END;
       fd_banks_unlock( ctx->banks );
+
+      /* If the replay tile has not yet ack'd the previous txn done,
+         spin to wait for the replay tile to ack the previous txn done. */
       while( fd_writer_fseq_get_state( fd_fseq_query( ctx->fseq ) )!=FD_WRITER_STATE_READY ) {
-        /* Spin to wait for the replay tile to ack the previous txn
-           done. */
         FD_SPIN_PAUSE();
       }
     }
-    /* Notify the replay tile. */
-    fd_fseq_update( ctx->fseq, fd_writer_fseq_set_txn_done( msg->txn_id, msg->exec_tile_id ) );
-    return;
-  }
 
-  FD_LOG_CRIT(( "Unknown sig %lu", sig ));
+    /* Notify the replay tile. */
+    fd_fseq_update( ctx->fseq, fd_writer_fseq_set_txn_done( ctx->txn_id, ctx->exec_tile_id ) );
+  }
 }
 
 static void
@@ -399,6 +432,7 @@ populate_allowed_fds( fd_topo_t const *      topo,
 
 #define STEM_CALLBACK_BEFORE_FRAG  before_frag
 #define STEM_CALLBACK_DURING_FRAG  during_frag
+#define STEM_CALLBACK_AFTER_FRAG   after_frag
 
 #include "../../disco/stem/fd_stem.c"
 

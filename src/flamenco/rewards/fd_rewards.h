@@ -9,6 +9,8 @@
 #include "../runtime/sysvar/fd_sysvar_epoch_rewards.h"
 #include "../runtime/sysvar/fd_sysvar_epoch_schedule.h"
 #include "../stakes/fd_stakes.h"
+#include "../../disco/stem/fd_stem.h"
+#include "../runtime/fd_hashes.h"
 
 FD_PROTOTYPES_BEGIN
 
@@ -35,13 +37,15 @@ struct fd_calculate_stake_vote_rewards_task_args {
 typedef struct fd_calculate_stake_vote_rewards_task_args fd_calculate_stake_vote_rewards_task_args_t;
 
 void
-fd_begin_partitioned_rewards( fd_exec_slot_ctx_t * slot_ctx,
-                              fd_hash_t const *    parent_blockhash,
-                              ulong                parent_epoch,
-                              fd_epoch_info_t *    temp_info,
-                              fd_spad_t * *        exec_spads,
-                              ulong                exec_spad_cnt,
-                              fd_spad_t *          runtime_spad );
+fd_begin_partitioned_rewards( fd_exec_slot_ctx_t *   slot_ctx,
+                              fd_hash_t const *      parent_blockhash,
+                              ulong                  parent_epoch,
+                              fd_epoch_info_t *      temp_info,
+                              fd_spad_t * *          exec_spads,
+                              ulong                  exec_spad_cnt,
+                              fd_spad_t *            runtime_spad,
+                              fd_stem_context_t *    stem,
+                              fd_replay_out_link_t * capture_out );
 
 void
 fd_rewards_recalculate_partitioned_rewards( fd_exec_slot_ctx_t * slot_ctx,
@@ -50,7 +54,9 @@ fd_rewards_recalculate_partitioned_rewards( fd_exec_slot_ctx_t * slot_ctx,
                                             fd_spad_t *          runtime_spad );
 
 void
-fd_distribute_partitioned_epoch_rewards( fd_exec_slot_ctx_t * slot_ctx );
+fd_distribute_partitioned_epoch_rewards( fd_exec_slot_ctx_t *   slot_ctx,
+                                         fd_stem_context_t *    stem,
+                                         fd_replay_out_link_t * capture_out );
 
 FD_PROTOTYPES_END
 

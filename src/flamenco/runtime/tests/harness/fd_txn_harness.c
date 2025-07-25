@@ -57,7 +57,7 @@ fd_runtime_fuzz_txn_ctx_create( fd_runtime_fuzz_runner_t *         runner,
   slot_ctx->bank->slot_ = slot;
 
   /* Initialize builtin accounts */
-  fd_builtin_programs_init( slot_ctx );
+  fd_builtin_programs_init( slot_ctx, NULL, NULL );
 
   /* Load account states into funk (note this is different from the account keys):
     Account state = accounts to populate Funk

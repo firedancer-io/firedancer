@@ -22,7 +22,7 @@
 
 #define FD_WRITER_STATE_NOT_BOOTED     (0UL         )
 #define FD_WRITER_STATE_READY          (1UL         )
-#define FD_WRITER_STATE_TXN_DONE       (1UL<<1      )
+#define FD_WRITER_STATE_TXN_DONE       (1UL<<1      ) /* Writer tile has finalized the txn */
 
 #define FD_EXEC_ID_SENTINEL            (UINT_MAX    )
 

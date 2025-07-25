@@ -564,7 +564,7 @@ init_after_snapshot( fd_replay_tile_ctx_t * ctx,
       fd_sha256_hash( poh->hash, 32UL, poh->hash );
     }
 
-    FD_TEST( fd_runtime_block_execute_prepare( ctx->slot_ctx, ctx->runtime_spad ) == 0 );
+    FD_TEST( fd_runtime_block_execute_prepare( ctx->slot_ctx, ctx->runtime_spad, stem, ctx->capture_out ) == 0 );
     fd_runtime_block_info_t info = { .signature_cnt = 0 };
 
     fd_runtime_block_execute_finalize_sequential( ctx->slot_ctx,
@@ -678,7 +678,9 @@ init_from_snapshot( fd_replay_tile_ctx_t * ctx,
                            ctx->genesis,
                            1,
                            ctx->capture_ctx,
-                           ctx->runtime_spad );
+                           ctx->runtime_spad,
+                           stem,
+                           ctx->capture_out );
   /* We call this after fd_runtime_read_genesis, which sets up the
   slot_bank needed in blockstore_init. */
   /* FIXME: We should really only call this once. */
@@ -976,7 +978,9 @@ init_from_genesis( fd_replay_tile_ctx_t * ctx,
                            ctx->genesis,
                            0,
                            ctx->capture_ctx,
-                           ctx->runtime_spad );
+                           ctx->runtime_spad,
+                           stem,
+                           ctx->capture_out );
 
   /* We call this after fd_runtime_read_genesis, which sets up the
   slot_bank needed in blockstore_init. */
@@ -1116,12 +1120,14 @@ handle_new_slot( fd_replay_tile_ctx_t * ctx,
       ctx->exec_spads,
       ctx->exec_spad_cnt,
       ctx->runtime_spad,
-      &is_epoch_boundary );
+      &is_epoch_boundary,
+      stem,
+      ctx->capture_out );
   if( FD_UNLIKELY( is_epoch_boundary ) ) {
     publish_stake_weights( ctx, stem, ctx->slot_ctx );
   }
 
-  int res = fd_runtime_block_execute_prepare( ctx->slot_ctx, ctx->runtime_spad );
+  int res = fd_runtime_block_execute_prepare( ctx->slot_ctx, ctx->runtime_spad, stem, ctx->capture_out );
   if( FD_UNLIKELY( res!=FD_RUNTIME_EXECUTE_SUCCESS ) ) {
     FD_LOG_CRIT(( "block prep execute failed" ));
   }

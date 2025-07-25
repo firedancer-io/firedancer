@@ -820,7 +820,9 @@ calculate_rewards_and_distribute_vote_rewards( fd_exec_slot_ctx_t *             
                                                fd_epoch_info_t *                                           temp_info,
                                                fd_spad_t * *                                               exec_spads,
                                                ulong                                                       exec_spad_cnt,
-                                               fd_spad_t *                                                 runtime_spad ) {
+                                               fd_spad_t *                                                 runtime_spad,
+                                               fd_stem_context_t *                                         stem,
+                                               fd_replay_out_link_t *                                      capture_out ) {
 
   /* https://github.com/firedancer-io/solana/blob/dab3da8e7b667d7527565bddbdbecf7ec1fb868e/runtime/src/bank.rs#L2406-L2492 */
   fd_partitioned_rewards_calculation_t rewards_calc_result[1] = {0};
@@ -868,7 +870,9 @@ calculate_rewards_and_distribute_vote_rewards( fd_exec_slot_ctx_t *             
 
     fd_runtime_update_lthash_with_account_prev_hash( vote_rec,
                                                      &prev_lthash_value,
-                                                     slot_ctx->bank );
+                                                     slot_ctx->bank,
+                                                     stem,
+                                                     capture_out );
     fd_txn_account_mutable_fini( vote_rec, slot_ctx->funk, slot_ctx->funk_txn );
 
     result->distributed_rewards = fd_ulong_sat_add( result->distributed_rewards, vote_reward_node->elem.vote_rewards );
@@ -891,10 +895,12 @@ calculate_rewards_and_distribute_vote_rewards( fd_exec_slot_ctx_t *             
 
 /* Distributes a single partitioned reward to a single stake account */
 static int
-distribute_epoch_reward_to_stake_acc( fd_exec_slot_ctx_t * slot_ctx,
-                                      fd_pubkey_t *        stake_pubkey,
-                                      ulong                reward_lamports,
-                                      ulong                new_credits_observed ) {
+distribute_epoch_reward_to_stake_acc( fd_exec_slot_ctx_t *   slot_ctx,
+                                      fd_pubkey_t *          stake_pubkey,
+                                      ulong                  reward_lamports,
+                                      ulong                  new_credits_observed,
+                                      fd_stem_context_t *    stem,
+                                      fd_replay_out_link_t * capture_out ) {
   FD_TXN_ACCOUNT_DECL( stake_acc_rec );
   if( FD_UNLIKELY( fd_txn_account_init_from_funk_mutable( stake_acc_rec,
                                                           stake_pubkey,
@@ -939,7 +945,9 @@ distribute_epoch_reward_to_stake_acc( fd_exec_slot_ctx_t * slot_ctx,
 
   fd_runtime_update_lthash_with_account_prev_hash( stake_acc_rec,
                                                    &prev_lthash_value,
-                                                   slot_ctx->bank );
+                                                   slot_ctx->bank,
+                                                   stem,
+                                                   capture_out );
   fd_txn_account_mutable_fini( stake_acc_rec, slot_ctx->funk, slot_ctx->funk_txn );
 
   return 0;
@@ -1001,7 +1009,9 @@ set_epoch_reward_status_active( fd_exec_slot_ctx_t *             slot_ctx,
 static void
 distribute_epoch_rewards_in_partition( fd_partitioned_stake_rewards_dlist_t * partition,
                                        fd_stake_reward_t *                    pool,
-                                       fd_exec_slot_ctx_t *                   slot_ctx ) {
+                                       fd_exec_slot_ctx_t *                   slot_ctx,
+                                       fd_stem_context_t *                    stem,
+                                       fd_replay_out_link_t *                 capture_out ) {
 
   ulong lamports_distributed = 0UL;
   ulong lamports_burned      = 0UL;
@@ -1014,7 +1024,9 @@ distribute_epoch_rewards_in_partition( fd_partitioned_stake_rewards_dlist_t * pa
     if( distribute_epoch_reward_to_stake_acc( slot_ctx,
                                               &stake_reward->stake_pubkey,
                                               stake_reward->lamports,
-                                              stake_reward->credits_observed ) == 0 ) {
+                                              stake_reward->credits_observed,
+                                              stem,
+                                              capture_out ) == 0 ) {
       lamports_distributed += stake_reward->lamports;
     } else {
       lamports_burned += stake_reward->lamports;
@@ -1034,7 +1046,9 @@ distribute_epoch_rewards_in_partition( fd_partitioned_stake_rewards_dlist_t * pa
 
    https://github.com/anza-xyz/agave/blob/cbc8320d35358da14d79ebcada4dfb6756ffac79/runtime/src/bank/partitioned_epoch_rewards/distribution.rs#L42 */
 void
-fd_distribute_partitioned_epoch_rewards( fd_exec_slot_ctx_t * slot_ctx ) {
+fd_distribute_partitioned_epoch_rewards( fd_exec_slot_ctx_t *   slot_ctx,
+                                         fd_stem_context_t *    stem,
+                                         fd_replay_out_link_t * capture_out ) {
 
   fd_epoch_reward_status_global_t const * epoch_reward_status = fd_bank_epoch_reward_status_locking_query( slot_ctx->bank );
 
@@ -1068,7 +1082,9 @@ fd_distribute_partitioned_epoch_rewards( fd_exec_slot_ctx_t * slot_ctx ) {
     ulong partition_index = height - distribution_starting_block_height;
     distribute_epoch_rewards_in_partition( &partitions[ partition_index ],
                                            pool,
-                                           slot_ctx );
+                                           slot_ctx,
+                                           stem,
+                                           capture_out );
   }
 
   fd_bank_epoch_reward_status_end_locking_query( slot_ctx->bank );
@@ -1085,13 +1101,15 @@ fd_distribute_partitioned_epoch_rewards( fd_exec_slot_ctx_t * slot_ctx ) {
    https://github.com/anza-xyz/agave/blob/7117ed9653ce19e8b2dea108eff1f3eb6a3378a7/runtime/src/bank/partitioned_epoch_rewards/calculation.rs#L41
 */
 void
-fd_begin_partitioned_rewards( fd_exec_slot_ctx_t * slot_ctx,
-                              fd_hash_t const *    parent_blockhash,
-                              ulong                parent_epoch,
-                              fd_epoch_info_t *    temp_info,
-                              fd_spad_t * *        exec_spads,
-                              ulong                exec_spad_cnt,
-                              fd_spad_t *          runtime_spad ) {
+fd_begin_partitioned_rewards( fd_exec_slot_ctx_t *   slot_ctx,
+                              fd_hash_t const *      parent_blockhash,
+                              ulong                  parent_epoch,
+                              fd_epoch_info_t *      temp_info,
+                              fd_spad_t * *          exec_spads,
+                              ulong                  exec_spad_cnt,
+                              fd_spad_t *            runtime_spad,
+                              fd_stem_context_t *    stem,
+                              fd_replay_out_link_t * capture_out ) {
 
   /* https://github.com/anza-xyz/agave/blob/7117ed9653ce19e8b2dea108eff1f3eb6a3378a7/runtime/src/bank/partitioned_epoch_rewards/calculation.rs#L55 */
   fd_calculate_rewards_and_distribute_vote_rewards_result_t rewards_result[1] = {0};
@@ -1102,7 +1120,9 @@ fd_begin_partitioned_rewards( fd_exec_slot_ctx_t * slot_ctx,
                                                  temp_info,
                                                  exec_spads,
                                                  exec_spad_cnt,
-                                                 runtime_spad );
+                                                 runtime_spad,
+                                                 stem,
+                                                 capture_out );
 
   /* https://github.com/anza-xyz/agave/blob/9a7bf72940f4b3cd7fc94f54e005868ce707d53d/runtime/src/bank/partitioned_epoch_rewards/calculation.rs#L62 */
   ulong distribution_starting_block_height = fd_bank_block_height_get( slot_ctx->bank ) + REWARD_CALCULATION_NUM_BLOCKS;
