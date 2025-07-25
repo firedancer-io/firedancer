@@ -172,12 +172,11 @@ FD_PROTOTYPES_BEGIN
   X(fd_epoch_schedule_t,               epoch_schedule,              sizeof(fd_epoch_schedule_t),               alignof(fd_epoch_schedule_t),               0,   0    )  /* Epoch schedule */                                         \
   X(fd_rent_t,                         rent,                        sizeof(fd_rent_t),                         alignof(fd_rent_t),                         0,   0    )  /* Rent */                                                   \
   X(fd_slot_lthash_t,                  lthash,                      sizeof(fd_slot_lthash_t),                  alignof(fd_slot_lthash_t),                  0,   0    )  /* LTHash */                                                 \
+  /* These are the stakes that determine the leader schedule for the upcoming epoch. */ \
+  /* epoch_stakes is used for the current leader schedule. next_epoch_stakes is used for the next leader schedule. */ \
+  /* next_next_epoch_stakes is the cached version being calculated. */ \
+  X(fd_vote_accounts_global_t,         next_next_epoch_stakes,      200000000UL,                               128UL,                                      1,   1    )  /* Next next epoch stakes, ~4K per account * 50k vote accounts */ \
   X(fd_vote_accounts_global_t,         next_epoch_stakes,           200000000UL,                               128UL,                                      1,   1    )  /* Next epoch stakes, ~4K per account * 50k vote accounts */ \
-                                                                                                                                                                        /* These are the stakes that determine the leader */         \
-                                                                                                                                                                        /* schedule for the upcoming epoch.  If we are executing */  \
-                                                                                                                                                                        /* in epoch E, these are the stakes at the end of epoch */   \
-                                                                                                                                                                        /* E-1 and they determined the leader schedule for epoch */  \
-                                                                                                                                                                        /* E+1. */                                                   \
   X(fd_vote_accounts_global_t,         epoch_stakes,                200000000UL,                               128UL,                                      1,   1    )  /* Epoch stakes ~4K per account * 50k vote accounts */       \
   X(fd_epoch_reward_status_global_t,   epoch_reward_status,         160000000UL,                               128UL,                                      1,   1    )  /* Epoch reward status */                                    \
   X(fd_epoch_leaders_t,                epoch_leaders,               1000000UL,                                 128UL,                                      1,   1    )  /* Epoch leaders */                                          \
@@ -239,6 +238,12 @@ FD_PROTOTYPES_BEGIN
 
 #define POOL_NAME fd_bank_vote_account_keys_pool
 #define POOL_T    fd_bank_vote_account_keys_t
+#include "../../util/tmpl/fd_pool.c"
+#undef POOL_NAME
+#undef POOL_T
+
+#define POOL_NAME fd_bank_next_next_epoch_stakes_pool
+#define POOL_T    fd_bank_next_next_epoch_stakes_t
 #include "../../util/tmpl/fd_pool.c"
 #undef POOL_NAME
 #undef POOL_T
