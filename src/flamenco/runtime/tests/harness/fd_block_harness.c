@@ -1,4 +1,5 @@
 #include "fd_block_harness.h"
+#include "fd_harness_common.h"
 
 /* Stripped down version of `fd_refresh_vote_accounts()` that simply refreshes the stake delegation amount
    for each of the vote accounts using the stake delegations cache. */
@@ -329,8 +330,10 @@ fd_runtime_fuzz_block_ctx_create( fd_runtime_fuzz_runner_t *           runner,
                                                      &pubkey );
   }
 
+  fd_solfuzz_restore_lamports_per_signature( slot_ctx );
+
   /* Restore sysvar cache */
-  FD_TEST( fd_sysvar_cache_restore( slot_ctx )==0 );
+  fd_sysvar_cache_restore_fuzz( slot_ctx );
 
   /* Refresh vote accounts to calculate stake delegations */
   fd_runtime_fuzz_block_refresh_vote_accounts( vote_accounts_pool,
@@ -403,16 +406,6 @@ fd_runtime_fuzz_block_ctx_create( fd_runtime_fuzz_runner_t *           runner,
   // Set genesis hash to {0}
   fd_hash_t * genesis_hash = fd_bank_genesis_hash_modify( slot_ctx->bank );
   fd_memset( genesis_hash->hash, 0, sizeof(fd_hash_t) );
-
-  // Use the latest lamports per signature
-  fd_block_block_hash_entry_t const * rbh = fd_sysvar_recent_hashes_join_const( sysvar_cache );
-  if( FD_UNLIKELY( rbh && !deq_fd_block_block_hash_entry_t_empty( rbh ) ) ) {
-    fd_block_block_hash_entry_t const * last = deq_fd_block_block_hash_entry_t_peek_head_const( rbh );
-    if( last && last->fee_calculator.lamports_per_signature!=0UL ) {
-      fd_bank_lamports_per_signature_set( slot_ctx->bank, last->fee_calculator.lamports_per_signature );
-      fd_bank_prev_lamports_per_signature_set( slot_ctx->bank, last->fee_calculator.lamports_per_signature );
-    }
-  }
 
   // Populate blockhash queue and recent blockhashes sysvar
   for( ushort i=0; i<test_ctx->blockhash_queue_count; ++i ) {
