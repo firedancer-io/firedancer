@@ -138,8 +138,13 @@ populate_allowed_seccomp( fd_topo_t const *      topo,
   FD_SCRATCH_ALLOC_INIT( l, scratch );
   fd_metric_ctx_t * ctx = FD_SCRATCH_ALLOC_APPEND( l, alignof( fd_metric_ctx_t ), sizeof( fd_metric_ctx_t ) );
 
+  #if defined(__aarch64__)
+  populate_sock_filter_policy_fd_metric_tile_arm64( out_cnt, out, (uint)fd_log_private_logfile_fd(), (uint)fd_http_server_fd( ctx->metrics_server ) );
+  return sock_filter_policy_fd_metric_tile_arm64_instr_cnt;
+  #else
   populate_sock_filter_policy_fd_metric_tile( out_cnt, out, (uint)fd_log_private_logfile_fd(), (uint)fd_http_server_fd( ctx->metrics_server ) );
   return sock_filter_policy_fd_metric_tile_instr_cnt;
+  #endif
 }
 
 static ulong

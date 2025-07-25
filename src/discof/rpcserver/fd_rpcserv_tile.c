@@ -3,7 +3,11 @@
 
 #include "../../disco/topo/fd_topo.h"
 #include <sys/socket.h>
+#if defined(__aarch64__)
+#include "generated/fd_rpcserv_tile_arm64_seccomp.h"
+#else
 #include "generated/fd_rpcserv_tile_seccomp.h"
+#endif
 
 #include "../rpcserver/fd_rpc_service.h"
 
@@ -242,8 +246,13 @@ populate_allowed_seccomp( fd_topo_t const *      topo,
   FD_SCRATCH_ALLOC_INIT( l, scratch );
   fd_rpcserv_tile_ctx_t * ctx = FD_SCRATCH_ALLOC_APPEND( l, alignof(fd_rpcserv_tile_ctx_t), sizeof(fd_rpcserv_tile_ctx_t) );
 
+  #if defined(__aarch64__)
+  populate_sock_filter_policy_fd_rpcserv_tile_arm64( out_cnt, out, (uint)fd_log_private_logfile_fd(), (uint)fd_rpc_ws_fd( ctx->ctx ), (uint)ctx->blockstore_fd );
+  return sock_filter_policy_fd_rpcserv_tile_arm64_instr_cnt;
+  #else
   populate_sock_filter_policy_fd_rpcserv_tile( out_cnt, out, (uint)fd_log_private_logfile_fd(), (uint)fd_rpc_ws_fd( ctx->ctx ), (uint)ctx->blockstore_fd );
   return sock_filter_policy_fd_rpcserv_tile_instr_cnt;
+  #endif
 }
 
 static ulong
