@@ -137,7 +137,8 @@ add_bench_topo( fd_topo_t  * topo,
                 ushort       rpc_port,
                 uint         rpc_ip_addr,
                 int          no_quic,
-                int          reserve_agave_cores ) {
+                int          reserve_agave_cores,
+                int          low_power_mode ) {
   (void)topo;
   (void)affinity;
   (void)benchg_tile_cnt;
@@ -153,4 +154,5 @@ add_bench_topo( fd_topo_t  * topo,
   (void)rpc_ip_addr;
   (void)no_quic;
   (void)reserve_agave_cores;
+  (void)low_power_mode;
 }

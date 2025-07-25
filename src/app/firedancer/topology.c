@@ -859,7 +859,7 @@ fd_topo_initialize( config_t * config ) {
     }
   }
 
-  if( FD_UNLIKELY( is_auto_affinity ) ) fd_topob_auto_layout( topo, 0 );
+  if( FD_UNLIKELY( is_auto_affinity ) ) fd_topob_auto_layout( topo, 0, config->layout.low_power_mode );
 
   fd_topob_finish( topo, CALLBACKS );
   FD_TEST( blockstore_obj->id );
