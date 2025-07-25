@@ -21,8 +21,11 @@ test_simple( fd_wksp_t * wksp ) {
   void * mem         = fd_wksp_alloc_laddr( wksp, fd_store_align(), fd_store_footprint( fec_max ), 1UL );
   fd_store_t * store = fd_store_join( fd_store_new( mem, fec_max, 0UL ) );
   FD_TEST( store                  );
-  FD_TEST( fd_store_pool( store ) );
-  FD_TEST( fd_store_map ( store ) );
+  fd_store_pool_t pool = fd_store_pool( store );
+  FD_TEST( pool.ele );
+  FD_TEST( pool.ele_max == fec_max );
+  FD_TEST( pool.pool );
+  FD_TEST( fd_store_map( store ) );
 
   fd_hash_t mr0 = { { 0 } };
   fd_hash_t mr1 = { { 1 } };
@@ -54,28 +57,28 @@ test_simple( fd_wksp_t * wksp ) {
   fd_store_link( store, &mr5, &mr3 );
   fd_store_link( store, &mr6, &mr5 );
 
-  FD_TEST( fd_store_parent( store, fec4 ) == fec2 ) ;
-  FD_TEST( fd_store_parent( store, fec2 ) == fec1 ) ;
-  FD_TEST( fd_store_parent( store, fec1 ) == fec0 ) ;
+  FD_TEST( fd_store_parent( &pool, fec4 ) == fec2 ) ;
+  FD_TEST( fd_store_parent( &pool, fec2 ) == fec1 ) ;
+  FD_TEST( fd_store_parent( &pool, fec1 ) == fec0 ) ;
 
-  FD_TEST( fd_store_parent( store, fec6 ) == fec5 ) ;
-  FD_TEST( fd_store_parent( store, fec5 ) == fec3 ) ;
-  FD_TEST( fd_store_parent( store, fec3 ) == fec1 ) ;
-  FD_TEST( fd_store_parent( store, fec1 ) == fec0 ) ;
+  FD_TEST( fd_store_parent( &pool, fec6 ) == fec5 ) ;
+  FD_TEST( fd_store_parent( &pool, fec5 ) == fec3 ) ;
+  FD_TEST( fd_store_parent( &pool, fec3 ) == fec1 ) ;
+  FD_TEST( fd_store_parent( &pool, fec1 ) == fec0 ) ;
 
-  FD_TEST( fd_store_child( store, fec0 ) == fec1 ) ;
-  FD_TEST( fd_store_child( store, fec1 ) == fec2 ) ;
-  FD_TEST( fd_store_child( store, fec2 ) == fec4 ) ;
-  FD_TEST( fd_store_child( store, fec3 ) == fec5 ) ;
-  FD_TEST( fd_store_child( store, fec5 ) == fec6 ) ;
+  FD_TEST( fd_store_child( &pool, fec0 ) == fec1 ) ;
+  FD_TEST( fd_store_child( &pool, fec1 ) == fec2 ) ;
+  FD_TEST( fd_store_child( &pool, fec2 ) == fec4 ) ;
+  FD_TEST( fd_store_child( &pool, fec3 ) == fec5 ) ;
+  FD_TEST( fd_store_child( &pool, fec5 ) == fec6 ) ;
 
-  FD_TEST( fd_store_sibling( store, fd_store_child( store, fec1 ) ) == fec3 ) ;
+  FD_TEST( fd_store_sibling( &pool, fd_store_child( &pool, fec1 ) ) == fec3 ) ;
 
   fd_store_publish( store, &mr2 );
   fd_store_fec_t * root = fd_store_root( store );
   FD_TEST( root == fec2 );
-  FD_TEST( root->parent == fd_store_pool_idx_null( fd_store_pool( store ) ) );
-  FD_TEST( fd_store_parent( store, fec4 ) == fec2 );
+  FD_TEST( root->parent == fd_store_pool_idx_null() );
+  FD_TEST( fd_store_parent( &pool, fec4 ) == fec2 );
 
   fd_wksp_free_laddr( fd_store_delete( fd_store_leave( store ) ) );
 }
@@ -86,7 +89,10 @@ test_publish( fd_wksp_t * wksp ) {
   void * mem         = fd_wksp_alloc_laddr( wksp, fd_store_align(), fd_store_footprint( fec_max ), 1UL );
   fd_store_t * store = fd_store_join( fd_store_new( mem, fec_max, 0UL ) );
   FD_TEST( store                  );
-  FD_TEST( fd_store_pool( store ) );
+  fd_store_pool_t pool = fd_store_pool( store );
+  FD_TEST( pool.ele );
+  FD_TEST( pool.ele_max == fec_max );
+  FD_TEST( pool.pool );
   FD_TEST( fd_store_map ( store ) );
 
   fd_hash_t mr0  = { { 0, 0xa } };
@@ -103,20 +109,20 @@ test_publish( fd_wksp_t * wksp ) {
   fd_hash_t mr5a = { { 5, 0xa } };
   fd_hash_t mr5b = { { 5, 0xb } };
   fd_hash_t mr6a = { { 6, 0xa } };
-  fd_store_insert( store, &mr0 );
-  fd_store_insert( store, &mr1a );
-  fd_store_insert( store, &mr1b );
-  fd_store_insert( store, &mr2a );
-  fd_store_insert( store, &mr2b );
-  fd_store_insert( store, &mr2c );
-  fd_store_insert( store, &mr3a );
-  fd_store_insert( store, &mr4a );
-  fd_store_insert( store, &mr4b );
-  fd_store_insert( store, &mr4c );
-  fd_store_insert( store, &mr4d );
-  fd_store_insert( store, &mr5a );
-  fd_store_insert( store, &mr5b );
-  fd_store_insert( store, &mr6a );
+  FD_TEST( fd_store_insert( store, &mr0 ) );
+  FD_TEST( fd_store_insert( store, &mr1a ) );
+  FD_TEST( fd_store_insert( store, &mr1b ) );
+  FD_TEST( fd_store_insert( store, &mr2a ) );
+  FD_TEST( fd_store_insert( store, &mr2b ) );
+  FD_TEST( fd_store_insert( store, &mr2c ) );
+  FD_TEST( fd_store_insert( store, &mr3a ) );
+  FD_TEST( fd_store_insert( store, &mr4a ) );
+  FD_TEST( fd_store_insert( store, &mr4b ) );
+  FD_TEST( fd_store_insert( store, &mr4c ) );
+  FD_TEST( fd_store_insert( store, &mr4d ) );
+  FD_TEST( fd_store_insert( store, &mr5a ) );
+  FD_TEST( fd_store_insert( store, &mr5b ) );
+  FD_TEST( fd_store_insert( store, &mr6a ) );
 
   fd_store_link( store, &mr1a, &mr0 );
   fd_store_link( store, &mr1b, &mr1a );

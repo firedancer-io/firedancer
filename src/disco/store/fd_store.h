@@ -167,12 +167,15 @@ typedef struct fd_store_fec fd_store_fec_t;
 #define POOL_NAME  fd_store_pool
 #define POOL_ELE_T fd_store_fec_t
 #include "../../util/tmpl/fd_pool_para.c"
+#undef MAP_IDX_NULL
 
 #define MAP_NAME               fd_store_map
+#define MAP_IDX_NULL           ULONG_MAX >> 21
 #define MAP_ELE_T              fd_store_fec_t
 #define MAP_KEY_T              fd_hash_t
 #define MAP_KEY_EQ(k0,k1)      (!memcmp((k0),(k1), sizeof(fd_hash_t)))
 #define MAP_KEY_HASH(key,seed) (fd_hash((seed),(key),sizeof(fd_hash_t))) /* TODO re-design store hash function for multiple shred tiles */
+#define MAP_NULL
 #include "../../util/tmpl/fd_map_chain.c"
 
 struct fd_store {

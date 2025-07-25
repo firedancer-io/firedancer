@@ -304,6 +304,10 @@
 #define MAP_IDX_T ulong
 #endif
 
+#ifndef MAP_IDX_NULL
+#define MAP_IDX_NULL ULONG_MAX
+#endif
+
 /* MAP_NEXT is the MAP_ELE_T next field */
 
 #ifndef MAP_NEXT
@@ -437,12 +441,18 @@ FD_FN_CONST static inline ulong     MAP_(private_unbox)( MAP_IDX_T cidx ) { retu
 /* map_private_idx_null returns the element storage index that
    represents NULL. */
 
-FD_FN_CONST static inline ulong MAP_(private_idx_null)( void ) { return (ulong)(MAP_IDX_T)(~0UL); }
-
 /* map_private_idx_is_null returns 1 if idx is the NULL map index
    and 0 otherwise. */
 
+# if MAP_IDX_NULL==ULONG_MAX
+FD_FN_CONST static inline ulong MAP_(private_idx_null)( void ) { return (ulong)(MAP_IDX_T)(~0UL); }
+
 FD_FN_CONST static inline int MAP_(private_idx_is_null)( ulong idx ) { return idx==(ulong)(MAP_IDX_T)(~0UL); }
+# else
+FD_FN_CONST static inline ulong MAP_(private_idx_null)( void ) { return (ulong)(MAP_IDX_T)(MAP_IDX_NULL); }
+
+FD_FN_CONST static inline int MAP_(private_idx_is_null)( ulong idx ) { return idx==(ulong)(MAP_IDX_T)(MAP_IDX_NULL); }
+# endif
 
 FD_FN_CONST static inline ulong MAP_(ele_max)( void ) { return (ulong)(MAP_IDX_T)(~0UL); }
 
@@ -1061,6 +1071,7 @@ FD_PROTOTYPES_END
 #undef MAP_NEXT
 #undef MAP_PREV
 #undef MAP_IDX_T
+#undef MAP_IDX_NULL
 #undef MAP_KEY
 #undef MAP_KEY_T
 #undef MAP_ELE_T

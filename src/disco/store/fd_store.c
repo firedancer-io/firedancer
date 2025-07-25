@@ -48,6 +48,10 @@ fd_store_new( void * shmem, ulong fec_max, ulong seed ) {
   store->seed    = seed;
   store->fec_max = fec_max;
   store->root    = null;
+
+  fd_store_pool_t pool = fd_store_pool( store );
+  fd_store_pool_reset( &pool, 0 );
+
   FD_COMPILER_MFENCE();
   FD_VOLATILE( store->magic ) = FD_STORE_MAGIC;
   FD_COMPILER_MFENCE();
@@ -121,8 +125,8 @@ fd_store_insert( fd_store_t * store,
   fd_store_pool_t  pool = fd_store_pool( store );
   fd_store_fec_t * fec  = fd_store_pool_acquire( &pool, NULL, 1, &err );
 
-  if( FD_UNLIKELY( err == FD_POOL_ERR_EMPTY ) )   { FD_LOG_WARNING(( "store full %s", fd_store_pool_strerror( err ) ));    return NULL; } /* FIXME: eviction? max bound guaranteed for worst-case? */
-  if( FD_UNLIKELY( err == FD_POOL_ERR_CORRUPT ) ) { FD_LOG_ERR    (( "store corrupt %s", fd_store_pool_strerror( err ) )); return NULL; }
+  if( FD_UNLIKELY( err == FD_POOL_ERR_EMPTY ) )   { __asm__("int $3"); FD_LOG_WARNING(( "store full %s", fd_store_pool_strerror( err ) ));    return NULL; } /* FIXME: eviction? max bound guaranteed for worst-case? */
+  if( FD_UNLIKELY( err == FD_POOL_ERR_CORRUPT ) ) { __asm__("int $3"); FD_LOG_ERR    (( "store corrupt %s", fd_store_pool_strerror( err ) )); return NULL; }
   // if( FD_UNLIKELY( err == FD_POOL_ERR_AGAIN ) )   { FD_LOG_WARNING(( "store full %s", fd_store_pool_strerror( err ) ));    return NULL; } /* TODO: add non-blocking acqure? */
   FD_TEST( fec );
 
@@ -135,6 +139,7 @@ fd_store_insert( fd_store_t * store,
   fec->data_sz          = 0UL;
   if( FD_UNLIKELY( store->root == null ) ) store->root = fd_store_pool_idx( &pool, fec );
   fd_store_map_ele_insert( fd_store_map( store ), fec, fd_store_pool0( store ) );
+  FD_TEST( fd_store_map_ele_query( fd_store_map( store ), merkle_root, NULL, fd_store_pool0( store ) ) == fec );
   return fec;
 }
 
