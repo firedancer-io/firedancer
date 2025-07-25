@@ -290,9 +290,6 @@ fd_txn_account_save( fd_txn_account_t * acct,
 
   fd_funk_rec_key_t key = fd_funk_acc_key( acct->pubkey );
 
-  /* Remove previous incarnation of the account's record from the transaction, so that we don't hash it twice */
-  fd_funk_rec_hard_remove( funk, txn, &key );
-
   int err;
   fd_funk_rec_prepare_t prepare[1];
   fd_funk_rec_t * rec = fd_funk_rec_prepare( funk, txn, &key, prepare, &err );
@@ -316,6 +313,11 @@ fd_txn_account_save( fd_txn_account_t * acct,
   }
 
   fd_funk_rec_publish( funk, prepare );
+
+  /* If the account has no lamports, then leave a tombstone */
+  if( acct->vt->get_lamports( acct ) == 0UL ) {
+    fd_funk_rec_remove( funk, txn, &key, NULL, 1UL );
+  }
 
   return err;
 }
