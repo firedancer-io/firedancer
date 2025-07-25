@@ -492,6 +492,9 @@ fd_bpf_load_cache_entry( fd_funk_t const *                    funk,
     fd_funk_rec_t const * rec = fd_funk_rec_query_try_global(funk, funk_txn, &id, NULL, query);
 
     if( FD_UNLIKELY( !rec || !!( rec->flags & FD_FUNK_REC_FLAG_ERASE ) ) ) {
+      if (!rec) {
+        FD_LOG_WARNING(( "fd_funk_rec_query_try_global() returned NULL" ));
+      }
       if( fd_funk_rec_query_test( query ) == FD_FUNK_SUCCESS ) {
         return -1;
       } else {

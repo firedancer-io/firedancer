@@ -1,13 +1,16 @@
 #ifndef HEADER_fd_src_flamenco_rwlock_recursive_h
 #define HEADER_fd_src_flamenco_rwlock_recursive_h
 
-/* A recursive/reentrant read-write spin lock:
+/* A very simple recursive/reentrant read-write spin lock:
    - Reentrant: the same thread can acquire the lock multiple times (up
      to 32 nested levels)
    - Supports read-read, write-write, and write-read nesting
    - Does NOT support read-write upgrades
 
-   If you think you need this lock, you don't.
+   This is a pandora's box that should only be accessed if you need to
+   overcome a much bigger evil.
+
+   If you think you need this lock, you don't.  Think again.
 
    If you still think you need this lock, you probably still don't.
 
@@ -31,8 +34,29 @@
 
 #include "../util/log/fd_log.h"
 
+/* We could easily support a deeper nesting, but does anyone really need
+   more than 32?  Putting in a limit allows us to catch lock leakage
+   more quickly. */
 #define FD_RWLOCK_RECURSIVE_MAX_DEPTH 32U
 
+/* An alternative here is simply having an owner field and a state
+   field, where state is interpreted as
+
+   0x0000: Unlocked
+   0x0001-0x7FFF: Number of active readers (1..32767)
+   0x8000-0xFFFF: Write locked, -0x8000+1 to obtain the number of
+   recursive write locks
+
+   and we won't keep track of the number of recursive read locks.  This
+   will work just fine assuming the caller uses the lock correctly, i.e.
+   doesn't lock and unlock in the wrong order and doesn't infinitely
+   recurse read locks.
+
+   We choose the following format because the separate counter for
+   recursive read locks allows us to detect cases where the recursive
+   unlocking didn't match the recursive locking, or cases where there
+   were way too many recursive read locks.  It's a lightweight bug
+   detector. */
 struct fd_rwlock_recursive {
   volatile ulong  write_owner;      /* Write lock owner thread ID (0 if no write owner) */
   volatile ushort state;            /* Lock state:
