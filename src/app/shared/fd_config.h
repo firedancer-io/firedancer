@@ -253,6 +253,7 @@ struct fd_config {
     uint verify_tile_count;
     uint bank_tile_count;
     uint shred_tile_count;
+    int  low_power_mode;
   } layout;
 
   struct {

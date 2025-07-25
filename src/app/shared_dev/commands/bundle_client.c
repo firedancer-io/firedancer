@@ -21,13 +21,13 @@ bundle_client_topo( config_t *   config ) {
   /* Tiles */
 
   fd_topob_wksp( topo, "bundle" );
-  fd_topo_tile_t * bundle_tile = fd_topob_tile( topo, "bundle", "bundle", "metric_in", ULONG_MAX, 0, 1 );
+  fd_topo_tile_t * bundle_tile = fd_topob_tile( topo, "bundle", "bundle", "metric_in", ULONG_MAX, 0, 1, 0 );
 
   fd_topob_wksp( topo, "sign" );
-  fd_topo_tile_t * sign_tile = fd_topob_tile( topo, "sign", "sign", "metric_in", ULONG_MAX, 0, 1 );
+  fd_topo_tile_t * sign_tile = fd_topob_tile( topo, "sign", "sign", "metric_in", ULONG_MAX, 0, 1, 0 );
 
   fd_topob_wksp( topo, "metric" );
-  fd_topo_tile_t * metric_tile = fd_topob_tile( topo, "metric", "metric", "metric_in", ULONG_MAX, 0, 0 );
+  fd_topo_tile_t * metric_tile = fd_topob_tile( topo, "metric", "metric", "metric_in", ULONG_MAX, 0, 0, 0 );
 
   /* Links */
 

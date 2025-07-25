@@ -49,3 +49,8 @@ recvfrom: (and (or (eq (arg 0) nl_mon_fd)
                    (eq (arg 3) MSG_DONTWAIT))
                (eq (arg 4) 0)
                (eq (arg 5) 0))
+
+# low_power_mode: stem calls fd_log_sleep to reduce CPU usage when
+#                 the tile is idle. Can be enabled by configuration.
+sched_yield
+clock_nanosleep

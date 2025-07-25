@@ -79,7 +79,8 @@ fd_topos_net_tiles( fd_topo_t *             topo,
                     ulong                   netlnk_max_routes,
                     ulong                   netlnk_max_peer_routes,
                     ulong                   netlnk_max_neighbors,
-                    ulong const             tile_to_cpu[ FD_TILE_MAX ] );
+                    ulong const             tile_to_cpu[ FD_TILE_MAX ],
+                    int                     low_power_mode );
 
 /* fd_topos_net_rx_link is like fd_topob_link, but for net->app tile
    packet RX links. */

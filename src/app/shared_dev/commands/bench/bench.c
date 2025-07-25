@@ -50,7 +50,8 @@ add_bench_topo( fd_topo_t  * topo,
                 ushort       rpc_port,
                 uint         rpc_ip_addr,
                 int          no_quic,
-                int          reserve_agave_cores ) {
+                int          reserve_agave_cores,
+                int          low_power_mode ) {
 
   fd_topob_wksp( topo, "bench" );
   fd_topob_link( topo, "bencho_out", "bench", 128UL, 64UL, 1UL );
@@ -86,18 +87,18 @@ add_bench_topo( fd_topo_t  * topo,
                        "in the [development.bench.affinity] provides for %lu cores. The extra cores will be unused.",
                        benchg_tile_cnt+1UL+benchs_tile_cnt, affinity_tile_cnt ));
   }
-  fd_topo_tile_t * bencho = fd_topob_tile( topo, "bencho", "bench", "bench", tile_to_cpu[ 0 ], 0, 0 );
+  fd_topo_tile_t * bencho = fd_topob_tile( topo, "bencho", "bench", "bench", tile_to_cpu[ 0 ], 0, 0, 0 );
   bencho->bencho.rpc_port    = rpc_port;
   bencho->bencho.rpc_ip_addr = rpc_ip_addr;
   for( ulong i=0UL; i<benchg_tile_cnt; i++ ) {
-    fd_topo_tile_t * benchg = fd_topob_tile( topo, "benchg", "bench", "bench", tile_to_cpu[ i+1UL ], 0, 0 );
+    fd_topo_tile_t * benchg = fd_topob_tile( topo, "benchg", "bench", "bench", tile_to_cpu[ i+1UL ], 0, 0, 0 );
     benchg->benchg.accounts_cnt        = accounts_cnt;
     benchg->benchg.mode                = transaction_mode;
     benchg->benchg.contending_fraction = contending_fraction;
     benchg->benchg.cu_price_spread     = cu_price_spread;
   }
   for( ulong i=0UL; i<benchs_tile_cnt; i++ ) {
-    fd_topo_tile_t * benchs = fd_topob_tile( topo, "benchs", "bench", "bench", tile_to_cpu[ benchg_tile_cnt+1UL+i ], 0, 0 );
+    fd_topo_tile_t * benchs = fd_topob_tile( topo, "benchs", "bench", "bench", tile_to_cpu[ benchg_tile_cnt+1UL+i ], 0, 0, 0 );
     benchs->benchs.send_to_ip_addr = send_to_ip_addr;
     benchs->benchs.send_to_port    = send_to_port;
     benchs->benchs.conn_cnt        = conn_cnt;
@@ -116,7 +117,7 @@ add_bench_topo( fd_topo_t  * topo,
   }
 
   /* This will blow away previous auto topology layouts and recompute an auto topology. */
-  if( FD_UNLIKELY( is_bench_auto_affinity ) ) fd_topob_auto_layout( topo, reserve_agave_cores );
+  if( FD_UNLIKELY( is_bench_auto_affinity ) ) fd_topob_auto_layout( topo, reserve_agave_cores, low_power_mode );
   fd_topob_finish( topo, CALLBACKS );
 }
 
@@ -161,7 +162,8 @@ bench_cmd_fn( args_t *   args,
                   config->rpc.port,
                   config->net.ip_addr,
                   args->load.no_quic,
-                  !config->is_firedancer );
+                  !config->is_firedancer,
+                  config->layout.low_power_mode );
 
   args_t configure_args = {
     .configure.command = CONFIGURE_CMD_INIT,
