@@ -106,7 +106,7 @@ snapshot_load_topo( config_t *     config,
   }
 
   if( !args->snapshot_load.tile_cpus[0] ) {
-    fd_topob_auto_layout( topo, 0 );
+    fd_topob_auto_layout( topo, 0, config->layout.low_power_mode );
   }
   fd_topob_finish( topo, CALLBACKS );
 }

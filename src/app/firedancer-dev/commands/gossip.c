@@ -87,7 +87,7 @@ gossip_topo( config_t * config ) {
   fd_topob_tile_uses( topo, gossip_tile, poh_shred_obj, FD_SHMEM_JOIN_MODE_READ_WRITE );
 
   fd_topos_net_tile_finish( topo, 0UL );
-  fd_topob_auto_layout( topo, 0 );
+  fd_topob_auto_layout( topo, 0, config->layout.low_power_mode );
   topo->agave_affinity_cnt = 0;
   fd_topob_finish( topo, CALLBACKS );
   fd_topo_print_log( /* stdout */ 1, topo );
