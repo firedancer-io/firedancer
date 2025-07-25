@@ -13,7 +13,8 @@ heap_size_gib = 4
 max_live_slots = 512
 snapshot_grace_period_seconds = 15
 max_vote_accounts = 32
-max_banks = 64
+max_total_banks = 64
+max_fork_width = 16
 
 [layout]
 verify_tile_count = 1

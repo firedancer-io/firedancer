@@ -98,7 +98,8 @@ fd_config_extract_podf( uchar *        pod,
   CFG_POP      ( ulong,  runtime.limits.max_transactions_per_slot         );
   CFG_POP      ( ulong,  runtime.limits.snapshot_grace_period_seconds     );
   CFG_POP      ( ulong,  runtime.limits.max_vote_accounts                 );
-  CFG_POP      ( ulong,  runtime.limits.max_banks                         );
+  CFG_POP      ( ulong,  runtime.limits.max_total_banks                   );
+  CFG_POP      ( ulong,  runtime.limits.max_fork_width                    );
 
   CFG_POP      ( ulong,  store.max_completed_shred_sets                   );
 
