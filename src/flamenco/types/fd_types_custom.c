@@ -305,7 +305,9 @@ void fd_vote_accounts_decode_inner( void * struct_mem, void * * alloc_mem, fd_bi
     fd_vote_accounts_pair_decode_inner( &node->elem, alloc_mem, ctx );
     // https://github.com/firedancer-io/agave/blob/540d5bc56cd44e3cc61b179bd52e9a782a2c99e4/vote/src/vote_account.rs#L323
     // throws an error and
-    if( FD_UNLIKELY( 0!=memcmp( node->elem.value.owner.key, fd_solana_vote_program_id.key, sizeof(fd_pubkey_t) ) ) ) {
+    if( FD_UNLIKELY( ( 0!=memcmp( node->elem.value.owner.key, fd_solana_vote_program_id.key, sizeof(fd_pubkey_t) ) )
+        || ( node->elem.value.data_len < 4 )
+        ) ) {
       // https://github.com/firedancer-io/agave/blob/540d5bc56cd44e3cc61b179bd52e9a782a2c99e4/vote/src/vote_account.rs#L429
       // causes the entry to not get added
       fd_vote_accounts_pair_t_map_release( self->vote_accounts_pool, node );
@@ -330,7 +332,9 @@ void fd_vote_accounts_decode_inner_global( void * struct_mem, void * * alloc_mem
     fd_vote_accounts_pair_global_t_mapnode_t * node = fd_vote_accounts_pair_global_t_map_acquire( vote_accounts_pool );
     fd_vote_accounts_pair_new( (fd_vote_accounts_pair_t *)fd_type_pun(&node->elem) );
     fd_vote_accounts_pair_decode_inner_global( &node->elem, alloc_mem, ctx );
-    if( FD_UNLIKELY( 0!=memcmp( node->elem.value.owner.key, fd_solana_vote_program_id.key, sizeof(fd_pubkey_t) ) ) ) {
+    if( FD_UNLIKELY( ( 0!=memcmp( node->elem.value.owner.key, fd_solana_vote_program_id.key, sizeof(fd_pubkey_t) ) )
+        || ( node->elem.value.data_len < 4 )
+        ) ) {
       fd_vote_accounts_pair_global_t_map_release( vote_accounts_pool, node );
     } else {
       fd_vote_accounts_pair_global_t_mapnode_t * out = NULL;

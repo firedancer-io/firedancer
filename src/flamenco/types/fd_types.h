@@ -155,6 +155,7 @@ struct fd_rent_collector {
 typedef struct fd_rent_collector fd_rent_collector_t;
 #define FD_RENT_COLLECTOR_ALIGN alignof(fd_rent_collector_t)
 
+/* https://github.com/solana-program/stake/blob/330d89c6246ab3fd35d02803386fa700be0455d6/interface/src/stake_history.rs#L17 */
 /* Encoded Size: Fixed (24 bytes) */
 struct fd_stake_history_entry {
   ulong effective;
@@ -164,6 +165,7 @@ struct fd_stake_history_entry {
 typedef struct fd_stake_history_entry fd_stake_history_entry_t;
 #define FD_STAKE_HISTORY_ENTRY_ALIGN alignof(fd_stake_history_entry_t)
 
+/* https://github.com/solana-program/stake/blob/330d89c6246ab3fd35d02803386fa700be0455d6/interface/src/stake_history.rs#L66 */
 /* Encoded Size: Fixed (32 bytes) */
 struct fd_epoch_stake_history_entry_pair {
   ulong epoch;
@@ -172,7 +174,7 @@ struct fd_epoch_stake_history_entry_pair {
 typedef struct fd_epoch_stake_history_entry_pair fd_epoch_stake_history_entry_pair_t;
 #define FD_EPOCH_STAKE_HISTORY_ENTRY_PAIR_ALIGN alignof(fd_epoch_stake_history_entry_pair_t)
 
-/* https://github.com/firedancer-io/solana/blob/v1.17/sdk/program/src/stake_history.rs#L12-L75 */
+/* https://github.com/solana-program/stake/blob/330d89c6246ab3fd35d02803386fa700be0455d6/interface/src/stake_history.rs#L66 */
 /* Encoded Size: Fixed (16392 bytes) */
 struct fd_stake_history {
   ulong fd_stake_history_len;
@@ -515,7 +517,7 @@ fd_stake_pair_t_map_join_new( void * * alloc_mem, ulong len ) {
   *alloc_mem = (uchar *)*alloc_mem + fd_stake_pair_t_map_footprint( len );
   return fd_stake_pair_t_map_join( fd_stake_pair_t_map_new( map_mem, len ) );
 }
-/* https://github.com/anza-xyz/agave/blob/beb3f582f784a96e59e06ef8f34e855258bcd98c/runtime/src/stakes.rs#L202 */
+/* https://github.com/anza-xyz/agave/blob/436f7333a8465739df65c2534654102896e09eb5/runtime/src/stakes.rs#L160 */
 /* Encoded Size: Dynamic */
 struct fd_stakes_stake {
   fd_vote_accounts_t vote_accounts;
@@ -997,7 +999,7 @@ FD_FN_UNUSED static fd_slot_map_pair_t * fd_solana_accounts_db_fields_historical
 FD_FN_UNUSED static void fd_solana_accounts_db_fields_historical_roots_with_hash_update( fd_solana_accounts_db_fields_global_t * struct_mem, fd_slot_map_pair_t * vec ) {
   struct_mem->historical_roots_with_hash_offset = !!vec ? (ulong)vec - (ulong)struct_mem : 0UL;
 }
-/* https://github.com/anza-xyz/agave/blob/de6ce29e1a7ecbdc6dc39527fce80beea404d314/runtime/src/epoch_stakes.rs#L23 */
+/* https://github.com/anza-xyz/agave/blob/436f7333a8465739df65c2534654102896e09eb5/runtime/src/epoch_stakes.rs#L25 */
 /* Encoded Size: Dynamic */
 struct fd_versioned_epoch_stakes_current {
   fd_stakes_stake_t stakes;
@@ -1059,6 +1061,7 @@ union fd_versioned_epoch_stakes_inner_global {
 };
 typedef union fd_versioned_epoch_stakes_inner_global fd_versioned_epoch_stakes_inner_global_t;
 
+/* https://github.com/anza-xyz/agave/blob/436f7333a8465739df65c2534654102896e09eb5/runtime/src/epoch_stakes.rs#L24 */
 struct fd_versioned_epoch_stakes {
   uint discriminant;
   fd_versioned_epoch_stakes_inner_t inner;
