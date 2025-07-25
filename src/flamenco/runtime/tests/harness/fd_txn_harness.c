@@ -176,17 +176,6 @@ fd_runtime_fuzz_txn_ctx_create( fd_runtime_fuzz_runner_t *         runner,
     fd_sysvar_epoch_rewards_init( slot_ctx, 0UL, 2UL, 1UL, 0UL, 0UL, last_hash);
   }
 
-  /* A NaN rent exemption threshold is U.B. in Solana Labs */
-  rent = fd_sysvar_rent_read( funk, funk_txn, runner->spad );
-  if( ( rent->exemption_threshold != 0.0 &&
-        !fd_dblbits_is_normal( fd_dblbits( rent->exemption_threshold ) ) ) |
-      ( rent->exemption_threshold     <      0.0 ) |
-      ( rent->exemption_threshold     >    999.0 ) |
-      ( rent->lamports_per_uint8_year > UINT_MAX ) |
-      ( rent->burn_percent            >      100 ) ) {
-    return NULL;
-  }
-
   /* Blockhash queue is given in txn message. We need to populate the following two fields:
      - block_hash_queue
      - recent_block_hashes */
