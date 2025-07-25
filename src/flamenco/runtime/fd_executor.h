@@ -4,6 +4,7 @@
 #include "fd_executor_err.h"
 #include "fd_executor_setup.h"
 #include "fd_txn_loader.h"
+#include "fd_program_lookup.h"
 #include "context/fd_exec_txn_ctx.h"
 #include "context/fd_exec_instr_ctx.h"
 #include "../../ballet/block/fd_microblock.h"
@@ -41,19 +42,6 @@ static inline ulong
 get_transaction_account_lock_limit( fd_exec_txn_ctx_t const * txn_ctx ) {
   return fd_ulong_if( FD_FEATURE_ACTIVE_BANK( txn_ctx->bank, increase_tx_account_lock_limit ), MAX_TX_ACCOUNT_LOCKS, 64UL );
 }
-
-/* fd_exec_instr_fn_t processes an instruction.  Returns an error code
-   in FD_EXECUTOR_INSTR_{ERR_{...},SUCCESS}. */
-
-typedef int (* fd_exec_instr_fn_t)( fd_exec_instr_ctx_t * ctx );
-
-fd_exec_instr_fn_t
-fd_executor_lookup_native_precompile_program( fd_txn_account_t const * prog_acc );
-
-/* Returns 1 if the given pubkey matches one of the BPF loader v1/v2/v3/v4
-   program IDs, and 0 otherwise. */
-uchar
-fd_executor_pubkey_is_bpf_loader( fd_pubkey_t const * pubkey );
 
 int
 fd_executor_verify_transaction( fd_exec_txn_ctx_t * txn_ctx );

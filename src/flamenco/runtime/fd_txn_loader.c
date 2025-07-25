@@ -415,7 +415,7 @@ load_transaction_accounts_simd_186( fd_exec_txn_ctx_t * txn_ctx ) {
     /* https://github.com/anza-xyz/agave/blob/v2.3.1/svm/src/account_loader.rs#L677-L681 */
     fd_pubkey_t const * owner_id = program_account->vt->get_owner( program_account );
     if( FD_UNLIKELY( memcmp( owner_id->key, fd_solana_native_loader_id.key, sizeof(fd_pubkey_t) ) &&
-                     !fd_executor_pubkey_is_bpf_loader( owner_id ) ) ) {
+                     !fd_pubkey_is_bpf_loader( owner_id ) ) ) {
       return FD_RUNTIME_TXN_ERR_INVALID_PROGRAM_FOR_EXECUTION;
     }
   }

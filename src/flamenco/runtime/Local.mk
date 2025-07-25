@@ -23,6 +23,9 @@ $(call add-objs,fd_executor_setup,fd_flamenco)
 $(call add-hdrs,fd_txn_loader.h)
 $(call add-objs,fd_txn_loader,fd_flamenco)
 
+$(call add-hdrs,fd_program_lookup.h)
+$(call add-objs,fd_program_lookup,fd_flamenco)
+
 $(call add-hdrs,fd_executor.h)
 $(call add-objs,fd_executor,fd_flamenco)
 

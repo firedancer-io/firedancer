@@ -273,13 +273,12 @@ fd_bpf_loader_program_get_state( fd_txn_account_t const * acct,
       acct->vt->get_data( acct ),
       acct->vt->get_data_len( acct ),
       &err );
-  if( FD_UNLIKELY( err ) ) {
-    if( opt_err ) {
-      *opt_err = err;
-    }
-    return NULL;
+
+  if( opt_err ) {
+    *opt_err = FD_UNLIKELY( err ) ? FD_EXECUTOR_INSTR_ERR_INVALID_ACC_DATA : FD_EXECUTOR_INSTR_SUCCESS;
   }
-  return res;
+
+  return FD_UNLIKELY( err ) ? NULL : res;
 }
 
 /* Mirrors solana_sdk::transaction_context::BorrowedAccount::set_state()

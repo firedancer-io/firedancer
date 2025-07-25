@@ -169,7 +169,7 @@ fd_runtime_fuzz_instr_ctx_create( fd_runtime_fuzz_runner_t *           runner,
   /* Load in executable accounts */
   for( ulong i = 0; i < txn_ctx->accounts_cnt; i++ ) {
     fd_txn_account_t * acc = &accts[i];
-    if ( !fd_executor_pubkey_is_bpf_loader( acc->vt->get_owner( acc ) ) ) {
+    if ( !fd_pubkey_is_bpf_loader( acc->vt->get_owner( acc ) ) ) {
       continue;
     }
 
