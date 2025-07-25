@@ -125,6 +125,9 @@ fd_funk_txn_start_write( fd_funk_t * funk );
 void
 fd_funk_txn_end_write( fd_funk_t * funk );
 
+void
+fd_funk_txn_debug_print_on( void );
+
 /* Accessors */
 
 /* fd_funk_txn_query returns a pointer to an in-preparation transaction

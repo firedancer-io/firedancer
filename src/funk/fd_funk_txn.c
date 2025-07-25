@@ -45,6 +45,11 @@ fd_funk_txn_end_write( fd_funk_t * funk FD_PARAM_UNUSED ) {
   fd_rwlock_recursive_unwrite( funk_txn_lock );
 }
 
+void
+fd_funk_txn_debug_print_on( void ) {
+  funk_txn_lock->debug_print = 1;
+}
+
 fd_funk_txn_t *
 fd_funk_txn_prepare( fd_funk_t *               funk,
                      fd_funk_txn_t *           parent,

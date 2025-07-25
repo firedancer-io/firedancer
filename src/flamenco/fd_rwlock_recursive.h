@@ -41,6 +41,7 @@ struct fd_rwlock_recursive {
                                        0xFFFF: Write locked */
   volatile uchar  write_count;      /* Number of recursive write locks held by write owner */
   volatile uchar  write_read_count; /* Number of recursive read locks held by write owner */
+  volatile uchar  debug_print;
 
   uchar _pad[64UL-sizeof(ulong)-sizeof(ushort)-sizeof(uchar)-sizeof(uchar)];
 };
@@ -59,7 +60,9 @@ fd_rwlock_recursive_new( fd_rwlock_recursive_t * lock ) {
 
 static inline void
 fd_rwlock_recursive_write( fd_rwlock_recursive_t * lock ) {
-  FD_LOG_INFO(( "fd_rwlock_recursive_write: tid=%lu", fd_log_tid() ));
+  if( lock->debug_print ) {
+    FD_LOG_INFO(( "fd_rwlock_recursive_write: tid=%lu", fd_log_tid() ));
+  }
 #if FD_HAS_THREADS
   ulong tid = fd_log_tid();
 
@@ -108,7 +111,9 @@ fd_rwlock_recursive_write( fd_rwlock_recursive_t * lock ) {
 
 static inline void
 fd_rwlock_recursive_read( fd_rwlock_recursive_t * lock ) {
-  FD_LOG_INFO(( "fd_rwlock_recursive_read: tid=%lu", fd_log_tid() ));
+  if( lock->debug_print ) {
+    FD_LOG_INFO(( "fd_rwlock_recursive_read: tid=%lu", fd_log_tid() ));
+  }
 #if FD_HAS_THREADS
   ulong tid = fd_log_tid();
 
@@ -151,7 +156,9 @@ fd_rwlock_recursive_read( fd_rwlock_recursive_t * lock ) {
 
 static inline void
 fd_rwlock_recursive_unlock( fd_rwlock_recursive_t * lock, int is_write ) {
-  FD_LOG_INFO(( "fd_rwlock_recursive_unlock: tid=%lu, is_write=%d", fd_log_tid(), is_write ));
+  if( lock->debug_print ) {
+    FD_LOG_INFO(( "fd_rwlock_recursive_unlock: tid=%lu, is_write=%d", fd_log_tid(), is_write ));
+  }
   FD_COMPILER_MFENCE();
 
 #if FD_HAS_THREADS
