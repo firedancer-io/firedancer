@@ -68,6 +68,10 @@ union fdctl_args {
   } flame;
 
   struct {
+    char manifest_path[ 256UL ];
+  } repair;
+
+  struct {
     char    affinity[ AFFINITY_SZ ];
     uint    tpu_ip;
     uint    rpc_ip;
