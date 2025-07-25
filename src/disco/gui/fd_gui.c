@@ -1093,7 +1093,7 @@ fd_gui_handle_leader_schedule( fd_gui_t *    gui,
   gui->epoch.epochs[ idx ].my_skipped_slots = 0UL;
 
   fd_vote_stake_weight_t const * stake_weights = fd_type_pun_const( msg+6UL );
-  staked_cnt = compute_id_weights_from_vote_weights( gui->epoch.epochs[ idx ].stakes, stake_weights, staked_cnt );
+  memcpy( gui->epoch.epochs[ idx ].stakes, stake_weights, staked_cnt*sizeof(fd_vote_stake_weight_t) );
 
   fd_epoch_leaders_delete( fd_epoch_leaders_leave( gui->epoch.epochs[ idx ].lsched ) );
   gui->epoch.epochs[idx].lsched = fd_epoch_leaders_join( fd_epoch_leaders_new( gui->epoch.epochs[ idx ]._lsched,

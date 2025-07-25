@@ -137,7 +137,7 @@ fd_stakes_export( fd_stake_weight_t_mapnode_t const * const in_pool,
 
 ulong
 fd_stake_weights_by_node( fd_vote_accounts_global_t const * accs,
-                          fd_stake_weight_t *               weights,
+                          fd_vote_stake_weight_t *          weights,
                           fd_spad_t *                       runtime_spad ) {
 
   /* Estimate size required to store temporary data structures */
@@ -163,8 +163,17 @@ fd_stake_weights_by_node( fd_vote_accounts_global_t const * accs,
 
   /* Export to sorted list */
 
-  ulong weights_cnt = fd_stakes_export( pool, root, weights );
-  fd_stake_weight_sort( weights, weights_cnt );
+  /* FIXME: SIMD-0180 */
+  fd_stake_weight_t * _weights = fd_spad_alloc_check( runtime_spad, alignof(fd_stake_weight_t), vote_acc_cnt * sizeof(fd_stake_weight_t) );
+
+  ulong weights_cnt = fd_stakes_export( pool, root, _weights );
+  fd_stake_weight_sort( _weights, weights_cnt );
+
+  for( ulong i=0UL; i<weights_cnt; i++ ) {
+    weights[ i ].stake = _weights[ i ].stake;
+    memcpy( weights[ i ].id_key.uc, _weights[ i ].key.uc, sizeof(fd_pubkey_t) );
+    memcpy( weights[ i ].vote_key.uc, _weights[ i ].key.uc, sizeof(fd_pubkey_t) );
+  }
 
   return weights_cnt;
 }

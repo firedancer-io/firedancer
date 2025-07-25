@@ -11,7 +11,7 @@ uchar _sd_footprint[ TEST_MAX_FOOTPRINT ] __attribute__((aligned(FD_SHRED_DEST_A
 uchar _l_footprint[ TEST_MAX_FOOTPRINT ] __attribute__((aligned(FD_EPOCH_LEADERS_ALIGN)));
 
 #define TEST_MAX_VALIDATORS 10240
-fd_stake_weight_t stakes[ TEST_MAX_VALIDATORS ];
+fd_vote_stake_weight_t stakes[ TEST_MAX_VALIDATORS ];
 FD_STATIC_ASSERT( FD_SHRED_DEST_ALIGN==alignof(fd_shred_dest_t), shred_dest_align );
 
 FD_STATIC_ASSERT( sizeof(fd_shred_dest_weighted_t)==48UL, dest_info_construction );
@@ -27,7 +27,8 @@ test_compute_first_matches_agave( void ) {
   ulong staked = 0UL;
   for( ulong i=0UL; i<cnt; i++ ) {
   fd_shred_dest_weighted_t const * info = (fd_shred_dest_weighted_t const *)t1_dest_info;
-    stakes[i].key = info[i].pubkey;
+    stakes[i].id_key = info[i].pubkey;
+    stakes[i].vote_key = info[i].pubkey;
     stakes[i].stake = info[i].stake_lamports;
     staked += (info[i].stake_lamports>0UL);
   }
@@ -78,7 +79,8 @@ test_compute_children_matches_agave( void ) {
 
   ulong staked = 0UL;
   for( ulong i=0UL; i<cnt; i++ ) {
-    stakes[i].key = info[i].pubkey;
+    stakes[i].id_key = info[i].pubkey;
+    stakes[i].vote_key = info[i].pubkey;
     stakes[i].stake = info[i].stake_lamports;
     staked += (info[i].stake_lamports>0UL);
   }
@@ -182,7 +184,8 @@ test_batching( void ) {
     ulong prev = 1UL<<48;
     for( ulong i=0UL; i<cnt; i++ ) {
       info[i].pubkey.uc[0] = (uchar)(cnt-i);
-      stakes[i].key.uc[0] = (uchar)(cnt-i);
+      stakes[i].id_key.uc[0] = (uchar)(cnt-i);
+      stakes[i].vote_key.uc[0] = (uchar)(cnt-i);
       info[i].stake_lamports = 1UL + fd_rng_ulong_roll( r, prev );
       stakes[i].stake = info[i].stake_lamports;
       prev = info[i].stake_lamports+1UL;
@@ -251,14 +254,18 @@ test_vary_stake( void ) {
     prev = 1UL<<48;
     ulong pubkey0 = 1UL+fd_rng_ulong_roll( r, 30UL );
     for( ulong i=0UL; i<30UL; i++ ) {
-      memset( stakes[i].key.uc, 0, 32UL );
-      stakes[i].key.uc[0] = (uchar)pubkey0;
+      memset( stakes[i].id_key.uc, 0, 32UL );
+      memset( stakes[i].vote_key.uc, 0, 32UL );
+      stakes[i].id_key.uc[0] = (uchar)pubkey0;
+      stakes[i].vote_key.uc[0] = (uchar)pubkey0;
       pubkey0 = (pubkey0*3UL)%31; /* Hits [1, 30] */
       stakes[i].stake = 2UL + fd_rng_ulong_roll( r, prev );
       prev = stakes[i].stake;
     }
-    stakes[30].key.uc[0] = 31;
-    stakes[31].key.uc[0] = 0;
+    stakes[30].id_key.uc[0] = 31;
+    stakes[31].id_key.uc[0] = 0;
+    stakes[30].vote_key.uc[0] = 31;
+    stakes[31].vote_key.uc[0] = 0;
     stakes[30].stake = stakes[31].stake = prev-1UL;
 
     fd_epoch_leaders_t * lsched = fd_epoch_leaders_join( fd_epoch_leaders_new( _l_footprint, 0UL, 0UL, 100UL, cnt, stakes, 0UL, vote_keyed_lsched ) );
@@ -276,7 +283,8 @@ test_t1_vary_radix( void ) {
   fd_shred_dest_weighted_t const * info = (fd_shred_dest_weighted_t const *)t1_dest_info;
   ulong cnt = t1_dest_info_sz / sizeof(fd_shred_dest_weighted_t);
   for( ulong i=0UL; i<cnt; i++ ) {
-    stakes[i].key = info[i].pubkey;
+    stakes[i].id_key = info[i].pubkey;
+    stakes[i].vote_key = info[i].pubkey;
     stakes[i].stake = info[i].stake_lamports;
     staked += (info[i].stake_lamports>0UL);
   }
@@ -298,7 +306,8 @@ test_change_contact( void ) {
 
   ulong staked = 0UL;
   for( ulong i=0UL; i<cnt; i++ ) {
-    stakes[i].key = info[i].pubkey;
+    stakes[i].id_key = info[i].pubkey;
+    stakes[i].vote_key = info[i].pubkey;
     stakes[i].stake = info[i].stake_lamports;
     staked += (info[i].stake_lamports>0UL);
   }
@@ -320,7 +329,8 @@ test_errors( void ) {
   FD_TEST( NULL==fd_shred_dest_new( NULL,      NULL, 0, NULL, NULL, 0UL ) );
   FD_TEST( NULL==fd_shred_dest_new( (void *)1, NULL, 0, NULL, NULL, 0UL ) );
 
-  memset( &(stakes[0].key), 1, 32UL );
+  memset( &(stakes[0].id_key), 1, 32UL );
+  memset( &(stakes[0].vote_key), 1, 32UL );
   stakes[0].stake = 100UL;
   fd_pubkey_t const * src_key = (fd_pubkey_t const *)t1_pubkey;
   fd_epoch_leaders_t * lsched = fd_epoch_leaders_join( fd_epoch_leaders_new( _l_footprint, 0UL, 0UL, 10000UL, 1UL, stakes, 0UL, vote_keyed_lsched ) );
@@ -339,7 +349,8 @@ test_indeterminate( void ) {
   fd_shred_dest_weighted_t const * info = (fd_shred_dest_weighted_t const *)t1_dest_info;
   ulong cnt = t1_dest_info_sz / sizeof(fd_shred_dest_weighted_t);
   for( ulong i=0UL; i<cnt; i++ ) {
-    stakes[i].key = info[i].pubkey;
+    stakes[i].id_key = info[i].pubkey;
+    stakes[i].vote_key = info[i].pubkey;
     stakes[i].stake = info[i].stake_lamports;
     staked_cnt += (info[i].stake_lamports>0UL);
   }
@@ -441,7 +452,8 @@ test_performance( void ) {
 
   ulong staked = 0UL;
   for( ulong i=0UL; i<cnt; i++ ) {
-    stakes[i].key = info[i].pubkey;
+    stakes[i].id_key = info[i].pubkey;
+    stakes[i].vote_key = info[i].pubkey;
     stakes[i].stake = info[i].stake_lamports;
     staked += (info[i].stake_lamports>0UL);
   }

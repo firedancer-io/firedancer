@@ -132,8 +132,7 @@ fd_runtime_update_leaders( fd_bank_t * bank,
   ulong vote_acc_cnt  = fd_vote_accounts_pair_global_t_map_size( vote_acc_pool, vote_acc_root );
   fd_bank_epoch_stakes_end_locking_query( bank );
 
-  fd_stake_weight_t * epoch_weights = fd_spad_alloc_check( runtime_spad, alignof(fd_stake_weight_t), vote_acc_cnt * sizeof(fd_stake_weight_t) );
-
+  fd_vote_stake_weight_t * epoch_weights = fd_spad_alloc_check( runtime_spad, alignof(fd_vote_stake_weight_t), vote_acc_cnt * sizeof(fd_vote_stake_weight_t) );
   ulong stake_weight_cnt = fd_stake_weights_by_node( epoch_vaccs, epoch_weights, runtime_spad );
 
   if( FD_UNLIKELY( stake_weight_cnt == ULONG_MAX ) ) {
@@ -153,8 +152,9 @@ fd_runtime_update_leaders( fd_bank_t * bank,
       FD_LOG_ERR(( "Slot count exceeeded max" ));
     }
 
-    void * epoch_leaders_mem = fd_bank_epoch_leaders_locking_modify( bank );
     ulong vote_keyed_lsched = 0; /* FIXME: SIMD-0180 */
+
+    void * epoch_leaders_mem = fd_bank_epoch_leaders_locking_modify( bank );
     fd_epoch_leaders_t * leaders = fd_epoch_leaders_join( fd_epoch_leaders_new( epoch_leaders_mem,
                                                                                            epoch,
                                                                                            slot0,

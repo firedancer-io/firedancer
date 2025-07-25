@@ -27,11 +27,11 @@ fd_stake_ci_new( void             * mem,
                 fd_pubkey_t const * identity_key ) {
   fd_stake_ci_t * info = (fd_stake_ci_t *)mem;
 
-  fd_stake_weight_t dummy_stakes[ 1 ] = {{ .key = {{0}}, .stake = 1UL }};
+  fd_vote_stake_weight_t dummy_stakes[ 1 ] = {{ .vote_key = {{0}}, .id_key = {{0}}, .stake = 1UL }};
   fd_shred_dest_weighted_t dummy_dests[ 1 ] = {{ .pubkey = *identity_key, .ip4 = SELF_DUMMY_IP }};
 
   /* Initialize first 2 to satisfy invariants */
-  info->stake_weight[ 0 ] = dummy_stakes[ 0 ];
+  info->vote_stake_weight[ 0 ] = dummy_stakes[ 0 ];
   info->shred_dest  [ 0 ] = dummy_dests [ 0 ];
   for( ulong i=0UL; i<2UL; i++ ) {
     fd_per_epoch_info_t * ei = info->epoch_info + i;
@@ -41,7 +41,7 @@ fd_stake_ci_new( void             * mem,
     ei->excluded_stake = 0UL;
     ei->vote_keyed_lsched = 0UL;
 
-    ei->lsched = fd_epoch_leaders_join( fd_epoch_leaders_new( ei->_lsched, 0UL, 0UL, 1UL, 1UL,    info->stake_weight,       0UL, ei->vote_keyed_lsched ) );
+    ei->lsched = fd_epoch_leaders_join( fd_epoch_leaders_new( ei->_lsched, 0UL, 0UL, 1UL, 1UL,    info->vote_stake_weight,  0UL, ei->vote_keyed_lsched ) );
     ei->sdest  = fd_shred_dest_join   ( fd_shred_dest_new   ( ei->_sdest,  info->shred_dest, 1UL, ei->lsched, identity_key, 0UL ) );
   }
   info->identity_key[ 0 ] = *identity_key;
@@ -117,7 +117,7 @@ compute_id_weights_from_vote_weights( fd_stake_weight_t *            stake_weigh
       memcpy( stake_weight[ j ].key.uc, stake_weight[ i ].key.uc, sizeof(fd_pubkey_t) );
     }
   }
-  ulong staked_cnt_by_id = j+1;
+  ulong staked_cnt_by_id = fd_ulong_min( staked_cnt, j+1 );
 
   /* Sort [(id, stake)] by stake then id, as expected */
   sort_weights_by_stake_id_inplace( stake_weight, staked_cnt_by_id );
@@ -137,6 +137,7 @@ fd_stake_ci_stake_msg_fini( fd_stake_ci_t * info ) {
      and whatever contact info we previously knew. */
   ulong epoch                  = info->scratch->epoch;
   ulong staked_cnt             = info->scratch->staked_cnt;
+  ulong unchanged_staked_cnt   = info->scratch->staked_cnt;
   ulong vote_keyed_lsched      = info->scratch->vote_keyed_lsched;
 
   /* Just take the first one arbitrarily because they both have the same
@@ -212,9 +213,9 @@ fd_stake_ci_stake_msg_fini( fd_stake_ci_t * info ) {
   new_ei->vote_keyed_lsched = vote_keyed_lsched;
 
   new_ei->lsched = fd_epoch_leaders_join( fd_epoch_leaders_new( new_ei->_lsched, epoch, new_ei->start_slot, new_ei->slot_cnt,
-                                                                staked_cnt, info->stake_weight,     excluded_stake, vote_keyed_lsched ) );
+                                                                unchanged_staked_cnt, info->vote_stake_weight, excluded_stake, vote_keyed_lsched ) );
   new_ei->sdest  = fd_shred_dest_join   ( fd_shred_dest_new   ( new_ei->_sdest, info->shred_dest, j,
-                                                                new_ei->lsched, info->identity_key, excluded_stake ) );
+                                                                new_ei->lsched, info->identity_key,  excluded_stake ) );
   log_summary( "stake update", info );
 }
 

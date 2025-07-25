@@ -418,11 +418,25 @@ test_set_identity( void ) {
   fd_stake_ci_set_identity( info, new );
 }
 
-static void
+ void
 test_staked_by_vote( void ) {
   fd_stake_ci_t * info = fd_stake_ci_join( fd_stake_ci_new( _info, identity_key ) );
+  fd_stake_weight_msg_t * msg;
 
-  fd_stake_ci_stake_msg_init( info, generate_stake_msg( stake_msg, 0UL, "AAB"   ) );  fd_stake_ci_stake_msg_fini( info );
+  msg = generate_stake_msg( stake_msg, 0UL, "I"   );
+  msg->vote_keyed_lsched = 1;
+  fd_stake_ci_stake_msg_init( info, msg );  fd_stake_ci_stake_msg_fini( info );
+  check_destinations( info, 0UL, "I",   "" );
+
+  msg = generate_stake_msg( stake_msg, 0UL, "ABC"   );
+  msg->vote_keyed_lsched = 1;
+  fd_stake_ci_stake_msg_init( info, msg );  fd_stake_ci_stake_msg_fini( info );
+  check_destinations( info, 0UL, "ABC",   "I" );
+
+  fd_stake_ci_stake_msg_init( info, generate_stake_msg( stake_msg, 0UL, "ABBB"   ) );  fd_stake_ci_stake_msg_fini( info );
+  check_destinations( info, 0UL, "BA",   "I" );
+
+  fd_stake_ci_stake_msg_init( info, generate_stake_msg( stake_msg, 0UL, "ABBA"   ) );  fd_stake_ci_stake_msg_fini( info );
   check_destinations( info, 0UL, "AB",   "I" );
   fd_stake_ci_stake_msg_init( info, generate_stake_msg( stake_msg, 1UL, "ABACBADACBE" ) );  fd_stake_ci_stake_msg_fini( info );
   check_destinations( info, 0UL, "AB",   "I" );

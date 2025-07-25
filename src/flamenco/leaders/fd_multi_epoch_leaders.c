@@ -16,7 +16,7 @@ fd_multi_epoch_leaders_new( void * shmem ) {
   leaders->scratch->vote_keyed_lsched = 0;
 
   /* Initialize all epochs to satisfy invariants */
-  fd_stake_weight_t dummy_stakes[ 1 ] = {{ .key = {{0}}, .stake = 1UL }};
+  fd_vote_stake_weight_t dummy_stakes[ 1 ] = {{ .vote_key = {{0}}, .id_key = {{0}}, .stake = 1UL }};
   for( ulong i=0UL; i<MULTI_EPOCH_LEADERS_EPOCH_CNT; i++ ) {
     leaders->lsched[i] = fd_epoch_leaders_join( fd_epoch_leaders_new( leaders->_lsched[i], i, 0UL, 1UL, 1UL, dummy_stakes, 0UL, leaders->scratch->vote_keyed_lsched ) );
     FD_TEST( leaders->lsched[i] );
@@ -120,13 +120,7 @@ fd_multi_epoch_leaders_stake_msg_fini( fd_multi_epoch_leaders_t * mleaders ) {
   const ulong vote_keyed_lsched = mleaders->scratch->vote_keyed_lsched;
   const ulong epoch_idx      = epoch % MULTI_EPOCH_LEADERS_EPOCH_CNT;
 
-  /* FIXME: SIMD-0180 */
-  for( ulong i=0UL; i<pub_cnt; i++ ) {
-    memcpy( mleaders->stake_weight[ i ].key.uc, mleaders->vote_stake_weight[ i ].id_key.uc, sizeof(fd_pubkey_t) );
-    mleaders->stake_weight[ i ].stake = mleaders->vote_stake_weight[ i ].stake;
-  }
-
-  fd_stake_weight_t const * stakes = mleaders->stake_weight;
+  fd_vote_stake_weight_t * stakes = mleaders->vote_stake_weight;
 
   /* Clear old data */
   fd_epoch_leaders_delete( fd_epoch_leaders_leave( mleaders->lsched[epoch_idx] ) );

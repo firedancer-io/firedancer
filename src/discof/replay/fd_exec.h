@@ -20,19 +20,11 @@ generate_stake_weight_msg( fd_exec_slot_ctx_t * slot_ctx,
 
   fd_stake_weight_msg_t *           stake_weight_msg = (fd_stake_weight_msg_t *)fd_type_pun( stake_weight_msg_out );
   fd_vote_stake_weight_t *          stake_weights    = stake_weight_msg->weights;
-  fd_stake_weight_t *               old_stake_weights = fd_type_pun( stake_weights ); /* dirty hack */
   fd_vote_accounts_global_t const * vote_accounts    = fd_bank_epoch_stakes_locking_query( slot_ctx->bank );
   ulong                             staked_cnt       = fd_stake_weights_by_node( vote_accounts,
-                                                                           old_stake_weights,
+                                                                           stake_weights,
                                                                            runtime_spad );
   fd_bank_epoch_stakes_end_locking_query( slot_ctx->bank );
-
-  /* FIXME: SIMD-0180 */
-  for( int i=(int)staked_cnt-1; i>=0; i-- ) {
-    stake_weights[ i ].stake = old_stake_weights[ i ].stake;
-    memcpy( stake_weights[ i ].id_key.uc, old_stake_weights[ i ].key.uc, sizeof(fd_pubkey_t) );
-    memcpy( stake_weights[ i ].vote_key.uc, old_stake_weights[ i ].key.uc, sizeof(fd_pubkey_t) );
-  }
 
   fd_epoch_schedule_t const * epoch_schedule = fd_bank_epoch_schedule_query( slot_ctx->bank );
 
