@@ -2,6 +2,7 @@
 #define HEADER_fd_src_flamenco_runtime_fd_executor_h
 
 #include "fd_executor_err.h"
+#include "fd_executor_setup.h"
 #include "context/fd_exec_txn_ctx.h"
 #include "context/fd_exec_instr_ctx.h"
 #include "../../ballet/block/fd_microblock.h"
@@ -18,8 +19,6 @@
 /* https://github.com/anza-xyz/agave/blob/v2.3.1/svm/src/account_loader.rs#L40-L47 */
 #define FD_TRANSACTION_ACCOUNT_BASE_SIZE  (64UL)
 #define FD_ADDRESS_LOOKUP_TABLE_BASE_SIZE (8248UL)
-
-#define FD_FEE_PAYER_TXN_IDX (0UL)
 
 /* FD_EXEC_CU_UPDATE consumes CUs from the current instr ctx
    and fails in case of error. */
@@ -88,15 +87,6 @@ fd_execute_txn( fd_execute_txn_task_info_t * task_info );
 
 int
 fd_executor_validate_transaction_fee_payer( fd_exec_txn_ctx_t * txn_ctx );
-
-void
-fd_executor_setup_accounts_for_txn( fd_exec_txn_ctx_t * txn_ctx );
-
-void
-fd_executor_setup_txn_account_keys( fd_exec_txn_ctx_t * txn_ctx );
-
-int
-fd_executor_setup_txn_alut_account_keys( fd_exec_txn_ctx_t * txn_ctx );
 
 /*
   Validate the txn after execution for violations of various lamport balance and size rules

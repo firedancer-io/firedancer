@@ -17,6 +17,9 @@ $(call add-hdrs,fd_blockstore.h fd_rwseq_lock.h)
 $(call add-objs,fd_blockstore,fd_flamenco)
 $(call make-unit-test,test_blockstore,test_blockstore, fd_flamenco fd_util fd_ballet,$(SECP256K1_LIBS))
 
+$(call add-hdrs,fd_executor_setup.h)
+$(call add-objs,fd_executor_setup,fd_flamenco)
+
 $(call add-hdrs,fd_executor.h)
 $(call add-objs,fd_executor,fd_flamenco)
 
