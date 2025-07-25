@@ -164,9 +164,9 @@ struct __attribute__((aligned(128UL))) fd_store_fec {
 };
 typedef struct fd_store_fec fd_store_fec_t;
 
-#define POOL_NAME fd_store_pool
-#define POOL_T    fd_store_fec_t
-#include "../../util/tmpl/fd_pool.c"
+#define POOL_NAME  fd_store_pool
+#define POOL_ELE_T fd_store_fec_t
+#include "../../util/tmpl/fd_pool_para.c"
 
 #define MAP_NAME               fd_store_map
 #define MAP_ELE_T              fd_store_fec_t
@@ -178,12 +178,13 @@ typedef struct fd_store_fec fd_store_fec_t;
 struct fd_store {
   ulong magic;       /* ==FD_STORE_MAGIC */
   ulong seed;        /* seed for various hashing function used under the hood, arbitrary */
+  ulong fec_max;     /* max number of FEC sets that can be stored */
   ulong root;        /* pool idx of the root */
   ulong slot0;       /* FIXME this hack is needed until the block_id is in the bank (manifest) */
   ulong store_gaddr; /* wksp gaddr of store in the backing wksp, non-zero gaddr */
-  ulong pool_gaddr;  /* wksp gaddr of pool of store elements (fd_store_fec) */
   ulong map_gaddr;   /* wksp gaddr of map of fd_store_key->fd_store_fec */
-
+  ulong pool_mem_gaddr; /* wksp gaddr of shmem_t object in pool_para */
+  ulong pool_ele_gaddr; /* wksp gaddr of first ele_t object in pool_para */
   fd_rwlock_t lock; /* rwlock for concurrent access */
 };
 typedef struct fd_store fd_store_t;
@@ -207,10 +208,12 @@ fd_store_footprint( ulong fec_max ) {
     FD_LAYOUT_APPEND(
     FD_LAYOUT_APPEND(
     FD_LAYOUT_APPEND(
+    FD_LAYOUT_APPEND(
     FD_LAYOUT_INIT,
-      alignof(fd_store_t),   sizeof(fd_store_t)                 ),
-      fd_store_pool_align(), fd_store_pool_footprint( fec_max ) ),
-      fd_store_map_align(),  fd_store_map_footprint( fec_max )  ),
+      alignof(fd_store_t),     sizeof(fd_store_t)                ),
+      fd_store_map_align(),    fd_store_map_footprint( fec_max ) ),
+      fd_store_pool_align(),   fd_store_pool_footprint()         ),
+      alignof(fd_store_fec_t), sizeof(fd_store_fec_t)*fec_max    ),
     fd_store_align() );
 }
 
@@ -259,16 +262,27 @@ fd_store_wksp( fd_store_t const * store ) {
   return (fd_wksp_t *)( ( (ulong)store ) - store->store_gaddr );
 }
 
-/* fd_store_{pool,map} returns a pointer in the caller's address space
+/* fd_store_pool returns a local join to the pool_t object of the store. */
+FD_FN_PURE static inline fd_store_pool_t fd_store_pool_const( fd_store_t const * store ) {
+   return (fd_store_pool_t){ .pool = fd_wksp_laddr_fast( fd_store_wksp( store ), store->pool_mem_gaddr ),
+                             .ele =  fd_wksp_laddr_fast( fd_store_wksp( store ), store->pool_ele_gaddr ),
+                             .ele_max = store->fec_max };
+}
+
+FD_FN_PURE static inline fd_store_pool_t fd_store_pool( fd_store_t * store ) { return fd_store_pool_const( store ); }
+
+/* fd_store_{map,map_const} returns a pointer in the caller's address space
    to the corresponding store field.  const versions for each are also
    provided. */
 
-FD_FN_PURE static inline fd_store_fec_t       * fd_store_pool      ( fd_store_t       * store ) { return fd_wksp_laddr_fast     ( fd_store_wksp      ( store ), store->pool_gaddr ); }
-FD_FN_PURE static inline fd_store_fec_t const * fd_store_pool_const( fd_store_t const * store ) { return fd_wksp_laddr_fast     ( fd_store_wksp      ( store ), store->pool_gaddr ); }
-FD_FN_PURE static inline fd_store_map_t       * fd_store_map       ( fd_store_t       * store ) { return fd_wksp_laddr_fast     ( fd_store_wksp      ( store ), store->map_gaddr  ); }
-FD_FN_PURE static inline fd_store_map_t const * fd_store_map_const ( fd_store_t const * store ) { return fd_wksp_laddr_fast     ( fd_store_wksp      ( store ), store->map_gaddr  ); }
-FD_FN_PURE static inline fd_store_fec_t       * fd_store_root      ( fd_store_t       * store ) { return fd_store_pool_ele      ( fd_store_pool      ( store ), store->root       ); }
-FD_FN_PURE static inline fd_store_fec_t const * fd_store_root_const( fd_store_t const * store ) { return fd_store_pool_ele_const( fd_store_pool_const( store ), store->root       ); }
+FD_FN_PURE static inline fd_store_map_t       * fd_store_map        ( fd_store_t       * store ) { return fd_wksp_laddr_fast( fd_store_wksp( store ), store->map_gaddr  ); }
+FD_FN_PURE static inline fd_store_map_t const * fd_store_map_const  ( fd_store_t const * store ) { return fd_wksp_laddr_fast( fd_store_wksp( store ), store->map_gaddr  ); }
+
+FD_FN_PURE static inline fd_store_fec_t       * fd_store_pool0      ( fd_store_t       * store ) { fd_store_pool_t pool = fd_store_pool      ( store ); return pool.ele; }
+/* TODO: take pool join instead of store_t**/
+FD_FN_PURE static inline fd_store_fec_t const * fd_store_pool0_const( fd_store_t const * store ) { fd_store_pool_t pool = fd_store_pool_const( store ); return pool.ele; }
+FD_FN_PURE static inline fd_store_fec_t       * fd_store_root       ( fd_store_t       * store ) { fd_store_pool_t pool = fd_store_pool      ( store ); return fd_store_pool_ele( &pool, store->root ); }
+FD_FN_PURE static inline fd_store_fec_t const * fd_store_root_const ( fd_store_t const * store ) { fd_store_pool_t pool = fd_store_pool_const( store ); return fd_store_pool_ele_const( &pool, store->root); }
 
 /* fd_store_{parent,child,sibling} returns a pointer in the caller's
    address space to the corresponding {parent,left-child,right-sibling}
@@ -276,12 +290,12 @@ FD_FN_PURE static inline fd_store_fec_t const * fd_store_root_const( fd_store_t 
    pointer to a pool element inside store.  const versions for each are
    also provided. */
 
-FD_FN_PURE static inline fd_store_fec_t       * fd_store_parent       ( fd_store_t       * store, fd_store_fec_t const * fec ) { return fd_store_pool_ele      ( fd_store_pool      ( store ), fec->parent  ); }
-FD_FN_PURE static inline fd_store_fec_t const * fd_store_parent_const ( fd_store_t const * store, fd_store_fec_t const * fec ) { return fd_store_pool_ele_const( fd_store_pool_const( store ), fec->parent  ); }
-FD_FN_PURE static inline fd_store_fec_t       * fd_store_child        ( fd_store_t       * store, fd_store_fec_t const * fec ) { return fd_store_pool_ele      ( fd_store_pool      ( store ), fec->child   ); }
-FD_FN_PURE static inline fd_store_fec_t const * fd_store_child_const  ( fd_store_t const * store, fd_store_fec_t const * fec ) { return fd_store_pool_ele_const( fd_store_pool_const( store ), fec->child   ); }
-FD_FN_PURE static inline fd_store_fec_t       * fd_store_sibling      ( fd_store_t       * store, fd_store_fec_t const * fec ) { return fd_store_pool_ele      ( fd_store_pool      ( store ), fec->sibling ); }
-FD_FN_PURE static inline fd_store_fec_t const * fd_store_sibling_const( fd_store_t const * store, fd_store_fec_t const * fec ) { return fd_store_pool_ele_const( fd_store_pool_const( store ), fec->sibling ); }
+FD_FN_PURE static inline fd_store_fec_t       * fd_store_parent       ( fd_store_pool_t  * pjoin, fd_store_fec_t const * fec ) { return fd_store_pool_ele      ( pjoin, fec->parent  ); }
+FD_FN_PURE static inline fd_store_fec_t const * fd_store_parent_const ( fd_store_pool_t  * pjoin, fd_store_fec_t const * fec ) { return fd_store_pool_ele_const( pjoin, fec->parent  ); }
+FD_FN_PURE static inline fd_store_fec_t       * fd_store_child        ( fd_store_pool_t  * pjoin, fd_store_fec_t const * fec ) { return fd_store_pool_ele      ( pjoin, fec->child   ); }
+FD_FN_PURE static inline fd_store_fec_t const * fd_store_child_const  ( fd_store_pool_t  * pjoin, fd_store_fec_t const * fec ) { return fd_store_pool_ele_const( pjoin, fec->child   ); }
+FD_FN_PURE static inline fd_store_fec_t       * fd_store_sibling      ( fd_store_pool_t  * pjoin, fd_store_fec_t const * fec ) { return fd_store_pool_ele      ( pjoin, fec->sibling ); }
+FD_FN_PURE static inline fd_store_fec_t const * fd_store_sibling_const( fd_store_pool_t  * pjoin, fd_store_fec_t const * fec ) { return fd_store_pool_ele_const( pjoin, fec->sibling ); }
 
 /* fd_store_{query,query_const} queries the FEC set keyed by merkle.
    Returns a pointer to the fd_store_fec_t if found, NULL otherwise.
@@ -293,12 +307,12 @@ FD_FN_PURE static inline fd_store_fec_t const * fd_store_sibling_const( fd_store
 
 FD_FN_PURE static inline fd_store_fec_t *
 fd_store_query( fd_store_t * store, fd_hash_t * merkle_root ) {
-   return fd_store_map_ele_query( fd_store_map( store ), merkle_root, NULL, fd_store_pool( store ) );
+   return fd_store_map_ele_query( fd_store_map( store ), merkle_root, NULL, fd_store_pool0( store ) );
 }
 
 FD_FN_PURE static inline fd_store_fec_t const *
 fd_store_query_const( fd_store_t const * store, fd_hash_t * merkle_root ) {
-   return fd_store_map_ele_query_const( fd_store_map_const( store ), merkle_root, NULL, fd_store_pool_const( store ) );
+   return fd_store_map_ele_query_const( fd_store_map_const( store ), merkle_root, NULL, fd_store_pool0_const( store )  );
 }
 
 /* Operations */
