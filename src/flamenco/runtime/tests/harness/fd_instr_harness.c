@@ -83,13 +83,13 @@ fd_runtime_fuzz_instr_ctx_create( fd_runtime_fuzz_runner_t *           runner,
   txn_descriptor->transaction_version = FD_TXN_V0;
   txn_descriptor->acct_addr_cnt       = (ushort)test_ctx->accounts_count;
 
-  fd_exec_txn_ctx_from_exec_slot_ctx( slot_ctx,
-                                      txn_ctx,
-                                      funk_wksp,
-                                      runtime_wksp,
-                                      funk_txn_gaddr,
-                                      funk_gaddr,
-                                      NULL );
+  fd_executor_setup_txn_ctx_from_slot_ctx( slot_ctx,
+                                           txn_ctx,
+                                           funk_wksp,
+                                           runtime_wksp,
+                                           funk_txn_gaddr,
+                                           funk_gaddr,
+                                           NULL );
   fd_exec_txn_ctx_setup_basic( txn_ctx );
 
   txn_ctx->txn_descriptor                            = txn_descriptor;
@@ -169,7 +169,7 @@ fd_runtime_fuzz_instr_ctx_create( fd_runtime_fuzz_runner_t *           runner,
   /* Load in executable accounts */
   for( ulong i = 0; i < txn_ctx->accounts_cnt; i++ ) {
     fd_txn_account_t * acc = &accts[i];
-    if ( !fd_executor_pubkey_is_bpf_loader( acc->vt->get_owner( acc ) ) ) {
+    if ( !fd_pubkey_is_bpf_loader( acc->vt->get_owner( acc ) ) ) {
       continue;
     }
 
@@ -181,9 +181,9 @@ fd_runtime_fuzz_instr_ctx_create( fd_runtime_fuzz_runner_t *           runner,
 
     if( FD_UNLIKELY( 0 == memcmp(meta->info.owner, fd_solana_bpf_loader_upgradeable_program_id.key, sizeof(fd_pubkey_t)) ) ) {
       int err = 0;
-      fd_bpf_upgradeable_loader_state_t * program_loader_state = read_bpf_upgradeable_loader_state_for_program( txn_ctx,
-                                                                                                                (ushort)i,
-                                                                                                                &err );
+      fd_bpf_upgradeable_loader_state_t * program_loader_state = fd_bpf_loader_program_get_state( acc,
+                                                                                                  txn_ctx->spad,
+                                                                                                  &err );
 
       if( FD_UNLIKELY( !program_loader_state ) ) {
         continue;
@@ -351,13 +351,13 @@ fd_runtime_fuzz_instr_ctx_create( fd_runtime_fuzz_runner_t *           runner,
   ctx->instr = info;
 
   /* Refresh the setup from the updated slot and epoch ctx. */
-  fd_exec_txn_ctx_from_exec_slot_ctx( slot_ctx,
-                                      txn_ctx,
-                                      funk_wksp,
-                                      runtime_wksp,
-                                      funk_txn_gaddr,
-                                      funk_gaddr,
-                                      NULL );
+  fd_executor_setup_txn_ctx_from_slot_ctx( slot_ctx,
+                                           txn_ctx,
+                                           funk_wksp,
+                                           runtime_wksp,
+                                           funk_txn_gaddr,
+                                           funk_gaddr,
+                                           NULL );
 
   fd_log_collector_init( &ctx->txn_ctx->log_collector, 1 );
   fd_base58_encode_32( txn_ctx->account_keys[ ctx->instr->program_id ].uc, NULL, ctx->program_id_base58 );

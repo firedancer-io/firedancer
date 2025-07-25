@@ -493,7 +493,7 @@ fd_runtime_fuzz_txn_run( fd_runtime_fuzz_runner_t * runner,
 
         /* If the exec err was a custom instr error and came from a precompile instruction, don't capture the custom error code. */
         if( txn_ctx->exec_err==FD_EXECUTOR_INSTR_ERR_CUSTOM_ERR &&
-            fd_executor_lookup_native_precompile_program( &txn_ctx->accounts[ program_id_idx ] )==NULL ) {
+            fd_program_lookup_precompile_entrypoint( &txn_ctx->account_keys[ program_id_idx ] )==NULL ) {
           txn_result->custom_error = txn_ctx->custom_err;
         }
       }

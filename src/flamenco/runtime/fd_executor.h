@@ -2,6 +2,9 @@
 #define HEADER_fd_src_flamenco_runtime_fd_executor_h
 
 #include "fd_executor_err.h"
+#include "fd_executor_setup.h"
+#include "fd_txn_loader.h"
+#include "fd_program_lookup.h"
 #include "context/fd_exec_txn_ctx.h"
 #include "context/fd_exec_instr_ctx.h"
 #include "../../ballet/block/fd_microblock.h"
@@ -15,11 +18,11 @@
 #include "../features/fd_features.h"
 #include "fd_runtime.h"
 
+#define FD_FEE_PAYER_TXN_IDX (0UL)
+
 /* https://github.com/anza-xyz/agave/blob/v2.3.1/svm/src/account_loader.rs#L40-L47 */
 #define FD_TRANSACTION_ACCOUNT_BASE_SIZE  (64UL)
 #define FD_ADDRESS_LOOKUP_TABLE_BASE_SIZE (8248UL)
-
-#define FD_FEE_PAYER_TXN_IDX (0UL)
 
 /* FD_EXEC_CU_UPDATE consumes CUs from the current instr ctx
    and fails in case of error. */
@@ -39,19 +42,6 @@ static inline ulong
 get_transaction_account_lock_limit( fd_exec_txn_ctx_t const * txn_ctx ) {
   return fd_ulong_if( FD_FEATURE_ACTIVE_BANK( txn_ctx->bank, increase_tx_account_lock_limit ), MAX_TX_ACCOUNT_LOCKS, 64UL );
 }
-
-/* fd_exec_instr_fn_t processes an instruction.  Returns an error code
-   in FD_EXECUTOR_INSTR_{ERR_{...},SUCCESS}. */
-
-typedef int (* fd_exec_instr_fn_t)( fd_exec_instr_ctx_t * ctx );
-
-fd_exec_instr_fn_t
-fd_executor_lookup_native_precompile_program( fd_txn_account_t const * prog_acc );
-
-/* Returns 1 if the given pubkey matches one of the BPF loader v1/v2/v3/v4
-   program IDs, and 0 otherwise. */
-uchar
-fd_executor_pubkey_is_bpf_loader( fd_pubkey_t const * pubkey );
 
 int
 fd_executor_verify_transaction( fd_exec_txn_ctx_t * txn_ctx );
@@ -89,15 +79,6 @@ fd_execute_txn( fd_execute_txn_task_info_t * task_info );
 int
 fd_executor_validate_transaction_fee_payer( fd_exec_txn_ctx_t * txn_ctx );
 
-void
-fd_executor_setup_accounts_for_txn( fd_exec_txn_ctx_t * txn_ctx );
-
-void
-fd_executor_setup_txn_account_keys( fd_exec_txn_ctx_t * txn_ctx );
-
-int
-fd_executor_setup_txn_alut_account_keys( fd_exec_txn_ctx_t * txn_ctx );
-
 /*
   Validate the txn after execution for violations of various lamport balance and size rules
  */
@@ -115,9 +96,6 @@ fd_txn_reclaim_accounts( fd_exec_txn_ctx_t * txn_ctx );
 
 FD_FN_CONST char const *
 fd_executor_instr_strerror( int err );
-
-int
-fd_executor_load_transaction_accounts( fd_exec_txn_ctx_t * txn_ctx );
 
 int
 fd_executor_validate_account_locks( fd_exec_txn_ctx_t const * txn_ctx );
@@ -144,15 +122,6 @@ fd_instr_stack_push( fd_exec_txn_ctx_t *     txn_ctx,
 int
 fd_instr_stack_pop( fd_exec_txn_ctx_t *       txn_ctx,
                     fd_instr_info_t const *   instr );
-
-void
-fd_exec_txn_ctx_from_exec_slot_ctx( fd_exec_slot_ctx_t const * slot_ctx,
-                                    fd_exec_txn_ctx_t *        ctx,
-                                    fd_wksp_t const *          funk_wksp,
-                                    fd_wksp_t const *          runtime_pub_wksp,
-                                    ulong                      funk_txn_gaddr,
-                                    ulong                      funk_gaddr,
-                                    fd_bank_hash_cmp_t *       bank_hash_cmp );
 
 FD_PROTOTYPES_END
 
