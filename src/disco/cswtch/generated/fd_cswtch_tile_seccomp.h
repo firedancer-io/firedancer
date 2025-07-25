@@ -23,7 +23,7 @@
 #endif
 static const unsigned int sock_filter_policy_fd_cswtch_tile_instr_cnt = 35;
 
-static void populate_sock_filter_policy_fd_cswtch_tile( ulong out_cnt, struct sock_filter * out, unsigned int logfile_fd) {
+static void populate_sock_filter_policy_fd_cswtch_tile( ulong out_cnt, struct sock_filter * out, unsigned int logfile_fd ) {
   FD_TEST( out_cnt >= 35 );
   struct sock_filter filter[35] = {
     /* Check: Jump to RET_KILL_PROCESS if the script's arch != the runtime arch */

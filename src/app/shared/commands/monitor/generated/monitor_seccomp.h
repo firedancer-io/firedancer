@@ -23,7 +23,7 @@
 #endif
 static const unsigned int sock_filter_policy_monitor_instr_cnt = 36;
 
-static void populate_sock_filter_policy_monitor( ulong out_cnt, struct sock_filter * out, unsigned int logfile_fd, unsigned int drain_output_fd) {
+static void populate_sock_filter_policy_monitor( ulong out_cnt, struct sock_filter * out, unsigned int logfile_fd, unsigned int drain_output_fd ) {
   FD_TEST( out_cnt >= 36 );
   struct sock_filter filter[36] = {
     /* Check: Jump to RET_KILL_PROCESS if the script's arch != the runtime arch */

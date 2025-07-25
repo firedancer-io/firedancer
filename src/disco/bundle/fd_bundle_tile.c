@@ -575,6 +575,7 @@ populate_allowed_seccomp( fd_topo_t const *      topo,
                           ulong                  out_cnt,
                           struct sock_filter *   out ) {
   fd_bundle_tile_t * ctx = fd_topo_obj_laddr( topo, tile->tile_obj_id );
+
   populate_sock_filter_policy_fd_bundle_tile(
       out_cnt, out,
       (uint)fd_log_private_logfile_fd(),

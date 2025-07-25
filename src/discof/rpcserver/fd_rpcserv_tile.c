@@ -3,6 +3,7 @@
 
 #include "../../disco/topo/fd_topo.h"
 #include <sys/socket.h>
+
 #include "generated/fd_rpcserv_tile_seccomp.h"
 
 #include "../rpcserver/fd_rpc_service.h"
