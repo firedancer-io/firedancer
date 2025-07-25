@@ -606,7 +606,7 @@ after_frag( fd_snaprd_tile_t *  ctx,
         fd_pubkey_t pubkey;
         fd_memcpy( &pubkey, msg->origin_pubkey, sizeof(fd_pubkey_t) );
 
-        FD_LOG_WARNING(("encountered pubkey %s with full slot %lu and incremental slot %lu",
+        FD_LOG_NOTICE(("encountered pubkey %s with full slot %lu and incremental slot %lu",
           FD_BASE58_ENC_32_ALLOCA( pubkey.hash ), msg->snapshot_hashes.full->slot, msg->snapshot_hashes.inc[ 0 ].slot ));
 
         fd_known_validator_t * known_validator = fd_known_validators_set_query( ctx->config.known_validators_set, pubkey, NULL );
