@@ -5,7 +5,7 @@
 
 #include "../../fd_executor.h"
 #include "../../program/fd_builtin_programs.h"
-#include "../../program/fd_bpf_program_util.h"
+#include "../../program/fd_program_cache.h"
 #include "../../sysvar/fd_sysvar_last_restart_slot.h"
 #include "../../sysvar/fd_sysvar_slot_hashes.h"
 #include "../../sysvar/fd_sysvar_recent_hashes.h"
