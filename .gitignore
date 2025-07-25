@@ -30,7 +30,9 @@ compile_commands.json
 # Dependencies
 opt/
 opt-msan/
-deps-bundle.tar.zst
+
+# Archives
+*.tar.zst
 
 # Nix
 /result
@@ -52,6 +54,7 @@ deps-bundle.tar.zst
 # Packet Captures
 *.pcap
 *.pcapng
+*.solcap
 
 # Logs
 *.log
