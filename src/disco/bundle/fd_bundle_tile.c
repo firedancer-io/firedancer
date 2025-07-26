@@ -17,7 +17,11 @@
 #include <netinet/tcp.h> /* TCP_FASTOPEN_CONNECT (seccomp) */
 #include "../../waltz/resolv/fd_netdb.h"
 
+#if defined(__aarch64__)
+#include "generated/fd_bundle_tile_arm64_seccomp.h"
+#else
 #include "generated/fd_bundle_tile_seccomp.h"
+#endif
 
 /* Provided by fdctl/firedancer version.c */
 extern char const fdctl_version_string[];
@@ -575,6 +579,17 @@ populate_allowed_seccomp( fd_topo_t const *      topo,
                           ulong                  out_cnt,
                           struct sock_filter *   out ) {
   fd_bundle_tile_t * ctx = fd_topo_obj_laddr( topo, tile->tile_obj_id );
+
+  #if defined(__aarch64__)
+  populate_sock_filter_policy_fd_bundle_tile_arm64(
+      out_cnt, out,
+      (uint)fd_log_private_logfile_fd(),
+      (uint)ctx->keylog_fd,
+      (uint)ctx->netdb_fds->etc_hosts,
+      (uint)ctx->netdb_fds->etc_resolv_conf
+  );
+  return sock_filter_policy_fd_bundle_tile_arm64_instr_cnt;
+  #else
   populate_sock_filter_policy_fd_bundle_tile(
       out_cnt, out,
       (uint)fd_log_private_logfile_fd(),
@@ -583,6 +598,7 @@ populate_allowed_seccomp( fd_topo_t const *      topo,
       (uint)ctx->netdb_fds->etc_resolv_conf
   );
   return sock_filter_policy_fd_bundle_tile_instr_cnt;
+  #endif
 }
 
 static ulong

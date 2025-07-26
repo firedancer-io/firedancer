@@ -13,8 +13,13 @@
 #include <unistd.h> /* dup3, close */
 #include <netinet/in.h> /* sockaddr_in */
 #include <sys/socket.h> /* socket */
-#include "generated/sock_seccomp.h"
 #include "../../metrics/fd_metrics.h"
+
+#if defined(__aarch64__)
+#include "generated/fd_sock_tile_arm64_seccomp.h"
+#else
+#include "generated/fd_sock_tile_seccomp.h"
+#endif
 
 /* recv/sendmmsg packet count in batch and tango burst depth
    FIXME make configurable in the future?
@@ -40,8 +45,14 @@ populate_allowed_seccomp( fd_topo_t const *      topo,
                           struct sock_filter *   out ) {
   FD_SCRATCH_ALLOC_INIT( l, fd_topo_obj_laddr( topo, tile->tile_obj_id ) );
   fd_sock_tile_t * ctx = FD_SCRATCH_ALLOC_APPEND( l, alignof(fd_sock_tile_t), sizeof(fd_sock_tile_t) );
-  populate_sock_filter_policy_sock( out_cnt, out, (uint)fd_log_private_logfile_fd(), (uint)ctx->tx_sock, RX_SOCK_FD_MIN, RX_SOCK_FD_MIN+(uint)ctx->sock_cnt );
-  return sock_filter_policy_sock_instr_cnt;
+
+  #if defined(__aarch64__)
+  populate_sock_filter_policy_fd_sock_tile_arm64( out_cnt, out, (uint)fd_log_private_logfile_fd(), (uint)ctx->tx_sock, RX_SOCK_FD_MIN, RX_SOCK_FD_MIN+(uint)ctx->sock_cnt );
+  return sock_filter_policy_fd_sock_tile_arm64_instr_cnt;
+  #else
+  populate_sock_filter_policy_fd_sock_tile( out_cnt, out, (uint)fd_log_private_logfile_fd(), (uint)ctx->tx_sock, RX_SOCK_FD_MIN, RX_SOCK_FD_MIN+(uint)ctx->sock_cnt );
+  return sock_filter_policy_fd_sock_tile_instr_cnt;
+  #endif
 }
 
 static ulong

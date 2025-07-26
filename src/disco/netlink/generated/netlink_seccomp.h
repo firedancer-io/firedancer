@@ -23,7 +23,7 @@
 #endif
 static const unsigned int sock_filter_policy_netlink_instr_cnt = 46;
 
-static void populate_sock_filter_policy_netlink( ulong out_cnt, struct sock_filter * out, uint logfile_fd, uint nl_mon_fd, uint nl_req_fd, uint arp_probe_fd) {
+static void populate_sock_filter_policy_netlink( ulong out_cnt, struct sock_filter * out, uint logfile_fd, uint nl_mon_fd, uint nl_req_fd, uint arp_probe_fd ) {
   FD_TEST( out_cnt >= 46 );
   struct sock_filter filter[46] = {
     /* Check: Jump to RET_KILL_PROCESS if the script's arch != the runtime arch */
