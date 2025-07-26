@@ -1,7 +1,8 @@
-#include "../../disco/tiles.h"
+#include "../../disco/topo/fd_topo.h"
 #include "generated/fd_exec_tile_seccomp.h"
 
 #include "../../util/pod/fd_pod_format.h"
+#include "../../disco/pack/fd_pack.h"
 #include "../../flamenco/runtime/context/fd_capture_ctx.h"
 #include "../../flamenco/runtime/fd_runtime.h"
 #include "../../flamenco/runtime/fd_runtime_public.h"

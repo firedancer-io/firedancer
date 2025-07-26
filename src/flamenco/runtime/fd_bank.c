@@ -720,3 +720,9 @@ fd_banks_clear_bank( fd_banks_t * banks, fd_bank_t * bank ) {
   #undef HAS_COW_0
   #undef HAS_COW_1
 }
+
+ulong
+fd_bank_epoch_get( fd_bank_t const * bank ) {
+  fd_epoch_schedule_t epoch_schedule = fd_sysvar_epoch_schedule_read_nofail( fd_bank_sysvar_cache_query( bank ) );
+  return fd_slot_to_epoch( &epoch_schedule, fd_bank_slot_get( bank ), NULL );
+}

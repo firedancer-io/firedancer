@@ -1,20 +1,10 @@
 #ifndef HEADER_fd_src_flamenco_runtime_sysvar_epoch_rewards_h
 #define HEADER_fd_src_flamenco_runtime_sysvar_epoch_rewards_h
 
-#include "../../fd_flamenco_base.h"
+#include "fd_sysvar_base.h"
 #include "../../types/fd_types.h"
-#include "../context/fd_exec_slot_ctx.h"
 
 FD_PROTOTYPES_BEGIN
-
-/* fd_sysvar_epoch_rewards_read reads the current value of the rent
-   sysvar from funk. If the account doesn't exist in funk or if the account
-   has zero lamports, this function returns NULL. */
-
-fd_sysvar_epoch_rewards_t *
-fd_sysvar_epoch_rewards_read( fd_funk_t *                 funk,
-                              fd_funk_txn_t *             funk_txn,
-                              fd_sysvar_epoch_rewards_t * out );
 
 /* Update EpochRewards sysvar with distributed rewards
 

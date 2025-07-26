@@ -1389,29 +1389,6 @@ void *fd_slot_hashes_generate( void *mem, void **alloc_mem, fd_rng_t * rng ) {
   return mem;
 }
 
-void *fd_block_block_hash_entry_generate( void *mem, void **alloc_mem, fd_rng_t * rng ) {
-  fd_block_block_hash_entry_t *self = (fd_block_block_hash_entry_t *) mem;
-  *alloc_mem = (uchar *) *alloc_mem + sizeof(fd_block_block_hash_entry_t);
-  fd_block_block_hash_entry_new(mem);
-  fd_hash_generate( &self->blockhash, alloc_mem, rng );
-  fd_fee_calculator_generate( &self->fee_calculator, alloc_mem, rng );
-  return mem;
-}
-
-void *fd_recent_block_hashes_generate( void *mem, void **alloc_mem, fd_rng_t * rng ) {
-  fd_recent_block_hashes_t *self = (fd_recent_block_hashes_t *) mem;
-  *alloc_mem = (uchar *) *alloc_mem + sizeof(fd_recent_block_hashes_t);
-  fd_recent_block_hashes_new(mem);
-  ulong hashes_len = fd_rng_ulong( rng ) % 8;
-  ulong hashes_max = fd_ulong_max( hashes_len, 151 );
-  self->hashes = deq_fd_block_block_hash_entry_t_join_new( alloc_mem, hashes_max );
-  for( ulong i=0; i < hashes_len; i++ ) {
-    fd_block_block_hash_entry_t * elem = deq_fd_block_block_hash_entry_t_push_tail_nocopy( self->hashes );
-    fd_block_block_hash_entry_generate( elem, alloc_mem, rng );
-  }
-  return mem;
-}
-
 void *fd_slot_meta_generate( void *mem, void **alloc_mem, fd_rng_t * rng ) {
   fd_slot_meta_t *self = (fd_slot_meta_t *) mem;
   *alloc_mem = (uchar *) *alloc_mem + sizeof(fd_slot_meta_t);

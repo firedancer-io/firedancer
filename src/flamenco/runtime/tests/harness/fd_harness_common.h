@@ -72,6 +72,14 @@ int
 fd_runtime_fuzz_restore_features( fd_features_t *                    features,
                                   fd_exec_test_feature_set_t const * feature_set );
 
+/* Awful hack -- see the function definition for what these do. */
+
+void
+fd_solfuzz_restore_lamports_per_signature( fd_exec_slot_ctx_t * slot_ctx );
+
+void
+fd_solfuzz_restore_instr_blockhash_queue( fd_exec_slot_ctx_t * slot_ctx );
+
 FD_PROTOTYPES_END
 
 #endif /* HEADER_fd_src_flamenco_runtime_tests_harness_fd_harness_common_h */
