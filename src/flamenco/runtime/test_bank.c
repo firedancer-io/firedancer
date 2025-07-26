@@ -13,10 +13,10 @@ main( int argc, char ** argv ) {
                                                 0UL );
   FD_TEST( wksp );
 
-  uchar * mem = fd_wksp_alloc_laddr( wksp, fd_banks_align(), fd_banks_footprint( 16UL ), 1UL );
+  uchar * mem = fd_wksp_alloc_laddr( wksp, fd_banks_align(), fd_banks_footprint( 16UL, 16UL  ), 1UL );
   FD_TEST( mem );
 
-  mem = fd_banks_new( mem, 16UL );
+  mem = fd_banks_new( mem, 16UL, 16UL );
   FD_TEST( mem );
 
   /* Init banks */

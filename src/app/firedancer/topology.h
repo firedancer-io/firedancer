@@ -44,7 +44,8 @@ setup_topo_funk( fd_topo_t *  topo,
 fd_topo_obj_t *
 setup_topo_banks( fd_topo_t *  topo,
                   char const * wksp_name,
-                  ulong        max_banks );
+                  ulong        max_total_banks,
+                  ulong        max_fork_width );
 
 fd_topo_obj_t *
 setup_topo_bank_hash_cmp( fd_topo_t * topo, char const * wksp_name );
