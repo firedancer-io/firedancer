@@ -1,9 +1,8 @@
 #include "../shared/fd_config.h"
 #include "../../util/pod/fd_pod_format.h"
 
-#include "../../discof/store/fd_store.h"
+#include "../../disco/store/fd_store.h"
 #include "../../flamenco/runtime/fd_txncache.h"
-#include "../../flamenco/runtime/fd_blockstore.h"
 #include "../../flamenco/runtime/fd_runtime.h"
 #include "../../flamenco/runtime/fd_runtime_public.h"
 
@@ -126,31 +125,6 @@ fd_topo_obj_callbacks_t fd_obj_cb_funk = {
   .loose     = funk_loose,
   .align     = funk_align,
   .new       = funk_new,
-};
-
-static ulong
-blockstore_footprint( fd_topo_t const *     topo,
-                      fd_topo_obj_t const * obj ) {
-  return fd_blockstore_footprint( VAL("shred_max"), VAL("block_max"), VAL("idx_max") ) + VAL("alloc_max");
-}
-
-static ulong
-blockstore_align( fd_topo_t const *     topo FD_FN_UNUSED,
-                  fd_topo_obj_t const * obj  FD_FN_UNUSED ) {
-  return fd_blockstore_align();
-}
-
-static void
-blockstore_new( fd_topo_t const *     topo,
-                fd_topo_obj_t const * obj ) {
-  FD_TEST( fd_blockstore_new( fd_topo_obj_laddr( topo, obj->id ), VAL("wksp_tag"), VAL("seed"), VAL("shred_max"), VAL("block_max"), VAL("idx_max") ) );
-}
-
-fd_topo_obj_callbacks_t fd_obj_cb_blockstore = {
-  .name      = "blockstore",
-  .footprint = blockstore_footprint,
-  .align     = blockstore_align,
-  .new       = blockstore_new,
 };
 
 static ulong

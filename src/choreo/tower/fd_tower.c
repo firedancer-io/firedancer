@@ -1,4 +1,6 @@
 #include "fd_tower.h"
+#include "../../flamenco/txn/fd_txn_generate.h"
+#include "../../flamenco/runtime/fd_system_ids.h"
 
 #define THRESHOLD_DEPTH         (8)
 #define THRESHOLD_PCT           (2.0 / 3.0)

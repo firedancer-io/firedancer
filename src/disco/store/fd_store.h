@@ -26,9 +26,11 @@
    In the future this will be fixed to 31840 bytes, when FEC sets are
    enforced to always be 32 shreds.
 
-   The API is designed to be used inter-process (ie. concurrent joins
-   from multiple tiles) and also supports concurrent access, but callers
-   must interface with the store through a read-write lock (fd_rwlock).
+   The shared memory used by a store instance is within a workspace such
+   that it is also persistent and remotely inspectable.  Store is
+   designed to be used inter-process (allowing concurrent joins from
+   multiple tiles), relocated in memory (via wksp operations), and
+   accessed concurrently (managing conflicts with a lock).
 
    EQUIVOCATION
 
@@ -57,51 +59,68 @@
 
    ORDERING
 
-   In the above architecture, it is guaranteed that Repair will deliver
-   FEC sets to Replay in replay order.  That is, the parent FEC set will
-   always be delivered before the child (see fd_fec_chainer).  Note
-   however concurrent forks are delivered in the order they are received
-   from the network ie. arbitrary order.
+   In the above architecture, Repair delivers FEC sets to Replay in
+   partial order.  Any given fork will be delivered in-order, but
+   concurrent forks can be delivered in arbitrary order.  Another way to
+   phrase this is a parent FEC set will always be delivered before the
+   child (see fd_fec_chainer).
 
    CONCURRENCY
 
    It is possible to design Store access in a way that enables parallel
-   writes and minimizes lock contention between readers and writers.  In
-   this design, writers (Shred tiles) only hold the read lock during
-   their access.  The reader (Replay tile) also holds the read lock
-   during its access, but given both Shred and Replay will be taking out
-   read locks, they will not contend.  "Write lock" is now a bit of a
-   misnomer, because the only operation that will actually need the
-   write lock is publish, which will be done by Replay.
+   writes and minimizes lock contention between readers and writers.
+   Store contains a fd_rwlock (read-write lock), but the name is a bit
+   of a misnomer because writes can actually be concurrent and the only
+   operation that will actually need the write lock is publish, which
+   will be done by Replay.  It is more appropriate to describe as an
+   exclusive-shared access lock.
+
+   In this design, writers (Shred tiles) hold the shared lock during
+   their access.  The reader (Replay tile) also holds the shared lock
+   during its access, and given both Shred and Replay will be taking out
+   shared locks, they will not contend.
 
    For parallel writes, the Store's hash function should be carefully
-   constructed to mirror the Shred tiles' (writers') round-robin hashing
-   to ensure the property that any slot collision in the underlying
-   fd_map_chain will always occur on the same Shred tile.  So if two
-   different hashes point to the same slot, it is guaranteed to be the
-   same Shred tile processing both keys (and similarly, a hash collision
-   would also be processed by the same tile).  This prevents a data race
-   in which multiple Shred tiles attempt to write to the same map slot.
+   constructed to partition the keyspace so that the same Shred tile
+   always writes to the same map slots.  This ensures map collisions
+   always happen on the same Shred tile and cannot happen across tiles.
+   Specifically, if two different FEC sets hash to the same slot, it is
+   guaranteed that to be the same Shred tile processing both those FEC
+   sets.  This prevents a data race in which multiple Shred tiles (each
+   with a handle to the shared lock) write to the same map slot.
 
-   For reducing lock contention, the Store should 1. only be read by
-   Replay after Repair has notified Replay it is time to read, and 2. be
-   written to by Shred tile(s) in append-only fashion, so Shred never
-   modifies or removes what it has written.  Store is backed by a
-   fd_map_chain, which is not thread-safe generally, but in the case of
-   a slot collision where Replay tile is reading an element and Shred
-   tile writes a new element to the same slot, that new element is
-   always appended to the end of the hash chain within that slot (which
-   modifies the second-to-last element in the hash chain's `.next` field
-   but does not touch application data).  So this can enable lock-free
-   concurrent reads and writes.  Note Replay tile (reader) should always
+   Essentially, this allows for limited single-producer single-consumer
+   (SPSC) concurrency, where the producer is a given Shred tile and the
+   consumer is Replay tile.  The SPSC concurrency is limited in that the
+   Store should 1. only be read by Replay after Repair has notified
+   Replay it is time to read (ie. Shred has finished writing), and 2. be
+   written to by Shred(s) in append-only fashion, so Shred never
+   modifies or removes from the map.  Store is backed by fd_map_chain,
+   which is not thread-safe generally, but does support this particular
+   SPSC concurrency model in cases where the consumer is guaranteed to
+   be lagging the producer.
+
+   Analyzing fd_map_chain in gory detail, in the case of a map collision
+   where Replay tile is reading an element and Shred tile writes a new
+   element to the same map slot, that new element is prepended to the
+   hash chain within that slot (which modifies what the head of the
+   chain points to as well as the now-previous head in the hash chain's
+   `.next` field, but does not touch application data).  With fencing
+   enabled (FD_MAP_INSERT_FENCING), it is guaranteed the consumer either
+   reads the head before or after the update.  If it reads before, that
+   is safe, it would just check the key (if no match, iterate down the
+   chain etc.)  If it reads after, it is also safe because the new
+   element is guaranteed to be before the old element in the chain, so
+   it would just do one more iteration.  Note the consumer should always
    use fd_store_query_const to ensure the underlying fd_map_chain is not
    modified during querying.
 
-   The exception to the above is publishing.  Publishing requires the
-   write lock to ensure the tile doing the publishing (Replay tile) is
-   the only thing accessing the store.  Publishing happens at most once
-   per slot, so it is a relatively infrequent Store access compared to
-   FEC queries and inserts. */
+   The exception to the above is publishing.  Publishing requires
+   exclusive access because it involves removing from fd_map_chain,
+   which is not safe for shared access.  So the Replay tile should take
+   out the exclusive lock.  Publishing happens at most once per slot, so
+   it is a relatively infrequent Store access compared to FEC queries
+   and inserts (which is good because it is also the most expensive). */
 
 #include "../../flamenco/fd_rwlock.h"
 #include "../../flamenco/types/fd_types_custom.h"
@@ -129,7 +148,7 @@
 
    67 shreds per FEC set * 955 payloads per shred = 63985 bytes max. */
 
-#define FD_STORE_DATA_MAX (63985UL) /* FIXME fixed-32 */
+#define FD_STORE_DATA_MAX (63985UL) /* TODO fixed-32 */
 
 /* fd_store_fec describes a store element (FEC set).  The pointer fields
    implement a left-child, right-sibling n-ary tree. */
@@ -150,26 +169,27 @@ struct __attribute__((aligned(128UL))) fd_store_fec {
 
   /* Data */
 
-  ulong data_sz;                 /* FIXME fixed-32. sz of the FEC set payload, guaranteed < FD_STORE_DATA_MAX */
+  ulong data_sz;                 /* TODO fixed-32. sz of the FEC set payload, guaranteed < FD_STORE_DATA_MAX */
   uchar data[FD_STORE_DATA_MAX]; /* FEC set payload = coalesced data shreds (byte array) */
 };
 typedef struct fd_store_fec fd_store_fec_t;
 
 #define POOL_NAME fd_store_pool
 #define POOL_T    fd_store_fec_t
-#include "../../util/tmpl/fd_pool.c"
+#include "../../util/tmpl/fd_pool.c" /* FIXME pool_para */
 
 #define MAP_NAME               fd_store_map
 #define MAP_ELE_T              fd_store_fec_t
 #define MAP_KEY_T              fd_hash_t
 #define MAP_KEY_EQ(k0,k1)      (!memcmp((k0),(k1), sizeof(fd_hash_t)))
-#define MAP_KEY_HASH(key,seed) (fd_hash((seed),(key),sizeof(fd_hash_t)))
+#define MAP_KEY_HASH(key,seed) (fd_hash((seed),(key),sizeof(fd_hash_t))) /* FIXME keyspace partitioning */
 #include "../../util/tmpl/fd_map_chain.c"
 
 struct fd_store {
   ulong magic;       /* ==FD_STORE_MAGIC */
   ulong seed;        /* seed for various hashing function used under the hood, arbitrary */
   ulong root;        /* pool idx of the root */
+  ulong slot0;       /* FIXME this hack is needed until the block_id is in the bank (manifest) */
   ulong store_gaddr; /* wksp gaddr of store in the backing wksp, non-zero gaddr */
   ulong pool_gaddr;  /* wksp gaddr of pool of store elements (fd_store_fec) */
   ulong map_gaddr;   /* wksp gaddr of map of fd_store_key->fd_store_fec */
@@ -253,12 +273,12 @@ fd_store_wksp( fd_store_t const * store ) {
    to the corresponding store field.  const versions for each are also
    provided. */
 
-FD_FN_PURE static inline fd_store_fec_t       * fd_store_pool        ( fd_store_t       * store ) { return fd_wksp_laddr_fast     ( fd_store_wksp      ( store ), store->pool_gaddr ); }
-FD_FN_PURE static inline fd_store_fec_t const * fd_store_pool_const  ( fd_store_t const * store ) { return fd_wksp_laddr_fast     ( fd_store_wksp      ( store ), store->pool_gaddr ); }
-FD_FN_PURE static inline fd_store_map_t       * fd_store_map         ( fd_store_t       * store ) { return fd_wksp_laddr_fast     ( fd_store_wksp      ( store ), store->map_gaddr  ); }
-FD_FN_PURE static inline fd_store_map_t const * fd_store_map_const   ( fd_store_t const * store ) { return fd_wksp_laddr_fast     ( fd_store_wksp      ( store ), store->map_gaddr  ); }
-FD_FN_PURE static inline fd_store_fec_t       * fd_store_root        ( fd_store_t       * store ) { return fd_store_pool_ele      ( fd_store_pool      ( store ), store->root       ); }
-FD_FN_PURE static inline fd_store_fec_t const * fd_store_root_const  ( fd_store_t const * store ) { return fd_store_pool_ele_const( fd_store_pool_const( store ), store->root       ); }
+FD_FN_PURE static inline fd_store_fec_t       * fd_store_pool      ( fd_store_t       * store ) { return fd_wksp_laddr_fast     ( fd_store_wksp      ( store ), store->pool_gaddr ); }
+FD_FN_PURE static inline fd_store_fec_t const * fd_store_pool_const( fd_store_t const * store ) { return fd_wksp_laddr_fast     ( fd_store_wksp      ( store ), store->pool_gaddr ); }
+FD_FN_PURE static inline fd_store_map_t       * fd_store_map       ( fd_store_t       * store ) { return fd_wksp_laddr_fast     ( fd_store_wksp      ( store ), store->map_gaddr  ); }
+FD_FN_PURE static inline fd_store_map_t const * fd_store_map_const ( fd_store_t const * store ) { return fd_wksp_laddr_fast     ( fd_store_wksp      ( store ), store->map_gaddr  ); }
+FD_FN_PURE static inline fd_store_fec_t       * fd_store_root      ( fd_store_t       * store ) { return fd_store_pool_ele      ( fd_store_pool      ( store ), store->root       ); }
+FD_FN_PURE static inline fd_store_fec_t const * fd_store_root_const( fd_store_t const * store ) { return fd_store_pool_ele_const( fd_store_pool_const( store ), store->root       ); }
 
 /* fd_store_{parent,child,sibling} returns a pointer in the caller's
    address space to the corresponding {parent,left-child,right-sibling}
@@ -273,12 +293,20 @@ FD_FN_PURE static inline fd_store_fec_t const * fd_store_child_const  ( fd_store
 FD_FN_PURE static inline fd_store_fec_t       * fd_store_sibling      ( fd_store_t       * store, fd_store_fec_t const * fec ) { return fd_store_pool_ele      ( fd_store_pool      ( store ), fec->sibling ); }
 FD_FN_PURE static inline fd_store_fec_t const * fd_store_sibling_const( fd_store_t const * store, fd_store_fec_t const * fec ) { return fd_store_pool_ele_const( fd_store_pool_const( store ), fec->sibling ); }
 
+/* fd_store_{shacq, shrel, exacq, exrel} acquires or releases the shared
+   or exclusive lock. */
+
+FD_FN_PURE static inline void fd_store_shacq( fd_store_t * store ) { fd_rwlock_read   ( &store->lock ); }
+FD_FN_PURE static inline void fd_store_shrel( fd_store_t * store ) { fd_rwlock_unread ( &store->lock ); }
+FD_FN_PURE static inline void fd_store_exacq( fd_store_t * store ) { fd_rwlock_write  ( &store->lock ); }
+FD_FN_PURE static inline void fd_store_exrel( fd_store_t * store ) { fd_rwlock_unwrite( &store->lock ); }
+
 /* fd_store_{query,query_const} queries the FEC set keyed by merkle.
    Returns a pointer to the fd_store_fec_t if found, NULL otherwise.
 
-   Assumes caller has already acquired a read lock via fd_rwlock_read.
+   Assumes caller has acquired the shared lock via fd_store_shacq.
 
-   IMPORTANT SAFETY TIP!  Caller should only call fd_rwlock_unread when
+   IMPORTANT SAFETY TIP!  Caller should only call fd_store_shrel when
    they no longer retain interest in the returned pointer. */
 
 FD_FN_PURE static inline fd_store_fec_t *
@@ -294,10 +322,9 @@ fd_store_query_const( fd_store_t const * store, fd_hash_t * merkle_root ) {
 /* Operations */
 
 /* fd_store_insert inserts a new FEC set keyed by merkle.  Returns the
-   newly inserted fd_store_fec_t.  Copies data and data_sz into its
-   corresponding fields and copies at most FD_STORE_DATA_MAX bytes from
-   data (if handholding is enabled, it will abort the caller with a
-   descriptive error message if data_sz is too large).
+   newly inserted fd_store_fec_t.  Each fd_store_fec_t can hold at most
+   FD_STORE_DATA_MAX bytes of data, and caller is responsible for
+   copying into the region.
 
    Assumes store is a current local join and has space for another
    element.  Does additional checks when handholding is enabled and
@@ -305,23 +332,27 @@ fd_store_query_const( fd_store_t const * store, fd_hash_t * merkle_root ) {
    first element being inserted into store, the store root will be set
    to this newly inserted element.
 
-   Assumes caller has already acquired the appropriate lock via
-   fd_rwlock_read or fd_rwlock_write.  See top-level documentation for
-   why this operation may only require a read lock and not a write.
+   Assumes caller has acquired either the shared or exclusive lock via
+   fd_store_shacq or fd_store_exacq.  See top-level documentation for
+   why this operation may only require a shared lock vs. exclusive.
 
-   IMPORTANT SAFETY TIP!  Caller should only call fd_rwlock_unread when
-   they no longer retain interest in the returned pointer. */
+   IMPORTANT SAFETY TIP!  Caller should only call fd_store_shrel or
+   fd_store_exrel when they no longer retain interest in the returned
+   pointer. */
 
 fd_store_fec_t *
 fd_store_insert( fd_store_t * store,
-                 fd_hash_t  * merkle_root,
-                 uchar      * data,
-                 ulong        data_sz /* FIXME fixed-32 */ );
+                 fd_hash_t  * merkle_root );
 
 /* fd_store_link queries for and links the child keyed by merkle_root to
    parent keyed by chained_merkle_root.  Returns a pointer to the child.
    Assumes merkle_root and chained_merkle_root are both non-NULL and key
-   elements currently in the store.  Does not require the lock. */
+   elements currently in the store.
+
+   Assumes caller has acquired the shared lock via fd_store_shacq.
+
+   IMPORTANT SAFETY TIP!  Caller should only call fd_store_shrel when
+   they no longer retain interest in the returned pointer. */
 
 fd_store_fec_t *
 fd_store_link( fd_store_t * store,
@@ -342,14 +373,29 @@ fd_store_link( fd_store_t * store,
    result in [0 1] being removed given they are ancestors of 2, and
    removing 1 will leave [3 5 6] orphaned and also removed.
 
-   Assumes caller has already acquired a write lock via fd_rwlock_write.
+   Assumes caller has acquired the exclusive lock via fd_store_exacq.
 
-   IMPORTANT SAFETY TIP!  Caller should only call fd_rwlock_unwrite when
+   IMPORTANT SAFETY TIP!  Caller should only call fd_store_exrel when
    they no longer retain interest in the returned pointer. */
 
 fd_store_fec_t *
 fd_store_publish( fd_store_t * store,
                   fd_hash_t  * merkle_root );
+
+/* fd_store_clear clears the store.  All elements are removed from the
+   map and released back into the pool.  Does not zero-out fields. */
+
+fd_store_t *
+fd_store_clear( fd_store_t * store );
+
+/* TODO fd_store_verify */
+
+/* fd_store_print pretty-prints a formatted store as a tree structure.
+   Printing begins from the store root and each node is the FEC set key
+   (merkle root hash). */
+
+void
+fd_store_print( fd_store_t const * store );
 
 FD_PROTOTYPES_END
 

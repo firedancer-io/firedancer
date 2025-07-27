@@ -1,7 +1,6 @@
 #include "fd_hashes.h"
 #include "fd_acc_mgr.h"
 #include "fd_bank.h"
-#include "fd_blockstore.h"
 #include "fd_runtime.h"
 #include "fd_borrowed_account.h"
 #include "context/fd_capture_ctx.h"
