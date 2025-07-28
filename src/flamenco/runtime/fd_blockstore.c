@@ -606,12 +606,12 @@ fd_blockstore_shred_insert( fd_blockstore_t * blockstore, fd_shred_t const * shr
 
   ulong parent_slot       = block_info->parent_slot;
 
-  FD_LOG_DEBUG(( "shred: (%lu, %u). consumed: %u, received: %u, complete: %u",
-               slot,
-               shred->idx,
-               block_info->buffered_idx,
-               block_info->received_idx,
-               block_info->slot_complete_idx ));
+  // FD_LOG_DEBUG(( "shred: (%lu, %u). consumed: %u, received: %u, complete: %u",
+  //              slot,
+  //              shred->idx,
+  //              block_info->buffered_idx,
+  //              block_info->received_idx,
+  //              block_info->slot_complete_idx ));
   fd_block_map_publish( query );
 
   /* Update ancestry metadata: parent_slot, is_connected, next_slot.

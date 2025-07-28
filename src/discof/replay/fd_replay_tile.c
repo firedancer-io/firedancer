@@ -1060,7 +1060,7 @@ handle_writer_state_updates( fd_replay_tile_ctx_t * ctx ) {
         uint  txn_id       = fd_writer_fseq_get_txn_id( res );
         ulong exec_tile_id = fd_writer_fseq_get_exec_tile_id( res );
         if( ctx->exec_ready[ exec_tile_id ]==EXEC_TXN_BUSY && ctx->prev_ids[ exec_tile_id ]!=txn_id ) {
-          FD_LOG_DEBUG(( "Ack that exec tile idx=%lu txn id=%u has been finalized by writer tile %lu", exec_tile_id, txn_id, i ));
+          //FD_LOG_DEBUG(( "Ack that exec tile idx=%lu txn id=%u has been finalized by writer tile %lu", exec_tile_id, txn_id, i ));
           ctx->exec_ready[ exec_tile_id ] = EXEC_TXN_READY;
           ctx->prev_ids[ exec_tile_id ]   = txn_id;
           fd_fseq_update( ctx->writer_fseq[ i ], FD_WRITER_STATE_READY );
