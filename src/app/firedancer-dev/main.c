@@ -1,3 +1,4 @@
+#include "main.h"
 #include "../firedancer/topology.h"
 #include "../firedancer/config.h"
 #include "../shared_dev/boot/fd_dev_boot.h"
@@ -49,12 +50,6 @@ fd_topo_obj_callbacks_t * CALLBACKS[] = {
   &fd_obj_cb_bank_hash_cmp,
   NULL,
 };
-
-extern configure_stage_t fd_cfg_stage_kill;
-extern configure_stage_t fd_cfg_stage_netns;
-extern configure_stage_t fd_cfg_stage_genesis;
-extern configure_stage_t fd_cfg_stage_keys;
-extern configure_stage_t fd_cfg_stage_normalpage;
 
 configure_stage_t * STAGES[] = {
   &fd_cfg_stage_kill,

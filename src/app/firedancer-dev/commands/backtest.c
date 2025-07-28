@@ -22,6 +22,7 @@
 #include "../../../disco/topo/fd_topob.h"
 #include "../../../util/pod/fd_pod_format.h"
 #include "../../../discof/replay/fd_replay_notif.h"
+#include "../main.h"
 
 #include <unistd.h> /* pause */
 
@@ -336,8 +337,18 @@ backtest_cmd_fn( args_t *   args FD_PARAM_UNUSED,
     .configure.command = CONFIGURE_CMD_INIT,
   };
 
-  for( ulong i=0UL; STAGES[ i ]; i++ )
-    configure_args.configure.stages[ i ] = STAGES[ i ];
+  ulong stage_idx = 0UL;
+  configure_args.configure.stages[ stage_idx++ ] = &fd_cfg_stage_kill;
+  configure_args.configure.stages[ stage_idx++ ] = &fd_cfg_stage_netns;
+  configure_args.configure.stages[ stage_idx++ ] = &fd_cfg_stage_hugetlbfs;
+  configure_args.configure.stages[ stage_idx++ ] = &fd_cfg_stage_normalpage;
+  configure_args.configure.stages[ stage_idx++ ] = &fd_cfg_stage_sysctl;
+  configure_args.configure.stages[ stage_idx++ ] = &fd_cfg_stage_hyperthreads;
+  configure_args.configure.stages[ stage_idx++ ] = &fd_cfg_stage_ethtool_channels;
+  configure_args.configure.stages[ stage_idx++ ] = &fd_cfg_stage_ethtool_gro;
+  configure_args.configure.stages[ stage_idx++ ] = &fd_cfg_stage_ethtool_loopback;
+  configure_args.configure.stages[ stage_idx++ ] = &fd_cfg_stage_genesis;
+  configure_args.configure.stages[ stage_idx++ ] = &fd_cfg_stage_snapshots;
   configure_cmd_fn( &configure_args, config );
 
   run_firedancer_init( config, 1 );

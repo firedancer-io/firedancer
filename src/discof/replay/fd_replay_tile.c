@@ -124,10 +124,6 @@ struct fd_replay_tile_ctx {
   fd_funk_t             funk[1];
   fd_forks_t          * forks;
 
-  fd_pubkey_t validator_identity[1];
-  fd_pubkey_t vote_authority[1];
-  fd_pubkey_t vote_acc[1];
-
   /* Vote accounts in the current epoch. Lifetimes of the vote account
      addresses (pubkeys) are valid for the epoch (the pubkey memory is
      owned by the epoch bank). */
@@ -199,7 +195,6 @@ struct fd_replay_tile_ctx {
   int         tower_checkpt_fileno;
 
   int         vote;
-  fd_pubkey_t validator_identity_pubkey[ 1 ];
 
   fd_txncache_t * status_cache;
   void * bmtree[ FD_PACK_MAX_BANK_TILES ];
@@ -601,7 +596,6 @@ publish_slot_notifications( fd_replay_tile_ctx_t * ctx,
     FD_TEST( last_hash );
     msg->slot_exec.block_hash = *last_hash;
 
-    memcpy( &msg->slot_exec.identity, ctx->validator_identity_pubkey, sizeof( fd_pubkey_t ) );
     msg->slot_exec.ts = tsorig;
     NOTIFY_END;
   }
@@ -1846,16 +1840,6 @@ unprivileged_init( fd_topo_t *      topo,
   if( FD_UNLIKELY( !ctx->bank_hash_cmp ) ) {
     FD_LOG_ERR(( "failed to join bank_hash_cmp" ));
   }
-
-  /**********************************************************************/
-  /* voter                                                              */
-  /**********************************************************************/
-
-  memcpy( ctx->validator_identity, fd_keyload_load( tile->replay.identity_key_path, 1 ), sizeof(fd_pubkey_t) );
-  *ctx->vote_authority = *ctx->validator_identity; /* FIXME */
-  memcpy( ctx->vote_acc, fd_keyload_load( tile->replay.vote_account_path, 1 ), sizeof(fd_pubkey_t) );
-
-  ctx->validator_identity_pubkey[ 0 ] = *(fd_pubkey_t const *)fd_type_pun_const( fd_keyload_load( tile->replay.identity_key_path, 1 ) );
 
   /**********************************************************************/
   /* entry batch                                                        */

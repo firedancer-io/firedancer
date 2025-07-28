@@ -125,9 +125,6 @@ echo "
 [log]
     level_stderr = \"INFO\"
     path = \"$LOG\"
-[paths]
-    identity_key = \"dump/identity.json\"
-    vote_account = \"dump/vote.json\"
 " > dump/${LEDGER}_backtest.toml
 
 $OBJDIR/bin/firedancer-dev configure init all --config dump/${LEDGER}_backtest.toml &> /dev/null
