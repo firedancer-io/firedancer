@@ -283,7 +283,7 @@ fd_rdisp_demote_block( fd_rdisp_t *          disp,
   fd_rdisp_blockinfo_t * block   = block_map_ele_query( disp->blockmap, &block_tag, NULL, block_pool );
   if( FD_UNLIKELY(  block==NULL           ) ) return -1;
   if( FD_UNLIKELY( !block->staged         ) ) return -1;
-  if( FD_UNLIKELY(  block->schedule_ready ) ) return -1;
+  if( FD_UNLIKELY( !block->schedule_ready ) ) return -1;
   if( FD_UNLIKELY( !txn_ll_is_empty( block->ll, disp->pool ) ) ) FD_LOG_ERR(( "demote_block called with non-empty block" ));
   ulong staging_lane = block->staging_lane;
   block->staged = 0;
@@ -365,7 +365,7 @@ ulong
 fd_rdisp_staging_lane_info( fd_rdisp_t           const * disp,
                             fd_rdisp_staging_lane_info_t out_sched[ static 4 ] ) {
   (void)out_sched; /* TODO: poplulate */
-  return (ulong)disp->free_lanes;
+  return 0xFUL & ~(ulong)disp->free_lanes;
 }
 
 void * fd_rdisp_leave ( fd_rdisp_t * disp ) { return disp; }

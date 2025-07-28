@@ -324,7 +324,8 @@ typedef struct {
   int TODO;
 } fd_rdisp_staging_lane_info_t;
 /* fd_rdisp_staging_lane_info copies the current staging lane info to
-   out.  Returns a 4-bit bitset of which entries are non-empty. */
+   out.  Returns a 4-bit bitset, where bit i being set means that
+   staging lane i is occupied. */
 ulong
 fd_rdisp_staging_lane_info( fd_rdisp_t           const * disp,
                             fd_rdisp_staging_lane_info_t out_sched[ static 4 ] );

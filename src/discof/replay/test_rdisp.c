@@ -1,6 +1,13 @@
 #include <stdalign.h>
 
 #include "fd_rdisp.h"
+#if FD_HAS_HOSTED
+#include <errno.h>
+#include <fcntl.h>
+#include <unistd.h>
+#include <sys/mman.h>
+#include <sys/stat.h>
+#endif
 
 #define TEST_FOOTPRINT (1024UL*1024UL)
 uchar footprint[ TEST_FOOTPRINT ] __attribute__((aligned(128)));
@@ -63,12 +70,153 @@ pop_option( ulong * indices,
   return 0UL;
 }
 
+typedef struct {
+  long timeout;
+  uint exec_idx;
+  uint txn_idx;
+} event_t;
+#define PRQ_NAME eq
+#define PRQ_T    event_t
+#include "../../util/tmpl/fd_prq.c"
+
+static void
+test_mainnet( char const * filename,
+              ulong        exec_cnt,
+              ulong        ticks_per_cu,
+              ulong        staging_lane,
+              int          check_results ) {
+  if( (!FD_HAS_HOSTED) || FD_UNLIKELY( !filename ) ) {
+    FD_LOG_NOTICE(( "skipping mainnet test" ));
+    return;
+  }
+
+#if FD_HAS_HOSTED
+  int fdesc = open( filename, O_RDONLY );
+  if( FD_UNLIKELY( fdesc==-1 ) ) FD_LOG_ERR(( "opening %s failed. (%i-%s)", filename, errno, fd_io_strerror( errno ) ));
+  struct stat sb[1];
+  FD_TEST( 0==fstat( fdesc, sb ) );
+  ulong file_sz = (ulong)sb->st_size;
+  void * ptr = mmap( NULL, file_sz, PROT_READ, MAP_PRIVATE, fdesc, 0L );
+  FD_TEST( ptr!=MAP_FAILED );
+
+#define MAX_TXN_PER_BLOCK (5UL*1024UL)
+#define MAX_ACCT_PER_BLOCK (16UL*1024UL)
+  struct __attribute__((packed)) {
+    uint cus_consumed;
+    uint txn_payload_sz;
+    uint alt_addr_cnt;
+    uint acct_cnt;
+  } const * parse_ptr;
+  parse_ptr = ptr;
+
+  /* transaction i's data is found at acct_result_per_txn[i][j], where
+     0<=j<acct_cnt[i] */
+  struct __attribute__((packed)) {
+    ushort idx;
+    ushort w_ver;
+  } const * acct_result_per_txn[ MAX_TXN_PER_BLOCK ] = { NULL };
+  uchar acct_cnt[ MAX_TXN_PER_BLOCK ];
+  uint  cus_consumed[ MAX_TXN_PER_BLOCK ];
+  ulong txn_cnt = 0UL;
+
+  FD_TEST( fd_rdisp_footprint( MAX_TXN_PER_BLOCK, 1UL )<TEST_FOOTPRINT );
+  fd_rdisp_t * disp = fd_rdisp_join( fd_rdisp_new( footprint, MAX_TXN_PER_BLOCK, 1UL ) );
+  FD_TEST( disp );
+
+  long insert_duration = -fd_tickcount();
+  FD_TEST( 0==fd_rdisp_add_block( disp, tag( 0UL ), staging_lane ) );
+
+  while( (ulong)parse_ptr<(ulong)ptr + file_sz ) {
+    uchar _txn[ FD_TXN_MAX_SZ ] __attribute__((aligned(2)));
+
+    ulong payload_sz = parse_ptr->txn_payload_sz;
+    uchar const * payload = (uchar const *)(parse_ptr+1);
+    FD_TEST( fd_txn_parse( payload, payload_sz, _txn, NULL ) );
+
+    fd_acct_addr_t const * alt = (fd_acct_addr_t const *)(payload + payload_sz);
+    FD_TEST( parse_ptr->acct_cnt<256U );
+
+    ulong txn_idx = fd_rdisp_add_txn( disp, tag( 0UL ), (fd_txn_t const *)_txn, payload, alt, 0 );
+    FD_TEST( txn_idx>0UL );
+
+    cus_consumed[ txn_idx ] = parse_ptr->cus_consumed;
+    acct_cnt    [ txn_idx ] = (uchar)parse_ptr->acct_cnt;
+    acct_result_per_txn[ txn_idx ] = (void const *)(alt + parse_ptr->alt_addr_cnt);
+
+    parse_ptr = (void const *)(acct_result_per_txn[ txn_idx ] + parse_ptr->acct_cnt);
+    txn_cnt++;
+  }
+  insert_duration += fd_tickcount();
+
+
+  ushort current_ver[ MAX_ACCT_PER_BLOCK ] = { 0 };
+
+  FD_TEST( exec_cnt<=64UL );
+  FD_TEST( eq_footprint( exec_cnt )<256UL );
+  uchar prq_mem[ 256UL ] __attribute__((aligned(32UL)));
+  event_t * eq = eq_join( eq_new( prq_mem, exec_cnt ) );
+  ulong free = fd_ulong_mask_lsb( (int)exec_cnt );
+
+  long sched_duration = -fd_tickcount();
+  long advanced_ticks = 0UL;
+  while( txn_cnt ) {
+    ulong ready = 0UL;
+    while( eq_cnt( eq ) && eq->timeout<fd_tickcount() + advanced_ticks ) {
+      fd_rdisp_complete_txn( disp, eq->txn_idx );
+      free |= 1UL<<eq->exec_idx;
+      if( FD_UNLIKELY( check_results ) ) {
+        for( ulong i=0UL; i<acct_cnt[ eq->txn_idx ]; i++ ) {
+          FD_TEST( current_ver[ acct_result_per_txn[ eq->txn_idx ][ i ].idx ]==(0x7FFF&acct_result_per_txn[ eq->txn_idx ][ i ].w_ver) );
+          current_ver[ acct_result_per_txn[ eq->txn_idx ][ i ].idx ] += acct_result_per_txn[ eq->txn_idx ][ i ].w_ver>>15;
+        }
+      }
+      eq_remove_min( eq );
+      txn_cnt--;
+    }
+    if( FD_LIKELY( free && 0UL!=(ready=fd_rdisp_get_next_ready( disp, tag( 0UL ) ) ) ) ) {
+      event_t new_e[1] = {{
+        .timeout  = fd_tickcount() + advanced_ticks + (long)(cus_consumed[ ready ]*ticks_per_cu),
+        .exec_idx = (uint)fd_ulong_find_lsb( free ),
+        .txn_idx  = (uint)ready
+      }};
+      eq_insert( eq, new_e );
+      free = fd_ulong_pop_lsb( free );
+      if( FD_UNLIKELY( check_results ) ) {
+        for( ulong i=0UL; i<acct_cnt[ ready ]; i++ )
+          FD_TEST( current_ver[ acct_result_per_txn[ ready ][ i ].idx ]==(0x7FFF&acct_result_per_txn[ ready ][ i ].w_ver) );
+      }
+    } else if( FD_LIKELY( eq_cnt( eq ) ) ) {
+      /* We weren't able to schedule anything, so skip forward in time
+         until the next transaction is done. */
+      advanced_ticks += fd_long_max( 0L, eq->timeout-(fd_tickcount()+advanced_ticks) );
+    } /* else, we're done, and we'll break next iteration */
+  }
+  sched_duration += fd_tickcount();
+
+# if FD_HAS_DOUBLE
+  double ticks_per_ns = fd_tempo_tick_per_ns( NULL );
+  FD_LOG_NOTICE(( "scheduling took %f ms of work at the replay tile, and an estimated %f ms total time with %lu exec tiles and %f ns/CU",
+        (double)sched_duration/ticks_per_ns * 1e-6, (double)(sched_duration+advanced_ticks)/ticks_per_ns * 1e-6, exec_cnt, (double)ticks_per_cu/ticks_per_ns ));
+# else
+  FD_LOG_NOTICE(( "scheduling took %lu ticks of work at the replay tile, and an estimated %lu ticks total time with %lu exec tiles and %lu ticks/CU",
+        sched_duration, sched_duration+advanced_ticks, exec_cnt, ticks_per_cu ));
+# endif
+
+  munmap( ptr, file_sz );
+  close( fdesc );
+
+#endif
+}
+
 int
 main( int     argc,
       char ** argv ) {
   fd_boot( &argc, &argv );
 
   fd_rng_t _rng[1]; fd_rng_t * rng = fd_rng_join( fd_rng_new( _rng, 0U, 0UL ) );
+
+  char const * block_file = fd_env_strip_cmdline_cstr  ( &argc, &argv, "--block-file", NULL, NULL );
+  test_mainnet( block_file, 8UL, 10UL, 0UL, 1 );
 
   ulong depth       = 100UL;
   ulong block_depth = 10UL;
@@ -83,22 +231,22 @@ main( int     argc,
   FD_TEST( 0UL==add_txn( disp, rng, tag( 1UL ), "ABC", "DEF", 0 ) );
   FD_TEST( 0UL==fd_rdisp_get_next_ready( disp, tag( 1UL ) ) );
 
-  FD_TEST( 0xFUL==fd_rdisp_staging_lane_info( disp, lane_info ) ); /* all free */
+  FD_TEST( 0x0UL==fd_rdisp_staging_lane_info( disp, lane_info ) ); /* all free */
 
   FD_TEST( 0==fd_rdisp_add_block( disp, tag( 0UL ), 0 ) );
-  FD_TEST( 0xEUL==fd_rdisp_staging_lane_info( disp, lane_info ) );
+  FD_TEST( 0x1UL==fd_rdisp_staging_lane_info( disp, lane_info ) );
   FD_TEST( -1==fd_rdisp_add_block( disp, tag( 0UL ), 0                 ) ); /* can't add again */
   FD_TEST( -1==fd_rdisp_add_block( disp, tag( 0UL ), FD_RDISP_UNSTAGED ) ); /* can't add again */
 
   FD_TEST(  0==fd_rdisp_add_block( disp, tag( 1UL ), FD_RDISP_UNSTAGED ) );
-  FD_TEST( 0xEUL==fd_rdisp_staging_lane_info( disp, lane_info ) );
+  FD_TEST( 0x1UL==fd_rdisp_staging_lane_info( disp, lane_info ) );
 
   FD_TEST(  0==fd_rdisp_add_block( disp, tag( 2UL ), 2 ) );
-  FD_TEST( 0xAUL==fd_rdisp_staging_lane_info( disp, lane_info ) );
+  FD_TEST( 0x5UL==fd_rdisp_staging_lane_info( disp, lane_info ) );
   FD_TEST(  0==fd_rdisp_remove_block( disp, tag( 2UL ) ) );
-  FD_TEST( 0xEUL==fd_rdisp_staging_lane_info( disp, lane_info ) );
+  FD_TEST( 0x1UL==fd_rdisp_staging_lane_info( disp, lane_info ) );
   FD_TEST(  0==fd_rdisp_add_block( disp, tag( 2UL ), 2 ) );
-  FD_TEST( 0xAUL==fd_rdisp_staging_lane_info( disp, lane_info ) );
+  FD_TEST( 0x5UL==fd_rdisp_staging_lane_info( disp, lane_info ) );
 
   ulong t0[3];
   ulong t1[3];
@@ -157,7 +305,29 @@ main( int     argc,
   last = fd_rdisp_get_next_ready( disp, tag( 3UL ) ); FD_TEST( pop_option( t3, 3UL, last ) ); fd_rdisp_complete_txn( disp, last );
   last = fd_rdisp_get_next_ready( disp, tag( 3UL ) ); FD_TEST( pop_option( t3, 3UL, last ) ); fd_rdisp_complete_txn( disp, last );
 
-  (void)t2;
+  FD_TEST( 0UL!=(t2[0]=add_txn( disp, rng, tag( 2UL ), "ABC", "DEF", 0 )) );
+  FD_TEST( 0UL!=(t2[1]=add_txn( disp, rng, tag( 2UL ), "A",   "DEF", 0 )) );
+  FD_TEST( 0UL!=(t2[2]=add_txn( disp, rng, tag( 2UL ), "AF",  "DE",  0 )) );
+  FD_TEST( t2[0]==fd_rdisp_get_next_ready( disp, tag( 2UL ) ) );   fd_rdisp_complete_txn( disp, t2[0] );
+  FD_TEST( t2[1]==fd_rdisp_get_next_ready( disp, tag( 2UL ) ) );   fd_rdisp_complete_txn( disp, t2[1] );
+  FD_TEST( t2[2]==fd_rdisp_get_next_ready( disp, tag( 2UL ) ) );   fd_rdisp_complete_txn( disp, t2[2] );
+  /* Now it is possible to demote */
+  FD_TEST(   (1UL<<2) & fd_rdisp_staging_lane_info( disp, lane_info ) );
+  FD_TEST( 0==fd_rdisp_demote_block( disp, tag( 2UL ) ) );
+  FD_TEST( !((1UL<<2) & fd_rdisp_staging_lane_info( disp, lane_info )) );
+
+  FD_TEST( 0UL!=(t2[0]=add_txn( disp, rng, tag( 2UL ), "ABC", "DEF", 0 )) );
+  FD_TEST( 0UL!=(t2[1]=add_txn( disp, rng, tag( 2UL ), "A",   "DEF", 0 )) );
+  FD_TEST( 0UL!=(t2[2]=add_txn( disp, rng, tag( 2UL ), "AF",  "DE",  0 )) );
+
+  FD_TEST( !((1UL<<2) & fd_rdisp_staging_lane_info( disp, lane_info )) );
+  FD_TEST( 0==fd_rdisp_promote_block( disp, tag( 2UL ), 3UL ) );
+  FD_TEST(   (1UL<<3) & fd_rdisp_staging_lane_info( disp, lane_info ) );
+  FD_TEST( t2[0]==fd_rdisp_get_next_ready( disp, tag( 2UL ) ) );   fd_rdisp_complete_txn( disp, t2[0] );
+  FD_TEST( t2[1]==fd_rdisp_get_next_ready( disp, tag( 2UL ) ) );   fd_rdisp_complete_txn( disp, t2[1] );
+  FD_TEST( t2[2]==fd_rdisp_get_next_ready( disp, tag( 2UL ) ) );   fd_rdisp_complete_txn( disp, t2[2] );
+
+  fd_rdisp_delete( fd_rdisp_leave( disp ) );
 
   fd_rng_delete( fd_rng_leave( rng ) );
 
