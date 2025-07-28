@@ -308,6 +308,7 @@ fd_runtime_update_lthash_with_account( fd_funk_t *             funk,
                                        fd_stem_context_t *     stem,
                                        fd_replay_out_link_t *  capture_out ) {
 
+
   /* Look up the previous version of the account from Funk */
   FD_TXN_ACCOUNT_DECL( previous_account_version );
   int err = fd_txn_account_init_from_funk_readonly( previous_account_version, account->pubkey, funk, funk_txn );
@@ -318,7 +319,7 @@ fd_runtime_update_lthash_with_account( fd_funk_t *             funk,
 
   /* Hash the old version of the account */
   fd_lthash_value_t old_hash[1];
-fd_lthash_zero( old_hash );
+  fd_lthash_zero( old_hash );
   if( err != FD_ACC_MGR_ERR_UNKNOWN_ACCOUNT ) {
     fd_hash_account_lthash_value(
       account->pubkey,
@@ -349,7 +350,8 @@ fd_runtime_run_incinerator( fd_bank_t *             bank,
     return -1;
   }
 
-  fd_lthash_value_t prev_lthash_value = {0};
+  fd_lthash_value_t prev_lthash_value;
+  fd_lthash_zero( &prev_lthash_value );
   fd_hash_account_lthash_value( (fd_pubkey_t *)rec,
                                 rec->vt->get_meta( rec ),
                                 rec->vt->get_data( rec ),
@@ -410,6 +412,7 @@ fd_runtime_freeze( fd_exec_slot_ctx_t *   slot_ctx,
       }
 
       fd_lthash_value_t old_hash[1];
+      fd_lthash_zero( old_hash );
       fd_hash_account_lthash_value(
         leader,
         rec->vt->get_meta( rec ),
@@ -616,6 +619,7 @@ fd_runtime_block_sysvar_update_pre_execute( fd_exec_slot_ctx_t *   slot_ctx,
     FD_LOG_ERR(( "fd_txn_account_init_from_funk_readonly(clock) failed: %d", err ));
   }
   fd_lthash_value_t prev_clock_lthash[1];
+  fd_lthash_zero( prev_clock_lthash );
   fd_hash_account_lthash_value(
     &fd_sysvar_clock_id,
     prev_clock_rec->vt->get_meta( prev_clock_rec ),
@@ -1159,7 +1163,8 @@ fd_runtime_block_execute_finalize_start( fd_exec_slot_ctx_t *             slot_c
                                          fd_stem_context_t *              stem,
                                          fd_replay_out_link_t *           capture_out ) {
 
-  fd_lthash_value_t old_slot_history_lthash = {0};
+  fd_lthash_value_t old_slot_history_lthash;
+  fd_lthash_zero( &old_slot_history_lthash );
   FD_TXN_ACCOUNT_DECL( old_rec );
   int err = fd_txn_account_init_from_funk_readonly( old_rec, &fd_sysvar_slot_history_id, slot_ctx->funk, slot_ctx->funk_txn );
   if (err) {
@@ -1933,7 +1938,8 @@ fd_migrate_builtin_to_core_bpf( fd_exec_slot_ctx_t *   slot_ctx,
     return;
   }
 
-  fd_lthash_value_t prev_source_buffer_lthash_value = {0};
+  fd_lthash_value_t prev_source_buffer_lthash_value;
+  fd_lthash_zero( &prev_source_buffer_lthash_value );
   fd_hash_account_lthash_value( source_buffer_address,
                                 source_buffer_account->vt->get_meta( source_buffer_account ),
                                 source_buffer_account->vt->get_data( source_buffer_account ),
@@ -1972,7 +1978,8 @@ fd_migrate_builtin_to_core_bpf( fd_exec_slot_ctx_t *   slot_ctx,
     FD_LOG_WARNING(( "Builtin program ID %s does not exist", FD_BASE58_ENC_32_ALLOCA( builtin_program_id ) ));
     goto fail;
   }
-  fd_lthash_value_t prev_new_target_program_account_lthash_value = {0};
+  fd_lthash_value_t prev_new_target_program_account_lthash_value;
+  fd_lthash_zero( &prev_new_target_program_account_lthash_value );
   fd_hash_account_lthash_value( builtin_program_id,
                                 new_target_program_account->vt->get_meta( new_target_program_account ),
                                 new_target_program_account->vt->get_data( new_target_program_account ),
@@ -2007,7 +2014,8 @@ fd_migrate_builtin_to_core_bpf( fd_exec_slot_ctx_t *   slot_ctx,
     FD_LOG_WARNING(( "Failed to create new program data account to %s", FD_BASE58_ENC_32_ALLOCA( target_program_data_address ) ));
     goto fail;
   }
-  fd_lthash_value_t prev_new_target_program_data_account_lthash_value = {0};
+  fd_lthash_value_t prev_new_target_program_data_account_lthash_value;
+  fd_lthash_zero( &prev_new_target_program_data_account_lthash_value );
   fd_hash_account_lthash_value( target_program_data_address,
                                 new_target_program_data_account->vt->get_meta( new_target_program_data_account ),
                                 new_target_program_data_account->vt->get_data( new_target_program_data_account ),
@@ -2192,7 +2200,8 @@ fd_feature_activate( fd_features_t *           features,
       return;
     }
 
-    fd_lthash_value_t prev_lthash_value = {0};
+    fd_lthash_value_t prev_lthash_value;
+    fd_lthash_zero( &prev_lthash_value );
     fd_hash_account_lthash_value( (fd_pubkey_t *)acct,
                                   modify_acct_rec->vt->get_meta( modify_acct_rec ),
                                   modify_acct_rec->vt->get_data( modify_acct_rec ),

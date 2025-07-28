@@ -856,7 +856,8 @@ calculate_rewards_and_distribute_vote_rewards( fd_exec_slot_ctx_t *             
       FD_LOG_ERR(( "Unable to modify vote account" ));
     }
 
-    fd_lthash_value_t prev_lthash_value = {0};
+    fd_lthash_value_t prev_lthash_value;
+    fd_lthash_zero( &prev_lthash_value );
     fd_hash_account_lthash_value( vote_pubkey,
                                   vote_rec->vt->get_meta( vote_rec ),
                                   vote_rec->vt->get_data( vote_rec ),
@@ -911,7 +912,8 @@ distribute_epoch_reward_to_stake_acc( fd_exec_slot_ctx_t *   slot_ctx,
     FD_LOG_ERR(( "Unable to modify stake account" ));
   }
 
-  fd_lthash_value_t prev_lthash_value = {0};
+  fd_lthash_value_t prev_lthash_value;
+  fd_lthash_zero( &prev_lthash_value );
   fd_hash_account_lthash_value( stake_pubkey,
                                 stake_acc_rec->vt->get_meta( stake_acc_rec ),
                                 stake_acc_rec->vt->get_data( stake_acc_rec ),

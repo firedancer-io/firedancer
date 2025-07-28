@@ -163,7 +163,8 @@ fd_write_builtin_account( fd_exec_slot_ctx_t *   slot_ctx,
   int err = fd_txn_account_init_from_funk_mutable( rec, &pubkey, funk, txn, 1, sz );
   FD_TEST( !err );
 
-  fd_lthash_value_t prev_lthash_value = {0};
+  fd_lthash_value_t prev_lthash_value;
+  fd_lthash_zero( &prev_lthash_value );
   fd_hash_account_lthash_value( &pubkey,
                                 rec->vt->get_meta( rec ),
                                 rec->vt->get_data( rec ),

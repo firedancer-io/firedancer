@@ -25,7 +25,8 @@ fd_sysvar_set( fd_bank_t *          bank,
     return FD_ACC_MGR_ERR_READ_FAILED;
   }
 
-  fd_lthash_value_t prev_lthash_value = {0};
+  fd_lthash_value_t prev_lthash_value;
+  fd_lthash_zero( &prev_lthash_value );
   fd_hash_account_lthash_value( pubkey,
                                 rec->vt->get_meta( rec ),
                                 rec->vt->get_data( rec ),
