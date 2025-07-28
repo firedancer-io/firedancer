@@ -190,20 +190,11 @@ echo "
     level_stderr = \"INFO\"
     path = \"$LOG\"
 [paths]
-    identity_key = \"$DUMP_DIR/identity.json\"
-    vote_account = \"$DUMP_DIR/vote.json\"
-    snapshots    = \"$DUMP/$LEDGER\"
+    snapshots = \"$DUMP/$LEDGER\"
 [hugetlbfs]
     mount_path = \"$HUGE_TLBFS_MOUNT_PATH\"
     allow_hugepage_increase = $HUGE_TLBFS_ALLOW_HUGEPAGE_INCREASE
 " > $DUMP_DIR/${LEDGER}_backtest.toml
-
-if [ ! -f $DUMP_DIR/identity.json ]; then
-$OBJDIR/bin/firedancer-dev keys new identity --config ${DUMP_DIR}/${LEDGER}_backtest.toml
-fi
-if [ ! -f $DUMP_DIR/vote.json ]; then
-$OBJDIR/bin/firedancer-dev keys new vote --config ${DUMP_DIR}/${LEDGER}_backtest.toml
-fi
 
 echo "Running backtest for $LEDGER"
 sudo $OBJDIR/bin/firedancer-dev configure init all --config ${DUMP_DIR}/${LEDGER}_backtest.toml &> /dev/null
