@@ -458,7 +458,7 @@ fd_topo_initialize( config_t * config ) {
   FOR(writer_tile_cnt)             fd_topob_tile( topo, "writer",  "writer",  "metric_in",  tile_to_cpu[ topo->tile_cnt ], 0,        0 );
 
   fd_topo_tile_t * rpcserv_tile = NULL;
-  if( enable_rpc ) rpcserv_tile =  fd_topob_tile( topo, "rpcsrv",  "rpcsrv",  "metric_in",  tile_to_cpu[ topo->tile_cnt ], 0,        0 );
+  if( enable_rpc ) rpcserv_tile =  fd_topob_tile( topo, "rpcsrv",  "rpcsrv",  "metric_in",  tile_to_cpu[ topo->tile_cnt ], 0,        1 );
 
   fd_topo_tile_t * snaprd_tile = fd_topob_tile( topo, "snaprd", "snaprd", "metric_in", tile_to_cpu[ topo->tile_cnt ], 0, 0 );
   snaprd_tile->allow_shutdown = 1;

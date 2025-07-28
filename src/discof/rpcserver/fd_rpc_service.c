@@ -3,14 +3,11 @@
 #include "fd_webserver.h"
 #include "base_enc.h"
 #include "../../flamenco/types/fd_types.h"
-#include "../../flamenco/types/fd_solana_block.pb.h"
-#include "../../flamenco/runtime/fd_runtime.h"
 #include "../../flamenco/runtime/fd_acc_mgr.h"
-#include "../../flamenco/runtime/sysvar/fd_sysvar_rent.h"
-#include "../../flamenco/runtime/sysvar/fd_sysvar_epoch_schedule.h"
 #include "../../ballet/base58/fd_base58.h"
 #include "../../ballet/base64/fd_base64.h"
 #include "fd_rpc_history.h"
+#include "fd_block_to_json.h"
 #include "keywords.h"
 #include <errno.h>
 #include <stdlib.h>
@@ -79,6 +76,7 @@ struct fd_rpc_global_ctx {
   fd_multi_epoch_leaders_t * leaders;
   ulong acct_age;
   fd_rpc_history_t * history;
+  fd_pubkey_t const * identity_key; /* nullable */
 };
 typedef struct fd_rpc_global_ctx fd_rpc_global_ctx_t;
 
@@ -768,6 +766,19 @@ method_getHighestSnapshotSlot(struct json_values* values, fd_rpc_ctx_t * ctx) {
   (void)ctx;
   FD_LOG_WARNING(( "getHighestSnapshotSlot is not implemented" ));
   fd_method_error(ctx, -1, "getHighestSnapshotSlot is not implemented");
+  return 0;
+}
+
+// Implementation of the "getIdentity" method
+// curl http://localhost:8123 -X POST -H "Content-Type: application/json" -d ' {"jsonrpc":"2.0","id":1, "method":"getIdentity"} '
+static int
+method_getIdentity(struct json_values* values, fd_rpc_ctx_t * ctx) {
+  (void)values;
+  fd_webserver_t * ws = &ctx->global->ws;
+  if( !ctx->global->identity_key ) return 1; /* not supported */
+  fd_web_reply_sprintf(ws, "{\"jsonrpc\":\"2.0\",\"result\":{\"identity\":\"");
+  fd_web_reply_encode_base58(ws, ctx->global->identity_key, sizeof(fd_pubkey_t));
+  fd_web_reply_sprintf(ws, "\"},\"id\":%s}" CRLF, ctx->call_id);
   return 0;
 }
 
@@ -1881,6 +1892,10 @@ fd_webserver_method_generic(struct json_values* values, void * cb_arg) {
     if (!method_getHighestSnapshotSlot(values, &ctx))
       return;
     break;
+  case KEYW_RPCMETHOD_GETIDENTITY:
+    if (!method_getIdentity(values, &ctx))
+      return;
+    break;
   case KEYW_RPCMETHOD_GETINFLATIONGOVERNOR:
     if (!method_getInflationGovernor(values, &ctx))
       return;
@@ -2292,6 +2307,7 @@ fd_rpc_create_ctx(fd_rpcserver_args_t * args, fd_rpc_ctx_t ** ctx_p) {
   FD_TEST( gctx->perf_samples );
 
   gctx->history = fd_rpc_history_create(args);
+  gctx->identity_key = args->identity_key;
 
   FD_LOG_NOTICE(( "starting web server on port %u", (uint)args->port ));
   if (fd_webserver_start(args->port, args->params, gctx->spad, &gctx->ws, ctx))
