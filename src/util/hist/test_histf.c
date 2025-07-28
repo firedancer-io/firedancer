@@ -96,6 +96,37 @@ main( int     argc,
 
   FD_TEST( fd_histf_bucket_cnt( hist )==FD_HISTF_BUCKET_CNT );
 
+  FD_LOG_NOTICE(( "Testing percentile" ));
+
+  hist = fd_histf_join( fd_histf_new( fd_histf_delete( fd_histf_leave( hist ) ), 1U, 100U ) ); /* Reset histogram */
+
+  fd_histf_sample( hist, 0U   );      /* Underflow bucket */
+
+  fd_histf_t snapshot[ 1UL ];
+  memcpy(snapshot, hist, sizeof(fd_histf_t));
+
+  fd_histf_sample( hist, 30U  );      /* Middle bucket */
+  fd_histf_sample( hist, 40U  );      /* Middle bucket */
+  fd_histf_sample( hist, 99U  );      /* End bucket */
+  fd_histf_sample( hist, 101U );      /* Overflow bucket */
+  fd_histf_sample( hist, 110U );      /* Overflow bucket */
+
+  FD_TEST( fd_histf_percentile( hist,   0, ULONG_MAX )==0UL       );
+  FD_TEST( fd_histf_percentile( hist,  20, ULONG_MAX )==30UL      );
+  FD_TEST( fd_histf_percentile( hist,  40, ULONG_MAX )==41UL      );
+  FD_TEST( fd_histf_percentile( hist,  60, ULONG_MAX )==86UL      ); /* end bucket. midpoint between 74 and 99 */
+  FD_TEST( fd_histf_percentile( hist,  80, ULONG_MAX )==ULONG_MAX ); /* overflow bucket */
+  FD_TEST( fd_histf_percentile( hist, 100, ULONG_MAX )==ULONG_MAX ); /* overflow bucket */
+  FD_TEST( fd_histf_percentile( hist,  60, 42UL      )==86UL      ); /* Sentinel unused */
+
+  fd_histf_t delta[ 1UL ];
+  fd_histf_subtract( hist, snapshot, delta );
+  FD_TEST( fd_histf_percentile( delta, 0, ULONG_MAX )==30UL ); /* "30" should now have sample_rank=0 */
+
+  hist = fd_histf_join( fd_histf_new( fd_histf_delete( fd_histf_leave( hist ) ), 1U, 100U ) );
+
+  FD_TEST( fd_histf_percentile( hist, 50, 42UL )==42UL );      /* Empty histogram returns sentinel */
+
   FD_LOG_NOTICE(( "Testing performance" ));
   fd_rng_t _rng[1]; fd_rng_t * rng = fd_rng_join( fd_rng_new( _rng, 0U, 0UL ) );
   long overhead = -fd_log_wallclock();
