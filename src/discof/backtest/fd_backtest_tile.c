@@ -102,6 +102,8 @@ typedef struct {
   fd_store_t *           store;
   fd_tower_t *           tower;
   fd_shred_t const *     curr;
+
+  ulong                  last_replayed_slot;
 } ctx_t;
 
 FD_FN_CONST static inline ulong
@@ -346,6 +348,12 @@ after_credit_rocksdb( ctx_t *             ctx,
       FD_LOG_CRIT(( "Failed at seeking rocksdb root iter for slot=%lu", wmark ));
     }
     ctx->rocksdb_iter = rocksdb_create_iterator_cf(ctx->rocksdb.db, ctx->rocksdb.ro, ctx->rocksdb.cf_handles[FD_ROCKSDB_CFIDX_DATA_SHRED]);
+  }
+
+  /* If the slot we just finished replaying is not equal to the slot
+     we last sent to the replay tile. */
+  if( ctx->curr && ctx->curr->slot == ctx->last_replayed_slot ) {
+    return;
   }
 
   ulong sz;
@@ -644,6 +652,7 @@ after_frag( ctx_t *             ctx,
         FD_LOG_CRIT(( "Invalid ingest mode: %lu", ctx->ingest_mode ));
     }
 
+    ctx->last_replayed_slot = slot;
     notify_tower_root( ctx, stem, tsorig, tspub );
 
     if( FD_UNLIKELY( slot>=ctx->end_slot ) ) {
