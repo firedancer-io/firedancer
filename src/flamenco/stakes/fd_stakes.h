@@ -55,7 +55,6 @@ struct fd_accumulate_delegations_task_args {
    fd_stake_history_entry_t *         accumulator;
    fd_epoch_info_t *                  temp_info;
    fd_spad_t * *                      spads;
-   fd_delegation_pair_t_mapnode_t *   stake_delegations_pool;
    ulong                              epoch;
 };
 typedef struct fd_accumulate_delegations_task_args fd_accumulate_delegations_task_args_t;

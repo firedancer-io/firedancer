@@ -300,7 +300,19 @@ fd_vm_syscall_sol_get_epoch_stake( /**/            void *  _vm,
 
   /* https://github.com/anza-xyz/agave/blob/v2.2.14/runtime/src/bank.rs#L6954 */
   fd_vote_accounts_global_t const * next_epoch_stakes = fd_bank_next_epoch_stakes_locking_query( vm->instr_ctx->txn_ctx->bank );
-  *_ret = fd_query_pubkey_stake( vote_address, next_epoch_stakes );
+
+  fd_vote_accounts_pair_global_t_mapnode_t key  = { 0 };
+  key.elem.key                                  = *vote_address;
+  fd_vote_accounts_pair_global_t_mapnode_t * vote_accounts_pool = fd_vote_accounts_vote_accounts_pool_join( next_epoch_stakes );
+  fd_vote_accounts_pair_global_t_mapnode_t * vote_accounts_root = fd_vote_accounts_vote_accounts_root_join( next_epoch_stakes );
+  if( !vote_accounts_pool && !vote_accounts_root ) {
+    *_ret = 0;
+    return FD_VM_SUCCESS;
+  }
+  fd_vote_accounts_pair_global_t_mapnode_t * vote_node = fd_vote_accounts_pair_global_t_map_find(
+      vote_accounts_pool, vote_accounts_root, &key );
+  *_ret = vote_node ? vote_node->elem.stake : 0;
+
   fd_bank_next_epoch_stakes_end_locking_query( vm->instr_ctx->txn_ctx->bank );
 
   return FD_VM_SUCCESS;
