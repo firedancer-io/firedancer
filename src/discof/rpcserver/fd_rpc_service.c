@@ -771,19 +771,6 @@ method_getHighestSnapshotSlot(struct json_values* values, fd_rpc_ctx_t * ctx) {
   return 0;
 }
 
-// Implementation of the "getIdentity" method
-// curl http://localhost:8123 -X POST -H "Content-Type: application/json" -d ' {"jsonrpc":"2.0","id":1, "method":"getIdentity"} '
-
-static int
-method_getIdentity(struct json_values* values, fd_rpc_ctx_t * ctx) {
-  fd_webserver_t * ws = &ctx->global->ws;
-  ulong slot = get_slot_from_commitment_level( values, ctx );
-  fd_replay_notif_msg_t * info = fd_rpc_history_get_block_info(ctx->global->history, slot);
-  fd_web_reply_sprintf(ws, "{\"jsonrpc\":\"2.0\",\"result\":{\"identity\":\"");
-  fd_web_reply_encode_base58(ws, &info->slot_exec.identity, sizeof(fd_pubkey_t));
-  fd_web_reply_sprintf(ws, "\"},\"id\":%s}" CRLF, ctx->call_id);
-  return 0;
-}
 // Implementation of the "getInflationGovernor" methods
 static int
 method_getInflationGovernor(struct json_values* values, fd_rpc_ctx_t * ctx) {
@@ -1892,10 +1879,6 @@ fd_webserver_method_generic(struct json_values* values, void * cb_arg) {
     break;
   case KEYW_RPCMETHOD_GETHIGHESTSNAPSHOTSLOT:
     if (!method_getHighestSnapshotSlot(values, &ctx))
-      return;
-    break;
-  case KEYW_RPCMETHOD_GETIDENTITY:
-    if (!method_getIdentity(values, &ctx))
       return;
     break;
   case KEYW_RPCMETHOD_GETINFLATIONGOVERNOR:
