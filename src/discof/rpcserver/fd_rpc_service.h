@@ -1,10 +1,8 @@
 #ifndef HEADER_fd_src_discof_rpcserver_fd_rpc_service_h
 #define HEADER_fd_src_discof_rpcserver_fd_rpc_service_h
 
-#include "fd_block_to_json.h"
 #include "../replay/fd_replay_notif.h"
 
-#include "../../disco/topo/fd_topo.h"
 #include "../../flamenco/leaders/fd_multi_epoch_leaders.h"
 #include "../../flamenco/runtime/fd_blockstore.h"
 #include "../../waltz/http/fd_http_server.h"
@@ -27,6 +25,7 @@ struct fd_rpcserver_args {
   uint                       txn_index_max;
   uint                       acct_index_max;
   char                       history_file[ PATH_MAX ];
+  fd_pubkey_t const *        identity_key; /* nullable */
 
   /* Bump allocator */
   fd_spad_t                * spad;

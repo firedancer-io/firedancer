@@ -7,14 +7,11 @@
 
 #include "../rpcserver/fd_rpc_service.h"
 
-#include "../../disco/tiles.h"
 #include "../../flamenco/runtime/fd_blockstore.h"
-#include "../../flamenco/fd_flamenco.h"
-#include "../../util/fd_util.h"
-#include "../../disco/fd_disco.h"
 #include "../../flamenco/leaders/fd_multi_epoch_leaders.h"
 #include "../../util/pod/fd_pod_format.h"
 #include "../../disco/keyguard/fd_keyload.h"
+#include "../../disco/keyguard/fd_keyswitch.h"
 
 #include <errno.h>
 #include <fcntl.h>
@@ -28,7 +25,8 @@ struct fd_rpcserv_tile_ctx {
 
   fd_rpc_ctx_t * ctx;
 
-  fd_pubkey_t identity_key[1]; /* Just the public key */
+  fd_pubkey_t      identity_key;
+  fd_keyswitch_t * keyswitch;
 
   fd_wksp_t * replay_notif_in_mem;
   ulong       replay_notif_in_chunk0;
@@ -72,6 +70,14 @@ scratch_footprint( fd_topo_tile_t const * tile FD_PARAM_UNUSED) {
 FD_FN_PURE static inline ulong
 loose_footprint( fd_topo_tile_t const * tile FD_PARAM_UNUSED ) {
   return 1UL * FD_SHMEM_GIGANTIC_PAGE_SZ;
+}
+
+static inline void
+during_housekeeping( fd_rpcserv_tile_ctx_t * ctx ) {
+  if( FD_UNLIKELY( fd_keyswitch_state_query( ctx->keyswitch )==FD_KEYSWITCH_STATE_SWITCH_PENDING ) ) {
+    memcpy( &ctx->identity_key, ctx->keyswitch->bytes, sizeof(fd_pubkey_t) );
+    fd_keyswitch_state( ctx->keyswitch, FD_KEYSWITCH_STATE_COMPLETED );
+  }
 }
 
 static inline void
@@ -147,7 +153,7 @@ privileged_init( fd_topo_t *      topo,
 
   if( FD_UNLIKELY( !strcmp( tile->rpcserv.identity_key_path, "" ) ) )
     FD_LOG_ERR( ( "identity_key_path not set" ) );
-  ctx->identity_key[0] = *(fd_pubkey_t const *) fd_type_pun_const( fd_keyload_load( tile->rpcserv.identity_key_path, /* pubkey only: */ 1 ) );
+  memcpy( &ctx->identity_key, fd_keyload_load( tile->rpcserv.identity_key_path, /* pubkey only: */ 1 ), sizeof(fd_pubkey_t) );
 
   fd_rpcserver_args_t * args = &ctx->args;
   fd_memset( args, 0, sizeof(fd_rpcserver_args_t) );
@@ -182,6 +188,7 @@ privileged_init( fd_topo_t *      topo,
   args->txn_index_max = tile->rpcserv.txn_index_max;
   args->acct_index_max = tile->rpcserv.acct_index_max;
   strncpy( args->history_file, tile->rpcserv.history_file, sizeof(args->history_file) );
+  args->identity_key = &ctx->identity_key;
 
   fd_spad_push( args->spad ); /* We close this out when we stop the server */
   fd_rpc_create_ctx( args, &ctx->ctx );
@@ -225,6 +232,9 @@ unprivileged_init( fd_topo_t *      topo,
   ctx->stake_in_mem    = topo->workspaces[ topo->objs[ stake_in_link->dcache_obj_id ].wksp_id ].wksp;
   ctx->stake_in_chunk0 = fd_dcache_compact_chunk0( ctx->stake_in_mem, stake_in_link->dcache );
   ctx->stake_in_wmark  = fd_dcache_compact_wmark ( ctx->stake_in_mem, stake_in_link->dcache, stake_in_link->mtu );
+
+  ctx->keyswitch = fd_keyswitch_join( fd_topo_obj_laddr( topo, tile->keyswitch_obj_id ) );
+  FD_TEST( ctx->keyswitch );
 
   fd_rpcserver_args_t * args = &ctx->args;
   if( FD_UNLIKELY( !fd_funk_join( args->funk, fd_topo_obj_laddr( topo, tile->rpcserv.funk_obj_id ) ) ) ) {
@@ -272,9 +282,10 @@ populate_allowed_fds( fd_topo_t const *      topo,
 #define STEM_CALLBACK_CONTEXT_TYPE  fd_rpcserv_tile_ctx_t
 #define STEM_CALLBACK_CONTEXT_ALIGN alignof(fd_rpcserv_tile_ctx_t)
 
-#define STEM_CALLBACK_BEFORE_CREDIT before_credit
-#define STEM_CALLBACK_DURING_FRAG   during_frag
-#define STEM_CALLBACK_AFTER_FRAG    after_frag
+#define STEM_CALLBACK_BEFORE_CREDIT       before_credit
+#define STEM_CALLBACK_DURING_HOUSEKEEPING during_housekeeping
+#define STEM_CALLBACK_DURING_FRAG         during_frag
+#define STEM_CALLBACK_AFTER_FRAG          after_frag
 
 #include "../../disco/stem/fd_stem.c"
 
