@@ -59,21 +59,23 @@ def print_sankey(summed: Dict[Tuple[str, str, Optional[str]], int]):
                       get_link_count(summed, metric='resolv_stash_operation', link='published') - \
                       get_link_count(summed, metric='resolv_stash_operation', link='removed')
 
-    pack_cranked = get_link_count(summed, metric='pack_bundle_crank_status', link='inserted')
+    pack_cranked = get_link_count(summed, metric='pack_bundle_crank_status', link='inserted') + \
+                   get_link_count(summed, metric='pack_bundle_crank_status_insertion_failed') + \
+                   get_link_count(summed, metric='pack_bundle_crank_status_creation_failed')
 
     pack_retained = get_link_count(summed, metric='pack_available_transactions', link='all')
 
-    pack_leader_slot = get_link_count(summed, metric='pack_transaction_inserted', link='priority') + \
-                       get_link_count(summed, metric='pack_transaction_inserted', link='nonvote_replace') + \
-                       get_link_count(summed, metric='pack_transaction_inserted', link='vote_replace')
+    pack_leader_slow = get_link_count(summed, metric='pack_transaction_inserted', link='priority')
 
     pack_expired = get_link_count(summed, metric='pack_transaction_expired') + \
                    get_link_count(summed, metric='pack_transaction_deleted') + \
                    get_link_count(summed, metric='pack_transaction_inserted', link='expired') + \
-                   get_link_count(summed, metric='pack_transaction_inserted', link='nonce_priority') + \
-                   get_link_count(summed, metric='pack_transaction_inserted', link='nonce_nonvote_replace')
+                   get_link_count(summed, metric='pack_transaction_inserted', link='nonce_priority')
 
-    pack_invalid_bundle = get_link_count(summed, metric='pack_transaction_dropped_partial_bundle')
+    pack_invalid_bundle = get_link_count(summed, metric='pack_transaction_dropped_partial_bundle') + \
+                          get_link_count(summed, metric='pack_bundle_crank_status_insertion_failed') + \
+                          get_link_count(summed, metric='pack_bundle_crank_status_creation_failed')
+
     pack_invalid = get_link_count(summed, metric='pack_transaction_inserted', link='nonce_conflict') + \
                    get_link_count(summed, metric='pack_transaction_inserted', link='bundle_blacklist') + \
                    get_link_count(summed, metric='pack_transaction_inserted', link='invalid_nonce') + \
@@ -84,7 +86,8 @@ def print_sankey(summed: Dict[Tuple[str, str, Optional[str]], int]):
                    get_link_count(summed, metric='pack_transaction_inserted', link='too_large') + \
                    get_link_count(summed, metric='pack_transaction_inserted', link='addr_lut') + \
                    get_link_count(summed, metric='pack_transaction_inserted', link='unaffordable') + \
-                   get_link_count(summed, metric='pack_transaction_inserted', link='duplicate')
+                   get_link_count(summed, metric='pack_transaction_inserted', link='duplicate') - \
+                   get_link_count(summed, metric='pack_bundle_crank_status_insertion_failed')
 
     bank_invalid = get_link_count(summed, metric='bank_processing_failed') + \
                    get_link_count(summed, metric='bank_precompile_verify_failure') + \
@@ -146,13 +149,13 @@ RECONCILE RESOLV OUT: {recon_resolv_out:10,}
 
 pack_cranked:         {pack_cranked:10,}
 pack_retained:        {pack_retained:10,}
-pack_leader_slot:     {pack_leader_slot:10,}
+pack_leader_slow:     {pack_leader_slow:10,}
 pack_expired:         {pack_expired:10,}
 pack_invalid:         {pack_invalid:10,}
 pack_invalid_bundle   {pack_invalid_bundle:10,}
 
 COMPUTED PACK IN:     {pack_cranked + in_block_engine + in_udp + in_quic + in_gossip - verify_overrun - verify_failed - verify_parse - verify_dedup - dedup_dedup - resolv_retained - resolv_failed:10,}
-COMPUTED PACK OUT:    {pack_cranked + in_block_engine + in_udp + in_quic + in_gossip - verify_overrun - verify_failed - verify_parse - verify_dedup - dedup_dedup - resolv_retained - resolv_failed - pack_retained - pack_leader_slot - pack_expired - pack_invalid - pack_invalid_bundle:10,}
+COMPUTED PACK OUT:    {pack_cranked + in_block_engine + in_udp + in_quic + in_gossip - verify_overrun - verify_failed - verify_parse - verify_dedup - dedup_dedup - resolv_retained - resolv_failed - pack_retained - pack_leader_slow - pack_expired - pack_invalid - pack_invalid_bundle:10,}
 RECONCILE PACK IN:    {recon_pack_in:10,}
 RECONCILE PACK OUT:   {recon_pack_out:10,}
 
@@ -162,8 +165,8 @@ block_fail:           {block_fail:10,}
 block_success:        {block_success:10,}
 ----------------------------------------
 COMPUTED TOTAL IN:    {pack_cranked + in_block_engine + in_gossip + in_udp + in_quic:10,}
-COMPUTED TOTAL OUT:   {verify_overrun + verify_failed + verify_parse + verify_dedup + dedup_dedup + resolv_retained + resolv_failed + pack_retained + pack_leader_slot + pack_expired + pack_invalid + pack_invalid_bundle + bank_invalid + block_fail + block_success:10,}
-UNACCOUNTED:          {pack_cranked + in_block_engine + in_gossip + in_udp + in_quic - verify_overrun - verify_failed - verify_parse - verify_dedup - dedup_dedup - resolv_retained - resolv_failed - pack_retained - pack_leader_slot - pack_expired - pack_invalid - pack_invalid_bundle - bank_invalid - block_fail - block_success:10,}
+COMPUTED TOTAL OUT:   {verify_overrun + verify_failed + verify_parse + verify_dedup + dedup_dedup + resolv_retained + resolv_failed + pack_retained + pack_leader_slow + pack_expired + pack_invalid + pack_invalid_bundle + bank_invalid + block_fail + block_success:10,}
+UNACCOUNTED:          {pack_cranked + in_block_engine + in_gossip + in_udp + in_quic - verify_overrun - verify_failed - verify_parse - verify_dedup - dedup_dedup - resolv_retained - resolv_failed - pack_retained - pack_leader_slow - pack_expired - pack_invalid - pack_invalid_bundle - bank_invalid - block_fail - block_success:10,}
 """)
 
 def main():
