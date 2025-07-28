@@ -365,26 +365,26 @@ fd_runtime_freeze( fd_exec_slot_ctx_t *   slot_ctx,
                    fd_stem_context_t *    stem,
                    fd_replay_out_link_t * capture_out ) {
 
-  FD_TXN_ACCOUNT_DECL( old_recent_blockhashes_rec );
-  int err = fd_txn_account_init_from_funk_readonly( old_recent_blockhashes_rec, &fd_sysvar_recent_block_hashes_id, slot_ctx->funk, slot_ctx->funk_txn );
-  if (err) {
-    FD_LOG_WARNING(( "fd_txn_account_init_from_funk_readonly(recent_blockhashes) failed: %d", err ));
-  }
-  fd_lthash_value_t old_recent_blockhashes_lthash = {0};
-  fd_hash_account_lthash_value(
-    &fd_sysvar_recent_block_hashes_id,
-    old_recent_blockhashes_rec->vt->get_meta( old_recent_blockhashes_rec ),
-    old_recent_blockhashes_rec->vt->get_data( old_recent_blockhashes_rec ),
-    &old_recent_blockhashes_lthash );
+  // FD_TXN_ACCOUNT_DECL( old_recent_blockhashes_rec );
+  // int err = fd_txn_account_init_from_funk_readonly( old_recent_blockhashes_rec, &fd_sysvar_recent_block_hashes_id, slot_ctx->funk, slot_ctx->funk_txn );
+  // if (err) {
+  //   FD_LOG_WARNING(( "fd_txn_account_init_from_funk_readonly(recent_blockhashes) failed: %d", err ));
+  // }
+  // fd_lthash_value_t old_recent_blockhashes_lthash = {0};
+  // fd_hash_account_lthash_value(
+  //   &fd_sysvar_recent_block_hashes_id,
+  //   old_recent_blockhashes_rec->vt->get_meta( old_recent_blockhashes_rec ),
+  //   old_recent_blockhashes_rec->vt->get_data( old_recent_blockhashes_rec ),
+  //   &old_recent_blockhashes_lthash );
 
   fd_sysvar_recent_hashes_update( slot_ctx, runtime_spad );
 
   FD_TXN_ACCOUNT_DECL( recent_blockhashes_rec );
-  err = fd_txn_account_init_from_funk_readonly( recent_blockhashes_rec, &fd_sysvar_recent_block_hashes_id, slot_ctx->funk, slot_ctx->funk_txn );
+  int err = fd_txn_account_init_from_funk_readonly( recent_blockhashes_rec, &fd_sysvar_recent_block_hashes_id, slot_ctx->funk, slot_ctx->funk_txn );
   if (err) {
     FD_LOG_WARNING(( "fd_txn_account_init_from_funk_readonly(recent_blockhashes) failed: %d", err ));
   }
-  fd_runtime_update_lthash_with_account_prev_hash(recent_blockhashes_rec, &old_recent_blockhashes_lthash, slot_ctx->bank, stem, capture_out);
+  // fd_runtime_update_lthash_with_account_prev_hash(recent_blockhashes_rec, &old_recent_blockhashes_lthash, slot_ctx->bank, stem, capture_out);
 
   ulong execution_fees = fd_bank_execution_fees_get( slot_ctx->bank );
   ulong priority_fees  = fd_bank_priority_fees_get( slot_ctx->bank );
@@ -650,17 +650,6 @@ fd_runtime_block_sysvar_update_pre_execute( fd_exec_slot_ctx_t *   slot_ctx,
 
   // It has to go into the current txn previous info but is not in slot 0
   if( fd_bank_slot_get( slot_ctx->bank ) != 0 ) {
-    FD_TXN_ACCOUNT_DECL( prev_slot_hashes_rec );
-    err = fd_txn_account_init_from_funk_readonly( prev_slot_hashes_rec, &fd_sysvar_slot_hashes_id, slot_ctx->funk, slot_ctx->funk_txn );
-    if( FD_UNLIKELY( err ) ) {
-      FD_LOG_ERR(( "fd_txn_account_init_from_funk_readonly(slot_hashes) failed: %d", err ));
-    }
-    fd_lthash_value_t prev_slot_hashes_lthash[1];
-    fd_hash_account_lthash_value(
-      &fd_sysvar_slot_hashes_id,
-      prev_slot_hashes_rec->vt->get_meta( prev_slot_hashes_rec ),
-      prev_slot_hashes_rec->vt->get_data( prev_slot_hashes_rec ),
-      prev_slot_hashes_lthash );
 
     fd_sysvar_slot_hashes_update( slot_ctx, runtime_spad );
 
@@ -669,24 +658,9 @@ fd_runtime_block_sysvar_update_pre_execute( fd_exec_slot_ctx_t *   slot_ctx,
     if( FD_UNLIKELY( err ) ) {
       FD_LOG_ERR(( "fd_txn_account_init_from_funk_readonly(slot_hashes) failed: %d", err ));
     }
-    fd_runtime_update_lthash_with_account_prev_hash( slot_hashes_rec, prev_slot_hashes_lthash, slot_ctx->bank, stem, capture_out );
   }
 
-  // FD_TXN_ACCOUNT_DECL( last_restart_slot_rec );
-  // err = fd_txn_account_init_from_funk_readonly( last_restart_slot_rec, &fd_sysvar_last_restart_slot_id, slot_ctx->funk, slot_ctx->funk_txn );
-  // if( FD_UNLIKELY( err ) ) {
-  //   FD_LOG_ERR(( "fd_txn_account_init_from_funk_readonly(last_restart_slot) failed: %d", err ));
-  // }
-  // fd_lthash_value_t prev_last_restart_slot_lthash[1];
-  // fd_hash_account_lthash_value(
-  //   &fd_sysvar_last_restart_slot_id,
-  //   last_restart_slot_rec->vt->get_meta( last_restart_slot_rec ),
-  //   last_restart_slot_rec->vt->get_data( last_restart_slot_rec ),
-  //   prev_last_restart_slot_lthash );
-
     fd_sysvar_last_restart_slot_update( slot_ctx, runtime_spad );
-
-    // fd_runtime_update_lthash_with_account_prev_hash( last_restart_slot_rec, prev_last_restart_slot_lthash, slot_ctx->bank );
   } FD_SPAD_FRAME_END;
 
   return 0;
@@ -1255,46 +1229,6 @@ fd_runtime_block_execute_finalize_finish( fd_exec_slot_ctx_t *             slot_
 
   return FD_RUNTIME_EXECUTE_SUCCESS;
 
-}
-
-static void
-fd_bank_lthash_update_sysvars( fd_exec_slot_ctx_t *   slot_ctx,
-                               fd_stem_context_t *    stem,
-                               fd_replay_out_link_t * capture_out ) {
-  fd_funk_t *     funk     = slot_ctx->funk;
-  fd_funk_txn_t * funk_txn = slot_ctx->funk_txn;
-  fd_bank_t *     bank     = slot_ctx->bank;
-
-  /* Update lthash for each sysvar */
-  fd_pubkey_t const * sysvar_ids[] = {
-    &fd_sysvar_recent_block_hashes_id,
-    &fd_sysvar_clock_id,
-    &fd_sysvar_slot_history_id,
-    &fd_sysvar_slot_hashes_id,
-    &fd_sysvar_epoch_schedule_id,
-    &fd_sysvar_epoch_rewards_id,
-    &fd_sysvar_fees_id,
-    &fd_sysvar_rent_id,
-    &fd_sysvar_stake_history_id,
-    &fd_sysvar_last_restart_slot_id,
-    &fd_sysvar_instructions_id,
-    &fd_sysvar_rewards_id,
-    &fd_sysvar_incinerator_id,
-  };
-
-  for( ulong i=0; i<sizeof(sysvar_ids)/sizeof(sysvar_ids[0]); i++ ) {
-    FD_TXN_ACCOUNT_DECL( acc );
-    int err = fd_txn_account_init_from_funk_readonly( acc, sysvar_ids[i], funk, funk_txn );
-    if( FD_UNLIKELY( err!=FD_ACC_MGR_SUCCESS && err!=FD_ACC_MGR_ERR_UNKNOWN_ACCOUNT ) ) {
-      FD_LOG_ERR(( "Failed to read sysvar account from Funk" ));
-      return;
-    }
-
-    /* Only update lthash if account exists */
-    if( err==FD_ACC_MGR_SUCCESS ) {
-      fd_runtime_update_lthash_with_account( funk, funk_txn, acc, bank, stem, capture_out );
-    }
-  }
 }
 
 /******************************************************************************/
@@ -3459,8 +3393,6 @@ fd_runtime_block_execute_finalize_sequential( fd_exec_slot_ctx_t *             s
   FD_SPAD_FRAME_BEGIN( runtime_spad ) {
 
   fd_runtime_block_execute_finalize_start( slot_ctx, runtime_spad, stem, capture_out );
-
-  fd_bank_lthash_update_sysvars( slot_ctx, stem, capture_out );
 
   fd_runtime_block_execute_finalize_finish( slot_ctx, block_info, stem, capture_out );
 
