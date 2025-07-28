@@ -107,7 +107,7 @@ fd_slot_to_epoch( fd_epoch_schedule_t const * schedule,
   return epoch;
 }
 
-/* https://github.com/firedancer-io/solana/blob/dab3da8e7b667d7527565bddbdbecf7ec1fb868e/sdk/program/src/epoch_schedule.rs#L114 */
+/* https://docs.rs/solana-epoch-schedule/2.2.1/src/solana_epoch_schedule/lib.rs.html#136-151 */
 
 ulong
 fd_slot_to_leader_schedule_epoch( fd_epoch_schedule_t const * schedule,
