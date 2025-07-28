@@ -353,6 +353,26 @@ fd_topo_initialize( config_t * config ) {
     }
   }
 
+   /* Leader state fseq for low-power mode.
+      Signals whether validator is currently leader (1) or not (0). PoH tile
+      writes when leader status changes; other tiles read to determine if they
+      should sleep when idle. Enables power savings while maintaining peak
+      performance during leader slots. */
+
+  if( FD_UNLIKELY( topo->low_power_mode ) ) {
+    fd_topob_wksp( topo, "leader_state" );
+    fd_topo_obj_t * leader_state_obj = fd_topob_obj( topo, "fseq", "leader_state" );
+    for( ulong i=0UL; i<topo->tile_cnt; i++ ) {
+      if( FD_UNLIKELY( topo->tiles[i].idle_sleep ) ) {
+        if( FD_UNLIKELY( !strcmp(topo->tiles[i].name, "poh") ) )
+          fd_topob_tile_uses(topo, &topo->tiles[i], leader_state_obj, FD_SHMEM_JOIN_MODE_READ_WRITE);
+        else
+          fd_topob_tile_uses(topo, &topo->tiles[i], leader_state_obj, FD_SHMEM_JOIN_MODE_READ_ONLY);
+      }
+    }
+    FD_TEST( fd_pod_insertf_ulong( topo->props, leader_state_obj->id, "leader_state" ));
+  }
+
   /* There is a special fseq that sits between the pack, bank, and poh
      tiles to indicate when the bank/poh tiles are done processing a
      microblock.  Pack uses this to determine when to "unlock" accounts

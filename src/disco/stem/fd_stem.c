@@ -253,6 +253,7 @@ STEM_(run1)( ulong                        in_cnt,
              ulong                        burst,
              long                         lazy,
              fd_rng_t *                   rng,
+             ulong *                      leader_state,
              void *                       scratch,
              STEM_CALLBACK_CONTEXT_TYPE * ctx ) {
   /* in frag stream state */
@@ -280,6 +281,7 @@ STEM_(run1)( ulong                        in_cnt,
   ushort * event_map;    /* current mapping of event_seq to event idx, event_map[ event_seq ] is next event to process */
   ulong    async_min;    /* minimum number of ticks between processing a housekeeping event, positive integer power of 2 */
   double   ticks_per_ns; /* ticks per nanosecond for timing calculations */
+  ulong    is_leader;    /* leader state flag (0/1), read from leader_state fseq; disables idle sleep when non-zero */
 
   /* performance metrics */
   ulong metric_in_backp;  /* is the run loop currently backpressured by one or more of the outs, in [0,1] */
@@ -328,9 +330,12 @@ STEM_(run1)( ulong                        in_cnt,
   }
 
   idle_iter_cnt = 0;
+  is_leader     = 0;
 #if !STEM_IDLE_SLEEP_ENABLED
   (void)idle_sleep;
   (void)idle_iter_cnt;
+  (void)leader_state;
+  (void)is_leader;
 #endif
 
   /* out frag stream init */
@@ -465,6 +470,10 @@ STEM_(run1)( ulong                        in_cnt,
           }
         }
 
+#if STEM_IDLE_SLEEP_ENABLED
+        if ( FD_UNLIKELY( idle_sleep ) ) is_leader = fd_fseq_query(leader_state);
+#endif
+
 #ifdef STEM_CALLBACK_DURING_HOUSEKEEPING
         STEM_CALLBACK_DURING_HOUSEKEEPING( ctx );
 #else
@@ -513,15 +522,17 @@ STEM_(run1)( ulong                        in_cnt,
 
 #if STEM_IDLE_SLEEP_ENABLED
     if ( FD_UNLIKELY( idle_sleep && idle_iter_cnt>STEM_IDLE_THRESHOLD ) ) {
-      long ticks_until_deadline = then - now;
-      long ns_until_deadline    = (long)((double)ticks_until_deadline / ticks_per_ns);
-      fd_log_sleep( ns_until_deadline );
+      if ( FD_UNLIKELY( !is_leader ) ) {
+        long ticks_until_deadline = then - now;
+        long ns_until_deadline    = (long)((double)ticks_until_deadline / ticks_per_ns);
+        fd_log_sleep( ns_until_deadline );
 
-      metric_regime_ticks[0] += housekeeping_ticks;
-      housekeeping_ticks      = 0;
-      long next = fd_tickcount();
-      metric_regime_ticks[8] += (ulong)(next - now);
-      now = next;
+        metric_regime_ticks[0] += housekeeping_ticks;
+        housekeeping_ticks      = 0;
+        long next = fd_tickcount();
+        metric_regime_ticks[8] += (ulong)(next - now);
+        now = next;
+      } else idle_iter_cnt = 0;
     }
 #endif
 
@@ -796,6 +807,16 @@ STEM_(run)( fd_topo_t *      topo,
   fd_rng_t rng[1];
   FD_TEST( fd_rng_join( fd_rng_new( rng, 0, 0UL ) ) );
 
+  ulong * leader_state = NULL;
+#if STEM_IDLE_SLEEP_ENABLED
+  if( FD_UNLIKELY( tile->idle_sleep ) ) {
+    ulong leader_state_obj_id = fd_pod_query_ulong( topo->props, "leader_state", ULONG_MAX );
+    FD_TEST( leader_state_obj_id!=ULONG_MAX );
+    leader_state = fd_fseq_join( fd_topo_obj_laddr(topo, leader_state_obj_id) );
+    FD_TEST( leader_state );
+  }
+#endif
+
   STEM_CALLBACK_CONTEXT_TYPE * ctx = (STEM_CALLBACK_CONTEXT_TYPE*)fd_ulong_align_up( (ulong)fd_topo_obj_laddr( topo, tile->tile_obj_id ), STEM_CALLBACK_CONTEXT_ALIGN );
 
   STEM_(run1)( polled_in_cnt,
@@ -810,6 +831,7 @@ STEM_(run)( fd_topo_t *      topo,
                STEM_BURST,
                STEM_LAZY,
                rng,
+               leader_state,
                fd_alloca( FD_STEM_SCRATCH_ALIGN, STEM_(scratch_footprint)( polled_in_cnt, tile->out_cnt, reliable_cons_cnt ) ),
                ctx );
 
