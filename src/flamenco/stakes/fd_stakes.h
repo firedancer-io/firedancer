@@ -64,6 +64,9 @@ fd_stake_account_slim_t *
 fd_stake_accounts_search( fd_stakes_slim_t const * accts, fd_pubkey_t const * key );
 
 void
+fd_stake_accounts_remove( fd_stakes_slim_t * accts, fd_pubkey_t const * key );
+
+void
 fd_stakes_import( fd_stakes_slim_t *                  dst,
                   fd_solana_manifest_global_t const * manifest );
 
@@ -81,27 +84,9 @@ fd_stakes_activate_epoch( fd_exec_slot_ctx_t *  slot_ctx,
                           ulong                 exec_spad_cnt,
                           fd_spad_t *           runtime_spad );
 
-fd_stake_history_entry_t
-stake_and_activating( fd_delegation_t const * delegation,
-                      ulong                   target_epoch,
-                      fd_stake_history_t *    stake_history,
-                      ulong *                 new_rate_activation_epoch );
-
-fd_stake_history_entry_t
-stake_activating_and_deactivating( fd_delegation_t const * delegation,
-                                   ulong                   target_epoch,
-                                   fd_stake_history_t *    stake_history,
-                                   ulong *                 new_rate_activation_epoch );
-
 int
 write_stake_state( fd_txn_account_t *    stake_acc_rec,
                    fd_stake_state_v2_t * stake_state );
-
-void
-fd_stakes_remove_stake_delegation( fd_exec_slot_ctx_t * slot_ctx, fd_borrowed_account_t * stake_account, ulong * new_rate_activation_epoch );
-
-void
-fd_stakes_upsert_stake_delegation( fd_exec_slot_ctx_t * slot_ctx, fd_borrowed_account_t * stake_account, ulong * new_rate_activation_epoch );
 
 void
 fd_refresh_vote_accounts( fd_exec_slot_ctx_t *       slot_ctx,
