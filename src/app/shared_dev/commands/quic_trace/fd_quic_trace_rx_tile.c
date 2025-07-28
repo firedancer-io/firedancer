@@ -539,20 +539,21 @@ fd_quic_trace_rx_tile( fd_quic_trace_ctx_t *  trace_ctx,
 
   fd_frag_meta_t const * in_mcache_tbl[2] = { rx_mcache, tx_mcache };
 
-  stem_run1( /* in_cnt     */ 2UL,
-             /* in_mcache  */ in_mcache_tbl,
-             /* in_fseq    */ fseq_tbl,
-             /* out_cnt    */ 0UL,
-             /* out_mcache */ NULL,
-             /* cons_cnt   */ 0UL,
-             /* cons_out   */ NULL,
-             /* cons_fseq  */ NULL,
-             /* idle_sleep */ 0,
-             /* stem_burst */ 1UL,
-             /* stem_lazy  */ 0L,
-             /* rng        */ rng,
-             /* scratch    */ scratch,
-             /* ctx        */ trace_ctx );
+  stem_run1( /* in_cnt       */ 2UL,
+             /* in_mcache    */ in_mcache_tbl,
+             /* in_fseq      */ fseq_tbl,
+             /* out_cnt      */ 0UL,
+             /* out_mcache   */ NULL,
+             /* cons_cnt     */ 0UL,
+             /* cons_out     */ NULL,
+             /* cons_fseq    */ NULL,
+             /* idle_sleep   */ 0,
+             /* stem_burst   */ 1UL,
+             /* stem_lazy    */ 0L,
+             /* rng          */ rng,
+             /* leader_state */ NULL,
+             /* scratch      */ scratch,
+             /* ctx          */ trace_ctx );
 
   for( int j = 0; j < 2; ++j ){
     fd_fseq_delete( fd_fseq_leave( fseq_tbl[j] ) );
