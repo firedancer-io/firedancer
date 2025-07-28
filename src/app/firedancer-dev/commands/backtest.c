@@ -9,8 +9,7 @@
           replay_notif     | |
                            | |------------------------------>no consumer
     no producer-------------  stake_out, send_out, poh_out
-                store_replay,
-                pack_replay,
+                store_replay
 
 */
 
@@ -109,14 +108,6 @@ backtest_topo( config_t * config ) {
   fd_topob_link( topo, "repair_repla", "repair_repla", 256UL, sizeof(ulong), 1UL );
   fd_topob_tile_in( topo, "replay", 0UL, "metric_in", "repair_repla", 0UL, FD_TOPOB_RELIABLE, FD_TOPOB_POLLED );
   fd_topob_tile_out( topo, "back", 0UL, "repair_repla", 0UL );
-
-  /**********************************************************************/
-  /* Setup pack/batch->replay links in topo w/o a producer              */
-  /**********************************************************************/
-  fd_topob_wksp( topo, "pack_replay" );
-  fd_topob_link( topo, "pack_replay", "pack_replay", 65536UL, USHORT_MAX, 1UL );
-  fd_topob_tile_in( topo, "replay", 0UL, "metric_in", "pack_replay", 0UL, FD_TOPOB_RELIABLE, FD_TOPOB_POLLED );
-  topo->links[ replay_tile->in_link_id[ fd_topo_find_tile_in_link( topo, replay_tile, "pack_replay", 0 ) ] ].permit_no_producers = 1;
 
   /**********************************************************************/
   /* Setup snapshot links in topo                                       */
