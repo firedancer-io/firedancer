@@ -83,6 +83,7 @@ fd_quic_trace_log_tile( fd_frag_meta_t const * in_mcache ) {
              /* stem_burst */ 1UL,
              /* stem_lazy  */ 0L,
              /* rng        */ rng,
+             /*leader_state*/ NULL,
              /* scratch    */ scratch,
              /* ctx        */ NULL );
 
