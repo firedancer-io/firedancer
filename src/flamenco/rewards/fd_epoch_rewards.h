@@ -136,6 +136,18 @@ fd_epoch_rewards_new( void * shmem, ulong stake_account_max );
 fd_epoch_rewards_t *
 fd_epoch_rewards_join( void * shmem );
 
+/* fd_epoch_rewards_leave returns a pointer to the epoch rewards struct
+   that is stored in the shared memory. */
+
+void *
+fd_epoch_rewards_leave( fd_epoch_rewards_t const * epoch_rewards );
+
+/* fd_epoch_rewards_delete unformats the epoch rewards struct and the
+   memory that the struct manages.  */
+
+void *
+fd_epoch_rewards_delete( void * epoch_rewards );
+
 /* fd_epoch_rewards_get_partition_index returns a pointer to the dlist
    of stake rewards for the given partition index. */
 
@@ -165,7 +177,6 @@ fd_epoch_rewards_hash_and_insert( fd_epoch_rewards_t * epoch_rewards,
 ulong
 fd_epoch_rewards_get_distribution_partition_index( fd_epoch_rewards_t const * epoch_rewards, ulong curr_block_height );
 
-
 /* Simple inline mutator functions */
 
 static void FD_FN_UNUSED
@@ -180,6 +191,10 @@ fd_epoch_rewards_set_starting_block_height( fd_epoch_rewards_t * epoch_rewards, 
 
 static void FD_FN_UNUSED
 fd_epoch_rewards_set_num_partitions( fd_epoch_rewards_t * epoch_rewards, ulong num_partitions ) {
+  if( FD_UNLIKELY( num_partitions>FD_REWARDS_MAX_PARTITIONS ) ) {
+    FD_LOG_WARNING(( "num_partitions: %lu is greater than FD_REWARDS_MAX_PARTITIONS: %lu", num_partitions, FD_REWARDS_MAX_PARTITIONS ));
+    return;
+  }
   epoch_rewards->num_partitions_ = num_partitions;
 }
 
