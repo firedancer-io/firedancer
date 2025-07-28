@@ -25,7 +25,6 @@ fd_hash_account_lthash_value( fd_pubkey_t const       * pubkey,
 int
 fd_update_hash_bank_exec_hash( fd_exec_slot_ctx_t *           slot_ctx,
                                fd_hash_t *                    hash,
-                               fd_capture_ctx_t *             capture_ctx,
                                ulong                          signature_cnt,
                                fd_stem_context_t *            stem,
                                fd_replay_out_link_t *         capture_out );

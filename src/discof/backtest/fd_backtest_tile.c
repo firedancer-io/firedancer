@@ -8,6 +8,7 @@
 #include "../../discof/replay/fd_replay_notif.h"
 #include "../../discof/fd_discof.h"
 #include <errno.h>
+#include <time.h>
 
 #define REPLAY_IN_IDX                 (0UL)
 #define REPLAY_OUT_IDX                (0UL)
@@ -499,6 +500,11 @@ rocksdb_bank_hash_check( ctx_t * ctx, ulong slot, fd_hash_t * bank_hash ) {
     if( FD_LIKELY( !memcmp( bank_hash, &versioned->inner.current.frozen_hash, sizeof(fd_hash_t) ) ) ) {
       FD_LOG_NOTICE(( "Bank hash matches! slot=%lu, hash=%s", slot, FD_BASE58_ENC_32_ALLOCA( bank_hash->hash ) ));
     } else {
+
+      /* Wait for 20 seconds */
+      struct timespec ts = { .tv_sec = 20, .tv_nsec = 0 };
+      nanosleep( &ts, NULL );
+
       /* Do not change this log as it is used in offline replay */
       FD_LOG_ERR(( "Bank hash mismatch! slot=%lu expected=%s, got=%s",
                   slot,

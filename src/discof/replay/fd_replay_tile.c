@@ -568,7 +568,6 @@ init_after_snapshot( fd_replay_tile_ctx_t * ctx,
     fd_runtime_block_info_t info = { .signature_cnt = 0 };
 
     fd_runtime_block_execute_finalize_sequential( ctx->slot_ctx,
-                                            ctx->capture_ctx,
                                             &info,
                                             ctx->runtime_spad,
                                             stem,
@@ -1131,6 +1130,26 @@ handle_new_slot( fd_replay_tile_ctx_t * ctx,
   if( FD_UNLIKELY( res!=FD_RUNTIME_EXECUTE_SUCCESS ) ) {
     FD_LOG_CRIT(( "block prep execute failed" ));
   }
+
+  /* Send new slot message to solcap writer */
+  if( stem && ctx->capture_out->idx != ULONG_MAX ) {
+    /* Send message to capture tile */
+    void * msg = fd_chunk_to_laddr( ctx->capture_out->mem, ctx->capture_out->chunk );
+    if( FD_UNLIKELY( !msg ) ) {
+      FD_LOG_ERR(( "invariant violation: msg is NULL" ));
+        }
+
+      fd_capture_msg_set_slot( msg, fd_bank_slot_get( ctx->slot_ctx->bank ) );
+      ulong sig  = FD_CAPTURE_MSG_TYPE_SET_SLOT;
+      ulong sz   = sizeof(fd_capture_msg_set_slot_t);
+      ulong ctl  = 0UL;
+      ulong tspub = (ulong)fd_frag_meta_ts_comp( fd_tickcount() );
+
+      fd_stem_publish( stem, ctx->capture_out->idx, sig, ctx->capture_out->chunk, sz, ctl, 0UL, tspub );
+
+      ctx->capture_out->chunk = fd_dcache_compact_next( ctx->capture_out->chunk, sz,
+                                                      ctx->capture_out->chunk0, ctx->capture_out->wmark );
+    }
 }
 
 static void
@@ -1298,7 +1317,6 @@ exec_slice_fini_slot( fd_replay_tile_ctx_t * ctx, fd_stem_context_t * stem ) {
   runtime_block_info->signature_cnt = fd_bank_signature_count_get( ctx->slot_ctx->bank );
 
   fd_runtime_block_execute_finalize_sequential( ctx->slot_ctx,
-                                          ctx->capture_ctx,
                                           runtime_block_info,
                                           ctx->runtime_spad,
                                           stem,

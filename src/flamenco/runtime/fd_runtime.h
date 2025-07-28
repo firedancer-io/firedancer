@@ -514,7 +514,6 @@ fd_runtime_block_execute_finalize_start( fd_exec_slot_ctx_t *             slot_c
 
 int
 fd_runtime_block_execute_finalize_finish( fd_exec_slot_ctx_t *             slot_ctx,
-                                          fd_capture_ctx_t *               capture_ctx,
                                           fd_runtime_block_info_t const *  block_info,
                                           fd_stem_context_t *              stem,
                                           fd_replay_out_link_t *           capture_out );
@@ -646,7 +645,6 @@ fd_runtime_process_txns_in_microblock_stream_sequential( fd_exec_slot_ctx_t *   
 
 int
 fd_runtime_block_execute_finalize_sequential( fd_exec_slot_ctx_t *             slot_ctx,
-                                              fd_capture_ctx_t *               capture_ctx,
                                               fd_runtime_block_info_t const *  block_info,
                                               fd_spad_t *                      runtime_spad,
                                               fd_stem_context_t *              stem,

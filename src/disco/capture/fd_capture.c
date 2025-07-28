@@ -89,7 +89,7 @@ populate_allowed_fds( fd_topo_t const *      topo,
   if( FD_LIKELY( -1!=fd_log_private_logfile_fd() ) )
     out_fds[ out_cnt++ ] = fd_log_private_logfile_fd(); /* logfile */
 
-  /* capture file fd will be added in privileged_init */
+  /* capture file fd will be added in unprivileged_init */
 
   return out_cnt;
 }
@@ -113,6 +113,17 @@ privileged_init( fd_topo_t *      topo,
   memset( ctx, 0, sizeof(fd_capture_tile_ctx_t) );
   ctx->writer_mem = FD_SCRATCH_ALLOC_APPEND( l, fd_solcap_writer_align(), fd_solcap_writer_footprint() );
   FD_SCRATCH_ALLOC_FINI( l, scratch_align() );
+}
+
+static void
+unprivileged_init( fd_topo_t *      topo,
+                   fd_topo_tile_t * tile ) {
+  void * scratch = fd_topo_obj_laddr( topo, tile->tile_obj_id );
+
+  FD_SCRATCH_ALLOC_INIT( l, scratch );
+  fd_capture_tile_ctx_t * ctx = FD_SCRATCH_ALLOC_APPEND( l, alignof(fd_capture_tile_ctx_t), sizeof(fd_capture_tile_ctx_t) );
+  ctx->writer_mem = FD_SCRATCH_ALLOC_APPEND( l, fd_solcap_writer_align(), fd_solcap_writer_footprint() );
+  FD_SCRATCH_ALLOC_FINI( l, scratch_align() );
 
   /* Open capture file */
   FD_LOG_WARNING(( "capture path: %s", tile->capture.capture_path ));
@@ -127,17 +138,6 @@ privileged_init( fd_topo_t *      topo,
   if( FD_UNLIKELY( !ctx->capture_file ) ) {
     FD_LOG_ERR(( "failed to fdopen capture file: %d %s", errno, strerror(errno) ));
   }
-}
-
-static void
-unprivileged_init( fd_topo_t *      topo,
-                   fd_topo_tile_t * tile ) {
-  void * scratch = fd_topo_obj_laddr( topo, tile->tile_obj_id );
-
-  FD_SCRATCH_ALLOC_INIT( l, scratch );
-  fd_capture_tile_ctx_t * ctx = FD_SCRATCH_ALLOC_APPEND( l, alignof(fd_capture_tile_ctx_t), sizeof(fd_capture_tile_ctx_t) );
-  ctx->writer_mem = FD_SCRATCH_ALLOC_APPEND( l, fd_solcap_writer_align(), fd_solcap_writer_footprint() );
-  FD_SCRATCH_ALLOC_FINI( l, scratch_align() );
 
   /* Initialize solcap writer */
   ctx->writer = fd_solcap_writer_new( ctx->writer_mem );
@@ -165,7 +165,18 @@ unprivileged_init( fd_topo_t *      topo,
 
 static void
 during_housekeeping( fd_capture_tile_ctx_t * ctx ) {
-  (void)ctx;
+  /* Flush the solcap writer to ensure data is written to disk */
+  if( FD_LIKELY( ctx->writer ) ) {
+    /* Print stats */
+    FD_LOG_INFO(( "capture stats: %lu accounts, %lu bank preimages, %lu slot sets, %lu write errors",
+                  ctx->stats.account_write_cnt,
+                  ctx->stats.bank_preimage_write_cnt,
+                  ctx->stats.slot_set_cnt,
+                  ctx->stats.write_err_cnt ));
+
+    /* Flush the solcap writer */
+    fd_solcap_writer_flush( ctx->writer );
+  }
 }
 
 static inline void
@@ -225,7 +236,7 @@ after_frag( fd_capture_tile_ctx_t * ctx,
   switch( hdr->type ) {
     case FD_CAPTURE_MSG_TYPE_SET_SLOT: {
       if( FD_UNLIKELY( sz != sizeof(fd_capture_msg_set_slot_t) ) ) {
-        FD_LOG_WARNING(( "invalid set_slot message size: %lu", sz ));
+        FD_LOG_ERR(( "invalid set_slot message size: %lu", sz ));
         ctx->stats.write_err_cnt++;
         return;
       }
@@ -266,7 +277,7 @@ after_frag( fd_capture_tile_ctx_t * ctx,
 
     case FD_CAPTURE_MSG_TYPE_WRITE_BANK_PREIMAGE: {
       if( FD_UNLIKELY( sz != sizeof(fd_capture_msg_write_bank_preimage_t) ) ) {
-        FD_LOG_WARNING(( "invalid write_bank_preimage message size: %lu", sz ));
+        FD_LOG_ERR(( "invalid write_bank_preimage message size: %lu", sz ));
         ctx->stats.write_err_cnt++;
         return;
       }

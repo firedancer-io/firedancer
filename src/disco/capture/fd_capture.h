@@ -107,7 +107,6 @@ static inline void
 fd_capture_msg_write_bank_preimage( void *       buf,
                                     void const * bank_hash,
                                     void const * prev_bank_hash,
-                                    void const * account_delta_hash,
                                     void const * accounts_lt_hash_checksum,
                                     void const * poh_hash,
                                     ulong        signature_cnt ) {
@@ -115,7 +114,7 @@ fd_capture_msg_write_bank_preimage( void *       buf,
   fd_capture_msg_write_bank_preimage_t * msg = (fd_capture_msg_write_bank_preimage_t *)hdr;
   fd_memcpy( msg->bank_hash, bank_hash, 32 );
   fd_memcpy( msg->prev_bank_hash, prev_bank_hash, 32 );
-  fd_memcpy( msg->account_delta_hash, account_delta_hash, 32 );
+  fd_memset( msg->account_delta_hash, 0, 32 );
   fd_memcpy( msg->accounts_lt_hash_checksum, accounts_lt_hash_checksum, 32 );
   fd_memcpy( msg->poh_hash, poh_hash, 32 );
   msg->signature_cnt = signature_cnt;

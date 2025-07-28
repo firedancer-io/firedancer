@@ -259,11 +259,11 @@ fd_runtime_update_lthash_with_account_prev_hash( fd_txn_account_t *      account
 
   /* Send WRITE_ACCOUNT message to capture tile if capture is enabled */
   if( stem && capture_out && capture_out->idx != ULONG_MAX ) {
-    
+
     /* Calculate message size */
     ulong data_len = account->vt->get_data_len( account );
     ulong msg_sz = sizeof(fd_capture_msg_write_account_t) + data_len;
-    
+
     /* Get chunk for message */
     void * msg = fd_chunk_to_laddr( capture_out->mem, capture_out->chunk );
     if( FD_UNLIKELY( !msg ) ) {
@@ -277,18 +277,18 @@ fd_runtime_update_lthash_with_account_prev_hash( fd_txn_account_t *      account
                                   &meta->info,
                                   new_hash,
                                   data_len );
-    
+
     /* Copy account data after the message header */
     fd_capture_msg_write_account_t * write_msg = (fd_capture_msg_write_account_t *)msg;
     fd_memcpy( (uchar *)(write_msg + 1), account->vt->get_data( account ), data_len );
-    
+
     /* Publish the message */
     ulong sig  = FD_CAPTURE_MSG_TYPE_WRITE_ACCOUNT;
     ulong ctl  = 0UL;
     ulong tspub = (ulong)fd_frag_meta_ts_comp( fd_tickcount() );
-    
+
     fd_stem_publish( stem, capture_out->idx, sig, capture_out->chunk, msg_sz, ctl, 0UL, tspub );
-    
+
     /* Move to next chunk */
     capture_out->chunk = fd_dcache_compact_next( capture_out->chunk, msg_sz,
                                                   capture_out->chunk0, capture_out->wmark );
@@ -360,7 +360,7 @@ fd_runtime_run_incinerator( fd_bank_t *             bank,
 }
 
 static void
-fd_runtime_freeze( fd_exec_slot_ctx_t *   slot_ctx, 
+fd_runtime_freeze( fd_exec_slot_ctx_t *   slot_ctx,
                    fd_spad_t *            runtime_spad,
                    fd_stem_context_t *    stem,
                    fd_replay_out_link_t * capture_out ) {
@@ -1238,7 +1238,6 @@ fd_runtime_block_execute_finalize_start( fd_exec_slot_ctx_t *             slot_c
 
 int
 fd_runtime_block_execute_finalize_finish( fd_exec_slot_ctx_t *             slot_ctx,
-                                          fd_capture_ctx_t *               capture_ctx,
                                           fd_runtime_block_info_t const *  block_info,
                                           fd_stem_context_t *              stem,
                                           fd_replay_out_link_t *           capture_out ) {
@@ -1246,7 +1245,6 @@ fd_runtime_block_execute_finalize_finish( fd_exec_slot_ctx_t *             slot_
   fd_hash_t * bank_hash = fd_bank_bank_hash_modify( slot_ctx->bank );
   int err = fd_update_hash_bank_exec_hash( slot_ctx,
                                            bank_hash,
-                                           capture_ctx,
                                            block_info->signature_cnt,
                                            stem,
                                            capture_out );
@@ -3224,7 +3222,7 @@ fd_runtime_block_execute( fd_exec_slot_ctx_t *            slot_ctx,
                           fd_stem_context_t *             stem,
                           fd_replay_out_link_t *          capture_out ) {
 
-  if ( capture_ctx != NULL && capture_ctx->capture && fd_bank_slot_get( slot_ctx->bank )>=capture_ctx->solcap_start_slot ) {
+  if ( capture_ctx != NULL && fd_bank_slot_get( slot_ctx->bank )>=capture_ctx->solcap_start_slot ) {
     if( stem && capture_out && capture_out->idx != ULONG_MAX ) {
       /* Send message to capture tile */
       void * msg = fd_chunk_to_laddr( capture_out->mem, capture_out->chunk );
@@ -3296,7 +3294,6 @@ fd_runtime_block_execute( fd_exec_slot_ctx_t *            slot_ctx,
   long block_finalize_time = -fd_log_wallclock();
 
   res = fd_runtime_block_execute_finalize_sequential( slot_ctx,
-                                                      capture_ctx,
                                                       block_info,
                                                       runtime_spad,
                                                       stem,
@@ -3454,7 +3451,6 @@ fd_runtime_process_txns_in_microblock_stream_sequential( fd_exec_slot_ctx_t *   
 
 int
 fd_runtime_block_execute_finalize_sequential( fd_exec_slot_ctx_t *             slot_ctx,
-                                              fd_capture_ctx_t *               capture_ctx,
                                               fd_runtime_block_info_t const *  block_info,
                                               fd_spad_t *                      runtime_spad,
                                               fd_stem_context_t *              stem,
@@ -3466,7 +3462,7 @@ fd_runtime_block_execute_finalize_sequential( fd_exec_slot_ctx_t *             s
 
   fd_bank_lthash_update_sysvars( slot_ctx, stem, capture_out );
 
-  fd_runtime_block_execute_finalize_finish( slot_ctx, capture_ctx, block_info, stem, capture_out );
+  fd_runtime_block_execute_finalize_finish( slot_ctx, block_info, stem, capture_out );
 
   } FD_SPAD_FRAME_END;
 

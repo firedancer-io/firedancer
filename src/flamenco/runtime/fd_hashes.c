@@ -54,7 +54,6 @@ fd_hash_account_lthash_value( fd_pubkey_t const       * pubkey,
 // slot_ctx should be const.
 static void
 fd_hash_bank( fd_exec_slot_ctx_t *    slot_ctx,
-              fd_capture_ctx_t *      capture_ctx,
               fd_hash_t *             hash,
               fd_stem_context_t *     stem,
               fd_replay_out_link_t *  capture_out ) {
@@ -81,7 +80,6 @@ fd_hash_bank( fd_exec_slot_ctx_t *    slot_ctx,
   fd_sha256_append( &sha, (uchar const *) lthash->lthash, sizeof( lthash->lthash ) );
   fd_sha256_fini( &sha, hash->hash );
 
-  if( capture_ctx != NULL && capture_ctx->capture != NULL && fd_bank_slot_get( slot_ctx->bank )>=capture_ctx->solcap_start_slot ) {
     if( stem && capture_out && capture_out->idx != ULONG_MAX ) {
       uchar * lthash_checksum = (uchar *)fd_alloca_check( 1UL, 32UL );
       fd_lthash_hash((fd_lthash_value_t *) lthash->lthash, lthash_checksum);
@@ -97,7 +95,6 @@ fd_hash_bank( fd_exec_slot_ctx_t *    slot_ctx,
           msg,
           hash->hash,
           fd_bank_prev_bank_hash_query( slot_ctx->bank ),
-          NULL, /* account_delta_hash */
           lthash_checksum,
           fd_bank_poh_query( slot_ctx->bank )->hash,
           fd_bank_signature_count_get( slot_ctx->bank ) );
@@ -112,7 +109,6 @@ fd_hash_bank( fd_exec_slot_ctx_t *    slot_ctx,
       capture_out->chunk = fd_dcache_compact_next( capture_out->chunk, sz,
                                                     capture_out->chunk0, capture_out->wmark );
     }
-  }
 
   FD_LOG_NOTICE(( "\n\n[Replay]\n"
                   "slot:             %lu\n"
@@ -133,12 +129,11 @@ fd_hash_bank( fd_exec_slot_ctx_t *    slot_ctx,
 int
 fd_update_hash_bank_exec_hash( fd_exec_slot_ctx_t *           slot_ctx,
                                fd_hash_t *                    hash,
-                               fd_capture_ctx_t *             capture_ctx,
                                ulong                          signature_cnt,
                                fd_stem_context_t *            stem,
                                fd_replay_out_link_t *         capture_out ) {
   fd_bank_signature_count_set( slot_ctx->bank, signature_cnt );
-  fd_hash_bank( slot_ctx, capture_ctx, hash, stem, capture_out );
+  fd_hash_bank( slot_ctx, hash, stem, capture_out );
 
   return FD_EXECUTOR_INSTR_SUCCESS;
 
