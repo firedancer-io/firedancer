@@ -168,11 +168,11 @@ during_housekeeping( fd_capture_tile_ctx_t * ctx ) {
   /* Flush the solcap writer to ensure data is written to disk */
   if( FD_LIKELY( ctx->writer ) ) {
     /* Print stats */
-    FD_LOG_INFO(( "capture stats: %lu accounts, %lu bank preimages, %lu slot sets, %lu write errors",
-                  ctx->stats.account_write_cnt,
-                  ctx->stats.bank_preimage_write_cnt,
-                  ctx->stats.slot_set_cnt,
-                  ctx->stats.write_err_cnt ));
+    // FD_LOG_INFO(( "capture stats: %lu accounts, %lu bank preimages, %lu slot sets, %lu write errors",
+    //               ctx->stats.account_write_cnt,
+    //               ctx->stats.bank_preimage_write_cnt,
+    //               ctx->stats.slot_set_cnt,
+    //               ctx->stats.write_err_cnt ));
 
     /* Flush the solcap writer */
     fd_solcap_writer_flush( ctx->writer );
