@@ -2,6 +2,7 @@
 #define HEADER_fd_src_disco_stem_fd_stem_h
 
 #include "../fd_disco_base.h"
+#include "../../util/pod/fd_pod.h"
 
 #define FD_STEM_SCRATCH_ALIGN (128UL)
 

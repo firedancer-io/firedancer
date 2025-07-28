@@ -548,9 +548,11 @@ fd_quic_trace_rx_tile( fd_quic_trace_ctx_t *  trace_ctx,
              /* cons_out   */ NULL,
              /* cons_fseq  */ NULL,
              /* cons_depth */ NULL,
+             /* sleeps     */ 0,
              /* stem_burst */ 1UL,
              /* stem_lazy  */ 0L,
              /* rng        */ rng,
+             /*leader_state*/ NULL,
              /* scratch    */ scratch,
              /* ctx        */ trace_ctx );
 

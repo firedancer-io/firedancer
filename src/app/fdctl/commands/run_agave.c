@@ -37,7 +37,8 @@ clone_labs_memory_space_tiles( config_t * config ) {
                           !strcmp( wksp->name, "metric_in" ) ||
                           !strcmp( wksp->name, "bank" ) ||
                           !strcmp( wksp->name, "poh" ) ||
-                          !strcmp( wksp->name, "store" ) ) ) {
+                          !strcmp( wksp->name, "store" ) ||
+                          !strcmp( wksp->name, "leader_state" ) ) ) {
       fd_topo_join_workspace( &config->topo, wksp, FD_SHMEM_JOIN_MODE_READ_WRITE );
     }
   }

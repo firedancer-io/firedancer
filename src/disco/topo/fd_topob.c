@@ -126,7 +126,8 @@ fd_topob_tile( fd_topo_t *    topo,
                char const *   metrics_wksp,
                ulong          cpu_idx,
                int            is_agave,
-               int            uses_keyswitch ) {
+               int            uses_keyswitch,
+               int            low_power_mode ) {
   if( FD_UNLIKELY( !topo || !tile_name || !tile_wksp || !metrics_wksp ) ) FD_LOG_ERR(( "NULL args" ));
   if( FD_UNLIKELY( strlen( tile_name )>=sizeof(topo->tiles[ topo->tile_cnt ].name ) ) ) FD_LOG_ERR(( "tile name too long: %s", tile_name ));
   if( FD_UNLIKELY( topo->tile_cnt>=FD_TOPO_MAX_TILES ) ) FD_LOG_ERR(( "too many tiles %lu", topo->tile_cnt ));
@@ -141,6 +142,7 @@ fd_topob_tile( fd_topo_t *    topo,
   tile->id                  = topo->tile_cnt;
   tile->kind_id             = kind_id;
   tile->is_agave            = is_agave;
+  tile->sleeps              = low_power_mode;
   tile->cpu_idx             = cpu_idx;
   tile->in_cnt              = 0UL;
   tile->out_cnt             = 0UL;
@@ -334,10 +336,29 @@ validate( fd_topo_t const * topo ) {
 
 void
 fd_topob_auto_layout( fd_topo_t * topo,
-                      int         reserve_agave_cores ) {
+                      int         reserve_agave_cores,
+                      int         low_power_mode ) {
   /* Incredibly simple automatic layout system for now ... just assign
      tiles to CPU cores in NUMA sequential order, except for a few tiles
      which should be floating. */
+
+  fd_topo_cpus_t cpus[1];
+  fd_topo_cpus_init( cpus );
+
+  if( FD_UNLIKELY( low_power_mode ) ) {
+    FD_LOG_INFO(( "Auto affinity with low power mode enabled - setting all tiles to floating, and giving Agave all the cores" ));
+    for( ulong i=0UL; i<topo->tile_cnt; i++ ) {
+      topo->tiles[ i ].cpu_idx = ULONG_MAX;
+    }
+
+    for( ulong i=0UL; i<cpus->cpu_cnt; i++ ) {
+      if( FD_UNLIKELY( !cpus->cpu[ i ].online ) ) continue;
+      if( FD_LIKELY( topo->agave_affinity_cnt<sizeof(topo->agave_affinity_cpu_idx)/sizeof(topo->agave_affinity_cpu_idx[0]) ) ) {
+        topo->agave_affinity_cpu_idx[ topo->agave_affinity_cnt++ ] = i;
+      }
+    }
+    return;
+  }
 
   char const * FLOATING[] = {
     "netlnk",
@@ -389,9 +410,6 @@ fd_topob_auto_layout( fd_topo_t * topo,
     fd_topo_tile_t * tile = &topo->tiles[ i ];
     tile->cpu_idx = ULONG_MAX;
   }
-
-  fd_topo_cpus_t cpus[1];
-  fd_topo_cpus_init( cpus );
 
   ulong cpu_ordering[ FD_TILE_MAX ] = { 0UL };
   int   pairs_assigned[ FD_TILE_MAX ] = { 0 };

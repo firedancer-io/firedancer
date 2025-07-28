@@ -45,19 +45,19 @@ backtest_topo( config_t * config ) {
   /**********************************************************************/
   fd_topob_wksp( topo, "metric" );
   fd_topob_wksp( topo, "metric_in" );
-  fd_topob_tile( topo, "metric", "metric", "metric_in", cpu_idx++, 0, 0 );
+  fd_topob_tile( topo, "metric", "metric", "metric_in", cpu_idx++, 0, 0, 0 );
 
   /**********************************************************************/
   /* Add the backtest tile to topo                                      */
   /**********************************************************************/
   fd_topob_wksp( topo, "back" );
-  fd_topo_tile_t * backtest_tile = fd_topob_tile( topo, "back", "back", "metric_in", cpu_idx++, 0, 0 );
+  fd_topo_tile_t * backtest_tile = fd_topob_tile( topo, "back", "back", "metric_in", cpu_idx++, 0, 0, 0 );
 
   /**********************************************************************/
   /* Add the replay tile to topo                                        */
   /**********************************************************************/
   fd_topob_wksp( topo, "replay" );
-  fd_topo_tile_t * replay_tile = fd_topob_tile( topo, "replay", "replay", "metric_in", cpu_idx++, 0, 0 );
+  fd_topo_tile_t * replay_tile = fd_topob_tile( topo, "replay", "replay", "metric_in", cpu_idx++, 0, 0, 0 );
 
   /* specified by [tiles.replay] */
 
@@ -75,13 +75,13 @@ backtest_topo( config_t * config ) {
   /**********************************************************************/
   fd_topob_wksp( topo, "exec" );
   #define FOR(cnt) for( ulong i=0UL; i<cnt; i++ )
-  FOR(exec_tile_cnt) fd_topob_tile( topo, "exec",   "exec",   "metric_in", cpu_idx++, 0, 0 );
+  FOR(exec_tile_cnt) fd_topob_tile( topo, "exec",   "exec",   "metric_in", cpu_idx++, 0, 0, 0 );
 
   /**********************************************************************/
   /* Add the writer tiles to topo                                       */
   /**********************************************************************/
   fd_topob_wksp( topo, "writer" );
-  FOR(writer_tile_cnt) fd_topob_tile( topo, "writer",  "writer",  "metric_in",  cpu_idx++, 0, 0 );
+  FOR(writer_tile_cnt) fd_topob_tile( topo, "writer",  "writer",  "metric_in",  cpu_idx++, 0, 0, 0 );
 
   /**********************************************************************/
   /* Add the snapshot tiles to topo                                       */
@@ -89,9 +89,9 @@ backtest_topo( config_t * config ) {
   fd_topob_wksp( topo, "snaprd" );
   fd_topob_wksp( topo, "snapdc" );
   fd_topob_wksp( topo, "snapin" );
-  fd_topo_tile_t * snaprd_tile = fd_topob_tile( topo, "snaprd",  "snaprd",  "metric_in",  cpu_idx++, 0, 0 );
-  fd_topo_tile_t * snapdc_tile = fd_topob_tile( topo, "snapdc",  "snapdc",  "metric_in",  cpu_idx++, 0, 0 );
-  fd_topo_tile_t * snapin_tile = fd_topob_tile( topo, "snapin",  "snapin",  "metric_in",  cpu_idx++, 0, 0 );
+  fd_topo_tile_t * snaprd_tile = fd_topob_tile( topo, "snaprd",  "snaprd",  "metric_in",  cpu_idx++, 0, 0, 0 );
+  fd_topo_tile_t * snapdc_tile = fd_topob_tile( topo, "snapdc",  "snapdc",  "metric_in",  cpu_idx++, 0, 0, 0 );
+  fd_topo_tile_t * snapin_tile = fd_topob_tile( topo, "snapin",  "snapin",  "metric_in",  cpu_idx++, 0, 0, 0 );
   snaprd_tile->allow_shutdown = 1;
   snapdc_tile->allow_shutdown = 1;
   snapin_tile->allow_shutdown = 1;

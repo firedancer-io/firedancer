@@ -93,7 +93,8 @@ fd_topob_tile( fd_topo_t *    topo,
                char const *   metrics_wksp,
                ulong          cpu_idx,
                int            is_agave,
-               int            uses_keyswitch );
+               int            uses_keyswitch,
+               int            low_power_mode );
 
 /* Add an input link to the tile.  If the tile is created with fd_stem,
    it will automatically poll the in link and forward fragments to the
@@ -132,7 +133,8 @@ fd_topob_tile_out( fd_topo_t *  topo,
 
 void
 fd_topob_auto_layout( fd_topo_t * topo,
-                      int         reserve_agave_cores );
+                      int         reserve_agave_cores,
+                      int         low_power_mode );
 
 /* Finish creating the topology.  Lays out all the objects in the
    given workspaces, and sizes everything correctly.  Also validates
