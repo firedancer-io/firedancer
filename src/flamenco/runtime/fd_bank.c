@@ -611,7 +611,7 @@ fd_banks_publish( fd_banks_t * banks, ulong slot ) {
 
   fd_bank_t * new_root = fd_banks_map_ele_query( bank_map, &slot, NULL, bank_pool );
   if( FD_UNLIKELY( !new_root ) ) {
-    FD_LOG_WARNING(( "Failed to get new root bank" ));
+    FD_LOG_DEBUG(( "Failed to get new root bank" ));
     fd_rwlock_unwrite( &banks->rwlock );
     return NULL;
   }
