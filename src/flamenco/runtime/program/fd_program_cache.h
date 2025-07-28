@@ -22,10 +22,10 @@ struct fd_sbpf_validated_program {
    uchar failed_verification;
 
    /* Stores the last slot the program was modified. This field is
-      updated at the end of a transaction for a program account which
-      is either deployed, retracted, closed, upgraded, migrated, or
-      extended by a v3 / v4 loader instruction. For any programs that
-      are freshly added to the cache, this field is set to 0. */
+      updated at the end of a transaction for a program account that was
+      referenced as a writable account within an instruction. For any
+      programs that are freshly added to the cache, this field is set to
+      0. */
    ulong last_slot_modified;
 
    /* Stores the last slot verification checks were ran for a program.
@@ -33,8 +33,7 @@ struct fd_sbpf_validated_program {
       transaction, and if one of the following are true:
       - It is the first time they are referenced in a transaction in the
         current epoch
-      - The program was recently deployed, retracted, closed, upgraded,
-        migrated, or extended by a v3 / v4 loader instruction
+      - The program was a writable account in a transaction
 
       We reverify referenced programs at least once every epoch
       regardless of whether they were modified or not because changes
@@ -122,6 +121,16 @@ void
 fd_program_cache_update_program( fd_exec_slot_ctx_t * slot_ctx,
                                  fd_pubkey_t const *  program_pubkey,
                                  fd_spad_t *          runtime_spad );
+
+/* Queues a single program account for reverification. This function
+   queries the cache for an existing entry and queues it for
+   reverification by setting the `last_slot_modified` field in the
+   program cache entry to the current slot. */
+void
+fd_program_cache_queue_program_for_reverification( fd_funk_t *              funk,
+                                                   fd_funk_txn_t *          funk_txn,
+                                                   fd_txn_account_t const * program_acc,
+                                                   ulong                    current_slot );
 
 FD_PROTOTYPES_END
 

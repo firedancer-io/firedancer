@@ -103,7 +103,7 @@ test_account_does_not_exist( void ) {
   fd_pubkey_t const non_existent_pubkey = {0};
 
   /* This should return early without doing anything */
-  fd_bpf_program_update_program_cache( test_slot_ctx, &non_existent_pubkey, test_spad );
+  fd_program_cache_update_program( test_slot_ctx, &non_existent_pubkey, test_spad );
 
   /* Verify no cache entry was created */
   fd_sbpf_validated_program_t const * valid_prog = NULL;
@@ -129,7 +129,7 @@ test_account_not_bpf_loader_owner( void ) {
                        1 );
 
   /* This should return early without doing anything */
-  fd_bpf_program_update_program_cache( test_slot_ctx, &test_program_pubkey, test_spad );
+  fd_program_cache_update_program( test_slot_ctx, &test_program_pubkey, test_spad );
 
   /* Verify no cache entry was created */
   fd_sbpf_validated_program_t const * valid_prog = NULL;
@@ -155,7 +155,7 @@ test_invalid_program_not_in_cache_first_time( void ) {
                        1 );
 
   /* This should create a cache entry */
-  fd_bpf_program_update_program_cache( test_slot_ctx, &test_program_pubkey, test_spad );
+  fd_program_cache_update_program( test_slot_ctx, &test_program_pubkey, test_spad );
 
   /* Verify cache entry was created */
   fd_sbpf_validated_program_t const * valid_prog = NULL;
@@ -164,6 +164,7 @@ test_invalid_program_not_in_cache_first_time( void ) {
   FD_TEST( valid_prog );
   FD_TEST( valid_prog->magic==FD_SBPF_VALIDATED_PROGRAM_MAGIC );
   FD_TEST( valid_prog->failed_verification );
+  FD_TEST( valid_prog->last_slot_verification_ran==fd_bank_slot_get( test_slot_ctx->bank ) );
 
   fd_funk_txn_cancel( test_funk, funk_txn, 0 );
 }
@@ -184,7 +185,7 @@ test_valid_program_not_in_cache_first_time( void ) {
                        1 );
 
   /* This should create a cache entry */
-  fd_bpf_program_update_program_cache( test_slot_ctx, &test_program_pubkey, test_spad );
+  fd_program_cache_update_program( test_slot_ctx, &test_program_pubkey, test_spad );
 
   /* Verify cache entry was created */
   fd_sbpf_validated_program_t const * valid_prog = NULL;
@@ -193,7 +194,7 @@ test_valid_program_not_in_cache_first_time( void ) {
   FD_TEST( valid_prog );
   FD_TEST( valid_prog->magic==FD_SBPF_VALIDATED_PROGRAM_MAGIC );
   FD_TEST( !valid_prog->failed_verification );
-  FD_TEST( valid_prog->last_epoch_verification_ran==1UL );
+  FD_TEST( valid_prog->last_slot_verification_ran==fd_bank_slot_get( test_slot_ctx->bank ) );
 
   fd_funk_txn_cancel( test_funk, funk_txn, 0 );
 }
@@ -214,7 +215,7 @@ test_program_in_cache_needs_reverification( void ) {
                        1 );
 
   /* First call to create cache entry */
-  fd_bpf_program_update_program_cache( test_slot_ctx, &test_program_pubkey, test_spad );
+  fd_program_cache_update_program( test_slot_ctx, &test_program_pubkey, test_spad );
 
   /* Verify cache entry was created */
   fd_sbpf_validated_program_t const * valid_prog = NULL;
@@ -223,13 +224,13 @@ test_program_in_cache_needs_reverification( void ) {
   FD_TEST( valid_prog );
   FD_TEST( valid_prog->magic==FD_SBPF_VALIDATED_PROGRAM_MAGIC );
   FD_TEST( !valid_prog->failed_verification );
-  FD_TEST( valid_prog->last_epoch_verification_ran==1UL );
+  FD_TEST( valid_prog->last_slot_verification_ran==fd_bank_slot_get( test_slot_ctx->bank ) );
 
   /* Fast forward to next epoch */
   test_slot_ctx->bank->slot_ += 432000UL;
 
   /* This should trigger reverification */
-  fd_bpf_program_update_program_cache( test_slot_ctx, &test_program_pubkey, test_spad );
+  fd_program_cache_update_program( test_slot_ctx, &test_program_pubkey, test_spad );
 
   /* Verify the cache entry was updated */
   err = fd_bpf_load_cache_entry( test_funk, funk_txn, &test_program_pubkey, &valid_prog );
@@ -237,7 +238,7 @@ test_program_in_cache_needs_reverification( void ) {
   FD_TEST( valid_prog );
   FD_TEST( valid_prog->magic==FD_SBPF_VALIDATED_PROGRAM_MAGIC );
   FD_TEST( !valid_prog->failed_verification );
-  FD_TEST( valid_prog->last_epoch_verification_ran==2UL );
+  FD_TEST( valid_prog->last_slot_verification_ran==fd_bank_slot_get( test_slot_ctx->bank ) );
 
   fd_funk_txn_cancel( test_funk, funk_txn, 0 );
 }

@@ -542,7 +542,7 @@ FD_SPAD_FRAME_BEGIN( runtime_spad ) {
 
   void *                        data          = fd_funk_val( rec, fd_funk_wksp( slot_ctx->funk ) );
   fd_sbpf_elf_info_t            elf_info      = {0};
-  fd_sbpf_validated_program_t * modified_prog = (fd_sbpf_validated_program_t *)data;
+  fd_sbpf_validated_program_t * modified_prog = fd_type_pun( data );
 
   /* Set basic metadata flags */
   modified_prog->last_slot_verification_ran = fd_bank_slot_get( slot_ctx->bank );
@@ -567,4 +567,47 @@ FD_SPAD_FRAME_BEGIN( runtime_spad ) {
   fd_funk_rec_modify_publish( query );
 
 } FD_SPAD_FRAME_END;
+}
+
+void
+fd_program_cache_queue_program_for_reverification( fd_funk_t *              funk,
+                                                   fd_funk_txn_t *          funk_txn,
+                                                   fd_txn_account_t const * program_acc,
+                                                   ulong                    current_slot ) {
+
+  /* We want to access the program cache entry for this pubkey and
+     queue it for reverification. If it exists, clone it down to the
+     current funk txn and update the entry's `last_slot_modified`
+     field.
+
+     TODO: This call needs to be thread-safe */
+  fd_sbpf_validated_program_t const * existing_prog = NULL;
+  int err = fd_bpf_load_cache_entry( funk, funk_txn, program_acc->pubkey, &existing_prog );
+  if( FD_UNLIKELY( err ) ) {
+    return;
+  }
+
+  /* Ensure the record is in the current funk transaction */
+  fd_funk_rec_key_t id = fd_acc_mgr_cache_key( program_acc->pubkey );
+  fd_funk_rec_try_clone_safe( funk, funk_txn, &id, 0UL, 0UL );
+
+  /* Modify the record within the current funk txn */
+  fd_funk_rec_query_t query[1];
+  fd_funk_rec_t * rec = fd_funk_rec_modify( funk, funk_txn, &id, query );
+
+  if( FD_UNLIKELY( !rec ) ) {
+    /* The record does not exist (somehow). Ideally this should never
+       happen since this function is called in a single-threaded
+       context. */
+    FD_LOG_CRIT(( "Failed to modify the BPF program cache record. Perhaps there is a race condition?" ));
+  }
+
+  void *                        data          = fd_funk_val( rec, fd_funk_wksp( funk ) );
+  fd_sbpf_validated_program_t * modified_prog = fd_type_pun( data );
+
+  /* Set the last modified slot to the current slot */
+  modified_prog->last_slot_modified = current_slot;
+
+  /* Finish modifying and release lock */
+  fd_funk_rec_modify_publish( query );
 }

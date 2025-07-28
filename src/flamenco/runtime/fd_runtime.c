@@ -1273,6 +1273,7 @@ fd_runtime_finalize_txn( fd_funk_t *                  funk,
                          fd_spad_t *                  finalize_spad,
                          fd_bank_t *                  bank ) {
 
+  ulong current_slot = fd_bank_slot_get( bank );
   /* for all accounts, if account->is_verified==true, propagate update
      to cache entry. */
 
@@ -1327,8 +1328,12 @@ fd_runtime_finalize_txn( fd_funk_t *                  funk,
 
       fd_txn_account_t * acc_rec = &txn_ctx->accounts[i];
 
-      /* We need to now queue any writable program accounts for program cache
-         reverification, since their . */
+      /* We need to now queue any writable program accounts for
+         reverification in the program cache, since their programdata
+         may have changed (e.g. upgrade / migrate / deploy / etc). */
+      if( FD_UNLIKELY( fd_executor_pubkey_is_bpf_loader( acc_rec->vt->get_owner( acc_rec ) ) ) ) {
+        fd_program_cache_queue_program_for_reverification( funk, funk_txn, acc_rec, current_slot );
+      }
 
       if( dirty_vote_acc && 0==memcmp( acc_rec->vt->get_owner( acc_rec ), &fd_solana_vote_program_id, sizeof(fd_pubkey_t) ) ) {
         fd_vote_store_account( acc_rec, bank );
