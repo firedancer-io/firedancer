@@ -412,6 +412,10 @@ shredcap_notify_one_batch( ctx_t * ctx, fd_stem_context_t * stem ) {
     ulong sig   = fd_disco_repair_replay_sig( shred->slot, shred->data.parent_off, cnt, slot_complete );
     ulong tspub = fd_frag_meta_ts_comp( fd_tickcount() );
     fd_stem_publish( stem, REPLAY_OUT_IDX, sig, 0, 0, 0, tspub, tspub );
+
+    if( slot_complete ) {
+      return;
+    }
   }
   break;
 
