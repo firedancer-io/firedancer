@@ -99,8 +99,6 @@ typedef struct {
   long                   replay_time;
   ulong                  slot_cnt;
 
-  ulong                  prev_slot;
-
   fd_store_t *           store;
   fd_tower_t *           tower;
   fd_shred_t const *     curr;
@@ -184,10 +182,9 @@ notify_tower_root( ctx_t *             ctx,
                    ulong               tspub ) {
   ulong replayed_slot = ctx->replay_notification.slot_exec.slot;
   if( ctx->ingest_mode == FD_BACKTEST_ROCKSDB_INGEST ) {
-    if( FD_LIKELY( ctx->prev_slot != FD_SLOT_NULL ) ) {
-      fd_stem_publish( stem, ctx->tower_replay_out_idx, ctx->prev_slot, 0UL, 8UL, 0UL, tsorig, tspub );
+    if( FD_LIKELY( replayed_slot != FD_SLOT_NULL ) ) {
+      fd_stem_publish( stem, ctx->tower_replay_out_idx, replayed_slot, 0UL, 8UL, 0UL, tsorig, tspub );
     }
-    ctx->prev_slot = replayed_slot;
   } else if( ctx->ingest_mode == FD_BACKTEST_SHREDCAP_INGEST ) {
     ulong root = fd_tower_vote( ctx->tower, replayed_slot );
     if( FD_LIKELY( root != FD_SLOT_NULL ) ) {
@@ -316,9 +313,6 @@ unprivileged_init( fd_topo_t *      topo,
   ctx->slot_cnt    = 0UL;
 
   ctx->curr = NULL;
-
-  /* Initialize prev_slot */
-  ctx->prev_slot = FD_SLOT_NULL;
 
   FD_LOG_NOTICE(("Finished unprivileged init"));
 }

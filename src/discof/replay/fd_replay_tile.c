@@ -1023,7 +1023,9 @@ after_frag( fd_replay_tile_ctx_t *   ctx,
   if( FD_UNLIKELY( ctx->in_kind[ in_idx ]==IN_KIND_TOWER ) ) {
     ulong root = sig;
 
-    if( FD_LIKELY( root <= fd_fseq_query( ctx->published_wmark ) ) ) return;
+    if( FD_LIKELY( root <= fd_fseq_query( ctx->published_wmark ) ) ) {
+      return;
+    }
 
     ulong const slot = fd_bank_slot_get( ctx->slot_ctx->bank );
     if( FD_UNLIKELY( slot==root ) ) {
