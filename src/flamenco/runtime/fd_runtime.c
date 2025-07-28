@@ -318,6 +318,7 @@ fd_runtime_update_lthash_with_account( fd_funk_t *             funk,
 
   /* Hash the old version of the account */
   fd_lthash_value_t old_hash[1];
+fd_lthash_zero( old_hash );
   if( err != FD_ACC_MGR_ERR_UNKNOWN_ACCOUNT ) {
     fd_hash_account_lthash_value(
       account->pubkey,
