@@ -9,11 +9,8 @@
 #include "../../flamenco/runtime/fd_txncache.h"
 #include "../../flamenco/runtime/context/fd_capture_ctx.h"
 #include "../../flamenco/runtime/context/fd_exec_slot_ctx.h"
-#include "../../flamenco/runtime/program/fd_bpf_program_util.h"
-#include "../../flamenco/runtime/sysvar/fd_sysvar_slot_history.h"
 #include "../../flamenco/runtime/fd_hashes.h"
 #include "../../flamenco/runtime/fd_runtime_init.h"
-#include "../../flamenco/stakes/fd_stakes.h"
 #include "../../flamenco/runtime/fd_runtime.h"
 #include "../../flamenco/runtime/fd_runtime_public.h"
 #include "../../flamenco/rewards/fd_rewards.h"
@@ -47,7 +44,6 @@
 #define PLUGIN_PUBLISH_TIME_NS ((long)60e9)
 
 #define IN_KIND_REPAIR (0)
-#define IN_KIND_PACK   (1)
 #define IN_KIND_TOWER  (2)
 #define IN_KIND_SNAP   (3)
 
@@ -221,8 +217,6 @@ struct fd_replay_tile_ctx {
   ulong               exec_spad_cnt;
 
   fd_spad_t *         runtime_spad;
-
-  fd_funk_txn_t * false_root;
 
   int read_only; /* The read-only slot is the slot the validator needs
                     to replay through before it can proceed with any
@@ -2012,9 +2006,7 @@ unprivileged_init( fd_topo_t *      topo,
       ctx->in[ i ].wmark  = fd_dcache_compact_wmark ( ctx->in[ i ].mem, link->dcache, link->mtu );
     }
 
-    if(        !strcmp( link->name, "pack_replay" ) ) {
-      ctx->in_kind[ i ] = IN_KIND_PACK;
-    } else if( !strcmp( link->name, "repair_repla" ) ) {
+    if( !strcmp( link->name, "repair_repla" ) ) {
       ctx->in_kind[ i ] = IN_KIND_REPAIR;
     } else if( !strcmp( link->name, "snap_out"  ) ) {
       ctx->in_kind[ i ] = IN_KIND_SNAP;
