@@ -31,14 +31,14 @@
    changes these limits, the upper bound should be the largest
    anticipated value while the lower bound should be the current active
    limit. For Frankendancer, the actual value used for consensus will be
-   retreived from Agave. */
+   retrieved from Agave at runtime. */
 #define FD_PACK_MAX_COST_PER_BLOCK_LOWER_BOUND      (48000000UL)
 #define FD_PACK_MAX_VOTE_COST_PER_BLOCK_LOWER_BOUND (36000000UL)
 #define FD_PACK_MAX_WRITE_COST_PER_ACCT_LOWER_BOUND (12000000UL)
 
-#define FD_PACK_MAX_COST_PER_BLOCK_UPPER_BOUND      (60000000UL) /* simd 0256 */
-#define FD_PACK_MAX_VOTE_COST_PER_BLOCK_UPPER_BOUND (36000000UL)
-#define FD_PACK_MAX_WRITE_COST_PER_ACCT_UPPER_BOUND (12000000UL)
+#define FD_PACK_MAX_COST_PER_BLOCK_UPPER_BOUND      (100000000UL) /* simd 0286 */
+#define FD_PACK_MAX_VOTE_COST_PER_BLOCK_UPPER_BOUND ( 36000000UL)
+#define FD_PACK_MAX_WRITE_COST_PER_ACCT_UPPER_BOUND ( 12000000UL)
 
 #define FD_PACK_FEE_PER_SIGNATURE           (5000UL) /* In lamports */
 
