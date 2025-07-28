@@ -1023,11 +1023,8 @@ after_frag( fd_replay_tile_ctx_t *   ctx,
   if( FD_UNLIKELY( ctx->in_kind[ in_idx ]==IN_KIND_TOWER ) ) {
     ulong root = sig;
 
-    if( FD_LIKELY( root <= fd_fseq_query( ctx->published_wmark ) ) ) return;
-
-    ulong const slot = fd_bank_slot_get( ctx->slot_ctx->bank );
-    if( FD_UNLIKELY( slot==root ) ) {
-      FD_LOG_CRIT(( "invariant violation: root %lu is the same as the current slot %lu", root, slot ));
+    if( FD_LIKELY( root <= fd_fseq_query( ctx->published_wmark ) ) ) {
+      return;
     }
 
     ctx->root = root;
@@ -1373,9 +1370,6 @@ handle_new_slot( fd_replay_tile_ctx_t * ctx,
   }
 
   fd_funk_txn_t * parent_txn = fd_funk_txn_query( &parent_xid, txn_map );
-  if( FD_UNLIKELY( !parent_txn && parent_slot!=ctx->snapshot_slot ) ) {
-    FD_LOG_CRIT(( "parent_txn is NULL for slot %lu", parent_slot ));
-  }
 
   fd_funk_txn_t * funk_txn = fd_funk_txn_prepare( ctx->funk, parent_txn, &xid, 1 );
   if( FD_UNLIKELY( !funk_txn ) ) {
