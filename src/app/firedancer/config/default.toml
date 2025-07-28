@@ -324,10 +324,11 @@ user = ""
     # completing snapshot download.
     maximum_download_retry_abort = 5
 
-    # The cluster to download snapshots from.  This is a temporary
-    # config option that will be removed once the snapshot tiles
-    # are integrated with gossip
-    cluster = "testnet"
+    # List of initial peer addresses for snapshot download.  This list
+    # must not be empty when snapshot download is enabled.  This is a
+    # temporary config option that will be removed once the snapshot
+    # tiles are integrated with gossip.
+    initial_peers = []
 
 [rpc]
     # If nonzero, enable JSON RPC on this port, and use the next port

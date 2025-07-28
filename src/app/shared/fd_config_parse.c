@@ -108,7 +108,7 @@ fd_config_extract_podf( uchar *        pod,
   CFG_POP_ARRAY( cstr,   snapshots.known_validators                       );
   CFG_POP      ( uint,   snapshots.minimum_download_speed_mib             );
   CFG_POP      ( uint,   snapshots.maximum_download_retry_abort           );
-  CFG_POP      ( cstr,   snapshots.cluster                                );
+  CFG_POP_ARRAY( cstr,   snapshots.initial_peers                          );
 
   return config;
 }
