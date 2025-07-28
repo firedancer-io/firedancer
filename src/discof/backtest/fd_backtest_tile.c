@@ -501,9 +501,9 @@ rocksdb_bank_hash_check( ctx_t * ctx, ulong slot, fd_hash_t * bank_hash ) {
       FD_LOG_NOTICE(( "Bank hash matches! slot=%lu, hash=%s", slot, FD_BASE58_ENC_32_ALLOCA( bank_hash->hash ) ));
     } else {
 
-      /* Wait for 20 seconds */
-      struct timespec ts = { .tv_sec = 20, .tv_nsec = 0 };
-      nanosleep( &ts, NULL );
+      // /* Wait for 20 seconds */
+      // struct timespec ts = { .tv_sec = 20, .tv_nsec = 0 };
+      // nanosleep( &ts, NULL );
 
       /* Do not change this log as it is used in offline replay */
       FD_LOG_ERR(( "Bank hash mismatch! slot=%lu expected=%s, got=%s",
