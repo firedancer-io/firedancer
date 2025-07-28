@@ -30,7 +30,14 @@ extern fd_topo_obj_callbacks_t * CALLBACKS[];
 fd_topo_run_tile_t fdctl_tile_run( fd_topo_tile_t const * tile );
 
 static void
-backtest_topo( config_t * config ) {
+backtest_topo( config_t *     config,
+               args_t const * args ) {
+  if( args->backtest.solcap[0] ) {
+    /* If solcap is enabled via command-line, dump as much as possible */
+    fd_cstr_fini( fd_cstr_append_cstr_safe( fd_cstr_init( config->capture.solcap_capture ), args->backtest.solcap, sizeof(config->capture.solcap_capture)-1 ) );
+    config->capture.capture_start_slot = 0UL;
+  }
+
   ulong exec_tile_cnt   = config->firedancer.layout.exec_tile_count;
   ulong writer_tile_cnt = config->firedancer.layout.writer_tile_count;
 
@@ -337,9 +344,17 @@ backtest_topo( config_t * config ) {
 extern int * fd_log_private_shared_lock;
 
 static void
-backtest_cmd_fn( args_t *   args FD_PARAM_UNUSED,
-                config_t * config ) {
-  backtest_topo( config );
+backtest_cmd_args( int *    pargc,
+                   char *** pargv,
+                   args_t * args ) {
+  char const * solcap = fd_env_strip_cmdline_cstr( pargc, pargv, "--solcap-path", NULL, "" );
+  fd_cstr_fini( fd_cstr_append_cstr_safe( fd_cstr_init( args->backtest.solcap ), solcap, sizeof(args->backtest.solcap)-1 ) );
+}
+
+static void
+backtest_cmd_fn( args_t *   args,
+                 config_t * config ) {
+  backtest_topo( config, args );
 
   args_t configure_args = {
     .configure.command = CONFIGURE_CMD_INIT,
@@ -360,7 +375,7 @@ backtest_cmd_fn( args_t *   args FD_PARAM_UNUSED,
 
 action_t fd_action_backtest = {
   .name = "backtest",
-  .args = NULL,
+  .args = backtest_cmd_args,
   .fn   = backtest_cmd_fn,
   .perm = dev_cmd_perm,
 };

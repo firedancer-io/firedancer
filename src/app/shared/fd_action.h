@@ -98,6 +98,10 @@ union fdctl_args {
     ushort listen_port;
   } udpecho;
 
+  struct {
+    char solcap[ PATH_MAX ];
+  } backtest;
+
 };
 
 typedef union fdctl_args args_t;
