@@ -156,6 +156,7 @@ metrics_write( fd_quic_ctx_t * ctx ) {
   FD_MCNT_SET(       QUIC, PKT_OVERSZ,          ctx->quic->metrics.pkt_oversz_cnt );
   FD_MCNT_SET(       QUIC, PKT_VERNEG,          ctx->quic->metrics.pkt_verneg_cnt );
   FD_MCNT_SET(       QUIC, PKT_RETRANSMISSIONS, ctx->quic->metrics.pkt_retransmissions_cnt );
+  FD_MCNT_ENUM_COPY( QUIC, INITIAL_TOKEN_LEN,   ctx->quic->metrics.initial_token_len_cnt );
 
   FD_MCNT_SET(   QUIC, HANDSHAKES_CREATED,         ctx->quic->metrics.hs_created_cnt );
   FD_MCNT_SET(   QUIC, HANDSHAKE_ERROR_ALLOC_FAIL, ctx->quic->metrics.hs_err_alloc_fail_cnt );
