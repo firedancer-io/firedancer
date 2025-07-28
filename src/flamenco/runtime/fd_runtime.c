@@ -1514,8 +1514,8 @@ fd_update_stake_delegations( fd_exec_slot_ctx_t * slot_ctx,
     fd_stake_account_slim_t * entry = fd_stake_accounts_search( stakes, key );
     if( FD_LIKELY( entry==NULL ) ) {
       entry = fd_stake_accounts_add( stakes, key );
-      entry->delegation = temp_info->stake_infos[idx].stake.delegation;
     }
+    entry->delegation = temp_info->stake_infos[idx].stake.delegation;
   }
 
   fd_bank_stakes_end_locking_modify( slot_ctx->bank );
@@ -2393,7 +2393,7 @@ fd_runtime_init_bank_from_genesis( fd_exec_slot_ctx_t *        slot_ctx,
       }
       fd_stake_account_slim_t * node = fd_stake_accounts_search( stakes, (fd_pubkey_t *)&acc->key.key );
       if( !node ) {
-        node = fd_stake_accounts_add( stakes, &acc->key );        node->delegation = stake_state.inner.stake.stake.delegation;
+        node = fd_stake_accounts_add( stakes, &acc->key );
       }
       node->delegation = stake_state.inner.stake.stake.delegation;
     } else if( !memcmp(acc->account.owner.key, fd_solana_feature_program_id.key, sizeof(fd_pubkey_t)) ) {

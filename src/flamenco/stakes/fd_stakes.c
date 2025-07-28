@@ -631,26 +631,6 @@ accumulate_stake_cache_delegations( fd_stake_account_slim_t const * *       dele
 
 }
 
-static void FD_FN_UNUSED
-accumulate_stake_cache_delegations_tpool_task( void  *tpool,
-                                               ulong t0 FD_PARAM_UNUSED,      ulong t1 FD_PARAM_UNUSED,
-                                               void  *args,
-                                               void  *reduce,                 ulong stride FD_PARAM_UNUSED,
-                                               ulong l0 FD_PARAM_UNUSED,      ulong l1 FD_PARAM_UNUSED,
-                                               ulong m0 FD_PARAM_UNUSED,      ulong m1 FD_PARAM_UNUSED,
-                                               ulong n0 FD_PARAM_UNUSED,      ulong n1 FD_PARAM_UNUSED ) {
-  fd_stake_account_slim_t const * *       delegations_roots = (fd_stake_account_slim_t const * *)tpool;
-  ulong *                                 delegations_cnt   = (ulong *)reduce;
-  fd_accumulate_delegations_task_args_t * task_args         = (fd_accumulate_delegations_task_args_t *)args;
-  ulong                                   worker_idx        = fd_tile_idx();
-
-  accumulate_stake_cache_delegations( delegations_roots,
-                                      delegations_cnt,
-                                      task_args,
-                                      worker_idx );
-
-}
-
 /* Accumulates information about epoch stakes into `temp_info`, which is a temporary cache
    used to save intermediate state about stake and vote accounts to avoid them from having to
    be recomputed on every access, especially at the epoch boundary. Also collects stats in `accumulator` */
