@@ -72,10 +72,10 @@ fd_bpf_load_cache_entry( fd_funk_t const *                    funk,
                          fd_sbpf_validated_program_t const ** valid_prog );
 
 void
-fd_bpf_get_sbpf_versions( uint *                sbpf_min_version,
-                          uint *                sbpf_max_version,
-                          ulong                 slot,
-                          fd_features_t const * features );
+fd_sbpf_get_sbpf_versions( uint *                sbpf_min_version,
+                           uint *                sbpf_max_version,
+                           ulong                 slot,
+                           fd_features_t const * features );
 
 /* Parses the programdata from a program account. Returns a pointer to the program data
    and sets `out_program_data_len` on success. Returns NULL on failure or if the program

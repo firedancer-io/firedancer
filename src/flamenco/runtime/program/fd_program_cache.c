@@ -47,6 +47,48 @@ fd_sbpf_validated_program_footprint( fd_sbpf_elf_info_t const * elf_info ) {
   return l;
 }
 
+void
+fd_sbpf_get_sbpf_versions( uint *                sbpf_min_version,
+                           uint *                sbpf_max_version,
+                           ulong                 slot,
+                           fd_features_t const * features ) {
+  int disable_v0  = FD_FEATURE_ACTIVE( slot, features, disable_sbpf_v0_execution );
+  int reenable_v0 = FD_FEATURE_ACTIVE( slot, features, reenable_sbpf_v0_execution );
+  int enable_v0   = !disable_v0 || reenable_v0;
+  int enable_v1   = FD_FEATURE_ACTIVE( slot, features, enable_sbpf_v1_deployment_and_execution );
+  int enable_v2   = FD_FEATURE_ACTIVE( slot, features, enable_sbpf_v2_deployment_and_execution );
+  int enable_v3   = FD_FEATURE_ACTIVE( slot, features, enable_sbpf_v3_deployment_and_execution );
+
+  *sbpf_min_version = enable_v0 ? FD_SBPF_V0 : FD_SBPF_V3;
+  if( enable_v3 ) {
+    *sbpf_max_version = FD_SBPF_V3;
+  } else if( enable_v2 ) {
+    *sbpf_max_version = FD_SBPF_V2;
+  } else if( enable_v1 ) {
+    *sbpf_max_version = FD_SBPF_V1;
+  } else {
+    *sbpf_max_version = FD_SBPF_V0;
+  }
+}
+
+/* Parse ELF info from programdata. */
+static int
+fd_sbpf_parse_elf_info( fd_sbpf_elf_info_t *       elf_info,
+                        uchar const *              program_data,
+                        ulong                      program_data_len,
+                        fd_exec_slot_ctx_t const * slot_ctx ) {
+  uint min_sbpf_version, max_sbpf_version;
+  fd_sbpf_get_sbpf_versions( &min_sbpf_version,
+                             &max_sbpf_version,
+                             fd_bank_slot_get( slot_ctx->bank ),
+                             fd_bank_features_query( slot_ctx->bank ) );
+  if( FD_UNLIKELY( !fd_sbpf_elf_peek( elf_info, program_data, program_data_len, /* deploy checks */ 0, min_sbpf_version, max_sbpf_version ) ) ) {
+    FD_LOG_DEBUG(( "fd_sbpf_elf_peek() failed: %s", fd_sbpf_strerror() ));
+    return -1;
+  }
+  return 0;
+}
+
 static inline fd_funk_rec_key_t
 fd_acc_mgr_cache_key( fd_pubkey_t const * pubkey ) {
   fd_funk_rec_key_t id;
@@ -66,8 +108,8 @@ fd_acc_mgr_cache_key( fd_pubkey_t const * pubkey ) {
    Reasons for failure include:
    - The program state cannot be read from the account data or is in the `retracted` state. */
 static uchar const *
-fd_bpf_get_executable_program_content_for_v4_loader( fd_txn_account_t const * program_acc,
-                                                     ulong *                  program_data_len ) {
+fd_get_executable_program_content_for_v4_loader( fd_txn_account_t const * program_acc,
+                                                 ulong *                  program_data_len ) {
   int err;
 
   /* Get the current loader v4 state. This implicitly also checks the dlen. */
@@ -93,11 +135,11 @@ fd_bpf_get_executable_program_content_for_v4_loader( fd_txn_account_t const * pr
    - The program account data cannot be decoded or is not in the `program` state.
    - The programdata account is not large enough to hold at least `PROGRAMDATA_METADATA_SIZE` bytes. */
 static uchar const *
-fd_bpf_get_executable_program_content_for_upgradeable_loader( fd_funk_t const *        funk,
-                                                              fd_funk_txn_t const *    funk_txn,
-                                                              fd_txn_account_t const * program_acc,
-                                                              ulong *                  program_data_len,
-                                                              fd_spad_t *              runtime_spad ) {
+fd_get_executable_program_content_for_upgradeable_loader( fd_funk_t const *        funk,
+                                                          fd_funk_txn_t const *    funk_txn,
+                                                          fd_txn_account_t const * program_acc,
+                                                          ulong *                  program_data_len,
+                                                          fd_spad_t *              runtime_spad ) {
   FD_TXN_ACCOUNT_DECL( programdata_acc );
 
   fd_bpf_upgradeable_loader_state_t * program_account_state =
@@ -144,34 +186,10 @@ fd_bpf_get_executable_program_content_for_upgradeable_loader( fd_funk_t const * 
    to the account data, this function should NEVER return NULL (since the programdata of v1 and v2 loader)
    accounts start at the beginning of the data. */
 static uchar const *
-fd_bpf_get_executable_program_content_for_v1_v2_loaders( fd_txn_account_t const * program_acc,
-                                                         ulong *                  program_data_len ) {
+fd_get_executable_program_content_for_v1_v2_loaders( fd_txn_account_t const * program_acc,
+                                                     ulong *                  program_data_len ) {
   *program_data_len = program_acc->vt->get_data_len( program_acc );
   return program_acc->vt->get_data( program_acc );
-}
-
-void
-fd_bpf_get_sbpf_versions( uint *                sbpf_min_version,
-                          uint *                sbpf_max_version,
-                          ulong                 slot,
-                          fd_features_t const * features ) {
-  int disable_v0  = FD_FEATURE_ACTIVE( slot, features, disable_sbpf_v0_execution );
-  int reenable_v0 = FD_FEATURE_ACTIVE( slot, features, reenable_sbpf_v0_execution );
-  int enable_v0   = !disable_v0 || reenable_v0;
-  int enable_v1   = FD_FEATURE_ACTIVE( slot, features, enable_sbpf_v1_deployment_and_execution );
-  int enable_v2   = FD_FEATURE_ACTIVE( slot, features, enable_sbpf_v2_deployment_and_execution );
-  int enable_v3   = FD_FEATURE_ACTIVE( slot, features, enable_sbpf_v3_deployment_and_execution );
-
-  *sbpf_min_version = enable_v0 ? FD_SBPF_V0 : FD_SBPF_V3;
-  if( enable_v3 ) {
-    *sbpf_max_version = FD_SBPF_V3;
-  } else if( enable_v2 ) {
-    *sbpf_max_version = FD_SBPF_V2;
-  } else if( enable_v1 ) {
-    *sbpf_max_version = FD_SBPF_V1;
-  } else {
-    *sbpf_max_version = FD_SBPF_V0;
-  }
 }
 
 uchar const *
@@ -185,32 +203,14 @@ fd_bpf_get_programdata_from_account( fd_funk_t const *        funk,
                 and lookup the programdata account. Deserialize the programdata account.
      v4 loader: Programdata lives in the program account, offset by LOADER_V4_PROGRAM_DATA_OFFSET. */
   if( !memcmp( program_acc->vt->get_owner( program_acc ), fd_solana_bpf_loader_upgradeable_program_id.key, sizeof(fd_pubkey_t) ) ) {
-    return fd_bpf_get_executable_program_content_for_upgradeable_loader( funk, funk_txn, program_acc, out_program_data_len, runtime_spad );
+    return fd_get_executable_program_content_for_upgradeable_loader( funk, funk_txn, program_acc, out_program_data_len, runtime_spad );
   } else if( !memcmp( program_acc->vt->get_owner( program_acc ), fd_solana_bpf_loader_v4_program_id.key, sizeof(fd_pubkey_t) ) ) {
-    return fd_bpf_get_executable_program_content_for_v4_loader( program_acc, out_program_data_len );
+    return fd_get_executable_program_content_for_v4_loader( program_acc, out_program_data_len );
   } else if( !memcmp( program_acc->vt->get_owner( program_acc ), fd_solana_bpf_loader_program_id.key, sizeof(fd_pubkey_t) ) ||
              !memcmp( program_acc->vt->get_owner( program_acc ), fd_solana_bpf_loader_deprecated_program_id.key, sizeof(fd_pubkey_t) ) ) {
-    return fd_bpf_get_executable_program_content_for_v1_v2_loaders( program_acc, out_program_data_len );
+    return fd_get_executable_program_content_for_v1_v2_loaders( program_acc, out_program_data_len );
   }
   return NULL;
-}
-
-/* Parse ELF info from programdata. */
-static int
-fd_bpf_parse_elf_info( fd_sbpf_elf_info_t *       elf_info,
-                       uchar const *              program_data,
-                       ulong                      program_data_len,
-                       fd_exec_slot_ctx_t const * slot_ctx ) {
-  uint min_sbpf_version, max_sbpf_version;
-  fd_bpf_get_sbpf_versions( &min_sbpf_version,
-                            &max_sbpf_version,
-                            fd_bank_slot_get( slot_ctx->bank ),
-                            fd_bank_features_query( slot_ctx->bank ) );
-  if( FD_UNLIKELY( !fd_sbpf_elf_peek( elf_info, program_data, program_data_len, /* deploy checks */ 0, min_sbpf_version, max_sbpf_version ) ) ) {
-    FD_LOG_DEBUG(( "fd_sbpf_elf_peek() failed: %s", fd_sbpf_strerror() ));
-    return -1;
-  }
-  return 0;
 }
 
 /* This function is used to validate an sBPF program and set the program's flags accordingly. The return
@@ -227,12 +227,12 @@ fd_bpf_parse_elf_info( fd_sbpf_elf_info_t *       elf_info,
    On success, `validated_prog` is updated with the loaded sBPF program metadata, as well as the `last_verified_epoch`
    and `failed_verification` flags. */
 static int
-fd_bpf_validate_sbpf_program( fd_exec_slot_ctx_t const *    slot_ctx,
-                              fd_sbpf_elf_info_t const *    elf_info,
-                              uchar const *                 program_data,
-                              ulong                         program_data_len,
-                              fd_spad_t *                   runtime_spad,
-                              fd_sbpf_validated_program_t * validated_prog /* out */ ) {
+fd_program_cache_validate_sbpf_program( fd_exec_slot_ctx_t const *    slot_ctx,
+                                        fd_sbpf_elf_info_t const *    elf_info,
+                                        uchar const *                 program_data,
+                                        ulong                         program_data_len,
+                                        fd_spad_t *                   runtime_spad,
+                                        fd_sbpf_validated_program_t * validated_prog /* out */ ) {
   /* Mark the program as validated for this epoch. */
 
   validated_prog->last_epoch_verification_ran = fd_bank_epoch_get( slot_ctx->bank );
@@ -327,9 +327,9 @@ fd_bpf_validate_sbpf_program( fd_exec_slot_ctx_t const *    slot_ctx,
    sBPF validated program with the `failed_verification` flag set to 1. The passed-in funk record
    is expected to be in a prepare. */
 static void
-fd_publish_failed_verification_rec( fd_funk_t *             funk,
-                                    fd_funk_rec_prepare_t * prepare,
-                                    fd_funk_rec_t *         rec ) {
+fd_program_cache_publish_failed_verification_rec( fd_funk_t *             funk,
+                                                  fd_funk_rec_prepare_t * prepare,
+                                                  fd_funk_rec_t *         rec ) {
   /* Truncate the record to have a minimal footprint */
   fd_sbpf_elf_info_t elf_info = {0};
   ulong record_sz = fd_sbpf_validated_program_footprint( &elf_info );
@@ -354,9 +354,9 @@ fd_publish_failed_verification_rec( fd_funk_t *             funk,
    The program will still be added to the cache even if verifications fail. This is to prevent a DOS
    vector where an attacker could spam invocations to programs that failed verification. */
 static void
-fd_bpf_create_bpf_program_cache_entry( fd_exec_slot_ctx_t *     slot_ctx,
-                                       fd_txn_account_t const * program_acc,
-                                       fd_spad_t *              runtime_spad ) {
+fd_program_cache_create_cache_entry( fd_exec_slot_ctx_t *     slot_ctx,
+                                     fd_txn_account_t const * program_acc,
+                                     fd_spad_t *              runtime_spad ) {
   FD_SPAD_FRAME_BEGIN( runtime_spad ) {
 
     /* Prepare the funk record for the program cache. */
@@ -377,13 +377,13 @@ fd_bpf_create_bpf_program_cache_entry( fd_exec_slot_ctx_t *     slot_ctx,
     uchar const * program_data     = fd_bpf_get_programdata_from_account( funk, funk_txn, program_acc, &program_data_len, runtime_spad );
 
     if( FD_UNLIKELY( program_data==NULL ) ) {
-      fd_publish_failed_verification_rec( funk, prepare, rec );
+      fd_program_cache_publish_failed_verification_rec( funk, prepare, rec );
       return;
     }
 
     fd_sbpf_elf_info_t elf_info = {0};
-    if( FD_UNLIKELY( fd_bpf_parse_elf_info( &elf_info, program_data, program_data_len, slot_ctx ) ) ) {
-      fd_publish_failed_verification_rec( funk, prepare, rec );
+    if( FD_UNLIKELY( fd_sbpf_parse_elf_info( &elf_info, program_data, program_data_len, slot_ctx ) ) ) {
+      fd_program_cache_publish_failed_verification_rec( funk, prepare, rec );
       return;
     }
 
@@ -401,9 +401,9 @@ fd_bpf_create_bpf_program_cache_entry( fd_exec_slot_ctx_t *     slot_ctx,
 
     /* Note that the validated program points to the funk record data and writes into the record directly to avoid an expensive memcpy. */
     fd_sbpf_validated_program_t * validated_prog = fd_sbpf_validated_program_new( val, &elf_info );
-    int res = fd_bpf_validate_sbpf_program( slot_ctx, &elf_info, program_data, program_data_len, runtime_spad, validated_prog );
+    int res = fd_program_cache_validate_sbpf_program( slot_ctx, &elf_info, program_data, program_data_len, runtime_spad, validated_prog );
     if( FD_UNLIKELY( res ) ) {
-      fd_publish_failed_verification_rec( funk, prepare, rec );
+      fd_program_cache_publish_failed_verification_rec( funk, prepare, rec );
       return;
     }
 
@@ -411,6 +411,7 @@ fd_bpf_create_bpf_program_cache_entry( fd_exec_slot_ctx_t *     slot_ctx,
   } FD_SPAD_FRAME_END;
 }
 
+/* TODO: NUKEEEEE */
 static int
 fd_bpf_check_and_create_bpf_program_cache_entry( fd_exec_slot_ctx_t * slot_ctx,
                                                  fd_pubkey_t const *  pubkey,
@@ -424,11 +425,12 @@ fd_bpf_check_and_create_bpf_program_cache_entry( fd_exec_slot_ctx_t * slot_ctx,
     return -1;
   }
 
-  fd_bpf_create_bpf_program_cache_entry( slot_ctx, exec_rec, runtime_spad );
+  fd_program_cache_create_cache_entry( slot_ctx, exec_rec, runtime_spad );
 
   return 0;
 }
 
+/* TODO: NUKEEEEE */
 int
 fd_bpf_scan_and_create_bpf_program_cache_entry( fd_exec_slot_ctx_t * slot_ctx,
                                                 fd_spad_t *          runtime_spad ) {
@@ -538,13 +540,15 @@ FD_SPAD_FRAME_BEGIN( runtime_spad ) {
     return;
   }
 
-  /* If the program is not present in the cache yet, then we should run verifications and add it to the cache.
-     `fd_bpf_create_bpf_program_cache_entry()` will insert the program into the cache and update the entry's flags
-     accordingly if it fails verification. */
+  /* If the program is not present in the cache yet, then we should run
+     verifications and add it to the cache.
+     `fd_program_cache_create_cache_entry()` will insert the program
+     into the cache and update the entry's flags accordingly if it fails
+     verification. */
   fd_sbpf_validated_program_t const * prog = NULL;
   int err = fd_bpf_load_cache_entry( slot_ctx->funk, slot_ctx->funk_txn, program_pubkey, &prog );
   if( FD_UNLIKELY( err ) ) {
-    fd_bpf_create_bpf_program_cache_entry( slot_ctx, exec_rec, runtime_spad );
+    fd_program_cache_create_cache_entry( slot_ctx, exec_rec, runtime_spad );
     return;
   }
 
@@ -589,7 +593,7 @@ FD_SPAD_FRAME_BEGIN( runtime_spad ) {
   }
 
   /* Parse the ELF info */
-  if( FD_UNLIKELY( fd_bpf_parse_elf_info( &elf_info, program_data, program_data_len, slot_ctx ) ) ) {
+  if( FD_UNLIKELY( fd_sbpf_parse_elf_info( &elf_info, program_data, program_data_len, slot_ctx ) ) ) {
     modified_prog->failed_verification = 1;
     fd_funk_rec_modify_publish( query );
     return;
@@ -598,7 +602,7 @@ FD_SPAD_FRAME_BEGIN( runtime_spad ) {
   /* Validate the sBPF program. This will set the program's flags accordingly. The return code does not matter here because we publish
      regardless of the return code. */
   modified_prog = fd_sbpf_validated_program_new( data, &elf_info );
-  fd_bpf_validate_sbpf_program( slot_ctx, &elf_info, program_data, program_data_len, runtime_spad, modified_prog );
+  fd_program_cache_validate_sbpf_program( slot_ctx, &elf_info, program_data, program_data_len, runtime_spad, modified_prog );
 
   if( modified_prog->failed_verification ) {
     FD_LOG_ERR(("program fialed veriifecation;"));

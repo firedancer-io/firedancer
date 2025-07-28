@@ -1333,6 +1333,9 @@ fd_runtime_finalize_txn( fd_funk_t *                  funk,
 
       fd_txn_account_t * acc_rec = &txn_ctx->accounts[i];
 
+      /* We need to now queue any writable program accounts for program cache
+         reverification, since their . */
+
       if( dirty_vote_acc && 0==memcmp( acc_rec->vt->get_owner( acc_rec ), &fd_solana_vote_program_id, sizeof(fd_pubkey_t) ) ) {
         fd_vote_store_account( acc_rec, bank );
         FD_SPAD_FRAME_BEGIN( finalize_spad ) {
