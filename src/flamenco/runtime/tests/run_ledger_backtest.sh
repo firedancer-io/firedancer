@@ -176,7 +176,7 @@ echo "
 [runtime]
     heap_size_gib = 50
     [runtime.limits]
-        max_banks = 46
+        max_banks = 8
 [development]
     sandbox = false
     no_agave = true

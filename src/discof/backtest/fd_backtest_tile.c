@@ -7,6 +7,7 @@
 #include "../../disco/stem/fd_stem.h"
 #include "../../disco/store/fd_store.h"
 #include "../../disco/topo/fd_topo.h"
+#include "../../flamenco/runtime/fd_bank.h"
 #include "../../discof/fd_discof.h"
 #include "../../discof/repair/fd_fec_chainer.h"
 #include "../../discof/replay/fd_replay_notif.h"
@@ -102,6 +103,7 @@ typedef struct {
   fd_store_t *           store;
   fd_tower_t *           tower;
   fd_shred_t const *     curr;
+  fd_banks_t *           banks;
 } ctx_t;
 
 FD_FN_PURE static inline ulong
@@ -289,6 +291,20 @@ unprivileged_init( fd_topo_t *      topo,
   ctx->slot_cnt    = 0UL;
 
   ctx->curr = NULL;
+
+  /**********************************************************************/
+  /* banks                                                              */
+  /**********************************************************************/
+
+  ulong banks_obj_id = fd_pod_queryf_ulong( topo->props, ULONG_MAX, "banks" );
+  if( FD_UNLIKELY( banks_obj_id==ULONG_MAX ) ) {
+    FD_LOG_ERR(( "no banks" ));
+  }
+
+  ctx->banks = fd_banks_join( fd_topo_obj_laddr( topo, banks_obj_id ) );
+  if( FD_UNLIKELY( !ctx->banks ) ) {
+    FD_LOG_ERR(( "failed to join banks" ));
+  }
 
   FD_LOG_NOTICE(("Finished unprivileged init"));
 }
@@ -626,6 +642,7 @@ after_frag( ctx_t *             ctx,
     }
 
     notify_tower_root( ctx, stem, tsorig, tspub );
+    fd_banks_publish( ctx->banks, slot );
 
     if( FD_UNLIKELY( slot>=ctx->end_slot ) ) {
       ctx->replay_time += fd_log_wallclock();
