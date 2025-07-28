@@ -51,6 +51,3 @@ esac
 
 export ALLOC_HUGE_PAGES=300
 export ALLOC_GIGANTIC_PAGES=250
-
-export IDENTITY_KEY_PATH="/data/offline-replay-keys/fd-identity-keypair.json"
-export VOTE_ACCOUNT_PATH="/data/offline-replay-keys/fd-vote-keypair.json"

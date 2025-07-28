@@ -4,6 +4,7 @@
 #include "stem/fd_stem.h"
 #include "shred/fd_shredder.h"
 #include "../ballet/shred/fd_shred.h"
+#include "../flamenco/leaders/fd_leaders_base.h"
 #include "pack/fd_pack.h"
 #include "topo/fd_topo.h"
 #include "bundle/fd_bundle_crank.h"

@@ -298,8 +298,15 @@ do{
     exec_res = fd_vm_exec_notrace( vm );
   }
 
-  /* Capture outputs */
   effects->error       = -exec_res;
+
+  /* We do not compare VM state on CU errors since CU accounting
+     is non-conformant with the Agave JIT/Interpreter.
+     CU consumption is not precisely defined when VM faults */
+  if( FD_UNLIKELY( exec_res==FD_VM_ERR_EBPF_EXCEEDED_MAX_INSTRUCTIONS ) )
+    break;
+
+  /* Capture remaining outputs */
   effects->cu_avail    = vm->cu;
   effects->frame_count = vm->frame_cnt;
   /* Only capture registers if no error */

@@ -29,6 +29,8 @@ typedef struct {
   ulong       out_chunk0;
   ulong       out_wmark;
   ulong       out_chunk;
+
+  ulong       sz; /* size of payload computed in during_frag and passed to after_frag */
 } fd_plugin_ctx_t;
 
 FD_FN_CONST static inline ulong
@@ -56,25 +58,25 @@ during_frag( fd_plugin_ctx_t * ctx,
   uchar * src = (uchar *)fd_chunk_to_laddr( ctx->in[ in_idx ].mem, chunk );
   ulong * dst = (ulong *)fd_chunk_to_laddr( ctx->out_mem, ctx->out_chunk );
 
-  /* ... todo... sigh, sz is not correct since it's too big */
+  ctx->sz = sz;
   if( FD_UNLIKELY( ctx->in_kind[ in_idx ]==IN_KIND_GOSSIP && sig==FD_PLUGIN_MSG_GOSSIP_UPDATE ) ) {
     ulong peer_cnt = ((ulong *)src)[ 0 ];
     FD_TEST( peer_cnt<=40200 );
-    sz = 8UL + peer_cnt*FD_GOSSIP_LINK_MSG_SIZE;
+    ctx->sz = 8UL + peer_cnt*FD_GOSSIP_LINK_MSG_SIZE;
   } else if( FD_UNLIKELY( ctx->in_kind[ in_idx ]==IN_KIND_GOSSIP || ctx->in_kind[ in_idx ]==IN_KIND_POH || ctx->in_kind[ in_idx ]==IN_KIND_VOTE ) && FD_LIKELY( sig==FD_PLUGIN_MSG_VOTE_ACCOUNT_UPDATE ) ) {
     ulong peer_cnt = ((ulong *)src)[ 0 ];
     FD_TEST( peer_cnt<=40200 );
-    sz = 8UL + peer_cnt*112UL;
+    ctx->sz = 8UL + peer_cnt*112UL;
   } else if( FD_UNLIKELY( ctx->in_kind[ in_idx ]==IN_KIND_STAKE ) ) {
     ulong staked_cnt = ((ulong *)src)[ 1 ];
-    FD_TEST( staked_cnt<=50000UL );
-    sz = 40UL + staked_cnt*40UL;
+    FD_TEST( staked_cnt<=MAX_STAKED_LEADERS );
+    ctx->sz = fd_stake_weight_msg_sz( staked_cnt );
   }
 
   if( FD_UNLIKELY( chunk<ctx->in[ in_idx ].chunk0 || chunk>ctx->in[ in_idx ].wmark || sz>ctx->in[ in_idx ].mtu ) )
-    FD_LOG_ERR(( "chunk %lu %lu corrupt, not in range [%lu,%lu]", chunk, sz, ctx->in[ in_idx ].chunk0, ctx->in[ in_idx ].wmark ));
+    FD_LOG_ERR(( "chunk %lu %lu corrupt, not in range [%lu,%lu]", chunk, ctx->sz, ctx->in[ in_idx ].chunk0, ctx->in[ in_idx ].wmark ));
 
-  fd_memcpy( dst, src, sz );
+  fd_memcpy( dst, src, ctx->sz );
 }
 
 static inline void
@@ -86,6 +88,7 @@ after_frag( fd_plugin_ctx_t *   ctx,
             ulong               tsorig,
             ulong               tspub,
             fd_stem_context_t * stem ) {
+  (void)sz;
   (void)seq;
   (void)tsorig;
   (void)tspub;
@@ -130,12 +133,8 @@ after_frag( fd_plugin_ctx_t *   ctx,
     default: FD_LOG_ERR(( "bad in_idx" ));
   }
 
-  ulong true_size = sz;
-  if( FD_UNLIKELY( ctx->in_kind[ in_idx ]==IN_KIND_GOSSIP || ( ctx->in_kind[ in_idx ]==IN_KIND_VOTE ) ) ) true_size = 8UL + 40200UL*(58UL+12UL*34UL);
-  else if( FD_UNLIKELY( ctx->in_kind[ in_idx ]==IN_KIND_STAKE ) ) true_size = 40UL + 40200UL*40UL; /* ... todo... sigh, sz is not correct since it's too big */
-
-  fd_stem_publish( stem, 0UL, sig, ctx->out_chunk, sz, 0UL, 0UL, 0UL ); /* Not true_sz which might not fit */
-  ctx->out_chunk = fd_dcache_compact_next( ctx->out_chunk, true_size, ctx->out_chunk0, ctx->out_wmark );
+  fd_stem_publish( stem, 0UL, sig, ctx->out_chunk, ctx->sz, 0UL, 0UL, 0UL );
+  ctx->out_chunk = fd_dcache_compact_next( ctx->out_chunk, ctx->sz, ctx->out_chunk0, ctx->out_wmark );
 }
 
 static void

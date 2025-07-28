@@ -2471,6 +2471,7 @@ fd_bpf_loader_program_execute( fd_exec_instr_ctx_t * ctx ) {
     if( !memcmp( metadata->info.owner, &fd_solana_bpf_loader_upgradeable_program_id, sizeof(fd_pubkey_t) ) ) {
       fd_bpf_upgradeable_loader_state_t * program_account_state = fd_bpf_loader_program_get_state( program_account.acct, ctx->txn_ctx->spad, &err );
       if( FD_UNLIKELY( err!=FD_BINCODE_SUCCESS ) ) {
+        fd_log_collector_msg_literal( ctx, "Program is not deployed" );
         if( FD_FEATURE_ACTIVE_BANK( ctx->txn_ctx->bank, remove_accounts_executable_flag_checks ) ) {
           return FD_EXECUTOR_INSTR_ERR_UNSUPPORTED_PROGRAM_ID;
         }
@@ -2495,6 +2496,7 @@ fd_bpf_loader_program_execute( fd_exec_instr_ctx_t * ctx ) {
                                                     &program_data_account,
                                                     fd_txn_account_check_exists );
       if( FD_UNLIKELY( err!=FD_ACC_MGR_SUCCESS ) ) {
+        fd_log_collector_msg_literal( ctx, "Program is not deployed" );
         if( FD_FEATURE_ACTIVE_BANK( ctx->txn_ctx->bank, remove_accounts_executable_flag_checks ) ) {
           return FD_EXECUTOR_INSTR_ERR_UNSUPPORTED_PROGRAM_ID;
         }
@@ -2513,6 +2515,7 @@ fd_bpf_loader_program_execute( fd_exec_instr_ctx_t * ctx ) {
                                                                                                         ctx->txn_ctx->spad,
                                                                                                         &err );
       if( FD_UNLIKELY( err!=FD_BINCODE_SUCCESS ) ) {
+        fd_log_collector_msg_literal( ctx, "Program is not deployed" );
         if( FD_FEATURE_ACTIVE_BANK( ctx->txn_ctx->bank, remove_accounts_executable_flag_checks ) ) {
           return FD_EXECUTOR_INSTR_ERR_UNSUPPORTED_PROGRAM_ID;
         }

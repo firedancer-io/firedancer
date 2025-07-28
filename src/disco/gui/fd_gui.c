@@ -9,6 +9,7 @@
 #include "../../disco/genesis/fd_genesis_cluster.h"
 #include "../../disco/pack/fd_pack.h"
 #include "../../disco/pack/fd_pack_cost.h"
+#include "../../disco/shred/fd_stake_ci.h"
 
 FD_FN_CONST ulong
 fd_gui_align( void ) {
@@ -1076,13 +1077,13 @@ fd_gui_handle_leader_schedule( fd_gui_t *    gui,
   ulong start_slot          = msg[ 2 ];
   ulong slot_cnt            = msg[ 3 ];
   ulong excluded_stake      = msg[ 4 ];
+  ulong vote_keyed_lsched   = msg[ 5 ];
 
-  FD_TEST( staked_cnt<=50000UL );
-  FD_TEST( slot_cnt<=432000UL );
+  FD_TEST( staked_cnt<=MAX_STAKED_LEADERS );
+  FD_TEST( slot_cnt<=MAX_SLOTS_PER_EPOCH );
 
   ulong idx = epoch % 2UL;
   gui->epoch.has_epoch[ idx ] = 1;
-
 
   gui->epoch.epochs[ idx ].epoch            = epoch;
   gui->epoch.epochs[ idx ].start_slot       = start_slot;
@@ -1090,15 +1091,19 @@ fd_gui_handle_leader_schedule( fd_gui_t *    gui,
   gui->epoch.epochs[ idx ].excluded_stake   = excluded_stake;
   gui->epoch.epochs[ idx ].my_total_slots   = 0UL;
   gui->epoch.epochs[ idx ].my_skipped_slots = 0UL;
+
+  fd_vote_stake_weight_t const * stake_weights = fd_type_pun_const( msg+6UL );
+  memcpy( gui->epoch.epochs[ idx ].stakes, stake_weights, staked_cnt*sizeof(fd_vote_stake_weight_t) );
+
   fd_epoch_leaders_delete( fd_epoch_leaders_leave( gui->epoch.epochs[ idx ].lsched ) );
   gui->epoch.epochs[idx].lsched = fd_epoch_leaders_join( fd_epoch_leaders_new( gui->epoch.epochs[ idx ]._lsched,
                                                                                epoch,
                                                                                gui->epoch.epochs[ idx ].start_slot,
                                                                                slot_cnt,
                                                                                staked_cnt,
-                                                                               fd_type_pun_const( msg+5UL ),
-                                                                               excluded_stake ) );
-  fd_memcpy( gui->epoch.epochs[ idx ].stakes, fd_type_pun_const( msg+5UL ), staked_cnt*sizeof(gui->epoch.epochs[ idx ].stakes[ 0 ]) );
+                                                                               gui->epoch.epochs[ idx ].stakes,
+                                                                               excluded_stake,
+                                                                               vote_keyed_lsched ) );
 
   if( FD_UNLIKELY( start_slot==0UL ) ) {
     gui->epoch.epochs[ 0 ].start_time = fd_log_wallclock();

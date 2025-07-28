@@ -162,7 +162,8 @@
         { "name": "effective", "type": "ulong" },
         { "name": "activating", "type": "ulong" },
         { "name": "deactivating", "type": "ulong" }
-      ]
+      ],
+      "comment": "https://github.com/solana-program/stake/blob/330d89c6246ab3fd35d02803386fa700be0455d6/interface/src/stake_history.rs#L17"
     },
     {
       "name": "epoch_stake_history_entry_pair",
@@ -170,7 +171,8 @@
       "fields": [
         { "name": "epoch", "type": "ulong" },
         { "name": "entry", "type": "stake_history_entry" }
-      ]
+      ],
+      "comment": "https://github.com/solana-program/stake/blob/330d89c6246ab3fd35d02803386fa700be0455d6/interface/src/stake_history.rs#L66"
     },
     {
       "name": "stake_history",
@@ -178,7 +180,7 @@
       "fields": [
         { "name": "fd_stake_history", "type": "static_vector", "element": "epoch_stake_history_entry_pair", "size": 512 }
       ],
-      "comment": "https://github.com/firedancer-io/solana/blob/v1.17/sdk/program/src/stake_history.rs#L12-L75"
+      "comment": "https://github.com/solana-program/stake/blob/330d89c6246ab3fd35d02803386fa700be0455d6/interface/src/stake_history.rs#L66"
     },
     {
       "name": "solana_account",
@@ -335,7 +337,7 @@
         { "name": "epoch", "type": "ulong" },
         { "name": "stake_history", "type": "stake_history" }
       ],
-      "comment": "https://github.com/anza-xyz/agave/blob/beb3f582f784a96e59e06ef8f34e855258bcd98c/runtime/src/stakes.rs#L202"
+      "comment": "https://github.com/anza-xyz/agave/blob/436f7333a8465739df65c2534654102896e09eb5/runtime/src/stakes.rs#L160"
     },
     {
       "name": "bank_incremental_snapshot_persistence",
@@ -526,14 +528,15 @@
         { "name": "node_id_to_vote_accounts", "type": "map", "element": "pubkey_node_vote_accounts_pair", "key": "key" },
         { "name": "epoch_authorized_voters", "type": "map", "element": "pubkey_pubkey_pair", "key": "key" }
       ],
-      "comment": "https://github.com/anza-xyz/agave/blob/de6ce29e1a7ecbdc6dc39527fce80beea404d314/runtime/src/epoch_stakes.rs#L23"
+      "comment": "https://github.com/anza-xyz/agave/blob/436f7333a8465739df65c2534654102896e09eb5/runtime/src/epoch_stakes.rs#L25"
     },
     {
       "name": "versioned_epoch_stakes",
       "type": "enum",
       "variants": [
           { "name": "Current", "type": "versioned_epoch_stakes_current"}
-      ]
+      ],
+      "comment": "https://github.com/anza-xyz/agave/blob/436f7333a8465739df65c2534654102896e09eb5/runtime/src/epoch_stakes.rs#L24"
     },
     {
       "name": "versioned_epoch_stakes_pair",

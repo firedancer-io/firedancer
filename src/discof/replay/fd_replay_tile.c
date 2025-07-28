@@ -11,11 +11,8 @@
 #include "../../flamenco/runtime/fd_txncache.h"
 #include "../../flamenco/runtime/context/fd_capture_ctx.h"
 #include "../../flamenco/runtime/context/fd_exec_slot_ctx.h"
-#include "../../flamenco/runtime/program/fd_bpf_program_util.h"
-#include "../../flamenco/runtime/sysvar/fd_sysvar_slot_history.h"
 #include "../../flamenco/runtime/fd_hashes.h"
 #include "../../flamenco/runtime/fd_runtime_init.h"
-#include "../../flamenco/stakes/fd_stakes.h"
 #include "../../flamenco/runtime/fd_runtime.h"
 #include "../../flamenco/runtime/fd_runtime_public.h"
 #include "../../flamenco/rewards/fd_rewards.h"
@@ -82,7 +79,6 @@
 #define PLUGIN_PUBLISH_TIME_NS ((long)60e9)
 
 #define IN_KIND_REPAIR (0)
-#define IN_KIND_PACK   (1)
 #define IN_KIND_TOWER  (2)
 #define IN_KIND_SNAP   (3)
 
@@ -203,10 +199,6 @@ struct fd_replay_tile_ctx {
   fd_forks_t * forks;
   fd_store_t * store;
 
-  fd_pubkey_t validator_identity[1];
-  fd_pubkey_t vote_authority[1];
-  fd_pubkey_t vote_acc[1];
-
   /* Vote accounts in the current epoch. Lifetimes of the vote account
      addresses (pubkeys) are valid for the epoch (the pubkey memory is
      owned by the epoch bank). */
@@ -274,7 +266,6 @@ struct fd_replay_tile_ctx {
   int         tower_checkpt_fileno;
 
   int         vote;
-  fd_pubkey_t validator_identity_pubkey[ 1 ];
 
   fd_txncache_t * status_cache;
   void * bmtree[ FD_PACK_MAX_BANK_TILES ];
@@ -292,8 +283,6 @@ struct fd_replay_tile_ctx {
   ulong               exec_spad_cnt;
 
   fd_spad_t *         runtime_spad;
-
-  fd_funk_txn_t * false_root;
 
   int read_only; /* The read-only slot is the slot the validator needs
                     to replay through before it can proceed with any
@@ -656,7 +645,6 @@ publish_slot_notifications( fd_replay_tile_ctx_t * ctx,
     FD_TEST( last_hash );
     msg->slot_exec.block_hash = *last_hash;
 
-    memcpy( &msg->slot_exec.identity, ctx->validator_identity_pubkey, sizeof( fd_pubkey_t ) );
     msg->slot_exec.ts = tsorig;
     NOTIFY_END;
   }
@@ -982,9 +970,7 @@ after_frag( fd_replay_tile_ctx_t *   ctx,
   if( FD_UNLIKELY( ctx->in_kind[ in_idx ]==IN_KIND_TOWER ) ) {
     ulong root = sig;
 
-    if( FD_LIKELY( root <= fd_fseq_query( ctx->published_wmark ) ) ) {
-      return;
-    }
+    if( FD_LIKELY( root <= fd_fseq_query( ctx->published_wmark ) ) ) return;
 
     ulong const slot = fd_bank_slot_get( ctx->slot_ctx->bank );
     if( FD_UNLIKELY( slot==root ) ) {
@@ -1970,16 +1956,6 @@ unprivileged_init( fd_topo_t *      topo,
   }
 
   /**********************************************************************/
-  /* voter                                                              */
-  /**********************************************************************/
-
-  memcpy( ctx->validator_identity, fd_keyload_load( tile->replay.identity_key_path, 1 ), sizeof(fd_pubkey_t) );
-  *ctx->vote_authority = *ctx->validator_identity; /* FIXME */
-  memcpy( ctx->vote_acc, fd_keyload_load( tile->replay.vote_account_path, 1 ), sizeof(fd_pubkey_t) );
-
-  ctx->validator_identity_pubkey[ 0 ] = *(fd_pubkey_t const *)fd_type_pun_const( fd_keyload_load( tile->replay.identity_key_path, 1 ) );
-
-  /**********************************************************************/
   /* entry batch                                                        */
   /**********************************************************************/
 
@@ -2128,9 +2104,7 @@ unprivileged_init( fd_topo_t *      topo,
       ctx->in[ i ].wmark  = fd_dcache_compact_wmark ( ctx->in[ i ].mem, link->dcache, link->mtu );
     }
 
-    if(        !strcmp( link->name, "pack_replay" ) ) {
-      ctx->in_kind[ i ] = IN_KIND_PACK;
-    } else if( !strcmp( link->name, "repair_repla" ) ) {
+    if( !strcmp( link->name, "repair_repla" ) ) {
       ctx->in_kind[ i ] = IN_KIND_REPAIR;
     } else if( !strcmp( link->name, "snap_out"  ) ) {
       ctx->in_kind[ i ] = IN_KIND_SNAP;

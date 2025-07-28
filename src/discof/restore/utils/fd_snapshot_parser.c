@@ -88,14 +88,14 @@ fd_snapshot_parser_discard_buf( fd_snapshot_parser_t * self ) {
 
 static void *
 fd_snapshot_parser_prepare_buf( fd_snapshot_parser_t * self,
-                                 ulong              sz ) {
+                                 ulong                 sz ) {
   self->buf_ctr = 0UL;
   self->buf_sz  = 0UL;
 
   fd_snapshot_parser_discard_buf( self );
   if( FD_UNLIKELY( sz > self->buf_max ) ) {
     FD_LOG_WARNING(( "Alloc failed (need %lu bytes, have %lu)", sz, self->buf_max ));
-    self->state = SNAP_FLAG_FAILED;
+    self->flags |= SNAP_FLAG_FAILED;
     return NULL;
   }
 
@@ -185,7 +185,6 @@ fd_snapshot_parser_manifest_prepare( fd_snapshot_parser_t * self,
   /* We don't support streaming manifest deserialization yet.  Thus,
      buffer the whole manifest in one place. */
   if( FD_UNLIKELY( !fd_snapshot_parser_prepare_buf( self, sz ) ) ) {
-    self->flags |= SNAP_FLAG_FAILED;
     return ENOMEM;
   }
 

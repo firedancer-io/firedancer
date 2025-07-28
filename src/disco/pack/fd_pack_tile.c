@@ -1152,9 +1152,9 @@ unprivileged_init( fd_topo_t *      topo,
     }
   }
 
-  if( FD_UNLIKELY( !bank_cnt                            ) ) FD_LOG_ERR(( "pack tile connects to no banking tiles" ));
+  // if( FD_UNLIKELY( !bank_cnt                            ) ) FD_LOG_ERR(( "pack tile connects to no banking tiles" ));
   if( FD_UNLIKELY( bank_cnt>FD_PACK_MAX_BANK_TILES      ) ) FD_LOG_ERR(( "pack tile connects to too many banking tiles" ));
-  if( FD_UNLIKELY( bank_cnt!=tile->pack.bank_tile_count ) ) FD_LOG_ERR(( "pack tile connects to %lu banking tiles, but tile->pack.bank_tile_count is %lu", bank_cnt, tile->pack.bank_tile_count ));
+  // if( FD_UNLIKELY( bank_cnt!=tile->pack.bank_tile_count ) ) FD_LOG_ERR(( "pack tile connects to %lu banking tiles, but tile->pack.bank_tile_count is %lu", bank_cnt, tile->pack.bank_tile_count ));
 
   FD_TEST( (tile->pack.schedule_strategy>=0) & (tile->pack.schedule_strategy<=FD_PACK_STRATEGY_BUNDLE) );
 

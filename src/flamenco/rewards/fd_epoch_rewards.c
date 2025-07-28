@@ -87,13 +87,54 @@ fd_epoch_rewards_join( void * shmem ) {
       return NULL;
     }
   }
+
+  if( FD_UNLIKELY( FD_SCRATCH_ALLOC_FINI( l, fd_epoch_rewards_align() ) != (ulong)shmem+fd_epoch_rewards_footprint( stake_account_max ) ) ) {
+    FD_LOG_WARNING(( "bad footprint" ));
+    return NULL;
+  }
+
+  if( FD_UNLIKELY( epoch_rewards->magic!=FD_EPOCH_REWARDS_MAGIC ) ) {
+    FD_LOG_WARNING(( "bad magic" ));
+    return NULL;
+  }
+
   return epoch_rewards;
+}
+
+void *
+fd_epoch_rewards_leave( fd_epoch_rewards_t const * epoch_rewards ) {
+  return (void *)epoch_rewards;
+}
+
+void *
+fd_epoch_rewards_delete( void * epoch_rewards_shmem ) {
+  fd_epoch_rewards_t * epoch_rewards = (fd_epoch_rewards_t *)epoch_rewards_shmem;
+
+  if( FD_UNLIKELY( !epoch_rewards ) ) {
+    FD_LOG_WARNING(( "NULL epoch_rewards" ));
+    return NULL;
+  }
+
+  if( FD_UNLIKELY( !fd_ulong_is_aligned( (ulong)epoch_rewards, fd_epoch_rewards_align() ) ) ) {
+    FD_LOG_WARNING(( "misaligned epoch_rewards" ));
+    return NULL;
+  }
+
+  if( FD_UNLIKELY( epoch_rewards->magic != FD_EPOCH_REWARDS_MAGIC ) ) {
+    FD_LOG_WARNING(( "bad magic" ));
+    return NULL;
+  }
+
+  epoch_rewards->magic = 0UL;
+
+  return epoch_rewards_shmem;
 }
 
 fd_epoch_stake_reward_dlist_t *
 fd_epoch_rewards_get_partition_index( fd_epoch_rewards_t const * epoch_rewards, ulong idx ) {
   if( FD_UNLIKELY( idx >= epoch_rewards->num_partitions_ ) ) {
-    FD_LOG_CRIT(( "idx: %lu is greater than num_partitions: %lu", idx, epoch_rewards->num_partitions_ ));
+    FD_LOG_WARNING(( "idx: %lu is greater than num_partitions: %lu", idx, epoch_rewards->num_partitions_ ));
+    return NULL;
   }
 
   FD_SCRATCH_ALLOC_INIT( l, epoch_rewards );
@@ -114,9 +155,14 @@ fd_epoch_rewards_get_partition_index( fd_epoch_rewards_t const * epoch_rewards, 
 
 fd_epoch_stake_reward_t *
 fd_epoch_rewards_get_stake_reward_pool( fd_epoch_rewards_t const * epoch_rewards ) {
+  if( FD_UNLIKELY( !epoch_rewards ) ) {
+    FD_LOG_WARNING(( "NULL epoch_rewards" ));
+    return NULL;
+  }
+
   FD_SCRATCH_ALLOC_INIT( l, epoch_rewards );
   FD_SCRATCH_ALLOC_APPEND( l, fd_epoch_rewards_align(), sizeof(fd_epoch_rewards_t) );
-  void * pool =FD_SCRATCH_ALLOC_APPEND( l, fd_epoch_stake_reward_pool_align(), fd_epoch_stake_reward_pool_footprint( epoch_rewards->stake_account_max_ ) );
+  void * pool = FD_SCRATCH_ALLOC_APPEND( l, fd_epoch_stake_reward_pool_align(), fd_epoch_stake_reward_pool_footprint( epoch_rewards->stake_account_max_ ) );
   fd_epoch_stake_reward_t * stake_reward_pool = fd_epoch_stake_reward_pool_join( pool );
   if( FD_UNLIKELY( !stake_reward_pool ) ) {
     FD_LOG_WARNING(( "bad stake_reward_pool" ));
@@ -131,6 +177,21 @@ fd_epoch_rewards_hash_and_insert( fd_epoch_rewards_t * epoch_rewards,
                                   fd_pubkey_t const *  pubkey,
                                   ulong                credits,
                                   ulong                lamports ) {
+
+  if( FD_UNLIKELY( !epoch_rewards ) ) {
+    FD_LOG_WARNING(( "NULL epoch_rewards" ));
+    return 1;
+  }
+
+  if( FD_UNLIKELY( !parent_blockhash ) ) {
+    FD_LOG_WARNING(( "NULL parent_blockhash" ));
+    return 1;
+  }
+
+  if( FD_UNLIKELY( !pubkey ) ) {
+    FD_LOG_WARNING(( "NULL pubkey" ));
+    return 1;
+  }
 
   /* First figure out which partition the pubkey belongs to. */
   fd_siphash13_t   sip[1] = {0};

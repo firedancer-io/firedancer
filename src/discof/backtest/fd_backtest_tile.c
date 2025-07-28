@@ -350,7 +350,7 @@ after_credit_rocksdb( ctx_t *             ctx,
     // FD_LOG_WARNING(( "inserting shred %lu %u %lu %lu", curr->slot, curr->idx, sz, fec->data_sz ));
     prev = curr;
     curr = rocksdb_get_shred( ctx, &sz );
-    if( FD_UNLIKELY( !curr || curr->fec_set_idx != prev->fec_set_idx ) ) break;
+    if( FD_UNLIKELY( !curr || curr->fec_set_idx != prev->fec_set_idx || curr->slot != prev->slot ) ) break;
   }
   FD_TEST( prev );
   fd_fec_out_t out = {

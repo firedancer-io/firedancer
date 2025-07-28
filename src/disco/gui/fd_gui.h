@@ -387,8 +387,8 @@ struct fd_gui {
       ulong end_slot;
       ulong excluded_stake;
       fd_epoch_leaders_t * lsched;
-      uchar __attribute__((aligned(FD_EPOCH_LEADERS_ALIGN))) _lsched[ FD_EPOCH_LEADERS_FOOTPRINT(50000UL, 432000UL) ];
-      fd_stake_weight_t stakes[ 50000UL ];
+      uchar __attribute__((aligned(FD_EPOCH_LEADERS_ALIGN))) _lsched[ FD_EPOCH_LEADERS_FOOTPRINT(MAX_STAKED_LEADERS, MAX_SLOTS_PER_EPOCH) ];
+      fd_vote_stake_weight_t stakes[ MAX_STAKED_LEADERS ];
     } epochs[ 2 ];
   } epoch;
 

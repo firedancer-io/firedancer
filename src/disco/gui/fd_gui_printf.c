@@ -536,7 +536,7 @@ fd_gui_printf_epoch( fd_gui_t * gui,
       jsonp_close_array( gui );
 
       jsonp_open_array( gui, "staked_lamports" );
-        fd_stake_weight_t * stakes = gui->epoch.epochs[epoch_idx].stakes;
+        fd_vote_stake_weight_t * stakes = gui->epoch.epochs[epoch_idx].stakes;
         for( ulong i=0UL; i<lsched->pub_cnt; i++ ) jsonp_ulong_as_str( gui, NULL, stakes[ i ].stake );
       jsonp_close_array( gui );
 
