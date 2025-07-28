@@ -1013,12 +1013,6 @@ fd_runtime_block_execute_finalize_start( fd_exec_slot_ctx_t *             slot_c
   /* This slot is now "frozen" and can't be changed anymore. */
   fd_runtime_freeze( slot_ctx, runtime_spad );
 
-  int result = fd_bpf_scan_and_create_bpf_program_cache_entry( slot_ctx, runtime_spad );
-  if( FD_UNLIKELY( result ) ) {
-    FD_LOG_WARNING(( "update bpf program cache failed" ));
-    return;
-  }
-
   /* Collect list of changed accounts to be added to bank hash */
   *task_data = fd_spad_alloc( runtime_spad,
                               alignof(fd_accounts_hash_task_data_t),
@@ -2215,7 +2209,7 @@ fd_runtime_update_program_cache( fd_exec_slot_ctx_t * slot_ctx,
   fd_acct_addr_t const * acc_addrs = fd_txn_get_acct_addrs( txn_descriptor, txn_p );
   for( ushort acc_idx=0; acc_idx<txn_descriptor->acct_addr_cnt; acc_idx++ ) {
     fd_pubkey_t const * account = fd_type_pun_const( &acc_addrs[acc_idx] );
-    fd_bpf_program_update_program_cache( slot_ctx, account, runtime_spad );
+    fd_program_cache_update_program( slot_ctx, account, runtime_spad );
   }
 
   if( txn_descriptor->transaction_version==FD_TXN_V0 ) {
@@ -2241,7 +2235,7 @@ fd_runtime_update_program_cache( fd_exec_slot_ctx_t * slot_ctx,
 
     for( ushort alut_idx=0; alut_idx<txn_descriptor->addr_table_adtl_cnt; alut_idx++ ) {
       fd_pubkey_t const * account = fd_type_pun_const( &alut_accounts[alut_idx] );
-      fd_bpf_program_update_program_cache( slot_ctx, account, runtime_spad );
+      fd_program_cache_update_program( slot_ctx, account, runtime_spad );
     }
   }
 

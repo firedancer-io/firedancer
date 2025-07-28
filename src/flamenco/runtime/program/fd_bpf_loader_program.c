@@ -2542,23 +2542,24 @@ fd_bpf_loader_program_execute( fd_exec_instr_ctx_t * ctx ) {
       }
     }
 
-    /* Sadly, we have to tie the cache in with consensus. We tried our best to avoid this,
-       but Agave's program loading logic is too complex to solely rely on checks without
-       significant redundancy.
+    /* Sadly, we have to tie the cache in with consensus. We tried our
+       best to avoid this, but Agave's program loading logic is too
+       complex to solely rely on checks without significant redundancy.
 
-       For example, devnet and testnet have older programs that were deployed before stricter ELF / VM validation
-       checks were put in place, causing these older programs to fail newer validation checks and
-       be unexecutable. `fd_bpf_scan_and_create_bpf_program_cache_entry()` will populate our BPF program
-       cache correctly, but now, we have no way of checking if this validation passed or not here without
-       querying our program cache, otherwise we would have to copy-paste our validation checks here.
+       For example, devnet and testnet have older programs that were
+       deployed before stricter ELF / VM validation checks were put in
+       place, causing these older programs to fail newer validation
+       checks and be unexecutable. At the instruction level, we have no
+       way of checking if this validation passed or not here without
+       querying our program cache, otherwise we would have to copy-paste
+       all of our validation checks here.
 
-       Any failures here would indicate an attempt to interact with a deployed programs that either failed
-       to load or failed bytecode verification. This applies for v1, v2, and v3 programs. This could
-       also theoretically cause some currently-deployed programs to fail in the future if ELF / VM checks
-       are eventually made stricter.
-
-       TLDR: A program is present in the BPF cache iff it is already deployed AND passes current SBPF and VM checks.
-       Only then it is considered valid to interact with. */
+       Any failures here would indicate an attempt to interact with a
+       deployed programs that either failed to load or failed bytecode
+       verification. This applies for v1, v2, and v3 programs. This
+       could also theoretically cause some currently-deployed programs
+       to fail in the future if ELF / VM checks are eventually made
+       stricter. */
     fd_sbpf_validated_program_t const * prog = NULL;
     if( FD_UNLIKELY( fd_bpf_load_cache_entry( ctx->txn_ctx->funk,
                                               ctx->txn_ctx->funk_txn,

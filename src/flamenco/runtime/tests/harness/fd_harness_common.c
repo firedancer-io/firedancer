@@ -1,4 +1,5 @@
 #include "fd_harness_common.h"
+#include "../../program/fd_program_cache.h"
 
 ulong
 fd_runtime_fuzz_runner_align( void ) {
@@ -129,4 +130,16 @@ fd_runtime_fuzz_restore_features( fd_features_t *                    features,
     fd_features_set( features, id, 0UL );
   }
   return 1;
+}
+
+void
+fd_runtime_fuzz_refresh_program_cache( fd_exec_slot_ctx_t *              slot_ctx,
+                                       fd_exec_test_acct_state_t const * acct_states,
+                                       ulong                             acct_states_count,
+                                       fd_spad_t *                       runtime_spad ) {
+  for( ushort i=0; i<acct_states_count; i++ ) {
+    fd_pubkey_t pubkey[1] = {0};
+    memcpy( &pubkey, acct_states[i].address, sizeof(fd_pubkey_t) );
+    fd_program_cache_update_program( slot_ctx, pubkey, runtime_spad );
+  }
 }
