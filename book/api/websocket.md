@@ -643,6 +643,8 @@ potential underflow.
         "next_leader_slot": 285228774,
         "tile_primary_metric": {
             "quic": 3,
+            "bundle_rtt_smoothed_millis": 30,
+            "bundle_rx_delay_millis_p90": 101,
             "net_in": 37803082,
             "net_out": 4982399,
             "verify": 0,
@@ -666,15 +668,17 @@ potential underflow.
 | tile_primary_metric | `TilePrimaryMetric` | Per-tile-type primary metrics.  Some of these are point-in-time values (P), and some are 1-second moving window averages (W) |
 
 **`TilePrimaryMetric`**
-| Field   | Type     | Description |
-|---------|----------|-------------|
-| net_in  | `number` | Network ingress bytes per second (W) |
-| quic    | `number` | Active QUIC connections (P) |
-| verify  | `number` | Fraction of transactions that failed sigverify (W) |
-| dedup   | `number` | Fraction of transactions deduplicated (W) |
-| pack    | `number` | Fraction of pack buffer filled (P) |
-| bank    | `number` | Execution TPS (W) |
-| net_out | `number` | Network egress bytes per second (W) |
+| Field                      | Type     | Description |
+|----------------------------|----------|-------------|
+| net_in                     | `number` | Network ingress bytes per second (W) |
+| quic                       | `number` | Active QUIC connections (P) |
+| bundle_rtt_smoothed_millis | `number` | The round-trip time for grpc messages sent to the bundle server.  These are mostly ping messages when the validator is not leader.  An exponential moving average ( avg = 1/8 val + 7/8 avg ) is used to filter the signal |
+| bundle_rx_delay_millis_p90 | `number` | An estimate of the 90th percentile of the one-way delay of a bundle dispatched from the bundle server.  Only samples since the start of the most recent leader rotation for this validator are used to compute the percentile |
+| verify                     | `number` | Fraction of transactions that failed sigverify (W) |
+| dedup                      | `number` | Fraction of transactions deduplicated (W) |
+| pack                       | `number` | Fraction of pack buffer filled (P) |
+| bank                       | `number` | Execution TPS (W) |
+| net_out                    | `number` | Network egress bytes per second (W) |
 
 
 #### `summary.live_tile_timers`
