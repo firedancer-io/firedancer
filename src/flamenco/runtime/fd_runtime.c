@@ -1513,11 +1513,7 @@ fd_update_stake_delegations( fd_exec_slot_ctx_t * slot_ctx,
     fd_pubkey_t * key = &temp_info->stake_infos[idx].account;
     fd_stake_account_slim_t * entry = fd_stake_accounts_search( stakes, key );
     if( FD_LIKELY( entry==NULL ) ) {
-      if( FD_UNLIKELY( stakes->stake_accounts_cnt==FD_STAKE_ACCOUNTS_SLIM_MAX ) ) {
-        FD_LOG_CRIT(( "stake_accounts_cnt full %lu", stakes->stake_accounts_cnt ));
-      }
-      entry = &stakes->stake_accounts[stakes->stake_accounts_cnt++];
-      entry->key = *key;
+      entry = fd_stake_accounts_add( stakes, key );
       entry->delegation = temp_info->stake_infos[idx].stake.delegation;
     }
   }
@@ -2397,14 +2393,9 @@ fd_runtime_init_bank_from_genesis( fd_exec_slot_ctx_t *        slot_ctx,
       }
       fd_stake_account_slim_t * node = fd_stake_accounts_search( stakes, (fd_pubkey_t *)&acc->key.key );
       if( !node ) {
-        FD_TEST( stakes->stake_accounts_cnt < FD_STAKE_ACCOUNTS_SLIM_MAX );
-        node = &stakes->stake_accounts[stakes->stake_accounts_cnt++];
-        fd_memcpy( &node->key, acc->key.key, sizeof(fd_pubkey_t) );
-        node->delegation = stake_state.inner.stake.stake.delegation;
-      } else {
-        fd_memcpy( &node->key, acc->key.key, sizeof(fd_pubkey_t) );
-        node->delegation = stake_state.inner.stake.stake.delegation;
+        node = fd_stake_accounts_add( stakes, &acc->key );        node->delegation = stake_state.inner.stake.stake.delegation;
       }
+      node->delegation = stake_state.inner.stake.stake.delegation;
     } else if( !memcmp(acc->account.owner.key, fd_solana_feature_program_id.key, sizeof(fd_pubkey_t)) ) {
       /* Feature Account */
 

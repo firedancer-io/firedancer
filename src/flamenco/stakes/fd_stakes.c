@@ -4,6 +4,18 @@
 #include "../runtime/program/fd_stake_program.h"
 #include "../runtime/sysvar/fd_sysvar_stake_history.h"
 
+fd_stake_account_slim_t *
+fd_stake_accounts_add( fd_stakes_slim_t * accts, fd_pubkey_t const * key ) {
+  if( FD_UNLIKELY( accts->stake_accounts_cnt >= FD_STAKE_ACCOUNTS_SLIM_MAX ) ) {
+    FD_LOG_ERR(( "fd_stake_accounts_add() failed" ));
+    return NULL;
+  }
+  fd_stake_account_slim_t * acct = &accts->stake_accounts[accts->stake_accounts_cnt++];
+  memset( acct, 0, sizeof(fd_stake_account_slim_t) );
+  acct->key = *key;
+  return acct;
+}
+
 void
 fd_stakes_import( fd_stakes_slim_t *                  dst,
                   fd_solana_manifest_global_t const * manifest ) {
@@ -15,12 +27,7 @@ fd_stakes_import( fd_stakes_slim_t *                  dst,
   for( fd_delegation_pair_t_mapnode_t * n = fd_delegation_pair_t_map_minimum( src_pool, src_root );
        n;
        n = fd_delegation_pair_t_map_successor( src_pool, n ) ) {
-    if( dst->stake_accounts_cnt >= FD_STAKE_ACCOUNTS_SLIM_MAX ) {
-      FD_LOG_ERR(( "dst->stake_accounts_cnt >= FD_STAKE_ACCOUNTS_SLIM_MAX" ));
-      return;
-    }
-    fd_stake_account_slim_t * acct = &dst->stake_accounts[dst->stake_accounts_cnt++];
-    acct->key = n->elem.account;
+    fd_stake_account_slim_t * acct = fd_stake_accounts_add( dst, &n->elem.account );
     acct->delegation = n->elem.delegation;
   }
 }
@@ -525,12 +532,7 @@ fd_refresh_vote_accounts( fd_exec_slot_ctx_t *       slot_ctx,
       continue;
     }
 
-    if( FD_UNLIKELY( stakes_cnt >= FD_STAKE_ACCOUNTS_SLIM_MAX ) ) {
-      FD_LOG_ERR(("Stakes cache is full"));
-      continue;
-    }
-
-    fd_stake_account_slim_t *   new_vote_node = &stakes->stake_accounts[stakes_cnt++];
+    fd_stake_account_slim_t * new_vote_node = fd_stake_accounts_add( stakes, vote_account_pubkey );
     fd_vote_state_versioned_t * vote_state    = deserialize_and_update_vote_account( slot_ctx,
                                                                                      new_vote_node,
                                                                                      root,
@@ -539,7 +541,7 @@ fd_refresh_vote_accounts( fd_exec_slot_ctx_t *       slot_ctx,
                                                                                      runtime_spad );
 
     if( FD_UNLIKELY( !vote_state ) ) {
-      stakes_cnt--;
+      stakes->stake_accounts_cnt--;
       continue;
     }
 

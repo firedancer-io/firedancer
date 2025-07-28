@@ -62,6 +62,9 @@ typedef struct fd_accumulate_delegations_task_args fd_accumulate_delegations_tas
 fd_stake_account_slim_t *
 fd_stake_accounts_search( fd_stakes_slim_t const * accts, fd_pubkey_t const * key );
 
+fd_stake_account_slim_t *
+fd_stake_accounts_add( fd_stakes_slim_t * accts, fd_pubkey_t const * key );
+
 void
 fd_stake_accounts_remove( fd_stakes_slim_t * accts, fd_pubkey_t const * key );
 
