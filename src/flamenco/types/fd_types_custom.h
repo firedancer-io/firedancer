@@ -205,9 +205,16 @@ void fd_tower_sync_decode_inner( void * struct_mem, void * * alloc_mem, fd_binco
 
 FD_PROTOTYPES_END
 
+struct fd_vote_stake_weight {
+  fd_pubkey_t vote_key; /* vote account pubkey */
+  fd_pubkey_t id_key;   /* validator identity pubkey */
+  ulong       stake;    /* total stake by vote account */
+};
+typedef struct fd_vote_stake_weight fd_vote_stake_weight_t;
+
 struct fd_stake_weight {
-  fd_pubkey_t key;
-  ulong stake;
+  fd_pubkey_t key;      /* validator identity pubkey */
+  ulong       stake;    /* total stake by identity */
 };
 typedef struct fd_stake_weight fd_stake_weight_t;
 

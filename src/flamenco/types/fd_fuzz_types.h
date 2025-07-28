@@ -1663,17 +1663,6 @@ void *fd_calculate_validator_rewards_result_generate( void *mem, void **alloc_me
   return mem;
 }
 
-void *fd_calculate_rewards_and_distribute_vote_rewards_result_generate( void *mem, void **alloc_mem, fd_rng_t * rng ) {
-  fd_calculate_rewards_and_distribute_vote_rewards_result_t *self = (fd_calculate_rewards_and_distribute_vote_rewards_result_t *) mem;
-  *alloc_mem = (uchar *) *alloc_mem + sizeof(fd_calculate_rewards_and_distribute_vote_rewards_result_t);
-  fd_calculate_rewards_and_distribute_vote_rewards_result_new(mem);
-  self->total_rewards = fd_rng_ulong( rng );
-  self->distributed_rewards = fd_rng_ulong( rng );
-  fd_point_value_generate( &self->point_value, alloc_mem, rng );
-  fd_stake_reward_calculation_partitioned_generate( &self->stake_rewards_by_partition, alloc_mem, rng );
-  return mem;
-}
-
 void *fd_partitioned_rewards_calculation_generate( void *mem, void **alloc_mem, fd_rng_t * rng ) {
   fd_partitioned_rewards_calculation_t *self = (fd_partitioned_rewards_calculation_t *) mem;
   *alloc_mem = (uchar *) *alloc_mem + sizeof(fd_partitioned_rewards_calculation_t);

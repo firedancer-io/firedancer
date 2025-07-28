@@ -1,7 +1,3 @@
-//  --file d2.bin --type vote_state_versioned
-
-#include "../fd_flamenco.h"
-#include "../types/fd_types.h"
 #include "../types/fd_types_yaml.h"
 #include "../types/fd_types_reflect.h"
 
@@ -14,13 +10,13 @@
 static void
 usage( void ) {
   fprintf( stderr,
-    "Usage: fd_solcap_dump --type <type> --file {FILE}\n"
+    "Usage: fd_bincode2yaml --type <type> --file {FILE}\n"
     "\n"
-    "dumps the contents of an account.\n"
+    "Converts a bincode blob to YAML.\n"
     "\n"
     "Options:\n"
-    "  --file         name                      filename to read\n"
-    "  --type         <type>                    type of the data\n"
+    "  --file name     Path to bincode blob\n"
+    "  --type <type>   fd_types name (see fd_types.json)\n"
     "\n" );
 }
 

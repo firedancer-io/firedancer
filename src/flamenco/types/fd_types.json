@@ -1108,17 +1108,6 @@
       "comment": "https://github.com/anza-xyz/agave/blob/7117ed9653ce19e8b2dea108eff1f3eb6a3378a7/runtime/src/bank/partitioned_epoch_rewards/mod.rs#L102"
     },
     {
-      "name": "calculate_rewards_and_distribute_vote_rewards_result",
-      "type": "struct",
-      "fields": [
-        {"name": "total_rewards",               "type": "ulong" },
-        {"name": "distributed_rewards",         "type": "ulong" },
-        { "name": "point_value",                "type": "point_value" },
-        { "name": "stake_rewards_by_partition", "type": "stake_reward_calculation_partitioned" }
-      ],
-      "comment": "https://github.com/anza-xyz/agave/blob/7117ed9653ce19e8b2dea108eff1f3eb6a3378a7/runtime/src/bank/partitioned_epoch_rewards/mod.rs#L138"
-    },
-    {
       "name": "partitioned_rewards_calculation",
       "type": "struct",
       "fields": [

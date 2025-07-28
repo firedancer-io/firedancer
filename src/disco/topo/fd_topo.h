@@ -26,6 +26,10 @@
 /* Maximum number of additional ip addresses */
 #define FD_NET_MAX_SRC_ADDR 4
 
+/* Maximum number of additional destinations for leader shreds and for retransmitted shreds */
+#define FD_TOPO_ADTL_DESTS_MAX ( 32UL)
+
+
 /* A workspace is a Firedancer specific memory management structure that
    sits on top of 1 or more memory mapped gigantic or huge pages mounted
    to the hugetlbfs. */
@@ -79,6 +83,12 @@ typedef struct {
   uint permit_no_consumers : 1;  /* Permit a topology where this link has no consumers */
   uint permit_no_producers : 1;  /* Permit a topology where this link has no producers */
 } fd_topo_link_t;
+
+/* Be careful: ip and host are in different byte order */
+typedef struct {
+  uint   ip;   /* in network byte order */
+  ushort port; /* in host byte order */
+} fd_topo_ip_port_t;
 
 struct fd_topo_net_tile {
   ulong umem_dcache_obj_id;  /* dcache for XDP UMEM frames */
@@ -249,16 +259,16 @@ struct fd_topo_tile {
     } poh;
 
     struct {
-      ulong  depth;
-      ulong  fec_resolver_depth;
-      char   identity_key_path[ PATH_MAX ];
-      ushort shred_listen_port;
-      int    larger_shred_limits_per_block;
-      ulong  expected_shred_version;
-      struct {
-        uint   ip;   /* in network byte order */
-        ushort port; /* in host byte order */
-      } adtl_dest; /* be careful ip and host are in different byte order */
+      ulong             depth;
+      ulong             fec_resolver_depth;
+      char              identity_key_path[ PATH_MAX ];
+      ushort            shred_listen_port;
+      int               larger_shred_limits_per_block;
+      ulong             expected_shred_version;
+      ulong             adtl_dests_retransmit_cnt;
+      fd_topo_ip_port_t adtl_dests_retransmit[ FD_TOPO_ADTL_DESTS_MAX ];
+      ulong             adtl_dests_leader_cnt;
+      fd_topo_ip_port_t adtl_dests_leader[ FD_TOPO_ADTL_DESTS_MAX ];
     } shred;
 
     struct {

@@ -59,8 +59,6 @@
 
 // https://github.com/anza-xyz/agave/blob/c8685ce0e1bb9b26014f1024de2cd2b8c308cbde/programs/stake/src/lib.rs#L31
 #define MINIMUM_DELEGATION_SOL                     ( 1 )
-// https://github.com/anza-xyz/agave/blob/c8685ce0e1bb9b26014f1024de2cd2b8c308cbde/sdk/program/src/native_token.rs#L6
-#define LAMPORTS_PER_SOL                           ( 1000000000 )
 // https://github.com/anza-xyz/agave/blob/c8685ce0e1bb9b26014f1024de2cd2b8c308cbde/sdk/program/src/stake/mod.rs#L18
 #define MINIMUM_DELINQUENT_EPOCHS_FOR_DEACTIVATION ( 5 )
 // https://github.com/anza-xyz/agave/blob/c8685ce0e1bb9b26014f1024de2cd2b8c308cbde/sdk/program/src/stake/state.rs#L26-L28

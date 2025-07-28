@@ -1952,17 +1952,6 @@ struct fd_calculate_validator_rewards_result {
 typedef struct fd_calculate_validator_rewards_result fd_calculate_validator_rewards_result_t;
 #define FD_CALCULATE_VALIDATOR_REWARDS_RESULT_ALIGN alignof(fd_calculate_validator_rewards_result_t)
 
-/* https://github.com/anza-xyz/agave/blob/7117ed9653ce19e8b2dea108eff1f3eb6a3378a7/runtime/src/bank/partitioned_epoch_rewards/mod.rs#L138 */
-/* Encoded Size: Dynamic */
-struct fd_calculate_rewards_and_distribute_vote_rewards_result {
-  ulong total_rewards;
-  ulong distributed_rewards;
-  fd_point_value_t point_value;
-  fd_stake_reward_calculation_partitioned_t stake_rewards_by_partition;
-};
-typedef struct fd_calculate_rewards_and_distribute_vote_rewards_result fd_calculate_rewards_and_distribute_vote_rewards_result_t;
-#define FD_CALCULATE_REWARDS_AND_DISTRIBUTE_VOTE_REWARDS_RESULT_ALIGN alignof(fd_calculate_rewards_and_distribute_vote_rewards_result_t)
-
 /* https://github.com/anza-xyz/agave/blob/7117ed9653ce19e8b2dea108eff1f3eb6a3378a7/runtime/src/bank/partitioned_epoch_rewards/mod.rs#L118 */
 /* Encoded Size: Dynamic */
 struct fd_partitioned_rewards_calculation {
@@ -4708,14 +4697,6 @@ ulong fd_calculate_validator_rewards_result_size( fd_calculate_validator_rewards
 static inline ulong fd_calculate_validator_rewards_result_align( void ) { return FD_CALCULATE_VALIDATOR_REWARDS_RESULT_ALIGN; }
 int fd_calculate_validator_rewards_result_decode_footprint( fd_bincode_decode_ctx_t * ctx, ulong * total_sz );
 void * fd_calculate_validator_rewards_result_decode( void * mem, fd_bincode_decode_ctx_t * ctx );
-
-void fd_calculate_rewards_and_distribute_vote_rewards_result_new( fd_calculate_rewards_and_distribute_vote_rewards_result_t * self );
-int fd_calculate_rewards_and_distribute_vote_rewards_result_encode( fd_calculate_rewards_and_distribute_vote_rewards_result_t const * self, fd_bincode_encode_ctx_t * ctx );
-void fd_calculate_rewards_and_distribute_vote_rewards_result_walk( void * w, fd_calculate_rewards_and_distribute_vote_rewards_result_t const * self, fd_types_walk_fn_t fun, const char *name, uint level, uint varint );
-ulong fd_calculate_rewards_and_distribute_vote_rewards_result_size( fd_calculate_rewards_and_distribute_vote_rewards_result_t const * self );
-static inline ulong fd_calculate_rewards_and_distribute_vote_rewards_result_align( void ) { return FD_CALCULATE_REWARDS_AND_DISTRIBUTE_VOTE_REWARDS_RESULT_ALIGN; }
-int fd_calculate_rewards_and_distribute_vote_rewards_result_decode_footprint( fd_bincode_decode_ctx_t * ctx, ulong * total_sz );
-void * fd_calculate_rewards_and_distribute_vote_rewards_result_decode( void * mem, fd_bincode_decode_ctx_t * ctx );
 
 void fd_partitioned_rewards_calculation_new( fd_partitioned_rewards_calculation_t * self );
 int fd_partitioned_rewards_calculation_encode( fd_partitioned_rewards_calculation_t const * self, fd_bincode_encode_ctx_t * ctx );

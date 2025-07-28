@@ -15,6 +15,7 @@ $(call make-lib fd_flamenco_test)
 $(call add-objs,fd_types_reflect fd_types_reflect_generated,fd_flamenco_test)
 
 ifdef FD_HAS_HOSTED
+$(call make-bin,fd_bincode2yaml,fd_bincode2yaml,fd_flamenco_test fd_flamenco fd_ballet fd_util)
 $(call make-fuzz-test,fuzz_types_decode,fuzz_types_decode,fd_flamenco_test fd_flamenco fd_ballet fd_util)
 endif
 endif

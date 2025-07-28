@@ -69,7 +69,7 @@ fd_stakes_import( fd_stakes_slim_t *                  dst,
 
 ulong
 fd_stake_weights_by_node( fd_vote_accounts_global_t const * accs,
-                          fd_stake_weight_t *               weights,
+                          fd_vote_stake_weight_t *          weights,
                           fd_spad_t *                       runtime_spad );
 
 

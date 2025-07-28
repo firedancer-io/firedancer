@@ -390,7 +390,10 @@ struct fd_config {
     struct {
       uint   max_pending_shred_sets;
       ushort shred_listen_port;
-      char   additional_shred_destination[ sizeof("255.255.255.255:65536") ];
+      ulong  additional_shred_destinations_retransmit_cnt;
+      char   additional_shred_destinations_retransmit[ FD_TOPO_ADTL_DESTS_MAX ][ sizeof("255.255.255.255:65536") ];
+      ulong  additional_shred_destinations_leader_cnt;
+      char   additional_shred_destinations_leader[ FD_TOPO_ADTL_DESTS_MAX ][ sizeof("255.255.255.255:65536") ];
     } shred;
 
     struct {

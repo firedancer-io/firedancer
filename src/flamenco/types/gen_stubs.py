@@ -4193,6 +4193,7 @@ def main():
         print(f' .decode_footprint=(void *){key}_decode_footprint,', file=reflect, end='')
         print(f' .encode=(void *){key}_encode', file=reflect, end='')
         print('  },', file=reflect)
+    print("  { .name=NULL }", file=reflect)
     print("};", file=reflect)
 
     print('#include "fd_types_custom.c"', file=body)
