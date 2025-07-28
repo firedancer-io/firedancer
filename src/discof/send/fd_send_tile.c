@@ -106,12 +106,12 @@ quic_conn_final( fd_quic_conn_t * conn,
     FD_LOG_ERR(( "send_tile: Conn map entry not found in conn_final" ));
   }
 
-  if( ctx->now - entry->last_ci_ticks > CONTACT_INFO_STALE_TICKS ) {
-    /* stale contact info, don't reconnect */
-    entry->conn = NULL;
-    ctx->metrics.contact_stale++;
-    return;
-  }
+  // if( ctx->now - entry->last_ci_ticks > CONTACT_INFO_STALE_TICKS ) {
+  //   /* stale contact info, don't reconnect */
+  //   entry->conn = NULL;
+  //   ctx->metrics.contact_stale++;
+  //   return;
+  // }
 
   uint ip4_addr = entry->ip4_addr;
   FD_LOG_DEBUG(("send_tile: Quic conn final: %p to peer %u.%u.%u.%u:%u", (void*)conn, ip4_addr&0xFF, (ip4_addr>>8)&0xFF, (ip4_addr>>16)&0xFF, (ip4_addr>>24)&0xFF, entry->udp_port));
