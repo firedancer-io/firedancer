@@ -107,7 +107,8 @@ echo "
 [runtime]
     heap_size_gib = 200
     [runtime.limits]
-        max_banks = 64
+        max_total_banks = 128
+        max_fork_width = 32
 [blockstore]
     shred_max = 16777216
     block_max = 8192
@@ -125,9 +126,6 @@ echo "
 [log]
     level_stderr = \"INFO\"
     path = \"$LOG\"
-[paths]
-    identity_key = \"dump/identity.json\"
-    vote_account = \"dump/vote.json\"
 " > dump/${LEDGER}_backtest.toml
 
 $OBJDIR/bin/firedancer-dev configure init all --config dump/${LEDGER}_backtest.toml &> /dev/null

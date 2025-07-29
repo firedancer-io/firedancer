@@ -176,8 +176,6 @@ while true; do
             export index_max=$INDEX_MAX
             export cluster_version=$FD_CLUSTER_VERSION
             export heap_size=$HEAP_SIZE
-            export identity_key_path=$IDENTITY_KEY_PATH
-            export vote_account_path=$VOTE_ACCOUNT_PATH
             export log=$TEMP_LOG
 
             sed -i "s#{ledger}#${ledger}#g" "$LEDGER_DIR/offline_replay.toml"
@@ -186,8 +184,6 @@ while true; do
             sed -i "s#{index_max}#${index_max}#g" "$LEDGER_DIR/offline_replay.toml"
             sed -i "s#{cluster_version}#${cluster_version}#g" "$LEDGER_DIR/offline_replay.toml"
             sed -i "s#{heap_size}#${heap_size}#g" "$LEDGER_DIR/offline_replay.toml"
-            sed -i "s#{identity_key_path}#${identity_key_path}#g" "$LEDGER_DIR/offline_replay.toml"
-            sed -i "s#{vote_account_path}#${vote_account_path}#g" "$LEDGER_DIR/offline_replay.toml"
             sed -i "s#{log}#${log}#g" "$LEDGER_DIR/offline_replay.toml"
 
             echo "toml at: $LEDGER_DIR/offline_replay.toml"

@@ -119,6 +119,12 @@ metric introduced.
     <int value="2" name="FailConnMax"   label="ConnMaxedInflightFrames" />
 </enum>
 
+<enum name="QuicInitialTokenLen">
+    <int value="0" name="Zero"       label="No token" />
+    <int value="1" name="FdQuicLen"  label="fd_quic retry token length" />
+    <int value="2" name="InvalidLen" label="Invalid token length" />
+</enum>
+
 <enum name="QuicFrameType">
     <!-- These don't correspond to QUIC frame IDs because gen_metrics.py is currently bugged and corrupts enums with sparse IDs -->
     <int value="0" name="Unknown" label="Unknown frame type" />
@@ -200,6 +206,7 @@ metric introduced.
 
     <counter name="PktNoConn" summary="Number of packets with an unknown connection ID." />
     <counter name="FrameTxAlloc" enum="FrameTxAllocResult" summary="Results of attempts to acquire QUIC frame metadata." />
+    <counter name="InitialTokenLen" enum="QuicInitialTokenLen" summary="Number of Initial packets grouped by token length." />
 
     <counter name="HandshakesCreated" summary="Number of handshake flows created." />
     <counter name="HandshakeErrorAllocFail" summary="Number of handshakes dropped due to alloc fail." />

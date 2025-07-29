@@ -31,7 +31,7 @@ fd_slice_exec_txn_parse( fd_slice_exec_t * slice_exec_ctx,
 void
 fd_slice_exec_microblock_parse( fd_slice_exec_t * slice_exec_ctx ) {
   fd_microblock_hdr_t * hdr = (fd_microblock_hdr_t *)fd_type_pun( slice_exec_ctx->buf + slice_exec_ctx->wmark );
-  FD_LOG_DEBUG(( "[%s] reading microblock with %lu txns", __func__, hdr->txn_cnt ));
+  //FD_LOG_DEBUG(( "[%s] reading microblock with %lu txns", __func__, hdr->txn_cnt ));
   slice_exec_ctx->txns_rem      = hdr->txn_cnt;
   slice_exec_ctx->last_mblk_off = slice_exec_ctx->wmark;
   slice_exec_ctx->wmark        += sizeof(fd_microblock_hdr_t);

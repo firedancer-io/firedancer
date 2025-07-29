@@ -1488,6 +1488,13 @@ fd_quic_handle_v1_initial( fd_quic_t *               quic,
     return FD_QUIC_PARSE_FAIL;
   }
 
+  /* count received token len */
+  int   const token_len_match = initial->token_len == sizeof(fd_quic_retry_token_t);
+  ulong const token_len_idx   = fd_ulong_if( !!initial->token_len,
+                                             fd_ulong_if( token_len_match, 1, 2 ),
+                                             0 );
+  metrics->initial_token_len_cnt[ token_len_idx ]++;
+
   /* Check it is valid for a token to be present in an initial packet in the current context.
 
      quic->config.role == FD_QUIC_ROLE_CLIENT
@@ -1549,7 +1556,8 @@ fd_quic_handle_v1_initial( fd_quic_t *               quic,
     } else { /* retry configured */
 
       /* Need to send retry? Do so before more work */
-      if( initial->token_len == 0 ) {
+      if( initial->token_len != sizeof(fd_quic_retry_token_t) ) {
+
         ulong new_conn_id_u64 = fd_rng_ulong( state->_rng );
         if( FD_UNLIKELY( fd_quic_send_retry(
               quic, pkt,
@@ -1557,7 +1565,6 @@ fd_quic_handle_v1_initial( fd_quic_t *               quic,
           return FD_QUIC_FAILED;
         }
         return (initial->pkt_num_pnoff + initial->len);
-
       } else {
         /* This Initial packet is in response to our Retry.
            Validate the relevant fields of this post-retry INITIAL packet,

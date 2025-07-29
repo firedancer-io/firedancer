@@ -288,11 +288,11 @@ main( int     argc,
     test_slot_ctx->funk = test_funk;
 
     /* Set up bank */
-    ulong        banks_footprint = fd_banks_footprint( 1UL );
+    ulong        banks_footprint = fd_banks_footprint( 1UL, 1UL );
     uchar *      banks_mem       = fd_wksp_alloc_laddr( test_wksp, fd_banks_align(), banks_footprint, TEST_WKSP_TAG );
     FD_TEST( banks_mem );
 
-    fd_banks_t * banks = fd_banks_join( fd_banks_new( banks_mem, 1UL ) );
+    fd_banks_t * banks = fd_banks_join( fd_banks_new( banks_mem, 1UL, 1UL ) );
     FD_TEST( banks );
     fd_bank_t * bank = fd_banks_init_bank( banks, 433000UL ); // Epoch 1
     FD_TEST( bank );

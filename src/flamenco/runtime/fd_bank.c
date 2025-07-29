@@ -115,7 +115,7 @@ fd_bank_footprint( void ) {
     return val;                                             \
   }
 
-#define X(type, name, footprint, align, cow, has_lock) \
+#define X(type, name, footprint, align, cow, limit_fork_width, has_lock) \
   HAS_COW_##cow(type, name, footprint, align, has_lock)
 FD_BANKS_ITER(X)
 #undef X
@@ -133,34 +133,42 @@ fd_banks_align( void ) {
 }
 
 ulong
-fd_banks_footprint( ulong max_banks ) {
+fd_banks_footprint( ulong max_total_banks, ulong FD_PARAM_UNUSED max_fork_width ) {
 
-  ulong map_chain_cnt = fd_ulong_pow2_up( max_banks );
+  /* max_fork_width is used in the macro below. */
+
+  ulong map_chain_cnt = fd_ulong_pow2_up( max_total_banks );
 
   ulong l = FD_LAYOUT_INIT;
   l = FD_LAYOUT_APPEND( l, fd_banks_align(),      sizeof(fd_banks_t) );
-  l = FD_LAYOUT_APPEND( l, fd_banks_pool_align(), fd_banks_pool_footprint( max_banks ) );
+  l = FD_LAYOUT_APPEND( l, fd_banks_pool_align(), fd_banks_pool_footprint( max_total_banks ) );
   l = FD_LAYOUT_APPEND( l, fd_banks_map_align(),  fd_banks_map_footprint( map_chain_cnt ) );
 
-  /* Need to count the footprint for all of the CoW pools. */
-  #define HAS_COW_1(name) \
-    l = FD_LAYOUT_APPEND( l, fd_bank_##name##_pool_align(), fd_bank_##name##_pool_footprint( max_banks ) );
+  /* Need to count the footprint for all of the CoW pools. The footprint
+     on each CoW pool depends on if the field limits the fork width. */
+
+  #define HAS_COW_1_LIMIT_1(name) \
+    l = FD_LAYOUT_APPEND( l, fd_bank_##name##_pool_align(), fd_bank_##name##_pool_footprint( max_fork_width ) );
+
+  #define HAS_COW_1_LIMIT_0(name) \
+    l = FD_LAYOUT_APPEND( l, fd_bank_##name##_pool_align(), fd_bank_##name##_pool_footprint( max_total_banks ) );
 
   /* Do nothing for these. */
-  #define HAS_COW_0(name)
+  #define HAS_COW_0_LIMIT_0(name)
 
-  #define X(type, name, footprint, align, cow, has_lock) \
-    HAS_COW_##cow(name)
+  #define X(type, name, footprint, align, cow, limit_fork_width, has_lock)  \
+    HAS_COW_##cow##_LIMIT_##limit_fork_width(name)
   FD_BANKS_ITER(X)
   #undef X
-  #undef HAS_COW_0
-  #undef HAS_COW_1
+  #undef HAS_COW_0_LIMIT_0
+  #undef HAS_COW_1_LIMIT_0
+  #undef HAS_COW_1_LIMIT_1
 
   return FD_LAYOUT_FINI( l, fd_banks_align() );
 }
 
 void *
-fd_banks_new( void * shmem, ulong max_banks ) {
+fd_banks_new( void * shmem, ulong max_total_banks, ulong max_fork_width ) {
 
   fd_banks_t * banks = (fd_banks_t *)shmem;
 
@@ -177,35 +185,40 @@ fd_banks_new( void * shmem, ulong max_banks ) {
   /* Set the rwlock to unlocked. */
   fd_rwlock_unwrite( &banks->rwlock );
 
-  ulong map_chain_cnt = fd_ulong_pow2_up( max_banks );
+  ulong map_chain_cnt = fd_ulong_pow2_up( max_total_banks );
 
   /* First, layout the banks and the pool/map used by fd_banks_t. */
   FD_SCRATCH_ALLOC_INIT( l, banks );
   banks           = FD_SCRATCH_ALLOC_APPEND( l, fd_banks_align(),      sizeof(fd_banks_t) );
-  void * pool_mem = FD_SCRATCH_ALLOC_APPEND( l, fd_banks_pool_align(), fd_banks_pool_footprint( max_banks ) );
+  void * pool_mem = FD_SCRATCH_ALLOC_APPEND( l, fd_banks_pool_align(), fd_banks_pool_footprint( max_total_banks ) );
   void * map_mem  = FD_SCRATCH_ALLOC_APPEND( l, fd_banks_map_align(),  fd_banks_map_footprint( map_chain_cnt ) );
 
   /* Need to layout all of the CoW pools. */
-  #define HAS_COW_1(name) \
-    void * name##_pool_mem = FD_SCRATCH_ALLOC_APPEND( l, fd_bank_##name##_pool_align(), fd_bank_##name##_pool_footprint( max_banks ) ); \
-    memset( name##_pool_mem, 0, fd_bank_##name##_pool_footprint( max_banks ) );
+  #define HAS_COW_1_LIMIT_1(name) \
+    void * name##_pool_mem = FD_SCRATCH_ALLOC_APPEND( l, fd_bank_##name##_pool_align(), fd_bank_##name##_pool_footprint( max_fork_width ) ); \
+    memset( name##_pool_mem, 0, fd_bank_##name##_pool_footprint( max_fork_width ) );
+
+  #define HAS_COW_1_LIMIT_0(name) \
+    void * name##_pool_mem = FD_SCRATCH_ALLOC_APPEND( l, fd_bank_##name##_pool_align(), fd_bank_##name##_pool_footprint( max_total_banks ) ); \
+    memset( name##_pool_mem, 0, fd_bank_##name##_pool_footprint( max_total_banks ) );
 
   /* Do nothing for these. */
-  #define HAS_COW_0(name)
+  #define HAS_COW_0_LIMIT_0(name)
 
-  #define X(type, name, footprint, align, cow, has_lock) \
-    HAS_COW_##cow(name)
+  #define X(type, name, footprint, align, cow, limit_fork_width, has_lock) \
+    HAS_COW_##cow##_LIMIT_##limit_fork_width(name)
   FD_BANKS_ITER(X)
   #undef X
-  #undef HAS_COW_0
-  #undef HAS_COW_1
+  #undef HAS_COW_0_LIMIT_0
+  #undef HAS_COW_1_LIMIT_0
+  #undef HAS_COW_1_LIMIT_1
 
-  if( FD_UNLIKELY( FD_SCRATCH_ALLOC_FINI( l, fd_banks_align() ) != (ulong)banks + fd_banks_footprint( max_banks ) ) ) {
+  if( FD_UNLIKELY( FD_SCRATCH_ALLOC_FINI( l, fd_banks_align() ) != (ulong)banks + fd_banks_footprint( max_total_banks, max_fork_width ) ) ) {
     FD_LOG_WARNING(( "fd_banks_new: bad layout" ));
     return NULL;
   }
 
-  void * pool = fd_banks_pool_new( pool_mem, max_banks );
+  void * pool = fd_banks_pool_new( pool_mem, max_total_banks );
   if( FD_UNLIKELY( !pool ) ) {
     FD_LOG_WARNING(( "Failed to create bank pool" ));
     return NULL;
@@ -234,8 +247,8 @@ fd_banks_new( void * shmem, ulong max_banks ) {
   fd_banks_set_bank_map( banks, bank_map );
 
   /* Now, call _new() and _join() for all of the CoW pools. */
-  #define HAS_COW_1(name)                                                             \
-    void * name##_mem = fd_bank_##name##_pool_new( name##_pool_mem, max_banks );      \
+  #define HAS_COW_1_LIMIT_1(name)                                                     \
+    void * name##_mem = fd_bank_##name##_pool_new( name##_pool_mem, max_fork_width ); \
     if( FD_UNLIKELY( !name##_mem ) ) {                                                \
       FD_LOG_WARNING(( "Failed to create " #name " pool" ));                          \
       return NULL;                                                                    \
@@ -247,18 +260,33 @@ fd_banks_new( void * shmem, ulong max_banks ) {
     }                                                                                 \
     fd_banks_set_##name##_pool( banks, name##_pool );
 
-  /* Do nothing for these. */
-  #define HAS_COW_0(name)
+  #define HAS_COW_1_LIMIT_0(name)                                                      \
+    void * name##_mem = fd_bank_##name##_pool_new( name##_pool_mem, max_total_banks ); \
+    if( FD_UNLIKELY( !name##_mem ) ) {                                                 \
+      FD_LOG_WARNING(( "Failed to create " #name " pool" ));                           \
+      return NULL;                                                                     \
+    }                                                                                  \
+    fd_bank_##name##_t * name##_pool = fd_bank_##name##_pool_join( name##_pool_mem );  \
+    if( FD_UNLIKELY( !name##_pool ) ) {                                                \
+      FD_LOG_WARNING(( "Failed to join " #name " pool" ));                             \
+      return NULL;                                                                     \
+    }                                                                                  \
+    fd_banks_set_##name##_pool( banks, name##_pool );
 
-  #define X(type, name, footprint, align, cow, has_lock) \
-    HAS_COW_##cow(name)
+  /* Do nothing for these. */
+  #define HAS_COW_0_LIMIT_0(name)
+
+  #define X(type, name, footprint, align, cow, limit_fork_width, has_lock) \
+    HAS_COW_##cow##_LIMIT_##limit_fork_width(name)
   FD_BANKS_ITER(X)
   #undef X
-  #undef HAS_COW_0
-  #undef HAS_COW_1
+  #undef HAS_COW_0_LIMIT_0
+  #undef HAS_COW_1_LIMIT_1
+  #undef HAS_COW_1_LIMIT_0
 
-  banks->max_banks = max_banks;
-  banks->magic     = FD_BANKS_MAGIC;
+  banks->max_total_banks = max_total_banks;
+  banks->max_fork_width  = max_fork_width;
+  banks->magic           = FD_BANKS_MAGIC;
 
   return shmem;
 }
@@ -282,26 +310,30 @@ fd_banks_join( void * mem ) {
     return NULL;
   }
 
-  ulong map_chain_cnt = fd_ulong_pow2_up( banks->max_banks );
+  ulong map_chain_cnt = fd_ulong_pow2_up( banks->max_total_banks );
 
   FD_SCRATCH_ALLOC_INIT( l, banks );
   banks           = FD_SCRATCH_ALLOC_APPEND( l, fd_banks_align(),      sizeof(fd_banks_t) );
-  void * pool_mem = FD_SCRATCH_ALLOC_APPEND( l, fd_banks_pool_align(), fd_banks_pool_footprint( banks->max_banks ) );
+  void * pool_mem = FD_SCRATCH_ALLOC_APPEND( l, fd_banks_pool_align(), fd_banks_pool_footprint( banks->max_total_banks ) );
   void * map_mem  = FD_SCRATCH_ALLOC_APPEND( l, fd_banks_map_align(),  fd_banks_map_footprint( map_chain_cnt ) );
 
   /* Need to layout all of the CoW pools. */
-  #define HAS_COW_1(name) \
-    void * name##_pool_mem = FD_SCRATCH_ALLOC_APPEND( l, fd_bank_##name##_pool_align(), fd_bank_##name##_pool_footprint( banks->max_banks ) );
+  #define HAS_COW_1_LIMIT_1(name) \
+    void * name##_pool_mem = FD_SCRATCH_ALLOC_APPEND( l, fd_bank_##name##_pool_align(), fd_bank_##name##_pool_footprint( banks->max_fork_width ) );
+
+  #define HAS_COW_1_LIMIT_0(name) \
+    void * name##_pool_mem = FD_SCRATCH_ALLOC_APPEND( l, fd_bank_##name##_pool_align(), fd_bank_##name##_pool_footprint( banks->max_total_banks ) );
 
   /* Don't need to layout if not CoW. */
-  #define HAS_COW_0(name)
+  #define HAS_COW_0_LIMIT_0(name)
 
-  #define X(type, name, footprint, align, cow, has_lock) \
-    HAS_COW_##cow(name)
+  #define X(type, name, footprint, align, cow, limit_fork_width, has_lock) \
+    HAS_COW_##cow##_LIMIT_##limit_fork_width(name)
   FD_BANKS_ITER(X)
   #undef X
-  #undef HAS_COW_0
-  #undef HAS_COW_1
+  #undef HAS_COW_0_LIMIT_0
+  #undef HAS_COW_1_LIMIT_0
+  #undef HAS_COW_1_LIMIT_1
 
   FD_SCRATCH_ALLOC_FINI( l, fd_banks_align() );
 
@@ -342,7 +374,7 @@ fd_banks_join( void * mem ) {
   /* Do nothing when the field is not CoW. */
   #define HAS_COW_0(name)
 
-  #define X(type, name, footprint, align, cow, has_lock) \
+  #define X(type, name, footprint, align, cow, limit_fork_width, has_lock) \
     HAS_COW_##cow(name)
   FD_BANKS_ITER(X)
   #undef X
@@ -376,6 +408,9 @@ fd_banks_delete( void * shmem ) {
     FD_LOG_WARNING(( "misaligned banks" ));
     return NULL;
   }
+
+  fd_banks_t * banks = (fd_banks_t *)shmem;
+  banks->magic = 0UL;
 
   return shmem;
 }
@@ -420,7 +455,7 @@ fd_banks_init_bank( fd_banks_t * banks, ulong slot ) {
     fd_rwlock_unwrite(&bank->name##_lock);
   #define HAS_LOCK_0(name)
 
-  #define X(type, name, footprint, align, cow, has_lock) \
+  #define X(type, name, footprint, align, cow, limit_fork_width, has_lock) \
     HAS_COW_##cow(name);                                 \
     HAS_LOCK_##has_lock(name)
   FD_BANKS_ITER(X)
@@ -574,7 +609,7 @@ fd_banks_clone_from_parent( fd_banks_t * banks,
     fd_rwlock_unwrite(&new_bank->name##_lock);
   #define HAS_LOCK_0(name)
 
-  #define X(type, name, footprint, align, cow, has_lock) \
+  #define X(type, name, footprint, align, cow, limit_fork_width, has_lock) \
     HAS_COW_##cow(name);                                 \
     HAS_LOCK_##has_lock(name)
   FD_BANKS_ITER(X)
@@ -656,7 +691,7 @@ fd_banks_publish( fd_banks_t * banks, ulong slot ) {
     /* Do nothing for these. */
     #define HAS_COW_0(name)
 
-    #define X(type, name, footprint, align, cow, has_lock) \
+    #define X(type, name, footprint, align, cow, limit_fork_width, has_lock) \
       HAS_COW_##cow(name)
     FD_BANKS_ITER(X)
     #undef X
@@ -677,7 +712,7 @@ fd_banks_publish( fd_banks_t * banks, ulong slot ) {
   /* Do nothing if not CoW. */
   #define HAS_COW_0(name)
 
-  #define X(type, name, footprint, align, cow, has_lock) \
+  #define X(type, name, footprint, align, cow, limit_fork_width, has_lock) \
     HAS_COW_##cow(name)
   FD_BANKS_ITER(X)
   #undef X
@@ -713,7 +748,7 @@ fd_banks_clear_bank( fd_banks_t * banks, fd_bank_t * bank ) {
   #define HAS_COW_0(type, name, footprint) \
     fd_memset( bank->name, 0, footprint );
 
-  #define X(type, name, footprint, align, cow, has_lock) \
+  #define X(type, name, footprint, align, cow, limit_fork_width, has_lock) \
     HAS_COW_##cow(type, name, footprint)
   FD_BANKS_ITER(X)
   #undef X
