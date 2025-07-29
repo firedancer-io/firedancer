@@ -513,12 +513,11 @@ fd_runtime_block_execute_finalize_para( fd_exec_slot_ctx_t *             slot_ct
    publicly exposed for the fuzzing harnesses. These functions are responsible
    for various transaction sanitization checks. */
 
-int
-fd_runtime_prepare_txns_start( fd_exec_slot_ctx_t *         slot_ctx,
-                               fd_execute_txn_task_info_t * task_info,
-                               fd_txn_p_t *                 txns,
-                               ulong                        txn_cnt,
-                               fd_spad_t *                  runtime_spad );
+fd_exec_txn_ctx_t *
+fd_runtime_prepare_txn_start( fd_exec_slot_ctx_t * slot_ctx,
+                              fd_txn_p_t *         txn,
+                              fd_spad_t *          runtime_spad,
+                              int *                exec_res );
 
 int
 fd_runtime_pre_execute_check( fd_txn_p_t * txn, fd_exec_txn_ctx_t * txn_ctx );
@@ -535,11 +534,12 @@ fd_runtime_process_txns( fd_exec_slot_ctx_t * slot_ctx,
                          fd_spad_t *          runtime_spad );
 
 void
-fd_runtime_finalize_txn( fd_funk_t *                  funk,
-                         fd_funk_txn_t *              funk_txn,
-                         fd_execute_txn_task_info_t * task_info,
-                         fd_spad_t *                  finalize_spad,
-                         fd_bank_t *                  bank );
+fd_runtime_finalize_txn( fd_funk_t *         funk,
+                         fd_funk_txn_t *     funk_txn,
+                         fd_exec_txn_ctx_t * txn_ctx,
+                         int                 exec_txn_err,
+                         fd_spad_t *         finalize_spad,
+                         fd_bank_t *         bank );
 
 /* Epoch Boundary *************************************************************/
 

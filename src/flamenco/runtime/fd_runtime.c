@@ -1093,40 +1093,29 @@ fd_runtime_block_execute_finalize_para( fd_exec_slot_ctx_t *             slot_ct
 /* fd_runtime_prepare_txns_start is responsible for setting up the task infos,
    the slot_ctx, and for setting up the accessed accounts. */
 
-int
-fd_runtime_prepare_txns_start( fd_exec_slot_ctx_t *         slot_ctx,
-                               fd_execute_txn_task_info_t * task_info,
-                               fd_txn_p_t *                 txns,
-                               ulong                        txn_cnt,
-                               fd_spad_t *                  runtime_spad ) {
-  int res = 0;
-  /* Loop across transactions */
-  for( ulong txn_idx = 0UL; txn_idx < txn_cnt; txn_idx++ ) {
-    fd_txn_p_t * txn = &txns[txn_idx];
+fd_exec_txn_ctx_t *
+fd_runtime_prepare_txn_start( fd_exec_slot_ctx_t * slot_ctx,
+                              fd_txn_p_t *         txn,
+                              fd_spad_t *          runtime_spad,
+                              int *                exec_res ) {
+  /* Allocate/setup transaction context and task infos */
+  fd_exec_txn_ctx_t * txn_ctx        = fd_spad_alloc( runtime_spad, FD_EXEC_TXN_CTX_ALIGN, FD_EXEC_TXN_CTX_FOOTPRINT );
+  fd_txn_t const *    txn_descriptor = (fd_txn_t const *) txn->_;
 
-    /* Allocate/setup transaction context and task infos */
-    task_info[txn_idx].txn_ctx      = fd_spad_alloc( runtime_spad, FD_EXEC_TXN_CTX_ALIGN, FD_EXEC_TXN_CTX_FOOTPRINT );
-    fd_exec_txn_ctx_t * txn_ctx     = task_info[txn_idx].txn_ctx;
-    task_info[txn_idx].exec_res     = 0;
-    task_info[txn_idx].txn          = txn;
-    fd_txn_t const * txn_descriptor = (fd_txn_t const *) txn->_;
+  fd_rawtxn_b_t raw_txn = { .raw = txn->payload, .txn_sz = (ushort)txn->payload_sz };
 
-    fd_rawtxn_b_t raw_txn = { .raw = txn->payload, .txn_sz = (ushort)txn->payload_sz };
+  int err = fd_execute_txn_prepare_start(
+      slot_ctx,
+      txn_ctx,
+      txn_descriptor,
+      &raw_txn );
 
-    task_info[txn_idx].txn_ctx->spad      = runtime_spad;
-    task_info[txn_idx].txn_ctx->spad_wksp = fd_wksp_containing( runtime_spad );
-    int err = fd_execute_txn_prepare_start( slot_ctx,
-                                            txn_ctx,
-                                            txn_descriptor,
-                                            &raw_txn );
-    if( FD_UNLIKELY( err ) ) {
-      task_info[txn_idx].exec_res = err;
-      txn->flags                  = 0U;
-      res |= err;
-    }
+  if( FD_UNLIKELY( err ) ) {
+    *exec_res  = err;
+    txn->flags = 0U;
   }
 
-  return res;
+  return txn_ctx;
 }
 
 /* fd_runtime_pre_execute_check is responsible for conducting many of the
@@ -1269,26 +1258,18 @@ fd_runtime_pre_execute_check( fd_txn_p_t * txn, fd_exec_txn_ctx_t * txn_ctx ) {
    TODO: This function should probably be moved to fd_executor.c. */
 
 void
-fd_runtime_finalize_txn( fd_funk_t *                  funk,
-                         fd_funk_txn_t *              funk_txn,
-                         fd_execute_txn_task_info_t * task_info,
-                         fd_spad_t *                  finalize_spad,
-                         fd_bank_t *                  bank ) {
-
-  /* for all accounts, if account->is_verified==true, propagate update
-     to cache entry. */
-
-  /* Store transaction info including logs */
-  // fd_runtime_finalize_txns_update_blockstore_meta( slot_ctx, task_info, 1UL );
+fd_runtime_finalize_txn( fd_funk_t *         funk,
+                         fd_funk_txn_t *     funk_txn,
+                         fd_exec_txn_ctx_t * txn_ctx,
+                         int                 exec_txn_err,
+                         fd_spad_t *         finalize_spad,
+                         fd_bank_t *         bank ) {
 
   /* Collect fees */
 
   FD_ATOMIC_FETCH_AND_ADD( fd_bank_txn_count_modify( bank ), 1UL );
-  FD_ATOMIC_FETCH_AND_ADD( fd_bank_execution_fees_modify( bank ), task_info->txn_ctx->execution_fee );
-  FD_ATOMIC_FETCH_AND_ADD( fd_bank_priority_fees_modify( bank ), task_info->txn_ctx->priority_fee );
-
-  fd_exec_txn_ctx_t * txn_ctx      = task_info->txn_ctx;
-  int                 exec_txn_err = task_info->exec_res;
+  FD_ATOMIC_FETCH_AND_ADD( fd_bank_execution_fees_modify( bank ), txn_ctx->execution_fee );
+  FD_ATOMIC_FETCH_AND_ADD( fd_bank_priority_fees_modify( bank ), txn_ctx->priority_fee );
 
   FD_ATOMIC_FETCH_AND_ADD( fd_bank_signature_count_modify( bank ), txn_ctx->txn_descriptor->signature_cnt );
 
@@ -2932,7 +2913,13 @@ fd_runtime_process_txns_in_microblock_stream_sequential( fd_exec_slot_ctx_t * sl
       continue;
     }
 
-    fd_runtime_finalize_txn( slot_ctx->funk, slot_ctx->funk_txn, &task_infos[ i ], task_infos[ i ].txn_ctx->spad, slot_ctx->bank );
+    fd_runtime_finalize_txn(
+        slot_ctx->funk,
+        slot_ctx->funk_txn,
+        task_infos[ i ].txn_ctx,
+        task_infos[ i ].exec_res,
+        task_infos[ i ].txn_ctx->spad,
+        slot_ctx->bank );
 
     if( cost_tracker_opt!=NULL ) {
       fd_execute_txn_task_info_t const * task_info = &task_infos[ i ];

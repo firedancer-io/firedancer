@@ -156,17 +156,16 @@ during_frag( fd_writer_tile_ctx_t * ctx,
     if( FD_UNLIKELY( msg->exec_tile_id!=in_idx ) ) {
       FD_LOG_CRIT(( "exec_tile_id %u should be == in_idx %lu", msg->exec_tile_id, in_idx ));
     }
-    fd_execute_txn_task_info_t info = {0};
-    info.txn_ctx  = ctx->txn_ctx[ in_idx ];
-    info.exec_res = info.txn_ctx->exec_err;
+    fd_exec_txn_ctx_t * txn_ctx  = ctx->txn_ctx[ in_idx ];
+    int                 exec_res = txn_ctx->exec_err;
 
     fd_banks_lock( ctx->banks );
-    ctx->bank = fd_banks_get_bank( ctx->banks, info.txn_ctx->slot );
+    ctx->bank = fd_banks_get_bank( ctx->banks, txn_ctx->slot );
     if( FD_UNLIKELY( !ctx->bank ) ) {
-      FD_LOG_CRIT(( "Could not find bank for slot %lu", info.txn_ctx->slot ));
+      FD_LOG_CRIT(( "Could not find bank for slot %lu", txn_ctx->slot ));
     }
 
-    if( !ctx->funk_txn || info.txn_ctx->slot != ctx->funk_txn->xid.ul[0] ) {
+    if( !ctx->funk_txn || txn_ctx->slot != ctx->funk_txn->xid.ul[0] ) {
       fd_funk_txn_map_t * txn_map = fd_funk_txn_map( ctx->funk );
       if( FD_UNLIKELY( !txn_map->map ) ) {
         FD_LOG_CRIT(( "Could not find valid funk transaction map" ));
@@ -180,13 +179,19 @@ during_frag( fd_writer_tile_ctx_t * ctx,
       fd_funk_txn_end_read( ctx->funk );
     }
 
-    if( FD_LIKELY( info.txn_ctx->flags & FD_TXN_P_FLAGS_EXECUTE_SUCCESS ) ) {
+    if( FD_LIKELY( txn_ctx->flags & FD_TXN_P_FLAGS_EXECUTE_SUCCESS ) ) {
       FD_SPAD_FRAME_BEGIN( ctx->spad ) {
         if( FD_UNLIKELY( !ctx->bank ) ) {
-          FD_LOG_CRIT(( "No bank for slot %lu", info.txn_ctx->slot ));
+          FD_LOG_CRIT(( "No bank for slot %lu", txn_ctx->slot ));
         }
 
-        fd_runtime_finalize_txn( ctx->funk, ctx->funk_txn, &info, ctx->spad, ctx->bank );
+        fd_runtime_finalize_txn(
+            ctx->funk,
+            ctx->funk_txn,
+            txn_ctx,
+            exec_res,
+            ctx->spad,
+            ctx->bank );
       } FD_SPAD_FRAME_END;
       fd_banks_unlock( ctx->banks );
       while( fd_writer_fseq_get_state( fd_fseq_query( ctx->fseq ) )!=FD_WRITER_STATE_READY ) {
