@@ -122,6 +122,8 @@ execute_txn( fd_exec_tile_ctx_t * ctx ) {
 
   FD_SPAD_FRAME_BEGIN( ctx->exec_spad ) {
 
+  ctx->exec_res = 0;
+
   ctx->txn_ctx->funk_txn = funk_txn_get( ctx );
   if( FD_UNLIKELY( !ctx->txn_ctx->funk_txn ) ) {
     FD_LOG_CRIT(( "Could not get funk transaction for slot %lu", ctx->slot ));
@@ -139,19 +141,13 @@ execute_txn( fd_exec_tile_ctx_t * ctx ) {
   ctx->txn_ctx->slot     = fd_bank_slot_get( ctx->bank );
   ctx->txn_ctx->features = fd_bank_features_get( ctx->bank );
 
-  fd_execute_txn_task_info_t task_info = {
-    .txn_ctx  = ctx->txn_ctx,
-    .exec_res = 0,
-    .txn      = &ctx->txn,
-  };
-
-  fd_txn_t const * txn_descriptor = TXN( task_info.txn );
+  fd_txn_t const * txn_descriptor = TXN( &ctx->txn );
   fd_rawtxn_b_t    raw_txn        = {
-    .raw    = task_info.txn->payload,
-    .txn_sz = (ushort)task_info.txn->payload_sz
+    .raw    = ctx->txn.payload,
+    .txn_sz = (ushort)ctx->txn.payload_sz
   };
 
-  task_info.txn->flags = FD_TXN_P_FLAGS_SANITIZE_SUCCESS;
+  ctx->txn.flags = FD_TXN_P_FLAGS_SANITIZE_SUCCESS;
 
   fd_exec_txn_ctx_setup( ctx->txn_ctx, txn_descriptor, &raw_txn );
   ctx->txn_ctx->capture_ctx = ctx->capture_ctx;
@@ -164,24 +160,30 @@ execute_txn( fd_exec_tile_ctx_t * ctx ) {
 
   if( FD_UNLIKELY( fd_executor_txn_verify( ctx->txn_ctx )!=0 ) ) {
     FD_LOG_WARNING(( "sigverify failed: %s", FD_BASE58_ENC_64_ALLOCA( (uchar *)ctx->txn_ctx->_txn_raw->raw+ctx->txn_ctx->txn_descriptor->signature_off ) ));
-    task_info.txn->flags = 0U;
-    task_info.exec_res   = FD_RUNTIME_TXN_ERR_SIGNATURE_FAILURE;
+    ctx->txn.flags = 0U;
+    ctx->exec_res  = FD_RUNTIME_TXN_ERR_SIGNATURE_FAILURE;
     fd_banks_unlock( ctx->banks );
     return;
   }
 
-  fd_runtime_pre_execute_check( &task_info );
-  if( FD_UNLIKELY( !( task_info.txn->flags & FD_TXN_P_FLAGS_SANITIZE_SUCCESS ) ) ) {
+  ctx->exec_res = fd_runtime_pre_execute_check( &ctx->txn, ctx->txn_ctx );
+  if( FD_UNLIKELY( !( ctx->txn.flags & FD_TXN_P_FLAGS_SANITIZE_SUCCESS ) ) ) {
     fd_banks_unlock( ctx->banks );
     return;
   }
+
+  fd_execute_txn_task_info_t task_info = {
+    .txn_ctx  = ctx->txn_ctx,
+    .exec_res = ctx->exec_res,
+    .txn      = &ctx->txn,
+  };
 
   /* Execute */
-  task_info.txn->flags |= FD_TXN_P_FLAGS_EXECUTE_SUCCESS;
-  ctx->exec_res         = fd_execute_txn( &task_info );
+  ctx->txn.flags |= FD_TXN_P_FLAGS_EXECUTE_SUCCESS;
+  ctx->exec_res   = fd_execute_txn( &task_info );
 
   if( FD_LIKELY( ctx->exec_res==FD_EXECUTOR_INSTR_SUCCESS ) ) {
-    fd_txn_reclaim_accounts( task_info.txn_ctx );
+    fd_txn_reclaim_accounts( ctx->txn_ctx );
   }
   fd_banks_unlock( ctx->banks );
 

@@ -1132,10 +1132,11 @@ fd_runtime_prepare_txns_start( fd_exec_slot_ctx_t *         slot_ctx,
 /* fd_runtime_pre_execute_check is responsible for conducting many of the
    transaction sanitization checks. */
 
-void
-fd_runtime_pre_execute_check( fd_execute_txn_task_info_t * task_info ) {
-  if( FD_UNLIKELY( !( task_info->txn->flags & FD_TXN_P_FLAGS_SANITIZE_SUCCESS ) ) ) {
-    return;
+int
+fd_runtime_pre_execute_check( fd_txn_p_t * txn, fd_exec_txn_ctx_t * txn_ctx ) {
+
+  if( FD_UNLIKELY( !( txn->flags & FD_TXN_P_FLAGS_SANITIZE_SUCCESS ) ) ) {
+    return FD_RUNTIME_EXECUTE_SUCCESS;
   }
 
   int err;
@@ -1165,32 +1166,29 @@ fd_runtime_pre_execute_check( fd_execute_txn_task_info_t * task_info ) {
 
   */
 
-  uchar dump_txn = !!( task_info->txn_ctx->capture_ctx &&
-                       task_info->txn_ctx->slot >= task_info->txn_ctx->capture_ctx->dump_proto_start_slot &&
-                       task_info->txn_ctx->capture_ctx->dump_txn_to_pb );
+  uchar dump_txn = !!( txn_ctx->capture_ctx &&
+                       txn_ctx->slot >= txn_ctx->capture_ctx->dump_proto_start_slot &&
+                       txn_ctx->capture_ctx->dump_txn_to_pb );
   if( FD_UNLIKELY( dump_txn ) ) {
-    fd_dump_txn_to_protobuf( task_info->txn_ctx, task_info->txn_ctx->spad );
+    fd_dump_txn_to_protobuf( txn_ctx, txn_ctx->spad );
   }
 
   /* Verify the transaction. For now, this step only involves processing
      the compute budget instructions. */
-  err = fd_executor_verify_transaction( task_info->txn_ctx );
+  err = fd_executor_verify_transaction( txn_ctx );
   if( FD_UNLIKELY( err!=FD_RUNTIME_EXECUTE_SUCCESS ) ) {
-    task_info->txn->flags = 0U;
-    task_info->exec_res   = err;
-    return;
+    txn->flags = 0U;
+    return err;
   }
 
   /* Resolve and verify ALUT-referenced account keys, if applicable */
-  err = fd_executor_setup_txn_alut_account_keys( task_info->txn_ctx );
+  err = fd_executor_setup_txn_alut_account_keys( txn_ctx );
   if( FD_UNLIKELY( err!=FD_RUNTIME_EXECUTE_SUCCESS ) ) {
-    task_info->txn->flags = 0U;
-    task_info->exec_res   = err;
-    return;
+    txn->flags = 0U;
+    return err;
   }
 
   /* Set up the transaction accounts and other txn ctx metadata */
-  fd_exec_txn_ctx_t * txn_ctx = task_info->txn_ctx;
   fd_executor_setup_accounts_for_txn( txn_ctx );
 
   /* Post-sanitization checks. Called from `prepare_sanitized_batch()` which, for now, only is used
@@ -1198,27 +1196,24 @@ fd_runtime_pre_execute_check( fd_execute_txn_task_info_t * task_info ) {
      https://github.com/anza-xyz/agave/blob/838c1952595809a31520ff1603a13f2c9123aa51/accounts-db/src/account_locks.rs#L118 */
   err = fd_executor_validate_account_locks( txn_ctx );
   if( FD_UNLIKELY( err!=FD_RUNTIME_EXECUTE_SUCCESS ) ) {
-    task_info->txn->flags = 0U;
-    task_info->exec_res   = err;
-    return;
+    txn->flags = 0U;
+    return err;
   }
 
   /* `load_and_execute_transactions()` -> `check_transactions()`
      https://github.com/anza-xyz/agave/blob/ced98f1ebe73f7e9691308afa757323003ff744f/runtime/src/bank.rs#L3667-L3672 */
   err = fd_executor_check_transactions( txn_ctx );
   if( FD_UNLIKELY( err!=FD_RUNTIME_EXECUTE_SUCCESS ) ) {
-    task_info->txn->flags = 0U;
-    task_info->exec_res   = err;
-    return;
+    txn->flags = 0U;
+    return err;
   }
 
   /* `load_and_execute_sanitized_transactions()` -> `validate_fees()` -> `validate_transaction_fee_payer()`
      https://github.com/anza-xyz/agave/blob/ced98f1ebe73f7e9691308afa757323003ff744f/svm/src/transaction_processor.rs#L236-L249 */
   err = fd_executor_validate_transaction_fee_payer( txn_ctx );
   if( FD_UNLIKELY( err!=FD_RUNTIME_EXECUTE_SUCCESS ) ) {
-    task_info->txn->flags = 0U;
-    task_info->exec_res   = err;
-    return;
+    txn->flags = 0U;
+    return err;
   }
 
   /* https://github.com/anza-xyz/agave/blob/ced98f1ebe73f7e9691308afa757323003ff744f/svm/src/transaction_processor.rs#L284-L296 */
@@ -1227,8 +1222,7 @@ fd_runtime_pre_execute_check( fd_execute_txn_task_info_t * task_info ) {
     /* Regardless of whether transaction accounts were loaded successfully, the transaction is
         included in the block and transaction fees are collected.
         https://github.com/anza-xyz/agave/blob/v2.1.6/svm/src/transaction_processor.rs#L341-L357 */
-    task_info->txn->flags |= FD_TXN_P_FLAGS_FEES_ONLY;
-    task_info->exec_res    = err;
+    txn->flags |= FD_TXN_P_FLAGS_FEES_ONLY;
 
     /* If the transaction fails to load, the "rollback" accounts will include one of the following:
         1. Nonce account only
@@ -1240,14 +1234,14 @@ fd_runtime_pre_execute_check( fd_execute_txn_task_info_t * task_info ) {
         https://github.com/anza-xyz/agave/blob/v2.1.14/runtime/src/bank.rs#L4116
 
         In any case, we should always add the dlen of the fee payer. */
-    task_info->txn_ctx->loaded_accounts_data_size = task_info->txn_ctx->accounts[FD_FEE_PAYER_TXN_IDX].vt->get_data_len( &task_info->txn_ctx->accounts[FD_FEE_PAYER_TXN_IDX] );
+    txn_ctx->loaded_accounts_data_size = txn_ctx->accounts[FD_FEE_PAYER_TXN_IDX].vt->get_data_len( &txn_ctx->accounts[FD_FEE_PAYER_TXN_IDX] );
 
     /* Special case handling for if a nonce account is present in the transaction. */
-    if( task_info->txn_ctx->nonce_account_idx_in_txn!=ULONG_MAX ) {
+    if( txn_ctx->nonce_account_idx_in_txn!=ULONG_MAX ) {
       /* If the nonce account is not the fee payer, then we separately add the dlen of the nonce account. Otherwise, we would
           be double counting the dlen of the fee payer. */
-      if( task_info->txn_ctx->nonce_account_idx_in_txn!=FD_FEE_PAYER_TXN_IDX ) {
-        task_info->txn_ctx->loaded_accounts_data_size += task_info->txn_ctx->rollback_nonce_account->vt->get_data_len( task_info->txn_ctx->rollback_nonce_account );
+      if( txn_ctx->nonce_account_idx_in_txn!=FD_FEE_PAYER_TXN_IDX ) {
+        txn_ctx->loaded_accounts_data_size += txn_ctx->rollback_nonce_account->vt->get_data_len( txn_ctx->rollback_nonce_account );
       }
     }
   }
@@ -1265,6 +1259,8 @@ fd_runtime_pre_execute_check( fd_execute_txn_task_info_t * task_info ) {
 
      So, at this point, the transaction is committable.
    */
+
+  return err;
 }
 
 /* fd_runtime_finalize_txn is a helper used by the non-tpool transaction
@@ -1435,7 +1431,7 @@ fd_runtime_prepare_and_execute_txn( fd_exec_slot_ctx_t const *   slot_ctx,
     task_info->exec_res   = FD_RUNTIME_TXN_ERR_SIGNATURE_FAILURE;
   }
 
-  fd_runtime_pre_execute_check( task_info ); /* TODO: check if this will be called from executor tile or replay tile */
+  task_info->exec_res = fd_runtime_pre_execute_check( task_info->txn, task_info->txn_ctx );
   if( FD_UNLIKELY( !( task_info->txn->flags & FD_TXN_P_FLAGS_SANITIZE_SUCCESS ) ) ) {
     res  = task_info->exec_res;
     return -1;

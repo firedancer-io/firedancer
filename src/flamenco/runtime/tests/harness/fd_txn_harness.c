@@ -273,7 +273,7 @@ fd_runtime_fuzz_txn_ctx_exec( fd_runtime_fuzz_runner_t * runner,
   task_info->txn_ctx->spad      = runner->spad;
   task_info->txn_ctx->spad_wksp = fd_wksp_containing( runner->spad );
 
-  fd_runtime_pre_execute_check( task_info );
+  task_info->exec_res = fd_runtime_pre_execute_check( task_info->txn, task_info->txn_ctx );
 
   if( task_info->txn->flags & FD_TXN_P_FLAGS_SANITIZE_SUCCESS ) {
       task_info->txn->flags |= FD_TXN_P_FLAGS_EXECUTE_SUCCESS;
