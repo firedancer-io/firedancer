@@ -110,6 +110,8 @@ fd_runtime_fuzz_instr_ctx_create( fd_runtime_fuzz_runner_t *           runner,
     info->data    = test_ctx->data->bytes;
   }
 
+  txn_ctx->instr_infos[ 0UL ] = *info;
+
   /* Prepare borrowed account table (correctly handles aliasing) */
 
   if( FD_UNLIKELY( test_ctx->accounts_count > MAX_TX_ACCOUNT_LOCKS ) ) {
