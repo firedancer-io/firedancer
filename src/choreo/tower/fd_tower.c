@@ -479,6 +479,28 @@ fd_tower_from_vote_acc( fd_tower_t *              tower,
   }
 }
 
+/* fd_tower_to_vote_txn converts a validator's tower state into a Solana
+   transaction containing a tower sync vote instruction. This function
+   creates the complete transaction that will be broadcast to the network
+   to inform other validators of this validator's current voting state.
+
+   The function:
+   1. Converts the tower's internal vote structure to fd_tower_sync_t format
+   2. Builds a complete Solana transaction with proper accounts
+   3. Creates a tower_sync vote instruction with the tower state
+   4. Serializes everything into the output transaction structure
+
+   Parameters:
+   - tower: The validator's current voting tower state
+   - root: The current root slot (highest confirmed slot)
+   - lockouts_scratch: Scratch space for deque allocation
+   - bank_hash: Hash of the bank state for this slot
+   - recent_blockhash: Recent blockhash for transaction validity
+   - validator_identity: The validator's identity keypair
+   - vote_authority: The vote authority (may be same as identity)
+   - vote_acc: The vote account public key
+   - vote_txn: Output transaction structure to populate */
+
 void
 fd_tower_to_vote_txn( fd_tower_t const *    tower,
                       ulong                 root,
@@ -490,41 +512,78 @@ fd_tower_to_vote_txn( fd_tower_t const *    tower,
                       fd_pubkey_t const *   vote_acc,
                       fd_txn_p_t *          vote_txn ) {
 
-  fd_compact_vote_state_update_t tower_sync;
+  /* Initialize the tower sync structure that will hold our vote state.
+     fd_tower_sync_t contains:
+     - lockouts: deque of vote lockouts with absolute slot numbers
+     - root: the current root slot (highest committed slot)
+     - hash: bank hash for the slot we're voting on
+     - timestamp: when this vote was created
+     - block_id: the recent blockhash for transaction validity */
+  fd_tower_sync_t tower_sync;
+  fd_tower_sync_new( &tower_sync );
+
+  /* Set the root slot and whether we have a valid root.
+     FD_SLOT_NULL indicates no root has been established yet. */
   tower_sync.root          = root;
-  tower_sync.lockouts_len  = (ushort)fd_tower_votes_cnt( tower );
-  tower_sync.lockouts      = lockouts_scratch;
+  tower_sync.has_root      = (root != FD_SLOT_NULL);
+  tower_sync.lockouts_cnt  = fd_tower_votes_cnt( tower );
   tower_sync.timestamp     = fd_log_wallclock();
   tower_sync.has_timestamp = 1;
 
-  ulong prev = tower_sync.root;
-  ulong i    = 0UL;
+  /* Allocate a deque to hold the vote lockouts. The deque stores
+     fd_vote_lockout_t structures containing absolute slot numbers
+     and confirmation counts, unlike the compact format which uses
+     relative offsets. We need at least 32 entries to match Solana's
+     maximum tower depth. */
+  ulong lockouts_max = fd_ulong_max( tower_sync.lockouts_cnt, 32UL );
+  void * deque_mem = lockouts_scratch; /* Reuse scratch space for deque allocation */
+  tower_sync.lockouts = deq_fd_vote_lockout_t_join( deq_fd_vote_lockout_t_new( deque_mem, lockouts_max ) );
+
+  /* Convert the tower's internal vote representation to the tower sync format.
+     The tower stores votes as (slot, confirmation_count) pairs internally.
+     We copy these directly into vote lockout structures for the tower sync.
+
+     Each vote lockout contains:
+     - slot: The absolute slot number that was voted on
+     - confirmation_count: How many times this vote has been confirmed
+                          (increases as subsequent votes are made on the same fork) */
   for( fd_tower_votes_iter_t iter = fd_tower_votes_iter_init( tower );
       !fd_tower_votes_iter_done( tower, iter );
       iter = fd_tower_votes_iter_next( tower, iter ) ) {
-    fd_tower_vote_t const * vote              = fd_tower_votes_iter_ele_const( tower, iter );
-    tower_sync.lockouts[i].offset             = vote->slot - prev;
-    tower_sync.lockouts[i].confirmation_count = (uchar)vote->conf;
-    prev                                      = vote->slot;
-    i++;
+    fd_tower_vote_t const * vote = fd_tower_votes_iter_ele_const( tower, iter );
+    fd_vote_lockout_t * lockout = deq_fd_vote_lockout_t_push_tail_nocopy( tower_sync.lockouts );
+    lockout->slot = vote->slot;
+    lockout->confirmation_count = (uint)vote->conf;
   }
-  memcpy( tower_sync.hash.uc, bank_hash, sizeof(fd_hash_t) );
 
+  /* Set the bank hash and block ID for the tower sync.
+     - hash: The bank hash represents the state of accounts/programs at this slot
+     - block_id: The recent blockhash ensures transaction replay protection */
+  memcpy( tower_sync.hash.uc, bank_hash, sizeof(fd_hash_t) );
+  memcpy( tower_sync.block_id.uc, recent_blockhash, sizeof(fd_hash_t) );
+
+  /* Get pointers to the transaction output buffers.
+     vote_txn contains both metadata and payload sections. */
   uchar * txn_out = vote_txn->payload;
   uchar * txn_meta_out = vote_txn->_;
 
+  /* Determine if the validator identity and vote authority are the same.
+     This affects the transaction structure - if they're different, we need
+     additional signatures and account references. */
   int same_addr = !memcmp( validator_identity, vote_authority, sizeof(fd_pubkey_t) );
   if( FD_LIKELY( same_addr ) ) {
 
-    /* 0: validator identity
-       1: vote account address
-       2: vote program */
+    /* Simple case: validator identity is also the vote authority.
+       Transaction accounts:
+       0: validator identity (signer, writable) - signs the transaction
+       1: vote account address (writable) - the account being updated
+       2: vote program (readonly) - the program that processes the vote */
 
     fd_txn_accounts_t accts;
-    accts.signature_cnt         = 1;
-    accts.readonly_signed_cnt   = 0;
-    accts.readonly_unsigned_cnt = 1;
-    accts.acct_cnt              = 3;
+    accts.signature_cnt         = 1;  /* Only validator identity signs */
+    accts.readonly_signed_cnt   = 0;  /* No readonly signers */
+    accts.readonly_unsigned_cnt = 1;  /* Vote program is readonly */
+    accts.acct_cnt              = 3;  /* Total of 3 accounts */
     accts.signers_w             = validator_identity;
     accts.signers_r             = NULL;
     accts.non_signers_w         = vote_acc;
@@ -532,16 +591,18 @@ fd_tower_to_vote_txn( fd_tower_t const *    tower,
     FD_TEST( fd_txn_base_generate( txn_meta_out, txn_out, accts.signature_cnt, &accts, recent_blockhash->uc ) );
   } else {
 
-    /* 0: validator identity
-       1: vote authority
-       2: vote account address
-       3: vote program */
+    /* Complex case: validator identity and vote authority are different.
+       Transaction accounts:
+       0: validator identity (signer, writable) - pays transaction fees
+       1: vote authority (signer, readonly) - authorizes the vote
+       2: vote account address (writable) - the account being updated
+       3: vote program (readonly) - the program that processes the vote */
 
     fd_txn_accounts_t accts;
-    accts.signature_cnt         = 2;
-    accts.readonly_signed_cnt   = 1;
-    accts.readonly_unsigned_cnt = 1;
-    accts.acct_cnt              = 4;
+    accts.signature_cnt         = 2;  /* Both identity and authority sign */
+    accts.readonly_signed_cnt   = 1;  /* Vote authority is readonly signer */
+    accts.readonly_unsigned_cnt = 1;  /* Vote program is readonly */
+    accts.acct_cnt              = 4;  /* Total of 4 accounts */
     accts.signers_w             = validator_identity;
     accts.signers_r             = vote_authority;
     accts.non_signers_w         = vote_acc;
@@ -549,25 +610,39 @@ fd_tower_to_vote_txn( fd_tower_t const *    tower,
     FD_TEST( fd_txn_base_generate( txn_meta_out, txn_out, accts.signature_cnt, &accts, recent_blockhash->uc ) );
   }
 
-  /* Add the vote instruction to the transaction. */
+  /* Create the tower sync vote instruction. This instruction tells the
+     vote program to update the vote account with our current tower state.
+
+     The instruction contains:
+     - discriminant: identifies this as a tower_sync instruction
+     - tower_sync: our complete voting state including lockouts, root, etc. */
 
   fd_vote_instruction_t vote_ix;
   uchar                 vote_ix_buf[FD_TXN_MTU];
-  vote_ix.discriminant                    = fd_vote_instruction_enum_compact_update_vote_state;
-  vote_ix.inner.compact_update_vote_state = tower_sync;
+  vote_ix.discriminant      = fd_vote_instruction_enum_tower_sync;
+  vote_ix.inner.tower_sync  = tower_sync;
+
+  /* Serialize the vote instruction into binary format for inclusion
+     in the transaction. */
   fd_bincode_encode_ctx_t encode = { .data = vote_ix_buf, .dataend = ( vote_ix_buf + FD_TXN_MTU ) };
   fd_vote_instruction_encode( &vote_ix, &encode );
+
+  /* Set up instruction account indices. These reference the accounts
+     we set up in the transaction accounts list above. */
   uchar program_id;
   uchar ix_accs[2];
   if( FD_LIKELY( same_addr ) ) {
     ix_accs[0] = 1; /* vote account address */
-    ix_accs[1] = 0; /* vote authority */
+    ix_accs[1] = 0; /* vote authority (same as validator identity) */
     program_id = 2; /* vote program */
   } else {
     ix_accs[0] = 2; /* vote account address */
     ix_accs[1] = 1; /* vote authority */
     program_id = 3; /* vote program */
   }
+
+  /* Add the instruction to the transaction and finalize the transaction size.
+     This creates the complete transaction ready for signing and broadcast. */
   ushort vote_ix_sz = (ushort)fd_vote_instruction_size( &vote_ix );
   vote_txn->payload_sz = fd_txn_add_instr( txn_meta_out, txn_out, program_id, ix_accs, 2, vote_ix_buf, vote_ix_sz );
 }
