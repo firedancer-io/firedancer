@@ -95,12 +95,9 @@ scratch_footprint( fd_topo_tile_t const * tile FD_PARAM_UNUSED ) {
   /* clang-format on */
 }
 
-static void
-execute_txn( fd_exec_tile_ctx_t * ctx ) {
-
-  FD_SPAD_FRAME_BEGIN( ctx->exec_spad ) {
-
-  /* Query the funk transaction for the given slot. */
+static fd_funk_txn_t *
+funk_txn_get( fd_exec_tile_ctx_t * ctx ) {
+/* Query the funk transaction for the given slot. */
   fd_funk_txn_map_t * txn_map = fd_funk_txn_map( ctx->funk );
   if( FD_UNLIKELY( !txn_map->map ) ) {
     FD_LOG_ERR(( "Could not find valid funk transaction map" ));
@@ -112,13 +109,29 @@ execute_txn( fd_exec_tile_ctx_t * ctx ) {
     FD_LOG_ERR(( "Could not find valid funk transaction" ));
   }
   fd_funk_txn_end_read( ctx->funk );
-  ctx->txn_ctx->funk_txn = funk_txn;
+  return funk_txn;
+}
+
+static fd_bank_t *
+bank_get( fd_exec_tile_ctx_t * ctx ) {
+  return fd_banks_get_bank( ctx->banks, ctx->slot );
+}
+
+static void
+execute_txn( fd_exec_tile_ctx_t * ctx ) {
+
+  FD_SPAD_FRAME_BEGIN( ctx->exec_spad ) {
+
+  ctx->txn_ctx->funk_txn = funk_txn_get( ctx );
+  if( FD_UNLIKELY( !ctx->txn_ctx->funk_txn ) ) {
+    FD_LOG_CRIT(( "Could not get funk transaction for slot %lu", ctx->slot ));
+  }
 
   /* Get the bank for the given slot. */
   fd_banks_lock( ctx->banks );
-  ctx->bank = fd_banks_get_bank( ctx->banks, ctx->slot );
+  ctx->bank = bank_get( ctx );
   if( FD_UNLIKELY( !ctx->bank ) ) {
-    FD_LOG_ERR(( "Could not get bank for slot %lu", ctx->slot ));
+    FD_LOG_CRIT(( "Could not get bank for slot %lu", ctx->slot ));
   }
 
   /* Setup and execute the transaction. */
@@ -292,14 +305,15 @@ after_frag( fd_exec_tile_ctx_t * ctx,
     msg->exec_tile_id = (uchar)ctx->tile_idx;
     msg->txn_id       = ctx->txn_id;
 
-    fd_stem_publish( stem,
-                     exec_out->idx,
-                     FD_WRITER_TXN_SIG,
-                     exec_out->chunk,
-                     sizeof(*msg),
-                     0UL,
-                     tsorig,
-                     tspub );
+    fd_stem_publish(
+        stem,
+        exec_out->idx,
+        FD_WRITER_TXN_SIG,
+        exec_out->chunk,
+        sizeof(*msg),
+        0UL,
+        tsorig,
+        tspub );
     exec_out->chunk = fd_dcache_compact_next( exec_out->chunk, sizeof(*msg), exec_out->chunk0, exec_out->wmark );
 
     /* Make sure that the txn/bpf id can never be equal to the sentinel
@@ -311,12 +325,6 @@ after_frag( fd_exec_tile_ctx_t * ctx,
   } else if( sig==EXEC_HASH_ACCS_SIG ) {
     FD_LOG_DEBUG(( "Sending ack for hash accs msg" ));
     fd_fseq_update( ctx->exec_fseq, fd_exec_fseq_set_hash_done( ctx->slot ) );
-  } else if( sig==EXEC_SNAP_HASH_ACCS_CNT_SIG ) {
-    FD_LOG_NOTICE(( "Sending ack for snap hash count msg pairs_len=%lu", ctx->pairs_len ));
-    fd_fseq_update( ctx->exec_fseq, fd_exec_fseq_set_snap_hash_cnt_done( (uint)ctx->pairs_len ) );
-  } else if( sig==EXEC_SNAP_HASH_ACCS_GATHER_SIG ) {
-    FD_LOG_NOTICE(("Sending ack for snap hash gather msg" ));
-    fd_fseq_update( ctx->exec_fseq, fd_exec_fseq_set_snap_hash_gather_done() );
   } else {
     FD_LOG_ERR(( "Unknown message signature" ));
   }
