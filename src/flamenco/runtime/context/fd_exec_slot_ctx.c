@@ -169,7 +169,7 @@ fd_exec_slot_ctx_recover( fd_exec_slot_ctx_t *                slot_ctx,
                           fd_solana_manifest_global_t const * manifest,
                           fd_spad_t *                         runtime_spad ) {
 
-  slot_ctx->bank = fd_banks_clone_from_parent( slot_ctx->banks, manifest->bank.slot, 0UL );
+  slot_ctx->bank = fd_banks_rekey_root_bank( slot_ctx->banks, manifest->bank.slot );
   if( FD_UNLIKELY( !slot_ctx->bank ) ) {
     FD_LOG_CRIT(( "fd_banks_clone_from_parent failed" ));
   }
