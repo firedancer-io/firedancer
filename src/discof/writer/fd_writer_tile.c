@@ -104,9 +104,9 @@ before_frag( fd_writer_tile_ctx_t * ctx,
      until transaction finalization has been done.  In other words, exec
      tiles block on writer tiles, rather than truly pipelining.  As a
      result, when all the exec tiles publish to seq 0, the 0th writer
-     tile becomes busy, and all exec tiles block on it.  Then writer tile
-     1 becomes busy, while all other writer tiles sit idle.  So on and so
-     forth.
+     tile becomes busy, and all exec tiles block on it.  Then writer
+     tile 1 becomes busy, while all other writer tiles sit idle.  So on
+     and so forth.
 
      So we offset by in_idx to try to mitigate this.
    */
@@ -116,17 +116,14 @@ before_frag( fd_writer_tile_ctx_t * ctx,
 static void
 during_frag( fd_writer_tile_ctx_t * ctx,
              ulong                  in_idx,
-             ulong                  seq,
+             ulong                  seq FD_PARAM_UNUSED,
              ulong                  sig,
              ulong                  chunk,
              ulong                  sz,
-             ulong                  ctl ) {
+             ulong                  ctl FD_PARAM_UNUSED ) {
 
-  (void)seq;
-  (void)ctl;
-
-  /* exec_writer is a reliable flow controlled link so we are not gonna
-     bother with copying the incoming frag. */
+  /* exec_writer is a reliable flow controlled link so we are not going
+     to bother with copying the incoming frag. */
 
   fd_writer_tile_in_ctx_t * in_ctx = &(ctx->exec_writer_in[ in_idx ]);
 
@@ -159,17 +156,16 @@ during_frag( fd_writer_tile_ctx_t * ctx,
     if( FD_UNLIKELY( msg->exec_tile_id!=in_idx ) ) {
       FD_LOG_CRIT(( "exec_tile_id %u should be == in_idx %lu", msg->exec_tile_id, in_idx ));
     }
-    fd_execute_txn_task_info_t info = {0};
-    info.txn_ctx  = ctx->txn_ctx[ in_idx ];
-    info.exec_res = info.txn_ctx->exec_err;
+    fd_exec_txn_ctx_t * txn_ctx  = ctx->txn_ctx[ in_idx ];
+    int                 exec_res = txn_ctx->exec_err;
 
     fd_banks_lock( ctx->banks );
-    ctx->bank = fd_banks_get_bank( ctx->banks, info.txn_ctx->slot );
+    ctx->bank = fd_banks_get_bank( ctx->banks, txn_ctx->slot );
     if( FD_UNLIKELY( !ctx->bank ) ) {
-      FD_LOG_CRIT(( "Could not find bank for slot %lu", info.txn_ctx->slot ));
+      FD_LOG_CRIT(( "Could not find bank for slot %lu", txn_ctx->slot ));
     }
 
-    if( !ctx->funk_txn || info.txn_ctx->slot != ctx->funk_txn->xid.ul[0] ) {
+    if( !ctx->funk_txn || txn_ctx->slot != ctx->funk_txn->xid.ul[0] ) {
       fd_funk_txn_map_t * txn_map = fd_funk_txn_map( ctx->funk );
       if( FD_UNLIKELY( !txn_map->map ) ) {
         FD_LOG_CRIT(( "Could not find valid funk transaction map" ));
@@ -183,18 +179,23 @@ during_frag( fd_writer_tile_ctx_t * ctx,
       fd_funk_txn_end_read( ctx->funk );
     }
 
-    if( FD_LIKELY( info.txn_ctx->flags & FD_TXN_P_FLAGS_EXECUTE_SUCCESS ) ) {
+    if( FD_LIKELY( txn_ctx->flags & FD_TXN_P_FLAGS_EXECUTE_SUCCESS ) ) {
       FD_SPAD_FRAME_BEGIN( ctx->spad ) {
         if( FD_UNLIKELY( !ctx->bank ) ) {
-          FD_LOG_CRIT(( "No bank for slot %lu", info.txn_ctx->slot ));
+          FD_LOG_CRIT(( "No bank for slot %lu", txn_ctx->slot ));
         }
 
-        fd_runtime_finalize_txn( ctx->funk, ctx->funk_txn, &info, ctx->spad, ctx->bank );
+        fd_runtime_finalize_txn(
+            ctx->funk,
+            ctx->funk_txn,
+            txn_ctx,
+            exec_res,
+            ctx->spad,
+            ctx->bank );
       } FD_SPAD_FRAME_END;
       fd_banks_unlock( ctx->banks );
       while( fd_writer_fseq_get_state( fd_fseq_query( ctx->fseq ) )!=FD_WRITER_STATE_READY ) {
-        /* Spin to wait for the replay tile to ack the previous txn
-           done. */
+        /* Spin for the replay tile to ack the previous txn done. */
         FD_SPIN_PAUSE();
       }
     }
@@ -204,13 +205,6 @@ during_frag( fd_writer_tile_ctx_t * ctx,
   }
 
   FD_LOG_CRIT(( "Unknown sig %lu", sig ));
-}
-
-static void
-privileged_init( fd_topo_t *      topo,
-                 fd_topo_tile_t * tile ) {
-  (void)topo;
-  (void)tile;
 }
 
 static void
@@ -387,7 +381,6 @@ fd_topo_run_tile_t fd_tile_writer = {
     .populate_allowed_fds     = populate_allowed_fds,
     .scratch_align            = scratch_align,
     .scratch_footprint        = scratch_footprint,
-    .privileged_init          = privileged_init,
     .unprivileged_init        = unprivileged_init,
     .run                      = stem_run,
 };
