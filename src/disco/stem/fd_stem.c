@@ -212,6 +212,9 @@ STEM_(run1)( ulong                        in_cnt,
              ulong **                     _cons_fseq,
              ulong *                      cons_depth,
              ulong                        burst,
+             ulong *                      link_burst,
+             uint *                       link_compact,
+             ulong *                      link_mtu,
              long                         lazy,
              fd_rng_t *                   rng,
              void *                       scratch,
@@ -283,6 +286,9 @@ STEM_(run1)( ulong                        in_cnt,
 
     this_in->accum[0] = 0U; this_in->accum[1] = 0U; this_in->accum[2] = 0U;
     this_in->accum[3] = 0U; this_in->accum[4] = 0U; this_in->accum[5] = 0U;
+    this_in->burst = link_burst[in_idx];
+    this_in->compact = link_compact[in_idx];
+    this_in->mtu = link_mtu[in_idx];
   }
 
   /* out frag stream init */
@@ -618,8 +624,8 @@ STEM_(run1)( ulong                        in_cnt,
     ulong tspub    = (ulong)this_in_mline->tspub;  (void)tspub;
 
 #ifdef STEM_CALLBACK_DURING_FRAG
-    if ( FD_UNLIKELY ( !fd_dcache_bounds_check( this_in->shmem_base,
-                                                this_in->dcache,
+    if ( FD_UNLIKELY ( !fd_dcache_bounds_check( chunk,
+                                                sz,
                                                 this_in->mtu,
                                                 this_in->depth,
                                                 this_in->burst,
@@ -720,6 +726,16 @@ STEM_(run)( fd_topo_t *      topo,
 
   STEM_CALLBACK_CONTEXT_TYPE * ctx = (STEM_CALLBACK_CONTEXT_TYPE*)fd_ulong_align_up( (ulong)fd_topo_obj_laddr( topo, tile->tile_obj_id ), STEM_CALLBACK_CONTEXT_ALIGN );
 
+  static ulong link_burst[ FD_TOPO_MAX_LINKS ];
+  static uint link_compact[ FD_TOPO_MAX_LINKS ];
+  static ulong link_mtu[ FD_TOPO_MAX_LINKS ];
+  for(ulong ii=0; ii < polled_in_cnt; ii++) {
+    fd_topo_link_t *link = &topo->links[ tile->in_link_id[ii] ];
+    link_burst[ii] = link->burst;
+    link_compact[ii] = (link->mtu > 0 && link->burst == 0) ? 1 : 0;
+    link_mtu[ii] = (link->mtu == 0) ? FD_NET_MTU : link->mtu;
+  }
+
   STEM_(run1)( polled_in_cnt,
                in_mcache,
                in_fseq,
@@ -730,6 +746,9 @@ STEM_(run)( fd_topo_t *      topo,
                cons_fseq,
                cons_depth,
                STEM_BURST,
+               link_burst,
+               link_compact,
+               link_mtu,
                STEM_LAZY,
                rng,
                fd_alloca( FD_STEM_SCRATCH_ALIGN, STEM_(scratch_footprint)( polled_in_cnt, tile->out_cnt, reliable_cons_cnt ) ),

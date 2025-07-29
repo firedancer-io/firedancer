@@ -262,7 +262,7 @@ during_frag( fd_exec_tile_ctx_t * ctx,
              ulong                seq FD_PARAM_UNUSED,
              ulong                sig,
              ulong                chunk,
-             ulong                sz,
+             ulong                sz FD_PARAM_UNUSED,
              ulong                ctl FD_PARAM_UNUSED ) {
 
   if( FD_LIKELY( in_idx == ctx->replay_exec_in_idx ) ) {

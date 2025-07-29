@@ -70,7 +70,7 @@ FD_FN_CONST ulong
 fd_dcache_req_data_sz( ulong mtu,
                        ulong depth,
                        ulong burst,
-                       int   compact );
+                       uint  compact );
 
 /* fd_dcache_{align,footprint} return the required alignment and
    footprint of a memory region suitable for use as dcache with a data
@@ -291,12 +291,12 @@ fd_dcache_compact_next( ulong chunk,    /* Assumed in [chunk0,wmark] */
    @param compact nonzero = compact mode, 0 = burst mode 
    @return        1 if all checks pass, 0 otherwise */
 
-int fd_dcache_bounds_check(void const * base,
-                           void const * dcache,
+int fd_dcache_bounds_check(ulong chunk,
+                           ulong sz,
                            ulong mtu,
-                           ulong depth,
+                           uint depth,
                            ulong burst,
-                           int compact);
+                           uint compact);
 
 FD_PROTOTYPES_END
 

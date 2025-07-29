@@ -47,15 +47,8 @@ FD_FN_UNUSED static void const *
 fd_net_rx_translate_frag( fd_net_rx_bounds_t const * bounds,
                           ulong                      chunk,
                           ulong                      ctl,
-                          ulong                      sz ) {
+                          ulong                      sz FD_PARAM_UNUSED) {
   ulong p = ((ulong)bounds->base + (chunk<<FD_CHUNK_LG_SZ) + ctl);
-  if( FD_UNLIKELY( !( (p  >= bounds->pkt_lo   ) &
-                      (p  <= bounds->pkt_wmark) &
-                      (sz <= FD_NET_MTU       ) ) ) ) {
-    FD_LOG_ERR(( "frag %p (chunk=%lu ctl=%lu sz=%lu) is not in bounds [%p:%p]",
-                 (void *)p, chunk, ctl, sz,
-                 (void *)bounds->pkt_lo, (void *)bounds->pkt_wmark ));
-  }
   return (void const *)p;
 }
 

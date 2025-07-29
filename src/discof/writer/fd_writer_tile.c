@@ -120,7 +120,7 @@ during_frag( fd_writer_tile_ctx_t * ctx,
              ulong                  seq,
              ulong                  sig,
              ulong                  chunk,
-             ulong                  sz,
+             ulong                  sz FD_PARAM_UNUSED,
              ulong                  ctl ) {
 
   (void)seq;

@@ -26,6 +26,9 @@ struct __attribute__((aligned(64))) fd_stem_tile_in {
   ulong *                fseq;     /* local join to the fseq used to return flow control credits to the in */
   uint                   accum[6]; /* local diagnostic accumulators.  These are drained during in housekeeping. */
                                    /* Assumes FD_FSEQ_DIAG_{PUB_CNT,PUB_SZ,FILT_CNT,FILT_SZ,OVRNP_CNT,OVRNP_FRAG_CNT} are 0:5 */
+  uint                   compact;
+  ulong                  burst;
+  ulong                  mtu;
 };
 
 typedef struct fd_stem_tile_in fd_stem_tile_in_t;

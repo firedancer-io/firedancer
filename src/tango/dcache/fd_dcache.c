@@ -4,7 +4,7 @@ ulong
 fd_dcache_req_data_sz( ulong mtu,
                        ulong depth,
                        ulong burst,
-                       int   compact ) {
+                       uint   compact ) {
 
   if( FD_UNLIKELY( !mtu   ) ) return 0UL; /* zero mtu (technically unnecessary) */
   if( FD_UNLIKELY( !depth ) ) return 0UL; /* zero depth */
@@ -259,15 +259,29 @@ fd_dcache_compact_is_safe( void const * base,
   return 1;
 }
 
-int fd_dcache_bounds_check(void const * base,
-                           void const * dcache,
-                           uint64_t mtu,
-                           uint64_t depth,
-                           uint64_t burst,
-                           int32_t compact) {
+int fd_dcache_bounds_check(ulong chunk,
+                           ulong sz,
+                           ulong mtu,
+                           uint depth,
+                           ulong burst,
+                           uint compact) {
   
-  if( FD_UNLIKELY( compact ) ) return fd_dcache_compact_is_safe( base, dcache, mtu, depth );
+  if ( FD_UNLIKELY(!fd_dcache_req_data_sz( mtu, (ulong)depth, burst, compact )) ) {
+    FD_LOG_ERR(( "link parameters do not produce a valid region." ));
+    return 0;
+  }
 
-  return fd_dcache_req_data_sz( mtu, depth, burst, 0 ) ? 1 : 0;
+  ulong total_slots = compact ? depth : depth + burst;
+  if ( FD_UNLIKELY(chunk >= total_slots) ) {
+    FD_LOG_ERR(( "chunk index is not within [0, depth) for compact alloc or [0, depth + burst)." ));
+    return 0;
+  }
+
+  if ( FD_UNLIKELY(sz > mtu) ) {
+    FD_LOG_ERR(( "payload size does not fit in MTU." ));
+    return 0;
+  }
+
+  return 1;
 }
 
