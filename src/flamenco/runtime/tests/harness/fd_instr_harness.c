@@ -96,7 +96,6 @@ fd_runtime_fuzz_instr_ctx_create( fd_runtime_fuzz_runner_t *           runner,
   txn_ctx->txn_descriptor                            = txn_descriptor;
   txn_ctx->compute_budget_details.compute_unit_limit = test_ctx->cu_avail;
   txn_ctx->compute_budget_details.compute_meter      = test_ctx->cu_avail;
-  txn_ctx->vote_accounts_pool                        = NULL;
   txn_ctx->spad                                      = runner->spad;
   txn_ctx->instr_info_cnt                            = 1UL;
 

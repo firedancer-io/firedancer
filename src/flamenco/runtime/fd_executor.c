@@ -1621,16 +1621,9 @@ fd_executor_txn_verify( fd_exec_txn_ctx_t * txn_ctx ) {
 }
 
 int
-fd_execute_txn( fd_execute_txn_task_info_t * task_info ) {
-  /* Don't execute transactions that are fee only.
-     https://github.com/anza-xyz/agave/blob/v2.1.6/svm/src/transaction_processor.rs#L341-L357 */
-  if( FD_UNLIKELY( task_info->txn->flags & FD_TXN_P_FLAGS_FEES_ONLY ) ) {
-    /* return the existing error */
-    return task_info->exec_res;
-  }
+fd_execute_txn( fd_exec_txn_ctx_t * txn_ctx ) {
 
-  fd_exec_txn_ctx_t * txn_ctx   = task_info->txn_ctx;
-  bool                dump_insn = txn_ctx->capture_ctx && txn_ctx->slot >= txn_ctx->capture_ctx->dump_proto_start_slot && txn_ctx->capture_ctx->dump_instr_to_pb;
+  bool dump_insn = txn_ctx->capture_ctx && txn_ctx->slot >= txn_ctx->capture_ctx->dump_proto_start_slot && txn_ctx->capture_ctx->dump_instr_to_pb;
 
   /* Initialize log collection */
   fd_log_collector_init( &txn_ctx->log_collector, txn_ctx->enable_exec_recording );
