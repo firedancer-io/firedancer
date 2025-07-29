@@ -2074,8 +2074,6 @@ fd_runtime_is_epoch_boundary( fd_exec_slot_ctx_t * slot_ctx, ulong curr_slot, ul
 static void
 fd_runtime_process_new_epoch( fd_exec_slot_ctx_t * slot_ctx,
                               ulong                parent_epoch,
-                              fd_spad_t * *        exec_spads,
-                              ulong                exec_spad_cnt,
                               fd_spad_t *          runtime_spad ) {
   FD_LOG_NOTICE(( "fd_process_new_epoch start" ));
 
@@ -2125,8 +2123,6 @@ fd_runtime_process_new_epoch( fd_exec_slot_ctx_t * slot_ctx,
   fd_stakes_activate_epoch( slot_ctx,
                             new_rate_activation_epoch,
                             &temp_info,
-                            exec_spads,
-                            exec_spad_cnt,
                             runtime_spad );
 
   /* Update the stakes epoch value to the new epoch */
@@ -2148,7 +2144,6 @@ fd_runtime_process_new_epoch( fd_exec_slot_ctx_t * slot_ctx,
                             history,
                             new_rate_activation_epoch,
                             &temp_info,
-                            exec_spads,
                             runtime_spad );
 
   /* Distribute rewards */
@@ -2165,8 +2160,6 @@ fd_runtime_process_new_epoch( fd_exec_slot_ctx_t * slot_ctx,
                                 &parent_blockhash,
                                 parent_epoch,
                                 &temp_info,
-                                exec_spads,
-                                exec_spad_cnt,
                                 runtime_spad );
 
   /* Replace stakes at T-2 (epoch_stakes) by stakes at T-1 (next_epoch_stakes) */
@@ -2842,8 +2835,6 @@ fd_runtime_block_execute( fd_exec_slot_ctx_t *            slot_ctx,
 
 void
 fd_runtime_block_pre_execute_process_new_epoch( fd_exec_slot_ctx_t * slot_ctx,
-                                                fd_spad_t * *        exec_spads,
-                                                ulong                exec_spad_cnt,
                                                 fd_spad_t *          runtime_spad,
                                                 int *                is_epoch_boundary ) {
 
@@ -2866,8 +2857,6 @@ fd_runtime_block_pre_execute_process_new_epoch( fd_exec_slot_ctx_t * slot_ctx,
       /* Epoch boundary! */
       fd_runtime_process_new_epoch( slot_ctx,
                                     new_epoch - 1UL,
-                                    exec_spads,
-                                    exec_spad_cnt,
                                     runtime_spad );
       *is_epoch_boundary = 1;
     }

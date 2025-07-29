@@ -24,8 +24,6 @@ struct fd_calculate_stake_vote_rewards_task_args {
   ulong *                                    new_warmup_cooldown_rate_epoch;
   fd_point_value_t *                         point_value;
   fd_calculate_stake_vote_rewards_result_t * result;
-  fd_spad_t * *                              exec_spads;
-  ulong                                      exec_spad_cnt;
 };
 typedef struct fd_calculate_stake_vote_rewards_task_args fd_calculate_stake_vote_rewards_task_args_t;
 
@@ -34,14 +32,10 @@ fd_begin_partitioned_rewards( fd_exec_slot_ctx_t * slot_ctx,
                               fd_hash_t const *    parent_blockhash,
                               ulong                parent_epoch,
                               fd_epoch_info_t *    temp_info,
-                              fd_spad_t * *        exec_spads,
-                              ulong                exec_spad_cnt,
                               fd_spad_t *          runtime_spad );
 
 void
 fd_rewards_recalculate_partitioned_rewards( fd_exec_slot_ctx_t * slot_ctx,
-                                            fd_spad_t * *        exec_spads,
-                                            ulong                exec_spad_cnt,
                                             fd_spad_t *          runtime_spad );
 
 void
