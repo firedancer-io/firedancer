@@ -24,8 +24,26 @@ main( int argc, char ** argv ) {
   fd_banks_t * banks = fd_banks_join( mem );
   FD_TEST( banks );
 
-  fd_bank_t * bank = fd_banks_init_bank( banks, 1UL );
+  /* Rekeying the root bank should fail because there is no root bank */
+
+  FD_TEST( !fd_banks_rekey_root_bank( banks, 1UL ) );
+
+  fd_bank_t * bank = fd_banks_init_bank( banks, 999UL );
   FD_TEST( bank );
+
+  /* Rekey the root bank to the same slot */
+
+  fd_bank_t * rekeyed_root = fd_banks_rekey_root_bank( banks, 999UL );
+  FD_TEST( rekeyed_root );
+  FD_TEST( fd_bank_slot_get( rekeyed_root ) == 999UL );
+  FD_TEST( rekeyed_root == bank );
+
+  /* Rekey the root bank to a different slot*/
+
+  rekeyed_root = fd_banks_rekey_root_bank( banks, 1UL );
+  FD_TEST( rekeyed_root );
+  FD_TEST( fd_bank_slot_get( rekeyed_root ) == 1UL );
+  FD_TEST( rekeyed_root == bank );
 
   /* Set some fields */
 
@@ -118,7 +136,24 @@ main( int argc, char ** argv ) {
   FD_TEST( fd_bank_slot_get( new_root )==7UL );
   FD_TEST( new_root == bank7 );
 
-  fd_bank_t * bank10 = fd_banks_clone_from_parent( banks, 10UL, 7UL );
+  /* Rekey the new root to a different slot and make sure that
+     bank7 is still the root and that its children are still valid */
+
+  rekeyed_root = fd_banks_rekey_root_bank( banks, 1234UL );
+  FD_TEST( rekeyed_root );
+  FD_TEST( fd_bank_slot_get( rekeyed_root ) == 1234UL );
+  FD_TEST( rekeyed_root == bank7 );
+
+  FD_TEST( rekeyed_root == fd_banks_root( banks ) );
+
+  fd_bank_t const * parent = fd_banks_pool_ele_const( fd_banks_get_bank_pool( banks ), bank8->parent_idx );
+  FD_TEST( parent );
+  FD_TEST( fd_bank_slot_get( parent ) == 1234UL );
+  FD_TEST( parent == rekeyed_root );
+
+  /* Create some new children*/
+
+  fd_bank_t * bank10 = fd_banks_clone_from_parent( banks, 10UL, 1234UL );
   FD_TEST( bank10 );
   FD_TEST( fd_bank_capitalization_get( bank10 ) == 2100UL );
 
@@ -161,9 +196,9 @@ main( int argc, char ** argv ) {
   fd_bank_clock_timestamp_votes_end_locking_modify( bank11 );
 
   /* Now there should be 3 forks:
-     1. 7 -> 8
-     2. 7 -> 9 -> 11
-     3  7 -> 10 */
+     1. 7 (1234) -> 8
+     2. 7 (1234) -> 9 -> 11
+     3  7 (1234) -> 10 */
 
   /* Verify that direct and competing forks are pruned off */
   FD_TEST( !fd_banks_get_bank( banks, 6UL ) );
@@ -172,11 +207,13 @@ main( int argc, char ** argv ) {
   /* At this point, bank7 is the root and it has 3 children: bank8, bank9, and bank10 */
 
   /* Verify that children slots are not pruned off */
+
   FD_TEST( !!fd_banks_get_bank( banks, 8UL ) );
   FD_TEST( !!fd_banks_get_bank( banks, 9UL ) );
   FD_TEST( !!fd_banks_get_bank( banks, 10UL ) );
 
   /* Verify that the CoW fields are properly set for bank11 */
+
   keys3 = fd_bank_vote_account_keys_locking_query( bank11 );
   FD_TEST( keys3->account_keys_pool_offset == 200UL );
   FD_TEST( keys3->account_keys_root_offset == 200UL );
@@ -200,6 +237,7 @@ main( int argc, char ** argv ) {
      2. Pool was not made dirty and had a null parent pool idx.
      3. Pool was made dirty and had a non-null parent pool idx.
      4. Pool was made dirty and had a null parent pool idx. */
+
   fd_banks_clear_bank( banks, bank11 );
   FD_TEST( fd_bank_slot_get( bank11 ) == 11UL );
   FD_TEST( fd_bank_capitalization_get( bank11 ) == 0UL );

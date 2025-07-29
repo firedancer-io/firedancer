@@ -1696,6 +1696,7 @@ unprivileged_init( fd_topo_t *      topo,
   if( FD_UNLIKELY( !ctx->banks ) ) {
     FD_LOG_ERR(( "failed to join banks" ));
   }
+
   fd_bank_t * bank = fd_banks_init_bank( ctx->banks, 0UL );
   if( FD_UNLIKELY( !bank ) ) {
     FD_LOG_ERR(( "failed to init bank" ));

@@ -654,6 +654,19 @@ fd_banks_publish( fd_banks_t * banks, ulong slot );
 void
 fd_banks_clear_bank( fd_banks_t * banks, fd_bank_t * bank );
 
+/* fd_banks_rekey_root_bank() will change the key of the current root
+   bank to a caller-specified slot. This function returns the root bank
+   with the new key.
+
+   This should NOT be called once the root bank has child banks.
+
+   This is useful for snapshot loading where there are an unknown amount
+   of banks to load and the latest snapshot is the root slot. This
+   effectively lowers the memory used by snapshot loading. */
+
+fd_bank_t *
+fd_banks_rekey_root_bank( fd_banks_t * banks, ulong slot );
+
 FD_PROTOTYPES_END
 
 #endif /* HEADER_fd_src_flamenco_runtime_fd_bank_h */

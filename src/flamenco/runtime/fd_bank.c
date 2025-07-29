@@ -755,3 +755,40 @@ fd_banks_clear_bank( fd_banks_t * banks, fd_bank_t * bank ) {
   #undef HAS_COW_0
   #undef HAS_COW_1
 }
+
+fd_bank_t *
+fd_banks_rekey_root_bank( fd_banks_t * banks, ulong slot ) {
+
+  if( FD_UNLIKELY( !banks ) ) {
+    FD_LOG_WARNING(( "Banks is NULL" ));
+    return NULL;
+  }
+
+  if( FD_UNLIKELY( banks->root_idx==fd_banks_pool_idx_null( fd_banks_get_bank_pool( banks ) ) ) ) {
+    FD_LOG_WARNING(( "Root bank does not exist" ));
+    return NULL;
+  }
+
+  fd_bank_t * bank = fd_banks_pool_ele( fd_banks_get_bank_pool( banks ), banks->root_idx );
+  if( FD_UNLIKELY( !bank ) ) {
+    FD_LOG_WARNING(( "Failed to get root bank" ));
+    return NULL;
+  }
+
+  /* Once we validated that there is a valid root bank, we can remove
+     the bank from the map and insert it with the new key. */
+  bank = fd_banks_map_ele_remove( fd_banks_get_bank_map( banks ), &bank->slot_, NULL, fd_banks_get_bank_pool( banks ) );
+  if( FD_UNLIKELY( !bank ) ) {
+    FD_LOG_WARNING(( "Failed to remove root bank" ));
+    return NULL;
+  }
+
+  bank->slot_ = slot;
+
+  if( FD_UNLIKELY( !fd_banks_map_ele_insert( fd_banks_get_bank_map( banks ), bank, fd_banks_get_bank_pool( banks ) ) ) ) {
+    FD_LOG_WARNING(( "Failed to insert root bank" ));
+    return NULL;
+  }
+
+  return bank;
+}
