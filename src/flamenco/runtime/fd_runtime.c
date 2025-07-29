@@ -233,16 +233,17 @@ fd_runtime_update_lthash_with_account_prev_hash( fd_txn_account_t *      account
                                                  fd_bank_t *             bank,
                                                  fd_stem_context_t *     stem,
                                                  fd_replay_out_link_t *  capture_out ) {
-  /* Do nothing if the account has zero lamports */
-  if( FD_UNLIKELY( account->vt->get_lamports( account ) == 0UL ) ) {
-    return;
-  }
-
   /* Subtract the old hash of the account from the bank lthash */
   fd_lthash_value_t * bank_lthash = fd_type_pun( fd_bank_lthash_locking_modify( bank ) );
   FD_LOG_WARNING(( "Subtracting old hash of account %s (old_hash: %s) from bank lthash: %s", FD_BASE58_ENC_32_ALLOCA( account->pubkey ), FD_LTHASH_ENC_32_ALLOCA( old_hash ), FD_LTHASH_ENC_32_ALLOCA( bank_lthash ) ));
   fd_lthash_sub( bank_lthash, old_hash );
   FD_LOG_WARNING(( "New bank lthash: %s", FD_LTHASH_ENC_32_ALLOCA( bank_lthash ) ));
+
+  /* Do nothing if the account has zero lamports */
+  if( FD_UNLIKELY( account->vt->get_lamports( account ) == 0UL ) ) {
+    fd_bank_lthash_end_locking_modify( bank );
+    return;
+  }
 
   /* Hash the new version of the account */
   fd_lthash_value_t new_hash[1];
