@@ -95,9 +95,9 @@
          - The program account's owner will be set to the system program
            and thus fail account loading checks. */
 
-/* `fd_sbpf_validated_program` defines the structure for a single
+/* `fd_program_cache_entry` defines the structure for a single
    program cache entry. */
-struct fd_sbpf_validated_program {
+struct fd_program_cache_entry {
   ulong magic;
 
    /* For any programs that fail verification, we retain this flag for
@@ -147,40 +147,30 @@ struct fd_sbpf_validated_program {
    /* SBPF version, SIMD-0161 */
    ulong sbpf_version;
 };
-typedef struct fd_sbpf_validated_program fd_sbpf_validated_program_t;
+typedef struct fd_program_cache_entry fd_program_cache_entry_t;
 
 /* arbitrary unique value, in this case
-   echo -n "fd_sbpf_validated_program" | sha512sum | head -c 16 */
-#define FD_SBPF_VALIDATED_PROGRAM_MAGIC 0xfd5540ddc5a33496
+   echo -n "fd_program_cache_entry" | sha512sum | head -c 16 */
+#define FD_PROGRAM_CACHE_ENTRY_MAGIC 0xb45640baf006ddf6
 
 FD_PROTOTYPES_BEGIN
 
-fd_sbpf_validated_program_t *
-fd_sbpf_validated_program_new( void *                    mem,
-                              fd_sbpf_elf_info_t const * elf_info,
-                              ulong                      last_modified_slot,
-                              ulong                      last_slot_verification_ran );
-
+fd_program_cache_entry_t *
+fd_program_cache_entry_new( void *                     mem,
+                            fd_sbpf_elf_info_t const * elf_info,
+                            ulong                      last_modified_slot,
+                            ulong                      last_slot_verification_ran );
 ulong
-fd_sbpf_validated_program_align( void );
-
-ulong
-fd_sbpf_validated_program_footprint( fd_sbpf_elf_info_t const * elf_info );
-
-void
-fd_sbpf_get_sbpf_versions( uint *                sbpf_min_version,
-                           uint *                sbpf_max_version,
-                           ulong                 slot,
-                           fd_features_t const * features );
+fd_program_cache_entry_footprint( fd_sbpf_elf_info_t const * elf_info );
 
 /* Loads a single program cache entry for a given pubkey. Returns 0 on
    success and -1 on failure. On success, `*valid_prog` holds a pointer
    to the program cache entry. */
 int
-fd_bpf_load_cache_entry( fd_funk_t const *                    funk,
-                         fd_funk_txn_t const *                funk_txn,
-                         fd_pubkey_t const *                  program_pubkey,
-                         fd_sbpf_validated_program_t const ** valid_prog );
+fd_program_cache_load_entry( fd_funk_t const *                 funk,
+                             fd_funk_txn_t const *             funk_txn,
+                             fd_pubkey_t const *               program_pubkey,
+                             fd_program_cache_entry_t const ** valid_prog );
 
 /* Parses the programdata from a program account. Returns a pointer to
    the program data and sets `out_program_data_len` on success. Returns
@@ -189,15 +179,11 @@ fd_bpf_load_cache_entry( fd_funk_t const *                    funk,
    state. Reasons for failure vary on the loader version. See the
    respective functions in this file for more details. */
 uchar const *
-fd_bpf_get_programdata_from_account( fd_funk_t const *        funk,
-                                     fd_funk_txn_t const *    funk_txn,
-                                     fd_txn_account_t const * program_acc,
-                                     ulong *                  out_program_data_len,
-                                     fd_spad_t *              runtime_spad );
-
-/* Returns 1 if the program failed verification, 0 otherwise. */
-uchar
-fd_program_cache_program_failed_verification( fd_sbpf_validated_program_t const * validated_prog );
+fd_program_cache_get_account_programdata( fd_funk_t const *        funk,
+                                          fd_funk_txn_t const *    funk_txn,
+                                          fd_txn_account_t const * program_acc,
+                                          ulong *                  out_program_data_len,
+                                          fd_spad_t *              runtime_spad );
 
 /* Updates the program cache for a single program. This function is
    called for every program that is referenced in a transaction, plus
@@ -229,7 +215,7 @@ fd_program_cache_update_program( fd_exec_slot_ctx_t * slot_ctx,
    program cache entry to the current slot. If the cache entry
    for the program does not exist yet (e.g. newly deployed programs),
    this function does nothing and instead,
-   `fd_program_cache_program_failed_verification()` will insert
+   `fd_program_cache_publish_failed_verification_rec()` will insert
    the program into the cache. */
 void
 fd_program_cache_queue_program_for_reverification( fd_funk_t *              funk,

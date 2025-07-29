@@ -106,8 +106,8 @@ test_account_does_not_exist( void ) {
   fd_program_cache_update_program( test_slot_ctx, &non_existent_pubkey, test_spad );
 
   /* Verify no cache entry was created */
-  fd_sbpf_validated_program_t const * valid_prog = NULL;
-  int err = fd_bpf_load_cache_entry( test_funk, funk_txn, &non_existent_pubkey, &valid_prog );
+  fd_program_cache_entry_t const * valid_prog = NULL;
+  int err = fd_program_cache_load_entry( test_funk, funk_txn, &non_existent_pubkey, &valid_prog );
   FD_TEST( err==-1 ); /* Should not exist */
 
   fd_funk_txn_cancel( test_funk, funk_txn, 0 );
@@ -132,8 +132,8 @@ test_account_not_bpf_loader_owner( void ) {
   fd_program_cache_update_program( test_slot_ctx, &test_program_pubkey, test_spad );
 
   /* Verify no cache entry was created */
-  fd_sbpf_validated_program_t const * valid_prog = NULL;
-  int err = fd_bpf_load_cache_entry( test_funk, funk_txn, &test_program_pubkey, &valid_prog );
+  fd_program_cache_entry_t const * valid_prog = NULL;
+  int err = fd_program_cache_load_entry( test_funk, funk_txn, &test_program_pubkey, &valid_prog );
   FD_TEST( err==-1 ); /* Should not exist */
 
   fd_funk_txn_cancel( test_funk, funk_txn, 0 );
@@ -158,11 +158,11 @@ test_invalid_program_not_in_cache_first_time( void ) {
   fd_program_cache_update_program( test_slot_ctx, &test_program_pubkey, test_spad );
 
   /* Verify cache entry was created */
-  fd_sbpf_validated_program_t const * valid_prog = NULL;
-  int err = fd_bpf_load_cache_entry( test_funk, funk_txn, &test_program_pubkey, &valid_prog );
+  fd_program_cache_entry_t const * valid_prog = NULL;
+  int err = fd_program_cache_load_entry( test_funk, funk_txn, &test_program_pubkey, &valid_prog );
   FD_TEST( !err ); /* Should exist */
   FD_TEST( valid_prog );
-  FD_TEST( valid_prog->magic==FD_SBPF_VALIDATED_PROGRAM_MAGIC );
+  FD_TEST( valid_prog->magic==FD_PROGRAM_CACHE_ENTRY_MAGIC );
   FD_TEST( valid_prog->failed_verification );
   FD_TEST( valid_prog->last_slot_verification_ran==fd_bank_slot_get( test_slot_ctx->bank ) );
 
@@ -188,11 +188,11 @@ test_valid_program_not_in_cache_first_time( void ) {
   fd_program_cache_update_program( test_slot_ctx, &test_program_pubkey, test_spad );
 
   /* Verify cache entry was created */
-  fd_sbpf_validated_program_t const * valid_prog = NULL;
-  int err = fd_bpf_load_cache_entry( test_funk, funk_txn, &test_program_pubkey, &valid_prog );
+  fd_program_cache_entry_t const * valid_prog = NULL;
+  int err = fd_program_cache_load_entry( test_funk, funk_txn, &test_program_pubkey, &valid_prog );
   FD_TEST( !err ); /* Should exist */
   FD_TEST( valid_prog );
-  FD_TEST( valid_prog->magic==FD_SBPF_VALIDATED_PROGRAM_MAGIC );
+  FD_TEST( valid_prog->magic==FD_PROGRAM_CACHE_ENTRY_MAGIC );
   FD_TEST( !valid_prog->failed_verification );
   FD_TEST( valid_prog->last_slot_verification_ran==fd_bank_slot_get( test_slot_ctx->bank ) );
 
@@ -219,11 +219,11 @@ test_program_in_cache_needs_reverification( void ) {
   fd_program_cache_update_program( test_slot_ctx, &test_program_pubkey, test_spad );
 
   /* Verify cache entry was created */
-  fd_sbpf_validated_program_t const * valid_prog = NULL;
-  int err = fd_bpf_load_cache_entry( test_funk, funk_txn, &test_program_pubkey, &valid_prog );
+  fd_program_cache_entry_t const * valid_prog = NULL;
+  int err = fd_program_cache_load_entry( test_funk, funk_txn, &test_program_pubkey, &valid_prog );
   FD_TEST( !err );
   FD_TEST( valid_prog );
-  FD_TEST( valid_prog->magic==FD_SBPF_VALIDATED_PROGRAM_MAGIC );
+  FD_TEST( valid_prog->magic==FD_PROGRAM_CACHE_ENTRY_MAGIC );
   FD_TEST( !valid_prog->failed_verification );
   FD_TEST( valid_prog->last_slot_verification_ran==fd_bank_slot_get( test_slot_ctx->bank ) );
 
@@ -234,10 +234,10 @@ test_program_in_cache_needs_reverification( void ) {
   fd_program_cache_update_program( test_slot_ctx, &test_program_pubkey, test_spad );
 
   /* Verify the cache entry was updated */
-  err = fd_bpf_load_cache_entry( test_funk, funk_txn, &test_program_pubkey, &valid_prog );
+  err = fd_program_cache_load_entry( test_funk, funk_txn, &test_program_pubkey, &valid_prog );
   FD_TEST( !err );
   FD_TEST( valid_prog );
-  FD_TEST( valid_prog->magic==FD_SBPF_VALIDATED_PROGRAM_MAGIC );
+  FD_TEST( valid_prog->magic==FD_PROGRAM_CACHE_ENTRY_MAGIC );
   FD_TEST( !valid_prog->failed_verification );
   FD_TEST( valid_prog->last_slot_verification_ran==fd_bank_slot_get( test_slot_ctx->bank ) );
 
@@ -264,11 +264,11 @@ test_program_in_cache_queued_for_reverification( void ) {
   fd_program_cache_update_program( test_slot_ctx, &test_program_pubkey, test_spad );
 
   /* Verify cache entry was created */
-  fd_sbpf_validated_program_t const * valid_prog = NULL;
-  int err = fd_bpf_load_cache_entry( test_funk, funk_txn, &test_program_pubkey, &valid_prog );
+  fd_program_cache_entry_t const * valid_prog = NULL;
+  int err = fd_program_cache_load_entry( test_funk, funk_txn, &test_program_pubkey, &valid_prog );
   FD_TEST( !err );
   FD_TEST( valid_prog );
-  FD_TEST( valid_prog->magic==FD_SBPF_VALIDATED_PROGRAM_MAGIC );
+  FD_TEST( valid_prog->magic==FD_PROGRAM_CACHE_ENTRY_MAGIC );
   FD_TEST( !valid_prog->failed_verification );
   FD_TEST( valid_prog->last_slot_verification_ran==fd_bank_slot_get( test_slot_ctx->bank ) );
 
@@ -287,10 +287,10 @@ test_program_in_cache_queued_for_reverification( void ) {
   fd_program_cache_queue_program_for_reverification( test_funk, funk_txn, program_acc, future_slot );
 
   /* Verify the cache entry was updated with the future slot as last_modified_slot */
-  err = fd_bpf_load_cache_entry( test_funk, funk_txn, &test_program_pubkey, &valid_prog );
+  err = fd_program_cache_load_entry( test_funk, funk_txn, &test_program_pubkey, &valid_prog );
   FD_TEST( !err );
   FD_TEST( valid_prog );
-  FD_TEST( valid_prog->magic==FD_SBPF_VALIDATED_PROGRAM_MAGIC );
+  FD_TEST( valid_prog->magic==FD_PROGRAM_CACHE_ENTRY_MAGIC );
   FD_TEST( !valid_prog->failed_verification );
   FD_TEST( valid_prog->last_modified_slot==future_slot );
   FD_TEST( valid_prog->last_slot_verification_ran==original_slot );
@@ -330,8 +330,8 @@ test_program_queued_for_reverification_account_does_not_exist( void ) {
   fd_program_cache_queue_program_for_reverification( test_funk, funk_txn, program_acc, future_slot );
 
   /* Verify no cache entry was created since the program wasn't in the cache */
-  fd_sbpf_validated_program_t const * valid_prog = NULL;
-  err = fd_bpf_load_cache_entry( test_funk, funk_txn, &test_program_pubkey, &valid_prog );
+  fd_program_cache_entry_t const * valid_prog = NULL;
+  err = fd_program_cache_load_entry( test_funk, funk_txn, &test_program_pubkey, &valid_prog );
   FD_TEST( err ); /* Should not exist */
 
   fd_funk_txn_cancel( test_funk, funk_txn, 0 );
@@ -358,11 +358,11 @@ test_program_in_cache_queued_for_reverification_and_processed( void ) {
   fd_program_cache_update_program( test_slot_ctx, &test_program_pubkey, test_spad );
 
   /* Verify cache entry was created */
-  fd_sbpf_validated_program_t const * valid_prog = NULL;
-  int err = fd_bpf_load_cache_entry( test_funk, funk_txn, &test_program_pubkey, &valid_prog );
+  fd_program_cache_entry_t const * valid_prog = NULL;
+  int err = fd_program_cache_load_entry( test_funk, funk_txn, &test_program_pubkey, &valid_prog );
   FD_TEST( !err );
   FD_TEST( valid_prog );
-  FD_TEST( valid_prog->magic==FD_SBPF_VALIDATED_PROGRAM_MAGIC );
+  FD_TEST( valid_prog->magic==FD_PROGRAM_CACHE_ENTRY_MAGIC );
   FD_TEST( !valid_prog->failed_verification );
   FD_TEST( valid_prog->last_slot_verification_ran==fd_bank_slot_get( test_slot_ctx->bank ) );
 
@@ -381,10 +381,10 @@ test_program_in_cache_queued_for_reverification_and_processed( void ) {
   fd_program_cache_queue_program_for_reverification( test_funk, funk_txn, program_acc, future_slot );
 
   /* Verify the cache entry was updated with the future slot as last_modified_slot */
-  err = fd_bpf_load_cache_entry( test_funk, funk_txn, &test_program_pubkey, &valid_prog );
+  err = fd_program_cache_load_entry( test_funk, funk_txn, &test_program_pubkey, &valid_prog );
   FD_TEST( !err );
   FD_TEST( valid_prog );
-  FD_TEST( valid_prog->magic==FD_SBPF_VALIDATED_PROGRAM_MAGIC );
+  FD_TEST( valid_prog->magic==FD_PROGRAM_CACHE_ENTRY_MAGIC );
   FD_TEST( !valid_prog->failed_verification );
   FD_TEST( valid_prog->last_modified_slot==future_slot );
   FD_TEST( valid_prog->last_slot_verification_ran==original_slot );
@@ -399,10 +399,10 @@ test_program_in_cache_queued_for_reverification_and_processed( void ) {
   fd_program_cache_update_program( test_slot_ctx, &test_program_pubkey, test_spad );
 
   /* Verify the cache entry was updated */
-  err = fd_bpf_load_cache_entry( test_funk, funk_txn, &test_program_pubkey, &valid_prog );
+  err = fd_program_cache_load_entry( test_funk, funk_txn, &test_program_pubkey, &valid_prog );
   FD_TEST( !err );
   FD_TEST( valid_prog );
-  FD_TEST( valid_prog->magic==FD_SBPF_VALIDATED_PROGRAM_MAGIC );
+  FD_TEST( valid_prog->magic==FD_PROGRAM_CACHE_ENTRY_MAGIC );
   FD_TEST( !valid_prog->failed_verification );
   FD_TEST( valid_prog->last_slot_verification_ran==future_update_slot );
   FD_TEST( valid_prog->last_modified_slot==future_slot );

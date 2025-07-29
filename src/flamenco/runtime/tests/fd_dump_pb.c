@@ -1224,7 +1224,11 @@ FD_SPAD_FRAME_BEGIN( txn_ctx->spad ) {
 
   /* Get the programdata for the account */
   ulong         program_data_len = 0UL;
-  uchar const * program_data     = fd_bpf_get_programdata_from_account( txn_ctx->funk, txn_ctx->funk_txn, program_acc, &program_data_len, txn_ctx->spad );
+  uchar const * program_data     = fd_program_cache_get_account_programdata( txn_ctx->funk,
+                                                                             txn_ctx->funk_txn,
+                                                                             program_acc,
+                                                                             &program_data_len,
+                                                                             txn_ctx->spad );
   if( program_data==NULL ) {
     return;
   }

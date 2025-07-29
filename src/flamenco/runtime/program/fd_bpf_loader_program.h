@@ -63,6 +63,12 @@ fd_bpf_loader_program_get_state( fd_txn_account_t const * acc,
                                  fd_spad_t *              spad,
                                  int *                    err );
 
+void
+fd_bpf_get_sbpf_versions( uint *                sbpf_min_version,
+                          uint *                sbpf_max_version,
+                          ulong                 slot,
+                          fd_features_t const * features );
+
 int
 fd_deploy_program( fd_exec_instr_ctx_t * instr_ctx,
                    uchar const *         programdata,
@@ -70,7 +76,9 @@ fd_deploy_program( fd_exec_instr_ctx_t * instr_ctx,
                    fd_spad_t *           spad );
 
 int
-fd_bpf_execute( fd_exec_instr_ctx_t * instr_ctx, fd_sbpf_validated_program_t const * prog, uchar is_deprecated );
+fd_bpf_execute( fd_exec_instr_ctx_t *            instr_ctx,
+                fd_program_cache_entry_t const * cache_entry,
+                uchar                            is_deprecated );
 
 int
 fd_bpf_loader_program_execute( fd_exec_instr_ctx_t * instr_ctx );
