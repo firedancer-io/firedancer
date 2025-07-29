@@ -3,7 +3,7 @@
 
 #include "../../flamenco/fd_flamenco_base.h"
 #include "../../flamenco/runtime/context/fd_exec_slot_ctx.h"
-#include "../../flamenco/runtime/fd_runtime_public.h"
+#include "../../flamenco/runtime/fd_runtime.h"
 #include "../../flamenco/stakes/fd_stakes.h"
 #include "../../flamenco/runtime/sysvar/fd_sysvar_epoch_schedule.h"
 
@@ -27,11 +27,11 @@ generate_stake_weight_msg( fd_exec_slot_ctx_t * slot_ctx,
   fd_epoch_schedule_t const * epoch_schedule = fd_bank_epoch_schedule_query( slot_ctx->bank );
 
   stake_weight_msg->epoch          = epoch;
-  stake_weight_msg->staked_cnt     = staked_cnt;                           /* staked_cnt */
-  stake_weight_msg->start_slot     = fd_epoch_slot0( epoch_schedule, stake_weight_msg_out[0] ); /* start_slot */
-  stake_weight_msg->slot_cnt       = epoch_schedule->slots_per_epoch; /* slot_cnt */
-  stake_weight_msg->excluded_stake = 0UL;                                        /* excluded stake */
-  stake_weight_msg->vote_keyed_lsched = 0UL;
+  stake_weight_msg->staked_cnt     = staked_cnt;
+  stake_weight_msg->start_slot     = fd_epoch_slot0( epoch_schedule, stake_weight_msg_out[0] );
+  stake_weight_msg->slot_cnt       = epoch_schedule->slots_per_epoch;
+  stake_weight_msg->excluded_stake = 0UL;
+  stake_weight_msg->vote_keyed_lsched = (ulong)fd_runtime_should_use_vote_keyed_leader_schedule( slot_ctx->bank );
 
   return fd_stake_weight_msg_sz( staked_cnt );
 }
