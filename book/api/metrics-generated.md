@@ -739,15 +739,13 @@
 | Metric | Type | Description |
 |--------|------|-------------|
 | <span class="metrics-name">send_&#8203;leader_&#8203;not_&#8203;found</span> | counter | Total number of times slot leader not found |
-| <span class="metrics-name">send_&#8203;new_&#8203;contact_&#8203;info</span><br/>{new_&#8203;contact_&#8203;outcome="<span class="metrics-enum">connect</span>"} | counter | Total number of contact infos received and handled (Initiated connection) |
 | <span class="metrics-name">send_&#8203;new_&#8203;contact_&#8203;info</span><br/>{new_&#8203;contact_&#8203;outcome="<span class="metrics-enum">unroutable</span>"} | counter | Total number of contact infos received and handled (Skipped (unroutable)) |
 | <span class="metrics-name">send_&#8203;new_&#8203;contact_&#8203;info</span><br/>{new_&#8203;contact_&#8203;outcome="<span class="metrics-enum">unstaked</span>"} | counter | Total number of contact infos received and handled (Skipped (unstaked)) |
 | <span class="metrics-name">send_&#8203;new_&#8203;contact_&#8203;info</span><br/>{new_&#8203;contact_&#8203;outcome="<span class="metrics-enum">changed</span>"} | counter | Total number of contact infos received and handled (Contact info changed) |
 | <span class="metrics-name">send_&#8203;new_&#8203;contact_&#8203;info</span><br/>{new_&#8203;contact_&#8203;outcome="<span class="metrics-enum">no_&#8203;change</span>"} | counter | Total number of contact infos received and handled (Contact info unchanged) |
 | <span class="metrics-name">send_&#8203;contact_&#8203;stale</span> | counter | Total number of reconnects skipped due to stale contact info |
-| <span class="metrics-name">send_&#8203;quic_&#8203;send_&#8203;result</span><br/>{txn_&#8203;quic_&#8203;send_&#8203;result="<span class="metrics-enum">success</span>"} | counter | Total number of transactions we attempted to send via QUIC (Success) |
-| <span class="metrics-name">send_&#8203;quic_&#8203;send_&#8203;result</span><br/>{txn_&#8203;quic_&#8203;send_&#8203;result="<span class="metrics-enum">no_&#8203;conn</span>"} | counter | Total number of transactions we attempted to send via QUIC (No QUIC connection) |
-| <span class="metrics-name">send_&#8203;quic_&#8203;send_&#8203;result</span><br/>{txn_&#8203;quic_&#8203;send_&#8203;result="<span class="metrics-enum">no_&#8203;stream</span>"} | counter | Total number of transactions we attempted to send via QUIC (No QUIC stream) |
+| <span class="metrics-name">send_&#8203;send_&#8203;result</span><br/>{txn_&#8203;send_&#8203;result="<span class="metrics-enum">success</span>"} | counter | Outcomes of trying to send transactions (Success) |
+| <span class="metrics-name">send_&#8203;send_&#8203;result</span><br/>{txn_&#8203;send_&#8203;result="<span class="metrics-enum">missing_&#8203;c_&#8203;i</span>"} | counter | Outcomes of trying to send transactions (Missing CI or unroutable) |
 | <span class="metrics-name">send_&#8203;quic_&#8203;conn_&#8203;create_&#8203;failed</span> | counter | Total number of QUIC connection creation failures |
 | <span class="metrics-name">send_&#8203;received_&#8203;packets</span> | counter | Total count of QUIC packets received |
 | <span class="metrics-name">send_&#8203;received_&#8203;bytes</span> | counter | Total bytes received via QUIC |

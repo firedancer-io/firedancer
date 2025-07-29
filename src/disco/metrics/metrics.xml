@@ -252,17 +252,15 @@ metric introduced.
 
 
 <enum name="NewContactOutcome">
-    <int value="0" name="Connect" label="Initiated connection" />
-    <int value="1" name="Unroutable" label="Skipped (unroutable)" />
-    <int value="2" name="Unstaked" label="Skipped (unstaked)" />
-    <int value="3" name="Changed" label="Contact info changed" />
-    <int value="4" name="NoChange" label="Contact info unchanged" />
+    <int value="0" name="Unroutable" label="Skipped (unroutable)" />
+    <int value="1" name="Unstaked" label="Skipped (unstaked)" />
+    <int value="2" name="Changed" label="Contact info changed" />
+    <int value="3" name="NoChange" label="Contact info unchanged" />
 </enum>
 
-<enum name="TxnQuicSendResult">
+<enum name="TxnSendResult">
     <int value="0" name="Success" label="Success" />
-    <int value="1" name="NoConn" label="No QUIC connection" />
-    <int value="2" name="NoStream" label="No QUIC stream" />
+    <int value="1" name="MissingCI" label="Missing CI or unroutable" />
 </enum>
 
 <tile name="send">
@@ -270,7 +268,7 @@ metric introduced.
     <counter name="LeaderNotFound" summary="Total number of times slot leader not found" />
     <counter name="NewContactInfo" enum="NewContactOutcome" summary="Total number of contact infos received and handled" />
     <counter name="ContactStale" summary="Total number of reconnects skipped due to stale contact info" />
-    <counter name="QuicSendResult" enum="TxnQuicSendResult" summary="Total number of transactions we attempted to send via QUIC" />
+    <counter name="SendResult" enum="TxnSendResult" summary="Outcomes of trying to send transactions" />
     <counter name="QuicConnCreateFailed" summary="Total number of QUIC connection creation failures" />
 
     <!-- QUIC packet metrics -->
