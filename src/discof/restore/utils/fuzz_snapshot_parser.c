@@ -16,12 +16,7 @@ LLVMFuzzerInitialize( int  *   argc,
   fd_log_level_core_set   ( 4 );
   fd_log_level_logfile_set( 4 );
 
-  /* Initialize FD_ONCE which sets the hashmap seed */
-  fd_snapshot_parser_new( NULL, 0, NULL, NULL, NULL, NULL );
-  /* Override the hashmap seed to make the fuzzer deterministic */
-  fd_snapshot_accv_seed = 42;
-
-  parser_mem = aligned_alloc( fd_snapshot_parser_align(), fd_snapshot_parser_footprint( ACCV_LG_SLOT_CNT ) );
+  parser_mem = aligned_alloc( fd_snapshot_parser_align(), fd_snapshot_parser_footprint( 1024UL ) );
   assert( parser_mem );
 
   return 0;
@@ -49,7 +44,7 @@ acc_data_cb( void *        _ctx,
 int
 LLVMFuzzerTestOneInput( uchar const * const data,
                         ulong         const size ) {
-  fd_snapshot_parser_t * parser = fd_snapshot_parser_new( parser_mem, ACCV_LG_SLOT_CNT, NULL, manifest_cb, acc_hdr_cb, acc_data_cb );
+  fd_snapshot_parser_t * parser = fd_snapshot_parser_new( parser_mem, NULL, 42UL, 1024UL, manifest_cb, acc_hdr_cb, acc_data_cb );
   assert( parser );
   /* FIXME split input in the future */
   uchar const * p   = data;
