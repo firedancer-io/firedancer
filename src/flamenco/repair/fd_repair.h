@@ -4,6 +4,7 @@
 #include "../gossip/fd_gossip.h"
 #include "../../ballet/shred/fd_shred.h"
 #include "../../disco/metrics/generated/fd_metrics_repair.h"
+#include "../../disco/metrics/fd_metrics.h"
 
 
 #define FD_REPAIR_DELIVER_FAIL_TIMEOUT -1
@@ -180,6 +181,8 @@ struct fd_repair_metrics {
   ulong recv_pkt_corrupted_msg;
   ulong send_pkt_cnt;
   ulong sent_pkt_types[FD_METRICS_ENUM_REPAIR_SENT_REQUEST_TYPES_CNT];
+  fd_histf_t store_link_wait[ 1 ];
+  fd_histf_t store_link_work[ 1 ];
 };
 typedef struct fd_repair_metrics fd_repair_metrics_t;
 #define FD_REPAIR_METRICS_FOOTPRINT ( sizeof( fd_repair_metrics_t ) )

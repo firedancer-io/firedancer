@@ -215,6 +215,8 @@ typedef struct {
     ulong shred_processing_result[ FD_FEC_RESOLVER_ADD_SHRED_RETVAL_CNT+FD_SHRED_ADD_SHRED_EXTRA_RETVAL_CNT ];
     ulong invalid_block_id_cnt;
     ulong shred_rejected_unchained_cnt;
+    fd_histf_t store_insert_wait[ 1 ];
+    fd_histf_t store_insert_work[ 1 ];
   } metrics[ 1 ];
 
   struct {
@@ -286,6 +288,8 @@ metrics_write( fd_shred_ctx_t * ctx ) {
 
   FD_MCNT_SET  ( SHRED, INVALID_BLOCK_ID,           ctx->metrics->invalid_block_id_cnt         );
   FD_MCNT_SET  ( SHRED, SHRED_REJECTED_UNCHAINED,   ctx->metrics->shred_rejected_unchained_cnt );
+  FD_MHIST_COPY( SHRED, STORE_INSERT_WAIT,          ctx->metrics->store_insert_wait            );
+  FD_MHIST_COPY( SHRED, STORE_INSERT_WORK,          ctx->metrics->store_insert_work            );
 
   FD_MCNT_ENUM_COPY( SHRED, SHRED_PROCESSED, ctx->metrics->shred_processing_result             );
 }
@@ -915,9 +919,11 @@ after_frag( fd_shred_ctx_t *    ctx,
          understand why it is safe to use a Store read vs. write lock in
          Shred tile. */
 
-      fd_store_shacq( ctx->store );
+      long shacq_start, shacq_end, shrel_end;
+      FD_STORE_SHACQ_TIMED( ctx->store, shacq_start, shacq_end );
       fd_store_fec_t * fec = fd_store_insert( ctx->store, (uint)ctx->round_robin_id, (fd_hash_t *)fd_type_pun( &out_merkle_root ) );
-      fd_store_shrel( ctx->store );
+      FD_STORE_SHREL_TIMED( ctx->store, shrel_end );
+
       for( ulong i=0UL; i<set->data_shred_cnt; i++ ) {
         fd_shred_t * data_shred = (fd_shred_t *)fd_type_pun( set->data_shreds[i] );
         ulong        payload_sz = fd_shred_payload_sz( data_shred );
@@ -945,6 +951,9 @@ after_frag( fd_shred_ctx_t *    ctx,
          that we can lower the duration for which the shared lock is
          held, and enables replay to acquire the exclusive lock and
          avoid getting starved. */
+
+      fd_histf_sample( ctx->metrics->store_insert_wait, (ulong)fd_long_max(shacq_end - shacq_start, 0) );
+      fd_histf_sample( ctx->metrics->store_insert_work, (ulong)fd_long_max(shrel_end - shacq_end,   0) );
     }
 
     if( FD_LIKELY( ctx->repair_out_idx!=ULONG_MAX ) ) { /* firedancer-only */
@@ -1273,8 +1282,12 @@ unprivileged_init( fd_topo_t *      topo,
                                                                    FD_MHIST_SECONDS_MAX( SHRED, SHREDDING_DURATION_SECONDS ) ) );
   fd_histf_join( fd_histf_new( ctx->metrics->add_shred_timing,     FD_MHIST_SECONDS_MIN( SHRED, ADD_SHRED_DURATION_SECONDS ),
                                                                    FD_MHIST_SECONDS_MAX( SHRED, ADD_SHRED_DURATION_SECONDS ) ) );
+  fd_histf_join( fd_histf_new( ctx->metrics->store_insert_wait,    FD_MHIST_SECONDS_MIN( SHRED, STORE_INSERT_WAIT ),
+                                                                   FD_MHIST_SECONDS_MAX( SHRED, STORE_INSERT_WAIT ) ) );
+  fd_histf_join( fd_histf_new( ctx->metrics->store_insert_work,    FD_MHIST_SECONDS_MIN( SHRED, STORE_INSERT_WORK ),
+                                                                   FD_MHIST_SECONDS_MAX( SHRED, STORE_INSERT_WORK ) ) );
   memset( ctx->metrics->shred_processing_result, '\0', sizeof(ctx->metrics->shred_processing_result) );
-  ctx->metrics->invalid_block_id_cnt = 0UL;
+  ctx->metrics->invalid_block_id_cnt         = 0UL;
   ctx->metrics->shred_rejected_unchained_cnt = 0UL;
 
   ctx->pending_batch.microblock_cnt = 0UL;

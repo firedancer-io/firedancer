@@ -115,6 +115,10 @@ typedef struct fd_replay_out_link fd_replay_out_link_t;
 struct fd_replay_tile_metrics {
   ulong slot;
   ulong last_voted_slot;
+  fd_histf_t store_read_wait[ 1 ];
+  fd_histf_t store_read_work[ 1 ];
+  fd_histf_t store_publish_wait[ 1 ];
+  fd_histf_t store_publish_work[ 1 ];
 };
 typedef struct fd_replay_tile_metrics fd_replay_tile_metrics_t;
 #define FD_REPLAY_TILE_METRICS_FOOTPRINT ( sizeof( fd_replay_tile_metrics_t ) )
@@ -1024,9 +1028,14 @@ after_frag( fd_replay_tile_ctx_t *   ctx,
     FD_LOG_NOTICE(( "rooting slot: %lu, block_id: %s", root, FD_BASE58_ENC_32_ALLOCA( block_id->block_id.uc ) ));
     FD_TEST( block_id ); /* invariant violation. replay must have replayed the full block (and therefore have the block id) if it's trying to root it. */
     if( FD_LIKELY( ctx->store ) ) {
-      fd_store_exacq  ( ctx->store );
+      long exacq_start, exacq_end, exrel_end;
+      FD_STORE_EXACQ_TIMED( ctx->store, exacq_start, exacq_end );
       fd_store_publish( ctx->store, &block_id->block_id );
-      fd_store_exrel  ( ctx->store );
+      FD_STORE_EXREL_TIMED( ctx->store, exrel_end );
+
+      fd_histf_sample( ctx->metrics.store_publish_wait, (ulong)fd_long_max(exacq_end - exacq_start, 0) );
+      fd_histf_sample( ctx->metrics.store_publish_work, (ulong)fd_long_max(exrel_end - exacq_end,   0) );
+
       block_id_map_remove( ctx->block_id_map, block_id );
     }
     if( FD_LIKELY( ctx->forks ) ) fd_forks_publish( ctx->forks, root );
@@ -1515,7 +1524,8 @@ handle_new_slice( fd_replay_tile_ctx_t * ctx, fd_stem_context_t * stem ) {
   fd_fork_t * current_fork = fd_fork_frontier_ele_query( ctx->forks->frontier, &slot, NULL, ctx->forks->pool );
   if( FD_UNLIKELY( !current_fork ) ) FD_LOG_CRIT(( "invariant violation: current_fork is NULL for slot %lu", slot ));
 
-  fd_store_exacq( ctx->store ); /* FIXME demote to shared after store changes */
+  long shacq_start, shacq_end, shrel_end;
+  FD_STORE_SHACQ_TIMED( ctx->store, shacq_start, shacq_end );
   ulong slice_sz = 0;
   for( ulong i = 0; i < slice.merkles_cnt; i++ ) {
     fd_store_fec_t * fec = fd_store_query( ctx->store, &slice.merkles[i] );
@@ -1523,7 +1533,10 @@ handle_new_slice( fd_replay_tile_ctx_t * ctx, fd_stem_context_t * stem ) {
     memcpy( ctx->slice_exec_ctx.buf + slice_sz, fec->data, fec->data_sz );
     slice_sz += fec->data_sz;
   }
-  fd_store_exrel( ctx->store ); /* FIXME demote to shared */
+  FD_STORE_SHREL_TIMED( ctx->store, shrel_end );
+
+  fd_histf_sample( ctx->metrics.store_read_wait, (ulong)fd_long_max(shacq_end - shacq_start, 0) );
+  fd_histf_sample( ctx->metrics.store_read_work, (ulong)fd_long_max(shrel_end - shacq_end,   0) );
 
   fd_slice_exec_begin( &ctx->slice_exec_ctx, slice_sz, slot_complete );
   fd_bank_shred_cnt_set( ctx->slot_ctx->bank, fd_bank_shred_cnt_get( ctx->slot_ctx->bank ) + data_cnt );
@@ -2250,7 +2263,19 @@ unprivileged_init( fd_topo_t *      topo,
 
   ctx->enable_bank_hash_cmp = tile->replay.enable_bank_hash_cmp;
 
-  FD_LOG_INFO(("Finished unprivileged init"));
+  /**********************************************************************/
+  /* metrics                                                            */
+  /**********************************************************************/
+  fd_histf_join( fd_histf_new( ctx->metrics.store_read_wait,    FD_MHIST_SECONDS_MIN( REPLAY, STORE_READ_WAIT ),
+                                                                FD_MHIST_SECONDS_MAX( REPLAY, STORE_READ_WAIT ) ) );
+  fd_histf_join( fd_histf_new( ctx->metrics.store_read_work,    FD_MHIST_SECONDS_MIN( REPLAY, STORE_READ_WORK ),
+                                                                FD_MHIST_SECONDS_MAX( REPLAY, STORE_READ_WORK ) ) );
+  fd_histf_join( fd_histf_new( ctx->metrics.store_publish_wait, FD_MHIST_SECONDS_MIN( REPLAY, STORE_PUBLISH_WAIT ),
+                                                                FD_MHIST_SECONDS_MAX( REPLAY, STORE_PUBLISH_WAIT ) ) );
+  fd_histf_join( fd_histf_new( ctx->metrics.store_publish_work, FD_MHIST_SECONDS_MIN( REPLAY, STORE_PUBLISH_WORK ),
+                                                                FD_MHIST_SECONDS_MAX( REPLAY, STORE_PUBLISH_WORK ) ) );
+
+  FD_LOG_NOTICE(("Finished unprivileged init"));
 }
 
 static ulong
@@ -2280,6 +2305,10 @@ static inline void
 metrics_write( fd_replay_tile_ctx_t * ctx ) {
   FD_MGAUGE_SET( REPLAY, LAST_VOTED_SLOT, ctx->metrics.last_voted_slot );
   FD_MGAUGE_SET( REPLAY, SLOT, ctx->metrics.slot );
+  FD_MHIST_COPY( REPLAY, STORE_READ_WAIT, ctx->metrics.store_read_wait );
+  FD_MHIST_COPY( REPLAY, STORE_READ_WORK, ctx->metrics.store_read_work );
+  FD_MHIST_COPY( REPLAY, STORE_PUBLISH_WAIT, ctx->metrics.store_publish_wait );
+  FD_MHIST_COPY( REPLAY, STORE_PUBLISH_WORK, ctx->metrics.store_publish_work );
 }
 
 /* TODO: This needs to get sized out correctly. */

@@ -661,16 +661,20 @@ after_credit( fd_repair_tile_ctx_t * ctx,
 
     /* Linking only requires a shared lock because the fields that are
         modified are only read on publish which uses exclusive lock. */
+    long shacq_start, shacq_end, shrel_end;
 
-    fd_store_exacq( ctx->store ); /* FIXME make this shared once store supports non-const query */
+    FD_STORE_SHACQ_TIMED( ctx->store, shacq_start, shacq_end );
     if( FD_UNLIKELY( !fd_store_link( ctx->store, &out.merkle_root, &out.chained_root ) ) ) FD_LOG_WARNING(( "failed to link %s %s. slot %lu fec_set_idx %u", FD_BASE58_ENC_32_ALLOCA( &out.merkle_root ), FD_BASE58_ENC_32_ALLOCA( &out.chained_root ), out.slot, out.fec_set_idx ));
-    fd_store_exrel( ctx->store );
+    FD_STORE_SHREL_TIMED( ctx->store, shrel_end );
 
     memcpy( fd_chunk_to_laddr( ctx->replay_out_mem, ctx->replay_out_chunk ), &out, sizeof(fd_fec_out_t) );
     ulong sig   = out.slot << 32 | out.fec_set_idx;
     ulong tspub = fd_frag_meta_ts_comp( fd_tickcount() );
     fd_stem_publish( stem, REPLAY_OUT_IDX, sig, ctx->replay_out_chunk, sizeof(fd_fec_out_t), 0, 0, tspub );
     ctx->replay_out_chunk = fd_dcache_compact_next( ctx->replay_out_chunk, sizeof(fd_fec_out_t), ctx->replay_out_chunk0, ctx->replay_out_wmark );
+
+    fd_histf_sample( ctx->repair->metrics.store_link_wait, (ulong)fd_long_max(shacq_end - shacq_start, 0) );
+    fd_histf_sample( ctx->repair->metrics.store_link_work, (ulong)fd_long_max(shrel_end - shacq_end,   0) );
 
     if( FD_UNLIKELY( ctx->shredcap_enabled ) ) {
       uchar * chunk = fd_chunk_to_laddr( ctx->shredcap_out_mem, ctx->shredcap_out_chunk );
@@ -1013,6 +1017,11 @@ unprivileged_init( fd_topo_t *      topo,
 
   fd_repair_update_addr( ctx->repair, &ctx->repair_intake_addr, &ctx->repair_serve_addr );
 
+  fd_histf_join( fd_histf_new( ctx->repair->metrics.store_link_wait, FD_MHIST_SECONDS_MIN( REPAIR, STORE_LINK_WAIT ),
+                                                                     FD_MHIST_SECONDS_MAX( REPAIR, STORE_LINK_WAIT ) ) );
+  fd_histf_join( fd_histf_new( ctx->repair->metrics.store_link_work, FD_MHIST_SECONDS_MIN( REPAIR, STORE_LINK_WORK ),
+                                                                     FD_MHIST_SECONDS_MAX( REPAIR, STORE_LINK_WORK ) ) );
+
   fd_repair_settime( ctx->repair, fd_log_wallclock() );
   fd_repair_start( ctx->repair );
 
@@ -1048,7 +1057,9 @@ populate_allowed_fds( fd_topo_t const *      topo FD_PARAM_UNUSED,
 }
 
 static inline void
-fd_repair_update_repair_metrics( fd_repair_metrics_t * metrics ) {
+metrics_write( fd_repair_tile_ctx_t * ctx ) {
+  /* Repair-protocol-specific metrics */
+  fd_repair_metrics_t * metrics = fd_repair_get_metrics( ctx->repair );
   FD_MCNT_SET( REPAIR, RECV_CLNT_PKT, metrics->recv_clnt_pkt );
   FD_MCNT_SET( REPAIR, RECV_SERV_PKT, metrics->recv_serv_pkt );
   FD_MCNT_SET( REPAIR, RECV_SERV_CORRUPT_PKT, metrics->recv_serv_corrupt_pkt );
@@ -1058,12 +1069,8 @@ fd_repair_update_repair_metrics( fd_repair_metrics_t * metrics ) {
   FD_MCNT_SET( REPAIR, RECV_PKT_CORRUPTED_MSG, metrics->recv_pkt_corrupted_msg );
   FD_MCNT_SET( REPAIR, SEND_PKT_CNT, metrics->send_pkt_cnt );
   FD_MCNT_ENUM_COPY( REPAIR, SENT_PKT_TYPES, metrics->sent_pkt_types );
-}
-
-static inline void
-metrics_write( fd_repair_tile_ctx_t * ctx ) {
-  /* Repair-protocol-specific metrics */
-  fd_repair_update_repair_metrics( fd_repair_get_metrics( ctx->repair ) );
+  FD_MHIST_COPY( REPAIR, STORE_LINK_WAIT, metrics->store_link_wait );
+  FD_MHIST_COPY( REPAIR, STORE_LINK_WORK, metrics->store_link_work );
 }
 
 /* TODO: This is not correct, but is temporary and will be fixed
