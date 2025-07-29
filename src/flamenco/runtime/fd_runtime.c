@@ -67,6 +67,36 @@
 /* Public Runtime Helpers                                                     */
 /******************************************************************************/
 
+int
+fd_runtime_should_use_vote_keyed_leader_schedule( fd_bank_t * bank ) {
+  /* Agave uses an option type for their `effective_epoch` value. We represent None
+     as ULONG_MAX and Some(value) as the value.
+     https://github.com/anza-xyz/agave/blob/v2.3.1/runtime/src/bank.rs#L6149-L6165 */
+  if( FD_FEATURE_ACTIVE_BANK( bank, enable_vote_address_leader_schedule ) ) {
+    /* Return the first epoch if activated at genesis
+       https://github.com/anza-xyz/agave/blob/v2.3.1/runtime/src/bank.rs#L6153-L6157 */
+    ulong activation_slot = fd_bank_features_query( bank )->enable_vote_address_leader_schedule;
+    if( activation_slot==0UL ) return 0;
+
+    /* Calculate the epoch that the feature became activated in
+       https://github.com/anza-xyz/agave/blob/v2.3.1/runtime/src/bank.rs#L6159-L6160 */
+    fd_epoch_schedule_t const * epoch_schedule = fd_bank_epoch_schedule_query( bank );
+    ulong activation_epoch = fd_slot_to_epoch( epoch_schedule, activation_slot, NULL );
+
+    /* The effective epoch is the epoch immediately after the activation epoch
+       https://github.com/anza-xyz/agave/blob/v2.3.1/runtime/src/bank.rs#L6162-L6164 */
+    ulong effective_epoch = activation_epoch + 1UL;
+    ulong current_epoch   = fd_bank_epoch_get( bank );
+
+    /* https://github.com/anza-xyz/agave/blob/v2.3.1/runtime/src/bank.rs#L6167-L6170 */
+    return !!( current_epoch >= effective_epoch );
+  }
+
+  /* ...The rest of the logic in this function either returns `None` or `Some(false)` so we
+     will just return 0 by default. */
+  return 0;
+}
+
 /*
    https://github.com/anza-xyz/agave/blob/v2.1.1/runtime/src/bank.rs#L1254-L1258
    https://github.com/anza-xyz/agave/blob/v2.1.1/runtime/src/bank.rs#L1749
@@ -152,8 +182,7 @@ fd_runtime_update_leaders( fd_bank_t * bank,
       FD_LOG_ERR(( "Slot count exceeeded max" ));
     }
 
-    ulong vote_keyed_lsched = 0; /* FIXME: SIMD-0180 */
-
+    ulong vote_keyed_lsched = (ulong)fd_runtime_should_use_vote_keyed_leader_schedule( bank );
     void * epoch_leaders_mem = fd_bank_epoch_leaders_locking_modify( bank );
     fd_epoch_leaders_t * leaders = fd_epoch_leaders_join( fd_epoch_leaders_new( epoch_leaders_mem,
                                                                                            epoch,
