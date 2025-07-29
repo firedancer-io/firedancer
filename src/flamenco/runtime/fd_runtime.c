@@ -235,9 +235,9 @@ fd_runtime_update_lthash_with_account_prev_hash( fd_txn_account_t *      account
                                                  fd_replay_out_link_t *  capture_out ) {
   /* Subtract the old hash of the account from the bank lthash */
   fd_lthash_value_t * bank_lthash = fd_type_pun( fd_bank_lthash_locking_modify( bank ) );
-  FD_LOG_WARNING(( "Subtracting old hash of account %s (old_hash: %s) from bank lthash: %s", FD_BASE58_ENC_32_ALLOCA( account->pubkey ), FD_LTHASH_ENC_32_ALLOCA( old_hash ), FD_LTHASH_ENC_32_ALLOCA( bank_lthash ) ));
+  // FD_LOG_WARNING(( "Subtracting old hash of account %s (old_hash: %s) from bank lthash: %s", FD_BASE58_ENC_32_ALLOCA( account->pubkey ), FD_LTHASH_ENC_32_ALLOCA( old_hash ), FD_LTHASH_ENC_32_ALLOCA( bank_lthash ) ));
   fd_lthash_sub( bank_lthash, old_hash );
-  FD_LOG_WARNING(( "New bank lthash: %s", FD_LTHASH_ENC_32_ALLOCA( bank_lthash ) ));
+  // FD_LOG_WARNING(( "New bank lthash: %s", FD_LTHASH_ENC_32_ALLOCA( bank_lthash ) ));
 
   /* Do nothing if the account has zero lamports */
   if( FD_UNLIKELY( account->vt->get_lamports( account ) == 0UL ) ) {
@@ -253,13 +253,13 @@ fd_runtime_update_lthash_with_account_prev_hash( fd_txn_account_t *      account
     meta,
     account->vt->get_data( account ),
     new_hash );
-  FD_LOG_WARNING(( "adding account %s with hash %s", FD_BASE58_ENC_32_ALLOCA( account->pubkey ), FD_LTHASH_ENC_32_ALLOCA( new_hash ) ));
-  FD_LOG_WARNING(( "Adding new hash of account %s (new_hash: %s) to bank lthash: %s", FD_BASE58_ENC_32_ALLOCA( account->pubkey ), FD_LTHASH_ENC_32_ALLOCA( new_hash ), FD_LTHASH_ENC_32_ALLOCA( bank_lthash ) ));
+  // FD_LOG_WARNING(( "adding account %s with hash %s", FD_BASE58_ENC_32_ALLOCA( account->pubkey ), FD_LTHASH_ENC_32_ALLOCA( new_hash ) ));
+  // FD_LOG_WARNING(( "Adding new hash of account %s (new_hash: %s) to bank lthash: %s", FD_BASE58_ENC_32_ALLOCA( account->pubkey ), FD_LTHASH_ENC_32_ALLOCA( new_hash ), FD_LTHASH_ENC_32_ALLOCA( bank_lthash ) ));
 
   /* Add the new hash of the account to the bank lthash */
   fd_lthash_add( bank_lthash, new_hash );
 
-  FD_LOG_WARNING(( "New bank lthash: %s", FD_LTHASH_ENC_32_ALLOCA( bank_lthash ) ));
+  // FD_LOG_WARNING(( "New bank lthash: %s", FD_LTHASH_ENC_32_ALLOCA( bank_lthash ) ));
 
   fd_bank_lthash_end_locking_modify( bank );
 
