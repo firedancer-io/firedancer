@@ -6,17 +6,20 @@
 #include <assert.h>
 
 fd_sbpf_validated_program_t *
-fd_sbpf_validated_program_new( void * mem, fd_sbpf_elf_info_t const * elf_info ) {
+fd_sbpf_validated_program_new( void * mem,
+                               fd_sbpf_elf_info_t const * elf_info,
+                               ulong                      last_slot_modified,
+                               ulong                      last_slot_verification_ran ) {
   fd_sbpf_validated_program_t * validated_prog = (fd_sbpf_validated_program_t *)mem;
 
   /* Failed verification flag */
   validated_prog->failed_verification = 0;
 
   /* Last slot the program was modified */
-  validated_prog->last_slot_modified = 0UL;
+  validated_prog->last_slot_modified = last_slot_modified;
 
   /* Last slot verification checks were ran for this program */
-  validated_prog->last_slot_verification_ran = ULONG_MAX;
+  validated_prog->last_slot_verification_ran = last_slot_verification_ran;
 
   ulong l = FD_LAYOUT_INIT;
 
@@ -236,9 +239,6 @@ fd_program_cache_validate_sbpf_program( fd_exec_slot_ctx_t const *    slot_ctx,
                                         ulong                         program_data_len,
                                         fd_spad_t *                   runtime_spad,
                                         fd_sbpf_validated_program_t * validated_prog /* out */ ) {
-  /* Update the last slot the program was reverified. */
-  validated_prog->last_slot_verification_ran = fd_bank_slot_get( slot_ctx->bank );
-
   ulong               prog_align     = fd_sbpf_program_align();
   ulong               prog_footprint = fd_sbpf_program_footprint( elf_info );
   fd_sbpf_program_t * prog           = fd_sbpf_program_new(  fd_spad_alloc( runtime_spad, prog_align, prog_footprint ), elf_info, validated_prog->rodata );
@@ -344,11 +344,11 @@ fd_program_cache_publish_failed_verification_rec( fd_funk_t *             funk,
     FD_LOG_ERR(( "fd_funk_val_truncate() failed to truncate record to size %lu", record_sz ));
   }
 
-  /* Initialize the validated program to default values. This is fine because the `failed_verification` flag indicates
-     that the should not be executed. */
-  fd_sbpf_validated_program_t * validated_prog = fd_sbpf_validated_program_new( data, &elf_info );
+  /* Initialize the validated program to default values. This is fine
+     because the `failed_verification` flag indicates that the should
+     not be executed. */
+  fd_sbpf_validated_program_t * validated_prog = fd_sbpf_validated_program_new( data, &elf_info, 0UL, current_slot );
   validated_prog->failed_verification        = 1;
-  validated_prog->last_slot_verification_ran = current_slot;
 
   fd_funk_rec_publish( funk, prepare );
 }
@@ -412,8 +412,8 @@ fd_program_cache_create_cache_entry( fd_exec_slot_ctx_t *     slot_ctx,
     /* Note that the validated program points to the funk record data
        and writes into the record directly to avoid an expensive memcpy.
        Since this record is fresh, we should set the last slot modified
-       to the current slot. */
-    fd_sbpf_validated_program_t * validated_prog = fd_sbpf_validated_program_new( val, &elf_info );
+       to slot 0. */
+    fd_sbpf_validated_program_t * validated_prog = fd_sbpf_validated_program_new( val, &elf_info, 0UL, current_slot );
     int res = fd_program_cache_validate_sbpf_program( slot_ctx, &elf_info, program_data, program_data_len, runtime_spad, validated_prog );
     if( FD_UNLIKELY( res ) ) {
       fd_program_cache_publish_failed_verification_rec( funk, prepare, rec, current_slot );
@@ -504,6 +504,7 @@ FD_SPAD_FRAME_BEGIN( runtime_spad ) {
   fd_epoch_schedule_t const * epoch_schedule = fd_bank_epoch_schedule_query( slot_ctx->bank );
   ulong current_epoch                        = fd_bank_epoch_get( slot_ctx->bank );
   ulong last_epoch_verified                  = fd_slot_to_epoch( epoch_schedule, prog->last_slot_verification_ran, NULL );
+  ulong last_slot_modified                   = prog->last_slot_modified;
   if( FD_LIKELY( prog->last_slot_modified<prog->last_slot_verification_ran &&
                  last_epoch_verified==current_epoch ) ) {
     return;
@@ -543,9 +544,7 @@ FD_SPAD_FRAME_BEGIN( runtime_spad ) {
   void *                        data          = fd_funk_val( rec, fd_funk_wksp( slot_ctx->funk ) );
   fd_sbpf_elf_info_t            elf_info      = {0};
   fd_sbpf_validated_program_t * modified_prog = fd_type_pun( data );
-
-  /* Set basic metadata flags */
-  modified_prog->last_slot_verification_ran = fd_bank_slot_get( slot_ctx->bank );
+  ulong                         current_slot  = fd_bank_slot_get( slot_ctx->bank );
 
   /* Parse the ELF info */
   if( FD_UNLIKELY( fd_sbpf_parse_elf_info( &elf_info, program_data, program_data_len, slot_ctx ) ) ) {
@@ -557,7 +556,7 @@ FD_SPAD_FRAME_BEGIN( runtime_spad ) {
   /* Validate the sBPF program. This will set the program's flags
      accordingly. We publish the funk record regardless of the return
      code. */
-  modified_prog = fd_sbpf_validated_program_new( data, &elf_info );
+  modified_prog = fd_sbpf_validated_program_new( data, &elf_info, last_slot_modified, current_slot );
   int res = fd_program_cache_validate_sbpf_program( slot_ctx, &elf_info, program_data, program_data_len, runtime_spad, modified_prog );
   if( FD_UNLIKELY( res ) ) {
     FD_LOG_DEBUG(( "fd_program_cache_validate_sbpf_program() failed" ));

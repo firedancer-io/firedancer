@@ -66,7 +66,10 @@ typedef struct fd_sbpf_validated_program fd_sbpf_validated_program_t;
 FD_PROTOTYPES_BEGIN
 
 fd_sbpf_validated_program_t *
-fd_sbpf_validated_program_new( void * mem, fd_sbpf_elf_info_t const * elf_info );
+fd_sbpf_validated_program_new( void *                    mem,
+                              fd_sbpf_elf_info_t const * elf_info,
+                              ulong                      last_slot_modified,
+                              ulong                      last_slot_verification_ran );
 
 ulong
 fd_sbpf_validated_program_align( void );
