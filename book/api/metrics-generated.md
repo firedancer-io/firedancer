@@ -444,6 +444,8 @@
 | <span class="metrics-name">shred_&#8203;force_&#8203;complete_&#8203;request</span> | counter | The number of times we received a FEC force complete message |
 | <span class="metrics-name">shred_&#8203;force_&#8203;complete_&#8203;failure</span> | counter | The number of times we failed to force complete a FEC set on request |
 | <span class="metrics-name">shred_&#8203;force_&#8203;complete_&#8203;success</span> | counter | The number of times we successfully forced completed a FEC set on request |
+| <span class="metrics-name">shred_&#8203;store_&#8203;insert_&#8203;wait</span> | histogram | Time in seconds spent waiting for the store to insert a new FEC set |
+| <span class="metrics-name">shred_&#8203;store_&#8203;insert_&#8203;work</span> | histogram | Time in seconds spent on inserting a new FEC set |
 
 </div>
 
@@ -475,6 +477,10 @@
 |--------|------|-------------|
 | <span class="metrics-name">replay_&#8203;slot</span> | gauge |  |
 | <span class="metrics-name">replay_&#8203;last_&#8203;voted_&#8203;slot</span> | gauge |  |
+| <span class="metrics-name">replay_&#8203;store_&#8203;read_&#8203;wait</span> | histogram | Time in seconds spent waiting for the store to read a FEC set |
+| <span class="metrics-name">replay_&#8203;store_&#8203;read_&#8203;work</span> | histogram | Time in seconds spent on reading a FEC set |
+| <span class="metrics-name">replay_&#8203;store_&#8203;publish_&#8203;wait</span> | histogram | Time in seconds spent waiting for the store to publish a new FEC set |
+| <span class="metrics-name">replay_&#8203;store_&#8203;publish_&#8203;work</span> | histogram | Time in seconds spent on publishing a new FEC set |
 
 </div>
 
@@ -729,6 +735,8 @@
 | <span class="metrics-name">repair_&#8203;sent_&#8203;pkt_&#8203;types</span><br/>{repair_&#8203;sent_&#8203;request_&#8203;types="<span class="metrics-enum">needed_&#8203;window</span>"} | counter | What types of client messages are we sending (Need Window) |
 | <span class="metrics-name">repair_&#8203;sent_&#8203;pkt_&#8203;types</span><br/>{repair_&#8203;sent_&#8203;request_&#8203;types="<span class="metrics-enum">needed_&#8203;highest_&#8203;window</span>"} | counter | What types of client messages are we sending (Need Highest Window) |
 | <span class="metrics-name">repair_&#8203;sent_&#8203;pkt_&#8203;types</span><br/>{repair_&#8203;sent_&#8203;request_&#8203;types="<span class="metrics-enum">needed_&#8203;orphan</span>"} | counter | What types of client messages are we sending (Need Orphans) |
+| <span class="metrics-name">repair_&#8203;store_&#8203;link_&#8203;wait</span> | histogram | Time in seconds spent waiting for the store to link a new FEC set |
+| <span class="metrics-name">repair_&#8203;store_&#8203;link_&#8203;work</span> | histogram | Time in seconds spent on linking a new FEC set |
 
 </div>
 

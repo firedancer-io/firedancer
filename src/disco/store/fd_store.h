@@ -341,6 +341,14 @@ FD_FN_PURE static inline void fd_store_shrel( fd_store_t * store ) { fd_rwlock_u
 FD_FN_PURE static inline void fd_store_exacq( fd_store_t * store ) { fd_rwlock_write  ( &store->lock ); }
 FD_FN_PURE static inline void fd_store_exrel( fd_store_t * store ) { fd_rwlock_unwrite( &store->lock ); }
 
+/* Wrappers for acquiring and releasing the lock with timing, for lock
+   contention metrics. */
+
+#define FD_STORE_SHACQ_TIMED(store, shacq_start, shacq_end) shacq_start = fd_tickcount(); fd_store_shacq( store ); shacq_end = fd_tickcount();
+#define FD_STORE_SHREL_TIMED(store, shrel_end)              shrel_end   = fd_tickcount(); fd_store_shrel( store );
+#define FD_STORE_EXACQ_TIMED(store, exacq_start, exacq_end) exacq_start = fd_tickcount(); fd_store_exacq( store ); exacq_end = fd_tickcount();
+#define FD_STORE_EXREL_TIMED(store, exrel_end)              exrel_end   = fd_tickcount(); fd_store_exrel( store );
+
 /* fd_store_{query,query_const} queries the FEC set keyed by merkle.
    Returns a pointer to the fd_store_fec_t if found, NULL otherwise.
 

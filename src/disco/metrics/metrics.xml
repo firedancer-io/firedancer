@@ -652,6 +652,12 @@ metric introduced.
     <counter name="ForceCompleteRequest" summary="The number of times we received a FEC force complete message" />
     <counter name="ForceCompleteFailure" summary="The number of times we failed to force complete a FEC set on request" />
     <counter name="ForceCompleteSuccess" summary="The number of times we successfully forced completed a FEC set on request" />
+    <histogram name="StoreInsertWait" min="0.00000001" max="0.0005" converter="seconds">
+        <summary>Time in seconds spent waiting for the store to insert a new FEC set</summary>
+    </histogram>
+    <histogram name="StoreInsertWork" min="0.00000001" max="0.0005" converter="seconds">
+        <summary>Time in seconds spent on inserting a new FEC set</summary>
+    </histogram>
 </tile>
 
 <tile name="store">
@@ -661,7 +667,18 @@ metric introduced.
 <tile name="replay">
   <gauge name="Slot" label="The slot that is currently being executing" />
   <gauge name="LastVotedSlot" label="The last slot that was voted on" />
-
+  <histogram name="StoreReadWait" min="0.00000001" max="0.001" converter="seconds">
+    <summary>Time in seconds spent waiting for the store to read a FEC set</summary>
+  </histogram>
+  <histogram name="StoreReadWork" min="0.00000001" max="0.001" converter="seconds">
+    <summary>Time in seconds spent on reading a FEC set</summary>
+  </histogram>
+  <histogram name="StorePublishWait" min="0.00000001" max="0.001" converter="seconds">
+    <summary>Time in seconds spent waiting for the store to publish a new FEC set</summary>
+  </histogram>
+  <histogram name="StorePublishWork" min="0.00000001" max="0.001" converter="seconds">
+    <summary>Time in seconds spent on publishing a new FEC set</summary>
+  </histogram>
 </tile>
 <tile name="storei">
   <gauge name="FirstTurbineSlot" label="The first slot for which we have received a turbine shred" />
@@ -783,6 +800,12 @@ metric introduced.
     <counter name="RecvPktCorruptedMsg"       clickhouse_exclude="true"                                 summary="How many corrupt messages have we received" />
     <counter name="SendPktCnt"                clickhouse_exclude="true"                                 summary="How many packets have sent" />
     <counter name="SentPktTypes"              clickhouse_exclude="true"  enum="RepairSentRequestTypes"  summary="What types of client messages are we sending" />
+    <histogram name="StoreLinkWait" min="0.00000001" max="0.0005" converter="seconds">
+      <summary>Time in seconds spent waiting for the store to link a new FEC set</summary>
+    </histogram>
+    <histogram name="StoreLinkWork" min="0.00000001" max="0.0005" converter="seconds">
+      <summary>Time in seconds spent on linking a new FEC set</summary>
+    </histogram>
 </tile>
 
 <tile name="gossip">
