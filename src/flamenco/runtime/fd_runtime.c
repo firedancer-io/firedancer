@@ -1439,7 +1439,7 @@ fd_runtime_prepare_and_execute_txn( fd_exec_slot_ctx_t const *   slot_ctx,
 
   /* Execute */
   task_info->txn->flags |= FD_TXN_P_FLAGS_EXECUTE_SUCCESS;
-  task_info->exec_res    = fd_execute_txn( task_info );
+  task_info->exec_res    = fd_execute_txn( task_info->txn_ctx );
 
   if( task_info->exec_res==0 ) {
     fd_txn_reclaim_accounts( task_info->txn_ctx );

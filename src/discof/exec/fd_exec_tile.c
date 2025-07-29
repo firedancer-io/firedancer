@@ -172,15 +172,12 @@ execute_txn( fd_exec_tile_ctx_t * ctx ) {
     return;
   }
 
-  fd_execute_txn_task_info_t task_info = {
-    .txn_ctx  = ctx->txn_ctx,
-    .exec_res = ctx->exec_res,
-    .txn      = &ctx->txn,
-  };
-
   /* Execute */
   ctx->txn.flags |= FD_TXN_P_FLAGS_EXECUTE_SUCCESS;
-  ctx->exec_res   = fd_execute_txn( &task_info );
+
+  if( FD_LIKELY( !(ctx->txn.flags & FD_TXN_P_FLAGS_FEES_ONLY) ) ) {
+    ctx->exec_res = fd_execute_txn( ctx->txn_ctx );
+  }
 
   if( FD_LIKELY( ctx->exec_res==FD_EXECUTOR_INSTR_SUCCESS ) ) {
     fd_txn_reclaim_accounts( ctx->txn_ctx );

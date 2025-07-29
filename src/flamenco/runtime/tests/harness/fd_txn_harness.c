@@ -277,7 +277,11 @@ fd_runtime_fuzz_txn_ctx_exec( fd_runtime_fuzz_runner_t * runner,
 
   if( task_info->txn->flags & FD_TXN_P_FLAGS_SANITIZE_SUCCESS ) {
       task_info->txn->flags |= FD_TXN_P_FLAGS_EXECUTE_SUCCESS;
-      task_info->exec_res    = fd_execute_txn( task_info );
+      /* Don't execute transactions that are fee only.
+         https://github.com/anza-xyz/agave/blob/v2.1.6/svm/src/transaction_processor.rs#L341-L357 */
+    if( FD_LIKELY( !(task_info->txn->flags & FD_TXN_P_FLAGS_FEES_ONLY) ) ) {
+      task_info->exec_res = fd_execute_txn( task_info->txn_ctx );
+    }
   }
 
   fd_bank_execution_fees_set( slot_ctx->bank, fd_bank_execution_fees_get( slot_ctx->bank ) + task_info->txn_ctx->execution_fee );
