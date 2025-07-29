@@ -8,7 +8,7 @@
 fd_sbpf_validated_program_t *
 fd_sbpf_validated_program_new( void * mem,
                                fd_sbpf_elf_info_t const * elf_info,
-                               ulong                      last_slot_modified,
+                               ulong                      last_modified_slot,
                                ulong                      last_slot_verification_ran ) {
   fd_sbpf_validated_program_t * validated_prog = (fd_sbpf_validated_program_t *)mem;
 
@@ -16,7 +16,7 @@ fd_sbpf_validated_program_new( void * mem,
   validated_prog->failed_verification = 0;
 
   /* Last slot the program was modified */
-  validated_prog->last_slot_modified = last_slot_modified;
+  validated_prog->last_modified_slot = last_modified_slot;
 
   /* Last slot verification checks were ran for this program */
   validated_prog->last_slot_verification_ran = last_slot_verification_ran;
@@ -355,7 +355,7 @@ fd_program_cache_publish_failed_verification_rec( fd_funk_t *             funk,
 
 /* Validates an SBPF program and adds it to the program cache.
    Reasons for verification failure include:
-   - The ELF info cannot be parsed from the programdata.
+   - The ELF info cannot be parsed or validated from the programdata.
    - The sBPF program fails to be validated.
 
    The program will still be added to the cache even if verifications
@@ -375,10 +375,10 @@ fd_program_cache_create_cache_entry( fd_exec_slot_ctx_t *     slot_ctx,
     fd_funk_rec_key_t id               = fd_acc_mgr_cache_key( program_pubkey );
 
     /* Try to get the programdata for the account. If it doesn't exist,
-       simply return without publishing anything. */
+       simply return without publishing anything. The program could have
+       been closed, but we do not want to touch the cache in this case. */
     ulong         program_data_len = 0UL;
     uchar const * program_data     = fd_bpf_get_programdata_from_account( funk, funk_txn, program_acc, &program_data_len, runtime_spad );
-
     if( FD_UNLIKELY( program_data==NULL ) ) {
       return;
     }
@@ -504,8 +504,8 @@ FD_SPAD_FRAME_BEGIN( runtime_spad ) {
   fd_epoch_schedule_t const * epoch_schedule = fd_bank_epoch_schedule_query( slot_ctx->bank );
   ulong current_epoch                        = fd_bank_epoch_get( slot_ctx->bank );
   ulong last_epoch_verified                  = fd_slot_to_epoch( epoch_schedule, prog->last_slot_verification_ran, NULL );
-  ulong last_slot_modified                   = prog->last_slot_modified;
-  if( FD_LIKELY( prog->last_slot_modified<prog->last_slot_verification_ran &&
+  ulong last_modified_slot                   = prog->last_modified_slot;
+  if( FD_LIKELY( prog->last_modified_slot<prog->last_slot_verification_ran &&
                  last_epoch_verified==current_epoch ) ) {
     return;
   }
@@ -556,7 +556,7 @@ FD_SPAD_FRAME_BEGIN( runtime_spad ) {
   /* Validate the sBPF program. This will set the program's flags
      accordingly. We publish the funk record regardless of the return
      code. */
-  modified_prog = fd_sbpf_validated_program_new( data, &elf_info, last_slot_modified, current_slot );
+  modified_prog = fd_sbpf_validated_program_new( data, &elf_info, last_modified_slot, current_slot );
   int res = fd_program_cache_validate_sbpf_program( slot_ctx, &elf_info, program_data, program_data_len, runtime_spad, modified_prog );
   if( FD_UNLIKELY( res ) ) {
     FD_LOG_DEBUG(( "fd_program_cache_validate_sbpf_program() failed" ));
@@ -576,10 +576,13 @@ fd_program_cache_queue_program_for_reverification( fd_funk_t *              funk
 
   /* We want to access the program cache entry for this pubkey and
      queue it for reverification. If it exists, clone it down to the
-     current funk txn and update the entry's `last_slot_modified`
+     current funk txn and update the entry's `last_modified_slot`
      field.
 
-     TODO: This call needs to be thread-safe */
+     This read is thread-safe because if you have transaction A that
+     modifies the program and transaction B that references the program,
+     the dispatcher will not attempt to execute transaction B until
+     transaction A is finalized. */
   fd_sbpf_validated_program_t const * existing_prog = NULL;
   int err = fd_bpf_load_cache_entry( funk, funk_txn, program_acc->pubkey, &existing_prog );
   if( FD_UNLIKELY( err ) ) {
@@ -605,7 +608,7 @@ fd_program_cache_queue_program_for_reverification( fd_funk_t *              funk
   fd_sbpf_validated_program_t * modified_prog = fd_type_pun( data );
 
   /* Set the last modified slot to the current slot */
-  modified_prog->last_slot_modified = current_slot;
+  modified_prog->last_modified_slot = current_slot;
 
   /* Finish modifying and release lock */
   fd_funk_rec_modify_publish( query );

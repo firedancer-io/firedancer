@@ -563,7 +563,9 @@ fd_runtime_block_pre_execute_process_new_epoch( fd_exec_slot_ctx_t * slot_ctx,
                                                 fd_spad_t *          runtime_spad,
                                                 int *                is_epoch_boundary );
 
-/* This function is responsible for inserting fresh entries or updating existing entries in the program cache.
+/* TODO: UPDATE THIS COMMENT
+
+   This function is responsible for inserting fresh entries or updating existing entries in the program cache.
    When the client boots up, the program cache is empty. As programs get invoked, this function is responsible
    for verifying and inserting these programs into the cache. Additionally, this function performs reverification
    checks for every existing program that is invoked after an epoch boundary once per program per epoch, and invalidates

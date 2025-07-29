@@ -286,15 +286,15 @@ test_program_in_cache_queued_for_reverification( void ) {
   /* Queue the program for reverification */
   fd_program_cache_queue_program_for_reverification( test_funk, funk_txn, program_acc, future_slot );
 
-  /* Verify the cache entry was updated with the future slot as last_slot_modified */
+  /* Verify the cache entry was updated with the future slot as last_modified_slot */
   err = fd_bpf_load_cache_entry( test_funk, funk_txn, &test_program_pubkey, &valid_prog );
   FD_TEST( !err );
   FD_TEST( valid_prog );
   FD_TEST( valid_prog->magic==FD_SBPF_VALIDATED_PROGRAM_MAGIC );
   FD_TEST( !valid_prog->failed_verification );
-  FD_TEST( valid_prog->last_slot_modified==future_slot );
+  FD_TEST( valid_prog->last_modified_slot==future_slot );
   FD_TEST( valid_prog->last_slot_verification_ran==original_slot );
-  FD_TEST( valid_prog->last_slot_modified>original_slot );
+  FD_TEST( valid_prog->last_modified_slot>original_slot );
 
   fd_funk_txn_cancel( test_funk, funk_txn, 0 );
 }
@@ -380,15 +380,15 @@ test_program_in_cache_queued_for_reverification_and_processed( void ) {
   /* Queue the program for reverification */
   fd_program_cache_queue_program_for_reverification( test_funk, funk_txn, program_acc, future_slot );
 
-  /* Verify the cache entry was updated with the future slot as last_slot_modified */
+  /* Verify the cache entry was updated with the future slot as last_modified_slot */
   err = fd_bpf_load_cache_entry( test_funk, funk_txn, &test_program_pubkey, &valid_prog );
   FD_TEST( !err );
   FD_TEST( valid_prog );
   FD_TEST( valid_prog->magic==FD_SBPF_VALIDATED_PROGRAM_MAGIC );
   FD_TEST( !valid_prog->failed_verification );
-  FD_TEST( valid_prog->last_slot_modified==future_slot );
+  FD_TEST( valid_prog->last_modified_slot==future_slot );
   FD_TEST( valid_prog->last_slot_verification_ran==original_slot );
-  FD_TEST( valid_prog->last_slot_modified>original_slot );
+  FD_TEST( valid_prog->last_modified_slot>original_slot );
 
   /* Fast forward to a future slot */
   test_slot_ctx->bank->slot_ += 11000UL; /* Move to future slot */
@@ -405,7 +405,7 @@ test_program_in_cache_queued_for_reverification_and_processed( void ) {
   FD_TEST( valid_prog->magic==FD_SBPF_VALIDATED_PROGRAM_MAGIC );
   FD_TEST( !valid_prog->failed_verification );
   FD_TEST( valid_prog->last_slot_verification_ran==future_update_slot );
-  FD_TEST( valid_prog->last_slot_modified==future_slot );
+  FD_TEST( valid_prog->last_modified_slot==future_slot );
 
   fd_funk_txn_cancel( test_funk, funk_txn, 0 );
 }
