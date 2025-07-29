@@ -22,28 +22,6 @@ FD_PROTOTYPES_BEGIN
    bump allocator space available. */
 #define STAKE_ACCOUNT_SIZE ( 200 )
 
-struct fd_compute_stake_delegations {
-   ulong                           epoch;
-   fd_stake_history_t const *      stake_history;
-   ulong *                         new_rate_activation_epoch;
-   fd_stake_weight_t_mapnode_t *   delegation_pool;
-   fd_stake_weight_t_mapnode_t *   delegation_root;
-   ulong                           vote_states_pool_sz;
-};
-typedef struct fd_compute_stake_delegations fd_compute_stake_delegations_t;
-
-struct fd_accumulate_delegations_task_args {
-   fd_exec_slot_ctx_t const *         slot_ctx;
-   fd_stake_history_t const *         stake_history;
-   ulong *                            new_rate_activation_epoch;
-   fd_stake_history_entry_t *         accumulator;
-   fd_epoch_info_t *                  temp_info;
-   fd_spad_t * *                      spads;
-   fd_delegation_pair_t_mapnode_t *   stake_delegations_pool;
-   ulong                              epoch;
-};
-typedef struct fd_accumulate_delegations_task_args fd_accumulate_delegations_task_args_t;
-
 ulong
 fd_stake_weights_by_node( fd_vote_accounts_global_t const * accs,
                           fd_vote_stake_weight_t *          weights,
