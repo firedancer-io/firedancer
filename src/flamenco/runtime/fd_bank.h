@@ -5,6 +5,7 @@
 #include "../leaders/fd_leaders.h"
 #include "../features/fd_features.h"
 #include "../rewards/fd_epoch_rewards.h"
+#include "../stakes/fd_stakes.h"
 #include "../fd_rwlock.h"
 #include "fd_runtime_const.h"
 #include "fd_blockhashes.h"
@@ -181,6 +182,7 @@ FD_PROTOTYPES_BEGIN
   X(fd_epoch_schedule_t,               epoch_schedule,              sizeof(fd_epoch_schedule_t),               alignof(fd_epoch_schedule_t),               0,   0,                0    )  /* Epoch schedule */                                         \
   X(fd_rent_t,                         rent,                        sizeof(fd_rent_t),                         alignof(fd_rent_t),                         0,   0,                0    )  /* Rent */                                                   \
   X(fd_slot_lthash_t,                  lthash,                      sizeof(fd_slot_lthash_t),                  alignof(fd_slot_lthash_t),                  0,   0,                0    )  /* LTHash */                                                 \
+  X(fd_vote_accounts_global_t,         next_next_epoch_stakes,      200000000UL,                               128UL,                                      1,   0,                1    )                                                               \
   X(fd_vote_accounts_global_t,         next_epoch_stakes,           200000000UL,                               128UL,                                      1,   0,                1    )  /* Next epoch stakes, ~4K per account * 50k vote accounts */ \
                                                                                                                                                                                           /* These are the stakes that determine the leader */         \
                                                                                                                                                                                           /* schedule for the upcoming epoch.  If we are executing */  \
@@ -192,7 +194,7 @@ FD_PROTOTYPES_BEGIN
   X(fd_epoch_leaders_t,                epoch_leaders,               FD_RUNTIME_MAX_EPOCH_LEADERS,              FD_EPOCH_LEADERS_ALIGN,                     1,   1,                1    )  /* Epoch leaders. If our system supports 100k vote accs, */  \
                                                                                                                                                                                           /* then there can be 100k unique leaders in the worst */     \
                                                                                                                                                                                           /* case. We also can assume 432k slots per epoch. */         \
-  X(fd_stakes_global_t,                stakes,                      400000000UL,                               128UL,                                      1,   0,                1    )  /* Stakes */                                                 \
+  X(fd_stakes_slim_t,                  stakes,                      400000000UL,                               128UL,                                      1,   0,                1    )  /* Stakes */                                                 \
   X(fd_features_t,                     features,                    sizeof(fd_features_t),                     alignof(fd_features_t),                     0,   0,                0    )  /* Features */                                               \
   X(ulong,                             txn_count,                   sizeof(ulong),                             alignof(ulong),                             0,   0,                0    )  /* Transaction count */                                      \
   X(ulong,                             nonvote_txn_count,           sizeof(ulong),                             alignof(ulong),                             0,   0,                0    )  /* Nonvote transaction count */                              \
@@ -257,6 +259,12 @@ FD_PROTOTYPES_BEGIN
 
 #define POOL_NAME fd_bank_next_epoch_stakes_pool
 #define POOL_T    fd_bank_next_epoch_stakes_t
+#include "../../util/tmpl/fd_pool.c"
+#undef POOL_NAME
+#undef POOL_T
+
+#define POOL_NAME fd_bank_next_next_epoch_stakes_pool
+#define POOL_T    fd_bank_next_next_epoch_stakes_t
 #include "../../util/tmpl/fd_pool.c"
 #undef POOL_NAME
 #undef POOL_T
