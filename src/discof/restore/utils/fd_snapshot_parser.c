@@ -1,36 +1,31 @@
 #include "fd_snapshot_parser.h"
 #include "fd_ssmsg.h"
-#include "../../../util/archive/fd_tar.h"
+#include "fd_ssmanifest_parser.h"
+
 #include "../../../flamenco/runtime/fd_acc_mgr.h" /* FD_ACC_SZ_MAX */
+#include "../../../util/archive/fd_tar.h"
 
 #include <errno.h>
 #include <assert.h>
 #include <stdio.h>
 
-ulong fd_snapshot_accv_seed;
-
 FD_FN_CONST ulong
-fd_snapshot_parser_footprint( int accv_lg_slot_cnt ) {
-  ulong map_fp = fd_snapshot_accv_map_footprint( accv_lg_slot_cnt );
-  if( FD_UNLIKELY( !map_fp ) ) return 0UL;
+fd_snapshot_parser_footprint( ulong max_acc_vecs ) {
   ulong l = FD_LAYOUT_INIT;
-  l = FD_LAYOUT_APPEND( l, alignof(fd_snapshot_parser_t), sizeof(fd_snapshot_parser_t) );
-  l = FD_LAYOUT_APPEND( l, fd_snapshot_accv_map_align(),  map_fp                       );
-  l = FD_LAYOUT_APPEND( l, 16UL,                          1UL<<31UL                    );
+  l = FD_LAYOUT_APPEND( l, alignof(fd_snapshot_parser_t), sizeof(fd_snapshot_parser_t)                   );
+  l = FD_LAYOUT_APPEND( l, fd_ssmanifest_parser_align(),  fd_ssmanifest_parser_footprint( max_acc_vecs ) );
+  l = FD_LAYOUT_APPEND( l, 16UL,                          1UL<<20UL                                      );
   return FD_LAYOUT_FINI( l, fd_snapshot_parser_align() );
 }
 
 fd_snapshot_parser_t *
 fd_snapshot_parser_new( void * mem,
-                        int    accv_lg_slot_cnt,
                         void * cb_arg,
+                        ulong  seed,
+                        ulong  max_acc_vecs,
                         fd_snapshot_parser_process_manifest_fn_t manifest_cb,
                         fd_snapshot_process_acc_hdr_fn_t         acc_hdr_cb,
                         fd_snapshot_process_acc_data_fn_t        acc_data_cb ) {
-  FD_ONCE_BEGIN {
-    FD_TEST( fd_rng_secure( &fd_snapshot_accv_seed, sizeof(ulong) ) );
-  }
-  FD_ONCE_END;
 
   if( FD_UNLIKELY( !mem ) ) {
     FD_LOG_WARNING(( "NULL mem" ));
@@ -40,15 +35,11 @@ fd_snapshot_parser_new( void * mem,
     FD_LOG_WARNING(( "unaligned mem" ));
     return NULL;
   }
-  ulong footprint = fd_snapshot_parser_footprint( accv_lg_slot_cnt );
-  if( FD_UNLIKELY( !footprint ) ) FD_LOG_ERR(( "Invalid accv_lg_slot_cnt %d", accv_lg_slot_cnt ));
 
   FD_SCRATCH_ALLOC_INIT( l, mem );
-  fd_snapshot_parser_t * self = FD_SCRATCH_ALLOC_APPEND( l, alignof(fd_snapshot_parser_t), sizeof(fd_snapshot_parser_t) );
-  void * accv_map_mem         = FD_SCRATCH_ALLOC_APPEND( l, fd_snapshot_accv_map_align(),  fd_snapshot_accv_map_footprint( accv_lg_slot_cnt ) );
-  void * _buf_mem             = FD_SCRATCH_ALLOC_APPEND( l, 16UL,                          1UL<<31UL                    );
-  ulong  mem_end              = FD_SCRATCH_ALLOC_FINI( l, fd_snapshot_parser_align() );
-  if( FD_UNLIKELY( mem_end-(ulong)mem != footprint ) ) FD_LOG_CRIT(( "Memory layout bug detected" ));
+  fd_snapshot_parser_t * self = FD_SCRATCH_ALLOC_APPEND( l, alignof(fd_snapshot_parser_t), sizeof(fd_snapshot_parser_t)                   );
+  void * parser               = FD_SCRATCH_ALLOC_APPEND( l, fd_ssmanifest_parser_align(),  fd_ssmanifest_parser_footprint( max_acc_vecs ) );
+  void * _buf_mem             = FD_SCRATCH_ALLOC_APPEND( l, 16UL,                          1UL<<20UL                                      );
 
   self->state         = SNAP_STATE_TAR;
   self->flags         = 0;
@@ -56,10 +47,10 @@ fd_snapshot_parser_new( void * mem,
 
   self->buf_sz  = 0UL;
   self->buf_ctr = 0UL;
-  self->buf_max = 1UL<<31UL;
+  self->buf_max = 1UL<<20UL;
 
-  self->accv_map = fd_snapshot_accv_map_join( fd_snapshot_accv_map_new( accv_map_mem, accv_lg_slot_cnt ) );
-  FD_TEST( self->accv_map );
+  self->manifest_parser = fd_ssmanifest_parser_join( fd_ssmanifest_parser_new( parser, max_acc_vecs, seed ) );
+  FD_TEST( self->manifest_parser );
 
   self->buf = _buf_mem;
 
@@ -73,9 +64,6 @@ fd_snapshot_parser_new( void * mem,
   self->metrics.accounts_processed       = 0UL;
   self->processing_accv                  = 0;
   self->goff                             = 0UL;
-
-  /* Bound AppendVec map utilization to 75% */
-  self->accv_key_max = (ulong)( (float)(1UL<<accv_lg_slot_cnt) * 0.75f );
 
   return self;
 }
@@ -140,25 +128,21 @@ fd_snapshot_parser_accv_prepare( fd_snapshot_parser_t * const self,
     return 0;
   }
 
-  /* Lookup account vec file size */
-  fd_snapshot_accv_key_t key = { .slot = slot, .id = id };
-  fd_snapshot_accv_map_t * rec = fd_snapshot_accv_map_query( self->accv_map, key, NULL );
-  if( FD_UNLIKELY( !rec ) ) {
-    /* Ignore account vec files that are not explicitly mentioned in the
-        manifest. */
+  ulong sz = fd_ssmanifest_acc_vec_sz( self->manifest_parser, slot, id );
+  if( FD_UNLIKELY( sz==ULONG_MAX ) ) {
     FD_LOG_DEBUG(( "Ignoring %s (sz %lu)", meta->name, real_sz ));
     self->state = SNAP_STATE_IGNORE;
     return 0;
   }
-  ulong sz = rec->sz;
 
   /* Validate the supposed file size against real size */
-  if( FD_UNLIKELY( sz > real_sz ) ) {
+  if( FD_UNLIKELY( sz>real_sz ) ) {
     FD_LOG_WARNING(( "AppendVec %lu.%lu is %lu bytes long according to manifest, but actually only %lu bytes",
                      slot, id, sz, real_sz ));
     self->flags |= SNAP_FLAG_FAILED;
     return EINVAL;
   }
+
   self->accv_sz         = sz;
   self->accv_slot       = slot;
   self->accv_id         = id;
@@ -180,12 +164,6 @@ fd_snapshot_parser_manifest_prepare( fd_snapshot_parser_t * self,
     FD_LOG_WARNING(( "Snapshot file contains multiple manifests" ));
     self->state = SNAP_STATE_IGNORE;
     return 0;
-  }
-
-  /* We don't support streaming manifest deserialization yet.  Thus,
-     buffer the whole manifest in one place. */
-  if( FD_UNLIKELY( !fd_snapshot_parser_prepare_buf( self, sz ) ) ) {
-    return ENOMEM;
   }
 
   self->state  = SNAP_STATE_MANIFEST;
@@ -297,99 +275,6 @@ fd_snapshot_parser_tar_read_hdr( fd_snapshot_parser_t * self,
   return cur;
 }
 
-/* fd_snapshot_accv_index populates the index of account vecs.  This
-   index will be used when loading accounts.  Returns errno-compatible
-   error code. */
-
-static int
-fd_snapshot_parser_accv_index( fd_snapshot_parser_t *              self,
-                               fd_solana_manifest_global_t const * manifest ) {
-  fd_snapshot_slot_acc_vecs_global_t * slots
-      = fd_solana_accounts_db_fields_storages_join( &manifest->accounts_db );
-  for( ulong i=0UL; i < manifest->accounts_db.storages_len; i++ ) {
-    fd_snapshot_slot_acc_vecs_global_t * slot = &slots[ i ];
-    fd_snapshot_acc_vec_t * account_vecs = fd_snapshot_slot_acc_vecs_account_vecs_join( slot );
-
-    ulong key_used_cnt      = fd_snapshot_accv_map_key_cnt( self->accv_map );
-    ulong key_used_post_cnt = key_used_cnt + slot->account_vecs_len;
-    if( FD_UNLIKELY( key_used_post_cnt > self->accv_key_max ) ) {
-      FD_LOG_WARNING(( "Snapshot is incompatible with this Firedancer build (too many account vecs: cnt=%lu max=%lu)",
-                       key_used_post_cnt, self->accv_key_max ));
-      return ENOMEM;
-    }
-
-    for( ulong j=0UL; j < slot->account_vecs_len; j++ ) {
-      fd_snapshot_acc_vec_t * accv = &account_vecs[ j ];
-
-      /* Insert new AppendVec */
-      fd_snapshot_accv_key_t key = { .slot = slot->slot, .id = accv->id };
-      fd_snapshot_accv_map_t * rec = fd_snapshot_accv_map_insert( self->accv_map, key );
-      if( FD_UNLIKELY( !rec ) ) {
-        /* unreachable since map size is checked above */
-        FD_LOG_WARNING(( "fd_snapshot_accv_map_insert failed" ));
-        return ENOMEM;
-      }
-
-      /* Remember size */
-      rec->sz = accv->file_sz;
-    }
-
-  }
-
-  return 0;
-}
-
-/* snapshot_restore_manifest imports a snapshot manifest into the
-   given slot context.  Also populates the accv index.  Destroys the
-   existing bank structure. */
-
-static void
-fd_snapshot_parser_restore_manifest( fd_snapshot_parser_t * self ) {
-  /* Decode manifest placing dynamic data structures onto slot context
-  heap.  Once the epoch context heap is separated out, we need to
-  revisit this.
-
-  This is horrible.  Plenty of room for optimization, including:
-  - Streaming decoding
-  - Fixing the decoder (does 2 walks in decode_footprint, decode)
-  - Unpack directly into slot_ctx */
-
-  fd_bincode_decode_ctx_t decode = {
-    .data    = self->buf,
-    .dataend = self->buf + self->buf_sz
-  };
-
-  ulong total_sz = 0UL;
-  int err = fd_solana_manifest_decode_footprint( &decode, &total_sz );
-  if( FD_UNLIKELY( err ) ) {
-    FD_LOG_ERR(( "fd_solana_manifest_decode_footprint failed (%d)", err ));
-  }
-
-  ulong decoded_manifest_offset = fd_ulong_align_up( sizeof(fd_snapshot_manifest_t), FD_SOLANA_MANIFEST_GLOBAL_ALIGN );
-  if( FD_UNLIKELY( decoded_manifest_offset+total_sz>self->manifest_bufsz ) ) {
-    FD_LOG_ERR(( "Cannot decode snapshot. Insufficient scratch buffer size (need %lu, %lu raw, have %lu bytes)",
-                 decoded_manifest_offset+total_sz, total_sz, self->manifest_bufsz ));
-  }
-
-  fd_solana_manifest_global_t * manifest = fd_solana_manifest_decode_global( self->manifest_buf+decoded_manifest_offset, &decode );
-  fd_snapshot_manifest_init_from_solana_manifest( self->manifest_buf, manifest );
-
-  /* Read AccountVec map */
-
-  self->metrics.accounts_files_total = manifest->accounts_db.storages_len;
-  if( FD_LIKELY( !err ) ) {
-    err = fd_snapshot_parser_accv_index( self, manifest );
-  }
-
-  /* manifest cb */
-  if( FD_LIKELY( self->manifest_cb ) ) self->manifest_cb( self->cb_arg, total_sz );
-
-  /* Discard buffer to reclaim heap space */
-
-  fd_snapshot_parser_discard_buf( self );
-  self->manifest_done = 1;
-}
-
 FD_FN_PURE static inline int
 fd_snapshot_parser_hdr_read_is_complete( fd_snapshot_parser_t const * self ) {
   return self->buf_ctr == self->buf_sz;
@@ -397,8 +282,8 @@ fd_snapshot_parser_hdr_read_is_complete( fd_snapshot_parser_t const * self ) {
 
 static uchar const *
 fd_snapshot_parser_read_buffered( fd_snapshot_parser_t * self,
-                        uchar const *          buf,
-                        ulong                  bufsz ) {
+                                  uchar const *          buf,
+                                  ulong                  bufsz ) {
   /* Should not be called if read is complete */
   FD_TEST( self->buf_ctr < self->buf_sz );
 
@@ -427,16 +312,35 @@ static uchar const *
 fd_snapshot_parser_read_manifest_chunk( fd_snapshot_parser_t * self,
                                         uchar const *          buf,
                                         ulong                  bufsz ) {
-  uchar const * end = fd_snapshot_parser_read_buffered( self, buf, bufsz );
-  ulong chunksz     = (ulong)(end - buf);
-  ulong consumed_sz = chunksz;
+  FD_TEST( self->buf_ctr < self->buf_sz );
 
-  if( fd_snapshot_parser_hdr_read_is_complete( self ) ) {
-    fd_snapshot_parser_restore_manifest( self );
+  ulong sz = self->buf_sz - self->buf_ctr;
+  if( sz>bufsz ) sz = bufsz;
+
+  uchar * dst = self->manifest_buf+sizeof(fd_snapshot_manifest_t);
+  fd_memcpy( dst+self->buf_ctr, buf, sz );
+  self->buf_ctr += sz;
+
+  int result = fd_ssmanifest_parser_consume( self->manifest_parser, buf, sz );
+  if( -1==result ) self->flags |= SNAP_FLAG_FAILED;
+  if( 0==result ) {
+    if( self->buf_ctr!=self->buf_sz ) {
+      /* Some additional trailing garbage */
+      self->flags |= SNAP_FLAG_FAILED;
+      return buf;
+    }
+
+    /* manifest cb */
+    if( FD_LIKELY( self->manifest_cb ) ) self->manifest_cb( self->cb_arg, self->buf_sz );
+
+    /* Discard buffer to reclaim heap space */
+
+    fd_snapshot_parser_discard_buf( self );
+    self->manifest_done = 1;
     self->state = SNAP_STATE_IGNORE;
   }
 
-  return buf+consumed_sz;
+  return buf+sz;
 }
 
 static int

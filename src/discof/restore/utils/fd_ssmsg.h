@@ -34,9 +34,10 @@ struct fd_snapshot_manifest_vote_account {
      entry at epoch_credits[0] is for the current epoch,
      epoch_credits[1] is for the previous epoch, and so on.  In cases of
      booting a new chain from genesis, or for new vote accounts the
-     epoch credits history may be short. */
+     epoch credits history may be short.  The maximum number of entries
+     in the epoch credits history is 64. */
   ulong epoch_credits_history_len;
-  ulong epoch_credits[ 64UL ]; /* TODO: Bound correctly */
+  ulong epoch_credits[ 64UL ];
 };
 
 typedef struct fd_snapshot_manifest_vote_account fd_snapshot_manifest_vote_account_t;
@@ -314,14 +315,12 @@ struct fd_snapshot_manifest {
 
        E-2 - We need epoch stakes from two epochs ago to calculate the
              leader schedule for the current epoch E.
-       E-1 - We need
-             epoch stakes from one epoch ago to calculate the leader
-             schedule for the next epoch E+1.
-      E   - We need epoch stakes
-             for the current epoch, which we will then incrementally
-             update as the epoch continues, to eventually (when the
-             epoch finishes) calculate the leader schedule for next next
-             epoch E+2.
+       E-1 - We need epoch stakes from one epoch ago to calculate the
+             leader schedule for the next epoch E+1.
+       E   - We need epoch stakes for the current epoch, which we will
+             then incrementally update as the epoch continues, to
+             eventually (when the epoch finishes) calculate the leader
+             schedule for next next epoch E+2.
 
      The epoch stakes are stored in an array, where epoch_stakes[0] is
      the list of current epoch stakes, and epoch_stakes[1] is for the
