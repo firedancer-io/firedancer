@@ -347,7 +347,6 @@ backtest_cmd_fn( args_t *   args FD_PARAM_UNUSED,
   configure_args.configure.stages[ stage_idx++ ] = &fd_cfg_stage_ethtool_channels;
   configure_args.configure.stages[ stage_idx++ ] = &fd_cfg_stage_ethtool_gro;
   configure_args.configure.stages[ stage_idx++ ] = &fd_cfg_stage_ethtool_loopback;
-  configure_args.configure.stages[ stage_idx++ ] = &fd_cfg_stage_genesis;
   configure_args.configure.stages[ stage_idx++ ] = &fd_cfg_stage_snapshots;
   configure_cmd_fn( &configure_args, config );
 
