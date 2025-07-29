@@ -102,6 +102,12 @@ typedef struct {
   fd_store_t *           store;
   fd_tower_t *           tower;
   fd_shred_t const *     curr;
+
+  /* slot_to_replay is the slot that was just sent to the replay tile */
+  ulong                  slot_to_replay;
+  /* last_replayed_slot is the slot that was completed and recieved a
+     notification from the replay tile to the backtest tile */
+  ulong                  last_replayed_slot;
 } ctx_t;
 
 FD_FN_PURE static inline ulong
@@ -164,9 +170,19 @@ notify_tower_root( ctx_t *             ctx,
                    ulong               tsorig,
                    ulong               tspub ) {
   ulong replayed_slot = ctx->replay_notification.slot_exec.slot;
-  ulong root          = fd_tower_vote( ctx->tower, replayed_slot );
-  if( FD_LIKELY( root != FD_SLOT_NULL ) ) {
-    fd_stem_publish( stem, ctx->tower_replay_out_idx, root, 0UL, 0UL, 0UL, tsorig, tspub );
+  if( ctx->ingest_mode == FD_BACKTEST_ROCKSDB_INGEST ) {
+    /* We want to publish the previous last_replayed_slot, when we have
+       finished replaying the current slot. Then we can update the
+       last_replayed_slot to the newly executed slot. */
+    if( FD_LIKELY( ctx->last_replayed_slot != FD_SLOT_NULL ) ) {
+      fd_stem_publish( stem, ctx->tower_replay_out_idx, ctx->last_replayed_slot, 0UL, 0UL, 0UL, tsorig, tspub );
+    }
+    ctx->last_replayed_slot = replayed_slot;
+  } else if( ctx->ingest_mode == FD_BACKTEST_SHREDCAP_INGEST ) {
+    ulong root = fd_tower_vote( ctx->tower, replayed_slot );
+    if( FD_LIKELY( root != FD_SLOT_NULL ) ) {
+      fd_stem_publish( stem, ctx->tower_replay_out_idx, root, 0UL, 0UL, 0UL, tsorig, tspub );
+    }
   }
 }
 
@@ -290,6 +306,9 @@ unprivileged_init( fd_topo_t *      topo,
 
   ctx->curr = NULL;
 
+  ctx->last_replayed_slot = FD_SLOT_NULL;
+  ctx->slot_to_replay     = FD_SLOT_NULL;
+
   FD_LOG_NOTICE(("Finished unprivileged init"));
 }
 
@@ -322,6 +341,13 @@ after_credit_rocksdb( ctx_t *             ctx,
       FD_LOG_CRIT(( "Failed at seeking rocksdb root iter for slot=%lu", wmark ));
     }
     ctx->rocksdb_iter = rocksdb_create_iterator_cf(ctx->rocksdb.db, ctx->rocksdb.ro, ctx->rocksdb.cf_handles[FD_ROCKSDB_CFIDX_DATA_SHRED]);
+  }
+
+  /* If the slot we just sent to the replay tile has not finished
+     replaying, then we will block until it's done replaying and a
+     notification is received from the replay tile. */
+  if( ctx->slot_to_replay!=FD_SLOT_NULL && ctx->slot_to_replay!=ctx->last_replayed_slot ) {
+    return;
   }
 
   ulong sz;
@@ -364,6 +390,11 @@ after_credit_rocksdb( ctx_t *             ctx,
   ctx->replay_out_chunk = fd_dcache_compact_next( ctx->replay_out_chunk, sizeof(fd_fec_out_t), ctx->replay_out_chunk0, ctx->replay_out_wmark );
   ctx->curr = curr;
   *charge_busy = 1;
+
+  if( out.slot_complete ) {
+    ctx->slot_to_replay = out.slot;
+  }
+
   return; /* yield otherwise it will overrun */
 }
 
