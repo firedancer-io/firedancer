@@ -81,7 +81,7 @@ bind: (or (eq (arg 2) "sizeof(struct sockaddr_in)")
 # bundle: Wait for TCP connection to be established
 #
 # resolv: Wait for DNS responses
-poll
+ppoll
 
 # bundle: configure TCP socket (for gRPC connection)
 #

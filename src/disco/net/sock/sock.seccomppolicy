@@ -3,7 +3,7 @@
 uint logfile_fd, uint tx_fd, uint rx_fd0, uint rx_fd1
 
 # net: check for completions
-poll: (eq (arg 2) 0)
+ppoll
 
 # net: receive packets
 recvmmsg: (and (and (>= (arg 0) rx_fd0)
