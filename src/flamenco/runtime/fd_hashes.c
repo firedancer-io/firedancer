@@ -42,13 +42,13 @@ fd_hash_account_lthash_value( fd_pubkey_t const       * pubkey,
   fd_blake3_append( b3, pubkey, FD_PUBKEY_FOOTPRINT );
   fd_blake3_fini_varlen( b3, lthash_out->bytes, FD_LTHASH_LEN_BYTES );
 
-  FD_LOG_WARNING(( "lthash of %s: %s (lamports=%lu, data_len=%lu, executable=%u, owner=%s)",
-    FD_BASE58_ENC_32_ALLOCA( pubkey ),
-    FD_LTHASH_ENC_32_ALLOCA( lthash_out ),
-    account->info.lamports,
-    account->dlen,
-    executable,
-    FD_BASE58_ENC_32_ALLOCA( &account->info.owner ) ));
+  // FD_LOG_WARNING(( "lthash of %s: %s (lamports=%lu, data_len=%lu, executable=%u, owner=%s)",
+    // FD_BASE58_ENC_32_ALLOCA( pubkey ),
+    // FD_LTHASH_ENC_32_ALLOCA( lthash_out ),
+    // account->info.lamports,
+    // account->dlen,
+    // executable,
+    // FD_BASE58_ENC_32_ALLOCA( &account->info.owner ) ));
 }
 
 // slot_ctx should be const.
