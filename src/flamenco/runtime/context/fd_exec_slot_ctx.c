@@ -1,5 +1,5 @@
 #include "fd_exec_slot_ctx.h"
-#include "../sysvar/fd_sysvar_epoch_schedule.h"
+#include "../sysvar/fd_sysvar_last_restart_slot.h"
 #include "../program/fd_vote_program.h"
 #include "../../../ballet/lthash/fd_lthash.h"
 
@@ -184,6 +184,11 @@ fd_exec_slot_ctx_recover( fd_exec_slot_ctx_t *                slot_ctx,
 
   fd_bank_stakes_end_locking_modify( slot_ctx->bank );
 
+  /* Rent: Must be recovered before any other sysvars, since the rent
+     settings determine the min balance of other sysvar accounts. */
+
+  fd_sysvar_rent_write_cache_only( slot_ctx, &old_bank->rent_collector.rent );
+
   /* Index vote accounts */
 
   /* Block Hash Queue */
@@ -298,11 +303,7 @@ fd_exec_slot_ctx_recover( fd_exec_slot_ctx_t *                slot_ctx,
 
   /* Epoch Schedule */
 
-  fd_bank_epoch_schedule_set( slot_ctx->bank, old_bank->epoch_schedule );
-
-  /* Rent */
-
-  fd_bank_rent_set( slot_ctx->bank, old_bank->rent_collector.rent );
+  fd_sysvar_epoch_schedule_write_cache_only( slot_ctx, &old_bank->epoch_schedule );
 
   /* Last Restart Slot */
 
@@ -313,26 +314,10 @@ fd_exec_slot_ctx_recover( fd_exec_slot_ctx_t *                slot_ctx,
      To find the last restart slot, take the highest hard fork slot
      number that is less or equal than the current slot number.
      (There might be some hard forks in the future, ignore these) */
-  do {
-    fd_sol_sysvar_last_restart_slot_t * last_restart_slot = fd_bank_last_restart_slot_modify( slot_ctx->bank );
-    last_restart_slot->slot = 0UL;
-
-    if( FD_UNLIKELY( old_bank->hard_forks.hard_forks_len == 0 ) ) {
-      /* SIMD-0047: The first restart slot should be `0` */
-      break;
-    }
-
-    fd_slot_pair_t const * head = fd_hard_forks_hard_forks_join( &old_bank->hard_forks );
-    fd_slot_pair_t const * tail = head + old_bank->hard_forks.hard_forks_len - 1UL;
-
-    for( fd_slot_pair_t const *pair = tail; pair >= head; pair-- ) {
-      if( pair->slot <= fd_bank_slot_get( slot_ctx->bank ) ) {
-        fd_sol_sysvar_last_restart_slot_t * last_restart_slot = fd_bank_last_restart_slot_modify( slot_ctx->bank );
-        last_restart_slot->slot = pair->slot;
-        break;
-      }
-    }
-  } while (0);
+  ulong const slot = fd_bank_slot_get( slot_ctx->bank );
+  fd_sol_sysvar_last_restart_slot_t lrs_sysvar = { fd_sysvar_last_restart_slot_derive( &old_bank->hard_forks, slot ) };
+  fd_bank_last_restart_slot_set( slot_ctx->bank, lrs_sysvar );
+  fd_sysvar_last_restart_slot_update( slot_ctx, lrs_sysvar.slot );
 
   /* FIXME: Remove the magic number here. */
   fd_clock_timestamp_votes_global_t * clock_timestamp_votes = fd_bank_clock_timestamp_votes_locking_modify( slot_ctx->bank );
@@ -604,10 +589,4 @@ fd_exec_slot_ctx_recover_status_cache( fd_exec_slot_ctx_t *    ctx,
 
   } FD_SPAD_FRAME_END;
   return ctx;
-}
-
-ulong
-fd_bank_epoch_get( fd_bank_t const * bank ) {
-  fd_epoch_schedule_t epoch_schedule = fd_bank_epoch_schedule_get( bank );
-  return fd_slot_to_epoch( &epoch_schedule, fd_bank_slot_get( bank ), NULL );
 }

@@ -1,47 +1,34 @@
-#ifndef HEADER_fd_src_flamenco_runtime_sysvar_fd_recent_hashes_h
-#define HEADER_fd_src_flamenco_runtime_sysvar_fd_recent_hashes_h
+#ifndef HEADER_fd_src_flamenco_runtime_sysvar_fd_sysvar_recent_hashes_h
+#define HEADER_fd_src_flamenco_runtime_sysvar_fd_sysvar_recent_hashes_h
 
-#include "../../types/fd_types.h"
-#include "../../fd_flamenco_base.h"
-#include "../../../funk/fd_funk.h"
+/* fd_sysvar_recent_hashes.h manages the "recent block hashes" sysvar
+   account (address SysvarRecentB1ockHashes11111111111111111111).  */
+
+#include "fd_sysvar_base.h"
 
 /* FD_SYSVAR_RECENT_HASHES_CAP is the max number of block hash entries
    the recent blockhashes sysvar will include.
 
-   https://github.com/anza-xyz/agave/blob/6398ddf6ab8a8f81017bf675ab315a70067f0bf0/sdk/program/src/sysvar/recent_blockhashes.rs#L32
-*/
+   https://github.com/anza-xyz/solana-sdk/blob/slot-history%40v2.2.1/sysvar/src/recent_blockhashes.rs#L37 */
 
 #define FD_SYSVAR_RECENT_HASHES_CAP (150UL)
 
-/* FD_SYSVAR_RECENT_HASHES_BINCODE_SZ is the serialized size of the
-   recent block hashes sysvar account.  (static/hardcoded)
-
-   Agave v2.2.1: https://github.com/anza-xyz/solana-sdk/blob/slot-history%40v2.2.1/sysvar/src/recent_blockhashes.rs#L157 */
-
-#define FD_SYSVAR_RECENT_HASHES_BINCODE_SZ (6008UL)
-
 FD_PROTOTYPES_BEGIN
 
-/* The recent hashes sysvar */
+/* fd_sysvar_recent_hashes_init sets the "recent block hashes" sysvar
+   account to an empty vector.  This is used to initialize the runtime
+   from genesis (FIXME Agave reference). */
 
-/* Initialize the recent hashes sysvar account. */
 void
-fd_sysvar_recent_hashes_init( fd_exec_slot_ctx_t * slot_ctx,
-                              fd_spad_t *          runtime_spad );
+fd_sysvar_recent_hashes_init( fd_exec_slot_ctx_t * slot_ctx );
 
-/* Update the recent hashes sysvar account. This should be called at the start of every slot, before execution commences. */
+/* fd_sysvar_recent_hashes_update appends an entry to the bank's block
+   hash queue, and the "recent block hashes" sysvar account.  Called
+   during the slot boundary (at the start of a slot). */
+
 void
-fd_sysvar_recent_hashes_update( fd_exec_slot_ctx_t * slot_ctx,
-                                fd_spad_t *          runtime_spad );
-
-
-/* fd_sysvar_recent_hashes_read reads the recent hashes sysvar from funk.
-   If the account doesn't exist in funk or if the account has zero
-   lamports, this function returns NULL. */
-
-fd_recent_block_hashes_t *
-fd_sysvar_recent_hashes_read( fd_funk_t * funk, fd_funk_txn_t * funk_txn, fd_spad_t * spad );
+fd_sysvar_recent_hashes_update( fd_exec_slot_ctx_t * slot_ctx );
 
 FD_PROTOTYPES_END
 
-#endif /* HEADER_fd_src_flamenco_runtime_sysvar_fd_recent_hashes_h */
+#endif /* HEADER_fd_src_flamenco_runtime_sysvar_fd_sysvar_recent_hashes_h */

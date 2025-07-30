@@ -1,66 +1,39 @@
 #include "fd_sysvar_stake_history.h"
-#include "fd_sysvar.h"
 #include "../fd_system_ids.h"
-#include "../context/fd_exec_slot_ctx.h"
-
-/* Ensure that the size declared by our header matches the minimum size
-   of the corresponding fd_types entry. */
-
-static void
-write_stake_history( fd_exec_slot_ctx_t * slot_ctx,
-                     fd_stake_history_t * stake_history ) {
-  /* https://github.com/solana-labs/solana/blob/8f2c8b8388a495d2728909e30460aa40dcc5d733/sdk/program/src/sysvar/stake_history.rs#L12 */
-  uchar enc[16392] = {0};
-
-  fd_bincode_encode_ctx_t encode =
-    { .data    = enc,
-      .dataend = enc + sizeof(enc) };
-  if( FD_UNLIKELY( fd_stake_history_encode( stake_history, &encode )!=FD_BINCODE_SUCCESS ) )
-    FD_LOG_ERR(("fd_stake_history_encode failed"));
-
-  fd_sysvar_set( slot_ctx->bank, slot_ctx->funk, slot_ctx->funk_txn, &fd_sysvar_owner_id, &fd_sysvar_stake_history_id, enc, sizeof(enc), fd_bank_slot_get( slot_ctx->bank ) );
-}
-
-fd_stake_history_t *
-fd_sysvar_stake_history_read( fd_funk_t *     funk,
-                              fd_funk_txn_t * funk_txn,
-                              fd_spad_t *     spad ) {
-  FD_TXN_ACCOUNT_DECL( stake_rec );
-  int err = fd_txn_account_init_from_funk_readonly( stake_rec, &fd_sysvar_stake_history_id, funk, funk_txn );
-  if( FD_UNLIKELY( err!=FD_ACC_MGR_SUCCESS ) ) {
-    return NULL;
-  }
-
-  /* This check is needed as a quirk of the fuzzer. If a sysvar account
-     exists in the accounts database, but doesn't have any lamports,
-     this means that the account does not exist. This wouldn't happen
-     in a real execution environment. */
-  if( FD_UNLIKELY( stake_rec->vt->get_lamports( stake_rec )==0 ) ) {
-    return NULL;
-  }
-
-  return fd_bincode_decode_spad(
-      stake_history, spad,
-      stake_rec->vt->get_data( stake_rec ),
-      stake_rec->vt->get_data_len( stake_rec ),
-      &err );
-}
+#include "fd_sysvar_epoch_schedule.h"
 
 void
 fd_sysvar_stake_history_init( fd_exec_slot_ctx_t * slot_ctx ) {
-  fd_stake_history_t stake_history;
-  fd_stake_history_new( &stake_history );
-  write_stake_history( slot_ctx, &stake_history );
+  ulong sz_max;
+  uchar * data = fd_sysvar_cache_data_modify_prepare( slot_ctx, &fd_sysvar_stake_history_id, NULL, &sz_max );
+  FD_TEST( sz_max>=FD_SYSVAR_STAKE_HISTORY_BINCODE_SZ );
+  fd_memset( data, 0, FD_SYSVAR_STAKE_HISTORY_BINCODE_SZ );
+  fd_sysvar_cache_data_modify_commit( slot_ctx, &fd_sysvar_stake_history_id, FD_SYSVAR_STAKE_HISTORY_BINCODE_SZ );
+
 }
 
-void
-fd_sysvar_stake_history_update( fd_exec_slot_ctx_t *                  slot_ctx,
-                                fd_epoch_stake_history_entry_pair_t * pair,
-                                fd_spad_t *                           runtime_spad ) {
-  FD_SPAD_FRAME_BEGIN( runtime_spad ) {
+/* https://github.com/anza-xyz/agave/blob/v2.3.2/runtime/src/bank.rs#L2365 */
 
-  // Need to make this maybe zero copies of map...
-  fd_stake_history_t * stake_history = fd_sysvar_stake_history_read( slot_ctx->funk, slot_ctx->funk_txn, runtime_spad );
+void
+fd_sysvar_stake_history_update( fd_exec_slot_ctx_t *                        slot_ctx,
+                                fd_epoch_stake_history_entry_pair_t const * entry ) {
+
+  fd_sysvar_cache_t * sysvar_cache = fd_bank_sysvar_cache_modify( slot_ctx->bank );
+  fd_epoch_schedule_t const epoch_schedule = fd_sysvar_epoch_schedule_read_nofail( sysvar_cache );
+
+  ulong const prev_slot  = fd_bank_parent_slot_get( slot_ctx->bank );
+  ulong const cur_slot   = fd_bank_slot_get( slot_ctx->bank );
+  ulong const prev_epoch = fd_slot_to_epoch( &epoch_schedule, prev_slot, NULL );
+  ulong const cur_epoch  = fd_slot_to_epoch( &epoch_schedule, cur_slot,  NULL );
+
+  if( FD_LIKELY( prev_epoch==cur_epoch ) ) return;
+
+  if( FD_UNLIKELY( !fd_sysvar_stake_history_is_valid( sysvar_cache ) ) ) {
+    fd_sysvar_stake_history_init( slot_ctx );
+  }
+
+  fd_stake_history_t * stake_history = fd_sysvar_stake_history_join( slot_ctx );
+  if( FD_UNLIKELY( !stake_history ) ) FD_LOG_ERR(( "Stake history sysvar is invalid, cannot update" ));
 
   if( stake_history->fd_stake_history_offset == 0 ) {
     stake_history->fd_stake_history_offset = stake_history->fd_stake_history_size - 1;
@@ -73,14 +46,10 @@ fd_sysvar_stake_history_update( fd_exec_slot_ctx_t *                  slot_ctx,
   }
 
   // This should be done with a bit mask
+  // (FIXME what did Josh mean with this comment)
   ulong idx = stake_history->fd_stake_history_offset;
 
-  stake_history->fd_stake_history[ idx ].epoch              = pair->epoch;
-  stake_history->fd_stake_history[ idx ].entry.activating   = pair->entry.activating;
-  stake_history->fd_stake_history[ idx ].entry.effective    = pair->entry.effective;
-  stake_history->fd_stake_history[ idx ].entry.deactivating = pair->entry.deactivating;
+  stake_history->fd_stake_history[ idx ] = *entry;
 
-  write_stake_history( slot_ctx, stake_history );
-
-  } FD_SPAD_FRAME_END;
+  fd_sysvar_stake_history_leave( slot_ctx, stake_history );
 }

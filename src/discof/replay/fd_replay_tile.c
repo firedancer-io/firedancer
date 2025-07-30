@@ -15,8 +15,8 @@
 #include "../../flamenco/runtime/fd_runtime_public.h"
 #include "../../flamenco/rewards/fd_rewards.h"
 #include "../../disco/metrics/fd_metrics.h"
-#include "../../choreo/fd_choreo.h"
 #include "../../disco/plugin/fd_plugin.h"
+#include "../../choreo/forks/fd_forks.h"
 #include "fd_exec.h"
 #include "../../discof/restore/utils/fd_ssmsg.h"
 
@@ -296,14 +296,15 @@ static void
 publish_stake_weights( fd_replay_tile_ctx_t * ctx,
                        fd_stem_context_t *    stem,
                        fd_exec_slot_ctx_t *   slot_ctx ) {
-  fd_epoch_schedule_t const * epoch_schedule = fd_bank_epoch_schedule_query( slot_ctx->bank );
+  fd_epoch_schedule_t epoch_schedule =
+      fd_sysvar_epoch_schedule_read_nofail( fd_bank_sysvar_cache_query( slot_ctx->bank ) );
 
   fd_vote_accounts_global_t const * epoch_stakes = fd_bank_epoch_stakes_locking_query( slot_ctx->bank );
   fd_vote_accounts_pair_global_t_mapnode_t * epoch_stakes_root = fd_vote_accounts_vote_accounts_root_join( epoch_stakes );
 
   if( epoch_stakes_root!=NULL ) {
     ulong * stake_weights_msg = fd_chunk_to_laddr( ctx->stake_out->mem, ctx->stake_out->chunk );
-    ulong epoch = fd_slot_to_leader_schedule_epoch( epoch_schedule, fd_bank_slot_get( slot_ctx->bank ) );
+    ulong epoch = fd_slot_to_leader_schedule_epoch( &epoch_schedule, fd_bank_slot_get( slot_ctx->bank ) );
     ulong stake_weights_sz = generate_stake_weight_msg( slot_ctx, ctx->runtime_spad, epoch - 1, epoch_stakes, stake_weights_msg );
     ulong stake_weights_sig = 4UL;
     fd_stem_publish( stem, 0UL, stake_weights_sig, ctx->stake_out->chunk, stake_weights_sz, 0UL, 0UL, fd_frag_meta_ts_comp( fd_tickcount() ) );
@@ -318,7 +319,7 @@ publish_stake_weights( fd_replay_tile_ctx_t * ctx,
 
   if( next_epoch_stakes_root!=NULL ) {
     ulong * stake_weights_msg = fd_chunk_to_laddr( ctx->stake_out->mem, ctx->stake_out->chunk );
-    ulong   epoch             = fd_slot_to_leader_schedule_epoch( epoch_schedule, fd_bank_slot_get( slot_ctx->bank ) ); /* epoch */
+    ulong   epoch             = fd_slot_to_leader_schedule_epoch( &epoch_schedule, fd_bank_slot_get( slot_ctx->bank ) ); /* epoch */
     ulong stake_weights_sz = generate_stake_weight_msg( slot_ctx, ctx->runtime_spad, epoch, next_epoch_stakes, stake_weights_msg );
     ulong stake_weights_sig = 4UL;
     fd_stem_publish( stem, 0UL, stake_weights_sig, ctx->stake_out->chunk, stake_weights_sz, 0UL, 0UL, fd_frag_meta_ts_comp( fd_tickcount() ) );
@@ -788,10 +789,14 @@ init_after_snapshot( fd_replay_tile_ctx_t * ctx,
 static void
 init_from_snapshot( fd_replay_tile_ctx_t * ctx,
                     fd_stem_context_t *    stem ) {
+  if( FD_UNLIKELY( !fd_sysvar_cache_restore( ctx->slot_ctx ) ) ) {
+    FD_LOG_ERR(( "Failed to restore sysvar cache" ));
+  }
   fd_features_restore( ctx->slot_ctx, ctx->runtime_spad );
-  fd_calculate_epoch_accounts_hash_values( ctx->slot_ctx );
+  fd_calculate_epoch_accounts_hash_values( ctx->slot_ctx->bank );
 
-  fd_runtime_update_leaders( ctx->slot_ctx->bank,
+  fd_runtime_update_leaders(
+    ctx->slot_ctx->bank,
     fd_bank_slot_get( ctx->slot_ctx->bank ),
     ctx->runtime_spad );
 

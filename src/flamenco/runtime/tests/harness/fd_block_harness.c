@@ -329,6 +329,9 @@ fd_runtime_fuzz_block_ctx_create( fd_runtime_fuzz_runner_t *           runner,
                                                      &pubkey );
   }
 
+  /* Restore sysvar cache */
+  FD_TEST( fd_sysvar_cache_restore( slot_ctx )==0 );
+
   /* Refresh vote accounts to calculate stake delegations */
   fd_runtime_fuzz_block_refresh_vote_accounts( vote_accounts_pool,
                                                vote_accounts_root,
@@ -341,15 +344,11 @@ fd_runtime_fuzz_block_ctx_create( fd_runtime_fuzz_runner_t *           runner,
   fd_stakes_stake_delegations_pool_update( stakes, stake_delegations_pool );
   fd_stakes_stake_delegations_root_update( stakes, stake_delegations_root );
 
-  /* Finish init epoch bank sysvars */
-  fd_epoch_schedule_t epoch_schedule_[1];
-  fd_epoch_schedule_t * epoch_schedule = fd_sysvar_epoch_schedule_read( funk, funk_txn, epoch_schedule_ );
-  fd_bank_epoch_schedule_set( slot_ctx->bank, *epoch_schedule );
+  fd_sysvar_cache_t * sysvar_cache = fd_bank_sysvar_cache_modify( slot_ctx->bank );
+  fd_epoch_schedule_t const epoch_schedule =
+      fd_sysvar_epoch_schedule_read_nofail( sysvar_cache );
 
-  fd_rent_t const * rent = fd_sysvar_rent_read( funk, funk_txn, runner->spad );
-  fd_bank_rent_set( slot_ctx->bank, *rent );
-
-  stakes->epoch = fd_slot_to_epoch( epoch_schedule, test_ctx->slot_ctx.prev_slot, NULL );
+  stakes->epoch = fd_slot_to_epoch( &epoch_schedule, test_ctx->slot_ctx.prev_slot, NULL );
 
   fd_bank_stakes_end_locking_modify( slot_ctx->bank );
 
@@ -406,9 +405,9 @@ fd_runtime_fuzz_block_ctx_create( fd_runtime_fuzz_runner_t *           runner,
   fd_memset( genesis_hash->hash, 0, sizeof(fd_hash_t) );
 
   // Use the latest lamports per signature
-  fd_recent_block_hashes_t const * rbh = fd_sysvar_recent_hashes_read( funk, funk_txn, runner->spad );
-  if( rbh && !deq_fd_block_block_hash_entry_t_empty( rbh->hashes ) ) {
-    fd_block_block_hash_entry_t const * last = deq_fd_block_block_hash_entry_t_peek_head_const( rbh->hashes );
+  fd_block_block_hash_entry_t const * rbh = fd_sysvar_recent_hashes_join_const( sysvar_cache );
+  if( FD_UNLIKELY( rbh && !deq_fd_block_block_hash_entry_t_empty( rbh ) ) ) {
+    fd_block_block_hash_entry_t const * last = deq_fd_block_block_hash_entry_t_peek_head_const( rbh );
     if( last && last->fee_calculator.lamports_per_signature!=0UL ) {
       fd_bank_lamports_per_signature_set( slot_ctx->bank, last->fee_calculator.lamports_per_signature );
       fd_bank_prev_lamports_per_signature_set( slot_ctx->bank, last->fee_calculator.lamports_per_signature );
@@ -420,7 +419,7 @@ fd_runtime_fuzz_block_ctx_create( fd_runtime_fuzz_runner_t *           runner,
     fd_hash_t hash;
     memcpy( &hash, test_ctx->blockhash_queue[i]->bytes, sizeof(fd_hash_t) );
     fd_bank_poh_set( slot_ctx->bank, hash );
-    fd_sysvar_recent_hashes_update( slot_ctx, runner->spad ); /* appends an entry */
+    fd_sysvar_recent_hashes_update( slot_ctx ); /* appends an entry */
   }
 
   // Set the current poh from the input (we skip POH verification in this fuzzing target)
@@ -435,7 +434,7 @@ fd_runtime_fuzz_block_ctx_create( fd_runtime_fuzz_runner_t *           runner,
   fd_funk_txn_end_write( funk );
 
   /* Calculate epoch account hash values. This sets epoch_bank.eah_{start_slot, stop_slot, interval} */
-  fd_calculate_epoch_accounts_hash_values( slot_ctx );
+  fd_calculate_epoch_accounts_hash_values( slot_ctx->bank );
 
   /* Prepare raw transaction pointers and block / microblock infos */
   ulong txn_cnt = test_ctx->txns_count;

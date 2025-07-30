@@ -30,7 +30,7 @@
    The epoch schedule sysvar contains epoch scheduling constants used to
    make various epoch-related calculations. */
 
-#include "../../fd_flamenco_base.h"
+#include "fd_sysvar_base.h"
 #include "../context/fd_exec_slot_ctx.h"
 
 /* FD_EPOCH_LEN_MIN is a protocol constant specifying the smallest
@@ -53,28 +53,6 @@
 #define FD_EPOCH_LEN_MAX (0xFFFFFFFFUL)
 
 FD_PROTOTYPES_BEGIN
-
-/* fd_sysvar_epoch_schedule_init initializes the epoch schedule sysvar
-   account.  FIXME document what this actually does. */
-
-void
-fd_sysvar_epoch_schedule_init( fd_exec_slot_ctx_t * slot_ctx );
-
-/* fd_sysvar_epoch_schedule_read reads the current value of the rent
-   sysvar from funk. If the account doesn't exist in funk or if the account
-   has zero lamports, this function returns NULL. */
-
-fd_epoch_schedule_t *
-fd_sysvar_epoch_schedule_read( fd_funk_t *           funk,
-                               fd_funk_txn_t *       funk_txn,
-                               fd_epoch_schedule_t * out );
-
-/* fd_sysvar_epoch_schedule_write writes the current value of the epoch
-   schedule sysvar to funk. */
-
-void
-fd_sysvar_epoch_schedule_write( fd_exec_slot_ctx_t *        slot_ctx,
-                                fd_epoch_schedule_t const * epoch_schedule );
 
 /* fd_epoch_schedule_derive derives an epoch schedule config from the
    given parameters.  New epoch schedule configurations should only be

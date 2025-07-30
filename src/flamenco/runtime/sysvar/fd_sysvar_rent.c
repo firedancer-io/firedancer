@@ -1,56 +1,11 @@
 #include "fd_sysvar_rent.h"
-#include "fd_sysvar.h"
-#include "../fd_system_ids.h"
-#include "../context/fd_exec_slot_ctx.h"
-#include <assert.h>
 
-void
-fd_sysvar_rent_write( fd_exec_slot_ctx_t * slot_ctx,
-                      fd_rent_t const *    rent ) {
+/* https://github.com/solana-labs/solana/blob/8f2c8b8388a495d2728909e30460aa40dcc5d733/sdk/program/src/rent.rs#L36 */
+#define ACCOUNT_STORAGE_OVERHEAD (128)
 
-  uchar enc[ 32 ];
-
-  ulong sz = fd_rent_size( rent );
-  FD_TEST( sz<=sizeof(enc) );
-  memset( enc, 0, sz );
-
-  fd_bincode_encode_ctx_t ctx;
-  ctx.data    = enc;
-  ctx.dataend = enc + sz;
-  if( fd_rent_encode( rent, &ctx ) )
-    FD_LOG_ERR(("fd_rent_encode failed"));
-
-  fd_sysvar_set( slot_ctx->bank, slot_ctx->funk, slot_ctx->funk_txn, &fd_sysvar_owner_id, &fd_sysvar_rent_id, enc, sz, fd_bank_slot_get( slot_ctx->bank ) );
-}
-
-void
-fd_sysvar_rent_init( fd_exec_slot_ctx_t * slot_ctx ) {
-  fd_rent_t const * rent = fd_bank_rent_query( slot_ctx->bank );
-  fd_sysvar_rent_write( slot_ctx, rent );
-}
-
-fd_rent_t const *
-fd_sysvar_rent_read( fd_funk_t *     funk,
-                     fd_funk_txn_t * funk_txn,
-                     fd_spad_t *     spad ) {
-  FD_TXN_ACCOUNT_DECL( acc );
-  int rc = fd_txn_account_init_from_funk_readonly( acc, &fd_sysvar_rent_id, funk, funk_txn );
-  if( FD_UNLIKELY( rc!=FD_ACC_MGR_SUCCESS ) ) {
-    return NULL;
-  }
-
-  /* This check is needed as a quirk of the fuzzer. If a sysvar account
-     exists in the accounts database, but doesn't have any lamports,
-     this means that the account does not exist. This wouldn't happen
-     in a real execution environment. */
-  if( FD_UNLIKELY( acc->vt->get_lamports( acc )==0 ) ) {
-    return NULL;
-  }
-
-  int err;
-  return fd_bincode_decode_spad(
-      rent, spad,
-      acc->vt->get_data( acc ),
-      acc->vt->get_data_len( acc ),
-      &err );
+ulong
+fd_rent_exempt_minimum_balance( fd_rent_t const * rent,
+                                ulong             data_len ) {
+  /* https://github.com/anza-xyz/agave/blob/d2124a995f89e33c54f41da76bfd5b0bd5820898/sdk/program/src/rent.rs#L74 */
+  return fd_rust_cast_double_to_ulong( (double)((data_len + ACCOUNT_STORAGE_OVERHEAD) * rent->lamports_per_uint8_year) * rent->exemption_threshold );
 }

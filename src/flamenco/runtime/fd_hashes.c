@@ -139,19 +139,20 @@ fd_hash_account_deltas( fd_pubkey_hash_pair_list_t * lists, ulong lists_len, fd_
 
 
 void
-fd_calculate_epoch_accounts_hash_values( fd_exec_slot_ctx_t * slot_ctx ) {
-  fd_epoch_schedule_t const * epoch_schedule = fd_bank_epoch_schedule_query( slot_ctx->bank );
-  ulong epoch = fd_slot_to_epoch( epoch_schedule, fd_bank_slot_get( slot_ctx->bank ), NULL );
+fd_calculate_epoch_accounts_hash_values( fd_bank_t * bank ) {
+  ulong const epoch = fd_bank_epoch_get( bank );
 
-  if( FD_FEATURE_ACTIVE_BANK( slot_ctx->bank, accounts_lt_hash) ) {
-    fd_bank_eah_start_slot_set( slot_ctx->bank, ULONG_MAX );
-    fd_bank_eah_stop_slot_set( slot_ctx->bank, ULONG_MAX );
-    fd_bank_eah_interval_set( slot_ctx->bank, ULONG_MAX );
+  if( FD_FEATURE_ACTIVE_BANK( bank, accounts_lt_hash ) ) {
+    fd_bank_eah_start_slot_set( bank, ULONG_MAX );
+    fd_bank_eah_stop_slot_set ( bank, ULONG_MAX );
+    fd_bank_eah_interval_set  ( bank, ULONG_MAX );
     return;
   }
 
-  ulong slots_per_epoch     = fd_epoch_slot_cnt( epoch_schedule, epoch );
-  ulong first_slot_in_epoch = fd_epoch_slot0   ( epoch_schedule, epoch );
+  fd_epoch_schedule_t epoch_schedule =
+      fd_sysvar_epoch_schedule_read_nofail( fd_bank_sysvar_cache_query( bank ) );
+  ulong slots_per_epoch     = fd_epoch_slot_cnt( &epoch_schedule, epoch );
+  ulong first_slot_in_epoch = fd_epoch_slot0   ( &epoch_schedule, epoch );
 
   ulong calculation_offset_start = slots_per_epoch / 4;
   ulong calculation_offset_stop = slots_per_epoch / 4 * 3;
@@ -163,23 +164,23 @@ fd_calculate_epoch_accounts_hash_values( fd_exec_slot_ctx_t * slot_ctx ) {
   const ulong MINIMUM_CALCULATION_INTERVAL = MAX_LOCKOUT_HISTORY + CALCULATION_INTERVAL_BUFFER;
 
   if( calculation_interval < MINIMUM_CALCULATION_INTERVAL ) {
-    fd_bank_eah_start_slot_set( slot_ctx->bank, ULONG_MAX );
-    fd_bank_eah_stop_slot_set( slot_ctx->bank, ULONG_MAX );
-    fd_bank_eah_interval_set( slot_ctx->bank, ULONG_MAX );
+    fd_bank_eah_start_slot_set( bank, ULONG_MAX );
+    fd_bank_eah_stop_slot_set ( bank, ULONG_MAX );
+    fd_bank_eah_interval_set  ( bank, ULONG_MAX );
     return;
   }
 
-  fd_bank_eah_start_slot_set( slot_ctx->bank, first_slot_in_epoch + calculation_offset_start );
-  if( fd_bank_slot_get( slot_ctx->bank ) > fd_bank_eah_start_slot_get( slot_ctx->bank ) ) {
-    fd_bank_eah_start_slot_set( slot_ctx->bank, ULONG_MAX );
+  fd_bank_eah_start_slot_set( bank, first_slot_in_epoch + calculation_offset_start );
+  if( fd_bank_slot_get( bank ) > fd_bank_eah_start_slot_get( bank ) ) {
+    fd_bank_eah_start_slot_set( bank, ULONG_MAX );
   }
 
-  fd_bank_eah_stop_slot_set( slot_ctx->bank, first_slot_in_epoch + calculation_offset_stop );
-  if( fd_bank_slot_get( slot_ctx->bank ) > fd_bank_eah_stop_slot_get( slot_ctx->bank ) ) {
-    fd_bank_eah_stop_slot_set( slot_ctx->bank, ULONG_MAX );
+  fd_bank_eah_stop_slot_set( bank, first_slot_in_epoch + calculation_offset_stop );
+  if( fd_bank_slot_get( bank ) > fd_bank_eah_stop_slot_get( bank ) ) {
+    fd_bank_eah_stop_slot_set( bank, ULONG_MAX );
   }
 
-  fd_bank_eah_interval_set( slot_ctx->bank, calculation_interval );
+  fd_bank_eah_interval_set( bank, calculation_interval );
 
 }
 

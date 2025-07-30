@@ -75,7 +75,6 @@ fd_populate_vote_accounts( fd_exec_slot_ctx_t *       slot_ctx,
 void
 fd_accumulate_stake_infos( fd_exec_slot_ctx_t const * slot_ctx,
                            fd_stakes_global_t const * stakes,
-                           fd_stake_history_t const * history,
                            ulong *                    new_rate_activation_epoch,
                            fd_stake_history_entry_t * accumulator,
                            fd_epoch_info_t *          temp_info,

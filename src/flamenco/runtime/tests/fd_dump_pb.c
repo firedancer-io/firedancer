@@ -834,9 +834,9 @@ create_txn_context_protobuf_from_txn( fd_exec_test_txn_context_t * txn_context_m
      entries. We have this incorrect logic implemented in fd_sysvar_recent_hashes:register_blockhash and it's not a
      huge issue, but something to keep in mind. */
   pb_bytes_array_t ** output_blockhash_queue = fd_spad_alloc(
-                                                      spad,
-                                                      alignof(pb_bytes_array_t *),
-                                                      PB_BYTES_ARRAY_T_ALLOCSIZE((FD_BLOCKHASHES_MAX) * sizeof(pb_bytes_array_t *)) );
+      spad,
+      alignof(pb_bytes_array_t *),
+      PB_BYTES_ARRAY_T_ALLOCSIZE((FD_BLOCKHASHES_MAX) * sizeof(pb_bytes_array_t *)) );
   txn_context_msg->blockhash_queue = output_blockhash_queue;
   fd_blockhashes_t const * block_hash_queue = fd_bank_block_hash_queue_query( txn_ctx->bank );
   dump_blockhash_queue( block_hash_queue, spad, output_blockhash_queue, &txn_context_msg->blockhash_queue_count );

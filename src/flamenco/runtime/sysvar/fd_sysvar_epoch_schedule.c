@@ -1,7 +1,5 @@
 #include "fd_sysvar_epoch_schedule.h"
-#include "fd_sysvar.h"
-#include "../fd_system_ids.h"
-#include "../context/fd_exec_slot_ctx.h"
+
 fd_epoch_schedule_t *
 fd_epoch_schedule_derive( fd_epoch_schedule_t * schedule,
                           ulong                 epoch_len,
@@ -28,56 +26,6 @@ fd_epoch_schedule_derive( fd_epoch_schedule_t * schedule,
   }
 
   return schedule;
-}
-
-void
-fd_sysvar_epoch_schedule_write( fd_exec_slot_ctx_t *        slot_ctx,
-                                fd_epoch_schedule_t const * epoch_schedule ) {
-  ulong sz = fd_epoch_schedule_size( epoch_schedule );
-  /* TODO remove alloca */
-  uchar enc[ sz ];
-  memset( enc, 0, sz );
-  fd_bincode_encode_ctx_t ctx = {
-    .data    = enc,
-    .dataend = enc + sz
-  };
-  if( fd_epoch_schedule_encode( epoch_schedule, &ctx ) ) {
-    FD_LOG_ERR(("fd_epoch_schedule_encode failed"));
-  }
-
-  fd_sysvar_set( slot_ctx->bank, slot_ctx->funk, slot_ctx->funk_txn, &fd_sysvar_owner_id, &fd_sysvar_epoch_schedule_id, enc, sz, fd_bank_slot_get( slot_ctx->bank ) );
-}
-
-fd_epoch_schedule_t *
-fd_sysvar_epoch_schedule_read( fd_funk_t *           funk,
-                               fd_funk_txn_t *       funk_txn,
-                               fd_epoch_schedule_t * out ) {
-
-  FD_TXN_ACCOUNT_DECL( acc );
-  int err = fd_txn_account_init_from_funk_readonly( acc, &fd_sysvar_epoch_schedule_id, funk, funk_txn );
-  if( FD_UNLIKELY( err != FD_ACC_MGR_SUCCESS ) ) {
-    return NULL;
-  }
-
-  /* This check is needed as a quirk of the fuzzer. If a sysvar account
-     exists in the accounts database, but doesn't have any lamports,
-     this means that the account does not exist. This wouldn't happen
-     in a real execution environment. */
-  if( FD_UNLIKELY( acc->vt->get_lamports( acc ) == 0UL ) ) {
-    return NULL;
-  }
-
-  return fd_bincode_decode_static(
-      epoch_schedule, out,
-      acc->vt->get_data( acc ),
-      acc->vt->get_data_len( acc ),
-      &err );
-}
-
-void
-fd_sysvar_epoch_schedule_init( fd_exec_slot_ctx_t * slot_ctx ) {
-  fd_epoch_schedule_t const * epoch_schedule = fd_bank_epoch_schedule_query( slot_ctx->bank );
-  fd_sysvar_epoch_schedule_write( slot_ctx, epoch_schedule );
 }
 
 /* https://github.com/solana-labs/solana/blob/88aeaa82a856fc807234e7da0b31b89f2dc0e091/sdk/program/src/epoch_schedule.rs#L105 */

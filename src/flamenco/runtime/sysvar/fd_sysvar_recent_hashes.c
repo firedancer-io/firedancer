@@ -1,8 +1,7 @@
 #include "fd_sysvar_recent_hashes.h"
-#include "../fd_acc_mgr.h"
-#include "fd_sysvar.h"
-#include "../fd_system_ids.h"
 #include "../context/fd_exec_slot_ctx.h"
+#include "../fd_system_ids.h"
+#include "fd_sysvar_cache.h"
 
 /* Skips fd_types encoding preflight checks and directly serializes the
    blockhash queue into a buffer representing account data for the
@@ -36,22 +35,15 @@ encode_rbh_from_blockhash_queue( fd_blockhashes_t const * bhq,
 }
 
 void
-fd_sysvar_recent_hashes_init( fd_exec_slot_ctx_t * slot_ctx,
-                              fd_spad_t *          runtime_spad ) {
+fd_sysvar_recent_hashes_init( fd_exec_slot_ctx_t * slot_ctx ) {
 
-  FD_SPAD_FRAME_BEGIN( runtime_spad ) {
+  ulong sz_max = 0UL;
+  uchar * data = fd_sysvar_cache_data_modify_prepare( slot_ctx, &fd_sysvar_recent_block_hashes_id, NULL, &sz_max );
+  if( FD_UNLIKELY( !data ) ) FD_LOG_ERR(( "fd_sysvar_cache_data_modify_prepare(recent_block_hashes) failed" ));
+  FD_TEST( sz_max>=FD_SYSVAR_RECENT_HASHES_BINCODE_SZ );
+  fd_memset( data, 0, FD_SYSVAR_RECENT_HASHES_BINCODE_SZ );
+  fd_sysvar_cache_data_modify_commit( slot_ctx, &fd_sysvar_recent_block_hashes_id, FD_SYSVAR_RECENT_HASHES_BINCODE_SZ );
 
-  if( fd_bank_slot_get( slot_ctx->bank ) != 0 ) {
-    return;
-  }
-
-  ulong   sz  = FD_SYSVAR_RECENT_HASHES_BINCODE_SZ;
-  uchar * enc = fd_spad_alloc( runtime_spad, FD_SPAD_ALIGN, sz );
-  fd_memset( enc, 0, sz );
-  encode_rbh_from_blockhash_queue( fd_bank_block_hash_queue_query( slot_ctx->bank ), enc );
-  fd_sysvar_set( slot_ctx->bank, slot_ctx->funk, slot_ctx->funk_txn, &fd_sysvar_owner_id, &fd_sysvar_recent_block_hashes_id, enc, sz, fd_bank_slot_get( slot_ctx->bank ) );
-
-  } FD_SPAD_FRAME_END;
 }
 
 // https://github.com/anza-xyz/agave/blob/e8750ba574d9ac7b72e944bc1227dc7372e3a490/accounts-db/src/blockhash_queue.rs#L113
@@ -65,75 +57,21 @@ register_blockhash( fd_exec_slot_ctx_t * slot_ctx,
   };
 }
 
-/* This implementation is more consistent with Agave's bank implementation for updating the block hashes sysvar:
-   1. Update the block hash queue with the latest poh
-   2. Take the first 150 blockhashes from the queue (or fewer if there are)
-   3. Manually serialize the recent blockhashes
-   4. Set the sysvar account with the new data */
 void
-fd_sysvar_recent_hashes_update( fd_exec_slot_ctx_t * slot_ctx, fd_spad_t * runtime_spad ) {
-  FD_SPAD_FRAME_BEGIN( runtime_spad ) {
-  /* Update the blockhash queue */
+fd_sysvar_recent_hashes_update( fd_exec_slot_ctx_t * slot_ctx ) {
 
+  /* Add PoH hash to bank blockhash queue */
   register_blockhash( slot_ctx, fd_bank_poh_query( slot_ctx->bank ) );
 
-  /* Derive the new sysvar recent blockhashes from the blockhash queue */
-  ulong   sz        = FD_SYSVAR_RECENT_HASHES_BINCODE_SZ;
-  uchar * enc       = fd_spad_alloc( runtime_spad, FD_SPAD_ALIGN, sz );
-  uchar * enc_start = enc;
-  fd_memset( enc, 0, sz );
-
-  /* Encode the recent blockhashes */
-  encode_rbh_from_blockhash_queue( fd_bank_block_hash_queue_query( slot_ctx->bank ), enc );
-
-  /* Set the sysvar from the encoded data */
-  fd_sysvar_set( slot_ctx->bank,
-                 slot_ctx->funk,
-                 slot_ctx->funk_txn,
-                 &fd_sysvar_owner_id,
-                 &fd_sysvar_recent_block_hashes_id,
-                 enc_start,
-                 sz,
-                 fd_bank_slot_get( slot_ctx->bank ) );
-  } FD_SPAD_FRAME_END;
-}
-
-fd_recent_block_hashes_t *
-fd_sysvar_recent_hashes_read( fd_funk_t * funk, fd_funk_txn_t * funk_txn, fd_spad_t * spad ) {
-  FD_TXN_ACCOUNT_DECL( acc );
-  int err = fd_txn_account_init_from_funk_readonly( acc, &fd_sysvar_recent_block_hashes_id, funk, funk_txn );
-  if( FD_UNLIKELY( err != FD_ACC_MGR_SUCCESS ) )
-    return NULL;
-
-  fd_bincode_decode_ctx_t ctx = {
-    .data    = acc->vt->get_data( acc ),
-    .dataend = acc->vt->get_data( acc ) + acc->vt->get_data_len( acc ),
-  };
-
-  /* This check is needed as a quirk of the fuzzer. If a sysvar account
-     exists in the accounts database, but doesn't have any lamports,
-     this means that the account does not exist. This wouldn't happen
-     in a real execution environment. */
-  if( FD_UNLIKELY( acc->vt->get_lamports( acc ) == 0UL ) ) {
-    return NULL;
+  /* Update sysvar account with latest 150 hashes */
+  fd_sysvar_cache_t * sysvar_cache = fd_bank_sysvar_cache_modify( slot_ctx->bank );
+  if( FD_UNLIKELY( !fd_sysvar_recent_hashes_is_valid( sysvar_cache ) ) ) {
+    fd_sysvar_recent_hashes_init( slot_ctx );
   }
-
-  ulong total_sz = 0;
-  err = fd_recent_block_hashes_decode_footprint( &ctx, &total_sz );
-  if( FD_UNLIKELY( err ) ) {
-    return NULL;
-  }
-
-  uchar * mem = fd_spad_alloc( spad, fd_recent_block_hashes_align(), total_sz );
-  if( FD_UNLIKELY( !mem ) ) {
-    FD_LOG_CRIT(( "fd_spad_alloc failed" ));
-  }
-
-  /* This would never happen in a real cluster, this is a workaround
-     for fuzz-generated cases where sysvar accounts are not funded. */
-  if( FD_UNLIKELY( acc->vt->get_lamports( acc ) == 0 ) ) {
-    return NULL;
-  }
-
-  return fd_recent_block_hashes_decode( mem, &ctx );
+  ulong sz_max = 0UL;
+  uchar * data = fd_sysvar_cache_data_modify_prepare( slot_ctx, &fd_sysvar_recent_block_hashes_id, NULL, &sz_max );
+  if( FD_UNLIKELY( !data ) ) FD_LOG_ERR(( "fd_sysvar_cache_data_modify_prepare(recent_block_hashes) failed" ));
+  FD_TEST( sz_max>=FD_SYSVAR_RECENT_HASHES_BINCODE_SZ );
+  encode_rbh_from_blockhash_queue( fd_bank_block_hash_queue_query( slot_ctx->bank ), data );
+  fd_sysvar_cache_data_modify_commit( slot_ctx, &fd_sysvar_recent_block_hashes_id, FD_SYSVAR_RECENT_HASHES_BINCODE_SZ );
 }

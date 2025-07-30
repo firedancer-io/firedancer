@@ -1,8 +1,7 @@
 #include "../topo/fd_topo.h"
-
 #include "generated/fd_plugin_tile_seccomp.h"
-
 #include "../plugin/fd_plugin.h"
+#include "../../flamenco/leaders/fd_leaders_base.h"
 
 #define IN_KIND_REPLAY (0)
 #define IN_KIND_GOSSIP (1)

@@ -2,6 +2,7 @@
 #include "../runtime/context/fd_exec_slot_ctx.h"
 #include "../runtime/program/fd_stake_program.h"
 #include "../runtime/sysvar/fd_sysvar_stake_history.h"
+#include "../runtime/fd_acc_mgr.h"
 
 /* fd_stakes_accum_by_node converts Stakes (unordered list of (vote acc,
    active stake) tuples) to StakedNodes (rbtree mapping (node identity)
@@ -136,7 +137,7 @@ fd_stakes_export( fd_stake_weight_t_mapnode_t const * const in_pool,
 
 ulong
 fd_stake_weights_by_node( fd_vote_accounts_global_t const * accs,
-                          fd_vote_stake_weight_t *          weights,
+                          fd_vote_stake_weight_t * const    weights,
                           fd_spad_t *                       runtime_spad ) {
 
   /* Estimate size required to store temporary data structures */
@@ -151,7 +152,7 @@ fd_stake_weights_by_node( fd_vote_accounts_global_t const * accs,
 
   /* Create rb tree */
 
-  void * pool_mem = fd_spad_alloc( runtime_spad, rb_align, rb_footprint );
+  void * pool_mem = fd_spad_alloc_check( runtime_spad, rb_align, rb_footprint );
   pool_mem = fd_stake_weight_t_map_new( pool_mem, vote_acc_cnt );
   fd_stake_weight_t_mapnode_t * pool = fd_stake_weight_t_map_join( pool_mem );
   if( FD_UNLIKELY( !pool_mem ) ) FD_LOG_CRIT(( "fd_stake_weights_new() failed" ));
@@ -169,9 +170,9 @@ fd_stake_weights_by_node( fd_vote_accounts_global_t const * accs,
   fd_stake_weight_sort( _weights, weights_cnt );
 
   for( ulong i=0UL; i<weights_cnt; i++ ) {
-    weights[ i ].stake = _weights[ i ].stake;
-    memcpy( weights[ i ].id_key.uc, _weights[ i ].key.uc, sizeof(fd_pubkey_t) );
-    memcpy( weights[ i ].vote_key.uc, _weights[ i ].key.uc, sizeof(fd_pubkey_t) );
+    weights[ i ].stake    = _weights[ i ].stake;
+    weights[ i ].id_key   = _weights[ i ].key;
+    weights[ i ].vote_key = _weights[ i ].key;
   }
 
   return weights_cnt;
@@ -552,7 +553,6 @@ static void
 accumulate_stake_cache_delegations(
     fd_delegation_pair_t_mapnode_t * delegation_min,
     fd_exec_slot_ctx_t const *       slot_ctx,
-    fd_stake_history_t const *       history,
     ulong *                          new_rate_activation_epoch,
     fd_stake_history_entry_t *       accumulator,
     fd_delegation_pair_t_mapnode_t * delegations_pool,
@@ -562,6 +562,9 @@ accumulate_stake_cache_delegations(
   ulong effective    = 0UL;
   ulong activating   = 0UL;
   ulong deactivating = 0UL;
+
+  fd_sysvar_cache_t const *  sysvar_cache  = fd_bank_sysvar_cache_query( slot_ctx->bank );
+  fd_stake_history_t const * stake_history = fd_sysvar_stake_history_join_const( sysvar_cache );
 
   for( fd_delegation_pair_t_mapnode_t * n =  delegation_min;
                                         n != NULL;
@@ -599,11 +602,13 @@ accumulate_stake_cache_delegations(
     temp_info->stake_infos[delegation_idx].stake   = stake_state.inner.stake.stake;
     temp_info->stake_infos[delegation_idx].account = n->elem.account;
 
-    fd_stake_history_entry_t new_entry = fd_stake_activating_and_deactivating( delegation, epoch, history, new_rate_activation_epoch );
+    fd_stake_history_entry_t new_entry = fd_stake_activating_and_deactivating( delegation, epoch, stake_history, new_rate_activation_epoch );
     effective    += new_entry.effective;
     activating   += new_entry.activating;
     deactivating += new_entry.deactivating;
   }
+
+  fd_sysvar_stake_history_leave_const( sysvar_cache, stake_history );
 
   accumulator->effective    += effective;
   accumulator->activating   += activating;
@@ -617,7 +622,6 @@ accumulate_stake_cache_delegations(
 void
 fd_accumulate_stake_infos( fd_exec_slot_ctx_t const * slot_ctx,
                            fd_stakes_global_t const * stakes,
-                           fd_stake_history_t const * history,
                            ulong *                    new_rate_activation_epoch,
                            fd_stake_history_entry_t * accumulator,
                            fd_epoch_info_t *          temp_info,
@@ -638,7 +642,6 @@ fd_accumulate_stake_infos( fd_exec_slot_ctx_t const * slot_ctx,
   accumulate_stake_cache_delegations(
       batch_delegation_min,
       slot_ctx,
-      history,
       new_rate_activation_epoch,
       accumulator,
       stake_delegations_pool,
@@ -652,10 +655,8 @@ fd_accumulate_stake_infos( fd_exec_slot_ctx_t const * slot_ctx,
   fd_account_keys_pair_t_mapnode_t * account_keys_pool  = fd_account_keys_account_keys_pool_join( stake_account_keys );
   fd_account_keys_pair_t_mapnode_t * account_keys_root  = fd_account_keys_account_keys_root_join( stake_account_keys );
 
-  if( !account_keys_pool ) {
-    fd_bank_stake_account_keys_end_locking_query( slot_ctx->bank );
-    return;
-  }
+  fd_sysvar_cache_t const *  sysvar_cache  = fd_bank_sysvar_cache_query( slot_ctx->bank );
+  fd_stake_history_t const * stake_history = fd_sysvar_stake_history_join_const( sysvar_cache );
 
   /* The number of account keys aggregated across the epoch is usually small, so there aren't much performance gains from tpooling here. */
   for( fd_account_keys_pair_t_mapnode_t * n = fd_account_keys_pair_t_map_minimum( account_keys_pool, account_keys_root );
@@ -684,11 +685,13 @@ fd_accumulate_stake_infos( fd_exec_slot_ctx_t const * slot_ctx,
     fd_delegation_t * delegation = &stake_state.inner.stake.stake.delegation;
     temp_info->stake_infos[temp_info->stake_infos_len  ].stake    = stake_state.inner.stake.stake;
     temp_info->stake_infos[temp_info->stake_infos_len++].account  = n->elem.key;
-    fd_stake_history_entry_t new_entry = fd_stake_activating_and_deactivating( delegation, stakes->epoch, history, new_rate_activation_epoch );
+    fd_stake_history_entry_t new_entry = fd_stake_activating_and_deactivating( delegation, stakes->epoch, stake_history, new_rate_activation_epoch );
     accumulator->effective    += new_entry.effective;
     accumulator->activating   += new_entry.activating;
     accumulator->deactivating += new_entry.deactivating;
   }
+
+  fd_sysvar_stake_history_leave_const( sysvar_cache, stake_history );
 
   fd_bank_stake_account_keys_end_locking_query( slot_ctx->bank );
 
@@ -721,9 +724,6 @@ fd_stakes_activate_epoch( fd_exec_slot_ctx_t *  slot_ctx,
   /* Add a new entry to the Stake History sysvar for the previous epoch
      https://github.com/solana-labs/solana/blob/88aeaa82a856fc807234e7da0b31b89f2dc0e091/runtime/src/stakes.rs#L181-L192 */
 
-  fd_stake_history_t const * history = fd_sysvar_stake_history_read( slot_ctx->funk, slot_ctx->funk_txn, runtime_spad );
-  if( FD_UNLIKELY( !history ) ) FD_LOG_ERR(( "StakeHistory sysvar is missing from sysvar cache" ));
-
   ulong stake_delegations_size = fd_delegation_pair_t_map_size(
     stake_delegations_pool, stake_delegations_root );
 
@@ -744,7 +744,6 @@ fd_stakes_activate_epoch( fd_exec_slot_ctx_t *  slot_ctx,
   /* Accumulate stats for stake accounts */
   fd_accumulate_stake_infos( slot_ctx,
                              stakes,
-                             history,
                              new_rate_activation_epoch,
                              &accumulator,
                              temp_info,
@@ -760,7 +759,7 @@ fd_stakes_activate_epoch( fd_exec_slot_ctx_t *  slot_ctx,
     }
   };
 
-  fd_sysvar_stake_history_update( slot_ctx, &new_elem, runtime_spad );
+  fd_sysvar_stake_history_update( slot_ctx, &new_elem );
 
   fd_bank_stakes_end_locking_query( slot_ctx->bank );
 

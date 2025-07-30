@@ -300,14 +300,21 @@ main( int     argc,
     test_slot_ctx->bank  = bank;
     test_slot_ctx->banks = banks;
 
-    fd_epoch_schedule_t epoch_schedule = {
+    fd_rent_t const rent = {
+        .lamports_per_uint8_year = 3480,
+        .exemption_threshold = 2,
+        .burn_percent = 50
+    };
+    fd_sysvar_rent_write( test_slot_ctx, &rent );
+
+    fd_epoch_schedule_t const epoch_schedule = {
         .slots_per_epoch             = 432000UL,
         .leader_schedule_slot_offset = 432000UL,
         .warmup                      = 0,
         .first_normal_epoch          = 0UL,
         .first_normal_slot           = 0UL
     };
-    fd_bank_epoch_schedule_set( bank, epoch_schedule );
+    fd_sysvar_epoch_schedule_write( test_slot_ctx, &epoch_schedule );
 
     test_account_does_not_exist();
     test_account_not_bpf_loader_owner();

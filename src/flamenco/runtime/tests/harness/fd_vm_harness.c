@@ -540,8 +540,9 @@ fd_runtime_fuzz_vm_syscall_run( fd_runtime_fuzz_runner_t * runner,
   /* There's an instr ctx struct embedded in the txn ctx instr stack. */
   fd_exec_instr_ctx_t * instr_ctx = &ctx->txn_ctx->instr_stack[ ctx->txn_ctx->instr_stack_sz - 1 ];
   *instr_ctx = (fd_exec_instr_ctx_t) {
-    .instr     = ctx->instr,
-    .txn_ctx   = ctx->txn_ctx,
+    .instr        = ctx->instr,
+    .txn_ctx      = ctx->txn_ctx,
+    .sysvar_cache = ctx->sysvar_cache
   };
 
   /* Actually invoke the syscall */

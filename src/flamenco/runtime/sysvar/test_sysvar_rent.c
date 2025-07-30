@@ -1,5 +1,21 @@
 #include "fd_sysvar_rent.h"
 
+static void
+test_sysvar_rent_bounds( void ) {
+  /* Real sysvar account observed on-chain */
+  static uchar const data[] = {
+    0x98, 0x0d, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+    0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x40,
+    0x64
+  };
+  FD_TEST( sizeof(data)==FD_SYSVAR_RENT_BINCODE_SZ );
+  fd_bincode_decode_ctx_t ctx = { .data=data, .dataend=data+sizeof(data) };
+  ulong obj_sz = 0UL;
+  FD_TEST( fd_rent_decode_footprint( &ctx, &obj_sz )==FD_BINCODE_SUCCESS );
+  FD_TEST( obj_sz==FD_SYSVAR_RENT_FOOTPRINT );
+  FD_TEST( fd_rent_align()==FD_SYSVAR_RENT_ALIGN );
+}
+
 struct fd_rent_exempt_fixture {
   /* Inputs */
   ulong data_len;
@@ -40,14 +56,10 @@ test_rent_exempt_vector[] = {
 };
 #define test_rent_exempt_vector_end (fd_rent_exempt_fixture_t const *)( (uchar const *)test_rent_exempt_vector + sizeof(test_rent_exempt_vector) )
 
-
-int
-main( int     argc,
-      char ** argv ) {
-  fd_boot( &argc, &argv );
-
-  fd_rent_exempt_fixture_t const * iter;
-  for( iter = test_rent_exempt_vector;
+void
+test_sysvar_rent( void ) {
+  test_sysvar_rent_bounds();
+  for( fd_rent_exempt_fixture_t const * iter = test_rent_exempt_vector;
        iter < test_rent_exempt_vector_end;
        iter++ ) {
     fd_rent_t rent = {
@@ -57,8 +69,4 @@ main( int     argc,
     ulong min_balance = fd_rent_exempt_minimum_balance( &rent, iter->data_len );
     FD_TEST( min_balance == iter->min_balance );
   }
-
-  FD_LOG_NOTICE(( "pass" ));
-  fd_halt();
-  return 0;
 }

@@ -792,3 +792,9 @@ fd_banks_rekey_root_bank( fd_banks_t * banks, ulong slot ) {
 
   return bank;
 }
+
+ulong
+fd_bank_epoch_get( fd_bank_t const * bank ) {
+  fd_epoch_schedule_t epoch_schedule = fd_sysvar_epoch_schedule_read_nofail( fd_bank_sysvar_cache_query( bank ) );
+  return fd_slot_to_epoch( &epoch_schedule, fd_bank_slot_get( bank ), NULL );
+}
