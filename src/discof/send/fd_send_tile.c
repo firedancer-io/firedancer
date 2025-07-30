@@ -620,7 +620,8 @@ metrics_write( fd_send_tile_ctx_t * ctx ) {
   FD_MCNT_SET(       SEND, RETRY_SENT,       ctx->quic->metrics.retry_tx_cnt );
   FD_MCNT_ENUM_COPY( SEND, ACK_TX,           ctx->quic->metrics.ack_tx );
 
-  FD_MGAUGE_SET( SEND, CONNECTIONS_ACTIVE,          ctx->quic->metrics.conn_active_cnt );
+  FD_MGAUGE_ENUM_COPY( SEND, CONNECTIONS_STATE,     ctx->quic->metrics.conn_state_cnt );
+  FD_MGAUGE_SET( SEND, CONNECTIONS_ALLOC,           ctx->quic->metrics.conn_alloc_cnt );
   FD_MCNT_SET(   SEND, CONNECTIONS_CREATED,         ctx->quic->metrics.conn_created_cnt );
   FD_MCNT_SET(   SEND, CONNECTIONS_CLOSED,          ctx->quic->metrics.conn_closed_cnt );
   FD_MCNT_SET(   SEND, CONNECTIONS_ABORTED,         ctx->quic->metrics.conn_aborted_cnt );
