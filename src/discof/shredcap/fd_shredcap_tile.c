@@ -257,7 +257,7 @@ publish_stake_weights( fd_capture_tile_ctx_t * ctx,
     /* Process the manifest. */
     ulong epoch                   = manifest->bank.stakes.epoch;
     fd_exec_slot_ctx_t * slot_ctx = ctx->manifest_exec_slot_ctx;
-    fd_exec_slot_ctx_t * ret      = fd_exec_slot_ctx_recover( slot_ctx, manifest, ctx->shared_spad );
+    fd_exec_slot_ctx_t * ret      = fd_exec_slot_ctx_recover( slot_ctx, manifest );
     FD_TEST( ret==slot_ctx );
 
     /* Publish current epoch. */

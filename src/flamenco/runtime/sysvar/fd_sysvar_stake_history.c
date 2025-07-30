@@ -1,6 +1,8 @@
 #include "fd_sysvar_stake_history.h"
 #include "fd_sysvar.h"
 #include "../fd_system_ids.h"
+#include "../fd_txn_account.h"
+#include "../fd_acc_mgr.h"
 #include "../context/fd_exec_slot_ctx.h"
 
 /* Ensure that the size declared by our header matches the minimum size

@@ -119,6 +119,7 @@ struct fd_action {
   uchar        is_diagnostic;  /* 1 implies action should be allowed for prod debugging */
 
   void       (*args)( int * pargc, char *** pargv, args_t * args );
+  void       (*topo)( config_t * config );
   void       (*perm)( args_t * args, fd_cap_chk_t * chk, config_t const * config );
   void       (*fn  )( args_t * args, config_t * config );
 };

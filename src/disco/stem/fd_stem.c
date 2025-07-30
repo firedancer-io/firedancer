@@ -781,7 +781,8 @@ STEM_(run)( fd_topo_t *      topo,
       /* Return infinite credits on any reliable consumer links so that
          producers now no longer expect us to consume. */
       ulong fseq_id = tile->in_link_fseq_obj_id[ i ];
-      ulong * fseq = fd_topo_obj_laddr( topo, fseq_id );
+      ulong * fseq = fd_fseq_join( fd_topo_obj_laddr( topo, fseq_id ) );
+      FD_TEST( fseq );
       fd_fseq_update( fseq, ULONG_MAX );
     }
   }
