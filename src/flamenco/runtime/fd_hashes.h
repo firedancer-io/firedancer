@@ -135,7 +135,6 @@ fd_hash_account( uchar                     hash  [ static 32 ],
 /* fd_hash_account_current chooses the correct account hash function
    based on feature activation state. */
 
-#define FD_HASH_JUST_ACCOUNT_HASH   (1)
 #define FD_HASH_JUST_LTHASH         (2)
 #define FD_HASH_BOTH_HASHES         (3)
 
@@ -176,15 +175,6 @@ fd_snapshot_service_hash( fd_hash_t *       accounts_hash,
                           fd_spad_t *       runtime_spad,
                           fd_features_t *   features );
 
-int
-fd_snapshot_service_inc_hash( fd_hash_t *                 accounts_hash,
-                              fd_hash_t *                 snapshot_hash,
-                              fd_funk_t *                 funk,
-                              fd_funk_rec_key_t const * * pubkeys,
-                              ulong                       pubkeys_len,
-                              fd_spad_t *                 spad,
-                              fd_features_t *             features );
-
 void
 fd_accounts_check_lthash( fd_funk_t *      funk,
                           fd_funk_txn_t *  funk_txn,
@@ -193,13 +183,6 @@ fd_accounts_check_lthash( fd_funk_t *      funk,
 
 void
 fd_calculate_epoch_accounts_hash_values(fd_exec_slot_ctx_t * slot_ctx);
-
-int
-fd_accounts_hash_inc_only( fd_exec_slot_ctx_t * slot_ctx,
-                           fd_hash_t *          accounts_hash,
-                           fd_funk_txn_t *      child_txn,
-                           ulong                do_hash_verify,
-                           fd_spad_t *          spad );
 
 void
 fd_account_hash_task( void * tpool,

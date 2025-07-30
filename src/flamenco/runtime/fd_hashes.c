@@ -1,9 +1,6 @@
 #include "fd_hashes.h"
 #include "fd_acc_mgr.h"
 #include "fd_bank.h"
-#include "fd_blockstore.h"
-#include "fd_runtime.h"
-#include "fd_borrowed_account.h"
 #include "context/fd_capture_ctx.h"
 #include "fd_runtime_public.h"
 #include "sysvar/fd_sysvar_epoch_schedule.h"
@@ -679,21 +676,8 @@ fd_hash_account( uchar                     hash[ static 32 ],
                  int                       hash_needed,
                  fd_features_t const *     features FD_PARAM_UNUSED ) {
   ulong         lamports   = m->info.lamports;  /* >0UL */
-  ulong         rent_epoch = m->info.rent_epoch;
   uchar         executable = m->info.executable & 0x1;
   uchar const * owner      = (uchar const *)m->info.owner;
-
-  if( (hash_needed & FD_HASH_JUST_ACCOUNT_HASH) ) {
-    fd_blake3_t b3[1];
-    fd_blake3_init  ( b3 );
-    fd_blake3_append( b3, &lamports,   sizeof( ulong ) );
-    fd_blake3_append( b3, &rent_epoch, sizeof( ulong ) );
-    fd_blake3_append( b3, data,        m->dlen         );
-    fd_blake3_append( b3, &executable, sizeof( uchar ) );
-    fd_blake3_append( b3, owner,       32UL            );
-    fd_blake3_append( b3, pubkey,      32UL            );
-    fd_blake3_fini  ( b3, hash );
-  }
 
   if( (hash_needed & FD_HASH_JUST_LTHASH) ) {
     fd_blake3_t b3[1];
@@ -1018,178 +1002,6 @@ fd_accounts_hash( fd_funk_t *             funk,
   return 0;
 }
 
-int
-fd_accounts_hash_inc_only( fd_exec_slot_ctx_t * slot_ctx,
-                           fd_hash_t *          accounts_hash,
-                           fd_funk_txn_t *      child_txn,
-                           ulong                do_hash_verify,
-                           fd_spad_t *          spad ) {
-  FD_LOG_NOTICE(( "accounts_hash_inc_only start for txn %p, do_hash_verify=%s", (void *)child_txn, do_hash_verify ? "true" : "false" ));
-
-  FD_SPAD_FRAME_BEGIN( spad ) {
-
-  fd_funk_t * funk = slot_ctx->funk;
-  fd_wksp_t * wksp = fd_funk_wksp( funk );
-
-  // How many total records are we dealing with?
-  ulong                   num_pairs         = 0UL;
-  ulong                   num_iter_accounts = 0UL;
-  for (fd_funk_rec_t const *rec = fd_funk_txn_first_rec( funk, child_txn ); NULL != rec; rec = fd_funk_txn_next_rec(funk, rec)) {
-    if ( !fd_funk_key_is_acc( rec->pair.key ) || ( rec->flags & FD_FUNK_REC_FLAG_ERASE ) )
-      continue;
-    ++num_iter_accounts;
-  }
-
-  fd_pubkey_hash_pair_t * pairs             = fd_spad_alloc( spad, FD_PUBKEY_HASH_PAIR_ALIGN, num_iter_accounts * sizeof(fd_pubkey_hash_pair_t) );
-  if( FD_UNLIKELY( !pairs ) ) {
-    FD_LOG_ERR(( "failed to allocate memory for pairs" ));
-  }
-
-  fd_blake3_t * b3 = NULL;
-
-  for (fd_funk_rec_t const *rec = fd_funk_txn_first_rec( funk, child_txn ); NULL != rec; rec = fd_funk_txn_next_rec(funk, rec)) {
-    if ( !fd_funk_key_is_acc( rec->pair.key ) || ( rec->flags & FD_FUNK_REC_FLAG_ERASE ) )
-      continue;
-
-    fd_account_meta_t * metadata = (fd_account_meta_t *) fd_funk_val_const( rec, wksp );
-    int is_empty = (metadata->info.lamports == 0);
-
-    if (is_empty) {
-      pairs[num_pairs].rec = rec;
-
-      fd_hash_t * hash = fd_spad_alloc( spad, alignof(fd_hash_t), sizeof(fd_hash_t) );
-      if( NULL == b3 ) {
-        b3 = fd_spad_alloc( spad, alignof(fd_blake3_t), sizeof(fd_blake3_t) );
-      }
-      fd_blake3_init( b3 );
-      fd_blake3_append( b3, rec->pair.key->uc, sizeof( fd_pubkey_t ) );
-      fd_blake3_fini( b3, hash );
-
-      pairs[num_pairs].hash = hash;
-      num_pairs++;
-      continue;
-    } else {
-      fd_hash_t *h = (fd_hash_t *) metadata->hash;
-      if ((h->ul[0] | h->ul[1] | h->ul[2] | h->ul[3]) == 0) {
-        // By the time we fall into this case, we can assume the ignore_slot feature is enabled...
-        fd_hash_account_current( (uchar *) metadata->hash, NULL, metadata, fd_type_pun_const(rec->pair.key->uc), fd_account_meta_get_data(metadata), FD_HASH_JUST_ACCOUNT_HASH, fd_bank_features_query( slot_ctx->bank ) );
-      } else if( do_hash_verify ) {
-        uchar hash[32];
-        fd_hash_account_current( (uchar *) &hash, NULL, metadata, fd_type_pun_const(rec->pair.key->uc), fd_account_meta_get_data(metadata), FD_HASH_JUST_ACCOUNT_HASH, fd_bank_features_query( slot_ctx->bank ) );
-        if ( fd_account_meta_exists( metadata ) && memcmp( metadata->hash, &hash, 32 ) != 0 ) {
-          FD_LOG_WARNING(( "snapshot hash (%s) doesn't match calculated hash (%s)", FD_BASE58_ENC_32_ALLOCA( metadata->hash ), FD_BASE58_ENC_32_ALLOCA( &hash ) ));
-        }
-      }
-    }
-
-    if ((metadata->info.executable & ~1) != 0)
-      continue;
-
-    pairs[num_pairs].rec = rec;
-    pairs[num_pairs].hash = (const fd_hash_t *)metadata->hash;
-    num_pairs++;
-  }
-
-  sort_pubkey_hash_pair_inplace( pairs, num_pairs );
-  fd_pubkey_hash_pair_list_t list1 = { .pairs = pairs, .pairs_len = num_pairs };
-  fd_hash_account_deltas( &list1, 1, accounts_hash );
-
-  FD_LOG_INFO(( "accounts_hash %s", FD_BASE58_ENC_32_ALLOCA( accounts_hash->hash) ));
-
-  } FD_SPAD_FRAME_END;
-
-  return 0;
-}
-
-/* Same as fd_accounts_hash_inc_only but takes a list of pubkeys to hash.
-   Query the accounts from the root of funk. This is done as a read-only
-   way to generate an accounts hash from a subset of accounts from funk. */
-static int
-fd_accounts_hash_inc_no_txn( fd_funk_t *                 funk,
-                             fd_hash_t *                 accounts_hash,
-                             fd_funk_rec_key_t const * * pubkeys,
-                             ulong                       pubkeys_len,
-                             ulong                       do_hash_verify,
-                             fd_spad_t *                 spad,
-                             fd_features_t *             features ) {
-  FD_LOG_NOTICE(( "accounts_hash_inc_no_txn" ));
-
-  fd_wksp_t *     wksp    = fd_funk_wksp( funk );
-
-  /* Pre-allocate the number of pubkey pairs that we are iterating over. */
-
-  FD_SPAD_FRAME_BEGIN( spad ) {
-
-  ulong                   num_pairs         = 0UL;
-  fd_pubkey_hash_pair_t * pairs             = fd_spad_alloc( spad,
-                                                             FD_PUBKEY_HASH_PAIR_ALIGN,
-                                                             pubkeys_len * sizeof(fd_pubkey_hash_pair_t) );
-
-  if( FD_UNLIKELY( !pairs ) ) {
-    FD_LOG_ERR(( "failed to allocate memory for pairs" ));
-  }
-
-  fd_blake3_t * b3 = NULL;
-
-
-  for( ulong i=0UL; i<pubkeys_len; i++ ) {
-    fd_funk_rec_query_t query[1];
-    fd_funk_rec_t const * rec = fd_funk_rec_query_try( funk, NULL, pubkeys[i], query );
-
-    fd_account_meta_t * metadata = (fd_account_meta_t *) fd_funk_val_const( rec, wksp );
-    int is_empty = (!metadata || metadata->info.lamports == 0);
-
-    if( is_empty ) {
-      pairs[num_pairs].rec = rec;
-
-      fd_hash_t * hash = fd_spad_alloc( spad, alignof(fd_hash_t), sizeof(fd_hash_t) );
-      if( !b3 ) {
-        b3 = fd_spad_alloc( spad, alignof(fd_blake3_t), sizeof(fd_blake3_t) );
-      }
-      fd_blake3_init( b3 );
-      fd_blake3_append( b3, rec->pair.key->uc, sizeof(fd_pubkey_t) );
-      fd_blake3_fini( b3, hash );
-
-      pairs[ num_pairs ].hash = hash;
-      num_pairs++;
-      continue;
-    } else {
-      fd_hash_t *h = (fd_hash_t*)metadata->hash;
-      if( !(h->ul[ 0 ] | h->ul[ 1 ] | h->ul[ 2 ] | h->ul[ 3 ]) ) {
-        // By the time we fall into this case, we can assume the ignore_slot feature is enabled...
-        fd_hash_account_current( (uchar*)metadata->hash, NULL, metadata, fd_type_pun_const(rec->pair.key->uc), fd_account_meta_get_data( metadata ), FD_HASH_JUST_ACCOUNT_HASH, features );
-      } else if( do_hash_verify ) {
-        uchar hash[ FD_HASH_FOOTPRINT ];
-        fd_hash_account_current( (uchar*)&hash, NULL, metadata, fd_type_pun_const(rec->pair.key->uc), fd_account_meta_get_data( metadata ), FD_HASH_JUST_ACCOUNT_HASH, features );
-        if( fd_account_meta_exists( metadata ) && memcmp( metadata->hash, &hash, FD_HASH_FOOTPRINT ) ) {
-          FD_LOG_WARNING(( "snapshot hash (%s) doesn't match calculated hash (%s)", FD_BASE58_ENC_32_ALLOCA(metadata->hash), FD_BASE58_ENC_32_ALLOCA(&hash) ));
-        }
-      }
-    }
-
-    if( (metadata->info.executable & ~1) ) {
-      continue;
-    }
-
-    pairs[ num_pairs ].rec = rec;
-    pairs[ num_pairs ].hash = (fd_hash_t const *)metadata->hash;
-    num_pairs++;
-
-    FD_TEST( !fd_funk_rec_query_test( query ) );
-  }
-
-  sort_pubkey_hash_pair_inplace( pairs, num_pairs );
-  fd_pubkey_hash_pair_list_t list1 = { .pairs = pairs, .pairs_len = num_pairs };
-  fd_hash_account_deltas( &list1, 1, accounts_hash );
-
-  } FD_SPAD_FRAME_END;
-
-  FD_LOG_INFO(( "accounts_hash %s", FD_BASE58_ENC_32_ALLOCA( accounts_hash->hash ) ));
-
-  return 0;
-}
-
-
 /* TODO: Combine with the above to get correct snapshot hash verification. */
 
 int
@@ -1212,31 +1024,6 @@ fd_snapshot_service_hash( fd_hash_t *       accounts_hash,
 
 
   // int should_include_eah = eah_stop_slot != ULONG_MAX && eah_start_slot == ULONG_MAX;
-  int should_include_eah = 0;
-
-  if( should_include_eah ) {
-    fd_sha256_init( &h );
-    fd_sha256_append( &h, (uchar const *) accounts_hash, sizeof( fd_hash_t ) );
-    // fd_sha256_append( &h, (uchar const *) slot_bank->epoch_account_hash.hash, sizeof( fd_hash_t ) );
-    fd_sha256_fini( &h, snapshot_hash );
-  } else {
-    *snapshot_hash = *accounts_hash;
-  }
-
-  return 0;
-}
-
-int
-fd_snapshot_service_inc_hash( fd_hash_t *                 accounts_hash,
-                              fd_hash_t *                 snapshot_hash,
-                              fd_funk_t *                 funk,
-                              fd_funk_rec_key_t const * * pubkeys,
-                              ulong                       pubkeys_len,
-                              fd_spad_t *                 spad,
-                              fd_features_t              *features ) {
-  fd_sha256_t h;
-  fd_accounts_hash_inc_no_txn( funk, accounts_hash, pubkeys, pubkeys_len, 0UL, spad, features );
-
   int should_include_eah = 0;
 
   if( should_include_eah ) {
