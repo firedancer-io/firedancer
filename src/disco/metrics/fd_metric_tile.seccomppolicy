@@ -64,4 +64,4 @@ close: (not (or (eq (arg 0) 2)
                 (eq (arg 0) metrics_socket_fd)))
 
 # server: serving pages over HTTP requires polling connections
-poll
+ppoll

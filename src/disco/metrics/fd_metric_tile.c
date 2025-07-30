@@ -8,11 +8,7 @@
 #include <unistd.h>
 #include <string.h>
 
-#if defined(__aarch64__)
-#include "generated/fd_metric_tile_arm64_seccomp.h"
-#else
 #include "generated/fd_metric_tile_seccomp.h"
-#endif
 
 #define FD_HTTP_SERVER_METRICS_MAX_CONNS          128
 #define FD_HTTP_SERVER_METRICS_MAX_REQUEST_LEN    8192
