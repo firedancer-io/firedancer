@@ -193,11 +193,7 @@ typedef struct {
   fd_rng_t * rng;
 
   /* The end wallclock time of the leader slot we are currently packing
-     for, if we are currently packing for a slot.
-
-     _slot_end_ns is used as a temporary between during_frag and
-     after_frag in case the tile gets overrun. */
-  long _slot_end_ns;
+     for, if we are currently packing for a slot.*/
   long slot_end_ns;
 
   /* pacer and ticks_per_ns are used for pacing CUs through the slot,
@@ -1011,15 +1007,9 @@ after_frag( fd_pack_ctx_t *     ctx,
 
     FD_LOG_INFO(( "pack_became_leader(slot=%lu,ends_at=%ld)", ctx->leader_slot, ctx->_became_leader->slot_end_ns ));
 
-    /* The dcache might get overrun, so set slot_end_ns to 0, so if it does
-       the slot will get skipped.  Then update it in the `after_frag` case
-       below to the correct value. */
-    ctx->slot_end_ns = 0L;
-    ctx->_slot_end_ns = ctx->_became_leader->slot_end_ns;
-
     update_metric_state( ctx, fd_tickcount(), FD_PACK_METRIC_STATE_LEADER, 1 );
 
-    ctx->slot_end_ns = ctx->_slot_end_ns;
+    ctx->slot_end_ns = ctx->_became_leader->slot_end_ns;
     fd_pack_limits_t limits[ 1 ];
     limits->max_cost_per_block = ctx->limits.slot_max_cost;
     limits->max_data_bytes_per_block = ctx->slot_max_data;
