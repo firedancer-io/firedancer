@@ -2193,22 +2193,8 @@ void
 fd_vote_commission_split( fd_vote_state_versioned_t * vote_state_versioned,
                           ulong                       on,
                           fd_commission_split_t *     result ) {
-  uchar * commission = NULL;
-  switch( vote_state_versioned->discriminant ) {
-  case fd_vote_state_versioned_enum_current:
-    commission = &vote_state_versioned->inner.current.commission;
-    break;
-  case fd_vote_state_versioned_enum_v0_23_5:
-    commission = &vote_state_versioned->inner.v0_23_5.commission;
-    break;
-  case fd_vote_state_versioned_enum_v1_14_11:
-    commission = &vote_state_versioned->inner.v1_14_11.commission;
-    break;
-  default:
-    __builtin_unreachable();
-  }
-  uchar deref_commision = *commission;
-  uint commission_split = fd_uint_min( (uint)deref_commision, 100 );
+  uchar commission = (uchar)fd_vote_account_commission( vote_state_versioned );
+  uint commission_split = fd_uint_min( (uint)commission, 100 );
   result->is_split      = ( commission_split != 0 && commission_split != 100 );
   // https://github.com/anza-xyz/agave/blob/v2.0.1/sdk/program/src/vote/state/mod.rs#L545
   if( commission_split == 0 ) {

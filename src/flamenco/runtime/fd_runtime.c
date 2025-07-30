@@ -2102,6 +2102,7 @@ fd_runtime_is_epoch_boundary( fd_exec_slot_ctx_t * slot_ctx, ulong curr_slot, ul
 /* process for the start of a new epoch */
 static void
 fd_runtime_process_new_epoch( fd_exec_slot_ctx_t * slot_ctx,
+                              fd_capture_ctx_t *   capture_ctx,
                               ulong                parent_epoch,
                               fd_spad_t *          runtime_spad ) {
   FD_LOG_NOTICE(( "fd_process_new_epoch start" ));
@@ -2186,6 +2187,7 @@ fd_runtime_process_new_epoch( fd_exec_slot_ctx_t * slot_ctx,
   }
 
   fd_begin_partitioned_rewards( slot_ctx,
+                                capture_ctx,
                                 &parent_blockhash,
                                 parent_epoch,
                                 &temp_info,
@@ -2864,6 +2866,7 @@ fd_runtime_block_execute( fd_exec_slot_ctx_t *            slot_ctx,
 
 void
 fd_runtime_block_pre_execute_process_new_epoch( fd_exec_slot_ctx_t * slot_ctx,
+                                                fd_capture_ctx_t *   capture_ctx,
                                                 fd_spad_t *          runtime_spad,
                                                 int *                is_epoch_boundary ) {
 
@@ -2885,6 +2888,7 @@ fd_runtime_block_pre_execute_process_new_epoch( fd_exec_slot_ctx_t * slot_ctx,
       FD_LOG_DEBUG(( "Epoch boundary" ));
       /* Epoch boundary! */
       fd_runtime_process_new_epoch( slot_ctx,
+                                    capture_ctx,
                                     new_epoch - 1UL,
                                     runtime_spad );
       *is_epoch_boundary = 1;
@@ -2894,7 +2898,7 @@ fd_runtime_block_pre_execute_process_new_epoch( fd_exec_slot_ctx_t * slot_ctx,
   }
 
   if( FD_LIKELY( fd_bank_slot_get( slot_ctx->bank )!=0UL ) ) {
-    fd_distribute_partitioned_epoch_rewards( slot_ctx );
+    fd_distribute_partitioned_epoch_rewards( slot_ctx, capture_ctx );
   }
 }
 

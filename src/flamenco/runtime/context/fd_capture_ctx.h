@@ -2,7 +2,6 @@
 #define HEADER_fd_src_flamenco_runtime_context_fd_capture_ctx_h
 
 #include "../../capture/fd_solcap_writer.h"
-#include "../../../funk/fd_funk_base.h"
 
 /* Context needed to do solcap capture during execution of transactions */
 #define FD_CAPTURE_CTX_ALIGN (8UL)

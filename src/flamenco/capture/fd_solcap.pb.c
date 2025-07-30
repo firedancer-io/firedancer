@@ -18,6 +18,18 @@ PB_BIND(fd_solcap_AccountTableMeta, fd_solcap_AccountTableMeta, AUTO)
 PB_BIND(fd_solcap_AccountMeta, fd_solcap_AccountMeta, AUTO)
 
 
+PB_BIND(fd_solcap_StakeRewardEpoch, fd_solcap_StakeRewardEpoch, AUTO)
+
+
+PB_BIND(fd_solcap_StakeRewardEvent, fd_solcap_StakeRewardEvent, AUTO)
+
+
+PB_BIND(fd_solcap_VoteAccountPayout, fd_solcap_VoteAccountPayout, AUTO)
+
+
+PB_BIND(fd_solcap_StakeAccountPayout, fd_solcap_StakeAccountPayout, AUTO)
+
+
 PB_BIND(fd_solcap_Transaction, fd_solcap_Transaction, AUTO)
 
 

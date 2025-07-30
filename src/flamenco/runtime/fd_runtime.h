@@ -558,6 +558,7 @@ fd_runtime_is_epoch_boundary( fd_exec_slot_ctx_t * slot_ctx,
  */
 void
 fd_runtime_block_pre_execute_process_new_epoch( fd_exec_slot_ctx_t * slot_ctx,
+                                                fd_capture_ctx_t *   capture_ctx,
                                                 fd_spad_t *          runtime_spad,
                                                 int *                is_epoch_boundary );
 
