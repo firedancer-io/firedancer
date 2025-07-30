@@ -1347,8 +1347,8 @@ void *fd_slot_history_generate( void *mem, void **alloc_mem, fd_rng_t * rng ) {
   *alloc_mem = (uchar *) *alloc_mem + sizeof(fd_slot_history_t);
   fd_slot_history_new(mem);
   {
-    self->bits.has = fd_rng_uchar( rng ) % 2;
-    if( self->bits.has ) {
+    self->has_bits = fd_rng_uchar( rng ) % 2;
+    if( self->has_bits ) {
       self->bits_bitvec_len = fd_rng_ulong( rng ) % 8;
       if( self->bits_bitvec_len ) {
         self->bits_bitvec = (ulong *) *alloc_mem;
@@ -1357,9 +1357,9 @@ void *fd_slot_history_generate( void *mem, void **alloc_mem, fd_rng_t * rng ) {
       } else {
         self->bits_bitvec = NULL;
       }
-      self->bits.len = self->bits_bitvec.len;
+      self->bits_len = self->bits_bitvec_len;
     } else {
-      self->bits.len = 0UL;
+      self->bits_len = 0UL;
     }
   }
   self->next_slot = fd_rng_ulong( rng );
@@ -3023,8 +3023,8 @@ void *fd_gossip_slots_generate( void *mem, void **alloc_mem, fd_rng_t * rng ) {
   self->first_slot = fd_rng_ulong( rng );
   self->num = fd_rng_ulong( rng );
   {
-    self->slots.has = fd_rng_uchar( rng ) % 2;
-    if( self->slots.has ) {
+    self->has_slots = fd_rng_uchar( rng ) % 2;
+    if( self->has_slots ) {
       self->slots_bitvec_len = fd_rng_ulong( rng ) % 8;
       if( self->slots_bitvec_len ) {
         self->slots_bitvec = (uchar *) *alloc_mem;
@@ -3033,9 +3033,9 @@ void *fd_gossip_slots_generate( void *mem, void **alloc_mem, fd_rng_t * rng ) {
       } else {
         self->slots_bitvec = NULL;
       }
-      self->slots.len = self->slots_bitvec.len;
+      self->slots_len = self->slots_bitvec_len;
     } else {
-      self->slots.len = 0UL;
+      self->slots_len = 0UL;
     }
   }
   return mem;
@@ -3288,8 +3288,8 @@ void *fd_restart_raw_offsets_generate( void *mem, void **alloc_mem, fd_rng_t * r
   *alloc_mem = (uchar *) *alloc_mem + sizeof(fd_restart_raw_offsets_t);
   fd_restart_raw_offsets_new(mem);
   {
-    self->offsets.has = fd_rng_uchar( rng ) % 2;
-    if( self->offsets.has ) {
+    self->has_offsets = fd_rng_uchar( rng ) % 2;
+    if( self->has_offsets ) {
       self->offsets_bitvec_len = fd_rng_ulong( rng ) % 8;
       if( self->offsets_bitvec_len ) {
         self->offsets_bitvec = (uchar *) *alloc_mem;
@@ -3298,9 +3298,9 @@ void *fd_restart_raw_offsets_generate( void *mem, void **alloc_mem, fd_rng_t * r
       } else {
         self->offsets_bitvec = NULL;
       }
-      self->offsets.len = self->offsets_bitvec.len;
+      self->offsets_len = self->offsets_bitvec_len;
     } else {
-      self->offsets.len = 0UL;
+      self->offsets_len = 0UL;
     }
   }
   return mem;
@@ -3435,8 +3435,8 @@ void *fd_crds_bloom_generate( void *mem, void **alloc_mem, fd_rng_t * rng ) {
     self->keys = NULL;
   }
   {
-    self->bits.has = fd_rng_uchar( rng ) % 2;
-    if( self->bits.has ) {
+    self->has_bits = fd_rng_uchar( rng ) % 2;
+    if( self->has_bits ) {
       self->bits_bitvec_len = fd_rng_ulong( rng ) % 8;
       if( self->bits_bitvec_len ) {
         self->bits_bitvec = (ulong *) *alloc_mem;
@@ -3445,9 +3445,9 @@ void *fd_crds_bloom_generate( void *mem, void **alloc_mem, fd_rng_t * rng ) {
       } else {
         self->bits_bitvec = NULL;
       }
-      self->bits.len = self->bits_bitvec.len;
+      self->bits_len = self->bits_bitvec_len;
     } else {
-      self->bits.len = 0UL;
+      self->bits_len = 0UL;
     }
   }
   self->num_bits_set = fd_rng_ulong( rng );
