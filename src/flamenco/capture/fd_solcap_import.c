@@ -175,8 +175,6 @@ unmarshal_account( cJSON const *             json,
      library. */
   meta->lamports = cJSON_GetObjectItem( json, "lamports" )->valueulong;
 
-  meta->rent_epoch = cJSON_GetObjectItem( json, "rent_epoch" )->valueulong;
-
   cJSON * executable_o = cJSON_GetObjectItem( json, "executable" );
   FD_TEST( executable_o );
   meta->executable = cJSON_IsBool( executable_o ) & cJSON_IsTrue( executable_o );

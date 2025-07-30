@@ -59,7 +59,6 @@ typedef struct _fd_solcap_AccountTableMeta {
 typedef struct _fd_solcap_AccountMeta {
     uint64_t lamports;
     uint64_t slot;
-    uint64_t rent_epoch;
     pb_byte_t owner[32];
     bool executable;
     /* data_coff is the chunk offset to account data. */
@@ -195,7 +194,6 @@ extern "C" {
 #define fd_solcap_AccountTableMeta_account_table_cnt_tag 3
 #define fd_solcap_AccountMeta_lamports_tag       1
 #define fd_solcap_AccountMeta_slot_tag           2
-#define fd_solcap_AccountMeta_rent_epoch_tag     3
 #define fd_solcap_AccountMeta_owner_tag          4
 #define fd_solcap_AccountMeta_executable_tag     5
 #define fd_solcap_AccountMeta_data_coff_tag      6
@@ -264,7 +262,6 @@ X(a, STATIC,   SINGULAR, UINT64,   account_table_cnt,   3)
 #define fd_solcap_AccountMeta_FIELDLIST(X, a) \
 X(a, STATIC,   SINGULAR, UINT64,   lamports,          1) \
 X(a, STATIC,   SINGULAR, UINT64,   slot,              2) \
-X(a, STATIC,   SINGULAR, UINT64,   rent_epoch,        3) \
 X(a, STATIC,   SINGULAR, FIXED_LENGTH_BYTES, owner,             4) \
 X(a, STATIC,   SINGULAR, BOOL,     executable,        5) \
 X(a, STATIC,   SINGULAR, INT64,    data_coff,         6) \
