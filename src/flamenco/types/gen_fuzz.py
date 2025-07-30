@@ -259,12 +259,12 @@ class BitVectorMember(TypeNode):
 
     def emitGenerate(self, indent=''):
         print('  {', file=body)
-        print(f'    self->{self.name}.has = fd_rng_uchar( rng ) % 2;', file=body)
-        print(f'    if( self->{self.name}.has ) {{', file=body)
+        print(f'    self->has_{self.name} = fd_rng_uchar( rng ) % 2;', file=body)
+        print(f'    if( self->has_{self.name} ) {{', file=body)
         self.vector_member.emitGenerate('    ')
-        print(f'      self->{self.name}.len = self->{self.vector_member.name}.len;', file=body)
+        print(f'      self->{self.name}_len = self->{self.vector_member.name}_len;', file=body)
         print('    } else {', file=body)
-        print(f'      self->{self.name}.len = 0UL;', file=body)
+        print(f'      self->{self.name}_len = 0UL;', file=body)
         print('    }', file=body)
         print('  }',file=body)
 
