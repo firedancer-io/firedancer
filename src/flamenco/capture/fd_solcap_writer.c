@@ -589,3 +589,109 @@ int fd_solcap_write_transaction2( fd_solcap_writer_t *    writer,
 
   return 0;
 }
+
+int
+fd_solcap_writer_stake_rewards_begin(
+    fd_solcap_writer_t * writer,
+    ulong                payout_epoch,
+    ulong                reward_epoch,
+    ulong                inflation_lamports,
+    uint128              total_points
+) {
+  fd_solcap_StakeRewardEpoch epoch_pb = {
+    .payout_epoch       = payout_epoch,
+    .reward_epoch       = reward_epoch,
+    .inflation_lamports = inflation_lamports,
+  };
+  FD_STORE( uint128, epoch_pb.points, total_points );
+  return fd_solcap_write_protobuf( writer, &epoch_pb, fd_solcap_StakeRewardEpoch_fields, FD_SOLCAP_V1_REWARD_BEGIN_MAGIC );
+}
+
+int
+fd_solcap_write_stake_reward_event(
+    fd_solcap_writer_t * writer,
+    fd_pubkey_t const *  stake_acc_addr,
+    fd_pubkey_t const *  vote_acc_addr,
+    uint                 commission,
+    long                 vote_rewards,
+    long                 stake_rewards,
+    long                 new_credits_observed
+) {
+  fd_solcap_StakeRewardEvent event = {
+    .commission           = commission,
+    .vote_rewards         = vote_rewards,
+    .stake_rewards        = stake_rewards,
+    .new_credits_observed = new_credits_observed
+  };
+  memcpy( event.stake_account_address, stake_acc_addr, 32UL );
+  memcpy( event.vote_account_address,  vote_acc_addr,  32UL );
+  return fd_solcap_write_protobuf( writer, &event, fd_solcap_StakeRewardEvent_fields, FD_SOLCAP_V1_REWARD_CALC_MAGIC );
+}
+
+int
+fd_solcap_write_vote_account_payout(
+    fd_solcap_writer_t * writer,
+    fd_pubkey_t const *  vote_acc_addr,
+    ulong                update_slot,
+    ulong                lamports,
+    long                 lamports_delta
+) {
+  fd_solcap_VoteAccountPayout payout = {
+    .update_slot    = update_slot,
+    .lamports       = lamports,
+    .lamports_delta = lamports_delta
+  };
+  memcpy( payout.address, vote_acc_addr, 32UL );
+  return fd_solcap_write_protobuf( writer, &payout, fd_solcap_VoteAccountPayout_fields, FD_SOLCAP_V1_REWARD_VOTE_MAGIC );
+}
+
+int
+fd_solcap_write_stake_account_payout(
+    fd_solcap_writer_t * writer,
+    fd_pubkey_t const *  stake_acc_addr,
+    ulong                update_slot,
+    ulong                lamports,
+    long                 lamports_delta,
+    ulong                credits_observed,
+    long                 credits_observed_delta,
+    ulong                delegation_stake,
+    long                 delegation_stake_delta
+) {
+  fd_solcap_StakeAccountPayout payout = {
+    .update_slot            = update_slot,
+    .lamports               = lamports,
+    .lamports_delta         = lamports_delta,
+    .credits_observed       = credits_observed,
+    .credits_observed_delta = credits_observed_delta,
+    .delegation_stake       = delegation_stake,
+    .delegation_stake_delta = delegation_stake_delta
+  };
+  memcpy( payout.address, stake_acc_addr, 32UL );
+  return fd_solcap_write_protobuf( writer, &payout, fd_solcap_StakeAccountPayout_fields, FD_SOLCAP_V1_REWARD_STAKE_MAGIC );
+}
+
+int
+fd_solcap_write_protobuf( fd_solcap_writer_t *        writer,
+                          void const *                msg,
+                          struct pb_msgdesc_s const * desc,
+                          ulong                       magic ) {
+  if( FD_UNLIKELY( !writer ) ) return 0;
+
+  uchar buf[ 1UL<<20 ];
+  pb_ostream_t stream = pb_ostream_from_buffer( buf, sizeof(buf) );
+  if( FD_UNLIKELY( !pb_encode( &stream, desc, msg ) ) ) {
+    FD_LOG_WARNING(( "pb_encode failed (%s)", PB_GET_ERROR(&stream) ));
+    return EPROTO;
+  }
+
+  fd_solcap_chunk_t chunk = {
+    .magic     = magic,
+    .meta_coff = (uint)sizeof(fd_solcap_chunk_t),
+    .meta_sz   = (uint)stream.bytes_written,
+    .total_sz  = stream.bytes_written + sizeof(fd_solcap_chunk_t)
+  };
+
+  FWRITE_BAIL( &chunk, sizeof(fd_solcap_chunk_t), 1UL, writer->file );
+  FWRITE_BAIL( buf, 1UL, stream.bytes_written,         writer->file );
+  return 0;
+}

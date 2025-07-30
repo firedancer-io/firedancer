@@ -84,7 +84,7 @@ fd_solcap_writer_flush( fd_solcap_writer_t * writer );
 
 void
 fd_solcap_writer_set_slot( fd_solcap_writer_t * writer,
-                          ulong                slot );
+                           ulong                slot );
 
 /* fd_solcap_write_account appends a copy of the given account (key,
    meta, data) tuple to the stream.  Must only be called for accounts
@@ -133,5 +133,62 @@ fd_solcap_write_bank_preimage2( fd_solcap_writer_t *     writer,
 int
 fd_solcap_write_transaction2( fd_solcap_writer_t *    writer,
                               fd_solcap_Transaction * txn );
+
+/* Stake Reward related methods */
+
+int
+fd_solcap_writer_stake_rewards_begin(
+    fd_solcap_writer_t * writer,
+    ulong                payout_epoch,
+    ulong                reward_epoch,
+    ulong                inflation_lamports,
+    uint128              total_points
+);
+
+int
+fd_solcap_write_stake_reward_event(
+    fd_solcap_writer_t * writer,
+    fd_pubkey_t const *  stake_acc_addr,
+    fd_pubkey_t const *  vote_acc_addr,
+    uint                 commission,
+    long                 vote_rewards,
+    long                 stake_rewards,
+    long                 new_credits_observed
+);
+
+int
+fd_solcap_write_vote_account_payout(
+    fd_solcap_writer_t * writer,
+    fd_pubkey_t const *  vote_acc_addr,
+    ulong                update_slot,
+    ulong                lamports,
+    long                 lamports_delta
+);
+
+int
+fd_solcap_write_stake_account_payout(
+    fd_solcap_writer_t * writer,
+    fd_pubkey_t const *  stake_acc_addr,
+    ulong                update_slot,
+    ulong                lamports,
+    long                 lamports_delta,
+    ulong                credits_observed,
+    long                 credits_observed_delta,
+    ulong                delegation_stake,
+    long                 delegation_stake_delta
+);
+
+/* fd_solcap_write_protobuf writes out an arbitrary protobuf blob.
+   Uses a 1 MiB large stack buffer. */
+
+struct pb_msgdesc_s;
+
+int
+fd_solcap_write_protobuf( fd_solcap_writer_t *        writer,
+                          void const *                msg,
+                          struct pb_msgdesc_s const * desc,
+                          ulong                       magic );
+
+FD_PROTOTYPES_END
 
 #endif /* HEADER_fd_src_flamenco_capture_fd_solcap_writer_h */
