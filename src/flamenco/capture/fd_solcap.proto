@@ -70,7 +70,6 @@ message AccountTableMeta {
 message AccountMeta {
     uint64 lamports = 1;
     uint64 slot = 2;
-    uint64 rent_epoch = 3;
     bytes owner = 4
         [(nanopb).max_size = 32, (nanopb).fixed_length = true];
     bool executable = 5;

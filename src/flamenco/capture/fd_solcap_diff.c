@@ -464,11 +464,6 @@ fd_solcap_diff_account( fd_solcap_differ_t *                  diff,
             "        (%s)  slot:        %lu\n",
             diff->file_paths[0], meta[0].slot,
             diff->file_paths[1], meta[1].slot );
-  if( meta[0].rent_epoch != meta[1].rent_epoch )
-    printf( "        (%s)  rent_epoch: %lu\n"
-            "        (%s)  rent_epoch: %lu\n",
-            diff->file_paths[0], meta[0].rent_epoch,
-            diff->file_paths[1], meta[1].rent_epoch );
   if( meta[0].executable != meta[1].executable )
     printf( "        (%s)  executable:  %d\n"
             "        (%s)  executable:  %d\n",
@@ -510,13 +505,11 @@ fd_solcap_diff_missing_account( fd_solcap_differ_t *                  diff,
     "        data_sz:    %lu\n"
     "        owner:      %s\n"
     "        slot:       %lu\n"
-    "        rent_epoch: %lu\n"
     "        executable: %d\n",
     meta->lamports,
     meta->data_sz,
     FD_BASE58_ENC_32_ALLOCA( meta->owner ),
     meta->slot,
-    meta->rent_epoch,
     meta->executable
 );
 
