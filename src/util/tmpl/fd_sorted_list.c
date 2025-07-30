@@ -67,8 +67,14 @@ struct SORTLIST_(joined) {
   uint * offsets;
   SORTLIST_(element) * pool;
 };
-
 typedef struct SORTLIST_(joined) SORTLIST_(joined_t);
+
+struct SORTLIST_(iter) {
+  uint * current_offset;
+  uint * end_offset;
+  SORTLIST_(element) * pool;
+};
+typedef struct SORTLIST_(iter) SORTLIST_(iter_t);
 
 #if SORTLIST_IMPL_STYLE!=2 /* need header */
 
@@ -99,6 +105,14 @@ SORTLIST_STATIC SORTLIST_T * SORTLIST_(query)( SORTLIST_(joined_t) join, SORTLIS
 SORTLIST_STATIC int SORTLIST_(erase)( SORTLIST_(joined_t) join, SORTLIST_KEY_T const * key );
 
 SORTLIST_STATIC SORTLIST_T * SORTLIST_(add)( SORTLIST_(joined_t) join, SORTLIST_KEY_T const * key );
+
+SORTLIST_STATIC SORTLIST_(iter_t) SORTLIST_(iter_begin)( SORTLIST_(joined_t) join, int sorted_only );
+
+SORTLIST_STATIC SORTLIST_(iter_t) SORTLIST_(iter_next)( SORTLIST_(iter_t) iter );
+
+SORTLIST_STATIC SORTLIST_T * SORTLIST_(iter_data)( SORTLIST_(iter_t) iter );
+
+SORTLIST_STATIC int SORTLIST_(iter_done)( SORTLIST_(iter_t) iter );
 
 SORTLIST_STATIC void SORTLIST_(verify)( SORTLIST_(joined_t) join );
 
@@ -280,6 +294,37 @@ SORTLIST_(add)( SORTLIST_(joined_t) join, SORTLIST_KEY_T const * key ) {
   join.offsets[join.hdr->total_cnt++] = off;
   FD_TEST( join.hdr->total_cnt <= join.hdr->max );
   return &elem->data;
+}
+
+SORTLIST_(iter_t)
+SORTLIST_(iter_begin)( SORTLIST_(joined_t) join, int sorted_only ) {
+  SORTLIST_(iter_t) iter;
+  iter.current_offset = join.offsets;
+  iter.end_offset = join.offsets + (sorted_only ? join.hdr->sorted_cnt : join.hdr->total_cnt);
+  iter.pool = join.pool;
+  while( iter.current_offset < iter.end_offset ) {
+    if( *iter.current_offset != UINT_MAX ) break;
+    iter.current_offset ++;
+  }
+  return iter;
+}
+
+SORTLIST_(iter_t)
+SORTLIST_(iter_next)( SORTLIST_(iter_t) iter ) {
+  while( ++( iter.current_offset ) < iter.end_offset ) {
+    if( *iter.current_offset != UINT_MAX ) break;
+  }
+  return iter;
+}
+
+SORTLIST_T *
+SORTLIST_(iter_data)( SORTLIST_(iter_t) iter ) {
+  return &((SORTLIST_(element) *)((ulong)iter.pool + *iter.current_offset))->data;
+}
+
+int
+SORTLIST_(iter_done)( SORTLIST_(iter_t) iter ) {
+  return iter.current_offset == iter.end_offset;
 }
 
 void

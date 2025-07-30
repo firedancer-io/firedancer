@@ -28,13 +28,36 @@ my_list_compare( ulong const * a, ulong const * b ) {
 static void
 verify( std::map<ulong,ulong> const & map, my_list_joined list ) {
   my_list_verify( list );
+
+  my_list_iter_t iter = my_list_iter_begin( list, 1 );
+  ulong last_key = ULONG_MAX;
+  while( !my_list_iter_done( iter ) ) {
+    my_list_elem_t * elem = my_list_iter_data( iter );
+    FD_TEST( elem->key > last_key || last_key == ULONG_MAX );
+    last_key = elem->key;
+    auto it = map.find( elem->key );
+    FD_TEST( it != map.end() && it->second == elem->val );
+    iter = my_list_iter_next( iter );
+  }
+
   my_list_resort( list );
   my_list_verify( list );
+
   for( auto it : map ) {
     my_list_elem_t * elem = my_list_query( list, &it.first );
-    FD_TEST( elem != NULL );
-    FD_TEST( it.second == elem->val );
+    FD_TEST( elem != NULL && it.second == elem->val );
   }
+
+  iter = my_list_iter_begin( list, 0 );
+  uint cnt = 0;
+  while( !my_list_iter_done( iter ) ) {
+    my_list_elem_t * elem = my_list_iter_data( iter );
+    auto it = map.find( elem->key );
+    FD_TEST( it != map.end() && it->second == elem->val );
+    iter = my_list_iter_next( iter );
+    cnt++;
+  }
+  FD_TEST( cnt == map.size() );
 }
 
 int
@@ -58,6 +81,14 @@ main( int argc, char ** argv ) {
       ulong key = fd_rng_ulong( rng )%256;
       if( map.count(key) > 0 ) continue;
       my_list_elem_t * elem = my_list_add( list, &key);
+      map[key] = elem->val = fd_rng_ulong( rng );
+    }
+    verify( map, list );
+
+    for( ulong i = 0; i < 30; ++i ) {
+      ulong key = fd_rng_ulong( rng )%256;
+      my_list_elem_t * elem = my_list_query( list, &key);
+      if( elem == NULL ) continue;
       map[key] = elem->val = fd_rng_ulong( rng );
     }
     verify( map, list );
