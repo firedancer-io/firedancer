@@ -63,34 +63,32 @@ send_udp( fd_send_tile_ctx_t  *  ctx,
   uint   const dst_ip   = entry->ip4_addr;
   ushort const dst_port = entry->udp_port;
 
+  /* initialize headers */
   fd_send_link_out_t * net_out_link = ctx->net_out;
-  fd_ip4_udp_hdrs_t * hdrs = fd_chunk_to_laddr( net_out_link->mem, net_out_link->chunk );
-  fd_memset( hdrs, 0, sizeof(fd_ip4_udp_hdrs_t) );
-  hdrs->eth->net_type = fd_ushort_bswap( FD_ETH_HDR_TYPE_IP );
+  uchar * packet = fd_chunk_to_laddr( net_out_link->mem, net_out_link->chunk );
+  fd_ip4_udp_hdrs_t * hdrs = fd_type_pun( packet );
+  *hdrs = *ctx->packet_hdr;
 
-  hdrs->ip4->verihl = FD_IP4_VERIHL(4,5);
-  hdrs->ip4->tos = (uchar)(0); /* FIXME: set this? */
-  hdrs->ip4->net_tot_len = (ushort)( 20 + 8 + payload_sz );
-  hdrs->ip4->net_id = 0; /* FIXME: set this? */
-  hdrs->ip4->net_frag_off = 0x4000u;
-  hdrs->ip4->ttl = 64;
-  hdrs->ip4->protocol = FD_IP4_HDR_PROTOCOL_UDP;
-  hdrs->ip4->check  = 0;
-  hdrs->ip4->saddr  = ctx->src_ip_addr;
-  hdrs->ip4->daddr  = dst_ip;
+  /* ip4 header */
+  fd_ip4_hdr_t * ip4 = hdrs->ip4;
+  ip4->daddr  = dst_ip;
+  ip4->net_id = fd_ushort_bswap( ctx->net_id++ );
+  /* Can next line be collapsed? */
+  ip4->net_tot_len = fd_ushort_bswap( (ushort)(payload_sz + sizeof(fd_ip4_hdr_t)+sizeof(fd_udp_hdr_t)) );
+  ip4->check  = fd_ip4_hdr_check_fast( ip4 );
 
-  hdrs->udp->net_sport = ctx->src_port;
-  hdrs->udp->net_dport = dst_port;
-  hdrs->udp->net_len = (ushort)( 8 + payload_sz );
-  hdrs->udp->check = 0;
+  /* udp header */
+  fd_udp_hdr_t * udp = hdrs->udp;
+  udp->net_dport = fd_ushort_bswap( dst_port );
+  udp->net_len   = fd_ushort_bswap( (ushort)(payload_sz + sizeof(fd_udp_hdr_t)) );
+  udp->check     = 0U; /* indicates no checksum */
 
-  uchar * packet_l5 = fd_type_pun( hdrs+1 );
-  fd_memcpy( packet_l5, payload, payload_sz );
+  /* payload */
+  fd_memcpy( packet+sizeof(fd_ip4_udp_hdrs_t), payload, payload_sz );
 
-  ulong const tot_sz = sizeof(fd_ip4_udp_hdrs_t) + payload_sz;
-
-  ulong sig = fd_disco_netmux_sig( dst_ip, 0U, dst_ip, DST_PROTO_OUTGOING, FD_NETMUX_SIG_MIN_HDR_SZ );
-  ulong tspub = (ulong)ctx->now;
+  ulong const sig    = fd_disco_netmux_sig( dst_ip, dst_port, dst_ip, DST_PROTO_OUTGOING, sizeof(fd_ip4_udp_hdrs_t) );
+  ulong const tspub  = fd_frag_meta_ts_comp( ctx->now );
+  ulong const tot_sz = payload_sz + sizeof(fd_ip4_udp_hdrs_t);
   fd_stem_publish( ctx->stem, net_out_link->idx, sig, net_out_link->chunk, tot_sz, 0UL, 0, tspub );
   net_out_link->chunk = fd_dcache_compact_next( net_out_link->chunk, tot_sz, net_out_link->chunk0, net_out_link->wmark );
 

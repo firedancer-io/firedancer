@@ -73,6 +73,7 @@ struct fd_send_tile_ctx {
   uint                  src_ip_addr;
   ushort                src_port;
   fd_ip4_udp_hdrs_t     packet_hdr[1];
+  ushort                net_id;
 
   #define fd_send_MAX_IN_LINK_CNT 32UL
   fd_send_link_in_t in_links[ fd_send_MAX_IN_LINK_CNT ];

@@ -1487,6 +1487,10 @@ handle_new_slice( fd_replay_tile_ctx_t * ctx, fd_stem_context_t * stem ) {
   int    slot_complete = slice.slot_complete;
   ulong  parent_slot   = slot - parent_off;
 
+  if( FD_UNLIKELY( slot!=fd_bank_slot_get( ctx->slot_ctx->bank ) ) ) {
+    FD_LOG_INFO(( "starting replay of slot %lu (parent: %lu)", slot, parent_slot ));
+  }
+
   if( FD_UNLIKELY( slot<fd_fseq_query( ctx->published_wmark ) ) ) {
     FD_LOG_WARNING(( "ignoring replay of slot %lu (parent: %lu). earlier than our watermark %lu.", slot, parent_slot, fd_fseq_query( ctx->published_wmark ) ));
     return;
@@ -1594,6 +1598,8 @@ exec_slice_fini_slot( fd_replay_tile_ctx_t * ctx, fd_stem_context_t * stem ) {
   /**********************************************************************/
 
   ulong prev_slot = fd_bank_slot_get( ctx->slot_ctx->bank );
+
+  FD_LOG_INFO(( "finished replaying slot %lu", prev_slot ));
 
   fd_bank_execution_fees_set( ctx->slot_ctx->bank, 0UL );
 
