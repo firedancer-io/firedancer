@@ -691,7 +691,7 @@ extend_lookup_table( fd_exec_instr_ctx_t *       ctx,
   if( FD_UNLIKELY( err ) ) {
     return err;
   }
-  lut_acct.acct->vt->resize( lut_acct.acct, new_table_data_sz );
+  fd_txn_account_resize( lut_acct.acct, new_table_data_sz );
 
   /* https://github.com/solana-labs/solana/blob/v1.17.4/programs/address-lookup-table/src/processor.rs#L307-L310 */
   err = fd_addrlut_serialize_meta( &lut->state, lut_data_mut, lut_data_mut_len );

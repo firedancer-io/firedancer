@@ -829,9 +829,9 @@ calculate_rewards_and_distribute_vote_rewards( fd_exec_slot_ctx_t * slot_ctx,
       FD_LOG_ERR(( "Unable to modify vote account" ));
     }
 
-    vote_rec->vt->set_slot( vote_rec, fd_bank_slot_get( slot_ctx->bank ) );
+    fd_txn_account_set_slot( vote_rec, fd_bank_slot_get( slot_ctx->bank ) );
 
-    if( FD_UNLIKELY( vote_rec->vt->checked_add_lamports( vote_rec, vote_reward_node->elem.vote_rewards ) ) ) {
+    if( FD_UNLIKELY( fd_txn_account_checked_add_lamports( vote_rec, vote_reward_node->elem.vote_rewards ) ) ) {
       FD_LOG_ERR(( "Adding lamports to vote account would cause overflow" ));
     }
 
@@ -843,7 +843,7 @@ calculate_rewards_and_distribute_vote_rewards( fd_exec_slot_ctx_t * slot_ctx,
       fd_solcap_write_vote_account_payout( capture_ctx->capture,
           vote_pubkey,
           fd_bank_slot_get( slot_ctx->bank ),
-          vote_rec->vt->get_lamports( vote_rec ),
+          fd_txn_account_get_lamports( vote_rec ),
           (long)vote_reward_node->elem.vote_rewards );
     }
   }
@@ -882,7 +882,7 @@ distribute_epoch_reward_to_stake_acc( fd_exec_slot_ctx_t * slot_ctx,
     FD_LOG_ERR(( "Unable to modify stake account" ));
   }
 
-  stake_acc_rec->vt->set_slot( stake_acc_rec, fd_bank_slot_get( slot_ctx->bank ) );
+  fd_txn_account_set_slot( stake_acc_rec, fd_bank_slot_get( slot_ctx->bank ) );
 
   fd_stake_state_v2_t stake_state[1] = {0};
   if( fd_stake_get_state( stake_acc_rec, stake_state ) != 0 ) {
@@ -895,7 +895,7 @@ distribute_epoch_reward_to_stake_acc( fd_exec_slot_ctx_t * slot_ctx,
     return 1;
   }
 
-  if( stake_acc_rec->vt->checked_add_lamports( stake_acc_rec, reward_lamports ) ) {
+  if( fd_txn_account_checked_add_lamports( stake_acc_rec, reward_lamports ) ) {
     FD_LOG_DEBUG(( "failed to add lamports to stake account" ));
     return 1;
   }
@@ -909,7 +909,7 @@ distribute_epoch_reward_to_stake_acc( fd_exec_slot_ctx_t * slot_ctx,
     fd_solcap_write_stake_account_payout( capture_ctx->capture,
         stake_pubkey,
         fd_bank_slot_get( slot_ctx->bank ),
-        stake_acc_rec->vt->get_lamports( stake_acc_rec ),
+        fd_txn_account_get_lamports( stake_acc_rec ),
         (long)reward_lamports,
         new_credits_observed,
         (long)( new_credits_observed-old_credits_observed ),

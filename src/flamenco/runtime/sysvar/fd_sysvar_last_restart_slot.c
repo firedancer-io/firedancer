@@ -45,12 +45,12 @@ fd_sysvar_last_restart_slot_read( fd_funk_t *     funk,
      exists in the accounts database, but doesn't have any lamports,
      this means that the account does not exist. This wouldn't happen
      in a real execution environment. */
-  if( FD_UNLIKELY( acc->vt->get_lamports( acc )==0 ) ) return NULL;
+  if( FD_UNLIKELY( fd_txn_account_get_lamports( acc )==0 ) ) return NULL;
 
   return fd_bincode_decode_spad(
       sol_sysvar_last_restart_slot, spad,
-      acc->vt->get_data( acc ),
-      acc->vt->get_data_len( acc ),
+      fd_txn_account_get_acc_data( acc ),
+      fd_txn_account_get_data_len( acc ),
       &err );
 }
 

@@ -4,7 +4,6 @@
 #include "../../ballet/txn/fd_txn.h"
 #include "program/fd_program_util.h"
 #include "fd_txn_account_private.h"
-#include "fd_txn_account_vtable.h"
 
 struct fd_acc_mgr;
 typedef struct fd_acc_mgr fd_acc_mgr_t;
@@ -21,8 +20,6 @@ struct __attribute__((aligned(8UL))) fd_txn_account {
 
   /* only used when obtaining a mutable fd_txn_account_t from funk */
   fd_funk_rec_prepare_t           prepared_rec;
-
-  fd_txn_account_vtable_t const * vt;
 };
 typedef struct fd_txn_account fd_txn_account_t;
 #define FD_TXN_ACCOUNT_FOOTPRINT (sizeof(fd_txn_account_t))
@@ -122,6 +119,115 @@ void
 fd_txn_account_mutable_fini( fd_txn_account_t * acct,
                              fd_funk_t *        funk,
                              fd_funk_txn_t *    txn );
+
+fd_pubkey_t const *
+fd_txn_account_get_owner( fd_txn_account_t const * acct );
+
+fd_account_meta_t const *
+fd_txn_account_get_acc_meta( fd_txn_account_t const * acct );
+
+uchar const *
+fd_txn_account_get_acc_data( fd_txn_account_t const * acct );
+
+fd_funk_rec_t const *
+fd_txn_account_get_acc_rec( fd_txn_account_t const * acct );
+
+uchar *
+fd_txn_account_get_acc_data_mut( fd_txn_account_t const * acct );
+
+void
+fd_txn_account_set_meta_readonly( fd_txn_account_t *        acct,
+                                  fd_account_meta_t const * meta );
+
+void
+fd_txn_account_set_meta_mutable( fd_txn_account_t *  acct,
+                                 fd_account_meta_t * meta );
+
+ulong
+fd_txn_account_get_data_len( fd_txn_account_t const * acct );
+
+int
+fd_txn_account_is_executable( fd_txn_account_t const * acct );
+
+
+ulong
+fd_txn_account_get_lamports( fd_txn_account_t const * acct );
+
+ulong
+fd_txn_account_get_rent_epoch( fd_txn_account_t const * acct );
+
+fd_hash_t const *
+fd_txn_account_get_hash( fd_txn_account_t const * acct );
+
+fd_solana_account_meta_t const *
+fd_txn_account_get_info( fd_txn_account_t const * acct );
+
+void
+fd_txn_account_set_executable( fd_txn_account_t * acct, int is_executable );
+
+void
+fd_txn_account_set_owner( fd_txn_account_t * acct, fd_pubkey_t const * owner );
+
+void
+fd_txn_account_set_lamports( fd_txn_account_t * acct, ulong lamports );
+
+int
+fd_txn_account_checked_add_lamports( fd_txn_account_t * acct, ulong lamports );
+
+int
+fd_txn_account_checked_sub_lamports( fd_txn_account_t * acct, ulong lamports );
+
+void
+fd_txn_account_set_rent_epoch( fd_txn_account_t * acct, ulong rent_epoch );
+
+void
+fd_txn_account_set_data( fd_txn_account_t * acct,
+                         void const *       data,
+                         ulong              data_sz );
+
+void
+fd_txn_account_set_data_len( fd_txn_account_t * acct,
+                             ulong              data_len );
+
+void
+fd_txn_account_set_slot( fd_txn_account_t * acct,
+                         ulong              slot );
+
+void
+fd_txn_account_set_hash( fd_txn_account_t * acct,
+                         fd_hash_t const *  hash );
+
+void
+fd_txn_account_clear_owner( fd_txn_account_t * acct );
+
+void
+fd_txn_account_set_meta_info( fd_txn_account_t *               acct,
+                              fd_solana_account_meta_t const * info );
+
+void
+fd_txn_account_resize( fd_txn_account_t * acct,
+                       ulong              dlen );
+
+ushort
+fd_txn_account_is_borrowed( fd_txn_account_t const * acct );
+
+int
+fd_txn_account_is_mutable( fd_txn_account_t const * acct );
+
+int
+fd_txn_account_is_readonly( fd_txn_account_t const * acct );
+
+int
+fd_txn_account_try_borrow_mut( fd_txn_account_t * acct );
+
+void
+fd_txn_account_drop( fd_txn_account_t * acct );
+
+void
+fd_txn_account_set_readonly( fd_txn_account_t * acct );
+
+void
+fd_txn_account_set_mutable( fd_txn_account_t * acct );
 
 FD_PROTOTYPES_END
 

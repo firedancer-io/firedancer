@@ -157,8 +157,8 @@ get_state( fd_txn_account_t const * self,
   int decode_err;
   fd_vote_state_versioned_t * res = fd_bincode_decode_spad(
       vote_state_versioned, spad,
-      self->vt->get_data( self ),
-      self->vt->get_data_len( self ),
+      fd_txn_account_get_acc_data( self ),
+      fd_txn_account_get_data_len( self ),
       &decode_err );
   if( FD_UNLIKELY( decode_err ) ) {
     *err = FD_EXECUTOR_INSTR_ERR_INVALID_ACC_DATA;
@@ -2831,20 +2831,20 @@ fd_vote_program_execute( fd_exec_instr_ctx_t * ctx ) {
 uint
 fd_vote_state_versions_is_correct_and_initialized( fd_txn_account_t * vote_account ) {
   // https://github.com/anza-xyz/agave/blob/v2.0.1/sdk/program/src/vote/state/mod.rs#L885
-  uint data_len_check = vote_account->vt->get_data_len( vote_account ) == FD_VOTE_STATE_V3_SZ;
+  uint data_len_check = fd_txn_account_get_data_len( vote_account ) == FD_VOTE_STATE_V3_SZ;
   uchar test_data[DEFAULT_PRIOR_VOTERS_OFFSET] = {0};
   uint data_check = memcmp((
-    vote_account->vt->get_data( vote_account ) + VERSION_OFFSET), test_data, DEFAULT_PRIOR_VOTERS_OFFSET) != 0;
+      fd_txn_account_get_acc_data( vote_account ) + VERSION_OFFSET), test_data, DEFAULT_PRIOR_VOTERS_OFFSET) != 0;
   if (data_check && data_len_check) {
     return 1;
   }
 
   // VoteState1_14_11::is_correct_size_and_initialized
   // https://github.com/anza-xyz/agave/blob/v2.0.1/sdk/program/src/vote/state/vote_state_1_14_11.rs#L58
-  data_len_check = vote_account->vt->get_data_len( vote_account ) == FD_VOTE_STATE_V2_SZ;
+  data_len_check = fd_txn_account_get_data_len( vote_account ) == FD_VOTE_STATE_V2_SZ;
   uchar test_data_1_14_11[DEFAULT_PRIOR_VOTERS_OFFSET_1_14_11] = {0};
-  data_check = memcmp(
-    (vote_account->vt->get_data( vote_account ) + VERSION_OFFSET), test_data_1_14_11, DEFAULT_PRIOR_VOTERS_OFFSET_1_14_11) != 0;
+  data_check = memcmp( (
+      fd_txn_account_get_acc_data( vote_account ) + VERSION_OFFSET), test_data_1_14_11, DEFAULT_PRIOR_VOTERS_OFFSET_1_14_11) != 0;
   return data_check && data_len_check;
 }
 
@@ -2965,13 +2965,13 @@ upsert_vote_account( fd_txn_account_t *   vote_account,
 void
 fd_vote_store_account( fd_txn_account_t *   vote_account,
                        fd_bank_t *          bank ) {
-  fd_pubkey_t const * owner = vote_account->vt->get_owner( vote_account );
+  fd_pubkey_t const * owner = fd_txn_account_get_owner( vote_account );
 
   if (memcmp(owner->uc, fd_solana_vote_program_id.key, sizeof(fd_pubkey_t)) != 0) {
       return;
   }
 
-  if( vote_account->vt->get_lamports( vote_account ) == 0 ) {
+  if( fd_txn_account_get_lamports( vote_account ) == 0 ) {
     remove_vote_account( vote_account, bank );
   } else {
     upsert_vote_account( vote_account, bank );

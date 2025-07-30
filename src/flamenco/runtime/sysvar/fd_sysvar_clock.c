@@ -60,15 +60,15 @@ fd_sysvar_clock_read( fd_funk_t *     funk,
      exists in the accounts database, but doesn't have any lamports,
      this means that the account does not exist. This wouldn't happen
      in a real execution environment. */
-  if( FD_UNLIKELY( acc->vt->get_lamports( acc )==0 ) ) {
+  if( FD_UNLIKELY( fd_txn_account_get_lamports( acc )==0 ) ) {
     return NULL;
   }
 
   int err;
   return fd_bincode_decode_spad(
       sol_sysvar_clock, spad,
-      acc->vt->get_data( acc ),
-      acc->vt->get_data_len( acc ),
+      fd_txn_account_get_acc_data( acc ),
+      fd_txn_account_get_data_len( acc ),
       &err );
 }
 
@@ -365,8 +365,8 @@ fd_sysvar_clock_update( fd_bank_t *     bank,
 
   fd_sol_sysvar_clock_t * clock = fd_bincode_decode_spad(
       sol_sysvar_clock, runtime_spad,
-      rec->vt->get_data( rec ),
-      rec->vt->get_data_len( rec ),
+      fd_txn_account_get_acc_data( rec ),
+      fd_txn_account_get_data_len( rec ),
       &err );
   if( FD_UNLIKELY( err ) ) {
     FD_LOG_ERR(( "fd_sol_sysvar_clock_decode failed" ));
@@ -449,8 +449,8 @@ fd_sysvar_clock_update( fd_bank_t *     bank,
   }
 
   fd_bincode_encode_ctx_t e_ctx = {
-    .data    = acc->vt->get_data_mut( acc ),
-    .dataend = acc->vt->get_data_mut( acc )+sz,
+    .data    = fd_txn_account_get_acc_data_mut( acc ),
+    .dataend = fd_txn_account_get_acc_data_mut( acc )+sz,
   };
   if( fd_sol_sysvar_clock_encode( clock, &e_ctx ) ) {
     return FD_EXECUTOR_INSTR_ERR_CUSTOM_ERR;
@@ -458,12 +458,12 @@ fd_sysvar_clock_update( fd_bank_t *     bank,
 
   fd_rent_t const * rent  = fd_bank_rent_query( bank );
   ulong             lamps = fd_rent_exempt_minimum_balance( rent, sz );
-  if( acc->vt->get_lamports( acc ) < lamps ) {
-    acc->vt->set_lamports( acc, lamps );
+  if( fd_txn_account_get_lamports( acc ) < lamps ) {
+    fd_txn_account_set_lamports( acc, lamps );
   }
 
-  acc->vt->set_data_len( acc, sz );
-  acc->vt->set_owner( acc, &fd_sysvar_owner_id );
+  fd_txn_account_set_data_len( acc, sz );
+  fd_txn_account_set_owner( acc, &fd_sysvar_owner_id );
 
   fd_txn_account_mutable_fini( acc, funk, funk_txn );
 

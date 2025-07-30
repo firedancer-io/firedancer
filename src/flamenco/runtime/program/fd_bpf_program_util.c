@@ -81,8 +81,8 @@ fd_bpf_get_executable_program_content_for_v4_loader( fd_txn_account_t const * pr
     return NULL;
   }
 
-  *program_data_len = program_acc->vt->get_data_len( program_acc ) - LOADER_V4_PROGRAM_DATA_OFFSET;
-  return program_acc->vt->get_data( program_acc ) + LOADER_V4_PROGRAM_DATA_OFFSET;
+  *program_data_len = fd_txn_account_get_data_len( program_acc ) - LOADER_V4_PROGRAM_DATA_OFFSET;
+  return fd_txn_account_get_acc_data( program_acc ) + LOADER_V4_PROGRAM_DATA_OFFSET;
 }
 
 /* Gets the programdata for a v3 loader-owned account by decoding the account data
@@ -103,8 +103,8 @@ fd_bpf_get_executable_program_content_for_upgradeable_loader( fd_funk_t const * 
   fd_bpf_upgradeable_loader_state_t * program_account_state =
     fd_bincode_decode_spad(
       bpf_upgradeable_loader_state, runtime_spad,
-      program_acc->vt->get_data( program_acc ),
-      program_acc->vt->get_data_len( program_acc ),
+      fd_txn_account_get_acc_data( program_acc ),
+      fd_txn_account_get_data_len( program_acc ),
       NULL );
   if( FD_UNLIKELY( !program_account_state ) ) {
     return NULL;
@@ -122,8 +122,8 @@ fd_bpf_get_executable_program_content_for_upgradeable_loader( fd_funk_t const * 
   /* We don't actually need to decode here, just make sure that the account
      can be decoded successfully. */
   fd_bincode_decode_ctx_t ctx_programdata = {
-    .data    = programdata_acc->vt->get_data( programdata_acc ),
-    .dataend = programdata_acc->vt->get_data( programdata_acc ) + programdata_acc->vt->get_data_len( programdata_acc ),
+    .data    = fd_txn_account_get_acc_data( programdata_acc ),
+    .dataend = fd_txn_account_get_acc_data( programdata_acc ) + fd_txn_account_get_data_len( programdata_acc ),
   };
 
   ulong total_sz = 0UL;
@@ -131,12 +131,12 @@ fd_bpf_get_executable_program_content_for_upgradeable_loader( fd_funk_t const * 
     return NULL;
   }
 
-  if( FD_UNLIKELY( programdata_acc->vt->get_data_len( programdata_acc )<PROGRAMDATA_METADATA_SIZE ) ) {
+  if( FD_UNLIKELY( fd_txn_account_get_data_len( programdata_acc )<PROGRAMDATA_METADATA_SIZE ) ) {
     return NULL;
   }
 
-  *program_data_len = programdata_acc->vt->get_data_len( programdata_acc ) - PROGRAMDATA_METADATA_SIZE;
-  return programdata_acc->vt->get_data( programdata_acc ) + PROGRAMDATA_METADATA_SIZE;
+  *program_data_len = fd_txn_account_get_data_len( programdata_acc ) - PROGRAMDATA_METADATA_SIZE;
+  return fd_txn_account_get_acc_data( programdata_acc ) + PROGRAMDATA_METADATA_SIZE;
 }
 
 /* Gets the programdata for a v1/v2 loader-owned account by returning a pointer to the account data.
@@ -146,8 +146,8 @@ fd_bpf_get_executable_program_content_for_upgradeable_loader( fd_funk_t const * 
 static uchar const *
 fd_bpf_get_executable_program_content_for_v1_v2_loaders( fd_txn_account_t const * program_acc,
                                                          ulong *                  program_data_len ) {
-  *program_data_len = program_acc->vt->get_data_len( program_acc );
-  return program_acc->vt->get_data( program_acc );
+  *program_data_len = fd_txn_account_get_data_len( program_acc );
+  return fd_txn_account_get_acc_data( program_acc );
 }
 
 void
@@ -184,12 +184,12 @@ fd_bpf_get_programdata_from_account( fd_funk_t const *        funk,
      v3 loader: Programdata lives in a separate account. Deserialize the program account
                 and lookup the programdata account. Deserialize the programdata account.
      v4 loader: Programdata lives in the program account, offset by LOADER_V4_PROGRAM_DATA_OFFSET. */
-  if( !memcmp( program_acc->vt->get_owner( program_acc ), fd_solana_bpf_loader_upgradeable_program_id.key, sizeof(fd_pubkey_t) ) ) {
+  if( !memcmp( fd_txn_account_get_owner( program_acc ), fd_solana_bpf_loader_upgradeable_program_id.key, sizeof(fd_pubkey_t) ) ) {
     return fd_bpf_get_executable_program_content_for_upgradeable_loader( funk, funk_txn, program_acc, out_program_data_len, runtime_spad );
-  } else if( !memcmp( program_acc->vt->get_owner( program_acc ), fd_solana_bpf_loader_v4_program_id.key, sizeof(fd_pubkey_t) ) ) {
+  } else if( !memcmp( fd_txn_account_get_owner( program_acc ), fd_solana_bpf_loader_v4_program_id.key, sizeof(fd_pubkey_t) ) ) {
     return fd_bpf_get_executable_program_content_for_v4_loader( program_acc, out_program_data_len );
-  } else if( !memcmp( program_acc->vt->get_owner( program_acc ), fd_solana_bpf_loader_program_id.key, sizeof(fd_pubkey_t) ) ||
-             !memcmp( program_acc->vt->get_owner( program_acc ), fd_solana_bpf_loader_deprecated_program_id.key, sizeof(fd_pubkey_t) ) ) {
+  } else if( !memcmp( fd_txn_account_get_owner( program_acc ), fd_solana_bpf_loader_program_id.key, sizeof(fd_pubkey_t) ) ||
+             !memcmp( fd_txn_account_get_owner( program_acc ), fd_solana_bpf_loader_deprecated_program_id.key, sizeof(fd_pubkey_t) ) ) {
     return fd_bpf_get_executable_program_content_for_v1_v2_loaders( program_acc, out_program_data_len );
   }
   return NULL;
@@ -420,7 +420,7 @@ fd_bpf_check_and_create_bpf_program_cache_entry( fd_exec_slot_ctx_t * slot_ctx,
     return -1;
   }
 
-  if( !fd_executor_pubkey_is_bpf_loader( exec_rec->vt->get_owner( exec_rec ) ) ) {
+  if( !fd_executor_pubkey_is_bpf_loader( fd_txn_account_get_owner( exec_rec ) ) ) {
     return -1;
   }
 
@@ -534,7 +534,7 @@ FD_SPAD_FRAME_BEGIN( runtime_spad ) {
   }
 
   /* The account owner must be a BPF loader to even be considered. */
-  if( FD_UNLIKELY( !fd_executor_pubkey_is_bpf_loader( exec_rec->vt->get_owner( exec_rec ) ) ) ) {
+  if( FD_UNLIKELY( !fd_executor_pubkey_is_bpf_loader( fd_txn_account_get_owner( exec_rec ) ) ) ) {
     return;
   }
 

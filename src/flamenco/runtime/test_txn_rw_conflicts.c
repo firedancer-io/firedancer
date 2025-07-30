@@ -126,15 +126,15 @@ void add_address_lookup_table( fd_funk_t *     funk,
   table.inner.lookup_table.meta.last_extended_slot = 0; /* this makes fd_get_active_addresses_len return 2 */
 
   fd_bincode_encode_ctx_t encode_ctx = {
-    .data    = rec->vt->get_data_mut( rec ),
-    .dataend = rec->vt->get_data_mut( rec ) + FD_LOOKUP_TABLE_META_SIZE
+    .data    = fd_txn_account_get_acc_data_mut( rec ),
+    .dataend = fd_txn_account_get_acc_data_mut( rec ) + FD_LOOKUP_TABLE_META_SIZE
   };
   int err = fd_address_lookup_table_state_encode( &table, &encode_ctx );
   FD_TEST( err==0 );
 
-  rec->vt->set_data_len( rec, rec_sz );
-  rec->vt->set_owner( rec, &fd_solana_address_lookup_table_program_id );
-  fd_memcpy( rec->vt->get_data_mut( rec )+FD_LOOKUP_TABLE_META_SIZE, alt_acct_data, alt_acct_data_sz );
+  fd_txn_account_set_data_len( rec, rec_sz );
+  fd_txn_account_set_owner( rec, &fd_solana_address_lookup_table_program_id );
+  fd_memcpy( fd_txn_account_get_acc_data_mut( rec )+FD_LOOKUP_TABLE_META_SIZE, alt_acct_data, alt_acct_data_sz );
   fd_txn_account_mutable_fini( rec, funk, funk_txn );
   /* other metadata fields (e.g., slot, hash, ...) are ommited */
 

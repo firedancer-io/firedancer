@@ -137,12 +137,12 @@ account_cb( void *                          _ctx,
                                                    hdr->meta.data_len );
   if( FD_UNLIKELY( err!=FD_ACC_MGR_SUCCESS ) ) FD_LOG_ERR(( "fd_txn_account_init_from_funk_mutable failed (%d)", err ));
 
-  rec->vt->set_data_len( rec, hdr->meta.data_len );
-  rec->vt->set_slot( rec, ctx->ssparse->accv_slot );
-  rec->vt->set_hash( rec, &hdr->hash );
-  rec->vt->set_info( rec, &hdr->info );
+  fd_txn_account_set_data_len( rec, hdr->meta.data_len );
+  fd_txn_account_set_slot( rec, ctx->ssparse->accv_slot );
+  fd_txn_account_set_hash( rec, &hdr->hash );
+  fd_txn_account_set_meta_info( rec, &hdr->info );
 
-  ctx->acc_data = rec->vt->get_data_mut( rec );
+  ctx->acc_data = fd_txn_account_get_acc_data_mut( rec );
   ctx->metrics.accounts_inserted++;
   fd_txn_account_mutable_fini( rec, ctx->funk, ctx->funk_txn );
 }

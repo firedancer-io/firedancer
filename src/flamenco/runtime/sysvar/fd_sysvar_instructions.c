@@ -59,21 +59,21 @@ fd_sysvar_instructions_serialize_account( fd_exec_txn_ctx_t *      txn_ctx,
         - spad memory is sized out for allocations for 128 (max number) accounts
         - sizeof(fd_account_meta_t) + serialized_sz will always be less than FD_ACC_TOT_SZ_MAX
         - at most 127 accounts could be using spad memory right now, so this allocation is safe */
-  if( !rec->vt->is_mutable( rec ) ) {
+  if( !fd_txn_account_is_mutable( rec ) ) {
     fd_txn_account_setup_meta_mutable( rec, txn_ctx->spad, serialized_sz );
   }
 
   /* Agave sets up the borrowed account for the instructions sysvar to contain
      default values except for the data which is serialized into the account. */
 
-  rec->vt->set_owner( rec, &fd_sysvar_owner_id );
-  rec->vt->set_lamports( rec, 0UL );
-  rec->vt->set_executable( rec, 0 );
-  rec->vt->set_rent_epoch( rec, 0UL );
-  rec->vt->set_data_len( rec, serialized_sz );
+  fd_txn_account_set_owner( rec, &fd_sysvar_owner_id );
+  fd_txn_account_set_lamports( rec, 0UL );
+  fd_txn_account_set_executable( rec, 0 );
+  fd_txn_account_set_rent_epoch( rec, 0UL );
+  fd_txn_account_set_data_len( rec, serialized_sz );
   rec->starting_lamports = 0UL;
 
-  uchar * serialized_instructions = rec->vt->get_data_mut( rec );
+  uchar * serialized_instructions = fd_txn_account_get_acc_data_mut( rec );
   ulong offset = 0;
 
   // TODO: do we needs bounds checking?
@@ -132,10 +132,10 @@ void
 fd_sysvar_instructions_update_current_instr_idx( fd_txn_account_t * rec,
                                                  ushort             current_instr_idx ) {
   /* Extra safety checks */
-  if( FD_UNLIKELY( rec->vt->get_data_len( rec )<sizeof(ushort) ) ) {
+  if( FD_UNLIKELY( fd_txn_account_get_data_len( rec )<sizeof(ushort) ) ) {
     return;
   }
 
-  uchar * serialized_current_instr_idx = rec->vt->get_data_mut( rec ) + (rec->vt->get_data_len( rec ) - sizeof(ushort));
+  uchar * serialized_current_instr_idx = fd_txn_account_get_acc_data_mut( rec ) + (fd_txn_account_get_data_len( rec ) - sizeof(ushort));
   FD_STORE( ushort, serialized_current_instr_idx, current_instr_idx );
 }

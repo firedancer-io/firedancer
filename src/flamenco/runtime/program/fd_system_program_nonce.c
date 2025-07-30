@@ -956,15 +956,15 @@ fd_check_transaction_age( fd_exec_txn_ctx_t * txn_ctx ) {
 
   /* https://github.com/anza-xyz/agave/blob/16de8b75ebcd57022409b422de557dd37b1de8db/sdk/src/nonce_account.rs#L28-L42 */
   /* verify_nonce_account */
-  fd_pubkey_t const * owner_pubkey = durable_nonce_rec->vt->get_owner( durable_nonce_rec );
+  fd_pubkey_t const * owner_pubkey = fd_txn_account_get_owner( durable_nonce_rec );
   if( FD_UNLIKELY( memcmp( owner_pubkey, fd_solana_system_program_id.key, sizeof( fd_pubkey_t ) ) ) ) {
     return FD_RUNTIME_TXN_ERR_BLOCKHASH_NOT_FOUND;
   }
 
   fd_nonce_state_versions_t * state = fd_bincode_decode_spad(
       nonce_state_versions, txn_ctx->spad,
-      durable_nonce_rec->vt->get_data( durable_nonce_rec ),
-      durable_nonce_rec->vt->get_data_len( durable_nonce_rec ),
+      fd_txn_account_get_acc_data( durable_nonce_rec ),
+      fd_txn_account_get_data_len( durable_nonce_rec ),
       &err );
   if( FD_UNLIKELY( err ) ) return FD_RUNTIME_TXN_ERR_BLOCKHASH_NOT_FOUND;
 
@@ -1025,18 +1025,18 @@ fd_check_transaction_age( fd_exec_txn_ctx_t * txn_ctx ) {
           FD_LOG_ERR(( "fd_nonce_state_versions_size( &new_state ) %lu > FD_ACC_NONCE_SZ_MAX %lu", fd_nonce_state_versions_size( &new_state ), FD_ACC_NONCE_SZ_MAX ));
         }
         /* make_modifiable uses the old length for the data copy */
-        ulong old_tot_len = sizeof(fd_account_meta_t)+rollback_nonce_rec->vt->get_data_len( rollback_nonce_rec );
+        ulong old_tot_len = sizeof(fd_account_meta_t)+fd_txn_account_get_data_len( rollback_nonce_rec );
         void * borrowed_account_data = fd_spad_alloc( txn_ctx->spad, FD_ACCOUNT_REC_ALIGN, fd_ulong_max( FD_ACC_NONCE_TOT_SZ_MAX, old_tot_len ) );
         fd_txn_account_make_mutable( rollback_nonce_rec,
                                      borrowed_account_data,
                                      txn_ctx->spad_wksp );
-        if( FD_UNLIKELY( fd_nonce_state_versions_size( &new_state ) > rollback_nonce_rec->vt->get_data_len( rollback_nonce_rec ) ) ) {
+        if( FD_UNLIKELY( fd_nonce_state_versions_size( &new_state ) > fd_txn_account_get_data_len( rollback_nonce_rec ) ) ) {
           return FD_RUNTIME_TXN_ERR_BLOCKHASH_NOT_FOUND;
         }
         do {
           fd_bincode_encode_ctx_t encode_ctx =
-            { .data    = rollback_nonce_rec->vt->get_data_mut( rollback_nonce_rec ),
-              .dataend = rollback_nonce_rec->vt->get_data_mut( rollback_nonce_rec ) + rollback_nonce_rec->vt->get_data_len( rollback_nonce_rec ) };
+            { .data    = fd_txn_account_get_acc_data_mut( rollback_nonce_rec ),
+              .dataend = fd_txn_account_get_acc_data_mut( rollback_nonce_rec ) + fd_txn_account_get_data_len( rollback_nonce_rec ) };
           int err = fd_nonce_state_versions_encode( &new_state, &encode_ctx );
           if( FD_UNLIKELY( err ) ) {
             return FD_RUNTIME_TXN_ERR_BLOCKHASH_NOT_FOUND;
