@@ -17,7 +17,6 @@
 #include "../../shared/commands/configure/configure.h"
 #include "../../shared/commands/run/run.h" /* initialize_workspaces */
 #include "../../shared/fd_config.h" /* config_t */
-#include "../../shared_dev/commands/dev.h"
 #include "../../../disco/tiles.h"
 #include "../../../disco/topo/fd_topob.h"
 #include "../../../util/pod/fd_pod_format.h"
@@ -338,15 +337,8 @@ backtest_cmd_fn( args_t *   args FD_PARAM_UNUSED,
   };
 
   ulong stage_idx = 0UL;
-  configure_args.configure.stages[ stage_idx++ ] = &fd_cfg_stage_kill;
-  configure_args.configure.stages[ stage_idx++ ] = &fd_cfg_stage_netns;
   configure_args.configure.stages[ stage_idx++ ] = &fd_cfg_stage_hugetlbfs;
   configure_args.configure.stages[ stage_idx++ ] = &fd_cfg_stage_normalpage;
-  configure_args.configure.stages[ stage_idx++ ] = &fd_cfg_stage_sysctl;
-  configure_args.configure.stages[ stage_idx++ ] = &fd_cfg_stage_hyperthreads;
-  configure_args.configure.stages[ stage_idx++ ] = &fd_cfg_stage_ethtool_channels;
-  configure_args.configure.stages[ stage_idx++ ] = &fd_cfg_stage_ethtool_gro;
-  configure_args.configure.stages[ stage_idx++ ] = &fd_cfg_stage_ethtool_loopback;
   configure_args.configure.stages[ stage_idx++ ] = &fd_cfg_stage_snapshots;
   configure_cmd_fn( &configure_args, config );
 
@@ -362,6 +354,5 @@ backtest_cmd_fn( args_t *   args FD_PARAM_UNUSED,
 action_t fd_action_backtest = {
   .name = "backtest",
   .args = NULL,
-  .fn   = backtest_cmd_fn,
-  .perm = dev_cmd_perm,
+  .fn   = backtest_cmd_fn
 };
