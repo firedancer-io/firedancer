@@ -174,6 +174,17 @@ metric introduced.
     <int value="3" name="App" label="app data" />
 </enum>
 
+<enum name="QuicConnState">
+    <int value="0" name="Invalid" label="freed" />
+    <int value="1" name="Handshake" label="handshaking peer" />
+    <int value="2" name="HandshakeComplete" label="handshake complete, confirming with peer" />
+    <int value="3" name="Active" label="active connection" />
+    <int value="4" name="PeerClose" label="peer requested close" />
+    <int value="5" name="Abort" label="connection terminating due to error" />
+    <int value="6" name="ClosePending" label="connection is closing" />
+    <int value="7" name="Dead" label="connection about to be freed" />
+</enum>
+
 <tile name="quic">
     <counter name="TxnsOverrun" summary="Count of txns overrun before reassembled (too small txn_reassembly_count)." />
     <counter name="TxnReasmsStarted" summary="Count of fragmented txn receive ops started." />
@@ -195,7 +206,8 @@ metric introduced.
     <counter name="SentPackets" summary="Number of IP packets sent." />
     <counter name="SentBytes" summary="Total bytes sent (including IP, UDP, QUIC headers)." />
 
-    <gauge name="ConnectionsActive" summary="The number of currently active QUIC connections." />
+    <gauge name="ConnectionsAlloc" summary="The number of currently allocated QUIC connections." />
+    <gauge name="ConnectionsState" enum="QuicConnState" summary="The number of QUIC connections in each state." />
     <counter name="ConnectionsCreated" summary="The total number of connections that have been created." />
     <counter name="ConnectionsClosed" summary="Number of connections gracefully closed." />
     <counter name="ConnectionsAborted" summary="Number of connections aborted." />
@@ -269,7 +281,8 @@ metric introduced.
     <counter name="RetrySent" summary="Total count of QUIC retry packets sent" />
 
     <!-- QUIC connection metrics -->
-    <gauge name="ConnectionsActive" summary="Number of active QUIC connections" />
+    <gauge name="ConnectionsAlloc" summary="Number of currently allocated QUIC connections" />
+    <gauge name="ConnectionsState" enum="QuicConnState" summary="Number of QUIC connections in each state" />
     <counter name="ConnectionsCreated" summary="Total count of QUIC connections created" />
     <counter name="ConnectionsClosed" summary="Total count of QUIC connections closed" />
     <counter name="ConnectionsAborted" summary="Total count of QUIC connections aborted" />
