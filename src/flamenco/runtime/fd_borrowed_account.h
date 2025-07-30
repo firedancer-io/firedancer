@@ -105,7 +105,7 @@ fd_borrowed_account_get_data_mut( fd_borrowed_account_t * borrowed_acct,
 
 static inline fd_pubkey_t const *
 fd_borrowed_account_get_owner( fd_borrowed_account_t const * borrowed_acct ) {
-  return borrowed_acct->acct->vt->get_owner( borrowed_acct->acct );
+  return fd_txn_account_get_owner( borrowed_acct->acct );
 }
 
 /* fd_borrowed_account_get_lamports mirrors Agave function
@@ -361,7 +361,7 @@ fd_borrowed_account_is_owned_by_current_program( fd_borrowed_account_t const * b
   }
 
   return memcmp( program_id_pubkey->key,
-                 borrowed_acct->acct->vt->get_owner( borrowed_acct->acct ), sizeof(fd_pubkey_t) ) == 0;
+                 fd_txn_account_get_owner( borrowed_acct->acct ), sizeof(fd_pubkey_t) ) == 0;
 }
 
 /* fd_borrowed_account_can_data_be changed mirrors Agave function

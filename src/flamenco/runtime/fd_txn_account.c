@@ -1,6 +1,138 @@
 #include "fd_txn_account.h"
 #include "fd_runtime.h"
 
+
+void *
+fd_txn_account_new( void *                    mem,
+                    fd_pubkey_t const *       pubkey,
+                    fd_account_meta_t const * meta,
+                    uchar const *             data,
+                    fd_wksp_t *               wksp,
+                    uchar                     is_mutable ) {
+
+  if( FD_UNLIKELY( !mem ) ) {
+    FD_LOG_WARNING(( "NULL mem" ));
+    return NULL;
+  }
+
+  if( FD_UNLIKELY( !fd_ulong_is_aligned( (ulong)mem, fd_txn_account_align() ) ) ) {
+    FD_LOG_WARNING(( "misaligned mem" ));
+    return NULL;
+  }
+
+  if( FD_UNLIKELY( !meta ) ) {
+    FD_LOG_WARNING(( "NULL meta" ));
+    return NULL;
+  }
+
+  if( FD_UNLIKELY( !data ) ) {
+    FD_LOG_WARNING(( "NULL data" ));
+    return NULL;
+  }
+
+  if( FD_UNLIKELY( !wksp ) ) {
+    FD_LOG_WARNING(( "NULL wksp" ));
+    return NULL;
+  }
+
+  fd_txn_account_t * acct = (fd_txn_account_t *)mem;
+
+  memset( mem, 0, sizeof(fd_txn_account_t) );
+  acct->magic      = FD_TXN_ACCOUNT_MAGIC;
+  acct->is_mutable = is_mutable;
+  memcpy( acct->pubkey, pubkey, sizeof(fd_pubkey_t) );
+
+  acct->meta_gaddr = fd_wksp_gaddr( wksp, meta );
+  if( FD_UNLIKELY( !acct->private_state.meta_gaddr ) ) {
+    FD_LOG_WARNING(( "fd_wksp_gaddr failed" ));
+    return NULL;
+  }
+
+  acct->data_gaddr = fd_wksp_gaddr( wksp, data );
+  if( FD_UNLIKELY( !acct->private_state.data_gaddr ) ) {
+    FD_LOG_WARNING(( "fd_wksp_gaddr failed" ));
+    return NULL;
+  }
+
+  acct->starting_dlen     = meta->dlen;
+  acct->starting_lamports = meta->info.lamports;
+
+  return mem;
+}
+
+fd_txn_account_t *
+fd_txn_account_join( void * mem, fd_wksp_t * wksp ) {
+  if( FD_UNLIKELY( !mem ) ) {
+    FD_LOG_WARNING(( "NULL mem" ));
+    return NULL;
+  }
+
+  if( FD_UNLIKELY( !fd_ulong_is_aligned( (ulong)mem, fd_txn_account_align() ) ) ) {
+    FD_LOG_WARNING(( "misaligned mem" ));
+    return NULL;
+  }
+
+  fd_txn_account_t * acct = (fd_txn_account_t *)mem;
+  if( FD_UNLIKELY( acct->magic!=FD_TXN_ACCOUNT_MAGIC ) ) {
+    FD_LOG_WARNING(( "wrong magic" ));
+    return NULL;
+  }
+
+  acct->meta_laddr = fd_wksp_laddr( wksp, acct->meta_gaddr );
+  if( FD_UNLIKELY( !acct->meta_laddr ) ) {
+    FD_LOG_WARNING(( "fd_wksp_laddr failed" ));
+    return NULL;
+  }
+
+  acct->data_laddr = fd_wksp_laddr( wksp, acct->data_gaddr );
+  if( FD_UNLIKELY( !acct->data_laddr ) ) {
+    FD_LOG_WARNING(( "fd_wksp_laddr failed" ));
+    return NULL;
+  }
+
+  return acct;
+}
+
+void *
+fd_txn_account_leave( fd_txn_account_t * acct ) {
+  if( FD_UNLIKELY( !acct ) ) {
+    FD_LOG_WARNING(( "NULL acct" ));
+    return NULL;
+  }
+
+  if( FD_UNLIKELY( acct->magic!=FD_TXN_ACCOUNT_MAGIC ) ) {
+    FD_LOG_WARNING(( "wrong magic" ));
+    return NULL;
+  }
+
+  acct->meta_laddr = NULL;
+  acct->data_laddr = NULL;
+
+  return acct;
+}
+
+void *
+fd_txn_account_delete( void * mem ) {
+  if( FD_UNLIKELY( !mem ) ) {
+    FD_LOG_WARNING(( "NULL mem" ));
+    return NULL;
+  }
+
+  if( FD_UNLIKELY( !fd_ulong_is_aligned( (ulong)mem, fd_txn_account_align() ) ) ) {
+    FD_LOG_WARNING(( "misaligned mem" ));
+    return NULL;
+  }
+
+  fd_txn_account_t * acct = (fd_txn_account_t *)mem;
+  if( FD_UNLIKELY( acct->magic!=FD_TXN_ACCOUNT_MAGIC ) ) {
+    FD_LOG_WARNING(( "wrong magic" ));
+    return NULL;
+  }
+  acct->magic = 0UL;
+
+  return mem;
+}
+
 fd_txn_account_t *
 fd_txn_account_init( void * ptr ) {
   if( FD_UNLIKELY( !ptr ) ) {

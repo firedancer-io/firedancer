@@ -52,7 +52,7 @@ fd_borrowed_account_set_owner( fd_borrowed_account_t * borrowed_acct,
 
   /* Don't copy the account if the owner does not change
      https://github.com/anza-xyz/agave/blob/v2.1.14/sdk/src/transaction_context.rs#L757 */
-  if( !memcmp( acct->vt->get_owner( acct ), owner, sizeof( fd_pubkey_t ) ) ) {
+  if( !memcmp( fd_txn_account_get_owner( acct ), owner, sizeof( fd_pubkey_t ) ) ) {
     return FD_EXECUTOR_INSTR_SUCCESS;
   }
 
@@ -60,7 +60,7 @@ fd_borrowed_account_set_owner( fd_borrowed_account_t * borrowed_acct,
 
   /* Copy into owner
      https://github.com/anza-xyz/agave/blob/v2.1.14/sdk/src/transaction_context.rs#L761 */
-  acct->vt->set_owner( acct, owner );
+  fd_txn_account_set_owner( acct, owner );
   return FD_EXECUTOR_INSTR_SUCCESS;
 }
 

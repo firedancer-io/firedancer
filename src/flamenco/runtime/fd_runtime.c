@@ -1225,8 +1225,8 @@ fd_runtime_pre_execute_check( fd_execute_txn_task_info_t * task_info ) {
   err = fd_executor_load_transaction_accounts( txn_ctx );
   if( FD_UNLIKELY( err!=FD_RUNTIME_EXECUTE_SUCCESS ) ) {
     /* Regardless of whether transaction accounts were loaded successfully, the transaction is
-        included in the block and transaction fees are collected.
-        https://github.com/anza-xyz/agave/blob/v2.1.6/svm/src/transaction_processor.rs#L341-L357 */
+       included in the block and transaction fees are collected.
+       https://github.com/anza-xyz/agave/blob/v2.1.6/svm/src/transaction_processor.rs#L341-L357 */
     task_info->txn->flags |= FD_TXN_P_FLAGS_FEES_ONLY;
     task_info->exec_res    = err;
 

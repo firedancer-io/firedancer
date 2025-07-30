@@ -136,7 +136,7 @@ fd_executor_lookup_native_program( fd_txn_account_t const * prog_acc,
   }
 
   fd_pubkey_t const * pubkey = prog_acc->pubkey;
-  fd_pubkey_t const * owner  = prog_acc->vt->get_owner( prog_acc );
+  fd_pubkey_t const * owner  = fd_txn_account_get_owner( prog_acc );
 
   /* Native programs should be owned by the native loader...
      This will not be the case though once core programs are migrated to BPF. */
@@ -167,7 +167,7 @@ fd_executor_lookup_native_program( fd_txn_account_t const * prog_acc,
 
 static int
 fd_executor_is_system_nonce_account( fd_txn_account_t * account, fd_spad_t * exec_spad ) {
-  if( memcmp( account->vt->get_owner( account ), fd_solana_system_program_id.uc, sizeof(fd_pubkey_t) ) == 0 ) {
+  if( memcmp( fd_txn_account_get_owner( account ), fd_solana_system_program_id.uc, sizeof(fd_pubkey_t) ) == 0 ) {
     if( !account->vt->get_data_len( account ) ) {
       return 0;
     } else {
@@ -1467,7 +1467,7 @@ fd_executor_setup_txn_account( fd_exec_txn_ctx_t * txn_ctx,
   if( fd_exec_txn_ctx_account_is_writable_idx( txn_ctx, idx ) || idx==FD_FEE_PAYER_TXN_IDX ) {
     void * txn_account_data = fd_spad_alloc( txn_ctx->spad, FD_ACCOUNT_REC_ALIGN, FD_ACC_TOT_SZ_MAX );
 
-    /* promote the account to mutable, which requires a memcpy*/
+    /* promote the account to mutable, which requires a memcpy */
     fd_txn_account_make_mutable( txn_account, txn_account_data, txn_ctx->spad_wksp );
 
     /* All new accounts should have their rent epoch set to ULONG_MAX.
@@ -1482,6 +1482,66 @@ fd_executor_setup_txn_account( fd_exec_txn_ctx_t * txn_ctx,
   if( meta==NULL ) {
     fd_txn_account_setup_sentinel_meta_readonly( txn_account, txn_ctx->spad, txn_ctx->spad_wksp );
     return NULL;
+  }
+
+  return txn_account;
+}
+
+static fd_txn_account_t * FD_FN_UNUSED
+fd_executor_setup_txn_account_2( fd_exec_txn_ctx_t * txn_ctx, ushort idx ) {
+
+  fd_pubkey_t * acc = &txn_ctx->account_keys[ idx ];
+
+  int err = FD_ACC_MGR_SUCCESS;
+  fd_funk_rec_t const *     rec  = NULL;
+  fd_account_meta_t const * meta = fd_funk_get_acc_meta_readonly( txn_ctx->funk,
+                                                                  txn_ctx->funk_txn,
+                                                                  acc,
+                                                                  &rec,
+                                                                  &err,
+                                                                  NULL );
+  if( FD_UNLIKELY( err!=FD_ACC_MGR_SUCCESS&&err!=FD_ACC_MGR_ERR_UNKNOWN_ACCOUNT ) ) {
+    FD_LOG_CRIT(( "fd_funk_get_acc_meta_readonly err=%d", err ));
+  }
+
+  uchar is_unknown_account = err==FD_ACC_MGR_ERR_UNKNOWN_ACCOUNT || !fd_account_meta_exists( meta );
+  uchar is_writable        = fd_exec_txn_ctx_account_is_writable_idx( txn_ctx, idx ) || idx==FD_FEE_PAYER_TXN_IDX;
+
+  if( is_writable ) {
+    void * txn_account_data = fd_spad_alloc( txn_ctx->spad, FD_ACCOUNT_REC_ALIGN, FD_ACC_TOT_SZ_MAX );
+    if( FD_UNLIKELY( !txn_account_data ) ) {
+      FD_LOG_CRIT(( "fd_spad_alloc failed" ));
+    }
+
+    if( FD_LIKELY( !is_unknown_account ) ) {
+      /* If the account already exists, we just need to copy the data
+         into the newly allocated buffer. */
+      fd_memcpy( txn_account_data, meta, meta->hlen + meta->dlen );
+    } else {
+      /* If the account exists, we need to initialize a metadata. */
+      fd_account_meta_init( (fd_account_meta_t *)txn_account_data );
+    }
+    /* Now, set the metadata pointer. */
+    meta = (fd_account_meta_t *)txn_account_data;
+  }
+
+  uchar const * acc_data  = fd_account_meta_get_data_const( meta );
+  fd_wksp_t *   data_wksp = fd_wksp_containing( meta );
+
+  uchar * txn_account_new = fd_txn_account_new(
+      &txn_ctx->accounts[ idx ],
+      &txn_ctx->account_keys[ idx ],
+      meta,
+      acc_data,
+      data_wksp,
+      is_writable );
+  if( FD_UNLIKELY( !txn_account_new ) ) {
+    FD_LOG_CRIT(( "fd_txn_account_new failed" ));
+  }
+
+  fd_txn_account_t * txn_account = fd_txn_account_join( txn_account_new, data_wksp );
+  if( FD_UNLIKELY( !txn_account ) ) {
+    FD_LOG_CRIT(( "fd_txn_account_join failed" ));
   }
 
   return txn_account;
