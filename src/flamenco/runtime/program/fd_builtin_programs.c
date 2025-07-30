@@ -149,10 +149,10 @@ static fd_core_bpf_migration_config_t const * migrating_builtins[] = {
 
 /* https://github.com/solana-labs/solana/blob/8f2c8b8388a495d2728909e30460aa40dcc5d733/sdk/src/native_loader.rs#L19 */
 void
-fd_write_builtin_account( fd_exec_slot_ctx_t * slot_ctx,
-                          fd_pubkey_t const    pubkey,
-                          char const *         data,
-                          ulong                sz ) {
+fd_write_builtin_account( fd_exec_slot_ctx_t *   slot_ctx,
+                          fd_pubkey_t const      pubkey,
+                          char const *           data,
+                          ulong                  sz ) {
 
   fd_funk_t *         funk = slot_ctx->funk;
   fd_funk_txn_t *     txn  = slot_ctx->funk_txn;
@@ -161,11 +161,20 @@ fd_write_builtin_account( fd_exec_slot_ctx_t * slot_ctx,
   int err = fd_txn_account_init_from_funk_mutable( rec, &pubkey, funk, txn, 1, sz );
   FD_TEST( !err );
 
+  fd_lthash_value_t prev_lthash_value;
+  fd_lthash_zero( &prev_lthash_value );
+  fd_hash_account_lthash_value( &pubkey,
+                                rec->vt->get_meta( rec ),
+                                rec->vt->get_data( rec ),
+                                &prev_lthash_value );
+
   rec->vt->set_data( rec, data, sz );
   rec->vt->set_lamports( rec, 1UL );
   rec->vt->set_rent_epoch( rec, 0UL );
   rec->vt->set_executable( rec, 1 );
   rec->vt->set_owner( rec, &fd_solana_native_loader_id );
+
+  fd_runtime_update_lthash_with_account_prev_hash( rec, &prev_lthash_value, slot_ctx->bank );
 
   fd_txn_account_mutable_fini( rec, funk, txn );
 

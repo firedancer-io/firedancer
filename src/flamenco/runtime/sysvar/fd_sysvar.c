@@ -2,6 +2,8 @@
 #include "../context/fd_exec_slot_ctx.h"
 #include "../context/fd_exec_instr_ctx.h"
 #include "../context/fd_exec_txn_ctx.h"
+#include "../fd_hashes.h"
+#include "../fd_runtime.h"
 
 #include "fd_sysvar_rent.h"
 
@@ -19,8 +21,16 @@ fd_sysvar_set( fd_bank_t *          bank,
   FD_TXN_ACCOUNT_DECL( rec );
 
   int err = fd_txn_account_init_from_funk_mutable( rec, pubkey, funk, funk_txn, 1, sz );
-  if( FD_UNLIKELY( err != FD_ACC_MGR_SUCCESS ) )
+  if( FD_UNLIKELY( err != FD_ACC_MGR_SUCCESS ) ) {
     return FD_ACC_MGR_ERR_READ_FAILED;
+  }
+
+  fd_lthash_value_t prev_lthash_value;
+  fd_lthash_zero( &prev_lthash_value );
+  fd_hash_account_lthash_value( pubkey,
+                                rec->vt->get_meta( rec ),
+                                rec->vt->get_data( rec ),
+                                &prev_lthash_value );
 
   fd_memcpy(rec->vt->get_data_mut( rec ), data, sz);
 
@@ -43,6 +53,8 @@ fd_sysvar_set( fd_bank_t *          bank,
   rec->vt->set_data_len( rec, sz );
   rec->vt->set_owner( rec, owner );
   rec->vt->set_slot( rec, slot );
+
+  fd_runtime_update_lthash_with_account_prev_hash( rec, &prev_lthash_value, bank );
 
   fd_txn_account_mutable_fini( rec, funk, funk_txn );
   return 0;

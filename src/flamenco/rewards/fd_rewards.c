@@ -8,6 +8,7 @@
 #include "../stakes/fd_stakes.h"
 #include "../runtime/program/fd_stake_program.h"
 #include "../runtime/sysvar/fd_sysvar_stake_history.h"
+#include "../runtime/fd_runtime.h"
 
 /* https://github.com/anza-xyz/agave/blob/7117ed9653ce19e8b2dea108eff1f3eb6a3378a7/sdk/src/inflation.rs#L85 */
 static double
@@ -763,11 +764,11 @@ calculate_rewards_for_partitioning( fd_exec_slot_ctx_t *                   slot_
 
    https://github.com/anza-xyz/agave/blob/7117ed9653ce19e8b2dea108eff1f3eb6a3378a7/runtime/src/bank/partitioned_epoch_rewards/calculation.rs#L97 */
 static void
-calculate_rewards_and_distribute_vote_rewards( fd_exec_slot_ctx_t * slot_ctx,
-                                               ulong                prev_epoch,
-                                               fd_hash_t const *    parent_blockhash,
-                                               fd_epoch_info_t *    temp_info,
-                                               fd_spad_t *          runtime_spad ) {
+calculate_rewards_and_distribute_vote_rewards( fd_exec_slot_ctx_t *   slot_ctx,
+                                               ulong                  prev_epoch,
+                                               fd_hash_t const *      parent_blockhash,
+                                               fd_epoch_info_t *      temp_info,
+                                               fd_spad_t *            runtime_spad ) {
 
   /* https://github.com/firedancer-io/solana/blob/dab3da8e7b667d7527565bddbdbecf7ec1fb868e/runtime/src/bank.rs#L2406-L2492 */
   fd_partitioned_rewards_calculation_t rewards_calc_result[1] = {0};
@@ -800,12 +801,22 @@ calculate_rewards_and_distribute_vote_rewards( fd_exec_slot_ctx_t * slot_ctx,
       FD_LOG_ERR(( "Unable to modify vote account" ));
     }
 
+    fd_lthash_value_t prev_lthash_value;
+    fd_lthash_zero( &prev_lthash_value );
+    fd_hash_account_lthash_value( vote_pubkey,
+                                  vote_rec->vt->get_meta( vote_rec ),
+                                  vote_rec->vt->get_data( vote_rec ),
+                                  &prev_lthash_value );
+
     vote_rec->vt->set_slot( vote_rec, fd_bank_slot_get( slot_ctx->bank ) );
 
     if( FD_UNLIKELY( vote_rec->vt->checked_add_lamports( vote_rec, vote_reward_node->elem.vote_rewards ) ) ) {
       FD_LOG_ERR(( "Adding lamports to vote account would cause overflow" ));
     }
 
+    fd_runtime_update_lthash_with_account_prev_hash( vote_rec,
+                                                     &prev_lthash_value,
+                                                     slot_ctx->bank );
     fd_txn_account_mutable_fini( vote_rec, slot_ctx->funk, slot_ctx->funk_txn );
 
     distributed_rewards = fd_ulong_sat_add( distributed_rewards, vote_reward_node->elem.vote_rewards );
@@ -844,6 +855,13 @@ distribute_epoch_reward_to_stake_acc( fd_exec_slot_ctx_t * slot_ctx,
     FD_LOG_ERR(( "Unable to modify stake account" ));
   }
 
+  fd_lthash_value_t prev_lthash_value;
+  fd_lthash_zero( &prev_lthash_value );
+  fd_hash_account_lthash_value( stake_pubkey,
+                                stake_acc_rec->vt->get_meta( stake_acc_rec ),
+                                stake_acc_rec->vt->get_data( stake_acc_rec ),
+                                &prev_lthash_value );
+
   stake_acc_rec->vt->set_slot( stake_acc_rec, fd_bank_slot_get( slot_ctx->bank ) );
 
   fd_stake_state_v2_t stake_state[1] = {0};
@@ -870,6 +888,9 @@ distribute_epoch_reward_to_stake_acc( fd_exec_slot_ctx_t * slot_ctx,
     FD_LOG_ERR(( "write_stake_state failed" ));
   }
 
+  fd_runtime_update_lthash_with_account_prev_hash( stake_acc_rec,
+                                                   &prev_lthash_value,
+                                                   slot_ctx->bank );
   fd_txn_account_mutable_fini( stake_acc_rec, slot_ctx->funk, slot_ctx->funk_txn );
 
   return 0;
@@ -993,11 +1014,11 @@ fd_distribute_partitioned_epoch_rewards( fd_exec_slot_ctx_t * slot_ctx ) {
    https://github.com/anza-xyz/agave/blob/7117ed9653ce19e8b2dea108eff1f3eb6a3378a7/runtime/src/bank/partitioned_epoch_rewards/calculation.rs#L41
 */
 void
-fd_begin_partitioned_rewards( fd_exec_slot_ctx_t * slot_ctx,
-                              fd_hash_t const *    parent_blockhash,
-                              ulong                parent_epoch,
-                              fd_epoch_info_t *    temp_info,
-                              fd_spad_t *          runtime_spad ) {
+fd_begin_partitioned_rewards( fd_exec_slot_ctx_t *   slot_ctx,
+                              fd_hash_t const *      parent_blockhash,
+                              ulong                  parent_epoch,
+                              fd_epoch_info_t *      temp_info,
+                              fd_spad_t *            runtime_spad ) {
 
   /* https://github.com/anza-xyz/agave/blob/7117ed9653ce19e8b2dea108eff1f3eb6a3378a7/runtime/src/bank/partitioned_epoch_rewards/calculation.rs#L55 */
   calculate_rewards_and_distribute_vote_rewards(

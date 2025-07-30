@@ -325,86 +325,6 @@ publish_stake_weights( fd_replay_tile_ctx_t * ctx,
 }
 
 static void
-block_finalize_tiles_cb( void * para_arg_1,
-                         void * para_arg_2,
-                         void * fn_arg_1,
-                         void * fn_arg_2 FD_PARAM_UNUSED,
-                         void * fn_arg_3 FD_PARAM_UNUSED,
-                         void * fn_arg_4 FD_PARAM_UNUSED ) {
-
-  fd_replay_tile_ctx_t *         ctx        = (fd_replay_tile_ctx_t *)para_arg_1;
-  fd_stem_context_t *            stem       = (fd_stem_context_t *)para_arg_2;
-  fd_accounts_hash_task_data_t * task_data  = (fd_accounts_hash_task_data_t *)fn_arg_1;
-
-  ulong cnt_per_worker;
-  if( ctx->exec_cnt>1 ) cnt_per_worker = (task_data->info_sz / (ctx->exec_cnt-1UL)) + 1UL; /* ??? */
-  else                  cnt_per_worker = task_data->info_sz;
-  ulong task_infos_gaddr = fd_wksp_gaddr_fast( ctx->runtime_public_wksp, task_data->info );
-
-  uchar hash_done[ FD_PACK_MAX_BANK_TILES ] = {0};
-  for( ulong worker_idx=0UL; worker_idx<ctx->exec_cnt; worker_idx++ ) {
-
-    ulong tsorig = fd_frag_meta_ts_comp( fd_tickcount() );
-
-    ulong lt_hash_gaddr = fd_wksp_gaddr_fast( ctx->runtime_public_wksp, &task_data->lthash_values[ worker_idx ] );
-    if( FD_UNLIKELY( !lt_hash_gaddr ) ) {
-      FD_LOG_ERR(( "lt_hash_gaddr is NULL" ));
-      return;
-    }
-
-    ulong start_idx = worker_idx * cnt_per_worker;
-    if( start_idx >= task_data->info_sz ) {
-      /* If we do not any work for this worker to do, skip it. */
-      hash_done[ worker_idx ] = 1;
-      continue;
-    }
-    ulong end_idx = fd_ulong_sat_sub( start_idx + cnt_per_worker, 1UL );
-    if( end_idx >= task_data->info_sz ) {
-      end_idx = fd_ulong_sat_sub( task_data->info_sz, 1UL );
-    }
-
-    fd_replay_out_link_t * exec_out = &ctx->exec_out[ worker_idx ];
-
-    fd_runtime_public_hash_bank_msg_t * hash_msg = (fd_runtime_public_hash_bank_msg_t *)fd_chunk_to_laddr( exec_out->mem, exec_out->chunk );
-    generate_hash_bank_msg( task_infos_gaddr, lt_hash_gaddr, start_idx, end_idx, fd_bank_slot_get( ctx->slot_ctx->bank ), hash_msg );
-
-    ulong tspub = fd_frag_meta_ts_comp( fd_tickcount() );
-    fd_stem_publish( stem,
-                     exec_out->idx,
-                     EXEC_HASH_ACCS_SIG,
-                     exec_out->chunk,
-                     sizeof(fd_runtime_public_hash_bank_msg_t),
-                     0UL,
-                     tsorig,
-                     tspub );
-    exec_out->chunk = fd_dcache_compact_next( exec_out->chunk, sizeof(fd_runtime_public_hash_bank_msg_t), exec_out->chunk0, exec_out->wmark );
-  }
-
-  /* Spins and blocks until all exec tiles are done hashing. */
-  for( ;; ) {
-    uchar wait_cnt = 0;
-    for( ulong i=0UL; i<ctx->exec_cnt; i++ ) {
-      if( !hash_done[ i ] ) {
-        ulong res   = fd_fseq_query( ctx->exec_fseq[ i ] );
-        uint  state = fd_exec_fseq_get_state( res );
-        uint  slot  = fd_exec_fseq_get_slot( res );
-        /* We need to compare the state and a unique identifier (slot)
-           in the case where the last thing the exec tile did is to hash
-           accounts. */
-        if( state==FD_EXEC_STATE_HASH_DONE && slot==fd_bank_slot_get( ctx->slot_ctx->bank ) ) {
-          hash_done[ i ] = 1;
-        } else {
-          wait_cnt++;
-        }
-      }
-    }
-    if( !wait_cnt ) {
-      break;
-    }
-  }
-}
-
-static void
 txncache_publish( fd_replay_tile_ctx_t * ctx,
                   fd_funk_txn_t *        to_root_txn,
                   fd_funk_txn_t *        rooted_txn ) {
@@ -452,33 +372,6 @@ funk_publish( fd_replay_tile_ctx_t * ctx,
     FD_LOG_ERR(( "failed to funk publish slot %lu", wmk ));
   }
   fd_funk_txn_end_write( ctx->funk );
-
-  if( FD_LIKELY( FD_FEATURE_ACTIVE_BANK( ctx->slot_ctx->bank, epoch_accounts_hash ) &&
-                 !FD_FEATURE_ACTIVE_BANK( ctx->slot_ctx->bank, accounts_lt_hash ) ) ) {
-
-    if( wmk>=fd_bank_eah_start_slot_get( ctx->slot_ctx->bank ) ) {
-      fd_exec_para_cb_ctx_t exec_para_ctx = {
-        .func       = fd_accounts_hash_counter_and_gather_tpool_cb,
-        .para_arg_1 = NULL,
-        .para_arg_2 = NULL
-      };
-
-      fd_hash_t out_hash = {0};
-      fd_accounts_hash( ctx->slot_ctx->funk,
-                        fd_bank_slot_get( ctx->slot_ctx->bank ),
-                        &out_hash,
-                        ctx->runtime_spad,
-                        fd_bank_features_query( ctx->slot_ctx->bank ),
-                        &exec_para_ctx,
-                        NULL );
-      FD_LOG_NOTICE(( "Done computing epoch account hash (%s)", FD_BASE58_ENC_32_ALLOCA( &out_hash ) ));
-
-      fd_bank_epoch_account_hash_set( ctx->slot_ctx->bank, out_hash );
-
-      fd_bank_eah_start_slot_set( ctx->slot_ctx->bank, FD_SLOT_NULL );
-    }
-  }
-
 }
 
 static void
@@ -670,18 +563,9 @@ init_after_snapshot( fd_replay_tile_ctx_t * ctx,
     FD_TEST( fd_runtime_block_execute_prepare( ctx->slot_ctx, ctx->runtime_spad ) == 0 );
     fd_runtime_block_info_t info = { .signature_cnt = 0 };
 
-    fd_exec_para_cb_ctx_t exec_para_ctx_block_finalize = {
-      .func       = block_finalize_tiles_cb,
-      .para_arg_1 = ctx,
-      .para_arg_2 = stem,
-    };
-
-    fd_runtime_block_execute_finalize_para( ctx->slot_ctx,
-                                            ctx->capture_ctx,
+    fd_runtime_block_execute_finalize_sequential( ctx->slot_ctx,
                                             &info,
-                                            ctx->exec_cnt,
-                                            ctx->runtime_spad,
-                                            &exec_para_ctx_block_finalize );
+                                            ctx->runtime_spad );
 
     snapshot_slot = 1UL;
 
@@ -771,7 +655,12 @@ static void
 init_from_snapshot( fd_replay_tile_ctx_t * ctx,
                     fd_stem_context_t *    stem ) {
   fd_features_restore( ctx->slot_ctx, ctx->runtime_spad );
-  fd_calculate_epoch_accounts_hash_values( ctx->slot_ctx );
+
+  fd_slot_lthash_t const * lthash = fd_bank_lthash_locking_query( ctx->slot_ctx->bank );
+  if( fd_lthash_is_zero( (fd_lthash_value_t * )lthash ) ) {
+    FD_LOG_ERR(( "snapshot manifest does not contain lthash!" ));
+  }
+  fd_bank_lthash_end_locking_query( ctx->slot_ctx->bank );
 
   fd_runtime_update_leaders( ctx->slot_ctx->bank,
     fd_bank_slot_get( ctx->slot_ctx->bank ),
@@ -1394,18 +1283,9 @@ exec_slice_fini_slot( fd_replay_tile_ctx_t * ctx, fd_stem_context_t * stem ) {
   fd_runtime_block_info_t runtime_block_info[1];
   runtime_block_info->signature_cnt = fd_bank_signature_count_get( ctx->slot_ctx->bank );
 
-  fd_exec_para_cb_ctx_t exec_para_ctx_block_finalize = {
-    .func       = block_finalize_tiles_cb,
-    .para_arg_1 = ctx,
-    .para_arg_2 = stem,
-  };
-
-  fd_runtime_block_execute_finalize_para( ctx->slot_ctx,
-                                          ctx->capture_ctx,
+  fd_runtime_block_execute_finalize_sequential( ctx->slot_ctx,
                                           runtime_block_info,
-                                          ctx->exec_cnt,
-                                          ctx->runtime_spad,
-                                          &exec_para_ctx_block_finalize );
+                                          ctx->runtime_spad );
 
   ulong curr_slot = fd_bank_slot_get( ctx->slot_ctx->bank );
 
