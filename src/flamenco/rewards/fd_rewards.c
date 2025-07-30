@@ -2,6 +2,7 @@
 #include <math.h>
 
 #include "../runtime/fd_executor_err.h"
+#include "../runtime/fd_acc_mgr.h"
 #include "../runtime/program/fd_vote_program.h"
 #include "../runtime/sysvar/fd_sysvar_epoch_rewards.h"
 #include "../runtime/sysvar/fd_sysvar_epoch_schedule.h"

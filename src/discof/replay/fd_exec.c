@@ -1,5 +1,7 @@
 #include "fd_exec.h"
 
+#include "../../ballet/block/fd_microblock.h"
+
 fd_slice_exec_t *
 fd_slice_exec_join( void * slmem ) {
   fd_slice_exec_t * slice_exec_ctx = (fd_slice_exec_t *)slmem;

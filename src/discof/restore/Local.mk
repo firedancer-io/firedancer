@@ -10,6 +10,7 @@ endif
 ifdef FD_HAS_INT128
 $(call add-objs,utils/fd_snapshot_parser,fd_discof)
 $(call add-objs,utils/fd_ssmanifest_parser,fd_discof)
+$(call add-objs,utils/fd_ssload,fd_discof)
 $(call make-unit-test,test_ssmanifest_parser,utils/test_ssmanifest_parser,fd_discof fd_flamenco fd_ballet fd_util)
 
 ifdef FD_HAS_HOSTED
