@@ -86,6 +86,8 @@ SORTLIST_STATIC SORTLIST_(joined_t) SORTLIST_(join)( void * shsortlist, ulong ma
 
 SORTLIST_STATIC ulong SORTLIST_(max)( SORTLIST_(joined_t) join );
 
+SORTLIST_STATIC int SORTLIST_(is_full)( SORTLIST_(joined_t) join );
+
 SORTLIST_STATIC inline void * SORTLIST_(leave)( SORTLIST_(joined_t) join ) { return join.hdr; }
 
 SORTLIST_STATIC inline void * SORTLIST_(delete)( void * shmem ) { return shmem; }
@@ -162,6 +164,11 @@ SORTLIST_(new)( void * shmem, ulong max ) {
 ulong
 SORTLIST_(max)( SORTLIST_(joined_t) join ) {
   return join.hdr->max;
+}
+
+int
+SORTLIST_(is_full)( SORTLIST_(joined_t) join ) {
+  return join.hdr->first_free == UINT_MAX;
 }
 
 static int
@@ -308,10 +315,11 @@ SORTLIST_(verify)( SORTLIST_(joined_t) join ) {
     uint off = join.offsets[i];
     if( off == UINT_MAX ) continue;
     SORTLIST_(element) const * elem = (SORTLIST_(element) const *)((ulong)join.pool + off);
+    SORTLIST_KEY_T const * next_key = &elem->data.SORTLIST_KEY_NAME;
     if( last_key ) {
-      FD_TEST( SORTLIST_(compare)( &elem->data.SORTLIST_KEY_NAME, last_key ) > 0 );
+      FD_TEST( SORTLIST_(compare)( next_key, last_key ) > 0 );
     }
-    last_key = &elem->data.SORTLIST_KEY_NAME;
+    last_key = next_key;
   }
 }
 

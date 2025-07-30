@@ -17,7 +17,7 @@ typedef struct my_list_elem my_list_elem_t;
 #include "fd_sorted_list.c"
 
 #define SCRATCH_ALIGN     (128UL)
-#define SCRATCH_FOOTPRINT (1UL<<16)
+#define SCRATCH_FOOTPRINT (1UL<<12)
 uchar scratch[ SCRATCH_FOOTPRINT ] __attribute__((aligned(SCRATCH_ALIGN)));
 
 int
@@ -54,10 +54,19 @@ main( int argc, char ** argv ) {
 
   for( ulong iter = 0; iter < 1000; ++iter ) {
     for( ulong i = 0; i < 30; ++i ) {
+      if( my_list_is_full( list ) ) break;
       ulong key = fd_rng_ulong( rng )%256;
-      my_list_elem_t * elem = my_list_query( list, &key);
-      if( elem == NULL ) elem = my_list_add( list, &key );
+      if( map.count(key) > 0 ) continue;
+      my_list_elem_t * elem = my_list_add( list, &key);
       map[key] = elem->val = fd_rng_ulong( rng );
+    }
+    verify( map, list );
+
+    for( ulong i = 0; i < 30; ++i ) {
+      ulong key = fd_rng_ulong( rng )%256;
+      if( map.count(key) == 0 ) continue;
+      FD_TEST( my_list_erase( list, &key) == 0 );
+      map.erase(key);
     }
     verify( map, list );
   }
