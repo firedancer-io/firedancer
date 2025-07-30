@@ -937,7 +937,7 @@ class BitVectorMember(TypeNode):
         print('    if( o ) {', file=body)
         self.vector_member.emitDecodeInner('    ')
         print('    } else {', file=body)
-        print(f'      self->{self.vector_member.name} = NULL;', file=body)
+        print(f'      self->{self.vector_member.name}.data = NULL;', file=body)
         print('    }', file=body)
         print(f'    fd_bincode_uint64_decode_unsafe( &self->{self.name}_len, ctx );', file=body)
         print('  }', file=body)

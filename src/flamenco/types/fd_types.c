@@ -8325,7 +8325,7 @@ static void fd_slot_history_decode_inner( void * struct_mem, void * * alloc_mem,
       } else
         self->bits_bitvec.data = NULL;
     } else {
-      self->bits_bitvec = NULL;
+      self->bits_bitvec.data = NULL;
     }
     fd_bincode_uint64_decode_unsafe( &self->bits_len, ctx );
   }
@@ -18593,7 +18593,7 @@ static void fd_gossip_slots_decode_inner( void * struct_mem, void * * alloc_mem,
       } else
         self->slots_bitvec.data = NULL;
     } else {
-      self->slots_bitvec = NULL;
+      self->slots_bitvec.data = NULL;
     }
     fd_bincode_uint64_decode_unsafe( &self->slots_len, ctx );
   }
@@ -20013,7 +20013,7 @@ static void fd_restart_raw_offsets_decode_inner( void * struct_mem, void * * all
       } else
         self->offsets_bitvec.data = NULL;
     } else {
-      self->offsets_bitvec = NULL;
+      self->offsets_bitvec.data = NULL;
     }
     fd_bincode_uint64_decode_unsafe( &self->offsets_len, ctx );
   }
@@ -20938,7 +20938,7 @@ static void fd_crds_bloom_decode_inner( void * struct_mem, void * * alloc_mem, f
       } else
         self->bits_bitvec.data = NULL;
     } else {
-      self->bits_bitvec = NULL;
+      self->bits_bitvec.data = NULL;
     }
     fd_bincode_uint64_decode_unsafe( &self->bits_len, ctx );
   }
