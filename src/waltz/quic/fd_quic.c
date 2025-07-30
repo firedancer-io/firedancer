@@ -3934,7 +3934,7 @@ fd_quic_conn_tx( fd_quic_t      * quic,
       FD_LOG_WARNING(( "fd_quic_crypto_encrypt failed" ));
 
       /* this situation is unlikely to improve, so kill the connection */
-      conn->state = FD_QUIC_CONN_STATE_DEAD;
+      fd_quic_set_conn_state( conn, FD_QUIC_CONN_STATE_DEAD );
       fd_quic_svc_schedule( state, conn, FD_QUIC_SVC_INSTANT );
       quic->metrics.conn_aborted_cnt++;
       break;
@@ -4173,7 +4173,7 @@ fd_quic_conn_free( fd_quic_t *      quic,
   state->free_conn_list = conn->conn_idx;
   fd_quic_set_conn_state( conn, FD_QUIC_CONN_STATE_INVALID );
 
-  quic->metrics.conn_active_cnt--;
+  quic->metrics.conn_alloc_cnt--;
 
   /* clear keys */
   memset( &conn->secrets, 0, sizeof(fd_quic_crypto_secrets_t) );
@@ -4452,7 +4452,7 @@ fd_quic_conn_create( fd_quic_t *               quic,
   conn->let_die_ticks       = ULONG_MAX;
 
   /* update metrics */
-  quic->metrics.conn_active_cnt++;
+  quic->metrics.conn_alloc_cnt++;
   quic->metrics.conn_created_cnt++;
 
   /* immediately schedule it */

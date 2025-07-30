@@ -2,6 +2,7 @@
 #define HEADER_fd_src_waltz_quic_fd_quic_conn_h
 
 #include "fd_quic.h"
+#include "fd_quic_common.h"
 #include "fd_quic_ack_tx.h"
 #include "fd_quic_stream.h"
 #include "fd_quic_conn_id.h"
@@ -17,6 +18,9 @@
 #define FD_QUIC_CONN_STATE_ABORT              5 /* connection terminating due to error */
 #define FD_QUIC_CONN_STATE_CLOSE_PENDING      6 /* connection is closing */
 #define FD_QUIC_CONN_STATE_DEAD               7 /* connection about to be freed */
+
+FD_STATIC_ASSERT( FD_QUIC_CONN_STATE_DEAD+1 == sizeof(((fd_quic_metrics_t*)0)->conn_state_cnt)/sizeof(((fd_quic_metrics_t*)0)->conn_state_cnt[0]),
+                  "metrics conn_state_cnt is the wrong size" );
 
 #define FD_QUIC_REASON_CODES(X,SEP) \
   X(NO_ERROR                     , 0x00  , "No error"                                  ) SEP \
@@ -231,6 +235,9 @@ struct fd_quic_conn {
 inline static void
 fd_quic_set_conn_state( fd_quic_conn_t * conn,
                         uint             state ) {
+  uint old_state = conn->state;
+  conn->quic->metrics.conn_state_cnt[ old_state ]--;
+  conn->quic->metrics.conn_state_cnt[ state     ]++;
   conn->state = state;
 }
 

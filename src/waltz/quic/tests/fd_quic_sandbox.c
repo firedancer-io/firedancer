@@ -230,6 +230,17 @@ fd_quic_sandbox_init( fd_quic_sandbox_t * sandbox,
     return NULL;
   }
 
+  /* Verify that the conn state counts start correct */
+  FD_TEST( quic->metrics.conn_state_cnt[ FD_QUIC_CONN_STATE_INVALID ] == quic->limits.conn_cnt );
+  FD_TEST( quic->metrics.conn_state_cnt[ FD_QUIC_CONN_STATE_HANDSHAKE ] == 0 );
+  FD_TEST( quic->metrics.conn_state_cnt[ FD_QUIC_CONN_STATE_HANDSHAKE_COMPLETE ] == 0 );
+  FD_TEST( quic->metrics.conn_state_cnt[ FD_QUIC_CONN_STATE_ACTIVE ] == 0 );
+  FD_TEST( quic->metrics.conn_state_cnt[ FD_QUIC_CONN_STATE_PEER_CLOSE ] == 0 );
+  FD_TEST( quic->metrics.conn_state_cnt[ FD_QUIC_CONN_STATE_ABORT ] == 0 );
+  FD_TEST( quic->metrics.conn_state_cnt[ FD_QUIC_CONN_STATE_CLOSE_PENDING ] == 0 );
+  FD_TEST( quic->metrics.conn_state_cnt[ FD_QUIC_CONN_STATE_DEAD ] == 0 );
+
+
   sandbox->wallclock = 0UL;
   sandbox->pkt_seq_r = 0UL;
   sandbox->pkt_seq_w = 0UL;

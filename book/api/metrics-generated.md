@@ -104,7 +104,15 @@
 | <span class="metrics-name">quic_&#8203;received_&#8203;bytes</span> | counter | Total bytes received (including IP, UDP, QUIC headers). |
 | <span class="metrics-name">quic_&#8203;sent_&#8203;packets</span> | counter | Number of IP packets sent. |
 | <span class="metrics-name">quic_&#8203;sent_&#8203;bytes</span> | counter | Total bytes sent (including IP, UDP, QUIC headers). |
-| <span class="metrics-name">quic_&#8203;connections_&#8203;active</span> | gauge | The number of currently active QUIC connections. |
+| <span class="metrics-name">quic_&#8203;connections_&#8203;alloc</span> | gauge | The number of currently allocated QUIC connections. |
+| <span class="metrics-name">quic_&#8203;connections_&#8203;state</span><br/>{quic_&#8203;conn_&#8203;state="<span class="metrics-enum">invalid</span>"} | gauge | The number of QUIC connections in each state. (freed) |
+| <span class="metrics-name">quic_&#8203;connections_&#8203;state</span><br/>{quic_&#8203;conn_&#8203;state="<span class="metrics-enum">handshake</span>"} | gauge | The number of QUIC connections in each state. (handshaking peer) |
+| <span class="metrics-name">quic_&#8203;connections_&#8203;state</span><br/>{quic_&#8203;conn_&#8203;state="<span class="metrics-enum">handshake_&#8203;complete</span>"} | gauge | The number of QUIC connections in each state. (handshake complete, confirming with peer) |
+| <span class="metrics-name">quic_&#8203;connections_&#8203;state</span><br/>{quic_&#8203;conn_&#8203;state="<span class="metrics-enum">active</span>"} | gauge | The number of QUIC connections in each state. (active connection) |
+| <span class="metrics-name">quic_&#8203;connections_&#8203;state</span><br/>{quic_&#8203;conn_&#8203;state="<span class="metrics-enum">peer_&#8203;close</span>"} | gauge | The number of QUIC connections in each state. (peer requested close) |
+| <span class="metrics-name">quic_&#8203;connections_&#8203;state</span><br/>{quic_&#8203;conn_&#8203;state="<span class="metrics-enum">abort</span>"} | gauge | The number of QUIC connections in each state. (connection terminating due to error) |
+| <span class="metrics-name">quic_&#8203;connections_&#8203;state</span><br/>{quic_&#8203;conn_&#8203;state="<span class="metrics-enum">close_&#8203;pending</span>"} | gauge | The number of QUIC connections in each state. (connection is closing) |
+| <span class="metrics-name">quic_&#8203;connections_&#8203;state</span><br/>{quic_&#8203;conn_&#8203;state="<span class="metrics-enum">dead</span>"} | gauge | The number of QUIC connections in each state. (connection about to be freed) |
 | <span class="metrics-name">quic_&#8203;connections_&#8203;created</span> | counter | The total number of connections that have been created. |
 | <span class="metrics-name">quic_&#8203;connections_&#8203;closed</span> | counter | Number of connections gracefully closed. |
 | <span class="metrics-name">quic_&#8203;connections_&#8203;aborted</span> | counter | Number of connections aborted. |
@@ -746,7 +754,15 @@
 | <span class="metrics-name">send_&#8203;sent_&#8203;packets</span> | counter | Total count of QUIC packets sent |
 | <span class="metrics-name">send_&#8203;sent_&#8203;bytes</span> | counter | Total bytes sent via QUIC |
 | <span class="metrics-name">send_&#8203;retry_&#8203;sent</span> | counter | Total count of QUIC retry packets sent |
-| <span class="metrics-name">send_&#8203;connections_&#8203;active</span> | gauge | Number of active QUIC connections |
+| <span class="metrics-name">send_&#8203;connections_&#8203;alloc</span> | gauge | Number of currently allocated QUIC connections |
+| <span class="metrics-name">send_&#8203;connections_&#8203;state</span><br/>{quic_&#8203;conn_&#8203;state="<span class="metrics-enum">invalid</span>"} | gauge | Number of QUIC connections in each state (freed) |
+| <span class="metrics-name">send_&#8203;connections_&#8203;state</span><br/>{quic_&#8203;conn_&#8203;state="<span class="metrics-enum">handshake</span>"} | gauge | Number of QUIC connections in each state (handshaking peer) |
+| <span class="metrics-name">send_&#8203;connections_&#8203;state</span><br/>{quic_&#8203;conn_&#8203;state="<span class="metrics-enum">handshake_&#8203;complete</span>"} | gauge | Number of QUIC connections in each state (handshake complete, confirming with peer) |
+| <span class="metrics-name">send_&#8203;connections_&#8203;state</span><br/>{quic_&#8203;conn_&#8203;state="<span class="metrics-enum">active</span>"} | gauge | Number of QUIC connections in each state (active connection) |
+| <span class="metrics-name">send_&#8203;connections_&#8203;state</span><br/>{quic_&#8203;conn_&#8203;state="<span class="metrics-enum">peer_&#8203;close</span>"} | gauge | Number of QUIC connections in each state (peer requested close) |
+| <span class="metrics-name">send_&#8203;connections_&#8203;state</span><br/>{quic_&#8203;conn_&#8203;state="<span class="metrics-enum">abort</span>"} | gauge | Number of QUIC connections in each state (connection terminating due to error) |
+| <span class="metrics-name">send_&#8203;connections_&#8203;state</span><br/>{quic_&#8203;conn_&#8203;state="<span class="metrics-enum">close_&#8203;pending</span>"} | gauge | Number of QUIC connections in each state (connection is closing) |
+| <span class="metrics-name">send_&#8203;connections_&#8203;state</span><br/>{quic_&#8203;conn_&#8203;state="<span class="metrics-enum">dead</span>"} | gauge | Number of QUIC connections in each state (connection about to be freed) |
 | <span class="metrics-name">send_&#8203;connections_&#8203;created</span> | counter | Total count of QUIC connections created |
 | <span class="metrics-name">send_&#8203;connections_&#8203;closed</span> | counter | Total count of QUIC connections closed |
 | <span class="metrics-name">send_&#8203;connections_&#8203;aborted</span> | counter | Total count of QUIC connections aborted |
