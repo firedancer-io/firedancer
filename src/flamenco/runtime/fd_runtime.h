@@ -539,30 +539,16 @@ void
 fd_runtime_poh_verify( fd_poh_verifier_t * poh_info );
 
 int
-fd_runtime_block_execute_prepare( fd_exec_slot_ctx_t * slot_ctx,
-                                  fd_spad_t *          runtime_spad );
+fd_runtime_block_execute_prepare( fd_exec_slot_ctx_t *   slot_ctx,
+                                  fd_spad_t *            runtime_spad );
 
 void
 fd_runtime_block_execute_finalize_start( fd_exec_slot_ctx_t *             slot_ctx,
-                                         fd_spad_t *                      runtime_spad,
-                                         fd_accounts_hash_task_data_t * * task_data,
-                                         ulong                            lt_hash_cnt );
+                                         fd_spad_t *                      runtime_spad );
 
-int
+void
 fd_runtime_block_execute_finalize_finish( fd_exec_slot_ctx_t *             slot_ctx,
-                                          fd_capture_ctx_t *               capture_ctx,
-                                          fd_runtime_block_info_t const *  block_info,
-                                          fd_spad_t *                      runtime_spad,
-                                          fd_accounts_hash_task_data_t *   task_data,
-                                          ulong                            lt_hash_cnt );
-
-int
-fd_runtime_block_execute_finalize_para( fd_exec_slot_ctx_t *             slot_ctx,
-                                        fd_capture_ctx_t *               capture_ctx,
-                                        fd_runtime_block_info_t const *  block_info,
-                                        ulong                            worker_cnt,
-                                        fd_spad_t *                      runtime_spad,
-                                        fd_exec_para_cb_ctx_t *          exec_para_ctx );
+                                          fd_runtime_block_info_t const *  block_info );
 
 /* Transaction Level Execution Management *************************************/
 
@@ -596,7 +582,8 @@ fd_runtime_finalize_txn( fd_funk_t *                  funk,
                          fd_funk_txn_t *              funk_txn,
                          fd_execute_txn_task_info_t * task_info,
                          fd_spad_t *                  finalize_spad,
-                         fd_bank_t *                  bank );
+                         fd_bank_t *                  bank,
+                         fd_capture_ctx_t *           capture_ctx );
 
 /* Epoch Boundary *************************************************************/
 
@@ -644,30 +631,27 @@ fd_runtime_checkpt( fd_capture_ctx_t *   capture_ctx,
 
 int
 fd_runtime_block_execute( fd_exec_slot_ctx_t *            slot_ctx,
-                          fd_capture_ctx_t *              capture_ctx,
                           fd_runtime_block_info_t const * block_info,
                           fd_spad_t *                     runtime_spad );
 
 int
 fd_runtime_process_txns_in_microblock_stream_sequential( fd_exec_slot_ctx_t * slot_ctx,
-                                                         fd_capture_ctx_t *   capture_ctx,
                                                          fd_txn_p_t *         txns,
                                                          ulong                txn_cnt,
                                                          fd_spad_t *          runtime_spad,
                                                          fd_cost_tracker_t *  cost_tracker_opt );
 
-int
+void
 fd_runtime_block_execute_finalize_sequential( fd_exec_slot_ctx_t *             slot_ctx,
-                                              fd_capture_ctx_t *               capture_ctx,
                                               fd_runtime_block_info_t const *  block_info,
                                               fd_spad_t *                      runtime_spad );
 
 void
-fd_runtime_read_genesis( fd_exec_slot_ctx_t * slot_ctx,
-                         char const *         genesis_filepath,
-                         uchar                is_snapshot,
-                         fd_capture_ctx_t *   capture_ctx,
-                         fd_spad_t *          spad );
+fd_runtime_read_genesis( fd_exec_slot_ctx_t *   slot_ctx,
+                         char const *           genesis_filepath,
+                         uchar                  is_snapshot,
+                         fd_spad_t *            spad );
+
 
 /* Returns whether the specified epoch should use the new vote account
    keyed leader schedule (returns 1) or the old validator identity keyed

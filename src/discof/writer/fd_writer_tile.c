@@ -1,6 +1,7 @@
 #define _GNU_SOURCE
 #include "../../disco/tiles.h"
 #include "generated/fd_writer_tile_seccomp.h"
+#include <errno.h>
 
 #include "../../util/pod/fd_pod_format.h"
 
@@ -23,6 +24,10 @@ struct fd_writer_tile_ctx {
   ulong                       tile_cnt;
   ulong                       tile_idx;
   ulong                       exec_tile_cnt;
+
+  /* Capture ctx */
+  fd_capture_ctx_t *         capture_ctx;
+  FILE *                     capture_file;
 
   /* R/W by this tile and the replay tile. */
   ulong *                     fseq;
@@ -61,6 +66,7 @@ scratch_footprint( fd_topo_tile_t const * tile ) {
   (void)tile;
   ulong l = FD_LAYOUT_INIT;
   l       = FD_LAYOUT_APPEND( l, alignof(fd_writer_tile_ctx_t),  sizeof(fd_writer_tile_ctx_t) );
+  l       = FD_LAYOUT_APPEND( l, FD_CAPTURE_CTX_ALIGN, FD_CAPTURE_CTX_FOOTPRINT );
   l       = FD_LAYOUT_APPEND( l, fd_spad_align(), fd_spad_footprint( FD_RUNTIME_TRANSACTION_FINALIZATION_FOOTPRINT ) );
   return FD_LAYOUT_FINI( l, scratch_align() );
 }
@@ -189,7 +195,13 @@ during_frag( fd_writer_tile_ctx_t * ctx,
           FD_LOG_CRIT(( "No bank for slot %lu", info.txn_ctx->slot ));
         }
 
-        fd_runtime_finalize_txn( ctx->funk, ctx->funk_txn, &info, ctx->spad, ctx->bank );
+        fd_runtime_finalize_txn(
+          ctx->funk,
+          ctx->funk_txn,
+          &info,
+          ctx->spad,
+          ctx->bank,
+          ctx->capture_ctx );
       } FD_SPAD_FRAME_END;
       fd_banks_unlock( ctx->banks );
       while( fd_writer_fseq_get_state( fd_fseq_query( ctx->fseq ) )!=FD_WRITER_STATE_READY ) {
@@ -225,6 +237,7 @@ unprivileged_init( fd_topo_t *      topo,
 
   FD_SCRATCH_ALLOC_INIT( l, scratch );
   fd_writer_tile_ctx_t * ctx = FD_SCRATCH_ALLOC_APPEND( l, alignof(fd_writer_tile_ctx_t), sizeof(fd_writer_tile_ctx_t) );
+  void * capture_ctx_mem     = FD_SCRATCH_ALLOC_APPEND( l, FD_CAPTURE_CTX_ALIGN, FD_CAPTURE_CTX_FOOTPRINT );
   void * spad_mem            = FD_SCRATCH_ALLOC_APPEND( l, fd_spad_align(), fd_spad_footprint( FD_RUNTIME_TRANSACTION_FINALIZATION_FOOTPRINT ) );
   ulong scratch_alloc_mem    = FD_SCRATCH_ALLOC_FINI( l, scratch_align() );
   if( FD_UNLIKELY( scratch_alloc_mem - (ulong)scratch  - scratch_footprint( tile ) ) ) {
@@ -338,6 +351,27 @@ unprivileged_init( fd_topo_t *      topo,
   ctx->banks = fd_banks_join( fd_topo_obj_laddr( topo, banks_obj_id ) );
   if( FD_UNLIKELY( !ctx->banks ) ) {
     FD_LOG_ERR(( "Failed to join banks" ));
+  }
+
+  /********************************************************************/
+  /* Capture ctx                                                     */
+  /********************************************************************/
+
+  if ( strlen(tile->replay.solcap_capture) > 0 || strlen(tile->replay.dump_proto_dir) > 0 ) {
+    ctx->capture_ctx = fd_capture_ctx_new( capture_ctx_mem );
+  } else {
+    ctx->capture_ctx = NULL;
+  }
+
+  if( strlen(tile->replay.solcap_capture) > 0 ) {
+    ctx->capture_ctx->checkpt_freq = ULONG_MAX;
+    ctx->capture_file = fopen( tile->replay.solcap_capture, "w+" );
+    if( FD_UNLIKELY( !ctx->capture_file ) ) {
+      FD_LOG_ERR(( "fopen(%s) failed (%d-%s)", tile->replay.solcap_capture, errno, strerror( errno ) ));
+    }
+    ctx->capture_ctx->capture_txns = 0;
+    ctx->capture_ctx->solcap_start_slot = tile->replay.capture_start_slot;
+    fd_solcap_writer_init( ctx->capture_ctx->capture, ctx->capture_file );
   }
 }
 

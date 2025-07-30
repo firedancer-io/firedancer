@@ -235,9 +235,10 @@ fd_runtime_validate_fee_collector( fd_bank_t *              bank,
 }
 
 static int
-fd_runtime_run_incinerator( fd_bank_t *     bank,
-                            fd_funk_t *     funk,
-                            fd_funk_txn_t * funk_txn ) {
+fd_runtime_run_incinerator( fd_bank_t *             bank,
+                            fd_funk_t *             funk,
+                            fd_funk_txn_t *         funk_txn,
+                            fd_capture_ctx_t *      capture_ctx ) {
   FD_TXN_ACCOUNT_DECL( rec );
 
   int err = fd_txn_account_init_from_funk_mutable( rec,
@@ -251,10 +252,17 @@ fd_runtime_run_incinerator( fd_bank_t *     bank,
     return -1;
   }
 
+  fd_lthash_value_t prev_hash[1];
+  fd_hashes_account_lthash( fd_type_pun( rec->pubkey ),
+                            rec->vt->get_meta( rec ),
+                               rec->vt->get_data( rec ),
+                        prev_hash );
+
   ulong new_capitalization = fd_ulong_sat_sub( fd_bank_capitalization_get( bank ), rec->vt->get_lamports( rec ) );
   fd_bank_capitalization_set( bank, new_capitalization );
 
   rec->vt->set_lamports( rec, 0UL );
+  fd_hashes_update_lthash( rec, prev_hash, bank, capture_ctx );
   fd_txn_account_mutable_fini( rec, funk, funk_txn );
 
   return 0;
@@ -301,6 +309,9 @@ fd_runtime_freeze( fd_exec_slot_ctx_t * slot_ctx ) {
         break;
       }
 
+      fd_lthash_value_t prev_hash[1];
+      fd_hashes_account_lthash( leader, rec->vt->get_meta( rec ), rec->vt->get_data( rec ), prev_hash );
+
       fd_bank_epoch_leaders_end_locking_query( slot_ctx->bank );
 
       if ( FD_LIKELY( FD_FEATURE_ACTIVE_BANK( slot_ctx->bank, validate_fee_collector_account ) ) ) {
@@ -319,6 +330,7 @@ fd_runtime_freeze( fd_exec_slot_ctx_t * slot_ctx ) {
       rec->vt->checked_add_lamports( rec, fees );
       rec->vt->set_slot( rec, fd_bank_slot_get( slot_ctx->bank ) );
 
+      fd_hashes_update_lthash( rec, prev_hash, slot_ctx->bank, slot_ctx->capture_ctx );
       fd_txn_account_mutable_fini( rec, slot_ctx->funk, slot_ctx->funk_txn );
 
     } while(0);
@@ -332,7 +344,7 @@ fd_runtime_freeze( fd_exec_slot_ctx_t * slot_ctx ) {
     fd_bank_priority_fees_set( slot_ctx->bank, 0UL );
   }
 
-  fd_runtime_run_incinerator( slot_ctx->bank, slot_ctx->funk, slot_ctx->funk_txn );
+  fd_runtime_run_incinerator( slot_ctx->bank, slot_ctx->funk, slot_ctx->funk_txn, slot_ctx->capture_ctx );
 
 }
 
@@ -476,8 +488,8 @@ fd_runtime_new_fee_rate_governor_derived( fd_bank_t * bank,
 }
 
 static int
-fd_runtime_block_sysvar_update_pre_execute( fd_exec_slot_ctx_t * slot_ctx,
-                                            fd_spad_t *          runtime_spad ) {
+fd_runtime_block_sysvar_update_pre_execute( fd_exec_slot_ctx_t *   slot_ctx,
+                                            fd_spad_t *            runtime_spad ) {
   // let (fee_rate_governor, fee_components_time_us) = measure_us!(
   //     FeeRateGovernor::new_derived(&parent.fee_rate_governor, parent.signature_count())
   // );
@@ -985,8 +997,8 @@ fd_runtime_poh_verify( fd_poh_verifier_t * poh_info ) {
 }
 
 int
-fd_runtime_block_execute_prepare( fd_exec_slot_ctx_t * slot_ctx,
-                                  fd_spad_t *          runtime_spad ) {
+fd_runtime_block_execute_prepare( fd_exec_slot_ctx_t *   slot_ctx,
+                                  fd_spad_t *            runtime_spad ) {
   fd_bank_execution_fees_set( slot_ctx->bank, 0UL );
 
   fd_bank_priority_fees_set( slot_ctx->bank, 0UL );
@@ -1018,80 +1030,51 @@ fd_runtime_block_execute_prepare( fd_exec_slot_ctx_t * slot_ctx,
 
 void
 fd_runtime_block_execute_finalize_start( fd_exec_slot_ctx_t *             slot_ctx,
-                                         fd_spad_t *                      runtime_spad,
-                                         fd_accounts_hash_task_data_t * * task_data,
-                                         ulong                            lt_hash_cnt ) {
+                                         fd_spad_t *                      runtime_spad ) {
 
   fd_sysvar_slot_history_update( slot_ctx, runtime_spad );
 
   /* This slot is now "frozen" and can't be changed anymore. */
   fd_runtime_freeze( slot_ctx );
-
-  /* Collect list of changed accounts to be added to bank hash */
-  *task_data = fd_spad_alloc( runtime_spad,
-                              alignof(fd_accounts_hash_task_data_t),
-                              sizeof(fd_accounts_hash_task_data_t) );
-  (*task_data)->lthash_values = fd_spad_alloc_check(
-      runtime_spad, alignof(fd_lthash_value_t), lt_hash_cnt * sizeof(fd_lthash_value_t) );
-
-  for( ulong i=0UL; i<lt_hash_cnt; i++ ) {
-    fd_lthash_zero( &((*task_data)->lthash_values)[i] );
-  }
-
-  fd_collect_modified_accounts( slot_ctx, *task_data, runtime_spad );
 }
 
-int
+void
 fd_runtime_block_execute_finalize_finish( fd_exec_slot_ctx_t *             slot_ctx,
-                                          fd_capture_ctx_t *               capture_ctx,
-                                          fd_runtime_block_info_t const *  block_info,
-                                          fd_spad_t *                      runtime_spad,
-                                          fd_accounts_hash_task_data_t *   task_data,
-                                          ulong                            lt_hash_cnt ) {
+                                          fd_runtime_block_info_t const *  block_info ) {
+  /* Save the previous bank hash, and the parents signature count */
+  fd_hash_t const * prev_bank_hash = fd_bank_bank_hash_query( slot_ctx->bank );
+  fd_bank_prev_bank_hash_set( slot_ctx->bank, *prev_bank_hash );
+  fd_bank_parent_signature_cnt_set( slot_ctx->bank, fd_bank_signature_count_get( slot_ctx->bank ) );
+  fd_bank_signature_count_set( slot_ctx->bank, block_info->signature_cnt );
 
-  fd_hash_t * bank_hash = fd_bank_bank_hash_modify( slot_ctx->bank );
-  int err = fd_update_hash_bank_exec_hash( slot_ctx,
-                                           bank_hash,
-                                           capture_ctx,
-                                           task_data,
-                                           1UL,
-                                           task_data->lthash_values,
-                                           lt_hash_cnt,
-                                           block_info->signature_cnt,
-                                           runtime_spad );
+  /* Compute the new bank hash */
+  fd_slot_lthash_t const * lthash = fd_bank_lthash_locking_query( slot_ctx->bank );
+  fd_hash_t new_bank_hash[1] = { 0 };
+  fd_hashes_hash_bank(
+      lthash,
+      prev_bank_hash,
+      (fd_hash_t *)fd_bank_poh_query( slot_ctx->bank )->hash,
+      block_info->signature_cnt,
+      new_bank_hash );
 
-  if( FD_UNLIKELY( err ) ) {
-    FD_LOG_ERR(( "Unable to hash at end of slot" ));
-  }
+  /* Update the bank hash */
+  fd_bank_bank_hash_set( slot_ctx->bank, *new_bank_hash );
 
-  return FD_RUNTIME_EXECUTE_SUCCESS;
+  FD_LOG_NOTICE(( "\n\n[Replay]\n"
+                  "slot:             %lu\n"
+                  "bank hash:        %s\n"
+                  "parent bank hash: %s\n"
+                  "lthash:           %s\n"
+                  "signature_count:  %lu\n"
+                  "last_blockhash:   %s\n",
+                  fd_bank_slot_get( slot_ctx->bank ),
+                  FD_BASE58_ENC_32_ALLOCA( new_bank_hash->hash ),
+                  FD_BASE58_ENC_32_ALLOCA( fd_bank_prev_bank_hash_query( slot_ctx->bank ) ),
+                  FD_LTHASH_ENC_32_ALLOCA( (fd_lthash_value_t *) lthash->lthash ),
+                  fd_bank_signature_count_get( slot_ctx->bank ),
+                  FD_BASE58_ENC_32_ALLOCA( fd_bank_poh_query( slot_ctx->bank )->hash ) ));
 
-}
-
-int
-fd_runtime_block_execute_finalize_para( fd_exec_slot_ctx_t *             slot_ctx,
-                                        fd_capture_ctx_t *               capture_ctx,
-                                        fd_runtime_block_info_t const *  block_info,
-                                        ulong                            worker_cnt,
-                                        fd_spad_t *                      runtime_spad,
-                                        fd_exec_para_cb_ctx_t *          exec_para_ctx ) {
-
-  FD_SPAD_FRAME_BEGIN( runtime_spad ) {
-
-  fd_accounts_hash_task_data_t * task_data = NULL;
-
-  fd_runtime_block_execute_finalize_start( slot_ctx, runtime_spad, &task_data, worker_cnt );
-
-  exec_para_ctx->fn_arg_1 = (void*)task_data;
-  exec_para_ctx->fn_arg_2 = (void*)worker_cnt;
-  exec_para_ctx->fn_arg_3 = (void*)slot_ctx;
-  fd_exec_para_call_func( exec_para_ctx );
-
-  fd_runtime_block_execute_finalize_finish( slot_ctx, capture_ctx, block_info, runtime_spad, task_data, worker_cnt );
-
-  } FD_SPAD_FRAME_END;
-
-  return 0;
+  fd_bank_lthash_end_locking_query( slot_ctx->bank );
 }
 
 /******************************************************************************/
@@ -1275,6 +1258,7 @@ fd_runtime_pre_execute_check( fd_execute_txn_task_info_t * task_info ) {
    */
 }
 
+
 /* fd_runtime_finalize_txn is a helper used by the non-tpool transaction
    executor to finalize borrowed account changes back into funk. It also
    handles txncache insertion and updates to the vote/stake cache.
@@ -1285,7 +1269,8 @@ fd_runtime_finalize_txn( fd_funk_t *                  funk,
                          fd_funk_txn_t *              funk_txn,
                          fd_execute_txn_task_info_t * task_info,
                          fd_spad_t *                  finalize_spad,
-                         fd_bank_t *                  bank ) {
+                         fd_bank_t *                  bank,
+                         fd_capture_ctx_t *           capture_ctx ) {
 
   /* for all accounts, if account->is_verified==true, propagate update
      to cache entry. */
@@ -1320,11 +1305,13 @@ fd_runtime_finalize_txn( fd_funk_t *                  funk,
 
        We should always rollback the nonce account first. Note that the nonce account may be the fee payer (case 2). */
     if( txn_ctx->nonce_account_idx_in_txn!=ULONG_MAX ) {
+      fd_hashes_update_lthash_from_funk( funk, funk_txn, txn_ctx->rollback_nonce_account, bank, capture_ctx );
       fd_txn_account_save( txn_ctx->rollback_nonce_account, funk, funk_txn, txn_ctx->spad_wksp );
     }
 
     /* Now, we must only save the fee payer if the nonce account was not the fee payer (because that was already saved above) */
     if( FD_LIKELY( txn_ctx->nonce_account_idx_in_txn!=FD_FEE_PAYER_TXN_IDX ) ) {
+      fd_hashes_update_lthash_from_funk( funk, funk_txn, txn_ctx->rollback_fee_payer_account, bank, capture_ctx );
       fd_txn_account_save( txn_ctx->rollback_fee_payer_account, funk, funk_txn, txn_ctx->spad_wksp );
     }
   } else {
@@ -1382,6 +1369,7 @@ fd_runtime_finalize_txn( fd_funk_t *                  funk,
         fd_store_stake_delegation( acc_rec, bank );
       }
 
+      fd_hashes_update_lthash_from_funk( funk, funk_txn, &txn_ctx->accounts[i], bank, capture_ctx );
       fd_txn_account_save( &txn_ctx->accounts[i], funk, funk_txn, txn_ctx->spad_wksp );
     }
 
@@ -1417,6 +1405,7 @@ fd_runtime_finalize_txn( fd_funk_t *                  funk,
 
 }
 
+
 /* fd_runtime_prepare_and_execute_txn is the main entrypoint into the executor
    tile. At this point, the slot and epoch context should NOT be changed.
    NOTE: The executor tile doesn't exist yet. */
@@ -1425,8 +1414,7 @@ static int
 fd_runtime_prepare_and_execute_txn( fd_exec_slot_ctx_t const *   slot_ctx,
                                     fd_txn_p_t *                 txn,
                                     fd_execute_txn_task_info_t * task_info,
-                                    fd_spad_t *                  exec_spad,
-                                    fd_capture_ctx_t *           capture_ctx ) {
+                                    fd_spad_t *                  exec_spad ) {
 
   int res = 0;
 
@@ -1444,8 +1432,6 @@ fd_runtime_prepare_and_execute_txn( fd_exec_slot_ctx_t const *   slot_ctx,
     txn->flags = 0U;
     return -1;
   }
-
-  task_info->txn_ctx->capture_ctx = capture_ctx;
 
   if( FD_UNLIKELY( fd_executor_txn_verify( txn_ctx )!=0 ) ) {
     FD_LOG_WARNING(( "sigverify failed: %s", FD_BASE58_ENC_64_ALLOCA( (uchar *)txn_ctx->_txn_raw->raw+txn_ctx->txn_descriptor->signature_off ) ));
@@ -1738,12 +1724,13 @@ fd_new_target_program_data_account( fd_exec_slot_ctx_t * slot_ctx,
       - upgrade_authority_address: upgrade_authority_address
   https://github.com/anza-xyz/agave/blob/v2.1.0/runtime/src/bank/builtins/core_bpf_migration/mod.rs#L235-L318 */
 static void
-fd_migrate_builtin_to_core_bpf( fd_exec_slot_ctx_t * slot_ctx,
-                                fd_pubkey_t *        upgrade_authority_address,
-                                fd_pubkey_t const *  builtin_program_id,
-                                fd_pubkey_t const *  source_buffer_address,
-                                uchar                stateless,
-                                fd_spad_t *          runtime_spad ) {
+fd_migrate_builtin_to_core_bpf( fd_exec_slot_ctx_t *   slot_ctx,
+                                fd_pubkey_t *          upgrade_authority_address,
+                                fd_pubkey_t const *    builtin_program_id,
+                                fd_pubkey_t const *    source_buffer_address,
+                                uchar                  stateless,
+                                fd_spad_t *            runtime_spad,
+                                fd_capture_ctx_t *     capture_ctx ) {
   int err;
 
   /* https://github.com/anza-xyz/agave/blob/v2.1.0/runtime/src/bank/builtins/core_bpf_migration/mod.rs#L242-L243
@@ -1817,6 +1804,12 @@ fd_migrate_builtin_to_core_bpf( fd_exec_slot_ctx_t * slot_ctx,
     return;
   }
 
+  fd_lthash_value_t prev_source_buffer_hash[1];
+  fd_hashes_account_lthash( source_buffer_address,
+                                source_buffer_account->vt->get_meta( source_buffer_account ),
+                                source_buffer_account->vt->get_data( source_buffer_account ),
+                                prev_source_buffer_hash );
+
   /* The buffer account should be owned by the upgradeable loader.
      https://github.com/anza-xyz/agave/blob/v2.1.0/runtime/src/bank/builtins/core_bpf_migration/source_buffer.rs#L31-L34 */
   if( FD_UNLIKELY( memcmp( source_buffer_account->vt->get_owner( source_buffer_account ), fd_solana_bpf_loader_upgradeable_program_id.uc, sizeof(fd_pubkey_t) ) ) ) {
@@ -1850,6 +1843,11 @@ fd_migrate_builtin_to_core_bpf( fd_exec_slot_ctx_t * slot_ctx,
     FD_LOG_WARNING(( "Builtin program ID %s does not exist", FD_BASE58_ENC_32_ALLOCA( builtin_program_id ) ));
     goto fail;
   }
+  fd_lthash_value_t prev_new_target_program_account_hash[1];
+  fd_hashes_account_lthash( builtin_program_id,
+                                new_target_program_account->vt->get_meta( new_target_program_account ),
+                                new_target_program_account->vt->get_data( new_target_program_account ),
+                                prev_new_target_program_account_hash );
   new_target_program_account->vt->set_data_len( new_target_program_account, SIZE_OF_PROGRAM );
   new_target_program_account->vt->set_slot( new_target_program_account, fd_bank_slot_get( slot_ctx->bank ) );
 
@@ -1860,6 +1858,7 @@ fd_migrate_builtin_to_core_bpf( fd_exec_slot_ctx_t * slot_ctx,
     goto fail;
   }
 
+  fd_hashes_update_lthash( new_target_program_account, prev_new_target_program_account_hash, slot_ctx->bank, capture_ctx );
   fd_txn_account_mutable_fini( new_target_program_account, slot_ctx->funk, slot_ctx->funk_txn );
 
   /* Create a new target program data account. */
@@ -1875,6 +1874,11 @@ fd_migrate_builtin_to_core_bpf( fd_exec_slot_ctx_t * slot_ctx,
     FD_LOG_WARNING(( "Failed to create new program data account to %s", FD_BASE58_ENC_32_ALLOCA( target_program_data_address ) ));
     goto fail;
   }
+  fd_lthash_value_t prev_new_target_program_data_account_hash[1];
+  fd_hashes_account_lthash( target_program_data_address,
+                                new_target_program_data_account->vt->get_meta( new_target_program_data_account ),
+                                new_target_program_data_account->vt->get_data( new_target_program_data_account ),
+                                prev_new_target_program_data_account_hash );
   new_target_program_data_account->vt->set_data_len( new_target_program_data_account, new_target_program_data_account_sz );
   new_target_program_data_account->vt->set_slot( new_target_program_data_account, fd_bank_slot_get( slot_ctx->bank ) );
 
@@ -1888,6 +1892,7 @@ fd_migrate_builtin_to_core_bpf( fd_exec_slot_ctx_t * slot_ctx,
     goto fail;
   }
 
+  fd_hashes_update_lthash( new_target_program_data_account, prev_new_target_program_data_account_hash, slot_ctx->bank, capture_ctx );
   fd_txn_account_mutable_fini( new_target_program_data_account, slot_ctx->funk, slot_ctx->funk_txn );
 
   /* Deploy the new target Core BPF program.
@@ -1919,6 +1924,7 @@ fd_migrate_builtin_to_core_bpf( fd_exec_slot_ctx_t * slot_ctx,
   source_buffer_account->vt->set_data_len( source_buffer_account, 0 );
   source_buffer_account->vt->clear_owner( source_buffer_account );
 
+  fd_hashes_update_lthash( source_buffer_account, prev_source_buffer_hash, slot_ctx->bank, capture_ctx );
   fd_txn_account_mutable_fini( source_buffer_account, slot_ctx->funk, slot_ctx->funk_txn );
 
   /* Publish the in-preparation transaction into the parent. We should not have to create
@@ -1941,8 +1947,9 @@ fail:
 
 /* https://github.com/anza-xyz/agave/blob/v2.1.0/runtime/src/bank.rs#L6704 */
 static void
-fd_apply_builtin_program_feature_transitions( fd_exec_slot_ctx_t * slot_ctx,
-                                              fd_spad_t *          runtime_spad ) {
+fd_apply_builtin_program_feature_transitions( fd_exec_slot_ctx_t *   slot_ctx,
+                                              fd_spad_t *            runtime_spad,
+                                              fd_capture_ctx_t *     capture_ctx ) {
   /* TODO: Set the upgrade authority properly from the core bpf migration config. Right now it's set to None.
 
      Migrate any necessary stateless builtins to core BPF. So far, the only "stateless" builtin
@@ -1961,7 +1968,8 @@ fd_apply_builtin_program_feature_transitions( fd_exec_slot_ctx_t * slot_ctx,
                                       builtins[i].core_bpf_migration_config->builtin_program_id,
                                       builtins[i].core_bpf_migration_config->source_buffer_address,
                                       0,
-                                      runtime_spad );
+                                      runtime_spad,
+                                      capture_ctx );
     }
     /* https://github.com/anza-xyz/agave/blob/v2.1.0/runtime/src/bank.rs#L6753-L6774 */
     if( builtins[i].enable_feature_offset!=NO_ENABLE_FEATURE_ID && FD_FEATURE_JUST_ACTIVATED_OFFSET( slot_ctx, builtins[i].enable_feature_offset ) ) {
@@ -1980,7 +1988,8 @@ fd_apply_builtin_program_feature_transitions( fd_exec_slot_ctx_t * slot_ctx,
                                       stateless_builtins[i].core_bpf_migration_config->builtin_program_id,
                                       stateless_builtins[i].core_bpf_migration_config->source_buffer_address,
                                       1,
-                                      runtime_spad );
+                                      runtime_spad,
+                                      capture_ctx );
     }
   }
 
@@ -1996,11 +2005,12 @@ fd_apply_builtin_program_feature_transitions( fd_exec_slot_ctx_t * slot_ctx,
 }
 
 static void
-fd_feature_activate( fd_features_t *         features,
-                     fd_exec_slot_ctx_t *    slot_ctx,
-                     fd_feature_id_t const * id,
-                     uchar const             acct[ static 32 ],
-                     fd_spad_t *             runtime_spad ) {
+fd_feature_activate( fd_features_t *           features,
+                     fd_exec_slot_ctx_t *      slot_ctx,
+                     fd_feature_id_t const *   id,
+                     uchar const               acct[ static 32 ],
+                     fd_spad_t *               runtime_spad,
+                     fd_capture_ctx_t *        capture_ctx ) {
 
   // Skip reverted features from being activated
   if( id->reverted==1 ) {
@@ -2038,6 +2048,12 @@ fd_feature_activate( fd_features_t *         features,
       return;
     }
 
+    fd_lthash_value_t prev_hash[1];
+    fd_hashes_account_lthash( (fd_pubkey_t *)acct,
+                                  modify_acct_rec->vt->get_meta( modify_acct_rec ),
+                                  modify_acct_rec->vt->get_data( modify_acct_rec ),
+                                  prev_hash );
+
     feature->has_activated_at = 1;
     feature->activated_at     = fd_bank_slot_get( slot_ctx->bank );
     fd_bincode_encode_ctx_t encode_ctx = {
@@ -2049,6 +2065,7 @@ fd_feature_activate( fd_features_t *         features,
       FD_LOG_ERR(( "Failed to encode feature account %s (%d)", FD_BASE58_ENC_32_ALLOCA( acct ), decode_err ));
     }
 
+    fd_hashes_update_lthash( modify_acct_rec, prev_hash, slot_ctx->bank, capture_ctx );
     fd_txn_account_mutable_fini( modify_acct_rec, slot_ctx->funk, slot_ctx->funk_txn );
   }
 
@@ -2056,12 +2073,14 @@ fd_feature_activate( fd_features_t *         features,
 }
 
 static void
-fd_features_activate( fd_exec_slot_ctx_t * slot_ctx, fd_spad_t * runtime_spad ) {
+fd_features_activate( fd_exec_slot_ctx_t *   slot_ctx,
+                      fd_spad_t *            runtime_spad,
+                      fd_capture_ctx_t *     capture_ctx ) {
   fd_features_t * features = fd_bank_features_modify( slot_ctx->bank );
   for( fd_feature_id_t const * id = fd_feature_iter_init();
                                    !fd_feature_iter_done( id );
                                id = fd_feature_iter_next( id ) ) {
-    fd_feature_activate( features, slot_ctx, id, id->id.key, runtime_spad );
+    fd_feature_activate( features, slot_ctx, id, id->id.key, runtime_spad, capture_ctx );
   }
 }
 
@@ -2108,12 +2127,12 @@ fd_runtime_process_new_epoch( fd_exec_slot_ctx_t * slot_ctx,
 
   /* Activate new features
      https://github.com/anza-xyz/agave/blob/v2.1.0/runtime/src/bank.rs#L6587-L6598 */
-  fd_features_activate( slot_ctx, runtime_spad );
+  fd_features_activate( slot_ctx, runtime_spad, capture_ctx );
   fd_features_restore( slot_ctx, runtime_spad );
 
   /* Apply builtin program feature transitions
      https://github.com/anza-xyz/agave/blob/v2.1.0/runtime/src/bank.rs#L6621-L6624 */
-  fd_apply_builtin_program_feature_transitions( slot_ctx, runtime_spad );
+  fd_apply_builtin_program_feature_transitions( slot_ctx, runtime_spad, capture_ctx );
 
   /* Get the new rate activation epoch */
   int _err[1];
@@ -2192,8 +2211,6 @@ fd_runtime_process_new_epoch( fd_exec_slot_ctx_t * slot_ctx,
 
   /* Update current leaders using epoch_stakes (new T-2 stakes) */
   fd_runtime_update_leaders( slot_ctx->bank, fd_bank_slot_get( slot_ctx->bank ), runtime_spad );
-
-  fd_calculate_epoch_accounts_hash_values( slot_ctx );
 
   FD_LOG_NOTICE(( "fd_process_new_epoch end" ));
 
@@ -2587,9 +2604,8 @@ fd_runtime_init_bank_from_genesis( fd_exec_slot_ctx_t *        slot_ctx,
 }
 
 static int
-fd_runtime_process_genesis_block( fd_exec_slot_ctx_t * slot_ctx,
-                                  fd_capture_ctx_t *   capture_ctx,
-                                  fd_spad_t *          runtime_spad ) {
+fd_runtime_process_genesis_block( fd_exec_slot_ctx_t *   slot_ctx,
+                                  fd_spad_t *            runtime_spad ) {
 
 
   fd_hash_t * poh = fd_bank_poh_modify( slot_ctx->bank );
@@ -2620,28 +2636,28 @@ fd_runtime_process_genesis_block( fd_exec_slot_ctx_t * slot_ctx,
 
   fd_runtime_freeze( slot_ctx );
 
-  /* sort and update bank hash */
-  fd_hash_t * bank_hash = fd_bank_bank_hash_modify( slot_ctx->bank );
-  int result = fd_update_hash_bank_tpool( slot_ctx,
-                                          capture_ctx,
-                                          bank_hash,
-                                          0UL,
-                                          NULL,
-                                          runtime_spad );
+  /* FIXME: add in single-threaded bank hash calculation for genesis account */
+  // /* sort and update bank hash */
+  // fd_hash_t * bank_hash = fd_bank_bank_hash_modify( slot_ctx->bank );
+  // int result = fd_update_hash_bank_tpool( slot_ctx,
+  //                                         capture_ctx,
+  //                                         bank_hash,
+  //                                         0UL,
+  //                                         NULL,
+  //                                         runtime_spad );
 
-  if( FD_UNLIKELY( result != FD_EXECUTOR_INSTR_SUCCESS ) ) {
-    FD_LOG_ERR(( "Failed to update bank hash with error=%d", result ));
-  }
+  // if( FD_UNLIKELY( result != FD_EXECUTOR_INSTR_SUCCESS ) ) {
+  //   FD_LOG_ERR(( "Failed to update bank hash with error=%d", result ));
+  // }
 
   return FD_RUNTIME_EXECUTE_SUCCESS;
 }
 
 void
-fd_runtime_read_genesis( fd_exec_slot_ctx_t * slot_ctx,
-                         char const *         genesis_filepath,
-                         uchar                is_snapshot,
-                         fd_capture_ctx_t *   capture_ctx,
-                         fd_spad_t *          runtime_spad ) {
+fd_runtime_read_genesis( fd_exec_slot_ctx_t *   slot_ctx,
+                         char const *           genesis_filepath,
+                         uchar                  is_snapshot,
+                         fd_spad_t *            runtime_spad ) {
 
   if( strlen( genesis_filepath ) == 0 ) {
     return;
@@ -2741,7 +2757,7 @@ fd_runtime_read_genesis( fd_exec_slot_ctx_t * slot_ctx,
 
     fd_features_restore( slot_ctx, runtime_spad );
 
-    int err = fd_runtime_process_genesis_block( slot_ctx, capture_ctx, runtime_spad );
+    int err = fd_runtime_process_genesis_block( slot_ctx, runtime_spad );
     if( FD_UNLIKELY( err ) ) {
       FD_LOG_ERR(( "Genesis slot 0 execute failed with error %d", err ));
     }
@@ -2783,15 +2799,11 @@ struct fd_poh_verification_info {
 };
 typedef struct fd_poh_verification_info fd_poh_verification_info_t;
 
+
 int
 fd_runtime_block_execute( fd_exec_slot_ctx_t *            slot_ctx,
-                          fd_capture_ctx_t *              capture_ctx,
                           fd_runtime_block_info_t const * block_info,
                           fd_spad_t *                     runtime_spad ) {
-
-  if ( capture_ctx != NULL && capture_ctx->capture && fd_bank_slot_get( slot_ctx->bank )>=capture_ctx->solcap_start_slot ) {
-    fd_solcap_writer_set_slot( capture_ctx->capture, fd_bank_slot_get( slot_ctx->bank ) );
-  }
 
   long block_execute_time = -fd_log_wallclock();
 
@@ -2828,7 +2840,6 @@ fd_runtime_block_execute( fd_exec_slot_ctx_t *            slot_ctx,
       }
 
       res = fd_runtime_process_txns_in_microblock_stream_sequential( slot_ctx,
-                                                                     capture_ctx,
                                                                      mblock_txn_ptrs,
                                                                      mblock_txn_cnt,
                                                                      runtime_spad,
@@ -2841,13 +2852,9 @@ fd_runtime_block_execute( fd_exec_slot_ctx_t *            slot_ctx,
 
   long block_finalize_time = -fd_log_wallclock();
 
-  res = fd_runtime_block_execute_finalize_sequential( slot_ctx,
-                                                      capture_ctx,
-                                                      block_info,
-                                                      runtime_spad );
-  if( FD_UNLIKELY( res!=FD_RUNTIME_EXECUTE_SUCCESS ) ) {
-    return res;
-  }
+  fd_runtime_block_execute_finalize_sequential( slot_ctx,
+                                                block_info,
+                                                runtime_spad );
 
   block_finalize_time += fd_log_wallclock();
   double block_finalize_time_ms = (double)block_finalize_time * 1e-6;
@@ -2900,6 +2907,7 @@ fd_runtime_block_pre_execute_process_new_epoch( fd_exec_slot_ctx_t * slot_ctx,
   }
 }
 
+
 /******************************************************************************/
 /* Debugging Tools                                                            */
 /******************************************************************************/
@@ -2931,7 +2939,6 @@ fd_runtime_checkpt( fd_capture_ctx_t *   capture_ctx,
 
 int
 fd_runtime_process_txns_in_microblock_stream_sequential( fd_exec_slot_ctx_t * slot_ctx,
-                                                         fd_capture_ctx_t *   capture_ctx,
                                                          fd_txn_p_t *         txns,
                                                          ulong                txn_cnt,
                                                          fd_spad_t *          runtime_spad,
@@ -2960,14 +2967,19 @@ fd_runtime_process_txns_in_microblock_stream_sequential( fd_exec_slot_ctx_t * sl
     fd_runtime_prepare_and_execute_txn( slot_ctx,
                                         &txns[ i ],
                                         &task_infos[ i ],
-                                        runtime_spad,
-                                        capture_ctx );
+                                        runtime_spad );
 
     if( FD_UNLIKELY( !( task_infos[ i ].txn->flags & FD_TXN_P_FLAGS_EXECUTE_SUCCESS ) ) ) {
       continue;
     }
 
-    fd_runtime_finalize_txn( slot_ctx->funk, slot_ctx->funk_txn, &task_infos[ i ], task_infos[ i ].txn_ctx->spad, slot_ctx->bank );
+    fd_runtime_finalize_txn(
+        slot_ctx->funk,
+        slot_ctx->funk_txn,
+        &task_infos[ i ],
+        task_infos[ i ].txn_ctx->spad,
+        slot_ctx->bank,
+        slot_ctx->capture_ctx );
 
     if( cost_tracker_opt!=NULL ) {
       fd_execute_txn_task_info_t const * task_info = &task_infos[ i ];
@@ -2988,28 +3000,10 @@ fd_runtime_process_txns_in_microblock_stream_sequential( fd_exec_slot_ctx_t * sl
   return res;
 }
 
-int
+void
 fd_runtime_block_execute_finalize_sequential( fd_exec_slot_ctx_t *             slot_ctx,
-                                              fd_capture_ctx_t *               capture_ctx,
                                               fd_runtime_block_info_t const *  block_info,
                                               fd_spad_t *                      runtime_spad ) {
-
-  FD_SPAD_FRAME_BEGIN( runtime_spad ) {
-
-  fd_accounts_hash_task_data_t * task_data = NULL;
-
-  fd_runtime_block_execute_finalize_start( slot_ctx, runtime_spad, &task_data, 1UL );
-
-  if( task_data && task_data->info_sz > 0UL ) {
-    for( ulong i=0UL; i<task_data->info_sz; i++ ) {
-      fd_account_hash_task( task_data, i, i, &task_data->lthash_values[0], slot_ctx, 0UL,
-                           0UL, 0UL, 0UL, 0UL, 0UL, 0UL );
-    }
-  }
-
-  fd_runtime_block_execute_finalize_finish( slot_ctx, capture_ctx, block_info, runtime_spad, task_data, 1UL );
-
-  } FD_SPAD_FRAME_END;
-
-  return 0;
+  fd_runtime_block_execute_finalize_start( slot_ctx, runtime_spad );
+  fd_runtime_block_execute_finalize_finish( slot_ctx, block_info );
 }
