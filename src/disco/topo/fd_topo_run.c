@@ -157,6 +157,7 @@ run_tile_thread_main( void * _args ) {
   fd_topo_run_thread_args_t args = *(fd_topo_run_thread_args_t *)_args;
   FD_COMPILER_MFENCE();
   ((fd_topo_run_thread_args_t *)_args)->copied = 1;
+  FD_COMPILER_MFENCE();
 
   /* Prevent fork() from smashing the stack */
   if( FD_UNLIKELY( madvise( args.stack_lo, (ulong)args.stack_hi - (ulong)args.stack_lo, MADV_DONTFORK ) ) ) {
@@ -287,7 +288,8 @@ run_tile_thread( fd_topo_t *         topo,
                  uint                uid,
                  uint                gid,
                  fd_cpuset_t const * floating_cpu_set,
-                 int                 floating_priority ) {
+                 int                 floating_priority,
+                 fd_topo_run_thread_args_t * args ) {
   /* tpool will assign a thread later */
   if( FD_UNLIKELY( tile_run.for_tpool ) ) return;
   void * stack = fd_topo_tile_stack_join( topo->app_name, tile->name, tile->kind_id );
@@ -318,7 +320,7 @@ run_tile_thread( fd_topo_t *         topo,
     }
   }
 
-  fd_topo_run_thread_args_t args = {
+  *args = (fd_topo_run_thread_args_t) {
     .topo       = topo,
     .tile       = tile,
     .tile_run   = tile_run,
@@ -330,9 +332,7 @@ run_tile_thread( fd_topo_t *         topo,
   };
 
   pthread_t pthread;
-  if( FD_UNLIKELY( pthread_create( &pthread, attr, run_tile_thread_main, &args ) ) ) FD_LOG_ERR(( "pthread_create() failed (%i-%s)", errno, fd_io_strerror( errno ) ));
-
-  while( !FD_VOLATILE( args.copied ) ) FD_SPIN_PAUSE();
+  if( FD_UNLIKELY( pthread_create( &pthread, attr, run_tile_thread_main, args ) ) ) FD_LOG_ERR(( "pthread_create() failed (%i-%s)", errno, fd_io_strerror( errno ) ));
 }
 
 void
@@ -353,13 +353,23 @@ fd_topo_run_single_process( fd_topo_t *       topo,
   int save_priority = getpriority( PRIO_PROCESS, 0 );
   if( FD_UNLIKELY( -1==save_priority && errno ) ) FD_LOG_ERR(( "getpriority() failed (%i-%s)", errno, fd_io_strerror( errno ) ));
 
+  fd_topo_run_thread_args_t args[ FD_TOPO_MAX_TILES ];
+
   for( ulong i=0UL; i<topo->tile_cnt; i++ ) {
     fd_topo_tile_t * tile = &topo->tiles[ i ];
     if( !agave && tile->is_agave ) continue;
     if( agave==1 && !tile->is_agave ) continue;
 
     fd_topo_run_tile_t run_tile = tile_run( tile );
-    run_tile_thread( topo, tile, run_tile, uid, gid, floating_cpu_set, save_priority );
+    run_tile_thread( topo, tile, run_tile, uid, gid, floating_cpu_set, save_priority, &args[ i ] );
+  }
+
+  for( ulong i=0UL; i<topo->tile_cnt; i++ ) {
+    fd_topo_tile_t * tile = &topo->tiles[ i ];
+    if( !agave && tile->is_agave ) continue;
+    if( agave==1 && !tile->is_agave ) continue;
+
+    while( !FD_VOLATILE( args[ i ].copied ) ) FD_SPIN_PAUSE();
   }
 
   fd_sandbox_switch_uid_gid( uid, gid );

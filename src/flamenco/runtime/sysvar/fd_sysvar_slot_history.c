@@ -1,8 +1,9 @@
 #include "fd_sysvar_slot_history.h"
 #include "fd_sysvar.h"
 #include "fd_sysvar_rent.h"
-#include "../fd_executor_err.h"
 #include "../fd_system_ids.h"
+#include "../fd_txn_account.h"
+#include "../../../funk/fd_funk_txn.h"
 
 /* FIXME These constants should be header defines */
 

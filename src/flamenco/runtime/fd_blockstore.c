@@ -1,9 +1,9 @@
 #include "fd_blockstore.h"
+
 #include <fcntl.h>
 #include <string.h>
 #include <stdio.h> /* snprintf */
 #include <unistd.h>
-#include <errno.h>
 
 void *
 fd_blockstore_new( void * shmem,
@@ -46,7 +46,7 @@ fd_blockstore_new( void * shmem,
     FD_LOG_WARNING(( "blockstore implementation requires shred_max to be a power of two, rounding it up to %lu", shred_max ));
   }
 
-  fd_memset( blockstore_shmem, 0, fd_blockstore_footprint( shred_max, block_max, idx_max ) );
+  fd_memset( blockstore_shmem, 0, sizeof( fd_blockstore_shmem_t ) );
 
   int   lg_idx_max   = fd_ulong_find_msb( fd_ulong_pow2_up( idx_max ) );
 
