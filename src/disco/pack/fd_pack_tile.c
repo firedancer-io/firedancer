@@ -1,4 +1,4 @@
-end_#include "../tiles.h"
+#include "../tiles.h"
 
 #include "generated/fd_pack_tile_seccomp.h"
 
