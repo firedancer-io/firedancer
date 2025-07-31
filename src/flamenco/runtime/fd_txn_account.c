@@ -211,12 +211,20 @@ fd_txn_account_init_from_funk_readonly( fd_txn_account_t *    acct,
     return FD_ACC_MGR_ERR_WRONG_MAGIC;
   }
 
-  /* setup global addresses of meta and data for exec and replay tile sharing */
-  fd_wksp_t * funk_wksp          = fd_funk_wksp( funk );
-  acct->meta_gaddr = fd_wksp_gaddr( funk_wksp, acct->meta );
-  acct->data_gaddr = fd_wksp_gaddr( funk_wksp, acct->data );
+  fd_wksp_t * funk_wksp = fd_funk_wksp( funk );
 
   fd_txn_account_setup( acct, pubkey, meta, 0 );
+
+  uchar * data = !!acct->meta && acct->meta->dlen ? (uchar *)acct->meta + sizeof(fd_account_meta_t) : NULL;
+
+  if( FD_UNLIKELY( !fd_txn_account_join( fd_txn_account_new(
+        acct,
+        pubkey,
+        (fd_account_meta_t *)meta,
+        data,
+        0 ), funk_wksp ) ) ) {
+    FD_LOG_CRIT(( "Failed to join txn account" ));
+  }
 
   return FD_ACC_MGR_SUCCESS;
 }
