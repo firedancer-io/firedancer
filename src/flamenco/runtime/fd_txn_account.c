@@ -21,10 +21,10 @@ fd_txn_account_init( void * ptr ) {
   ret->starting_dlen            = ULONG_MAX;
   ret->starting_lamports        = ULONG_MAX;
 
-  ret->private_state.const_data = NULL;
-  ret->private_state.const_meta = NULL;
   ret->private_state.meta       = NULL;
   ret->private_state.data       = NULL;
+
+  ret->is_mutable = 0;
 
   FD_COMPILER_MFENCE();
   ret->magic = FD_TXN_ACCOUNT_MAGIC;
@@ -37,8 +37,7 @@ fd_txn_account_init( void * ptr ) {
    default values for the txn account */
 void
 fd_txn_account_setup_common( fd_txn_account_t * acct ) {
-  fd_account_meta_t const * meta = acct->private_state.const_meta ?
-                                   acct->private_state.const_meta : acct->private_state.meta;
+  fd_account_meta_t const * meta = acct->private_state.meta;
 
   /* TODO: Why ULONG_MAX check here? */
   if( ULONG_MAX == acct->starting_dlen ) {
@@ -54,8 +53,7 @@ void
 fd_txn_account_init_from_meta_and_data_mutable( fd_txn_account_t *  acct,
                                                 fd_account_meta_t * meta,
                                                 uchar *             data ) {
-  acct->private_state.const_data = data;
-  acct->private_state.const_meta = meta;
+  acct->is_mutable               = 1;
   acct->private_state.data       = data;
   acct->private_state.meta       = meta;
 }
@@ -65,8 +63,11 @@ fd_txn_account_init_from_meta_and_data_readonly( fd_txn_account_t *        acct,
                                                  fd_account_meta_t const * meta,
                                                  uchar const *             data ) {
 
-  acct->private_state.const_data = data;
-  acct->private_state.const_meta = meta;
+  acct->is_mutable               = 0;
+  acct->private_state.data = (uchar *)data;
+  acct->private_state.meta = (fd_account_meta_t *)meta;
+  FD_TEST( acct->private_state.meta != NULL );
+  FD_TEST( acct->private_state.data != NULL );
 }
 
 void
@@ -79,10 +80,11 @@ fd_txn_account_setup_sentinel_meta_readonly( fd_txn_account_t * acct,
 
   sentinel->magic                = FD_ACCOUNT_META_MAGIC;
   sentinel->info.rent_epoch      = ULONG_MAX;
-  acct->private_state.const_meta = sentinel;
+  acct->private_state.meta       = sentinel;
   acct->starting_lamports        = 0UL;
   acct->starting_dlen            = 0UL;
   acct->private_state.meta_gaddr = fd_wksp_gaddr( spad_wksp, sentinel );
+  acct->is_mutable               = 0;
 }
 
 void
@@ -92,8 +94,9 @@ fd_txn_account_setup_meta_mutable( fd_txn_account_t * acct,
   fd_account_meta_t * meta = fd_spad_alloc( spad, alignof(fd_account_meta_t), sizeof(fd_account_meta_t) + sz );
   void * data = (uchar *)meta + sizeof(fd_account_meta_t);
 
-  acct->private_state.const_meta = acct->private_state.meta = meta;
-  acct->private_state.const_data = acct->private_state.data = data;
+  acct->private_state.meta = meta;
+  acct->private_state.data = data;
+  acct->is_mutable         = 1;
 }
 
 void
@@ -105,8 +108,9 @@ fd_txn_account_setup_readonly( fd_txn_account_t *        acct,
   /* We don't copy the metadata into a buffer here, because we assume
      that we are holding read locks on the account, because we are inside
      a transaction. */
-  acct->private_state.const_meta = meta;
-  acct->private_state.const_data = (uchar const *)meta + meta->hlen;
+  acct->private_state.meta = (fd_account_meta_t *)meta;
+  acct->private_state.data = (uchar *)meta + meta->hlen;
+  acct->is_mutable         = 0;
 
   fd_txn_account_setup_common( acct );
 }
@@ -117,9 +121,9 @@ fd_txn_account_setup_mutable( fd_txn_account_t *        acct,
                               fd_account_meta_t *       meta ) {
   fd_memcpy(acct->pubkey, pubkey, sizeof(fd_pubkey_t));
 
-  acct->private_state.const_rec  = acct->private_state.rec;
-  acct->private_state.const_meta = acct->private_state.meta = meta;
-  acct->private_state.const_data = acct->private_state.data = (uchar *)meta + meta->hlen;
+  acct->private_state.meta = meta;
+  acct->private_state.data = (uchar *)meta + meta->hlen;
+  acct->is_mutable         = 1;
 
   fd_txn_account_setup_common( acct );
 }
@@ -131,10 +135,10 @@ uchar *
 fd_txn_account_init_data( fd_txn_account_t * acct, void * buf ) {
   /* Assumes that buf is pointing to account data */
   uchar * new_raw_data = (uchar *)buf;
-  ulong   dlen         = ( acct->private_state.const_meta != NULL ) ? acct->private_state.const_meta->dlen : 0;
+  ulong   dlen         = ( acct->private_state.meta != NULL ) ? acct->private_state.meta->dlen : 0;
 
-  if( acct->private_state.const_meta != NULL ) {
-    fd_memcpy( new_raw_data, (uchar *)acct->private_state.const_meta, sizeof(fd_account_meta_t)+dlen );
+  if( acct->private_state.meta != NULL ) {
+    fd_memcpy( new_raw_data, (uchar *)acct->private_state.meta, sizeof(fd_account_meta_t)+dlen );
   } else {
     /* Account did not exist, set up metadata */
     fd_account_meta_init( (fd_account_meta_t *)new_raw_data );
@@ -147,20 +151,21 @@ fd_txn_account_t *
 fd_txn_account_make_mutable( fd_txn_account_t * acct,
                              void *             buf,
                              fd_wksp_t *        wksp ) {
-  if( FD_UNLIKELY( acct->private_state.data != NULL ) ) {
+  if( FD_UNLIKELY( acct->is_mutable ) ) {
     FD_LOG_ERR(( "borrowed account is already mutable" ));
   }
 
-  ulong   dlen         = ( acct->private_state.const_meta != NULL ) ? acct->private_state.const_meta->dlen : 0UL;
+  ulong   dlen         = !!acct->private_state.meta ? acct->private_state.meta->dlen : 0UL;
   uchar * new_raw_data = fd_txn_account_init_data( acct, buf );
 
-  acct->private_state.const_meta = acct->private_state.meta = (fd_account_meta_t *)new_raw_data;
-  acct->private_state.const_data = acct->private_state.data = new_raw_data + sizeof(fd_account_meta_t);
+  acct->private_state.meta = (fd_account_meta_t *)new_raw_data;
+  acct->private_state.data = new_raw_data + sizeof(fd_account_meta_t);
   acct->private_state.meta->dlen = dlen;
 
   /* update global addresses of meta and data after copying into buffer */
   acct->private_state.meta_gaddr = fd_wksp_gaddr( wksp, acct->private_state.meta );
   acct->private_state.data_gaddr = fd_wksp_gaddr( wksp, acct->private_state.data );
+  acct->is_mutable = 1;
 
   return acct;
 }
@@ -178,7 +183,7 @@ fd_txn_account_init_from_funk_readonly( fd_txn_account_t *    acct,
   fd_account_meta_t const * meta = fd_funk_get_acc_meta_readonly( funk,
                                                                   funk_txn,
                                                                   pubkey,
-                                                                  &acct->private_state.const_rec,
+                                                                  (fd_funk_rec_t const **)&acct->private_state.rec,
                                                                   &err,
                                                                   NULL );
 
@@ -196,10 +201,11 @@ fd_txn_account_init_from_funk_readonly( fd_txn_account_t *    acct,
 
   /* setup global addresses of meta and data for exec and replay tile sharing */
   fd_wksp_t * funk_wksp          = fd_funk_wksp( funk );
-  acct->private_state.meta_gaddr = fd_wksp_gaddr( funk_wksp, acct->private_state.const_meta );
-  acct->private_state.data_gaddr = fd_wksp_gaddr( funk_wksp, acct->private_state.const_data );
+  acct->private_state.meta_gaddr = fd_wksp_gaddr( funk_wksp, acct->private_state.meta );
+  acct->private_state.data_gaddr = fd_wksp_gaddr( funk_wksp, acct->private_state.data );
 
   fd_txn_account_setup_readonly( acct, pubkey, meta );
+  acct->is_mutable = 0;
 
   return FD_ACC_MGR_SUCCESS;
 }
@@ -242,6 +248,7 @@ fd_txn_account_init_from_funk_mutable( fd_txn_account_t *  acct,
      as funk will be mapped read-only */
   acct->private_state.data[0] = acct->private_state.data[0];
 
+  acct->is_mutable = 1;
   return FD_ACC_MGR_SUCCESS;
 }
 
@@ -255,7 +262,7 @@ fd_txn_account_save_internal( fd_txn_account_t * acct,
   }
 
   fd_wksp_t * wksp = fd_funk_wksp( funk );
-  ulong reclen = sizeof(fd_account_meta_t)+acct->private_state.const_meta->dlen;
+  ulong reclen = sizeof(fd_account_meta_t)+acct->private_state.meta->dlen;
   uchar * raw = fd_funk_val( acct->private_state.rec, wksp );
   fd_memcpy( raw, acct->private_state.meta, reclen );
 
@@ -276,9 +283,6 @@ fd_txn_account_save( fd_txn_account_t * acct,
     return FD_ACC_MGR_ERR_WRITE_FAILED;
   }
 
-  acct->private_state.const_meta = acct->private_state.meta;
-  acct->private_state.const_data = acct->private_state.data;
-
   fd_funk_rec_key_t key = fd_funk_acc_key( acct->pubkey );
 
   /* Remove previous incarnation of the account's record from the transaction, so that we don't hash it twice */
@@ -290,7 +294,7 @@ fd_txn_account_save( fd_txn_account_t * acct,
   if( rec == NULL ) FD_LOG_ERR(( "unable to insert a new record, error %d", err ));
 
   acct->private_state.rec = rec;
-  ulong       reclen = sizeof(fd_account_meta_t)+acct->private_state.const_meta->dlen;
+  ulong       reclen = sizeof(fd_account_meta_t)+acct->private_state.meta->dlen;
   fd_wksp_t * wksp   = fd_funk_wksp( funk );
   if( fd_funk_val_truncate(
       rec,
@@ -389,23 +393,25 @@ fd_txn_account_release_write_private( fd_txn_account_t * acct ) {
 
 fd_pubkey_t const *
 fd_txn_account_get_owner( fd_txn_account_t const * acct ) {
-  if( FD_UNLIKELY( !acct->private_state.const_meta ) ) FD_LOG_ERR(("account is not setup" ));
-  return (fd_pubkey_t const *)acct->private_state.const_meta->info.owner;
+  if( FD_UNLIKELY( !acct->private_state.meta ) ) {
+    FD_LOG_CRIT(( "account is not setup" ));
+  }
+  return (fd_pubkey_t const *)acct->private_state.meta->info.owner;
 }
 
 fd_account_meta_t const *
 fd_txn_account_get_acc_meta( fd_txn_account_t const * acct ) {
-  return acct->private_state.const_meta;
+  return acct->private_state.meta;
 }
 
 uchar const *
 fd_txn_account_get_acc_data( fd_txn_account_t const * acct ) {
-  return acct->private_state.const_data;
+  return acct->private_state.data;
 }
 
 fd_funk_rec_t const *
 fd_txn_account_get_acc_rec( fd_txn_account_t const * acct ) {
-  return acct->private_state.const_rec;
+  return acct->private_state.rec;
 }
 
 uchar *
@@ -414,52 +420,46 @@ fd_txn_account_get_acc_data_mut( fd_txn_account_t const * acct ) {
 }
 
 void
-fd_txn_account_set_meta_readonly( fd_txn_account_t *        acct,
-                                  fd_account_meta_t const * meta ) {
-  acct->private_state.const_meta = meta;
-}
-
-void
 fd_txn_account_set_meta_mutable( fd_txn_account_t *  acct,
                                  fd_account_meta_t * meta ) {
-  acct->private_state.const_meta = acct->private_state.meta = meta;
+  acct->private_state.meta = meta;
 }
 
 ulong
 fd_txn_account_get_data_len( fd_txn_account_t const * acct ) {
-  if( FD_UNLIKELY( !acct->private_state.const_meta ) ) FD_LOG_ERR(("account is not setup" ));
-  return acct->private_state.const_meta->dlen;
+  if( FD_UNLIKELY( !acct->private_state.meta ) ) FD_LOG_ERR(("account is not setup" ));
+  return acct->private_state.meta->dlen;
 }
 
 int
 fd_txn_account_is_executable( fd_txn_account_t const * acct ) {
-  if( FD_UNLIKELY( !acct->private_state.const_meta ) ) FD_LOG_ERR(("account is not setup" ));
-  return !!acct->private_state.const_meta->info.executable;
+  if( FD_UNLIKELY( !acct->private_state.meta ) ) FD_LOG_ERR(("account is not setup" ));
+  return !!acct->private_state.meta->info.executable;
 }
 
 ulong
 fd_txn_account_get_lamports( fd_txn_account_t const * acct ) {
-  /* (!const_meta_) considered an internal error */
-  if( FD_UNLIKELY( !acct->private_state.const_meta ) ) return 0UL;
-  return acct->private_state.const_meta->info.lamports;
+  /* (!meta_) considered an internal error */
+  if( FD_UNLIKELY( !acct->private_state.meta ) ) return 0UL;
+  return acct->private_state.meta->info.lamports;
 }
 
 ulong
 fd_txn_account_get_rent_epoch( fd_txn_account_t const * acct ) {
-  if( FD_UNLIKELY( !acct->private_state.const_meta ) ) FD_LOG_ERR(("account is not setup" ));
-  return acct->private_state.const_meta->info.rent_epoch;
+  if( FD_UNLIKELY( !acct->private_state.meta ) ) FD_LOG_ERR(("account is not setup" ));
+  return acct->private_state.meta->info.rent_epoch;
 }
 
 fd_hash_t const *
 fd_txn_account_get_hash( fd_txn_account_t const * acct ) {
-  if( FD_UNLIKELY( !acct->private_state.const_meta ) ) FD_LOG_ERR(("account is not setup" ));
-  return (fd_hash_t const *)acct->private_state.const_meta->hash;
+  if( FD_UNLIKELY( !acct->private_state.meta ) ) FD_LOG_ERR(("account is not setup" ));
+  return (fd_hash_t const *)acct->private_state.meta->hash;
 }
 
 fd_solana_account_meta_t const *
 fd_txn_account_get_info( fd_txn_account_t const * acct ) {
-  if( FD_UNLIKELY( !acct->private_state.const_meta ) ) FD_LOG_ERR(("account is not setup" ));
-  return &acct->private_state.const_meta->info;
+  if( FD_UNLIKELY( !acct->private_state.meta ) ) FD_LOG_ERR(("account is not setup" ));
+  return &acct->private_state.meta->info;
 }
 
 void
@@ -578,13 +578,13 @@ fd_txn_account_is_borrowed( fd_txn_account_t const * acct ) {
 int
 fd_txn_account_is_mutable( fd_txn_account_t const * acct ) {
   /* A txn account is mutable if meta is non NULL */
-  return acct->private_state.meta != NULL;
+  return acct->is_mutable;
 }
 
 int
 fd_txn_account_is_readonly( fd_txn_account_t const * acct ) {
-  /* A txn account is readonly if only the const_meta_ field is non NULL */
-  return acct->private_state.const_meta!=NULL && acct->private_state.meta==NULL;
+  /* A txn account is readonly if only the meta_ field is non NULL */
+  return !acct->is_mutable;
 }
 
 int
@@ -599,14 +599,10 @@ fd_txn_account_drop( fd_txn_account_t * acct ) {
 
 void
 fd_txn_account_set_readonly( fd_txn_account_t * acct ) {
-  acct->private_state.meta = NULL;
-  acct->private_state.data = NULL;
-  acct->private_state.rec  = NULL;
+  acct->is_mutable = 0;
 }
 
 void
 fd_txn_account_set_mutable( fd_txn_account_t * acct ) {
-  acct->private_state.meta = (void *)acct->private_state.const_meta;
-  acct->private_state.data = (void *)acct->private_state.const_data;
-  acct->private_state.rec  = (void *)acct->private_state.const_rec;
+  acct->is_mutable = 1;
 }

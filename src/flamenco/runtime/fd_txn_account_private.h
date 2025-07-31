@@ -5,10 +5,6 @@
 #include "../../funk/fd_funk_rec.h"
 
 struct __attribute__((aligned(8UL))) fd_txn_account_private_state {
-  fd_account_meta_t const * const_meta;
-  uchar const *             const_data;
-  fd_funk_rec_t const *     const_rec;
-
   fd_account_meta_t *       meta;
   uchar *                   data;
   fd_funk_rec_t *           rec;

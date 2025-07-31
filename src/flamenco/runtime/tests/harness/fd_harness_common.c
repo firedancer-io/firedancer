@@ -95,6 +95,7 @@ fd_runtime_fuzz_load_account( fd_txn_account_t *                acc,
                                                    /* do_create   */ 1,
                                                    /* min_data_sz */ size );
   assert( err==FD_ACC_MGR_SUCCESS );
+
   if( state->data ) {
     fd_txn_account_set_data( acc, state->data->bytes, size );
   }

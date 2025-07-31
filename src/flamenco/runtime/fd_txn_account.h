@@ -18,6 +18,8 @@ struct __attribute__((aligned(8UL))) fd_txn_account {
   ulong                           starting_dlen;
   ulong                           starting_lamports;
 
+  int                             is_mutable;
+
   /* only used when obtaining a mutable fd_txn_account_t from funk */
   fd_funk_rec_prepare_t           prepared_rec;
 };
@@ -134,10 +136,6 @@ fd_txn_account_get_acc_rec( fd_txn_account_t const * acct );
 
 uchar *
 fd_txn_account_get_acc_data_mut( fd_txn_account_t const * acct );
-
-void
-fd_txn_account_set_meta_readonly( fd_txn_account_t *        acct,
-                                  fd_account_meta_t const * meta );
 
 void
 fd_txn_account_set_meta_mutable( fd_txn_account_t *  acct,
