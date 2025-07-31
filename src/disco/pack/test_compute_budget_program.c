@@ -13,6 +13,7 @@ uchar parsed[FD_TXN_MAX_SZ];
 void
 test_txn( uchar const * payload,
           ulong         payload_sz,
+          ulong         builtin_instr_cnt,
           ulong         expected_max_cu,
           ulong         expected_fee_lamports,
           ulong         expected_loaded_accounts_data_cost ) { /* Excludes per-signature fee */
@@ -29,7 +30,7 @@ test_txn( uchar const * payload,
   ulong rewards = 0UL;
   uint  compute = 0U;
   ulong loaded_accounts_data_cost = 0UL;
-  fd_compute_budget_program_finalize( &state, txn->instr_cnt, &rewards, &compute, &loaded_accounts_data_cost);
+  fd_compute_budget_program_finalize( &state, txn->instr_cnt, builtin_instr_cnt, &rewards, &compute, &loaded_accounts_data_cost);
   FD_TEST( rewards                   == expected_fee_lamports              );
   FD_TEST( (ulong)compute            == expected_max_cu                    );
   FD_TEST( loaded_accounts_data_cost == expected_loaded_accounts_data_cost );
@@ -70,24 +71,24 @@ main( int     argc,
 
   fd_rng_t _rng[1]; fd_rng_t * rng = fd_rng_join( fd_rng_new( _rng, 0U, 0UL ) );
 
-  test_txn( txn1, txn1_sz, 1400000UL,  280000UL, 16384UL );
-  test_txn( txn2, txn2_sz,  500000UL,   7501ULL, 16384UL );
-  test_txn( txn3, txn3_sz, 1000000UL,      0ULL, 16384UL );
-  test_txn( txn4, txn4_sz,   75000UL,   1501ULL, 16384UL );
-  test_txn( txn5, txn5_sz, 1400000UL,  28000ULL, 16384UL );
-  test_txn( txn6, txn6_sz,   60000UL,   5400ULL,   248UL );
-  test_txn( txn7, txn7_sz, 1400000UL,      0ULL, 16384UL );
+  test_txn( txn1, txn1_sz, 1UL, 1400000UL,  280000UL, 16384UL );
+  test_txn( txn2, txn2_sz, 2UL,  500000UL,   7501ULL, 16384UL );
+  test_txn( txn3, txn3_sz, 1UL, 1000000UL,      0ULL, 16384UL );
+  test_txn( txn4, txn4_sz, 2UL,   75000UL,   1501ULL, 16384UL );
+  test_txn( txn5, txn5_sz, 1UL, 1400000UL,  28000ULL, 16384UL );
+  test_txn( txn6, txn6_sz, 1UL,   60000UL,   5400ULL,   248UL );
+  test_txn( txn7, txn7_sz, 1UL, 1400000UL,      0ULL, 16384UL );
 
   uchar _txn2[ txn2_sz ];
   fd_memcpy( _txn2, txn2, txn2_sz );
 
   uint  * cu_limit  = (uint  *) &_txn2[ 260 ];
   ulong * ulamports = (ulong *) &_txn2[ 268 ];
-  *cu_limit = 1000000U; *ulamports = 1000000UL;    test_txn( _txn2, txn2_sz, 1000000UL, 1000000UL,        16384UL ); /* No overflow  */
-  *cu_limit = 1000000U; *ulamports = ULONG_MAX>>1; test_txn( _txn2, txn2_sz, 1000000UL, ULONG_MAX>>1,     16384UL ); /* Product>2^64 */
-  *cu_limit = 1400000U; *ulamports = ULONG_MAX;    test_txn( _txn2, txn2_sz, 1400000UL, ULONG_MAX,        16384UL ); /* Result>2^64  */
-  *cu_limit = 1400000U; *ulamports = 1UL<<44;      test_txn( _txn2, txn2_sz, 1400000UL, 24629060462183UL, 16384UL ); /* Product<2^64 */
-  *cu_limit =       1U; *ulamports = 1UL;          test_txn( _txn2, txn2_sz,       1UL, 1UL,              16384UL ); /* Test ceil    */
+  *cu_limit = 1000000U; *ulamports = 1000000UL;    test_txn( _txn2, txn2_sz, 2UL, 1000000UL, 1000000UL,        16384UL ); /* No overflow  */
+  *cu_limit = 1000000U; *ulamports = ULONG_MAX>>1; test_txn( _txn2, txn2_sz, 2UL, 1000000UL, ULONG_MAX>>1,     16384UL ); /* Product>2^64 */
+  *cu_limit = 1400000U; *ulamports = ULONG_MAX;    test_txn( _txn2, txn2_sz, 2UL, 1400000UL, ULONG_MAX,        16384UL ); /* Result>2^64  */
+  *cu_limit = 1400000U; *ulamports = 1UL<<44;      test_txn( _txn2, txn2_sz, 2UL, 1400000UL, 24629060462183UL, 16384UL ); /* Product<2^64 */
+  *cu_limit =       1U; *ulamports = 1UL;          test_txn( _txn2, txn2_sz, 2UL,       1UL, 1UL,              16384UL ); /* Test ceil    */
 
   FD_TEST( test_duplicate( 1, 1, 0, 0, 0 ) == 0 );
   FD_TEST( test_duplicate( 2, 0, 0, 0, 0 ) == 0 );

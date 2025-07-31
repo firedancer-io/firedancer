@@ -391,12 +391,25 @@ schedule_validate_microblock( fd_pack_t * pack,
     uint compute = 0U;
     ulong requested_loaded_accounts_data_cost = 0UL;
     uchar const * addresses = txnp->payload + txn->acct_addr_off;
+    ulong non_builtin_cnt = 0UL;
     for( ulong i=0UL; i<txn->instr_cnt; i++ ) {
       if( !memcmp( addresses+FD_TXN_ACCT_ADDR_SZ*txn->instr[ i ].program_id, FD_COMPUTE_BUDGET_PROGRAM_ID, FD_TXN_ACCT_ADDR_SZ ) ) {
         FD_TEST( fd_compute_budget_program_parse( txnp->payload + txn->instr[ i ].data_off, txn->instr[ i ].data_sz, &cbp ) );
       }
+
+      int is_builtin =
+            !memcmp( addresses+FD_TXN_ACCT_ADDR_SZ*txn->instr[ i ].program_id, (uchar[]){ VOTE_PROG_ID },            FD_TXN_ACCT_ADDR_SZ )
+        ||  !memcmp( addresses+FD_TXN_ACCT_ADDR_SZ*txn->instr[ i ].program_id, (uchar[]){ SYS_PROG_ID },             FD_TXN_ACCT_ADDR_SZ )
+        ||  !memcmp( addresses+FD_TXN_ACCT_ADDR_SZ*txn->instr[ i ].program_id, (uchar[]){ COMPUTE_BUDGET_PROG_ID },  FD_TXN_ACCT_ADDR_SZ )
+        ||  !memcmp( addresses+FD_TXN_ACCT_ADDR_SZ*txn->instr[ i ].program_id, (uchar[]){ BPF_UPGRADEABLE_PROG_ID }, FD_TXN_ACCT_ADDR_SZ )
+        ||  !memcmp( addresses+FD_TXN_ACCT_ADDR_SZ*txn->instr[ i ].program_id, (uchar[]){ BPF_LOADER_1_PROG_ID },    FD_TXN_ACCT_ADDR_SZ )
+        ||  !memcmp( addresses+FD_TXN_ACCT_ADDR_SZ*txn->instr[ i ].program_id, (uchar[]){ BPF_LOADER_2_PROG_ID },    FD_TXN_ACCT_ADDR_SZ )
+        ||  !memcmp( addresses+FD_TXN_ACCT_ADDR_SZ*txn->instr[ i ].program_id, (uchar[]){ LOADER_V4_PROG_ID },       FD_TXN_ACCT_ADDR_SZ )
+        ||  !memcmp( addresses+FD_TXN_ACCT_ADDR_SZ*txn->instr[ i ].program_id, (uchar[]){ KECCAK_SECP_PROG_ID },     FD_TXN_ACCT_ADDR_SZ )
+        ||  !memcmp( addresses+FD_TXN_ACCT_ADDR_SZ*txn->instr[ i ].program_id, (uchar[]){ ED25519_SV_PROG_ID },      FD_TXN_ACCT_ADDR_SZ );
+      non_builtin_cnt += !is_builtin;
     }
-    fd_compute_budget_program_finalize( &cbp, txn->instr_cnt, &rewards, &compute, &requested_loaded_accounts_data_cost );
+    fd_compute_budget_program_finalize( &cbp, txn->instr_cnt, txn->instr_cnt-non_builtin_cnt, &rewards, &compute, &requested_loaded_accounts_data_cost );
 
     total_rewards += rewards;
 
