@@ -1,14 +1,12 @@
 #include "fd_executor.h"
 #include "fd_acc_mgr.h"
+#include "fd_bank.h"
 #include "fd_hashes.h"
 #include "fd_runtime.h"
 #include "fd_runtime_err.h"
 
-#include "context/fd_exec_slot_ctx.h"
 #include "context/fd_exec_txn_ctx.h"
-#include "context/fd_exec_instr_ctx.h"
 
-#include "../../util/rng/fd_rng.h"
 #include "fd_system_ids.h"
 #include "program/fd_address_lookup_table_program.h"
 #include "program/fd_bpf_loader_program.h"
@@ -21,12 +19,11 @@
 #include "program/fd_builtin_programs.h"
 #include "program/fd_vote_program.h"
 #include "program/fd_zk_elgamal_proof_program.h"
-#include "program/fd_bpf_program_util.h"
-#include "sysvar/fd_sysvar_slot_history.h"
+#include "sysvar/fd_sysvar_cache.h"
 #include "sysvar/fd_sysvar_epoch_schedule.h"
 #include "sysvar/fd_sysvar_instructions.h"
-#include "sysvar/fd_sysvar_slot_hashes.h"
 #include "sysvar/fd_sysvar_rent.h"
+#include "sysvar/fd_sysvar_slot_history.h"
 
 #include "tests/fd_dump_pb.h"
 
@@ -318,33 +315,6 @@ fd_validate_fee_payer( fd_txn_account_t * account,
   return fd_executor_check_rent_state_with_account( account, &payer_pre_rent_state, &payer_post_rent_state );
 }
 
-static int FD_FN_UNUSED
-status_check_tower( ulong slot, void * _ctx ) {
-  fd_exec_txn_ctx_t * ctx = (fd_exec_txn_ctx_t *)_ctx;
-  if( slot==ctx->slot ) {
-    return 1;
-  }
-
-  if( fd_txncache_is_rooted_slot( ctx->status_cache, slot ) ) {
-    return 1;
-  }
-
-  fd_slot_history_global_t * slot_history = fd_sysvar_slot_history_read( ctx->funk,
-                                                                         ctx->funk_txn,
-                                                                         ctx->spad );
-  if( FD_UNLIKELY( !slot_history ) ) {
-    FD_LOG_ERR(( "Unable to read and decode slot history sysvar" ));
-  }
-
-  if( fd_sysvar_slot_history_find_slot( slot_history,
-                                        slot,
-                                        ctx->runtime_pub_wksp ) == FD_SLOT_HISTORY_SLOT_FOUND ) {
-    return 1;
-  }
-
-  return 0;
-}
-
 static int
 fd_executor_check_status_cache( fd_exec_txn_ctx_t * txn_ctx ) {
 
@@ -519,11 +489,12 @@ load_transaction_account( fd_exec_txn_ctx_t * txn_ctx,
 
     /* https://github.com/anza-xyz/agave/blob/v2.3.1/svm/src/account_loader.rs#L828-L835 */
     if( is_writable ) {
-      txn_ctx->collected_rent += fd_runtime_collect_rent_from_account( fd_bank_epoch_schedule_query( txn_ctx->bank ),
-                                                                       fd_bank_rent_query( txn_ctx->bank ),
-                                                                       fd_bank_slots_per_year_get( txn_ctx->bank ),
-                                                                       acct,
-                                                                       epoch );
+      fd_epoch_schedule_t const epoch_schedule = fd_bank_epoch_schedule_get( txn_ctx->bank );
+      fd_rent_t           const rent           = fd_bank_rent_get( txn_ctx->bank );
+      txn_ctx->collected_rent += fd_runtime_collect_rent_from_account(
+          &epoch_schedule, &rent,
+          fd_bank_slots_per_year_get( txn_ctx->bank ),
+          acct, epoch );
       acct->starting_lamports = acct->vt->get_lamports( acct ); /* TODO: why do we do this everywhere? */
     }
     return fd_ulong_sat_add( base_account_size, acct->vt->get_data_len( acct ) );
@@ -552,12 +523,7 @@ static int
 fd_executor_load_transaction_accounts_old( fd_exec_txn_ctx_t * txn_ctx ) {
   ulong requested_loaded_accounts_data_size = txn_ctx->compute_budget_details.loaded_accounts_data_size_limit;
 
-  fd_epoch_schedule_t schedule[1];
-  if( FD_UNLIKELY( !fd_sysvar_epoch_schedule_read( txn_ctx->funk, txn_ctx->funk_txn, schedule ) ) ) {
-    FD_LOG_ERR(( "Unable to read and decode epoch schedule sysvar" ));
-  }
-
-  ulong epoch = fd_slot_to_epoch( schedule, txn_ctx->slot, NULL );
+  ulong const epoch = fd_bank_epoch_get( txn_ctx->bank );
 
   /* https://github.com/anza-xyz/agave/blob/v2.2.0/svm/src/account_loader.rs#L429-L443 */
   for( ushort i=0; i<txn_ctx->accounts_cnt; i++ ) {
@@ -786,10 +752,7 @@ fd_collect_loaded_account( fd_exec_txn_ctx_t * txn_ctx,
    https://github.com/anza-xyz/agave/blob/v2.3.1/svm/src/account_loader.rs#L550-L689 */
 static int
 fd_executor_load_transaction_accounts_simd_186( fd_exec_txn_ctx_t * txn_ctx ) {
-  fd_epoch_schedule_t schedule[1];
-  if( FD_UNLIKELY( !fd_sysvar_epoch_schedule_read( txn_ctx->funk, txn_ctx->funk_txn, schedule ) ) ) {
-    FD_LOG_ERR(( "Unable to read and decode epoch schedule sysvar" ));
-  }
+  fd_epoch_schedule_t schedule[1] = { fd_sysvar_cache_epoch_schedule_read_nofail( fd_bank_sysvar_cache_query( txn_ctx->bank ) ) };
 
   ulong epoch = fd_slot_to_epoch( schedule, txn_ctx->slot, NULL );
 
@@ -1021,14 +984,16 @@ fd_executor_validate_transaction_fee_payer( fd_exec_txn_ctx_t * txn_ctx ) {
     return FD_RUNTIME_TXN_ERR_ACCOUNT_NOT_FOUND;
   }
 
+  fd_epoch_schedule_t const * epoch_schedule = fd_bank_epoch_schedule_query( txn_ctx->bank );
+  fd_rent_t           const * rent           = fd_bank_rent_query( txn_ctx->bank );
+
   /* Collect rent from the fee payer
      https://github.com/anza-xyz/agave/blob/v2.2.13/svm/src/transaction_processor.rs#L583-L589 */
-  ulong epoch              = fd_slot_to_epoch( fd_bank_epoch_schedule_query( txn_ctx->bank ), txn_ctx->slot, NULL );
-  txn_ctx->collected_rent += fd_runtime_collect_rent_from_account( fd_bank_epoch_schedule_query( txn_ctx->bank ),
-                                                                  fd_bank_rent_query( txn_ctx->bank ),
-                                                                  fd_bank_slots_per_year_get( txn_ctx->bank ),
-                                                                  fee_payer_rec,
-                                                                  epoch );
+  txn_ctx->collected_rent += fd_runtime_collect_rent_from_account(
+      epoch_schedule, rent,
+      fd_bank_slots_per_year_get( txn_ctx->bank ),
+      fee_payer_rec,
+      fd_slot_to_epoch( epoch_schedule, txn_ctx->slot, NULL ) );
 
   /* Calculate transaction fees
      https://github.com/anza-xyz/agave/blob/v2.2.13/svm/src/transaction_processor.rs#L597-L606 */
@@ -1043,7 +1008,7 @@ fd_executor_validate_transaction_fee_payer( fd_exec_txn_ctx_t * txn_ctx ) {
   }
 
   /* https://github.com/anza-xyz/agave/blob/v2.2.13/svm/src/transaction_processor.rs#L609-L616 */
-  err = fd_validate_fee_payer( fee_payer_rec, fd_bank_rent_query( txn_ctx->bank ), total_fee, txn_ctx->spad );
+  err = fd_validate_fee_payer( fee_payer_rec, rent, total_fee, txn_ctx->spad );
   if( FD_UNLIKELY( err ) ) {
     return err;
   }
@@ -1080,12 +1045,11 @@ int
 fd_executor_setup_txn_alut_account_keys( fd_exec_txn_ctx_t * txn_ctx ) {
   if( txn_ctx->txn_descriptor->transaction_version == FD_TXN_V0 ) {
     /* https://github.com/anza-xyz/agave/blob/368ea563c423b0a85cc317891187e15c9a321521/runtime/src/bank/address_lookup_table.rs#L44-L48 */
-    fd_slot_hashes_global_t const * slot_hashes_global = fd_sysvar_slot_hashes_read( txn_ctx->funk, txn_ctx->funk_txn, txn_ctx->spad );
-    if( FD_UNLIKELY( !slot_hashes_global ) ) {
+    fd_sysvar_cache_t const * sysvar_cache = fd_bank_sysvar_cache_query( txn_ctx->bank );
+    fd_slot_hash_t const * slot_hashes = fd_sysvar_cache_slot_hashes_join_const( sysvar_cache );
+    if( FD_UNLIKELY( !slot_hashes ) ) {
       return FD_RUNTIME_TXN_ERR_ACCOUNT_NOT_FOUND;
     }
-
-    fd_slot_hash_t * slot_hash = deq_fd_slot_hash_t_join( (uchar *)slot_hashes_global + slot_hashes_global->hashes_offset );
 
     fd_acct_addr_t * accts_alt = (fd_acct_addr_t *) fd_type_pun( &txn_ctx->account_keys[txn_ctx->accounts_cnt] );
     int err = fd_runtime_load_txn_address_lookup_tables( txn_ctx->txn_descriptor,
@@ -1093,8 +1057,9 @@ fd_executor_setup_txn_alut_account_keys( fd_exec_txn_ctx_t * txn_ctx ) {
                                                          txn_ctx->funk,
                                                          txn_ctx->funk_txn,
                                                          txn_ctx->slot,
-                                                         slot_hash,
+                                                         slot_hashes,
                                                          accts_alt );
+    fd_sysvar_cache_slot_hashes_leave_const( sysvar_cache, slot_hashes );
     txn_ctx->accounts_cnt += txn_ctx->txn_descriptor->addr_table_adtl_cnt;
     if( FD_UNLIKELY( err!=FD_RUNTIME_EXECUTE_SUCCESS ) ) return err;
 
@@ -1308,6 +1273,7 @@ fd_execute_instr_end( fd_exec_instr_ctx_t * instr_ctx,
 int
 fd_execute_instr( fd_exec_txn_ctx_t * txn_ctx,
                   fd_instr_info_t *   instr ) {
+  fd_sysvar_cache_t const * sysvar_cache = fd_bank_sysvar_cache_query( txn_ctx->bank );
   FD_RUNTIME_TXN_SPAD_FRAME_BEGIN( txn_ctx->spad, txn_ctx ) {
     int instr_exec_result = fd_instr_stack_push( txn_ctx, instr );
     if( FD_UNLIKELY( instr_exec_result ) ) {
@@ -1320,8 +1286,9 @@ fd_execute_instr( fd_exec_txn_ctx_t * txn_ctx,
         https://github.com/anza-xyz/agave/blob/v2.2.12/program-runtime/src/invoke_context.rs#L512-L619 */
     fd_exec_instr_ctx_t * ctx = &txn_ctx->instr_stack[ txn_ctx->instr_stack_sz - 1 ];
     *ctx = (fd_exec_instr_ctx_t) {
-      .instr     = instr,
-      .txn_ctx   = txn_ctx,
+      .instr        = instr,
+      .txn_ctx      = txn_ctx,
+      .sysvar_cache = sysvar_cache,
     };
     fd_base58_encode_32( txn_ctx->accounts[ instr->program_id ].pubkey->uc, NULL, ctx->program_id_base58 );
 

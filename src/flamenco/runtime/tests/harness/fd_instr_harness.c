@@ -3,12 +3,13 @@
 #define FD_SPAD_USE_HANDHOLDING 1
 
 #include "fd_instr_harness.h"
-#include "../../fd_system_ids.h"
+#include "../../sysvar/fd_sysvar.h"
 #include "../../sysvar/fd_sysvar_clock.h"
 #include "../../sysvar/fd_sysvar_epoch_schedule.h"
 #include "../../sysvar/fd_sysvar_recent_hashes.h"
 #include "../../sysvar/fd_sysvar_last_restart_slot.h"
 #include "../../sysvar/fd_sysvar_rent.h"
+#include "../../fd_system_ids.h"
 
 int
 fd_runtime_fuzz_instr_ctx_create( fd_runtime_fuzz_runner_t *           runner,
@@ -44,8 +45,8 @@ fd_runtime_fuzz_instr_ctx_create( fd_runtime_fuzz_runner_t *           runner,
 
   /* Set up slot context */
 
-  slot_ctx->funk_txn     = funk_txn;
-  slot_ctx->funk         = funk;
+  slot_ctx->funk_txn = funk_txn;
+  slot_ctx->funk     = funk;
 
   /* Bank manager */
   slot_ctx->banks = runner->banks;
@@ -206,22 +207,23 @@ fd_runtime_fuzz_instr_ctx_create( fd_runtime_fuzz_runner_t *           runner,
     }
   }
 
-  /* Fill missing sysvar cache values with defaults */
+  /* Fill missing sysvar accounts with defaults */
   /* We create mock accounts for each of the sysvars and hardcode the data fields before loading it into the account manager */
   /* We use Agave sysvar defaults for data field values */
 
   /* Clock */
   // https://github.com/firedancer-io/solfuzz-agave/blob/agave-v2.0/src/lib.rs#L466-L474
-  fd_sol_sysvar_clock_t const * clock = fd_sysvar_clock_read( funk, funk_txn, runner->spad );
+  fd_sol_sysvar_clock_t clock_[1];
+  fd_sol_sysvar_clock_t const * clock = fd_sysvar_clock_read( funk, funk_txn, clock_ );
   if( !clock ) {
     fd_sol_sysvar_clock_t sysvar_clock = {
-                                          .slot                  = 10UL,
-                                          .epoch_start_timestamp = 0L,
-                                          .epoch                 = 0UL,
-                                          .leader_schedule_epoch = 0UL,
-                                          .unix_timestamp        = 0L
-                                        };
-    fd_sysvar_clock_write( slot_ctx->bank, slot_ctx->funk, slot_ctx->funk_txn, &sysvar_clock );
+      .slot                  = 10UL,
+      .epoch_start_timestamp = 0L,
+      .epoch                 = 0UL,
+      .leader_schedule_epoch = 0UL,
+      .unix_timestamp        = 0L
+    };
+    fd_sysvar_clock_write( slot_ctx, &sysvar_clock );
   }
 
   /* Epoch schedule */
@@ -243,31 +245,22 @@ fd_runtime_fuzz_instr_ctx_create( fd_runtime_fuzz_runner_t *           runner,
   fd_rent_t const * rent = fd_sysvar_rent_read( funk, funk_txn, runner->spad );
   if( !rent ) {
     fd_rent_t sysvar_rent = {
-                              .lamports_per_uint8_year = 3480UL,
-                              .exemption_threshold     = 2.0,
-                              .burn_percent            = 50
-                            };
+      .lamports_per_uint8_year = 3480UL,
+      .exemption_threshold     = 2.0,
+      .burn_percent            = 50
+    };
     fd_sysvar_rent_write( slot_ctx, &sysvar_rent );
   }
 
-  fd_sol_sysvar_last_restart_slot_t const * last_restart_slot = fd_sysvar_last_restart_slot_read( funk, funk_txn, runner->spad );
+  fd_sol_sysvar_last_restart_slot_t last_restart_slot_[1];
+  fd_sol_sysvar_last_restart_slot_t const * last_restart_slot = fd_sysvar_last_restart_slot_read( funk, funk_txn, last_restart_slot_ );
   if( !last_restart_slot ) {
-
     fd_sol_sysvar_last_restart_slot_t restart = { .slot = 5000UL };
-
-    fd_sysvar_set( slot_ctx->bank,
-                   slot_ctx->funk,
-                   slot_ctx->funk_txn,
-                   &fd_sysvar_owner_id,
-                   &fd_sysvar_last_restart_slot_id,
-                   &restart.slot,
-                   sizeof(ulong),
-                   fd_bank_slot_get( slot_ctx->bank ) );
-
+    fd_sysvar_account_update( slot_ctx, &fd_sysvar_last_restart_slot_id, &restart.slot, sizeof(ulong) );
   }
 
   /* Set slot bank variables */
-  clock = fd_sysvar_clock_read( funk, funk_txn, runner->spad );
+  clock = fd_sysvar_clock_read( funk, funk_txn, clock_ );
 
   slot_ctx->bank->slot_ = clock->slot;
 
@@ -308,6 +301,10 @@ fd_runtime_fuzz_instr_ctx_create( fd_runtime_fuzz_runner_t *           runner,
     FD_LOG_NOTICE(( "too many instruction accounts" ));
     return 0;
   }
+
+  /* Restore sysvar cache */
+  fd_sysvar_cache_restore_fuzz( slot_ctx );
+  ctx->sysvar_cache = fd_bank_sysvar_cache_modify( slot_ctx->bank );
 
   uchar acc_idx_seen[ FD_INSTR_ACCT_MAX ] = {0};
   for( ulong j=0UL; j < test_ctx->instr_accounts_count; j++ ) {

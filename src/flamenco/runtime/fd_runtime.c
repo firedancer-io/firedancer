@@ -9,31 +9,24 @@
 #include "fd_executor.h"
 #include "fd_cost_tracker.h"
 #include "fd_runtime_public.h"
-#include "fd_txncache.h"
+#include "sysvar/fd_sysvar_cache.h"
 #include "sysvar/fd_sysvar_clock.h"
 #include "sysvar/fd_sysvar_epoch_schedule.h"
 #include "sysvar/fd_sysvar_recent_hashes.h"
 #include "sysvar/fd_sysvar_stake_history.h"
-#include "sysvar/fd_sysvar.h"
-#include "../../ballet/base58/fd_base58.h"
-#include "../../ballet/txn/fd_txn.h"
-#include "../../ballet/bmtree/fd_bmtree.h"
 
 #include "../stakes/fd_stakes.h"
 #include "../rewards/fd_rewards.h"
 
 #include "context/fd_exec_txn_ctx.h"
-#include "context/fd_exec_instr_ctx.h"
 #include "info/fd_microblock_batch_info.h"
 #include "info/fd_microblock_info.h"
 
 #include "program/fd_stake_program.h"
 #include "program/fd_builtin_programs.h"
-#include "program/fd_system_program.h"
 #include "program/fd_vote_program.h"
 #include "program/fd_bpf_program_util.h"
 #include "program/fd_bpf_loader_program.h"
-#include "program/fd_compute_budget_program.h"
 #include "program/fd_address_lookup_table_program.h"
 
 #include "sysvar/fd_sysvar_clock.h"
@@ -45,18 +38,10 @@
 
 #include "tests/fd_dump_pb.h"
 
-#include "../../ballet/nanopb/pb_decode.h"
-#include "../../ballet/nanopb/pb_encode.h"
-#include "../types/fd_solana_block.pb.h"
-
 #include "fd_system_ids.h"
-#include "../vm/fd_vm.h"
 #include "fd_blockstore.h"
 #include "../../disco/pack/fd_pack.h"
-#include "../fd_rwlock.h"
 
-#include <stdio.h>
-#include <ctype.h>
 #include <unistd.h>
 #include <sys/stat.h>
 #include <sys/types.h>
@@ -143,18 +128,12 @@ fd_runtime_update_leaders( fd_bank_t * bank,
 
   fd_epoch_schedule_t const * epoch_schedule = fd_bank_epoch_schedule_query( bank );
 
-  FD_LOG_INFO(( "schedule->slots_per_epoch = %lu", epoch_schedule->slots_per_epoch ));
-  FD_LOG_INFO(( "schedule->leader_schedule_slot_offset = %lu", epoch_schedule->leader_schedule_slot_offset ));
-  FD_LOG_INFO(( "schedule->warmup = %d", epoch_schedule->warmup ));
-  FD_LOG_INFO(( "schedule->first_normal_epoch = %lu", epoch_schedule->first_normal_epoch ));
-  FD_LOG_INFO(( "schedule->first_normal_slot = %lu", epoch_schedule->first_normal_slot ));
-
   fd_vote_accounts_global_t const *          epoch_vaccs   = fd_bank_epoch_stakes_locking_query( bank );
   fd_vote_accounts_pair_global_t_mapnode_t * vote_acc_pool = fd_vote_accounts_vote_accounts_pool_join( epoch_vaccs );
   fd_vote_accounts_pair_global_t_mapnode_t * vote_acc_root = fd_vote_accounts_vote_accounts_root_join( epoch_vaccs );
 
-  ulong epoch    = fd_slot_to_epoch( epoch_schedule, slot, NULL );
-  ulong slot0    = fd_epoch_slot0( epoch_schedule, epoch );
+  ulong epoch    = fd_slot_to_epoch ( epoch_schedule, slot, NULL );
+  ulong slot0    = fd_epoch_slot0   ( epoch_schedule, epoch );
   ulong slot_cnt = fd_epoch_slot_cnt( epoch_schedule, epoch );
 
   fd_runtime_update_slots_per_epoch( bank, fd_epoch_slot_cnt( epoch_schedule, epoch ) );
@@ -437,7 +416,7 @@ https://github.com/firedancer-io/solana/blob/dab3da8e7b667d7527565bddbdbecf7ec1f
 */
 static void
 fd_runtime_new_fee_rate_governor_derived( fd_bank_t * bank,
-                                          ulong       latest_singatures_per_slot ) {
+                                          ulong       latest_signatures_per_slot ) {
 
   fd_fee_rate_governor_t const * base_fee_rate_governor = fd_bank_fee_rate_governor_query( bank );
 
@@ -460,7 +439,7 @@ fd_runtime_new_fee_rate_governor_derived( fd_bank_t * bank,
       fd_ulong_max(
         me.min_lamports_per_signature,
         me.target_lamports_per_signature
-        * fd_ulong_min(latest_singatures_per_slot, (ulong)UINT_MAX)
+        * fd_ulong_min(latest_signatures_per_slot, (ulong)UINT_MAX)
         / me.target_signatures_per_slot
       )
     );
@@ -509,9 +488,9 @@ fd_runtime_block_sysvar_update_pre_execute( fd_exec_slot_ctx_t * slot_ctx,
   fd_runtime_new_fee_rate_governor_derived( slot_ctx->bank, fd_bank_parent_signature_cnt_get( slot_ctx->bank ) );
 
   // TODO: move all these out to a fd_sysvar_update() call...
-  long clock_update_time      = -fd_log_wallclock();
-  fd_sysvar_clock_update( slot_ctx->bank, slot_ctx->funk, slot_ctx->funk_txn, runtime_spad );
-  clock_update_time          += fd_log_wallclock();
+  long clock_update_time = -fd_log_wallclock();
+  fd_sysvar_clock_update( slot_ctx, runtime_spad );
+  clock_update_time     += fd_log_wallclock();
   double clock_update_time_ms = (double)clock_update_time * 1e-6;
   FD_LOG_INFO(( "clock updated - slot: %lu, elapsed: %6.6f ms", fd_bank_slot_get( slot_ctx->bank ), clock_update_time_ms ));
 
@@ -519,7 +498,7 @@ fd_runtime_block_sysvar_update_pre_execute( fd_exec_slot_ctx_t * slot_ctx,
   if( fd_bank_slot_get( slot_ctx->bank ) != 0 ) {
     fd_sysvar_slot_hashes_update( slot_ctx, runtime_spad );
   }
-  fd_sysvar_last_restart_slot_update( slot_ctx, runtime_spad );
+  fd_sysvar_last_restart_slot_update( slot_ctx, fd_bank_last_restart_slot_get( slot_ctx->bank ).slot );
 
   } FD_SPAD_FRAME_END;
 
@@ -712,13 +691,15 @@ fd_runtime_block_verify_ticks( fd_blockstore_t * blockstore,
 }
 
 int
-fd_runtime_load_txn_address_lookup_tables( fd_txn_t const * txn,
-                                           uchar const *    payload,
-                                           fd_funk_t *      funk,
-                                           fd_funk_txn_t *  funk_txn,
-                                           ulong            slot,
-                                           fd_slot_hash_t * hashes,
-                                           fd_acct_addr_t * out_accts_alt ) {
+fd_runtime_load_txn_address_lookup_tables(
+    fd_txn_t const *       txn,
+    uchar const *          payload,
+    fd_funk_t *            funk,
+    fd_funk_txn_t *        funk_txn,
+    ulong                  slot,
+    fd_slot_hash_t const * hashes, /* deque */
+    fd_acct_addr_t *       out_accts_alt
+) {
 
   if( FD_LIKELY( txn->transaction_version!=FD_TXN_V0 ) ) return FD_RUNTIME_EXECUTE_SUCCESS;
 
@@ -1026,6 +1007,10 @@ fd_runtime_block_execute_prepare( fd_exec_slot_ctx_t * slot_ctx,
   if( FD_UNLIKELY( result != 0 ) ) {
     FD_LOG_WARNING(("updating sysvars failed"));
     return result;
+  }
+
+  if( FD_UNLIKELY( !fd_sysvar_cache_restore( slot_ctx ) ) ) {
+    FD_LOG_ERR(( "Failed to restore sysvar cache" ));
   }
 
   return FD_RUNTIME_EXECUTE_SUCCESS;
@@ -2076,7 +2061,9 @@ fd_features_activate( fd_exec_slot_ctx_t * slot_ctx, fd_spad_t * runtime_spad ) 
 }
 
 uint
-fd_runtime_is_epoch_boundary( fd_exec_slot_ctx_t * slot_ctx, ulong curr_slot, ulong prev_slot ) {
+fd_runtime_is_epoch_boundary( fd_exec_slot_ctx_t * slot_ctx,
+                              ulong                curr_slot,
+                              ulong                prev_slot ) {
   ulong slot_idx;
   fd_epoch_schedule_t const * schedule = fd_bank_epoch_schedule_query( slot_ctx->bank );
   ulong prev_epoch = fd_slot_to_epoch( schedule, prev_slot, &slot_idx );
@@ -2111,9 +2098,8 @@ fd_runtime_process_new_epoch( fd_exec_slot_ctx_t * slot_ctx,
 
   long start = fd_log_wallclock();
 
-  ulong                       slot;
-  fd_epoch_schedule_t const * epoch_schedule = fd_bank_epoch_schedule_query( slot_ctx->bank );
-  ulong                       epoch          = fd_slot_to_epoch( epoch_schedule, fd_bank_slot_get( slot_ctx->bank ), &slot );
+  ulong const slot  = fd_bank_slot_get ( slot_ctx->bank );
+  ulong const epoch = fd_bank_epoch_get( slot_ctx->bank );
 
   /* Activate new features
      https://github.com/anza-xyz/agave/blob/v2.1.0/runtime/src/bank.rs#L6587-L6598 */
@@ -2128,12 +2114,12 @@ fd_runtime_process_new_epoch( fd_exec_slot_ctx_t * slot_ctx,
   int _err[1];
   ulong   new_rate_activation_epoch_val = 0UL;
   ulong * new_rate_activation_epoch     = &new_rate_activation_epoch_val;
-  int     is_some                       = fd_new_warmup_cooldown_rate_epoch( fd_bank_slot_get( slot_ctx->bank ),
-                                                                             slot_ctx->funk,
-                                                                             slot_ctx->funk_txn,
-                                                                             fd_bank_features_query( slot_ctx->bank ),
-                                                                             new_rate_activation_epoch,
-                                                                             _err );
+  int is_some = fd_new_warmup_cooldown_rate_epoch(
+      fd_bank_epoch_schedule_query( slot_ctx->bank ),
+      fd_bank_features_query( slot_ctx->bank ),
+      slot,
+      new_rate_activation_epoch,
+      _err );
   if( FD_UNLIKELY( !is_some ) ) {
     new_rate_activation_epoch = NULL;
   }
@@ -2250,13 +2236,14 @@ fd_runtime_update_program_cache( fd_exec_slot_ctx_t * slot_ctx,
 
     fd_slot_hash_t * slot_hash = deq_fd_slot_hash_t_join( (uchar *)slot_hashes_global + slot_hashes_global->hashes_offset );
 
-    if( FD_UNLIKELY( fd_runtime_load_txn_address_lookup_tables( txn_descriptor,
-                         txn_p->payload,
-                         slot_ctx->funk,
-                         slot_ctx->funk_txn,
-                         fd_bank_slot_get( slot_ctx->bank ),
-                         slot_hash,
-                         alut_accounts ) ) ) {
+    if( FD_UNLIKELY( fd_runtime_load_txn_address_lookup_tables(
+          txn_descriptor,
+          txn_p->payload,
+          slot_ctx->funk,
+          slot_ctx->funk_txn,
+          fd_bank_slot_get( slot_ctx->bank ),
+          slot_hash,
+          alut_accounts ) ) ) {
       return;
     }
 
@@ -2310,8 +2297,8 @@ fd_runtime_block_collect_txns( fd_runtime_block_info_t const * block_info,
 static void
 fd_runtime_init_program( fd_exec_slot_ctx_t * slot_ctx,
                          fd_spad_t *          runtime_spad ) {
-  fd_sysvar_recent_hashes_init( slot_ctx, runtime_spad );
-  fd_sysvar_clock_init( slot_ctx->bank, slot_ctx->funk, slot_ctx->funk_txn );
+  fd_sysvar_recent_hashes_init( slot_ctx );
+  fd_sysvar_clock_init( slot_ctx );
   fd_sysvar_slot_history_init( slot_ctx, runtime_spad );
   fd_sysvar_slot_hashes_init( slot_ctx, runtime_spad );
   fd_sysvar_epoch_schedule_init( slot_ctx );
@@ -2873,12 +2860,13 @@ fd_runtime_block_pre_execute_process_new_epoch( fd_exec_slot_ctx_t * slot_ctx,
   /* Update block height. */
   fd_bank_block_height_set( slot_ctx->bank, fd_bank_block_height_get( slot_ctx->bank ) + 1UL );
 
-  if( fd_bank_slot_get( slot_ctx->bank ) != 0UL ) {
+  ulong const slot = fd_bank_slot_get( slot_ctx->bank );
+  if( slot != 0UL ) {
     fd_epoch_schedule_t const * epoch_schedule = fd_bank_epoch_schedule_query( slot_ctx->bank );
 
-    ulong             slot_idx;
-    ulong             prev_epoch = fd_slot_to_epoch( epoch_schedule, fd_bank_parent_slot_get( slot_ctx->bank ), &slot_idx );
-    ulong             new_epoch  = fd_slot_to_epoch( epoch_schedule, fd_bank_slot_get( slot_ctx->bank ), &slot_idx );
+    ulong prev_epoch = fd_slot_to_epoch( epoch_schedule, fd_bank_parent_slot_get( slot_ctx->bank ), NULL );
+    ulong slot_idx;
+    ulong new_epoch  = fd_slot_to_epoch( epoch_schedule, slot, &slot_idx );
     if( FD_UNLIKELY( slot_idx==1UL && new_epoch==0UL ) ) {
       /* The block after genesis has a height of 1. */
       fd_bank_block_height_set( slot_ctx->bank, 1UL );

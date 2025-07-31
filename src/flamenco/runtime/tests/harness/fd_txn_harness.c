@@ -16,7 +16,6 @@ static fd_txn_p_t *
 fd_runtime_fuzz_txn_ctx_create( fd_runtime_fuzz_runner_t *         runner,
                                 fd_exec_slot_ctx_t *               slot_ctx,
                                 fd_exec_test_txn_context_t const * test_ctx ) {
-  const uchar empty_bytes[64] = { 0 };
   fd_funk_t * funk = runner->funk;
 
   /* Generate unique ID for funk txn */
@@ -35,8 +34,8 @@ fd_runtime_fuzz_txn_ctx_create( fd_runtime_fuzz_runner_t *         runner,
 
   /* Set up slot context */
 
-  slot_ctx->funk_txn     = funk_txn;
-  slot_ctx->funk         = funk;
+  slot_ctx->funk_txn = funk_txn;
+  slot_ctx->funk     = funk;
 
   slot_ctx->banks = runner->banks;
   slot_ctx->bank  = runner->bank;
@@ -152,10 +151,11 @@ fd_runtime_fuzz_txn_ctx_create( fd_runtime_fuzz_runner_t *         runner,
   }
 
   /* Provide a default clock if not present */
-  fd_sol_sysvar_clock_t const * clock = fd_sysvar_clock_read( funk, funk_txn, runner->spad );
+  fd_sol_sysvar_clock_t clock_[1];
+  fd_sol_sysvar_clock_t const * clock = fd_sysvar_clock_read( funk, funk_txn, clock_ );
   if( !clock ) {
-    fd_sysvar_clock_init( slot_ctx->bank, slot_ctx->funk, slot_ctx->funk_txn );
-    fd_sysvar_clock_update( slot_ctx->bank, slot_ctx->funk, slot_ctx->funk_txn, runner->spad );
+    fd_sysvar_clock_init( slot_ctx );
+    fd_sysvar_clock_update( slot_ctx, runner->spad );
   }
 
   /* Epoch schedule and rent get set from the epoch bank */
@@ -172,8 +172,9 @@ fd_runtime_fuzz_txn_ctx_create( fd_runtime_fuzz_runner_t *         runner,
   */
   fd_sysvar_epoch_rewards_t epoch_rewards[1];
   if( !fd_sysvar_epoch_rewards_read( funk, funk_txn, epoch_rewards ) ) {
-    fd_hash_t const * last_hash = test_ctx->blockhash_queue_count > 0 ? (fd_hash_t const *)test_ctx->blockhash_queue[0]->bytes : (fd_hash_t const *)empty_bytes;
-    fd_sysvar_epoch_rewards_init( slot_ctx, 0UL, 2UL, 1UL, 0UL, 0UL, last_hash);
+    fd_hash_t last_hash = {0};
+    if( test_ctx->blockhash_queue_count > 0 ) last_hash = FD_LOAD( fd_hash_t, test_ctx->blockhash_queue[0]->bytes );
+    fd_sysvar_epoch_rewards_init( slot_ctx, 0UL, 2UL, 1UL, 0UL, 0UL, &last_hash );
   }
 
   /* Blockhash queue is given in txn message. We need to populate the following two fields:
@@ -220,13 +221,13 @@ fd_runtime_fuzz_txn_ctx_create( fd_runtime_fuzz_runner_t *         runner,
   } else {
     // Add a default empty blockhash and use it as genesis
     num_blockhashes = 1;
-    fd_hash_t * genesis_hash = fd_bank_genesis_hash_modify( slot_ctx->bank );
-    memcpy( genesis_hash->hash, empty_bytes, sizeof(fd_hash_t) );
-    fd_block_block_hash_entry_t blockhash_entry;
-    memcpy( &blockhash_entry.blockhash, empty_bytes, sizeof(fd_hash_t) );
-    fd_bank_poh_set( slot_ctx->bank, blockhash_entry.blockhash );
+    *fd_bank_genesis_hash_modify( slot_ctx->bank ) = (fd_hash_t){0};
+    fd_bank_poh_set( slot_ctx->bank, (fd_hash_t){0} );
     fd_sysvar_recent_hashes_update( slot_ctx, runner->spad );
   }
+
+  /* Restore sysvars from account context */
+  fd_sysvar_cache_restore_fuzz( slot_ctx );
 
   /* Add accounts to bpf program cache */
   fd_bpf_scan_and_create_bpf_program_cache_entry( slot_ctx, runner->spad );
@@ -292,7 +293,6 @@ fd_runtime_fuzz_serialize_txn( uchar *                                      txn_
                                fd_exec_test_sanitized_transaction_t const * tx,
                                ushort *                                     out_instr_cnt,
                                ushort *                                     out_addr_table_cnt ) {
-  const uchar empty_bytes[64] = { 0 };
   uchar * txn_raw_cur_ptr = txn_raw_begin;
 
   /* Compact array of signatures (https://solana.com/docs/core/transactions#transaction)
@@ -303,7 +303,9 @@ fd_runtime_fuzz_serialize_txn( uchar *                                      txn_
   uchar signature_cnt = fd_uchar_max( 1, (uchar) tx->signatures_count );
   FD_CHECKED_ADD_TO_TXN_DATA( txn_raw_begin, &txn_raw_cur_ptr, &signature_cnt, sizeof(uchar) );
   for( uchar i = 0; i < signature_cnt; ++i ) {
-    FD_CHECKED_ADD_TO_TXN_DATA( txn_raw_begin, &txn_raw_cur_ptr, tx->signatures && tx->signatures[i] ? tx->signatures[i]->bytes : empty_bytes, FD_TXN_SIGNATURE_SZ );
+    fd_signature_t sig = {0};
+    if( tx->signatures && tx->signatures[i] ) sig = FD_LOAD( fd_signature_t, tx->signatures[i]->bytes );
+    FD_CHECKED_ADD_TO_TXN_DATA( txn_raw_begin, &txn_raw_cur_ptr, &sig, FD_TXN_SIGNATURE_SZ );
   }
 
   /* Message */
@@ -333,7 +335,9 @@ fd_runtime_fuzz_serialize_txn( uchar *                                      txn_
 
   /* Recent blockhash (32 bytes) (https://solana.com/docs/core/transactions#recent-blockhash) */
   // Note: add an empty blockhash if none is provided
-  FD_CHECKED_ADD_TO_TXN_DATA( txn_raw_begin, &txn_raw_cur_ptr, tx->message.recent_blockhash ? tx->message.recent_blockhash->bytes : empty_bytes, sizeof(fd_hash_t) );
+  fd_hash_t msg_rbh = {0};
+  if( tx->message.recent_blockhash ) msg_rbh = FD_LOAD( fd_hash_t, tx->message.recent_blockhash->bytes );
+  FD_CHECKED_ADD_TO_TXN_DATA( txn_raw_begin, &txn_raw_cur_ptr, &msg_rbh, sizeof(fd_hash_t) );
 
   /* Compact array of instructions (https://solana.com/docs/core/transactions#array-of-instructions) */
   // Instruction count is a compact u16
