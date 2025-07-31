@@ -31,12 +31,14 @@ verify( std::map<ulong,ulong> const & map, my_list_joined list ) {
 
   my_list_iter_t iter = my_list_iter_begin( list, 1 );
   ulong last_key = ULONG_MAX;
+  uint cnt = 0;
   while( !my_list_iter_done( iter ) ) {
     my_list_elem_t * elem = my_list_iter_data( iter );
     FD_TEST( elem->key > last_key || last_key == ULONG_MAX );
     last_key = elem->key;
     auto it = map.find( elem->key );
     FD_TEST( it != map.end() && it->second == elem->val );
+    cnt++;
     iter = my_list_iter_next( iter );
   }
 
@@ -49,15 +51,15 @@ verify( std::map<ulong,ulong> const & map, my_list_joined list ) {
   }
 
   iter = my_list_iter_begin( list, 0 );
-  uint cnt = 0;
+  cnt = 0;
   while( !my_list_iter_done( iter ) ) {
     my_list_elem_t * elem = my_list_iter_data( iter );
     auto it = map.find( elem->key );
     FD_TEST( it != map.end() && it->second == elem->val );
-    iter = my_list_iter_next( iter );
     cnt++;
+    iter = my_list_iter_next( iter );
   }
-  FD_TEST( cnt == map.size() );
+  FD_TEST( cnt == map.size() && cnt == my_list_actual_cnt( list ) );
 }
 
 int
