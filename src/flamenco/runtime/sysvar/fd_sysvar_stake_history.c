@@ -20,7 +20,7 @@ write_stake_history( fd_exec_slot_ctx_t * slot_ctx,
   if( FD_UNLIKELY( fd_stake_history_encode( stake_history, &encode )!=FD_BINCODE_SUCCESS ) )
     FD_LOG_ERR(("fd_stake_history_encode failed"));
 
-  fd_sysvar_set( slot_ctx->bank, slot_ctx->funk, slot_ctx->funk_txn, &fd_sysvar_owner_id, &fd_sysvar_stake_history_id, enc, sizeof(enc), fd_bank_slot_get( slot_ctx->bank ) );
+  fd_sysvar_account_update( slot_ctx, &fd_sysvar_stake_history_id, enc, sizeof(enc) );
 }
 
 fd_stake_history_t *

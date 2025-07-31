@@ -1,7 +1,7 @@
 #include "fd_sysvar_recent_hashes.h"
 #include "../fd_acc_mgr.h"
 #include "fd_sysvar.h"
-#include "../fd_runtime.h"
+#include "../context/fd_exec_slot_ctx.h"
 #include "../fd_system_ids.h"
 
 /* Skips fd_types encoding preflight checks and directly serializes the
@@ -38,22 +38,10 @@ encode_rbh_from_blockhash_queue( fd_exec_slot_ctx_t * slot_ctx,
 }
 
 void
-fd_sysvar_recent_hashes_init( fd_exec_slot_ctx_t * slot_ctx,
-                              fd_spad_t *          runtime_spad ) {
-
-  FD_SPAD_FRAME_BEGIN( runtime_spad ) {
-
-  if( fd_bank_slot_get( slot_ctx->bank ) != 0 ) {
-    return;
-  }
-
-  ulong   sz  = FD_SYSVAR_RECENT_HASHES_BINCODE_SZ;
-  uchar * enc = fd_spad_alloc( runtime_spad, FD_SPAD_ALIGN, sz );
-  fd_memset( enc, 0, sz );
+fd_sysvar_recent_hashes_init( fd_exec_slot_ctx_t * slot_ctx ) {
+  uchar enc[ FD_SYSVAR_RECENT_HASHES_BINCODE_SZ ];
   encode_rbh_from_blockhash_queue( slot_ctx, enc );
-  fd_sysvar_set( slot_ctx->bank, slot_ctx->funk, slot_ctx->funk_txn, &fd_sysvar_owner_id, &fd_sysvar_recent_block_hashes_id, enc, sz, fd_bank_slot_get( slot_ctx->bank ) );
-
-  } FD_SPAD_FRAME_END;
+  fd_sysvar_account_update( slot_ctx, &fd_sysvar_recent_block_hashes_id, enc, FD_SYSVAR_RECENT_HASHES_BINCODE_SZ );
 }
 
 // https://github.com/anza-xyz/agave/blob/e8750ba574d9ac7b72e944bc1227dc7372e3a490/accounts-db/src/blockhash_queue.rs#L113
@@ -89,14 +77,7 @@ fd_sysvar_recent_hashes_update( fd_exec_slot_ctx_t * slot_ctx, fd_spad_t * runti
   encode_rbh_from_blockhash_queue( slot_ctx, enc );
 
   /* Set the sysvar from the encoded data */
-  fd_sysvar_set( slot_ctx->bank,
-                 slot_ctx->funk,
-                 slot_ctx->funk_txn,
-                 &fd_sysvar_owner_id,
-                 &fd_sysvar_recent_block_hashes_id,
-                 enc_start,
-                 sz,
-                 fd_bank_slot_get( slot_ctx->bank ) );
+  fd_sysvar_account_update( slot_ctx, &fd_sysvar_recent_block_hashes_id, enc_start, sz );
   } FD_SPAD_FRAME_END;
 }
 

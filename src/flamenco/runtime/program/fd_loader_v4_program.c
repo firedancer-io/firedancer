@@ -1,5 +1,4 @@
 #include "fd_loader_v4_program.h"
-#include "../sysvar/fd_sysvar_clock.h"
 
 /* Helper functions that would normally be provided by fd_types. */
 FD_FN_PURE uchar
@@ -334,11 +333,12 @@ fd_loader_v4_program_instruction_set_program_length( fd_exec_instr_ctx_t *      
   }
 
   /* https://github.com/anza-xyz/agave/blob/v2.2.6/programs/loader-v4/src/lib.rs#L221-L227 */
-  fd_rent_t const * rent = fd_sysvar_rent_read( instr_ctx->txn_ctx->funk, instr_ctx->txn_ctx->funk_txn, instr_ctx->txn_ctx->spad );
-
-  if( FD_UNLIKELY( rent==NULL ) ) {
+  fd_rent_t rent_;
+  fd_rent_t const * rent = fd_sysvar_cache_rent_read( instr_ctx->sysvar_cache, &rent_ );
+  if( FD_UNLIKELY( !rent ) ) {
     return FD_EXECUTOR_INSTR_ERR_UNSUPPORTED_SYSVAR;
   }
+
   ulong new_program_dlen  = fd_ulong_sat_add( LOADER_V4_PROGRAM_DATA_OFFSET, new_size );
   ulong required_lamports = ( new_size==0UL ) ?
                               0UL :
@@ -469,8 +469,9 @@ fd_loader_v4_program_instruction_deploy( fd_exec_instr_ctx_t * instr_ctx ) {
   }
 
   /* https://github.com/anza-xyz/agave/blob/v2.2.13/programs/loader-v4/src/lib.rs#L288 */
-  fd_sol_sysvar_clock_t const * clock = fd_sysvar_clock_read( instr_ctx->txn_ctx->funk, instr_ctx->txn_ctx->funk_txn, instr_ctx->txn_ctx->spad );
-  if( FD_UNLIKELY( clock==NULL ) ) {
+  fd_sol_sysvar_clock_t clock_;
+  fd_sol_sysvar_clock_t const * clock = fd_sysvar_cache_clock_read( instr_ctx->sysvar_cache, &clock_ );
+  if( FD_UNLIKELY( !clock ) ) {
     return FD_EXECUTOR_INSTR_ERR_UNSUPPORTED_SYSVAR;
   }
   ulong current_slot = clock->slot;
@@ -563,8 +564,9 @@ fd_loader_v4_program_instruction_retract( fd_exec_instr_ctx_t * instr_ctx ) {
   }
 
   /* https://github.com/anza-xyz/agave/blob/v2.2.6/programs/loader-v4/src/lib.rs#L368 */
-  fd_sol_sysvar_clock_t const * clock = fd_sysvar_clock_read( instr_ctx->txn_ctx->funk, instr_ctx->txn_ctx->funk_txn, instr_ctx->txn_ctx->spad );
-  if( FD_UNLIKELY( clock==NULL ) ) {
+  fd_sol_sysvar_clock_t clock_;
+  fd_sol_sysvar_clock_t const * clock = fd_sysvar_cache_clock_read( instr_ctx->sysvar_cache, &clock_ );
+  if( FD_UNLIKELY( !clock ) ) {
     return FD_EXECUTOR_INSTR_ERR_UNSUPPORTED_SYSVAR;
   }
   ulong current_slot = clock->slot;

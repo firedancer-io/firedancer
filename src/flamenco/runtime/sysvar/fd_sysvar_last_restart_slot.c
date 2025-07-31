@@ -1,8 +1,18 @@
 #include "fd_sysvar_last_restart_slot.h"
-#include "../../types/fd_types.h"
 #include "fd_sysvar.h"
 #include "../fd_system_ids.h"
 #include "../fd_runtime.h"
+#include "../context/fd_exec_slot_ctx.h"
+
+void
+fd_sysvar_last_restart_slot_write(
+    fd_exec_slot_ctx_t * slot_ctx,
+    fd_sol_sysvar_last_restart_slot_t const * sysvar
+) {
+  uchar enc[ 8 ];
+  FD_STORE( ulong, enc, sysvar->slot );
+  fd_sysvar_account_update( slot_ctx, &fd_sysvar_last_restart_slot_id, enc, sizeof(enc) );
+}
 
 void
 fd_sysvar_last_restart_slot_init( fd_exec_slot_ctx_t * slot_ctx ) {
@@ -11,31 +21,41 @@ fd_sysvar_last_restart_slot_init( fd_exec_slot_ctx_t * slot_ctx ) {
     return;
   }
 
+  fd_sol_sysvar_last_restart_slot_t sysvar = {0};
+  fd_sysvar_last_restart_slot_write( slot_ctx, &sysvar );
+}
 
-  ulong sz = fd_sol_sysvar_last_restart_slot_size( fd_bank_last_restart_slot_query( slot_ctx->bank ) );
-  uchar enc[ sz ];
-  fd_memset( enc, 0, sz );
+/* https://github.com/anza-xyz/agave/blob/v2.3.2/runtime/src/bank.rs#L2217 */
 
-  fd_bincode_encode_ctx_t encode = {
-    .data    = enc,
-    .dataend = enc + sz,
-  };
-  int err = fd_sol_sysvar_last_restart_slot_encode( fd_bank_last_restart_slot_query( slot_ctx->bank ), &encode );
-  FD_TEST( err==FD_BINCODE_SUCCESS );
+ulong
+fd_sysvar_last_restart_slot_derive(
+    fd_hard_forks_global_t const * hard_forks,
+    ulong                          current_slot
+) {
 
-  fd_sysvar_set( slot_ctx->bank,
-                 slot_ctx->funk,
-                 slot_ctx->funk_txn,
-                 &fd_sysvar_owner_id,
-                 &fd_sysvar_last_restart_slot_id,
-                 enc, sz,
-                 fd_bank_slot_get( slot_ctx->bank ) );
+  if( FD_UNLIKELY( hard_forks->hard_forks_len == 0 ) ) {
+    /* SIMD-0047: The first restart slot should be `0` */
+    return 0UL;
+  }
+
+  fd_slot_pair_t const * head = fd_hard_forks_hard_forks_join( (fd_hard_forks_global_t *)hard_forks );
+  fd_slot_pair_t const * tail = head + hard_forks->hard_forks_len - 1UL;
+
+  for( fd_slot_pair_t const *pair = tail; pair >= head; pair-- ) {
+    if( pair->slot <= current_slot ) {
+      return pair->slot;
+    }
+  }
+
+  return 0UL;
 }
 
 fd_sol_sysvar_last_restart_slot_t *
-fd_sysvar_last_restart_slot_read( fd_funk_t *     funk,
-                                  fd_funk_txn_t * funk_txn,
-                                  fd_spad_t *     spad ) {
+fd_sysvar_last_restart_slot_read(
+    fd_funk_t *     funk,
+    fd_funk_txn_t * funk_txn,
+    fd_sol_sysvar_last_restart_slot_t * out
+) {
 
   FD_TXN_ACCOUNT_DECL( acc );
   int err = fd_txn_account_init_from_funk_readonly( acc, &fd_sysvar_last_restart_slot_id, funk, funk_txn );
@@ -47,8 +67,8 @@ fd_sysvar_last_restart_slot_read( fd_funk_t *     funk,
      in a real execution environment. */
   if( FD_UNLIKELY( acc->vt->get_lamports( acc )==0 ) ) return NULL;
 
-  return fd_bincode_decode_spad(
-      sol_sysvar_last_restart_slot, spad,
+  return fd_bincode_decode_static(
+      sol_sysvar_last_restart_slot, out,
       acc->vt->get_data( acc ),
       acc->vt->get_data_len( acc ),
       &err );
@@ -58,35 +78,24 @@ fd_sysvar_last_restart_slot_read( fd_funk_t *     funk,
    Agave's solana_runtime::bank::Bank::update_last_restart_slot */
 
 void
-fd_sysvar_last_restart_slot_update( fd_exec_slot_ctx_t * slot_ctx, fd_spad_t * runtime_spad ) {
+fd_sysvar_last_restart_slot_update(
+    fd_exec_slot_ctx_t * slot_ctx,
+    ulong                last_restart_slot_want
+) {
 
   /* https://github.com/solana-labs/solana/blob/v1.18.18/runtime/src/bank.rs#L2093-L2095 */
   if( !FD_FEATURE_ACTIVE_BANK( slot_ctx->bank, last_restart_slot_sysvar ) ) return;
 
-  int   has_current_last_restart_slot = 0;
-  ulong current_last_restart_slot     = 0UL;
-
   /* https://github.com/solana-labs/solana/blob/v1.18.18/runtime/src/bank.rs#L2098-L2106 */
-  fd_sol_sysvar_last_restart_slot_t * old_account = fd_sysvar_last_restart_slot_read( slot_ctx->funk,
-                                                                                      slot_ctx->funk_txn,
-                                                                                      runtime_spad );
-  ulong old_account_slot        = old_account ? old_account->slot : 0UL;
-  has_current_last_restart_slot = 1;
-  current_last_restart_slot     = old_account_slot;
-
-  /* https://github.com/solana-labs/solana/blob/v1.18.18/runtime/src/bank.rs#L2108-L2120 */
-  /* FIXME: Query hard forks list */
-  ulong last_restart_slot = fd_bank_last_restart_slot_get( slot_ctx->bank ).slot;
+  ulong last_restart_slot_have = ULONG_MAX;
+  fd_sol_sysvar_last_restart_slot_t sysvar;
+  if( FD_LIKELY( fd_sysvar_last_restart_slot_read( slot_ctx->funk, slot_ctx->funk_txn, &sysvar ) ) ) {
+    last_restart_slot_have = sysvar.slot;
+  }
 
   /* https://github.com/solana-labs/solana/blob/v1.18.18/runtime/src/bank.rs#L2122-L2130 */
-  if( !has_current_last_restart_slot || current_last_restart_slot != last_restart_slot ) {
-    fd_sysvar_set( slot_ctx->bank,
-                   slot_ctx->funk,
-                   slot_ctx->funk_txn,
-                   &fd_sysvar_owner_id,
-                   &fd_sysvar_last_restart_slot_id,
-                   &last_restart_slot,
-                   sizeof(ulong),
-                   fd_bank_slot_get( slot_ctx->bank ) );
+  if( last_restart_slot_have != last_restart_slot_want ) {
+    sysvar.slot = last_restart_slot_want;
+    fd_sysvar_last_restart_slot_write( slot_ctx, &sysvar );
   }
 }

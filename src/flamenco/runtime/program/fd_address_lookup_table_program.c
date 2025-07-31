@@ -3,9 +3,9 @@
 #include "../fd_pubkey_utils.h"
 #include "../fd_borrowed_account.h"
 #include "../sysvar/fd_sysvar_slot_hashes.h"
-#include "../sysvar/fd_sysvar_clock.h"
 #include "../../vm/syscall/fd_vm_syscall.h"
 #include "fd_native_cpi.h"
+#include "../fd_runtime_err.h"
 
 #include <string.h>
 
@@ -107,7 +107,8 @@ fd_addrlut_serialize_meta( fd_address_lookup_table_state_t const * state,
 }
 
 static ulong
-slot_hashes_position( fd_slot_hash_t const * hashes, ulong slot ) {
+slot_hashes_position( fd_slot_hash_t const * hashes, /* deque */
+                      ulong                  slot ) {
   /* Logic is copied from slice::binary_search_by() in Rust. While not fully optimized,
      it aims to achieve fuzzing conformance for both sorted and unsorted inputs.
      Returns the slot hash position of the input slot. */
@@ -130,7 +131,7 @@ slot_hashes_position( fd_slot_hash_t const * hashes, ulong slot ) {
 static uchar
 fd_addrlut_status( fd_lookup_table_meta_t const * state,
                    ulong                          current_slot,
-                   fd_slot_hash_t const *         slot_hashes,
+                   fd_slot_hash_t const *         slot_hashes, /* deque */
                    ulong *                        remaining_blocks ) {
   /* https://github.com/anza-xyz/agave/blob/368ea563c423b0a85cc317891187e15c9a321521/sdk/program/src/address_lookup_table/state.rs#L82-L83 */
   if( state->deactivation_slot==ULONG_MAX ) {
@@ -252,16 +253,14 @@ create_lookup_table( fd_exec_instr_ctx_t *       ctx,
   ulong derivation_slot = 1UL;
 
   do {
-    fd_slot_hashes_global_t const * slot_hashes_global = fd_sysvar_slot_hashes_read( ctx->txn_ctx->funk, ctx->txn_ctx->funk_txn, ctx->txn_ctx->spad );
-
-    if( FD_UNLIKELY( !slot_hashes_global ) ) {
+    fd_slot_hash_t const * slot_hash = fd_sysvar_cache_slot_hashes_join_const( ctx->sysvar_cache );
+    if( FD_UNLIKELY( !slot_hash ) ) {
       return FD_EXECUTOR_INSTR_ERR_UNSUPPORTED_SYSVAR;
     }
 
-    fd_slot_hash_t * slot_hash = deq_fd_slot_hash_t_join( (uchar*)slot_hashes_global + slot_hashes_global->hashes_offset );
-
     /* https://github.com/solana-labs/solana/blob/v1.17.4/programs/address-lookup-table/src/processor.rs#L97 */
     ulong is_recent_slot = slot_hashes_position( slot_hash, create->recent_slot )!=ULONG_MAX;
+    fd_sysvar_cache_slot_hashes_leave_const( ctx->sysvar_cache, slot_hash );
     if( FD_UNLIKELY( !is_recent_slot ) ) {
       /* https://github.com/solana-labs/solana/blob/v1.17.4/programs/address-lookup-table/src/processor.rs#L100-L105 */
       /* Max msg_sz: 24 - 3 + 20 = 41 < 127 => we can use printf */
@@ -300,11 +299,11 @@ create_lookup_table( fd_exec_instr_ctx_t *       ctx,
 
   /* https://github.com/solana-labs/solana/blob/v1.17.4/programs/address-lookup-table/src/processor.rs#L137-L142 */
 
-  fd_rent_t const * rent              = fd_bank_rent_query( ctx->txn_ctx->bank );
-  ulong             tbl_acct_data_len = 0x38UL;
-  ulong             required_lamports = fd_rent_exempt_minimum_balance( rent, tbl_acct_data_len );
-                    required_lamports = fd_ulong_max( required_lamports, 1UL );
-                    required_lamports = fd_ulong_sat_sub( required_lamports, lut_lamports );
+  fd_rent_t const rent = fd_sysvar_cache_rent_read_nofail( ctx->sysvar_cache );
+  ulong tbl_acct_data_len = 0x38UL;
+  ulong required_lamports = fd_rent_exempt_minimum_balance( &rent, tbl_acct_data_len );
+  /* */ required_lamports = fd_ulong_max( required_lamports, 1UL );
+  /* */ required_lamports = fd_ulong_sat_sub( required_lamports, lut_lamports );
 
   /* https://github.com/solana-labs/solana/blob/v1.17.4/programs/address-lookup-table/src/processor.rs#L144-L149 */
   if( required_lamports>0UL ) {
@@ -670,7 +669,8 @@ extend_lookup_table( fd_exec_instr_ctx_t *       ctx,
   }
 
   /* https://github.com/solana-labs/solana/blob/v1.17.4/programs/address-lookup-table/src/processor.rs#L290 */
-  fd_sol_sysvar_clock_t const * clock = fd_sysvar_clock_read( ctx->txn_ctx->funk, ctx->txn_ctx->funk_txn, ctx->txn_ctx->spad );
+  fd_sol_sysvar_clock_t clock_;
+  fd_sol_sysvar_clock_t const * clock = fd_sysvar_cache_clock_read( ctx->sysvar_cache, &clock_ );
   if( FD_UNLIKELY( !clock ) ) {
     return FD_EXECUTOR_INSTR_ERR_UNSUPPORTED_SYSVAR;
   }
@@ -713,10 +713,10 @@ extend_lookup_table( fd_exec_instr_ctx_t *       ctx,
 
 
   /* https://github.com/solana-labs/solana/blob/v1.17.4/programs/address-lookup-table/src/processor.rs#L317-L321 */
-  fd_rent_t const * rent              = fd_bank_rent_query( ctx->txn_ctx->bank );
-  ulong             required_lamports = fd_rent_exempt_minimum_balance( rent, new_table_data_sz );
-                    required_lamports = fd_ulong_max    ( required_lamports, 1UL );
-                    required_lamports = fd_ulong_sat_sub( required_lamports, lut_lamports );
+  fd_rent_t rent[1] = { fd_sysvar_cache_rent_read_nofail( ctx->sysvar_cache ) };
+  ulong required_lamports = fd_rent_exempt_minimum_balance( rent, new_table_data_sz );
+  /* */ required_lamports = fd_ulong_max    ( required_lamports, 1UL );
+  /* */ required_lamports = fd_ulong_sat_sub( required_lamports, lut_lamports );
 
   if( required_lamports ) {
     fd_pubkey_t const * payer_key = NULL;
@@ -867,7 +867,8 @@ deactivate_lookup_table( fd_exec_instr_ctx_t * ctx ) {
   }
 
   /* https://github.com/solana-labs/solana/blob/v1.17.4/programs/address-lookup-table/src/processor.rs#L380 */
-  fd_sol_sysvar_clock_t const * clock = fd_sysvar_clock_read( ctx->txn_ctx->funk, ctx->txn_ctx->funk_txn, ctx->txn_ctx->spad );
+  fd_sol_sysvar_clock_t clock_;
+  fd_sol_sysvar_clock_t const * clock = fd_sysvar_cache_clock_read( ctx->sysvar_cache, &clock_ );
   if( FD_UNLIKELY( !clock ) ) {
     return FD_EXECUTOR_INSTR_ERR_UNSUPPORTED_SYSVAR;
   }
@@ -986,22 +987,22 @@ close_lookup_table( fd_exec_instr_ctx_t * ctx ) {
   }
 
   /* https://github.com/solana-labs/solana/blob/v1.17.4/programs/address-lookup-table/src/processor.rs#L437 */
-  fd_sol_sysvar_clock_t const * clock = fd_sysvar_clock_read( ctx->txn_ctx->funk, ctx->txn_ctx->funk_txn, ctx->txn_ctx->spad );
+  fd_sol_sysvar_clock_t clock_;
+  fd_sol_sysvar_clock_t * clock = fd_sysvar_cache_clock_read( ctx->sysvar_cache, &clock_ );
   if( FD_UNLIKELY( !clock ) ) {
     return FD_EXECUTOR_INSTR_ERR_UNSUPPORTED_SYSVAR;
   }
 
   /* https://github.com/solana-labs/solana/blob/v1.17.4/programs/address-lookup-table/src/processor.rs#L438 */
-  fd_slot_hashes_global_t const * slot_hashes_global = fd_sysvar_slot_hashes_read( ctx->txn_ctx->funk, ctx->txn_ctx->funk_txn, ctx->txn_ctx->spad );
-  if( FD_UNLIKELY( !slot_hashes_global ) ) {
+  fd_slot_hash_t const * slot_hash = fd_sysvar_cache_slot_hashes_join_const( ctx->sysvar_cache );
+  if( FD_UNLIKELY( !slot_hash ) ) {
     return FD_EXECUTOR_INSTR_ERR_UNSUPPORTED_SYSVAR;
   }
-
-  fd_slot_hash_t * slot_hash = deq_fd_slot_hash_t_join( (uchar*)slot_hashes_global + slot_hashes_global->hashes_offset );
 
   /* https://github.com/solana-labs/solana/blob/v1.17.4/programs/address-lookup-table/src/processor.rs#L440 */
   ulong remaining_blocks = 0UL;
   int status = fd_addrlut_status( &state->meta, clock->slot, slot_hash, &remaining_blocks );
+  fd_sysvar_cache_slot_hashes_leave_const( ctx->sysvar_cache, slot_hash );
 
   switch( status ) {
     case FD_ADDRLUT_STATUS_ACTIVATED:
@@ -1112,7 +1113,7 @@ fd_address_lookup_table_program_execute( fd_exec_instr_ctx_t * ctx ) {
 static uchar
 is_active( fd_address_lookup_table_t const * self,
            ulong                             current_slot,
-           fd_slot_hash_t const *            slot_hashes ) {
+           fd_slot_hash_t const *            slot_hashes ) { /* deque */
   /* https://github.com/anza-xyz/agave/blob/368ea563c423b0a85cc317891187e15c9a321521/sdk/program/src/address_lookup_table/state.rs#L73-L77 */
   ulong _dummy[1];
   switch( fd_addrlut_status( &self->meta, current_slot, slot_hashes, _dummy ) ) {
@@ -1131,7 +1132,7 @@ is_active( fd_address_lookup_table_t const * self,
 int
 fd_get_active_addresses_len( fd_address_lookup_table_t * self,
                              ulong                       current_slot,
-                             fd_slot_hash_t const *      slot_hashes,
+                             fd_slot_hash_t const *      slot_hashes, /* deque */
                              ulong                       addresses_len,
                              ulong *                     active_addresses_len ) {
   /* https://github.com/anza-xyz/agave/blob/368ea563c423b0a85cc317891187e15c9a321521/sdk/program/src/address_lookup_table/state.rs#L147-L152 */

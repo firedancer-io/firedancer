@@ -1,4 +1,7 @@
 #include "fd_harness_common.h"
+#include "../../fd_system_ids.h"
+#include "../../context/fd_exec_slot_ctx.h"
+#include "../../sysvar/fd_sysvar_recent_hashes.h"
 
 ulong
 fd_runtime_fuzz_runner_align( void ) {
