@@ -267,6 +267,8 @@ fd_ssping_add( fd_ssping_t * ssping,
     peer->snapshot_info.full.sshash.slot        = ULONG_MAX;
     peer->snapshot_info.incremental.base_slot   = ULONG_MAX;
     peer->snapshot_info.incremental.sshash.slot = ULONG_MAX;
+    peer->snapshot_info.full.slot_diff          = ULONG_MAX;
+    peer->snapshot_info.incremental.slot_diff   = ULONG_MAX;
     peer->full_latency_nanos        = 0UL;
     peer->incremental_latency_nanos = 0UL;
     peer_map_ele_insert( ssping->map, peer, ssping->pool );
@@ -445,14 +447,14 @@ poll_advance( fd_ssping_t * ssping,
        ping. */
     if( fd_ssresolve_is_done( peer->full_ssresolve ) &&
         fd_ssresolve_is_done( peer->inc_ssresolve ) ) {
-      FD_LOG_NOTICE(("successfully resolved snapshots for peer " FD_IP4_ADDR_FMT ":%hu "
+      FD_LOG_INFO(("successfully resolved snapshots for peer " FD_IP4_ADDR_FMT ":%hu "
                     "with full slot %lu, incremental base slot %lu and incremental slot %lu",
                     FD_IP4_ADDR_FMT_ARGS( peer->addr.addr ), peer->addr.port,
                     peer->snapshot_info.full.sshash.slot,
                     peer->snapshot_info.incremental.base_slot,
                     peer->snapshot_info.incremental.sshash.slot ));
       peer->latency_nanos = (peer->full_latency_nanos + peer->incremental_latency_nanos) / 2UL;
-      FD_LOG_NOTICE(( "full latency is %lu, incremental latency is %lu, latency is %lu",
+      FD_LOG_INFO(( "full latency is %lu, incremental latency is %lu, latency is %lu",
                       peer->full_latency_nanos, peer->incremental_latency_nanos, peer->latency_nanos ));
 
       if( FD_LIKELY( peer->state==PEER_STATE_REFRESHING ) ) {
@@ -624,11 +626,31 @@ fd_ssping_update_scores( fd_ssping_t *   ssping,
   }
 }
 
-fd_ip4_port_t
+fd_sspeer_t
 fd_ssping_best( fd_ssping_t const * ssping ) {
   score_treap_fwd_iter_t iter = score_treap_fwd_iter_init( ssping->score_treap, ssping->pool );
-  if( FD_UNLIKELY( score_treap_fwd_iter_done( iter ) ) ) return (fd_ip4_port_t){ .l=0UL };
+  if( FD_UNLIKELY( score_treap_fwd_iter_done( iter ) ) ) return (fd_sspeer_t){ .addr={.l=0UL} };
 
   fd_ssping_peer_t const * best = score_treap_fwd_iter_ele_const( iter, ssping->pool );
-  return best->addr;
+
+  fd_sspeer_t peer = {
+    .addr = best->addr,
+    .snapshot_info = {
+      .full = {
+        .slot = best->snapshot_info.full.sshash.slot,
+        .slot_diff = best->snapshot_info.full.slot_diff,
+      },
+      .incremental = {
+        .base_slot = best->snapshot_info.incremental.base_slot,
+        .slot = best->snapshot_info.incremental.sshash.slot,
+        .slot_diff = best->snapshot_info.incremental.slot_diff,
+      }
+    }
+  };
+
+  if( peer.snapshot_info.full.slot_diff==ULONG_MAX ) {
+    return (fd_sspeer_t){ .addr={.l=0UL} };
+  }
+
+  return peer;
 }

@@ -404,8 +404,8 @@ after_credit( fd_snaprd_tile_t *  ctx,
 
   switch ( ctx->state ) {
     case FD_SNAPRD_STATE_WAITING_FOR_PEERS: {
-      fd_ip4_port_t best = fd_ssping_best( ctx->ssping );
-      if( FD_LIKELY( best.l ) ) {
+      fd_sspeer_t best = fd_ssping_best( ctx->ssping );
+      if( FD_LIKELY( best.addr.l ) ) {
         ctx->state = FD_SNAPRD_STATE_COLLECTING_PEERS;
         ctx->deadline_nanos = now + 500L*1000L*1000L;
       }
@@ -414,8 +414,8 @@ after_credit( fd_snaprd_tile_t *  ctx,
     case FD_SNAPRD_STATE_COLLECTING_PEERS: {
       if( FD_UNLIKELY( now<ctx->deadline_nanos ) ) break;
 
-      fd_ip4_port_t best = fd_ssping_best( ctx->ssping );
-      if( FD_UNLIKELY( !best.l ) ) {
+      fd_sspeer_t best = fd_ssping_best( ctx->ssping );
+      if( FD_UNLIKELY( !best.addr.l ) ) {
         ctx->state = FD_SNAPRD_STATE_WAITING_FOR_PEERS;
         break;
       }
@@ -426,10 +426,10 @@ after_credit( fd_snaprd_tile_t *  ctx,
         FD_LOG_NOTICE(( "loading full snapshot from local file `%s`", ctx->local_in.full_snapshot_path ));
         ctx->state = FD_SNAPRD_STATE_READING_FULL_FILE;
       } else {
-        FD_LOG_NOTICE(( "downloading full snapshot from http://" FD_IP4_ADDR_FMT ":%hu/snapshot.tar.bz2", FD_IP4_ADDR_FMT_ARGS( best.addr ), fd_ushort_bswap( best.port ) ));
-        ctx->addr  = best;
+        FD_LOG_NOTICE(( "downloading full snapshot from http://" FD_IP4_ADDR_FMT ":%hu/snapshot.tar.bz2 with full slot %lu full_slot_diff %lu", FD_IP4_ADDR_FMT_ARGS( best.addr.addr ), fd_ushort_bswap( best.addr.port ), best.snapshot_info.full.slot, best.snapshot_info.full.slot_diff ));
+        ctx->addr  = best.addr;
         ctx->state = FD_SNAPRD_STATE_READING_FULL_HTTP;
-        fd_sshttp_init( ctx->sshttp, best, "/snapshot.tar.bz2", 17UL, now );
+        fd_sshttp_init( ctx->sshttp, best.addr, "/snapshot.tar.bz2", 17UL, now );
       }
       break;
     }
@@ -583,7 +583,7 @@ after_frag( fd_snaprd_tile_t *  ctx,
             fd_ssping_remove( ctx->ssping, cur_addr );
 
             if( new_addr.l ) {
-              FD_LOG_WARNING(("adding contact info for peer "FD_IP4_ADDR_FMT ":%hu ",
+              FD_LOG_INFO(("adding contact info for peer "FD_IP4_ADDR_FMT ":%hu ",
                               FD_IP4_ADDR_FMT_ARGS( new_addr.addr ), fd_ushort_bswap( new_addr.port ) ));
               fd_ssping_add( ctx->ssping, new_addr );
             }
@@ -606,7 +606,7 @@ after_frag( fd_snaprd_tile_t *  ctx,
         fd_pubkey_t pubkey;
         fd_memcpy( &pubkey, msg->origin_pubkey, sizeof(fd_pubkey_t) );
 
-        FD_LOG_NOTICE(("encountered pubkey %s with full slot %lu and incremental slot %lu",
+        FD_LOG_INFO(("encountered pubkey %s with full slot %lu and incremental slot %lu",
           FD_BASE58_ENC_32_ALLOCA( pubkey.hash ), msg->snapshot_hashes.full->slot, msg->snapshot_hashes.inc[ 0 ].slot ));
 
         fd_known_validator_t * known_validator = fd_known_validators_set_query( ctx->config.known_validators_set, pubkey, NULL );
