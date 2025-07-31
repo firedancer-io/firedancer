@@ -19,11 +19,8 @@
 // https://github.com/anza-xyz/agave/blob/v2.2.0/cost-model/src/block_cost_limits.rs#L34
 #define FD_MAX_WRITABLE_ACCOUNT_UNITS ( 12000000UL )
 
-// https://github.com/anza-xyz/agave/blob/v2.2.0/cost-model/src/block_cost_limits.rs#L28
-#define FD_MAX_BLOCK_UNITS ( 48000000UL )
-
-// https://github.com/anza-xyz/agave/blob/v2.2.0/cost-model/src/block_cost_limits.rs#L29C11-L29C36
-#define FD_MAX_BLOCK_UNITS_SIMD_0207 ( 50000000UL )
+// https://github.com/anza-xyz/agave/blob/v2.3.0/cost-model/src/block_cost_limits.rs#L50-L56
+#define FD_MAX_BLOCK_UNITS_SIMD_0256 ( 60000000UL )
 
 // https://github.com/anza-xyz/agave/blob/v2.2.0/cost-model/src/block_cost_limits.rs#L38
 #define FD_MAX_VOTE_UNITS ( 36000000UL )
@@ -42,7 +39,7 @@
 /* This is the reasonably tight upper bound for the number of writable
    accounts in a slot. The block CU limit should always be highest
    anticipated limit. */
-#define FD_WRITABLE_ACCS_IN_SLOT ((FD_MAX_BLOCK_UNITS_SIMD_0207 + FD_WRITE_LOCK_UNITS - 1UL) / FD_WRITE_LOCK_UNITS)
+#define FD_WRITABLE_ACCS_IN_SLOT ((FD_MAX_BLOCK_UNITS_SIMD_0256 + FD_WRITE_LOCK_UNITS - 1UL) / FD_WRITE_LOCK_UNITS)
 
 FD_PROTOTYPES_BEGIN
 
