@@ -419,12 +419,6 @@ fd_txn_account_get_acc_data_mut( fd_txn_account_t const * acct ) {
   return acct->private_state.data;
 }
 
-void
-fd_txn_account_set_meta_mutable( fd_txn_account_t *  acct,
-                                 fd_account_meta_t * meta ) {
-  acct->private_state.meta = meta;
-}
-
 ulong
 fd_txn_account_get_data_len( fd_txn_account_t const * acct ) {
   if( FD_UNLIKELY( !acct->private_state.meta ) ) FD_LOG_ERR(("account is not setup" ));
@@ -463,20 +457,46 @@ fd_txn_account_get_info( fd_txn_account_t const * acct ) {
 }
 
 void
+fd_txn_account_set_meta( fd_txn_account_t * acct, fd_account_meta_t * meta ) {
+  if( FD_UNLIKELY( !acct->is_mutable ) ) {
+    FD_LOG_CRIT(( "account is not mutable" ));
+  }
+  if( FD_UNLIKELY( !meta ) ) {
+    FD_LOG_CRIT(( "account is not setup" ));
+  }
+  acct->private_state.meta = meta;
+}
+
+void
 fd_txn_account_set_executable( fd_txn_account_t * acct, int is_executable ) {
-  if( FD_UNLIKELY( !acct->private_state.meta ) ) FD_LOG_ERR(("account is not mutable" ));
+  if( FD_UNLIKELY( !acct->is_mutable ) ) {
+    FD_LOG_CRIT(( "account is not mutable" ));
+  }
+  if( FD_UNLIKELY( !acct->private_state.meta ) ) {
+    FD_LOG_CRIT(( "account is not setup" ));
+  }
   acct->private_state.meta->info.executable = !!is_executable;
 }
 
 void
 fd_txn_account_set_owner( fd_txn_account_t * acct, fd_pubkey_t const * owner ) {
-  if( FD_UNLIKELY( !acct->private_state.meta ) ) FD_LOG_ERR(("account is not mutable" ));
+  if( FD_UNLIKELY( !acct->is_mutable ) ) {
+    FD_LOG_CRIT(( "account is not mutable" ));
+  }
+  if( FD_UNLIKELY( !acct->private_state.meta ) ) {
+    FD_LOG_CRIT(( "account is not setup" ));
+  }
   fd_memcpy( acct->private_state.meta->info.owner, owner, sizeof(fd_pubkey_t) );
 }
 
 void
 fd_txn_account_set_lamports( fd_txn_account_t * acct, ulong lamports ) {
-  if( FD_UNLIKELY( !acct->private_state.meta ) ) FD_LOG_ERR(("account is not mutable" ));
+  if( FD_UNLIKELY( !acct->is_mutable ) ) {
+    FD_LOG_CRIT(( "account is not mutable" ));
+  }
+  if( FD_UNLIKELY( !acct->private_state.meta ) ) {
+    FD_LOG_CRIT(( "account is not setup" ));
+  }
   acct->private_state.meta->info.lamports = lamports;
 }
 
@@ -508,57 +528,93 @@ fd_txn_account_checked_sub_lamports( fd_txn_account_t * acct, ulong lamports ) {
 
 void
 fd_txn_account_set_rent_epoch( fd_txn_account_t * acct, ulong rent_epoch ) {
-  if( FD_UNLIKELY( !acct->private_state.meta ) ) FD_LOG_ERR(("account is not mutable" ));
+  if( FD_UNLIKELY( !acct->is_mutable ) ) {
+    FD_LOG_CRIT(( "account is not mutable" ));
+  }
+  if( FD_UNLIKELY( !acct->private_state.meta ) ) {
+    FD_LOG_CRIT(( "account is not setup" ));
+  }
   acct->private_state.meta->info.rent_epoch = rent_epoch;
 }
 
 void
 fd_txn_account_set_data( fd_txn_account_t * acct,
-                                  void const *       data,
-                                  ulong              data_sz) {
-  if( FD_UNLIKELY( !acct->private_state.meta ) ) FD_LOG_ERR(("account is not mutable" ));
+                         void const *       data,
+                         ulong              data_sz ) {
+  if( FD_UNLIKELY( !acct->is_mutable ) ) {
+    FD_LOG_CRIT(( "account is not mutable" ));
+  }
+  if( FD_UNLIKELY( !acct->private_state.meta ) ) {
+    FD_LOG_CRIT(( "account is not setup" ));
+  }
   acct->private_state.meta->dlen = data_sz;
   fd_memcpy( acct->private_state.data, data, data_sz );
 }
 
 void
-fd_txn_account_set_data_len( fd_txn_account_t * acct,
-                                      ulong              data_len ) {
-  if( FD_UNLIKELY( !acct->private_state.meta ) ) FD_LOG_ERR(("account is not mutable" ));
+fd_txn_account_set_data_len( fd_txn_account_t * acct, ulong data_len ) {
+  if( FD_UNLIKELY( !acct->is_mutable ) ) {
+    FD_LOG_CRIT(( "account is not mutable" ));
+  }
+  if( FD_UNLIKELY( !acct->private_state.meta ) ) {
+    FD_LOG_CRIT(( "account is not setup" ));
+  }
   acct->private_state.meta->dlen = data_len;
 }
 
 void
-fd_txn_account_set_slot( fd_txn_account_t * acct,
-                         ulong              slot ) {
-  if( FD_UNLIKELY( !acct->private_state.meta ) ) FD_LOG_ERR(("account is not mutable" ));
+fd_txn_account_set_slot( fd_txn_account_t * acct, ulong slot ) {
+  if( FD_UNLIKELY( !acct->is_mutable ) ) {
+    FD_LOG_CRIT(( "account is not mutable" ));
+  }
+  if( FD_UNLIKELY( !acct->private_state.meta ) ) {
+    FD_LOG_CRIT(( "account is not setup" ));
+  }
   acct->private_state.meta->slot = slot;
 }
 
 void
-fd_txn_account_set_hash( fd_txn_account_t * acct,
-                                  fd_hash_t const *  hash ) {
-  if( FD_UNLIKELY( !acct->private_state.meta ) ) FD_LOG_ERR(("account is not mutable" ));
+fd_txn_account_set_hash( fd_txn_account_t * acct, fd_hash_t const *  hash ) {
+  if( FD_UNLIKELY( !acct->is_mutable ) ) {
+    FD_LOG_CRIT(( "account is not mutable" ));
+  }
+  if( FD_UNLIKELY( !acct->private_state.meta ) ) {
+    FD_LOG_CRIT(( "account is not setup" ));
+  }
   memcpy( acct->private_state.meta->hash, hash->hash, sizeof(fd_hash_t) );
 }
 
 void
 fd_txn_account_clear_owner( fd_txn_account_t * acct ) {
-  if( FD_UNLIKELY( !acct->private_state.meta ) ) FD_LOG_ERR(("account is not mutable" ));
+  if( FD_UNLIKELY( !acct->is_mutable ) ) {
+    FD_LOG_CRIT(( "account is not mutable" ));
+  }
+  if( FD_UNLIKELY( !acct->private_state.meta ) ) {
+    FD_LOG_CRIT(( "account is not setup" ));
+  }
   fd_memset( acct->private_state.meta->info.owner, 0, sizeof(fd_pubkey_t) );
 }
 
 void
-fd_txn_account_set_meta_info( fd_txn_account_t *               acct,
-                              fd_solana_account_meta_t const * info ) {
-  if( FD_UNLIKELY( !acct->private_state.meta ) ) FD_LOG_ERR(("account is not mutable" ));
+fd_txn_account_set_meta_info( fd_txn_account_t * acct, fd_solana_account_meta_t const * info ) {
+  if( FD_UNLIKELY( !acct->is_mutable ) ) {
+    FD_LOG_CRIT(( "account is not mutable" ));
+  }
+  if( FD_UNLIKELY( !acct->private_state.meta ) ) {
+    FD_LOG_CRIT(( "account is not setup" ));
+  }
   acct->private_state.meta->info = *info;
 }
 
 void
 fd_txn_account_resize( fd_txn_account_t * acct,
                        ulong              dlen ) {
-  if( FD_UNLIKELY( !acct->private_state.meta ) ) FD_LOG_ERR(("account is not mutable" ));
+  if( FD_UNLIKELY( !acct->is_mutable ) ) {
+    FD_LOG_CRIT(( "account is not mutable" ));
+  }
+  if( FD_UNLIKELY( !acct->private_state.meta ) ) {
+    FD_LOG_CRIT(( "account is not setup" ));
+  }
   /* Because the memory for an account is preallocated for the transaction
      up to the max account size, we only need to zero out bytes (for the case
      where the account grew) and update the account dlen. */
