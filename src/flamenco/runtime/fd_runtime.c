@@ -2425,7 +2425,7 @@ fd_runtime_init_bank_from_genesis( fd_exec_slot_ctx_t *        slot_ctx,
       fd_stake_state_v2_t   stake_state   = {0};
       fd_account_meta_t     meta          = { .dlen = acc->account.data_len };
       FD_TXN_ACCOUNT_DECL( stake_account );
-      fd_txn_account_init_from_meta_and_data_mutable( stake_account, &meta, acc->account.data );
+      fd_txn_account_init_from_meta_and_data( stake_account, &meta, acc->account.data, 1 );
       FD_TEST( fd_stake_get_state( stake_account, &stake_state ) == 0 );
       if( !stake_state.inner.stake.stake.delegation.stake ) {
         continue;

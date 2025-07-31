@@ -1000,11 +1000,11 @@ fd_check_transaction_age( fd_exec_txn_ctx_t * txn_ctx ) {
            Now figure out the state that the nonce account should
            advance to.
          */
-        fd_txn_account_t * rollback_nonce_rec = fd_txn_account_init( &txn_ctx->rollback_nonce_account[ 0 ] );
-        int                err                = fd_txn_account_init_from_funk_readonly( rollback_nonce_rec,
-                                                                                        &txn_ctx->account_keys[ instr_accts[ 0 ] ],
-                                                                                        txn_ctx->funk,
-                                                                                        txn_ctx->funk_txn );
+        int err = fd_txn_account_init_from_funk_readonly(
+            txn_ctx->rollback_nonce_account,
+            &txn_ctx->account_keys[ instr_accts[ 0 ] ],
+            txn_ctx->funk,
+            txn_ctx->funk_txn );
         if( FD_UNLIKELY( err!=FD_ACC_MGR_SUCCESS ) ) {
           return FD_RUNTIME_TXN_ERR_BLOCKHASH_NOT_FOUND;
         }
@@ -1025,18 +1025,18 @@ fd_check_transaction_age( fd_exec_txn_ctx_t * txn_ctx ) {
           FD_LOG_ERR(( "fd_nonce_state_versions_size( &new_state ) %lu > FD_ACC_NONCE_SZ_MAX %lu", fd_nonce_state_versions_size( &new_state ), FD_ACC_NONCE_SZ_MAX ));
         }
         /* make_modifiable uses the old length for the data copy */
-        ulong old_tot_len = sizeof(fd_account_meta_t)+fd_txn_account_get_data_len( rollback_nonce_rec );
+        ulong old_tot_len = sizeof(fd_account_meta_t)+fd_txn_account_get_data_len( txn_ctx->rollback_nonce_account );
         void * borrowed_account_data = fd_spad_alloc( txn_ctx->spad, FD_ACCOUNT_REC_ALIGN, fd_ulong_max( FD_ACC_NONCE_TOT_SZ_MAX, old_tot_len ) );
-        fd_txn_account_make_mutable( rollback_nonce_rec,
+        fd_txn_account_make_mutable( txn_ctx->rollback_nonce_account,
                                      borrowed_account_data,
                                      txn_ctx->spad_wksp );
-        if( FD_UNLIKELY( fd_nonce_state_versions_size( &new_state ) > fd_txn_account_get_data_len( rollback_nonce_rec ) ) ) {
+        if( FD_UNLIKELY( fd_nonce_state_versions_size( &new_state ) > fd_txn_account_get_data_len( txn_ctx->rollback_nonce_account ) ) ) {
           return FD_RUNTIME_TXN_ERR_BLOCKHASH_NOT_FOUND;
         }
         do {
           fd_bincode_encode_ctx_t encode_ctx =
-            { .data    = fd_txn_account_get_acc_data_mut( rollback_nonce_rec ),
-              .dataend = fd_txn_account_get_acc_data_mut( rollback_nonce_rec ) + fd_txn_account_get_data_len( rollback_nonce_rec ) };
+            { .data    = fd_txn_account_get_acc_data_mut( txn_ctx->rollback_nonce_account ),
+              .dataend = fd_txn_account_get_acc_data_mut( txn_ctx->rollback_nonce_account ) + fd_txn_account_get_data_len( txn_ctx->rollback_nonce_account ) };
           int err = fd_nonce_state_versions_encode( &new_state, &encode_ctx );
           if( FD_UNLIKELY( err ) ) {
             return FD_RUNTIME_TXN_ERR_BLOCKHASH_NOT_FOUND;

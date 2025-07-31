@@ -138,9 +138,11 @@ fd_runtime_fuzz_instr_ctx_create( fd_runtime_fuzz_runner_t *           runner,
       uchar * data = fd_spad_alloc( txn_ctx->spad, FD_ACCOUNT_REC_ALIGN, FD_ACC_TOT_SZ_MAX );
       ulong   dlen = fd_txn_account_get_data_len( acc );
       fd_memcpy( data, fd_txn_account_get_acc_meta( acc ), sizeof(fd_account_meta_t)+dlen );
-      fd_txn_account_init_from_meta_and_data_readonly( acc,
-                                                       (fd_account_meta_t const *)data,
-                                                       data + sizeof(fd_account_meta_t) );
+      fd_txn_account_init_from_meta_and_data(
+          acc,
+          (fd_account_meta_t *)data,
+          data + sizeof(fd_account_meta_t),
+          0 );
     }
 
     if( !memcmp( accts[j].pubkey, test_ctx->program_id, sizeof(fd_pubkey_t) ) ) {

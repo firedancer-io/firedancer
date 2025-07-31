@@ -2152,38 +2152,6 @@ fd_vote_record_timestamp_vote_with_slot( fd_pubkey_t const *  vote_acc,
   fd_bank_clock_timestamp_votes_end_locking_modify( bank );
 }
 
-// https://github.com/anza-xyz/agave/blob/v2.0.1/sdk/program/src/vote/state/mod.rs#L751
-int
-fd_vote_acc_credits( fd_exec_instr_ctx_t const * ctx,
-                     fd_account_meta_t const *   vote_acc_meta,
-                     uchar const *               vote_acc_data,
-                     ulong *                     result ) {
-  int rc;
-
-  fd_sol_sysvar_clock_t const * clock = fd_sysvar_clock_read( ctx->txn_ctx->funk, ctx->txn_ctx->funk_txn, ctx->txn_ctx->spad );
-  if( FD_UNLIKELY( !clock ) ) return FD_EXECUTOR_INSTR_ERR_UNSUPPORTED_SYSVAR;
-
-  /* Read vote account */
-  FD_TXN_ACCOUNT_DECL( vote_account );
-  fd_txn_account_init_from_meta_and_data_readonly( vote_account, vote_acc_meta, vote_acc_data );
-
-  rc = 0;
-
-  fd_vote_state_versioned_t * vote_state_versioned = get_state( vote_account,
-                                                                ctx->txn_ctx->spad,
-                                                                &rc );
-  if( FD_UNLIKELY( rc ) ) return rc;
-  convert_to_current( vote_state_versioned, ctx->txn_ctx->spad );
-  fd_vote_state_t * state = &vote_state_versioned->inner.current;
-  if( deq_fd_vote_epoch_credits_t_empty( state->epoch_credits ) ) {
-    *result = 0;
-  } else {
-    *result = deq_fd_vote_epoch_credits_t_peek_tail_const( state->epoch_credits )->credits;
-  }
-
-  return FD_EXECUTOR_INSTR_SUCCESS;
-}
-
 /// returns commission split as (voter_portion, staker_portion, was_split) tuple
 ///
 ///  if commission calculation is 100% one way or other, indicate with false for was_split

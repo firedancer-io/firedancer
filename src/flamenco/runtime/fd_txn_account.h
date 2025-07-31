@@ -2,8 +2,11 @@
 #define HEADER_fd_src_flamenco_runtime_fd_txn_account_h
 
 #include "../../ballet/txn/fd_txn.h"
+#include "../fd_flamenco_base.h"
 #include "program/fd_program_util.h"
-#include "fd_txn_account_private.h"
+#include "fd_executor_err.h"
+#include "../types/fd_types.h"
+#include "../../funk/fd_funk_rec.h"
 
 struct fd_acc_mgr;
 typedef struct fd_acc_mgr fd_acc_mgr_t;
@@ -13,7 +16,16 @@ struct __attribute__((aligned(8UL))) fd_txn_account {
 
   fd_pubkey_t                     pubkey[1];
 
-  fd_txn_account_private_state_t  private_state;
+  fd_account_meta_t *             meta;
+  uchar *                         data;
+  fd_funk_rec_t *                 rec;
+
+  ulong                           meta_gaddr;
+  ulong                           data_gaddr;
+
+  /* Provide borrowing semantics. Used for single-threaded logic only,
+     thus not comparable to a data synchronization lock. */
+  ushort                          refcnt_excl;
 
   ulong                           starting_dlen;
   ulong                           starting_lamports;
@@ -36,24 +48,14 @@ FD_PROTOTYPES_BEGIN
 fd_txn_account_t *
 fd_txn_account_init( void * ptr );
 
-/* Assigns account meta and data for a readonly txn account */
+/* Assigns account meta and data for a txn account */
+
 void
-fd_txn_account_init_from_meta_and_data_mutable( fd_txn_account_t *  acct,
-                                                fd_account_meta_t * meta,
-                                                uchar *             data );
+fd_txn_account_init_from_meta_and_data( fd_txn_account_t *  acct,
+                                        fd_account_meta_t * meta,
+                                        uchar *             data,
+                                        int                 is_mutable );
 
-/* Assigns account meta and data for a mutable txn account */
-void
-fd_txn_account_init_from_meta_and_data_readonly( fd_txn_account_t *       acct,
-                                                fd_account_meta_t const * meta,
-                                                uchar const *             data );
-
-/* Sets up a readonly sentinel account meta for the txn object.
-   Allocates from the given spad and uses the spad_wksp to set the
-   meta gaddr field.
-
-   Intended for use in the executor tile only, where txn accounts
-   must be setup readonly. */
 void
 fd_txn_account_setup_sentinel_meta_readonly( fd_txn_account_t * acct,
                                              fd_spad_t *        spad,
@@ -182,8 +184,7 @@ fd_txn_account_set_data( fd_txn_account_t * acct,
                          ulong              data_sz );
 
 void
-fd_txn_account_set_data_len( fd_txn_account_t * acct,
-                             ulong              data_len );
+fd_txn_account_set_data_len( fd_txn_account_t * acct, ulong data_len );
 
 void
 fd_txn_account_set_slot( fd_txn_account_t * acct,
@@ -201,8 +202,7 @@ fd_txn_account_set_meta_info( fd_txn_account_t *               acct,
                               fd_solana_account_meta_t const * info );
 
 void
-fd_txn_account_resize( fd_txn_account_t * acct,
-                       ulong              dlen );
+fd_txn_account_resize( fd_txn_account_t * acct, ulong dlen );
 
 ushort
 fd_txn_account_is_borrowed( fd_txn_account_t const * acct );

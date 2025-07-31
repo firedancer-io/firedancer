@@ -968,42 +968,40 @@ static void
 fd_executor_create_rollback_fee_payer_account( fd_exec_txn_ctx_t * txn_ctx,
                                                ulong               total_fee ) {
   fd_txn_account_t * fee_payer_rec = &txn_ctx->accounts[FD_FEE_PAYER_TXN_IDX];
-  fd_txn_account_t * rollback_fee_payer_rec;
+  fd_txn_account_t * rollback_fee_payer_acc;
 
   /* When setting the data of the rollback fee payer, there is an edge case where the fee payer is the nonce account.
      In this case, we can just deduct fees from the nonce account and return, because we save the nonce account in the
      commit phase anyways. */
   if( FD_UNLIKELY( txn_ctx->nonce_account_idx_in_txn==FD_FEE_PAYER_TXN_IDX ) ) {
-    rollback_fee_payer_rec = txn_ctx->rollback_nonce_account;
+    rollback_fee_payer_acc = txn_ctx->rollback_nonce_account;
 
     /* We also need to update the rent epoch because technically, Agave copies these fields
        from the fee payer account (since the rollback account does not reflect these changes yet) */
-    fd_txn_account_set_rent_epoch( rollback_fee_payer_rec,
-                                                fd_txn_account_get_rent_epoch( fee_payer_rec ) );
+    fd_txn_account_set_rent_epoch( rollback_fee_payer_acc, fd_txn_account_get_rent_epoch( fee_payer_rec ) );
   } else {
 
     /* In this case, the fee payer is not equal to the nonce account (whether or not it exists).
        Load in a copy of the fee payer account from funk */
-    rollback_fee_payer_rec = fd_txn_account_init( txn_ctx->rollback_fee_payer_account );
-    fd_txn_account_init_from_funk_readonly( rollback_fee_payer_rec, &txn_ctx->account_keys[FD_FEE_PAYER_TXN_IDX], txn_ctx->funk, txn_ctx->funk_txn );
-    memcpy( rollback_fee_payer_rec->pubkey->key, &txn_ctx->account_keys[FD_FEE_PAYER_TXN_IDX], sizeof(fd_pubkey_t) );
+    fd_txn_account_init_from_funk_readonly( txn_ctx->rollback_fee_payer_account, &txn_ctx->account_keys[FD_FEE_PAYER_TXN_IDX], txn_ctx->funk, txn_ctx->funk_txn );
+    memcpy( txn_ctx->rollback_fee_payer_account->pubkey->key, &txn_ctx->account_keys[FD_FEE_PAYER_TXN_IDX], sizeof(fd_pubkey_t) );
 
     /* This allocation should only ever be 104 bytes (since dlen should be 0). */
     ulong  data_len       = fd_txn_account_get_data_len( &txn_ctx->accounts[FD_FEE_PAYER_TXN_IDX] );
     void * fee_payer_data = fd_spad_alloc( txn_ctx->spad, FD_ACCOUNT_REC_ALIGN, sizeof(fd_account_meta_t) + data_len );
-    fd_txn_account_make_mutable( rollback_fee_payer_rec, fee_payer_data, txn_ctx->spad_wksp );
+    fd_txn_account_make_mutable( txn_ctx->rollback_fee_payer_account, fee_payer_data, txn_ctx->spad_wksp );
 
     /* There's another weird edge case where if the transaction contains a nonce account, you also have
        to save the rent epoch field of the fee payer account.
        https://github.com/anza-xyz/agave/blob/v2.2.13/svm/src/rollback_accounts.rs#L68-L75 */
     if( txn_ctx->nonce_account_idx_in_txn!=ULONG_MAX ) {
-      fd_txn_account_set_rent_epoch( rollback_fee_payer_rec,
-                                                  fd_txn_account_get_rent_epoch( fee_payer_rec ) );
+      fd_txn_account_set_rent_epoch( txn_ctx->rollback_fee_payer_account, fd_txn_account_get_rent_epoch( fee_payer_rec ) );
     }
+    rollback_fee_payer_acc = txn_ctx->rollback_fee_payer_account;
   }
 
   /* Deduct the transaction fees from the rollback account. Because of prior checks, this should never fail. */
-  if( FD_UNLIKELY( fd_txn_account_checked_sub_lamports( rollback_fee_payer_rec, total_fee ) ) ) {
+  if( FD_UNLIKELY( fd_txn_account_checked_sub_lamports( rollback_fee_payer_acc, total_fee ) ) ) {
     FD_LOG_ERR(( "fd_executor_create_rollback_fee_payer_account(): failed to deduct fees from rollback account" ));
   }
 }
