@@ -61,7 +61,7 @@ FD_PROTOTYPES_BEGIN
 fd_bpf_upgradeable_loader_state_t *
 fd_bpf_loader_program_get_state( fd_txn_account_t const * acc,
                                  fd_spad_t *              spad,
-                                 int *                    err );
+                                 int *                    opt_err );
 
 int
 fd_deploy_program( fd_exec_instr_ctx_t * instr_ctx,
@@ -74,14 +74,6 @@ fd_bpf_execute( fd_exec_instr_ctx_t * instr_ctx, fd_sbpf_validated_program_t con
 
 int
 fd_bpf_loader_program_execute( fd_exec_instr_ctx_t * instr_ctx );
-
-/* read_bpf_upgradeable_loader_state_for_program allocates and returns the
-   bpf loader state for a given program id account within the scope of a txn. */
-
-fd_bpf_upgradeable_loader_state_t *
-read_bpf_upgradeable_loader_state_for_program( fd_exec_txn_ctx_t *                 txn_ctx,
-                                               ushort                              program_id,
-                                               int *                               opt_err );
 
 /* Public APIs */
 

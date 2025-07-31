@@ -420,7 +420,7 @@ fd_bpf_check_and_create_bpf_program_cache_entry( fd_exec_slot_ctx_t * slot_ctx,
     return -1;
   }
 
-  if( !fd_executor_pubkey_is_bpf_loader( exec_rec->vt->get_owner( exec_rec ) ) ) {
+  if( !fd_pubkey_is_bpf_loader( exec_rec->vt->get_owner( exec_rec ) ) ) {
     return -1;
   }
 
@@ -534,7 +534,7 @@ FD_SPAD_FRAME_BEGIN( runtime_spad ) {
   }
 
   /* The account owner must be a BPF loader to even be considered. */
-  if( FD_UNLIKELY( !fd_executor_pubkey_is_bpf_loader( exec_rec->vt->get_owner( exec_rec ) ) ) ) {
+  if( FD_UNLIKELY( !fd_pubkey_is_bpf_loader( exec_rec->vt->get_owner( exec_rec ) ) ) ) {
     return;
   }
 

@@ -868,6 +868,10 @@ fd_system_program_exec_upgrade_nonce_account( fd_exec_instr_ctx_t * ctx ) {
   return FD_EXECUTOR_INSTR_SUCCESS;
 }
 
+/**********************************************************************/
+/* Public API                                                         */
+/**********************************************************************/
+
 /* https://github.com/anza-xyz/agave/blob/16de8b75ebcd57022409b422de557dd37b1de8db/runtime/src/bank.rs#L3529-L3554 */
 /* The age of a transaction is valid under two conditions. The first is that
    the transactions blockhash is a recent blockhash (within 151) in the block
@@ -1048,5 +1052,47 @@ fd_check_transaction_age( fd_exec_txn_ctx_t * txn_ctx ) {
   }
   /* This means that the blockhash was not found */
   return FD_RUNTIME_TXN_ERR_BLOCKHASH_NOT_FOUND;
+}
 
+int
+fd_get_system_account_kind( fd_txn_account_t * account,
+                            fd_spad_t *        exec_spad ) {
+  /* https://github.com/anza-xyz/solana-sdk/blob/nonce-account%40v2.2.1/nonce-account/src/lib.rs#L56 */
+  if( FD_UNLIKELY( memcmp( account->vt->get_owner( account ), fd_solana_system_program_id.uc, sizeof(fd_pubkey_t) ) ) ) {
+    return FD_SYSTEM_PROGRAM_NONCE_ACCOUNT_KIND_UNKNOWN;
+  }
+
+  /* https://github.com/anza-xyz/solana-sdk/blob/nonce-account%40v2.2.1/nonce-account/src/lib.rs#L57-L58 */
+  if( FD_LIKELY( !account->vt->get_data_len( account ) ) ) {
+    return FD_SYSTEM_PROGRAM_NONCE_ACCOUNT_KIND_SYSTEM;
+  }
+
+  /* https://github.com/anza-xyz/solana-sdk/blob/nonce-account%40v2.2.1/nonce-account/src/lib.rs#L59 */
+  if( FD_UNLIKELY( account->vt->get_data_len( account )!=FD_SYSTEM_PROGRAM_NONCE_DLEN ) ) {
+    return FD_SYSTEM_PROGRAM_NONCE_ACCOUNT_KIND_UNKNOWN;
+  }
+
+  /* https://github.com/anza-xyz/solana-sdk/blob/nonce-account%40v2.2.1/nonce-account/src/lib.rs#L60-L64 */
+  int err;
+  fd_nonce_state_versions_t * versions = fd_bincode_decode_spad(
+      nonce_state_versions, exec_spad,
+      account->vt->get_data( account ),
+      account->vt->get_data_len( account ),
+      &err );
+  if( FD_UNLIKELY( err ) ) {
+    return FD_SYSTEM_PROGRAM_NONCE_ACCOUNT_KIND_UNKNOWN;
+  }
+
+  fd_nonce_state_t * state = NULL;
+  if( fd_nonce_state_versions_is_current( versions ) ) {
+    state = &versions->inner.current;
+  } else {
+    state = &versions->inner.legacy;
+  }
+
+  if( FD_LIKELY( fd_nonce_state_is_initialized( state ) ) ) {
+    return FD_SYSTEM_PROGRAM_NONCE_ACCOUNT_KIND_NONCE;
+  }
+
+  return FD_SYSTEM_PROGRAM_NONCE_ACCOUNT_KIND_UNKNOWN;
 }
