@@ -59,11 +59,6 @@ fd_txn_account_new( void *              mem,
 fd_txn_account_t *
 fd_txn_account_join( void * mem, fd_wksp_t * data_wksp );
 
-void
-fd_txn_account_setup_sentinel_meta_readonly( fd_txn_account_t * acct,
-                                             fd_spad_t *        spad,
-                                             fd_wksp_t *        spad_wksp );
-
 /* Operators */
 
 /* buf is a handle to the account shared data. Sets the account shared

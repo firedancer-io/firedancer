@@ -121,23 +121,6 @@ fd_txn_account_setup_common( fd_txn_account_t * acct ) {
 }
 
 void
-fd_txn_account_setup_sentinel_meta_readonly( fd_txn_account_t * acct,
-                                             fd_spad_t *        spad,
-                                             fd_wksp_t *        spad_wksp ) {
-
-  fd_account_meta_t * sentinel = fd_spad_alloc( spad, FD_ACCOUNT_REC_ALIGN, sizeof(fd_account_meta_t) );
-  fd_memset( sentinel, 0, sizeof(fd_account_meta_t) );
-
-  sentinel->magic                = FD_ACCOUNT_META_MAGIC;
-  sentinel->info.rent_epoch      = ULONG_MAX;
-  acct->meta                     = sentinel;
-  acct->starting_lamports        = 0UL;
-  acct->starting_dlen            = 0UL;
-  acct->meta_gaddr = fd_wksp_gaddr( spad_wksp, sentinel );
-  acct->is_mutable               = 0;
-}
-
-void
 fd_txn_account_setup( fd_txn_account_t *        acct,
                       fd_pubkey_t const *       pubkey,
                       fd_account_meta_t const * meta,
