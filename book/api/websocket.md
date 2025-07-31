@@ -38,6 +38,36 @@ file.
 The API is split into various topics which will be streamed to any and
 all connected clients.
 
+## Compression
+If configured properly, the server can optionally compress messages
+larger than 200 bytes. In order to enable this feature, the client must
+specify the `compress-zstd` subprotocol in the opening websocket
+handshake.
+
+::: code-group
+
+```js [client.js]
+client = new WebSocket("ws://localhost:80/websocket", protocols=['compress-zstd']);
+client.binaryType = "arraybuffer";
+```
+
+```
+ws.onmessage = function onmessage(ev: MessageEvent<unknown>) {
+  if (typeof ev.data === 'string') {
+    ... parse string
+  } else if (ev.data instanceof ArrayBuffer) {
+    ... decompress then parse
+  }
+};
+```
+
+:::
+
+In order to distinguish between compressed and non-compressed messages,
+the server will send compressed messages as a binary websocket frame
+(i.e. opcode=0x2) and regular messages as a text websocket frame (i.e.
+opcode=0x1).
+
 ## Keeping Up
 The server does not drop information, slow down, or stop publishing the
 stream of information if the client cannot keep up. A client that is
