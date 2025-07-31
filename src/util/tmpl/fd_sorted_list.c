@@ -339,6 +339,7 @@ SORTLIST_(iter_done)( SORTLIST_(iter_t) iter ) {
 void
 SORTLIST_(verify)( SORTLIST_(joined_t) join ) {
   FD_TEST( join.hdr->sorted_cnt <= join.hdr->total_cnt );
+  FD_TEST( join.hdr->actual_cnt <= join.hdr->total_cnt );
   FD_TEST( join.hdr->total_cnt <= join.hdr->max );
 
   char * tags = (char*)alloca(join.hdr->max);
@@ -353,6 +354,7 @@ SORTLIST_(verify)( SORTLIST_(joined_t) join ) {
     tags[off/sizeof(SORTLIST_(element))] = 1;
     cnt++;
   }
+  FD_TEST( cnt == join.hdr->actual_cnt );
 
   uint off = join.hdr->first_free;
   while( off != UINT_MAX ) {
