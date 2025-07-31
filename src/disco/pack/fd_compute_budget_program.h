@@ -41,6 +41,7 @@ static const uchar FD_COMPUTE_BUDGET_PROGRAM_ID[FD_TXN_ACCT_ADDR_SZ] = {
    10^(-6) lamports, so 10^(-15) SOL. */
 #define FD_COMPUTE_BUDGET_MICRO_LAMPORTS_PER_LAMPORT     (    1000000UL)
 
+#define FD_COMPUTE_BUDGET_MAX_BUILTIN_CU_LIMIT           (       3000UL)
 #define FD_COMPUTE_BUDGET_DEFAULT_INSTR_CU_LIMIT         (     200000UL)
 #define FD_COMPUTE_BUDGET_MAX_CU_LIMIT                   (    1400000UL)
 #define FD_COMPUTE_BUDGET_HEAP_COST                      (          8UL)
@@ -141,27 +142,34 @@ fd_compute_budget_program_parse( uchar const * instr_data,
   }
 }
 
-/* fd_compute_budget_program_finalize: digests the state that resulted from
-   processing all of the ComputeBudgetProgram instructions in a transaction to
-   compute the total priority rewards for the transaction.  state must point to
-   a previously initialized fd_compute_budget_program_state_t.  instr_cnt is the
-   total number of instructions in the transaction, including
-   ComputeBudgetProgram instructions.  out_rewards and out_compute must be
-   non-null.  The total priority rewards for the transaction (i.e. not counting
-   the per-signature fee) is stored in out_rewards.  The maximum number of
-   compute units this transaction can consume is stored in out_compute.  If the
-   transaction execution has not completed by this limit, it is terminated and
+/* fd_compute_budget_program_finalize: digests the state that resulted
+   from processing all of the ComputeBudgetProgram instructions in a
+   transaction to compute the total priority rewards for the
+   transaction.  state must point to a previously initialized
+   fd_compute_budget_program_state_t.  instr_cnt is the total number of
+   instructions in the transaction, including ComputeBudgetProgram
+   instructions.  builtin_instr_cnt is the total number of builtin
+   instructions in the transaction.  The set of builtin instructions is
+   dependent on both the agave codebase and active feature flags.  This
+   codebase uses a hardcoded list of instructions that should be updated
+   to exclude instructions as they are migrated to non-builtin status.
+   out_rewards and out_compute must be non-null.  The total priority
+   rewards for the transaction (i.e. not counting the per-signature fee)
+   is stored in out_rewards.  The maximum number of compute units this
+   transaction can consume is stored in out_compute.  If the transaction
+   execution has not completed by this limit, it is terminated and
    considered failed. */
 static inline void
 fd_compute_budget_program_finalize( fd_compute_budget_program_state_t const * state,
                                     ulong                                     instr_cnt,
+                                    ulong                                     builtin_instr_cnt,
                                     ulong *                                   out_rewards,
                                     uint *                                    out_compute,
                                     ulong *                                   out_loaded_account_data_cost ) {
   ulong cu_limit = 0UL;
   if( FD_LIKELY( (state->flags & FD_COMPUTE_BUDGET_PROGRAM_FLAG_SET_CU)==0U ) ) {
     /* Use default compute limit */
-    cu_limit = (instr_cnt - state->compute_budget_instr_cnt) * FD_COMPUTE_BUDGET_DEFAULT_INSTR_CU_LIMIT;
+    cu_limit = (instr_cnt - builtin_instr_cnt) * FD_COMPUTE_BUDGET_DEFAULT_INSTR_CU_LIMIT + builtin_instr_cnt * FD_COMPUTE_BUDGET_MAX_BUILTIN_CU_LIMIT;
   } else cu_limit = state->compute_units;
 
   cu_limit = fd_ulong_min( cu_limit, FD_COMPUTE_BUDGET_MAX_CU_LIMIT );

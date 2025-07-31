@@ -64,15 +64,15 @@ typedef struct fd_pack_builtin_prog_cost fd_pack_builtin_prog_cost_t;
 
 
 /* The cost model estimates 200,000 CUs for builtin programs that were migrated to BPF */
-#define MAP_PERFECT_0  ( VOTE_PROG_ID            ), .cost_per_instr=        3000UL
-#define MAP_PERFECT_1  ( SYS_PROG_ID             ), .cost_per_instr=        3000UL
-#define MAP_PERFECT_2  ( COMPUTE_BUDGET_PROG_ID  ), .cost_per_instr=        3000UL
-#define MAP_PERFECT_3  ( BPF_UPGRADEABLE_PROG_ID ), .cost_per_instr=        3000UL
-#define MAP_PERFECT_4  ( BPF_LOADER_1_PROG_ID    ), .cost_per_instr=        3000UL
-#define MAP_PERFECT_5  ( BPF_LOADER_2_PROG_ID    ), .cost_per_instr=        3000UL
-#define MAP_PERFECT_6  ( LOADER_V4_PROG_ID       ), .cost_per_instr=        3000UL
-#define MAP_PERFECT_7  ( KECCAK_SECP_PROG_ID     ), .cost_per_instr=        3000UL
-#define MAP_PERFECT_8  ( ED25519_SV_PROG_ID      ), .cost_per_instr=        3000UL
+#define MAP_PERFECT_0  ( VOTE_PROG_ID            ), .cost_per_instr= FD_COMPUTE_BUDGET_MAX_BUILTIN_CU_LIMIT
+#define MAP_PERFECT_1  ( SYS_PROG_ID             ), .cost_per_instr= FD_COMPUTE_BUDGET_MAX_BUILTIN_CU_LIMIT
+#define MAP_PERFECT_2  ( COMPUTE_BUDGET_PROG_ID  ), .cost_per_instr= FD_COMPUTE_BUDGET_MAX_BUILTIN_CU_LIMIT
+#define MAP_PERFECT_3  ( BPF_UPGRADEABLE_PROG_ID ), .cost_per_instr= FD_COMPUTE_BUDGET_MAX_BUILTIN_CU_LIMIT
+#define MAP_PERFECT_4  ( BPF_LOADER_1_PROG_ID    ), .cost_per_instr= FD_COMPUTE_BUDGET_MAX_BUILTIN_CU_LIMIT
+#define MAP_PERFECT_5  ( BPF_LOADER_2_PROG_ID    ), .cost_per_instr= FD_COMPUTE_BUDGET_MAX_BUILTIN_CU_LIMIT
+#define MAP_PERFECT_6  ( LOADER_V4_PROG_ID       ), .cost_per_instr= FD_COMPUTE_BUDGET_MAX_BUILTIN_CU_LIMIT
+#define MAP_PERFECT_7  ( KECCAK_SECP_PROG_ID     ), .cost_per_instr= FD_COMPUTE_BUDGET_MAX_BUILTIN_CU_LIMIT
+#define MAP_PERFECT_8  ( ED25519_SV_PROG_ID      ), .cost_per_instr= FD_COMPUTE_BUDGET_MAX_BUILTIN_CU_LIMIT
 
 #include "../../util/tmpl/fd_map_perfect.c"
 
@@ -231,7 +231,6 @@ fd_pack_compute_cost( fd_txn_t const * txn,
   ulong writable_cost  = FD_PACK_COST_PER_WRITABLE_ACCT  * fd_txn_account_cnt( txn, FD_TXN_ACCT_CAT_WRITABLE );
 
   ulong instr_data_sz      = 0UL; /* < FD_TPU_MTU */
-  ulong builtin_cost       = 0UL; /* <= 2370*FD_TXN_INSTR_MAX */
   ulong non_builtin_cnt    = 0UL; /* <= FD_TXN_INSTR_MAX */
   ulong precompile_sig_cnt = 0UL; /* <= FD_TXN_INSTR_MAX * UCHAR_MAX */
   fd_acct_addr_t const * addr_base = fd_txn_get_acct_addrs( txn, payload );
@@ -249,7 +248,6 @@ fd_pack_compute_cost( fd_txn_t const * txn,
 
     fd_pack_builtin_prog_cost_t null_row[1] = {{{ 0 }, 0UL }};
     fd_pack_builtin_prog_cost_t const * in_tbl = fd_pack_builtin_query( prog_id, null_row );
-    builtin_cost    +=  in_tbl->cost_per_instr;
     non_builtin_cnt += !in_tbl->cost_per_instr; /* The only one with no cost is the null one */
 
     if( FD_UNLIKELY( in_tbl==compute_budget_row ) ) {
@@ -271,30 +269,23 @@ fd_pack_compute_cost( fd_txn_t const * txn,
   ulong instr_data_cost = instr_data_sz / FD_PACK_INV_COST_PER_INSTR_DATA_BYTE; /* <= 320 */
 
   ulong fee[1];
-  uint compute[1];
+  uint execution_cost[1];
   ulong loaded_account_data_cost[1];
-  fd_compute_budget_program_finalize( cbp, txn->instr_cnt, fee, compute, loaded_account_data_cost );
+  fd_compute_budget_program_finalize( cbp, txn->instr_cnt, txn->instr_cnt-non_builtin_cnt, fee, execution_cost, loaded_account_data_cost );
 
-  non_builtin_cnt = fd_ulong_min( non_builtin_cnt, FD_COMPUTE_BUDGET_MAX_CU_LIMIT/FD_COMPUTE_BUDGET_DEFAULT_INSTR_CU_LIMIT );
-
-  ulong execution_cost = fd_ulong_if( (cbp->flags & FD_COMPUTE_BUDGET_PROGRAM_FLAG_SET_CU) && (non_builtin_cnt>0UL),
-                                      (ulong)*compute,
-                                      builtin_cost + non_builtin_cnt*FD_COMPUTE_BUDGET_DEFAULT_INSTR_CU_LIMIT
-                                    ); /* <= FD_COMPUTE_BUDGET_MAX_CU_LIMIT */
-
-  fd_ulong_store_if( !!opt_execution_cost,            opt_execution_cost,            execution_cost                );
+  fd_ulong_store_if( !!opt_execution_cost,            opt_execution_cost,            (ulong)(*execution_cost)      );
   fd_ulong_store_if( !!opt_fee,                       opt_fee,                       *fee                          );
   fd_ulong_store_if( !!opt_precompile_sig_cnt,        opt_precompile_sig_cnt,        precompile_sig_cnt            );
   fd_ulong_store_if( !!opt_loaded_accounts_data_cost, opt_loaded_accounts_data_cost, *loaded_account_data_cost     );
 
 #if DETAILED_LOGGING
   FD_BASE58_ENCODE_64_BYTES( (const uchar *)fd_txn_get_signatures(txn, payload), signature_cstr );
-  FD_LOG_NOTICE(( "TXN signature[%s] signature_cost[%lu]  writable_cost[%lu]  builtin_cost[%lu]  instr_data_cost[%lu]  non_builtin_cost[%lu]  loaded_account_data_cost[%lu]  precompile_sig_cnt[%lu]  fee[%lu]",
-  signature_cstr, signature_cost, writable_cost, builtin_cost, instr_data_cost, non_builtin_cost, *loaded_account_data_cost, precompile_sig_cnt, *fee));
+  FD_LOG_NOTICE(( "TXN signature[%s] signature_cost[%lu]  writable_cost[%lu]  instr_data_cost[%lu]  non_builtin_cost[%lu]  loaded_account_data_cost[%lu]  precompile_sig_cnt[%lu]  fee[%lu]",
+  signature_cstr, signature_cost, writable_cost, instr_data_cost, non_builtin_cost, *loaded_account_data_cost, precompile_sig_cnt, *fee));
 #endif
 
   /* <= FD_PACK_MAX_COST, so no overflow concerns */
-  return signature_cost + writable_cost + execution_cost + instr_data_cost + *loaded_account_data_cost;
+  return signature_cost + writable_cost + *execution_cost + instr_data_cost + *loaded_account_data_cost;
 }
 #undef MAP_PERFECT_HASH_PP
 #undef PERFECT_HASH
