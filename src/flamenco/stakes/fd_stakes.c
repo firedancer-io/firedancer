@@ -565,12 +565,11 @@ fd_refresh_vote_accounts( fd_exec_slot_ctx_t *       slot_ctx,
 
 static void
 accumulate_stake_cache_delegations(
-    fd_delegation_pair_t_mapnode_t * delegation_min,
     fd_exec_slot_ctx_t const *       slot_ctx,
+    fd_stakes_slim_t const *         stakes,
     fd_stake_history_t const *       history,
     ulong *                          new_rate_activation_epoch,
     fd_stake_history_entry_t *       accumulator,
-    fd_delegation_pair_t_mapnode_t * delegations_pool,
     fd_epoch_info_t *                temp_info,
     ulong                            epoch
 ) {
@@ -578,9 +577,8 @@ accumulate_stake_cache_delegations(
   ulong activating   = 0UL;
   ulong deactivating = 0UL;
 
-  for( fd_delegation_pair_t_mapnode_t * n =  delegation_min;
-                                        n != NULL;
-                                        n =  fd_delegation_pair_t_map_successor( delegations_pool, n ) ) {
+  for( ulong i=0; i<stakes->stake_accounts_cnt; i++ ) {
+    fd_stake_account_slim_t const * n = &stakes->stake_accounts[i];
 
     FD_TXN_ACCOUNT_DECL( acc );
     int rc = fd_txn_account_init_from_funk_readonly( acc,
@@ -640,20 +638,12 @@ fd_accumulate_stake_infos( fd_exec_slot_ctx_t const * slot_ctx,
 
   FD_SPAD_FRAME_BEGIN( runtime_spad ) {
 
-  ulong stake_delegations_pool_sz = stakes->stake_accounts_cnt;
-  if( FD_UNLIKELY( stake_delegations_pool_sz==0UL ) ) {
-    return;
-  }
-
-  fd_delegation_pair_t_mapnode_t * batch_delegation_min = fd_delegation_pair_t_map_minimum( stake_delegations_pool, stake_delegations_root );
-
   accumulate_stake_cache_delegations(
-      batch_delegation_min,
       slot_ctx,
+      stakes,
       history,
       new_rate_activation_epoch,
       accumulator,
-      stake_delegations_pool,
       temp_info,
       stakes->epoch
   );

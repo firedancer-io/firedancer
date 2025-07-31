@@ -52,8 +52,9 @@ union SORTLIST_(element) {
 typedef union SORTLIST_(element) SORTLIST_(element_t);
 
 struct SORTLIST_(private) {
-  uint sorted_cnt;       /* How many elements are already sorted */
-  uint total_cnt;        /* How many elements are in the list */
+  uint actual_cnt;       /* How many elements are actually in the list and not deleted */
+  uint sorted_cnt;       /* How many elements are already sorted in the list, including recent deletions */
+  uint total_cnt;        /* How many elements are in the list, including recent deletions */
   uint max;              /* Max number of elements */
   uint first_free;
   // uint offsets[total_cnt];
@@ -89,6 +90,8 @@ SORTLIST_STATIC ulong SORTLIST_(max_for_footprint)( ulong footprint );
 SORTLIST_STATIC void * SORTLIST_(new)( void * shmem, ulong max );
 
 SORTLIST_STATIC SORTLIST_(joined_t) SORTLIST_(join)( void * shsortlist, ulong max );
+
+SORTLIST_STATIC ulong SORTLIST_(actual_cnt)( SORTLIST_(joined_t) join );
 
 SORTLIST_STATIC ulong SORTLIST_(max)( SORTLIST_(joined_t) join );
 
@@ -160,9 +163,7 @@ SORTLIST_(join)( void * shsortlist, ulong max ) {
 void *
 SORTLIST_(new)( void * shmem, ulong max ) {
   SORTLIST_(joined_t) joined = SORTLIST_(join)( shmem, max );
-
-  joined.hdr->sorted_cnt = 0;
-  joined.hdr->total_cnt = 0;
+  memset( joined.hdr, 0, sizeof(SORTLIST_(private_t)) );
   joined.hdr->max = (uint)max;
   SORTLIST_(element) * pool = joined.pool;
   uint last_free = UINT_MAX;
@@ -173,6 +174,11 @@ SORTLIST_(new)( void * shmem, ulong max ) {
   joined.hdr->first_free = last_free;
 
   return shmem;
+}
+
+ulong
+SORTLIST_(actual_cnt)( SORTLIST_(joined_t) join ) {
+  return join.hdr->actual_cnt;
 }
 
 ulong
@@ -208,6 +214,7 @@ SORTLIST_(resort)( SORTLIST_(joined_t) join ) {
     join.hdr->total_cnt--;
   }
   join.hdr->sorted_cnt = join.hdr->total_cnt;
+  FD_TEST( join.hdr->actual_cnt == join.hdr->total_cnt );
 }
 
 /* Returns the position of the offset for the element with the given key, or
@@ -274,6 +281,7 @@ SORTLIST_(erase)( SORTLIST_(joined_t) join, SORTLIST_KEY_T const * key ) {
   elem->next_free = join.hdr->first_free;
   join.hdr->first_free = off;
   join.offsets[idx] = UINT_MAX;
+  join.hdr->actual_cnt--;
   return 0;
 }
 
@@ -293,6 +301,7 @@ SORTLIST_(add)( SORTLIST_(joined_t) join, SORTLIST_KEY_T const * key ) {
   elem->data.SORTLIST_KEY_NAME = *key;
   join.offsets[join.hdr->total_cnt++] = off;
   FD_TEST( join.hdr->total_cnt <= join.hdr->max );
+  join.hdr->actual_cnt++;
   return &elem->data;
 }
 
@@ -330,6 +339,7 @@ SORTLIST_(iter_done)( SORTLIST_(iter_t) iter ) {
 void
 SORTLIST_(verify)( SORTLIST_(joined_t) join ) {
   FD_TEST( join.hdr->sorted_cnt <= join.hdr->total_cnt );
+  FD_TEST( join.hdr->actual_cnt <= join.hdr->total_cnt );
   FD_TEST( join.hdr->total_cnt <= join.hdr->max );
 
   char * tags = (char*)alloca(join.hdr->max);
@@ -344,6 +354,7 @@ SORTLIST_(verify)( SORTLIST_(joined_t) join ) {
     tags[off/sizeof(SORTLIST_(element))] = 1;
     cnt++;
   }
+  FD_TEST( cnt == join.hdr->actual_cnt );
 
   uint off = join.hdr->first_free;
   while( off != UINT_MAX ) {
