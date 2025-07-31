@@ -60,7 +60,7 @@ fd_sysvar_instructions_serialize_account( fd_exec_txn_ctx_t *      txn_ctx,
         - sizeof(fd_account_meta_t) + serialized_sz will always be less than FD_ACC_TOT_SZ_MAX
         - at most 127 accounts could be using spad memory right now, so this allocation is safe */
   if( !fd_txn_account_is_mutable( rec ) ) {
-    uchar * mem = fd_spad_alloc( txn_ctx->spad, FD_TXN_ACCOUNT_ALIGN, serialized_sz );
+    uchar *             mem  = fd_spad_alloc( txn_ctx->spad, FD_TXN_ACCOUNT_ALIGN, sizeof(fd_account_meta_t) + serialized_sz );
     fd_account_meta_t * meta = (fd_account_meta_t *)mem;
     uchar *             data = (uchar *)meta + sizeof(fd_account_meta_t);
     fd_txn_account_t *  acc  = fd_txn_account_join( fd_txn_account_new( rec, meta, data, 1 ), txn_ctx->spad_wksp );
