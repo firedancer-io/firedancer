@@ -2421,12 +2421,22 @@ fd_runtime_init_bank_from_genesis( fd_exec_slot_ctx_t *        slot_ctx,
                     FD_BASE58_ENC_32_ALLOCA( node->elem.key.key ),
                     node->elem.stake ));
     } else if( !memcmp( acc->account.owner.key, fd_solana_stake_program_id.key, sizeof(fd_pubkey_t) ) ) {
+      FD_SPAD_FRAME_BEGIN( runtime_spad ) {
+
       /* stake program account */
       fd_stake_state_v2_t   stake_state   = {0};
-      fd_account_meta_t     meta          = { .dlen = acc->account.data_len };
-      FD_TXN_ACCOUNT_DECL( stake_account );
-      fd_txn_account_init_from_meta_and_data( stake_account, &meta, acc->account.data, 1 );
-      FD_TEST( fd_stake_get_state( stake_account, &stake_state ) == 0 );
+
+      uchar * stake_acc_mem = fd_spad_alloc( runtime_spad, FD_TXN_ACCOUNT_ALIGN, sizeof(fd_account_meta_t) + acc->account.data_len );
+      fd_account_meta_t * stake_meta = (fd_account_meta_t *)stake_acc_mem;
+      uchar *             stake_data = (uchar *)stake_meta + sizeof(fd_account_meta_t);
+      fd_wksp_t *         wksp       = fd_wksp_containing( stake_acc_mem );
+
+      fd_txn_account_t stake_acc[1];
+      if( FD_UNLIKELY( !fd_txn_account_join( fd_txn_account_new( stake_acc, stake_meta, stake_data, 1 ), wksp ) ) ) {
+        FD_LOG_CRIT(( "Failed to join and new a txn account" ));
+      }
+
+      FD_TEST( fd_stake_get_state( stake_acc, &stake_state ) == 0 );
       if( !stake_state.inner.stake.stake.delegation.stake ) {
         continue;
       }
@@ -2443,6 +2453,8 @@ fd_runtime_init_bank_from_genesis( fd_exec_slot_ctx_t *        slot_ctx,
         fd_memcpy( &node->elem.account, acc->key.key, sizeof(fd_pubkey_t) );
         node->elem.delegation = stake_state.inner.stake.stake.delegation;
       }
+
+      } FD_SPAD_FRAME_END;
     } else if( !memcmp(acc->account.owner.key, fd_solana_feature_program_id.key, sizeof(fd_pubkey_t)) ) {
       /* Feature Account */
 

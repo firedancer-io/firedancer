@@ -50,23 +50,19 @@ fd_txn_account_init( void * ptr );
 
 /* Assigns account meta and data for a txn account */
 
-void
-fd_txn_account_init_from_meta_and_data( fd_txn_account_t *  acct,
-                                        fd_account_meta_t * meta,
-                                        uchar *             data,
-                                        int                 is_mutable );
+void *
+fd_txn_account_new( void *              mem,
+                    fd_account_meta_t * meta,
+                    uchar *             data,
+                    int                 is_mutable );
+
+fd_txn_account_t *
+fd_txn_account_join( void * mem, fd_wksp_t * data_wksp );
 
 void
 fd_txn_account_setup_sentinel_meta_readonly( fd_txn_account_t * acct,
                                              fd_spad_t *        spad,
                                              fd_wksp_t *        spad_wksp );
-
-/* Sets up a mutable account meta for the txn_account.
-   Allocates a mutable account meta object from the given spad with the given sz. */
-void
-fd_txn_account_setup_meta_mutable( fd_txn_account_t * acct,
-                                   fd_spad_t *        spad,
-                                   ulong              sz );
 
 /* Operators */
 
@@ -123,6 +119,8 @@ void
 fd_txn_account_mutable_fini( fd_txn_account_t * acct,
                              fd_funk_t *        funk,
                              fd_funk_txn_t *    txn );
+
+/* Accesssors and mutators*/
 
 fd_pubkey_t const *
 fd_txn_account_get_owner( fd_txn_account_t const * acct );

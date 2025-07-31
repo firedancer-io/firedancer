@@ -76,7 +76,6 @@ fd_runtime_fuzz_load_account( fd_txn_account_t *                acc,
     return 0;
   }
 
-  fd_txn_account_init( acc );
   ulong size = 0UL;
   if( state->data ) size = state->data->size;
 

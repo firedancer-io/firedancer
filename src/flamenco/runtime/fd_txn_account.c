@@ -1,6 +1,77 @@
 #include "fd_txn_account.h"
 #include "fd_runtime.h"
 
+void *
+fd_txn_account_new( void *              mem,
+                    fd_account_meta_t * meta,
+                    uchar *             data,
+                    int                 is_mutable ) {
+  if( FD_UNLIKELY( !mem ) ) {
+    FD_LOG_WARNING(( "NULL mem" ));
+    return NULL;
+  }
+
+  if( FD_UNLIKELY( !fd_ulong_is_aligned( (ulong)mem, alignof(fd_txn_account_t) ) ) ) {
+    FD_LOG_WARNING(( "misaligned mem" ));
+  }
+
+  fd_txn_account_t * txn_account = (fd_txn_account_t *)mem;
+
+  fd_wksp_t * wksp = fd_wksp_containing( meta );
+
+  txn_account->magic             = FD_TXN_ACCOUNT_MAGIC;
+
+  txn_account->starting_dlen     = meta->dlen;
+  txn_account->starting_lamports = meta->info.lamports;
+
+  txn_account->meta_gaddr        = fd_wksp_gaddr( wksp, meta );
+  txn_account->data_gaddr        = fd_wksp_gaddr( wksp, data );
+  txn_account->meta              = meta;
+  txn_account->data              = data;
+  txn_account->is_mutable        = is_mutable;
+
+  return mem;
+}
+
+fd_txn_account_t *
+fd_txn_account_join( void * mem, fd_wksp_t * data_wksp ) {
+  if( FD_UNLIKELY( !mem ) ) {
+    FD_LOG_WARNING(( "NULL mem" ));
+    return NULL;
+  }
+
+  if( FD_UNLIKELY( !fd_ulong_is_aligned( (ulong)mem, alignof(fd_txn_account_t) ) ) ) {
+    FD_LOG_WARNING(( "misaligned mem" ));
+    return NULL;
+  }
+
+  fd_txn_account_t * txn_account = (fd_txn_account_t *)mem;
+
+  if( FD_UNLIKELY( txn_account->magic != FD_TXN_ACCOUNT_MAGIC ) ) {
+    FD_LOG_WARNING(( "wrong magic" ));
+    return NULL;
+  }
+
+  if( FD_UNLIKELY( txn_account->meta_gaddr == 0UL ) ) {
+    FD_LOG_WARNING(( "`meta gaddr is 0" ));
+    return NULL;
+  }
+
+  txn_account->meta = fd_wksp_laddr( data_wksp, txn_account->meta_gaddr );
+  if( FD_UNLIKELY( !txn_account->meta ) ) {
+    FD_LOG_WARNING(( "meta is NULL" ));
+    return NULL;
+  }
+
+  txn_account->data = fd_wksp_laddr( data_wksp, txn_account->data_gaddr );
+  if( FD_UNLIKELY( !txn_account->data && txn_account->meta->dlen ) ) {
+    FD_LOG_WARNING(( "data is NULL" ));
+    return NULL;
+  }
+
+  return txn_account;
+}
+
 fd_txn_account_t *
 fd_txn_account_init( void * ptr ) {
   if( FD_UNLIKELY( !ptr ) ) {
@@ -50,16 +121,6 @@ fd_txn_account_setup_common( fd_txn_account_t * acct ) {
 }
 
 void
-fd_txn_account_init_from_meta_and_data( fd_txn_account_t *  acct,
-                                        fd_account_meta_t * meta,
-                                        uchar *             data,
-                                        int                 is_mutable ) {
-  acct->is_mutable = is_mutable;
-  acct->data       = data;
-  acct->meta       = meta;
-}
-
-void
 fd_txn_account_setup_sentinel_meta_readonly( fd_txn_account_t * acct,
                                              fd_spad_t *        spad,
                                              fd_wksp_t *        spad_wksp ) {
@@ -69,7 +130,7 @@ fd_txn_account_setup_sentinel_meta_readonly( fd_txn_account_t * acct,
 
   sentinel->magic                = FD_ACCOUNT_META_MAGIC;
   sentinel->info.rent_epoch      = ULONG_MAX;
-  acct->meta       = sentinel;
+  acct->meta                     = sentinel;
   acct->starting_lamports        = 0UL;
   acct->starting_dlen            = 0UL;
   acct->meta_gaddr = fd_wksp_gaddr( spad_wksp, sentinel );
@@ -77,42 +138,18 @@ fd_txn_account_setup_sentinel_meta_readonly( fd_txn_account_t * acct,
 }
 
 void
-fd_txn_account_setup_meta_mutable( fd_txn_account_t * acct,
-                                   fd_spad_t *        spad,
-                                   ulong              sz ) {
-  fd_account_meta_t * meta = fd_spad_alloc( spad, alignof(fd_account_meta_t), sizeof(fd_account_meta_t) + sz );
-  void * data = (uchar *)meta + sizeof(fd_account_meta_t);
-
-  acct->meta = meta;
-  acct->data = data;
-  acct->is_mutable         = 1;
-}
-
-void
-fd_txn_account_setup_readonly( fd_txn_account_t *        acct,
-                               fd_pubkey_t const *       pubkey,
-                               fd_account_meta_t const * meta ) {
-  fd_memcpy(acct->pubkey, pubkey, sizeof(fd_pubkey_t));
+fd_txn_account_setup( fd_txn_account_t *        acct,
+                      fd_pubkey_t const *       pubkey,
+                      fd_account_meta_t const * meta,
+                      int                       is_mutable ) {
+  fd_memcpy( acct->pubkey, pubkey, sizeof(fd_pubkey_t) );
 
   /* We don't copy the metadata into a buffer here, because we assume
      that we are holding read locks on the account, because we are inside
      a transaction. */
-  acct->meta = (fd_account_meta_t *)meta;
-  acct->data = (uchar *)meta + meta->hlen;
-  acct->is_mutable         = 0;
-
-  fd_txn_account_setup_common( acct );
-}
-
-void
-fd_txn_account_setup_mutable( fd_txn_account_t *        acct,
-                              fd_pubkey_t const *       pubkey,
-                              fd_account_meta_t *       meta ) {
-  fd_memcpy(acct->pubkey, pubkey, sizeof(fd_pubkey_t));
-
-  acct->meta = meta;
-  acct->data = (uchar *)meta + meta->hlen;
-  acct->is_mutable         = 1;
+  acct->meta       = (fd_account_meta_t *)meta;
+  acct->data       = (uchar *)meta + meta->hlen;
+  acct->is_mutable = is_mutable;
 
   fd_txn_account_setup_common( acct );
 }
@@ -193,8 +230,7 @@ fd_txn_account_init_from_funk_readonly( fd_txn_account_t *    acct,
   acct->meta_gaddr = fd_wksp_gaddr( funk_wksp, acct->meta );
   acct->data_gaddr = fd_wksp_gaddr( funk_wksp, acct->data );
 
-  fd_txn_account_setup_readonly( acct, pubkey, meta );
-  acct->is_mutable = 0;
+  fd_txn_account_setup( acct, pubkey, meta, 0 );
 
   return FD_ACC_MGR_SUCCESS;
 }
@@ -231,13 +267,8 @@ fd_txn_account_init_from_funk_mutable( fd_txn_account_t *  acct,
      meta and data should never be used. Instead, populate the prepared_rec
      field so that any created records can be published with fd_txn_account_mutable_fini. */
   acct->prepared_rec = prepare;
-  fd_txn_account_setup_mutable( acct, pubkey, meta );
+  fd_txn_account_setup( acct, pubkey, meta, 1 );
 
-  /* trigger a segfault if the exec tile calls this function,
-     as funk will be mapped read-only */
-  acct->data[0] = acct->data[0];
-
-  acct->is_mutable = 1;
   return FD_ACC_MGR_SUCCESS;
 }
 
