@@ -421,7 +421,7 @@ fd_runtime_fuzz_instr_run( fd_runtime_fuzz_runner_t * runner,
 
   /* Don't capture custom error codes if the program is a precompile */
   if( FD_LIKELY( effects->result ) ) {
-    int program_id_idx = ctx->txn_ctx->instr_infos[ 0UL ].program_id;
+    int program_id_idx = ctx->instr[ 0UL ].program_id;
     if( exec_result==FD_EXECUTOR_INSTR_ERR_CUSTOM_ERR &&
         fd_executor_lookup_native_precompile_program( &ctx->txn_ctx->accounts[ program_id_idx ] )==NULL ) {
       effects->custom_err = ctx->txn_ctx->custom_err;
