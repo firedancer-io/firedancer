@@ -163,6 +163,7 @@ fd_runtime_fuzz_instr_ctx_create( fd_runtime_fuzz_runner_t *           runner,
     memcpy( program_acc->pubkey, test_ctx->program_id, sizeof(fd_pubkey_t) );
     fd_account_meta_t * meta = fd_spad_alloc( txn_ctx->spad, alignof(fd_account_meta_t), sizeof(fd_account_meta_t) );
     fd_account_meta_init( meta );
+    fd_txn_account_set_mutable( program_acc );
     fd_txn_account_set_meta( program_acc, meta );
     info->program_id = (uchar)txn_ctx->accounts_cnt;
     txn_ctx->accounts_cnt++;
