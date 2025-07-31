@@ -23,8 +23,7 @@ fd_sysvar_recent_hashes_init( fd_exec_slot_ctx_t * slot_ctx );
 
 /* Update the recent hashes sysvar account. This should be called at the start of every slot, before execution commences. */
 void
-fd_sysvar_recent_hashes_update( fd_exec_slot_ctx_t * slot_ctx,
-                                fd_spad_t *          runtime_spad );
+fd_sysvar_recent_hashes_update( fd_exec_slot_ctx_t * slot_ctx );
 
 
 /* fd_sysvar_recent_hashes_read reads the recent hashes sysvar from funk.

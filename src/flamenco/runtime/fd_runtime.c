@@ -261,9 +261,9 @@ fd_runtime_run_incinerator( fd_bank_t *     bank,
 }
 
 static void
-fd_runtime_freeze( fd_exec_slot_ctx_t * slot_ctx, fd_spad_t * runtime_spad ) {
+fd_runtime_freeze( fd_exec_slot_ctx_t * slot_ctx ) {
 
-  fd_sysvar_recent_hashes_update( slot_ctx, runtime_spad );
+  fd_sysvar_recent_hashes_update( slot_ctx );
 
   ulong execution_fees = fd_bank_execution_fees_get( slot_ctx->bank );
   ulong priority_fees  = fd_bank_priority_fees_get( slot_ctx->bank );
@@ -1025,7 +1025,7 @@ fd_runtime_block_execute_finalize_start( fd_exec_slot_ctx_t *             slot_c
   fd_sysvar_slot_history_update( slot_ctx, runtime_spad );
 
   /* This slot is now "frozen" and can't be changed anymore. */
-  fd_runtime_freeze( slot_ctx, runtime_spad );
+  fd_runtime_freeze( slot_ctx );
 
   int result = fd_bpf_scan_and_create_bpf_program_cache_entry( slot_ctx, runtime_spad );
   if( FD_UNLIKELY( result ) ) {
@@ -2608,7 +2608,7 @@ fd_runtime_process_genesis_block( fd_exec_slot_ctx_t * slot_ctx,
 
   fd_runtime_update_leaders( slot_ctx->bank, 0, runtime_spad );
 
-  fd_runtime_freeze( slot_ctx, runtime_spad );
+  fd_runtime_freeze( slot_ctx );
 
   /* sort and update bank hash */
   fd_hash_t * bank_hash = fd_bank_bank_hash_modify( slot_ctx->bank );

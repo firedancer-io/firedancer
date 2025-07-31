@@ -216,14 +216,14 @@ fd_runtime_fuzz_txn_ctx_create( fd_runtime_fuzz_runner_t *         runner,
       }
       // Recent block hashes cap is 150 (actually 151), while blockhash queue capacity is 300 (actually 301)
       fd_bank_poh_set( slot_ctx->bank, blockhash );
-      fd_sysvar_recent_hashes_update( slot_ctx, runner->spad );
+      fd_sysvar_recent_hashes_update( slot_ctx );
     }
   } else {
     // Add a default empty blockhash and use it as genesis
     num_blockhashes = 1;
     *fd_bank_genesis_hash_modify( slot_ctx->bank ) = (fd_hash_t){0};
     fd_bank_poh_set( slot_ctx->bank, (fd_hash_t){0} );
-    fd_sysvar_recent_hashes_update( slot_ctx, runner->spad );
+    fd_sysvar_recent_hashes_update( slot_ctx );
   }
 
   /* Restore sysvars from account context */

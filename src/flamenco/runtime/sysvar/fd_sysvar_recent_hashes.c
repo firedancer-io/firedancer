@@ -39,7 +39,7 @@ encode_rbh_from_blockhash_queue( fd_exec_slot_ctx_t * slot_ctx,
 
 void
 fd_sysvar_recent_hashes_init( fd_exec_slot_ctx_t * slot_ctx ) {
-  uchar enc[ FD_SYSVAR_RECENT_HASHES_BINCODE_SZ ];
+  uchar enc[ FD_SYSVAR_RECENT_HASHES_BINCODE_SZ ] = {0};
   encode_rbh_from_blockhash_queue( slot_ctx, enc );
   fd_sysvar_account_update( slot_ctx, &fd_sysvar_recent_block_hashes_id, enc, FD_SYSVAR_RECENT_HASHES_BINCODE_SZ );
 }
@@ -61,24 +61,12 @@ register_blockhash( fd_exec_slot_ctx_t * slot_ctx,
    3. Manually serialize the recent blockhashes
    4. Set the sysvar account with the new data */
 void
-fd_sysvar_recent_hashes_update( fd_exec_slot_ctx_t * slot_ctx, fd_spad_t * runtime_spad ) {
-  FD_SPAD_FRAME_BEGIN( runtime_spad ) {
-  /* Update the blockhash queue */
-
+fd_sysvar_recent_hashes_update( fd_exec_slot_ctx_t * slot_ctx ) {
   register_blockhash( slot_ctx, fd_bank_poh_query( slot_ctx->bank ) );
 
-  /* Derive the new sysvar recent blockhashes from the blockhash queue */
-  ulong   sz        = FD_SYSVAR_RECENT_HASHES_BINCODE_SZ;
-  uchar * enc       = fd_spad_alloc( runtime_spad, FD_SPAD_ALIGN, sz );
-  uchar * enc_start = enc;
-  fd_memset( enc, 0, sz );
-
-  /* Encode the recent blockhashes */
+  uchar enc[ FD_SYSVAR_RECENT_HASHES_BINCODE_SZ ] = {0};
   encode_rbh_from_blockhash_queue( slot_ctx, enc );
-
-  /* Set the sysvar from the encoded data */
-  fd_sysvar_account_update( slot_ctx, &fd_sysvar_recent_block_hashes_id, enc_start, sz );
-  } FD_SPAD_FRAME_END;
+  fd_sysvar_account_update( slot_ctx, &fd_sysvar_recent_block_hashes_id, enc, sizeof(enc) );
 }
 
 fd_recent_block_hashes_t *

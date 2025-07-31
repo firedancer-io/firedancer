@@ -1,9 +1,9 @@
 #ifndef HEADER_fd_src_flamenco_runtime_fd_sysvar_rent_h
 #define HEADER_fd_src_flamenco_runtime_fd_sysvar_rent_h
 
-#include "../../fd_flamenco_base.h"
+#include "fd_sysvar_base.h"
 #include "../../types/fd_types.h"
-#include "../../../funk/fd_funk.h"
+
 FD_PROTOTYPES_BEGIN
 
 /* fd_sysvar_rent_init copies the cached rent sysvar stored from
