@@ -618,7 +618,10 @@ after_frag( fd_snaprd_tile_t *  ctx,
         FD_LOG_WARNING(("updating sshashes for pubkey %s with full slot %lu and incremental slot %lu",
           FD_BASE58_ENC_32_ALLOCA( pubkey.hash ), msg->snapshot_hashes.full->slot, msg->snapshot_hashes.inc[ 0 ].slot ));
 
-        fd_sshashes_update( ctx->sshashes, msg->origin_pubkey, &msg->snapshot_hashes );
+        if( fd_sshashes_update( ctx->sshashes, msg->origin_pubkey, &msg->snapshot_hashes )==FD_SSHASHES_SUCCESS ) {
+          fd_sshashes_print( ctx->sshashes );
+          fd_ssping_update_sshashes( ctx->ssping, ctx->sshashes, fd_log_wallclock() );
+        }
         break;
       }
     }

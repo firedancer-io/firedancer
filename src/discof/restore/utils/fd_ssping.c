@@ -1,7 +1,6 @@
 #define _GNU_SOURCE
 #include "fd_ssping.h"
 #include "fd_ssresolve.h"
-#include "fd_sshashes.h"
 
 #include "../../../util/bits/fd_bits.h"
 #include "../../../util/log/fd_log.h"
@@ -603,9 +602,9 @@ fd_ssping_advance( fd_ssping_t * ssping,
 }
 
 void
-fd_ssping_update_scores( fd_ssping_t *   ssping,
-                         fd_sshashes_t * sshashes,
-                         long            now ) {
+fd_ssping_update_sshashes( fd_ssping_t *   ssping,
+                           fd_sshashes_t * sshashes,
+                           long            now ) {
   for( score_treap_fwd_iter_t iter=score_treap_fwd_iter_init( ssping->score_treap, ssping->pool );
        !score_treap_fwd_iter_done( iter );
        iter=score_treap_fwd_iter_next( iter, ssping->pool) ) {

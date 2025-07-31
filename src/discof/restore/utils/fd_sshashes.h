@@ -59,7 +59,7 @@ fd_sshashes_new( void * shmem );
 fd_sshashes_t *
 fd_sshashes_join( void * _sshashes_map );
 
-FD_FN_CONST void *
+void *
 fd_sshashes_leave( fd_sshashes_t * sshashes );
 
 void *
@@ -77,11 +77,13 @@ fd_sshashes_query( fd_sshashes_t const *       sshashes,
 #define FD_SSHASHES_ERROR   (-1)
 #define FD_SSHASHES_SUCCESS ( 0)
 
-/* fd_sshashes_update updates the set of known snapshot hashes with
-   a new SnapshotHash message.  The new SnapshotHash message is assumed
-   to come from a known validator.  Returns FD_SSHASHES_SUCCESS if the
-   update occurred successfully.  Returns FD_SSHASHES_ERROR if the
-   update failed or if the new SnapshotHash message is invalid.
+/* fd_sshashes_update updates the set of known snapshot hashes with a
+   new SnapshotHash message.  The new SnapshotHash message is assumed to
+   come from a known validator.  Returns FD_SSHASHES_SUCCESS_UPDATE if
+   the the set of known snapshot hashes was updated.  Returns
+   FD_SSHASHES_SUCCESS_PASS if the set of known snapshot hashes remains
+   unchanged. Returns FD_SSHASHES_ERROR if the update failed or if the
+   new SnapshotHash message is invalid.
 
    A SnapshotHash message is considered invalid if it contains the
    same slot as an existing known SnapshotHash with a different hash.
@@ -105,6 +107,9 @@ fd_sshashes_get_highest_slots( fd_sshashes_t const * sshashes );
 /* fd_sshashes_reset resets the internal state of sshashes. */
 void
 fd_sshashes_reset( fd_sshashes_t * sshashes );
+
+void
+fd_sshashes_print( fd_sshashes_t const * sshashes );
 
 FD_PROTOTYPES_END
 

@@ -19,6 +19,8 @@
 #include "../../../util/net/fd_net_headers.h"
 #include "../../../flamenco/types/fd_types_custom.h"
 
+#include "fd_sshashes.h"
+
 #define FD_SSPING_ALIGN (8UL)
 
 #define FD_SSPING_MAGIC (0xF17EDA2CE55A1A60) /* FIREDANCE SSPING V0 */
@@ -105,6 +107,11 @@ fd_ssping_advance( fd_ssping_t * ssping,
 
 fd_sspeer_t
 fd_ssping_best( fd_ssping_t const * ssping );
+
+void
+fd_ssping_update_sshashes( fd_ssping_t *   ssping,
+                           fd_sshashes_t * sshashes,
+                           long            now );
 
 FD_PROTOTYPES_END
 

@@ -135,6 +135,7 @@ test_multi_validator( fd_sshashes_t * sshashes ) {
 
   /* Update validator 10 */
   FD_TEST( update_sshashes( sshashes, 1UL, 4UL, "10", "1", "3" )==FD_SSHASHES_SUCCESS );
+  fd_sshashes_print( sshashes );
 
   /* Test that incremental slot of 2 is no longer queryable */
   inc_entry.slot = 2UL;
@@ -150,6 +151,7 @@ test_multi_validator( fd_sshashes_t * sshashes ) {
 
   /* update validator 10 to incremental slot 5 */
   FD_TEST( update_sshashes( sshashes, 1UL, 5UL, "10", "1", "4" )==FD_SSHASHES_SUCCESS );
+  fd_sshashes_print( sshashes );
 
   /* Test that incremental slot of 4 is queryable (via validator 12)*/
   inc_entry.slot = 4UL;
@@ -164,6 +166,7 @@ test_multi_validator( fd_sshashes_t * sshashes ) {
   FD_TEST( res );
 
   FD_TEST( update_sshashes( sshashes, 1UL, 5UL, "12", "1", "4" )==FD_SSHASHES_SUCCESS );
+  fd_sshashes_print( sshashes );
 
   /* Test that incremental slot of 3 is queryable (via validator 11)*/
   inc_entry.slot = 3UL;
@@ -203,10 +206,7 @@ test_limits( fd_sshashes_t * sshashes ) {
 
   /* Test that we can't insert more than FD_SSHASHES_MAP_KEY_MAX
      incremental SnapshotHashes entries */
-  fd_memset( pubkey, (char)(0), FD_HASH_FOOTPRINT );
-  FD_TEST( update_sshashes( sshashes, 1UL, 2UL, pubkey, "1", "1" )==FD_SSHASHES_SUCCESS );
-
-  for( ulong i=1UL; i<FD_SSHASHES_MAP_KEY_MAX; i++ ) {
+  for( ulong i=0UL; i<FD_SSHASHES_MAP_KEY_MAX; i++ ) {
     fd_memset( pubkey, (char)(i), FD_HASH_FOOTPRINT );
     FD_TEST( update_sshashes( sshashes, 1UL, i+2UL, pubkey, "1", "1" )==FD_SSHASHES_SUCCESS );
   }

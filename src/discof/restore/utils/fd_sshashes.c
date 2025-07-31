@@ -1,5 +1,7 @@
 #include "fd_sshashes.h"
 
+#include <stdio.h>
+
 struct fd_sshashes_map;
 typedef struct fd_sshashes_map fd_sshashes_map_t;
 
@@ -206,20 +208,20 @@ fd_sshashes_try_insert_incremental( fd_sshashes_map_t * full_entry,
                                     ulong               incremental_slot,
                                     uchar const         sshash[ static FD_HASH_FOOTPRINT ] ) {
   if( full_entry->inc_cnt>=FD_SSHASHES_MAP_KEY_MAX ) {
-    return FD_SSHASHES_ERROR;
+    return -1;
   }
 
   fd_sshashes_incremental_map_t * new_entry = fd_sshashes_incremental_map_insert( full_entry->inc_sshashes_map, incremental_slot );
 
   if( FD_UNLIKELY( !new_entry ) ) {
-    return FD_SSHASHES_ERROR;
+    return -1;
   }
 
   fd_memcpy( new_entry->sshash, sshash, FD_HASH_FOOTPRINT );
   new_entry->ref_cnt = 1UL;
   full_entry->inc_cnt++;
 
-  return FD_SSHASHES_SUCCESS;
+  return 0;
 }
 
 static int
@@ -228,7 +230,7 @@ fd_sshashes_try_insert_full( fd_sshashes_map_t *                     sshashes_ma
   fd_sshashes_map_t * new_full_entry = fd_sshashes_map_insert( sshashes_map, snapshot_hashes->full->slot );
 
   if( !FD_UNLIKELY( new_full_entry ) ) {
-    return FD_SSHASHES_ERROR;
+    return -1;
   }
 
   fd_memcpy( new_full_entry->sshash, snapshot_hashes->full->hash, FD_HASH_FOOTPRINT );
@@ -238,7 +240,7 @@ fd_sshashes_try_insert_full( fd_sshashes_map_t *                     sshashes_ma
 
   new_full_entry->inc_cnt = 1UL;
 
-  return FD_SSHASHES_SUCCESS;
+  return 0;
 }
 
 static void
@@ -260,10 +262,9 @@ fd_sshashes_remove( fd_sshashes_t *                         sshashes,
   inc_entry->ref_cnt--;
 
   if( FD_UNLIKELY( inc_entry->ref_cnt==0UL ) ) {
-    fd_sshashes_incremental_map_remove( full_entry->inc_sshashes_map, inc_entry );
+   fd_sshashes_incremental_map_remove( full_entry->inc_sshashes_map, inc_entry );
+   full_entry->inc_cnt--;
   }
-
-  full_entry->inc_cnt--;
 
   if( FD_UNLIKELY( full_entry->inc_cnt==0UL ) ) {
     fd_sshashes_incremental_map_clear( full_entry->inc_sshashes_map );
@@ -278,7 +279,7 @@ fd_sshashes_try_insert_latest_msg( fd_sshashes_t *                         sshas
                                    uchar const                             pubkey[ static FD_HASH_FOOTPRINT ],
                                    fd_gossip_upd_snapshot_hashes_t const * snapshot_hashes ) {
   if( sshashes->latest_msg_cnt>=FD_SSHASHES_MAP_KEY_MAX ) {
-    return FD_SSHASHES_ERROR;
+    return -1;
   }
 
   fd_sshashes_latest_msg_key_t latest_msg_key;
@@ -286,7 +287,7 @@ fd_sshashes_try_insert_latest_msg( fd_sshashes_t *                         sshas
   fd_sshashes_latest_msg_map_t * new_latest_msg = fd_sshashes_latest_msg_map_insert( sshashes->latest_msg_map, latest_msg_key );
 
   if( FD_UNLIKELY( !new_latest_msg ) ) {
-    return FD_SSHASHES_ERROR;
+    return -1;
   }
 
   new_latest_msg->msg = *snapshot_hashes;
@@ -301,7 +302,7 @@ fd_sshashes_try_insert_latest_msg( fd_sshashes_t *                         sshas
       snapshot_hashes->inc[ 0UL ].slot>sshashes->highest_slots.incremental ) {
     sshashes->highest_slots.incremental = snapshot_hashes->inc[ 0UL ].slot;
   }
-  return FD_SSHASHES_SUCCESS;
+  return 0;
 }
 
 static int
@@ -440,4 +441,27 @@ fd_sshashes_reset( fd_sshashes_t * sshashes ) {
   sshashes->latest_msg_cnt            = 0UL;
   sshashes->highest_slots.full        = ULONG_MAX;
   sshashes->highest_slots.incremental = ULONG_MAX;
+}
+
+void
+fd_sshashes_print( fd_sshashes_t const * sshashes ) {
+  for( ulong i=0UL; i<fd_sshashes_map_slot_cnt(); i++ ) {
+    fd_sshashes_map_t const * full_entry = &sshashes->known_map[ i ];
+    if( fd_sshashes_map_key_inval( full_entry->slot ) ) continue;
+
+    printf("Full entry slot: %lu hash %s inc_cnt: %lu\n",
+           full_entry->slot,
+           FD_BASE58_ENC_32_ALLOCA( full_entry->sshash ),
+           full_entry->inc_cnt );
+
+    for( ulong j=0UL; j<fd_sshashes_incremental_map_slot_cnt(); j++ ) {
+      fd_sshashes_incremental_map_t const * inc_entry = &full_entry->inc_sshashes_map[ j ];
+      if( fd_sshashes_incremental_map_key_inval( inc_entry->slot ) ) continue;
+
+      printf("  Incremental entry slot: %lu hash %s ref_cnt: %lu\n",
+             inc_entry->slot,
+             FD_BASE58_ENC_32_ALLOCA( inc_entry->sshash ),
+             inc_entry->ref_cnt );
+    }
+  }
 }
