@@ -364,26 +364,27 @@ dynamic_port_range = "8900-9000"
 # up to the head of the chain, may request a snapshot.
 [snapshots]
     # If false, all snapshots (both full and incremental) will not be
-    # produced.  If snapshotting is disabled, this option is passed to
-    # the Agave client by setting the `--snapshot-interval-slots` flag
-    # to 0.
+    # produced.  This option is passed to the Agave client (inverted)
+    # with the `--no-snapshots` argument.
     enabled = true
 
     # Enable incremental snapshots by setting this flag.  This option is
     # passed to the Agave client (inverted) with the
-    # `--no-incremental-snapshots` flag.
+    # `--no-incremental-snapshots` argument.
     incremental_snapshots = true
 
     # Set how frequently full snapshots are taken, measured in slots,
     # where one slot is about 400ms on production chains.  It's
     # recommended to leave this to the default or to set it to the same
     # value that the known validators are using.  Must be a multiple of
-    # the incremental snapshot interval.
+    # the incremental snapshot interval.  This options is passed to the
+    # Agave client with the `--full-snapshot-interval-slots` argument.
     full_snapshot_interval_slots = 25000
 
     # Set how frequently incremental snapshots are taken, measured in
     # slots.  Must be a multiple of the accounts hash interval (which is
-    # 100 by default).
+    # 100 by default).  This options is passed to the Agave client with
+    # the `--snapshot-interval-slots` argument.
     incremental_snapshot_interval_slots = 100
 
     # Set the maximum number of full snapshot archives to keep when
@@ -506,7 +507,7 @@ dynamic_port_range = "8900-9000"
 
     # If false, do not attempt to fetch the genesis from the cluster.
     # This option is passed (inverted) to the Agave client with
-    # the `no-genesis-fetch` argument.
+    # the `--no-genesis-fetch` argument.
     genesis_fetch = true
 
     # On startup, do some simulations to see how fast the validator can
@@ -572,7 +573,7 @@ dynamic_port_range = "8900-9000"
     # is not published by a validator with one of these keys, it is
     # ignored.  If no known validators are specified, any hash will be
     # accepted.  These options are passed to the Agave client with
-    # the `--trusted-validator` argument.
+    # the `--known-validator` argument.
     known_validators = []
 
 # CPU cores in Firedancer are carefully managed.  Where a typical
@@ -927,7 +928,8 @@ dynamic_port_range = "8900-9000"
     # When left unspecified (default), listens on all addresses, and
     # derives the source address for outgoing packets based on
     # address and route tables.  Should be an IPv4 address, e.g.
-    # "198.51.100.2"
+    # "198.51.100.2".  This option is passed to the Agave client
+    # with the `--bind-address` argument.
     bind_address = ""
 
     # The maximum number of packets in-flight between a net tile and
@@ -1529,7 +1531,7 @@ dynamic_port_range = "8900-9000"
         # located on a private internet (rfc1918).
         #
         # This option is passed to the Agave client with the
-        # `--allow-private-addr` flag.
+        # `--allow-private-addr` argument.
         allow_private_address = false
 
     [development.genesis]
