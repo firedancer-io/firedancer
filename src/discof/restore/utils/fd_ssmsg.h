@@ -7,8 +7,13 @@
 #define FD_SSMSG_MANIFEST_INCREMENTAL (1) /* A snapshot manifest message from the incremental snapshot */
 #define FD_SSMSG_DONE                 (2) /* Indicates the snapshot is fully loaded and tiles are shutting down */
 
-/* TODO: Bound this correctly */
-#define MAX_STAKE_DELEGATIONS (10UL*1024UL*1024UL)
+/* This number is exhagerately high, but is consisent with Frankendancer.
+   We need this to be about the number of validators, so roughly
+   1-2k for mainnet and 3k for testnet. With Alpenglow this will be 2k.
+   Also, the snapshot currently contains vote account with 0 stakes,
+   so the length (from snapshot) might be actually higher that the
+   number of entries we actually need/consume. */
+#define MAX_VOTE_STAKES (40200)
 
 FD_FN_CONST static inline ulong
 fd_ssmsg_sig( ulong message,
@@ -46,22 +51,31 @@ struct fd_snapshot_manifest_vote_account {
 
 typedef struct fd_snapshot_manifest_vote_account fd_snapshot_manifest_vote_account_t;
 
-struct fd_snapshot_manifest_stake_delegation {
-  /* The stake account pubkey */
-  uchar stake_account_pubkey[ 32UL ];
+struct fd_snapshot_manifest_vote_stakes {
+  /* The vote pubkey */
+  uchar vote[ 32UL ];
 
-  /* The voter pubkey to whom the stake is delegated */
-  uchar vote_account_pubkey[ 32UL ];
+  /* The validator identity pubkey, aka node pubkey */
+  uchar identity[ 32UL ];
 
-  /* The activated stake amount that is delegated */
+  /* The commission account for inflation rewards (vote, before SIMD-0232) */
+  uchar commission_inflation[ 32UL ];
+
+  /* The commission account for block revenue (identity, before SIMD-0232) */
+  uchar commission_block[ 32UL ];
+
+  /* The validator BLS pubkey (used after SIMD-0326: Alpenglow) */
+  uchar identity_bls[ 48UL ];
+
+  /* The total amount of active stake for the vote account */
   ulong stake;
 };
 
-typedef struct fd_snapshot_manifest_stake_delegation fd_snapshot_manifest_stake_delegation_t;
+typedef struct fd_snapshot_manifest_vote_stakes fd_snapshot_manifest_vote_stakes_t;
 
 struct fd_snapshot_manifest_epoch_stakes {
-  ulong                                   stakes_len;
-  fd_snapshot_manifest_stake_delegation_t stakes[ MAX_STAKE_DELEGATIONS ];
+  ulong                              vote_stakes_len;
+  fd_snapshot_manifest_vote_stakes_t vote_stakes[ MAX_VOTE_STAKES ];
 };
 
 typedef struct fd_snapshot_manifest_epoch_stakes fd_snapshot_manifest_epoch_stakes_t;
@@ -166,17 +180,6 @@ struct fd_snapshot_manifest_rent {
 };
 
 typedef struct fd_snapshot_manifest_rent fd_snapshot_manifest_rent_t;
-
-struct fd_snapshot_repair {
-   /* The slot to start repairing from. */
-   ulong slot;
-
-   /* Repair is based on stake weights...  TODO: how? */
-   ulong                                   stakes_len;
-   fd_snapshot_manifest_stake_delegation_t stakes[ 1024 * 1024UL ];
-};
-
-typedef struct fd_snapshot_repair fd_snapshot_repair_t;
 
 struct fd_snapshot_manifest_blockhash {
    uchar hash[ 32UL ];
@@ -365,26 +368,28 @@ struct fd_snapshot_manifest {
   fd_snapshot_manifest_vote_account_t vote_accounts[ 16384UL ]; /* TODO: Bound correctly */
 
   /* Epoch stakes represent the exact amount staked to each vote
-     account pubkey for each of the current, previous, and previous
-     before that epochs. They are primarily used to derive the leader
-     schedule.  Three are required because
+     account at the beginning of the previous epoch. They are
+     primarily used to derive the leader schedule.
 
-       E-2 - We need epoch stakes from two epochs ago to calculate the
-             leader schedule for the current epoch E.
-       E-1 - We need epoch stakes from one epoch ago to calculate the
-             leader schedule for the next epoch E+1.
-       E   - We need epoch stakes for the current epoch, which we will
-             then incrementally update as the epoch continues, to
-             eventually (when the epoch finishes) calculate the leader
-             schedule for next next epoch E+2.
+     Let's say the manifest is at epoch E.
 
-     The epoch stakes are stored in an array, where epoch_stakes[0] is
-     the list of current epoch stakes, and epoch_stakes[1] is for the
-     previous epoch, and so on.  There are almost always 3 epoch stakes,
-     except in certain cases where the chain is close to genesis, when
-     there might only be 1 or 2. */
-  ulong                                   epoch_stakes_len;
-  fd_snapshot_manifest_epoch_stakes_t     epoch_stakes[ 3UL ];
+     The field versioned_epoch_stakes in the manifest is a map
+
+       <epoch> -> <VersionedEpochStakes>
+
+     where <epoch> assumes these values:
+
+       E   - represents the stakes at the beginning of epoch E-1,
+             used to compute the leader schedule at E.
+
+       E+1 - represents the stakes at the beginning of epoch E,
+             used to compute the leader schedule at E+1.
+
+     The epoch stakes are stored in an array, where epoch_stakes[0]
+     contains the data to generate the current leader schedule (i.e. E)
+     and epoch_stakes[1] contains the data to generate the next leader
+     schedule (i.e. E+1). */
+  fd_snapshot_manifest_epoch_stakes_t epoch_stakes[ 2UL ];
 };
 
 typedef struct fd_snapshot_manifest fd_snapshot_manifest_t;
