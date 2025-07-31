@@ -13,6 +13,7 @@
 #include <pthread.h>
 #include "syscall.h"
 #include "fd_lookup.h"
+#include "../../util/fd_util.h"
 
 #pragma GCC diagnostic ignored "-Wconversion"
 #pragma GCC diagnostic ignored "-Wsign-compare"
@@ -199,7 +200,7 @@ fd_res_msend_rc( int                     nqueries,
     }
 
     /* Wait for a response, or until time to retry */
-    if( poll( pfd, nqueries+1, t1+retry_interval-t2 ) <= 0 ) continue;
+    if( fd_syscall_poll( pfd, nqueries+1, t1+retry_interval-t2 ) <= 0 ) continue;
 
     while( next < nqueries ) {
       struct msghdr mh = {

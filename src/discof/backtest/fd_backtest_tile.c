@@ -7,6 +7,7 @@
 #include "../../flamenco/runtime/fd_rocksdb.h"
 #include "../../discof/replay/fd_replay_notif.h"
 #include "../../discof/fd_discof.h"
+
 #include <errno.h>
 
 #define REPLAY_IN_IDX                 (0UL)
@@ -96,6 +97,23 @@ typedef struct {
   fd_tower_t *           tower;
 } ctx_t;
 
+FD_FN_CONST static inline ulong
+scratch_align( void ) {
+  return alignof( ctx_t );
+}
+
+FD_FN_PURE static inline ulong
+scratch_footprint( fd_topo_tile_t const * tile ) {
+  (void)tile;
+
+  ulong l = FD_LAYOUT_INIT;
+  l = FD_LAYOUT_APPEND( l, alignof( ctx_t ),         sizeof( ctx_t ) );
+  l = FD_LAYOUT_APPEND( l, fd_alloc_align(),         fd_alloc_footprint()         );
+  l = FD_LAYOUT_APPEND( l, fd_tower_align(),         fd_tower_footprint()         );
+  l = FD_LAYOUT_APPEND( l, fd_bank_hash_map_align(), fd_bank_hash_map_footprint() );
+  return FD_LAYOUT_FINI( l, scratch_align() );
+}
+
 FD_FN_PURE static inline ulong
 loose_footprint( fd_topo_tile_t const * tile FD_PARAM_UNUSED ) {
   return 2UL * FD_SHMEM_GIGANTIC_PAGE_SZ;
@@ -166,12 +184,13 @@ static void
 unprivileged_init( fd_topo_t *      topo,
                    fd_topo_tile_t * tile ) {
   void * scratch = fd_topo_obj_laddr( topo, tile->tile_obj_id );
+
   FD_SCRATCH_ALLOC_INIT( l, scratch );
   ctx_t * ctx = FD_SCRATCH_ALLOC_APPEND( l, alignof(ctx_t), sizeof(ctx_t) );
-  void * alloc_shmem       = FD_SCRATCH_ALLOC_APPEND( l, fd_alloc_align(), fd_alloc_footprint() );
-  void * tower_mem         = FD_SCRATCH_ALLOC_APPEND( l, fd_tower_align(), fd_tower_footprint() );
+  void * alloc_shmem       = FD_SCRATCH_ALLOC_APPEND( l, fd_alloc_align(),         fd_alloc_footprint()         );
+  void * tower_mem         = FD_SCRATCH_ALLOC_APPEND( l, fd_tower_align(),         fd_tower_footprint()         );
   void * bank_hash_map_mem = FD_SCRATCH_ALLOC_APPEND( l, fd_bank_hash_map_align(), fd_bank_hash_map_footprint() );
-  FD_SCRATCH_ALLOC_FINI( l, 4096UL );
+  FD_SCRATCH_ALLOC_FINI( l, scratch_align() );
 
   /* Determine the ingest mode */
   if( FD_UNLIKELY( strcmp( tile->archiver.ingest_mode, "rocksdb" )==0 ) ) {
@@ -277,8 +296,6 @@ unprivileged_init( fd_topo_t *      topo,
 
   ctx->replay_time = LONG_MAX;
   ctx->slot_cnt    = 0UL;
-
-  FD_LOG_NOTICE(("Finished unprivileged init"));
 }
 
 FD_FN_UNUSED static void
@@ -440,10 +457,7 @@ after_credit( ctx_t *             ctx,
     if( ctx->start_slot==ULONG_MAX ) ctx->start_slot=wmark;
     if( wmark!=ctx->replay_notification.slot_exec.slot ) return;
 
-    if (ctx->replay_time==LONG_MAX) {
-      ctx->replay_time = -fd_log_wallclock();
-    }
-
+    if( FD_UNLIKELY( ctx->replay_time==LONG_MAX) ) ctx->replay_time = -fd_log_wallclock();
     ctx->playback_started=1;
 
     switch( ctx->ingest_mode ) {
@@ -474,18 +488,17 @@ after_credit( ctx_t *             ctx,
     default:
       FD_LOG_CRIT(( "Invalid ingest mode: %lu", ctx->ingest_mode ));
   }
-  return;
 }
 
 static void
 during_frag( ctx_t * ctx,
-             ulong                             in_idx,
-             ulong                             seq FD_PARAM_UNUSED,
-             ulong                             sig FD_PARAM_UNUSED,
-             ulong                             chunk,
-             ulong                             sz,
-             ulong                             ctl FD_PARAM_UNUSED ) {
-  FD_TEST( in_idx==0 );
+             ulong   in_idx,
+             ulong   seq FD_PARAM_UNUSED,
+             ulong   sig FD_PARAM_UNUSED,
+             ulong   chunk,
+             ulong   sz,
+             ulong   ctl FD_PARAM_UNUSED ) {
+  FD_TEST( !in_idx );
   FD_TEST( sz==sizeof(fd_replay_notif_msg_t) );
   fd_memcpy( &ctx->replay_notification, fd_chunk_to_laddr( ctx->replay_in_mem, chunk ), sizeof(fd_replay_notif_msg_t) );
 }
@@ -633,6 +646,8 @@ after_frag( ctx_t *             ctx,
 fd_topo_run_tile_t fd_tile_backtest = {
   .name                     = "back",
   .loose_footprint          = loose_footprint,
+  .scratch_align            = scratch_align,
+  .scratch_footprint        = scratch_footprint,
   .unprivileged_init        = unprivileged_init,
   .run                      = stem_run,
 };

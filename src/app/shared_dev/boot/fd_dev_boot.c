@@ -127,6 +127,8 @@ fd_dev_main( int          argc,
                  "configuration targets a live cluster. Use `fdctl` if this is a "
                  "production environment" ));
 
+  if( FD_LIKELY( action->topo ) ) action->topo( &config );
+
   args_t args = {0};
   if( FD_LIKELY( action->args ) ) action->args( &argc, &argv, &args );
   if( FD_UNLIKELY( argc ) ) FD_LOG_ERR(( "unknown argument `%s`", argv[ 0 ] ));
@@ -143,6 +145,7 @@ fd_dev_main( int          argc,
         FD_LOG_ERR(( "insufficient permissions to execute command `%s` when running as root. "
                      "fddev is likely being run with a reduced capability bounding set.", action_name ));
       }
+      FD_LOG_INFO(( "insufficient permissions to execute command `%s`, rerunning as root", action_name ));
       execve_as_root( orig_argc, orig_argv );
     }
   }

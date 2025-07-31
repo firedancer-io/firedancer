@@ -347,7 +347,13 @@ fd_precompile_secp256r1_verify( fd_exec_instr_ctx_t * ctx ) {
   }
 
   ulong sig_cnt = data[0];
-  if( FD_UNLIKELY( sig_cnt==0 ) ) {
+  if( FD_UNLIKELY( sig_cnt==0UL ) ) {
+    ctx->txn_ctx->custom_err = FD_EXECUTOR_PRECOMPILE_ERR_INSTR_DATA_SIZE;
+    return FD_EXECUTOR_INSTR_ERR_CUSTOM_ERR;
+  }
+
+  /* https://github.com/anza-xyz/agave/blob/v2.3.1/precompiles/src/secp256r1.rs#L30 */
+  if( FD_UNLIKELY( sig_cnt>8UL ) ) {
     ctx->txn_ctx->custom_err = FD_EXECUTOR_PRECOMPILE_ERR_INSTR_DATA_SIZE;
     return FD_EXECUTOR_INSTR_ERR_CUSTOM_ERR;
   }

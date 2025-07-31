@@ -110,6 +110,8 @@ fd_runtime_fuzz_instr_ctx_create( fd_runtime_fuzz_runner_t *           runner,
     info->data    = test_ctx->data->bytes;
   }
 
+  txn_ctx->instr_infos[ 0UL ] = *info;
+
   /* Prepare borrowed account table (correctly handles aliasing) */
 
   if( FD_UNLIKELY( test_ctx->accounts_count > MAX_TX_ACCOUNT_LOCKS ) ) {
@@ -417,8 +419,13 @@ fd_runtime_fuzz_instr_run( fd_runtime_fuzz_runner_t * runner,
   effects->result   = -exec_result;
   effects->cu_avail = ctx->txn_ctx->compute_budget_details.compute_meter;
 
-  if( exec_result == FD_EXECUTOR_INSTR_ERR_CUSTOM_ERR ) {
-    effects->custom_err     = ctx->txn_ctx->custom_err;
+  /* Don't capture custom error codes if the program is a precompile */
+  if( FD_LIKELY( effects->result ) ) {
+    int program_id_idx = ctx->txn_ctx->instr_infos[ 0UL ].program_id;
+    if( exec_result==FD_EXECUTOR_INSTR_ERR_CUSTOM_ERR &&
+        fd_executor_lookup_native_precompile_program( &ctx->txn_ctx->accounts[ program_id_idx ] )==NULL ) {
+      effects->custom_err = ctx->txn_ctx->custom_err;
+    }
   }
 
   /* Allocate space for captured accounts */

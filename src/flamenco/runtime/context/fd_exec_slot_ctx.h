@@ -1,16 +1,10 @@
 #ifndef HEADER_fd_src_flamenco_runtime_context_fd_exec_slot_ctx_h
 #define HEADER_fd_src_flamenco_runtime_context_fd_exec_slot_ctx_h
 
-#include "../fd_blockstore.h"
-#include "../../../funk/fd_funk.h"
-#include "../../../util/rng/fd_rng.h"
-#include "../../../util/wksp/fd_wksp.h"
-
-#include "../../types/fd_types.h"
 #include "../fd_txncache.h"
-#include "../fd_acc_mgr.h"
-#include "../fd_bank_hash_cmp.h"
 #include "../fd_bank.h"
+#include "../../types/fd_types.h"
+#include "../../../funk/fd_funk_txn.h"
 
 /* fd_exec_slot_ctx_t is the context that stays constant during all
    transactions in a block. */
@@ -59,8 +53,7 @@ fd_exec_slot_ctx_delete( void * mem );
 
 fd_exec_slot_ctx_t *
 fd_exec_slot_ctx_recover( fd_exec_slot_ctx_t *                ctx,
-                          fd_solana_manifest_global_t const * manifest_global,
-                          fd_spad_t *                         spad );
+                          fd_solana_manifest_global_t const * manifest_global );
 
 /* fd_exec_slot_ctx_recover re-initializes the current slot
    context's status cache from the provided solana slot deltas.

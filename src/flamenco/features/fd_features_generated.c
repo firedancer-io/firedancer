@@ -1626,6 +1626,12 @@ fd_feature_id_t const ids[] = {
     .name                      = "require_static_nonce_account",
     .cleaned_up                = {UINT_MAX, UINT_MAX, UINT_MAX} },
 
+  { .index                     = offsetof(fd_features_t, enable_vote_address_leader_schedule)>>3,
+    .id                        = {"\x40\x02\x73\x40\x0f\xb3\x11\x37\x08\x32\x50\x92\x29\x6a\x13\x68\xe5\xe5\xde\x04\x99\x41\x79\xc5\xa0\xdf\xd8\x45\x51\x44\x24\x80"},
+                                 /* 5JsG4NWH8Jbrqdd8uL6BNwnyZK3dQSoieRXG5vmofj9y */
+    .name                      = "enable_vote_address_leader_schedule",
+    .cleaned_up                = {UINT_MAX, UINT_MAX, UINT_MAX} },
+
   { .index = ULONG_MAX }
 };
 /* TODO replace this with fd_map_perfect */
@@ -1870,6 +1876,7 @@ fd_feature_id_query( ulong prefix ) {
   case 0xe72f76507222e3bb: return &ids[ 235 ];
   case 0x7170cf84367fbb1a: return &ids[ 236 ];
   case 0xa9e3bfbaf8d67260: return &ids[ 237 ];
+  case 0x3711b30f40730240: return &ids[ 238 ];
   default: break;
   }
   return NULL;
@@ -2113,4 +2120,5 @@ FD_STATIC_ASSERT( offsetof( fd_features_t, reenable_zk_elgamal_proof_program    
 FD_STATIC_ASSERT( offsetof( fd_features_t, formalize_loaded_transaction_data_size                  )>>3==235UL, layout );
 FD_STATIC_ASSERT( offsetof( fd_features_t, enable_extend_program_checked                           )>>3==236UL, layout );
 FD_STATIC_ASSERT( offsetof( fd_features_t, require_static_nonce_account                            )>>3==237UL, layout );
+FD_STATIC_ASSERT( offsetof( fd_features_t, enable_vote_address_leader_schedule                     )>>3==238UL, layout );
 FD_STATIC_ASSERT( sizeof( fd_features_t )>>3==FD_FEATURE_ID_CNT, layout );

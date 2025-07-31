@@ -57,8 +57,8 @@ static void populate_sock_filter_policy_fd_bundle_tile( ulong out_cnt, struct so
     BPF_JUMP( BPF_JMP | BPF_JEQ | BPF_K, SYS_fcntl, /* check_fcntl */ 46, 0 ),
     /* allow bind based on expression */
     BPF_JUMP( BPF_JMP | BPF_JEQ | BPF_K, SYS_bind, /* check_bind */ 49, 0 ),
-    /* simply allow poll */
-    BPF_JUMP( BPF_JMP | BPF_JEQ | BPF_K, SYS_poll, /* RET_ALLOW */ 77, 0 ),
+    /* simply allow ppoll */
+    BPF_JUMP( BPF_JMP | BPF_JEQ | BPF_K, SYS_ppoll, /* RET_ALLOW */ 77, 0 ),
     /* allow setsockopt based on expression */
     BPF_JUMP( BPF_JMP | BPF_JEQ | BPF_K, SYS_setsockopt, /* check_setsockopt */ 51, 0 ),
     /* simply allow getsockname */

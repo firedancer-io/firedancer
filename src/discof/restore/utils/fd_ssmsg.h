@@ -23,6 +23,10 @@ struct fd_snapshot_manifest_vote_account {
   /* The pubkey of the vote account */
   uchar vote_account_pubkey[ 32UL ];
 
+  ulong stake;
+  ulong last_slot;
+  long  last_timestamp;
+
   /* The percent of inflation rewards earned by the validator and
      deposited into the validator's vote account, from 0 to 100%.
      The remaning percentage of inflation rewards is distributed to
@@ -34,9 +38,10 @@ struct fd_snapshot_manifest_vote_account {
      entry at epoch_credits[0] is for the current epoch,
      epoch_credits[1] is for the previous epoch, and so on.  In cases of
      booting a new chain from genesis, or for new vote accounts the
-     epoch credits history may be short. */
+     epoch credits history may be short.  The maximum number of entries
+     in the epoch credits history is 64. */
   ulong epoch_credits_history_len;
-  ulong epoch_credits[ 64UL ]; /* TODO: Bound correctly */
+  ulong epoch_credits[ 64UL ];
 };
 
 typedef struct fd_snapshot_manifest_vote_account fd_snapshot_manifest_vote_account_t;
@@ -102,7 +107,12 @@ struct fd_snapshot_manifest_epoch_schedule_params {
      slots_per_epoch.  This value is set by default to true at genesis,
      though it may be configured differently in development
      environments. */
-  int warmup;
+  uchar warmup;
+
+  /* TODO: Probably remove this? Redundant and can be calculated from
+     the above. */
+  ulong first_normal_epoch;
+  ulong first_normal_slot;
 };
 
 typedef struct fd_snapshot_manifest_epoch_schedule_params fd_snapshot_manifest_epoch_schedule_params_t;
@@ -149,6 +159,14 @@ struct fd_snapshot_manifest_fee_rate_governor {
 
 typedef struct fd_snapshot_manifest_fee_rate_governor fd_snapshot_manifest_fee_rate_governor_t;
 
+struct fd_snapshot_manifest_rent {
+  ulong lamports_per_uint8_year;
+  double exemption_threshold;
+  uchar burn_percent;
+};
+
+typedef struct fd_snapshot_manifest_rent fd_snapshot_manifest_rent_t;
+
 struct fd_snapshot_repair {
    /* The slot to start repairing from. */
    ulong slot;
@@ -160,10 +178,19 @@ struct fd_snapshot_repair {
 
 typedef struct fd_snapshot_repair fd_snapshot_repair_t;
 
+struct fd_snapshot_manifest_blockhash {
+   uchar hash[ 32UL ];
+   ulong lamports_per_signature;
+   ulong hash_index;
+   ulong timestamp;
+};
+
+typedef struct fd_snapshot_manifest_blockhash fd_snapshot_manifest_blockhash_t;
+
 struct fd_snapshot_manifest {
   /* The UNIX timestamp when the genesis block was for this chain
      was created, in nanoseconds.  */
-  long creation_time_ns;
+  ulong creation_time_millis;
 
   /* At genesis, certain parameters can be set which control the
      inflation rewards going forward.  This includes what the initial
@@ -192,6 +219,8 @@ struct fd_snapshot_manifest {
      feature flags. */
   fd_snapshot_manifest_fee_rate_governor_t fee_rate_governor;
 
+  fd_snapshot_manifest_rent_t rent_params;
+
   /* The slot number for this snapshot */
   ulong slot;
 
@@ -200,6 +229,9 @@ struct fd_snapshot_manifest {
      landed block, but it does not increment for skipped slots, so the
      block_height will always be less than or equal to the slot. */
   ulong block_height;
+
+  /* TODO: Document */
+  ulong collector_fees;
 
   /* The parent slot is the slot that this block builds on top of.  It
      is typically slot-1, but can be an arbitrary amount of slots
@@ -256,6 +288,12 @@ struct fd_snapshot_manifest {
   int   has_epoch_account_hash;
   uchar epoch_account_hash[ 32UL ];
 
+  ulong blockhashes_len;
+  fd_snapshot_manifest_blockhash_t blockhashes[ 301UL ];
+
+  ulong hard_forks_len;
+  ulong hard_forks[ 64UL ];
+
   /* The proof of history component "proves" the passage of time (see
      extended discussion in PoH tile for what that acutally means) by
      continually doing sha256 hashes.  A certain number of hashes are
@@ -266,6 +304,12 @@ struct fd_snapshot_manifest {
      at 64 and is unlikely to change, however it might be configured
      differently in development environments. */
   ulong ticks_per_slot;
+
+  /* TODO: Document */
+  ulong ns_per_slot;
+
+  /* TODO: Document */
+  double slots_per_year;
 
   /* The proof of history component typically requires every block to
      have 64 "ticks" in it (although this is configurable during
@@ -295,6 +339,19 @@ struct fd_snapshot_manifest {
      rewards and validating snapshots. */
   ulong capitalization;
 
+  /* TODO: Why is this needed? */
+  ulong tick_height;
+  ulong max_tick_height;
+
+  /* TODO: What is this? */
+  ulong lamports_per_signature;
+
+  /* TODO: Why is this needed? */
+  ulong transaction_count;
+
+  /* TODO: Why is this needed? */
+  ulong signature_count;
+
   /* A list of this epoch's vote accounts and their state relating to
      rewards distribution, which includes the vote account's commission
      and vote credits.
@@ -314,14 +371,12 @@ struct fd_snapshot_manifest {
 
        E-2 - We need epoch stakes from two epochs ago to calculate the
              leader schedule for the current epoch E.
-       E-1 - We need
-             epoch stakes from one epoch ago to calculate the leader
-             schedule for the next epoch E+1.
-      E   - We need epoch stakes
-             for the current epoch, which we will then incrementally
-             update as the epoch continues, to eventually (when the
-             epoch finishes) calculate the leader schedule for next next
-             epoch E+2.
+       E-1 - We need epoch stakes from one epoch ago to calculate the
+             leader schedule for the next epoch E+1.
+       E   - We need epoch stakes for the current epoch, which we will
+             then incrementally update as the epoch continues, to
+             eventually (when the epoch finishes) calculate the leader
+             schedule for next next epoch E+2.
 
      The epoch stakes are stored in an array, where epoch_stakes[0] is
      the list of current epoch stakes, and epoch_stakes[1] is for the

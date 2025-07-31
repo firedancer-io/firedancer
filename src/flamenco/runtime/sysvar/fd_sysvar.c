@@ -1,4 +1,5 @@
 #include "fd_sysvar.h"
+#include "../fd_acc_mgr.h"
 #include "../context/fd_exec_slot_ctx.h"
 #include "../context/fd_exec_instr_ctx.h"
 #include "../context/fd_exec_txn_ctx.h"

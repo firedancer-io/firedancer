@@ -236,5 +236,6 @@
   {"name":"reenable_zk_elgamal_proof_program","pubkey":"zkemPXcuM3G4wpMDZ36Cpw34EjUpvm1nuioiSGbGZPR"},
   {"name":"formalize_loaded_transaction_data_size","pubkey":"DeS7sR48ZcFTUmt5FFEVDr1v1bh73aAbZiZq3SYr8Eh8"},
   {"name":"enable_extend_program_checked","pubkey":"2oMRZEDWT2tqtYMofhmmfQ8SsjqUFzT6sYXppQDavxwz"},
-  {"name":"require_static_nonce_account","pubkey":"7VVhpg5oAjAmnmz1zCcSHb2Z9ecZB2FQqpnEwReka9Zm"}
+  {"name":"require_static_nonce_account","pubkey":"7VVhpg5oAjAmnmz1zCcSHb2Z9ecZB2FQqpnEwReka9Zm"},
+  {"name":"enable_vote_address_leader_schedule","pubkey":"5JsG4NWH8Jbrqdd8uL6BNwnyZK3dQSoieRXG5vmofj9y"}
 ]
