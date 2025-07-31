@@ -2432,7 +2432,12 @@ fd_runtime_init_bank_from_genesis( fd_exec_slot_ctx_t *        slot_ctx,
       fd_wksp_t *         wksp       = fd_wksp_containing( stake_acc_mem );
 
       fd_txn_account_t stake_acc[1];
-      if( FD_UNLIKELY( !fd_txn_account_join( fd_txn_account_new( stake_acc, stake_meta, stake_data, 1 ), wksp ) ) ) {
+      if( FD_UNLIKELY( !fd_txn_account_join( fd_txn_account_new(
+          stake_acc,
+          &fd_solana_stake_program_id,
+          stake_meta,
+          stake_data,
+          1 ), wksp ) ) ) {
         FD_LOG_CRIT(( "Failed to join and new a txn account" ));
       }
 

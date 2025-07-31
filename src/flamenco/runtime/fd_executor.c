@@ -1478,11 +1478,10 @@ fd_executor_setup_txn_account( fd_exec_txn_ctx_t * txn_ctx,
   fd_account_meta_t const * meta = fd_txn_account_get_acc_meta( txn_account );
 
   if( meta==NULL ) {
-    FD_LOG_WARNING(("MAKE IT HERE"));
     uchar * mem = fd_spad_alloc( txn_ctx->spad, FD_TXN_ACCOUNT_ALIGN, sizeof(fd_account_meta_t) );
     fd_account_meta_t * meta = (fd_account_meta_t *)mem;
     memset( meta, 0, sizeof(fd_account_meta_t) );
-    if( FD_UNLIKELY( !fd_txn_account_join( fd_txn_account_new( txn_account, meta, NULL, 0 ), txn_ctx->spad_wksp ) ) ) {
+    if( FD_UNLIKELY( !fd_txn_account_join( fd_txn_account_new( txn_account, acc, meta, NULL, 0 ), txn_ctx->spad_wksp ) ) ) {
       FD_LOG_CRIT(( "Failed to join and new a txn account" ));
     }
   }

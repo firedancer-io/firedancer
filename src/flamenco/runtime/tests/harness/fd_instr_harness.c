@@ -128,6 +128,8 @@ fd_runtime_fuzz_instr_ctx_create( fd_runtime_fuzz_runner_t *           runner,
   int has_program_id = 0;
 
   for( ulong j=0UL; j < test_ctx->accounts_count; j++ ) {
+    fd_pubkey_t * acc_key = (fd_pubkey_t *)test_ctx->accounts[j].address;
+
     memcpy(  &(txn_ctx->account_keys[j]), test_ctx->accounts[j].address, sizeof(fd_pubkey_t) );
     if( !fd_runtime_fuzz_load_account( &accts[j], funk, funk_txn, &test_ctx->accounts[j], 0 ) ) {
       return 0;
@@ -140,7 +142,7 @@ fd_runtime_fuzz_instr_ctx_create( fd_runtime_fuzz_runner_t *           runner,
       fd_account_meta_t * meta     = (fd_account_meta_t *)data;
       uchar *             acc_data = (uchar *)meta + sizeof(fd_account_meta_t);
       fd_memcpy( data, fd_txn_account_get_acc_meta( acc ), sizeof(fd_account_meta_t)+dlen );
-      if( FD_UNLIKELY( !fd_txn_account_join( fd_txn_account_new( acc, meta, acc_data, 0 ), txn_ctx->spad_wksp ) ) ) {
+      if( FD_UNLIKELY( !fd_txn_account_join( fd_txn_account_new( acc, acc_key, meta, acc_data, 0 ), txn_ctx->spad_wksp ) ) ) {
         FD_LOG_CRIT(( "Failed to join and new a txn account" ));
       }
     }
@@ -173,6 +175,8 @@ fd_runtime_fuzz_instr_ctx_create( fd_runtime_fuzz_runner_t *           runner,
 
   /* Load in executable accounts */
   for( ulong i = 0; i < txn_ctx->accounts_cnt; i++ ) {
+    fd_pubkey_t * acc_key = (fd_pubkey_t *)test_ctx->accounts[i].address;
+
     fd_txn_account_t * acc = &accts[i];
     if ( !fd_executor_pubkey_is_bpf_loader( fd_txn_account_get_owner( acc ) ) ) {
       continue;
@@ -183,7 +187,7 @@ fd_runtime_fuzz_instr_ctx_create( fd_runtime_fuzz_runner_t *           runner,
       uchar * mem = fd_spad_alloc( txn_ctx->spad, FD_TXN_ACCOUNT_ALIGN, sizeof(fd_account_meta_t) );
       fd_account_meta_t * meta = (fd_account_meta_t *)mem;
       memset( meta, 0, sizeof(fd_account_meta_t) );
-      if( FD_UNLIKELY( !fd_txn_account_join( fd_txn_account_new( acc, meta, NULL, 0 ), txn_ctx->spad_wksp ) ) ) {
+      if( FD_UNLIKELY( !fd_txn_account_join( fd_txn_account_new( acc, acc_key, meta, NULL, 0 ), txn_ctx->spad_wksp ) ) ) {
         FD_LOG_CRIT(( "Failed to join and new a txn account" ));
       }
       continue;

@@ -52,6 +52,7 @@ fd_txn_account_init( void * ptr );
 
 void *
 fd_txn_account_new( void *              mem,
+                    fd_pubkey_t const * pubkey,
                     fd_account_meta_t * meta,
                     uchar *             data,
                     int                 is_mutable );
@@ -99,6 +100,7 @@ fd_txn_account_init_from_funk_mutable( fd_txn_account_t *  acct,
 /* Save helper into Funk (Accounts DB)
    Saves the contents of a fd_txn_account_t object obtained from
    fd_txn_account_init_from_funk_readonly back into funk */
+
 int
 fd_txn_account_save( fd_txn_account_t * acct,
                      fd_funk_t *        funk,
@@ -110,6 +112,7 @@ fd_txn_account_save( fd_txn_account_t * acct,
    if the record does not yet exist in the current funk txn.
    ie. the record was created / cloned from an ancestor funk txn
    by fd_txn_account_init_from_funk_mutable */
+
 void
 fd_txn_account_mutable_fini( fd_txn_account_t * acct,
                              fd_funk_t *        funk,

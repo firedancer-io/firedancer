@@ -3,6 +3,7 @@
 
 void *
 fd_txn_account_new( void *              mem,
+                    fd_pubkey_t const * pubkey,
                     fd_account_meta_t * meta,
                     uchar *             data,
                     int                 is_mutable ) {
@@ -16,6 +17,8 @@ fd_txn_account_new( void *              mem,
   }
 
   fd_txn_account_t * txn_account = (fd_txn_account_t *)mem;
+
+  fd_memcpy( txn_account->pubkey, pubkey, sizeof(fd_pubkey_t) );
 
   fd_wksp_t * wksp = fd_wksp_containing( meta );
 

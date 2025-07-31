@@ -63,7 +63,7 @@ fd_sysvar_instructions_serialize_account( fd_exec_txn_ctx_t *      txn_ctx,
     uchar *             mem  = fd_spad_alloc( txn_ctx->spad, FD_TXN_ACCOUNT_ALIGN, sizeof(fd_account_meta_t) + serialized_sz );
     fd_account_meta_t * meta = (fd_account_meta_t *)mem;
     uchar *             data = (uchar *)meta + sizeof(fd_account_meta_t);
-    fd_txn_account_t *  acc  = fd_txn_account_join( fd_txn_account_new( rec, meta, data, 1 ), txn_ctx->spad_wksp );
+    fd_txn_account_t *  acc  = fd_txn_account_join( fd_txn_account_new( rec, &fd_sysvar_instructions_id, meta, data, 1 ), txn_ctx->spad_wksp );
     if( FD_UNLIKELY( !acc ) ) {
       FD_LOG_CRIT(( "Failed to join txn account" ));
     }
