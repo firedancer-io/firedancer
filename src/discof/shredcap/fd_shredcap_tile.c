@@ -87,6 +87,11 @@ struct fd_capture_tile_ctx {
   uchar repair_buffer[ FD_NET_MTU ];
 
   fd_stake_out_link_t  stake_out[1];
+  ulong                snap_out_idx;
+  fd_wksp_t *          snap_out_mem;
+  ulong                snap_out_chunk0;
+  ulong                snap_out_wmark;
+  ulong                snap_out_chunk;
   int                  enable_publish_stake_weights;
   ulong *              manifest_wmark;
   uchar *              manifest_bank_mem;
@@ -438,6 +443,15 @@ after_credit( fd_capture_tile_ctx_t * ctx,
 
       fd_fseq_update( ctx->manifest_wmark, manifest->slot );
 
+      uchar * chunk = fd_chunk_to_laddr( ctx->snap_out_mem, ctx->snap_out_chunk );
+      ulong   sz    = sizeof(fd_snapshot_manifest_t);
+      ulong   sig   = fd_ssmsg_sig( FD_SSMSG_MANIFEST_INCREMENTAL, sz );
+      memcpy( chunk, manifest, sz );
+      fd_stem_publish( stem, ctx->snap_out_idx, sig, ctx->snap_out_chunk, sz, 0UL, 0UL, fd_frag_meta_ts_comp( fd_tickcount() ) );
+      ctx->snap_out_chunk = fd_dcache_compact_next( ctx->snap_out_chunk, sz, ctx->snap_out_chunk0, ctx->snap_out_wmark );
+
+      fd_stem_publish( stem, ctx->snap_out_idx, fd_ssmsg_sig( FD_SSMSG_DONE, 0UL ), 0UL, 0UL, 0UL, 0UL, 0UL );
+
       publish_stake_weights_manifest( ctx, stem, manifest );
       //*charge_busy = 0;
     }
@@ -739,6 +753,14 @@ unprivileged_init( fd_topo_t *      topo,
     FD_LOG_WARNING(( "no connection to stake_out link" ));
     memset( ctx->stake_out, 0, sizeof(fd_stake_out_link_t) );
   }
+
+  ctx->snap_out_idx         = fd_topo_find_tile_out_link( topo, tile, "snap_out", 0 );
+  FD_TEST( ctx->snap_out_idx!=ULONG_MAX );
+  fd_topo_link_t * snap_out = &topo->links[tile->out_link_id[ctx->snap_out_idx]];
+  ctx->snap_out_mem         = topo->workspaces[topo->objs[snap_out->dcache_obj_id].wksp_id].wksp;
+  ctx->snap_out_chunk0      = fd_dcache_compact_chunk0( ctx->snap_out_mem, snap_out->dcache );
+  ctx->snap_out_wmark       = fd_dcache_compact_wmark( ctx->snap_out_mem, snap_out->dcache, snap_out->mtu );
+  ctx->snap_out_chunk       = ctx->snap_out_chunk0;
 
   /* If the manifest is enabled (for processing), the stake_out link
      must be connected to the tile.  TODO in principle, it should be

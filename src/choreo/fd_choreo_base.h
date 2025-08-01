@@ -32,6 +32,17 @@
 #define FD_SLOT_PUBKEY_HASH(key,seed) FD_SLOT_HASH_HASH(key,seed)
 /* clang-format on */
 
+/* The block_id is the merkle root of the last FEC set for a slot.  This
+   is guaranteed to be unique (practically speaking, the probability of
+   collision before sun burns out is negligibly miniscule).
+
+   This is used as the identifier for a block (hence "block_id") because
+   unlike the slot number, if a leader equivocates (ie. produces
+   multiple blocks for the same slot), the block_id will remain unique
+   unlike the slot. */
+
+typedef uchar fd_block_id_t[ 32UL ];
+
 typedef fd_slot_hash_t fd_slot_pubkey_t;
 
 #endif /* HEADER_fd_src_choreo_fd_choreo_base_h */

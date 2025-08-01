@@ -1,17 +1,18 @@
 #define _GNU_SOURCE
 
+#include "../../disco/tiles.h"
+#include "generated/fd_tower_tile_seccomp.h"
+
 #include "../../choreo/fd_choreo.h"
-#include "../../util/pod/fd_pod_format.h"
 #include "../../disco/keyguard/fd_keyload.h"
 #include "../../disco/topo/fd_topo.h"
-#include "../../funk/fd_funk.h"
+#include "../../discof/restore/utils/fd_ssmsg.h"
 #include "../../flamenco/fd_flamenco_base.h"
-#include "generated/fd_tower_tile_seccomp.h"
+#include "../../funk/fd_funk.h"
 
 #define IN_KIND_GOSSIP ( 0)
 #define IN_KIND_REPLAY ( 1)
-#define IN_KIND_SHRED  ( 2)
-#define IN_KIND_SIGN   ( 3)
+#define IN_KIND_SNAP   ( 2)
 #define MAX_IN_LINKS   (16)
 
 #define SIGN_OUT_IDX (0)
@@ -32,10 +33,14 @@ typedef struct {
   fd_funk_rec_key_t funk_key;
   ulong             seed;
 
-  uchar    in_kind [MAX_IN_LINKS];
-  in_ctx_t in_links[MAX_IN_LINKS];
+  uchar    in_kind [ MAX_IN_LINKS ];
+  in_ctx_t in_links[ MAX_IN_LINKS ];
 
-  ulong replay_out_idx;
+  ulong       root_out_idx;
+  fd_wksp_t * root_out_mem;
+  ulong       root_out_chunk0;
+  ulong       root_out_wmark;
+  ulong       root_out_chunk;
 
   ulong       send_out_idx;
   fd_wksp_t * send_out_mem;
@@ -47,15 +52,10 @@ typedef struct {
   fd_ghost_t * ghost;
   fd_tower_t * tower;
 
-  ulong        root;
-  ulong        processed; /* highest processed slot (replayed & counted votes) */
-  ulong        confirmed; /* highest confirmed slot (2/3 of stake has voted) */
-  ulong        finalized; /* highest finalized slot (2/3 of stake has rooted) */
-
-  fd_hash_t                   bank_hash;   /* bank hash of the slot received from replay */
-  fd_hash_t                   block_hash;  /* last microblock header hash of slot received from replay */
-  fd_hash_t                   slot_hash;   /* hash_id of the slot received from replay (block id)*/
-  fd_hash_t                   parent_hash; /* parent hash_id of the slot received from replay */
+  ulong root;
+  ulong processed; /* highest processed slot (replayed & counted votes) */
+  ulong confirmed; /* highest confirmed slot (2/3 of stake has voted) */
+  ulong finalized; /* highest finalized slot (2/3 of stake has rooted) */
 
   fd_gossip_duplicate_shred_t duplicate_shred;
   uchar                       duplicate_shred_chunk[FD_EQVOC_PROOF_CHUNK_SZ];
@@ -64,44 +64,11 @@ typedef struct {
   fd_funk_t                   funk[1];
   fd_gossip_vote_t            gossip_vote;
   fd_lockout_offset_t         lockouts[FD_TOWER_VOTE_MAX];
+  fd_replay_out_t             replay_out;
   fd_tower_t *                scratch;
+  fd_snapshot_manifest_t      snapshot_manifest;
   uchar *                     vote_ix_buf;
 } ctx_t;
-
-static void
-update_epoch( ctx_t * ctx, ulong sz ) {
-  fd_voter_t * epoch_voters = fd_epoch_voters( ctx->epoch );
-  ctx->epoch->total_stake   = 0;
-
-  ulong off = 0;
-  while( FD_LIKELY( off < sz ) ) {
-    fd_pubkey_t pubkey = *(fd_pubkey_t *)fd_type_pun( ctx->epoch_voters_buf + off );
-    off += sizeof(fd_pubkey_t);
-
-    ulong stake = *(ulong *)fd_type_pun( ctx->epoch_voters_buf + off );
-    off += sizeof(ulong);
-
-#   if FD_EPOCH_USE_HANDHOLDING
-    FD_TEST( !fd_epoch_voters_query( epoch_voters, pubkey, NULL ) );
-    FD_TEST( fd_epoch_voters_key_cnt( epoch_voters ) < fd_epoch_voters_key_max( epoch_voters ) );
-#   endif
-
-    fd_voter_t * voter = fd_epoch_voters_insert( epoch_voters, pubkey );
-    voter->rec.uc[FD_FUNK_REC_KEY_FOOTPRINT - 1] = FD_FUNK_KEY_TYPE_ACC;
-
-#   if FD_EPOCH_USE_HANDHOLDING
-    FD_TEST( 0 == memcmp( &voter->key, &pubkey, sizeof(fd_pubkey_t) ) );
-    FD_TEST( fd_epoch_voters_query( epoch_voters, voter->key, NULL ) );
-#   endif
-
-    voter->stake            = stake;
-    voter->replay_vote.slot = FD_SLOT_NULL;
-    voter->gossip_vote.slot = FD_SLOT_NULL;
-    voter->rooted_vote.slot = FD_SLOT_NULL;
-
-    ctx->epoch->total_stake += stake;
-  }
-}
 
 static void
 update_ghost( ctx_t * ctx, fd_funk_txn_t * txn ) {
@@ -117,7 +84,7 @@ update_ghost( ctx_t * ctx, fd_funk_txn_t * txn ) {
        last slot on this fork this function was called on. currently
        rec_query_global traverses all the way back to the root. */
 
-    fd_voter_t *             voter = &epoch_voters[i];
+    fd_voter_t * voter = &epoch_voters[i];
 
     /* Fetch the vote account's vote slot and root slot from the vote
        account, re-trying if there is a Funk conflict. */
@@ -136,29 +103,26 @@ update_ghost( ctx_t * ctx, fd_funk_txn_t * txn ) {
       if( FD_LIKELY( fd_funk_rec_query_test( &query ) == FD_FUNK_SUCCESS ) ) break;
     }
 
-    /* Only process votes for slots >= root. Ghost requires vote slot
-        to already exist in the ghost tree. */
-    if( FD_LIKELY( vote != FD_SLOT_NULL && vote >= fd_ghost_root( ghost )->slot ) ) {
-      /* Check if it has crossed the equivocation safety and optimistic
-         confirmation thresholds. */
+    // FD_LOG_NOTICE(( "querying %s %lu %lu %lu", FD_BASE58_ENC_32_ALLOCA( voter->key.uc ), voter->stake, vote, root ));
 
+    /* Only process votes for slots >= root. */
+
+    if( FD_LIKELY( vote != FD_SLOT_NULL && vote >= fd_ghost_root( ghost )->slot ) ) {
       fd_ghost_ele_t const * ele = fd_ghost_query_const( ghost, fd_ghost_hash( ghost, vote ) );
 
-      /* Error if the node's vote slot is not in ghost. This is an
-         invariant violation, because we know their tower must be on the
-         same fork as this current one that we're processing, and so by
-         definition their vote slot must be in our ghost (ie. we can't
-         have rooted past it or be on a different fork). */
+      /* It is an invariant violation if the vote slot is not in ghost.
+         These votes come from replay ie. on-chain towers stored in vote
+         accounts which implies every vote slot must have been processed
+         by the vote program (ie. replayed) and therefore in ghost. */
 
-      if( FD_UNLIKELY( !ele ) ) FD_LOG_ERR(( "[%s] voter %s's vote slot %lu was not in ghost", __func__, FD_BASE58_ENC_32_ALLOCA(&voter->key), vote ));
-
+      if( FD_UNLIKELY( !ele ) ) FD_LOG_CRIT(( "[%s] voter %s's vote slot %lu was not in ghost", __func__, FD_BASE58_ENC_32_ALLOCA(&voter->key), vote ));
       fd_ghost_replay_vote( ghost, voter, &ele->key );
       double pct = (double)ele->replay_stake / (double)epoch->total_stake;
       if( FD_UNLIKELY( pct > FD_CONFIRMED_PCT ) ) ctx->confirmed = fd_ulong_max( ctx->confirmed, ele->slot );
     }
 
-    /* Check if this voter's root >= ghost root. We can't process
-        other voters' roots that precede the ghost root. */
+    /* Check if this voter's root >= ghost root. We can't process roots
+       before our own root because it was already pruned. */
 
     if( FD_LIKELY( root != FD_SLOT_NULL && root >= fd_ghost_root( ghost )->slot ) ) {
       fd_ghost_ele_t const * ele = fd_ghost_query( ghost, fd_ghost_hash( ghost, root ) );
@@ -169,7 +133,7 @@ update_ghost( ctx_t * ctx, fd_funk_txn_t * txn ) {
          definition their root slot must be in our ghost (ie. we can't
          have rooted past it or be on a different fork). */
 
-      if( FD_UNLIKELY( !ele ) ) FD_LOG_ERR(( "[%s] voter %s's root slot %lu was not in ghost", __func__, FD_BASE58_ENC_32_ALLOCA(&voter->key), root ));
+      if( FD_UNLIKELY( !ele ) ) FD_LOG_CRIT(( "[%s] voter %s's root slot %lu was not in ghost", __func__, FD_BASE58_ENC_32_ALLOCA(&voter->key), root ));
 
       fd_ghost_rooted_vote( ghost, voter, root );
       double pct = (double)ele->rooted_stake / (double)epoch->total_stake;
@@ -178,6 +142,83 @@ update_ghost( ctx_t * ctx, fd_funk_txn_t * txn ) {
   }
 }
 
+static void
+after_frag_replay( ctx_t * ctx, ulong slot, fd_replay_out_t * replay_out, ulong tsorig, fd_stem_context_t * stem ) {
+  fd_funk_txn_xid_t   txn_xid  = { .ul = { slot, slot } };
+  fd_funk_txn_map_t * txn_map  = fd_funk_txn_map( ctx->funk );
+  fd_funk_txn_start_read( ctx->funk );
+  fd_funk_txn_t * funk_txn = fd_funk_txn_query( &txn_xid, txn_map );
+  if( FD_UNLIKELY( !funk_txn ) ) FD_LOG_ERR(( "Could not find valid funk transaction" ));
+  fd_funk_txn_end_read( ctx->funk );
+
+  /* Initialize the tower */
+
+  if( FD_UNLIKELY( fd_tower_votes_empty( ctx->tower ) ) ) fd_tower_from_vote_acc( ctx->tower, ctx->funk, funk_txn, &ctx->funk_key );
+
+  fd_ghost_ele_t  const * ghost_ele  = fd_ghost_insert( ctx->ghost, &replay_out->parent_block_id, slot, &replay_out->block_id, ctx->epoch->total_stake );
+  FD_TEST( ghost_ele );
+  update_ghost( ctx, funk_txn );
+
+  ulong vote_slot = fd_tower_vote_slot( ctx->tower, ctx->epoch, ctx->funk, funk_txn, ctx->ghost, ctx->scratch );
+  if( FD_UNLIKELY( vote_slot == FD_SLOT_NULL ) ) return; /* nothing to vote on */
+
+  ulong root = fd_tower_vote( ctx->tower, vote_slot );
+  if( FD_LIKELY( root != FD_SLOT_NULL ) ) {
+    fd_hash_t const * root_block_id = fd_ghost_hash( ctx->ghost, root );
+    if( FD_UNLIKELY( !root_block_id ) ) {
+      FD_LOG_WARNING(( "Lowest vote slot %lu is not in ghost, skipping publish", root ));
+    } else {
+      fd_ghost_publish( ctx->ghost, root_block_id );
+      uchar * chunk  = fd_chunk_to_laddr( ctx->root_out_mem, ctx->root_out_chunk );
+      memcpy( chunk, root_block_id, sizeof(fd_hash_t) );
+      fd_stem_publish( stem, ctx->root_out_idx, root, ctx->root_out_chunk, sizeof(fd_hash_t), 0UL, tsorig, fd_frag_meta_ts_comp( fd_tickcount() ) );
+      ctx->root_out_chunk = fd_dcache_compact_next( ctx->root_out_chunk, sizeof(fd_hash_t), ctx->root_out_chunk0, ctx->root_out_wmark );
+    }
+    ctx->root = root;
+  }
+
+  /* Send our updated tower to the cluster. */
+
+  fd_txn_p_t * vote_txn = (fd_txn_p_t *)fd_chunk_to_laddr( ctx->send_out_mem, ctx->send_out_chunk );
+  fd_tower_to_vote_txn( ctx->tower, ctx->root, ctx->lockouts, &replay_out->bank_hash, &replay_out->block_hash, ctx->identity_key, ctx->identity_key, ctx->vote_acc, vote_txn );
+  FD_TEST( !fd_tower_votes_empty( ctx->tower ) );
+  FD_TEST( vote_txn->payload_sz > 0UL );
+  fd_stem_publish( stem, ctx->send_out_idx, vote_slot, ctx->send_out_chunk, sizeof(fd_txn_p_t), 0UL, tsorig, fd_frag_meta_ts_comp( fd_tickcount() ) );
+
+  fd_ghost_print( ctx->ghost, ctx->epoch->total_stake, fd_ghost_root( ctx->ghost ) );
+  fd_tower_print( ctx->tower, ctx->root );
+}
+
+static void
+after_frag_snap( ctx_t                  * ctx,
+                 ulong                    sig,
+                 fd_snapshot_manifest_t * manifest ) {
+  if( FD_UNLIKELY( fd_ssmsg_sig_message( sig )!=FD_SSMSG_DONE ) ) return;
+  fd_hash_t null = { 0 };
+  fd_ghost_init( ctx->ghost, manifest->slot, &null );
+
+  fd_voter_t * epoch_voters = fd_epoch_voters( ctx->epoch );
+  for(ulong i = 0; i< manifest->vote_accounts_len; i++) {
+    if( FD_UNLIKELY( manifest->vote_accounts[i].stake == 0 ) ) continue;
+    fd_pubkey_t const * pubkey = (fd_pubkey_t const *)fd_type_pun_const( manifest->vote_accounts[i].vote_account_pubkey );
+#   if FD_EPOCH_USE_HANDHOLDING
+    FD_TEST( !fd_epoch_voters_query( epoch_voters, *pubkey, NULL ) );
+    FD_TEST( fd_epoch_voters_key_cnt( epoch_voters ) < fd_epoch_voters_key_max( epoch_voters ) );
+#   endif
+    fd_voter_t * voter = fd_epoch_voters_insert( epoch_voters, *pubkey );
+    voter->rec.uc[FD_FUNK_REC_KEY_FOOTPRINT - 1] = FD_FUNK_KEY_TYPE_ACC;
+#   if FD_EPOCH_USE_HANDHOLDING
+    FD_TEST( 0==memcmp( voter->key.uc, pubkey->uc, sizeof(fd_pubkey_t) ) );
+    FD_TEST( fd_epoch_voters_query( epoch_voters, voter->key, NULL ) );
+#   endif
+    voter->stake             = manifest->vote_accounts[i].stake;
+    voter->replay_vote.slot  = FD_SLOT_NULL;
+    voter->gossip_vote.slot  = FD_SLOT_NULL;
+    voter->rooted_vote.slot  = FD_SLOT_NULL;
+    ctx->epoch->total_stake += voter->stake;
+    // FD_LOG_NOTICE(( "inserting %s %lu", FD_BASE58_ENC_32_ALLOCA( voter->key.uc ), voter->stake ));
+  }
+}
 
 FD_FN_CONST static inline ulong
 scratch_align( void ) {
@@ -194,72 +235,33 @@ scratch_footprint( fd_topo_tile_t const * tile FD_PARAM_UNUSED ) {
     FD_LAYOUT_APPEND(
     FD_LAYOUT_APPEND(
     FD_LAYOUT_INIT,
-      alignof(ctx_t),      sizeof(ctx_t)                      ),
-      fd_epoch_align(),    fd_epoch_footprint( FD_VOTER_MAX ) ),
-      fd_ghost_align(),    fd_ghost_footprint( FD_BLOCK_MAX ) ),
-      fd_tower_align(),    fd_tower_footprint()               ), /* our tower */
-      fd_tower_align(),    fd_tower_footprint()               ), /* scratch */
-      128UL,               VOTER_FOOTPRINT * VOTER_MAX        ), /* scratch */
+      alignof(ctx_t),   sizeof(ctx_t)                      ),
+      fd_epoch_align(), fd_epoch_footprint( FD_VOTER_MAX ) ),
+      fd_ghost_align(), fd_ghost_footprint( FD_BLOCK_MAX ) ),
+      fd_tower_align(), fd_tower_footprint()               ), /* our tower */
+      fd_tower_align(), fd_tower_footprint()               ), /* scratch */
+      128UL,            VOTER_FOOTPRINT * VOTER_MAX        ), /* scratch */
     scratch_align() );
 }
 
 static void
 during_frag( ctx_t * ctx,
-             ulong   in_idx,
-             ulong   seq FD_PARAM_UNUSED,
-             ulong   sig,
+             ulong   in_idx FD_PARAM_UNUSED,
+             ulong   seq    FD_PARAM_UNUSED,
+             ulong   sig    FD_PARAM_UNUSED,
              ulong   chunk,
-             ulong   sz,
-             ulong   ctl FD_PARAM_UNUSED ) {
-  uint             in_kind = ctx->in_kind[in_idx];
-  in_ctx_t const * in_ctx  = &ctx->in_links[in_idx];
+             ulong   sz     FD_PARAM_UNUSED,
+             ulong   ctl    FD_PARAM_UNUSED ) {
+  uint          in_kind     = ctx->in_kind[in_idx];
+  uchar const * chunk_laddr = fd_chunk_to_laddr( ctx->in_links[in_idx].mem, chunk );
   switch( in_kind ) {
-
-    case IN_KIND_GOSSIP: {
-      uchar const * chunk_laddr = fd_chunk_to_laddr_const( in_ctx->mem, chunk );
-      switch(sig) {
-        case fd_crds_data_enum_vote: {
-          memcpy( &ctx->vote_ix_buf[0], chunk_laddr, sz );
-          break;
-        }
-        case fd_crds_data_enum_duplicate_shred: {
-          memcpy( &ctx->duplicate_shred, chunk_laddr, sizeof(fd_gossip_duplicate_shred_t) );
-          memcpy( ctx->duplicate_shred_chunk, chunk_laddr + sizeof(fd_gossip_duplicate_shred_t), FD_EQVOC_PROOF_CHUNK_SZ );
-          break;
-        }
-        default: {
-          FD_LOG_ERR(( "unexpected crds discriminant %lu", sig ));
-          break;
-        }
-      }
-      break;
-    }
-
-    case IN_KIND_REPLAY: {
-      in_ctx_t const * in_ctx = &ctx->in_links[ in_idx ];
-      ulong parent_slot = fd_ulong_extract_lsb( sig, 32 );
-      uchar const * chunk_laddr = fd_chunk_to_laddr_const( in_ctx->mem, chunk );
-      if( FD_UNLIKELY( parent_slot == UINT_MAX /* no parent, so snapshot slot */ ) ) {
-        memcpy   ( ctx->slot_hash.uc,     chunk_laddr,                     sizeof(fd_hash_t) );
-        fd_memcpy( ctx->epoch_voters_buf, chunk_laddr + sizeof(fd_hash_t), sz - sizeof(fd_hash_t) );
-      } else {
-        memcpy( ctx->bank_hash.uc,   chunk_laddr,                     sizeof(fd_hash_t) );
-        memcpy( ctx->block_hash.uc,  chunk_laddr+1*sizeof(fd_hash_t), sizeof(fd_hash_t) );
-        memcpy( ctx->slot_hash.uc,   chunk_laddr+2*sizeof(fd_hash_t), sizeof(fd_hash_t) );
-        memcpy( ctx->parent_hash.uc, chunk_laddr+3*sizeof(fd_hash_t), sizeof(fd_hash_t) );
-        /* FIXME: worth making a repair->replay packed msg to directly cast? */
-      }
-      break;
-    }
-
-    case IN_KIND_SHRED:
-      break;
-
-    case IN_KIND_SIGN:
-      break;
-
-    default:
-      FD_LOG_ERR(( "Unknown in_kind %u", in_kind ));
+  case IN_KIND_GOSSIP: {                                                                                 break; }
+  case IN_KIND_REPLAY: { memcpy( &ctx->replay_out,        chunk_laddr, sizeof(fd_replay_out_t)        ); break; }
+  case IN_KIND_SNAP:   {
+    if( FD_UNLIKELY( fd_ssmsg_sig_message( sig )!=FD_SSMSG_DONE ) ) memcpy( &ctx->snapshot_manifest, chunk_laddr, sizeof(fd_snapshot_manifest_t) );
+    break;
+  }
+  default: FD_LOG_ERR(( "unexpected input kind %u", in_kind ));
   }
 }
 
@@ -268,64 +270,17 @@ after_frag( ctx_t *             ctx,
             ulong               in_idx,
             ulong               seq     FD_PARAM_UNUSED,
             ulong               sig,
-            ulong               sz,
+            ulong               sz      FD_PARAM_UNUSED,
             ulong               tsorig,
             ulong               tspub   FD_PARAM_UNUSED,
             fd_stem_context_t * stem ) {
   uint in_kind = ctx->in_kind[in_idx];
-  if( FD_UNLIKELY( in_kind != IN_KIND_REPLAY ) ) return;
-
-  ulong slot        = fd_ulong_extract( sig, 32, 63 );
-  ulong parent_slot = fd_ulong_extract_lsb( sig, 32 );
-
-  if( FD_UNLIKELY( (uint)parent_slot == UINT_MAX ) ) { /* snapshot slot */
-    FD_TEST( ctx->funk );
-    FD_TEST( fd_funk_txn_map( ctx->funk ) );
-    update_epoch( ctx, sz - sizeof(fd_hash_t) );
-    fd_ghost_init( ctx->ghost, slot, &ctx->slot_hash );
-    return;
+  switch( in_kind ) {
+  case IN_KIND_GOSSIP: {                                                               break; }
+  case IN_KIND_REPLAY: { after_frag_replay( ctx, sig, &ctx->replay_out, tsorig, stem ); break; }
+  case IN_KIND_SNAP:   { after_frag_snap  ( ctx, sig, &ctx->snapshot_manifest        ); break; }
+  default: FD_LOG_ERR(( "Unexpected input kind %u", in_kind ));
   }
-
-  fd_funk_txn_xid_t   txn_xid  = { .ul = { slot, slot } };
-  fd_funk_txn_map_t * txn_map  = fd_funk_txn_map( ctx->funk );
-  fd_funk_txn_start_read( ctx->funk );
-  fd_funk_txn_t * funk_txn = fd_funk_txn_query( &txn_xid, txn_map );
-  if( FD_UNLIKELY( !funk_txn ) ) FD_LOG_ERR(( "Could not find valid funk transaction" ));
-  fd_funk_txn_end_read( ctx->funk );
-
-  /* Initialize the tower */
-
-  if( FD_UNLIKELY( fd_tower_votes_empty( ctx->tower ) ) ) fd_tower_from_vote_acc( ctx->tower, ctx->funk, funk_txn, &ctx->funk_key );
-
-  fd_ghost_ele_t const * ghost_ele  = fd_ghost_insert( ctx->ghost, &ctx->parent_hash, slot, &ctx->slot_hash, ctx->epoch->total_stake );
-  FD_TEST( ghost_ele );
-  update_ghost( ctx, funk_txn );
-
-  ulong vote_slot = fd_tower_vote_slot( ctx->tower, ctx->epoch, ctx->funk, funk_txn, ctx->ghost, ctx->scratch );
-  if( FD_UNLIKELY( vote_slot == FD_SLOT_NULL ) ) return; /* nothing to vote on */
-
-  ulong root = fd_tower_vote( ctx->tower, vote_slot );
-  if( FD_LIKELY( root != FD_SLOT_NULL ) ) {
-    fd_hash_t const * root_bid = fd_ghost_hash( ctx->ghost, root );
-    if( FD_UNLIKELY( !root_bid ) ) {
-      FD_LOG_WARNING(( "Lowest vote slot %lu is not in ghost, skipping publish", root ));
-    } else {
-      fd_ghost_publish( ctx->ghost, root_bid );
-      fd_stem_publish( stem, ctx->replay_out_idx, root, 0UL, 0UL, 0UL, tsorig, fd_frag_meta_ts_comp( fd_tickcount() ) );
-    }
-    ctx->root = root;
-  }
-
-  /* Send our updated tower to the cluster. */
-
-  fd_txn_p_t * vote_txn = (fd_txn_p_t *)fd_chunk_to_laddr( ctx->send_out_mem, ctx->send_out_chunk );
-  fd_tower_to_vote_txn( ctx->tower, ctx->root, ctx->lockouts, &ctx->bank_hash, &ctx->block_hash, ctx->identity_key, ctx->identity_key, ctx->vote_acc, vote_txn );
-  FD_TEST( !fd_tower_votes_empty( ctx->tower ) );
-  FD_TEST( vote_txn->payload_sz > 0UL );
-  fd_stem_publish( stem, ctx->send_out_idx, vote_slot, ctx->send_out_chunk, sizeof(fd_txn_p_t), 0UL, tsorig, fd_frag_meta_ts_comp( fd_tickcount() ) );
-
-  fd_ghost_print( ctx->ghost, ctx->epoch->total_stake, fd_ghost_root( ctx->ghost ) );
-  fd_tower_print( ctx->tower, ctx->root );
 }
 
 static void
@@ -371,10 +326,10 @@ unprivileged_init( fd_topo_t *      topo,
     fd_topo_link_t * link = &topo->links[ tile->in_link_id[ in_idx ] ];
     if(        0==strcmp( link->name, "gossip_tower" ) ) {
       ctx->in_kind[ in_idx ] = IN_KIND_GOSSIP;
-    } else if( 0==strcmp( link->name, "replay_tower" ) ) {
+    } else if( 0==strcmp( link->name, "replay_out" ) ) {
       ctx->in_kind[ in_idx ] = IN_KIND_REPLAY;
-    } else if( 0==strcmp( link->name, "stake_out" ) ) {
-      ctx->in_kind[ in_idx ] = IN_KIND_SHRED;
+    } else if( 0==strcmp( link->name, "snap_out" ) ) {
+      ctx->in_kind[ in_idx ] = IN_KIND_SNAP;
     } else {
       FD_LOG_ERR(( "tower tile has unexpected input link %s", link->name ));
     }
@@ -384,8 +339,14 @@ unprivileged_init( fd_topo_t *      topo,
     ctx->in_links[ in_idx ].mtu    = link->mtu;
   }
 
-  ctx->replay_out_idx = fd_topo_find_tile_out_link( topo, tile, "tower_replay", 0 );
-  FD_TEST( ctx->replay_out_idx!= ULONG_MAX );
+  ctx->root_out_idx = fd_topo_find_tile_out_link( topo, tile, "root_out", 0 );
+  FD_TEST( ctx->root_out_idx!= ULONG_MAX );
+  fd_topo_link_t * root_out = &topo->links[ tile->out_link_id[ ctx->root_out_idx ] ];
+  ctx->root_out_mem         = topo->workspaces[ topo->objs[ root_out->dcache_obj_id ].wksp_id ].wksp;
+  ctx->root_out_chunk0      = fd_dcache_compact_chunk0( ctx->root_out_mem, root_out->dcache );
+  ctx->root_out_wmark       = fd_dcache_compact_wmark ( ctx->root_out_mem, root_out->dcache, root_out->mtu );
+  ctx->root_out_chunk       = ctx->root_out_chunk0;
+  FD_TEST( fd_dcache_compact_is_safe( ctx->root_out_mem, root_out->dcache, root_out->mtu, root_out->depth ) );
 
   ctx->send_out_idx = fd_topo_find_tile_out_link( topo, tile, "tower_send", 0 );
   FD_TEST( ctx->send_out_idx!=ULONG_MAX );

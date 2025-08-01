@@ -4,7 +4,7 @@
 #include "../tango/fd_tango.h"
 #include "../ballet/shred/fd_shred.h"
 #include "../ballet/txn/fd_txn.h"
-
+#include "../flamenco/types/fd_types_custom.h"
 #include "../util/wksp/fd_wksp_private.h"
 
 #define DST_PROTO_OUTGOING (0UL)
@@ -65,6 +65,14 @@ FD_STATIC_ASSERT( FD_SHRED_REPAIR_MTU == 120 , update FD_SHRED_REPAIR_MTU );
 
 #define FD_NETMUX_SIG_MIN_HDR_SZ    ( 42UL) /* The default header size, which means no vlan tags and no IP options. */
 #define FD_NETMUX_SIG_IGNORE_HDR_SZ (102UL) /* Outside the allowable range, but still fits in 4 bits when compressed */
+
+struct fd_replay_out {
+  fd_hash_t block_id;        /* block id (last FEC set's merkle root) of the slot received from replay */
+  fd_hash_t parent_block_id; /* parent block id of the slot received from replay */
+  fd_hash_t bank_hash;       /* bank hash of the slot received from replay */
+  fd_hash_t block_hash;      /* last microblock header hash of slot received from replay */
+};
+typedef struct fd_replay_out fd_replay_out_t;
 
 FD_PROTOTYPES_BEGIN
 

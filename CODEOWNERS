@@ -6,6 +6,8 @@
 /src/choreo @lidatong @emwang-jump
 /src/disco/pack @ptaffet-jump @mmcgee-jump
 /src/disco/shred @ptaffet-jump @mmcgee-jump
+/src/disco/reasm @lidatong @emwang-jump
+/src/disco/store @lidatong @emwang-jump
 /src/discof/repair @lidatong @emwang-jump
 /src/waltz/quic @nbridge-jump @ripatel-fd @akhinvasara-jumptrading
 /src/waltz/tls @ripatel-fd @mmcgee-jump

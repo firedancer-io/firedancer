@@ -1,5 +1,4 @@
 /* Repair tile runs the repair protocol for a Firedancer node. */
-#include "fd_fec_chainer.h"
 #define _GNU_SOURCE
 
 #include "../../disco/topo/fd_topo.h"
@@ -13,17 +12,20 @@
 #include "../../disco/keyguard/fd_keyguard.h"
 #include "../../disco/net/fd_net_tile.h"
 #include "../../disco/store/fd_store.h"
+#include "../../discof/restore/utils/fd_ssmsg.h"
 #include "../../util/pod/fd_pod_format.h"
 #include "../../util/net/fd_net_headers.h"
 
 #include "../forest/fd_forest.h"
-#include "fd_fec_chainer.h"
+#include "fd_reasm.h"
 
-#define IN_KIND_NET     (0)
-#define IN_KIND_CONTACT (1)
-#define IN_KIND_STAKE   (2)
+#define IN_KIND_CONTACT (0)
+#define IN_KIND_NET     (1)
+#define IN_KIND_ROOT    (2)
 #define IN_KIND_SHRED   (3)
 #define IN_KIND_SIGN    (4)
+#define IN_KIND_SNAP    (5)
+#define IN_KIND_STAKE   (6)
 #define MAX_IN_LINKS    (16)
 
 #define NET_OUT_IDX      (0)
@@ -31,9 +33,9 @@
 #define REPLAY_OUT_IDX   (2)
 #define ARCHIVE_OUT_IDX  (3)
 
-#define MAX_REPAIR_PEERS 40200UL
-#define MAX_BUFFER_SIZE  ( MAX_REPAIR_PEERS * sizeof(fd_shred_dest_wire_t))
-#define MAX_SHRED_TILE_CNT (16UL)
+#define MAX_REPAIR_PEERS   40200UL
+#define MAX_BUFFER_SIZE    ( MAX_REPAIR_PEERS * sizeof( fd_shred_dest_wire_t ) )
+#define MAX_SHRED_TILE_CNT ( 16UL )
 
 typedef union {
   struct {
@@ -65,14 +67,14 @@ typedef struct fd_fec_sig fd_fec_sig_t;
 #define MAP_MEMOIZE 0
 #include "../../util/tmpl/fd_map_dynamic.c"
 
-struct fd_reasm {
+struct fd_sreasm {
   ulong slot;
   uint  cnt;
 };
-typedef struct fd_reasm fd_reasm_t;
+typedef struct fd_sreasm fd_sreasm_t;
 
-#define MAP_NAME     fd_reasm
-#define MAP_T        fd_reasm_t
+#define MAP_NAME     fd_sreasm
+#define MAP_T        fd_sreasm_t
 #define MAP_KEY      slot
 #define MAP_MEMOIZE  0
 #include "../../util/tmpl/fd_map_dynamic.c"
@@ -81,8 +83,6 @@ struct fd_repair_tile_ctx {
   long tsprint; /* timestamp for printing */
   long tsrepair; /* timestamp for repair */
   long tsreset; /* timestamp for resetting iterator */
-  ulong * wmark;
-  ulong   prev_wmark;
 
   fd_repair_t * repair;
   fd_repair_config_t repair_config;
@@ -97,8 +97,8 @@ struct fd_repair_tile_ctx {
 
   fd_forest_t      * forest;
   fd_fec_sig_t     * fec_sigs;
-  fd_reasm_t       * reasm;
-  fd_fec_chainer_t * fec_chainer;
+  fd_sreasm_t       * sreasm;
+  fd_reasm_t * reasm;
   fd_forest_iter_t   repair_iter;
   fd_store_t       * store;
 
@@ -113,6 +113,8 @@ struct fd_repair_tile_ctx {
   uchar              in_kind[ MAX_IN_LINKS ];
   fd_repair_in_ctx_t in_links[ MAX_IN_LINKS ];
 
+  fd_hash_t root_block_id; /* block id of root published on tower_out */
+
   int skip_frag;
 
   uint        net_out_idx;
@@ -125,6 +127,8 @@ struct fd_repair_tile_ctx {
   ulong       replay_out_chunk0;
   ulong       replay_out_wmark;
   ulong       replay_out_chunk;
+
+  ulong snap_out_chunk;
 
   /* These will only be used if shredcap is enabled */
   uint        shredcap_out_idx;
@@ -144,6 +148,8 @@ struct fd_repair_tile_ctx {
   fd_ip4_udp_hdrs_t serve_hdr [1];
 
   fd_keyguard_client_t keyguard_client[1];
+
+  ulong manifest_slot;
 };
 typedef struct fd_repair_tile_ctx fd_repair_tile_ctx_t;
 
@@ -165,9 +171,9 @@ scratch_footprint( fd_topo_tile_t const * tile ) {
   l = FD_LAYOUT_APPEND( l, fd_repair_align(),             fd_repair_footprint()                    );
   l = FD_LAYOUT_APPEND( l, fd_forest_align(),             fd_forest_footprint( tile->repair.slot_max ) );
   l = FD_LAYOUT_APPEND( l, fd_fec_sig_align(),            fd_fec_sig_footprint( 20 ) );
-  l = FD_LAYOUT_APPEND( l, fd_reasm_align(),              fd_reasm_footprint( 20 ) );
+  l = FD_LAYOUT_APPEND( l, fd_sreasm_align(),              fd_sreasm_footprint( 20 ) );
   // l = FD_LAYOUT_APPEND( l, fd_fec_repair_align(),         fd_fec_repair_footprint( ( 1<<20 ), tile->repair.shred_tile_cnt ) );
-  l = FD_LAYOUT_APPEND( l, fd_fec_chainer_align(),        fd_fec_chainer_footprint( 1 << 20 ) ); // TODO: fix this
+  l = FD_LAYOUT_APPEND( l, fd_reasm_align(),        fd_reasm_footprint( 1 << 20 ) ); // TODO: fix this
   l = FD_LAYOUT_APPEND( l, fd_scratch_smem_align(),       fd_scratch_smem_footprint( FD_REPAIR_SCRATCH_MAX ) );
   l = FD_LAYOUT_APPEND( l, fd_scratch_fmem_align(),       fd_scratch_fmem_footprint( FD_REPAIR_SCRATCH_DEPTH ) );
   return FD_LAYOUT_FINI( l, scratch_align() );
@@ -414,14 +420,14 @@ fd_repair_send_requests( fd_repair_tile_ctx_t *   ctx,
   }
 }
 
-
 static inline int
 before_frag( fd_repair_tile_ctx_t * ctx,
              ulong                  in_idx,
              ulong                  seq FD_PARAM_UNUSED,
              ulong                  sig ) {
   uint in_kind = ctx->in_kind[ in_idx ];
-  if( FD_LIKELY( in_kind==IN_KIND_NET ) ) return fd_disco_netmux_sig_proto( sig )!=DST_PROTO_REPAIR;
+  if( FD_LIKELY  ( in_kind==IN_KIND_NET   ) ) return fd_disco_netmux_sig_proto( sig )!=DST_PROTO_REPAIR;
+  if( FD_UNLIKELY( in_kind==IN_KIND_SHRED ) ) return fd_int_if( fd_forest_root_slot( ctx->forest )==ULONG_MAX, -1, 0 ); /* not ready to read frag */
   return 0;
 }
 
@@ -468,11 +474,39 @@ during_frag( fd_repair_tile_ctx_t * ctx,
     dcache_entry = fd_chunk_to_laddr_const( in_ctx->mem, chunk );
     dcache_entry_sz = sz;
 
+  } else if( FD_UNLIKELY( in_kind==IN_KIND_SNAP ) ) {
+
+    if( FD_UNLIKELY( ctx->in_kind[in_idx]!=IN_KIND_SNAP || fd_ssmsg_sig_message( sig )!=FD_SSMSG_DONE ) ) ctx->snap_out_chunk = chunk;
+    return;
+
   } else {
     FD_LOG_ERR(( "Frag from unknown link (kind=%u in_idx=%lu)", in_kind, in_idx ));
   }
 
   fd_memcpy( ctx->buffer, dcache_entry, dcache_entry_sz );
+}
+
+static inline void
+after_frag_snap( fd_repair_tile_ctx_t * ctx,
+                 ulong                  sig,
+                 uchar const          * chunk ) {
+  if( FD_UNLIKELY( fd_ssmsg_sig_message( sig )!=FD_SSMSG_DONE ) ) return;
+  fd_snapshot_manifest_t * manifest = (fd_snapshot_manifest_t *)chunk;
+  fd_forest_init( ctx->forest, manifest->slot );
+  FD_TEST( fd_forest_root_slot( ctx->forest )!=ULONG_MAX );
+  fd_hash_t null = { 0 }; /* FIXME block_id manifest */
+  fd_reasm_init( ctx->reasm, &null, manifest->slot );
+
+  // if( FD_UNLIKELY( manifest->slot < ctx->manifest_slot ) ) FD_LOG_ERR(( "time travel is not supported (yet). manifest slot %lu < prev rx manifest slot %lu", manifest->slot, ctx->manifest_slot ));
+
+  // fd_forest_t * forest = ctx->forest;
+  // int uninit = fd_fseq_query( fd_forest_ver( forest ) ) == FD_FOREST_VER_UNINIT;
+  // if( FD_UNLIKELY( uninit ) ) fd_forest_init   ( forest, manifest->slot );
+  // else                        fd_forest_publish( forest, manifest->slot );
+
+  // fd_hash_t null = { 0 }; /* FIXME block_id manifest */
+  // if( FD_UNLIKELY( !fd_reasm_root( ctx->reasm ) ) ) fd_reasm_insert ( ctx->reasm, &null, &null, manifest->slot, 0, 0, 0, 1, 1 );
+  // else                                              fd_reasm_publish( ctx->reasm, &ctx->root_block_id                         );
 }
 
 static void
@@ -493,39 +527,17 @@ after_frag( fd_repair_tile_ctx_t * ctx,
     return;
   }
 
-  if( FD_UNLIKELY( in_kind==IN_KIND_STAKE ) ) {
-    fd_repair_set_stake_weights_fini( ctx->repair );
+  if( FD_UNLIKELY( in_kind==IN_KIND_ROOT ) ) {
+    fd_forest_publish( ctx->forest, sig /* root slot */ );
+    ctx->repair_iter = fd_forest_iter_init( ctx->forest );
+    fd_reasm_publish( ctx->reasm, &ctx->root_block_id );
     return;
   }
 
   if( FD_UNLIKELY( in_kind==IN_KIND_SHRED ) ) {
-
-    /* Initialize the forest, which requires the root to be ready.  This
-       must be the case if we have received a frag from shred, because
-       shred requires stake weights, which implies a genesis or snapshot
-       slot has been loaded. */
-
-    ulong wmark = fd_fseq_query( ctx->wmark );
-    if( FD_UNLIKELY( fd_forest_root_slot( ctx->forest ) == ULONG_MAX ) ) {
-      FD_LOG_NOTICE(( "Forest initializing with root %lu", wmark ));
-      fd_forest_init( ctx->forest, wmark );
-      fd_hash_t mr = { 0 }; /* FIXME */
-      fd_fec_chainer_init( ctx->fec_chainer, wmark, &mr );
-      FD_TEST( fd_forest_root_slot( ctx->forest ) != ULONG_MAX );
-      ctx->prev_wmark = wmark;
-    }
-
-    if( FD_UNLIKELY( ctx->prev_wmark < wmark ) ) {
-      fd_forest_publish( ctx->forest, wmark );
-      fd_fec_chainer_publish( ctx->fec_chainer, wmark );
-      ctx->prev_wmark  = wmark;
-      // invalidate our repair iterator
-      ctx->repair_iter = fd_forest_iter_init( ctx->forest );
-    }
-
     fd_shred_t * shred = (fd_shred_t *)fd_type_pun( ctx->buffer );
     if( FD_UNLIKELY( shred->slot <= fd_forest_root_slot( ctx->forest ) ) ) {
-      // FD_LOG_WARNING(( "shred %lu %u %u too old, ignoring", shred->slot, shred->idx, shred->fec_set_idx ));
+      FD_LOG_WARNING(( "shred %lu %u %u too old, ignoring", shred->slot, shred->idx, shred->fec_set_idx ));
       return;
     };
 
@@ -562,15 +574,18 @@ after_frag( fd_repair_tile_ctx_t * ctx,
       FD_TEST( ele ); /* must be non-empty */
       fd_forest_ele_idxs_insert( ele->cmpl, shred->fec_set_idx );
 
-      fd_hash_t const * merkle_root  = (fd_hash_t const *)fd_type_pun_const( ctx->buffer + FD_SHRED_DATA_HEADER_SZ );
-      fd_hash_t const * chained_root = (fd_hash_t const *)fd_type_pun_const( ctx->buffer + FD_SHRED_DATA_HEADER_SZ + sizeof(fd_hash_t) );
+      fd_hash_t const * merkle_root         = (fd_hash_t const *)fd_type_pun_const( ctx->buffer + FD_SHRED_DATA_HEADER_SZ );
+      fd_hash_t const * chained_merkle_root = (fd_hash_t const *)fd_type_pun_const( ctx->buffer + FD_SHRED_DATA_HEADER_SZ + sizeof(fd_hash_t) );
 
       int     data_complete  = !!( shred->data.flags & FD_SHRED_DATA_FLAG_DATA_COMPLETE );
       int     slot_complete  = !!( shred->data.flags & FD_SHRED_DATA_FLAG_SLOT_COMPLETE );
 
-      FD_TEST( fd_fec_pool_free( ctx->fec_chainer->pool ) );
-      FD_TEST( !fd_fec_chainer_query( ctx->fec_chainer, shred->slot, shred->fec_set_idx ) );
-      FD_TEST( fd_fec_chainer_insert( ctx->fec_chainer, shred->slot, shred->fec_set_idx, (ushort)(shred->idx - shred->fec_set_idx + 1), data_complete, slot_complete, shred->data.parent_off, merkle_root, chained_root ) );
+      FD_TEST( !fd_reasm_query( ctx->reasm, merkle_root ) );
+      fd_hash_t const * cmr = chained_merkle_root;
+      if( FD_UNLIKELY( shred->slot - shred->data.parent_off == fd_reasm_slot0( ctx->reasm ) ) ) {
+        cmr = &fd_reasm_root( ctx->reasm )->key;
+      }
+      FD_TEST( fd_reasm_insert( ctx->reasm, merkle_root, cmr, shred->slot, shred->fec_set_idx, shred->data.parent_off, (ushort)(shred->idx - shred->fec_set_idx + 1), data_complete, slot_complete ) );
     }
 
     /* Insert the shred into the map. */
@@ -617,6 +632,16 @@ after_frag( fd_repair_tile_ctx_t * ctx,
     return;
   }
 
+  if( FD_UNLIKELY( in_kind==IN_KIND_STAKE ) ) {
+    fd_repair_set_stake_weights_fini( ctx->repair );
+    return;
+  }
+
+  if( FD_UNLIKELY( in_kind==IN_KIND_SNAP ) ) {
+    after_frag_snap( ctx, sig, fd_chunk_to_laddr( ctx->in_links[ in_idx ].mem, ctx->snap_out_chunk ) );
+    return;
+  }
+
   fd_eth_hdr_t const * eth  = (fd_eth_hdr_t const *)ctx->buffer;
   fd_ip4_hdr_t const * ip4  = (fd_ip4_hdr_t const *)( (ulong)eth + sizeof(fd_eth_hdr_t) );
   fd_udp_hdr_t const * udp  = (fd_udp_hdr_t const *)( (ulong)ip4 + FD_IP4_GET_LEN( *ip4 ) );
@@ -645,61 +670,25 @@ after_credit( fd_repair_tile_ctx_t * ctx,
               int *                  opt_poll_in,
               int *                  charge_busy ) {
 
-  if( FD_LIKELY( !fd_fec_out_empty( ctx->fec_chainer->out ) && ctx->store ) ) {
+  fd_reasm_fec_t * rfec = fd_reasm_next( ctx->reasm );
+  if( FD_LIKELY( rfec ) ) {
+    if( FD_LIKELY( ctx->store ) ) {
+      /* Linking only requires a shared lock because the fields that are
+          modified are only read on publish which uses exclusive lock. */
+      long shacq_start, shacq_end, shrel_end;
 
-    fd_fec_out_t out = fd_fec_out_pop_head( ctx->fec_chainer->out );
-    fd_hash_t *  cmr = &out.chained_root;
-    if( FD_UNLIKELY( ctx->store->slot0==(out.slot - out.parent_off) ) ) {
+      FD_STORE_SHACQ_TIMED( ctx->store, shacq_start, shacq_end );
+      if( FD_UNLIKELY( !fd_store_link( ctx->store, &rfec->key, &rfec->cmr ) ) ) FD_LOG_WARNING(( "failed to link %s %s. slot %lu fec_set_idx %u", FD_BASE58_ENC_32_ALLOCA( &rfec->key ), FD_BASE58_ENC_32_ALLOCA( &rfec->cmr ), rfec->slot, rfec->fec_set_idx ));
+      FD_STORE_SHREL_TIMED( ctx->store, shrel_end );
 
-      /* FIXME This is a hack to handle the fact the `block_id` field is
-         not available in the snapshot manifest, which is the chained
-         merkle root of the very first FEC after the snapshot slot. */
+      memcpy( fd_chunk_to_laddr( ctx->replay_out_mem, ctx->replay_out_chunk ), rfec, sizeof(fd_reasm_fec_t) );
+      ulong sig   = rfec->slot << 32 | rfec->fec_set_idx;
+      ulong tspub = fd_frag_meta_ts_comp( fd_tickcount() );
+      fd_stem_publish( stem, REPLAY_OUT_IDX, sig, ctx->replay_out_chunk, sizeof(fd_reasm_fec_t), 0, 0, tspub );
+      ctx->replay_out_chunk = fd_dcache_compact_next( ctx->replay_out_chunk, sizeof(fd_reasm_fec_t), ctx->replay_out_chunk0, ctx->replay_out_wmark );
 
-      fd_hash_t null = { 0 };
-      memcpy( cmr, &null, sizeof(fd_hash_t) );
-    }
-
-    /* Linking only requires a shared lock because the fields that are
-        modified are only read on publish which uses exclusive lock. */
-    long shacq_start, shacq_end, shrel_end;
-
-    FD_STORE_SHACQ_TIMED( ctx->store, shacq_start, shacq_end );
-    if( FD_UNLIKELY( !fd_store_link( ctx->store, &out.merkle_root, &out.chained_root ) ) ) FD_LOG_WARNING(( "failed to link %s %s. slot %lu fec_set_idx %u", FD_BASE58_ENC_32_ALLOCA( &out.merkle_root ), FD_BASE58_ENC_32_ALLOCA( &out.chained_root ), out.slot, out.fec_set_idx ));
-    FD_STORE_SHREL_TIMED( ctx->store, shrel_end );
-
-    memcpy( fd_chunk_to_laddr( ctx->replay_out_mem, ctx->replay_out_chunk ), &out, sizeof(fd_fec_out_t) );
-    ulong sig   = out.slot << 32 | out.fec_set_idx;
-    ulong tspub = fd_frag_meta_ts_comp( fd_tickcount() );
-    fd_stem_publish( stem, REPLAY_OUT_IDX, sig, ctx->replay_out_chunk, sizeof(fd_fec_out_t), 0, 0, tspub );
-    ctx->replay_out_chunk = fd_dcache_compact_next( ctx->replay_out_chunk, sizeof(fd_fec_out_t), ctx->replay_out_chunk0, ctx->replay_out_wmark );
-
-    fd_histf_sample( ctx->repair->metrics.store_link_wait, (ulong)fd_long_max(shacq_end - shacq_start, 0) );
-    fd_histf_sample( ctx->repair->metrics.store_link_work, (ulong)fd_long_max(shrel_end - shacq_end,   0) );
-
-    if( FD_UNLIKELY( ctx->shredcap_enabled ) ) {
-      uchar * chunk = fd_chunk_to_laddr( ctx->shredcap_out_mem, ctx->shredcap_out_chunk );
-      ulong   sz    = 0;
-
-      memcpy( chunk + sz, &out.merkle_root, sizeof(fd_hash_t) );
-      sz += sizeof(fd_hash_t);
-
-      fd_store_shacq( ctx->store );
-
-      fd_store_fec_t const * fec = fd_store_query_const( ctx->store, &out.merkle_root );
-
-      memcpy( chunk + sz, &fec->data_sz, sizeof(ulong) );
-      sz += sizeof(ulong);
-
-      memcpy( chunk + sz, fec->data, fec->data_sz );
-      sz += fec->data_sz;
-
-      fd_store_shrel( ctx->store );
-
-      memcpy( chunk + sz, &out, sizeof(fd_fec_out_t) );
-      sz += sizeof(fd_fec_out_t);
-
-      fd_stem_publish( stem, ctx->shredcap_out_idx, sz, ctx->shredcap_out_chunk, sz, 0, 0, tspub );
-      ctx->shredcap_out_chunk = fd_dcache_compact_next( ctx->shredcap_out_chunk, sz, ctx->shredcap_out_chunk0, ctx->shredcap_out_wmark );
+      fd_histf_sample( ctx->repair->metrics.store_link_wait, (ulong)fd_long_max(shacq_end - shacq_start, 0) );
+      fd_histf_sample( ctx->repair->metrics.store_link_work, (ulong)fd_long_max(shrel_end - shacq_end,   0) );
     }
 
     /* We might have more reassembled FEC sets to deliver to the
@@ -804,7 +793,7 @@ during_housekeeping( fd_repair_tile_ctx_t * ctx ) {
   fd_repair_settime( ctx->repair, fd_log_wallclock() );
 
   long now = fd_log_wallclock();
-  if( FD_UNLIKELY( now - ctx->tsprint > (long)1e9 ) ) {
+  if( FD_UNLIKELY( now - ctx->tsprint > (long)10e9 ) ) {
     fd_forest_print( ctx->forest );
     ctx->tsprint = fd_log_wallclock();
   }
@@ -851,16 +840,23 @@ unprivileged_init( fd_topo_t *      topo,
       continue;
     } else if( 0==strcmp( link->name, "gossip_repai" ) ) {
       ctx->in_kind[ in_idx ] = IN_KIND_CONTACT;
-    } else if( 0==strcmp( link->name, "stake_out" ) ) {
-      ctx->in_kind[ in_idx ] = IN_KIND_STAKE;
+    } else if( 0==strcmp( link->name, "root_out" ) ) {
+      ctx->in_kind[ in_idx ] = IN_KIND_ROOT;
     } else if( 0==strcmp( link->name, "shred_repair" ) ) {
       ctx->in_kind[ in_idx ] = IN_KIND_SHRED;
     } else if( 0==strcmp( link->name, "sign_repair" ) ) {
       ctx->in_kind[ in_idx ] = IN_KIND_SIGN;
       sign_link_in_idx = in_idx;
+    } else if( 0==strcmp( link->name, "snap_out" ) ) {
+      ctx->in_kind[ in_idx ] = IN_KIND_SNAP;
+    } else if( 0==strcmp( link->name, "stake_out" ) ) {
+      ctx->in_kind[ in_idx ] = IN_KIND_STAKE;
     } else {
       FD_LOG_ERR(( "repair tile has unexpected input link %s", link->name ));
     }
+
+    // ulong i = fd_topo_find_tile_in_link( topo, tile, "snap_out", 0 );
+    // FD_LOG_ERR(( "snap_out link idx %lu", i ));
 
     ctx->in_links[ in_idx ].mem    = topo->workspaces[ topo->objs[ link->dcache_obj_id ].wksp_id ].wksp;
     ctx->in_links[ in_idx ].chunk0 = fd_dcache_compact_chunk0( ctx->in_links[ in_idx ].mem, link->dcache );
@@ -929,11 +925,11 @@ unprivileged_init( fd_topo_t *      topo,
   ctx->repair     = FD_SCRATCH_ALLOC_APPEND( l, fd_repair_align(), fd_repair_footprint() );
   ctx->forest = FD_SCRATCH_ALLOC_APPEND( l, fd_forest_align(), fd_forest_footprint( tile->repair.slot_max ) );
   ctx->fec_sigs = FD_SCRATCH_ALLOC_APPEND( l, fd_fec_sig_align(), fd_fec_sig_footprint( 20 ) );
-  ctx->reasm = FD_SCRATCH_ALLOC_APPEND( l, fd_reasm_align(), fd_reasm_footprint( 20 ) );
+  ctx->sreasm = FD_SCRATCH_ALLOC_APPEND( l, fd_sreasm_align(), fd_sreasm_footprint( 20 ) );
   // ctx->fec_repair = FD_SCRATCH_ALLOC_APPEND( l, fd_fec_repair_align(), fd_fec_repair_footprint(  ( 1<<20 ), tile->repair.shred_tile_cnt ) );
   /* Look at fec_repair.h for an explanation of this fec_max. */
 
-  ctx->fec_chainer = FD_SCRATCH_ALLOC_APPEND( l, fd_fec_chainer_align(), fd_fec_chainer_footprint( 1 << 20 ) );
+  ctx->reasm = FD_SCRATCH_ALLOC_APPEND( l, fd_reasm_align(), fd_reasm_footprint( 1 << 20 ) );
 
   ctx->store = NULL;
   ulong store_obj_id = fd_pod_queryf_ulong( topo->props, ULONG_MAX, "store" );
@@ -981,8 +977,8 @@ unprivileged_init( fd_topo_t *      topo,
   ctx->forest = fd_forest_join( fd_forest_new( ctx->forest, tile->repair.slot_max, ctx->repair_seed ) );
   // ctx->fec_repair  = fd_fec_repair_join( fd_fec_repair_new( ctx->fec_repair, ( tile->repair.max_pending_shred_sets + 2 ), tile->repair.shred_tile_cnt,  0 ) );
   ctx->fec_sigs = fd_fec_sig_join( fd_fec_sig_new( ctx->fec_sigs, 20 ) );
-  ctx->reasm = fd_reasm_join( fd_reasm_new( ctx->reasm, 20 ) );
-  ctx->fec_chainer = fd_fec_chainer_join( fd_fec_chainer_new( ctx->fec_chainer, 1 << 20, 0 ) );
+  ctx->sreasm = fd_sreasm_join( fd_sreasm_new( ctx->sreasm, 20 ) );
+  ctx->reasm = fd_reasm_join( fd_reasm_new( ctx->reasm, 1 << 20, 0 ) );
   ctx->repair_iter = fd_forest_iter_init( ctx->forest );
   FD_TEST( fd_forest_iter_done( ctx->repair_iter, ctx->forest ) );
 
@@ -1005,12 +1001,6 @@ unprivileged_init( fd_topo_t *      topo,
   FD_LOG_NOTICE(( "repair my addr - intake addr: " FD_IP4_ADDR_FMT ":%u, serve_addr: " FD_IP4_ADDR_FMT ":%u",
     FD_IP4_ADDR_FMT_ARGS( ctx->repair_intake_addr.addr ), fd_ushort_bswap( ctx->repair_intake_addr.port ),
     FD_IP4_ADDR_FMT_ARGS( ctx->repair_serve_addr.addr ), fd_ushort_bswap( ctx->repair_serve_addr.port ) ));
-
-  ulong root_slot_obj_id = fd_pod_queryf_ulong( topo->props, ULONG_MAX, "root_slot" );
-  FD_TEST( root_slot_obj_id!=ULONG_MAX );
-  ctx->wmark = fd_fseq_join( fd_topo_obj_laddr( topo, root_slot_obj_id ) );
-  if( FD_UNLIKELY( !ctx->wmark ) ) FD_LOG_ERR(( "replay tile has no root_slot fseq" ));
-  ctx->prev_wmark = fd_fseq_query( ctx->wmark );
 
   if( fd_repair_set_config( ctx->repair, &ctx->repair_config ) ) {
     FD_LOG_ERR( ( "error setting repair config" ) );
