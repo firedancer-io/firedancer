@@ -84,7 +84,7 @@ fd_execute_txn_prepare_start( fd_exec_slot_ctx_t const * slot_ctx,
 
   Makes changes to the Funk accounts DB. */
 int
-fd_execute_txn( fd_execute_txn_task_info_t * task_info );
+fd_execute_txn( fd_exec_txn_ctx_t * txn_ctx );
 
 int
 fd_executor_validate_transaction_fee_payer( fd_exec_txn_ctx_t * txn_ctx );
