@@ -23,7 +23,7 @@
 #include "../../../disco/metrics/fd_metrics.h"
 #include "../../../util/pod/fd_pod_format.h"
 #include "../../../discof/replay/fd_replay_notif.h"
-#include "../../../discof/repair/fd_fec_chainer.h"
+#include "../../../discof/repair/fd_reasm.h"
 #include "../main.h"
 
 #include <unistd.h> /* pause */
@@ -108,7 +108,7 @@ backtest_topo( config_t * config ) {
      batches from the CLI-specified source (eg. RocksDB). */
 
   fd_topob_wksp( topo, "repair_repla" );
-  fd_topob_link( topo, "repair_repla", "repair_repla", 65536UL, sizeof(fd_fec_out_t), 1UL );
+  fd_topob_link( topo, "repair_repla", "repair_repla", 65536UL, sizeof(fd_reasm_fec_t), 1UL );
   fd_topob_tile_in( topo, "replay", 0UL, "metric_in", "repair_repla", 0UL, FD_TOPOB_RELIABLE, FD_TOPOB_POLLED );
   fd_topob_tile_out( topo, "back", 0UL, "repair_repla", 0UL );
 

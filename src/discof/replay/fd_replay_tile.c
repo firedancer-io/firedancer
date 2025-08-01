@@ -7,7 +7,7 @@
 
 #include "../../disco/keyguard/fd_keyload.h"
 #include "../../disco/store/fd_store.h"
-#include "../../discof/repair/fd_fec_chainer.h"
+#include "../../discof/repair/fd_reasm.h"
 #include "../../util/pod/fd_pod_format.h"
 #include "../../flamenco/runtime/fd_txncache.h"
 #include "../../flamenco/runtime/context/fd_capture_ctx.h"
@@ -310,7 +310,7 @@ struct fd_replay_tile_ctx {
   ulong         _snap_out_chunk;
   uchar const * manifest_dcache;          /* Dcache to receive decoded solana manifest */
 
-  fd_fec_out_t      fec_out;
+  fd_reasm_fec_t    fec_out;
   fd_exec_slice_t * exec_slice_map;
   fd_exec_slice_t * exec_slice_deque; /* Deque to buffer exec slices - lives in spad */
 };
@@ -920,24 +920,22 @@ on_snapshot_message( fd_replay_tile_ctx_t * ctx,
          the firedancer-internal snapshot manifest message. */
       restore_slot_ctx( ctx, ctx->in[ in_idx ].mem, chunk, sig );
 
-      /* The below handles the annoying case in which multiple snapshots
-         can be received.  The Store maintains an internal tree that is
-         pruned when Firedancer makes new roots, but in the case of
-         receiving a new manifest the Store needs to be entirely cleared
-         out. */
+      /* The below handles the annoying case in which multiple manifests
+         can be received.  A new manifest is essentially a new root, and
+         while the Store has a "publish" operation for new roots, this
+         scenario is a little different, because the manifest overwrites
+         the previous one entirely.  For example, the manifest slot can
+         go backwards, which would violate the Store assumption that the
+         root only publishes forwards (and is a descendant of the prior
+         root).  Instead, on new manifest, the Store is cleaned out
+         entirely.  This could be done more intelligently and retain any
+         store FEC sets that we suspect would chain off the new manifest
+         slot, but given this is a startup-only operation it is probably
+         unnecessary.*/
 
       fd_store_exacq( ctx->store );
-      fd_hash_t null = { 0 }; /* FIXME sentinel value for manifest because it is missing block_id */
-      if( FD_LIKELY( fd_store_root( ctx->store ) ) ) {
-
-        /* We got another snapshot, so clear the store. We could be more
-           clever and retain any store FEC sets that we suspect would
-           chain off the new snapshot slot (perhaps by adding slot info
-           to the Store as a heuristic), but given this is a startup
-           operation it is probably unnecessary. */
-
-        fd_store_clear( ctx->store );
-      }
+      fd_hash_t null = { 0 }; /* FIXME sentinel value for missing block_id in manifest */
+      if( FD_LIKELY( fd_store_root( ctx->store ) ) ) fd_store_clear( ctx->store );
       fd_store_insert( ctx->store, &null );
       ctx->store->slot0 = fd_bank_slot_get( ctx->slot_ctx->bank ); /* FIXME special slot to link to sentinel value */
       fd_store_exrel( ctx->store );
@@ -990,13 +988,13 @@ during_frag( fd_replay_tile_ctx_t * ctx,
   (void)sz;
   (void)ctl;
 
-  if( FD_UNLIKELY( ctx->in_kind[ in_idx ]==IN_KIND_SNAP ) ) ctx->_snap_out_chunk = chunk;
+  if( FD_UNLIKELY( ctx->in_kind[ in_idx ]==IN_KIND_SNAP ) ) ctx->_snap_out_chunk = chunk; /* FIXME can't this get overrun? */
   else if ( FD_LIKELY( ctx->in_kind[ in_idx ]==IN_KIND_REPAIR ) ) {
     if( FD_UNLIKELY( chunk<ctx->in[ in_idx ].chunk0 || chunk>ctx->in[ in_idx ].wmark ) ) {
       FD_LOG_ERR(( "chunk %lu %lu corrupt, not in range [%lu,%lu]", chunk, sz, ctx->in[ in_idx ].chunk0, ctx->in[ in_idx ].wmark ));
     }
-    FD_TEST( sz==sizeof(fd_fec_out_t) );
-    memcpy( &ctx->fec_out, fd_chunk_to_laddr( ctx->in[ in_idx ].mem, chunk ), sizeof(fd_fec_out_t) );
+    FD_TEST( sz==sizeof(fd_reasm_fec_t) );
+    memcpy( &ctx->fec_out, fd_chunk_to_laddr( ctx->in[ in_idx ].mem, chunk ), sizeof(fd_reasm_fec_t) );
   }
 }
 
@@ -1048,18 +1046,18 @@ after_frag( fd_replay_tile_ctx_t *   ctx,
        the following code is a temporary workaround to internally buffer
        and reassemble FEC sets into entry batches. */
 
-    fd_fec_out_t    * out   = &ctx->fec_out;
     // FD_LOG_NOTICE(( "replay tile %lu received FEC set for slot %lu, fec_set_idx %u, parent_off %u, slot_complete %d, data_cnt %u, data_complete %d",
     //                in_idx, out->slot, out->fec_set_idx, out->parent_off, out->slot_complete, out->data_cnt, out->data_complete ));
-    fd_exec_slice_t * slice = fd_exec_slice_map_query( ctx->exec_slice_map, out->slot, NULL );
-    if( FD_UNLIKELY( !slice ) ) slice = fd_exec_slice_map_insert( ctx->exec_slice_map, out->slot );
-    slice->parent_off    = out->parent_off;
-    slice->slot_complete = out->slot_complete;
-    slice->data_cnt += out->data_cnt;
+    fd_reasm_fec_t *  fec   = &ctx->fec_out;
+    fd_exec_slice_t * slice = fd_exec_slice_map_query( ctx->exec_slice_map, fec->slot, NULL );
+    if( FD_UNLIKELY( !slice ) ) slice = fd_exec_slice_map_insert( ctx->exec_slice_map, fec->slot );
+    slice->parent_off    = fec->parent_off;
+    slice->slot_complete = fec->slot_complete;
+    slice->data_cnt += fec->data_cnt;
     FD_TEST( slice->merkles_cnt < MERKLES_MAX );
-    memcpy( &slice->merkles[ slice->merkles_cnt++ ], &out->merkle_root, sizeof(fd_hash_t) );
+    memcpy( &slice->merkles[ slice->merkles_cnt++ ], &fec->key, sizeof(fd_hash_t) );
 
-    if( FD_UNLIKELY( out->data_complete ) ) {
+    if( FD_UNLIKELY( fec->data_complete ) ) {
 
     /* If the internal slice buffer is full, there is nowhere for the
        fragment to go and we cannot pull it off the incoming queue yet.
@@ -1078,9 +1076,9 @@ after_frag( fd_replay_tile_ctx_t *   ctx,
       fd_exec_slice_map_remove( ctx->exec_slice_map, slice );
     }
 
-    if( FD_UNLIKELY( out->slot_complete ) ) {
-      block_id_map_t * entry = block_id_map_insert( ctx->block_id_map, out->slot );
-      entry->block_id = out->merkle_root; /* the "block_id" is the last FEC set's merkle root */
+    if( FD_UNLIKELY( fec->slot_complete ) ) {
+      block_id_map_t * entry = block_id_map_insert( ctx->block_id_map, fec->slot );
+      entry->block_id = fec->key; /* the "block_id" is the last FEC set's merkle root */
     }
   }
 }
