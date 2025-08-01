@@ -102,13 +102,14 @@ fd_txn_account_init_from_funk_mutable( fd_txn_account_t *  acct,
 
 /* Save helper into Funk (Accounts DB)
    Saves the contents of a fd_txn_account_t object obtained from
-   fd_txn_account_init_from_funk_readonly back into funk */
+   fd_txn_account_init_from_funk_readonly back into funk. This assumes
+   that the caller has validated that the fd_txn_account_t is a valid
+   join.  */
 
 int
 fd_txn_account_save( fd_txn_account_t * acct,
                      fd_funk_t *        funk,
-                     fd_funk_txn_t *    txn,
-                     fd_wksp_t *        acc_data_wksp );
+                     fd_funk_txn_t *    txn );
 
 /* Publishes the record contents of a mutable fd_txn_account_t object
    obtained from fd_txn_account_init_from_funk_mutable into funk

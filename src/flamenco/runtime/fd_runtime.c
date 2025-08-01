@@ -1326,12 +1326,18 @@ fd_runtime_finalize_txn( fd_funk_t *                  funk,
 
        We should always rollback the nonce account first. Note that the nonce account may be the fee payer (case 2). */
     if( txn_ctx->nonce_account_idx_in_txn!=ULONG_MAX ) {
-      fd_txn_account_save( txn_ctx->rollback_nonce_account, funk, funk_txn, txn_ctx->spad_wksp );
+      if( FD_UNLIKELY( !fd_txn_account_join( txn_ctx->rollback_nonce_account, txn_ctx->spad_wksp ) ) ) {
+        FD_LOG_CRIT(( "fd_runtime_finalize_txn: failed to join rollback nonce account" ));
+      }
+      fd_txn_account_save( txn_ctx->rollback_nonce_account, funk, funk_txn );
     }
 
     /* Now, we must only save the fee payer if the nonce account was not the fee payer (because that was already saved above) */
     if( FD_LIKELY( txn_ctx->nonce_account_idx_in_txn!=FD_FEE_PAYER_TXN_IDX ) ) {
-      fd_txn_account_save( txn_ctx->rollback_fee_payer_account, funk, funk_txn, txn_ctx->spad_wksp );
+      if( FD_UNLIKELY( !fd_txn_account_join( txn_ctx->rollback_fee_payer_account, txn_ctx->spad_wksp ) ) ) {
+        FD_LOG_CRIT(( "fd_runtime_finalize_txn: failed to join rollback fee payer account" ));
+      }
+      fd_txn_account_save( txn_ctx->rollback_fee_payer_account, funk, funk_txn );
     }
   } else {
 
@@ -1345,7 +1351,10 @@ fd_runtime_finalize_txn( fd_funk_t *                  funk,
         continue;
       }
 
-      fd_txn_account_t * acc_rec = &txn_ctx->accounts[i];
+      fd_txn_account_t * acc_rec = fd_txn_account_join( &txn_ctx->accounts[i], txn_ctx->spad_wksp );
+      if( FD_UNLIKELY( !acc_rec ) ) {
+        FD_LOG_CRIT(( "fd_runtime_finalize_txn: failed to join account at idx %u", i ));
+      }
 
       if( dirty_vote_acc && 0==memcmp( fd_txn_account_get_owner( acc_rec ), &fd_solana_vote_program_id, sizeof(fd_pubkey_t) ) ) {
         fd_vote_store_account( acc_rec, bank );
@@ -1388,7 +1397,7 @@ fd_runtime_finalize_txn( fd_funk_t *                  funk,
         fd_store_stake_delegation( acc_rec, bank );
       }
 
-      fd_txn_account_save( &txn_ctx->accounts[i], funk, funk_txn, txn_ctx->spad_wksp );
+      fd_txn_account_save( &txn_ctx->accounts[i], funk, funk_txn );
     }
   }
 

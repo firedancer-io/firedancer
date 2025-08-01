@@ -168,21 +168,9 @@ fd_txn_account_make_mutable( fd_txn_account_t * acct,
     FD_LOG_ERR(( "borrowed account is already mutable" ));
   }
 
-  // ulong   dlen         = !!acct->meta ? acct->meta->dlen : 0UL;
   uchar * new_raw_data = fd_txn_account_init_data( acct, buf );
 
-
   fd_txn_account_join( fd_txn_account_new( acct, acct->pubkey, (fd_account_meta_t *)new_raw_data, 1 ), wksp );
-
-  // acct->meta = (fd_account_meta_t *)new_raw_data;
-  // acct->data = new_raw_data + sizeof(fd_account_meta_t);
-  // acct->meta->dlen = dlen;
-
-  // /* update global addresses of meta and data after copying into buffer */
-  // acct->meta_gaddr = fd_wksp_gaddr( wksp, acct->meta );
-  // acct->data_gaddr = fd_wksp_gaddr( wksp, acct->data );
-  // acct->is_mutable = 1;
-
   return acct;
 }
 
@@ -216,8 +204,6 @@ fd_txn_account_init_from_funk_readonly( fd_txn_account_t *    acct,
   }
 
   fd_wksp_t * funk_wksp = fd_funk_wksp( funk );
-
-  fd_txn_account_setup( acct, pubkey, meta, 0 );
 
   if( FD_UNLIKELY( !fd_txn_account_join( fd_txn_account_new(
         acct,
@@ -270,27 +256,9 @@ fd_txn_account_init_from_funk_mutable( fd_txn_account_t *  acct,
 /* Funk save function impl */
 
 int
-fd_txn_account_save_internal( fd_txn_account_t * acct,
-                              fd_funk_t *        funk ) {
-  if( acct->rec == NULL ) {
-    return FD_ACC_MGR_ERR_WRITE_FAILED;
-  }
-
-  fd_wksp_t * wksp = fd_funk_wksp( funk );
-  ulong reclen = sizeof(fd_account_meta_t)+acct->meta->dlen;
-  uchar * raw = fd_funk_val( acct->rec, wksp );
-  fd_memcpy( raw, acct->meta, reclen );
-
-  return FD_ACC_MGR_SUCCESS;
-}
-
-int
 fd_txn_account_save( fd_txn_account_t * acct,
                      fd_funk_t *        funk,
-                     fd_funk_txn_t *    txn,
-                     fd_wksp_t *        acc_data_wksp ) {
-  acct->meta = fd_wksp_laddr( acc_data_wksp, acct->meta_gaddr );
-  acct->data = fd_wksp_laddr( acc_data_wksp, acct->data_gaddr );
+                     fd_funk_txn_t *    txn ) {
 
   if( acct->meta == NULL ) {
     /* The meta is NULL so the account is not writable. */
@@ -320,10 +288,13 @@ fd_txn_account_save( fd_txn_account_t * acct,
       &err ) == NULL ) {
     FD_LOG_ERR(( "fd_funk_val_truncate(sz=%lu) for account failed (%i-%s)", reclen, err, fd_funk_strerror( err ) ));
   }
-  err = fd_txn_account_save_internal( acct, funk );
-  if( FD_UNLIKELY( err ) ) {
-    FD_LOG_ERR(( "fd_txn_account_save_internal() failed (%i-%s)", err, fd_funk_strerror( err ) ));
+
+  if( acct->rec == NULL ) {
+    FD_LOG_CRIT(( "fd_txn_account_save: no record" ));
   }
+
+  uchar * raw = fd_funk_val( acct->rec, wksp );
+  fd_memcpy( raw, acct->meta, reclen );
 
   fd_funk_rec_publish( funk, prepare );
 
