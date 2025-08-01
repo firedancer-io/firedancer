@@ -12,7 +12,7 @@ typedef struct fd_sshashes_map fd_sshashes_map_t;
    maps to up to 32 incremental snapshot hashes. */
 
 struct fd_sshashes_incremental_map {
-  ulong               slot;                         /* slot of incremental snapshot */
+  ulong               slot;                        /* slot of incremental snapshot */
   uint                hash;                        /* for internal map use */
   uchar               sshash[ FD_HASH_FOOTPRINT ]; /* base58 decoded hash of incremental snapshot */
   ulong               ref_cnt;                     /* ref count of the snapshothashes entry */
@@ -20,7 +20,7 @@ struct fd_sshashes_incremental_map {
 typedef struct fd_sshashes_incremental_map fd_sshashes_incremental_map_t;
 
 struct fd_sshashes_map {
-  ulong                           slot;                         /* slot of full snapshot */
+  ulong                           slot;                        /* slot of full snapshot */
   uint                            hash;                        /* for internal map use */
   uchar                           sshash[ FD_HASH_FOOTPRINT ]; /* base58 decoded hash of full snapshot */
   ulong                           inc_cnt;                     /* number of incremental snapshothashes for this full snapshothash */
@@ -44,32 +44,42 @@ typedef struct fd_sshashes_map fd_sshashes_map_t;
 #define MAP_LG_SLOT_CNT 5
 #include "../../../util/tmpl/fd_map.c"
 
-struct fd_sshashes_latest_msg_key {
-  uchar pubkey[ FD_HASH_FOOTPRINT ];
-};
-typedef struct fd_sshashes_latest_msg_key fd_sshashes_latest_msg_key_t;
-
 /* Stores the latest SnapshotHashes message for each known validator.
    There can be up to 16 different known validators. */
 struct fd_sshashes_latest_msg_map {
-  fd_sshashes_latest_msg_key_t    key;  /* known validator pubkey */
-  uint                            hash; /* for internal map use */
+  fd_pubkey_t                     key;  /* known validator pubkey */
+  ulong                           hash; /* for internal map use */
   fd_gossip_upd_snapshot_hashes_t msg;  /* latest SnapshotHash message */
 };
 typedef struct fd_sshashes_latest_msg_map fd_sshashes_latest_msg_map_t;
 
-FD_FN_PURE static uint
-fd_sshashes_latest_msg_key_hash( fd_sshashes_latest_msg_key_t key ) {
-  return (uint)fd_hash( 0x39c49607bf16463aUL, &key, sizeof(fd_sshashes_latest_msg_key_t) );
-}
-
 #define MAP_NAME             fd_sshashes_latest_msg_map
 #define MAP_T                fd_sshashes_latest_msg_map_t
-#define MAP_KEY_T            fd_sshashes_latest_msg_key_t
-#define MAP_KEY_NULL         (fd_sshashes_latest_msg_key_t){0}
-#define MAP_KEY_EQUAL(k0,k1) (memcmp(k0.pubkey,k1.pubkey,FD_HASH_FOOTPRINT)==0)
+#define MAP_KEY_T            fd_pubkey_t
+#define MAP_KEY_NULL         (fd_pubkey_t){0}
+#define MAP_KEY_EQUAL(k0,k1) (memcmp(k0.hash,k1.hash,FD_HASH_FOOTPRINT)==0)
 #define MAP_KEY_INVAL(k)     (MAP_KEY_EQUAL((k),MAP_KEY_NULL))
-#define MAP_KEY_HASH(key)    (fd_sshashes_latest_msg_key_hash(key))
+#define MAP_HASH_T           ulong
+#define MAP_KEY_HASH(key)    (fd_hash( (key).ui[3], key.hash, sizeof(fd_pubkey_t) ))
+#define MAP_KEY_EQUAL_IS_SLOW  1
+#define MAP_LG_SLOT_CNT        5
+#include "../../../util/tmpl/fd_map.c"
+
+struct fd_known_validator {
+  fd_pubkey_t key;
+  ulong       hash;
+};
+
+typedef struct fd_known_validator fd_known_validator_t;
+
+#define MAP_NAME             fd_known_validators_set
+#define MAP_T                fd_known_validator_t
+#define MAP_KEY_T            fd_pubkey_t
+#define MAP_KEY_NULL         (fd_pubkey_t){0}
+#define MAP_KEY_EQUAL(k0,k1) (!(memcmp((k0).key,(k1).key,sizeof(fd_pubkey_t))))
+#define MAP_KEY_INVAL(k)     (MAP_KEY_EQUAL((k),MAP_KEY_NULL))
+#define MAP_HASH_T           ulong
+#define MAP_KEY_HASH(key)    (fd_hash( (key).ui[3], key.hash, sizeof(fd_pubkey_t) ))
 #define MAP_KEY_EQUAL_IS_SLOW  1
 #define MAP_LG_SLOT_CNT        5
 #include "../../../util/tmpl/fd_map.c"
@@ -79,10 +89,14 @@ struct fd_sshashes_private {
   ulong                           known_full_cnt;
   ulong                           latest_msg_cnt;
   fd_sshashes_latest_msg_map_t *  latest_msg_map;
+  fd_known_validator_t *          known_validators_set;
   fd_sshashes_cluster_slot_pair_t highest_slots;
   ulong                           magic;          /* ==FD_SSHASHES_MAGIC */
 };
 typedef struct fd_sshashes_private fd_sshashes_private_t;
+
+#define FD_SSHASHES_ERROR_NOSPC (-1)
+#define FD_SSHASHES_ERROR_INVAL (-2)
 
 ulong
 fd_sshashes_align( void ) {
@@ -95,11 +109,14 @@ fd_sshashes_footprint( void ) {
   l = FD_LAYOUT_APPEND( l, fd_sshashes_latest_msg_map_align(), fd_sshashes_latest_msg_map_footprint() );
   l = FD_LAYOUT_APPEND( l, fd_sshashes_map_align(), fd_sshashes_map_footprint() );
   l = FD_LAYOUT_APPEND( l, fd_sshashes_incremental_map_align(), fd_sshashes_incremental_map_footprint() * fd_sshashes_map_slot_cnt() );
+  l = FD_LAYOUT_APPEND( l, fd_known_validators_set_align(), fd_known_validators_set_footprint() );
   return FD_LAYOUT_FINI( l, fd_sshashes_map_align() );
 }
 
 void *
-fd_sshashes_new( void * shmem ) {
+fd_sshashes_new( void * shmem,
+                 char known_validators[ FD_SSHASHES_KNOWN_VALIDATORS_MAX ][ FD_BASE58_ENCODED_32_SZ ],
+                 ulong known_validators_cnt ) {
   if( FD_UNLIKELY( !shmem ) ) {
     FD_LOG_WARNING(( "NULL shmem" ));
     return NULL;
@@ -111,12 +128,14 @@ fd_sshashes_new( void * shmem ) {
   }
 
   FD_SCRATCH_ALLOC_INIT( l, shmem );
-  fd_sshashes_t * sshashes = FD_SCRATCH_ALLOC_APPEND( l, fd_sshashes_align(), fd_sshashes_footprint() );
-  void * _latest_msg_map   = FD_SCRATCH_ALLOC_APPEND( l, fd_sshashes_latest_msg_map_align(), fd_sshashes_latest_msg_map_footprint() );
-  void * _sshashes_map     = FD_SCRATCH_ALLOC_APPEND( l, fd_sshashes_map_align(), fd_sshashes_map_footprint() );
+  fd_sshashes_t * sshashes     = FD_SCRATCH_ALLOC_APPEND( l, fd_sshashes_align(), fd_sshashes_footprint() );
+  void * _latest_msg_map       = FD_SCRATCH_ALLOC_APPEND( l, fd_sshashes_latest_msg_map_align(), fd_sshashes_latest_msg_map_footprint() );
+  void * _sshashes_map         = FD_SCRATCH_ALLOC_APPEND( l, fd_sshashes_map_align(), fd_sshashes_map_footprint() );
+  void * _known_validators_mem = FD_SCRATCH_ALLOC_APPEND( l, fd_known_validators_set_align(), fd_known_validators_set_footprint() );
 
-  sshashes->latest_msg_map = fd_sshashes_latest_msg_map_join( fd_sshashes_latest_msg_map_new( _latest_msg_map ) );
-  sshashes->known_map      = fd_sshashes_map_join( fd_sshashes_map_new( _sshashes_map ) );
+  sshashes->latest_msg_map       = fd_sshashes_latest_msg_map_join( fd_sshashes_latest_msg_map_new( _latest_msg_map ) );
+  sshashes->known_map            = fd_sshashes_map_join( fd_sshashes_map_new( _sshashes_map ) );
+  sshashes->known_validators_set = fd_known_validators_set_join( fd_known_validators_set_new( _known_validators_mem ) );
 
   for( ulong i=0UL; i<fd_sshashes_map_slot_cnt(); i++ ) {
     fd_sshashes_map_t * entry = &sshashes->known_map[ i ];
@@ -125,14 +144,11 @@ fd_sshashes_new( void * shmem ) {
     FD_TEST( entry->inc_sshashes_map );
   }
 
-  sshashes->known_full_cnt            = 0UL;
-  sshashes->latest_msg_cnt            = 0UL;
-  sshashes->highest_slots.full        = ULONG_MAX;
-  sshashes->highest_slots.incremental = ULONG_MAX;
-
   FD_COMPILER_MFENCE();
   FD_VOLATILE( sshashes->magic ) = FD_SSHASHES_MAGIC;
   FD_COMPILER_MFENCE();
+
+  fd_sshashes_init( sshashes, known_validators, known_validators_cnt );
 
   return sshashes;
 }
@@ -157,6 +173,33 @@ fd_sshashes_join( void * shhashes ) {
   }
 
   return sshashes;
+}
+
+void
+fd_sshashes_init( fd_sshashes_t * sshashes,
+                  char            known_validators[ FD_SSHASHES_KNOWN_VALIDATORS_MAX ][ FD_BASE58_ENCODED_32_SZ ],
+                  ulong           known_validators_cnt ) {
+  if( FD_UNLIKELY( sshashes->magic!=FD_SSHASHES_MAGIC ) ) {
+    FD_LOG_WARNING(( "bad magic" ));
+    return;
+  }
+
+  sshashes->known_full_cnt            = 0UL;
+  sshashes->latest_msg_cnt            = 0UL;
+  sshashes->highest_slots.full        = ULONG_MAX;
+  sshashes->highest_slots.incremental = ULONG_MAX;
+
+  for( ulong i=0UL; i<known_validators_cnt; i++ ) {
+    fd_pubkey_t known_validator_pubkey;
+    uchar * decoded = fd_base58_decode_32( known_validators[ i ], known_validator_pubkey.hash );
+    fd_known_validators_set_insert( sshashes->known_validators_set, known_validator_pubkey );
+
+    if( FD_UNLIKELY( !decoded ) ) {
+      FD_LOG_ERR(( "failed to decode known validator pubkey %s", known_validators[ i ] ));
+    } else {
+      FD_LOG_INFO(("got validator pubkey %s", FD_BASE58_ENC_32_ALLOCA( known_validator_pubkey.hash ) ));
+    }
+  }
 }
 
 void *
@@ -208,20 +251,18 @@ fd_sshashes_try_insert_incremental( fd_sshashes_map_t * full_entry,
                                     ulong               incremental_slot,
                                     uchar const         sshash[ static FD_HASH_FOOTPRINT ] ) {
   if( full_entry->inc_cnt>=FD_SSHASHES_MAP_KEY_MAX ) {
-    return -1;
+    return FD_SSHASHES_ERROR_NOSPC;
   }
 
   fd_sshashes_incremental_map_t * new_entry = fd_sshashes_incremental_map_insert( full_entry->inc_sshashes_map, incremental_slot );
 
-  if( FD_UNLIKELY( !new_entry ) ) {
-    return -1;
-  }
+  FD_TEST( new_entry );
 
   fd_memcpy( new_entry->sshash, sshash, FD_HASH_FOOTPRINT );
   new_entry->ref_cnt = 1UL;
   full_entry->inc_cnt++;
 
-  return 0;
+  return FD_SSHASHES_SUCCESS;
 }
 
 static int
@@ -229,9 +270,7 @@ fd_sshashes_try_insert_full( fd_sshashes_map_t *                     sshashes_ma
                              fd_gossip_upd_snapshot_hashes_t const * snapshot_hashes ) {
   fd_sshashes_map_t * new_full_entry = fd_sshashes_map_insert( sshashes_map, snapshot_hashes->full->slot );
 
-  if( !FD_UNLIKELY( new_full_entry ) ) {
-    return -1;
-  }
+  FD_TEST( new_full_entry );
 
   fd_memcpy( new_full_entry->sshash, snapshot_hashes->full->hash, FD_HASH_FOOTPRINT );
 
@@ -240,7 +279,7 @@ fd_sshashes_try_insert_full( fd_sshashes_map_t *                     sshashes_ma
 
   new_full_entry->inc_cnt = 1UL;
 
-  return 0;
+  return FD_SSHASHES_SUCCESS;
 }
 
 static void
@@ -279,16 +318,14 @@ fd_sshashes_try_insert_latest_msg( fd_sshashes_t *                         sshas
                                    uchar const                             pubkey[ static FD_HASH_FOOTPRINT ],
                                    fd_gossip_upd_snapshot_hashes_t const * snapshot_hashes ) {
   if( sshashes->latest_msg_cnt>=FD_SSHASHES_MAP_KEY_MAX ) {
-    return -1;
+    return FD_SSHASHES_ERROR_NOSPC;
   }
 
-  fd_sshashes_latest_msg_key_t latest_msg_key;
-  fd_memcpy( latest_msg_key.pubkey, pubkey, FD_HASH_FOOTPRINT );
-  fd_sshashes_latest_msg_map_t * new_latest_msg = fd_sshashes_latest_msg_map_insert( sshashes->latest_msg_map, latest_msg_key );
+  fd_pubkey_t known_validator_key;
+  fd_memcpy( known_validator_key.hash, pubkey, FD_HASH_FOOTPRINT );
+  fd_sshashes_latest_msg_map_t * new_latest_msg = fd_sshashes_latest_msg_map_insert( sshashes->latest_msg_map, known_validator_key );
 
-  if( FD_UNLIKELY( !new_latest_msg ) ) {
-    return -1;
-  }
+  FD_TEST( new_latest_msg );
 
   new_latest_msg->msg = *snapshot_hashes;
   sshashes->latest_msg_cnt++;
@@ -302,42 +339,22 @@ fd_sshashes_try_insert_latest_msg( fd_sshashes_t *                         sshas
       snapshot_hashes->inc[ 0UL ].slot>sshashes->highest_slots.incremental ) {
     sshashes->highest_slots.incremental = snapshot_hashes->inc[ 0UL ].slot;
   }
-  return 0;
+  return FD_SSHASHES_SUCCESS;
 }
 
 static int
 fd_sshashes_try_insert( fd_sshashes_t *                         sshashes,
                         uchar const                             pubkey[ static FD_HASH_FOOTPRINT ],
                         fd_gossip_upd_snapshot_hashes_t const * snapshot_hashes ) {
-  if( sshashes->known_full_cnt>=FD_SSHASHES_MAP_KEY_MAX ) {
-    return FD_SSHASHES_ERROR;
-  }
-
   fd_sshashes_map_t * entry = fd_sshashes_map_query( sshashes->known_map, snapshot_hashes->full->slot, NULL );
 
   /* if the entry exists, check that the full and incremental hashes
      match */
   if( FD_LIKELY( entry ) ) {
-    if( memcmp( entry->sshash, snapshot_hashes->full->hash, FD_HASH_FOOTPRINT )!=0 ) {
-        /* Don't accept a snapshot hashes message if its full hash does
-           not match an existing full hash for the same full slot */
-      return FD_SSHASHES_ERROR;
-    }
-
-    if( entry->inc_cnt>=FD_SSHASHES_MAP_KEY_MAX ) {
-      return FD_SSHASHES_ERROR;
-    }
-
     fd_sshashes_incremental_map_t * inc_entry = fd_sshashes_incremental_map_query( entry->inc_sshashes_map, snapshot_hashes->inc[ 0UL ].slot, NULL );
 
     if( FD_LIKELY( inc_entry ) ) {
-      if( memcmp( inc_entry->sshash, snapshot_hashes->inc[ 0UL ].hash, FD_HASH_FOOTPRINT )!=0 ) {
-        /* Don't accept a snapshot hashes message if its incremental
-           hash does not match an existing incremental hash for the
-           same incremental slot */
-        return FD_SSHASHES_ERROR;
-      }
-      /* if the incremental snapshot hashes message already exists and
+      /* if the incremental snapshot hashes messae already exists and
          the new snapshot hashes message is valid, increment the ref cnt
          */
       inc_entry->ref_cnt++;
@@ -355,6 +372,41 @@ fd_sshashes_try_insert( fd_sshashes_t *                         sshashes,
   }
 
   return fd_sshashes_try_insert_latest_msg( sshashes, pubkey, snapshot_hashes );
+}
+
+static int
+fd_sshashes_validate( fd_sshashes_t const *                   sshashes,
+                      fd_gossip_upd_snapshot_hashes_t const * snapshot_hashes ) {
+  if( sshashes->known_full_cnt>=FD_SSHASHES_MAP_KEY_MAX ) {
+    return FD_SSHASHES_ERROR_NOSPC;
+  }
+
+  fd_sshashes_map_t * entry = fd_sshashes_map_query( sshashes->known_map, snapshot_hashes->full->slot, NULL );
+
+  if( FD_LIKELY( entry ) ) {
+    if( memcmp( entry->sshash, snapshot_hashes->full->hash, FD_HASH_FOOTPRINT )!=0 ) {
+      /* Don't accept a snapshot hashes message if its full hash does
+         not match an existing full hash for the same full slot */
+      return FD_SSHASHES_ERROR_INVAL;
+    }
+
+    if( entry->inc_cnt>=FD_SSHASHES_MAP_KEY_MAX ) {
+      return FD_SSHASHES_ERROR_NOSPC;
+    }
+
+    fd_sshashes_incremental_map_t * inc_entry = fd_sshashes_incremental_map_query( entry->inc_sshashes_map, snapshot_hashes->inc[ 0UL ].slot, NULL );
+
+    if( FD_LIKELY( inc_entry ) ) {
+      if( memcmp( inc_entry->sshash, snapshot_hashes->inc[ 0UL ].hash, FD_HASH_FOOTPRINT )!=0 ) {
+        /* Don't accept a snapshot hashes message if its incremental
+           hash does not match an existing incremental hash for the
+           same incremental slot */
+        return FD_SSHASHES_ERROR_INVAL;
+      }
+    }
+  }
+
+  return FD_SSHASHES_SUCCESS;
 }
 
 int
@@ -392,14 +444,23 @@ int
 fd_sshashes_update( fd_sshashes_t *                         sshashes,
                     uchar const                             pubkey[ static FD_HASH_FOOTPRINT ],
                     fd_gossip_upd_snapshot_hashes_t const * snapshot_hashes ) {
+  fd_pubkey_t known_validator_pubkey;
+  fd_memcpy( known_validator_pubkey.hash, pubkey, FD_HASH_FOOTPRINT );
+
+  fd_known_validator_t * known_validator = fd_known_validators_set_query( sshashes->known_validators_set, known_validator_pubkey, NULL );
+  if( FD_LIKELY( !known_validator ) ) {
+    return FD_SSHASHES_REJECT;
+  }
+
   /* if snapshot hashes already exists in latest msgs, update it */
-  fd_sshashes_latest_msg_key_t latest_msg_key;
-  fd_memcpy( latest_msg_key.pubkey, pubkey, FD_HASH_FOOTPRINT );
-  fd_sshashes_latest_msg_map_t * latest_msg = fd_sshashes_latest_msg_map_query( sshashes->latest_msg_map, latest_msg_key, NULL );
+  fd_pubkey_t known_validator_key;
+  fd_memcpy( known_validator_key.hash, pubkey, FD_HASH_FOOTPRINT );
+  fd_sshashes_latest_msg_map_t * latest_msg = fd_sshashes_latest_msg_map_query( sshashes->latest_msg_map, known_validator_key, NULL );
 
   FD_TEST( snapshot_hashes->inc_len==1UL );
   FD_TEST( snapshot_hashes->inc[ 0UL ].slot>snapshot_hashes->full->slot );
 
+  int res = FD_SSHASHES_SUCCESS;
   if( FD_LIKELY( latest_msg ) ) {
     FD_TEST( latest_msg->msg.inc_len==1UL );
     ulong highest_new_incremental_slot = snapshot_hashes->inc[ 0UL ].slot;
@@ -408,15 +469,36 @@ fd_sshashes_update( fd_sshashes_t *                         sshashes,
     if( FD_UNLIKELY( snapshot_hashes->full->slot>latest_msg->msg.full->slot ||
         (snapshot_hashes->full->slot==latest_msg->msg.full->slot &&
         highest_new_incremental_slot>highest_existing_incremental_slot ) ) ) {
-      /* replace the existing entry */
-      fd_sshashes_remove( sshashes, latest_msg );
-      return fd_sshashes_try_insert( sshashes, pubkey, snapshot_hashes );
+
+      res = fd_sshashes_validate( sshashes, snapshot_hashes );
+      if( FD_LIKELY( res==FD_SSHASHES_SUCCESS ) ) {
+        /* replace the existing entry */
+        fd_sshashes_remove( sshashes, latest_msg );
+        return fd_sshashes_try_insert( sshashes, pubkey, snapshot_hashes );
+      }
     }
   } else {
-    return fd_sshashes_try_insert( sshashes, pubkey, snapshot_hashes );
+    res = fd_sshashes_validate( sshashes, snapshot_hashes );
+    if( FD_LIKELY( res==FD_SSHASHES_SUCCESS ) ) {
+      return fd_sshashes_try_insert( sshashes, pubkey, snapshot_hashes );
+    }
   }
 
-  return FD_SSHASHES_SUCCESS;
+  /* It should be impossible to get a NOSPC error because the maximum
+     number of known validators is capped at 16. */
+  if( FD_LIKELY( res==FD_SSHASHES_ERROR_INVAL ) ) {
+    /* If validation failed due to an invalid SnapshotHash, remove any
+       existing entry for that known validator. */
+    if( FD_LIKELY( latest_msg ) ) {
+      fd_sshashes_remove( sshashes, latest_msg );
+    }
+
+    /* Blacklist the known validator by removing it from the set of
+       known validators.  */
+    fd_known_validators_set_remove( sshashes->known_validators_set, known_validator );
+  }
+
+  return FD_SSHASHES_REJECT;
 }
 
 fd_sshashes_cluster_slot_pair_t
@@ -436,6 +518,7 @@ fd_sshashes_reset( fd_sshashes_t * sshashes ) {
   }
 
   fd_sshashes_map_clear( sshashes->known_map );
+  fd_known_validators_set_clear( sshashes->known_validators_set );
 
   sshashes->known_full_cnt            = 0UL;
   sshashes->latest_msg_cnt            = 0UL;

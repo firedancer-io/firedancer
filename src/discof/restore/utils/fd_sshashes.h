@@ -41,9 +41,9 @@ struct fd_sshashes_cluster_slot_pair {
 
 typedef struct fd_sshashes_cluster_slot_pair fd_sshashes_cluster_slot_pair_t;
 
-#define FD_SSHASHES_MAGIC (0xF17EDA2CE555710) /* FIREDANCER HTTP RESOLVE V0 */
-
-#define FD_SSHASHES_MAP_KEY_MAX (1UL<<5UL) /* 32 slots, 2*(maximum known vlidators) */
+#define FD_SSHASHES_MAGIC                (0xF17EDA2CE555710) /* FIREDANCER HTTP RESOLVE V0 */
+#define FD_SSHASHES_KNOWN_VALIDATORS_MAX (16UL) /* maximum number of known validators */
+#define FD_SSHASHES_MAP_KEY_MAX          (1UL<<5UL) /* 32 slots, 2*(maximum known vlidators) */
 
 FD_PROTOTYPES_BEGIN
 
@@ -54,10 +54,17 @@ FD_FN_CONST ulong
 fd_sshashes_footprint( void );
 
 void *
-fd_sshashes_new( void * shmem );
+fd_sshashes_new( void * shmem,
+                 char   known_validators[ FD_SSHASHES_KNOWN_VALIDATORS_MAX ][ FD_BASE58_ENCODED_32_SZ ],
+                 ulong  known_validators_cnt );
 
 fd_sshashes_t *
 fd_sshashes_join( void * _sshashes_map );
+
+void
+fd_sshashes_init( fd_sshashes_t * sshashes,
+                  char            known_validators[ FD_SSHASHES_KNOWN_VALIDATORS_MAX ][ FD_BASE58_ENCODED_32_SZ ],
+                  ulong           known_validators_cnt );
 
 void *
 fd_sshashes_leave( fd_sshashes_t * sshashes );
@@ -74,7 +81,7 @@ fd_sshashes_query( fd_sshashes_t const *       sshashes,
                    fd_sshashes_entry_t const * full_entry,
                    fd_sshashes_entry_t const * incremental_entry );
 
-#define FD_SSHASHES_ERROR   (-1)
+#define FD_SSHASHES_REJECT  (-1)
 #define FD_SSHASHES_SUCCESS ( 0)
 
 /* fd_sshashes_update updates the set of known snapshot hashes with a

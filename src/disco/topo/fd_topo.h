@@ -493,7 +493,7 @@ struct fd_topo_tile {
       uint  maximum_local_snapshot_age;
       uint  minimum_download_speed_mib;
       uint  maximum_download_retry_abort;
-      char known_validators[ 16UL ][ 256UL ];
+      char known_validators[ 16UL ][ FD_BASE58_ENCODED_32_SZ ];
       ulong known_validators_cnt;
     } snaprd;
 

@@ -133,7 +133,7 @@ struct fd_configf {
     uint  maximum_local_snapshot_age;
     int   download;
     ulong known_validators_cnt;
-    char  known_validators[ 16 ][ 256 ];
+    char  known_validators[ 16UL ][ FD_BASE58_ENCODED_32_SZ ];
     uint  minimum_download_speed_mib;
     uint  maximum_download_retry_abort;
     char  cluster[ 8UL ];
