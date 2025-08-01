@@ -75,7 +75,7 @@ FD_PROTOTYPES_BEGIN
 FD_FN_CONST static inline ulong
 fd_disco_netmux_sig( uint   hash_ip_addr,
                      ushort hash_port,
-                     uint   dst_ip_addr,
+                     uint   ip_addr,
                      ulong  proto,
                      ulong  hdr_sz ) {
   /* The size of an Ethernet header is 14+4k bytes, where 0<=k<=3 (?) is
@@ -86,12 +86,12 @@ fd_disco_netmux_sig( uint   hash_ip_addr,
      size by just storing i. */
   ulong hdr_sz_i = ((hdr_sz - 42UL)>>2)&0xFUL;
   ulong hash     = 0xfffffUL & fd_ulong_hash( (ulong)hash_ip_addr | ((ulong)hash_port<<32) );
-  return (hash<<44) | ((hdr_sz_i&0xFUL)<<40UL) | ((proto&0xFFUL)<<32UL) | ((ulong)dst_ip_addr);
+  return (hash<<44) | ((hdr_sz_i&0xFUL)<<40UL) | ((proto&0xFFUL)<<32UL) | ((ulong)ip_addr);
 }
 
-FD_FN_CONST static inline ulong fd_disco_netmux_sig_hash  ( ulong sig ) { return (sig>>44UL); }
-FD_FN_CONST static inline ulong fd_disco_netmux_sig_proto ( ulong sig ) { return (sig>>32UL) & 0xFFUL; }
-FD_FN_CONST static inline uint  fd_disco_netmux_sig_dst_ip( ulong sig ) { return (uint)(sig & 0xFFFFFFFFUL); }
+FD_FN_CONST static inline ulong fd_disco_netmux_sig_hash ( ulong sig ) { return (sig>>44UL); }
+FD_FN_CONST static inline ulong fd_disco_netmux_sig_proto( ulong sig ) { return (sig>>32UL) & 0xFFUL; }
+FD_FN_CONST static inline uint  fd_disco_netmux_sig_ip   ( ulong sig ) { return (uint)(sig & 0xFFFFFFFFUL); }
 
 /* fd_disco_netmux_sig_hdr_sz extracts the total size of the Ethernet,
    IP, and UDP headers from the netmux signature field.  The UDP payload

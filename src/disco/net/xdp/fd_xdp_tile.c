@@ -644,7 +644,7 @@ before_frag( fd_net_ctx_t * ctx,
   uint hash         = (uint)fd_disco_netmux_sig_hash( sig );
   uint target_idx   = hash % net_tile_cnt;
   uint net_tile_id  = ctx->net_tile_id;
-  uint dst_ip       = fd_disco_netmux_sig_dst_ip( sig );
+  uint dst_ip       = fd_disco_netmux_sig_ip( sig );
 
   ctx->tx_op.use_gre          = 0;
   ctx->tx_op.gre_outer_dst_ip = 0;
@@ -995,7 +995,7 @@ net_rx_packet( fd_net_ctx_t * ctx,
   }
 
   /* tile can decide how to partition based on src ip addr and src port */
-  ulong sig              = fd_disco_netmux_sig( ip_srcaddr, udp_srcport, 0U, proto, 14UL+8UL+iplen );
+  ulong sig              = fd_disco_netmux_sig( ip_srcaddr, udp_srcport, ip_srcaddr, proto, 14UL+8UL+iplen );
 
   /* Peek the mline for an old frame */
   fd_frag_meta_t * mline = out->mcache + fd_mcache_line_idx( out->seq, out->depth );
