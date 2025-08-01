@@ -545,6 +545,7 @@ state_size( fd_ssmanifest_parser_t * parser ) {
 static inline uchar *
 state_dst( fd_ssmanifest_parser_t * parser ) {
   ulong idx1 = parser->idx1;
+  ulong idx2 = parser->idx2;
   fd_snapshot_manifest_t * manifest = parser->manifest;
 
   switch( parser->state ) {
@@ -741,19 +742,19 @@ state_dst( fd_ssmanifest_parser_t * parser ) {
     case STATE_VERSIONED_EPOCH_STAKES_LENGTH:                                          return (uchar*)&parser->epoch_stakes_len;
     case STATE_VERSIONED_EPOCH_STAKES_EPOCH:                                           return (uchar*)&parser->epoch_stakes_epoch;
     case STATE_VERSIONED_EPOCH_STAKES_VARIANT:                                         return (uchar*)&parser->variant;
-    case STATE_VERSIONED_EPOCH_STAKES_STAKES_VOTE_ACCOUNTS_LENGTH:                     return (uchar*)&parser->length2;
-    case STATE_VERSIONED_EPOCH_STAKES_STAKES_VOTE_ACCOUNTS_KEY:                        return NULL;
-    case STATE_VERSIONED_EPOCH_STAKES_STAKES_VOTE_ACCOUNTS_STAKE:                      return NULL;
+    case STATE_VERSIONED_EPOCH_STAKES_STAKES_VOTE_ACCOUNTS_LENGTH:                     return parser->epoch_idx!=ULONG_MAX ? (uchar*)&manifest->epoch_stakes[ parser->epoch_idx ].vote_stakes_len : (uchar*)&parser->length2;
+    case STATE_VERSIONED_EPOCH_STAKES_STAKES_VOTE_ACCOUNTS_KEY:                        return parser->epoch_idx!=ULONG_MAX ? manifest->epoch_stakes[ parser->epoch_idx ].vote_stakes[ idx2 ].vote : NULL;
+    case STATE_VERSIONED_EPOCH_STAKES_STAKES_VOTE_ACCOUNTS_STAKE:                      return parser->epoch_idx!=ULONG_MAX ? (uchar*)&manifest->epoch_stakes[ parser->epoch_idx ].vote_stakes[ idx2 ].stake : NULL;
     case STATE_VERSIONED_EPOCH_STAKES_STAKES_VOTE_ACCOUNTS_VALUE_LAMPORTS:             return NULL;
     case STATE_VERSIONED_EPOCH_STAKES_STAKES_VOTE_ACCOUNTS_VALUE_DATA_LENGTH:          return (uchar*)&parser->length3;
     case STATE_VERSIONED_EPOCH_STAKES_STAKES_VOTE_ACCOUNTS_VALUE_DATA:                 return NULL;
     case STATE_VERSIONED_EPOCH_STAKES_STAKES_VOTE_ACCOUNTS_VALUE_OWNER:                return NULL;
     case STATE_VERSIONED_EPOCH_STAKES_STAKES_VOTE_ACCOUNTS_VALUE_EXECUTABLE:           return NULL;
     case STATE_VERSIONED_EPOCH_STAKES_STAKES_VOTE_ACCOUNTS_VALUE_RENT_EPOCH:           return NULL;
-    case STATE_VERSIONED_EPOCH_STAKES_STAKES_STAKE_DELEGATIONS_LENGTH:                 return parser->epoch_idx!=ULONG_MAX ? (uchar*)&manifest->epoch_stakes[ parser->epoch_idx ].stakes_len : (uchar*)&parser->length2;
-    case STATE_VERSIONED_EPOCH_STAKES_STAKES_STAKE_DELEGATIONS_KEY:                    return parser->epoch_idx!=ULONG_MAX ? manifest->epoch_stakes[ parser->epoch_idx ].stakes[ idx1 ].stake_account_pubkey : NULL;
-    case STATE_VERSIONED_EPOCH_STAKES_STAKES_STAKE_DELEGATIONS_VOTER_PUBKEY:           return parser->epoch_idx!=ULONG_MAX ? manifest->epoch_stakes[ parser->epoch_idx ].stakes[ idx1 ].vote_account_pubkey : NULL;
-    case STATE_VERSIONED_EPOCH_STAKES_STAKES_STAKE_DELEGATIONS_STAKE:                  return parser->epoch_idx!=ULONG_MAX ? (uchar*)&manifest->epoch_stakes[ parser->epoch_idx ].stakes[ idx1 ].stake : NULL;
+    case STATE_VERSIONED_EPOCH_STAKES_STAKES_STAKE_DELEGATIONS_LENGTH:                 return (uchar*)&parser->length2;
+    case STATE_VERSIONED_EPOCH_STAKES_STAKES_STAKE_DELEGATIONS_KEY:                    return NULL;
+    case STATE_VERSIONED_EPOCH_STAKES_STAKES_STAKE_DELEGATIONS_VOTER_PUBKEY:           return NULL;
+    case STATE_VERSIONED_EPOCH_STAKES_STAKES_STAKE_DELEGATIONS_STAKE:                  return NULL;
     case STATE_VERSIONED_EPOCH_STAKES_STAKES_STAKE_DELEGATIONS_ACTIVATION_EPOCH:       return NULL;
     case STATE_VERSIONED_EPOCH_STAKES_STAKES_STAKE_DELEGATIONS_DEACTIVATION_EPOCH:     return NULL;
     case STATE_VERSIONED_EPOCH_STAKES_STAKES_STAKE_DELEGATIONS_WARMUP_COOLDOWN_RATE:   return NULL;
@@ -952,8 +953,7 @@ state_validate( fd_ssmanifest_parser_t * parser ) {
       break;
     }
     case STATE_STAKES_STAKE_DELEGATIONS_LENGTH: {
-      ulong stakes_cap = sizeof(manifest->epoch_stakes[ 0UL ].stakes)/sizeof(manifest->epoch_stakes[ 0UL ].stakes[ 0UL ]);
-      if( FD_UNLIKELY( parser->length1>stakes_cap ) ) {
+      if( FD_UNLIKELY( parser->length1>( 1UL<<22UL ) ) ) { /* 2^21 needed, arbitrarily put 2^22 to have some margin */
         FD_LOG_WARNING(( "invalid stakes_stake_delegations length %lu", parser->length1 ));
         return -1;
       }
@@ -1011,17 +1011,17 @@ state_validate( fd_ssmanifest_parser_t * parser ) {
       break;
     }
     case STATE_VERSIONED_EPOCH_STAKES_STAKES_VOTE_ACCOUNTS_LENGTH: {
-      if( FD_UNLIKELY( parser->length2>(1UL<<16UL ) ) ) {
-        FD_LOG_WARNING(( "invalid versioned epoch stakes vote accounts length %lu", parser->length2 ));
+      ulong stakes_len = parser->epoch_idx!=ULONG_MAX ? manifest->epoch_stakes[ parser->epoch_idx ].vote_stakes_len : parser->length2;
+      ulong stakes_cap = sizeof(manifest->epoch_stakes[ 0UL ].vote_stakes)/sizeof(manifest->epoch_stakes[ 0UL ].vote_stakes[ 0UL ]);
+      if( FD_UNLIKELY( stakes_len>stakes_cap ) ) {
+        FD_LOG_WARNING(( "invalid versioned epoch stakes vote accounts length %lu", stakes_len ));
         return -1;
       }
       break;
     }
     case STATE_VERSIONED_EPOCH_STAKES_STAKES_STAKE_DELEGATIONS_LENGTH: {
-      ulong stakes_len = parser->epoch_idx!=ULONG_MAX ? manifest->epoch_stakes[ parser->epoch_idx ].stakes_len : parser->length2;
-      ulong stakes_cap = sizeof(manifest->epoch_stakes[ 0UL ].stakes)/sizeof(manifest->epoch_stakes[ 0UL ].stakes[ 0UL ]);
-      if( FD_UNLIKELY( stakes_len>stakes_cap ) ) {
-        FD_LOG_WARNING(( "invalid versioned epoch stakes stake delegation length %lu", stakes_len ));
+      if( FD_UNLIKELY( parser->length2>( 1UL<<22UL ) ) ) { /* 2^21 needed, arbitrarily put 2^22 to have some margin */
+        FD_LOG_WARNING(( "invalid versioned epoch stakes stake delegation length %lu", parser->length2 ));
         return -1;
       }
       break;
@@ -1036,6 +1036,10 @@ state_validate( fd_ssmanifest_parser_t * parser ) {
     case STATE_VERSIONED_EPOCH_STAKES_STAKES_VOTE_ACCOUNTS_VALUE_DATA_LENGTH: {
       if( FD_UNLIKELY( parser->length3>10UL*(1UL<<20UL) ) ) { /* 10 MiB */
         FD_LOG_WARNING(( "invalid vote_accounts value data length %lu", parser->length3 ));
+        return -1;
+      }
+      if( FD_UNLIKELY( parser->length3<36UL) ) { /* we need to access the first 36 bytes */
+        FD_LOG_WARNING(( "invalid vote_accounts value data length (too small) %lu", parser->length3 ));
         return -1;
       }
       break;
@@ -1053,7 +1057,7 @@ state_validate( fd_ssmanifest_parser_t * parser ) {
 }
 
 static inline int
-state_process( fd_ssmanifest_parser_t * parser ) {
+state_process( fd_ssmanifest_parser_t * parser, uchar const * buf ) {
   fd_snapshot_manifest_t * manifest = parser->manifest;
 
   FD_TEST( parser->state!=STATE_DONE );
@@ -1078,8 +1082,8 @@ state_process( fd_ssmanifest_parser_t * parser ) {
   }
 
   if( FD_UNLIKELY( parser->state==STATE_VERSIONED_EPOCH_STAKES_EPOCH ) ) {
-    ulong epoch_delta = parser->epoch-parser->epoch_stakes_epoch;
-    parser->epoch_idx = epoch_delta<3UL ? epoch_delta : ULONG_MAX;
+    ulong epoch_delta = parser->epoch_stakes_epoch-parser->epoch;
+    parser->epoch_idx = epoch_delta<2UL ? epoch_delta : ULONG_MAX;
   }
 
   if( FD_UNLIKELY( parser->state==STATE_STAKES_VOTE_ACCOUNTS_VALUE_DATA_LENGTH && !parser->length2 ) ) {
@@ -1096,6 +1100,32 @@ state_process( fd_ssmanifest_parser_t * parser ) {
   }
 
   if( FD_UNLIKELY( parser->state==STATE_STAKES_VOTE_ACCOUNTS_VALUE_DATA_LENGTH ) ) parser->account_data_start = parser->off;
+
+  /* Extract epoch stake info from vote account data */
+  if( FD_UNLIKELY( parser->state==STATE_VERSIONED_EPOCH_STAKES_STAKES_VOTE_ACCOUNTS_VALUE_DATA_LENGTH && parser->epoch_idx!=ULONG_MAX ) ) {
+    /* At this point, vote_account_data_length has been consumed and buf points
+       to the beginning of the vote account data.
+       By parsing the vote account data, we can extract information such as the
+       node pubkey (validator identity), the commission accounts, etc.
+
+       We're only interested in vote accounts with stakes>0. When stakes==0,
+       we decrement the counters so that we store all vote/stakes in a compact
+       array. */
+    uchar const * vote_account_data = buf;
+    fd_snapshot_manifest_vote_stakes_t * vote_stakes = &parser->manifest->epoch_stakes[ parser->epoch_idx ].vote_stakes[ parser->idx2 ];
+    if( vote_stakes->stake==0 ) {
+      parser->manifest->epoch_stakes[ parser->epoch_idx ].vote_stakes_len--;
+      parser->idx2--;
+    } else {
+      /* Copy validator identity, aka vote_account.node_pubkey (offset: 4). */
+      memcpy( vote_stakes->identity, vote_account_data+4, 32 );
+
+      /* Copy commission accounts.
+         Note: this code will have to change with VoteAccountV4 and SIMD-0232. */
+      memcpy( vote_stakes->commission_inflation, vote_stakes->vote, 32 );
+      memcpy( vote_stakes->commission_block, vote_stakes->identity, 32 );
+    }
+  }
 
   switch( parser->state ) {
     case STATE_STAKES_VOTE_ACCOUNTS_VALUE_DATA_CURRENT_LAST_TIMESTAMP_TIMESTAMP:
@@ -1136,8 +1166,8 @@ state_process( fd_ssmanifest_parser_t * parser ) {
     case STATE_ACCOUNTS_DB_STORAGES_LENGTH:                            length = parser->length1;             idx = &parser->idx1; next_target = STATE_ACCOUNTS_DB_VERSION;                                    break;
     case STATE_ACCOUNTS_DB_STORAGES_ACCOUNT_VECS_LENGTH:               length = parser->length2;             idx = &parser->idx2; next_target = STATE_ACCOUNTS_DB_STORAGES_DUMMY;                             break;
     case STATE_VERSIONED_EPOCH_STAKES_LENGTH:                          length = parser->epoch_stakes_len;    idx = &parser->idx1; next_target = STATE_LTHASH_OPTION;                                          break;
-    case STATE_VERSIONED_EPOCH_STAKES_STAKES_VOTE_ACCOUNTS_LENGTH:     length = parser->length2;             idx = &parser->idx2; next_target = STATE_VERSIONED_EPOCH_STAKES_STAKES_STAKE_DELEGATIONS_LENGTH; break;
-    case STATE_VERSIONED_EPOCH_STAKES_STAKES_STAKE_DELEGATIONS_LENGTH: length = parser->epoch_idx!=ULONG_MAX ? manifest->epoch_stakes[ parser->epoch_idx ].stakes_len : parser->length2; idx = &parser->idx2; next_target = STATE_VERSIONED_EPOCH_STAKES_STAKES_UNUSED; break;
+    case STATE_VERSIONED_EPOCH_STAKES_STAKES_VOTE_ACCOUNTS_LENGTH:     length = parser->epoch_idx!=ULONG_MAX ? manifest->epoch_stakes[ parser->epoch_idx ].vote_stakes_len : parser->length2; idx = &parser->idx2; next_target = STATE_VERSIONED_EPOCH_STAKES_STAKES_STAKE_DELEGATIONS_LENGTH; break;
+    case STATE_VERSIONED_EPOCH_STAKES_STAKES_STAKE_DELEGATIONS_LENGTH: length = parser->length2;             idx = &parser->idx2; next_target = STATE_VERSIONED_EPOCH_STAKES_STAKES_UNUSED;                   break;
     case STATE_VERSIONED_EPOCH_STAKES_NODE_ID_TO_VOTE_ACCOUNTS_LENGTH: length = parser->length2;             idx = &parser->idx2; next_target = STATE_VERSIONED_EPOCH_STAKES_EPOCH_AUTHORIZED_VOTERS_LENGTH;  break;
     default: break;
   }
@@ -1162,8 +1192,8 @@ state_process( fd_ssmanifest_parser_t * parser ) {
     case STATE_EPOCH_STAKES_EPOCH_AUTHORIZED_VOTERS:                             length = parser->length1;             idx = &parser->idx1; next_target = STATE_IS_DELTA;                                               iter_target = STATE_EPOCH_STAKES_LENGTH+1UL;                                    break;
     case STATE_ACCOUNTS_DB_STORAGES_DUMMY:                                       length = parser->length1;             idx = &parser->idx1; next_target = STATE_ACCOUNTS_DB_VERSION;                                    iter_target = STATE_ACCOUNTS_DB_STORAGES_LENGTH+1UL;                            break;
     case STATE_ACCOUNTS_DB_STORAGES_ACCOUNT_VECS_FILE_SZ:                        length = parser->length2;             idx = &parser->idx2; next_target = STATE_ACCOUNTS_DB_STORAGES_DUMMY;                             iter_target = STATE_ACCOUNTS_DB_STORAGES_ACCOUNT_VECS_LENGTH+1UL;               break;
-    case STATE_VERSIONED_EPOCH_STAKES_STAKES_VOTE_ACCOUNTS_VALUE_RENT_EPOCH:     length = parser->length2;             idx = &parser->idx2; next_target = STATE_VERSIONED_EPOCH_STAKES_STAKES_STAKE_DELEGATIONS_LENGTH; iter_target = STATE_VERSIONED_EPOCH_STAKES_STAKES_VOTE_ACCOUNTS_LENGTH+1UL;     break;
-    case STATE_VERSIONED_EPOCH_STAKES_STAKES_STAKE_DELEGATIONS_CREDITS_OBSERVED: length = parser->epoch_idx!=ULONG_MAX ? manifest->epoch_stakes[ parser->epoch_idx ].stakes_len : parser->length2; idx = &parser->idx2; next_target = STATE_VERSIONED_EPOCH_STAKES_STAKES_UNUSED;                   iter_target = STATE_VERSIONED_EPOCH_STAKES_STAKES_STAKE_DELEGATIONS_LENGTH+1UL; break;
+    case STATE_VERSIONED_EPOCH_STAKES_STAKES_VOTE_ACCOUNTS_VALUE_RENT_EPOCH:     length = parser->epoch_idx!=ULONG_MAX ? manifest->epoch_stakes[ parser->epoch_idx ].vote_stakes_len : parser->length2; idx = &parser->idx2; next_target = STATE_VERSIONED_EPOCH_STAKES_STAKES_STAKE_DELEGATIONS_LENGTH; iter_target = STATE_VERSIONED_EPOCH_STAKES_STAKES_VOTE_ACCOUNTS_LENGTH+1UL;     break;
+    case STATE_VERSIONED_EPOCH_STAKES_STAKES_STAKE_DELEGATIONS_CREDITS_OBSERVED: length = parser->length2;             idx = &parser->idx2; next_target = STATE_VERSIONED_EPOCH_STAKES_STAKES_UNUSED;                   iter_target = STATE_VERSIONED_EPOCH_STAKES_STAKES_STAKE_DELEGATIONS_LENGTH+1UL; break;
     case STATE_VERSIONED_EPOCH_STAKES_NODE_ID_TO_VOTE_ACCOUNTS_TOTAL_STAKE:      length = parser->length2;             idx = &parser->idx2; next_target = STATE_VERSIONED_EPOCH_STAKES_EPOCH_AUTHORIZED_VOTERS_LENGTH;  iter_target = STATE_VERSIONED_EPOCH_STAKES_NODE_ID_TO_VOTE_ACCOUNTS_LENGTH+1UL; break;
     case STATE_VERSIONED_EPOCH_STAKES_EPOCH_AUTHORIZED_VOTERS:                   length = parser->epoch_stakes_len;    idx = &parser->idx1; next_target = STATE_LTHASH_OPTION;                                          iter_target = STATE_VERSIONED_EPOCH_STAKES_LENGTH+1UL;                          break;
     default: break;
@@ -1267,7 +1297,7 @@ fd_ssmanifest_parser_consume( fd_ssmanifest_parser_t * parser,
 
     ulong consume = fd_ulong_min( bufsz, parser->dst_sz-parser->dst_cur );
 
-    if( FD_LIKELY( parser->dst && consume ) ) fd_memcpy( parser->dst+parser->dst_cur, buf, consume );
+    if( FD_LIKELY( parser->dst && consume ) ) memcpy( parser->dst+parser->dst_cur, buf, consume );
 
     parser->off     += consume;
     parser->dst_cur += consume;
@@ -1283,7 +1313,7 @@ fd_ssmanifest_parser_consume( fd_ssmanifest_parser_t * parser,
       state_log( parser );
 #endif
       if( FD_UNLIKELY( -1==state_validate( parser ) ) ) return -1;
-      if( FD_UNLIKELY( -1==state_process( parser ) ) ) return -1;
+      if( FD_UNLIKELY( -1==state_process( parser, buf ) ) ) return -1;
       parser->dst     = state_dst( parser );
       parser->dst_sz  = state_size( parser );
       parser->dst_cur = 0UL;
