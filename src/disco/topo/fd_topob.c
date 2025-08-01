@@ -359,7 +359,7 @@ fd_topob_auto_layout( fd_topo_t * topo,
     "pack",
     "bank",   /* FRANK only */
     "poh",    /* FRANK only */
-    "poh",   /* FIREDANCER only */
+    "pohi",   /* FIREDANCER only */
     "shred",
     "store",  /* FRANK only */
     "storei", /* FIREDANCER only */
@@ -377,7 +377,9 @@ fd_topob_auto_layout( fd_topo_t * topo,
     "pktgen",
     "snaprd", /* FIREDANCER only */
     "snapdc", /* FIREDANCER only */
-    "snapin"  /* FIREDANCER only */
+    "snapin", /* FIREDANCER only */
+    "arch_f", /* FIREDANCER only */
+    "arch_w", /* FIREDANCER only */
   };
 
   char const * CRITICAL_TILES[] = {

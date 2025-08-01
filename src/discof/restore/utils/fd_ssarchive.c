@@ -94,7 +94,7 @@ fd_ssarchive_latest_pair( char const * directory,
     ulong entry_full_slot, entry_incremental_slot;
     uchar decoded_hash[ FD_HASH_FOOTPRINT ];
     if( FD_UNLIKELY( -1==fd_ssarchive_parse_filename( entry->d_name, &entry_full_slot, &entry_incremental_slot, decoded_hash ) ) ) {
-      FD_LOG_WARNING(( "unrecognized snapshot file `%s/%s` in snapshots directory", directory, entry->d_name ));
+      FD_LOG_INFO(( "unrecognized snapshot file `%s/%s` in snapshots directory", directory, entry->d_name ));
       continue;
     }
 

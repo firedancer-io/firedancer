@@ -346,7 +346,7 @@ if __name__ == '__main__':
             if sigline == "noarg":
                 constructor_sig = "static void populate_sock_filter_policy_%s( ulong out_cnt, struct sock_filter * out ) {\n" % (filter_name)
             else:
-                constructor_sig = "static void populate_sock_filter_policy_%s( ulong out_cnt, struct sock_filter * out, %s) {\n" % (filter_name, sigline)
+                constructor_sig = "static void populate_sock_filter_policy_%s( ulong out_cnt, struct sock_filter * out, %s ) {\n" % (filter_name, sigline)
 
             of.write(constructor_sig)
             of.write(f"  FD_TEST( out_cnt >= {len(filter_body)} );\n")

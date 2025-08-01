@@ -1,6 +1,8 @@
 #include "fd_sysvar_stake_history.h"
 #include "fd_sysvar.h"
 #include "../fd_system_ids.h"
+#include "../fd_txn_account.h"
+#include "../fd_acc_mgr.h"
 #include "../context/fd_exec_slot_ctx.h"
 
 /* Ensure that the size declared by our header matches the minimum size
@@ -18,7 +20,7 @@ write_stake_history( fd_exec_slot_ctx_t * slot_ctx,
   if( FD_UNLIKELY( fd_stake_history_encode( stake_history, &encode )!=FD_BINCODE_SUCCESS ) )
     FD_LOG_ERR(("fd_stake_history_encode failed"));
 
-  fd_sysvar_set( slot_ctx->bank, slot_ctx->funk, slot_ctx->funk_txn, &fd_sysvar_owner_id, &fd_sysvar_stake_history_id, enc, sizeof(enc), fd_bank_slot_get( slot_ctx->bank ) );
+  fd_sysvar_account_update( slot_ctx, &fd_sysvar_stake_history_id, enc, sizeof(enc) );
 }
 
 fd_stake_history_t *
@@ -54,9 +56,9 @@ fd_sysvar_stake_history_init( fd_exec_slot_ctx_t * slot_ctx ) {
 }
 
 void
-fd_sysvar_stake_history_update( fd_exec_slot_ctx_t *                  slot_ctx,
-                                fd_epoch_stake_history_entry_pair_t * pair,
-                                fd_spad_t *                           runtime_spad ) {
+fd_sysvar_stake_history_update( fd_exec_slot_ctx_t *                        slot_ctx,
+                                fd_epoch_stake_history_entry_pair_t const * pair,
+                                fd_spad_t *                                 runtime_spad ) {
   FD_SPAD_FRAME_BEGIN( runtime_spad ) {
 
   // Need to make this maybe zero copies of map...

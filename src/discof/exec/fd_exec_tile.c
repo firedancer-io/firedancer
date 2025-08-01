@@ -530,7 +530,7 @@ unprivileged_init( fd_topo_t *      topo,
   ctx->txn_id = 0U;
   ctx->bpf_id = 0U;
 
-  FD_LOG_NOTICE(( "Done booting exec tile idx=%lu", ctx->tile_idx ));
+  FD_LOG_INFO(( "Done booting exec tile idx=%lu", ctx->tile_idx ));
 
   if( strlen(tile->exec.dump_proto_dir) > 0 ) {
     ctx->capture_ctx = fd_capture_ctx_new( capture_ctx_mem );

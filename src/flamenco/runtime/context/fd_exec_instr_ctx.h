@@ -3,6 +3,7 @@
 
 #include "../info/fd_instr_info.h"
 #include "../fd_executor_err.h"
+#include "../sysvar/fd_sysvar_cache.h"
 
 /* Avoid circular include dependency with forward declaration */
 struct fd_borrowed_account;
@@ -12,9 +13,10 @@ typedef struct fd_borrowed_account fd_borrowed_account_t;
    instruction (program invocation). */
 
 struct fd_exec_instr_ctx {
-  ulong                   magic;   /* ==FD_EXEC_INSTR_CTX_MAGIC */
-  fd_instr_info_t const * instr;   /* The instruction info for this instruction */
-  fd_exec_txn_ctx_t *     txn_ctx; /* The transaction context for this instruction */
+  ulong                     magic;   /* ==FD_EXEC_INSTR_CTX_MAGIC */
+  fd_instr_info_t const *   instr;   /* The instruction info for this instruction */
+  fd_exec_txn_ctx_t *       txn_ctx; /* The transaction context for this instruction */
+  fd_sysvar_cache_t const * sysvar_cache;
 
   /* Most instructions log the base58 program id multiple times, so it's
      convenient to compute it once and reuse it. */

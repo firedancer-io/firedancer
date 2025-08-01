@@ -1,7 +1,5 @@
 #include "fd_exec_slot_ctx.h"
 #include "../sysvar/fd_sysvar_epoch_schedule.h"
-#include "../program/fd_vote_program.h"
-#include "../../../ballet/lthash/fd_lthash.h"
 
 #include <assert.h>
 #include <time.h>
@@ -87,263 +85,15 @@ fd_exec_slot_ctx_delete( void * mem ) {
   return mem;
 }
 
-/* recover_clock recovers PoH/wallclock synchronization.  Walks all vote
-   accounts in current epoch stakes. */
-
-static int
-recover_clock( fd_exec_slot_ctx_t * slot_ctx, fd_spad_t * runtime_spad ) {
-
-  fd_stakes_global_t const * stakes = fd_bank_stakes_locking_query( slot_ctx->bank );
-  if( FD_UNLIKELY( stakes==NULL ) ) {
-    FD_LOG_WARNING(( "stakes is NULL" ));
-    fd_bank_stakes_end_locking_query( slot_ctx->bank );
-    return 0;
-  }
-
-  fd_vote_accounts_global_t const *          vote_accounts      = &stakes->vote_accounts;
-  fd_vote_accounts_pair_global_t_mapnode_t * vote_accounts_pool = fd_vote_accounts_vote_accounts_pool_join( vote_accounts );
-  fd_vote_accounts_pair_global_t_mapnode_t * vote_accounts_root = fd_vote_accounts_vote_accounts_root_join( vote_accounts );
-
-  if( FD_UNLIKELY( !vote_accounts_pool ) ) {
-    FD_LOG_CRIT(( "vote_accounts_pool is NULL" ));
-  }
-  if( FD_UNLIKELY( !vote_accounts_root ) ) {
-    FD_LOG_CRIT(( "vote_accounts_root is NULL" ));
-  }
-
-  for( fd_vote_accounts_pair_global_t_mapnode_t * n = fd_vote_accounts_pair_global_t_map_minimum(vote_accounts_pool, vote_accounts_root);
-       n;
-       n = fd_vote_accounts_pair_global_t_map_successor( vote_accounts_pool, n ) ) {
-
-    FD_SPAD_FRAME_BEGIN( runtime_spad ) {
-
-    /* Extract vote timestamp of account */
-    int err;
-
-    uchar * data     = fd_solana_account_data_join( &n->elem.value );
-    ulong   data_len = n->elem.value.data_len;
-
-    fd_vote_state_versioned_t * vsv = fd_bincode_decode_spad(
-        vote_state_versioned, runtime_spad,
-        data,
-        data_len,
-        &err );
-    if( FD_UNLIKELY( err ) ) {
-      FD_LOG_WARNING(( "vote state decode failed" ));
-      fd_bank_stakes_end_locking_query( slot_ctx->bank );
-      return 0;
-    }
-
-    long timestamp = 0;
-    ulong slot = 0;
-    switch( vsv->discriminant ) {
-      case fd_vote_state_versioned_enum_v0_23_5:
-        timestamp = vsv->inner.v0_23_5.last_timestamp.timestamp;
-        slot = vsv->inner.v0_23_5.last_timestamp.slot;
-        break;
-      case fd_vote_state_versioned_enum_v1_14_11:
-        timestamp = vsv->inner.v1_14_11.last_timestamp.timestamp;
-        slot = vsv->inner.v1_14_11.last_timestamp.slot;
-        break;
-      case fd_vote_state_versioned_enum_current:
-        timestamp = vsv->inner.current.last_timestamp.timestamp;
-        slot = vsv->inner.current.last_timestamp.slot;
-        break;
-      default:
-        __builtin_unreachable();
-    }
-
-    /* Record timestamp */
-    if( slot != 0 || n->elem.stake != 0 ) {
-      fd_vote_record_timestamp_vote_with_slot( &n->elem.key, timestamp, slot, slot_ctx->bank );
-    }
-  } FD_SPAD_FRAME_END;
-  }
-
-  fd_bank_stakes_end_locking_query( slot_ctx->bank );
-  return 1;
-}
-
 fd_exec_slot_ctx_t *
 fd_exec_slot_ctx_recover( fd_exec_slot_ctx_t *                slot_ctx,
-                          fd_solana_manifest_global_t const * manifest,
-                          fd_spad_t *                         runtime_spad ) {
-
-  slot_ctx->bank = fd_banks_rekey_root_bank( slot_ctx->banks, manifest->bank.slot );
-  if( FD_UNLIKELY( !slot_ctx->bank ) ) {
-    FD_LOG_CRIT(( "fd_banks_clone_from_parent failed" ));
-  }
-  FD_LOG_WARNING(( "recovering bank %lu", manifest->bank.slot ));
-
-  fd_versioned_bank_global_t const * old_bank = &manifest->bank;
-
+                          fd_solana_manifest_global_t const * manifest ) {
   ulong stakes_sz = fd_stakes_size_global( &manifest->bank.stakes );
   fd_stakes_global_t * stakes = fd_bank_stakes_locking_modify( slot_ctx->bank );
   fd_memcpy( stakes, &manifest->bank.stakes, stakes_sz );
   /* Verify stakes */
 
   fd_bank_stakes_end_locking_modify( slot_ctx->bank );
-
-  /* Index vote accounts */
-
-  /* Block Hash Queue */
-  {
-    fd_blockhashes_t * bhq = fd_bank_block_hash_queue_modify( slot_ctx->bank );
-    ulong seed; FD_TEST( fd_rng_secure( &seed, sizeof(ulong) ) );
-    FD_TEST( fd_blockhashes_recover(
-        bhq,
-        fd_block_hash_vec_ages_join( &old_bank->blockhash_queue ),
-        old_bank->blockhash_queue.ages_len,
-        seed ) );
-  }
-
-  /* Bank Hash */
-
-  fd_bank_bank_hash_set( slot_ctx->bank, old_bank->hash );
-
-  /* Fee Rate Governor */
-
-  fd_fee_rate_governor_t * fee_rate_governor = fd_bank_fee_rate_governor_modify( slot_ctx->bank );
-  *fee_rate_governor = old_bank->fee_rate_governor;
-
-  /* Capitalization */
-
-  fd_bank_capitalization_set( slot_ctx->bank, old_bank->capitalization );
-
-  /* Lamports Per Signature */
-
-  fd_bank_lamports_per_signature_set( slot_ctx->bank, manifest->lamports_per_signature );
-
-  /* Previous Lamports Per Signature */
-
-  fd_bank_prev_lamports_per_signature_set( slot_ctx->bank, manifest->lamports_per_signature );
-
-  /* Transaction Count */
-
-  fd_bank_transaction_count_set( slot_ctx->bank, old_bank->transaction_count );
-
-  /* Parent Signature Count */
-
-  fd_bank_parent_signature_cnt_set( slot_ctx->bank, old_bank->signature_count );
-
-  /* Tick Height */
-
-  fd_bank_tick_height_set( slot_ctx->bank, old_bank->tick_height );
-
-  /* Max Tick Height */
-
-  fd_bank_max_tick_height_set( slot_ctx->bank, old_bank->max_tick_height );
-
-  /* Hashes Per Tick */
-
-  ulong * hashes_per_tick = fd_versioned_bank_hashes_per_tick_join( old_bank );
-  fd_bank_hashes_per_tick_set( slot_ctx->bank, !!hashes_per_tick ? *hashes_per_tick : 0UL );
-
-  /* NS Per Slot */
-
-  fd_bank_ns_per_slot_set( slot_ctx->bank, old_bank->ns_per_slot );
-
-  /* Ticks Per Slot */
-
-  fd_bank_ticks_per_slot_set( slot_ctx->bank, old_bank->ticks_per_slot );
-
-  /* Genesis Creation Time */
-
-  fd_bank_genesis_creation_time_set( slot_ctx->bank, old_bank->genesis_creation_time );
-
-  /* Slots Per Year */
-
-  fd_bank_slots_per_year_set( slot_ctx->bank, old_bank->slots_per_year );
-
-  /* Inflation */
-
-  fd_bank_inflation_set( slot_ctx->bank, old_bank->inflation );
-
-  /* Block Height */
-
-  fd_bank_block_height_set( slot_ctx->bank, old_bank->block_height );
-
-  /* Epoch Account Hash */
-
-  fd_hash_t * epoch_account_hash = fd_solana_manifest_epoch_account_hash_join( manifest );
-  if( !!epoch_account_hash ) {
-    fd_bank_epoch_account_hash_set( slot_ctx->bank, *epoch_account_hash );
-  } else {
-    fd_bank_epoch_account_hash_set( slot_ctx->bank, (fd_hash_t){0} );
-  }
-
-  /* Prev Slot */
-
-  fd_bank_parent_slot_set( slot_ctx->bank, old_bank->parent_slot );
-
-  /* Execution Fees */
-
-  fd_bank_execution_fees_set( slot_ctx->bank, old_bank->collector_fees );
-
-  /* Priority Fees */
-
-  fd_bank_priority_fees_set( slot_ctx->bank, 0UL );
-
-  /* PoH */
-
-  {
-    fd_blockhashes_t const * bhq = fd_bank_block_hash_queue_query( slot_ctx->bank );
-    fd_hash_t const * last_hash = fd_blockhashes_peek_last( bhq );
-    if( last_hash ) fd_bank_poh_set( slot_ctx->bank, *last_hash );
-  }
-
-  /* Prev Bank Hash */
-
-  fd_bank_prev_bank_hash_set( slot_ctx->bank, old_bank->parent_hash );
-
-  /* Epoch Schedule */
-
-  fd_bank_epoch_schedule_set( slot_ctx->bank, old_bank->epoch_schedule );
-
-  /* Rent */
-
-  fd_bank_rent_set( slot_ctx->bank, old_bank->rent_collector.rent );
-
-  /* Last Restart Slot */
-
-  /* Update last restart slot
-     https://github.com/solana-labs/solana/blob/30531d7a5b74f914dde53bfbb0bc2144f2ac92bb/runtime/src/bank.rs#L2152
-
-     old_bank->hard_forks is sorted ascending by slot number.
-     To find the last restart slot, take the highest hard fork slot
-     number that is less or equal than the current slot number.
-     (There might be some hard forks in the future, ignore these) */
-  do {
-    fd_sol_sysvar_last_restart_slot_t * last_restart_slot = fd_bank_last_restart_slot_modify( slot_ctx->bank );
-    last_restart_slot->slot = 0UL;
-
-    if( FD_UNLIKELY( old_bank->hard_forks.hard_forks_len == 0 ) ) {
-      /* SIMD-0047: The first restart slot should be `0` */
-      break;
-    }
-
-    fd_slot_pair_t const * head = fd_hard_forks_hard_forks_join( &old_bank->hard_forks );
-    fd_slot_pair_t const * tail = head + old_bank->hard_forks.hard_forks_len - 1UL;
-
-    for( fd_slot_pair_t const *pair = tail; pair >= head; pair-- ) {
-      if( pair->slot <= fd_bank_slot_get( slot_ctx->bank ) ) {
-        fd_sol_sysvar_last_restart_slot_t * last_restart_slot = fd_bank_last_restart_slot_modify( slot_ctx->bank );
-        last_restart_slot->slot = pair->slot;
-        break;
-      }
-    }
-  } while (0);
-
-  /* FIXME: Remove the magic number here. */
-  fd_clock_timestamp_votes_global_t * clock_timestamp_votes = fd_bank_clock_timestamp_votes_locking_modify( slot_ctx->bank );
-  uchar * clock_pool_mem = (uchar *)fd_ulong_align_up( (ulong)clock_timestamp_votes + sizeof(fd_clock_timestamp_votes_global_t), fd_clock_timestamp_vote_t_map_align() );
-  fd_clock_timestamp_vote_t_mapnode_t * clock_pool = fd_clock_timestamp_vote_t_map_join( fd_clock_timestamp_vote_t_map_new(clock_pool_mem, 30000UL ) );
-  clock_timestamp_votes->votes_pool_offset = (ulong)fd_clock_timestamp_vote_t_map_leave( clock_pool) - (ulong)clock_timestamp_votes;
-  clock_timestamp_votes->votes_root_offset = 0UL;
-  fd_bank_clock_timestamp_votes_end_locking_modify( slot_ctx->bank );
-
-  recover_clock( slot_ctx, runtime_spad );
-
 
   /* Move EpochStakes */
   do {
@@ -510,16 +260,6 @@ fd_exec_slot_ctx_recover( fd_exec_slot_ctx_t *                slot_ctx,
     fd_bank_next_epoch_stakes_end_locking_modify( slot_ctx->bank );
 
   } while(0);
-
-  fd_slot_lthash_t * lthash = fd_bank_lthash_modify( slot_ctx->bank );
-
-  fd_slot_lthash_t * lthash_value = fd_solana_manifest_lthash_join( manifest );
-  if( !!lthash_value ) {
-    *lthash = *lthash_value;
-  } else {
-    fd_lthash_zero( (fd_lthash_value_t *)lthash->lthash );
-  }
-  /* Setup next epoch stakes */
 
   return slot_ctx;
 }

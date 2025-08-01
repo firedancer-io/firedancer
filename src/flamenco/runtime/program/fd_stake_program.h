@@ -17,12 +17,13 @@
 FD_PROTOTYPES_BEGIN
 
 int
-fd_new_warmup_cooldown_rate_epoch( ulong                     slot,
-                                   fd_funk_t *               funk,
-                                   fd_funk_txn_t *           funk_txn,
-                                   fd_features_t const *     features,
-                                   /* out */ ulong *         epoch,
-                                   int *                     err );
+fd_new_warmup_cooldown_rate_epoch(
+    fd_epoch_schedule_t const * epoch_schedule,
+    fd_features_t const *       features,
+    ulong                       slot,
+    /* out */ ulong *           epoch,
+    int *                       err
+);
 
 /* fd_stake_program_execute is the instruction processing entrypoint
    for the stake program.  On return, ctx.txn_ctx->dirty_stake_acc==1 if

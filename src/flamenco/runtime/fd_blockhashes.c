@@ -13,63 +13,6 @@ fd_blockhashes_init( fd_blockhashes_t * mem,
   return mem;
 }
 
-fd_blockhashes_t *
-fd_blockhashes_recover( fd_blockhashes_t *              blockhashes,
-                        fd_hash_hash_age_pair_t const * ages,
-                        ulong                           age_cnt,
-                        ulong                           seed ) {
-  FD_TEST( fd_blockhashes_init( blockhashes, seed ) );
-  if( FD_UNLIKELY( !age_cnt || age_cnt>FD_BLOCKHASHES_MAX ) ) {
-    FD_LOG_WARNING(( "Corrupt snapshot: blockhash queue age count %lu is out of range [1,%d)", age_cnt, FD_BLOCKHASHES_MAX ));
-  }
-
-  /* For depressing reasons, the ages array is not sorted when ingested
-     from a snapshot.  The hash_index field is also not validated.
-     Firedancer assumes that the sequence of hash_index numbers is
-     gapless and does not wrap around. */
-
-  ulong seq_min = ULONG_MAX-1;
-  for( ulong i=0UL; i<age_cnt; i++ ) {
-    seq_min = fd_ulong_min( seq_min, ages[i].val.hash_index );
-  }
-  ulong seq_max;
-  if( FD_UNLIKELY( __builtin_uaddl_overflow( seq_min, age_cnt, &seq_max ) ) ) {
-    FD_LOG_WARNING(( "Corrupt snapshot: blockhash queue sequence number wraparound (seq_min=%lu age_cnt=%lu)", seq_min, age_cnt ));
-    return NULL;
-  }
-
-  /* Reset */
-
-  for( ulong i=0UL; i<age_cnt; i++ ) {
-    fd_blockhash_info_t * ele = fd_blockhash_deq_push_tail_nocopy( blockhashes->d.deque );
-    memset( ele, 0, sizeof(fd_blockhash_info_t) );
-  }
-
-  /* Load hashes */
-
-  for( ulong i=0UL; i<age_cnt; i++ ) {
-    fd_hash_hash_age_pair_t const * elem = &ages[i];
-    ulong idx;
-    if( FD_UNLIKELY( __builtin_usubl_overflow( elem->val.hash_index, seq_min, &idx ) ) ) {
-      FD_LOG_WARNING(( "Corrupt snapshot: gap in blockhash queue (seq=[%lu,%lu) idx=%lu)",
-                       seq_min, seq_max, elem->val.hash_index ));
-      return NULL;
-    }
-    fd_blockhash_info_t * info = &blockhashes->d.deque[ idx ];
-    if( FD_UNLIKELY( info->exists ) ) {
-      FD_LOG_HEXDUMP_NOTICE(( "info", info, sizeof(fd_blockhash_info_t) ));
-      FD_LOG_WARNING(( "Corrupt snapshot: duplicate blockhash queue index %lu", idx ));
-      return NULL;
-    }
-    info->exists         = 1;
-    info->hash           = elem->key;
-    info->fee_calculator = elem->val.fee_calculator;
-    fd_blockhash_map_idx_insert( blockhashes->map, idx, blockhashes->d.deque );
-  }
-
-  return blockhashes;
-}
-
 static void
 fd_blockhashes_pop_old( fd_blockhashes_t * blockhashes ) {
   if( FD_UNLIKELY( fd_blockhash_deq_empty( blockhashes->d.deque ) ) ) return;

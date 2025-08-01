@@ -13,10 +13,8 @@
    https://github.com/anza-xyz/agave/blob/6398ddf6ab8a8f81017bf675ab315a70067f0bf0/sdk/program/src/slot_hashes.rs#L19 */
 
 #define FD_SYSVAR_SLOT_HASHES_CAP   (512UL)
-#define FD_SYSVAR_SLOT_HASHES_ALIGN (FD_SLOT_HASHES_GLOBAL_ALIGN)
 
 FD_PROTOTYPES_BEGIN
-
 
 ulong
 fd_sysvar_slot_hashes_footprint( ulong slot_hashes_cap );

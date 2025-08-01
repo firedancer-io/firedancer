@@ -355,7 +355,9 @@ fd_config_fill( fd_config_t * config,
     FD_TEST( fd_cstr_printf_check( config->paths.snapshots, sizeof(config->paths.snapshots), NULL, "%s/snapshots", config->paths.base ) );
   }
 
+  long ts = -fd_log_wallclock();
   config->tick_per_ns_mu = fd_tempo_tick_per_ns( &config->tick_per_ns_sigma );
+  FD_LOG_INFO(( "calibrating fd_tempo tick_per_ns took %ld ms", (fd_log_wallclock()+ts)/(1000L*1000L) ));
 
   if( 0!=strcmp( config->net.bind_address, "" ) ) {
     if( FD_UNLIKELY( !fd_cstr_to_ip4_addr( config->net.bind_address, &config->net.bind_address_parsed ) ) ) {

@@ -10,6 +10,32 @@ FD_STATIC_ASSERT( offsetof( fd_epoch_schedule_t, first_normal_epoch          )==
 FD_STATIC_ASSERT( offsetof( fd_epoch_schedule_t, first_normal_slot           )==0x20UL, layout );
 FD_STATIC_ASSERT( sizeof  ( fd_epoch_schedule_t                              )==0x28UL, layout );
 
+static void
+test_sysvar_epoch_schedule_bounds( void ) {
+  /* Real sysvar account observed on-chain */
+  static uchar const data[] = {
+    0x80, 0x97, 0x06, 0x00, 0x00, 0x00, 0x00, 0x00,
+    0x80, 0x97, 0x06, 0x00, 0x00, 0x00, 0x00, 0x00,
+    0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+    0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+    0x00
+  };
+  FD_TEST( sizeof(data)==FD_SYSVAR_EPOCH_SCHEDULE_BINCODE_SZ );
+  fd_bincode_decode_ctx_t ctx = { .data=data, .dataend=data+sizeof(data) };
+  ulong obj_sz = 0UL;
+  FD_TEST( fd_epoch_schedule_decode_footprint( &ctx, &obj_sz )==FD_BINCODE_SUCCESS );
+  FD_TEST( obj_sz==FD_SYSVAR_EPOCH_SCHEDULE_FOOTPRINT );
+  FD_TEST( fd_epoch_schedule_align()==FD_SYSVAR_EPOCH_SCHEDULE_ALIGN );
+}
+
+static void
+test_sysvar_epoch_schedule_edge_case( void ) {
+  fd_epoch_schedule_t schedule = { .slots_per_epoch=0UL };
+  FD_TEST( fd_slot_to_epoch( &schedule, 0UL, NULL )==0UL );
+
+  FD_TEST( fd_epoch_schedule_derive( &schedule, 31UL, 31UL, 0 )==NULL );
+}
+
 static fd_epoch_schedule_t const
 fd_epoch_schedule_test_vectors[] = {
   { .slots_per_epoch=  32, .first_normal_epoch=0, .first_normal_slot=   0 },
@@ -94,20 +120,45 @@ test_epoch_schedule( fd_epoch_schedule_t const * t ) {
   }
 }
 
-int
-main( int     argc,
-      char ** argv ) {
-  fd_boot( &argc, &argv );
+static void
+test_sysvar_epoch_schedule_testnet( void ) {
+  fd_epoch_schedule_t const schedule = {
+    .slots_per_epoch             = 432000,
+    .leader_schedule_slot_offset = 432000,
+    .warmup                      =      1,
+    .first_normal_epoch          =     14,
+    .first_normal_slot           = 524256
+  };
 
+  FD_TEST( fd_slot_to_leader_schedule_epoch( &schedule,      1UL )== 1UL );
+  FD_TEST( fd_slot_to_leader_schedule_epoch( &schedule, 524256UL )==15UL );
+  FD_TEST( fd_slot_to_leader_schedule_epoch( &schedule, 956255UL )==15UL );
+  FD_TEST( fd_slot_to_leader_schedule_epoch( &schedule, 956256UL )==16UL );
+
+  ulong offset = 9UL;
+  FD_TEST( fd_slot_to_epoch( &schedule, 524256UL, &offset )==14UL && offset==0UL );
+  FD_TEST( fd_slot_to_epoch( &schedule, 524257UL, &offset )==14UL && offset==1UL );
+  for( ulong off=0UL; off<432000UL; off++ ) {
+    FD_TEST( fd_slot_to_epoch( &schedule, 524256UL+off, &offset )==14UL && offset==off );
+  }
+  FD_TEST( fd_slot_to_epoch( &schedule, 956256UL, &offset )==15UL && offset==0UL );
+
+  FD_TEST( fd_epoch_slot0( &schedule,  0UL )==     0UL );
+  FD_TEST( fd_epoch_slot0( &schedule,  1UL )==    32UL );
+  FD_TEST( fd_epoch_slot0( &schedule, 14UL )==524256UL );
+  FD_TEST( fd_epoch_slot0( &schedule, 15UL )==956256UL );
+
+  FD_TEST( fd_epoch_slot_cnt( &schedule, 14UL )==432000UL );
+}
+
+void
+test_sysvar_epoch_schedule( void ) {
+  test_sysvar_epoch_schedule_bounds();
+  test_sysvar_epoch_schedule_edge_case();
   for( fd_epoch_schedule_t const * vec = fd_epoch_schedule_test_vectors;
        vec->slots_per_epoch;       vec++ ) {
-
     test_epoch_schedule_derive( vec );
     test_epoch_schedule       ( vec );
-
   }
-
-  FD_LOG_NOTICE(( "pass" ));
-  fd_halt();
-  return 0;
+  test_sysvar_epoch_schedule_testnet();
 }

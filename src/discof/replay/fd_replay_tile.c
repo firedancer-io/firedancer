@@ -3,6 +3,7 @@
 #include "generated/fd_replay_tile_seccomp.h"
 
 #include "fd_replay_notif.h"
+#include "../restore/utils/fd_ssload.h"
 
 #include "../../disco/keyguard/fd_keyload.h"
 #include "../../util/pod/fd_pod_format.h"
@@ -544,9 +545,11 @@ restore_slot_ctx( fd_replay_tile_ctx_t * ctx,
   if( FD_UNLIKELY( total_sz>sizeof(ctx->manifest_scratch ) ) ) FD_LOG_ERR(( "manifest size %lu is larger than scratch size %lu", total_sz, sizeof(ctx->manifest_scratch) ));
 
   fd_solana_manifest_global_t * manifest_global = fd_solana_manifest_decode_global( ctx->manifest_scratch, &decode );
+
+  fd_ssload_recover( (fd_snapshot_manifest_t*)data, ctx->slot_ctx );
+
   fd_exec_slot_ctx_t * recovered_slot_ctx = fd_exec_slot_ctx_recover( ctx->slot_ctx,
-                                                                      manifest_global,
-                                                                      ctx->runtime_spad );
+                                                                      manifest_global );
 
   if( !recovered_slot_ctx ) {
     FD_LOG_ERR(( "Failed to restore slot context from snapshot manifest!" ));
@@ -2109,7 +2112,7 @@ unprivileged_init( fd_topo_t *      topo,
 
   ctx->enable_bank_hash_cmp = tile->replay.enable_bank_hash_cmp;
 
-  FD_LOG_NOTICE(("Finished unprivileged init"));
+  FD_LOG_INFO(("Finished unprivileged init"));
 }
 
 static ulong

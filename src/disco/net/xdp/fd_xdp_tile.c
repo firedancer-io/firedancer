@@ -31,7 +31,7 @@
 #include <linux/unistd.h>
 #include <linux/if_arp.h>
 
-#include "generated/xdp_seccomp.h"
+#include "generated/fd_xdp_tile_seccomp.h"
 
 /* MAX_NET_INS controls the max number of TX links that a net tile can
    serve. */
@@ -1541,8 +1541,9 @@ populate_allowed_seccomp( fd_topo_t const *      topo,
      two "allow" FD arguments to the net policy, so we just make them both the same. */
   int allow_fd2 = ctx->xsk_cnt>1UL ? ctx->xsk[ 1 ].xsk_fd : ctx->xsk[ 0 ].xsk_fd;
   FD_TEST( ctx->xsk[ 0 ].xsk_fd >= 0 && allow_fd2 >= 0 );
-  populate_sock_filter_policy_xdp( out_cnt, out, (uint)fd_log_private_logfile_fd(), (uint)ctx->xsk[ 0 ].xsk_fd, (uint)allow_fd2 );
-  return sock_filter_policy_xdp_instr_cnt;
+
+  populate_sock_filter_policy_fd_xdp_tile( out_cnt, out, (uint)fd_log_private_logfile_fd(), (uint)ctx->xsk[ 0 ].xsk_fd, (uint)allow_fd2 );
+  return sock_filter_policy_fd_xdp_tile_instr_cnt;
 }
 
 FD_FN_UNUSED static ulong

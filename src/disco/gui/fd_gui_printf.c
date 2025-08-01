@@ -611,6 +611,13 @@ fd_gui_printf_tile_stats( fd_gui_t *                  gui,
                           fd_gui_tile_stats_t const * cur ) {
   jsonp_open_object( gui, "tile_primary_metric" );
     jsonp_ulong(  gui, "quic",    cur->quic_conn_cnt );
+    jsonp_double( gui, "bundle_rtt_smoothed_millis", (double)(cur->bundle_rtt_smoothed_nanos) / 1000000.0 );
+
+    fd_histf_t bundle_rx_delay_hist_delta[ 1 ];
+    fd_histf_subtract( gui->bundle_rx_delay_hist_current, gui->bundle_rx_delay_hist_reference, bundle_rx_delay_hist_delta );
+    ulong bundle_rx_delay_nanos_p90 = fd_histf_percentile( bundle_rx_delay_hist_delta, 90U, ULONG_MAX );
+    jsonp_double( gui, "bundle_rx_delay_millis_p90", fd_double_if(bundle_rx_delay_nanos_p90==ULONG_MAX, 0.0, (double)(bundle_rx_delay_nanos_p90) / 1000000.0 ));
+
     if( FD_LIKELY( cur->sample_time_nanos>prev->sample_time_nanos ) ) {
       jsonp_ulong( gui, "net_in",  (ulong)((double)(cur->net_in_rx_bytes - prev->net_in_rx_bytes) * 1000000000.0 / (double)(cur->sample_time_nanos - prev->sample_time_nanos) ));
       jsonp_ulong( gui, "net_out", (ulong)((double)(cur->net_out_tx_bytes - prev->net_out_tx_bytes) * 1000000000.0 / (double)(cur->sample_time_nanos - prev->sample_time_nanos) ));

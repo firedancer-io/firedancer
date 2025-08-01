@@ -1,7 +1,9 @@
 #include "fd_sysvar_epoch_schedule.h"
 #include "fd_sysvar.h"
 #include "../fd_system_ids.h"
-#include "../context/fd_exec_slot_ctx.h"
+#include "../fd_acc_mgr.h"
+#include "../fd_txn_account.h"
+
 fd_epoch_schedule_t *
 fd_epoch_schedule_derive( fd_epoch_schedule_t * schedule,
                           ulong                 epoch_len,
@@ -45,7 +47,7 @@ fd_sysvar_epoch_schedule_write( fd_exec_slot_ctx_t *        slot_ctx,
     FD_LOG_ERR(("fd_epoch_schedule_encode failed"));
   }
 
-  fd_sysvar_set( slot_ctx->bank, slot_ctx->funk, slot_ctx->funk_txn, &fd_sysvar_owner_id, &fd_sysvar_epoch_schedule_id, enc, sz, fd_bank_slot_get( slot_ctx->bank ) );
+  fd_sysvar_account_update( slot_ctx, &fd_sysvar_epoch_schedule_id, enc, sz );
 }
 
 fd_epoch_schedule_t *
@@ -159,7 +161,7 @@ fd_slot_to_epoch( fd_epoch_schedule_t const * schedule,
   return epoch;
 }
 
-/* https://github.com/firedancer-io/solana/blob/dab3da8e7b667d7527565bddbdbecf7ec1fb868e/sdk/program/src/epoch_schedule.rs#L114 */
+/* https://docs.rs/solana-epoch-schedule/2.2.1/src/solana_epoch_schedule/lib.rs.html#136-151 */
 
 ulong
 fd_slot_to_leader_schedule_epoch( fd_epoch_schedule_t const * schedule,

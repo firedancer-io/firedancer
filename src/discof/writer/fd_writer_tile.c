@@ -149,7 +149,7 @@ during_frag( fd_writer_tile_ctx_t * ctx,
     }
     if( txn_ctx_cnt==ctx->exec_tile_cnt ) {
       fd_fseq_update( ctx->fseq, FD_WRITER_STATE_READY );
-      FD_LOG_NOTICE(( "writer tile %lu fully booted", ctx->tile_idx ));
+      FD_LOG_INFO(( "writer tile %lu fully booted", ctx->tile_idx ));
     }
     return;
   }

@@ -357,7 +357,7 @@ fd_funk_rec_try_clone_safe( fd_funk_t *               funk,
       return;
     }
 
-    if( fd_funk_rec_query_test( query_glob )==FD_FUNK_SUCCESS ) {
+    if( rec_glob && fd_funk_rec_query_test( query_glob )==FD_FUNK_SUCCESS ) {
       break;
     }
   }

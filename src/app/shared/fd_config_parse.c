@@ -234,13 +234,13 @@ fd_config_extract_pod( uchar *       pod,
   CFG_POP      ( ushort, tiles.repair.repair_intake_listen_port           );
   CFG_POP      ( ushort, tiles.repair.repair_serve_listen_port            );
   CFG_POP      ( cstr,   tiles.repair.good_peer_cache_file                );
-  CFG_POP      ( ulong,  tiles.repair.slot_max                           );
+  CFG_POP      ( ulong,  tiles.repair.slot_max                            );
 
   CFG_POP      ( ulong,  capture.capture_start_slot                       );
   CFG_POP      ( cstr,   capture.solcap_capture                           );
   CFG_POP      ( cstr,   capture.dump_proto_dir                           );
   CFG_POP      ( bool,   capture.dump_syscall_to_pb                       );
-  CFG_POP      ( bool,   capture.dump_instr_to_pb                          );
+  CFG_POP      ( bool,   capture.dump_instr_to_pb                         );
   CFG_POP      ( bool,   capture.dump_txn_to_pb                           );
   CFG_POP      ( bool,   capture.dump_block_to_pb                         );
 

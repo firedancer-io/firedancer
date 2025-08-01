@@ -609,6 +609,7 @@ privileged_init( fd_topo_t *      topo,
          selection logic. */
       ctx->peer_selection = 0;
       ctx->state          = FD_SNAPRD_STATE_READING_FULL_FILE;
+      FD_LOG_NOTICE(( "loading full snapshot from local file `%s`", ctx->local_in.full_snapshot_path ));
     }
   }
 }

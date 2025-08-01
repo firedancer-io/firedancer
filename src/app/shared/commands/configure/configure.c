@@ -102,6 +102,7 @@ configure_stage( configure_stage_t * stage,
 
       FD_LOG_NOTICE(( "%s ... configuring", stage->name ));
       if( FD_LIKELY( stage->init ) ) stage->init( config );
+      FD_LOG_INFO(( "%s ... done", stage->name ));
 
       result = stage->check( config );
       if( FD_UNLIKELY( result.result == CONFIGURE_NOT_CONFIGURED ) )

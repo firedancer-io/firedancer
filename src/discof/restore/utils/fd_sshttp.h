@@ -4,7 +4,6 @@
 struct fd_sshttp_private;
 typedef struct fd_sshttp_private fd_sshttp_t;
 
-#include "../../../util/fd_util_base.h"
 #include "../../../util/net/fd_net_headers.h"
 
 #define FD_SSHTTP_ALIGN (8UL)

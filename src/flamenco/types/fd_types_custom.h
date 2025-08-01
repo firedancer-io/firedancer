@@ -34,6 +34,14 @@ fd_hash_eq( fd_hash_t const * a,
   return 0==memcmp( a, b, sizeof(fd_hash_t) );
 }
 
+FD_FN_PURE static inline int
+fd_hash_eq1( fd_hash_t a,
+             fd_hash_t b ) {
+  return
+    ( a.ul[0]==b.ul[0] ) & ( a.ul[1]==b.ul[1] ) &
+    ( a.ul[2]==b.ul[2] ) & ( a.ul[3]==b.ul[3] );
+}
+
 union fd_signature {
   uchar uc[ 64 ];
   ulong ul[  8 ];

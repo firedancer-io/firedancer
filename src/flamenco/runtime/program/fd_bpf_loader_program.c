@@ -3,9 +3,8 @@
 /* For additional context see https://solana.com/docs/programs/deploying#state-accounts */
 
 #include "../fd_pubkey_utils.h"
-#include "../../../ballet/base58/fd_base58.h"
 #include "../../../ballet/sbpf/fd_sbpf_loader.h"
-#include "../sysvar/fd_sysvar_clock.h"
+#include "../sysvar/fd_sysvar.h"
 #include "../sysvar/fd_sysvar_rent.h"
 #include "../../vm/syscall/fd_vm_syscall.h"
 #include "../../vm/fd_vm.h"
@@ -731,8 +730,8 @@ common_extend_program( fd_exec_instr_ctx_t * instr_ctx,
   }
 
   /* https://github.com/anza-xyz/agave/blob/v2.3.1/programs/bpf_loader/src/lib.rs#L1434-L1437 */
-  fd_sol_sysvar_clock_t const * clock = fd_sysvar_clock_read( instr_ctx->txn_ctx->funk, instr_ctx->txn_ctx->funk_txn, instr_ctx->txn_ctx->spad );
-  if( FD_UNLIKELY( !clock ) ) {
+  fd_sol_sysvar_clock_t clock[1];
+  if( FD_UNLIKELY( !fd_sysvar_cache_clock_read( instr_ctx->sysvar_cache, clock ) ) ) {
     return FD_EXECUTOR_INSTR_ERR_UNSUPPORTED_SYSVAR;
   }
   ulong clock_slot = clock->slot;
@@ -1066,7 +1065,8 @@ process_loader_upgradeable_instruction( fd_exec_instr_ctx_t * instr_ctx ) {
         return err;
       }
 
-      fd_sol_sysvar_clock_t const * clock = fd_sysvar_clock_read( instr_ctx->txn_ctx->funk, instr_ctx->txn_ctx->funk_txn, instr_ctx->txn_ctx->spad );
+      fd_sol_sysvar_clock_t clock_;
+      fd_sol_sysvar_clock_t const * clock = fd_sysvar_cache_clock_read( instr_ctx->sysvar_cache, &clock_ );
       if( FD_UNLIKELY( !clock ) ) {
         return FD_EXECUTOR_INSTR_ERR_GENERIC_ERR;
       }
@@ -1109,8 +1109,8 @@ process_loader_upgradeable_instruction( fd_exec_instr_ctx_t * instr_ctx ) {
         fd_log_collector_msg_literal( instr_ctx, "Program account too small" );
         return FD_EXECUTOR_INSTR_ERR_ACC_DATA_TOO_SMALL;
       }
-      if( FD_UNLIKELY( fd_borrowed_account_get_lamports( &program )<fd_rent_exempt_minimum_balance( rent,
-                                                                                                    fd_borrowed_account_get_data_len( &program ) ) ) ) {
+      if( FD_UNLIKELY( fd_borrowed_account_get_lamports( &program )<
+                       fd_rent_exempt_minimum_balance( rent, fd_borrowed_account_get_data_len( &program ) ) ) ) {
         fd_log_collector_msg_literal( instr_ctx, "Program account not rent-exempt" );
         return FD_EXECUTOR_INSTR_ERR_EXECUTABLE_ACCOUNT_NOT_RENT_EXEMPT;
       }
@@ -1519,7 +1519,8 @@ process_loader_upgradeable_instruction( fd_exec_instr_ctx_t * instr_ctx ) {
         return err;
       }
 
-      fd_sol_sysvar_clock_t const * clock = fd_sysvar_clock_read( instr_ctx->txn_ctx->funk, instr_ctx->txn_ctx->funk_txn, instr_ctx->txn_ctx->spad );
+      fd_sol_sysvar_clock_t clock_;
+      fd_sol_sysvar_clock_t const * clock = fd_sysvar_cache_clock_read( instr_ctx->sysvar_cache, &clock_ );
       if( FD_UNLIKELY( !clock ) ) {
         return FD_EXECUTOR_INSTR_ERR_GENERIC_ERR;
       }
@@ -1929,7 +1930,8 @@ process_loader_upgradeable_instruction( fd_exec_instr_ctx_t * instr_ctx ) {
           fd_log_collector_msg_literal( instr_ctx, "Program account not owned by loader" );
           return FD_EXECUTOR_INSTR_ERR_INCORRECT_PROGRAM_ID;
         }
-        fd_sol_sysvar_clock_t const * clock = fd_sysvar_clock_read( instr_ctx->txn_ctx->funk, instr_ctx->txn_ctx->funk_txn, instr_ctx->txn_ctx->spad );
+        fd_sol_sysvar_clock_t clock_;
+        fd_sol_sysvar_clock_t const * clock = fd_sysvar_cache_clock_read( instr_ctx->sysvar_cache, &clock_ );
         if( FD_UNLIKELY( !clock ) ) {
           return FD_EXECUTOR_INSTR_ERR_UNSUPPORTED_SYSVAR;
         }
@@ -2043,7 +2045,8 @@ process_loader_upgradeable_instruction( fd_exec_instr_ctx_t * instr_ctx ) {
       }
 
       /* https://github.com/anza-xyz/agave/blob/v2.2.6/programs/bpf_loader/src/lib.rs#L1356-L1359 */
-      fd_sol_sysvar_clock_t const * clock = fd_sysvar_clock_read( instr_ctx->txn_ctx->funk, instr_ctx->txn_ctx->funk_txn, instr_ctx->txn_ctx->spad );
+      fd_sol_sysvar_clock_t clock_;
+      fd_sol_sysvar_clock_t const * clock = fd_sysvar_cache_clock_read( instr_ctx->sysvar_cache, &clock_ );
       if( FD_UNLIKELY( !clock ) ) {
         return FD_EXECUTOR_INSTR_ERR_UNSUPPORTED_SYSVAR;
       }

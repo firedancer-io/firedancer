@@ -71,7 +71,7 @@ render_histogram( fd_prom_render_t *        r,
   for( ulong k=0; k<FD_HISTF_BUCKET_CNT; k++ ) {
     value += *(fd_metrics_tile( tile->metrics ) + metric->offset + k);
 
-    char * le;
+    char * le; /* le here means "less then or equal" not "left edge" */
     char le_str[ 64 ];
     if( FD_UNLIKELY( k==FD_HISTF_BUCKET_CNT-1UL ) ) le = "+Inf";
     else {

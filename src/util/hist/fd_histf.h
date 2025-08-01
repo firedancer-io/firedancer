@@ -156,7 +156,7 @@ fd_histf_sample( fd_histf_t * hist,
 }
 
 /* fd_histf_cnt gets the count of samples in a particular bucket of the
-   historgram.
+   histogram.
 
    fd_histf_{left,right} get the sample values that map to bucket b,
    with a half-open interval [left, right).
@@ -170,6 +170,74 @@ FD_FN_PURE static inline ulong fd_histf_cnt  ( fd_histf_t const * hist, ulong b 
 FD_FN_PURE static inline ulong fd_histf_left ( fd_histf_t const * hist, ulong b ) { return (ulong)hist->left_edge[ b     ]+(1UL<<63); }
 FD_FN_PURE static inline ulong fd_histf_right( fd_histf_t const * hist, ulong b ) { return (ulong)hist->left_edge[ b+1UL ]+(1UL<<63); }
 FD_FN_PURE static inline ulong fd_histf_sum  ( fd_histf_t const * hist          ) { return        hist->sum;                          }
+
+/* fd_histf_percentile computes a percentile estimate.  Note that for
+   tail-end percentiles, its possible that samples will have landed in
+   the overflow/underflow bucket.  Since these are "catch-all" buckets,
+   we don't know how their samples are distributed.  For the underflow
+   bucket, since its bounds are known a linear interpolation is used to
+   estimate percentile.  For the overflow bucket, its bounds are
+   unknown, so the sentinel is returned */
+FD_FN_PURE static inline ulong
+fd_histf_percentile( fd_histf_t const * hist, uchar percentile, ulong sentinel ) {
+   if( FD_UNLIKELY( percentile > 100 ) ) FD_LOG_ERR(( "fd_histf_percentile: percentile must be in [0, 100]. got %u", percentile ));
+
+  ulong total_sample_cnt = 0UL;
+  for( ulong b=0UL; b<FD_HISTF_BUCKET_CNT; b++ )  total_sample_cnt += fd_histf_cnt( hist, b );
+  if( FD_UNLIKELY( !total_sample_cnt ) ) return sentinel;
+
+#define MAP(x, in_min, in_max, out_min, out_max) \
+    ((in_min == in_max) ? ((out_min + out_max) / 2) : (((x) - (in_min)) * ((out_max) - (out_min)) / ((in_max) - (in_min)) + (out_min)))
+
+  ulong rank = MAP((ulong)percentile, 0UL, 100UL, 0UL, total_sample_cnt-1UL);
+  ulong sum  = 0UL;
+
+  for( ulong b=0UL; b<FD_HISTF_BUCKET_CNT; b++ ) {
+    ulong count = fd_histf_cnt  ( hist, b );
+    sum += count;
+    if( sum > rank ) {
+      ulong left  = fd_histf_left ( hist, b );
+      ulong right = fd_histf_right( hist, b );
+      ulong prev  = sum - count; /* the number of samples in previous buckets */
+
+      if( FD_UNLIKELY( b==0 ) ) {
+         /* for the underflow bucket, use linear interpolation */
+         return MAP(rank - prev, 0UL, count-1UL, left, right);
+      } else if( FD_UNLIKELY( b==(FD_HISTF_BUCKET_CNT - 1UL) )) {
+         /* for the overflow bucket, return sentinel */
+         return sentinel;
+      } else {
+         /* max_value is the right value for the bucket before the
+            overflow bucket */
+         ulong max_value = fd_histf_right( hist, FD_HISTF_BUCKET_CNT - 2UL );
+
+         /* interpolate using the same equation used to construct bucket
+            sizes */
+#if FD_HAS_DOUBLE
+         return (ulong)(0.5  + (double)left * pow ( (double)max_value / (double)left, MAP((double)(rank - prev),  0.0, (double)(count-1UL),  0.0,  1.0)/(double)(FD_HISTF_BUCKET_CNT - b - 1UL) ) );
+#else
+         return (ulong)(0.5f + (float )left * powf( (float )max_value / (float )left, MAP((float )(rank - prev), 0.0f, (float )(count-1UL), 0.0f, 1.0f)/(float )(FD_HISTF_BUCKET_CNT - b - 1UL) ) );
+#endif
+      }
+    }
+  }
+
+#undef MAP
+
+  FD_LOG_ERR(( "unreachable" ));
+}
+
+/* fd_histf_subtract subtracts other_hist from hist and stores the
+   resulting histogram in hist.  In order to coherently subtract two
+   histograms, the sample history of other_hist must be a prefix to the
+   sample history of hist.  This effectively "erases" all the samples
+   from hist that were taken at or before the last sample in other_hist. */
+static inline void
+fd_histf_subtract( fd_histf_t const * hist, fd_histf_t const * prefix_hist, fd_histf_t * out ) {
+   out->sum = hist->sum - prefix_hist->sum;
+   for( ulong b=0UL; b<FD_HISTF_BUCKET_CNT; b++ ) out->counts[ b ]    = hist->counts[ b ] - prefix_hist->counts[ b ];
+   for( ulong b=0UL; b<FD_HISTF_BUCKET_CNT; b++ ) out->left_edge[ b ] = hist->left_edge[ b ];
+}
 
 FD_PROTOTYPES_END
 

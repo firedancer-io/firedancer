@@ -94,13 +94,11 @@ process_account( FILE * file,
     "      owner:      '%s'\n"
     "      lamports:   %lu\n"
     "      slot:       %lu\n"
-    "      rent_epoch: %lu\n"
     "      executable: %s\n"
     "      data_sz:    %lu\n",
     FD_BASE58_ENC_32_ALLOCA( meta->owner ),
     meta->lamports,
     meta->slot,
-    meta->rent_epoch,
     meta->executable ? "true" : "false",
     meta->data_sz );
 

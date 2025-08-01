@@ -371,7 +371,6 @@ fd_solcap_write_account( fd_solcap_writer_t *             writer,
 
   fd_solcap_AccountMeta meta_pb[1] = {{
     .lamports   = meta->lamports,
-    .rent_epoch = meta->rent_epoch,
     .executable = meta->executable,
     .data_sz    = data_sz,
   }};
