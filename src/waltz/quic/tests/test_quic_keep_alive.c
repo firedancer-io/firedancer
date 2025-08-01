@@ -18,12 +18,7 @@ my_handshake_complete( fd_quic_conn_t * conn FD_PARAM_UNUSED,
 
 
 /* global "clock" */
-ulong now = 145;
-
-ulong test_clock( void * ctx ) {
-  (void)ctx;
-  return now;
-}
+long now = 145;
 
 static void
 test_quic_keep_alive( fd_quic_t * client_quic, fd_quic_t * server_quic, int keep_alive ) {
@@ -38,14 +33,14 @@ test_quic_keep_alive( fd_quic_t * client_quic, fd_quic_t * server_quic, int keep
   fd_quic_svc_validate( server_quic );
   fd_quic_svc_validate( client_quic );
 
-  fd_quic_conn_t * client_conn = fd_quic_connect( client_quic, 0U, 0, 0U, 0 );
+  fd_quic_conn_t * client_conn = fd_quic_connect( client_quic, 0U, 0, 0U, 0, now );
   FD_TEST( client_conn );
 
   /* do general processing */
   for( ulong j = 0; j < 20; j++ ) {
     FD_LOG_INFO(( "running services" ));
-    fd_quic_service( client_quic );
-    fd_quic_service( server_quic );
+    fd_quic_service( client_quic, now );
+    fd_quic_service( server_quic, now );
 
     if( server_complete && client_complete ) {
       FD_LOG_INFO(( "***** both handshakes complete *****" ));
@@ -56,15 +51,15 @@ test_quic_keep_alive( fd_quic_t * client_quic, fd_quic_t * server_quic, int keep
   /* FIXME: when svc_queue fixed, make sure these are different
      and use idle_timeout = their min */
   FD_TEST( client_quic->config.idle_timeout == server_quic->config.idle_timeout );
-  ulong const idle_timeout = client_quic->config.idle_timeout;
-  ulong const timestep     = idle_timeout>>3;
+  long const idle_timeout = (long)client_quic->config.idle_timeout;
+  long const timestep     = idle_timeout>>3;
 
 
   for( int let_die=0; let_die<2; ++let_die ) {
     for( int i=0; i<10; ++i ) {
-      now+=timestep;
-      fd_quic_service( client_quic );
-      fd_quic_service( server_quic );
+      now += timestep;
+      fd_quic_service( client_quic, now );
+      fd_quic_service( server_quic, now );
     }
 
     if( keep_alive & !let_die ) {
@@ -74,7 +69,7 @@ test_quic_keep_alive( fd_quic_t * client_quic, fd_quic_t * server_quic, int keep
               client_conn->state == FD_QUIC_CONN_STATE_INVALID );
     }
 
-    fd_quic_conn_let_die( client_conn, timestep );
+    fd_quic_conn_let_die( client_conn, (long)timestep );
   }
 
 }
@@ -118,9 +113,6 @@ main( int argc, char ** argv ) {
 
   fd_quic_t * client_quic = fd_quic_new_anonymous( wksp, &quic_limits, FD_QUIC_ROLE_CLIENT, rng );
   FD_TEST( client_quic );
-
-  server_quic->cb.now              = test_clock;
-  client_quic->cb.now              = test_clock;
 
   server_quic->cb.conn_new         = my_connection_new;
   client_quic->cb.conn_hs_complete = my_handshake_complete;

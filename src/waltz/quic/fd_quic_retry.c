@@ -65,7 +65,7 @@ fd_quic_retry_create(
     fd_quic_conn_id_t const * orig_dst_conn_id,
     fd_quic_conn_id_t const * src_conn_id,
     ulong                     new_conn_id,
-    ulong                     expire_at
+    long                      expire_at
 ) {
 
   uchar * out_ptr  = retry;
@@ -99,8 +99,8 @@ fd_quic_retry_create(
 
   fd_quic_retry_data_new( &retry_token->data, rng );
   fd_quic_retry_data_set_ip4( &retry_token->data, src_ip4_addr );
-  retry_token->data.udp_port   = (ushort)src_udp_port;
-  retry_token->data.expire_comp = expire_at >> FD_QUIC_RETRY_EXPIRE_SHIFT;
+  retry_token->data.udp_port    = (ushort)src_udp_port;
+  retry_token->data.expire_comp = (ulong)( expire_at >> FD_QUIC_RETRY_EXPIRE_SHIFT );
 
   retry_token->data.rscid    = new_conn_id;
   retry_token->data.odcid_sz = orig_dst_conn_id->sz;
@@ -149,8 +149,8 @@ fd_quic_retry_server_verify(
     ulong *                   retry_src_conn_id, /* out */
     uchar const               retry_secret[ FD_QUIC_RETRY_SECRET_SZ ],
     uchar const               retry_iv[ FD_QUIC_RETRY_IV_SZ ],
-    ulong                     now,
-    ulong                     ttl
+    long                      now,
+    long                      ttl
 ) {
 
   /* We told the client to retry with a DCID chosen by us, and we
@@ -181,8 +181,8 @@ fd_quic_retry_server_verify(
   int   is_ip4        = 0==memcmp( retry_token->data.ip6_addr, "\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\xff\xff", 12 );
   uint  pkt_port      = fd_ushort_bswap( (ushort)pkt->udp->net_sport );
   uint  retry_port    = retry_token->data.udp_port;
-  ulong expire_at     = retry_token->data.expire_comp << FD_QUIC_RETRY_EXPIRE_SHIFT;
-  ulong expire_before = now + ttl;
+  long  expire_at     = (long)retry_token->data.expire_comp << FD_QUIC_RETRY_EXPIRE_SHIFT;
+  long  expire_before = now + ttl;
 
   int is_match =
     vfy_res == FD_QUIC_SUCCESS &&

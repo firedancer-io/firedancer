@@ -132,7 +132,7 @@ fd_quic_svc_timers_validate( fd_quic_svc_timers_t * timers,
 
 fd_quic_svc_event_t
 fd_quic_svc_timers_next( fd_quic_svc_timers_t * timers,
-                         ulong                  now,
+                         long                   now,
                          int                    pop ) {
   fd_quic_svc_event_t next = { .timeout = ULONG_MAX, .conn = NULL };
 

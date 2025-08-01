@@ -76,15 +76,17 @@ run_quic_client( fd_quic_t *         quic,
   fd_quic_set_aio_net_tx( quic, udpsock->aio );
   FD_TEST( fd_quic_init( quic ) );
 
-  ulong out_time = (ulong)fd_log_wallclock() + (ulong)1e9;
+  long out_time = fd_log_wallclock() + (long)1e9;
 
   while( 1 ) {
-    fd_quic_service( quic );
+    long now = fd_log_wallclock();
+
+    fd_quic_service( quic, now );
     fd_quic_udpsock_service( udpsock );
 
     if( g_dead > 0 ) {
       /* start a new connection */
-      fd_quic_conn_t * conn = fd_quic_connect( quic, dst_ip, dst_port, 0U, 0 );
+      fd_quic_conn_t * conn = fd_quic_connect( quic, dst_ip, dst_port, 0U, 0, now );
 
       if( conn ) {
         g_conn_meta[conn->conn_idx].conn     = conn;
@@ -99,10 +101,9 @@ run_quic_client( fd_quic_t *         quic,
     /* TODO send pings */
 
     /* output stats */
-    ulong now = (ulong)fd_log_wallclock();
     if( now > out_time ) {
       FD_LOG_NOTICE(( "connections: active: %lu  initializing: %lu", (ulong)g_active, (ulong)g_init ));
-      out_time = now + (ulong)1e9;
+      out_time = now + (long)1e9;
     }
   }
 

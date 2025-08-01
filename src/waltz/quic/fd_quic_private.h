@@ -66,8 +66,6 @@ struct __attribute__((aligned(16UL))) fd_quic_state_private {
   /* Flags */
   ulong flags;
 
-  ulong now; /* the time we entered into fd_quic_service, or fd_quic_aio_cb_receive */
-
   /* transport_params: Template for QUIC-TLS transport params extension.
      Contains a mix of mutable and immutable fields.  Immutable fields
      are set on join.  Mutable fields may be modified during packet
@@ -97,7 +95,7 @@ struct __attribute__((aligned(16UL))) fd_quic_state_private {
   fd_quic_pkt_meta_t    * pkt_meta_pool;
   fd_rng_t                _rng[1];        /* random number generator */
   fd_quic_svc_queue_t     svc_queue[ FD_QUIC_SVC_CNT ]; /* dlists */
-  ulong                   svc_delay[ FD_QUIC_SVC_CNT ]; /* target service delay */
+  long                    svc_delay[ FD_QUIC_SVC_CNT ]; /* target service delay */
 
   /* need to be able to access connections by index */
   ulong                   conn_base;      /* address of array of all connections */
@@ -130,7 +128,7 @@ struct fd_quic_pkt {
   /* the following are the "current" values only. There may be more QUIC packets
      in a UDP datagram */
   ulong              pkt_number;  /* quic packet number currently being decoded/parsed */
-  ulong              rcv_time;    /* time packet was received */
+  long               rcv_time;    /* time packet was received */
   uint               enc_level;   /* encryption level */
   uint               datagram_sz; /* length of the original datagram */
   uint               ack_flag;    /* ORed together: 0-don't ack  1-ack  2-cancel ack */
@@ -138,7 +136,7 @@ struct fd_quic_pkt {
 # define ACK_FLAG_CANCEL  2
 
   ulong              rtt_pkt_number; /* packet number used for rtt */
-  ulong              rtt_ack_time;
+  long               rtt_ack_time;
   ulong              rtt_ack_delay;
 };
 
@@ -192,7 +190,7 @@ fd_quic_conn_query( fd_quic_conn_map_t * map,
 void
 fd_quic_conn_service( fd_quic_t *      quic,
                       fd_quic_conn_t * conn,
-                      ulong            now );
+                      long             now );
 
 /* fd_quic_svc_schedule installs a connection timer.  svc_type is in
    [0,FD_QUIC_SVC_CNT) and specifies the timer delay.  Lower timers
@@ -280,11 +278,6 @@ fd_quic_apply_peer_params( fd_quic_conn_t *                   conn,
                            fd_quic_transport_params_t const * peer_tp );
 
 /* Helpers for calling callbacks **************************************/
-
-static inline ulong
-fd_quic_now( fd_quic_t * quic ) {
-  return quic->cb.now( quic->cb.now_ctx );
-}
 
 static inline void
 fd_quic_cb_conn_new( fd_quic_t *      quic,
@@ -439,23 +432,21 @@ fd_quic_sample_rtt( fd_quic_conn_t * conn, long rtt_ticks, long ack_delay ) {
   fd_rtt_sample( rtt, (float)rtt_ticks, ack_delay_ticks );
 
   FD_DEBUG({
-    double us_per_tick = 1.0 / (double)conn->quic->config.tick_per_us;
-    FD_LOG_NOTICE(( "conn_idx: %u  min_rtt: %f  smoothed_rtt: %f  var_rtt: %f  adj_rtt: %f  rtt_ticks: %f  ack_delay_ticks: %f  diff: %f",
-                      (uint)conn->conn_idx,
-                      us_per_tick * (double)rtt->min_rtt,
-                      us_per_tick * (double)rtt->smoothed_rtt,
-                      us_per_tick * (double)rtt->var_rtt,
-                      us_per_tick * (double)adj_rtt,
-                      us_per_tick * (double)rtt_ticks,
-                      us_per_tick * (double)ack_delay_ticks,
-                      us_per_tick * ( (double)rtt_ticks - (double)ack_delay_ticks ) ));
+    FD_LOG_NOTICE(( "conn_idx: %u  min_rtt: %f  smoothed_rtt: %f  var_rtt: %f  rtt_ticks: %f  ack_delay_ticks: %f  diff: %f",
+                    (uint)conn->conn_idx,
+                    (double)rtt->min_rtt,
+                    (double)rtt->smoothed_rtt,
+                    (double)rtt->var_rtt,
+                    (double)rtt_ticks,
+                    (double)ack_delay_ticks,
+                    ( (double)rtt_ticks - (double)ack_delay_ticks ) ));
   })
 }
 
 /* fd_quic_calc_expiry returns the timestamp of the next expiry event. */
 
-static inline ulong
-fd_quic_calc_expiry( fd_quic_conn_t * conn, ulong now ) {
+static inline long
+fd_quic_calc_expiry( fd_quic_conn_t * conn, long now ) {
   /* Instead of a full implementation of PTO, we're setting an expiry
      time per sent QUIC packet
      This calculates the expiry time according to the PTO spec
@@ -466,14 +457,14 @@ fd_quic_calc_expiry( fd_quic_conn_t * conn, ulong now ) {
 
   fd_rtt_estimate_t * rtt = conn->rtt;
 
-  ulong duration = (ulong)
+  long duration = (long)
     ( rtt->smoothed_rtt
         + (4.0f * rtt->var_rtt)
         + conn->peer_max_ack_delay_ticks );
 
   FD_DTRACE_PROBE_2( quic_calc_expiry, conn->our_conn_id, duration );
 
-  return now + (ulong)500e6; /* 500ms */
+  return now + (long)500e6; /* 500ms */
 }
 
 uchar *
@@ -490,7 +481,7 @@ fd_quic_process_ack_range( fd_quic_conn_t      *      conn,
                            ulong                      largest_ack,
                            ulong                      ack_range,
                            int                        is_largest,
-                           ulong                      now,
+                           long                       now,
                            ulong                      ack_delay );
 
 FD_PROTOTYPES_END

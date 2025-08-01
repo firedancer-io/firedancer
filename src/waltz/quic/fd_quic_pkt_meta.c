@@ -18,7 +18,7 @@ fd_quic_pkt_meta_tracker_init( fd_quic_pkt_meta_tracker_t * tracker,
 void
 fd_quic_pkt_meta_ds_init_pool( fd_quic_pkt_meta_t * pool,
                                ulong                total_meta_cnt ) {
-  fd_quic_pkt_meta_treap_seed( pool, total_meta_cnt, (ulong)fd_log_wallclock() );
+  fd_quic_pkt_meta_treap_seed( pool, total_meta_cnt, (ulong)fd_tickcount() );
 }
 
 void

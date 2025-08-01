@@ -110,11 +110,11 @@ legacy_stream_notify( fd_quic_ctx_t * ctx,
    up the stack to the network itself. */
 static inline void
 before_credit( fd_quic_ctx_t *     ctx,
-               fd_stem_context_t * stem FD_FN_UNUSED,
+               fd_stem_context_t * stem,
                int *               charge_busy,
                long                stem_ts FD_PARAM_UNUSED ) {
   /* Publishes to mcache via callbacks */
-  *charge_busy = fd_quic_service( ctx->quic );
+  *charge_busy = fd_quic_service_sampled( ctx->quic, stem->epoch );
 }
 
 static inline void
@@ -236,7 +236,7 @@ after_frag( fd_quic_ctx_t *     ctx,
     ulong   ip_sz  = sz - sizeof(fd_eth_hdr_t);
 
     fd_quic_t * quic = ctx->quic;
-    fd_quic_process_packet( quic, ip_pkt, ip_sz );
+    fd_quic_process_packet_sampled( quic, ip_pkt, ip_sz, stem->epoch );
   } else if( FD_LIKELY( proto==DST_PROTO_TPU_UDP ) ) {
     ulong network_hdr_sz = fd_disco_netmux_sig_hdr_sz( sig );
     if( FD_UNLIKELY( sz<=network_hdr_sz ) ) {
@@ -504,13 +504,6 @@ quic_tls_cv_sign( void *      signer_ctx,
   fd_sha512_leave( sha512 );
 }
 
-static ulong
-fd_quic_tile_now( void * ctx_ ) {
-  fd_quic_ctx_t *     ctx  = ctx_;
-  fd_stem_context_t * stem = ctx->stem;
-  return (ulong)fd_stem_now( stem );
-}
-
 static void
 unprivileged_init( fd_topo_t *      topo,
                    fd_topo_tile_t * tile ) {
@@ -578,8 +571,8 @@ unprivileged_init( fd_topo_t *      topo,
   }
 
   quic->config.role                       = FD_QUIC_ROLE_SERVER;
-  quic->config.idle_timeout               = (ulong)( tile->quic.idle_timeout_millis * (long)1e6 );
-  quic->config.ack_delay                  = (ulong)( tile->quic.ack_delay_millis    * (long)1e6 );
+  quic->config.idle_timeout               = tile->quic.idle_timeout_millis * (long)1e6;
+  quic->config.ack_delay                  = tile->quic.ack_delay_millis    * (long)1e6;
   quic->config.initial_rx_max_stream_data = FD_TXN_MTU;
   quic->config.retry                      = tile->quic.retry;
   fd_memcpy( quic->config.identity_public_key, ctx->tls_pub_key, ED25519_PUB_KEY_SZ );
@@ -594,9 +587,6 @@ unprivileged_init( fd_topo_t *      topo,
     quic->cb.tls_keylog = quic_tls_keylog;
     ctx->keylog_next_flush = fd_log_wallclock() + FD_QUIC_KEYLOG_FLUSH_INTERVAL_NS;
   }
-
-  quic->cb.now              = fd_quic_tile_now;
-  quic->cb.now_ctx          = ctx;
 
   fd_quic_set_aio_net_tx( quic, quic_tx_aio );
   if( FD_UNLIKELY( !fd_quic_init( quic ) ) ) FD_LOG_ERR(( "fd_quic_init failed" ));

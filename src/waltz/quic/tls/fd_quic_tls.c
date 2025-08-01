@@ -150,7 +150,7 @@ fd_quic_tls_hs_new( fd_quic_tls_hs_t * self,
                     void *             context,
                     int                is_server,
                     fd_quic_transport_params_t const * self_transport_params,
-                    ulong              now ) {
+                    long               now ) {
   // clear the handshake bits
   fd_memset( self, 0, sizeof(fd_quic_tls_hs_t) );
 

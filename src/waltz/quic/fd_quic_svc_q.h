@@ -8,7 +8,7 @@
 
 struct fd_quic_svc_timers_conn_meta {
   ulong idx;           /* points to idx in heap, caller should not modify */
-  ulong next_timeout;  /* next timeout for this connection */
+  long  next_timeout;  /* next timeout for this connection */
 };
 typedef struct fd_quic_svc_timers_conn_meta fd_quic_svc_timers_conn_meta_t;
 
@@ -80,7 +80,7 @@ fd_quic_svc_cancel( fd_quic_svc_timers_t * timers,
    Returns NULL conn if queue empty. */
 fd_quic_svc_event_t
 fd_quic_svc_timers_next( fd_quic_svc_timers_t * timers,
-                         ulong                  now,
+                         long                   now,
                          int                    pop );
 
 

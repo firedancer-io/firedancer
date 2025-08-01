@@ -95,7 +95,8 @@ quic_hs_complete( fd_quic_conn_t * conn,
 
 static fd_quic_conn_t *
 quic_connect( fd_send_tile_ctx_t   * ctx,
-              fd_send_conn_entry_t * entry );
+              fd_send_conn_entry_t * entry,
+              long                   now );
 
 /* quic_conn_final is called when the QUIC connection dies.
    Reconnects if contact info is recent enough. */
@@ -118,9 +119,9 @@ quic_conn_final( fd_quic_conn_t * conn,
   }
 
   uint ip4_addr = entry->ip4_addr;
-  FD_LOG_DEBUG(("send_tile: Quic conn final: %p to peer %u.%u.%u.%u:%u", (void*)conn, ip4_addr&0xFF, (ip4_addr>>8)&0xFF, (ip4_addr>>16)&0xFF, (ip4_addr>>24)&0xFF, entry->udp_port));
+  FD_LOG_DEBUG(("send_tile: Quic conn final: %p to peer " FD_IP4_ADDR_FMT ":%u", (void*)conn, FD_IP4_ADDR_FMT_ARGS( ip4_addr ), entry->udp_port));
   entry->conn = NULL;
-  quic_connect( ctx, entry );
+  quic_connect( ctx, entry, now );
 }
 
 static int
@@ -170,16 +171,17 @@ quic_tx_aio_send( void *                    _ctx,
 
 static fd_quic_conn_t *
 quic_connect( fd_send_tile_ctx_t   * ctx,
-              fd_send_conn_entry_t * entry ) {
+              fd_send_conn_entry_t * entry,
+              long                   now ) {
   uint   dst_ip   = entry->ip4_addr;
   ushort dst_port = entry->udp_port;
 
   FD_TEST( entry->conn == NULL );
 
-  fd_quic_conn_t * conn = fd_quic_connect( ctx->quic, dst_ip, dst_port, ctx->src_ip_addr, ctx->src_port );
+  fd_quic_conn_t * conn = fd_quic_connect( ctx->quic, dst_ip, dst_port, ctx->src_ip_addr, ctx->src_port, now );
   if( FD_UNLIKELY( !conn ) ) {
     ctx->metrics.quic_conn_create_failed++;
-    FD_LOG_WARNING(( "send_tile: Failed to create QUIC connection to %u.%u.%u.%u:%u", dst_ip&0xFF, (dst_ip>>8)&0xFF, (dst_ip>>16)&0xFF, (dst_ip>>24)&0xFF, dst_port ));
+    FD_LOG_WARNING(( "send_tile: Failed to create QUIC connection to " FD_IP4_ADDR_FMT ":%u", FD_IP4_ADDR_FMT_ARGS( dst_ip ), dst_port ));
     return NULL;
   }
 
@@ -270,7 +272,7 @@ handle_new_contact_info( fd_send_tile_ctx_t   * ctx,
   }
 
   entry->last_ci_ns = now_ns;
-  quic_connect( ctx, entry );
+  quic_connect( ctx, entry, now_ns );
   ctx->metrics.new_contact_info[FD_METRICS_ENUM_NEW_CONTACT_OUTCOME_V_CONNECT_IDX]++;
   return;
 }
@@ -316,11 +318,11 @@ finalize_stake_msg( fd_send_tile_ctx_t * ctx ) {
 
 static inline void
 before_credit( fd_send_tile_ctx_t * ctx,
-               fd_stem_context_t  * stem FD_PARAM_UNUSED,
+               fd_stem_context_t  * stem,
                int *                charge_busy,
                long                 stem_ts FD_PARAM_UNUSED ) {
   /* Publishes to mcache via callbacks */
-  *charge_busy = fd_quic_service( ctx->quic );
+  *charge_busy = fd_quic_service_sampled( ctx->quic, stem->epoch );
 }
 
 static void
@@ -388,7 +390,7 @@ after_frag( fd_send_tile_ctx_t * ctx,
     ulong       ip_sz  = sz - sizeof(fd_eth_hdr_t);
     fd_quic_t * quic   = ctx->quic;
 
-    fd_quic_process_packet( quic, ip_pkt, ip_sz );
+    fd_quic_process_packet_sampled( quic, ip_pkt, ip_sz, stem->epoch );
   }
 
   if( FD_UNLIKELY( kind==IN_KIND_TOWER ) ) {
