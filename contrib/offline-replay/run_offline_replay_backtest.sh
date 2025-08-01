@@ -2,8 +2,26 @@
 
 OBJDIR=${OBJDIR:-build/native/gcc}
 
+# Parse command line options
+BACKFILL_MODE=false
+while [[ $# -gt 0 ]]; do
+    case $1 in
+        --backfill)
+            BACKFILL_MODE=true
+            shift
+            ;;
+        *)
+            echo "Unknown option: $1"
+            echo "Usage: $0 [--backfill]"
+            exit 1
+            ;;
+    esac
+done
+
 source $NETWORK_PARAMETERS_FILE $NETWORK
 echo "Updated network parameters"
+
+REPLAYED_BUCKETS_SLOT_FILE=${REPLAYED_BUCKETS_SLOT_FILE:-$LATEST_RUN_BUCKET_SLOT_FILE}
 send_slack_message() {
     MESSAGE=$1
     json_payload=$(cat <<EOF
@@ -49,11 +67,63 @@ while true; do
     echo "Updated network parameters"
     NEWEST_BUCKET=$(gcloud storage ls $BUCKET_ENDPOINT --billing-project=$BILLING_PROJECT | sort -n -t / -k 4 | tail -n 1)
     NEWEST_BUCKET_SLOT=$(echo $NEWEST_BUCKET | awk -F'/' '{print $(NF-1)}')
-    LATEST_RUN_BUCKET_SLOT=$(cat $LATEST_RUN_BUCKET_SLOT_FILE)
+    # Read all replayed bucket slots from file
+    if [ -f "$REPLAYED_BUCKETS_SLOT_FILE" ]; then
+        if [ $(wc -l < "$REPLAYED_BUCKETS_SLOT_FILE") -eq 1 ]; then
+            # Old format: single line
+            LATEST_RUN_BUCKET_SLOT=$(cat "$REPLAYED_BUCKETS_SLOT_FILE")
+            REPLAYED_BUCKETS="$LATEST_RUN_BUCKET_SLOT"
+        else
+            # New format: multiple lines
+            REPLAYED_BUCKETS=$(cat "$REPLAYED_BUCKETS_SLOT_FILE" | sort -n)
+            LATEST_RUN_BUCKET_SLOT=$(echo "$REPLAYED_BUCKETS" | tail -n 1)
+        fi
+    else
+        LATEST_RUN_BUCKET_SLOT=0
+        REPLAYED_BUCKETS=""
+    fi
 
     send_slack_message "Most Recent Bucket Slot in $NETWORK: \`$NEWEST_BUCKET_SLOT\`"
 
-    if [ "$NEWEST_BUCKET_SLOT" -gt "$LATEST_RUN_BUCKET_SLOT" ]; then
+    BUCKETS_TO_REPLAY=""
+    if [ "$BACKFILL_MODE" = true ]; then
+        # Backfill mode: find all missing buckets between existing ones
+        if [ -n "$REPLAYED_BUCKETS" ]; then
+            LOWEST_BUCKET=$(echo "$REPLAYED_BUCKETS" | head -n 1)
+            ALL_BUCKETS=$(gcloud storage ls $BUCKET_ENDPOINT --billing-project=$BILLING_PROJECT | sort -n -t / -k 4)
+            for bucket in $ALL_BUCKETS; do
+                BUCKET_SLOT=$(echo $bucket | awk -F'/' '{print $(NF-1)}')
+                # Skip non-numeric bucket names
+                if ! [[ "$BUCKET_SLOT" =~ ^[0-9]+$ ]]; then
+                    continue
+                fi
+                # Check if this bucket is in our replayed list
+                if ! echo "$REPLAYED_BUCKETS" | grep -q "^$BUCKET_SLOT$"; then
+                    # Check if it's within our backfill range (between lowest and newest)
+                    if [ "$BUCKET_SLOT" -ge "$LOWEST_BUCKET" ] && [ "$BUCKET_SLOT" -le "$NEWEST_BUCKET_SLOT" ]; then
+                        BUCKETS_TO_REPLAY="$BUCKETS_TO_REPLAY $BUCKET_SLOT"
+                    fi
+                fi
+            done
+            BUCKETS_TO_REPLAY=$(echo $BUCKETS_TO_REPLAY | tr ' ' '\n' | sort -n | tr '\n' ' ')
+        else
+            # No replayed buckets yet, just replay the newest
+            BUCKETS_TO_REPLAY="$NEWEST_BUCKET_SLOT"
+        fi
+    else
+        # Default mode: only replay if newest is greater than latest
+        if [ "$NEWEST_BUCKET_SLOT" -gt "$LATEST_RUN_BUCKET_SLOT" ]; then
+            BUCKETS_TO_REPLAY="$NEWEST_BUCKET_SLOT"
+        fi
+    fi
+
+    for CURRENT_BUCKET_SLOT in $BUCKETS_TO_REPLAY; do
+        if [ "$BACKFILL_MODE" = true ]; then
+            send_slack_message "Backfilling bucket slot: \`$CURRENT_BUCKET_SLOT\`"
+        else
+            send_slack_message "Bucket Slot \`$CURRENT_BUCKET_SLOT\` is greater than the last run bucket slot \`$LATEST_RUN_BUCKET_SLOT\`"
+        fi
+
         CURRENT_MISMATCH_COUNT=0
         CURRENT_FAILURE_COUNT=0
         cd $AGAVE_REPO
@@ -61,13 +131,11 @@ while true; do
         git checkout $AGAVE_TAG
         cargo build --release
 
-        send_slack_message "Bucket Slot \`$NEWEST_BUCKET_SLOT\` is greater than the last run bucket slot \`$LATEST_RUN_BUCKET_SLOT\`"
-
-        LOG=/home/kbhargava/${NETWORK}_offline_replay_${NEWEST_BUCKET_SLOT}.log
-        TEMP_LOG=/home/kbhargava/${NETWORK}_offline_replay_${NEWEST_BUCKET_SLOT}_temp.log
+        LOG=/home/kbhargava/${NETWORK}_offline_replay_${CURRENT_BUCKET_SLOT}.log
+        TEMP_LOG=/home/kbhargava/${NETWORK}_offline_replay_${CURRENT_BUCKET_SLOT}_temp.log
         send_slack_message "Log File: \`$LOG\`"
         echo "" > $LOG && chmod 777 $LOG
-        LEDGER_DIR=${FIREDANCER_REPO}/dump/${NETWORK}-${NEWEST_BUCKET_SLOT}
+        LEDGER_DIR=${FIREDANCER_REPO}/dump/${NETWORK}-${CURRENT_BUCKET_SLOT}
         send_slack_message "Ledger Directory: \`$LEDGER_DIR\`"
         OLD_SNAPSHOTS_DIR=${LEDGER_DIR}/old_snapshots
 
@@ -76,7 +144,7 @@ while true; do
         cd $LEDGER_DIR
         wget $GENESIS_FILE
 
-        SOLANA_BUCKET_PATH=${BUCKET_ENDPOINT}/${NEWEST_BUCKET_SLOT}
+        SOLANA_BUCKET_PATH=${BUCKET_ENDPOINT}/${CURRENT_BUCKET_SLOT}
         send_slack_message "Downloading rocksdb from \`$SOLANA_BUCKET_PATH\` to \`$LEDGER_DIR/rocksdb\`"
 
         if [ -e "$LEDGER_DIR/rocksdb" ]; then
@@ -220,7 +288,7 @@ while true; do
                 # REPLAY_INFO="${REPLAY_COMPLETED_LINE#*replay completed - }"
                 # TXN_SPAD_INFO=$(grep "mem_wmark" "$LOG" | sed -E 's/.*(spad.*)/\1/')
 
-                send_slack_message "Ledger Replay Successful for Ledger \`$NEWEST_BUCKET_SLOT\`"
+                send_slack_message "Ledger Replay Successful for Ledger \`$CURRENT_BUCKET_SLOT\`"
                 # send_slack_message "Replay Statistics: \`$REPLAY_INFO\`"
                 # send_slack_debug_message "Memory Statistics:\n\`\`\`$TXN_SPAD_INFO\`\`\`"
             else
@@ -378,9 +446,15 @@ while true; do
             rm -rf $LEDGER_DIR/old_snapshots
             rm -rf $LEDGER_DIR/snapshot*.tar.zst
         fi
-        echo "$NEWEST_BUCKET_SLOT" > $LATEST_RUN_BUCKET_SLOT_FILE
-        echo "Updated latest bucket slot to $NEWEST_BUCKET_SLOT"
-    fi
+        if [ -f "$REPLAYED_BUCKETS_SLOT_FILE" ]; then
+            echo "$CURRENT_BUCKET_SLOT" >> "$REPLAYED_BUCKETS_SLOT_FILE"
+            sort -n "$REPLAYED_BUCKETS_SLOT_FILE" | uniq > "${REPLAYED_BUCKETS_SLOT_FILE}.tmp"
+            mv "${REPLAYED_BUCKETS_SLOT_FILE}.tmp" "$REPLAYED_BUCKETS_SLOT_FILE"
+        else
+            echo "$CURRENT_BUCKET_SLOT" > "$REPLAYED_BUCKETS_SLOT_FILE"
+        fi
+        echo "Added bucket slot $CURRENT_BUCKET_SLOT to replayed buckets file"
+    done
 
     echo "Sleeping for 1 hour"
     sleep 3600
