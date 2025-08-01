@@ -167,7 +167,7 @@ store_align( fd_topo_t const *     topo FD_FN_UNUSED,
 static void
 store_new( fd_topo_t const *     topo,
            fd_topo_obj_t const * obj ) {
-  FD_TEST( fd_store_new( fd_topo_obj_laddr( topo, obj->id ), VAL("fec_max"), VAL("seed") ) );
+  FD_TEST( fd_store_new( fd_topo_obj_laddr( topo, obj->id ), VAL("fec_max"), VAL("part_cnt") ) );
 }
 
 fd_topo_obj_callbacks_t fd_obj_cb_store = {

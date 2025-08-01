@@ -918,7 +918,6 @@ unprivileged_init( fd_topo_t *      topo,
   if( FD_UNLIKELY( sign_link_out_idx==UINT_MAX ) ) FD_LOG_ERR(( "Missing repair_sign link" ));
   if( FD_UNLIKELY( net_link_out_idx ==UINT_MAX ) ) FD_LOG_ERR(( "Missing repair_net link" ));
   ctx->shred_tile_cnt = shred_tile_idx;
-  FD_TEST( ctx->shred_tile_cnt == 1 ); /* FIXME remove once store supports multiple non-conflicting writers (see CONCURRENCY section in fd_store.h docs) */
   FD_TEST( ctx->shred_tile_cnt == fd_topo_tile_name_cnt( topo, "shred" ) );
 
   /* Scratch mem setup */
