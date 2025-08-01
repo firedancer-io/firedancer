@@ -645,7 +645,8 @@ after_credit( fd_repair_tile_ctx_t * ctx,
               int *                  opt_poll_in FD_PARAM_UNUSED,
               int *                  charge_busy ) {
 
-  if( FD_LIKELY( !fd_fec_out_empty( ctx->fec_chainer->out ) ) ) {
+  if( FD_LIKELY( !fd_fec_out_empty( ctx->fec_chainer->out ) && ctx->store ) ) {
+
     fd_fec_out_t out = fd_fec_out_pop_head( ctx->fec_chainer->out );
     fd_hash_t *  cmr = &out.chained_root;
     if( FD_UNLIKELY( ctx->store->slot0==(out.slot - out.parent_off) ) ) {
@@ -937,7 +938,6 @@ unprivileged_init( fd_topo_t *      topo,
     ctx->store = fd_store_join( fd_topo_obj_laddr( topo, store_obj_id ) );
     FD_TEST( ctx->store->magic == FD_STORE_MAGIC );
   }
-  FD_TEST( ctx->store );
 
   void * smem = FD_SCRATCH_ALLOC_APPEND( l, fd_scratch_smem_align(), fd_scratch_smem_footprint( FD_REPAIR_SCRATCH_MAX ) );
   void * fmem = FD_SCRATCH_ALLOC_APPEND( l, fd_scratch_fmem_align(), fd_scratch_fmem_footprint( FD_REPAIR_SCRATCH_DEPTH ) );
