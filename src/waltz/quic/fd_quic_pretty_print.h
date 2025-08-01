@@ -13,7 +13,7 @@ typedef struct fd_quic_pretty_print fd_quic_pretty_print_t;
 
 ulong
 fd_quic_pretty_print_quic_pkt( fd_quic_pretty_print_t * pkt_ctx,
-                               ulong                    now,
+                               long                     now,
                                uchar const *            buf,
                                ulong                    buf_sz );
 

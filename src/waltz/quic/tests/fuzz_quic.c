@@ -86,7 +86,7 @@ uint send_packet(uchar const *payload, size_t payload_sz) {
   cur_ptr += (ulong)payload_sz;
   cur_sz -= (ulong)payload_sz;
 
-  fd_quic_process_packet( server_quic, scratch, scratch_sz - cur_sz );
+  fd_quic_process_packet( server_quic, scratch, scratch_sz - cur_sz, 1L );
 
   return FD_QUIC_SUCCESS; /* success */
 }

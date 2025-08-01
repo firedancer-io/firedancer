@@ -165,7 +165,7 @@ static inline void
 fd_quic_log_tx_submit( fd_quic_log_tx_t * tx,
                        ulong              sz,     /* in [0,FD_QUIC_LOG_BUF_MTU) */
                        ulong              sig,    /* see fd_quic_log_sig() */
-                       long               ts ) {  /* usually fd_tickcount() */
+                       long               ts ) {
   fd_frag_meta_t * mcache  = tx->mcache;
   ulong            chunk   = tx->chunk;
   ulong            depth   = tx->depth;
