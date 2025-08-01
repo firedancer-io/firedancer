@@ -1,6 +1,5 @@
 #include "fd_exec_slot_ctx.h"
 #include "../sysvar/fd_sysvar_epoch_schedule.h"
-
 #include <assert.h>
 #include <time.h>
 
@@ -88,11 +87,8 @@ fd_exec_slot_ctx_delete( void * mem ) {
 fd_exec_slot_ctx_t *
 fd_exec_slot_ctx_recover( fd_exec_slot_ctx_t *                slot_ctx,
                           fd_solana_manifest_global_t const * manifest ) {
-  ulong stakes_sz = fd_stakes_size_global( &manifest->bank.stakes );
-  fd_stakes_global_t * stakes = fd_bank_stakes_locking_modify( slot_ctx->bank );
-  fd_memcpy( stakes, &manifest->bank.stakes, stakes_sz );
-  /* Verify stakes */
-
+  fd_stakes_slim_t * stakes = fd_bank_stakes_locking_modify( slot_ctx->bank );
+  fd_stakes_import( stakes, manifest );
   fd_bank_stakes_end_locking_modify( slot_ctx->bank );
 
   /* Move EpochStakes */
@@ -344,10 +340,4 @@ fd_exec_slot_ctx_recover_status_cache( fd_exec_slot_ctx_t *    ctx,
 
   } FD_SPAD_FRAME_END;
   return ctx;
-}
-
-ulong
-fd_bank_epoch_get( fd_bank_t const * bank ) {
-  fd_epoch_schedule_t epoch_schedule = fd_bank_epoch_schedule_get( bank );
-  return fd_slot_to_epoch( &epoch_schedule, fd_bank_slot_get( bank ), NULL );
 }

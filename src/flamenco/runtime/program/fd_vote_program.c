@@ -1915,20 +1915,10 @@ do_process_vote_state_update( fd_vote_state_t *           vote_state,
 
 // ??
 ulong
-fd_query_pubkey_stake( fd_pubkey_t const * pubkey, fd_vote_accounts_global_t const * vote_accounts ) {
-  fd_vote_accounts_pair_global_t_mapnode_t key  = { 0 };
-  key.elem.key                                  = *pubkey;
-
-  fd_vote_accounts_pair_global_t_mapnode_t * vote_accounts_pool = fd_vote_accounts_vote_accounts_pool_join( vote_accounts );
-  fd_vote_accounts_pair_global_t_mapnode_t * vote_accounts_root = fd_vote_accounts_vote_accounts_root_join( vote_accounts );
-
-  if( !vote_accounts_pool && !vote_accounts_root ) {
-    return 0;
-  }
-
-  fd_vote_accounts_pair_global_t_mapnode_t * vote_node = fd_vote_accounts_pair_global_t_map_find(
-      vote_accounts_pool, vote_accounts_root, &key );
-  return vote_node ? vote_node->elem.stake : 0;
+fd_query_pubkey_stake( fd_pubkey_t const * pubkey, fd_stakes_slim_t const * stakes ) {
+  fd_stake_account_slim_t const * stakes_pool = fd_stakes_slim_join_pool_const( stakes );
+  fd_stake_account_slim_t const * vote_node = fd_stakes_slim_ele_query_const( stakes, pubkey, NULL, stakes_pool );
+  return vote_node ? vote_node->delegation.stake : 0;
 }
 
 static int
@@ -1944,7 +1934,7 @@ process_vote_state_update( fd_borrowed_account_t *       vote_account,
   //
   // There is no corresponding code in anza
 
-  fd_stakes_global_t const * stakes = fd_bank_stakes_locking_query( ctx->txn_ctx->bank );
+  fd_stakes_slim_t const * stakes = fd_bank_stakes_locking_query( ctx->txn_ctx->bank );
 
   if( !deq_fd_vote_lockout_t_empty( vote_state_update->lockouts ) ) {
     fd_vote_lockout_t *  lockout       = deq_fd_vote_lockout_t_peek_tail( vote_state_update->lockouts );
@@ -1956,8 +1946,7 @@ process_vote_state_update( fd_borrowed_account_t *       vote_account,
           lockout->slot,
           &vote_state_update->hash,
           0,
-          fd_query_pubkey_stake( vote_account->acct->pubkey,
-          &stakes->vote_accounts ) );
+          fd_query_pubkey_stake( vote_account->acct->pubkey, stakes ) );
       fd_bank_hash_cmp_unlock( bank_hash_cmp );
     }
   }
@@ -2031,7 +2020,7 @@ process_tower_sync( fd_borrowed_account_t *       vote_account,
   if( !deq_fd_vote_lockout_t_empty( tower_sync->lockouts ) ) {
     fd_vote_lockout_t *  lockout       = deq_fd_vote_lockout_t_peek_tail( tower_sync->lockouts );
     fd_bank_hash_cmp_t * bank_hash_cmp = ctx->txn_ctx->bank_hash_cmp;
-    fd_stakes_global_t const * stakes = fd_bank_stakes_locking_query( ctx->txn_ctx->bank );
+    fd_stakes_slim_t const * stakes = fd_bank_stakes_locking_query( ctx->txn_ctx->bank );
     if( FD_LIKELY( lockout && bank_hash_cmp ) ) {
       fd_bank_hash_cmp_lock( bank_hash_cmp );
       fd_bank_hash_cmp_insert(
@@ -2039,8 +2028,7 @@ process_tower_sync( fd_borrowed_account_t *       vote_account,
           lockout->slot,
           &tower_sync->hash,
           0,
-          fd_query_pubkey_stake( vote_account->acct->pubkey,
-          &stakes->vote_accounts ) );
+          fd_query_pubkey_stake( vote_account->acct->pubkey, stakes ) );
       fd_bank_hash_cmp_unlock( bank_hash_cmp );
     }
     fd_bank_stakes_end_locking_query( ctx->txn_ctx->bank );
@@ -2878,27 +2866,10 @@ static void
 remove_vote_account( fd_txn_account_t *   vote_account,
                      fd_bank_t *          bank ) {
 
-  fd_stakes_global_t * stakes = fd_bank_stakes_locking_modify( bank );
-  fd_vote_accounts_global_t * epoch_vote_accounts = &stakes->vote_accounts;
-  fd_vote_accounts_pair_global_t_mapnode_t * epoch_vote_accounts_pool = fd_vote_accounts_vote_accounts_pool_join( epoch_vote_accounts );
-  fd_vote_accounts_pair_global_t_mapnode_t * epoch_vote_accounts_root = fd_vote_accounts_vote_accounts_root_join( epoch_vote_accounts );
-
-  if( FD_UNLIKELY( epoch_vote_accounts_pool==NULL ) ) {
-    FD_LOG_DEBUG(("Vote accounts pool does not exist"));
-    fd_bank_stakes_end_locking_modify( bank );
-    return;
-  }
-
-
-  fd_vote_accounts_pair_global_t_mapnode_t vote_acc;
-  fd_memcpy( vote_acc.elem.key.uc, vote_account->pubkey->uc, sizeof(fd_pubkey_t) );
-  fd_vote_accounts_pair_global_t_mapnode_t * vote_account_entry = fd_vote_accounts_pair_global_t_map_find( epoch_vote_accounts_pool, epoch_vote_accounts_root, &vote_acc );
-  if( FD_LIKELY( vote_account_entry ) ) {
-    fd_vote_accounts_pair_global_t_map_remove( epoch_vote_accounts_pool, &epoch_vote_accounts_root, vote_account_entry);
-  }
-
-  fd_vote_accounts_vote_accounts_pool_update( epoch_vote_accounts, epoch_vote_accounts_pool );
-  fd_vote_accounts_vote_accounts_root_update( epoch_vote_accounts, epoch_vote_accounts_root );
+  fd_stakes_slim_t * stakes = fd_bank_stakes_locking_modify( bank );
+  fd_stake_account_slim_t * stakes_pool = fd_stakes_slim_join_pool( stakes );
+  fd_stake_account_slim_t * vote_node = fd_stakes_slim_ele_remove( stakes, vote_account->pubkey, NULL, stakes_pool );
+  fd_stake_account_slim_pool_ele_release( vote_node, stakes_pool );
   fd_bank_stakes_end_locking_modify( bank );
 
   fd_account_keys_global_t * vote_account_keys = fd_bank_vote_account_keys_locking_modify( bank );
@@ -2927,9 +2898,8 @@ static void
 upsert_vote_account( fd_txn_account_t *   vote_account,
                      fd_bank_t *          bank ) {
 
-  fd_stakes_global_t const * stakes = fd_bank_stakes_locking_query( bank );
-  fd_vote_accounts_pair_global_t_mapnode_t * stakes_vote_accounts_pool = fd_vote_accounts_vote_accounts_pool_join( &stakes->vote_accounts );
-  fd_vote_accounts_pair_global_t_mapnode_t * stakes_vote_accounts_root = fd_vote_accounts_vote_accounts_root_join( &stakes->vote_accounts );
+  fd_stakes_slim_t const *        stakes      = fd_bank_stakes_locking_query( bank );
+  fd_stake_account_slim_t const * stakes_pool = fd_stakes_slim_join_pool_const( stakes );
 
   fd_account_keys_global_t *         vote_account_keys      = fd_bank_vote_account_keys_locking_modify( bank );
   fd_account_keys_pair_t_mapnode_t * vote_account_keys_pool = fd_account_keys_account_keys_pool_join( vote_account_keys );
@@ -2951,7 +2921,7 @@ upsert_vote_account( fd_txn_account_t *   vote_account,
 
     // Skip duplicates
     if( FD_LIKELY( fd_account_keys_pair_t_map_find( vote_account_keys_pool, vote_account_keys_root, &key ) ||
-                   fd_vote_accounts_pair_global_t_map_find( stakes_vote_accounts_pool, stakes_vote_accounts_root, &vote_acc )  ) ) {
+                   fd_stakes_slim_ele_query_const( stakes, vote_account->pubkey, NULL, stakes_pool )  ) ) {
       fd_bank_vote_account_keys_end_locking_modify( bank );
       fd_bank_stakes_end_locking_query( bank );
       return;
