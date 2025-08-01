@@ -79,7 +79,6 @@ fd_runtime_fuzz_load_account( fd_txn_account_t *                acc,
     return 0;
   }
 
-  fd_txn_account_init( acc );
   ulong size = 0UL;
   if( state->data ) size = state->data->size;
 
@@ -98,19 +97,20 @@ fd_runtime_fuzz_load_account( fd_txn_account_t *                acc,
                                                    /* do_create   */ 1,
                                                    /* min_data_sz */ size );
   assert( err==FD_ACC_MGR_SUCCESS );
+
   if( state->data ) {
-    acc->vt->set_data( acc, state->data->bytes, size );
+    fd_txn_account_set_data( acc, state->data->bytes, size );
   }
 
   acc->starting_lamports = state->lamports;
   acc->starting_dlen     = size;
-  acc->vt->set_lamports( acc, state->lamports );
-  acc->vt->set_executable( acc, state->executable );
-  acc->vt->set_rent_epoch( acc, state->rent_epoch );
-  acc->vt->set_owner( acc, (fd_pubkey_t const *)state->owner );
+  fd_txn_account_set_lamports( acc, state->lamports );
+  fd_txn_account_set_executable( acc, state->executable );
+  fd_txn_account_set_rent_epoch( acc, state->rent_epoch );
+  fd_txn_account_set_owner( acc, (fd_pubkey_t const *)state->owner );
 
   /* make the account read-only by default */
-  acc->vt->set_readonly( acc );
+  fd_txn_account_set_readonly( acc );
 
   fd_txn_account_mutable_fini( acc, funk, funk_txn );
 

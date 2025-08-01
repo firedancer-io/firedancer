@@ -20,12 +20,12 @@ fd_sysvar_account_update( fd_exec_slot_ctx_t * slot_ctx,
   fd_txn_account_init_from_funk_mutable( rec, address, slot_ctx->funk, slot_ctx->funk_txn, 1, sz );
 
   ulong const slot            = fd_bank_slot_get( slot_ctx->bank );
-  ulong const lamports_before = rec->vt->get_lamports( rec );
+  ulong const lamports_before = fd_txn_account_get_lamports( rec );
   ulong const lamports_after  = fd_ulong_max( lamports_before, min_bal );
-  rec->vt->set_lamports( rec, lamports_after      );
-  rec->vt->set_owner   ( rec, &fd_sysvar_owner_id );
-  rec->vt->set_slot    ( rec, slot                );
-  rec->vt->set_data( rec, data, sz );
+  fd_txn_account_set_lamports( rec, lamports_after      );
+  fd_txn_account_set_owner   ( rec, &fd_sysvar_owner_id );
+  fd_txn_account_set_slot    ( rec, slot                );
+  fd_txn_account_set_data( rec, data, sz );
 
   ulong lamports_minted;
   if( FD_UNLIKELY( __builtin_usubl_overflow( lamports_after, lamports_before, &lamports_minted ) ) ) {

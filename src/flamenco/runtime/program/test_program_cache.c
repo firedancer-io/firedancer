@@ -75,18 +75,18 @@ create_test_account( fd_pubkey_t const * pubkey,
   FD_TEST( !err );
 
   if( data ) {
-    acc->vt->set_data( acc, data, data_len );
+    fd_txn_account_set_data( acc, data, data_len );
   }
 
   acc->starting_lamports = 1UL;
   acc->starting_dlen     = data_len;
-  acc->vt->set_lamports( acc, 1UL );
-  acc->vt->set_executable( acc, executable );
-  acc->vt->set_rent_epoch( acc, ULONG_MAX );
-  acc->vt->set_owner( acc, owner );
+  fd_txn_account_set_lamports( acc, 1UL );
+  fd_txn_account_set_executable( acc, executable );
+  fd_txn_account_set_rent_epoch( acc, ULONG_MAX );
+  fd_txn_account_set_owner( acc, owner );
 
   /* make the account read-only by default */
-  acc->vt->set_readonly( acc );
+  fd_txn_account_set_readonly( acc );
 
   fd_txn_account_mutable_fini( acc, test_funk, test_slot_ctx->funk_txn );
 }
