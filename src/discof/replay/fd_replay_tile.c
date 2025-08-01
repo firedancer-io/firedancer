@@ -938,7 +938,7 @@ on_snapshot_message( fd_replay_tile_ctx_t * ctx,
 
         fd_store_clear( ctx->store );
       }
-      fd_store_insert( ctx->store, &null );
+      fd_store_insert( ctx->store, 0, &null );
       ctx->store->slot0 = fd_bank_slot_get( ctx->slot_ctx->bank ); /* FIXME special slot to link to sentinel value */
       fd_store_exrel( ctx->store );
       break;

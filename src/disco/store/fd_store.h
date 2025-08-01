@@ -80,14 +80,34 @@
    during its access, and given both Shred and Replay will be taking out
    shared locks, they will not contend.
 
-   For parallel writes, the Store's hash function should be carefully
-   constructed to partition the keyspace so that the same Shred tile
-   always writes to the same map slots.  This ensures map collisions
-   always happen on the same Shred tile and cannot happen across tiles.
-   Specifically, if two different FEC sets hash to the same slot, it is
-   guaranteed that to be the same Shred tile processing both those FEC
-   sets.  This prevents a data race in which multiple Shred tiles (each
-   with a handle to the shared lock) write to the same map slot.
+   For parallel writes, the Store's hash function is carefully designed
+   to partition the keyspace so that the same Shred tile always writes
+   to the same map slots.  This ensures map collisions always happen on
+   the same Shred tile and cannot happen across tiles.  Specifically, if
+   two different FEC sets hash to the same slot, it is guaranteed that
+   to be the same Shred tile processing both those FEC sets.  This
+   prevents a data race in which multiple Shred tiles (each with a
+   handle to the shared lock) write to the same map slot.
+
+   The hash function is defined as follows:
+   ```
+   #define MAP_KEY_HASH(key,seed) ((ulong)key->mr.ul[0]%seed + (key)->part*seed)
+   ```
+   where `key` is a key type that includes the merkle root (32 bytes)
+   and the partition index (4 bytes) that is equivalent to the Shred
+   tile index doing the insertion.  seed, on initialization, is the
+   number of chains/buckets in the map_chain divided by the number of
+   partitions.  In effect, seed is the size of each partition.  For
+   example, if the map_chain is sized to 1024, and there are 4 shred
+   tiles, then the seed is 1024/4 = 256.  Then the map key hash can
+   bound the chain index of each partition as such: shred tile 0 will
+   write to chains 0-255, shred tile 1 will write to chains 256-511,
+   shred tile 2 will write to chains 512-767, and shred tile 3 will
+   write to chains 768-1023, without overlap.  The merkle root is a 32
+   byte SHA-256 hash, so we can expect a fairly uniform distribution of
+   hash values even after truncating to the first 8 bytes, without
+   needing to introduce more randomness.  Thus we can repurpose the
+   `seed` argument to be the number of partitions.
 
    Essentially, this allows for limited single-producer single-consumer
    (SPSC) concurrency, where the producer is a given Shred tile and the
@@ -153,11 +173,17 @@
 /* fd_store_fec describes a store element (FEC set).  The pointer fields
    implement a left-child, right-sibling n-ary tree. */
 
+struct __attribute__((packed)) fd_store_key {
+   fd_hash_t mr;
+   ulong     part; /* partition index of the inserter */
+};
+typedef struct fd_store_key fd_store_key_t;
+
 struct __attribute__((aligned(128UL))) fd_store_fec {
 
   /* Keys */
 
-  fd_hash_t key; /* map key, merkle root of the FEC set */
+  fd_store_key_t key;  /* map key, merkle root of the FEC set + a partition index*/
   fd_hash_t cmr; /* parent's map key, chained merkle root of the FEC set */
 
   /* Pointers */
@@ -174,26 +200,29 @@ struct __attribute__((aligned(128UL))) fd_store_fec {
 };
 typedef struct fd_store_fec fd_store_fec_t;
 
-#define POOL_NAME fd_store_pool
-#define POOL_T    fd_store_fec_t
-#include "../../util/tmpl/fd_pool.c" /* FIXME pool_para */
+#define POOL_NAME  fd_store_pool
+#define POOL_ELE_T fd_store_fec_t
+#include "../../util/tmpl/fd_pool_para.c"
 
 #define MAP_NAME               fd_store_map
 #define MAP_ELE_T              fd_store_fec_t
-#define MAP_KEY_T              fd_hash_t
+#define MAP_KEY_T              fd_store_key_t
+#define MAP_KEY                key
 #define MAP_KEY_EQ(k0,k1)      (!memcmp((k0),(k1), sizeof(fd_hash_t)))
-#define MAP_KEY_HASH(key,seed) (fd_hash((seed),(key),sizeof(fd_hash_t))) /* FIXME keyspace partitioning */
+#define MAP_KEY_HASH(key,seed) ((ulong)key->mr.ul[0]%seed + (key)->part*seed) /* See documentation above for the hash function */
+#define MAP_INSERT_FENCE       1
 #include "../../util/tmpl/fd_map_chain.c"
 
 struct fd_store {
   ulong magic;       /* ==FD_STORE_MAGIC */
-  ulong seed;        /* seed for various hashing function used under the hood, arbitrary */
+  ulong fec_max;     /* max number of FEC sets that can be stored */
+  ulong part_cnt;    /* number of partitions, also the number of writers */
   ulong root;        /* pool idx of the root */
   ulong slot0;       /* FIXME this hack is needed until the block_id is in the bank (manifest) */
   ulong store_gaddr; /* wksp gaddr of store in the backing wksp, non-zero gaddr */
-  ulong pool_gaddr;  /* wksp gaddr of pool of store elements (fd_store_fec) */
   ulong map_gaddr;   /* wksp gaddr of map of fd_store_key->fd_store_fec */
-
+  ulong pool_mem_gaddr; /* wksp gaddr of shmem_t object in pool_para */
+  ulong pool_ele_gaddr; /* wksp gaddr of first ele_t object in pool_para */
   fd_rwlock_t lock; /* rwlock for concurrent access */
 };
 typedef struct fd_store fd_store_t;
@@ -217,10 +246,12 @@ fd_store_footprint( ulong fec_max ) {
     FD_LAYOUT_APPEND(
     FD_LAYOUT_APPEND(
     FD_LAYOUT_APPEND(
+    FD_LAYOUT_APPEND(
     FD_LAYOUT_INIT,
-      alignof(fd_store_t),   sizeof(fd_store_t)                 ),
-      fd_store_pool_align(), fd_store_pool_footprint( fec_max ) ),
-      fd_store_map_align(),  fd_store_map_footprint( fec_max )  ),
+      alignof(fd_store_t),     sizeof(fd_store_t)                ),
+      fd_store_map_align(),    fd_store_map_footprint( fec_max ) ),
+      fd_store_pool_align(),   fd_store_pool_footprint()         ),
+      alignof(fd_store_fec_t), sizeof(fd_store_fec_t)*fec_max    ),
     fd_store_align() );
 }
 
@@ -229,7 +260,7 @@ fd_store_footprint( ulong fec_max ) {
    with the required footprint and alignment. */
 
 void *
-fd_store_new( void * shmem, ulong fec_max, ulong seed );
+fd_store_new( void * shmem, ulong fec_max, ulong part_cnt );
 
 /* fd_store_join joins the caller to the store.  store points to the
    first byte of the memory region backing the store in the caller's
@@ -269,16 +300,25 @@ fd_store_wksp( fd_store_t const * store ) {
   return (fd_wksp_t *)( ( (ulong)store ) - store->store_gaddr );
 }
 
-/* fd_store_{pool,map} returns a pointer in the caller's address space
-   to the corresponding store field.  const versions for each are also
-   provided. */
+/* fd_store_pool returns a local join to the pool_t object of the store. */
+FD_FN_PURE static inline fd_store_pool_t fd_store_pool_const( fd_store_t const * store ) {
+   return (fd_store_pool_t){ .pool = fd_wksp_laddr_fast( fd_store_wksp( store ), store->pool_mem_gaddr ),
+                             .ele =  fd_wksp_laddr_fast( fd_store_wksp( store ), store->pool_ele_gaddr ),
+                             .ele_max = store->fec_max };
+}
 
-FD_FN_PURE static inline fd_store_fec_t       * fd_store_pool      ( fd_store_t       * store ) { return fd_wksp_laddr_fast     ( fd_store_wksp      ( store ), store->pool_gaddr ); }
-FD_FN_PURE static inline fd_store_fec_t const * fd_store_pool_const( fd_store_t const * store ) { return fd_wksp_laddr_fast     ( fd_store_wksp      ( store ), store->pool_gaddr ); }
-FD_FN_PURE static inline fd_store_map_t       * fd_store_map       ( fd_store_t       * store ) { return fd_wksp_laddr_fast     ( fd_store_wksp      ( store ), store->map_gaddr  ); }
-FD_FN_PURE static inline fd_store_map_t const * fd_store_map_const ( fd_store_t const * store ) { return fd_wksp_laddr_fast     ( fd_store_wksp      ( store ), store->map_gaddr  ); }
-FD_FN_PURE static inline fd_store_fec_t       * fd_store_root      ( fd_store_t       * store ) { return fd_store_pool_ele      ( fd_store_pool      ( store ), store->root       ); }
-FD_FN_PURE static inline fd_store_fec_t const * fd_store_root_const( fd_store_t const * store ) { return fd_store_pool_ele_const( fd_store_pool_const( store ), store->root       ); }
+/* fd_store_{map,map_const,pool,fec0,fec0_const,root,root_const} returns a pointer in the
+   caller's address space to the corresponding store field.  const
+   versions for each are also provided. */
+
+FD_FN_PURE static inline fd_store_map_t       * fd_store_map       ( fd_store_t       * store ) { return fd_wksp_laddr_fast( fd_store_wksp( store ), store->map_gaddr  ); }
+FD_FN_PURE static inline fd_store_map_t const * fd_store_map_const ( fd_store_t const * store ) { return fd_wksp_laddr_fast( fd_store_wksp( store ), store->map_gaddr  ); }
+FD_FN_PURE static inline fd_store_pool_t        fd_store_pool      ( fd_store_t       * store ) { return fd_store_pool_const( store );                                    }
+
+FD_FN_PURE static inline fd_store_fec_t       * fd_store_fec0      ( fd_store_t       * store ) { fd_store_pool_t pool = fd_store_pool      ( store ); return pool.ele;                                     }
+FD_FN_PURE static inline fd_store_fec_t const * fd_store_fec0_const( fd_store_t const * store ) { fd_store_pool_t pool = fd_store_pool_const( store ); return pool.ele;                                     }
+FD_FN_PURE static inline fd_store_fec_t       * fd_store_root      ( fd_store_t       * store ) { fd_store_pool_t pool = fd_store_pool      ( store ); return fd_store_pool_ele      ( &pool, store->root); }
+FD_FN_PURE static inline fd_store_fec_t const * fd_store_root_const( fd_store_t const * store ) { fd_store_pool_t pool = fd_store_pool_const( store ); return fd_store_pool_ele_const( &pool, store->root); }
 
 /* fd_store_{parent,child,sibling} returns a pointer in the caller's
    address space to the corresponding {parent,left-child,right-sibling}
@@ -286,12 +326,12 @@ FD_FN_PURE static inline fd_store_fec_t const * fd_store_root_const( fd_store_t 
    pointer to a pool element inside store.  const versions for each are
    also provided. */
 
-FD_FN_PURE static inline fd_store_fec_t       * fd_store_parent       ( fd_store_t       * store, fd_store_fec_t const * fec ) { return fd_store_pool_ele      ( fd_store_pool      ( store ), fec->parent  ); }
-FD_FN_PURE static inline fd_store_fec_t const * fd_store_parent_const ( fd_store_t const * store, fd_store_fec_t const * fec ) { return fd_store_pool_ele_const( fd_store_pool_const( store ), fec->parent  ); }
-FD_FN_PURE static inline fd_store_fec_t       * fd_store_child        ( fd_store_t       * store, fd_store_fec_t const * fec ) { return fd_store_pool_ele      ( fd_store_pool      ( store ), fec->child   ); }
-FD_FN_PURE static inline fd_store_fec_t const * fd_store_child_const  ( fd_store_t const * store, fd_store_fec_t const * fec ) { return fd_store_pool_ele_const( fd_store_pool_const( store ), fec->child   ); }
-FD_FN_PURE static inline fd_store_fec_t       * fd_store_sibling      ( fd_store_t       * store, fd_store_fec_t const * fec ) { return fd_store_pool_ele      ( fd_store_pool      ( store ), fec->sibling ); }
-FD_FN_PURE static inline fd_store_fec_t const * fd_store_sibling_const( fd_store_t const * store, fd_store_fec_t const * fec ) { return fd_store_pool_ele_const( fd_store_pool_const( store ), fec->sibling ); }
+FD_FN_PURE static inline fd_store_fec_t       * fd_store_parent       ( fd_store_t       * store, fd_store_fec_t const * fec ) { fd_store_pool_t pool = fd_store_pool      ( store ); return fd_store_pool_ele      ( &pool, fec->parent  ); }
+FD_FN_PURE static inline fd_store_fec_t const * fd_store_parent_const ( fd_store_t const * store, fd_store_fec_t const * fec ) { fd_store_pool_t pool = fd_store_pool_const( store ); return fd_store_pool_ele_const( &pool, fec->parent  ); }
+FD_FN_PURE static inline fd_store_fec_t       * fd_store_child        ( fd_store_t       * store, fd_store_fec_t const * fec ) { fd_store_pool_t pool = fd_store_pool      ( store ); return fd_store_pool_ele      ( &pool, fec->child   ); }
+FD_FN_PURE static inline fd_store_fec_t const * fd_store_child_const  ( fd_store_t const * store, fd_store_fec_t const * fec ) { fd_store_pool_t pool = fd_store_pool_const( store ); return fd_store_pool_ele_const( &pool, fec->child   ); }
+FD_FN_PURE static inline fd_store_fec_t       * fd_store_sibling      ( fd_store_t       * store, fd_store_fec_t const * fec ) { fd_store_pool_t pool = fd_store_pool      ( store ); return fd_store_pool_ele      ( &pool, fec->sibling ); }
+FD_FN_PURE static inline fd_store_fec_t const * fd_store_sibling_const( fd_store_t const * store, fd_store_fec_t const * fec ) { fd_store_pool_t pool = fd_store_pool_const( store ); return fd_store_pool_ele_const( &pool, fec->sibling ); }
 
 /* fd_store_{shacq, shrel, exacq, exrel} acquires or releases the shared
    or exclusive lock. */
@@ -304,6 +344,12 @@ FD_FN_PURE static inline void fd_store_exrel( fd_store_t * store ) { fd_rwlock_u
 /* fd_store_{query,query_const} queries the FEC set keyed by merkle.
    Returns a pointer to the fd_store_fec_t if found, NULL otherwise.
 
+   Both the const and non-const versions are concurrency safe; as in
+   they avoid using the non-const map_ele_query that reorders the chain.
+   fd_store_query gets around this by calling map idx_query_const, which
+   does not reorder the chain, and then indexes directly into the pool
+   and returns a non-const pointer to the element of interest.
+
    Assumes caller has acquired the shared lock via fd_store_shacq.
 
    IMPORTANT SAFETY TIP!  Caller should only call fd_store_shrel when
@@ -311,12 +357,25 @@ FD_FN_PURE static inline void fd_store_exrel( fd_store_t * store ) { fd_rwlock_u
 
 FD_FN_PURE static inline fd_store_fec_t *
 fd_store_query( fd_store_t * store, fd_hash_t * merkle_root ) {
-   return fd_store_map_ele_query( fd_store_map( store ), merkle_root, NULL, fd_store_pool( store ) );
+   fd_store_key_t  key  = { .mr = *merkle_root, .part = UINT_MAX };
+   fd_store_pool_t pool = fd_store_pool( store );
+   for( uint i = 0; i < store->part_cnt; i++ ) {
+      key.part = i;
+      ulong idx = fd_store_map_idx_query_const( fd_store_map( store ), &key, ULONG_MAX, fd_store_fec0( store ) );
+      if( idx != ULONG_MAX ) return fd_store_pool_ele( &pool, idx );
+   }
+   return NULL;
 }
 
 FD_FN_PURE static inline fd_store_fec_t const *
 fd_store_query_const( fd_store_t const * store, fd_hash_t * merkle_root ) {
-   return fd_store_map_ele_query_const( fd_store_map_const( store ), merkle_root, NULL, fd_store_pool_const( store ) );
+   fd_store_key_t key = { .mr = *merkle_root, .part = UINT_MAX };
+   for( uint i = 0; i < store->part_cnt; i++ ) {
+      key.part = i;
+      fd_store_fec_t const * fec = fd_store_map_ele_query_const( fd_store_map_const( store ), &key, NULL, fd_store_fec0_const( store ) );
+      if( fec ) return fec;
+   }
+   return NULL;
 }
 
 /* Operations */
@@ -342,6 +401,7 @@ fd_store_query_const( fd_store_t const * store, fd_hash_t * merkle_root ) {
 
 fd_store_fec_t *
 fd_store_insert( fd_store_t * store,
+                 ulong        part_idx,
                  fd_hash_t  * merkle_root );
 
 /* fd_store_link queries for and links the child keyed by merkle_root to
@@ -393,6 +453,9 @@ fd_store_clear( fd_store_t * store );
 /* fd_store_print pretty-prints a formatted store as a tree structure.
    Printing begins from the store root and each node is the FEC set key
    (merkle root hash). */
+
+int
+fd_store_verify( fd_store_t * store );
 
 void
 fd_store_print( fd_store_t const * store );

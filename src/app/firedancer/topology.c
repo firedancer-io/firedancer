@@ -83,12 +83,11 @@ setup_topo_runtime_pub( fd_topo_t *  topo,
 fd_topo_obj_t *
 setup_topo_store( fd_topo_t *  topo,
                   char const * wksp_name,
-                  ulong        fec_max ) {
+                  ulong        fec_max,
+                  uint         part_cnt ) {
   fd_topo_obj_t * obj = fd_topob_obj( topo, "store", wksp_name );
-  ulong seed;
-  FD_TEST( sizeof(ulong) == getrandom( &seed, sizeof(ulong), 0 ) );
-  FD_TEST( fd_pod_insertf_ulong( topo->props, seed,    "obj.%lu.seed",     obj->id ) );
-  FD_TEST( fd_pod_insertf_ulong( topo->props, fec_max, "obj.%lu.fec_max",  obj->id ) );
+  FD_TEST( fd_pod_insertf_ulong( topo->props, fec_max,  "obj.%lu.fec_max",  obj->id ) );
+  FD_TEST( fd_pod_insertf_ulong( topo->props, part_cnt, "obj.%lu.part_cnt", obj->id ) );
   return obj;
 }
 
@@ -493,7 +492,7 @@ fd_topo_initialize( config_t * config ) {
 
   /* Setup a shared wksp object for store. */
 
-  fd_topo_obj_t * store_obj = setup_topo_store( topo, "store", config->firedancer.store.max_completed_shred_sets );
+  fd_topo_obj_t * store_obj = setup_topo_store( topo, "store", config->firedancer.store.max_completed_shred_sets, (uint)shred_tile_cnt );
   FOR(shred_tile_cnt) fd_topob_tile_uses( topo, &topo->tiles[ fd_topo_find_tile( topo, "shred", i ) ], store_obj, FD_SHMEM_JOIN_MODE_READ_WRITE );
   fd_topob_tile_uses( topo, replay_tile, store_obj, FD_SHMEM_JOIN_MODE_READ_WRITE );
   FD_TEST( fd_pod_insertf_ulong( topo->props, store_obj->id, "store" ) );

@@ -347,7 +347,7 @@ after_credit_rocksdb( ctx_t *             ctx,
 
   fd_hash_t mr = query_mr( curr );
   fd_store_exacq ( ctx->store ); /* FIXME shacq after store changes */
-  fd_store_insert( ctx->store, &mr );
+  fd_store_insert( ctx->store, 0, &mr );
   fd_store_exrel ( ctx->store ); /* FIXME */
   while( FD_LIKELY( 1 ) ) {
     ulong            sz  = fd_shred_payload_sz( curr );
@@ -442,7 +442,7 @@ shredcap_notify_one_fec( ctx_t * ctx, fd_stem_context_t * stem ) {
   off += sizeof(fd_hash_t);
 
   fd_store_exacq( ctx->store );
-  fd_store_fec_t * fec = fd_store_insert( ctx->store, merkle_root );
+  fd_store_fec_t * fec = fd_store_insert( ctx->store, 0, merkle_root );
 
   fec->data_sz = fd_ulong_load_1( slice_buf + off );
   off += sizeof(ulong);

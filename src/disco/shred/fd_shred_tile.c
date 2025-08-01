@@ -915,8 +915,9 @@ after_frag( fd_shred_ctx_t *    ctx,
          understand why it is safe to use a Store read vs. write lock in
          Shred tile. */
 
-      fd_store_exacq( ctx->store ); /* FIXME demote to shared after store changes */
-      fd_store_fec_t * fec = fd_store_insert( ctx->store, (fd_hash_t *)fd_type_pun( &out_merkle_root ) );
+      fd_store_shacq( ctx->store );
+      fd_store_fec_t * fec = fd_store_insert( ctx->store, (uint)ctx->round_robin_id, (fd_hash_t *)fd_type_pun( &out_merkle_root ) );
+      fd_store_shrel( ctx->store );
       for( ulong i=0UL; i<set->data_shred_cnt; i++ ) {
         fd_shred_t * data_shred = (fd_shred_t *)fd_type_pun( set->data_shreds[i] );
         ulong        payload_sz = fd_shred_payload_sz( data_shred );
@@ -933,7 +934,17 @@ after_frag( fd_shred_ctx_t *    ctx,
         fd_memcpy( fec->data + fec->data_sz, fd_shred_data_payload( data_shred ), payload_sz );
         fec->data_sz += payload_sz;
       }
-      fd_store_exrel( ctx->store ); /* FIXME demote to shared */
+
+      /* It's safe to memcpy the FEC payload outside of the shared-lock,
+         because the fec object ptr is guaranteed to be valid.  It is
+         not possible for a store_publish to free/invalidate the fec
+         object during the data memcpy, because the free can only happen
+         after the fec is linked to its parent, which happens in the
+         repair tile, and crucially, only after we call stem publish in
+         this tile.  Copying outside the shared lock scope also means
+         that we can lower the duration for which the shared lock is
+         held, and enables replay to acquire the exclusive lock and
+         avoid getting starved. */
     }
 
     if( FD_LIKELY( ctx->repair_out_idx!=ULONG_MAX ) ) { /* firedancer-only */

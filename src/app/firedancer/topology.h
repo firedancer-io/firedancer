@@ -38,7 +38,8 @@ setup_topo_runtime_pub( fd_topo_t *  topo,
 fd_topo_obj_t *
 setup_topo_store( fd_topo_t *  topo,
                   char const * wksp_name,
-                  ulong        fec_max );
+                  ulong        fec_max,
+                  uint         part_cnt );
 
 fd_topo_obj_t *
 setup_topo_txncache( fd_topo_t *  topo,
