@@ -30,15 +30,6 @@ quic_tx_aio_send( void *                    _ctx,
                   ulong *                   opt_batch_idx,
                   int                       flush );
 
-/* quic_now is called by the QUIC engine to get the current timestamp in
-   UNIX time.  */
-
-static ulong
-quic_now( void * ctx ) {
-  (void)ctx;
-  return (ulong)fd_log_wallclock();
-}
-
 typedef struct {
   ulong round_robin_cnt;
   ulong round_robin_id;
@@ -58,6 +49,12 @@ typedef struct {
   uint             service_ratio_idx;
   fd_aio_t         tx_aio;
 
+  long             now;            /* current time in ns!     */
+  fd_clock_t     * clock;          /* live join to fd_clock_t */
+  fd_clock_t       clock_ljoin[1]; /* memory for fd_clock_t   */
+  fd_clock_epoch_t epoch[1];       /* track current epoch     */
+  long             recal_next;
+
   // vector receive members
   struct mmsghdr rx_msgs[IO_VEC_CNT];
   struct mmsghdr tx_msgs[IO_VEC_CNT];
@@ -69,10 +66,13 @@ typedef struct {
   ulong tx_idx;
 
   fd_wksp_t * mem;
+
+  uchar __attribute__((aligned(FD_CLOCK_ALIGN))) clock_mem[ FD_CLOCK_FOOTPRINT ];
 } fd_benchs_ctx_t;
 
 static void
-service_quic( fd_benchs_ctx_t * ctx ) {
+service_quic( fd_benchs_ctx_t * ctx,
+              long              now ) {
 
   if( !ctx->no_quic ) {
     /* Publishes to mcache via callbacks */
@@ -119,7 +119,7 @@ service_quic( fd_benchs_ctx_t * ctx ) {
           buf[2] = (uchar)( ip_len >> 8 );
           buf[3] = (uchar)( ip_len      );
 
-          fd_quic_process_packet( ctx->quic, buf, ip_len );
+          fd_quic_process_packet( ctx->quic, buf, ip_len, now );
         }
       } else if( FD_UNLIKELY( revents & POLLERR ) ) {
         int error = 0;
@@ -210,6 +210,8 @@ before_frag( fd_benchs_ctx_t * ctx,
   (void)in_idx;
   (void)sig;
 
+  ctx->now = fd_clock_epoch_y( ctx->epoch, fd_tickcount() );
+
   return (int)( (seq%ctx->round_robin_cnt)!=ctx->round_robin_id );
 }
 
@@ -232,8 +234,8 @@ during_frag( fd_benchs_ctx_t * ctx,
     /* make this configurable */
     if( FD_UNLIKELY( ctx->service_ratio_idx++ == 8 ) ) {
       ctx->service_ratio_idx = 0;
-      service_quic( ctx );
-      fd_quic_service( ctx->quic );
+      service_quic( ctx, ctx->now );
+      fd_quic_service( ctx->quic, ctx->now );
     }
 
     if( FD_UNLIKELY( !ctx->quic_conn ) ) {
@@ -243,12 +245,12 @@ during_frag( fd_benchs_ctx_t * ctx,
       uint   dest_ip   = 0;
       ushort dest_port = fd_ushort_bswap( ctx->quic_port );
 
-      ctx->quic_conn = fd_quic_connect( ctx->quic, dest_ip, dest_port, 0U, 12000 );
+      ctx->quic_conn = fd_quic_connect( ctx->quic, dest_ip, dest_port, 0U, 12000, ctx->now );
 
       /* failed? try later */
       if( FD_UNLIKELY( !ctx->quic_conn ) ) {
-        service_quic( ctx );
-        fd_quic_service( ctx->quic );
+        service_quic( ctx, ctx->now );
+        fd_quic_service( ctx->quic, ctx->now );
         return;
       }
 
@@ -260,8 +262,8 @@ during_frag( fd_benchs_ctx_t * ctx,
          a connection dies */
       fd_quic_conn_set_context( ctx->quic_conn, ctx );
 
-      service_quic( ctx );
-      fd_quic_service( ctx->quic );
+      service_quic( ctx, ctx->now );
+      fd_quic_service( ctx->quic, ctx->now );
 
       /* conn and streams may be invalidated by fd_quic_service */
 
@@ -271,8 +273,8 @@ during_frag( fd_benchs_ctx_t * ctx,
     fd_quic_stream_t * stream = fd_quic_conn_new_stream( ctx->quic_conn );
     if( FD_UNLIKELY( !stream ) ) {
       ctx->no_stream++;
-      service_quic( ctx );
-      fd_quic_service( ctx->quic );
+      service_quic( ctx, ctx->now );
+      fd_quic_service( ctx->quic, ctx->now );
 
       /* conn and streams may be invalidated by fd_quic_service */
 
@@ -360,6 +362,11 @@ privileged_init( fd_topo_t *      topo,
   }
 }
 
+static double
+quic_init_w_fn(void) {
+  return fd_tempo_tick_per_ns(NULL);
+}
+
 static void
 unprivileged_init( fd_topo_t *      topo,
                    fd_topo_tile_t * tile ) {
@@ -400,15 +407,13 @@ unprivileged_init( fd_topo_t *      topo,
 
     ulong quic_idle_timeout_millis = 10000;  /* idle timeout in milliseconds */
     quic->config.role                       = FD_QUIC_ROLE_CLIENT;
-    quic->config.idle_timeout               = quic_idle_timeout_millis * 1000000UL;
+    quic->config.idle_timeout               = (long)( quic_idle_timeout_millis * 1000000L );
     quic->config.initial_rx_max_stream_data = 0;
     quic->config.retry                      = 0; /* unused on clients */
 
     quic->cb.conn_new         = quic_conn_new;
     quic->cb.conn_hs_complete = handshake_complete;
     quic->cb.conn_final       = conn_final;
-    quic->cb.now              = quic_now;
-    quic->cb.now_ctx          = NULL;
     quic->cb.quic_ctx         = ctx;
 
     fd_quic_set_aio_net_tx( quic, quic_tx_aio );
@@ -434,6 +439,9 @@ unprivileged_init( fd_topo_t *      topo,
   if( FD_UNLIKELY( scratch_top > (ulong)scratch + scratch_footprint( tile ) ) )
     FD_LOG_ERR(( "scratch overflow %lu %lu %lu", scratch_top - (ulong)scratch - scratch_footprint( tile ), scratch_top, (ulong)scratch + scratch_footprint( tile ) ));
 
+  fd_clock_t * clock = fd_clock_default_init( ctx->clock_ljoin, ctx->clock_mem, ctx->epoch, quic_init_w_fn );
+  ctx->recal_next    = fd_clock_recal_next( clock );
+  ctx->clock         = clock;
 }
 
 static void
@@ -511,13 +519,22 @@ quic_tx_aio_send( void *                    _ctx,
   return 0;
 }
 
+static void
+during_housekeeping( fd_benchs_ctx_t * ctx ) {
+  if( FD_UNLIKELY( ctx->recal_next <= ctx->now ) ) {
+    ctx->recal_next = fd_clock_recal( ctx->clock, ctx->now, ctx->now );
+    fd_clock_epoch_refresh( ctx->epoch, fd_type_pun( ctx->clock_mem ) );
+  }
+}
+
 #define STEM_BURST (1UL)
 
 #define STEM_CALLBACK_CONTEXT_TYPE  fd_benchs_ctx_t
 #define STEM_CALLBACK_CONTEXT_ALIGN alignof(fd_benchs_ctx_t)
 
-#define STEM_CALLBACK_BEFORE_FRAG before_frag
-#define STEM_CALLBACK_DURING_FRAG during_frag
+#define STEM_CALLBACK_BEFORE_FRAG         before_frag
+#define STEM_CALLBACK_DURING_FRAG         during_frag
+#define STEM_CALLBACK_DURING_HOUSEKEEPING during_housekeeping
 
 #include "../../../../disco/stem/fd_stem.c"
 

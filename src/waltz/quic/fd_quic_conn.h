@@ -99,7 +99,7 @@ struct fd_quic_conn {
   uint               svc_type;  /* FD_QUIC_SVC_{...} or UINT_MAX */
   uint               svc_prev;
   uint               svc_next;
-  ulong              svc_time;  /* service may be delayed until this timestamp */
+  long               svc_time;  /* service may be delayed until this timestamp */
 
   ulong              our_conn_id;
 
@@ -214,10 +214,10 @@ struct fd_quic_conn {
   uchar                peer_enc_level;
 
   /* idle timeout arguments */
-  ulong                idle_timeout_ticks;
-  ulong                last_activity;
-  ulong                last_ack;
-  ulong                let_die_ticks; /* stop keep-alive after this time */
+  long                 idle_timeout_ticks;
+  long                 last_activity;
+  long                 last_ack;
+  long                 let_die_ticks; /* stop keep-alive after this time */
 
   /* round trip time related members */
   fd_rtt_estimate_t rtt[1];

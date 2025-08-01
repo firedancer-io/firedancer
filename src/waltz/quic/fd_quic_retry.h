@@ -214,7 +214,7 @@ fd_quic_retry_create(
     fd_quic_conn_id_t const * orig_dst_conn_id,
     fd_quic_conn_id_t const * src_conn_id,
     ulong                     retry_src_conn_id,
-    ulong                     expire_at
+    long                      expire_at
 );
 
 int
@@ -225,8 +225,8 @@ fd_quic_retry_server_verify(
     ulong *                   retry_src_conn_id, /* out */
     uchar const               retry_secret[ FD_QUIC_RETRY_SECRET_SZ ],
     uchar const               retry_iv[ FD_QUIC_RETRY_IV_SZ ],
-    ulong                     now,
-    ulong                     ttl
+    long                      now,
+    long                      ttl
 );
 
 int

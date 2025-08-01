@@ -123,7 +123,6 @@ fd_quic_config_anonymous( fd_quic_t * quic,
   quic->cb.stream_notify    = fd_quic_test_cb_stream_notify;
   quic->cb.stream_rx        = fd_quic_test_cb_stream_rx;
   quic->cb.tls_keylog       = fd_quic_test_cb_tls_keylog;
-  quic->cb.now_ctx          = NULL;
 }
 
 void

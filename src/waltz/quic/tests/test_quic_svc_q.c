@@ -48,20 +48,20 @@ test_svc_schedule( fd_quic_svc_timers_t * timers,
   FD_LOG_NOTICE(( "Testing fd_quic_svc_schedule" ));
 
   /* Test basic scheduling */
-  ulong now = 1000UL;
-  conn->svc_meta.next_timeout = now + 100UL;
+  long now = 1000L;
+  conn->svc_meta.next_timeout = now + 100L;
   fd_quic_svc_schedule( timers, conn );
 
   /* Verify the connection is scheduled */
   FD_TEST( conn->svc_meta.idx != FD_QUIC_SVC_IDX_INVAL );
 
   /* Test rescheduling with earlier time */
-  conn->svc_meta.next_timeout = now + 50UL;
+  conn->svc_meta.next_timeout = now + 50L;
   fd_quic_svc_schedule( timers, conn );
   FD_TEST( conn->svc_meta.idx != FD_QUIC_SVC_IDX_INVAL );
 
   /* Test rescheduling with later time (should be ignored) */
-  conn->svc_meta.next_timeout = now + 150UL;
+  conn->svc_meta.next_timeout = now + 150L;
   fd_quic_svc_schedule( timers, conn );
 
   /* Verify we kept the earlier time */
@@ -77,7 +77,7 @@ test_svc_cancel( fd_quic_svc_timers_t * timers,
   FD_LOG_NOTICE(( "Testing fd_quic_svc_cancel" ));
 
   /* Schedule event */
-  ulong now = 1000UL;
+  long now = 1000UL;
   conn->svc_meta.next_timeout = now + 100UL;
   fd_quic_svc_schedule( timers, conn );
   FD_TEST( conn->svc_meta.idx != FD_QUIC_SVC_IDX_INVAL );
@@ -107,7 +107,7 @@ test_multiple_connections( fd_quic_svc_timers_t * timers,
     conns[i] = (fd_quic_conn_t *)(conn_base + i * conn_sz);
   }
 
-  ulong now = 1000UL;
+  long now = 1000UL;
 
   /* Schedule connections in order */
   for( int i=0; i<10; i++ ) {
