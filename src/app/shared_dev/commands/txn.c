@@ -43,12 +43,6 @@ txn_cmd_args( int *    pargc,
   args->txn.dst_port = fd_env_strip_cmdline_ushort( pargc, pargv, "--dst-port", NULL, 0 );
 }
 
-static ulong
-cb_now( void * context ) {
-  (void)context;
-  return (ulong)fd_log_wallclock();
-}
-
 static void
 cb_conn_hs_complete( fd_quic_conn_t * conn,
                      void *           quic_ctx ) {
@@ -85,14 +79,13 @@ send_quic_transactions( fd_quic_t *         quic,
   fd_quic_set_aio_net_tx( quic, udpsock->aio );
   FD_TEST( fd_quic_init( quic ) );
 
-  quic->cb.now              = cb_now;
   quic->cb.conn_final       = cb_conn_final;
   quic->cb.conn_hs_complete = cb_conn_hs_complete;
   quic->cb.stream_notify    = cb_stream_notify;
 
-  fd_quic_conn_t * conn = fd_quic_connect( quic, dst_ip, dst_port, 0U, (ushort)udpsock->listen_port );
-  while ( FD_LIKELY( !( g_conn_hs_complete || g_conn_final ) ) ) {
-    fd_quic_service( quic );
+  fd_quic_conn_t * conn = fd_quic_connect( quic, dst_ip, dst_port, 0U, (ushort)udpsock->listen_port, fd_log_wallclock() );
+  while( FD_LIKELY( !( g_conn_hs_complete || g_conn_final ) ) ) {
+    fd_quic_service( quic, fd_log_wallclock() );
     fd_quic_udpsock_service( udpsock );
   }
   FD_TEST( conn );
@@ -101,9 +94,10 @@ send_quic_transactions( fd_quic_t *         quic,
 
   ulong sent = 0;
   while( sent < count && !g_conn_final ) {
+    long now = fd_log_wallclock();
     fd_quic_stream_t * stream = fd_quic_conn_new_stream( conn );
     if( FD_UNLIKELY( !stream ) ) {
-      fd_quic_service( quic );
+      fd_quic_service( quic, now );
       fd_quic_udpsock_service( udpsock );
       continue;
     }
@@ -113,12 +107,12 @@ send_quic_transactions( fd_quic_t *         quic,
     if( FD_UNLIKELY( res != FD_QUIC_SUCCESS ) ) FD_LOG_ERR(( "fd_quic_stream_send failed (%d)", res ));
     sent += 1UL;
 
-    fd_quic_service( quic );
+    fd_quic_service( quic, now );
     fd_quic_udpsock_service( udpsock );
   }
 
   while( FD_LIKELY( g_stream_notify!=count && !g_conn_final ) ) {
-    fd_quic_service( quic );
+    fd_quic_service( quic, fd_log_wallclock() );
     fd_quic_udpsock_service( udpsock );
   }
 
@@ -126,7 +120,7 @@ send_quic_transactions( fd_quic_t *         quic,
   if( !g_conn_final ) {
     fd_quic_conn_close( conn, 0 );
     while( !g_conn_final ) {
-      fd_quic_service( quic );
+      fd_quic_service( quic, fd_log_wallclock() );
       fd_quic_udpsock_service( udpsock );
     }
   }
