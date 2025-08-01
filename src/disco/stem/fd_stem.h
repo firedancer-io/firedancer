@@ -2,6 +2,7 @@
 #define HEADER_fd_src_disco_stem_fd_stem_h
 
 #include "../fd_disco_base.h"
+#include "../../util/clock/fd_clock.h"
 
 #define FD_STEM_SCRATCH_ALIGN (128UL)
 
@@ -13,6 +14,8 @@ struct fd_stem_context {
    ulong *           cr_avail;
    ulong *           min_cr_avail;
    ulong             cr_decrement_amount;
+
+   fd_clock_epoch_t  epoch[1];
 };
 
 typedef struct fd_stem_context fd_stem_context_t;
@@ -57,6 +60,11 @@ fd_stem_advance( fd_stem_context_t * stem,
   *stem->min_cr_avail        = fd_ulong_min( stem->cr_avail[ out_idx ], *stem->min_cr_avail );
   *seqp = fd_seq_inc( seq, 1UL );
   return seq;
+}
+
+static inline long
+fd_stem_now( fd_stem_context_t const * stem ) {
+  return fd_clock_epoch_y( stem->epoch, fd_tickcount() );
 }
 
 #endif /* HEADER_fd_src_disco_stem_fd_stem_h */

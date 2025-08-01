@@ -1062,8 +1062,7 @@ fd_gui_clear_slot( fd_gui_t * gui,
   slot->txs.microblocks_upper_bound = USHORT_MAX;
   slot->txs.begin_microblocks  = 0U;
   slot->txs.end_microblocks    = 0U;
-  slot->txs.reference_ticks    = LONG_MAX;
-  slot->txs.reference_nanos    = LONG_MAX;
+  slot->txs.reference_ns       = LONG_MAX;
   slot->txs.start_offset       = ULONG_MAX;
   slot->txs.end_offset         = ULONG_MAX;
 
@@ -1714,27 +1713,26 @@ fd_gui_plugin_message( fd_gui_t *    gui,
 
 static void
 fd_gui_init_slot_txns( fd_gui_t * gui,
-                       long       tickcount,
+                       long       now,
                        ulong      _slot ) {
   fd_gui_slot_t * slot = gui->slots[ _slot % FD_GUI_SLOTS_CNT ];
   if( FD_UNLIKELY( slot->slot!=_slot ) ) fd_gui_clear_slot( gui, _slot, ULONG_MAX );
 
   /* initialize reference timestamp */
-  if ( FD_UNLIKELY( LONG_MAX==slot->txs.reference_ticks ) ) {
-    slot->txs.reference_ticks = tickcount;
-    slot->txs.reference_nanos = fd_log_wallclock() - (long)((double)(fd_tickcount() - slot->txs.reference_ticks) / fd_tempo_tick_per_ns( NULL ));
+  if ( FD_UNLIKELY( LONG_MAX==slot->txs.reference_ns ) ) {
+    slot->txs.reference_ns = now;
   }
 }
 
 void
 fd_gui_became_leader( fd_gui_t * gui,
-                      long       tickcount,
+                      long       now,
                       ulong      _slot,
                       long       start_time_nanos,
                       long       end_time_nanos,
                       ulong      max_compute_units,
                       ulong      max_microblocks ) {
-  fd_gui_init_slot_txns( gui, tickcount, _slot );
+  fd_gui_init_slot_txns( gui, now, _slot );
   fd_gui_slot_t * slot = gui->slots[ _slot % FD_GUI_SLOTS_CNT ];
   slot->max_compute_units = (uint)max_compute_units;
 
@@ -1759,10 +1757,10 @@ fd_gui_became_leader( fd_gui_t * gui,
 
 void
 fd_gui_unbecame_leader( fd_gui_t * gui,
-                        long       tickcount,
+                        long       now,
                         ulong      _slot,
                         ulong      microblocks_in_slot ) {
-  fd_gui_init_slot_txns( gui, tickcount, _slot );
+  fd_gui_init_slot_txns( gui, now, _slot );
   fd_gui_slot_t * slot = gui->slots[ _slot % FD_GUI_SLOTS_CNT ];
 
   slot->txs.microblocks_upper_bound = (ushort)microblocks_in_slot;
@@ -1804,7 +1802,7 @@ fd_gui_microblock_execution_begin( fd_gui_t *   gui,
     txn_entry->compute_units_requested     = cost_estimate & 0x1FFFFFU;
     txn_entry->priority_fee                = priority_rewards;
     txn_entry->transaction_fee             = sig_rewards;
-    txn_entry->timestamp_delta_start_nanos = (int)((double)(tickcount - slot->txs.reference_ticks) / fd_tempo_tick_per_ns( NULL ));
+    txn_entry->timestamp_delta_start_nanos = (int)((double)(tickcount - slot->txs.reference_ns));
     txn_entry->microblock_idx              = microblock_idx;
     txn_entry->flags                      |= (uchar)FD_GUI_TXN_FLAGS_STARTED;
     txn_entry->flags                      &= (uchar)(~(uchar)(FD_GUI_TXN_FLAGS_IS_SIMPLE_VOTE | FD_GUI_TXN_FLAGS_FROM_BUNDLE));
@@ -1849,7 +1847,7 @@ fd_gui_microblock_execution_end( fd_gui_t *   gui,
     txn_entry->bank_idx                  = bank_idx                           & 0x3FU;
     txn_entry->compute_units_consumed    = txn_p->bank_cu.actual_consumed_cus & 0x1FFFFFU;
     txn_entry->error_code                = (txn_p->flags >> 24)               & 0x3FU;
-    txn_entry->timestamp_delta_end_nanos = (int)((double)(tickcount - slot->txs.reference_ticks) / fd_tempo_tick_per_ns( NULL ));
+    txn_entry->timestamp_delta_end_nanos = (int)((double)(tickcount - slot->txs.reference_ns));
     txn_entry->txn_start_pct             = txn_start_pct;
     txn_entry->txn_load_end_pct          = txn_load_end_pct;
     txn_entry->txn_end_pct               = txn_end_pct;

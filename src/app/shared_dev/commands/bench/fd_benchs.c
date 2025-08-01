@@ -30,15 +30,6 @@ quic_tx_aio_send( void *                    _ctx,
                   ulong *                   opt_batch_idx,
                   int                       flush );
 
-/* quic_now is called by the QUIC engine to get the current timestamp in
-   UNIX time.  */
-
-static ulong
-quic_now( void * ctx ) {
-  (void)ctx;
-  return (ulong)fd_log_wallclock();
-}
-
 typedef struct {
   ulong round_robin_cnt;
   ulong round_robin_id;
@@ -220,7 +211,8 @@ during_frag( fd_benchs_ctx_t * ctx,
              ulong             sig    FD_PARAM_UNUSED,
              ulong             chunk,
              ulong             sz,
-             ulong             ctl    FD_PARAM_UNUSED ) {
+             ulong             ctl    FD_PARAM_UNUSED,
+             long              stem_ts FD_PARAM_UNUSED ) {
   if( ctx->no_quic ) {
 
     if( FD_UNLIKELY( -1==send( ctx->conn_fd[ ctx->packet_cnt % ctx->conn_cnt ], fd_chunk_to_laddr( ctx->mem, chunk ), sz, 0 ) ) )
@@ -398,17 +390,15 @@ unprivileged_init( fd_topo_t *      topo,
     fd_aio_t * quic_tx_aio = fd_aio_join( fd_aio_new( &ctx->tx_aio, ctx, quic_tx_aio_send ) );
     if( FD_UNLIKELY( !quic_tx_aio ) ) FD_LOG_ERR(( "fd_aio_join failed" ));
 
-    ulong quic_idle_timeout_millis = 10000;  /* idle timeout in milliseconds */
+    long quic_idle_timeout_millis = 10000;  /* idle timeout in milliseconds */
     quic->config.role                       = FD_QUIC_ROLE_CLIENT;
-    quic->config.idle_timeout               = quic_idle_timeout_millis * 1000000UL;
+    quic->config.idle_timeout               = (ulong)( quic_idle_timeout_millis * 1000000L );
     quic->config.initial_rx_max_stream_data = 0;
     quic->config.retry                      = 0; /* unused on clients */
 
     quic->cb.conn_new         = quic_conn_new;
     quic->cb.conn_hs_complete = handshake_complete;
     quic->cb.conn_final       = conn_final;
-    quic->cb.now              = quic_now;
-    quic->cb.now_ctx          = NULL;
     quic->cb.quic_ctx         = ctx;
 
     fd_quic_set_aio_net_tx( quic, quic_tx_aio );

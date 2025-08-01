@@ -313,12 +313,12 @@ test_bundle_keyswitch( fd_wksp_t * wksp ) {
   state->keyswitch = fd_keyswitch_join( fd_keyswitch_new( keyswitch_mem, FD_KEYSWITCH_STATE_UNLOCKED ) );
   memset( state->auther.pubkey, 0, 32 );
 
-  fd_bundle_tile_housekeeping( state ); /* should not switch */
+  fd_bundle_tile_housekeeping( state, 1L ); /* should not switch */
   FD_TEST( !state->defer_reset );
 
   fd_keyswitch_state( state->keyswitch, FD_KEYSWITCH_STATE_SWITCH_PENDING );
   state->keyswitch->bytes[0] = 0x01;
-  fd_bundle_tile_housekeeping( state ); /* should switch */
+  fd_bundle_tile_housekeeping( state, 1L ); /* should switch */
   FD_TEST( state->defer_reset );
   FD_TEST( state->auther.pubkey[0] == 0x01 );
 

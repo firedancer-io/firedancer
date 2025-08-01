@@ -38,12 +38,12 @@ scratch_footprint( fd_topo_tile_t const * tile ) {
 static void
 before_credit( fd_cswtch_ctx_t *   ctx,
                fd_stem_context_t * stem,
-               int *               charge_busy ) {
+               int *               charge_busy,
+               long                stem_ts ) {
   (void)stem;
 
-  long now = fd_log_wallclock();
-  if( now<ctx->next_report_nanos ) {
-    long diff = ctx->next_report_nanos - now;
+  if( stem_ts < ctx->next_report_nanos ) {
+    long diff = ctx->next_report_nanos - stem_ts;
     diff = fd_long_min( diff, 2e6 /* 2ms */ );
     struct timespec const ts = {
       .tv_sec  = diff / (long)1e9,
@@ -87,10 +87,10 @@ before_credit( fd_cswtch_ctx_t *   ctx,
        of the target PIDs died, so we can ignore this and wait. */
     if( FD_UNLIKELY( process_died ) ) {
       if( FD_UNLIKELY( !ctx->first_seen_died[ i ] ) ) {
-        ctx->first_seen_died[ i ] = now;
+        ctx->first_seen_died[ i ] = stem_ts;
       } else if( FD_LIKELY( ctx->first_seen_died[ i ]==LONG_MAX ) ) {
         /* We already reported this, so we can ignore it. */
-      } else if( FD_UNLIKELY( now-ctx->first_seen_died[ i ] < 10L*1000L*1000L*1000L ) ) {
+      } else if( FD_UNLIKELY( stem_ts - ctx->first_seen_died[ i ] < 10L*1000L*1000L*1000L ) ) {
         /* Wait 10 seconds for supervisor to kill us before reporting WARNING */
       } else {
         FD_LOG_WARNING(( "cannot get context switch metrics for dead tile idx %lu", i ));

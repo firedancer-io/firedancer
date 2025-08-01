@@ -94,7 +94,7 @@ struct fd_net_flusher {
      overrun.  If more than tail_flush_backoff ticks pass since the last
      sendto() wakeup and there are still unacknowledged packets in the
      TX ring, issues another wakeup. */
-  long next_tail_flush_ticks;
+  long next_tail_flush_ns;
   long tail_flush_backoff;
 
 };
@@ -110,11 +110,11 @@ fd_net_flusher_inc( fd_net_flusher_t * flusher,
                     long               now ) {
   flusher->pending_cnt++;
   long next_flush = now + flusher->tail_flush_backoff;
-  flusher->next_tail_flush_ticks = fd_long_min( flusher->next_tail_flush_ticks, next_flush );
+  flusher->next_tail_flush_ns = fd_long_min( flusher->next_tail_flush_ns, next_flush );
 }
 
 /* fd_net_flusher_check returns 1 if a sendto() wakeup should be issued
-   immediately.  now is a recent fd_tickcount() value.
+   immediately.  now is a recent timestamp.
    If tx_ring_empty==0 then the kernel is caught up with the net tile
    on the XDP TX ring.  (Otherwise, the kernel is behind the net tile) */
 
@@ -123,26 +123,26 @@ fd_net_flusher_check( fd_net_flusher_t * flusher,
                       long               now,
                       int                tx_ring_empty ) {
   int flush_level   = flusher->pending_cnt >= flusher->pending_wmark;
-  int flush_timeout = now >= flusher->next_tail_flush_ticks;
+  int flush_timeout = now >= flusher->next_tail_flush_ns;
   int flush         = flush_level || flush_timeout;
   if( !flush ) return 0;
   if( FD_UNLIKELY( tx_ring_empty ) ) {
     /* Flush requested but caught up */
     flusher->pending_cnt           = 0UL;
-    flusher->next_tail_flush_ticks = LONG_MAX;
+    flusher->next_tail_flush_ns = LONG_MAX;
     return 0;
   }
   return 1;
 }
 
 /* fd_net_flusher_wakeup signals a sendto() wakeup was done.  now is a
-   recent fd_tickcount() value. */
+   recent timestamp. */
 
 static inline void
 fd_net_flusher_wakeup( fd_net_flusher_t * flusher,
                        long               now ) {
-  flusher->pending_cnt           = 0UL;
-  flusher->next_tail_flush_ticks = now + flusher->tail_flush_backoff;
+  flusher->pending_cnt        = 0UL;
+  flusher->next_tail_flush_ns = now + flusher->tail_flush_backoff;
 }
 
 FD_PROTOTYPES_END
@@ -220,7 +220,7 @@ typedef struct {
   fd_net_out_ctx_t send_out[1];
 
   /* XDP stats refresh timer */
-  long xdp_stats_interval_ticks;
+  long xdp_stats_interval_ns;
   long next_xdp_stats_refresh;
 
   /* TX flush timers */
@@ -490,8 +490,8 @@ net_tx_periodic_wakeup( fd_net_ctx_t * ctx,
 }
 
 static void
-during_housekeeping( fd_net_ctx_t * ctx ) {
-  long now = fd_tickcount();
+during_housekeeping( fd_net_ctx_t * ctx,
+                     long           now ) {
   net_load_netdev_tbl( ctx );
   ctx->has_gre_interface = net_check_gre_interface_exists( ctx );
 
@@ -519,7 +519,7 @@ during_housekeeping( fd_net_ctx_t * ctx ) {
   }
 
   if( now > ctx->next_xdp_stats_refresh ) {
-    ctx->next_xdp_stats_refresh = now + ctx->xdp_stats_interval_ticks;
+    ctx->next_xdp_stats_refresh = now + ctx->xdp_stats_interval_ns;
     poll_xdp_statistics( ctx );
   }
 }
@@ -601,7 +601,7 @@ net_tx_route( fd_net_ctx_t * ctx,
   int neigh_res = fd_neigh4_hmap_query_try( ctx->neigh4, &neigh_ip, NULL, neigh_query, 0 );
   if( FD_UNLIKELY( neigh_res!=FD_MAP_SUCCESS ) ) {
     /* Neighbor not found */
-    fd_netlink_neigh4_solicit( ctx->neigh4_solicit, neigh_ip, if_idx, fd_frag_meta_ts_comp( fd_tickcount() ) );
+    fd_netlink_neigh4_solicit( ctx->neigh4_solicit, neigh_ip, if_idx, 0UL );
     ctx->metrics.tx_neigh_fail_cnt++;
     return 0;
   }
@@ -724,7 +724,8 @@ during_frag( fd_net_ctx_t * ctx,
              ulong          sig FD_PARAM_UNUSED,
              ulong          chunk,
              ulong          sz,
-             ulong          ctl FD_PARAM_UNUSED ) {
+             ulong          ctl FD_PARAM_UNUSED,
+             long           stem_ts FD_PARAM_UNUSED ) {
   if( FD_UNLIKELY( chunk<ctx->in[ in_idx ].chunk0 || chunk>ctx->in[ in_idx ].wmark || sz>FD_NET_MTU ) )
     FD_LOG_ERR(( "chunk %lu %lu corrupt, not in range [%lu,%lu]", chunk, sz, ctx->in[ in_idx ].chunk0, ctx->in[ in_idx ].wmark ));
 
@@ -764,6 +765,7 @@ after_frag( fd_net_ctx_t *      ctx,
             ulong               sz,
             ulong               tsorig,
             ulong               tspub,
+            long                stem_ts,
             fd_stem_context_t * stem ) {
   (void)in_idx; (void)seq; (void)sig; (void)tsorig; (void)tspub; (void)stem;
 
@@ -873,7 +875,7 @@ after_frag( fd_net_ctx_t *      ctx,
   ctx->metrics.tx_submit_cnt++;
   ctx->metrics.tx_bytes_total += sz;
   if( ctx->tx_op.use_gre ) ctx->metrics.tx_gre_cnt++;
-  fd_net_flusher_inc( ctx->tx_flusher+xsk_idx, fd_tickcount() );
+  fd_net_flusher_inc( ctx->tx_flusher+xsk_idx, stem_ts );
 
 }
 
@@ -884,7 +886,8 @@ static void
 net_rx_packet( fd_net_ctx_t * ctx,
                ulong          umem_off,
                ulong          sz,
-               uint *         freed_chunk ) {
+               uint *         freed_chunk,
+               long           tsorig ) {
 
   if( FD_UNLIKELY( sz<sizeof(fd_eth_hdr_t)+sizeof(fd_ip4_hdr_t)+sizeof(fd_udp_hdr_t) ) ) {
     FD_DTRACE_PROBE( net_tile_err_rx_undersz );
@@ -1002,8 +1005,8 @@ net_rx_packet( fd_net_ctx_t * ctx,
   *freed_chunk           = mline->chunk;
 
   /* Overwrite the mline with the new frame */
-  ulong tspub            = (ulong)fd_frag_meta_ts_comp( fd_tickcount() );
-  fd_mcache_publish( out->mcache, out->depth, out->seq, sig, chunk, sz, ctl, 0, tspub );
+  ulong tsorig_comp = fd_frag_meta_ts_comp( tsorig );
+  fd_mcache_publish( out->mcache, out->depth, out->seq, sig, chunk, sz, ctl, tsorig_comp, tsorig_comp );
 
   /* Wind up for the next iteration */
   out->seq               = fd_seq_inc( out->seq, 1UL );
@@ -1057,7 +1060,8 @@ net_comp_event( fd_net_ctx_t * ctx,
 static void
 net_rx_event( fd_net_ctx_t * ctx,
               fd_xsk_t *     xsk,
-              uint           rx_seq ) {
+              uint           rx_seq,
+              long           tsorig ) {
   /* Locate the incoming frame */
 
   fd_xdp_ring_t * rx_ring = &xsk->ring_rx;
@@ -1084,7 +1088,7 @@ net_rx_event( fd_net_ctx_t * ctx,
   /* Pass it to the receive handler */
 
   uint freed_chunk = UINT_MAX;
-  net_rx_packet( ctx, frame.addr, frame.len, &freed_chunk );
+  net_rx_packet( ctx, frame.addr, frame.len, &freed_chunk, tsorig );
 
   FD_COMPILER_MFENCE();
   FD_VOLATILE( *rx_ring->cons ) = rx_ring->cached_cons = rx_seq+1U;
@@ -1110,7 +1114,8 @@ net_rx_event( fd_net_ctx_t * ctx,
 static void
 before_credit( fd_net_ctx_t *      ctx,
                fd_stem_context_t * stem,
-               int *               charge_busy ) {
+               int *               charge_busy,
+               long                stem_ts ) {
   (void)stem;
   /* A previous send attempt was overrun.  A corrupt copy of the packet was
      placed into an XDP frame, but the frame was not yet submitted to the
@@ -1131,14 +1136,14 @@ before_credit( fd_net_ctx_t *      ctx,
   uint       rr_idx = ctx->rr_idx;
   fd_xsk_t * rr_xsk = &ctx->xsk[ rr_idx ];
 
-  net_tx_periodic_wakeup( ctx, rr_idx, fd_tickcount(), charge_busy );
+  net_tx_periodic_wakeup( ctx, rr_idx, stem_ts, charge_busy );
 
   uint rx_cons = rr_xsk->ring_rx.cached_cons;
   uint rx_prod = FD_VOLATILE_CONST( *rr_xsk->ring_rx.prod );
   if( rx_cons!=rx_prod ) {
     *charge_busy = 1;
     rr_xsk->ring_rx.cached_prod = rx_prod;
-    net_rx_event( ctx, rr_xsk, rx_cons );
+    net_rx_event( ctx, rr_xsk, rx_cons, stem_ts );
   } else {
     net_rx_wakeup( ctx, rr_xsk, charge_busy );
     ctx->rr_idx++;
@@ -1341,8 +1346,7 @@ privileged_init( fd_topo_t *      topo,
     if( FD_UNLIKELY( -1==close( lo_fds.xsk_map_fd ) ) )                        FD_LOG_ERR(( "close(%d) failed (%d-%s)", xsk_map_fd, errno, fd_io_strerror( errno ) ));
   }
 
-  double tick_per_ns = fd_tempo_tick_per_ns( NULL );
-  ctx->xdp_stats_interval_ticks = (long)( FD_XDP_STATS_INTERVAL_NS * tick_per_ns );
+  ctx->xdp_stats_interval_ns = FD_XDP_STATS_INTERVAL_NS;
 
   ulong scratch_top = FD_SCRATCH_ALLOC_FINI( l, 1UL );
   if( FD_UNLIKELY( scratch_top > (ulong)scratch + scratch_footprint( tile ) ) )
@@ -1475,8 +1479,8 @@ unprivileged_init( fd_topo_t *      topo,
 
   for( uint j=0U; j<2U; j++ ) {
     ctx->tx_flusher[ j ].pending_wmark         = (ulong)( (double)tile->xdp.xdp_tx_queue_size * 0.7 );
-    ctx->tx_flusher[ j ].tail_flush_backoff    = (long)( (double)tile->xdp.tx_flush_timeout_ns * fd_tempo_tick_per_ns( NULL ) );
-    ctx->tx_flusher[ j ].next_tail_flush_ticks = LONG_MAX;
+    ctx->tx_flusher[ j ].tail_flush_backoff    = tile->xdp.tx_flush_timeout_ns;
+    ctx->tx_flusher[ j ].next_tail_flush_ns = LONG_MAX;
   }
 
   /* Join netbase objects */
