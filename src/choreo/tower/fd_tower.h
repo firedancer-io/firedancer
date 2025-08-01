@@ -434,8 +434,8 @@
 #define FD_TOWER_VOTE_MAX (31UL)
 
 struct fd_tower_vote {
-  ulong slot; /* vote slot */
-  ulong conf; /* confirmation count */
+  ulong     slot;     /* vote slot */
+  ulong     conf;     /* confirmation count */
 };
 typedef struct fd_tower_vote fd_tower_vote_t;
 
@@ -582,7 +582,8 @@ fd_tower_delete( void * tower );
 int
 fd_tower_lockout_check( fd_tower_t const * tower,
                         fd_ghost_t const * ghost,
-                        ulong slot );
+                        ulong              slot,
+                        fd_hash_t const *  block_id );
 
 /* fd_tower_switch_check checks if we can switch to the fork of `slot`.
    Returns 1 if we can switch, 0 otherwise.  Assumes tower is non-empty.
@@ -616,7 +617,8 @@ int
 fd_tower_switch_check( fd_tower_t const * tower,
                        fd_epoch_t const * epoch,
                        fd_ghost_t const * ghost,
-                       ulong              slot );
+                       ulong              slot,
+                       fd_hash_t const *  block_id );
 
 /* fd_tower_threshold_check checks if we pass the threshold required to
    vote for `slot`.  This is only relevant after voting for (and
@@ -759,6 +761,12 @@ fd_tower_to_vote_txn( fd_tower_t const *    tower,
 
 int
 fd_tower_verify( fd_tower_t const * tower );
+
+/* fd_tower_on_duplicate checks if the tower is on the same fork with an
+   invalid ancestor. */
+
+int
+fd_tower_on_duplicate( fd_tower_t const * tower, fd_ghost_t const * ghost );
 
 /* fd_tower_print pretty-prints tower as a formatted table.
 
