@@ -83,7 +83,7 @@
        void       * lmem    = ... alloc fd_clock_t compat local memory;
        void       * shclock = ... map fd_clock into the caller's local address space with the proper alignment and footprint;
        fd_clock_t * clock   = fd_clock_join( lmem, shclock, clock_x, args_x );
-       if( FD_UNLIKELY( !clock ) ) FD_LOG_ERR(( "fd_clock_new failed" ));
+       if( FD_UNLIKELY( !clock ) ) FD_LOG_ERR(( "fd_clock_join failed" ));
 
        ... at this point, clock==lmem is a current local join
 
@@ -663,6 +663,62 @@ fd_clock_epoch_y( fd_clock_epoch_t const * epoch,
    infinite.  The returned pointer is always to a non-NULL cstr. */
 
 char const * fd_clock_strerror( int err );
+
+
+/* Default tile usage APIs *********************************************/
+
+/* fd_clock_default_init initializes and joins fd_clock_t with default values,
+   using _fd_tickcount for clock x and fd_log_wallclock_host for clock y.
+   clock_lmem is local memory for fd_clock_t
+   clock_mem is shared memory for fd_clock_shmem_t
+   Intended for single threaded use cases (calibrating thread == observer thread)
+   Caution: This function spins for 20e6 ticks! */
+
+static inline void
+fd_clock_default_init( fd_clock_t   clock_lmem[1],
+                       void       * clock_mem     ) {
+   long   recal_avg  = 10e6L; /* 10ms */
+   long   recal_jit  = 0L;
+   double recal_hist = 0.;
+   double recal_frac = 0.;
+
+   long init_x0, init_y0;
+   int  clock_err = fd_clock_joint_read( _fd_tickcount, NULL, fd_log_wallclock_host, NULL, &init_x0, &init_y0, NULL );
+   if( FD_UNLIKELY( clock_err ) ) FD_LOG_ERR(( "fd_clock_joint_read failed (%i-%s)", clock_err, fd_clock_strerror( clock_err ) ));
+
+   /* spin for a bit */
+   long start_ticks = fd_tickcount();
+   while( fd_tickcount() < start_ticks + 20e6L ) FD_SPIN_PAUSE();
+
+   long init_x1, init_y1;
+   /**/ clock_err = fd_clock_joint_read( _fd_tickcount, NULL, fd_log_wallclock_host, NULL, &init_x1, &init_y1, NULL );
+   if( FD_UNLIKELY( clock_err ) ) FD_LOG_ERR(( "fd_clock_joint_read failed (%i-%s)", clock_err, fd_clock_strerror( clock_err ) ));
+
+   long init_dx = init_x1 - init_x0;
+   long init_dy = init_y1 - init_y0;
+   if( FD_UNLIKELY( !((init_dx>0L) & (init_dy>0L)) ) ) FD_LOG_ERR(( "initial calibration failed" ));
+
+   double init_w = (double)init_dx / (double)init_dy;
+
+   void * shclock = fd_clock_new( clock_mem, recal_avg, recal_jit, recal_hist, recal_frac, init_x1, init_y1, init_w );
+   if( FD_UNLIKELY( !shclock ) ) FD_LOG_ERR(( "fd_clock_new failed" ));
+
+   fd_clock_t * clock = fd_clock_join( clock_lmem, shclock, _fd_tickcount, NULL );
+   if( FD_UNLIKELY( !clock ) ) FD_LOG_ERR(( "fd_clock_join failed" ));
+   if( FD_UNLIKELY( clock!=clock_lmem ) ) FD_LOG_ERR(( "fd_clock_join did not return clock_lmem" ));
+}
+
+
+/* fd_clock_default_recal provides a default recalibration function to
+   accompany fd_clock_default_init. */
+
+static inline long
+fd_clock_default_recal( fd_clock_t * clock ) {
+  long x; long y;
+  int  err = fd_clock_joint_read( _fd_tickcount, NULL, fd_log_wallclock_host, NULL, &x, &y, NULL );
+  if( FD_UNLIKELY( err ) ) FD_LOG_WARNING(( "fd_clock_joint_read failed (%i-%s)", err, fd_clock_strerror( err ) ));
+  return fd_clock_recal( clock, x, y );
+}
 
 FD_PROTOTYPES_END
 

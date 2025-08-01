@@ -182,7 +182,7 @@ fd_quic_trace_initial( fd_quic_trace_ctx_t * trace_ctx,
       .flow      = key_idx,
       .conn_idx  = conn_idx };
     fd_quic_pretty_print_quic_pkt( &quic_pkt_ctx,
-                                   state->now,
+                                   fd_quic_get_state( quic )->now,
                                    data,
                                    data_sz );
     fflush( stdout );
@@ -283,7 +283,7 @@ fd_quic_trace_handshake( fd_quic_trace_ctx_t * trace_ctx,
       .flow      = key_idx,
       .conn_idx  = conn_idx };
     fd_quic_pretty_print_quic_pkt( &quic_pkt_ctx,
-                                   state->now,
+                                   fd_quic_get_state( quic )->now,
                                    data,
                                    data_sz );
     fflush( stdout );
@@ -406,7 +406,7 @@ fd_quic_trace_1rtt( fd_quic_trace_ctx_t * trace_ctx,
       .flow      = key_idx,
       .conn_idx  = conn->conn_idx };
     fd_quic_pretty_print_quic_pkt( &quic_pkt_ctx,
-                                   state->now,
+                                   fd_quic_get_state( quic )->now,
                                    data,
                                    data_sz );
     fflush( stdout );

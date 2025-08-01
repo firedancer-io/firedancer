@@ -167,9 +167,9 @@ dump_connection( fd_quic_conn_t const * conn ) {
   X( last_pkt_number[0],     "%lu",        ( (CONN).last_pkt_number[0]     ), __VA_ARGS__ ) \
   X( last_pkt_number[1],     "%lu",        ( (CONN).last_pkt_number[1]     ), __VA_ARGS__ ) \
   X( last_pkt_number[2],     "%lu",        ( (CONN).last_pkt_number[2]     ), __VA_ARGS__ ) \
-  X( idle_timeout_ticks,     "%lu",        ( (CONN).idle_timeout_ticks     ), __VA_ARGS__ ) \
-  X( last_activity,          "%lu",        ( (CONN).last_activity          ), __VA_ARGS__ ) \
-  X( last_ack,               "%lu",        ( (CONN).last_ack               ), __VA_ARGS__ ) \
+  X( idle_timeout_ns,        "%ld",        ( (CONN).idle_timeout_ns        ), __VA_ARGS__ ) \
+  X( last_activity,          "%ld",        ( (CONN).last_activity          ), __VA_ARGS__ ) \
+  X( last_ack,               "%ld",        ( (CONN).last_ack               ), __VA_ARGS__ ) \
   X( used_pkt_meta,          "%lu",        ( (CONN).used_pkt_meta          ), __VA_ARGS__ ) \
   X( peer_cid,               "%s",         ( peer_cid_str(&(CONN))         ), __VA_ARGS__ )
 

@@ -241,7 +241,7 @@ struct fd_topo_tile {
       ulong  max_concurrent_connections;
       ulong  max_concurrent_handshakes;
       ushort quic_transaction_listen_port;
-      ulong  idle_timeout_millis;
+      long   idle_timeout_millis;
       uint   ack_delay_millis;
       int    retry;
       char   key_log_path[ PATH_MAX ];

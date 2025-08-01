@@ -2,6 +2,7 @@
 #define HEADER_fd_src_waltz_quic_tests_fd_quic_helpers_h
 
 #include "../fd_quic.h"
+#include "../fd_quic_private.h"
 #include "../../aio/fd_aio_pcapng.h"
 #include "../../udpsock/fd_udpsock.h"
 #include "../../tls/test_tls_helper.h"
