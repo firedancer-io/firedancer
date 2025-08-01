@@ -448,7 +448,10 @@ fd_config_fill( fd_config_t * config,
 
 static void
 fd_config_validatef( fd_configf_t const * config ) {
-  (void)config;
+  CFG_HAS_NON_ZERO( layout.sign_tile_count );
+  if( FD_UNLIKELY( config->layout.sign_tile_count < 2 ) ) {
+    FD_LOG_ERR(( "layout.sign_tile_count must be >= 2" ));
+  }
 }
 
 static void
