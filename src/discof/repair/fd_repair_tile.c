@@ -228,33 +228,6 @@ send_packet( fd_repair_tile_ctx_t * ctx,
   ctx->net_out_chunk = fd_dcache_compact_next( chunk, packet_sz, ctx->net_out_chunk0, ctx->net_out_wmark );
 }
 
-static inline void
-handle_new_cluster_contact_info( fd_repair_tile_ctx_t * ctx,
-                                 uchar const *          buf,
-                                 ulong                  buf_sz ) {
-  fd_shred_dest_wire_t const * in_dests = (fd_shred_dest_wire_t const *)fd_type_pun_const( buf );
-
-  ulong dest_cnt = buf_sz;
-  if( FD_UNLIKELY( dest_cnt >= MAX_REPAIR_PEERS ) ) {
-    FD_LOG_WARNING(( "Cluster nodes had %lu destinations, which was more than the max of %lu", dest_cnt, MAX_REPAIR_PEERS ));
-    return;
-  }
-
-  /* Stop adding peers after we reach the peer max, but we may want to
-     consider an eviction policy. */
-  for( ulong i=0UL; i<dest_cnt; i++ ) {
-   if( FD_UNLIKELY( ctx->repair->peer_cnt >= FD_ACTIVE_KEY_MAX ) ) break;// FIXME: aiming to move all peer tracking out of lib into tile, leaving like this for now
-    fd_repair_peer_addr_t repair_peer = {
-      .addr = in_dests[i].ip4_addr,
-      .port = fd_ushort_bswap( in_dests[i].udp_port ),
-    };
-    int dup = fd_repair_add_active_peer( ctx->repair, &repair_peer, in_dests[i].pubkey );
-    if( !dup ) {
-      ulong hash_src = 0xfffffUL & fd_ulong_hash( (ulong)in_dests[i].ip4_addr | ((ulong)repair_peer.port<<32) );
-      FD_LOG_INFO(( "Added repair peer: pubkey %s hash_src %lu", FD_BASE58_ENC_32_ALLOCA(in_dests[i].pubkey), hash_src ));
-    }
-  }
-}
 
 ulong
 fd_repair_handle_ping( fd_repair_tile_ctx_t *  repair_tile_ctx,
@@ -420,6 +393,43 @@ fd_repair_send_requests( fd_repair_tile_ctx_t *   ctx,
     fd_pubkey_t const * id = &glob->peers[ glob->peer_idx++ ].key;
     fd_repair_send_request( ctx, stem, glob, type, slot, shred_index, id, now );
     if( FD_UNLIKELY( glob->peer_idx >= glob->peer_cnt ) ) glob->peer_idx = 0; /* wrap around */
+  }
+}
+
+
+static inline void
+handle_new_cluster_contact_info( fd_repair_tile_ctx_t * ctx,
+                                 uchar const *          buf,
+                                 ulong                  buf_sz ) {
+  fd_shred_dest_wire_t const * in_dests = (fd_shred_dest_wire_t const *)fd_type_pun_const( buf );
+
+  ulong dest_cnt = buf_sz;
+  if( FD_UNLIKELY( dest_cnt >= MAX_REPAIR_PEERS ) ) {
+    FD_LOG_WARNING(( "Cluster nodes had %lu destinations, which was more than the max of %lu", dest_cnt, MAX_REPAIR_PEERS ));
+    return;
+  }
+
+  /* Stop adding peers after we reach the peer max, but we may want to
+     consider an eviction policy. */
+  for( ulong i=0UL; i<dest_cnt; i++ ) {
+   if( FD_UNLIKELY( ctx->repair->peer_cnt >= FD_ACTIVE_KEY_MAX ) ) break;// FIXME: aiming to move all peer tracking out of lib into tile, leaving like this for now
+    fd_repair_peer_addr_t repair_peer = {
+      .addr = in_dests[i].ip4_addr,
+      .port = fd_ushort_bswap( in_dests[i].udp_port ),
+    };
+    int dup = fd_repair_add_active_peer( ctx->repair, &repair_peer, in_dests[i].pubkey );
+    if( !dup ) {
+      /*
+      The repair process uses a Ping-Pong protocol that incurs one
+      round-trip time (RTT) for the initial repair request. To optimize
+      this, we proactively send a placeholder Repair request as soon as
+      we receive a peer's contact information for the first time,
+      effectively prepaying the RTT cost.
+      */
+      fd_repair_send_request(ctx, ctx->stem, ctx->repair, 0, 0, 0, in_dests[i].pubkey, fd_log_wallclock());
+      ulong hash_src = 0xfffffUL & fd_ulong_hash( (ulong)in_dests[i].ip4_addr | ((ulong)repair_peer.port<<32) );
+      FD_LOG_INFO(( "Added repair peer: pubkey %s hash_src %lu", FD_BASE58_ENC_32_ALLOCA(in_dests[i].pubkey), hash_src ));
+    }
   }
 }
 
@@ -974,6 +984,7 @@ after_credit( fd_repair_tile_ctx_t * ctx,
               fd_stem_context_t *    stem FD_PARAM_UNUSED,
               int *                  opt_poll_in FD_PARAM_UNUSED,
               int *                  charge_busy ) {
+
   /* TODO: Don't charge the tile as busy if after_credit isn't actually
      doing any work. */
   *charge_busy = 1;
