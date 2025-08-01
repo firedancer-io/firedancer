@@ -45,24 +45,6 @@
 #define IN_KIND_GOSSIP  (1)
 #define MAX_IN_LINKS    (3)
 
-struct fd_known_validator {
-  fd_pubkey_t key;
-  uint        hash;
-};
-
-typedef struct fd_known_validator fd_known_validator_t;
-
-#define MAP_NAME             fd_known_validators_set
-#define MAP_T                fd_known_validator_t
-#define MAP_KEY_T            fd_pubkey_t
-#define MAP_KEY_NULL         (fd_pubkey_t){0}
-#define MAP_KEY_EQUAL(k0,k1) (!(memcmp((k0).key,(k1).key,sizeof(fd_pubkey_t))))
-#define MAP_KEY_INVAL(k)     (MAP_KEY_EQUAL((k),MAP_KEY_NULL))
-#define MAP_KEY_HASH(key)    ((key).ui[3])
-#define MAP_KEY_EQUAL_IS_SLOW  1
-#define MAP_LG_SLOT_CNT        4
-#include "../../util/tmpl/fd_map.c"
-
 struct fd_snaprd_tile {
   fd_ssping_t * ssping;
   fd_sshttp_t * sshttp;
@@ -109,8 +91,6 @@ struct fd_snaprd_tile {
     uint                   maximum_local_snapshot_age;
     uint                   minimum_download_speed_mib;
     uint                   maximum_download_retry_abort;
-    ulong                  known_validators_cnt;
-    fd_known_validator_t * known_validators_set;
   } config;
 
   struct {
@@ -166,7 +146,6 @@ scratch_footprint( fd_topo_tile_t const * tile ) {
   l = FD_LAYOUT_APPEND( l, fd_ssping_align(),          fd_ssping_footprint( 65536UL ) );
   l = FD_LAYOUT_APPEND( l, alignof(fd_contact_info_t), sizeof(fd_contact_info_t) * FD_CONTACT_INFO_TABLE_SIZE );
   l = FD_LAYOUT_APPEND( l, fd_sshashes_align(),        fd_sshashes_footprint() );
-  l = FD_LAYOUT_APPEND( l, fd_alloc_align(),           fd_alloc_footprint() );
   return FD_LAYOUT_FINI( l, alignof(fd_snaprd_tile_t) );
 }
 
@@ -573,7 +552,7 @@ after_frag( fd_snaprd_tile_t *  ctx,
     fd_gossip_update_message_t * msg = &ctx->gossip.tmp_upd_buf;
     switch( msg->tag ) {
       case FD_GOSSIP_UPDATE_TAG_CONTACT_INFO: {
-          fd_contact_info_t * cur  = &ctx->gossip.ci_table[ msg->contact_info.pool_idx ];
+          fd_contact_info_t * cur      = &ctx->gossip.ci_table[ msg->contact_info.pool_idx ];
           fd_ip4_port_t       cur_addr = fd_contact_info_get_socket( &ctx->gossip.ci_table[ msg->contact_info.pool_idx ], FD_CONTACT_INFO_SOCKET_RPC );
 
           fd_contact_info_t * new = msg->contact_info.contact_info;
@@ -603,22 +582,9 @@ after_frag( fd_snaprd_tile_t *  ctx,
         }
         break;
       case FD_GOSSIP_UPDATE_TAG_SNAPSHOT_HASHES: {
-        fd_pubkey_t pubkey;
-        fd_memcpy( &pubkey, msg->origin_pubkey, sizeof(fd_pubkey_t) );
-
-        FD_LOG_INFO(("encountered pubkey %s with full slot %lu and incremental slot %lu",
-          FD_BASE58_ENC_32_ALLOCA( pubkey.hash ), msg->snapshot_hashes.full->slot, msg->snapshot_hashes.inc[ 0 ].slot ));
-
-        fd_known_validator_t * known_validator = fd_known_validators_set_query( ctx->config.known_validators_set, pubkey, NULL );
-        if( FD_UNLIKELY( !known_validator ) ) {
-          /* skip snapshot hashes message not from known validators */
-          break;
-        }
-
-        FD_LOG_WARNING(("updating sshashes for pubkey %s with full slot %lu and incremental slot %lu",
-          FD_BASE58_ENC_32_ALLOCA( pubkey.hash ), msg->snapshot_hashes.full->slot, msg->snapshot_hashes.inc[ 0 ].slot ));
-
-        if( fd_sshashes_update( ctx->sshashes, msg->origin_pubkey, &msg->snapshot_hashes )==FD_SSHASHES_SUCCESS ) {
+        if( FD_LIKELY( fd_sshashes_update( ctx->sshashes, msg->origin_pubkey, &msg->snapshot_hashes )==FD_SSHASHES_SUCCESS ) ) {
+          FD_LOG_WARNING(( "updated sshashes for pubkey %s with full slot %lu and incremental slot %lu",
+                           FD_BASE58_ENC_32_ALLOCA( msg->origin_pubkey ), msg->snapshot_hashes.full->slot, msg->snapshot_hashes.inc[ 0 ].slot ));
           fd_sshashes_print( ctx->sshashes );
           fd_ssping_update_sshashes( ctx->ssping, ctx->sshashes, fd_log_wallclock() );
         }
@@ -762,8 +728,7 @@ unprivileged_init( fd_topo_t *      topo,
   void * _sshttp                   = FD_SCRATCH_ALLOC_APPEND( l, fd_sshttp_align(),          fd_sshttp_footprint()          );
   void * _ssping                   = FD_SCRATCH_ALLOC_APPEND( l, fd_ssping_align(),          fd_ssping_footprint( 65536UL ) );
   void * _ci_table                 = FD_SCRATCH_ALLOC_APPEND( l, alignof(fd_contact_info_t), sizeof(fd_contact_info_t) * FD_CONTACT_INFO_TABLE_SIZE );
-  void * _sshashes_mem             = FD_SCRATCH_ALLOC_APPEND( l, fd_sshashes_align(), fd_sshashes_footprint() );
-  void * _known_validators_set_mem = FD_SCRATCH_ALLOC_APPEND( l, fd_known_validators_set_align(), fd_known_validators_set_footprint() );
+  void * _sshashes_mem             = FD_SCRATCH_ALLOC_APPEND( l, fd_sshashes_align(),        fd_sshashes_footprint() );
   ctx->ack_cnt = 0UL;
   ctx->malformed = 0;
 
@@ -777,20 +742,6 @@ unprivileged_init( fd_topo_t *      topo,
   ctx->config.do_download                = tile->snaprd.do_download;
   ctx->config.maximum_local_snapshot_age = tile->snaprd.maximum_local_snapshot_age;
   ctx->config.minimum_download_speed_mib = tile->snaprd.minimum_download_speed_mib;
-  ctx->config.known_validators_cnt       = tile->snaprd.known_validators_cnt;
-  ctx->config.known_validators_set       = fd_known_validators_set_join( fd_known_validators_set_new( _known_validators_set_mem ) );
-
-  for( ulong i=0UL; i<tile->snaprd.known_validators_cnt; i++ ) {
-    fd_pubkey_t known_validator_pubkey;
-    uchar * decoded = fd_base58_decode_32( tile->snaprd.known_validators[ i ], known_validator_pubkey.uc );
-    fd_known_validators_set_insert( ctx->config.known_validators_set, known_validator_pubkey );
-
-    if( FD_UNLIKELY( !decoded ) ) {
-      FD_LOG_ERR(( "failed to decode known validator pubkey %s", tile->snaprd.known_validators[ i ] ));
-    } else {
-      FD_LOG_WARNING(("got validator pubkey %s", FD_BASE58_ENC_32_ALLOCA( known_validator_pubkey.hash ) ));
-    }
-  }
 
   if( FD_UNLIKELY( !tile->snaprd.maximum_download_retry_abort ) ) ctx->config.maximum_download_retry_abort = UINT_MAX;
   else                                                            ctx->config.maximum_download_retry_abort = tile->snaprd.maximum_download_retry_abort;
@@ -851,7 +802,7 @@ unprivileged_init( fd_topo_t *      topo,
   ctx->out.chunk  = ctx->out.chunk0;
   ctx->out.mtu    = topo->links[ tile->out_link_id[ 0 ] ].mtu;
 
-  ctx->sshashes = fd_sshashes_join( fd_sshashes_new( _sshashes_mem ) );
+  ctx->sshashes = fd_sshashes_join( fd_sshashes_new( _sshashes_mem, tile->snaprd.known_validators, tile->snaprd.known_validators_cnt ) );
   FD_TEST( ctx->sshashes );
 
   ctx->highest_cluster_slot = ULONG_MAX;

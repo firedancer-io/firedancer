@@ -218,7 +218,7 @@ setup_snapshots( config_t *       config,
     FD_LOG_ERR(( "too many known validators (%lu), maximum is 16", known_validators_cnt ));
   }
 
-  fd_memcpy( tile->snaprd.known_validators, config->firedancer.snapshots.known_validators, known_validators_cnt * 256UL);
+  fd_memcpy( tile->snaprd.known_validators, config->firedancer.snapshots.known_validators, known_validators_cnt * FD_BASE58_ENCODED_32_SZ );
 }
 
 void
