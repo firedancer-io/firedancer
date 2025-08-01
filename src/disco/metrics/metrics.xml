@@ -508,14 +508,14 @@ metric introduced.
     <counter name="BundleCrankStatus" enum="BundleCrankResult" summary="Result of considering whether bundle cranks are needed" />
 
     <gauge name="CusConsumedInBlock" summary="The number of cost units consumed in the current block, or 0 if pack is not currently packing a block" />
-    <histogram name="CusScheduled" min="1000000" max="192000000">
+    <histogram name="CusScheduled" min="1000000" max="240000000">
         <summary>The number of cost units scheduled for each block pack produced.  This can be higher than the block limit because of returned CUs.</summary>
     </histogram>
-    <histogram name="CusRebated" min="1000000" max="192000000">
+    <histogram name="CusRebated" min="1000000" max="240000000">
         <!-- Note: The switch from cost units to compute units here is deliberate.  Of the various types of cost units, only compute units can be rebated. -->
         <summary>The number of compute units rebated for each block pack produced.  Compute units are rebated when a transaction fails prior to execution or requests more compute units than it uses.</summary>
     </histogram>
-    <histogram name="CusNet" min="1000000" max="60000000">
+    <histogram name="CusNet" min="1000000" max="100000000">
         <summary>The net number of cost units (scheduled - rebated) in each block pack produced.</summary>
     </histogram>
     <histogram name="CusPct" min="0" max="100">
