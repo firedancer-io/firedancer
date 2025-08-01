@@ -4,6 +4,8 @@
 #include "../context/fd_exec_slot_ctx.h"
 #include "../context/fd_exec_instr_ctx.h"
 #include "../context/fd_exec_txn_ctx.h"
+#include "../fd_hashes.h"
+#include "../fd_runtime.h"
 
 #include "fd_sysvar_rent.h"
 
@@ -18,6 +20,8 @@ fd_sysvar_account_update( fd_exec_slot_ctx_t * slot_ctx,
 
   FD_TXN_ACCOUNT_DECL( rec );
   fd_txn_account_init_from_funk_mutable( rec, address, slot_ctx->funk, slot_ctx->funk_txn, 1, sz );
+  fd_lthash_value_t prev_hash[1];
+  fd_hashes_account_lthash( address, rec->vt->get_meta( rec ), rec->vt->get_data( rec ), prev_hash );
 
   ulong const slot            = fd_bank_slot_get( slot_ctx->bank );
   ulong const lamports_before = rec->vt->get_lamports( rec );
@@ -43,6 +47,7 @@ fd_sysvar_account_update( fd_exec_slot_ctx_t * slot_ctx,
     __builtin_unreachable();
   }
 
+  fd_hashes_update_lthash( rec, prev_hash, slot_ctx->bank, slot_ctx->capture_ctx );
   fd_txn_account_mutable_fini( rec, slot_ctx->funk, slot_ctx->funk_txn );
 
   FD_LOG_DEBUG(( "Updated sysvar: address=%s data_sz=%lu slot=%lu lamports=%lu lamports_minted=%lu",

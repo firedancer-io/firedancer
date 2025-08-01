@@ -263,6 +263,9 @@ fd_runtime_fuzz_block_ctx_create( fd_runtime_fuzz_runner_t *           runner,
 
   fd_bank_slots_per_year_set( slot_ctx->bank, test_ctx->epoch_ctx.slots_per_year );
 
+  fd_slot_lthash_t lthash = {0};
+  fd_bank_lthash_set( slot_ctx->bank, lthash );
+
   fd_fee_rate_governor_t * fee_rate_governor = fd_bank_fee_rate_governor_modify( slot_ctx->bank );
   fee_rate_governor->target_lamports_per_signature = 10000UL;
   fee_rate_governor->target_signatures_per_slot = 20000UL;
@@ -434,9 +437,6 @@ fd_runtime_fuzz_block_ctx_create( fd_runtime_fuzz_runner_t *           runner,
   slot_ctx->funk_txn = fd_funk_txn_prepare( funk, slot_ctx->funk_txn, fork_xid, 1 );
   fd_funk_txn_end_write( funk );
 
-  /* Calculate epoch account hash values. This sets epoch_bank.eah_{start_slot, stop_slot, interval} */
-  fd_calculate_epoch_accounts_hash_values( slot_ctx );
-
   /* Restore sysvar cache */
   fd_sysvar_cache_restore_fuzz( slot_ctx );
 
@@ -541,7 +541,7 @@ fd_runtime_fuzz_block_ctx_exec( fd_runtime_fuzz_runner_t * runner,
     int   is_epoch_boundary = 0;
     fd_runtime_block_pre_execute_process_new_epoch( slot_ctx, capture_ctx, runtime_spad, &is_epoch_boundary );
 
-    res = fd_runtime_block_execute( slot_ctx, capture_ctx, block_info, runtime_spad );
+    res = fd_runtime_block_execute( slot_ctx, block_info, runtime_spad );
   } FD_SPAD_FRAME_END;
 
   return res;
