@@ -2428,7 +2428,6 @@ fd_runtime_init_bank_from_genesis( fd_exec_slot_ctx_t *        slot_ctx,
 
       uchar * stake_acc_mem = fd_spad_alloc( runtime_spad, FD_TXN_ACCOUNT_ALIGN, sizeof(fd_account_meta_t) + acc->account.data_len );
       fd_account_meta_t * stake_meta = (fd_account_meta_t *)stake_acc_mem;
-      uchar *             stake_data = (uchar *)stake_meta + sizeof(fd_account_meta_t);
       fd_wksp_t *         wksp       = fd_wksp_containing( stake_acc_mem );
 
       fd_txn_account_t stake_acc[1];
@@ -2436,7 +2435,6 @@ fd_runtime_init_bank_from_genesis( fd_exec_slot_ctx_t *        slot_ctx,
           stake_acc,
           &fd_solana_stake_program_id,
           stake_meta,
-          stake_data,
           1 ), wksp ) ) ) {
         FD_LOG_CRIT(( "Failed to join and new a txn account" ));
       }

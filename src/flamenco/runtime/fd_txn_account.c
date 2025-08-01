@@ -5,7 +5,6 @@ void *
 fd_txn_account_new( void *              mem,
                     fd_pubkey_t const * pubkey,
                     fd_account_meta_t * meta,
-                    uchar *             data,
                     int                 is_mutable ) {
   if( FD_UNLIKELY( !mem ) ) {
     FD_LOG_WARNING(( "NULL mem" ));
@@ -26,6 +25,8 @@ fd_txn_account_new( void *              mem,
 
   txn_account->starting_dlen     = meta->dlen;
   txn_account->starting_lamports = meta->info.lamports;
+
+  uchar * data = (uchar *)meta + sizeof(fd_account_meta_t);
 
   txn_account->meta_gaddr        = fd_wksp_gaddr( wksp, meta );
   txn_account->data_gaddr        = fd_wksp_gaddr( wksp, data );
@@ -167,17 +168,20 @@ fd_txn_account_make_mutable( fd_txn_account_t * acct,
     FD_LOG_ERR(( "borrowed account is already mutable" ));
   }
 
-  ulong   dlen         = !!acct->meta ? acct->meta->dlen : 0UL;
+  // ulong   dlen         = !!acct->meta ? acct->meta->dlen : 0UL;
   uchar * new_raw_data = fd_txn_account_init_data( acct, buf );
 
-  acct->meta = (fd_account_meta_t *)new_raw_data;
-  acct->data = new_raw_data + sizeof(fd_account_meta_t);
-  acct->meta->dlen = dlen;
 
-  /* update global addresses of meta and data after copying into buffer */
-  acct->meta_gaddr = fd_wksp_gaddr( wksp, acct->meta );
-  acct->data_gaddr = fd_wksp_gaddr( wksp, acct->data );
-  acct->is_mutable = 1;
+  fd_txn_account_join( fd_txn_account_new( acct, acct->pubkey, (fd_account_meta_t *)new_raw_data, 1 ), wksp );
+
+  // acct->meta = (fd_account_meta_t *)new_raw_data;
+  // acct->data = new_raw_data + sizeof(fd_account_meta_t);
+  // acct->meta->dlen = dlen;
+
+  // /* update global addresses of meta and data after copying into buffer */
+  // acct->meta_gaddr = fd_wksp_gaddr( wksp, acct->meta );
+  // acct->data_gaddr = fd_wksp_gaddr( wksp, acct->data );
+  // acct->is_mutable = 1;
 
   return acct;
 }
@@ -215,13 +219,10 @@ fd_txn_account_init_from_funk_readonly( fd_txn_account_t *    acct,
 
   fd_txn_account_setup( acct, pubkey, meta, 0 );
 
-  uchar * data = !!acct->meta && acct->meta->dlen ? (uchar *)acct->meta + sizeof(fd_account_meta_t) : NULL;
-
   if( FD_UNLIKELY( !fd_txn_account_join( fd_txn_account_new(
         acct,
         pubkey,
         (fd_account_meta_t *)meta,
-        data,
         0 ), funk_wksp ) ) ) {
     FD_LOG_CRIT(( "Failed to join txn account" ));
   }

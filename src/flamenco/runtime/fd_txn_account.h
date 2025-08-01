@@ -45,6 +45,7 @@ typedef struct fd_txn_account fd_txn_account_t;
 FD_PROTOTYPES_BEGIN
 
 /* Initializes an fd_txn_account_t from a pointer to a region of memory */
+
 fd_txn_account_t *
 fd_txn_account_init( void * ptr );
 
@@ -54,7 +55,6 @@ void *
 fd_txn_account_new( void *              mem,
                     fd_pubkey_t const * pubkey,
                     fd_account_meta_t * meta,
-                    uchar *             data,
                     int                 is_mutable );
 
 fd_txn_account_t *
@@ -65,6 +65,7 @@ fd_txn_account_join( void * mem, fd_wksp_t * data_wksp );
 /* buf is a handle to the account shared data. Sets the account shared
    data as mutable. Also, gaddr aware pointers for account metadata and
    data are stored in the txn account. */
+
 fd_txn_account_t *
 fd_txn_account_make_mutable( fd_txn_account_t * acct,
                              void *             buf,
@@ -80,6 +81,7 @@ fd_txn_account_make_mutable( fd_txn_account_t * acct,
 
      This is safe because we assume that we hold a read lock on the account, since
      we are inside a Solana transaction. */
+
 int
 fd_txn_account_init_from_funk_readonly( fd_txn_account_t *    acct,
                                         fd_pubkey_t const *   pubkey,
@@ -88,6 +90,7 @@ fd_txn_account_init_from_funk_readonly( fd_txn_account_t *    acct,
 
 /* Initializes a fd_txn_account_t object with a mutable handle into
    its funk record. Cannot be called in the executor tile. */
+
 int
 fd_txn_account_init_from_funk_mutable( fd_txn_account_t *  acct,
                                        fd_pubkey_t const * pubkey,

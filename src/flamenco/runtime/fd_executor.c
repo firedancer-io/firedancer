@@ -991,6 +991,23 @@ fd_executor_create_rollback_fee_payer_account( fd_exec_txn_ctx_t * txn_ctx,
     void * fee_payer_data = fd_spad_alloc( txn_ctx->spad, FD_ACCOUNT_REC_ALIGN, sizeof(fd_account_meta_t) + data_len );
     fd_txn_account_make_mutable( txn_ctx->rollback_fee_payer_account, fee_payer_data, txn_ctx->spad_wksp );
 
+    // fd_memcpy( fee_payer_data, txn_ctx->rollback_fee_payer_account, sizeof(fd_account_meta_t) + data_len );
+
+    // FD_LOG_WARNING(("LAMPORTS %lu", fd_txn_account_get_lamports( &txn_ctx->accounts[FD_FEE_PAYER_TXN_IDX] ) ));
+
+    // fd_account_meta_t * meta = (fd_account_meta_t *)fee_payer_data;
+    // uchar *             data = (uchar *)meta + sizeof(fd_account_meta_t);
+    // if( FD_UNLIKELY( !fd_txn_account_join( fd_txn_account_new(
+    //     txn_ctx->rollback_fee_payer_account,
+    //     &txn_ctx->account_keys[FD_FEE_PAYER_TXN_IDX],
+    //     meta,
+    //     data,
+    //     1 ), txn_ctx->spad_wksp ) ) ) {
+
+    //   FD_LOG_CRIT(( "fd_executor_create_rollback_fee_payer_account(): failed to join rollback fee payer account" ));
+    // }
+    // FD_LOG_WARNING(("LAMPORTS %lu", fd_txn_account_get_lamports( txn_ctx->rollback_fee_payer_account ) ));
+
     /* There's another weird edge case where if the transaction contains a nonce account, you also have
        to save the rent epoch field of the fee payer account.
        https://github.com/anza-xyz/agave/blob/v2.2.13/svm/src/rollback_accounts.rs#L68-L75 */
@@ -1465,6 +1482,10 @@ fd_executor_setup_txn_account( fd_exec_txn_ctx_t * txn_ctx,
   if( fd_exec_txn_ctx_account_is_writable_idx( txn_ctx, idx ) || idx==FD_FEE_PAYER_TXN_IDX ) {
     void * txn_account_data = fd_spad_alloc( txn_ctx->spad, FD_ACCOUNT_REC_ALIGN, FD_ACC_TOT_SZ_MAX );
 
+    // memcpy( txn_account_data, txn_account->data, txn_account->meta->dlen + sizeof(fd_account_meta_t) );
+
+    // fd_txn_account_join( fd_txn_account_new( txn_account, txn_account->pubkey, (fd_account_meta_t *)txn_account_data, 1 ), txn_ctx->spad_wksp );
+
     /* promote the account to mutable, which requires a memcpy*/
     fd_txn_account_make_mutable( txn_account, txn_account_data, txn_ctx->spad_wksp );
 
@@ -1481,7 +1502,7 @@ fd_executor_setup_txn_account( fd_exec_txn_ctx_t * txn_ctx,
     uchar * mem = fd_spad_alloc( txn_ctx->spad, FD_TXN_ACCOUNT_ALIGN, sizeof(fd_account_meta_t) );
     fd_account_meta_t * meta = (fd_account_meta_t *)mem;
     memset( meta, 0, sizeof(fd_account_meta_t) );
-    if( FD_UNLIKELY( !fd_txn_account_join( fd_txn_account_new( txn_account, acc, meta, NULL, 0 ), txn_ctx->spad_wksp ) ) ) {
+    if( FD_UNLIKELY( !fd_txn_account_join( fd_txn_account_new( txn_account, acc, meta, 0 ), txn_ctx->spad_wksp ) ) ) {
       FD_LOG_CRIT(( "Failed to join and new a txn account" ));
     }
   }
