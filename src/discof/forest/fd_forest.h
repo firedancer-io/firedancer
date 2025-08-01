@@ -201,7 +201,7 @@ fd_forest_init( fd_forest_t * forest, ulong root );
 /* fd_forest_fini finishes an forest.  Assumes forest is
    a valid local join and no one else is joined. */
 
-void *
+fd_forest_t *
 fd_forest_fini( fd_forest_t * forest );
 
 /* Accessors */

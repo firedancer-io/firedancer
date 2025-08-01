@@ -23,7 +23,7 @@
 #include "../../../disco/metrics/fd_metrics.h"
 #include "../../../util/pod/fd_pod_format.h"
 #include "../../../discof/replay/fd_replay_notif.h"
-#include "../../../discof/repair/fd_fec_chainer.h"
+#include "../../../discof/repair/fd_reasm.h"
 #include "../../../flamenco/runtime/fd_runtime_public.h" /* FD_RUNTIME_PUBLIC_ACCOUNT_UPDATE_MSG_MTU */
 #include "../main.h"
 
@@ -109,7 +109,7 @@ backtest_topo( config_t * config ) {
      batches from the CLI-specified source (eg. RocksDB). */
 
   fd_topob_wksp( topo, "repair_repla" );
-  fd_topob_link( topo, "repair_repla", "repair_repla", 65536UL, sizeof(fd_fec_out_t), 1UL );
+  fd_topob_link( topo, "repair_repla", "repair_repla", 65536UL, sizeof(fd_reasm_fec_t), 1UL );
   fd_topob_tile_in( topo, "replay", 0UL, "metric_in", "repair_repla", 0UL, FD_TOPOB_RELIABLE, FD_TOPOB_POLLED );
   fd_topob_tile_out( topo, "back", 0UL, "repair_repla", 0UL );
 
@@ -155,10 +155,10 @@ backtest_topo( config_t * config ) {
      This allows the replay tile to advance its watermark, and publish
      various data structures.  This is an oversimplified barebones mock
      of the tower tile. */
-  fd_topob_wksp( topo, "tower_replay" );
-  fd_topob_link( topo, "tower_replay", "tower_replay", 128UL, 0UL, 1UL );
-  fd_topob_tile_in( topo, "replay", 0UL, "metric_in", "tower_replay", 0UL, FD_TOPOB_RELIABLE, FD_TOPOB_POLLED );
-  fd_topob_tile_out( topo, "back", 0UL, "tower_replay", 0UL );
+  fd_topob_wksp( topo, "root_out" );
+  fd_topob_link( topo, "root_out", "root_out", 128UL, 0UL, 1UL );
+  fd_topob_tile_in( topo, "replay", 0UL, "metric_in", "root_out", 0UL, FD_TOPOB_RELIABLE, FD_TOPOB_POLLED );
+  fd_topob_tile_out( topo, "back", 0UL, "root_out", 0UL );
 
   /**********************************************************************/
   /* Setup replay->stake/send/poh links in topo w/o consumers         */
