@@ -1574,9 +1574,16 @@ get_free_exec_tiles( fd_replay_tile_ctx_t * ctx, uchar * exec_free_idx ) {
 static void
 exec_slice_fini_slot( fd_replay_tile_ctx_t * ctx, fd_stem_context_t * stem ) {
 
+  ulong curr_slot = fd_bank_slot_get( ctx->slot_ctx->bank );
+
   fd_microblock_hdr_t * hdr = (fd_microblock_hdr_t *)fd_type_pun( ctx->slice_exec_ctx.buf + ctx->slice_exec_ctx.last_mblk_off );
   fd_hash_t * poh = fd_bank_poh_modify( ctx->slot_ctx->bank );
   memcpy( poh, hdr->hash, sizeof(fd_hash_t) );
+
+  block_id_map_t * bid = block_id_map_query( ctx->block_id_map, curr_slot, NULL );
+  FD_TEST( bid ); /* must exist */
+  fd_hash_t * block_id = fd_bank_block_id_modify( ctx->slot_ctx->bank );
+  memcpy( block_id, &bid->block_id, sizeof(fd_hash_t) );
 
   /* Reset ctx for next slot */
   fd_slice_exec_reset( &ctx->slice_exec_ctx );
@@ -1599,7 +1606,6 @@ exec_slice_fini_slot( fd_replay_tile_ctx_t * ctx, fd_stem_context_t * stem ) {
                                           ctx->runtime_spad,
                                           &exec_para_ctx_block_finalize );
 
-  ulong curr_slot = fd_bank_slot_get( ctx->slot_ctx->bank );
 
   ulong block_entry_height = fd_bank_block_height_get( ctx->slot_ctx->bank );
   publish_slot_notifications( ctx, stem, block_entry_height, curr_slot );
