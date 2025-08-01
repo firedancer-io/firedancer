@@ -29,7 +29,7 @@
 
 struct __attribute__((aligned(16))) fd_quic_ack {
   fd_quic_range_t pkt_number;  /* Range of packet numbers being ACKed */
-  ulong           ts;          /* timestamp of highest packet number */
+  long            ts;          /* timestamp of highest packet number */
   uchar           enc_level;   /* in [0,4) */
   /* FIXME enc_level should technically be pn_space instead */
   uchar           _pad[7];
@@ -86,7 +86,7 @@ int
 fd_quic_ack_pkt( fd_quic_ack_gen_t * gen,
                  ulong               pkt_number,
                  uint                enc_level,
-                 ulong               now );
+                 long                now );
 
 #define FD_QUIC_ACK_TX_NOOP   (0)
 #define FD_QUIC_ACK_TX_NEW    (1)
@@ -120,8 +120,7 @@ fd_quic_gen_ack_frames( fd_quic_ack_gen_t * gen,
                         uchar *             payload_ptr,
                         uchar *             payload_end,
                         uint                enc_level,
-                        ulong               tickcount,
-                        float               tick_per_us );
+                        long                now );
 
 FD_PROTOTYPES_END
 

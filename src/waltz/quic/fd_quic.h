@@ -86,6 +86,7 @@
 
 #include "../aio/fd_aio.h"
 #include "../tls/fd_tls.h"
+#include "../../util/clock/fd_clock.h"
 #include "../../util/hist/fd_histf.h"
 
 /* FD_QUIC_API marks public API declarations.  No-op for now. */
@@ -140,13 +141,6 @@ struct fd_quic_layout {
 
 typedef struct fd_quic_layout fd_quic_layout_t;
 
-/* fd_quic_now_t is the clock source used internally by quic for
-   scheduling events.  context is an arbitrary pointer earlier provided
-   by the caller during config. */
-
-typedef ulong
-(*fd_quic_now_t)( void * context );
-
 /* fd_quic_config_t defines mutable config of an fd_quic_t.  The config is
    immutable during an active join. */
 
@@ -159,13 +153,12 @@ struct __attribute__((aligned(16UL))) fd_quic_config {
 #define FD_QUIC_CONFIG_LIST(X,...) \
   X( role,                        "%d",     enum,  "enum",         __VA_ARGS__ ) \
   X( retry,                       "%d",     bool,  "bool",         __VA_ARGS__ ) \
-  X( tick_per_us,                 "%f",     units, "ticks per us", __VA_ARGS__ ) \
-  X( idle_timeout,                "%lu",    units, "ns",           __VA_ARGS__ ) \
+  X( idle_timeout,                "%ld",    units, "ns",           __VA_ARGS__ ) \
   X( keep_alive,                  "%d",     bool,  "bool",         __VA_ARGS__ ) \
-  X( ack_delay,                   "%lu",    units, "ns",           __VA_ARGS__ ) \
+  X( ack_delay,                   "%ld",    units, "ns",           __VA_ARGS__ ) \
   X( ack_threshold,               "%lu",    units, "bytes",        __VA_ARGS__ ) \
-  X( retry_ttl,                   "%lu",    units, "ns",           __VA_ARGS__ ) \
-  X( tls_hs_ttl,                  "%lu",    units, "ns",           __VA_ARGS__ ) \
+  X( retry_ttl,                   "%ld",    units, "ns",           __VA_ARGS__ ) \
+  X( tls_hs_ttl,                  "%ld",    units, "ns",           __VA_ARGS__ ) \
   X( identity_public_key,         "%x",     hex32, "",             __VA_ARGS__ ) \
   X( sign,                        "%p",     ptr,   "",             __VA_ARGS__ ) \
   X( sign_ctx,                    "%p",     ptr,   "",             __VA_ARGS__ ) \
@@ -181,13 +174,10 @@ struct __attribute__((aligned(16UL))) fd_quic_config {
   /* retry: whether address validation using retry packets is enabled (RFC 9000, Section 8.1.2) */
   int retry;
 
-  /* tick_per_us: clock ticks per microsecond */
-  double tick_per_us;
-
   /* idle_timeout: Upper bound on conn idle timeout.
      Also sent to peer via max_idle_timeout transport param.
      If the peer specifies a lower idle timeout, that is used instead. */
-  ulong idle_timeout;
+  long idle_timeout;
 # define FD_QUIC_DEFAULT_IDLE_TIMEOUT (ulong)(1e9) /* 1s */
 
 /* keep_alive
@@ -199,8 +189,8 @@ struct __attribute__((aligned(16UL))) fd_quic_config {
 
   /* ack_delay: median delay on outgoing ACKs.  Greater delays allow
      fd_quic to coalesce packet ACKs. */
-  ulong ack_delay;
-# define FD_QUIC_DEFAULT_ACK_DELAY (ulong)(50e6) /* 50ms */
+  long ack_delay;
+# define FD_QUIC_DEFAULT_ACK_DELAY (long)(50e6) /* 50ms */
 
   /* ack_threshold: immediately send an ACK when the number of
      unacknowledged stream bytes exceeds this value. */
@@ -208,12 +198,12 @@ struct __attribute__((aligned(16UL))) fd_quic_config {
 # define FD_QUIC_DEFAULT_ACK_THRESHOLD (65536UL) /* 64 KiB */
 
   /* retry_ttl: time-to-live for retry tokens */
-  ulong retry_ttl;
-# define FD_QUIC_DEFAULT_RETRY_TTL (ulong)(1e9) /* 1s */
+  long retry_ttl;
+# define FD_QUIC_DEFAULT_RETRY_TTL (long)(1e9) /* 1s */
 
   /* hs_ttl: time-to-live for tls_hs */
-  ulong tls_hs_ttl;
-# define FD_QUIC_DEFAULT_TLS_HS_TTL (ulong)(3e9) /* 3s */
+  long tls_hs_ttl;
+# define FD_QUIC_DEFAULT_TLS_HS_TTL (long)(3e9) /* 3s */
 
   /* TLS config ********************************************/
 
@@ -307,11 +297,6 @@ struct fd_quic_callbacks {
   fd_quic_cb_stream_notify_t           stream_notify;     /* non-NULL, with stream_ctx */
   fd_quic_cb_stream_rx_t               stream_rx;         /* non-NULL, with stream_ctx */
   fd_quic_cb_tls_keylog_t              tls_keylog;        /* nullable, with quic_ctx   */
-
-  /* Clock source */
-
-  fd_quic_now_t now;     /* non-NULL */
-  void *        now_ctx; /* user-provided context pointer for now_fn calls */
 
 };
 typedef struct fd_quic_callbacks fd_quic_callbacks_t;
@@ -489,20 +474,6 @@ FD_QUIC_API void
 fd_quic_set_aio_net_tx( fd_quic_t *      quic,
                         fd_aio_t const * aio_tx );
 
-/* fd_quic_set_clock sets the clock source.  Converts all timing values
-   in the config to the new time scale. */
-
-FD_QUIC_API void
-fd_quic_set_clock( fd_quic_t *   quic,
-                   fd_quic_now_t now_fn,
-                   void *        now_ctx,
-                   double        tick_per_us );
-
-/* fd_quic_set_clock_tickcount sets fd_tickcount as the clock source. */
-
-FD_QUIC_API void
-fd_quic_set_clock_tickcount( fd_quic_t * quic );
-
 /* Initialization *****************************************************/
 
 /* fd_quic_init initializes the QUIC such that it is ready to serve.
@@ -546,7 +517,8 @@ fd_quic_connect( fd_quic_t *  quic,  /* requires exclusive access */
                  uint         dst_ip_addr,
                  ushort       dst_udp_port,
                  uint         src_ip_addr,
-                 ushort       src_udp_port );
+                 ushort       src_udp_port,
+                 long         now );
 
 /* fd_quic_conn_close asynchronously initiates a shutdown of the conn.
    The given reason code is returned to the peer via a CONNECTION_CLOSE
@@ -558,7 +530,7 @@ fd_quic_conn_close( fd_quic_conn_t * conn,
                     uint             reason );
 
 /* fd_quic_conn_let_die stops keeping a conn alive after
-   'keep_alive_duration_ticks'. No-op if keep-alive is not configured.
+   'keep_alive_duration_ns'. No-op if keep-alive is not configured.
    Safe to call on a connection in any state.
 
    If called multiple times on the same connection, only the latest
@@ -572,14 +544,14 @@ fd_quic_conn_close( fd_quic_conn_t * conn,
 
 FD_QUIC_API void
 fd_quic_conn_let_die( fd_quic_conn_t * conn,
-                      ulong            keep_alive_duration_ticks );
+                      long             keep_alive_duration_ns );
 
 /* Service API ********************************************************/
 
 /* fd_quic_get_next_wakeup returns the next requested service time.
    This is only intended for unit tests. */
 
-FD_QUIC_API ulong
+FD_QUIC_API long
 fd_quic_get_next_wakeup( fd_quic_t * quic );
 
 /* fd_quic_service services the next QUIC connection at each service
@@ -589,7 +561,8 @@ fd_quic_get_next_wakeup( fd_quic_t * quic );
    did no work. */
 
 FD_QUIC_API int
-fd_quic_service( fd_quic_t * quic );
+fd_quic_service( fd_quic_t * quic,
+                 long        now );
 
 /* fd_quic_svc_validate checks for violations of service queue and free
    list invariants, such as cycles in linked lists.  Prints to warning/
@@ -649,7 +622,9 @@ fd_quic_stream_fin( fd_quic_stream_t * stream );
 FD_QUIC_API void
 fd_quic_process_packet( fd_quic_t * quic,
                         uchar *     data,
-                        ulong       data_sz );
+                        ulong       data_sz,
+                        long        now );
+
 
 uint
 fd_quic_tx_buffered_raw( fd_quic_t * quic,
