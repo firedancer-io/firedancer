@@ -7,6 +7,7 @@
 
 #include "../../flamenco/repair/fd_repair.h"
 #include "../../flamenco/leaders/fd_leaders_base.h"
+#include "../../flamenco/gossip/fd_gossip_update_msg.h"
 #include "../../disco/fd_disco.h"
 #include "../../disco/keyguard/fd_keyload.h"
 #include "../../disco/keyguard/fd_keyguard_client.h"
@@ -20,7 +21,7 @@
 #include "fd_fec_chainer.h"
 
 #define IN_KIND_NET     (0)
-#define IN_KIND_CONTACT (1)
+#define IN_KIND_GOSSIP  (1)
 #define IN_KIND_STAKE   (2)
 #define IN_KIND_SHRED   (3)
 #define IN_KIND_SIGN    (4)
@@ -89,8 +90,8 @@ struct fd_repair_tile_ctx {
 
   ulong repair_seed;
 
-  fd_repair_peer_addr_t repair_intake_addr;
-  fd_repair_peer_addr_t repair_serve_addr;
+  fd_ip4_port_t repair_intake_addr;
+  fd_ip4_port_t repair_serve_addr;
 
   ushort                repair_intake_listen_port;
   ushort                repair_serve_listen_port;
@@ -220,38 +221,28 @@ send_packet( fd_repair_tile_ctx_t * ctx,
 }
 
 static inline void
-handle_new_cluster_contact_info( fd_repair_tile_ctx_t * ctx,
-                                 uchar const *          buf,
-                                 ulong                  buf_sz ) {
-  fd_shred_dest_wire_t const * in_dests = (fd_shred_dest_wire_t const *)fd_type_pun_const( buf );
-
-  ulong dest_cnt = buf_sz;
-  if( FD_UNLIKELY( dest_cnt >= MAX_REPAIR_PEERS ) ) {
-    FD_LOG_WARNING(( "Cluster nodes had %lu destinations, which was more than the max of %lu", dest_cnt, MAX_REPAIR_PEERS ));
-    return;
+handle_contact_info_update( fd_repair_tile_ctx_t *             ctx,
+                            fd_gossip_update_message_t const * msg ) {
+  fd_ip4_port_t repair_peer = fd_contact_info_get_socket( msg->contact_info.contact_info, FD_CONTACT_INFO_SOCKET_SERVE_REPAIR );
+  if( FD_UNLIKELY( !repair_peer.addr || !repair_peer.port ) ) return;
+  int dup = fd_repair_add_active_peer( ctx->repair, &repair_peer, (fd_pubkey_t *) msg->origin_pubkey );
+  if( !dup ) {
+    ulong hash_src = 0xfffffUL & fd_ulong_hash( (ulong)repair_peer.addr | ((ulong)repair_peer.port<<32) );
+    FD_LOG_INFO(( "Added repair peer: pubkey %s hash_src %lu", FD_BASE58_ENC_32_ALLOCA( msg->origin_pubkey ), hash_src ));
   }
+}
 
-  /* Stop adding peers after we reach the peer max, but we may want to
-     consider an eviction policy. */
-  for( ulong i=0UL; i<dest_cnt; i++ ) {
-   if( FD_UNLIKELY( ctx->repair->peer_cnt >= FD_ACTIVE_KEY_MAX ) ) break;// FIXME: aiming to move all peer tracking out of lib into tile, leaving like this for now
-    fd_repair_peer_addr_t repair_peer = {
-      .addr = in_dests[i].ip4_addr,
-      .port = fd_ushort_bswap( in_dests[i].udp_port ),
-    };
-    int dup = fd_repair_add_active_peer( ctx->repair, &repair_peer, in_dests[i].pubkey );
-    if( !dup ) {
-      ulong hash_src = 0xfffffUL & fd_ulong_hash( (ulong)in_dests[i].ip4_addr | ((ulong)repair_peer.port<<32) );
-      FD_LOG_INFO(( "Added repair peer: pubkey %s hash_src %lu", FD_BASE58_ENC_32_ALLOCA(in_dests[i].pubkey), hash_src ));
-    }
-  }
+static inline void
+handle_contact_info_remove( fd_repair_tile_ctx_t * ctx             FD_PARAM_UNUSED,
+                            fd_gossip_update_message_t const * msg FD_PARAM_UNUSED ) {
+  /* TODO: implement me */
 }
 
 ulong
 fd_repair_handle_ping( fd_repair_tile_ctx_t *  repair_tile_ctx,
                        fd_repair_t *                 glob,
                        fd_gossip_ping_t const *      ping,
-                       fd_gossip_peer_addr_t const * peer_addr FD_PARAM_UNUSED,
+                       fd_ip4_port_t const *         peer_addr FD_PARAM_UNUSED,
                        uint                          self_ip4_addr FD_PARAM_UNUSED,
                        uchar *                       msg_buf,
                        ulong                         msg_buf_sz ) {
@@ -282,13 +273,13 @@ fd_repair_handle_ping( fd_repair_tile_ctx_t *  repair_tile_ctx,
 
 /* Pass a raw client response packet into the protocol. addr is the address of the sender */
 static int
-fd_repair_recv_clnt_packet( fd_repair_tile_ctx_t *        repair_tile_ctx,
-                            fd_stem_context_t *           stem,
-                            fd_repair_t *                 glob,
-                            uchar const *                 msg,
-                            ulong                         msglen,
-                            fd_repair_peer_addr_t const * src_addr,
-                            uint                          dst_ip4_addr ) {
+fd_repair_recv_clnt_packet( fd_repair_tile_ctx_t *repair_tile_ctx,
+                            fd_stem_context_t *   stem,
+                            fd_repair_t *         glob,
+                            uchar const *         msg,
+                            ulong                 msglen,
+                            fd_ip4_port_t const * src_addr,
+                            uint                  dst_ip4_addr ) {
   glob->metrics.recv_clnt_pkt++;
 
   FD_SCRATCH_SCOPE_BEGIN {
@@ -325,7 +316,7 @@ fd_repair_recv_clnt_packet( fd_repair_tile_ctx_t *        repair_tile_ctx,
 static ulong
 fd_repair_sign_and_send( fd_repair_tile_ctx_t *  repair_tile_ctx,
                          fd_repair_protocol_t *  protocol,
-                         fd_gossip_peer_addr_t * addr FD_PARAM_UNUSED,
+                         fd_ip4_port_t *         addr FD_PARAM_UNUSED,
                          uchar                 * buf,
                          ulong                   buflen ) {
 
@@ -422,6 +413,10 @@ before_frag( fd_repair_tile_ctx_t * ctx,
              ulong                  sig ) {
   uint in_kind = ctx->in_kind[ in_idx ];
   if( FD_LIKELY( in_kind==IN_KIND_NET ) ) return fd_disco_netmux_sig_proto( sig )!=DST_PROTO_REPAIR;
+  if( FD_UNLIKELY( in_kind==IN_KIND_GOSSIP ) ) {
+    return fd_gossip_update_message_sig_tag( sig )!=FD_GOSSIP_UPDATE_TAG_CONTACT_INFO &&
+           fd_gossip_update_message_sig_tag( sig )!=FD_GOSSIP_UPDATE_TAG_CONTACT_INFO_REMOVE;
+  }
   return 0;
 }
 
@@ -445,12 +440,12 @@ during_frag( fd_repair_tile_ctx_t * ctx,
     dcache_entry = fd_net_rx_translate_frag( &in_ctx->net_rx, chunk, ctl, sz );
     dcache_entry_sz = sz;
 
-  } else if( FD_UNLIKELY( in_kind==IN_KIND_CONTACT ) ) {
+  } else if( FD_UNLIKELY( in_kind==IN_KIND_GOSSIP || in_kind==IN_KIND_SHRED ) ) {
     if( FD_UNLIKELY( chunk<in_ctx->chunk0 || chunk>in_ctx->wmark ) ) {
       FD_LOG_ERR(( "chunk %lu %lu corrupt, not in range [%lu,%lu]", chunk, sz, in_ctx->chunk0, in_ctx->wmark ));
     }
     dcache_entry = fd_chunk_to_laddr_const( in_ctx->mem, chunk );
-    dcache_entry_sz = sz * sizeof(fd_shred_dest_wire_t);
+    dcache_entry_sz = sz;
 
   } else if( FD_UNLIKELY( in_kind==IN_KIND_STAKE ) ) {
     if( FD_UNLIKELY( chunk<in_ctx->chunk0 || chunk>in_ctx->wmark ) ) {
@@ -460,14 +455,6 @@ during_frag( fd_repair_tile_ctx_t * ctx,
     fd_stake_weight_msg_t const * msg = fd_type_pun_const( dcache_entry );
     fd_repair_set_stake_weights_init( ctx->repair,  msg->weights, msg->staked_cnt );
     return;
-
-  } else if( FD_LIKELY( in_kind==IN_KIND_SHRED ) ) {
-    if( FD_UNLIKELY( chunk<in_ctx->chunk0 || chunk>in_ctx->wmark ) ) {
-      FD_LOG_ERR(( "chunk %lu %lu corrupt, not in range [%lu,%lu]", chunk, sz, in_ctx->chunk0, in_ctx->wmark ));
-    }
-    dcache_entry = fd_chunk_to_laddr_const( in_ctx->mem, chunk );
-    dcache_entry_sz = sz;
-
   } else {
     FD_LOG_ERR(( "Frag from unknown link (kind=%u in_idx=%lu)", in_kind, in_idx ));
   }
@@ -488,8 +475,14 @@ after_frag( fd_repair_tile_ctx_t * ctx,
   if( FD_UNLIKELY( ctx->skip_frag ) ) return;
 
   uint in_kind = ctx->in_kind[ in_idx ];
-  if( FD_UNLIKELY( in_kind==IN_KIND_CONTACT ) ) {
-    handle_new_cluster_contact_info( ctx, ctx->buffer, sz );
+  if( FD_UNLIKELY( in_kind==IN_KIND_GOSSIP ) ) {
+    fd_gossip_update_message_t const * msg = (fd_gossip_update_message_t const *)fd_type_pun_const( ctx->buffer );
+    if( FD_LIKELY( fd_gossip_update_message_sig_tag( sig )==FD_GOSSIP_UPDATE_TAG_CONTACT_INFO ) ){
+      handle_contact_info_update( ctx, msg );
+    } else {
+      /* TODO: this needs to be implemented */
+      handle_contact_info_remove( ctx, msg );
+    }
     return;
   }
 
@@ -627,7 +620,7 @@ after_frag( fd_repair_tile_ctx_t * ctx,
   ulong data_sz = udp_sz-sizeof(fd_udp_hdr_t);
   if( FD_UNLIKELY( (ulong)data+data_sz > (ulong)eth+sz ) ) return;
 
-  fd_gossip_peer_addr_t peer_addr = { .addr=ip4->saddr, .port=udp->net_sport };
+  fd_ip4_port_t peer_addr = { .addr=ip4->saddr, .port=udp->net_sport };
   ushort dport = udp->net_dport;
   if( ctx->repair_intake_addr.port == dport ) {
     fd_repair_recv_clnt_packet( ctx, stem, ctx->repair, data, data_sz, &peer_addr, ip4->daddr );
@@ -849,8 +842,8 @@ unprivileged_init( fd_topo_t *      topo,
       ctx->in_kind[ in_idx ] = IN_KIND_NET;
       fd_net_rx_bounds_init( &ctx->in_links[ in_idx ].net_rx, link->dcache );
       continue;
-    } else if( 0==strcmp( link->name, "gossip_repai" ) ) {
-      ctx->in_kind[ in_idx ] = IN_KIND_CONTACT;
+    } else if( 0==strcmp( link->name, "gossip_out" ) ) {
+      ctx->in_kind[ in_idx ] = IN_KIND_GOSSIP;
     } else if( 0==strcmp( link->name, "stake_out" ) ) {
       ctx->in_kind[ in_idx ] = IN_KIND_STAKE;
     } else if( 0==strcmp( link->name, "shred_repair" ) ) {
