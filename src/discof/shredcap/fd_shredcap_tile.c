@@ -6,6 +6,8 @@
 #include "../../util/pod/fd_pod_format.h"
 #include "../../disco/fd_disco.h"
 #include "../../discof/fd_discof.h"
+#include "../../discof/restore/utils/fd_ssmsg.h"
+#include "../../discof/restore/utils/fd_ssmanifest_parser.h"
 #include "../../flamenco/stakes/fd_stakes.h"
 #include "../../flamenco/runtime/sysvar/fd_sysvar_epoch_schedule.h"
 #include "../../disco/fd_disco.h"
@@ -225,69 +227,72 @@ scratch_footprint( fd_topo_tile_t const * tile ) {
   return FD_LAYOUT_FINI( l, scratch_align() );
 }
 
-static inline ulong
-generate_stake_weight_msg( fd_exec_slot_ctx_t * slot_ctx,
-                           fd_spad_t          * runtime_spad,
-                           ulong                epoch,
-                           fd_vote_accounts_global_t const * vote_accounts,
-                           ulong              * stake_weight_msg_out ) {
+ulong
+fd_stake_weights_by_node_custom( fd_snapshot_manifest_epoch_stakes_t const * epoch_stakes,
+                                 fd_vote_stake_weight_t *                    weights ) {
 
-  fd_stake_weight_msg_t *           stake_weight_msg = (fd_stake_weight_msg_t *)fd_type_pun( stake_weight_msg_out );
-  fd_vote_stake_weight_t *          stake_weights    = stake_weight_msg->weights;
-  ulong                             stake_weight_idx = fd_stake_weights_by_node( vote_accounts,
-                                                                           stake_weights,
-                                                                           runtime_spad );
-  fd_epoch_schedule_t const * epoch_schedule = fd_bank_epoch_schedule_query( slot_ctx->bank );
-
-  stake_weight_msg->epoch          = epoch;
-  stake_weight_msg->staked_cnt     = stake_weight_idx;
-  stake_weight_msg->start_slot     = fd_epoch_slot0( epoch_schedule, stake_weight_msg_out[0] );
-  stake_weight_msg->slot_cnt       = epoch_schedule->slots_per_epoch;
-  stake_weight_msg->excluded_stake = 0UL;
-
-  return 5*sizeof(ulong) + (stake_weight_idx * sizeof(fd_stake_weight_t));
+  for( ulong i=0UL; i<epoch_stakes->vote_stakes_len; i++ ) {
+    weights[ i ].stake = epoch_stakes->vote_stakes[ i ].stake;
+    memcpy( weights[ i ].id_key.uc, epoch_stakes->vote_stakes[ i ].identity, sizeof(fd_pubkey_t) );
+    memcpy( weights[ i ].vote_key.uc, epoch_stakes->vote_stakes[ i ].vote, sizeof(fd_pubkey_t) );
+  }
+  sort_vote_weights_by_stake_vote_inplace( weights, epoch_stakes->vote_stakes_len);
+  return epoch_stakes->vote_stakes_len;
 }
 
+static inline ulong
+generate_stake_weight_msg( ulong                                       epoch,
+                           fd_epoch_schedule_t const *                 epoch_schedule,
+                           fd_snapshot_manifest_epoch_stakes_t const * epoch_stakes,
+                           ulong *                                     stake_weight_msg_out ) {
+
+  fd_stake_weight_msg_t *  stake_weight_msg = (fd_stake_weight_msg_t *)fd_type_pun( stake_weight_msg_out );
+  fd_vote_stake_weight_t * stake_weights    = stake_weight_msg->weights;
+  ulong stake_weight_idx = fd_stake_weights_by_node_custom( epoch_stakes, stake_weights );
+
+  stake_weight_msg->epoch             = epoch;
+  stake_weight_msg->staked_cnt        = stake_weight_idx;
+  stake_weight_msg->start_slot        = fd_epoch_slot0( epoch_schedule, epoch );
+  stake_weight_msg->slot_cnt          = epoch_schedule->slots_per_epoch;
+  stake_weight_msg->excluded_stake    = 0UL;
+  stake_weight_msg->vote_keyed_lsched = 0UL;
+
+  return fd_stake_weight_msg_sz( epoch_stakes->vote_stakes_len );
+}
 static void
 publish_stake_weights( fd_capture_tile_ctx_t * ctx,
                        fd_stem_context_t *    stem,
-                       fd_solana_manifest_global_t const * manifest ) {
+                       fd_snapshot_manifest_t const * manifest ) {
   FD_SPAD_FRAME_BEGIN( ctx->shared_spad ) {
 
-    /* Process the manifest. */
-    ulong epoch                   = manifest->bank.stakes.epoch;
-    fd_exec_slot_ctx_t * slot_ctx = ctx->manifest_exec_slot_ctx;
-    fd_exec_slot_ctx_t * ret      = fd_exec_slot_ctx_recover( slot_ctx, manifest );
-    FD_TEST( ret==slot_ctx );
+    /* Process the schedule from manifest. */
+    fd_epoch_schedule_t schedule[1];
+    schedule[0].slots_per_epoch             = manifest->epoch_schedule_params.slots_per_epoch;
+    schedule[0].leader_schedule_slot_offset = manifest->epoch_schedule_params.leader_schedule_slot_offset;
+    schedule[0].warmup                      = manifest->epoch_schedule_params.warmup;
+    schedule[0].first_normal_epoch          = manifest->epoch_schedule_params.first_normal_epoch;
+    schedule[0].first_normal_slot           = manifest->epoch_schedule_params.first_normal_slot;
+    ulong epoch = fd_slot_to_epoch( schedule, manifest->slot, NULL );
 
-    /* Publish current epoch. */
-    fd_vote_accounts_global_t const * vote_accounts = fd_bank_epoch_stakes_locking_query( slot_ctx->bank );
-    fd_vote_accounts_pair_global_t_mapnode_t * epoch_stakes_root = fd_vote_accounts_vote_accounts_root_join( vote_accounts );
-
-    if( epoch_stakes_root!=NULL ) {
+    /* current epoch */
+    if( 1 ) {
       ulong * stake_weights_msg = fd_chunk_to_laddr( ctx->stake_out->mem, ctx->stake_out->chunk );
-      ulong stake_weights_sz = generate_stake_weight_msg( slot_ctx, ctx->shared_spad, epoch, vote_accounts, stake_weights_msg );
+      ulong stake_weights_sz = generate_stake_weight_msg( epoch, schedule, &manifest->epoch_stakes[0], stake_weights_msg );
       ulong stake_weights_sig = 4UL;
       fd_stem_publish( stem, 0UL, stake_weights_sig, ctx->stake_out->chunk, stake_weights_sz, 0UL, 0UL, fd_frag_meta_ts_comp( fd_tickcount() ) );
       ctx->stake_out->chunk = fd_dcache_compact_next( ctx->stake_out->chunk, stake_weights_sz, ctx->stake_out->chunk0, ctx->stake_out->wmark );
       FD_LOG_NOTICE(("sending current epoch stake weights - epoch: %lu, stake_weight_cnt: %lu, start_slot: %lu, slot_cnt: %lu", stake_weights_msg[0], stake_weights_msg[1], stake_weights_msg[2], stake_weights_msg[3]));
     }
 
-    fd_bank_epoch_stakes_end_locking_query( slot_ctx->bank );
-
-    /* Publish next epoch. */
-    fd_vote_accounts_global_t const * next_vote_accounts = fd_bank_next_epoch_stakes_locking_query( slot_ctx->bank );
-    fd_vote_accounts_pair_global_t_mapnode_t * next_epoch_stakes_root = fd_vote_accounts_vote_accounts_root_join( next_vote_accounts );
-
-    if( next_epoch_stakes_root!=NULL ) {
+    /* next current epoch */
+    if( 1 ) {
       ulong * stake_weights_msg = fd_chunk_to_laddr( ctx->stake_out->mem, ctx->stake_out->chunk );
-      ulong stake_weights_sz = generate_stake_weight_msg( slot_ctx, ctx->shared_spad, epoch + 1, next_vote_accounts, stake_weights_msg );
+      ulong stake_weights_sz = generate_stake_weight_msg( epoch + 1, schedule, &manifest->epoch_stakes[1], stake_weights_msg );
       ulong stake_weights_sig = 4UL;
       fd_stem_publish( stem, 0UL, stake_weights_sig, ctx->stake_out->chunk, stake_weights_sz, 0UL, 0UL, fd_frag_meta_ts_comp( fd_tickcount() ) );
       ctx->stake_out->chunk = fd_dcache_compact_next( ctx->stake_out->chunk, stake_weights_sz, ctx->stake_out->chunk0, ctx->stake_out->wmark );
       FD_LOG_NOTICE(("sending next epoch stake weights - epoch: %lu, stake_weight_cnt: %lu, start_slot: %lu, slot_cnt: %lu", stake_weights_msg[0], stake_weights_msg[1], stake_weights_msg[2], stake_weights_msg[3]));
     }
-    fd_bank_next_epoch_stakes_end_locking_query( slot_ctx->bank );
 
   } FD_SPAD_FRAME_END;
 }
@@ -446,7 +451,6 @@ after_credit( fd_capture_tile_ctx_t * ctx,
     if( FD_LIKELY( !!strcmp( ctx->manifest_path, "") ) ) {
       /* ctx->manifest_spad will hold the processed manifest. */
       fd_spad_reset( ctx->manifest_spad );
-      fd_spad_push( ctx->manifest_spad );
       /* do not pop from ctx->manifest_spad, the manifest needs
          to remain available until a new manifest is processed. */
 
@@ -457,26 +461,29 @@ after_credit( fd_capture_tile_ctx_t * ctx,
       }
       FD_LOG_NOTICE(( "manifest %s.", ctx->manifest_path ));
 
-      fd_solana_manifest_global_t * manifest = NULL;
-      int err = 0;
-      FD_SPAD_FRAME_BEGIN( ctx->shared_spad ) {
-        /* alloc_max is slightly less than manifest_load_footprint(). */
-        uchar * buf       = fd_spad_alloc( ctx->shared_spad, manifest_load_align(), manifest_load_footprint() );
-        ulong   buf_sz    = 0;
-        FD_TEST( !fd_io_read( fd, buf/*dst*/, 0/*dst_min*/, manifest_load_footprint()-1UL /*dst_max*/, &buf_sz ) );
-        manifest = fd_bincode_decode_spad_global( solana_manifest, ctx->manifest_spad, buf, buf_sz, &err );
+      fd_snapshot_manifest_t * manifest = NULL;
+      FD_SPAD_FRAME_BEGIN( ctx->manifest_spad ) {
+        manifest = fd_spad_alloc( ctx->manifest_spad, alignof(fd_snapshot_manifest_t), sizeof(fd_snapshot_manifest_t) );
       } FD_SPAD_FRAME_END;
+      FD_TEST( manifest );
 
-      if( FD_UNLIKELY( err ) ) {
-        FD_LOG_WARNING(( "fd_solana_manifest_decode failed (%d)", err ));
-        return;
-      }
-      FD_LOG_NOTICE(( "manifest bank slot %lu", manifest->bank.slot ));
+      FD_SPAD_FRAME_BEGIN( ctx->shared_spad ) {
+        uchar * buf    = fd_spad_alloc( ctx->shared_spad, manifest_load_align(), manifest_load_footprint() );
+        ulong   buf_sz = 0;
+        FD_TEST( !fd_io_read( fd, buf/*dst*/, 0/*dst_min*/, manifest_load_footprint()-1UL /*dst_max*/, &buf_sz ) );
 
-      fd_fseq_update( ctx->manifest_wmark, manifest->bank.slot /*root_slot*/ );
+        fd_ssmanifest_parser_t * parser = fd_ssmanifest_parser_join( fd_ssmanifest_parser_new( aligned_alloc(
+                fd_ssmanifest_parser_align(), fd_ssmanifest_parser_footprint( 1UL<<24UL ) ), 1UL<<24UL, 42UL ) );
+        FD_TEST( parser );
+        fd_ssmanifest_parser_init( parser, manifest );
+        int parser_err = fd_ssmanifest_parser_consume( parser, buf, buf_sz );
+        if( FD_UNLIKELY( parser_err ) ) FD_LOG_ERR(( "fd_ssmanifest_parser_consume failed (%d)", parser_err ));
+      } FD_SPAD_FRAME_END;
+      FD_LOG_NOTICE(( "manifest bank slot %lu", manifest->slot ));
+
+      fd_fseq_update( ctx->manifest_wmark, manifest->slot );
 
       publish_stake_weights( ctx, stem, manifest );
-
       //*charge_busy = 0;
     }
     /* No need to strcmp every time after_credit is called. */

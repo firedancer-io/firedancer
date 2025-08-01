@@ -222,6 +222,11 @@ struct fd_vote_stake_weight {
 };
 typedef struct fd_vote_stake_weight fd_vote_stake_weight_t;
 
+#define SORT_NAME sort_vote_weights_by_stake_vote
+#define SORT_KEY_T fd_vote_stake_weight_t
+#define SORT_BEFORE(a,b) ((a).stake > (b).stake ? 1 : ((a).stake < (b).stake ? 0 : memcmp( (a).vote_key.uc, (b).vote_key.uc, 32UL )>0))
+#include "../../util/tmpl/fd_sort.c"
+
 struct fd_stake_weight {
   fd_pubkey_t key;      /* validator identity pubkey */
   ulong       stake;    /* total stake by identity */
