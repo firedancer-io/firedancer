@@ -182,6 +182,14 @@ dump_connection( fd_quic_conn_t * conn ) {
         ));
 }
 
+static fd_quic_conn_t *
+fd_quic_trace_conn_at_idx( fd_quic_t const * quic, ulong idx, ulong quic_raddr ) {
+  fd_quic_state_t const * state = fd_quic_get_state( quic );
+  ulong const conn_base_off = state->conn_base - quic_raddr;
+  ulong const local_conn_base = (ulong)quic + conn_base_off;
+  return (fd_quic_conn_t *)( local_conn_base + idx * state->conn_sz );
+}
+
 void
 quic_trace_cmd_fn( args_t *   args,
                    config_t * config ) {
@@ -284,9 +292,8 @@ quic_trace_cmd_fn( args_t *   args,
   ulong state_cap = sizeof( state_cnt) / sizeof( state_cnt[0] );
 #undef _
 
-  fd_quic_state_t * quic_state = fd_quic_get_state( quic );
   for( ulong j = 0; j < conn_cnt; ++j ) {
-    fd_quic_conn_t * conn = fd_quic_conn_at_idx( quic_state, j );
+    fd_quic_conn_t * conn = fd_quic_trace_conn_at_idx( quic, j, quic_raddr );
     ulong state = conn->state;
     ulong *state_bucket = state < state_cap ? &state_cnt[state] : &state_unknown;
 
