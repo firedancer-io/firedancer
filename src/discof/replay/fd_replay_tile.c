@@ -774,26 +774,20 @@ init_after_snapshot( fd_replay_tile_ctx_t * ctx,
     FD_LOG_CRIT(( "Failed to initialize snapshot fork" ));
   }
 
-  fd_stakes_global_t const *        stakes        = fd_bank_stakes_locking_query( ctx->slot_ctx->bank );
-  fd_vote_accounts_global_t const * vote_accounts = &stakes->vote_accounts;
-
-  fd_vote_accounts_pair_global_t_mapnode_t * vote_accounts_pool = fd_vote_accounts_vote_accounts_pool_join( vote_accounts );
-  fd_vote_accounts_pair_global_t_mapnode_t * vote_accounts_root = fd_vote_accounts_vote_accounts_root_join( vote_accounts );
-
-  /* Send to tower tile */
+  fd_stakes_slim_t const * stakes = fd_bank_stakes_locking_query( ctx->slot_ctx->bank );
+  fd_stake_account_slim_t const * stakes_pool = fd_stakes_slim_join_pool_const( stakes );
 
   if( FD_LIKELY( ctx->tower_out_idx!=ULONG_MAX ) ) {
     uchar * chunk_laddr = fd_chunk_to_laddr( ctx->tower_out_mem, ctx->tower_out_chunk );
     ulong   off         = 0;
-    for( fd_vote_accounts_pair_global_t_mapnode_t * curr = fd_vote_accounts_pair_global_t_map_minimum( vote_accounts_pool, vote_accounts_root );
-        curr;
-        curr = fd_vote_accounts_pair_global_t_map_successor( vote_accounts_pool, curr ) ) {
-
-      if( FD_UNLIKELY( curr->elem.stake > 0UL ) ) {
-        memcpy( chunk_laddr + off, &curr->elem.key, sizeof(fd_pubkey_t) );
+    for( fd_stakes_slim_iter_t iter = fd_stakes_slim_iter_init( stakes, stakes_pool );
+         !fd_stakes_slim_iter_done( iter, stakes, stakes_pool );
+         iter = fd_stakes_slim_iter_next( iter, stakes, stakes_pool ) ) {
+      fd_stake_account_slim_t const * stake_account = fd_stakes_slim_iter_ele_const( iter, stakes, stakes_pool );
+      if( FD_UNLIKELY( stake_account->delegation.stake > 0UL ) ) {
+        memcpy( chunk_laddr + off, &stake_account->key, sizeof(fd_pubkey_t) );
         off += sizeof(fd_pubkey_t);
-
-        memcpy( chunk_laddr + off, &curr->elem.stake, sizeof(ulong) );
+        memcpy( chunk_laddr + off, &stake_account->delegation.stake, sizeof(ulong) );
         off += sizeof(ulong);
       }
     }
@@ -801,10 +795,11 @@ init_after_snapshot( fd_replay_tile_ctx_t * ctx,
   }
 
   fd_bank_hash_cmp_t * bank_hash_cmp = ctx->bank_hash_cmp;
-  for( fd_vote_accounts_pair_global_t_mapnode_t * curr = fd_vote_accounts_pair_global_t_map_minimum( vote_accounts_pool, vote_accounts_root );
-       curr;
-       curr = fd_vote_accounts_pair_global_t_map_successor( vote_accounts_pool, curr ) ) {
-    bank_hash_cmp->total_stake += curr->elem.stake;
+  for( fd_stakes_slim_iter_t iter = fd_stakes_slim_iter_init( stakes, stakes_pool );
+       !fd_stakes_slim_iter_done( iter, stakes, stakes_pool );
+       iter = fd_stakes_slim_iter_next( iter, stakes, stakes_pool ) ) {
+    fd_stake_account_slim_t const * stake_account = fd_stakes_slim_iter_ele_const( iter, stakes, stakes_pool );
+    bank_hash_cmp->total_stake += stake_account->delegation.stake;
   }
   bank_hash_cmp->watermark = snapshot_slot;
 
