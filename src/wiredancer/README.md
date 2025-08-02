@@ -3,6 +3,7 @@ This directory includes all resources to build and use Wiredancer functionalitie
 
 ## Supported Platforms ##
 * AWS-F1 series
+* AWS-F2 series
 
 ## Available Functions ##
 * SigVerify
@@ -18,51 +19,55 @@ WD adopts an asynchronous API.  In fact WD uses the same Tango mcache mechanism 
 - `wd_free_pci(wd_wksp_t*)`
   - Frees PCIe resources.
 
+# Suggestion from our friends at ABK: Running WD Demo using Pulumi #
 
+To quickly run the Wiredancer Demo without manually building and running everything from scratch, use ABK Lab's Pulumi project. It will provision an AWS F2 instance, install all required dependencies, and launch the demo application.
 
+You can either provide your own AFGI ID or use the one included in the project.
 
+[svmkit-examples-wiredancer](https://github.com/abklabs/svmkit-examples-wiredancer)
 
-
-
-
-
-
-
-
-
-
-#  #
 # Building WD #
 
-## AWS-F1 Series ##
-
-+ To build for AWS-F1 series EC2 instances, you need an EC2 build machine.  Detailes to provision such instance are provided in [AWS-FPGA github page](https://github.com/aws/aws-fpga).
++ To build for AWS-F1 or AWS-F2 series EC2 instances, you need an EC2 build machine.  Details to provision such instance are provided in [AWS-FPGA github page](https://github.com/aws/aws-fpga).
 
 + Inside the build machine, clone AWS-FPGA git repo
   - `git clone https://github.com/aws/aws-fpga`
-
-- Follow the repo's instructions to build `<AWS-FPGA>/hdk/cl/examples/cl_dram_dma`
-
-+ Copy all files from `<FD>/wiredancer/platforms/f1/build` directory into `<AWS-FPGA>/hdk/cl/examples/cl_dram_dma` replacing existing files.
-
-+ Rebuild `<AWS-FPGA>/hdk/cl/examples/cl_dram_dma` with the same instructions from AWS repo as before.
-
-
-#  #
-# Running WD #
+  -  for AWS-F2 series, you also need to checkout the `f2` branch
 
 ## AWS-F1 Series ##
 
-+ To run FD with WD support, you need an EC2 F1 machine.
+- Follow the repo's instructions to build `<AWS-FPGA>/hdk/cl/examples/cl_dram_dma`
++ Copy all files from `<FD>/src/wiredancer/platforms/f1/design` directory into `<AWS-FPGA>/hdk/cl/examples/cl_dram_dma/design` replacing existing files.
++ Copy all files from `<FD>/src/wiredancer/rtl` directory into `<AWS-FPGA>/hdk/cl/examples/cl_dram_dma/design` replacing existing files.
++ Rebuild `<AWS-FPGA>/hdk/cl/examples/cl_dram_dma` with the same instructions from AWS repo as before.
+
+## AWS-F2 Series ##
+
+- Follow the repo's instructions to create a new cl example`<AWS-FPGA>/hdk/cl/examples/cl_wiredancer`
++ Copy all files from `<FD>/src/wiredancer/platforms/f2/design` directory into `<AWS-FPGA>/hdk/cl/examples/cl_wiredancer/design` replacing existing files.
++ Copy all files from `<FD>/src/wiredancer/rtl` directory into `<AWS-FPGA>/hdk/cl/examples/cl_wiredancer/design` replacing existing files.
++ Rebuild `<AWS-FPGA>/hdk/cl/examples/cl_wiredancer` with the same instructions from AWS repo as before.
+
+## Generate Bitstream ##
+
++ Follow the repo's instructions to generate the bitstream from the dcp file and get an AGFI for the cl example you just built.
+
+# Running WD #
+
+## AWS-F1 and AWS-F2 Series ##
+
++ To run FD with WD support, you need an EC2 F1 or F2 machine.
 
 + Inside the machine, clone AWS-FPGA git repo
   - `git clone https://github.com/aws/aws-fpga`
+  -  for AWS-F2 series, you also need to checkout the `f2` branch
 
 + Install the SDK inside the repo:
   - `source $AWS-FPGA/sdk_setup.sh`
 
 + Load WD image on FPGA slot-0
-  - `sudo fpga-load-local-image -S 0 -I agfi-01051ff14d1bba4e0`
+  - `sudo fpga-load-local-image -S 0 -I <AGFI-ID>`
 
 + Make FD with WD support
   - `./deps.sh`
@@ -77,7 +82,11 @@ WD adopts an asynchronous API.  In fact WD uses the same Tango mcache mechanism 
   - `sudo build/linux/gcc/x86_64/bin/fd_shmem_cfg query`
 
 + Configure app-frank
+  - copy over the ./misc/solana_pcap file to the machine (e.g. `/tmp/solana.pcap`)
   - `sudo ./build/linux/gcc/x86_64/bin/fd_frank_init_demo frank 1-6 ./build/linux/gcc/x86_64 /tmp/solana.pcap 0 0 1 0`
+
++ Enable pcie bus mastering
+ - `sudo setpci -s 34:00.0 command=06`
 
 + Run app-frank
   - `sudo ./build/linux/gcc/x86_64/bin/fd_frank_run frank "1-6"`
@@ -88,12 +97,6 @@ WD adopts an asynchronous API.  In fact WD uses the same Tango mcache mechanism 
 + Run fd-monitor
   - `sudo taskset -c 7 build/linux/gcc/x86_64/bin/fd_frank_mon frank --duration 10e12 --dt-min 1e7 --dt-max 1e7`
 
-
-
-
-
-
-#  #
 # WD-SigVerify #
 
 SigVerify is the verification process of [ED25519](https://en.wikipedia.org/wiki/EdDSA).  This is a computationally intesive operation.  In order to match SigVerify's throughput with the rest of the FD system, many high performance cores are required.  However WD.SigVerify uses hardware acceleration to achieve 1Mps throughput using only one FPGA.  Table below shows the throughput of a single core running FD.SigVerify on various architectures, and the number of cores required to reach a throughput of one million per second.
