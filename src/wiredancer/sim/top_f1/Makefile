@@ -3,6 +3,7 @@
 SIM             ?= questa
 MODULE          = test
 RTL_DIR         = $(pwd)../../rtl
+PLATFORM_DIR    = $(pwd)../../platform/f1/design
 TOPLEVEL        = top_f1
 SIM_ARGS        += sim_build/work.glbl
 TOPLEVEL_LANG   ?= verilog
@@ -41,7 +42,7 @@ VERILOG_SOURCES += $(RTL_DIR)/ed25519_sigverify_dsdp_mul.sv
 VERILOG_SOURCES += $(RTL_DIR)/ed25519_sigverify_0.sv
 VERILOG_SOURCES += $(RTL_DIR)/ed25519_sigverify_1.sv
 VERILOG_SOURCES += $(RTL_DIR)/ed25519_sigverify_2.sv
-VERILOG_SOURCES += $(RTL_DIR)/top_f1.sv
+VERILOG_SOURCES += $(PLATFORM_DIR)/top_f1.sv
 
 COMPILE_ARGS    += +define+PATH_TO_INSTR_ROM_MIF=\"$(RTL_DIR)/schl_cpu_instr_rom.mif\"
 

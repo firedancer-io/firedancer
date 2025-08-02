@@ -3,7 +3,7 @@
 import wd_sigverify::*;
 
 module dma_result #(
-    N_PCIE                                              = 2
+    PCIE_N                                              = 2
 ) (
     input wire [1-1:0]                                  dma_r,
     output logic [1-1:0]                                dma_v,
@@ -12,17 +12,17 @@ module dma_result #(
     input wire [1-1:0]                                  dma_f,
     output logic [256-1:0]                              dma_d,
 
-    input wire [N_PCIE-1:0][1-1:0]                      ext_v,
-    input wire [N_PCIE-1:0][1-1:0]                      ext_r,
-    input wire [N_PCIE-1:0][1-1:0]                      ext_e,
-    input wire [N_PCIE-1:0][$bits(pcie_meta_t)-1:0]     ext_m,
+    input wire [PCIE_N-1:0][1-1:0]                      ext_v,
+    input wire [PCIE_N-1:0][1-1:0]                      ext_r,
+    input wire [PCIE_N-1:0][1-1:0]                      ext_e,
+    input wire [PCIE_N-1:0][$bits(pcie_meta_t)-1:0]     ext_m,
 
-    input wire [N_PCIE-1:0][1-1:0]                      res_v,
-    input wire [N_PCIE-1:0][64-1:0]                     res_t,
-    input wire [N_PCIE-1:0][1-1:0]                      res_d,
-    output logic [N_PCIE-1:0][16-1:0]                   res_c,
-    output logic [N_PCIE-1:0][1-1:0]                    res_f,
-    output logic [N_PCIE-1:0][1-1:0]                    res_p,
+    input wire [PCIE_N-1:0][1-1:0]                      res_v,
+    input wire [PCIE_N-1:0][64-1:0]                     res_t,
+    input wire [PCIE_N-1:0][1-1:0]                      res_d,
+    output logic [PCIE_N-1:0][16-1:0]                   res_c,
+    output logic [PCIE_N-1:0][1-1:0]                    res_f,
+    output logic [PCIE_N-1:0][1-1:0]                    res_p,
 
     input wire [64-1:0]                                 priv_base,
     input wire [64-1:0]                                 priv_mask,
@@ -33,9 +33,9 @@ module dma_result #(
     input wire rst
 );
 
-logic [N_PCIE-1:0][1-1:0]               dma_p_r;
-logic [N_PCIE-1:0][1-1:0]               dma_p_v;
-mcache_pcim_t [N_PCIE-1:0]              dma_p_dab;
+logic [PCIE_N-1:0][1-1:0]               dma_p_r;
+logic [PCIE_N-1:0][1-1:0]               dma_p_v;
+mcache_pcim_t [PCIE_N-1:0]              dma_p_dab;
 
 logic [64-1:0]                          dma_aa;
 
@@ -43,7 +43,7 @@ assign dma_a                            = {dma_aa[64-1:6], 6'h0};
 
 generate
 
-    for (genvar g_i = 0; g_i < N_PCIE; g_i ++) begin: P_IN
+    for (genvar g_i = 0; g_i < PCIE_N; g_i ++) begin: P_IN
 
         logic [1-1:0]                       ext_p_v, ext_pp_v;
         pcie_meta_t                         ext_p_m, ext_pp_m;
@@ -124,11 +124,11 @@ endgenerate
 
 rrb_merge #(
     .W                                  ($bits({dma_p_dab[0]})),
-    .N                                  (N_PCIE)
+    .N                                  (PCIE_N)
 ) dma_merge_inst (
     .i_r                                (dma_p_r),
     .i_v                                (dma_p_v),
-    .i_e                                ({N_PCIE{1'b1}}),
+    .i_e                                ({PCIE_N{1'b1}}),
     .i_m                                (dma_p_dab),
 
     .o_r                                (dma_r),
