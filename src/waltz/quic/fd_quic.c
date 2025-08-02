@@ -5505,19 +5505,22 @@ fd_quic_handle_conn_close_0_frame(
   }
 
   /* the information here can be invaluable for debugging */
-  FD_DEBUG(
+  // FD_DEBUG(
     char reason_buf[256] = {0};
     ulong reason_len = fd_ulong_min( sizeof(reason_buf)-1, reason_phrase_length );
     memcpy( reason_buf, p, reason_len );
 
-    FD_LOG_WARNING(( "fd_quic_handle_conn_close_frame - "
+    FD_LOG_NOTICE(( "fd_quic_handle_conn_close_frame - "
         "error_code: %lu  "
         "frame_type: %lx  "
         "reason: %s",
         data->error_code,
         data->frame_type,
         reason_buf ));
-  );
+    FD_LOG_HEXDUMP_NOTICE(( "fd_quic_handle_conn_close_frame - ",
+                            data,
+                            sizeof(fd_quic_conn_close_0_frame_t) ));
+  // );
 
   fd_quic_handle_conn_close_frame( context->conn );
 
