@@ -156,7 +156,7 @@ FD_PROTOTYPES_BEGIN
    pointer to fd_quic_t.  Const func, guaranteed to not access memory. */
 
 FD_FN_CONST static inline fd_quic_state_t *
-fd_quic_get_state( fd_quic_t * quic ) {
+fd_quic_get_state( fd_quic_t const * quic ) {
   return (fd_quic_state_t *)( (ulong)quic + FD_QUIC_STATE_OFF );
 }
 
