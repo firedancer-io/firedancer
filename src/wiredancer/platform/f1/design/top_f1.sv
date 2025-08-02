@@ -422,7 +422,7 @@ endgenerate
 // DDDDDDDDDDDDD        MMMMMMMM               MMMMMMMMAAAAAAA                   AAAAAAA
 
 dma_result #(
-    .N_PCIE                     (N_PCIE)
+    .PCIE_N                     (N_PCIE)
 ) dma_result_inst (
 
     .dma_r                      (dma_r),
