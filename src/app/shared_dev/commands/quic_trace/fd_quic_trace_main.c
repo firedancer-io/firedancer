@@ -121,10 +121,10 @@ dump_quic_config( fd_quic_config_t * config ) {
 }
 
 static char const *
-peer_cid_str( fd_quic_conn_t * conn ) {
+peer_cid_str( fd_quic_conn_t const * conn ) {
   static char buf[FD_QUIC_MAX_CONN_ID_SZ*2];
-  ulong   sz  = conn->peer_cids[0].sz;
-  uchar * cid = conn->peer_cids[0].conn_id;
+  ulong         sz  = conn->peer_cids[0].sz;
+  uchar const * cid = conn->peer_cids[0].conn_id;
   sz = fd_ulong_min( sz, FD_QUIC_MAX_CONN_ID_SZ );
 
   fd_hex_encode( buf, cid, sz );
@@ -133,7 +133,7 @@ peer_cid_str( fd_quic_conn_t * conn ) {
 }
 
 static void
-dump_connection( fd_quic_conn_t * conn ) {
+dump_connection( fd_quic_conn_t const * conn ) {
   (void)conn;
 
 #define CONN_MEMB_LIST(X,CONN,...) \
@@ -180,6 +180,14 @@ dump_connection( fd_quic_conn_t * conn ) {
         CONN_MEMB_LIST(CONN_MEMB_FMT,*conn,_)
         CONN_MEMB_LIST(CONN_MEMB_ARGS,*conn,_)
         ));
+}
+
+static fd_quic_conn_t const *
+fd_quic_trace_conn_at_idx( fd_quic_t const * quic, ulong idx, ulong quic_raddr ) {
+  fd_quic_state_t const * state = fd_quic_get_state_const( quic );
+  ulong const conn_base_off = state->conn_base - quic_raddr;
+  ulong const local_conn_base = (ulong)quic + conn_base_off;
+  return (fd_quic_conn_t *)( local_conn_base + idx * state->conn_sz );
 }
 
 void
@@ -284,9 +292,8 @@ quic_trace_cmd_fn( args_t *   args,
   ulong state_cap = sizeof( state_cnt) / sizeof( state_cnt[0] );
 #undef _
 
-  fd_quic_state_t * quic_state = fd_quic_get_state( quic );
   for( ulong j = 0; j < conn_cnt; ++j ) {
-    fd_quic_conn_t * conn = fd_quic_conn_at_idx( quic_state, j );
+    fd_quic_conn_t const * conn = fd_quic_trace_conn_at_idx( quic, j, quic_raddr );
     ulong state = conn->state;
     ulong *state_bucket = state < state_cap ? &state_cnt[state] : &state_unknown;
 
