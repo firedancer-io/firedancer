@@ -5504,6 +5504,13 @@ fd_quic_handle_conn_close_0_frame(
     return FD_QUIC_PARSE_FAIL;
   }
 
+  fd_quic_conn_t const * conn = context->conn;
+  if( !conn ) {
+    return 0;
+  }
+  uint const ip4 = conn->peer[0].ip_addr;
+  uint const port = conn->peer[0].udp_port;
+
   /* the information here can be invaluable for debugging */
   // FD_DEBUG(
     char reason_buf[256] = {0};
@@ -5513,10 +5520,14 @@ fd_quic_handle_conn_close_0_frame(
     FD_LOG_NOTICE(( "fd_quic_handle_conn_close_frame - "
         "error_code: %lu  "
         "frame_type: %lx  "
-        "reason: %s",
+        "reason: %s  "
+        "ip4: " FD_IP4_ADDR_FMT
+        "port: %u",
         data->error_code,
         data->frame_type,
-        reason_buf ));
+        reason_buf,
+        FD_IP4_ADDR_FMT_ARGS( ip4 ),
+        port ));
     FD_LOG_HEXDUMP_NOTICE(( "fd_quic_handle_conn_close_frame - ",
                             data,
                             sizeof(fd_quic_conn_close_0_frame_t) ));
