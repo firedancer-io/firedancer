@@ -212,7 +212,7 @@ struct fd_snapshot_manifest {
      Currently, these parameters can never change and are fixed from
      genesis onwards, although in future they may change with new
      feature flags. */
-  fd_snapshot_manifest_epoch_schedule_params_t epoch_schedule_params;
+  fd_epoch_schedule_t epoch_schedule_params;
 
   /* At genesis, certain parameters can be set which control
      how transaction fees are dynamically adjusted going forward.
