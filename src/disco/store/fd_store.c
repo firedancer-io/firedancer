@@ -10,8 +10,8 @@ static const fd_hash_t hash_null = { 0 };
 void *
 fd_store_new( void * shmem, ulong fec_max, ulong part_cnt ) {
 
-  if( FD_UNLIKELY( part_cnt == 0UL ) ) {
-    FD_LOG_ERR(( "partition count must be greater than 0, should match the number of writers/shred tiles" ));
+  if( FD_UNLIKELY( part_cnt==0UL ) ) {
+    FD_LOG_WARNING(( "partition count must be greater than 0, should match the number of writers/shred tiles" ));
     return NULL;
   }
 
@@ -143,7 +143,7 @@ fd_store_insert( fd_store_t * store,
   fd_store_fec_t * fec  = fd_store_pool_acquire( &pool, NULL, BLOCKING, &err );
 
   if( FD_UNLIKELY( err == FD_POOL_ERR_EMPTY   ) ) { FD_LOG_WARNING(( "store full %s",    fd_store_pool_strerror( err ) )); return NULL; } /* FIXME: eviction? max bound guaranteed for worst-case? */
-  if( FD_UNLIKELY( err == FD_POOL_ERR_CORRUPT ) ) { FD_LOG_ERR    (( "store corrupt %s", fd_store_pool_strerror( err ) )); return NULL; }
+  if( FD_UNLIKELY( err == FD_POOL_ERR_CORRUPT ) ) { FD_LOG_WARNING(( "store corrupt %s", fd_store_pool_strerror( err ) )); return NULL; }
   FD_TEST( fec );
 
   fec->key.mr           = *merkle_root;
@@ -217,7 +217,11 @@ fd_store_publish( fd_store_t  * store,
       child = fd_store_pool_ele( &pool, child->sibling );                      /* right-sibling */
     }
     fd_store_fec_t * next = fd_store_pool_ele( &pool, head->next ); /* pophead */
-    fd_store_pool_release( &pool, head, BLOCKING );                 /* release */
+    int err = fd_store_pool_release( &pool, head, BLOCKING );       /* release */
+    if( FD_UNLIKELY( err != FD_POOL_SUCCESS ) ) {
+      FD_LOG_WARNING(( "failed to release fec %s", fd_store_pool_strerror( err ) ));
+      return NULL;
+    }
     head = next;                                                    /* advance */
   }
   newr->parent = null;                             /* unlink old root */
