@@ -337,7 +337,7 @@ fd_topo_initialize( config_t * config ) {
 
   /**/                 fd_topob_link( topo, "gossip_verif", "gossip_verif", config->tiles.verify.receive_buffer_size, FD_TPU_RAW_MTU,                1UL );
   /**/                 fd_topob_link( topo, "gossip_tower", "gossip_tower", 128UL,                                    FD_TPU_MTU,                    1UL );
-  /**/                 fd_topob_link( topo, "replay_tower", "replay_tower", 128UL,                                    65536UL,                       1UL );
+  /**/                 fd_topob_link( topo, "replay_tower", "replay_tower", 128UL,                                    4*sizeof(fd_hash_t),           1UL );
   /**/                 fd_topob_link( topo, "tower_replay", "replay_tower", 128UL,                                    0,                             1UL );
 
   /**/                 fd_topob_link( topo, "crds_shred",   "crds_shred",   128UL,                                    8UL  + 40200UL * 38UL,         1UL );
@@ -456,8 +456,9 @@ fd_topo_initialize( config_t * config ) {
 
   fd_topo_obj_t * banks_obj = setup_topo_banks( topo, "banks", config->firedancer.runtime.limits.max_total_banks, config->firedancer.runtime.limits.max_fork_width );
   fd_topob_tile_uses( topo, replay_tile, banks_obj, FD_SHMEM_JOIN_MODE_READ_WRITE );
-  FOR(exec_tile_cnt) fd_topob_tile_uses( topo, &topo->tiles[ fd_topo_find_tile( topo, "exec", i ) ], banks_obj, FD_SHMEM_JOIN_MODE_READ_WRITE );
+  FOR(exec_tile_cnt)   fd_topob_tile_uses( topo, &topo->tiles[ fd_topo_find_tile( topo, "exec", i ) ],   banks_obj, FD_SHMEM_JOIN_MODE_READ_WRITE );
   FOR(writer_tile_cnt) fd_topob_tile_uses( topo, &topo->tiles[ fd_topo_find_tile( topo, "writer", i ) ], banks_obj, FD_SHMEM_JOIN_MODE_READ_WRITE );
+  /*                */ fd_topob_tile_uses( topo, &topo->tiles[ fd_topo_find_tile( topo, "tower", 0 ) ],  banks_obj, FD_SHMEM_JOIN_MODE_READ_ONLY );
   FD_TEST( fd_pod_insertf_ulong( topo->props, banks_obj->id, "banks" ) );
 
   /* Setup a shared wksp object for bank hash cmp. */

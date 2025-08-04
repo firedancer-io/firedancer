@@ -207,6 +207,7 @@ link_orphans( fd_fec_chainer_t * chainer ) {
     // FD_LOG_NOTICE(( "parent %lu %u %s ele %lu %u %s", parent->slot, parent->fec_set_idx, FD_BASE58_ENC_32_ALLOCA( parent->merkle_root ), ele->slot, ele->fec_set_idx, FD_BASE58_ENC_32_ALLOCA( ele->merkle_root ) ));
     if ( FD_UNLIKELY( memcmp( parent->merkle_root, ele->chained_merkle_root, FD_SHRED_MERKLE_ROOT_SZ ) ) &&
                       memcmp( parent->merkle_root, &null,                    FD_SHRED_MERKLE_ROOT_SZ ) ) {
+      __asm__("int $3");
       FD_LOG_ERR(( "bad chained merkle root. slot: %lu fec_set_idx: %u merkle_root: %s chained_merkle_root: %s", ele->slot, ele->fec_set_idx, FD_BASE58_ENC_32_ALLOCA( parent->merkle_root ), FD_BASE58_ENC_32_ALLOCA( ele->chained_merkle_root ) ));
     }
 

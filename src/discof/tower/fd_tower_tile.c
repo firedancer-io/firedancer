@@ -59,38 +59,49 @@ typedef struct {
 
   fd_gossip_duplicate_shred_t duplicate_shred;
   uchar                       duplicate_shred_chunk[FD_EQVOC_PROOF_CHUNK_SZ];
-  uchar *                     epoch_voters_buf;
   char                        funk_file[PATH_MAX];
   fd_funk_t                   funk[1];
   fd_gossip_vote_t            gossip_vote;
   fd_lockout_offset_t         lockouts[FD_TOWER_VOTE_MAX];
   fd_tower_t *                scratch;
   uchar *                     vote_ix_buf;
+
+  fd_banks_t * banks; /* read-only join on banks object, for epoch vote accounts */
 } ctx_t;
 
+
+/* Called on every epoch boundary after everything else (TODO: specify
+   what everything else is, this only has a reliance on the epoch_stakes
+   being properly updated for the new epoch). */
 static void
-update_epoch( ctx_t * ctx, ulong sz ) {
+update_epoch( ctx_t * ctx, ulong slot ) {
+
+  fd_bank_t *                       bank          = fd_banks_get_bank( ctx->banks, slot );
+  fd_stakes_global_t const *        stakes        = fd_bank_stakes_locking_query( bank );
+  fd_vote_accounts_global_t const * vote_accounts = &stakes->vote_accounts;
+
+  fd_vote_accounts_pair_global_t_mapnode_t * vote_accounts_pool = fd_vote_accounts_vote_accounts_pool_join( vote_accounts );
+  fd_vote_accounts_pair_global_t_mapnode_t * vote_accounts_root = fd_vote_accounts_vote_accounts_root_join( vote_accounts );
+
   fd_voter_t * epoch_voters = fd_epoch_voters( ctx->epoch );
   ctx->epoch->total_stake   = 0;
 
-  ulong off = 0;
-  while( FD_LIKELY( off < sz ) ) {
-    fd_pubkey_t pubkey = *(fd_pubkey_t *)fd_type_pun( ctx->epoch_voters_buf + off );
-    off += sizeof(fd_pubkey_t);
-
-    ulong stake = *(ulong *)fd_type_pun( ctx->epoch_voters_buf + off );
-    off += sizeof(ulong);
+  for( fd_vote_accounts_pair_global_t_mapnode_t * curr = fd_vote_accounts_pair_global_t_map_minimum( vote_accounts_pool, vote_accounts_root );
+       curr;
+       curr = fd_vote_accounts_pair_global_t_map_successor( vote_accounts_pool, curr ) ) {
+    fd_pubkey_t * pubkey = &curr->elem.key;
+    ulong         stake  = curr->elem.stake;
 
 #   if FD_EPOCH_USE_HANDHOLDING
-    FD_TEST( !fd_epoch_voters_query( epoch_voters, pubkey, NULL ) );
+    FD_TEST( !fd_epoch_voters_query( epoch_voters, *pubkey, NULL ) );
     FD_TEST( fd_epoch_voters_key_cnt( epoch_voters ) < fd_epoch_voters_key_max( epoch_voters ) );
 #   endif
 
-    fd_voter_t * voter = fd_epoch_voters_insert( epoch_voters, pubkey );
+    fd_voter_t * voter = fd_epoch_voters_insert( epoch_voters, *pubkey );
     voter->rec.uc[FD_FUNK_REC_KEY_FOOTPRINT - 1] = FD_FUNK_KEY_TYPE_ACC;
 
 #   if FD_EPOCH_USE_HANDHOLDING
-    FD_TEST( 0 == memcmp( &voter->key, &pubkey, sizeof(fd_pubkey_t) ) );
+    FD_TEST( 0 == memcmp( &voter->key, pubkey, sizeof(fd_pubkey_t) ) );
     FD_TEST( fd_epoch_voters_query( epoch_voters, voter->key, NULL ) );
 #   endif
 
@@ -101,6 +112,7 @@ update_epoch( ctx_t * ctx, ulong sz ) {
 
     ctx->epoch->total_stake += stake;
   }
+  fd_bank_stakes_end_locking_query( bank );
 }
 
 static void
@@ -192,14 +204,12 @@ scratch_footprint( fd_topo_tile_t const * tile FD_PARAM_UNUSED ) {
     FD_LAYOUT_APPEND(
     FD_LAYOUT_APPEND(
     FD_LAYOUT_APPEND(
-    FD_LAYOUT_APPEND(
     FD_LAYOUT_INIT,
       alignof(ctx_t),      sizeof(ctx_t)                      ),
       fd_epoch_align(),    fd_epoch_footprint( FD_VOTER_MAX ) ),
       fd_ghost_align(),    fd_ghost_footprint( FD_BLOCK_MAX ) ),
       fd_tower_align(),    fd_tower_footprint()               ), /* our tower */
       fd_tower_align(),    fd_tower_footprint()               ), /* scratch */
-      128UL,               VOTER_FOOTPRINT * VOTER_MAX        ), /* scratch */
     scratch_align() );
 }
 
@@ -240,8 +250,7 @@ during_frag( ctx_t * ctx,
       ulong parent_slot = fd_ulong_extract_lsb( sig, 32 );
       uchar const * chunk_laddr = fd_chunk_to_laddr_const( in_ctx->mem, chunk );
       if( FD_UNLIKELY( parent_slot == UINT_MAX /* no parent, so snapshot slot */ ) ) {
-        memcpy   ( ctx->slot_hash.uc,     chunk_laddr,                     sizeof(fd_hash_t) );
-        fd_memcpy( ctx->epoch_voters_buf, chunk_laddr + sizeof(fd_hash_t), sz - sizeof(fd_hash_t) );
+        memcpy( ctx->slot_hash.uc,   chunk_laddr,                     sizeof(fd_hash_t) );
       } else {
         memcpy( ctx->bank_hash.uc,   chunk_laddr,                     sizeof(fd_hash_t) );
         memcpy( ctx->block_hash.uc,  chunk_laddr+1*sizeof(fd_hash_t), sizeof(fd_hash_t) );
@@ -268,7 +277,7 @@ after_frag( ctx_t *             ctx,
             ulong               in_idx,
             ulong               seq     FD_PARAM_UNUSED,
             ulong               sig,
-            ulong               sz,
+            ulong               sz      FD_PARAM_UNUSED,
             ulong               tsorig,
             ulong               tspub   FD_PARAM_UNUSED,
             fd_stem_context_t * stem ) {
@@ -281,7 +290,7 @@ after_frag( ctx_t *             ctx,
   if( FD_UNLIKELY( (uint)parent_slot == UINT_MAX ) ) { /* snapshot slot */
     FD_TEST( ctx->funk );
     FD_TEST( fd_funk_txn_map( ctx->funk ) );
-    update_epoch( ctx, sz - sizeof(fd_hash_t) );
+    update_epoch ( ctx, slot );
     fd_ghost_init( ctx->ghost, slot, &ctx->slot_hash );
     return;
   }
@@ -339,7 +348,6 @@ unprivileged_init( fd_topo_t *      topo,
   void * ghost_mem   = FD_SCRATCH_ALLOC_APPEND( l, fd_ghost_align(),             fd_ghost_footprint( FD_BLOCK_MAX ) );
   void * tower_mem   = FD_SCRATCH_ALLOC_APPEND( l, fd_tower_align(),             fd_tower_footprint()               );
   void * scratch_mem = FD_SCRATCH_ALLOC_APPEND( l, fd_tower_align(),             fd_tower_footprint()               );
-  void * voter_mem   = FD_SCRATCH_ALLOC_APPEND( l, 128UL,                        VOTER_FOOTPRINT * VOTER_MAX        );
   ulong scratch_top  = FD_SCRATCH_ALLOC_FINI  ( l, scratch_align()                                                  );
   FD_TEST( scratch_top == (ulong)scratch + scratch_footprint( tile ) );
 
@@ -351,8 +359,6 @@ unprivileged_init( fd_topo_t *      topo,
   if( FD_UNLIKELY( !fd_funk_join( ctx->funk, fd_topo_obj_laddr( topo, tile->tower.funk_obj_id ) ) ) ) {
     FD_LOG_ERR(( "Failed to join database cache" ));
   }
-
-  ctx->epoch_voters_buf = voter_mem;
 
   memcpy( ctx->identity_key->uc, fd_keyload_load( tile->tower.identity_key_path, 1 ), sizeof(fd_pubkey_t) );
 
@@ -395,6 +401,17 @@ unprivileged_init( fd_topo_t *      topo,
   ctx->send_out_wmark       = fd_dcache_compact_wmark ( ctx->send_out_mem, send_out->dcache, send_out->mtu );
   ctx->send_out_chunk       = ctx->send_out_chunk0;
   FD_TEST( fd_dcache_compact_is_safe( ctx->send_out_mem, send_out->dcache, send_out->mtu, send_out->depth ) );
+
+  /* Join the banks object */
+  ulong banks_obj_id = fd_pod_queryf_ulong( topo->props, ULONG_MAX, "banks" );
+  if( FD_UNLIKELY( banks_obj_id==ULONG_MAX ) ) {
+    FD_LOG_ERR(( "no banks" ));
+  }
+
+  ctx->banks = fd_banks_join( fd_topo_obj_laddr( topo, banks_obj_id ) );
+  if( FD_UNLIKELY( !ctx->banks ) ) {
+    FD_LOG_ERR(( "failed to join banks" ));
+  }
 }
 
 static ulong

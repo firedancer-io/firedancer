@@ -810,27 +810,27 @@ init_after_snapshot( fd_replay_tile_ctx_t * ctx,
   fd_vote_accounts_pair_global_t_mapnode_t * vote_accounts_pool = fd_vote_accounts_vote_accounts_pool_join( vote_accounts );
   fd_vote_accounts_pair_global_t_mapnode_t * vote_accounts_root = fd_vote_accounts_vote_accounts_root_join( vote_accounts );
 
-  /* Send to tower tile */
+  ///* Send to tower tile */
 
   if( FD_LIKELY( ctx->tower_out_idx!=ULONG_MAX ) ) {
     uchar * chunk_laddr = fd_chunk_to_laddr( ctx->tower_out_mem, ctx->tower_out_chunk );
     memcpy( chunk_laddr, block_id, sizeof(fd_hash_t) );
 
-    ulong off = sizeof(fd_hash_t);
-    for( fd_vote_accounts_pair_global_t_mapnode_t * curr = fd_vote_accounts_pair_global_t_map_minimum( vote_accounts_pool, vote_accounts_root );
-        curr;
-        curr = fd_vote_accounts_pair_global_t_map_successor( vote_accounts_pool, curr ) ) {
+    //ulong off = sizeof(fd_hash_t);
+    //for( fd_vote_accounts_pair_global_t_mapnode_t * curr = fd_vote_accounts_pair_global_t_map_minimum( vote_accounts_pool, vote_accounts_root );
+        //curr;
+        //curr = fd_vote_accounts_pair_global_t_map_successor( vote_accounts_pool, curr ) ) {
 
-      if( FD_UNLIKELY( curr->elem.stake > 0UL ) ) {
-        memcpy( chunk_laddr + off, &curr->elem.key, sizeof(fd_pubkey_t) );
-        off += sizeof(fd_pubkey_t);
+      //if( FD_UNLIKELY( curr->elem.stake > 0UL ) ) {
+        //memcpy( chunk_laddr + off, &curr->elem.key, sizeof(fd_pubkey_t) );
+        //off += sizeof(fd_pubkey_t);
 
-        memcpy( chunk_laddr + off, &curr->elem.stake, sizeof(ulong) );
-        off += sizeof(ulong);
-      }
-    }
-    fd_stem_publish( stem, ctx->tower_out_idx, snapshot_slot << 32UL | UINT_MAX, ctx->tower_out_chunk, off, 0UL, (ulong)fd_log_wallclock(), (ulong)fd_log_wallclock() );
-    ctx->tower_out_chunk = fd_dcache_compact_next( ctx->tower_out_chunk, off, ctx->tower_out_chunk0, ctx->tower_out_wmark );
+        //memcpy( chunk_laddr + off, &curr->elem.stake, sizeof(ulong) );
+        //off += sizeof(ulong);
+      //}
+    //}
+    fd_stem_publish( stem, ctx->tower_out_idx, snapshot_slot << 32UL | UINT_MAX, ctx->tower_out_chunk, sizeof(fd_hash_t), 0UL, (ulong)fd_log_wallclock(), (ulong)fd_log_wallclock() );
+    ctx->tower_out_chunk = fd_dcache_compact_next( ctx->tower_out_chunk, sizeof(fd_hash_t), ctx->tower_out_chunk0, ctx->tower_out_wmark );
   }
 
   fd_bank_hash_cmp_t * bank_hash_cmp = ctx->bank_hash_cmp;

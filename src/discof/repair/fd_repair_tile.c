@@ -570,6 +570,11 @@ after_frag( fd_repair_tile_ctx_t * ctx,
 
       FD_TEST( fd_fec_pool_free( ctx->fec_chainer->pool ) );
       FD_TEST( !fd_fec_chainer_query( ctx->fec_chainer, shred->slot, shred->fec_set_idx ) );
+      fd_hash_t null = { 0 };
+      if( memcmp( chained_root, &null, FD_SHRED_MERKLE_ROOT_SZ ) == 0 ) {
+        __asm__("int $3");
+        /* WHATTT */
+      }
       FD_TEST( fd_fec_chainer_insert( ctx->fec_chainer, shred->slot, shred->fec_set_idx, (ushort)(shred->idx - shred->fec_set_idx + 1), data_complete, slot_complete, shred->data.parent_off, merkle_root, chained_root ) );
     }
 

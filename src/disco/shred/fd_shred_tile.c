@@ -974,6 +974,7 @@ after_frag( fd_shred_ctx_t *    ctx,
       memcpy( chunk,                                                   last,                                                FD_SHRED_DATA_HEADER_SZ );
       memcpy( chunk+FD_SHRED_DATA_HEADER_SZ,                           out_merkle_root.hash,                                FD_SHRED_MERKLE_ROOT_SZ );
       memcpy( chunk+FD_SHRED_DATA_HEADER_SZ + FD_SHRED_MERKLE_ROOT_SZ, (uchar *)last + fd_shred_chain_off( last->variant ), FD_SHRED_MERKLE_ROOT_SZ );
+      FD_LOG_INFO(( "Chained Merkle root %s, merkle root %s for slot %lu fec_set_idx %u", FD_BASE58_ENC_32_ALLOCA(chunk+FD_SHRED_DATA_HEADER_SZ + FD_SHRED_MERKLE_ROOT_SZ), FD_BASE58_ENC_32_ALLOCA(chunk+FD_SHRED_DATA_HEADER_SZ), last->slot, last->fec_set_idx ));
       ulong sz    = FD_SHRED_DATA_HEADER_SZ + FD_SHRED_MERKLE_ROOT_SZ * 2;
       ulong tspub = fd_frag_meta_ts_comp( fd_tickcount() );
       fd_stem_publish( stem, ctx->repair_out_idx, sig, ctx->repair_out_chunk, sz, 0UL, ctx->tsorig, tspub );
