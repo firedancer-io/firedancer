@@ -225,7 +225,10 @@ fd_program_cache_load_entry( fd_funk_t const *                 funk,
    NULL on failure or if the program account is not owned by a BPF
    loader program ID, and leaves `out_program_data_len` in an undefined
    state. Reasons for failure vary on the loader version. See the
-   respective functions in this file for more details. */
+   respective functions in this file for more details.
+
+   This is essentially load_program_with_pubkey(), sans the ELF parsing
+   and whatnot which is done in load_program_from_bytes(). */
 uchar const *
 fd_program_cache_get_account_programdata( fd_funk_t const *        funk,
                                           fd_funk_txn_t const *    funk_txn,
