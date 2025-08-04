@@ -250,7 +250,7 @@ generate_stake_weight_msg( fd_exec_slot_ctx_t * slot_ctx,
 
 static void
 publish_stake_weights( fd_capture_tile_ctx_t * ctx,
-                       fd_stem_context_t *    stem,
+                       fd_stem_context_t *     stem,
                        fd_solana_manifest_global_t const * manifest ) {
   FD_SPAD_FRAME_BEGIN( ctx->shared_spad ) {
 
@@ -268,7 +268,7 @@ publish_stake_weights( fd_capture_tile_ctx_t * ctx,
       ulong * stake_weights_msg = fd_chunk_to_laddr( ctx->stake_out->mem, ctx->stake_out->chunk );
       ulong stake_weights_sz = generate_stake_weight_msg( slot_ctx, ctx->shared_spad, epoch, vote_accounts, stake_weights_msg );
       ulong stake_weights_sig = 4UL;
-      fd_stem_publish( stem, 0UL, stake_weights_sig, ctx->stake_out->chunk, stake_weights_sz, 0UL, 0UL, fd_frag_meta_ts_comp( fd_tickcount() ) );
+      fd_stem_publish( stem, 0UL, stake_weights_sig, ctx->stake_out->chunk, stake_weights_sz, 0UL, 0UL, fd_frag_meta_ts_comp( fd_stem_now( stem ) ) );
       ctx->stake_out->chunk = fd_dcache_compact_next( ctx->stake_out->chunk, stake_weights_sz, ctx->stake_out->chunk0, ctx->stake_out->wmark );
       FD_LOG_NOTICE(("sending current epoch stake weights - epoch: %lu, stake_weight_cnt: %lu, start_slot: %lu, slot_cnt: %lu", stake_weights_msg[0], stake_weights_msg[1], stake_weights_msg[2], stake_weights_msg[3]));
     }
@@ -283,7 +283,7 @@ publish_stake_weights( fd_capture_tile_ctx_t * ctx,
       ulong * stake_weights_msg = fd_chunk_to_laddr( ctx->stake_out->mem, ctx->stake_out->chunk );
       ulong stake_weights_sz = generate_stake_weight_msg( slot_ctx, ctx->shared_spad, epoch + 1, next_vote_accounts, stake_weights_msg );
       ulong stake_weights_sig = 4UL;
-      fd_stem_publish( stem, 0UL, stake_weights_sig, ctx->stake_out->chunk, stake_weights_sz, 0UL, 0UL, fd_frag_meta_ts_comp( fd_tickcount() ) );
+      fd_stem_publish( stem, 0UL, stake_weights_sig, ctx->stake_out->chunk, stake_weights_sz, 0UL, 0UL, fd_frag_meta_ts_comp( fd_stem_now( stem ) ) );
       ctx->stake_out->chunk = fd_dcache_compact_next( ctx->stake_out->chunk, stake_weights_sz, ctx->stake_out->chunk0, ctx->stake_out->wmark );
       FD_LOG_NOTICE(("sending next epoch stake weights - epoch: %lu, stake_weight_cnt: %lu, start_slot: %lu, slot_cnt: %lu", stake_weights_msg[0], stake_weights_msg[1], stake_weights_msg[2], stake_weights_msg[3]));
     }
@@ -335,7 +335,8 @@ during_frag( fd_capture_tile_ctx_t * ctx,
              ulong                   sig,
              ulong                   chunk,
              ulong                   sz,
-             ulong                   ctl ) {
+             ulong                   ctl,
+             long                    stem_ts FD_PARAM_UNUSED ) {
   ctx->skip_frag = 0;
   if( ctx->in_kind[ in_idx ]==SHRED_REPAIR ) {
     if( !is_fec_completes_msg( sz ) ) {
@@ -440,7 +441,8 @@ static void
 after_credit( fd_capture_tile_ctx_t * ctx,
               fd_stem_context_t *     stem FD_PARAM_UNUSED,
               int *                   opt_poll_in FD_PARAM_UNUSED,
-              int *                   charge_busy FD_PARAM_UNUSED ) {
+              int *                   charge_busy FD_PARAM_UNUSED,
+              long                    stem_ts FD_PARAM_UNUSED ) {
 
   if( FD_UNLIKELY( !ctx->manifest_load_done ) ) {
     if( FD_LIKELY( !!strcmp( ctx->manifest_path, "") ) ) {
@@ -492,6 +494,7 @@ after_frag( fd_capture_tile_ctx_t * ctx,
             ulong                   sz,
             ulong                   tsorig FD_PARAM_UNUSED,
             ulong                   tspub  FD_PARAM_UNUSED,
+            long                    stem_ts,
             fd_stem_context_t *     stem   FD_PARAM_UNUSED ) {
   if( FD_UNLIKELY( ctx->skip_frag ) ) return;
 
@@ -505,7 +508,7 @@ after_frag( fd_capture_tile_ctx_t * ctx,
     char fec_complete[1024];
     snprintf( fec_complete, sizeof(fec_complete),
              "%ld,%lu,%u,%u,%u\n",
-              fd_log_wallclock(), shred->slot, ref_tick, shred->fec_set_idx, data_cnt );
+             stem_ts, shred->slot, ref_tick, shred->fec_set_idx, data_cnt );
 
     // Last shred is guaranteed to be a data shred
 
@@ -541,7 +544,7 @@ after_frag( fd_capture_tile_ctx_t * ctx,
     char repair_data_buf[1024];
     snprintf( repair_data_buf, sizeof(repair_data_buf),
              "%u,%u,%ld,%lu,%u,%u,%u,%d,%d,%u\n",
-              src_ip4_addr, src_port, fd_log_wallclock(), slot, ref_tick, fec_idx, idx, is_turbine, is_data, nonce );
+              src_ip4_addr, src_port, stem_ts, slot, ref_tick, fec_idx, idx, is_turbine, is_data, nonce );
 
     int err = fd_io_buffered_ostream_write( &ctx->shred_ostream, repair_data_buf, strlen(repair_data_buf) );
     FD_TEST( err==0 );
@@ -588,7 +591,7 @@ after_frag( fd_capture_tile_ctx_t * ctx,
     char repair_data_buf[1024];
     snprintf( repair_data_buf, sizeof(repair_data_buf),
               "%u,%u,%ld,%u,%lu,%lu\n",
-              peer_ip4_addr, peer_port, fd_log_wallclock(), nonce, slot, shred_index );
+              peer_ip4_addr, peer_port, stem_ts, nonce, slot, shred_index );
     int err = fd_io_buffered_ostream_write( &ctx->repair_ostream, repair_data_buf, strlen(repair_data_buf) );
     FD_TEST( err==0 );
   } else if( ctx->in_kind[ in_idx ] == GOSSIP_REPAIR ) {

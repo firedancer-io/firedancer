@@ -191,8 +191,7 @@ send_packet( fd_repair_tile_ctx_t * ctx,
              ushort                 dst_port,
              uint                   src_ip_addr,
              uchar const *          payload,
-             ulong                  payload_sz,
-             ulong                  tsorig ) {
+             ulong                  payload_sz ) {
   uchar * packet = fd_chunk_to_laddr( ctx->net_out_mem, ctx->net_out_chunk );
   fd_ip4_udp_hdrs_t * hdr = (fd_ip4_udp_hdrs_t *)packet;
   *hdr = *(is_intake ? ctx->intake_hdr : ctx->serve_hdr);
@@ -211,11 +210,10 @@ send_packet( fd_repair_tile_ctx_t * ctx,
   fd_memcpy( packet+sizeof(fd_ip4_udp_hdrs_t), payload, payload_sz );
   hdr->udp->check = 0U;
 
-  ulong tspub     = fd_frag_meta_ts_comp( fd_tickcount() );
   ulong sig       = fd_disco_netmux_sig( dst_ip_addr, dst_port, dst_ip_addr, DST_PROTO_OUTGOING, sizeof(fd_ip4_udp_hdrs_t) );
   ulong packet_sz = payload_sz + sizeof(fd_ip4_udp_hdrs_t);
   ulong chunk     = ctx->net_out_chunk;
-  fd_stem_publish( stem, ctx->net_out_idx, sig, chunk, packet_sz, 0UL, tsorig, tspub );
+  fd_stem_publish( stem, ctx->net_out_idx, sig, chunk, packet_sz, 0UL, 0UL, 0UL );
   ctx->net_out_chunk = fd_dcache_compact_next( chunk, packet_sz, ctx->net_out_chunk0, ctx->net_out_wmark );
 }
 
@@ -310,8 +308,7 @@ fd_repair_recv_clnt_packet( fd_repair_tile_ctx_t *        repair_tile_ctx,
         {
           uchar buf[1024];
           ulong buflen = fd_repair_handle_ping( repair_tile_ctx, glob, &gmsg->inner.ping, src_addr, dst_ip4_addr, buf, sizeof(buf) );
-          ulong tsorig = fd_frag_meta_ts_comp( fd_tickcount() );
-          send_packet( repair_tile_ctx, stem, 1, src_addr->addr, src_addr->port, dst_ip4_addr, buf, buflen, tsorig );
+          send_packet( repair_tile_ctx, stem, 1, src_addr->addr, src_addr->port, dst_ip4_addr, buf, buflen );
           break;
         }
       }
@@ -393,9 +390,8 @@ fd_repair_send_request( fd_repair_tile_ctx_t   * repair_tile_ctx,
 
   uchar buf[1024];
   ulong buflen       = fd_repair_sign_and_send( repair_tile_ctx, &protocol, &active->addr, buf, sizeof(buf) );
-  ulong tsorig       = fd_frag_meta_ts_comp( fd_tickcount() );
   uint  src_ip4_addr = 0U; /* unknown */
-  send_packet( repair_tile_ctx, stem, 1, active->addr.addr, active->addr.port, src_ip4_addr, buf, buflen, tsorig );
+  send_packet( repair_tile_ctx, stem, 1, active->addr.addr, active->addr.port, src_ip4_addr, buf, buflen );
 }
 
 static void
@@ -432,7 +428,8 @@ during_frag( fd_repair_tile_ctx_t * ctx,
              ulong                  sig FD_PARAM_UNUSED,
              ulong                  chunk,
              ulong                  sz,
-             ulong                  ctl ) {
+             ulong                  ctl,
+             long                   stem_ts FD_PARAM_UNUSED ) {
   ctx->skip_frag = 0;
 
   uchar const * dcache_entry;
@@ -483,6 +480,7 @@ after_frag( fd_repair_tile_ctx_t * ctx,
             ulong                  sz,
             ulong                  tsorig FD_PARAM_UNUSED,
             ulong                  tspub  FD_PARAM_UNUSED,
+            long                   stem_ts FD_PARAM_UNUSED,
             fd_stem_context_t *    stem ) {
 
   if( FD_UNLIKELY( ctx->skip_frag ) ) return;
@@ -643,7 +641,8 @@ static inline void
 after_credit( fd_repair_tile_ctx_t * ctx,
               fd_stem_context_t *    stem,
               int *                  opt_poll_in FD_PARAM_UNUSED,
-              int *                  charge_busy ) {
+              int *                  charge_busy,
+              long                   stem_ts FD_PARAM_UNUSED ) {
 
   if( FD_LIKELY( !fd_fec_out_empty( ctx->fec_chainer->out ) && ctx->store ) ) {
 
@@ -669,7 +668,7 @@ after_credit( fd_repair_tile_ctx_t * ctx,
 
     memcpy( fd_chunk_to_laddr( ctx->replay_out_mem, ctx->replay_out_chunk ), &out, sizeof(fd_fec_out_t) );
     ulong sig   = out.slot << 32 | out.fec_set_idx;
-    ulong tspub = fd_frag_meta_ts_comp( fd_tickcount() );
+    ulong tspub = fd_frag_meta_ts_comp( stem_ts );
     fd_stem_publish( stem, REPLAY_OUT_IDX, sig, ctx->replay_out_chunk, sizeof(fd_fec_out_t), 0, 0, tspub );
     ctx->replay_out_chunk = fd_dcache_compact_next( ctx->replay_out_chunk, sizeof(fd_fec_out_t), ctx->replay_out_chunk0, ctx->replay_out_wmark );
 
@@ -800,13 +799,13 @@ after_credit( fd_repair_tile_ctx_t * ctx,
 }
 
 static inline void
-during_housekeeping( fd_repair_tile_ctx_t * ctx ) {
-  fd_repair_settime( ctx->repair, fd_log_wallclock() );
+during_housekeeping( fd_repair_tile_ctx_t * ctx,
+                     long                   stem_ts ) {
+  fd_repair_settime( ctx->repair, stem_ts );
 
-  long now = fd_log_wallclock();
-  if( FD_UNLIKELY( now - ctx->tsprint > (long)1e9 ) ) {
+  if( FD_UNLIKELY( stem_ts - ctx->tsprint > (long)1e9 ) ) {
     fd_forest_print( ctx->forest );
-    ctx->tsprint = fd_log_wallclock();
+    ctx->tsprint = stem_ts;
   }
 }
 

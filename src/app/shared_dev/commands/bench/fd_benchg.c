@@ -174,8 +174,9 @@ static inline void
 after_credit( fd_benchg_ctx_t *   ctx,
               fd_stem_context_t * stem,
               int *               opt_poll_in,
-              int *               charge_busy ) {
-  (void)opt_poll_in;
+              int *               charge_busy,
+              long                stem_ts ) {
+  (void)opt_poll_in; (void)stem_ts;
 
   if( FD_UNLIKELY( !ctx->has_recent_blockhash ) ) return;
 
@@ -336,8 +337,9 @@ during_frag( fd_benchg_ctx_t * ctx,
              ulong             seq    FD_PARAM_UNUSED,
              ulong             sig    FD_PARAM_UNUSED,
              ulong             chunk,
-             ulong             sz     FD_PARAM_UNUSED,
-             ulong             ctl    FD_PARAM_UNUSED ) {
+             ulong             sz      FD_PARAM_UNUSED,
+             ulong             ctl     FD_PARAM_UNUSED,
+             long              stem_ts FD_PARAM_UNUSED ) {
   if( FD_UNLIKELY( !ctx->has_recent_blockhash ) ) {
     fd_memcpy( ctx->recent_blockhash, fd_chunk_to_laddr( ctx->mem, chunk ), 32UL );
     ctx->has_recent_blockhash = 1;

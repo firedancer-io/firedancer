@@ -267,7 +267,8 @@ during_frag( fd_exec_tile_ctx_t * ctx,
              ulong                sig,
              ulong                chunk,
              ulong                sz,
-             ulong                ctl FD_PARAM_UNUSED ) {
+             ulong                ctl FD_PARAM_UNUSED,
+             long                 stem_ts FD_PARAM_UNUSED ) {
 
   if( FD_LIKELY( in_idx == ctx->replay_exec_in_idx ) ) {
     if( FD_UNLIKELY( chunk < ctx->replay_in_chunk0 || chunk > ctx->replay_in_wmark ) ) {
@@ -310,6 +311,7 @@ after_frag( fd_exec_tile_ctx_t * ctx,
             ulong                sz     FD_PARAM_UNUSED,
             ulong                tsorig,
             ulong                tspub,
+            long                 stem_ts FD_PARAM_UNUSED,
             fd_stem_context_t *  stem ) {
 
   if( sig==EXEC_NEW_TXN_SIG ) {
@@ -548,7 +550,8 @@ static void
 after_credit( fd_exec_tile_ctx_t * ctx,
               fd_stem_context_t *  stem,
               int *                opt_poll_in,
-              int *                charge_busy ) {
+              int *                charge_busy,
+              long                 stem_ts ) {
 
   (void)opt_poll_in;
   (void)charge_busy;
@@ -575,22 +578,20 @@ after_credit( fd_exec_tile_ctx_t * ctx,
 
     /* Notify writer tiles. */
 
-    ulong tsorig = fd_frag_meta_ts_comp( fd_tickcount() );
-
     fd_exec_tile_out_ctx_t * exec_out = ctx->exec_writer_out;
 
     fd_runtime_public_exec_writer_boot_msg_t * msg = fd_type_pun( fd_chunk_to_laddr( exec_out->mem, exec_out->chunk ) );
 
     msg->txn_ctx_offset = txn_ctx_offset;
 
-    ulong tspub = fd_frag_meta_ts_comp( fd_tickcount() );
+    ulong tspub = fd_frag_meta_ts_comp( stem_ts );
     fd_stem_publish( stem,
                      exec_out->idx,
                      FD_WRITER_BOOT_SIG,
                      exec_out->chunk,
                      sizeof(*msg),
                      0UL,
-                     tsorig,
+                     tspub,
                      tspub );
     exec_out->chunk = fd_dcache_compact_next( exec_out->chunk, sizeof(*msg), exec_out->chunk0, exec_out->wmark );
 

@@ -37,7 +37,8 @@ during_frag( void * _ctx,
              ulong  sig,
              ulong  chunk,
              ulong  sz,
-             ulong  ctl ) {
+             ulong  ctl,
+             long   stem_ts FD_PARAM_UNUSED ) {
   fd_quic_ctx_t *       ctx       = &fd_quic_trace_ctx;
   fd_quic_trace_ctx_t * trace_ctx = (fd_quic_trace_ctx_t*)_ctx;
 
@@ -182,7 +183,7 @@ fd_quic_trace_initial( fd_quic_trace_ctx_t * trace_ctx,
       .flow      = key_idx,
       .conn_idx  = conn_idx };
     fd_quic_pretty_print_quic_pkt( &quic_pkt_ctx,
-                                   state->now,
+                                   quic->now,
                                    data,
                                    data_sz );
     fflush( stdout );
@@ -283,7 +284,7 @@ fd_quic_trace_handshake( fd_quic_trace_ctx_t * trace_ctx,
       .flow      = key_idx,
       .conn_idx  = conn_idx };
     fd_quic_pretty_print_quic_pkt( &quic_pkt_ctx,
-                                   state->now,
+                                   quic->now,
                                    data,
                                    data_sz );
     fflush( stdout );
@@ -406,7 +407,7 @@ fd_quic_trace_1rtt( fd_quic_trace_ctx_t * trace_ctx,
       .flow      = key_idx,
       .conn_idx  = conn->conn_idx };
     fd_quic_pretty_print_quic_pkt( &quic_pkt_ctx,
-                                   state->now,
+                                   quic->now,
                                    data,
                                    data_sz );
     fflush( stdout );
@@ -473,6 +474,7 @@ after_frag( void * _ctx,
             ulong  sz,
             ulong  tsorig FD_PARAM_UNUSED,
             ulong  tspub FD_PARAM_UNUSED,
+            long   stem_ts FD_PARAM_UNUSED,
             fd_stem_context_t * stem FD_PARAM_UNUSED ) {
   ulong proto   = fd_disco_netmux_sig_proto( sig );
   uint  key_idx = proto == DST_PROTO_TPU_QUIC ? 0 : 1;

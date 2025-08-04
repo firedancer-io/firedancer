@@ -102,13 +102,13 @@ bench_retry_create( void ) {
   uchar aes_iv [16] = {2};
   ulong ttl         = (ulong)3e9;
 
-  fd_quic_retry_create( retry, &pkt, rng, aes_key, aes_iv, &orig_dst_conn_id, &peer_src_conn_id, retry_src_conn_id, 7315969UL+(ulong)ttl );
+  fd_quic_retry_create( retry, &pkt, rng, aes_key, aes_iv, &orig_dst_conn_id, &peer_src_conn_id, retry_src_conn_id, 7315969L+(long)ttl );
   FD_LOG_HEXDUMP_INFO(( "Retry Token", retry+0x1f, sizeof(fd_quic_retry_token_t) ));
 
   long dt = -fd_log_wallclock();
   ulong iter = 1000000UL;
   for( ulong j=0UL; j<iter; j++ ) {
-    fd_quic_retry_create( retry, &pkt, rng, aes_key, aes_iv, &orig_dst_conn_id, &peer_src_conn_id, retry_src_conn_id, 1UL+(ulong)ttl );
+    fd_quic_retry_create( retry, &pkt, rng, aes_key, aes_iv, &orig_dst_conn_id, &peer_src_conn_id, retry_src_conn_id, 1L+(long)ttl );
     FD_COMPILER_UNPREDICTABLE( retry[0] );
   }
   dt += fd_log_wallclock();
@@ -146,8 +146,8 @@ bench_retry_server_verify( void ) {
 
   uchar aes_key[16] = {1};
   uchar aes_iv [16] = {2};
-  ulong now         = 50UL;
-  ulong ttl         = (ulong)3e9;
+  long  now         = 50UL;
+  long  ttl         = (long)3e9;
 
   long dt = -fd_log_wallclock();
   ulong iter = 1000000UL;
@@ -247,8 +247,8 @@ test_retry_token_malleability( void ) {
   fd_quic_pkt_t const pkt = {0};
   uchar aes_key[16] = {1};
   uchar aes_iv [16] = {2};
-  ulong now         = 50UL;
-  ulong ttl         = (ulong)3e9;
+  long  now         = 50UL;
+  long  ttl         = (long)3e9;
   for( ulong j=0; j<sizeof(token); j++ ) {
     for( int i=0; i<8; i++ ) {
       retry[j] = (uchar)( initial.token[j] ^ (1<<i) );
@@ -281,7 +281,7 @@ test_retry_token_time( void ) {
   fd_quic_pkt_t const pkt = {0};
   uchar aes_key[16] = {1};
   uchar aes_iv [16] = {2};
-  ulong ttl         = (ulong)3e9;
+  long  ttl         = (long)3e9;
 
   fd_quic_conn_id_t odcid;
   ulong             rscid;
@@ -292,7 +292,7 @@ test_retry_token_time( void ) {
   TRY( 3007315967UL, FD_QUIC_SUCCESS );
   TRY( 3007315968UL, FD_QUIC_FAILED  );
   TRY( 3007315969UL, FD_QUIC_FAILED  );
-  TRY(    ULONG_MAX, FD_QUIC_FAILED  );
+  TRY(     LONG_MAX, FD_QUIC_FAILED  );
 # undef TRY
 }
 

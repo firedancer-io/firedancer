@@ -140,7 +140,8 @@ loose_footprint( fd_topo_tile_t const * tile FD_PARAM_UNUSED ) {
 }
 
 static inline void
-during_housekeeping( fd_gui_ctx_t * ctx ) {
+during_housekeeping( fd_gui_ctx_t * ctx,
+                     long           stem_ts FD_PARAM_UNUSED ) {
   if( FD_UNLIKELY( fd_keyswitch_state_query( ctx->keyswitch )==FD_KEYSWITCH_STATE_SWITCH_PENDING ) ) {
     fd_gui_set_identity( ctx->gui, ctx->keyswitch->bytes );
     fd_keyswitch_state( ctx->keyswitch, FD_KEYSWITCH_STATE_COMPLETED );
@@ -150,14 +151,14 @@ during_housekeeping( fd_gui_ctx_t * ctx ) {
 static void
 before_credit( fd_gui_ctx_t *      ctx,
                fd_stem_context_t * stem,
-               int *               charge_busy ) {
+               int *               charge_busy,
+               long                stem_ts FD_PARAM_UNUSED ) {
   (void)stem;
 
   int charge_busy_server = 0;
-  long now = fd_tickcount();
-  if( FD_UNLIKELY( now>=ctx->next_poll_deadline ) ) {
+  if( FD_UNLIKELY( stem_ts>=ctx->next_poll_deadline ) ) {
     charge_busy_server = fd_http_server_poll( ctx->gui_server, 0 );
-    ctx->next_poll_deadline = fd_tickcount() + (long)(fd_tempo_tick_per_ns( NULL ) * 128L * 1000L);
+    ctx->next_poll_deadline = fd_stem_now( stem ) + (128L * 1000L);
   }
 
   int charge_poll = fd_gui_poll( ctx->gui );
@@ -172,7 +173,8 @@ during_frag( fd_gui_ctx_t * ctx,
              ulong          sig,
              ulong          chunk,
              ulong          sz,
-             ulong          gui    FD_PARAM_UNUSED ) {
+             ulong          gui    FD_PARAM_UNUSED,
+             long           stem_ts FD_PARAM_UNUSED ) {
 
   uchar * src = (uchar *)fd_chunk_to_laddr( ctx->in[ in_idx ].mem, chunk );
 
@@ -211,25 +213,27 @@ after_frag( fd_gui_ctx_t *      ctx,
             ulong               seq,
             ulong               sig,
             ulong               sz,
-            ulong               tsorig,
-            ulong               tspub,
+            ulong               tsorig_comp,
+            ulong               tspub_comp,
+            long                stem_ts,
             fd_stem_context_t * stem ) {
   (void)seq;
-  (void)tsorig;
+  (void)tsorig_comp;
+  long tspub = fd_frag_meta_ts_decomp( tspub_comp, stem_ts );
   (void)stem;
 
   if( FD_LIKELY( ctx->in_kind[ in_idx ]==IN_KIND_PLUGIN ) ) fd_gui_plugin_message( ctx->gui, sig, ctx->buf );
   else if( FD_UNLIKELY( ctx->in_kind[ in_idx ]==IN_KIND_POH_PACK ) ) {
     FD_TEST( fd_disco_poh_sig_pkt_type( sig )==POH_PKT_TYPE_BECAME_LEADER );
     fd_became_leader_t * became_leader = (fd_became_leader_t *)ctx->buf;
-    fd_gui_became_leader( ctx->gui, fd_frag_meta_ts_decomp( tspub, fd_tickcount() ), fd_disco_poh_sig_slot( sig ), became_leader->slot_start_ns, became_leader->slot_end_ns, became_leader->limits.slot_max_cost, became_leader->max_microblocks_in_slot );
+    fd_gui_became_leader( ctx->gui, tspub, fd_disco_poh_sig_slot( sig ), became_leader->slot_start_ns, became_leader->slot_end_ns, became_leader->limits.slot_max_cost, became_leader->max_microblocks_in_slot );
   } else if( FD_UNLIKELY( ctx->in_kind[ in_idx ]==IN_KIND_PACK_POH ) ) {
-    fd_gui_unbecame_leader( ctx->gui, fd_frag_meta_ts_decomp( tspub, fd_tickcount() ), fd_disco_bank_sig_slot( sig ), ((fd_done_packing_t *)ctx->buf)->microblocks_in_slot );
+    fd_gui_unbecame_leader( ctx->gui, tspub, fd_disco_bank_sig_slot( sig ), ((fd_done_packing_t *)ctx->buf)->microblocks_in_slot );
   } else if( FD_UNLIKELY( ctx->in_kind[ in_idx ]==IN_KIND_PACK_BANK ) ) {
     if( FD_LIKELY( fd_disco_poh_sig_pkt_type( sig )==POH_PKT_TYPE_MICROBLOCK ) ) {
       fd_microblock_bank_trailer_t * trailer = (fd_microblock_bank_trailer_t *)( ctx->buf+sz-sizeof(fd_microblock_bank_trailer_t) );
       fd_gui_microblock_execution_begin( ctx->gui,
-                                         fd_frag_meta_ts_decomp( tspub, fd_tickcount() ),
+                                         tspub,
                                          fd_disco_poh_sig_slot( sig ),
                                          (fd_txn_p_t *)ctx->buf,
                                          (sz-sizeof( fd_microblock_bank_trailer_t ))/sizeof( fd_txn_p_t ),
@@ -241,7 +245,7 @@ after_frag( fd_gui_ctx_t *      ctx,
   } else if( FD_UNLIKELY( ctx->in_kind[ in_idx ]==IN_KIND_BANK_POH ) ) {
     fd_microblock_trailer_t * trailer = (fd_microblock_trailer_t *)( ctx->buf+sz-sizeof( fd_microblock_trailer_t ) );
     fd_gui_microblock_execution_end( ctx->gui,
-                                     fd_frag_meta_ts_decomp( tspub, fd_tickcount() ),
+                                     tspub,
                                      ctx->in_bank_idx[ in_idx ],
                                      fd_disco_bank_sig_slot( sig ),
                                      (sz-sizeof( fd_microblock_trailer_t ))/sizeof( fd_txn_p_t ),
@@ -515,7 +519,7 @@ unprivileged_init( fd_topo_t *      topo,
   };
   cJSON_InitHooks( &hooks );
 
-  ctx->next_poll_deadline = fd_tickcount();
+  ctx->next_poll_deadline = fd_log_wallclock();
 
   for( ulong i=0UL; i<tile->in_cnt; i++ ) {
     fd_topo_link_t * link = &topo->links[ tile->in_link_id[ i ] ];

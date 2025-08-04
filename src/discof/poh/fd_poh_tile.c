@@ -645,7 +645,7 @@ poh_link_publish( poh_link_t *  link,
 
   uchar * dst = (uchar *)fd_chunk_to_laddr( link->mem, link->chunk );
   fd_memcpy( dst, data, data_sz );
-  ulong tspub = (ulong)fd_frag_meta_ts_comp( fd_tickcount() );
+  ulong tspub = fd_frag_meta_ts_comp( fd_tickcount() );
   fd_mcache_publish( link->mcache, link->depth, link->tx_seq, sig, link->chunk, data_sz, 0UL, 0UL, tspub );
   link->chunk = fd_dcache_compact_next( link->chunk, data_sz, link->chunk0, link->wmark );
   link->cr_avail--;
@@ -957,8 +957,7 @@ CALLED_FROM_RUST static void
 publish_became_leader( fd_poh_ctx_t * ctx,
                        ulong          slot,
                        ulong          epoch ) {
-  double tick_per_ns = fd_tempo_tick_per_ns( NULL );
-  fd_histf_sample( ctx->begin_leader_delay, (ulong)((double)(fd_log_wallclock()-ctx->reset_slot_start_ns)/tick_per_ns) );
+  fd_histf_sample( ctx->begin_leader_delay, (ulong)((double)(fd_log_wallclock()-ctx->reset_slot_start_ns)) );
 
   if( FD_UNLIKELY( ctx->lagged_consecutive_leader_start ) ) {
     /* If we are mirroring Agave behavior, the wall clock gets reset
@@ -1364,6 +1363,12 @@ scratch_footprint( fd_topo_tile_t const * tile ) {
 }
 
 static void
+stem_run_init( fd_poh_ctx_t *      ctx,
+               fd_stem_context_t * stem ) {
+  ctx->stem = stem;
+}
+
+static void
 publish_tick( fd_poh_ctx_t *      ctx,
               fd_stem_context_t * stem,
               uchar               hash[ static 32 ],
@@ -1421,13 +1426,13 @@ publish_tick( fd_poh_ctx_t *      ctx,
 }
 
 static inline void
-publish_features_activation(  fd_poh_ctx_t *      ctx,
-                              fd_stem_context_t * stem ) {
+publish_features_activation( fd_poh_ctx_t *      ctx,
+                             fd_stem_context_t * stem ) {
   uchar * dst = (uchar *)fd_chunk_to_laddr( ctx->shred_out->mem, ctx->shred_out->chunk );
   fd_shred_features_activation_t * act_data = (fd_shred_features_activation_t *)dst;
   fd_memcpy( act_data, ctx->features_activation, sizeof(fd_shred_features_activation_t) );
 
-  ulong tspub = (ulong)fd_frag_meta_ts_comp( fd_tickcount() );
+  ulong tspub = (ulong)fd_frag_meta_ts_comp( fd_stem_now( stem ) );
   ulong sz = sizeof(fd_shred_features_activation_t);
   ulong sig = fd_disco_poh_sig( ctx->slot, POH_PKT_TYPE_FEAT_ACT_SLOT, 0UL );
   fd_stem_publish( stem, ctx->shred_out->idx, sig, ctx->shred_out->chunk, sz, 0UL, 0UL, tspub );
@@ -1439,9 +1444,8 @@ static inline void
 after_credit( fd_poh_ctx_t *      ctx,
               fd_stem_context_t * stem,
               int *               opt_poll_in,
-              int *               charge_busy ) {
-  ctx->stem = stem;
-
+              int *               charge_busy,
+              long                stem_ts FD_PARAM_UNUSED ) {
   FD_COMPILER_MFENCE();
   if( FD_UNLIKELY( fd_poh_waiting_lock ) )  {
     FD_VOLATILE( fd_poh_returned_lock ) = 1UL;
@@ -1626,7 +1630,7 @@ after_credit( fd_poh_ctx_t *      ctx,
   /* Now figure out how many hashes are needed to "catch up" the hash
      count to the current system clock, and clamp it to the allowed
      range. */
-  long now = fd_log_wallclock();
+  long now = fd_stem_now( stem );
   ulong target_hashcnt;
   if( FD_LIKELY( !is_leader ) ) {
     target_hashcnt = (ulong)((double)(now - ctx->reset_slot_start_ns) / ctx->hashcnt_duration_ns) - (ctx->slot-ctx->reset_slot)*ctx->hashcnt_per_slot;
@@ -1733,8 +1737,7 @@ after_credit( fd_poh_ctx_t *      ctx,
     no_longer_leader( ctx );
     ctx->expect_sequential_leader_slot = ctx->slot;
 
-    double tick_per_ns = fd_tempo_tick_per_ns( NULL );
-    fd_histf_sample( ctx->slot_done_delay, (ulong)((double)(fd_log_wallclock()-ctx->reset_slot_start_ns)/tick_per_ns) );
+    fd_histf_sample( ctx->slot_done_delay, (ulong)(fd_stem_now( stem )-ctx->reset_slot_start_ns) );
     ctx->next_leader_slot = next_leader_slot( ctx );
 
     if( FD_UNLIKELY( ctx->slot>=ctx->next_leader_slot ) ) {
@@ -1747,7 +1750,8 @@ after_credit( fd_poh_ctx_t *      ctx,
 }
 
 static inline void
-during_housekeeping( fd_poh_ctx_t * ctx ) {
+during_housekeeping( fd_poh_ctx_t * ctx,
+                     long           stem_ts FD_PARAM_UNUSED ) {
   if( FD_UNLIKELY( maybe_change_identity( ctx, 0 ) ) ) {
     ctx->next_leader_slot = next_leader_slot( ctx );
     FD_LOG_INFO(( "fd_poh_identity_changed(next_leader_slot=%lu)", ctx->next_leader_slot ));
@@ -1795,7 +1799,8 @@ during_frag( fd_poh_ctx_t * ctx,
              ulong          sig,
              ulong          chunk,
              ulong          sz,
-             ulong          ctl FD_PARAM_UNUSED ) {
+             ulong          ctl     FD_PARAM_UNUSED,
+             long           stem_ts FD_PARAM_UNUSED ) {
   (void)sig;
   ctx->skip_frag = 0;
 
@@ -1869,7 +1874,8 @@ publish_microblock( fd_poh_ctx_t *      ctx,
                     fd_stem_context_t * stem,
                     ulong               slot,
                     ulong               hashcnt_delta,
-                    ulong               txn_cnt ) {
+                    ulong               txn_cnt,
+                    long                stem_ts ) {
   uchar * dst = (uchar *)fd_chunk_to_laddr( ctx->shred_out->mem, ctx->shred_out->chunk );
   FD_TEST( slot>=ctx->reset_slot );
   fd_entry_batch_meta_t * meta = (fd_entry_batch_meta_t *)dst;
@@ -1906,7 +1912,7 @@ publish_microblock( fd_poh_ctx_t *      ctx,
      value of 3 credits, and at most we will publish_tick() once and
      then publish_became_leader() once, leaving one credit here to
      publish the microblock. */
-  ulong tspub = (ulong)fd_frag_meta_ts_comp( fd_tickcount() );
+  ulong tspub = fd_frag_meta_ts_comp( stem_ts );
   ulong sz = sizeof(fd_entry_batch_meta_t)+sizeof(fd_entry_batch_header_t)+payload_sz;
   ulong new_sig = fd_disco_poh_sig( slot, POH_PKT_TYPE_MICROBLOCK, 0UL );
   fd_stem_publish( stem, ctx->shred_out->idx, new_sig, ctx->shred_out->chunk, sz, 0UL, 0UL, tspub );
@@ -1922,11 +1928,13 @@ after_frag( fd_poh_ctx_t *      ctx,
             ulong               sz,
             ulong               tsorig,
             ulong               tspub,
+            long                stem_ts,
             fd_stem_context_t * stem ) {
   (void)in_idx;
   (void)seq;
   (void)tsorig;
   (void)tspub;
+  (void)stem_ts;
 
   if( FD_UNLIKELY( ctx->skip_frag ) ) return;
 
@@ -1968,8 +1976,7 @@ after_frag( fd_poh_ctx_t *      ctx,
   }
 
   if( FD_UNLIKELY( !ctx->microblocks_lower_bound ) ) {
-    double tick_per_ns = fd_tempo_tick_per_ns( NULL );
-    fd_histf_sample( ctx->first_microblock_delay, (ulong)((double)(fd_log_wallclock()-ctx->reset_slot_start_ns)/tick_per_ns) );
+    fd_histf_sample( ctx->first_microblock_delay, (ulong)((double)(fd_log_wallclock()-ctx->reset_slot_start_ns)) );
   }
 
   ulong target_slot = fd_disco_bank_sig_slot( sig );
@@ -2046,7 +2053,7 @@ after_frag( fd_poh_ctx_t *      ctx,
     }
   }
 
-  publish_microblock( ctx, stem, target_slot, hashcnt_delta, txn_cnt );
+  publish_microblock( ctx, stem, target_slot, hashcnt_delta, txn_cnt, stem_ts );
 }
 
 static void
@@ -2335,6 +2342,7 @@ unprivileged_init( fd_topo_t *      topo,
 #define STEM_CALLBACK_CONTEXT_TYPE  fd_poh_ctx_t
 #define STEM_CALLBACK_CONTEXT_ALIGN alignof(fd_poh_ctx_t)
 
+#define STEM_CALLBACK_RUN_INIT            stem_run_init
 #define STEM_CALLBACK_DURING_HOUSEKEEPING during_housekeeping
 #define STEM_CALLBACK_METRICS_WRITE       metrics_write
 #define STEM_CALLBACK_AFTER_CREDIT        after_credit

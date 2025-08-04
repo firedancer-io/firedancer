@@ -55,8 +55,8 @@
 struct fd_neigh4_prober {
   int sock_fd;  /* UDP socket with IP_TTL 0 */
 
-  /* probe_delay specifies the delay in ticks for successive ARP
-     requests to the same IP address (see fd_tickcount()) */
+  /* probe_delay specifies the delay in nanoseconds for successive ARP
+     requests to the same IP address */
   long probe_delay;
 
   /* Token bucket rate limiter on any outgoing ARP probes */
@@ -84,7 +84,8 @@ void
 fd_neigh4_prober_init( fd_neigh4_prober_t * prober,
                        float                max_probes_per_second,
                        ulong                max_probe_burst,
-                       float                probe_delay_seconds );
+                       float                probe_delay_seconds,
+                       long                 now );
 
 /* fd_neigh4_prober_fini closes the neigh4_prober socket. */
 
@@ -94,8 +95,9 @@ fd_neigh4_prober_fini( fd_neigh4_prober_t * prober );
 /* fd_neigh4_probe sends out an empty UDP packet to port 65535 with the
    IP time-to-live field set to 0.  ip4_addr is an IP address on a
    neighboring subnet for which the neighbor discovery process should
-   be started.  ip4_addr is big endian.  now is a recent fd_tickcount()
-   value.  Returns the errno value produced by sendto(2) or 0 on success. */
+   be started.  ip4_addr is big endian.  now is a recent wallclock
+   timestamp.  Returns the errno value produced by sendto(2) or 0 on
+   success. */
 
 int
 fd_neigh4_probe( fd_neigh4_prober_t * prober,

@@ -20,10 +20,11 @@ fd_quic_sandbox_capture_pkt( fd_quic_sandbox_t *       sandbox,
   ulong            sz     = pkt->buf_sz;
   uchar *          data   = fd_chunk_to_laddr( sandbox, chunk );
   ulong            ctl    = fd_frag_meta_ctl( /* orig */ 0, /* som */ 1, /* eom */ 1, /* err */ 0 );
-  ulong            ts     = sandbox->wallclock;
+  long             ts     = sandbox->wallclock;
 
   fd_memcpy( data, pkt->buf, sz );
-  fd_mcache_publish( mcache, depth, seq, 0UL, chunk, sz, ctl, ts, ts );
+  ulong tscomp = fd_frag_meta_ts_comp( ts );
+  fd_mcache_publish( mcache, depth, seq, 0UL, chunk, sz, ctl, tscomp, tscomp );
 
   sandbox->pkt_seq_w = fd_seq_inc( seq, 1UL );
   sandbox->pkt_chunk = fd_dcache_compact_next( chunk, pkt->buf_sz, chunk0, wmark );
@@ -108,12 +109,6 @@ uchar const fd_quic_sandbox_aes128_key[16] =
 uchar const fd_quic_sandbox_aes128_iv[12] =
   { 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
     0x00, 0x00, 0x00, 0x00 };
-
-static ulong
-fd_quic_sandbox_now_cb( void * context ) {
-  fd_quic_sandbox_t * sandbox = context;
-  return sandbox->wallclock;
-}
 
 ulong
 fd_quic_sandbox_align( void ) {
@@ -221,9 +216,6 @@ fd_quic_sandbox_init( fd_quic_sandbox_t * sandbox,
     .ctx       = sandbox
   };
   fd_quic_set_aio_net_tx( quic, &aio_tx );
-
-  quic->cb.now_ctx = sandbox;
-  quic->cb.now     = fd_quic_sandbox_now_cb;
 
   if( FD_UNLIKELY( !fd_quic_init( quic ) ) ) {
     FD_LOG_WARNING(( "fd_quic_init failed" ));

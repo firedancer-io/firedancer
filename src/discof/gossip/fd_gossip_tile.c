@@ -206,8 +206,7 @@ send_packet( fd_gossip_tile_ctx_t * ctx,
              uint                   dst_ip_addr,
              ushort                 dst_port,
              uchar const *          payload,
-             ulong                  payload_sz,
-             ulong                  tsorig ) {
+             ulong                  payload_sz ) {
   uchar * packet = fd_chunk_to_laddr( ctx->net_out_mem, ctx->net_out_chunk );
 
   fd_ip4_udp_hdrs_t * hdr = (fd_ip4_udp_hdrs_t *)packet;
@@ -226,10 +225,9 @@ send_packet( fd_gossip_tile_ctx_t * ctx,
   fd_memcpy( packet+sizeof(fd_ip4_udp_hdrs_t), payload, payload_sz );
   udp->check = 0U;
 
-  ulong tspub     = fd_frag_meta_ts_comp( fd_tickcount() );
   ulong sig       = fd_disco_netmux_sig( dst_ip_addr, dst_port, dst_ip_addr, DST_PROTO_OUTGOING, sizeof(fd_ip4_udp_hdrs_t) );
   ulong packet_sz = payload_sz + sizeof(fd_ip4_udp_hdrs_t);
-  fd_stem_publish( ctx->stem, 0UL, sig, ctx->net_out_chunk, packet_sz, 0UL, tsorig, tspub );
+  fd_stem_publish( ctx->stem, 0UL, sig, ctx->net_out_chunk, packet_sz, 0UL, 0UL, 0UL );
   ctx->net_out_chunk = fd_dcache_compact_next( ctx->net_out_chunk, packet_sz, ctx->net_out_chunk0, ctx->net_out_wmark );
 }
 
@@ -238,8 +236,7 @@ gossip_send_packet( uchar const * msg,
                     size_t msglen,
                     fd_gossip_peer_addr_t const * addr,
                     void * arg ) {
-  ulong tsorig = fd_frag_meta_ts_comp( fd_tickcount() );
-  send_packet( arg, addr->addr, addr->port, msg, msglen, tsorig );
+  send_packet( arg, addr->addr, addr->port, msg, msglen );
 }
 
 static void
@@ -299,8 +296,9 @@ gossip_signer( void *        signer_ctx,
 }
 
 static void
-during_housekeeping( fd_gossip_tile_ctx_t * ctx ) {
-  fd_gossip_settime( ctx->gossip, fd_log_wallclock() );
+during_housekeeping( fd_gossip_tile_ctx_t * ctx,
+                     long                   stem_ts ) {
+  fd_gossip_settime( ctx->gossip, stem_ts );
 }
 
 static inline int
@@ -319,7 +317,8 @@ during_frag( fd_gossip_tile_ctx_t * ctx,
              ulong                  sig FD_PARAM_UNUSED,
              ulong                  chunk,
              ulong                  sz,
-             ulong                  ctl ) {
+             ulong                  ctl,
+             long                   stem_ts FD_PARAM_UNUSED ) {
 
   uint in_kind = ctx->in_kind[ in_idx ];
   fd_gossip_in_ctx_t const * in_ctx = &ctx->in_links[ in_idx ];
@@ -348,7 +347,8 @@ after_frag( fd_gossip_tile_ctx_t * ctx,
             ulong                  sz,
             ulong                  tsorig FD_PARAM_UNUSED,
             ulong                  tspub  FD_PARAM_UNUSED,
-            fd_stem_context_t *    stem ) {
+            long                   stem_ts FD_PARAM_UNUSED,
+            fd_stem_context_t *    stem FD_PARAM_UNUSED ) {
   uint in_kind = ctx->in_kind[ in_idx ];
 
   if( in_kind==IN_KIND_SEND ) {
@@ -371,7 +371,6 @@ after_frag( fd_gossip_tile_ctx_t * ctx,
 
   if( FD_UNLIKELY( sz<42 ) ) return;
 
-  ctx->stem = stem;
   fd_eth_hdr_t const * eth  = (fd_eth_hdr_t const *)ctx->gossip_buffer;
   fd_ip4_hdr_t const * ip4  = (fd_ip4_hdr_t const *)( (ulong)eth + sizeof(fd_eth_hdr_t) );
   fd_udp_hdr_t const * udp  = (fd_udp_hdr_t const *)( (ulong)ip4 + FD_IP4_GET_LEN( *ip4 ) );
@@ -402,7 +401,7 @@ publish_peers_to_plugin( fd_gossip_tile_ctx_t * ctx,
 
   *(ulong *)dst = i;
 
-  ulong tspub = (ulong)fd_frag_meta_ts_comp( fd_tickcount() );
+  ulong tspub = (ulong)fd_frag_meta_ts_comp( fd_stem_now( stem ) );
   fd_stem_publish( stem, ctx->gossip_plugin_out_idx, FD_PLUGIN_MSG_GOSSIP_UPDATE, ctx->gossip_plugin_out_chunk, 0, 0UL, 0UL, tspub );
   ctx->gossip_plugin_out_chunk = fd_dcache_compact_next( ctx->gossip_plugin_out_chunk, 8UL + 40200UL*(58UL+12UL*34UL), ctx->gossip_plugin_out_chunk0, ctx->gossip_plugin_out_wmark );
 }
@@ -411,26 +410,25 @@ static void
 after_credit( fd_gossip_tile_ctx_t * ctx,
               fd_stem_context_t *    stem,
               int *                  opt_poll_in,
-              int *                  charge_busy ) {
+              int *                  charge_busy,
+              long                   stem_ts ) {
   (void)opt_poll_in;
 
   /* TODO: Don't charge the tile as busy if after_credit isn't actually
      doing any work. */
   *charge_busy = 1;
 
-  ctx->stem = stem;
-  ulong tsorig = fd_frag_meta_ts_comp( fd_tickcount() );
+  ulong tsorig = fd_frag_meta_ts_comp( stem_ts );
 
   if( FD_LIKELY( ctx->shred_contact_out_sync  ) ) fd_mcache_seq_update( ctx->shred_contact_out_sync, ctx->shred_contact_out_seq );
   if( FD_LIKELY( ctx->repair_contact_out_sync ) ) fd_mcache_seq_update( ctx->repair_contact_out_sync, ctx->repair_contact_out_seq );
 
-  long now = fd_gossip_gettime( ctx->gossip );
-  if( ( now - ctx->last_shred_dest_push_time )>CONTACT_INFO_PUBLISH_TIME_NS &&
+  if( ( stem_ts - ctx->last_shred_dest_push_time )>CONTACT_INFO_PUBLISH_TIME_NS &&
       ctx->shred_contact_out_mcache ) {
 
     ctx->metrics.last_crds_push_contact_info_publish_ts = (ulong)(ctx->last_shred_dest_push_time);
 
-    ctx->last_shred_dest_push_time = now;
+    ctx->last_shred_dest_push_time = stem_ts;
 
     ulong tvu_peer_cnt = 0;
     ulong repair_peers_cnt = 0;
@@ -513,7 +511,7 @@ after_credit( fd_gossip_tile_ctx_t * ctx,
 
 #undef UPDATE_PEER_CNTS
 
-    ulong tspub = fd_frag_meta_ts_comp( fd_tickcount() );
+    ulong tspub = fd_frag_meta_ts_comp( fd_stem_now( stem ) );
 
     FD_LOG_INFO(( "publishing peers - tvu: %lu, repair: %lu, tpu_vote: %lu", tvu_peer_cnt, repair_peers_cnt, send_peers_cnt ));
     if( tvu_peer_cnt>0 && ctx->shred_contact_out_mcache ) {
@@ -545,8 +543,8 @@ after_credit( fd_gossip_tile_ctx_t * ctx,
     }
   }
 
-  if( ctx->gossip_plugin_out_mem && FD_UNLIKELY( ( now - ctx->last_plugin_push_time )>PLUGIN_PUBLISH_TIME_NS ) ) {
-    ctx->last_plugin_push_time = now;
+  if( ctx->gossip_plugin_out_mem && FD_UNLIKELY( ( stem_ts - ctx->last_plugin_push_time )>PLUGIN_PUBLISH_TIME_NS ) ) {
+    ctx->last_plugin_push_time = stem_ts;
     publish_peers_to_plugin( ctx, stem );
   }
 
@@ -832,6 +830,12 @@ populate_allowed_fds( fd_topo_t const *      topo,
   return out_cnt;
 }
 
+static void
+stem_run_init( fd_gossip_tile_ctx_t * ctx,
+               fd_stem_context_t *    stem ) {
+  ctx->stem = stem;
+}
+
 static inline void
 fd_gossip_update_gossip_metrics( fd_gossip_metrics_t * metrics ) {
   FD_MCNT_SET( GOSSIP, RECEIVED_PACKETS, metrics->recv_pkt_cnt );
@@ -900,6 +904,7 @@ metrics_write( fd_gossip_tile_ctx_t * ctx ) {
 #define STEM_CALLBACK_CONTEXT_TYPE  fd_gossip_tile_ctx_t
 #define STEM_CALLBACK_CONTEXT_ALIGN alignof(fd_gossip_tile_ctx_t)
 
+#define STEM_CALLBACK_RUN_INIT            stem_run_init
 #define STEM_CALLBACK_AFTER_CREDIT        after_credit
 #define STEM_CALLBACK_DURING_HOUSEKEEPING during_housekeeping
 #define STEM_CALLBACK_BEFORE_FRAG         before_frag

@@ -337,7 +337,8 @@ static void
 after_credit( fd_snaprd_tile_t *  ctx,
               fd_stem_context_t * stem,
               int *               opt_poll_in,
-              int *               charge_busy ) {
+              int *               charge_busy,
+              long                stem_ts ) {
   (void)stem;
   (void)opt_poll_in;
   (void)charge_busy;
@@ -361,12 +362,12 @@ after_credit( fd_snaprd_tile_t *  ctx,
       fd_ip4_port_t best = fd_ssping_best( ctx->ssping );
       if( FD_LIKELY( best.l ) ) {
         ctx->state = FD_SNAPRD_STATE_COLLECTING_PEERS;
-        ctx->deadline_nanos = now + 500L*1000L*1000L;
+        ctx->deadline_nanos = stem_ts + 500L*1000L*1000L;
       }
       break;
     }
     case FD_SNAPRD_STATE_COLLECTING_PEERS: {
-      if( FD_UNLIKELY( now<ctx->deadline_nanos ) ) break;
+      if( FD_UNLIKELY( stem_ts<ctx->deadline_nanos ) ) break;
 
       fd_ip4_port_t best = fd_ssping_best( ctx->ssping );
       if( FD_UNLIKELY( !best.l ) ) {
@@ -382,7 +383,7 @@ after_credit( fd_snaprd_tile_t *  ctx,
         FD_LOG_NOTICE(( "downloading full snapshot from http://" FD_IP4_ADDR_FMT ":%hu/snapshot.tar.bz2", FD_IP4_ADDR_FMT_ARGS( best.addr ), best.port ));
         ctx->addr  = best;
         ctx->state = FD_SNAPRD_STATE_READING_FULL_HTTP;
-        fd_sshttp_init( ctx->sshttp, best, "/snapshot.tar.bz2", 17UL, now );
+        fd_sshttp_init( ctx->sshttp, best, "/snapshot.tar.bz2", 17UL, stem_ts );
       }
       break;
     }
@@ -392,7 +393,7 @@ after_credit( fd_snaprd_tile_t *  ctx,
       break;
     case FD_SNAPRD_STATE_READING_FULL_HTTP:
     case FD_SNAPRD_STATE_READING_INCREMENTAL_HTTP: {
-      read_http_data( ctx, stem, now );
+      read_http_data( ctx, stem, stem_ts );
       break;
     }
     case FD_SNAPRD_STATE_FLUSHING_INCREMENTAL_FILE:
@@ -483,6 +484,7 @@ after_frag( fd_snaprd_tile_t *  ctx,
             ulong               sz,
             ulong               tsorig,
             ulong               tspub,
+            long                stem_ts,
             fd_stem_context_t * stem ) {
   (void)in_idx;
   (void)seq;
@@ -511,7 +513,7 @@ after_frag( fd_snaprd_tile_t *  ctx,
         FD_LOG_NOTICE(( "error downloading snapshot from http://" FD_IP4_ADDR_FMT ":%hu/snapshot.tar.bz2",
                         FD_IP4_ADDR_FMT_ARGS( ctx->addr.addr ), ctx->addr.port ));
         fd_sshttp_cancel( ctx->sshttp );
-        fd_ssping_invalidate( ctx->ssping, ctx->addr, fd_log_wallclock() );
+        fd_ssping_invalidate( ctx->ssping, ctx->addr, stem_ts );
         fd_stem_publish( stem, 0UL, FD_SNAPSHOT_MSG_CTRL_RESET_FULL, 0UL, 0UL, 0UL, 0UL, 0UL );
         ctx->state = FD_SNAPRD_STATE_FLUSHING_FULL_HTTP_RESET;
         break;
@@ -520,7 +522,7 @@ after_frag( fd_snaprd_tile_t *  ctx,
         FD_LOG_NOTICE(( "error downloading snapshot from http://" FD_IP4_ADDR_FMT ":%hu/snapshot.tar.bz2",
                         FD_IP4_ADDR_FMT_ARGS( ctx->addr.addr ), ctx->addr.port ));
         fd_sshttp_cancel( ctx->sshttp );
-        fd_ssping_invalidate( ctx->ssping, ctx->addr, fd_log_wallclock() );
+        fd_ssping_invalidate( ctx->ssping, ctx->addr, stem_ts );
         /* We would like to transition to FULL_HTTP_RESET, but we can't
            do it just yet, because we have already sent a DONE control
            fragment, and need to wait for acknowledges to come back

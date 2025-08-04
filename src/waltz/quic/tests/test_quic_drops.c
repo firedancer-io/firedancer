@@ -122,12 +122,7 @@ my_handshake_complete( fd_quic_conn_t * conn,
 }
 
 /* global "clock" */
-ulong now = (ulong)1e18;
-
-ulong test_clock( void * ctx ) {
-  (void)ctx;
-  return now;
-}
+long now = (long)1e18;
 
 long
 test_fibre_clock(void) {
@@ -152,24 +147,24 @@ client_fibre_fn( void * vp_arg ) {
 
   uchar buf[] = "Hello World!";
 
-  ulong period_ns = (ulong)1e6;
-  ulong next_send = now + period_ns;
+  long  period_ns = (ulong)1e6;
+  long  next_send = now + period_ns;
   ulong sent      = 0;
 
   while( !client_done ) {
     ulong next_wakeup = fd_quic_get_next_wakeup( quic );
 
     /* wake up at either next service or next send, whichever is sooner */
-    fd_fibre_wait_until( (long)fd_ulong_min( next_wakeup, next_send ) );
+    fd_fibre_wait_until( fd_long_min( (long)next_wakeup, next_send ) );
 
-    fd_quic_service( quic );
+    fd_quic_service( quic, now );
 
     if( !conn ) {
       rcvd = sent = 0;
 
-      conn = fd_quic_connect( quic, 0U, 0, 0U, 0 );
+      conn = fd_quic_connect( quic, 0U, 0, 0U, 0, now );
       if( !conn ) {
-        FD_LOG_WARNING(( "Client unable to obtain a connection. now: %lu", (ulong)now ));
+        FD_LOG_WARNING(( "Client unable to obtain a connection. now: %ld", now ));
         continue;
       }
 
@@ -178,7 +173,7 @@ client_fibre_fn( void * vp_arg ) {
       /* wait for connection handshake */
       while( conn && conn->state != FD_QUIC_CONN_STATE_ACTIVE ) {
         /* service client */
-        fd_quic_service( quic );
+        fd_quic_service( quic, now );
 
         /* allow server to process */
         fd_fibre_wait_until( (long)fd_quic_get_next_wakeup( quic ) );
@@ -189,7 +184,7 @@ client_fibre_fn( void * vp_arg ) {
 
     if( !stream ) {
       if( rcvd != sent ) {
-        fd_quic_service( quic );
+        fd_quic_service( quic, now );
         fd_fibre_wait_until( (long)fd_quic_get_next_wakeup( quic ) );
 
         continue;
@@ -212,7 +207,7 @@ client_fibre_fn( void * vp_arg ) {
             /* wake up at either next service or next send, whichever is sooner */
             fd_fibre_wait_until( (long)next_wakeup );
 
-            fd_quic_service( quic );
+            fd_quic_service( quic, now );
 
             if( !conn ) break;
 
@@ -237,9 +232,9 @@ client_fibre_fn( void * vp_arg ) {
       if( ++sent % 15 == 0 ) {
         /* wait for last sends to complete */
         /* TODO add callback for this */
-        ulong timeout = now + (ulong)3e6;
+        long timeout = now + (long)3e6;
         while( now < timeout ) {
-          fd_quic_service( quic );
+          fd_quic_service( quic, now );
 
           /* allow server to process */
           fd_fibre_wait_until( (long)fd_quic_get_next_wakeup( quic ) );
@@ -251,7 +246,7 @@ client_fibre_fn( void * vp_arg ) {
         /* wait for connection to be reaped
            (it's set to NULL in final callback */
         while( conn ) {
-          fd_quic_service( quic );
+          fd_quic_service( quic, now );
 
           /* allow server to process */
           fd_fibre_wait_until( (long)fd_quic_get_next_wakeup( quic ) );
@@ -277,7 +272,7 @@ client_fibre_fn( void * vp_arg ) {
 
     /* keep servicing until connection closed */
     while( conn ) {
-      fd_quic_service( quic );
+      fd_quic_service( quic, now );
       fd_fibre_yield();
     }
   }
@@ -300,14 +295,14 @@ server_fibre_fn( void * vp_arg ) {
   fd_quic_t * quic = args->quic;
 
   /* wake up at least every 1ms */
-  ulong period_ns = (ulong)1e6;
+  long period_ns = (long)1e6;
   while( !server_done ) {
-    fd_quic_service( quic );
+    fd_quic_service( quic, now );
 
-    ulong next_wakeup = fd_quic_get_next_wakeup( quic );
-    ulong next_period = now + period_ns;
+    long next_wakeup = (long)fd_quic_get_next_wakeup( quic );
+    long next_period = now + period_ns;
 
-    fd_fibre_wait_until( (long)fd_ulong_min( next_wakeup, next_period ) );
+    fd_fibre_wait_until( fd_long_min( next_wakeup, next_period ) );
   }
 }
 
@@ -361,18 +356,12 @@ main( int argc, char ** argv ) {
   client_quic->cb.stream_notify    = my_stream_notify_cb;
   client_quic->cb.conn_final       = my_cb_conn_final;
 
-  client_quic->cb.now     = test_clock;
-  client_quic->cb.now_ctx = NULL;
-
   client_quic->config.initial_rx_max_stream_data = 1<<15;
 
   server_quic->cb.conn_new       = my_connection_new;
   server_quic->cb.stream_rx      = my_stream_rx_cb;
   server_quic->cb.stream_notify  = my_stream_notify_cb;
   server_quic->cb.conn_final     = my_cb_conn_final;
-
-  server_quic->cb.now     = test_clock;
-  server_quic->cb.now_ctx = NULL;
 
   server_quic->config.initial_rx_max_stream_data = 1<<15;
 
@@ -424,7 +413,7 @@ main( int argc, char ** argv ) {
     long timeout = fd_fibre_schedule_run();
     if( timeout < 0 ) break;
 
-    now = (ulong)timeout;
+    now = timeout;
   }
 
   FD_LOG_NOTICE(( "Received %lu stream frags", tot_rcvd ));
