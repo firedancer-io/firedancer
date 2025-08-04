@@ -292,8 +292,8 @@ fd_runtime_fuzz_instr_ctx_create( fd_runtime_fuzz_runner_t *           runner,
     }
   }
 
-  /* Add accounts to bpf program cache */
-  fd_bpf_scan_and_create_bpf_program_cache_entry( slot_ctx, runner->spad );
+  /* Refresh the program cache */
+  fd_runtime_fuzz_refresh_program_cache( slot_ctx, test_ctx->accounts, test_ctx->accounts_count, runner->spad );
 
   /* Load instruction accounts */
 

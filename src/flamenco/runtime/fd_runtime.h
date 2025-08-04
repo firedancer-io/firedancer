@@ -619,21 +619,15 @@ fd_runtime_block_pre_execute_process_new_epoch( fd_exec_slot_ctx_t * slot_ctx,
                                                 fd_spad_t *          runtime_spad,
                                                 int *                is_epoch_boundary );
 
-/* This function is responsible for inserting fresh entries or updating existing entries in the program cache.
-   When the client boots up, the program cache is empty. As programs get invoked, this function is responsible
-   for verifying and inserting these programs into the cache. Additionally, this function performs reverification
-   checks for every existing program that is invoked after an epoch boundary once per program per epoch, and invalidates
-   any programs that fail reverification.
+/* `fd_runtime_update_program_cache()` is responsible for updating the
+   program cache with any programs referenced in the current
+   transaction. See fd_program_cache.h for more details.
 
-   When the cluster's feature set changes at an epoch, there is a possibility that existing programs
-   fail new SBPF / ELF header checks. Therefore, after every epoch, we should reverify all programs
-   and update our program cache so that users cannot invoke those old programs. Since iterating through
-   all programs every single epoch is expensive, we adopt a lazy approach where we reverify programs as they
-   are referenced in transactions, since only a small subset of all programs are actually referenced at any
-   time. We also make sure each program is only verified once per epoch, so repeated executions of a
-   program within the same epoch will only trigger verification once at the very first invocation.
+   Note that ALUTs must be resolved because programs referenced in ALUTs
+   can be invoked via CPI.
 
-   Note that ALUTs must be resolved because programs referenced in ALUTs can be invoked via CPI. */
+   TODO: We need to remove the ALUT resolution from this function
+   because it is redundant (ALUTs get resolved again in the exec tile). */
 void
 fd_runtime_update_program_cache( fd_exec_slot_ctx_t * slot_ctx,
                                  fd_txn_p_t const *   txn_p,
