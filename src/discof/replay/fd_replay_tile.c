@@ -774,12 +774,20 @@ init_after_snapshot( fd_replay_tile_ctx_t * ctx,
     FD_LOG_CRIT(( "Failed to initialize snapshot fork" ));
   }
 
-  fd_stakes_slim_t const * stakes = fd_bank_stakes_locking_query( ctx->slot_ctx->bank );
+  fd_hash_t * block_id = fd_bank_block_id_modify( ctx->slot_ctx->bank );
+  memset( block_id, 0, sizeof(fd_hash_t) );
+  block_id->key[0] = UCHAR_MAX; /* TODO: would be good to have the actual block id of the snapshot slot */
+
+  fd_stakes_slim_t const *        stakes        = fd_bank_stakes_locking_query( ctx->slot_ctx->bank );
   fd_stake_account_slim_t const * stakes_pool = fd_stakes_slim_join_pool_const( stakes );
+
+  /* Send to tower tile */
 
   if( FD_LIKELY( ctx->tower_out_idx!=ULONG_MAX ) ) {
     uchar * chunk_laddr = fd_chunk_to_laddr( ctx->tower_out_mem, ctx->tower_out_chunk );
-    ulong   off         = 0;
+    memcpy( chunk_laddr, block_id, sizeof(fd_hash_t) );
+
+    ulong off = sizeof(fd_hash_t);
     for( fd_stakes_slim_iter_t iter = fd_stakes_slim_iter_init( stakes, stakes_pool );
          !fd_stakes_slim_iter_done( iter, stakes, stakes_pool );
          iter = fd_stakes_slim_iter_next( iter, stakes, stakes_pool ) ) {
@@ -792,6 +800,7 @@ init_after_snapshot( fd_replay_tile_ctx_t * ctx,
       }
     }
     fd_stem_publish( stem, ctx->tower_out_idx, snapshot_slot << 32UL | UINT_MAX, ctx->tower_out_chunk, off, 0UL, (ulong)fd_log_wallclock(), (ulong)fd_log_wallclock() );
+    ctx->tower_out_chunk = fd_dcache_compact_next( ctx->tower_out_chunk, off, ctx->tower_out_chunk0, ctx->tower_out_wmark );
   }
 
   fd_bank_hash_cmp_t * bank_hash_cmp = ctx->bank_hash_cmp;
@@ -1552,9 +1561,16 @@ get_free_exec_tiles( fd_replay_tile_ctx_t * ctx, uchar * exec_free_idx ) {
 static void
 exec_slice_fini_slot( fd_replay_tile_ctx_t * ctx, fd_stem_context_t * stem ) {
 
+  ulong curr_slot = fd_bank_slot_get( ctx->slot_ctx->bank );
+
   fd_microblock_hdr_t * hdr = (fd_microblock_hdr_t *)fd_type_pun( ctx->slice_exec_ctx.buf + ctx->slice_exec_ctx.last_mblk_off );
   fd_hash_t * poh = fd_bank_poh_modify( ctx->slot_ctx->bank );
   memcpy( poh, hdr->hash, sizeof(fd_hash_t) );
+
+  block_id_map_t * bid = block_id_map_query( ctx->block_id_map, curr_slot, NULL );
+  FD_TEST( bid ); /* must exist */
+  fd_hash_t * block_id = fd_bank_block_id_modify( ctx->slot_ctx->bank );
+  memcpy( block_id, &bid->block_id, sizeof(fd_hash_t) );
 
   /* Reset ctx for next slot */
   fd_slice_exec_reset( &ctx->slice_exec_ctx );
@@ -1577,7 +1593,6 @@ exec_slice_fini_slot( fd_replay_tile_ctx_t * ctx, fd_stem_context_t * stem ) {
                                           ctx->runtime_spad,
                                           &exec_para_ctx_block_finalize );
 
-  ulong curr_slot = fd_bank_slot_get( ctx->slot_ctx->bank );
 
   ulong block_entry_height = fd_bank_block_height_get( ctx->slot_ctx->bank );
   publish_slot_notifications( ctx, stem, block_entry_height, curr_slot );
@@ -1591,10 +1606,16 @@ exec_slice_fini_slot( fd_replay_tile_ctx_t * ctx, fd_stem_context_t * stem ) {
   if( FD_LIKELY( ctx->tower_out_idx!=ULONG_MAX && !ctx->read_only ) ) {
     uchar * chunk_laddr = fd_chunk_to_laddr( ctx->tower_out_mem, ctx->tower_out_chunk );
     fd_hash_t const * bank_hash = fd_bank_bank_hash_query( ctx->slot_ctx->bank );
+    fd_hash_t const * block_id  = fd_bank_block_id_query ( ctx->slot_ctx->bank );
+    fd_hash_t const * parent_id = fd_bank_block_id_query( fd_banks_get_bank( ctx->banks, fd_bank_parent_slot_get( ctx->slot_ctx->bank ) ) ); /* FIXME: its cooked : (. parent could be equivocated  */
     fd_blockhashes_t const * blockhashes = fd_bank_block_hash_queue_query( ctx->slot_ctx->bank );
-    memcpy( chunk_laddr, bank_hash, sizeof(fd_hash_t) );
-    memcpy( chunk_laddr+sizeof(fd_hash_t), fd_blockhashes_peek_last( blockhashes ), sizeof(fd_hash_t) );
-    fd_stem_publish( stem, ctx->tower_out_idx, fd_bank_slot_get( ctx->slot_ctx->bank ) << 32UL | fd_bank_parent_slot_get( ctx->slot_ctx->bank ), ctx->tower_out_chunk, sizeof(fd_hash_t) * 2, 0UL, fd_frag_meta_ts_comp( fd_tickcount() ), fd_frag_meta_ts_comp( fd_tickcount() ) );
+
+    memcpy( chunk_laddr,                     bank_hash,                               sizeof(fd_hash_t) );
+    memcpy( chunk_laddr+sizeof(fd_hash_t),   fd_blockhashes_peek_last( blockhashes ), sizeof(fd_hash_t) );
+    memcpy( chunk_laddr+sizeof(fd_hash_t)*2, block_id,                                sizeof(fd_hash_t) );
+    memcpy( chunk_laddr+sizeof(fd_hash_t)*3, parent_id,                               sizeof(fd_hash_t) );
+    fd_stem_publish( stem, ctx->tower_out_idx, fd_bank_slot_get( ctx->slot_ctx->bank ) << 32UL | fd_bank_parent_slot_get( ctx->slot_ctx->bank ), ctx->tower_out_chunk, sizeof(fd_hash_t) * 4, 0UL, fd_frag_meta_ts_comp( fd_tickcount() ), fd_frag_meta_ts_comp( fd_tickcount() ) );
+    ctx->tower_out_chunk = fd_dcache_compact_next( ctx->tower_out_chunk, sizeof(fd_hash_t) * 4, ctx->tower_out_chunk0, ctx->tower_out_wmark );
   }
 
   /**********************************************************************/
@@ -1815,10 +1836,10 @@ unprivileged_init( fd_topo_t *      topo,
   for( ulong i = 0UL; i<FD_PACK_MAX_BANK_TILES; i++ ) {
     ctx->bmtree[i]           = FD_SCRATCH_ALLOC_APPEND( l, FD_BMTREE_COMMIT_ALIGN, FD_BMTREE_COMMIT_FOOTPRINT(0) );
   }
-  void * slice_buf                    = FD_SCRATCH_ALLOC_APPEND( l, 128UL, FD_SLICE_MAX );
-  void * block_id_map_mem             = FD_SCRATCH_ALLOC_APPEND( l, block_id_map_align(), block_id_map_footprint( fd_ulong_find_msb( fd_ulong_pow2_up( FD_BLOCK_MAX ) ) ) );
-  void * exec_slice_map_mem      = FD_SCRATCH_ALLOC_APPEND( l, fd_exec_slice_map_align(), fd_exec_slice_map_footprint( 20 ) );
-  ulong  scratch_alloc_mem            = FD_SCRATCH_ALLOC_FINI  ( l, scratch_align() );
+  void * slice_buf               = FD_SCRATCH_ALLOC_APPEND( l, 128UL, FD_SLICE_MAX );
+  void * block_id_map_mem        = FD_SCRATCH_ALLOC_APPEND( l, block_id_map_align(), block_id_map_footprint( fd_ulong_find_msb( fd_ulong_pow2_up( FD_BLOCK_MAX ) ) ) );
+  void * exec_slice_map_mem = FD_SCRATCH_ALLOC_APPEND( l, fd_exec_slice_map_align(), fd_exec_slice_map_footprint( 20 ) );
+  ulong  scratch_alloc_mem  = FD_SCRATCH_ALLOC_FINI  ( l, scratch_align() );
 
   if( FD_UNLIKELY( scratch_alloc_mem != ( (ulong)scratch + scratch_footprint( tile ) ) ) ) {
     FD_LOG_ERR( ( "scratch_alloc_mem did not match scratch_footprint diff: %lu alloc: %lu footprint: %lu",
