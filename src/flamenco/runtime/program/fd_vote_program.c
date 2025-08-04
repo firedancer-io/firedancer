@@ -2081,7 +2081,7 @@ fd_vote_decode_compact_update( fd_compact_vote_state_update_t * compact_update,
     vote_update->root     = ULONG_MAX;
   }
 
-  ulong lockouts_len = compact_update->lockouts_len;
+  ulong lockouts_len = compact_update->lockouts.len;
   ulong lockouts_max = fd_ulong_max( lockouts_len, MAX_LOCKOUT_HISTORY );
 
   uchar * deque_mem = fd_spad_alloc( ctx->txn_ctx->spad,
@@ -2094,7 +2094,7 @@ fd_vote_decode_compact_update( fd_compact_vote_state_update_t * compact_update,
     fd_vote_lockout_t * elem = deq_fd_vote_lockout_t_push_tail_nocopy( vote_update->lockouts );
     fd_vote_lockout_new( elem );
 
-    fd_lockout_offset_t * lock_offset = &compact_update->lockouts[i];
+    fd_lockout_offset_t * lock_offset = &compact_update->lockouts.data[i];
 
     ulong next_slot;
     if( FD_UNLIKELY( __builtin_uaddl_overflow( slot, lock_offset->offset, &next_slot ) ) )
@@ -2444,8 +2444,8 @@ fd_vote_program_execute( fd_exec_instr_ctx_t * ctx ) {
                                                   &args->new_authority,
                                                   args->authorization_type,
                                                   &args->current_authority_derived_key_owner,
-                                                  args->current_authority_derived_key_seed,
-                                                  args->current_authority_derived_key_seed_len );
+                                                  args->current_authority_derived_key_seed.data,
+                                                  args->current_authority_derived_key_seed.len );
 
     break;
   }
@@ -2486,8 +2486,8 @@ fd_vote_program_execute( fd_exec_instr_ctx_t * ctx ) {
                                                   new_authority,
                                                   args->authorization_type,
                                                   &args->current_authority_derived_key_owner,
-                                                  args->current_authority_derived_key_seed,
-                                                  args->current_authority_derived_key_seed_len );
+                                                  args->current_authority_derived_key_seed.data,
+                                                  args->current_authority_derived_key_seed.len );
 
     break;
   }

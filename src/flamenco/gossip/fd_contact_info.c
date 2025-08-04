@@ -12,7 +12,7 @@ static void
 refresh_metadata( fd_contact_info_t * ci_int ) {
   ushort cur_port = 0U;
   reset_socket_tag_idx( ci_int->socket_tag_idx );
-  for( ushort i = 0UL; i<ci_int->ci_crd.sockets_len; i++ ) {
+  for( ushort i = 0UL; i<ci_int->ci_crd.sockets.len; i++ ) {
     cur_port = (ushort)( cur_port + ci_int->sockets[ i ].offset );
 
     ci_int->socket_tag_idx[ ci_int->sockets[ i ].key ] = i;
@@ -36,8 +36,8 @@ void
 fd_contact_info_init( fd_contact_info_t * contact_info ) {
   memset( contact_info, 0, sizeof(fd_contact_info_t) );
 
-  contact_info->ci_crd.addrs    = contact_info->addrs;
-  contact_info->ci_crd.sockets  = contact_info->sockets;
+  contact_info->ci_crd.addrs.data    = contact_info->addrs;
+  contact_info->ci_crd.sockets.data  = contact_info->sockets;
 
   reset_socket_tag_idx( contact_info->socket_tag_idx );
 }
@@ -48,12 +48,11 @@ fd_contact_info_from_ci_v2( fd_gossip_contact_info_v2_t const * ci_v2,
   fd_gossip_contact_info_v2_t * ci_int = &contact_info->ci_crd;
   *ci_int = *ci_v2;
 
-  ci_int->addrs           = contact_info->addrs;
-  ci_int->addrs_len       = 0U;
-  ci_int->sockets         = contact_info->sockets;
-  ci_int->sockets_len     = 0U;
-  ci_int->extensions      = NULL; /* unsupported */
-  ci_int->extensions_len  = 0U;   /* unsupported */
+  ci_int->addrs.data           = contact_info->addrs;
+  ci_int->addrs.len       = 0U;
+  /* ci_int->sockets is a regular array, not anonymous struct */
+  ci_int->extensions.data      = NULL; /* unsupported */
+  ci_int->extensions.len  = 0U;   /* unsupported */
 
   reset_socket_tag_idx( contact_info->socket_tag_idx );
 
@@ -61,8 +60,8 @@ fd_contact_info_from_ci_v2( fd_gossip_contact_info_v2_t const * ci_v2,
   /* For sockets, validate individual entries and keep track of offsets */
   ushort cur_offset = 0U;
   ushort cur_port   = 0U;
-  for( ulong i = 0UL; i<ci_v2->sockets_len; i++ ) {
-    fd_gossip_socket_entry_t const * socket_entry = &ci_v2->sockets[ i ];
+  for( ulong i = 0UL; i<ci_v2->sockets.len; i++ ) {
+    fd_gossip_socket_entry_t const * socket_entry = &ci_v2->sockets.data[ i ];
     cur_offset = (ushort)( cur_offset + socket_entry->offset );
     cur_port   = (ushort)( cur_port   + socket_entry->offset );
 
@@ -81,8 +80,8 @@ fd_contact_info_from_ci_v2( fd_gossip_contact_info_v2_t const * ci_v2,
     /* Find addr index
        TODO: can avoid nested for loop with a simple mapping of (ci_v2 addr_idx, ci_int addr_idx) */
     uchar addr_index = UCHAR_MAX;
-    for( ulong j = 0UL; j < ci_int->addrs_len; j++ ) {
-      if( FD_LIKELY( memcmp(&ci_int->addrs[j], &ci_v2->addrs[socket_entry->index], sizeof(fd_gossip_ip_addr_t)) == 0 ) ) {
+    for( ulong j = 0UL; j < ci_int->addrs.len; j++ ) {
+      if( FD_LIKELY( memcmp(&ci_int->addrs.data[j], &ci_v2->addrs.data[socket_entry->index], sizeof(fd_gossip_ip_addr_t)) == 0 ) ) {
         addr_index = (uchar)j;
         break;
       }
@@ -90,33 +89,33 @@ fd_contact_info_from_ci_v2( fd_gossip_contact_info_v2_t const * ci_v2,
 
     /* Add entry to end of addrs if does not exist */
     if( FD_UNLIKELY( addr_index == UCHAR_MAX ) ) {
-      if( FD_UNLIKELY( socket_entry->index >= ci_v2->addrs_len ) ) {
-        FD_LOG_WARNING(( "addr index %u out of bounds for addrs_len %u", socket_entry->index, ci_v2->addrs_len ));
+      if( FD_UNLIKELY( socket_entry->index >= ci_v2->addrs.len ) ) {
+        FD_LOG_WARNING(( "addr index %u out of bounds for addrs_len %u", socket_entry->index, ci_v2->addrs.len ));
         continue;
       }
-      if( FD_UNLIKELY( ci_int->addrs_len >= FD_GOSSIP_SOCKET_TAG_MAX ) ) {
-        FD_LOG_ERR(( "Too many unique addresses (%u) in contact info, possible broken implementation of fd_contact_info_from_ci_v2", ci_int->addrs_len ));
+      if( FD_UNLIKELY( ci_int->addrs.len >= FD_GOSSIP_SOCKET_TAG_MAX ) ) {
+        FD_LOG_ERR(( "Too many unique addresses (%u) in contact info, possible broken implementation of fd_contact_info_from_ci_v2", ci_int->addrs.len ));
         continue;
       }
-      ci_int->addrs[ ci_int->addrs_len ] = ci_v2->addrs[ socket_entry->index ];
-      addr_index = (uchar)ci_int->addrs_len;
-      ci_int->addrs_len++;
+      ci_int->addrs.data[ ci_int->addrs.len ] = ci_v2->addrs.data[ socket_entry->index ];
+      addr_index = (uchar)ci_int->addrs.len;
+      ci_int->addrs.len++;
     }
 
-    ci_int->sockets[ ci_int->sockets_len ].index            = addr_index;
-    ci_int->sockets[ ci_int->sockets_len ].key              = socket_entry->key;
-    ci_int->sockets[ ci_int->sockets_len ].offset           = cur_offset;
+    contact_info->sockets[ ci_int->sockets.len ].index            = addr_index;
+    contact_info->sockets[ ci_int->sockets.len ].key              = socket_entry->key;
+    contact_info->sockets[ ci_int->sockets.len ].offset           = cur_offset;
 
     /* Metadata updates */
-    contact_info->socket_tag_idx[ socket_entry->key ]       = ci_int->sockets_len;
-    contact_info->ports[ ci_int->sockets_len ]              = cur_port;
+    contact_info->socket_tag_idx[ socket_entry->key ]       = ci_int->sockets.len;
+    contact_info->ports[ ci_int->sockets.len ]              = cur_port;
 
-    ci_int->sockets_len++;
+    ci_int->sockets.len++;
     cur_offset = 0U;
   }
 
-  if( FD_UNLIKELY( ci_int->sockets_len > FD_GOSSIP_SOCKET_TAG_MAX ) ){
-    FD_LOG_ERR(( "Too many sockets (%u) in contact info, possible broken implementation of fd_contact_info_from_ci_v2", ci_int->sockets_len ));
+  if( FD_UNLIKELY( ci_int->sockets.len > FD_GOSSIP_SOCKET_TAG_MAX ) ){
+    FD_LOG_ERR(( "Too many sockets (%u) in contact info, possible broken implementation of fd_contact_info_from_ci_v2", ci_int->sockets.len ));
   }
 }
 
@@ -146,7 +145,7 @@ fd_contact_info_to_update_msg( fd_contact_info_t const * contact_info,
 
   ushort cur_port = 0U;
   for( ulong i = 0UL; i<FD_GOSSIP_SOCKET_TAG_MAX; i++ ) {
-    fd_gossip_socket_entry_t const * socket_entry = &ci_v2->sockets[ i ];
+    fd_gossip_socket_entry_t const * socket_entry = &ci_v2->sockets.data[ i ];
     cur_port = (ushort)( cur_port + socket_entry->offset );
     ushort socket_tag = socket_entry->key;
 
@@ -158,12 +157,12 @@ fd_contact_info_to_update_msg( fd_contact_info_t const * contact_info,
       FD_LOG_DEBUG(( "Unsupported socket tag in update msg %u", socket_tag ));
       continue;
     }
-    if( FD_UNLIKELY( !fd_gossip_ip_addr_is_ip4( &ci_v2->addrs[ socket_entry->index ] ))){
+    if( FD_UNLIKELY( !fd_gossip_ip_addr_is_ip4( &ci_v2->addrs.data[ socket_entry->index ] ))){
       /* Skip non IPv4 entries */
       continue;
     }
 
-    update->addrs[ socket_tag ].ip   = ci_v2->addrs[ socket_entry->index ].inner.ip4;
+    update->addrs[ socket_tag ].ip   = ci_v2->addrs.data[ socket_entry->index ].inner.ip4;
     update->addrs[ socket_tag ].port = cur_port ;
   }
 }
@@ -181,8 +180,8 @@ fd_contact_info_get_socket_addr( fd_contact_info_t const *  ci_int,
     return -1;
   }
   ushort socket_idx = ci_int->socket_tag_idx[ socket_tag ];
-  fd_gossip_socket_entry_t const * socket_entry = &ci_int->ci_crd.sockets[ socket_idx ];
-  fd_gossip_ip_addr_t const * addr = &ci_int->ci_crd.addrs[ socket_entry->index ];
+  fd_gossip_socket_entry_t const * socket_entry = &ci_int->ci_crd.sockets.data[ socket_idx ];
+  fd_gossip_ip_addr_t const * addr = &ci_int->ci_crd.addrs.data[ socket_entry->index ];
   ushort port = fd_ushort_bswap( ci_int->ports[ socket_idx ] );
 
   if( FD_LIKELY( fd_gossip_ip_addr_is_ip4( addr ) ) ) {
@@ -212,26 +211,26 @@ fd_contact_info_remove_socket( fd_contact_info_t *      ci_int,
   }
 
   ushort socket_idx = ci_int->socket_tag_idx[ socket_tag ];
-  ushort addr_idx = ci_int->ci_crd.sockets[ socket_idx ].index;
-  memmove( &ci_int->ci_crd.sockets[ socket_idx ],
-           &ci_int->ci_crd.sockets[ socket_idx+1 ],
-           sizeof(fd_gossip_socket_entry_t)*(ulong)( ci_int->ci_crd.sockets_len - socket_idx - 1 ) );
-  ci_int->ci_crd.sockets_len--;
+  ushort addr_idx = ci_int->ci_crd.sockets.data[ socket_idx ].index;
+  memmove( &ci_int->ci_crd.sockets.data[ socket_idx ],
+           &ci_int->ci_crd.sockets.data[ socket_idx+1 ],
+           sizeof(fd_gossip_socket_entry_t)*(ulong)( ci_int->ci_crd.sockets.len - socket_idx - 1 ) );
+  ci_int->ci_crd.sockets.len--;
 
   /* Remove addr idx if no longer in any socket entry */
   int addr_found = 0;
-  for( ulong i = 0UL; i<ci_int->ci_crd.sockets_len; i++ ) {
-    if( ci_int->ci_crd.sockets[ i ].index == addr_idx ){
+  for( ulong i = 0UL; i<ci_int->ci_crd.sockets.len; i++ ) {
+    if( ci_int->ci_crd.sockets.data[ i ].index == addr_idx ){
       addr_found = 1;
       break;
     }
   }
 
   if( !addr_found ){
-    memmove( &ci_int->ci_crd.addrs[ addr_idx ],
-             &ci_int->ci_crd.addrs[ addr_idx+1 ],
-             sizeof(fd_gossip_ip_addr_t)*(ulong)( ci_int->ci_crd.addrs_len - addr_idx - 1 ) );
-    ci_int->ci_crd.addrs_len--;
+    memmove( &ci_int->ci_crd.addrs.data[ addr_idx ],
+             &ci_int->ci_crd.addrs.data[ addr_idx+1 ],
+             sizeof(fd_gossip_ip_addr_t)*(ulong)( ci_int->ci_crd.addrs.len - addr_idx - 1 ) );
+    ci_int->ci_crd.addrs.len--;
   }
 
   refresh_metadata( ci_int );
@@ -259,7 +258,7 @@ fd_contact_info_insert_socket( fd_contact_info_t *            ci_int,
   /* Find idx to insert in */
   ushort insert_idx = 0;
   ushort cur_port = 0U;
-  for( ; insert_idx<ci_int->ci_crd.sockets_len; insert_idx++ ) {
+  for( ; insert_idx<ci_int->ci_crd.sockets.len; insert_idx++ ) {
     fd_gossip_socket_entry_t const * socket_entry = &ci_int->sockets[ insert_idx ];
     if( FD_LIKELY( cur_port + socket_entry->offset > new_port ) ) {
       break;
@@ -275,26 +274,26 @@ fd_contact_info_insert_socket( fd_contact_info_t *            ci_int,
   /* Shift all entries starting from insert_idx down */
   memmove( &ci_int->sockets[ insert_idx+1 ],
            &ci_int->sockets[ insert_idx ],
-           sizeof(fd_gossip_socket_entry_t)*(ulong)( ci_int->ci_crd.sockets_len - insert_idx ) );
-  ci_int->ci_crd.sockets_len++;
+           sizeof(fd_gossip_socket_entry_t)*(ulong)( ci_int->ci_crd.sockets.len - insert_idx ) );
+  ci_int->ci_crd.sockets.len++;
 
   /* Find addr idx */
   uchar addr_idx = 0U;
-  for( ; addr_idx<ci_int->ci_crd.addrs_len; addr_idx++ ) {
-    if( FD_LIKELY( ci_int->ci_crd.addrs[ addr_idx ].inner.ip4==peer->addr ) ) {
+  for( ; addr_idx<ci_int->ci_crd.addrs.len; addr_idx++ ) {
+    if( FD_LIKELY( ci_int->ci_crd.addrs.data[ addr_idx ].inner.ip4==peer->addr ) ) {
       break;
     }
   }
 
-  if(  FD_UNLIKELY( addr_idx==ci_int->ci_crd.addrs_len ) ) {
+  if(  FD_UNLIKELY( addr_idx==ci_int->ci_crd.addrs.len ) ) {
     FD_LOG_INFO(( "Adding new addr %u", peer->addr ) );
-    fd_gossip_ip_addr_new_disc( &ci_int->ci_crd.addrs[ addr_idx ], fd_gossip_ip_addr_enum_ip4 );
-    ci_int->ci_crd.addrs[ addr_idx ].inner.ip4 = peer->addr;
-    ci_int->ci_crd.addrs_len++;
+    fd_gossip_ip_addr_new_disc( &ci_int->ci_crd.addrs.data[ addr_idx ], fd_gossip_ip_addr_enum_ip4 );
+    ci_int->ci_crd.addrs.data[ addr_idx ].inner.ip4 = peer->addr;
+    ci_int->ci_crd.addrs.len++;
   }
 
   new_socket_entry.index = addr_idx;
-  ci_int->ci_crd.sockets[ insert_idx ] = new_socket_entry;
+  ci_int->ci_crd.sockets.data[ insert_idx ] = new_socket_entry;
 
   /* Refresh metadata */
   refresh_metadata( ci_int );
@@ -306,18 +305,18 @@ fd_gossip_contact_info_v2_find_proto_ident( fd_gossip_contact_info_v2_t const * 
                                             uchar                               proto_ident,
                                             fd_gossip_socket_addr_t *           out_addr ) {
   ushort port = 0;
-  for( ulong i = 0UL; i<contact_info->sockets_len; i++ ) {
-    fd_gossip_socket_entry_t const * socket_entry = &contact_info->sockets[ i ];
+  for( ulong i = 0UL; i<contact_info->sockets.len; i++ ) {
+    fd_gossip_socket_entry_t const * socket_entry = &contact_info->sockets.data[ i ];
     port = (ushort)( port + socket_entry->offset );
     if( socket_entry->key==proto_ident ) {
-      if( socket_entry->index>=contact_info->addrs_len) {
+      if( socket_entry->index>=contact_info->addrs.len) {
         continue;
       }
 
       /* fd_gossip_socket_addr->inner and fd_gossip_ip_addr
          are slightly different, so we can't just
-         out_addr->ip = contact_info->addrs[ idx ] */
-      fd_gossip_ip_addr_t * tmp = &contact_info->addrs[ socket_entry->index ];
+         out_addr->ip = contact_info->addrs.data[ idx ] */
+      fd_gossip_ip_addr_t * tmp = &contact_info->addrs.data[ socket_entry->index ];
       if( FD_LIKELY( tmp->discriminant == fd_gossip_ip_addr_enum_ip4 ) ) {
         out_addr->discriminant = fd_gossip_socket_addr_enum_ip4;
         out_addr->inner.ip4.addr = tmp->inner.ip4;

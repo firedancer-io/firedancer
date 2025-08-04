@@ -653,14 +653,14 @@ extend_lookup_table( fd_exec_instr_ctx_t *       ctx,
   }
 
   /* https://github.com/solana-labs/solana/blob/v1.17.4/programs/address-lookup-table/src/processor.rs#L271-L274 */
-  if( FD_UNLIKELY( !extend->new_addrs_len ) ) {
+  if( FD_UNLIKELY( !extend->new_addrs.len ) ) {
     fd_log_collector_msg_literal( ctx, "Must extend with at least one address" );
     return FD_EXECUTOR_INSTR_ERR_INVALID_INSTR_DATA;
   }
 
   /* https://github.com/solana-labs/solana/blob/v1.17.4/programs/address-lookup-table/src/processor.rs#L276-L279 */
   ulong old_addr_cnt = lut->addr_cnt;
-  ulong new_addr_cnt = lut->addr_cnt + extend->new_addrs_len;
+  ulong new_addr_cnt = lut->addr_cnt + extend->new_addrs.len;
   if( FD_UNLIKELY( new_addr_cnt > FD_ADDRLUT_MAX_ADDR_CNT ) ) {
     /* Max msg_sz: 65 - 6 + 20*2 = 99 < 127 => we can use printf */
     fd_log_collector_printf_dangerous_max_127( ctx,
@@ -702,7 +702,7 @@ extend_lookup_table( fd_exec_instr_ctx_t *       ctx,
   /* https://github.com/solana-labs/solana/blob/v1.17.4/programs/address-lookup-table/src/processor.rs#L311-L313 */
   do {
     uchar * new_keys = lut_data_mut + FD_ADDRLUT_META_SZ + old_addr_cnt * sizeof(fd_pubkey_t);
-    fd_memcpy( new_keys, extend->new_addrs, extend->new_addrs_len * sizeof(fd_pubkey_t) );
+    fd_memcpy( new_keys, extend->new_addrs.data, extend->new_addrs.len * sizeof(fd_pubkey_t) );
   } while(0);
   fd_borrowed_account_set_data_length( &lut_acct, new_table_data_sz );
   lut->addr            = (fd_pubkey_t *)(lut_data_mut + FD_ADDRLUT_META_SZ);

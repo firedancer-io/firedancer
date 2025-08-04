@@ -1151,11 +1151,10 @@ fd_gossip_random_pull( fd_gossip_t * glob, fd_pending_event_arg_t * arg ) {
   fd_gossip_pull_req_t * req = &gmsg.inner.pull_req;
   fd_crds_filter_t * filter = &req->filter;
   filter->mask_bits              = nmaskbits;
-  filter->filter.keys_len        = nkeys;
-  filter->filter.keys            = keys;
-  filter->filter.bits_len        = FD_BLOOM_NUM_BITS;
+  filter->filter.keys.len        = nkeys;
+  filter->filter.keys.data            = keys;
   filter->filter.has_bits        = 1;
-  filter->filter.bits_bitvec_len = FD_BLOOM_NUM_BITS/64U;
+  filter->filter.bits_bitvec.len = FD_BLOOM_NUM_BITS/64U;
 
   /* The "value" in the request is always my own contact info (v2) */
   fd_crds_value_t * value = &req->value;
@@ -1169,7 +1168,7 @@ fd_gossip_random_pull( fd_gossip_t * glob, fd_pending_event_arg_t * arg ) {
     ulong index = fd_gossip_filter_selection_iter_idx( iter );
     filter->mask = (nmaskbits == 0 ? ~0UL : ((index << (64U - nmaskbits)) | (~0UL >> nmaskbits)));
     filter->filter.num_bits_set = num_bits_set[index];
-    filter->filter.bits_bitvec = bits + (index*CHUNKSIZE);
+    filter->filter.bits_bitvec.data = bits + (index*CHUNKSIZE);
     fd_gossip_send(glob, &ele->key, &gmsg);
   }
 }
@@ -1515,11 +1514,11 @@ fd_gossip_recv_crds_array( fd_gossip_t * glob, const fd_gossip_peer_addr_t * fro
 static int
 verify_signable_data_with_prefix( fd_gossip_t * glob, fd_gossip_prune_msg_t * msg ) {
   fd_gossip_prune_sign_data_with_prefix_t signdata[1] = {0};
-  signdata->prefix           = (uchar *)&FD_GOSSIP_PRUNE_DATA_PREFIX;
-  signdata->prefix_len       = 18UL;
+  signdata->prefix.data           = (uchar *)&FD_GOSSIP_PRUNE_DATA_PREFIX;
+  signdata->prefix.len       = 18UL;
   signdata->data.pubkey      = msg->data.pubkey;
-  signdata->data.prunes_len  = msg->data.prunes_len;
-  signdata->data.prunes      = msg->data.prunes;
+  signdata->data.prunes.len  = msg->data.prunes.len;
+  signdata->data.prunes.data      = msg->data.prunes.data;
   signdata->data.destination = msg->data.destination;
   signdata->data.wallclock   = msg->data.wallclock;
 
@@ -1545,8 +1544,8 @@ static int
 verify_signable_data( fd_gossip_t * glob, fd_gossip_prune_msg_t * msg ) {
   fd_gossip_prune_sign_data_t signdata;
   signdata.pubkey      = msg->data.pubkey;
-  signdata.prunes_len  = msg->data.prunes_len;
-  signdata.prunes      = msg->data.prunes;
+  signdata.prunes.len  = msg->data.prunes.len;
+  signdata.prunes.data      = msg->data.prunes.data;
   signdata.destination = msg->data.destination;
   signdata.wallclock   = msg->data.wallclock;
 
@@ -1598,8 +1597,8 @@ fd_gossip_handle_prune(fd_gossip_t * glob, const fd_gossip_peer_addr_t * from, f
     return;
 
   /* Set the bloom filter prune bits */
-  for (ulong i = 0; i < msg->data.prunes_len; ++i) {
-    fd_pubkey_t * p = msg->data.prunes + i;
+  for (ulong i = 0; i < msg->data.prunes.len; ++i) {
+    fd_pubkey_t * p = msg->data.prunes.data + i;
     for (ulong j = 0; j < FD_PRUNE_NUM_KEYS; ++j) {
       ulong pos = fd_gossip_bloom_pos(p, ps->prune_keys[j], FD_PRUNE_NUM_BITS);
       ulong * j = ps->prune_bits + (pos>>6U); /* divide by 64 */
@@ -1690,9 +1689,9 @@ fd_gossip_handle_pull_req(fd_gossip_t * glob, const fd_gossip_peer_addr_t * from
 
   /* Apply the bloom filter to my table of values */
   fd_crds_filter_t * filter = &msg->filter;
-  ulong nkeys = filter->filter.keys_len;
-  ulong * keys = filter->filter.keys;
-  ulong * inner = filter->filter.bits_bitvec;
+  ulong nkeys = filter->filter.keys.len;
+  ulong * keys = filter->filter.keys.data;
+  ulong * inner = filter->filter.bits_bitvec.data;
   ulong expire = FD_NANOSEC_TO_MILLI(glob->now) - FD_GOSSIP_PULL_TIMEOUT;
   ulong hits = 0;
   ulong misses = 0;
@@ -1710,7 +1709,7 @@ fd_gossip_handle_pull_req(fd_gossip_t * glob, const fd_gossip_peer_addr_t * from
     }
     int miss = 0;
     for (ulong i = 0; i < nkeys; ++i) {
-      ulong pos = fd_gossip_bloom_pos(hash, keys[i], filter->filter.bits_len);
+      ulong pos = fd_gossip_bloom_pos(hash, keys[i], FD_BLOOM_NUM_BITS);
       ulong * j = inner + (pos>>6U); /* divide by 64 */
       ulong bit = 1UL<<(pos & 63U);
       if (!((*j) & bit)) {
@@ -1779,12 +1778,12 @@ fd_gossip_recv(fd_gossip_t * glob, const fd_gossip_peer_addr_t * from, fd_gossip
     break;
   case fd_gossip_msg_enum_pull_resp: {
     fd_gossip_pull_resp_t * pull_resp = &gmsg->inner.pull_resp;
-    fd_gossip_recv_crds_array( glob, NULL, pull_resp->crds, pull_resp->crds_len, FD_GOSSIP_CRDS_ROUTE_PULL_RESP );
+    fd_gossip_recv_crds_array( glob, NULL, pull_resp->crds.data, pull_resp->crds.len, FD_GOSSIP_CRDS_ROUTE_PULL_RESP );
     break;
   }
   case fd_gossip_msg_enum_push_msg: {
     fd_gossip_push_msg_t * push_msg = &gmsg->inner.push_msg;
-    fd_gossip_recv_crds_array( glob, from, push_msg->crds, push_msg->crds_len, FD_GOSSIP_CRDS_ROUTE_PUSH );
+    fd_gossip_recv_crds_array( glob, from, push_msg->crds.data, push_msg->crds.len, FD_GOSSIP_CRDS_ROUTE_PUSH );
     break;
   }
   case fd_gossip_msg_enum_prune_msg:
@@ -2089,15 +2088,15 @@ fd_gossip_make_prune( fd_gossip_t * glob, fd_pending_event_arg_t * arg ) {
     fd_gossip_msg_new_disc(&gmsg, fd_gossip_msg_enum_prune_msg);
     fd_gossip_prune_msg_t * prune_msg = &gmsg.inner.prune_msg;
     prune_msg->data.pubkey = *glob->public_key;
-    prune_msg->data.prunes_len = origins_cnt;
-    prune_msg->data.prunes = origins;
+    prune_msg->data.prunes.len = origins_cnt;
+    prune_msg->data.prunes.data = origins;
     prune_msg->data.destination = peerval->id;
     ulong wc = prune_msg->data.wallclock = FD_NANOSEC_TO_MILLI(glob->now);
 
     fd_gossip_prune_sign_data_t signdata;
     signdata.pubkey = *glob->public_key;
-    signdata.prunes_len = origins_cnt;
-    signdata.prunes = origins;
+    signdata.prunes.len = origins_cnt;
+    signdata.prunes.data = origins;
     signdata.destination = peerval->id;
     signdata.wallclock = wc;
 

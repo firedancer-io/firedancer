@@ -83,12 +83,12 @@ _process_config_instr( fd_exec_instr_ctx_t * ctx ) {
 
   fd_pubkey_t * current_signer_keys    = fd_spad_alloc( ctx->txn_ctx->spad,
                                                         alignof(fd_pubkey_t),
-                                                        sizeof(fd_pubkey_t) * current_data->keys_len );
+                                                        sizeof(fd_pubkey_t) * current_data->keys.len );
   ulong         current_signer_key_cnt = 0UL;
 
-  for( ulong i=0UL; i < current_data->keys_len; i++ ) {
-    if( current_data->keys[i].signer ) {
-      current_signer_keys[ current_signer_key_cnt++ ] = current_data->keys[i].key;
+  for( ulong i=0UL; i < current_data->keys.len; i++ ) {
+    if( current_data->keys.data[i].signer ) {
+      current_signer_keys[ current_signer_key_cnt++ ] = current_data->keys.data[i].key;
     }
   }
 
@@ -104,9 +104,9 @@ _process_config_instr( fd_exec_instr_ctx_t * ctx ) {
   ulong counter = 0UL;
   /* Invariant: counter <= key_list.keys_len */
 
-  for( ulong i=0UL; i<key_list->keys_len; i++ ) {
-    if( !key_list->keys[i].signer ) continue;
-    fd_pubkey_t const * signer = &key_list->keys[i].key;
+  for( ulong i=0UL; i<key_list->keys.len; i++ ) {
+    if( !key_list->keys.data[i].signer ) continue;
+    fd_pubkey_t const * signer = &key_list->keys.data[i].key;
 
     /* https://github.com/solana-labs/solana/blob/v1.17.17/programs/config/src/config_processor.rs#L60 */
 
@@ -149,7 +149,7 @@ _process_config_instr( fd_exec_instr_ctx_t * ctx ) {
 
       /* https://github.com/solana-labs/solana/blob/v1.17.17/programs/config/src/config_processor.rs#L89-L98 */
 
-      if( current_data->keys_len>0UL ) {
+      if( current_data->keys.len>0UL ) {
         /* https://github.com/solana-labs/solana/blob/v1.17.17/programs/config/src/config_processor.rs#L90 */
         int is_signer = 0;
         for( ulong j=0UL; j<current_signer_key_cnt; j++ ) {
@@ -182,12 +182,12 @@ _process_config_instr( fd_exec_instr_ctx_t * ctx ) {
      https://github.com/solana-labs/solana/blob/v1.17.17/programs/config/src/config_processor.rs#L105-L115
 
   TODO: Agave uses a O(n log n) algorithm here */
-  for( ulong i = 0; i < key_list->keys_len; i++ ) {
-    for( ulong j = 0; j < key_list->keys_len; j++ ) {
+  for( ulong i = 0; i < key_list->keys.len; i++ ) {
+    for( ulong j = 0; j < key_list->keys.len; j++ ) {
       if( i == j ) continue;
 
-      if( FD_UNLIKELY( memcmp( &key_list->keys[i].key, &key_list->keys[j].key, sizeof(fd_pubkey_t) ) == 0 &&
-                        key_list->keys[i].signer == key_list->keys[j].signer ) ) {
+      if( FD_UNLIKELY( memcmp( &key_list->keys.data[i].key, &key_list->keys.data[j].key, sizeof(fd_pubkey_t) ) == 0 &&
+                        key_list->keys.data[i].signer == key_list->keys.data[j].signer ) ) {
         fd_log_collector_msg_literal( ctx, "new config contains duplicate keys" );
         return FD_EXECUTOR_INSTR_ERR_INVALID_ARG;
       }

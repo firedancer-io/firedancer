@@ -130,8 +130,8 @@ fd_loader_v4_program_instruction_write( fd_exec_instr_ctx_t *                   
                                         fd_loader_v4_program_instruction_write_t const * write ) {
   int           err;
   uint          offset    = write->offset;
-  uchar const * bytes     = write->bytes;
-  ulong         bytes_len = write->bytes_len;
+  uchar const * bytes     = write->bytes.data;
+  ulong         bytes_len = write->bytes.len;
 
   /* https://github.com/anza-xyz/agave/blob/v2.2.6/programs/loader-v4/src/lib.rs#L98 */
   fd_guarded_borrowed_account_t program;

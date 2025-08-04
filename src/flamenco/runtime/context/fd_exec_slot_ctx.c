@@ -278,23 +278,23 @@ fd_exec_slot_ctx_recover_status_cache( fd_exec_slot_ctx_t *    ctx,
   FD_SPAD_FRAME_BEGIN( runtime_spad ) {
 
   ulong num_entries = 0;
-  for( ulong i = 0; i < slot_deltas->slot_deltas_len; i++ ) {
-    fd_slot_delta_t * slot_delta = &slot_deltas->slot_deltas[i];
-    for( ulong j = 0; j < slot_delta->slot_delta_vec_len; j++ ) {
-      num_entries += slot_delta->slot_delta_vec[j].value.statuses_len;
+  for( ulong i = 0; i < slot_deltas->slot_deltas.len; i++ ) {
+    fd_slot_delta_t * slot_delta = &slot_deltas->slot_deltas.data[i];
+    for( ulong j = 0; j < slot_delta->slot_delta_vec.len; j++ ) {
+      num_entries += slot_delta->slot_delta_vec.data[j].value.statuses.len;
     }
   }
   fd_txncache_insert_t * insert_vals = fd_spad_alloc_check( runtime_spad, alignof(fd_txncache_insert_t), num_entries * sizeof(fd_txncache_insert_t) );
 
   /* Dumb sort for 300 slot entries to insert in order. */
-  fd_slot_delta_t ** deltas = fd_spad_alloc_check( runtime_spad, alignof(fd_slot_delta_t*), slot_deltas->slot_deltas_len * sizeof(fd_slot_delta_t*) );
+  fd_slot_delta_t ** deltas = fd_spad_alloc_check( runtime_spad, alignof(fd_slot_delta_t*), slot_deltas->slot_deltas.len * sizeof(fd_slot_delta_t*) );
 
   long curr = -1;
-  for( ulong i = 0UL; i < slot_deltas->slot_deltas_len; i++ ) {
+  for( ulong i = 0UL; i < slot_deltas->slot_deltas.len; i++ ) {
     ulong curr_min     = ULONG_MAX;
     ulong curr_min_idx = ULONG_MAX;
-    for( ulong j = 0; j < slot_deltas->slot_deltas_len; j++ ) {
-      fd_slot_delta_t * slot_delta = &slot_deltas->slot_deltas[j];
+    for( ulong j = 0; j < slot_deltas->slot_deltas.len; j++ ) {
+      fd_slot_delta_t * slot_delta = &slot_deltas->slot_deltas.data[j];
       if( (long)slot_delta->slot <= curr ) continue;
 
       if( curr_min > slot_delta->slot ) {
@@ -302,23 +302,23 @@ fd_exec_slot_ctx_recover_status_cache( fd_exec_slot_ctx_t *    ctx,
         curr_min_idx = j;
       }
     }
-    deltas[i] = &slot_deltas->slot_deltas[curr_min_idx];
-    curr = (long)slot_deltas->slot_deltas[curr_min_idx].slot;
+    deltas[i] = &slot_deltas->slot_deltas.data[curr_min_idx];
+    curr = (long)slot_deltas->slot_deltas.data[curr_min_idx].slot;
   }
 
   ulong idx = 0;
-  for( ulong i = 0; i < slot_deltas->slot_deltas_len; i++ ) {
+  for( ulong i = 0; i < slot_deltas->slot_deltas.len; i++ ) {
     fd_slot_delta_t * slot_delta = deltas[i];
     ulong slot = slot_delta->slot;
     if( slot_delta->is_root ) {
       fd_txncache_register_root_slot( ctx->status_cache, slot );
     }
-    for( ulong j = 0; j < slot_delta->slot_delta_vec_len; j++ ) {
-      fd_status_pair_t * pair = &slot_delta->slot_delta_vec[j];
+    for( ulong j = 0; j < slot_delta->slot_delta_vec.len; j++ ) {
+      fd_status_pair_t * pair = &slot_delta->slot_delta_vec.data[j];
       fd_hash_t * blockhash = &pair->hash;
-      uchar * results = fd_spad_alloc( runtime_spad, FD_SPAD_ALIGN, pair->value.statuses_len );
-      for( ulong k = 0; k < pair->value.statuses_len; k++ ) {
-        fd_cache_status_t * status = &pair->value.statuses[k];
+      uchar * results = fd_spad_alloc( runtime_spad, FD_SPAD_ALIGN, pair->value.statuses.len );
+      for( ulong k = 0; k < pair->value.statuses.len; k++ ) {
+        fd_cache_status_t * status = &pair->value.statuses.data[k];
         uchar * result = results + k;
         *result = (uchar)status->result.discriminant;
         insert_vals[idx++] = (fd_txncache_insert_t){
@@ -332,11 +332,11 @@ fd_exec_slot_ctx_recover_status_cache( fd_exec_slot_ctx_t *    ctx,
   }
   fd_txncache_insert_batch( ctx->status_cache, insert_vals, num_entries );
 
-  for( ulong i = 0; i < slot_deltas->slot_deltas_len; i++ ) {
+  for( ulong i = 0; i < slot_deltas->slot_deltas.len; i++ ) {
     fd_slot_delta_t * slot_delta = deltas[i];
     ulong slot = slot_delta->slot;
-    for( ulong j = 0; j < slot_delta->slot_delta_vec_len; j++ ) {
-      fd_status_pair_t * pair      = &slot_delta->slot_delta_vec[j];
+    for( ulong j = 0; j < slot_delta->slot_delta_vec.len; j++ ) {
+      fd_status_pair_t * pair      = &slot_delta->slot_delta_vec.data[j];
       fd_hash_t *        blockhash = &pair->hash;
       fd_txncache_set_txnhash_offset( ctx->status_cache, slot, blockhash->uc, pair->value.txn_idx );
     }

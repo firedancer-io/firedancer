@@ -101,7 +101,7 @@ genesis_create( void *                       buf,
       .owner      = fd_solana_system_program_id
     }
   };
-  ulong const faucet_account_index = genesis->accounts_len++;
+  ulong const faucet_account_index = genesis->accounts.len++;
 
   /* Create identity account (vote authority, withdraw authority) */
 
@@ -112,11 +112,11 @@ genesis_create( void *                       buf,
       .owner      = fd_solana_system_program_id
     }
   };
-  ulong const identity_account_index = genesis->accounts_len++;
+  ulong const identity_account_index = genesis->accounts.len++;
 
   /* Create vote account */
 
-  ulong const vote_account_index = genesis->accounts_len++;
+  ulong const vote_account_index = genesis->accounts.len++;
 
   uchar vote_state_data[ FD_VOTE_STATE_V3_SZ ] = {0};
 
@@ -151,7 +151,7 @@ genesis_create( void *                       buf,
 
   /* Create stake account */
 
-  ulong const stake_account_index = genesis->accounts_len++;
+  ulong const stake_account_index = genesis->accounts.len++;
 
   uchar stake_data[ FD_STAKE_STATE_V2_SZ ] = {0};
 
@@ -188,12 +188,12 @@ genesis_create( void *                       buf,
 
   /* Create stake config account */
 
-  ulong const stake_cfg_account_index = genesis->accounts_len++;
+  ulong const stake_cfg_account_index = genesis->accounts.len++;
 
   uchar stake_cfg_data[10];
   do {
     fd_stake_config_t config[1] = {{
-      .config_keys_len      =  0,
+      .config_keys.len      =  0,
       .warmup_cooldown_rate =  0.25,
       .slash_penalty        = 12
     }};
@@ -224,39 +224,39 @@ genesis_create( void *                       buf,
 
   ulong default_funded_cnt = options->fund_initial_accounts;
 
-  ulong default_funded_idx = genesis->accounts_len;      genesis->accounts_len += default_funded_cnt;
-  ulong feature_gate_idx   = genesis->accounts_len;      genesis->accounts_len += feature_cnt;
+  ulong default_funded_idx = genesis->accounts.len;      genesis->accounts.len += default_funded_cnt;
+  ulong feature_gate_idx   = genesis->accounts.len;      genesis->accounts.len += feature_cnt;
 
-  genesis->accounts = fd_scratch_alloc( alignof(fd_pubkey_account_pair_t),
-                                        genesis->accounts_len * sizeof(fd_pubkey_account_pair_t) );
-  fd_memset( genesis->accounts, 0,      genesis->accounts_len * sizeof(fd_pubkey_account_pair_t) );
+  genesis->accounts.data = fd_scratch_alloc( alignof(fd_pubkey_account_pair_t),
+                                        genesis->accounts.len * sizeof(fd_pubkey_account_pair_t) );
+  fd_memset( genesis->accounts.data, 0,      genesis->accounts.len * sizeof(fd_pubkey_account_pair_t) );
 
-  genesis->accounts[ faucet_account_index ] = faucet_account;
-  genesis->accounts[ identity_account_index ] = identity_account;
-  genesis->accounts[ stake_account_index ] = (fd_pubkey_account_pair_t) {
+  genesis->accounts.data[ faucet_account_index ] = faucet_account;
+  genesis->accounts.data[ identity_account_index ] = identity_account;
+  genesis->accounts.data[ stake_account_index ] = (fd_pubkey_account_pair_t) {
     .key     = options->stake_pubkey,
     .account = (fd_solana_account_t) {
       .lamports   = fd_ulong_max( stake_state_min_bal, options->vote_account_stake ),
-      .data_len   = FD_STAKE_STATE_V2_SZ,
-      .data       = stake_data,
+      .data.len   = FD_STAKE_STATE_V2_SZ,
+      .data.data       = stake_data,
       .owner      = fd_solana_stake_program_id
     }
   };
-  genesis->accounts[ stake_cfg_account_index ] = (fd_pubkey_account_pair_t) {
+  genesis->accounts.data[ stake_cfg_account_index ] = (fd_pubkey_account_pair_t) {
     .key     = fd_solana_stake_program_config_id,
     .account = (fd_solana_account_t) {
       .lamports   = fd_rent_exempt_minimum_balance( &genesis->rent, sizeof(stake_cfg_data) ),
-      .data_len   = sizeof(stake_cfg_data),
-      .data       = stake_cfg_data,
+      .data.len   = sizeof(stake_cfg_data),
+      .data.data       = stake_cfg_data,
       .owner      = fd_solana_config_program_id
     }
   };
-  genesis->accounts[ vote_account_index ] = (fd_pubkey_account_pair_t) {
+  genesis->accounts.data[ vote_account_index ] = (fd_pubkey_account_pair_t) {
     .key     = options->vote_pubkey,
     .account = (fd_solana_account_t) {
       .lamports   = vote_min_bal,
-      .data_len   = FD_VOTE_STATE_V3_SZ,
-      .data       = vote_state_data,
+      .data.len   = FD_VOTE_STATE_V3_SZ,
+      .data.data       = vote_state_data,
       .owner      = fd_solana_vote_program_id
     }
   };
@@ -265,7 +265,7 @@ genesis_create( void *                       buf,
 
   ulong default_funded_balance = options->fund_initial_amount_lamports;
   for( ulong j=0UL; j<default_funded_cnt; j++ ) {
-    fd_pubkey_account_pair_t * pair = &genesis->accounts[ default_funded_idx+j ];
+    fd_pubkey_account_pair_t * pair = &genesis->accounts.data[ default_funded_idx+j ];
 
     uchar privkey[ 32 ] = {0};
     FD_STORE( ulong, privkey, j );
@@ -274,7 +274,7 @@ genesis_create( void *                       buf,
 
     pair->account = (fd_solana_account_t) {
       .lamports   = default_funded_balance,
-      .data_len   = 0UL,
+      .data.len   = 0UL,
       .owner      = fd_solana_system_program_id
     };
   }
@@ -285,13 +285,13 @@ genesis_create( void *                       buf,
 
   /* Set up feature gate accounts */
   for( ulong j=0UL; j<feature_cnt; j++ ) {
-    fd_pubkey_account_pair_t * pair = &genesis->accounts[ feature_gate_idx+j ];
+    fd_pubkey_account_pair_t * pair = &genesis->accounts.data[ feature_gate_idx+j ];
 
     pair->key     = features[ j ];
     pair->account = (fd_solana_account_t) {
       .lamports   = default_feature_enabled_balance,
-      .data_len   = FEATURE_ENABLED_SZ,
-      .data       = (uchar *)feature_enabled_data,
+      .data.len   = FEATURE_ENABLED_SZ,
+      .data.data       = (uchar *)feature_enabled_data,
       .owner      = fd_solana_feature_program_id
     };
   }
@@ -299,12 +299,12 @@ genesis_create( void *                       buf,
 
   /* Sort and check for duplicates */
 
-  sort_acct_inplace( genesis->accounts, genesis->accounts_len );
+  sort_acct_inplace( genesis->accounts.data, genesis->accounts.len );
 
-  for( ulong j=1UL; j < genesis->accounts_len; j++ ) {
-    if( 0==memcmp( genesis->accounts[j-1].key.ul, genesis->accounts[j].key.ul, sizeof(fd_pubkey_t) ) ) {
+  for( ulong j=1UL; j < genesis->accounts.len; j++ ) {
+    if( 0==memcmp( genesis->accounts.data[j-1].key.ul, genesis->accounts.data[j].key.ul, sizeof(fd_pubkey_t) ) ) {
       char dup_cstr[ FD_BASE58_ENCODED_32_SZ ];
-      fd_base58_encode_32( genesis->accounts[j].key.uc, NULL, dup_cstr );
+      fd_base58_encode_32( genesis->accounts.data[j].key.uc, NULL, dup_cstr );
       FD_LOG_WARNING(( "Account %s is duplicate", dup_cstr ));
       return 0UL;
     }

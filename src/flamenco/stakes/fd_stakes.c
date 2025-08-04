@@ -229,7 +229,7 @@ compute_stake_delegations(
     fd_spad_t *                   spad,
     ulong                         end_idx
 ) {
-  fd_epoch_info_pair_t const * stake_infos = temp_info->stake_infos;
+  fd_epoch_info_pair_t const * stake_infos = temp_info->stake_infos.data;
 
   FD_SPAD_FRAME_BEGIN( spad ) {
 
@@ -296,9 +296,9 @@ fd_populate_vote_accounts( fd_exec_slot_ctx_t *       slot_ctx,
   ulong                                      vote_accounts_stakes_map_sz = vote_accounts_pool ? fd_vote_accounts_pair_global_t_map_size( vote_accounts_pool, vote_accounts_root ) : 0UL;
 
   ulong vote_states_pool_sz   = vote_accounts_stakes_map_sz + vote_account_keys_map_sz;
-  temp_info->vote_states_root = NULL;
+  temp_info->vote_states.root = NULL;
   uchar * pool_mem = fd_spad_alloc( runtime_spad, fd_vote_info_pair_t_map_align(), fd_vote_info_pair_t_map_footprint( vote_states_pool_sz ) );
-  temp_info->vote_states_pool = fd_vote_info_pair_t_map_join( fd_vote_info_pair_t_map_new( pool_mem, vote_states_pool_sz ) );
+  temp_info->vote_states.pool = fd_vote_info_pair_t_map_join( fd_vote_info_pair_t_map_new( pool_mem, vote_states_pool_sz ) );
 
   /* Create a map of <pubkey, stake> to store the total stake of each vote account. */
   void * mem = fd_spad_alloc( runtime_spad, fd_stake_weight_t_map_align(), fd_stake_weight_t_map_footprint( vote_states_pool_sz ) );
@@ -343,7 +343,7 @@ fd_populate_vote_accounts( fd_exec_slot_ctx_t *       slot_ctx,
       root,
       vote_states_pool_sz,
       runtime_spad,
-      temp_info->stake_infos_len
+      temp_info->stake_infos.len
   );
 
   // Iterate over each vote account in the epoch stakes cache and populate the new vote accounts pool
@@ -377,10 +377,10 @@ fd_populate_vote_accounts( fd_exec_slot_ctx_t *       slot_ctx,
     if( FD_LIKELY( vote_state ) ) {
       total_epoch_stake += elem->elem.stake;
       // Insert into the temporary vote states cache
-      fd_vote_info_pair_t_mapnode_t * new_vote_state_node = fd_vote_info_pair_t_map_acquire( temp_info->vote_states_pool );
+      fd_vote_info_pair_t_mapnode_t * new_vote_state_node = fd_vote_info_pair_t_map_acquire( temp_info->vote_states.pool );
       new_vote_state_node->elem.account = *vote_account_pubkey;
       new_vote_state_node->elem.state   = *vote_state;
-      fd_vote_info_pair_t_map_insert( temp_info->vote_states_pool, &temp_info->vote_states_root, new_vote_state_node );
+      fd_vote_info_pair_t_map_insert( temp_info->vote_states.pool, &temp_info->vote_states.root, new_vote_state_node );
     } else {
       FD_LOG_WARNING(( "Failed to deserialize vote account" ));
     }
@@ -420,9 +420,9 @@ fd_refresh_vote_accounts( fd_exec_slot_ctx_t *       slot_ctx,
   ulong vote_states_pool_sz         = vote_accounts_stakes_map_sz + vote_account_keys_map_sz;
 
   /* Initialize a temporary vote states cache */
-  temp_info->vote_states_root = NULL;
+  temp_info->vote_states.root = NULL;
   uchar * pool_mem = fd_spad_alloc( runtime_spad, fd_vote_info_pair_t_map_align(), fd_vote_info_pair_t_map_footprint( vote_states_pool_sz ) );
-  temp_info->vote_states_pool = fd_vote_info_pair_t_map_join( fd_vote_info_pair_t_map_new( pool_mem, vote_states_pool_sz ) );
+  temp_info->vote_states.pool = fd_vote_info_pair_t_map_join( fd_vote_info_pair_t_map_new( pool_mem, vote_states_pool_sz ) );
 
   /* Create a map of <pubkey, stake> to store the total stake of each vote account. */
   void * mem = fd_spad_alloc( runtime_spad, fd_stake_weight_t_map_align(), fd_stake_weight_t_map_footprint( vote_states_pool_sz ) );
@@ -463,7 +463,7 @@ fd_refresh_vote_accounts( fd_exec_slot_ctx_t *       slot_ctx,
       root,
       vote_states_pool_sz,
       runtime_spad,
-      temp_info->stake_infos_len
+      temp_info->stake_infos.len
   );
 
   // Iterate over each vote account in the epoch stakes cache and populate the new vote accounts pool
@@ -485,10 +485,10 @@ fd_refresh_vote_accounts( fd_exec_slot_ctx_t *       slot_ctx,
       /* FIXME: This copy copies over some local pointers, which means
          that the allocation done when deserializing the vote account
          is not freed until the end of the epoch boundary processing. */
-      fd_vote_info_pair_t_mapnode_t * new_vote_state_node = fd_vote_info_pair_t_map_acquire( temp_info->vote_states_pool );
+      fd_vote_info_pair_t_mapnode_t * new_vote_state_node = fd_vote_info_pair_t_map_acquire( temp_info->vote_states.pool );
       new_vote_state_node->elem.account = *vote_account_pubkey;
       new_vote_state_node->elem.state   = *vote_state;
-      fd_vote_info_pair_t_map_insert( temp_info->vote_states_pool, &temp_info->vote_states_root, new_vote_state_node );
+      fd_vote_info_pair_t_map_insert( temp_info->vote_states.pool, &temp_info->vote_states.root, new_vote_state_node );
     } else {
       FD_LOG_WARNING(( "Failed to deserialize vote account" ));
     }
@@ -527,10 +527,10 @@ fd_refresh_vote_accounts( fd_exec_slot_ctx_t *       slot_ctx,
     fd_vote_accounts_pair_global_t_map_insert( stakes_vote_accounts_pool, &stakes_vote_accounts_root, new_vote_node );
     total_epoch_stake += new_vote_node->elem.stake;
 
-    fd_vote_info_pair_t_mapnode_t * new_vote_state_node = fd_vote_info_pair_t_map_acquire( temp_info->vote_states_pool );
+    fd_vote_info_pair_t_mapnode_t * new_vote_state_node = fd_vote_info_pair_t_map_acquire( temp_info->vote_states.pool );
     new_vote_state_node->elem.account = *vote_account_pubkey;
     new_vote_state_node->elem.state   = *vote_state;
-    fd_vote_info_pair_t_map_insert( temp_info->vote_states_pool, &temp_info->vote_states_root, new_vote_state_node );
+    fd_vote_info_pair_t_map_insert( temp_info->vote_states.pool, &temp_info->vote_states.root, new_vote_state_node );
   }
   fd_vote_accounts_vote_accounts_pool_update( &stakes->vote_accounts, stakes_vote_accounts_pool );
   fd_vote_accounts_vote_accounts_root_update( &stakes->vote_accounts, stakes_vote_accounts_root );
@@ -596,9 +596,9 @@ accumulate_stake_cache_delegations(
 
     fd_delegation_t * delegation = &stake_state.inner.stake.stake.delegation;
 
-    ulong delegation_idx = temp_info->stake_infos_len++;
-    temp_info->stake_infos[delegation_idx].stake   = stake_state.inner.stake.stake;
-    temp_info->stake_infos[delegation_idx].account = n->elem.account;
+    ulong delegation_idx = temp_info->stake_infos.len++;
+    temp_info->stake_infos.data[delegation_idx].stake   = stake_state.inner.stake.stake;
+    temp_info->stake_infos.data[delegation_idx].account = n->elem.account;
 
     fd_stake_history_entry_t new_entry = fd_stake_activating_and_deactivating( delegation, epoch, history, new_rate_activation_epoch );
     effective    += new_entry.effective;
@@ -647,7 +647,7 @@ fd_accumulate_stake_infos( fd_exec_slot_ctx_t const * slot_ctx,
       stakes->epoch
   );
 
-  temp_info->stake_infos_new_keys_start_idx = temp_info->stake_infos_len;
+  temp_info->stake_infos_new_keys_start_idx = temp_info->stake_infos.len;
 
   fd_account_keys_global_t const *   stake_account_keys = fd_bank_stake_account_keys_locking_query( slot_ctx->bank );
   fd_account_keys_pair_t_mapnode_t * account_keys_pool  = fd_account_keys_account_keys_pool_join( stake_account_keys );
@@ -683,8 +683,8 @@ fd_accumulate_stake_infos( fd_exec_slot_ctx_t const * slot_ctx,
     }
 
     fd_delegation_t * delegation = &stake_state.inner.stake.stake.delegation;
-    temp_info->stake_infos[temp_info->stake_infos_len  ].stake    = stake_state.inner.stake.stake;
-    temp_info->stake_infos[temp_info->stake_infos_len++].account  = n->elem.key;
+    temp_info->stake_infos.data[temp_info->stake_infos.len  ].stake    = stake_state.inner.stake.stake;
+    temp_info->stake_infos.data[temp_info->stake_infos.len++].account  = n->elem.key;
     fd_stake_history_entry_t new_entry = fd_stake_activating_and_deactivating( delegation, stakes->epoch, history, new_rate_activation_epoch );
     accumulator->effective    += new_entry.effective;
     accumulator->activating   += new_entry.activating;
@@ -732,9 +732,9 @@ fd_stakes_activate_epoch( fd_exec_slot_ctx_t *  slot_ctx,
 
   fd_bank_stake_account_keys_end_locking_query( slot_ctx->bank );
 
-  temp_info->stake_infos_len = 0UL;
-  temp_info->stake_infos     = (fd_epoch_info_pair_t *)fd_spad_alloc( runtime_spad, FD_EPOCH_INFO_PAIR_ALIGN, sizeof(fd_epoch_info_pair_t)*stake_delegations_size );
-  fd_memset( temp_info->stake_infos, 0, sizeof(fd_epoch_info_pair_t)*stake_delegations_size );
+  temp_info->stake_infos.len = 0UL;
+  temp_info->stake_infos.data     = (fd_epoch_info_pair_t *)fd_spad_alloc( runtime_spad, FD_EPOCH_INFO_PAIR_ALIGN, sizeof(fd_epoch_info_pair_t)*stake_delegations_size );
+  fd_memset( temp_info->stake_infos.data, 0, sizeof(fd_epoch_info_pair_t)*stake_delegations_size );
 
   fd_stake_history_entry_t accumulator = {
     .effective    = 0UL,

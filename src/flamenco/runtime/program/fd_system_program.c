@@ -415,8 +415,8 @@ fd_system_program_exec_create_account_with_seed( fd_exec_instr_ctx_t *          
         ctx,
         to_address,
         &args->base,
-        (char const *)args->seed,
-        args->seed_len,
+        (char const *)args->seed.data,
+        args->seed.len,
         &args->owner );
     if( FD_UNLIKELY( err ) ) return err;
   } while(0);
@@ -493,8 +493,8 @@ fd_system_program_exec_allocate_with_seed( fd_exec_instr_ctx_t *                
     ctx,
     account.acct->pubkey,
     &args->base,
-    (char const *)args->seed,
-    args->seed_len,
+    (char const *)args->seed.data,
+    args->seed.len,
     &args->owner );
   if( FD_UNLIKELY( err ) ) return err;
 
@@ -540,8 +540,8 @@ fd_system_program_exec_assign_with_seed( fd_exec_instr_ctx_t *                  
     ctx,
     account.acct->pubkey,
     &args->base,
-    (char const *)args->seed,
-    args->seed_len,
+    (char const *)args->seed.data,
+    args->seed.len,
     &args->owner );
   if( FD_UNLIKELY( err ) ) return err;
 
@@ -595,8 +595,8 @@ fd_system_program_exec_transfer_with_seed( fd_exec_instr_ctx_t *                
     int err = fd_pubkey_create_with_seed(
         ctx,
         base->uc,
-        (char const *)args->from_seed,
-        args->from_seed_len,
+        (char const *)args->from_seed.data,
+        args->from_seed.len,
         args->from_owner.uc,
         address_from_seed->uc );
     if( FD_UNLIKELY( err ) ) return err;

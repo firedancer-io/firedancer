@@ -56,8 +56,8 @@ _find_epoch( fd_solana_manifest_t const * manifest,
   }
 
   fd_epoch_stakes_t const * stakes = NULL;
-  fd_epoch_epoch_stakes_pair_t const * epochs = manifest->bank.epoch_stakes;
-  for( ulong i=0; i < manifest->bank.epoch_stakes_len; i++ ) {
+  fd_epoch_epoch_stakes_pair_t const * epochs = manifest->bank.epoch_stakes.data;
+  for( ulong i=0; i < manifest->bank.epoch_stakes.len; i++ ) {
     if( epochs[ i ].key==epoch ) {
       stakes = &epochs[i].value;
       break;
@@ -77,7 +77,7 @@ _get_stake_weights( fd_solana_manifest_t const * manifest,
   fd_epoch_stakes_t  const * stakes = _find_epoch( manifest, epoch );
   fd_vote_accounts_t const * vaccs = &stakes->stakes.vote_accounts;
 
-  ulong vote_acc_cnt = fd_vote_accounts_pair_t_map_size( vaccs->vote_accounts_pool, vaccs->vote_accounts_root );
+  ulong vote_acc_cnt = fd_vote_accounts_pair_t_map_size( vaccs->vote_accounts.pool, vaccs->vote_accounts.root );
   FD_LOG_NOTICE(( "vote_acc_cnt=%lu", vote_acc_cnt ));
   fd_vote_stake_weight_t * weights = fd_scratch_alloc( alignof(fd_vote_stake_weight_t), vote_acc_cnt * sizeof(fd_vote_stake_weight_t) );
   if( FD_UNLIKELY( !weights ) ) FD_LOG_ERR(( "fd_scratch_alloc() failed" ));
@@ -94,8 +94,8 @@ _get_stake_weights( fd_solana_manifest_t const * manifest,
 
 static int
 action_epochs( fd_solana_manifest_t const * manifest ) {
-  fd_epoch_epoch_stakes_pair_t const * epochs = manifest->bank.epoch_stakes;
-  for( ulong i=0; i < manifest->bank.epoch_stakes_len; i++ )
+  fd_epoch_epoch_stakes_pair_t const * epochs = manifest->bank.epoch_stakes.data;
+  for( ulong i=0; i < manifest->bank.epoch_stakes.len; i++ )
     printf( "%lu\n", epochs[ i ].key );
   return 0;
 }

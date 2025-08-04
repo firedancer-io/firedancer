@@ -1055,8 +1055,8 @@ process_loader_upgradeable_instruction( fd_exec_instr_ctx_t * instr_ctx ) {
       err = write_program_data( instr_ctx,
                                 0UL,
                                 program_data_offset,
-                                instruction->inner.write.bytes,
-                                instruction->inner.write.bytes_len );
+                                instruction->inner.write.bytes.data,
+                                instruction->inner.write.bytes.len );
       if( FD_UNLIKELY( err ) ) {
         return err;
       }
