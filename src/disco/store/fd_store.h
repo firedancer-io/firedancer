@@ -242,6 +242,10 @@ fd_store_align( void ) {
 
 FD_FN_CONST static inline ulong
 fd_store_footprint( ulong fec_max ) {
+  /* Despite fd_store_new already calling us with fec_max pow2 up,
+     we still need to do it for the footprint calculation in the
+     topology. */
+  fec_max = fd_ulong_pow2_up( fec_max );
   return FD_LAYOUT_FINI(
     FD_LAYOUT_APPEND(
     FD_LAYOUT_APPEND(

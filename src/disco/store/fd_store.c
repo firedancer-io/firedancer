@@ -25,11 +25,8 @@ fd_store_new( void * shmem, ulong fec_max, ulong part_cnt ) {
     return NULL;
   }
 
+  fec_max = fd_ulong_pow2_up( fec_max ); /* required by map_chain */
   ulong footprint = fd_store_footprint( fec_max );
-  if( FD_UNLIKELY( !footprint ) ) {
-    FD_LOG_WARNING(( "bad fec_max (%lu)", fec_max ));
-    return NULL;
-  }
 
   fd_wksp_t * wksp = fd_wksp_containing( shmem );
   if( FD_UNLIKELY( !wksp ) ) {
@@ -38,7 +35,6 @@ fd_store_new( void * shmem, ulong fec_max, ulong part_cnt ) {
   }
 
   fd_memset( shmem, 0, footprint );
-  fec_max = fd_ulong_pow2_up( fec_max ); /* required by map_chain */
 
   /* This seed value is very important. We have fec_max chains in the
      map, which means the size of each partition of buckets should be
