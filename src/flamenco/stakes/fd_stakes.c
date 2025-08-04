@@ -35,7 +35,7 @@ fd_stakes_slim_join_pool( fd_stakes_slim_t * stakes ) {
   ulong chain_cnt = fd_stakes_slim_chain_cnt_est( FD_STAKE_ACCOUNTS_SLIM_POOL_SZ );
   uchar * pool_mem = (uchar *)( (ulong)stakes + fd_stakes_slim_footprint( chain_cnt ) );
   pool_mem = (uchar *)fd_ulong_align_up( (ulong)pool_mem, fd_stake_account_slim_pool_align() );
-  return fd_stake_account_slim_pool_join( pool_mem + fd_stake_account_slim_pool_private_meta_footprint() );
+  return fd_stake_account_slim_pool_join( pool_mem );
 }
 
 void

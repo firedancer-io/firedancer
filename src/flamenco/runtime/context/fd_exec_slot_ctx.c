@@ -91,6 +91,8 @@ fd_exec_slot_ctx_recover( fd_exec_slot_ctx_t *                slot_ctx,
   fd_stakes_import( stakes, manifest );
   fd_bank_stakes_end_locking_modify( slot_ctx->bank );
 
+  fd_bank_epoch_set( slot_ctx->bank, manifest->bank.epoch );
+
   /* Move EpochStakes */
   do {
     ulong epoch = fd_bank_epoch_get( slot_ctx->bank );
