@@ -6,24 +6,23 @@
 #include "../../flamenco/runtime/fd_runtime.h"
 #include "../../flamenco/stakes/fd_stakes.h"
 #include "../../flamenco/runtime/sysvar/fd_sysvar_epoch_schedule.h"
+#include "../../discof/restore/utils/fd_ssmsg.h"
+
+/* FIXME: SIMD-0180 - set the correct epochs */
+#define FD_SIMD0180_ACTIVE_EPOCH_TESTNET (5000)
+#define FD_SIMD0180_ACTIVE_EPOCH_MAINNET (5000)
 
 /* Replay tile msg link formatting. The following take a pointer into
    a dcache region and formats it as a specific message type. */
 
 static inline ulong
-generate_stake_weight_msg( fd_exec_slot_ctx_t * slot_ctx,
-                           fd_spad_t          * runtime_spad,
-                           ulong                epoch,
+generate_stake_weight_msg( fd_exec_slot_ctx_t *              slot_ctx,
+                           ulong                             epoch,
                            fd_vote_accounts_global_t const * vote_accounts,
-                           ulong              * stake_weight_msg_out ) {
-  /* This function needs to be completely rewritten for SIMD-0180.
-     For now it's a hack that sends old data (pre SIMD-0180) in the new format. */
-
-  fd_stake_weight_msg_t *           stake_weight_msg = (fd_stake_weight_msg_t *)fd_type_pun( stake_weight_msg_out );
-  fd_vote_stake_weight_t *          stake_weights    = stake_weight_msg->weights;
-  ulong                             staked_cnt       = fd_stake_weights_by_node( vote_accounts,
-                                                                           stake_weights,
-                                                                           runtime_spad );
+                           ulong *                           stake_weight_msg_out ) {
+  fd_stake_weight_msg_t *     stake_weight_msg = (fd_stake_weight_msg_t *)fd_type_pun( stake_weight_msg_out );
+  fd_vote_stake_weight_t *    stake_weights    = stake_weight_msg->weights;
+  ulong                       staked_cnt       = fd_stake_weights_by_node( vote_accounts, stake_weights );
   fd_epoch_schedule_t const * epoch_schedule = fd_bank_epoch_schedule_query( slot_ctx->bank );
 
   stake_weight_msg->epoch          = epoch;
@@ -34,6 +33,41 @@ generate_stake_weight_msg( fd_exec_slot_ctx_t * slot_ctx,
   stake_weight_msg->vote_keyed_lsched = (ulong)fd_runtime_should_use_vote_keyed_leader_schedule( slot_ctx->bank );
 
   return fd_stake_weight_msg_sz( staked_cnt );
+}
+
+static inline ulong
+generate_stake_weight_msg_manifest( ulong                                       epoch,
+                                    fd_epoch_schedule_t const *                 epoch_schedule,
+                                    fd_snapshot_manifest_epoch_stakes_t const * epoch_stakes,
+                                    ulong *                                     stake_weight_msg_out ) {
+  fd_stake_weight_msg_t *  stake_weight_msg = (fd_stake_weight_msg_t *)fd_type_pun( stake_weight_msg_out );
+  fd_vote_stake_weight_t * stake_weights    = stake_weight_msg->weights;
+
+  stake_weight_msg->epoch             = epoch;
+  stake_weight_msg->staked_cnt        = epoch_stakes->vote_stakes_len;
+  stake_weight_msg->start_slot        = fd_epoch_slot0( epoch_schedule, epoch );
+  stake_weight_msg->slot_cnt          = epoch_schedule->slots_per_epoch;
+  stake_weight_msg->excluded_stake    = 0UL;
+  stake_weight_msg->vote_keyed_lsched = 1UL;
+
+  /* FIXME: SIMD-0180 - hack to (de)activate in testnet vs mainnet.
+     This code can be removed once the feature is active. */
+  {
+    if(    ( 1==epoch_schedule->warmup && epoch<FD_SIMD0180_ACTIVE_EPOCH_TESTNET )
+        || ( 0==epoch_schedule->warmup && epoch<FD_SIMD0180_ACTIVE_EPOCH_MAINNET ) ) {
+      stake_weight_msg->vote_keyed_lsched = 0UL;
+    }
+  }
+
+  /* epoch_stakes from manifest are already filtered (stake>0), but not sorted */
+  for( ulong i=0UL; i<epoch_stakes->vote_stakes_len; i++ ) {
+    stake_weights[ i ].stake = epoch_stakes->vote_stakes[ i ].stake;
+    memcpy( stake_weights[ i ].id_key.uc, epoch_stakes->vote_stakes[ i ].identity, sizeof(fd_pubkey_t) );
+    memcpy( stake_weights[ i ].vote_key.uc, epoch_stakes->vote_stakes[ i ].vote, sizeof(fd_pubkey_t) );
+  }
+  sort_vote_weights_by_stake_vote_inplace( stake_weights, epoch_stakes->vote_stakes_len);
+
+  return fd_stake_weight_msg_sz( epoch_stakes->vote_stakes_len );
 }
 
 static inline void

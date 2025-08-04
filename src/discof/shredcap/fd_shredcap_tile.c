@@ -12,6 +12,7 @@
 #include "../../flamenco/runtime/sysvar/fd_sysvar_epoch_schedule.h"
 #include "../../disco/fd_disco.h"
 #include "../../util/pod/fd_pod_format.h"
+#include "../replay/fd_exec.h"
 
 #include <errno.h>
 #include <fcntl.h>
@@ -227,74 +228,28 @@ scratch_footprint( fd_topo_tile_t const * tile ) {
   return FD_LAYOUT_FINI( l, scratch_align() );
 }
 
-ulong
-fd_stake_weights_by_node_custom( fd_snapshot_manifest_epoch_stakes_t const * epoch_stakes,
-                                 fd_vote_stake_weight_t *                    weights ) {
-
-  for( ulong i=0UL; i<epoch_stakes->vote_stakes_len; i++ ) {
-    weights[ i ].stake = epoch_stakes->vote_stakes[ i ].stake;
-    memcpy( weights[ i ].id_key.uc, epoch_stakes->vote_stakes[ i ].identity, sizeof(fd_pubkey_t) );
-    memcpy( weights[ i ].vote_key.uc, epoch_stakes->vote_stakes[ i ].vote, sizeof(fd_pubkey_t) );
-  }
-  sort_vote_weights_by_stake_vote_inplace( weights, epoch_stakes->vote_stakes_len);
-  return epoch_stakes->vote_stakes_len;
-}
-
-static inline ulong
-generate_stake_weight_msg( ulong                                       epoch,
-                           fd_epoch_schedule_t const *                 epoch_schedule,
-                           fd_snapshot_manifest_epoch_stakes_t const * epoch_stakes,
-                           ulong *                                     stake_weight_msg_out ) {
-
-  fd_stake_weight_msg_t *  stake_weight_msg = (fd_stake_weight_msg_t *)fd_type_pun( stake_weight_msg_out );
-  fd_vote_stake_weight_t * stake_weights    = stake_weight_msg->weights;
-  ulong stake_weight_idx = fd_stake_weights_by_node_custom( epoch_stakes, stake_weights );
-
-  stake_weight_msg->epoch             = epoch;
-  stake_weight_msg->staked_cnt        = stake_weight_idx;
-  stake_weight_msg->start_slot        = fd_epoch_slot0( epoch_schedule, epoch );
-  stake_weight_msg->slot_cnt          = epoch_schedule->slots_per_epoch;
-  stake_weight_msg->excluded_stake    = 0UL;
-  stake_weight_msg->vote_keyed_lsched = 0UL;
-
-  return fd_stake_weight_msg_sz( epoch_stakes->vote_stakes_len );
-}
 static void
-publish_stake_weights( fd_capture_tile_ctx_t * ctx,
-                       fd_stem_context_t *    stem,
-                       fd_snapshot_manifest_t const * manifest ) {
-  FD_SPAD_FRAME_BEGIN( ctx->shared_spad ) {
+publish_stake_weights_manifest( fd_capture_tile_ctx_t * ctx,
+                                fd_stem_context_t *    stem,
+                                fd_snapshot_manifest_t const * manifest ) {
+  fd_epoch_schedule_t const * schedule = fd_type_pun_const( &manifest->epoch_schedule_params );
+  ulong epoch = fd_slot_to_epoch( schedule, manifest->slot, NULL );
 
-    /* Process the schedule from manifest. */
-    fd_epoch_schedule_t schedule[1];
-    schedule[0].slots_per_epoch             = manifest->epoch_schedule_params.slots_per_epoch;
-    schedule[0].leader_schedule_slot_offset = manifest->epoch_schedule_params.leader_schedule_slot_offset;
-    schedule[0].warmup                      = manifest->epoch_schedule_params.warmup;
-    schedule[0].first_normal_epoch          = manifest->epoch_schedule_params.first_normal_epoch;
-    schedule[0].first_normal_slot           = manifest->epoch_schedule_params.first_normal_slot;
-    ulong epoch = fd_slot_to_epoch( schedule, manifest->slot, NULL );
+  /* current epoch */
+  ulong * stake_weights_msg = fd_chunk_to_laddr( ctx->stake_out->mem, ctx->stake_out->chunk );
+  ulong stake_weights_sz = generate_stake_weight_msg_manifest( epoch, schedule, &manifest->epoch_stakes[0], stake_weights_msg );
+  ulong stake_weights_sig = 4UL;
+  fd_stem_publish( stem, 0UL, stake_weights_sig, ctx->stake_out->chunk, stake_weights_sz, 0UL, 0UL, fd_frag_meta_ts_comp( fd_tickcount() ) );
+  ctx->stake_out->chunk = fd_dcache_compact_next( ctx->stake_out->chunk, stake_weights_sz, ctx->stake_out->chunk0, ctx->stake_out->wmark );
+  FD_LOG_NOTICE(("sending current epoch stake weights - epoch: %lu, stake_weight_cnt: %lu, start_slot: %lu, slot_cnt: %lu", stake_weights_msg[0], stake_weights_msg[1], stake_weights_msg[2], stake_weights_msg[3]));
 
-    /* current epoch */
-    if( 1 ) {
-      ulong * stake_weights_msg = fd_chunk_to_laddr( ctx->stake_out->mem, ctx->stake_out->chunk );
-      ulong stake_weights_sz = generate_stake_weight_msg( epoch, schedule, &manifest->epoch_stakes[0], stake_weights_msg );
-      ulong stake_weights_sig = 4UL;
-      fd_stem_publish( stem, 0UL, stake_weights_sig, ctx->stake_out->chunk, stake_weights_sz, 0UL, 0UL, fd_frag_meta_ts_comp( fd_tickcount() ) );
-      ctx->stake_out->chunk = fd_dcache_compact_next( ctx->stake_out->chunk, stake_weights_sz, ctx->stake_out->chunk0, ctx->stake_out->wmark );
-      FD_LOG_NOTICE(("sending current epoch stake weights - epoch: %lu, stake_weight_cnt: %lu, start_slot: %lu, slot_cnt: %lu", stake_weights_msg[0], stake_weights_msg[1], stake_weights_msg[2], stake_weights_msg[3]));
-    }
-
-    /* next current epoch */
-    if( 1 ) {
-      ulong * stake_weights_msg = fd_chunk_to_laddr( ctx->stake_out->mem, ctx->stake_out->chunk );
-      ulong stake_weights_sz = generate_stake_weight_msg( epoch + 1, schedule, &manifest->epoch_stakes[1], stake_weights_msg );
-      ulong stake_weights_sig = 4UL;
-      fd_stem_publish( stem, 0UL, stake_weights_sig, ctx->stake_out->chunk, stake_weights_sz, 0UL, 0UL, fd_frag_meta_ts_comp( fd_tickcount() ) );
-      ctx->stake_out->chunk = fd_dcache_compact_next( ctx->stake_out->chunk, stake_weights_sz, ctx->stake_out->chunk0, ctx->stake_out->wmark );
-      FD_LOG_NOTICE(("sending next epoch stake weights - epoch: %lu, stake_weight_cnt: %lu, start_slot: %lu, slot_cnt: %lu", stake_weights_msg[0], stake_weights_msg[1], stake_weights_msg[2], stake_weights_msg[3]));
-    }
-
-  } FD_SPAD_FRAME_END;
+  /* next current epoch */
+  stake_weights_msg = fd_chunk_to_laddr( ctx->stake_out->mem, ctx->stake_out->chunk );
+  stake_weights_sz = generate_stake_weight_msg_manifest( epoch + 1, schedule, &manifest->epoch_stakes[1], stake_weights_msg );
+  stake_weights_sig = 4UL;
+  fd_stem_publish( stem, 0UL, stake_weights_sig, ctx->stake_out->chunk, stake_weights_sz, 0UL, 0UL, fd_frag_meta_ts_comp( fd_tickcount() ) );
+  ctx->stake_out->chunk = fd_dcache_compact_next( ctx->stake_out->chunk, stake_weights_sz, ctx->stake_out->chunk0, ctx->stake_out->wmark );
+  FD_LOG_NOTICE(("sending next epoch stake weights - epoch: %lu, stake_weight_cnt: %lu, start_slot: %lu, slot_cnt: %lu", stake_weights_msg[0], stake_weights_msg[1], stake_weights_msg[2], stake_weights_msg[3]));
 }
 
 static inline int
@@ -483,7 +438,7 @@ after_credit( fd_capture_tile_ctx_t * ctx,
 
       fd_fseq_update( ctx->manifest_wmark, manifest->slot );
 
-      publish_stake_weights( ctx, stem, manifest );
+      publish_stake_weights_manifest( ctx, stem, manifest );
       //*charge_busy = 0;
     }
     /* No need to strcmp every time after_credit is called. */

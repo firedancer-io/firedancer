@@ -7,8 +7,8 @@
 FD_PROTOTYPES_BEGIN
 
 /* fd_stake_weights_by_node converts Stakes (unordered list of (vote
-   acc, active stake) tuples) to an ordered list of (stake, node
-   identity) sorted by (stake descending, node identity descending).
+   acc, active stake) tuples) to an ordered list of (stake, vote pubkey, node
+   identity) sorted by (stake descending, vote pubkey descending).
 
    weights points to an array suitable to hold ...
 
@@ -17,15 +17,12 @@ FD_PROTOTYPES_BEGIN
 
    ... items.  On return, weights be an ordered list.
 
-   Returns the number of items in weights (which is <= no of vote accs).
-   On failure returns ULONG_MAX.  Reasons for failure include not enough
-   bump allocator space available. */
+   Returns the number of items in weights (which is <= no of vote accs). */
 #define STAKE_ACCOUNT_SIZE ( 200 )
 
 ulong
 fd_stake_weights_by_node( fd_vote_accounts_global_t const * accs,
-                          fd_vote_stake_weight_t *          weights,
-                          fd_spad_t *                       runtime_spad );
+                          fd_vote_stake_weight_t *          weights );
 
 
 void

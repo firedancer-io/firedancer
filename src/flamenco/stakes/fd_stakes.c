@@ -4,177 +4,31 @@
 #include "../runtime/program/fd_stake_program.h"
 #include "../runtime/sysvar/fd_sysvar_stake_history.h"
 
-/* fd_stakes_accum_by_node converts Stakes (unordered list of (vote acc,
-   active stake) tuples) to StakedNodes (rbtree mapping (node identity)
-   => (active stake) ordered by node identity).  Returns the tree root. */
+ulong
+fd_stake_weights_by_node( fd_vote_accounts_global_t const * accs,
+                          fd_vote_stake_weight_t *          weights ) {
+  fd_vote_accounts_pair_global_t_mapnode_t * pool = fd_vote_accounts_vote_accounts_pool_join( accs );
+  fd_vote_accounts_pair_global_t_mapnode_t * root = fd_vote_accounts_vote_accounts_root_join( accs );
 
-static fd_stake_weight_t_mapnode_t *
-fd_stakes_accum_by_node( fd_vote_accounts_global_t const * in,
-                         fd_stake_weight_t_mapnode_t *     out_pool,
-                         fd_spad_t *                       runtime_spad ) {
-
-  /* Stakes::staked_nodes(&self: Stakes) -> HashMap<Pubkey, u64> */
-
-  fd_vote_accounts_pair_global_t_mapnode_t * in_pool = fd_vote_accounts_vote_accounts_pool_join( in );
-  fd_vote_accounts_pair_global_t_mapnode_t * in_root = fd_vote_accounts_vote_accounts_root_join( in );
-
-  /* VoteAccounts::staked_nodes(&self: VoteAccounts) -> HashMap<Pubkey, u64> */
-
-  /* For each active vote account, accumulate (node_identity, stake) by
-     summing stake. */
-
-  fd_stake_weight_t_mapnode_t * out_root = NULL;
-
-  for( fd_vote_accounts_pair_global_t_mapnode_t * n = fd_vote_accounts_pair_global_t_map_minimum( in_pool, in_root );
+  /* For each active vote account, return (vote_key, node_identity, stake), sorted by (stake, vote) */
+  ulong weights_cnt = 0;
+  for( fd_vote_accounts_pair_global_t_mapnode_t * n = fd_vote_accounts_pair_global_t_map_minimum( pool, root );
                                            n;
-                                           n = fd_vote_accounts_pair_global_t_map_successor( in_pool, n ) ) {
+                                           n = fd_vote_accounts_pair_global_t_map_successor( pool, n ) ) {
 
     /* ... filter(|(stake, _)| *stake != 0u64) */
     if( n->elem.stake == 0UL ) continue;
 
-    int err;
-    uchar * data     = fd_solana_account_data_join( &n->elem.value );
-    ulong   data_len = n->elem.value.data_len;
-
-    fd_vote_state_versioned_t * vsv = fd_bincode_decode_spad(
-        vote_state_versioned, runtime_spad,
-        data,
-        data_len,
-        &err );
-    if( FD_UNLIKELY( err ) ) {
-      FD_LOG_ERR(( "Failed to decode vote account %s (%d)", FD_BASE58_ENC_32_ALLOCA( n->elem.key.key ), err ));
-    }
-
-    fd_pubkey_t node_pubkey;
-    switch( vsv->discriminant ) {
-      case fd_vote_state_versioned_enum_v0_23_5:
-        node_pubkey = vsv->inner.v0_23_5.node_pubkey;
-        break;
-      case fd_vote_state_versioned_enum_v1_14_11:
-        node_pubkey = vsv->inner.v1_14_11.node_pubkey;
-        break;
-      case fd_vote_state_versioned_enum_current:
-        node_pubkey = vsv->inner.current.node_pubkey;
-        break;
-      default:
-        __builtin_unreachable();
-    }
-
-
-    /* Extract node pubkey */
-
-    fd_pubkey_t null_key = {0};
-    if( memcmp( &node_pubkey, null_key.uc, sizeof(fd_pubkey_t) ) == 0 ) {
-      FD_LOG_WARNING(( "vote account %s skipped", FD_BASE58_ENC_32_ALLOCA( n->elem.key.key ) ));
-      continue;
-    }
-    /* Check if node identity was previously visited */
-    fd_stake_weight_t_mapnode_t * query = fd_stake_weight_t_map_acquire( out_pool );
-    if( FD_UNLIKELY( !query ) ) {
-      FD_LOG_ERR(( "fd_stakes_accum_by_node() failed" ));
-    }
-
-    query->elem.key = node_pubkey;
-
-    fd_stake_weight_t_mapnode_t * node = fd_stake_weight_t_map_find( out_pool, out_root, query );
-
-    if( FD_UNLIKELY( node ) ) {
-      /* Accumulate to previously created entry */
-      fd_stake_weight_t_map_release( out_pool, query );
-      node->elem.stake += n->elem.stake;
-    } else {
-      /* Create new entry */
-      node = query;
-      node->elem.stake = n->elem.stake;
-      fd_stake_weight_t_map_insert( out_pool, &out_root, node );
-    }
+    /* Copy output values */
+    memcpy( weights[ weights_cnt ].vote_key.uc, n->elem.key.uc, sizeof(fd_pubkey_t) );
+    weights[ weights_cnt ].stake = n->elem.stake;
+    uchar * vote_account_data = fd_solana_account_data_join( &n->elem.value );
+    /* node_pubkey is at offset 4, no need to fully deserialize the account(s) */
+    memcpy( weights[ weights_cnt ].id_key.uc, vote_account_data+4UL, sizeof(fd_pubkey_t) );
+    weights_cnt++;
   }
 
-  return out_root;
-}
-
-/* fd_stake_weight_sort sorts the given array of stake weights with
-   length stakes_cnt by tuple (stake, pubkey) in descending order. */
-
-FD_FN_CONST static int
-fd_stakes_sort_before( fd_stake_weight_t a,
-                       fd_stake_weight_t b ) {
-
-  if( a.stake > b.stake ) return 1;
-  if( a.stake < b.stake ) return 0;
-  if( memcmp( &a.key, &b.key, 32UL )>0 ) return 1;
-  return 0;
-}
-
-#define SORT_NAME        fd_stakes_sort
-#define SORT_KEY_T       fd_stake_weight_t
-#define SORT_BEFORE(a,b) fd_stakes_sort_before( (a), (b) )
-#include "../../util/tmpl/fd_sort.c"
-
-void
-fd_stake_weight_sort( fd_stake_weight_t * stakes,
-                      ulong               stakes_cnt ) {
-  fd_stakes_sort_inplace( stakes, stakes_cnt );
-}
-
-/* fd_stakes_export_sorted converts StakedNodes (rbtree mapping
-   (node identity) => (active stake) from fd_stakes_accum_by_node) to
-   a list of fd_stake_weights_t. */
-
-static ulong
-fd_stakes_export( fd_stake_weight_t_mapnode_t const * const in_pool,
-                  fd_stake_weight_t_mapnode_t const * const root,
-                  fd_stake_weight_t *           const out ) {
-
-  fd_stake_weight_t * out_end = out;
-
-  for( fd_stake_weight_t_mapnode_t const * ele = fd_stake_weight_t_map_minimum( (fd_stake_weight_t_mapnode_t *)in_pool, (fd_stake_weight_t_mapnode_t *)root ); ele; ele = (fd_stake_weight_t_mapnode_t *)fd_stake_weight_t_map_successor( (fd_stake_weight_t_mapnode_t *)in_pool, (fd_stake_weight_t_mapnode_t *)ele ) ) {
-    *out_end++ = ele->elem;
-  }
-
-  return (ulong)( out_end - out );
-}
-
-ulong
-fd_stake_weights_by_node( fd_vote_accounts_global_t const * accs,
-                          fd_vote_stake_weight_t *          weights,
-                          fd_spad_t *                       runtime_spad ) {
-
-  /* Estimate size required to store temporary data structures */
-
-  fd_vote_accounts_pair_global_t_mapnode_t * vote_acc_pool = fd_vote_accounts_vote_accounts_pool_join( accs );
-  fd_vote_accounts_pair_global_t_mapnode_t * vote_acc_root = fd_vote_accounts_vote_accounts_root_join( accs );
-
-  ulong vote_acc_cnt = fd_vote_accounts_pair_global_t_map_size( vote_acc_pool, vote_acc_root );
-
-  ulong rb_align     = fd_stake_weight_t_map_align();
-  ulong rb_footprint = fd_stake_weight_t_map_footprint( vote_acc_cnt );
-
-  /* Create rb tree */
-
-  void * pool_mem = fd_spad_alloc( runtime_spad, rb_align, rb_footprint );
-  pool_mem = fd_stake_weight_t_map_new( pool_mem, vote_acc_cnt );
-  fd_stake_weight_t_mapnode_t * pool = fd_stake_weight_t_map_join( pool_mem );
-  if( FD_UNLIKELY( !pool_mem ) ) FD_LOG_CRIT(( "fd_stake_weights_new() failed" ));
-
-  /* Accumulate stakes to rb tree */
-
-  fd_stake_weight_t_mapnode_t const * root = fd_stakes_accum_by_node( accs, pool, runtime_spad );
-
-  /* Export to sorted list */
-
-  /* FIXME: SIMD-0180 */
-  fd_stake_weight_t * _weights = fd_spad_alloc_check( runtime_spad, alignof(fd_stake_weight_t), vote_acc_cnt * sizeof(fd_stake_weight_t) );
-
-  ulong weights_cnt = fd_stakes_export( pool, root, _weights );
-  fd_stake_weight_sort( _weights, weights_cnt );
-
-  for( ulong i=0UL; i<weights_cnt; i++ ) {
-    weights[ i ].stake = _weights[ i ].stake;
-    memcpy( weights[ i ].id_key.uc, _weights[ i ].key.uc, sizeof(fd_pubkey_t) );
-    memcpy( weights[ i ].vote_key.uc, _weights[ i ].key.uc, sizeof(fd_pubkey_t) );
-  }
-
+  sort_vote_weights_by_stake_vote_inplace( weights, weights_cnt );
   return weights_cnt;
 }
 
