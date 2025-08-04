@@ -3,22 +3,20 @@
 
 #include "../fd_bank.h"
 #include "../../fd_flamenco_base.h"
-#include "../../../funk/fd_funk.h"
 
 /* https://github.com/anza-xyz/agave/blob/cbc8320d35358da14d79ebcada4dfb6756ffac79/runtime/src/bank.rs#L1833 */
 #define FD_SYSVAR_RENT_UNADJUSTED_INITIAL_BALANCE ( 1UL )
 /* https://github.com/anza-xyz/agave/blob/cbc8320d35358da14d79ebcada4dfb6756ffac79/runtime/src/bank.rs#L1843 */
 #define FD_SYSVAR_INITIAL_RENT_EPOCH              ( 0UL )
 
-int
-fd_sysvar_set( fd_bank_t *          bank,
-               fd_funk_t *          funk,
-               fd_funk_txn_t *      funk_txn,
-               fd_pubkey_t const *  owner,
-               fd_pubkey_t const *  pubkey,
-               void const *         data,
-               ulong                sz,
-               ulong                slot );
+/* fd_sysvar_account_update persists a sysvar data update to the account
+   database.  Does not update the sysvar cache. */
+
+void
+fd_sysvar_account_update( fd_exec_slot_ctx_t * slot_ctx,
+                          fd_pubkey_t const *  address,
+                          void const *         data,
+                          ulong                sz );
 
 int
 fd_sysvar_instr_acct_check( fd_exec_instr_ctx_t const * ctx,

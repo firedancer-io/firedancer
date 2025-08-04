@@ -136,7 +136,8 @@ metrics_write( fd_quic_ctx_t * ctx ) {
   FD_MCNT_SET(   QUIC, SENT_BYTES,       ctx->quic->metrics.net_tx_byte_cnt );
   FD_MCNT_SET(   QUIC, RETRY_SENT,       ctx->quic->metrics.retry_tx_cnt );
 
-  FD_MGAUGE_SET( QUIC, CONNECTIONS_ACTIVE,  ctx->quic->metrics.conn_active_cnt );
+  FD_MGAUGE_ENUM_COPY( QUIC, CONNECTIONS_STATE, ctx->quic->metrics.conn_state_cnt );
+  FD_MGAUGE_SET( QUIC, CONNECTIONS_ALLOC,  ctx->quic->metrics.conn_alloc_cnt );
   FD_MCNT_SET(   QUIC, CONNECTIONS_CREATED, ctx->quic->metrics.conn_created_cnt );
   FD_MCNT_SET(   QUIC, CONNECTIONS_CLOSED,  ctx->quic->metrics.conn_closed_cnt );
   FD_MCNT_SET(   QUIC, CONNECTIONS_ABORTED, ctx->quic->metrics.conn_aborted_cnt );
@@ -156,6 +157,7 @@ metrics_write( fd_quic_ctx_t * ctx ) {
   FD_MCNT_SET(       QUIC, PKT_OVERSZ,          ctx->quic->metrics.pkt_oversz_cnt );
   FD_MCNT_SET(       QUIC, PKT_VERNEG,          ctx->quic->metrics.pkt_verneg_cnt );
   FD_MCNT_SET(       QUIC, PKT_RETRANSMISSIONS, ctx->quic->metrics.pkt_retransmissions_cnt );
+  FD_MCNT_ENUM_COPY( QUIC, INITIAL_TOKEN_LEN,   ctx->quic->metrics.initial_token_len_cnt );
 
   FD_MCNT_SET(   QUIC, HANDSHAKES_CREATED,         ctx->quic->metrics.hs_created_cnt );
   FD_MCNT_SET(   QUIC, HANDSHAKE_ERROR_ALLOC_FAIL, ctx->quic->metrics.hs_err_alloc_fail_cnt );

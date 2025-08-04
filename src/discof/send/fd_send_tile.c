@@ -278,8 +278,8 @@ finalize_stake_msg( fd_send_tile_ctx_t * ctx ) {
   fd_multi_epoch_leaders_stake_msg_fini( ctx->mleaders );
 
   /* Get the current stake destinations */
-  fd_stake_weight_t const * stakes    = fd_multi_epoch_leaders_get_stake_weights( ctx->mleaders );
-  ulong                     stake_cnt = fd_multi_epoch_leaders_get_stake_cnt( ctx->mleaders );
+  fd_vote_stake_weight_t const * stakes = fd_multi_epoch_leaders_get_stake_weights( ctx->mleaders );
+  ulong                       stake_cnt = fd_multi_epoch_leaders_get_stake_cnt( ctx->mleaders );
   if( FD_UNLIKELY( !stakes ) ) {
     FD_LOG_WARNING(( "No stake destinations available for current slot" ));
     return;
@@ -287,8 +287,8 @@ finalize_stake_msg( fd_send_tile_ctx_t * ctx ) {
 
   /* populate staked validators in connection map */
   for( ulong i=0UL; i<stake_cnt; i++ ) {
-    fd_stake_weight_t const * stake_info = &stakes[i];
-    fd_pubkey_t       const   pubkey     = stake_info->key;
+    fd_vote_stake_weight_t const * stake_info = &stakes[i];
+    fd_pubkey_t            const   pubkey     = stake_info->id_key;
 
     fd_send_conn_entry_t * entry = fd_send_conn_map_query( ctx->conn_map, pubkey, NULL );
     /* UNSTAKED -> NO_CONN: create new entry in NO_CONN state */
@@ -620,7 +620,8 @@ metrics_write( fd_send_tile_ctx_t * ctx ) {
   FD_MCNT_SET(       SEND, RETRY_SENT,       ctx->quic->metrics.retry_tx_cnt );
   FD_MCNT_ENUM_COPY( SEND, ACK_TX,           ctx->quic->metrics.ack_tx );
 
-  FD_MGAUGE_SET( SEND, CONNECTIONS_ACTIVE,          ctx->quic->metrics.conn_active_cnt );
+  FD_MGAUGE_ENUM_COPY( SEND, CONNECTIONS_STATE,     ctx->quic->metrics.conn_state_cnt );
+  FD_MGAUGE_SET( SEND, CONNECTIONS_ALLOC,           ctx->quic->metrics.conn_alloc_cnt );
   FD_MCNT_SET(   SEND, CONNECTIONS_CREATED,         ctx->quic->metrics.conn_created_cnt );
   FD_MCNT_SET(   SEND, CONNECTIONS_CLOSED,          ctx->quic->metrics.conn_closed_cnt );
   FD_MCNT_SET(   SEND, CONNECTIONS_ABORTED,         ctx->quic->metrics.conn_aborted_cnt );

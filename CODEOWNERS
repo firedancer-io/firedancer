@@ -1,5 +1,7 @@
 /CODEOWNERS @firedancer-admin
 
+/agave @0x0ece @anwayde @jherrera-jump @ptaffet-jump @mmcgee-jump
+
 /src/ballet/txn/fd_txn_parse.c @ptaffet-jump
 /src/choreo @lidatong @emwang-jump
 /src/disco/pack @ptaffet-jump @mmcgee-jump

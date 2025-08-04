@@ -609,6 +609,7 @@ privileged_init( fd_topo_t *      topo,
          selection logic. */
       ctx->peer_selection = 0;
       ctx->state          = FD_SNAPRD_STATE_READING_FULL_FILE;
+      FD_LOG_NOTICE(( "loading full snapshot from local file `%s`", ctx->local_in.full_snapshot_path ));
     }
   }
 }
@@ -648,22 +649,22 @@ unprivileged_init( fd_topo_t *      topo,
 
   if( FD_LIKELY( !strcmp( tile->snaprd.cluster, "testnet" ) ) ) {
     fd_ip4_port_t initial_peers[ 2UL ] = {
-      { .addr = FD_IP4_ADDR( 145, 40, 95, 69 ), .port = 8899 }, /* Solana testnet peer */
-      { .addr = FD_IP4_ADDR( 177, 54, 155, 187 ), .port = 8899 } /* A fast testnet peer from snapshot-finder script */
+      { .addr = FD_IP4_ADDR( 35 , 214, 172, 227 ), .port = 8899 },
+      { .addr = FD_IP4_ADDR( 145, 40 , 95 , 69  ), .port = 8899 }, /* Solana testnet peer */
     };
-
     for( ulong i=0UL; i<2UL; i++ ) fd_ssping_add( ctx->ssping, initial_peers[ i ] );
   } else if( FD_LIKELY( !strcmp( tile->snaprd.cluster, "private" ) ) ) {
     fd_ip4_port_t initial_peers[ 1UL ] = {
       { .addr = FD_IP4_ADDR( 147, 28, 185, 47 ), .port = 8899 } /* A private cluster peer */
     };
-
     for( ulong i=0UL; i<1UL; i++ ) fd_ssping_add( ctx->ssping, initial_peers[ i ] );
   } else if (FD_LIKELY( !strcmp( tile->snaprd.cluster, "mainnet" ) ) ) {
-    fd_ip4_port_t initial_peers[ 1UL ] = {
-      { .addr = FD_IP4_ADDR( 149, 255, 37, 130 ), .port = 8899 }
+    fd_ip4_port_t initial_peers[ 3UL ] = {
+      { .addr = FD_IP4_ADDR( 149, 255, 37 , 130 ), .port = 8899 },
+      { .addr = FD_IP4_ADDR( 34 , 1  , 238, 227 ), .port = 8899 },
+      { .addr = FD_IP4_ADDR( 34 , 1  , 139, 131 ), .port = 8899 }
     };
-    for( ulong i=0UL; i<1UL; i++ ) fd_ssping_add( ctx->ssping, initial_peers[ i ] );
+    for( ulong i=0UL; i<3UL; i++ ) fd_ssping_add( ctx->ssping, initial_peers[ i ] );
   }
   else {
     FD_LOG_ERR(( "unexpected cluster %s", tile->snaprd.cluster ));

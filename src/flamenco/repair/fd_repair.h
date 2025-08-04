@@ -4,6 +4,7 @@
 #include "../gossip/fd_gossip.h"
 #include "../../ballet/shred/fd_shred.h"
 #include "../../disco/metrics/generated/fd_metrics_repair.h"
+#include "../../disco/metrics/fd_metrics.h"
 
 
 #define FD_REPAIR_DELIVER_FAIL_TIMEOUT -1
@@ -180,6 +181,8 @@ struct fd_repair_metrics {
   ulong recv_pkt_corrupted_msg;
   ulong send_pkt_cnt;
   ulong sent_pkt_types[FD_METRICS_ENUM_REPAIR_SENT_REQUEST_TYPES_CNT];
+  fd_histf_t store_link_wait[ 1 ];
+  fd_histf_t store_link_work[ 1 ];
 };
 typedef struct fd_repair_metrics fd_repair_metrics_t;
 #define FD_REPAIR_METRICS_FOOTPRINT ( sizeof( fd_repair_metrics_t ) )
@@ -230,9 +233,9 @@ struct fd_repair {
     ulong seed;
     /* Stake weights */
     ulong stake_weights_cnt;
-    fd_stake_weight_t * stake_weights;
+    fd_vote_stake_weight_t * stake_weights;
     ulong stake_weights_temp_cnt;
-    fd_stake_weight_t * stake_weights_temp;
+    fd_vote_stake_weight_t * stake_weights_temp;
     /* Path to the file where we write the cache of known good repair peers, to make cold booting faster */
     int good_peer_cache_file_fd;
     /* Metrics */
@@ -251,8 +254,8 @@ fd_repair_footprint( void ) {
   l = FD_LAYOUT_APPEND( l, fd_inflight_table_align(), fd_inflight_table_footprint(FD_NEEDED_KEY_MAX) );
   l = FD_LAYOUT_APPEND( l, fd_pinged_table_align(), fd_pinged_table_footprint(FD_REPAIR_PINGED_MAX) );
   /* regular and temp stake weights */
-  l = FD_LAYOUT_APPEND( l, alignof(fd_stake_weight_t), FD_STAKE_WEIGHTS_MAX * sizeof(fd_stake_weight_t) );
-  l = FD_LAYOUT_APPEND( l, alignof(fd_stake_weight_t), FD_STAKE_WEIGHTS_MAX * sizeof(fd_stake_weight_t) );
+  l = FD_LAYOUT_APPEND( l, alignof(fd_vote_stake_weight_t), FD_STAKE_WEIGHTS_MAX * sizeof(fd_vote_stake_weight_t) );
+  l = FD_LAYOUT_APPEND( l, alignof(fd_vote_stake_weight_t), FD_STAKE_WEIGHTS_MAX * sizeof(fd_vote_stake_weight_t) );
   return FD_LAYOUT_FINI(l, fd_repair_align() );
 }
 
@@ -319,7 +322,7 @@ fd_repair_construct_request_protocol( fd_repair_t          * glob,
 void fd_repair_add_sticky( fd_repair_t * glob, fd_pubkey_t const * id );
 
 void fd_repair_set_stake_weights_init( fd_repair_t             * repair,
-                                       fd_stake_weight_t const * stake_weights,
+                                       fd_vote_stake_weight_t const * stake_weights,
                                        ulong                     stake_weights_cnt );
 
 void fd_repair_set_stake_weights_fini( fd_repair_t * repair );

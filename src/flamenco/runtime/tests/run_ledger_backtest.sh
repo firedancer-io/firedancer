@@ -166,11 +166,8 @@ echo "
         enable_features = [ $FORMATTED_ONE_OFFS ]
     [tiles.gui]
         enabled = false
-[blockstore]
-    shred_max = 16777216
-    block_max = 8192
-    alloc_max = 10737418240
-    file = \"$DUMP/$LEDGER/backtest.blockstore\"
+[store]
+    max_completed_shred_sets = 32768
 [funk]
     heap_size_gib = $FUNK_PAGES
     max_account_records = $INDEX_MAX
@@ -179,31 +176,21 @@ echo "
 [runtime]
     heap_size_gib = 50
     [runtime.limits]
-        max_banks = 64
+        max_total_banks = 46
+        max_fork_width = 32
 [development]
     sandbox = false
     no_agave = true
     no_clone = true
-[store]
-    max_completed_shred_sets = 32000
 [log]
     level_stderr = \"INFO\"
     path = \"$LOG\"
 [paths]
-    identity_key = \"$DUMP_DIR/identity.json\"
-    vote_account = \"$DUMP_DIR/vote.json\"
-    snapshots    = \"$DUMP/$LEDGER\"
+    snapshots = \"$DUMP/$LEDGER\"
 [hugetlbfs]
     mount_path = \"$HUGE_TLBFS_MOUNT_PATH\"
     allow_hugepage_increase = $HUGE_TLBFS_ALLOW_HUGEPAGE_INCREASE
 " > $DUMP_DIR/${LEDGER}_backtest.toml
-
-if [ ! -f $DUMP_DIR/identity.json ]; then
-$OBJDIR/bin/firedancer-dev keys new identity --config ${DUMP_DIR}/${LEDGER}_backtest.toml
-fi
-if [ ! -f $DUMP_DIR/vote.json ]; then
-$OBJDIR/bin/firedancer-dev keys new vote --config ${DUMP_DIR}/${LEDGER}_backtest.toml
-fi
 
 echo "Running backtest for $LEDGER"
 sudo $OBJDIR/bin/firedancer-dev configure init all --config ${DUMP_DIR}/${LEDGER}_backtest.toml &> /dev/null

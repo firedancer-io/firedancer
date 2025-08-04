@@ -13,8 +13,9 @@
 #include <unistd.h> /* dup3, close */
 #include <netinet/in.h> /* sockaddr_in */
 #include <sys/socket.h> /* socket */
-#include "generated/sock_seccomp.h"
 #include "../../metrics/fd_metrics.h"
+
+#include "generated/fd_sock_tile_seccomp.h"
 
 /* recv/sendmmsg packet count in batch and tango burst depth
    FIXME make configurable in the future?
@@ -40,8 +41,9 @@ populate_allowed_seccomp( fd_topo_t const *      topo,
                           struct sock_filter *   out ) {
   FD_SCRATCH_ALLOC_INIT( l, fd_topo_obj_laddr( topo, tile->tile_obj_id ) );
   fd_sock_tile_t * ctx = FD_SCRATCH_ALLOC_APPEND( l, alignof(fd_sock_tile_t), sizeof(fd_sock_tile_t) );
-  populate_sock_filter_policy_sock( out_cnt, out, (uint)fd_log_private_logfile_fd(), (uint)ctx->tx_sock, RX_SOCK_FD_MIN, RX_SOCK_FD_MIN+(uint)ctx->sock_cnt );
-  return sock_filter_policy_sock_instr_cnt;
+
+  populate_sock_filter_policy_fd_sock_tile( out_cnt, out, (uint)fd_log_private_logfile_fd(), (uint)ctx->tx_sock, RX_SOCK_FD_MIN, RX_SOCK_FD_MIN+(uint)ctx->sock_cnt );
+  return sock_filter_policy_fd_sock_tile_instr_cnt;
 }
 
 static ulong
@@ -438,8 +440,8 @@ poll_rx( fd_sock_tile_t *    ctx,
     FD_LOG_ERR(( "Batch is not clean" ));
   }
   ctx->tx_idle_cnt = 0; /* restart TX polling */
-  if( FD_UNLIKELY( poll( ctx->pollfd, ctx->sock_cnt, 0 )<0 ) ) {
-    FD_LOG_ERR(( "poll failed (%i-%s)", errno, fd_io_strerror( errno ) ));
+  if( FD_UNLIKELY( fd_syscall_poll( ctx->pollfd, ctx->sock_cnt, 0 )<0 ) ) {
+    FD_LOG_ERR(( "fd_syscall_poll failed (%i-%s)", errno, fd_io_strerror( errno ) ));
   }
   for( uint j=0UL; j<ctx->sock_cnt; j++ ) {
     if( ctx->pollfd[ j ].revents & (POLLIN|POLLERR) ) {

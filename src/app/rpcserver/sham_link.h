@@ -1,3 +1,6 @@
+#include "../../disco/topo/fd_topo.h"
+#include "../../util/wksp/fd_wksp_private.h" /* why does this depend on private APIs? */
+
 #define SHAM_LINK_(n) FD_EXPAND_THEN_CONCAT3(SHAM_LINK_NAME,_,n)
 
 struct SHAM_LINK_NAME {

@@ -28,9 +28,9 @@
      SOLCAP_V1_BANK:  Bank pre-image, version 0
                       (assumed to only contain SOLCAP_V1_BANK chunks)
 
-   Capture content is divided into variable-length chunks. Each chunk 
-   contains a fixed-size binary header containing type and length 
-   information. Following the header is a serialized Protobuf object 
+   Capture content is divided into variable-length chunks. Each chunk
+   contains a fixed-size binary header containing type and length
+   information. Following the header is a serialized Protobuf object
    with chunk-specific information.
 
    Typically, readers sequentially read in chunks, loading one chunk
@@ -88,6 +88,11 @@ typedef struct fd_solcap_fhdr fd_solcap_fhdr_t;
 #define FD_SOLCAP_V1_BANK_MAGIC (0x805fe7580b1da4b8UL)
 #define FD_SOLCAP_V1_TRXN_MAGIC (0x805fe7580b1da4bCUL)
 
+#define FD_SOLCAP_V1_REWARD_BEGIN_MAGIC (0x805fe7580b1da050UL)
+#define FD_SOLCAP_V1_REWARD_CALC_MAGIC  (0x805fe7580b1da051UL)
+#define FD_SOLCAP_V1_REWARD_VOTE_MAGIC  (0x805fe7580b1da052UL)
+#define FD_SOLCAP_V1_REWARD_STAKE_MAGIC (0x805fe7580b1da053UL)
+
 FD_PROTOTYPES_BEGIN
 
 static inline int
@@ -143,7 +148,7 @@ typedef struct fd_solcap_account_tbl fd_solcap_account_tbl_t;
 
 /* FD_SOLCAP_ACC_TBL_CNT is the number of entries that fit in the in-
    memory buffer for the account table.
-   
+
    N.b: to support epoch boundaries increase this number to 2097152 */
 
 #define FD_SOLCAP_ACC_TBL_CNT (8192U)

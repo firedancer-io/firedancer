@@ -641,8 +641,21 @@ initialize_stacks( config_t const * config ) {
     char path[ PATH_MAX ];
     FD_TEST( fd_cstr_printf_check( path, PATH_MAX, NULL, "%s/%s_stack_%s%lu", config->hugetlbfs.huge_page_mount_path, config->name, tile->name, tile->kind_id ) );
 
-    int result = unlink( path );
-    if( -1==result && errno!=ENOENT ) FD_LOG_ERR(( "unlink() failed when trying to create stack `%s` (%i-%s)", path, errno, fd_io_strerror( errno ) ));
+    struct stat st;
+    int result = stat( path, &st );
+
+    int update_existing;
+    if( FD_UNLIKELY( !result && config->is_live_cluster ) ) {
+      if( FD_UNLIKELY( -1==unlink( path ) && errno!=ENOENT ) ) FD_LOG_ERR(( "unlink() failed when trying to create stack workspace `%s` (%i-%s)", path, errno, fd_io_strerror( errno ) ));
+      update_existing = 0;
+    } else if( FD_UNLIKELY( !result ) ) {
+      /* See above note about zeroing out pages. */
+      update_existing = 1;
+    } else if( FD_LIKELY( result && errno==ENOENT ) ) {
+      update_existing = 0;
+    } else {
+      FD_LOG_ERR(( "stat failed when trying to create workspace `%s` (%i-%s)", path, errno, fd_io_strerror( errno ) ));
+    }
 
     /* TODO: Use a better CPU idx for the stack if tile is floating */
     ulong stack_cpu_idx = 0UL;
@@ -653,7 +666,12 @@ initialize_stacks( config_t const * config ) {
 
     ulong sub_page_cnt[ 1 ] = { 6 };
     ulong sub_cpu_idx [ 1 ] = { stack_cpu_idx };
-    int err = fd_shmem_create_multi( name, FD_SHMEM_HUGE_PAGE_SZ, 1, sub_page_cnt, sub_cpu_idx, S_IRUSR | S_IWUSR ); /* logs details */
+    int err;
+    if( FD_UNLIKELY( update_existing ) ) {
+      err = fd_shmem_update_multi( name, FD_SHMEM_HUGE_PAGE_SZ, 1, sub_page_cnt, sub_cpu_idx, S_IRUSR | S_IWUSR ); /* logs details */
+    } else {
+      err = fd_shmem_create_multi( name, FD_SHMEM_HUGE_PAGE_SZ, 1, sub_page_cnt, sub_cpu_idx, S_IRUSR | S_IWUSR ); /* logs details */
+    }
     if( FD_UNLIKELY( err && errno==ENOMEM ) ) {
       warn_unknown_files( config, 0UL );
 

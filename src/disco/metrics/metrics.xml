@@ -119,6 +119,12 @@ metric introduced.
     <int value="2" name="FailConnMax"   label="ConnMaxedInflightFrames" />
 </enum>
 
+<enum name="QuicInitialTokenLen">
+    <int value="0" name="Zero"       label="No token" />
+    <int value="1" name="FdQuicLen"  label="fd_quic retry token length" />
+    <int value="2" name="InvalidLen" label="Invalid token length" />
+</enum>
+
 <enum name="QuicFrameType">
     <!-- These don't correspond to QUIC frame IDs because gen_metrics.py is currently bugged and corrupts enums with sparse IDs -->
     <int value="0" name="Unknown" label="Unknown frame type" />
@@ -168,6 +174,17 @@ metric introduced.
     <int value="3" name="App" label="app data" />
 </enum>
 
+<enum name="QuicConnState">
+    <int value="0" name="Invalid" label="freed" />
+    <int value="1" name="Handshake" label="handshaking peer" />
+    <int value="2" name="HandshakeComplete" label="handshake complete, confirming with peer" />
+    <int value="3" name="Active" label="active connection" />
+    <int value="4" name="PeerClose" label="peer requested close" />
+    <int value="5" name="Abort" label="connection terminating due to error" />
+    <int value="6" name="ClosePending" label="connection is closing" />
+    <int value="7" name="Dead" label="connection about to be freed" />
+</enum>
+
 <tile name="quic">
     <counter name="TxnsOverrun" summary="Count of txns overrun before reassembled (too small txn_reassembly_count)." />
     <counter name="TxnReasmsStarted" summary="Count of fragmented txn receive ops started." />
@@ -189,7 +206,8 @@ metric introduced.
     <counter name="SentPackets" summary="Number of IP packets sent." />
     <counter name="SentBytes" summary="Total bytes sent (including IP, UDP, QUIC headers)." />
 
-    <gauge name="ConnectionsActive" summary="The number of currently active QUIC connections." />
+    <gauge name="ConnectionsAlloc" summary="The number of currently allocated QUIC connections." />
+    <gauge name="ConnectionsState" enum="QuicConnState" summary="The number of QUIC connections in each state." />
     <counter name="ConnectionsCreated" summary="The total number of connections that have been created." />
     <counter name="ConnectionsClosed" summary="Number of connections gracefully closed." />
     <counter name="ConnectionsAborted" summary="Number of connections aborted." />
@@ -200,6 +218,7 @@ metric introduced.
 
     <counter name="PktNoConn" summary="Number of packets with an unknown connection ID." />
     <counter name="FrameTxAlloc" enum="FrameTxAllocResult" summary="Results of attempts to acquire QUIC frame metadata." />
+    <counter name="InitialTokenLen" enum="QuicInitialTokenLen" summary="Number of Initial packets grouped by token length." />
 
     <counter name="HandshakesCreated" summary="Number of handshake flows created." />
     <counter name="HandshakeErrorAllocFail" summary="Number of handshakes dropped due to alloc fail." />
@@ -262,7 +281,8 @@ metric introduced.
     <counter name="RetrySent" summary="Total count of QUIC retry packets sent" />
 
     <!-- QUIC connection metrics -->
-    <gauge name="ConnectionsActive" summary="Number of active QUIC connections" />
+    <gauge name="ConnectionsAlloc" summary="Number of currently allocated QUIC connections" />
+    <gauge name="ConnectionsState" enum="QuicConnState" summary="Number of QUIC connections in each state" />
     <counter name="ConnectionsCreated" summary="Total count of QUIC connections created" />
     <counter name="ConnectionsClosed" summary="Total count of QUIC connections closed" />
     <counter name="ConnectionsAborted" summary="Total count of QUIC connections aborted" />
@@ -335,8 +355,8 @@ metric introduced.
     <gauge name="RttSample" summary="Latest RTT sample at scrape time (nanoseconds)" />
     <gauge name="RttSmoothed" summary="RTT moving average (nanoseconds)" />
     <gauge name="RttVar" summary="RTT variance (nanoseconds)" />
-    <histogram name="MessageRxDelay" min="0.0001" max="1.0" converter="seconds">
-        <summary>Message receive delay in seconds from bundle server to bundle client</summary>
+    <histogram name="MessageRxDelayNanos" min="100000" max="1000000000">
+        <summary>Message receive delay in nanoseconds from bundle server to bundle client</summary>
     </histogram>
 </tile>
 
@@ -632,6 +652,12 @@ metric introduced.
     <counter name="ForceCompleteRequest" summary="The number of times we received a FEC force complete message" />
     <counter name="ForceCompleteFailure" summary="The number of times we failed to force complete a FEC set on request" />
     <counter name="ForceCompleteSuccess" summary="The number of times we successfully forced completed a FEC set on request" />
+    <histogram name="StoreInsertWait" min="0.00000001" max="0.0005" converter="seconds">
+        <summary>Time in seconds spent waiting for the store to insert a new FEC set</summary>
+    </histogram>
+    <histogram name="StoreInsertWork" min="0.00000001" max="0.0005" converter="seconds">
+        <summary>Time in seconds spent on inserting a new FEC set</summary>
+    </histogram>
 </tile>
 
 <tile name="store">
@@ -641,7 +667,18 @@ metric introduced.
 <tile name="replay">
   <gauge name="Slot" label="The slot that is currently being executing" />
   <gauge name="LastVotedSlot" label="The last slot that was voted on" />
-
+  <histogram name="StoreReadWait" min="0.00000001" max="0.001" converter="seconds">
+    <summary>Time in seconds spent waiting for the store to read a FEC set</summary>
+  </histogram>
+  <histogram name="StoreReadWork" min="0.00000001" max="0.001" converter="seconds">
+    <summary>Time in seconds spent on reading a FEC set</summary>
+  </histogram>
+  <histogram name="StorePublishWait" min="0.00000001" max="0.001" converter="seconds">
+    <summary>Time in seconds spent waiting for the store to publish a new FEC set</summary>
+  </histogram>
+  <histogram name="StorePublishWork" min="0.00000001" max="0.001" converter="seconds">
+    <summary>Time in seconds spent on publishing a new FEC set</summary>
+  </histogram>
 </tile>
 <tile name="storei">
   <gauge name="FirstTurbineSlot" label="The first slot for which we have received a turbine shred" />
@@ -763,6 +800,12 @@ metric introduced.
     <counter name="RecvPktCorruptedMsg"       clickhouse_exclude="true"                                 summary="How many corrupt messages have we received" />
     <counter name="SendPktCnt"                clickhouse_exclude="true"                                 summary="How many packets have sent" />
     <counter name="SentPktTypes"              clickhouse_exclude="true"  enum="RepairSentRequestTypes"  summary="What types of client messages are we sending" />
+    <histogram name="StoreLinkWait" min="0.00000001" max="0.0005" converter="seconds">
+      <summary>Time in seconds spent waiting for the store to link a new FEC set</summary>
+    </histogram>
+    <histogram name="StoreLinkWork" min="0.00000001" max="0.0005" converter="seconds">
+      <summary>Time in seconds spent on linking a new FEC set</summary>
+    </histogram>
 </tile>
 
 <tile name="gossip">

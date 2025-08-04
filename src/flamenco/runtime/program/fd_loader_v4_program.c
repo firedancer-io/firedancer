@@ -1,5 +1,4 @@
 #include "fd_loader_v4_program.h"
-#include "../sysvar/fd_sysvar_clock.h"
 
 /* Helper functions that would normally be provided by fd_types. */
 FD_FN_PURE uchar
@@ -334,11 +333,12 @@ fd_loader_v4_program_instruction_set_program_length( fd_exec_instr_ctx_t *      
   }
 
   /* https://github.com/anza-xyz/agave/blob/v2.2.6/programs/loader-v4/src/lib.rs#L221-L227 */
-  fd_rent_t const * rent = fd_sysvar_rent_read( instr_ctx->txn_ctx->funk, instr_ctx->txn_ctx->funk_txn, instr_ctx->txn_ctx->spad );
-
-  if( FD_UNLIKELY( rent==NULL ) ) {
+  fd_rent_t rent_;
+  fd_rent_t const * rent = fd_sysvar_cache_rent_read( instr_ctx->sysvar_cache, &rent_ );
+  if( FD_UNLIKELY( !rent ) ) {
     return FD_EXECUTOR_INSTR_ERR_UNSUPPORTED_SYSVAR;
   }
+
   ulong new_program_dlen  = fd_ulong_sat_add( LOADER_V4_PROGRAM_DATA_OFFSET, new_size );
   ulong required_lamports = ( new_size==0UL ) ?
                               0UL :
@@ -469,8 +469,9 @@ fd_loader_v4_program_instruction_deploy( fd_exec_instr_ctx_t * instr_ctx ) {
   }
 
   /* https://github.com/anza-xyz/agave/blob/v2.2.13/programs/loader-v4/src/lib.rs#L288 */
-  fd_sol_sysvar_clock_t const * clock = fd_sysvar_clock_read( instr_ctx->txn_ctx->funk, instr_ctx->txn_ctx->funk_txn, instr_ctx->txn_ctx->spad );
-  if( FD_UNLIKELY( clock==NULL ) ) {
+  fd_sol_sysvar_clock_t clock_;
+  fd_sol_sysvar_clock_t const * clock = fd_sysvar_cache_clock_read( instr_ctx->sysvar_cache, &clock_ );
+  if( FD_UNLIKELY( !clock ) ) {
     return FD_EXECUTOR_INSTR_ERR_UNSUPPORTED_SYSVAR;
   }
   ulong current_slot = clock->slot;
@@ -504,7 +505,7 @@ fd_loader_v4_program_instruction_deploy( fd_exec_instr_ctx_t * instr_ctx ) {
      end of the slot. Since programs cannot be invoked until the next slot anyways, doing this is okay.
 
      https://github.com/anza-xyz/agave/blob/v2.2.13/programs/loader-v4/src/lib.rs#L309-L316 */
-  err = fd_deploy_program( instr_ctx, programdata, buffer_dlen - LOADER_V4_PROGRAM_DATA_OFFSET, instr_ctx->txn_ctx->spad );
+  err = fd_deploy_program( instr_ctx, program.acct->pubkey, programdata, buffer_dlen - LOADER_V4_PROGRAM_DATA_OFFSET, instr_ctx->txn_ctx->spad );
   if( FD_UNLIKELY( err ) ) {
     return FD_EXECUTOR_INSTR_ERR_INVALID_ACC_DATA;
   }
@@ -563,8 +564,9 @@ fd_loader_v4_program_instruction_retract( fd_exec_instr_ctx_t * instr_ctx ) {
   }
 
   /* https://github.com/anza-xyz/agave/blob/v2.2.6/programs/loader-v4/src/lib.rs#L368 */
-  fd_sol_sysvar_clock_t const * clock = fd_sysvar_clock_read( instr_ctx->txn_ctx->funk, instr_ctx->txn_ctx->funk_txn, instr_ctx->txn_ctx->spad );
-  if( FD_UNLIKELY( clock==NULL ) ) {
+  fd_sol_sysvar_clock_t clock_;
+  fd_sol_sysvar_clock_t const * clock = fd_sysvar_cache_clock_read( instr_ctx->sysvar_cache, &clock_ );
+  if( FD_UNLIKELY( !clock ) ) {
     return FD_EXECUTOR_INSTR_ERR_UNSUPPORTED_SYSVAR;
   }
   ulong current_slot = clock->slot;
@@ -853,17 +855,17 @@ fd_loader_v4_program_execute( fd_exec_instr_ctx_t * instr_ctx ) {
 
       /* See note in `fd_bpf_loader_program_execute()` as to why we must tie the cache into consensus :(
          https://github.com/anza-xyz/agave/blob/v2.2.6/programs/loader-v4/src/lib.rs#L522-L528 */
-      fd_sbpf_validated_program_t const * prog = NULL;
-      if( FD_UNLIKELY( fd_bpf_load_cache_entry( instr_ctx->txn_ctx->funk,
-                                                instr_ctx->txn_ctx->funk_txn,
-                                                program_id,
-                                                &prog )!=0 ) ) {
+      fd_program_cache_entry_t const * cache_entry = NULL;
+      if( FD_UNLIKELY( fd_program_cache_load_entry( instr_ctx->txn_ctx->funk,
+                                                    instr_ctx->txn_ctx->funk_txn,
+                                                    program_id,
+                                                    &cache_entry )!=0 ) ) {
         fd_log_collector_msg_literal( instr_ctx, "Program is not cached" );
         return FD_EXECUTOR_INSTR_ERR_UNSUPPORTED_PROGRAM_ID;
       }
 
       /* The program may be in the cache but could have failed verification in the current epoch. */
-      if( FD_UNLIKELY( prog->failed_verification ) ) {
+      if( FD_UNLIKELY( cache_entry->failed_verification ) ) {
         fd_log_collector_msg_literal( instr_ctx, "Program is not deployed" );
         return FD_EXECUTOR_INSTR_ERR_UNSUPPORTED_PROGRAM_ID;
       }
@@ -901,7 +903,7 @@ fd_loader_v4_program_execute( fd_exec_instr_ctx_t * instr_ctx ) {
       fd_borrowed_account_drop( &program );
 
       /* https://github.com/anza-xyz/agave/blob/v2.2.6/programs/loader-v4/src/lib.rs#L542 */
-      rc = fd_bpf_execute( instr_ctx, prog, 0 );
+      rc = fd_bpf_execute( instr_ctx, cache_entry, 0 );
     }
 
     return rc;

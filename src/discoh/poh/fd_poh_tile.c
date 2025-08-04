@@ -1505,8 +1505,8 @@ after_credit( fd_poh_ctx_t *      ctx,
   ulong max_remaining_microblocks = ctx->max_microblocks_per_slot - ctx->microblocks_lower_bound;
 
   /* We don't want to tick over (finish) the slot until pack tell us
-     it's done. */
-  if( FD_LIKELY( !ctx->slot_done && is_leader && max_remaining_microblocks==0UL ) ) return;
+     it's done.  If we're waiting on pack, then we clamp to [0, 1] */
+  if( FD_LIKELY( !ctx->slot_done && is_leader ) ) max_remaining_microblocks = fd_ulong_max( fd_ulong_min( 1UL, max_remaining_microblocks ), max_remaining_microblocks );
 
   /* With hashcnt_per_tick hashes per tick, we actually get
      hashcnt_per_tick-1 chances to mixin a microblock.  For each tick
@@ -2238,7 +2238,7 @@ unprivileged_init( fd_topo_t *      topo,
   ctx->lagged_consecutive_leader_start = tile->poh.lagged_consecutive_leader_start;
   ctx->expect_sequential_leader_slot = ULONG_MAX;
 
-  ctx->slot_done               = 0;
+  ctx->slot_done               = 1;
   ctx->expect_pack_idx         = 0U;
   ctx->microblocks_lower_bound = 0UL;
 

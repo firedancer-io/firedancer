@@ -9,6 +9,7 @@
 #include "../../disco/genesis/fd_genesis_cluster.h"
 #include "../../disco/pack/fd_pack.h"
 #include "../../disco/pack/fd_pack_cost.h"
+#include "../../disco/shred/fd_stake_ci.h"
 
 FD_FN_CONST ulong
 fd_gui_align( void ) {
@@ -130,6 +131,9 @@ fd_gui_new( void *             shmem,
 
   for( ulong i=0UL; i<FD_GUI_SLOTS_CNT; i++ ) gui->slots[ i ]->slot = ULONG_MAX;
   gui->pack_txn_idx = 0UL;
+
+  fd_histf_new( gui->bundle_rx_delay_hist_current,   FD_MHIST_MIN( BUNDLE, MESSAGE_RX_DELAY_NANOS ), FD_MHIST_MAX( BUNDLE, MESSAGE_RX_DELAY_NANOS ) );
+  fd_histf_new( gui->bundle_rx_delay_hist_reference, FD_MHIST_MIN( BUNDLE, MESSAGE_RX_DELAY_NANOS ), FD_MHIST_MAX( BUNDLE, MESSAGE_RX_DELAY_NANOS ) );
 
   return gui;
 }
@@ -314,18 +318,15 @@ fd_gui_txn_waterfall_snap( fd_gui_t *               gui,
     + pack_metrics[ MIDX( COUNTER, PACK, TRANSACTION_INSERTED_TOO_LARGE ) ]
     + pack_metrics[ MIDX( COUNTER, PACK, TRANSACTION_INSERTED_ADDR_LUT ) ]
     + pack_metrics[ MIDX( COUNTER, PACK, TRANSACTION_INSERTED_UNAFFORDABLE ) ]
-    + pack_metrics[ MIDX( COUNTER, PACK, TRANSACTION_INSERTED_DUPLICATE ) ];
+    + pack_metrics[ MIDX( COUNTER, PACK, TRANSACTION_INSERTED_DUPLICATE ) ]
+    - pack_metrics[ MIDX( COUNTER, PACK, BUNDLE_CRANK_STATUS_INSERTION_FAILED ) ]; /* so we don't double count this, since its already accounted for in invalid_bundle */
 
   cur->out.pack_expired = pack_metrics[ MIDX( COUNTER, PACK, TRANSACTION_INSERTED_EXPIRED ) ] +
                           pack_metrics[ MIDX( COUNTER, PACK, TRANSACTION_EXPIRED ) ] +
                           pack_metrics[ MIDX( COUNTER, PACK, TRANSACTION_DELETED ) ] +
-                          pack_metrics[ MIDX( COUNTER, PACK, TRANSACTION_INSERTED_NONCE_PRIORITY ) ] +
-                          pack_metrics[ MIDX( COUNTER, PACK, TRANSACTION_INSERTED_NONCE_NONVOTE_REPLACE ) ];
+                          pack_metrics[ MIDX( COUNTER, PACK, TRANSACTION_INSERTED_NONCE_PRIORITY ) ];
 
-  cur->out.pack_leader_slow =
-      pack_metrics[ MIDX( COUNTER, PACK, TRANSACTION_INSERTED_PRIORITY ) ]
-    + pack_metrics[ MIDX( COUNTER, PACK, TRANSACTION_INSERTED_NONVOTE_REPLACE ) ]
-    + pack_metrics[ MIDX( COUNTER, PACK, TRANSACTION_INSERTED_VOTE_REPLACE ) ];
+  cur->out.pack_leader_slow = pack_metrics[ MIDX( COUNTER, PACK, TRANSACTION_INSERTED_PRIORITY ) ];
 
   cur->out.pack_wait_full =
       pack_metrics[ MIDX( COUNTER, PACK, TRANSACTION_DROPPED_FROM_EXTRA ) ];
@@ -495,7 +496,17 @@ fd_gui_tile_stats_snap( fd_gui_t *                     gui,
     fd_topo_tile_t const * quic = &topo->tiles[ fd_topo_find_tile( topo, "quic", i ) ];
     volatile ulong * quic_metrics = fd_metrics_tile( quic->metrics );
 
-    stats->quic_conn_cnt += quic_metrics[ MIDX( GAUGE, QUIC, CONNECTIONS_ACTIVE ) ];
+    stats->quic_conn_cnt += quic_metrics[ MIDX( GAUGE, QUIC, CONNECTIONS_ALLOC ) ];
+  }
+
+  ulong bundle_tile_idx = fd_topo_find_tile( topo, "bundle", 0UL );
+  if( FD_LIKELY( bundle_tile_idx!=ULONG_MAX ) ) {
+    fd_topo_tile_t const * bundle = &topo->tiles[ bundle_tile_idx ];
+    volatile ulong * bundle_metrics = fd_metrics_tile( bundle->metrics );
+    stats->bundle_rtt_smoothed_nanos = bundle_metrics[ MIDX( GAUGE, BUNDLE, RTT_SMOOTHED ) ];
+
+    gui->bundle_rx_delay_hist_current->sum = bundle_metrics[ MIDX( HISTOGRAM, BUNDLE, MESSAGE_RX_DELAY_NANOS ) + FD_HISTF_BUCKET_CNT ];
+    for( ulong b=0; b<FD_HISTF_BUCKET_CNT; b++ ) gui->bundle_rx_delay_hist_current->counts[ b ] = bundle_metrics[ MIDX( HISTOGRAM, BUNDLE, MESSAGE_RX_DELAY_NANOS ) + b ];
   }
 
   stats->verify_drop_cnt = waterfall->out.verify_duplicate +
@@ -1076,13 +1087,13 @@ fd_gui_handle_leader_schedule( fd_gui_t *    gui,
   ulong start_slot          = msg[ 2 ];
   ulong slot_cnt            = msg[ 3 ];
   ulong excluded_stake      = msg[ 4 ];
+  ulong vote_keyed_lsched   = msg[ 5 ];
 
-  FD_TEST( staked_cnt<=50000UL );
-  FD_TEST( slot_cnt<=432000UL );
+  FD_TEST( staked_cnt<=MAX_STAKED_LEADERS );
+  FD_TEST( slot_cnt<=MAX_SLOTS_PER_EPOCH );
 
   ulong idx = epoch % 2UL;
   gui->epoch.has_epoch[ idx ] = 1;
-
 
   gui->epoch.epochs[ idx ].epoch            = epoch;
   gui->epoch.epochs[ idx ].start_slot       = start_slot;
@@ -1090,15 +1101,19 @@ fd_gui_handle_leader_schedule( fd_gui_t *    gui,
   gui->epoch.epochs[ idx ].excluded_stake   = excluded_stake;
   gui->epoch.epochs[ idx ].my_total_slots   = 0UL;
   gui->epoch.epochs[ idx ].my_skipped_slots = 0UL;
+
+  fd_vote_stake_weight_t const * stake_weights = fd_type_pun_const( msg+6UL );
+  memcpy( gui->epoch.epochs[ idx ].stakes, stake_weights, staked_cnt*sizeof(fd_vote_stake_weight_t) );
+
   fd_epoch_leaders_delete( fd_epoch_leaders_leave( gui->epoch.epochs[ idx ].lsched ) );
   gui->epoch.epochs[idx].lsched = fd_epoch_leaders_join( fd_epoch_leaders_new( gui->epoch.epochs[ idx ]._lsched,
                                                                                epoch,
                                                                                gui->epoch.epochs[ idx ].start_slot,
                                                                                slot_cnt,
                                                                                staked_cnt,
-                                                                               fd_type_pun_const( msg+5UL ),
-                                                                               excluded_stake ) );
-  fd_memcpy( gui->epoch.epochs[ idx ].stakes, fd_type_pun_const( msg+5UL ), staked_cnt*sizeof(gui->epoch.epochs[ idx ].stakes[ 0 ]) );
+                                                                               gui->epoch.epochs[ idx ].stakes,
+                                                                               excluded_stake,
+                                                                               vote_keyed_lsched ) );
 
   if( FD_UNLIKELY( start_slot==0UL ) ) {
     gui->epoch.epochs[ 0 ].start_time = fd_log_wallclock();
@@ -1726,6 +1741,20 @@ fd_gui_became_leader( fd_gui_t * gui,
   slot->txs.leader_start_time = start_time_nanos;
   slot->txs.leader_end_time   = end_time_nanos;
   if( FD_LIKELY( slot->txs.microblocks_upper_bound==USHORT_MAX ) ) slot->txs.microblocks_upper_bound = (ushort)max_microblocks;
+
+  // snapshot of bundle rx histogram at leader rotation start
+  ulong bundle_tile_idx = fd_topo_find_tile( gui->topo, "bundle", 0UL );
+  if( FD_UNLIKELY( bundle_tile_idx!=ULONG_MAX && _slot % 4 == 0 ) ) {
+    fd_topo_tile_t const * bundle = &gui->topo->tiles[ bundle_tile_idx ];
+    volatile ulong * bundle_metrics = fd_metrics_tile( bundle->metrics );
+    (void)bundle_metrics;
+
+    gui->bundle_rx_delay_hist_current->sum = bundle_metrics[ MIDX( HISTOGRAM, BUNDLE, MESSAGE_RX_DELAY_NANOS ) + FD_HISTF_BUCKET_CNT ];
+    for( ulong b=0; b<FD_HISTF_BUCKET_CNT; b++ ) gui->bundle_rx_delay_hist_current->counts[ b ] = bundle_metrics[ MIDX( HISTOGRAM, BUNDLE, MESSAGE_RX_DELAY_NANOS ) + b ];
+
+    gui->bundle_rx_delay_hist_reference->sum = bundle_metrics[ MIDX( HISTOGRAM, BUNDLE, MESSAGE_RX_DELAY_NANOS ) + FD_HISTF_BUCKET_CNT ];
+    for( ulong b=0; b<FD_HISTF_BUCKET_CNT; b++ ) gui->bundle_rx_delay_hist_reference->counts[ b ] = bundle_metrics[ MIDX( HISTOGRAM, BUNDLE, MESSAGE_RX_DELAY_NANOS ) + b ];
+  }
 }
 
 void

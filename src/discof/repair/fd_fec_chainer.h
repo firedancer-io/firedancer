@@ -30,6 +30,7 @@
    consensus module to handle it. */
 
 #include "../../ballet/shred/fd_shred.h"
+#include "../../flamenco/types/fd_types_custom.h"
 
 /* FD_FEC_CHAINER_USE_HANDHOLDING:  Define this to non-zero at compile time
    to turn on additional runtime checks and logging. */
@@ -242,13 +243,15 @@ typedef struct fd_fec_children fd_fec_children_t;
 #include "../../util/tmpl/fd_deque_dynamic.c"
 
 struct fd_fec_out {
-  ulong  slot;
-  ushort parent_off;
-  uint   fec_set_idx;
-  ushort data_cnt;
-  int    data_complete;
-  int    slot_complete;
-  int    err;
+  int       err;           /* FD_FEC_CHAINER_{SUCCESS,ERR} */
+  ulong     slot;          /* The slot of the FEC set */
+  ushort    parent_off;    /* The index of first shred in the FEC set */
+  uint      fec_set_idx;   /* The offset for the parent slot of the FEC set */
+  ushort    data_cnt;      /* The number of data shreds in the FEC set */
+  int       data_complete; /* Whether the FEC set completes an entry batch */
+  int       slot_complete; /* Whether this FEC set completes the slot */
+  fd_hash_t merkle_root;   /* The merkle root of the FEC set */
+  fd_hash_t chained_root;  /* The chained merkle root of the FEC set */
 };
 typedef struct fd_fec_out fd_fec_out_t;
 
@@ -259,15 +262,16 @@ typedef struct fd_fec_out fd_fec_out_t;
 /* TODO deque probably not needed if reuse ele->next. */
 
 struct __attribute__((aligned(128UL))) fd_fec_chainer {
-  fd_fec_ancestry_t  * ancestry; /* map of key->fec. non-leaves of FEC tree */
-  fd_fec_frontier_t  * frontier; /* map of key->fec. leaves */
-  fd_fec_orphaned_t  * orphaned; /* map of key->fec. FECs not yet inserted to tree */
-  fd_fec_ele_t       * pool;     /* pool of FEC nodes backing the above maps / tree */
-  fd_fec_parent_t    * parents;  /* map of key->parent_key for fast O(1) querying */
-  fd_fec_children_t  * children; /* map of slot->child_offs for fast O(1) querying */
-  ulong              * queue;    /* queue of FEC keys for BFS chaining */
-  fd_fec_out_t       * out;      /* queue of FEC keys to deliver to application */
-  ulong              root_fec;   /* pool idx of the root FEC set */
+  ulong               root;     /* pool idx of the root FEC set */
+  ulong               slot0;    /* special initialization slot. chains first FEC */
+  fd_fec_ancestry_t * ancestry; /* map of key->fec. non-leaves of FEC tree */
+  fd_fec_frontier_t * frontier; /* map of key->fec. leaves */
+  fd_fec_orphaned_t * orphaned; /* map of key->fec. FECs not yet inserted to tree */
+  fd_fec_ele_t *      pool;     /* pool of FEC nodes backing the above maps / tree */
+  fd_fec_parent_t *   parents;  /* map of key->parent_key for fast O(1) querying */
+  fd_fec_children_t * children; /* map of slot->child_offs for fast O(1) querying */
+  ulong *             queue;    /* queue of FEC keys for BFS chaining */
+  fd_fec_out_t *      out;      /* queue of FEC keys to deliver to application */
 };
 
 FD_PROTOTYPES_BEGIN
@@ -343,7 +347,7 @@ void *
 fd_fec_chainer_delete( void * chainer );
 
 fd_fec_ele_t *
-fd_fec_chainer_init( fd_fec_chainer_t * chainer, ulong slot, uchar merkle_root[static FD_SHRED_MERKLE_ROOT_SZ] );
+fd_fec_chainer_init( fd_fec_chainer_t * chainer, ulong slot, fd_hash_t const * merkle_root );
 
 FD_FN_PURE fd_fec_ele_t *
 fd_fec_chainer_query( fd_fec_chainer_t * chainer, ulong slot, uint fec_set_idx );
@@ -363,8 +367,8 @@ fd_fec_chainer_insert( fd_fec_chainer_t * chainer,
                        int                data_complete,
                        int                slot_complete,
                        ushort             parent_off,
-                       uchar const        merkle_root[static FD_SHRED_MERKLE_ROOT_SZ],
-                       uchar const        chained_merkle_root[static FD_SHRED_MERKLE_ROOT_SZ] );
+                       fd_hash_t const *  merkle_root,
+                       fd_hash_t const *  chained_merkle_root );
 
 /* fd_fec_chainer_publish prunes the fec tree when the wmk is updated. */
 

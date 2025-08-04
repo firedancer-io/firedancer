@@ -1174,7 +1174,7 @@ write_conn( fd_http_server_t * http,
 int
 fd_http_server_poll( fd_http_server_t * http,
                      int                poll_timeout ) {
-  int nfds = poll( http->pollfds, http->max_conns+http->max_ws_conns+1UL, poll_timeout );
+  int nfds = fd_syscall_poll( http->pollfds, (uint)( http->max_conns+http->max_ws_conns+1UL ), poll_timeout );
   if( FD_UNLIKELY( 0==nfds ) ) return 0;
   else if( FD_UNLIKELY( -1==nfds && errno==EINTR ) ) return 0;
   else if( FD_UNLIKELY( -1==nfds ) ) FD_LOG_ERR(( "poll failed (%i-%s)", errno, strerror( errno ) ));

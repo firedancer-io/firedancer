@@ -3,7 +3,6 @@
 
 #include "stdarg.h"
 
-#include "../fd_flamenco_base.h"
 #include "fd_runtime_err.h"
 #include "fd_runtime_init.h"
 #include "fd_rocksdb.h"
@@ -11,9 +10,6 @@
 #include "fd_hashes.h"
 #include "../features/fd_features.h"
 #include "fd_rent_lists.h"
-#include "../../ballet/poh/fd_poh.h"
-#include "../leaders/fd_leaders.h"
-#include "context/fd_exec_slot_ctx.h"
 #include "context/fd_capture_ctx.h"
 #include "context/fd_exec_txn_ctx.h"
 #include "info/fd_runtime_block_info.h"
@@ -49,6 +45,27 @@
 
 /* TODO: increase this to default once we have enough memory to support a 95G status cache. */
 #define MAX_CACHE_TXNS_PER_SLOT (FD_TXNCACHE_DEFAULT_MAX_TRANSACTIONS_PER_SLOT / 8)
+
+/*
+ * fd_block_entry_batch_t is a microblock/entry batch within a block.
+ * The offset is relative to the start of the block's data region,
+ * and indicates where the batch ends.  The (exclusive) end offset of
+ * batch i is the (inclusive) start offset of batch i+1.  The 0th batch
+ * always starts at offset 0.
+ * On the wire, the presence of one of the COMPLETE flags in a data
+ * shred marks the end of a batch.
+ * In other words, batch ends are aligned with shred ends, and batch
+ * starts are aligned with shred starts.  Usually a batch comprises
+ * multiple shreds, and a block comprises multiple batches.
+ * This information is useful because bincode deserialization needs to
+ * be performed on a per-batch basis.  Precisely a single array of
+ * microblocks/entries is expected to be deserialized from a batch.
+ * Trailing bytes in each batch are ignored by default.
+ */
+struct fd_block_entry_batch {
+  ulong end_off; /* exclusive */
+};
+typedef struct fd_block_entry_batch fd_block_entry_batch_t;
 
 struct fd_execute_txn_task_info {
   fd_spad_t * *       spads;
@@ -233,6 +250,46 @@ FD_STATIC_ASSERT( FD_BPF_ALIGN_OF_U128==FD_ACCOUNT_REC_DATA_ALIGN, input_data_al
 
 #define FD_RUNTIME_MERKLE_LEAF_CNT_MAX (FD_TXN_MAX_PER_SLOT * FD_TXN_ACTUAL_SIG_MAX)
 
+
+/* FD_SLICE_ALIGN specifies the alignment needed for a block slice.
+   ALIGN is double x86 cache line to mitigate various kinds of false
+   sharing (eg. ACLPF adjacent cache line prefetch). */
+
+#define FD_SLICE_ALIGN (128UL)
+
+/* FD_SLICE_MAX specifies the maximum size of an entry batch. This is
+   equivalent to the maximum size of a block (ie. a block with a single
+   entry batch). */
+
+#define FD_SLICE_MAX (FD_SHRED_DATA_PAYLOAD_MAX_PER_SLOT)
+
+/* FD_SLICE_MAX_WITH_HEADERS specifies the maximum size of all of the
+   shreds that can be in an entry batch. This is equivalent to max
+   number of shreds (including header and payload) that can be in a
+   single slot. */
+
+#define FD_SLICE_MAX_WITH_HEADERS (FD_SHRED_DATA_HEADER_MAX_PER_SLOT + FD_SHRED_DATA_PAYLOAD_MAX_PER_SLOT)
+
+/* 64 ticks per slot, and then one min size transaction per microblock
+   for all the remaining microblocks.
+   This bound should be used along with the transaction parser and tick
+   verifier to enforce the assumptions.
+   This is NOT a standalone conservative bound against malicious
+   validators.
+   A tighter bound could probably be derived if necessary. */
+
+#define FD_MICROBLOCK_MAX_PER_SLOT ((FD_SHRED_DATA_PAYLOAD_MAX_PER_SLOT - 64UL*sizeof(fd_microblock_hdr_t)) / (sizeof(fd_microblock_hdr_t)+FD_TXN_MIN_SERIALIZED_SZ) + 64UL) /* 200,796 */
+/* 64 ticks per slot, and a single gigantic microblock containing min
+   size transactions. */
+#define FD_TXN_MAX_PER_SLOT ((FD_SHRED_DATA_PAYLOAD_MAX_PER_SLOT - 65UL*sizeof(fd_microblock_hdr_t)) / (FD_TXN_MIN_SERIALIZED_SZ)) /* 272,635 */
+
+// TODO centralize these
+// https://github.com/firedancer-io/solana/blob/v1.17.5/sdk/program/src/clock.rs#L34
+#define FD_MS_PER_TICK 6
+
+// https://github.com/firedancer-io/solana/blob/v1.17.5/core/src/repair/repair_service.rs#L55
+#define FD_REPAIR_TIMEOUT (200 / FD_MS_PER_TICK)
+
 #define FD_RUNTIME_MERKLE_VERIFICATION_FOOTPRINT FD_RUNTIME_MERKLE_LEAF_CNT_MAX * sizeof(fd_wbmtree32_leaf_t)     /* leaves */   \
                                                 + sizeof(fd_wbmtree32_t) + sizeof(fd_wbmtree32_node_t)*(FD_RUNTIME_MERKLE_LEAF_CNT_MAX + (FD_RUNTIME_MERKLE_LEAF_CNT_MAX/2)) /* tree footprint */ \
                                                 + FD_RUNTIME_MERKLE_LEAF_CNT_MAX * (sizeof(fd_ed25519_sig_t) + 1) /* sig mbuf */ \
@@ -340,28 +397,28 @@ fd_runtime_update_slots_per_epoch( fd_bank_t * bank,
    assemble shreds by batch, so we iterate and assemble shreds by batch in this function
    without needing the caller to do so.
  */
-ulong
-fd_runtime_block_verify_ticks( fd_blockstore_t * blockstore,
-                               ulong             slot,
-                               uchar *           block_data_mem,
-                               ulong             block_data_sz,
-                               ulong             tick_height,
-                               ulong             max_tick_height,
-                               ulong             hashes_per_tick );
+// FD_FN_UNUSED ulong /* FIXME */
+// fd_runtime_block_verify_ticks( fd_blockstore_t * blockstore,
+//                                ulong             slot,
+//                                uchar *           block_data_mem,
+//                                ulong             block_data_sz,
+//                                ulong             tick_height,
+//                                ulong             max_tick_height,
+//                                ulong             hashes_per_tick );
 
 /* The following microblock-level functions are exposed and non-static due to also being used for fd_replay.
    The block-level equivalent functions, on the other hand, are mostly static as they are only used
    for offline replay */
 
 /* extra fine-grained streaming tick verification */
-int
-fd_runtime_microblock_verify_ticks( fd_blockstore_t *           blockstore,
-                                    ulong                       slot,
-                                    fd_microblock_hdr_t const * hdr,
-                                    bool               slot_complete,
-                                    ulong              tick_height,
-                                    ulong              max_tick_height,
-                                    ulong              hashes_per_tick );
+// FD_FN_UNUSED int /* FIXME */
+// fd_runtime_microblock_verify_ticks( fd_blockstore_t *           blockstore,
+//                                     ulong                       slot,
+//                                     fd_microblock_hdr_t const * hdr,
+//                                     bool               slot_complete,
+//                                     ulong              tick_height,
+//                                     ulong              max_tick_height,
+//                                     ulong              hashes_per_tick );
 
 /*
    fd_runtime_microblock_verify_read_write_conflicts verifies that a
@@ -472,7 +529,7 @@ fd_runtime_load_txn_address_lookup_tables( fd_txn_t const * txn,
                                            fd_funk_t *      funk,
                                            fd_funk_txn_t *  funk_txn,
                                            ulong            slot,
-                                           fd_slot_hash_t * hashes,
+                                           fd_slot_hash_t const * hashes,
                                            fd_acct_addr_t * out_accts_alt );
 
 /* fd_runtime_poh_verify is responsible for verifying poh hashes while
@@ -558,26 +615,19 @@ fd_runtime_is_epoch_boundary( fd_exec_slot_ctx_t * slot_ctx,
  */
 void
 fd_runtime_block_pre_execute_process_new_epoch( fd_exec_slot_ctx_t * slot_ctx,
-                                                fd_spad_t * *        exec_spads,
-                                                ulong                exec_spad_cnt,
+                                                fd_capture_ctx_t *   capture_ctx,
                                                 fd_spad_t *          runtime_spad,
                                                 int *                is_epoch_boundary );
 
-/* This function is responsible for inserting fresh entries or updating existing entries in the program cache.
-   When the client boots up, the program cache is empty. As programs get invoked, this function is responsible
-   for verifying and inserting these programs into the cache. Additionally, this function performs reverification
-   checks for every existing program that is invoked after an epoch boundary once per program per epoch, and invalidates
-   any programs that fail reverification.
+/* `fd_runtime_update_program_cache()` is responsible for updating the
+   program cache with any programs referenced in the current
+   transaction. See fd_program_cache.h for more details.
 
-   When the cluster's feature set changes at an epoch, there is a possibility that existing programs
-   fail new SBPF / ELF header checks. Therefore, after every epoch, we should reverify all programs
-   and update our program cache so that users cannot invoke those old programs. Since iterating through
-   all programs every single epoch is expensive, we adopt a lazy approach where we reverify programs as they
-   are referenced in transactions, since only a small subset of all programs are actually referenced at any
-   time. We also make sure each program is only verified once per epoch, so repeated executions of a
-   program within the same epoch will only trigger verification once at the very first invocation.
+   Note that ALUTs must be resolved because programs referenced in ALUTs
+   can be invoked via CPI.
 
-   Note that ALUTs must be resolved because programs referenced in ALUTs can be invoked via CPI. */
+   TODO: We need to remove the ALUT resolution from this function
+   because it is redundant (ALUTs get resolved again in the exec tile). */
 void
 fd_runtime_update_program_cache( fd_exec_slot_ctx_t * slot_ctx,
                                  fd_txn_p_t const *   txn_p,
@@ -589,24 +639,6 @@ void
 fd_runtime_checkpt( fd_capture_ctx_t *   capture_ctx,
                     fd_exec_slot_ctx_t * slot_ctx,
                     ulong                slot );
-
-/* Block Parsing **************************************************************/
-
-/* Live Replay APIs */
-
-fd_raw_block_txn_iter_t
-fd_raw_block_txn_iter_init( uchar const *                  orig_data,
-                            fd_block_entry_batch_t const * batches,
-                            ulong                          batch_cnt );
-
-ulong
-fd_raw_block_txn_iter_done( fd_raw_block_txn_iter_t iter );
-
-fd_raw_block_txn_iter_t
-fd_raw_block_txn_iter_next( fd_raw_block_txn_iter_t iter );
-
-void
-fd_raw_block_txn_iter_ele( fd_raw_block_txn_iter_t iter, fd_txn_p_t * out_txn );
 
 /* Offline Replay *************************************************************/
 
@@ -636,6 +668,14 @@ fd_runtime_read_genesis( fd_exec_slot_ctx_t * slot_ctx,
                          uchar                is_snapshot,
                          fd_capture_ctx_t *   capture_ctx,
                          fd_spad_t *          spad );
+
+/* Returns whether the specified epoch should use the new vote account
+   keyed leader schedule (returns 1) or the old validator identity keyed
+   leader schedule (returns 0). See SIMD-0180.
+   This is the analogous of Agave's Bank::should_use_vote_keyed_leader_schedule():
+   https://github.com/anza-xyz/agave/blob/v2.3.1/runtime/src/bank.rs#L6148 */
+int
+fd_runtime_should_use_vote_keyed_leader_schedule( fd_bank_t * bank );
 
 FD_PROTOTYPES_END
 

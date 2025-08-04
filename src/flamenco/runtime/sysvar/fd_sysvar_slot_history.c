@@ -1,8 +1,9 @@
 #include "fd_sysvar_slot_history.h"
 #include "fd_sysvar.h"
 #include "fd_sysvar_rent.h"
-#include "../fd_executor_err.h"
 #include "../fd_system_ids.h"
+#include "../fd_txn_account.h"
+#include "../../../funk/fd_funk_txn.h"
 
 /* FIXME These constants should be header defines */
 
@@ -37,7 +38,7 @@ fd_sysvar_slot_history_set( fd_slot_history_global_t * history,
 
 FD_FN_UNUSED static const ulong blocks_len = slot_history_max_entries / bits_per_block;
 
-int
+void
 fd_sysvar_slot_history_write_history( fd_exec_slot_ctx_t *       slot_ctx,
                                       fd_slot_history_global_t * history ) {
   ulong sz = slot_history_min_account_size;
@@ -47,9 +48,8 @@ fd_sysvar_slot_history_write_history( fd_exec_slot_ctx_t *       slot_ctx,
   ctx.data    = enc;
   ctx.dataend = enc + sz;
   int err = fd_slot_history_encode_global( history, &ctx );
-  if (0 != err)
-    return err;
-  return fd_sysvar_set( slot_ctx->bank, slot_ctx->funk, slot_ctx->funk_txn, &fd_sysvar_owner_id, &fd_sysvar_slot_history_id, enc, sz, fd_bank_slot_get( slot_ctx->bank ) );
+  if( FD_UNLIKELY( err!=FD_BINCODE_SUCCESS ) ) FD_LOG_ERR(( "fd_slot_history_encode_global failed" ));
+  fd_sysvar_account_update( slot_ctx, &fd_sysvar_slot_history_id, enc, sz );
 }
 
 /* https://github.com/solana-labs/solana/blob/8f2c8b8388a495d2728909e30460aa40dcc5d733/sdk/program/src/slot_history.rs#L16 */

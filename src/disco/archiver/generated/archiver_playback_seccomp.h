@@ -23,7 +23,7 @@
 #endif
 static const unsigned int sock_filter_policy_archiver_playback_instr_cnt = 17;
 
-static void populate_sock_filter_policy_archiver_playback( ulong out_cnt, struct sock_filter * out, unsigned int logfile_fd, unsigned int archive_fd) {
+static void populate_sock_filter_policy_archiver_playback( ulong out_cnt, struct sock_filter * out, unsigned int logfile_fd, unsigned int archive_fd ) {
   FD_TEST( out_cnt >= 17 );
   struct sock_filter filter[17] = {
     /* Check: Jump to RET_KILL_PROCESS if the script's arch != the runtime arch */

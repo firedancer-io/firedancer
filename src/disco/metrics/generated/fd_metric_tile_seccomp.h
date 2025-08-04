@@ -23,7 +23,7 @@
 #endif
 static const unsigned int sock_filter_policy_fd_metric_tile_instr_cnt = 45;
 
-static void populate_sock_filter_policy_fd_metric_tile( ulong out_cnt, struct sock_filter * out, unsigned int logfile_fd, unsigned int metrics_socket_fd) {
+static void populate_sock_filter_policy_fd_metric_tile( ulong out_cnt, struct sock_filter * out, unsigned int logfile_fd, unsigned int metrics_socket_fd ) {
   FD_TEST( out_cnt >= 45 );
   struct sock_filter filter[45] = {
     /* Check: Jump to RET_KILL_PROCESS if the script's arch != the runtime arch */
@@ -43,8 +43,8 @@ static void populate_sock_filter_policy_fd_metric_tile( ulong out_cnt, struct so
     BPF_JUMP( BPF_JMP | BPF_JEQ | BPF_K, SYS_sendto, /* check_sendto */ 23, 0 ),
     /* allow close based on expression */
     BPF_JUMP( BPF_JMP | BPF_JEQ | BPF_K, SYS_close, /* check_close */ 28, 0 ),
-    /* simply allow poll */
-    BPF_JUMP( BPF_JMP | BPF_JEQ | BPF_K, SYS_poll, /* RET_ALLOW */ 34, 0 ),
+    /* simply allow ppoll */
+    BPF_JUMP( BPF_JMP | BPF_JEQ | BPF_K, SYS_ppoll, /* RET_ALLOW */ 34, 0 ),
     /* none of the syscalls matched */
     { BPF_JMP | BPF_JA, 0, 0, /* RET_KILL_PROCESS */ 32 },
 //  check_write:

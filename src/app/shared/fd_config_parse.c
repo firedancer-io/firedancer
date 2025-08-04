@@ -98,7 +98,8 @@ fd_config_extract_podf( uchar *        pod,
   CFG_POP      ( ulong,  runtime.limits.max_transactions_per_slot         );
   CFG_POP      ( ulong,  runtime.limits.snapshot_grace_period_seconds     );
   CFG_POP      ( ulong,  runtime.limits.max_vote_accounts                 );
-  CFG_POP      ( ulong,  runtime.limits.max_banks                         );
+  CFG_POP      ( ulong,  runtime.limits.max_total_banks                   );
+  CFG_POP      ( ulong,  runtime.limits.max_fork_width                    );
 
   CFG_POP      ( ulong,  store.max_completed_shred_sets                   );
 
@@ -214,9 +215,10 @@ fd_config_extract_pod( uchar *       pod,
 
   CFG_POP      ( bool,   tiles.poh.lagged_consecutive_leader_start        );
 
-  CFG_POP      ( uint,   tiles.shred.max_pending_shred_sets               );
-  CFG_POP      ( ushort, tiles.shred.shred_listen_port                    );
-  CFG_POP      ( cstr,   tiles.shred.additional_shred_destination         );
+  CFG_POP      ( uint,   tiles.shred.max_pending_shred_sets                   );
+  CFG_POP      ( ushort, tiles.shred.shred_listen_port                        );
+  CFG_POP_ARRAY( cstr,   tiles.shred.additional_shred_destinations_retransmit );
+  CFG_POP_ARRAY( cstr,   tiles.shred.additional_shred_destinations_leader     );
 
   CFG_POP      ( cstr,   tiles.metric.prometheus_listen_address           );
   CFG_POP      ( ushort, tiles.metric.prometheus_listen_port              );
@@ -232,13 +234,13 @@ fd_config_extract_pod( uchar *       pod,
   CFG_POP      ( ushort, tiles.repair.repair_intake_listen_port           );
   CFG_POP      ( ushort, tiles.repair.repair_serve_listen_port            );
   CFG_POP      ( cstr,   tiles.repair.good_peer_cache_file                );
-  CFG_POP      ( ulong,  tiles.repair.slot_max                           );
+  CFG_POP      ( ulong,  tiles.repair.slot_max                            );
 
   CFG_POP      ( ulong,  capture.capture_start_slot                       );
   CFG_POP      ( cstr,   capture.solcap_capture                           );
   CFG_POP      ( cstr,   capture.dump_proto_dir                           );
   CFG_POP      ( bool,   capture.dump_syscall_to_pb                       );
-  CFG_POP      ( bool,   capture.dump_instr_to_pb                          );
+  CFG_POP      ( bool,   capture.dump_instr_to_pb                         );
   CFG_POP      ( bool,   capture.dump_txn_to_pb                           );
   CFG_POP      ( bool,   capture.dump_block_to_pb                         );
 

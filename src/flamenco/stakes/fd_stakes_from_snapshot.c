@@ -69,7 +69,7 @@ _find_epoch( fd_solana_manifest_t const * manifest,
   return stakes;
 }
 
-static fd_stake_weight_t *
+static fd_vote_stake_weight_t *
 _get_stake_weights( fd_solana_manifest_t const * manifest,
                     ulong                        epoch,
                     ulong *                      out_cnt ) {
@@ -79,7 +79,7 @@ _get_stake_weights( fd_solana_manifest_t const * manifest,
 
   ulong vote_acc_cnt = fd_vote_accounts_pair_t_map_size( vaccs->vote_accounts_pool, vaccs->vote_accounts_root );
   FD_LOG_NOTICE(( "vote_acc_cnt=%lu", vote_acc_cnt ));
-  fd_stake_weight_t * weights = fd_scratch_alloc( alignof(fd_stake_weight_t), vote_acc_cnt * sizeof(fd_stake_weight_t) );
+  fd_vote_stake_weight_t * weights = fd_scratch_alloc( alignof(fd_vote_stake_weight_t), vote_acc_cnt * sizeof(fd_vote_stake_weight_t) );
   if( FD_UNLIKELY( !weights ) ) FD_LOG_ERR(( "fd_scratch_alloc() failed" ));
 
   /* FIXME: This will crash because the spad is not set up and no accs
@@ -105,12 +105,12 @@ action_nodes( fd_solana_manifest_t const * manifest,
               ulong                        epoch ) {
 
   ulong               weight_cnt;
-  fd_stake_weight_t * weights = _get_stake_weights( manifest, epoch, &weight_cnt );
+  fd_vote_stake_weight_t * weights = _get_stake_weights( manifest, epoch, &weight_cnt );
 
   for( ulong i=0UL; i<weight_cnt; i++ ) {
-    fd_stake_weight_t const * w = weights + i;
+    fd_vote_stake_weight_t const * w = weights + i;
     char keyB58[ FD_BASE58_ENCODED_32_SZ ];
-    fd_base58_encode_32( w->key.key, NULL,  keyB58 );
+    fd_base58_encode_32( w->id_key.key, NULL,  keyB58 );
     printf( "%s,%lu\n", keyB58, w->stake );
   }
 
@@ -122,15 +122,16 @@ action_leaders( fd_solana_manifest_t const * manifest,
                 ulong                        epoch ) {
 
   ulong               weight_cnt;
-  fd_stake_weight_t * weights = _get_stake_weights( manifest, epoch, &weight_cnt );
+  fd_vote_stake_weight_t * weights = _get_stake_weights( manifest, epoch, &weight_cnt );
 
   fd_epoch_schedule_t const * sched = &manifest->bank.epoch_schedule;
   ulong slot0     = fd_epoch_slot0   ( sched, epoch );
   ulong slot_cnt  = fd_epoch_slot_cnt( sched, epoch );
   ulong sched_cnt = slot_cnt/FD_EPOCH_SLOTS_PER_ROTATION;
 
+  ulong vote_keyed_lsched = 0; /* FIXME: SIMD-0180 */
   void * leaders_mem = fd_scratch_alloc( fd_epoch_leaders_align(), fd_epoch_leaders_footprint( weight_cnt, sched_cnt ) );
-         leaders_mem = fd_epoch_leaders_new( leaders_mem, epoch, slot0, slot_cnt, weight_cnt, weights, 0UL );
+         leaders_mem = fd_epoch_leaders_new( leaders_mem, epoch, slot0, slot_cnt, weight_cnt, weights, 0UL, vote_keyed_lsched );
   fd_epoch_leaders_t * leaders = fd_epoch_leaders_join( leaders_mem );
   FD_TEST( leaders );
 

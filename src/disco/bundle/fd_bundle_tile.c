@@ -59,7 +59,7 @@ metrics_write( fd_bundle_tile_t * ctx ) {
   FD_MGAUGE_SET( BUNDLE, RTT_SMOOTHED, (ulong)ctx->rtt->smoothed_rtt );
   FD_MGAUGE_SET( BUNDLE, RTT_VAR,      (ulong)ctx->rtt->var_rtt      );
 
-  FD_MHIST_COPY( BUNDLE, MESSAGE_RX_DELAY, ctx->metrics.msg_rx_delay );
+  FD_MHIST_COPY( BUNDLE, MESSAGE_RX_DELAY_NANOS, ctx->metrics.msg_rx_delay );
 
   fd_wksp_t * wksp = fd_wksp_containing( ctx );
   fd_wksp_usage_t usage[1];
@@ -565,8 +565,8 @@ unprivileged_init( fd_topo_t *      topo,
   fd_grpc_client_set_authority( ctx->grpc_client, ctx->server_sni, ctx->server_sni_len, ctx->server_tcp_port );
 
   fd_histf_new( ctx->metrics.msg_rx_delay,
-      FD_MHIST_SECONDS_MIN( BUNDLE, MESSAGE_RX_DELAY ),
-      FD_MHIST_SECONDS_MAX( BUNDLE, MESSAGE_RX_DELAY ) );
+      FD_MHIST_MIN( BUNDLE, MESSAGE_RX_DELAY_NANOS ),
+      FD_MHIST_MAX( BUNDLE, MESSAGE_RX_DELAY_NANOS ) );
 }
 
 static ulong
@@ -575,6 +575,7 @@ populate_allowed_seccomp( fd_topo_t const *      topo,
                           ulong                  out_cnt,
                           struct sock_filter *   out ) {
   fd_bundle_tile_t * ctx = fd_topo_obj_laddr( topo, tile->tile_obj_id );
+
   populate_sock_filter_policy_fd_bundle_tile(
       out_cnt, out,
       (uint)fd_log_private_logfile_fd(),

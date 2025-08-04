@@ -3,9 +3,8 @@
 /* For additional context see https://solana.com/docs/programs/deploying#state-accounts */
 
 #include "../fd_pubkey_utils.h"
-#include "../../../ballet/base58/fd_base58.h"
 #include "../../../ballet/sbpf/fd_sbpf_loader.h"
-#include "../sysvar/fd_sysvar_clock.h"
+#include "../sysvar/fd_sysvar.h"
 #include "../sysvar/fd_sysvar_rent.h"
 #include "../../vm/syscall/fd_vm_syscall.h"
 #include "../../vm/fd_vm.h"
@@ -140,6 +139,30 @@ calculate_heap_cost( ulong heap_size, ulong heap_cost ) {
   #undef KIBIBYTE_MUL_PAGES_SUB_1
 }
 
+void
+fd_bpf_get_sbpf_versions( uint *                sbpf_min_version,
+                          uint *                sbpf_max_version,
+                          ulong                 slot,
+                          fd_features_t const * features ) {
+  int disable_v0  = FD_FEATURE_ACTIVE( slot, features, disable_sbpf_v0_execution );
+  int reenable_v0 = FD_FEATURE_ACTIVE( slot, features, reenable_sbpf_v0_execution );
+  int enable_v0   = !disable_v0 || reenable_v0;
+  int enable_v1   = FD_FEATURE_ACTIVE( slot, features, enable_sbpf_v1_deployment_and_execution );
+  int enable_v2   = FD_FEATURE_ACTIVE( slot, features, enable_sbpf_v2_deployment_and_execution );
+  int enable_v3   = FD_FEATURE_ACTIVE( slot, features, enable_sbpf_v3_deployment_and_execution );
+
+  *sbpf_min_version = enable_v0 ? FD_SBPF_V0 : FD_SBPF_V3;
+  if( enable_v3 ) {
+    *sbpf_max_version = FD_SBPF_V3;
+  } else if( enable_v2 ) {
+    *sbpf_max_version = FD_SBPF_V2;
+  } else if( enable_v1 ) {
+    *sbpf_max_version = FD_SBPF_V1;
+  } else {
+    *sbpf_max_version = FD_SBPF_V0;
+  }
+}
+
 /* https://github.com/anza-xyz/agave/blob/574bae8fefc0ed256b55340b9d87b7689bcdf222/programs/bpf_loader/src/lib.rs#L105-L171
 
    Our arguments to deploy_program are different from the Agave version because
@@ -162,6 +185,7 @@ calculate_heap_cost( ulong heap_size, ulong heap_cost ) {
    the v3 contract, then the executor spad should be used. */
 int
 fd_deploy_program( fd_exec_instr_ctx_t * instr_ctx,
+                   fd_pubkey_t const *   program_key,
                    uchar const *         programdata,
                    ulong                 programdata_size,
                    fd_spad_t *           spad ) {
@@ -251,6 +275,10 @@ fd_deploy_program( fd_exec_instr_ctx_t * instr_ctx,
   if( FD_UNLIKELY( validate_result!=FD_VM_SUCCESS ) ) {
     return FD_EXECUTOR_INSTR_ERR_INVALID_ACC_DATA;
   }
+
+  /* Queue the program for reverification */
+  instr_ctx->txn_ctx->programs_to_reverify[instr_ctx->txn_ctx->programs_to_reverify_cnt++] = *program_key;
+
   return FD_EXECUTOR_INSTR_SUCCESS;
 }
 
@@ -404,7 +432,9 @@ common_close_account( fd_pubkey_t * authority_address,
 
    https://github.com/anza-xyz/agave/blob/574bae8fefc0ed256b55340b9d87b7689bcdf222/programs/bpf_loader/src/lib.rs#L1332-L1501 */
 int
-fd_bpf_execute( fd_exec_instr_ctx_t * instr_ctx, fd_sbpf_validated_program_t const * prog, uchar is_deprecated ) {
+fd_bpf_execute( fd_exec_instr_ctx_t *            instr_ctx,
+                fd_program_cache_entry_t const * cache_entry,
+                uchar                            is_deprecated ) {
 
   int err                       = FD_EXECUTOR_INSTR_SUCCESS;
   fd_sbpf_syscalls_t * syscalls = fd_sbpf_syscalls_new( fd_spad_alloc( instr_ctx->txn_ctx->spad,
@@ -467,15 +497,15 @@ fd_bpf_execute( fd_exec_instr_ctx_t * instr_ctx, fd_sbpf_validated_program_t con
     /* instr_ctx             */ instr_ctx,
     /* heap_max              */ heap_size,
     /* entry_cu              */ instr_ctx->txn_ctx->compute_budget_details.compute_meter,
-    /* rodata                */ prog->rodata,
-    /* rodata_sz             */ prog->rodata_sz,
-    /* text                  */ (ulong *)((ulong)prog->rodata + (ulong)prog->text_off), /* Note: text_off is byte offset */
-    /* text_cnt              */ prog->text_cnt,
-    /* text_off              */ prog->text_off,
-    /* text_sz               */ prog->text_sz,
-    /* entry_pc              */ prog->entry_pc,
-    /* calldests             */ prog->calldests,
-    /* sbpf_version          */ prog->sbpf_version,
+    /* rodata                */ cache_entry->rodata,
+    /* rodata_sz             */ cache_entry->rodata_sz,
+    /* text                  */ (ulong *)((ulong)cache_entry->rodata + (ulong)cache_entry->text_off), /* Note: text_off is byte offset */
+    /* text_cnt              */ cache_entry->text_cnt,
+    /* text_off              */ cache_entry->text_off,
+    /* text_sz               */ cache_entry->text_sz,
+    /* entry_pc              */ cache_entry->entry_pc,
+    /* calldests             */ cache_entry->calldests,
+    /* sbpf_version          */ cache_entry->sbpf_version,
     /* syscalls              */ syscalls,
     /* trace                 */ NULL,
     /* sha                   */ sha,
@@ -731,8 +761,8 @@ common_extend_program( fd_exec_instr_ctx_t * instr_ctx,
   }
 
   /* https://github.com/anza-xyz/agave/blob/v2.3.1/programs/bpf_loader/src/lib.rs#L1434-L1437 */
-  fd_sol_sysvar_clock_t const * clock = fd_sysvar_clock_read( instr_ctx->txn_ctx->funk, instr_ctx->txn_ctx->funk_txn, instr_ctx->txn_ctx->spad );
-  if( FD_UNLIKELY( !clock ) ) {
+  fd_sol_sysvar_clock_t clock[1];
+  if( FD_UNLIKELY( !fd_sysvar_cache_clock_read( instr_ctx->sysvar_cache, clock ) ) ) {
     return FD_EXECUTOR_INSTR_ERR_UNSUPPORTED_SYSVAR;
   }
   ulong clock_slot = clock->slot;
@@ -870,7 +900,7 @@ common_extend_program( fd_exec_instr_ctx_t * instr_ctx,
   ulong         programdata_size = new_len - PROGRAMDATA_METADATA_SIZE;
 
   /* https://github.com/anza-xyz/agave/blob/v2.3.1/programs/bpf_loader/src/lib.rs#L1512-L1522 */
-  err = fd_deploy_program( instr_ctx, programdata_data, programdata_size, instr_ctx->txn_ctx->spad );
+  err = fd_deploy_program( instr_ctx, program_account.acct->pubkey, programdata_data, programdata_size, instr_ctx->txn_ctx->spad );
   if( FD_UNLIKELY( err ) ) {
     return err;
   }
@@ -1066,7 +1096,8 @@ process_loader_upgradeable_instruction( fd_exec_instr_ctx_t * instr_ctx ) {
         return err;
       }
 
-      fd_sol_sysvar_clock_t const * clock = fd_sysvar_clock_read( instr_ctx->txn_ctx->funk, instr_ctx->txn_ctx->funk_txn, instr_ctx->txn_ctx->spad );
+      fd_sol_sysvar_clock_t clock_;
+      fd_sol_sysvar_clock_t const * clock = fd_sysvar_cache_clock_read( instr_ctx->sysvar_cache, &clock_ );
       if( FD_UNLIKELY( !clock ) ) {
         return FD_EXECUTOR_INSTR_ERR_GENERIC_ERR;
       }
@@ -1109,8 +1140,8 @@ process_loader_upgradeable_instruction( fd_exec_instr_ctx_t * instr_ctx ) {
         fd_log_collector_msg_literal( instr_ctx, "Program account too small" );
         return FD_EXECUTOR_INSTR_ERR_ACC_DATA_TOO_SMALL;
       }
-      if( FD_UNLIKELY( fd_borrowed_account_get_lamports( &program )<fd_rent_exempt_minimum_balance( rent,
-                                                                                                    fd_borrowed_account_get_data_len( &program ) ) ) ) {
+      if( FD_UNLIKELY( fd_borrowed_account_get_lamports( &program )<
+                       fd_rent_exempt_minimum_balance( rent, fd_borrowed_account_get_data_len( &program ) ) ) ) {
         fd_log_collector_msg_literal( instr_ctx, "Program account not rent-exempt" );
         return FD_EXECUTOR_INSTR_ERR_EXECUTABLE_ACCOUNT_NOT_RENT_EXEMPT;
       }
@@ -1287,7 +1318,7 @@ process_loader_upgradeable_instruction( fd_exec_instr_ctx_t * instr_ctx ) {
 
       const uchar * buffer_data = fd_borrowed_account_get_data( &buffer ) + buffer_data_offset;
 
-      err = fd_deploy_program( instr_ctx, buffer_data, buffer_data_len, instr_ctx->txn_ctx->spad );
+      err = fd_deploy_program( instr_ctx, program.acct->pubkey, buffer_data, buffer_data_len, instr_ctx->txn_ctx->spad );
       if( FD_UNLIKELY( err ) ) {
         return err;
       }
@@ -1519,7 +1550,8 @@ process_loader_upgradeable_instruction( fd_exec_instr_ctx_t * instr_ctx ) {
         return err;
       }
 
-      fd_sol_sysvar_clock_t const * clock = fd_sysvar_clock_read( instr_ctx->txn_ctx->funk, instr_ctx->txn_ctx->funk_txn, instr_ctx->txn_ctx->spad );
+      fd_sol_sysvar_clock_t clock_;
+      fd_sol_sysvar_clock_t const * clock = fd_sysvar_cache_clock_read( instr_ctx->sysvar_cache, &clock_ );
       if( FD_UNLIKELY( !clock ) ) {
         return FD_EXECUTOR_INSTR_ERR_GENERIC_ERR;
       }
@@ -1560,7 +1592,7 @@ process_loader_upgradeable_instruction( fd_exec_instr_ctx_t * instr_ctx ) {
       }
 
       const uchar * buffer_data = fd_borrowed_account_get_data( &buffer ) + buffer_data_offset;
-      err = fd_deploy_program( instr_ctx, buffer_data, buffer_data_len, instr_ctx->txn_ctx->spad );
+      err = fd_deploy_program( instr_ctx, program.acct->pubkey, buffer_data, buffer_data_len, instr_ctx->txn_ctx->spad );
       if( FD_UNLIKELY( err ) ) {
         return err;
       }
@@ -1929,7 +1961,8 @@ process_loader_upgradeable_instruction( fd_exec_instr_ctx_t * instr_ctx ) {
           fd_log_collector_msg_literal( instr_ctx, "Program account not owned by loader" );
           return FD_EXECUTOR_INSTR_ERR_INCORRECT_PROGRAM_ID;
         }
-        fd_sol_sysvar_clock_t const * clock = fd_sysvar_clock_read( instr_ctx->txn_ctx->funk, instr_ctx->txn_ctx->funk_txn, instr_ctx->txn_ctx->spad );
+        fd_sol_sysvar_clock_t clock_;
+        fd_sol_sysvar_clock_t const * clock = fd_sysvar_cache_clock_read( instr_ctx->sysvar_cache, &clock_ );
         if( FD_UNLIKELY( !clock ) ) {
           return FD_EXECUTOR_INSTR_ERR_UNSUPPORTED_SYSVAR;
         }
@@ -2043,7 +2076,8 @@ process_loader_upgradeable_instruction( fd_exec_instr_ctx_t * instr_ctx ) {
       }
 
       /* https://github.com/anza-xyz/agave/blob/v2.2.6/programs/bpf_loader/src/lib.rs#L1356-L1359 */
-      fd_sol_sysvar_clock_t const * clock = fd_sysvar_clock_read( instr_ctx->txn_ctx->funk, instr_ctx->txn_ctx->funk_txn, instr_ctx->txn_ctx->spad );
+      fd_sol_sysvar_clock_t clock_;
+      fd_sol_sysvar_clock_t const * clock = fd_sysvar_cache_clock_read( instr_ctx->sysvar_cache, &clock_ );
       if( FD_UNLIKELY( !clock ) ) {
         return FD_EXECUTOR_INSTR_ERR_UNSUPPORTED_SYSVAR;
       }
@@ -2471,6 +2505,7 @@ fd_bpf_loader_program_execute( fd_exec_instr_ctx_t * ctx ) {
     if( !memcmp( metadata->info.owner, &fd_solana_bpf_loader_upgradeable_program_id, sizeof(fd_pubkey_t) ) ) {
       fd_bpf_upgradeable_loader_state_t * program_account_state = fd_bpf_loader_program_get_state( program_account.acct, ctx->txn_ctx->spad, &err );
       if( FD_UNLIKELY( err!=FD_BINCODE_SUCCESS ) ) {
+        fd_log_collector_msg_literal( ctx, "Program is not deployed" );
         if( FD_FEATURE_ACTIVE_BANK( ctx->txn_ctx->bank, remove_accounts_executable_flag_checks ) ) {
           return FD_EXECUTOR_INSTR_ERR_UNSUPPORTED_PROGRAM_ID;
         }
@@ -2495,6 +2530,7 @@ fd_bpf_loader_program_execute( fd_exec_instr_ctx_t * ctx ) {
                                                     &program_data_account,
                                                     fd_txn_account_check_exists );
       if( FD_UNLIKELY( err!=FD_ACC_MGR_SUCCESS ) ) {
+        fd_log_collector_msg_literal( ctx, "Program is not deployed" );
         if( FD_FEATURE_ACTIVE_BANK( ctx->txn_ctx->bank, remove_accounts_executable_flag_checks ) ) {
           return FD_EXECUTOR_INSTR_ERR_UNSUPPORTED_PROGRAM_ID;
         }
@@ -2513,6 +2549,7 @@ fd_bpf_loader_program_execute( fd_exec_instr_ctx_t * ctx ) {
                                                                                                         ctx->txn_ctx->spad,
                                                                                                         &err );
       if( FD_UNLIKELY( err!=FD_BINCODE_SUCCESS ) ) {
+        fd_log_collector_msg_literal( ctx, "Program is not deployed" );
         if( FD_FEATURE_ACTIVE_BANK( ctx->txn_ctx->bank, remove_accounts_executable_flag_checks ) ) {
           return FD_EXECUTOR_INSTR_ERR_UNSUPPORTED_PROGRAM_ID;
         }
@@ -2542,28 +2579,29 @@ fd_bpf_loader_program_execute( fd_exec_instr_ctx_t * ctx ) {
       }
     }
 
-    /* Sadly, we have to tie the cache in with consensus. We tried our best to avoid this,
-       but Agave's program loading logic is too complex to solely rely on checks without
-       significant redundancy.
+    /* Sadly, we have to tie the cache in with consensus. We tried our
+       best to avoid this, but Agave's program loading logic is too
+       complex to solely rely on checks without significant redundancy.
 
-       For example, devnet and testnet have older programs that were deployed before stricter ELF / VM validation
-       checks were put in place, causing these older programs to fail newer validation checks and
-       be unexecutable. `fd_bpf_scan_and_create_bpf_program_cache_entry()` will populate our BPF program
-       cache correctly, but now, we have no way of checking if this validation passed or not here without
-       querying our program cache, otherwise we would have to copy-paste our validation checks here.
+       For example, devnet and testnet have older programs that were
+       deployed before stricter ELF / VM validation checks were put in
+       place, causing these older programs to fail newer validation
+       checks and be unexecutable. At the instruction level, we have no
+       way of checking if this validation passed or not here without
+       querying our program cache, otherwise we would have to copy-paste
+       all of our validation checks here.
 
-       Any failures here would indicate an attempt to interact with a deployed programs that either failed
-       to load or failed bytecode verification. This applies for v1, v2, and v3 programs. This could
-       also theoretically cause some currently-deployed programs to fail in the future if ELF / VM checks
-       are eventually made stricter.
-
-       TLDR: A program is present in the BPF cache iff it is already deployed AND passes current SBPF and VM checks.
-       Only then it is considered valid to interact with. */
-    fd_sbpf_validated_program_t const * prog = NULL;
-    if( FD_UNLIKELY( fd_bpf_load_cache_entry( ctx->txn_ctx->funk,
-                                              ctx->txn_ctx->funk_txn,
-                                              program_id,
-                                              &prog )!=0 ) ) {
+       Any failures here would indicate an attempt to interact with a
+       deployed programs that either failed to load or failed bytecode
+       verification. This applies for v1, v2, and v3 programs. This
+       could also theoretically cause some currently-deployed programs
+       to fail in the future if ELF / VM checks are eventually made
+       stricter. */
+    fd_program_cache_entry_t const * cache_entry = NULL;
+    if( FD_UNLIKELY( fd_program_cache_load_entry( ctx->txn_ctx->funk,
+                                                  ctx->txn_ctx->funk_txn,
+                                                  program_id,
+                                                  &cache_entry )!=0 ) ) {
       fd_log_collector_msg_literal( ctx, "Program is not cached" );
 
       /* https://github.com/anza-xyz/agave/blob/89872fdb074e6658646b2b57a299984f0059cc84/programs/bpf_loader/src/lib.rs#L460-L467 */
@@ -2574,7 +2612,7 @@ fd_bpf_loader_program_execute( fd_exec_instr_ctx_t * ctx ) {
     }
 
     /* The program may be in the cache but could have failed verification in the current epoch. */
-    if( FD_UNLIKELY( prog->failed_verification ) ) {
+    if( FD_UNLIKELY( cache_entry->failed_verification ) ) {
       fd_log_collector_msg_literal( ctx, "Program is not deployed" );
       if( FD_FEATURE_ACTIVE_BANK( ctx->txn_ctx->bank, remove_accounts_executable_flag_checks ) ) {
         return FD_EXECUTOR_INSTR_ERR_UNSUPPORTED_PROGRAM_ID;
@@ -2585,7 +2623,7 @@ fd_bpf_loader_program_execute( fd_exec_instr_ctx_t * ctx ) {
     /* https://github.com/anza-xyz/agave/blob/v2.1.14/programs/bpf_loader/src/lib.rs#L446 */
     fd_borrowed_account_drop( &program_account );
 
-    return fd_bpf_execute( ctx, prog, is_deprecated );
+    return fd_bpf_execute( ctx, cache_entry, is_deprecated );
   } FD_SPAD_FRAME_END;
 }
 
@@ -2594,16 +2632,17 @@ fd_bpf_loader_program_execute( fd_exec_instr_ctx_t * ctx ) {
 
 int
 fd_directly_invoke_loader_v3_deploy( fd_exec_slot_ctx_t * slot_ctx,
+                                     fd_pubkey_t const *  program_key,
                                      uchar const *        elf,
                                      ulong                elf_sz,
                                      fd_spad_t *          runtime_spad ) {
   /* Set up a dummy instr and txn context */
-  fd_exec_txn_ctx_t * txn_ctx            = fd_exec_txn_ctx_join( fd_exec_txn_ctx_new( fd_spad_alloc( runtime_spad, FD_EXEC_TXN_CTX_ALIGN, FD_EXEC_TXN_CTX_FOOTPRINT ) ), runtime_spad, fd_wksp_containing( runtime_spad ) );
-  fd_funk_t *         funk               = slot_ctx->funk;
-  fd_wksp_t *         funk_wksp          = fd_funk_wksp( funk );
-  fd_wksp_t *         runtime_wksp       = fd_wksp_containing( slot_ctx );
-  ulong               funk_txn_gaddr     = fd_wksp_gaddr( funk_wksp, slot_ctx->funk_txn );
-  ulong               funk_gaddr         = fd_wksp_gaddr( funk_wksp, funk->shmem );
+  fd_exec_txn_ctx_t * txn_ctx        = fd_exec_txn_ctx_join( fd_exec_txn_ctx_new( fd_spad_alloc( runtime_spad, FD_EXEC_TXN_CTX_ALIGN, FD_EXEC_TXN_CTX_FOOTPRINT ) ), runtime_spad, fd_wksp_containing( runtime_spad ) );
+  fd_funk_t *         funk           = slot_ctx->funk;
+  fd_wksp_t *         funk_wksp      = fd_funk_wksp( funk );
+  fd_wksp_t *         runtime_wksp   = fd_wksp_containing( slot_ctx );
+  ulong               funk_txn_gaddr = fd_wksp_gaddr( funk_wksp, slot_ctx->funk_txn );
+  ulong               funk_gaddr     = fd_wksp_gaddr( funk_wksp, funk->shmem );
 
   fd_exec_txn_ctx_from_exec_slot_ctx( slot_ctx,
                                       txn_ctx,
@@ -2621,5 +2660,13 @@ fd_directly_invoke_loader_v3_deploy( fd_exec_slot_ctx_t * slot_ctx,
     .txn_ctx   = txn_ctx,
   };
 
-  return fd_deploy_program( instr_ctx, elf, elf_sz, runtime_spad );
+  /* Important note: this function is called at the epoch boundary and
+     does not do anything with the `programs_to_reverify` field in the
+     transaction context. This is fine though because when this function
+     is called, the program will not exist in the cache yet (because it
+     does not exist on-chain as a BPF program yet). There is no queueing
+     needed because the next time the program is invoked, the program
+     cache updating logic will see that the cache entry is missing and
+     will insert it then. */
+  return fd_deploy_program( instr_ctx, program_key, elf, elf_sz, runtime_spad );
 }

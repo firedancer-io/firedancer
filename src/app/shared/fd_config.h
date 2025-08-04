@@ -123,7 +123,8 @@ struct fd_configf {
       ulong max_transactions_per_slot;
       ulong snapshot_grace_period_seconds;
       ulong max_vote_accounts;
-      ulong max_banks;
+      ulong max_total_banks;
+      ulong max_fork_width;
     } limits;
   } runtime;
 
@@ -390,7 +391,10 @@ struct fd_config {
     struct {
       uint   max_pending_shred_sets;
       ushort shred_listen_port;
-      char   additional_shred_destination[ sizeof("255.255.255.255:65536") ];
+      ulong  additional_shred_destinations_retransmit_cnt;
+      char   additional_shred_destinations_retransmit[ FD_TOPO_ADTL_DESTS_MAX ][ sizeof("255.255.255.255:65536") ];
+      ulong  additional_shred_destinations_leader_cnt;
+      char   additional_shred_destinations_leader[ FD_TOPO_ADTL_DESTS_MAX ][ sizeof("255.255.255.255:65536") ];
     } shred;
 
     struct {

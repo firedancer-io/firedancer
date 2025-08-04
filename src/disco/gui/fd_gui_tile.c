@@ -11,11 +11,8 @@
 
 #include <sys/socket.h> /* SOCK_CLOEXEC, SOCK_NONBLOCK needed for seccomp filter */
 #include <stdlib.h>
-#if defined(__aarch64__)
-#include "generated/fd_gui_tile_arm64_seccomp.h"
-#else
+
 #include "generated/fd_gui_tile_seccomp.h"
-#endif
 
 extern ulong const fdctl_major_version;
 extern ulong const fdctl_minor_version;
@@ -191,8 +188,8 @@ during_frag( fd_gui_ctx_t * ctx,
       sz = 8UL + peer_cnt*112UL;
     } else if( FD_UNLIKELY( sig==FD_PLUGIN_MSG_LEADER_SCHEDULE ) ) {
       ulong staked_cnt = ((ulong *)src)[ 1 ];
-      FD_TEST( staked_cnt<=50000UL );
-      sz = 40UL + staked_cnt*40UL;
+      FD_TEST( staked_cnt<=MAX_STAKED_LEADERS );
+      sz = fd_stake_weight_msg_sz( staked_cnt );
     }
 
     if( FD_UNLIKELY( chunk<ctx->in[ in_idx ].chunk0 || chunk>ctx->in[ in_idx ].wmark || sz>sizeof( ctx->buf ) ) )

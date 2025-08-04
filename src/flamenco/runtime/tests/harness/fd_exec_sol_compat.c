@@ -88,13 +88,13 @@ sol_compat_wksp_init( ulong wksp_page_sz ) {
   spad_mem = fd_wksp_alloc_laddr( wksp, FD_SPAD_ALIGN, FD_SPAD_FOOTPRINT( FD_RUNTIME_TRANSACTION_EXECUTION_FOOTPRINT_FUZZ ), WKSP_INIT_ALLOC_TAG ); /* 4738713960 B */
   FD_TEST( spad_mem );
 
-  ulong        banks_footprint = fd_banks_footprint( 1UL );
+  ulong        banks_footprint = fd_banks_footprint( 1UL, 1UL );
   uchar *      banks_mem       = fd_wksp_alloc_laddr( wksp, fd_banks_align(), banks_footprint, WKSP_INIT_ALLOC_TAG );
   if( FD_UNLIKELY( !banks_mem ) ) {
     FD_LOG_CRIT(( "Unable to allocate memory for banks" ));
   }
 
-  banks = fd_banks_join( fd_banks_new( banks_mem, 1UL ) );
+  banks = fd_banks_join( fd_banks_new( banks_mem, 1UL, 1UL ) );
   if( FD_UNLIKELY( !banks ) ) {
     FD_LOG_CRIT(( "Unable to create and join banks" ));
   }

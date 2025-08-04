@@ -6,6 +6,7 @@
 #include "../pack/fd_microblock.h"
 #include "../../waltz/http/fd_http_server.h"
 #include "../../flamenco/leaders/fd_leaders.h"
+#include "../../util/hist/fd_histf.h"
 
 #include "../topo/fd_topo.h"
 
@@ -161,16 +162,17 @@ typedef struct fd_gui_tile_timers fd_gui_tile_timers_t;
 struct fd_gui_tile_stats {
   long  sample_time_nanos;
 
-  ulong net_in_rx_bytes;      /* Number of bytes received by the net or sock tile*/
-  ulong quic_conn_cnt;        /* Number of active QUIC connections */
-  ulong verify_drop_cnt;      /* Number of transactions dropped by verify tiles */
-  ulong verify_total_cnt;     /* Number of transactions received by verify tiles */
-  ulong dedup_drop_cnt;       /* Number of transactions dropped by dedup tile */
-  ulong dedup_total_cnt;      /* Number of transactions received by dedup tile */
-  ulong pack_buffer_cnt;      /* Number of buffered transactions in the pack tile */
-  ulong pack_buffer_capacity; /* Total size of the pack transaction buffer */
-  ulong bank_txn_exec_cnt;    /* Number of transactions processed by the bank tile */
-  ulong net_out_tx_bytes;     /* Number of bytes sent by the net or sock tile */
+  ulong net_in_rx_bytes;           /* Number of bytes received by the net or sock tile*/
+  ulong quic_conn_cnt;             /* Number of active QUIC connections */
+  ulong bundle_rtt_smoothed_nanos; /* RTT (nanoseconds) moving average */
+  ulong verify_drop_cnt;           /* Number of transactions dropped by verify tiles */
+  ulong verify_total_cnt;          /* Number of transactions received by verify tiles */
+  ulong dedup_drop_cnt;            /* Number of transactions dropped by dedup tile */
+  ulong dedup_total_cnt;           /* Number of transactions received by dedup tile */
+  ulong pack_buffer_cnt;           /* Number of buffered transactions in the pack tile */
+  ulong pack_buffer_capacity;      /* Total size of the pack transaction buffer */
+  ulong bank_txn_exec_cnt;         /* Number of transactions processed by the bank tile */
+  ulong net_out_tx_bytes;          /* Number of bytes sent by the net or sock tile */
 };
 
 typedef struct fd_gui_tile_stats fd_gui_tile_stats_t;
@@ -360,6 +362,9 @@ struct fd_gui {
     ulong                tile_timers_leader_history_slot[ FD_GUI_TILE_TIMER_LEADER_CNT ];
   } summary;
 
+  fd_histf_t bundle_rx_delay_hist_reference[ 1 ]; /* histogram snapshot taken at the start of every leader rotation for this validator */
+  fd_histf_t bundle_rx_delay_hist_current[ 1 ]; /* latest histogram snapshot captured from metrics workspace */
+
   fd_gui_slot_t slots[ FD_GUI_SLOTS_CNT ][ 1 ];
 
   ulong pack_txn_idx; /* The pack index of the most recently received transaction */
@@ -387,8 +392,8 @@ struct fd_gui {
       ulong end_slot;
       ulong excluded_stake;
       fd_epoch_leaders_t * lsched;
-      uchar __attribute__((aligned(FD_EPOCH_LEADERS_ALIGN))) _lsched[ FD_EPOCH_LEADERS_FOOTPRINT(50000UL, 432000UL) ];
-      fd_stake_weight_t stakes[ 50000UL ];
+      uchar __attribute__((aligned(FD_EPOCH_LEADERS_ALIGN))) _lsched[ FD_EPOCH_LEADERS_FOOTPRINT(MAX_STAKED_LEADERS, MAX_SLOTS_PER_EPOCH) ];
+      fd_vote_stake_weight_t stakes[ MAX_STAKED_LEADERS ];
     } epochs[ 2 ];
   } epoch;
 

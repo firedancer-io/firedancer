@@ -1,5 +1,9 @@
 #include "fd_rpc_history.h"
 #include <unistd.h>
+#include <fcntl.h>
+
+#include "../../ballet/block/fd_microblock.h"
+#include "../../ballet/shred/fd_shred.h"
 #include "../../flamenco/runtime/fd_system_ids.h"
 
 struct fd_rpc_block {
@@ -111,17 +115,17 @@ fd_rpc_history_create(fd_rpcserver_args_t * args) {
 }
 
 void
-fd_rpc_history_save(fd_rpc_history_t * hist, fd_blockstore_t * blockstore, fd_replay_notif_msg_t * info) {
+fd_rpc_history_save(fd_rpc_history_t * hist, fd_replay_notif_msg_t * info) {
   FD_SPAD_FRAME_BEGIN( hist->spad ) {
     if( fd_rpc_block_map_is_full( hist->block_map ) ) return; /* Out of space */
 
     ulong blk_max = info->slot_exec.shred_cnt * FD_SHRED_MAX_SZ;
     uchar * blk_data = fd_spad_alloc( hist->spad, 1, blk_max );
-    ulong blk_sz;
-    if( fd_blockstore_slice_query( blockstore, info->slot_exec.slot, 0, (uint)(info->slot_exec.shred_cnt-1), blk_max, blk_data, &blk_sz) ) {
-      FD_LOG_WARNING(( "unable to read slot %lu block", info->slot_exec.slot ));
-      return;
-    }
+    ulong blk_sz = 0;
+    // if( fd_blockstore_slice_query( blockstore, info->slot_exec.slot, 0, (uint)(info->slot_exec.shred_cnt-1), blk_max, blk_data, &blk_sz) ) {
+    //   FD_LOG_WARNING(( "unable to read slot %lu block", info->slot_exec.slot ));
+    //   return;
+    // }
 
     FD_LOG_NOTICE(( "saving slot %lu block", info->slot_exec.slot ));
 

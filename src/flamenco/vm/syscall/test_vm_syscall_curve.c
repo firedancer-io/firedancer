@@ -1,5 +1,6 @@
 #include "fd_vm_syscall.h"
 #include "../test_vm_util.h"
+#include "../../runtime/context/fd_exec_slot_ctx.h"
 
 static inline void set_memory_region( uchar * mem, ulong sz ) { for( ulong i=0UL; i<sz; i++ ) mem[i] = (uchar)(i & 0xffUL); }
 
@@ -78,7 +79,7 @@ main( int     argc,
   set_memory_region( rodata, rodata_sz );
 
   fd_valloc_t valloc = fd_libc_alloc_virtual();
-  fd_exec_slot_ctx_t  * slot_ctx  = fd_valloc_malloc( valloc, FD_EXEC_SLOT_CTX_ALIGN,    FD_EXEC_SLOT_CTX_FOOTPRINT );
+  fd_exec_slot_ctx_t  * slot_ctx  = fd_valloc_malloc( valloc, FD_EXEC_SLOT_CTX_ALIGN, FD_EXEC_SLOT_CTX_FOOTPRINT );
 
   fd_exec_instr_ctx_t * instr_ctx = test_vm_minimal_exec_instr_ctx( valloc, slot_ctx );
   fd_features_enable_all( &((fd_exec_txn_ctx_t *)instr_ctx->txn_ctx)->features );

@@ -63,7 +63,9 @@ fd_bundle_auther_req_challenge( fd_bundle_auther_t *   auther,
       FD_GRPC_DEADLINE_RX_END,
       fd_log_wallclock()+FD_BUNDLE_AUTH_REQUEST_TIMEOUT );
 
-  FD_LOG_INFO(( "Requesting bundle auth challenge" ));
+  char key_cstr[ FD_BASE58_ENCODED_32_SZ ];
+  fd_base58_encode_32( auther->pubkey, NULL, key_cstr );
+  FD_LOG_INFO(( "Requesting bundle auth challenge (identity=%s)", key_cstr ));
 }
 
 int

@@ -297,6 +297,28 @@ fd_boot( int *    pargc,
 void
 fd_halt( void );
 
+#if FD_HAS_HOSTED
+
+/* Depending on the glibc version, the "poll" library function either calls
+   "poll" or "ppoll".  fd_syscall_poll standardizes this behaviour by always
+   calling "ppoll" under the hood on Linux systems (and falls back on "poll"
+   otherwise).  Since the Firedancer sandbox needs to whitelist syscalls and
+   "poll" is not available on arm64 architecture, using this function also
+   lets us use the same seccomp policy for allowing syscalls.
+
+   The arguments to fd_syscall_poll match the arguments to "poll".  The return
+   value matches the return of "poll" (and "ppoll").  On error (return -1),
+   "errno" is set to indicate the error. */
+
+struct pollfd;
+
+int
+fd_syscall_poll( struct pollfd * fds,
+                 uint            nfds,
+                 int             timeout );
+
+#endif
+
 FD_PROTOTYPES_END
 
 #endif /* HEADER_fd_src_util_fd_util_h */

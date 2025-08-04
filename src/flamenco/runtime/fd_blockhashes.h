@@ -76,12 +76,6 @@ fd_blockhashes_t *
 fd_blockhashes_init( fd_blockhashes_t * mem,
                      ulong              seed );
 
-fd_blockhashes_t *
-fd_blockhashes_recover( fd_blockhashes_t *              blockhashes,
-                        fd_hash_hash_age_pair_t const * ages,
-                        ulong                           age_cnt,
-                        ulong                           seed );
-
 /* fd_blockhashes_push_new adds a new slot to the blockhash queue.
    The caller fills the returned pointer with blockhash queue info
    (currently only lamports_per_signature).  Called as part of regular

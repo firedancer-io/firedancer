@@ -23,7 +23,7 @@
 #endif
 static const unsigned int sock_filter_policy_fd_repair_tile_instr_cnt = 27;
 
-static void populate_sock_filter_policy_fd_repair_tile( ulong out_cnt, struct sock_filter * out, unsigned int logfile_fd, unsigned int good_peer_cache_file_fd) {
+static void populate_sock_filter_policy_fd_repair_tile( ulong out_cnt, struct sock_filter * out, unsigned int logfile_fd, unsigned int good_peer_cache_file_fd ) {
   FD_TEST( out_cnt >= 27 );
   struct sock_filter filter[27] = {
     /* Check: Jump to RET_KILL_PROCESS if the script's arch != the runtime arch */

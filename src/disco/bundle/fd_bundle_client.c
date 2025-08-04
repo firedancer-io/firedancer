@@ -314,9 +314,9 @@ fd_bundle_client_step1( fd_bundle_tile_t * ctx,
     struct pollfd pfds[1] = {
       { .fd = ctx->tcp_sock, .events = POLLOUT }
     };
-    int poll_res = poll( pfds, 1, 0 );
+    int poll_res = fd_syscall_poll( pfds, 1, 0 );
     if( FD_UNLIKELY( poll_res<0 ) ) {
-      FD_LOG_ERR(( "poll(tcp_sock) failed (%i-%s)", errno, fd_io_strerror( errno ) ));
+      FD_LOG_ERR(( "fd_syscall_poll(tcp_sock) failed (%i-%s)", errno, fd_io_strerror( errno ) ));
     }
     if( poll_res==0 ) return;
 

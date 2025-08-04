@@ -353,8 +353,8 @@ fd_runtime_fuzz_block_ctx_create( fd_runtime_fuzz_runner_t *           runner,
 
   fd_bank_stakes_end_locking_modify( slot_ctx->bank );
 
-  /* Add accounts to bpf program cache */
-  fd_bpf_scan_and_create_bpf_program_cache_entry( slot_ctx, runner->spad );
+  /* Refresh the program cache */
+  fd_runtime_fuzz_refresh_program_cache( slot_ctx, test_ctx->acct_states, test_ctx->acct_states_count, runner->spad );
 
   fd_vote_accounts_global_t * vote_accounts = fd_bank_next_epoch_stakes_locking_modify( slot_ctx->bank );
   pool_mem = (uchar *)fd_ulong_align_up( (ulong)vote_accounts + sizeof(fd_vote_accounts_global_t), fd_vote_accounts_pair_global_t_map_align() );
@@ -420,7 +420,7 @@ fd_runtime_fuzz_block_ctx_create( fd_runtime_fuzz_runner_t *           runner,
     fd_hash_t hash;
     memcpy( &hash, test_ctx->blockhash_queue[i]->bytes, sizeof(fd_hash_t) );
     fd_bank_poh_set( slot_ctx->bank, hash );
-    fd_sysvar_recent_hashes_update( slot_ctx, runner->spad ); /* appends an entry */
+    fd_sysvar_recent_hashes_update( slot_ctx ); /* appends an entry */
   }
 
   // Set the current poh from the input (we skip POH verification in this fuzzing target)
@@ -436,6 +436,9 @@ fd_runtime_fuzz_block_ctx_create( fd_runtime_fuzz_runner_t *           runner,
 
   /* Calculate epoch account hash values. This sets epoch_bank.eah_{start_slot, stop_slot, interval} */
   fd_calculate_epoch_accounts_hash_values( slot_ctx );
+
+  /* Restore sysvar cache */
+  fd_sysvar_cache_restore_fuzz( slot_ctx );
 
   /* Prepare raw transaction pointers and block / microblock infos */
   ulong txn_cnt = test_ctx->txns_count;
@@ -516,13 +519,6 @@ fd_runtime_fuzz_block_ctx_exec( fd_runtime_fuzz_runner_t * runner,
 
   // Prepare. Execute. Finalize.
   FD_SPAD_FRAME_BEGIN( runtime_spad ) {
-    fd_rewards_recalculate_partitioned_rewards( slot_ctx, &runtime_spad, 1UL, runtime_spad );
-
-    /* Process new epoch may push a new spad frame onto the runtime spad. We should make sure this frame gets
-       cleared (if it was allocated) before executing the block. */
-    int   is_epoch_boundary = 0;
-    fd_runtime_block_pre_execute_process_new_epoch( slot_ctx, &runtime_spad, 1UL, runtime_spad, &is_epoch_boundary );
-
     fd_capture_ctx_t * capture_ctx = NULL;
     fd_capture_ctx_t capture_ctx_[1];
     if( runner->solcap ) {
@@ -537,6 +533,13 @@ fd_runtime_fuzz_block_ctx_exec( fd_runtime_fuzz_runner_t * runner,
       };
       capture_ctx = capture_ctx_;
     }
+
+    fd_rewards_recalculate_partitioned_rewards( slot_ctx, capture_ctx, runtime_spad );
+
+    /* Process new epoch may push a new spad frame onto the runtime spad. We should make sure this frame gets
+       cleared (if it was allocated) before executing the block. */
+    int   is_epoch_boundary = 0;
+    fd_runtime_block_pre_execute_process_new_epoch( slot_ctx, capture_ctx, runtime_spad, &is_epoch_boundary );
 
     res = fd_runtime_block_execute( slot_ctx, capture_ctx, block_info, runtime_spad );
   } FD_SPAD_FRAME_END;

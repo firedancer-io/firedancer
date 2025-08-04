@@ -3,14 +3,11 @@
 #include "fd_webserver.h"
 #include "base_enc.h"
 #include "../../flamenco/types/fd_types.h"
-#include "../../flamenco/types/fd_solana_block.pb.h"
-#include "../../flamenco/runtime/fd_runtime.h"
 #include "../../flamenco/runtime/fd_acc_mgr.h"
-#include "../../flamenco/runtime/sysvar/fd_sysvar_rent.h"
-#include "../../flamenco/runtime/sysvar/fd_sysvar_epoch_schedule.h"
 #include "../../ballet/base58/fd_base58.h"
 #include "../../ballet/base64/fd_base64.h"
 #include "fd_rpc_history.h"
+#include "fd_block_to_json.h"
 #include "keywords.h"
 #include <errno.h>
 #include <stdlib.h>
@@ -24,6 +21,26 @@
 #define CRLF "\r\n"
 #define MATCH_STRING(_text_,_text_sz_,_str_) (_text_sz_ == sizeof(_str_)-1 && memcmp(_text_, _str_, sizeof(_str_)-1) == 0)
 #define EMIT_SIMPLE(_str_) fd_web_reply_append(ws, _str_, sizeof(_str_)-1)
+
+/* If the 0th bit is set, this indicates the block is preparing, which
+   means it might be partially executed e.g. a subset of the microblocks
+   have been executed.  It is not safe to remove, relocate, or modify
+   the block in any way at this time.
+
+   Callers holding a pointer to a block should always make sure to
+   inspect this flag.
+
+   Other flags mainly provide useful metadata for read-only callers, eg.
+   RPC. */
+
+#define FD_BLOCK_FLAG_RECEIVING 0 /* xxxxxxx1 still receiving shreds */
+#define FD_BLOCK_FLAG_COMPLETED 1 /* xxxxxx1x received the block ie. all shreds (SLOT_COMPLETE) */
+#define FD_BLOCK_FLAG_REPLAYING 2 /* xxxxx1xx replay in progress (DO NOT REMOVE) */
+#define FD_BLOCK_FLAG_PROCESSED 3 /* xxxx1xxx successfully replayed the block */
+#define FD_BLOCK_FLAG_EQVOCSAFE 4 /* xxxx1xxx 52% of cluster has voted on this (slot, bank hash) */
+#define FD_BLOCK_FLAG_CONFIRMED 5 /* xxx1xxxx 2/3 of cluster has voted on this (slot, bank hash) */
+#define FD_BLOCK_FLAG_FINALIZED 6 /* xx1xxxxx 2/3 of cluster has rooted this slot */
+#define FD_BLOCK_FLAG_DEADBLOCK 7 /* x1xxxxxx failed to replay the block */
 
 static const uint PATH_COMMITMENT[4] = { ( JSON_TOKEN_LBRACE << 16 ) | KEYW_JSON_PARAMS,
                                          ( JSON_TOKEN_LBRACKET << 16 ) | 1,
@@ -66,8 +83,6 @@ struct fd_rpc_global_ctx {
   fd_spad_t * spad;
   fd_webserver_t ws;
   fd_funk_t * funk;
-  fd_blockstore_t blockstore[1];
-  int blockstore_fd;
   struct fd_ws_subscription sub_list[FD_WS_MAX_SUBS];
   ulong sub_cnt;
   ulong last_subsc_id;
@@ -79,6 +94,7 @@ struct fd_rpc_global_ctx {
   fd_multi_epoch_leaders_t * leaders;
   ulong acct_age;
   fd_rpc_history_t * history;
+  fd_pubkey_t const * identity_key; /* nullable */
 };
 typedef struct fd_rpc_global_ctx fd_rpc_global_ctx_t;
 
@@ -125,11 +141,11 @@ get_slot_from_commitment_level( struct json_values * values, fd_rpc_ctx_t * ctx 
   if( commit_str == NULL ) {
     return fd_rpc_history_latest_slot( ctx->global->history );
   } else if( MATCH_STRING( commit_str, commit_str_sz, "confirmed" ) ) {
-    return ctx->global->blockstore->shmem->hcs;
+    return 0;
   } else if( MATCH_STRING( commit_str, commit_str_sz, "processed" ) ) {
-    return ctx->global->blockstore->shmem->lps;
+    return 0;
   } else if( MATCH_STRING( commit_str, commit_str_sz, "finalized" ) ) {
-    return ctx->global->blockstore->shmem->wmk;
+    return 0;
   } else {
     fd_method_error( ctx, -1, "invalid commitment %s", (const char *)commit_str );
     return FD_SLOT_NULL;
@@ -445,10 +461,9 @@ method_getBlockProduction(struct json_values* values, fd_rpc_ctx_t * ctx) {
   (void)values;
   fd_rpc_global_ctx_t * glob = ctx->global;
   fd_webserver_t * ws = &glob->ws;
-  fd_blockstore_t * blockstore = glob->blockstore;
   FD_SPAD_FRAME_BEGIN( ctx->global->spad ) {
-    ulong startslot = blockstore->shmem->wmk;
-    ulong endslot = blockstore->shmem->lps;
+    ulong startslot = 0;
+    ulong endslot = 0;
 
     fd_multi_epoch_leaders_lsched_sorted_t lscheds = fd_multi_epoch_leaders_get_sorted_lscheds( glob->leaders );
 
@@ -773,17 +788,17 @@ method_getHighestSnapshotSlot(struct json_values* values, fd_rpc_ctx_t * ctx) {
 
 // Implementation of the "getIdentity" method
 // curl http://localhost:8123 -X POST -H "Content-Type: application/json" -d ' {"jsonrpc":"2.0","id":1, "method":"getIdentity"} '
-
 static int
 method_getIdentity(struct json_values* values, fd_rpc_ctx_t * ctx) {
+  (void)values;
   fd_webserver_t * ws = &ctx->global->ws;
-  ulong slot = get_slot_from_commitment_level( values, ctx );
-  fd_replay_notif_msg_t * info = fd_rpc_history_get_block_info(ctx->global->history, slot);
+  if( !ctx->global->identity_key ) return 1; /* not supported */
   fd_web_reply_sprintf(ws, "{\"jsonrpc\":\"2.0\",\"result\":{\"identity\":\"");
-  fd_web_reply_encode_base58(ws, &info->slot_exec.identity, sizeof(fd_pubkey_t));
+  fd_web_reply_encode_base58(ws, ctx->global->identity_key, sizeof(fd_pubkey_t));
   fd_web_reply_sprintf(ws, "\"},\"id\":%s}" CRLF, ctx->call_id);
   return 0;
 }
+
 // Implementation of the "getInflationGovernor" methods
 static int
 method_getInflationGovernor(struct json_values* values, fd_rpc_ctx_t * ctx) {
@@ -959,10 +974,10 @@ method_getMaxRetransmitSlot(struct json_values* values, fd_rpc_ctx_t * ctx) {
 static int
 method_getMaxShredInsertSlot(struct json_values* values, fd_rpc_ctx_t * ctx) {
   (void) values;
-  fd_blockstore_t * blockstore = ctx->global->blockstore;
+  ulong slot = 0;
   fd_webserver_t * ws = &ctx->global->ws;
   fd_web_reply_sprintf(ws, "{\"jsonrpc\":\"2.0\",\"result\":%lu,\"id\":%s}" CRLF,
-                       blockstore->shmem->wmk, ctx->call_id); /* FIXME archival file */
+                       slot, ctx->call_id); /* FIXME archival file */
   return 0;
 }
 
@@ -1661,10 +1676,10 @@ method_isBlockhashValid(struct json_values* values, fd_rpc_ctx_t * ctx) {
 static int
 method_minimumLedgerSlot(struct json_values* values, fd_rpc_ctx_t * ctx) {
   (void) values;
-  fd_rpc_global_ctx_t * glob = ctx->global;
   fd_webserver_t * ws = &ctx->global->ws;
+  ulong slot = 0;
   fd_web_reply_sprintf(ws, "{\"jsonrpc\":\"2.0\",\"result\":%lu,\"id\":%s}" CRLF,
-                       glob->blockstore->shmem->wmk, ctx->call_id); /* FIXME archival file */
+                       slot, ctx->call_id); /* FIXME archival file */
   return 0;
 }
 
@@ -2309,6 +2324,7 @@ fd_rpc_create_ctx(fd_rpcserver_args_t * args, fd_rpc_ctx_t ** ctx_p) {
   FD_TEST( gctx->perf_samples );
 
   gctx->history = fd_rpc_history_create(args);
+  gctx->identity_key = args->identity_key;
 
   FD_LOG_NOTICE(( "starting web server on port %u", (uint)args->port ));
   if (fd_webserver_start(args->port, args->params, gctx->spad, &gctx->ws, ctx))
@@ -2322,8 +2338,6 @@ fd_rpc_start_service(fd_rpcserver_args_t * args, fd_rpc_ctx_t * ctx) {
   fd_rpc_global_ctx_t * gctx = ctx->global;
 
   gctx->funk = args->funk;
-  memcpy( gctx->blockstore, args->blockstore, sizeof(fd_blockstore_t) );
-  gctx->blockstore_fd = args->blockstore_fd;
 }
 
 int
@@ -2393,7 +2407,7 @@ fd_rpc_replay_after_frag(fd_rpc_ctx_t * ctx, fd_replay_notif_msg_t * msg) {
 
     if( msg->slot_exec.shred_cnt == 0 ) return;
 
-    fd_rpc_history_save( subs->history, subs->blockstore, msg );
+    fd_rpc_history_save( subs->history, msg );
 
     for( ulong j = 0; j < subs->sub_cnt; ++j ) {
       struct fd_ws_subscription * sub = &subs->sub_list[ j ];

@@ -656,12 +656,12 @@ test_force_complete( void ) {
   /* obviously not last shred */
 
   fd_shred_t const * shred1 = fd_shred_parse( set0->data_shreds[ 1 ], 2048 );
-  FD_TEST( fd_fec_resolver_force_complete( resolver, shred1, out_fec ) == FD_FEC_RESOLVER_SHRED_REJECTED );
+  FD_TEST( fd_fec_resolver_force_complete( resolver, shred1, out_fec, out_merkle_root ) == FD_FEC_RESOLVER_SHRED_REJECTED );
 
   /* error due to gaps, missing 2 */
 
   fd_shred_t const * last_shred = fd_shred_parse( set0->data_shreds[ set0->data_shred_cnt - 1 ], 2048 );
-  FD_TEST( fd_fec_resolver_force_complete( resolver, last_shred, out_fec ) == FD_FEC_RESOLVER_SHRED_REJECTED );
+  FD_TEST( fd_fec_resolver_force_complete( resolver, last_shred, out_fec, out_merkle_root ) == FD_FEC_RESOLVER_SHRED_REJECTED );
 
   /* add the missing shred */
 
@@ -672,12 +672,12 @@ test_force_complete( void ) {
 
   /* error due to signature */
 
-  FD_TEST( fd_fec_resolver_force_complete( resolver, shred1, out_fec ) == FD_FEC_RESOLVER_SHRED_REJECTED );
+  FD_TEST( fd_fec_resolver_force_complete( resolver, shred1, out_fec, out_merkle_root ) == FD_FEC_RESOLVER_SHRED_REJECTED );
 
   /* success */
 
   set0->data_shreds[ set0->data_shred_cnt - 1 ][0] = temp;
-  FD_TEST( fd_fec_resolver_force_complete( resolver, last_shred, out_fec ) == FD_FEC_RESOLVER_SHRED_COMPLETES );
+  FD_TEST( fd_fec_resolver_force_complete( resolver, last_shred, out_fec, out_merkle_root ) == FD_FEC_RESOLVER_SHRED_COMPLETES );
 
   fd_fec_resolver_delete( fd_fec_resolver_leave( resolver ) );
 }

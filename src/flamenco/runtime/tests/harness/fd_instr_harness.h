@@ -7,7 +7,7 @@
 #include "fd_harness_common.h"
 
 #include "../../fd_executor.h"
-#include "../../program/fd_bpf_program_util.h"
+#include "../../program/fd_program_cache.h"
 #include "../../context/fd_exec_slot_ctx.h"
 #include "../../context/fd_exec_txn_ctx.h"
 #include "../../program/fd_bpf_loader_program.h"
