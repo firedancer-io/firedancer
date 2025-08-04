@@ -307,8 +307,12 @@ after_frag( ctx_t *             ctx,
   ulong root = fd_tower_vote( ctx->tower, vote_slot );
   if( FD_LIKELY( root != FD_SLOT_NULL ) ) {
     fd_hash_t const * root_bid = fd_ghost_hash( ctx->ghost, root );
-    fd_ghost_publish( ctx->ghost, root_bid );
-    fd_stem_publish( stem, ctx->replay_out_idx, root, 0UL, 0UL, 0UL, tsorig, fd_frag_meta_ts_comp( fd_tickcount() ) );
+    if( FD_UNLIKELY( !root_bid ) ) {
+      FD_LOG_WARNING(( "Lowest vote slot %lu is not in ghost, skipping publish", root ));
+    } else {
+      fd_ghost_publish( ctx->ghost, root_bid );
+      fd_stem_publish( stem, ctx->replay_out_idx, root, 0UL, 0UL, 0UL, tsorig, fd_frag_meta_ts_comp( fd_tickcount() ) );
+    }
     ctx->root = root;
   }
 

@@ -345,17 +345,19 @@ FD_FN_PURE static inline fd_ghost_ele_t const      * fd_ghost_root_const    ( fd
    NULL if not found. */
 
 FD_FN_PURE static inline fd_ghost_ele_t *
-fd_ghost_query( fd_ghost_t * ghost, fd_hash_t const * hash_id ) {
+fd_ghost_query( fd_ghost_t * ghost, fd_hash_t const * hash ) {
+  if( FD_UNLIKELY( !hash ) ) { return NULL; }
   fd_ghost_hash_map_t * map  = fd_ghost_hash_map( ghost );
   fd_ghost_ele_t      * pool = fd_ghost_pool( ghost );
-  return fd_ghost_hash_map_ele_query( map, hash_id, NULL, pool );
+  return fd_ghost_hash_map_ele_query( map, hash, NULL, pool );
 }
 
 FD_FN_PURE static inline fd_ghost_ele_t const *
-fd_ghost_query_const( fd_ghost_t const * ghost, fd_hash_t const * hash_id ) {
+fd_ghost_query_const( fd_ghost_t const * ghost, fd_hash_t const * hash ) {
+  if( FD_UNLIKELY( !hash ) ) { return NULL; }
   fd_ghost_hash_map_t const * map  = fd_ghost_hash_map_const ( ghost );
   fd_ghost_ele_t      const * pool = fd_ghost_pool_const( ghost );
-  return fd_ghost_hash_map_ele_query_const( map, hash_id, NULL, pool );
+  return fd_ghost_hash_map_ele_query_const( map, hash, NULL, pool );
 }
 
 /* fd_ghost_hash returns the hash_id of the ele keyed by `slot`.
