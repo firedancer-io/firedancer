@@ -101,6 +101,8 @@ fd_get_executable_program_content_for_v4_loader( fd_txn_account_t const * progra
     return NULL;
   }
 
+  /* This subtraction is safe because get_state() implicitly checks the
+     dlen. */
   *program_data_len = program_acc->vt->get_data_len( program_acc ) - LOADER_V4_PROGRAM_DATA_OFFSET;
   return program_acc->vt->get_data( program_acc ) + LOADER_V4_PROGRAM_DATA_OFFSET;
 }
@@ -361,9 +363,6 @@ fd_program_cache_create_cache_entry( fd_exec_slot_ctx_t *     slot_ctx,
                                                                                program_acc,
                                                                                &program_data_len,
                                                                                runtime_spad );
-    if( FD_UNLIKELY( program_data==NULL ) ) {
-      return;
-    }
 
     /* This prepare should never fail. */
     int funk_err = FD_FUNK_SUCCESS;
@@ -371,6 +370,20 @@ fd_program_cache_create_cache_entry( fd_exec_slot_ctx_t *     slot_ctx,
     fd_funk_rec_t * rec = fd_funk_rec_prepare( funk, funk_txn, &id, prepare, &funk_err );
     if( rec == NULL || funk_err != FD_FUNK_SUCCESS ) {
       FD_LOG_CRIT(( "fd_funk_rec_prepare() failed: %i-%s", funk_err, fd_funk_strerror( funk_err ) ));
+    }
+
+    /* In Agave's load_program_with_pubkey(), if program data cannot be
+       obtained, a tombstone cache entry of type Closed or
+       FailedVerification is created.  For correctness, we could just
+       not insert a cache entry when there is no valid program data.
+       Nonetheless, for purely conformance on instruction error log
+       messages reasons, specifically "Program is not deployed" vs
+       "Program is not cached", we would like to have a cache entry
+       precisely when Agave does, such that we match Agave exactly on
+       this error log.  So, we insert a cache entry here. */
+    if( FD_UNLIKELY( program_data==NULL ) ) {
+      fd_program_cache_publish_failed_verification_rec( funk, prepare, rec, current_slot );
+      return;
     }
 
     fd_sbpf_elf_info_t elf_info = {0};
@@ -516,6 +529,12 @@ FD_SPAD_FRAME_BEGIN( runtime_spad ) {
                                                                              &program_data_len,
                                                                              runtime_spad );
   if( FD_UNLIKELY( program_data==NULL ) ) {
+    /* Unlike in fd_program_cache_create_cache_entry(), where we need to
+       insert an entry into the cache when we cannot obtain valid
+       program data, here we could simply return because we know, at
+       this point, that the program is already in the cache.  So we
+       don't need to do anything extra for matching Agave on cache entry
+       presence. */
     return;
   }
 
