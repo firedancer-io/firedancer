@@ -75,6 +75,8 @@ struct __attribute__((packed)) fd_vm_vec {
 
 typedef struct fd_vm_vec fd_vm_vec_t;
 
+FD_STATIC_ASSERT( sizeof(fd_vm_vec_t)==FD_VM_VEC_SIZE, fd_vm_vec size mismatch );
+
 /* SBPF version and features
    https://github.com/solana-labs/rbpf/blob/4b2c3dfb02827a0119cd1587eea9e27499712646/src/program.rs#L22
 

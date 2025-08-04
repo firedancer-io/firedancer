@@ -149,7 +149,7 @@ fd_vm_translate_and_check_program_address_inputs( fd_vm_t *             vm,
   if( out_program_id ) {
     *out_program_id = FD_VM_MEM_HADDR_LD( vm, program_id_vaddr, FD_VM_ALIGN_RUST_PUBKEY, FD_PUBKEY_FOOTPRINT );
   }
-  return 0;
+  return FD_VM_SUCCESS;
 }
 
 /* fd_vm_syscall_sol_create_program_address is the entrypoint for the sol_create_program_address syscall:
@@ -185,7 +185,6 @@ fd_vm_syscall_sol_create_program_address( /**/            void *  _vm,
                                           /**/            ulong * _ret )  {
   fd_vm_t * vm = (fd_vm_t *)_vm;
 
-  uchar * bump_seed = NULL;
 
   FD_VM_CU_UPDATE( vm, FD_VM_CREATE_PROGRAM_ADDRESS_UNITS );
 
@@ -207,6 +206,7 @@ fd_vm_syscall_sol_create_program_address( /**/            void *  _vm,
   }
 
   fd_pubkey_t derived[1];
+  uchar *     bump_seed = NULL;
   err = fd_vm_derive_pda( vm, program_id, seed_haddrs, seed_szs, seeds_cnt, bump_seed, derived );
   /* Agave does their translation before the calculation, so if the translation fails we should fail
      the syscall.

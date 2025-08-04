@@ -82,9 +82,10 @@ fd_vm_syscall_sol_log( /**/            void *  _vm,
 
   FD_VM_CU_UPDATE( vm, fd_ulong_max( msg_sz, FD_VM_SYSCALL_BASE_COST ) );
 
-  /* Note: when msg_sz==0, msg can be undefined. fd_log_collector_program_log() handles it.
-     FIXME: Macro invocation in function invocation? */
-  fd_log_collector_program_log( vm->instr_ctx, FD_TRANSLATE_STRING( vm, msg_vaddr, msg_sz ), msg_sz );
+  /* Note: when msg_sz==0, msg can be undefined.
+     fd_log_collector_program_log() handles it. */
+  const char * buf = FD_TRANSLATE_STRING( vm, msg_vaddr, msg_sz );
+  fd_log_collector_program_log( vm->instr_ctx, buf, msg_sz );
 
   *_ret = 0UL;
   return FD_VM_SUCCESS;
@@ -176,7 +177,7 @@ fd_vm_syscall_sol_log_data( /**/            void *  _vm,
      Note: this is implemented following Agave's perverse behavior.
      We need to loop the slice multiple times to match the exact error,
      first compute budget, then memory mapping.
-     And finally we can loop to log. */
+     And finally, we can loop to log. */
 
   /* https://github.com/anza-xyz/agave/blob/v2.0.6/programs/bpf_loader/src/syscalls/logging.rs#L121 */
 
@@ -551,10 +552,11 @@ fd_vm_syscall_sol_memmove( /**/            void *  _vm,
                            FD_PARAM_UNUSED ulong   r4,
                            FD_PARAM_UNUSED ulong   r5,
                            /**/            ulong * _ret ) {
-  *_ret = 0;
   fd_vm_t * vm = (fd_vm_t *)_vm;
 
   FD_VM_CU_MEM_OP_UPDATE( vm, sz );
+
+  *_ret = 0;
 
   /* No overlap check for memmove. */
   return fd_vm_memmove( vm, dst_vaddr, src_vaddr, sz );
@@ -569,10 +571,11 @@ fd_vm_syscall_sol_memcpy( /**/            void *  _vm,
                           FD_PARAM_UNUSED ulong   r4,
                           FD_PARAM_UNUSED ulong   r5,
                           /**/            ulong * _ret ) {
-  *_ret = 0;
   fd_vm_t * vm = (fd_vm_t *)_vm;
 
   FD_VM_CU_MEM_OP_UPDATE( vm, sz );
+
+  *_ret = 0;
 
   /* Exact same as memmove, except also check overlap.
      https://github.com/anza-xyz/agave/blob/v2.2.17/programs/bpf_loader/src/syscalls/mem_ops.rs#L45 */
