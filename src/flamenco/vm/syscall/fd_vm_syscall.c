@@ -65,7 +65,7 @@ fd_vm_syscall_register_slot( fd_sbpf_syscalls_t *      syscalls,
     syscall_cnt++;                                                                      \
   } while(0)
 
-  /* Firedancer only (FIXME: HMMMM) */
+  /* https://github.com/anza-xyz/agave/blob/v2.2.20/programs/bpf_loader/src/syscalls/mod.rs#L392-L396 */
 
   REGISTER( "abort",                                 fd_vm_syscall_abort );
   REGISTER( "sol_panic_",                            fd_vm_syscall_sol_panic );

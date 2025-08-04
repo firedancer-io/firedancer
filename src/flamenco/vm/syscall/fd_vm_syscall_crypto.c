@@ -158,7 +158,7 @@ fd_vm_syscall_sol_alt_bn128_compression( void *  _vm,
   FD_VM_TRANSLATE_MUT( vm, queries );
 
   uchar * call_result = call_result_query.haddr;
-  void const * input  = FD_VM_MEM_SLICE_HADDR_LD( vm, input_addr,  FD_VM_ALIGN_RUST_U8, input_sz  );
+  void const * input  = FD_VM_MEM_SLICE_HADDR_LD( vm, input_addr,  FD_VM_ALIGN_RUST_U8, input_sz );
 
   /* input and call_result may alias.  Therefore, buffer via out_buf */
   uchar out_buf[128];
