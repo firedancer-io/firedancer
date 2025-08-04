@@ -112,8 +112,8 @@ read_bpf_upgradeable_loader_state_for_program( fd_exec_txn_ctx_t * txn_ctx,
   fd_bpf_upgradeable_loader_state_t * res = fd_bincode_decode_spad(
       bpf_upgradeable_loader_state,
       txn_ctx->spad,
-      rec->vt->get_data( rec ),
-      rec->vt->get_data_len( rec ),
+      fd_txn_account_get_data( rec ),
+      fd_txn_account_get_data_len( rec ),
       &err );
   if( FD_UNLIKELY( err ) ) {
     if( opt_err ) {
@@ -329,8 +329,8 @@ fd_bpf_loader_program_get_state( fd_txn_account_t const * acct,
   fd_bpf_upgradeable_loader_state_t * res = fd_bincode_decode_spad(
       bpf_upgradeable_loader_state,
       spad,
-      acct->vt->get_data( acct ),
-      acct->vt->get_data_len( acct ),
+      fd_txn_account_get_data( acct ),
+      fd_txn_account_get_data_len( acct ),
       err );
   if( FD_UNLIKELY( *err ) ) {
     *err = FD_EXECUTOR_INSTR_ERR_INVALID_ACC_DATA;
@@ -2537,7 +2537,7 @@ fd_bpf_loader_program_execute( fd_exec_instr_ctx_t * ctx ) {
         return FD_EXECUTOR_INSTR_ERR_INVALID_ACC_DATA;
       }
 
-      if( FD_UNLIKELY( program_data_account->vt->get_data_len( program_data_account )<PROGRAMDATA_METADATA_SIZE ) ) {
+      if( FD_UNLIKELY( fd_txn_account_get_data_len( program_data_account )<PROGRAMDATA_METADATA_SIZE ) ) {
         fd_log_collector_msg_literal( ctx, "Program is not deployed" );
         if( FD_FEATURE_ACTIVE_BANK( ctx->txn_ctx->bank, remove_accounts_executable_flag_checks ) ) {
           return FD_EXECUTOR_INSTR_ERR_UNSUPPORTED_PROGRAM_ID;

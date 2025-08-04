@@ -157,17 +157,18 @@ fd_write_builtin_account( fd_exec_slot_ctx_t * slot_ctx,
   fd_funk_t *         funk = slot_ctx->funk;
   fd_funk_txn_t *     txn  = slot_ctx->funk_txn;
   FD_TXN_ACCOUNT_DECL( rec );
+  fd_funk_rec_prepare_t prepare = {0};
 
-  int err = fd_txn_account_init_from_funk_mutable( rec, &pubkey, funk, txn, 1, sz );
+  int err = fd_txn_account_init_from_funk_mutable( rec, &pubkey, funk, txn, 1, sz, &prepare );
   FD_TEST( !err );
 
-  rec->vt->set_data( rec, data, sz );
-  rec->vt->set_lamports( rec, 1UL );
-  rec->vt->set_rent_epoch( rec, 0UL );
-  rec->vt->set_executable( rec, 1 );
-  rec->vt->set_owner( rec, &fd_solana_native_loader_id );
+  fd_txn_account_set_data( rec, data, sz );
+  fd_txn_account_set_lamports( rec, 1UL );
+  fd_txn_account_set_rent_epoch( rec, 0UL );
+  fd_txn_account_set_executable( rec, 1 );
+  fd_txn_account_set_owner( rec, &fd_solana_native_loader_id );
 
-  fd_txn_account_mutable_fini( rec, funk, txn );
+  fd_txn_account_mutable_fini( rec, funk, txn, &prepare );
 
   fd_bank_capitalization_set( slot_ctx->bank, fd_bank_capitalization_get( slot_ctx->bank ) + 1UL );
 
@@ -197,16 +198,17 @@ write_inline_spl_native_mint_program_account( fd_exec_slot_ctx_t * slot_ctx ) {
       0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 9, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
       0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0};
 
-  int err = fd_txn_account_init_from_funk_mutable( rec, key, funk, txn, 1, sizeof(data) );
+  fd_funk_rec_prepare_t prepare = {0};
+  int err = fd_txn_account_init_from_funk_mutable( rec, key, funk, txn, 1, sizeof(data), &prepare );
   FD_TEST( !err );
 
-  rec->vt->set_lamports( rec, 1000000000UL );
-  rec->vt->set_rent_epoch( rec, 1UL );
-  rec->vt->set_executable( rec, 0 );
-  rec->vt->set_owner( rec, &fd_solana_spl_token_id );
-  rec->vt->set_data( rec, data, sizeof(data) );
+  fd_txn_account_set_lamports( rec, 1000000000UL );
+  fd_txn_account_set_rent_epoch( rec, 1UL );
+  fd_txn_account_set_executable( rec, 0 );
+  fd_txn_account_set_owner( rec, &fd_solana_spl_token_id );
+  fd_txn_account_set_data( rec, data, sizeof(data) );
 
-  fd_txn_account_mutable_fini( rec, funk, txn );
+  fd_txn_account_mutable_fini( rec, funk, txn, &prepare );
 
   FD_TEST( !err );
 }

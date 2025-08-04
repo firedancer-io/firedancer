@@ -138,7 +138,7 @@ fd_exec_instr_ctx_try_borrow_account( fd_exec_instr_ctx_t const * ctx,
 
   /* Return an AccountBorrowFailed error if the write is not acquirable.
      https://github.com/anza-xyz/agave/blob/v2.1.14/sdk/src/transaction_context.rs#L605 */
-  int borrow_res = txn_account->vt->try_borrow_mut( txn_account );
+  int borrow_res = fd_txn_account_try_borrow_mut( txn_account );
   if( FD_UNLIKELY( !borrow_res ) ) {
     return FD_EXECUTOR_INSTR_ERR_ACC_BORROW_FAILED;
   }

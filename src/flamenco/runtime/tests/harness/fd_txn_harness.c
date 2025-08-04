@@ -547,7 +547,7 @@ fd_runtime_fuzz_txn_run( fd_runtime_fuzz_runner_t * runner,
       fd_txn_account_t * acc = &accounts_to_save[j];
 
       if( !( fd_exec_txn_ctx_account_is_writable_idx( txn_ctx, (ushort)j ) || j==FD_FEE_PAYER_TXN_IDX ) ) continue;
-      assert( acc->vt->is_mutable( acc ) );
+      assert( fd_txn_account_is_mutable( acc ) );
 
       ulong modified_idx = txn_result->resulting_state.acct_states_count;
       assert( modified_idx < modified_acct_cnt );
@@ -558,22 +558,22 @@ fd_runtime_fuzz_txn_run( fd_runtime_fuzz_runner_t * runner,
 
       memcpy( out_acct->address, acc->pubkey, sizeof(fd_pubkey_t) );
 
-      out_acct->lamports = acc->vt->get_lamports( acc );
+      out_acct->lamports = fd_txn_account_get_lamports( acc );
 
-      if( acc->vt->get_data_len( acc ) > 0 ) {
+      if( fd_txn_account_get_data_len( acc )>0UL ) {
         out_acct->data =
           FD_SCRATCH_ALLOC_APPEND( l, alignof(pb_bytes_array_t),
-                                      PB_BYTES_ARRAY_T_ALLOCSIZE( acc->vt->get_data_len( acc ) ) );
+                                      PB_BYTES_ARRAY_T_ALLOCSIZE( fd_txn_account_get_data_len( acc ) ) );
         if( FD_UNLIKELY( _l > output_end ) ) {
           abort();
         }
-        out_acct->data->size = (pb_size_t)acc->vt->get_data_len( acc );
-        fd_memcpy( out_acct->data->bytes, acc->vt->get_data( acc ), acc->vt->get_data_len( acc ) );
+        out_acct->data->size = (pb_size_t)fd_txn_account_get_data_len( acc );
+        fd_memcpy( out_acct->data->bytes, fd_txn_account_get_data( acc ), fd_txn_account_get_data_len( acc ) );
       }
 
-      out_acct->executable = acc->vt->is_executable( acc );
-      out_acct->rent_epoch = acc->vt->get_rent_epoch( acc );
-      memcpy( out_acct->owner, acc->vt->get_owner( acc ), sizeof(fd_pubkey_t) );
+      out_acct->executable = fd_txn_account_is_executable( acc );
+      out_acct->rent_epoch = fd_txn_account_get_rent_epoch( acc );
+      memcpy( out_acct->owner, fd_txn_account_get_owner( acc ), sizeof(fd_pubkey_t) );
 
       txn_result->resulting_state.acct_states_count++;
     }

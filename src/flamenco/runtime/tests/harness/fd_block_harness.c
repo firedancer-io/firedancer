@@ -38,12 +38,12 @@ fd_runtime_fuzz_block_register_vote_account( fd_exec_slot_ctx_t *               
   }
 
   /* Account must be owned by the vote program */
-  if( memcmp( acc->vt->get_owner( acc ), fd_solana_vote_program_id.key, sizeof(fd_pubkey_t) ) ) {
+  if( memcmp( fd_txn_account_get_owner( acc ), fd_solana_vote_program_id.key, sizeof(fd_pubkey_t) ) ) {
     return;
   }
 
   /* Account must have > 0 lamports */
-  if( acc->vt->get_lamports( acc )==0UL ) {
+  if( fd_txn_account_get_lamports( acc )==0UL ) {
     return;
   }
 
@@ -70,15 +70,15 @@ fd_runtime_fuzz_block_register_vote_account( fd_exec_slot_ctx_t *               
   fd_vote_accounts_pair_global_t_mapnode_t * node_to_insert = fd_vote_accounts_pair_global_t_map_acquire( pool );
   fd_memcpy( node_to_insert->elem.key.uc, pubkey, sizeof(fd_pubkey_t) );
 
-  ulong account_dlen                    = acc->vt->get_data_len( acc );
+  ulong account_dlen                    = fd_txn_account_get_data_len( acc );
   node_to_insert->elem.stake            = 0UL; // This will get set later
-  node_to_insert->elem.value.executable = !!acc->vt->is_executable( acc );
-  node_to_insert->elem.value.lamports   = acc->vt->get_lamports( acc );
-  node_to_insert->elem.value.rent_epoch = acc->vt->get_rent_epoch( acc );
+  node_to_insert->elem.value.executable = !!fd_txn_account_is_executable( acc );
+  node_to_insert->elem.value.lamports   = fd_txn_account_get_lamports( acc );
+  node_to_insert->elem.value.rent_epoch = fd_txn_account_get_rent_epoch( acc );
   node_to_insert->elem.value.data_len   = account_dlen;
 
   uchar * data = fd_spad_alloc( spad, alignof(uchar), account_dlen );
-  memcpy( data, acc->vt->get_data( acc ), account_dlen );
+  memcpy( data, fd_txn_account_get_data( acc ), account_dlen );
   fd_solana_account_data_update( &node_to_insert->elem.value, data );
 
   fd_vote_accounts_pair_global_t_map_insert( pool, root, node_to_insert );
@@ -115,12 +115,12 @@ fd_runtime_fuzz_block_register_stake_delegation( fd_exec_slot_ctx_t *           
   }
 
   /* Account must be owned by the stake program */
-  if( memcmp( acc->vt->get_owner( acc ), fd_solana_stake_program_id.key, sizeof(fd_pubkey_t) ) ) {
+  if( memcmp( fd_txn_account_get_owner( acc ), fd_solana_stake_program_id.key, sizeof(fd_pubkey_t) ) ) {
     return;
   }
 
   /* Account must have > 0 lamports */
-  if( acc->vt->get_lamports( acc )==0UL ) {
+  if( fd_txn_account_get_lamports( acc )==0UL ) {
     return;
   }
 

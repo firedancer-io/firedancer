@@ -55,8 +55,8 @@ deserialize_and_update_vote_account( fd_exec_slot_ctx_t *                       
   int err;
   fd_vote_state_versioned_t * res = fd_bincode_decode_spad(
       vote_state_versioned, runtime_spad,
-      vote_account->vt->get_data( vote_account ),
-      vote_account->vt->get_data_len( vote_account ),
+      fd_txn_account_get_data( vote_account ),
+      fd_txn_account_get_data_len( vote_account ),
       &err );
   if( FD_UNLIKELY( err ) ) {
     return NULL;
@@ -427,7 +427,7 @@ accumulate_stake_cache_delegations(
                                                       &n->elem.account,
                                                       slot_ctx->funk,
                                                       slot_ctx->funk_txn );
-    if( FD_UNLIKELY( rc!=FD_ACC_MGR_SUCCESS || acc->vt->get_lamports( acc )==0UL ) ) {
+    if( FD_UNLIKELY( rc!=FD_ACC_MGR_SUCCESS || fd_txn_account_get_lamports( acc )==0UL ) ) {
       FD_LOG_WARNING(("Failed to init account"));
       continue;
     }
@@ -518,7 +518,7 @@ fd_accumulate_stake_infos( fd_exec_slot_ctx_t const * slot_ctx,
        n = fd_account_keys_pair_t_map_successor( account_keys_pool, n ) ) {
     FD_TXN_ACCOUNT_DECL( acc );
     int rc = fd_txn_account_init_from_funk_readonly(acc, &n->elem.key, slot_ctx->funk, slot_ctx->funk_txn );
-    if( FD_UNLIKELY( rc!=FD_ACC_MGR_SUCCESS || acc->vt->get_lamports( acc )==0UL ) ) {
+    if( FD_UNLIKELY( rc!=FD_ACC_MGR_SUCCESS || fd_txn_account_get_lamports( acc )==0UL ) ) {
       continue;
     }
 
@@ -628,8 +628,8 @@ write_stake_state( fd_txn_account_t *    stake_acc_rec,
   ulong encoded_stake_state_size = fd_stake_state_v2_size(stake_state);
 
   fd_bincode_encode_ctx_t ctx = {
-    .data    = stake_acc_rec->vt->get_data_mut( stake_acc_rec ),
-    .dataend = stake_acc_rec->vt->get_data_mut( stake_acc_rec ) + encoded_stake_state_size,
+    .data    = fd_txn_account_get_data_mut( stake_acc_rec ),
+    .dataend = fd_txn_account_get_data_mut( stake_acc_rec ) + encoded_stake_state_size,
   };
   if( FD_UNLIKELY( fd_stake_state_v2_encode( stake_state, &ctx ) != FD_BINCODE_SUCCESS ) ) {
     FD_LOG_ERR(( "fd_stake_state_encode failed" ));
