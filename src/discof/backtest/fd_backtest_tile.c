@@ -102,6 +102,7 @@ typedef struct {
   fd_store_t *           store;
   fd_tower_t *           tower;
   fd_shred_t const *     curr;
+  fd_hash_t              prev_mr;
 
   /* is_ready is used to determine if the backtest tile should send
      more fec sets to the replay tile. is_ready==1 if more fec sets
@@ -323,6 +324,7 @@ unprivileged_init( fd_topo_t *      topo,
   ctx->slot_cnt    = 0UL;
 
   ctx->curr = NULL;
+  ctx->prev_mr = (fd_hash_t){0};
 
   ctx->is_ready = 1;
 
@@ -391,6 +393,19 @@ after_credit_rocksdb( ctx_t *             ctx,
     if( FD_UNLIKELY( !curr || curr->fec_set_idx != prev->fec_set_idx || curr->slot != prev->slot ) ) break;
   }
   FD_TEST( prev );
+
+  /* Link the merkle roots here; as this step usually occurs in repair */
+  fd_store_exacq ( ctx->store );
+  fd_store_link( ctx->store, &mr, &ctx->prev_mr );
+  fd_store_exrel( ctx->store );
+
+  /* Instead of using the shred->chained_mr, there's a known issue with
+     fd where it might produce a bad chained mr for the first FEC set in
+     a slot of it's leader window.  So best to just track the previous
+     merkle root directly. */
+
+  ctx->prev_mr = mr;
+
   fd_fec_out_t out = {
     .err           = FD_FEC_CHAINER_SUCCESS,
     .merkle_root   = mr,
