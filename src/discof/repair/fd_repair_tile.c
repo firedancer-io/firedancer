@@ -419,13 +419,11 @@ handle_new_cluster_contact_info( fd_repair_tile_ctx_t * ctx,
     };
     int dup = fd_repair_add_active_peer( ctx->repair, &repair_peer, in_dests[i].pubkey );
     if( !dup ) {
-      /*
-      The repair process uses a Ping-Pong protocol that incurs one
-      round-trip time (RTT) for the initial repair request. To optimize
-      this, we proactively send a placeholder Repair request as soon as
-      we receive a peer's contact information for the first time,
-      effectively prepaying the RTT cost.
-      */
+/* The repair process uses a Ping-Pong protocol that incurs one
+   round-trip time (RTT) for the initial repair request. To optimize
+   this, we proactively send a placeholder Repair request as soon as we
+   receive a peer's contact information for the first time, effectively
+   prepaying the RTT cost. */
       fd_repair_send_request(ctx, ctx->stem, ctx->repair, 0, 0, 0, in_dests[i].pubkey, fd_log_wallclock());
       ulong hash_src = 0xfffffUL & fd_ulong_hash( (ulong)in_dests[i].ip4_addr | ((ulong)repair_peer.port<<32) );
       FD_LOG_INFO(( "Added repair peer: pubkey %s hash_src %lu", FD_BASE58_ENC_32_ALLOCA(in_dests[i].pubkey), hash_src ));
