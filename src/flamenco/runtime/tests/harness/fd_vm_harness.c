@@ -146,7 +146,7 @@ do{
   uchar                    program_id_idx = instr_ctx->instr->program_id;
   fd_txn_account_t const * program_acc    = &instr_ctx->txn_ctx->accounts[program_id_idx];
   uchar                    is_deprecated  = ( program_id_idx < instr_ctx->txn_ctx->accounts_cnt ) &&
-                                            ( !memcmp( program_acc->vt->get_owner( program_acc ), fd_solana_bpf_loader_deprecated_program_id.key, sizeof(fd_pubkey_t) ) );
+                                            ( !memcmp( fd_txn_account_get_owner( program_acc ), fd_solana_bpf_loader_deprecated_program_id.key, sizeof(fd_pubkey_t) ) );
 
   /* Push the instruction onto the stack. This may also modify the sysvar instructions account, if its present. */
   int stack_push_err = fd_instr_stack_push( instr_ctx->txn_ctx, (fd_instr_info_t *)instr_ctx->instr );
@@ -455,7 +455,7 @@ fd_runtime_fuzz_vm_syscall_run( fd_runtime_fuzz_runner_t * runner,
   uchar              program_id_idx = ctx->instr->program_id;
   fd_txn_account_t * program_acc    = &ctx->txn_ctx->accounts[program_id_idx];
   uchar              is_deprecated  = ( program_id_idx < ctx->txn_ctx->accounts_cnt ) &&
-                                      ( !memcmp( program_acc->vt->get_owner( program_acc ), fd_solana_bpf_loader_deprecated_program_id.key, sizeof(fd_pubkey_t) ) );
+                                      ( !memcmp( fd_txn_account_get_owner( program_acc ), fd_solana_bpf_loader_deprecated_program_id.key, sizeof(fd_pubkey_t) ) );
 
   /* Push the instruction onto the stack. This may also modify the sysvar instructions account, if its present. */
   int stack_push_err = fd_instr_stack_push( ctx->txn_ctx, (fd_instr_info_t *)ctx->instr );

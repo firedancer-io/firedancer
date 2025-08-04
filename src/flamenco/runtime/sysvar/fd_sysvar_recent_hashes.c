@@ -77,15 +77,15 @@ fd_sysvar_recent_hashes_read( fd_funk_t * funk, fd_funk_txn_t * funk_txn, fd_spa
     return NULL;
 
   fd_bincode_decode_ctx_t ctx = {
-    .data    = acc->vt->get_data( acc ),
-    .dataend = acc->vt->get_data( acc ) + acc->vt->get_data_len( acc ),
+    .data    = fd_txn_account_get_data( acc ),
+    .dataend = fd_txn_account_get_data( acc ) + fd_txn_account_get_data_len( acc ),
   };
 
   /* This check is needed as a quirk of the fuzzer. If a sysvar account
      exists in the accounts database, but doesn't have any lamports,
      this means that the account does not exist. This wouldn't happen
      in a real execution environment. */
-  if( FD_UNLIKELY( acc->vt->get_lamports( acc ) == 0UL ) ) {
+  if( FD_UNLIKELY( fd_txn_account_get_lamports( acc )==0UL ) ) {
     return NULL;
   }
 
@@ -102,7 +102,7 @@ fd_sysvar_recent_hashes_read( fd_funk_t * funk, fd_funk_txn_t * funk_txn, fd_spa
 
   /* This would never happen in a real cluster, this is a workaround
      for fuzz-generated cases where sysvar accounts are not funded. */
-  if( FD_UNLIKELY( acc->vt->get_lamports( acc ) == 0 ) ) {
+  if( FD_UNLIKELY( fd_txn_account_get_lamports( acc ) == 0 ) ) {
     return NULL;
   }
 

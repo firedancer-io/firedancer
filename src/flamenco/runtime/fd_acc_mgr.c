@@ -15,7 +15,7 @@ fd_funk_get_acc_meta_readonly( fd_funk_t const *      funk,
      nothing else will change that account. If the account is writable in the solana txn,
      then we copy the data. If the account is read-only, we do not. This is safe because of
      the read-write locks that the solana transaction holds on the account. */
-  for ( ; ; ) {
+  for( ; ; ) {
 
     fd_funk_rec_query_t   query[1];
     fd_funk_txn_t const * dummy_txn_out[1];

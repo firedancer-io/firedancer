@@ -154,8 +154,8 @@ get_state( fd_txn_account_t const * self,
   int decode_err;
   fd_vote_state_versioned_t * res = fd_bincode_decode_spad(
       vote_state_versioned, spad,
-      self->vt->get_data( self ),
-      self->vt->get_data_len( self ),
+      fd_txn_account_get_data( self ),
+      fd_txn_account_get_data_len( self ),
       &decode_err );
   if( FD_UNLIKELY( decode_err ) ) {
     *err = FD_EXECUTOR_INSTR_ERR_INVALID_ACC_DATA;
@@ -2149,39 +2149,6 @@ fd_vote_record_timestamp_vote_with_slot( fd_pubkey_t const *  vote_acc,
   fd_bank_clock_timestamp_votes_end_locking_modify( bank );
 }
 
-// https://github.com/anza-xyz/agave/blob/v2.0.1/sdk/program/src/vote/state/mod.rs#L751
-int
-fd_vote_acc_credits( fd_exec_instr_ctx_t const * ctx,
-                     fd_account_meta_t const *   vote_acc_meta,
-                     uchar const *               vote_acc_data,
-                     ulong *                     result ) {
-  int rc;
-
-  fd_sol_sysvar_clock_t clock_;
-  fd_sol_sysvar_clock_t const * clock = fd_sysvar_cache_clock_read( ctx->sysvar_cache, &clock_ );
-  if( FD_UNLIKELY( !clock ) ) return FD_EXECUTOR_INSTR_ERR_UNSUPPORTED_SYSVAR;
-
-  /* Read vote account */
-  FD_TXN_ACCOUNT_DECL( vote_account );
-  fd_txn_account_init_from_meta_and_data_readonly( vote_account, vote_acc_meta, vote_acc_data );
-
-  rc = 0;
-
-  fd_vote_state_versioned_t * vote_state_versioned = get_state( vote_account,
-                                                                ctx->txn_ctx->spad,
-                                                                &rc );
-  if( FD_UNLIKELY( rc ) ) return rc;
-  convert_to_current( vote_state_versioned, ctx->txn_ctx->spad );
-  fd_vote_state_t * state = &vote_state_versioned->inner.current;
-  if( deq_fd_vote_epoch_credits_t_empty( state->epoch_credits ) ) {
-    *result = 0;
-  } else {
-    *result = deq_fd_vote_epoch_credits_t_peek_tail_const( state->epoch_credits )->credits;
-  }
-
-  return FD_EXECUTOR_INSTR_SUCCESS;
-}
-
 /// returns commission split as (voter_portion, staker_portion, was_split) tuple
 ///
 ///  if commission calculation is 100% one way or other, indicate with false for was_split
@@ -2842,20 +2809,20 @@ fd_vote_program_execute( fd_exec_instr_ctx_t * ctx ) {
 uint
 fd_vote_state_versions_is_correct_and_initialized( fd_txn_account_t * vote_account ) {
   // https://github.com/anza-xyz/agave/blob/v2.0.1/sdk/program/src/vote/state/mod.rs#L885
-  uint data_len_check = vote_account->vt->get_data_len( vote_account ) == FD_VOTE_STATE_V3_SZ;
+  uint data_len_check = fd_txn_account_get_data_len( vote_account )==FD_VOTE_STATE_V3_SZ;
   uchar test_data[DEFAULT_PRIOR_VOTERS_OFFSET] = {0};
   uint data_check = memcmp((
-    vote_account->vt->get_data( vote_account ) + VERSION_OFFSET), test_data, DEFAULT_PRIOR_VOTERS_OFFSET) != 0;
+      fd_txn_account_get_data( vote_account )+VERSION_OFFSET), test_data, DEFAULT_PRIOR_VOTERS_OFFSET)!=0;
   if (data_check && data_len_check) {
     return 1;
   }
 
   // VoteState1_14_11::is_correct_size_and_initialized
   // https://github.com/anza-xyz/agave/blob/v2.0.1/sdk/program/src/vote/state/vote_state_1_14_11.rs#L58
-  data_len_check = vote_account->vt->get_data_len( vote_account ) == FD_VOTE_STATE_V2_SZ;
+  data_len_check = fd_txn_account_get_data_len( vote_account )==FD_VOTE_STATE_V2_SZ;
   uchar test_data_1_14_11[DEFAULT_PRIOR_VOTERS_OFFSET_1_14_11] = {0};
-  data_check = memcmp(
-    (vote_account->vt->get_data( vote_account ) + VERSION_OFFSET), test_data_1_14_11, DEFAULT_PRIOR_VOTERS_OFFSET_1_14_11) != 0;
+  data_check = memcmp( (
+      fd_txn_account_get_data( vote_account )+VERSION_OFFSET), test_data_1_14_11, DEFAULT_PRIOR_VOTERS_OFFSET_1_14_11)!=0;
   return data_check && data_len_check;
 }
 
@@ -2976,13 +2943,13 @@ upsert_vote_account( fd_txn_account_t *   vote_account,
 void
 fd_vote_store_account( fd_txn_account_t *   vote_account,
                        fd_bank_t *          bank ) {
-  fd_pubkey_t const * owner = vote_account->vt->get_owner( vote_account );
+  fd_pubkey_t const * owner = fd_txn_account_get_owner( vote_account );
 
   if (memcmp(owner->uc, fd_solana_vote_program_id.key, sizeof(fd_pubkey_t)) != 0) {
       return;
   }
 
-  if( vote_account->vt->get_lamports( vote_account ) == 0 ) {
+  if( fd_txn_account_get_lamports( vote_account ) == 0 ) {
     remove_vote_account( vote_account, bank );
   } else {
     upsert_vote_account( vote_account, bank );

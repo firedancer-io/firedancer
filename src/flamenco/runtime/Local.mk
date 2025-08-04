@@ -2,9 +2,6 @@ ifdef FD_HAS_INT128
 $(call add-hdrs,fd_acc_mgr.h)
 $(call add-objs,fd_acc_mgr,fd_flamenco)
 
-$(call add-hdrs,fd_txn_account.h)
-$(call add-objs,fd_txn_account,fd_flamenco)
-
 $(call add-hdrs,fd_bank_hash_cmp.h fd_rwseq_lock.h)
 $(call add-objs,fd_bank_hash_cmp,fd_flamenco)
 
@@ -39,6 +36,11 @@ $(call add-hdrs, tests/fd_dump_pb.h)
 $(call add-objs, tests/fd_dump_pb,fd_flamenco)
 
 $(call add-hdrs,fd_rent_lists.h)
+
+$(call add-hdrs,fd_txn_account.h)
+$(call add-objs,fd_txn_account,fd_flamenco)
+$(call make-unit-test,test_txn_account,test_txn_account,fd_flamenco fd_funk fd_ballet fd_util)
+$(call run-unit-test,test_txn_account,)
 
 $(call add-hdrs,fd_bank.h)
 $(call add-objs,fd_bank,fd_flamenco)

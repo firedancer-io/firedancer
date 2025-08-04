@@ -133,22 +133,24 @@ account_cb( void *                          _ctx,
   }
 
   FD_TXN_ACCOUNT_DECL( rec );
+  fd_funk_rec_prepare_t prepare = {0};
   int err = fd_txn_account_init_from_funk_mutable( rec,
                                                    (fd_pubkey_t*)hdr->meta.pubkey,
                                                    ctx->funk,
                                                    ctx->funk_txn,
                                                    /* do_create */ 1,
-                                                   hdr->meta.data_len );
+                                                   hdr->meta.data_len,
+                                                   &prepare );
   if( FD_UNLIKELY( err!=FD_ACC_MGR_SUCCESS ) ) FD_LOG_ERR(( "fd_txn_account_init_from_funk_mutable failed (%d)", err ));
 
-  rec->vt->set_data_len( rec, hdr->meta.data_len );
-  rec->vt->set_slot( rec, ctx->ssparse->accv_slot );
-  rec->vt->set_hash( rec, &hdr->hash );
-  rec->vt->set_info( rec, &hdr->info );
+  fd_txn_account_set_data_len( rec, hdr->meta.data_len );
+  fd_txn_account_set_slot( rec, ctx->ssparse->accv_slot );
+  fd_txn_account_set_hash( rec, &hdr->hash );
+  fd_txn_account_set_meta_info( rec, &hdr->info );
 
-  ctx->acc_data = rec->vt->get_data_mut( rec );
+  ctx->acc_data = fd_txn_account_get_data_mut( rec );
   ctx->metrics.accounts_inserted++;
-  fd_txn_account_mutable_fini( rec, ctx->funk, ctx->funk_txn );
+  fd_txn_account_mutable_fini( rec, ctx->funk, ctx->funk_txn, &prepare );
 }
 
 static void

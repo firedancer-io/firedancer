@@ -45,14 +45,14 @@ fd_sysvar_rent_read( fd_funk_t *     funk,
      exists in the accounts database, but doesn't have any lamports,
      this means that the account does not exist. This wouldn't happen
      in a real execution environment. */
-  if( FD_UNLIKELY( acc->vt->get_lamports( acc )==0 ) ) {
+  if( FD_UNLIKELY( fd_txn_account_get_lamports( acc )==0UL ) ) {
     return NULL;
   }
 
   int err;
   return fd_bincode_decode_spad(
       rent, spad,
-      acc->vt->get_data( acc ),
-      acc->vt->get_data_len( acc ),
+      fd_txn_account_get_data( acc ),
+      fd_txn_account_get_data_len( acc ),
       &err );
 }

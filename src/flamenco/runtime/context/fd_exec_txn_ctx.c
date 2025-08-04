@@ -306,7 +306,7 @@ fd_txn_account_check_exists( fd_txn_account_t *        acc,
                              ushort                    idx ) {
   (void) ctx;
   (void) idx;
-  return fd_account_meta_exists( acc->vt->get_meta( acc ) );
+  return fd_account_meta_exists( fd_txn_account_get_meta( acc ) );
 }
 
 int
@@ -331,5 +331,5 @@ fd_txn_account_check_borrow_mut( fd_txn_account_t *        acc,
                                  ushort                    idx ) {
   (void) ctx;
   (void) idx;
-  return acc->vt->is_mutable( acc ) && acc->vt->try_borrow_mut( acc );
+  return fd_txn_account_is_mutable( acc ) && fd_txn_account_try_borrow_mut( acc );
 }

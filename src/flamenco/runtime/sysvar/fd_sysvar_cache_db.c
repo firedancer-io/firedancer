@@ -32,16 +32,16 @@ sysvar_data_fill( fd_sysvar_cache_t *  cache,
   }
 
   /* Work around instruction fuzzer quirk */
-  if( FD_UNLIKELY( rec->vt->get_lamports( rec )==0 ) ) {
+  if( FD_UNLIKELY( fd_txn_account_get_lamports( rec )==0 ) ) {
     if( log_fails ) FD_LOG_WARNING(( "Skipping sysvar %s: zero balance", pos->name ));
     return 0;
   }
 
   /* Fill data cache entry */
-  ulong data_sz = rec->vt->get_data_len( rec );
+  ulong data_sz = fd_txn_account_get_data_len( rec );
   data_sz = fd_ulong_min( data_sz, pos->data_max );
   uchar * data = (uchar *)cache+pos->data_off;
-  fd_memcpy( data, rec->vt->get_data( rec ), data_sz );
+  fd_memcpy( data, fd_txn_account_get_data( rec ), data_sz );
   desc->data_sz = (uint)data_sz;
 
   /* Recover object cache entry from data cache entry */

@@ -130,8 +130,8 @@ get_state( fd_txn_account_t const * self,
   int rc;
 
   fd_bincode_decode_ctx_t bincode_ctx = {
-    .data    = self->vt->get_data( self ),
-    .dataend = self->vt->get_data( self ) + self->vt->get_data_len( self ),
+    .data    = fd_txn_account_get_data( self ),
+    .dataend = fd_txn_account_get_data( self ) + fd_txn_account_get_data_len( self ),
   };
 
   ulong total_sz = 0UL;
@@ -3246,22 +3246,23 @@ write_stake_config( fd_exec_slot_ctx_t * slot_ctx, fd_stake_config_t const * sta
   fd_pubkey_t const *     acc_key  = &fd_solana_stake_program_config_id;
 
   FD_TXN_ACCOUNT_DECL(rec);
-  int err = fd_txn_account_init_from_funk_mutable( rec, acc_key, slot_ctx->funk, slot_ctx->funk_txn, 1, data_sz );
+  fd_funk_rec_prepare_t prepare = {0};
+  int err = fd_txn_account_init_from_funk_mutable( rec, acc_key, slot_ctx->funk, slot_ctx->funk_txn, 1, data_sz, &prepare );
   FD_TEST( !err );
 
-  rec->vt->set_lamports( rec, 960480UL );
-  rec->vt->set_rent_epoch( rec, 0UL );
-  rec->vt->set_executable( rec, 0 );
+  fd_txn_account_set_lamports( rec, 960480UL );
+  fd_txn_account_set_rent_epoch( rec, 0UL );
+  fd_txn_account_set_executable( rec, 0 );
 
   fd_bincode_encode_ctx_t ctx3;
-  ctx3.data    = rec->vt->get_data_mut( rec );
-  ctx3.dataend = rec->vt->get_data_mut( rec ) + data_sz;
+  ctx3.data    = fd_txn_account_get_data_mut( rec );
+  ctx3.dataend = fd_txn_account_get_data_mut( rec ) + data_sz;
   if( fd_stake_config_encode( stake_config, &ctx3 ) )
     FD_LOG_ERR( ( "fd_stake_config_encode failed" ) );
 
-  rec->vt->set_data( rec, stake_config, data_sz );
+  fd_txn_account_set_data( rec, stake_config, data_sz );
 
-  fd_txn_account_mutable_fini( rec, slot_ctx->funk, slot_ctx->funk_txn );
+  fd_txn_account_mutable_fini( rec, slot_ctx->funk, slot_ctx->funk_txn, &prepare );
 }
 
 void
@@ -3322,7 +3323,7 @@ fd_stakes_remove_stake_delegation( fd_txn_account_t *   stake_account,
 static void
 fd_stakes_upsert_stake_delegation( fd_txn_account_t *   stake_account,
                                    fd_bank_t *          bank ) {
-  FD_TEST( stake_account->vt->get_lamports( stake_account )!=0 );
+  FD_TEST( fd_txn_account_get_lamports( stake_account )!=0 );
 
   fd_stakes_global_t const *       stakes                 = fd_bank_stakes_locking_query( bank );
   fd_delegation_pair_t_mapnode_t * stake_delegations_pool = fd_stakes_stake_delegations_pool_join( stakes );
@@ -3387,16 +3388,16 @@ fd_stakes_upsert_stake_delegation( fd_txn_account_t *   stake_account,
 void
 fd_store_stake_delegation( fd_txn_account_t *   stake_account,
                            fd_bank_t *          bank ) {
-  fd_pubkey_t const * owner = stake_account->vt->get_owner( stake_account );
+  fd_pubkey_t const * owner = fd_txn_account_get_owner( stake_account );
 
   if( memcmp( owner->uc, fd_solana_stake_program_id.key, sizeof(fd_pubkey_t) ) ) {
       return;
   }
 
-  int is_empty  = stake_account->vt->get_lamports( stake_account )==0;
+  int is_empty  = fd_txn_account_get_lamports( stake_account )==0;
   int is_uninit = 1;
-  if( stake_account->vt->get_data_len( stake_account )>=4 ) {
-    uint prefix = FD_LOAD( uint, stake_account->vt->get_data( stake_account ) );
+  if( fd_txn_account_get_data_len( stake_account )>=4UL ) {
+    uint prefix = FD_LOAD( uint, fd_txn_account_get_data( stake_account ) );
     is_uninit = ( prefix==fd_stake_state_v2_enum_uninitialized );
   }
 

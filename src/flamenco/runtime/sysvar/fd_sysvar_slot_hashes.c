@@ -148,13 +148,13 @@ fd_sysvar_slot_hashes_read( fd_funk_t *     funk,
      exists in the accounts database, but doesn't have any lamports,
      this means that the account does not exist. This wouldn't happen
      in a real execution environment. */
-  if( FD_UNLIKELY( rec->vt->get_lamports( rec )==0 ) ) {
+  if( FD_UNLIKELY( fd_txn_account_get_lamports( rec )==0 ) ) {
     return NULL;
   }
 
   fd_bincode_decode_ctx_t decode = {
-    .data    = rec->vt->get_data( rec ),
-    .dataend = rec->vt->get_data( rec ) + rec->vt->get_data_len( rec )
+    .data    = fd_txn_account_get_data( rec ),
+    .dataend = fd_txn_account_get_data( rec ) + fd_txn_account_get_data_len( rec )
   };
 
   ulong total_sz = 0UL;

@@ -66,29 +66,31 @@ create_test_account( fd_pubkey_t const * pubkey,
                      ulong               data_len,
                      uchar               executable ) {
   FD_TXN_ACCOUNT_DECL( acc );
+  fd_funk_rec_prepare_t prepare = {0};
   int err = fd_txn_account_init_from_funk_mutable( /* acc         */ acc,
                                                    /* pubkey      */ pubkey,
                                                    /* funk        */ test_funk,
                                                    /* txn         */ test_slot_ctx->funk_txn,
                                                    /* do_create   */ 1,
-                                                   /* min_data_sz */ data_len );
+                                                   /* min_data_sz */ data_len,
+                                                   /* prepare     */ &prepare );
   FD_TEST( !err );
 
   if( data ) {
-    acc->vt->set_data( acc, data, data_len );
+    fd_txn_account_set_data( acc, data, data_len );
   }
 
   acc->starting_lamports = 1UL;
   acc->starting_dlen     = data_len;
-  acc->vt->set_lamports( acc, 1UL );
-  acc->vt->set_executable( acc, executable );
-  acc->vt->set_rent_epoch( acc, ULONG_MAX );
-  acc->vt->set_owner( acc, owner );
+  fd_txn_account_set_lamports( acc, 1UL );
+  fd_txn_account_set_executable( acc, executable );
+  fd_txn_account_set_rent_epoch( acc, ULONG_MAX );
+  fd_txn_account_set_owner( acc, owner );
 
   /* make the account read-only by default */
-  acc->vt->set_readonly( acc );
+  fd_txn_account_set_readonly( acc );
 
-  fd_txn_account_mutable_fini( acc, test_funk, test_slot_ctx->funk_txn );
+  fd_txn_account_mutable_fini( acc, test_funk, test_slot_ctx->funk_txn, &prepare );
 }
 
 /* Test 1: Account doesn't exist */

@@ -37,14 +37,14 @@ fd_sysvar_stake_history_read( fd_funk_t *     funk,
      exists in the accounts database, but doesn't have any lamports,
      this means that the account does not exist. This wouldn't happen
      in a real execution environment. */
-  if( FD_UNLIKELY( stake_rec->vt->get_lamports( stake_rec )==0 ) ) {
+  if( FD_UNLIKELY( fd_txn_account_get_lamports( stake_rec )==0UL ) ) {
     return NULL;
   }
 
   return fd_bincode_decode_spad(
       stake_history, spad,
-      stake_rec->vt->get_data( stake_rec ),
-      stake_rec->vt->get_data_len( stake_rec ),
+      fd_txn_account_get_data( stake_rec ),
+      fd_txn_account_get_data_len( stake_rec ),
       &err );
 }
 
