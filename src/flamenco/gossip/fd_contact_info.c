@@ -103,9 +103,9 @@ fd_contact_info_from_ci_v2( fd_gossip_contact_info_v2_t const * ci_v2,
       ci_int->addrs.len++;
     }
 
-    contact_info->sockets[ ci_int->sockets.len ].index            = addr_index;
-    contact_info->sockets[ ci_int->sockets.len ].key              = socket_entry->key;
-    contact_info->sockets[ ci_int->sockets.len ].offset           = cur_offset;
+    ci_int->sockets.data[ ci_int->sockets.len ].index            = addr_index;
+    ci_int->sockets.data[ ci_int->sockets.len ].key              = socket_entry->key;
+    ci_int->sockets.data[ ci_int->sockets.len ].offset           = cur_offset;
 
     /* Metadata updates */
     contact_info->socket_tag_idx[ socket_entry->key ]       = ci_int->sockets.len;
