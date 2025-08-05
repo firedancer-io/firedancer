@@ -16,9 +16,14 @@ fd_capture_ctx_new( void * mem ) {
 
   fd_memset(mem, 0, FD_CAPTURE_CTX_FOOTPRINT);
 
+  /* TODO: use layout macros */
   fd_capture_ctx_t * self = (fd_capture_ctx_t *) mem;
   self->capture = (fd_solcap_writer_t *)((uchar *)mem + sizeof(fd_capture_ctx_t));
   fd_solcap_writer_new( self->capture );
+
+  self->account_updates_buffer     = (uchar *)mem + sizeof(fd_capture_ctx_t) + fd_solcap_writer_footprint();
+  self->account_updates_buffer_ptr = self->account_updates_buffer;
+  self->account_updates_len        = 0UL;
 
   FD_COMPILER_MFENCE();
   self->magic = FD_CAPTURE_CTX_MAGIC;

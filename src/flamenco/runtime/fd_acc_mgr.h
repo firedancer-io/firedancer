@@ -20,10 +20,6 @@
 #define FD_ACC_MGR_ERR_READ_FAILED     (-3)
 #define FD_ACC_MGR_ERR_WRONG_MAGIC     (-4)
 
-/* FD_ACC_SZ_MAX is the hardcoded size limit of a Solana account. */
-
-#define FD_ACC_SZ_MAX       (10UL<<20) /* 10MiB */
-
 #define FD_ACC_NONCE_SZ_MAX (80UL)     /* 80 bytes */
 
 /* FD_ACC_TOT_SZ_MAX is the size limit of a Solana account in the firedancer

@@ -116,28 +116,7 @@ fd_sysvar_slot_history_update( fd_exec_slot_ctx_t * slot_ctx, fd_spad_t * runtim
   fd_sysvar_slot_history_set( history, fd_bank_slot_get( slot_ctx->bank ) );
   history->next_slot = fd_bank_slot_get( slot_ctx->bank ) + 1;
 
-  ulong sz = fd_ulong_max( fd_txn_account_get_data_len( rec ), slot_history_min_account_size );
-  fd_funk_rec_prepare_t prepare = {0};
-  err = fd_txn_account_init_from_funk_mutable( rec, key, slot_ctx->funk, slot_ctx->funk_txn, 0, sz, &prepare );
-  if (err)
-    FD_LOG_CRIT(( "fd_txn_account_init_from_funk_mutable(slot_history) failed: %d", err ));
-
-  fd_bincode_encode_ctx_t e_ctx = {
-    .data    = fd_txn_account_get_data_mut( rec ),
-    .dataend = fd_txn_account_get_data_mut( rec )+sz,
-  };
-
-  if( FD_UNLIKELY( fd_slot_history_encode_global( history, &e_ctx ) ) ) {
-    FD_LOG_ERR(( "fd_slot_history_encode_global failed" ));
-  }
-
-  fd_rent_t const * rent = fd_bank_rent_query( slot_ctx->bank );
-  fd_txn_account_set_lamports( rec, fd_rent_exempt_minimum_balance( rent, sz ) );
-
-  fd_txn_account_set_data_len( rec, sz );
-  fd_txn_account_set_owner( rec, &fd_sysvar_owner_id );
-
-  fd_txn_account_mutable_fini( rec, slot_ctx->funk, slot_ctx->funk_txn, &prepare );
+  fd_sysvar_slot_history_write_history( slot_ctx, history );
 
   return 0;
 
