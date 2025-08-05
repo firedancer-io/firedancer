@@ -266,7 +266,6 @@ fd_store_verify( fd_store_t * store ) {
 
   /* iter the map, check that the partitions are correct */
 
-  ulong ele_cnt = 0;
   for( fd_store_map_iter_t iter = fd_store_map_iter_init( map, fec0 ); !fd_store_map_iter_done( iter, map, fec0 ); iter = fd_store_map_iter_next( iter, map, fec0 ) ) {
     fd_store_fec_t const * fec = fd_store_map_iter_ele_const( iter, map, fec0 );
     if( FD_UNLIKELY( !fec ) ) {
@@ -279,10 +278,8 @@ fd_store_verify( fd_store_t * store ) {
       FD_LOG_WARNING(( "chain_idx %lu not in range %lu-%lu", chain_idx, part_sz * fec->key.part, part_sz * (fec->key.part + 1) ) );
       return -1;
     }
-    ele_cnt++;
   }
-  fd_store_map_verify( map, ele_cnt, fec0 );
-  return 0;
+  return fd_store_map_verify( map, store->fec_max, fec0 );
 }
 
 #include <stdio.h>
