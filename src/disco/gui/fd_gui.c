@@ -1805,6 +1805,8 @@ fd_gui_microblock_execution_begin( fd_gui_t *   gui,
     txn_entry->priority_fee                = priority_rewards;
     txn_entry->transaction_fee             = sig_rewards;
     txn_entry->timestamp_delta_start_nanos = (int)((double)(tickcount - slot->txs.reference_ticks) / fd_tempo_tick_per_ns( NULL ));
+    txn_entry->source_ipv4                 = txn_payload->source_ipv4;
+    txn_entry->source_tpu                  = txn_payload->source_tpu;
     txn_entry->microblock_idx              = microblock_idx;
     txn_entry->flags                      |= (uchar)FD_GUI_TXN_FLAGS_STARTED;
     txn_entry->flags                      &= (uchar)(~(uchar)(FD_GUI_TXN_FLAGS_IS_SIMPLE_VOTE | FD_GUI_TXN_FLAGS_FROM_BUNDLE));

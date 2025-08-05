@@ -5,6 +5,7 @@
 
 #include "../../waltz/http/fd_http_server_private.h"
 #include "../../ballet/utf8/fd_utf8.h"
+#include "../../disco/fd_txn_m_t.h"
 
 #ifdef __has_include
 #if __has_include("../../app/fdctl/version.h")
@@ -1323,6 +1324,40 @@ fd_gui_printf_slot_transactions_request( fd_gui_t * gui,
           jsonp_close_array( gui );
           jsonp_open_array( gui, "txn_tips" );
             for( ulong i=0UL; i<txn_cnt; i++) jsonp_ulong_as_str( gui, NULL, gui->txs[ (slot->txs.start_offset + i)%FD_GUI_TXN_HISTORY_SZ ]->tips );
+          jsonp_close_array( gui );
+          jsonp_open_array( gui, "txn_source_ipv4" );
+            for( ulong i=0UL; i<txn_cnt; i++) {
+              char addr[ 64 ];
+              fd_cstr_printf_check( addr, sizeof(addr), NULL, FD_IP4_ADDR_FMT, FD_IP4_ADDR_FMT_ARGS( gui->txs[ (slot->txs.start_offset + i)%FD_GUI_TXN_HISTORY_SZ ]->source_ipv4 ) );
+              jsonp_string( gui, NULL, addr );
+            }
+          jsonp_close_array( gui );
+          jsonp_open_array( gui, "txn_source_tpu" );
+            for( ulong i=0UL; i<txn_cnt; i++) {
+              switch ( gui->txs[ (slot->txs.start_offset + i)%FD_GUI_TXN_HISTORY_SZ ]->source_tpu ) {
+                case FD_TXN_M_TPU_SOURCE_QUIC: {
+                  jsonp_string( gui, NULL, "quic");
+                  break;
+                }
+                case FD_TXN_M_TPU_SOURCE_UDP   : {
+                  jsonp_string( gui, NULL, "udp");
+                  break;
+                }
+                case FD_TXN_M_TPU_SOURCE_GOSSIP: {
+                  jsonp_string( gui, NULL, "gossip");
+                  break;
+                }
+                case FD_TXN_M_TPU_SOURCE_BUNDLE: {
+                  jsonp_string( gui, NULL, "bundle");
+                  break;
+                }
+                case FD_TXN_M_TPU_SOURCE_SEND  : {
+                  jsonp_string( gui, NULL, "send");
+                  break;
+                }
+                default: FD_LOG_ERR(("unknown tpu"));
+              }
+            }
           jsonp_close_array( gui );
           jsonp_open_array( gui, "txn_microblock_id" );
             for( ulong i=0UL; i<txn_cnt; i++) jsonp_ulong( gui, NULL, gui->txs[ (slot->txs.start_offset + i)%FD_GUI_TXN_HISTORY_SZ ]->microblock_idx );
