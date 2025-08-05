@@ -2,6 +2,7 @@
 #include "utils/fd_sshttp.h"
 #include "utils/fd_ssctrl.h"
 #include "utils/fd_ssarchive.h"
+#include "utils/fd_ssmsg.h"
 
 #include "../../disco/topo/fd_topo.h"
 #include "../../disco/metrics/fd_metrics.h"
@@ -74,10 +75,17 @@ struct fd_snaprd_tile {
   } local_in;
 
   struct {
-    char full_path[ PATH_MAX ];
-    ulong full_len;
-    char incremental_path[ PATH_MAX ];
-    ulong incremental_len;
+
+    struct {
+      char  path[ PATH_MAX ];
+      ulong len;
+    } full;
+
+    struct {
+      char  path[ PATH_MAX ];
+      ulong len;
+    } incremental;
+
   } http;
 
   struct {
@@ -328,11 +336,11 @@ rename_snapshots( fd_snaprd_tile_t * ctx ) {
   if( FD_UNLIKELY( -1==ctx->local_out.dir_fd ) ) return;
 
   if( FD_LIKELY( -1!=ctx->local_out.full_snapshot_fd ) ) {
-    if( FD_UNLIKELY( -1==renameat( ctx->local_out.dir_fd, "snapshot.tar.bz2-partial", ctx->local_out.dir_fd, ctx->http.full_path ) ) )
+    if( FD_UNLIKELY( -1==renameat( ctx->local_out.dir_fd, "snapshot.tar.bz2-partial", ctx->local_out.dir_fd, ctx->http.full.path ) ) )
       FD_LOG_ERR(( "renameat() failed (%i-%s)", errno, fd_io_strerror( errno ) ));
   }
   if( FD_LIKELY( -1!=ctx->local_out.incremental_snapshot_fd ) ) {
-    if( FD_UNLIKELY( -1==renameat( ctx->local_out.dir_fd, "incremental-snapshot.tar.bz2-partial", ctx->local_out.dir_fd, ctx->http.incremental_path ) ) )
+    if( FD_UNLIKELY( -1==renameat( ctx->local_out.dir_fd, "incremental-snapshot.tar.bz2-partial", ctx->local_out.dir_fd, ctx->http.incremental.path ) ) )
       FD_LOG_ERR(( "renameat() failed (%i-%s)", errno, fd_io_strerror( errno ) ));
   }
 }
@@ -384,17 +392,29 @@ after_credit( fd_snaprd_tile_t *  ctx,
       } else {
         char path[ PATH_MAX ];
         char encoded_full_hash[ FD_BASE58_ENCODED_32_SZ ];
-        char encoded_incremental_hash[ FD_BASE58_ENCODED_32_SZ ];
-        fd_base58_encode_32( best.snapshot_info->full.hash, NULL, encoded_full_hash );
-        fd_base58_encode_32( best.snapshot_info->incremental.hash, NULL, encoded_incremental_hash );
-        FD_TEST( fd_cstr_printf_check( ctx->http.full_path, PATH_MAX, &ctx->http.full_len, "snapshot-%lu-%s.tar.zst", best.snapshot_info->full.slot, encoded_full_hash ) );
-        FD_TEST( fd_cstr_printf_check( ctx->http.incremental_path, PATH_MAX, &ctx->http.incremental_len, "incremental-snapshot-%lu-%lu-%s.tar.zst", best.snapshot_info->incremental.base_slot, best.snapshot_info->incremental.slot, encoded_incremental_hash ) );
-        FD_TEST( fd_cstr_printf_check( path, PATH_MAX, NULL, "/%s", ctx->http.full_path ) );
 
-        FD_LOG_NOTICE(( "downloading full snapshot from http://" FD_IP4_ADDR_FMT ":%hu/%s", FD_IP4_ADDR_FMT_ARGS( best.addr.addr ), best.addr.port, ctx->http.full_path ));
+        /* Generate the http paths */
+        fd_base58_encode_32( best.snapshot_info->full.hash, NULL, encoded_full_hash );
+        FD_TEST( fd_cstr_printf_check( ctx->http.full.path, PATH_MAX, &ctx->http.full.len, "snapshot-%lu-%s.tar.zst", best.snapshot_info->full.slot, encoded_full_hash ) );
+        FD_TEST( fd_cstr_printf_check( path, PATH_MAX, NULL, "/%s", ctx->http.full.path ) );
+
+        if( ctx->config.incremental_snapshot_fetch ) {
+          char encoded_incremental_hash[ FD_BASE58_ENCODED_32_SZ ];
+          fd_base58_encode_32( best.snapshot_info->incremental.hash, NULL, encoded_incremental_hash );
+          FD_TEST( fd_cstr_printf_check( ctx->http.incremental.path, PATH_MAX, &ctx->http.incremental.len, "incremental-snapshot-%lu-%lu-%s.tar.zst", best.snapshot_info->incremental.base_slot, best.snapshot_info->incremental.slot, encoded_incremental_hash ) );
+        }
+
+        uint low;
+        uint high;
+        /* send the highest manifest slot */
+        ulong highest_manifest_slot = ctx->config.incremental_snapshot_fetch ? best.snapshot_info->incremental.slot : best.snapshot_info->full.slot;
+        fd_ssmsg_slot_to_frag( highest_manifest_slot, &low, &high );
+        fd_stem_publish( stem, 0UL, FD_SNAPSHOT_MSG_HIGHEST_MANIFEST_SLOT, 0UL, 0UL, 0UL, low, high );
+
+        FD_LOG_NOTICE(( "downloading full snapshot from http://" FD_IP4_ADDR_FMT ":%hu/%s", FD_IP4_ADDR_FMT_ARGS( best.addr.addr ), best.addr.port, ctx->http.full.path ));
         ctx->peer  = best;
         ctx->state = FD_SNAPRD_STATE_READING_FULL_HTTP;
-        fd_sshttp_init( ctx->sshttp, best.addr, path, ctx->http.full_len + 1UL, now );
+        fd_sshttp_init( ctx->sshttp, best.addr, path, ctx->http.full.len + 1UL, now );
       }
       break;
     }
@@ -459,9 +479,9 @@ after_credit( fd_snaprd_tile_t *  ctx,
       }
 
       char path[ PATH_MAX ];
-      FD_TEST( fd_cstr_printf_check( path, PATH_MAX, NULL, "/%s", ctx->http.incremental_path ) );
+      FD_TEST( fd_cstr_printf_check( path, PATH_MAX, NULL, "/%s", ctx->http.incremental.path ) );
       FD_LOG_NOTICE(( "downloading incremental snapshot from http://" FD_IP4_ADDR_FMT ":%hu/%s", FD_IP4_ADDR_FMT_ARGS( ctx->peer.addr.addr ), ctx->peer.addr.port, path));
-      fd_sshttp_init( ctx->sshttp, ctx->peer.addr, path, ctx->http.incremental_len + 1UL, fd_log_wallclock() );
+      fd_sshttp_init( ctx->sshttp, ctx->peer.addr, path, ctx->http.incremental.len + 1UL, fd_log_wallclock() );
       ctx->state = FD_SNAPRD_STATE_READING_INCREMENTAL_HTTP;
       break;
     case FD_SNAPRD_STATE_FLUSHING_FULL_HTTP_RESET:
@@ -691,6 +711,8 @@ unprivileged_init( fd_topo_t *      topo,
   ctx->out.wmark  = fd_dcache_compact_wmark ( ctx->out.wksp, topo->links[ tile->out_link_id[ 0 ] ].dcache, topo->links[ tile->out_link_id[ 0 ] ].mtu );
   ctx->out.chunk  = ctx->out.chunk0;
   ctx->out.mtu    = topo->links[ tile->out_link_id[ 0 ] ].mtu;
+
+  fd_memset( &ctx->peer, 0, sizeof(ctx->peer) );
 }
 
 #define STEM_BURST 2UL /* One control message, and one data message */
