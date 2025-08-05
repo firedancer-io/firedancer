@@ -56,8 +56,9 @@
    If a program fails verification due to invalid ELF headers / sBPF
    loading failures, then we update the `failed_verification` tag,
    set `last_slot_verified` to the current slot, and set
-   `last_slot_modified` to 0. A future program upgrade / network feature
-   set change could make this program valid again.
+   `last_slot_modified` to 0. All other fields have undefined value. A
+   future program upgrade / network feature set change could make this
+   program valid again.
 
    A key invariant with the program cache design is that it does not
    evict any entries - it only grows through the lifetime of the
@@ -210,6 +211,10 @@ fd_program_cache_entry_new( void *                     mem,
 
 ulong
 fd_program_cache_entry_footprint( fd_sbpf_elf_info_t const * elf_info );
+
+/* Gets the program cache funk record key for a given program pubkey. */
+fd_funk_rec_key_t
+fd_program_cache_key( fd_pubkey_t const * pubkey );
 
 /* Loads a single program cache entry for a given pubkey. Returns 0 on
    success and -1 on failure. On success, `*cache_entry` holds a pointer

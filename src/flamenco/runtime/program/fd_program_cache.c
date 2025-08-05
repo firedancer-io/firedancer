@@ -11,6 +11,7 @@ fd_program_cache_entry_new( void *                     mem,
                             ulong                      last_slot_modified,
                             ulong                      last_slot_verified ) {
   fd_program_cache_entry_t * cache_entry = (fd_program_cache_entry_t *)mem;
+  cache_entry->magic = FD_PROGRAM_CACHE_ENTRY_MAGIC;
 
   /* Failed verification flag */
   cache_entry->failed_verification = 0;
@@ -26,7 +27,6 @@ fd_program_cache_entry_new( void *                     mem,
   /* calldests backing memory */
   l = FD_LAYOUT_APPEND( l, alignof(fd_program_cache_entry_t), sizeof(fd_program_cache_entry_t) );
   cache_entry->calldests_shmem = (uchar *)mem + l;
-  cache_entry->magic = FD_PROGRAM_CACHE_ENTRY_MAGIC;
 
   /* rodata backing memory */
   l = FD_LAYOUT_APPEND( l, fd_sbpf_calldests_align(), fd_sbpf_calldests_footprint(elf_info->rodata_sz/8UL) );
@@ -35,7 +35,26 @@ fd_program_cache_entry_new( void *                     mem,
   /* SBPF version */
   cache_entry->sbpf_version = elf_info->sbpf_version;
 
-  return (fd_program_cache_entry_t *)mem;
+  return cache_entry;
+}
+
+/* Sets up defined fields for a record that failed verification. */
+static void
+fd_program_cache_entry_set_failed_verification( void * mem,
+                                                ulong  last_slot_verified ) {
+  fd_program_cache_entry_t * cache_entry = (fd_program_cache_entry_t *)mem;
+  cache_entry->magic = FD_PROGRAM_CACHE_ENTRY_MAGIC;
+
+  /* Failed verification flag */
+  cache_entry->failed_verification = 1;
+
+  /* Last slot the program was modified */
+  cache_entry->last_slot_modified = 0UL;
+
+  /* Last slot verification checks were ran for this program */
+  cache_entry->last_slot_verified = last_slot_verified;
+
+  /* All other fields are undefined. */
 }
 
 ulong
@@ -44,12 +63,23 @@ fd_program_cache_entry_footprint( fd_sbpf_elf_info_t const * elf_info ) {
   l = FD_LAYOUT_APPEND( l, alignof(fd_program_cache_entry_t), sizeof(fd_program_cache_entry_t) );
   l = FD_LAYOUT_APPEND( l, fd_sbpf_calldests_align(), fd_sbpf_calldests_footprint(elf_info->rodata_sz/8UL) );
   l = FD_LAYOUT_APPEND( l, 8UL, elf_info->rodata_footprint );
-  l = FD_LAYOUT_FINI( l, 128UL );
+  l = FD_LAYOUT_FINI( l, alignof(fd_program_cache_entry_t) );
   return l;
 }
 
-/* Gets the program cache funk record key for a given program pubkey. */
-static inline fd_funk_rec_key_t
+/* Returns the footprint of a record that failed verification. Note that
+   all other fields are undefined besides the `failed_verification`,
+   `last_slot_verified`, and `last_slot_modified` fields, so we can
+   just return the core struct's size. */
+static inline FD_FN_PURE ulong
+fd_program_cache_failed_verification_entry_footprint( void ) {
+  ulong l = FD_LAYOUT_INIT;
+  l = FD_LAYOUT_APPEND( l, alignof(fd_program_cache_entry_t), sizeof(fd_program_cache_entry_t) );
+  l = FD_LAYOUT_FINI( l, alignof(fd_program_cache_entry_t) );
+  return l;
+}
+
+fd_funk_rec_key_t
 fd_program_cache_key( fd_pubkey_t const * pubkey ) {
   fd_funk_rec_key_t id;
   memcpy( id.uc, pubkey, sizeof(fd_pubkey_t) );
@@ -161,10 +191,12 @@ fd_get_executable_program_content_for_upgradeable_loader( fd_funk_t const *     
   return fd_txn_account_get_data( programdata_acc ) + PROGRAMDATA_METADATA_SIZE;
 }
 
-/* Gets the programdata for a v1/v2 loader-owned account by returning a pointer to the account data.
-   Returns a pointer to the programdata on success. Given the txn account API always returns a handle
-   to the account data, this function should NEVER return NULL (since the programdata of v1 and v2 loader)
-   accounts start at the beginning of the data. */
+/* Gets the programdata for a v1/v2 loader-owned account by returning a
+   pointer to the account data. Returns a pointer to the programdata on
+   success. Given the txn account API always returns a handle to the
+   account data, this function should NEVER return NULL (since the
+   programdata of v1 and v2 loader) accounts start at the beginning of
+   the data. */
 static uchar const *
 fd_get_executable_program_content_for_v1_v2_loaders( fd_txn_account_t const * program_acc,
                                                      ulong *                  program_data_len ) {
@@ -179,9 +211,11 @@ fd_program_cache_get_account_programdata( fd_funk_t const *        funk,
                                           ulong *                  out_program_data_len,
                                           fd_spad_t *              runtime_spad ) {
   /* v1/v2 loaders: Programdata is just the account data.
-     v3 loader: Programdata lives in a separate account. Deserialize the program account
-                and lookup the programdata account. Deserialize the programdata account.
-     v4 loader: Programdata lives in the program account, offset by LOADER_V4_PROGRAM_DATA_OFFSET. */
+     v3 loader: Programdata lives in a separate account. Deserialize the
+                program account and lookup the programdata account.
+                Deserialize the programdata account.
+     v4 loader: Programdata lives in the program account, offset by
+                LOADER_V4_PROGRAM_DATA_OFFSET. */
   if( !memcmp( fd_txn_account_get_owner( program_acc ), fd_solana_bpf_loader_upgradeable_program_id.key, sizeof(fd_pubkey_t) ) ) {
     return fd_get_executable_program_content_for_upgradeable_loader( funk, funk_txn, program_acc, out_program_data_len, runtime_spad );
   } else if( !memcmp( fd_txn_account_get_owner( program_acc ), fd_solana_bpf_loader_v4_program_id.key, sizeof(fd_pubkey_t) ) ) {
@@ -317,19 +351,13 @@ fd_program_cache_publish_failed_verification_rec( fd_funk_t *             funk,
                                                   fd_funk_rec_t *         rec,
                                                   ulong                   current_slot ) {
   /* Truncate the record to have a minimal footprint */
-  fd_sbpf_elf_info_t elf_info = {0};
-  ulong record_sz = fd_program_cache_entry_footprint( &elf_info );
+  ulong record_sz = fd_program_cache_failed_verification_entry_footprint();
   void * data = fd_funk_val_truncate( rec, fd_funk_alloc( funk ), fd_funk_wksp( funk ), 0UL, record_sz, NULL );
   if( FD_UNLIKELY( data==NULL ) ) {
     FD_LOG_ERR(( "fd_funk_val_truncate() failed to truncate record to size %lu", record_sz ));
   }
 
-  /* Initialize the validated program to default values. This is fine
-     because the `failed_verification` flag indicates that the should
-     not be executed. */
-  fd_program_cache_entry_t * failed_entry = fd_program_cache_entry_new( data, &elf_info, 0UL, current_slot );
-  failed_entry->failed_verification       = 1;
-
+  fd_program_cache_entry_set_failed_verification( data, current_slot );
   fd_funk_rec_publish( funk, prepare );
 }
 
@@ -540,10 +568,26 @@ FD_SPAD_FRAME_BEGIN( runtime_spad ) {
 
   /* From here on out, we need to reverify the program. */
 
+  /* Parse out the ELF info so we can determine the record footprint.
+     If the parsing fails, then we need to make sure to later publish
+     a failed verification record. */
+  uchar              failed_elf_parsing = 0;
+  ulong              record_sz          = 0UL;
+  fd_sbpf_elf_info_t elf_info           = {0};
+  if( FD_UNLIKELY( fd_program_cache_parse_elf_info( &elf_info, program_data, program_data_len, slot_ctx ) ) ) {
+    failed_elf_parsing = 1;
+    record_sz          = fd_program_cache_failed_verification_entry_footprint();
+  } else {
+    failed_elf_parsing = 0;
+    record_sz = fd_program_cache_entry_footprint( &elf_info );
+  }
+
   /* Copy the record (if needed) down into the current funk txn from one
-     of its ancestors. It is safe to pass in min_sz=0 because the record
-     is known to exist in the cache already, and the record size will
-     not change */
+     of its ancestors.
+
+     TODO: We pass in a `min_sz` of 0 because this API does not resize
+     the record if it already exists in the current funk transaction.
+     This maybe needs to change. */
   fd_funk_rec_try_clone_safe( slot_ctx->funk, slot_ctx->funk_txn, &id, 0UL, 0UL );
 
   /* Modify the record within the current funk txn */
@@ -552,19 +596,25 @@ FD_SPAD_FRAME_BEGIN( runtime_spad ) {
 
   if( FD_UNLIKELY( !rec ) ) {
     /* The record does not exist (somehow). Ideally this should never
-       happen since this function is called in a single-threaded context. */
+       happen as this function is called in a single-threaded context. */
     FD_LOG_CRIT(( "Failed to modify the BPF program cache record. Perhaps there is a race condition?" ));
   }
 
-  void *                     data           = fd_funk_val( rec, fd_funk_wksp( slot_ctx->funk ) );
-  fd_sbpf_elf_info_t         elf_info       = {0};
+  /* Resize the record to the new footprint if needed */
+  void * data = fd_funk_val_truncate(
+      rec,
+      fd_funk_alloc( slot_ctx->funk ),
+      fd_funk_wksp( slot_ctx->funk ),
+      0UL,
+      record_sz,
+      NULL );
+
   fd_program_cache_entry_t * writable_entry = fd_type_pun( data );
 
-  /* Parse the ELF info */
-  if( FD_UNLIKELY( fd_program_cache_parse_elf_info( &elf_info, program_data, program_data_len, slot_ctx ) ) ) {
-    writable_entry->failed_verification = 1;
-    writable_entry->last_slot_modified  = 0UL;
-    writable_entry->last_slot_verified  = current_slot;
+  /* If the ELF header parsing failed, publish a failed verification
+     record. */
+  if( FD_UNLIKELY( failed_elf_parsing ) ) {
+    fd_program_cache_entry_set_failed_verification( writable_entry, current_slot );
     fd_funk_rec_modify_publish( query );
     return;
   }

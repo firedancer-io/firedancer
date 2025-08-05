@@ -352,7 +352,10 @@ fd_funk_rec_try_clone_safe( fd_funk_t *               funk,
         funk, txn,key, &txn_glob, query_glob );
 
     /* If the record exists and already exists in the specified funk
-       txn, we can return successfully. */
+       txn, we can return successfully.
+
+       TODO: This should probably also check that the record has a large
+       enough size, i.e. rec_glob >= min_sz. */
     if( rec_glob && txn==txn_glob ) {
       return;
     }
