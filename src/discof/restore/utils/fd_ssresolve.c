@@ -76,18 +76,18 @@ fd_ssresolve_new( void * shmem ) {
 }
 
 fd_ssresolve_t *
-fd_ssresolve_join( void * _ssresolve ) {
-  if( FD_UNLIKELY( !_ssresolve ) ) {
+fd_ssresolve_join( void * shresolve ) {
+  if( FD_UNLIKELY( !shresolve ) ) {
     FD_LOG_WARNING(( "NULL ssresolve" ));
     return NULL;
   }
 
-  if( FD_UNLIKELY( !fd_ulong_is_aligned( (ulong)_ssresolve, fd_ssresolve_align() ) ) ) {
+  if( FD_UNLIKELY( !fd_ulong_is_aligned( (ulong)shresolve, fd_ssresolve_align() ) ) ) {
     FD_LOG_WARNING(( "misaligned ssresolve" ));
     return NULL;
   }
 
-  fd_ssresolve_t * ssresolve = (fd_ssresolve_t *)_ssresolve;
+  fd_ssresolve_t * ssresolve = (fd_ssresolve_t *)shresolve;
 
   if( FD_UNLIKELY( ssresolve->magic!=FD_SSRESOLVE_MAGIC ) ) {
     FD_LOG_WARNING(( "bad magic" ));
@@ -95,6 +95,52 @@ fd_ssresolve_join( void * _ssresolve ) {
   }
 
   return ssresolve;
+}
+
+void *
+fd_ssresolve_leave( fd_ssresolve_t * ssresolve ) {
+  if( FD_UNLIKELY( !ssresolve ) ) {
+    FD_LOG_WARNING(( "NULL ssresolve" ));
+    return NULL;
+  }
+
+  if( FD_UNLIKELY( !fd_ulong_is_aligned( (ulong)ssresolve, fd_ssresolve_align() ) ) ) {
+    FD_LOG_WARNING(( "misaligned ssresolve" ));
+    return NULL;
+  }
+
+  if( FD_UNLIKELY( ssresolve->magic!=FD_SSRESOLVE_MAGIC ) ) {
+    FD_LOG_WARNING(( "bad magic" ));
+    return NULL;
+  }
+
+  return (void *)ssresolve;
+}
+
+void *
+fd_ssresolve_delete( void * shresolve ) {
+  if( FD_UNLIKELY( !shresolve ) ) {
+    FD_LOG_WARNING(( "NULL ssresolve" ));
+    return NULL;
+  }
+
+  if( FD_UNLIKELY( !fd_ulong_is_aligned( (ulong)shresolve, fd_ssresolve_align() ) ) ) {
+    FD_LOG_WARNING(( "misaligned ssresolve" ));
+    return NULL;
+  }
+
+  fd_ssresolve_t * ssresolve = (fd_ssresolve_t *)shresolve;
+
+  if( FD_UNLIKELY( ssresolve->magic!=FD_SSRESOLVE_MAGIC ) ) {
+    FD_LOG_WARNING(( "bad magic" ));
+    return NULL;
+  }
+
+  FD_COMPILER_MFENCE();
+  ssresolve->magic = 0UL;
+  FD_COMPILER_MFENCE();
+
+  return shresolve;
 }
 
 void

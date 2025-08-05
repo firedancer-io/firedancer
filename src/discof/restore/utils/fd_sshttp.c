@@ -36,9 +36,6 @@ struct fd_sshttp_private {
   ulong response_len;
   char  response[ USHORT_MAX ];
 
-  char full_snapshot_name[ PATH_MAX ];
-  char incremental_snapshot_name[ PATH_MAX ];
-
   ulong content_len;
 
   ulong magic;
@@ -290,14 +287,6 @@ read_body( fd_sshttp_t * http,
   http->content_len -= (ulong)read;
 
   return FD_SSHTTP_ADVANCE_DATA;
-}
-
-void
-fd_sshttp_snapshot_names( fd_sshttp_t * http,
-                         char const **  full_snapshot_name,
-                         char const **  incremental_snapshot_name ) {
-  *full_snapshot_name        = http->full_snapshot_name;
-  *incremental_snapshot_name = http->incremental_snapshot_name;
 }
 
 int
