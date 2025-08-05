@@ -952,7 +952,6 @@ fd_topo_configure_tile( fd_topo_tile_t * tile,
       tile->repair.repair_intake_listen_port = config->tiles.repair.repair_intake_listen_port;
       tile->repair.repair_serve_listen_port  = config->tiles.repair.repair_serve_listen_port;
       tile->repair.slot_max                  = config->tiles.repair.slot_max;
-      strncpy( tile->repair.good_peer_cache_file, config->tiles.repair.good_peer_cache_file, sizeof(tile->repair.good_peer_cache_file) );
 
       strncpy( tile->repair.identity_key_path, config->paths.identity_key, sizeof(tile->repair.identity_key_path) );
 

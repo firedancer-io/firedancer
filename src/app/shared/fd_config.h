@@ -440,7 +440,6 @@ struct fd_config {
     struct {
       ushort repair_intake_listen_port;
       ushort repair_serve_listen_port;
-      char   good_peer_cache_file[ PATH_MAX ];
       ulong  slot_max;
     } repair;
 

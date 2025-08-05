@@ -418,11 +418,9 @@ struct fd_topo_tile {
     struct {
       ushort  repair_intake_listen_port;
       ushort  repair_serve_listen_port;
-      char    good_peer_cache_file[ PATH_MAX ];
 
       /* non-config */
 
-      int     good_peer_cache_file_fd;
       char    identity_key_path[ PATH_MAX ];
       ulong   max_pending_shred_sets;
       ulong   slot_max;

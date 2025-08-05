@@ -18,7 +18,7 @@
 fd_forest_blk_t *
 fd_forest_blk_data_shred_insert( fd_forest_t * forest, ulong slot, ulong parent_slot, uint shred_idx, uint fec_set_idx, int data_complete FD_PARAM_UNUSED, int slot_complete ) {
   fd_forest_blk_insert( forest, slot, parent_slot );
-  return fd_forest_data_shred_insert( forest, slot, parent_slot, shred_idx, fec_set_idx, slot_complete );
+  return fd_forest_data_shred_insert( forest, slot, parent_slot, shred_idx, fec_set_idx, slot_complete, SHRED_SRC_REPAIR );
 }
 
 fd_forest_blk_t *
