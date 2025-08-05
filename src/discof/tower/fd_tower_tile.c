@@ -297,6 +297,7 @@ after_frag( ctx_t *             ctx,
 
   ulong vote_slot = fd_tower_vote_slot( ctx->tower, ctx->epoch, ctx->funk, funk_txn, ctx->ghost, ctx->scratch );
   if( FD_UNLIKELY( vote_slot == FD_SLOT_NULL ) ) return; /* nothing to vote on */
+  if( FD_UNLIKELY( vote_slot==fd_tower_votes_peek_tail_const( ctx->tower )->slot ) ) return; /* nothing to vote on */
 
   ulong root = fd_tower_vote( ctx->tower, vote_slot );
   if( FD_LIKELY( root != FD_SLOT_NULL ) ) {
