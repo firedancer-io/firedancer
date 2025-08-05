@@ -3,6 +3,7 @@
 
 #include "../fd_flamenco_base.h"
 #include "../types/fd_types.h"
+#include "fd_stake_delegations.h"
 
 FD_PROTOTYPES_BEGIN
 
@@ -71,7 +72,7 @@ fd_populate_vote_accounts( fd_exec_slot_ctx_t *       slot_ctx,
 
 void
 fd_accumulate_stake_infos( fd_exec_slot_ctx_t const * slot_ctx,
-                           fd_stakes_global_t const * stakes,
+                           fd_stake_delegations_t *   stake_delegations,
                            fd_stake_history_t const * history,
                            ulong *                    new_rate_activation_epoch,
                            fd_stake_history_entry_t * accumulator,
