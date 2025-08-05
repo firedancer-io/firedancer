@@ -101,9 +101,11 @@ transition_malformed( fd_snapdc_tile_t *  ctx,
 static inline void
 handle_control_frag( fd_snapdc_tile_t *  ctx,
                      fd_stem_context_t * stem,
-                     ulong               sig ) {
+                     ulong               sig,
+                     ulong               tsorig,
+                     ulong               tspub ) {
   /* 1. Pass the control message downstream to the next consumer. */
-  fd_stem_publish( stem, 0UL, sig, ctx->out.chunk, 0UL, 0UL, 0UL, 0UL );
+  fd_stem_publish( stem, 0UL, sig, ctx->out.chunk, 0UL, 0UL, tsorig, tspub );
   ulong error = ZSTD_DCtx_reset( ctx->zstd, ZSTD_reset_session_only );
   if( FD_UNLIKELY( ZSTD_isError( error ) ) ) FD_LOG_ERR(( "ZSTD_DCtx_reset failed (%lu-%s)", error, ZSTD_getErrorName( error ) ));
 
@@ -147,6 +149,9 @@ handle_control_frag( fd_snapdc_tile_t *  ctx,
     case FD_SNAPSHOT_MSG_CTRL_SHUTDOWN:
       FD_TEST( ctx->state==FD_SNAPDC_STATE_DONE );
       ctx->state = FD_SNAPDC_STATE_SHUTDOWN;
+      break;
+    case FD_SNAPSHOT_MSG_HIGHEST_MANIFEST_SLOT:
+      /* Informational control message forwarded to snapin */
       break;
     default:
       FD_LOG_ERR(( "unexpected control sig %lu", sig ));
@@ -253,7 +258,7 @@ returnable_frag( fd_snapdc_tile_t *  ctx,
   FD_TEST( ctx->state!=FD_SNAPDC_STATE_SHUTDOWN );
 
   if( FD_LIKELY( sig==FD_SNAPSHOT_MSG_DATA ) ) return handle_data_frag( ctx, stem, chunk, sz );
-  else                                                handle_control_frag( ctx,stem, sig );
+  else                                                handle_control_frag( ctx,stem, sig, tsorig, tspub );
 
   return 0;
 }

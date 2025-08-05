@@ -8,16 +8,18 @@
 #define FD_SSRESOLVE_MAGIC (0xF17EDA2CE55E510) /* FIREDANCER HTTP RESOLVE V0 */
 #define FD_SSRESOLVE_ALIGN (8UL)
 
+/* fd_ssresolve_result contains the resolved snapshot info from
+   making an http request to a snapshot peer. */
 struct fd_ssresolve_result {
-  ulong     slot;             /* slot of the snapshot */
-  ulong     base_slot;        /* base slot of incremental snapshot or ULONG_MAX */
-  fd_hash_t hash;             /* base58 decoded hash of the snapshot */
+  ulong     slot;      /* slot of the snapshot */
+  ulong     base_slot; /* base slot of incremental snapshot or ULONG_MAX */
+  fd_hash_t hash;      /* base58 decoded hash of the snapshot */
 };
 
 typedef struct fd_ssresolve_result fd_ssresolve_result_t;
 
 /* fd_ssresolve is responsible for resolving snapshots from a given
-   peer by sending http requests and parsing http redirect responses.
+   peer by sending a http request and parsing a http redirect response.
 
    It is used by fd_ssping_t to ping and resolve snapshots for each
    peer. */
@@ -36,8 +38,17 @@ void *
 fd_ssresolve_new( void * shmem );
 
 fd_ssresolve_t *
-fd_ssresolve_join( void * ssresolve );
+fd_ssresolve_join( void * shresolve );
 
+void *
+fd_ssresolve_leave( fd_ssresolve_t * ssresolve );
+
+void *
+fd_ssresolve_delete( void * shresolve );
+
+/* fd_ssresolve_init initializes a fd_ssresolve_t object with a peer's
+   address, a socket file descriptor, and whether the resolve request
+   is for a full or incremental snapshot. */
 void
 fd_ssresolve_init( fd_ssresolve_t * ssresolve,
                    fd_ip4_port_t    addr,
@@ -59,6 +70,9 @@ int
 fd_ssresolve_advance_poll_in( fd_ssresolve_t *        ssresolve,
                               fd_ssresolve_result_t * result );
 
+/* fd_ssresolve_is_done returns whether the ssresolve state machine
+   is done.  The ssresolve object must be reset via fd_ssresolve_init
+   to restart the state machine. */
 int
 fd_ssresolve_is_done( fd_ssresolve_t * ssresolve );
 

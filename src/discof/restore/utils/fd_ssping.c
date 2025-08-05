@@ -120,6 +120,8 @@ struct fd_ssping_private {
   struct pollfd *    fds;
   ulong *            fds_idx;
 
+  ulong              slot; /* highest slot of selected peer */
+
   ulong              magic; /* ==FD_SSPING_MAGIC */
 };
 
@@ -197,6 +199,8 @@ fd_ssping_new( void * shmem,
   ssping->fds      = _fds;
   ssping->fds_idx  = fds_idx;
 
+  ssping->slot = 0UL;
+
   FD_TEST( peer_pool_max( ssping->pool )==max_peers );
   for( ulong i=0UL; i<peer_pool_max( ssping->pool ); i++ ) {
     void * _full_ssresolve = FD_SCRATCH_ALLOC_APPEND( l, fd_ssresolve_align(), fd_ssresolve_footprint() );
@@ -242,14 +246,14 @@ fd_ssping_add( fd_ssping_t * ssping,
     if( FD_UNLIKELY( !peer_pool_free( ssping->pool ) ) ) return;
     peer = peer_pool_ele_acquire( ssping->pool );
     FD_TEST( peer );
-    peer->refcnt = 0UL;
-    peer->state  = PEER_STATE_UNPINGED;
-    peer->addr   = addr;
+    peer->refcnt                              = 0UL;
+    peer->state                               = PEER_STATE_UNPINGED;
+    peer->addr                                = addr;
     peer->snapshot_info.full.slot             = ULONG_MAX;
     peer->snapshot_info.incremental.base_slot = ULONG_MAX;
     peer->snapshot_info.incremental.slot      = ULONG_MAX;
-    peer->full_latency_nanos        = 0UL;
-    peer->incremental_latency_nanos = 0UL;
+    peer->full_latency_nanos                  = 0UL;
+    peer->incremental_latency_nanos           = 0UL;
     peer_map_ele_insert( ssping->map, peer, ssping->pool );
     deadline_list_ele_push_tail( ssping->unpinged, peer, ssping->pool );
   }
@@ -580,21 +584,24 @@ fd_ssping_advance( fd_ssping_t * ssping,
 }
 
 fd_sspeer_t
-fd_ssping_best( fd_ssping_t const * ssping ) {
-  score_treap_fwd_iter_t iter = score_treap_fwd_iter_init( ssping->score_treap, ssping->pool );
-  if( FD_UNLIKELY( score_treap_fwd_iter_done( iter ) ) ) {
-    return (fd_sspeer_t){ 
-      .addr = {
-        .l = 0UL
-      },
-      .snapshot_info = NULL,
-    };
+fd_ssping_best( fd_ssping_t * ssping ) {
+  for( score_treap_fwd_iter_t iter = score_treap_fwd_iter_init( ssping->score_treap, ssping->pool );
+       !score_treap_fwd_iter_done( iter );
+       iter = score_treap_fwd_iter_next( iter, ssping->pool ) ) {
+    fd_ssping_peer_t const * best = score_treap_fwd_iter_ele_const( iter, ssping->pool );
+    if( FD_LIKELY( best->snapshot_info.incremental.slot>=ssping->slot ) ) {
+      ssping->slot = best->snapshot_info.incremental.slot;
+      return (fd_sspeer_t){
+        .addr = best->addr,
+        .snapshot_info = &best->snapshot_info,
+      };
+    }
   }
 
-  fd_ssping_peer_t const * best = score_treap_fwd_iter_ele_const( iter, ssping->pool );
-
   return (fd_sspeer_t){
-    .addr = best->addr,
-    .snapshot_info = &best->snapshot_info,
+    .addr = {
+      .l = 0UL
+    },
+    .snapshot_info = NULL,
   };
 }

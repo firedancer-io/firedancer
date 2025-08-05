@@ -3,9 +3,10 @@
 
 #include "../../../flamenco/types/fd_types.h"
 
-#define FD_SSMSG_MANIFEST_FULL        (0) /* A snapshot manifest message from the full snapshot */
-#define FD_SSMSG_MANIFEST_INCREMENTAL (1) /* A snapshot manifest message from the incremental snapshot */
-#define FD_SSMSG_DONE                 (2) /* Indicates the snapshot is fully loaded and tiles are shutting down */
+#define FD_SSMSG_MANIFEST_FULL         (0) /* A snapshot manifest message from the full snapshot */
+#define FD_SSMSG_MANIFEST_INCREMENTAL  (1) /* A snapshot manifest message from the incremental snapshot */
+#define FD_SSMSG_HIGHEST_MANIFEST_SLOT (2) /* The highest manifest slot so far, guaranteed to be monotonically increasing */
+#define FD_SSMSG_DONE                  (3) /* Indicates the snapshot is fully loaded and tiles are shutting down */
 
 /* This number is exhagerately high, but is consisent with Frankendancer.
    We need this to be about the number of validators, so roughly
@@ -23,6 +24,24 @@ fd_ssmsg_sig( ulong message,
 
 FD_FN_CONST static inline ulong fd_ssmsg_sig_manifest_size( ulong sig ) { return (sig >> 2); }
 FD_FN_CONST static inline ulong fd_ssmsg_sig_message( ulong sig ) { return (sig & 0x3UL); }
+
+/* The FD_SSMSG_HIGHEST_MANIFEST_SLOT uses the tsorig and tspub fields
+   of the fd_frag_meta_t struct to store the low and high 32 bits of
+   the slot number. */
+static inline void
+fd_ssmsg_slot_to_frag( ulong slot,
+                       uint* low,
+                       uint* high ) {
+   *low = (uint)(slot & 0xFFFFFFFFUL);
+   *high = (uint)((slot >> 32UL) & 0xFFFFFFFFUL);
+}
+
+static inline void
+fd_ssmsg_frag_to_slot( ulong low,
+                       ulong high,
+                       ulong* slot ) {
+   *slot = (high << 32UL) | low;
+}
 
 struct fd_snapshot_manifest_vote_account {
   /* The pubkey of the vote account */
