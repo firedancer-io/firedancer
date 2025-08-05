@@ -7,6 +7,7 @@
 
 /* Load in programdata for tests */
 FD_IMPORT_BINARY( valid_program_data, "src/ballet/sbpf/fixtures/hello_solana_program.so" );
+FD_IMPORT_BINARY( bigger_valid_program_data, "src/ballet/sbpf/fixtures/clock_sysvar_program.so" );
 
 static uchar const invalid_program_data[] = {0x00, 0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07};
 
@@ -87,9 +88,26 @@ create_test_account( fd_pubkey_t const * pubkey,
   fd_txn_account_set_rent_epoch( acc, ULONG_MAX );
   fd_txn_account_set_owner( acc, owner );
 
-  /* make the account read-only by default */
-  fd_txn_account_set_readonly( acc );
+  fd_txn_account_mutable_fini( acc, test_funk, test_slot_ctx->funk_txn, &prepare );
+}
 
+static void
+update_account_data( fd_pubkey_t const * pubkey,
+                     uchar const *       data,
+                     ulong               data_len ) {
+  FD_TXN_ACCOUNT_DECL( acc );
+  fd_funk_rec_prepare_t prepare = {0};
+  int err = fd_txn_account_init_from_funk_mutable( /* acc         */ acc,
+                                                   /* pubkey      */ pubkey,
+                                                   /* funk        */ test_funk,
+                                                   /* txn         */ test_slot_ctx->funk_txn,
+                                                   /* do_create   */ 0,
+                                                   /* min_data_sz */ data_len,
+                                                   /* prepare     */ &prepare );
+  FD_TEST( !err );
+  FD_TEST( data );
+
+  fd_txn_account_set_data( acc, data, data_len );
   fd_txn_account_mutable_fini( acc, test_funk, test_slot_ctx->funk_txn, &prepare );
 }
 
@@ -527,6 +545,88 @@ test_valid_genesis_program_reverified_after_genesis( void ) {
   fd_funk_txn_cancel( test_funk, funk_txn, 0 );
 }
 
+/* Test 11: Program gets upgraded with a larger programdata size */
+static void
+test_program_upgraded_with_larger_programdata( void ) {
+  FD_LOG_NOTICE(( "Testing: Program gets upgraded with a larger programdata size" ));
+
+  fd_funk_txn_t * funk_txn = create_test_funk_txn();
+  test_slot_ctx->funk_txn = funk_txn;
+  test_slot_ctx->bank->slot_ = 0UL;
+
+  /* Create a BPF loader account */
+  create_test_account( &test_program_pubkey,
+                       &fd_solana_bpf_loader_program_id,
+                       valid_program_data,
+                       valid_program_data_sz,
+                       1 );
+
+  /* First call to create cache entry */
+  fd_program_cache_update_program( test_slot_ctx, &test_program_pubkey, test_spad );
+
+  /* Verify cache entry was created */
+  fd_program_cache_entry_t const * valid_prog = NULL;
+  int err = fd_program_cache_load_entry( test_funk, funk_txn, &test_program_pubkey, &valid_prog );
+  FD_TEST( !err );
+  FD_TEST( valid_prog );
+  FD_TEST( valid_prog->magic==FD_PROGRAM_CACHE_ENTRY_MAGIC );
+  FD_TEST( !valid_prog->failed_verification );
+  FD_TEST( valid_prog->last_slot_modified==0UL );
+  FD_TEST( valid_prog->last_slot_verified==0UL );
+
+  /* Fast forward to a future slot */
+  ulong original_slot = test_slot_ctx->bank->slot_;
+  test_slot_ctx->bank->slot_ += 11000UL; /* Move to future slot */
+  ulong future_slot = test_slot_ctx->bank->slot_;
+  FD_TEST( future_slot>original_slot );
+
+  /* "Upgrade" the program by modifying the programdata */
+  update_account_data( &test_program_pubkey, bigger_valid_program_data, bigger_valid_program_data_sz );
+
+  /* Queue the program for reverification */
+  fd_program_cache_queue_program_for_reverification( test_funk, funk_txn, &test_program_pubkey, future_slot );
+
+  /* Verify the cache entry was updated with the future slot as last_slot_modified */
+  err = fd_program_cache_load_entry( test_funk, funk_txn, &test_program_pubkey, &valid_prog );
+  FD_TEST( !err );
+  FD_TEST( valid_prog );
+  FD_TEST( valid_prog->magic==FD_PROGRAM_CACHE_ENTRY_MAGIC );
+  FD_TEST( !valid_prog->failed_verification );
+  FD_TEST( valid_prog->last_slot_modified==future_slot );
+  FD_TEST( valid_prog->last_slot_verified==original_slot );
+  FD_TEST( valid_prog->last_slot_modified>original_slot );
+
+  /* Store the old program cache funk record size */
+  fd_funk_rec_key_t id = fd_program_cache_key( &test_program_pubkey );
+  fd_funk_rec_query_t query[1];
+  fd_funk_rec_t const * prev_rec = fd_funk_rec_query_try_global( test_funk, funk_txn, &id, NULL, query );
+  FD_TEST( prev_rec );
+  ulong prev_rec_sz = prev_rec->val_sz;
+  FD_TEST( !fd_funk_rec_query_test( query ) );
+
+  /* Program invoked, update cache entry */
+  fd_program_cache_update_program( test_slot_ctx, &test_program_pubkey, test_spad );
+
+  /* Get the new program cache funk record size, and make sure it's
+     larger */
+  fd_funk_rec_t const * new_rec = fd_funk_rec_query_try_global( test_funk, funk_txn, &id, NULL, query );
+  FD_TEST( new_rec );
+  ulong new_rec_sz = new_rec->val_sz;
+  FD_TEST( new_rec_sz>prev_rec_sz );
+  FD_TEST( !fd_funk_rec_query_test( query ) );
+
+  /* Verify the cache entry was updated */
+  err = fd_program_cache_load_entry( test_funk, funk_txn, &test_program_pubkey, &valid_prog );
+  FD_TEST( !err );
+  FD_TEST( valid_prog );
+  FD_TEST( valid_prog->magic==FD_PROGRAM_CACHE_ENTRY_MAGIC );
+  FD_TEST( !valid_prog->failed_verification );
+  FD_TEST( valid_prog->last_slot_verified==future_slot );
+  FD_TEST( valid_prog->last_slot_modified==future_slot );
+
+  fd_funk_txn_cancel( test_funk, funk_txn, 0 );
+}
+
 int
 main( int     argc,
       char ** argv ) {
@@ -604,6 +704,7 @@ main( int     argc,
     test_program_in_cache_queued_for_reverification_and_processed();
     test_invalid_genesis_program_reverified_after_genesis();
     test_valid_genesis_program_reverified_after_genesis();
+    test_program_upgraded_with_larger_programdata();
   } FD_SPAD_FRAME_END;
 
   test_teardown();
