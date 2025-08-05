@@ -2068,6 +2068,69 @@ fd_runtime_is_epoch_boundary( fd_exec_slot_ctx_t * slot_ctx,
   return ( prev_epoch < new_epoch || slot_idx == 0 );
 }
 
+#if 0
+static void
+fd_dump_votes_and_stakes( int line, fd_exec_slot_ctx_t * slot_ctx, fd_spad_t * runtime_spad ) {
+  FD_SPAD_FRAME_BEGIN( runtime_spad ) {
+    fd_bank_t * bank = slot_ctx->bank;
+    for( uint c = 0; c < 3; c++ ) {
+      fd_vote_accounts_global_t const * accts = NULL;
+      switch( c ) {
+        case 0: {
+          FD_LOG_NOTICE(( "dumping next_next_epoch_stakes at line %d", line ));
+          accts = fd_bank_next_next_epoch_stakes_locking_query( bank );
+          break;
+        }
+        case 1:
+          FD_LOG_NOTICE(( "dumping epoch_stakes at line %d", line ));
+          accts = fd_bank_epoch_stakes_locking_query( bank );
+          break;
+        case 2:
+          FD_LOG_NOTICE(( "dumping next_epoch_stakes at line %d", line ));
+          accts = fd_bank_next_epoch_stakes_locking_query( bank );
+          break;
+      }
+
+     fd_vote_accounts_pair_global_t_mapnode_t * pool = fd_vote_accounts_vote_accounts_pool_join( accts );
+     fd_vote_accounts_pair_global_t_mapnode_t * root = fd_vote_accounts_vote_accounts_root_join( accts );
+     for( fd_vote_accounts_pair_global_t_mapnode_t * elem = fd_vote_accounts_pair_global_t_map_minimum( pool, root );
+          elem;
+          elem = fd_vote_accounts_pair_global_t_map_successor( pool, elem ) ) {
+          FD_LOG_NOTICE(( "  vote account: %s stake: %lu",
+                          FD_BASE58_ENC_32_ALLOCA( &elem->elem.key ), elem->elem.stake ));
+      }
+
+      switch( c ) {
+        case 0:
+          fd_bank_next_next_epoch_stakes_end_locking_query( bank );
+          break;
+        case 1:
+          fd_bank_epoch_stakes_end_locking_query( bank );
+          break;
+        case 2:
+          fd_bank_next_epoch_stakes_end_locking_query( bank );
+          break;
+      }
+      }
+
+    FD_LOG_NOTICE(( "dumping stakes delegations at line %d", line ));
+    fd_stakes_slim_t const * stakes = fd_bank_stakes_locking_query( slot_ctx->bank );
+    fd_stake_account_slim_t const * stakes_pool = fd_stakes_slim_join_pool_const( stakes );
+    for( fd_stakes_slim_iter_t iter = fd_stakes_slim_iter_init( stakes, stakes_pool );
+         !fd_stakes_slim_iter_done( iter, stakes, stakes_pool );
+         iter = fd_stakes_slim_iter_next( iter, stakes, stakes_pool ) ) {
+      fd_stake_account_slim_t const * node = fd_stakes_slim_iter_ele_const( iter, stakes, stakes_pool );
+      FD_LOG_NOTICE(( "  account: %s voter: %s stake: %lu",
+                      FD_BASE58_ENC_32_ALLOCA( &node->key ),
+                      FD_BASE58_ENC_32_ALLOCA( &node->delegation.voter_pubkey ),
+                      node->delegation.stake ));
+    }
+    fd_bank_stakes_end_locking_query( bank );
+
+  } FD_SPAD_FRAME_END;
+}
+#endif
+
 /* Starting a new epoch.
   New epoch:        T
   Just ended epoch: T-1
@@ -2075,7 +2138,7 @@ fd_runtime_is_epoch_boundary( fd_exec_slot_ctx_t * slot_ctx,
 
   In this function:
   - stakes in T-2 (epoch_stakes) should be replaced by T-1 (next_epoch_stakes)
-  - stakes at T-1 (next_epoch_stakes) should be replaced by updated stakes at T (stakes->vote_accounts)
+  - stakes at T-1 (next_epoch_stakes) should be replaced by updated stakes at T (next_next_epoch_stakes)
   - leader schedule should be calculated using new T-2 stakes (epoch_stakes)
 
   Invariant during an epoch T:
