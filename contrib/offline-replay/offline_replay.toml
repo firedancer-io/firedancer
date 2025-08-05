@@ -22,7 +22,8 @@
 [runtime]
     heap_size_gib = {heap_size}
     [runtime.limits]
-        max_banks = 64
+        max_total_banks = 4
+        max_fork_width = 4
 [blockstore]
     shred_max = 16777216
     block_max = 8192
