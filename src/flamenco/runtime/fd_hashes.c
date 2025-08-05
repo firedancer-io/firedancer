@@ -496,28 +496,30 @@ fd_update_hash_bank_exec_hash( fd_exec_slot_ctx_t *           slot_ctx,
       FD_TXN_ACCOUNT_DECL( acc_rec );
 
       fd_pubkey_t const * acc_key = task_info->acc_pubkey;
-      int err = fd_txn_account_init_from_funk_mutable( acc_rec, acc_key, funk, txn, 0, 0UL);
+      fd_funk_rec_prepare_t prepare = {0};
+      int err = fd_txn_account_init_from_funk_mutable( acc_rec, acc_key, funk, txn, 0, 0UL, &prepare );
       if( FD_UNLIKELY( err!=FD_ACC_MGR_SUCCESS ) ) {
         FD_LOG_ERR(( "failed to modify account during bank hash" ));
       }
 
       /* Update hash */
-      acc_rec->vt->set_hash( acc_rec, task_info->acc_hash );
-      acc_rec->vt->set_slot( acc_rec, fd_bank_slot_get( slot_ctx->bank ) );
+      fd_txn_account_set_hash( acc_rec, task_info->acc_hash );
+      fd_txn_account_set_slot( acc_rec, fd_bank_slot_get( slot_ctx->bank ) );
 
-      fd_txn_account_mutable_fini( acc_rec, funk, txn );
+      fd_txn_account_mutable_fini( acc_rec, funk, txn, &prepare );
 
       /* Add account to "dirty keys" list, which will be added to the
         bank hash. */
 
       fd_pubkey_hash_pair_t * dirty_entry = &dirty_keys[dirty_key_cnt++];
-      dirty_entry->rec = acc_rec->vt->get_rec( acc_rec );
-      dirty_entry->hash = acc_rec->vt->get_hash( acc_rec );
+
+      fd_funk_get_acc_meta_readonly( funk, txn, acc_key, &dirty_entry->rec, &err, NULL );
+      dirty_entry->hash = fd_txn_account_get_hash( acc_rec );
 
       char acc_key_string[ FD_BASE58_ENCODED_32_SZ ];
       fd_acct_addr_cstr( acc_key_string, (uchar const*)acc_key );
       char owner_string[ FD_BASE58_ENCODED_32_SZ ];
-      fd_acct_addr_cstr( owner_string, acc_rec->vt->get_owner( acc_rec )->uc );
+      fd_acct_addr_cstr( owner_string, fd_txn_account_get_owner( acc_rec )->uc );
 
       FD_LOG_DEBUG(( "fd_acc_mgr_update_hash: %s "
                     "slot: %lu "
@@ -528,11 +530,11 @@ fd_update_hash_bank_exec_hash( fd_exec_slot_ctx_t *           slot_ctx,
                     "data_len: %lu",
                     acc_key_string,
                     fd_bank_slot_get( slot_ctx->bank ),
-                    acc_rec->vt->get_lamports( acc_rec ),
+                    fd_txn_account_get_lamports( acc_rec ),
                     owner_string,
-                    acc_rec->vt->is_executable( acc_rec ) ? "true" : "false",
-                    acc_rec->vt->get_rent_epoch( acc_rec ),
-                    acc_rec->vt->get_data_len( acc_rec ) ));
+                    fd_txn_account_is_executable( acc_rec ) ? "true" : "false",
+                    fd_txn_account_get_rent_epoch( acc_rec ),
+                    fd_txn_account_get_data_len( acc_rec ) ));
 
       if( capture_ctx != NULL && capture_ctx->capture != NULL && fd_bank_slot_get( slot_ctx->bank )>=capture_ctx->solcap_start_slot ) {
         fd_account_meta_t const * acc_meta = fd_funk_get_acc_meta_readonly( slot_ctx->funk,
@@ -550,9 +552,9 @@ fd_update_hash_bank_exec_hash( fd_exec_slot_ctx_t *           slot_ctx,
 
         err = fd_solcap_write_account( capture_ctx->capture,
                                       acc_key->uc,
-                                      acc_rec->vt->get_info( acc_rec ),
+                                      fd_txn_account_get_info( acc_rec ),
                                       acc_data,
-                                      acc_rec->vt->get_data_len( acc_rec ),
+                                      fd_txn_account_get_data_len( acc_rec ),
                                       task_info->acc_hash->hash );
 
         if( FD_UNLIKELY( err ) ) {

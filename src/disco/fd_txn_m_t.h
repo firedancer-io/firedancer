@@ -6,6 +6,12 @@
 
 #include "../ballet/txn/fd_txn.h"
 
+#define FD_TXN_M_TPU_SOURCE_QUIC   (1UL)
+#define FD_TXN_M_TPU_SOURCE_UDP    (2UL)
+#define FD_TXN_M_TPU_SOURCE_GOSSIP (3UL)
+#define FD_TXN_M_TPU_SOURCE_BUNDLE (4UL)
+#define FD_TXN_M_TPU_SOURCE_SEND   (5UL)
+
 struct fd_txn_m {
   /* The computed slot that this transaction is referencing, aka. the
      slot number of the reference_blockhash.  If it could not be
@@ -18,7 +24,12 @@ struct fd_txn_m {
      so we just store this redundantly. */
   ushort    txn_t_sz;
 
-  /* 4 bytes of padding here */
+  /* Source tpu and IP address for this transaction.  Note that
+     source_ipv4 is in big endian. */
+  uint     source_ipv4;
+  uchar    source_tpu;
+
+  /* 7 bytes of padding here */
 
   struct {
     /* If the transaction is part of a bundle, the bundle_id will be
@@ -44,12 +55,14 @@ struct fd_txn_m {
     ulong bundle_txn_cnt;
     uchar commission;
     uchar commission_pubkey[ 32 ];
+
+    /* alignof is 8, so 7 bytes of padding here */
+
   } block_engine;
 
-  /* alignof is 8, so 7 bytes of padding here */
-
   /* There are three additional fields at the end here, which are
-     variable length and not included in the size of this struct.
+     variable length and not included in the size of this struct. txn_t
+     and alut are only found in frags after the verify step.
   uchar          payload[ ]
   fd_txn_t       txn_t[ ]
   fd_acct_addr_t alut[ ] */
@@ -100,15 +113,21 @@ fd_txn_m_realized_footprint( fd_txn_m_t const * txnm,
                              int                include_txn_t,
                              int                include_alut ) {
   if( FD_LIKELY( include_txn_t ) ) {
-    return fd_txn_m_footprint( txnm->payload_sz,
-                               fd_txn_m_txn_t_const( txnm )->instr_cnt,
-                               fd_txn_m_txn_t_const( txnm )->addr_table_lookup_cnt,
-                               include_alut ? fd_txn_m_txn_t_const( txnm )->addr_table_adtl_cnt : 0UL );
+    ulong l = FD_LAYOUT_INIT;
+    l = FD_LAYOUT_APPEND( l, alignof(fd_txn_m_t),     sizeof(fd_txn_m_t) );
+    l = FD_LAYOUT_APPEND( l, 1UL,                     txnm->payload_sz );
+    l = FD_LAYOUT_APPEND( l, fd_txn_align(),          fd_txn_footprint( fd_txn_m_txn_t_const( txnm )->instr_cnt, fd_txn_m_txn_t_const( txnm )->addr_table_lookup_cnt ) );
+    l = FD_LAYOUT_APPEND( l, alignof(fd_acct_addr_t), fd_uchar_if(include_alut, fd_txn_m_txn_t_const( txnm )->addr_table_adtl_cnt, 0U)*sizeof(fd_acct_addr_t) );
+
+    /* FD_LAYOUT_FINI is not included since the _realized_ footprint
+       should not include the extra padding typically added after the
+       last struct used to align the entire footprint. */
+    return l;
   } else {
     ulong l = FD_LAYOUT_INIT;
     l = FD_LAYOUT_APPEND( l, alignof(fd_txn_m_t), sizeof(fd_txn_m_t) );
-    l = FD_LAYOUT_APPEND( l, 1UL,                 txnm->payload_sz   );
-    return FD_LAYOUT_FINI( l, fd_txn_m_align() );
+    l = FD_LAYOUT_APPEND( l, 1UL, txnm->payload_sz );
+    return l;
   }
 }
 

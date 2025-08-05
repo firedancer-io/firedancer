@@ -57,14 +57,14 @@ fd_sysvar_clock_read( fd_funk_t *             funk,
      exists in the accounts database, but doesn't have any lamports,
      this means that the account does not exist. This wouldn't happen
      in a real execution environment. */
-  if( FD_UNLIKELY( acc->vt->get_lamports( acc )==0 ) ) {
+  if( FD_UNLIKELY( fd_txn_account_get_lamports( acc )==0UL ) ) {
     return NULL;
   }
 
   return fd_bincode_decode_static(
       sol_sysvar_clock, clock,
-      acc->vt->get_data( acc ),
-      acc->vt->get_data_len( acc ),
+      fd_txn_account_get_data( acc ),
+      fd_txn_account_get_data_len( acc ),
       &err );
 }
 
@@ -408,13 +408,6 @@ fd_sysvar_clock_update( fd_exec_slot_ctx_t * slot_ctx,
     clock->unix_timestamp        = fd_long_max( timestamp_estimate, ancestor_timestamp );
     clock->epoch_start_timestamp = clock->unix_timestamp;
     clock->leader_schedule_epoch = fd_slot_to_leader_schedule_epoch( epoch_schedule, fd_bank_slot_get( bank ) );
-  }
-
-  ulong sz = fd_sol_sysvar_clock_size( clock );
-  FD_TXN_ACCOUNT_DECL( acc );
-  int err = fd_txn_account_init_from_funk_mutable( acc, &fd_sysvar_clock_id, slot_ctx->funk, slot_ctx->funk_txn, 1, sz );
-  if( err ) {
-    FD_LOG_CRIT(( "fd_txn_account_init_from_funk_mutable(clock) failed: %d", err ));
   }
 
   fd_sysvar_clock_write( slot_ctx, clock );

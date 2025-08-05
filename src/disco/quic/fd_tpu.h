@@ -13,11 +13,12 @@
    https://github.com/solana-foundation/specs/blob/main/p2p/tpu.md */
 
 #include "../fd_disco_base.h"
+#include "../fd_txn_m_t.h"
 
 /* FD_TPU_REASM_MTU is the max tango frag sz sent by an fd_tpu_reasm_t.
    FD_TPU_REASM_CHUNK_MTU*FD_CHUNK_SZ == FD_TPU_REASM_MTU */
 
-#define FD_TPU_REASM_CHUNK_MTU (FD_ULONG_ALIGN_UP( FD_TPU_MTU, FD_CHUNK_SZ )>>FD_CHUNK_LG_SZ)
+#define FD_TPU_REASM_CHUNK_MTU (FD_ULONG_ALIGN_UP( FD_TPU_RAW_MTU, FD_CHUNK_SZ )>>FD_CHUNK_LG_SZ)
 #define FD_TPU_REASM_MTU       (FD_TPU_REASM_CHUNK_MTU<<FD_CHUNK_LG_SZ)
 
 #define FD_TPU_REASM_ALIGN FD_CHUNK_ALIGN
@@ -122,7 +123,9 @@
 struct fd_tpu_reasm_key {
   ulong conn_uid; /* ULONG_MAX means invalid */
   ulong stream_id : 48;
-  ulong sz        : 14;
+  ulong sz        : 14; /* size of the txn payload data.  does not
+                           include the sizeof(fd_txn_m_t) bytes that
+                           precedes the payload in each slot. */
   ulong state     : 2;
 };
 
@@ -294,7 +297,9 @@ fd_tpu_reasm_publish( fd_tpu_reasm_t *      reasm,
                       fd_frag_meta_t *      mcache,
                       void *                base,  /* Assumed aligned FD_CHUNK_ALIGN */
                       ulong                 seq,
-                      long                  tspub );
+                      long                  tspub,
+                      uint                  source_ipv4,
+                      uchar                 source_tpu );
 
 /* fd_tpu_reasm_publish_fast is a streamlined version of acquire/frag/
    publish. */
@@ -306,7 +311,9 @@ fd_tpu_reasm_publish_fast( fd_tpu_reasm_t * reasm,
                            fd_frag_meta_t * mcache,
                            void *           base,  /* Assumed aligned FD_CHUNK_ALIGN */
                            ulong            seq,
-                           long             tspub );
+                           long             tspub,
+                           uint             source_ipv4,
+                           uchar            source_tpu );
 
 /* fd_tpu_reasm_cancel cancels the given stream reassembly. */
 

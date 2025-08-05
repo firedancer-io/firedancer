@@ -52,12 +52,12 @@ fd_loader_v4_get_state( fd_txn_account_t const * program,
   *err = FD_EXECUTOR_INSTR_SUCCESS;
 
   /* https://github.com/anza-xyz/agave/blob/v2.2.6/programs/loader-v4/src/lib.rs#L35-L36 */
-  if( FD_UNLIKELY( program->vt->get_data_len( program )<LOADER_V4_PROGRAM_DATA_OFFSET ) ) {
+  if( FD_UNLIKELY( fd_txn_account_get_data_len( program )<LOADER_V4_PROGRAM_DATA_OFFSET ) ) {
     *err = FD_EXECUTOR_INSTR_ERR_ACC_DATA_TOO_SMALL;
     return NULL;
   }
 
-  return fd_type_pun_const( program->vt->get_data( program ) );
+  return fd_type_pun_const( fd_txn_account_get_data( program ) );
 }
 
 /* `check_program_account()` validates the program account's state from its data.

@@ -31,13 +31,13 @@ fd_feature_restore( fd_features_t *         features,
 
   /* Skip accounts that are not owned by the feature program
      https://github.com/anza-xyz/solana-sdk/blob/6512aca61167088ce10f2b545c35c9bcb1400e70/feature-gate-interface/src/lib.rs#L42-L44 */
-  if( FD_UNLIKELY( memcmp( acct_rec->vt->get_owner( acct_rec ), fd_solana_feature_program_id.key, sizeof(fd_pubkey_t) ) ) ) {
+  if( FD_UNLIKELY( memcmp( fd_txn_account_get_owner( acct_rec ), fd_solana_feature_program_id.key, sizeof(fd_pubkey_t) ) ) ) {
     return;
   }
 
   /* Account data size must be >= FD_FEATURE_SIZEOF (9 bytes)
      https://github.com/anza-xyz/solana-sdk/blob/6512aca61167088ce10f2b545c35c9bcb1400e70/feature-gate-interface/src/lib.rs#L45-L47 */
-  if( FD_UNLIKELY( acct_rec->vt->get_data_len( acct_rec )<FD_FEATURE_SIZEOF ) ) {
+  if( FD_UNLIKELY( fd_txn_account_get_data_len( acct_rec )<FD_FEATURE_SIZEOF ) ) {
     return;
   }
 
@@ -47,8 +47,8 @@ fd_feature_restore( fd_features_t *         features,
     int decode_err;
     fd_feature_t * feature = fd_bincode_decode_spad(
         feature, runtime_spad,
-        acct_rec->vt->get_data( acct_rec ),
-        acct_rec->vt->get_data_len( acct_rec ),
+        fd_txn_account_get_data( acct_rec ),
+        fd_txn_account_get_data_len( acct_rec ),
         &decode_err );
     if( FD_UNLIKELY( decode_err ) ) {
       return;

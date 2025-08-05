@@ -5,6 +5,7 @@
 #include "generated/fd_gossip_tile_seccomp.h"
 
 #include "../../disco/fd_disco.h"
+#include "../../disco/fd_txn_m_t.h"
 #include "../../disco/keyguard/fd_keyload.h"
 #include "../../disco/keyguard/fd_keyguard_client.h"
 #include "../../disco/net/fd_net_tile.h"
@@ -254,11 +255,19 @@ gossip_deliver_fun( fd_crds_data_t * data,
 
     uchar * vote_txn_msg = fd_chunk_to_laddr( ctx->verify_out_mem, ctx->verify_out_chunk );
     ulong vote_txn_sz    = gossip_vote->txn.raw_sz;
-    memcpy( vote_txn_msg, gossip_vote->txn.raw, vote_txn_sz );
+
+    fd_contact_info_elem_t * ele = fd_contact_info_table_query( ctx->contact_info_table, &gossip_vote->from, NULL );
+
+    fd_txn_m_t * txnm = (fd_txn_m_t *)vote_txn_msg;
+    *txnm = (fd_txn_m_t) { 0UL };
+    txnm->payload_sz = (ushort)vote_txn_sz,
+    txnm->source_ipv4 = (ele && !fd_gossip_ip_addr_is_ip4( &ele->contact_info.addrs[ 0UL ] )) ? ele->contact_info.addrs[ 0UL ].inner.ip4 /* contact_info: gossip protocol address */ : 0U,
+    txnm->source_tpu  = FD_TXN_M_TPU_SOURCE_GOSSIP;
+    memcpy( vote_txn_msg + sizeof(fd_txn_m_t), gossip_vote->txn.raw, vote_txn_sz );
 
     ulong sig = 1UL;
     fd_mcache_publish( ctx->verify_out_mcache, ctx->verify_out_depth, ctx->verify_out_seq, sig, ctx->verify_out_chunk,
-      vote_txn_sz, 0UL, 0, 0 );
+      fd_txn_m_realized_footprint( txnm, 0, 0 ), 0UL, 0, 0 );
     ctx->verify_out_seq   = fd_seq_inc( ctx->verify_out_seq, 1UL );
     ctx->verify_out_chunk = fd_dcache_compact_next( ctx->verify_out_chunk, vote_txn_sz, ctx->verify_out_chunk0, ctx->verify_out_wmark );
 
