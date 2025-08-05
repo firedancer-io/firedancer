@@ -1594,32 +1594,24 @@ static void
 fd_update_stake_delegations( fd_exec_slot_ctx_t * slot_ctx,
                              fd_epoch_info_t *    temp_info ) {
 
-  fd_stakes_global_t * stakes = fd_bank_stakes_locking_modify( slot_ctx->bank );
-  fd_delegation_pair_t_mapnode_t * stake_delegations_pool = fd_stakes_stake_delegations_pool_join( stakes );
-  fd_delegation_pair_t_mapnode_t * stake_delegations_root = fd_stakes_stake_delegations_root_join( stakes );
+  fd_stake_delegations_t * stake_delegations = fd_stake_delegations_join( fd_bank_stake_delegations_locking_modify( slot_ctx->bank ) );
 
   /* In one pass, iterate over all the new stake infos and insert the updated values into the epoch stakes cache
       This assumes that there is enough memory pre-allocated for the stakes cache. */
   for( ulong idx=temp_info->stake_infos_new_keys_start_idx; idx<temp_info->stake_infos_len; idx++ ) {
     // Fetch and store the delegation associated with this stake account
-    fd_delegation_pair_t_mapnode_t key;
-    key.elem.account = temp_info->stake_infos[idx].account;
-    fd_delegation_pair_t_mapnode_t * entry = fd_delegation_pair_t_map_find( stake_delegations_pool, stake_delegations_root, &key );
-    if( FD_LIKELY( entry==NULL ) ) {
-      entry = fd_delegation_pair_t_map_acquire( stake_delegations_pool );
-      if( FD_UNLIKELY( !entry ) ) {
-        FD_TEST( 0 == fd_delegation_pair_t_map_verify( stake_delegations_pool, stake_delegations_root ) );
-        FD_LOG_CRIT(( "stake_delegations_pool full %lu", fd_delegation_pair_t_map_size( stake_delegations_pool, stake_delegations_root ) ));
-      }
-      entry->elem.account    = temp_info->stake_infos[idx].account;
-      entry->elem.delegation = temp_info->stake_infos[idx].stake.delegation;
-      fd_delegation_pair_t_map_insert( stake_delegations_pool, &stake_delegations_root, entry );
-    }
+    fd_stake_delegations_update(
+        stake_delegations,
+        &temp_info->stake_infos[idx].account,
+        &temp_info->stake_infos[idx].stake.delegation.voter_pubkey,
+        temp_info->stake_infos[idx].stake.delegation.stake,
+        temp_info->stake_infos[idx].stake.delegation.activation_epoch,
+        temp_info->stake_infos[idx].stake.delegation.deactivation_epoch,
+        temp_info->stake_infos[idx].stake.delegation.warmup_cooldown_rate
+    );
   }
 
-  fd_stakes_stake_delegations_pool_update( stakes, stake_delegations_pool );
-  fd_stakes_stake_delegations_root_update( stakes, stake_delegations_root );
-  fd_bank_stakes_end_locking_modify( slot_ctx->bank );
+  fd_bank_stake_delegations_end_locking_modify( slot_ctx->bank );
 
   /* At the epoch boundary, release all of the stake account keys
      because at this point all of the changes have been applied to the
@@ -1661,14 +1653,13 @@ fd_update_next_epoch_stakes( fd_exec_slot_ctx_t * slot_ctx ) {
      vote accounts in fd_stakes. */
 
   /* Copy stakes->vote_accounts into next_epoch_stakes */
-  fd_stakes_global_t const *        stakes = fd_bank_stakes_locking_query( slot_ctx->bank );
-  fd_vote_accounts_global_t const * vote_stakes = &stakes->vote_accounts;
+  fd_vote_accounts_global_t const * vote_stakes = fd_bank_curr_epoch_stakes_locking_query( slot_ctx->bank );
 
   fd_vote_accounts_global_t * next_epoch_stakes = fd_bank_next_epoch_stakes_locking_modify( slot_ctx->bank );
   fd_memcpy( next_epoch_stakes, vote_stakes, fd_bank_next_epoch_stakes_footprint );
   fd_bank_next_epoch_stakes_end_locking_modify( slot_ctx->bank );
 
-  fd_bank_stakes_end_locking_query( slot_ctx->bank );
+  fd_bank_curr_epoch_stakes_end_locking_query( slot_ctx->bank );
 }
 
 /* Mimics `bank.new_target_program_account()`. Assumes `out_rec` is a modifiable record.
@@ -2273,11 +2264,6 @@ fd_runtime_process_new_epoch( fd_exec_slot_ctx_t * slot_ctx,
                             &temp_info,
                             runtime_spad );
 
-  /* Update the stakes epoch value to the new epoch */
-  fd_stakes_global_t * stakes = fd_bank_stakes_locking_modify( slot_ctx->bank );
-  stakes->epoch = epoch;
-  fd_bank_stakes_end_locking_modify( slot_ctx->bank );
-
   fd_update_stake_delegations( slot_ctx, &temp_info );
 
   /* Refresh vote accounts in stakes cache using updated stake weights, and merges slot bank vote accounts with the epoch bank vote accounts.
@@ -2319,6 +2305,9 @@ fd_runtime_process_new_epoch( fd_exec_slot_ctx_t * slot_ctx,
 
   /* Update current leaders using epoch_stakes (new T-2 stakes) */
   fd_runtime_update_leaders( slot_ctx->bank, fd_bank_slot_get( slot_ctx->bank ), runtime_spad );
+
+  /* Increment the epoch. */
+  fd_bank_epoch_set( slot_ctx->bank, fd_bank_epoch_get( slot_ctx->bank ) + 1UL );
 
   FD_LOG_NOTICE(( "fd_process_new_epoch end" ));
 
@@ -2499,16 +2488,13 @@ fd_runtime_init_bank_from_genesis( fd_exec_slot_ctx_t *        slot_ctx,
 
   /* Derive epoch stakes */
 
-  fd_stakes_global_t * stakes_global = fd_bank_stakes_locking_modify( slot_ctx->bank );
+  fd_stake_delegations_t * stake_delegations = fd_stake_delegations_join( fd_stake_delegations_new( fd_bank_stake_delegations_locking_modify( slot_ctx->bank ), 5000UL ) );
+  FD_TEST( stake_delegations );
 
-  uchar * vacc_pool_mem = (uchar *)fd_ulong_align_up( (ulong)stakes_global + sizeof(fd_stakes_global_t), fd_vote_accounts_pair_global_t_map_align() );
+  fd_vote_accounts_global_t * vote_accounts = fd_bank_curr_epoch_stakes_locking_modify( slot_ctx->bank );
+  uchar * vacc_pool_mem = (uchar *)fd_ulong_align_up( (ulong)vote_accounts + sizeof(fd_vote_accounts_global_t), fd_vote_accounts_pair_global_t_map_align() );
   fd_vote_accounts_pair_global_t_mapnode_t * vacc_pool = fd_vote_accounts_pair_global_t_map_join( fd_vote_accounts_pair_global_t_map_new( vacc_pool_mem, 5000UL ) );
   fd_vote_accounts_pair_global_t_mapnode_t * vacc_root = NULL;
-
-
-  uchar * sacc_pool_mem = (uchar *)fd_ulong_align_up( (ulong)vacc_pool + fd_vote_accounts_pair_global_t_map_footprint( 5000UL ), fd_delegation_pair_t_map_align() );
-  fd_delegation_pair_t_mapnode_t * sacc_pool = fd_delegation_pair_t_map_join( fd_delegation_pair_t_map_new( sacc_pool_mem, 5000UL ) );
-  fd_delegation_pair_t_mapnode_t * sacc_root = NULL;
 
   fd_acc_lamports_t capitalization = 0UL;
 
@@ -2565,19 +2551,15 @@ fd_runtime_init_bank_from_genesis( fd_exec_slot_ctx_t *        slot_ctx,
       if( !stake_state.inner.stake.stake.delegation.stake ) {
         continue;
       }
-      fd_delegation_pair_t_mapnode_t   query_node = {0};
-      fd_memcpy(&query_node.elem.account, acc->key.key, sizeof(fd_pubkey_t));
-      fd_delegation_pair_t_mapnode_t * node = fd_delegation_pair_t_map_find( sacc_pool, sacc_root, &query_node );
 
-      if( !node ) {
-        node = fd_delegation_pair_t_map_acquire( sacc_pool );
-        fd_memcpy( &node->elem.account, acc->key.key, sizeof(fd_pubkey_t) );
-        node->elem.delegation = stake_state.inner.stake.stake.delegation;
-        fd_delegation_pair_t_map_insert( sacc_pool, &sacc_root, node );
-      } else {
-        fd_memcpy( &node->elem.account, acc->key.key, sizeof(fd_pubkey_t) );
-        node->elem.delegation = stake_state.inner.stake.stake.delegation;
-      }
+      fd_stake_delegations_update(
+          stake_delegations,
+          (fd_pubkey_t *)acc->key.key,
+          &stake_state.inner.stake.stake.delegation.voter_pubkey,
+          stake_state.inner.stake.stake.delegation.stake,
+          stake_state.inner.stake.stake.delegation.activation_epoch,
+          stake_state.inner.stake.stake.delegation.deactivation_epoch,
+          stake_state.inner.stake.stake.delegation.warmup_cooldown_rate );
 
       } FD_SPAD_FRAME_END;
     } else if( !memcmp(acc->account.owner.key, fd_solana_feature_program_id.key, sizeof(fd_pubkey_t)) ) {
@@ -2681,19 +2663,6 @@ fd_runtime_init_bank_from_genesis( fd_exec_slot_ctx_t *        slot_ctx,
 
   }
 
-  for( fd_delegation_pair_t_mapnode_t *n = fd_delegation_pair_t_map_minimum( sacc_pool, sacc_root );
-       n;
-       n = fd_delegation_pair_t_map_successor( sacc_pool, n )) {
-    fd_vote_accounts_pair_global_t_mapnode_t query_voter = {0};
-    query_voter.elem.key = n->elem.delegation.voter_pubkey;
-
-    fd_vote_accounts_pair_global_t_mapnode_t * voter = fd_vote_accounts_pair_global_t_map_find( vacc_pool, vacc_root, &query_voter );
-
-    if( !!voter ) {
-      voter->elem.stake = fd_ulong_sat_add( voter->elem.stake, n->elem.delegation.stake );
-    }
-  }
-
   fd_vote_accounts_vote_accounts_pool_update( epoch_stakes, vote_accounts_pool );
   fd_vote_accounts_vote_accounts_root_update( epoch_stakes, vote_accounts_root );
 
@@ -2706,15 +2675,13 @@ fd_runtime_init_bank_from_genesis( fd_exec_slot_ctx_t *        slot_ctx,
   fd_bank_next_epoch_stakes_end_locking_modify( slot_ctx->bank );
 
 
+  fd_bank_epoch_set( slot_ctx->bank, 0UL );
 
-  stakes_global->epoch  = 0UL;
-  stakes_global->unused = 0UL;
+  fd_vote_accounts_vote_accounts_pool_update( vote_accounts, vacc_pool );
+  fd_vote_accounts_vote_accounts_root_update( vote_accounts, vacc_root );
+  fd_bank_curr_epoch_stakes_end_locking_modify( slot_ctx->bank );
 
-  fd_vote_accounts_vote_accounts_pool_update( &stakes_global->vote_accounts, vacc_pool );
-  fd_vote_accounts_vote_accounts_root_update( &stakes_global->vote_accounts, vacc_root );
-  fd_stakes_stake_delegations_pool_update( stakes_global, sacc_pool );
-  fd_stakes_stake_delegations_root_update( stakes_global, sacc_root );
-  fd_bank_stakes_end_locking_modify( slot_ctx->bank );
+  fd_bank_stake_delegations_end_locking_modify( slot_ctx->bank );
 
   fd_bank_capitalization_set( slot_ctx->bank, capitalization );
 

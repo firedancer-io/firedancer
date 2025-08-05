@@ -5,6 +5,7 @@
 #include "../leaders/fd_leaders.h"
 #include "../features/fd_features.h"
 #include "../rewards/fd_epoch_rewards.h"
+#include "../stakes/fd_stake_delegations.h"
 #include "../fd_rwlock.h"
 #include "fd_runtime_const.h"
 #include "fd_blockhashes.h"
@@ -187,11 +188,11 @@ FD_PROTOTYPES_BEGIN
                                                                                                                                                                                           /* E-1 and they determined the leader schedule for epoch */  \
                                                                                                                                                                                           /* E+1. */                                                   \
   X(fd_vote_accounts_global_t,         epoch_stakes,                200000000UL,                               128UL,                                      1,   0,                1    )  /* Epoch stakes ~4K per account * 50k vote accounts */       \
+  X(fd_vote_accounts_global_t,         curr_epoch_stakes,           200000000UL,                               128UL,                                      1,   0,                1    )  /* Stakes being accumulated in current epoch */              \
   X(fd_epoch_rewards_t,                epoch_rewards,               FD_EPOCH_REWARDS_FOOTPRINT,                FD_EPOCH_REWARDS_ALIGN,                     1,   1,                1    )  /* Epoch rewards */                                          \
   X(fd_epoch_leaders_t,                epoch_leaders,               FD_RUNTIME_MAX_EPOCH_LEADERS,              FD_EPOCH_LEADERS_ALIGN,                     1,   1,                1    )  /* Epoch leaders. If our system supports 100k vote accs, */  \
                                                                                                                                                                                           /* then there can be 100k unique leaders in the worst */     \
                                                                                                                                                                                           /* case. We also can assume 432k slots per epoch. */         \
-  X(fd_stakes_global_t,                stakes,                      400000000UL,                               128UL,                                      1,   0,                1    )  /* Stakes */                                                 \
   X(fd_features_t,                     features,                    sizeof(fd_features_t),                     alignof(fd_features_t),                     0,   0,                0    )  /* Features */                                               \
   X(ulong,                             txn_count,                   sizeof(ulong),                             alignof(ulong),                             0,   0,                0    )  /* Transaction count */                                      \
   X(ulong,                             nonvote_txn_count,           sizeof(ulong),                             alignof(ulong),                             0,   0,                0    )  /* Nonvote transaction count */                              \
@@ -201,7 +202,9 @@ FD_PROTOTYPES_BEGIN
   X(ulong,                             part_width,                  sizeof(ulong),                             alignof(ulong),                             0,   0,                0    )  /* Part width */                                             \
   X(ulong,                             slots_per_epoch,             sizeof(ulong),                             alignof(ulong),                             0,   0,                0    )  /* Slots per epoch */                                        \
   X(ulong,                             shred_cnt,                   sizeof(ulong),                             alignof(ulong),                             0,   0,                0    )  /* Shred count */                                            \
-  X(int,                               enable_exec_recording,       sizeof(int),                               alignof(int),                               0,   0,                0    )  /* Enable exec recording */
+  X(int,                               enable_exec_recording,       sizeof(int),                               alignof(int),                               0,   0,                0    )  /* Enable exec recording */                                  \
+  X(fd_stake_delegations_t,            stake_delegations,           FD_STAKE_DELEGATIONS_FOOTPRINT,            FD_STAKE_DELEGATIONS_ALIGN,                 1,   0,                1    )  /* Stake delegations */                                      \
+  X(ulong,                             epoch,                       sizeof(ulong),                             alignof(ulong),                             0,   0,                0    )  /* Epoch */
 
 /* Invariant Every CoW field must have a rw-lock */
 #define X(type, name, footprint, align, cow, limit_fork_width, has_lock)                                              \
@@ -272,14 +275,20 @@ FD_PROTOTYPES_BEGIN
 #undef POOL_NAME
 #undef POOL_T
 
-#define POOL_NAME fd_bank_stakes_pool
-#define POOL_T    fd_bank_stakes_t
+#define POOL_NAME fd_bank_epoch_rewards_pool
+#define POOL_T    fd_bank_epoch_rewards_t
 #include "../../util/tmpl/fd_pool.c"
 #undef POOL_NAME
 #undef POOL_T
 
-#define POOL_NAME fd_bank_epoch_rewards_pool
-#define POOL_T    fd_bank_epoch_rewards_t
+#define POOL_NAME fd_bank_stake_delegations_pool
+#define POOL_T    fd_bank_stake_delegations_t
+#include "../../util/tmpl/fd_pool.c"
+#undef POOL_NAME
+#undef POOL_T
+
+#define POOL_NAME fd_bank_curr_epoch_stakes_pool
+#define POOL_T    fd_bank_curr_epoch_stakes_t
 #include "../../util/tmpl/fd_pool.c"
 #undef POOL_NAME
 #undef POOL_T
@@ -470,9 +479,6 @@ static inline ulong
 fd_bank_slot_get( fd_bank_t const * bank ) {
   return bank->slot_;
 }
-
-ulong
-fd_bank_epoch_get( fd_bank_t const * bank );
 
 /* Simple getters and setters for members of fd_banks_t.*/
 

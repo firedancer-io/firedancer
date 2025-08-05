@@ -3,15 +3,19 @@
 /* Stripped down version of `fd_refresh_vote_accounts()` that simply refreshes the stake delegation amount
    for each of the vote accounts using the stake delegations cache. */
 static void
-fd_runtime_fuzz_block_refresh_vote_accounts( fd_vote_accounts_pair_global_t_mapnode_t *  vote_accounts_pool,
+fd_runtime_fuzz_block_refresh_vote_accounts( fd_vote_accounts_pair_global_t_mapnode_t * vote_accounts_pool,
                                              fd_vote_accounts_pair_global_t_mapnode_t * vote_accounts_root,
-                                             fd_delegation_pair_t_mapnode_t *  stake_delegations_pool,
-                                             fd_delegation_pair_t_mapnode_t * stake_delegations_root ) {
-  for( fd_delegation_pair_t_mapnode_t * node = fd_delegation_pair_t_map_minimum( stake_delegations_pool, stake_delegations_root );
-       node;
-       node = fd_delegation_pair_t_map_successor( stake_delegations_pool, node ) ) {
-    fd_pubkey_t * voter_pubkey = &node->elem.delegation.voter_pubkey;
-    ulong         stake        = node->elem.delegation.stake;
+                                             fd_stake_delegations_t *                   stake_delegations ) {
+  fd_stake_delegation_map_t * map  = fd_stake_delegations_get_map( stake_delegations );
+  fd_stake_delegation_t *     pool = fd_stake_delegations_get_pool( stake_delegations );
+
+  for( fd_stake_delegation_map_iter_t iter = fd_stake_delegation_map_iter_init( map, pool );
+       !fd_stake_delegation_map_iter_done( iter, map, pool );
+       iter = fd_stake_delegation_map_iter_next( iter, map, pool ) ) {
+    fd_stake_delegation_t * node = fd_stake_delegation_map_iter_ele( iter, map, pool );
+
+    fd_pubkey_t * voter_pubkey = &node->vote_account;
+    ulong         stake        = node->stake;
 
     /* Find the voter in the vote accounts cache and update their delegation amount */
     fd_vote_accounts_pair_global_t_mapnode_t vode_node[1];
@@ -105,10 +109,9 @@ fd_runtime_fuzz_block_register_vote_account( fd_exec_slot_ctx_t *               
 /* Stores an entry in the stake delegations cache for the given vote account. Deserializes and uses the present
    account state to derive delegation information. */
 static void
-fd_runtime_fuzz_block_register_stake_delegation( fd_exec_slot_ctx_t *              slot_ctx,
-                                                 fd_delegation_pair_t_mapnode_t *  pool,
-                                                 fd_delegation_pair_t_mapnode_t ** root,
-                                                 fd_pubkey_t *                     pubkey ) {
+fd_runtime_fuzz_block_register_stake_delegation( fd_exec_slot_ctx_t *     slot_ctx,
+                                                 fd_stake_delegations_t * stake_delegations,
+                                                 fd_pubkey_t *            pubkey ) {
  FD_TXN_ACCOUNT_DECL( acc );
   if( FD_UNLIKELY( fd_txn_account_init_from_funk_readonly( acc, pubkey, slot_ctx->funk, slot_ctx->funk_txn ) ) ) {
     return;
@@ -136,20 +139,14 @@ fd_runtime_fuzz_block_register_stake_delegation( fd_exec_slot_ctx_t *           
   }
 
   /* Nothing to do if the account already exists in the cache */
-  fd_delegation_pair_t_mapnode_t existing_node[1];
-  fd_memcpy( existing_node->elem.account.uc, pubkey, sizeof(fd_pubkey_t) );
-  if( fd_delegation_pair_t_map_find( pool, *root, existing_node ) ) {
-    return;
-  }
-
-  /* At this point, the node is new and needs to be inserted into the cache. */
-  fd_delegation_pair_t_mapnode_t * node_to_insert = fd_delegation_pair_t_map_acquire( pool );
-  fd_memcpy( node_to_insert->elem.account.uc, pubkey, sizeof(fd_pubkey_t) );
-
-  node_to_insert->elem.account    = *pubkey;
-  node_to_insert->elem.delegation = stake_state.inner.stake.stake.delegation;
-
-  fd_delegation_pair_t_map_insert( pool, root, node_to_insert );
+  fd_stake_delegations_update(
+      stake_delegations,
+      pubkey,
+      &stake_state.inner.stake.stake.delegation.voter_pubkey,
+      stake_state.inner.stake.stake.delegation.stake,
+      stake_state.inner.stake.stake.delegation.activation_epoch,
+      stake_state.inner.stake.stake.delegation.deactivation_epoch,
+      stake_state.inner.stake.stake.delegation.warmup_cooldown_rate );
 }
 
 /* Common helper method for populating a previous epoch's vote cache. */
@@ -300,13 +297,13 @@ fd_runtime_fuzz_block_ctx_create( fd_runtime_fuzz_runner_t *           runner,
 
 
   /* SETUP STAKES HERE */
-  fd_stakes_global_t * stakes = fd_bank_stakes_locking_modify( slot_ctx->bank );
-  pool_mem = (uchar *)fd_ulong_align_up( (ulong)stakes + sizeof(fd_stakes_global_t), fd_vote_accounts_pair_t_map_align() );
+  fd_vote_accounts_global_t * curr_stakes = fd_bank_curr_epoch_stakes_locking_modify( slot_ctx->bank );
+  pool_mem = (uchar *)fd_ulong_align_up( (ulong)curr_stakes + sizeof(fd_vote_accounts_global_t), fd_vote_accounts_pair_t_map_align() );
   fd_vote_accounts_pair_global_t_mapnode_t * vote_accounts_pool = fd_vote_accounts_pair_global_t_map_join( fd_vote_accounts_pair_global_t_map_new( pool_mem, vote_acct_max ) );
   fd_vote_accounts_pair_global_t_mapnode_t * vote_accounts_root = NULL;
-  pool_mem = (uchar *)fd_ulong_align_up( (ulong)pool_mem + fd_vote_accounts_pair_global_t_map_footprint( vote_acct_max ), fd_delegation_pair_t_map_align() );
-  fd_delegation_pair_t_mapnode_t * stake_delegations_pool = fd_delegation_pair_t_map_join( fd_delegation_pair_t_map_new( pool_mem, vote_acct_max ) );
-  fd_delegation_pair_t_mapnode_t * stake_delegations_root = NULL;
+
+  fd_stake_delegations_t * stake_delegations = fd_bank_stake_delegations_locking_modify( slot_ctx->bank );
+  stake_delegations = fd_stake_delegations_join( fd_stake_delegations_new( stake_delegations, FD_RUNTIME_MAX_STAKE_ACCOUNTS ) );
 
   /* Load in all accounts with > 0 lamports provided in the context. The input expects unique account pubkeys. */
   for( ushort i=0; i<test_ctx->acct_states_count; i++ ) {
@@ -324,22 +321,23 @@ fd_runtime_fuzz_block_ctx_create( fd_runtime_fuzz_runner_t *           runner,
 
     /* Update the stake delegations cache for epoch T */
     fd_runtime_fuzz_block_register_stake_delegation( slot_ctx,
-                                                     stake_delegations_pool,
-                                                     &stake_delegations_root,
+                                                     stake_delegations,
                                                      &pubkey );
   }
 
   /* Refresh vote accounts to calculate stake delegations */
   fd_runtime_fuzz_block_refresh_vote_accounts( vote_accounts_pool,
                                                vote_accounts_root,
-                                               stake_delegations_pool,
-                                               stake_delegations_root );
+                                               stake_delegations );
 
-  fd_vote_accounts_vote_accounts_pool_update( &stakes->vote_accounts, vote_accounts_pool );
-  fd_vote_accounts_vote_accounts_root_update( &stakes->vote_accounts, vote_accounts_root );
+  fd_vote_accounts_vote_accounts_pool_update( curr_stakes, vote_accounts_pool );
+  fd_vote_accounts_vote_accounts_root_update( curr_stakes, vote_accounts_root );
 
-  fd_stakes_stake_delegations_pool_update( stakes, stake_delegations_pool );
-  fd_stakes_stake_delegations_root_update( stakes, stake_delegations_root );
+  // fd_vote_accounts_stake_delegations_pool_update( curr_stakes, stake_delegations_pool );
+  // fd_vote_accounts_stake_delegations_root_update( curr_stakes, stake_delegations_root );
+
+  fd_bank_curr_epoch_stakes_end_locking_modify( slot_ctx->bank );
+  fd_bank_stake_delegations_end_locking_modify( slot_ctx->bank );
 
   /* Finish init epoch bank sysvars */
   fd_epoch_schedule_t epoch_schedule_[1];
@@ -349,9 +347,8 @@ fd_runtime_fuzz_block_ctx_create( fd_runtime_fuzz_runner_t *           runner,
   fd_rent_t const * rent = fd_sysvar_rent_read( funk, funk_txn, runner->spad );
   fd_bank_rent_set( slot_ctx->bank, *rent );
 
-  stakes->epoch = fd_slot_to_epoch( epoch_schedule, test_ctx->slot_ctx.prev_slot, NULL );
+  fd_bank_epoch_set( slot_ctx->bank, fd_slot_to_epoch( epoch_schedule, test_ctx->slot_ctx.prev_slot, NULL ) );
 
-  fd_bank_stakes_end_locking_modify( slot_ctx->bank );
 
   /* Refresh the program cache */
   fd_runtime_fuzz_refresh_program_cache( slot_ctx, test_ctx->acct_states, test_ctx->acct_states_count, runner->spad );
