@@ -7,7 +7,7 @@ DIR="$( realpath -e -- "$DIR"; )";    # Resolve its full path if need be
 cd $DIR/../..
 
 OBJDIR=${OBJDIR:-build/native/gcc}
-NUM_PROCESSES=${NUM_PROCESSES:-12}
+NUM_PROCESSES=1
 
 if [ "$LOG_PATH" == "" ]; then
   LOG_PATH="`mktemp -d`"

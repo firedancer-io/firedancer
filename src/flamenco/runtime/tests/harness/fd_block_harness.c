@@ -300,7 +300,7 @@ fd_runtime_fuzz_block_ctx_create( fd_runtime_fuzz_runner_t *           runner,
 
   /* Set up stake delegations and vote accounts for epoch T */
   fd_stakes_slim_t * stakes = fd_bank_stakes_locking_modify( slot_ctx->bank );
-  fd_stake_account_slim_t * stakes_pool = fd_stakes_slim_join_pool( stakes );
+  fd_stake_account_slim_t * stakes_pool = fd_stakes_slim_init_pool( stakes );
 
   fd_vote_accounts_global_t * vote_accounts = fd_bank_next_next_epoch_stakes_locking_modify( slot_ctx->bank );
   pool_mem = (uchar *)fd_ulong_align_up( (ulong)vote_accounts + sizeof(fd_stakes_global_t), fd_vote_accounts_pair_t_map_align() );
