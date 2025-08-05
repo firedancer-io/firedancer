@@ -415,6 +415,17 @@ fd_runtime_fuzz_block_ctx_create( fd_runtime_fuzz_runner_t *           runner,
     }
   }
 
+  /* Make a new funk transaction since we're done loading in accounts for context */
+  fd_funk_txn_xid_t fork_xid[1] = {0};
+  fork_xid[0] = fd_funk_generate_xid();
+  fd_funk_txn_start_write( funk );
+  slot_ctx->funk_txn = fd_funk_txn_prepare( funk, slot_ctx->funk_txn, fork_xid, 1 );
+  fd_funk_txn_end_write( funk );
+
+  /* Reset the lthash to zero, because we are in a new Funk transaction now */
+  fd_slot_lthash_t lthash = {0};
+  fd_bank_lthash_set( slot_ctx->bank, lthash );
+
   // Populate blockhash queue and recent blockhashes sysvar
   for( ushort i=0; i<test_ctx->blockhash_queue_count; ++i ) {
     fd_hash_t hash;
@@ -426,16 +437,6 @@ fd_runtime_fuzz_block_ctx_create( fd_runtime_fuzz_runner_t *           runner,
   // Set the current poh from the input (we skip POH verification in this fuzzing target)
   fd_hash_t * poh = fd_bank_poh_modify( slot_ctx->bank );
   fd_memcpy( poh->hash, test_ctx->slot_ctx.poh, sizeof(fd_hash_t) );
-
-  /* Make a new funk transaction since we're done loading in accounts for context */
-  fd_funk_txn_xid_t fork_xid[1] = {0};
-  fork_xid[0] = fd_funk_generate_xid();
-  fd_funk_txn_start_write( funk );
-  slot_ctx->funk_txn = fd_funk_txn_prepare( funk, slot_ctx->funk_txn, fork_xid, 1 );
-  fd_funk_txn_end_write( funk );
-
-  /* Calculate epoch account hash values. This sets epoch_bank.eah_{start_slot, stop_slot, interval} */
-  fd_calculate_epoch_accounts_hash_values( slot_ctx );
 
   /* Restore sysvar cache */
   fd_sysvar_cache_restore_fuzz( slot_ctx );
@@ -541,7 +542,7 @@ fd_runtime_fuzz_block_ctx_exec( fd_runtime_fuzz_runner_t * runner,
     int   is_epoch_boundary = 0;
     fd_runtime_block_pre_execute_process_new_epoch( slot_ctx, capture_ctx, runtime_spad, &is_epoch_boundary );
 
-    res = fd_runtime_block_execute( slot_ctx, capture_ctx, block_info, runtime_spad );
+    res = fd_runtime_block_execute( slot_ctx, block_info, runtime_spad );
   } FD_SPAD_FRAME_END;
 
   return res;

@@ -806,6 +806,15 @@ fd_topo_initialize( config_t * config ) {
     /**/                 fd_topob_tile_in(  topo, "plugin", 0UL,           "metric_in", "votes_plugin", 0UL,          FD_TOPOB_RELIABLE,   FD_TOPOB_POLLED );
   }
 
+  /* Link from writer tile to replay tile, to send solcap account updates so that they are serialized.
+     TODO: remove this when solcap v2 is here. */
+  if( strlen( config->capture.solcap_capture ) ) {
+    fd_topob_wksp( topo, "writ_repl" );
+    FOR(writer_tile_cnt) fd_topob_link(     topo, "writ_repl", "writ_repl", 1UL, FD_RUNTIME_PUBLIC_ACCOUNT_UPDATE_MSG_FOOTPRINT, 1UL );
+    FOR(writer_tile_cnt) fd_topob_tile_out( topo, "writer",    i,                               "writ_repl", i );
+    FOR(writer_tile_cnt) fd_topob_tile_in(  topo, "replay",    0UL,      "metric_in", "writ_repl", i, FD_TOPOB_RELIABLE, FD_TOPOB_POLLED );
+  }
+
   if( FD_LIKELY( config->tiles.gui.enabled ) ) {
     fd_topob_wksp( topo, "gui"          );
     /**/                 fd_topob_tile(     topo, "gui",     "gui",     "metric_in",  tile_to_cpu[ topo->tile_cnt ], 0, 1 );
@@ -1026,6 +1035,8 @@ fd_topo_configure_tile( fd_topo_tile_t * tile,
       tile->exec.dump_syscall_to_pb = config->capture.dump_syscall_to_pb;
     } else if( FD_UNLIKELY( !strcmp( tile->name, "writer" ) ) ) {
       tile->writer.funk_obj_id = fd_pod_query_ulong( config->topo.props, "funk", ULONG_MAX );
+      strncpy( tile->writer.solcap_capture, config->capture.solcap_capture, sizeof(tile->writer.solcap_capture) );
+      tile->writer.capture_start_slot = config->capture.capture_start_slot;
     } else if( FD_UNLIKELY( !strcmp( tile->name, "snaprd" ) ) ) {
       setup_snapshots( config, tile );
     } else if( FD_UNLIKELY( !strcmp( tile->name, "snapdc" ) ) ) {

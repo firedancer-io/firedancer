@@ -352,6 +352,8 @@ struct fd_topo_tile {
 
     struct {
       ulong funk_obj_id;
+      char  solcap_capture[ PATH_MAX ];
+      ulong capture_start_slot;
     } writer;
 
     struct {

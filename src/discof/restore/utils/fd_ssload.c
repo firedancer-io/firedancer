@@ -103,15 +103,6 @@ fd_ssload_recover( fd_snapshot_manifest_t * manifest,
   if( FD_LIKELY( manifest->has_hashes_per_tick ) ) fd_bank_hashes_per_tick_set( slot_ctx->bank, manifest->hashes_per_tick );
   else                                             fd_bank_hashes_per_tick_set( slot_ctx->bank, 0UL );
 
-  if( FD_LIKELY( manifest->has_epoch_account_hash ) ) {
-    fd_hash_t epoch_account_hash;
-    fd_memcpy( &epoch_account_hash.uc, manifest->epoch_account_hash, 32UL );
-    fd_bank_epoch_account_hash_set( slot_ctx->bank, epoch_account_hash );
-  } else {
-    fd_hash_t epoch_account_hash = {0};
-    fd_bank_epoch_account_hash_set( slot_ctx->bank, epoch_account_hash );
-  }
-
   if( FD_LIKELY( manifest->has_accounts_lthash ) ) {
     fd_slot_lthash_t lthash;
     fd_memcpy( lthash.lthash, manifest->accounts_lthash, 2048UL );

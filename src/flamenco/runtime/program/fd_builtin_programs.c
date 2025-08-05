@@ -162,11 +162,20 @@ fd_write_builtin_account( fd_exec_slot_ctx_t * slot_ctx,
   int err = fd_txn_account_init_from_funk_mutable( rec, &pubkey, funk, txn, 1, sz, &prepare );
   FD_TEST( !err );
 
+  fd_lthash_value_t prev_hash[1];
+  fd_hashes_account_lthash(
+    &pubkey,
+    fd_txn_account_get_meta( rec ),
+    fd_txn_account_get_data( rec ),
+    prev_hash );
+
   fd_txn_account_set_data( rec, data, sz );
   fd_txn_account_set_lamports( rec, 1UL );
   fd_txn_account_set_rent_epoch( rec, 0UL );
   fd_txn_account_set_executable( rec, 1 );
   fd_txn_account_set_owner( rec, &fd_solana_native_loader_id );
+
+  fd_hashes_update_lthash( rec, prev_hash, slot_ctx->bank, NULL );
 
   fd_txn_account_mutable_fini( rec, funk, txn, &prepare );
 

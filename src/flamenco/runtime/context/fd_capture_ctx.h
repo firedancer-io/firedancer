@@ -3,6 +3,10 @@
 
 #include "../../capture/fd_solcap_writer.h"
 
+/* Maximum number of accounts that can be updated in a single transaction */
+#define FD_CAPTURE_CTX_MAX_ACCOUNT_UPDATES      (128UL)
+#define FD_CAPTURE_CTX_ACCOUNT_UPDATE_BUFFER_SZ (FD_CAPTURE_CTX_MAX_ACCOUNT_UPDATES * FD_RUNTIME_PUBLIC_ACCOUNT_UPDATE_MSG_FOOTPRINT)
+
 /* Context needed to do solcap capture during execution of transactions */
 #define FD_CAPTURE_CTX_ALIGN (8UL)
 struct __attribute__((aligned(FD_CAPTURE_CTX_ALIGN))) fd_capture_ctx {
@@ -39,10 +43,19 @@ struct __attribute__((aligned(FD_CAPTURE_CTX_ALIGN))) fd_capture_ctx {
 
   /* ELF Capture */
   int                      dump_elf_to_pb;
+
+  /* Account update buffer, account updates to be sent over the writer_replay link are buffered here
+     to avoid passing stem down into the runtime.
+
+     FIXME: write directly into the dcache to avoid the memory copy and allocation
+     TODO: remove this when solcap v2 is here. */
+  uchar *                    account_updates_buffer;
+  uchar *                    account_updates_buffer_ptr;
+  ulong                      account_updates_len;
 };
 typedef struct fd_capture_ctx fd_capture_ctx_t;
-#define FD_CAPTURE_CTX_FOOTPRINT ( sizeof(fd_capture_ctx_t) + fd_solcap_writer_footprint() )
-#define FD_CAPTURE_CTX_MAGIC (0x193ECD2A6C395195UL) /* random */
+#define FD_CAPTURE_CTX_FOOTPRINT ( sizeof(fd_capture_ctx_t) + fd_solcap_writer_footprint() + FD_CAPTURE_CTX_ACCOUNT_UPDATE_BUFFER_SZ )
+#define FD_CAPTURE_CTX_MAGIC     (0x193ECD2A6C395195UL) /* random */
 
 FD_PROTOTYPES_BEGIN
 

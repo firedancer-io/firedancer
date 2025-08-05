@@ -6,7 +6,6 @@
 #include "../../flamenco/runtime/fd_runtime.h"
 #include "../../flamenco/runtime/fd_runtime_public.h"
 #include "../../flamenco/runtime/fd_executor.h"
-#include "../../flamenco/runtime/fd_hashes.h"
 
 #include "../../funk/fd_funk.h"
 
@@ -187,64 +186,6 @@ execute_txn( fd_exec_tile_ctx_t * ctx ) {
   } FD_SPAD_FRAME_END;
 }
 
-// TODO: hashing can be moved into the writer tile
-static void
-hash_accounts( fd_exec_tile_ctx_t *                ctx,
-               fd_runtime_public_hash_bank_msg_t * msg ) {
-
-  ctx->slot = msg->slot;
-  fd_funk_txn_map_t * txn_map = fd_funk_txn_map( ctx->funk );
-  if( FD_UNLIKELY( !txn_map->map ) ) {
-    FD_LOG_ERR(( "Could not find valid funk transaction map" ));
-  }
-  fd_funk_txn_xid_t xid = { .ul = { ctx->slot, ctx->slot } };
-  fd_funk_txn_start_read( ctx->funk );
-  fd_funk_txn_t * funk_txn = fd_funk_txn_query( &xid, txn_map );
-  if( FD_UNLIKELY( !funk_txn ) ) {
-    FD_LOG_ERR(( "Could not find valid funk transaction" ));
-  }
-  fd_funk_txn_end_read( ctx->funk );
-  ctx->txn_ctx->funk_txn = funk_txn;
-
-  fd_banks_lock( ctx->banks );
-
-  ctx->bank = fd_banks_get_bank( ctx->banks, ctx->slot );
-  if( FD_UNLIKELY( !ctx->bank ) ) {
-    FD_LOG_ERR(( "Could not get bank for slot %lu", ctx->slot ));
-  }
-
-  ctx->txn_ctx->bank = ctx->bank;
-  ctx->txn_ctx->slot = fd_bank_slot_get( ctx->bank );
-
-  ulong start_idx = msg->start_idx;
-  ulong end_idx   = msg->end_idx;
-
-  fd_accounts_hash_task_info_t * task_info = fd_wksp_laddr_fast( ctx->runtime_public_wksp, msg->task_infos_gaddr );
-  if( FD_UNLIKELY( !task_info ) ) {
-    FD_LOG_ERR(( "Unable to join task info array" ));
-  }
-
-  if( FD_UNLIKELY( !msg->lthash_gaddr ) ) {
-    FD_LOG_ERR(( "lthash gaddr is zero" ));
-  }
-  fd_lthash_value_t * lthash = fd_wksp_laddr_fast( ctx->runtime_public_wksp, msg->lthash_gaddr );
-  if( FD_UNLIKELY( !lthash ) ) {
-    FD_LOG_ERR(( "Unable to join lthash" ));
-  }
-  fd_lthash_zero( lthash );
-
-  for( ulong i=start_idx; i<=end_idx; i++ ) {
-    fd_account_hash( ctx->txn_ctx->funk,
-                     ctx->txn_ctx->funk_txn,
-                     &task_info[i],
-                     lthash,
-                     ctx->txn_ctx->slot,
-                     &ctx->txn_ctx->features );
-  }
-
-  fd_banks_unlock( ctx->banks );
-}
-
 static void
 during_frag( fd_exec_tile_ctx_t * ctx,
              ulong                in_idx,
@@ -268,11 +209,6 @@ during_frag( fd_exec_tile_ctx_t * ctx,
       ctx->txn  = txn->txn;
       ctx->slot = txn->slot;
       execute_txn( ctx );
-      return;
-    } else if( sig==EXEC_HASH_ACCS_SIG ) {
-      fd_runtime_public_hash_bank_msg_t * msg = fd_chunk_to_laddr( ctx->replay_in_mem, chunk );
-      FD_LOG_DEBUG(( "hash accs=%lu msg recvd", msg->end_idx - msg->start_idx ));
-      hash_accounts( ctx, msg );
       return;
     } else {
       FD_LOG_CRIT(( "Unknown signature" ));
@@ -321,9 +257,6 @@ after_frag( fd_exec_tile_ctx_t * ctx,
     if( FD_UNLIKELY( ctx->txn_id==FD_EXEC_ID_SENTINEL ) ) {
       ctx->txn_id = 0U;
     }
-  } else if( sig==EXEC_HASH_ACCS_SIG ) {
-    FD_LOG_DEBUG(( "Sending ack for hash accs msg" ));
-    fd_fseq_update( ctx->exec_fseq, fd_exec_fseq_set_hash_done( ctx->slot ) );
   } else {
     FD_LOG_ERR(( "Unknown message signature" ));
   }

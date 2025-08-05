@@ -24,6 +24,7 @@
 #include "../../../util/pod/fd_pod_format.h"
 #include "../../../discof/replay/fd_replay_notif.h"
 #include "../../../discof/repair/fd_fec_chainer.h"
+#include "../../../flamenco/runtime/fd_runtime_public.h" /* FD_RUNTIME_PUBLIC_ACCOUNT_UPDATE_MSG_MTU */
 #include "../main.h"
 
 #include <unistd.h> /* pause */
@@ -201,6 +202,19 @@ backtest_topo( config_t * config ) {
   FOR(exec_tile_cnt) fd_topob_tile_out( topo, "exec", i, "exec_writer", i );
   FOR(writer_tile_cnt) for( ulong j=0UL; j<exec_tile_cnt; j++ )
     fd_topob_tile_in( topo, "writer", i, "metric_in", "exec_writer", j, FD_TOPOB_RELIABLE, FD_TOPOB_POLLED );
+
+  /**********************************************************************/
+  /* Setup writer->replay links in topo, to send solcap account updates
+     so that they are serialized.
+
+     TODO: remove this when solcap v2 is here. */
+  /**********************************************************************/
+  if( strlen( config->capture.solcap_capture ) ) {
+    fd_topob_wksp( topo, "writ_repl" );
+    FOR(writer_tile_cnt) fd_topob_link( topo, "writ_repl", "writ_repl", 1UL, FD_RUNTIME_PUBLIC_ACCOUNT_UPDATE_MSG_FOOTPRINT, 1UL );
+    FOR(writer_tile_cnt) fd_topob_tile_out( topo, "writer", i, "writ_repl", i );
+    FOR(writer_tile_cnt) fd_topob_tile_in( topo, "replay", 0UL, "metric_in", "writ_repl", i, FD_TOPOB_RELIABLE, FD_TOPOB_POLLED );
+  }
 
   /**********************************************************************/
   /* Setup the shared objs used by replay and exec tiles                */
