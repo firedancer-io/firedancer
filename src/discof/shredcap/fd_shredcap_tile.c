@@ -293,7 +293,7 @@ handle_new_contact_info( fd_capture_tile_ctx_t * ctx,
 
 static int
 is_fec_completes_msg( ulong sz ) {
-  return sz == FD_SHRED_DATA_HEADER_SZ + 2*FD_SHRED_MERKLE_ROOT_SZ;
+  return sz == FD_SHRED_DATA_HEADER_SZ + 2 * FD_SHRED_MERKLE_ROOT_SZ;
 }
 
 static inline void
@@ -782,11 +782,11 @@ unprivileged_init( fd_topo_t *      topo,
   FD_TEST( ctx->manifest_exec_slot_ctx->bank );
 
   strncpy( ctx->manifest_path, tile->shredcap.manifest_path, PATH_MAX );
-  ctx->manifest_load_done   = 0;
-  ctx->manifest_spad_mem    = manifest_spad_mem;
-  ctx->manifest_spad        = fd_spad_join( fd_spad_new( ctx->manifest_spad_mem, manifest_spad_max_alloc_footprint() ) );
-  ctx->shared_spad_mem      = shared_spad_mem;
-  ctx->shared_spad          = fd_spad_join( fd_spad_new( ctx->shared_spad_mem, shared_spad_max_alloc_footprint() ) );
+  ctx->manifest_load_done = 0;
+  ctx->manifest_spad_mem  = manifest_spad_mem;
+  ctx->manifest_spad      = fd_spad_join( fd_spad_new( ctx->manifest_spad_mem, manifest_spad_max_alloc_footprint() ) );
+  ctx->shared_spad_mem    = shared_spad_mem;
+  ctx->shared_spad        = fd_spad_join( fd_spad_new( ctx->shared_spad_mem, shared_spad_max_alloc_footprint() ) );
 
   /* Allocate the write buffers */
   ctx->alloc = fd_alloc_join( fd_alloc_new( alloc_mem, FD_SHREDCAP_ALLOC_TAG ), fd_tile_idx() );

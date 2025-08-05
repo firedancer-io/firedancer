@@ -448,6 +448,12 @@ acquire( fd_forest_t * forest, ulong slot, ulong parent_slot ) {
   fd_forest_blk_idxs_null( blk->idxs ); /* expensive */
   fd_forest_blk_idxs_null( blk->cmpl ); /* expensive */
 
+  fd_forest_blk_idxs_null( blk->code ); /* FIXME expensive */
+  blk->first_shred_ts = 0;
+  blk->first_req_ts   = 0;
+  blk->turbine_cnt    = 0;
+  blk->repair_cnt     = 0;
+
   return blk;
 }
 
@@ -554,7 +560,7 @@ fd_forest_blk_insert( fd_forest_t * forest, ulong slot, ulong parent_slot ) {
 }
 
 fd_forest_blk_t *
-fd_forest_data_shred_insert( fd_forest_t * forest, ulong slot, ulong FD_PARAM_UNUSED parent_slot, uint shred_idx, uint fec_set_idx, int slot_complete ) {
+fd_forest_data_shred_insert( fd_forest_t * forest, ulong slot, ulong parent_slot FD_PARAM_UNUSED, uint shred_idx, uint fec_set_idx, int slot_complete, int src ) {
   VER_INC;
   fd_forest_blk_t * ele = query( forest, slot );
 # if FD_FOREST_USE_HANDHOLDING
@@ -563,6 +569,13 @@ fd_forest_data_shred_insert( fd_forest_t * forest, ulong slot, ulong FD_PARAM_UN
   fd_forest_blk_idxs_insert_if( ele->fecs, fec_set_idx > 0, fec_set_idx - 1 );
   fd_forest_blk_idxs_insert_if( ele->fecs, slot_complete,   shred_idx       );
   ele->complete_idx = fd_uint_if( slot_complete, shred_idx, ele->complete_idx );
+
+  if( !fd_forest_blk_idxs_test( ele->idxs, shred_idx ) ) { /* newly seen shred */
+    ele->turbine_cnt += (src==SHRED_SRC_TURBINE);
+    ele->repair_cnt  += (src==SHRED_SRC_REPAIR);
+  }
+  if( FD_UNLIKELY( ele->first_shred_ts == 0 ) ) ele->first_shred_ts = fd_tickcount();
+
   fd_forest_blk_idxs_insert( ele->idxs, shred_idx );
   while( fd_forest_blk_idxs_test( ele->idxs, ele->buffered_idx + 1U ) ) ele->buffered_idx++;
   advance_consumed_frontier( forest, slot, parent_slot );
@@ -583,7 +596,28 @@ fd_forest_fec_insert( fd_forest_t * forest, ulong slot, ulong parent_slot, uint 
      to move forward the consumed frontier.  */
   fd_forest_blk_idxs_insert( ele->cmpl, last_shred_idx );
   for( uint idx = fec_set_idx; idx <= last_shred_idx; idx++ ) {
-    ele = fd_forest_data_shred_insert( forest, slot, parent_slot, idx, fec_set_idx, slot_complete & (idx == last_shred_idx) );
+    ele = fd_forest_data_shred_insert( forest, slot, parent_slot, idx, fec_set_idx, slot_complete & (idx == last_shred_idx), SHRED_SRC_RECOVERED );
+  }
+  return ele;
+}
+
+fd_forest_blk_t *
+fd_forest_code_shred_insert( fd_forest_t * forest, ulong slot, uint shred_idx ) {
+  fd_forest_blk_t * ele  = query( forest, slot );
+  if( FD_UNLIKELY( !ele ) ) {
+    return NULL;
+  }
+  if( FD_UNLIKELY( ele->first_shred_ts == 0 ) ) ele->first_shred_ts = fd_tickcount();
+
+  if( FD_UNLIKELY( shred_idx >= fd_forest_blk_idxs_max( ele->code ) ) ) {
+    FD_LOG_INFO(( "fd_forest: fd_forest_code_shred_insert: shred_idx %u is greater than max, not tracking.", shred_idx ));
+    ele->turbine_cnt += 1;
+    return ele;
+  }
+
+  if( FD_LIKELY( !fd_forest_blk_idxs_test( ele->code, shred_idx ) ) ) { /* newly seen shred */
+    ele->turbine_cnt += 1;
+    fd_forest_blk_idxs_insert( ele->code, shred_idx );
   }
   return ele;
 }
@@ -1091,6 +1125,7 @@ void
 fd_forest_ancestry_print( fd_forest_t const * forest ) {
   printf(("\n\n[Ancestry]\n" ) );
   ancestry_print3( forest, fd_forest_pool_ele_const( fd_forest_pool_const( forest ), forest->root ), 0, "[", NULL, 0 );
+  fflush(stdout); /* Ensure ancestry printf output is flushed */
 }
 
 void
@@ -1107,6 +1142,7 @@ fd_forest_frontier_print( fd_forest_t const * forest ) {
     printf("%lu (%u/%u)\n", ele_->slot, ele_->buffered_idx + 1, ele_->complete_idx + 1 );
    //ancestry_print( forest, fd_forest_pool_ele_const( fd_forest_pool_const( forest ), fd_forest_pool_idx( pool, ele ) ), 0, "" );
   }
+  fflush(stdout);
 }
 
 void
@@ -1120,6 +1156,7 @@ fd_forest_orphaned_print( fd_forest_t const * forest ) {
     fd_forest_blk_t const * ele = fd_forest_subtrees_iter_ele_const( iter, subtrees, pool );
     ancestry_print2( forest, fd_forest_pool_ele_const( fd_forest_pool_const( forest ), fd_forest_pool_idx( pool, ele ) ), NULL, 0, 0, "" );
   }
+  fflush(stdout);
 }
 
 void
@@ -1130,6 +1167,7 @@ fd_forest_print( fd_forest_t const * forest ) {
   fd_forest_frontier_print( forest );
   fd_forest_orphaned_print( forest );
   printf("\n");
+  fflush(stdout);
 }
 
 #undef FD_FOREST_PRINT

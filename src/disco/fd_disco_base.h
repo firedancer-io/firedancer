@@ -182,8 +182,8 @@ FD_FN_CONST static inline ulong fd_disco_replay_old_sig_slot( ulong sig ) { retu
    The encoded fields vary depending on the type of the sig.  The
    diagram below describes the encoding.
 
-   completes (1) | slot (32) | fec_set_idx (15) | is_code (1) | shred_idx or data_cnt (15)
-   [63]          | [31, 62]  | [16, 30]         | [15]        | [0, 14]
+   is_turbine (1) | slot (32) | fec_set_idx (15) | is_code (1) | shred_idx or data_cnt (15)
+   [63]           | [31, 62]  | [16, 30]         | [15]        | [0, 14]
 
    There are two types of messages on the shred_repair link.  The first
    type is a generic shred message. The second is a FEC set completion
@@ -192,8 +192,8 @@ FD_FN_CONST static inline ulong fd_disco_replay_old_sig_slot( ulong sig ) { retu
 
    For the first message type (SHRED):
 
-   The first bit [63] describes whether this shred marks the end of a
-   batch and/or a slot, i.e. shred.flags & (DATA_COMPLETE | SLOT_COMPLETE)
+   The first bit [63] describes whether this shred source was turbine
+   or repair.
 
    The next 32 bits [31, 62] describe the slot number. Note: if the slot
    number is >= UINT_MAX, the sender will store the value UINT_MAX in
@@ -221,7 +221,7 @@ FD_FN_CONST static inline ulong fd_disco_replay_old_sig_slot( ulong sig ) { retu
    are uniformly coding shreds and fixed size. */
 
 FD_FN_CONST static inline ulong
-fd_disco_shred_repair_shred_sig( int   completes,
+fd_disco_shred_repair_shred_sig( int   is_turbine,
                                  ulong slot,
                                  uint  fec_set_idx,
                                  int   is_code,
@@ -229,16 +229,16 @@ fd_disco_shred_repair_shred_sig( int   completes,
    ulong slot_ul                  = fd_ulong_min( slot, (ulong)UINT_MAX );
    ulong shred_idx_or_data_cnt_ul = fd_ulong_min( (ulong)shred_idx_or_data_cnt, (ulong)FD_SHRED_BLK_MAX );
    ulong fec_set_idx_ul           = fd_ulong_min( (ulong)fec_set_idx, (ulong)FD_SHRED_BLK_MAX );
-   ulong completes_ul             = !!completes;
+   ulong is_turbine_ul            = !!is_turbine;
    ulong is_code_ul               = !!is_code;
 
-  return completes_ul << 63 | slot_ul << 31 | fec_set_idx_ul << 16 | is_code_ul << 15 | shred_idx_or_data_cnt_ul;
+  return is_turbine_ul << 63 | slot_ul << 31 | fec_set_idx_ul << 16 | is_code_ul << 15 | shred_idx_or_data_cnt_ul;
 }
 
 /* fd_disco_shred_repair_shred_sig_{...} are accessors for the fields encoded
    in the sig described above. */
 
-FD_FN_CONST static inline int   fd_disco_shred_repair_shred_sig_completes  ( ulong sig ) { return       fd_ulong_extract_bit( sig, 63     ); }
+FD_FN_CONST static inline int   fd_disco_shred_repair_shred_sig_is_turbine ( ulong sig ) { return       fd_ulong_extract_bit( sig, 63     ); }
 FD_FN_CONST static inline ulong fd_disco_shred_repair_shred_sig_slot       ( ulong sig ) { return       fd_ulong_extract    ( sig, 31, 62 ); }
 FD_FN_CONST static inline uint  fd_disco_shred_repair_shred_sig_fec_set_idx( ulong sig ) { return (uint)fd_ulong_extract    ( sig, 16, 30 ); }
 FD_FN_CONST static inline int   fd_disco_shred_repair_shred_sig_is_code    ( ulong sig ) { return       fd_ulong_extract_bit( sig, 15     ); }
