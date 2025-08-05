@@ -548,6 +548,12 @@ remove_contact_info( fd_crds_t *         crds,
     crds_contact_info_fresh_list_ele_remove( crds->contact_info.dlist, ci, crds->pool );
   }
   crds_contact_info_pool_ele_release( crds->contact_info.pool, ci->contact_info.ci );
+
+  /* FIXME: If the peer is in any active set bucket, it is NOT removed
+     here. If the peer is re-inserted into the CRDS table in the future,
+     it is added back into the bucket's sampler. This means a peer can
+     be sampled in a bucket (at least) twice during 
+     fd_active_set_rotate. */
   crds_samplers_rem_peer( crds->samplers, ci );
 }
 

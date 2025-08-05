@@ -33,22 +33,33 @@ struct wpeer_sampler {
      have a peer weight of 0 (i.e,. cumul_weight[i] - cumul_weight[i-1]==0).
 
      Why not just remove the peer?
-      1. Removing is expensive (see wpeer_sampler_rem)
-      2. Adding/removing should strictly track the CRDS Contact Info table.
-         That is to say a peer must have an entry in the sampler if it has
-         an entry in the table, and vice versa. We might want to "soft disable"
-         a peer from being sampled.
+      Adding/removing should strictly track the CRDS Contact Info 
+      table. That is to say a peer must have an entry in the sampler 
+      if it has an entry in the table, and vice versa. This simplifies
+      the crds_samplers management logic which ties the peer to the 
+      same index across all samplers. A single sampler can "disable" a 
+      peer without affecting the other samplers.
 
      Why not just set the peer's weight to 0?
-       A peer's weight might be updated/recalculated from various events
-       (stake update, peer active status, etc,.). When this happens, a
-       "disabled" peer may become inadvertently enabled.
-       Note: the peer's weight is still set to zero, this just serves as an
-       additional null check. */
+      0 is a legitimate score for a peer (wpeer_sampler_peer_score).
+      A futre upsert into the CRDS table might trigger a re-score, which 
+      might inadvertently re-enable the peer in the sampler. We  want to
+      distinguish peers that are "removed" from the sampler from peers
+      that have a score of 0 based on the parameters provided. */
   peer_enabled_t peer_enabled[ peer_enabled_word_cnt ];
 };
 
 typedef struct wpeer_sampler wpeer_sampler_t;
+
+
+struct crds_samplers {
+  wpeer_sampler_t   pr_sampler[1];
+  wpeer_sampler_t   bucket_samplers[25];
+  fd_crds_entry_t * ele[ CRDS_MAX_CONTACT_INFO ];
+  ulong             ele_cnt;
+};
+
+typedef struct crds_samplers crds_samplers_t;
 
 #define PREV_PEER_WEIGHT( ps, idx ) \
   ( (idx) ? (ps)->cumul_weight[(idx)-1] : 0UL )
@@ -101,16 +112,14 @@ wpeer_sampler_upd( wpeer_sampler_t * ps,
 
   ulong old_weight = ps->cumul_weight[idx] - PREV_PEER_WEIGHT( ps, idx );
   if( FD_UNLIKELY( old_weight==weight ) ) return 0;
-  long score_delta = (long)(weight - old_weight);
 
-  if( score_delta>0 ){
+  if( weight>old_weight ) {
     for( ulong i=idx; i<ele_cnt; i++ ) {
-      ps->cumul_weight[i] += (ulong)score_delta;
+      ps->cumul_weight[i] += (weight - old_weight);
     }
   } else {
-    score_delta = -score_delta;
     for( ulong i=idx; i<ele_cnt; i++ ) {
-      ps->cumul_weight[i] -= (ulong)score_delta;
+      ps->cumul_weight[i] -= (old_weight - weight);
     }
   }
   return 0;
@@ -139,20 +148,23 @@ wpeer_sampler_enable( wpeer_sampler_t * ps,
   return 0;
 }
 
-/* NOTE: this should only be called if the peer is dropped from the Contact Info table,
-         otherwise set weight to zero with peer_wsampler_upd instead */
+/* NOTE: this should only be called if the peer is dropped from the 
+         Contact Info table. Use wpeer_sampler_disable otherwise */
 int
 wpeer_sampler_rem( wpeer_sampler_t * ps,
                    ulong             idx,
                    ulong             ele_cnt ) {
-  ulong score = ps->cumul_weight[idx] - ps->cumul_weight[fd_ulong_sat_sub( idx, 1UL )];
-  if( FD_UNLIKELY( !score ) ) return 0;
+  ulong score = ps->cumul_weight[idx] - PREV_PEER_WEIGHT( ps, idx );
 
   for( ulong i = idx+1; i < ele_cnt; i++ ) {
-    /* Shift the cumulative weights down */
-    ps->cumul_weight[i] -= score;
+    ps->cumul_weight[i]  -= score;
     ps->cumul_weight[i-1] = ps->cumul_weight[i];
+
+    peer_enabled_insert_if( ps->peer_enabled,  peer_enabled_test( ps->peer_enabled, i ), i-1UL );
+    peer_enabled_remove_if( ps->peer_enabled, !peer_enabled_test( ps->peer_enabled, i ), i-1UL );
   }
+
+  peer_enabled_insert( ps->peer_enabled, ele_cnt-1UL );
   return 0;
 }
 
@@ -161,8 +173,8 @@ ulong
 wpeer_sampler_peer_score( fd_crds_entry_t * peer,
                           long              now ) {
   if( FD_UNLIKELY( !peer->contact_info.is_active ) ) return 0;
-  ulong score = BASE_WEIGHT;
-  score+= peer->stake;
+  ulong score  = BASE_WEIGHT;
+        score += peer->stake;
   if( FD_UNLIKELY( peer->wallclock_nanos<now-60*1000L*1000L*1000L ) ) score/=100;
 
   return score;
@@ -172,19 +184,11 @@ ulong
 wpeer_sampler_bucket_score( fd_crds_entry_t * peer,
                             ulong             bucket ) {
   ulong peer_bucket = fd_active_set_stake_bucket( peer->stake );
-  ulong score = fd_ulong_sat_add( fd_ulong_min( bucket, peer_bucket ), 1UL );
+  ulong score       = fd_ulong_sat_add( fd_ulong_min( bucket, peer_bucket ), 1UL );
 
   return score*score;
 }
 
-struct crds_samplers {
-  wpeer_sampler_t   pr_sampler[1];
-  wpeer_sampler_t   bucket_samplers[25];
-  fd_crds_entry_t * ele[ CRDS_MAX_CONTACT_INFO ];
-  ulong             ele_cnt;
-};
-
-typedef struct crds_samplers crds_samplers_t;
 
 
 void
