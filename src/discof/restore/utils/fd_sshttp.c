@@ -183,92 +183,6 @@ send_request( fd_sshttp_t * http,
 }
 
 static int
-follow_redirect( fd_sshttp_t *        http,
-                  struct phr_header * headers,
-                  ulong               header_cnt,
-                  long                now ) {
-  if( FD_UNLIKELY( !http->hops ) ) {
-    FD_LOG_WARNING(( "too many redirects" ));
-    fd_sshttp_cancel( http );
-    return FD_SSHTTP_ADVANCE_ERROR;
-  }
-
-  http->hops--;
-
-  ulong        location_len;
-  char const * location = NULL;
-
-  for( ulong i=0UL; i<header_cnt; i++ ) {
-    if( FD_UNLIKELY( !strncasecmp( headers[ i ].name, "location", headers[ i ].name_len ) ) ) {
-      if( FD_UNLIKELY( !headers [ i ].value_len || headers[ i ].value[ 0 ]!='/' ) ) {
-        FD_LOG_WARNING(( "invalid location header `%.*s`", (int)headers[ i ].value_len, headers[ i ].value ));
-        fd_sshttp_cancel( http );
-        return FD_SSHTTP_ADVANCE_ERROR;
-      }
-
-      location_len = headers[ i ].value_len;
-      location     = headers[ i ].value;
-
-      if( FD_UNLIKELY( location_len>=PATH_MAX-1UL ) ) {
-        fd_sshttp_cancel( http );
-        return FD_SSHTTP_ADVANCE_ERROR;
-      }
-
-      char snapshot_name[ PATH_MAX ];
-      fd_memcpy( snapshot_name, location+1UL, location_len-1UL );
-      snapshot_name[ location_len-1UL ] = '\0';
-
-      ulong full_entry_slot, incremental_entry_slot;
-      uchar decoded_hash[ FD_HASH_FOOTPRINT ];
-      int err = fd_ssarchive_parse_filename( snapshot_name, &full_entry_slot, &incremental_entry_slot, decoded_hash );
-
-      if( FD_UNLIKELY( err ) ) {
-        FD_LOG_WARNING(( "unrecognized snapshot file `%s` in redirect location header", snapshot_name ));
-        fd_sshttp_cancel( http );
-        return FD_SSHTTP_ADVANCE_ERROR;
-      }
-
-      char encoded_hash[ FD_BASE58_ENCODED_32_SZ ];
-      fd_base58_encode_32( decoded_hash, NULL, encoded_hash );
-
-      if( FD_LIKELY( incremental_entry_slot!=ULONG_MAX ) ) {
-        FD_TEST( fd_cstr_printf_check( http->incremental_snapshot_name, PATH_MAX, NULL, "incremental-snapshot-%lu-%lu-%s.tar.zst", full_entry_slot, incremental_entry_slot, encoded_hash ) );
-      } else {
-        FD_TEST( fd_cstr_printf_check( http->full_snapshot_name, PATH_MAX, NULL, "snapshot-%lu-%s.tar.zst", full_entry_slot, encoded_hash ) );
-      }
-      break;
-    }
-  }
-
-  if( FD_UNLIKELY( !location ) ) {
-    FD_LOG_WARNING(( "no location header in redirect response" ));
-    fd_sshttp_cancel( http );
-    return FD_SSHTTP_ADVANCE_ERROR;
-  }
-
-  if( FD_UNLIKELY( !fd_cstr_printf_check( http->request, sizeof(http->request), &http->request_len,
-    "GET %.*s HTTP/1.1\r\n"
-    "User-Agent: Firedancer\r\n"
-    "Accept: */*\r\n"
-    "Accept-Encoding: identity\r\n"
-    "Host: " FD_IP4_ADDR_FMT "\r\n\r\n",
-    (int)location_len, location, FD_IP4_ADDR_FMT_ARGS( http->addr.addr ) ) ) ) {
-    FD_LOG_WARNING(( "location header too long `%.*s`", (int)location_len, location ));
-    fd_sshttp_cancel( http );
-    return FD_SSHTTP_ADVANCE_ERROR;
-  }
-
-  FD_LOG_NOTICE(( "following redirect to http://" FD_IP4_ADDR_FMT ":%hu%.*s",
-                  FD_IP4_ADDR_FMT_ARGS( http->addr.addr ), http->addr.port,
-                  (int)headers[ 0 ].value_len, headers[ 0 ].value ));
-
-  fd_sshttp_cancel( http );
-  fd_sshttp_init( http, http->addr, location, location_len, now );
-
-  return FD_SSHTTP_ADVANCE_AGAIN;
-}
-
-static int
 read_response( fd_sshttp_t * http,
                ulong *       data_len,
                uchar *       data,
@@ -314,7 +228,9 @@ read_response( fd_sshttp_t * http,
 
   int is_redirect = (status==301) | (status==303) | (status==304) | (status==307) | (status==308);
   if( FD_UNLIKELY( is_redirect ) ) {
-    return follow_redirect( http, headers, header_cnt, now );
+    FD_LOG_WARNING(( "redirect response not allowed (%d)", status ));
+    fd_sshttp_cancel( http );
+    return FD_SSHTTP_ADVANCE_ERROR;
   }
 
   if( FD_UNLIKELY( status!=200 ) ) {

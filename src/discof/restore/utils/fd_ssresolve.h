@@ -9,9 +9,9 @@
 #define FD_SSRESOLVE_ALIGN (8UL)
 
 struct fd_ssresolve_result {
-  ulong     slot;       /* slot of the snapshot */
-  ulong     base_slot;  /* base slot of incremental snapshot or ULONG_MAX */
-  fd_hash_t hash;       /* base58 decoded hash of the snapshot */
+  ulong     slot;             /* slot of the snapshot */
+  ulong     base_slot;        /* base slot of incremental snapshot or ULONG_MAX */
+  fd_hash_t hash;             /* base58 decoded hash of the snapshot */
 };
 
 typedef struct fd_ssresolve_result fd_ssresolve_result_t;

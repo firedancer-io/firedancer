@@ -30,20 +30,7 @@ struct fd_ssping_peer {
   fd_ssresolve_t * full_ssresolve;
   fd_ssresolve_t * inc_ssresolve;
 
-  struct {
-
-    struct {
-      ulong     slot;
-      fd_hash_t hash;
-    } full;
-
-    struct {
-      ulong     base_slot;
-      ulong     slot;
-      fd_hash_t hash;
-    } incremental;
-
-  } snapshot_info;
+  fd_ssinfo_t      snapshot_info;
 
   struct {
     ulong next;
@@ -418,6 +405,7 @@ poll_advance( fd_ssping_t * ssping,
           continue;
         } else { /* FD_SSRESOLVE_ADVANCE_SUCCESS */
           FD_TEST( peer->deadline_nanos>now );
+
           if( resolve_result.base_slot==ULONG_MAX ) {
             peer->snapshot_info.full.slot = resolve_result.slot;
             memcpy( &peer->snapshot_info.full.hash, &resolve_result.hash, sizeof(fd_hash_t) );
@@ -426,8 +414,7 @@ poll_advance( fd_ssping_t * ssping,
             peer->snapshot_info.incremental.base_slot = resolve_result.base_slot;
             peer->snapshot_info.incremental.slot      = resolve_result.slot;
             memcpy( &peer->snapshot_info.incremental.hash, &resolve_result.hash, sizeof(fd_hash_t) );
-            peer->incremental_latency_nanos = PEER_DEADLINE_NANOS_PING - (ulong)(peer->deadline_nanos - now);
-          }
+            peer->incremental_latency_nanos = PEER_DEADLINE_NANOS_PING - (ulong)(peer->deadline_nanos - now);          }
         }
       }
     }
@@ -592,11 +579,22 @@ fd_ssping_advance( fd_ssping_t * ssping,
   poll_advance( ssping, now );
 }
 
-fd_ip4_port_t
+fd_sspeer_t
 fd_ssping_best( fd_ssping_t const * ssping ) {
   score_treap_fwd_iter_t iter = score_treap_fwd_iter_init( ssping->score_treap, ssping->pool );
-  if( FD_UNLIKELY( score_treap_fwd_iter_done( iter ) ) ) return (fd_ip4_port_t){ .l=0UL };
+  if( FD_UNLIKELY( score_treap_fwd_iter_done( iter ) ) ) {
+    return (fd_sspeer_t){ 
+      .addr = {
+        .l = 0UL
+      },
+      .snapshot_info = NULL,
+    };
+  }
 
   fd_ssping_peer_t const * best = score_treap_fwd_iter_ele_const( iter, ssping->pool );
-  return best->addr;
+
+  return (fd_sspeer_t){
+    .addr = best->addr,
+    .snapshot_info = &best->snapshot_info,
+  };
 }
