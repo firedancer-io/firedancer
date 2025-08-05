@@ -176,8 +176,8 @@ echo "
 [runtime]
     heap_size_gib = 50
     [runtime.limits]
-        max_total_banks = 46
-        max_fork_width = 32
+        max_total_banks = 4
+        max_fork_width = 4
 [development]
     sandbox = false
     no_agave = true

@@ -82,10 +82,7 @@ _get_stake_weights( fd_solana_manifest_t const * manifest,
   fd_vote_stake_weight_t * weights = fd_scratch_alloc( alignof(fd_vote_stake_weight_t), vote_acc_cnt * sizeof(fd_vote_stake_weight_t) );
   if( FD_UNLIKELY( !weights ) ) FD_LOG_ERR(( "fd_scratch_alloc() failed" ));
 
-  /* FIXME: This will crash because the spad is not set up and no accs
-     are passed in. */
-
-  ulong weight_cnt = fd_stake_weights_by_node( NULL, weights, NULL );
+  ulong weight_cnt = fd_stake_weights_by_node( NULL, weights );
   if( FD_UNLIKELY( weight_cnt==ULONG_MAX ) ) FD_LOG_ERR(( "fd_stake_weights_by_node() failed" ));
 
   *out_cnt = weight_cnt;
@@ -129,7 +126,7 @@ action_leaders( fd_solana_manifest_t const * manifest,
   ulong slot_cnt  = fd_epoch_slot_cnt( sched, epoch );
   ulong sched_cnt = slot_cnt/FD_EPOCH_SLOTS_PER_ROTATION;
 
-  ulong vote_keyed_lsched = 0; /* FIXME: SIMD-0180 */
+  ulong vote_keyed_lsched = 0; /* Set to 1 after SIMD-0180 gets activated */
   void * leaders_mem = fd_scratch_alloc( fd_epoch_leaders_align(), fd_epoch_leaders_footprint( weight_cnt, sched_cnt ) );
          leaders_mem = fd_epoch_leaders_new( leaders_mem, epoch, slot0, slot_cnt, weight_cnt, weights, 0UL, vote_keyed_lsched );
   fd_epoch_leaders_t * leaders = fd_epoch_leaders_join( leaders_mem );

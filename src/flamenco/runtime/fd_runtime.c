@@ -142,7 +142,7 @@ fd_runtime_update_leaders( fd_bank_t * bank,
   fd_bank_epoch_stakes_end_locking_query( bank );
 
   fd_vote_stake_weight_t * epoch_weights = fd_spad_alloc_check( runtime_spad, alignof(fd_vote_stake_weight_t), vote_acc_cnt * sizeof(fd_vote_stake_weight_t) );
-  ulong stake_weight_cnt = fd_stake_weights_by_node( epoch_vaccs, epoch_weights, runtime_spad );
+  ulong stake_weight_cnt = fd_stake_weights_by_node( epoch_vaccs, epoch_weights );
 
   if( FD_UNLIKELY( stake_weight_cnt == ULONG_MAX ) ) {
     FD_LOG_ERR(( "fd_stake_weights_by_node() failed" ));
