@@ -50,7 +50,8 @@ fd_contact_info_from_ci_v2( fd_gossip_contact_info_v2_t const * ci_v2,
 
   ci_int->addrs.data           = contact_info->addrs;
   ci_int->addrs.len       = 0U;
-  /* ci_int->sockets is a regular array, not anonymous struct */
+  ci_int->sockets.data         = contact_info->sockets;
+  ci_int->sockets.len     = 0U;
   ci_int->extensions.data      = NULL; /* unsupported */
   ci_int->extensions.len  = 0U;   /* unsupported */
 
