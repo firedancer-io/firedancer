@@ -54,7 +54,7 @@ fd_vote_state_versions_is_correct_and_initialized( fd_txn_account_t * vote_accou
 /* Queries the delegated stake amount for the given vote account pubkey,
    given the vote accounts map. Returns 0 if nonexistent. */
 ulong
-fd_query_pubkey_stake( fd_pubkey_t const * pubkey, fd_vote_accounts_global_t const * vote_accounts );
+fd_query_pubkey_stake( fd_pubkey_t const * pubkey, fd_stakes_slim_t const * stakes );
 
 /* An implementation of solana_sdk::transaction_context::BorrowedAccount::get_state
    for setting the vote state.
