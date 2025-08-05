@@ -16,6 +16,7 @@ $(call make-unit-test,test_ssmanifest_parser,utils/test_ssmanifest_parser,fd_dis
 ifdef FD_HAS_HOSTED
 $(call make-fuzz-test,fuzz_snapshot_parser,utils/fuzz_snapshot_parser,fd_discof fd_flamenco fd_ballet fd_util)
 $(call make-fuzz-test,fuzz_ssmanifest_parser,utils/fuzz_ssmanifest_parser,fd_discof fd_flamenco fd_ballet fd_util)
+$(call make-fuzz-test,fuzz_ssarchive_parser,utils/fuzz_ssarchive_parser,fd_discof fd_flamenco fd_ballet fd_util)
 endif
 
 endif
