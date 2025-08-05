@@ -377,7 +377,7 @@ fd_repair_sign_and_send( fd_repair_tile_ctx_t *  repair_tile_ctx,
 }
 
 
-static void
+static void FD_FN_UNUSED
 fd_repair_send_request( fd_repair_tile_ctx_t   * repair_tile_ctx,
                         fd_stem_context_t      * stem,
                         fd_repair_t            * glob,
@@ -411,11 +411,19 @@ fd_repair_send_requests( fd_repair_tile_ctx_t *   ctx,
                          ulong                    slot,
                          uint                     shred_index,
                          long                     now ){
+
+  (void)stem;
+  (void)type;
+  (void)slot;
+  (void)shred_index;
+  (void)now;
+
   fd_repair_t * glob = ctx->repair;
 
   for( uint i=0; i<FD_REPAIR_NUM_NEEDED_PEERS; i++ ) {
     fd_pubkey_t const * id = &glob->peers[ glob->peer_idx++ ].key;
     fd_repair_send_request( ctx, stem, glob, type, slot, shred_index, id, now );
+    (void)id;
     if( FD_UNLIKELY( glob->peer_idx >= glob->peer_cnt ) ) glob->peer_idx = 0; /* wrap around */
   }
 }

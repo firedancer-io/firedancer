@@ -892,9 +892,10 @@ ancestry_print3( fd_forest_t const * forest, fd_forest_ele_t const * ele, int sp
 
 void
 fd_forest_ancestry_print( fd_forest_t const * forest ) {
-  FD_LOG_NOTICE(("\n\n[Ancestry]\n\n" ) );
+  FD_LOG_NOTICE(("\n[Ancestry]\n" ) );
 
   ancestry_print3( forest, fd_forest_pool_ele_const( fd_forest_pool_const( forest ), forest->root ), 0, "[", NULL, 0 );
+  fflush(stdout); /* Ensure ancestry printf output is flushed */
 }
 
 void
@@ -909,6 +910,7 @@ fd_forest_frontier_print( fd_forest_t const * forest ) {
     printf("%lu (%u/%u)\n", ele->slot, ele->buffered_idx + 1, ele->complete_idx + 1 );
    //ancestry_print( forest, fd_forest_pool_ele_const( fd_forest_pool_const( forest ), fd_forest_pool_idx( pool, ele ) ), 0, "" );
   }
+  fflush(stdout); /* Ensure printf output is flushed */
 }
 
 void
@@ -922,6 +924,7 @@ fd_forest_orphaned_print( fd_forest_t const * forest ) {
     fd_forest_ele_t const * ele = fd_forest_orphaned_iter_ele_const( iter, orphaned, pool );
     ancestry_print2( forest, fd_forest_pool_ele_const( fd_forest_pool_const( forest ), fd_forest_pool_idx( pool, ele ) ), NULL, 0, 0, "" );
   }
+  fflush(stdout); /* Ensure ancestry printf output is flushed */
 }
 
 void
@@ -932,6 +935,7 @@ fd_forest_print( fd_forest_t const * forest ) {
   fd_forest_frontier_print( forest );
   fd_forest_orphaned_print( forest );
   printf("\n\n");
+  fflush(stdout); /* Ensure all output is flushed */
 # endif
 }
 
