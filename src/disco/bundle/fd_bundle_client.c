@@ -565,7 +565,7 @@ fd_bundle_client_visit_pb_bundle_txn(
     return true;
   }
 
-  uint _ip4; uint ip4 = fd_uint_if( packet.has_meta, fd_cstr_to_ip4_addr( packet.meta.addr, &_ip4 ) ? _ip4 : 0U, 0U );
+  uint _ip4; uint ip4 = fd_uint_if( packet.has_meta, fd_cstr_to_ip4_addr( packet.meta.addr, &_ip4 ) ? _ip4 : ctx->server_ip4_addr, ctx->server_ip4_addr );
   fd_bundle_tile_publish_bundle_txn(
       ctx,
       packet.data.bytes, packet.data.size,
