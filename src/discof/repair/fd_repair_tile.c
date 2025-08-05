@@ -171,7 +171,6 @@ struct fd_repair_tile_ctx {
   /* repair_sign links (to sign tiles 1+) - for round-robin distribution */
   uint                repair_sign_cnt;
   fd_repair_out_ctx_t repair_sign_out_ctx[ MAX_SHRED_TILE_CNT ];
-  ulong               repair_sign_round_robin_idx;
   
   /* Request sequence tracking for async signing */
   ulong               request_seq;
@@ -194,15 +193,18 @@ struct fd_repair_tile_ctx {
 };
 typedef struct fd_repair_tile_ctx fd_repair_tile_ctx_t;
 
+
 FD_FN_CONST static inline ulong
 scratch_align( void ) {
   return 128UL;
 }
 
+
 FD_FN_PURE static inline ulong
 loose_footprint( fd_topo_tile_t const * tile FD_PARAM_UNUSED ) {
   return 1UL * FD_SHMEM_GIGANTIC_PAGE_SZ;
 }
+
 
 FD_FN_PURE static inline ulong
 scratch_footprint( fd_topo_tile_t const * tile ) {
@@ -221,6 +223,8 @@ scratch_footprint( fd_topo_tile_t const * tile ) {
   return FD_LAYOUT_FINI( l, scratch_align() );
 }
 
+
+/* Wrapper for keyguard client sign */
 static void
 repair_signer( void *        signer_ctx,
                uchar         signature[ static 64 ],
@@ -229,6 +233,33 @@ repair_signer( void *        signer_ctx,
                int           sign_type ) {
   fd_repair_tile_ctx_t * ctx = (fd_repair_tile_ctx_t *) signer_ctx;
   fd_keyguard_client_sign( ctx->keyguard_client, signature, buffer, len, sign_type );
+}
+
+
+/* Wrapper for publishing to the sign tile*/
+static void
+repair_signer_async( void *        signer_ctx,
+                     ulong         nonce,
+                     uchar const * buffer,
+                     ulong         len,
+                     int           sign_type ) {
+  fd_repair_tile_ctx_t * ctx = (fd_repair_tile_ctx_t *) signer_ctx;
+  
+  if( FD_UNLIKELY( ctx->repair_sign_cnt == 0 ) ) {
+    FD_LOG_ERR(( "No repair_sign links configured for async signing" ));
+  }
+  
+  uint round_robin_idx = (uint)(nonce % ctx->repair_sign_cnt);
+  fd_repair_out_ctx_t * sign_out = &ctx->repair_sign_out_ctx[ round_robin_idx ];
+  
+  uchar * dst = fd_chunk_to_laddr( sign_out->mem, sign_out->chunk );
+  fd_memcpy( dst, buffer, len );
+  
+  ulong sig = ((ulong)nonce << 32) | (ulong)(uint)sign_type;
+  fd_stem_publish( ctx->stem, sign_out->idx, sig, sign_out->chunk, len, 0UL, 0UL, 0UL );  
+  sign_out->chunk = fd_dcache_compact_next( sign_out->chunk, len, sign_out->chunk0, sign_out->wmark );
+
+  ctx->request_seq = fd_seq_inc( ctx->request_seq, 1UL );
 }
 
 static void
@@ -301,6 +332,7 @@ fd_repair_handle_ping( fd_repair_tile_ctx_t *  repair_tile_ctx,
   return buflen;
 }
 
+
 /* Pass a raw client response packet into the protocol. addr is the address of the sender */
 static int
 fd_repair_recv_clnt_packet( fd_repair_tile_ctx_t *        repair_tile_ctx,
@@ -343,12 +375,15 @@ fd_repair_recv_clnt_packet( fd_repair_tile_ctx_t *        repair_tile_ctx,
   return 0;
 }
 
+
 static ulong
 fd_repair_sign_and_send( fd_repair_tile_ctx_t *  repair_tile_ctx,
                          fd_repair_protocol_t *  protocol,
                          fd_gossip_peer_addr_t * addr FD_PARAM_UNUSED,
                          uchar                 * buf,
-                         ulong                   buflen) {
+                         ulong                   buflen,
+                         int                     is_async,
+                         ulong                   nonce ) {
 
   FD_TEST( buflen >= 1024UL );
   fd_bincode_encode_ctx_t ctx = { .data = buf, .dataend = buf + buflen };
@@ -379,18 +414,69 @@ fd_repair_sign_and_send( fd_repair_tile_ctx_t *  repair_tile_ctx,
      ^                ^
      buf              buf+4 */
 
-  fd_signature_t sig;
-  repair_signer( repair_tile_ctx, sig.uc, buf, buflen, FD_KEYGUARD_SIGN_TYPE_ED25519 );
+  /* If async, we send the signing request to the sign tile */
+  if( is_async ) {
+    repair_signer_async( repair_tile_ctx, nonce, buf, buflen, FD_KEYGUARD_SIGN_TYPE_ED25519 );
+    return 0UL;
+    
+  /* If sync, we sign using keyguard */
+  } else {
+    fd_signature_t sig;
+    repair_signer( repair_tile_ctx, sig.uc, buf, buflen, FD_KEYGUARD_SIGN_TYPE_ED25519 );
 
-  /* Reintroduce the signature */
+    /* Reintroduce the signature */
+    buf    -= 64UL;
+    buflen += 64UL;
+    fd_memcpy( buf + 4U, &sig, 64U );
 
-  buf    -= 64UL;
-  buflen += 64UL;
-  fd_memcpy( buf + 4U, &sig, 64U );
-
-  return buflen;
+    return buflen;
+  }
 }
 
+/*  REPAIR TILE REQUEST HANDLING ARCHITECTURE
+    =========================================
+
+    The repair tile implements two distinct request handling patterns
+    based on the nature of the operation and its latency requirements:
+
+    1. SYNCHRONOUS REQUEST HANDLING
+    -----------------------------------------
+    Used for lightweight protocol messages that require immediate
+    signing and response. These operations use the keyguard client for
+    direct signing, which requires blocking.
+
+    Message types handled synchronously:
+    - PINGs & PONGs: Handles peer connectivity and liveness with simple
+      round-trip messages.
+
+    - PEER WARM UPs: On receiving peer information in
+      handle_new_cluster_contact_info, we prepay the RTT cost by sending
+      a placeholder Repair request immediately.
+
+    2. ASYNCHRONOUS REQUEST HANDLING  
+    --------------------------------
+    Used strictly for repair requests. These requests are sent to the
+    sign tile, and the repair tile continues handling other operations
+    without blocking. Once the sign tile has signed the request, the
+    repair tile will complete the request from its pending sign request
+    deque and send the response.
+
+    Message types handled asynchronously:
+    - WINDOW_INDEX (exact shred): Requests for a specific shred at a
+      known slot and index. Used when the repair tile knows exactly
+      which shred is missing from a FEC set.
+  
+    - HIGHEST_WINDOW_INDEX: Requests for the highest shred in a slot.
+      Used to determine the end boundary of a slot when the exact count
+      is unknown.
+  
+    - ORPHAN: Requests for the highest shred in the parent slot of an
+      orphaned slot. Used to establish the chain of slot ancestry when a
+      slot's parent is missing.
+
+    Async requests can be distributed across multiple sign tiles using
+    round-robin based on the request nonce. This provides load balancing
+    and prevents any single sign tile from becoming a bottleneck. */
 
 static void
 fd_repair_send_request( fd_repair_tile_ctx_t   * repair_tile_ctx,
@@ -409,7 +495,7 @@ fd_repair_send_request( fd_repair_tile_ctx_t   * repair_tile_ctx,
   glob->metrics.send_pkt_cnt++;
 
   uchar buf[1024];
-  ulong buflen       = fd_repair_sign_and_send( repair_tile_ctx, &protocol, &active->addr, buf, sizeof(buf) );
+  ulong buflen       = fd_repair_sign_and_send( repair_tile_ctx, &protocol, &active->addr, buf, sizeof(buf), 0, 0UL );
   ulong tsorig       = fd_frag_meta_ts_comp( fd_tickcount() );
   uint  src_ip4_addr = 0U; /* unknown */
   send_packet( repair_tile_ctx, stem, 1, active->addr.addr, active->addr.port, src_ip4_addr, buf, buflen, tsorig );
@@ -456,53 +542,17 @@ fd_repair_send_request_async( fd_repair_tile_ctx_t *   ctx,
     
     fd_repair_pending_sign_req_t * pending = fd_repair_pending_sign_req_deque_push_tail_nocopy( ctx->pending_sign_req_deque );
     
-    // Inline the buffer preparation logic from fd_repair_sign_and_send
-    FD_TEST( sizeof(pending->buf) >= 1024UL );
+    /* Use the unified sign_and_send function in async mode */
+    fd_repair_sign_and_send( ctx, &protocol, &peer->addr, pending->buf, sizeof(pending->buf), 1, nonce );
+    
+    /* Since async requests don't complete the buffer with signature,
+       we need to track the encoded length */
     fd_bincode_encode_ctx_t encode_ctx = { .data = pending->buf, .dataend = pending->buf + sizeof(pending->buf) };
     if( FD_UNLIKELY( fd_repair_protocol_encode( &protocol, &encode_ctx ) != FD_BINCODE_SUCCESS ) ) {
         FD_LOG_CRIT(( "Failed to encode repair message (type %#x)", protocol.discriminant ));
     }
     
     ulong buflen = (ulong)encode_ctx.data - (ulong)pending->buf;
-    if( FD_UNLIKELY( buflen<68 ) ) {
-        FD_LOG_CRIT(( "Attempted to sign unsigned repair message type (type %#x)", protocol.discriminant ));
-    }
-
-    // FD_LOG_HEXDUMP_INFO(( "ASYNC: encoded message", pending->buf, buflen ));
-    
-    /* At this point buffer contains
-       [ discriminant ] [ signature_placeholder ] [ payload ]
-       ^                ^                        ^
-       0                4                        68 */
-    
-    /* Move discriminant to position 64 for signing (same as sync version) */
-    fd_memcpy( pending->buf+64, pending->buf, 4 );
-    uchar * sign_buf = pending->buf + 64;
-    ulong sign_len = buflen - 64;
-
-    /*
-    now it contains
-    [ discriminant ] [ payload ]
-    ^                ^
-    sign_buf         sign_buf+4
-    */
-    
-    if( FD_UNLIKELY( ctx->repair_sign_cnt == 0 ) ) {
-      FD_LOG_ERR(( "No repair_sign links configured for async signing" ));
-    }
-    
-    uint round_robin_idx = (nonce % (ctx->repair_sign_cnt));
-    fd_repair_out_ctx_t * sign_out = &ctx->repair_sign_out_ctx[ round_robin_idx ];
-    uchar * dst = fd_chunk_to_laddr( sign_out->mem, sign_out->chunk );
-    fd_memcpy( dst, sign_buf, sign_len );
-    
-    ulong sig = ((ulong)nonce << 32) | (ulong)(uint)FD_KEYGUARD_SIGN_TYPE_ED25519;
-    
-    /* Publish using stem publish like other tiles */
-    fd_stem_publish( ctx->stem, sign_out->idx, sig, sign_out->chunk, sign_len, 0UL, 0UL, 0UL );
-    ctx->request_seq = fd_seq_inc( ctx->request_seq, 1UL );
-    ulong new_chunk = fd_dcache_compact_next( sign_out->chunk, sign_len, sign_out->chunk0, sign_out->wmark );
-    sign_out->chunk = new_chunk;
     
     pending->buflen      = buflen;
     pending->sig_offset  = 4;
@@ -623,6 +673,7 @@ during_frag( fd_repair_tile_ctx_t * ctx,
     }
     dcache_entry = fd_chunk_to_laddr_const( in_ctx->mem, chunk );
     dcache_entry_sz = sz;
+
   } else if ( FD_UNLIKELY( in_kind==IN_KIND_SIGN ) ) {
     dcache_entry = fd_chunk_to_laddr_const( in_ctx->mem, chunk );
     dcache_entry_sz = sz;
@@ -948,9 +999,17 @@ after_frag( fd_repair_tile_ctx_t * ctx,
   }
 
   if( FD_UNLIKELY( in_kind==IN_KIND_SIGN ) ) {
+    /* Nonce was packed into sig, so we need to unpack it */
     ulong response_nonce = sig >> 32;
     fd_repair_pending_sign_req_t pending;
     
+    /* Iterate over all pending requests, as every request sent to the
+       sign tile will be returned. Since the repair_sign links are
+       reliable, the incoming sign_repair fragments represent a complete
+       set of the previously sent outgoing messages. However, with
+       multiple sign tiles, the responses may not arrive in order. But, 
+       we can safely process them sequentially as we encounter them in
+       the deque. */
     while( !fd_repair_pending_sign_req_deque_empty( ctx->pending_sign_req_deque ) ) {
       fd_repair_pending_sign_req_t * head_req = fd_repair_pending_sign_req_deque_peek_head( ctx->pending_sign_req_deque );
       
@@ -964,7 +1023,7 @@ after_frag( fd_repair_tile_ctx_t * ctx,
         fd_memcpy( pending.buf + pending.sig_offset, ctx->buffer, 64UL );
         ulong tsorig = fd_frag_meta_ts_comp( fd_tickcount() );
     
-        uint src_ip4_addr = 0U; /* unknown */
+        uint src_ip4_addr = 0U;
         send_packet( ctx, stem, 1, pending.dst_ip_addr, pending.dst_port, src_ip4_addr, pending.buf, pending.buflen, tsorig );
         return;
       }
@@ -1328,7 +1387,6 @@ unprivileged_init( fd_topo_t *      topo,
 
   uint net_link_out_idx      = UINT_MAX;
   ctx->ping_sign_out_idx     = UINT_MAX;
-  ctx->repair_sign_round_robin_idx = 0UL;
   ctx->repair_sign_cnt       = 0;
   ctx->request_seq           = 0UL;
   uint shred_tile_idx        = 0;
