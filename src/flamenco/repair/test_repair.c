@@ -3,6 +3,7 @@
 #include "../../util/fd_util.h"
 #include <stdlib.h>
 #include <string.h>
+#include <stdlib.h>
 
 /* init repair test */
 static fd_repair_t *

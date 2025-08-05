@@ -308,7 +308,6 @@ fd_repair_construct_request_protocol( fd_repair_t          * glob,
                                       long                   now ) {
   switch( type ) {
     case fd_needed_window_index: {
-      glob->metrics.sent_pkt_types[FD_METRICS_ENUM_REPAIR_SENT_REQUEST_TYPES_V_NEEDED_WINDOW_IDX]++;
       fd_repair_protocol_new_disc(protocol, fd_repair_protocol_enum_window_index);
       fd_repair_window_index_t * wi = &protocol->inner.window_index;
       wi->header.sender = *glob->public_key;
@@ -317,12 +316,10 @@ fd_repair_construct_request_protocol( fd_repair_t          * glob,
       wi->header.nonce = nonce;
       wi->slot = slot;
       wi->shred_index = shred_index;
-        //FD_LOG_INFO(( "repair request for %lu, %lu", wi->slot, wi->shred_index ));
       return 1;
     }
 
     case fd_needed_highest_window_index: {
-      glob->metrics.sent_pkt_types[FD_METRICS_ENUM_REPAIR_SENT_REQUEST_TYPES_V_NEEDED_HIGHEST_WINDOW_IDX]++;
       fd_repair_protocol_new_disc( protocol, fd_repair_protocol_enum_highest_window_index );
       fd_repair_highest_window_index_t * wi = &protocol->inner.highest_window_index;
       wi->header.sender = *glob->public_key;
@@ -331,12 +328,10 @@ fd_repair_construct_request_protocol( fd_repair_t          * glob,
       wi->header.nonce = nonce;
       wi->slot = slot;
       wi->shred_index = shred_index;
-      //FD_LOG_INFO(( "repair request for %lu, %lu", wi->slot, wi->shred_index ));
       return 1;
     }
 
     case fd_needed_orphan: {
-      glob->metrics.sent_pkt_types[FD_METRICS_ENUM_REPAIR_SENT_REQUEST_TYPES_V_NEEDED_ORPHAN_IDX]++;
       fd_repair_protocol_new_disc( protocol, fd_repair_protocol_enum_orphan );
       fd_repair_orphan_t * wi = &protocol->inner.orphan;
       wi->header.sender = *glob->public_key;
@@ -344,7 +339,6 @@ fd_repair_construct_request_protocol( fd_repair_t          * glob,
       wi->header.timestamp = (ulong)now/1000000L;
       wi->header.nonce = nonce;
       wi->slot = slot;
-      //FD_LOG_INFO(( "repair request for %lu", ele->dupkey.slot));
       return 1;
     }
   }
@@ -528,12 +522,6 @@ fd_repair_set_stake_weights_fini( fd_repair_t * repair ) {
   repair->stake_weights_cnt = repair->stake_weights_temp_cnt;
 }
 
-
-fd_repair_metrics_t *
-fd_repair_get_metrics( fd_repair_t * repair ) {
-  return &repair->metrics;
-}
-
 /* Pending Sign Request API
 
    These functions manage the pool and map of pending sign requests in
@@ -580,18 +568,16 @@ fd_repair_insert_pending_request( fd_repair_t *            repair,
     return NULL;
   }
 
-  pending->nonce =       repair->next_nonce;
+  pending->nonce = repair->next_nonce;
 
   fd_repair_pending_sign_req_map_ele_insert( repair->pending_sign_req_map, pending, repair->pending_sign_req_pool );
-
   fd_repair_construct_request_protocol( repair, protocol, type, slot, shred_index, recipient, repair->next_nonce, now );
 
-  pending->sig_offset =  4;
+  pending->sig_offset  = 4;
   pending->dst_ip_addr = dst_ip_addr;
-  pending->dst_port =    dst_port;
-  pending->recipient =   *recipient;
+  pending->dst_port    = dst_port;
+  pending->recipient   = *recipient;
 
-  repair->metrics.send_pkt_cnt++;
   repair->next_nonce++;
   return pending;
 }

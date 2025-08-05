@@ -56,6 +56,13 @@ struct __attribute__((aligned(128UL))) fd_forest_ele {
   fd_forest_ele_idxs_t cmpl[fd_forest_ele_idxs_word_cnt]; /* fec complete idxs */
   fd_forest_ele_idxs_t fecs[fd_forest_ele_idxs_word_cnt]; /* fec set idxs */
   fd_forest_ele_idxs_t idxs[fd_forest_ele_idxs_word_cnt]; /* data shred idxs */
+
+  /* Metrics */
+
+  fd_forest_ele_idxs_t code[fd_forest_ele_idxs_word_cnt]; /* code shred idxs */
+  long first_ts;     /* timestamp of first shred rcved in slot != complete_idx */
+  uint turbine_cnt;  /* number of shreds received from turbine */
+  uint repair_cnt;   /* number of data shreds received from repair */
 };
 typedef struct fd_forest_ele fd_forest_ele_t;
 
@@ -301,6 +308,13 @@ fd_forest_query( fd_forest_t * forest, ulong slot );
 
 /* Operations */
 
+enum shred_src {
+  TURBINE   = 0,
+  REPAIR    = 1,
+  RECOVERED = 2,
+};
+typedef enum shred_src shred_src_t;
+
 /* fd_forest_shred_insert inserts a new shred into the forest.
    Assumes slot >= forest->smr, slot is not already in forest,
    parent_slot is already in forest, and the ele pool has a free
@@ -308,7 +322,10 @@ fd_forest_query( fd_forest_t * forest, ulong slot );
    Returns the inserted forest ele. */
 
 fd_forest_ele_t *
-fd_forest_data_shred_insert( fd_forest_t * forest, ulong slot, ushort parent_off, uint shred_idx, uint fec_set_idx, int data_complete, int slot_complete );
+fd_forest_data_shred_insert( fd_forest_t * forest, ulong slot, ushort parent_off, uint shred_idx, uint fec_set_idx, int slot_complete, shred_src_t src );
+
+fd_forest_ele_t *
+fd_forest_code_shred_insert( fd_forest_t * forest, ulong slot, uint shred_idx );
 
 /* fd_forest_publish publishes slot as the new forest root, setting
    the subtree beginning from slot as the new forest tree (ie. slot

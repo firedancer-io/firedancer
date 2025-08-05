@@ -225,6 +225,8 @@ typedef struct {
     ulong shred_processing_result[ FD_FEC_RESOLVER_ADD_SHRED_RETVAL_CNT+FD_SHRED_ADD_SHRED_EXTRA_RETVAL_CNT ];
     ulong invalid_block_id_cnt;
     ulong shred_rejected_unchained_cnt;
+    ulong repair_rcv_cnt;
+    ulong turbine_rcv_cnt;
     fd_histf_t store_insert_wait[ 1 ];
     fd_histf_t store_insert_work[ 1 ];
   } metrics[ 1 ];
@@ -296,6 +298,8 @@ metrics_write( fd_shred_ctx_t * ctx ) {
   FD_MHIST_COPY( SHRED, BATCH_MICROBLOCK_CNT,       ctx->metrics->batch_microblock_cnt         );
   FD_MHIST_COPY( SHRED, SHREDDING_DURATION_SECONDS, ctx->metrics->shredding_timing             );
   FD_MHIST_COPY( SHRED, ADD_SHRED_DURATION_SECONDS, ctx->metrics->add_shred_timing             );
+  FD_MCNT_SET  ( SHRED, SHRED_REPAIR_RCV,           ctx->metrics->repair_rcv_cnt               );
+  FD_MCNT_SET  ( SHRED, SHRED_TURBINE_RCV,          ctx->metrics->turbine_rcv_cnt              );
 
   FD_MCNT_SET  ( SHRED, INVALID_BLOCK_ID,           ctx->metrics->invalid_block_id_cnt         );
   FD_MCNT_SET  ( SHRED, SHRED_REJECTED_UNCHAINED,   ctx->metrics->shred_rejected_unchained_cnt );
@@ -641,6 +645,9 @@ during_frag( fd_shred_ctx_t * ctx,
       return;
     };
 
+    if( fd_disco_netmux_sig_proto( sig )==DST_PROTO_REPAIR ) ctx->metrics->repair_rcv_cnt++;
+    else ctx->metrics->turbine_rcv_cnt++;
+
     /* Drop unchained merkle shreds (if feature is active) */
     int is_unchained = !fd_shred_is_chained( fd_shred_type( shred->variant ) );
     if( FD_UNLIKELY( is_unchained && shred->slot >= ctx->features_activation->drop_unchained_merkle_shreds ) ) {
@@ -888,17 +895,15 @@ after_frag( fd_shred_ctx_t *    ctx,
 
         int  is_code               = fd_shred_is_code( fd_shred_type( shred->variant ) );
         uint shred_idx_or_data_cnt = shred->idx;
-        int  completes             = 0;
         if( FD_LIKELY( is_code ) ) shred_idx_or_data_cnt = shred->code.data_cnt;  /* optimize for code_cnt >= data_cnt */
-        else  completes = shred->data.flags & ( FD_SHRED_DATA_FLAG_SLOT_COMPLETE | FD_SHRED_DATA_FLAG_DATA_COMPLETE );
-        ulong sig = fd_disco_shred_repair_shred_sig( !!completes, shred->slot, shred->fec_set_idx, is_code, shred_idx_or_data_cnt );
+        ulong _sig = fd_disco_shred_repair_shred_sig( fd_disco_netmux_sig_proto(sig)==DST_PROTO_SHRED, shred->slot, shred->fec_set_idx, is_code, shred_idx_or_data_cnt );
 
         /* Copy the shred header into the frag and publish. */
 
         ulong sz = fd_shred_header_sz( shred->variant );
         fd_memcpy( fd_chunk_to_laddr( ctx->repair_out_mem, ctx->repair_out_chunk ), shred, sz );
         ulong tspub = fd_frag_meta_ts_comp( fd_tickcount() );
-        fd_stem_publish( stem, ctx->repair_out_idx, sig, ctx->repair_out_chunk, sz, 0UL, ctx->tsorig, tspub );
+        fd_stem_publish( stem, ctx->repair_out_idx, _sig, ctx->repair_out_chunk, sz, 0UL, ctx->tsorig, tspub );
         ctx->repair_out_chunk = fd_dcache_compact_next( ctx->repair_out_chunk, sz, ctx->repair_out_chunk0, ctx->repair_out_wmark );
       }
     }
@@ -1331,6 +1336,8 @@ unprivileged_init( fd_topo_t *      topo,
   memset( ctx->metrics->shred_processing_result, '\0', sizeof(ctx->metrics->shred_processing_result) );
   ctx->metrics->invalid_block_id_cnt         = 0UL;
   ctx->metrics->shred_rejected_unchained_cnt = 0UL;
+  ctx->metrics->repair_rcv_cnt               = 0UL;
+  ctx->metrics->turbine_rcv_cnt              = 0UL;
 
   ctx->pending_batch.microblock_cnt = 0UL;
   ctx->pending_batch.txn_cnt        = 0UL;
