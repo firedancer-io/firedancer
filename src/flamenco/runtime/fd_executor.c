@@ -1514,37 +1514,6 @@ fd_executor_setup_accounts_for_txn( fd_exec_txn_ctx_t * txn_ctx ) {
   fd_executor_setup_instr_infos_from_txn_instrs( txn_ctx );
 }
 
-/* Stuff to be done before multithreading can begin */
-int
-fd_execute_txn_prepare_start( fd_exec_slot_ctx_t const * slot_ctx,
-                              fd_exec_txn_ctx_t *        txn_ctx,
-                              fd_txn_t const *           txn_descriptor,
-                              fd_rawtxn_b_t const *      txn_raw ) {
-
-  fd_funk_t * funk               = slot_ctx->funk;
-  fd_wksp_t * funk_wksp          = fd_funk_wksp( funk );
-  /* FIXME: just pass in the runtime workspace, instead of getting it from fd_wksp_containing */
-  fd_wksp_t * runtime_pub_wksp   = fd_wksp_containing( slot_ctx );
-  ulong       funk_txn_gaddr     = fd_wksp_gaddr( funk_wksp, slot_ctx->funk_txn );
-  ulong       funk_gaddr         = fd_wksp_gaddr( funk_wksp, slot_ctx->funk->shmem );
-
-  /* Init txn ctx */
-  fd_exec_txn_ctx_new( txn_ctx );
-  fd_exec_txn_ctx_from_exec_slot_ctx( slot_ctx,
-                                      txn_ctx,
-                                      funk_wksp,
-                                      runtime_pub_wksp,
-                                      funk_txn_gaddr,
-                                      funk_gaddr,
-                                      NULL );
-  fd_exec_txn_ctx_setup( txn_ctx, txn_descriptor, txn_raw );
-
-  /* Set up the core account keys */
-  fd_executor_setup_txn_account_keys( txn_ctx );
-
-  return FD_RUNTIME_EXECUTE_SUCCESS;
-}
-
 int
 fd_executor_txn_verify( fd_exec_txn_ctx_t * txn_ctx ) {
   fd_sha512_t * shas[ FD_TXN_ACTUAL_SIG_MAX ];

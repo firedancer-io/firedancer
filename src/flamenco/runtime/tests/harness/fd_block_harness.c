@@ -1,4 +1,5 @@
 #include "fd_block_harness.h"
+#include "../../fd_cost_tracker.h"
 
 /* Stripped down version of `fd_refresh_vote_accounts()` that simply refreshes the stake delegation amount
    for each of the vote accounts using the stake delegations cache. */
@@ -428,10 +429,9 @@ fd_runtime_fuzz_block_ctx_create( fd_runtime_fuzz_runner_t *           runner,
   fd_memcpy( poh->hash, test_ctx->slot_ctx.poh, sizeof(fd_hash_t) );
 
   /* Make a new funk transaction since we're done loading in accounts for context */
-  fd_funk_txn_xid_t fork_xid[1] = {0};
-  fork_xid[0] = fd_funk_generate_xid();
+  fd_funk_txn_xid_t fork_xid = { .ul = { slot, slot } };
   fd_funk_txn_start_write( funk );
-  slot_ctx->funk_txn = fd_funk_txn_prepare( funk, slot_ctx->funk_txn, fork_xid, 1 );
+  slot_ctx->funk_txn = fd_funk_txn_prepare( funk, slot_ctx->funk_txn, &fork_xid, 1 );
   fd_funk_txn_end_write( funk );
 
   /* Calculate epoch account hash values. This sets epoch_bank.eah_{start_slot, stop_slot, interval} */
@@ -471,10 +471,7 @@ fd_runtime_fuzz_block_ctx_create( fd_runtime_fuzz_runner_t *           runner,
   for( ulong i=0UL; i<txn_cnt; i++ ) {
     fd_txn_p_t * txn = &txn_ptrs[i];
 
-    ushort _instr_count, _addr_table_cnt;
-    ulong msg_sz = fd_runtime_fuzz_serialize_txn( txn->payload, &test_ctx->txns[i], &_instr_count, &_addr_table_cnt );
-
-    // Reject any transactions over 1232 bytes
+    ulong msg_sz = fd_runtime_fuzz_serialize_txn( txn->payload, &test_ctx->txns[i] );
     if( FD_UNLIKELY( msg_sz==ULONG_MAX ) ) {
       return NULL;
     }
@@ -516,6 +513,8 @@ fd_runtime_fuzz_block_ctx_exec( fd_runtime_fuzz_runner_t * runner,
   int res = 0;
 
   fd_spad_t * runtime_spad = runner->spad;
+  fd_wksp_t * funk_wksp    = fd_funk_wksp( slot_ctx->funk );
+
 
   // Prepare. Execute. Finalize.
   FD_SPAD_FRAME_BEGIN( runtime_spad ) {
@@ -538,10 +537,72 @@ fd_runtime_fuzz_block_ctx_exec( fd_runtime_fuzz_runner_t * runner,
 
     /* Process new epoch may push a new spad frame onto the runtime spad. We should make sure this frame gets
        cleared (if it was allocated) before executing the block. */
-    int   is_epoch_boundary = 0;
+    int is_epoch_boundary = 0;
     fd_runtime_block_pre_execute_process_new_epoch( slot_ctx, capture_ctx, runtime_spad, &is_epoch_boundary );
 
-    res = fd_runtime_block_execute( slot_ctx, capture_ctx, block_info, runtime_spad );
+    int res = fd_runtime_block_execute_prepare( slot_ctx, runtime_spad );
+    if( FD_UNLIKELY( res ) ) {
+      return res;
+    }
+
+    /* Initialize the cost tracker */
+    fd_cost_tracker_t * cost_tracker = fd_spad_alloc( runtime_spad, FD_COST_TRACKER_ALIGN, sizeof(fd_cost_tracker_t) );
+    fd_cost_tracker_init( cost_tracker, runtime_spad );
+
+    fd_txn_p_t * txn_ptrs = block_info->microblock_batch_infos[0].microblock_infos[0].txns;
+    ulong        txn_cnt  = block_info->microblock_batch_infos[0].txn_cnt;
+
+    /* Sequential transaction execution */
+    for( ulong i=0UL; i<txn_cnt; i++ ) {
+
+      fd_txn_p_t *        txn     = &txn_ptrs[i];
+      fd_exec_txn_ctx_t * txn_ctx = fd_spad_alloc( runtime_spad, alignof(fd_exec_txn_ctx_t), sizeof(fd_exec_txn_ctx_t) );
+
+      /* Update the program cache */
+      fd_runtime_update_program_cache( slot_ctx, txn, runner->spad );
+
+      txn_ctx->spad      = runtime_spad;
+      txn_ctx->spad_wksp = fd_wksp_containing( runtime_spad );
+
+      fd_exec_txn_ctx_from_exec_slot_ctx(
+          slot_ctx,
+          txn_ctx,
+          funk_wksp,
+          fd_wksp_containing( slot_ctx ),
+          fd_wksp_gaddr( funk_wksp, slot_ctx->funk_txn ),
+          fd_wksp_gaddr( funk_wksp, slot_ctx->funk->shmem ),
+          NULL );
+      fd_runtime_prepare_and_execute_txn(
+          slot_ctx->funk,
+          slot_ctx->bank,
+          txn_ctx,
+          txn,
+          runner->spad,
+          capture_ctx,
+          0,
+          1 );
+
+      if( FD_UNLIKELY( !( txn->flags & FD_TXN_P_FLAGS_EXECUTE_SUCCESS) ) ) {
+        continue;
+      }
+
+      fd_execute_txn_task_info_t task_info = {
+        .txn_ctx  = txn_ctx,
+        .exec_res = txn_ctx->exec_err,
+      };
+      fd_runtime_finalize_txn( slot_ctx->funk, slot_ctx->funk_txn, &task_info, runtime_spad, slot_ctx->bank );
+
+      /* Update the cost tracker */
+      fd_transaction_cost_t transaction_cost = fd_calculate_cost_for_executed_transaction( txn_ctx, runtime_spad );
+      res = fd_cost_tracker_try_add( cost_tracker, txn_ctx, &transaction_cost );
+      if( FD_UNLIKELY( res ) ) {
+        return res;
+      }
+    }
+
+    /* Block finalization */
+    res = fd_runtime_block_execute_finalize_sequential( slot_ctx, capture_ctx, block_info, runtime_spad );
+
   } FD_SPAD_FRAME_END;
 
   return res;

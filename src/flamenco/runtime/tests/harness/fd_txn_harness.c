@@ -18,22 +18,16 @@ fd_runtime_fuzz_txn_ctx_create( fd_runtime_fuzz_runner_t *         runner,
                                 fd_exec_test_txn_context_t const * test_ctx ) {
   fd_funk_t * funk = runner->funk;
 
-  /* Generate unique ID for funk txn */
+  /* Default slot */
+  ulong slot = test_ctx->slot_ctx.slot ? test_ctx->slot_ctx.slot : 10; // Arbitrary default > 0
 
-  fd_funk_txn_xid_t xid[1] = {0};
-  xid[0] = fd_funk_generate_xid();
-
-  /* Create temporary funk transaction and spad contexts */
-
+  /* Set up the funk transaction */
+  fd_funk_txn_xid_t xid = { .ul = { slot, slot } };
   fd_funk_txn_start_write( funk );
-  fd_funk_txn_t * funk_txn = fd_funk_txn_prepare( funk, NULL, xid, 1 );
+  fd_funk_txn_t * funk_txn = fd_funk_txn_prepare( funk, NULL, &xid, 1 );
   fd_funk_txn_end_write( funk );
 
-  /* Allocate contexts */
-  assert( slot_ctx  );
-
   /* Set up slot context */
-
   slot_ctx->funk_txn = funk_txn;
   slot_ctx->funk     = funk;
 
@@ -42,15 +36,11 @@ fd_runtime_fuzz_txn_ctx_create( fd_runtime_fuzz_runner_t *         runner,
   fd_banks_clear_bank( slot_ctx->banks, slot_ctx->bank );
 
   /* Restore feature flags */
-
   fd_exec_test_feature_set_t const * feature_set = &test_ctx->epoch_ctx.features;
   fd_features_t * features_bm = fd_bank_features_modify( slot_ctx->bank );
   if( !fd_runtime_fuzz_restore_features( features_bm, feature_set ) ) {
     return NULL;
   }
-
-  /* Default slot */
-  ulong slot = test_ctx->slot_ctx.slot ? test_ctx->slot_ctx.slot : 10; // Arbitrary default > 0
 
   /* Set slot bank variables (defaults obtained from GenesisConfig::default() in Agave) */
   slot_ctx->bank->slot_ = slot;
@@ -233,26 +223,19 @@ fd_runtime_fuzz_txn_ctx_create( fd_runtime_fuzz_runner_t *         runner,
   fd_runtime_fuzz_refresh_program_cache( slot_ctx, test_ctx->account_shared_data, test_ctx->account_shared_data_count, runner->spad );
 
   /* Create the raw txn (https://solana.com/docs/core/transactions#transaction-size) */
-  uchar * txn_raw_begin = fd_spad_alloc( runner->spad, alignof(uchar), 1232 );
-  ushort instr_count, addr_table_cnt;
-  ulong msg_sz = fd_runtime_fuzz_serialize_txn( txn_raw_begin, &test_ctx->tx, &instr_count, &addr_table_cnt );
+  fd_txn_p_t * txn    = fd_spad_alloc( runner->spad, alignof(fd_txn_p_t), sizeof(fd_txn_p_t) );
+  ulong        msg_sz = fd_runtime_fuzz_serialize_txn( txn->payload, &test_ctx->tx );
   if( FD_UNLIKELY( msg_sz==ULONG_MAX ) ) {
     return NULL;
   }
 
   /* Set up txn descriptor from raw data */
-  fd_txn_t * txn_descriptor = (fd_txn_t *) fd_spad_alloc( runner->spad, fd_txn_align(), fd_txn_footprint( instr_count, addr_table_cnt ) );
-  if( FD_UNLIKELY( !fd_txn_parse( txn_raw_begin, msg_sz, txn_descriptor, NULL ) ) ) {
+  if( FD_UNLIKELY( !fd_txn_parse( txn->payload, msg_sz, TXN( txn ), NULL ) ) ) {
     return NULL;
   }
 
-  /* Run txn preparation phases and execution
-     NOTE: This should be modified accordingly if transaction setup logic changes */
-  fd_txn_p_t * txn = fd_spad_alloc( runner->spad, alignof(fd_txn_p_t), sizeof(fd_txn_p_t) );
-  memcpy( txn->payload, txn_raw_begin, msg_sz );
   txn->payload_sz = msg_sz;
-  txn->flags = FD_TXN_P_FLAGS_SANITIZE_SUCCESS;
-  memcpy( txn->_, txn_descriptor, fd_txn_footprint( instr_count, addr_table_cnt ) );
+  txn->flags      = FD_TXN_P_FLAGS_SANITIZE_SUCCESS;
 
   return txn;
 }
@@ -263,36 +246,42 @@ static fd_execute_txn_task_info_t *
 fd_runtime_fuzz_txn_ctx_exec( fd_runtime_fuzz_runner_t * runner,
                               fd_exec_slot_ctx_t *       slot_ctx,
                               fd_txn_p_t *               txn ) {
+  fd_wksp_t * funk_wksp = fd_funk_wksp( slot_ctx->funk );
+
   fd_execute_txn_task_info_t * task_info = fd_spad_alloc( runner->spad, alignof(fd_execute_txn_task_info_t), sizeof(fd_execute_txn_task_info_t) );
   memset( task_info, 0, sizeof(fd_execute_txn_task_info_t) );
-  task_info->txn     = txn;
-  task_info->txn_ctx = fd_spad_alloc( runner->spad, FD_EXEC_TXN_CTX_ALIGN, FD_EXEC_TXN_CTX_FOOTPRINT );
-
-  fd_runtime_prepare_txns_start( slot_ctx, task_info, txn, 1UL, runner->spad );
-
-  /* Setup the spad for account allocation */
+  task_info->txn                = txn;
+  task_info->txn_ctx            = fd_spad_alloc( runner->spad, alignof(fd_exec_txn_ctx_t), sizeof(fd_exec_txn_ctx_t) );
   task_info->txn_ctx->spad      = runner->spad;
   task_info->txn_ctx->spad_wksp = fd_wksp_containing( runner->spad );
 
-  fd_runtime_pre_execute_check( task_info );
-
-  if( task_info->txn->flags & FD_TXN_P_FLAGS_SANITIZE_SUCCESS ) {
-      task_info->txn->flags |= FD_TXN_P_FLAGS_EXECUTE_SUCCESS;
-      task_info->exec_res    = fd_execute_txn( task_info );
-  }
+  fd_exec_txn_ctx_from_exec_slot_ctx(
+      slot_ctx,
+      task_info->txn_ctx,
+      funk_wksp,
+      fd_wksp_containing( slot_ctx ),
+      fd_wksp_gaddr( funk_wksp, slot_ctx->funk_txn ),
+      fd_wksp_gaddr( funk_wksp, slot_ctx->funk->shmem ),
+      NULL );
+  task_info->exec_res = fd_runtime_prepare_and_execute_txn(
+      slot_ctx->funk,
+      slot_ctx->bank,
+      task_info->txn_ctx,
+      task_info->txn,
+      runner->spad,
+      NULL,
+      0,
+      0
+   );
 
   fd_bank_execution_fees_set( slot_ctx->bank, fd_bank_execution_fees_get( slot_ctx->bank ) + task_info->txn_ctx->execution_fee );
-
   fd_bank_priority_fees_set( slot_ctx->bank, fd_bank_priority_fees_get( slot_ctx->bank ) + task_info->txn_ctx->priority_fee );
-
   return task_info;
 }
 
 ulong
 fd_runtime_fuzz_serialize_txn( uchar *                                      txn_raw_begin,
-                               fd_exec_test_sanitized_transaction_t const * tx,
-                               ushort *                                     out_instr_cnt,
-                               ushort *                                     out_addr_table_cnt ) {
+                               fd_exec_test_sanitized_transaction_t const * tx ) {
   uchar * txn_raw_cur_ptr = txn_raw_begin;
 
   /* Compact array of signatures (https://solana.com/docs/core/transactions#transaction)
@@ -397,9 +386,6 @@ fd_runtime_fuzz_serialize_txn( uchar *                                      txn_
       }
     }
   }
-
-  *out_instr_cnt = instr_count;
-  *out_addr_table_cnt = addr_table_cnt;
   return (ulong)(txn_raw_cur_ptr - txn_raw_begin);
 }
 

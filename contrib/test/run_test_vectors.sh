@@ -22,17 +22,17 @@ GIT_REF=${GIT_REF:-$(cat contrib/test/test-vectors-commit-sha.txt)}
 
 echo $GIT_REF
 
-if [ ! -d dump/test-vectors ]; then
-  cd dump
-  git clone -q --depth=1 https://github.com/firedancer-io/test-vectors.git
-  cd test-vectors
-else
-  cd dump/test-vectors
-fi
+# if [ ! -d dump/test-vectors ]; then
+#   cd dump
+#   git clone -q --depth=1 https://github.com/firedancer-io/test-vectors.git
+#   cd test-vectors
+# else
+#   cd dump/test-vectors
+# fi
 
-git fetch -q --depth=1 origin $GIT_REF
-git checkout -q $GIT_REF
-cd ../..
+# git fetch -q --depth=1 origin $GIT_REF
+# git checkout -q $GIT_REF
+# cd ../..
 
 LOG=$LOG_PATH/test_exec_block
 find dump/test-vectors/block/fixtures/* -type f -name '*.fix' | xargs -P $NUM_PROCESSES -n 1000 ./$OBJDIR/unit-test/test_exec_sol_compat --log-path $LOG --wksp-page-sz 1073741824
