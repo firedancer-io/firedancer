@@ -680,10 +680,6 @@ metric introduced.
     <summary>Time in seconds spent on publishing a new FEC set</summary>
   </histogram>
 </tile>
-<tile name="storei">
-  <gauge name="FirstTurbineSlot" label="The first slot for which we have received a turbine shred" />
-  <gauge name="CurrentTurbineSlot" label="The latest slot for which we have received a turbine shred" />
-</tile>
 <enum name="GossipMessage">
     <int value="0" name="PullRequest"   label="Pull Request" />
     <int value="1" name="PullResponse"  label="Pull Response" />
@@ -791,6 +787,9 @@ metric introduced.
 
 
 <tile name="repair">
+    <gauge name="FirstTurbineSlot" label="The first slot for which we have received a turbine shred" />
+    <gauge name="LatestTurbineSlot" label="The latest slot for which we have received a turbine shred" />
+    <gauge name="LatestRepairSlot" label="The latest slot for which we have sent out a repair request" />
     <counter name="RecvClntPkt"               clickhouse_exclude="true"                                 summary="Now many client packets have we received" />
     <counter name="RecvServPkt"               clickhouse_exclude="true"                                 summary="How many server packets have we received" />
     <counter name="RecvServCorruptPkt"        clickhouse_exclude="true"                                 summary="How many corrupt server packets have we received" />

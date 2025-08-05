@@ -104,6 +104,7 @@ struct fd_repair_tile_ctx {
 
   ulong * turbine_slot0;
   ulong * turbine_slot;
+  ulong   latest_repair_slot; /* slot of most recent repair request, used as a gauge metric */
 
   uchar       identity_private_key[ 32 ];
   fd_pubkey_t identity_public_key;
@@ -412,6 +413,7 @@ fd_repair_send_requests( fd_repair_tile_ctx_t *   ctx,
     fd_repair_send_request( ctx, stem, glob, type, slot, shred_index, id, now );
     if( FD_UNLIKELY( glob->peer_idx >= glob->peer_cnt ) ) glob->peer_idx = 0; /* wrap around */
   }
+  ctx->latest_repair_slot = slot;
 }
 
 
@@ -1060,6 +1062,10 @@ static inline void
 metrics_write( fd_repair_tile_ctx_t * ctx ) {
   /* Repair-protocol-specific metrics */
   fd_repair_metrics_t * metrics = fd_repair_get_metrics( ctx->repair );
+  FD_MGAUGE_SET( REPAIR, FIRST_TURBINE_SLOT, fd_fseq_query( ctx->turbine_slot0 ) );
+  FD_MGAUGE_SET( REPAIR, LATEST_TURBINE_SLOT, fd_fseq_query( ctx->turbine_slot ) );
+  FD_MGAUGE_SET( REPAIR, LATEST_REPAIR_SLOT, ctx->latest_repair_slot );
+
   FD_MCNT_SET( REPAIR, RECV_CLNT_PKT, metrics->recv_clnt_pkt );
   FD_MCNT_SET( REPAIR, RECV_SERV_PKT, metrics->recv_serv_pkt );
   FD_MCNT_SET( REPAIR, RECV_SERV_CORRUPT_PKT, metrics->recv_serv_corrupt_pkt );
