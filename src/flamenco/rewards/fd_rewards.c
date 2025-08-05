@@ -365,13 +365,13 @@ calculate_reward_points_partitioned( fd_exec_slot_ctx_t *       slot_ctx,
   }
 
   uint128 points = calculate_points_all(
-      temp_info->stake_infos,
-      temp_info->stake_infos_len,
+      temp_info->stake_infos.data,
+      temp_info->stake_infos.len,
       stake_history,
       new_warmup_cooldown_rate_epoch,
       minimum_stake_delegation,
-      temp_info->vote_states_pool,
-      temp_info->vote_states_root
+      temp_info->vote_states.pool,
+      temp_info->vote_states.root
   );
 
   if( points > 0 ) {
@@ -392,7 +392,7 @@ calculate_stake_vote_rewards_account(
     fd_calculate_stake_vote_rewards_result_t * result,
     fd_spad_t *                                spad
 ) {
-  fd_epoch_info_pair_t const * stake_infos = temp_info->stake_infos;
+  fd_epoch_info_pair_t const * stake_infos = temp_info->stake_infos.data;
 
   FD_SPAD_FRAME_BEGIN( spad ) {
 
@@ -401,7 +401,7 @@ calculate_stake_vote_rewards_account(
   ulong dlist_additional_cnt     = 0UL;
 
   /* Build a local vote reward map */
-  ulong const stake_infos_len = temp_info->stake_infos_len;
+  ulong const stake_infos_len = temp_info->stake_infos.len;
   fd_vote_reward_t_mapnode_t * vote_reward_map_pool = fd_vote_reward_t_map_join( fd_vote_reward_t_map_new( fd_spad_alloc(
       spad, fd_vote_reward_t_map_align(), fd_vote_reward_t_map_footprint( stake_infos_len ) ), stake_infos_len ) );
   fd_vote_reward_t_mapnode_t * vote_reward_map_root = NULL;
@@ -420,8 +420,8 @@ calculate_stake_vote_rewards_account(
     fd_pubkey_t const * voter_acc = &stake->delegation.voter_pubkey;
     fd_vote_info_pair_t_mapnode_t key;
     key.elem.account = *voter_acc;
-    fd_vote_info_pair_t_mapnode_t * vote_state_entry = fd_vote_info_pair_t_map_find( temp_info->vote_states_pool,
-                                                                                      temp_info->vote_states_root,
+    fd_vote_info_pair_t_mapnode_t * vote_state_entry = fd_vote_info_pair_t_map_find( temp_info->vote_states.pool,
+                                                                                      temp_info->vote_states.root,
                                                                                       &key );
     if( FD_UNLIKELY( vote_state_entry==NULL ) ) {
       continue;
@@ -473,7 +473,7 @@ calculate_stake_vote_rewards_account(
     // Find and update the vote reward node in the local map
     fd_vote_reward_t_mapnode_t vote_map_key[1];
     vote_map_key->elem.pubkey = *voter_acc;
-    fd_vote_reward_t_mapnode_t * vote_reward_node = fd_vote_reward_t_map_find( result->vote_reward_map_pool, result->vote_reward_map_root, vote_map_key );
+    fd_vote_reward_t_mapnode_t * vote_reward_node = fd_vote_reward_t_map_find( result->vote_reward_map.pool, result->vote_reward_map.root, vote_map_key );
     if( FD_UNLIKELY( vote_reward_node==NULL ) ) {
       FD_LOG_WARNING(( "vote account is missing from the vote rewards pool" ));
       continue;
@@ -515,7 +515,7 @@ calculate_stake_vote_rewards_account(
         vote_reward_node;
         vote_reward_node = fd_vote_reward_t_map_successor( vote_reward_map_pool, vote_reward_node ) ) {
 
-    fd_vote_reward_t_mapnode_t * result_reward_node = fd_vote_reward_t_map_find( result->vote_reward_map_pool, result->vote_reward_map_root, vote_reward_node );
+    fd_vote_reward_t_mapnode_t * result_reward_node = fd_vote_reward_t_map_find( result->vote_reward_map.pool, result->vote_reward_map.root, vote_reward_node );
     result_reward_node->elem.commission    = vote_reward_node->elem.commission;
     result_reward_node->elem.vote_rewards += vote_reward_node->elem.vote_rewards;
     result_reward_node->elem.needs_store   = 1;
@@ -565,7 +565,7 @@ calculate_stake_vote_rewards( fd_exec_slot_ctx_t *                       slot_ct
     new_warmup_cooldown_rate_epoch = NULL;
   }
 
-  ulong rewards_max_count = temp_info->stake_infos_len;
+  ulong rewards_max_count = temp_info->stake_infos.len;
 
   /* Create the stake rewards pool and dlist. The pool will be destoyed after the stake rewards have been distributed. */
   result->stake_reward_calculation.pool = fd_stake_reward_calculation_pool_join( fd_stake_reward_calculation_pool_new( fd_spad_alloc( runtime_spad,
@@ -580,30 +580,30 @@ calculate_stake_vote_rewards( fd_exec_slot_ctx_t *                       slot_ct
   result->stake_reward_calculation.stake_rewards_len = 0UL;
 
   /* Create the vote rewards map. This will be destroyed after the vote rewards have been distributed. */
-  ulong vote_account_cnt       = fd_vote_info_pair_t_map_size( temp_info->vote_states_pool, temp_info->vote_states_root );
-  result->vote_reward_map_pool = fd_vote_reward_t_map_join( fd_vote_reward_t_map_new( fd_spad_alloc( runtime_spad,
+  ulong vote_account_cnt       = fd_vote_info_pair_t_map_size( temp_info->vote_states.pool, temp_info->vote_states.root );
+  result->vote_reward_map.pool = fd_vote_reward_t_map_join( fd_vote_reward_t_map_new( fd_spad_alloc( runtime_spad,
                                                                                                      fd_vote_reward_t_map_align(),
                                                                                                      fd_vote_reward_t_map_footprint( vote_account_cnt )),
                                                                                       vote_account_cnt ) );
-  result->vote_reward_map_root = NULL;
+  result->vote_reward_map.root = NULL;
 
   /* Pre-fill the vote pubkeys in the vote rewards map pool */
-  for( fd_vote_info_pair_t_mapnode_t * vote_info = fd_vote_info_pair_t_map_minimum( temp_info->vote_states_pool, temp_info->vote_states_root );
+  for( fd_vote_info_pair_t_mapnode_t * vote_info = fd_vote_info_pair_t_map_minimum( temp_info->vote_states.pool, temp_info->vote_states.root );
        vote_info;
-       vote_info = fd_vote_info_pair_t_map_successor( temp_info->vote_states_pool, vote_info ) ) {
+       vote_info = fd_vote_info_pair_t_map_successor( temp_info->vote_states.pool, vote_info ) ) {
 
     fd_pubkey_t const *          voter_pubkey     = &vote_info->elem.account;
-    fd_vote_reward_t_mapnode_t * vote_reward_node = fd_vote_reward_t_map_acquire( result->vote_reward_map_pool );
+    fd_vote_reward_t_mapnode_t * vote_reward_node = fd_vote_reward_t_map_acquire( result->vote_reward_map.pool );
 
     vote_reward_node->elem.pubkey       = *voter_pubkey;
     vote_reward_node->elem.vote_rewards = 0UL;
     vote_reward_node->elem.needs_store  = 0;
 
-    fd_vote_reward_t_map_insert( result->vote_reward_map_pool, &result->vote_reward_map_root, vote_reward_node );
+    fd_vote_reward_t_map_insert( result->vote_reward_map.pool, &result->vote_reward_map.root, vote_reward_node );
   }
 
   /* Pre-allocate the dlist stake reward elements */
-  for( ulong i=0UL; i<temp_info->stake_infos_len; i++ ) {
+  for( ulong i=0UL; i<temp_info->stake_infos.len; i++ ) {
     fd_stake_reward_t * stake_reward = fd_stake_reward_calculation_pool_ele_acquire( result->stake_reward_calculation.pool );
     if( FD_UNLIKELY( stake_reward==NULL ) ) {
       FD_LOG_ERR(( "insufficient space allocated for stake reward calculation pool" ));
@@ -778,8 +778,8 @@ calculate_rewards_for_partitioning( fd_exec_slot_ctx_t *                   slot_
   result->stake_rewards_by_partition.total_stake_rewards_lamports =
     validator_result->calculate_stake_vote_rewards_result.stake_reward_calculation.total_stake_rewards_lamports;
 
-  result->vote_reward_map_pool         = validator_result->calculate_stake_vote_rewards_result.vote_reward_map_pool;
-  result->vote_reward_map_root         = validator_result->calculate_stake_vote_rewards_result.vote_reward_map_root;
+  result->vote_reward_map.pool         = validator_result->calculate_stake_vote_rewards_result.vote_reward_map.pool;
+  result->vote_reward_map.root         = validator_result->calculate_stake_vote_rewards_result.vote_reward_map.root;
   result->validator_rewards            = rewards.validator_rewards;
   result->validator_rate               = rewards.validator_rate;
   result->foundation_rate              = rewards.foundation_rate;
@@ -811,9 +811,9 @@ calculate_rewards_and_distribute_vote_rewards( fd_exec_slot_ctx_t * slot_ctx,
 
   /* Iterate over all the vote reward nodes */
   ulong distributed_rewards = 0UL;
-  for( fd_vote_reward_t_mapnode_t * vote_reward_node = fd_vote_reward_t_map_minimum( rewards_calc_result->vote_reward_map_pool, rewards_calc_result->vote_reward_map_root);
+  for( fd_vote_reward_t_mapnode_t * vote_reward_node = fd_vote_reward_t_map_minimum( rewards_calc_result->vote_reward_map.pool, rewards_calc_result->vote_reward_map.root);
        vote_reward_node;
-       vote_reward_node = fd_vote_reward_t_map_successor( rewards_calc_result->vote_reward_map_pool, vote_reward_node ) ) {
+       vote_reward_node = fd_vote_reward_t_map_successor( rewards_calc_result->vote_reward_map.pool, vote_reward_node ) ) {
 
     if( FD_UNLIKELY( !vote_reward_node->elem.needs_store ) ) {
       continue;
@@ -1146,8 +1146,8 @@ fd_rewards_recalculate_partitioned_rewards( fd_exec_slot_ctx_t * slot_ctx,
     fd_epoch_info_new( &epoch_info );
 
     ulong stake_delegation_sz  = fd_delegation_pair_t_map_size( stake_delegations_pool, stake_delegations_root );
-    epoch_info.stake_infos_len = 0UL;
-    epoch_info.stake_infos     = fd_spad_alloc( runtime_spad, FD_EPOCH_INFO_PAIR_ALIGN, sizeof(fd_epoch_info_pair_t)*stake_delegation_sz );
+    epoch_info.stake_infos.len = 0UL;
+    epoch_info.stake_infos.data     = fd_spad_alloc( runtime_spad, FD_EPOCH_INFO_PAIR_ALIGN, sizeof(fd_epoch_info_pair_t)*stake_delegation_sz );
 
     fd_stake_history_entry_t _accumulator = {
         .effective = 0UL,

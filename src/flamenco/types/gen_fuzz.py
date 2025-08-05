@@ -226,29 +226,29 @@ class VectorMember(TypeNode):
             self.ignore_underflow = False
 
     def emitGenerate(self, indent=''):
-        print(f'{indent}  self->{self.name}_len = fd_rng_ulong( rng ) % 8;', file=body)
-        print(f'{indent}  if( self->{self.name}_len ) {{', file=body)
+        print(f'{indent}  self->{self.name}.len = fd_rng_ulong( rng ) % 8;', file=body)
+        print(f'{indent}  if( self->{self.name}.len ) {{', file=body)
         el = f'{namespace}_{self.element}'
 
         if self.element == "uchar":
-            print(f'{indent}    self->{self.name} = (uchar *) *alloc_mem;', file=body)
-            print(f'{indent}    *alloc_mem = (uchar *) *alloc_mem + self->{self.name}_len;', file=body)
-            print(f'{indent}    for( ulong i=0; i < self->{self.name}_len; ++i) {{ self->{self.name}[i] = fd_rng_uchar( rng ) % 0x80; }}', file=body)
+            print(f'{indent}    self->{self.name}.data = (uchar *) *alloc_mem;', file=body)
+            print(f'{indent}    *alloc_mem = (uchar *) *alloc_mem + self->{self.name}.len;', file=body)
+            print(f'{indent}    for( ulong i=0; i < self->{self.name}.len; ++i) {{ self->{self.name}.data[i] = fd_rng_uchar( rng ) % 0x80; }}', file=body)
         else:
             if self.element in simpletypes:
-                print(f'{indent}    self->{self.name} = ({self.element} *) *alloc_mem;', file=body)
-                print(f'{indent}    *alloc_mem = (uchar *) *alloc_mem + sizeof({self.element})*self->{self.name}_len;', file=body)
-                print(f'{indent}    LLVMFuzzerMutate( (uchar *) self->{self.name}, sizeof({self.element})*self->{self.name}_len, sizeof({self.element})*self->{self.name}_len );', file=body)
+                print(f'{indent}    self->{self.name}.data = ({self.element} *) *alloc_mem;', file=body)
+                print(f'{indent}    *alloc_mem = (uchar *) *alloc_mem + sizeof({self.element})*self->{self.name}.len;', file=body)
+                print(f'{indent}    LLVMFuzzerMutate( (uchar *) self->{self.name}.data, sizeof({self.element})*self->{self.name}.len, sizeof({self.element})*self->{self.name}.len );', file=body)
             else:
-                print(f'    self->{self.name} = ({namespace}_{self.element}_t *) *alloc_mem;', file=body)
-                print(f'    *alloc_mem = (uchar *) *alloc_mem + sizeof({el}_t)*self->{self.name}_len;', file=body)
-                print(f'    for( ulong i=0; i < self->{self.name}_len; i++ ) {{', file=body)
-                print(f'      {namespace}_{self.element}_new( self->{self.name} + i );', file=body)
-                print(f'      {namespace}_{self.element}_generate( self->{self.name} + i, alloc_mem, rng );', file=body)
+                print(f'    self->{self.name}.data = ({namespace}_{self.element}_t *) *alloc_mem;', file=body)
+                print(f'    *alloc_mem = (uchar *) *alloc_mem + sizeof({el}_t)*self->{self.name}.len;', file=body)
+                print(f'    for( ulong i=0; i < self->{self.name}.len; i++ ) {{', file=body)
+                print(f'      {namespace}_{self.element}_new( self->{self.name}.data + i );', file=body)
+                print(f'      {namespace}_{self.element}_generate( self->{self.name}.data + i, alloc_mem, rng );', file=body)
                 print('    }', file=body)
 
         print(f'{indent}  }} else {{', file=body)
-        print(f'{indent}    self->{self.name} = NULL;', file=body)
+        print(f'{indent}    self->{self.name}.data = NULL;', file=body)
         print(f'{indent}  }}', file=body)
 
 class BitVectorMember(TypeNode):
@@ -262,7 +262,7 @@ class BitVectorMember(TypeNode):
         print(f'    self->has_{self.name} = fd_rng_uchar( rng ) % 2;', file=body)
         print(f'    if( self->has_{self.name} ) {{', file=body)
         self.vector_member.emitGenerate('    ')
-        print(f'      self->{self.name}_len = self->{self.vector_member.name}_len;', file=body)
+        print(f'      self->{self.name}_len = self->{self.vector_member.name}.len;', file=body)
         print('    } else {', file=body)
         print(f'      self->{self.name}_len = 0UL;', file=body)
         print('    }', file=body)
@@ -359,15 +359,15 @@ class MapMember(TypeNode):
         print(f'  ulong {self.name}_len = fd_rng_ulong( rng ) % 8;', file=body)
 
         if self.minalloc > 0:
-            print(f'  self->{self.name}_pool = {mapname}_join_new( alloc_mem, fd_ulong_max( {self.name}_len, {self.minalloc} ) );', file=body)
+            print(f'  self->{self.name}.pool = {mapname}_join_new( alloc_mem, fd_ulong_max( {self.name}_len, {self.minalloc} ) );', file=body)
         else:
-            print(f'  self->{self.name}_pool = {mapname}_join_new( alloc_mem, {self.name}_len );', file=body)
+            print(f'  self->{self.name}.pool = {mapname}_join_new( alloc_mem, {self.name}_len );', file=body)
 
-        print(f'  self->{self.name}_root = NULL;', file=body)
+        print(f'  self->{self.name}.root = NULL;', file=body)
         print(f'  for( ulong i=0; i < {self.name}_len; i++ ) {{', file=body)
-        print(f'    {nodename} * node = {mapname}_acquire( self->{self.name}_pool );', file=body)
+        print(f'    {nodename} * node = {mapname}_acquire( self->{self.name}.pool );', file=body)
         print(f'    {namespace}_{self.element}_generate( &node->elem, alloc_mem, rng );', file=body)
-        print(f'    {mapname}_insert( self->{self.name}_pool, &self->{self.name}_root, node );', file=body)
+        print(f'    {mapname}_insert( self->{self.name}.pool, &self->{self.name}.root, node );', file=body)
         print('  }', file=body)
 
 class PartitionMember(TypeNode):

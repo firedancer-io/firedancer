@@ -1022,8 +1022,8 @@ fd_txncache_get_entries( fd_txncache_t *         tc,
 
   fd_rwlock_read( tc->lock );
 
-  slot_deltas->slot_deltas_len = tc->root_slots_cnt;
-  slot_deltas->slot_deltas     = fd_spad_alloc( spad, FD_SLOT_DELTA_ALIGN, tc->root_slots_cnt * sizeof(fd_slot_delta_t) );
+  slot_deltas->slot_deltas.len = tc->root_slots_cnt;
+  slot_deltas->slot_deltas.data     = fd_spad_alloc( spad, FD_SLOT_DELTA_ALIGN, tc->root_slots_cnt * sizeof(fd_slot_delta_t) );
 
   fd_txncache_private_txnpage_t * txnpages   = fd_txncache_get_txnpages( tc );
   ulong                         * root_slots = fd_txncache_get_root_slots( tc );
@@ -1031,10 +1031,10 @@ fd_txncache_get_entries( fd_txncache_t *         tc,
   for( ulong i=0UL; i<tc->root_slots_cnt; i++ ) {
     ulong slot = root_slots[ i ];
 
-    slot_deltas->slot_deltas[ i ].slot               = slot;
-    slot_deltas->slot_deltas[ i ].is_root            = 1;
-    slot_deltas->slot_deltas[ i ].slot_delta_vec     = fd_spad_alloc( spad, FD_STATUS_PAIR_ALIGN, FD_TXNCACHE_DEFAULT_MAX_ROOTED_SLOTS * sizeof(fd_status_pair_t) );
-    slot_deltas->slot_deltas[ i ].slot_delta_vec_len = 0UL;
+    slot_deltas->slot_deltas.data[ i ].slot               = slot;
+    slot_deltas->slot_deltas.data[ i ].is_root            = 1;
+    slot_deltas->slot_deltas.data[ i ].slot_delta_vec.data     = fd_spad_alloc( spad, FD_STATUS_PAIR_ALIGN, FD_TXNCACHE_DEFAULT_MAX_ROOTED_SLOTS * sizeof(fd_status_pair_t) );
+    slot_deltas->slot_deltas.data[ i ].slot_delta_vec.len = 0UL;
     ulong slot_delta_vec_len = 0UL;
 
     fd_txncache_private_slotcache_t * slotcache;
@@ -1047,7 +1047,7 @@ fd_txncache_get_entries( fd_txncache_t *         tc,
       if( FD_UNLIKELY( slotblockcache->txnhash_offset>=ULONG_MAX-1UL ) ) {
         continue;
       }
-      fd_status_pair_t * status_pair = &slot_deltas->slot_deltas[ i ].slot_delta_vec[ slot_delta_vec_len++ ];
+      fd_status_pair_t * status_pair = &slot_deltas->slot_deltas.data[ i ].slot_delta_vec.data[ slot_delta_vec_len++ ];
       fd_memcpy( &status_pair->hash, slotblockcache->blockhash, sizeof(fd_hash_t) );
       status_pair->value.txn_idx = slotblockcache->txnhash_offset;
 
@@ -1062,9 +1062,9 @@ fd_txncache_get_entries( fd_txncache_t *         tc,
         }
       }
 
-      status_pair->value.statuses_len = num_statuses;
-      status_pair->value.statuses     = fd_spad_alloc( spad, FD_CACHE_STATUS_ALIGN, num_statuses * sizeof(fd_cache_status_t) );
-      fd_memset( status_pair->value.statuses, 0, num_statuses * sizeof(fd_cache_status_t) );
+      status_pair->value.statuses.len = num_statuses;
+      status_pair->value.statuses.data     = fd_spad_alloc( spad, FD_CACHE_STATUS_ALIGN, num_statuses * sizeof(fd_cache_status_t) );
+      fd_memset( status_pair->value.statuses.data, 0, num_statuses * sizeof(fd_cache_status_t) );
 
       /* Copy over every entry for the given slot into the slot deltas. */
 
@@ -1073,12 +1073,12 @@ fd_txncache_get_entries( fd_txncache_t *         tc,
         uint head = slotblockcache->heads[ k ];
         for( ; head!=UINT_MAX; head=txnpages[ head/FD_TXNCACHE_TXNS_PER_PAGE ].txns[ head%FD_TXNCACHE_TXNS_PER_PAGE ]->slotblockcache_next ) {
           fd_txncache_private_txn_t * txn = txnpages[ head/FD_TXNCACHE_TXNS_PER_PAGE ].txns[ head%FD_TXNCACHE_TXNS_PER_PAGE ];
-          fd_memcpy( status_pair->value.statuses[ num_statuses ].key_slice, txn->txnhash, 20 );
-          status_pair->value.statuses[ num_statuses++ ].result.discriminant = txn->result;
+          fd_memcpy( status_pair->value.statuses.data[ num_statuses ].key_slice, txn->txnhash, 20 );
+          status_pair->value.statuses.data[ num_statuses++ ].result.discriminant = txn->result;
         }
       }
     }
-    slot_deltas->slot_deltas[ i ].slot_delta_vec_len = slot_delta_vec_len;
+    slot_deltas->slot_deltas.data[ i ].slot_delta_vec.len = slot_delta_vec_len;
   }
 
   fd_rwlock_unread( tc->lock );

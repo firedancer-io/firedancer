@@ -297,25 +297,25 @@ void fd_vote_accounts_decode_inner( void * struct_mem, void * * alloc_mem, fd_bi
   fd_vote_accounts_t * self = (fd_vote_accounts_t *)struct_mem;
   ulong vote_accounts_len;
   fd_bincode_uint64_decode_unsafe( &vote_accounts_len, ctx );
-  self->vote_accounts_pool = fd_vote_accounts_pair_t_map_join_new( alloc_mem, fd_ulong_max( vote_accounts_len, 50000 ) );
-  self->vote_accounts_root = NULL;
+  self->vote_accounts.pool = fd_vote_accounts_pair_t_map_join_new( alloc_mem, fd_ulong_max( vote_accounts_len, 50000 ) );
+  self->vote_accounts.root = NULL;
   for( ulong i=0; i < vote_accounts_len; i++ ) {
-    fd_vote_accounts_pair_t_mapnode_t * node = fd_vote_accounts_pair_t_map_acquire( self->vote_accounts_pool );
+    fd_vote_accounts_pair_t_mapnode_t * node = fd_vote_accounts_pair_t_map_acquire( self->vote_accounts.pool );
     fd_vote_accounts_pair_new( &node->elem );
     fd_vote_accounts_pair_decode_inner( &node->elem, alloc_mem, ctx );
     // https://github.com/firedancer-io/agave/blob/540d5bc56cd44e3cc61b179bd52e9a782a2c99e4/vote/src/vote_account.rs#L323
     // throws an error and
     if( FD_UNLIKELY( ( 0!=memcmp( node->elem.value.owner.key, fd_solana_vote_program_id.key, sizeof(fd_pubkey_t) ) )
-        || ( node->elem.value.data_len < 4 )
+        || ( node->elem.value.data.len < 4 )
         ) ) {
       // https://github.com/firedancer-io/agave/blob/540d5bc56cd44e3cc61b179bd52e9a782a2c99e4/vote/src/vote_account.rs#L429
       // causes the entry to not get added
-      fd_vote_accounts_pair_t_map_release( self->vote_accounts_pool, node );
+      fd_vote_accounts_pair_t_map_release( self->vote_accounts.pool, node );
     } else {
       fd_vote_accounts_pair_t_mapnode_t * out = NULL;
-      fd_vote_accounts_pair_t_map_insert_or_replace( self->vote_accounts_pool, &self->vote_accounts_root, node, &out );
+      fd_vote_accounts_pair_t_map_insert_or_replace( self->vote_accounts.pool, &self->vote_accounts.root, node, &out );
       if( !!out ) {
-        fd_vote_accounts_pair_t_map_release( self->vote_accounts_pool, out );
+        fd_vote_accounts_pair_t_map_release( self->vote_accounts.pool, out );
       }
     }
   }

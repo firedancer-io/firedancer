@@ -1528,10 +1528,10 @@ fd_update_stake_delegations( fd_exec_slot_ctx_t * slot_ctx,
 
   /* In one pass, iterate over all the new stake infos and insert the updated values into the epoch stakes cache
       This assumes that there is enough memory pre-allocated for the stakes cache. */
-  for( ulong idx=temp_info->stake_infos_new_keys_start_idx; idx<temp_info->stake_infos_len; idx++ ) {
+  for( ulong idx=temp_info->stake_infos_new_keys_start_idx; idx<temp_info->stake_infos.len; idx++ ) {
     // Fetch and store the delegation associated with this stake account
     fd_delegation_pair_t_mapnode_t key;
-    key.elem.account = temp_info->stake_infos[idx].account;
+    key.elem.account = temp_info->stake_infos.data[idx].account;
     fd_delegation_pair_t_mapnode_t * entry = fd_delegation_pair_t_map_find( stake_delegations_pool, stake_delegations_root, &key );
     if( FD_LIKELY( entry==NULL ) ) {
       entry = fd_delegation_pair_t_map_acquire( stake_delegations_pool );
@@ -1539,8 +1539,8 @@ fd_update_stake_delegations( fd_exec_slot_ctx_t * slot_ctx,
         FD_TEST( 0 == fd_delegation_pair_t_map_verify( stake_delegations_pool, stake_delegations_root ) );
         FD_LOG_CRIT(( "stake_delegations_pool full %lu", fd_delegation_pair_t_map_size( stake_delegations_pool, stake_delegations_root ) ));
       }
-      entry->elem.account    = temp_info->stake_infos[idx].account;
-      entry->elem.delegation = temp_info->stake_infos[idx].stake.delegation;
+      entry->elem.account    = temp_info->stake_infos.data[idx].account;
+      entry->elem.delegation = temp_info->stake_infos.data[idx].stake.delegation;
       fd_delegation_pair_t_map_insert( stake_delegations_pool, &stake_delegations_root, entry );
     }
   }
@@ -2332,7 +2332,7 @@ fd_runtime_init_bank_from_genesis( fd_exec_slot_ctx_t *        slot_ctx,
   memset( bank_hash->hash, 0, FD_SHA256_HASH_SZ );
 
   fd_poh_config_t const * poh  = &genesis_block->poh_config;
-  uint128 target_tick_duration = ((uint128)poh->target_tick_duration.seconds * 1000000000UL + (uint128)poh->target_tick_duration.nanoseconds);
+  ulong target_tick_duration = ((ulong)poh->target_tick_duration.seconds * 1000000000UL + (ulong)poh->target_tick_duration.nanoseconds);
 
   fd_bank_epoch_schedule_set( slot_ctx->bank, genesis_block->epoch_schedule );
 
@@ -2391,8 +2391,8 @@ fd_runtime_init_bank_from_genesis( fd_exec_slot_ctx_t *        slot_ctx,
   FD_FEATURE_SET_ACTIVE(features, accounts_lt_hash, 0);
   FD_FEATURE_SET_ACTIVE(features, remove_accounts_delta_hash, 0);
 
-  for( ulong i=0UL; i<genesis_block->accounts_len; i++ ) {
-    fd_pubkey_account_pair_t const * acc = &genesis_block->accounts[i];
+  for( ulong i=0UL; i<genesis_block->accounts.len; i++ ) {
+    fd_pubkey_account_pair_t const * acc = &genesis_block->accounts.data[i];
     capitalization = fd_ulong_sat_add( capitalization, acc->account.lamports );
 
     if( !memcmp(acc->account.owner.key, fd_solana_vote_program_id.key, sizeof(fd_pubkey_t)) ) {
@@ -2404,13 +2404,13 @@ fd_runtime_init_bank_from_genesis( fd_exec_slot_ctx_t *        slot_ctx,
       node->elem.stake = acc->account.lamports;
       node->elem.value = (fd_solana_account_global_t){
         .lamports = acc->account.lamports,
-        .data_len = acc->account.data_len,
+        .data_len = acc->account.data.len,
         .data_offset = 0UL, /* FIXME: remove this field from the cache altogether. */
         .owner = acc->account.owner,
         .executable = acc->account.executable,
         .rent_epoch = acc->account.rent_epoch
       };
-      fd_solana_account_data_update( &node->elem.value, acc->account.data );
+      fd_solana_account_data_update( &node->elem.value, acc->account.data.data );
 
       fd_vote_accounts_pair_global_t_map_insert( vacc_pool, &vacc_root, node );
 
@@ -2420,9 +2420,9 @@ fd_runtime_init_bank_from_genesis( fd_exec_slot_ctx_t *        slot_ctx,
     } else if( !memcmp( acc->account.owner.key, fd_solana_stake_program_id.key, sizeof(fd_pubkey_t) ) ) {
       /* stake program account */
       fd_stake_state_v2_t   stake_state   = {0};
-      fd_account_meta_t     meta          = { .dlen = acc->account.data_len };
+      fd_account_meta_t     meta          = { .dlen = acc->account.data.len };
       FD_TXN_ACCOUNT_DECL( stake_account );
-      fd_txn_account_init_from_meta_and_data_mutable( stake_account, &meta, acc->account.data );
+      fd_txn_account_init_from_meta_and_data_mutable( stake_account, &meta, acc->account.data.data );
       FD_TEST( fd_stake_get_state( stake_account, &stake_state ) == 0 );
       if( !stake_state.inner.stake.stake.delegation.stake ) {
         continue;
@@ -2460,8 +2460,8 @@ fd_runtime_init_bank_from_genesis( fd_exec_slot_ctx_t *        slot_ctx,
           int err;
           fd_feature_t * feature = fd_bincode_decode_spad(
               feature, runtime_spad,
-              acc->account.data,
-              acc->account.data_len,
+              acc->account.data.data,
+              acc->account.data.len,
               &err );
           FD_TEST( err==FD_BINCODE_SUCCESS );
 
@@ -2492,8 +2492,8 @@ fd_runtime_init_bank_from_genesis( fd_exec_slot_ctx_t *        slot_ctx,
 
   uchar * next_epoch_stakes_acc_region_curr = (uchar *)fd_ulong_align_up( (ulong)next_pool + fd_vote_accounts_pair_global_t_map_footprint( 50000UL ), 8UL );
 
-  for( ulong i=0UL; i<genesis_block->accounts_len; i++ ) {
-    fd_pubkey_account_pair_t const * acc = &genesis_block->accounts[i];
+  for( ulong i=0UL; i<genesis_block->accounts.len; i++ ) {
+    fd_pubkey_account_pair_t const * acc = &genesis_block->accounts.data[i];
 
     if( !memcmp( acc->account.owner.key, fd_solana_vote_program_id.key, sizeof(fd_pubkey_t) ) ) {
 
@@ -2504,16 +2504,16 @@ fd_runtime_init_bank_from_genesis( fd_exec_slot_ctx_t *        slot_ctx,
       e->elem.stake = acc->account.lamports;
       e->elem.value = (fd_solana_account_global_t){
         .lamports = acc->account.lamports,
-        .data_len = acc->account.data_len,
+        .data_len = acc->account.data.len,
         .data_offset = 0UL, /* FIXME: remove this field from the cache altogether. */
         .owner = acc->account.owner,
         .executable = acc->account.executable,
         .rent_epoch = acc->account.rent_epoch
       };
 
-      memcpy( epoch_stakes_vote_acc_region_curr, acc->account.data, acc->account.data_len );
+      memcpy( epoch_stakes_vote_acc_region_curr, acc->account.data.data, acc->account.data.len );
       e->elem.value.data_offset = (ulong)(epoch_stakes_vote_acc_region_curr - (uchar *)&e->elem.value);
-      epoch_stakes_vote_acc_region_curr += acc->account.data_len;
+      epoch_stakes_vote_acc_region_curr += acc->account.data.len;
 
       fd_vote_accounts_pair_global_t_map_insert( vote_accounts_pool, &vote_accounts_root, e );
 
@@ -2525,16 +2525,16 @@ fd_runtime_init_bank_from_genesis( fd_exec_slot_ctx_t *        slot_ctx,
       next_e->elem.stake = acc->account.lamports;
       next_e->elem.value = (fd_solana_account_global_t){
         .lamports = acc->account.lamports,
-        .data_len = acc->account.data_len,
+        .data_len = acc->account.data.len,
         .data_offset = 0UL, /* FIXME: remove this field from the cache altogether. */
         .owner = acc->account.owner,
         .executable = acc->account.executable,
         .rent_epoch = acc->account.rent_epoch
       };
 
-      memcpy( next_epoch_stakes_acc_region_curr, acc->account.data, acc->account.data_len );
+      memcpy( next_epoch_stakes_acc_region_curr, acc->account.data.data, acc->account.data.len );
       next_e->elem.value.data_offset = (ulong)(next_epoch_stakes_acc_region_curr - (uchar *)&next_e->elem.value);
-      next_epoch_stakes_acc_region_curr += acc->account.data_len;
+      next_epoch_stakes_acc_region_curr += acc->account.data.len;
 
       fd_vote_accounts_pair_global_t_map_insert( next_pool, &next_root, next_e );
     }
@@ -2703,10 +2703,10 @@ fd_runtime_read_genesis( fd_exec_slot_ctx_t * slot_ctx,
                                         &genesis_hash,
                                         runtime_spad );
 
-    FD_LOG_DEBUG(( "start genesis accounts - count: %lu", genesis_block->accounts_len ));
+    FD_LOG_DEBUG(( "start genesis accounts - count: %lu", genesis_block->accounts.len ));
 
-    for( ulong i=0; i<genesis_block->accounts_len; i++ ) {
-      fd_pubkey_account_pair_t * a = &genesis_block->accounts[i];
+    for( ulong i=0; i<genesis_block->accounts.len; i++ ) {
+      fd_pubkey_account_pair_t * a = &genesis_block->accounts.data[i];
 
       FD_TXN_ACCOUNT_DECL( rec );
 
@@ -2715,13 +2715,13 @@ fd_runtime_read_genesis( fd_exec_slot_ctx_t * slot_ctx,
                                                       slot_ctx->funk,
                                                       slot_ctx->funk_txn,
                                                       1, /* do_create */
-                                                      a->account.data_len );
+                                                      a->account.data.len );
 
       if( FD_UNLIKELY( err ) ) {
         FD_LOG_ERR(( "fd_txn_account_init_from_funk_mutable failed (%d)", err ));
       }
 
-      rec->vt->set_data( rec, a->account.data, a->account.data_len );
+      rec->vt->set_data( rec, a->account.data.data, a->account.data.len );
       rec->vt->set_lamports( rec, a->account.lamports );
       rec->vt->set_rent_epoch( rec, a->account.rent_epoch );
       rec->vt->set_executable( rec, a->account.executable );
@@ -2732,11 +2732,11 @@ fd_runtime_read_genesis( fd_exec_slot_ctx_t * slot_ctx,
 
     FD_LOG_DEBUG(( "end genesis accounts" ));
 
-    FD_LOG_DEBUG(( "native instruction processors - count: %lu", genesis_block->native_instruction_processors_len ));
+    FD_LOG_DEBUG(( "native instruction processors - count: %lu", genesis_block->native_instruction_processors.len ));
 
-    for( ulong i=0UL; i < genesis_block->native_instruction_processors_len; i++ ) {
-      fd_string_pubkey_pair_t * a = &genesis_block->native_instruction_processors[i];
-      fd_write_builtin_account( slot_ctx, a->pubkey, (const char *) a->string, a->string_len );
+    for( ulong i=0UL; i < genesis_block->native_instruction_processors.len; i++ ) {
+      fd_string_pubkey_pair_t * a = &genesis_block->native_instruction_processors.data[i];
+      fd_write_builtin_account( slot_ctx, a->pubkey, (const char *) a->string.data, a->string.len );
     }
 
     fd_features_restore( slot_ctx, runtime_spad );

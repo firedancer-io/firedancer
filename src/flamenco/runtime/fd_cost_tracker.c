@@ -249,8 +249,8 @@ would_fit( fd_cost_tracker_t const *     self,
   }
 
   /* https://github.com/anza-xyz/agave/blob/v2.2.0/cost-model/src/cost_tracker.rs#L308-L319 */
-  fd_account_costs_pair_t_mapnode_t * pool = self->cost_by_writable_accounts.account_costs_pool;
-  fd_account_costs_pair_t_mapnode_t * root = self->cost_by_writable_accounts.account_costs_root;
+  fd_account_costs_pair_t_mapnode_t * pool = self->cost_by_writable_accounts.account_costs.pool;
+  fd_account_costs_pair_t_mapnode_t * root = self->cost_by_writable_accounts.account_costs.root;
 
   for( ulong i=0UL; i<txn_ctx->accounts_cnt; i++ ) {
     if( !fd_exec_txn_ctx_account_is_writable_idx( txn_ctx, (ushort)i ) ) continue;
@@ -277,8 +277,8 @@ add_transaction_execution_cost( fd_cost_tracker_t *           self,
                                 fd_transaction_cost_t const * tx_cost,
                                 ulong                         adjustment ) {
 
-  fd_account_costs_pair_t_mapnode_t *  pool = self->cost_by_writable_accounts.account_costs_pool;
-  fd_account_costs_pair_t_mapnode_t ** root = &self->cost_by_writable_accounts.account_costs_root;
+  fd_account_costs_pair_t_mapnode_t *  pool = self->cost_by_writable_accounts.account_costs.pool;
+  fd_account_costs_pair_t_mapnode_t ** root = &self->cost_by_writable_accounts.account_costs.root;
 
   for( ulong i=0UL; i<txn_ctx->accounts_cnt; i++ ) {
     if( !fd_exec_txn_ctx_account_is_writable_idx( txn_ctx, (ushort)i ) ) continue;
@@ -328,10 +328,10 @@ fd_cost_tracker_init( fd_cost_tracker_t *        self,
   /* Init cost tracker map
      TODO: The maximum number of accounts within a block needs to be bounded out properly. It's currently
      hardcoded here at 4096*1024 accounts. */
-  self->cost_by_writable_accounts.account_costs_root = NULL;
+  self->cost_by_writable_accounts.account_costs.root = NULL;
   uchar * pool_mem                                   = fd_spad_alloc( spad, fd_account_costs_pair_t_map_align(), fd_account_costs_pair_t_map_footprint( FD_WRITABLE_ACCOUNTS_PER_BLOCK * 1024UL ) );
-  self->cost_by_writable_accounts.account_costs_pool = fd_account_costs_pair_t_map_join( fd_account_costs_pair_t_map_new( pool_mem, FD_WRITABLE_ACCOUNTS_PER_BLOCK * 1024UL ) );
-  if( FD_UNLIKELY( !self->cost_by_writable_accounts.account_costs_pool ) ) {
+  self->cost_by_writable_accounts.account_costs.pool = fd_account_costs_pair_t_map_join( fd_account_costs_pair_t_map_new( pool_mem, FD_WRITABLE_ACCOUNTS_PER_BLOCK * 1024UL ) );
+  if( FD_UNLIKELY( !self->cost_by_writable_accounts.account_costs.pool ) ) {
     FD_LOG_ERR(( "failed to allocate memory for cost tracker accounts pool" ));
   }
 
