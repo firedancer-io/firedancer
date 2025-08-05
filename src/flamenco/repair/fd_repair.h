@@ -76,11 +76,11 @@ struct fd_active_elem {
     ulong next; /* used internally by fd_map_giant */
 
     fd_ip4_port_t addr;
-    // Might be worth keeping these fields, but currently response rate is pretty high.
-    // latency could be a useful metric to keep track of.
-    ulong avg_reqs; /* Moving average of the number of requests */
-    ulong avg_reps; /* Moving average of the number of requests */
-    long  avg_lat;  /* Moving average of response latency */
+
+    // TODO: switch to wma later
+    ulong resp_cnt;       /* For calculating the average of the number of requests */
+    ulong req_cnt;        /* total num of requests sent */
+    long  total_latency;  /* For calculating the average of response latency */
     ulong stake;
 };
 /* Active table */
@@ -95,6 +95,9 @@ typedef struct fd_active_elem fd_active_elem_t;
 enum fd_needed_elem_type {
   fd_needed_window_index, fd_needed_highest_window_index, fd_needed_orphan
 };
+FD_STATIC_ASSERT( fd_needed_window_index==FD_METRICS_ENUM_REPAIR_SENT_REQUEST_TYPES_V_NEEDED_WINDOW_IDX,                 update repair metrics enums );
+FD_STATIC_ASSERT( fd_needed_highest_window_index==FD_METRICS_ENUM_REPAIR_SENT_REQUEST_TYPES_V_NEEDED_HIGHEST_WINDOW_IDX, update repair metrics enums );
+FD_STATIC_ASSERT( fd_needed_orphan==FD_METRICS_ENUM_REPAIR_SENT_REQUEST_TYPES_V_NEEDED_ORPHAN_IDX,                       update repair metrics enums );
 
 struct fd_inflight_key {
   enum fd_needed_elem_type type;
@@ -105,9 +108,9 @@ typedef struct fd_inflight_key fd_inflight_key_t;
 
 struct fd_inflight_elem {
   fd_inflight_key_t key;
-  long               last_send_time;
-  uint               req_cnt;
-  ulong              next;
+  long              last_send_time;
+  uint              req_cnt;
+  ulong             next;
 };
 typedef struct fd_inflight_elem fd_inflight_elem_t;
 
@@ -159,6 +162,7 @@ struct fd_pinged_elem {
   int good;
 };
 typedef struct fd_pinged_elem fd_pinged_elem_t;
+
 #define MAP_NAME     fd_pinged_table
 #define MAP_KEY_T    fd_ip4_port_t
 #define MAP_KEY_EQ   fd_repair_peer_addr_eq
@@ -177,6 +181,7 @@ struct fd_repair_pending_sign_req {
   uint        dst_ip_addr;
   ushort      dst_port;
   fd_pubkey_t recipient;
+  uchar       type;      /* needed window/highest window/orphan */
 };
 typedef struct fd_repair_pending_sign_req fd_repair_pending_sign_req_t;
 
@@ -189,27 +194,38 @@ typedef struct fd_repair_pending_sign_req fd_repair_pending_sign_req_t;
 #define MAP_ELE_T    fd_repair_pending_sign_req_t
 #include "../../util/tmpl/fd_map_chain.c"
 
+struct __attribute__((aligned(128UL))) fd_inflight {
+  ulong         nonce;         /* unique identifier for the request */
+  ulong         next;          /* reserved for internal use by fd_pool and fd_map_chain */
+  long          timestamp_ns;  /* timestamp when request was created (nanoseconds) */
+  fd_pubkey_t   pubkey;        /* public key of the peer */
+
+  /* Reserved for DLL eviction */
+  ulong          prevll;      /* pool index of previous element in DLL */
+  ulong          nextll;      /* pool index of next element in DLL */
+};
+typedef struct fd_inflight fd_inflight_t;
+
+#define POOL_NAME   fd_inflight_pool
+#define POOL_T      fd_inflight_t
+#include "../../util/tmpl/fd_pool.c"
+
+#define MAP_NAME     fd_inflight_map
+#define MAP_KEY      nonce
+#define MAP_ELE_T    fd_inflight_t
+#include "../../util/tmpl/fd_map_chain.c"
+
+#define DLIST_NAME      fd_inflight_dlist
+#define DLIST_ELE_T     fd_inflight_t
+#define DLIST_PREV      prevll
+#define DLIST_NEXT      nextll
+#include "../../util/tmpl/fd_dlist.c"
+
 struct fd_peer {
   fd_pubkey_t   key;
   fd_ip4_port_t ip4;
 };
 typedef struct fd_peer fd_peer_t;
-/* Repair Metrics */
-struct fd_repair_metrics {
-  ulong recv_clnt_pkt;
-  ulong recv_serv_pkt;
-  ulong recv_serv_corrupt_pkt;
-  ulong recv_serv_invalid_signature;
-  ulong recv_serv_full_ping_table;
-  ulong recv_serv_pkt_types[FD_METRICS_ENUM_REPAIR_SERV_PKT_TYPES_CNT];
-  ulong recv_pkt_corrupted_msg;
-  ulong send_pkt_cnt;
-  ulong sent_pkt_types[FD_METRICS_ENUM_REPAIR_SENT_REQUEST_TYPES_CNT];
-  fd_histf_t store_link_wait[ 1 ];
-  fd_histf_t store_link_work[ 1 ];
-};
-typedef struct fd_repair_metrics fd_repair_metrics_t;
-#define FD_REPAIR_METRICS_FOOTPRINT ( sizeof( fd_repair_metrics_t ) )
 
 /* Global data for repair service */
 struct fd_repair {
@@ -228,8 +244,14 @@ struct fd_repair {
     ulong     peer_cnt; /* number of peers in the peers array */
     ulong     peer_idx; /* max number of peers in the peers array */
 
-    /* Duplicate request detection table */
+    /* Duplicate request detection table, keyed by request type, slot, and shred index */
     fd_inflight_elem_t * dupdetect;
+
+    /* Table of inflight requests, keyed by nonce */
+    fd_inflight_t       * inflight_pool;
+    fd_inflight_map_t   * inflight_map;
+    fd_inflight_dlist_t * inflight_dlist;
+
     /* Table of needed shreds */
     fd_repair_nonce_t next_nonce;
     /* Table of validator clients that we have pinged */
@@ -244,12 +266,10 @@ struct fd_repair {
     fd_rng_t rng[1];
     /* RNG seed */
     ulong seed;
-    /* Stake weights */
+
     /* Pending sign requests for async operations */
-    fd_repair_pending_sign_req_t      * pending_sign_pool;
-    fd_repair_pending_sign_req_map_t  * pending_sign_map;
-    /* Metrics */
-    fd_repair_metrics_t metrics;
+    fd_repair_pending_sign_req_t     * pending_sign_pool;
+    fd_repair_pending_sign_req_map_t * pending_sign_map;
 };
 typedef struct fd_repair fd_repair_t;
 
@@ -265,6 +285,9 @@ fd_repair_footprint( ulong sign_tile_depth, ulong sign_tile_cnt ) {
   l = FD_LAYOUT_APPEND( l, alignof(fd_repair_t),                    sizeof(fd_repair_t) );
   l = FD_LAYOUT_APPEND( l, fd_active_table_align(),                 fd_active_table_footprint(FD_ACTIVE_KEY_MAX) );
   l = FD_LAYOUT_APPEND( l, fd_inflight_table_align(),               fd_inflight_table_footprint(FD_NEEDED_KEY_MAX) );
+  l = FD_LAYOUT_APPEND( l, fd_inflight_pool_align(),                fd_inflight_pool_footprint(FD_NEEDED_KEY_MAX) );
+  l = FD_LAYOUT_APPEND( l, fd_inflight_map_align(),                 fd_inflight_map_footprint (FD_NEEDED_KEY_MAX) );
+  l = FD_LAYOUT_APPEND( l, fd_inflight_dlist_align(),               fd_inflight_dlist_footprint()                 );
   l = FD_LAYOUT_APPEND( l, fd_pinged_table_align(),                 fd_pinged_table_footprint(FD_REPAIR_PINGED_MAX) );
   /* pending sign request structures - TODO: i think move this to the repair tile.... ts is pretty tile specific */
   l = FD_LAYOUT_APPEND( l, fd_repair_pending_sign_req_pool_align(), fd_repair_pending_sign_req_pool_footprint( sign_req_max ) );
@@ -310,9 +333,11 @@ int fd_repair_start( fd_repair_t * glob );
  * called inside the main spin loop. calling settime first is recommended. */
 int fd_repair_continue( fd_repair_t * glob );
 
-int fd_repair_inflight_remove( fd_repair_t * glob,
-                               ulong         slot,
-                               uint          shred_index );
+long
+fd_repair_inflight_remove( fd_repair_t * glob,
+                           ulong         slot,
+                           uint          shred_index,
+                           ulong         nonce );
 
 /* Register a request for a shred */
 int fd_repair_need_window_index( fd_repair_t * glob, ulong slot, uint shred_index );
@@ -330,9 +355,6 @@ fd_repair_construct_request_protocol( fd_repair_t          * glob,
                                       fd_pubkey_t const    * recipient,
                                       uint                   nonce,
                                       long                   now );
-
-fd_repair_metrics_t *
-fd_repair_get_metrics( fd_repair_t * repair );
 
 /* Pending sign request operations */
 fd_repair_pending_sign_req_t *
@@ -353,5 +375,9 @@ fd_repair_query_pending_request( fd_repair_t * repair,
 int
 fd_repair_remove_pending_request( fd_repair_t * repair,
                                   ulong         nonce );
+
+/* TODO wrap this in an ifdef lawd help me */
+
+#include "iptable.h"
 
 #endif /* HEADER_fd_src_flamenco_repair_fd_repair_h */

@@ -54,12 +54,20 @@ struct __attribute__((aligned(128UL))) fd_forest_blk {
   uint buffered_idx; /* highest contiguous buffered shred idx */
   uint complete_idx; /* shred_idx with SLOT_COMPLETE_FLAG ie. last shred idx in the slot */
 
-  fd_forest_blk_idxs_t fecs[fd_forest_blk_idxs_word_cnt]; /* last shred idx of every FEC set */
+  fd_forest_blk_idxs_t fecs[fd_forest_blk_idxs_word_cnt]; /* fec set idxs */
   fd_forest_blk_idxs_t idxs[fd_forest_blk_idxs_word_cnt]; /* data shred idxs */
   fd_forest_blk_idxs_t cmpl[fd_forest_blk_idxs_word_cnt]; /* last shred idx of every FEC set that has been completed by shred_tile */
 
   /* i.e. when fecs == cmpl, the slot is truly complete and everything
   is contained in fec store. Look at fec_clear for more details.*/
+
+  /* Metrics */
+
+  fd_forest_blk_idxs_t code[fd_forest_blk_idxs_word_cnt]; /* code shred idxs */
+  long first_ts;     /* timestamp of first shred rcved in slot != complete_idx */
+  uint turbine_cnt;  /* number of shreds received from turbine */
+  uint repair_cnt;   /* number of data shreds received from repair */
+  int  is_done;      /* whether slot is done AND all parents are done */
 };
 typedef struct fd_forest_blk fd_forest_blk_t;
 
@@ -387,13 +395,23 @@ fd_forest_query( fd_forest_t * forest, ulong slot );
 fd_forest_blk_t *
 fd_forest_blk_insert( fd_forest_t * forest, ulong slot, ulong parent_slot );
 
+enum shred_src {
+  TURBINE   = 0,
+  REPAIR    = 1,
+  RECOVERED = 2,
+};
+typedef enum shred_src shred_src_t;
+
 /* fd_forest_shred_insert inserts a new shred into the forest.
    Assumes slot is already in forest, and should typically be called
    directly after fd_forest_block_insert. Returns the forest ele
    corresponding to the shred slot. */
 
 fd_forest_blk_t *
-fd_forest_data_shred_insert( fd_forest_t * forest, ulong slot, ulong parent_slot, uint shred_idx, uint fec_set_idx, int slot_complete );
+fd_forest_data_shred_insert( fd_forest_t * forest, ulong slot, ulong parent_slot, uint shred_idx, uint fec_set_idx, int slot_complete, shred_src_t src );
+
+fd_forest_blk_t *
+fd_forest_code_shred_insert( fd_forest_t * forest, ulong slot, uint shred_idx );
 
 /* fd_forest_fec_insert inserts a new fully completed FEC set into the
    forest. Assumes slot is already in forest, and should typically be

@@ -23,6 +23,9 @@ fd_repair_new ( void * shmem, ulong sign_tile_depth, ulong sign_tile_cnt, ulong 
   fd_repair_t * repair   = FD_SCRATCH_ALLOC_APPEND( l, alignof(fd_repair_t),                    sizeof(fd_repair_t) );
   void        * actives  = FD_SCRATCH_ALLOC_APPEND( l, fd_active_table_align(),                 fd_active_table_footprint(FD_ACTIVE_KEY_MAX) );
   void        * inflight = FD_SCRATCH_ALLOC_APPEND( l, fd_inflight_table_align(),               fd_inflight_table_footprint(FD_NEEDED_KEY_MAX) );
+  void        * inflpool = FD_SCRATCH_ALLOC_APPEND( l, fd_inflight_pool_align(),                fd_inflight_pool_footprint(FD_NEEDED_KEY_MAX) );
+  void        * inflmap  = FD_SCRATCH_ALLOC_APPEND( l, fd_inflight_map_align(),                 fd_inflight_map_footprint(FD_NEEDED_KEY_MAX) );
+  void        * infldl   = FD_SCRATCH_ALLOC_APPEND( l, fd_inflight_dlist_align(),               fd_inflight_dlist_footprint()                 );
   void        * pinged   = FD_SCRATCH_ALLOC_APPEND( l, fd_pinged_table_align(),                 fd_pinged_table_footprint(FD_REPAIR_PINGED_MAX) );
   void        * signpool = FD_SCRATCH_ALLOC_APPEND( l, fd_repair_pending_sign_req_pool_align(), fd_repair_pending_sign_req_pool_footprint( sign_req_max ) );
   void        * signmap  = FD_SCRATCH_ALLOC_APPEND( l, fd_repair_pending_sign_req_map_align(),  fd_repair_pending_sign_req_map_footprint ( sign_req_max ) );
@@ -30,10 +33,15 @@ fd_repair_new ( void * shmem, ulong sign_tile_depth, ulong sign_tile_cnt, ulong 
 
   repair->actives        = fd_active_table_join  ( fd_active_table_new  ( actives,  FD_ACTIVE_KEY_MAX,    seed ));
   repair->dupdetect      = fd_inflight_table_join( fd_inflight_table_new( inflight, FD_NEEDED_KEY_MAX,    seed ));
+  repair->inflight_pool  = fd_inflight_pool_join ( fd_inflight_pool_new ( inflpool, FD_NEEDED_KEY_MAX          ));
+  repair->inflight_map   = fd_inflight_map_join  ( fd_inflight_map_new  ( inflmap,  FD_NEEDED_KEY_MAX,    seed ));
+  repair->inflight_dlist = fd_inflight_dlist_join( fd_inflight_dlist_new( infldl                               ));
   repair->pinged         = fd_pinged_table_join  ( fd_pinged_table_new  ( pinged,   FD_REPAIR_PINGED_MAX, seed ));
   repair->pending_sign_pool = fd_repair_pending_sign_req_pool_join( fd_repair_pending_sign_req_pool_new( signpool, sign_req_max       ) );
   repair->pending_sign_map  = fd_repair_pending_sign_req_map_join ( fd_repair_pending_sign_req_map_new ( signmap,  sign_req_max, seed ) );
 
+  fd_memset(repair, 0, sizeof(fd_repair_t));
+  repair->seed = seed;
   repair->peer_cnt   = 0;
   repair->peer_idx   = 0;
   repair->last_decay = 0;
@@ -103,9 +111,8 @@ fd_repair_add_active_peer( fd_repair_t * glob, fd_ip4_port_t const * addr, fd_pu
   if (val == NULL) {
     val = fd_active_table_insert(glob->actives, id);
     fd_repair_peer_addr_copy(&val->addr, addr);
-    val->avg_reqs = 0;
-    val->avg_reps = 0;
-    val->avg_lat = 0;
+    val->resp_cnt = 0;
+    val->total_latency = 0;
     val->stake = 0UL;
 
     glob->peers[ glob->peer_cnt++ ] = (fd_peer_t){
@@ -128,21 +135,6 @@ long
 fd_repair_gettime( fd_repair_t * glob ) {
   return glob->now;
 }
-
-static void
-fd_repair_decay_stats( fd_repair_t * glob ) {
-  for( fd_active_table_iter_t iter = fd_active_table_iter_init( glob->actives );
-       !fd_active_table_iter_done( glob->actives, iter );
-       iter = fd_active_table_iter_next( glob->actives, iter ) ) {
-    fd_active_elem_t * ele = fd_active_table_iter_ele( glob->actives, iter );
-#define DECAY(_v_) _v_ = _v_ - ((_v_)>>3U) /* Reduce by 12.5% */
-    DECAY(ele->avg_reqs);
-    DECAY(ele->avg_reps);
-    DECAY(ele->avg_lat);
-#undef DECAY
-  }
-}
-
 /* Start timed events and other protocol behavior */
 int
 fd_repair_start( fd_repair_t * glob ) {
@@ -158,10 +150,8 @@ int
 fd_repair_continue( fd_repair_t * glob ) {
   if ( glob->now - glob->last_print > (long)30e9 ) { /* 30 seconds */
     glob->last_print = glob->now;
-    fd_repair_decay_stats( glob );
     glob->last_decay = glob->now;
   } else if ( glob->now - glob->last_decay > (long)15e9 ) { /* 15 seconds */
-    fd_repair_decay_stats( glob );
     glob->last_decay = glob->now;
   }
   return 0;
@@ -178,7 +168,6 @@ fd_repair_construct_request_protocol( fd_repair_t          * glob,
                                       long                   now ) {
   switch( type ) {
     case fd_needed_window_index: {
-      glob->metrics.sent_pkt_types[FD_METRICS_ENUM_REPAIR_SENT_REQUEST_TYPES_V_NEEDED_WINDOW_IDX]++;
       fd_repair_protocol_new_disc(protocol, fd_repair_protocol_enum_window_index);
       fd_repair_window_index_t * wi = &protocol->inner.window_index;
       wi->header.sender = *glob->public_key;
@@ -187,12 +176,10 @@ fd_repair_construct_request_protocol( fd_repair_t          * glob,
       wi->header.nonce = nonce;
       wi->slot = slot;
       wi->shred_index = shred_index;
-        //FD_LOG_INFO(( "repair request for %lu, %lu", wi->slot, wi->shred_index ));
       return 1;
     }
 
     case fd_needed_highest_window_index: {
-      glob->metrics.sent_pkt_types[FD_METRICS_ENUM_REPAIR_SENT_REQUEST_TYPES_V_NEEDED_HIGHEST_WINDOW_IDX]++;
       fd_repair_protocol_new_disc( protocol, fd_repair_protocol_enum_highest_window_index );
       fd_repair_highest_window_index_t * wi = &protocol->inner.highest_window_index;
       wi->header.sender = *glob->public_key;
@@ -201,12 +188,10 @@ fd_repair_construct_request_protocol( fd_repair_t          * glob,
       wi->header.nonce = nonce;
       wi->slot = slot;
       wi->shred_index = shred_index;
-      //FD_LOG_INFO(( "repair request for %lu, %lu", wi->slot, wi->shred_index ));
       return 1;
     }
 
     case fd_needed_orphan: {
-      glob->metrics.sent_pkt_types[FD_METRICS_ENUM_REPAIR_SENT_REQUEST_TYPES_V_NEEDED_ORPHAN_IDX]++;
       fd_repair_protocol_new_disc( protocol, fd_repair_protocol_enum_orphan );
       fd_repair_orphan_t * wi = &protocol->inner.orphan;
       wi->header.sender = *glob->public_key;
@@ -214,7 +199,6 @@ fd_repair_construct_request_protocol( fd_repair_t          * glob,
       wi->header.timestamp = (ulong)now/1000000L;
       wi->header.nonce = nonce;
       wi->slot = slot;
-      //FD_LOG_INFO(( "repair request for %lu", ele->dupkey.slot));
       return 1;
     }
   }
@@ -225,7 +209,7 @@ fd_repair_construct_request_protocol( fd_repair_t          * glob,
    it is not, i.e., there is an inflight request for it that was sent
    within the last x ms. */
 static int
-fd_repair_create_inflight_request( fd_repair_t * glob, int type, ulong slot, uint shred_index, long now ) {
+fd_repair_create_dedup_request( fd_repair_t * glob, int type, ulong slot, uint shred_index, long now ) {
 
   /* If there are no active sticky peers from which to send requests to, refresh the sticky peers
      selection. It may be that stake weights were not available before, and now they are. */
@@ -250,10 +234,11 @@ fd_repair_create_inflight_request( fd_repair_t * glob, int type, ulong slot, uin
   return 0;
 }
 
-int
+long
 fd_repair_inflight_remove( fd_repair_t * glob,
                            ulong         slot,
-                           uint          shred_index ) {
+                           uint          shred_index,
+                           ulong         nonce ) {
   /* If we have a shred, we can remove it from the inflight table */
   // FIXME: might be worth adding eviction logic here for orphan / highest window reqs
 
@@ -263,30 +248,43 @@ fd_repair_inflight_remove( fd_repair_t * glob,
     /* Remove the element from the inflight table */
     fd_inflight_table_remove( glob->dupdetect, &dupkey );
   }
+
+  fd_inflight_t * inflight_req = fd_inflight_map_ele_query( glob->inflight_map, &nonce, NULL, glob->inflight_pool );
+  if( inflight_req ) {
+    long rtt = fd_log_wallclock() - inflight_req->timestamp_ns;
+
+    /* update peer stats */
+    fd_active_elem_t * active_elem = fd_active_table_query( glob->actives, &inflight_req->pubkey, NULL );
+    if( FD_LIKELY( active_elem ) ) {
+      active_elem->resp_cnt++;
+      active_elem->total_latency += rtt;
+    }
+    /* Remove the element from the inflight table */
+    fd_inflight_map_ele_remove  ( glob->inflight_map, &nonce, NULL, glob->inflight_pool );
+    fd_inflight_dlist_ele_remove( glob->inflight_dlist, inflight_req, glob->inflight_pool );
+    fd_inflight_pool_ele_release( glob->inflight_pool, inflight_req );
+    return rtt;
+  }
+
   return 0;
 }
 
 int
 fd_repair_need_window_index( fd_repair_t * glob, ulong slot, uint shred_index ) {
   // FD_LOG_NOTICE(( "[%s] need window %lu, shred_index %u", __func__, slot, shred_index ));
-  return fd_repair_create_inflight_request( glob, fd_needed_window_index, slot, shred_index, glob->now );
+  return fd_repair_create_dedup_request( glob, fd_needed_window_index, slot, shred_index, glob->now );
 }
 
 int
 fd_repair_need_highest_window_index( fd_repair_t * glob, ulong slot, uint shred_index ) {
   //FD_LOG_DEBUG(( "[%s] need highest %lu", __func__, slot ));
-  return fd_repair_create_inflight_request( glob, fd_needed_highest_window_index, slot, shred_index, glob->now );
+  return fd_repair_create_dedup_request( glob, fd_needed_highest_window_index, slot, shred_index, glob->now );
 }
 
 int
 fd_repair_need_orphan( fd_repair_t * glob, ulong slot ) {
   // FD_LOG_NOTICE( ( "[repair] need orphan %lu", slot ) );
-  return fd_repair_create_inflight_request( glob, fd_needed_orphan, slot, UINT_MAX, glob->now );
-}
-
-fd_repair_metrics_t *
-fd_repair_get_metrics( fd_repair_t * repair ) {
-  return &repair->metrics;
+  return fd_repair_create_dedup_request( glob, fd_needed_orphan, slot, UINT_MAX, glob->now );
 }
 
 /* Pending Sign Request API
@@ -325,6 +323,7 @@ fd_repair_insert_pending_request( fd_repair_t *            repair,
                                   uint                     shred_index,
                                   long                     now,
                                   fd_pubkey_t const *      recipient ) {
+
   /* Check if there is any space for a new pending sign request */
   if( FD_UNLIKELY( fd_repair_pending_sign_req_pool_free( repair->pending_sign_pool ) == 0 ) ) {
     return NULL;
@@ -333,16 +332,28 @@ fd_repair_insert_pending_request( fd_repair_t *            repair,
   fd_repair_pending_sign_req_t * pending = fd_repair_pending_sign_req_pool_ele_acquire( repair->pending_sign_pool );
   pending->nonce = repair->next_nonce;
 
+  fd_repair_pending_sign_req_map_ele_insert( repair->pending_sign_map, pending, repair->pending_sign_pool );
   fd_repair_construct_request_protocol( repair, protocol, type, slot, shred_index, recipient, repair->next_nonce, now );
 
-  pending->sig_offset =  4;
+  pending->sig_offset  = 4;
   pending->dst_ip_addr = dst_ip_addr;
-  pending->dst_port =    dst_port;
-  pending->recipient =   *recipient;
+  pending->dst_port    = dst_port;
+  pending->recipient   = *recipient;
+  pending->type        = (uchar)type;
 
+  /* Add the request to the inflight table */
+  fd_inflight_t * inflight_req = fd_inflight_pool_ele_acquire( repair->inflight_pool );
+  if( FD_UNLIKELY( !inflight_req ) ) {
+    FD_LOG_ERR(("Failed to acquire inflight request from pool, implement eviction"));
+  }
+  inflight_req->nonce = repair->next_nonce;
+  inflight_req->timestamp_ns = now;
+  inflight_req->pubkey = *recipient;
+
+  fd_inflight_map_ele_insert( repair->inflight_map, inflight_req, repair->inflight_pool );
+  fd_inflight_dlist_ele_push_tail( repair->inflight_dlist, inflight_req, repair->inflight_pool );
   fd_repair_pending_sign_req_map_ele_insert( repair->pending_sign_map, pending, repair->pending_sign_pool );
 
-  repair->metrics.send_pkt_cnt++;
   repair->next_nonce++;
   return pending;
 }
