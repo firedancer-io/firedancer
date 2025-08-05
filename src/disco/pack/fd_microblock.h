@@ -71,6 +71,11 @@ struct __attribute__((aligned(64))) fd_txn_p {
   };
   /* The time that the transaction arrived to the pack tile in ticks. Set by pack and intended to be read from a transaction on a pack->bank link. */
   long scheduler_arrival_time_nanos;
+
+  /* Source ipv4 address and tpu pipeline for this transaction. TPU is one of FD_TXN_M_TPU_SOURCE_* */
+  uchar source_tpu;
+  uint  source_ipv4;
+
   /* Populated by pack, bank.  A combination of the bitfields
      FD_TXN_P_FLAGS_* defined above.  The bank sets the high byte with
      the transaction result code. */

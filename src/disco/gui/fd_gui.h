@@ -266,7 +266,9 @@ struct __attribute__((packed)) fd_gui_txn {
   uchar txn_end_pct;
   uchar txn_preload_end_pct;
   uchar flags; /* assigned with the FD_GUI_TXN_FLAGS_* macros */
-  uint microblock_idx;
+  uchar source_tpu; /* FD_TXN_M_TPU_SOURCE_* */
+  uint  source_ipv4;
+  uint  microblock_idx;
 };
 
 

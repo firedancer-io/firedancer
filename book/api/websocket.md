@@ -1276,16 +1276,27 @@ new validator identity.
         "transactions": {
             "start_timestamp_nanos": "1739657041688346791",
             "target_end_timestamp_nanos": "1739657042088346880",
-            "txn_start_timestamps_nanos": ["1739657041706960598"],
-            "txn_stop_timestamps_nanos": ["1739657041707477011"],
-            "txn_compute_units_requested": [0],
-            "txn_compute_units_estimated": [3428],
-            "txn_compute_units_rebated": [0],
-            "txn_micro_lamports_per_cu": ["0"],
+            "txn_arrival_timestamps_nanos": ["1754409729593613895"],
+            "txn_bank_idx": [0],
+            "txn_compute_units_consumed": [3428],
+            "txn_compute_units_requested": [3428],
+            "txn_end_timstamps_nanos": ["1754409729594477657"],
             "txn_error_code": [0],
             "txn_from_bundle": [false],
             "txn_is_simple_vote": [true],
-            "txn_bank_idx": [0]
+            "txn_landed": [true],
+            "txn_load_end_timstamps_nanos": ["1754409729594455631"],
+            "txn_mb_end_timestamps_nanos": ["1754409729594625003"],
+            "txn_mb_start_timestamps_nanos": ["1754409729594431327"],
+            "txn_microblock_id": [0],
+            "txn_preload_end_timstamps_nanos": ["1754409729594432846"],
+            "txn_priority_fee": ["0"],
+            "txn_signature": ["2BfWBnhTP1ZZwFZutwThj5VT1hX71X9otbgFr21W2XJfcppXakbPCvJ2eCh8eBcS74Lfjar5AuowuppAjsEceSuW"],
+            "txn_start_timstamps_nanos": ["1754409729594451074"],
+            "txn_transaction_fee": [0],
+            "txn_tips": ["0"],
+            "txn_source_ipv4": ["123.123.123.123"],
+            "txn_source_tpu": ["gossip"],
         }
     }
 }
@@ -1378,9 +1389,22 @@ new validator identity.
 | txn_error_code                    | `number[]`  | `txn_error_code[i]` is the error code that explains the failure for the `i`-th transaction in the slot. See below for more details |
 | txn_from_bundle                   | `boolean[]` | `txn_from_bundle[i]` is `true` if the `i`-th transaction in the slot came from a bundle and `false` otherwise.  A bundle is a microblock with 1-5 transactions that atomically fail or succeed. It is sent to the validator from a compatible block engine (e.g. jito) that can additionally collect MEV rewards that are distributed to stakers (i.e. tips) |
 | txn_is_simple_vote                | `boolean[]` | `txn_is_simple_vote[i]` is `true` if the `i`-th transaction in the slot is a simple vote and `false` otherwise |
+| txn_landed                        | `boolean[]` | `txn_landed[i]` is `true` if the `i`-th transaction in the slot was included in the produced block. A scheduled transaction may not be included in the block for any number of reasons (e.g. a failed bundle, a duplicate transaction, invalid fee-payer) |
 | txn_bank_idx                      | `number[]`  | `txn_bank_idx[i]` is the index of the bank tile that executed the `i`-th transaction in the slot |
 | txn_microblock_id                 | `string[]`  | `txn_microblock_id[i]` is the index of the microblock for the `i`-th transaction in the slot.  Microblocks are collections of 1+ transactions.  All of the transactions from a bundle share the same microblock. Microblock ids are monotonically increasing in the order they appear in the block and start at 0 for each slot |
 | txn_signature                     | `string[]`  | `txn_signature[i]` is the base58 signature of the `i`-th transaction in the slot |
+| txn_source_ipv4                   | `number[]`  | `txn_signature[i]` is the source ipv4 address for the `i`-th transaction in the slot |
+| txn_source_tpu                    | `string[]`  | `txn_signature[i]` is the transaction processing unit (TPU) which handled the `i`-th transaction in the slot |
+
+The source tpu for a transaction can be one of the following
+
+| TPU    | Description |
+|--------|-------------|
+| quic   | the primary ingress tpu for user transactions.  Utilizes the quic protocol to recieve packets |
+| udp    | ingress transactions recieved as simple UDP packets |
+| gossip | vote transactions recieved from the gossip network |
+| bundle | bundle transacionts recieved by the bundle tile from a block builder.  Utilizes a grpc connection to recieve packets |
+| send   | vote transactions procuded by this validator recieved from the send tile. These transactions are meant for the active cluster leader |
 
 These are the possible error codes that might be included in `txn_error_code` and their meanings.
 

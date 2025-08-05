@@ -818,8 +818,10 @@ during_frag( fd_pack_ctx_t * ctx,
       FD_LOG_ERR(( "chunk %lu %lu corrupt, not in range [%lu,%lu]", chunk, sz, ctx->in[ in_idx ].chunk0, ctx->in[ in_idx ].wmark ));
 
     fd_txn_m_t * txnm = (fd_txn_m_t *)dcache_entry;
-    ulong payload_sz = txnm->payload_sz;
-    ulong txn_t_sz   = txnm->txn_t_sz;
+    ulong payload_sz  = txnm->payload_sz;
+    ulong txn_t_sz    = txnm->txn_t_sz;
+    uint  source_ipv4 = txnm->source_ipv4;
+    uchar source_tpu  = txnm->source_tpu;
     FD_TEST( payload_sz<=FD_TPU_MTU    );
     FD_TEST( txn_t_sz  <=FD_TXN_MAX_SZ );
     fd_txn_t * txn  = fd_txn_m_txn_t( txnm );
@@ -898,8 +900,10 @@ during_frag( fd_pack_ctx_t * ctx,
     fd_memcpy( ctx->cur_spot->txnp->payload, fd_txn_m_payload( txnm ), payload_sz    );
     fd_memcpy( TXN(ctx->cur_spot->txnp),     txn,                      txn_t_sz      );
     fd_memcpy( ctx->cur_spot->alt_accts,     fd_txn_m_alut( txnm ),    addr_table_sz );
-    ctx->cur_spot->txnp->payload_sz = payload_sz;
     ctx->cur_spot->txnp->scheduler_arrival_time_nanos = ctx->approx_wallclock_ns + (long)((double)(fd_tickcount() - ctx->approx_tickcount) / ctx->ticks_per_ns);
+    ctx->cur_spot->txnp->payload_sz  = payload_sz;
+    ctx->cur_spot->txnp->source_ipv4 = source_ipv4;
+    ctx->cur_spot->txnp->source_tpu  = source_tpu;
 
     break;
   }
