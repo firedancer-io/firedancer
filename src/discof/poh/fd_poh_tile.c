@@ -1796,7 +1796,6 @@ during_frag( fd_poh_ctx_t * ctx,
              ulong          chunk,
              ulong          sz,
              ulong          ctl FD_PARAM_UNUSED ) {
-  (void)sig;
   ctx->skip_frag = 0;
 
   if( FD_UNLIKELY( ctx->in_kind[ in_idx ]==IN_KIND_STAKE ) ) {

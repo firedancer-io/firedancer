@@ -377,7 +377,7 @@ repair_cmd_args( int *    pargc,
 }
 
 static void
-repair_cmd_fn( args_t *   args FD_PARAM_UNUSED,
+repair_cmd_fn( args_t *   args,
                config_t * config ) {
 
   FD_LOG_NOTICE(( "Repair profiler topo" ));
