@@ -123,8 +123,8 @@ fd_tower_lockout_check( fd_tower_t const * tower,
 
 int
 fd_tower_switch_check( fd_tower_t const * tower,
-                       fd_epoch_t const * epoch,
                        fd_ghost_t const * ghost,
+                       ulong              total_stake,
                        ulong              switch_slot,
                        fd_hash_t const *  switch_hash_id ) {
   #if FD_TOWER_USE_HANDHOLDING
@@ -195,7 +195,7 @@ fd_tower_switch_check( fd_tower_t const * tower,
     child = fd_ghost_pool_ele_const( pool, child->sibling );
   }
 
-  double switch_pct = (double)switch_stake / (double)epoch->total_stake;
+  double switch_pct = (double)switch_stake / (double)total_stake;
   FD_LOG_DEBUG(( "[%s] ok? %d. top: %lu. switch: %lu. switch stake: %.0lf%%.", __func__, switch_pct > SWITCH_PCT, fd_tower_votes_peek_tail_const( tower )->slot, switch_slot, switch_pct * 100.0 ));
   return switch_pct > SWITCH_PCT;
 }
@@ -203,6 +203,7 @@ fd_tower_switch_check( fd_tower_t const * tower,
 int
 fd_tower_threshold_check( fd_tower_t const *    tower,
                           fd_epoch_t const *    epoch,
+                          ulong                 total_stake,
                           fd_funk_t *           funk,
                           fd_funk_txn_t const * txn,
                           ulong                 slot,
@@ -229,7 +230,7 @@ fd_tower_threshold_check( fd_tower_t const *    tower,
 
   ulong threshold_stake = 0;
 
-  /* Iterate all the vote accounts. */
+  /* Iterate all the vote accounts. Todo switch to banks? */
 
   fd_voter_t const * epoch_voters = fd_epoch_voters_const( epoch );
   for (ulong i = 0; i < fd_epoch_voters_slot_cnt( epoch_voters ); i++ ) {
@@ -272,11 +273,11 @@ fd_tower_threshold_check( fd_tower_t const *    tower,
         threshold slot's descendants. */
 
     if( FD_LIKELY( vote->slot >= threshold_slot ) ) {
-      threshold_stake += voter->stake;
+      threshold_stake += voter->replay_vote_stake;
     }
   }
 
-  double threshold_pct = (double)threshold_stake / (double)epoch->total_stake;
+  double threshold_pct = (double)threshold_stake / (double)total_stake;
   FD_LOG_NOTICE(( "[%s] ok? %d. top: %lu. threshold: %lu. stake: %.0lf%%.", __func__, threshold_pct > THRESHOLD_PCT, fd_tower_votes_peek_tail_const( tower )->slot, threshold_slot, threshold_pct * 100.0 ));
   return threshold_pct > THRESHOLD_PCT;
 }
@@ -355,7 +356,7 @@ fd_tower_vote_slot( fd_tower_t *          tower,
     /* The ghost head is on the same fork as our last vote slot, so we
        can vote fork it as long as we pass the threshold check. */
 
-    if( FD_LIKELY( fd_tower_threshold_check( tower, epoch, funk, txn, head->slot, scratch ) ) ) {
+    if( FD_LIKELY( fd_tower_threshold_check( tower, epoch, total_stake, funk, txn, head->slot, scratch ) ) ) {
       FD_LOG_DEBUG(( "[%s] success (threshold). best: %lu. vote: (slot: %lu conf: %lu)", __func__, head->slot, vote->slot, vote->conf ));
       return head->slot;
     }
@@ -367,7 +368,7 @@ fd_tower_vote_slot( fd_tower_t *          tower,
       try to switch if we pass lockout and switch threshold. */
 
   if( FD_UNLIKELY( fd_tower_lockout_check( tower, ghost, head->slot, &head->key ) &&
-                   fd_tower_switch_check( tower, epoch, ghost, head->slot, &head->key ) ) ) {
+                   fd_tower_switch_check( tower, ghost, total_stake, head->slot, &head->key ) ) ) {
     FD_LOG_DEBUG(( "[%s] success (lockout switch). best: %lu. vote: (slot: %lu conf: %lu)", __func__, head->slot, vote->slot, vote->conf ));
     return head->slot;
   }

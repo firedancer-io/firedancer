@@ -36,7 +36,10 @@ typedef struct fd_vote_record fd_vote_record_t;
    The voter is used by various choreo APIs including fd_epoch which
    tracks all the voters in a given epoch, fd_forks which performs
    choreo-related fork updates after replaying a slot, and ghost and
-   tower which both require bookkeeping the epoch voters. */
+   tower which both require bookkeeping the epoch voters.  Stake per
+   voter stored here, because the stake is specific to the epoch -
+   instead to get the stake per voter, we need to query the bank's
+   stakes object. */
 
 struct fd_voter {
   union {
@@ -48,7 +51,11 @@ struct fd_voter {
   /* IMPORTANT! The values below should only be modified by fd_epoch and
      fd_ghost. */
 
-  ulong stake;       /* voter's stake */
+  /* cached read of last tower vote stake via replay. We need to cache
+  this because if the voter switches forks across the epoch boundary,
+  it's much easier to use a cached previous epoch stake to update the
+  ghost instead of querying the bank's stakes object. */
+  ulong            replay_vote_stake;
   fd_vote_record_t replay_vote; /* cached read of last tower vote via replay */
   fd_vote_record_t gossip_vote; /* cached read of last tower vote via gossip */
   fd_vote_record_t rooted_vote; /* cached read of last tower root via replay */

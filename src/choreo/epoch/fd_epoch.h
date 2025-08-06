@@ -16,7 +16,6 @@
 struct __attribute__((aligned(128UL))) fd_epoch {
   ulong magic;       /* ==FD_EPOCH_MAGIC */
   ulong epoch_gaddr; /* wksp gaddr of this in the backing wksp, non-zero gaddr */
-  ulong total_stake; /* total amount of stake in the epoch. */
   ulong first_slot;  /* first slot in the epoch */
   ulong last_slot;   /* last slot in the epoch */
 
@@ -90,17 +89,6 @@ fd_epoch_leave( fd_epoch_t const * epoch );
 
 void *
 fd_epoch_delete( void * epoch );
-
-/* fd_epoch_init initializes a fd_choreo epoch using `epoch_bank`.
-   Assumes epoch is a valid local join and epoch has not already been
-   initialized.  This should only be called once at the beginning of an
-   epoch. */
-
-void
-fd_epoch_init( fd_epoch_t *                      epoch,
-               ulong                             eah_start_slot,
-               ulong                             eah_stop_slot,
-               fd_vote_accounts_global_t const * vote_accounts );
 
 /* fd_epoch_fini finishes an epoch.  Assumes epoch is a valid local join
    and epoch has already been initialized.  This should only be called

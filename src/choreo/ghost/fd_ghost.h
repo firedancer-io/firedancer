@@ -425,7 +425,7 @@ fd_ghost_insert( fd_ghost_t * ghost, fd_hash_t const * parent_hash, ulong slot, 
    bounded to O(h), where h is the height of ghost. */
 
 void
-fd_ghost_replay_vote( fd_ghost_t * ghost, fd_voter_t * voter, fd_hash_t const * hash_id );
+fd_ghost_replay_vote( fd_ghost_t * ghost, fd_voter_t * voter, fd_hash_t const * vote_bid, ulong vote_stake );
 
 /* fd_ghost_gossip_vote adds stake amount to the gossip_stake field of
    slot.

@@ -35,7 +35,6 @@ fd_epoch_new( void * shmem, ulong voter_max ) {
   epoch->voters_gaddr = fd_wksp_gaddr_fast( wksp, fd_epoch_voters_join( fd_epoch_voters_new( epoch_voters, lg_slot_cnt ) ) );
 
   epoch->epoch_gaddr = fd_wksp_gaddr_fast( wksp, epoch );
-  epoch->total_stake = 0UL;
   epoch->first_slot  = FD_SLOT_NULL;
   epoch->last_slot   = FD_SLOT_NULL;
 
@@ -102,52 +101,6 @@ fd_epoch_delete( void * epoch ) {
 }
 
 void
-fd_epoch_init( fd_epoch_t *                      epoch,
-               ulong                             eah_start_slot,
-               ulong                             eah_stop_slot,
-               fd_vote_accounts_global_t const * vote_accounts ) {
-
-  epoch->first_slot = eah_start_slot;
-  epoch->last_slot  = eah_stop_slot;
-
-  fd_voter_t * epoch_voters = fd_epoch_voters( epoch );
-
-  fd_vote_accounts_pair_global_t_mapnode_t * vote_accounts_pool = fd_vote_accounts_vote_accounts_pool_join( vote_accounts );
-  fd_vote_accounts_pair_global_t_mapnode_t * vote_accounts_root = fd_vote_accounts_vote_accounts_root_join( vote_accounts );
-
-  for( fd_vote_accounts_pair_global_t_mapnode_t * curr = fd_vote_accounts_pair_global_t_map_minimum(
-           vote_accounts_pool,
-           vote_accounts_root );
-       curr;
-       curr = fd_vote_accounts_pair_global_t_map_successor( vote_accounts_pool, curr ) ) {
-
-    if( FD_UNLIKELY( curr->elem.stake > 0UL ) ) {
-
-      #if FD_EPOCH_USE_HANDHOLDING
-      FD_TEST( !fd_epoch_voters_query( epoch_voters, curr->elem.key, NULL ) );
-      FD_TEST( fd_epoch_voters_key_cnt( epoch_voters ) < fd_epoch_voters_key_max( epoch_voters ) );
-      #endif
-
-      fd_voter_t * voter = fd_epoch_voters_insert( epoch_voters, curr->elem.key );
-      voter->rec.uc[FD_FUNK_REC_KEY_FOOTPRINT - 1] = FD_FUNK_KEY_TYPE_ACC;
-
-      #if FD_EPOCH_USE_HANDHOLDING
-      FD_TEST( 0 == memcmp( &voter->key, &curr->elem.key, sizeof(fd_pubkey_t) ) );
-      FD_TEST( fd_epoch_voters_query( epoch_voters, voter->key, NULL ) );
-      #endif
-
-      voter->stake = curr->elem.stake;
-
-      voter->replay_vote.slot = FD_SLOT_NULL;
-      voter->gossip_vote.slot = FD_SLOT_NULL;
-      voter->rooted_vote.slot = FD_SLOT_NULL;
-    }
-    epoch->total_stake += curr->elem.stake;
-  }
-}
-
-void
 fd_epoch_fini( fd_epoch_t * epoch ) {
   fd_epoch_voters_clear( fd_epoch_voters( epoch ) );
-  epoch->total_stake = 0UL;
 }

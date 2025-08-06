@@ -615,10 +615,10 @@ fd_tower_lockout_check( fd_tower_t const * tower,
 
 int
 fd_tower_switch_check( fd_tower_t const * tower,
-                       fd_epoch_t const * epoch,
                        fd_ghost_t const * ghost,
-                       ulong              slot,
-                       fd_hash_t const *  hash_id );
+                       ulong              total_stake,
+                       ulong              switch_slot,
+                       fd_hash_t const *  switch_hash_id );
 
 /* fd_tower_threshold_check checks if we pass the threshold required to
    vote for `slot`.  This is only relevant after voting for (and
@@ -649,6 +649,7 @@ fd_tower_switch_check( fd_tower_t const * tower,
 int
 fd_tower_threshold_check( fd_tower_t const *    tower,
                           fd_epoch_t const *    epoch,
+                          ulong                 total_stake,
                           fd_funk_t *           funk,
                           fd_funk_txn_t const * txn,
                           ulong                 slot,

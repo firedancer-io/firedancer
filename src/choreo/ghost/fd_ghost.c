@@ -384,7 +384,7 @@ fd_ghost_head( fd_ghost_t const * ghost, fd_ghost_ele_t const * root ) {
 }
 
 void
-fd_ghost_replay_vote( fd_ghost_t * ghost, fd_voter_t * voter, fd_hash_t const * vote_bid ) {
+fd_ghost_replay_vote( fd_ghost_t * ghost, fd_voter_t * voter, fd_hash_t const * vote_bid, ulong vote_stake ) {
   VER_INC;
 
   fd_ghost_ele_t *       pool = fd_ghost_pool( ghost );
@@ -427,13 +427,13 @@ fd_ghost_replay_vote( fd_ghost_t * ghost, fd_voter_t * voter, fd_hash_t const * 
 
   fd_ghost_ele_t * ele = fd_ghost_query( ghost, &vote.hash );
   if( FD_LIKELY( ele ) ) { /* no previous vote or pruned */
-    FD_LOG_DEBUG(( "[%s] subtracting (%s, %lu, %lu)", __func__, FD_BASE58_ENC_32_ALLOCA( &voter->key ), voter->stake, vote.slot ));
-    int cf = __builtin_usubl_overflow( ele->replay_stake, voter->stake, &ele->replay_stake );
-    if( FD_UNLIKELY( cf ) ) FD_LOG_CRIT(( "[%s] sub overflow. ele->replay_stake %lu voter->stake %lu", __func__, ele->replay_stake, voter->stake ));
+    FD_LOG_DEBUG(( "[%s] subtracting (%s, %lu, %lu)", __func__, FD_BASE58_ENC_32_ALLOCA( &voter->key ), voter->replay_vote_stake, vote.slot ));
+    int cf = __builtin_usubl_overflow( ele->replay_stake, voter->replay_vote_stake, &ele->replay_stake );
+    if( FD_UNLIKELY( cf ) ) FD_LOG_CRIT(( "[%s] sub overflow. ele->replay_stake %lu voter->stake %lu", __func__, ele->replay_stake, voter->replay_vote_stake ));
     fd_ghost_ele_t * ancestor = ele;
     while( FD_LIKELY( ancestor ) ) {
-      cf = __builtin_usubl_overflow( ancestor->weight, voter->stake, &ancestor->weight );
-      if( FD_UNLIKELY( cf ) ) FD_LOG_CRIT(( "[%s] sub overflow. ancestor->weight %lu latest_vote->stake %lu", __func__, ancestor->weight, voter->stake ));
+      cf = __builtin_usubl_overflow( ancestor->weight, voter->replay_vote_stake, &ancestor->weight );
+      if( FD_UNLIKELY( cf ) ) FD_LOG_CRIT(( "[%s] sub overflow. ancestor->weight %lu latest_vote->stake %lu", __func__, ancestor->weight, voter->replay_vote_stake ));
       ancestor = fd_ghost_pool_ele( pool, ancestor->parent );
     }
   }
@@ -447,17 +447,18 @@ fd_ghost_replay_vote( fd_ghost_t * ghost, fd_voter_t * voter, fd_hash_t const * 
   ele = fd_ghost_query( ghost, vote_bid );
   if( FD_UNLIKELY( !ele ) ) FD_LOG_CRIT(( "corrupt ghost" ));
 
-  FD_LOG_DEBUG(( "[%s] adding (%s, %lu, %lu)", __func__, FD_BASE58_ENC_32_ALLOCA( &voter->key ), voter->stake, slot ));
-  int cf = __builtin_uaddl_overflow( ele->replay_stake, voter->stake, &ele->replay_stake );
-  if( FD_UNLIKELY( cf ) ) FD_LOG_ERR(( "[%s] add overflow. ele->stake %lu latest_vote->stake %lu", __func__, ele->replay_stake, voter->stake ));
+  FD_LOG_DEBUG(( "[%s] adding (%s, %lu, %lu)", __func__, FD_BASE58_ENC_32_ALLOCA( &voter->key ), vote_stake, slot ));
+  int cf = __builtin_uaddl_overflow( ele->replay_stake, vote_stake, &ele->replay_stake );
+  if( FD_UNLIKELY( cf ) ) FD_LOG_ERR(( "[%s] add overflow. ele->stake %lu latest_vote->stake %lu", __func__, ele->replay_stake, vote_stake ));
   fd_ghost_ele_t * ancestor = ele;
   while( FD_LIKELY( ancestor ) ) {
-    int cf = __builtin_uaddl_overflow( ancestor->weight, voter->stake, &ancestor->weight );
-    if( FD_UNLIKELY( cf ) ) FD_LOG_ERR(( "[%s] add overflow. ancestor->weight %lu latest_vote->stake %lu", __func__, ancestor->weight, voter->stake ));
+    int cf = __builtin_uaddl_overflow( ancestor->weight, vote_stake, &ancestor->weight );
+    if( FD_UNLIKELY( cf ) ) FD_LOG_ERR(( "[%s] add overflow. ancestor->weight %lu latest_vote->stake %lu", __func__, ancestor->weight, vote_stake ));
     ancestor = fd_ghost_parent( ghost, ancestor );
   }
-  voter->replay_vote.slot = slot;      /* update the cached replay vote slot on voter */
-  voter->replay_vote.hash = *vote_bid; /* update the cached replay vote hash on voter */
+  voter->replay_vote.slot  = slot;       /* update the cached replay vote slot on voter */
+  voter->replay_vote.hash  = *vote_bid;  /* update the cached replay vote hash on voter */
+  voter->replay_vote_stake = vote_stake; /* update the cached replay vote stake on voter */
 }
 
 void
@@ -471,7 +472,8 @@ void
 fd_ghost_rooted_vote( fd_ghost_t * ghost, fd_voter_t * voter, ulong root ) {
   VER_INC;
 
-  FD_LOG_DEBUG(( "[%s] root %lu, pubkey %s, stake %lu", __func__, root, FD_BASE58_ENC_32_ALLOCA(&voter->key), voter->stake ));
+  /* TODO: should this be the last replay vote stake? or the current stake in epoch_stakes? */
+  FD_LOG_DEBUG(( "[%s] root %lu, pubkey %s, stake %lu", __func__, root, FD_BASE58_ENC_32_ALLOCA(&voter->key), voter->replay_vote_stake ));
 
   /* It is invariant that the voter's root is found in ghost (as long as
      voter's root >= our root ). This is because voter's root is sourced
@@ -485,7 +487,7 @@ fd_ghost_rooted_vote( fd_ghost_t * ghost, fd_voter_t * voter, ulong root ) {
 
   /* Add to the rooted stake. */
 
-  ele->rooted_stake += voter->stake;
+  ele->rooted_stake += voter->replay_vote_stake;
 }
 
 fd_ghost_ele_t const *

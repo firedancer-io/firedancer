@@ -804,12 +804,6 @@ init_after_snapshot( fd_replay_tile_ctx_t * ctx,
   memset( block_id, 0, sizeof(fd_hash_t) );
   block_id->key[0] = UCHAR_MAX; /* TODO: would be good to have the actual block id of the snapshot slot */
 
-  fd_stakes_global_t const *        stakes        = fd_bank_stakes_locking_query( ctx->slot_ctx->bank );
-  fd_vote_accounts_global_t const * vote_accounts = &stakes->vote_accounts;
-
-  fd_vote_accounts_pair_global_t_mapnode_t * vote_accounts_pool = fd_vote_accounts_vote_accounts_pool_join( vote_accounts );
-  fd_vote_accounts_pair_global_t_mapnode_t * vote_accounts_root = fd_vote_accounts_vote_accounts_root_join( vote_accounts );
-
   /* Send to tower tile */
 
   if( FD_LIKELY( ctx->tower_out_idx!=ULONG_MAX ) ) {
@@ -818,6 +812,12 @@ init_after_snapshot( fd_replay_tile_ctx_t * ctx,
     fd_stem_publish( stem, ctx->tower_out_idx, snapshot_slot << 32UL | UINT_MAX, ctx->tower_out_chunk, sizeof(fd_hash_t), 0UL, (ulong)fd_log_wallclock(), (ulong)fd_log_wallclock() );
     ctx->tower_out_chunk = fd_dcache_compact_next( ctx->tower_out_chunk, sizeof(fd_hash_t), ctx->tower_out_chunk0, ctx->tower_out_wmark );
   }
+
+  fd_stakes_global_t const *        stakes        = fd_bank_stakes_locking_query( ctx->slot_ctx->bank );
+  fd_vote_accounts_global_t const * vote_accounts = &stakes->vote_accounts;
+
+  fd_vote_accounts_pair_global_t_mapnode_t * vote_accounts_pool = fd_vote_accounts_vote_accounts_pool_join( vote_accounts );
+  fd_vote_accounts_pair_global_t_mapnode_t * vote_accounts_root = fd_vote_accounts_vote_accounts_root_join( vote_accounts );
 
   fd_bank_hash_cmp_t * bank_hash_cmp = ctx->bank_hash_cmp;
   for( fd_vote_accounts_pair_global_t_mapnode_t * curr = fd_vote_accounts_pair_global_t_map_minimum( vote_accounts_pool, vote_accounts_root );

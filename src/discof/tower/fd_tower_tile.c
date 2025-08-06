@@ -84,13 +84,11 @@ update_epoch( ctx_t * ctx, ulong slot ) {
   fd_vote_accounts_pair_global_t_mapnode_t * vote_accounts_root = fd_vote_accounts_vote_accounts_root_join( vote_accounts );
 
   fd_voter_t * epoch_voters = fd_epoch_voters( ctx->epoch );
-  ctx->epoch->total_stake   = 0;
 
   for( fd_vote_accounts_pair_global_t_mapnode_t * curr = fd_vote_accounts_pair_global_t_map_minimum( vote_accounts_pool, vote_accounts_root );
        curr;
        curr = fd_vote_accounts_pair_global_t_map_successor( vote_accounts_pool, curr ) ) {
     fd_pubkey_t * pubkey = &curr->elem.key;
-    ulong         stake  = curr->elem.stake;
 
 #   if FD_EPOCH_USE_HANDHOLDING
     FD_TEST( !fd_epoch_voters_query( epoch_voters, *pubkey, NULL ) );
@@ -105,31 +103,40 @@ update_epoch( ctx_t * ctx, ulong slot ) {
     FD_TEST( fd_epoch_voters_query( epoch_voters, voter->key, NULL ) );
 #   endif
 
-    voter->stake            = stake;
-    voter->replay_vote.slot = FD_SLOT_NULL;
-    voter->gossip_vote.slot = FD_SLOT_NULL;
-    voter->rooted_vote.slot = FD_SLOT_NULL;
-
-    ctx->epoch->total_stake += stake;
+    voter->replay_vote.slot  = FD_SLOT_NULL;
+    voter->gossip_vote.slot  = FD_SLOT_NULL;
+    voter->rooted_vote.slot  = FD_SLOT_NULL;
+    voter->replay_vote_stake = 0;
   }
   fd_bank_stakes_end_locking_query( bank );
 }
 
 static void
-update_ghost( ctx_t * ctx, fd_funk_txn_t * txn ) {
+update_ghost( ctx_t * ctx, fd_funk_txn_t * txn, ulong slot ) {
   fd_funk_t *  funk  = ctx->funk;
   fd_epoch_t * epoch = ctx->epoch;
   fd_ghost_t * ghost = ctx->ghost;
 
-  fd_voter_t * epoch_voters = fd_epoch_voters( epoch );
-  for( ulong i = 0; i < fd_epoch_voters_slot_cnt( epoch_voters ); i++ ) {
-    if( FD_LIKELY( fd_epoch_voters_key_inval( epoch_voters[i].key ) ) ) continue /* most slots are empty */;
+  fd_bank_t *                       bank          = fd_banks_get_bank( ctx->banks, slot );
+  ulong                             total_stake   = fd_bank_total_epoch_stake_get( bank );
+  fd_stakes_global_t const *        stakes        = fd_bank_stakes_locking_query( bank );
+  fd_vote_accounts_global_t const * vote_accounts = &stakes->vote_accounts;
+
+  fd_vote_accounts_pair_global_t_mapnode_t * vote_accounts_pool = fd_vote_accounts_vote_accounts_pool_join( vote_accounts );
+  fd_vote_accounts_pair_global_t_mapnode_t * vote_accounts_root = fd_vote_accounts_vote_accounts_root_join( vote_accounts );
+
+  for( fd_vote_accounts_pair_global_t_mapnode_t * curr = fd_vote_accounts_pair_global_t_map_minimum( vote_accounts_pool, vote_accounts_root );
+       curr;
+       curr = fd_vote_accounts_pair_global_t_map_successor( vote_accounts_pool, curr ) ) {
 
     /* TODO we can optimize this funk query to only check through the
        last slot on this fork this function was called on. currently
        rec_query_global traverses all the way back to the root. */
 
-    fd_voter_t *             voter = &epoch_voters[i];
+    fd_voter_t * voter = fd_epoch_voters_query( fd_epoch_voters( epoch ), curr->elem.key, NULL );
+    if( FD_UNLIKELY( !voter ) ) {
+      FD_LOG_ERR(( "[%s] add the voter to the epoch voters u loser, you've left it unimplented!!!! and initialize its votes with slot_null", __func__ ));
+    }
 
     /* Fetch the vote account's vote slot and root slot from the vote
        account, re-trying if there is a Funk conflict. */
@@ -164,8 +171,8 @@ update_ghost( ctx_t * ctx, fd_funk_txn_t * txn ) {
 
       if( FD_UNLIKELY( !ele ) ) FD_LOG_ERR(( "[%s] voter %s's vote slot %lu was not in ghost", __func__, FD_BASE58_ENC_32_ALLOCA(&voter->key), vote ));
 
-      fd_ghost_replay_vote( ghost, voter, &ele->key );
-      double pct = (double)ele->replay_stake / (double)epoch->total_stake;
+      fd_ghost_replay_vote( ghost, voter, &ele->key, curr->elem.stake );
+      double pct = (double)ele->replay_stake / (double)total_stake;
       if( FD_UNLIKELY( pct > FD_CONFIRMED_PCT ) ) ctx->confirmed = fd_ulong_max( ctx->confirmed, ele->slot );
     }
 
@@ -184,10 +191,11 @@ update_ghost( ctx_t * ctx, fd_funk_txn_t * txn ) {
       if( FD_UNLIKELY( !ele ) ) FD_LOG_ERR(( "[%s] voter %s's root slot %lu was not in ghost", __func__, FD_BASE58_ENC_32_ALLOCA(&voter->key), root ));
 
       fd_ghost_rooted_vote( ghost, voter, root );
-      double pct = (double)ele->rooted_stake / (double)epoch->total_stake;
+      double pct = (double)ele->rooted_stake / (double)total_stake;
       if( FD_UNLIKELY( pct > FD_FINALIZED_PCT ) ) ctx->finalized = fd_ulong_max( ctx->finalized, ele->slot );
     }
   }
+  fd_bank_stakes_end_locking_query( bank );
 }
 
 
@@ -302,13 +310,18 @@ after_frag( ctx_t *             ctx,
   if( FD_UNLIKELY( !funk_txn ) ) FD_LOG_ERR(( "Could not find valid funk transaction" ));
   fd_funk_txn_end_read( ctx->funk );
 
+  /* Get the total stake for the epoch */
+
+  fd_bank_t * bank = fd_banks_get_bank( ctx->banks, slot );
+  ulong total_stake = fd_bank_total_epoch_stake_get( bank );
+
   /* Initialize the tower */
 
   if( FD_UNLIKELY( fd_tower_votes_empty( ctx->tower ) ) ) fd_tower_from_vote_acc( ctx->tower, ctx->funk, funk_txn, &ctx->funk_key );
 
-  fd_ghost_ele_t const * ghost_ele  = fd_ghost_insert( ctx->ghost, &ctx->parent_hash, slot, &ctx->slot_hash, ctx->epoch->total_stake );
+  fd_ghost_ele_t const * ghost_ele  = fd_ghost_insert( ctx->ghost, &ctx->parent_hash, slot, &ctx->slot_hash, total_stake );
   FD_TEST( ghost_ele );
-  update_ghost( ctx, funk_txn );
+  update_ghost( ctx, funk_txn, slot );
 
   ulong vote_slot = fd_tower_vote_slot( ctx->tower, ctx->epoch, ctx->funk, funk_txn, ctx->ghost, ctx->scratch );
   if( FD_UNLIKELY( vote_slot == FD_SLOT_NULL ) ) return; /* nothing to vote on */
@@ -333,7 +346,7 @@ after_frag( ctx_t *             ctx,
   FD_TEST( vote_txn->payload_sz > 0UL );
   fd_stem_publish( stem, ctx->send_out_idx, vote_slot, ctx->send_out_chunk, sizeof(fd_txn_p_t), 0UL, tsorig, fd_frag_meta_ts_comp( fd_tickcount() ) );
 
-  fd_ghost_print( ctx->ghost, ctx->epoch->total_stake, fd_ghost_root( ctx->ghost ) );
+  fd_ghost_print( ctx->ghost, total_stake, fd_ghost_root( ctx->ghost ) );
   fd_tower_print( ctx->tower, ctx->root );
 }
 
