@@ -1,3 +1,4 @@
+#include "../../shared_dev/fd_shared_dev.h"
 #include "../../firedancer/topology.h"
 #include "../../platform/fd_sys_util.h"
 #include "../../shared/commands/configure/configure.h"
@@ -14,11 +15,6 @@
 #include <stdio.h>
 
 #define NAME "snapshot-load"
-
-extern fd_topo_obj_callbacks_t * CALLBACKS[];
-
-fd_topo_run_tile_t
-fdctl_tile_run( fd_topo_tile_t const * tile );
 
 static void
 snapshot_load_topo( config_t *     config,

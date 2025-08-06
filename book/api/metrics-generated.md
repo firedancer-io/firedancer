@@ -882,3 +882,15 @@
 | <span class="metrics-name">snapin_&#8203;accounts_&#8203;inserted</span> | gauge | Number of accounts inserted during snpashot loading. Might decrease if snapshot load is aborted and restarted |
 
 </div>
+
+## Solcap Tile
+
+<div class="metrics">
+
+| Metric | Type | Description |
+|--------|------|-------------|
+| <span class="metrics-name">solcap_&#8203;file_&#8203;size_&#8203;bytes</span> | counter |  |
+| <span class="metrics-name">solcap_&#8203;preallocated_&#8203;bytes</span> | gauge |  |
+| <span class="metrics-name">solcap_&#8203;sq_&#8203;space_&#8203;left</span> | gauge | Submission queue space left |
+
+</div>

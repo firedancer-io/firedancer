@@ -1,5 +1,6 @@
 #define _GNU_SOURCE
 
+#include "../fd_shared_dev.h"
 #include "../../platform/fd_sys_util.h"
 #include "../../shared/genesis_hash.h"
 #include "../../shared/commands/configure/configure.h"
@@ -13,9 +14,6 @@
 #include <fcntl.h>
 #include <pthread.h>
 #include <sys/wait.h>
-
-fd_topo_run_tile_t
-fdctl_tile_run( fd_topo_tile_t const * tile );
 
 void
 dev_cmd_args( int *    pargc,

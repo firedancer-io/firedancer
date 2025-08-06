@@ -59,4 +59,13 @@ fd_stem_advance( fd_stem_context_t * stem,
   return seq;
 }
 
+/* FD_STEM_FILT_{...} are possible return values of a BEFORE_FRAG
+   callback.  DROP skips the frag completely and advances the consumer
+   sequence number.  ACCEPT continues processing the frag.  RETRY
+   temporarily ignores the frag and retries in a future iteration. */
+
+#define FD_STEM_FILT_DROP    (1)
+#define FD_STEM_FILT_ACCEPT  (0)
+#define FD_STEM_FILT_RETRY  (-1)
+
 #endif /* HEADER_fd_src_disco_stem_fd_stem_h */

@@ -490,6 +490,12 @@ struct fd_topo_tile {
       ulong funk_obj_id;
     } snapin;
 
+    struct {
+      uint  use_uring : 1;
+      ulong block_sz;
+      ulong block_cnt;
+    } solcap;
+
   };
 };
 

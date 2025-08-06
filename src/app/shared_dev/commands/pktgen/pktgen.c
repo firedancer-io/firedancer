@@ -1,3 +1,4 @@
+#include "../../fd_shared_dev.h"
 #include "../dev.h"
 #include "../../../shared/commands/configure/configure.h" /* CONFIGURE_CMD_INIT */
 #include "../../../shared/commands/run/run.h" /* fdctl_check_configure */
@@ -12,11 +13,6 @@
 #include <unistd.h> /* isatty */
 #include <sys/ioctl.h>
 #include <poll.h>
-
-extern fd_topo_obj_callbacks_t * CALLBACKS[];
-
-fd_topo_run_tile_t
-fdctl_tile_run( fd_topo_tile_t const * tile );
 
 static void
 pktgen_topo( config_t * config ) {
