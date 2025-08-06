@@ -206,6 +206,7 @@ fd_runtime_fuzz_block_ctx_create( fd_runtime_fuzz_runner_t *           runner,
   /* Create temporary funk transaction and slot / epoch contexts */
   fd_funk_txn_start_write( funk );
   fd_funk_txn_t * funk_txn = fd_funk_txn_prepare( funk, NULL, xid, 1 );
+  if( FD_UNLIKELY( !funk_txn ) ) FD_LOG_ERR(( "fd_funk_txn_prepare failed" ));
   fd_funk_txn_end_write( funk );
 
   /* Allocate contexts */
@@ -420,6 +421,7 @@ fd_runtime_fuzz_block_ctx_create( fd_runtime_fuzz_runner_t *           runner,
   fork_xid[0] = fd_funk_generate_xid();
   fd_funk_txn_start_write( funk );
   slot_ctx->funk_txn = fd_funk_txn_prepare( funk, slot_ctx->funk_txn, fork_xid, 1 );
+  if( FD_UNLIKELY( !slot_ctx->funk_txn ) ) FD_LOG_ERR(( "fd_funk_txn_prepare failed" ));
   fd_funk_txn_end_write( funk );
 
   /* Reset the lthash to zero, because we are in a new Funk transaction now */
