@@ -722,6 +722,13 @@ user = ""
     # requests.
     sign_tile_count = 2
 
+    # How many snapshot lthash tiles to run.  Snapshot lthash tiles
+    # verify the contents of accounts in the loaded snapshot, in
+    # parallel.  Too few and snapshot loading might be delayed.  Once
+    # the hash of the accounts in a snapshot is calculated, if it does
+    # not match the validator will abort with an error.
+    snaplt_tile_count = 1
+
 # All memory that will be used in Firedancer is pre-allocated in two
 # kinds of pages: huge and gigantic.  Huge pages are 2 MiB and gigantic
 # pages are 1 GiB.  This is done to prevent TLB misses which can have a
@@ -1621,3 +1628,13 @@ user = ""
     # production networking stack.
     [development.udpecho]
         affinity = "auto"
+
+    [development.snapshots]
+        # Set to true to disable verification of the lthash in the
+        # snapshot loader.  This is not safe or supported in production
+        # and should only be used for development and testing purposes.
+        #
+        # If lthash verification is disabled, the validator will not
+        # start any lthash tiles and the value of `snaplt_tile_count`
+        # in the layout will be ignored.
+        disable_lthash_verification = false
