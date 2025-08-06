@@ -148,17 +148,14 @@ static uchar const *
 fd_get_executable_program_content_for_upgradeable_loader( fd_funk_t const *        funk,
                                                           fd_funk_txn_t const *    funk_txn,
                                                           fd_txn_account_t const * program_acc,
-                                                          ulong *                  program_data_len,
-                                                          fd_spad_t *              runtime_spad ) {
-  FD_TXN_ACCOUNT_DECL( programdata_acc );
-
-  fd_bpf_upgradeable_loader_state_t * program_account_state =
-    fd_bincode_decode_spad(
-      bpf_upgradeable_loader_state, runtime_spad,
+                                                          ulong *                  program_data_len ) {
+  fd_bpf_upgradeable_loader_state_t program_account_state[1];
+  if( FD_UNLIKELY( !fd_bincode_decode_static(
+      bpf_upgradeable_loader_state,
+      program_account_state,
       fd_txn_account_get_data( program_acc ),
       fd_txn_account_get_data_len( program_acc ),
-      NULL );
-  if( FD_UNLIKELY( !program_account_state ) ) {
+      NULL ) ) ) {
     return NULL;
   }
   if( !fd_bpf_upgradeable_loader_state_is_program( program_account_state ) ) {
@@ -166,7 +163,7 @@ fd_get_executable_program_content_for_upgradeable_loader( fd_funk_t const *     
   }
 
   fd_pubkey_t * programdata_address = &program_account_state->inner.program.programdata_address;
-
+  FD_TXN_ACCOUNT_DECL( programdata_acc );
   if( fd_txn_account_init_from_funk_readonly( programdata_acc, programdata_address, funk, funk_txn )!=FD_ACC_MGR_SUCCESS ) {
     return NULL;
   }
@@ -208,8 +205,7 @@ uchar const *
 fd_program_cache_get_account_programdata( fd_funk_t const *        funk,
                                           fd_funk_txn_t const *    funk_txn,
                                           fd_txn_account_t const * program_acc,
-                                          ulong *                  out_program_data_len,
-                                          fd_spad_t *              runtime_spad ) {
+                                          ulong *                  out_program_data_len ) {
   /* v1/v2 loaders: Programdata is just the account data.
      v3 loader: Programdata lives in a separate account. Deserialize the
                 program account and lookup the programdata account.
@@ -217,7 +213,7 @@ fd_program_cache_get_account_programdata( fd_funk_t const *        funk,
      v4 loader: Programdata lives in the program account, offset by
                 LOADER_V4_PROGRAM_DATA_OFFSET. */
   if( !memcmp( fd_txn_account_get_owner( program_acc ), fd_solana_bpf_loader_upgradeable_program_id.key, sizeof(fd_pubkey_t) ) ) {
-    return fd_get_executable_program_content_for_upgradeable_loader( funk, funk_txn, program_acc, out_program_data_len, runtime_spad );
+    return fd_get_executable_program_content_for_upgradeable_loader( funk, funk_txn, program_acc, out_program_data_len );
   } else if( !memcmp( fd_txn_account_get_owner( program_acc ), fd_solana_bpf_loader_v4_program_id.key, sizeof(fd_pubkey_t) ) ) {
     return fd_get_executable_program_content_for_v4_loader( program_acc, out_program_data_len );
   } else if( !memcmp( fd_txn_account_get_owner( program_acc ), fd_solana_bpf_loader_program_id.key, sizeof(fd_pubkey_t) ) ||
@@ -386,11 +382,7 @@ fd_program_cache_create_cache_entry( fd_exec_slot_ctx_t *     slot_ctx,
        simply return without publishing anything. The program could have
        been closed, but we do not want to touch the cache in this case. */
     ulong         program_data_len = 0UL;
-    uchar const * program_data     = fd_program_cache_get_account_programdata( funk,
-                                                                               funk_txn,
-                                                                               program_acc,
-                                                                               &program_data_len,
-                                                                               runtime_spad );
+    uchar const * program_data     = fd_program_cache_get_account_programdata( funk, funk_txn, program_acc, &program_data_len );
 
     /* This prepare should never fail. */
     int funk_err = FD_FUNK_SUCCESS;
@@ -554,8 +546,7 @@ FD_SPAD_FRAME_BEGIN( runtime_spad ) {
   uchar const * program_data     = fd_program_cache_get_account_programdata( slot_ctx->funk,
                                                                              slot_ctx->funk_txn,
                                                                              exec_rec,
-                                                                             &program_data_len,
-                                                                             runtime_spad );
+                                                                             &program_data_len );
   if( FD_UNLIKELY( program_data==NULL ) ) {
     /* Unlike in fd_program_cache_create_cache_entry(), where we need to
        insert an entry into the cache when we cannot obtain valid
