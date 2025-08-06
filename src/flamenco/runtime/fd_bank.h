@@ -14,6 +14,8 @@ FD_PROTOTYPES_BEGIN
 
 #define FD_BANKS_MAGIC 0X99999AA9999UL
 
+#define FD_VOTE_ACCOUNTS_MAX 50000UL
+
 /* TODO: Some optimizations, cleanups, future work:
    1. Simple data types (ulong, int, etc) should be stored as their
       underlying type instead of a byte array.
