@@ -1,14 +1,10 @@
+#include "../fd_shared_dev.h"
 #include "../../shared/fd_config.h"
 #include "../../shared/commands/run/run.h"
 #include "../../../disco/tiles.h"
 #include "../../../disco/topo/fd_topob.h"
 
 #include <unistd.h> /* pause */
-
-extern fd_topo_obj_callbacks_t * CALLBACKS[];
-
-fd_topo_run_tile_t
-fdctl_tile_run( fd_topo_tile_t const * tile );
 
 static void
 bundle_client_topo( config_t *   config ) {

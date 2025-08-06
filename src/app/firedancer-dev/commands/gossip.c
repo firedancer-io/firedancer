@@ -1,3 +1,4 @@
+#include "../../shared_dev/fd_shared_dev.h"
 #include "../../shared/commands/configure/configure.h"
 #include "../../shared/commands/run/run.h" /* initialize_workspaces */
 #include "../../shared/fd_config.h" /* config_t */
@@ -7,14 +8,8 @@
 #include "../../../util/pod/fd_pod_format.h"
 #include "../../../util/net/fd_ip4.h" /* fd_cstr_to_ip4_addr */
 
-#include <stdio.h> /* printf */
 #include <unistd.h> /* isatty */
 #include <sys/ioctl.h>
-
-extern fd_topo_obj_callbacks_t * CALLBACKS[];
-
-fd_topo_run_tile_t
-fdctl_tile_run( fd_topo_tile_t const * tile );
 
 static void
 gossip_topo( config_t * config ) {

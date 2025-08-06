@@ -914,3 +914,15 @@
 | <span class="metrics-name">ipecho_&#8203;bytes_&#8203;written</span> | counter | The total number of bytes written to all connections to the ipecho service |
 
 </div>
+
+## Solcap Tile
+
+<div class="metrics">
+
+| Metric | Type | Description |
+|--------|------|-------------|
+| <span class="metrics-name">solcap_&#8203;file_&#8203;size_&#8203;bytes</span> | counter |  |
+| <span class="metrics-name">solcap_&#8203;preallocated_&#8203;bytes</span> | gauge |  |
+| <span class="metrics-name">solcap_&#8203;sq_&#8203;space_&#8203;left</span> | gauge | Submission queue space left |
+
+</div>

@@ -500,6 +500,12 @@ struct fd_topo_tile {
       fd_ip4_port_t entrypoints[ FD_TOPO_GOSSIP_ENTRYPOINTS_MAX ];
     } ipecho;
 
+    struct {
+      uint  use_uring : 1;
+      ulong block_sz;
+      ulong block_cnt;
+    } solcap;
+
   };
 };
 

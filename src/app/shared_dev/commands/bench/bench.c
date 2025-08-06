@@ -1,15 +1,13 @@
 #define _GNU_SOURCE
-#include "../dev.h"
+#include "../../fd_shared_dev.h"
 #include "../../../shared/commands/configure/configure.h"
 #include "../../../shared/commands/run/run.h"
 
 #include "../../../../disco/topo/fd_topob.h"
 #include "../../../../disco/topo/fd_cpu_topo.h"
-#include "../../../../util/shmem/fd_shmem_private.h"
 #include "../../../../util/tile/fd_tile_private.h"
 
 #include <unistd.h>
-#include <stdio.h>
 #include <sched.h>
 #include <fcntl.h>
 #include <pthread.h>
@@ -19,11 +17,6 @@
 #include <sys/wait.h>
 #include <sys/socket.h>
 #include <arpa/inet.h>
-
-extern fd_topo_obj_callbacks_t * CALLBACKS[];
-
-fd_topo_run_tile_t
-fdctl_tile_run( fd_topo_tile_t const * tile );
 
 void
 update_config_for_dev( config_t * config );

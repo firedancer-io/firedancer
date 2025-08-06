@@ -941,4 +941,10 @@ metric introduced.
     <counter name="BytesWritten" summary="The total number of bytes written to all connections to the ipecho service" />
 </tile>
 
+<tile name="solcap">
+    <counter name="FileSizeBytes" summary="" />
+    <gauge name="PreallocatedBytes" summary="" />
+    <gauge name="SqSpaceLeft" summary="Submission queue space left" />
+</tile>
+
 </metrics>

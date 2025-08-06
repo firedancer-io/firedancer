@@ -13,6 +13,7 @@
 
 */
 
+#include "../../shared_dev/fd_shared_dev.h"
 #include "../../firedancer/topology.h"
 #include "../../shared/commands/configure/configure.h"
 #include "../../shared/commands/run/run.h" /* initialize_workspaces */
@@ -28,9 +29,6 @@
 #include "../main.h"
 
 #include <unistd.h> /* pause */
-
-extern fd_topo_obj_callbacks_t * CALLBACKS[];
-fd_topo_run_tile_t fdctl_tile_run( fd_topo_tile_t const * tile );
 
 static void
 backtest_topo( config_t * config ) {

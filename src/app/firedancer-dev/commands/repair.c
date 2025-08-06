@@ -2,6 +2,7 @@
    tile.  This is a standalone application, and it can be run in mainnet,
    testnet and/or a private cluster. */
 
+#include "../../shared_dev/fd_shared_dev.h"
 #include "../../../disco/net/fd_net_tile.h"
 #include "../../../disco/tiles.h"
 #include "../../../disco/topo/fd_topob.h"
@@ -20,8 +21,6 @@
 #include "../../../util/pod/fd_pod_format.h"
 
 #include <unistd.h> /* pause */
-
-fd_topo_run_tile_t fdctl_tile_run( fd_topo_tile_t const * tile );
 
 static ulong
 link_permit_no_producers( fd_topo_t * topo, char * link_name ) {
