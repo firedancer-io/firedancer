@@ -698,6 +698,7 @@ fd_tower_reset_slot( fd_tower_t const * tower,
 ulong
 fd_tower_vote_slot( fd_tower_t *          tower,
                     fd_epoch_t const *    epoch,
+                    ulong                 total_stake,
                     fd_funk_t *           funk,
                     fd_funk_txn_t const * txn,
                     fd_ghost_t const *    ghost,

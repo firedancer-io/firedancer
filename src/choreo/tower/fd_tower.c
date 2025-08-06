@@ -274,6 +274,14 @@ fd_tower_threshold_check( fd_tower_t const *    tower,
 
     if( FD_LIKELY( vote->slot >= threshold_slot ) ) {
       threshold_stake += voter->replay_vote_stake;
+      /* FIXME: dont know if this is possible with the current model,
+         but if this threshold check is crossing the epoch boundary,
+         it's possible that at the time this voter voted on this fork
+         their stake was different from the replay_vote_stake which
+         could be for a fork that branched off < 8 votes ago.
+         Technically we should be grabbing the the stake value from that
+         slot exactly, we could do this by querying vote accounts from
+         threshold_slot. */
     }
   }
 
@@ -323,6 +331,7 @@ fd_tower_reset_slot( fd_tower_t const * tower,
 ulong
 fd_tower_vote_slot( fd_tower_t *          tower,
                     fd_epoch_t const *    epoch,
+                    ulong                 total_stake,
                     fd_funk_t *           funk,
                     fd_funk_txn_t const * txn,
                     fd_ghost_t const *    ghost,

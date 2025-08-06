@@ -323,7 +323,7 @@ after_frag( ctx_t *             ctx,
   FD_TEST( ghost_ele );
   update_ghost( ctx, funk_txn, slot );
 
-  ulong vote_slot = fd_tower_vote_slot( ctx->tower, ctx->epoch, ctx->funk, funk_txn, ctx->ghost, ctx->scratch );
+  ulong vote_slot = fd_tower_vote_slot( ctx->tower, ctx->epoch, total_stake,ctx->funk, funk_txn, ctx->ghost, ctx->scratch );
   if( FD_UNLIKELY( vote_slot == FD_SLOT_NULL ) ) return; /* nothing to vote on */
 
   ulong root = fd_tower_vote( ctx->tower, vote_slot );
