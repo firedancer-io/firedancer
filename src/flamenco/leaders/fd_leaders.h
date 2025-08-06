@@ -150,6 +150,7 @@ fd_epoch_leaders_delete( void * shleaders );
 FD_FN_PURE static inline fd_pubkey_t const *
 fd_epoch_leaders_get( fd_epoch_leaders_t const * leaders,
                       ulong                      slot ) {
+  if( FD_UNLIKELY( leaders==NULL ) ) return NULL;
   ulong slot_delta = slot - leaders->slot0;
   if( FD_UNLIKELY( slot      < leaders->slot0    ) ) return NULL;
   if( FD_UNLIKELY( slot_delta>=leaders->slot_cnt ) ) return NULL;
