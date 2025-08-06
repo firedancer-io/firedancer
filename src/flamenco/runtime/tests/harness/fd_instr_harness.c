@@ -74,10 +74,9 @@ fd_runtime_fuzz_instr_ctx_create( fd_runtime_fuzz_runner_t *           runner,
 
   /* Set up txn context */
 
-  fd_wksp_t * funk_wksp          = fd_funk_wksp( funk );
-  fd_wksp_t * runtime_wksp       = fd_wksp_containing( slot_ctx );
-  ulong       funk_txn_gaddr     = fd_wksp_gaddr( funk_wksp, funk_txn );
-  ulong       funk_gaddr         = fd_wksp_gaddr( funk_wksp, funk->shmem );
+  fd_wksp_t * funk_wksp      = fd_funk_wksp( funk );
+  ulong       funk_txn_gaddr = fd_wksp_gaddr( funk_wksp, funk_txn );
+  ulong       funk_gaddr     = fd_wksp_gaddr( funk_wksp, funk->shmem );
 
   /* Set up mock txn descriptor */
   fd_txn_t * txn_descriptor           = fd_spad_alloc( runner->spad, fd_txn_align(), fd_txn_footprint( 1UL, 0UL ) );
@@ -87,7 +86,6 @@ fd_runtime_fuzz_instr_ctx_create( fd_runtime_fuzz_runner_t *           runner,
   fd_exec_txn_ctx_from_exec_slot_ctx( slot_ctx,
                                       txn_ctx,
                                       funk_wksp,
-                                      runtime_wksp,
                                       funk_txn_gaddr,
                                       funk_gaddr,
                                       NULL );
@@ -369,7 +367,6 @@ fd_runtime_fuzz_instr_ctx_create( fd_runtime_fuzz_runner_t *           runner,
   fd_exec_txn_ctx_from_exec_slot_ctx( slot_ctx,
                                       txn_ctx,
                                       funk_wksp,
-                                      runtime_wksp,
                                       funk_txn_gaddr,
                                       funk_gaddr,
                                       NULL );
