@@ -323,6 +323,12 @@ dynamic_port_range = "8900-9000"
     # with the `--rpc-bind-address` argument.
     bind_address = ""
 
+    # RPC address for the validator to advertise publicly in gossip.
+    # Useful for validators running behind a load balancer or proxy.
+    # This option is passed to the Agave client
+    # with the `--public-rpc-address` argument.
+    public_address = ""
+
     # Enable historical transaction info over JSON RPC, including the
     # `getConfirmedBlock` API.  This will cause an increase in disk
     # usage and IOPS.  This option is passed to the Agave client
