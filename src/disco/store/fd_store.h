@@ -94,7 +94,7 @@
    #define MAP_KEY_HASH(key,seed) ((ulong)key->mr.ul[0]%seed + (key)->part*seed)
    ```
    where `key` is a key type that includes the merkle root (32 bytes)
-   and the partition index (4 bytes) that is equivalent to the Shred
+   and the partition index (8 bytes) that is equivalent to the Shred
    tile index doing the insertion.  seed, on initialization, is the
    number of chains/buckets in the map_chain divided by the number of
    partitions.  In effect, seed is the size of each partition.  For
@@ -126,7 +126,7 @@
    hash chain within that slot (which modifies what the head of the
    chain points to as well as the now-previous head in the hash chain's
    `.next` field, but does not touch application data).  With fencing
-   enabled (FD_MAP_INSERT_FENCING), it is guaranteed the consumer either
+   enabled (MAP_INSERT_FENCE), it is guaranteed the consumer either
    reads the head before or after the update.  If it reads before, that
    is safe, it would just check the key (if no match, iterate down the
    chain etc.)  If it reads after, it is also safe because the new
@@ -171,7 +171,7 @@
 #define FD_STORE_DATA_MAX (63985UL) /* TODO fixed-32 */
 
 /* fd_store_fec describes a store element (FEC set).  The pointer fields
-   implement a left-child, right-sibling n-ary tree. */
+   implement a left-child, right-sibling n-ary tree. */
 
 struct __attribute__((packed)) fd_store_key {
    fd_hash_t mr;
@@ -179,7 +179,7 @@ struct __attribute__((packed)) fd_store_key {
 };
 typedef struct fd_store_key fd_store_key_t;
 
-struct __attribute__((aligned(128UL))) fd_store_fec {
+struct __attribute__((aligned(FD_STORE_ALIGN))) fd_store_fec {
 
   /* Keys */
 
@@ -233,7 +233,7 @@ FD_PROTOTYPES_BEGIN
 
 /* fd_store_{align,footprint} return the required alignment and
    footprint of a memory region suitable for use as store with up to
-   fec_max elements. */
+   fec_max elements.  fec_max is an integer power-of-two. */
 
 FD_FN_CONST static inline ulong
 fd_store_align( void ) {
@@ -242,6 +242,7 @@ fd_store_align( void ) {
 
 FD_FN_CONST static inline ulong
 fd_store_footprint( ulong fec_max ) {
+  if( FD_UNLIKELY( !fd_ulong_is_pow2( fec_max ) ) ) return 0UL;
   return FD_LAYOUT_FINI(
     FD_LAYOUT_APPEND(
     FD_LAYOUT_APPEND(
@@ -257,7 +258,8 @@ fd_store_footprint( ulong fec_max ) {
 
 /* fd_store_new formats an unused memory region for use as a store.
    mem is a non-NULL pointer to this region in the local address space
-   with the required footprint and alignment. */
+   with the required footprint and alignment.  fec_max is an integer
+   power-of-two. */
 
 void *
 fd_store_new( void * shmem, ulong fec_max, ulong part_cnt );
@@ -286,7 +288,7 @@ fd_store_leave( fd_store_t const * store );
    caller. */
 
 void *
-fd_store_delete( void * store );
+fd_store_delete( void * shstore );
 
 /* Accessors */
 
@@ -451,7 +453,9 @@ fd_store_publish( fd_store_t * store,
                   fd_hash_t  * merkle_root );
 
 /* fd_store_clear clears the store.  All elements are removed from the
-   map and released back into the pool.  Does not zero-out fields. */
+   map and released back into the pool.  Does not zero-out fields.
+
+   IMPORTANT SAFETY TIP!  the store must be non-empty. */
 
 fd_store_t *
 fd_store_clear( fd_store_t * store );

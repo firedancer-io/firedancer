@@ -38,7 +38,6 @@ fd_store_new( void * shmem, ulong fec_max, ulong part_cnt ) {
   }
 
   fd_memset( shmem, 0, footprint );
-  fec_max = fd_ulong_pow2_up( fec_max ); /* required by map_chain */
 
   /* This seed value is very important. We have fec_max chains in the
      map, which means the size of each partition of buckets should be
@@ -66,6 +65,10 @@ fd_store_new( void * shmem, ulong fec_max, ulong part_cnt ) {
   store->root     = null;
 
   fd_store_pool_t pool = fd_store_pool( store );
+  if( FD_UNLIKELY( !fd_store_pool_new( shpool ) ) ) {
+    FD_LOG_WARNING(( "fd_store_pool_new failed" ));
+    return NULL;
+  }
   fd_store_pool_reset( &pool, 0 );
 
   FD_COMPILER_MFENCE();
@@ -115,7 +118,8 @@ fd_store_leave( fd_store_t const * store ) {
 }
 
 void *
-fd_store_delete( void * store ) {
+fd_store_delete( void * shstore ) {
+  fd_store_t * store = shstore;
 
   if( FD_UNLIKELY( !store ) ) {
     FD_LOG_WARNING(( "NULL store" ));
@@ -126,6 +130,15 @@ fd_store_delete( void * store ) {
     FD_LOG_WARNING(( "misaligned store" ));
     return NULL;
   }
+
+  if( FD_UNLIKELY( store->magic!=FD_STORE_MAGIC ) ) {
+    FD_LOG_WARNING(( "bad magic" ));
+    return NULL;
+  }
+
+  FD_COMPILER_MFENCE();
+  FD_VOLATILE( store->magic ) = 0UL;
+  FD_COMPILER_MFENCE();
 
   return store;
 }
@@ -207,14 +220,14 @@ fd_store_publish( fd_store_t  * store,
      any descendants of those ancestors. */
 
   while( FD_LIKELY( head ) ) {
-    fd_store_fec_t * child = fd_store_pool_ele( &pool, head->child );          /* left-child */
+    fd_store_fec_t * child = fd_store_pool_ele( &pool, head->child );         /* left-child */
     while( FD_LIKELY( child ) ) {                                             /* iterate over children */
       if( FD_LIKELY( child != newr ) ) {                                      /* stop at new root */
         tail->next = fd_store_map_idx_remove( map, &child->key, null, fec0 ); /* remove node from map to reuse `.next` */
-        tail       = fd_store_pool_ele( &pool, tail->next );                   /* push onto BFS queue (so descendants can be pruned) */
+        tail       = fd_store_pool_ele( &pool, tail->next );                  /* push onto BFS queue (so descendants can be pruned) */
         tail->next = null;                                                    /* clear map next */
       }
-      child = fd_store_pool_ele( &pool, child->sibling );                      /* right-sibling */
+      child = fd_store_pool_ele( &pool, child->sibling );                     /* right-sibling */
     }
     fd_store_fec_t * next = fd_store_pool_ele( &pool, head->next ); /* pophead */
     int err = fd_store_pool_release( &pool, head, BLOCKING );       /* release */
@@ -231,12 +244,18 @@ fd_store_publish( fd_store_t  * store,
 
 fd_store_t *
 fd_store_clear( fd_store_t * store ) {
+
   fd_store_map_t * map  = fd_store_map( store );
   fd_store_pool_t  pool = fd_store_pool( store );
   fd_store_fec_t * fec0 = fd_store_fec0( store );
 
   fd_store_fec_t * head = fd_store_root( store );
   fd_store_fec_t * tail = head;
+
+# if FD_STORE_USE_HANDHOLDING
+  if ( FD_UNLIKELY( !head ) ) { FD_LOG_WARNING(( "calling clear on an empty store" )); return store; }
+# endif
+
   for( fd_store_map_iter_t iter = fd_store_map_iter_init( map, fec0 );
        !fd_store_map_iter_done( iter, map, fec0 );
        iter = fd_store_map_iter_next( iter, map, fec0 ) ) {
@@ -283,6 +302,8 @@ fd_store_verify( fd_store_t * store ) {
       return -1;
     }
   }
+  fd_store_pool_t pool = fd_store_pool_const( store );
+  if( FD_UNLIKELY( fd_store_pool_verify( &pool )==-1 ) ) return -1;
   return fd_store_map_verify( map, store->fec_max, fec0 );
 }
 
@@ -296,7 +317,7 @@ print( fd_store_t const * store, fd_store_fec_t const * fec, int space, const ch
 
   if( space > 0 ) printf( "\n" );
   for( int i = 0; i < space; i++ ) printf( " " );
-  printf( "%s%s", prefix, FD_BASE58_ENC_32_ALLOCA( &fec->key ) );
+  printf( "%s%s", prefix, FD_BASE58_ENC_32_ALLOCA( &fec->key.mr ) );
 
   fd_store_fec_t const * curr = fd_store_pool_ele_const( &pool, fec->child );
   char new_prefix[1024]; /* FIXME size this correctly */
