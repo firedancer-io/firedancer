@@ -642,7 +642,7 @@ after_frag( fd_repair_tile_ctx_t * ctx,
 static inline void
 after_credit( fd_repair_tile_ctx_t * ctx,
               fd_stem_context_t *    stem,
-              int *                  opt_poll_in FD_PARAM_UNUSED,
+              int *                  opt_poll_in,
               int *                  charge_busy ) {
 
   if( FD_LIKELY( !fd_fec_out_empty( ctx->fec_chainer->out ) && ctx->store ) ) {

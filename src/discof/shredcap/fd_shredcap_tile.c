@@ -398,7 +398,7 @@ during_frag( fd_capture_tile_ctx_t * ctx,
 
 static void
 after_credit( fd_capture_tile_ctx_t * ctx,
-              fd_stem_context_t *     stem FD_PARAM_UNUSED,
+              fd_stem_context_t *     stem,
               int *                   opt_poll_in FD_PARAM_UNUSED,
               int *                   charge_busy FD_PARAM_UNUSED ) {
 

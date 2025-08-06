@@ -247,7 +247,6 @@ returnable_frag( fd_snapdc_tile_t *  ctx,
                  fd_stem_context_t * stem ) {
   (void)in_idx;
   (void)seq;
-  (void)sig;
   (void)tsorig;
   (void)tspub;
 

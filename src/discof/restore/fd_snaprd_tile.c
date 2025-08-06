@@ -338,7 +338,6 @@ after_credit( fd_snaprd_tile_t *  ctx,
               fd_stem_context_t * stem,
               int *               opt_poll_in,
               int *               charge_busy ) {
-  (void)stem;
   (void)opt_poll_in;
   (void)charge_busy;
 

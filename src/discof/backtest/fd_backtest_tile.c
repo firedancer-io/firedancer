@@ -344,8 +344,8 @@ query_mr( fd_shred_t const * shred ) {
 static void
 after_credit_rocksdb( ctx_t *             ctx,
                       fd_stem_context_t * stem,
-                      int * opt_poll_in   FD_PARAM_UNUSED,
-                      int * charge_busy   FD_PARAM_UNUSED ) {
+                      int *               opt_poll_in FD_PARAM_UNUSED,
+                      int *               charge_busy ) {
 
   if( FD_UNLIKELY( !ctx->playback_started ) ) {
     ulong wmark = fd_fseq_query( ctx->published_wmark );
