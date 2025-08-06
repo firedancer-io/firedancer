@@ -710,7 +710,7 @@ fd_topo_initialize( config_t * config ) {
   fd_topob_tile_in( topo, "snaprd", 0UL, "metric_in", "snapin_rd", 0UL, FD_TOPOB_RELIABLE, FD_TOPOB_POLLED );
   fd_topob_tile_out( topo, "snapin", 0UL, "snapin_rd", 0UL );
   /* TODO: Fix backpressure issues and change this back to reliable. */
-  fd_topob_tile_in( topo, "snaprd", 0UL, "metric_in", "gossip_out", 0UL, FD_TOPOB_RELIABLE, FD_TOPOB_POLLED );
+  fd_topob_tile_in( topo, "snaprd", 0UL, "metric_in", "gossip_out", 0UL, FD_TOPOB_UNRELIABLE, FD_TOPOB_POLLED );
 
   if( config->tiles.archiver.enabled ) {
     fd_topob_wksp( topo, "arch_f" );

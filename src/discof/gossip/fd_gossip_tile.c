@@ -466,7 +466,7 @@ populate_allowed_fds( fd_topo_t const *      topo,
 }
 
 /* TODO: Size for the worst case ... 16k contact info updates + max crds in a pull request or push, all generating a frag */
-#define STEM_BURST (1UL)
+#define STEM_BURST (2<<13)
 
 #define STEM_LAZY  (128L*3000L)
 
