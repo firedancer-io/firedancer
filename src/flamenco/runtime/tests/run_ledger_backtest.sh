@@ -27,6 +27,7 @@ ONE_OFFS=""
 HUGE_TLBFS_MOUNT_PATH=${HUGE_TLBFS_MOUNT_PATH:="/mnt/.fd"}
 HUGE_TLBFS_ALLOW_HUGEPAGE_INCREASE=${HUGE_TLBFS_ALLOW_HUGEPAGE_INCREASE:="true"}
 HAS_INCREMENTAL="false"
+ENABLE_LTHASH_VERIFICATION=false
 
 while [[ $# -gt 0 ]]; do
   case $1 in
@@ -97,6 +98,10 @@ while [[ $# -gt 0 ]]; do
        HAS_INCREMENTAL="$2"
        shift
        ;;
+    -lt|--enable-lthash-verification)
+        ENABLE_LTHASH_VERIFICATION=true
+        shift
+        ;;
     -*|--*)
        echo "unknown option $1"
        exit 1
@@ -115,6 +120,13 @@ mkdir -p $OBJDIR/cov/raw
 
 DUMP=$(realpath $DUMP_DIR)
 mkdir -p $DUMP
+
+HASH_TILE_COUNT=1
+if $ENABLE_LTHASH_VERIFICATION; then
+DISABLE_LTHASH_VERIFICATION="false"
+else
+DISABLE_LTHASH_VERIFICATION="true"
+fi
 
 if [[ ! -e $DUMP/$LEDGER && SKIP_INGEST -eq 0 ]]; then
   if [[ -n "$ZST" ]]; then
@@ -153,6 +165,7 @@ echo "
     bank_tile_count = 1
     shred_tile_count = 4
     exec_tile_count = 4
+    snaplt_tile_count = $HASH_TILE_COUNT
 [tiles]
     [tiles.archiver]
         enabled = true
@@ -190,6 +203,9 @@ echo "
 [hugetlbfs]
     mount_path = \"$HUGE_TLBFS_MOUNT_PATH\"
     allow_hugepage_increase = $HUGE_TLBFS_ALLOW_HUGEPAGE_INCREASE
+[development]
+    [development.snapshots]
+        disable_lthash_verification = $DISABLE_LTHASH_VERIFICATION
 " > $DUMP_DIR/${LEDGER}_backtest.toml
 
 echo "Running backtest for $LEDGER"
