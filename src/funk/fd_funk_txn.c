@@ -478,23 +478,23 @@ fd_funk_txn_cancel_all( fd_funk_t *     funk,
    changing the order of existing values. */
 
 static void
-fd_funk_txn_update( fd_funk_t *                  funk,
-                       uint *                   _dst_rec_head_idx, /* Pointer to the dst list head */
-                       uint *                   _dst_rec_tail_idx, /* Pointer to the dst list tail */
-                       ulong                     dst_txn_idx,       /* Transaction index of the merge destination */
-                       fd_funk_txn_xid_t const * dst_xid,        /* dst xid */
-                       ulong                     txn_idx ) {        /* Transaction index of the records to merge */
+fd_funk_txn_update( fd_funk_t *               funk,
+                    uint *                    _dst_rec_head_idx, /* Pointer to the dst list head */
+                    uint *                    _dst_rec_tail_idx, /* Pointer to the dst list tail */
+                    ulong                     dst_txn_idx,       /* Transaction index of the merge destination */
+                    fd_funk_txn_xid_t const * dst_xid,           /* dst xid */
+                    ulong                     txn_idx ) {        /* Transaction index of the records to merge */
   fd_wksp_t *          wksp     = funk->wksp;
   fd_alloc_t *         alloc    = funk->alloc;
   fd_funk_rec_map_t *  rec_map  = funk->rec_map;
   fd_funk_rec_pool_t * rec_pool = funk->rec_pool;
   fd_funk_txn_pool_t * txn_pool = funk->txn_pool;
 
-  int critical = (_dst_rec_head_idx == &funk->shmem->rec_head_idx);
-  if (critical) {
+  int const critical = _dst_rec_head_idx==NULL;
+  if( critical ) {
     /* If the root transaction is being updated, we need to mark
        the beginning of a critical section becuase fd_funk_purify can't fix it */
-    fd_begin_crit(funk);
+    fd_begin_crit( funk );
   }
 
   fd_funk_txn_t * txn = &txn_pool->ele[ txn_idx ];
@@ -518,12 +518,12 @@ fd_funk_txn_update( fd_funk_t *                  funk,
       uint prev_idx = rec2->prev_idx;
       uint next_idx = rec2->next_idx;
       if( fd_funk_rec_idx_is_null( prev_idx ) ) {
-        *_dst_rec_head_idx = next_idx;
+        if( _dst_rec_head_idx ) *_dst_rec_head_idx = next_idx;
       } else {
         rec_pool->ele[ prev_idx ].next_idx = next_idx;
       }
       if( fd_funk_rec_idx_is_null( next_idx ) ) {
-        *_dst_rec_tail_idx = prev_idx;
+        if( _dst_rec_tail_idx ) *_dst_rec_tail_idx = prev_idx;
       } else {
         rec_pool->ele[ next_idx ].prev_idx = prev_idx;
       }
@@ -544,14 +544,16 @@ fd_funk_txn_update( fd_funk_t *                  funk,
     rec->pair.xid[0] = *dst_xid;
     rec->txn_cidx = fd_funk_txn_cidx( dst_txn_idx );
 
-    if( fd_funk_rec_idx_is_null( *_dst_rec_head_idx ) ) {
-      *_dst_rec_head_idx = rec_idx;
-      rec->prev_idx = FD_FUNK_REC_IDX_NULL;
-    } else {
-      rec_pool->ele[ *_dst_rec_tail_idx ].next_idx = rec_idx;
-      rec->prev_idx = *_dst_rec_tail_idx;
+    rec->prev_idx = FD_FUNK_REC_IDX_NULL;
+    if( _dst_rec_head_idx ) {
+      if( fd_funk_rec_idx_is_null( *_dst_rec_head_idx ) ) {
+        *_dst_rec_head_idx = rec_idx;
+      } else {
+        rec_pool->ele[ *_dst_rec_tail_idx ].next_idx = rec_idx;
+        rec->prev_idx = *_dst_rec_tail_idx;
+      }
+      *_dst_rec_tail_idx = rec_idx;
     }
-    *_dst_rec_tail_idx = rec_idx;
     rec->next_idx = FD_FUNK_REC_IDX_NULL;
 
     rec_idx = next_rec_idx;
@@ -560,8 +562,8 @@ fd_funk_txn_update( fd_funk_t *                  funk,
   txn_pool->ele[ txn_idx ].rec_head_idx = FD_FUNK_REC_IDX_NULL;
   txn_pool->ele[ txn_idx ].rec_tail_idx = FD_FUNK_REC_IDX_NULL;
 
-  if (critical) {
-    fd_end_crit(funk);
+  if( critical ) {
+    fd_end_crit( funk );
   }
 }
 
@@ -578,7 +580,7 @@ fd_funk_txn_publish_funk_child( fd_funk_t * const funk,
 
   /* Apply the updates in txn to the last published transactions */
 
-  fd_funk_txn_update( funk, &funk->shmem->rec_head_idx, &funk->shmem->rec_tail_idx, FD_FUNK_TXN_IDX_NULL, fd_funk_root( funk ), txn_idx );
+  fd_funk_txn_update( funk, NULL, NULL, FD_FUNK_TXN_IDX_NULL, fd_funk_root( funk ), txn_idx );
 
   /* Cancel all competing transaction histories */
 
@@ -706,7 +708,7 @@ fd_funk_txn_publish_into_parent( fd_funk_t *     funk,
   ulong parent_idx = fd_funk_txn_idx( txn->parent_cidx );
   if( fd_funk_txn_idx_is_null( parent_idx ) ) {
     /* Publish to root */
-    fd_funk_txn_update( funk, &funk->shmem->rec_head_idx, &funk->shmem->rec_tail_idx, FD_FUNK_TXN_IDX_NULL, fd_funk_root( funk ), txn_idx );
+    fd_funk_txn_update( funk, NULL, NULL, FD_FUNK_TXN_IDX_NULL, fd_funk_root( funk ), txn_idx );
     /* Inherit the children */
     funk->shmem->child_head_cidx = txn->child_head_cidx;
     funk->shmem->child_tail_cidx = txn->child_tail_cidx;
@@ -733,17 +735,11 @@ fd_funk_txn_publish_into_parent( fd_funk_t *     funk,
   return FD_FUNK_SUCCESS;
 }
 
-/* Return the first record in a transaction. Returns NULL if the
-   transaction has no records yet. */
-
 fd_funk_rec_t const *
 fd_funk_txn_first_rec( fd_funk_t *           funk,
                        fd_funk_txn_t const * txn ) {
-  uint rec_idx;
-  if( FD_UNLIKELY( NULL == txn ))
-    rec_idx = funk->shmem->rec_head_idx;
-  else
-    rec_idx = txn->rec_head_idx;
+  if( FD_UNLIKELY( !txn ) ) return NULL;
+  uint rec_idx = txn->rec_head_idx;
   if( fd_funk_rec_idx_is_null( rec_idx ) ) return NULL;
   return funk->rec_pool->ele + rec_idx;
 }
@@ -751,11 +747,8 @@ fd_funk_txn_first_rec( fd_funk_t *           funk,
 fd_funk_rec_t const *
 fd_funk_txn_last_rec( fd_funk_t *           funk,
                       fd_funk_txn_t const * txn ) {
-  uint rec_idx;
-  if( FD_UNLIKELY( NULL == txn ))
-    rec_idx = funk->shmem->rec_tail_idx;
-  else
-    rec_idx = txn->rec_tail_idx;
+  if( FD_UNLIKELY( !txn ) ) return NULL;
+  uint rec_idx = txn->rec_tail_idx;
   if( fd_funk_rec_idx_is_null( rec_idx ) ) return NULL;
   return funk->rec_pool->ele + rec_idx;
 }

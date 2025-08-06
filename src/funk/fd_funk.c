@@ -119,8 +119,6 @@ fd_funk_new( void * shmem,
   fd_funk_rec_pool_reset( rec_join, 0UL );
   funk->rec_ele_gaddr = fd_wksp_gaddr_fast( wksp, rec_ele );
   funk->rec_max = (uint)rec_max;
-  funk->rec_head_idx  = FD_FUNK_REC_IDX_NULL;
-  funk->rec_tail_idx  = FD_FUNK_REC_IDX_NULL;
 
   funk->alloc_gaddr = fd_wksp_gaddr_fast( wksp, fd_alloc_join( fd_alloc_new( alloc, wksp_tag ), 0UL ) );
 
@@ -401,23 +399,6 @@ fd_funk_verify( fd_funk_t * join ) {
   ulong rec_chain_cnt = fd_funk_rec_map_chain_cnt_est( rec_max );
   TEST( rec_chain_cnt==fd_funk_rec_map_chain_cnt( rec_map ) );
   TEST( seed==fd_funk_rec_map_seed( rec_map ) );
-
-  uint rec_head_idx = funk->rec_head_idx;
-  uint rec_tail_idx = funk->rec_tail_idx;
-
-  int null_rec_head = fd_funk_rec_idx_is_null( rec_head_idx );
-  int null_rec_tail = fd_funk_rec_idx_is_null( rec_tail_idx );
-
-  if( !rec_max ) TEST( null_rec_head & null_rec_tail );
-  else {
-    if( null_rec_head ) TEST( null_rec_tail );
-    else                TEST( rec_head_idx<rec_max );
-
-    if( null_rec_tail ) TEST( null_rec_head );
-    else                TEST( rec_tail_idx<rec_max );
-  }
-
-  if( !rec_max ) TEST( fd_funk_rec_idx_is_null( rec_tail_idx ) );
 
   TEST( !fd_funk_rec_verify( join ) );
 
