@@ -1449,4 +1449,5 @@ These are the possible error codes that might be included in `txn_error_code` an
 | ProgramExecutionTemporarilyRestricted | 36   | Execution of a program referenced by this transaciton is restricted |
 | UnbalancedTransaction                 | 37   | The total accounts balance before the transaction does not equal the total balance after |
 | ProgramCacheHitMaxLimit               | 38   | The program cache allocated for transaction batch for this transaction hit its load limit |
-| CommitCancelled                       | 39   | This transaction was part of a bundle that failed |
+| CommitCancelled                       | 39   | This transaction was aborted during the commit stage |
+| BundlePeer                            | 40   | This transaction was part of a bundle that failed |
