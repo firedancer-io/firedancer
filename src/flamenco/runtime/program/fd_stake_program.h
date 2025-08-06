@@ -48,10 +48,6 @@ fd_stake_activating_and_deactivating( fd_delegation_t const *    self,
                                       fd_stake_history_t const * stake_history,
                                       ulong *                    new_rate_activation_epoch );
 
-void
-fd_store_stake_delegation( fd_txn_account_t * stake_account,
-                           fd_bank_t *        bank );
-
 FD_PROTOTYPES_END
 
 #endif /* HEADER_fd_src_flamenco_runtime_program_fd_stake_program_h */

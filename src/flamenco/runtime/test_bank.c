@@ -124,10 +124,9 @@ main( int argc, char ** argv ) {
 
   FD_TEST( fd_bank_vote_account_keys_pool_free( fd_bank_get_vote_account_keys_pool( bank9 ) ) == 15UL );
 
-  fd_account_keys_global_t * keys2 = fd_bank_stake_account_keys_locking_modify( bank9 );
-  keys2->account_keys_pool_offset = 101UL;
-  keys2->account_keys_root_offset = 101UL;
-  fd_bank_stake_account_keys_end_locking_modify( bank9 );
+  fd_stake_delegations_t * keys2 = fd_bank_stake_delegations_locking_modify( bank9 );
+  keys2->magic = 101UL;
+  fd_bank_stake_delegations_end_locking_modify( bank9 );
 
   /* Verify that the bank is published and that it is indeed bank7 */
 
@@ -176,10 +175,9 @@ main( int argc, char ** argv ) {
   FD_TEST( keys3->account_keys_root_offset == 100UL );
   fd_bank_vote_account_keys_end_locking_query( bank11 );
 
-  fd_account_keys_global_t const * keys4 = fd_bank_stake_account_keys_locking_query( bank11 );
-  FD_TEST( keys4->account_keys_pool_offset == 101UL );
-  FD_TEST( keys4->account_keys_root_offset == 101UL );
-  fd_bank_stake_account_keys_end_locking_query( bank11 );
+  fd_stake_delegations_t const * keys4 = fd_bank_stake_delegations_locking_query( bank11 );
+  FD_TEST( keys4->magic == 101UL );
+  fd_bank_stake_delegations_end_locking_query( bank11 );
 
   keys = fd_bank_vote_account_keys_locking_modify( bank11 );
   keys->account_keys_pool_offset = 200UL;
@@ -219,10 +217,9 @@ main( int argc, char ** argv ) {
   FD_TEST( keys3->account_keys_root_offset == 200UL );
   fd_bank_vote_account_keys_end_locking_query( bank11 );
 
-  keys4 = fd_bank_stake_account_keys_locking_query( bank11 );
-  FD_TEST( keys4->account_keys_pool_offset == 101UL );
-  FD_TEST( keys4->account_keys_root_offset == 101UL );
-  fd_bank_stake_account_keys_end_locking_query( bank11 );
+  keys4 = fd_bank_stake_delegations_locking_query( bank11 );
+  FD_TEST( keys4->magic == 101UL );
+  fd_bank_stake_delegations_end_locking_query( bank11 );
 
   votes_const = fd_bank_clock_timestamp_votes_locking_query( bank11 );
   FD_TEST( votes->votes_pool_offset == 102UL );
@@ -247,10 +244,9 @@ main( int argc, char ** argv ) {
   FD_TEST( keys3->account_keys_root_offset == 100UL );
   fd_bank_vote_account_keys_end_locking_query( bank11 );
 
-  keys4 = fd_bank_stake_account_keys_locking_query( bank11 );
-  FD_TEST( keys4->account_keys_pool_offset == 101UL );
-  FD_TEST( keys4->account_keys_root_offset == 101UL );
-  fd_bank_stake_account_keys_end_locking_query( bank11 );
+  keys4 = fd_bank_stake_delegations_locking_query( bank11 );
+  FD_TEST( keys4->magic == 101UL );
+  fd_bank_stake_delegations_end_locking_query( bank11 );
 
   votes_const = fd_bank_clock_timestamp_votes_locking_query( bank11 );
   FD_TEST( !votes_const );

@@ -146,6 +146,7 @@ fd_runtime_fuzz_block_register_stake_delegation( fd_exec_slot_ctx_t *     slot_c
       stake_state.inner.stake.stake.delegation.stake,
       stake_state.inner.stake.stake.delegation.activation_epoch,
       stake_state.inner.stake.stake.delegation.deactivation_epoch,
+      stake_state.inner.stake.stake.credits_observed,
       stake_state.inner.stake.stake.delegation.warmup_cooldown_rate );
 }
 
@@ -277,15 +278,6 @@ fd_runtime_fuzz_block_ctx_create( fd_runtime_fuzz_runner_t *           runner,
   fd_bank_block_height_set( slot_ctx->bank, test_ctx->slot_ctx.block_height );
 
   // /* Initialize the current running epoch stake and vote accounts */
-
-  /* TODO: should be stake account max */
-  fd_account_keys_global_t * stake_account_keys = fd_bank_stake_account_keys_locking_modify( slot_ctx->bank );
-  pool_mem = (uchar *)fd_ulong_align_up( (ulong)stake_account_keys + sizeof(fd_account_keys_global_t), fd_account_keys_pair_t_map_align() );
-  fd_account_keys_pair_t_mapnode_t * account_keys_pool = fd_account_keys_pair_t_map_join( fd_account_keys_pair_t_map_new( pool_mem, vote_acct_max ) );
-  fd_account_keys_pair_t_mapnode_t * account_keys_root = NULL;
-  fd_account_keys_account_keys_pool_update( stake_account_keys, account_keys_pool );
-  fd_account_keys_account_keys_root_update( stake_account_keys, account_keys_root );
-  fd_bank_stake_account_keys_end_locking_modify( slot_ctx->bank );
 
   fd_account_keys_global_t * vote_account_keys = fd_bank_vote_account_keys_locking_modify( slot_ctx->bank );
   pool_mem = (uchar *)fd_ulong_align_up( (ulong)vote_account_keys + sizeof(fd_account_keys_global_t), fd_account_keys_pair_t_map_align() );
