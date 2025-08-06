@@ -23,6 +23,7 @@
 #include "../../../disco/metrics/fd_metrics.h"
 #include "../../../util/pod/fd_pod_format.h"
 #include "../../../discof/restore/utils/fd_ssmsg.h"
+#include "../../../discof/restore/utils/fd_ssctrl.h"
 #include "../../../discof/tower/fd_tower_tile.h"
 #include "../../../discof/reasm/fd_reasm.h"
 #include "../../../discof/replay/fd_exec.h" /* FD_RUNTIME_PUBLIC_ACCOUNT_UPDATE_MSG_MTU */
@@ -38,6 +39,8 @@ static void
 backtest_topo( config_t * config ) {
   ulong exec_tile_cnt   = config->firedancer.layout.exec_tile_count;
   ulong writer_tile_cnt = config->firedancer.layout.writer_tile_count;
+  ulong snaplt_tile_cnt = config->firedancer.layout.snaplt_tile_count;
+  int snaplt_disabled   = config->development.snapshots.disable_lthash_verification;
 
   int disable_snap_loader = !config->gossip.entrypoints_cnt;
   int solcap_enabled      = strlen( config->capture.solcap_capture )>0;
@@ -100,6 +103,14 @@ backtest_topo( config_t * config ) {
     snaprd_tile->allow_shutdown = 1;
     snapdc_tile->allow_shutdown = 1;
     snapin_tile->allow_shutdown = 1;
+
+    if( FD_LIKELY( !snaplt_disabled ) ) {
+      fd_topob_wksp( topo, "snaplt" );
+      for( ulong i=0UL; i<snaplt_tile_cnt; i++ ) {
+        fd_topo_tile_t * snaplt_tile = fd_topob_tile( topo, "snaplt", "snaplt", "metric_in", cpu_idx++, 0, 0 );
+        snaplt_tile->allow_shutdown = 1;
+      }
+    }
   } else {
     fd_topob_wksp( topo, "genesi" );
     fd_topob_tile( topo, "genesi",  "genesi",  "metric_in",  cpu_idx++, 0, 0 )->allow_shutdown = 1;
@@ -128,7 +139,12 @@ backtest_topo( config_t * config ) {
     fd_topob_wksp( topo, "snapdc_rd" );
     fd_topob_wksp( topo, "snapin_rd" );
     fd_topob_wksp( topo, "snap_out" );
-    fd_topob_wksp( topo, "replay_manif" );
+
+    if( FD_LIKELY( !snaplt_disabled ) ) {
+      fd_topob_wksp( topo, "snapin_lt" );
+      fd_topob_wksp( topo, "snaplt_out" );
+      fd_topob_wksp( topo, "snaplt_rd" );
+    }
     /* TODO: Should be depth of 1 or 2, not 4, but it causes backpressure
       from the replay tile parsing the manifest, remove when this is
       fixed. */
@@ -138,6 +154,12 @@ backtest_topo( config_t * config ) {
     fd_topob_link( topo, "snap_stream", "snap_stream", 2048UL, USHORT_MAX, 1UL );
     fd_topob_link( topo, "snapdc_rd", "snapdc_rd", 128UL, 0UL, 1UL );
     fd_topob_link( topo, "snapin_rd", "snapin_rd", 128UL, 0UL, 1UL );
+
+    if( FD_LIKELY( !snaplt_disabled ) ) {
+                           fd_topob_link( topo, "snapin_lt",  "snapin_lt",  128UL, sizeof(fd_snapshot_existing_account_t), 1UL );
+      FOR(snaplt_tile_cnt) fd_topob_link( topo, "snaplt_out", "snaplt_out", 128UL, 2048UL,                                 1UL );
+      FOR(snaplt_tile_cnt) fd_topob_link( topo, "snaplt_rd",  "snaplt_rd",  128UL, 0UL,                                    1UL );
+    }
 
     fd_topob_tile_out( topo, "snaprd", 0UL, "snap_zstd",   0UL );
     fd_topob_tile_in ( topo, "snapdc", 0UL, "metric_in",   "snap_zstd", 0UL, FD_TOPOB_RELIABLE, FD_TOPOB_POLLED );
@@ -150,6 +172,15 @@ backtest_topo( config_t * config ) {
     fd_topob_tile_out( topo, "snapdc", 0UL, "snapdc_rd", 0UL );
     fd_topob_tile_in( topo, "snaprd", 0UL, "metric_in", "snapin_rd", 0UL, FD_TOPOB_RELIABLE, FD_TOPOB_POLLED );
     fd_topob_tile_out( topo, "snapin", 0UL, "snapin_rd", 0UL );
+
+    if( FD_LIKELY( !snaplt_disabled ) ) {
+                           fd_topob_tile_out( topo, "snapin", 0UL, "snapin_lt",  0UL );
+      FOR(snaplt_tile_cnt) fd_topob_tile_in ( topo, "snapin", 0UL, "metric_in",  "snaplt_out", i,   FD_TOPOB_RELIABLE, FD_TOPOB_POLLED );
+      FOR(snaplt_tile_cnt) fd_topob_tile_in ( topo, "snaplt", i,   "metric_in",  "snapin_lt",  0UL, FD_TOPOB_RELIABLE, FD_TOPOB_POLLED );
+      FOR(snaplt_tile_cnt) fd_topob_tile_in ( topo, "snaprd", 0UL, "metric_in",  "snaplt_rd",  i,   FD_TOPOB_RELIABLE, FD_TOPOB_POLLED );
+      FOR(snaplt_tile_cnt) fd_topob_tile_out( topo, "snaplt", i,   "snaplt_out", i );
+      FOR(snaplt_tile_cnt) fd_topob_tile_out( topo, "snaplt", i,   "snaplt_rd",  i );
+    }
   } else {
     fd_topob_wksp( topo, "genesi_out" );
     fd_topob_link( topo, "genesi_out", "genesi_out", 2UL, 10UL*1024UL*1024UL+32UL+sizeof(fd_lthash_value_t), 1UL );
@@ -302,14 +333,7 @@ backtest_topo( config_t * config ) {
   }
 
   if( FD_LIKELY( !disable_snap_loader ) ) {
-    /* Replay decoded manifest dcache topo obj */
-    fd_topo_obj_t * replay_manifest_dcache = fd_topob_obj( topo, "dcache", "replay_manif" );
-    fd_pod_insertf_ulong( topo->props, 2UL << 30UL, "obj.%lu.data_sz", replay_manifest_dcache->id );
-    fd_pod_insert_ulong(  topo->props, "manifest_dcache", replay_manifest_dcache->id );
-
     fd_topob_tile_uses( topo, snapin_tile, funk_obj, FD_SHMEM_JOIN_MODE_READ_WRITE );
-    fd_topob_tile_uses( topo, snapin_tile, replay_manifest_dcache, FD_SHMEM_JOIN_MODE_READ_WRITE );
-    fd_topob_tile_uses( topo, replay_tile, replay_manifest_dcache, FD_SHMEM_JOIN_MODE_READ_ONLY );
   }
 
   for( ulong i=0UL; i<topo->tile_cnt; i++ ) {
@@ -394,6 +418,16 @@ backtest_cmd_fn( args_t *   args FD_PARAM_UNUSED,
     ulong volatile * const snapdc_metrics = fd_metrics_tile( snapdc_tile->metrics );
     ulong volatile * const snapin_metrics = fd_metrics_tile( snapin_tile->metrics );
 
+    ulong volatile * snaplt_metrics[ FD_MAX_SNAPLT_TILES ];
+    ulong snaplt_tile_cnt = fd_topo_tile_name_cnt( topo, "snaplt" );
+
+    for( ulong i=0UL; i<snaplt_tile_cnt; i++ ) {
+      ulong snaplt_tile_idx = fd_topo_find_tile( topo, "snaplt", i );
+      FD_TEST( snaplt_tile_idx!=ULONG_MAX );
+      fd_topo_tile_t * snaplt_tile = &topo->tiles[ snaplt_tile_idx ];
+      snaplt_metrics[ i ]          = fd_metrics_tile( snaplt_tile->metrics );
+    }
+
     ulong total_off_old    = 0UL;
     ulong snaprd_backp_old = 0UL;
     ulong snaprd_wait_old  = 0UL;
@@ -401,16 +435,34 @@ backtest_cmd_fn( args_t *   args FD_PARAM_UNUSED,
     ulong snapdc_wait_old  = 0UL;
     ulong snapin_backp_old = 0UL;
     ulong snapin_wait_old  = 0UL;
+    ulong snaplt_backp_old = 0UL;
+    ulong snaplt_wait_old  = 0UL;
     ulong acc_cnt_old      = 0UL;
     sleep( 1 );
-    puts( "-------------backp=(snaprd,snapdc,snapin) busy=(snaprd,snapdc,snapin)---------------" );
+    puts( "" );
+    puts( "Columns:" );
+    puts( "- bw:    Uncompressed bandwidth" );
+    puts( "- backp: Backpressured by downstream tile" );
+    puts( "- stall: Waiting on upstream tile"         );
+    puts( "- acc:   Number of accounts"               );
+    puts( "" );
+    puts( "-------------backp=(snaprd,snapdc,snapin,snaplt) busy=(snaprd,snapdc,snapin,snaplt)---------------" );
     long next = start+1000L*1000L*1000L;
     for(;;) {
       ulong snaprd_status = FD_VOLATILE_CONST( snaprd_metrics[ MIDX( GAUGE, TILE, STATUS ) ] );
       ulong snapdc_status = FD_VOLATILE_CONST( snapdc_metrics[ MIDX( GAUGE, TILE, STATUS ) ] );
       ulong snapin_status = FD_VOLATILE_CONST( snapin_metrics[ MIDX( GAUGE, TILE, STATUS ) ] );
+      ulong snaplt_status = ULONG_MAX;
 
-      if( FD_UNLIKELY( snaprd_status==2UL && snapdc_status==2UL && snapin_status == 2UL ) ) break;
+      ulong snaplt_status_sum = 0UL;
+      for( ulong i=0UL; i<snaplt_tile_cnt; i++ ) {
+        ulong snaplt_status = FD_VOLATILE_CONST( snaplt_metrics[ i ][ MIDX( GAUGE, TILE, STATUS ) ] );
+        snaplt_status_sum  += snaplt_status;
+      }
+      if( FD_UNLIKELY( snaplt_status_sum==2UL*snaplt_tile_cnt ) ) snaplt_status = 2UL;
+      else                                                        snaplt_status = snaplt_tile_cnt>0UL ? 1UL : 2UL;
+
+      if( FD_UNLIKELY( snaprd_status==2UL && snapdc_status==2UL && snapin_status == 2UL && snaplt_status==2UL ) ) break;
 
       long cur = fd_log_wallclock();
       if( FD_UNLIKELY( cur<next ) ) {
@@ -430,16 +482,31 @@ backtest_cmd_fn( args_t *   args FD_PARAM_UNUSED,
       ulong snapin_backp = snapin_metrics[ MIDX( COUNTER, TILE, REGIME_DURATION_NANOS_BACKPRESSURE_PREFRAG ) ];
       ulong snapin_wait  = snapin_metrics[ MIDX( COUNTER, TILE, REGIME_DURATION_NANOS_CAUGHT_UP_PREFRAG    ) ] +
                            snapin_metrics[ MIDX( COUNTER, TILE, REGIME_DURATION_NANOS_CAUGHT_UP_POSTFRAG   ) ] + snapin_backp;
+      ulong snaplt_backp = 0UL;
+      ulong snaplt_wait  = 0UL;
 
-      ulong acc_cnt      = snapin_metrics[ MIDX( GAUGE, SNAPIN, ACCOUNTS_INSERTED    ) ];
-      printf( "bw=%4.0f MB/s backp=(%3.0f%%,%3.0f%%,%3.0f%%) busy=(%3.0f%%,%3.0f%%,%3.0f%%) acc=%3.1f M/s\n",
+      for( ulong i=0UL; i<snaplt_tile_cnt; i++ ) {
+        snaplt_backp += snaplt_metrics[ i ][ MIDX( COUNTER, TILE, REGIME_DURATION_NANOS_BACKPRESSURE_PREFRAG ) ];
+      }
+      for( ulong i=0UL; i<snaplt_tile_cnt; i++ ) {
+        snaplt_wait  += snaplt_metrics[ i ][ MIDX( COUNTER, TILE, REGIME_DURATION_NANOS_CAUGHT_UP_PREFRAG    ) ] +
+                        snaplt_metrics[ i ][ MIDX( COUNTER, TILE, REGIME_DURATION_NANOS_CAUGHT_UP_POSTFRAG   ) ] + snaplt_backp;
+      }
+
+      double snaplt_backp_val = snaplt_tile_cnt ? ((double)(snaplt_backp-snaplt_backp_old)*ns_per_tick )/1e7/(double)snaplt_tile_cnt : 0.0;
+      double snaplt_busy_val  = snaplt_tile_cnt ? 100-(((double)(snaplt_wait-snaplt_wait_old)*ns_per_tick)/1e7/(double)snaplt_tile_cnt) : 0.0;
+
+      ulong acc_cnt = snapin_metrics[ MIDX( GAUGE, SNAPIN, ACCOUNTS_INSERTED ) ];
+      printf( "bw=%4.0f MB/s backp=(%3.0f%%,%3.0f%%,%3.0f%%,%3.0f%%) busy=(%3.0f%%,%3.0f%%,%3.0f%%,%3.0f%%) acc=%3.1f M/s\n",
               (double)( total_off-total_off_old )/1e6,
               ( (double)( snaprd_backp-snaprd_backp_old )*ns_per_tick )/1e7,
               ( (double)( snapdc_backp-snapdc_backp_old )*ns_per_tick )/1e7,
               ( (double)( snapin_backp-snapin_backp_old )*ns_per_tick )/1e7,
+              snaplt_backp_val,
               100-( ( (double)( snaprd_wait-snaprd_wait_old  )*ns_per_tick )/1e7 ),
               100-( ( (double)( snapdc_wait-snapdc_wait_old  )*ns_per_tick )/1e7 ),
               100-( ( (double)( snapin_wait-snapin_wait_old  )*ns_per_tick )/1e7 ),
+              snaplt_busy_val,
               (double)( acc_cnt-acc_cnt_old  )/1e6 );
       fflush( stdout );
       total_off_old    = total_off;
@@ -449,12 +516,13 @@ backtest_cmd_fn( args_t *   args FD_PARAM_UNUSED,
       snapdc_wait_old  = snapdc_wait;
       snapin_backp_old = snapin_backp;
       snapin_wait_old  = snapin_wait;
+      snaplt_backp_old = snaplt_backp;
+      snaplt_wait_old  = snaplt_wait;
       acc_cnt_old      = acc_cnt;
 
       next+=1000L*1000L*1000L;
     }
   }
-
   for(;;) pause();
 }
 
