@@ -6,11 +6,44 @@
 
 #define FD_STAKE_DELEGATIONS_MAGIC (0x09151995UL)
 
+/* fd_stakes_delegations_t is a cache of stake accounts mapping the
+   pubkey of the stake account to various information including
+   stake, activation/deactivation epoch, corresponding vote_account,
+   credits observed, and warmup cooldown rate. This is used to quickly
+   iterate through all of the stake delegations in the system during
+   epoch boundary reward calculations.
+
+   The implementation of fd_stakes_delegations_t is a hash map which
+   is backed by a memory pool. Callers are allowed to insert, replace,
+   and remove entries from the map.
+
+   In practice, fd_stakes_delegations_t are updated in 3 cases:
+   1. During bootup when the snapshot manifest is loaded in. The cache
+      is also refreshed during the bootup process to ensure that the
+      states are valid and up-to-date.
+
+      The reason we can't populate the stake accounts from the cache
+      is because the cache in the manifest is partially incomplete:
+      all of the expected keys are there, but the values are not.
+      Notably, the credits_observed field is not available until all of
+      the accounts are loaded into the database.
+
+      https://github.com/anza-xyz/agave/blob/v2.3.6/runtime/src/bank.rs#L1780-L1806
+
+   2. After transaction execution. If an update is made to a stake
+      account, the updated state is reflected in the cache (or the entry
+      is evicted).
+   3. During rewards distribution. Stake accounts are partitioned over
+      several hundred slots where their rewards are distributed. In this
+      case, the cache is updated to reflect each stake account post
+      reward distribution.
+   The stake accounts are read-only during the epoch boundary. */
+
 /* The static footprint fo the stake delegation struct is roughly equal
    to the footprint of each stake_delegation * the number of total
    stake accounts that the system will support. If there are 3M stake
-   accounts and each one is 104 bytes, then we can assume that the total
-   number is ~350MB.
+   accounts and each one is 112 bytes, then we can assume that the total
+   number is ~360MB.
 
    TODO: This needs to be more carefully bounded where we account for
    the overhead of the map + pool headers as well as the alignment
@@ -19,7 +52,7 @@
    TODO: This needs to be a configurable constant based on the number
    of max delegations. */
 
-#define FD_STAKE_DELEGATIONS_FOOTPRINT (350000000UL)
+#define FD_STAKE_DELEGATIONS_FOOTPRINT (360000000UL)
 
 #define FD_STAKE_DELEGATIONS_ALIGN     (128UL)
 
@@ -30,7 +63,6 @@
 #define FD_STAKES_USE_HANDHOLDING 1
 #endif
 
-
 struct fd_stake_delegation {
   fd_pubkey_t stake_account;
   fd_pubkey_t vote_account;
@@ -38,6 +70,7 @@ struct fd_stake_delegation {
   ulong       stake;
   ulong       activation_epoch;
   ulong       deactivation_epoch;
+  ulong       credits_observed;
   double      warmup_cooldown_rate;
 };
 typedef struct fd_stake_delegation fd_stake_delegation_t;
@@ -120,7 +153,10 @@ fd_stake_delegations_delete( void * mem );
 /* fd_stake_delegations_update will either insert a new stake delegation
    if the pubkey doesn't exist yet, or it will update the stake
    delegation for the pubkey if already in the map, overriding any
-   previous data. fd_stake_delegations_t must be a valid local join. */
+   previous data. fd_stake_delegations_t must be a valid local join.
+
+   NOTE: This function CAN be called while iterating over the map, but
+   ONLY for keys which already exist in the map. */
 
 void
 fd_stake_delegations_update( fd_stake_delegations_t * stake_delegations,
@@ -129,6 +165,7 @@ fd_stake_delegations_update( fd_stake_delegations_t * stake_delegations,
                              ulong                    stake,
                              ulong                    activation_epoch,
                              ulong                    deactivation_epoch,
+                             ulong                    credits_observed,
                              double                   warmup_cooldown_rate );
 
 /* fd_stake_delegations_remove removes a stake delegation corresponding

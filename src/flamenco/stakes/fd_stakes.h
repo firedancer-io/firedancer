@@ -49,12 +49,6 @@ write_stake_state( fd_txn_account_t *    stake_acc_rec,
                    fd_stake_state_v2_t * stake_state );
 
 void
-fd_stakes_remove_stake_delegation( fd_exec_slot_ctx_t * slot_ctx, fd_borrowed_account_t * stake_account, ulong * new_rate_activation_epoch );
-
-void
-fd_stakes_upsert_stake_delegation( fd_exec_slot_ctx_t * slot_ctx, fd_borrowed_account_t * stake_account, ulong * new_rate_activation_epoch );
-
-void
 fd_refresh_vote_accounts( fd_exec_slot_ctx_t *       slot_ctx,
                           fd_stake_history_t const * history,
                           ulong *                    new_rate_activation_epoch,
@@ -78,6 +72,27 @@ fd_accumulate_stake_infos( fd_exec_slot_ctx_t const * slot_ctx,
                            fd_stake_history_entry_t * accumulator,
                            fd_epoch_info_t *          temp_info,
                            fd_spad_t *                runtime_spad );
+
+/* fd_store_stake_delegation is used to update fd_stake_delegations_t
+   based on a specific transaction account. If the account is empty or
+   uninitialized, it is removed from the stake delegation map. */
+
+void
+fd_update_stake_delegation( fd_txn_account_t * stake_account,
+                            fd_bank_t *        bank );
+
+/* fd_refresh_stake_delegations is used to refresh the stake
+   delegations stored in fd_stake_delegations_t which is owned by
+   the bank. For a given database handle, read in the state of all
+   stake accounts, decode their state, and update each stake delegation.
+
+   This function does not add or remove stake delegations from the map
+   and makes the assumption that there are no stake delegations in
+   fd_stake_delegations_t that should be removed (e.g. invalid state
+   or zero balance). */
+
+void
+fd_refresh_stake_delegations( fd_exec_slot_ctx_t * slot_ctx );
 
 FD_PROTOTYPES_END
 

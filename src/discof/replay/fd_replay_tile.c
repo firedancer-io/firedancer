@@ -640,6 +640,13 @@ init_after_snapshot( fd_replay_tile_ctx_t * ctx,
                      fd_stem_context_t *    stem ) {
   /* Do not modify order! */
 
+  /* Now that the snapshot has been loaded in, we have to refresh the
+     stake delegations since the manifest does not contain the full set
+     of data required for the stake delegations. See
+     fd_stake_delegations.h for why this is required. */
+
+  fd_refresh_stake_delegations( ctx->slot_ctx );
+
   /* After both snapshots have been loaded in, we can determine if we should
      start distributing rewards. */
 

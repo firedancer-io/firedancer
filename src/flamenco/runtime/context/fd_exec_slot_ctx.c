@@ -318,13 +318,14 @@ fd_exec_slot_ctx_recover( fd_exec_slot_ctx_t *                slot_ctx,
        n = fd_delegation_pair_t_map_successor( stake_pool, n ) ) {
 
     fd_stake_delegations_update(
-      stake_delegations,
-      &n->elem.account,
-      &n->elem.delegation.voter_pubkey,
-      n->elem.delegation.stake,
-      n->elem.delegation.activation_epoch,
-      n->elem.delegation.deactivation_epoch,
-      n->elem.delegation.warmup_cooldown_rate );
+        stake_delegations,
+        &n->elem.account,
+        &n->elem.delegation.voter_pubkey,
+        n->elem.delegation.stake,
+        n->elem.delegation.activation_epoch,
+        n->elem.delegation.deactivation_epoch,
+        0UL,
+        n->elem.delegation.warmup_cooldown_rate );
   }
 
   fd_bank_stake_delegations_end_locking_modify( slot_ctx->bank );

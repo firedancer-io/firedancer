@@ -927,6 +927,21 @@ distribute_epoch_reward_to_stake_acc( fd_exec_slot_ctx_t * slot_ctx,
   stake_state->inner.stake.stake.delegation.stake = fd_ulong_sat_add( stake_state->inner.stake.stake.delegation.stake,
                                                                       reward_lamports );
 
+  /* The stake account has just been updated, so we need to update the
+     stake delegations stored in the bank. */
+
+  fd_stake_delegations_t * stake_delegations = fd_bank_stake_delegations_locking_modify( slot_ctx->bank );
+  fd_stake_delegations_update(
+      stake_delegations,
+      stake_pubkey,
+      &stake_state->inner.stake.stake.delegation.voter_pubkey,
+      stake_state->inner.stake.stake.delegation.stake,
+      stake_state->inner.stake.stake.delegation.activation_epoch,
+      stake_state->inner.stake.stake.delegation.deactivation_epoch,
+      stake_state->inner.stake.stake.credits_observed,
+      stake_state->inner.stake.stake.delegation.warmup_cooldown_rate );
+  fd_bank_stake_delegations_end_locking_modify( slot_ctx->bank );
+
   if( capture_ctx ) {
     fd_solcap_write_stake_account_payout( capture_ctx->capture,
         stake_pubkey,

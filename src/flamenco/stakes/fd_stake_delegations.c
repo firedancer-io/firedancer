@@ -182,6 +182,7 @@ fd_stake_delegations_update( fd_stake_delegations_t * stake_delegations,
                              ulong                    stake,
                              ulong                    activation_epoch,
                              ulong                    deactivation_epoch,
+                             ulong                    credits_observed,
                              double                   warmup_cooldown_rate ) {
 
   fd_stake_delegation_t * stake_delegation_pool = fd_stake_delegations_get_pool( stake_delegations );
@@ -194,17 +195,30 @@ fd_stake_delegations_update( fd_stake_delegations_t * stake_delegations,
   }
 
   /* First, handle the case where the stake delegation already exists
-     and we just need to update the entry. */
-  fd_stake_delegation_t * stake_delegation = fd_stake_delegation_map_ele_query(
+     and we just need to update the entry. The reason we do a const idx
+     query is to allow fd_stake_delegations_update to be called while
+     iterating over the map. It is unsafe to call
+     fd_stake_delegation_map_ele_query() during iteration, but we only
+     need to change fields which are not used for pool/map management. */
+
+  ulong idx = fd_stake_delegation_map_idx_query_const(
       stake_delegation_map,
       stake_account,
-      NULL,
+      ULONG_MAX,
       stake_delegation_pool );
-  if( !!stake_delegation ) {
+
+  if( idx!=ULONG_MAX ) {
+
+    fd_stake_delegation_t * stake_delegation = fd_stake_delegation_pool_ele( stake_delegation_pool, idx );
+    if( FD_UNLIKELY( !stake_delegation ) ) {
+      FD_LOG_CRIT(( "unable to retrieve stake delegation" ));
+    }
+
     stake_delegation->vote_account         = *vote_account;
     stake_delegation->stake                = stake;
     stake_delegation->activation_epoch     = activation_epoch;
     stake_delegation->deactivation_epoch   = deactivation_epoch;
+    stake_delegation->credits_observed     = credits_observed;
     stake_delegation->warmup_cooldown_rate = warmup_cooldown_rate;
     return;
   }
@@ -214,7 +228,7 @@ fd_stake_delegations_update( fd_stake_delegations_t * stake_delegations,
     FD_LOG_CRIT(( "no free stake delegations in pool" ));
   }
 
-  stake_delegation = fd_stake_delegation_pool_ele_acquire( stake_delegation_pool );
+  fd_stake_delegation_t * stake_delegation = fd_stake_delegation_pool_ele_acquire( stake_delegation_pool );
   if( FD_UNLIKELY( !stake_delegation ) ) {
     FD_LOG_CRIT(( "unable to acquire stake delegation" ));
   }
@@ -224,6 +238,7 @@ fd_stake_delegations_update( fd_stake_delegations_t * stake_delegations,
   stake_delegation->stake                = stake;
   stake_delegation->activation_epoch     = activation_epoch;
   stake_delegation->deactivation_epoch   = deactivation_epoch;
+  stake_delegation->credits_observed     = credits_observed;
   stake_delegation->warmup_cooldown_rate = warmup_cooldown_rate;
 
   if( FD_UNLIKELY( !fd_stake_delegation_map_ele_insert(

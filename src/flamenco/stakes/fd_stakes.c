@@ -1,5 +1,6 @@
 #include "fd_stakes.h"
 #include "../runtime/fd_acc_mgr.h"
+#include "../runtime/fd_system_ids.h"
 #include "../runtime/context/fd_exec_slot_ctx.h"
 #include "../runtime/program/fd_stake_program.h"
 #include "../runtime/sysvar/fd_sysvar_stake_history.h"
@@ -404,7 +405,6 @@ fd_refresh_vote_accounts( fd_exec_slot_ctx_t *       slot_ctx,
 static void
 accumulate_stake_cache_delegations(
     fd_stake_delegations_t *   stake_delegations,
-    fd_exec_slot_ctx_t const * slot_ctx,
     fd_stake_history_t const * history,
     ulong *                    new_rate_activation_epoch,
     fd_stake_history_entry_t * accumulator,
@@ -421,39 +421,19 @@ accumulate_stake_cache_delegations(
   for( fd_stake_delegation_map_iter_t iter = fd_stake_delegation_map_iter_init( map, pool );
        !fd_stake_delegation_map_iter_done( iter, map, pool );
        iter = fd_stake_delegation_map_iter_next( iter, map, pool ) ) {
-    fd_stake_delegation_t * stake_delegation = fd_stake_delegation_map_iter_ele( iter, map, pool );
-
-    FD_TXN_ACCOUNT_DECL( acc );
-    int rc = fd_txn_account_init_from_funk_readonly( acc,
-                                                      &stake_delegation->stake_account,
-                                                      slot_ctx->funk,
-                                                      slot_ctx->funk_txn );
-    if( FD_UNLIKELY( rc!=FD_ACC_MGR_SUCCESS || fd_txn_account_get_lamports( acc )==0UL ) ) {
-      FD_LOG_WARNING(("Failed to init account"));
-      continue;
-    }
-
-    fd_stake_state_v2_t stake_state;
-    rc = fd_stake_get_state( acc, &stake_state );
-    if( FD_UNLIKELY( rc != 0 ) ) {
-      FD_LOG_WARNING(("Failed to get stake state"));
-      continue;
-    }
-
-    if( FD_UNLIKELY( !fd_stake_state_v2_is_stake( &stake_state ) ) ) {
-      FD_LOG_WARNING(("Not a stake"));
-      continue;
-    }
-
-    if( FD_UNLIKELY( stake_state.inner.stake.stake.delegation.stake == 0 ) ) {
-      continue;
-    }
-
-    fd_delegation_t * delegation = &stake_state.inner.stake.stake.delegation;
+    fd_stake_delegation_t const * stake_delegation = fd_stake_delegation_map_iter_ele_const( iter, map, pool );
 
     ulong delegation_idx = temp_info->stake_infos_len++;
-    temp_info->stake_infos[delegation_idx].stake   = stake_state.inner.stake.stake;
-    temp_info->stake_infos[delegation_idx].account = stake_delegation->stake_account;
+
+    temp_info->stake_infos[delegation_idx].stake.credits_observed                = stake_delegation->credits_observed;
+    temp_info->stake_infos[delegation_idx].account                               = stake_delegation->stake_account;
+    temp_info->stake_infos[delegation_idx].stake.delegation.voter_pubkey         = stake_delegation->vote_account;
+    temp_info->stake_infos[delegation_idx].stake.delegation.stake                = stake_delegation->stake;
+    temp_info->stake_infos[delegation_idx].stake.delegation.activation_epoch     = stake_delegation->activation_epoch;
+    temp_info->stake_infos[delegation_idx].stake.delegation.deactivation_epoch   = stake_delegation->deactivation_epoch;
+    temp_info->stake_infos[delegation_idx].stake.delegation.warmup_cooldown_rate = stake_delegation->warmup_cooldown_rate;
+
+    fd_delegation_t * delegation = &temp_info->stake_infos[delegation_idx].stake.delegation;
 
     fd_stake_history_entry_t new_entry = fd_stake_activating_and_deactivating( delegation, epoch, history, new_rate_activation_epoch );
     effective    += new_entry.effective;
@@ -485,59 +465,12 @@ fd_accumulate_stake_infos( fd_exec_slot_ctx_t const * slot_ctx,
 
   accumulate_stake_cache_delegations(
       stake_delegations,
-      slot_ctx,
       history,
       new_rate_activation_epoch,
       accumulator,
       temp_info,
       epoch
   );
-
-  temp_info->stake_infos_new_keys_start_idx = temp_info->stake_infos_len;
-
-  fd_account_keys_global_t const *   stake_account_keys = fd_bank_stake_account_keys_locking_query( slot_ctx->bank );
-  fd_account_keys_pair_t_mapnode_t * account_keys_pool  = fd_account_keys_account_keys_pool_join( stake_account_keys );
-  fd_account_keys_pair_t_mapnode_t * account_keys_root  = fd_account_keys_account_keys_root_join( stake_account_keys );
-
-  if( !account_keys_pool ) {
-    fd_bank_stake_account_keys_end_locking_query( slot_ctx->bank );
-    return;
-  }
-
-  /* The number of account keys aggregated across the epoch is usually small, so there aren't much performance gains from tpooling here. */
-  for( fd_account_keys_pair_t_mapnode_t * n = fd_account_keys_pair_t_map_minimum( account_keys_pool, account_keys_root );
-       n;
-       n = fd_account_keys_pair_t_map_successor( account_keys_pool, n ) ) {
-    FD_TXN_ACCOUNT_DECL( acc );
-    int rc = fd_txn_account_init_from_funk_readonly(acc, &n->elem.key, slot_ctx->funk, slot_ctx->funk_txn );
-    if( FD_UNLIKELY( rc!=FD_ACC_MGR_SUCCESS || fd_txn_account_get_lamports( acc )==0UL ) ) {
-      continue;
-    }
-
-    fd_stake_state_v2_t stake_state;
-    rc = fd_stake_get_state( acc, &stake_state );
-    if( FD_UNLIKELY( rc != 0 ) ) {
-      continue;
-    }
-
-    if( FD_UNLIKELY( !fd_stake_state_v2_is_stake( &stake_state ) ) ) {
-      continue;
-    }
-
-    if( FD_UNLIKELY( stake_state.inner.stake.stake.delegation.stake==0UL ) ) {
-      continue;
-    }
-
-    fd_delegation_t * delegation = &stake_state.inner.stake.stake.delegation;
-    temp_info->stake_infos[temp_info->stake_infos_len  ].stake    = stake_state.inner.stake.stake;
-    temp_info->stake_infos[temp_info->stake_infos_len++].account  = n->elem.key;
-    fd_stake_history_entry_t new_entry = fd_stake_activating_and_deactivating( delegation, epoch, history, new_rate_activation_epoch );
-    accumulator->effective    += new_entry.effective;
-    accumulator->activating   += new_entry.activating;
-    accumulator->deactivating += new_entry.deactivating;
-  }
-
-  fd_bank_stake_account_keys_end_locking_query( slot_ctx->bank );
 
   } FD_SPAD_FRAME_END;
 }
@@ -551,16 +484,6 @@ fd_stakes_activate_epoch( fd_exec_slot_ctx_t *  slot_ctx,
 
   fd_stake_delegations_t * stake_delegations = fd_stake_delegations_join( (void*)fd_bank_stake_delegations_locking_modify( slot_ctx->bank ) );
 
-  fd_account_keys_global_t const * stake_account_keys = fd_bank_stake_account_keys_locking_query( slot_ctx->bank );
-
-  fd_account_keys_pair_t_mapnode_t * account_keys_pool = NULL;
-  fd_account_keys_pair_t_mapnode_t * account_keys_root = NULL;
-
-  if( stake_account_keys ) {
-    account_keys_pool = fd_account_keys_account_keys_pool_join( stake_account_keys );
-    account_keys_root = fd_account_keys_account_keys_root_join( stake_account_keys );
-  }
-
   /* Current stake delegations: list of all current delegations in stake_delegations
      https://github.com/solana-labs/solana/blob/88aeaa82a856fc807234e7da0b31b89f2dc0e091/runtime/src/stakes.rs#L180 */
   /* Add a new entry to the Stake History sysvar for the previous epoch
@@ -570,10 +493,6 @@ fd_stakes_activate_epoch( fd_exec_slot_ctx_t *  slot_ctx,
   if( FD_UNLIKELY( !history ) ) FD_LOG_ERR(( "StakeHistory sysvar is missing from sysvar cache" ));
 
   ulong stake_delegations_size = fd_stake_delegations_cnt( stake_delegations );
-
-  stake_delegations_size += !!account_keys_pool ? fd_account_keys_pair_t_map_size( account_keys_pool, account_keys_root ) : 0UL;
-
-  fd_bank_stake_account_keys_end_locking_query( slot_ctx->bank );
 
   temp_info->stake_infos_len = 0UL;
   temp_info->stake_infos     = (fd_epoch_info_pair_t *)fd_spad_alloc( runtime_spad, FD_EPOCH_INFO_PAIR_ALIGN, sizeof(fd_epoch_info_pair_t)*stake_delegations_size );
@@ -626,4 +545,135 @@ write_stake_state( fd_txn_account_t *    stake_acc_rec,
   }
 
   return 0;
+}
+
+/* Removes stake delegation from epoch stakes and updates vote account */
+static void
+fd_stakes_remove_stake_delegation( fd_txn_account_t *   stake_account,
+                                   fd_bank_t *          bank ) {
+
+  fd_stake_delegations_t * stake_delegations = fd_stake_delegations_join( fd_bank_stake_delegations_locking_modify( bank ) );
+  if( FD_UNLIKELY( !stake_delegations ) ) {
+    FD_LOG_CRIT(( "unable to retrieve join to stake delegation pool" ));
+  }
+
+  fd_stake_delegations_remove( stake_delegations, stake_account->pubkey );
+
+  fd_bank_stake_delegations_end_locking_modify( bank );
+}
+
+/* Updates stake delegation in epoch stakes */
+static void
+fd_stakes_upsert_stake_delegation( fd_txn_account_t * stake_account,
+                                   fd_bank_t *        bank ) {
+
+  fd_stake_delegations_t * stake_delegations = fd_stake_delegations_join( fd_bank_stake_delegations_locking_modify( bank ) );
+  if( FD_UNLIKELY( !stake_delegations ) ) {
+    FD_LOG_CRIT(( "unable to retrieve join to stake delegation pool" ));
+  }
+
+  fd_stake_state_v2_t stake_state;
+  int err = fd_stake_get_state( stake_account, &stake_state );
+  if( FD_UNLIKELY( err != 0 ) ) {
+    FD_LOG_WARNING(( "Failed to get stake state" ));
+    return;
+  }
+
+  if( FD_UNLIKELY( !fd_stake_state_v2_is_stake( &stake_state ) ) ) {
+    FD_LOG_WARNING(( "Not a valid stake" ));
+    return;
+  }
+
+  if( FD_UNLIKELY( stake_state.inner.stake.stake.delegation.stake==0UL ) ) {
+    FD_LOG_WARNING(( "Stake is empty" ));
+    return;
+  }
+
+  fd_stake_delegations_update(
+      stake_delegations,
+      stake_account->pubkey,
+      &stake_state.inner.stake.stake.delegation.voter_pubkey,
+      stake_state.inner.stake.stake.delegation.stake,
+      stake_state.inner.stake.stake.delegation.activation_epoch,
+      stake_state.inner.stake.stake.delegation.deactivation_epoch,
+      stake_state.inner.stake.stake.credits_observed,
+      stake_state.inner.stake.stake.delegation.warmup_cooldown_rate );
+
+  fd_bank_stake_delegations_end_locking_modify( bank );
+}
+
+void
+fd_update_stake_delegation( fd_txn_account_t *   stake_account,
+                           fd_bank_t *          bank ) {
+  fd_pubkey_t const * owner = fd_txn_account_get_owner( stake_account );
+
+  if( memcmp( owner->uc, fd_solana_stake_program_id.key, sizeof(fd_pubkey_t) ) ) {
+      return;
+  }
+
+  int is_empty  = fd_txn_account_get_lamports( stake_account )==0UL;
+  int is_uninit = 1;
+  if( fd_txn_account_get_data_len( stake_account )>=4UL ) {
+    uint prefix = FD_LOAD( uint, fd_txn_account_get_data( stake_account ) );
+    is_uninit = ( prefix==fd_stake_state_v2_enum_uninitialized );
+  }
+
+  if( is_empty || is_uninit ) {
+    fd_stakes_remove_stake_delegation( stake_account, bank );
+  } else {
+    fd_stakes_upsert_stake_delegation( stake_account, bank );
+  }
+}
+
+void
+fd_refresh_stake_delegations( fd_exec_slot_ctx_t * slot_ctx ) {
+  fd_bank_t * bank = slot_ctx->bank;
+
+  fd_stake_delegations_t * stake_delegations = fd_stake_delegations_join( fd_bank_stake_delegations_locking_modify( bank ) );
+  if( FD_UNLIKELY( !stake_delegations ) ) {
+    FD_LOG_CRIT(( "fd_runtime_refresh_stakes: stake_delegations is NULL" ));
+  }
+
+  fd_stake_delegation_map_t * stake_delegation_map  = fd_stake_delegations_get_map( stake_delegations );
+  fd_stake_delegation_t *     stake_delegation_pool = fd_stake_delegations_get_pool( stake_delegations );
+
+  for( fd_stake_delegation_map_iter_t iter = fd_stake_delegation_map_iter_init( stake_delegation_map, stake_delegation_pool );
+       !fd_stake_delegation_map_iter_done( iter, stake_delegation_map, stake_delegation_pool );
+       iter = fd_stake_delegation_map_iter_next( iter, stake_delegation_map, stake_delegation_pool ) ) {
+
+    fd_stake_delegation_t * stake_delegation = fd_stake_delegation_map_iter_ele( iter, stake_delegation_map, stake_delegation_pool );
+
+    FD_TXN_ACCOUNT_DECL( acct_rec );
+    int err = fd_txn_account_init_from_funk_readonly( acct_rec,
+                                                      &stake_delegation->stake_account,
+                                                      slot_ctx->funk,
+                                                      slot_ctx->funk_txn );
+
+    if( FD_UNLIKELY( err!=FD_ACC_MGR_SUCCESS ) ) {
+      continue;
+    }
+
+    fd_stake_state_v2_t stake_state;
+    err = fd_stake_get_state( acct_rec, &stake_state );
+    if( FD_UNLIKELY( err ) ) {
+      FD_LOG_CRIT(( "invariant violation: stake account has invalid state" ));
+    }
+
+    if( FD_UNLIKELY( !fd_stake_state_v2_is_stake( &stake_state ) ) ) {
+      FD_LOG_CRIT(( "invariant violation: stake account is not a stake" ));
+    }
+
+    fd_stake_delegations_update(
+        stake_delegations,
+        &stake_delegation->stake_account,
+        &stake_state.inner.stake.stake.delegation.voter_pubkey,
+        stake_state.inner.stake.stake.delegation.stake,
+        stake_state.inner.stake.stake.delegation.activation_epoch,
+        stake_state.inner.stake.stake.delegation.deactivation_epoch,
+        stake_state.inner.stake.stake.credits_observed,
+        stake_state.inner.stake.stake.delegation.warmup_cooldown_rate
+    );
+  }
+
+  fd_bank_stake_delegations_end_locking_modify( slot_ctx->bank );
 }
