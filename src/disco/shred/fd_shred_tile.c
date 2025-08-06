@@ -921,7 +921,7 @@ after_frag( fd_shred_ctx_t *    ctx,
 
       long shacq_start, shacq_end, shrel_end;
       FD_STORE_SHACQ_TIMED( ctx->store, shacq_start, shacq_end );
-      fd_store_fec_t * fec = fd_store_insert( ctx->store, (uint)ctx->round_robin_id, (fd_hash_t *)fd_type_pun( &out_merkle_root ) );
+      fd_store_fec_t * fec = fd_store_insert( ctx->store, ctx->round_robin_id, (fd_hash_t *)fd_type_pun( &out_merkle_root ) );
       FD_STORE_SHREL_TIMED( ctx->store, shrel_end );
 
       for( ulong i=0UL; i<set->data_shred_cnt; i++ ) {
