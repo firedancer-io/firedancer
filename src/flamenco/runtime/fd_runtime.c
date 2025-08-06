@@ -1207,30 +1207,23 @@ fd_runtime_finalize_account( fd_funk_t *        funk,
   uchar       const * record_data = (uchar *)fd_txn_account_get_meta( acc );
   ulong               record_sz   = fd_account_meta_get_record_sz( acc->meta );
 
-  /* Remove the previous incarnation of the account's record from the
-     transaction, so that we don't hash it twice. */
-  fd_funk_rec_key_t funk_key = fd_funk_acc_key( key );
-  fd_funk_rec_hard_remove( funk, funk_txn, &funk_key );
-
   int err = FD_FUNK_SUCCESS;
 
+  fd_funk_rec_key_t     funk_key = fd_funk_acc_key( key );
   fd_funk_rec_prepare_t prepare[1];
   fd_funk_rec_t *       rec = fd_funk_rec_prepare( funk, funk_txn, &funk_key, prepare, &err );
-  if( FD_UNLIKELY( !rec ) ) {
-    FD_LOG_CRIT(( "fd_runtime_finalize_account: failed to prepare record" ));
-  }
-  if( FD_UNLIKELY( err!=FD_FUNK_SUCCESS ) ) {
-    FD_LOG_CRIT(( "fd_runtime_finalize_account: failed to prepare record" ));
+  if( FD_UNLIKELY( !rec || err!=FD_FUNK_SUCCESS ) ) {
+    FD_LOG_ERR(( "fd_runtime_finalize_account: failed to prepare record (%i-%s)", err, fd_funk_strerror( err ) ));
   }
 
-  if( fd_funk_val_truncate(
+  if( FD_UNLIKELY( !fd_funk_val_truncate(
       rec,
       fd_funk_alloc( funk ),
       fd_funk_wksp( funk ),
       0UL,
       record_sz,
-      &err ) == NULL ) {
-    FD_LOG_CRIT(( "fd_funk_val_truncate(sz=%lu) for account failed (%i-%s)", record_sz, err, fd_funk_strerror( err ) ));
+      &err ) ) ) {
+    FD_LOG_ERR(( "fd_funk_val_truncate(sz=%lu) for account failed (%i-%s)", record_sz, err, fd_funk_strerror( err ) ));
   }
 
   fd_memcpy( fd_funk_val( rec, fd_funk_wksp( funk ) ), record_data, record_sz );

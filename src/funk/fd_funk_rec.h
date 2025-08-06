@@ -389,53 +389,7 @@ int
 fd_funk_rec_remove( fd_funk_t *               funk,
                     fd_funk_txn_t *           txn,
                     fd_funk_rec_key_t const * key,
-                    fd_funk_rec_t **          rec_out,
-                    ulong                     erase_data );
-
-/*
-  fd_funk_rec_hard_remove completely removes the record from Funk,
-  and leaves no tombstone behind.
-
-  This is a dangerous API. An older version of the record in a
-  parent transaction might be exposed. In other words, the record may
-  appear to go backwards in time. We are effectively reverting an
-  update. Any information in an removed record is lost.
-
-  Always succeeds.
-*/
-void
-fd_funk_rec_hard_remove( fd_funk_t *               funk,
-                         fd_funk_txn_t *           txn,
-                         fd_funk_rec_key_t const * key );
-
-/* When a record is erased there is metadata stored in the five most
-   significant bytes of record flags.  These are helpers to make setting
-   and getting these values simple. The caller is responsible for doing
-   a check on the flag of the record before using the value of the erase
-   data. The 5 least significant bytes of the erase data parameter will
-   be used and set into the erase flag. */
-
-void
-fd_funk_rec_set_erase_data( fd_funk_rec_t * rec, ulong erase_data );
-
-ulong
-fd_funk_rec_get_erase_data( fd_funk_rec_t const * rec );
-
-/* Remove a list of tombstones from funk, thereby freeing up space in
-   the main index. All the records must be removed and published
-   beforehand. Reasons for failure include:
-
-     FD_FUNK_ERR_INVAL - bad inputs (NULL funk, NULL rec, rec is
-       obviously not from funk, etc)
-
-     FD_FUNK_ERR_KEY - the record did not appear to be a removed record.
-       Specifically, a record query of funk for rec's (xid,key) pair did
-       not return rec. Also, the record was never published.
-*/
-int
-fd_funk_rec_forget( fd_funk_t *      funk,
-                    fd_funk_rec_t ** recs,
-                    ulong            recs_cnt );
+                    fd_funk_rec_t **          rec_out );
 
 /* fd_funk_all_iter_t iterators over all funk record objects in all funk
    transactions.
