@@ -11,6 +11,7 @@
 #include "../../util/pod/fd_pod_format.h"
 #include "../../util/tile/fd_tile_private.h"
 #include "../../discof/restore/utils/fd_ssmsg.h"
+#include "../../discof/restore/utils/fd_ssctrl.h"
 #include "../../flamenco/runtime/fd_runtime.h"
 
 #include <sys/random.h>
@@ -194,15 +195,18 @@ void
 fd_topo_initialize( config_t * config ) {
   resolve_gossip_entrypoints( config );
 
-  ulong net_tile_cnt    = config->layout.net_tile_count;
-  ulong shred_tile_cnt  = config->layout.shred_tile_count;
-  ulong quic_tile_cnt   = config->layout.quic_tile_count;
-  ulong verify_tile_cnt = config->layout.verify_tile_count;
-  ulong bank_tile_cnt   = config->layout.bank_tile_count;
-  ulong exec_tile_cnt   = config->firedancer.layout.exec_tile_count;
-  ulong writer_tile_cnt = config->firedancer.layout.writer_tile_count;
-  ulong resolv_tile_cnt = config->layout.resolv_tile_count;
-  ulong sign_tile_cnt   = config->firedancer.layout.sign_tile_count;
+  ulong net_tile_cnt        = config->layout.net_tile_count;
+  ulong shred_tile_cnt      = config->layout.shred_tile_count;
+  ulong quic_tile_cnt       = config->layout.quic_tile_count;
+  ulong verify_tile_cnt     = config->layout.verify_tile_count;
+  ulong bank_tile_cnt       = config->layout.bank_tile_count;
+  ulong exec_tile_cnt       = config->firedancer.layout.exec_tile_count;
+  ulong writer_tile_cnt     = config->firedancer.layout.writer_tile_count;
+  ulong snaplt_tile_cnt     = config->firedancer.layout.snaplt_tile_count;
+  ulong resolv_tile_cnt     = config->layout.resolv_tile_count;
+  ulong sign_tile_cnt       = config->firedancer.layout.sign_tile_count;
+
+  int snaplt_enabled = !config->development.snapshots.disable_lthash_verification;
 
   fd_topo_t * topo = fd_topob_new( &config->topo, config->name );
 
@@ -291,7 +295,12 @@ fd_topo_initialize( config_t * config ) {
   fd_topob_wksp( topo, "snap_stream" );
   fd_topob_wksp( topo, "snap_zstd" );
   fd_topob_wksp( topo, "snap_out" );
-  fd_topob_wksp( topo, "replay_manif" );
+
+  if( FD_LIKELY( snaplt_enabled ) ) {
+    fd_topob_wksp( topo, "snaplt" );
+    fd_topob_wksp( topo, "snapin_lt" );
+    fd_topob_wksp( topo, "snaplt_out" );
+  }
 
   #define FOR(cnt) for( ulong i=0UL; i<cnt; i++ )
 
@@ -366,16 +375,16 @@ fd_topo_initialize( config_t * config ) {
   /**/                 fd_topob_link( topo, "sign_send",    "sign_send",    128UL,                                    sizeof(fd_ed25519_sig_t),      1UL   );
 
   FD_TEST( sizeof(fd_snapshot_manifest_t)<=(5UL*(1UL<<30UL)) );
-  /**/                 fd_topob_link( topo, "snap_zstd",    "snap_zstd",    8192UL,                                   16384UL,                       1UL );
-  /**/                 fd_topob_link( topo, "snap_stream",  "snap_stream",  2048UL,                                   USHORT_MAX,                    1UL );
-  /**/                 fd_topob_link( topo, "snap_out",     "snap_out",     2UL,                                      5UL*(1UL<<30UL),               1UL );
-  /**/                 fd_topob_link( topo, "snapdc_rd",    "snapdc_rd",    128UL,                                    0UL,                           1UL );
-  /**/                 fd_topob_link( topo, "snapin_rd",    "snapin_rd",    128UL,                                    0UL,                           1UL );
+  /**/                 fd_topob_link( topo, "snap_zstd",    "snap_zstd",    8192UL,                                   16384UL,                                1UL );
+  /**/                 fd_topob_link( topo, "snap_stream",  "snap_stream",  2048UL,                                   USHORT_MAX,                             1UL );
+  /**/                 fd_topob_link( topo, "snap_out",     "snap_out",     2UL,                                      5UL*(1UL<<30UL),                        1UL );
+  /**/                 fd_topob_link( topo, "snapdc_rd",    "snapdc_rd",    128UL,                                    0UL,                                    1UL );
+  /**/                 fd_topob_link( topo, "snapin_rd",    "snapin_rd",    128UL,                                    0UL,                                    1UL );
 
-  /* Replay decoded manifest dcache topo obj */
-  fd_topo_obj_t * replay_manifest_dcache = fd_topob_obj( topo, "dcache", "replay_manif" );
-  fd_pod_insertf_ulong( topo->props, 2UL << 30UL, "obj.%lu.data_sz", replay_manifest_dcache->id );
-  fd_pod_insert_ulong(  topo->props, "manifest_dcache", replay_manifest_dcache->id );
+  if( FD_LIKELY( snaplt_enabled ) ) {
+                         fd_topob_link( topo, "snapin_lt",    "snapin_lt",    128UL,                                    sizeof(fd_snapshot_existing_account_t), 1UL );
+    FOR(snaplt_tile_cnt) fd_topob_link( topo, "snaplt_out",   "snaplt_out",   128UL,                                    2048UL,                                 1UL );
+  }
 
   ushort parsed_tile_to_cpu[ FD_TILE_MAX ];
   /* Unassigned tiles will be floating, unless auto topology is enabled. */
@@ -437,6 +446,13 @@ fd_topo_initialize( config_t * config ) {
   snapdc_tile->allow_shutdown = 1;
   fd_topo_tile_t * snapin_tile = fd_topob_tile( topo, "snapin", "snapin", "metric_in", tile_to_cpu[ topo->tile_cnt ], 0, 0 );
   snapin_tile->allow_shutdown = 1;
+
+  if( FD_LIKELY( snaplt_enabled ) ) {
+    for( ulong i=0UL; i<snaplt_tile_cnt; i++ ) {
+      fd_topo_tile_t * snaplt_tile = fd_topob_tile( topo, "snaplt", "snaplt", "metric_in", tile_to_cpu[ topo->tile_cnt ], 0, 0 );
+      snaplt_tile->allow_shutdown = 1;
+    }
+  }
 
   /* Database cache */
 
@@ -528,9 +544,6 @@ fd_topo_initialize( config_t * config ) {
   }
 
   fd_topob_tile_uses( topo, snapin_tile, funk_obj,               FD_SHMEM_JOIN_MODE_READ_WRITE );
-  fd_topob_tile_uses( topo, snapin_tile, runtime_pub_obj,        FD_SHMEM_JOIN_MODE_READ_WRITE );
-  fd_topob_tile_uses( topo, snapin_tile, replay_manifest_dcache, FD_SHMEM_JOIN_MODE_READ_WRITE );
-  fd_topob_tile_uses( topo, replay_tile, replay_manifest_dcache, FD_SHMEM_JOIN_MODE_READ_ONLY );
 
   /* There's another special fseq that's used to communicate the shred
     version from the Agave boot path to the shred tile. */
@@ -689,6 +702,13 @@ fd_topo_initialize( config_t * config ) {
   fd_topob_tile_out( topo, "snapdc", 0UL, "snapdc_rd", 0UL );
   fd_topob_tile_in ( topo, "snaprd", 0UL, "metric_in", "snapin_rd", 0UL, FD_TOPOB_RELIABLE, FD_TOPOB_POLLED );
   fd_topob_tile_out( topo, "snapin", 0UL, "snapin_rd", 0UL );
+
+  if( FD_LIKELY( snaplt_enabled ) ) {
+                         fd_topob_tile_out( topo, "snapin", 0UL, "snapin_lt", 0UL );
+    FOR(snaplt_tile_cnt) fd_topob_tile_in(  topo, "snapin", 0UL, "metric_in", "snaplt_out", i, FD_TOPOB_RELIABLE, FD_TOPOB_POLLED );
+    FOR(snaplt_tile_cnt) fd_topob_tile_in(  topo, "snaplt", i, "metric_in", "snapin_lt", 0UL, FD_TOPOB_RELIABLE, FD_TOPOB_POLLED );
+    FOR(snaplt_tile_cnt) fd_topob_tile_out( topo, "snaplt", i, "snaplt_out", i );
+  }
 
   if( config->tiles.archiver.enabled ) {
     fd_topob_wksp( topo, "arch_f" );
@@ -1013,6 +1033,8 @@ fd_topo_configure_tile( fd_topo_tile_t * tile,
 
     } else if( FD_UNLIKELY( !strcmp( tile->name, "snapin" ) ) ) {
       tile->snapin.funk_obj_id            = fd_pod_query_ulong( config->topo.props, "funk",      ULONG_MAX );
+    } else if( FD_UNLIKELY( !strcmp( tile->name, "snaplt" ) ) ) {
+
     } else if( FD_UNLIKELY( !strcmp( tile->name, "arch_f" ) ||
                             !strcmp( tile->name, "arch_w" ) ) ) {
       strncpy( tile->archiver.rocksdb_path, config->tiles.archiver.rocksdb_path, sizeof(tile->archiver.rocksdb_path) );

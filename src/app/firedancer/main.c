@@ -86,6 +86,11 @@ extern fd_topo_run_tile_t fd_tile_tower;
 extern fd_topo_run_tile_t fd_tile_rpcserv;
 extern fd_topo_run_tile_t fd_tile_ipecho;
 
+extern fd_topo_run_tile_t fd_tile_snaprd;
+extern fd_topo_run_tile_t fd_tile_snapdc;
+extern fd_topo_run_tile_t fd_tile_snapin;
+extern fd_topo_run_tile_t fd_tile_snaplt;
+
 fd_topo_run_tile_t * TILES[] = {
   &fd_tile_net,
   &fd_tile_netlnk,
@@ -112,6 +117,10 @@ fd_topo_run_tile_t * TILES[] = {
   &fd_tile_tower,
   &fd_tile_rpcserv,
   &fd_tile_ipecho,
+  &fd_tile_snaprd,
+  &fd_tile_snapdc,
+  &fd_tile_snapin,
+  &fd_tile_snaplt,
   NULL,
 };
 

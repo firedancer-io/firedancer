@@ -900,6 +900,17 @@
 
 </div>
 
+## Snaplt Tile
+
+<div class="metrics">
+
+| Metric | Type | Description |
+|--------|------|-------------|
+| <span class="metrics-name">snaplt_&#8203;state</span> | gauge | State of the tile. 0=hashing, 1=done, 2=shutdown |
+| <span class="metrics-name">snaplt_&#8203;accounts_&#8203;hashed</span> | gauge | Number of accounts hashed so far during snapshot loading. Might decrease if snapshot load is aborted and restarted |
+
+</div>
+
 ## Ipecho Tile
 
 <div class="metrics">
