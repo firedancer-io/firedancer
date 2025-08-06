@@ -781,7 +781,7 @@ common_extend_program( fd_exec_instr_ctx_t * instr_ctx,
     }
 
     /* https://github.com/anza-xyz/agave/blob/v2.3.1/programs/bpf_loader/src/lib.rs#L1449-L1455 */
-    if( FD_UNLIKELY( !programdata_state->inner.program_data.upgrade_authority_address ) ) {
+    if( FD_UNLIKELY( !programdata_state->inner.program_data.has_upgrade_authority_address ) ) {
       fd_log_collector_msg_literal( instr_ctx, "Cannot extend ProgramData accounts that are not upgradeable" );
       return FD_EXECUTOR_INSTR_ERR_ACC_IMMUTABLE;
     }
@@ -796,7 +796,7 @@ common_extend_program( fd_exec_instr_ctx_t * instr_ctx,
       }
 
       /* https://github.com/anza-xyz/agave/blob/v2.3.1/programs/bpf_loader/src/lib.rs#L1464-L1467 */
-      if( FD_UNLIKELY( memcmp( programdata_state->inner.program_data.upgrade_authority_address, authority_key, sizeof(fd_pubkey_t) ) ) ) {
+      if( FD_UNLIKELY( !fd_pubkey_eq( &programdata_state->inner.program_data.upgrade_authority_address, authority_key ) ) ) {
         fd_log_collector_msg_literal( instr_ctx, "Incorrect upgrade authority provided" );
         return FD_EXECUTOR_INSTR_ERR_INCORRECT_AUTHORITY;
       }
@@ -809,7 +809,8 @@ common_extend_program( fd_exec_instr_ctx_t * instr_ctx,
     }
 
     /* https://github.com/anza-xyz/agave/blob/v2.3.1/programs/bpf_loader/src/lib.rs#L1474 */
-    upgrade_authority_address = programdata_state->inner.program_data.upgrade_authority_address;
+    fd_bpf_upgradeable_loader_state_program_data_t * pd = &programdata_state->inner.program_data;
+    upgrade_authority_address = pd->has_upgrade_authority_address ? &pd->upgrade_authority_address : NULL;
   } else {
     /* https://github.com/anza-xyz/agave/blob/v2.3.1/programs/bpf_loader/src/lib.rs#L1476-L1477 */
     fd_log_collector_msg_literal( instr_ctx, "ProgramData state is invalid" );
@@ -917,9 +918,10 @@ common_extend_program( fd_exec_instr_ctx_t * instr_ctx,
   FD_TRY_BORROW_INSTR_ACCOUNT_DEFAULT_ERR_CHECK( instr_ctx, 0UL, &programdata_account );
 
   /* https://github.com/anza-xyz/agave/blob/v2.3.1/programs/bpf_loader/src/lib.rs#L1527-L1530 */
-  programdata_state->discriminant                                 = fd_bpf_upgradeable_loader_state_enum_program_data;
-  programdata_state->inner.program_data.slot                      = clock_slot;
-  programdata_state->inner.program_data.upgrade_authority_address = upgrade_authority_address;
+  programdata_state->discriminant            = fd_bpf_upgradeable_loader_state_enum_program_data;
+  programdata_state->inner.program_data.slot = clock_slot;
+  programdata_state->inner.program_data.has_upgrade_authority_address = !!upgrade_authority_address;
+  if( upgrade_authority_address ) programdata_state->inner.program_data.upgrade_authority_address = *upgrade_authority_address;
 
   err = fd_bpf_loader_v3_program_set_state( &programdata_account, programdata_state );
   if( FD_UNLIKELY( err!=FD_BINCODE_SUCCESS ) ) {
@@ -993,8 +995,9 @@ process_loader_upgradeable_instruction( fd_exec_instr_ctx_t * instr_ctx ) {
         return err;
       }
 
-      buffer_state->discriminant                   = fd_bpf_upgradeable_loader_state_enum_buffer;
-      buffer_state->inner.buffer.authority_address = (fd_pubkey_t*)authority_key;
+      buffer_state->discriminant                       = fd_bpf_upgradeable_loader_state_enum_buffer;
+      buffer_state->inner.buffer.has_authority_address = 1;
+      buffer_state->inner.buffer.authority_address     = *authority_key;
 
       err = fd_bpf_loader_v3_program_set_state( &buffer, buffer_state );
       if( FD_UNLIKELY( err!=FD_BINCODE_SUCCESS ) ) {
@@ -1023,7 +1026,7 @@ process_loader_upgradeable_instruction( fd_exec_instr_ctx_t * instr_ctx ) {
       }
 
       if( fd_bpf_upgradeable_loader_state_is_buffer( loader_state ) ) {
-        if( FD_UNLIKELY( !loader_state->inner.buffer.authority_address ) ) {
+        if( FD_UNLIKELY( !loader_state->inner.buffer.has_authority_address ) ) {
           fd_log_collector_msg_literal( instr_ctx, "Buffer is immutable" );
           return FD_EXECUTOR_INSTR_ERR_ACC_IMMUTABLE;
         }
@@ -1035,7 +1038,7 @@ process_loader_upgradeable_instruction( fd_exec_instr_ctx_t * instr_ctx ) {
           return err;
         }
 
-        if( FD_UNLIKELY( memcmp( loader_state->inner.buffer.authority_address, authority_key, sizeof(fd_pubkey_t) ) ) ) {
+        if( FD_UNLIKELY( !fd_pubkey_eq( &loader_state->inner.buffer.authority_address, authority_key ) ) ) {
           fd_log_collector_msg_literal( instr_ctx, "Incorrect buffer authority provided" );
           return FD_EXECUTOR_INSTR_ERR_INCORRECT_AUTHORITY;
         }
@@ -1110,9 +1113,7 @@ process_loader_upgradeable_instruction( fd_exec_instr_ctx_t * instr_ctx ) {
       /* https://github.com/anza-xyz/agave/blob/v2.1.14/programs/bpf_loader/src/lib.rs#L539-L541 */
       fd_pubkey_t const * authority_key = NULL;
       err = fd_exec_instr_ctx_get_key_of_account_at_index( instr_ctx, 7UL, &authority_key );
-      if( FD_UNLIKELY( err ) ) {
-        return err;
-      }
+      if( FD_UNLIKELY( err ) ) return err;
 
       /* https://github.com/anza-xyz/agave/blob/574bae8fefc0ed256b55340b9d87b7689bcdf222/programs/bpf_loader/src/lib.rs#L542-L560 */
       /* Verify Program account */
@@ -1168,8 +1169,8 @@ process_loader_upgradeable_instruction( fd_exec_instr_ctx_t * instr_ctx ) {
       }
 
       if( fd_bpf_upgradeable_loader_state_is_buffer( buffer_state ) ) {
-        if( FD_UNLIKELY( (authority_key==NULL) != (buffer_state->inner.buffer.authority_address == NULL) ||
-            (authority_key!=NULL && memcmp( buffer_state->inner.buffer.authority_address, authority_key, sizeof(fd_pubkey_t) ) ) ) ) {
+        if( FD_UNLIKELY( (authority_key==NULL) != (!buffer_state->inner.buffer.has_authority_address) ||
+            (authority_key!=NULL && !fd_pubkey_eq( &buffer_state->inner.buffer.authority_address, authority_key ) ) ) ) {
           fd_log_collector_msg_literal( instr_ctx, "Buffer and upgrade authority don't match" );
           return FD_EXECUTOR_INSTR_ERR_INCORRECT_AUTHORITY;
         }
@@ -1336,8 +1337,9 @@ process_loader_upgradeable_instruction( fd_exec_instr_ctx_t * instr_ctx ) {
         fd_bpf_upgradeable_loader_state_t programdata_loader_state = {
           .discriminant = fd_bpf_upgradeable_loader_state_enum_program_data,
           .inner.program_data = {
-            .slot                      = clock->slot,
-            .upgrade_authority_address = (fd_pubkey_t *)authority_key,
+            .slot                          = clock->slot,
+            .has_upgrade_authority_address = !!authority_key,
+            .upgrade_authority_address     = authority_key ? *authority_key : (fd_pubkey_t){{0}},
           },
         };
         err = fd_bpf_loader_v3_program_set_state( &programdata, &programdata_loader_state );
@@ -1440,9 +1442,7 @@ process_loader_upgradeable_instruction( fd_exec_instr_ctx_t * instr_ctx ) {
       /* https://github.com/anza-xyz/agave/blob/v2.1.14/programs/bpf_loader/src/lib.rs#L713-L715 */
       fd_pubkey_t const * authority_key = NULL;
       err = fd_exec_instr_ctx_get_key_of_account_at_index( instr_ctx, 6UL, &authority_key );
-      if( FD_UNLIKELY( err ) ) {
-        return err;
-      }
+      if( FD_UNLIKELY( err ) ) return err;
 
       /* https://github.com/anza-xyz/agave/blob/574bae8fefc0ed256b55340b9d87b7689bcdf222/programs/bpf_loader/src/lib.rs#L716-L745 */
       /* Verify Program account */
@@ -1498,8 +1498,8 @@ process_loader_upgradeable_instruction( fd_exec_instr_ctx_t * instr_ctx ) {
         return err;
       }
       if( fd_bpf_upgradeable_loader_state_is_buffer( buffer_state ) ) {
-        if( FD_UNLIKELY( (authority_key==NULL) != (buffer_state->inner.buffer.authority_address == NULL) ||
-            (authority_key!=NULL && memcmp( buffer_state->inner.buffer.authority_address, authority_key, sizeof(fd_pubkey_t) ) ) ) ) {
+        if( FD_UNLIKELY( (authority_key==NULL) != (!buffer_state->inner.buffer.has_authority_address) ||
+            (authority_key!=NULL && !fd_pubkey_eq( &buffer_state->inner.buffer.authority_address, authority_key ) ) ) ) {
           fd_log_collector_msg_literal( instr_ctx, "Buffer and upgrade authority don't match" );
           return FD_EXECUTOR_INSTR_ERR_INCORRECT_AUTHORITY;
         }
@@ -1561,11 +1561,11 @@ process_loader_upgradeable_instruction( fd_exec_instr_ctx_t * instr_ctx ) {
           fd_log_collector_msg_literal( instr_ctx, "Program was deployed in this block already" );
           return FD_EXECUTOR_INSTR_ERR_INVALID_ARG;
         }
-        if( FD_UNLIKELY( !programdata_state->inner.program_data.upgrade_authority_address ) ) {
+        if( FD_UNLIKELY( !programdata_state->inner.program_data.has_upgrade_authority_address ) ) {
           fd_log_collector_msg_literal( instr_ctx, "Prrogram not upgradeable" );
           return FD_EXECUTOR_INSTR_ERR_ACC_IMMUTABLE;
         }
-        if( FD_UNLIKELY( memcmp( programdata_state->inner.program_data.upgrade_authority_address, authority_key, sizeof(fd_pubkey_t) ) ) ) {
+        if( FD_UNLIKELY( !fd_pubkey_eq( &programdata_state->inner.program_data.upgrade_authority_address, authority_key ) ) ) {
           fd_log_collector_msg_literal( instr_ctx, "Incorrect upgrade authority provided" );
           return FD_EXECUTOR_INSTR_ERR_INCORRECT_AUTHORITY;
         }
@@ -1606,9 +1606,10 @@ process_loader_upgradeable_instruction( fd_exec_instr_ctx_t * instr_ctx ) {
       /* https://github.com/anza-xyz/agave/blob/574bae8fefc0ed256b55340b9d87b7689bcdf222/programs/bpf_loader/src/lib.rs#L846-L874 */
       /* Update the ProgramData account, record the upgraded data, and zero the rest in a local scope */
       do {
-        programdata_state->discriminant                                 = fd_bpf_upgradeable_loader_state_enum_program_data;
-        programdata_state->inner.program_data.slot                      = clock->slot;
-        programdata_state->inner.program_data.upgrade_authority_address = (fd_pubkey_t *)authority_key;
+        programdata_state->discriminant                                     = fd_bpf_upgradeable_loader_state_enum_program_data;
+        programdata_state->inner.program_data.slot                          = clock->slot;
+        programdata_state->inner.program_data.has_upgrade_authority_address = 1;
+        programdata_state->inner.program_data.upgrade_authority_address     = *authority_key;
         err = fd_bpf_loader_v3_program_set_state( &programdata, programdata_state );
         if( FD_UNLIKELY( err!=FD_BINCODE_SUCCESS ) ) {
           return err;
@@ -1720,11 +1721,11 @@ process_loader_upgradeable_instruction( fd_exec_instr_ctx_t * instr_ctx ) {
           fd_log_collector_msg_literal( instr_ctx, "Buffer authority is not optional" );
           return FD_EXECUTOR_INSTR_ERR_INCORRECT_AUTHORITY;
         }
-        if( FD_UNLIKELY( !account_state->inner.buffer.authority_address ) ) {
+        if( FD_UNLIKELY( !account_state->inner.buffer.has_authority_address ) ) {
           fd_log_collector_msg_literal( instr_ctx, "Buffer is immutable" );
           return FD_EXECUTOR_INSTR_ERR_ACC_IMMUTABLE;
         }
-        if( FD_UNLIKELY( memcmp( account_state->inner.buffer.authority_address, present_authority_key, sizeof(fd_pubkey_t) ) ) ) {
+        if( FD_UNLIKELY( !fd_pubkey_eq( &account_state->inner.buffer.authority_address, present_authority_key ) ) ) {
           fd_log_collector_msg_literal( instr_ctx, "Incorrect buffer authority provided" );
           return FD_EXECUTOR_INSTR_ERR_INCORRECT_AUTHORITY;
         }
@@ -1735,18 +1736,21 @@ process_loader_upgradeable_instruction( fd_exec_instr_ctx_t * instr_ctx ) {
 
         /* copy in the authority public key into the authority address.
            https://github.com/anza-xyz/agave/blob/v2.1.14/programs/bpf_loader/src/lib.rs#L926-L928 */
-        *account_state->inner.buffer.authority_address = *new_authority;
+        account_state->inner.buffer.has_authority_address = !!new_authority;
+        if( new_authority ) {
+          account_state->inner.buffer.authority_address = *new_authority;
+        }
 
         err = fd_bpf_loader_v3_program_set_state( &account, account_state );
         if( FD_UNLIKELY( err!=FD_BINCODE_SUCCESS ) ) {
           return err;
         }
       } else if( fd_bpf_upgradeable_loader_state_is_program_data( account_state ) ) {
-        if( FD_UNLIKELY( !account_state->inner.program_data.upgrade_authority_address ) ) {
+        if( FD_UNLIKELY( !account_state->inner.program_data.has_upgrade_authority_address ) ) {
           fd_log_collector_msg_literal( instr_ctx, "Program not upgradeable" );
           return FD_EXECUTOR_INSTR_ERR_ACC_IMMUTABLE;
         }
-        if( FD_UNLIKELY( memcmp( account_state->inner.program_data.upgrade_authority_address, present_authority_key, sizeof(fd_pubkey_t) ) ) ) {
+        if( FD_UNLIKELY( !fd_pubkey_eq( &account_state->inner.program_data.upgrade_authority_address, present_authority_key ) ) ) {
           fd_log_collector_msg_literal( instr_ctx, "Incorrect upgrade authority provided" );
           return FD_EXECUTOR_INSTR_ERR_INCORRECT_AUTHORITY;
         }
@@ -1757,10 +1761,9 @@ process_loader_upgradeable_instruction( fd_exec_instr_ctx_t * instr_ctx ) {
 
         /* copy in the authority public key into the upgrade authority address.
            https://github.com/anza-xyz/agave/blob/v2.1.14/programs/bpf_loader/src/lib.rs#L946-L949 */
+        account_state->inner.program_data.has_upgrade_authority_address = !!new_authority;
         if( new_authority ) {
-          *account_state->inner.program_data.upgrade_authority_address = *new_authority;
-        } else {
-          account_state->inner.program_data.upgrade_authority_address = NULL;
+          account_state->inner.program_data.upgrade_authority_address = *new_authority;
         }
 
         err = fd_bpf_loader_v3_program_set_state( &account, account_state );
@@ -1799,15 +1802,10 @@ process_loader_upgradeable_instruction( fd_exec_instr_ctx_t * instr_ctx ) {
       fd_pubkey_t const * new_authority_key     = NULL;
 
       err = fd_exec_instr_ctx_get_key_of_account_at_index( instr_ctx, 1UL, &present_authority_key );
-      if( FD_UNLIKELY( err ) ) {
-        return err;
-      }
+      if( FD_UNLIKELY( err ) ) return err;
 
       err = fd_exec_instr_ctx_get_key_of_account_at_index( instr_ctx, 2UL, &new_authority_key );
-      if( FD_UNLIKELY( err ) ) {
-        return err;
-      }
-
+      if( FD_UNLIKELY( err ) ) return err;
 
       fd_bpf_upgradeable_loader_state_t * account_state = fd_bpf_loader_program_get_state( account.acct, spad, &err );
       if( FD_UNLIKELY( err!=FD_BINCODE_SUCCESS ) ) {
@@ -1815,11 +1813,11 @@ process_loader_upgradeable_instruction( fd_exec_instr_ctx_t * instr_ctx ) {
       }
 
       if( fd_bpf_upgradeable_loader_state_is_buffer( account_state ) ) {
-        if( FD_UNLIKELY( !account_state->inner.buffer.authority_address ) ) {
+        if( FD_UNLIKELY( !account_state->inner.buffer.has_authority_address ) ) {
           fd_log_collector_msg_literal( instr_ctx, "Buffer is immutable" );
           return FD_EXECUTOR_INSTR_ERR_ACC_IMMUTABLE;
         }
-        if( FD_UNLIKELY( memcmp( account_state->inner.buffer.authority_address, present_authority_key, sizeof(fd_pubkey_t) ) ) ) {
+        if( FD_UNLIKELY( !fd_pubkey_eq( &account_state->inner.buffer.authority_address, present_authority_key ) ) ) {
           fd_log_collector_msg_literal( instr_ctx, "Incorrect buffer authority provided" );
           return FD_EXECUTOR_INSTR_ERR_INCORRECT_AUTHORITY;
         }
@@ -1831,17 +1829,18 @@ process_loader_upgradeable_instruction( fd_exec_instr_ctx_t * instr_ctx ) {
           fd_log_collector_msg_literal( instr_ctx, "New authority did not sign" );
           return FD_EXECUTOR_INSTR_ERR_MISSING_REQUIRED_SIGNATURE;
         }
-        account_state->inner.buffer.authority_address = (fd_pubkey_t*)new_authority_key;
+        account_state->inner.buffer.has_authority_address = 1;
+        account_state->inner.buffer.authority_address     = *new_authority_key;
         err = fd_bpf_loader_v3_program_set_state( &account, account_state );
         if( FD_UNLIKELY( err!=FD_BINCODE_SUCCESS ) ) {
           return err;
         }
       } else if( fd_bpf_upgradeable_loader_state_is_program_data( account_state ) ) {
-        if( FD_UNLIKELY( !account_state->inner.program_data.upgrade_authority_address ) ) {
+        if( FD_UNLIKELY( !account_state->inner.program_data.has_upgrade_authority_address ) ) {
           fd_log_collector_msg_literal( instr_ctx, "Program not upgradeable" );
           return FD_EXECUTOR_INSTR_ERR_ACC_IMMUTABLE;
         }
-        if( FD_UNLIKELY( memcmp( account_state->inner.program_data.upgrade_authority_address, present_authority_key, sizeof(fd_pubkey_t) ) ) ) {
+        if( FD_UNLIKELY( !fd_pubkey_eq( &account_state->inner.program_data.upgrade_authority_address, present_authority_key ) ) ) {
           fd_log_collector_msg_literal( instr_ctx, "Incorrect upgrade authority provided" );
           return FD_EXECUTOR_INSTR_ERR_INCORRECT_AUTHORITY;
         }
@@ -1853,7 +1852,8 @@ process_loader_upgradeable_instruction( fd_exec_instr_ctx_t * instr_ctx ) {
           fd_log_collector_msg_literal( instr_ctx, "New authority did not sign" );
           return FD_EXECUTOR_INSTR_ERR_MISSING_REQUIRED_SIGNATURE;
         }
-        account_state->inner.program_data.upgrade_authority_address = (fd_pubkey_t*)new_authority_key;
+        account_state->inner.program_data.has_upgrade_authority_address = 1;
+        account_state->inner.program_data.upgrade_authority_address     = *new_authority_key;
         err = fd_bpf_loader_v3_program_set_state( &account, account_state );
         if( FD_UNLIKELY( err!=FD_BINCODE_SUCCESS ) ) {
           return err;
@@ -1931,10 +1931,13 @@ process_loader_upgradeable_instruction( fd_exec_instr_ctx_t * instr_ctx ) {
           return FD_EXECUTOR_INSTR_ERR_NOT_ENOUGH_ACC_KEYS;
         }
 
-        err = common_close_account( close_account_state->inner.buffer.authority_address, instr_ctx, close_account_state );
-        if( FD_UNLIKELY( err ) ) {
-          return err;
-        }
+        fd_bpf_upgradeable_loader_state_buffer_t * state_buf = &close_account_state->inner.buffer;
+        err = common_close_account(
+            state_buf->has_authority_address ? &state_buf->authority_address : NULL,
+            instr_ctx,
+            close_account_state );
+        if( FD_UNLIKELY( err ) ) return err;
+
         /* Max msg_sz: 16 - 2 + 45 = 63 < 127 => we can use printf */
         fd_log_collector_printf_dangerous_max_127( instr_ctx,
           "Closed Buffer %s", FD_BASE58_ENC_32_ALLOCA( close_key ) );
@@ -1984,12 +1987,12 @@ process_loader_upgradeable_instruction( fd_exec_instr_ctx_t * instr_ctx ) {
           /* https://github.com/anza-xyz/agave/blob/v2.1.4/programs/bpf_loader/src/lib.rs#L1105 */
           fd_borrowed_account_drop( &program_account );
 
-          err = common_close_account( close_account_state->inner.program_data.upgrade_authority_address,
-                                      instr_ctx,
-                                      close_account_state );
-          if( FD_UNLIKELY( err ) ) {
-            return err;
-          }
+          fd_bpf_upgradeable_loader_state_program_data_t * pd = &close_account_state->inner.program_data;
+          err = common_close_account(
+              pd->has_upgrade_authority_address ? &pd->upgrade_authority_address : NULL,
+              instr_ctx,
+              close_account_state );
+          if( FD_UNLIKELY( err ) ) return err;
 
           /* The Agave client updates the account state upon closing an account
              in their loaded program cache. Checking for a program can be
@@ -2108,7 +2111,8 @@ process_loader_upgradeable_instruction( fd_exec_instr_ctx_t * instr_ctx ) {
 
         /* https://github.com/anza-xyz/agave/blob/v2.2.6/programs/bpf_loader/src/lib.rs#L1378-L1384 */
         program_len = fd_ulong_sat_sub( fd_borrowed_account_get_data_len( &programdata ), PROGRAMDATA_METADATA_SIZE );
-        upgrade_authority_address = programdata_state->inner.program_data.upgrade_authority_address;
+        fd_bpf_upgradeable_loader_state_program_data_t * pd = &programdata_state->inner.program_data;
+        upgrade_authority_address = pd->has_upgrade_authority_address ? &programdata_state->inner.program_data.upgrade_authority_address : NULL;
       }
 
       /* https://github.com/anza-xyz/agave/blob/v2.2.6/programs/bpf_loader/src/lib.rs#L1388 */

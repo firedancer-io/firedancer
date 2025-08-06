@@ -2588,7 +2588,8 @@ typedef struct fd_bpf_upgradeable_loader_program_instruction fd_bpf_upgradeable_
 
 /* Encoded Size: Dynamic */
 struct fd_bpf_upgradeable_loader_state_buffer {
-  fd_pubkey_t * authority_address;
+  fd_pubkey_t authority_address;
+  uchar has_authority_address;
 };
 typedef struct fd_bpf_upgradeable_loader_state_buffer fd_bpf_upgradeable_loader_state_buffer_t;
 #define FD_BPF_UPGRADEABLE_LOADER_STATE_BUFFER_ALIGN alignof(fd_bpf_upgradeable_loader_state_buffer_t)
@@ -2603,7 +2604,8 @@ typedef struct fd_bpf_upgradeable_loader_state_program fd_bpf_upgradeable_loader
 /* Encoded Size: Dynamic */
 struct fd_bpf_upgradeable_loader_state_program_data {
   ulong slot;
-  fd_pubkey_t * upgrade_authority_address;
+  fd_pubkey_t upgrade_authority_address;
+  uchar has_upgrade_authority_address;
 };
 typedef struct fd_bpf_upgradeable_loader_state_program_data fd_bpf_upgradeable_loader_state_program_data_t;
 #define FD_BPF_UPGRADEABLE_LOADER_STATE_PROGRAM_DATA_ALIGN alignof(fd_bpf_upgradeable_loader_state_program_data_t)
