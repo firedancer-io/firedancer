@@ -104,6 +104,16 @@ FD_STATIC_ASSERT( sizeof(fd_entry_batch_meta_t)==56UL, poh_shred_mtu );
 
 #define FD_SHRED_ADD_SHRED_EXTRA_RETVAL_CNT 2
 
+/* Number of entries in the block_ids table. Each entry is 32 byte.
+   This table is used to keep track of block ids that we create
+   when we're leader, so that we can access them whenever we need
+   a *parent* block id for a new block. Larger table allows to
+   retrieve older parent block ids. Currently it's set for worst
+   case parent offset of USHORT_MAX (max allowed in a shred),
+   making the total table 2MiB.
+   See also comment on chained_merkle_root. */
+#define BLOCK_IDS_TABLE_CNT USHORT_MAX
+
 /* See note on parallelization above. Currently we process all batches in tile 0. */
 #if 1
 #define SHOULD_PROCESS_THESE_SHREDS ( ctx->round_robin_id==0 )
@@ -233,7 +243,8 @@ typedef struct {
   /* too large to be left in the stack */
   fd_shred_dest_idx_t scratchpad_dests[ FD_SHRED_DEST_MAX_FANOUT*(FD_REEDSOL_DATA_SHREDS_MAX+FD_REEDSOL_PARITY_SHREDS_MAX) ];
 
-  uchar chained_merkle_root[ FD_SHRED_MERKLE_ROOT_SZ ];
+  uchar * chained_merkle_root;
+  uchar block_ids[ BLOCK_IDS_TABLE_CNT ][ FD_SHRED_MERKLE_ROOT_SZ ];
 } fd_shred_ctx_t;
 
 FD_FN_CONST static inline ulong
@@ -444,16 +455,46 @@ during_frag( fd_shred_ctx_t * ctx,
         ctx->batch_cnt = 0UL;
         ctx->slot      = target_slot;
 
-        /* Only copy parent_block_id to chained_merkle_root at the beginning
-           of a new slot*/
+        /* At the beginning of a new slot, prepare chained_merkle_root.
+           chained_merkle_root is initialized at the block_id of the parent
+           block, there's two cases:
+
+           1. block_id is passed in by the poh tile:
+              - it's always passed when parent block had a different leader
+              - it may be passed when we were leader for parent block (there
+                are race conditions when it's not passed)
+
+           2. block_id is taken from block_ids table if we were the leader
+              for the parent block (when we were NOT the leader, because of
+              equivocation, we can't store block_id in the table)
+
+           chained_merkle_root is stored in block_ids table at target_slot
+           and it's progressively updated as more microblocks are received.
+           As a result, when we move to a new slot, the block_ids table at
+           the old slot will contain the block_id.
+
+           The block_ids table is designed to protect against the race condition
+           case in 1., therefore the table may not be set in some cases, e.g. if
+           a validator (re)starts, but in those cases we don't expect the race
+           condition to apply. */
+        ctx->chained_merkle_root = ctx->block_ids[ target_slot % BLOCK_IDS_TABLE_CNT ];
         if( FD_UNLIKELY( SHOULD_PROCESS_THESE_SHREDS ) ) {
-          /* chained_merkle_root is set as the merkle root of the last FEC set
-            of the parent block (and passed in by POH tile) */
           if( FD_LIKELY( entry_meta->parent_block_id_valid ) ) {
+            /* 1. Initialize chained_merkle_root sent from poh tile */
             memcpy( ctx->chained_merkle_root, entry_meta->parent_block_id, FD_SHRED_MERKLE_ROOT_SZ );
           } else {
-            ctx->metrics->invalid_block_id_cnt++;
-            memset( ctx->chained_merkle_root, 0, FD_SHRED_MERKLE_ROOT_SZ );
+            ulong parent_slot = target_slot - entry_meta->parent_offset;
+            fd_epoch_leaders_t const * lsched = fd_stake_ci_get_lsched_for_slot( ctx->stake_ci, parent_slot );
+            fd_pubkey_t const * slot_leader = fd_epoch_leaders_get( lsched, parent_slot );
+
+            if( lsched && slot_leader && fd_memeq( slot_leader, ctx->identity_key, sizeof(fd_pubkey_t) ) ) {
+              /* 2. Initialize chained_merkle_root from block_ids table, if we were the leader */
+              memcpy( ctx->chained_merkle_root, ctx->block_ids[ parent_slot % BLOCK_IDS_TABLE_CNT ], FD_SHRED_MERKLE_ROOT_SZ );
+            } else {
+              /* This should never happen, log a metric and set chained_merkle_root to 0 */
+              ctx->metrics->invalid_block_id_cnt++;
+              memset( ctx->chained_merkle_root, 0, FD_SHRED_MERKLE_ROOT_SZ );
+            }
           }
         }
       }
@@ -1257,6 +1298,8 @@ unprivileged_init( fd_topo_t *      topo,
   ulong scratch_top = FD_SCRATCH_ALLOC_FINI( l, 1UL );
   if( FD_UNLIKELY( scratch_top > (ulong)scratch + scratch_footprint( tile ) ) )
     FD_LOG_ERR(( "scratch overflow %lu %lu %lu", scratch_top - (ulong)scratch - scratch_footprint( tile ), scratch_top, (ulong)scratch + scratch_footprint( tile ) ));
+
+  memset( ctx->block_ids, 0, sizeof(ctx->block_ids) );
 }
 
 static ulong

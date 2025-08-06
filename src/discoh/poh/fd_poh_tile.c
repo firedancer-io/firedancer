@@ -1259,8 +1259,6 @@ fd_ext_poh_reset( ulong         completed_bank_slot, /* The slot that successful
   if( FD_LIKELY( parent_block_id!=NULL ) ) {
     ctx->parent_slot = completed_bank_slot;
     memcpy( ctx->parent_block_id, parent_block_id, 32UL );
-  } else {
-    FD_LOG_WARNING(( "fd_ext_poh_reset(block_id=null,reset_slot=%lu,parent_slot=%lu) - ignored", completed_bank_slot, ctx->parent_slot ));
   }
   ctx->slot         = completed_bank_slot+1UL;
   ctx->hashcnt      = 0UL;
