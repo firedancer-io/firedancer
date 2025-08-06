@@ -337,9 +337,9 @@ get_stake( fd_gossip_t const * gossip,
 }
 
 void
-fd_gossip_stakes_update( fd_gossip_t *                  gossip,
-                         fd_vote_stake_weight_t const * stake_weights,
-                         ulong                          stake_weights_cnt ) {
+fd_gossip_stakes_update( fd_gossip_t *             gossip,
+                         fd_stake_weight_t const * stake_weights,
+                         ulong                     stake_weights_cnt ) {
   if( FD_UNLIKELY( stake_weights_cnt>CRDS_MAX_CONTACT_INFO ) ) {
     FD_LOG_ERR(( "stake_weights_cnt %lu exceeds maximum of %d", stake_weights_cnt, CRDS_MAX_CONTACT_INFO ));
   }
@@ -347,7 +347,7 @@ fd_gossip_stakes_update( fd_gossip_t *                  gossip,
   stake_map_clear( gossip->stake_weights );
 
   for( ulong i=0UL; i<stake_weights_cnt; i++ ) {
-    stake_weight_entry_t * entry = stake_map_insert( gossip->stake_weights, stake_weights[i].id_key );
+    stake_weight_entry_t * entry = stake_map_insert( gossip->stake_weights, stake_weights[i].key );
     if( FD_UNLIKELY( !entry ) ) {
       FD_LOG_ERR(( "Failed to insert stake weight" ));
     }

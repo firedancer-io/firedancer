@@ -7,7 +7,7 @@
 #include "../../disco/keyguard/fd_keyswitch.h"
 #include "../../disco/keyguard/fd_keyload.h"
 #include "../../disco/keyguard/fd_keyguard_client.h"
-#include "../../flamenco/leaders/fd_leaders.h"
+#include "../../disco/shred/fd_stake_ci.h"
 
 #include <sys/random.h>
 
@@ -43,8 +43,10 @@ struct fd_gossip_tile_ctx {
   long                      last_wallclock;
   long                      last_tickcount;
 
-  ulong                     stake_weights_cnt;
-  fd_vote_stake_weight_t *  stake_weights;
+  ulong                     vote_stake_weights_cnt;
+  fd_vote_stake_weight_t *  vote_stake_weights;
+
+  fd_stake_weight_t *       stake_weights_converted;
 
   uchar                     buffer[ FD_NET_MTU ];
 
@@ -73,9 +75,10 @@ scratch_align( void ) {
 FD_FN_PURE static inline ulong
 scratch_footprint( fd_topo_tile_t const * tile ) {
   ulong l = FD_LAYOUT_INIT;
-  l = FD_LAYOUT_APPEND( l, alignof(fd_gossip_tile_ctx_t), sizeof(fd_gossip_tile_ctx_t) );
-  l = FD_LAYOUT_APPEND( l, fd_gossip_align(),             fd_gossip_footprint( tile->gossip.max_entries ) );
-  l = FD_LAYOUT_APPEND( l, alignof(fd_vote_stake_weight_t),    MAX_STAKED_LEADERS*sizeof(fd_vote_stake_weight_t) );
+  l = FD_LAYOUT_APPEND( l, alignof(fd_gossip_tile_ctx_t),   sizeof(fd_gossip_tile_ctx_t) );
+  l = FD_LAYOUT_APPEND( l, fd_gossip_align(),               fd_gossip_footprint( tile->gossip.max_entries ) );
+  l = FD_LAYOUT_APPEND( l, alignof(fd_vote_stake_weight_t), MAX_STAKED_LEADERS*sizeof(fd_vote_stake_weight_t) );
+  l = FD_LAYOUT_APPEND( l, alignof(fd_stake_weight_t),      MAX_STAKED_LEADERS*sizeof(fd_stake_weight_t) );
   return FD_LAYOUT_FINI( l, scratch_align() );
 }
 
@@ -203,7 +206,7 @@ during_frag( fd_gossip_tile_ctx_t * ctx,
   } else if( FD_UNLIKELY( ctx->in_kind[ in_idx ]==IN_KIND_SHRED_VERSION ) ) {
     if( FD_UNLIKELY( chunk<ctx->in[ in_idx ].chunk0 || chunk>ctx->in[ in_idx ].wmark || sz!=0UL ) )
       FD_LOG_ERR(( "chunk %lu %lu corrupt, not in range [%lu,%lu]", chunk, sz, ctx->in[in_idx].chunk0, ctx->in[in_idx].wmark ));
-  } else if( FD_UNLIKELY( ctx->in_kind[ in_idx ]==IN_KIND_STAKE ) ){
+  } else if( FD_UNLIKELY( ctx->in_kind[ in_idx ]==IN_KIND_STAKE ) ) {
     fd_gossip_in_ctx_t const * in_ctx = &ctx->in[ in_idx ];
     if( FD_UNLIKELY( chunk<in_ctx->chunk0 || chunk>in_ctx->wmark ) ) {
       FD_LOG_ERR(( "chunk %lu %lu corrupt, not in range [%lu,%lu]", chunk, sz, in_ctx->chunk0, in_ctx->wmark ));
@@ -211,8 +214,8 @@ during_frag( fd_gossip_tile_ctx_t * ctx,
     uchar const * dcache_entry             = (uchar const *)fd_chunk_to_laddr_const( in_ctx->mem, chunk );
     fd_stake_weight_msg_t const *  msg     = fd_type_pun_const( dcache_entry );
     fd_vote_stake_weight_t const * weights = msg->weights;
-    fd_memcpy( ctx->stake_weights, weights, msg->staked_cnt*sizeof(fd_vote_stake_weight_t) );
-    ctx->stake_weights_cnt = msg->staked_cnt;
+    fd_memcpy( ctx->vote_stake_weights, weights, msg->staked_cnt*sizeof(fd_vote_stake_weight_t) );
+    ctx->vote_stake_weights_cnt = msg->staked_cnt;
   } else {
     FD_LOG_ERR(( "unexpected in_kind %d", ctx->in_kind[ in_idx ] ));
   }
@@ -239,7 +242,8 @@ after_frag( fd_gossip_tile_ctx_t * ctx,
   } else if( FD_LIKELY( ctx->in_kind[ in_idx ]==IN_KIND_SEND ) ) {
     fd_gossip_push_vote( ctx->gossip, ctx->buffer, sz, stem, now );
   } else if( FD_UNLIKELY( ctx->in_kind[ in_idx ]==IN_KIND_STAKE ) ) {
-    fd_gossip_stakes_update( ctx->gossip, ctx->stake_weights, ctx->stake_weights_cnt);
+    ulong stakes_cnt = compute_id_weights_from_vote_weights( ctx->stake_weights_converted, ctx->vote_stake_weights, ctx->vote_stake_weights_cnt );
+    fd_gossip_stakes_update( ctx->gossip, ctx->stake_weights_converted, stakes_cnt );
   } else {
     FD_LOG_ERR(( "unexpected in_kind %d", ctx->in_kind[ in_idx ] ));
   }
@@ -290,10 +294,13 @@ unprivileged_init( fd_topo_t *      topo,
   FD_SCRATCH_ALLOC_INIT( l, scratch );
   fd_gossip_tile_ctx_t * ctx = FD_SCRATCH_ALLOC_APPEND( l, alignof(fd_gossip_tile_ctx_t),      sizeof(fd_gossip_tile_ctx_t) );
   void * gossip              = FD_SCRATCH_ALLOC_APPEND( l, fd_gossip_align(),                  fd_gossip_footprint( tile->gossip.max_entries ) );
-  void * _stake_weights      = FD_SCRATCH_ALLOC_APPEND( l, alignof(fd_vote_stake_weight_t),    MAX_STAKED_LEADERS*sizeof(fd_vote_stake_weight_t) );
+  void * _vote_stake_weights = FD_SCRATCH_ALLOC_APPEND( l, alignof(fd_vote_stake_weight_t),    MAX_STAKED_LEADERS*sizeof(fd_vote_stake_weight_t) );
+  void * _stake_weights      = FD_SCRATCH_ALLOC_APPEND( l, alignof(fd_stake_weight_t),         MAX_STAKED_LEADERS*sizeof(fd_stake_weight_t) );
 
-  ctx->gossip_max_entries = tile->gossip.max_entries;
-  ctx->stake_weights    = (fd_vote_stake_weight_t *)_stake_weights;
+
+  ctx->gossip_max_entries      = tile->gossip.max_entries;
+  ctx->vote_stake_weights      = (fd_vote_stake_weight_t *)_vote_stake_weights;
+  ctx->stake_weights_converted = (fd_stake_weight_t *)_stake_weights;
   fd_rng_t rng[ 1 ];
   FD_TEST( fd_rng_join( fd_rng_new( rng, ctx->rng_seed, ctx->rng_idx ) ) );
 
@@ -467,7 +474,7 @@ populate_allowed_fds( fd_topo_t const *      topo,
 }
 
 /* TODO: Size for the worst case ... 16k contact info updates + max crds in a pull request or push, all generating a frag */
-#define STEM_BURST (2<<13)
+#define STEM_BURST (1<<5)
 
 #define STEM_LAZY  (128L*3000L)
 
