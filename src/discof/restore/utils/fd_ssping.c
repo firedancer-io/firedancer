@@ -231,7 +231,9 @@ fd_ssping_add( fd_ssping_t * ssping,
 static inline void
 remove_ping_fd( fd_ssping_t * ssping,
                 ulong         idx ) {
-  FD_TEST( idx<ssping->fds_len );
+  if( idx>=ssping->fds_len ) {
+    FD_LOG_ERR(("idx %lu out of bounds for fds_len %lu", idx, ssping->fds_len));
+  }
 
   if( FD_UNLIKELY( ssping->fds_len==1UL ) ) {
     ssping->fds_len = 0UL;
