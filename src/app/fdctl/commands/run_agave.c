@@ -145,6 +145,7 @@ agave_boot( config_t const * config ) {
   if( config->rpc.port ) ADDH( "--rpc-port", config->rpc.port );
   if( config->frankendancer.rpc.full_api ) ADD1( "--full-rpc-api" );
   if( config->frankendancer.rpc.private ) ADD1( "--private-rpc" );
+  if( strcmp( config->frankendancer.rpc.public_address, "" ) ) ADD( "--public-rpc-address", config->frankendancer.rpc.public_address );
   if( strcmp( config->frankendancer.rpc.bind_address, "" ) ) ADD( "--rpc-bind-address", config->frankendancer.rpc.bind_address );
   if( config->frankendancer.rpc.transaction_history ) ADD1( "--enable-rpc-transaction-history" );
   if( config->rpc.extended_tx_metadata_storage ) ADD1( "--enable-extended-tx-metadata-storage" );

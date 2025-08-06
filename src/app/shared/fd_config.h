@@ -11,6 +11,8 @@
 #define AFFINITY_SZ                      (256UL)
 #define CONFIGURE_STAGE_COUNT            ( 12UL)
 #define GOSSIP_TILE_ENTRYPOINTS_MAX      ( 16UL)
+#define FD_CONFIG_GOSSIP_ENTRYPOINTS_MAX ( 16UL)
+#define FD_IP4_PORT_STR_MAX              ( 22UL)
 
 struct fd_configh {
   char dynamic_port_range[ 32 ];
@@ -63,6 +65,7 @@ struct fd_configh {
     int    full_api;
     int    private;
     char   bind_address[ 16 ];
+    char   public_address[ FD_IP4_PORT_STR_MAX ];
     int    transaction_history;
     int    only_known;
     int    pubsub_enable_block_subscription;
