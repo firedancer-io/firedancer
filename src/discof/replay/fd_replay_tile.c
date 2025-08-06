@@ -192,7 +192,6 @@ struct fd_replay_tile_ctx {
 
   // Inputs to plugin/gui
   fd_replay_out_link_t plugin_out[1];
-  fd_replay_out_link_t votes_plugin_out[1];
   long                 last_plugin_push_time;
 
   int          tx_metadata_storage;
@@ -1072,103 +1071,6 @@ init_poh( fd_replay_tile_ctx_t * ctx ) {
 }
 
 static void
-publish_votes_to_plugin( fd_replay_tile_ctx_t * ctx,
-                         fd_stem_context_t *    stem ) {
-  uchar * dst = (uchar *)fd_chunk_to_laddr( ctx->votes_plugin_out->mem, ctx->votes_plugin_out->chunk );
-
-  ulong bank_slot = fd_bank_slot_get( ctx->slot_ctx->bank );
-  fd_fork_t * fork = fd_fork_frontier_ele_query( ctx->forks->frontier, &bank_slot, NULL, ctx->forks->pool );
-  if( FD_UNLIKELY ( !fork  ) ) return;
-
-  fd_vote_accounts_global_t const *          epoch_stakes      = fd_bank_epoch_stakes_locking_query( ctx->slot_ctx->bank );
-  fd_vote_accounts_pair_global_t_mapnode_t * epoch_stakes_pool = fd_vote_accounts_vote_accounts_pool_join( epoch_stakes );
-  fd_vote_accounts_pair_global_t_mapnode_t * epoch_stakes_root = fd_vote_accounts_vote_accounts_root_join( epoch_stakes );
-
-  ulong i = 0;
-  FD_SPAD_FRAME_BEGIN( ctx->runtime_spad ) {
-  for( fd_vote_accounts_pair_global_t_mapnode_t const * n = fd_vote_accounts_pair_global_t_map_minimum_const( epoch_stakes_pool, epoch_stakes_root );
-       n && i < FD_CLUSTER_NODE_CNT;
-       n = fd_vote_accounts_pair_global_t_map_successor_const( epoch_stakes_pool, n ) ) {
-    if( n->elem.stake == 0 ) continue;
-
-    uchar * data     = (uchar *)&n->elem.value + n->elem.value.data_offset;
-    ulong   data_len = n->elem.value.data_len;
-
-    int err;
-    fd_vote_state_versioned_t * vsv = fd_bincode_decode_spad(
-        vote_state_versioned, ctx->runtime_spad,
-        data,
-        data_len,
-        &err );
-    if( FD_UNLIKELY( err ) ) {
-      FD_LOG_ERR(( "Unexpected failure in decoding vote state %d", err ));
-    }
-
-    fd_pubkey_t node_pubkey;
-    ulong       commission;
-    ulong       epoch_credits;
-    fd_vote_epoch_credits_t const * _epoch_credits;
-    ulong       root_slot;
-
-    switch( vsv->discriminant ) {
-      case fd_vote_state_versioned_enum_v0_23_5:
-        node_pubkey   = vsv->inner.v0_23_5.node_pubkey;
-        commission    = vsv->inner.v0_23_5.commission;
-        _epoch_credits = deq_fd_vote_epoch_credits_t_cnt( vsv->inner.v0_23_5.epoch_credits ) == 0 ? NULL : deq_fd_vote_epoch_credits_t_peek_tail_const( vsv->inner.v0_23_5.epoch_credits );
-        epoch_credits = _epoch_credits==NULL ? 0UL : _epoch_credits->credits - _epoch_credits->prev_credits;
-        root_slot     = vsv->inner.v0_23_5.root_slot;
-        break;
-      case fd_vote_state_versioned_enum_v1_14_11:
-        node_pubkey   = vsv->inner.v1_14_11.node_pubkey;
-        commission    = vsv->inner.v1_14_11.commission;
-        _epoch_credits = deq_fd_vote_epoch_credits_t_cnt( vsv->inner.v1_14_11.epoch_credits ) == 0 ? NULL : deq_fd_vote_epoch_credits_t_peek_tail_const( vsv->inner.v1_14_11.epoch_credits );
-        epoch_credits = _epoch_credits==NULL ? 0UL : _epoch_credits->credits - _epoch_credits->prev_credits;
-        root_slot     = vsv->inner.v1_14_11.root_slot;
-        break;
-      case fd_vote_state_versioned_enum_current:
-        node_pubkey   = vsv->inner.current.node_pubkey;
-        commission    = vsv->inner.current.commission;
-        _epoch_credits = deq_fd_vote_epoch_credits_t_cnt( vsv->inner.current.epoch_credits ) == 0 ? NULL : deq_fd_vote_epoch_credits_t_peek_tail_const( vsv->inner.current.epoch_credits );
-        epoch_credits = _epoch_credits==NULL ? 0UL : _epoch_credits->credits - _epoch_credits->prev_credits;
-        root_slot     = vsv->inner.v0_23_5.root_slot;
-        break;
-      default:
-        __builtin_unreachable();
-    }
-
-    fd_clock_timestamp_vote_t_mapnode_t query;
-    memcpy( query.elem.pubkey.uc, n->elem.key.uc, 32UL );
-    fd_clock_timestamp_votes_global_t const * clock_timestamp_votes = fd_bank_clock_timestamp_votes_locking_query( ctx->slot_ctx->bank );
-    fd_clock_timestamp_vote_t_mapnode_t * timestamp_votes_root  = fd_clock_timestamp_votes_votes_root_join( clock_timestamp_votes );
-    fd_clock_timestamp_vote_t_mapnode_t * timestamp_votes_pool  = fd_clock_timestamp_votes_votes_pool_join( clock_timestamp_votes );
-
-    fd_clock_timestamp_vote_t_mapnode_t * res = fd_clock_timestamp_vote_t_map_find( timestamp_votes_pool, timestamp_votes_root, &query );
-
-    fd_vote_update_msg_t * msg = (fd_vote_update_msg_t *)(dst + sizeof(ulong) + i*112U);
-    memset( msg, 0, 112U );
-    memcpy( msg->vote_pubkey, n->elem.key.uc, sizeof(fd_pubkey_t) );
-    memcpy( msg->node_pubkey, node_pubkey.uc, sizeof(fd_pubkey_t) );
-    msg->activated_stake = n->elem.stake;
-    msg->last_vote       = res == NULL ? 0UL : res->elem.slot;
-    msg->root_slot       = root_slot;
-    msg->epoch_credits   = epoch_credits;
-    msg->commission      = (uchar)commission;
-    msg->is_delinquent   = (uchar)fd_int_if(fd_bank_slot_get( ctx->slot_ctx->bank ) >= 128UL, msg->last_vote <= fd_bank_slot_get( ctx->slot_ctx->bank ) - 128UL, msg->last_vote == 0);
-    ++i;
-    fd_bank_clock_timestamp_votes_end_locking_query( ctx->slot_ctx->bank );
-  }
-  } FD_SPAD_FRAME_END;
-
-  fd_bank_epoch_stakes_end_locking_query( ctx->slot_ctx->bank );
-
-  *(ulong *)dst = i;
-
-  ulong tspub = (ulong)fd_frag_meta_ts_comp( fd_tickcount() );
-  fd_stem_publish( stem, ctx->votes_plugin_out->idx, FD_PLUGIN_MSG_VOTE_ACCOUNT_UPDATE, ctx->votes_plugin_out->chunk, 0, 0UL, 0UL, tspub );
-  ctx->votes_plugin_out->chunk = fd_dcache_compact_next( ctx->votes_plugin_out->chunk, 8UL + 40200UL*(58UL+12UL*34UL), ctx->votes_plugin_out->chunk0, ctx->votes_plugin_out->wmark );
-}
-
-static void
 handle_writer_state_updates( fd_replay_tile_ctx_t * ctx ) {
 
   for( ulong i=0UL; i<ctx->writer_cnt; i++ ) {
@@ -1395,6 +1297,7 @@ handle_slot_change( fd_replay_tile_ctx_t * ctx,
   }
 
   ulong turbine_slot = fd_fseq_query( ctx->turbine_slot );
+  ctx->metrics.slot = slot;
   FD_LOG_NOTICE(( "\n\n[Distance]\n"
     "slot:            %lu\n"
     "current turbine: %lu\n"
@@ -1682,19 +1585,11 @@ after_credit( fd_replay_tile_ctx_t * ctx,
               int *                  opt_poll_in FD_PARAM_UNUSED,
               int *                  charge_busy FD_PARAM_UNUSED ) {
 
-  if( !ctx->snapshot_init_done ) {
-    if( ctx->plugin_out->mem ) {
-      uchar msg[56];
-      fd_memset( msg, 0, sizeof(msg) );
-      msg[ 0 ] = 0; // ValidatorStartProgress::Initializing
-      replay_plugin_publish( ctx, stem, FD_PLUGIN_MSG_START_PROGRESS, msg, sizeof(msg) );
-    }
-
-    if( strlen( ctx->genesis )>0 ) {
+  if( FD_UNLIKELY( !ctx->snapshot_init_done ) ) {
+    if( FD_LIKELY( strlen( ctx->genesis )>0 ) ) {
       init_from_genesis( ctx, stem );
       ctx->snapshot_init_done = 1;
     }
-
     return;
   }
 
@@ -1704,12 +1599,6 @@ after_credit( fd_replay_tile_ctx_t * ctx,
   handle_writer_state_updates( ctx );
 
   exec_and_handle_slice( ctx, stem );
-
-  long now = fd_log_wallclock();
-  if( ctx->votes_plugin_out->mem && FD_UNLIKELY( ( now - ctx->last_plugin_push_time )>PLUGIN_PUBLISH_TIME_NS ) ) {
-    ctx->last_plugin_push_time = now;
-    publish_votes_to_plugin( ctx, stem );
-  }
 
 }
 
@@ -2181,16 +2070,6 @@ unprivileged_init( fd_topo_t *      topo,
     ctx->plugin_out->chunk0 = fd_dcache_compact_chunk0( ctx->plugin_out->mem, replay_plugin_out->dcache );
     ctx->plugin_out->wmark  = fd_dcache_compact_wmark ( ctx->plugin_out->mem, replay_plugin_out->dcache, replay_plugin_out->mtu );
     ctx->plugin_out->chunk  = ctx->plugin_out->chunk0;
-
-    ctx->votes_plugin_out->idx = fd_topo_find_tile_out_link( topo, tile, "votes_plugin", 0 );
-    fd_topo_link_t const * votes_plugin_out = &topo->links[ tile->out_link_id[ ctx->votes_plugin_out->idx] ];
-    if( strcmp( votes_plugin_out->name, "votes_plugin" ) ) {
-      FD_LOG_ERR(("output link confusion for output %lu", ctx->votes_plugin_out->idx));
-    }
-    ctx->votes_plugin_out->mem    = topo->workspaces[ topo->objs[ votes_plugin_out->dcache_obj_id ].wksp_id ].wksp;
-    ctx->votes_plugin_out->chunk0 = fd_dcache_compact_chunk0( ctx->votes_plugin_out->mem, votes_plugin_out->dcache );
-    ctx->votes_plugin_out->wmark  = fd_dcache_compact_wmark ( ctx->votes_plugin_out->mem, votes_plugin_out->dcache, votes_plugin_out->mtu );
-    ctx->votes_plugin_out->chunk  = ctx->votes_plugin_out->chunk0;
   }
 
   if( strnlen( tile->replay.slots_replayed, sizeof(tile->replay.slots_replayed) )>0UL ) {

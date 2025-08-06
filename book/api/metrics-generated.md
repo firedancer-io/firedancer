@@ -484,17 +484,6 @@
 
 </div>
 
-## Storei Tile
-
-<div class="metrics">
-
-| Metric | Type | Description |
-|--------|------|-------------|
-| <span class="metrics-name">storei_&#8203;first_&#8203;turbine_&#8203;slot</span> | gauge |  |
-| <span class="metrics-name">storei_&#8203;current_&#8203;turbine_&#8203;slot</span> | gauge |  |
-
-</div>
-
 ## Gossip Tile
 
 <div class="metrics">
@@ -720,6 +709,9 @@
 
 | Metric | Type | Description |
 |--------|------|-------------|
+| <span class="metrics-name">repair_&#8203;first_&#8203;turbine_&#8203;slot</span> | gauge |  |
+| <span class="metrics-name">repair_&#8203;latest_&#8203;turbine_&#8203;slot</span> | gauge |  |
+| <span class="metrics-name">repair_&#8203;latest_&#8203;repair_&#8203;slot</span> | gauge |  |
 | <span class="metrics-name">repair_&#8203;recv_&#8203;clnt_&#8203;pkt</span> | counter | Now many client packets have we received |
 | <span class="metrics-name">repair_&#8203;recv_&#8203;serv_&#8203;pkt</span> | counter | How many server packets have we received |
 | <span class="metrics-name">repair_&#8203;recv_&#8203;serv_&#8203;corrupt_&#8203;pkt</span> | counter | How many corrupt server packets have we received |
