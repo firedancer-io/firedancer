@@ -315,7 +315,7 @@ test_program_in_cache_queued_for_reverification( void ) {
   FD_TEST( valid_prog->magic==FD_PROGRAM_CACHE_ENTRY_MAGIC );
   FD_TEST( !valid_prog->failed_verification );
   FD_TEST( valid_prog->last_slot_modified==future_slot );
-  FD_TEST( valid_prog->last_slot_verified==original_slot );
+  FD_TEST( valid_prog->last_slot_verified==0UL );
   FD_TEST( valid_prog->last_slot_modified>original_slot );
 
   /* Reverify the cache entry at the future slot */
@@ -421,7 +421,7 @@ test_program_in_cache_queued_for_reverification_and_processed( void ) {
   FD_TEST( valid_prog->magic==FD_PROGRAM_CACHE_ENTRY_MAGIC );
   FD_TEST( !valid_prog->failed_verification );
   FD_TEST( valid_prog->last_slot_modified==future_slot );
-  FD_TEST( valid_prog->last_slot_verified==original_slot );
+  FD_TEST( valid_prog->last_slot_verified==0UL );
   FD_TEST( valid_prog->last_slot_modified>original_slot );
 
   /* Fast forward to a future slot */

@@ -41,7 +41,7 @@ fd_funk_val_max( fd_funk_rec_t const * rec ) { /* Assumes pointer in caller's ad
 
 FD_FN_PURE static inline void *             /* Lifetime is the lesser of rec or the value size is modified */
 fd_funk_val( fd_funk_rec_t const * rec,     /* Assumes pointer in caller's address space to a live funk record */
-                fd_wksp_t const *        wksp ) { /* ==fd_funk_wksp( funk ) where funk is a current local join */
+             fd_wksp_t const *     wksp ) { /* ==fd_funk_wksp( funk ) where funk is a current local join */
   ulong val_gaddr = rec->val_gaddr;
   if( !val_gaddr ) return NULL; /* Covers the marked ERASE case too */ /* TODO: consider branchless */
   return fd_wksp_laddr_fast( wksp, val_gaddr );
@@ -49,7 +49,7 @@ fd_funk_val( fd_funk_rec_t const * rec,     /* Assumes pointer in caller's addre
 
 FD_FN_PURE static inline void const *             /* Lifetime is the lesser of rec or the value size is modified */
 fd_funk_val_const( fd_funk_rec_t const * rec,     /* Assumes pointer in caller's address space to a live funk record */
-                      fd_wksp_t const *        wksp ) { /* ==fd_funk_wksp( funk ) where funk is a current local join */
+                   fd_wksp_t const *     wksp ) { /* ==fd_funk_wksp( funk ) where funk is a current local join */
   ulong val_gaddr = rec->val_gaddr;
   if( !val_gaddr ) return NULL; /* Covers the marked ERASE case too */ /* TODO: consider branchless */
   return fd_wksp_laddr_fast( wksp, val_gaddr );
