@@ -328,11 +328,9 @@ fd_funk_rec_txn_publish( fd_funk_t *             funk,
 }
 
 void
-fd_funk_rec_try_clone_safe( fd_funk_t *               funk,
-                            fd_funk_txn_t *           txn,
-                            fd_funk_rec_key_t const * key,
-                            ulong                     align,
-                            ulong                     min_sz ) {
+fd_funk_rec_insert_para( fd_funk_t *               funk,
+                         fd_funk_txn_t *           txn,
+                         fd_funk_rec_key_t const * key ) {
 
   /* TODO: There is probably a cleaner way to allocate the txn memory. */
 
@@ -414,36 +412,10 @@ fd_funk_rec_try_clone_safe( fd_funk_t *               funk,
      (if one exists). */
 
   fd_funk_rec_prepare_t prepare[1];
-  fd_funk_rec_t *       new_rec = fd_funk_rec_prepare( funk, txn, key, prepare, &err );
+  fd_funk_rec_prepare( funk, txn, key, prepare, &err );
   if( FD_UNLIKELY( err ) ) {
     FD_LOG_CRIT(( "fd_funk_rec_prepare returned err=%d", err ));
   }
-
-  /* It is fine to use the old version of the record because we can
-     assume that it comes from a frozen txn. */
-  ulong old_val_sz = !!rec_glob ? rec_glob->val_sz : 0UL;
-  ulong new_val_sz = fd_ulong_max( old_val_sz, min_sz );
-
-  uchar * new_val = fd_funk_val_truncate(
-      new_rec,
-      fd_funk_alloc( funk ),
-      fd_funk_wksp( funk ),
-      align,
-      new_val_sz,
-      &err );
-  if( FD_UNLIKELY( err ) ) {
-    FD_LOG_CRIT(( "fd_funk_val_truncate returned err=%d", err ));
-  }
-  if( FD_UNLIKELY( !new_val ) ) {
-    FD_LOG_CRIT(( "fd_funk_val_truncate returned NULL" ));
-  }
-
-  if( rec_glob ) {
-    /* If we have a global copy of the record, copy it in. */
-    uchar * old_data = fd_funk_val( rec_glob, fd_funk_wksp( funk ) );
-    memcpy( new_val, old_data, old_val_sz );
-  }
-
   fd_funk_rec_txn_publish( funk, prepare );
 
   err = fd_funk_rec_map_txn_test( map_txn );
