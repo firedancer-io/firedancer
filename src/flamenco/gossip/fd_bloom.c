@@ -145,3 +145,28 @@ fd_bloom_contains( fd_bloom_t *  bloom,
   }
   return 1;
 }
+
+int
+fd_bloom_init_inplace( ulong *      keys,
+                       ulong *      bits,
+                       ulong        keys_len,
+                       ulong        bits_len,
+                       ulong        hash_seed,
+                       fd_rng_t *   rng,
+                       double       false_positive_rate,
+                       fd_bloom_t * out_bloom ) {
+  if( FD_UNLIKELY( !keys || !bits || !out_bloom ) ) {
+    FD_LOG_ERR(( "NULL keys, bits or out_bloom" ));
+    return -1;
+  }
+  out_bloom->keys                = keys;
+  out_bloom->keys_len            = keys_len;
+  out_bloom->bits                = bits;
+  out_bloom->bits_len            = bits_len;
+  out_bloom->hash_seed           = hash_seed;
+  out_bloom->rng                 = rng;
+  out_bloom->false_positive_rate = false_positive_rate;
+  out_bloom->max_bits            = bits_len;
+
+  return 0;
+}

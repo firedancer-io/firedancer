@@ -240,26 +240,19 @@ fd_gossip_msg_parse( fd_gossip_view_t *   view,
                      uchar const *        payload,
                      ulong                payload_sz );
 
-int
-fd_gossip_pull_request_encode_ctx_init( uchar *                          payload,
-                                        ulong                            payload_sz,
-                                        ulong                            num_keys,
-                                        ulong                            bloom_bits_len,
-                                        ulong                            mask,
-                                        uint                             mask_bits,
-                                        fd_gossip_view_pull_request_t *  out_view );
-
-int
-fd_gossip_pull_request_encode_bloom_keys( fd_gossip_view_pull_request_t const * view,
-                                          uchar *                               payload,
-                                          ulong const *                         bloom_keys,
-                                          ulong                                 bloom_keys_len );
-
-int
-fd_gossip_pull_request_encode_bloom_bits( fd_gossip_view_pull_request_t       * view,
-                                          uchar *                               payload,
-                                          ulong const *                         bloom_bits,
-                                          ulong                                 bloom_bits_len );
+int 
+fd_gossip_pull_request_init( uchar *       payload,
+                             ulong         payload_sz,
+                             ulong         num_keys,
+                             ulong         bloom_bits_cnt,
+                             ulong         mask,
+                             uint          mask_bits,
+                             uchar const * contact_info_crds,
+                             ulong         contact_info_crds_sz,
+                             ulong **      out_bloom_keys,
+                             ulong **      out_bloom_bits,
+                             ulong **      out_bits_set,
+                             ulong *       out_payload_sz );
 
 int
 fd_gossip_contact_info_encode( fd_contact_info_t const * contact_info,

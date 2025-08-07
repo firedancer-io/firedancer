@@ -1065,13 +1065,37 @@ tx_pull_request( fd_gossip_t *       gossip,
   ulong total_crds_vals = fd_crds_len( gossip->crds ) + fd_crds_purged_len( gossip->crds );
   ulong num_items       = fd_ulong_max( 512UL, total_crds_vals );
 
-  double max_items      = ceil( (double)BLOOM_FILTER_MAX_BITS / ( -BLOOM_NUM_KEYS / log( 1.0 - exp( log( BLOOM_FALSE_POSITIVE_RATE ) / BLOOM_NUM_KEYS) )));
+  double max_items      = fd_bloom_max_items( (double)BLOOM_FILTER_MAX_BITS, BLOOM_NUM_KEYS, BLOOM_FALSE_POSITIVE_RATE );
+  ulong  num_bits       = fd_bloom_num_bits( max_items, BLOOM_FALSE_POSITIVE_RATE, (double)BLOOM_FILTER_MAX_BITS );
+
   double _mask_bits     = ceil( log2( (double)num_items / max_items ) );
   uint mask_bits        = _mask_bits >= 0.0 ? (uint)_mask_bits : 0UL;
   ulong mask            = fd_rng_ulong( gossip->rng ) | (~0UL>>(mask_bits));
+  
 
-  fd_bloom_t * filter   = gossip->bloom;
-  fd_bloom_initialize( filter, (ulong)max_items+1 );
+  uchar payload[ 1232UL ];
+  
+  ulong payload_sz;
+  ulong * keys_ptr, * bits_ptr, * bits_set;
+
+  int res = fd_gossip_pull_request_init( payload,
+                                         1232UL,
+                                         BLOOM_NUM_KEYS,
+                                         num_bits,
+                                         mask,
+                                         mask_bits,
+                                         gossip->my_contact_info.crds_val,
+                                         gossip->my_contact_info.crds_val_sz,
+                                         &keys_ptr,
+                                         &bits_ptr,
+                                         &bits_set,
+                                         &payload_sz );
+  if( FD_UNLIKELY( !!res ) ) {
+    FD_LOG_WARNING(( "Failed to initialize pull request" ));
+    return;
+  }
+  fd_bloom_t filter[1];
+  fd_bloom_init_inplace( keys_ptr, bits_ptr, BLOOM_NUM_KEYS, num_bits, 0, gossip->rng, BLOOM_FALSE_POSITIVE_RATE, filter );
 
   uchar iter_mem[ 16UL ];
   for( fd_crds_mask_iter_t * it = fd_crds_mask_iter_init( gossip->crds, mask, mask_bits, iter_mem );
@@ -1085,6 +1109,11 @@ tx_pull_request( fd_gossip_t *       gossip,
        it = fd_crds_purged_mask_iter_next( it, gossip->crds ) ){
     fd_bloom_insert( filter, fd_crds_purged_mask_iter_hash( it, gossip->crds ), 32UL );
   }
+  
+  int num_bits_set = 0;
+  for( ulong i=0UL; i<(num_bits+63)/64UL; i++ ) num_bits_set += fd_ulong_popcnt( bits_ptr[ i ] );
+  *bits_set = (ulong)num_bits_set;
+
 
   fd_contact_info_t const * peer = fd_crds_peer_sample( gossip->crds, gossip->rng );
   fd_ip4_port_t peer_addr;
@@ -1094,28 +1123,6 @@ tx_pull_request( fd_gossip_t *       gossip,
   } else {
     peer_addr = fd_contact_info_gossip_socket( peer );
   }
-
-  uchar payload[ 1232UL ];
-
-  fd_gossip_view_pull_request_t view[ 1 ];
-  fd_gossip_pull_request_encode_ctx_init( payload,
-                                          1232UL,
-                                          filter->keys_len,
-                                          (filter->bits_len),
-                                          mask,
-                                          mask_bits,
-                                          view );
-
-  fd_gossip_pull_request_encode_bloom_keys( view, payload, filter->keys, filter->keys_len );
-  fd_gossip_pull_request_encode_bloom_bits( view, payload, filter->bits, filter->bits_len );
-
-  long rem_sz = 1232L - view->contact_info->value_off;
-  if( FD_UNLIKELY( rem_sz<(long)gossip->my_contact_info.crds_val_sz ) ) {
-    FD_LOG_ERR(( "Not enough space in pull request for contact info, check bloom filter params" ));
-  }
-
-  fd_memcpy( payload+view->contact_info->value_off, gossip->my_contact_info.crds_val, gossip->my_contact_info.crds_val_sz );
-  ulong payload_sz = view->contact_info->value_off + gossip->my_contact_info.crds_val_sz;
 
   gossip->send_fn( gossip->send_ctx,
                    stem,

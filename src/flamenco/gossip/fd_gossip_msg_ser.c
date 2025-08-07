@@ -17,77 +17,47 @@
 #define BYTES_CONSUMED  (_i-_offset)
 #define BYTES_REMAINING (_payload_sz-_i)
 
-
-int
-fd_gossip_pull_request_encode_ctx_init( uchar *                               payload,
-                                        ulong                                 payload_sz FD_PARAM_UNUSED,
-                                        ulong                                 num_keys,
-                                        ulong                                 bloom_bits_cnt,
-                                        ulong                                 mask,
-                                        uint                                  mask_bits,
-                                        fd_gossip_view_pull_request_t *       out_view ){
+int 
+fd_gossip_pull_request_init( uchar *       payload,
+                             ulong         payload_sz,
+                             ulong         num_keys,
+                             ulong         bloom_bits_cnt,
+                             ulong         mask,
+                             uint          mask_bits,
+                             uchar const * contact_info_crds,
+                             ulong         contact_info_crds_sz,
+                             ulong **      out_bloom_keys,
+                             ulong **      out_bloom_bits,
+                             ulong **      out_bits_set,
+                             ulong *       out_payload_sz ){
   SER_INIT( payload, payload_sz, 0U );
-  FD_STORE( uint,  CURSOR, FD_GOSSIP_MESSAGE_PULL_REQUEST );                                     ; INC( 4U );
-  FD_STORE( ulong, CURSOR, num_keys                       ); out_view->bloom_keys_len = num_keys ; INC( 8U );
-  out_view->bloom_keys_offset = CUR_OFFSET                                                       ; INC( 8U*num_keys );
+  FD_STORE( uint, CURSOR, FD_GOSSIP_MESSAGE_PULL_REQUEST );  INC(          4U );
+  FD_STORE( ulong, CURSOR, num_keys                       ); INC(          8U );
+  *out_bloom_keys = (ulong *)( CURSOR );                     INC( num_keys*8U );
 
   if( FD_LIKELY( !!bloom_bits_cnt ) ) {
     /* Bloom bits is a bitvec<u64>, so we need to be careful about converting bloom bits count to vector lengths */
     ulong bloom_vec_len = (bloom_bits_cnt+63UL)/64UL;
-    FD_STORE( uchar, CURSOR, 1 );                                                ; INC( 1U ); /* has_bits */
-    FD_STORE( ulong, CURSOR, bloom_vec_len ); out_view->bloom_len = bloom_vec_len; INC( 8U );
-    out_view->bloom_bits_offset = CUR_OFFSET; INC( 8U*bloom_vec_len );
+    FD_STORE( uchar, CURSOR, 1 )            ; INC(               1U ); /* has_bits */
+    FD_STORE( ulong, CURSOR, bloom_vec_len ); INC(               8U );
+    *out_bloom_bits = (ulong *)( CURSOR )   ; INC( bloom_vec_len*8U );
   } else {
     FD_STORE( uchar, CURSOR, 0 ); INC( 1U ); /* has_bits */
-    out_view->bloom_len         = 0U;
-    out_view->bloom_bits_offset = 0UL;
+    *out_bloom_bits = NULL;
   }
-  FD_STORE( ulong, CURSOR, bloom_bits_cnt ); out_view->bloom_bits_cnt     = bloom_bits_cnt; INC( 8U );
-  FD_STORE( ulong, CURSOR, 0              ); out_view->bloom_num_bits_set = 0U            ; INC( 8U )/* Initialize to 0, will be set later */;
+  FD_STORE( ulong, CURSOR, bloom_bits_cnt ); INC( 8U );
+  *out_bits_set = (ulong *)(CURSOR)        ; INC( 8U );
 
-  FD_STORE( ulong, CURSOR, mask      ); out_view->mask      = mask     ; INC( 8U );
-  FD_STORE( uint,  CURSOR, mask_bits ); out_view->mask_bits = mask_bits; INC( 4U );
-  out_view->contact_info->value_off = CUR_OFFSET;
+  FD_STORE( ulong, CURSOR, mask      )     ; INC( 8U );
+  FD_STORE( uint,  CURSOR, mask_bits )     ; INC( 4U );
 
-  return 0;
-}
-
-int
-fd_gossip_pull_request_encode_bloom_keys( fd_gossip_view_pull_request_t const * view,
-                                          uchar *                               payload,
-                                          ulong const *                         bloom_keys,
-                                          ulong                                 bloom_keys_len ){
-  /* This should break if encode ctx was not correctly initialized with bloom_keys_len */
-  if( FD_UNLIKELY( view->bloom_keys_len != bloom_keys_len ) ){
-    FD_LOG_ERR(( "Bloom keys length mismatch: expected %lu, got %lu", view->bloom_keys_len, bloom_keys_len ));
+  if( FD_UNLIKELY( BYTES_REMAINING<contact_info_crds_sz )) {
+    FD_LOG_WARNING(( "Not enough space in pull request for contact info, check bloom filter params" ));
+    return -1;
   }
-  fd_memcpy( payload+view->bloom_keys_offset, bloom_keys, bloom_keys_len*sizeof(ulong) );
-  return 0;
-}
-
-int
-fd_gossip_pull_request_encode_bloom_bits( fd_gossip_view_pull_request_t       * view,
-                                          uchar *                               payload,
-                                          ulong const *                         bloom_bits,
-                                          ulong                                 bloom_bits_cnt ){
-  if( FD_UNLIKELY( !view->bloom_len || !view->bloom_bits_cnt ) ) {
-    FD_LOG_ERR(( "Bloom bits not initialized in encode context" ));
-  }
-  if( FD_UNLIKELY( view->bloom_bits_cnt != bloom_bits_cnt ) ){
-    FD_LOG_ERR(( "Bloom bits length mismatch: expected %lu, got %lu", view->bloom_bits_cnt, bloom_bits_cnt ));
-  }
-
-  fd_memcpy( payload+view->bloom_bits_offset, bloom_bits, view->bloom_len * sizeof(ulong) );
-  /* Set the number of bits set in the bloom filter */
-  int num_bits_set = 0UL;
-  for( ulong i=0UL; i<view->bloom_len; i++ ) {
-    num_bits_set += fd_ulong_popcnt( bloom_bits[i] );
-  }
-
-  /* TODO: make this safer */
-  view->bloom_num_bits_set        = (ulong)num_bits_set;
-  ulong const num_bits_set_offset = view->bloom_bits_offset + view->bloom_len*sizeof(ulong) + sizeof(ulong);
-  FD_STORE( ulong, payload+num_bits_set_offset, view->bloom_num_bits_set );
+  fd_memcpy( CURSOR, contact_info_crds, contact_info_crds_sz );
+  INC( contact_info_crds_sz );
+  *out_payload_sz = BYTES_CONSUMED;
   return 0;
 }
 
