@@ -329,7 +329,7 @@ fd_topo_initialize( config_t * config ) {
 
   FOR(exec_tile_cnt)   fd_topob_link( topo, "exec_writer",  "exec_writer",  128UL,                                    FD_EXEC_WRITER_MTU,            1UL );
 
-  /**/                 fd_topob_link( topo, "gossip_out",   "gossip_out",   128UL,                                    2048UL,                        1UL );
+  /**/                 fd_topob_link( topo, "gossip_out",   "gossip_out",   65536UL,                                  2048UL,                        1UL );
   /**/                 fd_topob_link( topo, "replay_tower", "replay_tower", 128UL,                                    65536UL,                       1UL );
   /**/                 fd_topob_link( topo, "tower_replay", "replay_tower", 128UL,                                    0,                             1UL );
 
