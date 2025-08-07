@@ -29,6 +29,9 @@
 #define EXEC_FLAG_EXECUTING_SLICE       (0x40UL)
 #define EXEC_FLAG_FINISHED_SLOT         (0x80UL)
 
+#define STAKE_CI_CURRENT_EPOCH          (0UL)
+#define STAKE_CI_NEXT_EPOCH             (1UL)
+
 /* FD_NET_MTU is the max full packet size, with ethernet, IP, and UDP
    headers that can go in or out of the net tile.  2048 is the maximum
    XSK entry size, so this value follows naturally. */

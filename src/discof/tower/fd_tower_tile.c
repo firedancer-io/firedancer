@@ -10,7 +10,7 @@
 
 #define IN_KIND_GOSSIP ( 0)
 #define IN_KIND_REPLAY ( 1)
-#define IN_KIND_SHRED  ( 2)
+#define IN_KIND_STAKE  ( 2)
 #define IN_KIND_SIGN   ( 3)
 #define MAX_IN_LINKS   (16)
 
@@ -43,7 +43,14 @@ typedef struct {
   ulong       send_out_wmark;
   ulong       send_out_chunk;
 
-  fd_epoch_t * epoch;
+  /* If there are forks across an epoch boundary, then there can be multiple versions
+     of the epoch_stakes in the epoch until the forks resolve, i.e. the first root
+     in the new epoch. Tower needs to keep track of all the vote_account & stakes per
+     fork until the forks resolve. */
+
+  fd_epoch_t * * epoch_versions;
+  fd_epoch_t * epoch; /* The current working version of the epoch */
+
   fd_ghost_t * ghost;
   fd_tower_t * tower;
 
@@ -59,6 +66,18 @@ typedef struct {
 
   fd_gossip_duplicate_shred_t duplicate_shred;
   uchar                       duplicate_shred_chunk[FD_EQVOC_PROOF_CHUNK_SZ];
+
+  int stake_weight_received; /* terrible hack around the fact that stake weights publishes twice every epoch transition, and we only want to read the first */
+
+  struct {
+    ulong epoch;
+    ulong staked_cnt;
+    ulong start_slot;
+    ulong slot_cnt;
+    ulong excluded_stake;
+    ulong vote_keyed_lsched;
+  } stake_weight_meta;
+
   uchar *                     epoch_voters_buf;
   char                        funk_file[PATH_MAX];
   fd_funk_t                   funk[1];
@@ -70,36 +89,35 @@ typedef struct {
 
 static void
 update_epoch( ctx_t * ctx, ulong sz ) {
+  FD_LOG_NOTICE(( "updating epoch with stake weights sz: %lu", sz ));
   fd_voter_t * epoch_voters = fd_epoch_voters( ctx->epoch );
   ctx->epoch->total_stake   = 0;
 
   ulong off = 0;
   while( FD_LIKELY( off < sz ) ) {
-    fd_pubkey_t pubkey = *(fd_pubkey_t *)fd_type_pun( ctx->epoch_voters_buf + off );
-    off += sizeof(fd_pubkey_t);
-
-    ulong stake = *(ulong *)fd_type_pun( ctx->epoch_voters_buf + off );
-    off += sizeof(ulong);
+    fd_vote_stake_weight_t * voter_stake = (fd_vote_stake_weight_t *)fd_type_pun( ctx->epoch_voters_buf + off );
+    off += sizeof(fd_vote_stake_weight_t);
 
 #   if FD_EPOCH_USE_HANDHOLDING
-    FD_TEST( !fd_epoch_voters_query( epoch_voters, pubkey, NULL ) );
+    FD_LOG_NOTICE(( "pubkey: %s", FD_BASE58_ENC_32_ALLOCA(&voter_stake->vote_key) ));
+    FD_TEST( !fd_epoch_voters_query( epoch_voters, voter_stake->vote_key, NULL ) );
     FD_TEST( fd_epoch_voters_key_cnt( epoch_voters ) < fd_epoch_voters_key_max( epoch_voters ) );
 #   endif
 
-    fd_voter_t * voter = fd_epoch_voters_insert( epoch_voters, pubkey );
+    fd_voter_t * voter = fd_epoch_voters_insert( epoch_voters, voter_stake->vote_key );
     voter->rec.uc[FD_FUNK_REC_KEY_FOOTPRINT - 1] = FD_FUNK_KEY_TYPE_ACC;
 
 #   if FD_EPOCH_USE_HANDHOLDING
-    FD_TEST( 0 == memcmp( &voter->key, &pubkey, sizeof(fd_pubkey_t) ) );
+    FD_TEST( 0 == memcmp( &voter->key, &voter_stake->vote_key, sizeof(fd_pubkey_t) ) );
     FD_TEST( fd_epoch_voters_query( epoch_voters, voter->key, NULL ) );
 #   endif
 
-    voter->stake            = stake;
+    voter->stake            = voter_stake->stake;
     voter->replay_vote.slot = FD_SLOT_NULL;
     voter->gossip_vote.slot = FD_SLOT_NULL;
     voter->rooted_vote.slot = FD_SLOT_NULL;
 
-    ctx->epoch->total_stake += stake;
+    ctx->epoch->total_stake += voter_stake->stake;
   }
 }
 
@@ -203,6 +221,16 @@ scratch_footprint( fd_topo_tile_t const * tile FD_PARAM_UNUSED ) {
     scratch_align() );
 }
 
+static int
+before_frag( ctx_t * ctx,
+             ulong   in_idx,
+             ulong   seq FD_PARAM_UNUSED,
+             ulong   sig ) {
+  if( FD_UNLIKELY( ctx->in_kind[in_idx]==IN_KIND_STAKE ) ) {
+    return sig == STAKE_CI_NEXT_EPOCH; /* Only process stake messages for current epoch*/
+  }
+  return 0;
+}
 static void
 during_frag( ctx_t * ctx,
              ulong   in_idx,
@@ -241,7 +269,6 @@ during_frag( ctx_t * ctx,
       uchar const * chunk_laddr = fd_chunk_to_laddr_const( in_ctx->mem, chunk );
       if( FD_UNLIKELY( parent_slot == UINT_MAX /* no parent, so snapshot slot */ ) ) {
         memcpy   ( ctx->slot_hash.uc,     chunk_laddr,                     sizeof(fd_hash_t) );
-        fd_memcpy( ctx->epoch_voters_buf, chunk_laddr + sizeof(fd_hash_t), sz - sizeof(fd_hash_t) );
       } else {
         memcpy( ctx->bank_hash.uc,   chunk_laddr,                     sizeof(fd_hash_t) );
         memcpy( ctx->block_hash.uc,  chunk_laddr+1*sizeof(fd_hash_t), sizeof(fd_hash_t) );
@@ -252,8 +279,15 @@ during_frag( ctx_t * ctx,
       break;
     }
 
-    case IN_KIND_SHRED:
+    case IN_KIND_STAKE: {
+      in_ctx_t const * in_ctx = &ctx->in_links[ in_idx ];
+      uchar const * chunk_laddr = fd_chunk_to_laddr_const( in_ctx->mem, chunk );
+      fd_stake_weight_msg_t const * stake_weight_msg = (fd_stake_weight_msg_t const *)fd_type_pun_const( chunk_laddr );
+      memcpy( &ctx->stake_weight_meta, stake_weight_msg, sizeof(ctx->stake_weight_meta) );
+      FD_LOG_NOTICE(( "TOWER TILE HAS RECIEVED A STAKE MSG after_frag %lu, epoch: %lu, staked_cnt: %lu, start_slot: %lu, ", sz, ctx->stake_weight_meta.epoch, ctx->stake_weight_meta.staked_cnt, ctx->stake_weight_meta.start_slot ));
+      fd_memcpy( ctx->epoch_voters_buf, chunk_laddr + sizeof(fd_stake_weight_msg_t), sz - sizeof(fd_stake_weight_msg_t) );
       break;
+    }
 
     case IN_KIND_SIGN:
       break;
@@ -273,6 +307,9 @@ after_frag( ctx_t *             ctx,
             ulong               tspub   FD_PARAM_UNUSED,
             fd_stem_context_t * stem ) {
   uint in_kind = ctx->in_kind[in_idx];
+  if( FD_UNLIKELY( in_kind == IN_KIND_STAKE ) ) {
+    update_epoch( ctx, sz - sizeof(fd_stake_weight_msg_t) );
+  }
   if( FD_UNLIKELY( in_kind != IN_KIND_REPLAY ) ) return;
 
   ulong slot        = fd_ulong_extract( sig, 32, 63 );
@@ -281,7 +318,6 @@ after_frag( ctx_t *             ctx,
   if( FD_UNLIKELY( (uint)parent_slot == UINT_MAX ) ) { /* snapshot slot */
     FD_TEST( ctx->funk );
     FD_TEST( fd_funk_txn_map( ctx->funk ) );
-    update_epoch( ctx, sz - sizeof(fd_hash_t) );
     fd_ghost_init( ctx->ghost, slot, &ctx->slot_hash );
     return;
   }
@@ -311,7 +347,7 @@ after_frag( ctx_t *             ctx,
       FD_LOG_WARNING(( "Lowest vote slot %lu is not in ghost, skipping publish", root ));
     } else {
       fd_ghost_publish( ctx->ghost, root_bid );
-      fd_stem_publish( stem, ctx->replay_out_idx, root, 0UL, 0UL, 0UL, tsorig, fd_frag_meta_ts_comp( fd_tickcount() ) );
+      fd_stem_publish ( stem, ctx->replay_out_idx, root, 0UL, 0UL, 0UL, tsorig, fd_frag_meta_ts_comp( fd_tickcount() ) );
     }
     ctx->root = root;
   }
@@ -374,7 +410,7 @@ unprivileged_init( fd_topo_t *      topo,
     } else if( 0==strcmp( link->name, "replay_tower" ) ) {
       ctx->in_kind[ in_idx ] = IN_KIND_REPLAY;
     } else if( 0==strcmp( link->name, "stake_out" ) ) {
-      ctx->in_kind[ in_idx ] = IN_KIND_SHRED;
+      ctx->in_kind[ in_idx ] = IN_KIND_STAKE;
     } else {
       FD_LOG_ERR(( "tower tile has unexpected input link %s", link->name ));
     }
@@ -395,6 +431,8 @@ unprivileged_init( fd_topo_t *      topo,
   ctx->send_out_wmark       = fd_dcache_compact_wmark ( ctx->send_out_mem, send_out->dcache, send_out->mtu );
   ctx->send_out_chunk       = ctx->send_out_chunk0;
   FD_TEST( fd_dcache_compact_is_safe( ctx->send_out_mem, send_out->dcache, send_out->mtu, send_out->depth ) );
+
+  ctx->stake_weight_received = 0;
 }
 
 static ulong
@@ -430,6 +468,7 @@ populate_allowed_fds( fd_topo_t const *      topo,
 
 #define STEM_CALLBACK_CONTEXT_TYPE  ctx_t
 #define STEM_CALLBACK_CONTEXT_ALIGN alignof(ctx_t)
+#define STEM_CALLBACK_BEFORE_FRAG   before_frag
 #define STEM_CALLBACK_DURING_FRAG   during_frag
 #define STEM_CALLBACK_AFTER_FRAG    after_frag
 
