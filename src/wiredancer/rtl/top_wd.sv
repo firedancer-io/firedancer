@@ -2,7 +2,7 @@
 
 import wd_sigverify::*;
 
-module top_f1 #(
+module top_wd #(
     // fast sim
     // MUL_T                                               = 32'h0000_0802, // 8-cycle mock mul_wide
     // MUL_D                                               = 15,

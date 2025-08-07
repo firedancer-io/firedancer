@@ -491,7 +491,7 @@ showahead_fifo #(
 // AAAAAAA                   AAAAAAAPPPPPPPPPP          PPPPPPPPPP          
 
 `ifndef TOP_NAME
-`define TOP_NAME top_f1
+`define TOP_NAME top_wd
 `endif
 
 `TOP_NAME #(
