@@ -1,18 +1,22 @@
-
 #undef FD_SPAD_USE_HANDHOLDING
 #define FD_SPAD_USE_HANDHOLDING 1
 
+#include "fd_solfuzz_private.h"
 #include "fd_instr_harness.h"
-#include "../../sysvar/fd_sysvar.h"
-#include "../../sysvar/fd_sysvar_clock.h"
-#include "../../sysvar/fd_sysvar_epoch_schedule.h"
-#include "../../sysvar/fd_sysvar_recent_hashes.h"
-#include "../../sysvar/fd_sysvar_last_restart_slot.h"
-#include "../../sysvar/fd_sysvar_rent.h"
-#include "../../fd_system_ids.h"
+#include "../fd_executor.h"
+#include "../context/fd_exec_txn_ctx.h"
+#include "../program/fd_bpf_loader_program.h"
+#include "../sysvar/fd_sysvar.h"
+#include "../sysvar/fd_sysvar_clock.h"
+#include "../sysvar/fd_sysvar_epoch_schedule.h"
+#include "../sysvar/fd_sysvar_recent_hashes.h"
+#include "../sysvar/fd_sysvar_last_restart_slot.h"
+#include "../sysvar/fd_sysvar_rent.h"
+#include "../fd_system_ids.h"
+#include <assert.h>
 
 int
-fd_runtime_fuzz_instr_ctx_create( fd_runtime_fuzz_runner_t *           runner,
+fd_runtime_fuzz_instr_ctx_create( fd_solfuzz_runner_t *                runner,
                                   fd_exec_instr_ctx_t *                ctx,
                                   fd_exec_test_instr_context_t const * test_ctx,
                                   bool                                 is_syscall ) {
@@ -39,7 +43,7 @@ fd_runtime_fuzz_instr_ctx_create( fd_runtime_fuzz_runner_t *           runner,
   fd_exec_slot_ctx_t *  slot_ctx      = fd_exec_slot_ctx_join ( fd_exec_slot_ctx_new ( slot_ctx_mem ) );
   fd_exec_txn_ctx_t *   txn_ctx       = fd_exec_txn_ctx_join  ( fd_exec_txn_ctx_new  ( txn_ctx_mem ), runner->spad, fd_wksp_containing( runner->spad ) );
 
-  assert( slot_ctx  );
+  assert( slot_ctx );
 
   ctx->txn_ctx = txn_ctx;
 
@@ -379,8 +383,8 @@ fd_runtime_fuzz_instr_ctx_create( fd_runtime_fuzz_runner_t *           runner,
 
 
 void
-fd_runtime_fuzz_instr_ctx_destroy( fd_runtime_fuzz_runner_t * runner,
-                                   fd_exec_instr_ctx_t *      ctx ) {
+fd_runtime_fuzz_instr_ctx_destroy( fd_solfuzz_runner_t * runner,
+                                   fd_exec_instr_ctx_t * ctx ) {
   if( !ctx ) return;
   fd_funk_txn_t * funk_txn = ctx->txn_ctx->funk_txn;
 
@@ -389,11 +393,11 @@ fd_runtime_fuzz_instr_ctx_destroy( fd_runtime_fuzz_runner_t * runner,
 
 
 ulong
-fd_runtime_fuzz_instr_run( fd_runtime_fuzz_runner_t * runner,
-                           void const *               input_,
-                           void **                    output_,
-                           void *                     output_buf,
-                           ulong                      output_bufsz ) {
+fd_solfuzz_instr_run( fd_solfuzz_runner_t * runner,
+                      void const *          input_,
+                      void **               output_,
+                      void *                output_buf,
+                      ulong                 output_bufsz ) {
   fd_exec_test_instr_context_t const * input  = fd_type_pun_const( input_ );
   fd_exec_test_instr_effects_t **      output = fd_type_pun( output_ );
 

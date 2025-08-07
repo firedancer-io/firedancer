@@ -1,17 +1,15 @@
 #include "fd_dump_pb.h"
-#include "harness/generated/block.pb.h"
-#include "harness/generated/invoke.pb.h"
-#include "harness/generated/txn.pb.h"
-#include "harness/generated/vm.pb.h"
+#include "generated/block.pb.h"
+#include "generated/invoke.pb.h"
+#include "generated/txn.pb.h"
+#include "generated/vm.pb.h"
 #include "../fd_system_ids.h"
 #include "../fd_runtime.h"
 #include "../program/fd_address_lookup_table_program.h"
-#include "../../../ballet/lthash/fd_lthash.h"
 #include "../../../ballet/nanopb/pb_encode.h"
 #include "../program/fd_program_cache.h"
 
 
-#include <errno.h>
 #include <stdio.h> /* fopen */
 #include <sys/mman.h> /* mmap */
 #include <unistd.h> /* ftruncate */
