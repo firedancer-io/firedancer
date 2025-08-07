@@ -75,6 +75,9 @@ fd_base58_enc_64_fmt( char *        out,
 struct fd_bank;
 typedef struct fd_bank fd_bank_t;
 
+struct fd_banks;
+typedef struct fd_banks fd_banks_t;
+
 struct fd_exec_slot_ctx;
 typedef struct fd_exec_slot_ctx fd_exec_slot_ctx_t;
 

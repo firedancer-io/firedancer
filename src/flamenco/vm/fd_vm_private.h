@@ -1,7 +1,6 @@
 #ifndef HEADER_fd_src_flamenco_vm_fd_vm_private_h
 #define HEADER_fd_src_flamenco_vm_fd_vm_private_h
 
-#include "../runtime/tests/fd_dump_pb.h"
 #include "fd_vm.h"
 
 #include "../../ballet/sbpf/fd_sbpf_instr.h"
