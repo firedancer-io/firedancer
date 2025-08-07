@@ -1,5 +1,20 @@
-#include "fd_block_harness.h"
-#include "../../fd_cost_tracker.h"
+#include "fd_solfuzz_private.h"
+#include "../fd_cost_tracker.h"
+#include "fd_txn_harness.h"
+#include "../fd_runtime.h"
+#include "../fd_system_ids.h"
+#include "../fd_txn_account.h"
+#include "../context/fd_exec_slot_ctx.h"
+#include "../info/fd_runtime_block_info.h"
+#include "../program/fd_stake_program.h"
+#include "../program/fd_vote_program.h"
+#include "../sysvar/fd_sysvar_epoch_schedule.h"
+#include "../sysvar/fd_sysvar_rent.h"
+#include "../sysvar/fd_sysvar_recent_hashes.h"
+#include "../../rewards/fd_rewards.h"
+#include "../../stakes/fd_stakes.h"
+#include "../../types/fd_types.h"
+#include "generated/block.pb.h"
 
 /* Stripped down version of `fd_refresh_vote_accounts()` that simply refreshes the stake delegation amount
    for each of the vote accounts using the stake delegations cache. */
@@ -180,16 +195,14 @@ fd_runtime_fuzz_block_update_prev_epoch_votes_cache( fd_vote_accounts_pair_globa
 }
 
 static void
-fd_runtime_fuzz_block_ctx_destroy( fd_runtime_fuzz_runner_t * runner,
-                                   fd_wksp_t *                wksp ) {
+fd_runtime_fuzz_block_ctx_destroy( fd_solfuzz_runner_t * runner ) {
   fd_funk_txn_cancel_all( runner->funk, 1 );
-  fd_wksp_detach( wksp );
 }
 
 /* Sets up block execution context from an input test case to execute against the runtime.
    Returns block_info on success and NULL on failure. */
 static fd_runtime_block_info_t *
-fd_runtime_fuzz_block_ctx_create( fd_runtime_fuzz_runner_t *           runner,
+fd_runtime_fuzz_block_ctx_create( fd_solfuzz_runner_t *                runner,
                                   fd_exec_slot_ctx_t *                 slot_ctx,
                                   fd_exec_test_block_context_t const * test_ctx ) {
   fd_funk_t * funk = runner->funk;
@@ -489,7 +502,7 @@ fd_runtime_fuzz_block_ctx_create( fd_runtime_fuzz_runner_t *           runner,
 /* Takes in a block_info created from `fd_runtime_fuzz_block_ctx_create()`
    and executes it against the runtime. Returns the execution result. */
 static int
-fd_runtime_fuzz_block_ctx_exec( fd_runtime_fuzz_runner_t * runner,
+fd_runtime_fuzz_block_ctx_exec( fd_solfuzz_runner_t *      runner,
                                 fd_exec_slot_ctx_t *       slot_ctx,
                                 fd_runtime_block_info_t *  block_info ) {
   int res = 0;
@@ -571,24 +584,23 @@ fd_runtime_fuzz_block_ctx_exec( fd_runtime_fuzz_runner_t * runner,
 }
 
 ulong
-fd_runtime_fuzz_block_run( fd_runtime_fuzz_runner_t * runner,
-                           void const *               input_,
-                           void **                    output_,
-                           void *                     output_buf,
-                           ulong                      output_bufsz ) {
+fd_solfuzz_block_run( fd_solfuzz_runner_t * runner,
+                      void const *          input_,
+                      void **               output_,
+                      void *                output_buf,
+                      ulong                 output_bufsz ) {
   fd_exec_test_block_context_t const * input  = fd_type_pun_const( input_ );
   fd_exec_test_block_effects_t **      output = fd_type_pun( output_ );
 
   FD_SPAD_FRAME_BEGIN( runner->spad ) {
     /* Initialize memory */
-    fd_wksp_t *           wksp          = fd_wksp_attach( "wksp" );
     uchar *               slot_ctx_mem  = fd_spad_alloc( runner->spad, FD_EXEC_SLOT_CTX_ALIGN,  FD_EXEC_SLOT_CTX_FOOTPRINT );
     fd_exec_slot_ctx_t *  slot_ctx      = fd_exec_slot_ctx_join ( fd_exec_slot_ctx_new ( slot_ctx_mem ) );
 
     /* Set up the block execution context */
     fd_runtime_block_info_t * block_info = fd_runtime_fuzz_block_ctx_create( runner, slot_ctx, input );
     if( block_info==NULL ) {
-      fd_runtime_fuzz_block_ctx_destroy( runner, wksp );
+      fd_runtime_fuzz_block_ctx_destroy( runner );
       return 0;
     }
 
@@ -618,7 +630,7 @@ fd_runtime_fuzz_block_run( fd_runtime_fuzz_runner_t * runner,
     fd_memcpy( effects->bank_hash, bank_hash.hash, sizeof(fd_hash_t) );
 
     ulong actual_end = FD_SCRATCH_ALLOC_FINI( l, 1UL );
-    fd_runtime_fuzz_block_ctx_destroy( runner, wksp );
+    fd_runtime_fuzz_block_ctx_destroy( runner );
 
     *output = effects;
     return actual_end - (ulong)output_buf;

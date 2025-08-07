@@ -241,7 +241,7 @@ fd_shmem_join_query_by_addr( void const *           addr,
    custom hardware that provides its own functions for getting access to
    its memory, etc) as a normal join.
 
-   Returns 0 on failure and a strerror friendly error code on failure
+   Returns 0 on success and a strerror friendly error code on failure
    (logs details).  Reasons for failure include EINVAL: bad name (NULL /
    too short / too long / bad characters / already joined), bad join
    (NULL join / already joined), bad mem (NULL mem / unaligned mem /

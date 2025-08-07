@@ -31,4 +31,4 @@ else
   cd ..
 fi
 
-./nanopb/generator/nanopb_generator.py -I ../.. -I ./protosol/proto -L "" -C ./protosol/proto/*.proto -D harness/generated
+./nanopb/generator/nanopb_generator.py -I ./protosol/proto -L "" -C ./protosol/proto/*.proto -D generated
