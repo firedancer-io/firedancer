@@ -2726,7 +2726,6 @@
       "name": "epoch_info",
       "type": "struct",
       "fields": [
-        { "name": "stake_infos", "type": "vector", "element": "epoch_info_pair" },
         { "name": "vote_states", "type": "map", "element": "vote_info_pair", "key": "account" },
         { "name": "stake_infos_new_keys_start_idx", "type": "ulong" }
       ]
