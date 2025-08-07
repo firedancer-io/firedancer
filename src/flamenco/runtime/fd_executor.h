@@ -73,12 +73,6 @@ int
 fd_execute_instr( fd_exec_txn_ctx_t * txn_ctx,
                   fd_instr_info_t *   instr_info );
 
-int
-fd_execute_txn_prepare_start( fd_exec_slot_ctx_t const * slot_ctx,
-                              fd_exec_txn_ctx_t *        txn_ctx,
-                              fd_txn_t const *           txn_descriptor,
-                              fd_rawtxn_b_t const *      txn_raw );
-
 /*
   Execute the given transaction.
 
@@ -106,7 +100,8 @@ int
 fd_executor_txn_check( fd_exec_txn_ctx_t * txn_ctx );
 
 void
-fd_txn_reclaim_accounts( fd_exec_txn_ctx_t * txn_ctx );
+fd_executor_reclaim_account( fd_exec_txn_ctx_t * txn_ctx,
+                             fd_txn_account_t *  account );
 
 /* fd_io_strerror converts an FD_EXECUTOR_INSTR_ERR_{...} code into a
    human readable cstr.  The lifetime of the returned pointer is
