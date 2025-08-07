@@ -382,3 +382,41 @@ fd_vote_states_update_from_account( fd_vote_states_t *  vote_states,
       credits,
       prev_credits );
 }
+
+void
+fd_vote_states_reset_stakes( fd_vote_states_t * vote_states ) {
+  fd_vote_state_ele_t * vote_state_pool = fd_vote_states_get_pool( vote_states );
+  fd_vote_state_map_t * vote_state_map = fd_vote_states_get_map( vote_states );
+
+  for( fd_vote_state_map_iter_t iter = fd_vote_state_map_iter_init( vote_state_map, vote_state_pool );
+       !fd_vote_state_map_iter_done( iter, vote_state_map, vote_state_pool );
+       iter = fd_vote_state_map_iter_next( iter, vote_state_map, vote_state_pool ) ) {
+    ulong idx = fd_vote_state_map_iter_idx( iter, vote_state_map, vote_state_pool );
+
+    fd_vote_state_ele_t * vote_state = fd_vote_state_pool_ele( vote_state_pool, idx );
+    if( FD_UNLIKELY( !vote_state ) ) {
+      FD_LOG_CRIT(( "unable to retrieve vote state" ));
+    }
+
+    vote_state->stake = 0UL;
+  }
+}
+
+void
+fd_vote_states_update_stake( fd_vote_states_t *  vote_states,
+                             fd_pubkey_t const * vote_account,
+                             ulong               stake ) {
+  fd_vote_state_map_t * vote_state_map  = fd_vote_states_get_map( vote_states );
+  fd_vote_state_ele_t * vote_state_pool = fd_vote_states_get_pool( vote_states );
+
+  fd_vote_state_ele_t * vote_state = fd_vote_state_map_ele_query(
+      vote_state_map,
+      vote_account,
+      NULL,
+      vote_state_pool );
+  if( FD_UNLIKELY( !vote_state ) ) {
+    FD_LOG_CRIT(( "unable to retrieve vote state" ));
+  }
+
+  vote_state->stake = stake;
+}

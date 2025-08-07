@@ -125,10 +125,18 @@ fd_vote_states_update( fd_vote_states_t *  self,
    commission and credits. */
 
 void
-fd_vote_states_update_from_account( fd_vote_states_t *  self,
+fd_vote_states_update_from_account( fd_vote_states_t *  vote_states,
                                     fd_pubkey_t const * vote_account,
                                     uchar const *       account_data,
                                     ulong               account_data_len );
+
+void
+fd_vote_states_reset_stakes( fd_vote_states_t * vote_states );
+
+void
+fd_vote_states_update_stake( fd_vote_states_t *  vote_states,
+                             fd_pubkey_t const * vote_account,
+                             ulong               stake );
 
 /* fd_vote_states_remove removes the vote state corresponding to a given
    account. Does nothing if the account does not exist. */
