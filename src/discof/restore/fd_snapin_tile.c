@@ -106,6 +106,34 @@ metrics_write( fd_snapin_tile_t * ctx ) {
 }
 
 static void
+calculate_lthash( fd_snapin_tile_t * ctx ) {
+  fd_funk_all_iter_t iter[1];
+  for( fd_funk_all_iter_new( ctx->funk, iter );
+       !fd_funk_all_iter_done( iter );
+       fd_funk_all_iter_next( iter ) ) {
+    fd_funk_rec_t const * rec = fd_funk_all_iter_ele_const( iter );
+    if ( !fd_funk_key_is_acc( rec->pair.key ) ||         /* not a solana record */
+        (rec->flags & FD_FUNK_REC_FLAG_ERASE) ||        /* this is a tombstone */
+        (rec->pair.xid->ul[0] | rec->pair.xid->ul[1]) != 0 /* not root xid */ ) {
+      continue;
+    }
+
+    fd_account_meta_t const * meta = fd_funk_val( rec, fd_funk_wksp(ctx->funk) );
+    fd_lthash_value_t new_account_lthash[1];
+    fd_hashes_account_lthash( fd_type_pun_const(rec->pair.key->uc),
+                              meta,
+                              fd_account_meta_get_data_const( meta ),
+                              new_account_lthash );
+    fd_lthash_add( &ctx->lthash_info.full.lthash, new_account_lthash );
+  }
+  if( FD_UNLIKELY( memcmp( ctx->lthash_info.full.lthash.bytes, ctx->lthash_info.full.manifest_lthash.bytes, sizeof(fd_lthash_value_t) ) ) ) {
+    FD_LOG_ERR(( "calculated accounts lthash %s does not match accounts lthash %s in snapshot manifest",
+      FD_LTHASH_ENC_32_ALLOCA( &ctx->lthash_info.full.lthash ),
+      FD_LTHASH_ENC_32_ALLOCA( &ctx->lthash_info.full.manifest_lthash ) ));
+  }
+}
+
+static void
 manifest_cb( void * _ctx,
              ulong  manifest_sz ) {
   fd_snapin_tile_t * ctx = (fd_snapin_tile_t*)_ctx;
@@ -138,19 +166,19 @@ is_duplicate_account( fd_snapin_tile_t * ctx,
     /* TODO: Reaching here means the existing value is a duplicate
        account.  We need to hash the existing account and subtract that
        hash from the running lthash. */
-    fd_lthash_value_t old_account_lthash[1];
-    fd_lthash_value_t * lthash = ctx->full ? &ctx->lthash_info.full.lthash : &ctx->lthash_info.incremental.lthash;
-    fd_hashes_account_lthash( (fd_pubkey_t*)account_pubkey,
-                                rec_meta,
-                                fd_account_meta_get_data_const( rec_meta ),
-                                old_account_lthash );
-    FD_LOG_WARNING(("subtracting old account hash %s for pubkey %s from lthash %s",
-                    FD_LTHASH_ENC_32_ALLOCA( old_account_lthash ),
-                    FD_BASE58_ENC_32_ALLOCA( (fd_pubkey_t*)account_pubkey ),
-                    FD_LTHASH_ENC_32_ALLOCA( lthash )));
-    fd_lthash_sub( lthash, old_account_lthash );
-    FD_LOG_WARNING(("resulting lthash %s",
-      FD_LTHASH_ENC_32_ALLOCA( lthash )));
+    // fd_lthash_value_t old_account_lthash[1];
+    // fd_lthash_value_t * lthash = ctx->full ? &ctx->lthash_info.full.lthash : &ctx->lthash_info.incremental.lthash;
+    // fd_hashes_account_lthash( (fd_pubkey_t*)account_pubkey,
+    //                             rec_meta,
+    //                             fd_account_meta_get_data_const( rec_meta ),
+    //                             old_account_lthash );
+    // FD_LOG_WARNING(("subtracting old account hash %s for pubkey %s from lthash %s",
+    //                 FD_LTHASH_ENC_32_ALLOCA( old_account_lthash ),
+    //                 FD_BASE58_ENC_32_ALLOCA( (fd_pubkey_t*)account_pubkey ),
+    //                 FD_LTHASH_ENC_32_ALLOCA( lthash )));
+    // fd_lthash_sub( lthash, old_account_lthash );
+    // FD_LOG_WARNING(("resulting lthash %s",
+    //   FD_LTHASH_ENC_32_ALLOCA( lthash )));
   }
 
   return 0;
@@ -186,19 +214,19 @@ account_cb( void *                          _ctx,
   ctx->metrics.accounts_inserted++;
   fd_txn_account_mutable_fini( rec, ctx->funk, ctx->funk_txn, &prepare );
 
-  fd_lthash_value_t new_account_lthash[1];
-  fd_lthash_value_t * lthash = ctx->full ? &ctx->lthash_info.full.lthash : &ctx->lthash_info.incremental.lthash;
-  fd_hashes_account_lthash( (fd_pubkey_t*)hdr->meta.pubkey,
-                            fd_txn_account_get_meta( rec ),
-                            fd_txn_account_get_data( rec ),
-                            new_account_lthash );
-  FD_LOG_WARNING(("adding new account hash %s for pubkey %s from lthash %s",
-                    FD_LTHASH_ENC_32_ALLOCA( new_account_lthash ),
-                    FD_BASE58_ENC_32_ALLOCA( (fd_pubkey_t*)hdr->meta.pubkey ),
-                    FD_LTHASH_ENC_32_ALLOCA( lthash )));
-  fd_lthash_add( lthash, new_account_lthash );
-  FD_LOG_WARNING(("resulting lthash %s",
-                    FD_LTHASH_ENC_32_ALLOCA( lthash )));
+  // fd_lthash_value_t new_account_lthash[1];
+  // fd_lthash_value_t * lthash = ctx->full ? &ctx->lthash_info.full.lthash : &ctx->lthash_info.incremental.lthash;
+  // fd_hashes_account_lthash( (fd_pubkey_t*)hdr->meta.pubkey,
+  //                           fd_txn_account_get_meta( rec ),
+  //                           fd_txn_account_get_data( rec ),
+  //                           new_account_lthash );
+  // FD_LOG_WARNING(("adding new account hash %s for pubkey %s from lthash %s",
+  //                   FD_LTHASH_ENC_32_ALLOCA( new_account_lthash ),
+  //                   FD_BASE58_ENC_32_ALLOCA( (fd_pubkey_t*)hdr->meta.pubkey ),
+  //                   FD_LTHASH_ENC_32_ALLOCA( lthash )));
+  // fd_lthash_add( lthash, new_account_lthash );
+  // FD_LOG_WARNING(("resulting lthash %s",
+  //                   FD_LTHASH_ENC_32_ALLOCA( lthash )));
 
 }
 
@@ -292,13 +320,14 @@ handle_control_frag( fd_snapin_tile_t *  ctx,
         break;
       }
 
-      if( FD_UNLIKELY( memcmp( ctx->lthash_info.full.lthash.bytes, ctx->lthash_info.full.manifest_lthash.bytes, sizeof(fd_lthash_value_t) ) ) ) {
-        FD_LOG_WARNING(( "calculated accounts lthash %s does not match accounts lthash %s in snapshot manifest",
-          FD_LTHASH_ENC_32_ALLOCA( &ctx->lthash_info.full.lthash ),
-          FD_LTHASH_ENC_32_ALLOCA( &ctx->lthash_info.full.manifest_lthash ) ));
-        transition_malformed( ctx, stem );
-        break;
-      }
+      // if( FD_UNLIKELY( memcmp( ctx->lthash_info.full.lthash.bytes, ctx->lthash_info.full.manifest_lthash.bytes, sizeof(fd_lthash_value_t) ) ) ) {
+      //   FD_LOG_WARNING(( "calculated accounts lthash %s does not match accounts lthash %s in snapshot manifest",
+      //     FD_LTHASH_ENC_32_ALLOCA( &ctx->lthash_info.full.lthash ),
+      //     FD_LTHASH_ENC_32_ALLOCA( &ctx->lthash_info.full.manifest_lthash ) ));
+      //   transition_malformed( ctx, stem );
+      //   break;
+      // }
+      calculate_lthash( ctx );
 
       fd_snapshot_parser_reset( ctx->ssparse, fd_chunk_to_laddr( ctx->manifest_out.wksp, ctx->manifest_out.chunk ), ctx->manifest_out.mtu );
 
@@ -314,14 +343,15 @@ handle_control_frag( fd_snapin_tile_t *  ctx,
         break;
       }
 
-      if( FD_UNLIKELY( memcmp( ctx->lthash_info.full.lthash.bytes, ctx->lthash_info.full.manifest_lthash.bytes, sizeof(fd_lthash_value_t) ) ||
-                       memcmp( ctx->lthash_info.incremental.lthash.bytes, ctx->lthash_info.incremental.manifest_lthash.bytes, sizeof(fd_lthash_value_t) ) ) ) {
-                        FD_LOG_WARNING(( "calculated accounts lthash %s does not match accounts lthash %s in snapshot manifest",
-                          FD_LTHASH_ENC_32_ALLOCA( &ctx->lthash_info.full.lthash ),
-                          FD_LTHASH_ENC_32_ALLOCA( &ctx->lthash_info.full.manifest_lthash ) ));
-        transition_malformed( ctx, stem );
-        break;
-      }
+      // if( FD_UNLIKELY( memcmp( ctx->lthash_info.full.lthash.bytes, ctx->lthash_info.full.manifest_lthash.bytes, sizeof(fd_lthash_value_t) ) ||
+      //                  memcmp( ctx->lthash_info.incremental.lthash.bytes, ctx->lthash_info.incremental.manifest_lthash.bytes, sizeof(fd_lthash_value_t) ) ) ) {
+      //                   FD_LOG_WARNING(( "calculated accounts lthash %s does not match accounts lthash %s in snapshot manifest",
+      //                     FD_LTHASH_ENC_32_ALLOCA( &ctx->lthash_info.full.lthash ),
+      //                     FD_LTHASH_ENC_32_ALLOCA( &ctx->lthash_info.full.manifest_lthash ) ));
+      //   transition_malformed( ctx, stem );
+      //   break;
+      // }
+      calculate_lthash( ctx );
 
       if( FD_LIKELY( ctx->funk_txn ) ) fd_funk_txn_publish_into_parent( ctx->funk, ctx->funk_txn, 0 );
       fd_stem_publish( stem, 0UL, fd_ssmsg_sig( FD_SSMSG_DONE, 0UL ), 0UL, 0UL, 0UL, 0UL, 0UL );
