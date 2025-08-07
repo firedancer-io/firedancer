@@ -25,8 +25,6 @@ struct fd_vote_state_ele {
   ulong  prev_credits[ EPOCH_CREDITS_MAX ];
 
   uchar commission;
-
-  ulong stake;
 };
 typedef struct fd_vote_state_ele fd_vote_state_ele_t;
 
@@ -110,14 +108,25 @@ fd_vote_states_delete( void * mem );
    credits_cnt. */
 
 void
-fd_vote_states_update( fd_vote_states_t * self,
-                       fd_pubkey_t *      vote_account,
-                       uchar              commission,
-                       ulong              stake,
-                       ulong              credits_cnt,
-                       ushort *           epoch,
-                       ulong *            credits,
-                       ulong *            prev_credits );
+fd_vote_states_update( fd_vote_states_t *  self,
+                       fd_pubkey_t const * vote_account,
+                       uchar               commission,
+                       ulong               credits_cnt,
+                       ushort *            epoch,
+                       ulong *             credits,
+                       ulong *             prev_credits );
+
+/* fd_vote_states_update_from_account inserts or updates the vote state
+   corresponding to a valid vote account. This is the same as
+   fd_vote_states_update but is also responsible for decoding the vote
+   account data into a versioned vote state object and extracing the
+   commission and credits. */
+
+void
+fd_vote_states_update_from_account( fd_vote_states_t *  self,
+                                    fd_pubkey_t const * vote_account,
+                                    uchar const *       account_data,
+                                    ulong               account_data_len );
 
 /* fd_vote_states_remove removes the vote state corresponding to a given
    account. Does nothing if the account does not exist. */
@@ -152,11 +161,11 @@ fd_vote_states_max( fd_vote_states_t const * vote_states ) {
   return vote_states->max_vote_accounts;
 }
 
-/* fd_vote_states_count returns the number of vote states in the vote
+/* fd_vote_states_cnt returns the number of vote states in the vote
    states struct. */
 
 static inline ulong
-fd_vote_states_count( fd_vote_states_t const * vote_states ) {
+fd_vote_states_cnt( fd_vote_states_t const * vote_states ) {
   return fd_vote_state_pool_used( fd_vote_states_get_pool( vote_states ) );
 }
 

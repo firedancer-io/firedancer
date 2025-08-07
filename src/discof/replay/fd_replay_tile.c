@@ -530,10 +530,11 @@ restore_slot_ctx( fd_replay_tile_ctx_t * ctx,
 
   fd_exec_slot_ctx_t * recovered_slot_ctx = fd_exec_slot_ctx_recover( ctx->slot_ctx,
                                                                       manifest_global );
-
+  FD_LOG_WARNING(("ASDF"));
   if( !recovered_slot_ctx ) {
     FD_LOG_ERR(( "Failed to restore slot context from snapshot manifest!" ));
   }
+  FD_LOG_WARNING(("ASDF"));
 }
 
 static void

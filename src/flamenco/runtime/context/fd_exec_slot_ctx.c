@@ -330,6 +330,26 @@ fd_exec_slot_ctx_recover( fd_exec_slot_ctx_t *                slot_ctx,
 
   fd_bank_stake_delegations_end_locking_modify( slot_ctx->bank );
 
+  fd_vote_states_t * vote_states = fd_vote_states_join( fd_vote_states_new( fd_bank_vote_states_locking_modify( slot_ctx->bank ), FD_RUNTIME_MAX_VOTE_ACCOUNTS ) );
+  if( FD_UNLIKELY( !vote_states ) ) {
+    FD_LOG_CRIT(( "unable to join vote states" ));
+  }
+
+  for( fd_vote_accounts_pair_global_t_mapnode_t * n = fd_vote_accounts_pair_global_t_map_minimum( manifest_vote_accounts_pool, manifest_vote_accounts_root );
+       n;
+       n = fd_vote_accounts_pair_global_t_map_successor( manifest_vote_accounts_pool, n ) ) {
+
+    uchar * account_data     = fd_solana_account_data_join( &n->elem.value );
+    ulong   account_data_len = n->elem.value.data_len;
+    fd_vote_states_update_from_account(
+        vote_states,
+        &n->elem.key,
+        account_data,
+        account_data_len );
+  }
+
+  fd_bank_vote_states_end_locking_modify( slot_ctx->bank );
+
   return slot_ctx;
 }
 

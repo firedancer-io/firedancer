@@ -6,6 +6,7 @@
 #include "../features/fd_features.h"
 #include "../rewards/fd_epoch_rewards.h"
 #include "../stakes/fd_stake_delegations.h"
+#include "../stakes/fd_vote_states.h"
 #include "../fd_rwlock.h"
 #include "fd_runtime_const.h"
 #include "fd_blockhashes.h"
@@ -202,7 +203,8 @@ FD_PROTOTYPES_BEGIN
   X(ulong,                             shred_cnt,                   sizeof(ulong),                             alignof(ulong),                             0,   0,                0    )  /* Shred count */                                            \
   X(int,                               enable_exec_recording,       sizeof(int),                               alignof(int),                               0,   0,                0    )  /* Enable exec recording */                                  \
   X(fd_stake_delegations_t,            stake_delegations,           FD_STAKE_DELEGATIONS_FOOTPRINT,            FD_STAKE_DELEGATIONS_ALIGN,                 1,   0,                1    )  /* Stake delegations */                                      \
-  X(ulong,                             epoch,                       sizeof(ulong),                             alignof(ulong),                             0,   0,                0    )  /* Epoch */
+  X(ulong,                             epoch,                       sizeof(ulong),                             alignof(ulong),                             0,   0,                0    )  /* Epoch */ \
+  X(fd_vote_states_t,                  vote_states,                 FD_VOTE_STATES_FOOTPRINT,                  FD_VOTE_STATES_ALIGN,                       1,   0,                1    )  /* Vote states */                                            \
 
 /* Invariant Every CoW field must have a rw-lock */
 #define X(type, name, footprint, align, cow, limit_fork_width, has_lock)                                              \
@@ -275,6 +277,12 @@ FD_PROTOTYPES_BEGIN
 
 #define POOL_NAME fd_bank_curr_epoch_stakes_pool
 #define POOL_T    fd_bank_curr_epoch_stakes_t
+#include "../../util/tmpl/fd_pool.c"
+#undef POOL_NAME
+#undef POOL_T
+
+#define POOL_NAME fd_bank_vote_states_pool
+#define POOL_T    fd_bank_vote_states_t
 #include "../../util/tmpl/fd_pool.c"
 #undef POOL_NAME
 #undef POOL_T
