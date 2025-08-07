@@ -9,16 +9,12 @@
 static inline __attribute__((always_inline)) wu_t
 wu_rol8( wu_t x ) {
   wb_t const mask =
-    wb( 3,0,1,2, 7,4,5,6, 11,8,9,10,  15,12,13,14,
-        3,0,1,2, 7,4,5,6, 11,8,9,10,  15,12,13,14 );
+    wb_bcast_hex( 3,0,1,2, 7,4,5,6, 11,8,9,10, 15,12,13,14 );
   return _mm256_shuffle_epi8( x, mask );
 }
 
 void
 fd_chacha20rng_refill_avx( fd_chacha20rng_t * rng ) {
-
-  /* This function should only be called if the buffer is empty. */
-  assert( rng->buf_off == rng->buf_fill );
 
   wu_t iv0  = wu_bcast( 0x61707865U );
   wu_t iv1  = wu_bcast( 0x3320646eU );
@@ -105,7 +101,8 @@ fd_chacha20rng_refill_avx( fd_chacha20rng_t * rng ) {
 
   /* Update ring buffer */
 
-  uint * out = (uint *)rng->buf;
+  ulong  slot = rng->buf_fill % (8*FD_CHACHA20_BLOCK_SZ);
+  uint * out  = (uint *)rng->buf + (slot*2*FD_CHACHA20_BLOCK_SZ);
   wu_st( out+0x00, c0 ); wu_st( out+0x08, c8 );
   wu_st( out+0x10, c1 ); wu_st( out+0x18, c9 );
   wu_st( out+0x20, c2 ); wu_st( out+0x28, cA );
