@@ -576,16 +576,19 @@ fd_stakes_upsert_stake_delegation( fd_txn_account_t * stake_account,
   int err = fd_stake_get_state( stake_account, &stake_state );
   if( FD_UNLIKELY( err != 0 ) ) {
     FD_LOG_WARNING(( "Failed to get stake state" ));
+    fd_bank_stake_delegations_end_locking_modify( bank );
     return;
   }
 
   if( FD_UNLIKELY( !fd_stake_state_v2_is_stake( &stake_state ) ) ) {
     FD_LOG_WARNING(( "Not a valid stake" ));
+    fd_bank_stake_delegations_end_locking_modify( bank );
     return;
   }
 
   if( FD_UNLIKELY( stake_state.inner.stake.stake.delegation.stake==0UL ) ) {
     FD_LOG_WARNING(( "Stake is empty" ));
+    fd_bank_stake_delegations_end_locking_modify( bank );
     return;
   }
 
