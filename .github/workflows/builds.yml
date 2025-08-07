@@ -32,6 +32,10 @@ on:
         type: boolean
         description: Print build matrix and exit
         default: false
+      check_run:
+        type: boolean
+        description: Run `make check` instead of full builds
+        default: false
       verbose:
         type: boolean
         description: Show error outputs
@@ -70,6 +74,10 @@ on:
         type: boolean
         description: Print build matrix and exit
         default: false
+      check_run:
+        type: boolean
+        description: Run `make check` instead of full builds
+        default: false
       verbose:
         type: boolean
         description: Show error outputs
@@ -83,7 +91,7 @@ concurrency:
   cancel-in-progress: true
 jobs:
   build_gcc:
-    runs-on: ci4
+    runs-on: rocky810
     if: ${{ inputs.gcc != 'none' }}
     steps:
       - uses: actions/checkout@v4
@@ -98,6 +106,10 @@ jobs:
           # dry-run
           if [ "${{ inputs.dry_run }}" == "true" ]; then
             ARGS="$ARGS --dry-run"
+          fi
+          # check-run
+          if [ "${{ inputs.check_run }}" == "true" ]; then
+            ARGS="$ARGS --check-run --no-deps"
           fi
           # verbose
           if [ "${{ inputs.verbose }}" == "true" ]; then
@@ -130,7 +142,7 @@ jobs:
           contrib/build.sh --no-rust --no-clang ${{ env.BUILD_ARGS }}
 
   build_clang:
-    runs-on: ci16
+    runs-on: rocky94
     if: ${{ inputs.clang != 'none' }}
     steps:
       - uses: actions/checkout@v4
@@ -145,6 +157,10 @@ jobs:
           # dry-run
           if [ "${{ inputs.dry_run }}" == "true" ]; then
             ARGS="$ARGS --dry-run"
+          fi
+          # check-run
+          if [ "${{ inputs.check_run }}" == "true" ]; then
+            ARGS="$ARGS --check-run --no-deps"
           fi
           # verbose
           if [ "${{ inputs.verbose }}" == "true" ]; then
