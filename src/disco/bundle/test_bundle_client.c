@@ -51,8 +51,8 @@ test_bundle_rx( fd_wksp_t * wksp ) {
   const ulong packet1_sz = 1UL;
   const ulong packet2_sz = 2UL;
   fd_frag_meta_t expected[2] = {
-    { .seq=0UL, .sig=0UL, .chunk=0, .sz=sizeof(fd_txn_m_t)+packet1_sz, .ctl=0 },
-    { .seq=1UL, .sig=0UL, .chunk=2, .sz=sizeof(fd_txn_m_t)+packet2_sz, .ctl=0 }
+    { .seq=0UL, .sig=0UL, .chunk=0, .sz=(ushort)(sizeof(fd_txn_m_t)+packet1_sz), .ctl=0 },
+    { .seq=1UL, .sig=0UL, .chunk=2, .sz=(ushort)(sizeof(fd_txn_m_t)+packet2_sz), .ctl=0 }
   };
   FD_TEST( fd_memeq( env->out_mcache, expected, 2*sizeof(fd_frag_meta_t) ) );
 
