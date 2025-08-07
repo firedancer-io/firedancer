@@ -144,10 +144,8 @@ fd_populate_vote_accounts( fd_exec_slot_ctx_t *       slot_ctx,
   fd_account_keys_pair_t_mapnode_t * vote_account_keys_root   = fd_account_keys_account_keys_root_join( vote_account_keys );
   ulong                              vote_account_keys_map_sz = vote_account_keys_pool ? fd_account_keys_pair_t_map_size( vote_account_keys_pool, vote_account_keys_root ) : 0UL;
 
-  fd_vote_accounts_global_t const *          vote_accounts               = fd_bank_curr_epoch_stakes_locking_query( slot_ctx->bank );
-  fd_vote_accounts_pair_global_t_mapnode_t * vote_accounts_pool          = fd_vote_accounts_vote_accounts_pool_join( vote_accounts );
-  fd_vote_accounts_pair_global_t_mapnode_t * vote_accounts_root          = fd_vote_accounts_vote_accounts_root_join( vote_accounts );
-  ulong                                      vote_accounts_stakes_map_sz = vote_accounts_pool ? fd_vote_accounts_pair_global_t_map_size( vote_accounts_pool, vote_accounts_root ) : 0UL;
+  fd_vote_states_t const * vote_states = fd_bank_vote_states_locking_query( slot_ctx->bank );
+  ulong vote_accounts_stakes_map_sz = fd_vote_states_count( vote_states );
 
   ulong vote_states_pool_sz   = vote_accounts_stakes_map_sz + vote_account_keys_map_sz;
   temp_info->vote_states_root = NULL;
@@ -161,16 +159,22 @@ fd_populate_vote_accounts( fd_exec_slot_ctx_t *       slot_ctx,
 
   /* We can optimize this function by only iterating over the vote accounts (since there's much fewer of them) instead of all
      of the stake accounts, and pre-inserting them into the delegations pool. This way, the delegation calculations can be tpooled. */
-  for( fd_vote_accounts_pair_global_t_mapnode_t * elem = fd_vote_accounts_pair_global_t_map_minimum( vote_accounts_pool, vote_accounts_root );
-        elem;
-        elem = fd_vote_accounts_pair_global_t_map_successor( vote_accounts_pool, elem ) ) {
+  fd_vote_state_map_t * vote_state_map  = fd_vote_states_get_map( vote_states );
+  fd_vote_state_ele_t * vote_state_pool = fd_vote_states_get_pool( vote_states );
+
+  for( fd_vote_state_map_iter_t iter = fd_vote_state_map_iter_init( vote_state_map, vote_state_pool );
+       !fd_vote_state_map_iter_done( iter, vote_state_map, vote_state_pool );
+       iter = fd_vote_state_map_iter_next( iter, vote_state_map, vote_state_pool ) ) {
+
+    fd_vote_state_ele_t const * vote_state = fd_vote_state_map_iter_ele_const( iter, vote_state_map, vote_state_pool );
+
     fd_stake_weight_t_mapnode_t * entry = fd_stake_weight_t_map_acquire( pool );
-    entry->elem.key                     = elem->elem.key;
-    entry->elem.stake                   = 0UL;
+    entry->elem.key                     = vote_state->vote_account;
+    entry->elem.stake                   = vote_state->stake;
     fd_stake_weight_t_map_insert( pool, &root, entry );
   }
 
-  fd_bank_curr_epoch_stakes_end_locking_query( slot_ctx->bank );
+  fd_bank_vote_states_end_locking_query( slot_ctx->bank );
 
   for( fd_account_keys_pair_t_mapnode_t * n = fd_account_keys_pair_t_map_minimum( vote_account_keys_pool, vote_account_keys_root );
         n;
@@ -260,9 +264,7 @@ fd_refresh_vote_accounts( fd_exec_slot_ctx_t *       slot_ctx,
                           fd_epoch_info_t *          temp_info,
                           fd_spad_t *                runtime_spad ) {
 
-  fd_vote_accounts_global_t *                vote_accounts             = fd_bank_curr_epoch_stakes_locking_modify( slot_ctx->bank );
-  fd_vote_accounts_pair_global_t_mapnode_t * stakes_vote_accounts_pool = fd_vote_accounts_vote_accounts_pool_join( vote_accounts );
-  fd_vote_accounts_pair_global_t_mapnode_t * stakes_vote_accounts_root = fd_vote_accounts_vote_accounts_root_join( vote_accounts );
+  fd_vote_states_t const * vote_states = fd_bank_vote_states_locking_modify( slot_ctx->bank );
 
   fd_account_keys_global_t *         vote_account_keys      = fd_bank_vote_account_keys_locking_modify( slot_ctx->bank );
   fd_account_keys_pair_t_mapnode_t * vote_account_keys_pool = fd_account_keys_account_keys_pool_join( vote_account_keys );
@@ -281,17 +283,6 @@ fd_refresh_vote_accounts( fd_exec_slot_ctx_t *       slot_ctx,
   void * mem = fd_spad_alloc( runtime_spad, fd_stake_weight_t_map_align(), fd_stake_weight_t_map_footprint( vote_states_pool_sz ) );
   fd_stake_weight_t_mapnode_t * pool = fd_stake_weight_t_map_join( fd_stake_weight_t_map_new( mem, vote_states_pool_sz ) );
   fd_stake_weight_t_mapnode_t * root = NULL;
-
-  /* We can optimize this function by only iterating over the vote accounts (since there's much fewer of them) instead of all
-     of the stake accounts, and pre-inserting them into the delegations pool. This way, the delegation calculations can be tpooled. */
-  for( fd_vote_accounts_pair_global_t_mapnode_t * elem = fd_vote_accounts_pair_global_t_map_minimum( stakes_vote_accounts_pool, stakes_vote_accounts_root );
-        elem;
-        elem = fd_vote_accounts_pair_global_t_map_successor( stakes_vote_accounts_pool, elem ) ) {
-    fd_stake_weight_t_mapnode_t * entry = fd_stake_weight_t_map_acquire( pool );
-    entry->elem.key                     = elem->elem.key;
-    entry->elem.stake                   = 0UL;
-    fd_stake_weight_t_map_insert( pool, &root, entry );
-  }
 
   for( fd_account_keys_pair_t_mapnode_t * n = fd_account_keys_pair_t_map_minimum( vote_account_keys_pool, vote_account_keys_root );
         n;
@@ -319,87 +310,42 @@ fd_refresh_vote_accounts( fd_exec_slot_ctx_t *       slot_ctx,
       temp_info->stake_infos_len
   );
 
-  // Iterate over each vote account in the epoch stakes cache and populate the new vote accounts pool
   ulong total_epoch_stake = 0UL;
-  for( fd_vote_accounts_pair_global_t_mapnode_t * elem = fd_vote_accounts_pair_global_t_map_minimum( stakes_vote_accounts_pool, stakes_vote_accounts_root );
-       elem;
-       elem = fd_vote_accounts_pair_global_t_map_successor( stakes_vote_accounts_pool, elem ) ) {
+  fd_vote_state_map_t * vote_state_map  = fd_vote_states_get_map( vote_states );
+  fd_vote_state_ele_t * vote_state_pool = fd_vote_states_get_pool( vote_states );
+  for( fd_vote_state_map_iter_t iter = fd_vote_state_map_iter_init( vote_state_map, vote_state_pool );
+       !fd_vote_state_map_iter_done( iter, vote_state_map, vote_state_pool );
+       iter = fd_vote_state_map_iter_next( iter, vote_state_map, vote_state_pool ) ) {
 
-    fd_pubkey_t const *         vote_account_pubkey = &elem->elem.key;
-    fd_vote_state_versioned_t * vote_state          = deserialize_and_update_vote_account( slot_ctx,
-                                                                                           elem,
-                                                                                           root,
-                                                                                           pool,
-                                                                                           vote_account_pubkey,
-                                                                                           runtime_spad );
-    if( FD_LIKELY( vote_state ) ) {
-      total_epoch_stake += elem->elem.stake;
-      // Insert into the temporary vote states cache
-      /* FIXME: This copy copies over some local pointers, which means
-         that the allocation done when deserializing the vote account
-         is not freed until the end of the epoch boundary processing. */
-      fd_vote_info_pair_t_mapnode_t * new_vote_state_node = fd_vote_info_pair_t_map_acquire( temp_info->vote_states_pool );
-      new_vote_state_node->elem.account = *vote_account_pubkey;
-      new_vote_state_node->elem.state   = *vote_state;
-      fd_vote_info_pair_t_map_insert( temp_info->vote_states_pool, &temp_info->vote_states_root, new_vote_state_node );
-    } else {
-      FD_LOG_WARNING(( "Failed to deserialize vote account" ));
-    }
-  }
+    fd_vote_state_ele_t const * vote_state = fd_vote_state_map_iter_ele_const( iter, vote_state_map, vote_state_pool );
 
-  // Update the epoch stakes cache with new vote accounts from the epoch
-  for( fd_account_keys_pair_t_mapnode_t * n = fd_account_keys_pair_t_map_minimum( vote_account_keys_pool, vote_account_keys_root );
-        n;
-        n = fd_account_keys_pair_t_map_successor( vote_account_keys_pool, n ) ) {
-
-    fd_pubkey_t const * vote_account_pubkey = &n->elem.key;
-    fd_vote_accounts_pair_global_t_mapnode_t key;
-    key.elem.key = *vote_account_pubkey;
-
-    /* No need to process duplicate vote account keys. This is a mostly redundant check
-       since upserting vote accounts also checks against the vote stakes, but this is
-       there anyways in case that ever changes */
-    if( FD_UNLIKELY( fd_vote_accounts_pair_global_t_map_find( stakes_vote_accounts_pool, stakes_vote_accounts_root, &key ) ) ) {
-      continue;
+    FD_TXN_ACCOUNT_DECL( vote_account );
+    if( FD_UNLIKELY( fd_txn_account_init_from_funk_readonly( vote_account,
+                                                            &vote_state->vote_account,
+                                                            slot_ctx->funk,
+                                                            slot_ctx->funk_txn ) ) ) {
+      FD_LOG_DEBUG(( "Vote account not found" ));
     }
 
-    fd_vote_accounts_pair_global_t_mapnode_t * new_vote_node = fd_vote_accounts_pair_global_t_map_acquire( stakes_vote_accounts_pool );
-    fd_vote_state_versioned_t *                vote_state    = deserialize_and_update_vote_account( slot_ctx,
-                                                                                                    new_vote_node,
-                                                                                                    root,
-                                                                                                    pool,
-                                                                                                    vote_account_pubkey,
-                                                                                                    runtime_spad );
-
-    if( FD_UNLIKELY( !vote_state ) ) {
-      fd_vote_accounts_pair_global_t_map_release( stakes_vote_accounts_pool, new_vote_node );
-      continue;
-    }
-
-    // Insert into the epoch stakes cache and temporary vote states cache
-    fd_vote_accounts_pair_global_t_map_insert( stakes_vote_accounts_pool, &stakes_vote_accounts_root, new_vote_node );
-    total_epoch_stake += new_vote_node->elem.stake;
+    int err;
+    fd_vote_state_versioned_t * res = fd_bincode_decode_spad(
+        vote_state_versioned, runtime_spad,
+        fd_txn_account_get_data( vote_account ),
+        fd_txn_account_get_data_len( vote_account ),
+        &err );
+    FD_TEST( !!res );
 
     fd_vote_info_pair_t_mapnode_t * new_vote_state_node = fd_vote_info_pair_t_map_acquire( temp_info->vote_states_pool );
-    new_vote_state_node->elem.account = *vote_account_pubkey;
-    new_vote_state_node->elem.state   = *vote_state;
+    new_vote_state_node->elem.account = vote_state->vote_account;
+    new_vote_state_node->elem.state   = *res;
     fd_vote_info_pair_t_map_insert( temp_info->vote_states_pool, &temp_info->vote_states_root, new_vote_state_node );
-  }
-  fd_vote_accounts_vote_accounts_pool_update( vote_accounts, stakes_vote_accounts_pool );
-  fd_vote_accounts_vote_accounts_root_update( vote_accounts, stakes_vote_accounts_root );
 
-  fd_bank_curr_epoch_stakes_end_locking_modify( slot_ctx->bank );
+    total_epoch_stake += vote_state->stake;
+  }
+
+  fd_bank_vote_states_end_locking_modify( slot_ctx->bank );
 
   fd_bank_total_epoch_stake_set( slot_ctx->bank, total_epoch_stake );
-
-  /* At this point, we need to flush the vote account keys cache */
-  vote_account_keys_pool = fd_account_keys_account_keys_pool_join( vote_account_keys );
-  vote_account_keys_root = fd_account_keys_account_keys_root_join( vote_account_keys );
-  fd_account_keys_pair_t_map_release_tree( vote_account_keys_pool, vote_account_keys_root );
-  vote_account_keys_root = NULL;
-  fd_account_keys_account_keys_pool_update( vote_account_keys, vote_account_keys_pool );
-  fd_account_keys_account_keys_root_update( vote_account_keys, vote_account_keys_root );
-  fd_bank_vote_account_keys_end_locking_modify( slot_ctx->bank );
 }
 
 static void

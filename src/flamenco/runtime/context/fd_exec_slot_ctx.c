@@ -134,6 +134,102 @@ fd_exec_slot_ctx_recover( fd_exec_slot_ctx_t *                slot_ctx,
   fd_vote_accounts_vote_accounts_root_update( curr_epoch_stakes, curr_epoch_stakes_root );
   fd_bank_curr_epoch_stakes_end_locking_modify( slot_ctx->bank );
 
+  fd_vote_states_t * vote_states = fd_vote_states_join( fd_vote_states_new( fd_bank_vote_states_locking_modify( slot_ctx->bank ), FD_RUNTIME_MAX_VOTE_ACCOUNTS ) );
+  if( FD_UNLIKELY( !vote_states ) ) {
+    FD_LOG_CRIT(( "unable to join vote states" ));
+  }
+
+  for( fd_vote_accounts_pair_global_t_mapnode_t * n = fd_vote_accounts_pair_global_t_map_minimum( manifest_vote_accounts_pool, manifest_vote_accounts_root );
+       n;
+       n = fd_vote_accounts_pair_global_t_map_successor( manifest_vote_accounts_pool, n ) ) {
+
+    ulong   data_len      = n->elem.value.data_len;
+    uchar * manifest_data = fd_solana_account_data_join( &n->elem.value );
+
+    uchar data[5000UL];
+    fd_bincode_decode_static(
+        vote_state_versioned,
+        data,
+        manifest_data,
+        data_len,
+        &decode_err );
+
+    fd_vote_state_versioned_t * vsv = (fd_vote_state_versioned_t *)data;
+
+    uchar  comission;
+    ulong  credits_cnt = 0UL;
+    ushort epoch[EPOCH_CREDITS_MAX];
+    ulong  credits[EPOCH_CREDITS_MAX];
+    ulong  prev_credits[EPOCH_CREDITS_MAX];
+
+    fd_vote_epoch_credits_t * epoch_credits = NULL;
+
+
+    switch( vsv->discriminant ) {
+    case fd_vote_state_versioned_enum_v0_23_5:
+      comission = vsv->inner.v0_23_5.commission;
+
+      epoch_credits = vsv->inner.v0_23_5.epoch_credits;
+
+      for( deq_fd_vote_epoch_credits_t_iter_t iter = deq_fd_vote_epoch_credits_t_iter_init( epoch_credits );
+        !deq_fd_vote_epoch_credits_t_iter_done( epoch_credits, iter );
+        iter = deq_fd_vote_epoch_credits_t_iter_next( epoch_credits, iter ) ) {
+
+        fd_vote_epoch_credits_t * ele = deq_fd_vote_epoch_credits_t_iter_ele( epoch_credits, iter );
+
+        epoch[credits_cnt] = (ushort)ele->epoch;
+        credits[credits_cnt] = ele->credits;
+        prev_credits[credits_cnt] = ele->prev_credits;
+        credits_cnt++;
+      }
+
+      break;
+    case fd_vote_state_versioned_enum_v1_14_11:
+      comission = vsv->inner.v1_14_11.commission;
+
+      epoch_credits = vsv->inner.v1_14_11.epoch_credits;
+
+      for( deq_fd_vote_epoch_credits_t_iter_t iter = deq_fd_vote_epoch_credits_t_iter_init( epoch_credits );
+        !deq_fd_vote_epoch_credits_t_iter_done( epoch_credits, iter );
+        iter = deq_fd_vote_epoch_credits_t_iter_next( epoch_credits, iter ) ) {
+
+        fd_vote_epoch_credits_t * ele = deq_fd_vote_epoch_credits_t_iter_ele( epoch_credits, iter );
+
+        epoch[credits_cnt] = (ushort)ele->epoch;
+        credits[credits_cnt] = ele->credits;
+        prev_credits[credits_cnt] = ele->prev_credits;
+        credits_cnt++;
+      }
+      break;
+    case fd_vote_state_versioned_enum_current:
+      comission = vsv->inner.current.commission;
+      epoch_credits = vsv->inner.current.epoch_credits;
+
+      for( deq_fd_vote_epoch_credits_t_iter_t iter = deq_fd_vote_epoch_credits_t_iter_init( epoch_credits );
+        !deq_fd_vote_epoch_credits_t_iter_done( epoch_credits, iter );
+        iter = deq_fd_vote_epoch_credits_t_iter_next( epoch_credits, iter ) ) {
+
+        fd_vote_epoch_credits_t * ele = deq_fd_vote_epoch_credits_t_iter_ele( epoch_credits, iter );
+
+        epoch[credits_cnt] = (ushort)ele->epoch;
+        credits[credits_cnt] = ele->credits;
+        prev_credits[credits_cnt] = ele->prev_credits;
+        credits_cnt++;
+      }
+      break;
+    default:
+      __builtin_unreachable();
+    }
+
+    fd_vote_states_update( vote_states, &n->elem.key, comission, n->elem.stake, credits_cnt, epoch, credits, prev_credits );
+
+  }
+
+
+  fd_bank_vote_states_end_locking_modify( slot_ctx->bank );
+
+
+
   fd_bank_epoch_set( slot_ctx->bank, manifest->bank.epoch );
 
   /* Move EpochStakes */

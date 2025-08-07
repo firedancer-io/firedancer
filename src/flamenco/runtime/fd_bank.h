@@ -6,6 +6,7 @@
 #include "../features/fd_features.h"
 #include "../rewards/fd_epoch_rewards.h"
 #include "../stakes/fd_stake_delegations.h"
+#include "../stakes/fd_vote_states.h"
 #include "../fd_rwlock.h"
 #include "fd_runtime_const.h"
 #include "fd_blockhashes.h"
@@ -180,6 +181,7 @@ FD_PROTOTYPES_BEGIN
   X(fd_rent_t,                         rent,                        sizeof(fd_rent_t),                         alignof(fd_rent_t),                         0,   0,                0    )  /* Rent */                                                   \
   X(fd_slot_lthash_t,                  lthash,                      sizeof(fd_slot_lthash_t),                  alignof(fd_slot_lthash_t),                  0,   0,                1    )  /* LTHash */                                                 \
   X(fd_sysvar_cache_t,                 sysvar_cache,                sizeof(fd_sysvar_cache_t),                 alignof(fd_sysvar_cache_t),                 0,   0,                0    )  /* Sysvar cache */                                           \
+  X(fd_vote_states_t,                  vote_states,                 FD_VOTE_STATES_FOOTPRINT,                  FD_VOTE_STATES_ALIGN,                       1,   0,                1    )  /* Vote states */                                            \
   X(fd_vote_accounts_global_t,         next_epoch_stakes,           200000000UL,                               128UL,                                      1,   0,                1    )  /* Next epoch stakes, ~4K per account * 50k vote accounts */ \
                                                                                                                                                                                           /* These are the stakes that determine the leader */         \
                                                                                                                                                                                           /* schedule for the upcoming epoch.  If we are executing */  \
@@ -282,6 +284,12 @@ FD_PROTOTYPES_BEGIN
 
 #define POOL_NAME fd_bank_curr_epoch_stakes_pool
 #define POOL_T    fd_bank_curr_epoch_stakes_t
+#include "../../util/tmpl/fd_pool.c"
+#undef POOL_NAME
+#undef POOL_T
+
+#define POOL_NAME fd_bank_vote_states_pool
+#define POOL_T    fd_bank_vote_states_t
 #include "../../util/tmpl/fd_pool.c"
 #undef POOL_NAME
 #undef POOL_T
