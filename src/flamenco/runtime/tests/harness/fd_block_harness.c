@@ -281,7 +281,7 @@ fd_runtime_fuzz_block_ctx_create( fd_runtime_fuzz_runner_t *           runner,
 
   /* SETUP STAKES HERE */
   fd_vote_states_t * vote_states = fd_bank_vote_states_locking_modify( slot_ctx->bank );
-  vote_states = fd_vote_states_join( fd_vote_states_new( vote_states, FD_RUNTIME_MAX_STAKE_ACCOUNTS ) );
+  vote_states = fd_vote_states_join( fd_vote_states_new( vote_states, FD_RUNTIME_MAX_VOTE_ACCOUNTS ) );
   fd_bank_vote_states_end_locking_modify( slot_ctx->bank );
 
   fd_vote_accounts_global_t * curr_stakes = fd_bank_curr_epoch_stakes_locking_modify( slot_ctx->bank );
