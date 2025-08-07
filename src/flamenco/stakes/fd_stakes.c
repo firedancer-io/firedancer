@@ -157,19 +157,12 @@ fd_populate_vote_accounts( fd_exec_slot_ctx_t *       slot_ctx,
                            fd_epoch_info_t *          temp_info,
                            fd_spad_t *                runtime_spad ) {
 
-
-  /* Initialize a temporary vote states cache */
-  fd_account_keys_global_t *         vote_account_keys        = fd_bank_vote_account_keys_locking_modify( slot_ctx->bank );
-  fd_account_keys_pair_t_mapnode_t * vote_account_keys_pool   = fd_account_keys_account_keys_pool_join( vote_account_keys );
-  fd_account_keys_pair_t_mapnode_t * vote_account_keys_root   = fd_account_keys_account_keys_root_join( vote_account_keys );
-  ulong                              vote_account_keys_map_sz = vote_account_keys_pool ? fd_account_keys_pair_t_map_size( vote_account_keys_pool, vote_account_keys_root ) : 0UL;
-
   fd_vote_accounts_global_t const *          vote_accounts               = fd_bank_curr_epoch_stakes_locking_query( slot_ctx->bank );
   fd_vote_accounts_pair_global_t_mapnode_t * vote_accounts_pool          = fd_vote_accounts_vote_accounts_pool_join( vote_accounts );
   fd_vote_accounts_pair_global_t_mapnode_t * vote_accounts_root          = fd_vote_accounts_vote_accounts_root_join( vote_accounts );
   ulong                                      vote_accounts_stakes_map_sz = vote_accounts_pool ? fd_vote_accounts_pair_global_t_map_size( vote_accounts_pool, vote_accounts_root ) : 0UL;
 
-  ulong vote_states_pool_sz   = vote_accounts_stakes_map_sz + vote_account_keys_map_sz;
+  ulong vote_states_pool_sz   = vote_accounts_stakes_map_sz;
   temp_info->vote_states_root = NULL;
   uchar * pool_mem = fd_spad_alloc( runtime_spad, fd_vote_info_pair_t_map_align(), fd_vote_info_pair_t_map_footprint( vote_states_pool_sz ) );
   temp_info->vote_states_pool = fd_vote_info_pair_t_map_join( fd_vote_info_pair_t_map_new( pool_mem, vote_states_pool_sz ) );
@@ -191,22 +184,6 @@ fd_populate_vote_accounts( fd_exec_slot_ctx_t *       slot_ctx,
   }
 
   fd_bank_curr_epoch_stakes_end_locking_query( slot_ctx->bank );
-
-  for( fd_account_keys_pair_t_mapnode_t * n = fd_account_keys_pair_t_map_minimum( vote_account_keys_pool, vote_account_keys_root );
-        n;
-        n = fd_account_keys_pair_t_map_successor( vote_account_keys_pool, n ) ) {
-    fd_stake_weight_t_mapnode_t temp;
-    temp.elem.key = n->elem.key;
-    fd_stake_weight_t_mapnode_t * entry = fd_stake_weight_t_map_find( pool, root, &temp );
-    if( FD_LIKELY( entry==NULL ) ) {
-      entry             = fd_stake_weight_t_map_acquire( pool );
-      entry->elem.key   = n->elem.key;
-      entry->elem.stake = 0UL;
-      fd_stake_weight_t_map_insert( pool, &root, entry );
-    }
-  }
-
-  fd_bank_vote_account_keys_end_locking_modify( slot_ctx->bank );
 
   compute_stake_delegations(
       slot_ctx->bank,
@@ -282,13 +259,8 @@ fd_refresh_vote_accounts( fd_exec_slot_ctx_t *       slot_ctx,
   fd_vote_accounts_pair_global_t_mapnode_t * stakes_vote_accounts_pool = fd_vote_accounts_vote_accounts_pool_join( vote_accounts );
   fd_vote_accounts_pair_global_t_mapnode_t * stakes_vote_accounts_root = fd_vote_accounts_vote_accounts_root_join( vote_accounts );
 
-  fd_account_keys_global_t *         vote_account_keys      = fd_bank_vote_account_keys_locking_modify( slot_ctx->bank );
-  fd_account_keys_pair_t_mapnode_t * vote_account_keys_pool = fd_account_keys_account_keys_pool_join( vote_account_keys );
-  fd_account_keys_pair_t_mapnode_t * vote_account_keys_root = fd_account_keys_account_keys_root_join( vote_account_keys );
-
-  ulong vote_account_keys_map_sz    = !!vote_account_keys_pool ? fd_account_keys_pair_t_map_size( vote_account_keys_pool, vote_account_keys_root ) : 0UL;
   ulong vote_accounts_stakes_map_sz = !!stakes_vote_accounts_pool ? fd_vote_accounts_pair_global_t_map_size( stakes_vote_accounts_pool, stakes_vote_accounts_root ) : 0UL;
-  ulong vote_states_pool_sz         = vote_accounts_stakes_map_sz + vote_account_keys_map_sz;
+  ulong vote_states_pool_sz         = vote_accounts_stakes_map_sz;
 
   /* Initialize a temporary vote states cache */
   temp_info->vote_states_root = NULL;
@@ -309,20 +281,6 @@ fd_refresh_vote_accounts( fd_exec_slot_ctx_t *       slot_ctx,
     entry->elem.key                     = elem->elem.key;
     entry->elem.stake                   = 0UL;
     fd_stake_weight_t_map_insert( pool, &root, entry );
-  }
-
-  for( fd_account_keys_pair_t_mapnode_t * n = fd_account_keys_pair_t_map_minimum( vote_account_keys_pool, vote_account_keys_root );
-        n;
-        n = fd_account_keys_pair_t_map_successor( vote_account_keys_pool, n ) ) {
-    fd_stake_weight_t_mapnode_t temp;
-    temp.elem.key = n->elem.key;
-    fd_stake_weight_t_mapnode_t * entry = fd_stake_weight_t_map_find( pool, root, &temp );
-    if( FD_LIKELY( entry==NULL ) ) {
-      entry             = fd_stake_weight_t_map_acquire( pool );
-      entry->elem.key   = n->elem.key;
-      entry->elem.stake = 0UL;
-      fd_stake_weight_t_map_insert( pool, &root, entry );
-    }
   }
 
   compute_stake_delegations(
@@ -364,58 +322,12 @@ fd_refresh_vote_accounts( fd_exec_slot_ctx_t *       slot_ctx,
   }
 
   // Update the epoch stakes cache with new vote accounts from the epoch
-  for( fd_account_keys_pair_t_mapnode_t * n = fd_account_keys_pair_t_map_minimum( vote_account_keys_pool, vote_account_keys_root );
-        n;
-        n = fd_account_keys_pair_t_map_successor( vote_account_keys_pool, n ) ) {
-
-    fd_pubkey_t const * vote_account_pubkey = &n->elem.key;
-    fd_vote_accounts_pair_global_t_mapnode_t key;
-    key.elem.key = *vote_account_pubkey;
-
-    /* No need to process duplicate vote account keys. This is a mostly redundant check
-       since upserting vote accounts also checks against the vote stakes, but this is
-       there anyways in case that ever changes */
-    if( FD_UNLIKELY( fd_vote_accounts_pair_global_t_map_find( stakes_vote_accounts_pool, stakes_vote_accounts_root, &key ) ) ) {
-      continue;
-    }
-
-    fd_vote_accounts_pair_global_t_mapnode_t * new_vote_node = fd_vote_accounts_pair_global_t_map_acquire( stakes_vote_accounts_pool );
-    fd_vote_state_versioned_t *                vote_state    = deserialize_and_update_vote_account( slot_ctx,
-                                                                                                    new_vote_node,
-                                                                                                    root,
-                                                                                                    pool,
-                                                                                                    vote_account_pubkey,
-                                                                                                    runtime_spad );
-
-    if( FD_UNLIKELY( !vote_state ) ) {
-      fd_vote_accounts_pair_global_t_map_release( stakes_vote_accounts_pool, new_vote_node );
-      continue;
-    }
-
-    // Insert into the epoch stakes cache and temporary vote states cache
-    fd_vote_accounts_pair_global_t_map_insert( stakes_vote_accounts_pool, &stakes_vote_accounts_root, new_vote_node );
-    total_epoch_stake += new_vote_node->elem.stake;
-
-    fd_vote_info_pair_t_mapnode_t * new_vote_state_node = fd_vote_info_pair_t_map_acquire( temp_info->vote_states_pool );
-    new_vote_state_node->elem.account = *vote_account_pubkey;
-    new_vote_state_node->elem.state   = *vote_state;
-    fd_vote_info_pair_t_map_insert( temp_info->vote_states_pool, &temp_info->vote_states_root, new_vote_state_node );
-  }
   fd_vote_accounts_vote_accounts_pool_update( vote_accounts, stakes_vote_accounts_pool );
   fd_vote_accounts_vote_accounts_root_update( vote_accounts, stakes_vote_accounts_root );
 
   fd_bank_curr_epoch_stakes_end_locking_modify( slot_ctx->bank );
 
   fd_bank_total_epoch_stake_set( slot_ctx->bank, total_epoch_stake );
-
-  /* At this point, we need to flush the vote account keys cache */
-  vote_account_keys_pool = fd_account_keys_account_keys_pool_join( vote_account_keys );
-  vote_account_keys_root = fd_account_keys_account_keys_root_join( vote_account_keys );
-  fd_account_keys_pair_t_map_release_tree( vote_account_keys_pool, vote_account_keys_root );
-  vote_account_keys_root = NULL;
-  fd_account_keys_account_keys_pool_update( vote_account_keys, vote_account_keys_pool );
-  fd_account_keys_account_keys_root_update( vote_account_keys, vote_account_keys_root );
-  fd_bank_vote_account_keys_end_locking_modify( slot_ctx->bank );
 }
 
 static void
