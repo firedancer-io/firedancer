@@ -13,6 +13,7 @@ help() {
   echo "   --no-deps            Do not install deps during any builds"
   echo "   --no-rust            Do not install rust"
   echo "   --dry-run            Print build matrix and exit"
+  echo "   --check-run          Run \`make check\` instead of full builds"
   echo "   --verbose            Show output from failed builds"
   echo "   --exit-on-err        Exit upon hitting the first failed build"
   echo "   --help           -h  Show this message and exit"
@@ -110,6 +111,10 @@ while [[ $# -gt 0 ]]; do
     # print build matrix and exit
     "--dry-run")
       DRY_RUN=1
+      ;;
+    # run `make check` instead of full builds
+    "--check-run")
+      CHECK_RUN=1
       ;;
     # exit upon hitting the first error
     "--exit-on-err")
@@ -225,6 +230,10 @@ if [[ ${#MACHINES[@]} -eq 0 ]]; then
   for machine in "$FD_REPO_DIR"/config/machine/linux_*.mk; do
     MACHINES+=( $(basename "$machine") )
   done
+fi
+
+if [[ $CHECK_RUN -eq 1 ]]; then
+  TARGETS=( check )
 fi
 
 echo "*************************"
@@ -347,7 +356,7 @@ if [[ $NO_GCC -ne 1 ]]; then
         inf "Skipping all targets for - $compiler $MACHINE\n"
         continue
       fi
-      if [[ "$MACHINE" != *"clang"* ]]; then
+      if [[ "$MACHINE" == *"gcc"* ]]; then
         # override any targets list with supplied --targets
         BUILD_TARGETS=()
         if [[ ${#TARGETS[@]} -eq 0 ]]; then
@@ -465,7 +474,7 @@ if [[ $NO_CLANG -ne 1 ]]; then
         inf "Skipping all targets for - $compiler $MACHINE\n"
         continue
       fi
-      if [[ "$MACHINE" != *"gcc"* ]]; then
+      if [[ "$MACHINE" == *"clang"* ]]; then
         # override any targets list with supplied --targets
         BUILD_TARGETS=()
         if [[ ${#TARGETS[@]} -eq 0 ]]; then
