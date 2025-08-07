@@ -3454,8 +3454,6 @@ fd_vote_info_pair_t_map_join_new( void * * alloc_mem, ulong len ) {
 }
 /* Encoded Size: Dynamic */
 struct fd_epoch_info {
-  ulong stake_infos_len;
-  fd_epoch_info_pair_t * stake_infos;
   fd_vote_info_pair_t_mapnode_t * vote_states_pool;
   fd_vote_info_pair_t_mapnode_t * vote_states_root;
   ulong stake_infos_new_keys_start_idx;

@@ -1582,41 +1582,6 @@ fd_runtime_prepare_and_execute_txn( fd_banks_t *        banks,
 /* Epoch Boundary                                                             */
 /******************************************************************************/
 
-/* Update the epoch bank stakes cache with the delegated stake values from the slot bank cache.
-The slot bank cache will have been accumulating this epoch, and now we are at an epoch boundary
-we can safely update the epoch stakes cache with the latest values.
-
-In Solana, the stakes cache is updated after every transaction
-  (https://github.com/solana-labs/solana/blob/c091fd3da8014c0ef83b626318018f238f506435/runtime/src/bank.rs#L7587).
-As delegations have to warm up, the contents of the cache will not change inter-epoch. We can therefore update
-the cache only at epoch boundaries.
-
-https://github.com/solana-labs/solana/blob/c091fd3da8014c0ef83b626318018f238f506435/runtime/src/stakes.rs#L65 */
-static void
-fd_update_stake_delegations( fd_exec_slot_ctx_t * slot_ctx,
-                             fd_epoch_info_t *    temp_info ) {
-
-  fd_stake_delegations_t * stake_delegations = fd_stake_delegations_join( fd_bank_stake_delegations_locking_modify( slot_ctx->bank ) );
-
-  /* In one pass, iterate over all the new stake infos and insert the updated values into the epoch stakes cache
-      This assumes that there is enough memory pre-allocated for the stakes cache. */
-  for( ulong idx=temp_info->stake_infos_new_keys_start_idx; idx<temp_info->stake_infos_len; idx++ ) {
-    // Fetch and store the delegation associated with this stake account
-    fd_stake_delegations_update(
-        stake_delegations,
-        &temp_info->stake_infos[idx].account,
-        &temp_info->stake_infos[idx].stake.delegation.voter_pubkey,
-        temp_info->stake_infos[idx].stake.delegation.stake,
-        temp_info->stake_infos[idx].stake.delegation.activation_epoch,
-        temp_info->stake_infos[idx].stake.delegation.deactivation_epoch,
-        temp_info->stake_infos[idx].stake.credits_observed,
-        temp_info->stake_infos[idx].stake.delegation.warmup_cooldown_rate
-    );
-  }
-
-  fd_bank_stake_delegations_end_locking_modify( slot_ctx->bank );
-}
-
 /* Replace the stakes in T-2 (epoch_stakes) by the stakes at T-1 (next_epoch_stakes) */
 static void
 fd_update_epoch_stakes( fd_exec_slot_ctx_t * slot_ctx ) {
@@ -2249,12 +2214,11 @@ fd_runtime_process_new_epoch( fd_exec_slot_ctx_t * slot_ctx,
   }
 
   /* Updates stake history sysvar accumulated values. */
-  fd_stakes_activate_epoch( slot_ctx,
-                            new_rate_activation_epoch,
-                            &temp_info,
-                            runtime_spad );
-
-  fd_update_stake_delegations( slot_ctx, &temp_info );
+  fd_stakes_activate_epoch(
+      slot_ctx,
+      new_rate_activation_epoch,
+      &temp_info,
+      runtime_spad );
 
   /* Refresh vote accounts in stakes cache using updated stake weights, and merges slot bank vote accounts with the epoch bank vote accounts.
     https://github.com/anza-xyz/agave/blob/v2.1.6/runtime/src/stakes.rs#L363-L370 */

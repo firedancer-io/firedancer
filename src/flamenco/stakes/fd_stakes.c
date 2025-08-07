@@ -4,6 +4,7 @@
 #include "../runtime/context/fd_exec_slot_ctx.h"
 #include "../runtime/program/fd_stake_program.h"
 #include "../runtime/sysvar/fd_sysvar_stake_history.h"
+#include "fd_stake_delegations.h"
 
 ulong
 fd_stake_weights_by_node( fd_vote_accounts_global_t const * accs,
@@ -73,18 +74,14 @@ deserialize_and_update_vote_account( fd_exec_slot_ctx_t *                       
 }
 
 static void
-compute_stake_delegations(
-    fd_epoch_info_t *             temp_info,
-    ulong const                   epoch,
-    fd_stake_history_t const *    history,
-    ulong *                       new_rate_activation_epoch,
-    fd_stake_weight_t_mapnode_t * delegation_pool,
-    fd_stake_weight_t_mapnode_t * delegation_root,
-    ulong                         vote_states_pool_sz,
-    fd_spad_t *                   spad,
-    ulong                         end_idx
-) {
-  fd_epoch_info_pair_t const * stake_infos = temp_info->stake_infos;
+compute_stake_delegations( fd_bank_t *                   bank,
+                           ulong const                   epoch,
+                           fd_stake_history_t const *    history,
+                           ulong *                       new_rate_activation_epoch,
+                           fd_stake_weight_t_mapnode_t * delegation_pool,
+                           fd_stake_weight_t_mapnode_t * delegation_root,
+                           ulong                         vote_states_pool_sz,
+                           fd_spad_t *                   spad ) {
 
   FD_SPAD_FRAME_BEGIN( spad ) {
 
@@ -93,10 +90,23 @@ compute_stake_delegations(
   fd_stake_weight_t_mapnode_t * temp_pool = fd_stake_weight_t_map_join( fd_stake_weight_t_map_new( mem, vote_states_pool_sz ) );
   fd_stake_weight_t_mapnode_t * temp_root = NULL;
 
+  fd_stake_delegations_t const * stake_delegations = fd_bank_stake_delegations_locking_query( bank );
+  if( FD_UNLIKELY( !stake_delegations ) ) {
+    FD_LOG_CRIT(( "stake_delegations is NULL" ));
+  }
+  fd_stake_delegation_map_t * stake_delegation_map  = fd_stake_delegations_get_map( stake_delegations );
+  fd_stake_delegation_t *     stake_delegation_pool = fd_stake_delegations_get_pool( stake_delegations );
+
   fd_stake_weight_t_mapnode_t temp;
-  for( ulong i=0UL; i<end_idx; i++ ) {
-    fd_delegation_t const * delegation = &stake_infos[i].stake.delegation;
-    temp.elem.key = delegation->voter_pubkey;
+
+  for( fd_stake_delegation_map_iter_t iter = fd_stake_delegation_map_iter_init( stake_delegation_map, stake_delegation_pool );
+       !fd_stake_delegation_map_iter_done( iter, stake_delegation_map, stake_delegation_pool );
+       iter = fd_stake_delegation_map_iter_next( iter, stake_delegation_map, stake_delegation_pool ) ) {
+
+
+    fd_stake_delegation_t const * stake_delegation = fd_stake_delegation_map_iter_ele_const( iter, stake_delegation_map, stake_delegation_pool );
+
+    temp.elem.key = stake_delegation->vote_account;
 
     // Skip any delegations that are not in the delegation pool
     fd_stake_weight_t_mapnode_t * delegation_entry = fd_stake_weight_t_map_find( delegation_pool, delegation_root, &temp );
@@ -104,11 +114,19 @@ compute_stake_delegations(
       continue;
     }
 
-    fd_stake_history_entry_t new_entry = fd_stake_activating_and_deactivating( delegation, epoch, history, new_rate_activation_epoch );
+    fd_delegation_t delegation = {
+      .voter_pubkey         = stake_delegation->vote_account,
+      .stake                = stake_delegation->stake,
+      .deactivation_epoch   = stake_delegation->deactivation_epoch,
+      .activation_epoch     = stake_delegation->activation_epoch,
+      .warmup_cooldown_rate = stake_delegation->warmup_cooldown_rate,
+    };
+
+    fd_stake_history_entry_t new_entry = fd_stake_activating_and_deactivating( &delegation, epoch, history, new_rate_activation_epoch );
     delegation_entry = fd_stake_weight_t_map_find( temp_pool, temp_root, &temp );
     if( FD_UNLIKELY( delegation_entry==NULL ) ) {
       delegation_entry = fd_stake_weight_t_map_acquire( temp_pool );
-      delegation_entry->elem.key   = delegation->voter_pubkey;
+      delegation_entry->elem.key   = stake_delegation->vote_account;
       delegation_entry->elem.stake = new_entry.effective;
       fd_stake_weight_t_map_insert( temp_pool, &temp_root, delegation_entry );
     } else {
@@ -123,6 +141,8 @@ compute_stake_delegations(
     fd_stake_weight_t_mapnode_t * output_delegation_node = fd_stake_weight_t_map_find( delegation_pool, delegation_root, elem );
     output_delegation_node->elem.stake += elem->elem.stake;
   }
+
+  fd_bank_stake_delegations_end_locking_query( bank );
 
   } FD_SPAD_FRAME_END;
 
@@ -189,16 +209,14 @@ fd_populate_vote_accounts( fd_exec_slot_ctx_t *       slot_ctx,
   fd_bank_vote_account_keys_end_locking_modify( slot_ctx->bank );
 
   compute_stake_delegations(
-      temp_info,
+      slot_ctx->bank,
       fd_bank_epoch_get( slot_ctx->bank ),
       history,
       new_rate_activation_epoch,
       pool,
       root,
       vote_states_pool_sz,
-      runtime_spad,
-      temp_info->stake_infos_len
-  );
+      runtime_spad );
 
   // Iterate over each vote account in the epoch stakes cache and populate the new vote accounts pool
   /* NOTE: we use epoch_bank->next_epoch_stakes because Agave indexes their epoch stakes cache by leader schedule epoch.
@@ -308,16 +326,14 @@ fd_refresh_vote_accounts( fd_exec_slot_ctx_t *       slot_ctx,
   }
 
   compute_stake_delegations(
-      temp_info,
+      slot_ctx->bank,
       fd_bank_epoch_get( slot_ctx->bank ),
       history,
       new_rate_activation_epoch,
       pool,
       root,
       vote_states_pool_sz,
-      runtime_spad,
-      temp_info->stake_infos_len
-  );
+      runtime_spad );
 
   // Iterate over each vote account in the epoch stakes cache and populate the new vote accounts pool
   ulong total_epoch_stake = 0UL;
@@ -403,13 +419,11 @@ fd_refresh_vote_accounts( fd_exec_slot_ctx_t *       slot_ctx,
 }
 
 static void
-accumulate_stake_cache_delegations(
-    fd_stake_delegations_t *   stake_delegations,
-    fd_stake_history_t const * history,
-    ulong *                    new_rate_activation_epoch,
-    fd_stake_history_entry_t * accumulator,
-    fd_epoch_info_t *          temp_info,
-    ulong                      epoch ) {
+accumulate_stake_cache_delegations( fd_stake_delegations_t *   stake_delegations,
+                                    fd_stake_history_t const * history,
+                                    ulong *                    new_rate_activation_epoch,
+                                    fd_stake_history_entry_t * accumulator,
+                                    ulong                      epoch ) {
 
   fd_stake_delegation_t *     pool = fd_stake_delegations_get_pool( stake_delegations );
   fd_stake_delegation_map_t * map  = fd_stake_delegations_get_map( stake_delegations );
@@ -423,19 +437,19 @@ accumulate_stake_cache_delegations(
        iter = fd_stake_delegation_map_iter_next( iter, map, pool ) ) {
     fd_stake_delegation_t const * stake_delegation = fd_stake_delegation_map_iter_ele_const( iter, map, pool );
 
-    ulong delegation_idx = temp_info->stake_infos_len++;
+    fd_delegation_t delegation = {
+      .voter_pubkey         = stake_delegation->vote_account,
+      .stake                = stake_delegation->stake,
+      .activation_epoch     = stake_delegation->activation_epoch,
+      .deactivation_epoch   = stake_delegation->deactivation_epoch,
+      .warmup_cooldown_rate = stake_delegation->warmup_cooldown_rate,
+    };
 
-    temp_info->stake_infos[delegation_idx].stake.credits_observed                = stake_delegation->credits_observed;
-    temp_info->stake_infos[delegation_idx].account                               = stake_delegation->stake_account;
-    temp_info->stake_infos[delegation_idx].stake.delegation.voter_pubkey         = stake_delegation->vote_account;
-    temp_info->stake_infos[delegation_idx].stake.delegation.stake                = stake_delegation->stake;
-    temp_info->stake_infos[delegation_idx].stake.delegation.activation_epoch     = stake_delegation->activation_epoch;
-    temp_info->stake_infos[delegation_idx].stake.delegation.deactivation_epoch   = stake_delegation->deactivation_epoch;
-    temp_info->stake_infos[delegation_idx].stake.delegation.warmup_cooldown_rate = stake_delegation->warmup_cooldown_rate;
-
-    fd_delegation_t * delegation = &temp_info->stake_infos[delegation_idx].stake.delegation;
-
-    fd_stake_history_entry_t new_entry = fd_stake_activating_and_deactivating( delegation, epoch, history, new_rate_activation_epoch );
+    fd_stake_history_entry_t new_entry = fd_stake_activating_and_deactivating(
+        &delegation,
+        epoch,
+        history,
+        new_rate_activation_epoch );
     effective    += new_entry.effective;
     activating   += new_entry.activating;
     deactivating += new_entry.deactivating;
@@ -456,7 +470,6 @@ fd_accumulate_stake_infos( fd_exec_slot_ctx_t const * slot_ctx,
                            fd_stake_history_t const * history,
                            ulong *                    new_rate_activation_epoch,
                            fd_stake_history_entry_t * accumulator,
-                           fd_epoch_info_t *          temp_info,
                            fd_spad_t *                runtime_spad ) {
 
   FD_SPAD_FRAME_BEGIN( runtime_spad ) {
@@ -468,9 +481,7 @@ fd_accumulate_stake_infos( fd_exec_slot_ctx_t const * slot_ctx,
       history,
       new_rate_activation_epoch,
       accumulator,
-      temp_info,
-      epoch
-  );
+      epoch );
 
   } FD_SPAD_FRAME_END;
 }
@@ -482,6 +493,7 @@ fd_stakes_activate_epoch( fd_exec_slot_ctx_t *  slot_ctx,
                           fd_epoch_info_t *     temp_info,
                           fd_spad_t *           runtime_spad ) {
 
+  (void)temp_info;
   fd_stake_delegations_t * stake_delegations = fd_stake_delegations_join( (void*)fd_bank_stake_delegations_locking_modify( slot_ctx->bank ) );
 
   /* Current stake delegations: list of all current delegations in stake_delegations
@@ -491,12 +503,6 @@ fd_stakes_activate_epoch( fd_exec_slot_ctx_t *  slot_ctx,
 
   fd_stake_history_t const * history = fd_sysvar_stake_history_read( slot_ctx->funk, slot_ctx->funk_txn, runtime_spad );
   if( FD_UNLIKELY( !history ) ) FD_LOG_ERR(( "StakeHistory sysvar is missing from sysvar cache" ));
-
-  ulong stake_delegations_size = fd_stake_delegations_cnt( stake_delegations );
-
-  temp_info->stake_infos_len = 0UL;
-  temp_info->stake_infos     = (fd_epoch_info_pair_t *)fd_spad_alloc( runtime_spad, FD_EPOCH_INFO_PAIR_ALIGN, sizeof(fd_epoch_info_pair_t)*stake_delegations_size );
-  fd_memset( temp_info->stake_infos, 0, sizeof(fd_epoch_info_pair_t)*stake_delegations_size );
 
   fd_stake_history_entry_t accumulator = {
     .effective    = 0UL,
@@ -511,7 +517,6 @@ fd_stakes_activate_epoch( fd_exec_slot_ctx_t *  slot_ctx,
       history,
       new_rate_activation_epoch,
       &accumulator,
-      temp_info,
       runtime_spad );
 
   /* https://github.com/anza-xyz/agave/blob/v2.1.6/runtime/src/stakes.rs#L359 */
