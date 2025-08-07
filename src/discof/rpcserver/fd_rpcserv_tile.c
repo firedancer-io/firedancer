@@ -174,7 +174,7 @@ privileged_init( fd_topo_t *      topo,
   /* Blockstore setup */
   ulong store_obj_id = fd_pod_queryf_ulong( topo->props, ULONG_MAX, "store" );
   FD_TEST( store_obj_id!=ULONG_MAX );
-  args->store = fd_store_join( ctx->store );
+  args->store = fd_store_join( fd_topo_obj_laddr( topo, store_obj_id ) );
   FD_TEST( args->store!=NULL );
 
   args->block_index_max = tile->rpcserv.block_index_max;
