@@ -260,7 +260,7 @@
 
    This macro is robust. */
 
-#define FD_TEST(c) do { if( FD_UNLIKELY( !(c) ) ) FD_LOG_ERR(( "FAIL: %s", #c )); } while(0)
+#define FD_TEST(c) do { if( FD_UNLIKELY( !(c) ) ) FD_LOG_CRIT(( "FAIL: %s", #c )); } while(0)
 
 /* FD_TEST_CUSTOM is like FD_TEST but with a custom error msg err. */
 

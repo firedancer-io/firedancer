@@ -561,6 +561,7 @@ after_frag( fd_repair_tile_ctx_t * ctx,
       int     data_complete  = !!( shred->data.flags & FD_SHRED_DATA_FLAG_DATA_COMPLETE );
       int     slot_complete  = !!( shred->data.flags & FD_SHRED_DATA_FLAG_SLOT_COMPLETE );
 
+      FD_LOG_WARNING(("Received Complete FEC set for slot %lu idx %u on fseq %lu", shred->slot, shred->fec_set_idx, seq ));
       FD_TEST( fd_fec_pool_free( ctx->fec_chainer->pool ) );
       FD_TEST( !fd_fec_chainer_query( ctx->fec_chainer, shred->slot, shred->fec_set_idx ) );
       FD_TEST( fd_fec_chainer_insert( ctx->fec_chainer, shred->slot, shred->fec_set_idx, (ushort)(shred->idx - shred->fec_set_idx + 1), data_complete, slot_complete, shred->data.parent_off, merkle_root, chained_root ) );
