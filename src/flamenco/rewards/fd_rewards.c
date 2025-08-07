@@ -172,7 +172,7 @@ calculate_stake_points_and_credits( fd_stake_history_t const *     stake_history
 static int
 calculate_stake_rewards( fd_stake_history_t const *      stake_history,
                          fd_stake_delegation_t const *   stake,
-                         fd_vote_state_versioned_t *     vote_state_versioned,
+                         uchar                           commission,
                          fd_vote_state_ele_t const *     vote_state,
                          ulong                           rewarded_epoch,
                          fd_point_value_t *              point_value,
@@ -211,7 +211,7 @@ calculate_stake_rewards( fd_stake_history_t const *      stake_history,
   }
 
   fd_commission_split_t split_result;
-  fd_vote_commission_split( vote_state_versioned, rewards, &split_result );
+  fd_vote_commission_split( commission, rewards, &split_result );
   if( split_result.is_split && (split_result.voter_portion == 0 || split_result.staker_portion == 0) ) {
     return 1;
   }
@@ -226,7 +226,6 @@ calculate_stake_rewards( fd_stake_history_t const *      stake_history,
 static int
 redeem_rewards( fd_stake_history_t const *      stake_history,
                 fd_stake_delegation_t const *   stake,
-                fd_vote_state_versioned_t *     vote_state_versioned,
                 fd_vote_state_ele_t const *     vote_state,
                 ulong                           rewarded_epoch,
                 fd_point_value_t *              point_value,
@@ -236,7 +235,7 @@ redeem_rewards( fd_stake_history_t const *      stake_history,
   int rc = calculate_stake_rewards(
       stake_history,
       stake,
-      vote_state_versioned,
+      vote_state->commission,
       vote_state,
       rewarded_epoch,
       point_value,
@@ -315,34 +314,6 @@ get_minimum_stake_delegation( fd_exec_slot_ctx_t const * slot_ctx ) {
   return 1;
 }
 
-static fd_vote_state_versioned_t *
-deserialize_vote_account( fd_exec_slot_ctx_t const * slot_ctx,
-                          fd_pubkey_t const *        vote_account_pubkey,
-                          fd_spad_t *                runtime_spad ) {
-
-  FD_TXN_ACCOUNT_DECL( vote_account );
-  if( FD_UNLIKELY( fd_txn_account_init_from_funk_readonly( vote_account,
-                                                           vote_account_pubkey,
-                                                           slot_ctx->funk,
-                                                           slot_ctx->funk_txn ) ) ) {
-    FD_LOG_DEBUG(( "Vote account not found" ));
-    return NULL;
-  }
-
-  // Deserialize the vote account and ensure its in the correct state
-  int err;
-  fd_vote_state_versioned_t * res = fd_bincode_decode_spad(
-      vote_state_versioned, runtime_spad,
-      fd_txn_account_get_data( vote_account ),
-      fd_txn_account_get_data_len( vote_account ),
-      &err );
-  if( FD_UNLIKELY( err ) ) {
-    return NULL;
-  }
-
-  return res;
-}
-
 static uint128
 calculate_points_all( fd_exec_slot_ctx_t const * slot_ctx,
                       fd_bank_t *                bank,
@@ -359,6 +330,8 @@ calculate_points_all( fd_exec_slot_ctx_t const * slot_ctx,
   fd_stake_delegation_map_t * stake_delegation_map  = fd_stake_delegations_get_map( stake_delegations );
   fd_stake_delegation_t *     stake_delegation_pool = fd_stake_delegations_get_pool( stake_delegations );
 
+
+  ulong curr_epoch = fd_bank_epoch_get( bank );
   for( fd_stake_delegation_map_iter_t iter = fd_stake_delegation_map_iter_init( stake_delegation_map, stake_delegation_pool );
         !fd_stake_delegation_map_iter_done( iter, stake_delegation_map, stake_delegation_pool );
         iter = fd_stake_delegation_map_iter_next( iter, stake_delegation_map, stake_delegation_pool ) ) {
@@ -371,8 +344,10 @@ calculate_points_all( fd_exec_slot_ctx_t const * slot_ctx,
     fd_vote_states_t const * vote_states = fd_bank_vote_states_locking_query( slot_ctx->bank );
     fd_vote_state_ele_t * vote_state_ele = fd_vote_states_query( vote_states, &stake_delegation->vote_account );
     if( FD_UNLIKELY( !vote_state_ele ) ) {
-      FD_LOG_WARNING(( "failed to query vote state" ));
+      FD_LOG_WARNING(( "failed to query vote state %lu %lu %lu %lu", stake_delegation->stake, stake_delegation->activation_epoch, stake_delegation->deactivation_epoch, curr_epoch ));
       continue;
+    } else {
+      FD_LOG_WARNING(( "queried vote state %lu %lu %lu %lu", stake_delegation->stake, stake_delegation->activation_epoch, stake_delegation->deactivation_epoch, curr_epoch ));
     }
 
     uint128 account_points;
@@ -474,15 +449,9 @@ calculate_stake_vote_rewards_account( fd_exec_slot_ctx_t const *                
       }
     }
 
-    fd_pubkey_t const * voter_acc = &stake_delegation->vote_account;
-    fd_vote_state_versioned_t * vote_state = deserialize_vote_account( slot_ctx, voter_acc, spad );
-    if( FD_UNLIKELY( !vote_state ) ) {
-      FD_LOG_WARNING(( "failed to deserialize vote account" ));
-      continue;
-    }
-
-    fd_vote_states_t const * vote_states = fd_bank_vote_states_locking_query( slot_ctx->bank );
-    fd_vote_state_ele_t * vote_state_ele = fd_vote_states_query( vote_states, voter_acc );
+    fd_pubkey_t const *      voter_acc      = &stake_delegation->vote_account;
+    fd_vote_states_t const * vote_states    = fd_bank_vote_states_locking_query( slot_ctx->bank );
+    fd_vote_state_ele_t *    vote_state_ele = fd_vote_states_query( vote_states, voter_acc );
     if( FD_UNLIKELY( !vote_state_ele ) ) {
       FD_LOG_WARNING(( "failed to query vote state" ));
       continue;
@@ -494,7 +463,6 @@ calculate_stake_vote_rewards_account( fd_exec_slot_ctx_t const *                
     int err = redeem_rewards(
         stake_history,
         stake_delegation,
-        vote_state,
         vote_state_ele,
         rewarded_epoch,
         point_value,
@@ -511,27 +479,10 @@ calculate_stake_vote_rewards_account( fd_exec_slot_ctx_t const *                
       fd_solcap_write_stake_reward_event( capture_ctx->capture,
           &stake_delegation->stake_account,
           voter_acc,
-          fd_vote_account_commission( vote_state ),
+          vote_state_ele->commission,
           (long)calculated_stake_rewards->voter_rewards,
           (long)calculated_stake_rewards->staker_rewards,
           (long)calculated_stake_rewards->new_credits_observed );
-    }
-
-    /* Fetch the comission for the vote account */
-    uchar commission = 0;
-    switch( vote_state->discriminant ) {
-      case fd_vote_state_versioned_enum_current:
-        commission = vote_state->inner.current.commission;
-        break;
-      case fd_vote_state_versioned_enum_v0_23_5:
-        commission = vote_state->inner.v0_23_5.commission;
-        break;
-      case fd_vote_state_versioned_enum_v1_14_11:
-        commission = vote_state->inner.v1_14_11.commission;
-        break;
-      default:
-        FD_LOG_DEBUG(( "unsupported vote account" ));
-        continue;
     }
 
     // Find and update the vote reward node in the local map
@@ -548,7 +499,7 @@ calculate_stake_vote_rewards_account( fd_exec_slot_ctx_t const *                
     if( vote_reward_node==NULL ) {
       vote_reward_node                    = fd_vote_reward_t_map_acquire( vote_reward_map_pool );
       vote_reward_node->elem.pubkey       = *voter_acc;
-      vote_reward_node->elem.commission   = commission;
+      vote_reward_node->elem.commission   = vote_state_ele->commission;
       vote_reward_node->elem.vote_rewards = calculated_stake_rewards->voter_rewards;
       vote_reward_node->elem.needs_store  = 1;
       fd_vote_reward_t_map_insert( vote_reward_map_pool, &vote_reward_map_root, vote_reward_node );

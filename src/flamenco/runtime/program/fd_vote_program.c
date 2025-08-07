@@ -2155,10 +2155,9 @@ fd_vote_record_timestamp_vote_with_slot( fd_pubkey_t const *  vote_acc,
 
 // https://github.com/anza-xyz/agave/blob/v2.0.1/sdk/program/src/vote/state/mod.rs#L543
 void
-fd_vote_commission_split( fd_vote_state_versioned_t * vote_state_versioned,
-                          ulong                       on,
-                          fd_commission_split_t *     result ) {
-  uchar commission = (uchar)fd_vote_account_commission( vote_state_versioned );
+fd_vote_commission_split( uchar                   commission,
+                          ulong                   on,
+                          fd_commission_split_t * result ) {
   uint commission_split = fd_uint_min( (uint)commission, 100 );
   result->is_split      = ( commission_split != 0 && commission_split != 100 );
   // https://github.com/anza-xyz/agave/blob/v2.0.1/sdk/program/src/vote/state/mod.rs#L545
