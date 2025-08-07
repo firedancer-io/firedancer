@@ -149,13 +149,13 @@ fd_vote_states_remove( fd_vote_states_t *  vote_states,
    account. Returns NULL if the account does not exist. */
 
 static inline fd_vote_state_ele_t *
-fd_vote_states_query( fd_vote_states_t * self, fd_pubkey_t * vote_account ) {
+fd_vote_states_query( fd_vote_states_t const * self, fd_pubkey_t const * vote_account ) {
 
   fd_vote_state_ele_t * vote_state = fd_vote_state_map_ele_query(
       fd_vote_states_get_map( self ),
       vote_account,
-
-      NULL, fd_vote_states_get_pool( self ) );
+      NULL,
+      fd_vote_states_get_pool( self ) );
   if( FD_UNLIKELY( !vote_state ) ) {
     return NULL;
   }
