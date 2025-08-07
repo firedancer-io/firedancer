@@ -27,10 +27,9 @@ fd_stake_weights_by_node( fd_vote_accounts_global_t const * accs,
 
 
 void
-fd_stakes_activate_epoch( fd_exec_slot_ctx_t *  slot_ctx,
-                          ulong *               new_rate_activation_epoch,
-                          fd_epoch_info_t *     temp_info,
-                          fd_spad_t *           runtime_spad );
+fd_stakes_activate_epoch( fd_exec_slot_ctx_t * slot_ctx,
+                          ulong *              new_rate_activation_epoch,
+                          fd_spad_t *          runtime_spad );
 
 fd_stake_history_entry_t
 stake_and_activating( fd_delegation_t const * delegation,
@@ -51,9 +50,7 @@ write_stake_state( fd_txn_account_t *    stake_acc_rec,
 void
 fd_refresh_vote_accounts( fd_exec_slot_ctx_t *       slot_ctx,
                           fd_stake_history_t const * history,
-                          ulong *                    new_rate_activation_epoch,
-                          fd_epoch_info_t *          temp_info,
-                          fd_spad_t *                runtime_spad );
+                          ulong *                    new_rate_activation_epoch );
 
 /* A workaround to mimic Agave function get_epoch_reward_calculate_param_info
    https://github.com/anza-xyz/agave/blob/v2.2.14/runtime/src/bank/partitioned_epoch_rewards/calculation.rs#L299 */

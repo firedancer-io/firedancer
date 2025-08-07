@@ -2211,11 +2211,7 @@ fd_runtime_process_new_epoch( fd_exec_slot_ctx_t * slot_ctx,
   }
 
   /* Updates stake history sysvar accumulated values. */
-  fd_stakes_activate_epoch(
-      slot_ctx,
-      new_rate_activation_epoch,
-      &temp_info,
-      runtime_spad );
+  fd_stakes_activate_epoch( slot_ctx, new_rate_activation_epoch, runtime_spad );
 
   /* Refresh vote accounts in stakes cache using updated stake weights, and merges slot bank vote accounts with the epoch bank vote accounts.
     https://github.com/anza-xyz/agave/blob/v2.1.6/runtime/src/stakes.rs#L363-L370 */
@@ -2227,9 +2223,7 @@ fd_runtime_process_new_epoch( fd_exec_slot_ctx_t * slot_ctx,
   /* FIXME: There are allocations made in here that are persisted. */
   fd_refresh_vote_accounts( slot_ctx,
                             history,
-                            new_rate_activation_epoch,
-                            &temp_info,
-                            runtime_spad );
+                            new_rate_activation_epoch );
 
   /* Distribute rewards */
 
@@ -2245,7 +2239,6 @@ fd_runtime_process_new_epoch( fd_exec_slot_ctx_t * slot_ctx,
                                 slot_ctx->capture_ctx,
                                 &parent_blockhash,
                                 parent_epoch,
-                                &temp_info,
                                 runtime_spad );
 
   /* Replace stakes at T-2 (epoch_stakes) by stakes at T-1 (next_epoch_stakes) */

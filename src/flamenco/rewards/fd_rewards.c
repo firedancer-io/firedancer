@@ -316,13 +316,41 @@ get_minimum_stake_delegation( fd_exec_slot_ctx_t const * slot_ctx ) {
   return 1;
 }
 
+static fd_vote_state_versioned_t *
+deserialize_vote_account( fd_exec_slot_ctx_t const * slot_ctx,
+                          fd_pubkey_t const *        vote_account_pubkey,
+                          fd_spad_t *                runtime_spad ) {
+
+  FD_TXN_ACCOUNT_DECL( vote_account );
+  if( FD_UNLIKELY( fd_txn_account_init_from_funk_readonly( vote_account,
+                                                           vote_account_pubkey,
+                                                           slot_ctx->funk,
+                                                           slot_ctx->funk_txn ) ) ) {
+    FD_LOG_DEBUG(( "Vote account not found" ));
+    return NULL;
+  }
+
+  // Deserialize the vote account and ensure its in the correct state
+  int err;
+  fd_vote_state_versioned_t * res = fd_bincode_decode_spad(
+      vote_state_versioned, runtime_spad,
+      fd_txn_account_get_data( vote_account ),
+      fd_txn_account_get_data_len( vote_account ),
+      &err );
+  if( FD_UNLIKELY( err ) ) {
+    return NULL;
+  }
+
+  return res;
+}
+
 static uint128
-calculate_points_all( fd_bank_t *                     bank,
-                      fd_stake_history_t const *      stake_history,
-                      ulong *                         new_warmup_cooldown_rate_epoch,
-                      ulong                           minimum_stake_delegation,
-                      fd_vote_info_pair_t_mapnode_t * vote_states_pool,
-                      fd_vote_info_pair_t_mapnode_t * vote_states_root ) {
+calculate_points_all( fd_exec_slot_ctx_t const * slot_ctx,
+                      fd_spad_t *                spad,
+                      fd_bank_t *                bank,
+                      fd_stake_history_t const * stake_history,
+                      ulong *                    new_warmup_cooldown_rate_epoch,
+                      ulong                      minimum_stake_delegation ) {
 
   uint128 total_points = 0;
   fd_stake_delegations_t const * stake_delegations = fd_bank_stake_delegations_locking_query( bank );
@@ -343,16 +371,13 @@ calculate_points_all( fd_bank_t *                     bank,
     }
 
     /* Check that the vote account is present in our cache */
-    fd_vote_info_pair_t_mapnode_t query_key;
-    query_key.elem.account = stake_delegation->vote_account;
-    fd_vote_info_pair_t_mapnode_t * vote_state_info = fd_vote_info_pair_t_map_find( vote_states_pool, vote_states_root, &query_key );
-    if( FD_UNLIKELY( vote_state_info==NULL ) ) {
-      FD_LOG_DEBUG(( "vote account missing from cache" ));
+    fd_vote_state_versioned_t * vote_state = deserialize_vote_account( slot_ctx, &stake_delegation->vote_account, spad );
+    if( !vote_state ) {
       continue;
     }
 
     uint128 account_points;
-    int err = calculate_points( stake_delegation, &vote_state_info->elem.state, stake_history, new_warmup_cooldown_rate_epoch, &account_points );
+    int err = calculate_points( stake_delegation, vote_state, stake_history, new_warmup_cooldown_rate_epoch, &account_points );
     if( FD_UNLIKELY( err ) ) {
       FD_LOG_DEBUG(( "failed to calculate points" ));
       continue;
@@ -370,10 +395,10 @@ calculate_points_all( fd_bank_t *                     bank,
     https://github.com/anza-xyz/agave/blob/cbc8320d35358da14d79ebcada4dfb6756ffac79/runtime/src/bank/partitioned_epoch_rewards/calculation.rs#L472 */
 static void
 calculate_reward_points_partitioned( fd_exec_slot_ctx_t *       slot_ctx,
+                                     fd_spad_t *                spad,
                                      fd_stake_history_t const * stake_history,
                                      ulong                      rewards,
-                                     fd_point_value_t *         result,
-                                     fd_epoch_info_t *          temp_info ) {
+                                     fd_point_value_t *         result ) {
   ulong minimum_stake_delegation = get_minimum_stake_delegation( slot_ctx );
 
   /* Calculate the points for each stake delegation */
@@ -391,12 +416,12 @@ calculate_reward_points_partitioned( fd_exec_slot_ctx_t *       slot_ctx,
   }
 
   uint128 points = calculate_points_all(
+      slot_ctx,
+      spad,
       slot_ctx->bank,
       stake_history,
       new_warmup_cooldown_rate_epoch,
-      minimum_stake_delegation,
-      temp_info->vote_states_pool,
-      temp_info->vote_states_root );
+      minimum_stake_delegation );
 
   if( points > 0 ) {
     result->points  = points;
@@ -405,8 +430,7 @@ calculate_reward_points_partitioned( fd_exec_slot_ctx_t *       slot_ctx,
 }
 
 static void
-calculate_stake_vote_rewards_account( fd_epoch_info_t const *                    temp_info,
-                                      fd_exec_slot_ctx_t const *                 slot_ctx,
+calculate_stake_vote_rewards_account( fd_exec_slot_ctx_t const *                 slot_ctx,
                                       fd_capture_ctx_t const *                   capture_ctx,
                                       fd_stake_history_t const *                 stake_history,
                                       ulong const                                rewarded_epoch,
@@ -447,16 +471,11 @@ calculate_stake_vote_rewards_account( fd_epoch_info_t const *                   
     }
 
     fd_pubkey_t const * voter_acc = &stake_delegation->vote_account;
-    fd_vote_info_pair_t_mapnode_t key;
-    key.elem.account = *voter_acc;
-    fd_vote_info_pair_t_mapnode_t * vote_state_entry = fd_vote_info_pair_t_map_find( temp_info->vote_states_pool,
-                                                                                      temp_info->vote_states_root,
-                                                                                      &key );
-    if( FD_UNLIKELY( vote_state_entry==NULL ) ) {
+    fd_vote_state_versioned_t * vote_state = deserialize_vote_account( slot_ctx, voter_acc, spad );
+    if( FD_UNLIKELY( !vote_state ) ) {
+      FD_LOG_WARNING(( "failed to deserialize vote account" ));
       continue;
     }
-
-    fd_vote_state_versioned_t * vote_state = &vote_state_entry->elem.state;
 
     /* Note, this doesn't actually redeem any rewards.. this is a misnomer. */
     fd_calculated_stake_rewards_t calculated_stake_rewards[1] = {0};
@@ -585,7 +604,6 @@ calculate_stake_vote_rewards( fd_exec_slot_ctx_t *                       slot_ct
                               ulong                                      rewarded_epoch,
                               fd_point_value_t *                         point_value,
                               fd_calculate_stake_vote_rewards_result_t * result,
-                              fd_epoch_info_t *                          temp_info,
                               fd_spad_t *                                runtime_spad ) {
 
   int _err[1];
@@ -659,7 +677,6 @@ calculate_stake_vote_rewards( fd_exec_slot_ctx_t *                       slot_ct
   /* Loop over all the delegations
      https://github.com/anza-xyz/agave/blob/cbc8320d35358da14d79ebcada4dfb6756ffac79/runtime/src/bank/partitioned_epoch_rewards/calculation.rs#L367  */
   calculate_stake_vote_rewards_account(
-      temp_info,
       slot_ctx,
       capture_ctx,
       stake_history,
@@ -680,7 +697,6 @@ calculate_validator_rewards( fd_exec_slot_ctx_t *                      slot_ctx,
                              ulong                                     rewarded_epoch,
                              ulong                                     rewards,
                              fd_calculate_validator_rewards_result_t * result,
-                             fd_epoch_info_t *                         temp_info,
                              fd_spad_t *                               runtime_spad ) {
     /* https://github.com/firedancer-io/solana/blob/dab3da8e7b667d7527565bddbdbecf7ec1fb868e/runtime/src/bank.rs#L2759-L2786 */
   fd_stake_history_t const * stake_history = fd_sysvar_stake_history_read( slot_ctx->funk, slot_ctx->funk_txn, runtime_spad );
@@ -690,10 +706,10 @@ calculate_validator_rewards( fd_exec_slot_ctx_t *                      slot_ctx,
 
   /* Calculate the epoch reward points from stake/vote accounts */
   calculate_reward_points_partitioned( slot_ctx,
+                                       runtime_spad,
                                        stake_history,
                                        rewards,
-                                       &result->point_value,
-                                       temp_info );
+                                       &result->point_value );
 
   if( capture_ctx ) {
     ulong const epoch = fd_bank_epoch_get( slot_ctx->bank );
@@ -711,7 +727,6 @@ calculate_validator_rewards( fd_exec_slot_ctx_t *                      slot_ctx,
                                 rewarded_epoch,
                                 &result->point_value,
                                 &result->calculate_stake_vote_rewards_result,
-                                temp_info,
                                 runtime_spad );
 }
 
@@ -786,7 +801,6 @@ calculate_rewards_for_partitioning( fd_exec_slot_ctx_t *                   slot_
                                     ulong                                  prev_epoch,
                                     const fd_hash_t *                      parent_blockhash,
                                     fd_partitioned_rewards_calculation_t * result,
-                                    fd_epoch_info_t *                      temp_info,
                                     fd_spad_t *                            runtime_spad ) {
   /* https://github.com/anza-xyz/agave/blob/7117ed9653ce19e8b2dea108eff1f3eb6a3378a7/runtime/src/bank/partitioned_epoch_rewards/calculation.rs#L227 */
   fd_prev_epoch_inflation_rewards_t rewards;
@@ -802,7 +816,6 @@ calculate_rewards_for_partitioning( fd_exec_slot_ctx_t *                   slot_
                                prev_epoch,
                                rewards.validator_rewards,
                                validator_result,
-                               temp_info,
                                runtime_spad );
 
   fd_stake_reward_calculation_t * stake_reward_calculation = &validator_result->calculate_stake_vote_rewards_result.stake_reward_calculation;
@@ -839,7 +852,6 @@ calculate_rewards_and_distribute_vote_rewards( fd_exec_slot_ctx_t * slot_ctx,
                                                fd_capture_ctx_t *   capture_ctx,
                                                ulong                prev_epoch,
                                                fd_hash_t const *    parent_blockhash,
-                                               fd_epoch_info_t *    temp_info,
                                                fd_spad_t *          runtime_spad ) {
 
   /* https://github.com/firedancer-io/solana/blob/dab3da8e7b667d7527565bddbdbecf7ec1fb868e/runtime/src/bank.rs#L2406-L2492 */
@@ -849,7 +861,6 @@ calculate_rewards_and_distribute_vote_rewards( fd_exec_slot_ctx_t * slot_ctx,
                                       prev_epoch,
                                       parent_blockhash,
                                       rewards_calc_result,
-                                      temp_info,
                                       runtime_spad );
 
   /* Iterate over all the vote reward nodes */
@@ -1132,7 +1143,6 @@ fd_begin_partitioned_rewards( fd_exec_slot_ctx_t * slot_ctx,
                               fd_capture_ctx_t *   capture_ctx,
                               fd_hash_t const *    parent_blockhash,
                               ulong                parent_epoch,
-                              fd_epoch_info_t *    temp_info,
                               fd_spad_t *          runtime_spad ) {
 
   /* https://github.com/anza-xyz/agave/blob/7117ed9653ce19e8b2dea108eff1f3eb6a3378a7/runtime/src/bank/partitioned_epoch_rewards/calculation.rs#L55 */
@@ -1141,7 +1151,6 @@ fd_begin_partitioned_rewards( fd_exec_slot_ctx_t * slot_ctx,
       capture_ctx,
       parent_epoch,
       parent_blockhash,
-      temp_info,
       runtime_spad );
 
   /* https://github.com/anza-xyz/agave/blob/9a7bf72940f4b3cd7fc94f54e005868ce707d53d/runtime/src/bank/partitioned_epoch_rewards/calculation.rs#L62 */
@@ -1217,9 +1226,6 @@ fd_rewards_recalculate_partitioned_rewards( fd_exec_slot_ctx_t * slot_ctx,
 
     fd_stake_delegations_t * stake_delegations = fd_stake_delegations_join( fd_bank_stake_delegations_locking_modify( slot_ctx->bank ) );
 
-    fd_epoch_info_t epoch_info = {0};
-    fd_epoch_info_new( &epoch_info );
-
     fd_stake_history_entry_t _accumulator = {
         .effective   = 0UL,
         .activating  = 0UL,
@@ -1236,12 +1242,12 @@ fd_rewards_recalculate_partitioned_rewards( fd_exec_slot_ctx_t * slot_ctx,
 
     fd_bank_stake_delegations_end_locking_modify( slot_ctx->bank );
 
-    /* NOTE: this is just a workaround for now to correctly populate epoch_info. */
-    fd_populate_vote_accounts( slot_ctx,
-                               stake_history,
-                               new_warmup_cooldown_rate_epoch,
-                               &epoch_info,
-                               runtime_spad );
+    fd_refresh_vote_accounts( slot_ctx,
+                              stake_history,
+                              new_warmup_cooldown_rate_epoch );
+    // fd_populate_vote_accounts( slot_ctx,
+    //                            stake_history,
+    //                            new_warmup_cooldown_rate_epoch );
     /* In future, the calculation will be cached in the snapshot, but for now we just re-calculate it
         (as Agave does). */
     fd_calculate_stake_vote_rewards_result_t calculate_stake_vote_rewards_result[1];
@@ -1251,7 +1257,6 @@ fd_rewards_recalculate_partitioned_rewards( fd_exec_slot_ctx_t * slot_ctx,
                                   rewarded_epoch,
                                   &point_value,
                                   calculate_stake_vote_rewards_result,
-                                  &epoch_info,
                                   runtime_spad );
 
     /* The vote reward map isn't actually used in this code path and will only

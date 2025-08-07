@@ -34,36 +34,6 @@ fd_stake_weights_by_node( fd_vote_accounts_global_t const * accs,
   return weights_cnt;
 }
 
-/* Helper function to deserialize a vote account. If successful, populates vote account info in `elem`
-   and saves the decoded vote state in `vote_state` */
-static fd_vote_state_versioned_t *
-deserialize_and_update_vote_account( fd_exec_slot_ctx_t * slot_ctx,
-                                     fd_pubkey_t const *  vote_account_pubkey,
-                                     fd_spad_t *          runtime_spad ) {
-
-  FD_TXN_ACCOUNT_DECL( vote_account );
-  if( FD_UNLIKELY( fd_txn_account_init_from_funk_readonly( vote_account,
-                                                           vote_account_pubkey,
-                                                           slot_ctx->funk,
-                                                           slot_ctx->funk_txn ) ) ) {
-    FD_LOG_DEBUG(( "Vote account not found" ));
-    return NULL;
-  }
-
-  // Deserialize the vote account and ensure its in the correct state
-  int err;
-  fd_vote_state_versioned_t * res = fd_bincode_decode_spad(
-      vote_state_versioned, runtime_spad,
-      fd_txn_account_get_data( vote_account ),
-      fd_txn_account_get_data_len( vote_account ),
-      &err );
-  if( FD_UNLIKELY( err ) ) {
-    return NULL;
-  }
-
-  return res;
-}
-
 static void FD_FN_UNUSED
 compute_stake_delegations( fd_bank_t *                bank,
                            ulong const                epoch,
@@ -195,51 +165,13 @@ https://github.com/solana-labs/solana/blob/c091fd3da8014c0ef83b626318018f238f506
 void
 fd_refresh_vote_accounts( fd_exec_slot_ctx_t *       slot_ctx,
                           fd_stake_history_t const * history,
-                          ulong *                    new_rate_activation_epoch,
-                          fd_epoch_info_t *          temp_info,
-                          fd_spad_t *                runtime_spad ) {
+                          ulong *                    new_rate_activation_epoch ) {
 
   compute_stake_delegations(
       slot_ctx->bank,
       fd_bank_epoch_get( slot_ctx->bank ),
       history,
       new_rate_activation_epoch );
-
-  fd_vote_states_t * vote_states = fd_bank_vote_states_locking_modify( slot_ctx->bank );
-
-  ulong vote_states_pool_sz  = fd_vote_states_cnt( vote_states );
-
-  /* Initialize a temporary vote states cache */
-  temp_info->vote_states_root = NULL;
-  uchar * pool_mem = fd_spad_alloc( runtime_spad, fd_vote_info_pair_t_map_align(), fd_vote_info_pair_t_map_footprint( vote_states_pool_sz ) );
-  temp_info->vote_states_pool = fd_vote_info_pair_t_map_join( fd_vote_info_pair_t_map_new( pool_mem, vote_states_pool_sz ) );
-
-  // Iterate over each vote account in the epoch stakes cache and populate the new vote accounts pool
-  fd_vote_state_ele_t * vote_state_pool = fd_vote_states_get_pool( vote_states );
-  fd_vote_state_map_t * vote_state_map = fd_vote_states_get_map( vote_states );
-  for( fd_vote_state_map_iter_t iter = fd_vote_state_map_iter_init( vote_state_map, vote_state_pool );
-       !fd_vote_state_map_iter_done( iter, vote_state_map, vote_state_pool );
-       iter = fd_vote_state_map_iter_next( iter, vote_state_map, vote_state_pool ) ) {
-
-    fd_vote_state_ele_t const * vote_state = fd_vote_state_map_iter_ele_const( iter, vote_state_map, vote_state_pool );
-
-    fd_pubkey_t const *         vote_account_pubkey  = &vote_state->vote_account;
-    fd_vote_state_versioned_t * vote_state_versioned = deserialize_and_update_vote_account( slot_ctx,
-                                                                                            vote_account_pubkey,
-                                                                                            runtime_spad );
-    if( FD_LIKELY( vote_state ) ) {
-      // Insert into the temporary vote states cache
-      fd_vote_info_pair_t_mapnode_t * new_vote_state_node = fd_vote_info_pair_t_map_acquire( temp_info->vote_states_pool );
-      new_vote_state_node->elem.account = *vote_account_pubkey;
-      new_vote_state_node->elem.state   = *vote_state_versioned;
-      fd_vote_info_pair_t_map_insert( temp_info->vote_states_pool, &temp_info->vote_states_root, new_vote_state_node );
-    } else {
-      FD_LOG_WARNING(( "Failed to deserialize vote account" ));
-    }
-  }
-
-  // Update the epoch stakes cache with new vote accounts from the epoch
-  fd_bank_vote_states_end_locking_modify( slot_ctx->bank );
 }
 
 static void
@@ -312,12 +244,10 @@ fd_accumulate_stake_infos( fd_exec_slot_ctx_t const * slot_ctx,
 
 /* https://github.com/solana-labs/solana/blob/88aeaa82a856fc807234e7da0b31b89f2dc0e091/runtime/src/stakes.rs#L169 */
 void
-fd_stakes_activate_epoch( fd_exec_slot_ctx_t *  slot_ctx,
-                          ulong *               new_rate_activation_epoch,
-                          fd_epoch_info_t *     temp_info,
-                          fd_spad_t *           runtime_spad ) {
+fd_stakes_activate_epoch( fd_exec_slot_ctx_t * slot_ctx,
+                          ulong *              new_rate_activation_epoch,
+                          fd_spad_t *          runtime_spad ) {
 
-  (void)temp_info;
   fd_stake_delegations_t * stake_delegations = fd_stake_delegations_join( (void*)fd_bank_stake_delegations_locking_modify( slot_ctx->bank ) );
 
   /* Current stake delegations: list of all current delegations in stake_delegations
