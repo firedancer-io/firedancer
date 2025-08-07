@@ -1,9 +1,43 @@
+#include "fd_solfuzz.h"
+#include "fd_solfuzz_private.h"
 #include "fd_txn_harness.h"
-#include "fd_harness_common.h"
+#include "../fd_runtime.h"
+#include "../fd_executor.h"
+#include "../fd_txn_account.h"
+#include "../context/fd_exec_slot_ctx.h"
+#include "../program/fd_builtin_programs.h"
+#include "../sysvar/fd_sysvar_clock.h"
+#include "../sysvar/fd_sysvar_epoch_rewards.h"
+#include "../sysvar/fd_sysvar_epoch_schedule.h"
+#include "../sysvar/fd_sysvar_recent_hashes.h"
+#include "../sysvar/fd_sysvar_rent.h"
+#include "../sysvar/fd_sysvar_slot_hashes.h"
+#include "../sysvar/fd_sysvar_stake_history.h"
+#include "../sysvar/fd_sysvar_last_restart_slot.h"
+#include "../../../disco/pack/fd_pack.h"
+#include <assert.h>
+
+/* Macros to append data to construct a serialized transaction
+   without exceeding bounds */
+#define FD_CHECKED_ADD_TO_TXN_DATA( _begin, _cur_data, _to_add, _sz ) __extension__({ \
+   if( FD_UNLIKELY( (*_cur_data)+_sz>_begin+FD_TXN_MTU ) ) return ULONG_MAX;          \
+   fd_memcpy( *_cur_data, _to_add, _sz );                                             \
+   *_cur_data += _sz;                                                                 \
+})
+
+#define FD_CHECKED_ADD_CU16_TO_TXN_DATA( _begin, _cur_data, _to_add ) __extension__({ \
+   do {                                                                               \
+      uchar _buf[3];                                                                  \
+      fd_bincode_encode_ctx_t _encode_ctx = { .data = _buf, .dataend = _buf+3 };      \
+      fd_bincode_compact_u16_encode( &_to_add, &_encode_ctx );                        \
+      ulong _sz = (ulong) ((uchar *)_encode_ctx.data - _buf );                        \
+      FD_CHECKED_ADD_TO_TXN_DATA( _begin, _cur_data, _buf, _sz );                     \
+   } while(0);                                                                        \
+})
 
 static void
-fd_runtime_fuzz_txn_ctx_destroy( fd_runtime_fuzz_runner_t * runner,
-                                 fd_exec_slot_ctx_t *       slot_ctx ) {
+fd_runtime_fuzz_txn_ctx_destroy( fd_solfuzz_runner_t * runner,
+                                 fd_exec_slot_ctx_t *  slot_ctx ) {
   if( !slot_ctx ) return; // This shouldn't be false either
   fd_funk_txn_t *       funk_txn  = slot_ctx->funk_txn;
 
@@ -13,7 +47,7 @@ fd_runtime_fuzz_txn_ctx_destroy( fd_runtime_fuzz_runner_t * runner,
 /* Creates transaction execution context for a single test case. Returns a
    a parsed txn descriptor on success and NULL on failure. */
 static fd_txn_p_t *
-fd_runtime_fuzz_txn_ctx_create( fd_runtime_fuzz_runner_t *         runner,
+fd_runtime_fuzz_txn_ctx_create( fd_solfuzz_runner_t *              runner,
                                 fd_exec_slot_ctx_t *               slot_ctx,
                                 fd_exec_test_txn_context_t const * test_ctx ) {
   fd_funk_t * funk = runner->funk;
@@ -352,10 +386,10 @@ fd_runtime_fuzz_serialize_txn( uchar *                                      txn_
 }
 
 fd_exec_txn_ctx_t *
-fd_runtime_fuzz_txn_ctx_exec( fd_runtime_fuzz_runner_t * runner,
-                              fd_exec_slot_ctx_t *       slot_ctx,
-                              fd_txn_p_t *               txn,
-                              int *                      exec_res ) {
+fd_runtime_fuzz_txn_ctx_exec( fd_solfuzz_runner_t * runner,
+                              fd_exec_slot_ctx_t *  slot_ctx,
+                              fd_txn_p_t *          txn,
+                              int *                 exec_res ) {
 
   /* Setup the spad for account allocation */
   uchar *             txn_ctx_mem = fd_spad_alloc( runner->spad, FD_EXEC_TXN_CTX_ALIGN, FD_EXEC_TXN_CTX_FOOTPRINT );
@@ -376,11 +410,11 @@ fd_runtime_fuzz_txn_ctx_exec( fd_runtime_fuzz_runner_t * runner,
 }
 
 ulong
-fd_runtime_fuzz_txn_run( fd_runtime_fuzz_runner_t * runner,
-                         void const *               input_,
-                         void **                    output_,
-                         void *                     output_buf,
-                         ulong                      output_bufsz ) {
+fd_solfuzz_txn_run( fd_solfuzz_runner_t * runner,
+                    void const *          input_,
+                    void **               output_,
+                    void *                output_buf,
+                    ulong                 output_bufsz ) {
   fd_exec_test_txn_context_t const * input  = fd_type_pun_const( input_ );
   fd_exec_test_txn_result_t **       output = fd_type_pun( output_ );
 
