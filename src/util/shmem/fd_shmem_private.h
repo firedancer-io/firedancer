@@ -148,7 +148,8 @@ fd_shmem_private_path( char const * name,    /* Valid name */
 
 void *
 fd_shmem_private_map_rand( ulong size,
-                           ulong align );
+                           ulong align,
+                           int   prot );
 
 FD_PROTOTYPES_END
 

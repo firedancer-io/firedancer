@@ -1,18 +1,17 @@
-#define FD_SCRATCH_USE_HANDHOLDING 1
-#include "../../fd_flamenco.h"
-#include "harness/fd_exec_sol_compat.h"
+#include "fd_solfuzz.h"
 #include <errno.h>
 #include <fcntl.h>
 #include <sys/types.h>
 #include <sys/stat.h>
 #include <unistd.h>
+#include "../fd_runtime.h"
 #include "../../../ballet/nanopb/pb_firedancer.h"
 
 /* run_test runs a test.
    Return 1 on success, 0 on failure. */
 static int
-run_test( fd_runtime_fuzz_runner_t * runner,
-          char const *               path ) {
+run_test( fd_solfuzz_runner_t * runner,
+          char const *          path ) {
 
   /* Read file content to memory */
 
@@ -33,17 +32,17 @@ run_test( fd_runtime_fuzz_runner_t * runner,
   FD_LOG_DEBUG(( "Running test %s", path ));
 
   if( strstr( path, "/instr/" ) != NULL ) {
-    ok = sol_compat_instr_fixture( runner, buf, file_sz );
+    ok = fd_solfuzz_instr_fixture( runner, buf, file_sz );
   } else if( strstr( path, "/txn/" ) != NULL ) {
-    ok = sol_compat_txn_fixture( runner, buf, file_sz );
+    ok = fd_solfuzz_txn_fixture( runner, buf, file_sz );
   } else if( strstr( path, "/elf_loader/" ) != NULL ) {
-    ok = sol_compat_elf_loader_fixture( runner, buf, file_sz );
+    ok = fd_solfuzz_elf_loader_fixture( runner, buf, file_sz );
   } else if( strstr( path, "/syscall/" ) != NULL ) {
-    ok = sol_compat_syscall_fixture( runner, buf, file_sz );
+    ok = fd_solfuzz_syscall_fixture( runner, buf, file_sz );
   } else if( strstr( path, "/vm_interp/" ) != NULL ){
-    ok = sol_compat_vm_interp_fixture( runner, buf, file_sz );
+    ok = fd_solfuzz_vm_interp_fixture( runner, buf, file_sz );
   } else if( strstr( path, "/block/" ) != NULL ){
-    ok = sol_compat_block_fixture( runner, buf, file_sz );
+    ok = fd_solfuzz_block_fixture( runner, buf, file_sz );
   } else {
     FD_LOG_WARNING(( "Unknown test type: %s", path ));
   }
@@ -58,42 +57,46 @@ int
 main( int     argc,
       char ** argv ) {
   fd_boot( &argc, &argv );
-  ulong wksp_page_sz = fd_env_strip_cmdline_ulong( &argc, &argv, "--wksp-page-sz", "SOL_COMPAT_WKSP_PAGE_SZ", ULONG_MAX );
-  if( wksp_page_sz == ULONG_MAX ) {
-    wksp_page_sz = FD_SHMEM_NORMAL_PAGE_SZ;
-  }
 
-  sol_compat_wksp_init( wksp_page_sz );
+  char const * wksp_name = fd_env_strip_cmdline_cstr ( &argc, &argv, "--wksp",      NULL,    NULL );
+  uint         wksp_seed = fd_env_strip_cmdline_uint ( &argc, &argv, "--wksp-seed", NULL,      0U );
+  ulong        wksp_tag  = fd_env_strip_cmdline_ulong( &argc, &argv, "--wksp-tag",  NULL,     1UL );
+  ulong        data_max  = fd_env_strip_cmdline_ulong( &argc, &argv, "--data-max",  NULL, 6UL<<30 ); /* 6 GiB */
+  ulong        part_max  = fd_env_strip_cmdline_ulong( &argc, &argv, "--part-max",  NULL, fd_wksp_part_max_est( data_max, 64UL<<10 ) );
+
+  fd_wksp_t * wksp;
+  if( wksp_name ) {
+    FD_LOG_INFO(( "Attaching to --wksp %s", wksp_name ));
+    wksp = fd_wksp_attach( wksp_name );
+  } else {
+    FD_LOG_INFO(( "--wksp not specified, using anonymous demand-paged memory --part-max %lu --data-max %lu", part_max, data_max ));
+    wksp = fd_wksp_demand_paged_new( "solfuzz", wksp_seed, part_max, data_max );
+  }
+  if( FD_UNLIKELY( !wksp ) ) return 255;
+
+  fd_solfuzz_runner_t * runner = fd_solfuzz_runner_new( wksp, wksp_tag );
+  FD_TEST( runner );
 
   ulong fail_cnt = 0UL;
   for( int j=1; j<argc; j++ ) {
-    // Init runner
-    fd_runtime_fuzz_runner_t * runner = sol_compat_setup_runner();
-
     ulong frames_used_pre_test = runner->spad->frame_free;
     ulong mem_used_pre_test    = runner->spad->mem_used;
 
-    FD_SPAD_FRAME_BEGIN( runner->spad ) {
-
+    fd_spad_push( runner->spad );
     fail_cnt += !run_test( runner, argv[j] );
-
-    } FD_SPAD_FRAME_END;
+    fd_spad_pop( runner->spad );
 
     ulong frames_used_post_test = runner->spad->frame_free;
     ulong mem_used_post_test    = runner->spad->mem_used;
 
     FD_TEST( frames_used_pre_test == frames_used_post_test );
     FD_TEST( mem_used_pre_test    == mem_used_post_test    );
-
-    // Free runner
-    sol_compat_cleanup_runner( runner );
-
-    // Check usage
-    sol_compat_check_wksp_usage();
   }
 
-  /* TODO: verify that there are no leaked libc allocs and vallocs */
-  sol_compat_fini();
+  fd_solfuzz_runner_delete( runner );
+  if( wksp_name ) fd_wksp_detach( wksp );
+  else            fd_wksp_demand_paged_delete( wksp );
+
   fd_halt();
   return fail_cnt>0UL;
 }

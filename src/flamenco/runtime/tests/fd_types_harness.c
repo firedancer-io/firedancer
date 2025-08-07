@@ -1,7 +1,7 @@
-#include "fd_types_harness.h"
-#include "../../../types/fd_types_yaml.h"
-#include "../../../types/fd_types_reflect.h"
-#include <ctype.h>
+#include "fd_solfuzz.h"
+#include "../../types/fd_types_yaml.h"
+#include "../../types/fd_types_reflect.h"
+#include <stdio.h>
 
 #include "generated/type.pb.h"
 
@@ -162,11 +162,11 @@ custom_serializer_walk( void *       _self,
 }
 
 static int
-fd_runtime_fuzz_decode_type_run( fd_runtime_fuzz_runner_t * runner,
-                                 uchar const *              input,
-                                 ulong                      input_sz,
-                                 uchar *                    output,
-                                 ulong *                    output_sz ) {
+fd_runtime_fuzz_decode_type_run( fd_solfuzz_runner_t * runner,
+                                 uchar const *         input,
+                                 ulong                 input_sz,
+                                 uchar *               output,
+                                 ulong *               output_sz ) {
 
   FD_SPAD_FRAME_BEGIN( runner->spad ) {
     if( input_sz < 1 ) {
@@ -290,11 +290,11 @@ fd_runtime_fuzz_decode_type_run( fd_runtime_fuzz_runner_t * runner,
 }
 
 ulong
-fd_runtime_fuzz_type_run( fd_runtime_fuzz_runner_t * runner,
-                          void const *               input_,
-                          void **                    output_,
-                          void *                     output_buf,
-                          ulong                      output_bufsz ) {
+fd_solfuzz_type_run( fd_solfuzz_runner_t * runner,
+                     void const *          input_,
+                     void **               output_,
+                     void *                output_buf,
+                     ulong                 output_bufsz ) {
   fd_exec_test_type_context_t const * input  = fd_type_pun_const( input_ );
   fd_exec_test_type_effects_t **      output = fd_type_pun( output_ );
 
