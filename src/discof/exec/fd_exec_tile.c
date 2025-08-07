@@ -73,7 +73,6 @@ struct fd_exec_tile_ctx {
 
   /* Current bank being executed. */
   fd_banks_t *          banks;
-  fd_bank_t *           bank;
 
   fd_capture_ctx_t *    capture_ctx;
 };
@@ -94,96 +93,19 @@ scratch_footprint( fd_topo_tile_t const * tile FD_PARAM_UNUSED ) {
   /* clang-format on */
 }
 
-static fd_funk_txn_t *
-funk_txn_get( fd_exec_tile_ctx_t * ctx ) {
-/* Query the funk transaction for the given slot. */
-  fd_funk_txn_map_t * txn_map = fd_funk_txn_map( ctx->funk );
-  if( FD_UNLIKELY( !txn_map->map ) ) {
-    FD_LOG_ERR(( "Could not find valid funk transaction map" ));
-  }
-  fd_funk_txn_xid_t xid = { .ul = { ctx->slot, ctx->slot } };
-  fd_funk_txn_start_read( ctx->funk );
-  fd_funk_txn_t * funk_txn = fd_funk_txn_query( &xid, txn_map );
-  if( FD_UNLIKELY( !funk_txn ) ) {
-    FD_LOG_ERR(( "Could not find valid funk transaction" ));
-  }
-  fd_funk_txn_end_read( ctx->funk );
-  return funk_txn;
-}
-
-static fd_bank_t *
-bank_get( fd_exec_tile_ctx_t * ctx ) {
-  return fd_banks_get_bank( ctx->banks, ctx->slot );
-}
-
 static void
 execute_txn( fd_exec_tile_ctx_t * ctx ) {
-
-  FD_SPAD_FRAME_BEGIN( ctx->exec_spad ) {
-
-  ctx->exec_res = 0;
-
-  ctx->txn_ctx->funk_txn = funk_txn_get( ctx );
-  if( FD_UNLIKELY( !ctx->txn_ctx->funk_txn ) ) {
-    FD_LOG_CRIT(( "Could not get funk transaction for slot %lu", ctx->slot ));
-  }
-
-  /* Get the bank for the given slot. */
   fd_banks_lock( ctx->banks );
-  ctx->bank = bank_get( ctx );
-  if( FD_UNLIKELY( !ctx->bank ) ) {
-    FD_LOG_CRIT(( "Could not get bank for slot %lu", ctx->slot ));
-  }
-
-  /* Setup and execute the transaction. */
-  ctx->txn_ctx->bank     = ctx->bank;
-  ctx->txn_ctx->slot     = fd_bank_slot_get( ctx->bank );
-  ctx->txn_ctx->features = fd_bank_features_get( ctx->bank );
-
-  fd_txn_t const * txn_descriptor = TXN( &ctx->txn );
-  fd_rawtxn_b_t    raw_txn        = {
-    .raw    = ctx->txn.payload,
-    .txn_sz = (ushort)ctx->txn.payload_sz
-  };
-
-  ctx->txn.flags = FD_TXN_P_FLAGS_SANITIZE_SUCCESS;
-
-  fd_exec_txn_ctx_setup( ctx->txn_ctx, txn_descriptor, &raw_txn );
-  ctx->txn_ctx->capture_ctx = ctx->capture_ctx;
-
-  /* Set up the core account keys. These are the account keys directly
-     passed in via the serialized transaction, represented as an array.
-     Note that this does not include additional keys referenced in
-     address lookup tables. */
-  fd_executor_setup_txn_account_keys( ctx->txn_ctx );
-
-  if( FD_UNLIKELY( fd_executor_txn_verify( ctx->txn_ctx )!=0 ) ) {
-    FD_LOG_WARNING(( "sigverify failed: %s", FD_BASE58_ENC_64_ALLOCA( (uchar *)ctx->txn_ctx->_txn_raw->raw+ctx->txn_ctx->txn_descriptor->signature_off ) ));
-    ctx->txn.flags = 0U;
-    ctx->exec_res  = FD_RUNTIME_TXN_ERR_SIGNATURE_FAILURE;
-    fd_banks_unlock( ctx->banks );
-    return;
-  }
-
-  ctx->exec_res = fd_runtime_pre_execute_check( &ctx->txn, ctx->txn_ctx );
-  if( FD_UNLIKELY( !( ctx->txn.flags & FD_TXN_P_FLAGS_SANITIZE_SUCCESS ) ) ) {
-    fd_banks_unlock( ctx->banks );
-    return;
-  }
-
-  /* Execute */
-  ctx->txn.flags |= FD_TXN_P_FLAGS_EXECUTE_SUCCESS;
-
-  if( FD_LIKELY( !(ctx->txn.flags & FD_TXN_P_FLAGS_FEES_ONLY) ) ) {
-    ctx->exec_res = fd_execute_txn( ctx->txn_ctx );
-  }
-
-  if( FD_LIKELY( ctx->exec_res==FD_EXECUTOR_INSTR_SUCCESS ) ) {
-    fd_txn_reclaim_accounts( ctx->txn_ctx );
-  }
+  ctx->exec_res = fd_runtime_prepare_and_execute_txn(
+      ctx->banks,
+      ctx->txn_ctx,
+      &ctx->txn,
+      ctx->exec_spad,
+      ctx->slot,
+      ctx->capture_ctx,
+      1
+  );
   fd_banks_unlock( ctx->banks );
-
-  } FD_SPAD_FRAME_END;
 }
 
 static void
