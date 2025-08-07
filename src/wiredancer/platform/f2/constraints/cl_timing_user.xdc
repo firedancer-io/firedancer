@@ -16,4 +16,17 @@
 # =============================================================================
 
 
-# Add timing constraints here
+#################################################################################
+### Generated Clocks
+#################################################################################
+# Alias of Shell interface clock
+set clk_main_a0 [get_clocks -of_objects [get_ports clk_main_a0]]
+
+
+#################################################################################
+### Clock Groups
+#################################################################################
+# false path inside sh_ddr
+set_false_path -from [get_pins -of_objects \
+                          [get_cells -hierarchical -filter { NAME =~ *ram_reg*}] -filter {REF_PIN_NAME == CLK}] \
+               -to   [get_cells -hierarchical -filter { NAME =~ *rd_do_reg[*]}]

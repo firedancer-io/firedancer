@@ -41,7 +41,8 @@ module top_wd #(
     DBG_WIDTH = 1024,
     NO_DDR = 4,
     DMA_N = 2,
-    DDR_BUFF_W = 20
+    DDR_BUFF_W = 20,
+    N_PCIE = 2
 ) (
 
     input wire [1-1:0]                                  avmm_read,

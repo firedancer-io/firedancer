@@ -15,5 +15,4 @@
 # limitations under the License.
 # =============================================================================
 
-
-# Add synthesis constraint here
+set_property MAX_FANOUT 50 [get_nets -of_objects [get_pins CL_PCIM_MSTR/CL_TST_PCI/sync_rst_n_reg/Q]]
