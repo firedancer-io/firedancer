@@ -1320,9 +1320,7 @@ handle_new_slot( fd_replay_tile_ctx_t * ctx,
   fd_funk_txn_t * parent_txn = fd_funk_txn_query( &parent_xid, txn_map );
 
   fd_funk_txn_t * funk_txn = fd_funk_txn_prepare( ctx->funk, parent_txn, &xid, 1 );
-  if( FD_UNLIKELY( !funk_txn ) ) {
-    FD_LOG_CRIT(( "invariant violation: funk_txn is NULL for slot %lu", slot ));
-  }
+  if( FD_UNLIKELY( !funk_txn ) ) FD_LOG_ERR(( "fd_funk_txn_prepare failed" ));
 
   ctx->slot_ctx->funk_txn = funk_txn;
 
