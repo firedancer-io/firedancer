@@ -2850,11 +2850,9 @@ remove_vote_account( fd_txn_account_t *   vote_account,
   fd_vote_accounts_pair_global_t_mapnode_t * epoch_vote_accounts_root = fd_vote_accounts_vote_accounts_root_join( epoch_vote_accounts );
 
   if( FD_UNLIKELY( epoch_vote_accounts_pool==NULL ) ) {
-    FD_LOG_DEBUG(("Vote accounts pool does not exist"));
     fd_bank_curr_epoch_stakes_end_locking_modify( bank );
     return;
   }
-
 
   fd_vote_accounts_pair_global_t_mapnode_t vote_acc;
   fd_memcpy( vote_acc.elem.key.uc, vote_account->pubkey->uc, sizeof(fd_pubkey_t) );
@@ -2866,47 +2864,15 @@ remove_vote_account( fd_txn_account_t *   vote_account,
   fd_vote_accounts_vote_accounts_pool_update( epoch_vote_accounts, epoch_vote_accounts_pool );
   fd_vote_accounts_vote_accounts_root_update( epoch_vote_accounts, epoch_vote_accounts_root );
   fd_bank_curr_epoch_stakes_end_locking_modify( bank );
-
-  fd_account_keys_global_t * vote_account_keys = fd_bank_vote_account_keys_locking_modify( bank );
-  fd_account_keys_pair_t_mapnode_t * vote_account_keys_pool = fd_account_keys_account_keys_pool_join( vote_account_keys );
-  fd_account_keys_pair_t_mapnode_t * vote_account_keys_root = fd_account_keys_account_keys_root_join( vote_account_keys );
-
-  if( FD_UNLIKELY( vote_account_keys_pool==NULL ) ) {
-    fd_bank_vote_account_keys_end_locking_modify( bank );
-    FD_LOG_DEBUG(("Vote accounts pool does not exist"));
-    return;
-  }
-
-  fd_account_keys_pair_t_mapnode_t account_key;
-  fd_memcpy( account_key.elem.key.uc, vote_account->pubkey->uc, sizeof(fd_pubkey_t) );
-  fd_account_keys_pair_t_mapnode_t * account_key_entry = fd_account_keys_pair_t_map_find( vote_account_keys_pool, vote_account_keys_root, &account_key );
-  if( account_key_entry ) {
-    fd_account_keys_pair_t_map_remove( vote_account_keys_pool, &vote_account_keys_root, account_key_entry );
-  }
-
-  fd_account_keys_account_keys_pool_update( vote_account_keys, vote_account_keys_pool );
-
-  fd_bank_vote_account_keys_end_locking_modify( bank );
 }
 
 static void
 upsert_vote_account( fd_txn_account_t *   vote_account,
                      fd_bank_t *          bank ) {
 
-  fd_vote_accounts_global_t const * vote_accounts = fd_bank_curr_epoch_stakes_locking_query( bank );
+  fd_vote_accounts_global_t * vote_accounts = fd_bank_curr_epoch_stakes_locking_modify( bank );
   fd_vote_accounts_pair_global_t_mapnode_t * stakes_vote_accounts_pool = fd_vote_accounts_vote_accounts_pool_join( vote_accounts );
   fd_vote_accounts_pair_global_t_mapnode_t * stakes_vote_accounts_root = fd_vote_accounts_vote_accounts_root_join( vote_accounts );
-
-  fd_account_keys_global_t *         vote_account_keys      = fd_bank_vote_account_keys_locking_modify( bank );
-  fd_account_keys_pair_t_mapnode_t * vote_account_keys_pool = fd_account_keys_account_keys_pool_join( vote_account_keys );
-  fd_account_keys_pair_t_mapnode_t * vote_account_keys_root = fd_account_keys_account_keys_root_join( vote_account_keys );
-
-  if( FD_UNLIKELY( vote_account_keys_pool==NULL ) ) {
-    fd_bank_vote_account_keys_end_locking_modify( bank );
-    fd_bank_curr_epoch_stakes_end_locking_query( bank );
-    FD_LOG_DEBUG(( "Vote accounts pool does not exist" ));
-    return;
-  }
 
   if( fd_vote_state_versions_is_correct_and_initialized( vote_account ) ) {
     fd_account_keys_pair_t_mapnode_t key;
@@ -2916,25 +2882,22 @@ upsert_vote_account( fd_txn_account_t *   vote_account,
     fd_memcpy( &vote_acc.elem.key, vote_account->pubkey->uc, sizeof(fd_pubkey_t) );
 
     // Skip duplicates
-    if( FD_LIKELY( fd_account_keys_pair_t_map_find( vote_account_keys_pool, vote_account_keys_root, &key ) ||
-                   fd_vote_accounts_pair_global_t_map_find( stakes_vote_accounts_pool, stakes_vote_accounts_root, &vote_acc )  ) ) {
-      fd_bank_vote_account_keys_end_locking_modify( bank );
-      fd_bank_curr_epoch_stakes_end_locking_query( bank );
+    if( FD_LIKELY( fd_vote_accounts_pair_global_t_map_find( stakes_vote_accounts_pool, stakes_vote_accounts_root, &vote_acc )  ) ) {
+      fd_bank_curr_epoch_stakes_end_locking_modify( bank );
       return;
     }
-    fd_bank_curr_epoch_stakes_end_locking_query( bank );
 
-    fd_account_keys_pair_t_mapnode_t * new_node = fd_account_keys_pair_t_map_acquire( vote_account_keys_pool );
+    fd_vote_accounts_pair_global_t_mapnode_t * new_node = fd_vote_accounts_pair_global_t_map_acquire( stakes_vote_accounts_pool );
     if( FD_UNLIKELY( !new_node ) ) {
-      FD_LOG_ERR(("Map full"));
+      FD_LOG_CRIT(( "Map full" ));
     }
 
-    fd_memcpy( &new_node->elem.key, vote_account->pubkey, sizeof(fd_pubkey_t));
-    fd_account_keys_pair_t_map_insert( vote_account_keys_pool, &vote_account_keys_root, new_node );
-    fd_bank_vote_account_keys_end_locking_modify( bank );
+    fd_memcpy( &new_node->elem.key, vote_account->pubkey, sizeof(fd_pubkey_t) );
+
+    fd_vote_accounts_pair_global_t_map_insert( stakes_vote_accounts_pool, &stakes_vote_accounts_root, new_node );
+    fd_bank_curr_epoch_stakes_end_locking_modify( bank );
   } else {
-    fd_bank_vote_account_keys_end_locking_modify( bank );
-    fd_bank_curr_epoch_stakes_end_locking_query( bank );
+    fd_bank_curr_epoch_stakes_end_locking_modify( bank );
     remove_vote_account( vote_account, bank );
   }
 }

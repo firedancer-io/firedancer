@@ -115,14 +115,13 @@ main( int argc, char ** argv ) {
 
   /* Set some CoW fields. */
 
-  fd_account_keys_global_t * keys = fd_bank_vote_account_keys_locking_modify( bank9 );
-  keys->account_keys_pool_offset = 100UL;
-  keys->account_keys_root_offset = 100UL;
-  fd_bank_vote_account_keys_end_locking_modify( bank9 );
+  fd_stake_delegations_t * keys = fd_bank_stake_delegations_locking_modify( bank9 );
+  keys->magic = 101UL;
+  fd_bank_stake_delegations_end_locking_modify( bank9 );
 
   /* Check that are now 15 free pool elements. */
 
-  FD_TEST( fd_bank_vote_account_keys_pool_free( fd_bank_get_vote_account_keys_pool( bank9 ) ) == 15UL );
+  FD_TEST( fd_bank_stake_delegations_pool_free( fd_bank_get_stake_delegations_pool( bank9 ) ) == 15UL );
 
   fd_stake_delegations_t * keys2 = fd_bank_stake_delegations_locking_modify( bank9 );
   keys2->magic = 101UL;
@@ -170,19 +169,17 @@ main( int argc, char ** argv ) {
   /* Again, there are no free epoch leader pool elements. */
   FD_TEST( !fd_bank_epoch_leaders_pool_free( fd_bank_get_epoch_leaders_pool( bank11 ) ) );
 
-  fd_account_keys_global_t const * keys3 = fd_bank_vote_account_keys_locking_query( bank11 );
-  FD_TEST( keys3->account_keys_pool_offset == 100UL );
-  FD_TEST( keys3->account_keys_root_offset == 100UL );
-  fd_bank_vote_account_keys_end_locking_query( bank11 );
+  fd_stake_delegations_t const * keys3 = fd_bank_stake_delegations_locking_query( bank11 );
+  FD_TEST( keys3->magic == 101UL );
+  fd_bank_stake_delegations_end_locking_query( bank11 );
 
   fd_stake_delegations_t const * keys4 = fd_bank_stake_delegations_locking_query( bank11 );
   FD_TEST( keys4->magic == 101UL );
   fd_bank_stake_delegations_end_locking_query( bank11 );
 
-  keys = fd_bank_vote_account_keys_locking_modify( bank11 );
-  keys->account_keys_pool_offset = 200UL;
-  keys->account_keys_root_offset = 200UL;
-  fd_bank_vote_account_keys_end_locking_modify( bank11 );
+  keys = fd_bank_stake_delegations_locking_modify( bank11 );
+  keys->magic = 101UL;
+  fd_bank_stake_delegations_end_locking_modify( bank11 );
 
   fd_clock_timestamp_votes_global_t const * votes_const = fd_bank_clock_timestamp_votes_locking_query( bank11 );
   FD_TEST( !votes_const );
@@ -212,10 +209,9 @@ main( int argc, char ** argv ) {
 
   /* Verify that the CoW fields are properly set for bank11 */
 
-  keys3 = fd_bank_vote_account_keys_locking_query( bank11 );
-  FD_TEST( keys3->account_keys_pool_offset == 200UL );
-  FD_TEST( keys3->account_keys_root_offset == 200UL );
-  fd_bank_vote_account_keys_end_locking_query( bank11 );
+  keys3 = fd_bank_stake_delegations_locking_query( bank11 );
+  FD_TEST( keys3->magic == 101UL );
+  fd_bank_stake_delegations_end_locking_query( bank11 );
 
   keys4 = fd_bank_stake_delegations_locking_query( bank11 );
   FD_TEST( keys4->magic == 101UL );
@@ -239,10 +235,9 @@ main( int argc, char ** argv ) {
   FD_TEST( fd_bank_slot_get( bank11 ) == 11UL );
   FD_TEST( fd_bank_capitalization_get( bank11 ) == 0UL );
 
-  keys3 = fd_bank_vote_account_keys_locking_query( bank11 );
-  FD_TEST( keys3->account_keys_pool_offset == 100UL );
-  FD_TEST( keys3->account_keys_root_offset == 100UL );
-  fd_bank_vote_account_keys_end_locking_query( bank11 );
+  keys3 = fd_bank_stake_delegations_locking_query( bank11 );
+  FD_TEST( keys3->magic == 101UL );
+  fd_bank_stake_delegations_end_locking_query( bank11 );
 
   keys4 = fd_bank_stake_delegations_locking_query( bank11 );
   FD_TEST( keys4->magic == 101UL );

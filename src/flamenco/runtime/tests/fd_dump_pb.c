@@ -547,22 +547,6 @@ create_block_context_protobuf_from_block( fd_exec_test_block_context_t * block_c
 
   fd_bank_curr_epoch_stakes_end_locking_query( slot_ctx->bank );
 
-  fd_account_keys_global_t const * vote_account_keys = fd_bank_vote_account_keys_locking_query( slot_ctx->bank );
-  fd_account_keys_pair_t_mapnode_t * vote_account_keys_pool = fd_account_keys_account_keys_pool_join( vote_account_keys );
-  fd_account_keys_pair_t_mapnode_t * vote_account_keys_root = fd_account_keys_account_keys_root_join( vote_account_keys );
-
-
-  /* Dump all new vote accounts */
-  for( fd_account_keys_pair_t_mapnode_t const * curr = fd_account_keys_pair_t_map_minimum_const(
-          vote_account_keys_pool,
-          vote_account_keys_root );
-       curr;
-       curr = fd_account_keys_pair_t_map_successor_const( vote_account_keys_pool, curr ) ) {
-    dump_account_if_not_already_dumped( slot_ctx->funk, slot_ctx->funk_txn, &curr->elem.key, spad, block_context->acct_states, &block_context->acct_states_count, NULL );
-  }
-
-  fd_bank_vote_account_keys_end_locking_query( slot_ctx->bank );
-
   // BlockContext -> EpochContext -> vote_accounts_t_1 (vote accounts at epoch T-1)
   fd_vote_accounts_global_t const * next_epoch_stakes_vaccs = fd_bank_next_epoch_stakes_locking_query( slot_ctx->bank );
   dump_vote_accounts( slot_ctx,

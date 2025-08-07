@@ -2775,16 +2775,6 @@ fd_runtime_read_genesis( fd_exec_slot_ctx_t *   slot_ctx,
       FD_LOG_ERR(( "Genesis slot 0 execute failed with error %d", err ));
     }
   }
-
-  fd_account_keys_global_t *         vote_account_keys      = fd_bank_vote_account_keys_locking_modify( slot_ctx->bank );
-  uchar *                            pool_mem               = (uchar *)fd_ulong_align_up( (ulong)vote_account_keys + sizeof(fd_account_keys_global_t), fd_account_keys_pair_t_map_align() );
-  fd_account_keys_pair_t_mapnode_t * vote_account_keys_pool = fd_account_keys_pair_t_map_join( fd_account_keys_pair_t_map_new( pool_mem, 100000UL ) );
-  fd_account_keys_pair_t_mapnode_t * vote_account_keys_root = NULL;
-
-  fd_account_keys_account_keys_pool_update( vote_account_keys, vote_account_keys_pool );
-  fd_account_keys_account_keys_root_update( vote_account_keys, vote_account_keys_root );
-
-  fd_bank_vote_account_keys_end_locking_modify( slot_ctx->bank );
 }
 
 /******************************************************************************/

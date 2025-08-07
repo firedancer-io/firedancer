@@ -278,16 +278,7 @@ fd_runtime_fuzz_block_ctx_create( fd_runtime_fuzz_runner_t *           runner,
 
   fd_bank_block_height_set( slot_ctx->bank, test_ctx->slot_ctx.block_height );
 
-  // /* Initialize the current running epoch stake and vote accounts */
-
-  fd_account_keys_global_t * vote_account_keys = fd_bank_vote_account_keys_locking_modify( slot_ctx->bank );
-  pool_mem = (uchar *)fd_ulong_align_up( (ulong)vote_account_keys + sizeof(fd_account_keys_global_t), fd_account_keys_pair_t_map_align() );
-  fd_account_keys_pair_t_mapnode_t * vote_account_keys_pool = fd_account_keys_pair_t_map_join( fd_account_keys_pair_t_map_new( pool_mem, vote_acct_max ) );
-  fd_account_keys_pair_t_mapnode_t * vote_account_keys_root = NULL;
-  fd_account_keys_account_keys_pool_update( vote_account_keys, vote_account_keys_pool );
-  fd_account_keys_account_keys_root_update( vote_account_keys, vote_account_keys_root );
-  fd_bank_vote_account_keys_end_locking_modify( slot_ctx->bank );
-
+  /* Initialize the current running epoch stake and vote accounts */
 
   /* SETUP STAKES HERE */
   fd_vote_accounts_global_t * curr_stakes = fd_bank_curr_epoch_stakes_locking_modify( slot_ctx->bank );
