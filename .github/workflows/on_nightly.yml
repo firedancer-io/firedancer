@@ -16,6 +16,7 @@ jobs:
     with:
         # compiler,machine,target
       gcc_exceptions: |
+        ALL,linux_gcc_riscv,ALL;
         ALL,linux_gcc_power9,ALL;
         ALL,linux_gcc_arm_n1,ALL;
         gcc-8.5.0,linux_gcc_zen2,ALL;
@@ -29,7 +30,6 @@ jobs:
         gcc-11.4.0,linux_gcc_zen5,ALL;
         gcc-12.4.0,linux_gcc_zen5,ALL;
         gcc-13.3.0,linux_gcc_zen5,ALL;
-        gcc-14.1.0,linux_gcc_zen5,ALL;
-        ALL,linux_gcc_riscv,ALL
+        gcc-14.1.0,linux_gcc_zen5,ALL
       verbose: false
       build_arm: true
