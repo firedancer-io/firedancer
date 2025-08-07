@@ -620,8 +620,13 @@ calculate_stake_vote_rewards( fd_exec_slot_ctx_t *                       slot_ct
   fd_stake_reward_calculation_dlist_new( result->stake_reward_calculation.stake_rewards );
   result->stake_reward_calculation.stake_rewards_len = 0UL;
 
+  fd_vote_states_t const * vote_states = fd_bank_vote_states_locking_query( slot_ctx->bank );
+  if( FD_UNLIKELY( !vote_states ) ) {
+    FD_LOG_CRIT(( "vote_states is NULL" ));
+  }
+
   /* Create the vote rewards map. This will be destroyed after the vote rewards have been distributed. */
-  ulong vote_account_cnt       = fd_vote_info_pair_t_map_size( temp_info->vote_states_pool, temp_info->vote_states_root );
+  ulong vote_account_cnt       = fd_vote_states_cnt( vote_states );
   result->vote_reward_map_pool = fd_vote_reward_t_map_join( fd_vote_reward_t_map_new( fd_spad_alloc( runtime_spad,
                                                                                                      fd_vote_reward_t_map_align(),
                                                                                                      fd_vote_reward_t_map_footprint( vote_account_cnt )),
@@ -629,19 +634,25 @@ calculate_stake_vote_rewards( fd_exec_slot_ctx_t *                       slot_ct
   result->vote_reward_map_root = NULL;
 
   /* Pre-fill the vote pubkeys in the vote rewards map pool */
-  for( fd_vote_info_pair_t_mapnode_t * vote_info = fd_vote_info_pair_t_map_minimum( temp_info->vote_states_pool, temp_info->vote_states_root );
-       vote_info;
-       vote_info = fd_vote_info_pair_t_map_successor( temp_info->vote_states_pool, vote_info ) ) {
+  fd_vote_state_ele_t * vote_state_pool = fd_vote_states_get_pool( vote_states );
+  fd_vote_state_map_t * vote_state_map = fd_vote_states_get_map( vote_states );
 
-    fd_pubkey_t const *          voter_pubkey     = &vote_info->elem.account;
+  for( fd_vote_state_map_iter_t iter = fd_vote_state_map_iter_init( vote_state_map, vote_state_pool );
+       !fd_vote_state_map_iter_done( iter, vote_state_map, vote_state_pool );
+       iter = fd_vote_state_map_iter_next( iter, vote_state_map, vote_state_pool ) ) {
+
+    fd_vote_state_ele_t const * vote_state = fd_vote_state_map_iter_ele_const( iter, vote_state_map, vote_state_pool );
+
     fd_vote_reward_t_mapnode_t * vote_reward_node = fd_vote_reward_t_map_acquire( result->vote_reward_map_pool );
 
-    vote_reward_node->elem.pubkey       = *voter_pubkey;
+    vote_reward_node->elem.pubkey       = vote_state->vote_account;
     vote_reward_node->elem.vote_rewards = 0UL;
     vote_reward_node->elem.needs_store  = 0;
 
     fd_vote_reward_t_map_insert( result->vote_reward_map_pool, &result->vote_reward_map_root, vote_reward_node );
   }
+
+  fd_bank_vote_states_end_locking_query( slot_ctx->bank );
 
   fd_bank_stake_delegations_end_locking_query( slot_ctx->bank );
 

@@ -415,7 +415,8 @@ fd_vote_states_update_stake( fd_vote_states_t *  vote_states,
       NULL,
       vote_state_pool );
   if( FD_UNLIKELY( !vote_state ) ) {
-    FD_LOG_CRIT(( "unable to retrieve vote state" ));
+    FD_LOG_WARNING(( "unable to retrieve vote state" ));
+    return;
   }
 
   vote_state->stake = stake;

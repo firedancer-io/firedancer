@@ -82,15 +82,11 @@ compute_stake_delegations( fd_bank_t *                bank,
   fd_stake_delegation_map_t * stake_delegation_map  = fd_stake_delegations_get_map( stake_delegations );
   fd_stake_delegation_t *     stake_delegation_pool = fd_stake_delegations_get_pool( stake_delegations );
 
-  fd_stake_weight_t_mapnode_t temp;
-
   for( fd_stake_delegation_map_iter_t iter = fd_stake_delegation_map_iter_init( stake_delegation_map, stake_delegation_pool );
        !fd_stake_delegation_map_iter_done( iter, stake_delegation_map, stake_delegation_pool );
        iter = fd_stake_delegation_map_iter_next( iter, stake_delegation_map, stake_delegation_pool ) ) {
 
     fd_stake_delegation_t const * stake_delegation = fd_stake_delegation_map_iter_ele_const( iter, stake_delegation_map, stake_delegation_pool );
-
-    temp.elem.key = stake_delegation->vote_account;
 
     // Skip any delegations that are not in the delegation pool
 
