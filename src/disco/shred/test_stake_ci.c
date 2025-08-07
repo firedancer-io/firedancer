@@ -445,6 +445,206 @@ test_staked_by_vote( void ) {
   fd_stake_ci_delete( fd_stake_ci_leave( info ) );
 }
 
+static void
+test_dest_update( void ) {
+  fd_stake_ci_t * info = fd_stake_ci_join( fd_stake_ci_new( _info, identity_key ) );
+
+  /* Set up initial state with only staked nodes */
+  fd_stake_ci_stake_msg_init( info, generate_stake_msg( stake_msg, 0UL, "ABC" ) );
+  fd_stake_ci_stake_msg_fini( info );
+  check_destinations( info, 0UL, "ABC", "I" );
+
+  /* Test updating existing staked node */
+  fd_pubkey_t pubkey_a;
+  memset( pubkey_a.uc, 'A', sizeof(fd_pubkey_t) );
+  fd_stake_ci_dest_update( info, &pubkey_a, 0x12345678U, 8080 );
+
+  fd_shred_dest_t * sdest = fd_stake_ci_get_sdest_for_slot( info, 0UL );
+  fd_shred_dest_idx_t idx_a = fd_shred_dest_pubkey_to_idx( sdest, &pubkey_a );
+  FD_TEST( idx_a != FD_SHRED_DEST_NO_DEST );
+  fd_shred_dest_weighted_t * dest_a = fd_shred_dest_idx_to_dest( sdest, idx_a );
+  FD_TEST( dest_a->ip4 == 0x12345678U );
+  FD_TEST( dest_a->port == 8080 );
+  FD_TEST( dest_a->stake_lamports > 0UL ); /* Should still be staked */
+
+  /* Test adding new unstaked node via update */
+  fd_pubkey_t pubkey_d;
+  memset( pubkey_d.uc, 'D', sizeof(fd_pubkey_t) );
+  fd_stake_ci_dest_update( info, &pubkey_d, 0x87654321U, 9090 );
+
+  /* D should now be in the unstaked list */
+  check_destinations( info, 0UL, "ABC", "DI" );
+
+  fd_shred_dest_idx_t idx_d = fd_shred_dest_pubkey_to_idx( sdest, &pubkey_d );
+  FD_TEST( idx_d != FD_SHRED_DEST_NO_DEST );
+  fd_shred_dest_weighted_t * dest_d = fd_shred_dest_idx_to_dest( sdest, idx_d );
+  FD_TEST( dest_d->ip4 == 0x87654321U );
+  FD_TEST( dest_d->port == 9090 );
+  FD_TEST( dest_d->stake_lamports == 0UL ); /* Should be unstaked */
+
+  /* Test adding multiple new unstaked nodes via update */
+  fd_pubkey_t pubkey_e, pubkey_f;
+  memset( pubkey_e.uc, 'E', sizeof(fd_pubkey_t) );
+  memset( pubkey_f.uc, 'F', sizeof(fd_pubkey_t) );
+
+  fd_stake_ci_dest_update( info, &pubkey_e, 0x11111111U, 1111 );
+  fd_stake_ci_dest_update( info, &pubkey_f, 0x22222222U, 2222 );
+
+  /* Check that E and F were added as unstaked */
+  check_destinations( info, 0UL, "ABC", "DEFI" );
+
+  /* Test updating an unstaked node's contact info */
+  fd_stake_ci_dest_update( info, &pubkey_d, 0x99999999U, 9999 );
+
+  idx_d = fd_shred_dest_pubkey_to_idx( sdest, &pubkey_d );
+  dest_d = fd_shred_dest_idx_to_dest( sdest, idx_d );
+  FD_TEST( dest_d->ip4 == 0x99999999U );
+  FD_TEST( dest_d->port == 9999 );
+  FD_TEST( dest_d->stake_lamports == 0UL ); /* Should still be unstaked */
+
+  /* Test that updates apply to both epochs */
+  fd_stake_ci_stake_msg_init( info, generate_stake_msg( stake_msg, 1UL, "AB" ) );
+  fd_stake_ci_stake_msg_fini( info );
+
+  /* Update should affect both epoch 0 and epoch 1 */
+  fd_pubkey_t pubkey_b;
+  memset( pubkey_b.uc, 'B', sizeof(fd_pubkey_t) );
+  fd_stake_ci_dest_update( info, &pubkey_b, 0x11223344U, 5555 );
+
+  /* Check epoch 0 */
+  fd_shred_dest_t * sdest0 = fd_stake_ci_get_sdest_for_slot( info, 0UL );
+  fd_shred_dest_idx_t idx_b0 = fd_shred_dest_pubkey_to_idx( sdest0, &pubkey_b );
+  fd_shred_dest_weighted_t * dest_b0 = fd_shred_dest_idx_to_dest( sdest0, idx_b0 );
+  FD_TEST( dest_b0->ip4 == 0x11223344U );
+  FD_TEST( dest_b0->port == 5555 );
+
+  /* Check epoch 1 */
+  fd_shred_dest_t * sdest1 = fd_stake_ci_get_sdest_for_slot( info, 1000UL );
+  fd_shred_dest_idx_t idx_b1 = fd_shred_dest_pubkey_to_idx( sdest1, &pubkey_b );
+  fd_shred_dest_weighted_t * dest_b1 = fd_shred_dest_idx_to_dest( sdest1, idx_b1 );
+  FD_TEST( dest_b1->ip4 == 0x11223344U );
+  FD_TEST( dest_b1->port == 5555 );
+
+  /* Test adding a new node that gets added to both epochs */
+  fd_pubkey_t pubkey_z;
+  memset( pubkey_z.uc, 'Z', sizeof(fd_pubkey_t) );
+  fd_stake_ci_dest_update( info, &pubkey_z, 0xAABBCCDDU, 7777 );
+
+  /* Z should be unstaked in both epochs */
+  check_destinations( info, 0UL, "ABC", "DEFIZ" );
+  /* C moved from staked to unstaked in epoch 1,
+     and with no contact info entry it should not
+     appear in the unstaked list. */
+  check_destinations( info, 1UL, "AB",  "DEFIZ" );
+
+  fd_pubkey_t pubkey_c;
+  memset( pubkey_c.uc, 'C', sizeof(fd_pubkey_t) );
+  fd_stake_ci_dest_update( info, &pubkey_c, 0xCCCCCCCCU, 8888 );
+
+  /* C should now be unstaked and present in epoch 1 */
+  check_destinations( info, 1UL, "AB", "CDEFIZ" );
+
+
+  fd_stake_ci_delete( fd_stake_ci_leave( info ) );
+}
+
+static void
+test_dest_remove( void ) {
+  fd_stake_ci_t * info = fd_stake_ci_join( fd_stake_ci_new( _info, identity_key ) );
+
+  /* Set up initial state with some staked and unstaked nodes */
+  fd_stake_ci_stake_msg_init( info, generate_stake_msg( stake_msg, 0UL, "ABC" ) );
+  fd_stake_ci_stake_msg_fini( info );
+
+  /* Build up destination list using only update operations */
+  fd_pubkey_t pubkey_a, pubkey_b, pubkey_c, pubkey_d, pubkey_e, pubkey_f;
+  memset( pubkey_a.uc, 'A', sizeof(fd_pubkey_t) );
+  memset( pubkey_b.uc, 'B', sizeof(fd_pubkey_t) );
+  memset( pubkey_c.uc, 'C', sizeof(fd_pubkey_t) );
+  memset( pubkey_d.uc, 'D', sizeof(fd_pubkey_t) );
+  memset( pubkey_e.uc, 'E', sizeof(fd_pubkey_t) );
+  memset( pubkey_f.uc, 'F', sizeof(fd_pubkey_t) );
+
+  /* Update staked nodes A, B, C with contact info */
+  fd_stake_ci_dest_update( info, &pubkey_a, 0x11111111U, 1111 );
+  fd_stake_ci_dest_update( info, &pubkey_b, 0x22222222U, 2222 );
+  fd_stake_ci_dest_update( info, &pubkey_c, 0x33333333U, 3333 );
+
+  /* Add unstaked nodes D, E, F via update */
+  fd_stake_ci_dest_update( info, &pubkey_d, 0x44444444U, 4444 );
+  fd_stake_ci_dest_update( info, &pubkey_e, 0x55555555U, 5555 );
+  fd_stake_ci_dest_update( info, &pubkey_f, 0x66666666U, 6666 );
+
+
+  check_destinations( info, 0UL, "ABC", "DEFI" );
+
+  /* Test removing unstaked node */
+  memset( pubkey_d.uc, 'D', sizeof(fd_pubkey_t) );
+  fd_stake_ci_dest_remove( info, &pubkey_d );
+
+  /* D should be removed from unstaked list */
+  check_destinations( info, 0UL, "ABC", "EFI" );
+
+  fd_shred_dest_t * sdest = fd_stake_ci_get_sdest_for_slot( info, 0UL );
+  fd_shred_dest_idx_t idx_d = fd_shred_dest_pubkey_to_idx( sdest, &pubkey_d );
+  FD_TEST( idx_d == FD_SHRED_DEST_NO_DEST ); /* Should not be found */
+
+  /* Test removing staked node (should NOT actually remove it, just clear contact info) */
+  memset( pubkey_a.uc, 'A', sizeof(fd_pubkey_t) );
+
+  /* First update A with some contact info */
+  fd_stake_ci_dest_update( info, &pubkey_a, 0x12345678U, 8080 );
+  fd_shred_dest_idx_t idx_a = fd_shred_dest_pubkey_to_idx( sdest, &pubkey_a );
+  fd_shred_dest_weighted_t * dest_a = fd_shred_dest_idx_to_dest( sdest, idx_a );
+  FD_TEST( dest_a->ip4 == 0x12345678U );
+  FD_TEST( dest_a->port == 8080 );
+
+  /* Now try to remove A - it should stay because it's staked */
+  fd_stake_ci_dest_remove( info, &pubkey_a );
+
+  /* A should still be in staked list */
+  check_destinations( info, 0UL, "ABC", "EFI" );
+  idx_a = fd_shred_dest_pubkey_to_idx( sdest, &pubkey_a );
+  FD_TEST( idx_a != FD_SHRED_DEST_NO_DEST ); /* Should still be found */
+  dest_a = fd_shred_dest_idx_to_dest( sdest, idx_a );
+  FD_TEST( dest_a->stake_lamports > 0UL ); /* Should still be staked */
+
+  /* Test removing non-existing node (should be no-op) */
+  fd_pubkey_t pubkey_z;
+  memset( pubkey_z.uc, 'Z', sizeof(fd_pubkey_t) );
+  fd_stake_ci_dest_remove( info, &pubkey_z );
+
+  /* Nothing should change */
+  check_destinations( info, 0UL, "ABC", "EFI" );
+
+  /* Test that removes apply to both epochs */
+  fd_stake_ci_stake_msg_init( info, generate_stake_msg( stake_msg, 1UL, "AB" ) );
+  fd_stake_ci_stake_msg_fini( info );
+
+  /* E should be unstaked in both epochs, remove it */
+  memset( pubkey_e.uc, 'E', sizeof(fd_pubkey_t) );
+  fd_stake_ci_dest_remove( info, &pubkey_e );
+
+  /* Check both epochs - E should be gone from both */
+  check_destinations( info, 0UL, "ABC", "FI" );
+  check_destinations( info, 1UL, "AB", "CFI" );
+
+  /* Verify E is not found in either epoch */
+  fd_shred_dest_t * sdest0 = fd_stake_ci_get_sdest_for_slot( info, 0UL );
+  fd_shred_dest_t * sdest1 = fd_stake_ci_get_sdest_for_slot( info, 1000UL );
+  FD_TEST( fd_shred_dest_pubkey_to_idx( sdest0, &pubkey_e ) == FD_SHRED_DEST_NO_DEST );
+  FD_TEST( fd_shred_dest_pubkey_to_idx( sdest1, &pubkey_e ) == FD_SHRED_DEST_NO_DEST );
+
+  /* Test removing multiple unstaked nodes */
+  memset( pubkey_f.uc, 'F', sizeof(fd_pubkey_t) );
+  fd_stake_ci_dest_remove( info, &pubkey_f );
+
+  check_destinations( info, 0UL, "ABC", "I" );
+  check_destinations( info, 1UL, "AB", "CI" );
+
+  fd_stake_ci_delete( fd_stake_ci_leave( info ) );
+}
+
 int
 main( int     argc,
       char ** argv ) {
@@ -472,6 +672,9 @@ main( int     argc,
   test_limits();
   test_set_identity();
   test_staked_by_vote();
+
+  test_dest_update();
+  test_dest_remove();
 
   FD_LOG_NOTICE(( "pass" ));
   fd_halt();

@@ -1,4 +1,5 @@
 #include "fd_stake_ci.h"
+#include "fd_shred_dest.h"
 #include "../../util/net/fd_ip4.h" /* Just for debug */
 
 #define SORT_NAME sort_pubkey
@@ -388,6 +389,100 @@ fd_stake_ci_set_identity( fd_stake_ci_t *     info,
 
   }
   *info->identity_key = *identity_key;
+}
+
+void
+refresh_sdest( fd_stake_ci_t *            info,
+               fd_shred_dest_weighted_t * shred_dest_temp,
+               ulong                      cnt,
+               ulong                      staked_cnt,
+               fd_per_epoch_info_t *      ei ) {
+  sort_pubkey_inplace( shred_dest_temp + staked_cnt, cnt - staked_cnt );
+
+  fd_shred_dest_delete( fd_shred_dest_leave( ei->sdest ) );
+  ei->sdest = fd_shred_dest_join( fd_shred_dest_new( ei->_sdest, shred_dest_temp, cnt, ei->lsched, info->identity_key, ei->excluded_stake ) );
+  if( FD_UNLIKELY( ei->sdest==NULL ) ) {
+    FD_LOG_ERR(( "Too many validators have higher stake than this validator.  Cannot continue." ));
+  }
+}
+
+void
+ci_dest_add_one_unstaked( fd_stake_ci_t *            info,
+                          fd_shred_dest_weighted_t * new_entry,
+                          fd_per_epoch_info_t *      ei ) {
+  if( fd_shred_dest_cnt_all( ei->sdest )>=MAX_SHRED_DESTS ) {
+    FD_LOG_WARNING(( "Too many validators in shred table to add a new validator." ));
+  }
+  ulong cur_cnt = fd_shred_dest_cnt_all( ei->sdest );
+  for( ulong i=0UL; i<cur_cnt; i++ ) {
+    info->shred_dest_temp[ i ] = *fd_shred_dest_idx_to_dest( ei->sdest, (fd_shred_dest_idx_t)i );
+  }
+
+  /* TODO: Alternative batched copy using memcpy. Check with Philip if safe */
+  // fd_shred_dest_weighted_t * cur_dest = ei->sdest->all_destinations;
+  // fd_memcpy( info->shred_dest_temp, cur_dest, sizeof(fd_shred_dest_weighted_t)*cur_cnt );
+  info->shred_dest_temp[ cur_cnt++ ] = *new_entry;
+  refresh_sdest( info, info->shred_dest_temp, cur_cnt, fd_shred_dest_cnt_staked( ei->sdest ), ei );
+}
+
+void
+ci_dest_update_impl( fd_stake_ci_t *       info,
+                     fd_pubkey_t const *   pubkey,
+                     uint                  ip4,
+                     ushort                port,
+                     fd_per_epoch_info_t * ei ) {
+  fd_shred_dest_idx_t idx = fd_shred_dest_pubkey_to_idx( ei->sdest, pubkey );
+  if( idx==FD_SHRED_DEST_NO_DEST ) {
+    fd_shred_dest_weighted_t new_entry = { .pubkey = *pubkey, .ip4 = ip4, .port = port, .stake_lamports = 0UL };
+    ci_dest_add_one_unstaked( info, &new_entry, ei );
+    return;
+  }
+  fd_shred_dest_weighted_t * dest = fd_shred_dest_idx_to_dest( ei->sdest, idx );
+  dest->ip4                       = ip4;
+  dest->port                      = port;
+}
+
+void
+ci_dest_remove_impl( fd_stake_ci_t *       info,
+                     fd_pubkey_t const *   pubkey,
+                     fd_per_epoch_info_t * ei ) {
+  fd_shred_dest_idx_t idx = fd_shred_dest_pubkey_to_idx( ei->sdest, pubkey );
+  if( FD_UNLIKELY( idx==FD_SHRED_DEST_NO_DEST ) ) return;
+
+  fd_shred_dest_weighted_t * dest = fd_shred_dest_idx_to_dest( ei->sdest, idx );
+  if( FD_UNLIKELY( dest->stake_lamports>0UL ) ) {
+    /* A staked entry is not "removed", instead its "stale" address is
+       retained */
+    return;
+  }
+
+  ulong cur_cnt = fd_shred_dest_cnt_all( ei->sdest );
+  for( ulong i=0UL, j=0UL; i<cur_cnt; i++ ) {
+    if( FD_UNLIKELY( i==idx ) ) continue;
+    info->shred_dest_temp[ j++ ] = *fd_shred_dest_idx_to_dest( ei->sdest, (fd_shred_dest_idx_t) i );
+  }
+  /* TODO: Alternative batched copy using memcpy. Check with Philip if this is safe */
+  // fd_shred_dest_weighted_t * cur_dest = ei->sdest->all_destinations;
+  // fd_memcpy( info->shred_dest_temp, cur_dest, sizeof(fd_shred_dest_weighted_t)*(idx) );
+  // fd_memcpy( info->shred_dest_temp + idx, cur_dest + idx + 1UL, sizeof(fd_shred_dest_weighted_t)*(cur_cnt - idx - 1UL) );
+  refresh_sdest( info, info->shred_dest_temp, cur_cnt-1UL, fd_shred_dest_cnt_staked( ei->sdest ), ei );
+}
+
+void
+fd_stake_ci_dest_update( fd_stake_ci_t *       info,
+                         fd_pubkey_t const *   pubkey,
+                         uint                  ip4,
+                         ushort                port ) {
+  ci_dest_update_impl( info, pubkey, ip4, port, info->epoch_info+0UL );
+  ci_dest_update_impl( info, pubkey, ip4, port, info->epoch_info+1UL );
+}
+
+void
+fd_stake_ci_dest_remove( fd_stake_ci_t * info,
+                         fd_pubkey_t const * pubkey ) {
+  ci_dest_remove_impl( info, pubkey, info->epoch_info+0UL );
+  ci_dest_remove_impl( info, pubkey, info->epoch_info+1UL );
+
 }
 
 
