@@ -140,7 +140,6 @@ fd_runtime_update_leaders( fd_bank_t * bank,
   fd_runtime_update_slots_per_epoch( bank, fd_epoch_slot_cnt( epoch_schedule, epoch ) );
 
   ulong vote_acc_cnt  = fd_vote_accounts_pair_global_t_map_size( vote_acc_pool, vote_acc_root );
-  fd_bank_epoch_stakes_end_locking_query( bank );
 
   fd_vote_stake_weight_t * epoch_weights = fd_spad_alloc_check( runtime_spad, alignof(fd_vote_stake_weight_t), vote_acc_cnt * sizeof(fd_vote_stake_weight_t) );
   ulong stake_weight_cnt = fd_stake_weights_by_node( epoch_vaccs, epoch_weights );
@@ -148,6 +147,7 @@ fd_runtime_update_leaders( fd_bank_t * bank,
   if( FD_UNLIKELY( stake_weight_cnt == ULONG_MAX ) ) {
     FD_LOG_ERR(( "fd_stake_weights_by_node() failed" ));
   }
+  fd_bank_epoch_stakes_end_locking_query( bank );
 
   /* Derive leader schedule */
 

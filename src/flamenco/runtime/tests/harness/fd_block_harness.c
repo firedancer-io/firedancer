@@ -280,6 +280,10 @@ fd_runtime_fuzz_block_ctx_create( fd_runtime_fuzz_runner_t *           runner,
   /* Initialize the current running epoch stake and vote accounts */
 
   /* SETUP STAKES HERE */
+  fd_vote_states_t * vote_states = fd_bank_vote_states_locking_modify( slot_ctx->bank );
+  vote_states = fd_vote_states_join( fd_vote_states_new( vote_states, FD_RUNTIME_MAX_STAKE_ACCOUNTS ) );
+  fd_bank_vote_states_end_locking_modify( slot_ctx->bank );
+
   fd_vote_accounts_global_t * curr_stakes = fd_bank_curr_epoch_stakes_locking_modify( slot_ctx->bank );
   pool_mem = (uchar *)fd_ulong_align_up( (ulong)curr_stakes + sizeof(fd_vote_accounts_global_t), fd_vote_accounts_pair_t_map_align() );
   fd_vote_accounts_pair_global_t_mapnode_t * vote_accounts_pool = fd_vote_accounts_pair_global_t_map_join( fd_vote_accounts_pair_global_t_map_new( pool_mem, vote_acct_max ) );

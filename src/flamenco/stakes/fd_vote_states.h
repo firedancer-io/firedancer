@@ -24,6 +24,8 @@ struct fd_vote_state_ele {
   ulong  credits     [ EPOCH_CREDITS_MAX ];
   ulong  prev_credits[ EPOCH_CREDITS_MAX ];
 
+  ulong stake;
+
   uchar commission;
 };
 typedef struct fd_vote_state_ele fd_vote_state_ele_t;
