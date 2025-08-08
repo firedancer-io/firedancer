@@ -196,11 +196,10 @@ fd_runtime_fuzz_instr_ctx_create( fd_runtime_fuzz_runner_t *           runner,
       continue;
     }
 
-    if( FD_UNLIKELY( 0 == memcmp(meta->info.owner, fd_solana_bpf_loader_upgradeable_program_id.key, sizeof(fd_pubkey_t)) ) ) {
-      int err = 0;
-      fd_bpf_upgradeable_loader_state_t * program_loader_state = read_bpf_upgradeable_loader_state_for_program( txn_ctx,
-                                                                                                                (ushort)i,
-                                                                                                                &err );
+    if( FD_UNLIKELY( !memcmp(meta->info.owner, fd_solana_bpf_loader_upgradeable_program_id.key, sizeof(fd_pubkey_t)) ) ) {
+      fd_bpf_upgradeable_loader_state_t * program_loader_state = fd_bpf_loader_program_get_state( acc,
+                                                                                                  txn_ctx->spad,
+                                                                                                  NULL );
 
       if( FD_UNLIKELY( !program_loader_state ) ) {
         continue;

@@ -163,43 +163,6 @@ fd_executor_lookup_native_program( fd_txn_account_t const * prog_acc,
   return 0;
 }
 
-static int
-fd_executor_is_system_nonce_account( fd_txn_account_t * account, fd_spad_t * exec_spad ) {
-  if( !memcmp( fd_txn_account_get_owner( account ), fd_solana_system_program_id.uc, sizeof(fd_pubkey_t) ) ) {
-    if( !fd_txn_account_get_data_len( account ) ) {
-      return 0;
-    } else {
-      if( fd_txn_account_get_data_len( account )!=FD_SYSTEM_PROGRAM_NONCE_DLEN ) {
-        return -1;
-      }
-
-      int err;
-      fd_nonce_state_versions_t * versions = fd_bincode_decode_spad(
-          nonce_state_versions, exec_spad,
-          fd_txn_account_get_data( account ),
-          fd_txn_account_get_data_len( account ),
-          &err );
-      if( FD_UNLIKELY( err ) ) {
-        return -1;
-      }
-
-      fd_nonce_state_t * state = NULL;
-      if( fd_nonce_state_versions_is_current( versions ) ) {
-        state = &versions->inner.current;
-      } else {
-        state = &versions->inner.legacy;
-      }
-
-      if( fd_nonce_state_is_initialized( state ) ) {
-        return 1;
-      }
-
-    }
-  }
-
-  return -1;
-}
-
 /* https://github.com/anza-xyz/agave/blob/v2.2.13/svm-rent-collector/src/svm_rent_collector.rs#L117-L136 */
 static uchar
 fd_executor_rent_transition_allowed( fd_rent_state_t const * pre_rent_state,
@@ -283,15 +246,15 @@ fd_validate_fee_payer( fd_txn_account_t * account,
   }
 
   /* https://github.com/anza-xyz/agave/blob/v2.2.13/svm/src/account_loader.rs#L305-L308 */
-  int is_nonce = fd_executor_is_system_nonce_account( account, exec_spad );
-  if( FD_UNLIKELY( is_nonce<0 ) ) {
+  int system_account_kind = fd_get_system_account_kind( account, exec_spad );
+  if( FD_UNLIKELY( system_account_kind==FD_SYSTEM_PROGRAM_NONCE_ACCOUNT_KIND_UNKNOWN ) ) {
     return FD_RUNTIME_TXN_ERR_INVALID_ACCOUNT_FOR_FEE;
   }
 
   /* https://github.com/anza-xyz/agave/blob/v2.2.13/svm/src/account_loader.rs#L309-L318 */
   ulong min_balance = 0UL;
-  if( is_nonce ) {
-    min_balance = fd_rent_exempt_minimum_balance( rent, 80 );
+  if( system_account_kind==FD_SYSTEM_PROGRAM_NONCE_ACCOUNT_KIND_NONCE ) {
+    min_balance = fd_rent_exempt_minimum_balance( rent, FD_SYSTEM_PROGRAM_NONCE_DLEN );
   }
 
   /* https://github.com/anza-xyz/agave/blob/v2.2.13/svm/src/account_loader.rs#L320-L327 */
@@ -673,10 +636,9 @@ fd_increase_calculated_data_size( fd_exec_txn_ctx_t * txn_ctx,
 /* This function is represented as a closure in Agave.
    https://github.com/anza-xyz/agave/blob/v2.3.1/svm/src/account_loader.rs#L578-L640 */
 static int
-fd_collect_loaded_account( fd_exec_txn_ctx_t * txn_ctx,
-                           ushort              idx,
-                           ulong               loaded_acc_size ) {
-  fd_txn_account_t const * account = &txn_ctx->accounts[idx];
+fd_collect_loaded_account( fd_exec_txn_ctx_t *      txn_ctx,
+                           fd_txn_account_t const * account,
+                           ulong                    loaded_acc_size ) {
 
   /* https://github.com/anza-xyz/agave/blob/v2.3.1/svm/src/account_loader.rs#L586-L590 */
   int err = fd_increase_calculated_data_size( txn_ctx, loaded_acc_size );
@@ -697,7 +659,7 @@ fd_collect_loaded_account( fd_exec_txn_ctx_t * txn_ctx,
 
   /* Try to read the program state
      https://github.com/anza-xyz/agave/blob/v2.3.1/svm/src/account_loader.rs#L612-L634 */
-  fd_bpf_upgradeable_loader_state_t * loader_state = read_bpf_upgradeable_loader_state_for_program( txn_ctx, idx, NULL );
+  fd_bpf_upgradeable_loader_state_t * loader_state = fd_bpf_loader_program_get_state( account, txn_ctx->spad, NULL );
   if( FD_UNLIKELY( !loader_state ) ) {
     return FD_RUNTIME_EXECUTE_SUCCESS;
   }
@@ -785,7 +747,7 @@ fd_executor_load_transaction_accounts_simd_186( fd_exec_txn_ctx_t * txn_ctx ) {
          is enabled. */
       ulong loaded_acc_size = fd_ulong_sat_add( FD_TRANSACTION_ACCOUNT_BASE_SIZE,
                                                 fd_txn_account_get_data_len( acct ) );
-      int err = fd_collect_loaded_account( txn_ctx, i, loaded_acc_size );
+      int err = fd_collect_loaded_account( txn_ctx, acct, loaded_acc_size );
       if( FD_UNLIKELY( err!=FD_RUNTIME_EXECUTE_SUCCESS ) ) {
         return err;
       }
@@ -795,7 +757,7 @@ fd_executor_load_transaction_accounts_simd_186( fd_exec_txn_ctx_t * txn_ctx ) {
     /* Load and collect any remaining accounts
        https://github.com/anza-xyz/agave/blob/v2.3.1/svm/src/account_loader.rs#L652-L659 */
     ulong loaded_acc_size = load_transaction_account( txn_ctx, acct, is_writable, epoch, unknown_acc );
-    int err = fd_collect_loaded_account( txn_ctx, i, loaded_acc_size );
+    int err = fd_collect_loaded_account( txn_ctx, acct, loaded_acc_size );
     if( FD_UNLIKELY( err!=FD_RUNTIME_EXECUTE_SUCCESS ) ) {
       return err;
     }
@@ -1487,12 +1449,12 @@ fd_executor_setup_txn_account( fd_exec_txn_ctx_t * txn_ctx,
   return txn_account;
 }
 
-void
-fd_executor_setup_executable_account( fd_exec_txn_ctx_t * txn_ctx,
-                                      ushort              acc_idx,
-                                      ushort *            executable_idx ) {
+static void
+fd_executor_setup_executable_account( fd_exec_txn_ctx_t *      txn_ctx,
+                                      fd_txn_account_t const * account,
+                                      ushort *                 executable_idx ) {
   int err = 0;
-  fd_bpf_upgradeable_loader_state_t * program_loader_state = read_bpf_upgradeable_loader_state_for_program( txn_ctx, acc_idx, &err );
+  fd_bpf_upgradeable_loader_state_t * program_loader_state = fd_bpf_loader_program_get_state( account, txn_ctx->spad, &err );
   if( FD_UNLIKELY( !program_loader_state ) ) {
     return;
   }
@@ -1525,7 +1487,7 @@ fd_executor_setup_accounts_for_txn( fd_exec_txn_ctx_t * txn_ctx ) {
 
     if( FD_UNLIKELY( txn_account &&
                      memcmp( fd_txn_account_get_owner( txn_account ), fd_solana_bpf_loader_upgradeable_program_id.key, sizeof(fd_pubkey_t) ) == 0 ) ) {
-      fd_executor_setup_executable_account( txn_ctx, i, &j );
+      fd_executor_setup_executable_account( txn_ctx, txn_account, &j );
     }
   }
 

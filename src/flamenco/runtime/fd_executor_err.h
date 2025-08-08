@@ -10,10 +10,6 @@
 
 /* Instruction error codes */
 
-/* TODO make sure these are serialized consistently with solana_program::InstructionError */
-/* TODO FD_EXECUTOR_INSTR_SUCCESS is used like Ok(()) in Rust. But this is both overloaded and a
-        misnomer, because the instruction hasn't necessarily been executed successfully yet */
-
 #define FD_EXECUTOR_INSTR_ERR_FATAL                              ( INT_MIN ) /* Unrecoverable error */
 #define FD_EXECUTOR_INSTR_SUCCESS                                (   0 ) /* Instruction executed successfully */
 #define FD_EXECUTOR_INSTR_ERR_GENERIC_ERR                        (  -1 ) /* The program instruction returned an error */
@@ -70,28 +66,5 @@
 #define FD_EXECUTOR_INSTR_ERR_MAX_ACCS_EXCEEDED                  ( -52 ) /* Max accounts exceeded */
 #define FD_EXECUTOR_INSTR_ERR_MAX_INSN_TRACE_LENS_EXCEEDED       ( -53 ) /* Max instruction trace length exceeded */
 #define FD_EXECUTOR_INSTR_ERR_BUILTINS_MUST_CONSUME_CUS          ( -54 ) /* Builtin programs must consume compute units */
-
-#define FD_EXECUTOR_SYSTEM_ERR_ACCOUNT_ALREADY_IN_USE            ( -1 ) /* an account with the same address already exists */
-#define FD_EXECUTOR_SYSTEM_ERR_RESULTS_WITH_NEGATIVE_LAMPORTS    ( -2 ) /* account does not have enough SOL to perform the operation */
-#define FD_EXECUTOR_SYSTEM_ERR_INVALID_PROGRAM_ID                ( -3 ) /* cannot assign account to this program id */
-#define FD_EXECUTOR_SYSTEM_ERR_INVALID_ACCOUNT_DATA_LENGTH       ( -4 ) /* cannot allocate account data of this length */
-#define FD_EXECUTOR_SYSTEM_ERR_MAX_SEED_LENGTH_EXCEEDED          ( -5 ) /* length of requested seed is too long */
-#define FD_EXECUTOR_SYSTEM_ERR_ADDRESS_WITH_SEED_MISMATCH        ( -6 ) /* provided address does not match addressed derived from seed */
-#define FD_EXECUTOR_SYSTEM_ERR_NONCE_NO_RECENT_BLOCKHASHES       ( -7 ) /* advancing stored nonce requires a populated RecentBlockhashes sysvar */
-#define FD_EXECUTOR_SYSTEM_ERR_NONCE_BLOCKHASH_NOT_EXPIRED       ( -8 ) /* stored nonce is still in recent_blockhashes */
-#define FD_EXECUTOR_SYSTEM_ERR_NONCE_UNEXPECTED_BLOCKHASH_VALUE  ( -9 ) /* specified nonce does not match stored nonce */
-
-/* PrecompileError
-   https://github.com/anza-xyz/agave/blob/v1.18.12/sdk/src/precompiles.rs#L16
-   Agave distinguishes between 5 errors and the returned one depends on
-   the order they decided to write their code.
-   These are all fatal errors, so the specific errors don't matter for
-   consensus.
-   To simplify our fuzzers, we return the same error code for all errors. */
-#define FD_EXECUTOR_PRECOMPILE_ERR_PUBLIC_KEY                    ( 0 )
-#define FD_EXECUTOR_PRECOMPILE_ERR_RECOVERY_ID                   ( 1 )
-#define FD_EXECUTOR_PRECOMPILE_ERR_SIGNATURE                     ( 2 )
-#define FD_EXECUTOR_PRECOMPILE_ERR_DATA_OFFSET                   ( 3 )
-#define FD_EXECUTOR_PRECOMPILE_ERR_INSTR_DATA_SIZE               ( 4 )
 
 #endif /* HEADER_fd_src_flamenco_runtime_fd_executor_err_h */
