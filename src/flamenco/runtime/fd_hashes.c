@@ -32,6 +32,33 @@ fd_hashes_account_lthash( fd_pubkey_t const       * pubkey,
 }
 
 void
+fd_hashes_account_lthash_simple( uchar const         pubkey[ FD_HASH_FOOTPRINT],
+                                 uchar const         owner[ FD_PUBKEY_FOOTPRINT ],
+                                 ulong               lamports,
+                                 uchar               executable,
+                                 uchar const *       data,
+                                 ulong               data_len,
+                                 fd_lthash_value_t * lthash_out ) {
+  fd_lthash_zero( lthash_out );
+
+  /* Accounts with zero lamports are not included in the hash, so they should always be treated as zero */
+  if( FD_UNLIKELY( lamports == 0 ) ) {
+    return;
+  }
+
+  uchar executable_flag = executable & 0x1;
+
+  fd_blake3_t b3[1];
+  fd_blake3_init( b3 );
+  fd_blake3_append( b3, &lamports, sizeof( ulong ) );
+  fd_blake3_append( b3, data, data_len );
+  fd_blake3_append( b3, &executable_flag, sizeof( uchar ) );
+  fd_blake3_append( b3, owner, FD_PUBKEY_FOOTPRINT );
+  fd_blake3_append( b3, pubkey, FD_PUBKEY_FOOTPRINT );
+  fd_blake3_fini_varlen( b3, lthash_out->bytes, FD_LTHASH_LEN_BYTES );
+}
+
+void
 fd_hashes_hash_bank( fd_slot_lthash_t const * lthash,
                      fd_hash_t const *        prev_bank_hash,
                      fd_hash_t const *        last_blockhash,

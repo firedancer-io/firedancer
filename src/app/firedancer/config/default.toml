@@ -688,6 +688,9 @@ user = ""
     # very high TPS rates because the cluster size will be very small.
     shred_tile_count = 1
 
+    # How many snapshot hash tiles to run. 
+    hash_tile_count = 1
+
 # All memory that will be used in Firedancer is pre-allocated in two
 # kinds of pages: huge and gigantic.  Huge pages are 2 MiB and gigantic
 # pages are 1 GiB.  This is done to prevent TLB misses which can have a

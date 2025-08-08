@@ -36,6 +36,7 @@ static void
 backtest_topo( config_t * config ) {
   ulong exec_tile_cnt   = config->firedancer.layout.exec_tile_count;
   ulong writer_tile_cnt = config->firedancer.layout.writer_tile_count;
+  ulong hash_tile_cnt   = config->firedancer.layout.hash_tile_count;
 
   fd_topo_t * topo = { fd_topob_new( &config->topo, config->name ) };
   topo->max_page_size = fd_cstr_to_shmem_page_sz( config->hugetlbfs.max_page_size );
@@ -92,12 +93,18 @@ backtest_topo( config_t * config ) {
   fd_topob_wksp( topo, "snaprd" );
   fd_topob_wksp( topo, "snapdc" );
   fd_topob_wksp( topo, "snapin" );
+  fd_topob_wksp( topo, "snaphs" );
   fd_topo_tile_t * snaprd_tile = fd_topob_tile( topo, "snaprd",  "snaprd",  "metric_in",  cpu_idx++, 0, 0 );
   fd_topo_tile_t * snapdc_tile = fd_topob_tile( topo, "snapdc",  "snapdc",  "metric_in",  cpu_idx++, 0, 0 );
   fd_topo_tile_t * snapin_tile = fd_topob_tile( topo, "snapin",  "snapin",  "metric_in",  cpu_idx++, 0, 0 );
   snaprd_tile->allow_shutdown = 1;
   snapdc_tile->allow_shutdown = 1;
   snapin_tile->allow_shutdown = 1;
+
+  for( ulong i=0UL; i<hash_tile_cnt; i++ ) {
+    fd_topo_tile_t * snaphsh_tile = fd_topob_tile( topo, "snaphs", "snaphs", "metric_in", cpu_idx++, 0, 0 );
+    snaphsh_tile->allow_shutdown = 1;
+  }
 
   /**********************************************************************/
   /* Setup backtest->replay link (repair_repla) in topo                 */
@@ -121,6 +128,8 @@ backtest_topo( config_t * config ) {
   fd_topob_wksp( topo, "snapdc_rd" );
   fd_topob_wksp( topo, "snapin_rd" );
   fd_topob_wksp( topo, "snap_out" );
+  fd_topob_wksp( topo, "snapin_hsh" );
+  fd_topob_wksp( topo, "snaphsh_out" );
   fd_topob_wksp( topo, "replay_manif" );
   /* TODO: Should be depth of 1 or 2, not 4, but it causes backpressure
      from the replay tile parsing the manifest, remove when this is
@@ -129,8 +138,10 @@ backtest_topo( config_t * config ) {
 
   fd_topob_link( topo, "snap_zstd",   "snap_zstd",   8192UL, 16384UL,    1UL );
   fd_topob_link( topo, "snap_stream", "snap_stream", 2048UL, USHORT_MAX, 1UL );
-  fd_topob_link( topo, "snapdc_rd", "snapdc_rd", 128UL, 0UL, 1UL );
-  fd_topob_link( topo, "snapin_rd", "snapin_rd", 128UL, 0UL, 1UL );
+  fd_topob_link( topo, "snapdc_rd",   "snapdc_rd",   128UL,  0UL,        1UL );
+  fd_topob_link( topo, "snapin_rd",   "snapin_rd",   128UL,  0UL,        1UL );
+  fd_topob_link( topo, "snapin_hsh",  "snapin_hsh",  1024UL, USHORT_MAX, 1UL );
+  FOR(hash_tile_cnt) fd_topob_link( topo, "snaphsh_out", "snaphsh_out", 512UL, 2048UL, 1UL );
 
   fd_topob_tile_out( topo, "snaprd", 0UL, "snap_zstd",   0UL );
   fd_topob_tile_in ( topo, "snapdc", 0UL, "metric_in",   "snap_zstd", 0UL, FD_TOPOB_RELIABLE, FD_TOPOB_POLLED );
@@ -143,6 +154,12 @@ backtest_topo( config_t * config ) {
   fd_topob_tile_out( topo, "snapdc", 0UL, "snapdc_rd", 0UL );
   fd_topob_tile_in( topo, "snaprd", 0UL, "metric_in", "snapin_rd", 0UL, FD_TOPOB_RELIABLE, FD_TOPOB_POLLED );
   fd_topob_tile_out( topo, "snapin", 0UL, "snapin_rd", 0UL );
+
+  fd_topob_tile_out( topo, "snapin", 0UL, "snapin_hsh", 0UL );
+  fd_topob_tile_in(  topo, "snapin", 0UL, "metric_in", "snaphsh_out", 0UL, FD_TOPOB_RELIABLE, FD_TOPOB_POLLED );
+
+  FOR(hash_tile_cnt) fd_topob_tile_in(  topo, "snaphs", 0UL, "metric_in",  "snapin_hsh", 0UL, FD_TOPOB_RELIABLE, FD_TOPOB_POLLED );
+  FOR(hash_tile_cnt) fd_topob_tile_out( topo, "snaphs", 0UL, "snaphsh_out", 0UL );
 
   /**********************************************************************/
   /* More backtest->replay links in topo                                */
