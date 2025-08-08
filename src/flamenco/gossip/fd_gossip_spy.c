@@ -222,8 +222,6 @@ main( int     argc,
       char ** argv ) {
   fd_boot( &argc, &argv );
 
-  fd_valloc_t valloc = fd_libc_alloc_virtual();
-
   fd_gossip_config_t config;
   fd_memset(&config, 0, sizeof(config));
 
@@ -243,10 +241,10 @@ main( int     argc,
 
   config.shred_version = 4274;
 
+  void * yaml_mem = aligned_alloc( fd_flamenco_yaml_align(), fd_flamenco_yaml_footprint() );
+  FD_TEST( yaml_mem );
   fd_flamenco_yaml_t * yamldump =
-    fd_flamenco_yaml_init( fd_flamenco_yaml_new(
-      fd_valloc_malloc( valloc, fd_flamenco_yaml_align(), fd_flamenco_yaml_footprint() ) ),
-      stdout );
+    fd_flamenco_yaml_init( fd_flamenco_yaml_new( yaml_mem ), stdout );
   config.deliver_fun = print_data;
   config.deliver_arg = yamldump;
   config.send_fun    = send_packet;
@@ -254,10 +252,11 @@ main( int     argc,
 
   ulong seed = fd_hash(0, hostname, strnlen(hostname, sizeof(hostname)));
 
-  void * shm = fd_valloc_malloc(valloc, fd_gossip_align(), fd_gossip_footprint());
+  void * shm = aligned_alloc( fd_gossip_align(), fd_gossip_footprint() );
+  FD_TEST( shm );
   fd_gossip_t * glob = fd_gossip_join(fd_gossip_new(shm, seed));
 
-  if ( fd_gossip_set_config(glob, &config) )
+  if( fd_gossip_set_config( glob, &config ) )
     return 1;
 
   fd_gossip_peer_addr_t peeraddr;
@@ -277,8 +276,7 @@ main( int     argc,
   //   return 1;
   // if ( fd_gossip_add_active_peer(glob, resolve_hostport("entrypoint3.testnet.solana.com:8001", &peeraddr)) )
   //   return 1;
-  if ( fd_gossip_add_active_peer(glob, resolve_hostport(":1024", &peeraddr)) )
-  return 1;
+  if( fd_gossip_add_active_peer( glob, resolve_hostport( ":1024", &peeraddr ) ) ) return 1;
 
   signal(SIGINT, stop);
   signal(SIGPIPE, SIG_IGN);
@@ -286,9 +284,9 @@ main( int     argc,
   if ( main_loop(glob, &config, &stopflag) )
     return 1;
 
-  fd_valloc_free(valloc, fd_flamenco_yaml_delete(yamldump));
+  free( fd_flamenco_yaml_delete(yamldump) );
 
-  fd_valloc_free(valloc, fd_gossip_delete(fd_gossip_leave(glob)));
+  free( fd_gossip_delete( fd_gossip_leave( glob ) ) );
 
   fd_halt();
   return 0;

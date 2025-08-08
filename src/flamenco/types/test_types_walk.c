@@ -34,9 +34,9 @@ fd_flamenco_walk_recorder( void *       _self,
                            char const * name,
                            int          type,
                            char const * type_name,
-                           uint         level ) {
-
-  (void)type_name;
+                           uint         level,
+                           uint         _unused ) {
+  (void)type_name; (void)_unused;
 
   fd_flamenco_walk_recorder_t * self = (fd_flamenco_walk_recorder_t *)_self;
 
@@ -63,7 +63,8 @@ FD_IMPORT_BINARY( vote_account_bin, "src/flamenco/types/fixtures/vote_account.bi
 /* Expected sequence of steps */
 
 static const fd_flamenco_type_step_t vote_account_walk[] = {
-  { .level=0, .type = FD_FLAMENCO_TYPE_MAP },
+  { .level=0, .type = FD_FLAMENCO_TYPE_ENUM },
+  { .level=1, .type = FD_FLAMENCO_TYPE_ENUM_DISC, .name = "current" },
   { .level=1, .type = FD_FLAMENCO_TYPE_MAP,     .name = "current" },
   { .level=2, .type = FD_FLAMENCO_TYPE_HASH256, .name = "node_pubkey",
     .data = (void const *)( vote_account_bin+0x04 ) },
@@ -123,7 +124,7 @@ static const fd_flamenco_type_step_t vote_account_walk[] = {
   { .level=4, .type = FD_FLAMENCO_TYPE_MAP }, { .level=5, .type = FD_FLAMENCO_TYPE_HASH256, .name = "pubkey" }, { .level=5, .type = FD_FLAMENCO_TYPE_ULONG, .name = "epoch_start" }, { .level=5, .type = FD_FLAMENCO_TYPE_ULONG, .name = "epoch_end" }, { .level=5, .type = FD_FLAMENCO_TYPE_MAP_END },
   { .level=4, .type = FD_FLAMENCO_TYPE_ARR_END },
   { .level=3, .type = FD_FLAMENCO_TYPE_ULONG, .name = "idx" },
-  { .level=3, .type = FD_FLAMENCO_TYPE_UCHAR, .name = "is_empty" },
+  { .level=3, .type = FD_FLAMENCO_TYPE_BOOL, .name = "is_empty" },
   { .level=3, .type = FD_FLAMENCO_TYPE_MAP_END },
   { .level=2, .type = FD_FLAMENCO_TYPE_ARR, .name = "epoch_credits" },
   { .level=3, .type = FD_FLAMENCO_TYPE_MAP },
@@ -134,10 +135,10 @@ static const fd_flamenco_type_step_t vote_account_walk[] = {
   { .level=3, .type = FD_FLAMENCO_TYPE_ARR_END },
   { .level=2, .type = FD_FLAMENCO_TYPE_MAP, .name = "last_timestamp" },
   { .level=3, .type = FD_FLAMENCO_TYPE_ULONG, .name = "slot" },
-  { .level=3, .type = FD_FLAMENCO_TYPE_ULONG, .name = "timestamp" },
+  { .level=3, .type = FD_FLAMENCO_TYPE_SLONG, .name = "timestamp" },
   { .level=3, .type = FD_FLAMENCO_TYPE_MAP_END },
   { .level=2, .type = FD_FLAMENCO_TYPE_MAP_END },
-  { .level=1, .type = FD_FLAMENCO_TYPE_MAP_END },
+  { .level=1, .type = FD_FLAMENCO_TYPE_ENUM_END },
   {0}
 };
 
@@ -148,18 +149,13 @@ test_vote_account_walk( void ) {
 
     /* Decode bincode blob */
 
-    fd_bincode_decode_ctx_t decode[1] = {{
-      .data    = vote_account_bin,
-      .dataend = vote_account_bin + vote_account_bin_sz,
-      .valloc  = fd_scratch_virtual()
-    }};
-    fd_vote_state_versioned_t state[1];
-    int err = fd_vote_state_versioned_decode( state, decode );
+    int err;
+    fd_vote_state_versioned_t * state = fd_bincode_decode_scratch( vote_state_versioned, vote_account_bin, vote_account_bin_sz, &err );
     FD_TEST( err==FD_BINCODE_SUCCESS );
 
     /* Walk with recorder */
 
-    fd_vote_state_versioned_walk( recorder, state, fd_flamenco_walk_recorder, NULL, 0 );
+    fd_vote_state_versioned_walk( recorder, state, fd_flamenco_walk_recorder, NULL, 0, 0 );
 
     /* Diff by concurrent iterate */
 
@@ -180,14 +176,14 @@ test_vote_account_walk( void ) {
                          "  type:  %#x\n"
                          "  name:  %s\n",
                          expect->level,
-                         expect->type,
+                         (uint)expect->type,
                          expect->name ));
         FD_LOG_WARNING(( "Actual\n"
                          "  level: %u\n"
                          "  type:  %#x\n"
                          "  name:  %s\n",
                          recorder->steps[i].level,
-                         recorder->steps[i].type,
+                         (uint)recorder->steps[i].type,
                          recorder->steps[i].name ));
         FD_LOG_ERR(( "fail" ));
       }
