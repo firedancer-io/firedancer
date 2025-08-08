@@ -102,7 +102,7 @@ pub(crate) unsafe fn quiche_to_fdquic() {
         assert!(metrics.net_rx_pkt_cnt < 64);
         assert!(metrics.net_tx_pkt_cnt < metrics.net_rx_pkt_cnt);
         assert!(metrics.net_tx_byte_cnt < metrics.net_rx_byte_cnt);
-        assert!(metrics.conn_active_cnt <= 1);
+        assert!(metrics.conn_state_cnt[3] <= 1);
         assert!(metrics.conn_created_cnt == 1);
         assert!(metrics.conn_closed_cnt <= 1);
         assert!(metrics.conn_aborted_cnt <= 1);
