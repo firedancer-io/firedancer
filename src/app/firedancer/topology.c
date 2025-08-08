@@ -294,10 +294,7 @@ fd_topo_initialize( config_t * config ) {
   fd_topob_wksp( topo, "replay_manif" );
 
   fd_topob_wksp( topo, "slot_fseqs"  ); /* fseqs for marked slots eg. turbine slot */
-  if( enable_rpc ) {
-    fd_topob_wksp( topo, "rpcsrv" );
-    fd_topob_wksp( topo, "shred_rpcsrv" );
-  }
+  if( enable_rpc ) fd_topob_wksp( topo, "rpcsrv" );
 
   #define FOR(cnt) for( ulong i=0UL; i<cnt; i++ )
 
@@ -372,10 +369,6 @@ fd_topo_initialize( config_t * config ) {
   /**/                 fd_topob_link( topo, "snap_out",     "snap_out",     2UL,                                      5UL*(1UL<<30UL),               1UL );
   /**/                 fd_topob_link( topo, "snapdc_rd",    "snapdc_rd",    128UL,                                    0UL,                           1UL );
   /**/                 fd_topob_link( topo, "snapin_rd",    "snapin_rd",    128UL,                                    0UL,                           1UL );
-
-  if( enable_rpc ) {
-    FOR(shred_tile_cnt)  fd_topob_link( topo, "shred_rpcsrv", "shred_rpcsrv", pending_fec_shreds_depth,                 FD_SHRED_REPAIR_MTU,           2UL /* at most 2 msgs per after_frag */ );
-  }
 
   /* Replay decoded manifest dcache topo obj */
   fd_topo_obj_t * replay_manifest_dcache = fd_topob_obj( topo, "dcache", "replay_manif" );
@@ -784,10 +777,8 @@ fd_topo_initialize( config_t * config ) {
   /**/ fd_topob_tile_out( topo, "replay",  0UL, "replay_notif", 0UL );
 
   if( enable_rpc ) {
-    fd_topob_tile_in(  topo, "rpcsrv", 0UL, "metric_in",  "replay_notif", 0UL, FD_TOPOB_UNRELIABLE, FD_TOPOB_POLLED );
-    fd_topob_tile_in(  topo, "rpcsrv", 0UL, "metric_in",  "stake_out",    0UL, FD_TOPOB_UNRELIABLE, FD_TOPOB_POLLED );
-    FOR(shred_tile_cnt)  fd_topob_tile_in(  topo, "rpcsrv",  0UL,          "metric_in", "shred_rpcsrv",  i, FD_TOPOB_UNRELIABLE, FD_TOPOB_POLLED );
-    FOR(shred_tile_cnt)  fd_topob_tile_out( topo, "shred",  i,                          "shred_rpcsrv",  i );
+    fd_topob_tile_in(  topo, "rpcsrv", 0UL, "metric_in",  "replay_notif", 0UL, FD_TOPOB_UNRELIABLE, FD_TOPOB_POLLED   );
+    fd_topob_tile_in(  topo, "rpcsrv", 0UL, "metric_in",  "stake_out",    0UL, FD_TOPOB_UNRELIABLE, FD_TOPOB_POLLED   );
   }
 
   /* For now the only plugin consumer is the GUI */
