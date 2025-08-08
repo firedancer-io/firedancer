@@ -133,7 +133,7 @@ fd_sshttp_init( fd_sshttp_t * http,
 
   struct sockaddr_in addr_in = {
     .sin_family = AF_INET,
-    .sin_port   = fd_ushort_bswap( addr.port ),
+    .sin_port   = addr.port,
     .sin_addr   = { .s_addr = addr.addr }
   };
 
