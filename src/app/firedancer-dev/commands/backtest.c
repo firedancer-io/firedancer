@@ -23,7 +23,7 @@
 #include "../../../disco/metrics/fd_metrics.h"
 #include "../../../util/pod/fd_pod_format.h"
 #include "../../../discof/replay/fd_replay_notif.h"
-#include "../../../discof/repair/fd_reasm.h"
+#include "../../../discof/reasm/fd_reasm.h"
 #include "../../../flamenco/runtime/fd_runtime_public.h" /* FD_RUNTIME_PUBLIC_ACCOUNT_UPDATE_MSG_MTU */
 #include "../main.h"
 

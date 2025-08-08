@@ -251,8 +251,8 @@ fd_reasm_leave( fd_reasm_t * reasm );
 void *
 fd_reasm_delete( void * reasm );
 
-/* fd_reasm_{query,query_const} returns a pointer to the current root of
-   of the reasm.  Returns NULL if there is no root. */
+/* fd_reasm_root returns a pointer to the current root of of the reasm,
+   NULL if there is no root. */
 
 fd_reasm_fec_t *
 fd_reasm_root( fd_reasm_t * reasm );
@@ -262,8 +262,8 @@ fd_reasm_root( fd_reasm_t * reasm );
 ulong
 fd_reasm_slot0( fd_reasm_t * reasm );
 
-/* fd_reasm_{query,query_const} queries the FEC set keyed by merkle.
-   Returns a pointer to the fd_reasm_fec_t if found, NULL otherwise. */
+/* fd_reasm_query returns a pointer to the ele keyed by merkle_root if
+   found, NULL otherwise. */
 
 fd_reasm_fec_t *
 fd_reasm_query( fd_reasm_t * reasm, fd_hash_t const * merkle_root );
@@ -310,6 +310,9 @@ fd_reasm_insert( fd_reasm_t *      reasm,
 
 fd_reasm_fec_t *
 fd_reasm_publish( fd_reasm_t * reasm, fd_hash_t const * merkle_root );
+
+void
+fd_reasm_print( fd_reasm_t const * reasm );
 
 FD_PROTOTYPES_END
 
