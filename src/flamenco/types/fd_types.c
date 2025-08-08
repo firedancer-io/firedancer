@@ -16175,13 +16175,10 @@ int fd_bpf_upgradeable_loader_program_instruction_encode( fd_bpf_upgradeable_loa
 
 int fd_bpf_upgradeable_loader_state_buffer_encode( fd_bpf_upgradeable_loader_state_buffer_t const * self, fd_bincode_encode_ctx_t * ctx ) {
   int err;
-  if( self->authority_address != NULL ) {
-    err = fd_bincode_bool_encode( 1, ctx );
-    if( FD_UNLIKELY( err ) ) return err;
-    err = fd_pubkey_encode( self->authority_address, ctx );
-    if( FD_UNLIKELY( err ) ) return err;
-  } else {
-    err = fd_bincode_bool_encode( 0, ctx );
+  err = fd_bincode_bool_encode( self->has_authority_address, ctx );
+  if( FD_UNLIKELY( err ) ) return err;
+  if( self->has_authority_address ) {
+    err = fd_pubkey_encode( &self->authority_address, ctx );
     if( FD_UNLIKELY( err ) ) return err;
   }
   return FD_BINCODE_SUCCESS;
@@ -16194,7 +16191,6 @@ static int fd_bpf_upgradeable_loader_state_buffer_decode_footprint_inner( fd_bin
     err = fd_bincode_bool_decode( &o, ctx );
     if( FD_UNLIKELY( err!=FD_BINCODE_SUCCESS ) ) return err;
     if( o ) {
-    *total_sz += FD_PUBKEY_ALIGN + sizeof(fd_pubkey_t);
       err = fd_pubkey_decode_footprint_inner( ctx, total_sz );
       if( FD_UNLIKELY( err!=FD_BINCODE_SUCCESS ) ) return err;
     }
@@ -16214,14 +16210,10 @@ static void fd_bpf_upgradeable_loader_state_buffer_decode_inner( void * struct_m
   {
     uchar o;
     fd_bincode_bool_decode_unsafe( &o, ctx );
+    self->has_authority_address = !!o;
     if( o ) {
-      *alloc_mem = (void*)fd_ulong_align_up( (ulong)*alloc_mem, FD_PUBKEY_ALIGN );
-      self->authority_address = *alloc_mem;
-      *alloc_mem = (uchar *)*alloc_mem + sizeof(fd_pubkey_t);
-      fd_pubkey_new( self->authority_address );
-      fd_pubkey_decode_inner( self->authority_address, alloc_mem, ctx );
-    } else {
-      self->authority_address = NULL;
+      fd_pubkey_new( &self->authority_address );
+      fd_pubkey_decode_inner( &self->authority_address, alloc_mem, ctx );
     }
   }
 }
@@ -16239,18 +16231,18 @@ void fd_bpf_upgradeable_loader_state_buffer_new(fd_bpf_upgradeable_loader_state_
 void fd_bpf_upgradeable_loader_state_buffer_walk( void * w, fd_bpf_upgradeable_loader_state_buffer_t const * self, fd_types_walk_fn_t fun, const char *name, uint level, uint varint ) {
   (void) varint;
   fun( w, self, name, FD_FLAMENCO_TYPE_MAP, "fd_bpf_upgradeable_loader_state_buffer", level++, 0 );
-  if( !self->authority_address ) {
+  if( !self->has_authority_address ) {
     fun( w, NULL, "authority_address", FD_FLAMENCO_TYPE_NULL, "pubkey", level, 0 );
   } else {
-    fd_pubkey_walk( w, self->authority_address, fun, "authority_address", level, 0 );
+    fd_pubkey_walk( w, &self->authority_address, fun, "authority_address", level, 0 );
   }
   fun( w, self, name, FD_FLAMENCO_TYPE_MAP_END, "fd_bpf_upgradeable_loader_state_buffer", level--, 0 );
 }
 ulong fd_bpf_upgradeable_loader_state_buffer_size( fd_bpf_upgradeable_loader_state_buffer_t const * self ) {
   ulong size = 0;
   size += sizeof(char);
-  if( NULL != self->authority_address ) {
-    size += fd_pubkey_size( self->authority_address );
+  if( self->has_authority_address ) {
+    size += fd_pubkey_size( &self->authority_address );
   }
   return size;
 }
@@ -16288,13 +16280,10 @@ int fd_bpf_upgradeable_loader_state_program_data_encode( fd_bpf_upgradeable_load
   int err;
   err = fd_bincode_uint64_encode( self->slot, ctx );
   if( FD_UNLIKELY( err ) ) return err;
-  if( self->upgrade_authority_address != NULL ) {
-    err = fd_bincode_bool_encode( 1, ctx );
-    if( FD_UNLIKELY( err ) ) return err;
-    err = fd_pubkey_encode( self->upgrade_authority_address, ctx );
-    if( FD_UNLIKELY( err ) ) return err;
-  } else {
-    err = fd_bincode_bool_encode( 0, ctx );
+  err = fd_bincode_bool_encode( self->has_upgrade_authority_address, ctx );
+  if( FD_UNLIKELY( err ) ) return err;
+  if( self->has_upgrade_authority_address ) {
+    err = fd_pubkey_encode( &self->upgrade_authority_address, ctx );
     if( FD_UNLIKELY( err ) ) return err;
   }
   return FD_BINCODE_SUCCESS;
@@ -16309,7 +16298,6 @@ static int fd_bpf_upgradeable_loader_state_program_data_decode_footprint_inner( 
     err = fd_bincode_bool_decode( &o, ctx );
     if( FD_UNLIKELY( err!=FD_BINCODE_SUCCESS ) ) return err;
     if( o ) {
-    *total_sz += FD_PUBKEY_ALIGN + sizeof(fd_pubkey_t);
       err = fd_pubkey_decode_footprint_inner( ctx, total_sz );
       if( FD_UNLIKELY( err!=FD_BINCODE_SUCCESS ) ) return err;
     }
@@ -16330,14 +16318,10 @@ static void fd_bpf_upgradeable_loader_state_program_data_decode_inner( void * st
   {
     uchar o;
     fd_bincode_bool_decode_unsafe( &o, ctx );
+    self->has_upgrade_authority_address = !!o;
     if( o ) {
-      *alloc_mem = (void*)fd_ulong_align_up( (ulong)*alloc_mem, FD_PUBKEY_ALIGN );
-      self->upgrade_authority_address = *alloc_mem;
-      *alloc_mem = (uchar *)*alloc_mem + sizeof(fd_pubkey_t);
-      fd_pubkey_new( self->upgrade_authority_address );
-      fd_pubkey_decode_inner( self->upgrade_authority_address, alloc_mem, ctx );
-    } else {
-      self->upgrade_authority_address = NULL;
+      fd_pubkey_new( &self->upgrade_authority_address );
+      fd_pubkey_decode_inner( &self->upgrade_authority_address, alloc_mem, ctx );
     }
   }
 }
@@ -16356,10 +16340,10 @@ void fd_bpf_upgradeable_loader_state_program_data_walk( void * w, fd_bpf_upgrade
   (void) varint;
   fun( w, self, name, FD_FLAMENCO_TYPE_MAP, "fd_bpf_upgradeable_loader_state_program_data", level++, 0 );
   fun( w, &self->slot, "slot", FD_FLAMENCO_TYPE_ULONG, "ulong", level, 0  );
-  if( !self->upgrade_authority_address ) {
+  if( !self->has_upgrade_authority_address ) {
     fun( w, NULL, "upgrade_authority_address", FD_FLAMENCO_TYPE_NULL, "pubkey", level, 0 );
   } else {
-    fd_pubkey_walk( w, self->upgrade_authority_address, fun, "upgrade_authority_address", level, 0 );
+    fd_pubkey_walk( w, &self->upgrade_authority_address, fun, "upgrade_authority_address", level, 0 );
   }
   fun( w, self, name, FD_FLAMENCO_TYPE_MAP_END, "fd_bpf_upgradeable_loader_state_program_data", level--, 0 );
 }
@@ -16367,8 +16351,8 @@ ulong fd_bpf_upgradeable_loader_state_program_data_size( fd_bpf_upgradeable_load
   ulong size = 0;
   size += sizeof(ulong);
   size += sizeof(char);
-  if( NULL != self->upgrade_authority_address ) {
-    size += fd_pubkey_size( self->upgrade_authority_address );
+  if( self->has_upgrade_authority_address ) {
+    size += fd_pubkey_size( &self->upgrade_authority_address );
   }
   return size;
 }

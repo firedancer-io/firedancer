@@ -1684,7 +1684,7 @@
       "name": "bpf_upgradeable_loader_state_buffer",
       "type": "struct",
       "fields": [
-        { "name": "authority_address", "type": "option", "element": "pubkey" }
+        { "name": "authority_address", "type": "option", "element": "pubkey", "flat": true }
       ]
     },
     {
@@ -1699,7 +1699,7 @@
       "type": "struct",
       "fields": [
         { "name": "slot", "type": "ulong" },
-        { "name": "upgrade_authority_address", "type": "option", "element": "pubkey" }
+        { "name": "upgrade_authority_address", "type": "option", "element": "pubkey", "flat": true }
       ]
     },
     {

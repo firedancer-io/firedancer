@@ -26,7 +26,9 @@
 /* FD_CHACHA20RNG_BUFSZ is the internal buffer size of pre-generated
    ChaCha20 blocks.  Multiple of block size (64 bytes) and a power of 2. */
 
-#if FD_HAS_AVX
+#if FD_HAS_AVX512
+#define FD_CHACHA20RNG_BUFSZ (16*FD_CHACHA20_BLOCK_SZ)
+#elif FD_HAS_AVX
 #define FD_CHACHA20RNG_BUFSZ (8*FD_CHACHA20_BLOCK_SZ)
 #else
 #define FD_CHACHA20RNG_BUFSZ (256UL)
@@ -116,15 +118,24 @@ fd_chacha20rng_t *
 fd_chacha20rng_init( fd_chacha20rng_t * rng,
                      void const *       key );
 
-/* The refill function .  Not part of the public API. */
+/* The refill function.  Not part of the public API. */
 
+#if FD_HAS_AVX512
+void
+fd_chacha20rng_refill_avx512( fd_chacha20rng_t * rng );
+#endif
+
+#if FD_HAS_AVX
 void
 fd_chacha20rng_refill_avx( fd_chacha20rng_t * rng );
+#endif
 
 void
 fd_chacha20rng_refill_seq( fd_chacha20rng_t * rng );
 
-#if FD_HAS_AVX
+#if FD_HAS_AVX512
+#define fd_chacha20rng_private_refill fd_chacha20rng_refill_avx512
+#elif FD_HAS_AVX
 #define fd_chacha20rng_private_refill fd_chacha20rng_refill_avx
 #else
 #define fd_chacha20rng_private_refill fd_chacha20rng_refill_seq

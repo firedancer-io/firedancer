@@ -238,8 +238,7 @@ uchar const *
 fd_program_cache_get_account_programdata( fd_funk_t const *        funk,
                                           fd_funk_txn_t const *    funk_txn,
                                           fd_txn_account_t const * program_acc,
-                                          ulong *                  out_program_data_len,
-                                          fd_spad_t *              runtime_spad );
+                                          ulong *                  out_program_data_len );
 
 /* Updates the program cache for a single program. This function is
    called for every program that is referenced in a transaction, plus

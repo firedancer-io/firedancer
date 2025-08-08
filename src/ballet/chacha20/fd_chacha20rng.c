@@ -68,13 +68,6 @@ fd_chacha20rng_init( fd_chacha20rng_t * rng,
   return rng;
 }
 
-#if FD_HAS_AVX
-
-void
-fd_chacha20rng_refill_avx( fd_chacha20rng_t * rng );
-
-#else
-
 void
 fd_chacha20rng_refill_seq( fd_chacha20rng_t * rng ) {
   ulong fill_target = FD_CHACHA20RNG_BUFSZ - FD_CHACHA20_BLOCK_SZ;
@@ -90,5 +83,3 @@ fd_chacha20rng_refill_seq( fd_chacha20rng_t * rng ) {
     rng->buf_fill += (uint)FD_CHACHA20_BLOCK_SZ;
   }
 }
-
-#endif

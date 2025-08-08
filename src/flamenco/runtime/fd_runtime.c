@@ -1732,8 +1732,8 @@ fd_new_target_program_data_account( fd_exec_slot_ctx_t * slot_ctx,
 
   /* https://github.com/anza-xyz/agave/blob/v2.1.0/runtime/src/bank/builtins/core_bpf_migration/mod.rs#L118-L125 */
   if( config_upgrade_authority_address!=NULL ) {
-    if( FD_UNLIKELY( state->inner.buffer.authority_address==NULL ||
-                     memcmp( config_upgrade_authority_address, state->inner.buffer.authority_address, sizeof(fd_pubkey_t) ) ) ) {
+    if( FD_UNLIKELY( !state->inner.buffer.has_authority_address ||
+                     !fd_pubkey_eq( config_upgrade_authority_address, &state->inner.buffer.authority_address ) ) ) {
       return -1;
     }
   }
@@ -1754,7 +1754,8 @@ fd_new_target_program_data_account( fd_exec_slot_ctx_t * slot_ctx,
     .inner = {
       .program_data = {
         .slot = fd_bank_slot_get( slot_ctx->bank ),
-        .upgrade_authority_address = config_upgrade_authority_address
+        .has_upgrade_authority_address = !!config_upgrade_authority_address,
+        .upgrade_authority_address     = config_upgrade_authority_address ? *config_upgrade_authority_address : (fd_pubkey_t){{0}}
       }
     }
   };

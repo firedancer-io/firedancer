@@ -50,35 +50,42 @@ main( int     argc,
     double gbps    = ((double)(8UL*sizeof(ulong)*iter)) / ((double)dt);
     double ulongps = ((double)iter / (double)dt) * 1000.0;
     double ns      = (double)dt / (double)iter;
-    FD_LOG_NOTICE(( "  ~%6.3f Gbps            / core", gbps    ));
+    FD_LOG_NOTICE(( "  ~%7.3f Gbps            / core", gbps    ));
     FD_LOG_NOTICE(( "  ~%6.3f Mulong / second / core", ulongps ));
     FD_LOG_NOTICE(( "  ~%6.3f ns / ulong",             ns      ));
   } while(0);
 
-# if FD_HAS_AVX
-  do {
-    FD_LOG_NOTICE(( "Benchmarking fd_chacha20rng_refill_avx" ));
-    key[ 0 ]++;
-    FD_TEST( fd_chacha20rng_init( rng, key ) );
-
-    /* warmup */
-    for( ulong rem=100000UL; rem; rem-- ) {
-      rng->buf_off += 8*FD_CHACHA20_BLOCK_SZ;
-      fd_chacha20rng_refill_avx( rng );
-    }
-
-    /* for real */
-    ulong iter = 1000000UL;
-    long  dt   = -fd_log_wallclock();
-    for( ulong rem=iter; rem; rem-- ) {
-      rng->buf_off += 8*FD_CHACHA20_BLOCK_SZ;
-      fd_chacha20rng_refill_avx( rng );
-    }
-    dt += fd_log_wallclock();
-    double gbps  = ((double)(8UL*8UL*FD_CHACHA20_BLOCK_SZ*iter)) / ((double)dt);
-    FD_LOG_NOTICE(( "  ~%6.3f Gbps / core", gbps    ));
+#define REFILL_TEST( name, stride )                                    \
+  do {                                                                 \
+    FD_LOG_NOTICE(( "Benchmarking " #name ));                          \
+    key[ 0 ]++;                                                        \
+    FD_TEST( fd_chacha20rng_init( rng, key ) );                        \
+                                                                       \
+    /* warmup */                                                       \
+    for( ulong rem=100000UL; rem; rem-- ) {                            \
+      rng->buf_off += (stride);                                        \
+      name( rng );                                                     \
+    }                                                                  \
+                                                                       \
+    /* for real */                                                     \
+    ulong iter = 1000000UL;                                            \
+    long  dt   = -fd_log_wallclock();                                  \
+    for( ulong rem=iter; rem; rem-- ) {                                \
+      rng->buf_off += (stride);                                        \
+      name( rng );                                                     \
+    }                                                                  \
+    dt += fd_log_wallclock();                                          \
+    double gbps = ((double)(8UL*(stride)*iter)) / ((double)dt);        \
+    FD_LOG_NOTICE(( "  ~%7.3f Gbps / core", gbps ));                   \
   } while(0);
-# endif /* FD_HAS_AVX */
+
+# if FD_HAS_AVX512
+  REFILL_TEST( fd_chacha20rng_refill_avx512, 16*FD_CHACHA20_BLOCK_SZ );
+# endif
+# if FD_HAS_AVX
+  REFILL_TEST( fd_chacha20rng_refill_avx,     8*FD_CHACHA20_BLOCK_SZ );
+# endif
+  REFILL_TEST( fd_chacha20rng_refill_seq,     1*FD_CHACHA20_BLOCK_SZ );
 
   /* Clean up */
 
