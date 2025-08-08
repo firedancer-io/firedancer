@@ -22,7 +22,7 @@ ulong
 fd_stake_delegations_align( void ) {
   /* The align of the struct should be the max of the align of the data
      structures that it contains. In this case, this is the map, the
-     pool, and the struct itself*/
+     pool, and the struct itself */
   return fd_ulong_max( fd_ulong_max( fd_stake_delegation_map_align(),
                        fd_stake_delegation_pool_align() ), alignof(fd_stake_delegations_t) );
 }
