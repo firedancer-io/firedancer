@@ -179,6 +179,8 @@ void
 fd_vote_states_update( fd_vote_states_t *  self,
                        fd_pubkey_t const * vote_account,
                        uchar               commission,
+                       long                last_vote_timestamp,
+                       ulong               last_vote_slot,
                        ulong               credits_cnt,
                        ushort *            epoch,
                        ulong *             credits,
@@ -214,8 +216,10 @@ fd_vote_states_update( fd_vote_states_t *  self,
 
     /* TODO: can do something smarter where we only update the
        comission and the credits coresponding to the new epoch. */
-    vote_state->commission  = commission;
-    vote_state->credits_cnt = credits_cnt;
+    vote_state->commission          = commission;
+    vote_state->credits_cnt         = credits_cnt;
+    vote_state->last_vote_timestamp = last_vote_timestamp;
+    vote_state->last_vote_slot      = last_vote_slot;
     for( ulong i=0UL; i<credits_cnt; i++ ) {
       vote_state->epoch[i]        = epoch[i];
       vote_state->credits[i]      = credits[i];
@@ -235,9 +239,11 @@ fd_vote_states_update( fd_vote_states_t *  self,
     FD_LOG_CRIT(( "unable to acquire vote state" ));
   }
 
-  vote_state->vote_account = *vote_account;
-  vote_state->commission   = commission;
-  vote_state->credits_cnt  = credits_cnt;
+  vote_state->vote_account        = *vote_account;
+  vote_state->commission          = commission;
+  vote_state->last_vote_timestamp = last_vote_timestamp;
+  vote_state->last_vote_slot      = last_vote_slot;
+  vote_state->credits_cnt         = credits_cnt;
   for( ulong i=0UL; i<credits_cnt; i++ ) {
     vote_state->epoch[i]        = epoch[i];
     vote_state->credits[i]      = credits[i];
@@ -309,7 +315,10 @@ fd_vote_states_update_from_account( fd_vote_states_t *  vote_states,
     FD_LOG_CRIT(( "unable to decode vote state versioned" ));
   }
 
-  uchar  comission;
+  uchar  commission;
+  long   last_vote_timestamp;
+  ulong  last_vote_slot;
+
   ulong  credits_cnt = 0UL;
   ushort epoch[EPOCH_CREDITS_MAX];
   ulong  credits[EPOCH_CREDITS_MAX];
@@ -319,9 +328,10 @@ fd_vote_states_update_from_account( fd_vote_states_t *  vote_states,
 
   switch( vsv->discriminant ) {
   case fd_vote_state_versioned_enum_v0_23_5:
-    comission = vsv->inner.v0_23_5.commission;
-
-    epoch_credits = vsv->inner.v0_23_5.epoch_credits;
+    commission          = vsv->inner.v0_23_5.commission;
+    last_vote_timestamp = vsv->inner.v0_23_5.last_timestamp.timestamp;
+    last_vote_slot      = vsv->inner.v0_23_5.last_timestamp.slot;
+    epoch_credits       = vsv->inner.v0_23_5.epoch_credits;
 
     for( deq_fd_vote_epoch_credits_t_iter_t iter = deq_fd_vote_epoch_credits_t_iter_init( epoch_credits );
       !deq_fd_vote_epoch_credits_t_iter_done( epoch_credits, iter );
@@ -337,9 +347,10 @@ fd_vote_states_update_from_account( fd_vote_states_t *  vote_states,
 
     break;
   case fd_vote_state_versioned_enum_v1_14_11:
-    comission = vsv->inner.v1_14_11.commission;
-
-    epoch_credits = vsv->inner.v1_14_11.epoch_credits;
+    commission          = vsv->inner.v1_14_11.commission;
+    last_vote_timestamp = vsv->inner.v1_14_11.last_timestamp.timestamp;
+    last_vote_slot      = vsv->inner.v1_14_11.last_timestamp.slot;
+    epoch_credits       = vsv->inner.v1_14_11.epoch_credits;
 
     for( deq_fd_vote_epoch_credits_t_iter_t iter = deq_fd_vote_epoch_credits_t_iter_init( epoch_credits );
       !deq_fd_vote_epoch_credits_t_iter_done( epoch_credits, iter );
@@ -354,8 +365,10 @@ fd_vote_states_update_from_account( fd_vote_states_t *  vote_states,
     }
     break;
   case fd_vote_state_versioned_enum_current:
-    comission = vsv->inner.current.commission;
-    epoch_credits = vsv->inner.current.epoch_credits;
+    commission          = vsv->inner.current.commission;
+    last_vote_timestamp = vsv->inner.current.last_timestamp.timestamp;
+    last_vote_slot      = vsv->inner.current.last_timestamp.slot;
+    epoch_credits       = vsv->inner.current.epoch_credits;
 
     for( deq_fd_vote_epoch_credits_t_iter_t iter = deq_fd_vote_epoch_credits_t_iter_init( epoch_credits );
       !deq_fd_vote_epoch_credits_t_iter_done( epoch_credits, iter );
@@ -376,7 +389,9 @@ fd_vote_states_update_from_account( fd_vote_states_t *  vote_states,
   fd_vote_states_update(
       vote_states,
       vote_account,
-      comission,
+      commission,
+      last_vote_timestamp,
+      last_vote_slot,
       credits_cnt,
       epoch,
       credits,

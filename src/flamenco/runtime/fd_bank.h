@@ -203,8 +203,13 @@ FD_PROTOTYPES_BEGIN
   X(ulong,                             shred_cnt,                   sizeof(ulong),                             alignof(ulong),                             0,   0,                0    )  /* Shred count */                                            \
   X(int,                               enable_exec_recording,       sizeof(int),                               alignof(int),                               0,   0,                0    )  /* Enable exec recording */                                  \
   X(fd_stake_delegations_t,            stake_delegations,           FD_STAKE_DELEGATIONS_FOOTPRINT,            FD_STAKE_DELEGATIONS_ALIGN,                 1,   0,                1    )  /* Stake delegations */                                      \
-  X(ulong,                             epoch,                       sizeof(ulong),                             alignof(ulong),                             0,   0,                0    )  /* Epoch */ \
-  X(fd_vote_states_t,                  vote_states,                 FD_VOTE_STATES_FOOTPRINT,                  FD_VOTE_STATES_ALIGN,                       1,   0,                1    )  /* Vote states */                                            \
+  X(ulong,                             epoch,                       sizeof(ulong),                             alignof(ulong),                             0,   0,                0    )  /* Epoch */                                                  \
+  X(fd_vote_states_t,                  vote_states,                 FD_VOTE_STATES_FOOTPRINT,                  FD_VOTE_STATES_ALIGN,                       1,   0,                1    )  /* Vote states for all vote accounts as of epoch E if */     \
+                                                                                                                                                                                          /* epoch E is the one that is currently being executed */    \
+  X(fd_vote_states_t,                  vote_states_prev,            FD_VOTE_STATES_FOOTPRINT,                  FD_VOTE_STATES_ALIGN,                       1,   0,                1    )  /* Vote states for all vote accounts as of of the end of */  \
+                                                                                                                                                                                          /* epoch E-1 if epoch E is currently being executed */       \
+  X(fd_vote_states_t,                  vote_states_prev_prev,       FD_VOTE_STATES_FOOTPRINT,                  FD_VOTE_STATES_ALIGN,                       1,   0,                1    )  /* Vote states for all vote accounts as of the end of */     \
+                                                                                                                                                                                          /* epoch E-2 if epoch E is currently being executed */
 
 /* Invariant Every CoW field must have a rw-lock */
 #define X(type, name, footprint, align, cow, limit_fork_width, has_lock)                                              \
@@ -242,50 +247,42 @@ FD_PROTOTYPES_BEGIN
 #define POOL_NAME fd_bank_clock_timestamp_votes_pool
 #define POOL_T    fd_bank_clock_timestamp_votes_t
 #include "../../util/tmpl/fd_pool.c"
-#undef POOL_NAME
-#undef POOL_T
 
 #define POOL_NAME fd_bank_next_epoch_stakes_pool
 #define POOL_T    fd_bank_next_epoch_stakes_t
 #include "../../util/tmpl/fd_pool.c"
-#undef POOL_NAME
-#undef POOL_T
 
 #define POOL_NAME fd_bank_epoch_stakes_pool
 #define POOL_T    fd_bank_epoch_stakes_t
 #include "../../util/tmpl/fd_pool.c"
-#undef POOL_NAME
-#undef POOL_T
 
 #define POOL_NAME fd_bank_epoch_leaders_pool
 #define POOL_T    fd_bank_epoch_leaders_t
 #include "../../util/tmpl/fd_pool.c"
-#undef POOL_NAME
-#undef POOL_T
 
 #define POOL_NAME fd_bank_epoch_rewards_pool
 #define POOL_T    fd_bank_epoch_rewards_t
 #include "../../util/tmpl/fd_pool.c"
-#undef POOL_NAME
-#undef POOL_T
 
 #define POOL_NAME fd_bank_stake_delegations_pool
 #define POOL_T    fd_bank_stake_delegations_t
 #include "../../util/tmpl/fd_pool.c"
-#undef POOL_NAME
-#undef POOL_T
 
 #define POOL_NAME fd_bank_curr_epoch_stakes_pool
 #define POOL_T    fd_bank_curr_epoch_stakes_t
 #include "../../util/tmpl/fd_pool.c"
-#undef POOL_NAME
-#undef POOL_T
 
 #define POOL_NAME fd_bank_vote_states_pool
 #define POOL_T    fd_bank_vote_states_t
 #include "../../util/tmpl/fd_pool.c"
-#undef POOL_NAME
-#undef POOL_T
+
+#define POOL_NAME fd_bank_vote_states_prev_pool
+#define POOL_T    fd_bank_vote_states_prev_t
+#include "../../util/tmpl/fd_pool.c"
+
+#define POOL_NAME fd_bank_vote_states_prev_prev_pool
+#define POOL_T    fd_bank_vote_states_prev_prev_t
+#include "../../util/tmpl/fd_pool.c"
 
 /* As mentioned above, the overall layout of the bank struct:
    - Fields used for internal pool/bank management

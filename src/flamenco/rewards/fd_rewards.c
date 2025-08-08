@@ -330,8 +330,6 @@ calculate_points_all( fd_exec_slot_ctx_t const * slot_ctx,
   fd_stake_delegation_map_t * stake_delegation_map  = fd_stake_delegations_get_map( stake_delegations );
   fd_stake_delegation_t *     stake_delegation_pool = fd_stake_delegations_get_pool( stake_delegations );
 
-
-  ulong curr_epoch = fd_bank_epoch_get( bank );
   for( fd_stake_delegation_map_iter_t iter = fd_stake_delegation_map_iter_init( stake_delegation_map, stake_delegation_pool );
         !fd_stake_delegation_map_iter_done( iter, stake_delegation_map, stake_delegation_pool );
         iter = fd_stake_delegation_map_iter_next( iter, stake_delegation_map, stake_delegation_pool ) ) {
@@ -343,11 +341,9 @@ calculate_points_all( fd_exec_slot_ctx_t const * slot_ctx,
 
     fd_vote_states_t const * vote_states = fd_bank_vote_states_locking_query( slot_ctx->bank );
     fd_vote_state_ele_t * vote_state_ele = fd_vote_states_query( vote_states, &stake_delegation->vote_account );
+
     if( FD_UNLIKELY( !vote_state_ele ) ) {
-      FD_LOG_WARNING(( "failed to query vote state %lu %lu %lu %lu", stake_delegation->stake, stake_delegation->activation_epoch, stake_delegation->deactivation_epoch, curr_epoch ));
       continue;
-    } else {
-      FD_LOG_WARNING(( "queried vote state %lu %lu %lu %lu", stake_delegation->stake, stake_delegation->activation_epoch, stake_delegation->deactivation_epoch, curr_epoch ));
     }
 
     uint128 account_points;

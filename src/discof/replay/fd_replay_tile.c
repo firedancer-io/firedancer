@@ -530,11 +530,9 @@ restore_slot_ctx( fd_replay_tile_ctx_t * ctx,
 
   fd_exec_slot_ctx_t * recovered_slot_ctx = fd_exec_slot_ctx_recover( ctx->slot_ctx,
                                                                       manifest_global );
-  FD_LOG_WARNING(("ASDF"));
   if( !recovered_slot_ctx ) {
     FD_LOG_ERR(( "Failed to restore slot context from snapshot manifest!" ));
   }
-  FD_LOG_WARNING(("ASDF"));
 }
 
 static void
@@ -697,10 +695,9 @@ init_after_snapshot( fd_replay_tile_ctx_t * ctx,
   memset( block_id, 0, sizeof(fd_hash_t) );
   block_id->key[0] = UCHAR_MAX; /* TODO: would be good to have the actual block id of the snapshot slot */
 
-  fd_vote_accounts_global_t const * vote_accounts = fd_bank_curr_epoch_stakes_locking_query( ctx->slot_ctx->bank );
-
-  fd_vote_accounts_pair_global_t_mapnode_t * vote_accounts_pool = fd_vote_accounts_vote_accounts_pool_join( vote_accounts );
-  fd_vote_accounts_pair_global_t_mapnode_t * vote_accounts_root = fd_vote_accounts_vote_accounts_root_join( vote_accounts );
+  fd_vote_states_t const * vote_states     = fd_bank_vote_states_locking_query( ctx->slot_ctx->bank );
+  fd_vote_state_map_t *    vote_state_map  = fd_vote_states_get_map( vote_states );
+  fd_vote_state_ele_t *    vote_state_pool = fd_vote_states_get_pool( vote_states );
 
   /* Send to tower tile */
 
@@ -709,15 +706,16 @@ init_after_snapshot( fd_replay_tile_ctx_t * ctx,
     memcpy( chunk_laddr, block_id, sizeof(fd_hash_t) );
 
     ulong off = sizeof(fd_hash_t);
-    for( fd_vote_accounts_pair_global_t_mapnode_t * curr = fd_vote_accounts_pair_global_t_map_minimum( vote_accounts_pool, vote_accounts_root );
-        curr;
-        curr = fd_vote_accounts_pair_global_t_map_successor( vote_accounts_pool, curr ) ) {
+    for( fd_vote_state_map_iter_t iter = fd_vote_state_map_iter_init( vote_state_map, vote_state_pool );
+         !fd_vote_state_map_iter_done( iter, vote_state_map, vote_state_pool );
+         iter = fd_vote_state_map_iter_next( iter, vote_state_map, vote_state_pool ) ) {
+      fd_vote_state_ele_t const * vote_state = fd_vote_state_map_iter_ele_const( iter, vote_state_map, vote_state_pool );
 
-      if( FD_UNLIKELY( curr->elem.stake > 0UL ) ) {
-        memcpy( chunk_laddr + off, &curr->elem.key, sizeof(fd_pubkey_t) );
+      if( FD_UNLIKELY( vote_state->stake > 0UL ) ) {
+        memcpy( chunk_laddr + off, &vote_state->vote_account, sizeof(fd_pubkey_t) );
         off += sizeof(fd_pubkey_t);
 
-        memcpy( chunk_laddr + off, &curr->elem.stake, sizeof(ulong) );
+        memcpy( chunk_laddr + off, &vote_state->stake, sizeof(ulong) );
         off += sizeof(ulong);
       }
     }
@@ -726,14 +724,15 @@ init_after_snapshot( fd_replay_tile_ctx_t * ctx,
   }
 
   fd_bank_hash_cmp_t * bank_hash_cmp = ctx->bank_hash_cmp;
-  for( fd_vote_accounts_pair_global_t_mapnode_t * curr = fd_vote_accounts_pair_global_t_map_minimum( vote_accounts_pool, vote_accounts_root );
-       curr;
-       curr = fd_vote_accounts_pair_global_t_map_successor( vote_accounts_pool, curr ) ) {
-    bank_hash_cmp->total_stake += curr->elem.stake;
+  for( fd_vote_state_map_iter_t iter = fd_vote_state_map_iter_init( vote_state_map, vote_state_pool );
+       !fd_vote_state_map_iter_done( iter, vote_state_map, vote_state_pool );
+       iter = fd_vote_state_map_iter_next( iter, vote_state_map, vote_state_pool ) ) {
+    fd_vote_state_ele_t const * vote_state = fd_vote_state_map_iter_ele_const( iter, vote_state_map, vote_state_pool );
+    bank_hash_cmp->total_stake += vote_state->stake;
   }
   bank_hash_cmp->watermark = snapshot_slot;
 
-  fd_bank_curr_epoch_stakes_end_locking_query( ctx->slot_ctx->bank );
+  fd_bank_vote_states_end_locking_query( ctx->slot_ctx->bank );
 
   ulong root = snapshot_slot;
   if( FD_LIKELY( root > fd_fseq_query( ctx->published_wmark ) ) ) {

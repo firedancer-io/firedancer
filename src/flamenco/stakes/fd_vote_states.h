@@ -24,6 +24,9 @@ struct fd_vote_state_ele {
   ulong  credits     [ EPOCH_CREDITS_MAX ];
   ulong  prev_credits[ EPOCH_CREDITS_MAX ];
 
+  long last_vote_timestamp;
+  ulong last_vote_slot;
+
   ulong stake;
 
   uchar commission;
@@ -113,6 +116,8 @@ void
 fd_vote_states_update( fd_vote_states_t *  self,
                        fd_pubkey_t const * vote_account,
                        uchar               commission,
+                       long                last_vote_timestamp,
+                       ulong               last_vote_slot,
                        ulong               credits_cnt,
                        ushort *            epoch,
                        ulong *             credits,
