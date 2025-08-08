@@ -586,7 +586,7 @@ after_frag( fd_repair_tile_ctx_t * ctx,
 
       FD_TEST( !fd_reasm_query( ctx->reasm, merkle_root ) );
       fd_hash_t const * cmr = chained_merkle_root;
-      if( FD_UNLIKELY( shred->slot - shred->data.parent_off == fd_reasm_slot0( ctx->reasm ) ) ) {
+      if( FD_UNLIKELY( shred->slot - shred->data.parent_off == fd_reasm_slot0( ctx->reasm ) && shred->fec_set_idx == 0) ) {
         cmr = &fd_reasm_root( ctx->reasm )->key;
       }
       FD_TEST( fd_reasm_insert( ctx->reasm, merkle_root, cmr, shred->slot, shred->fec_set_idx, shred->data.parent_off, (ushort)(shred->idx - shred->fec_set_idx + 1), data_complete, slot_complete ) );

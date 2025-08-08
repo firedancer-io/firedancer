@@ -402,6 +402,7 @@ repair_cmd_fn( args_t *   args,
   }
 
   FD_LOG_NOTICE(( "Repair profiler init" ));
+  fd_topo_print_log( 1, &config->topo );
 
   args_t configure_args = {
     .configure.command = CONFIGURE_CMD_INIT,
