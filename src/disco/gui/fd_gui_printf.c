@@ -615,7 +615,7 @@ fd_gui_printf_tile_stats( fd_gui_t *                  gui,
     jsonp_double( gui, "bundle_rtt_smoothed_millis", (double)(cur->bundle_rtt_smoothed_nanos) / 1000000.0 );
 
     fd_histf_t bundle_rx_delay_hist_delta[ 1 ];
-    fd_histf_subtract( gui->bundle_rx_delay_hist_current, gui->bundle_rx_delay_hist_reference, bundle_rx_delay_hist_delta );
+    fd_histf_subtract( &cur->bundle_rx_delay_hist, &prev->bundle_rx_delay_hist, bundle_rx_delay_hist_delta );
     ulong bundle_rx_delay_nanos_p90 = fd_histf_percentile( bundle_rx_delay_hist_delta, 90U, ULONG_MAX );
     jsonp_double( gui, "bundle_rx_delay_millis_p90", fd_double_if(bundle_rx_delay_nanos_p90==ULONG_MAX, 0.0, (double)(bundle_rx_delay_nanos_p90) / 1000000.0 ));
 
