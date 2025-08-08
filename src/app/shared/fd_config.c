@@ -575,6 +575,9 @@ fd_config_load( int           is_firedancer,
                 int           is_local_cluster,
                 char const *  default_config,
                 ulong         default_config_sz,
+                char const *  override_config,
+                char const *  override_config_path,
+                ulong         override_config_sz,
                 char const *  user_config,
                 ulong         user_config_sz,
                 char const *  user_config_path,
@@ -584,6 +587,10 @@ fd_config_load( int           is_firedancer,
 
   fd_config_load_buf( config, default_config, default_config_sz, "default.toml" );
   fd_config_validate( config );
+  if( FD_UNLIKELY( override_config ) ) {
+    fd_config_load_buf( config, override_config, override_config_sz, override_config_path );
+    fd_config_validate( config );
+  }
   if( FD_LIKELY( user_config ) ) {
     fd_config_load_buf( config, user_config, user_config_sz, user_config_path );
     fd_config_validate( config );

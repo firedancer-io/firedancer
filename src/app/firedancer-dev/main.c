@@ -214,5 +214,18 @@ action_t * ACTIONS[] = {
 int
 main( int     argc,
       char ** argv ) {
-  return fd_dev_main( argc, argv, 1, (char const *)firedancer_default_config, firedancer_default_config_sz, fd_topo_initialize );
+  fd_config_file_t _default = fd_config_file_default();
+  fd_config_file_t testnet = fd_config_file_testnet();
+  fd_config_file_t devnet = fd_config_file_devnet();
+  fd_config_file_t mainnet = fd_config_file_mainnet();
+
+  fd_config_file_t * configs[] = {
+    &_default,
+    &testnet,
+    &devnet,
+    &mainnet,
+    NULL
+  };
+
+  return fd_dev_main( argc, argv, 1, configs, fd_topo_initialize );
 }
