@@ -672,8 +672,8 @@ potential underflow.
 |----------------------------|----------|-------------|
 | net_in                     | `number` | Network ingress bytes per second (W) |
 | quic                       | `number` | Active QUIC connections (P) |
-| bundle_rtt_smoothed_millis | `number` | The round-trip time for grpc messages sent to the bundle server.  These are mostly ping messages when the validator is not leader.  An exponential moving average ( avg = 1/8 val + 7/8 avg ) is used to filter the signal |
-| bundle_rx_delay_millis_p90 | `number` | An estimate of the 90th percentile of the one-way delay of a bundle dispatched from the bundle server.  Only samples since the start of the most recent leader rotation for this validator are used to compute the percentile |
+| bundle_rtt_smoothed_millis | `number` | The round-trip time for grpc messages sent to the bundle server.  These are mostly ping-pong messages.  An exponential moving average ( avg = 1/8 val + 7/8 avg ) is used to filter the signal (W) |
+| bundle_rx_delay_millis_p90 | `number` | An estimate of the 90th percentile of the one-way delay of a bundle dispatched from the bundle server (W) |
 | verify                     | `number` | Fraction of transactions that failed sigverify (W) |
 | dedup                      | `number` | Fraction of transactions deduplicated (W) |
 | pack                       | `number` | Fraction of pack buffer filled (P) |
