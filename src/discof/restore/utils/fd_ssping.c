@@ -375,7 +375,7 @@ poll_advance( fd_ssping_t * ssping,
         score_treap_ele_remove( ssping->score_treap, peer, ssping->pool );
       }
 
-      FD_LOG_INFO(( "pinged " FD_IP4_ADDR_FMT ":%hu in %lu ns", FD_IP4_ADDR_FMT_ARGS( peer->addr.addr ), fd_ushort_bswap(peer->addr.port), peer->latency_nanos ));
+      FD_LOG_INFO(( "pinged " FD_IP4_ADDR_FMT ":%hu in %lu ns", FD_IP4_ADDR_FMT_ARGS( peer->addr.addr ), fd_ushort_bswap( peer->addr.port ), peer->latency_nanos ));
       peer->state = PEER_STATE_VALID;
       peer->deadline_nanos = now + PEER_DEADLINE_NANOS_VALID;
 
