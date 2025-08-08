@@ -143,20 +143,30 @@ fd_file_util_rmtree( char const * path,
       return -1;
     }
 
-    struct stat st;
-    if( FD_UNLIKELY( lstat( path1, &st ) ) ) {
+    int fd = open( path1, O_PATH );
+    if( FD_UNLIKELY( fd==-1 ) ) {
       if( FD_LIKELY( errno==ENOENT ) ) continue;
       closedir( dir ); /* Ignore error code, fd is always closed */
       return -1;
     }
 
+    struct stat st;
+    if( FD_UNLIKELY( fstat( fd, &st ) ) ) {
+      close( fd ); /* Ensure file descriptor is closed */
+      closedir( dir ); /* Ignore error code, fd is always closed */
+      return -1;
+    }
+
     if( FD_UNLIKELY( S_ISDIR( st.st_mode ) ) ) {
+      close( fd ); /* Ensure file descriptor is closed */
       fd_file_util_rmtree( path1, 1 );
     } else {
-      if( FD_UNLIKELY( -1==unlink( path1 ) && errno!=ENOENT ) ) {
+      if( FD_UNLIKELY( -1==unlinkat( AT_FDCWD, path1, 0 ) && errno!=ENOENT ) ) {
+        close( fd ); /* Ensure file descriptor is closed */
         closedir( dir ); /* Ignore error code, fd is always closed */
         return -1;
       }
+      close( fd ); /* Ensure file descriptor is closed */
     }
   }
 
