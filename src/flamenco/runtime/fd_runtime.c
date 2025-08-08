@@ -1966,9 +1966,6 @@ fd_runtime_process_new_epoch( fd_exec_slot_ctx_t * slot_ctx,
     new_rate_activation_epoch = NULL;
   }
 
-  fd_epoch_info_t temp_info = {0};
-  fd_epoch_info_new( &temp_info );
-
   /* If appropiate, use the stakes at T-1 to generate the leader schedule instead of T-2.
       This is due to a subtlety in how Agave's stake caches interact when loading from snapshots.
       See the comment in fd_exec_slot_ctx_recover_. */

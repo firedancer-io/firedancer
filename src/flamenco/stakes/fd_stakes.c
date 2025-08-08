@@ -112,9 +112,7 @@ compute_stake_delegations( fd_bank_t *                bank,
 void
 fd_populate_vote_accounts( fd_exec_slot_ctx_t *       slot_ctx,
                            fd_stake_history_t const * history,
-                           ulong *                    new_rate_activation_epoch,
-                           fd_epoch_info_t *          temp_info,
-                           fd_spad_t *                runtime_spad ) {
+                           ulong *                    new_rate_activation_epoch ) {
 
   /* We can optimize this function by only iterating over the vote
      accounts (since there's much fewer of them) instead of all of the
@@ -126,53 +124,12 @@ fd_populate_vote_accounts( fd_exec_slot_ctx_t *       slot_ctx,
       history,
       new_rate_activation_epoch );
 
-  fd_vote_states_t const * vote_states = fd_bank_vote_states_locking_query( slot_ctx->bank );
-
-  ulong vote_states_pool_sz   = fd_vote_states_cnt( vote_states );
-  temp_info->vote_states_root = NULL;
-  uchar * pool_mem = fd_spad_alloc( runtime_spad, fd_vote_info_pair_t_map_align(), fd_vote_info_pair_t_map_footprint( vote_states_pool_sz ) );
-  temp_info->vote_states_pool = fd_vote_info_pair_t_map_join( fd_vote_info_pair_t_map_new( pool_mem, vote_states_pool_sz ) );
-
-  // Iterate over each vote account in the epoch stakes cache and populate the new vote accounts pool
-  /* NOTE: we use epoch_bank->next_epoch_stakes because Agave indexes their epoch stakes cache by leader schedule epoch.
-     This means that the epoch stakes for epoch E are indexed by epoch E+1.
-     This is just a workaround for now.
-     https://github.com/anza-xyz/agave/blob/v2.2.14/runtime/src/bank/partitioned_epoch_rewards/calculation.rs#L309 */
-
-  fd_vote_accounts_global_t const *          next_epoch_stakes      = fd_bank_next_epoch_stakes_locking_query( slot_ctx->bank );
-  fd_vote_accounts_pair_global_t_mapnode_t * next_epoch_stakes_pool = fd_vote_accounts_vote_accounts_pool_join( next_epoch_stakes );
-  fd_vote_accounts_pair_global_t_mapnode_t * next_epoch_stakes_root = fd_vote_accounts_vote_accounts_root_join( next_epoch_stakes );
-
-  for( fd_vote_accounts_pair_global_t_mapnode_t * elem = fd_vote_accounts_pair_global_t_map_minimum( next_epoch_stakes_pool, next_epoch_stakes_root );
-       elem;
-       elem = fd_vote_accounts_pair_global_t_map_successor( next_epoch_stakes_pool, elem ) ) {
-    fd_pubkey_t const * vote_account_pubkey = &elem->elem.key;
-    FD_TXN_ACCOUNT_DECL( acc );
-    int rc = fd_txn_account_init_from_funk_readonly( acc, vote_account_pubkey, slot_ctx->funk, slot_ctx->funk_txn );
-    FD_TEST( rc == 0 );
-    uchar * data     = fd_solana_account_data_join( &elem->elem.value );
-    ulong   data_len = elem->elem.value.data_len;
-
-    int err;
-    fd_vote_state_versioned_t * vote_state = fd_bincode_decode_spad( vote_state_versioned,
-                                                                     runtime_spad,
-                                                                     data,
-                                                                     data_len,
-                                                                     &err );
-
-    if( FD_LIKELY( vote_state ) ) {
-      // Insert into the temporary vote states cache
-      fd_vote_info_pair_t_mapnode_t * new_vote_state_node = fd_vote_info_pair_t_map_acquire( temp_info->vote_states_pool );
-      new_vote_state_node->elem.account = *vote_account_pubkey;
-      new_vote_state_node->elem.state   = *vote_state;
-      fd_vote_info_pair_t_map_insert( temp_info->vote_states_pool, &temp_info->vote_states_root, new_vote_state_node );
-    } else {
-      FD_LOG_WARNING(( "Failed to deserialize vote account" ));
-    }
-  }
-  fd_bank_next_epoch_stakes_end_locking_query( slot_ctx->bank );
-
-  fd_bank_vote_states_end_locking_query( slot_ctx->bank );
+  /* TODO: because we are calculating the stake delegation partially
+     into the new epoch, we are interested in calculating the rewards
+     with stake delegations from epoch E-1. We already have this
+     information in vote_states_prev in the bank. However, this needs
+     to be implemented properly throughout the rewards calculation. */
+  FD_LOG_ERR(( "snapshots during rewards distribution are currently not supported" ));
 }
 
 /*
