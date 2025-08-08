@@ -84,6 +84,7 @@ extern fd_topo_run_tile_t fd_tile_poh;
 extern fd_topo_run_tile_t fd_tile_send;
 extern fd_topo_run_tile_t fd_tile_tower;
 extern fd_topo_run_tile_t fd_tile_rpcserv;
+extern fd_topo_run_tile_t fd_tile_ipecho;
 
 fd_topo_run_tile_t * TILES[] = {
   &fd_tile_net,
@@ -110,6 +111,7 @@ fd_topo_run_tile_t * TILES[] = {
   &fd_tile_send,
   &fd_tile_tower,
   &fd_tile_rpcserv,
+  &fd_tile_ipecho,
   NULL,
 };
 
@@ -124,6 +126,7 @@ extern action_t fd_action_netconf;
 extern action_t fd_action_set_identity;
 extern action_t fd_action_help;
 extern action_t fd_action_version;
+extern action_t fd_action_shred_version;
 
 action_t * ACTIONS[] = {
   &fd_action_run,
@@ -137,6 +140,7 @@ action_t * ACTIONS[] = {
   &fd_action_set_identity,
   &fd_action_help,
   &fd_action_version,
+  &fd_action_shred_version,
   NULL,
 };
 

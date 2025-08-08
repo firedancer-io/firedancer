@@ -350,7 +350,7 @@ backtest_cmd_topo( config_t * config ) {
   backtest_topo( config );
 }
 
-args_t
+static args_t
 configure_args( void ) {
   args_t args = {
     .configure.command = CONFIGURE_CMD_INIT,

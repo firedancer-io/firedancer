@@ -380,6 +380,7 @@ fd_topob_auto_layout( fd_topo_t * topo,
     "snapin", /* FIREDANCER only */
     "arch_f", /* FIREDANCER only */
     "arch_w", /* FIREDANCER only */
+    "ipecho", /* FIREDANCER only */
   };
 
   char const * CRITICAL_TILES[] = {

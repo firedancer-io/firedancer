@@ -36,6 +36,9 @@ $(call add-objs,topology,fd_firedancer)
 $(call add-objs,config,fd_firedancer)
 $(call add-objs,callbacks,fd_firedancer)
 
+# commands
+$(call add-objs,commands/shred_version,fd_firedancer)
+
 # version
 $(call make-lib,firedancer_version)
 $(call add-objs,version,firedancer_version)
