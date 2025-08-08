@@ -107,4 +107,16 @@ typedef struct {
   int status;
 } fd_plugin_msg_block_engine_update_t;
 
+#define FD_PLUGIN_MSG_SNAPSHOT_UPDATE (15UL)
+
+#define FD_PLUGIN_MSG_SNAPSHOT_TYPE_FULL        (0)
+#define FD_PLUGIN_MSG_SNAPSHOT_TYPE_INCREMENTAL (1)
+typedef struct __attribute__((packed)) {
+  int type;
+  ulong slot;
+  uint peer_addr;
+  ushort peer_port;
+  char read_path[ PATH_MAX ];
+} fd_restore_snapshot_update_t;
+
 #endif /* HEADER_fd_src_disco_plugin_fd_plugin_h */

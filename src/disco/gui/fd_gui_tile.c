@@ -14,10 +14,15 @@
 
 #include "generated/fd_gui_tile_seccomp.h"
 
-extern ulong const fdctl_major_version;
-extern ulong const fdctl_minor_version;
-extern ulong const fdctl_patch_version;
-extern uint  const fdctl_commit_ref;
+#ifdef __has_include
+#if __has_include("../../app/firedancer/version.h")
+#include "../../app/firedancer/version.h"
+#endif
+#endif
+
+#ifndef FDCTL_MAJOR_VERSION
+#define FDCTL_MAJOR_VERSION 0
+#endif
 
 #include "../../disco/tiles.h"
 #include "../../disco/keyguard/fd_keyload.h"
@@ -501,7 +506,7 @@ unprivileged_init( fd_topo_t *      topo,
   FD_TEST( fd_cstr_printf_check( ctx->version_string, sizeof( ctx->version_string ), NULL, "%s", fdctl_version_string ) );
 
   ctx->topo = topo;
-  ctx->gui  = fd_gui_join( fd_gui_new( _gui, ctx->gui_server, ctx->version_string, tile->gui.cluster, ctx->identity_key, ctx->has_vote_key, ctx->vote_key->uc, tile->gui.is_voting, tile->gui.schedule_strategy, ctx->topo ) );
+  ctx->gui  = fd_gui_join( fd_gui_new( _gui, ctx->gui_server, ctx->version_string, tile->gui.cluster, ctx->identity_key, ctx->has_vote_key, ctx->vote_key->uc, /* is_full_client */ FIREDANCER_MAJOR_VERSION >= 1,tile->gui.is_voting, tile->gui.schedule_strategy, ctx->topo ) );
   FD_TEST( ctx->gui );
 
   ctx->keyswitch = fd_keyswitch_join( fd_topo_obj_laddr( topo, tile->keyswitch_obj_id ) );
