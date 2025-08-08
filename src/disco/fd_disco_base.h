@@ -53,10 +53,11 @@
 #define FD_SHRED_STORE_MTU (41792UL)
 
 /* FD_SHRED_REPAIR_MTU is the maximum size of a frag on the shred_repair
-   link.  This is the size of a data shred header + merkle root. */
+   link.  This is the size of a data shred header + merkle root
+   + chained merkle root. */
 
-#define FD_SHRED_REPAIR_MTU (FD_SHRED_DATA_HEADER_SZ + FD_SHRED_MERKLE_ROOT_SZ)
-FD_STATIC_ASSERT( FD_SHRED_REPAIR_MTU == 120 , update FD_SHRED_REPAIR_MTU );
+#define FD_SHRED_REPAIR_MTU (FD_SHRED_DATA_HEADER_SZ + 2*FD_SHRED_MERKLE_ROOT_SZ)
+FD_STATIC_ASSERT( FD_SHRED_REPAIR_MTU == 152UL , update FD_SHRED_REPAIR_MTU );
 
 /* Maximum size of frags going into the writer tile. */
 #define FD_REPLAY_WRITER_MTU (128UL)

@@ -40,15 +40,23 @@
 
 FD_PROTOTYPES_BEGIN
 
-/* Serializes a Protobuf SanitizedTransaction that can be parsed into a txn descriptor
-   and returns the number of bytes consumed. Returns ULONG_MAX if the number of bytes
-   read exceeds 1232 (FD_TXN_MTU). _txn_raw_begin is assumed to be a pre-allocated
-   buffer of at least 1232 bytes. */
+/* Serializes a Protobuf SanitizedTransaction that can be parsed into a
+   txn descriptor and returns the number of bytes consumed. Returns
+   ULONG_MAX if the number of bytes read exceeds 1232 (FD_TXN_MTU).
+   _txn_raw_begin is assumed to be a pre-allocated buffer of at least
+   1232 bytes. */
 ulong
 fd_runtime_fuzz_serialize_txn( uchar *                                      txn_raw_begin,
-                               fd_exec_test_sanitized_transaction_t const * tx,
-                               ushort *                                     out_instr_cnt,
-                               ushort *                                     out_addr_table_cnt );
+                               fd_exec_test_sanitized_transaction_t const * tx );
+
+/* Takes in a parsed txn descriptor to be executed against the runtime.
+   Returns the spad-allocated transaction context. Writes the execution
+   result to the `exec_res` pointer (assumed to be pre-allocated). */
+fd_exec_txn_ctx_t *
+fd_runtime_fuzz_txn_ctx_exec( fd_runtime_fuzz_runner_t * runner,
+                              fd_exec_slot_ctx_t *       slot_ctx,
+                              fd_txn_p_t *               txn,
+                              int *                      exec_res );
 
 /*
    Similar to fd_runtime_fuzz_instr_run, but executes a txn given txn context (input)

@@ -510,35 +510,26 @@ fd_runtime_block_execute_finalize( fd_exec_slot_ctx_t *            slot_ctx,
 
 /* Transaction Level Execution Management *************************************/
 
-/* fd_runtime_prepare_txns_start and fd_runtime_pre_execute_check are only
-   publicly exposed for the fuzzing harnesses. These functions are responsible
-   for various transaction sanitization checks. */
-
-fd_exec_txn_ctx_t *
-fd_runtime_prepare_txn_start( fd_exec_slot_ctx_t * slot_ctx,
-                              fd_txn_p_t *         txn,
-                              fd_spad_t *          runtime_spad,
-                              int *                exec_res );
-
 int
 fd_runtime_pre_execute_check( fd_txn_p_t * txn, fd_exec_txn_ctx_t * txn_ctx );
 
-/* fd_runtime_process_txns is responsible for end-to-end preparing, executing,
-   and finalizing a list of transactions. It will execute all of the
-   transactions on a single core. */
+/* fd_runtime_prepare_and_execute_txn is the main entrypoint from the
+   executor tile. It is responsible for preparing and executing a single
+   transaction. */
+
 int
-fd_runtime_process_txns( fd_exec_slot_ctx_t * slot_ctx,
-                         fd_capture_ctx_t *   capture_ctx,
-                         fd_txn_p_t *         txns,
-                         ulong                txn_cnt,
-                         fd_spad_t *          exec_spad,
-                         fd_spad_t *          runtime_spad );
+fd_runtime_prepare_and_execute_txn( fd_banks_t *        banks,
+                                    fd_exec_txn_ctx_t * txn_ctx,
+                                    fd_txn_p_t *        txn,
+                                    fd_spad_t *         exec_spad,
+                                    ulong               slot,
+                                    fd_capture_ctx_t *  capture_ctx,
+                                    uchar               do_sigverify );
 
 void
 fd_runtime_finalize_txn( fd_funk_t *         funk,
                          fd_funk_txn_t *     funk_txn,
                          fd_exec_txn_ctx_t * txn_ctx,
-                         int                 exec_txn_err,
                          fd_spad_t *         finalize_spad,
                          fd_bank_t *         bank,
                          fd_capture_ctx_t *  capture_ctx );
@@ -586,18 +577,6 @@ fd_runtime_checkpt( fd_capture_ctx_t *   capture_ctx,
                     ulong                slot );
 
 /* Offline Replay *************************************************************/
-
-int
-fd_runtime_block_execute( fd_exec_slot_ctx_t *            slot_ctx,
-                          fd_runtime_block_info_t const * block_info,
-                          fd_spad_t *                     runtime_spad );
-
-int
-fd_runtime_process_txns_in_microblock_stream_sequential( fd_exec_slot_ctx_t * slot_ctx,
-                                                         fd_txn_p_t *         txns,
-                                                         ulong                txn_cnt,
-                                                         fd_spad_t *          runtime_spad,
-                                                         fd_cost_tracker_t *  cost_tracker_opt );
 
 void
 fd_runtime_read_genesis( fd_exec_slot_ctx_t * slot_ctx,

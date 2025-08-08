@@ -300,7 +300,7 @@ fd_exec_slot_ctx_recover( fd_exec_slot_ctx_t *                slot_ctx,
   fd_bank_next_epoch_stakes_end_locking_modify( slot_ctx->bank );
 
 
-  fd_vote_states_t * vote_states_prev = fd_bank_vote_states_prev_locking_modify( slot_ctx->bank );
+  fd_vote_states_t * vote_states_prev = fd_vote_states_join( fd_vote_states_new( fd_bank_vote_states_prev_locking_modify( slot_ctx->bank ), FD_RUNTIME_MAX_VOTE_ACCOUNTS ) );
   for( fd_vote_accounts_pair_global_t_mapnode_t * n = fd_vote_accounts_pair_global_t_map_minimum( pool, root );
         n;
         n = fd_vote_accounts_pair_global_t_map_successor( pool, n ) ) {

@@ -243,8 +243,7 @@ after_frag( fd_writer_tile_ctx_t * ctx,
     if( FD_UNLIKELY( msg->exec_tile_id!=in_idx ) ) {
       FD_LOG_CRIT(( "exec_tile_id %u should be == in_idx %lu", msg->exec_tile_id, in_idx ));
     }
-    fd_exec_txn_ctx_t * txn_ctx  = ctx->txn_ctx[ in_idx ];
-    int                 exec_res = txn_ctx->exec_err;
+    fd_exec_txn_ctx_t * txn_ctx = ctx->txn_ctx[ in_idx ];
 
     fd_banks_lock( ctx->banks );
     ctx->bank = fd_banks_get_bank( ctx->banks, txn_ctx->slot );
@@ -276,7 +275,6 @@ after_frag( fd_writer_tile_ctx_t * ctx,
           ctx->funk,
           ctx->funk_txn,
           txn_ctx,
-          exec_res,
           ctx->spad,
           ctx->bank,
           ctx->capture_ctx );

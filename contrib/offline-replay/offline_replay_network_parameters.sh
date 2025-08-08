@@ -18,8 +18,8 @@ case $network in
     export BACKTEST_FUNK_PAGES=900
     export INDEX_MAX=1000000000
     export PAGES=250
-    export AGAVE_TAG=v2.2.16
-    export FD_CLUSTER_VERSION=2.2.16
+    export AGAVE_TAG=v2.3.6
+    export FD_CLUSTER_VERSION=2.3.6
     ;;
   "testnet")
     export BUCKET_ENDPOINT="gs://testnet-ledger-us-sv15"
@@ -29,8 +29,8 @@ case $network in
     export BACKTEST_FUNK_PAGES=200
     export INDEX_MAX=200000000
     export PAGES=250
-    export AGAVE_TAG=v2.3.0
-    export FD_CLUSTER_VERSION=2.3.0
+    export AGAVE_TAG=v2.3.6
+    export FD_CLUSTER_VERSION=2.3.6
     ;;
   "devnet")
     export BUCKET_ENDPOINT="gs://solana-devnet-ledger-us-ny5"
@@ -40,8 +40,8 @@ case $network in
     export BACKTEST_FUNK_PAGES=500
     export INDEX_MAX=200000000
     export PAGES=250
-    export AGAVE_TAG=v2.2.16
-    export FD_CLUSTER_VERSION=2.2.16
+    export AGAVE_TAG=v2.3.6
+    export FD_CLUSTER_VERSION=2.3.6
     ;;
   *)
     echo "Unknown network: $network"

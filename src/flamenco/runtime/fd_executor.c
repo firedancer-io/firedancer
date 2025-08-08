@@ -1371,23 +1371,12 @@ fd_execute_instr( fd_exec_txn_ctx_t * txn_ctx,
 }
 
 void
-fd_txn_reclaim_accounts( fd_exec_txn_ctx_t * txn_ctx ) {
-  for( ushort i=0; i<txn_ctx->accounts_cnt; i++ ) {
-    fd_txn_account_t * acc_rec = &txn_ctx->accounts[i];
-
-    /* An account writable iff it is writable AND it is not being
-       demoted. If this criteria is not met, the account should not be
-       marked as touched via updating its most recent slot. */
-    if( !fd_exec_txn_ctx_account_is_writable_idx( txn_ctx, i ) ) {
-      continue;
-    }
-
-    fd_txn_account_set_slot( acc_rec, txn_ctx->slot );
-
-    if( !fd_txn_account_get_lamports( acc_rec ) ) {
-      fd_txn_account_set_data_len( acc_rec, 0UL );
-      fd_txn_account_clear_owner( acc_rec );
-    }
+fd_executor_reclaim_account( fd_exec_txn_ctx_t * txn_ctx,
+                             fd_txn_account_t *  account ) {
+  fd_txn_account_set_slot( account, txn_ctx->slot );
+  if( FD_UNLIKELY( fd_txn_account_get_lamports( account )==0UL ) ) {
+    fd_txn_account_set_data_len( account, 0UL );
+    fd_txn_account_clear_owner( account );
   }
 }
 
@@ -1557,34 +1546,6 @@ fd_executor_setup_accounts_for_txn( fd_exec_txn_ctx_t * txn_ctx ) {
   fd_executor_setup_instr_infos_from_txn_instrs( txn_ctx );
 }
 
-/* Stuff to be done before multithreading can begin */
-int
-fd_execute_txn_prepare_start( fd_exec_slot_ctx_t const * slot_ctx,
-                              fd_exec_txn_ctx_t *        txn_ctx,
-                              fd_txn_t const *           txn_descriptor,
-                              fd_rawtxn_b_t const *      txn_raw ) {
-
-  fd_funk_t * funk           = slot_ctx->funk;
-  fd_wksp_t * funk_wksp      = fd_funk_wksp( funk );
-  ulong       funk_txn_gaddr = fd_wksp_gaddr( funk_wksp, slot_ctx->funk_txn );
-  ulong       funk_gaddr     = fd_wksp_gaddr( funk_wksp, slot_ctx->funk->shmem );
-
-  /* Init txn ctx */
-  fd_exec_txn_ctx_new( txn_ctx );
-  fd_exec_txn_ctx_from_exec_slot_ctx( slot_ctx,
-                                      txn_ctx,
-                                      funk_wksp,
-                                      funk_txn_gaddr,
-                                      funk_gaddr,
-                                      NULL );
-  fd_exec_txn_ctx_setup( txn_ctx, txn_descriptor, txn_raw );
-
-  /* Set up the core account keys */
-  fd_executor_setup_txn_account_keys( txn_ctx );
-
-  return FD_RUNTIME_EXECUTE_SUCCESS;
-}
-
 int
 fd_executor_txn_verify( fd_exec_txn_ctx_t * txn_ctx ) {
   fd_sha512_t * shas[ FD_TXN_ACTUAL_SIG_MAX ];
@@ -1607,10 +1568,10 @@ fd_executor_txn_verify( fd_exec_txn_ctx_t * txn_ctx ) {
   /* Verify signatures */
   int res = fd_ed25519_verify_batch_single_msg( msg, msg_sz, signatures, pubkeys, shas, signature_cnt );
   if( FD_UNLIKELY( res != FD_ED25519_SUCCESS ) ) {
-    return -1;
+    return FD_RUNTIME_TXN_ERR_SIGNATURE_FAILURE;
   }
 
-  return 0;
+  return FD_RUNTIME_EXECUTE_SUCCESS;
 }
 
 int

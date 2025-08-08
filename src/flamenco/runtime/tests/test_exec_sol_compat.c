@@ -90,7 +90,6 @@ main( int     argc,
 
     // Check usage
     sol_compat_check_wksp_usage();
-
   }
 
   /* TODO: verify that there are no leaked libc allocs and vallocs */

@@ -1033,6 +1033,7 @@ fd_topo_configure_tile( fd_topo_tile_t * tile,
       tile->exec.dump_instr_to_pb = config->capture.dump_instr_to_pb;
       tile->exec.dump_txn_to_pb = config->capture.dump_txn_to_pb;
       tile->exec.dump_syscall_to_pb = config->capture.dump_syscall_to_pb;
+      tile->exec.dump_elf_to_pb = config->capture.dump_elf_to_pb;
     } else if( FD_UNLIKELY( !strcmp( tile->name, "writer" ) ) ) {
       tile->writer.funk_obj_id = fd_pod_query_ulong( config->topo.props, "funk", ULONG_MAX );
       strncpy( tile->writer.solcap_capture, config->capture.solcap_capture, sizeof(tile->writer.solcap_capture) );
