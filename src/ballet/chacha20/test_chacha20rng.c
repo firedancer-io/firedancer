@@ -30,9 +30,9 @@ main( int     argc,
   /* Test output */
 
   FD_TEST( fd_chacha20rng_ulong( rng )==0x6a19c5d97d2bfd39UL );
-  for( ulong i=0UL; i<100000UL; i++ )
-    fd_chacha20rng_ulong( rng );
-  FD_TEST( fd_chacha20rng_ulong( rng )==0xf4682b7e28eae4a7UL );
+  ulong x = 0UL;
+  for( ulong i=0UL; i<100000UL; i++ ) x ^= fd_chacha20rng_ulong( rng );
+  FD_TEST( x==0xb425be48c89d4f75UL );
 
   do {
     FD_LOG_NOTICE(( "Benchmarking fd_chacha20rng_ulong" ));
