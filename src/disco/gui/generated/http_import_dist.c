@@ -3,10 +3,10 @@
 
 FD_IMPORT_BINARY( file0, "src/disco/gui/dist/assets/firedancer-D_J0EzUc.svg" );
 FD_IMPORT_BINARY( file1, "src/disco/gui/dist/assets/firedancer_logo-CrgwxzPk.svg" );
-FD_IMPORT_BINARY( file2, "src/disco/gui/dist/assets/index-Bf4zdtQG.css" );
+FD_IMPORT_BINARY( file2, "src/disco/gui/dist/assets/index-0SRwUG3l.css" );
 FD_IMPORT_BINARY( file3, "src/disco/gui/dist/assets/index-BIjF1r1F.css" );
-FD_IMPORT_BINARY( file4, "src/disco/gui/dist/assets/index-CCPH-jfz.js" );
-FD_IMPORT_BINARY( file5, "src/disco/gui/dist/assets/index-DQkNX9Hz.js" );
+FD_IMPORT_BINARY( file4, "src/disco/gui/dist/assets/index-CT3hTxxR.js" );
+FD_IMPORT_BINARY( file5, "src/disco/gui/dist/assets/index-DAAcF59E.js" );
 FD_IMPORT_BINARY( file6, "src/disco/gui/dist/assets/inter-tight-latin-400-normal-BW_APOAv.woff" );
 FD_IMPORT_BINARY( file7, "src/disco/gui/dist/assets/inter-tight-latin-400-normal-CjmW70MP.woff2" );
 FD_IMPORT_BINARY( file8, "src/disco/gui/dist/assets/privateYou-DxC3xn7b.svg" );
@@ -27,7 +27,7 @@ fd_http_static_file_t STATIC_FILES[] = {
         .data_len = &file1_sz,
     },
     {
-        .name = "/assets/index-Bf4zdtQG.css",
+        .name = "/assets/index-0SRwUG3l.css",
         .data = file2,
         .data_len = &file2_sz,
     },
@@ -37,12 +37,12 @@ fd_http_static_file_t STATIC_FILES[] = {
         .data_len = &file3_sz,
     },
     {
-        .name = "/assets/index-CCPH-jfz.js",
+        .name = "/assets/index-CT3hTxxR.js",
         .data = file4,
         .data_len = &file4_sz,
     },
     {
-        .name = "/assets/index-DQkNX9Hz.js",
+        .name = "/assets/index-DAAcF59E.js",
         .data = file5,
         .data_len = &file5_sz,
     },
