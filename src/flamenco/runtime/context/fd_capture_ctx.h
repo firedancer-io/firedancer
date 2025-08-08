@@ -2,6 +2,7 @@
 #define HEADER_fd_src_flamenco_runtime_context_fd_capture_ctx_h
 
 #include "../../capture/fd_solcap_writer.h"
+#include "../fd_runtime_public.h" /* FD_RUNTIME_PUBLIC_ACCOUNT_UPDATE_MSG_FOOTPRINT */
 
 /* Maximum number of accounts that can be updated in a single transaction */
 #define FD_CAPTURE_CTX_MAX_ACCOUNT_UPDATES      (128UL)
