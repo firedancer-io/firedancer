@@ -10,9 +10,8 @@ fd_runtime_fuzz_sbpf_load_run( fd_runtime_fuzz_runner_t * runner,
   fd_exec_test_elf_loader_effects_t **  output = fd_type_pun( output_ );
 
   fd_sbpf_elf_info_t info;
-  fd_valloc_t valloc = fd_spad_virtual( runner->spad );
 
-  if ( FD_UNLIKELY( !input->has_elf || !input->elf.data ) ){
+  if( FD_UNLIKELY( !input->has_elf || !input->elf.data ) ) {
     return 0UL;
   }
 
@@ -42,14 +41,12 @@ fd_runtime_fuzz_sbpf_load_run( fd_runtime_fuzz_runner_t * runner,
       break;
     }
 
-    void* rodata = fd_valloc_malloc( valloc, FD_SBPF_PROG_RODATA_ALIGN, info.rodata_footprint );
-    FD_TEST( rodata );
+    fd_spad_t * spad = runner->spad;
+    void * rodata = fd_spad_alloc_check( spad, FD_SBPF_PROG_RODATA_ALIGN, info.rodata_footprint );
 
-    fd_sbpf_program_t * prog = fd_sbpf_program_new( fd_valloc_malloc( valloc, fd_sbpf_program_align(), fd_sbpf_program_footprint( &info ) ), &info, rodata );
-    FD_TEST( prog );
+    fd_sbpf_program_t * prog = fd_sbpf_program_new( fd_spad_alloc_check( spad, fd_sbpf_program_align(), fd_sbpf_program_footprint( &info ) ), &info, rodata );
 
-    fd_sbpf_syscalls_t * syscalls = fd_sbpf_syscalls_new( fd_valloc_malloc( valloc, fd_sbpf_syscalls_align(), fd_sbpf_syscalls_footprint() ));
-    FD_TEST( syscalls );
+    fd_sbpf_syscalls_t * syscalls = fd_sbpf_syscalls_new( fd_spad_alloc_check( spad, fd_sbpf_syscalls_align(), fd_sbpf_syscalls_footprint() ));
 
     fd_vm_syscall_register_all( syscalls, 0 );
 
