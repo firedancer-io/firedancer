@@ -123,6 +123,11 @@ estimate_timestamp( fd_bank_t * bank ) {
   /* TODO: actually take the stake-weighted median. For now, just use a node. */
   fd_vote_states_t const * vote_states = fd_bank_vote_states_locking_query( bank );
 
+  if( !fd_vote_states_cnt( vote_states ) ) {
+    fd_bank_vote_states_end_locking_query( bank );
+    return timestamp_from_genesis( bank );
+  }
+
   fd_vote_state_ele_t * vote_state_pool = fd_vote_states_get_pool( vote_states );
   fd_vote_state_map_t * vote_state_map  = fd_vote_states_get_map( vote_states );
 
@@ -134,10 +139,10 @@ estimate_timestamp( fd_bank_t * bank ) {
     ulong slots = fd_bank_slot_get( bank ) - vote_state->last_vote_slot;
     uint128 ns_correction = fd_bank_ns_per_slot_get( bank ) * slots;
 
-    fd_bank_vote_states_end_locking_query( bank );
     return vote_state->last_vote_timestamp + (long)(ns_correction / NS_IN_S);
   }
 
+  fd_bank_vote_states_end_locking_query( bank );
   FD_LOG_CRIT(( "unreachable" ));
 }
 
