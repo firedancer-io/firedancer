@@ -1,4 +1,4 @@
-#include "fd_chacha20rng.h"
+#include "fd_chacha_rng.h"
 #include "../../util/simd/fd_avx.h"
 #include <assert.h>
 
@@ -13,8 +13,9 @@ wu_rol8( wu_t x ) {
   return _mm256_shuffle_epi8( x, mask );
 }
 
-void
-fd_chacha20rng_refill_avx( fd_chacha20rng_t * rng ) {
+__attribute__((always_inline)) static inline void
+fd_chacha_rng_refill_avx( fd_chacha_rng_t * rng,
+                          ulong             rnd2_cnt ) {
 
   wu_t iv0  = wu_bcast( 0x61707865U );
   wu_t iv1  = wu_bcast( 0x3320646eU );
@@ -43,7 +44,7 @@ fd_chacha20rng_refill_avx( fd_chacha20rng_t * rng ) {
 
   /* Derive block index */
 
-  ulong idx = rng->buf_fill / FD_CHACHA20_BLOCK_SZ;  /* really a right shift */
+  ulong idx = rng->buf_fill / FD_CHACHA_BLOCK_SZ;  /* really a right shift */
   wu_t idxs = wu_add( wu_bcast( idx ), wu( 0, 1, 2, 3, 4, 5, 6, 7 ) );
 
   /* Run through the round function */
@@ -61,7 +62,7 @@ fd_chacha20rng_refill_avx( fd_chacha20rng_t * rng ) {
     c = wu_add( c, d ); b = wu_xor( b, c ); b = wu_rol7( b );          \
   } while(0)
 
-  for( ulong i=0UL; i<10UL; i++ ) {
+  for( ulong i=0UL; i<rnd2_cnt; i++ ) {
     QUARTER_ROUND( c0, c4, c8, cC );
     QUARTER_ROUND( c1, c5, c9, cD );
     QUARTER_ROUND( c2, c6, cA, cE );
@@ -101,8 +102,8 @@ fd_chacha20rng_refill_avx( fd_chacha20rng_t * rng ) {
 
   /* Update ring buffer */
 
-  ulong  slot = rng->buf_fill % (8*FD_CHACHA20_BLOCK_SZ);
-  uint * out  = (uint *)rng->buf + (slot*2*FD_CHACHA20_BLOCK_SZ);
+  ulong  slot = rng->buf_fill % (8*FD_CHACHA_BLOCK_SZ);
+  uint * out  = (uint *)rng->buf + (slot*2*FD_CHACHA_BLOCK_SZ);
   wu_st( out+0x00, c0 ); wu_st( out+0x08, c8 );
   wu_st( out+0x10, c1 ); wu_st( out+0x18, c9 );
   wu_st( out+0x20, c2 ); wu_st( out+0x28, cA );
@@ -114,5 +115,15 @@ fd_chacha20rng_refill_avx( fd_chacha20rng_t * rng ) {
 
   /* Update ring descriptor */
 
-  rng->buf_fill += 8*FD_CHACHA20_BLOCK_SZ;
+  rng->buf_fill += 8*FD_CHACHA_BLOCK_SZ;
+}
+
+void
+fd_chacha8_rng_refill_avx( fd_chacha_rng_t * rng ) {
+  fd_chacha_rng_refill_avx( rng, 4UL );
+}
+
+void
+fd_chacha20_rng_refill_avx( fd_chacha_rng_t * rng ) {
+  fd_chacha_rng_refill_avx( rng, 10UL );
 }
