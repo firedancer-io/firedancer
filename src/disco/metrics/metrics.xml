@@ -932,4 +932,10 @@ metric introduced.
     <gauge name="BootTimestampNanos" summary="Timestamp when validator was started (nanoseconds since epoch)" />
 </tile>
 
+<tile name="solcap">
+    <counter name="FileSizeBytes" summary="" />
+    <gauge name="PreallocatedBytes" summary="" />
+    <gauge name="SqSpaceLeft" summary="Submission queue space left" />
+</tile>
+
 </metrics>

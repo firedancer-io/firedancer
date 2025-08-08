@@ -17,17 +17,14 @@
    a notification for the previous frag from storei_notif.
  */
 
+#include "../../shared_dev/fd_shared_dev.h"
 #include "../../firedancer/topology.h"
 #include "../../shared/commands/run/run.h" /* initialize_workspaces */
 #include "../../../disco/topo/fd_cpu_topo.h" /* fd_topo_cpus */
 #include "../../../disco/topo/fd_topob.h"
 #include "../../../util/pod/fd_pod_format.h"
-#include "../../../flamenco/runtime/fd_runtime.h"
-#include "../../../flamenco/runtime/fd_txncache.h"
 
 #include <unistd.h> /* pause */
-extern fd_topo_obj_callbacks_t * CALLBACKS[];
-fd_topo_run_tile_t fdctl_tile_run( fd_topo_tile_t const * tile );
 
 static void
 sim_topo( config_t * config ) {

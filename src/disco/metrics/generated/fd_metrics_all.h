@@ -25,6 +25,7 @@
 #include "fd_metrics_snapdc.h"
 #include "fd_metrics_snapin.h"
 #include "fd_metrics_metric.h"
+#include "fd_metrics_solcap.h"
 /* Start of LINK OUT metrics */
 
 #define FD_METRICS_COUNTER_LINK_SLOW_COUNT_OFF  (0UL)
