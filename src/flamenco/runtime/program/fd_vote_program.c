@@ -2124,44 +2124,6 @@ fd_vote_decode_compact_update( fd_compact_vote_state_update_t * compact_update,
   return 1;
 }
 
-void
-fd_vote_record_timestamp_vote_with_slot( fd_pubkey_t const *  vote_acc,
-                                         long                 timestamp,
-                                         ulong                slot,
-                                         fd_bank_t *          bank ) {
-
-  fd_clock_timestamp_votes_global_t * clock_timestamp_votes = fd_bank_clock_timestamp_votes_locking_modify( bank );
-
-  fd_clock_timestamp_vote_t_mapnode_t * pool = fd_clock_timestamp_votes_votes_pool_join( clock_timestamp_votes );
-  fd_clock_timestamp_vote_t_mapnode_t * root = fd_clock_timestamp_votes_votes_root_join( clock_timestamp_votes );
-
-  if( FD_UNLIKELY( !pool ) ) {
-    FD_LOG_ERR(( "Timestamp vote account pool not allocated" ));
-  }
-
-  fd_clock_timestamp_vote_t timestamp_vote = {
-      .pubkey    = *vote_acc,
-      .timestamp = (long)timestamp,
-      .slot      = slot,
-  };
-  fd_clock_timestamp_vote_t_mapnode_t   key = { .elem = timestamp_vote };
-  fd_clock_timestamp_vote_t_mapnode_t * node =
-      fd_clock_timestamp_vote_t_map_find( pool, root, &key );
-  if( NULL != node ) {
-    node->elem = timestamp_vote;
-  } else {
-    node = fd_clock_timestamp_vote_t_map_acquire( pool );
-    FD_TEST( node != NULL );
-    node->elem = timestamp_vote;
-    fd_clock_timestamp_vote_t_map_insert( pool, &root, node );
-  }
-
-  fd_clock_timestamp_votes_votes_pool_update( clock_timestamp_votes, pool );
-  fd_clock_timestamp_votes_votes_root_update( clock_timestamp_votes, root );
-
-  fd_bank_clock_timestamp_votes_end_locking_modify( bank );
-}
-
 /// returns commission split as (voter_portion, staker_portion, was_split) tuple
 ///
 ///  if commission calculation is 100% one way or other, indicate with false for was_split

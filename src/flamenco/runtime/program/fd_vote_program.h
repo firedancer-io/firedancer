@@ -69,12 +69,6 @@ void
 fd_vote_convert_to_current( fd_vote_state_versioned_t * self,
                             fd_spad_t *                 spad );
 
-void
-fd_vote_record_timestamp_vote_with_slot( fd_pubkey_t const *  vote_acc,
-                                         long                 timestamp,
-                                         ulong                slot,
-                                         fd_bank_t *          bank );
-
 struct fd_commission_split {
   ulong voter_portion;
   ulong staker_portion;

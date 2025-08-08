@@ -163,13 +163,16 @@ fd_runtime_update_leaders( fd_bank_t * bank,
         epoch_weights,
         0UL,
         vote_keyed_lsched ) );
-    fd_bank_epoch_leaders_end_locking_modify( bank );
     if( FD_UNLIKELY( !leaders ) ) {
       FD_LOG_ERR(( "Unable to init and join fd_epoch_leaders" ));
     }
+    FD_TEST( leaders );
+    fd_bank_epoch_leaders_end_locking_modify( bank );
   }
-
   } FD_SPAD_FRAME_END;
+
+  FD_TEST( fd_bank_epoch_leaders_locking_query( bank ) );
+  fd_bank_epoch_leaders_end_locking_query( bank );
 }
 
 /******************************************************************************/
@@ -1148,7 +1151,6 @@ void
 fd_runtime_finalize_txn( fd_funk_t *         funk,
                          fd_funk_txn_t *     funk_txn,
                          fd_exec_txn_ctx_t * txn_ctx,
-                         fd_spad_t *         finalize_spad,
                          fd_bank_t *         bank,
                          fd_capture_ctx_t *  capture_ctx ) {
 
@@ -1205,38 +1207,6 @@ fd_runtime_finalize_txn( fd_funk_t *         funk,
 
       if( dirty_vote_acc && 0==memcmp( fd_txn_account_get_owner( acc_rec ), &fd_solana_vote_program_id, sizeof(fd_pubkey_t) ) ) {
         fd_vote_store_account( acc_rec, bank );
-        FD_SPAD_FRAME_BEGIN( finalize_spad ) {
-          int err;
-          fd_vote_state_versioned_t * vsv = fd_bincode_decode_spad(
-              vote_state_versioned, finalize_spad,
-              fd_txn_account_get_data( acc_rec ),
-              fd_txn_account_get_data_len( acc_rec ),
-              &err );
-          if( FD_UNLIKELY( err ) ) {
-            FD_LOG_WARNING(( "failed to decode vote state versioned" ));
-            continue;
-          }
-
-          fd_vote_block_timestamp_t const * ts = NULL;
-          switch( vsv->discriminant ) {
-          case fd_vote_state_versioned_enum_v0_23_5:
-            ts = &vsv->inner.v0_23_5.last_timestamp;
-            break;
-          case fd_vote_state_versioned_enum_v1_14_11:
-            ts = &vsv->inner.v1_14_11.last_timestamp;
-            break;
-          case fd_vote_state_versioned_enum_current:
-            ts = &vsv->inner.current.last_timestamp;
-            break;
-          default:
-            __builtin_unreachable();
-          }
-
-          fd_vote_record_timestamp_vote_with_slot( acc_rec->pubkey,
-                                                   ts->timestamp,
-                                                   ts->slot,
-                                                   bank );
-        } FD_SPAD_FRAME_END;
       }
 
       if( dirty_stake_acc && 0==memcmp( fd_txn_account_get_owner( acc_rec ), &fd_solana_stake_program_id, sizeof(fd_pubkey_t) ) ) {
@@ -2419,13 +2389,6 @@ fd_runtime_init_bank_from_genesis( fd_exec_slot_ctx_t *        slot_ctx,
   fd_bank_stake_delegations_end_locking_modify( slot_ctx->bank );
 
   fd_bank_capitalization_set( slot_ctx->bank, capitalization );
-
-  fd_clock_timestamp_votes_global_t * clock_timestamp_votes = fd_bank_clock_timestamp_votes_locking_modify( slot_ctx->bank );
-  uchar * clock_pool_mem = (uchar *)fd_ulong_align_up( (ulong)clock_timestamp_votes + sizeof(fd_clock_timestamp_votes_global_t), fd_clock_timestamp_vote_t_map_align() );
-  fd_clock_timestamp_vote_t_mapnode_t * clock_pool = fd_clock_timestamp_vote_t_map_join( fd_clock_timestamp_vote_t_map_new(clock_pool_mem, 30000UL ) );
-  clock_timestamp_votes->votes_pool_offset = (ulong)fd_clock_timestamp_vote_t_map_leave( clock_pool) - (ulong)clock_timestamp_votes;
-  clock_timestamp_votes->votes_root_offset = 0UL;
-  fd_bank_clock_timestamp_votes_end_locking_modify( slot_ctx->bank );
 }
 
 static int
