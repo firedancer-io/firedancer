@@ -121,6 +121,7 @@ struct fd_ssping_private {
   ulong *            fds_idx;
 
   ulong              slot; /* highest slot of selected peer */
+  int                incremental_snapshot_fetch;
 
   ulong              magic; /* ==FD_SSPING_MAGIC */
 };
@@ -156,7 +157,8 @@ fd_ssping_footprint( ulong max_peers ) {
 void *
 fd_ssping_new( void * shmem,
                ulong  max_peers,
-               ulong  seed ) {
+               ulong  seed,
+               int    incremental_snapshot_fetch ) {
   if( FD_UNLIKELY( !shmem ) ) {
     FD_LOG_WARNING(( "NULL shmem" ));
     return NULL;
@@ -208,6 +210,8 @@ fd_ssping_new( void * shmem,
     ssping->pool[ i ].full_ssresolve = fd_ssresolve_join( fd_ssresolve_new( _full_ssresolve ) );
     ssping->pool[ i ].inc_ssresolve  = fd_ssresolve_join( fd_ssresolve_new( _inc_ssresolve ) );
   }
+
+  ssping->incremental_snapshot_fetch = incremental_snapshot_fetch;
 
   FD_COMPILER_MFENCE();
   FD_VOLATILE( ssping->magic ) = FD_SSPING_MAGIC;
@@ -381,6 +385,11 @@ poll_advance( fd_ssping_t * ssping,
 
     int full = i&1UL ? 0 : 1; /* even indices are full, odd indices are incremental */
     fd_ssresolve_t * ssresolve = full ? peer->full_ssresolve : peer->inc_ssresolve;
+
+    if( FD_UNLIKELY( !full && !ssping->incremental_snapshot_fetch ) ) {
+      continue;
+    }
+
     if( FD_UNLIKELY( now>peer->deadline_nanos ) ) {
       unping_peer( ssping, peer, now );
       continue;
@@ -423,20 +432,34 @@ poll_advance( fd_ssping_t * ssping,
       }
     }
 
+    int done = ssping->incremental_snapshot_fetch ?
+               fd_ssresolve_is_done( peer->full_ssresolve ) && fd_ssresolve_is_done( peer->inc_ssresolve ) :
+               fd_ssresolve_is_done( peer->full_ssresolve );
+
     /* Once both the full and incremental snapshots are resolved, we can
        mark the peer valid and remove the peer from the list of peers to
        ping. */
-    if( fd_ssresolve_is_done( peer->full_ssresolve ) &&
-        fd_ssresolve_is_done( peer->inc_ssresolve ) ) {
-      FD_LOG_NOTICE(("successfully resolved snapshots for peer " FD_IP4_ADDR_FMT ":%hu "
-                    "with full slot %lu, incremental base slot %lu and incremental slot %lu",
-                    FD_IP4_ADDR_FMT_ARGS( peer->addr.addr ), peer->addr.port,
-                    peer->snapshot_info.full.slot,
-                    peer->snapshot_info.incremental.base_slot,
-                    peer->snapshot_info.incremental.slot ));
-      peer->latency_nanos = (peer->full_latency_nanos + peer->incremental_latency_nanos) / 2UL;
-      FD_LOG_NOTICE(( "full latency is %lu, incremental latency is %lu, latency is %lu",
-                      peer->full_latency_nanos, peer->incremental_latency_nanos, peer->latency_nanos ));
+    if( FD_LIKELY( done ) ) {
+
+      if( ssping->incremental_snapshot_fetch ) {
+        FD_LOG_NOTICE(("successfully resolved snapshots for peer " FD_IP4_ADDR_FMT ":%hu "
+          "with full slot %lu, incremental base slot %lu and incremental slot %lu",
+          FD_IP4_ADDR_FMT_ARGS( peer->addr.addr ), peer->addr.port,
+          peer->snapshot_info.full.slot,
+          peer->snapshot_info.incremental.base_slot,
+          peer->snapshot_info.incremental.slot ));
+        peer->latency_nanos = (peer->full_latency_nanos + peer->incremental_latency_nanos) / 2UL;
+        FD_LOG_NOTICE(( "full latency is %lu, incremental latency is %lu, latency is %lu",
+                        peer->full_latency_nanos, peer->incremental_latency_nanos, peer->latency_nanos ));
+
+      } else {
+        FD_LOG_NOTICE(("successfully resolved snapshots for peer " FD_IP4_ADDR_FMT ":%hu "
+          "with full slot %lu ",
+          FD_IP4_ADDR_FMT_ARGS( peer->addr.addr ), peer->addr.port,
+          peer->snapshot_info.full.slot ));
+        peer->latency_nanos = peer->full_latency_nanos;
+        FD_LOG_NOTICE(( "peer latency is %lu", peer->latency_nanos ));
+      }
 
       if( FD_LIKELY( peer->state==PEER_STATE_REFRESHING ) ) {
         score_treap_ele_remove( ssping->score_treap, peer, ssping->pool );
@@ -494,14 +517,15 @@ peer_connect( fd_ssping_t *      ssping,
   ssping->fds_idx[ ssping->fds_len ] = peer_pool_idx( ssping->pool, peer );
   peer->fd.idx = ssping->fds_len;
   ssping->fds_len++;
-
-  err = create_socket( ssping, peer ); /* incremental */
-  if( FD_UNLIKELY( err ) ) return err;
-  ssping->fds_idx[ ssping->fds_len ] = peer_pool_idx( ssping->pool, peer );
-  ssping->fds_len++;
-
   fd_ssresolve_init( peer->full_ssresolve, peer->addr, ssping->fds[ peer->fd.idx ].fd, 1 );
-  fd_ssresolve_init( peer->inc_ssresolve, peer->addr, ssping->fds[ peer->fd.idx+1UL ].fd, 0 );
+
+  if( FD_LIKELY( ssping->incremental_snapshot_fetch ) ) {
+    err = create_socket( ssping, peer ); /* incremental */
+    if( FD_UNLIKELY( err ) ) return err;
+    ssping->fds_idx[ ssping->fds_len ] = peer_pool_idx( ssping->pool, peer );
+    ssping->fds_len++;
+    fd_ssresolve_init( peer->inc_ssresolve, peer->addr, ssping->fds[ peer->fd.idx+1UL ].fd, 0 );
+  }
 
   return 0;
 }
@@ -589,8 +613,16 @@ fd_ssping_best( fd_ssping_t * ssping ) {
        !score_treap_fwd_iter_done( iter );
        iter = score_treap_fwd_iter_next( iter, ssping->pool ) ) {
     fd_ssping_peer_t const * best = score_treap_fwd_iter_ele_const( iter, ssping->pool );
-    if( FD_LIKELY( best->snapshot_info.incremental.slot>=ssping->slot ) ) {
-      ssping->slot = best->snapshot_info.incremental.slot;
+
+    ulong peer_slot = ULONG_MAX;
+    if( FD_LIKELY( ssping->incremental_snapshot_fetch ) ) {
+      peer_slot = best->snapshot_info.incremental.slot;
+    } else {
+      peer_slot = best->snapshot_info.full.slot;
+    }
+
+    if( FD_LIKELY( peer_slot!=ULONG_MAX && peer_slot>=ssping->slot ) ) {
+      ssping->slot = peer_slot;
       return (fd_sspeer_t){
         .addr = best->addr,
         .snapshot_info = &best->snapshot_info,

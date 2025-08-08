@@ -61,7 +61,8 @@ fd_ssping_footprint( ulong max_peers );
 void *
 fd_ssping_new( void * shmem,
                ulong  max_peers,
-               ulong  seed );
+               ulong  seed,
+               int    incremental_snapshot_fetch );
 
 fd_ssping_t *
 fd_ssping_join( void * shping );
