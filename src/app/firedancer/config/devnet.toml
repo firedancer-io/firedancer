@@ -1,0 +1,6 @@
+[gossip]
+    entrypoints = [
+        "entrypoint.devnet.solana.com:8001",
+        "entrypoint2.devnet.solana.com:8001",
+        "entrypoint3.devnet.solana.com:8001",
+    ]

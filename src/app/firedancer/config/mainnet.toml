@@ -1,0 +1,8 @@
+[gossip]
+    entrypoints = [
+        "entrypoint.mainnet-beta.solana.com:8001",
+        "entrypoint2.mainnet-beta.solana.com:8001",
+        "entrypoint3.mainnet-beta.solana.com:8001",
+        "entrypoint4.mainnet-beta.solana.com:8001",
+        "entrypoint5.mainnet-beta.solana.com:8001",
+    ]
