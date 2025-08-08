@@ -6,6 +6,7 @@
 #include "../../flamenco/runtime/fd_acc_mgr.h"
 #include "../../ballet/base58/fd_base58.h"
 #include "../../ballet/base64/fd_base64.h"
+#include "../../ballet/shred/fd_shred.h"
 #include "fd_rpc_history.h"
 #include "fd_block_to_json.h"
 #include "keywords.h"
@@ -2433,4 +2434,20 @@ void
 fd_rpc_stake_after_frag(fd_rpc_ctx_t * ctx, fd_multi_epoch_leaders_t * state) {
   (void)ctx;
   fd_multi_epoch_leaders_stake_msg_fini( state );
+}
+
+void
+fd_rpc_shred_repair_during_frag(fd_rpc_ctx_t * ctx, uchar * shred, void const * msg, int sz) {
+  (void)ctx;
+  FD_TEST( sz <= (int)FD_SHRED_MAX_SZ );
+  fd_memcpy(shred, msg, (ulong)sz);
+}
+
+void
+fd_rpc_shred_repair_after_frag(fd_rpc_ctx_t * ctx, uchar * shred) {
+  fd_rpc_global_ctx_t * subs = ctx->global;
+  fd_shred_t * shred_p = (fd_shred_t *)shred;
+  if( fd_shred_is_data( shred_p->variant ) ) {
+     fd_rpc_history_save_shred( subs->history, shred_p );
+ }
 }

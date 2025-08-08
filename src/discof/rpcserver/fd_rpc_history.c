@@ -208,6 +208,12 @@ fd_rpc_history_save(fd_rpc_history_t * hist, fd_replay_notif_msg_t * info) {
   } FD_SPAD_FRAME_END;
 }
 
+void
+fd_rpc_history_save_shred(fd_rpc_history_t * hist, fd_shred_t * shred) {
+  (void)hist;
+  (void)shred;
+}
+
 ulong
 fd_rpc_history_first_slot(fd_rpc_history_t * hist) {
   return hist->first_slot;

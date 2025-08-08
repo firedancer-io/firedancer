@@ -1,16 +1,15 @@
 /* Repair tile runs the repair protocol for a Firedancer node. */
 #define _GNU_SOURCE
 
-#include "../../disco/topo/fd_topo.h"
 #include <sys/socket.h>
 
+#include "../../disco/topo/fd_topo.h"
 #include "generated/fd_rpcserv_tile_seccomp.h"
-
 #include "../rpcserver/fd_rpc_service.h"
-
 #include "../../flamenco/leaders/fd_multi_epoch_leaders.h"
 #include "../../disco/keyguard/fd_keyload.h"
 #include "../../disco/keyguard/fd_keyswitch.h"
+#include "../../ballet/shred/fd_shred.h"
 
 #include <fcntl.h>
 #include <unistd.h>
@@ -39,6 +38,7 @@ struct fd_rpcserv_tile_ctx {
   fd_keyswitch_t * keyswitch;
 
   fd_replay_notif_msg_t replay_notif_in_state;
+  uchar                 shred_in_state[ FD_SHRED_MAX_SZ ];
 
   uchar               in_kind[ MAX_IN_LINKS ];
   fd_rpcserv_in_ctx_t in_links[ MAX_IN_LINKS ];
@@ -109,6 +109,8 @@ during_frag( fd_rpcserv_tile_ctx_t * ctx,
     fd_rpc_replay_during_frag( ctx->ctx, &ctx->replay_notif_in_state, fd_chunk_to_laddr_const( ctx->in_links[in_idx].mem, chunk ), (int)sz );
   } else if( FD_UNLIKELY( kind == IN_KIND_STAKE_OUT ) ) {
     fd_rpc_stake_during_frag( ctx->ctx, ctx->args.leaders, fd_chunk_to_laddr_const( ctx->in_links[in_idx].mem, chunk ), (int)sz );
+  } else if( FD_UNLIKELY( kind == IN_KIND_SHRED_REPAIR ) ) {
+    fd_rpc_shred_repair_during_frag( ctx->ctx, ctx->shred_in_state, fd_chunk_to_laddr_const( ctx->in_links[in_idx].mem, chunk ), (int)sz );
   } else {
     FD_LOG_ERR(("Unknown in_idx %lu for rpc", in_idx));
   }
@@ -135,6 +137,8 @@ after_frag( fd_rpcserv_tile_ctx_t * ctx,
     fd_rpc_replay_after_frag( ctx->ctx, &ctx->replay_notif_in_state );
   } else if( FD_UNLIKELY( kind == IN_KIND_STAKE_OUT ) ) {
     fd_rpc_stake_after_frag( ctx->ctx, ctx->args.leaders );
+  } else if( FD_UNLIKELY( kind == IN_KIND_SHRED_REPAIR ) ) {
+    fd_rpc_shred_repair_after_frag( ctx->ctx, ctx->shred_in_state );
   } else {
     FD_LOG_ERR(("Unknown in_idx %lu for rpc", in_idx));
   }

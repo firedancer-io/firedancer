@@ -43,4 +43,8 @@ void fd_rpc_stake_during_frag(fd_rpc_ctx_t * ctx, fd_multi_epoch_leaders_t * sta
 
 void fd_rpc_stake_after_frag(fd_rpc_ctx_t * ctx, fd_multi_epoch_leaders_t * state);
 
+void fd_rpc_shred_repair_during_frag(fd_rpc_ctx_t * ctx, uchar * shred, void const * msg, int sz);
+
+void fd_rpc_shred_repair_after_frag(fd_rpc_ctx_t * ctx, uchar * shred);
+
 #endif /* HEADER_fd_src_discof_rpcserver_fd_rpc_service_h */
