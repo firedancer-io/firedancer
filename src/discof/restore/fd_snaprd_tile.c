@@ -15,7 +15,7 @@
 #define NAME "snaprd"
 
 /* The snaprd tile at a high level is a state machine that downloads
-   snapshots from the network or reads snapshots from disk and produces
+   snapshots from the network or reads snapshots from disk and proxces
    a byte stream that is parsed by downstream snapshot consumer tiles.
    The snaprd tile gathers the latest SnapshotHashes information from
    gossip to decide whether to download snapshots or read local
