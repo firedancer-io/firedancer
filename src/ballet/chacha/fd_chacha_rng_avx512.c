@@ -1,4 +1,4 @@
-#include "fd_chacha20rng.h"
+#include "fd_chacha_rng.h"
 #include "../../util/simd/fd_avx512.h"
 #include <assert.h>
 
@@ -13,8 +13,9 @@ wwu_rol8( wwu_t x ) {
   return _mm512_shuffle_epi8( x, mask );
 }
 
-void
-fd_chacha20rng_refill_avx512( fd_chacha20rng_t * rng ) {
+static void
+fd_chacha_rng_refill_avx512( fd_chacha_rng_t * rng,
+                             ulong             rnd2_cnt ) {
 
   /* This function should only be called if the buffer is empty. */
   if( FD_UNLIKELY( rng->buf_off != rng->buf_fill ) ) {
@@ -47,7 +48,7 @@ fd_chacha20rng_refill_avx512( fd_chacha20rng_t * rng ) {
 
   /* Derive block index */
 
-  ulong idx = rng->buf_fill / FD_CHACHA20_BLOCK_SZ;  /* really a right shift */
+  ulong idx = rng->buf_fill / FD_CHACHA_BLOCK_SZ;  /* really a right shift */
   wwu_t idxs = wwu_add( wwu_bcast( idx ), wwu( 0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15 ) );
 
   /* Run through the round function */
@@ -65,7 +66,7 @@ fd_chacha20rng_refill_avx512( fd_chacha20rng_t * rng ) {
     c = wwu_add( c, d ); b = wwu_xor( b, c ); b = wwu_rol7( b );  \
   } while(0)
 
-  for( ulong i=0UL; i<10UL; i++ ) {
+  for( ulong i=0UL; i<rnd2_cnt; i++ ) {
     QUARTER_ROUND( c0, c4, c8, cC );
     QUARTER_ROUND( c1, c5, c9, cD );
     QUARTER_ROUND( c2, c6, cA, cE );
@@ -117,5 +118,15 @@ fd_chacha20rng_refill_avx512( fd_chacha20rng_t * rng ) {
 
   /* Update ring descriptor */
 
-  rng->buf_fill += 16*FD_CHACHA20_BLOCK_SZ;
+  rng->buf_fill += 16*FD_CHACHA_BLOCK_SZ;
+}
+
+void
+fd_chacha8_rng_refill_avx512( fd_chacha_rng_t * rng ) {
+  fd_chacha_rng_refill_avx512( rng, 4UL );
+}
+
+void
+fd_chacha20_rng_refill_avx512( fd_chacha_rng_t * rng ) {
+  fd_chacha_rng_refill_avx512( rng, 10UL );
 }

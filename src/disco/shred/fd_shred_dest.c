@@ -99,7 +99,7 @@ fd_shred_dest_new( void                           * mem,
   void * _unstaked = FD_SCRATCH_ALLOC_APPEND( footprint, alignof(ulong),                    sizeof(ulong)*unstaked_cnt           );
 
 
-  fd_chacha20rng_t * rng = fd_chacha20rng_join( fd_chacha20rng_new( sdest->rng, FD_CHACHA20RNG_MODE_SHIFT ) );
+  fd_chacha_rng_t * rng = fd_chacha_rng_join( fd_chacha_rng_new( sdest->rng, FD_CHACHA_RNG_MODE_SHIFT ) );
 
   void  *  _staked   = fd_wsample_new_init( _wsample,  rng, staked_cnt,   1, FD_WSAMPLE_HINT_POWERLAW_REMOVE );
 
@@ -144,9 +144,9 @@ void * fd_shred_dest_leave( fd_shred_dest_t * sdest ) { return (void *)sdest;   
 void * fd_shred_dest_delete( void * mem ) {
   fd_shred_dest_t * sdest = (fd_shred_dest_t *)mem;
 
-  fd_chacha20rng_delete( fd_chacha20rng_leave( sdest->rng               ) );
-  fd_wsample_delete    ( fd_wsample_leave    ( sdest->staked            ) );
-  pubkey_to_idx_delete ( pubkey_to_idx_leave ( sdest->pubkey_to_idx_map ) );
+  fd_chacha_rng_delete( fd_chacha_rng_leave( sdest->rng               ) );
+  fd_wsample_delete   ( fd_wsample_leave   ( sdest->staked            ) );
+  pubkey_to_idx_delete( pubkey_to_idx_leave( sdest->pubkey_to_idx_map ) );
   return mem;
 }
 
@@ -191,7 +191,7 @@ sample_unstaked_noprepare( fd_shred_dest_t  * sdest,
   ulong unstaked_cnt = sdest->unstaked_cnt - (ulong)remove_in_interval;
   if( FD_UNLIKELY( unstaked_cnt==0UL ) ) return FD_WSAMPLE_EMPTY;
 
-  ulong sample = sdest->staked_cnt + fd_chacha20rng_ulong_roll( sdest->rng, unstaked_cnt );
+  ulong sample = sdest->staked_cnt + fd_chacha20_rng_ulong_roll( sdest->rng, unstaked_cnt );
   return fd_ulong_if( (!remove_in_interval) | (sample<remove_idx), sample, sample+1UL );
 }
 
@@ -219,7 +219,7 @@ static inline ulong
 sample_unstaked( fd_shred_dest_t * sdest ) {
   if( FD_UNLIKELY( sdest->unstaked_unremoved_cnt==0UL ) ) return FD_WSAMPLE_EMPTY;
 
-  ulong sample = fd_chacha20rng_ulong_roll( sdest->rng, sdest->unstaked_unremoved_cnt );
+  ulong sample = fd_chacha20_rng_ulong_roll( sdest->rng, sdest->unstaked_unremoved_cnt );
   ulong to_return = sdest->unstaked[sample];
   sdest->unstaked[sample] = sdest->unstaked[--sdest->unstaked_unremoved_cnt];
   return to_return;

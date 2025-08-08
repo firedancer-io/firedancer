@@ -15,7 +15,7 @@
       at least x. */
 
 #include "../fd_ballet_base.h"
-#include "../chacha20/fd_chacha20rng.h"
+#include "../chacha/fd_chacha_rng.h"
 
 struct fd_wsample_private;
 typedef struct fd_wsample_private fd_wsample_t;
@@ -124,21 +124,21 @@ void *            fd_wsample_delete   ( void * shmem  );
    On successful completion of the formatting process, the weighted
    sampler will contain an element corresponding to each provided
    weight.  Caller is not joined on return. */
-void * fd_wsample_new_init( void             * shmem,
-                            fd_chacha20rng_t * rng,
-                            ulong              ele_cnt,
-                            int                restore_enabled,
-                            int                opt_hint );
+void * fd_wsample_new_init( void            * shmem,
+                            fd_chacha_rng_t * rng,
+                            ulong             ele_cnt,
+                            int               restore_enabled,
+                            int               opt_hint );
 void * fd_wsample_new_add ( void * shmem, ulong weight          );
 void * fd_wsample_new_fini( void * shmem, ulong poisoned_weight );
 
 /* fd_wsample_get_rng returns the value provided for rng in new. */
-fd_chacha20rng_t * fd_wsample_get_rng( fd_wsample_t * sampler );
+fd_chacha_rng_t * fd_wsample_get_rng( fd_wsample_t * sampler );
 
 /* fd_wsample_seed_rng seeds the ChaCha20 rng with the provided seed in
    preparation for sampling.  This function is compatible with Solana's
    ChaChaRng::from_seed. */
-void fd_wsample_seed_rng( fd_chacha20rng_t * rng, uchar seed[static 32] );
+void fd_wsample_seed_rng( fd_chacha_rng_t * rng, uchar seed[static 32] );
 
 /* fd_wsample_sample{_and_remove}{,_many} produces one or cnt (in the
    _many case) weighted random samples from the sampler.  If the
