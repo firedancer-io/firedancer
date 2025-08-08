@@ -327,6 +327,11 @@ struct fd_config {
 
     struct {
       char affinity[ AFFINITY_SZ ];
+      ushort src_port;
+    } qblast;
+
+    struct {
+      char affinity[ AFFINITY_SZ ];
     } snapshot_load;
   } development;
 

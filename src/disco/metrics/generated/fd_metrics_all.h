@@ -24,6 +24,7 @@
 #include "fd_metrics_snaprd.h"
 #include "fd_metrics_snapdc.h"
 #include "fd_metrics_snapin.h"
+#include "fd_metrics_qblast.h"
 #include "fd_metrics_metric.h"
 /* Start of LINK OUT metrics */
 
