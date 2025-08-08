@@ -5,7 +5,6 @@
 #include "fd_vm_base.h"
 #include "fd_vm_private.h"
 #include "test_vm_util.h"
-#include "../runtime/context/fd_exec_slot_ctx.h"
 #include <assert.h>
 #include <ctype.h>
 #include <errno.h>
@@ -443,10 +442,9 @@ run_input( test_input_t const * input,
       fd_sbpf_syscalls_new(
       aligned_alloc( fd_sbpf_syscalls_align(), fd_sbpf_syscalls_footprint() ) ) );
 
-  fd_valloc_t valloc = fd_libc_alloc_virtual();
-  fd_exec_slot_ctx_t  * slot_ctx  = fd_valloc_malloc( valloc, FD_EXEC_SLOT_CTX_ALIGN,    FD_EXEC_SLOT_CTX_FOOTPRINT );
-
-  fd_exec_instr_ctx_t * instr_ctx = test_vm_minimal_exec_instr_ctx( valloc, slot_ctx );
+  fd_exec_instr_ctx_t instr_ctx[1];
+  fd_exec_txn_ctx_t   txn_ctx[1];
+  test_vm_minimal_exec_instr_ctx( instr_ctx, txn_ctx );
 
   int vm_ok = !!fd_vm_init(
       /* vm                 */ vm,
@@ -481,8 +479,6 @@ run_input( test_input_t const * input,
   run_input2( out, vm, force_exec );
 
   /* Clean up */
-  fd_valloc_free( valloc, slot_ctx );
-  test_vm_exec_instr_ctx_delete( instr_ctx, fd_libc_alloc_virtual() );
   free( fd_sbpf_syscalls_delete ( fd_sbpf_syscalls_leave ( syscalls  ) ) );
   free( fd_sbpf_calldests_delete( fd_sbpf_calldests_leave( calldests ) ) );
   free( input_copy );

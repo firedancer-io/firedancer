@@ -108,8 +108,7 @@ fd_runtime_fuzz_vm_interp_run( fd_runtime_fuzz_runner_t * runner,
     return 0UL;
   }
 
-  fd_spad_t * spad   = runner->spad;
-  fd_valloc_t valloc = fd_spad_virtual( spad );
+  fd_spad_t * spad = runner->spad;
 
   /* Create effects */
   ulong output_end = (ulong) output_buf + output_bufsz;
@@ -180,7 +179,7 @@ do{
      Alloc calldests with the expected size (1 bit per ix, rounded up to ulong) */
   ulong max_pc = (rodata_sz + 7) / 8;
   ulong calldests_footprint = fd_sbpf_calldests_footprint( max_pc );
-  void * calldests_mem = fd_valloc_malloc( valloc, fd_sbpf_calldests_align(), calldests_footprint );
+  void * calldests_mem = fd_spad_alloc_check( spad, fd_sbpf_calldests_align(), calldests_footprint );
   ulong * calldests = fd_sbpf_calldests_join( fd_sbpf_calldests_new( calldests_mem, max_pc ) );
   if( input->vm_ctx.call_whitelist && input->vm_ctx.call_whitelist->size > 0 ) {
     memcpy( calldests, input->vm_ctx.call_whitelist->bytes, input->vm_ctx.call_whitelist->size );
@@ -197,7 +196,7 @@ do{
   }
 
   /* Setup syscalls. Have them all be no-ops */
-  fd_sbpf_syscalls_t * syscalls = fd_sbpf_syscalls_new( fd_valloc_malloc( valloc, fd_sbpf_syscalls_align(), fd_sbpf_syscalls_footprint() ) );
+  fd_sbpf_syscalls_t * syscalls = fd_sbpf_syscalls_new( fd_spad_alloc_check( spad, fd_sbpf_syscalls_align(), fd_sbpf_syscalls_footprint() ) );
   fd_vm_syscall_register_slot( syscalls,
                                instr_ctx->txn_ctx->slot,
                                &instr_ctx->txn_ctx->features,
@@ -217,11 +216,11 @@ do{
   ulong event_data_max = 2048UL;
 
   if (!!tracing_enabled) {
-    trace = fd_vm_trace_new( fd_valloc_malloc( valloc, fd_vm_trace_align(), fd_vm_trace_footprint( event_max, event_data_max ) ), event_max, event_data_max );
+    trace = fd_vm_trace_new( fd_spad_alloc_check( spad, fd_vm_trace_align(), fd_vm_trace_footprint( event_max, event_data_max ) ), event_max, event_data_max );
   }
 
   /* Setup vm */
-  fd_vm_t * vm = fd_vm_join( fd_vm_new( fd_valloc_malloc( valloc, fd_vm_align(), fd_vm_footprint() ) ) );
+  fd_vm_t * vm = fd_vm_join( fd_vm_new( fd_spad_alloc_check( spad, fd_vm_align(), fd_vm_footprint() ) ) );
   FD_TEST( vm );
 
   fd_vm_init(
@@ -388,7 +387,6 @@ fd_runtime_fuzz_vm_syscall_run( fd_runtime_fuzz_runner_t * runner,
 
   if( !fd_runtime_fuzz_instr_ctx_create( runner, ctx, input_instr_ctx, skip_extra_checks ) )
     goto error;
-  fd_valloc_t valloc = fd_spad_virtual( runner->spad );
 
   ctx->txn_ctx->instr_trace[0].instr_info = (fd_instr_info_t *)ctx->instr;
   ctx->txn_ctx->instr_trace[0].stack_height = 1;
@@ -415,9 +413,10 @@ fd_runtime_fuzz_vm_syscall_run( fd_runtime_fuzz_runner_t * runner,
   *effects = (fd_exec_test_syscall_effects_t) FD_EXEC_TEST_SYSCALL_EFFECTS_INIT_ZERO;
 
   /* Set up the VM instance */
+  fd_spad_t * spad = runner->spad;
   fd_sha256_t _sha[1];
   fd_sha256_t * sha = fd_sha256_join( fd_sha256_new( _sha ) );
-  fd_sbpf_syscalls_t * syscalls = fd_sbpf_syscalls_new( fd_valloc_malloc( valloc, fd_sbpf_syscalls_align(), fd_sbpf_syscalls_footprint() ) );
+  fd_sbpf_syscalls_t * syscalls = fd_sbpf_syscalls_new( fd_spad_alloc_check( spad, fd_sbpf_syscalls_align(), fd_sbpf_syscalls_footprint() ) );
   fd_vm_syscall_register_all( syscalls, 0 );
 
   /* Pull out the memory regions */
@@ -426,7 +425,7 @@ fd_runtime_fuzz_vm_syscall_run( fd_runtime_fuzz_runner_t * runner,
   }
 
   ulong rodata_sz = input->vm_ctx.rodata ? input->vm_ctx.rodata->size : 0UL;
-  uchar * rodata = fd_valloc_malloc( valloc, 8UL, rodata_sz );
+  uchar * rodata = fd_spad_alloc_check( spad, 8UL, rodata_sz );
   if ( input->vm_ctx.rodata != NULL ) {
     fd_memcpy( rodata, input->vm_ctx.rodata->bytes, rodata_sz );
   }
@@ -435,7 +434,7 @@ fd_runtime_fuzz_vm_syscall_run( fd_runtime_fuzz_runner_t * runner,
     goto error;
   }
 
-  fd_vm_t * vm = fd_vm_join( fd_vm_new( fd_valloc_malloc( valloc, fd_vm_align(), fd_vm_footprint() ) ) );
+  fd_vm_t * vm = fd_vm_join( fd_vm_new( fd_spad_alloc_check( spad, fd_vm_align(), fd_vm_footprint() ) ) );
   if ( !vm ) {
     goto error;
   }

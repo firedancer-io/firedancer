@@ -13,7 +13,6 @@ typedef struct fd_borrowed_account fd_borrowed_account_t;
    instruction (program invocation). */
 
 struct fd_exec_instr_ctx {
-  ulong                     magic;   /* ==FD_EXEC_INSTR_CTX_MAGIC */
   fd_instr_info_t const *   instr;   /* The instruction info for this instruction */
   fd_exec_txn_ctx_t *       txn_ctx; /* The transaction context for this instruction */
   fd_sysvar_cache_t const * sysvar_cache;
@@ -25,7 +24,6 @@ struct fd_exec_instr_ctx {
 
 #define FD_EXEC_INSTR_CTX_ALIGN     (alignof(fd_exec_instr_ctx_t))
 #define FD_EXEC_INSTR_CTX_FOOTPRINT (sizeof (fd_exec_instr_ctx_t))
-#define FD_EXEC_INSTR_CTX_MAGIC     (0x18964FC6EDAAC5A8UL) /* random */
 
 /* Be careful when using this macro. There may be places where the error
    will need to be handled differently. */
@@ -35,20 +33,6 @@ struct fd_exec_instr_ctx {
 } while (0)
 
 FD_PROTOTYPES_BEGIN
-
-/* Constructors */
-
-void *
-fd_exec_instr_ctx_new( void * mem );
-
-fd_exec_instr_ctx_t *
-fd_exec_instr_ctx_join( void * mem );
-
-void *
-fd_exec_instr_ctx_leave( fd_exec_instr_ctx_t * ctx );
-
-void *
-fd_exec_instr_ctx_delete( void * mem );
 
 /* Operators */
 

@@ -2292,9 +2292,8 @@ fd_webserver_ws_subscribe(struct json_values* values, ulong conn_id, void * cb_a
 
 void
 fd_rpc_create_ctx(fd_rpcserver_args_t * args, fd_rpc_ctx_t ** ctx_p) {
-  fd_valloc_t valloc = fd_spad_virtual( args->spad );
-  fd_rpc_ctx_t * ctx         = (fd_rpc_ctx_t *)fd_valloc_malloc(valloc, alignof(fd_rpc_ctx_t), sizeof(fd_rpc_ctx_t));
-  fd_rpc_global_ctx_t * gctx = (fd_rpc_global_ctx_t *)fd_valloc_malloc(valloc, alignof(fd_rpc_global_ctx_t), sizeof(fd_rpc_global_ctx_t));
+  fd_rpc_ctx_t * ctx         = (fd_rpc_ctx_t *)fd_spad_alloc( args->spad, alignof(fd_rpc_ctx_t), sizeof(fd_rpc_ctx_t) );
+  fd_rpc_global_ctx_t * gctx = (fd_rpc_global_ctx_t *)fd_spad_alloc( args->spad, alignof(fd_rpc_global_ctx_t), sizeof(fd_rpc_global_ctx_t) );
   fd_memset(ctx, 0, sizeof(fd_rpc_ctx_t));
   fd_memset(gctx, 0, sizeof(fd_rpc_global_ctx_t));
 
@@ -2319,7 +2318,7 @@ fd_rpc_create_ctx(fd_rpcserver_args_t * args, fd_rpc_ctx_t ** ctx_p) {
     gctx->tpu_socket = -1;
   }
 
-  void * mem = fd_valloc_malloc( valloc, fd_perf_sample_deque_align(), fd_perf_sample_deque_footprint() );
+  void * mem = fd_spad_alloc( args->spad, fd_perf_sample_deque_align(), fd_perf_sample_deque_footprint() );
   gctx->perf_samples = fd_perf_sample_deque_join( fd_perf_sample_deque_new( mem ) );
   FD_TEST( gctx->perf_samples );
 

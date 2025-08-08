@@ -8,7 +8,7 @@
 #include "../../disco/store/fd_store.h"
 #include "../../disco/topo/fd_topo.h"
 #include "../../discof/fd_discof.h"
-#include "../../discof/repair/fd_fec_chainer.h"
+#include "../../discof/repair/fd_reasm.h"
 #include "../../discof/replay/fd_replay_notif.h"
 #include "../../flamenco/runtime/fd_rocksdb.h"
 #include "../../util/pod/fd_pod_format.h"
@@ -87,7 +87,7 @@ typedef struct {
 
   fd_replay_notif_msg_t  replay_notification;
 
-  ulong                  tower_replay_out_idx;
+  ulong                  root_out_out_idx;
 
   ulong                  playback_started;
   ulong                  end_slot;
@@ -193,13 +193,13 @@ notify_tower_root( ctx_t *             ctx,
     /* We want to publish the previous last_replayed_slot, when we have
        finished replaying the current slot. Then we can update the
        last_replayed_slot to the newly executed slot. */
-    fd_stem_publish( stem, ctx->tower_replay_out_idx, ctx->replay_notification.slot_exec.slot, 0UL, 0UL, 0UL, tsorig, tspub );
+    fd_stem_publish( stem, ctx->root_out_out_idx, ctx->replay_notification.slot_exec.slot, 0UL, 0UL, 0UL, tsorig, tspub );
     ctx->is_ready = 1;
 
   } else if( ctx->ingest_mode == FD_BACKTEST_SHREDCAP_INGEST ) {
     ulong root = fd_tower_vote( ctx->tower, replayed_slot );
     if( FD_LIKELY( root != FD_SLOT_NULL ) ) {
-      fd_stem_publish( stem, ctx->tower_replay_out_idx, root, 0UL, 0UL, 0UL, tsorig, tspub );
+      fd_stem_publish( stem, ctx->root_out_out_idx, root, 0UL, 0UL, 0UL, tsorig, tspub );
     }
   }
 }
@@ -256,8 +256,8 @@ unprivileged_init( fd_topo_t *      topo,
   ctx->replay_out_wmark  = fd_dcache_compact_wmark( ctx->replay_out_mem, link->dcache, link->mtu );
   ctx->replay_out_chunk  = ctx->replay_out_chunk0;
 
-  ctx->tower_replay_out_idx = fd_topo_find_tile_out_link( topo, tile, "tower_replay", 0 );
-  FD_TEST( ctx->tower_replay_out_idx!= ULONG_MAX );
+  ctx->root_out_out_idx = fd_topo_find_tile_out_link( topo, tile, "root_out", 0 );
+  FD_TEST( ctx->root_out_out_idx!= ULONG_MAX );
 
   ctx->playback_started           = 0;
   ctx->end_slot          = tile->archiver.end_slot;
@@ -406,21 +406,23 @@ after_credit_rocksdb( ctx_t *             ctx,
 
   ctx->prev_mr = mr;
 
-  fd_fec_out_t out = {
-    .err           = FD_FEC_CHAINER_SUCCESS,
-    .merkle_root   = mr,
+  fd_hash_t cmr;
+  memcpy( cmr.uc, (uchar const *)prev + fd_shred_chain_off( prev->variant ), sizeof(fd_hash_t) );
+  fd_reasm_fec_t out = {
+    .key           = mr,
+    .cmr           = cmr,
     .slot          = prev->slot,
     .parent_off    = prev->data.parent_off,
     .fec_set_idx   = prev->fec_set_idx,
-    .data_cnt      = (ushort)(prev->idx + 1 - prev->fec_set_idx),
+    .data_cnt      = (ushort)( prev->idx + 1 - prev->fec_set_idx ),
     .data_complete = !!( prev->data.flags & FD_SHRED_DATA_FLAG_DATA_COMPLETE ),
     .slot_complete = !!( prev->data.flags & FD_SHRED_DATA_FLAG_SLOT_COMPLETE )
   };
   ulong sig   = out.slot << 32 | out.fec_set_idx;
   ulong tspub = fd_frag_meta_ts_comp( fd_tickcount() );
-  memcpy( fd_chunk_to_laddr( ctx->replay_out_mem, ctx->replay_out_chunk ), &out, sizeof(fd_fec_out_t) );
-  fd_stem_publish( stem, REPLAY_OUT_IDX, sig, ctx->replay_out_chunk, sizeof(fd_fec_out_t), 0, 0, tspub );
-  ctx->replay_out_chunk = fd_dcache_compact_next( ctx->replay_out_chunk, sizeof(fd_fec_out_t), ctx->replay_out_chunk0, ctx->replay_out_wmark );
+  memcpy( fd_chunk_to_laddr( ctx->replay_out_mem, ctx->replay_out_chunk ), &out, sizeof(fd_reasm_fec_t) );
+  fd_stem_publish( stem, REPLAY_OUT_IDX, sig, ctx->replay_out_chunk, sizeof(fd_reasm_fec_t), 0, 0, tspub );
+  ctx->replay_out_chunk = fd_dcache_compact_next( ctx->replay_out_chunk, sizeof(fd_reasm_fec_t), ctx->replay_out_chunk0, ctx->replay_out_wmark );
   ctx->curr = curr;
   *charge_busy = 1;
 
@@ -499,13 +501,13 @@ shredcap_notify_one_fec( ctx_t * ctx, fd_stem_context_t * stem ) {
   off += fec->data_sz;
   fd_store_exrel( ctx->store );
 
-  fd_fec_out_t * out = (fd_fec_out_t *)(slice_buf + off);
-  off += sizeof(fd_fec_out_t);
+  fd_reasm_fec_t * out = (fd_reasm_fec_t *)(slice_buf + off);
+  off += sizeof(fd_reasm_fec_t);
 
   ulong sig   = out->slot << 32 | out->fec_set_idx;
   ulong tspub = fd_frag_meta_ts_comp( fd_tickcount() );
-  fd_stem_publish( stem, REPLAY_OUT_IDX, sig, ctx->replay_out_chunk, sizeof(fd_fec_out_t), 0, 0, tspub );
-  ctx->replay_out_chunk = fd_dcache_compact_next( ctx->replay_out_chunk, sizeof(fd_fec_out_t), ctx->replay_out_chunk0, ctx->replay_out_wmark );
+  fd_stem_publish( stem, REPLAY_OUT_IDX, sig, ctx->replay_out_chunk, sizeof(fd_reasm_fec_t), 0, 0, tspub );
+  ctx->replay_out_chunk = fd_dcache_compact_next( ctx->replay_out_chunk, sizeof(fd_reasm_fec_t), ctx->replay_out_chunk0, ctx->replay_out_wmark );
 
   break;
 

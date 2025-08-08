@@ -63,7 +63,7 @@
    partial order.  Any given fork will be delivered in-order, but
    concurrent forks can be delivered in arbitrary order.  Another way to
    phrase this is a parent FEC set will always be delivered before the
-   child (see fd_fec_chainer).
+   child (see fd_reasm).
 
    CONCURRENCY
 
@@ -188,7 +188,7 @@ struct __attribute__((aligned(FD_STORE_ALIGN))) fd_store_fec {
 
   /* Pointers */
 
-  ulong next;    /* reserved for internal use by fd_pool, fd_map_chain, orphan list */
+  ulong next;    /* reserved for internal use by fd_pool, fd_map_chain */
   ulong parent;  /* pool idx of the parent */
   ulong child;   /* pool idx of the left-child */
   ulong sibling; /* pool idx of the right-sibling */

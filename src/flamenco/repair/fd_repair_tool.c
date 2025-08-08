@@ -326,8 +326,6 @@ main_loop( int * argc, char *** argv, fd_repair_t * glob, fd_repair_config_t * c
 int main(int argc, char **argv) {
   fd_boot( &argc, &argv );
 
-  fd_valloc_t valloc = fd_libc_alloc_virtual();
-
   fd_repair_config_t config;
   fd_memset(&config, 0, sizeof(config));
 
@@ -348,7 +346,8 @@ int main(int argc, char **argv) {
 
   ulong seed = fd_hash(0, hostname, strnlen(hostname, sizeof(hostname)));
 
-  void * shm = fd_valloc_malloc(valloc, fd_repair_align(), fd_repair_footprint());
+  void * shm = aligned_alloc( fd_repair_align(), fd_repair_footprint() );
+  FD_TEST( shm );
   fd_repair_t * glob = fd_repair_join(fd_repair_new(shm, seed ));
 
   if ( fd_repair_set_config(glob, &config) )
@@ -360,7 +359,7 @@ int main(int argc, char **argv) {
   if ( main_loop(&argc, &argv, glob, &config, &stopflag) )
     return 1;
 
-  fd_valloc_free(valloc, fd_repair_delete(fd_repair_leave(glob) ));
+  free( fd_repair_delete(fd_repair_leave(glob) ) );
 
   fd_halt();
 

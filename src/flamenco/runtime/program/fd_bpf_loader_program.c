@@ -92,38 +92,6 @@ program_error_to_instr_error( ulong  err,
   }
 }
 
-/* TODO: This can be combined with the other bpf loader state decode function */
-fd_bpf_upgradeable_loader_state_t *
-read_bpf_upgradeable_loader_state_for_program( fd_exec_txn_ctx_t * txn_ctx,
-                                               ushort              program_id,
-                                               int *               opt_err ) {
-  fd_txn_account_t * rec = NULL;
-  int err = fd_exec_txn_ctx_get_account_at_index( txn_ctx,
-                                                  program_id,
-                                                  &rec,
-                                                  fd_txn_account_check_exists );
-  if( FD_UNLIKELY( err ) ) {
-    if( opt_err ) {
-      *opt_err = err;
-    }
-    return NULL;
-  }
-
-  fd_bpf_upgradeable_loader_state_t * res = fd_bincode_decode_spad(
-      bpf_upgradeable_loader_state,
-      txn_ctx->spad,
-      fd_txn_account_get_data( rec ),
-      fd_txn_account_get_data_len( rec ),
-      &err );
-  if( FD_UNLIKELY( err ) ) {
-    if( opt_err ) {
-      *opt_err = FD_EXECUTOR_INSTR_ERR_INVALID_ACC_DATA;
-    }
-    return NULL;
-  }
-  return res;
-}
-
 /* https://github.com/anza-xyz/agave/blob/9b22f28104ec5fd606e4bb39442a7600b38bb671/programs/bpf_loader/src/lib.rs#L216-L229 */
 static ulong
 calculate_heap_cost( ulong heap_size, ulong heap_cost ) {
@@ -325,18 +293,20 @@ write_program_data( fd_exec_instr_ctx_t *   instr_ctx,
 fd_bpf_upgradeable_loader_state_t *
 fd_bpf_loader_program_get_state( fd_txn_account_t const * acct,
                                  fd_spad_t *              spad,
-                                 int *                    err ) {
+                                 int *                    opt_err ) {
+  int err;
   fd_bpf_upgradeable_loader_state_t * res = fd_bincode_decode_spad(
       bpf_upgradeable_loader_state,
       spad,
       fd_txn_account_get_data( acct ),
       fd_txn_account_get_data_len( acct ),
-      err );
-  if( FD_UNLIKELY( *err ) ) {
-    *err = FD_EXECUTOR_INSTR_ERR_INVALID_ACC_DATA;
-    return NULL;
+      &err );
+
+  if( opt_err ) {
+    *opt_err = FD_UNLIKELY( err ) ? FD_EXECUTOR_INSTR_ERR_INVALID_ACC_DATA : FD_EXECUTOR_INSTR_SUCCESS;
   }
-  return res;
+
+  return FD_UNLIKELY( err ) ? NULL : res;
 }
 
 /* Mirrors solana_sdk::transaction_context::BorrowedAccount::set_state()

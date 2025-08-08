@@ -120,19 +120,25 @@ estimate_timestamp( fd_bank_t * bank ) {
   /* TODO: bound the estimate to ensure it stays within a certain range of the expected PoH clock:
   https://github.com/solana-labs/solana/blob/8f2c8b8388a495d2728909e30460aa40dcc5d733/runtime/src/stake_weighted_timestamp.rs#L13 */
 
-  fd_clock_timestamp_votes_global_t const * clock_timestamp_votes = fd_bank_clock_timestamp_votes_locking_query( bank );
-  fd_clock_timestamp_vote_t_mapnode_t *     votes                  = !!clock_timestamp_votes ? fd_clock_timestamp_votes_votes_root_join( clock_timestamp_votes ) : NULL;
-  if( NULL==votes ) {
-    fd_bank_clock_timestamp_votes_end_locking_query( bank );
-    return timestamp_from_genesis( bank );
+  /* TODO: actually take the stake-weighted median. For now, just use a node. */
+  fd_vote_states_t const * vote_states = fd_bank_vote_states_locking_query( bank );
+
+  fd_vote_state_ele_t * vote_state_pool = fd_vote_states_get_pool( vote_states );
+  fd_vote_state_map_t * vote_state_map  = fd_vote_states_get_map( vote_states );
+
+  for( fd_vote_state_map_iter_t iter = fd_vote_state_map_iter_init( vote_state_map, vote_state_pool );
+       !fd_vote_state_map_iter_done( iter, vote_state_map, vote_state_pool );
+       iter = fd_vote_state_map_iter_next( iter, vote_state_map, vote_state_pool ) ) {
+    fd_vote_state_ele_t const * vote_state = fd_vote_state_map_iter_ele_const( iter, vote_state_map, vote_state_pool );
+
+    ulong slots = fd_bank_slot_get( bank ) - vote_state->last_vote_slot;
+    uint128 ns_correction = fd_bank_ns_per_slot_get( bank ) * slots;
+
+    fd_bank_vote_states_end_locking_query( bank );
+    return vote_state->last_vote_timestamp + (long)(ns_correction / NS_IN_S);
   }
 
-  /* TODO: actually take the stake-weighted median. For now, just use the root node. */
-  fd_clock_timestamp_vote_t * head          = &votes->elem;
-  ulong                       slots         = fd_bank_slot_get( bank ) - head->slot;
-  uint128                     ns_correction = fd_bank_ns_per_slot_get( bank ) * slots;
-  fd_bank_clock_timestamp_votes_end_locking_query( bank );
-  return head->timestamp  + (long) (ns_correction / NS_IN_S) ;
+  FD_LOG_CRIT(( "unreachable" ));
 }
 
 #define CIDX_T ulong
