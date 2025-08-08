@@ -467,7 +467,7 @@ after_credit( fd_snaprd_tile_t *  ctx,
         break;
       }
 
-      FD_LOG_NOTICE(( "downloading incremental snapshot from http://" FD_IP4_ADDR_FMT ":%hu/incremental-snapshot.tar.bz2", FD_IP4_ADDR_FMT_ARGS( ctx->addr.addr ), fd_ushort_bswap(ctx->addr.port) ));
+      FD_LOG_NOTICE(( "downloading incremental snapshot from http://" FD_IP4_ADDR_FMT ":%hu/incremental-snapshot.tar.bz2", FD_IP4_ADDR_FMT_ARGS( ctx->addr.addr ), fd_ushort_bswap( ctx->addr.port ) ));
       fd_sshttp_init( ctx->sshttp, ctx->addr, "/incremental-snapshot.tar.bz2", 29UL, fd_log_wallclock() );
       ctx->state = FD_SNAPRD_STATE_READING_INCREMENTAL_HTTP;
       break;
@@ -752,7 +752,6 @@ unprivileged_init( fd_topo_t *      topo,
   fd_memset( ctx->gossip.ci_table, 0, sizeof(fd_contact_info_t) * FD_CONTACT_INFO_TABLE_SIZE );
 
   FD_TEST( tile->in_cnt<=MAX_IN_LINKS );
-  uchar has_gossip_in = 0;
   for( ulong i=0UL; i<(tile->in_cnt); i++ ){
     fd_topo_link_t * in_link = &topo->links[ tile->in_link_id[ i ] ];
     if( 0==strcmp( in_link->name, "gossip_out" ) ) {
@@ -768,31 +767,8 @@ unprivileged_init( fd_topo_t *      topo,
     }
   }
 
-  if( FD_UNLIKELY( !has_gossip_in ) ) {
-    if( FD_LIKELY( !strcmp( tile->snaprd.cluster, "testnet" ) ) ) {
-      FD_LOG_NOTICE(( "no gossip input link found, using initial peers for testnet" ));
-      fd_ip4_port_t initial_peers[ 2UL ] = {
-        { .addr = FD_IP4_ADDR( 35 , 214, 172, 227 ), .port = fd_ushort_bswap(8899) },
-        { .addr = FD_IP4_ADDR( 145, 40 , 95 , 69  ), .port = fd_ushort_bswap(8899) }, /* Solana testnet peer */
-      };
-
-      for( ulong i=0UL; i<2UL; i++ ) fd_ssping_add( ctx->ssping, initial_peers[ i ] );
-    } else if( FD_LIKELY( !strcmp( tile->snaprd.cluster, "private" ) ) ) {
-      fd_ip4_port_t initial_peers[ 1UL ] = {
-        { .addr = FD_IP4_ADDR( 147, 28, 185, 47 ), .port = fd_ushort_bswap( 8899 ) } /* A private cluster peer */
-      };
-
-      for( ulong i=0UL; i<1UL; i++ ) fd_ssping_add( ctx->ssping, initial_peers[ i ] );
-    } else if (FD_LIKELY( !strcmp( tile->snaprd.cluster, "mainnet" ) ) ) {
-      fd_ip4_port_t initial_peers[ 3UL ] = {
-        { .addr = FD_IP4_ADDR( 149, 255, 37 , 130 ), .port = fd_ushort_bswap( 8899 ) },
-        { .addr = FD_IP4_ADDR( 34 , 1  , 238, 227 ), .port = fd_ushort_bswap( 8899 ) },
-        { .addr = FD_IP4_ADDR( 34 , 1  , 139, 131 ), .port = fd_ushort_bswap( 8899 ) }
-      };
-      for( ulong i=0UL; i<3UL; i++ ) fd_ssping_add( ctx->ssping, initial_peers[ i ] );
-    } else {
-      FD_LOG_ERR(( "unexpected cluster %s", tile->snaprd.cluster ));
-    }
+  for( ulong i=0UL; i<tile->snaprd.http.peers_cnt; i++ ) {
+    fd_ssping_add( ctx->ssping, tile->snaprd.http.peers[ i ] );
   }
 
 

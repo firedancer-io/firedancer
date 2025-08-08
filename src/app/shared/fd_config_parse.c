@@ -111,9 +111,11 @@ fd_config_extract_podf( uchar *        pod,
   CFG_POP_ARRAY( cstr,   snapshots.known_validators                          );
   CFG_POP      ( uint,   snapshots.minimum_download_speed_mib                );
   CFG_POP      ( uint,   snapshots.maximum_download_retry_abort              );
-  CFG_POP      ( cstr,   snapshots.cluster                                   );
   CFG_POP      ( uint,   snapshots.max_full_snapshots_to_keep                );
   CFG_POP      ( uint,   snapshots.max_incremental_snapshots_to_keep         );
+  CFG_POP_TABLE( bool,   snapshots.sources.http, snapshots.sources.http.peers, enabled, 0 );
+  CFG_POP_TABLE( cstr,   snapshots.sources.http, snapshots.sources.http.peers, url,     1 );
+  CFG_POP_TABLE_FINI( snapshots.sources.http );
 
   return config;
 }

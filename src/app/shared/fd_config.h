@@ -11,6 +11,7 @@
 #define AFFINITY_SZ                      (256UL)
 #define CONFIGURE_STAGE_COUNT            ( 12UL)
 #define GOSSIP_TILE_ENTRYPOINTS_MAX      ( 16UL)
+#define SNAPSHOT_TILE_HTTP_PEERS_MAX     ( 16UL)
 #define IP4_PORT_STR_MAX                 ( 22UL)
 
 struct fd_configh {
@@ -129,6 +130,19 @@ struct fd_configf {
   } runtime;
 
   struct {
+
+    struct {
+
+      struct {
+        ulong            peers_cnt;
+        struct {
+          int  enabled;
+          char url[ PATH_MAX ];
+        } peers[ SNAPSHOT_TILE_HTTP_PEERS_MAX ];
+      } http;
+
+    } sources;
+
     int   incremental_snapshots;
     uint  maximum_local_snapshot_age;
     int   download;
@@ -136,7 +150,6 @@ struct fd_configf {
     char  known_validators[ 16 ][ 256 ];
     uint  minimum_download_speed_mib;
     uint  maximum_download_retry_abort;
-    char  cluster[ 8UL ];
     uint  max_full_snapshots_to_keep;
     uint  max_incremental_snapshots_to_keep;
   } snapshots;
