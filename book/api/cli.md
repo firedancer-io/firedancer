@@ -142,6 +142,16 @@ $ fdctl version
 0.101.11814
 ```
 
+## `shred-version`
+Prints the current shred version of the cluster being joined, according
+to the entrypoints, to standard output and exits. The command writes
+diagnostic messages from logs to `stderr`.
+
+```sh [bash]
+$ fdctl shred-version
+9065
+```
+
 ## `set-identity`
 Changes the identity key of a running validator. The `<keypair>`
 argument is required and must be the path to an Agave style

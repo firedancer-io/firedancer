@@ -899,3 +899,18 @@
 | <span class="metrics-name">snapin_&#8203;accounts_&#8203;inserted</span> | gauge | Number of accounts inserted during snpashot loading. Might decrease if snapshot load is aborted and restarted |
 
 </div>
+
+## Ipecho Tile
+
+<div class="metrics">
+
+| Metric | Type | Description |
+|--------|------|-------------|
+| <span class="metrics-name">ipecho_&#8203;shred_&#8203;version</span> | gauge | The current shred version used by the validator |
+| <span class="metrics-name">ipecho_&#8203;connection_&#8203;count</span> | gauge | The number of active connections to the ipecho service |
+| <span class="metrics-name">ipecho_&#8203;connections_&#8203;closed_&#8203;ok</span> | counter | The number of connections to the ipecho service that have been made and closed normally |
+| <span class="metrics-name">ipecho_&#8203;connections_&#8203;closed_&#8203;error</span> | counter | The number of connections to the ipecho service that have been made and closed abnormally |
+| <span class="metrics-name">ipecho_&#8203;bytes_&#8203;read</span> | counter | The total number of bytes read from all connections to the ipecho service |
+| <span class="metrics-name">ipecho_&#8203;bytes_&#8203;written</span> | counter | The total number of bytes written to all connections to the ipecho service |
+
+</div>

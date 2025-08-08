@@ -349,11 +349,14 @@ user = ""
     # The shred version is a small hash of the genesis block and any
     # subsequent hard forks.  The validator client uses it to filter
     # out any shred traffic from validators that disagree with this
-    # validator on the genesis hash or the set of hard forks.  If
-    # nonzero, ignore any shreds that have a different shred version
-    # than this value.  If zero, the expected shred version is
-    # automatically determined by copying the shred version that the
-    # entrypoint validator is using.
+    # validator on the genesis hash or the set of hard forks.
+    #
+    # If set to zero, the expected shred version is automatically
+    # determined at startup by requesting the shred version from the
+    # gossip entrypoints.  If set to a nonzero value, the validator will
+    # still request the shred version from the gossip entrypoints, but
+    # if the shred version is not equal to this value, the validator
+    # will abort with an error.
     expected_shred_version = 0
 
 # This section configures the "funk" account database.  Currently, funk
