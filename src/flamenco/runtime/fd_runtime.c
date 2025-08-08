@@ -1373,22 +1373,6 @@ fd_update_epoch_stakes( fd_exec_slot_ctx_t * slot_ctx ) {
 static void
 fd_update_next_epoch_stakes( fd_exec_slot_ctx_t * slot_ctx ) {
 
-  /* FIXME: This is technically not correct, since the vote accounts
-     could be laid out after the stake delegations from fd_stakes.
-     The correct solution is to split out the stake delgations from the
-     vote accounts in fd_stakes. */
-
-  /* Copy stakes->vote_accounts into next_epoch_stakes */
-  fd_vote_accounts_global_t const * vote_stakes = fd_bank_curr_epoch_stakes_locking_query( slot_ctx->bank );
-
-  fd_vote_accounts_global_t * next_epoch_stakes = fd_bank_next_epoch_stakes_locking_modify( slot_ctx->bank );
-  fd_memcpy( next_epoch_stakes, vote_stakes, fd_bank_next_epoch_stakes_footprint );
-  fd_bank_next_epoch_stakes_end_locking_modify( slot_ctx->bank );
-
-  fd_bank_curr_epoch_stakes_end_locking_query( slot_ctx->bank );
-
-  /********************************************************************/
-
   fd_vote_states_t *       vote_states_prev = fd_bank_vote_states_prev_locking_modify( slot_ctx->bank );
   fd_vote_states_t const * vote_states      = fd_bank_vote_states_locking_query( slot_ctx->bank );
   fd_memcpy( vote_states_prev, vote_states, fd_bank_vote_states_footprint );
@@ -2184,10 +2168,8 @@ fd_runtime_init_bank_from_genesis( fd_exec_slot_ctx_t *        slot_ctx,
   fd_stake_delegations_t * stake_delegations = fd_stake_delegations_join( fd_stake_delegations_new( fd_bank_stake_delegations_locking_modify( slot_ctx->bank ), 5000UL ) );
   FD_TEST( stake_delegations );
 
-  fd_vote_accounts_global_t * vote_accounts = fd_bank_curr_epoch_stakes_locking_modify( slot_ctx->bank );
-  uchar * vacc_pool_mem = (uchar *)fd_ulong_align_up( (ulong)vote_accounts + sizeof(fd_vote_accounts_global_t), fd_vote_accounts_pair_global_t_map_align() );
-  fd_vote_accounts_pair_global_t_mapnode_t * vacc_pool = fd_vote_accounts_pair_global_t_map_join( fd_vote_accounts_pair_global_t_map_new( vacc_pool_mem, 5000UL ) );
-  fd_vote_accounts_pair_global_t_mapnode_t * vacc_root = NULL;
+  fd_vote_states_t * vote_states = fd_vote_states_join( fd_vote_states_new( fd_bank_vote_states_locking_modify( slot_ctx->bank ), 5000UL ) );
+  FD_TEST( vote_states );
 
   fd_acc_lamports_t capitalization = 0UL;
 
@@ -2200,27 +2182,8 @@ fd_runtime_init_bank_from_genesis( fd_exec_slot_ctx_t *        slot_ctx,
     capitalization = fd_ulong_sat_add( capitalization, acc->account.lamports );
 
     if( !memcmp(acc->account.owner.key, fd_solana_vote_program_id.key, sizeof(fd_pubkey_t)) ) {
-      /* Vote Program Account */
-      fd_vote_accounts_pair_global_t_mapnode_t * node = fd_vote_accounts_pair_global_t_map_acquire(vacc_pool);
-      FD_TEST( node );
 
-      fd_memcpy(node->elem.key.key, acc->key.key, sizeof(fd_pubkey_t));
-      node->elem.stake = acc->account.lamports;
-      node->elem.value = (fd_solana_account_global_t){
-        .lamports = acc->account.lamports,
-        .data_len = acc->account.data_len,
-        .data_offset = 0UL, /* FIXME: remove this field from the cache altogether. */
-        .owner = acc->account.owner,
-        .executable = acc->account.executable,
-        .rent_epoch = acc->account.rent_epoch
-      };
-      fd_solana_account_data_update( &node->elem.value, acc->account.data );
-
-      fd_vote_accounts_pair_global_t_map_insert( vacc_pool, &vacc_root, node );
-
-      FD_LOG_INFO(( "Adding genesis vote account: key=%s stake=%lu",
-                    FD_BASE58_ENC_32_ALLOCA( node->elem.key.key ),
-                    node->elem.stake ));
+      fd_vote_states_update_from_account( vote_states, &acc->key, acc->account.data, acc->account.data_len );
     } else if( !memcmp( acc->account.owner.key, fd_solana_stake_program_id.key, sizeof(fd_pubkey_t) ) ) {
       FD_SPAD_FRAME_BEGIN( runtime_spad ) {
 
@@ -2305,7 +2268,6 @@ fd_runtime_init_bank_from_genesis( fd_exec_slot_ctx_t *        slot_ctx,
       fd_vote_states_update_from_account( vote_states_prev_prev, &acc->key, acc->account.data, acc->account.data_len );
       fd_vote_states_update_from_account( vote_states_prev, &acc->key, acc->account.data, acc->account.data_len );
     }
-
   }
 
   fd_bank_vote_states_prev_prev_end_locking_modify( slot_ctx->bank );
@@ -2314,9 +2276,7 @@ fd_runtime_init_bank_from_genesis( fd_exec_slot_ctx_t *        slot_ctx,
 
   fd_bank_epoch_set( slot_ctx->bank, 0UL );
 
-  fd_vote_accounts_vote_accounts_pool_update( vote_accounts, vacc_pool );
-  fd_vote_accounts_vote_accounts_root_update( vote_accounts, vacc_root );
-  fd_bank_curr_epoch_stakes_end_locking_modify( slot_ctx->bank );
+  fd_bank_vote_states_end_locking_modify( slot_ctx->bank );
 
   fd_bank_stake_delegations_end_locking_modify( slot_ctx->bank );
 
