@@ -42,8 +42,10 @@ do {
   ulong rewards;
   uint compute_unit_limit;
   ulong loaded_accounts_data_cost = 0UL;
+  ulong builtin_cnt = 1UL; /* TODO: Harness should be aware of txn builtin cnt */
   fd_compute_budget_program_finalize( cbp_state,
-                                      input->instr_datas_count,
+                                      input->instr_datas_count - builtin_cnt,
+                                      builtin_cnt * 3000UL,
                                       &rewards,
                                       &compute_unit_limit,
                                       &loaded_accounts_data_cost );
