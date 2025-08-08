@@ -714,11 +714,11 @@ fd_topo_initialize( config_t * config ) {
   /**/                 fd_topob_tile_out( topo, "sign",   0UL,                       "sign_repair",  0UL                                            );
 
   fd_topob_tile_out( topo, "snaprd", 0UL, "snap_zstd", 0UL );
-  fd_topob_tile_in( topo, "snapdc", 0UL, "metric_in", "snap_zstd", 0UL, FD_TOPOB_RELIABLE, FD_TOPOB_POLLED );
+  fd_topob_tile_in ( topo, "snapdc", 0UL, "metric_in", "snap_zstd", 0UL, FD_TOPOB_RELIABLE, FD_TOPOB_POLLED );
   fd_topob_tile_out( topo, "snapdc", 0UL, "snap_stream", 0UL );
-  fd_topob_tile_in  ( topo, "snapin", 0UL, "metric_in", "snap_stream", 0UL, FD_TOPOB_RELIABLE, FD_TOPOB_POLLED   );
+  fd_topob_tile_in ( topo, "snapin", 0UL, "metric_in", "snap_stream", 0UL, FD_TOPOB_RELIABLE, FD_TOPOB_POLLED   );
   fd_topob_tile_out( topo, "snapin", 0UL, "snap_out", 0UL );
-  fd_topob_tile_in( topo, "replay", 0UL, "metric_in", "snap_out", 0UL, FD_TOPOB_RELIABLE, FD_TOPOB_POLLED );
+  fd_topob_tile_in ( topo, "replay", 0UL, "metric_in", "snap_out", 0UL, FD_TOPOB_RELIABLE, FD_TOPOB_POLLED );
 
   fd_topob_tile_in( topo, "snaprd", 0UL, "metric_in", "snapdc_rd", 0UL, FD_TOPOB_RELIABLE, FD_TOPOB_POLLED );
   fd_topob_tile_out( topo, "snapdc", 0UL, "snapdc_rd", 0UL );
