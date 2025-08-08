@@ -206,9 +206,9 @@ FD_PROTOTYPES_BEGIN
   X(ulong,                             epoch,                       sizeof(ulong),                             alignof(ulong),                             0,   0,                0    )  /* Epoch */                                                  \
   X(fd_vote_states_t,                  vote_states,                 FD_VOTE_STATES_FOOTPRINT,                  FD_VOTE_STATES_ALIGN,                       1,   0,                1    )  /* Vote states for all vote accounts as of epoch E if */     \
                                                                                                                                                                                           /* epoch E is the one that is currently being executed */    \
-  X(fd_vote_states_t,                  vote_states_prev,            FD_VOTE_STATES_FOOTPRINT,                  FD_VOTE_STATES_ALIGN,                       1,   0,                1    )  /* Vote states for all vote accounts as of of the end of */  \
+  X(fd_vote_states_t,                  vote_states_prev,            FD_VOTE_STATES_FOOTPRINT,                  FD_VOTE_STATES_ALIGN,                       1,   1,                1    )  /* Vote states for all vote accounts as of of the end of */  \
                                                                                                                                                                                           /* epoch E-1 if epoch E is currently being executed */       \
-  X(fd_vote_states_t,                  vote_states_prev_prev,       FD_VOTE_STATES_FOOTPRINT,                  FD_VOTE_STATES_ALIGN,                       1,   0,                1    )  /* Vote states for all vote accounts as of the end of */     \
+  X(fd_vote_states_t,                  vote_states_prev_prev,       FD_VOTE_STATES_FOOTPRINT,                  FD_VOTE_STATES_ALIGN,                       1,   1,                1    )  /* Vote states for all vote accounts as of the end of */     \
                                                                                                                                                                                           /* epoch E-2 if epoch E is currently being executed */
 
 /* Invariant Every CoW field must have a rw-lock */
