@@ -69,27 +69,23 @@ fd_spad_frame_hi_debug( fd_spad_t * spad ) {
   return SELECT_DEBUG_IMPL(fd_spad_frame_hi)( spad );
 }
 
-void
+fd_spad_debug_state_t
 fd_spad_push_debug( fd_spad_t * spad ) {
+  fd_spad_debug_state_t state;
+  state.frame_free = spad->frame_free;
+  state.mem_used = spad->mem_used;
+  state.spad = spad;
+
   if( FD_UNLIKELY( !fd_spad_frame_free( spad ) ) ) FD_LOG_CRIT(( "too many frames" ));
   SELECT_DEBUG_IMPL(fd_spad_push)( spad );
+
+  return state;
 }
 
 void
 fd_spad_pop_debug( fd_spad_t * spad ) {
   if( FD_UNLIKELY( !fd_spad_frame_used( spad ) ) ) FD_LOG_CRIT(( "not in a frame" ));
   SELECT_DEBUG_IMPL(fd_spad_pop)( spad );
-}
-
-void *
-fd_spad_alloc_check( fd_spad_t * spad,
-                     ulong       align,
-                     ulong       sz ) {
-  if( FD_UNLIKELY( !fd_spad_frame_used( spad )               ) ) FD_LOG_CRIT(( "not in a frame"  ));
-  if( FD_UNLIKELY( (!!align) & (!fd_ulong_is_pow2( align ) ) ) ) FD_LOG_CRIT(( "bad align"       ));
-  ulong alloc_max = fd_spad_alloc_max( spad, align );
-  if( FD_UNLIKELY( alloc_max<sz ) ) FD_LOG_CRIT(( "out of memory: attempted to allocate %lu bytes, but only %lu available", sz, alloc_max ));
-  return SELECT_DEBUG_IMPL(fd_spad_alloc)( spad, align, sz );
 }
 
 void
@@ -314,3 +310,17 @@ fd_spad_vtable = {
   .malloc = fd_spad_valloc_malloc,
   .free   = fd_spad_valloc_free
 };
+
+void
+fd_spad_private_frame_end_debug( fd_spad_debug_state_t * _spad_state ) {
+  fd_spad_pop( _spad_state->spad );
+
+  if(_spad_state->frame_free != _spad_state->spad->frame_free ) {
+    FD_LOG_WARNING(("%lu != %lu", _spad_state->frame_free, _spad_state->spad->frame_free));
+    FD_TEST_BRK( _spad_state->frame_free == _spad_state->spad->frame_free );
+  }
+  if( _spad_state->mem_used != _spad_state->spad->mem_used ) {
+    FD_LOG_WARNING(("%lu != %lu", _spad_state->mem_used, _spad_state->spad->mem_used));
+    FD_TEST_BRK( _spad_state->mem_used == _spad_state->spad->mem_used );
+  }
+}
