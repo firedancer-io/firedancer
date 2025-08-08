@@ -7,7 +7,7 @@
 
 #include "../../disco/keyguard/fd_keyload.h"
 #include "../../disco/store/fd_store.h"
-#include "../../discof/repair/fd_reasm.h"
+#include "../../discof/reasm/fd_reasm.h"
 #include "../../util/pod/fd_pod_format.h"
 #include "../../flamenco/runtime/fd_txncache.h"
 #include "../../flamenco/runtime/context/fd_capture_ctx.h"
@@ -956,7 +956,6 @@ after_frag( fd_replay_tile_ctx_t *   ctx,
 
     ctx->root = root;
     block_id_map_t * block_id = block_id_map_query( ctx->block_id_map, root, NULL );
-    FD_LOG_NOTICE(( "rooting slot: %lu, block_id: %s", root, FD_BASE58_ENC_32_ALLOCA( block_id->block_id.uc ) ));
     FD_TEST( block_id ); /* invariant violation. replay must have replayed the full block (and therefore have the block id) if it's trying to root it. */
     if( FD_LIKELY( ctx->store ) ) {
       long exacq_start, exacq_end, exrel_end;

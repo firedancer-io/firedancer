@@ -17,7 +17,7 @@
 #include "../../util/net/fd_net_headers.h"
 
 #include "../forest/fd_forest.h"
-#include "fd_reasm.h"
+#include "../reasm/fd_reasm.h"
 
 #define IN_KIND_CONTACT (0)
 #define IN_KIND_NET     (1)
@@ -458,6 +458,10 @@ during_frag( fd_repair_tile_ctx_t * ctx,
     dcache_entry = fd_chunk_to_laddr_const( in_ctx->mem, chunk );
     dcache_entry_sz = sz * sizeof(fd_shred_dest_wire_t);
 
+  } else if( FD_UNLIKELY( in_kind==IN_KIND_ROOT ) ) {
+    memcpy( ctx->root_block_id.uc, fd_chunk_to_laddr_const( in_ctx->mem, chunk ), sizeof(fd_hash_t) );
+    return;
+
   } else if( FD_UNLIKELY( in_kind==IN_KIND_STAKE ) ) {
     if( FD_UNLIKELY( chunk<in_ctx->chunk0 || chunk>in_ctx->wmark ) ) {
       FD_LOG_ERR(( "chunk %lu %lu corrupt, not in range [%lu,%lu]", chunk, sz, in_ctx->chunk0, in_ctx->wmark ));
@@ -513,7 +517,7 @@ static void
 after_frag( fd_repair_tile_ctx_t * ctx,
             ulong                  in_idx,
             ulong                  seq    FD_PARAM_UNUSED,
-            ulong                  sig    FD_PARAM_UNUSED,
+            ulong                  sig,
             ulong                  sz,
             ulong                  tsorig FD_PARAM_UNUSED,
             ulong                  tspub  FD_PARAM_UNUSED,
@@ -672,9 +676,12 @@ after_credit( fd_repair_tile_ctx_t * ctx,
 
   fd_reasm_fec_t * rfec = fd_reasm_next( ctx->reasm );
   if( FD_LIKELY( rfec ) ) {
-    if( FD_LIKELY( ctx->store ) ) {
+
+    if( FD_LIKELY( ctx->store ) ) { /* some topologies don't run with store */
+
       /* Linking only requires a shared lock because the fields that are
           modified are only read on publish which uses exclusive lock. */
+
       long shacq_start, shacq_end, shrel_end;
 
       FD_STORE_SHACQ_TIMED( ctx->store, shacq_start, shacq_end );

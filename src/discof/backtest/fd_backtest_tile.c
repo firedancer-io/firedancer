@@ -8,7 +8,7 @@
 #include "../../disco/store/fd_store.h"
 #include "../../disco/topo/fd_topo.h"
 #include "../../discof/fd_discof.h"
-#include "../../discof/repair/fd_reasm.h"
+#include "../../discof/reasm/fd_reasm.h"
 #include "../../discof/replay/fd_replay_notif.h"
 #include "../../flamenco/runtime/fd_rocksdb.h"
 #include "../../util/pod/fd_pod_format.h"

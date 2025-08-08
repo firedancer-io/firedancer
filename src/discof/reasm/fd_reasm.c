@@ -337,13 +337,13 @@ fd_reasm_fec_t *
 fd_reasm_publish( fd_reasm_t * reasm, fd_hash_t const * merkle_root ) {
 # if FD_REASM_USE_HANDHOLDING
   if( FD_UNLIKELY( !pool_ele( reasm->pool, reasm->root ) ) ) { FD_LOG_WARNING(( "missing root"                                                     )); return NULL; }
-  if( FD_UNLIKELY( !pool_ele( reasm->pool, reasm->root ) ) ) { FD_LOG_WARNING(( "merkle root %s not found", FD_BASE58_ENC_32_ALLOCA( merkle_root ) )); return NULL; }
+  if( FD_UNLIKELY( !fd_reasm_query( reasm, merkle_root ) ) ) { FD_LOG_WARNING(( "merkle root %s not found", FD_BASE58_ENC_32_ALLOCA( merkle_root ) )); return NULL; }
 # endif
 
   fd_reasm_fec_t *  pool = reasm->pool;
   ulong             null = pool_idx_null( pool );
   fd_reasm_fec_t  * oldr = pool_ele( pool, reasm->root );
-  fd_reasm_fec_t  * newr = pool_ele( pool, reasm->root );
+  fd_reasm_fec_t  * newr = fd_reasm_query( reasm, merkle_root );
 
   /* First, remove the previous root, and push it as the first element
      of the BFS queue. */
@@ -372,4 +372,37 @@ fd_reasm_publish( fd_reasm_t * reasm, fd_hash_t const * merkle_root ) {
   newr->parent = null;                   /* unlink old root */
   reasm->root  = pool_idx( pool, newr ); /* replace with new root */
   return newr;
+}
+
+#include <stdio.h>
+
+static void
+print( fd_reasm_t const * reasm, fd_reasm_fec_t const * fec, int space, const char * prefix ) {
+  fd_reasm_fec_t * pool = reasm->pool;
+
+  if( fec == NULL ) return;
+
+  if( space > 0 ) printf( "\n" );
+  for( int i = 0; i < space; i++ ) printf( " " );
+  printf( "%s%s", prefix, FD_BASE58_ENC_32_ALLOCA( &fec->key ) );
+
+  fd_reasm_fec_t const * curr = pool_ele_const( pool, fec->child );
+  char new_prefix[1024]; /* FIXME size this correctly */
+  while( curr ) {
+    if( pool_ele_const( pool, curr->sibling ) ) {
+      sprintf( new_prefix, "├── " ); /* branch indicating more siblings follow */
+      print( reasm, curr, space + 4, new_prefix );
+    } else {
+      sprintf( new_prefix, "└── " ); /* end branch */
+      print( reasm, curr, space + 4, new_prefix );
+    }
+    curr = pool_ele_const( pool, curr->sibling );
+  }
+}
+
+void
+fd_reasm_print( fd_reasm_t const * reasm ) {
+  FD_LOG_NOTICE( ( "\n\n[reasm]" ) );
+  print( reasm, pool_ele_const( reasm->pool, reasm->root ), 0, "" );
+  printf( "\n\n" );
 }

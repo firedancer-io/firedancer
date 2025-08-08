@@ -32,17 +32,18 @@ test_insert( fd_wksp_t * wksp ) {
 
   /* Receive (0, 64) -> (1, 32) -> (1, 0) -> (2, 0) -> (3, 64) -> (2, 32) -> (3, 32) -> (3, 0) */
 
-  fd_hash_t mrnull[1] = {{{ 0 }}};
-  fd_hash_t mr0_64[1] = {{{ 1 }}};
-  fd_hash_t mr1_00[1] = {{{ 2 }}};
-  fd_hash_t mr1_32[1] = {{{ 3 }}};
-  fd_hash_t mr2_00[1] = {{{ 4 }}};
-  fd_hash_t mr2_32[1] = {{{ 5 }}};
-  fd_hash_t mr3_00[1] = {{{ 6 }}};
-  fd_hash_t mr3_32[1] = {{{ 7 }}};
-  fd_hash_t mr3_64[1] = {{{ 8 }}};
+  fd_hash_t mr0_64[1] = {{{ 0 }}};
+  fd_hash_t mr1_00[1] = {{{ 1 }}};
+  fd_hash_t mr1_32[1] = {{{ 2 }}};
+  fd_hash_t mr2_00[1] = {{{ 3 }}};
+  fd_hash_t mr2_32[1] = {{{ 4 }}};
+  fd_hash_t mr3_00[1] = {{{ 5 }}};
+  fd_hash_t mr3_32[1] = {{{ 6 }}};
+  fd_hash_t mr3_64[1] = {{{ 7 }}};
 
-  fd_reasm_fec_t * f0_64 = fd_reasm_insert( reasm, mr0_64, mrnull, 0, 64, 1, 32, 1, 1 );
+  fd_reasm_init( reasm, mr0_64, 0 );
+  fd_reasm_fec_t * f0_64 = fd_reasm_query( reasm, mr0_64 );
+  FD_TEST( f0_64 );
   FD_TEST( frontier_ele_query( frontier, &f0_64->key, NULL, pool ) == f0_64 );
 
   fd_reasm_fec_t * f1_32 = fd_reasm_insert( reasm, mr1_32, mr1_00, 1, 32, 1, 32, 1, 1 );
@@ -135,7 +136,7 @@ test_publish( fd_wksp_t * wksp ){
 
   /* Set the root (snapshot slot). */
 
-  fd_reasm_insert( reasm, mr0, mr0, 0, 0, 0, 0, 1, 1 );
+  fd_reasm_init( reasm, mr0, 0 );
 
   /* Typical startup behavior, turbine orphan FECs added. */
 
@@ -164,9 +165,12 @@ test_publish( fd_wksp_t * wksp ){
 
   /* Publish. */
 
+  fd_reasm_fec_t * oldr = fd_reasm_root( reasm );
+  FD_TEST( oldr );
   fd_reasm_publish( reasm, mr2 );
-  fd_reasm_fec_t * root = pool_ele( reasm->pool, reasm->root );
-  FD_TEST( 0==memcmp( root, mr2, sizeof(fd_hash_t) ) );
+  fd_reasm_fec_t * newr = fd_reasm_root( reasm );
+  FD_TEST( newr );
+  FD_TEST( 0==memcmp( newr, mr2, sizeof(fd_hash_t) ) );
   FD_TEST( ancestry_ele_query( reasm->ancestry, mr2, NULL, reasm->pool ) != NULL );
   FD_TEST( frontier_ele_query( reasm->frontier, mr4, NULL, reasm->pool ) != NULL );
   FD_TEST( !fd_reasm_query( reasm, mr0 ) );
