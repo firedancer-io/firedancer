@@ -58,6 +58,15 @@ fd_hashes_account_lthash( fd_pubkey_t const       * pubkey,
                           uchar const             * data,
                           fd_lthash_value_t *       lthash_out );
 
+void
+fd_hashes_account_lthash_simple( uchar const         pubkey[ FD_HASH_FOOTPRINT],
+                                 uchar const         owner[ FD_PUBKEY_FOOTPRINT ],
+                                 ulong               lamports,
+                                 uchar               executable,
+                                 uchar const *       data,
+                                 ulong               data_len,
+                                 fd_lthash_value_t * lthash_out );
+
 /* fd_hashes_update_lthash updates the bank's incremental lthash when an
    account is modified during transaction execution.  The bank lthash is
    maintained incrementally by subtracting the old account hash and

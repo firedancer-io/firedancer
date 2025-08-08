@@ -288,8 +288,11 @@ fd_topo_initialize( config_t * config ) {
   fd_topob_wksp( topo, "snapdc" );
   fd_topob_wksp( topo, "snaprd" );
   fd_topob_wksp( topo, "snapin" );
+  fd_topob_wksp( topo, "snaphsh" );
   fd_topob_wksp( topo, "snapdc_rd" );
   fd_topob_wksp( topo, "snapin_rd" );
+  fd_topob_wksp( topo, "snapin_hsh" );
+  fd_topob_wksp( topo, "snaphsh_out" );
   fd_topob_wksp( topo, "snap_stream" );
   fd_topob_wksp( topo, "snap_zstd" );
   fd_topob_wksp( topo, "snap_out" );
@@ -371,6 +374,8 @@ fd_topo_initialize( config_t * config ) {
   /**/                 fd_topob_link( topo, "snap_out",     "snap_out",     2UL,                                      5UL*(1UL<<30UL),               1UL );
   /**/                 fd_topob_link( topo, "snapdc_rd",    "snapdc_rd",    128UL,                                    0UL,                           1UL );
   /**/                 fd_topob_link( topo, "snapin_rd",    "snapin_rd",    128UL,                                    0UL,                           1UL );
+  /**/                 fd_topob_link( topo, "snapin_hsh",   "snapin_hsh",   1024UL,                                    USHORT_MAX,                    1UL );
+  /**/                 fd_topob_link( topo, "snaphsh_out",  "snaphsh_out",  512UL,                                    2048UL,                        1UL );
 
   /* Replay decoded manifest dcache topo obj */
   fd_topo_obj_t * replay_manifest_dcache = fd_topob_obj( topo, "dcache", "replay_manif" );
@@ -440,6 +445,8 @@ fd_topo_initialize( config_t * config ) {
   snapdc_tile->allow_shutdown = 1;
   fd_topo_tile_t * snapin_tile = fd_topob_tile( topo, "snapin", "snapin", "metric_in", tile_to_cpu[ topo->tile_cnt ], 0, 0 );
   snapin_tile->allow_shutdown = 1;
+  fd_topo_tile_t * snaphsh_tile = fd_topob_tile( topo, "snaphsh", "snaphsh", "metric_in", tile_to_cpu[ topo->tile_cnt ], 0, 0 );
+  snaphsh_tile->allow_shutdown = 1;
 
   /* Database cache */
 
@@ -724,6 +731,9 @@ fd_topo_initialize( config_t * config ) {
   fd_topob_tile_out( topo, "snapdc", 0UL, "snapdc_rd", 0UL );
   fd_topob_tile_in( topo, "snaprd", 0UL, "metric_in", "snapin_rd", 0UL, FD_TOPOB_RELIABLE, FD_TOPOB_POLLED );
   fd_topob_tile_out( topo, "snapin", 0UL, "snapin_rd", 0UL );
+
+  fd_topob_tile_out( topo, "snapin", 0UL, "snapin_hsh", 0UL );
+  fd_topob_tile_in( topo, "snaphsh", 0UL, "metric_in", "snaphsh_out", 0UL, FD_TOPOB_RELIABLE, FD_TOPOB_POLLED );
 
   if( config->tiles.archiver.enabled ) {
     fd_topob_wksp( topo, "arch_f" );
@@ -1046,6 +1056,8 @@ fd_topo_configure_tile( fd_topo_tile_t * tile,
 
     } else if( FD_UNLIKELY( !strcmp( tile->name, "snapin" ) ) ) {
       tile->snapin.funk_obj_id            = fd_pod_query_ulong( config->topo.props, "funk",      ULONG_MAX );
+    } else if( FD_UNLIKELY( !strcmp( tile->name, "snaphsh" ) ) ) {
+
     } else if( FD_UNLIKELY( !strcmp( tile->name, "arch_f" ) ||
                             !strcmp( tile->name, "arch_w" ) ) ) {
       strncpy( tile->archiver.rocksdb_path, config->tiles.archiver.rocksdb_path, sizeof(tile->archiver.rocksdb_path) );

@@ -899,3 +899,15 @@
 | <span class="metrics-name">snapin_&#8203;accounts_&#8203;inserted</span> | gauge | Number of accounts inserted during snpashot loading. Might decrease if snapshot load is aborted and restarted |
 
 </div>
+
+## Snaphsh Tile
+
+<div class="metrics">
+
+| Metric | Type | Description |
+|--------|------|-------------|
+| <span class="metrics-name">snaphsh_&#8203;state</span> | gauge | State of the tile. 0=hashing, 1=done, 2=shutdown |
+| <span class="metrics-name">snaphsh_&#8203;full_&#8203;accounts_&#8203;hashed</span> | gauge | Number of accounts hashed so far from the full snapshot. Might decrease if snapshot load is aborted and restarted |
+| <span class="metrics-name">snaphsh_&#8203;incremental_&#8203;accounts_&#8203;hashed</span> | gauge | Number of accounts hashed so far from the incremental snapshot. Might decrease if snapshot load is aborted and restarted |
+
+</div>

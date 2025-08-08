@@ -1,6 +1,8 @@
 #ifndef HEADER_fd_src_discof_restore_utils_fd_ssctrl_h
 #define HEADER_fd_src_discof_restore_utils_fd_ssctrl_h
 
+#include "../../../flamenco/types/fd_types_custom.h"
+
 /* The snapshot tiles have a somewhat involved state machine, which is
    controlled by snaprd.  Imagine first the following sequence:
 
@@ -48,5 +50,24 @@
 
 #define FD_SNAPSHOT_MSG_CTRL_ACK               (6UL) /* Sent from tiles back to snaprd, meaning they ACK whatever control message was pending */
 #define FD_SNAPSHOT_MSG_CTRL_MALFORMED         (7UL) /* Sent from tiles back to snaprd, meaning they consider the current snapshot malformed */
+
+/* some comments about snapshot hash */
+#define FD_SNAPSHOT_HASH_MSG_RESET             (8UL) /* Full snapshot hash */
+
+#define FD_SNAPSHOT_HASH_MSG_SUB               (9UL)
+#define FD_SNAPSHOT_HASH_MSG_ACCOUNT_HDR       (10UL)
+#define FD_SNAPSHOT_HASH_MSG_ACCOUNT_DATA      (11UL)
+#define FD_SNAPSHOT_HASH_MSG_FINI              (12UL)
+#define FD_SNAPSHOT_HASH_MSG_RESULT            (13UL)
+#define FD_SNAPSHOT_HASH_MSG_SHUTDOWN          (14UL)
+
+struct fd_snapshot_account {
+  uchar   pubkey[ FD_HASH_FOOTPRINT ];
+  uchar   owner[ FD_HASH_FOOTPRINT ];
+  ulong   lamports;
+  uchar   executable;
+  ulong   data_len;
+};
+typedef struct fd_snapshot_account fd_snapshot_account_t;
 
 #endif /* HEADER_fd_src_discof_restore_utils_fd_ssctrl_h */
