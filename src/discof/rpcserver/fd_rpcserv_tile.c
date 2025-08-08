@@ -9,34 +9,39 @@
 #include "../rpcserver/fd_rpc_service.h"
 
 #include "../../flamenco/leaders/fd_multi_epoch_leaders.h"
-#include "../../util/pod/fd_pod_format.h"
 #include "../../disco/keyguard/fd_keyload.h"
 #include "../../disco/keyguard/fd_keyswitch.h"
 
-#include <errno.h>
 #include <fcntl.h>
 #include <unistd.h>
 
-#define REPLAY_NOTIF_IDX 0
-#define STAKE_IN_IDX     1
+#define IN_KIND_REPLAY_NOTIF 0
+#define IN_KIND_STAKE_OUT    1
+#define IN_KIND_SHRED_REPAIR 2
+
+#define MAX_IN_LINKS    (16)
+
+typedef union {
+  struct {
+    fd_wksp_t * mem;
+    ulong       chunk0;
+    ulong       wmark;
+    ulong       mtu;
+  };
+} fd_rpcserv_in_ctx_t;
 
 struct fd_rpcserv_tile_ctx {
   fd_rpcserver_args_t args;
 
   fd_rpc_ctx_t * ctx;
-  fd_store_t * store;
 
   fd_pubkey_t      identity_key;
   fd_keyswitch_t * keyswitch;
 
-  fd_wksp_t * replay_notif_in_mem;
-  ulong       replay_notif_in_chunk0;
-  ulong       replay_notif_in_wmark;
   fd_replay_notif_msg_t replay_notif_in_state;
 
-  fd_wksp_t * stake_in_mem;
-  ulong       stake_in_chunk0;
-  ulong       stake_in_wmark;
+  uchar               in_kind[ MAX_IN_LINKS ];
+  fd_rpcserv_in_ctx_t in_links[ MAX_IN_LINKS ];
 
   uchar __attribute__((aligned(FD_MULTI_EPOCH_LEADERS_ALIGN))) mleaders_mem[ FD_MULTI_EPOCH_LEADERS_FOOTPRINT ];
 };
@@ -95,21 +100,15 @@ during_frag( fd_rpcserv_tile_ctx_t * ctx,
              ulong                   chunk,
              ulong                   sz,
              ulong                   ctl FD_PARAM_UNUSED ) {
-
-  if( FD_UNLIKELY( in_idx==REPLAY_NOTIF_IDX ) ) {
-    if( FD_UNLIKELY( chunk<ctx->replay_notif_in_chunk0 || chunk>ctx->replay_notif_in_wmark ) ) {
-      FD_LOG_ERR(( "chunk %lu %lu corrupt, not in range [%lu,%lu]", chunk, sz,
-                   ctx->replay_notif_in_chunk0, ctx->replay_notif_in_wmark ));
-    }
-    fd_rpc_replay_during_frag( ctx->ctx, &ctx->replay_notif_in_state, fd_chunk_to_laddr_const( ctx->replay_notif_in_mem, chunk ), (int)sz );
-
-  } else if( FD_UNLIKELY( in_idx==STAKE_IN_IDX ) ) {
-    if( FD_UNLIKELY( chunk<ctx->stake_in_chunk0 || chunk>ctx->stake_in_wmark ) ) {
-      FD_LOG_ERR(( "chunk %lu %lu corrupt, not in range [%lu,%lu]", chunk, sz,
-                   ctx->stake_in_chunk0, ctx->stake_in_wmark ));
-    }
-    fd_rpc_stake_during_frag( ctx->ctx, ctx->args.leaders, fd_chunk_to_laddr_const( ctx->stake_in_mem, chunk ), (int)sz );
-
+  if( FD_UNLIKELY( chunk<ctx->in_links[in_idx].chunk0 || chunk>ctx->in_links[in_idx].wmark ) ) {
+    FD_LOG_ERR(( "chunk %lu %lu corrupt, not in range [%lu,%lu]", chunk, sz,
+                  ctx->in_links[in_idx].chunk0, ctx->in_links[in_idx].wmark ));
+  }
+  uchar kind = ctx->in_kind[ in_idx ];
+  if( FD_UNLIKELY( kind==IN_KIND_REPLAY_NOTIF ) ) {
+    fd_rpc_replay_during_frag( ctx->ctx, &ctx->replay_notif_in_state, fd_chunk_to_laddr_const( ctx->in_links[in_idx].mem, chunk ), (int)sz );
+  } else if( FD_UNLIKELY( kind == IN_KIND_STAKE_OUT ) ) {
+    fd_rpc_stake_during_frag( ctx->ctx, ctx->args.leaders, fd_chunk_to_laddr_const( ctx->in_links[in_idx].mem, chunk ), (int)sz );
   } else {
     FD_LOG_ERR(("Unknown in_idx %lu for rpc", in_idx));
   }
@@ -131,9 +130,10 @@ after_frag( fd_rpcserv_tile_ctx_t * ctx,
   (void)tspub;
   (void)stem;
 
-  if( FD_LIKELY( in_idx==REPLAY_NOTIF_IDX ) ) {
+  uchar kind = ctx->in_kind[ in_idx ];
+  if( FD_UNLIKELY( kind==IN_KIND_REPLAY_NOTIF ) ) {
     fd_rpc_replay_after_frag( ctx->ctx, &ctx->replay_notif_in_state );
-  } else if( FD_UNLIKELY( in_idx==STAKE_IN_IDX ) ) {
+  } else if( FD_UNLIKELY( kind == IN_KIND_STAKE_OUT ) ) {
     fd_rpc_stake_after_frag( ctx->ctx, ctx->args.leaders );
   } else {
     FD_LOG_ERR(("Unknown in_idx %lu for rpc", in_idx));
@@ -171,12 +171,6 @@ privileged_init( fd_topo_t *      topo,
   uchar * spad_mem_cur = spad_mem;
   args->spad = fd_spad_join( fd_spad_new( spad_mem_cur, FD_RPC_SCRATCH_MAX ) );
 
-  /* Blockstore setup */
-  ulong store_obj_id = fd_pod_queryf_ulong( topo->props, ULONG_MAX, "store" );
-  FD_TEST( store_obj_id!=ULONG_MAX );
-  args->store = fd_store_join( fd_topo_obj_laddr( topo, store_obj_id ) );
-  FD_TEST( args->store!=NULL );
-
   args->block_index_max = tile->rpcserv.block_index_max;
   args->txn_index_max = tile->rpcserv.txn_index_max;
   args->acct_index_max = tile->rpcserv.acct_index_max;
@@ -195,13 +189,6 @@ unprivileged_init( fd_topo_t *      topo,
                    fd_topo_tile_t * tile ) {
   void * scratch = fd_topo_obj_laddr( topo, tile->tile_obj_id );
 
-  if( FD_UNLIKELY( tile->in_cnt != 2 ||
-                   strcmp( topo->links[ tile->in_link_id[ REPLAY_NOTIF_IDX ] ].name, "replay_notif") ||
-                   strcmp( topo->links[ tile->in_link_id[ STAKE_IN_IDX ] ].name, "stake_out" ) ) ) {
-    FD_LOG_ERR(( "repair tile has none or unexpected input links %lu %s %s",
-                 tile->in_cnt, topo->links[ tile->in_link_id[ 0 ] ].name, topo->links[ tile->in_link_id[ 1 ] ].name ));
-  }
-
   if( FD_UNLIKELY( tile->out_cnt != 0 ) ) {
     FD_LOG_ERR(( "repair tile has none or unexpected output links %lu %s %s",
                  tile->out_cnt, topo->links[ tile->out_link_id[ 0 ] ].name, topo->links[ tile->out_link_id[ 1 ] ].name ));
@@ -216,15 +203,24 @@ unprivileged_init( fd_topo_t *      topo,
   if( FD_UNLIKELY( scratch_top > (ulong)scratch + scratch_footprint( tile ) ) )
     FD_LOG_ERR(( "scratch overflow %lu %lu %lu", scratch_top - (ulong)scratch - scratch_footprint( tile ), scratch_top, (ulong)scratch + scratch_footprint( tile ) ));
 
-  fd_topo_link_t * replay_notif_in_link   = &topo->links[ tile->in_link_id[ REPLAY_NOTIF_IDX ] ];
-  ctx->replay_notif_in_mem    = topo->workspaces[ topo->objs[ replay_notif_in_link->dcache_obj_id ].wksp_id ].wksp;
-  ctx->replay_notif_in_chunk0 = fd_dcache_compact_chunk0( ctx->replay_notif_in_mem, replay_notif_in_link->dcache );
-  ctx->replay_notif_in_wmark  = fd_dcache_compact_wmark ( ctx->replay_notif_in_mem, replay_notif_in_link->dcache, replay_notif_in_link->mtu );
+  for( uint in_idx=0U; in_idx<(tile->in_cnt); in_idx++ ) {
+    fd_topo_link_t * link = &topo->links[ tile->in_link_id[ in_idx ] ];
+    if( 0==strcmp( link->name, "replay_notif" ) ) {
+      ctx->in_kind[ in_idx ] = IN_KIND_REPLAY_NOTIF;
+    } else if( 0==strcmp( link->name, "stake_out" ) ) {
+      ctx->in_kind[ in_idx ] = IN_KIND_STAKE_OUT;
+    } else if( 0==strcmp( link->name, "shred_repair" ) ) {
+      ctx->in_kind[ in_idx ] = IN_KIND_SHRED_REPAIR;
+    } else {
+      FD_LOG_ERR(( "rpcserv tile has unexpected input link %s", link->name ));
+    }
 
-  fd_topo_link_t * stake_in_link   = &topo->links[ tile->in_link_id[ STAKE_IN_IDX ] ];
-  ctx->stake_in_mem    = topo->workspaces[ topo->objs[ stake_in_link->dcache_obj_id ].wksp_id ].wksp;
-  ctx->stake_in_chunk0 = fd_dcache_compact_chunk0( ctx->stake_in_mem, stake_in_link->dcache );
-  ctx->stake_in_wmark  = fd_dcache_compact_wmark ( ctx->stake_in_mem, stake_in_link->dcache, stake_in_link->mtu );
+    ctx->in_links[ in_idx ].mem    = topo->workspaces[ topo->objs[ link->dcache_obj_id ].wksp_id ].wksp;
+    ctx->in_links[ in_idx ].chunk0 = fd_dcache_compact_chunk0( ctx->in_links[ in_idx ].mem, link->dcache );
+    ctx->in_links[ in_idx ].wmark  = fd_dcache_compact_wmark ( ctx->in_links[ in_idx ].mem, link->dcache, link->mtu );
+    ctx->in_links[ in_idx ].mtu    = link->mtu;
+    FD_TEST( fd_dcache_compact_is_safe( ctx->in_links[in_idx].mem, link->dcache, link->mtu, link->depth ) );
+   }
 
   ctx->keyswitch = fd_keyswitch_join( fd_topo_obj_laddr( topo, tile->keyswitch_obj_id ) );
   FD_TEST( ctx->keyswitch );

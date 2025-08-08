@@ -2,8 +2,6 @@
 #define HEADER_fd_src_discof_rpcserver_fd_rpc_service_h
 
 #include "../replay/fd_replay_notif.h"
-
-#include "../../disco/store/fd_store.h"
 #include "../../flamenco/leaders/fd_multi_epoch_leaders.h"
 #include "../../waltz/http/fd_http_server.h"
 
@@ -26,7 +24,6 @@ struct fd_rpcserver_args {
 
   /* Bump allocator */
   fd_spad_t                * spad;
-  fd_store_t               * store;
 };
 typedef struct fd_rpcserver_args fd_rpcserver_args_t;
 
