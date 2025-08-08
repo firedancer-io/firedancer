@@ -4,6 +4,7 @@
 #include "../fd_flamenco_base.h"
 #include "../types/fd_types.h"
 #include "fd_stake_delegations.h"
+#include "fd_vote_states.h"
 
 FD_PROTOTYPES_BEGIN
 
@@ -20,6 +21,10 @@ FD_PROTOTYPES_BEGIN
 
    Returns the number of items in weights (which is <= no of vote accs). */
 #define STAKE_ACCOUNT_SIZE ( 200 )
+
+ulong
+fd_stake_weights_by_node_2( fd_vote_states_t const * vote_states,
+                            fd_vote_stake_weight_t * weights );
 
 ulong
 fd_stake_weights_by_node( fd_vote_accounts_global_t const * accs,

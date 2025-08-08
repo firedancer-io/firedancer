@@ -7,6 +7,28 @@
 #include "fd_stake_delegations.h"
 
 ulong
+fd_stake_weights_by_node_2( fd_vote_states_t const * vote_states,
+                            fd_vote_stake_weight_t * weights ) {
+  fd_vote_state_ele_t * vote_state_pool = fd_vote_states_get_pool( vote_states );
+  fd_vote_state_map_t * vote_state_map  = fd_vote_states_get_map( vote_states );
+
+  ulong weights_cnt = 0;
+  for( fd_vote_state_map_iter_t iter = fd_vote_state_map_iter_init( vote_state_map, vote_state_pool );
+       !fd_vote_state_map_iter_done( iter, vote_state_map, vote_state_pool );
+       iter = fd_vote_state_map_iter_next( iter, vote_state_map, vote_state_pool ) ) {
+    fd_vote_state_ele_t const * vote_state = fd_vote_state_map_iter_ele_const( iter, vote_state_map, vote_state_pool );
+    if( FD_UNLIKELY( !vote_state->stake ) ) continue;
+
+    fd_memcpy( weights[ weights_cnt ].vote_key.uc, &vote_state->vote_account, sizeof(fd_pubkey_t) );
+    fd_memcpy( weights[ weights_cnt ].id_key.uc, &vote_state->node_account, sizeof(fd_pubkey_t) );
+    weights[ weights_cnt ].stake = vote_state->stake;
+    weights_cnt++;
+  }
+  sort_vote_weights_by_stake_vote_inplace( weights, weights_cnt );
+  return weights_cnt;
+}
+
+ulong
 fd_stake_weights_by_node( fd_vote_accounts_global_t const * accs,
                           fd_vote_stake_weight_t *          weights ) {
   fd_vote_accounts_pair_global_t_mapnode_t * pool = fd_vote_accounts_vote_accounts_pool_join( accs );

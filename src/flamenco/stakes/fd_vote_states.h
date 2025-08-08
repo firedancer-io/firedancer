@@ -17,19 +17,17 @@
 
 struct fd_vote_state_ele {
   fd_pubkey_t vote_account;
-  ulong next_; /* Internal pool/map use */
+  fd_pubkey_t node_account;
+  ulong       next_; /* Internal pool/map use */
+  ulong       stake;
+  ulong       last_vote_slot;
+  long        last_vote_timestamp;
+  uchar       commission;
 
   ulong  credits_cnt;
   ushort epoch       [ EPOCH_CREDITS_MAX ];
   ulong  credits     [ EPOCH_CREDITS_MAX ];
   ulong  prev_credits[ EPOCH_CREDITS_MAX ];
-
-  long last_vote_timestamp;
-  ulong last_vote_slot;
-
-  ulong stake;
-
-  uchar commission;
 };
 typedef struct fd_vote_state_ele fd_vote_state_ele_t;
 
@@ -115,6 +113,7 @@ fd_vote_states_delete( void * mem );
 void
 fd_vote_states_update( fd_vote_states_t *  self,
                        fd_pubkey_t const * vote_account,
+                       fd_pubkey_t const * node_account,
                        uchar               commission,
                        long                last_vote_timestamp,
                        ulong               last_vote_slot,

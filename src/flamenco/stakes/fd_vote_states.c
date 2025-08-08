@@ -178,6 +178,7 @@ fd_vote_states_delete( void * mem ) {
 void
 fd_vote_states_update( fd_vote_states_t *  self,
                        fd_pubkey_t const * vote_account,
+                       fd_pubkey_t const * node_account,
                        uchar               commission,
                        long                last_vote_timestamp,
                        ulong               last_vote_slot,
@@ -220,6 +221,7 @@ fd_vote_states_update( fd_vote_states_t *  self,
     vote_state->credits_cnt         = credits_cnt;
     vote_state->last_vote_timestamp = last_vote_timestamp;
     vote_state->last_vote_slot      = last_vote_slot;
+    vote_state->node_account        = *node_account;
     for( ulong i=0UL; i<credits_cnt; i++ ) {
       vote_state->epoch[i]        = epoch[i];
       vote_state->credits[i]      = credits[i];
@@ -240,6 +242,7 @@ fd_vote_states_update( fd_vote_states_t *  self,
   }
 
   vote_state->vote_account        = *vote_account;
+  vote_state->node_account        = *node_account;
   vote_state->commission          = commission;
   vote_state->last_vote_timestamp = last_vote_timestamp;
   vote_state->last_vote_slot      = last_vote_slot;
@@ -315,19 +318,20 @@ fd_vote_states_update_from_account( fd_vote_states_t *  vote_states,
     FD_LOG_CRIT(( "unable to decode vote state versioned" ));
   }
 
-  uchar  commission;
-  long   last_vote_timestamp;
-  ulong  last_vote_slot;
-
-  ulong  credits_cnt = 0UL;
-  ushort epoch[EPOCH_CREDITS_MAX];
-  ulong  credits[EPOCH_CREDITS_MAX];
-  ulong  prev_credits[EPOCH_CREDITS_MAX];
+  fd_pubkey_t node_account;
+  uchar       commission;
+  long        last_vote_timestamp;
+  ulong       last_vote_slot;
+  ulong       credits_cnt = 0UL;
+  ushort      epoch[EPOCH_CREDITS_MAX];
+  ulong       credits[EPOCH_CREDITS_MAX];
+  ulong       prev_credits[EPOCH_CREDITS_MAX];
 
   fd_vote_epoch_credits_t * epoch_credits = NULL;
 
   switch( vsv->discriminant ) {
   case fd_vote_state_versioned_enum_v0_23_5:
+    node_account        = vsv->inner.v0_23_5.node_pubkey;
     commission          = vsv->inner.v0_23_5.commission;
     last_vote_timestamp = vsv->inner.v0_23_5.last_timestamp.timestamp;
     last_vote_slot      = vsv->inner.v0_23_5.last_timestamp.slot;
@@ -347,6 +351,7 @@ fd_vote_states_update_from_account( fd_vote_states_t *  vote_states,
 
     break;
   case fd_vote_state_versioned_enum_v1_14_11:
+    node_account        = vsv->inner.v1_14_11.node_pubkey;
     commission          = vsv->inner.v1_14_11.commission;
     last_vote_timestamp = vsv->inner.v1_14_11.last_timestamp.timestamp;
     last_vote_slot      = vsv->inner.v1_14_11.last_timestamp.slot;
@@ -365,6 +370,7 @@ fd_vote_states_update_from_account( fd_vote_states_t *  vote_states,
     }
     break;
   case fd_vote_state_versioned_enum_current:
+    node_account        = vsv->inner.current.node_pubkey;
     commission          = vsv->inner.current.commission;
     last_vote_timestamp = vsv->inner.current.last_timestamp.timestamp;
     last_vote_slot      = vsv->inner.current.last_timestamp.slot;
@@ -389,6 +395,7 @@ fd_vote_states_update_from_account( fd_vote_states_t *  vote_states,
   fd_vote_states_update(
       vote_states,
       vote_account,
+      &node_account,
       commission,
       last_vote_timestamp,
       last_vote_slot,

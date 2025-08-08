@@ -129,25 +129,15 @@ fd_runtime_update_leaders( fd_bank_t * bank,
 
   fd_epoch_schedule_t const * epoch_schedule = fd_bank_epoch_schedule_query( bank );
 
-  fd_vote_accounts_global_t const *          epoch_vaccs   = fd_bank_epoch_stakes_locking_query( bank );
-  fd_vote_accounts_pair_global_t_mapnode_t * vote_acc_pool = fd_vote_accounts_vote_accounts_pool_join( epoch_vaccs );
-  fd_vote_accounts_pair_global_t_mapnode_t * vote_acc_root = fd_vote_accounts_vote_accounts_root_join( epoch_vaccs );
-
   ulong epoch    = fd_slot_to_epoch ( epoch_schedule, slot, NULL );
   ulong slot0    = fd_epoch_slot0   ( epoch_schedule, epoch );
   ulong slot_cnt = fd_epoch_slot_cnt( epoch_schedule, epoch );
 
-  fd_runtime_update_slots_per_epoch( bank, fd_epoch_slot_cnt( epoch_schedule, epoch ) );
-
-  ulong vote_acc_cnt  = fd_vote_accounts_pair_global_t_map_size( vote_acc_pool, vote_acc_root );
-
+  fd_vote_states_t const * vote_states_prev_prev = fd_bank_vote_states_prev_prev_locking_query( bank );
+  ulong vote_acc_cnt = fd_vote_states_cnt( vote_states_prev_prev ) ;
   fd_vote_stake_weight_t * epoch_weights = fd_spad_alloc_check( runtime_spad, alignof(fd_vote_stake_weight_t), vote_acc_cnt * sizeof(fd_vote_stake_weight_t) );
-  ulong stake_weight_cnt = fd_stake_weights_by_node( epoch_vaccs, epoch_weights );
-
-  if( FD_UNLIKELY( stake_weight_cnt == ULONG_MAX ) ) {
-    FD_LOG_ERR(( "fd_stake_weights_by_node() failed" ));
-  }
-  fd_bank_epoch_stakes_end_locking_query( bank );
+  ulong stake_weight_cnt = fd_stake_weights_by_node_2( vote_states_prev_prev, epoch_weights );
+  fd_bank_vote_states_prev_prev_end_locking_query( bank );
 
   /* Derive leader schedule */
 
@@ -164,14 +154,15 @@ fd_runtime_update_leaders( fd_bank_t * bank,
 
     ulong vote_keyed_lsched = (ulong)fd_runtime_should_use_vote_keyed_leader_schedule( bank );
     void * epoch_leaders_mem = fd_bank_epoch_leaders_locking_modify( bank );
-    fd_epoch_leaders_t * leaders = fd_epoch_leaders_join( fd_epoch_leaders_new( epoch_leaders_mem,
-                                                                                           epoch,
-                                                                                           slot0,
-                                                                                           slot_cnt,
-                                                                                           stake_weight_cnt,
-                                                                                           epoch_weights,
-                                                                                           0UL,
-                                                                                           vote_keyed_lsched ) );
+    fd_epoch_leaders_t * leaders = fd_epoch_leaders_join( fd_epoch_leaders_new(
+        epoch_leaders_mem,
+        epoch,
+        slot0,
+        slot_cnt,
+        stake_weight_cnt,
+        epoch_weights,
+        0UL,
+        vote_keyed_lsched ) );
     fd_bank_epoch_leaders_end_locking_modify( bank );
     if( FD_UNLIKELY( !leaders ) ) {
       FD_LOG_ERR(( "Unable to init and join fd_epoch_leaders" ));
@@ -1410,6 +1401,13 @@ fd_update_epoch_stakes( fd_exec_slot_ctx_t * slot_ctx ) {
 
   fd_bank_next_epoch_stakes_end_locking_query( slot_ctx->bank );
 
+  /********************************************************************/
+
+  fd_vote_states_t *       vote_states_prev_prev = fd_bank_vote_states_prev_prev_locking_modify( slot_ctx->bank );
+  fd_vote_states_t const * vote_states_prev      = fd_bank_vote_states_prev_locking_query( slot_ctx->bank );
+  fd_memcpy( vote_states_prev_prev, vote_states_prev, fd_bank_vote_states_footprint );
+  fd_bank_vote_states_prev_prev_end_locking_modify( slot_ctx->bank );
+  fd_bank_vote_states_prev_end_locking_query( slot_ctx->bank );
 }
 
 /* Copy stakes->vote_accounts into next_epoch_stakes. */
@@ -1429,6 +1427,14 @@ fd_update_next_epoch_stakes( fd_exec_slot_ctx_t * slot_ctx ) {
   fd_bank_next_epoch_stakes_end_locking_modify( slot_ctx->bank );
 
   fd_bank_curr_epoch_stakes_end_locking_query( slot_ctx->bank );
+
+  /********************************************************************/
+
+  fd_vote_states_t *       vote_states_prev = fd_bank_vote_states_prev_locking_modify( slot_ctx->bank );
+  fd_vote_states_t const * vote_states      = fd_bank_vote_states_locking_query( slot_ctx->bank );
+  fd_memcpy( vote_states_prev, vote_states, fd_bank_vote_states_footprint );
+  fd_bank_vote_states_prev_end_locking_modify( slot_ctx->bank );
+  fd_bank_vote_states_end_locking_query( slot_ctx->bank );
 }
 
 /* Mimics `bank.new_target_program_account()`. Assumes `out_rec` is a modifiable record.
