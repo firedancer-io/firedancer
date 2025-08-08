@@ -3,6 +3,7 @@
 
 #include "../../ballet/shred/fd_shred.h"
 #include "../../flamenco/leaders/fd_leaders.h"
+#include "../../flamenco/gossip/fd_gossip_types.h"
 #include "../fd_choreo_base.h"
 
 /* fd_eqvoc presents an API for detecting and sending / receiving proofs
@@ -89,6 +90,8 @@ typedef struct fd_eqvoc_fec fd_eqvoc_fec_t;
 #define FD_EQVOC_PROOF_CHUNK_SZ  (1232UL - 115UL - 63UL)
 #define FD_EQVOC_PROOF_CHUNK_CNT (( FD_EQVOC_PROOF_SZ / FD_EQVOC_PROOF_CHUNK_SZ ) + 1) /* 3 */
 #define FD_EQVOC_PROOF_SZ (2*FD_SHRED_MAX_SZ + 2*sizeof(ulong)) /* 2 shreds prefixed with sz, encoded in 3 chunks */
+
+FD_STATIC_ASSERT( FD_EQVOC_PROOF_CHUNK_SZ==FD_GOSSIP_DUPLICATE_SHRED_MAX_CHUNKS, "Update duplicate shred max chunks size" );
 
 /* The chunk_cnt is encoded in a UCHAR_MAX, so you can have at most
    UCHAR_MAX chunks */
