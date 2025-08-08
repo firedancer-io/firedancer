@@ -164,6 +164,7 @@ struct fd_gui_tile_stats {
 
   ulong net_in_rx_bytes;           /* Number of bytes received by the net or sock tile*/
   ulong quic_conn_cnt;             /* Number of active QUIC connections */
+  fd_histf_t bundle_rx_delay_hist; /* Histogram of bundle rx delay */
   ulong bundle_rtt_smoothed_nanos; /* RTT (nanoseconds) moving average */
   ulong verify_drop_cnt;           /* Number of transactions dropped by verify tiles */
   ulong verify_total_cnt;          /* Number of transactions received by verify tiles */
@@ -363,9 +364,6 @@ struct fd_gui {
     ulong                tile_timers_leader_history_slot_sample_cnt[ FD_GUI_TILE_TIMER_LEADER_CNT ];
     ulong                tile_timers_leader_history_slot[ FD_GUI_TILE_TIMER_LEADER_CNT ];
   } summary;
-
-  fd_histf_t bundle_rx_delay_hist_reference[ 1 ]; /* histogram snapshot taken at the start of every leader rotation for this validator */
-  fd_histf_t bundle_rx_delay_hist_current[ 1 ]; /* latest histogram snapshot captured from metrics workspace */
 
   fd_gui_slot_t slots[ FD_GUI_SLOTS_CNT ][ 1 ];
 

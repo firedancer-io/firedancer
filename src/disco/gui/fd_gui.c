@@ -132,9 +132,6 @@ fd_gui_new( void *             shmem,
   for( ulong i=0UL; i<FD_GUI_SLOTS_CNT; i++ ) gui->slots[ i ]->slot = ULONG_MAX;
   gui->pack_txn_idx = 0UL;
 
-  fd_histf_new( gui->bundle_rx_delay_hist_current,   FD_MHIST_MIN( BUNDLE, MESSAGE_RX_DELAY_NANOS ), FD_MHIST_MAX( BUNDLE, MESSAGE_RX_DELAY_NANOS ) );
-  fd_histf_new( gui->bundle_rx_delay_hist_reference, FD_MHIST_MIN( BUNDLE, MESSAGE_RX_DELAY_NANOS ), FD_MHIST_MAX( BUNDLE, MESSAGE_RX_DELAY_NANOS ) );
-
   return gui;
 }
 
@@ -505,8 +502,9 @@ fd_gui_tile_stats_snap( fd_gui_t *                     gui,
     volatile ulong * bundle_metrics = fd_metrics_tile( bundle->metrics );
     stats->bundle_rtt_smoothed_nanos = bundle_metrics[ MIDX( GAUGE, BUNDLE, RTT_SMOOTHED ) ];
 
-    gui->bundle_rx_delay_hist_current->sum = bundle_metrics[ MIDX( HISTOGRAM, BUNDLE, MESSAGE_RX_DELAY_NANOS ) + FD_HISTF_BUCKET_CNT ];
-    for( ulong b=0; b<FD_HISTF_BUCKET_CNT; b++ ) gui->bundle_rx_delay_hist_current->counts[ b ] = bundle_metrics[ MIDX( HISTOGRAM, BUNDLE, MESSAGE_RX_DELAY_NANOS ) + b ];
+    fd_histf_new( &stats->bundle_rx_delay_hist, FD_MHIST_MIN( BUNDLE, MESSAGE_RX_DELAY_NANOS ), FD_MHIST_MAX( BUNDLE, MESSAGE_RX_DELAY_NANOS ) );
+    stats->bundle_rx_delay_hist.sum = bundle_metrics[ MIDX( HISTOGRAM, BUNDLE, MESSAGE_RX_DELAY_NANOS ) + FD_HISTF_BUCKET_CNT ];
+    for( ulong b=0; b<FD_HISTF_BUCKET_CNT; b++ ) stats->bundle_rx_delay_hist.counts[ b ] = bundle_metrics[ MIDX( HISTOGRAM, BUNDLE, MESSAGE_RX_DELAY_NANOS ) + b ];
   }
 
   stats->verify_drop_cnt = waterfall->out.verify_duplicate +
@@ -1741,20 +1739,6 @@ fd_gui_became_leader( fd_gui_t * gui,
   slot->txs.leader_start_time = start_time_nanos;
   slot->txs.leader_end_time   = end_time_nanos;
   if( FD_LIKELY( slot->txs.microblocks_upper_bound==USHORT_MAX ) ) slot->txs.microblocks_upper_bound = (ushort)max_microblocks;
-
-  // snapshot of bundle rx histogram at leader rotation start
-  ulong bundle_tile_idx = fd_topo_find_tile( gui->topo, "bundle", 0UL );
-  if( FD_UNLIKELY( bundle_tile_idx!=ULONG_MAX && _slot % 4 == 0 ) ) {
-    fd_topo_tile_t const * bundle = &gui->topo->tiles[ bundle_tile_idx ];
-    volatile ulong * bundle_metrics = fd_metrics_tile( bundle->metrics );
-    (void)bundle_metrics;
-
-    gui->bundle_rx_delay_hist_current->sum = bundle_metrics[ MIDX( HISTOGRAM, BUNDLE, MESSAGE_RX_DELAY_NANOS ) + FD_HISTF_BUCKET_CNT ];
-    for( ulong b=0; b<FD_HISTF_BUCKET_CNT; b++ ) gui->bundle_rx_delay_hist_current->counts[ b ] = bundle_metrics[ MIDX( HISTOGRAM, BUNDLE, MESSAGE_RX_DELAY_NANOS ) + b ];
-
-    gui->bundle_rx_delay_hist_reference->sum = bundle_metrics[ MIDX( HISTOGRAM, BUNDLE, MESSAGE_RX_DELAY_NANOS ) + FD_HISTF_BUCKET_CNT ];
-    for( ulong b=0; b<FD_HISTF_BUCKET_CNT; b++ ) gui->bundle_rx_delay_hist_reference->counts[ b ] = bundle_metrics[ MIDX( HISTOGRAM, BUNDLE, MESSAGE_RX_DELAY_NANOS ) + b ];
-  }
 }
 
 void
