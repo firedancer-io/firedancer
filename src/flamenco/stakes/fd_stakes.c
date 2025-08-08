@@ -56,7 +56,7 @@ fd_stake_weights_by_node( fd_vote_accounts_global_t const * accs,
   return weights_cnt;
 }
 
-static void FD_FN_UNUSED
+static void
 compute_stake_delegations( fd_bank_t *                bank,
                            ulong const                epoch,
                            fd_stake_history_t const * history,

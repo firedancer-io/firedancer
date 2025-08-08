@@ -143,7 +143,6 @@ FD_PROTOTYPES_BEGIN
 
 #define FD_BANKS_ITER(X)                                                                                                                                                                                                                               \
   /* type,                             name,                        footprint,                                 align,                                      CoW, limit fork width, has lock */                                                          \
-  X(fd_clock_timestamp_votes_global_t, clock_timestamp_votes,       5000000UL,                                 128UL,                                      1,   0,                1    )  /* TODO: This needs to get sized out */                      \
   X(fd_blockhashes_t,                  block_hash_queue,            sizeof(fd_blockhashes_t),                  alignof(fd_blockhashes_t),                  0,   0,                0    )  /* Block hash queue */                                       \
   X(fd_fee_rate_governor_t,            fee_rate_governor,           sizeof(fd_fee_rate_governor_t),            alignof(fd_fee_rate_governor_t),            0,   0,                0    )  /* Fee rate governor */                                      \
   X(ulong,                             capitalization,              sizeof(ulong),                             alignof(ulong),                             0,   0,                0    )  /* Capitalization */                                         \
@@ -186,7 +185,6 @@ FD_PROTOTYPES_BEGIN
                                                                                                                                                                                           /* in epoch E, these are the stakes at the end of epoch */   \
                                                                                                                                                                                           /* E-1 and they determined the leader schedule for epoch */  \
                                                                                                                                                                                           /* E+1. */                                                   \
-  X(fd_vote_accounts_global_t,         epoch_stakes,                200000000UL,                               128UL,                                      1,   0,                1    )  /* Epoch stakes ~4K per account * 50k vote accounts */       \
   X(fd_vote_accounts_global_t,         curr_epoch_stakes,           200000000UL,                               128UL,                                      1,   0,                1    )  /* Stakes being accumulated in current epoch */              \
   X(fd_epoch_rewards_t,                epoch_rewards,               FD_EPOCH_REWARDS_FOOTPRINT,                FD_EPOCH_REWARDS_ALIGN,                     1,   1,                1    )  /* Epoch rewards */                                          \
   X(fd_epoch_leaders_t,                epoch_leaders,               FD_RUNTIME_MAX_EPOCH_LEADERS,              FD_EPOCH_LEADERS_ALIGN,                     1,   1,                1    )  /* Epoch leaders. If our system supports 100k vote accs, */  \
@@ -244,16 +242,8 @@ FD_PROTOTYPES_BEGIN
 #undef HAS_COW_0
 #undef HAS_COW_1
 
-#define POOL_NAME fd_bank_clock_timestamp_votes_pool
-#define POOL_T    fd_bank_clock_timestamp_votes_t
-#include "../../util/tmpl/fd_pool.c"
-
 #define POOL_NAME fd_bank_next_epoch_stakes_pool
 #define POOL_T    fd_bank_next_epoch_stakes_t
-#include "../../util/tmpl/fd_pool.c"
-
-#define POOL_NAME fd_bank_epoch_stakes_pool
-#define POOL_T    fd_bank_epoch_stakes_t
 #include "../../util/tmpl/fd_pool.c"
 
 #define POOL_NAME fd_bank_epoch_leaders_pool
