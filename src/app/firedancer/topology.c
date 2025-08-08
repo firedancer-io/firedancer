@@ -176,22 +176,70 @@ resolve_gossip_entrypoints( config_t * config ) {
   config->gossip.resolved_entrypoints_cnt = resolved_entrypoints;
 }
 
+static int
+resolve_initial_peer( char const *    host_port,
+                      fd_ip4_port_t * ip4_port ) {
+
+  /* Split host:port */
+
+  char const * colon = strrchr( host_port, ':' );
+  if( FD_UNLIKELY( !colon ) ) {
+    FD_LOG_ERR(( "invalid [snapshots.initial_peers] entry \"%s\": no port number", host_port ));
+  }
+
+  char fqdn[ 255 ];
+  ulong fqdn_len = (ulong)( colon-host_port );
+  if( FD_UNLIKELY( fqdn_len>254 ) ) {
+    FD_LOG_ERR(( "invalid [snapshots.initial_peers] entry \"%s\": hostname too long", host_port ));
+  }
+  fd_memcpy( fqdn, host_port, fqdn_len );
+  fqdn[ fqdn_len ] = '\0';
+
+  /* Parse port number */
+
+  char const * port_str = colon+1;
+  char const * endptr   = NULL;
+  ulong port = strtoul( port_str, (char **)&endptr, 10 );
+  if( FD_UNLIKELY( !endptr || !port || port>USHORT_MAX || *endptr!='\0' ) ) {
+    FD_LOG_ERR(( "invalid [snapshots.initial_peers] entry \"%s\": invalid port number", host_port ));
+  }
+  ip4_port->port = (ushort)port;
+
+  /* Resolve hostname */
+  int resolved = resolve_address( fqdn, &ip4_port->addr );
+  return resolved;
+}
+
+static void
+resolve_initial_peers( config_t * config ) {
+  ulong initial_peers_cnt = config->firedancer.snapshots.initial_peers_cnt;
+  ulong resolved_initial_peers = 0UL;
+  for( ulong j=0UL; j<initial_peers_cnt; j++ ) {
+    if( resolve_initial_peer( config->firedancer.snapshots.initial_peers[j], &config->firedancer.snapshots.resolved_initial_peers[resolved_initial_peers] ) ) {
+      resolved_initial_peers++;
+    }
+  }
+  config->firedancer.snapshots.resolved_initial_peers_cnt = resolved_initial_peers;
+}
+
 static void
 setup_snapshots( config_t *       config,
                  fd_topo_tile_t * tile ) {
   fd_memcpy( tile->snaprd.snapshots_path, config->paths.snapshots, PATH_MAX );
-  fd_memcpy( tile->snaprd.cluster, config->firedancer.snapshots.cluster, sizeof(tile->snaprd.cluster) );
   tile->snaprd.incremental_snapshot_fetch   = config->firedancer.snapshots.incremental_snapshots;
   tile->snaprd.do_download                  = config->firedancer.snapshots.download;
   tile->snaprd.maximum_local_snapshot_age   = config->firedancer.snapshots.maximum_local_snapshot_age;
   tile->snaprd.minimum_download_speed_mib   = config->firedancer.snapshots.minimum_download_speed_mib;
   tile->snaprd.maximum_download_retry_abort = config->firedancer.snapshots.maximum_download_retry_abort;
+  tile->snaprd.initial_peers_cnt            = fd_ulong_min( config->firedancer.snapshots.resolved_initial_peers_cnt, 16UL );
+  fd_memcpy( tile->snaprd.initial_peers, config->firedancer.snapshots.resolved_initial_peers, tile->snaprd.initial_peers_cnt * sizeof(fd_ip4_port_t) );
   /* TODO: set up known validators and known validators cnt */
 }
 
 void
 fd_topo_initialize( config_t * config ) {
   resolve_gossip_entrypoints( config );
+  resolve_initial_peers( config );
 
   ulong net_tile_cnt    = config->layout.net_tile_count;
   ulong shred_tile_cnt  = config->layout.shred_tile_count;

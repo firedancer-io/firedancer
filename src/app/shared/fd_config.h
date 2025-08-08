@@ -129,14 +129,17 @@ struct fd_configf {
   } runtime;
 
   struct {
-    int   incremental_snapshots;
-    uint  maximum_local_snapshot_age;
-    int   download;
-    ulong known_validators_cnt;
-    char  known_validators[ 16 ][ 256 ];
-    uint  minimum_download_speed_mib;
-    uint  maximum_download_retry_abort;
-    char  cluster[ 8UL ];
+    int           incremental_snapshots;
+    uint          maximum_local_snapshot_age;
+    int           download;
+    ulong         known_validators_cnt;
+    char          known_validators[ 16 ][ 256 ];
+    uint          minimum_download_speed_mib;
+    uint          maximum_download_retry_abort;
+    ulong         initial_peers_cnt;
+    char          initial_peers[ 16 ][ 256 ];
+    ulong         resolved_initial_peers_cnt;
+    fd_ip4_port_t resolved_initial_peers[ 16 ];
   } snapshots;
 
   struct {
