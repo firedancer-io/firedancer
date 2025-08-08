@@ -55,8 +55,8 @@
 
 int
 fd_runtime_should_use_vote_keyed_leader_schedule( fd_bank_t * bank ) {
-  /* Agave uses an option type for their `effective_epoch` value. We represent None
-     as ULONG_MAX and Some(value) as the value.
+  /* Agave uses an option type for their effective_epoch value. We
+     represent None as ULONG_MAX and Some(value) as the value.
      https://github.com/anza-xyz/agave/blob/v2.3.1/runtime/src/bank.rs#L6149-L6165 */
   if( FD_FEATURE_ACTIVE_BANK( bank, enable_vote_address_leader_schedule ) ) {
     /* Return the first epoch if activated at genesis
@@ -69,7 +69,8 @@ fd_runtime_should_use_vote_keyed_leader_schedule( fd_bank_t * bank ) {
     fd_epoch_schedule_t const * epoch_schedule = fd_bank_epoch_schedule_query( bank );
     ulong activation_epoch = fd_slot_to_epoch( epoch_schedule, activation_slot, NULL );
 
-    /* The effective epoch is the epoch immediately after the activation epoch
+    /* The effective epoch is the epoch immediately after the activation
+       epoch.
        https://github.com/anza-xyz/agave/blob/v2.3.1/runtime/src/bank.rs#L6162-L6164 */
     ulong effective_epoch = activation_epoch + 1UL;
     ulong current_epoch   = fd_bank_epoch_get( bank );
@@ -78,8 +79,8 @@ fd_runtime_should_use_vote_keyed_leader_schedule( fd_bank_t * bank ) {
     return !!( current_epoch >= effective_epoch );
   }
 
-  /* ...The rest of the logic in this function either returns `None` or `Some(false)` so we
-     will just return 0 by default. */
+  /* ...The rest of the logic in this function either returns None or
+     Some(false) so we will just return 0 by default. */
   return 0;
 }
 
@@ -1106,8 +1107,9 @@ fd_runtime_pre_execute_check( fd_txn_p_t * txn, fd_exec_txn_ctx_t * txn_ctx ) {
   /* Set up the transaction accounts and other txn ctx metadata */
   fd_executor_setup_accounts_for_txn( txn_ctx );
 
-  /* Post-sanitization checks. Called from `prepare_sanitized_batch()` which, for now, only is used
-     to lock the accounts and perform a couple basic validations.
+  /* Post-sanitization checks. Called from prepare_sanitized_batch()
+     which, for now, only is used to lock the accounts and perform a
+     couple basic validations.
      https://github.com/anza-xyz/agave/blob/838c1952595809a31520ff1603a13f2c9123aa51/accounts-db/src/account_locks.rs#L118 */
   err = fd_executor_validate_account_locks( txn_ctx );
   if( FD_UNLIKELY( err!=FD_RUNTIME_EXECUTE_SUCCESS ) ) {
@@ -1115,7 +1117,7 @@ fd_runtime_pre_execute_check( fd_txn_p_t * txn, fd_exec_txn_ctx_t * txn_ctx ) {
     return err;
   }
 
-  /* `load_and_execute_transactions()` -> `check_transactions()`
+  /* load_and_execute_transactions() -> check_transactions()
      https://github.com/anza-xyz/agave/blob/ced98f1ebe73f7e9691308afa757323003ff744f/runtime/src/bank.rs#L3667-L3672 */
   err = fd_executor_check_transactions( txn_ctx );
   if( FD_UNLIKELY( err!=FD_RUNTIME_EXECUTE_SUCCESS ) ) {
@@ -1123,7 +1125,8 @@ fd_runtime_pre_execute_check( fd_txn_p_t * txn, fd_exec_txn_ctx_t * txn_ctx ) {
     return err;
   }
 
-  /* `load_and_execute_sanitized_transactions()` -> `validate_fees()` -> `validate_transaction_fee_payer()`
+  /* load_and_execute_sanitized_transactions() -> validate_fees() ->
+     validate_transaction_fee_payer()
      https://github.com/anza-xyz/agave/blob/ced98f1ebe73f7e9691308afa757323003ff744f/svm/src/transaction_processor.rs#L236-L249 */
   err = fd_executor_validate_transaction_fee_payer( txn_ctx );
   if( FD_UNLIKELY( err!=FD_RUNTIME_EXECUTE_SUCCESS ) ) {
@@ -1616,12 +1619,16 @@ fd_update_next_epoch_stakes( fd_exec_slot_ctx_t * slot_ctx ) {
   fd_bank_curr_epoch_stakes_end_locking_query( slot_ctx->bank );
 }
 
-/* Mimics `bank.new_target_program_account()`. Assumes `out_rec` is a modifiable record.
+/* Mimics bank.new_target_program_account(). Assumes out_rec is a
+   modifiable record.
 
-   From the calling context, `out_rec` points to a native program record (e.g. Config, ALUT native programs).
-   There should be enough space in `out_rec->data` to hold at least 36 bytes (the size of a BPF upgradeable
-   program account) when calling this function. The native program account's owner is set to the BPF loader
-   upgradeable program ID, and lamports are increased / deducted to contain the rent exempt minimum balance.
+   From the calling context, out_rec points to a native program record
+   (e.g. Config, ALUT native programs). There should be enough space in
+   out_rec->data to hold at least 36 bytes (the size of a BPF
+   upgradeable program account) when calling this function. The native
+   program account's owner is set to the BPF loader upgradeable program
+   ID, and lamports are increased / deducted to contain the rent exempt
+   minimum balance.
 
    https://github.com/anza-xyz/agave/blob/v2.1.0/runtime/src/bank/builtins/core_bpf_migration/mod.rs#L79-L95 */
 static int
@@ -1665,12 +1672,15 @@ fd_new_target_program_account( fd_exec_slot_ctx_t * slot_ctx,
   return FD_RUNTIME_EXECUTE_SUCCESS;
 }
 
-/* Mimics `bank.new_target_program_data_account()`. Assumes `new_target_program_data_account` is a modifiable record.
-   `config_upgrade_authority_address` may be NULL.
+/* Mimics bank.new_target_program_data_account(). Assumes
+   new_target_program_data_account is a modifiable record.
+   config_upgrade_authority_address may be NULL.
 
-   This function uses an existing buffer account `buffer_acc_rec` to set the program data account data for a core
-   program BPF migration. Sets the lamports and data fields of `new_target_program_data_account` based on the
-   ELF data length, and sets the owner to the BPF loader upgradeable program ID.
+   This function uses an existing buffer account buffer_acc_rec to set
+   the program data account data for a core program BPF migration. Sets
+   the lamports and data fields of new_target_program_data_account
+   based on the ELF data length, and sets the owner to the BPF loader
+   upgradeable program ID.
 
    https://github.com/anza-xyz/agave/blob/v2.1.0/runtime/src/bank/builtins/core_bpf_migration/mod.rs#L97-L153 */
 static int
@@ -1746,7 +1756,7 @@ fd_new_target_program_data_account( fd_exec_slot_ctx_t * slot_ctx,
   } FD_SPAD_FRAME_END;
 }
 
-/* Mimics `migrate_builtin_to_core_bpf()`. The arguments map as follows:
+/* Mimics migrate_builtin_to_core_bpf(). The arguments map as follows:
     - builtin_program_id: builtin_program_id
     - config
       - source_buffer_address: source_buffer_address
@@ -1766,12 +1776,17 @@ fd_migrate_builtin_to_core_bpf( fd_exec_slot_ctx_t * slot_ctx,
 
   /* https://github.com/anza-xyz/agave/blob/v2.1.0/runtime/src/bank/builtins/core_bpf_migration/mod.rs#L242-L243
 
-     The below logic is used to obtain a `TargetBuiltin` account. There are three fields of `TargetBuiltin` returned:
+     The below logic is used to obtain a TargetBuiltin account. There
+     are three fields of TargetBuiltin returned:
       - target.program_address: builtin_program_id
       - target.program_account:
-          - if stateless: an AccountSharedData::default() (i.e. system program id, 0 lamports, 0 data, non-executable, system program owner)
-          - if NOT stateless: the existing account (for us its called `target_program_account`)
-      - target.program_data_address: `target_program_data_address` for us, derived below. */
+          - if stateless: an AccountSharedData::default() (i.e. system
+            program id, 0 lamports, 0 data, non-executable, system
+            program owner)
+          - if NOT stateless: the existing account (for us its called
+            target_program_account)
+      - target.program_data_address: target_program_data_address for
+        us, derived below. */
 
   /* These checks will fail if the core program has already been migrated to BPF, since the account will exist + the program owner
      will no longer be the native loader.
@@ -1823,7 +1838,7 @@ fd_migrate_builtin_to_core_bpf( fd_exec_slot_ctx_t * slot_ctx,
 
   /* https://github.com/anza-xyz/agave/blob/v2.1.0/runtime/src/bank/builtins/core_bpf_migration/mod.rs#L244
 
-     Obtains a `SourceBuffer` account. There are two fields returned:
+     Obtains a SourceBuffer account. There are two fields returned:
       - source.buffer_address: source_buffer_address
       - source.buffer_account: the existing buffer account */
 
@@ -1850,8 +1865,9 @@ fd_migrate_builtin_to_core_bpf( fd_exec_slot_ctx_t * slot_ctx,
     return;
   }
 
-  /* The buffer account should have the correct state. We already check the buffer account state in `fd_new_target_program_data_account`,
-      so we can skip the checks here.
+  /* The buffer account should have the correct state. We already check
+     the buffer account state in fd_new_target_program_data_account, so
+     we can skip the checks here.
      https://github.com/anza-xyz/agave/blob/v2.1.0/runtime/src/bank/builtins/core_bpf_migration/source_buffer.rs#L37-L47 */
 
   /* This check is done a bit prematurely because we calculate the previous account state's lamports. We use 0 for starting lamports
@@ -2009,9 +2025,10 @@ fd_apply_builtin_program_feature_transitions( fd_exec_slot_ctx_t *   slot_ctx,
                                               fd_spad_t *            runtime_spad ) {
   /* TODO: Set the upgrade authority properly from the core bpf migration config. Right now it's set to None.
 
-     Migrate any necessary stateless builtins to core BPF. So far, the only "stateless" builtin
-     is the Feature program. Beginning checks in the `migrate_builtin_to_core_bpf` function will
-     fail if the program has already been migrated to BPF. */
+     Migrate any necessary stateless builtins to core BPF. So far,
+     the only "stateless" builtin is the Feature program. Beginning
+     checks in the migrate_builtin_to_core_bpf function will fail if the
+     program has already been migrated to BPF. */
 
   FD_SPAD_FRAME_BEGIN( runtime_spad ) {
 
