@@ -260,7 +260,8 @@ fd_program_cache_validate_sbpf_program( fd_exec_slot_ctx_t const * slot_ctx,
 
   /* Allocate syscalls */
 
-  fd_sbpf_syscalls_t * syscalls = fd_sbpf_syscalls_new( fd_spad_alloc( runtime_spad, fd_sbpf_syscalls_align(), fd_sbpf_syscalls_footprint() ) );
+  void               * syscalls_mem = fd_spad_alloc( runtime_spad, fd_sbpf_syscalls_align(), fd_sbpf_syscalls_footprint() );
+  fd_sbpf_syscalls_t * syscalls     = fd_sbpf_syscalls_join( fd_sbpf_syscalls_new( syscalls_mem ) );
   if( FD_UNLIKELY( !syscalls ) ) {
     FD_LOG_CRIT(( "Call to fd_sbpf_syscalls_new() failed" ));
   }
@@ -275,6 +276,7 @@ fd_program_cache_validate_sbpf_program( fd_exec_slot_ctx_t const * slot_ctx,
   if( FD_UNLIKELY( 0!=fd_sbpf_program_load( prog, program_data, program_data_len, syscalls, false ) ) ) {
     FD_LOG_DEBUG(( "fd_sbpf_program_load() failed: %s", fd_sbpf_strerror() ));
     cache_entry->failed_verification = 1;
+    fd_sbpf_syscalls_leave( syscalls );
     return -1;
   }
 
@@ -316,6 +318,7 @@ fd_program_cache_validate_sbpf_program( fd_exec_slot_ctx_t const * slot_ctx,
   }
 
   int res = fd_vm_validate( vm );
+  fd_sbpf_syscalls_leave( syscalls );
   if( FD_UNLIKELY( res ) ) {
     FD_LOG_DEBUG(( "fd_vm_validate() failed" ));
     cache_entry->failed_verification = 1;
