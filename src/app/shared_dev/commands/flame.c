@@ -45,11 +45,24 @@ flame_cmd_args( int *    pargc,
                 char *** pargv,
                 args_t * args ) {
 
-  if( FD_UNLIKELY( !*pargc ) ) FD_LOG_ERR(( "usage: flame [all|tile|tile:idx|agave]" ));
+  if( FD_UNLIKELY( !*pargc ) ) FD_LOG_ERR(( "usage: flame [all|tile|tile:idx|agave] [sample_rate]" ));
   strncpy( args->flame.name, **pargv, sizeof( args->flame.name ) - 1 );
 
   (*pargc)--;
   (*pargv)++;
+
+  args->flame.sample_rate = 99UL; /* default 99hz */
+
+  if( FD_LIKELY( *pargc > 0 ) ) { /* optional */
+    char * endptr;
+    ulong sample_rate = strtoul( **pargv, &endptr, 10 );
+    if( FD_UNLIKELY( *endptr != '\0' || sample_rate == 0UL || sample_rate > 50000UL ) ) {
+      FD_LOG_ERR(( "invalid sample rate `%s` - must be between 1 and 50000 Hz", **pargv ));
+    }
+    args->flame.sample_rate = sample_rate;
+    (*pargc)--;
+    (*pargv)++;
+  }
 }
 
 void
@@ -58,7 +71,7 @@ flame_cmd_fn( args_t *   args,
   install_parent_signals();
 
   fd_topo_join_workspaces( &config->topo, FD_SHMEM_JOIN_MODE_READ_ONLY );
-  fd_topo_fill( &config->topo );
+  fd_topo_fill_resilient( &config->topo );
 
   ulong tile_cnt = 0UL;
   ulong tile_idxs[ 128UL ];
@@ -97,29 +110,47 @@ flame_cmd_fn( args_t *   args,
   }
 
   char threads[ 4096 ] = {0};
+  char sample_rate_str[ 64 ] = {0};
+  snprintf( sample_rate_str, sizeof( sample_rate_str ), "%lu", args->flame.sample_rate ); // TODO: not sure if there is a FD version of this or something similar
   ulong len = 0UL;
+  ulong valid_tiles = 0UL;
   for( ulong i=0UL; i<tile_cnt; i++ ) {
-    if( FD_LIKELY( i!=0UL ) ) {
-      FD_TEST( fd_cstr_printf_check( threads+len, sizeof(threads)-len, NULL, "," ) );
-      len += 1UL;
+    fd_topo_tile_t * tile = &config->topo.tiles[ tile_idxs[ i ] ];
+
+    ulong tid = fd_metrics_tile( tile->metrics )[ FD_METRICS_GAUGE_TILE_TID_OFF ];
+    ulong pid = fd_metrics_tile( tile->metrics )[ FD_METRICS_GAUGE_TILE_PID_OFF ];
+
+    /* Skip tiles that don't have valid PID/TID */
+    if( FD_UNLIKELY( !pid || !tid || pid > INT_MAX || tid > INT_MAX ) ) {
+      FD_LOG_WARNING(( "skipping tile %s:%lu - invalid PID/TID (pid=%lu, tid=%lu)", tile->name, tile->kind_id, pid, tid ));
+      continue;
     }
 
-    ulong tid = fd_metrics_tile( config->topo.tiles[ tile_idxs[ i ] ].metrics )[ FD_METRICS_GAUGE_TILE_TID_OFF ];
-    ulong pid = fd_metrics_tile( config->topo.tiles[ tile_idxs[ i ] ].metrics )[ FD_METRICS_GAUGE_TILE_PID_OFF ];
-
-    FD_TEST( pid<=INT_MAX );
     if( FD_UNLIKELY( -1==kill( (int)pid, 0 ) ) ) {
-      if( FD_UNLIKELY( errno==ESRCH ) ) FD_LOG_ERR(( "tile %s:%lu is not running", config->topo.tiles[ i ].name, config->topo.tiles[ i ].kind_id ));
-      else                              FD_LOG_ERR(( "kill() failed (%i-%s)", errno, fd_io_strerror( errno ) ));
+      if( FD_UNLIKELY( errno==ESRCH ) ) {
+        FD_LOG_WARNING(( "skipping tile %s:%lu - process not running (pid=%lu)", tile->name, tile->kind_id, pid ));
+        continue;
+      } else {
+        FD_LOG_ERR(( "kill() failed (%i-%s)", errno, fd_io_strerror( errno ) ));
+      }
+    }
+
+    if( FD_LIKELY( valid_tiles>0UL ) ) {
+      FD_TEST( fd_cstr_printf_check( threads+len, sizeof(threads)-len, NULL, "," ) );
+      len += 1UL;
     }
 
     ulong arg_len;
     FD_TEST( fd_cstr_printf_check( threads+len, sizeof(threads)-len, &arg_len, "%lu", fd_ulong_if( whole_process, pid, tid ) ) );
     len += arg_len;
+    valid_tiles++;
   }
-  FD_TEST( len<sizeof(threads) );
 
-  FD_LOG_NOTICE(( "/usr/bin/perf script record flamegraph -F 99 -%c %s && /usr/bin/perf script report flamegraph", fd_char_if( whole_process, 'p', 't' ), threads ));
+  if( FD_UNLIKELY( !valid_tiles ) ) {
+    FD_LOG_ERR(( "No valid running tiles found to profile" ));
+  }
+
+  FD_LOG_NOTICE(( "/usr/bin/perf script record flamegraph -F %lu -%c %s && /usr/bin/perf script report flamegraph", args->flame.sample_rate, fd_char_if( whole_process, 'p', 't' ), threads ));
 
   record_pid = fork();
   if( FD_UNLIKELY( -1==record_pid ) ) FD_LOG_ERR(( "fork() failed (%i-%s)", errno, fd_io_strerror( errno ) ));
@@ -130,7 +161,7 @@ flame_cmd_fn( args_t *   args,
       "record",
       "flamegraph",
       "-F",
-      "99",
+      sample_rate_str,
       whole_process ? "-p" : "-t",
       threads,
       NULL,

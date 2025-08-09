@@ -65,6 +65,7 @@ union fdctl_args {
 
   struct {
     char name[ 13UL ];
+    ulong sample_rate;
   } flame;
 
   struct {

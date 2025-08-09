@@ -181,6 +181,47 @@ fd_topo_workspace_fill( fd_topo_t *      topo,
 }
 
 void
+fd_topo_workspace_fill_resilient( fd_topo_t *      topo,
+                                   fd_topo_wksp_t * wksp ) {
+  for( ulong i=0UL; i<topo->link_cnt; i++ ) {
+    fd_topo_link_t * link = &topo->links[ i ];
+
+    if( FD_UNLIKELY( topo->objs[ link->mcache_obj_id ].wksp_id!=wksp->id ) ) continue;
+    link->mcache = fd_mcache_join( fd_topo_obj_laddr( topo, link->mcache_obj_id ) );
+    if( FD_UNLIKELY( !link->mcache ) ) {
+      FD_LOG_WARNING(( "failed to join mcache for link %lu (obj_id=%lu), setting to NULL", i, link->mcache_obj_id ));
+    }
+
+    if( link->mtu ) {
+      if( FD_UNLIKELY( topo->objs[ link->dcache_obj_id ].wksp_id!=wksp->id ) ) continue;
+      link->dcache = fd_dcache_join( fd_topo_obj_laddr( topo, link->dcache_obj_id ) );
+      if( FD_UNLIKELY( !link->dcache ) ) {
+        FD_LOG_WARNING(( "failed to join dcache for link %lu (obj_id=%lu), setting to NULL", i, link->dcache_obj_id ));
+      }
+    }
+  }
+
+  for( ulong i=0UL; i<topo->tile_cnt; i++ ) {
+    fd_topo_tile_t * tile = &topo->tiles[ i ];
+
+    if( FD_LIKELY( topo->objs[ tile->metrics_obj_id ].wksp_id==wksp->id ) ) {
+      tile->metrics = fd_metrics_join( fd_topo_obj_laddr( topo, tile->metrics_obj_id ) );
+      if( FD_UNLIKELY( !tile->metrics ) ) {
+        FD_LOG_WARNING(( "failed to join metrics for tile %s:%lu (obj_id=%lu), setting to NULL", tile->name, tile->kind_id, tile->metrics_obj_id ));
+      }
+    }
+
+    for( ulong j=0UL; j<tile->in_cnt; j++ ) {
+      if( FD_UNLIKELY( topo->objs[ tile->in_link_fseq_obj_id[ j ] ].wksp_id!=wksp->id ) ) continue;
+      tile->in_link_fseq[ j ] = fd_fseq_join( fd_topo_obj_laddr( topo, tile->in_link_fseq_obj_id[ j ] ) );
+      if( FD_UNLIKELY( !tile->in_link_fseq[ j ] ) ) {
+        FD_LOG_WARNING(( "failed to join fseq for tile %s:%lu input %lu (obj_id=%lu), setting to NULL", tile->name, tile->kind_id, j, tile->in_link_fseq_obj_id[ j ] ));
+      }
+    }
+  }
+}
+
+void
 fd_topo_fill_tile( fd_topo_t *      topo,
                    fd_topo_tile_t * tile ) {
   for( ulong i=0UL; i<topo->wksp_cnt; i++ ) {
@@ -193,6 +234,13 @@ void
 fd_topo_fill( fd_topo_t * topo ) {
   for( ulong i=0UL; i<topo->wksp_cnt; i++ ) {
     fd_topo_workspace_fill( topo, &topo->workspaces[ i ] );
+  }
+}
+
+void
+fd_topo_fill_resilient( fd_topo_t * topo ) {
+    for( ulong i=0UL; i<topo->wksp_cnt; i++ ) {
+    fd_topo_workspace_fill_resilient( topo, &topo->workspaces[ i ] );
   }
 }
 
