@@ -1,4 +1,4 @@
-#include "fd_chacha20.h"
+#include "fd_chacha.h"
 
 /* Reference implementation of the ChaCha20 block function.
 
@@ -6,20 +6,21 @@
          via SSE or AVX if required. */
 
 static inline void
-fd_chacha20_quarter_round( uint * a,
-                           uint * b,
-                           uint * c,
-                           uint * d ) {
+fd_chacha_quarter_round( uint * a,
+                         uint * b,
+                         uint * c,
+                         uint * d ) {
   *a += *b; *d ^= *a; *d = fd_uint_rotate_left(*d, 16);
   *c += *d; *b ^= *c; *b = fd_uint_rotate_left(*b, 12);
   *a += *b; *d ^= *a; *d = fd_uint_rotate_left(*d,  8);
   *c += *d; *b ^= *c; *b = fd_uint_rotate_left(*b,  7);
 }
 
-void *
-fd_chacha20_block( void *       _block,
-                   void const * _key,
-                   void const * _idx_nonce ) {
+__attribute__((always_inline)) static inline void *
+fd_chacha_block( void *       _block,
+                 void const * _key,
+                 void const * _idx_nonce,
+                 ulong        rnd2_cnt ) {
 
   uint *       block     = __builtin_assume_aligned( _block,     64UL );
   uint const * key       = __builtin_assume_aligned( _key,       32UL );
@@ -55,15 +56,15 @@ fd_chacha20_block( void *       _block,
   /* Run the ChaCha round function 20 times.
      (Each iteration does a column round and a diagonal round.) */
 
-  for( ulong i=0UL; i<10UL; i++ ) {
-    fd_chacha20_quarter_round( &block[ 0 ], &block[ 4 ], &block[  8 ], &block[ 12 ] );
-    fd_chacha20_quarter_round( &block[ 1 ], &block[ 5 ], &block[  9 ], &block[ 13 ] );
-    fd_chacha20_quarter_round( &block[ 2 ], &block[ 6 ], &block[ 10 ], &block[ 14 ] );
-    fd_chacha20_quarter_round( &block[ 3 ], &block[ 7 ], &block[ 11 ], &block[ 15 ] );
-    fd_chacha20_quarter_round( &block[ 0 ], &block[ 5 ], &block[ 10 ], &block[ 15 ] );
-    fd_chacha20_quarter_round( &block[ 1 ], &block[ 6 ], &block[ 11 ], &block[ 12 ] );
-    fd_chacha20_quarter_round( &block[ 2 ], &block[ 7 ], &block[  8 ], &block[ 13 ] );
-    fd_chacha20_quarter_round( &block[ 3 ], &block[ 4 ], &block[  9 ], &block[ 14 ] );
+  for( ulong i=0UL; i<rnd2_cnt; i++ ) {
+    fd_chacha_quarter_round( &block[ 0 ], &block[ 4 ], &block[  8 ], &block[ 12 ] );
+    fd_chacha_quarter_round( &block[ 1 ], &block[ 5 ], &block[  9 ], &block[ 13 ] );
+    fd_chacha_quarter_round( &block[ 2 ], &block[ 6 ], &block[ 10 ], &block[ 14 ] );
+    fd_chacha_quarter_round( &block[ 3 ], &block[ 7 ], &block[ 11 ], &block[ 15 ] );
+    fd_chacha_quarter_round( &block[ 0 ], &block[ 5 ], &block[ 10 ], &block[ 15 ] );
+    fd_chacha_quarter_round( &block[ 1 ], &block[ 6 ], &block[ 11 ], &block[ 12 ] );
+    fd_chacha_quarter_round( &block[ 2 ], &block[ 7 ], &block[  8 ], &block[ 13 ] );
+    fd_chacha_quarter_round( &block[ 3 ], &block[ 4 ], &block[  9 ], &block[ 14 ] );
   }
 
   /* Complete the block by adding the input state */
@@ -74,3 +75,16 @@ fd_chacha20_block( void *       _block,
   return (void *)block;
 }
 
+void *
+fd_chacha8_block( void *       _block,
+                  void const * _key,
+                  void const * _idx_nonce ) {
+  return fd_chacha_block( _block, _key, _idx_nonce, 4UL );
+}
+
+void *
+fd_chacha20_block( void *       _block,
+                   void const * _key,
+                   void const * _idx_nonce ) {
+  return fd_chacha_block( _block, _key, _idx_nonce, 10UL );
+}

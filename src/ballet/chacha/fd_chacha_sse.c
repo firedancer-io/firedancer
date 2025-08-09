@@ -1,11 +1,12 @@
-#include "fd_chacha20.h"
+#include "fd_chacha.h"
 #include "../../util/simd/fd_sse.h"
 
 
-void *
-fd_chacha20_block( void *       _block,
-                   void const * _key,
-                   void const * _idx_nonce ) {
+static void *
+fd_chacha_block_sse( void *       _block,
+                     void const * _key,
+                     void const * _idx_nonce,
+                     ulong        rnd2_cnt ) {
 
   uint *       block     = __builtin_assume_aligned( _block,     64UL );
   uint const * key       = __builtin_assume_aligned( _key,       32UL );
@@ -45,7 +46,7 @@ fd_chacha20_block( void *       _block,
 
   /* Run the ChaCha round function 20 times.
      (Each iteration does a column round and a diagonal round.) */
-  for( ulong i=0UL; i<10UL; i++ ) {
+  for( ulong i=0UL; i<rnd2_cnt; i++ ) {
     /* Column round */
     row0 = vu_add( row0, row1 ); row3 = vu_xor( row3, row0 ); row3 = ROTATE_LEFT_16( row3 );
     row2 = vu_add( row2, row3 ); row1 = vu_xor( row1, row2 ); row1 = ROTATE_LEFT_12( row1 );
@@ -86,3 +87,16 @@ fd_chacha20_block( void *       _block,
   return _block;
 }
 
+void *
+fd_chacha8_block( void *       _block,
+                  void const * _key,
+                  void const * _idx_nonce ) {
+  return fd_chacha_block_sse( _block, _key, _idx_nonce, 4UL );
+}
+
+void *
+fd_chacha20_block( void *       _block,
+                   void const * _key,
+                   void const * _idx_nonce ) {
+  return fd_chacha_block_sse( _block, _key, _idx_nonce, 10UL );
+}

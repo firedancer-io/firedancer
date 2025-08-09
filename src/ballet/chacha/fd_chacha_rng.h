@@ -1,40 +1,40 @@
-#ifndef HEADER_fd_src_ballet_chacha20_fd_chacha20rng_h
-#define HEADER_fd_src_ballet_chacha20_fd_chacha20rng_h
+#ifndef HEADER_fd_src_ballet_chacha_fd_chacha_rng_h
+#define HEADER_fd_src_ballet_chacha_fd_chacha_rng_h
 
-/* fd_chacha20rng provides APIs for ChaCha20-based RNG, as used in the
+/* fd_chacha_rng provides APIs for ChaCha-based RNG, as used in the
    Solana protocol.  This API should only be used where necessary.
    fd_rng is a better choice in all other cases. */
 
-#include "fd_chacha20.h"
+#include "fd_chacha.h"
 #if !FD_HAS_INT128
 #include "../../util/bits/fd_uwide.h"
 #endif
 
-/* FD_CHACHA20RNG_DEBUG controls debug logging.  0 is off; 1 is on. */
+/* FD_CHACHA_RNG_DEBUG controls debug logging.  0 is off; 1 is on. */
 
-#ifndef FD_CHACHA20RNG_DEBUG
-#define FD_CHACHA20RNG_DEBUG 0
+#ifndef FD_CHACHA_RNG_DEBUG
+#define FD_CHACHA_RNG_DEBUG 0
 #endif
 
 /* Solana uses different mechanisms of mapping a ulong to an unbiased
    integer in [0, n) in different parts of the code.  In particular,
    leader schedule generation uses MODE_MOD and Turbine uses MODE_SHIFT.
-   See the note in fd_chacha20rng_ulong_roll for more details. */
-#define FD_CHACHA20RNG_MODE_MOD   1
-#define FD_CHACHA20RNG_MODE_SHIFT 2
+   See the note in fd_chacha20_rng_ulong_roll for more details. */
+#define FD_CHACHA_RNG_MODE_MOD   1
+#define FD_CHACHA_RNG_MODE_SHIFT 2
 
-/* FD_CHACHA20RNG_BUFSZ is the internal buffer size of pre-generated
+/* FD_CHACHA_RNG_BUFSZ is the internal buffer size of pre-generated
    ChaCha20 blocks.  Multiple of block size (64 bytes) and a power of 2. */
 
 #if FD_HAS_AVX512
-#define FD_CHACHA20RNG_BUFSZ (16*FD_CHACHA20_BLOCK_SZ)
+#define FD_CHACHA_RNG_BUFSZ (16*FD_CHACHA_BLOCK_SZ)
 #elif FD_HAS_AVX
-#define FD_CHACHA20RNG_BUFSZ (8*FD_CHACHA20_BLOCK_SZ)
+#define FD_CHACHA_RNG_BUFSZ (8*FD_CHACHA_BLOCK_SZ)
 #else
-#define FD_CHACHA20RNG_BUFSZ (256UL)
+#define FD_CHACHA_RNG_BUFSZ (256UL)
 #endif
 
-struct __attribute__((aligned(32UL))) fd_chacha20rng_private {
+struct __attribute__((aligned(32UL))) fd_chacha_rng_private {
   /* ChaCha20 encryption key */
   uchar key[ 32UL ] __attribute__((aligned(32UL)));
 
@@ -43,42 +43,42 @@ struct __attribute__((aligned(32UL))) fd_chacha20rng_private {
            cursor is always aligned by 8 and strictly increases in
            increments of 8.  Thus, we really only have to refill the
            buffer if buf_off==buf_fill.  */
-  uchar buf[ FD_CHACHA20RNG_BUFSZ ] __attribute__((aligned(FD_CHACHA20_BLOCK_SZ)));
+  uchar buf[ FD_CHACHA_RNG_BUFSZ ] __attribute__((aligned(FD_CHACHA_BLOCK_SZ)));
   ulong buf_off;   /* Total number of bytes consumed */
   ulong buf_fill;  /* Total number of bytes produced
-                      Always aligned by FD_CHACHA20_BLOCK_SZ */
+                      Always aligned by FD_CHACHA_BLOCK_SZ */
 
   int mode;
 };
-typedef struct fd_chacha20rng_private fd_chacha20rng_t;
+typedef struct fd_chacha_rng_private fd_chacha_rng_t;
 
 FD_PROTOTYPES_BEGIN
 
-/* fd_chacha20rng_{align,footprint} give the needed alignment and
+/* fd_chacha_rng_{align,footprint} give the needed alignment and
    footprint of a memory region suitable to hold a ChaCha20-based RNG.
 
-   fd_chacha20rng_new formats a memory region with suitable alignment
-   and footprint for holding a chacha20rng object.  Assumes shmem
+   fd_chacha_rng_new formats a memory region with suitable alignment
+   and footprint for holding a chacha20_rng object.  Assumes shmem
    points on the caller to the first byte of the memory region owned by
-   the caller to use.  `mode` must be one of the FD_CHACHA20RNG_MODE_*
+   the caller to use.  `mode` must be one of the FD_CHACHA_RNG_MODE_*
    constants defined above and dictates what mode this object will use
    to generate random numbers. Returns shmem on success and NULL on
    failure (logs details).  The memory region will be owned by the
    object on successful return.  The caller is not joined on return.
 
-   fd_chacha20rng_join joins the caller to a chacha20rng object.
+   fd_chacha_rng_join joins the caller to a chacha20_rng object.
    Assumes shrng points to the first byte of the memory region holding
    the object.  Returns a local handle to the join on success (this is
    not necessarily a simple cast of the address) and NULL on failure
    (logs details).
 
-   fd_chacha20rng_leave leaves the caller's current local join to a
+   fd_chacha_rng_leave leaves the caller's current local join to a
    ChaCha20 RNG object.  Returns a pointer to the memory region holding
    the object on success this is not necessarily a simple cast of the
    address) and NULL on failure (logs details).  The caller is not
    joined on successful return.
 
-   fd_chacha20rng_delete unformats a memory region that holds a ChaCha20
+   fd_chacha_rng_delete unformats a memory region that holds a ChaCha20
    RNG object.  Assumes shrng points on the caller to the first byte of
    the memory region holding the state and that nobody is joined.
    Returns a pointer to the memory region on success and NULL on failure
@@ -86,26 +86,26 @@ FD_PROTOTYPES_BEGIN
    successful return. */
 
 FD_FN_CONST ulong
-fd_chacha20rng_align( void );
+fd_chacha_rng_align( void );
 
 FD_FN_CONST ulong
-fd_chacha20rng_footprint( void );
+fd_chacha_rng_footprint( void );
 
 void *
-fd_chacha20rng_new( void * shmem, int mode );
+fd_chacha_rng_new( void * shmem, int mode );
 
-fd_chacha20rng_t *
-fd_chacha20rng_join( void * shrng );
-
-void *
-fd_chacha20rng_leave( fd_chacha20rng_t * );
+fd_chacha_rng_t *
+fd_chacha_rng_join( void * shrng );
 
 void *
-fd_chacha20rng_delete( void * shrng );
+fd_chacha_rng_leave( fd_chacha_rng_t * );
 
-/* fd_chacha20rng_init starts a ChaCha20 RNG stream.  rng is assumed to
-   be a current local join to a chacha20rng object with no other
-   concurrent operation that would modify the state while this is
+void *
+fd_chacha_rng_delete( void * shrng );
+
+/* fd_chacha_rng{8,20}_init starts a ChaCha{8,20} RNG stream.  rng is
+   assumed to be a current local join to a chacha20_rng object with no
+   other concurrent operation that would modify the state while this is
    executing.  seed points to the first byte of the RNG seed byte vector
    with 32 byte size.  Any preexisting state for an in-progress or
    recently completed calculation will be discarded.  Returns rng (on
@@ -114,55 +114,71 @@ fd_chacha20rng_delete( void * shrng );
    Compatible with Rust fn rand_chacha::ChaCha20Rng::from_seed
    https://docs.rs/rand_chacha/latest/rand_chacha/struct.ChaCha20Rng.html#method.from_seed */
 
-fd_chacha20rng_t *
-fd_chacha20rng_init( fd_chacha20rng_t * rng,
-                     void const *       key );
+fd_chacha_rng_t *
+fd_chacha8_rng_init( fd_chacha_rng_t * rng,
+                     void const *      key );
+
+fd_chacha_rng_t *
+fd_chacha20_rng_init( fd_chacha_rng_t * rng,
+                      void const *      key );
 
 /* The refill function.  Not part of the public API. */
 
 #if FD_HAS_AVX512
-void
-fd_chacha20rng_refill_avx512( fd_chacha20rng_t * rng );
+void fd_chacha8_rng_refill_avx512 ( fd_chacha_rng_t * rng );
+void fd_chacha20_rng_refill_avx512( fd_chacha_rng_t * rng );
 #endif
 
 #if FD_HAS_AVX
-void
-fd_chacha20rng_refill_avx( fd_chacha20rng_t * rng );
+void fd_chacha8_rng_refill_avx ( fd_chacha_rng_t * rng );
+void fd_chacha20_rng_refill_avx( fd_chacha_rng_t * rng );
 #endif
 
-void
-fd_chacha20rng_refill_seq( fd_chacha20rng_t * rng );
+void fd_chacha8_rng_refill_seq ( fd_chacha_rng_t * rng );
+void fd_chacha20_rng_refill_seq( fd_chacha_rng_t * rng );
 
 #if FD_HAS_AVX512
-#define fd_chacha20rng_private_refill fd_chacha20rng_refill_avx512
+#define fd_chacha8_rng_private_refill  fd_chacha8_rng_refill_avx512
+#define fd_chacha20_rng_private_refill fd_chacha20_rng_refill_avx512
 #elif FD_HAS_AVX
-#define fd_chacha20rng_private_refill fd_chacha20rng_refill_avx
+#define fd_chacha8_rng_private_refill  fd_chacha8_rng_refill_avx
+#define fd_chacha20_rng_private_refill fd_chacha20_rng_refill_avx
 #else
-#define fd_chacha20rng_private_refill fd_chacha20rng_refill_seq
+#define fd_chacha8_rng_private_refill  fd_chacha8_rng_refill_seq
+#define fd_chacha20_rng_private_refill fd_chacha20_rng_refill_seq
 #endif
 
-/* fd_chacha20rng_avail returns the number of buffered bytes. */
+/* fd_chacha_rng_avail returns the number of buffered bytes. */
 
 FD_FN_PURE static inline ulong
-fd_chacha20rng_avail( fd_chacha20rng_t const * rng ) {
+fd_chacha_rng_avail( fd_chacha_rng_t const * rng ) {
   return rng->buf_fill - rng->buf_off;
 }
 
-/* fd_chacha20rng_ulong reads a 64-bit integer in [0,2^64) from the RNG
-   stream. */
+/* fd_chacha{8,20}_rng_ulong read a 64-bit integer in [0,2^64) from the
+   RNG stream. */
 
-static ulong
-fd_chacha20rng_ulong( fd_chacha20rng_t * rng ) {
-  if( FD_UNLIKELY( fd_chacha20rng_avail( rng ) < sizeof(ulong) ) )
-    fd_chacha20rng_private_refill( rng );
-  ulong x = FD_LOAD( ulong, rng->buf + (rng->buf_off % FD_CHACHA20RNG_BUFSZ) );
+static inline ulong
+fd_chacha8_rng_ulong( fd_chacha_rng_t * rng ) {
+  if( FD_UNLIKELY( fd_chacha_rng_avail( rng ) < sizeof(ulong) ) )
+    fd_chacha8_rng_private_refill( rng );
+  ulong x = FD_LOAD( ulong, rng->buf + (rng->buf_off % FD_CHACHA_RNG_BUFSZ) );
   rng->buf_off += 8U;
   return x;
 }
 
-/* fd_chacha20rng_ulong_roll returns an uniform IID rand in [0,n)
+static inline ulong
+fd_chacha20_rng_ulong( fd_chacha_rng_t * rng ) {
+  if( FD_UNLIKELY( fd_chacha_rng_avail( rng ) < sizeof(ulong) ) )
+    fd_chacha20_rng_private_refill( rng );
+  ulong x = FD_LOAD( ulong, rng->buf + (rng->buf_off % FD_CHACHA_RNG_BUFSZ) );
+  rng->buf_off += 8U;
+  return x;
+}
+
+/* fd_chacha20_rng_ulong_roll returns an uniform IID rand in [0,n)
    analogous to fd_rng_ulong_roll.  Rejection method based using
-   fd_chacha20rng_ulong.
+   fd_chacha20_rng_ulong.
 
    Compatible with Rust type
    <rand_chacha::ChaCha20Rng as rand::Rng>::gen<rand::distributions::Uniform<u64>>()
@@ -170,8 +186,8 @@ fd_chacha20rng_ulong( fd_chacha20rng_t * rng ) {
    https://docs.rs/rand/latest/rand/distributions/struct.Uniform.html */
 
 static inline ulong
-fd_chacha20rng_ulong_roll( fd_chacha20rng_t * rng,
-                           ulong              n ) {
+fd_chacha20_rng_ulong_roll( fd_chacha_rng_t * rng,
+                           ulong             n ) {
   /* We use a pretty standard rejection-sampling based approach here,
      but for future reference, here's an explanation:
 
@@ -210,12 +226,12 @@ fd_chacha20rng_ulong_roll( fd_chacha20rng_t * rng,
      k*n<=2^64 unless n is a power of two.  This approach eliminates the
      mod calculation but increases the expected number of samples
      required. */
-  ulong const zone = fd_ulong_if( rng->mode==FD_CHACHA20RNG_MODE_MOD,
+  ulong const zone = fd_ulong_if( rng->mode==FD_CHACHA_RNG_MODE_MOD,
                                   ULONG_MAX - (ULONG_MAX-n+1UL)%n,
                                   (n << (63 - fd_ulong_find_msb( n ) )) - 1UL );
 
   for( int i=0; 1; i++ ) {
-    ulong   v   = fd_chacha20rng_ulong( rng );
+    ulong   v   = fd_chacha20_rng_ulong( rng );
 #if FD_HAS_INT128
     /* Compiles to one mulx instruction */
     uint128 res = (uint128)v * (uint128)n;
@@ -226,11 +242,11 @@ fd_chacha20rng_ulong_roll( fd_chacha20rng_t * rng,
     fd_uwide_mul( &hi, &lo, v, n );
 #endif
 
-#   if FD_CHACHA20RNG_DEBUG
+#   if FD_CHACHA_RNG_DEBUG
     FD_LOG_DEBUG(( "roll (attempt %d): n=%016lx zone: %016lx v=%016lx lo=%016lx hi=%016lx", i, n, zone, v, lo, hi ));
 #   else
     (void)i;
-#   endif /* FD_CHACHA20RNG_DEBUG */
+#   endif /* FD_CHACHA_RNG_DEBUG */
 
     if( FD_LIKELY( lo<=zone ) ) return hi;
   }
@@ -238,4 +254,4 @@ fd_chacha20rng_ulong_roll( fd_chacha20rng_t * rng,
 
 FD_PROTOTYPES_END
 
-#endif /* HEADER_fd_src_ballet_chacha20_fd_chacha20rng_h */
+#endif /* HEADER_fd_src_ballet_chacha20_fd_chacha20_rng_h */

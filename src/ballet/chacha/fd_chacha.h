@@ -3,9 +3,9 @@
 
 #include "../fd_ballet_base.h"
 
-/* FD_CHACHA20_BLOCK_SZ is the output size of the ChaCha20 block function. */
+/* FD_CHACHA_BLOCK_SZ is the output size of the ChaCha20 block function. */
 
-#define FD_CHACHA20_BLOCK_SZ (64UL)
+#define FD_CHACHA_BLOCK_SZ (64UL)
 
 /* FD_CHACHA20_KEY_SZ is the size of the ChaCha20 encryption key */
 
@@ -22,6 +22,11 @@ FD_PROTOTYPES_BEGIN
      (16 byte size, 16 byte align)
 
    FIXME this should probably do multiple blocks */
+
+void *
+fd_chacha8_block( void *       block,
+                  void const * key,
+                  void const * idx_nonce );
 
 void *
 fd_chacha20_block( void *       block,

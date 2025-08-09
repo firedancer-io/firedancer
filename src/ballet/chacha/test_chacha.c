@@ -1,5 +1,5 @@
 #include "../fd_ballet.h"
-#include "fd_chacha20.h"
+#include "fd_chacha.h"
 
 
 void
@@ -75,8 +75,8 @@ bench_chacha20_block( void ) {
     fd_chacha20_block( block, key, idx_nonce );
   }
   dt += fd_log_wallclock();
-  double gbps    = ((double)(8UL*FD_CHACHA20_BLOCK_SZ*iter)) / ((double)dt);
-  double ns      = (double)dt / ((double)iter * (double)FD_CHACHA20_BLOCK_SZ);
+  double gbps    = ((double)(8UL*FD_CHACHA_BLOCK_SZ*iter)) / ((double)dt);
+  double ns      = (double)dt / ((double)iter * (double)FD_CHACHA_BLOCK_SZ);
   FD_LOG_NOTICE(( "  ~%6.3f Gbps  / core", gbps ));
   FD_LOG_NOTICE(( "  ~%6.3f ns / byte",    ns   ));
 }
