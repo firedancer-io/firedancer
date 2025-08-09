@@ -1747,3 +1747,13 @@ dynamic_port_range = "8900-9000"
     # production networking stack.
     [development.udpecho]
         affinity = "auto"
+
+    # Experimental options for the gui tile.  These should not be
+    # changed on a production validator.
+    [development.gui]
+        # Enables backend support for websocket compression.  Websocket
+        # messages typically consist of a single websocket text frame
+        # with a header and a json payload.  Enabling this option will
+        # make the backend compress large json payloads with ZSTD stream
+        # compression, sending the compressed payload in a binary frame.
+        websocket_compression = false
