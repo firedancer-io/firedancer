@@ -140,6 +140,13 @@ fd_runtime_fuzz_txn_ctx_create( fd_runtime_fuzz_runner_t *         runner,
     fd_sysvar_last_restart_slot_init( slot_ctx );
   }
 
+  /* Setup vote states dummy account */
+  fd_vote_states_t * vote_states = fd_vote_states_join( fd_vote_states_new( fd_bank_vote_states_locking_modify( slot_ctx->bank ), 10000UL ) );
+  if( FD_UNLIKELY( !vote_states ) ) {
+    return NULL;
+  }
+  fd_bank_vote_states_end_locking_modify( slot_ctx->bank );
+
   /* Provide a default clock if not present */
   fd_sol_sysvar_clock_t clock_[1];
   fd_sol_sysvar_clock_t const * clock = fd_sysvar_clock_read( funk, funk_txn, clock_ );

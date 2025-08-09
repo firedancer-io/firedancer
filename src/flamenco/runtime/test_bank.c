@@ -7,7 +7,7 @@ main( int argc, char ** argv ) {
   char *      _page_sz = "gigantic";
   ulong       numa_idx = fd_shmem_numa_idx( 0 );
   fd_wksp_t * wksp     = fd_wksp_new_anonymous( fd_cstr_to_shmem_page_sz( _page_sz ),
-                                                20UL,
+                                                25UL,
                                                 fd_shmem_cpu_idx( numa_idx ),
                                                 "wksp",
                                                 0UL );
@@ -181,14 +181,13 @@ main( int argc, char ** argv ) {
   keys->magic = 101UL;
   fd_bank_stake_delegations_end_locking_modify( bank11 );
 
-  fd_clock_timestamp_votes_global_t const * votes_const = fd_bank_clock_timestamp_votes_locking_query( bank11 );
+  fd_vote_states_t const * votes_const = fd_bank_vote_states_locking_query( bank11 );
   FD_TEST( !votes_const );
-  fd_bank_clock_timestamp_votes_end_locking_query( bank11 );
+  fd_bank_vote_states_end_locking_query( bank11 );
 
-  fd_clock_timestamp_votes_global_t * votes = fd_bank_clock_timestamp_votes_locking_modify( bank11 );
-  votes->votes_pool_offset = 102UL;
-  votes->votes_root_offset = 102UL;
-  fd_bank_clock_timestamp_votes_end_locking_modify( bank11 );
+  fd_vote_states_t * votes = fd_bank_vote_states_locking_modify( bank11 );
+  votes->magic = 102UL;
+  fd_bank_vote_states_end_locking_modify( bank11 );
 
   /* Now there should be 3 forks:
      1. 7 (1234) -> 8
@@ -217,10 +216,9 @@ main( int argc, char ** argv ) {
   FD_TEST( keys4->magic == 101UL );
   fd_bank_stake_delegations_end_locking_query( bank11 );
 
-  votes_const = fd_bank_clock_timestamp_votes_locking_query( bank11 );
-  FD_TEST( votes->votes_pool_offset == 102UL );
-  FD_TEST( votes->votes_root_offset == 102UL );
-  fd_bank_clock_timestamp_votes_end_locking_query( bank11 );
+  votes_const = fd_bank_vote_states_locking_query( bank11 );
+  FD_TEST( votes->magic == 102UL );
+  fd_bank_vote_states_end_locking_query( bank11 );
 
   /* Clear bank11, we need to make sure that the pool indices are
      cleared and properly released.
@@ -243,9 +241,9 @@ main( int argc, char ** argv ) {
   FD_TEST( keys4->magic == 101UL );
   fd_bank_stake_delegations_end_locking_query( bank11 );
 
-  votes_const = fd_bank_clock_timestamp_votes_locking_query( bank11 );
+  votes_const = fd_bank_vote_states_locking_query( bank11 );
   FD_TEST( !votes_const );
-  fd_bank_clock_timestamp_votes_end_locking_query( bank11 );
+  fd_bank_vote_states_end_locking_query( bank11 );
 
   FD_TEST( fd_banks_leave( banks ) );
   FD_TEST( fd_banks_join( fd_banks_leave( banks ) ) == banks );

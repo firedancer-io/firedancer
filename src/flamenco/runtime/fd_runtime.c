@@ -130,25 +130,15 @@ fd_runtime_update_leaders( fd_bank_t * bank,
 
   fd_epoch_schedule_t const * epoch_schedule = fd_bank_epoch_schedule_query( bank );
 
-  fd_vote_accounts_global_t const *          epoch_vaccs   = fd_bank_epoch_stakes_locking_query( bank );
-  fd_vote_accounts_pair_global_t_mapnode_t * vote_acc_pool = fd_vote_accounts_vote_accounts_pool_join( epoch_vaccs );
-  fd_vote_accounts_pair_global_t_mapnode_t * vote_acc_root = fd_vote_accounts_vote_accounts_root_join( epoch_vaccs );
-
   ulong epoch    = fd_slot_to_epoch ( epoch_schedule, slot, NULL );
   ulong slot0    = fd_epoch_slot0   ( epoch_schedule, epoch );
   ulong slot_cnt = fd_epoch_slot_cnt( epoch_schedule, epoch );
 
-  fd_runtime_update_slots_per_epoch( bank, fd_epoch_slot_cnt( epoch_schedule, epoch ) );
-
-  ulong vote_acc_cnt  = fd_vote_accounts_pair_global_t_map_size( vote_acc_pool, vote_acc_root );
-  fd_bank_epoch_stakes_end_locking_query( bank );
-
+  fd_vote_states_t const * vote_states_prev_prev = fd_bank_vote_states_prev_prev_locking_query( bank );
+  ulong vote_acc_cnt = fd_vote_states_cnt( vote_states_prev_prev ) ;
   fd_vote_stake_weight_t * epoch_weights = fd_spad_alloc_check( runtime_spad, alignof(fd_vote_stake_weight_t), vote_acc_cnt * sizeof(fd_vote_stake_weight_t) );
-  ulong stake_weight_cnt = fd_stake_weights_by_node( epoch_vaccs, epoch_weights );
-
-  if( FD_UNLIKELY( stake_weight_cnt == ULONG_MAX ) ) {
-    FD_LOG_ERR(( "fd_stake_weights_by_node() failed" ));
-  }
+  ulong stake_weight_cnt = fd_stake_weights_by_node_2( vote_states_prev_prev, epoch_weights );
+  fd_bank_vote_states_prev_prev_end_locking_query( bank );
 
   /* Derive leader schedule */
 
@@ -165,21 +155,25 @@ fd_runtime_update_leaders( fd_bank_t * bank,
 
     ulong vote_keyed_lsched = (ulong)fd_runtime_should_use_vote_keyed_leader_schedule( bank );
     void * epoch_leaders_mem = fd_bank_epoch_leaders_locking_modify( bank );
-    fd_epoch_leaders_t * leaders = fd_epoch_leaders_join( fd_epoch_leaders_new( epoch_leaders_mem,
-                                                                                           epoch,
-                                                                                           slot0,
-                                                                                           slot_cnt,
-                                                                                           stake_weight_cnt,
-                                                                                           epoch_weights,
-                                                                                           0UL,
-                                                                                           vote_keyed_lsched ) );
-    fd_bank_epoch_leaders_end_locking_modify( bank );
+    fd_epoch_leaders_t * leaders = fd_epoch_leaders_join( fd_epoch_leaders_new(
+        epoch_leaders_mem,
+        epoch,
+        slot0,
+        slot_cnt,
+        stake_weight_cnt,
+        epoch_weights,
+        0UL,
+        vote_keyed_lsched ) );
     if( FD_UNLIKELY( !leaders ) ) {
       FD_LOG_ERR(( "Unable to init and join fd_epoch_leaders" ));
     }
+    FD_TEST( leaders );
+    fd_bank_epoch_leaders_end_locking_modify( bank );
   }
-
   } FD_SPAD_FRAME_END;
+
+  FD_TEST( fd_bank_epoch_leaders_locking_query( bank ) );
+  fd_bank_epoch_leaders_end_locking_query( bank );
 }
 
 /******************************************************************************/
@@ -544,191 +538,6 @@ fd_runtime_block_sysvar_update_pre_execute( fd_exec_slot_ctx_t * slot_ctx,
 
   return 0;
 }
-
-// int
-// fd_runtime_microblock_verify_ticks( fd_blockstore_t *           blockstore,
-//                                     ulong                       slot,
-//                                     fd_microblock_hdr_t const * hdr,
-//                                     bool               slot_complete,
-//                                     ulong              tick_height,
-//                                     ulong              max_tick_height,
-//                                     ulong              hashes_per_tick ) {
-//   ulong invalid_tick_hash_count = 0UL;
-//   ulong has_trailing_entry      = 0UL;
-
-//   /*
-//     In order to mimic the order of checks in Agave,
-//     we cache the results of some checks but do not immediately return
-//     an error.
-//   */
-//   fd_block_map_query_t quer[1];
-//   int err = fd_block_map_prepare( blockstore->block_map, &slot, NULL, quer, FD_MAP_FLAG_BLOCKING );
-//   fd_block_info_t * query = fd_block_map_query_ele( quer );
-//   if( FD_UNLIKELY( err || query->slot != slot ) ) {
-//     FD_LOG_ERR(( "fd_runtime_microblock_verify_ticks: fd_block_map_prepare on %lu failed", slot ));
-//   }
-
-//   query->tick_hash_count_accum = fd_ulong_sat_add( query->tick_hash_count_accum, hdr->hash_cnt );
-//   if( hdr->txn_cnt == 0UL ) {
-//     query->ticks_consumed++;
-//     if( FD_LIKELY( hashes_per_tick > 1UL ) ) {
-//       if( FD_UNLIKELY( query->tick_hash_count_accum != hashes_per_tick ) ) {
-//         FD_LOG_WARNING(( "tick_hash_count %lu hashes_per_tick %lu tick_count %lu", query->tick_hash_count_accum, hashes_per_tick, query->ticks_consumed ));
-//         invalid_tick_hash_count = 1U;
-//       }
-//     }
-//     query->tick_hash_count_accum = 0UL;
-//   } else {
-//     /* This wasn't a tick entry, but it's the last entry. */
-//     if( FD_UNLIKELY( slot_complete ) ) {
-//       FD_LOG_WARNING(( "last has %lu transactions expects 0", hdr->txn_cnt ));
-//       has_trailing_entry = 1U;
-//     }
-//   }
-
-//   ulong next_tick_height = tick_height + query->ticks_consumed;
-//   fd_block_map_publish( quer );
-
-//   if( FD_UNLIKELY( next_tick_height > max_tick_height ) ) {
-//     FD_LOG_WARNING(( "Too many ticks tick_height %lu max_tick_height %lu hashes_per_tick %lu tick_count %lu", tick_height, max_tick_height, hashes_per_tick, query->ticks_consumed ));
-//     return FD_BLOCK_ERR_TOO_MANY_TICKS;
-//   }
-//   if( FD_UNLIKELY( slot_complete && next_tick_height < max_tick_height ) ) {
-//     FD_LOG_WARNING(( "Too few ticks" ));
-//     return FD_BLOCK_ERR_TOO_FEW_TICKS;
-//   }
-//   if( FD_UNLIKELY( slot_complete && has_trailing_entry ) ) {
-//     FD_LOG_WARNING(( "Did not end with a tick" ));
-//     return FD_BLOCK_ERR_TRAILING_ENTRY;
-//   }
-
-//   /* Not returning FD_BLOCK_ERR_INVALID_LAST_TICK because we assume the
-//      slot is full. */
-
-//   /* Don't care about low power hashing or no hashing. */
-//   if( FD_LIKELY( hashes_per_tick > 1UL ) ) {
-//     if( FD_UNLIKELY( invalid_tick_hash_count ) ) {
-//       FD_LOG_WARNING(( "Tick with invalid number of hashes found" ));
-//       return FD_BLOCK_ERR_INVALID_TICK_HASH_COUNT;
-//     }
-//   }
-//   return FD_BLOCK_OK;
-// }
-
-// /* A streaming version of this by batch is implemented in batch_verify_ticks.
-//    This block_verify_ticks should only used for offline replay. */
-// ulong
-// fd_runtime_block_verify_ticks( fd_blockstore_t * blockstore,
-//                                ulong             slot,
-//                                uchar *           block_data,
-//                                ulong             block_data_sz,
-//                                ulong             tick_height,
-//                                ulong             max_tick_height,
-//                                ulong             hashes_per_tick ) {
-//   ulong tick_count              = 0UL;
-//   ulong tick_hash_count         = 0UL;
-//   ulong has_trailing_entry      = 0UL;
-//   uchar invalid_tick_hash_count = 0U;
-//   /*
-//     Iterate over microblocks/entries to
-//     (1) count the number of ticks
-//     (2) check whether the last entry is a tick
-//     (3) check whether ticks align with hashes per tick
-
-//     This precomputes everything we need in a single loop over the array.
-//     In order to mimic the order of checks in Agave,
-//     we cache the results of some checks but do not immediately return
-//     an error.
-//    */
-//   ulong slot_complete_idx = FD_SHRED_IDX_NULL;
-//   fd_block_set_t data_complete_idxs[FD_SHRED_BLK_MAX / sizeof(ulong)];
-//   int err = FD_MAP_ERR_AGAIN;
-//   while( err == FD_MAP_ERR_AGAIN ) {
-//     fd_block_map_query_t quer[1] = {0};
-//     err = fd_block_map_query_try( blockstore->block_map, &slot, NULL, quer, 0 );
-//     fd_block_info_t * query = fd_block_map_query_ele( quer );
-//     if( FD_UNLIKELY( err == FD_MAP_ERR_AGAIN ) )continue;
-//     if( FD_UNLIKELY( err == FD_MAP_ERR_KEY ) ) FD_LOG_ERR(( "fd_runtime_block_verify_ticks: fd_block_map_query_try failed" ));
-//     slot_complete_idx = query->slot_complete_idx;
-//     fd_memcpy( data_complete_idxs, query->data_complete_idxs, sizeof(data_complete_idxs) );
-//     err = fd_block_map_query_test( quer );
-//   }
-
-//   uint   batch_cnt = 0;
-//   ulong  batch_idx = 0;
-//   while ( batch_idx <= slot_complete_idx ) {
-//     batch_cnt++;
-//     ulong batch_sz = 0;
-//     uint  end_idx  = (uint)fd_block_set_const_iter_next( data_complete_idxs, batch_idx - 1 );
-//     FD_TEST( fd_blockstore_slice_query( blockstore, slot, (uint) batch_idx, end_idx, block_data_sz, block_data, &batch_sz ) == FD_BLOCKSTORE_SUCCESS );
-//     ulong micro_cnt = FD_LOAD( ulong, block_data );
-//     ulong off       = sizeof(ulong);
-//     for( ulong i = 0UL; i < micro_cnt; i++ ){
-//       fd_microblock_hdr_t const * hdr = fd_type_pun_const( ( block_data + off ) );
-//       off += sizeof(fd_microblock_hdr_t);
-//       tick_hash_count = fd_ulong_sat_add( tick_hash_count, hdr->hash_cnt );
-//       if( hdr->txn_cnt == 0UL ){
-//         tick_count++;
-//         if( FD_LIKELY( hashes_per_tick > 1UL ) ) {
-//           if( FD_UNLIKELY( tick_hash_count != hashes_per_tick ) ) {
-//             FD_LOG_WARNING(( "tick_hash_count %lu hashes_per_tick %lu tick_count %lu i %lu micro_cnt %lu", tick_hash_count, hashes_per_tick, tick_count, i, micro_cnt ));
-//             invalid_tick_hash_count = 1U;
-//           }
-//         }
-//         tick_hash_count = 0UL;
-//         continue;
-//       }
-//       /* This wasn't a tick entry, but it's the last entry. */
-//       if( FD_UNLIKELY( i == micro_cnt - 1UL ) ) {
-//         has_trailing_entry = batch_cnt;
-//       }
-
-//       /* seek past txns */
-//       uchar txn[FD_TXN_MAX_SZ];
-//       for( ulong j = 0; j < hdr->txn_cnt; j++ ) {
-//         ulong pay_sz = 0;
-//         ulong txn_sz = fd_txn_parse_core( block_data + off, fd_ulong_min( batch_sz - off, FD_TXN_MTU ), txn, NULL, &pay_sz );
-//         if( FD_UNLIKELY( !pay_sz ) ) FD_LOG_ERR(( "failed to parse transaction %lu in microblock %lu in slot %lu", j, i, slot ) );
-//         if( FD_UNLIKELY( !txn_sz || txn_sz > FD_TXN_MTU )) FD_LOG_ERR(( "failed to parse transaction %lu in microblock %lu in slot %lu. txn size: %lu", j, i, slot, txn_sz ));
-//         off += pay_sz;
-//       }
-//     }
-//     /* advance batch iterator */
-//     if( FD_UNLIKELY( batch_cnt == 1 ) ){ /* first batch */
-//       batch_idx = fd_block_set_const_iter_init( data_complete_idxs ) + 1;
-//     } else {
-//       batch_idx = fd_block_set_const_iter_next( data_complete_idxs, batch_idx - 1 ) + 1;
-//     }
-//   }
-
-//   ulong next_tick_height = tick_height + tick_count;
-//   if( FD_UNLIKELY( next_tick_height > max_tick_height ) ) {
-//     FD_LOG_WARNING(( "Too many ticks tick_height %lu max_tick_height %lu hashes_per_tick %lu tick_count %lu", tick_height, max_tick_height, hashes_per_tick, tick_count ));
-//     FD_LOG_WARNING(( "Too many ticks" ));
-//     return FD_BLOCK_ERR_TOO_MANY_TICKS;
-//   }
-//   if( FD_UNLIKELY( next_tick_height < max_tick_height ) ) {
-//     FD_LOG_WARNING(( "Too few ticks" ));
-//     return FD_BLOCK_ERR_TOO_FEW_TICKS;
-//   }
-//   if( FD_UNLIKELY( has_trailing_entry == batch_cnt ) ) {
-//     FD_LOG_WARNING(( "Did not end with a tick" ));
-//     return FD_BLOCK_ERR_TRAILING_ENTRY;
-//   }
-
-//   /* Not returning FD_BLOCK_ERR_INVALID_LAST_TICK because we assume the
-//      slot is full. */
-
-//   /* Don't care about low power hashing or no hashing. */
-//   if( FD_LIKELY( hashes_per_tick > 1UL ) ) {
-//     if( FD_UNLIKELY( invalid_tick_hash_count ) ) {
-//       FD_LOG_WARNING(( "Tick with invalid number of hashes found" ));
-//       return FD_BLOCK_ERR_INVALID_TICK_HASH_COUNT;
-//     }
-//   }
-
-//   return FD_BLOCK_OK;
-// }
 
 int
 fd_runtime_load_txn_address_lookup_tables(
@@ -1345,7 +1154,6 @@ void
 fd_runtime_finalize_txn( fd_funk_t *         funk,
                          fd_funk_txn_t *     funk_txn,
                          fd_exec_txn_ctx_t * txn_ctx,
-                         fd_spad_t *         finalize_spad,
                          fd_bank_t *         bank,
                          fd_capture_ctx_t *  capture_ctx ) {
 
@@ -1402,38 +1210,6 @@ fd_runtime_finalize_txn( fd_funk_t *         funk,
 
       if( dirty_vote_acc && 0==memcmp( fd_txn_account_get_owner( acc_rec ), &fd_solana_vote_program_id, sizeof(fd_pubkey_t) ) ) {
         fd_vote_store_account( acc_rec, bank );
-        FD_SPAD_FRAME_BEGIN( finalize_spad ) {
-          int err;
-          fd_vote_state_versioned_t * vsv = fd_bincode_decode_spad(
-              vote_state_versioned, finalize_spad,
-              fd_txn_account_get_data( acc_rec ),
-              fd_txn_account_get_data_len( acc_rec ),
-              &err );
-          if( FD_UNLIKELY( err ) ) {
-            FD_LOG_WARNING(( "failed to decode vote state versioned" ));
-            continue;
-          }
-
-          fd_vote_block_timestamp_t const * ts = NULL;
-          switch( vsv->discriminant ) {
-          case fd_vote_state_versioned_enum_v0_23_5:
-            ts = &vsv->inner.v0_23_5.last_timestamp;
-            break;
-          case fd_vote_state_versioned_enum_v1_14_11:
-            ts = &vsv->inner.v1_14_11.last_timestamp;
-            break;
-          case fd_vote_state_versioned_enum_current:
-            ts = &vsv->inner.current.last_timestamp;
-            break;
-          default:
-            __builtin_unreachable();
-          }
-
-          fd_vote_record_timestamp_vote_with_slot( acc_rec->pubkey,
-                                                   ts->timestamp,
-                                                   ts->slot,
-                                                   bank );
-        } FD_SPAD_FRAME_END;
       }
 
       if( dirty_stake_acc && 0==memcmp( fd_txn_account_get_owner( acc_rec ), &fd_solana_stake_program_id, sizeof(fd_pubkey_t) ) ) {
@@ -1589,34 +1365,22 @@ fd_runtime_prepare_and_execute_txn( fd_banks_t *        banks,
 static void
 fd_update_epoch_stakes( fd_exec_slot_ctx_t * slot_ctx ) {
 
-  /* Copy epoch_bank->next_epoch_stakes into fd_bank_slot_get( slot_ctx->bank )_bank.epoch_stakes */
-  fd_vote_accounts_global_t const * next_epoch_stakes = fd_bank_next_epoch_stakes_locking_query( slot_ctx->bank );
-
-  fd_vote_accounts_global_t * epoch_stakes = fd_bank_epoch_stakes_locking_modify( slot_ctx->bank );
-  fd_memcpy( epoch_stakes, next_epoch_stakes, fd_bank_epoch_stakes_footprint );
-  fd_bank_epoch_stakes_end_locking_modify( slot_ctx->bank );
-
-  fd_bank_next_epoch_stakes_end_locking_query( slot_ctx->bank );
-
+  fd_vote_states_t *       vote_states_prev_prev = fd_bank_vote_states_prev_prev_locking_modify( slot_ctx->bank );
+  fd_vote_states_t const * vote_states_prev      = fd_bank_vote_states_prev_locking_query( slot_ctx->bank );
+  fd_memcpy( vote_states_prev_prev, vote_states_prev, fd_bank_vote_states_footprint );
+  fd_bank_vote_states_prev_prev_end_locking_modify( slot_ctx->bank );
+  fd_bank_vote_states_prev_end_locking_query( slot_ctx->bank );
 }
 
 /* Copy stakes->vote_accounts into next_epoch_stakes. */
 static void
 fd_update_next_epoch_stakes( fd_exec_slot_ctx_t * slot_ctx ) {
 
-  /* FIXME: This is technically not correct, since the vote accounts
-     could be laid out after the stake delegations from fd_stakes.
-     The correct solution is to split out the stake delgations from the
-     vote accounts in fd_stakes. */
-
-  /* Copy stakes->vote_accounts into next_epoch_stakes */
-  fd_vote_accounts_global_t const * vote_stakes = fd_bank_curr_epoch_stakes_locking_query( slot_ctx->bank );
-
-  fd_vote_accounts_global_t * next_epoch_stakes = fd_bank_next_epoch_stakes_locking_modify( slot_ctx->bank );
-  fd_memcpy( next_epoch_stakes, vote_stakes, fd_bank_next_epoch_stakes_footprint );
-  fd_bank_next_epoch_stakes_end_locking_modify( slot_ctx->bank );
-
-  fd_bank_curr_epoch_stakes_end_locking_query( slot_ctx->bank );
+  fd_vote_states_t *       vote_states_prev = fd_bank_vote_states_prev_locking_modify( slot_ctx->bank );
+  fd_vote_states_t const * vote_states      = fd_bank_vote_states_locking_query( slot_ctx->bank );
+  fd_memcpy( vote_states_prev, vote_states, fd_bank_vote_states_footprint );
+  fd_bank_vote_states_prev_end_locking_modify( slot_ctx->bank );
+  fd_bank_vote_states_end_locking_query( slot_ctx->bank );
 }
 
 /* Mimics bank.new_target_program_account(). Assumes out_rec is a
@@ -2219,9 +1983,6 @@ fd_runtime_process_new_epoch( fd_exec_slot_ctx_t * slot_ctx,
     new_rate_activation_epoch = NULL;
   }
 
-  fd_epoch_info_t temp_info = {0};
-  fd_epoch_info_new( &temp_info );
-
   /* If appropiate, use the stakes at T-1 to generate the leader schedule instead of T-2.
       This is due to a subtlety in how Agave's stake caches interact when loading from snapshots.
       See the comment in fd_exec_slot_ctx_recover_. */
@@ -2231,11 +1992,7 @@ fd_runtime_process_new_epoch( fd_exec_slot_ctx_t * slot_ctx,
   }
 
   /* Updates stake history sysvar accumulated values. */
-  fd_stakes_activate_epoch(
-      slot_ctx,
-      new_rate_activation_epoch,
-      &temp_info,
-      runtime_spad );
+  fd_stakes_activate_epoch( slot_ctx, new_rate_activation_epoch, runtime_spad );
 
   /* Refresh vote accounts in stakes cache using updated stake weights, and merges slot bank vote accounts with the epoch bank vote accounts.
     https://github.com/anza-xyz/agave/blob/v2.1.6/runtime/src/stakes.rs#L363-L370 */
@@ -2247,9 +2004,7 @@ fd_runtime_process_new_epoch( fd_exec_slot_ctx_t * slot_ctx,
   /* FIXME: There are allocations made in here that are persisted. */
   fd_refresh_vote_accounts( slot_ctx,
                             history,
-                            new_rate_activation_epoch,
-                            &temp_info,
-                            runtime_spad );
+                            new_rate_activation_epoch );
 
   /* Distribute rewards */
 
@@ -2265,7 +2020,6 @@ fd_runtime_process_new_epoch( fd_exec_slot_ctx_t * slot_ctx,
                                 slot_ctx->capture_ctx,
                                 &parent_blockhash,
                                 parent_epoch,
-                                &temp_info,
                                 runtime_spad );
 
   /* Replace stakes at T-2 (epoch_stakes) by stakes at T-1 (next_epoch_stakes) */
@@ -2428,10 +2182,8 @@ fd_runtime_init_bank_from_genesis( fd_exec_slot_ctx_t *        slot_ctx,
   fd_stake_delegations_t * stake_delegations = fd_stake_delegations_join( fd_stake_delegations_new( fd_bank_stake_delegations_locking_modify( slot_ctx->bank ), 5000UL ) );
   FD_TEST( stake_delegations );
 
-  fd_vote_accounts_global_t * vote_accounts = fd_bank_curr_epoch_stakes_locking_modify( slot_ctx->bank );
-  uchar * vacc_pool_mem = (uchar *)fd_ulong_align_up( (ulong)vote_accounts + sizeof(fd_vote_accounts_global_t), fd_vote_accounts_pair_global_t_map_align() );
-  fd_vote_accounts_pair_global_t_mapnode_t * vacc_pool = fd_vote_accounts_pair_global_t_map_join( fd_vote_accounts_pair_global_t_map_new( vacc_pool_mem, 5000UL ) );
-  fd_vote_accounts_pair_global_t_mapnode_t * vacc_root = NULL;
+  fd_vote_states_t * vote_states = fd_vote_states_join( fd_vote_states_new( fd_bank_vote_states_locking_modify( slot_ctx->bank ), 5000UL ) );
+  FD_TEST( vote_states );
 
   fd_acc_lamports_t capitalization = 0UL;
 
@@ -2444,27 +2196,8 @@ fd_runtime_init_bank_from_genesis( fd_exec_slot_ctx_t *        slot_ctx,
     capitalization = fd_ulong_sat_add( capitalization, acc->account.lamports );
 
     if( !memcmp(acc->account.owner.key, fd_solana_vote_program_id.key, sizeof(fd_pubkey_t)) ) {
-      /* Vote Program Account */
-      fd_vote_accounts_pair_global_t_mapnode_t * node = fd_vote_accounts_pair_global_t_map_acquire(vacc_pool);
-      FD_TEST( node );
 
-      fd_memcpy(node->elem.key.key, acc->key.key, sizeof(fd_pubkey_t));
-      node->elem.stake = acc->account.lamports;
-      node->elem.value = (fd_solana_account_global_t){
-        .lamports = acc->account.lamports,
-        .data_len = acc->account.data_len,
-        .data_offset = 0UL, /* FIXME: remove this field from the cache altogether. */
-        .owner = acc->account.owner,
-        .executable = acc->account.executable,
-        .rent_epoch = acc->account.rent_epoch
-      };
-      fd_solana_account_data_update( &node->elem.value, acc->account.data );
-
-      fd_vote_accounts_pair_global_t_map_insert( vacc_pool, &vacc_root, node );
-
-      FD_LOG_INFO(( "Adding genesis vote account: key=%s stake=%lu",
-                    FD_BASE58_ENC_32_ALLOCA( node->elem.key.key ),
-                    node->elem.stake ));
+      fd_vote_states_update_from_account( vote_states, &acc->key, acc->account.data, acc->account.data_len );
     } else if( !memcmp( acc->account.owner.key, fd_solana_stake_program_id.key, sizeof(fd_pubkey_t) ) ) {
       FD_SPAD_FRAME_BEGIN( runtime_spad ) {
 
@@ -2538,97 +2271,30 @@ fd_runtime_init_bank_from_genesis( fd_exec_slot_ctx_t *        slot_ctx,
     }
   }
 
-  fd_vote_accounts_global_t * epoch_stakes = fd_bank_epoch_stakes_locking_modify( slot_ctx->bank );
-  uchar * pool_mem = (uchar *)fd_ulong_align_up( (ulong)epoch_stakes + sizeof(fd_vote_accounts_global_t), fd_vote_accounts_pair_t_map_align() );
-  fd_vote_accounts_pair_global_t_mapnode_t * vote_accounts_pool = fd_vote_accounts_pair_global_t_map_join( fd_vote_accounts_pair_global_t_map_new( pool_mem, 50000UL ) );
-  fd_vote_accounts_pair_global_t_mapnode_t * vote_accounts_root = NULL;
-
-  uchar * epoch_stakes_vote_acc_region_curr = (uchar *)fd_ulong_align_up( (ulong)vote_accounts_pool + fd_vote_accounts_pair_global_t_map_footprint( 50000UL ), 8UL );
-
-  fd_vote_accounts_global_t * next_epoch_stakes = fd_bank_next_epoch_stakes_locking_modify( slot_ctx->bank );
-  uchar * next_pool_mem = (uchar *)fd_ulong_align_up( (ulong)next_epoch_stakes + sizeof(fd_vote_accounts_global_t), fd_vote_accounts_pair_t_map_align() );
-  fd_vote_accounts_pair_global_t_mapnode_t * next_pool = fd_vote_accounts_pair_global_t_map_join( fd_vote_accounts_pair_global_t_map_new( next_pool_mem, 50000UL ) );
-  fd_vote_accounts_pair_global_t_mapnode_t * next_root = NULL;
-
-  uchar * next_epoch_stakes_acc_region_curr = (uchar *)fd_ulong_align_up( (ulong)next_pool + fd_vote_accounts_pair_global_t_map_footprint( 50000UL ), 8UL );
+  fd_vote_states_t * vote_states_prev_prev = fd_vote_states_join( fd_vote_states_new( fd_bank_vote_states_prev_prev_locking_modify( slot_ctx->bank ), FD_RUNTIME_MAX_VOTE_ACCOUNTS ) );
+  fd_vote_states_t * vote_states_prev = fd_vote_states_join( fd_vote_states_new( fd_bank_vote_states_prev_locking_modify( slot_ctx->bank ), FD_RUNTIME_MAX_VOTE_ACCOUNTS ) );
 
   for( ulong i=0UL; i<genesis_block->accounts_len; i++ ) {
     fd_pubkey_account_pair_t const * acc = &genesis_block->accounts[i];
 
     if( !memcmp( acc->account.owner.key, fd_solana_vote_program_id.key, sizeof(fd_pubkey_t) ) ) {
 
-      /* Insert into the epoch_stakes vote accounts map */
-      fd_vote_accounts_pair_global_t_mapnode_t * e = fd_vote_accounts_pair_global_t_map_acquire( vote_accounts_pool );
-      FD_TEST( e );
-      e->elem.key = acc->key;
-      e->elem.stake = acc->account.lamports;
-      e->elem.value = (fd_solana_account_global_t){
-        .lamports = acc->account.lamports,
-        .data_len = acc->account.data_len,
-        .data_offset = 0UL, /* FIXME: remove this field from the cache altogether. */
-        .owner = acc->account.owner,
-        .executable = acc->account.executable,
-        .rent_epoch = acc->account.rent_epoch
-      };
-
-      memcpy( epoch_stakes_vote_acc_region_curr, acc->account.data, acc->account.data_len );
-      e->elem.value.data_offset = (ulong)(epoch_stakes_vote_acc_region_curr - (uchar *)&e->elem.value);
-      epoch_stakes_vote_acc_region_curr += acc->account.data_len;
-
-      fd_vote_accounts_pair_global_t_map_insert( vote_accounts_pool, &vote_accounts_root, e );
-
-      /* Insert into the next_epoch_stakes vote accounts map */
-      /* FIXME: is this correct? */
-      fd_vote_accounts_pair_global_t_mapnode_t * next_e = fd_vote_accounts_pair_global_t_map_acquire( next_pool );
-      FD_TEST( next_e );
-      next_e->elem.key = acc->key;
-      next_e->elem.stake = acc->account.lamports;
-      next_e->elem.value = (fd_solana_account_global_t){
-        .lamports = acc->account.lamports,
-        .data_len = acc->account.data_len,
-        .data_offset = 0UL, /* FIXME: remove this field from the cache altogether. */
-        .owner = acc->account.owner,
-        .executable = acc->account.executable,
-        .rent_epoch = acc->account.rent_epoch
-      };
-
-      memcpy( next_epoch_stakes_acc_region_curr, acc->account.data, acc->account.data_len );
-      next_e->elem.value.data_offset = (ulong)(next_epoch_stakes_acc_region_curr - (uchar *)&next_e->elem.value);
-      next_epoch_stakes_acc_region_curr += acc->account.data_len;
-
-      fd_vote_accounts_pair_global_t_map_insert( next_pool, &next_root, next_e );
+      fd_vote_states_update_from_account( vote_states_prev_prev, &acc->key, acc->account.data, acc->account.data_len );
+      fd_vote_states_update_from_account( vote_states_prev, &acc->key, acc->account.data, acc->account.data_len );
     }
-
   }
 
-  fd_vote_accounts_vote_accounts_pool_update( epoch_stakes, vote_accounts_pool );
-  fd_vote_accounts_vote_accounts_root_update( epoch_stakes, vote_accounts_root );
-
-
-  fd_vote_accounts_vote_accounts_pool_update( next_epoch_stakes, next_pool );
-  fd_vote_accounts_vote_accounts_root_update( next_epoch_stakes, next_root );
-
-  fd_bank_epoch_stakes_end_locking_modify( slot_ctx->bank );
-
-  fd_bank_next_epoch_stakes_end_locking_modify( slot_ctx->bank );
+  fd_bank_vote_states_prev_prev_end_locking_modify( slot_ctx->bank );
+  fd_bank_vote_states_prev_end_locking_modify( slot_ctx->bank );
 
 
   fd_bank_epoch_set( slot_ctx->bank, 0UL );
 
-  fd_vote_accounts_vote_accounts_pool_update( vote_accounts, vacc_pool );
-  fd_vote_accounts_vote_accounts_root_update( vote_accounts, vacc_root );
-  fd_bank_curr_epoch_stakes_end_locking_modify( slot_ctx->bank );
+  fd_bank_vote_states_end_locking_modify( slot_ctx->bank );
 
   fd_bank_stake_delegations_end_locking_modify( slot_ctx->bank );
 
   fd_bank_capitalization_set( slot_ctx->bank, capitalization );
-
-  fd_clock_timestamp_votes_global_t * clock_timestamp_votes = fd_bank_clock_timestamp_votes_locking_modify( slot_ctx->bank );
-  uchar * clock_pool_mem = (uchar *)fd_ulong_align_up( (ulong)clock_timestamp_votes + sizeof(fd_clock_timestamp_votes_global_t), fd_clock_timestamp_vote_t_map_align() );
-  fd_clock_timestamp_vote_t_mapnode_t * clock_pool = fd_clock_timestamp_vote_t_map_join( fd_clock_timestamp_vote_t_map_new(clock_pool_mem, 30000UL ) );
-  clock_timestamp_votes->votes_pool_offset = (ulong)fd_clock_timestamp_vote_t_map_leave( clock_pool) - (ulong)clock_timestamp_votes;
-  clock_timestamp_votes->votes_root_offset = 0UL;
-  fd_bank_clock_timestamp_votes_end_locking_modify( slot_ctx->bank );
 }
 
 static int

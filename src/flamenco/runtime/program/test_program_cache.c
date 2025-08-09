@@ -635,7 +635,7 @@ main( int     argc,
   FD_LOG_NOTICE(( "Starting BPF program cache tests" ));
 
     /* Create workspace */
-  test_wksp = fd_wksp_new_anonymous( FD_SHMEM_GIGANTIC_PAGE_SZ, 2UL, fd_log_cpu_id(), "test_wksp", 0UL );
+  test_wksp = fd_wksp_new_anonymous( FD_SHMEM_GIGANTIC_PAGE_SZ, 3UL, fd_log_cpu_id(), "test_wksp", 0UL );
   FD_TEST( test_wksp );
 
   /* Create funk */
@@ -709,7 +709,7 @@ main( int     argc,
 
   test_teardown();
 
-  FD_LOG_NOTICE(( "All BPF program cache tests passed" ));
+  FD_LOG_NOTICE(( "pass" ));
   fd_halt();
   return 0;
 }

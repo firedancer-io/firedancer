@@ -36,6 +36,26 @@ generate_stake_weight_msg( fd_exec_slot_ctx_t *              slot_ctx,
 }
 
 static inline ulong
+generate_stake_weight_msg_2( fd_exec_slot_ctx_t *              slot_ctx,
+                             ulong                             epoch,
+                             fd_vote_states_t const *          vote_states,
+                             ulong *                           stake_weight_msg_out ) {
+  fd_stake_weight_msg_t *     stake_weight_msg = (fd_stake_weight_msg_t *)fd_type_pun( stake_weight_msg_out );
+  fd_vote_stake_weight_t *    stake_weights    = stake_weight_msg->weights;
+  ulong                       staked_cnt       = fd_stake_weights_by_node_2( vote_states, stake_weights );
+  fd_epoch_schedule_t const * epoch_schedule = fd_bank_epoch_schedule_query( slot_ctx->bank );
+
+  stake_weight_msg->epoch          = epoch;
+  stake_weight_msg->staked_cnt     = staked_cnt;
+  stake_weight_msg->start_slot     = fd_epoch_slot0( epoch_schedule, stake_weight_msg_out[0] );
+  stake_weight_msg->slot_cnt       = epoch_schedule->slots_per_epoch;
+  stake_weight_msg->excluded_stake = 0UL;
+  stake_weight_msg->vote_keyed_lsched = (ulong)fd_runtime_should_use_vote_keyed_leader_schedule( slot_ctx->bank );
+
+  return fd_stake_weight_msg_sz( staked_cnt );
+}
+
+static inline ulong
 generate_stake_weight_msg_manifest( ulong                                       epoch,
                                     fd_epoch_schedule_t const *                 epoch_schedule,
                                     fd_snapshot_manifest_epoch_stakes_t const * epoch_stakes,
