@@ -219,9 +219,11 @@ privileged_init( fd_topo_t *      topo,
     ushort port = (ushort)udp_port_candidates[ candidate_idx ];
 
     /* Validate value of REPAIR_SHRED_SOCKET_ID */
-    if( udp_port_candidates[sock_idx]==tile->sock.net.repair_intake_listen_port )
+    if( tile->sock.net.repair_intake_listen_port &&
+       udp_port_candidates[sock_idx]==tile->sock.net.repair_intake_listen_port )
       FD_TEST( sock_idx==REPAIR_SHRED_SOCKET_ID );
-    if( udp_port_candidates[sock_idx]==tile->sock.net.repair_serve_listen_port )
+    if( tile->sock.net.repair_serve_listen_port &&
+       udp_port_candidates[sock_idx]==tile->sock.net.repair_serve_listen_port )
       FD_TEST( sock_idx==REPAIR_SHRED_SOCKET_ID+1 );
 
     char const * target_link = udp_port_links[ candidate_idx ];
