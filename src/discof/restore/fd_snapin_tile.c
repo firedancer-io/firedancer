@@ -214,7 +214,9 @@ handle_data_frag( fd_snapin_tile_t *  ctx,
 static void
 handle_control_frag( fd_snapin_tile_t *  ctx,
                      fd_stem_context_t * stem,
-                     ulong               sig ) {
+                     ulong               sig,
+                     ulong               tsorig,
+                     ulong               tspub ) {
   switch( sig ) {
     case FD_SNAPSHOT_MSG_CTRL_RESET_FULL:
       ctx->full = 1;
@@ -257,6 +259,11 @@ handle_control_frag( fd_snapin_tile_t *  ctx,
     case FD_SNAPSHOT_MSG_CTRL_SHUTDOWN:
       ctx->state = FD_SNAPIN_STATE_SHUTDOWN;
       break;
+    case FD_SNAPSHOT_MSG_HIGHEST_MANIFEST_SLOT:
+      /* Informational control message forwarded to snap_out */
+      fd_stem_publish( stem, 0UL, FD_SSMSG_HIGHEST_MANIFEST_SLOT, 0UL, 0UL, 0UL, tsorig, tspub );
+      /* No need to send an ack for an informational control message */
+      return;
     default:
       FD_LOG_ERR(( "unexpected control sig %lu", sig ));
       return;
@@ -288,7 +295,7 @@ returnable_frag( fd_snapin_tile_t *  ctx,
   FD_TEST( ctx->state!=FD_SNAPIN_STATE_SHUTDOWN );
 
   if( FD_UNLIKELY( sig==FD_SNAPSHOT_MSG_DATA ) ) handle_data_frag( ctx, chunk, sz, stem );
-  else                                           handle_control_frag( ctx, stem, sig  );
+  else                                           handle_control_frag( ctx, stem, sig, tsorig, tspub  );
 
   return 0;
 }
