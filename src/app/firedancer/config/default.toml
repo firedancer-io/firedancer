@@ -691,6 +691,13 @@ user = ""
     # very high TPS rates because the cluster size will be very small.
     shred_tile_count = 1
 
+    # How many sign tiles to run. Should be set >= 2. This is
+    # configurable and horizontally scales repair request signing.
+    # One tile is reserved for synchronous signing across all tiles.
+    # The remaining tiles distribute the workload of signing repair
+    # requests.
+    sign_tile_count = 2
+
 # All memory that will be used in Firedancer is pre-allocated in two
 # kinds of pages: huge and gigantic.  Huge pages are 2 MiB and gigantic
 # pages are 1 GiB.  This is done to prevent TLB misses which can have a

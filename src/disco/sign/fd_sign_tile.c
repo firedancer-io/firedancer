@@ -9,6 +9,8 @@
 #include "../../ballet/base58/fd_base58.h"
 #include "../metrics/fd_metrics.h"
 
+#include "../../util/hist/fd_histf.h"
+
 #include <errno.h>
 #include <sys/mman.h>
 
@@ -160,7 +162,9 @@ after_frag_sensitive( void *              _ctx,
 
   fd_sign_ctx_t * ctx = (fd_sign_ctx_t *)_ctx;
 
-  int sign_type = (int)(uint)sig;
+  /* The upper 32 bits contain the repair tile nonce to identify the
+     request, while the lower 32 bits specify the sign_type. */
+  int sign_type = (int)(uint)(sig);
 
   FD_TEST( in_idx<MAX_IN );
 
@@ -205,7 +209,7 @@ after_frag_sensitive( void *              _ctx,
   sign_duration += fd_tickcount();
   fd_histf_sample( ctx->sign_duration, (ulong)sign_duration );
 
-  fd_stem_publish( stem, in_idx, 0UL, ctx->out[ in_idx ].out_chunk, 64UL, 0UL, tsorig, 0UL );
+  fd_stem_publish( stem, in_idx, sig, ctx->out[ in_idx ].out_chunk, 64UL, 0UL, tsorig, 0UL );
   ctx->out[ in_idx ].out_chunk = fd_dcache_compact_next( ctx->out[ in_idx ].out_chunk, 64UL, ctx->out[ in_idx ].out_chunk0, ctx->out[ in_idx ].out_wmark );
 }
 
@@ -302,9 +306,14 @@ unprivileged_init_sensitive( fd_topo_t *      topo,
       FD_TEST( !strcmp( out_link->name, "sign_gossip" ) );
       FD_TEST( in_link->mtu==2048UL );
       FD_TEST( out_link->mtu==64UL );
-    } else if ( !strcmp( in_link->name, "repair_sign")) {
+    } else if ( !strcmp( in_link->name, "repair_sign" )
+             || !strcmp( in_link->name, "ping_sign" ) ) {
       ctx->in[ i ].role = FD_KEYGUARD_ROLE_REPAIR;
-      FD_TEST( !strcmp( out_link->name, "sign_repair" ) );
+      if( !strcmp( in_link->name, "ping_sign" ) ) {
+        FD_TEST( !strcmp( out_link->name, "sign_ping" ) );
+      } else {
+        FD_TEST( !strcmp( out_link->name, "sign_repair" ) );
+      }
       FD_TEST( in_link->mtu==2048UL );
       FD_TEST( out_link->mtu==64UL );
     } else if ( !strcmp(in_link->name, "send_sign"  ) ) {
