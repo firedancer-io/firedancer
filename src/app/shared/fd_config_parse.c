@@ -53,6 +53,7 @@ fd_config_extract_podh( uchar *        pod,
   CFG_POP      ( bool,   rpc.full_api                                     );
   CFG_POP      ( bool,   rpc.private                                      );
   CFG_POP      ( cstr,   rpc.bind_address                                 );
+  CFG_POP      ( cstr,   rpc.public_address                               );
   CFG_POP      ( bool,   rpc.transaction_history                          );
   CFG_POP      ( bool,   rpc.only_known                                   );
   CFG_POP      ( bool,   rpc.pubsub_enable_block_subscription             );
