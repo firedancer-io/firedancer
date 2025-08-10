@@ -23,6 +23,3 @@ $ fdctl configure init all
 [32mNOTICE [0m ethtool-gro ... unconfigured ... device `ens3f0` has generic-receive-offload enabled. Should be disabled
 [32mNOTICE [0m ethtool-gro ... configuring
 [32mNOTICE [0m ethtool-gro ... RUN: `ethtool --offload ens3f0 generic-receive-offload off`
-[32mNOTICE [0m ethtool-loopback ... unconfigured ... device `lo` has tx-udp-segmentation enabled. Should be disabled
-[32mNOTICE [0m ethtool-loopback ... configuring
-[32mNOTICE [0m ethtool-loopback ... RUN: `ethtool --offload lo tx-udp-segmentation off`

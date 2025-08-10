@@ -11,8 +11,6 @@ so Firedancer can run correctly. It does the following:
 device.
 * **ethtool-gro** Disable generic-receive-offload (GRO) on the network
 device.
-* **ethtool-loopback** Disable tx-udp-segmentation on the loopback
-device.
 
 The `hugetlbfs` configuration must be performed every time the system
 is rebooted, to remount the `hugetlbfs` filesystems, as do `sysctl`,
@@ -30,7 +28,7 @@ where `mode` is one of:
  - `fini` Unconfigure (reverse) the stage if it is reversible.
 
 `stage` can be one or more of `hugetlbfs`, `sysctl`, `hyperthreads`,
-`ethtool-channels`, `ethtool-gro`, `ethtool-loopback`, and `snapshots`
+`ethtool-channels`, `ethtool-gro`, and `snapshots`
 and these stages are described below. You can also use the stage `all`
 which will configure everything.
 
@@ -192,22 +190,6 @@ Firedancer. It has no dependencies on any other stage.
 
 Changing device settings with `ethtool-gro` requires root privileges, and
 cannot be performed with capabilities.
-
-## ethtool-loopback
-XDP is incompatible with localhost UDP traffic using a feature called
-`tx-udp-segmentation`. This feature must be disabled when connecting Agave
-clients to Firedancer over loopback, or when using Frankendancer.
-
-The command run by the stage is `ethtool --offload lo tx-udp-segmentation
-off`. We can check that it worked:
-
-<<< @/snippets/ethtool-loopback.ansi
-
-The stage only needs to be run once after boot but before running
-Firedancer. It has no dependencies on any other stage.
-
-Changing device settings with `ethtool-loopback` requires root privileges,
-and cannot be performed with capabilities.
 
 ## snapshots
 When starting up, validators must load a snapshot to catch up to the

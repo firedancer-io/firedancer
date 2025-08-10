@@ -45,10 +45,6 @@ setup_xdp_tile( fd_topo_t *             topo,
   /* Allocate free ring */
 
   tile->xdp.free_ring_depth = tile->xdp.xdp_tx_queue_size;
-  if( i==0 ) {
-    /* Allocate additional frames for loopback */
-    tile->xdp.free_ring_depth += 16384UL;
-  }
 }
 
 static void
@@ -192,12 +188,6 @@ fd_topos_net_tile_finish( fd_topo_t * topo,
   ulong tx_depth = net_tile->xdp.xdp_tx_queue_size;
   rx_depth += (rx_depth/2UL);
   tx_depth += (tx_depth/2UL);
-
-  if( net_kind_id==0 ) {
-    /* Double it for loopback XSK */
-    rx_depth *= 2UL;
-    tx_depth *= 2UL;
-  }
 
   ulong cum_frame_cnt = rx_depth + tx_depth;
 

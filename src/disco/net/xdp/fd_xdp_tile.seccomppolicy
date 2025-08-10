@@ -3,11 +3,7 @@
 #
 # xsk_fd: This is the file descriptor for the kernel XDP socket we
 #         created for the primary network device.
-#
-# lo_xsk_fd: This is the file descriptor for the kernel XDP socket we
-#            created for the loopback network device.  This is currently
-#            needed because Solana sends packets to itself on loopback.
-unsigned int logfile_fd, unsigned int xsk_fd, unsigned int lo_xsk_fd
+unsigned int logfile_fd, unsigned int xsk_fd
 
 # logging: all log messages are written to a file and/or pipe
 #
@@ -34,10 +30,8 @@ fsync: (eq (arg 0) logfile_fd)
 # purpose.
 #
 # arg 0 is the file descriptor of the XSK that the kernel should poll
-# for entries.  There are two possible XSKs, since we can send packets
-# on a network device or the loopback device.
-sendto: (and (or (eq (arg 0) xsk_fd)
-                 (eq (arg 0) lo_xsk_fd))
+# for entries.
+sendto: (and (eq (arg 0) xsk_fd)
              (eq (arg 1) 0)
              (eq (arg 2) 0)
              (eq (arg 3) MSG_DONTWAIT)
@@ -55,15 +49,12 @@ sendto: (and (or (eq (arg 0) xsk_fd)
 # overloaded by Linux for this purpose.
 #
 # arg 0 is the file descriptor of the XSK that the kernel should poll
-# for entries.  There are two possible XSKs, since we can receive
-# packets on a network device or the loopback device.
-recvmsg: (and (or (eq (arg 0) xsk_fd)
-                  (eq (arg 0) lo_xsk_fd))
+# for entries.
+recvmsg: (and (eq (arg 0) xsk_fd)
               (eq (arg 2) MSG_DONTWAIT))
 
 # XDP: We use getsockopt( SOL_XDP, XDP_STATISTICS ) to periodically
 #      retrieve packet drop counters for the XDP socket.
-getsockopt: (and (or (eq (arg 0) xsk_fd)
-                     (eq (arg 0) lo_xsk_fd))
+getsockopt: (and (eq (arg 0) xsk_fd)
                  (eq (arg 1) SOL_XDP)
                  (eq (arg 2) XDP_STATISTICS))

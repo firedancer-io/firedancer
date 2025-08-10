@@ -692,7 +692,6 @@ initialize_stacks( config_t const * config ) {
 extern configure_stage_t fd_cfg_stage_hugetlbfs;
 extern configure_stage_t fd_cfg_stage_ethtool_channels;
 extern configure_stage_t fd_cfg_stage_ethtool_gro;
-extern configure_stage_t fd_cfg_stage_ethtool_loopback;
 extern configure_stage_t fd_cfg_stage_sysctl;
 extern configure_stage_t fd_cfg_stage_hyperthreads;
 
@@ -714,11 +713,6 @@ fdctl_check_configure( config_t const * config ) {
     if( FD_UNLIKELY( check.result!=CONFIGURE_OK ) )
       FD_LOG_ERR(( "Network %s. You can run `fdctl configure init ethtool-gro` to disable generic-receive-offload "
                   "as required.", check.message ));
-
-    check = fd_cfg_stage_ethtool_loopback.check( config );
-    if( FD_UNLIKELY( check.result!=CONFIGURE_OK ) )
-      FD_LOG_ERR(( "Network %s. You can run `fdctl configure init ethtool-loopback` to disable tx-udp-segmentation "
-                  "on the loopback device.", check.message ));
   }
 
   check = fd_cfg_stage_sysctl.check( config );
@@ -766,7 +760,6 @@ fdctl_setup_netns( config_t * config,
   if( 0==strcmp( config->net.provider, "xdp" ) ) {
     fd_cfg_stage_ethtool_channels.init( config );
     fd_cfg_stage_ethtool_gro     .init( config );
-    fd_cfg_stage_ethtool_loopback.init( config );
   }
 
   if( FD_UNLIKELY( original_netns && -1==fd_net_util_netns_restore( original_netns_ ) ) )

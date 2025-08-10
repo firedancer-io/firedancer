@@ -55,7 +55,6 @@
    Only net tile 0 has XSK_IDX_LO, all net tiles have XSK_IDX_MAIN. */
 
 #define XSK_IDX_MAIN 0
-#define XSK_IDX_LO   1
 
 /* fd_net_in_ctx_t contains consumer information for an incoming tango
    link.  It is used as part of the TX path. */
@@ -174,8 +173,8 @@ typedef struct fd_xdp_rx_rule fd_xdp_rx_rule_t;
 typedef struct {
   /* An "XSK" is an AF_XDP socket */
   uint     xsk_cnt;
-  fd_xsk_t xsk[ 2 ];
-  int      prog_link_fds[ 2 ];
+  fd_xsk_t xsk[ 1 ];
+  int      prog_link_fds[ 1 ];
 
   /* UMEM frame region within dcache */
   void *   umem_frame0; /* First UMEM frame */
@@ -568,10 +567,6 @@ net_tx_route( fd_net_ctx_t * ctx,
   uint if_idx  = next_hop->if_idx;
   uint ip4_src = next_hop->ip4_src;
 
-  if( FD_UNLIKELY( rtype==FD_FIB4_RTYPE_LOCAL ) ) {
-    rtype  = FD_FIB4_RTYPE_UNICAST;
-    if_idx = 1;
-  }
 
   if( FD_UNLIKELY( rtype!=FD_FIB4_RTYPE_UNICAST ) ) {
     ctx->metrics.tx_route_fail_cnt++;
@@ -588,16 +583,7 @@ net_tx_route( fd_net_ctx_t * ctx,
   ctx->tx_op.src_ip  = ip4_src;
   ctx->tx_op.xsk_idx = UINT_MAX;
 
-  FD_TEST( is_gre_inf );
-  *is_gre_inf = 0;
-  if( netdev->dev_type==ARPHRD_LOOPBACK ) {
-    /* Set Ethernet src and dst address to 00:00:00:00:00:00 */
-    memset( ctx->tx_op.mac_addrs, 0, 12UL );
-    ctx->tx_op.xsk_idx = XSK_IDX_LO;
-    /* Set preferred src address to 127.0.0.1 if no bind address is set */
-    if( !ctx->tx_op.src_ip ) ctx->tx_op.src_ip = FD_IP4_ADDR( 127,0,0,1 );
-    return 1;
-  } else if( netdev->dev_type==ARPHRD_IPGRE ) {
+  if( netdev->dev_type==ARPHRD_IPGRE ) {
     /* skip MAC addrs lookup for GRE inner dst ip */
     if( netdev->gre_src_ip ) ctx->tx_op.gre_outer_src_ip = netdev->gre_src_ip;
     ctx->tx_op.gre_outer_dst_ip = netdev->gre_dst_ip;
@@ -708,8 +694,6 @@ before_frag( fd_net_ctx_t * ctx,
     ctx->metrics.tx_no_xdp_cnt++;
     return 1;
   }
-
-  if( xsk_idx==XSK_IDX_LO ) target_idx = 0; /* loopback always targets tile 0 */
 
   /* Skip if another net tile is responsible for this packet */
 
@@ -1211,9 +1195,6 @@ interface_addrs( const char * interface,
    - Register UMEM data region with socket
    - Insert AF_XDP socket into xsk_map
 
-   Net tile 0 also runs fd_xdp_install and repeats the above step for
-   the loopback device.  (Unless the main interface is already loopback)
-
    Kernel object references:
 
      BPF_LINK file descriptor
@@ -1307,38 +1288,6 @@ privileged_init( fd_topo_t *      topo,
        since it's shared with other net tiles.  Just check for that by seeing if we
        are the only thread in the process. */
     if( FD_UNLIKELY( -1==close( xsk_map_fd ) ) )                     FD_LOG_ERR(( "close(%d) failed (%d-%s)", xsk_map_fd, errno, fd_io_strerror( errno ) ));
-  }
-
-  /* Networking tile at index 0 also binds to loopback (only queue 0 available on lo) */
-
-  if( FD_UNLIKELY( strcmp( tile->xdp.interface, "lo" ) && !tile->kind_id ) ) {
-    ctx->xsk_cnt = 2;
-
-    ulong const rule_cnt = tile->net.rx_rules.rx_rule_cnt;
-    ushort udp_port_candidates[ FD_TOPO_NET_RX_RULE_MAX ];
-    for( ulong i=0UL; i<rule_cnt; i++ ) {
-      udp_port_candidates[ i ] = tile->net.rx_rules.rx_rules[ i ].port;
-    }
-
-    uint lo_idx = if_nametoindex( "lo" );
-    if( FD_UNLIKELY( !lo_idx ) ) FD_LOG_ERR(( "if_nametoindex(lo) failed" ));
-
-    /* FIXME move this to fd_topo_run */
-    fd_xdp_fds_t lo_fds = fd_xdp_install( lo_idx,
-                                          tile->net.bind_address,
-                                          rule_cnt,
-                                          udp_port_candidates,
-                                          "skb" );
-
-    ctx->prog_link_fds[ 1 ] = lo_fds.prog_link_fd;
-    /* init xsk 1 */
-    fd_xsk_params_t params1 = params0;
-    params1.if_idx      = lo_idx; /* probably always 1 */
-    params1.if_queue_id = 0;
-    params1.bind_flags  = 0;
-    if( FD_UNLIKELY( !fd_xsk_init( &ctx->xsk[ 1 ], &params1 ) ) )              FD_LOG_ERR(( "failed to bind lo_xsk" ));
-    if( FD_UNLIKELY( !fd_xsk_activate( &ctx->xsk[ 1 ], lo_fds.xsk_map_fd ) ) ) FD_LOG_ERR(( "failed to activate lo_xsk" ));
-    if( FD_UNLIKELY( -1==close( lo_fds.xsk_map_fd ) ) )                        FD_LOG_ERR(( "close(%d) failed (%d-%s)", xsk_map_fd, errno, fd_io_strerror( errno ) ));
   }
 
   double tick_per_ns = fd_tempo_tick_per_ns( NULL );
@@ -1519,12 +1468,7 @@ populate_allowed_seccomp( fd_topo_t const *      topo,
   FD_SCRATCH_ALLOC_INIT( l, scratch );
   fd_net_ctx_t * ctx = FD_SCRATCH_ALLOC_APPEND( l, alignof( fd_net_ctx_t ), sizeof( fd_net_ctx_t ) );
 
-  /* A bit of a hack, if there is no loopback XSK for this tile, we still need to pass
-     two "allow" FD arguments to the net policy, so we just make them both the same. */
-  int allow_fd2 = ctx->xsk_cnt>1UL ? ctx->xsk[ 1 ].xsk_fd : ctx->xsk[ 0 ].xsk_fd;
-  FD_TEST( ctx->xsk[ 0 ].xsk_fd >= 0 && allow_fd2 >= 0 );
-
-  populate_sock_filter_policy_fd_xdp_tile( out_cnt, out, (uint)fd_log_private_logfile_fd(), (uint)ctx->xsk[ 0 ].xsk_fd, (uint)allow_fd2 );
+  populate_sock_filter_policy_fd_xdp_tile( out_cnt, out, (uint)fd_log_private_logfile_fd(), (uint)ctx->xsk[ 0 ].xsk_fd );
   return sock_filter_policy_fd_xdp_tile_instr_cnt;
 }
 
@@ -1545,10 +1489,8 @@ populate_allowed_fds( fd_topo_t const *      topo,
   if( FD_LIKELY( -1!=fd_log_private_logfile_fd() ) )
     out_fds[ out_cnt++ ] = fd_log_private_logfile_fd(); /* logfile */
 
-                                      out_fds[ out_cnt++ ] = ctx->xsk[ 0 ].xsk_fd;
-                                      out_fds[ out_cnt++ ] = ctx->prog_link_fds[ 0 ];
-  if( FD_LIKELY( ctx->xsk_cnt>1UL ) ) out_fds[ out_cnt++ ] = ctx->xsk[ 1 ].xsk_fd;
-  if( FD_LIKELY( ctx->xsk_cnt>1UL ) ) out_fds[ out_cnt++ ] = ctx->prog_link_fds[ 1 ];
+  out_fds[ out_cnt++ ] = ctx->xsk[ 0 ].xsk_fd;
+  out_fds[ out_cnt++ ] = ctx->prog_link_fds[ 0 ];
   return out_cnt;
 }
 
