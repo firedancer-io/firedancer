@@ -448,7 +448,8 @@ after_credit( fd_gossip_tile_ctx_t * ctx,
     ulong * shred_dest_msg = fd_chunk_to_laddr( ctx->shred_contact_out_mem, ctx->shred_contact_out_chunk );
     fd_shred_dest_wire_t * tvu_peers = (fd_shred_dest_wire_t *)(shred_dest_msg+1);
     fd_shred_dest_wire_t * repair_peers = fd_chunk_to_laddr( ctx->repair_contact_out_mem, ctx->repair_contact_out_chunk );
-    fd_shred_dest_wire_t * send_peers = fd_chunk_to_laddr( ctx->send_contact_out_mem, ctx->send_contact_out_chunk );
+    fd_shred_dest_wire_t * send_peers = NULL;
+    if( ctx->send_contact_out_mem ) send_peers = fd_chunk_to_laddr( ctx->send_contact_out_mem, ctx->send_contact_out_chunk );
     for( fd_contact_info_table_iter_t iter = fd_contact_info_table_iter_init( ctx->contact_info_table );
          !fd_contact_info_table_iter_done( ctx->contact_info_table, iter );
          iter = fd_contact_info_table_iter_next( ctx->contact_info_table, iter ) ) {
@@ -495,7 +496,7 @@ after_credit( fd_gossip_tile_ctx_t * ctx,
         repair_peers_cnt++;
       }
 
-      {
+      if( send_peers ) {
         ushort sender_socket_idx = ci->socket_tag_idx[ FD_GOSSIP_SOCKET_TAG_TPU_VOTE_QUIC ];
         if( sender_socket_idx == FD_CONTACT_INFO_SOCKET_TAG_NULL ) {
           ctx->metrics.zero_ipv4_contact_info[ FD_METRICS_ENUM_PEER_TYPES_V_SEND_IDX ] += 1UL;

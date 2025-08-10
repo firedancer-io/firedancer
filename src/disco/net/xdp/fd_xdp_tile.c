@@ -9,7 +9,7 @@
 #include <sys/socket.h> /* MSG_DONTWAIT needed before importing the net seccomp filter */
 #include <linux/if_xdp.h>
 
-#include "../fd_net_common.h"
+#include "../fd_find_16x16.h"
 #include "../../metrics/fd_metrics.h"
 #include "../../netlink/fd_netlink_tile.h" /* neigh4_solicit */
 #include "../../topo/fd_topo.h"
@@ -37,6 +37,13 @@
    serve. */
 
 #define MAX_NET_INS (32UL)
+
+/* MAX_NET_OUTS controls the max number of RX-to-tango forwarding links
+   that a net tile can serve.  Also bounds the number of UDP listen
+   ports.  Not trivial to change because of algorithms optimized for
+   this particular value (fd_find_16x16). */
+
+#define MAX_NET_OUTS (16UL)
 
 /* FD_XDP_STATS_INTERVAL_NS controls the XDP stats refresh interval.
    This should be lower than the interval at which the metrics tile
@@ -158,6 +165,12 @@ struct fd_net_free_ring {
 };
 typedef struct fd_net_free_ring fd_net_free_ring_t;
 
+struct fd_xdp_rx_rule {
+  ushort port;
+  ushort out_idx;
+};
+typedef struct fd_xdp_rx_rule fd_xdp_rx_rule_t;
+
 typedef struct {
   /* An "XSK" is an AF_XDP socket */
   uint     xsk_cnt;
@@ -198,24 +211,31 @@ typedef struct {
   /* Ring tracking free packet buffers */
   fd_net_free_ring_t free_tx;
 
-  uint   default_address;
-  uint   bind_address;
-  ushort shred_listen_port;
-  ushort quic_transaction_listen_port;
-  ushort legacy_transaction_listen_port;
-  ushort gossip_listen_port;
-  ushort repair_intake_listen_port;
-  ushort repair_serve_listen_port;
-  ushort send_src_port;
+  uint default_address;
+  uint bind_address;
 
+  /* RX flow steering (by UDP ports) */
+  uint rx_port_cnt; /* in [0,MAX_NET_OUTS) */
+
+  union {
+#if FD_HAS_AVX
+    wh_t wh[1]; /* forces alignment */
+#endif
+    ushort h[16];
+  } rx_port_keys;
+
+  struct {
+    uchar dst_proto;
+    uchar out_link_idx;
+  } rx_port_vals[ MAX_NET_OUTS ];
+
+  /* Tango out links.  Only initialized for RX packet links, not for
+     management plane links (e.g. netlink). */
+  fd_net_out_ctx_t out[ MAX_NET_OUTS ];
+
+  /* Tango in links (for TX packet jobs) */
   ulong in_cnt;
   fd_net_in_ctx_t in[ MAX_NET_INS ];
-
-  fd_net_out_ctx_t quic_out[1];
-  fd_net_out_ctx_t shred_out[1];
-  fd_net_out_ctx_t gossip_out[1];
-  fd_net_out_ctx_t repair_out[1];
-  fd_net_out_ctx_t send_out[1];
 
   /* XDP stats refresh timer */
   long xdp_stats_interval_ticks;
@@ -953,44 +973,30 @@ net_rx_packet( fd_net_ctx_t * ctx,
   FD_DTRACE_PROBE_4( net_tile_pkt_rx, ip_srcaddr, udp_srcport, udp_dstport, sz );
 
   /* Route packet to downstream tile */
-  ushort proto;
-  fd_net_out_ctx_t * out;
-  if(      FD_UNLIKELY( udp_dstport==ctx->shred_listen_port ) ) {
-    proto = DST_PROTO_SHRED;
-    out = ctx->shred_out;
-  } else if( FD_UNLIKELY( udp_dstport==ctx->quic_transaction_listen_port ) ) {
-    proto = DST_PROTO_TPU_QUIC;
-    out = ctx->quic_out;
-  } else if( FD_UNLIKELY( udp_dstport==ctx->legacy_transaction_listen_port ) ) {
-    proto = DST_PROTO_TPU_UDP;
-    out = ctx->quic_out;
-  } else if( FD_UNLIKELY( udp_dstport==ctx->gossip_listen_port ) ) {
-    proto = DST_PROTO_GOSSIP;
-    out = ctx->gossip_out;
-  } else if( FD_UNLIKELY( udp_dstport==ctx->repair_intake_listen_port ) ) {
-    proto = DST_PROTO_REPAIR;
-    if( FD_UNLIKELY( sz == REPAIR_PING_SZ ) ) out = ctx->repair_out; /* ping-pong */
-    else                                      out = ctx->shred_out;
-  } else if( FD_UNLIKELY( udp_dstport==ctx->repair_serve_listen_port ) ) {
-    proto = DST_PROTO_REPAIR;
-    out = ctx->repair_out;
-  } else if( FD_UNLIKELY( udp_dstport==ctx->send_src_port ) ) {
-    proto = DST_PROTO_SEND;
-    out = ctx->send_out;
-  } else {
+#if FD_HAS_AVX
+  uint port_idx = fd_find_16x16_avx( *ctx->rx_port_keys.wh, udp_dstport );
+#else
+  uint port_idx = fd_find_16x16( ctx->rx_port_keys.h, udp_dstport );
+#endif
+  if( FD_UNLIKELY( port_idx >= ctx->rx_port_cnt ) ) {
+    /* Dump out the listen port configuration to aid debugging */
+    FD_LOG_NOTICE(( "Fatal error occurred.\nDumping XDP RX UDP port configuration to aid debugging:" ));
+    for( uint i=0UL; i<ctx->rx_port_cnt; i++ ) {
+      FD_LOG_NOTICE(( "  ( idx=%u udp.dport=%hu proto=%x out_link_idx=%u )",
+                      i,
+                      ctx->rx_port_keys.h[ i ],
+                      ctx->rx_port_vals[ i ].dst_proto,
+                      ctx->rx_port_vals[ i ].out_link_idx ));
+    }
 
     FD_LOG_ERR(( "Firedancer received a UDP packet on port %hu which was not expected. "
-                  "Only the following ports should be configured to forward packets: "
-                  "%hu, %hu, %hu, %hu, %hu, %hu (excluding any 0 ports, which can be ignored)."
-                  "Please report this error to Firedancer maintainers.",
-                  udp_dstport,
-                  ctx->shred_listen_port,
-                  ctx->quic_transaction_listen_port,
-                  ctx->legacy_transaction_listen_port,
-                  ctx->gossip_listen_port,
-                  ctx->repair_intake_listen_port,
-                  ctx->repair_serve_listen_port ));
+                 "Please report this error to Firedancer maintainers along with your config file.",
+                 udp_dstport ));
   }
+
+  uint               out_idx = ctx->rx_port_vals[ port_idx ].out_link_idx;
+  ushort             proto   = ctx->rx_port_vals[ port_idx ].dst_proto;
+  fd_net_out_ctx_t * out     = &ctx->out[ out_idx ];
 
   /* tile can decide how to partition based on src ip addr and src port */
   ulong sig              = fd_disco_netmux_sig( ip_srcaddr, udp_srcport, ip_srcaddr, proto, 14UL+8UL+iplen );
@@ -1303,15 +1309,11 @@ privileged_init( fd_topo_t *      topo,
   if( FD_UNLIKELY( strcmp( tile->xdp.interface, "lo" ) && !tile->kind_id ) ) {
     ctx->xsk_cnt = 2;
 
-    ushort udp_port_candidates[] = {
-      (ushort)tile->xdp.net.legacy_transaction_listen_port,
-      (ushort)tile->xdp.net.quic_transaction_listen_port,
-      (ushort)tile->xdp.net.shred_listen_port,
-      (ushort)tile->xdp.net.gossip_listen_port,
-      (ushort)tile->xdp.net.repair_intake_listen_port,
-      (ushort)tile->xdp.net.repair_serve_listen_port,
-      (ushort)tile->xdp.net.send_src_port
-    };
+    ulong const rule_cnt = tile->net.rx_rules.rx_rule_cnt;
+    ushort udp_port_candidates[ FD_TOPO_NET_RX_RULE_MAX ];
+    for( ulong i=0UL; i<rule_cnt; i++ ) {
+      udp_port_candidates[ i ] = tile->net.rx_rules.rx_rules[ i ].port;
+    }
 
     uint lo_idx = if_nametoindex( "lo" );
     if( FD_UNLIKELY( !lo_idx ) ) FD_LOG_ERR(( "if_nametoindex(lo) failed" ));
@@ -1319,7 +1321,7 @@ privileged_init( fd_topo_t *      topo,
     /* FIXME move this to fd_topo_run */
     fd_xdp_fds_t lo_fds = fd_xdp_install( lo_idx,
                                           tile->net.bind_address,
-                                          sizeof(udp_port_candidates)/sizeof(udp_port_candidates[0]),
+                                          rule_cnt,
                                           udp_port_candidates,
                                           "skb" );
 
@@ -1366,6 +1368,42 @@ init_device_table( fd_net_ctx_t * ctx,
 
 }
 
+/* setup_out_link ensures an output link is set up for the given link
+   name.  Idempotent. */
+
+static uint
+setup_out_link( fd_net_ctx_t *         ctx,
+                fd_topo_t const *      topo,
+                fd_topo_tile_t const * tile,
+                char const *           link_name,
+                ulong                  tile_kind_id ) {
+  /* For a given output link kind (e.g. "net_quic"), each net tile
+     produces one output link, even if there are multiple downstream
+     consumer tiles.  Each consumer tile receives all frags, but skips
+     frags based on a shared load balancing policy, making the tiles
+     effectively take turns processing frags. */
+  ulong out_link_idx = fd_topo_find_tile_out_link( topo, tile, link_name, tile_kind_id );
+  if( FD_UNLIKELY( out_link_idx==ULONG_MAX ) ) {
+    FD_LOG_ERR(( "link \"%s\" is not an output links of net:%lu", link_name, tile_kind_id ));
+  }
+  if( FD_UNLIKELY( out_link_idx>=MAX_NET_OUTS ) ) {
+    FD_LOG_ERR(( "out link \"%s\" out of bounds: index %lu >= MAX_NET_OUTS (%lu)", link_name, out_link_idx, (ulong)MAX_NET_OUTS ));
+  }
+
+  fd_net_out_ctx_t * out_ctx = &ctx->out[ out_link_idx ];
+  if( !out_ctx->mcache ) {
+    /* First time initialization */
+    ulong const            link_id  = tile->out_link_id[ out_link_idx ];
+    fd_topo_link_t const * out_link = &topo->links[ link_id ];
+    if( FD_UNLIKELY( !out_link->mcache ) ) FD_LOG_CRIT(( "out_link[%lu]->mcache is NULL (missing topo_fill?)", out_link_idx ));
+    out_ctx->mcache = out_link->mcache;
+    out_ctx->depth  = fd_mcache_depth    ( out_ctx->mcache );
+    out_ctx->sync   = fd_mcache_seq_laddr( out_ctx->mcache );
+  }
+
+  return (uint)out_link_idx;
+}
+
 FD_FN_UNUSED static void
 unprivileged_init( fd_topo_t *      topo,
                    fd_topo_tile_t * tile ) {
@@ -1381,17 +1419,9 @@ unprivileged_init( fd_topo_t *      topo,
   ctx->net_tile_id  = (uint)tile->kind_id;
   ctx->net_tile_cnt = (uint)fd_topo_tile_name_cnt( topo, tile->name );
 
-  ctx->bind_address                   = tile->net.bind_address;
-  ctx->shred_listen_port              = tile->net.shred_listen_port;
-  ctx->quic_transaction_listen_port   = tile->net.quic_transaction_listen_port;
-  ctx->legacy_transaction_listen_port = tile->net.legacy_transaction_listen_port;
-  ctx->gossip_listen_port             = tile->net.gossip_listen_port;
-  ctx->repair_intake_listen_port      = tile->net.repair_intake_listen_port;
-  ctx->repair_serve_listen_port       = tile->net.repair_serve_listen_port;
-  ctx->send_src_port                  = tile->net.send_src_port;
+  ctx->bind_address = tile->net.bind_address;
 
-  /* Put a bound on chunks we read from the input, to make sure they
-     are within in the data region of the workspace. */
+  /* Net TX links (tango input links from net tile POV) */
 
   if( FD_UNLIKELY( !tile->in_cnt ) ) FD_LOG_ERR(( "net tile in link cnt is zero" ));
   if( FD_UNLIKELY( tile->in_cnt>MAX_NET_INS ) ) FD_LOG_ERR(( "net tile in link cnt %lu exceeds MAX_NET_INS %lu", tile->in_cnt, MAX_NET_INS ));
@@ -1405,66 +1435,19 @@ unprivileged_init( fd_topo_t *      topo,
     ctx->in[ i ].wmark  = fd_dcache_compact_wmark( ctx->in[ i ].mem, link->dcache, link->mtu );
   }
 
-  for( ulong i = 0; i < tile->out_cnt; i++ ) {
-    fd_topo_link_t * out_link = &topo->links[ tile->out_link_id[ i  ] ];
-    if( strcmp( out_link->name, "net_quic" ) == 0 ) {
-      fd_topo_link_t * quic_out = out_link;
-      ctx->quic_out->mcache = quic_out->mcache;
-      ctx->quic_out->sync   = fd_mcache_seq_laddr( ctx->quic_out->mcache );
-      ctx->quic_out->depth  = fd_mcache_depth( ctx->quic_out->mcache );
-      ctx->quic_out->seq    = fd_mcache_seq_query( ctx->quic_out->sync );
-    } else if( strcmp( out_link->name, "net_shred" ) == 0 ) {
-      fd_topo_link_t * shred_out = out_link;
-      ctx->shred_out->mcache = shred_out->mcache;
-      ctx->shred_out->sync   = fd_mcache_seq_laddr( ctx->shred_out->mcache );
-      ctx->shred_out->depth  = fd_mcache_depth( ctx->shred_out->mcache );
-      ctx->shred_out->seq    = fd_mcache_seq_query( ctx->shred_out->sync );
-    } else if( strcmp( out_link->name, "net_gossip" ) == 0 ) {
-      fd_topo_link_t * gossip_out = out_link;
-      ctx->gossip_out->mcache = gossip_out->mcache;
-      ctx->gossip_out->sync   = fd_mcache_seq_laddr( ctx->gossip_out->mcache );
-      ctx->gossip_out->depth  = fd_mcache_depth( ctx->gossip_out->mcache );
-      ctx->gossip_out->seq    = fd_mcache_seq_query( ctx->gossip_out->sync );
-    } else if( strcmp( out_link->name, "net_repair" ) == 0 ) {
-      fd_topo_link_t * repair_out = out_link;
-      ctx->repair_out->mcache = repair_out->mcache;
-      ctx->repair_out->sync   = fd_mcache_seq_laddr( ctx->repair_out->mcache );
-      ctx->repair_out->depth  = fd_mcache_depth( ctx->repair_out->mcache );
-      ctx->repair_out->seq    = fd_mcache_seq_query( ctx->repair_out->sync );
-    } else if( strcmp( out_link->name, "net_netlnk" ) == 0 ) {
-      fd_topo_link_t * netlink_out = out_link;
-      ctx->neigh4_solicit->mcache = netlink_out->mcache;
-      ctx->neigh4_solicit->depth  = fd_mcache_depth( ctx->neigh4_solicit->mcache );
-      ctx->neigh4_solicit->seq    = fd_mcache_seq_query( fd_mcache_seq_laddr( ctx->neigh4_solicit->mcache ) );
-    } else if( strcmp( out_link->name, "net_send" ) == 0 ) {
-      fd_topo_link_t * send_out = out_link;
-      ctx->send_out->mcache = send_out->mcache;
-      ctx->send_out->sync   = fd_mcache_seq_laddr( ctx->send_out->mcache );
-      ctx->send_out->depth  = fd_mcache_depth( ctx->send_out->mcache );
-      ctx->send_out->seq    = fd_mcache_seq_query( ctx->send_out->sync );
-    } else {
-      FD_LOG_ERR(( "unrecognized out link `%s`", out_link->name ));
-    }
+  /* Net RX links (tango output links from net tile POV) */
+
+  fd_topo_net_rx_t const * rx_cfg = &tile->net.rx_rules;
+  ctx->rx_port_cnt = (uint)( rx_cfg->rx_rule_cnt );
+  for( ulong i=0uL; i<(rx_cfg->rx_rule_cnt); i++ ) {
+    char const * link_name = rx_cfg->rx_rules[ i ].link;
+    uint out_link_idx = setup_out_link( ctx, topo, tile, link_name, ctx->net_tile_id );
+    ctx->rx_port_keys.h[ i ]              = rx_cfg->rx_rules[ i ].port;
+    ctx->rx_port_vals  [ i ].out_link_idx = (uchar)out_link_idx;
+    ctx->rx_port_vals  [ i ].dst_proto    = (uchar)rx_cfg->rx_rules[ i ].proto_id;
   }
 
-  /* Check if any of the tiles we set a listen port for do not have an outlink. */
-  if( FD_UNLIKELY( ctx->shred_listen_port!=0 && ctx->shred_out->mcache==NULL ) ) {
-    FD_LOG_ERR(( "shred listen port set but no out link was found" ));
-  } else if( FD_UNLIKELY( ctx->quic_transaction_listen_port!=0 && ctx->quic_out->mcache==NULL ) ) {
-    FD_LOG_ERR(( "quic transaction listen port set but no out link was found" ));
-  } else if( FD_UNLIKELY( ctx->legacy_transaction_listen_port!=0 && ctx->quic_out->mcache==NULL ) ) {
-    FD_LOG_ERR(( "legacy transaction listen port set but no out link was found" ));
-  } else if( FD_UNLIKELY( ctx->gossip_listen_port!=0 && ctx->gossip_out->mcache==NULL ) ) {
-    FD_LOG_ERR(( "gossip listen port set but no out link was found" ));
-  } else if( FD_UNLIKELY( ctx->repair_intake_listen_port!=0 && ctx->repair_out->mcache==NULL ) ) {
-    FD_LOG_ERR(( "repair intake port set but no out link was found" ));
-  } else if( FD_UNLIKELY( ctx->repair_serve_listen_port!=0 && ctx->repair_out->mcache==NULL ) ) {
-    FD_LOG_ERR(( "repair serve listen port set but no out link was found" ));
-  } else if( FD_UNLIKELY( ctx->neigh4_solicit->mcache==NULL ) ) {
-    FD_LOG_ERR(( "netlink request link not found" ));
-  } else if( FD_UNLIKELY( ctx->send_src_port!=0 && ctx->send_out->mcache==NULL ) ) {
-    FD_LOG_ERR(( "send listen port set but no out link was found" ));
-  }
+  /* XDP flush timing objects */
 
   for( uint j=0U; j<2U; j++ ) {
     ctx->tx_flusher[ j ].pending_wmark         = (ulong)( (double)tile->xdp.xdp_tx_queue_size * 0.7 );
@@ -1472,7 +1455,8 @@ unprivileged_init( fd_topo_t *      topo,
     ctx->tx_flusher[ j ].next_tail_flush_ticks = LONG_MAX;
   }
 
-  /* Join netbase objects */
+  /* Netlink tile shared memory objects */
+
   ctx->fib_local = fd_fib4_join( fd_topo_obj_laddr( topo, tile->xdp.fib4_local_obj_id ) );
   ctx->fib_main  = fd_fib4_join( fd_topo_obj_laddr( topo, tile->xdp.fib4_main_obj_id  ) );
   if( FD_UNLIKELY( !ctx->fib_local || !ctx->fib_main ) ) FD_LOG_ERR(( "fd_fib4_join failed" ));
