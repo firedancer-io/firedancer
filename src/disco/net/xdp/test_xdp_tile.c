@@ -1,14 +1,5 @@
-#include <linux/if_arp.h>
-#include <linux/if_link.h>
-#include <stdlib.h>
 #include "fd_xdp_tile.c"
 #include "../../../disco/topo/fd_topob.h"
-#include "../../../waltz/neigh/fd_neigh4_map.h"
-#include "../../../util/net/fd_ip4.h"
-#include "../../../waltz/ip/fd_fib4.h"
-#include "../../../util/tmpl/fd_map.h"
-#include "../../../tango/dcache/fd_dcache.h"
-#include "../../../tango/mcache/fd_mcache.h"
 
 #if defined(__GNUC__) && (__GNUC__ >= 9)
 #pragma GCC diagnostic ignored "-Waddress-of-packed-member"
@@ -69,16 +60,14 @@ static ulong const frame_sz = 2048UL;
 static void
 add_neighbor( fd_neigh4_hmap_t * join,
               uint               ip4_addr,
-              uchar mac0, uchar mac1, uchar mac2,
-              uchar mac3, uchar mac4, uchar mac5 ) {
+              uchar const        mac[6] ) {
   fd_neigh4_hmap_query_t query[1];
   int prepare_res = fd_neigh4_hmap_prepare( join, &ip4_addr, NULL, query, FD_MAP_FLAG_BLOCKING );
   FD_TEST( prepare_res==FD_MAP_SUCCESS );
   fd_neigh4_entry_t * ele = fd_neigh4_hmap_query_ele( query );
   ele->state    = FD_NEIGH4_STATE_ACTIVE;
   ele->ip4_addr = ip4_addr;
-  ele->mac_addr[0] = mac0; ele->mac_addr[1] = mac1; ele->mac_addr[2] = mac2;
-  ele->mac_addr[3] = mac3; ele->mac_addr[4] = mac4; ele->mac_addr[5] = mac5;
+  memcpy( ele->mac_addr, mac, 6 );
   fd_neigh4_hmap_publish( query );
 }
 
@@ -133,42 +122,44 @@ setup_routing_table( fd_net_ctx_t * ctx,
   FD_TEST( fd_fib4_insert( fib_main,  banned_ip, 32, 0U, &hop5 ) );
   FD_TEST( fd_fib4_insert( fib_main,  gre1_dst_ip, 32, 0U, &hop6 ) );
   FD_TEST( fd_fib4_insert( fib_main,  gre1_outer_dst_ip, 32, 0U, &hop7 ) );
-  ctx->fib_local = fib_local;
-  ctx->fib_main = fib_main;
+  fd_net_router_t * router = &ctx->router;
+  router->fib_local = fib_local;
+  router->fib_main  = fib_main;
 }
 
 static void
 setup_netdev_table( fd_net_ctx_t * ctx ) {
   /* GRE interfaces */
-  ctx->netdev_tbl.dev_tbl[IF_IDX_GRE0] = (fd_netdev_t) {
+  fd_net_router_t * router = &ctx->router;
+  router->netdev_tbl.dev_tbl[IF_IDX_GRE0] = (fd_netdev_t) {
     .if_idx = IF_IDX_GRE0,
     .dev_type = ARPHRD_IPGRE,
     .gre_dst_ip = gre0_outer_dst_ip,
     .gre_src_ip = gre0_outer_src_ip
   };
-  ctx->netdev_tbl.dev_tbl[IF_IDX_GRE1] = (fd_netdev_t) {
+  router->netdev_tbl.dev_tbl[IF_IDX_GRE1] = (fd_netdev_t) {
     .if_idx = IF_IDX_GRE1,
     .dev_type = ARPHRD_IPGRE,
     .gre_dst_ip = gre1_outer_dst_ip,
   };
   /* Eth0 interface */
-  ctx->netdev_tbl.dev_tbl[IF_IDX_ETH0] = (fd_netdev_t) {
+  router->netdev_tbl.dev_tbl[IF_IDX_ETH0] = (fd_netdev_t) {
     .if_idx = IF_IDX_ETH0,
     .dev_type = ARPHRD_ETHER,
   };
   /* Eth1 interface */
-  ctx->netdev_tbl.dev_tbl[IF_IDX_ETH1] = (fd_netdev_t) {
+  router->netdev_tbl.dev_tbl[IF_IDX_ETH1] = (fd_netdev_t) {
     .if_idx = IF_IDX_ETH1,
     .dev_type = ARPHRD_ETHER,
   };
   /* Lo interface */
-  ctx->netdev_tbl.dev_tbl[IF_IDX_LO] = (fd_netdev_t) {
+  router->netdev_tbl.dev_tbl[IF_IDX_LO] = (fd_netdev_t) {
     .if_idx = IF_IDX_LO,
     .dev_type = ARPHRD_LOOPBACK,
   };
-  fd_memcpy( (fd_netdev_t *)ctx->netdev_tbl.dev_tbl[IF_IDX_ETH0].mac_addr, eth0_src_mac_addr, 6 );
-  fd_memcpy( (fd_netdev_t *)ctx->netdev_tbl.dev_tbl[IF_IDX_ETH1].mac_addr, eth1_src_mac_addr, 6 );
-  ctx->netdev_tbl.hdr->dev_cnt = IF_IDX_GRE1 + 1;
+  fd_memcpy( router->netdev_tbl.dev_tbl[IF_IDX_ETH0].mac_addr, eth0_src_mac_addr, 6 );
+  fd_memcpy( router->netdev_tbl.dev_tbl[IF_IDX_ETH1].mac_addr, eth1_src_mac_addr, 6 );
+  router->netdev_tbl.hdr->dev_cnt = IF_IDX_GRE1 + 1;
 }
 
 
@@ -290,14 +281,14 @@ main( int     argc,
   fd_topob_tile_in( topo, "net", 0UL, "wksp", "shred_net", 0UL, 0, 1 );
 
   /* Manual "privileged_init/unprivileged init" */
-  void * scratch      = fd_topo_obj_laddr( topo, topo_tile->tile_obj_id );
+  void * scratch       = fd_topo_obj_laddr( topo, topo_tile->tile_obj_id );
   FD_SCRATCH_ALLOC_INIT( l, scratch );
-  fd_net_ctx_t * ctx  = FD_SCRATCH_ALLOC_APPEND( l, alignof( fd_net_ctx_t ), sizeof( fd_net_ctx_t ) );
+  fd_net_ctx_t * ctx   = FD_SCRATCH_ALLOC_APPEND( l, alignof( fd_net_ctx_t ), sizeof( fd_net_ctx_t ) );
   fd_memset( ctx, 0, sizeof(fd_net_ctx_t) );
-  ctx->net_tile_cnt = 1;
-  ctx->free_tx.queue  = FD_SCRATCH_ALLOC_APPEND( l, alignof(ulong), topo_tile->xdp.free_ring_depth * sizeof(ulong) );
-  ctx->free_tx.depth  = topo_tile->xdp.free_ring_depth;
-  ctx->netdev_buf     = FD_SCRATCH_ALLOC_APPEND( l, fd_netdev_tbl_align(), ctx->netdev_buf_sz );
+  ctx->net_tile_cnt    = 1;
+  ctx->free_tx.queue   = FD_SCRATCH_ALLOC_APPEND( l, alignof(ulong), topo_tile->xdp.free_ring_depth * sizeof(ulong) );
+  ctx->free_tx.depth   = topo_tile->xdp.free_ring_depth;
+  ctx->netdev_buf      = FD_SCRATCH_ALLOC_APPEND( l, fd_netdev_tbl_align(), ctx->netdev_buf_sz );
 
   init_device_table( ctx, netdev_dbl_buf_mem );
 
@@ -310,8 +301,8 @@ main( int     argc,
   ulong        umem_sz     = umem_dcache_data_sz - ( (ulong)umem_frame0 - (ulong)umem_dcache );
   umem_sz                  = fd_ulong_align_dn( umem_sz, umem_frame_sz );
 
-  ulong  const umem_chunk0    = ( (ulong)umem_frame0 - (ulong)umem_base )>>FD_CHUNK_LG_SZ;
-  ulong  const umem_wmark     = umem_chunk0 + ( ( umem_sz-umem_frame_sz )>>FD_CHUNK_LG_SZ );
+  ulong  const umem_chunk0 = ( (ulong)umem_frame0 - (ulong)umem_base )>>FD_CHUNK_LG_SZ;
+  ulong  const umem_wmark  = umem_chunk0 + ( ( umem_sz-umem_frame_sz )>>FD_CHUNK_LG_SZ );
 
   ctx->umem_frame0 = umem_frame0;
   ctx->umem_chunk0 = (uint)umem_chunk0;
@@ -394,17 +385,14 @@ main( int     argc,
   /* Routing table */
   setup_routing_table( ctx, fib4_local_mem, fib4_main_mem );
 
-  /* Ensure initial (fake) device table is valid */
-  FD_TEST( net_check_gre_interface_exists( ctx )==0 );
-  uint is_gre_inf = 0U;
-  FD_TEST( net_tx_route( ctx, FD_IP4_ADDR( 1,1,1,1 ), &is_gre_inf )==0 );
+  FD_TEST( net_tx_route( ctx, FD_IP4_ADDR( 1,1,1,1 ) )==FD_NET_HOP_FALLBACK );
 
   /* Neighbor table */
-  add_neighbor( neigh4_hmap, gre0_outer_dst_ip, eth0_dst_mac_addr[0], eth0_dst_mac_addr[1], eth0_dst_mac_addr[2], eth0_dst_mac_addr[3], eth0_dst_mac_addr[4], eth0_dst_mac_addr[5] );
-  add_neighbor( neigh4_hmap, gre1_outer_dst_ip, eth1_dst_mac_addr[0], eth1_dst_mac_addr[1], eth1_dst_mac_addr[2], eth1_dst_mac_addr[3], eth1_dst_mac_addr[4], eth1_dst_mac_addr[5] );
-  add_neighbor( neigh4_hmap, gw_ip,     eth1_dst_mac_addr[0], eth1_dst_mac_addr[1], eth1_dst_mac_addr[2], eth1_dst_mac_addr[3], eth1_dst_mac_addr[4], eth1_dst_mac_addr[5] );
+  add_neighbor( neigh4_hmap, gre0_outer_dst_ip, eth0_dst_mac_addr );
+  add_neighbor( neigh4_hmap, gre1_outer_dst_ip, eth1_dst_mac_addr );
+  add_neighbor( neigh4_hmap, gw_ip,             eth1_dst_mac_addr );
   FD_TEST( fd_neigh4_hmap_join(
-    ctx->neigh4,
+    ctx->router.neigh4,
     fd_topo_obj_laddr( topo, topo_tile->xdp.neigh4_obj_id ),
     fd_topo_obj_laddr( topo, topo_tile->xdp.neigh4_ele_obj_id ) ) );
 
@@ -414,7 +402,7 @@ main( int     argc,
   ctx->netdev_buf_sz  = fd_netdev_tbl_footprint( NETDEV_MAX, BOND_MASTER_MAX );
   ctx->netdev_buf     = FD_SCRATCH_ALLOC_APPEND( l, fd_netdev_tbl_align(), ctx->netdev_buf_sz );
   fd_netdev_tbl_new( ctx->netdev_buf, NETDEV_MAX, BOND_MASTER_MAX );
-  FD_TEST( fd_netdev_tbl_join( &ctx->netdev_tbl, ctx->netdev_buf ) );
+  FD_TEST( fd_netdev_tbl_join( &ctx->router.netdev_tbl, ctx->netdev_buf ) );
   setup_netdev_table( ctx );
   ctx->has_gre_interface = 1;
 
@@ -493,7 +481,7 @@ main( int     argc,
   fd_memcpy( eth_mac_addrs_before_frag,     eth1_dst_mac_addr, 6 );
   fd_memcpy( eth_mac_addrs_before_frag + 6, eth1_src_mac_addr, 6 );
 
-  struct {
+  struct __attribute__((packed)) {
     fd_eth_hdr_t eth;
     fd_ip4_hdr_t inner_ip4;
     fd_udp_hdr_t udp;
@@ -502,27 +490,6 @@ main( int     argc,
     .eth = {
       .net_type = fd_ushort_bswap( FD_ETH_HDR_TYPE_IP ),
     },
-    .inner_ip4 = {
-      .verihl      = FD_IP4_VERIHL( 4, 5 ),
-      .protocol    = FD_IP4_HDR_PROTOCOL_UDP,
-      .net_tot_len = fd_ushort_bswap( 31 ),
-      .daddr       = gre0_dst_ip
-    },
-    .udp = {
-      .net_len   = fd_ushort_bswap( 11 ),
-      .net_dport = fd_ushort_bswap( SHRED_PORT )
-    },
-    .data = {0xFF, 0xFF, 0}
-  };
-
-  struct {
-    fd_eth_hdr_t eth;
-    fd_ip4_hdr_t outer_ip4;
-    fd_gre_hdr_t gre;
-    fd_ip4_hdr_t inner_ip4;
-    fd_udp_hdr_t udp;
-    uchar        data[3];
-  } tx_pkt_during_frag_gre = {
     .inner_ip4 = {
       .verihl      = FD_IP4_VERIHL( 4, 5 ),
       .protocol    = FD_IP4_HDR_PROTOCOL_UDP,
@@ -640,7 +607,6 @@ main( int     argc,
     rx_pkt_gre.data[2]                = (uchar)i;
     rx_pkt.data[2]                    = (uchar)i;
     tx_pkt_before_frag_gre.data[2]    = (uchar)i;
-    tx_pkt_during_frag_gre.data[2]    = (uchar)i;
     tx_pkt_before_during_frag.data[2] = (uchar)i;
     tx_pkt_after_frag_gre.data[2]     = (uchar)i;
     tx_pkt_after_frag.data[2]         = (uchar)i;
@@ -662,8 +628,6 @@ main( int     argc,
 
     void * during_frag_src;
     ulong  during_frag_src_sz;
-    ulong  during_frag_expected_sz;
-    void * during_frag_expected;
 
     void * after_frag_expected;
     ulong  after_frag_expected_sz;
@@ -674,7 +638,7 @@ main( int     argc,
         fd_memcpy( eth_mac_addrs_before_frag_gre,     eth0_dst_mac_addr, 6 );
         fd_memcpy( eth_mac_addrs_before_frag_gre + 6, eth0_src_mac_addr, 6 );
 
-        xsk->if_idx = IF_IDX_ETH0;
+        xsk->if_idx = ctx->router.if_idx = IF_IDX_ETH0;
         before_credit_input       = &rx_pkt_gre;
         before_credit_input_sz    = sizeof(rx_pkt_gre);
         before_credit_expected    = &rx_pkt;
@@ -689,10 +653,8 @@ main( int     argc,
         gre_outer_dst_ip                       = gre0_outer_dst_ip;
         use_gre                                = 1;
 
-        tx_pkt_during_frag_gre.inner_ip4.daddr = gre1_dst_ip;
         during_frag_src                        = &tx_pkt_before_frag_gre;
         during_frag_src_sz                     = sizeof(tx_pkt_before_frag_gre);
-        during_frag_expected                   = &tx_pkt_during_frag_gre;
 
         after_frag_expected    = &tx_pkt_after_frag_gre;
         after_frag_expected_sz = sizeof(tx_pkt_after_frag_gre);
@@ -713,7 +675,7 @@ main( int     argc,
         fd_memcpy( eth_mac_addrs_before_frag_gre,     eth1_dst_mac_addr, 6 );
         fd_memcpy( eth_mac_addrs_before_frag_gre + 6, eth1_src_mac_addr, 6 );
 
-        xsk->if_idx = IF_IDX_ETH1;
+        xsk->if_idx = ctx->router.if_idx = IF_IDX_ETH1;
 
         before_credit_input       = &rx_pkt_gre;
         before_credit_input_sz    = sizeof(rx_pkt_gre);
@@ -729,10 +691,8 @@ main( int     argc,
         gre_outer_dst_ip                       = gre1_outer_dst_ip;
         use_gre                                = 1;
 
-        tx_pkt_during_frag_gre.inner_ip4.daddr = gre1_dst_ip;
         during_frag_src                        = &tx_pkt_before_frag_gre;
         during_frag_src_sz                     = sizeof(tx_pkt_before_frag_gre);
-        during_frag_expected                   = &tx_pkt_during_frag_gre;
 
         after_frag_expected                   = &tx_pkt_after_frag_gre;
         after_frag_expected_sz                = sizeof(tx_pkt_after_frag_gre);
@@ -750,7 +710,7 @@ main( int     argc,
         break;
       }
       case 2: { // non-gre
-        xsk->if_idx               = IF_IDX_ETH1;
+        xsk->if_idx = ctx->router.if_idx = IF_IDX_ETH1;
 
         before_credit_input       = &rx_pkt;
         before_credit_input_sz    = sizeof(rx_pkt);
@@ -765,8 +725,6 @@ main( int     argc,
 
         during_frag_src         = &tx_pkt_before_during_frag;
         during_frag_src_sz      = sizeof(tx_pkt_before_during_frag);
-        during_frag_expected_sz = sizeof(tx_pkt_before_during_frag);
-        during_frag_expected    = &tx_pkt_before_during_frag;
 
         after_frag_expected    = &tx_pkt_after_frag;
         after_frag_expected_sz = sizeof(tx_pkt_after_frag);
@@ -815,24 +773,22 @@ main( int     argc,
 
     ulong sig = fd_disco_netmux_sig( 0, SHRED_PORT, before_frag_dst_ip, DST_PROTO_OUTGOING, before_frag_hdr_sz );
     FD_TEST( before_frag( ctx, 0, tx_seq, sig ) == 0 ) ;
-    FD_TEST( ctx->tx_op.frame );
-    FD_TEST( fd_memeq( ctx->tx_op.mac_addrs, before_frag_expected_mac_addr, 12 ) );
-    FD_TEST( ctx->tx_op.src_ip==before_frag_expected_src_ip );
-    FD_TEST( ctx->tx_op.use_gre == use_gre                  );
+    FD_TEST( fd_memeq( ctx->next_hop.mac_addrs, before_frag_expected_mac_addr, 12 ) );
+    FD_TEST( ctx->next_hop.src_ip==before_frag_expected_src_ip );
+    FD_TEST( (ctx->tx_action==FD_NET_HOP_GRE) == use_gre );
     if( use_gre ) {
-      FD_TEST( ctx->tx_op.gre_outer_src_ip==gre_outer_src_ip  );
-      FD_TEST( ctx->tx_op.gre_outer_dst_ip==gre_outer_dst_ip  );
+      FD_TEST( ctx->next_hop.gre_src_ip==gre_outer_src_ip  );
+      FD_TEST( ctx->next_hop.gre_dst_ip==gre_outer_dst_ip  );
     }
 
     /* during_frag */
     uchar * src = fd_chunk_to_laddr( ctx->in[ 0 ].mem, tx_chunk );
     fd_memcpy( src, during_frag_src, during_frag_src_sz );
     during_frag( ctx, 0, tx_seq, 0, tx_chunk, during_frag_src_sz, 0 );
-    FD_TEST( fd_memeq( ctx->tx_op.frame, during_frag_expected, during_frag_expected_sz ) );
 
     /* after_frag */
     ulong tx_metric_before = ctx->metrics.tx_submit_cnt;
-    after_frag( ctx, 0, tx_seq, 0, during_frag_expected_sz, 0, 0, NULL );
+    after_frag( ctx, 0, tx_seq, 0, during_frag_src_sz, 0, 0, NULL );
     ulong tx_metric_after  = ctx->metrics.tx_submit_cnt;
     FD_TEST( tx_metric_before+1==tx_metric_after ); /* assert that XDP tile published a TX frame */
     struct xdp_desc * tx_ring_entry = &xsk->ring_tx.packet_ring[xdp_tx_ring_prod-1];
@@ -840,7 +796,7 @@ main( int     argc,
     void * after_frag_output = (void *)((ulong)tx_ring_entry->addr + (ulong)ctx->umem_frame0);
     FD_TEST( fd_memeq( after_frag_output, after_frag_expected, after_frag_expected_sz ) );
     tx_seq++;
-    tx_chunk = fd_dcache_compact_next( tx_chunk, during_frag_expected_sz, tx_chunk0, tx_wmark );
+    tx_chunk = fd_dcache_compact_next( tx_chunk, after_frag_expected_sz, tx_chunk0, tx_wmark );
   }
 
   FD_LOG_NOTICE(( "pass" ));

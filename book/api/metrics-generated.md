@@ -49,8 +49,8 @@
 
 | Metric | Type | Description |
 |--------|------|-------------|
-| <span class="metrics-name">net_&#8203;rx_&#8203;pkt_&#8203;cnt</span><br/>{pkt_&#8203;kind="<span class="metrics-enum">ip4_&#8203;udp</span>"} | counter | Packet receive count. (IPv4 UDP packet (no options)) |
-| <span class="metrics-name">net_&#8203;rx_&#8203;pkt_&#8203;cnt</span><br/>{pkt_&#8203;kind="<span class="metrics-enum">ip4_&#8203;opt_&#8203;udp</span>"} | counter | Packet receive count. (IPv4 UDP packet (with options)) |
+| <span class="metrics-name">net_&#8203;rx_&#8203;pkt_&#8203;cnt</span><br/>{pkt_&#8203;kind="<span class="metrics-enum">ip4_&#8203;udp</span>"} | counter | Packet receive count (ignoring tunnels) (IPv4 UDP packet (no options)) |
+| <span class="metrics-name">net_&#8203;rx_&#8203;pkt_&#8203;cnt</span><br/>{pkt_&#8203;kind="<span class="metrics-enum">ip4_&#8203;opt_&#8203;udp</span>"} | counter | Packet receive count (ignoring tunnels) (IPv4 UDP packet (with options)) |
 | <span class="metrics-name">net_&#8203;rx_&#8203;bytes_&#8203;total</span> | counter | Total number of bytes received (including Ethernet header). |
 | <span class="metrics-name">net_&#8203;rx_&#8203;undersz_&#8203;cnt</span> | counter | Number of incoming packets dropped due to being too small. |
 | <span class="metrics-name">net_&#8203;rx_&#8203;fill_&#8203;blocked_&#8203;cnt</span> | counter | Number of incoming packets dropped due to fill ring being full. |
@@ -60,8 +60,8 @@
 | <span class="metrics-name">net_&#8203;tx_&#8203;submit_&#8203;cnt</span> | counter | Number of packet transmit jobs submitted. |
 | <span class="metrics-name">net_&#8203;tx_&#8203;complete_&#8203;cnt</span> | counter | Number of packet transmit jobs marked as completed by the kernel. |
 | <span class="metrics-name">net_&#8203;tx_&#8203;bytes_&#8203;total</span> | counter | Total number of bytes transmitted (including Ethernet header). |
-| <span class="metrics-name">net_&#8203;tx_&#8203;route_&#8203;fail_&#8203;cnt</span> | counter | Number of packet transmit jobs dropped due to route failure. |
-| <span class="metrics-name">net_&#8203;tx_&#8203;neighbor_&#8203;fail_&#8203;cnt</span> | counter | Number of packet transmit jobs dropped due to unresolved neighbor. |
+| <span class="metrics-name">net_&#8203;tx_&#8203;corrupt_&#8203;cnt</span> | counter | Number of packet transmit jobs dropped due to malformed content. |
+| <span class="metrics-name">net_&#8203;tx_&#8203;fallback_&#8203;cnt</span> | counter | Number of packet transmit jobs handled via sockets fallback instead of XDP. |
 | <span class="metrics-name">net_&#8203;tx_&#8203;full_&#8203;fail_&#8203;cnt</span> | counter | Number of packet transmit jobs dropped due to XDP TX ring full or missing completions. |
 | <span class="metrics-name">net_&#8203;tx_&#8203;busy_&#8203;cnt</span> | gauge | Number of transmit buffers currently busy. |
 | <span class="metrics-name">net_&#8203;tx_&#8203;idle_&#8203;cnt</span> | gauge | Number of transmit buffers currently idle. |
@@ -77,7 +77,6 @@
 | <span class="metrics-name">net_&#8203;rx_&#8203;gre_&#8203;invalid_&#8203;cnt</span> | counter | Number of invalid GRE packets received |
 | <span class="metrics-name">net_&#8203;rx_&#8203;gre_&#8203;ignored_&#8203;cnt</span> | counter | Number of received but ignored GRE packets |
 | <span class="metrics-name">net_&#8203;tx_&#8203;gre_&#8203;cnt</span> | counter | Number of GRE packet transmit jobs submitted |
-| <span class="metrics-name">net_&#8203;tx_&#8203;gre_&#8203;route_&#8203;fail_&#8203;cnt</span> | counter | Number of GRE packets transmit jobs dropped due to route failure |
 
 </div>
 

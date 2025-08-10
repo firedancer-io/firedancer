@@ -68,8 +68,8 @@ metric introduced.
     <counter name="TxSubmitCnt" summary="Number of packet transmit jobs submitted." />
     <counter name="TxCompleteCnt" summary="Number of packet transmit jobs marked as completed by the kernel." />
     <counter name="TxBytesTotal" summary="Total number of bytes transmitted (including Ethernet header)." />
-    <counter name="TxRouteFailCnt" summary="Number of packet transmit jobs dropped due to route failure." />
-    <counter name="TxNeighborFailCnt" summary="Number of packet transmit jobs dropped due to unresolved neighbor." />
+    <counter name="TxCorruptCnt" summary="Number of packet transmit jobs dropped due to malformed content." />
+    <counter name="TxFallbackCnt" summary="Number of packet transmit jobs handled via sockets fallback instead of XDP." />
     <counter name="TxFullFailCnt" summary="Number of packet transmit jobs dropped due to XDP TX ring full or missing completions." />
     <gauge name="TxBusyCnt" summary="Number of transmit buffers currently busy." />
     <gauge name="TxIdleCnt" summary="Number of transmit buffers currently idle." />
@@ -90,7 +90,6 @@ metric introduced.
     <counter name="RxGreInvalidCnt" summary="Number of invalid GRE packets received" />
     <counter name="RxGreIgnoredCnt" summary="Number of received but ignored GRE packets" />
     <counter name="TxGreCnt" summary="Number of GRE packet transmit jobs submitted" />
-    <counter name="TxGreRouteFailCnt" summary="Number of GRE packets transmit jobs dropped due to route failure" />
 </tile>
 
 <enum name="SockErr">
