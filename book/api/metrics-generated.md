@@ -49,7 +49,8 @@
 
 | Metric | Type | Description |
 |--------|------|-------------|
-| <span class="metrics-name">net_&#8203;rx_&#8203;pkt_&#8203;cnt</span> | counter | Packet receive count. |
+| <span class="metrics-name">net_&#8203;rx_&#8203;pkt_&#8203;cnt</span><br/>{pkt_&#8203;kind="<span class="metrics-enum">ip4_&#8203;udp</span>"} | counter | Packet receive count. (IPv4 UDP packet (no options)) |
+| <span class="metrics-name">net_&#8203;rx_&#8203;pkt_&#8203;cnt</span><br/>{pkt_&#8203;kind="<span class="metrics-enum">ip4_&#8203;opt_&#8203;udp</span>"} | counter | Packet receive count. (IPv4 UDP packet (with options)) |
 | <span class="metrics-name">net_&#8203;rx_&#8203;bytes_&#8203;total</span> | counter | Total number of bytes received (including Ethernet header). |
 | <span class="metrics-name">net_&#8203;rx_&#8203;undersz_&#8203;cnt</span> | counter | Number of incoming packets dropped due to being too small. |
 | <span class="metrics-name">net_&#8203;rx_&#8203;fill_&#8203;blocked_&#8203;cnt</span> | counter | Number of incoming packets dropped due to fill ring being full. |

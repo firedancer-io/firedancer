@@ -51,8 +51,13 @@ metric introduced.
     <counter name="RegimeDurationNanos" enum="TileRegime" converter="nanoseconds" summary="Mutually exclusive and exhaustive duration of time the tile spent in each of the regimes." />
 </common>
 
+<enum name="PktKind">
+    <int value="0" name="Ip4Udp" label="IPv4 UDP packet (no options)" />
+    <int value="1" name="Ip4OptUdp" label="IPv4 UDP packet (with options)" />
+</enum>
+
 <tile name="net">
-    <counter name="RxPktCnt" summary="Packet receive count." />
+    <counter name="RxPktCnt" enum="PktKind" summary="Packet receive count (ignoring tunnels)" />
     <counter name="RxBytesTotal" summary="Total number of bytes received (including Ethernet header)." />
     <counter name="RxUnderszCnt" summary="Number of incoming packets dropped due to being too small." />
     <counter name="RxFillBlockedCnt" summary="Number of incoming packets dropped due to fill ring being full." />
