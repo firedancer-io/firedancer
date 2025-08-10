@@ -323,7 +323,7 @@ backtest_topo( config_t * config ) {
 
   for( ulong i=0UL; i<topo->tile_cnt; i++ ) {
     fd_topo_tile_t * tile = &topo->tiles[ i ];
-    if( !fd_topo_configure_tile( tile, config ) ) {
+    if( !fd_topo_configure_tile( tile, config, NULL ) ) {
       FD_LOG_ERR(( "unknown tile name %lu `%s`", i, tile->name ));
     }
 

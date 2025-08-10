@@ -380,14 +380,17 @@ fd_topo_initialize( config_t * config ) {
 
   FOR(net_tile_cnt) fd_topos_net_tile_finish( topo, i );
 
+  fd_topo_net_rx_t rx_rules = {0};
+  fd_topo_net_rx_rule_push( &rx_rules, DST_PROTO_SHRED,    "net_shred", config->tiles.shred.shred_listen_port              );
+  fd_topo_net_rx_rule_push( &rx_rules, DST_PROTO_TPU_QUIC, "net_quic" , config->tiles.quic.quic_transaction_listen_port    );
+  fd_topo_net_rx_rule_push( &rx_rules, DST_PROTO_TPU_UDP,  "net_quic" , config->tiles.quic.regular_transaction_listen_port );
+
   for( ulong i=0UL; i<topo->tile_cnt; i++ ) {
     fd_topo_tile_t * tile = &topo->tiles[ i ];
 
     if( FD_UNLIKELY( !strcmp( tile->name, "net" ) || !strcmp( tile->name, "sock" ) ) ) {
 
-      tile->net.shred_listen_port              = config->tiles.shred.shred_listen_port;
-      tile->net.quic_transaction_listen_port   = config->tiles.quic.quic_transaction_listen_port;
-      tile->net.legacy_transaction_listen_port = config->tiles.quic.regular_transaction_listen_port;
+      tile->net.rx_rules = rx_rules;
 
     } else if( FD_UNLIKELY( !strcmp( tile->name, "netlnk" ) ) ) {
 

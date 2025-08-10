@@ -318,11 +318,17 @@ main( int     argc,
   ctx->umem_wmark  = (uint)umem_wmark;
   ctx->umem_sz     = umem_sz;
 
-  ctx->shred_listen_port = SHRED_PORT;
-  ctx->shred_out->mcache = rx_link->mcache;
-  ctx->shred_out->sync   = fd_mcache_seq_laddr( ctx->shred_out->mcache );
-  ctx->shred_out->depth  = fd_mcache_depth( ctx->shred_out->mcache );
-  ctx->shred_out->seq    = fd_mcache_seq_query( ctx->shred_out->sync );
+  /* RX flow steer rule */
+  uint rx_port_idx = ctx->rx_port_cnt++;
+  ctx->rx_port_keys.h[ rx_port_idx ]              = SHRED_PORT;
+  ctx->rx_port_vals  [ rx_port_idx ].dst_proto    = DST_PROTO_SHRED;
+  ctx->rx_port_vals  [ rx_port_idx ].out_link_idx = 0;
+
+  /* RX out link */
+  ctx->out[ 0 ].mcache = rx_link->mcache;
+  ctx->out[ 0 ].sync   = fd_mcache_seq_laddr( rx_link->mcache );
+  ctx->out[ 0 ].depth  = fd_mcache_depth    ( rx_link->mcache );
+  ctx->out[ 0 ].seq    = 0UL;
 
   /* Initialize out link mcache chunks (RX links) */
   ulong frame_off = 0UL;
@@ -423,7 +429,7 @@ main( int     argc,
   ulong cr_avail    = ULONG_MAX;
   fd_stem_context_t stem[1] = {{
     .mcaches             = &rx_link->mcache,
-    .seqs                = &ctx->shred_out->seq,
+    .seqs                = &ctx->out[ 0 ].seq,
     .depths              = &link_depth,
     .cr_avail            = &cr_avail,
     .cr_decrement_amount = 0UL
