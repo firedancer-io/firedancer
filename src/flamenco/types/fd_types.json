@@ -2303,13 +2303,6 @@
       ]
     },
     {
-      "name": "repair_response",
-      "type": "enum",
-      "variants": [
-        { "name": "ping", "type": "gossip_ping" }
-      ]
-    },
-    {
       "name": "instr_error_enum",
       "type": "enum",
       "variants": [

@@ -2,14 +2,29 @@
 #define HEADER_fd_src_disco_shred_fd_shred_tile_h
 
 #include "../tiles.h"
+#include "../../discof/repair/fd_repair_tile.h"
 #include "../../flamenco/types/fd_types_custom.h"
+
+struct fd_repair_ping_fwd {
+  uint   src_ip4;
+  uint   dst_ip4;
+  ushort src_port;
+
+  /* FIXME: Just have a wire-format struct here for the ping frame.
+     This is currently not possible due to use of fd_types, which is not
+     guaranteed to have the same in-memory format as the wire format. */
+  uchar ping[ FD_REPAIR_PING_SZ ];
+};
+
+typedef struct fd_repair_ping_fwd fd_repair_ping_fwd_t;
 
 /* Forward declarations */
 typedef struct fd_fec_resolver fd_fec_resolver_t;
 typedef struct fd_keyswitch_private fd_keyswitch_t;
 typedef struct fd_keyguard_client fd_keyguard_client_t;
 
-/* Shred tile context structure */
+/* Part of the shred tile context struct
+   FIXME remove this and just use fd_shred_ctx_t everywhere */
 typedef struct {
   fd_shredder_t      * shredder;
   fd_fec_resolver_t  * resolver;
@@ -27,6 +42,6 @@ typedef struct {
   fd_keyswitch_t *     keyswitch;
   fd_keyguard_client_t keyguard_client[1];
   /* ... rest of the structure members ... */
-} fd_shred_ctx_t;
+} fd_shred_ctx_hdr_t;
 
 #endif /* HEADER_fd_src_disco_shred_fd_shred_tile_h */
