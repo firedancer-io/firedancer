@@ -552,9 +552,7 @@ fd_quic_init( fd_quic_t * quic ) {
   state->hs_pool = hs_pool;
 
   /* State: Initialize TLS handshake cache */
-  if( FD_LIKELY( !fd_quic_tls_hs_cache_join(
-    fd_quic_tls_hs_cache_new( &state->hs_cache )
-  ))) {
+  if( FD_UNLIKELY( !fd_quic_tls_hs_cache_join( fd_quic_tls_hs_cache_new( &state->hs_cache ) ) ) ) {
     FD_LOG_WARNING(( "fd_quic_tls_hs_cache_new failed" ));
     return NULL;
   }
