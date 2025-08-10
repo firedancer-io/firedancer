@@ -198,8 +198,6 @@ typedef struct {
   /* Ring tracking free packet buffers */
   fd_net_free_ring_t free_tx;
 
-  uchar  src_mac_addr[6];
-
   uint   default_address;
   uint   bind_address;
   ushort shred_listen_port;
@@ -1177,20 +1175,15 @@ net_xsk_bootstrap( fd_net_ctx_t * ctx,
   return frame_off;
 }
 
-/* FIXME source MAC address from netlnk tile instead */
+/* FIXME get default IPv4 address from netdev tbl instead */
 
 static void
 interface_addrs( const char * interface,
-                 uchar *      mac,
                  uint *       ip4_addr ) {
   int fd = socket( AF_INET, SOCK_DGRAM, 0 );
   struct ifreq ifr;
   ifr.ifr_addr.sa_family = AF_INET;
-
   strncpy( ifr.ifr_name, interface, IFNAMSIZ );
-  if( FD_UNLIKELY( ioctl( fd, SIOCGIFHWADDR, &ifr ) ) )
-    FD_LOG_ERR(( "could not get MAC address of interface `%s`: (%i-%s)", interface, errno, fd_io_strerror( errno ) ));
-  fd_memcpy( mac, ifr.ifr_hwaddr.sa_data, 6 );
 
   if( FD_UNLIKELY( ioctl( fd, SIOCGIFADDR, &ifr ) ) )
     FD_LOG_ERR(( "could not get IP address of interface `%s`: (%i-%s)", interface, errno, fd_io_strerror( errno ) ));
@@ -1234,7 +1227,7 @@ privileged_init( fd_topo_t *      topo,
   uint if_idx = if_nametoindex( tile->xdp.interface );
   if( FD_UNLIKELY( !if_idx ) ) FD_LOG_ERR(( "if_nametoindex(%s) failed", tile->xdp.interface ));
 
-  interface_addrs( tile->xdp.interface, ctx->src_mac_addr, &ctx->default_address );
+  interface_addrs( tile->xdp.interface, &ctx->default_address );
 
   /* Load up dcache containing UMEM */
 
