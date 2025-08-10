@@ -3266,18 +3266,6 @@ struct fd_repair_protocol {
 typedef struct fd_repair_protocol fd_repair_protocol_t;
 #define FD_REPAIR_PROTOCOL_ALIGN alignof(fd_repair_protocol_t)
 
-union fd_repair_response_inner {
-  fd_gossip_ping_t ping;
-};
-typedef union fd_repair_response_inner fd_repair_response_inner_t;
-
-struct fd_repair_response {
-  uint discriminant;
-  fd_repair_response_inner_t inner;
-};
-typedef struct fd_repair_response fd_repair_response_t;
-#define FD_REPAIR_RESPONSE_ALIGN alignof(fd_repair_response_t)
-
 union fd_instr_error_enum_inner {
   uint custom;
   char* borsh_io_error;
@@ -6114,19 +6102,6 @@ fd_repair_protocol_enum_window_index = 8,
 fd_repair_protocol_enum_highest_window_index = 9,
 fd_repair_protocol_enum_orphan = 10,
 fd_repair_protocol_enum_ancestor_hashes = 11,
-};
-void fd_repair_response_new_disc( fd_repair_response_t * self, uint discriminant );
-void fd_repair_response_new( fd_repair_response_t * self );
-int fd_repair_response_encode( fd_repair_response_t const * self, fd_bincode_encode_ctx_t * ctx );
-void fd_repair_response_walk( void * w, fd_repair_response_t const * self, fd_types_walk_fn_t fun, const char *name, uint level, uint varint );
-ulong fd_repair_response_size( fd_repair_response_t const * self );
-static inline ulong fd_repair_response_align( void ) { return FD_REPAIR_RESPONSE_ALIGN; }
-int fd_repair_response_decode_footprint( fd_bincode_decode_ctx_t * ctx, ulong * total_sz );
-void * fd_repair_response_decode( void * mem, fd_bincode_decode_ctx_t * ctx );
-
-FD_FN_PURE uchar fd_repair_response_is_ping( fd_repair_response_t const * self );
-enum {
-fd_repair_response_enum_ping = 0,
 };
 void fd_instr_error_enum_new_disc( fd_instr_error_enum_t * self, uint discriminant );
 void fd_instr_error_enum_new( fd_instr_error_enum_t * self );
