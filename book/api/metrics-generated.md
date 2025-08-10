@@ -700,10 +700,6 @@
 | <span class="metrics-name">netlnk_&#8203;interface_&#8203;count</span> | gauge | Number of network interfaces |
 | <span class="metrics-name">netlnk_&#8203;route_&#8203;count</span><br/>{route_&#8203;table="<span class="metrics-enum">local</span>"} | gauge | Number of IPv4 routes (Local) |
 | <span class="metrics-name">netlnk_&#8203;route_&#8203;count</span><br/>{route_&#8203;table="<span class="metrics-enum">main</span>"} | gauge | Number of IPv4 routes (Main) |
-| <span class="metrics-name">netlnk_&#8203;neigh_&#8203;probe_&#8203;sent</span> | counter | Number of neighbor solicit requests sent to kernel |
-| <span class="metrics-name">netlnk_&#8203;neigh_&#8203;probe_&#8203;fails</span> | counter | Number of neighbor solicit requests that failed to send (kernel too slow) |
-| <span class="metrics-name">netlnk_&#8203;neigh_&#8203;probe_&#8203;rate_&#8203;limit_&#8203;host</span> | counter | Number of neighbor solicit that exceeded the per-host rate limit |
-| <span class="metrics-name">netlnk_&#8203;neigh_&#8203;probe_&#8203;rate_&#8203;limit_&#8203;global</span> | counter | Number of neighbor solicit that exceeded the global rate limit |
 
 </div>
 

@@ -110,7 +110,7 @@ populate_allowed_seccomp( fd_topo_t const *      topo,
                           struct sock_filter *   out ) {
   fd_netlink_tile_ctx_t * ctx = fd_topo_obj_laddr( topo, tile->tile_obj_id );
   FD_TEST( ctx->magic==FD_NETLINK_TILE_CTX_MAGIC );
-  populate_sock_filter_policy_netlink( out_cnt, out, (uint)fd_log_private_logfile_fd(), (uint)ctx->nl_monitor->fd, (uint)ctx->nl_req->fd, (uint)ctx->prober->sock_fd );
+  populate_sock_filter_policy_netlink( out_cnt, out, (uint)fd_log_private_logfile_fd(), (uint)ctx->nl_monitor->fd, (uint)ctx->nl_req->fd );
   return sock_filter_policy_netlink_instr_cnt;
 }
 
@@ -122,7 +122,7 @@ populate_allowed_fds( fd_topo_t const *      topo,
   fd_netlink_tile_ctx_t * ctx = fd_topo_obj_laddr( topo, tile->tile_obj_id );
   FD_TEST( ctx->magic==FD_NETLINK_TILE_CTX_MAGIC );
 
-  if( FD_UNLIKELY( out_fds_cnt<5UL ) ) FD_LOG_ERR(( "out_fds_cnt too low (%lu)", out_fds_cnt ));
+  if( FD_UNLIKELY( out_fds_cnt<4UL ) ) FD_LOG_ERR(( "out_fds_cnt too low (%lu)", out_fds_cnt ));
 
   ulong out_cnt = 0UL;
   out_fds[ out_cnt++ ] = 2; /* stderr */
@@ -130,7 +130,6 @@ populate_allowed_fds( fd_topo_t const *      topo,
     out_fds[ out_cnt++ ] = fd_log_private_logfile_fd(); /* logfile */
   out_fds[ out_cnt++ ] = ctx->nl_monitor->fd;
   out_fds[ out_cnt++ ] = ctx->nl_req->fd;
-  out_fds[ out_cnt++ ] = ctx->prober->sock_fd;
   return out_cnt;
 }
 
@@ -168,11 +167,6 @@ privileged_init( fd_topo_t *      topo,
     FD_LOG_ERR(( "bind(sock,RT_NETLINK,RTMGRP_{LINK,NEIGH,IPV4_ROUTE}) failed (%i-%s)", errno, fd_io_strerror( errno ) ));
   }
 
-  float const max_probes_per_second =   3.f;
-  ulong const max_probe_burst       = 128UL;
-  float const probe_delay_seconds   =  15.f;
-  fd_neigh4_prober_init( ctx->prober, max_probes_per_second, max_probe_burst, probe_delay_seconds );
-
   /* Set duration of blocking reads in before_credit */
   struct timeval tv = { .tv_usec = 2000 }; /* 2ms */
   if( FD_UNLIKELY( 0!=setsockopt( ctx->nl_monitor->fd, SOL_SOCKET, SO_RCVTIMEO, &tv, sizeof(struct timeval) ) ) ) {
@@ -204,10 +198,7 @@ unprivileged_init( fd_topo_t *      topo,
   ctx->fib4_local = fd_fib4_join( fd_topo_obj_laddr( topo, tile->netlink.fib4_local_obj_id ) ); FD_TEST( ctx->fib4_local );
   ctx->fib4_main  = fd_fib4_join( fd_topo_obj_laddr( topo, tile->netlink.fib4_main_obj_id  ) ); FD_TEST( ctx->fib4_main  );
 
-  for( ulong i=0UL; i<tile->in_cnt; i++ ) {
-    fd_topo_link_t * link = &topo->links[ tile->in_link_id[ i ] ];
-    if( FD_UNLIKELY( link->mtu!=0UL ) ) FD_LOG_ERR(( "netlink solicit links must have an MTU of zero" ));
-  }
+  if( FD_UNLIKELY( tile->in_cnt!=0 ) ) FD_LOG_ERR(( "netlink tile had unexpected input links" ));
 
   ctx->action |= FD_NET_TILE_ACTION_LINK_UPDATE;
   ctx->action |= FD_NET_TILE_ACTION_ROUTE4_UPDATE;
@@ -232,10 +223,6 @@ metrics_write( fd_netlink_tile_ctx_t * ctx ) {
   FD_MGAUGE_SET(     NETLNK, INTERFACE_COUNT,         ctx->netdev_tbl->hdr->dev_cnt     );
   FD_MGAUGE_SET(     NETLNK, ROUTE_COUNT_LOCAL,       fd_fib4_cnt( ctx->fib4_local )    );
   FD_MGAUGE_SET(     NETLNK, ROUTE_COUNT_MAIN,        fd_fib4_cnt( ctx->fib4_main  )    );
-  FD_MCNT_SET(       NETLNK, NEIGH_PROBE_SENT,        ctx->metrics.neigh_solicits_sent  );
-  FD_MCNT_SET(       NETLNK, NEIGH_PROBE_FAILS,       ctx->metrics.neigh_solicits_fails );
-  FD_MCNT_SET(       NETLNK, NEIGH_PROBE_RATE_LIMIT_HOST,   ctx->prober->local_rate_limited_cnt  );
-  FD_MCNT_SET(       NETLNK, NEIGH_PROBE_RATE_LIMIT_GLOBAL, ctx->prober->global_rate_limited_cnt );
 }
 
 /* netlink_monitor_read calls recvfrom to process a link, route, or
@@ -337,81 +324,6 @@ before_credit( fd_netlink_tile_ctx_t * ctx,
 
 }
 
-/* after_poll_overrun is called when fd_stem.c was overrun while
-   checking for new fragments.  This typically happens when
-   before_credit takes too long (e.g. we were in a blocking netlink
-   read) */
-
-static void
-after_poll_overrun( fd_netlink_tile_ctx_t * ctx ) {
-  ctx->idle_cnt = -1L;
-}
-
-/* after_frag handles a neighbor solicit request */
-
-static void
-after_frag( fd_netlink_tile_ctx_t * ctx,
-            ulong                   in_idx,
-            ulong                   seq,
-            ulong                   sig,
-            ulong                   sz,
-            ulong                   tsorig,
-            ulong                   tspub,
-            fd_stem_context_t *     stem ) {
-  (void)in_idx; (void)seq; (void)tsorig; (void)tspub; (void)stem;
-
-  long now = fd_tickcount();
-  ctx->idle_cnt = -1L;
-
-  /* Parse request (fully contained in sig field) */
-
-  if( FD_UNLIKELY( sz!=0UL ) ) {
-    FD_LOG_WARNING(( "unexpected sz %lu", sz ));
-  }
-  if( FD_UNLIKELY( sig>>48 ) ) {
-    FD_LOG_WARNING(( "unexpected high bits in sig %016lx", sig ));
-  }
-  ushort if_idx   = (ushort)(sig>>32);
-  uint   ip4_addr = (uint)sig;
-  if( FD_UNLIKELY( if_idx!=ctx->neigh4_ifidx ) ) {
-    ctx->metrics.neigh_solicits_fails++;
-    FD_LOG_ERR(( "received neighbor solicit request for invalid interface index %u", if_idx ));
-    return;
-  }
-
-  /* Drop if the kernel is already working on the request */
-
-  fd_neigh4_hmap_query_t query[1];
-  int spec_res = fd_neigh4_hmap_query_try( ctx->neigh4, &ip4_addr, NULL, query, 0 );
-  if( spec_res==FD_MAP_SUCCESS ) {
-    ctx->metrics.neigh_solicits_fails++;
-    return;
-  }
-
-  /* Insert placeholder (take above branch next time) */
-
-  int prepare_res = fd_neigh4_hmap_prepare( ctx->neigh4, &ip4_addr, NULL, query, 0 );
-  if( FD_UNLIKELY( prepare_res!=FD_MAP_SUCCESS ) ) {
-    ctx->metrics.neigh_solicits_fails++;
-    return;
-  }
-  fd_neigh4_entry_t * ele = fd_neigh4_hmap_query_ele( query );
-  ele->state    = FD_NEIGH4_STATE_INCOMPLETE;
-  ele->ip4_addr = ip4_addr;
-  memset( ele->mac_addr, 0, 6UL );
-  fd_neigh4_hmap_publish( query );
-
-  /* Trigger neighbor solicit via netlink */
-
-  int probe_res = fd_neigh4_probe_rate_limited( ctx->prober, ele, ip4_addr, now );
-  if( probe_res==0 ) {
-    ctx->metrics.neigh_solicits_sent++;
-  } else if( probe_res>0 ) {
-    ctx->metrics.neigh_solicits_fails++;
-  }
-
-}
-
 #define STEM_BURST (1UL)
 #define STEM_LAZY ((ulong)13e6) /* 13ms */
 
@@ -421,8 +333,6 @@ after_frag( fd_netlink_tile_ctx_t * ctx,
 #define STEM_CALLBACK_METRICS_WRITE       metrics_write
 #define STEM_CALLBACK_DURING_HOUSEKEEPING during_housekeeping
 #define STEM_CALLBACK_BEFORE_CREDIT       before_credit
-#define STEM_CALLBACK_AFTER_POLL_OVERRUN  after_poll_overrun
-#define STEM_CALLBACK_AFTER_FRAG          after_frag
 
 #include "../stem/fd_stem.c"
 

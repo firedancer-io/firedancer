@@ -15,9 +15,6 @@ setup_xdp_tile( fd_topo_t *             topo,
                 ulong const *           tile_to_cpu,
                 fd_config_net_t const * net_cfg ) {
   fd_topo_tile_t * tile = fd_topob_tile( topo, "net", "net", "metric_in", tile_to_cpu[ topo->tile_cnt ], 0, 0 );
-  fd_topob_link( topo, "net_netlnk", "net_netlnk", 128UL, 0UL, 0UL );
-  fd_topob_tile_in(  topo, "netlnk", 0UL, "metric_in", "net_netlnk", i, FD_TOPOB_UNRELIABLE, FD_TOPOB_POLLED );
-  fd_topob_tile_out( topo, "net",    i,                "net_netlnk", i );
   fd_netlink_topo_join( topo, netlink_tile, tile );
 
   fd_topo_obj_t * umem_obj = fd_topob_obj( topo, "dcache", "net_umem" );
@@ -81,8 +78,6 @@ fd_topos_net_tiles( fd_topo_t *             topo,
     fd_topob_wksp( topo, "netlnk" );
     /* netbase: shared network config (config plane) */
     fd_topob_wksp( topo, "netbase" );
-    /* net_netlnk: net->netlnk ARP requests */
-    fd_topob_wksp( topo, "net_netlnk" );
 
     fd_topo_tile_t * netlink_tile = fd_topob_tile( topo, "netlnk", "netlnk", "metric_in", tile_to_cpu[ topo->tile_cnt ], 0, 0 );
     fd_netlink_topo_create( netlink_tile, topo, netlnk_max_routes, netlnk_max_peer_routes, netlnk_max_neighbors, net_cfg->interface );

@@ -11,7 +11,7 @@
 
 #include "../fd_find_16x16.h"
 #include "../../metrics/fd_metrics.h"
-#include "../../netlink/fd_netlink_tile.h" /* neigh4_solicit */
+#include "../../netlink/fd_netlink_tile.h"
 #include "../../topo/fd_topo.h"
 
 #include "../../../waltz/ip/fd_fib4.h"
@@ -247,7 +247,6 @@ typedef struct {
   fd_fib4_t const * fib_local;
   fd_fib4_t const * fib_main;
   fd_neigh4_hmap_t  neigh4[1];
-  fd_netlink_neigh4_solicit_link_t neigh4_solicit[1];
 
   /* Netdev table */
   fd_dbl_buf_t *       netdev_dbl_buf;    /* remote copy of device table */

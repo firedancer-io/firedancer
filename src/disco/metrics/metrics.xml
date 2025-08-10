@@ -898,10 +898,6 @@ metric introduced.
     <counter name="Updates" enum="NetlinkMsg" summary="Number of netlink live updates processed" />
     <gauge name="InterfaceCount" summary="Number of network interfaces" />
     <gauge name="RouteCount" enum="RouteTable" summary="Number of IPv4 routes" />
-    <counter name="NeighProbeSent" summary="Number of neighbor solicit requests sent to kernel" />
-    <counter name="NeighProbeFails" summary="Number of neighbor solicit requests that failed to send (kernel too slow)" />
-    <counter name="NeighProbeRateLimitHost" summary="Number of neighbor solicit that exceeded the per-host rate limit" />
-    <counter name="NeighProbeRateLimitGlobal" summary="Number of neighbor solicit that exceeded the global rate limit" />
 </tile>
 
 <tile name="snaprd">
