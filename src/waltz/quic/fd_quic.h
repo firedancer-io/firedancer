@@ -159,7 +159,7 @@ struct __attribute__((aligned(16UL))) fd_quic_config {
 #define FD_QUIC_CONFIG_LIST(X,...) \
   X( role,                        "%d",     enum,  "enum",         __VA_ARGS__ ) \
   X( retry,                       "%d",     bool,  "bool",         __VA_ARGS__ ) \
-  X( tick_per_us,                 "%f",     units, "ticks per ms", __VA_ARGS__ ) \
+  X( tick_per_us,                 "%f",     units, "ticks per us", __VA_ARGS__ ) \
   X( idle_timeout,                "%lu",    units, "ns",           __VA_ARGS__ ) \
   X( keep_alive,                  "%d",     bool,  "bool",         __VA_ARGS__ ) \
   X( ack_delay,                   "%lu",    units, "ns",           __VA_ARGS__ ) \
@@ -582,10 +582,11 @@ fd_quic_conn_let_die( fd_quic_conn_t * conn,
 FD_QUIC_API ulong
 fd_quic_get_next_wakeup( fd_quic_t * quic );
 
-/* fd_quic_service services the next QUIC connection, including stream
-   transmit ops, ACK transmit, loss timeout, and idle timeout.   The
-   user should call service at high frequency.  Returns 1 if the service
-   call did any work, or 0 otherwise. */
+/* fd_quic_service services the next QUIC connection at each service
+   level, including stream transmit ops, ACK transmit, loss timeout, and
+   idle timeout.  The user should call service at high frequency.
+   Returns the number of connections serviced, where 0 means the call
+   did no work. */
 
 FD_QUIC_API int
 fd_quic_service( fd_quic_t * quic );
