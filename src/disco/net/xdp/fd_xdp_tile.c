@@ -258,7 +258,8 @@ typedef struct {
   int                  has_gre_interface; /* enable GRE support? */
 
   struct {
-    ulong rx_pkt_cnt;
+    ulong rx_pkt_cnt_ip4_udp;
+    ulong rx_pkt_cnt_ip4_opt_udp;
     ulong rx_bytes_total;
     ulong rx_undersz_cnt;
     ulong rx_fill_blocked_cnt;
@@ -303,7 +304,8 @@ scratch_footprint( fd_topo_tile_t const * tile ) {
 
 static void
 metrics_write( fd_net_ctx_t * ctx ) {
-  FD_MCNT_SET(   NET, RX_PKT_CNT,          ctx->metrics.rx_pkt_cnt          );
+  FD_MCNT_SET(   NET, RX_PKT_CNT_IP4_UDP,     ctx->metrics.rx_pkt_cnt_ip4_udp     );
+  FD_MCNT_SET(   NET, RX_PKT_CNT_IP4_OPT_UDP, ctx->metrics.rx_pkt_cnt_ip4_opt_udp );
   FD_MCNT_SET(   NET, RX_BYTES_TOTAL,      ctx->metrics.rx_bytes_total      );
   FD_MCNT_SET(   NET, RX_UNDERSZ_CNT,      ctx->metrics.rx_undersz_cnt      );
   FD_MCNT_SET(   NET, RX_FILL_BLOCKED_CNT, ctx->metrics.rx_fill_blocked_cnt );
@@ -955,8 +957,8 @@ net_rx_packet( fd_net_ctx_t * ctx,
                    ( iphdr->protocol!=FD_IP4_HDR_PROTOCOL_UDP ) ) ) return;
 
   /* IPv4 is variable-length, so lookup IHL to find start of UDP */
-  uint iplen        = FD_IP4_GET_LEN( *iphdr );
-  uchar const * udp = (uchar *)iphdr + iplen;
+  uint          iplen = FD_IP4_GET_LEN( *iphdr );
+  uchar const * udp   = (uchar *)iphdr + iplen;
 
   if( FD_UNLIKELY( udp+sizeof(fd_udp_hdr_t) > packet_end ) ) {
     FD_DTRACE_PROBE( net_tile_err_rx_undersz );
@@ -1013,7 +1015,10 @@ net_rx_packet( fd_net_ctx_t * ctx,
   out->seq               = fd_seq_inc( out->seq, 1UL );
 
   if( is_packet_gre ) ctx->metrics.rx_gre_cnt++;
-  ctx->metrics.rx_pkt_cnt++;
+  ulong * rx_metric = iplen==sizeof(fd_ip4_hdr_t) ?
+      &ctx->metrics.rx_pkt_cnt_ip4_udp :
+      &ctx->metrics.rx_pkt_cnt_ip4_opt_udp;
+  (*rx_metric)++;
   ctx->metrics.rx_bytes_total += sz;
 }
 
