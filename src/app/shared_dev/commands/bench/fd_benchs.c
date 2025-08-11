@@ -176,7 +176,7 @@ populate_quic_limits( fd_quic_limits_t * limits ) {
   limits->handshake_cnt = limits->conn_cnt;
   limits->conn_id_cnt = 16;
   limits->inflight_frame_cnt = 1500;
-  limits->tx_buf_sz = FD_TXN_MTU;
+  limits->tx_buf_sz = 1UL<<11;
   limits->stream_pool_cnt = 1UL<<16;
   limits->stream_id_cnt = 1UL<<16;
 }

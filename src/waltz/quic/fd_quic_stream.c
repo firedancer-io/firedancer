@@ -75,7 +75,7 @@ fd_quic_buffer_load( fd_quic_buffer_t * buf,
 
   if( mtail >= mhead ) {
     /* free space split */
-    ulong end_sz = cap - mhead;
+    ulong end_sz = cap - mtail;
     if( data_sz <= end_sz ) {
       /* consists entirely of space at end of buffer */
       fd_memcpy( data, raw + mtail, data_sz );
@@ -97,6 +97,8 @@ fd_quic_stream_align( void );
 
 ulong
 fd_quic_stream_footprint( ulong tx_buf_sz ) {
+  if( FD_UNLIKELY( !fd_ulong_is_pow2( tx_buf_sz ) ) ) return 0UL;
+
   ulong align           = fd_quic_stream_align();
   ulong offs            = 0ul;
 

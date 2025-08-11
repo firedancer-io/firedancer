@@ -94,7 +94,7 @@ main( int     argc,
   float        loss     = fd_env_strip_cmdline_float ( &argc, &argv, "--loss",      NULL, 0.0f                         );
   float        reorder  = fd_env_strip_cmdline_float ( &argc, &argv, "--reorder",   NULL, 0.0f                         );
   float        duration = fd_env_strip_cmdline_float ( &argc, &argv, "--duration",  NULL, 10.0f                        );
-  ushort       sz       = fd_env_strip_cmdline_ushort( &argc, &argv, "--sz",        NULL, FRAG_SZ                      );
+  ushort       sz       = fd_env_strip_cmdline_ushort( &argc, &argv, "--sz",        NULL, 1UL<<10                      );
   FD_TEST( sz<=FRAG_SZ );
 
   ulong page_sz = fd_cstr_to_shmem_page_sz( _page_sz );
