@@ -339,8 +339,12 @@ fd_bundle_client_step1( fd_bundle_tile_t * ctx,
 
   /* gRPC conn died? */
   if( FD_UNLIKELY( !ctx->grpc_client ) ) {
+    long sleep_start;
   reconnect:
-    if( FD_UNLIKELY( fd_bundle_tile_should_stall( ctx, fd_bundle_now() ) ) ) {
+    sleep_start = fd_bundle_now();
+    if( FD_UNLIKELY( fd_bundle_tile_should_stall( ctx, sleep_start ) ) ) {
+      long wait_dur = ctx->backoff_until - sleep_start;
+      fd_log_sleep( fd_long_min( wait_dur, 1e6 ) );
       return;
     }
     fd_bundle_client_create_conn( ctx );

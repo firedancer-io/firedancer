@@ -119,3 +119,7 @@ lseek: (and (or (eq (arg 0) etc_resolv_conf)
                 (eq (arg 0) etc_hosts_fd))
             (eq (arg 1) 0)
             (eq (arg 2) "SEEK_SET"))
+
+# bundle: yield to scheduler to save power
+sched_yield
+clock_nanosleep
