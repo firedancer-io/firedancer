@@ -62,9 +62,7 @@ fd_refresh_vote_accounts( fd_exec_slot_ctx_t *       slot_ctx,
 void
 fd_populate_vote_accounts( fd_exec_slot_ctx_t *       slot_ctx,
                            fd_stake_history_t const * history,
-                           ulong *                    new_rate_activation_epoch,
-                           fd_epoch_info_t *          temp_info,
-                           fd_spad_t *                runtime_spad );
+                           ulong *                    new_rate_activation_epoch );
 
 void
 fd_accumulate_stake_infos( fd_exec_slot_ctx_t const * slot_ctx,

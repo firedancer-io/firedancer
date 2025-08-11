@@ -1372,7 +1372,6 @@ fd_update_epoch_stakes( fd_exec_slot_ctx_t * slot_ctx ) {
 /* Copy stakes->vote_accounts into next_epoch_stakes. */
 static void
 fd_update_next_epoch_stakes( fd_exec_slot_ctx_t * slot_ctx ) {
-
   fd_vote_states_t *       vote_states_prev = fd_bank_vote_states_prev_locking_modify( slot_ctx->bank );
   fd_vote_states_t const * vote_states      = fd_bank_vote_states_locking_query( slot_ctx->bank );
   fd_memcpy( vote_states_prev, vote_states, fd_bank_vote_states_footprint );

@@ -178,9 +178,6 @@ fd_runtime_fuzz_block_ctx_create( fd_runtime_fuzz_runner_t *           runner,
   fd_funk_txn_t * funk_txn = fd_funk_txn_prepare( funk, NULL, xid, 1 );
   fd_funk_txn_end_write( funk );
 
-  /* Allocate contexts */
-  ulong vote_acct_max = fd_ulong_max( 128UL, test_ctx->acct_states_count );
-
   /* Restore feature flags */
   fd_features_t features = {0};
   if( !fd_runtime_fuzz_restore_features( &features, &test_ctx->epoch_ctx.features ) ) {
@@ -298,25 +295,15 @@ fd_runtime_fuzz_block_ctx_create( fd_runtime_fuzz_runner_t *           runner,
   /* Refresh the program cache */
   fd_runtime_fuzz_refresh_program_cache( slot_ctx, test_ctx->acct_states, test_ctx->acct_states_count, runner->spad );
 
-  fd_vote_accounts_global_t * vote_accounts = fd_bank_next_epoch_stakes_locking_modify( slot_ctx->bank );
-  uchar * pool_mem = (uchar *)fd_ulong_align_up( (ulong)vote_accounts + sizeof(fd_vote_accounts_global_t), fd_vote_accounts_pair_global_t_map_align() );
-  fd_vote_accounts_pair_global_t_mapnode_t * vote_accounts_pool = fd_vote_accounts_pair_global_t_map_join( fd_vote_accounts_pair_global_t_map_new( pool_mem, vote_acct_max ) );
-  fd_vote_accounts_pair_global_t_mapnode_t * vote_accounts_root = NULL;
-
   /* Update vote cache for epoch T-1 */
   vote_states_prev = fd_bank_vote_states_prev_locking_modify( slot_ctx->bank );
-  fd_runtime_fuzz_block_update_prev_epoch_votes_cache( vote_accounts_pool,
-                                                       &vote_accounts_root,
+  fd_runtime_fuzz_block_update_prev_epoch_votes_cache( NULL,
+                                                       NULL,
                                                        vote_states_prev,
                                                        test_ctx->epoch_ctx.vote_accounts_t_1,
                                                        test_ctx->epoch_ctx.vote_accounts_t_1_count,
                                                        runner->spad );
   fd_bank_vote_states_prev_end_locking_modify( slot_ctx->bank );
-
-  fd_vote_accounts_vote_accounts_pool_update( vote_accounts, vote_accounts_pool );
-  fd_vote_accounts_vote_accounts_root_update( vote_accounts, vote_accounts_root );
-
-  fd_bank_next_epoch_stakes_end_locking_modify( slot_ctx->bank );
 
   /* Update vote cache for epoch T-2 */
   vote_states_prev_prev = fd_bank_vote_states_prev_prev_locking_modify( slot_ctx->bank );

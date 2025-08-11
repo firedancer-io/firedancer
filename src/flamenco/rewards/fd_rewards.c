@@ -1205,12 +1205,9 @@ fd_rewards_recalculate_partitioned_rewards( fd_exec_slot_ctx_t * slot_ctx,
 
     fd_bank_stake_delegations_end_locking_modify( slot_ctx->bank );
 
-    fd_refresh_vote_accounts( slot_ctx,
-                              stake_history,
-                              new_warmup_cooldown_rate_epoch );
-    // fd_populate_vote_accounts( slot_ctx,
-    //                            stake_history,
-    //                            new_warmup_cooldown_rate_epoch );
+    fd_populate_vote_accounts( slot_ctx,
+                               stake_history,
+                               new_warmup_cooldown_rate_epoch );
     /* In future, the calculation will be cached in the snapshot, but for now we just re-calculate it
         (as Agave does). */
     fd_calculate_stake_vote_rewards_result_t calculate_stake_vote_rewards_result[1];

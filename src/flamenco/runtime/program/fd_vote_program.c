@@ -1913,24 +1913,6 @@ do_process_vote_state_update( fd_vote_state_t *           vote_state,
                                  ctx );
 }
 
-// ??
-ulong
-fd_query_pubkey_stake( fd_pubkey_t const * pubkey, fd_vote_accounts_global_t const * vote_accounts ) {
-  fd_vote_accounts_pair_global_t_mapnode_t key  = { 0 };
-  key.elem.key                                  = *pubkey;
-
-  fd_vote_accounts_pair_global_t_mapnode_t * vote_accounts_pool = fd_vote_accounts_vote_accounts_pool_join( vote_accounts );
-  fd_vote_accounts_pair_global_t_mapnode_t * vote_accounts_root = fd_vote_accounts_vote_accounts_root_join( vote_accounts );
-
-  if( !vote_accounts_pool && !vote_accounts_root ) {
-    return 0;
-  }
-
-  fd_vote_accounts_pair_global_t_mapnode_t * vote_node = fd_vote_accounts_pair_global_t_map_find(
-      vote_accounts_pool, vote_accounts_root, &key );
-  return vote_node ? vote_node->elem.stake : 0;
-}
-
 static int
 process_vote_state_update( fd_borrowed_account_t *       vote_account,
                            fd_slot_hash_t const *        slot_hashes,
