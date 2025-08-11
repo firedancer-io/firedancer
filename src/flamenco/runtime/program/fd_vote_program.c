@@ -271,7 +271,6 @@ authorized_voters_purge_authorized_voters( fd_vote_authorized_voters_t * self,
         fd_vote_authorized_voters_treap_ele_query( self->treap, expired_keys[i], self->pool );
     fd_vote_authorized_voters_treap_ele_remove( self->treap, ele, self->pool );
     fd_vote_authorized_voters_pool_ele_release( self->pool, ele );
-    // fd_vote_authorized_voter_destroy( &self->pool[i], &ctx3 );
   }
 
   // https://github.com/anza-xyz/agave/blob/v2.0.1/sdk/program/src/vote/authorized_voters.rs#L60
@@ -324,9 +323,8 @@ authorized_voters_get_and_cache_authorized_voter_for_epoch( fd_vote_authorized_v
   if( !res ) return NULL;
   // https://github.com/anza-xyz/agave/blob/v2.0.1/sdk/program/src/vote/authorized_voters.rs#L32
   if( !existed ) {
-    /* insert cannot fail because !existed */
-    if( 0 == fd_vote_authorized_voters_pool_free( self->pool) ) {
-      FD_LOG_ERR(( "Authorized_voter pool is empty" ));
+    if( FD_UNLIKELY( !fd_vote_authorized_voters_pool_free( self->pool ) ) ) {
+      FD_LOG_CRIT(( "Authorized_voter pool is full. Elements used: %lu", fd_vote_authorized_voters_pool_used( self->pool ) ));
     }
     fd_vote_authorized_voter_t * ele = fd_vote_authorized_voters_pool_ele_acquire( self->pool );
     ele->epoch                       = epoch;

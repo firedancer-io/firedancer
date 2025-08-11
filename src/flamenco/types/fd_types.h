@@ -1369,7 +1369,7 @@ struct fd_vote_state_0_23_5 {
 typedef struct fd_vote_state_0_23_5 fd_vote_state_0_23_5_t;
 #define FD_VOTE_STATE_0_23_5_ALIGN alignof(fd_vote_state_0_23_5_t)
 
-#define FD_VOTE_AUTHORIZED_VOTERS_MIN 64
+#define FD_VOTE_AUTHORIZED_VOTERS_MIN 128
 #define POOL_NAME fd_vote_authorized_voters_pool
 #define POOL_T fd_vote_authorized_voter_t
 #define POOL_NEXT parent
