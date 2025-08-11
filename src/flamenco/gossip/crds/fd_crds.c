@@ -978,6 +978,8 @@ fd_crds_insert( fd_crds_t *                         crds,
   fd_crds_entry_t * candidate = fd_crds_acquire( crds, now, stem );
   crds_entry_init( candidate_view, payload, origin_stake, candidate );
 
+  FD_LOG_WARNING(( "AAAAA" ));
+
   if( FD_LIKELY( crds->metrics ) ) {
       crds->metrics->total_ele_cnt++;
       crds->metrics->ele_cnt.crd[ candidate->key.tag ]++;

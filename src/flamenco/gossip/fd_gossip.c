@@ -174,6 +174,8 @@ fd_gossip_new( void *                    shmem,
   gossip->sign_fn   = sign_fn;
   gossip->sign_ctx  = sign_ctx;
 
+  fd_memset( gossip->metrics, 0, sizeof(fd_gossip_metrics_t) );
+
   fd_gossip_set_my_contact_info( gossip, my_contact_info, now );
   return gossip;
 }
@@ -205,6 +207,7 @@ is_entrypoint( fd_gossip_t const *   gossip,
 static fd_ip4_port_t
 random_entrypoint( fd_gossip_t const * gossip ) {
   ulong idx = fd_rng_ulong_roll( gossip->rng, gossip->entrypoints_cnt );
+  FD_LOG_WARNING(( "Rolled %lu", idx ));
   return gossip->entrypoints[ idx ];
 }
 
@@ -867,8 +870,7 @@ filter_shred_version( fd_gossip_t *            gossip,
   return 0;
 }
 
-/* FIXME: This feels like it should be higher up the rx processing stack (i.e., tile level)*/
-static int
+static void
 strip_network_hdrs( uchar const *   data,
                     ulong           data_sz,
                     uchar ** const  payload,
@@ -878,22 +880,18 @@ strip_network_hdrs( uchar const *   data,
   fd_ip4_hdr_t const * ip4 = (fd_ip4_hdr_t const *)( (ulong)eth + sizeof(fd_eth_hdr_t) );
   fd_udp_hdr_t const * udp = (fd_udp_hdr_t const *)( (ulong)ip4 + FD_IP4_GET_LEN( *ip4 ) );
 
-  if( FD_UNLIKELY( (ulong)udp+sizeof(fd_udp_hdr_t) > (ulong)eth+data_sz ) )
-    FD_LOG_ERR(( "Malformed UDP header" ));
+  if( FD_UNLIKELY( (ulong)udp+sizeof(fd_udp_hdr_t) > (ulong)eth+data_sz ) ) FD_LOG_ERR(( "Malformed UDP header" ));
   ulong udp_sz = fd_ushort_bswap( udp->net_len );
-  if( FD_UNLIKELY( udp_sz<sizeof(fd_udp_hdr_t) ) )
-    FD_LOG_ERR(( "Malformed UDP header" ));
+  if( FD_UNLIKELY( udp_sz<sizeof(fd_udp_hdr_t) ) ) FD_LOG_ERR(( "Malformed UDP header" ));
   ulong payload_sz_ = udp_sz-sizeof(fd_udp_hdr_t);
 
   *payload     = (uchar *)( (ulong)udp + sizeof(fd_udp_hdr_t) );
   *payload_sz  = payload_sz_;
 
-  if( FD_UNLIKELY( (ulong)(*payload)+payload_sz_>(ulong)data+data_sz ) )
-    FD_LOG_ERR(( "Malformed UDP payload" ));
+  if( FD_UNLIKELY( (ulong)(*payload)+payload_sz_>(ulong)data+data_sz ) ) FD_LOG_ERR(( "Malformed UDP payload" ));
 
   peer_address->addr = ip4->saddr;
   peer_address->port = udp->net_sport;
-  return 0;
 }
 
 int
@@ -902,19 +900,11 @@ fd_gossip_rx( fd_gossip_t * gossip,
               ulong         packet_sz,
               long          now,
               fd_stem_context_t * stem ) {
-
   uchar *       gossip_payload;
   ulong         gossip_payload_sz;
   fd_ip4_port_t peer_address[1];
 
-  // FD_LOG_WARNING(( "fd_gossip_rx: data_sz=%lu", data_sz ));
-
-  int error = strip_network_hdrs( packet,
-                                  packet_sz,
-                                  &gossip_payload,
-                                  &gossip_payload_sz,
-                                  peer_address );
-  if( FD_UNLIKELY( error ) ) return error;
+  strip_network_hdrs( packet, packet_sz, &gossip_payload, &gossip_payload_sz, peer_address );
 
   fd_gossip_view_t view[ 1 ];
   ulong decode_sz = fd_gossip_msg_parse( view, gossip_payload, gossip_payload_sz );
@@ -922,10 +912,11 @@ fd_gossip_rx( fd_gossip_t * gossip,
     FD_LOG_WARNING(( "Failed to decode gossip message" ));
     return -1;
   }
+
   gossip->metrics->rx->count.msg[ view->tag ]++;
   gossip->metrics->rx->bytes.msg[ view->tag ] += gossip_payload_sz;
 
-  error = verify_signatures( view, gossip_payload, gossip->sha512 );
+  int error = verify_signatures( view, gossip_payload, gossip->sha512 );
   if( FD_UNLIKELY( error ) ) return error;
 
   error = filter_shred_version( gossip, view, gossip_payload );
@@ -1123,6 +1114,10 @@ tx_pull_request( fd_gossip_t *       gossip,
     peer_addr = fd_contact_info_gossip_socket( peer );
   }
 
+  FD_LOG_WARNING(( "Sending pull request to " FD_IP4_ADDR_FMT ":%hu",
+                   FD_IP4_ADDR_FMT_ARGS( peer_addr.addr ),
+                   peer_addr.port ));
+
   gossip->send_fn( gossip->send_ctx,
                    stem,
                    payload,
@@ -1142,7 +1137,7 @@ next_pull_request( fd_gossip_t const * gossip,
      reduces 1024 to a lower amount as the table size shrinks...
      replicate this in the frequency domain. */
   /* TODO: Jitter */
-  return now+1600L*1000L;
+  return now+200L*1000L;
 }
 
 static inline void
