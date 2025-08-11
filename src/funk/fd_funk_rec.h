@@ -253,21 +253,6 @@ fd_funk_rec_query_try_global( fd_funk_t const *         funk,
                               fd_funk_txn_t const **    txn_out,
                               fd_funk_rec_query_t *     query );
 
-/* fd_funk_rec_query_copy queries the in-preparation transaction pointed to
-   by txn for the record whose key matches the key pointed to by key.
-
-   The contents of the record are safely copied into space allocated
-   with the valloc, and a pointer to that space is returned. If there
-   is an error, NULL is returned. The size of the record is returned
-   in sz_out. */
-
-fd_funk_rec_t const *
-fd_funk_rec_query_copy( fd_funk_t *               funk,
-                        fd_funk_txn_t const *     txn,
-                        fd_funk_rec_key_t const * key,
-                        fd_valloc_t               valloc,
-                        ulong *                   sz_out );
-
 /* fd_funk_rec_{pair,xid,key} returns a pointer in the local address
    space of the {(transaction id,record key) pair,transaction id,record
    key} of a live record.  Assumes rec points to a live record in the

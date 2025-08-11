@@ -165,43 +165,6 @@ fd_funk_rec_query_try_global( fd_funk_t const *         funk,
   return NULL;
 }
 
-fd_funk_rec_t const *
-fd_funk_rec_query_copy( fd_funk_t *               funk,
-                        fd_funk_txn_t const *     txn,
-                        fd_funk_rec_key_t const * key,
-                        fd_valloc_t               valloc,
-                        ulong *                   sz_out ) {
-  *sz_out = ULONG_MAX;
-  fd_funk_xid_key_pair_t pair[1];
-  fd_funk_rec_key_set_pair( pair, txn, key );
-
-  void * last_copy = NULL;
-  ulong last_copy_sz = 0;
-  for(;;) {
-    fd_funk_rec_query_t query[1];
-    int err = fd_funk_rec_map_query_try( funk->rec_map, pair, NULL, query, 0 );
-    if( err == FD_MAP_ERR_KEY )   {
-      if( last_copy ) fd_valloc_free( valloc, last_copy );
-      return NULL;
-    }
-    if( err == FD_MAP_ERR_AGAIN ) continue;
-    if( err != FD_MAP_SUCCESS )   FD_LOG_CRIT(( "query returned err %d", err ));
-    fd_funk_rec_t const * rec = fd_funk_rec_map_query_ele_const( query );
-    ulong sz = fd_funk_val_sz( rec );
-    void * copy;
-    if( sz <= last_copy_sz ) {
-      copy = last_copy;
-    } else {
-      if( last_copy ) fd_valloc_free( valloc, last_copy );
-      copy = last_copy = fd_valloc_malloc( valloc, 1, sz );
-      last_copy_sz = sz;
-    }
-    memcpy( copy, fd_funk_val( rec, fd_funk_wksp( funk ) ), sz );
-    *sz_out = sz;
-    if( !fd_funk_rec_query_test( query ) ) return copy;
-  }
-}
-
 int
 fd_funk_rec_query_test( fd_funk_rec_query_t * query ) {
   return fd_funk_rec_map_query_test( query );

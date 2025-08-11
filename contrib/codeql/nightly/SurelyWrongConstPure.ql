@@ -26,7 +26,6 @@ where
     /* for a nightly query, we only want known non-const/non-pure functions */
     f.hasName("fd_log_private_1") or
     f.hasName("fd_log_private_2") or
-    f.hasName("fd_log_wallclock()") or
-    f.getName().matches("fd_valloc_%")
+    f.hasName("fd_log_wallclock()")
   ) and r.calls*(f)
 select r, f + " is called (transitively) by " + r + " which is marked as " + r.getAnAttribute().getName()

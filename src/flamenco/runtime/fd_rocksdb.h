@@ -104,8 +104,7 @@ int
 fd_rocksdb_root_iter_seek( fd_rocksdb_root_iter_t * iter,
                            fd_rocksdb_t *           db,
                            ulong                    slot,
-                           fd_slot_meta_t *         m,
-                           fd_valloc_t              valloc );
+                           fd_slot_meta_t *         m );
 
 /*  fd_rocksdb_root_iter_next
 
@@ -117,8 +116,7 @@ fd_rocksdb_root_iter_seek( fd_rocksdb_root_iter_t * iter,
 
 int
 fd_rocksdb_root_iter_next( fd_rocksdb_root_iter_t * iter,
-                           fd_slot_meta_t *         m,
-                           fd_valloc_t              valloc );
+                           fd_slot_meta_t *         m );
 
 int
 fd_rocksdb_root_iter_slot( fd_rocksdb_root_iter_t * self,
@@ -186,8 +184,7 @@ fd_rocksdb_find_last_slot( fd_rocksdb_t * db,
 int
 fd_rocksdb_get_meta( fd_rocksdb_t *   db,
                      ulong            slot,
-                     fd_slot_meta_t * m,
-                     fd_valloc_t      valloc );
+                     fd_slot_meta_t * m );
 
 /* fd_rocksdb_get_txn_status_raw queries transaction status metadata.
    slot is the slot number of the block that contains the txn.  sig
@@ -243,8 +240,7 @@ int
 fd_rocksdb_import_block_shredcap( fd_rocksdb_t *             db,
                                   fd_slot_meta_t *           metadata,
                                   fd_io_buffered_ostream_t * ostream,
-                                  fd_io_buffered_ostream_t * bank_hash_ostream,
-                                  fd_valloc_t                valloc );
+                                  fd_io_buffered_ostream_t * bank_hash_ostream );
 
 
 FD_PROTOTYPES_END

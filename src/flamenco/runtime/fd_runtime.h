@@ -139,10 +139,10 @@ FD_STATIC_ASSERT( FD_BPF_ALIGN_OF_U128==FD_ACCOUNT_REC_DATA_ALIGN, input_data_al
                                              ((FD_MAX_INSTRUCTION_STACK_DEPTH*FD_RUNTIME_INPUT_REGION_INSN_FOOTPRINT(account_lock_limit, direct_mapping)) + \
                                               ((FD_TXN_MTU-FD_TXN_MIN_SERIALIZED_SZ-account_lock_limit)*8UL)) /* We can have roughly this much duplicate offsets */
 
-/* Bincode valloc footprint over the execution of a single transaction.
+/* Bincode spad footprint over the execution of a single transaction.
    As well as other footprint specific to each native program type.
 
-   N.B. We know that bincode valloc footprint is bounded, because
+   N.B. We know that bincode spad footprint is bounded, because
    whenever we alloc something, we advance our pointer into the binary
    buffer, so eventually we are gonna reach the end of the buffer.
    This buffer is usually backed by and ultimately bounded in size by

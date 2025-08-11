@@ -103,7 +103,6 @@ main( int argc, char ** argv ) {
   //                                           TEST_VOTE_TXN_MAGIC );
   // void *                       alloc_shalloc = fd_alloc_new( alloc_shmem, TEST_VOTE_TXN_MAGIC );
   // FD_PARAM_UNUSED fd_alloc_t * alloc         = fd_alloc_join( alloc_shalloc, 0UL );
-  // FD_PARAM_UNUSED fd_valloc_t  valloc        = fd_alloc_virtual( alloc );
 
   // /* create compact_vote_state_update with dummy values */
   // fd_compact_vote_state_update_t compact_vote_update = {0};
@@ -126,7 +125,6 @@ main( int argc, char ** argv ) {
   // fd_compact_vote_state_update_t parsed_vote_update;
   // FD_TEST( FD_VOTER_OK == fd_vote_txn_parse( txn_buf,
   //                                            txn_size,
-  //                                            valloc,
   //                                            &parsed_recent_blockhash_off,
   //                                            &parsed_vote_update ) );
   // FD_LOG_NOTICE(( "recent blockhash: %s == %s",
