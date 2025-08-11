@@ -1,10 +1,9 @@
-#include "../fd_flamenco.h"
 #include "fd_solcap_proto.h"
 #include "fd_solcap_reader.h"
 #include "fd_solcap.pb.h"
 #include "../runtime/fd_executor_err.h"
+#include "../../ballet/base64/fd_base64.h"
 #include "../../ballet/nanopb/pb_decode.h"
-#include "../../util/textstream/fd_textstream.h"
 #include <errno.h>
 #include <stdio.h>
 
@@ -118,7 +117,6 @@ process_account( FILE * file,
        allows padding in the middle, but it's cleaner to only have
        padding at the end of the message. */
 #   define PART_RAW_SZ (720UL)
-#   define PART_BLK_SZ (4UL*(PART_RAW_SZ+2UL)/3UL)  /* see fd_textstream_encode_base64 */
     ulong data_sz = meta->data_sz;
     while( data_sz>0UL ) {
       ulong n = fd_ulong_min( data_sz, PART_RAW_SZ );
@@ -129,25 +127,13 @@ process_account( FILE * file,
         FD_LOG_ERR(( "fread account data failed (%d-%s)", errno, strerror( errno ) ));
 
       /* Encode chunk */
-      fd_valloc_t valloc = fd_scratch_virtual();
-      fd_scratch_push();
-
-      fd_textstream_t  _data_out[1];
-      fd_textstream_t * data_out = fd_textstream_new( _data_out, valloc, PART_BLK_SZ );
-      fd_textstream_encode_base64( data_out, buf, n );
-
-      /* Get pointer to encoded chunk */
-      FD_TEST( 1UL==fd_textstream_get_iov_count( data_out ) );
-      struct fd_iovec iov[1];
-      FD_TEST( 0  ==fd_textstream_get_iov( data_out, iov ) );
-
+      char  chunk[ FD_BASE64_ENC_SZ( PART_RAW_SZ ) ];
+      ulong chunk_sz = fd_base64_encode( chunk, buf, n );
       /* Print encoded chunk */
-      FD_TEST( 1UL==fwrite( iov[0].iov_base, iov[0].iov_len, 1UL, stdout ) );
+      FD_TEST( 1UL==fwrite( chunk, chunk_sz, 1UL, stdout ) );
 
       /* Wind up for next iteration */
       data_sz -= n;
-      fd_textstream_destroy( data_out );  /* technically noop */
-      fd_scratch_pop();
     }
 #   undef PART_RAW_SZ
 #   undef PART_BLK_SZ
@@ -473,35 +459,15 @@ main( int     argc,
   for( int i=1; i<argc; i++ )
     if( 0==strcmp( argv[i], "--help" ) ) return usage();
 
-  char const * _page_sz   = fd_env_strip_cmdline_cstr ( &argc, &argv, "--page-sz",    NULL, "gigantic" );
-  ulong        page_cnt   = fd_env_strip_cmdline_ulong( &argc, &argv, "--page-cnt",   NULL, 2UL        );
-  ulong        scratch_mb = fd_env_strip_cmdline_ulong( &argc, &argv, "--scratch-mb", NULL, 1024UL     );
-  int          verbose    = fd_env_strip_cmdline_int  ( &argc, &argv, "-v",           NULL, 0          );
-  ulong        start_slot = fd_env_strip_cmdline_ulong( &argc, &argv, "--start-slot", NULL, 0          );
-  ulong        end_slot   = fd_env_strip_cmdline_ulong( &argc, &argv, "--end-slot",   NULL, ULONG_MAX  );
-
-  ulong page_sz = fd_cstr_to_shmem_page_sz( _page_sz );
-  if( FD_UNLIKELY( !page_sz ) ) FD_LOG_ERR(( "unsupported --page-sz" ));
+  int   verbose    = fd_env_strip_cmdline_int  ( &argc, &argv, "-v",           NULL, 0          );
+  ulong start_slot = fd_env_strip_cmdline_ulong( &argc, &argv, "--start-slot", NULL, 0          );
+  ulong end_slot   = fd_env_strip_cmdline_ulong( &argc, &argv, "--end-slot",   NULL, ULONG_MAX  );
 
   if( argc!=2 ) {
     fprintf( stderr, "ERROR: expected 1 argument, got %d\n", argc-1 );
     usage();
     return 1;
   }
-
-  /* Create workspace and scratch allocator */
-
-  fd_wksp_t * wksp = fd_wksp_new_anonymous( page_sz, page_cnt, fd_log_cpu_id(), "wksp", 0UL );
-  if( FD_UNLIKELY( !wksp ) ) FD_LOG_ERR(( "fd_wksp_new_anonymous() failed" ));
-
-  ulong  smax = scratch_mb << 20;
-  void * smem = fd_wksp_alloc_laddr( wksp, fd_scratch_smem_align(), smax, 1UL );
-  if( FD_UNLIKELY( !smem ) ) FD_LOG_ERR(( "Failed to alloc scratch mem" ));
-  ulong  scratch_depth = 4UL;
-  void * fmem = fd_wksp_alloc_laddr( wksp, fd_scratch_fmem_align(), fd_scratch_fmem_footprint( scratch_depth ), 2UL );
-  if( FD_UNLIKELY( !fmem ) ) FD_LOG_ERR(( "Failed to alloc scratch frames" ));
-
-  fd_scratch_attach( smem, fmem, smax, scratch_depth );
 
   /* Open file */
 
@@ -558,9 +524,6 @@ main( int     argc,
   /* Cleanup */
 
   FD_LOG_NOTICE(( "Done" ));
-  FD_TEST( fd_scratch_frame_used()==0UL );
-  fd_wksp_free_laddr( fd_scratch_detach( NULL ) );
-  fd_wksp_free_laddr( fmem                      );
   fclose( file );
   fd_halt();
   return 0;
