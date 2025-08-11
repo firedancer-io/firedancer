@@ -426,28 +426,6 @@ completion ring.
 
 The net tile moves completed frames back to the free ring.
 
-## Loopback
-
-The first net tile (`net:0`) sets up XDP on the loopback device, for
-two main reasons:
-
-* For testing and development.
-* The Agave code sends local traffic to itself to as part of routine
-  operation (e.g., when it's the leader it sends votes to its own TPU
-  socket).
-
-The Linux kernel routes outgoing packets addressed to IP addresses
-owned by the system via loopback.  (See `ip route show table local`)
-The net tile partially matches this behavior.  For better performance
-and simplicity, a second XDP socket is used.
-
-Alternatively, the net tile could have sent such traffic out to the
-public gateway, in hopes that the traffic gets mirrored back.
-
-But for now, Firedancer also binds XDP to loopback. This is a small performance hit for other traffic, but otherwise won't interfere.
-
-The loopback device only supports XDP in SKB mode.
-
 ## Development
 
 ### Network Namespace

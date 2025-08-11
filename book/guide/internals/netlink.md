@@ -71,32 +71,11 @@ inputs.
    Neighbor table updates are forwarded ot the netlink tile.  This path
    has limited throughput (few ~100K updates per second).
 
-- `[untrusted traffic] --> [net tile] --> [app tile]` <br/>
-   `--> [net tile] --> [netlink tile] --> [neighbor discovery]` <br/>
-   App tiles will blindly respond to the source IP found in untrusted
-   packets.  This source IP can be spoofed.  Neighbor solicitation might
-   be required in order to find out the MAC address of that IP.  On IPv4,
-   these are ARP requests broadcasted to the local network.
-
-   Net tiles cannot solicit neighbors directly, so they notify the
-   netlink tile that neighbor solicitation is needed.  (Potentially at
-   line rate if network configuration is part of a huge subnet)
-
-   The netlink tile will deduplicate these requests and forward them to
-   the kernel.
-
-   This path is the only direct 'untrusted traffic' -> 'netlink tile'
-   data flow, so the internal neighbor solicit message format is kept
-   as simple as possible for security.
-
 ### Neighbor discovery (ARP)
 
 A concurrent open addressed hash table is used to store ARP entries
 (henceforth called "neighbor table").  This table attempts to
 continuously stay in sync with the kernel.
-
-The netlink tile requests neighbor solicitations via the netlink
-equivalent of `ip neigh add dev DEVICE IP use`.
 
 ### Routing
 

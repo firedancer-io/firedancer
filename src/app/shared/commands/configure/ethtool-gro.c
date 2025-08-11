@@ -1,6 +1,6 @@
-/* This stage disables the "Generic Receive Offload" ethtool feature on the
-   main and loopback interfaces.  If left enabled, GRO will mangle UDP
-   packets in a way that causes AF_XDP packets to get corrupted.
+/* This stage disables the "Generic Receive Offload" ethtool feature on
+   the main interface.  If left enabled, GRO will mangle UDP packets in
+   a way that causes AF_XDP packets to get corrupted.
 
    TLDR GRO and AF_XDP are incompatible. */
 
@@ -126,7 +126,6 @@ init( config_t const * config ) {
   } else {
     init_device( config->net.interface );
   }
-  init_device( "lo" );
 }
 
 static configure_result_t

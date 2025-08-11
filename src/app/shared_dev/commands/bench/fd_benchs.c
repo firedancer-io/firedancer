@@ -127,7 +127,12 @@ service_quic( fd_benchs_ctx_t * ctx ) {
 
         if( getsockopt( ctx->poll_fd[j].fd, SOL_SOCKET, SO_ERROR, (void *)&error, &errlen ) == -1 ) {
           FD_LOG_ERR(( "Unknown error on socket" ));
-        } else {
+        }
+        if( error==ECONNREFUSED ) {
+          FD_LOG_WARNING(( "Connection refused ... retrying" ));
+          fd_log_sleep( (long)100e6 );
+          return;
+        } else if( error ) {
           FD_LOG_ERR(( "Error on socket: %d %s", error, strerror( error ) ));
         }
       }

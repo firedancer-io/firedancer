@@ -69,7 +69,7 @@ pktgen_topo( config_t * config ) {
   fd_topos_net_rx_link( topo, "net_quic", 0UL, config->net.ingress_buffer_size );
   fd_topob_tile_in( topo, "pktgen", 0UL, "metric_in", "net_quic", 0UL, FD_TOPOB_UNRELIABLE, FD_TOPOB_POLLED );
 
-  fd_topos_net_tile_finish( topo, 0UL );
+  fd_topos_net_tile_finish( topo );
   if( FD_UNLIKELY( is_auto_affinity ) ) fd_topob_auto_layout( topo, 0 );
   topo->agave_affinity_cnt = 0;
   fd_topob_finish( topo, CALLBACKS );
@@ -197,7 +197,7 @@ pktgen_cmd_fn( args_t *   args FD_PARAM_UNUSED,
   fd_topo_tile_t * metric_tile = &topo->tiles[ fd_topo_find_tile( topo, "metric", 0UL ) ];
 
   ushort const listen_port = 9000;
-  net_tile->net.legacy_transaction_listen_port = listen_port;
+  fd_topo_net_rx_rule_push( &net_tile->net.rx_rules, DST_PROTO_TPU_UDP, "net_quic", listen_port );
 
   if( FD_UNLIKELY( !fd_cstr_to_ip4_addr( config->tiles.metric.prometheus_listen_address, &metric_tile->metric.prometheus_listen_addr ) ) )
     FD_LOG_ERR(( "failed to parse prometheus listen address `%s`", config->tiles.metric.prometheus_listen_address ));

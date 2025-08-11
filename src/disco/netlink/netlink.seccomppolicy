@@ -3,8 +3,7 @@
 #
 # nl_mon_fd: An rtnetlink socket used to monitor updates
 # nl_req_fd: An rtnetlink socket used for request-reply
-# arp_probe_fd: A UDP socket used to indirectly generate ARP probes
-uint logfile_fd, uint nl_mon_fd, uint nl_req_fd, uint arp_probe_fd
+uint logfile_fd, uint nl_mon_fd, uint nl_req_fd
 
 # logging: all log messages are written to a file and/or pipe
 #
@@ -24,19 +23,11 @@ fsync: (eq (arg 0) logfile_fd)
 
 # nl_req_fd: Periodically send read-only/unprivileged rtnetlink requests
 #
-# arp_probe_fd: Send UDP packets that cause the kernel to generate ARP
-# requests
-#
 # (In theory could use send(2) but that syscall doesn't exist on arm64)
-sendto: (or (and (eq (arg 0) nl_req_fd)
-                 (eq (arg 3) 0)
-                 (eq (arg 4) 0)
-                 (eq (arg 5) 0))
-            (and (eq (arg 0) arp_probe_fd)
-                 (eq (arg 1) 0)
-                 (eq (arg 2) 0)
-                 (eq (arg 3) MSG_DONTWAIT)
-                 (eq (arg 5) FD_SOCKADDR_IN_SZ)))
+sendto: (and (eq (arg 0) nl_req_fd)
+             (eq (arg 3) 0)
+             (eq (arg 4) 0)
+             (eq (arg 5) 0))
 
 # nl_mon_fd: Monitor for asynchronous rtnetlink updates
 #

@@ -252,22 +252,18 @@ fd_topo_install_xdp( fd_topo_t const * topo,
   FD_TEST( net0_tile_idx!=ULONG_MAX );
   fd_topo_tile_t const * net0_tile = &topo->tiles[ net0_tile_idx ];
 
-  ushort udp_port_candidates[] = {
-    (ushort)net0_tile->xdp.net.legacy_transaction_listen_port,
-    (ushort)net0_tile->xdp.net.quic_transaction_listen_port,
-    (ushort)net0_tile->xdp.net.shred_listen_port,
-    (ushort)net0_tile->xdp.net.gossip_listen_port,
-    (ushort)net0_tile->xdp.net.repair_intake_listen_port,
-    (ushort)net0_tile->xdp.net.repair_serve_listen_port,
-    (ushort)net0_tile->xdp.net.send_src_port,
-  };
+  ulong const rule_cnt = net0_tile->net.rx_rules.rx_rule_cnt;
+  ushort udp_port_candidates[ FD_TOPO_NET_RX_RULE_MAX ];
+  for( ulong i=0UL; i<rule_cnt; i++ ) {
+    udp_port_candidates[ i ] = net0_tile->net.rx_rules.rx_rules[ i ].port;
+  }
 
   uint if_idx = if_nametoindex( net0_tile->xdp.interface );
   if( FD_UNLIKELY( !if_idx ) ) FD_LOG_ERR(( "if_nametoindex(%s) failed", net0_tile->xdp.interface ));
 
   fd_xdp_fds_t xdp_fds = fd_xdp_install( if_idx,
                                          bind_addr,
-                                         sizeof(udp_port_candidates)/sizeof(udp_port_candidates[0]),
+                                         rule_cnt,
                                          udp_port_candidates,
                                          net0_tile->xdp.xdp_mode );
   if( FD_UNLIKELY( -1==dup2( xdp_fds.xsk_map_fd, 123462 ) ) ) FD_LOG_ERR(( "dup2() failed (%i-%s)", errno, fd_io_strerror( errno ) ));

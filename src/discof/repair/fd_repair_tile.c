@@ -2,6 +2,7 @@
 #define _GNU_SOURCE
 
 #include "../../disco/topo/fd_topo.h"
+#include "../../disco/shred/fd_shred_tile.h"
 #include "generated/fd_repair_tile_seccomp.h"
 
 #include "../../flamenco/repair/fd_repair.h"
@@ -253,14 +254,12 @@ handle_new_cluster_contact_info( fd_repair_tile_ctx_t * ctx,
   }
 }
 
-ulong
-fd_repair_handle_ping( fd_repair_tile_ctx_t *  repair_tile_ctx,
-                       fd_repair_t *                 glob,
-                       fd_gossip_ping_t const *      ping,
-                       fd_gossip_peer_addr_t const * peer_addr FD_PARAM_UNUSED,
-                       uint                          self_ip4_addr FD_PARAM_UNUSED,
-                       uchar *                       msg_buf,
-                       ulong                         msg_buf_sz ) {
+static ulong
+fd_repair_handle_ping( fd_repair_tile_ctx_t *   repair_tile_ctx,
+                       fd_repair_t *            glob,
+                       fd_gossip_ping_t const * ping,
+                       uchar *                  msg_buf,
+                       ulong                    msg_buf_sz ) {
   fd_repair_protocol_t protocol;
   fd_repair_protocol_new_disc(&protocol, fd_repair_protocol_enum_pong);
   fd_gossip_ping_t * pong = &protocol.inner.pong;
@@ -286,8 +285,22 @@ fd_repair_handle_ping( fd_repair_tile_ctx_t *  repair_tile_ctx,
   return buflen;
 }
 
+static void
+fd_repair_handle_ping1( fd_repair_tile_ctx_t *   repair_tile_ctx,
+                        fd_repair_t *            glob,
+                        fd_stem_context_t *      stem,
+                        fd_gossip_ping_t const * ping,
+                        uint const               src_ip,
+                        uint const               dst_port,
+                        ushort const             src_port ) {
+  uchar buf[1024];
+  ulong buflen = fd_repair_handle_ping( repair_tile_ctx, glob, ping, buf, sizeof(buf) );
+  ulong tsorig = fd_frag_meta_ts_comp( fd_tickcount() );
+  send_packet( repair_tile_ctx, stem, 1, src_ip, src_port, dst_port, buf, buflen, tsorig );
+}
+
 /* Pass a raw client response packet into the protocol. addr is the address of the sender */
-static int
+static void
 fd_repair_recv_clnt_packet( fd_repair_tile_ctx_t *        repair_tile_ctx,
                             fd_stem_context_t *           stem,
                             fd_repair_t *                 glob,
@@ -297,35 +310,25 @@ fd_repair_recv_clnt_packet( fd_repair_tile_ctx_t *        repair_tile_ctx,
                             uint                          dst_ip4_addr ) {
   glob->metrics.recv_clnt_pkt++;
 
-  FD_SCRATCH_SCOPE_BEGIN {
-    while( 1 ) {
-      ulong decoded_sz;
-      fd_repair_response_t * gmsg = fd_bincode_decode1_scratch(
-          repair_response, msg, msglen, NULL, &decoded_sz );
-      if( FD_UNLIKELY( !gmsg ) ) {
-        /* Solana falls back to assuming we got a shred in this case
-           https://github.com/solana-labs/solana/blob/master/core/src/repair/serve_repair.rs#L1198 */
-        break;
-      }
-      if( FD_UNLIKELY( decoded_sz != msglen ) ) {
-        break;
-      }
+  if( FD_UNLIKELY( msglen<sizeof(uint) ) ) {
+    glob->metrics.recv_pkt_corrupted_msg++;
+    return;
+  }
+  uint msg_type = FD_LOAD( uint, msg );
+  msg    += sizeof(uint);
+  msglen -= sizeof(uint);
 
-      switch( gmsg->discriminant ) {
-      case fd_repair_response_enum_ping:
-        {
-          uchar buf[1024];
-          ulong buflen = fd_repair_handle_ping( repair_tile_ctx, glob, &gmsg->inner.ping, src_addr, dst_ip4_addr, buf, sizeof(buf) );
-          ulong tsorig = fd_frag_meta_ts_comp( fd_tickcount() );
-          send_packet( repair_tile_ctx, stem, 1, src_addr->addr, src_addr->port, dst_ip4_addr, buf, buflen, tsorig );
-          break;
-        }
-      }
-
-      return 0;
+  switch( msg_type ) {
+  case 0: /* ping */
+    if( FD_UNLIKELY( msglen!=132 ) ) {
+      glob->metrics.recv_pkt_corrupted_msg++;
+      return;
     }
-  } FD_SCRATCH_SCOPE_END;
-  return 0;
+    fd_repair_handle_ping1( repair_tile_ctx, glob, stem, fd_type_pun_const( msg ), src_addr->addr, dst_ip4_addr, src_addr->port );
+    break;
+  default:
+    break;
+  }
 }
 
 static ulong
@@ -427,7 +430,10 @@ before_frag( fd_repair_tile_ctx_t * ctx,
              ulong                  sig ) {
   uint in_kind = ctx->in_kind[ in_idx ];
   if( FD_LIKELY  ( in_kind==IN_KIND_NET   ) ) return fd_disco_netmux_sig_proto( sig )!=DST_PROTO_REPAIR;
-  if( FD_UNLIKELY( in_kind==IN_KIND_SHRED ) ) return fd_int_if( fd_forest_root_slot( ctx->forest )==ULONG_MAX, -1, 0 ); /* not ready to read frag */
+  if( FD_UNLIKELY( in_kind==IN_KIND_SHRED ) ) {
+    if( FD_UNLIKELY( sig==ULONG_MAX ) ) return 0; /* repair ping */
+    return fd_int_if( fd_forest_root_slot( ctx->forest )==ULONG_MAX, -1, 0 ); /* not ready to read frag */
+  }
   return 0;
 }
 
@@ -643,6 +649,13 @@ after_frag( fd_repair_tile_ctx_t * ctx,
 
   if( FD_UNLIKELY( in_kind==IN_KIND_SNAP ) ) {
     after_frag_snap( ctx, sig, fd_chunk_to_laddr( ctx->in_links[ in_idx ].mem, ctx->snap_out_chunk ) );
+    return;
+  }
+
+  if( FD_UNLIKELY( in_kind==IN_KIND_NET && sig==ULONG_MAX ) ) {
+    fd_repair_ping_fwd_t const * fwd  = fd_type_pun_const( ctx->buffer );
+    fd_gossip_ping_t const *     ping = fd_type_pun_const( fwd->ping );
+    fd_repair_handle_ping1( ctx, ctx->repair, stem, ping, fwd->src_ip4, fwd->dst_ip4, fwd->src_port );
     return;
   }
 

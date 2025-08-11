@@ -42,7 +42,7 @@ gossip_topo( config_t * config ) {
   if( net_tile_id==ULONG_MAX ) net_tile_id = fd_topo_find_tile( topo, "sock", 0UL );
   if( FD_UNLIKELY( net_tile_id==ULONG_MAX ) ) FD_LOG_ERR(( "net tile not found" ));
   fd_topo_tile_t * net_tile = &topo->tiles[ net_tile_id ];
-  net_tile->net.gossip_listen_port = config->gossip.port;
+  fd_topo_net_rx_rule_push( &net_tile->net.rx_rules, DST_PROTO_GOSSIP, "net_gossip", config->gossip.port );
 
   fd_topob_wksp( topo, "gossip" );
   fd_topo_tile_t * gossip_tile = fd_topob_tile( topo, "gossip", "gossip", "metric_in", 0UL, 0, 0 );
@@ -86,7 +86,7 @@ gossip_topo( config_t * config ) {
   FD_TEST( fd_pod_insertf_ulong( topo->props, poh_shred_obj->id, "poh_shred" ) );
   fd_topob_tile_uses( topo, gossip_tile, poh_shred_obj, FD_SHMEM_JOIN_MODE_READ_WRITE );
 
-  fd_topos_net_tile_finish( topo, 0UL );
+  fd_topos_net_tile_finish( topo );
   fd_topob_auto_layout( topo, 0 );
   topo->agave_affinity_cnt = 0;
   fd_topob_finish( topo, CALLBACKS );

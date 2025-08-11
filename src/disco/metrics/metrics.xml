@@ -51,8 +51,13 @@ metric introduced.
     <counter name="RegimeDurationNanos" enum="TileRegime" converter="nanoseconds" summary="Mutually exclusive and exhaustive duration of time the tile spent in each of the regimes." />
 </common>
 
+<enum name="PktKind">
+    <int value="0" name="Ip4Udp" label="IPv4 UDP packet (no options)" />
+    <int value="1" name="Ip4OptUdp" label="IPv4 UDP packet (with options)" />
+</enum>
+
 <tile name="net">
-    <counter name="RxPktCnt" summary="Packet receive count." />
+    <counter name="RxPktCnt" enum="PktKind" summary="Packet receive count (ignoring tunnels)" />
     <counter name="RxBytesTotal" summary="Total number of bytes received (including Ethernet header)." />
     <counter name="RxUnderszCnt" summary="Number of incoming packets dropped due to being too small." />
     <counter name="RxFillBlockedCnt" summary="Number of incoming packets dropped due to fill ring being full." />
@@ -63,8 +68,8 @@ metric introduced.
     <counter name="TxSubmitCnt" summary="Number of packet transmit jobs submitted." />
     <counter name="TxCompleteCnt" summary="Number of packet transmit jobs marked as completed by the kernel." />
     <counter name="TxBytesTotal" summary="Total number of bytes transmitted (including Ethernet header)." />
-    <counter name="TxRouteFailCnt" summary="Number of packet transmit jobs dropped due to route failure." />
-    <counter name="TxNeighborFailCnt" summary="Number of packet transmit jobs dropped due to unresolved neighbor." />
+    <counter name="TxCorruptCnt" summary="Number of packet transmit jobs dropped due to malformed content." />
+    <counter name="TxFallbackCnt" summary="Number of packet transmit jobs handled via sockets fallback instead of XDP." />
     <counter name="TxFullFailCnt" summary="Number of packet transmit jobs dropped due to XDP TX ring full or missing completions." />
     <gauge name="TxBusyCnt" summary="Number of transmit buffers currently busy." />
     <gauge name="TxIdleCnt" summary="Number of transmit buffers currently idle." />
@@ -85,7 +90,6 @@ metric introduced.
     <counter name="RxGreInvalidCnt" summary="Number of invalid GRE packets received" />
     <counter name="RxGreIgnoredCnt" summary="Number of received but ignored GRE packets" />
     <counter name="TxGreCnt" summary="Number of GRE packet transmit jobs submitted" />
-    <counter name="TxGreRouteFailCnt" summary="Number of GRE packets transmit jobs dropped due to route failure" />
 </tile>
 
 <enum name="SockErr">
@@ -893,10 +897,6 @@ metric introduced.
     <counter name="Updates" enum="NetlinkMsg" summary="Number of netlink live updates processed" />
     <gauge name="InterfaceCount" summary="Number of network interfaces" />
     <gauge name="RouteCount" enum="RouteTable" summary="Number of IPv4 routes" />
-    <counter name="NeighProbeSent" summary="Number of neighbor solicit requests sent to kernel" />
-    <counter name="NeighProbeFails" summary="Number of neighbor solicit requests that failed to send (kernel too slow)" />
-    <counter name="NeighProbeRateLimitHost" summary="Number of neighbor solicit that exceeded the per-host rate limit" />
-    <counter name="NeighProbeRateLimitGlobal" summary="Number of neighbor solicit that exceeded the global rate limit" />
 </tile>
 
 <tile name="snaprd">
