@@ -489,7 +489,14 @@ fd_log_sleep( long dt ) {
   struct timespec rem[1];
   req->tv_sec  = (time_t)( ((ulong)ns_dt) / ((ulong)1e9) ); /* in [0,2^31-1] */
   req->tv_nsec = (long)  ( ((ulong)ns_dt) % ((ulong)1e9) ); /* in [0,1e9) */
-  if( FD_UNLIKELY( nanosleep( req, rem ) ) && FD_LIKELY( errno==EINTR ) ) dt += ((long)1e9)*((long)rem->tv_sec) + rem->tv_nsec;
+  int sleep_res;
+#if defined(__linux__)
+  /* Always use clock_nanosleep on Linux to be predictable */
+  sleep_res = clock_nanosleep( CLOCK_REALTIME, 0, req, rem );
+#else
+  sleep_res = nanosleep( req, rem );
+#endif
+  if( FD_UNLIKELY( sleep_res ) && FD_LIKELY( errno==EINTR ) ) dt += ((long)1e9)*((long)rem->tv_sec) + rem->tv_nsec;
   return dt;
 }
 
