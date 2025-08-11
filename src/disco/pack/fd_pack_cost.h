@@ -273,11 +273,12 @@ fd_pack_compute_cost( fd_txn_t const * txn,
   ulong fee[1];
   uint compute[1];
   ulong loaded_account_data_cost[1];
-  fd_compute_budget_program_finalize( cbp, txn->instr_cnt, fee, compute, loaded_account_data_cost );
+  fd_compute_budget_program_finalize( cbp, non_builtin_cnt, builtin_cost, fee, compute, loaded_account_data_cost );
 
-  non_builtin_cnt = fd_ulong_min( non_builtin_cnt, FD_COMPUTE_BUDGET_MAX_CU_LIMIT/FD_COMPUTE_BUDGET_DEFAULT_INSTR_CU_LIMIT );
-
-  ulong execution_cost = fd_ulong_if( (cbp->flags & FD_COMPUTE_BUDGET_PROGRAM_FLAG_SET_CU) && (non_builtin_cnt>0UL),
+  /* In cases where the transaction only has builtins, we can return an
+     even tighter bound for the cost that what might be in a compute
+     budget instruction, since we know the cost of builtins upfront. */
+  ulong execution_cost = fd_ulong_if( non_builtin_cnt>0UL,
                                       (ulong)*compute,
                                       builtin_cost + non_builtin_cnt*FD_COMPUTE_BUDGET_DEFAULT_INSTR_CU_LIMIT
                                     ); /* <= FD_COMPUTE_BUDGET_MAX_CU_LIMIT */
