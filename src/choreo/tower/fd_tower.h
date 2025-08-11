@@ -517,7 +517,7 @@ void *
 fd_tower_delete( void * tower );
 
 /* fd_tower_lockout_check checks if we are locked out from voting for
-   `slot`.  Returns 1 if we can vote for `slot` without violating
+   the `slot`.  Returns 1 if we can vote for `slot` without violating
    lockout, 0 otherwise.  Assumes tower is non-empty.
 
    After voting for a slot n, we are locked out for 2^k slots, where k
