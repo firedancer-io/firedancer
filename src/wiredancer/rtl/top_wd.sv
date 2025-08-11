@@ -2,7 +2,7 @@
 
 import wd_sigverify::*;
 
-module top_f1 #(
+module top_wd #(
     // fast sim
     // MUL_T                                               = 32'h0000_0802, // 8-cycle mock mul_wide
     // MUL_D                                               = 15,
@@ -41,7 +41,8 @@ module top_f1 #(
     DBG_WIDTH = 1024,
     NO_DDR = 4,
     DMA_N = 2,
-    DDR_BUFF_W = 20
+    DDR_BUFF_W = 20,
+    N_PCIE = 2
 ) (
 
     input wire [1-1:0]                                  avmm_read,

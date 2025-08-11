@@ -103,7 +103,7 @@ read_verilog -sv $CL_DIR/design/ed25519_sigverify_ecc.sv
 read_verilog -sv $CL_DIR/design/ed25519_sigverify_0.sv
 read_verilog -sv $CL_DIR/design/ed25519_sigverify_1.sv
 read_verilog -sv $CL_DIR/design/ed25519_sigverify_2.sv
-read_verilog -sv $CL_DIR/design/top_f1.sv
+read_verilog -sv $CL_DIR/design/top_wd.sv
 
 
 puts "AWS FPGA: Reading IP blocks";
