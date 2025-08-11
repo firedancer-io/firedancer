@@ -1,6 +1,16 @@
-/* The xdp tile translates between AF_XDP and fd_tango
-   traffic.  It is responsible for setting up the XDP and
-   XSK socket configuration. */
+/* The xdp tile translates between AF_XDP and fd_tango traffic.  It is
+   responsible for setting up the XDP and XSK socket configuration.
+
+                      ┌──────┐
+                   RX │ sock │
+            ┌─────────┼ tile │
+            │         └─▲────┘
+            │         TX│
+            │           │
+        ┌───▼──┐  TX  ┌─┴────┐  TX  ┌──────┐
+        │ quic ├─────►│ xdp  ├─────►│ UMEM │
+        │ tile │◄─────┤ tile │◄─────┤ XSK  │
+        └──────┘  RX  └──────┘  RX  └──────┘ */
 
 #include <errno.h>
 #include <fcntl.h>
@@ -544,7 +554,7 @@ before_frag( fd_net_ctx_t * ctx,
 
   /* Find interface index of next packet */
   ulong proto = fd_disco_netmux_sig_proto( sig );
-  if( FD_UNLIKELY( proto!=DST_PROTO_OUTGOING ) ) return 1;
+  if( FD_UNLIKELY( proto!=DST_PROTO_OUTGOING ) ) return 1; /* drop */
 
   /* Load balance TX */
   uint net_tile_cnt = ctx->net_tile_cnt;

@@ -180,6 +180,7 @@ privileged_init( fd_topo_t *      topo,
 
   int sock_fd_min = RX_SOCK_FD_MIN;
   ulong const rule_cnt = tile->net.rx_rules.rx_rule_cnt;
+  if( FD_UNLIKELY( !rule_cnt ) ) FD_LOG_ERR(( "sock tile has no RX rules" ));
   for( uint rule_idx=0U; rule_idx<rule_cnt; rule_idx++ ) {
     fd_topo_net_rx_rule_t const * rule = &tile->net.rx_rules.rx_rules[ rule_idx ];
     uint   const sock_idx = ctx->sock_cnt;
@@ -204,6 +205,8 @@ privileged_init( fd_topo_t *      topo,
     ctx->pollfd[ sock_idx ].fd     = sock_fd;
     ctx->pollfd[ sock_idx ].events = POLLIN;
     ctx->sock_cnt++;
+    FD_LOG_INFO(( "Listening on " FD_IP4_ADDR_FMT ":%hu",
+                  FD_IP4_ADDR_FMT_ARGS( tile->sock.net.bind_address ), port ));
   }
 
   /* Create transmit socket */
@@ -247,7 +250,9 @@ unprivileged_init( fd_topo_t *      topo,
   }
 
   for( ulong i=0UL; i<(tile->in_cnt); i++ ) {
-    if( !strstr( topo->links[ tile->in_link_id[ i ] ].name, "_net" ) ) {
+    char const * link_name = topo->links[ tile->in_link_id[ i ] ].name;
+    if( !strstr( link_name, "_net" ) &&
+        !strstr( link_name, "_sock" ) ) {
       FD_LOG_ERR(( "in link %lu is not a net TX link", i ));
     }
     fd_topo_link_t * link = &topo->links[ tile->in_link_id[ i ] ];

@@ -70,6 +70,7 @@ fd_topos_net_tiles( fd_topo_t *             topo,
 
   /* Create workspaces */
 
+  fd_pod_insert_cstr( topo->props, "net.provider", net_cfg->provider );
   if( 0==strcmp( net_cfg->provider, "xdp" ) ) {
 
     /* net: private working memory of the net tiles */
@@ -78,12 +79,20 @@ fd_topos_net_tiles( fd_topo_t *             topo,
     fd_topob_wksp( topo, "netlnk" );
     /* netbase: shared network config (config plane) */
     fd_topob_wksp( topo, "netbase" );
+    /* sock: private working memory of the fallback sock tile */
+    fd_topob_wksp( topo, "sock" );
+    /* net_sock: net->sock link for TX fallback */
+    fd_topob_wksp( topo, "net_sock" );
 
     fd_topo_tile_t * netlink_tile = fd_topob_tile( topo, "netlnk", "netlnk", "metric_in", tile_to_cpu[ topo->tile_cnt ], 0, 0 );
     fd_netlink_topo_create( netlink_tile, topo, netlnk_max_routes, netlnk_max_peer_routes, netlnk_max_neighbors, net_cfg->interface );
 
+    setup_sock_tile( topo, tile_to_cpu, net_cfg );
     for( ulong i=0UL; i<net_tile_cnt; i++ ) {
       setup_xdp_tile( topo, i, netlink_tile, tile_to_cpu, net_cfg );
+      fd_topob_link( topo, "net_sock", "net_sock", 1024UL, FD_NET_MTU, 1UL );
+      fd_topob_tile_out( topo, "net", i, "net_sock", i );
+      fd_topob_tile_in( topo, "sock", 0UL, "metric_in", "net_sock", i, FD_TOPOB_UNRELIABLE, FD_TOPOB_POLLED );
     }
 
   } else if( 0==strcmp( net_cfg->provider, "socket" ) ) {
@@ -172,13 +181,9 @@ fd_topos_tile_in_net( fd_topo_t *  topo,
   }
 }
 
-void
-fd_topos_net_tile_finish( fd_topo_t * topo,
-                          ulong       net_kind_id ) {
-  if( !topo_is_xdp( topo ) ) return;
-
-  fd_topo_tile_t * net_tile = &topo->tiles[ fd_topo_find_tile( topo, "net", net_kind_id ) ];
-
+static void
+fd_topos_xdp_tile_finish( fd_topo_t *      topo,
+                          fd_topo_tile_t * net_tile ) {
   ulong rx_depth = net_tile->xdp.xdp_rx_queue_size;
   ulong tx_depth = net_tile->xdp.xdp_tx_queue_size;
   rx_depth += (rx_depth/2UL);
@@ -198,11 +203,24 @@ fd_topos_net_tile_finish( fd_topo_t * topo,
 
   /* Create a dcache object */
 
-  ulong umem_obj_id = fd_pod_queryf_ulong( topo->props, ULONG_MAX, "net.%lu.umem", net_kind_id );
+  ulong umem_obj_id = fd_pod_queryf_ulong( topo->props, ULONG_MAX, "net.%lu.umem", net_tile->kind_id );
   FD_TEST( umem_obj_id!=ULONG_MAX );
 
   FD_TEST( net_tile->net.umem_dcache_obj_id > 0 );
   fd_pod_insertf_ulong( topo->props, cum_frame_cnt, "obj.%lu.depth", umem_obj_id );
   fd_pod_insertf_ulong( topo->props, 2UL,           "obj.%lu.burst", umem_obj_id ); /* 4096 byte padding */
   fd_pod_insertf_ulong( topo->props, 2048UL,        "obj.%lu.mtu",   umem_obj_id );
+}
+
+void
+fd_topos_net_tile_finish( fd_topo_t * topo ) {
+  for( ulong i=0UL; i<(topo->tile_cnt); i++ ) {
+    if( 0==strcmp( topo->tiles[ i ].name, "net" ) ) {
+      fd_topos_xdp_tile_finish( topo, &topo->tiles[ i ] );
+    }
+  }
+
+  /* All net providers except "socket" use the sock tile as a fallback.
+     This means that the sock tile should steer all packets it receives
+     back to the high-performance tile. */
 }

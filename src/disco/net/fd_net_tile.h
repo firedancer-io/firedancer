@@ -101,11 +101,10 @@ fd_topos_tile_in_net( fd_topo_t *  topo,
                       int          polled );
 
 /* This should be called *after* all app<->net tile links have been
-   created.  Should be called once per net tile. */
+   created, and all flow steering rules have been set up. */
 
 void
-fd_topos_net_tile_finish( fd_topo_t * topo,
-                          ulong       net_kind_id );
+fd_topos_net_tile_finish( fd_topo_t * topo );
 
 FD_PROTOTYPES_END
 

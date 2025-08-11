@@ -86,7 +86,7 @@ gossip_topo( config_t * config ) {
   FD_TEST( fd_pod_insertf_ulong( topo->props, poh_shred_obj->id, "poh_shred" ) );
   fd_topob_tile_uses( topo, gossip_tile, poh_shred_obj, FD_SHMEM_JOIN_MODE_READ_WRITE );
 
-  fd_topos_net_tile_finish( topo, 0UL );
+  fd_topos_net_tile_finish( topo );
   fd_topob_auto_layout( topo, 0 );
   topo->agave_affinity_cnt = 0;
   fd_topob_finish( topo, CALLBACKS );
