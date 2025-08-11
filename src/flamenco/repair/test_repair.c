@@ -1,6 +1,7 @@
 #include "../fd_flamenco_base.h"
 #include "fd_repair.h"
 #include "../../util/fd_util.h"
+#include <stdlib.h>
 #include <string.h>
 
 /* init repair test */
