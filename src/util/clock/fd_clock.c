@@ -355,11 +355,11 @@ fd_clock_joint_read( fd_clock_func_t clock_x, void const * args_x,
   x[ FD_CLOCK_JOINT_READ_CNT ] = clock_x( args_x );
 
   ulong best_idx = 0UL;
-  long  best_dx  = x[1] - x[0]; if( FD_UNLIKELY( best_dx<=0L ) ) return FD_CLOCK_ERR_X;
+  long  best_dx  = x[1] - x[0]; if( FD_UNLIKELY( best_dx<0L ) ) return FD_CLOCK_ERR_X;
 
   for( ulong idx=1UL; idx<FD_CLOCK_JOINT_READ_CNT; idx++ ) {
-    long dy  = y[ idx ] - y[ idx-1UL ]; if( FD_UNLIKELY( dy<=0L ) ) return FD_CLOCK_ERR_Y;
-    long dx  = x[ idx+1UL ] - x[ idx ]; if( FD_UNLIKELY( dx<=0L ) ) return FD_CLOCK_ERR_X;
+    long dy  = y[ idx ] - y[ idx-1UL ]; if( FD_UNLIKELY( dy<0L ) ) return FD_CLOCK_ERR_Y;
+    long dx  = x[ idx+1UL ] - x[ idx ]; if( FD_UNLIKELY( dx<0L ) ) return FD_CLOCK_ERR_X;
     best_idx = fd_ulong_if( best_dx<dx, best_idx, idx );
     best_dx  = fd_long_min( best_dx, dx );
   }
