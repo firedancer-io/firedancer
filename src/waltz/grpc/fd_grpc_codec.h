@@ -75,8 +75,7 @@ typedef struct fd_grpc_resp_hdrs fd_grpc_resp_hdrs_t;
 FD_PROTOTYPES_BEGIN
 
 /* fd_grpc_h2_gen_request_hdrs generates a HEADERS frame with gRPC
-   request headers.  Returns FD_H2_SUCCESS on success.  On failure,
-   returns FD_H2_INTERNAL_ERROR (insufficient space in rbuf_tx). */
+   request headers.  Returns 1 on success and 0 on failure */
 
 int
 fd_grpc_h2_gen_request_hdrs( fd_grpc_req_hdrs_t const * req,
