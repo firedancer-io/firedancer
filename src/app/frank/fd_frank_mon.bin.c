@@ -50,11 +50,13 @@ snprintf_age( char * buf, size_t sz, long _dt ) {
 
 static int
 snprintf_stale( char * buf, size_t sz, long age, long expire ) {
-  if( FD_UNLIKELY( age <= expire ) )
-    return snprintf( buf, sz, TEXT_GREEN "         -" TEXT_NORMAL );
-  char tmp[32];
-  snprintf_age(tmp, sizeof(tmp), age);
-  return snprintf( buf, sz, TEXT_YELLOW "%s" TEXT_NORMAL, tmp );
+  char plain[16];
+  if( FD_UNLIKELY( age<=expire ) ) {
+    snprintf( plain, sizeof(plain), "%-10s", "-" );
+    return snprintf( buf, sz, TEXT_GREEN "%s" TEXT_NORMAL, plain );
+  }
+  snprintf_age( plain, sizeof(plain), age );           /* already 10-wide */
+  return snprintf( buf, sz, TEXT_YELLOW "%s" TEXT_NORMAL, plain );
 }
 
 /* snprintf_heart will print to stdout whether or not a heartbeat was
@@ -63,10 +65,12 @@ snprintf_stale( char * buf, size_t sz, long age, long expire ) {
 static int
 snprintf_heart( char * buf, size_t sz, long hb_now, long hb_then ) {
   long dt = hb_now - hb_then;
-  return snprintf( buf, sz, "%s",
-    (dt>0L) ? TEXT_GREEN "    -" TEXT_NORMAL :
-    (!dt)   ? TEXT_RED   " NONE" TEXT_NORMAL :
-              TEXT_BLUE  "RESET" TEXT_NORMAL );
+  char const * color;
+  char        * text;
+  if     ( dt>0L ) { color = TEXT_GREEN; text = "    -"; }
+  else if( !dt   ) { color = TEXT_RED;   text = " NONE"; }
+  else             { color = TEXT_BLUE;  text = "RESET"; }
+  return snprintf( buf, sz, "%s%s" TEXT_NORMAL, color, text );
 }
 
 /* snprintf_sig will print the current and previous value of a cnc signal.
@@ -88,11 +92,11 @@ static int
 snprintf_sig( char * buf, size_t sz, ulong sig_now, ulong sig_then ) {
   char buf0[ FD_CNC_SIGNAL_CSTR_BUF_MAX ];
   char buf1[ FD_CNC_SIGNAL_CSTR_BUF_MAX ];
-  char const * c0 = sig_color( sig_now );
-  char const * c1 = sig_color( sig_then );
-  return snprintf( buf, sz, "%s%4s" TEXT_NORMAL "(%s%4s" TEXT_NORMAL ")",
-                   c0, fd_cnc_signal_cstr( sig_now, buf0 ),
-                   c1, fd_cnc_signal_cstr( sig_then, buf1 ) );
+  char plain[16];
+  snprintf( plain, sizeof(plain), "%4s(%4s)",
+            fd_cnc_signal_cstr( sig_now,  buf0 ),
+            fd_cnc_signal_cstr( sig_then, buf1 ) );   /* 10 cols */
+  return snprintf( buf, sz, "%s%s" TEXT_NORMAL, sig_color( sig_now ), plain );
 }
 
 /* snprintf_err_bool will print to stdout a boolean flag that indicates
@@ -101,9 +105,12 @@ snprintf_sig( char * buf, size_t sz, ulong sig_now, ulong sig_then ) {
 
 static int
 snprintf_err_bool( char * buf, size_t sz, ulong err_now, ulong err_then ) {
-  return snprintf( buf, sz, "%5s(%5s)",
-    err_now  ? TEXT_RED   "err" TEXT_NORMAL : TEXT_GREEN "  -" TEXT_NORMAL,
-    err_then ? TEXT_RED   "err" TEXT_NORMAL : TEXT_GREEN "  -" TEXT_NORMAL );
+  char plain[16];
+  snprintf( plain, sizeof(plain), "%5s(%5s)",
+            err_now  ? "err" : "-",
+            err_then ? "err" : "-" );
+  return snprintf( buf, sz, "%s%s" TEXT_NORMAL,
+                   err_now ? TEXT_RED : TEXT_GREEN, plain );
 }
 
 /* snprintf_err_cnt will print to stdout a 64-bit counter holding the
@@ -116,13 +123,15 @@ snprintf_err_bool( char * buf, size_t sz, ulong err_now, ulong err_then ) {
 static int
 snprintf_err_cnt( char * buf, size_t sz, ulong cnt_now, ulong cnt_then ) {
   long delta = (long)(cnt_now - cnt_then);
-  char const * color = (!delta)   ? TEXT_GREEN  /* no new error counts */
-                     : (delta>0L) ? TEXT_RED    /* new error counts */
-                     : (cnt_now)  ? TEXT_YELLOW /* decrease of existing error counts?? */
-                     :              TEXT_BLUE;  /* reset of the error counter */
-  if(      delta >  99999L ) return snprintf( buf, sz, "%10u(%s>+99999" TEXT_NORMAL ")", (uint)cnt_now, color );
-  else if (delta < -99999L ) return snprintf( buf, sz, "%10u(%s<-99999" TEXT_NORMAL ")", (uint)cnt_now, color );
-  else                      return snprintf( buf, sz, "%10u(%s %+6li"  TEXT_NORMAL ")", (uint)cnt_now, color, delta );
+  char plain[32];
+  if      ( delta>  99999L ) snprintf( plain, sizeof(plain), "%10u( >+99999)", (uint)cnt_now );
+  else if ( delta< -99999L ) snprintf( plain, sizeof(plain), "%10u( <-99999)", (uint)cnt_now );
+  else                      snprintf( plain, sizeof(plain), "%10u(%+7li)",    (uint)cnt_now, delta );
+  char const * color = (!delta)   ? TEXT_GREEN
+                     : (delta>0L) ? TEXT_RED
+                     : (cnt_now)  ? TEXT_YELLOW
+                     :              TEXT_BLUE;
+  return snprintf( buf, sz, "%s%-19s" TEXT_NORMAL, color, plain );
 }
 
 /* snprintf_seq will print to stdout a 64-bit sequence number and how it
@@ -132,13 +141,15 @@ snprintf_err_cnt( char * buf, size_t sz, ulong cnt_now, ulong cnt_then ) {
 static int
 snprintf_seq( char * buf, size_t sz, ulong seq_now, ulong seq_then ) {
   long delta = (long)(seq_now - seq_then);
-  char const * color = (!delta)   ? TEXT_YELLOW /* no sequence numbers published */
-                     : (delta>0L) ? TEXT_GREEN  /* new sequence numbers published */
-                     : (seq_now)  ? TEXT_RED    /* sequence number went backward */
-                     :              TEXT_BLUE;  /* sequence number reset */
-  if(      delta >  99999L ) return snprintf( buf, sz, "%16lx(%s>+99999" TEXT_NORMAL ")", seq_now, color );
-  else if (delta < -99999L ) return snprintf( buf, sz, "%16lx(%s<-99999" TEXT_NORMAL ")", seq_now, color );
-  else                      return snprintf( buf, sz, "%16lx(%s %+6li"  TEXT_NORMAL ")", seq_now, color, delta );
+  char plain[48];
+  if      ( delta>  99999L ) snprintf( plain, sizeof(plain), "%16lx( >+99999)", seq_now );
+  else if ( delta< -99999L ) snprintf( plain, sizeof(plain), "%16lx( <-99999)", seq_now );
+  else                      snprintf( plain, sizeof(plain), "%16lx(%+7li)",    seq_now, delta );
+  char const * color = (!delta)   ? TEXT_YELLOW
+                     : (delta>0L) ? TEXT_GREEN
+                     : (seq_now)  ? TEXT_RED
+                     :              TEXT_BLUE;
+  return snprintf( buf, sz, "%s%-25s" TEXT_NORMAL, color, plain );
 }
 
 
