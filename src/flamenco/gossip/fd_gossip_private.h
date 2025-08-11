@@ -2,20 +2,26 @@
 #ifndef HEADER_fd_src_flamenco_gossip_fd_gossip_msg_h
 #define HEADER_fd_src_flamenco_gossip_fd_gossip_msg_h
 
-// #include "fd_gossip_types.h"
-// #include "fd_crds_value.h"
 #include "../../util/fd_util.h"
 #include "fd_gossip_types.h"
 
+/* Constants used in deriving size bounds
+   - 1232b (MTU)
+   - 42b (eth,ip4,udp hdrs)
+   - 1190b = 1232b-42b (max UDP payload)
+   - 1146b = 1190b-4b(discriminant)-32b(pubkey)-8(crds len) max CRDS sz
+   */
+
 /* Deriving maximum number of CRDS values a message can hold:
-  - Maximum bytes the CRDS array can hold is
-    1232(MTU)-4(msg disc)-32(pubkey)-8(crds len)=1188b
-  - Smallest CRDS value is 64+4+48=116b
-    (64b signature + 4b discriminant + 48b slot hashes)
-  - So, maximum number of CRDS values is 1188/(64+4+48) ~= 10
-  - TODO: We might want to use a more conservative estimate that only includes
-    the size of the signature and discriminant. */
-#define FD_GOSSIP_MSG_MAX_CRDS (10UL)
+  - Each CRDS value contains a 64b signature and a 4b discriminant.
+    So, each CRDS value is at least 68b.
+  - Smallest CRDS data is technically slot hashes with zero hashes,
+    which is 32b (pubkey) + 8b (wallclock) + 8b (vector len), bringing
+    total to 68b+32b+8b+8b=116b
+  - However, we take a more conservative approach and assume just the
+    signature and discriminant.
+  - So, maximum number of CRDS values is 1146/(68) ~= 17 */
+#define FD_GOSSIP_MSG_MAX_CRDS (17UL)
 
 #define FD_GOSSIP_MESSAGE_PULL_REQUEST  (0)
 #define FD_GOSSIP_MESSAGE_PULL_RESPONSE (1)
@@ -86,6 +92,16 @@ struct fd_gossip_view_socket {
 
 typedef struct fd_gossip_view_socket fd_gossip_view_socket_t;
 
+/* To get the minimum possible wire size of a Version message, we use
+   version 0.0.0 client 0 (anything less than 128 works):
+
+     1b (major)
+   + 1b (minor)
+   + 1b (patch)
+   + 4b (commit)
+   + 4b (feature set)
+   + 1b (client)
+   = 12b */
 struct fd_gossip_view_version {
   ushort major;
   ushort minor;
@@ -96,6 +112,35 @@ struct fd_gossip_view_version {
 };
 
 typedef struct fd_gossip_view_version fd_gossip_view_version_t;
+
+/* Contact info size bound calculations:
+
+   The minimal valid contact info would hold 0 addrs, 0 sockets,
+   and an empty extensions array. This ends up taking
+
+     32b (pubkey)
+   + 8b  (wallclock)
+   + 8b  (outset)
+   + 2b  (shred version)
+   + 12b (minimum version)
+   + 1b  (addrs_len)
+   + 1b  (sockets_len)
+   + 1b  (ext_len)
+   = 65b
+
+  This leaves us with 1146b - 65b = 1081b to hold addrs, sockets or
+  extensions. */
+
+/* TODO: Check with Michael, these bounds feel too high */
+#define FD_GOSSIP_CONTACT_INFO_MAX_ADDRESSES (135UL) /* 1081b/8b (disc + ip4 addr) */
+
+/* Minimum size socket entry is
+     1b (key)
+   + 1b (index)
+   + 1b (offset)
+   = 3b */
+
+#define FD_GOSSIP_CONTACT_INFO_MAX_SOCKETS (360UL) /* 1081b/3b (socket entry) */
 
 struct fd_gossip_view_contact_info {
   long                     instance_creation_wallclock_nanos;

@@ -218,6 +218,19 @@ fd_gossip_contact_info_encode( fd_contact_info_t const *     contact_info,
                                uchar *                       out_buf,
                                ulong                         out_buf_sz,
                                ulong *                       opt_encoded_sz ) {
+  /* fd_contact_info_t has a fixed-size array of addresses and sockets, while
+     the encoded representation is a variable-length array of addrs and
+     sockets, where sockets are sorted by port offsets and index into addrs
+     to specify address. */
+  uint           addrs[ FD_CONTACT_INFO_SOCKET_MAX ];
+  uchar          addrs_cnt;
+  socket_entry_t socket_entries[ FD_CONTACT_INFO_SOCKET_MAX ];
+  uchar          socket_entries_cnt;
+
+  if( FD_UNLIKELY( contact_info_convert_sockets( contact_info, socket_entries, &socket_entries_cnt, addrs, &addrs_cnt ) ) ) {
+    FD_LOG_ERR(( "Failed to convert contact info sockets, check arguments to fd_contact_info_convert_sockets" ));
+  }
+
   SER_INIT( out_buf, out_buf_sz, 0U );
 
   INC( 64U ); /* Reserve space for signature */
@@ -233,24 +246,6 @@ fd_gossip_contact_info_encode( fd_contact_info_t const *     contact_info,
   FD_STORE( ushort, CURSOR, contact_info->shred_version ); INC( 2UL );
 
   INC( encode_version( contact_info, out_buf, out_buf_sz, CUR_OFFSET ) );
-
-  /* fd_contact_info_t has a fixed-size array of addresses and sockets, while
-     the encoded representation is a variable-length array of addrs and
-     sockets, where sockets are sorted by port offsets and index into addrs
-     to specify address.
-
-     TODO: This is awkwardly placed. Caller should be in charge of setting these
-     data structures, leaving encode with the sole role of serializing them to
-     bytes. */
-  uint           addrs[ FD_CONTACT_INFO_SOCKET_MAX ];
-  uchar          addrs_cnt;
-  socket_entry_t socket_entries[ FD_CONTACT_INFO_SOCKET_MAX ];
-  uchar          socket_entries_cnt;
-
-  if( FD_UNLIKELY( contact_info_convert_sockets( contact_info, socket_entries, &socket_entries_cnt, addrs, &addrs_cnt ) ) ) {
-    FD_LOG_ERR(( "Failed to convert contact info sockets, check arguments to fd_contact_info_convert_sockets" ));
-    return -1;
-  }
 
   /* Encode addrs and socket entries. Properties exploited:
      - length of either array never exceeds FD_GOSSIP_SOCKET_TAG_MAX, which
