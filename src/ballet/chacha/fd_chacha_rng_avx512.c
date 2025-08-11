@@ -35,8 +35,10 @@ fd_chacha_rng_refill_avx512( fd_chacha_rng_t * rng,
        ...
        cB = wwu_bcast( (uint const *)(rng->key)[7] ); */
 
-  wwu_t key_lo = _mm512_broadcast_i32x4( _mm_load_epi32( rng->key    ) );  /* [0,1,2,3,0,1,2,3] */
-  wwu_t key_hi = _mm512_broadcast_i32x4( _mm_load_epi32( rng->key+16 ) );  /* [4,5,6,7,4,5,6,7] */
+  __m128i key_lo_v = _mm_load_si128( (__m128i const *)rng->key   ); /* [0,1,2,3] */
+  __m128i key_hi_v = _mm_load_si128( (__m128i const *)rng->key+1 ); /* [4,5,6,7] */
+  wwu_t key_lo = _mm512_broadcast_i32x4( key_lo_v );  /* [0,1,2,3,0,1,2,3] */
+  wwu_t key_hi = _mm512_broadcast_i32x4( key_hi_v );  /* [4,5,6,7,4,5,6,7] */
   wwu_t k0 = _mm512_shuffle_epi32( key_lo, 0x00 );
   wwu_t k1 = _mm512_shuffle_epi32( key_lo, 0x55 );
   wwu_t k2 = _mm512_shuffle_epi32( key_lo, 0xaa );
