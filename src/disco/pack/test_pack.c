@@ -396,7 +396,7 @@ schedule_validate_microblock( fd_pack_t * pack,
         FD_TEST( fd_compute_budget_program_parse( txnp->payload + txn->instr[ i ].data_off, txn->instr[ i ].data_sz, &cbp ) );
       }
     }
-    fd_compute_budget_program_finalize( &cbp, txn->instr_cnt, &rewards, &compute, &requested_loaded_accounts_data_cost );
+    fd_compute_budget_program_finalize( &cbp, txn->instr_cnt, txn->instr_cnt, &rewards, &compute, &requested_loaded_accounts_data_cost );
 
     total_rewards += rewards;
 

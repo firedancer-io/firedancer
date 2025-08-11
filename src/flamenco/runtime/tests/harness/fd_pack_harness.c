@@ -40,13 +40,15 @@ do {
     break;
   }
   ulong rewards;
-  uint compute_unit_limit;
+  uint  compute_unit_limit;
   ulong loaded_accounts_data_cost = 0UL;
-  fd_compute_budget_program_finalize( cbp_state,
-                                      input->instr_datas_count,
-                                      &rewards,
-                                      &compute_unit_limit,
-                                      &loaded_accounts_data_cost );
+  fd_compute_budget_program_finalize(
+      cbp_state,
+      input->instr_datas_count,
+      input->instr_datas_count,
+      &rewards,
+      &compute_unit_limit,
+      &loaded_accounts_data_cost );
   effects->rewards = rewards;
   effects->compute_unit_limit = compute_unit_limit;
 

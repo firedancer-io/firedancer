@@ -42,6 +42,7 @@ static const uchar FD_COMPUTE_BUDGET_PROGRAM_ID[FD_TXN_ACCT_ADDR_SZ] = {
 #define FD_COMPUTE_BUDGET_MICRO_LAMPORTS_PER_LAMPORT     (    1000000UL)
 
 #define FD_COMPUTE_BUDGET_DEFAULT_INSTR_CU_LIMIT         (     200000UL)
+#define FD_COMPUTE_BUDGET_MAX_BUILTIN_CU_LIMIT           (       3000UL)
 #define FD_COMPUTE_BUDGET_MAX_CU_LIMIT                   (    1400000UL)
 #define FD_COMPUTE_BUDGET_HEAP_COST                      (          8UL)
 #define FD_COMPUTE_BUDGET_ACCOUNT_DATA_COST_PAGE_SIZE    (32UL * 1024UL)
@@ -155,15 +156,22 @@ fd_compute_budget_program_parse( uchar const * instr_data,
 static inline void
 fd_compute_budget_program_finalize( fd_compute_budget_program_state_t const * state,
                                     ulong                                     instr_cnt,
+                                    ulong                                     non_builtin_instr_cnt,
                                     ulong *                                   out_rewards,
                                     uint *                                    out_compute,
                                     ulong *                                   out_loaded_account_data_cost ) {
   ulong cu_limit = 0UL;
   if( FD_LIKELY( (state->flags & FD_COMPUTE_BUDGET_PROGRAM_FLAG_SET_CU)==0U ) ) {
     /* Use default compute limit */
-    cu_limit = (instr_cnt - state->compute_budget_instr_cnt) * FD_COMPUTE_BUDGET_DEFAULT_INSTR_CU_LIMIT;
-  } else cu_limit = state->compute_units;
+    cu_limit += (instr_cnt - non_builtin_instr_cnt) * FD_COMPUTE_BUDGET_DEFAULT_INSTR_CU_LIMIT +
+                non_builtin_instr_cnt * FD_COMPUTE_BUDGET_MAX_BUILTIN_CU_LIMIT;
 
+    /* All non-migratable builtin program instructions are counted as
+       3000 CUs per instruction. Each non-builtin instruction and
+       migrated built-in program instruction is counted as 200000 CUs
+       per instruction. */
+
+  } else cu_limit = state->compute_units;
   cu_limit = fd_ulong_min( cu_limit, FD_COMPUTE_BUDGET_MAX_CU_LIMIT );
 
   *out_compute = (uint)cu_limit;

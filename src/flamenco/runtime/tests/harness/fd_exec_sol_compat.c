@@ -871,10 +871,11 @@ sol_compat_vm_interp_v1( uchar *       out,
   return ok;
 }
 
-int sol_compat_shred_parse_v1( uchar *       out,
-                               ulong *       out_sz,
-                               uchar const * in,
-                               ulong         in_sz ) {
+int
+sol_compat_shred_parse_v1( uchar *       out,
+                           ulong *       out_sz,
+                           uchar const * in,
+                           ulong         in_sz ) {
     fd_exec_test_shred_binary_t input[1] = {0};
     void                      * res      = sol_compat_decode( &input, in, in_sz, &fd_exec_test_shred_binary_t_msg );
     if( FD_UNLIKELY( res==NULL ) ) {

@@ -317,5 +317,5 @@ fd_is_migrating_builtin_program( fd_exec_txn_ctx_t const * txn_ctx,
 
 FD_FN_PURE uchar
 fd_is_non_migrating_builtin_program( fd_pubkey_t const * pubkey ) {
-  return !!( fd_non_migrating_builtins_tbl_contains( pubkey ) );
+  return !!(fd_non_migrating_builtins_tbl_contains( pubkey ));
 }
