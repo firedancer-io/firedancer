@@ -27,6 +27,13 @@ static void pattern_random( ulong * ptr, ulong n, fd_rng_t * rng ) {
   }
 }
 
+static void pattern_back_skip( ulong * ptr, ulong n, fd_rng_t * rng ) {
+  (void)rng;
+  for( ulong i=0UL; i<n; i++ ) {
+    ptr[i] = (ulong)ptr + 8*(n-1-((i*13)%n));
+  }
+}
+
 static const struct {
   char const * name;
   char const * help;
@@ -41,6 +48,11 @@ static const struct {
     .name = "random",
     .help = "random permutation",
     .fn   = pattern_random
+  },
+  {
+    .name = "back-skip",
+    .help = "reverse scan and skip",
+    .fn   = pattern_back_skip
   },
   {0}
 };
