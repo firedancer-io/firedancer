@@ -556,7 +556,14 @@ VM_SYSCALL_CPI_UPDATE_CALLER_ACC_FUNC( fd_vm_t *                          vm,
     VM_SYSCALL_CPI_ACC_INFO_DATA( vm, caller_acc_info, caller_acc_data );
 
     ulong const updated_data_len = fd_txn_account_get_data_len( callee_acc );
-    if( !updated_data_len ) fd_memset( (void*)caller_acc_data, 0, caller_acc_data_len );
+
+    if( updated_data_len<caller_acc_data_len ) {
+      /* We need to zero out memory that is no longer being used if the
+         account shrunk in size during a CPI.
+         https://github.com/anza-xyz/agave/blob/v2.3.1/programs/bpf_loader/src/syscalls/cpi.rs#L1403-L1407 */
+      fd_memset( caller_acc_data + updated_data_len, 0, caller_acc_data_len - updated_data_len );
+    }
+
     ulong * ref_to_len = caller_account->ref_to_len_in_vm.translated;
     if( *ref_to_len != updated_data_len ) {
       ulong max_increase = (vm->direct_mapping && vm->is_deprecated) ? 0UL : MAX_PERMITTED_DATA_INCREASE;
