@@ -2,15 +2,16 @@
 #ifndef HEADER_fd_src_flamenco_gossip_fd_gossip_msg_h
 #define HEADER_fd_src_flamenco_gossip_fd_gossip_msg_h
 
-#include "../../util/fd_util.h"
 #include "fd_gossip_types.h"
+#include "../../util/fd_util.h"
+#include "../../disco/fd_disco_base.h"
 
 /* Constants used in deriving size bounds
    - 1232b (MTU)
-   - 42b (eth,ip4,udp hdrs)
-   - 1190b = 1232b-42b (max UDP payload)
-   - 1146b = 1190b-4b(discriminant)-32b(pubkey)-8(crds len) max CRDS sz
-   */
+   - 1188b = 1232b-4b(discriminant)-32b(pubkey)-8(crds len) max CRDS sz
+     largest CRDS value seen so far is duplicate shreds at 1187b*/
+
+#define FD_GOSSIP_CRDS_MAX_SZ (1188UL)
 
 /* Deriving maximum number of CRDS values a message can hold:
   - Each CRDS value contains a 64b signature and a 4b discriminant.
@@ -20,8 +21,8 @@
     total to 68b+32b+8b+8b=116b
   - However, we take a more conservative approach and assume just the
     signature and discriminant.
-  - So, maximum number of CRDS values is 1146/(68) ~= 17 */
-#define FD_GOSSIP_MSG_MAX_CRDS (17UL)
+  - So, maximum number of CRDS values is 1188/(68) ~= 18 */
+#define FD_GOSSIP_MSG_MAX_CRDS (18UL)
 
 #define FD_GOSSIP_MESSAGE_PULL_REQUEST  (0)
 #define FD_GOSSIP_MESSAGE_PULL_RESPONSE (1)
@@ -315,11 +316,28 @@ fd_gossip_msg_parse( fd_gossip_view_t *   view,
                      uchar const *        payload,
                      ulong                payload_sz );
 
+FD_FN_CONST static inline ulong
+fd_gossip_pull_request_max_bits( ulong num_keys,
+                                 ulong contact_info_crds_sz,
+                                 ulong payload_sz ) {
+  return 8UL*( payload_sz
+             - 4UL          /* discriminant */
+             - 8UL          /* keys len */
+             - 8UL*num_keys /* keys */
+             - 1UL          /* has_bits */
+             - 8UL          /* bloom vec len */
+             - 8UL          /* bloom bits count */
+             - 8UL          /* bloom num bits set */
+             - 8UL          /* mask */
+             - 4UL          /* mask bits */
+             - contact_info_crds_sz ); /* contact info CRDS val */
+}
+
 int
 fd_gossip_pull_request_init( uchar *       payload,
                              ulong         payload_sz,
                              ulong         num_keys,
-                             ulong         bloom_bits_cnt,
+                             ulong         num_bits,
                              ulong         mask,
                              uint          mask_bits,
                              uchar const * contact_info_crds,

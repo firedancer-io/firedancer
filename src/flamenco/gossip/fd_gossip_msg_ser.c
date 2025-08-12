@@ -173,7 +173,7 @@ int
 fd_gossip_pull_request_init( uchar *       payload,
                              ulong         payload_sz,
                              ulong         num_keys,
-                             ulong         bloom_bits_cnt,
+                             ulong         num_bits,
                              ulong         mask,
                              uint          mask_bits,
                              uchar const * contact_info_crds,
@@ -181,15 +181,16 @@ fd_gossip_pull_request_init( uchar *       payload,
                              ulong **      out_bloom_keys,
                              ulong **      out_bloom_bits,
                              ulong **      out_bits_set,
-                             ulong *       out_payload_sz ){
+                             ulong *       out_payload_sz ) {
+  FD_TEST( payload_sz<=FD_GOSSIP_MTU );
   SER_INIT( payload, payload_sz, 0U );
-  FD_STORE( uint, CURSOR, FD_GOSSIP_MESSAGE_PULL_REQUEST );  INC(          4U );
-  FD_STORE( ulong, CURSOR, num_keys                       ); INC(          8U );
-  *out_bloom_keys = (ulong *)( CURSOR );                     INC( num_keys*8U );
+  FD_STORE( uint, CURSOR, FD_GOSSIP_MESSAGE_PULL_REQUEST ); INC(          4U );
+  FD_STORE( ulong, CURSOR, num_keys                      ); INC(          8U );
+  *out_bloom_keys = (ulong *)( CURSOR )                   ; INC( num_keys*8U );
 
-  if( FD_LIKELY( !!bloom_bits_cnt ) ) {
+  if( FD_LIKELY( !!num_bits ) ) {
     /* Bloom bits is a bitvec<u64>, so we need to be careful about converting bloom bits count to vector lengths */
-    ulong bloom_vec_len = (bloom_bits_cnt+63UL)/64UL;
+    ulong bloom_vec_len = (num_bits+63UL)/64UL;
     FD_STORE( uchar, CURSOR, 1 )            ; INC(               1U ); /* has_bits */
     FD_STORE( ulong, CURSOR, bloom_vec_len ); INC(               8U );
     *out_bloom_bits = (ulong *)( CURSOR )   ; INC( bloom_vec_len*8U );
@@ -197,11 +198,11 @@ fd_gossip_pull_request_init( uchar *       payload,
     FD_STORE( uchar, CURSOR, 0 ); INC( 1U ); /* has_bits */
     *out_bloom_bits = NULL;
   }
-  FD_STORE( ulong, CURSOR, bloom_bits_cnt ); INC( 8U );
-  *out_bits_set = (ulong *)(CURSOR)        ; INC( 8U );
+  FD_STORE( ulong, CURSOR, num_bits ); INC( 8U );
+  *out_bits_set = (ulong *)(CURSOR)  ; INC( 8U );
 
-  FD_STORE( ulong, CURSOR, mask      )     ; INC( 8U );
-  FD_STORE( uint,  CURSOR, mask_bits )     ; INC( 4U );
+  FD_STORE( ulong, CURSOR, mask      ); INC( 8U );
+  FD_STORE( uint,  CURSOR, mask_bits ); INC( 4U );
 
   if( FD_UNLIKELY( BYTES_REMAINING<contact_info_crds_sz )) {
     FD_LOG_WARNING(( "Not enough space in pull request for contact info, check bloom filter params" ));
@@ -218,6 +219,7 @@ fd_gossip_contact_info_encode( fd_contact_info_t const *     contact_info,
                                uchar *                       out_buf,
                                ulong                         out_buf_sz,
                                ulong *                       opt_encoded_sz ) {
+  FD_TEST( out_buf_sz<=FD_GOSSIP_MTU );
   /* fd_contact_info_t has a fixed-size array of addresses and sockets, while
      the encoded representation is a variable-length array of addrs and
      sockets, where sockets are sorted by port offsets and index into addrs

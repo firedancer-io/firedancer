@@ -1,7 +1,5 @@
 #include "fd_gossip_private.h"
 #include "../../ballet/txn/fd_compact_u16.h"
-#include "../../disco/fd_disco_base.h"
-
 
 /* Adapted from fd_txn_parse.c */
 #define CHECK_INIT( payload, payload_sz, offset )   \

@@ -17,7 +17,7 @@ struct fd_gossip_crds_builder_crds_meta {
 typedef struct fd_gossip_crds_builder_crds_meta fd_gossip_crds_builder_crds_meta_t;
 
 struct fd_gossip_crds_msg_builder {
-  uchar                              msg[ 1232UL ];
+  uchar                              msg[ FD_GOSSIP_MTU ];
   ulong                              msg_sz; /* Also functions as cursor */
   fd_gossip_crds_builder_crds_meta_t crds_meta[ FD_GOSSIP_MSG_MAX_CRDS ];
 };

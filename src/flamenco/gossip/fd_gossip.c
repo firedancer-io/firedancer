@@ -11,7 +11,7 @@
 #include "../../ballet/ed25519/fd_ed25519.h"
 #include "../../disco/keyguard/fd_keyguard.h"
 
-#define BLOOM_FILTER_MAX_BITS           (512UL*8UL) /* TODO: Calculate for worst case contactinfo */
+#define BLOOM_FILTER_MAX_BITS           (512UL*8UL)
 #define BLOOM_FALSE_POSITIVE_RATE       (      0.1)
 #define BLOOM_NUM_KEYS                  (      8.0)
 
@@ -59,7 +59,6 @@ struct fd_gossip_private {
   ulong               entrypoints_cnt;
 
   fd_rng_t *          rng;
-  fd_bloom_t *        bloom;
 
   /* TODO: has_shred_version */
   ushort              expected_shred_version;
@@ -82,7 +81,7 @@ struct fd_gossip_private {
   void *              send_ctx;
 
   struct {
-    uchar             crds_val[ 1232UL ];
+    uchar             crds_val[ FD_GOSSIP_CRDS_MAX_SZ ];
     ulong             crds_val_sz;
     fd_contact_info_t ci[1];
   } my_contact_info;
@@ -107,7 +106,6 @@ fd_gossip_footprint( ulong max_values ) {
   l = FD_LAYOUT_APPEND( l, fd_crds_align(), fd_crds_footprint( max_values, max_values*4 /* FIXME: figure out better numbers */ ) );
   l = FD_LAYOUT_APPEND( l, fd_active_set_align(), fd_active_set_footprint() );
   l = FD_LAYOUT_APPEND( l, fd_ping_tracker_align(), fd_ping_tracker_footprint() );
-  l = FD_LAYOUT_APPEND( l, fd_bloom_align(), fd_bloom_footprint( BLOOM_FALSE_POSITIVE_RATE, BLOOM_FILTER_MAX_BITS ) );
   l = FD_LAYOUT_APPEND( l, stake_map_align(), stake_map_footprint() );
   l = FD_LAYOUT_APPEND( l, push_set_align(), push_set_footprint( FD_ACTIVE_SET_MAX_PEERS ) );
   l = FD_LAYOUT_FINI( l, fd_gossip_align() );
@@ -147,7 +145,6 @@ fd_gossip_new( void *                    shmem,
   void * crds           = FD_SCRATCH_ALLOC_APPEND( l, fd_crds_align(), fd_crds_footprint( max_values, max_values*4 ) );
   void * active_set     = FD_SCRATCH_ALLOC_APPEND( l, fd_active_set_align(), fd_active_set_footprint() );
   void * ping_tracker   = FD_SCRATCH_ALLOC_APPEND( l, fd_ping_tracker_align(), fd_ping_tracker_footprint() );
-  void * bloom          = FD_SCRATCH_ALLOC_APPEND( l, fd_bloom_align(), fd_bloom_footprint( BLOOM_FALSE_POSITIVE_RATE, BLOOM_FILTER_MAX_BITS ) );
   void * stake_weights  = FD_SCRATCH_ALLOC_APPEND( l, stake_map_align(), stake_map_footprint() );
   void * active_ps      = FD_SCRATCH_ALLOC_APPEND( l, push_set_align(), push_set_footprint( FD_ACTIVE_SET_MAX_PEERS ) );
 
@@ -159,7 +156,6 @@ fd_gossip_new( void *                    shmem,
   gossip->crds          = fd_crds_join( fd_crds_new( crds, rng, max_values, max_values*4, gossip->metrics->crds_table, gossip_update_out ) );
   gossip->active_set    = fd_active_set_join( fd_active_set_new( active_set, rng ) );
   gossip->ping_tracker  = fd_ping_tracker_join( fd_ping_tracker_new( ping_tracker, rng ) );
-  gossip->bloom         = fd_bloom_join( fd_bloom_new( bloom, rng, BLOOM_FALSE_POSITIVE_RATE, BLOOM_FILTER_MAX_BITS ) );
   gossip->stake_weights = stake_map_join( stake_map_new( stake_weights ) );
   gossip->active_pset   = push_set_join( push_set_new( active_ps, FD_ACTIVE_SET_MAX_PEERS ) );
 
@@ -212,7 +208,6 @@ crds_builder_flush( fd_gossip_t *                  gossip,
                     fd_ip4_port_t                  dest_addr,
                     long                           now ) {
   if( FD_UNLIKELY( fd_gossip_crds_msg_builder_get_crds_len( builder )==0UL ) ) {
-    /* Nothing to flush */
     return;
   }
   gossip->send_fn( gossip->send_ctx, stem, builder->msg, builder->msg_sz, &dest_addr, (ulong)now );
@@ -299,7 +294,7 @@ refresh_contact_info( fd_gossip_t *       gossip,
   gossip->my_contact_info.ci->wallclock_nanos = now;
   fd_gossip_contact_info_encode( gossip->my_contact_info.ci,
                                  gossip->my_contact_info.crds_val,
-                                 1232UL,
+                                 FD_GOSSIP_CRDS_MAX_SZ,
                                  &gossip->my_contact_info.crds_val_sz );
   gossip->sign_fn( gossip->sign_ctx,
                    gossip->my_contact_info.crds_val+64UL,
@@ -375,7 +370,7 @@ static int
 verify_prune( fd_gossip_view_prune_t const * view,
               uchar const *                  payload,
               fd_sha512_t *                  sha ) {
-  uchar sign_data[1232UL];
+  uchar sign_data[ FD_GOSSIP_MTU ];
 
   prune_sign_data_pre_t * pre = (prune_sign_data_pre_t *)sign_data;
   fd_memcpy( pre->prefix, "\xffSOLANA_PRUNE_DATA", 18UL );
@@ -971,10 +966,10 @@ fd_gossip_push_vote( fd_gossip_t *       gossip,
                      long                now ) {
   /* TODO: we can avoid addt'l memcpy if we pass a propely laid out
      crds buffer instead */
-  uchar crds_val[ 1232UL ];
+  uchar crds_val[ FD_GOSSIP_CRDS_MAX_SZ ];
   ulong crds_val_sz;
   fd_gossip_crds_vote_encode( crds_val,
-                              1232UL,
+                              FD_GOSSIP_CRDS_MAX_SZ,
                               txn,
                               txn_sz,
                               gossip->identity_pubkey,
@@ -1071,13 +1066,13 @@ tx_pull_request( fd_gossip_t *       gossip,
   ulong mask            = fd_rng_ulong( gossip->rng ) | (~0UL>>(mask_bits));
 
 
-  uchar payload[ 1232UL ];
+  uchar payload[ FD_GOSSIP_MTU ];
 
   ulong payload_sz;
   ulong * keys_ptr, * bits_ptr, * bits_set;
 
   int res = fd_gossip_pull_request_init( payload,
-                                         1232UL,
+                                         FD_GOSSIP_MTU,
                                          BLOOM_NUM_KEYS,
                                          num_bits,
                                          mask,

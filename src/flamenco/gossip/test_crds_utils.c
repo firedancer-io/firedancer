@@ -14,7 +14,7 @@ create_test_crds_with_ci( fd_rng_t * rng, ulong num_peers ) {
   /* Insert test contact info entries */
   for( ulong i=0UL; i<num_peers; i++ ) {
     /* Create a minimal contact info payload */
-    uchar payload[1232];
+    uchar payload[ FD_GOSSIP_CRDS_MAX_SZ ];
     fd_memset( payload, 0, sizeof(payload) );
 
     /* Generate random pubkey */

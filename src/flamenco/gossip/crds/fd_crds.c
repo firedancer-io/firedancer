@@ -73,7 +73,7 @@ struct fd_crds_entry_private {
     them into nanos internally. */
   long    wallclock_nanos;
 
-  uchar   value_bytes[ 1232UL ];
+  uchar   value_bytes[ FD_GOSSIP_CRDS_MAX_SZ ];
   ushort  value_sz;
 
   /* The value hash is the sha256 of the value_bytes.  It is used in

@@ -67,6 +67,9 @@ void
 fd_gossip_crds_msg_builder_append( fd_gossip_crds_msg_builder_t * builder,
                                    uchar const *                  crds_val,
                                    ulong                          crds_sz ) {
+  if( FD_UNLIKELY( crds_sz>FD_GOSSIP_CRDS_MAX_SZ ) ) {
+    FD_LOG_WARNING(( "CRDS value size %lu exceeds expected maximum %lu", crds_sz, FD_GOSSIP_CRDS_MAX_SZ ));
+  }
   fd_memcpy( &builder->msg[ builder->msg_sz ], crds_val, crds_sz );
   crds_msg_t * msg = (crds_msg_t *)builder->msg;
 
