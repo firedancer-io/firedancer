@@ -221,16 +221,23 @@ static inline fd_vote_state_ele_t *
 fd_vote_states_query( fd_vote_states_t const * vote_states,
                       fd_pubkey_t const *      vote_account ) {
 
-  fd_vote_state_ele_t * vote_state = fd_vote_state_map_ele_query(
+  return fd_vote_state_map_ele_query(
       fd_vote_states_get_map( vote_states ),
       vote_account,
       NULL,
       fd_vote_states_get_pool( vote_states ) );
-  if( FD_UNLIKELY( !vote_state ) ) {
-    return NULL;
-  }
+}
 
-  return vote_state;
+/* fd_vote_states_query_const is the same as fd_vote_states but instead
+   returns a const pointer. */
+
+static inline fd_vote_state_ele_t const *
+fd_vote_states_query_const( fd_vote_states_t const * vote_states,
+                            fd_pubkey_t const *      vote_account ) {
+  return fd_vote_state_map_ele_query_const(
+      fd_vote_states_get_map( vote_states ),
+      vote_account,
+      NULL, fd_vote_states_get_pool( vote_states ) );
 }
 
 /* fd_vote_states_max returns the maximum number of vote accounts that

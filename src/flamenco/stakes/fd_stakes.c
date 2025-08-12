@@ -68,7 +68,10 @@ compute_stake_delegations( fd_bank_t *                bank,
         history,
         new_rate_activation_epoch );
 
-    fd_vote_states_update_stake( vote_states, &stake_delegation->vote_account, new_entry.effective );
+    fd_vote_state_ele_t * vote_state = fd_vote_states_query( vote_states, &stake_delegation->vote_account );
+    if( vote_state ) {
+      vote_state->stake += new_entry.effective;
+    }
 
     total_stake += new_entry.effective;
   }
