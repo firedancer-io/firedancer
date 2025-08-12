@@ -5,6 +5,7 @@
 #include "../fd_runtime.h"
 #include <errno.h>
 #include <sys/mman.h>
+#include "../../../util/shmem/fd_shmem_private.h"
 
 fd_wksp_t *
 fd_wksp_demand_paged_new( char const * name,
@@ -21,9 +22,9 @@ fd_wksp_demand_paged_new( char const * name,
   footprint = fd_ulong_align_up( footprint, FD_SHMEM_HUGE_PAGE_SZ );
 
   /* Acquire anonymous demand-paged memory */
-  void * mem = mmap( NULL, footprint, PROT_READ|PROT_WRITE, MAP_PRIVATE|MAP_ANONYMOUS, -1, 0 );
+  void * mem = fd_shmem_private_map_rand( footprint, FD_SHMEM_HUGE_PAGE_SZ );
   if( FD_UNLIKELY( mem==MAP_FAILED ) ) {
-    FD_LOG_WARNING(( "mmap() failed (%i-%s)", errno, fd_io_strerror( errno ) ));
+    FD_LOG_WARNING(( "fd_shmem_private_map_rand() failed (%i-%s)", errno, fd_io_strerror( errno ) ));
     return NULL;
   }
 
