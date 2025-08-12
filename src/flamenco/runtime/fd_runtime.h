@@ -9,19 +9,14 @@
 #include "fd_acc_mgr.h"
 #include "fd_hashes.h"
 #include "../features/fd_features.h"
-#include "fd_rent_lists.h"
 #include "context/fd_capture_ctx.h"
 #include "context/fd_exec_txn_ctx.h"
 #include "info/fd_runtime_block_info.h"
 #include "info/fd_instr_info.h"
-#include "../gossip/fd_gossip.h"
-#include "../repair/fd_repair.h"
 #include "../../disco/pack/fd_microblock.h"
 #include "info/fd_microblock_info.h"
-#include "../../ballet/bmtree/fd_wbmtree.h"
 #include "../../ballet/sbpf/fd_sbpf_loader.h"
 #include "fd_runtime_public.h"
-#include "../../disco/stem/fd_stem.h"
 
 /* Various constant values used by the runtime. */
 
@@ -212,11 +207,6 @@ FD_STATIC_ASSERT( FD_BPF_ALIGN_OF_U128==FD_ACCOUNT_REC_DATA_ALIGN, input_data_al
    why 72/40. */
 #define FD_RUNTIME_TRANSACTION_FINALIZATION_FOOTPRINT      (FD_ACC_SZ_MAX*72UL/40UL)
 
-/* The below macros aren't used anywhere, but since the spads are used for PoH tick verification,
-   we ensure that the default spad size is large enough for the wbmtree and leaves */
-
-#define FD_RUNTIME_MERKLE_LEAF_CNT_MAX (FD_TXN_MAX_PER_SLOT * FD_TXN_ACTUAL_SIG_MAX)
-
 
 /* FD_SLICE_ALIGN specifies the alignment needed for a block slice.
    ALIGN is double x86 cache line to mitigate various kinds of false
@@ -256,13 +246,6 @@ FD_STATIC_ASSERT( FD_BPF_ALIGN_OF_U128==FD_ACCOUNT_REC_DATA_ALIGN, input_data_al
 
 // https://github.com/firedancer-io/solana/blob/v1.17.5/core/src/repair/repair_service.rs#L55
 #define FD_REPAIR_TIMEOUT (200 / FD_MS_PER_TICK)
-
-#define FD_RUNTIME_MERKLE_VERIFICATION_FOOTPRINT FD_RUNTIME_MERKLE_LEAF_CNT_MAX * sizeof(fd_wbmtree32_leaf_t)     /* leaves */   \
-                                                + sizeof(fd_wbmtree32_t) + sizeof(fd_wbmtree32_node_t)*(FD_RUNTIME_MERKLE_LEAF_CNT_MAX + (FD_RUNTIME_MERKLE_LEAF_CNT_MAX/2)) /* tree footprint */ \
-                                                + FD_RUNTIME_MERKLE_LEAF_CNT_MAX * (sizeof(fd_ed25519_sig_t) + 1) /* sig mbuf */ \
-                                                + 1UL + FD_WBMTREE32_ALIGN + alignof(fd_wbmtree32_leaf_t)         /* aligns */
-
-FD_STATIC_ASSERT( FD_RUNTIME_MERKLE_VERIFICATION_FOOTPRINT <= FD_RUNTIME_TRANSACTION_EXECUTION_FOOTPRINT_DEFAULT, merkle verify footprint exceeds txn execution footprint );
 
 /* Helpers for runtime public frame management. */
 

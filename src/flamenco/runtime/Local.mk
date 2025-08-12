@@ -36,8 +36,6 @@ $(call add-objs,fd_borrowed_account,fd_flamenco)
 $(call add-hdrs, tests/fd_dump_pb.h)
 $(call add-objs, tests/fd_dump_pb,fd_flamenco)
 
-$(call add-hdrs,fd_rent_lists.h)
-
 $(call add-hdrs,fd_txn_account.h)
 $(call add-objs,fd_txn_account,fd_flamenco)
 $(call make-unit-test,test_txn_account,test_txn_account,fd_flamenco fd_funk fd_ballet fd_util)

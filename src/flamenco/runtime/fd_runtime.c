@@ -117,8 +117,6 @@ fd_runtime_update_slots_per_epoch( fd_bank_t * bank,
   }
 
   fd_bank_slots_per_epoch_set( bank, slots_per_epoch );
-
-  fd_bank_part_width_set( bank, fd_rent_partition_width( slots_per_epoch ) );
 }
 
 void
