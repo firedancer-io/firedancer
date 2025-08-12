@@ -115,9 +115,8 @@ fd_tower_lockout_check( fd_tower_t const * tower,
   fd_tower_vote_t const * vote = fd_tower_votes_peek_index_const( tower, cnt - 1 );
   fd_ghost_ele_t const *  root = fd_ghost_root_const( ghost );
 
-  int lockout_check = slot <= vote->slot ||
-                      vote->slot < root->slot ||
-                      fd_ghost_is_ancestor( ghost, fd_ghost_hash( ghost, vote->slot ), block_id );
+  int lockout_check = (slot > vote->slot) &&
+                      (vote->slot < root->slot || fd_ghost_is_ancestor( ghost, fd_ghost_hash( ghost, vote->slot ), block_id ));
   FD_LOG_NOTICE(( "[fd_tower_lockout_check] ok? %d. top: (slot: %lu, conf: %lu). switch: %lu.", lockout_check, vote->slot, vote->conf, slot ));
   return lockout_check;
 }
@@ -356,7 +355,7 @@ fd_tower_vote_slot( fd_tower_t *          tower,
     /* The ghost head is on the same fork as our last vote slot, so we
        can vote fork it as long as we pass the threshold check. */
 
-    if( FD_LIKELY( fd_tower_threshold_check( tower, epoch, funk, txn, head->slot, scratch ) ) ) {
+    if( FD_LIKELY( head->slot > vote->slot && fd_tower_threshold_check( tower, epoch, funk, txn, head->slot, scratch ) ) ) {
       FD_LOG_DEBUG(( "[%s] success (threshold). best: %lu. vote: (slot: %lu conf: %lu)", __func__, head->slot, vote->slot, vote->conf ));
       return head->slot;
     }
