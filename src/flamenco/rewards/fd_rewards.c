@@ -340,6 +340,7 @@ calculate_points_all( fd_exec_slot_ctx_t const * slot_ctx,
     fd_vote_states_t const * vote_states    = fd_bank_vote_states_locking_query( slot_ctx->bank );
     fd_vote_state_ele_t *    vote_state_ele = fd_vote_states_query( vote_states, &stake_delegation->vote_account );
     if( FD_UNLIKELY( !vote_state_ele ) ) {
+      fd_bank_vote_states_end_locking_query( slot_ctx->bank );
       continue;
     }
 
@@ -447,6 +448,7 @@ calculate_stake_vote_rewards_account( fd_exec_slot_ctx_t const *                
     fd_vote_state_ele_t *    vote_state_ele = fd_vote_states_query( vote_states, voter_acc );
     if( FD_UNLIKELY( !vote_state_ele ) ) {
       FD_LOG_WARNING(( "failed to query vote state" ));
+      fd_bank_vote_states_end_locking_query( slot_ctx->bank );
       continue;
     }
 
