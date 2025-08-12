@@ -49,25 +49,25 @@ else
   ./$OBJDIR/bin/fd_wksp_ctl new run-test-vectors $PAGE_CNT $PAGE_SZ 0 0644 --log-path ''
 fi
 
-SOL_COMPAT=( "$OBJDIR/unit-test/test_sol_compat" "--wksp" "$WKSP" )
+SOL_COMPAT=( "$OBJDIR/unit-test/test_sol_compat" "--wksp" "$WKSP" --tile-cpus "f,0-$(( $NUM_PROCESSES - 1 ))" )
 
 export FD_LOG_PATH=$LOG_PATH/test_exec_block
-find dump/test-vectors/block/fixtures -type f -name '*.fix' | xargs -P $NUM_PROCESSES -n 1000 ${SOL_COMPAT[@]}
+${SOL_COMPAT[@]} dump/test-vectors/block/fixtures
 
 export FD_LOG_PATH=$LOG_PATH/test_exec_syscall
-find dump/test-vectors/syscall/fixtures -type f -name '*.fix' | xargs -P $NUM_PROCESSES -n 1000 ${SOL_COMPAT[@]}
+${SOL_COMPAT[@]} dump/test-vectors/syscall/fixtures
 
 export FD_LOG_PATH=$LOG_PATH/test_exec_interp
-find dump/test-vectors/vm_interp/fixtures -type f -name '*.fix' | xargs -P $NUM_PROCESSES -n 1000 ${SOL_COMPAT[@]}
+${SOL_COMPAT[@]} dump/test-vectors/vm_interp/fixtures
 
 export FD_LOG_PATH=$LOG_PATH/test_exec_txn
-find dump/test-vectors/txn/fixtures -type f -name '*.fix' | xargs -P $NUM_PROCESSES ${SOL_COMPAT[@]}
+${SOL_COMPAT[@]} dump/test-vectors/txn/fixtures
 
 zstd -df dump/test-vectors/elf_loader/fixtures/*.zst
 export FD_LOG_PATH=$LOG_PATH/test_elf_loader
-find dump/test-vectors/elf_loader/fixtures -type f -name '*.fix' | xargs -P $NUM_PROCESSES -n 1000 ${SOL_COMPAT[@]}
+${SOL_COMPAT[@]} dump/test-vectors/elf_loader/fixtures
 
 export FD_LOG_PATH=$LOG_PATH/test_exec_instr
-find dump/test-vectors/instr/fixtures -type f -name '*.fix' | xargs -P $NUM_PROCESSES -n 1000 ${SOL_COMPAT[@]}
+${SOL_COMPAT[@]} dump/test-vectors/instr/fixtures
 
 echo Test vectors success
