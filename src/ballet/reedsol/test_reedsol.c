@@ -990,8 +990,6 @@ main( int     argc,
       char ** argv ) {
   fd_boot( &argc, &argv );
 
-// ulong cnt = fd_env_strip_cmdline_ulong( &argc, &argv, "--cnt", NULL, 100000UL );
-
   fd_rng_t _rng[1]; fd_rng_t * rng = fd_rng_join( fd_rng_new( _rng, 0U, 0UL ) );
 
   basic_tests();
