@@ -83,7 +83,10 @@ fd_solfuzz_runner_new( fd_wksp_t * wksp,
   void *                funk_mem  = fd_wksp_alloc_laddr( wksp, fd_funk_align(),              fd_funk_footprint( txn_max, rec_max ),    wksp_tag );
   void *                spad_mem  = fd_wksp_alloc_laddr( wksp, fd_spad_align(),              fd_spad_footprint( spad_max ),            wksp_tag );
   void *                banks_mem = fd_wksp_alloc_laddr( wksp, fd_banks_align(),             fd_banks_footprint( bank_max, fork_max ), wksp_tag );
-  if( FD_UNLIKELY( !runner || !funk_mem || !spad_mem || !banks_mem ) ) goto bail1;
+  if( FD_UNLIKELY( !runner    ) ) { FD_LOG_WARNING(( "fd_wksp_alloc(solfuzz_runner) failed" )); goto bail1; }
+  if( FD_UNLIKELY( !funk_mem  ) ) { FD_LOG_WARNING(( "fd_wksp_alloc(funk) failed"           )); goto bail1; }
+  if( FD_UNLIKELY( !spad_mem  ) ) { FD_LOG_WARNING(( "fd_wksp_alloc(spad) failed (spad_max=%g)", (double)spad_max )); goto bail1; }
+  if( FD_UNLIKELY( !banks_mem ) ) { FD_LOG_WARNING(( "fd_wksp_alloc(banks) failed (bank_max=%lu fork_max=%lu)", bank_max, fork_max )); goto bail1; }
 
   /* Create objects */
   fd_memset( runner, 0, sizeof(fd_solfuzz_runner_t) );
