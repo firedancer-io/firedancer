@@ -1,49 +1,65 @@
 use std::pin::Pin;
 
-use crate::proto::auth::{self, Token};
 use crate::proto::auth::auth_service_server::{AuthService, AuthServiceServer};
+use crate::proto::auth::{self, Token};
 use crate::proto::bundle::{Bundle, BundleUuid};
 use crate::proto::packet::{Packet, PacketBatch};
+use base64::prelude::*;
 use chrono::{Duration, Utc};
+use futures::select;
+use futures::FutureExt;
+use futures_util::stream::Stream;
 use log::info;
 use prost_types::Timestamp;
+use rustyline::{error::ReadlineError, DefaultEditor};
+use std::net::SocketAddr;
+use std::sync::Arc;
+use tokio::sync::{broadcast, mpsc};
 use tonic::{transport::Server, Request, Response, Status};
-use futures_util::stream::Stream;
-use base64::prelude::*;
-use tokio::sync::mpsc;
 
-use crate::proto::block_engine::block_engine_validator_server::{BlockEngineValidator, BlockEngineValidatorServer};
-use crate::proto::block_engine::{SubscribePacketsRequest, SubscribePacketsResponse, SubscribeBundlesRequest, SubscribeBundlesResponse, BlockBuilderFeeInfoRequest, BlockBuilderFeeInfoResponse};
+use crate::proto::block_engine::block_engine_validator_server::{
+    BlockEngineValidator, BlockEngineValidatorServer,
+};
+use crate::proto::block_engine::{
+    BlockBuilderFeeInfoRequest, BlockBuilderFeeInfoResponse, SubscribeBundlesRequest,
+    SubscribeBundlesResponse, SubscribePacketsRequest, SubscribePacketsResponse,
+};
 
-#[derive(Debug, Default)]
-pub struct BlockEngineValidatorService;
+pub struct Service {
+    kill_streams: broadcast::Receiver<()>,
+}
 
-type PacketResponseStream = Pin<Box<dyn Stream<Item = Result<SubscribePacketsResponse, Status>> + Send>>;
-type BundleResponseStream = Pin<Box<dyn Stream<Item = Result<SubscribeBundlesResponse, Status>> + Send>>;
+#[derive(Clone)]
+pub struct ServiceHandle(Arc<Service>);
 
-pub mod proto {
-    pub mod auth {
+type PacketResponseStream =
+    Pin<Box<dyn Stream<Item = Result<SubscribePacketsResponse, Status>> + Send>>;
+type BundleResponseStream =
+    Pin<Box<dyn Stream<Item = Result<SubscribeBundlesResponse, Status>> + Send>>;
+
+pub(crate) mod proto {
+    pub(crate) mod auth {
         tonic::include_proto!("auth");
     }
-    pub mod block_engine {
+    pub(crate) mod block_engine {
         tonic::include_proto!("block_engine");
     }
-    pub mod bundle {
+    pub(crate) mod bundle {
         tonic::include_proto!("bundle");
     }
-    pub mod packet {
+    pub(crate) mod packet {
         tonic::include_proto!("packet");
     }
-    pub mod relayer {
+    pub(crate) mod relayer {
         tonic::include_proto!("relayer");
     }
-    pub mod shared {
+    pub(crate) mod shared {
         tonic::include_proto!("shared");
     }
 }
 
 #[tonic::async_trait]
-impl BlockEngineValidator for BlockEngineValidatorService {
+impl BlockEngineValidator for ServiceHandle {
     type SubscribePacketsStream = PacketResponseStream;
     type SubscribeBundlesStream = BundleResponseStream;
 
@@ -51,6 +67,7 @@ impl BlockEngineValidator for BlockEngineValidatorService {
         &self,
         _request: Request<SubscribePacketsRequest>,
     ) -> Result<Response<Self::SubscribePacketsStream>, Status> {
+        let mut kill_streams = self.0.kill_streams.resubscribe();
         let (tx, rx) = mpsc::channel(16);
         tokio::spawn(async move {
             info!("Packet stream start");
@@ -70,19 +87,23 @@ impl BlockEngineValidator for BlockEngineValidatorService {
                 }),
             };
             loop {
-                if tx.send(Ok(msg.clone())).await.is_err() {
-                    info!("Packet stream stop");
-                    break;
+                select! {
+                    _ = kill_streams.recv().fuse() => break,
+                    res = tx.send(Ok(msg.clone())).fuse() => if res.is_err() { break }
                 }
             }
+            info!("Packet stream stop");
         });
-        Ok(Response::new(Box::pin(tokio_stream::wrappers::ReceiverStream::new(rx))))
+        Ok(Response::new(Box::pin(
+            tokio_stream::wrappers::ReceiverStream::new(rx),
+        )))
     }
 
     async fn subscribe_bundles(
         &self,
         _request: Request<SubscribeBundlesRequest>,
     ) -> Result<Response<Self::SubscribeBundlesStream>, Status> {
+        let mut kill_streams = self.0.kill_streams.resubscribe();
         let (tx, rx) = mpsc::channel(16);
         tokio::spawn(async move {
             info!("Bundle stream start");
@@ -111,13 +132,16 @@ impl BlockEngineValidator for BlockEngineValidatorService {
                 ]
             };
             loop {
-                if tx.send(Ok(msg.clone())).await.is_err() {
-                    info!("Bundle stream stop");
-                    break;
+                select! {
+                    _ = kill_streams.recv().fuse() => break,
+                    res = tx.send(Ok(msg.clone())).fuse() => if res.is_err() { break }
                 }
             }
+            info!("Bundle stream stop");
         });
-        Ok(Response::new(Box::pin(tokio_stream::wrappers::ReceiverStream::new(rx))))
+        Ok(Response::new(Box::pin(
+            tokio_stream::wrappers::ReceiverStream::new(rx),
+        )))
     }
 
     async fn get_block_builder_fee_info(
@@ -133,17 +157,17 @@ impl BlockEngineValidator for BlockEngineValidatorService {
     }
 }
 
-#[derive(Debug, Default)]
-pub struct Auth;
-
 #[tonic::async_trait]
-impl AuthService for Auth {
+impl AuthService for ServiceHandle {
     async fn generate_auth_challenge(
         &self,
         request: Request<auth::GenerateAuthChallengeRequest>,
     ) -> Result<Response<auth::GenerateAuthChallengeResponse>, Status> {
         let req_data = request.into_inner();
-        info!("Received auth challenge request from {}", bs58::encode(&req_data.pubkey).into_string());
+        info!(
+            "Received auth challenge request from {}",
+            bs58::encode(&req_data.pubkey).into_string()
+        );
         Ok(Response::new(auth::GenerateAuthChallengeResponse {
             challenge: "012345678".to_string(),
         }))
@@ -187,18 +211,100 @@ impl AuthService for Auth {
     }
 }
 
-#[tokio::main]
-async fn main() -> Result<(), Box<dyn std::error::Error>> {
-    env_logger::init();
+struct Cnc {
+    kill_streams_tx: broadcast::Sender<()>,
+    kill_server_tx: broadcast::Sender<()>,
+}
 
-    let addr = "127.0.0.1:50051".parse()?;
-    info!("Block Engine Validator Server listening on {}", addr);
+fn handle_line(cnc: &mut Cnc, line: &str) -> bool {
+    match line {
+        "" => return false,
+        "help" => {
+            println!("Available commands:");
+            println!("  help - Show this help message");
+            println!("  exit - Exit the server");
+            println!("  kill-streams - Kill all active streams");
+            println!("  kill-server - Kill and restart the server");
+        }
+        "exit" | "quit" => {
+            println!("Exiting...");
+            std::process::exit(0);
+        }
+        "kill-streams" => {
+            let _ = cnc.kill_streams_tx.send(());
+        }
+        "kill-server" => {
+            let _ = cnc.kill_server_tx.send(());
+        }
+        cmd => {
+            println!("Unknown command: {}", cmd);
+            return false;
+        }
+    }
+    true
+}
 
-    Server::builder()
-        .add_service(BlockEngineValidatorServer::new(BlockEngineValidatorService::default()))
-        .add_service(AuthServiceServer::new(Auth::default()))
-        .serve(addr)
-        .await?;
+async fn run_server(
+    service: ServiceHandle,
+    listen_addr: SocketAddr,
+    mut kill_signal: broadcast::Receiver<()>,
+) {
+    loop {
+        let server = Server::builder()
+            .add_service(BlockEngineValidatorServer::new(service.clone()))
+            .add_service(AuthServiceServer::new(service.clone()))
+            .serve_with_shutdown(listen_addr.clone(), kill_signal.recv().map(|_| ()));
+        server.await.unwrap();
+        info!("Restarting server");
+    }
+}
 
-    Ok(())
+fn main() {
+    env_logger::Builder::from_env(env_logger::Env::default().default_filter_or("info")).init();
+
+    let (kill_streams_tx, kill_streams_rx) = broadcast::channel(2);
+    let (kill_server_tx, kill_server_rx) = broadcast::channel(2);
+
+    let mut cnc = Cnc {
+        kill_streams_tx,
+        kill_server_tx,
+    };
+
+    // Spawn a thread handling all gRPC I/O
+    let addr: SocketAddr = "127.0.0.1:50051".parse().unwrap();
+    let handle = std::thread::spawn(move || {
+        let rt = tokio::runtime::Builder::new_current_thread()
+            .enable_all()
+            .build()
+            .unwrap();
+
+        let service = ServiceHandle(Arc::new(Service {
+            kill_streams: kill_streams_rx,
+        }));
+        rt.block_on(run_server(service, addr, kill_server_rx));
+    });
+
+    // Run a REPL on the current thread
+    let mut rl = match DefaultEditor::new() {
+        Ok(rl) => rl,
+        Err(_) => {
+            handle.join().unwrap();
+            std::process::exit(1);
+        }
+    };
+    println!("Block Engine Validator Server listening on {}", addr);
+    loop {
+        let readline = rl.readline("");
+        match readline {
+            Ok(line) => {
+                if handle_line(&mut cnc, &line) {
+                    let _ = rl.add_history_entry(&line);
+                }
+            }
+            Err(ReadlineError::Interrupted) | Err(ReadlineError::Eof) => {
+                std::process::exit(0);
+            }
+            Err(err) => panic!("Unexpected error: {}", err),
+        }
+    }
 }
