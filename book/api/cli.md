@@ -142,6 +142,20 @@ $ fdctl version
 0.101.11814
 ```
 
+## `metrics`
+Prints the current validator metrics to stdout.  Metrics can typically
+be accessed via. HTTP when the `metric` tile is enabled,  but the
+command can be used even if the metrics server is not enabled, or the
+validator has crashed.
+
+```sh [bash]
+$ fdctl metrics --config ~/config.toml
+# HELP tile_pid The process ID of the tile.
+# TYPE tile_pid gauge
+tile_pid{kind="netlnk",kind_id="0"} 627750
+tile_pid{kind="net",kind_id="0"} 627759
+```
+
 ## `set-identity`
 Changes the identity key of a running validator. The `<keypair>`
 argument is required and must be the path to an Agave style
