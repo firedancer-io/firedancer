@@ -95,7 +95,6 @@ typedef struct {
 
   ulong *                published_wmark; /* same as the one in replay tile */
   fd_alloc_t *           alloc;
-  fd_valloc_t            valloc;
   long                   replay_time;
   ulong                  slot_cnt;
 
@@ -138,8 +137,8 @@ static fd_shred_t const *
 rocksdb_get_shred( ctx_t * ctx,
                    ulong * out_sz ) {
   if( ctx->rocksdb_curr_idx==ctx->rocksdb_end_idx ) {
-    if( FD_UNLIKELY( fd_rocksdb_root_iter_next( &ctx->rocksdb_root_iter, &ctx->rocksdb_slot_meta, ctx->valloc ) ) ) return NULL;
-    if( FD_UNLIKELY( fd_rocksdb_get_meta( &ctx->rocksdb, ctx->rocksdb_slot_meta.slot, &ctx->rocksdb_slot_meta, ctx->valloc ) ) ) return NULL;
+    if( FD_UNLIKELY( fd_rocksdb_root_iter_next( &ctx->rocksdb_root_iter, &ctx->rocksdb_slot_meta ) ) ) return NULL;
+    if( FD_UNLIKELY( fd_rocksdb_get_meta( &ctx->rocksdb, ctx->rocksdb_slot_meta.slot, &ctx->rocksdb_slot_meta ) ) ) return NULL;
     ctx->rocksdb_curr_idx = 0;
     ctx->rocksdb_end_idx  = ctx->rocksdb_slot_meta.received;
   }
@@ -230,17 +229,11 @@ unprivileged_init( fd_topo_t *      topo,
   if( FD_UNLIKELY( !ctx->alloc ) ) {
     FD_LOG_ERR( ( "fd_alloc_join failed" ) );
   }
-  ctx->valloc = fd_alloc_virtual( ctx->alloc );
 
   /* Tower */
   ctx->tower = fd_tower_join( fd_tower_new( tower_mem ) );
   if( FD_UNLIKELY( !ctx->tower ) ) {
     FD_LOG_ERR( ( "fd_tower_join failed" ) );
-  }
-
-  ctx->rocksdb_bank_hash = fd_valloc_malloc( ctx->valloc, fd_frozen_hash_versioned_align(), sizeof(fd_frozen_hash_versioned_t) );
-  if( FD_UNLIKELY( NULL==ctx->rocksdb_bank_hash ) ) {
-    FD_LOG_ERR(( "Failed at allocating memory for rocksdb bank hash" ));
   }
 
   fd_topo_link_t * replay_in_link = &topo->links[ tile->in_link_id[ REPLAY_IN_IDX ] ];
@@ -356,7 +349,7 @@ after_credit_rocksdb( ctx_t *             ctx,
     ctx->playback_started = 1;
 
     fd_rocksdb_root_iter_new( &ctx->rocksdb_root_iter );
-    if( FD_UNLIKELY( fd_rocksdb_root_iter_seek( &ctx->rocksdb_root_iter, &ctx->rocksdb, wmark, &ctx->rocksdb_slot_meta, ctx->valloc ) ) ) {
+    if( FD_UNLIKELY( fd_rocksdb_root_iter_seek( &ctx->rocksdb_root_iter, &ctx->rocksdb, wmark, &ctx->rocksdb_slot_meta ) ) ) {
       FD_LOG_CRIT(( "Failed at seeking rocksdb root iter for slot=%lu", wmark ));
     }
     ctx->rocksdb_iter = rocksdb_create_iterator_cf(ctx->rocksdb.db, ctx->rocksdb.ro, ctx->rocksdb.cf_handles[FD_ROCKSDB_CFIDX_DATA_SHRED]);
@@ -545,7 +538,7 @@ after_credit( ctx_t *             ctx,
     switch( ctx->ingest_mode ) {
       case FD_BACKTEST_ROCKSDB_INGEST:
         fd_rocksdb_root_iter_new( &ctx->rocksdb_root_iter );
-        if( FD_UNLIKELY( fd_rocksdb_root_iter_seek( &ctx->rocksdb_root_iter, &ctx->rocksdb, wmark, &ctx->rocksdb_slot_meta, ctx->valloc ) ) ) {
+        if( FD_UNLIKELY( fd_rocksdb_root_iter_seek( &ctx->rocksdb_root_iter, &ctx->rocksdb, wmark, &ctx->rocksdb_slot_meta ) ) ) {
           FD_LOG_CRIT(( "Failed at seeking rocksdb root iter for slot=%lu", wmark ));
         }
         ctx->rocksdb_iter = rocksdb_create_iterator_cf(ctx->rocksdb.db, ctx->rocksdb.ro, ctx->rocksdb.cf_handles[FD_ROCKSDB_CFIDX_DATA_SHRED]);
@@ -589,16 +582,9 @@ rocksdb_bank_hash_check( ctx_t * ctx, ulong slot, fd_hash_t * bank_hash ) {
   if( FD_UNLIKELY( err || vallen==0 ) ) {
     FD_LOG_ERR(( "Failed at reading bank hash for slot%lu from rocksdb", slot ));
   }
-  fd_bincode_decode_ctx_t decode = {
-    .data    = res,
-    .dataend = res + vallen
-  };
-  ulong total_sz = 0UL;
-  int decode_err = fd_frozen_hash_versioned_decode_footprint( &decode, &total_sz );
 
-  fd_frozen_hash_versioned_t * versioned = fd_frozen_hash_versioned_decode( ctx->rocksdb_bank_hash, &decode );
-  if( FD_UNLIKELY( decode_err!=FD_BINCODE_SUCCESS ) ||
-      FD_UNLIKELY( decode.data!=decode.dataend    ) ||
+  fd_frozen_hash_versioned_t versioned[1];
+  if( FD_UNLIKELY( !fd_bincode_decode_static( frozen_hash_versioned, versioned, res, vallen, NULL ) ) ||
       FD_UNLIKELY( versioned->discriminant!=fd_frozen_hash_versioned_enum_current ) ) {
     FD_LOG_ERR(( "Failed at decoding bank hash from rocksdb" ));
   }

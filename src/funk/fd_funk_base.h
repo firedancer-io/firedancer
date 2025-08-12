@@ -43,7 +43,6 @@
      in preparation (if they are not frozen). */
 
 #include "../util/fd_util.h"
-#include "../util/valloc/fd_valloc.h"
 
 /* FD_FUNK_SUCCESS is used by various APIs to indicate the operation
    successfully completed.  This will be 0.  FD_FUNK_ERR_* gives a

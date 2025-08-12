@@ -92,7 +92,6 @@ main( int     argc,
     sol_compat_check_wksp_usage();
   }
 
-  /* TODO: verify that there are no leaked libc allocs and vallocs */
   sol_compat_fini();
   fd_halt();
   return fail_cnt>0UL;

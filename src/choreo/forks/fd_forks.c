@@ -136,8 +136,7 @@ fd_forks_query_const( fd_forks_t const * forks, ulong slot ) {
 //                   ulong                 slot,
 //                   fd_funk_t *           funk,
 //                   fd_blockstore_t *     blockstore,
-//                   fd_funk_t *           funk,
-//                   fd_valloc_t           valloc ) {
+//                   fd_funk_t *           funk ) {
 //   // Remove slot ctx from frontier
 //   fd_fork_t * child = fd_fork_frontier_ele_remove( forks->frontier,
 //                                                    &fork->slot,

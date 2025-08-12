@@ -17,12 +17,11 @@ struct fd_ledger_args {
   int                   copy_txn_status;         /* determine if txns should be copied to the blockstore during minify/replay */
   ulong                 trash_hash;              /* trash hash to be used for negative cases*/
   char const *          rocksdb_path;            /* path to rocksdb directory */
-  fd_valloc_t           valloc; /* wksp valloc that should NOT be used for runtime allocations */
 };
 typedef struct fd_ledger_args fd_ledger_args_t;
 
 /***************************** Helpers ****************************************/
-static fd_valloc_t
+static void
 allocator_setup( fd_wksp_t * wksp ) {
 
   if( FD_UNLIKELY( !wksp ) ) {
@@ -35,20 +34,12 @@ allocator_setup( fd_wksp_t * wksp ) {
   if( FD_UNLIKELY( !alloc_shalloc ) ) { FD_LOG_ERR( ( "fd_alloc_new failed" ) ); }
   fd_alloc_t * alloc = fd_alloc_join( alloc_shalloc, 3UL );
   if( FD_UNLIKELY( !alloc ) ) { FD_LOG_ERR( ( "fd_alloc_join failed" ) ); }
-  fd_valloc_t valloc = fd_alloc_virtual( alloc );
-  return valloc;
-
-  /* NOTE: Enable this if leak hunting */
-  //return fd_backtracing_alloc_virtual( &valloc );
-
 }
 
 void
 ingest_rocksdb( char const *      file,
                 ulong             start_slot,
-                ulong             end_slot,
-                FD_PARAM_UNUSED ulong             trash_hash,
-                fd_valloc_t       valloc ) {
+                ulong             end_slot ) {
 
   fd_rocksdb_t rocks_db;
   char * err = fd_rocksdb_init( &rocks_db, file );
@@ -76,7 +67,7 @@ ingest_rocksdb( char const *      file,
 
   int block_found = -1;
   while ( block_found!=0 && start_slot<=end_slot ) {
-    block_found = fd_rocksdb_root_iter_seek( &iter, &rocks_db, start_slot, &slot_meta, valloc );
+    block_found = fd_rocksdb_root_iter_seek( &iter, &rocks_db, start_slot, &slot_meta );
     if ( block_found!=0 ) {
       start_slot++;
     }
@@ -108,10 +99,10 @@ ingest_rocksdb( char const *      file,
 
     memset( &slot_meta, 0, sizeof(fd_slot_meta_t) );
 
-    int ret = fd_rocksdb_root_iter_next( &iter, &slot_meta, valloc );
+    int ret = fd_rocksdb_root_iter_next( &iter, &slot_meta );
     if( ret < 0 ) {
       // FD_LOG_WARNING(("Failed for slot %lu", slot + 1));
-      ret = fd_rocksdb_get_meta( &rocks_db, slot + 1, &slot_meta, valloc );
+      ret = fd_rocksdb_get_meta( &rocks_db, slot + 1, &slot_meta );
       if( ret < 0 ) {
         break;
       }
@@ -173,8 +164,6 @@ minify( fd_ledger_args_t * args ) {
     FD_LOG_ERR(( "minified rocksdb path is NULL" ));
   }
 
-  args->valloc = allocator_setup( args->wksp );
-
   fd_rocksdb_t big_rocksdb;
   char * err = fd_rocksdb_init( &big_rocksdb, args->rocksdb_path );
   if( FD_UNLIKELY( err!=NULL ) ) {
@@ -215,8 +204,7 @@ minify( fd_ledger_args_t * args ) {
     //                 args->start_slot,
     //                 args->end_slot,
     //                 args->blockstore,
-    //                 ULONG_MAX,
-    //                 args->valloc );
+    //                 ULONG_MAX );
 
   } else {
     FD_LOG_NOTICE(( "skipping copying of transaction statuses" ));

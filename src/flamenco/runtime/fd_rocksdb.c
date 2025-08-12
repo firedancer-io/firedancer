@@ -195,8 +195,7 @@ fd_rocksdb_first_slot( fd_rocksdb_t * db,
 int
 fd_rocksdb_get_meta( fd_rocksdb_t *   db,
                      ulong            slot,
-                     fd_slot_meta_t * m,
-                     fd_valloc_t      valloc ) {
+                     fd_slot_meta_t * m ) {
   ulong ks = fd_ulong_bswap(slot);
   size_t vallen = 0;
 
@@ -225,11 +224,6 @@ fd_rocksdb_get_meta( fd_rocksdb_t *   db,
   ulong total_sz = 0UL;
   if( fd_slot_meta_decode_footprint( &ctx, &total_sz ) ) {
     FD_LOG_ERR(( "fd_slot_meta_decode failed" ));
-  }
-
-  uchar * mem = fd_valloc_malloc( valloc, fd_slot_meta_align(), total_sz );
-  if( NULL == mem ) {
-    FD_LOG_ERR(( "fd_valloc_malloc failed" ));
   }
 
   fd_slot_meta_decode( mem, &ctx );
@@ -261,8 +255,7 @@ int
 fd_rocksdb_root_iter_seek( fd_rocksdb_root_iter_t * self,
                            fd_rocksdb_t *           db,
                            ulong                    slot,
-                           fd_slot_meta_t *         m,
-                           fd_valloc_t              valloc ) {
+                           fd_slot_meta_t *         m ) {
   self->db = db;
 
   if( FD_UNLIKELY( !self->iter ) )
@@ -284,7 +277,7 @@ fd_rocksdb_root_iter_seek( fd_rocksdb_root_iter_t * self,
     return -2;
   }
 
-  return fd_rocksdb_get_meta( self->db, slot, m, valloc );
+  return fd_rocksdb_get_meta( self->db, slot, m );
 }
 
 int
@@ -303,8 +296,7 @@ fd_rocksdb_root_iter_slot  ( fd_rocksdb_root_iter_t * self, ulong *slot ) {
 
 int
 fd_rocksdb_root_iter_next( fd_rocksdb_root_iter_t * self,
-                           fd_slot_meta_t *         m,
-                           fd_valloc_t              valloc ) {
+                           fd_slot_meta_t *         m ) {
   if ((NULL == self->db) || (NULL == self->iter))
     return -1;
 
@@ -319,7 +311,7 @@ fd_rocksdb_root_iter_next( fd_rocksdb_root_iter_t * self,
   size_t klen = 0;
   const char *key = rocksdb_iter_key(self->iter, &klen); // There is no need to free key
 
-  return fd_rocksdb_get_meta( self->db, fd_ulong_bswap(*((unsigned long *) key)), m, valloc );
+  return fd_rocksdb_get_meta( self->db, fd_ulong_bswap(*((unsigned long *) key)), m );
 }
 
 void
