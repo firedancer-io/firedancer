@@ -80,7 +80,8 @@ scratch_footprint( fd_topo_tile_t const * tile ) {
 static void
 legacy_stream_notify( fd_quic_ctx_t * ctx,
                       uchar *         packet,
-                      ulong           packet_sz ) {
+                      ulong           packet_sz,
+                      uint            ipv4 ) {
 
   long                tspub    = fd_tickcount();
   fd_tpu_reasm_t *    reasm    = ctx->reasm;
@@ -89,7 +90,7 @@ legacy_stream_notify( fd_quic_ctx_t * ctx,
   void *              base     = ctx->verify_out_mem;
   ulong               seq      = stem->seqs[0];
 
-  int err = fd_tpu_reasm_publish_fast( reasm, packet, packet_sz, mcache, base, seq, tspub );
+  int err = fd_tpu_reasm_publish_fast( reasm, packet, packet_sz, mcache, base, seq, tspub, ipv4, FD_TXN_M_TPU_SOURCE_UDP );
   if( FD_LIKELY( err==FD_TPU_REASM_SUCCESS ) ) {
     fd_stem_advance( stem, 0UL );
     ctx->metrics.txns_received_udp++;
@@ -136,11 +137,14 @@ metrics_write( fd_quic_ctx_t * ctx ) {
   FD_MCNT_SET(   QUIC, SENT_BYTES,       ctx->quic->metrics.net_tx_byte_cnt );
   FD_MCNT_SET(   QUIC, RETRY_SENT,       ctx->quic->metrics.retry_tx_cnt );
 
-  FD_MGAUGE_SET( QUIC, CONNECTIONS_ACTIVE,  ctx->quic->metrics.conn_active_cnt );
+  FD_MGAUGE_ENUM_COPY( QUIC, CONNECTIONS_STATE, ctx->quic->metrics.conn_state_cnt );
+  FD_MGAUGE_SET( QUIC, CONNECTIONS_ALLOC,  ctx->quic->metrics.conn_alloc_cnt );
   FD_MCNT_SET(   QUIC, CONNECTIONS_CREATED, ctx->quic->metrics.conn_created_cnt );
   FD_MCNT_SET(   QUIC, CONNECTIONS_CLOSED,  ctx->quic->metrics.conn_closed_cnt );
   FD_MCNT_SET(   QUIC, CONNECTIONS_ABORTED, ctx->quic->metrics.conn_aborted_cnt );
   FD_MCNT_SET(   QUIC, CONNECTIONS_TIMED_OUT, ctx->quic->metrics.conn_timeout_cnt );
+  FD_MCNT_SET(   QUIC, CONNECTIONS_TIMEOUT_REVIVED, ctx->quic->metrics.conn_timeout_revived_cnt );
+  FD_MCNT_SET(   QUIC, CONNECTIONS_TIMEOUT_FREED, ctx->quic->metrics.conn_timeout_freed_cnt );
   FD_MCNT_SET(   QUIC, CONNECTIONS_RETRIED, ctx->quic->metrics.conn_retry_cnt );
 
   FD_MCNT_SET(   QUIC, CONNECTION_ERROR_NO_SLOTS,   ctx->quic->metrics.conn_err_no_slots_cnt );
@@ -253,7 +257,7 @@ after_frag( fd_quic_ctx_t *     ctx,
       return;
     }
 
-    legacy_stream_notify( ctx, ctx->buffer+network_hdr_sz, data_sz );
+    legacy_stream_notify( ctx, ctx->buffer+network_hdr_sz, data_sz, fd_disco_netmux_sig_ip( sig ) );
   }
 }
 
@@ -302,7 +306,7 @@ quic_stream_rx( fd_quic_conn_t * conn,
       ctx->metrics.quic_txn_too_large++;
       return FD_QUIC_SUCCESS; /* drop */
     }
-    int err = fd_tpu_reasm_publish_fast( reasm, data, data_sz, mcache, base, seq, tspub );
+    int err = fd_tpu_reasm_publish_fast( reasm, data, data_sz, mcache, base, seq, tspub, conn->peer->ip_addr, FD_TXN_M_TPU_SOURCE_QUIC );
     if( FD_LIKELY( err==FD_TPU_REASM_SUCCESS ) ) {
       fd_stem_advance( stem, 0UL );
       ctx->metrics.txns_received_quic_fast++;
@@ -366,7 +370,7 @@ quic_stream_rx( fd_quic_conn_t * conn,
       ctx->metrics.quic_txn_too_small++;
       return FD_QUIC_SUCCESS; /* ignore */
     }
-    int pub_err = fd_tpu_reasm_publish( reasm, slot, mcache, base, seq, tspub );
+    int pub_err = fd_tpu_reasm_publish( reasm, slot, mcache, base, seq, tspub, conn->peer->ip_addr, FD_TXN_M_TPU_SOURCE_QUIC );
     if( FD_UNLIKELY( pub_err!=FD_TPU_REASM_SUCCESS ) ) return FD_QUIC_SUCCESS; /* unreachable */
     ulong * rcv_cnt = (offset==0UL && fin) ? &ctx->metrics.txns_received_quic_fast : &ctx->metrics.txns_received_quic_frag;
     (*rcv_cnt)++;
@@ -569,6 +573,7 @@ unprivileged_init( fd_topo_t *      topo,
 
   quic->config.role                       = FD_QUIC_ROLE_SERVER;
   quic->config.idle_timeout               = tile->quic.idle_timeout_millis * (ulong)1e6;
+  quic->config.keep_timed_out             = 1;
   quic->config.ack_delay                  = tile->quic.ack_delay_millis * (ulong)1e6;
   quic->config.initial_rx_max_stream_data = FD_TXN_MTU;
   quic->config.retry                      = tile->quic.retry;

@@ -18,6 +18,11 @@
 
 #define FD_SYSTEM_PROGRAM_NONCE_DLEN (80UL)
 
+/* https://github.com/anza-xyz/solana-sdk/blob/nonce-account%40v2.2.1/nonce-account/src/lib.rs#L49-L53 */
+#define FD_SYSTEM_PROGRAM_NONCE_ACCOUNT_KIND_UNKNOWN (-1)
+#define FD_SYSTEM_PROGRAM_NONCE_ACCOUNT_KIND_SYSTEM  (0)
+#define FD_SYSTEM_PROGRAM_NONCE_ACCOUNT_KIND_NONCE   (1)
+
 FD_PROTOTYPES_BEGIN
 
 /* fd_system_program_execute is the entrypoint for the system program */
@@ -42,13 +47,26 @@ int fd_system_program_exec_upgrade_nonce_account   ( fd_exec_instr_ctx_t * ctx  
 
 /* User APIs */
 
-/* fd_check_transaction_age returns 0 if the transactions age is
-   valid, returns non-zero otherwise. This is determined by the age of
-   the blockhash provided in the transaction message or by the
-   validity of the nonce provided in the transaction. */
+/* fd_check_transaction_age returns 0 if the transactions age is valid,
+   returns non-zero otherwise. This is determined by the age of the
+   blockhash provided in the transaction message or by the validity of
+   the nonce provided in the transaction. */
 
 int
 fd_check_transaction_age( fd_exec_txn_ctx_t * txn_ctx );
+
+/* `fd_get_system_account_kind()` determines whether an account is
+   a normal system program account or a nonce account. Returns:
+   - FD_SYSTEM_PROGRAM_NONCE_ACCOUNT_KIND_SYSTEM if the account is a
+     normal system program account
+   - FD_SYSTEM_PROGRAM_NONCE_ACCOUNT_KIND_NONCE if the account is a
+     nonce account
+   - FD_SYSTEM_PROGRAM_NONCE_ACCOUNT_KIND_UNKNOWN otherwise
+   https://github.com/anza-xyz/solana-sdk/blob/nonce-account%40v2.2.1/nonce-account/src/lib.rs#L55-L71 */
+
+int
+fd_get_system_account_kind( fd_txn_account_t * account,
+                            fd_spad_t *        exec_spad );
 
 FD_PROTOTYPES_END
 

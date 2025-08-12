@@ -237,7 +237,8 @@ fd_fec_resolver_shred_query( fd_fec_resolver_t      * resolver,
    determined to be the last shred in the FEC set.  out_fec_set is set
    to a pointer to the complete FEC set on SHRED_COMPLETES.  Similar to
    add_shred, see the long explanation at the top of this file for
-   details on the lifetime of out_fec_set.
+   details on the lifetime of out_fec_set.  out_merkle_root if non-NULL
+   will contain a copy of the Merkle root of the FEC set on success.
 
    Returns SHRED_COMPLETES when last_shred validates successfully with
    the in-progress FEC set, SHRED_IGNORED if the FEC set containing
@@ -271,9 +272,10 @@ fd_fec_resolver_shred_query( fd_fec_resolver_t      * resolver,
    least one parity shred. */
 
 int
-fd_fec_resolver_force_complete( fd_fec_resolver_t *   resolver,
-                                fd_shred_t const *    last_shred,
-                                fd_fec_set_t const ** out_fec_set );
+fd_fec_resolver_force_complete( fd_fec_resolver_t  *  resolver,
+                                fd_shred_t const   *  last_shred,
+                                fd_fec_set_t const ** out_fec_set,
+                                fd_bmtree_node_t   *  out_merkle_root );
 
 void * fd_fec_resolver_leave( fd_fec_resolver_t * resolver );
 void * fd_fec_resolver_delete( void * shmem );

@@ -150,10 +150,58 @@ fd_forest_init( fd_forest_t * forest, ulong root_slot ) {
   return forest;
 }
 
-void *
+static ulong *
+fd_forest_deque( fd_forest_t * forest ) {
+  return fd_wksp_laddr_fast( fd_forest_wksp( forest ), forest->deque_gaddr );
+}
+
+fd_forest_t *
 fd_forest_fini( fd_forest_t * forest ) {
+  fd_fseq_update( fd_forest_ver( forest ), FD_FOREST_VER_INVAL );
+
+  fd_forest_ele_t *      pool      = fd_forest_pool( forest );
+  ulong                  null      = fd_forest_pool_idx_null( pool );
+  fd_forest_ancestry_t * ancestry  = fd_forest_ancestry( forest );
+  fd_forest_frontier_t * frontier  = fd_forest_frontier( forest );
+  fd_forest_orphaned_t * orphaned  = fd_forest_orphaned( forest );
+  if( FD_UNLIKELY( !fd_forest_pool_used( pool ) ) ) return forest;
+
+  ulong * q = fd_forest_deque( forest );
+  fd_forest_deque_remove_all( q );
+  for( fd_forest_ancestry_iter_t iter = fd_forest_ancestry_iter_init( ancestry, pool );
+       !fd_forest_ancestry_iter_done( iter, ancestry, pool );
+       iter = fd_forest_ancestry_iter_next( iter, ancestry, pool ) ) {
+    fd_forest_deque_push_tail( q, fd_forest_ancestry_iter_idx( iter, ancestry, pool ) );
+  }
+  while( !fd_forest_deque_empty( q ) ) {
+    ulong idx = fd_forest_deque_pop_head( q );
+    FD_TEST( fd_forest_ancestry_ele_remove( ancestry, &fd_forest_pool_ele( pool, idx )->slot, NULL, pool ) );
+  }
+  for( fd_forest_frontier_iter_t iter = fd_forest_frontier_iter_init( frontier, pool );
+       !fd_forest_frontier_iter_done( iter, frontier, pool );
+       iter = fd_forest_frontier_iter_next( iter, frontier, pool ) ) {
+    fd_forest_deque_push_tail( q, fd_forest_frontier_iter_idx( iter, frontier, pool ) );
+  }
+  while( !fd_forest_deque_empty( q ) ) {
+    ulong idx = fd_forest_deque_pop_head( q );
+    FD_TEST( fd_forest_frontier_ele_remove( frontier, &fd_forest_pool_ele( pool, idx )->slot, NULL, pool ) );
+  }
+  for( fd_forest_orphaned_iter_t iter = fd_forest_orphaned_iter_init( orphaned, pool );
+       !fd_forest_orphaned_iter_done( iter, orphaned, pool );
+       iter = fd_forest_orphaned_iter_next( iter, orphaned, pool ) ) {
+    fd_forest_deque_push_tail( q, fd_forest_orphaned_iter_idx( iter, orphaned, pool ) );
+  }
+  while( !fd_forest_deque_empty( q ) ) {
+    ulong idx = fd_forest_deque_pop_head( q );
+    FD_TEST( fd_forest_orphaned_ele_remove( orphaned, &fd_forest_pool_ele( pool, idx )->slot, NULL, pool ) );
+  }
+  forest->root = null;
+# if FD_FOREST_USE_HANDHOLDING
+  FD_TEST( !fd_forest_pool_used( pool ) );
+# endif
+
   fd_fseq_update( fd_forest_ver( forest ), FD_FOREST_VER_UNINIT );
-  return (void *)forest;
+  return forest;
 }
 
 int
@@ -206,11 +254,6 @@ fd_forest_verify( fd_forest_t const * forest ) {
   }
 
   return 0;
-}
-
-FD_FN_PURE static inline ulong *
-fd_forest_deque( fd_forest_t * forest ) {
-  return fd_wksp_laddr_fast( fd_forest_wksp( forest ), forest->deque_gaddr );
 }
 
 /* remove removes and returns a connected ele from ancestry or frontier
@@ -295,7 +338,7 @@ query( fd_forest_t * forest, ulong slot ) {
   fd_forest_frontier_t * frontier  = fd_forest_frontier( forest );
   fd_forest_orphaned_t * orphaned  = fd_forest_orphaned( forest );
 
-  fd_forest_ele_t * ele;
+  fd_forest_ele_t * ele = NULL;
   ele =                  fd_forest_ancestry_ele_query( ancestry, &slot, NULL, pool );
   ele = fd_ptr_if( !ele, fd_forest_frontier_ele_query( frontier, &slot, NULL, pool ), ele );
   ele = fd_ptr_if( !ele, fd_forest_orphaned_ele_query( orphaned, &slot, NULL, pool ), ele );
@@ -512,6 +555,11 @@ fd_forest_publish( fd_forest_t * forest, ulong new_root_slot ) {
     fd_forest_pool_ele_release( pool, head ); /* free head */
   }
   return new_root_ele;
+}
+
+fd_forest_t *
+fd_forest_clear( fd_forest_t * forest ) {
+  return forest;
 }
 
 fd_forest_iter_t

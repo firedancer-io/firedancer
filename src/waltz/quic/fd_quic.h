@@ -159,7 +159,7 @@ struct __attribute__((aligned(16UL))) fd_quic_config {
 #define FD_QUIC_CONFIG_LIST(X,...) \
   X( role,                        "%d",     enum,  "enum",         __VA_ARGS__ ) \
   X( retry,                       "%d",     bool,  "bool",         __VA_ARGS__ ) \
-  X( tick_per_us,                 "%f",     units, "ticks per ms", __VA_ARGS__ ) \
+  X( tick_per_us,                 "%f",     units, "ticks per us", __VA_ARGS__ ) \
   X( idle_timeout,                "%lu",    units, "ns",           __VA_ARGS__ ) \
   X( keep_alive,                  "%d",     bool,  "bool",         __VA_ARGS__ ) \
   X( ack_delay,                   "%lu",    units, "ns",           __VA_ARGS__ ) \
@@ -190,12 +190,19 @@ struct __attribute__((aligned(16UL))) fd_quic_config {
   ulong idle_timeout;
 # define FD_QUIC_DEFAULT_IDLE_TIMEOUT (ulong)(1e9) /* 1s */
 
-/* keep_alive
- * whether the fd_quic should use QUIC PING frames to keep connections alive
- * Set to 1 to keep connections alive
- * Set to 0 to allow connections to close on idle
- * default is 0 */
+   /* keep_alive
+   * whether the fd_quic should use QUIC PING frames to keep connections alive
+   * Set to 1 to keep connections alive
+   * Set to 0 to allow connections to close on idle
+   * default is 0 */
   int keep_alive;
+
+  /* keep_timed_out
+   * whether the fd_quic should keep timed out conns allocated
+   * Set to 1 to keep timed out conns allocated
+   * Set to 0 to free timed out conns immediately
+   * default is 0 */
+  int keep_timed_out;
 
   /* ack_delay: median delay on outgoing ACKs.  Greater delays allow
      fd_quic to coalesce packet ACKs. */
@@ -330,14 +337,17 @@ union fd_quic_metrics {
     ulong retry_tx_cnt;    /* number of Retry packets sent */
 
     /* Conn metrics */
-    ulong conn_active_cnt;         /* number of active conns */
-    ulong conn_created_cnt;        /* number of conns created */
-    ulong conn_closed_cnt;         /* number of conns gracefully closed */
-    ulong conn_aborted_cnt;        /* number of conns aborted */
-    ulong conn_timeout_cnt;        /* number of conns timed out */
-    ulong conn_retry_cnt;          /* number of conns established with retry */
-    ulong conn_err_no_slots_cnt;   /* number of conns that failed to create due to lack of slots */
-    ulong conn_err_retry_fail_cnt; /* number of conns that failed during retry (e.g. invalid token) */
+    ulong conn_alloc_cnt;           /* number of conns currently allocated */
+    ulong conn_created_cnt;         /* number of conns created */
+    ulong conn_closed_cnt;          /* number of conns gracefully closed */
+    ulong conn_aborted_cnt;         /* number of conns aborted */
+    ulong conn_timeout_cnt;         /* number of times a conn timed out */
+    ulong conn_timeout_freed_cnt;   /* number of times a timed out conn was freed */
+    ulong conn_timeout_revived_cnt; /* number of times a timed out conn was revived */
+    ulong conn_retry_cnt;           /* number of conns established with retry */
+    ulong conn_err_no_slots_cnt;    /* number of conns that failed to create due to lack of slots */
+    ulong conn_err_retry_fail_cnt;  /* number of conns that failed during retry (e.g. invalid token) */
+    ulong conn_state_cnt[ 9 ];      /* current number of conns in each state */
 
     /* Packet metrics */
     ulong pkt_net_hdr_err_cnt;      /* number of packets dropped due to weird IPv4/UDP headers */
@@ -581,10 +591,11 @@ fd_quic_conn_let_die( fd_quic_conn_t * conn,
 FD_QUIC_API ulong
 fd_quic_get_next_wakeup( fd_quic_t * quic );
 
-/* fd_quic_service services the next QUIC connection, including stream
-   transmit ops, ACK transmit, loss timeout, and idle timeout.   The
-   user should call service at high frequency.  Returns 1 if the service
-   call did any work, or 0 otherwise. */
+/* fd_quic_service services the next QUIC connection at each service
+   level, including stream transmit ops, ACK transmit, loss timeout, and
+   idle timeout.  The user should call service at high frequency.
+   Returns the number of connections serviced, where 0 means the call
+   did no work. */
 
 FD_QUIC_API int
 fd_quic_service( fd_quic_t * quic );

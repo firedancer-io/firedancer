@@ -4,6 +4,7 @@
 #include "../fd_flamenco_base.h"
 #include "fd_types_meta.h"
 #include "fd_bincode.h"
+#include "../../ballet/bmtree/fd_bmtree.h"
 #include "../../ballet/ed25519/fd_ed25519.h"
 #include "../../ballet/txn/fd_txn.h"
 
@@ -24,14 +25,23 @@ union __attribute__((packed)) fd_hash {
   uint  ui  [ FD_HASH_FOOTPRINT / sizeof(uint)  ];
   uchar uc  [ FD_HASH_FOOTPRINT ];
 };
-
 typedef union fd_hash fd_hash_t;
 typedef union fd_hash fd_pubkey_t;
+
+FD_STATIC_ASSERT( sizeof(fd_hash_t) == sizeof(fd_bmtree_node_t), hash incompatibility ); /* various areas of Firedancer code use fd_hash_t as the type for merkle roots */
 
 FD_FN_PURE static inline int
 fd_hash_eq( fd_hash_t const * a,
             fd_hash_t const * b ) {
   return 0==memcmp( a, b, sizeof(fd_hash_t) );
+}
+
+FD_FN_PURE static inline int
+fd_hash_eq1( fd_hash_t a,
+             fd_hash_t b ) {
+  return
+    ( a.ul[0]==b.ul[0] ) & ( a.ul[1]==b.ul[1] ) &
+    ( a.ul[2]==b.ul[2] ) & ( a.ul[3]==b.ul[3] );
 }
 
 union fd_signature {
@@ -211,6 +221,11 @@ struct fd_vote_stake_weight {
   ulong       stake;    /* total stake by vote account */
 };
 typedef struct fd_vote_stake_weight fd_vote_stake_weight_t;
+
+#define SORT_NAME sort_vote_weights_by_stake_vote
+#define SORT_KEY_T fd_vote_stake_weight_t
+#define SORT_BEFORE(a,b) ((a).stake > (b).stake ? 1 : ((a).stake < (b).stake ? 0 : memcmp( (a).vote_key.uc, (b).vote_key.uc, 32UL )>0))
+#include "../../util/tmpl/fd_sort.c"
 
 struct fd_stake_weight {
   fd_pubkey_t key;      /* validator identity pubkey */

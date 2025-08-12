@@ -102,19 +102,25 @@ fd_log_collector_delete( fd_log_collector_t const * log ) {
 */
 
 /* fd_log_collector_msg logs msg of size msg_sz.
-   This is analogous of Agave's ic_msg!() / ic_logger_msg!().
+   This is analogous to Agave's ic_msg!() / ic_logger_msg!().
 
-   msg is expected to be a valid utf8 string, it's responsibility
+   Logs are not recorded on-chain, and are therefore not
+   consensus-critical, however, there exist 3rd party off-chain
+   applications that parses logs, and expects logs to be equivalent to
+   agave.
+
+   msg is expected to be a valid utf8 string, it is the responsibility
    of the caller to enforce that.  msg doesn't have to be \0 terminated
    and can contain \0 within.  Most logs are cstr, base58/64, so
    they are utf8.  For an example of log from user input, see the
-   sol_log_() syscall where we use fd_utf8_validate().
+   sol_log_() syscall where we use fd_utf8_verify().
 
    if msg is a cstr, for compatibility with rust, msg_sz is the msg
    length (not the size of the buffer), and the final \0 should not
-   be included in logs.  For literals, use fd_log_collector_msg_literal().
+   be included in logs.  For literals, use
+   fd_log_collector_msg_literal().
 
-   msg_sz==0 is ok, however it's important to understand that log
+   msg_sz==0 is ok, however, it's important to understand that log
    collector is an interface to developers, not exposed to users.
    Users can, for example, log inside BPF programs using msg!(), that
    gets translated to the syscall sol_log_(), that in turn appends
@@ -122,7 +128,7 @@ fd_log_collector_delete( fd_log_collector_t const * log ) {
    is never 0 nor small.  This is important for our implementation,
    to keep serialization overhead low.
 
-   When msg is made of multiple disjoing buffers, we should use
+   When msg consists of multiple disjoint buffers, we should use
    fd_log_collector_msg_many(), and implement more variants as
    needed.  The core idea is very simple: we know the total msg_sz,
    we decide if the log needs to be included or truncated, and
@@ -250,14 +256,14 @@ fd_log_collector_printf_dangerous_max_127( fd_exec_instr_ctx_t * ctx,
   int res = vsnprintf( (char *)(buf + buf_sz + 2), FD_LOG_COLLECTOR_PRINTF_MAX_1B, fmt, ap );
   va_end( ap );
 
-  /* We use vsnprintf to protect against oob writes, however it should never
-     truncate.  If truncate happens, it means that we're using
-     fd_log_collector_printf_dangerous_max_127(), incorrectly for example
-     with a "%s" and an unbound variable (user input, var that's not
-     null-terminated cstr, ...).
+  /* We use vsnprintf to protect against oob writes, however, it should
+     never truncate.  If truncate happens, it means that we're using
+     fd_log_collector_printf_dangerous_max_127(), incorrectly for
+     example with a "%s" and an unbound variable (user input, var that's
+     not null-terminated cstr, ...).
      We MUST only use fd_log_collector_printf_dangerous_max_127()
-     as a convenince method, when we can guarantee that the total msg_sz is
-     bound by FD_LOG_COLLECTOR_PRINTF_MAX_1B. */
+     as a convenience method, when we can guarantee that the total
+     msg_sz is bound by FD_LOG_COLLECTOR_PRINTF_MAX_1B. */
   FD_TEST_CUSTOM( res>=0 && res<FD_LOG_COLLECTOR_PRINTF_MAX_1B,
     "A transaction log was truncated unexpectedly. Please report to developers." );
 
@@ -307,14 +313,14 @@ fd_log_collector_printf_dangerous_128_to_2k( fd_exec_instr_ctx_t * ctx,
   va_start( ap, fmt );
   int res = vsnprintf( (char *)(buf + buf_sz + 3), FD_LOG_COLLECTOR_PRINTF_MAX_2B, fmt, ap );
   va_end( ap );
-  /* We use vsnprintf to protect against oob writes, however it should never
-     truncate.  If truncate happens, it means that we're using
-     fd_log_collector_printf_dangerous_max_127(), incorrectly for example
-     with a "%s" and an unbound variable (user input, var that's not
-     null-terminated cstr, ...).
-     We MUST only use fd_log_collector_printf_dangerous_max_127()
-     as a convenince method, when we can guarantee that the total msg_sz is
-     bound by FD_LOG_COLLECTOR_PRINTF_MAX_2B. */
+  /* We use vsnprintf to protect against oob writes, however it should
+     never truncate.  If truncate happens, it means that we're using
+     fd_log_collector_printf_dangerous_max_127(), incorrectly for
+     example with a "%s" and an unbound variable (user input, var that's
+     not null-terminated cstr, ...).
+     We MUST only use fd_log_collector_printf_dangerous_max_128_to_2k()
+     as a convenience method, when we can guarantee that the total
+     msg_sz is bound by FD_LOG_COLLECTOR_PRINTF_MAX_2B. */
   FD_TEST_CUSTOM( res>=FD_LOG_COLLECTOR_PRINTF_MAX_1B && res<FD_LOG_COLLECTOR_PRINTF_MAX_2B,
     "A transaction log was truncated unexpectedly. Please report to developers." );
 
@@ -389,10 +395,11 @@ fd_log_collector_program_invoke( fd_exec_instr_ctx_t * ctx ) {
 }
 
 /* fd_log_collector_program_log logs:
-     "Program <ProgramIdBase58> log: <msg>"
+     "Program log: <msg>"
 
    msg must be a valid utf8 string, it's responsibility of the caller to
-   validate that.  This is the implementation underlying _sol_log() syscall. */
+   validate that.  This is the implementation underlying the _sol_log()
+   syscall. */
 static inline void
 fd_log_collector_program_log( fd_exec_instr_ctx_t * ctx, char const * msg, ulong msg_sz ) {
   fd_log_collector_msg_many( ctx, 2, "Program log: ", 13UL, msg, msg_sz );

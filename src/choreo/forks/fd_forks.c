@@ -113,7 +113,6 @@ fd_forks_init( fd_forks_t * forks, ulong slot ) {
   fork->slot       = slot;
   fork->prev       = fd_fork_pool_idx_null( forks->pool );
   fork->lock       = 0;
-  fork->end_idx    = UINT_MAX;
   if( FD_UNLIKELY( !fd_fork_frontier_ele_insert( forks->frontier, fork, forks->pool ) ) ) {
     FD_LOG_WARNING( ( "Failed to insert fork into frontier" ) );
   }
@@ -194,7 +193,6 @@ fd_forks_prepare( fd_forks_t const * forks, ulong parent_slot ) {
     fork->prev = fd_fork_pool_idx_null( forks->pool );
     fork->slot = parent_slot;
     fork->lock = 1;
-    fork->end_idx = UINT_MAX;
 
     /* Add to frontier */
 

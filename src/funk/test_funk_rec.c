@@ -115,14 +115,14 @@ main( int     argc,
       FD_TEST( !fd_funk_rec_query_test( rec_query ) );
 
 #ifdef FD_FUNK_HANDHOLDING
-      FD_TEST( fd_funk_rec_remove( NULL, NULL, NULL, NULL, 0UL )==FD_FUNK_ERR_INVAL );
-      FD_TEST( fd_funk_rec_remove( NULL, NULL, tkey, NULL, 0UL )==FD_FUNK_ERR_INVAL );
-      FD_TEST( fd_funk_rec_remove( tst, NULL, NULL, NULL, 0UL )==FD_FUNK_ERR_INVAL );
+      FD_TEST( fd_funk_rec_remove( NULL, NULL, NULL, NULL )==FD_FUNK_ERR_INVAL );
+      FD_TEST( fd_funk_rec_remove( NULL, NULL, tkey, NULL )==FD_FUNK_ERR_INVAL );
+      FD_TEST( fd_funk_rec_remove( tst, NULL, NULL, NULL )==FD_FUNK_ERR_INVAL );
 #endif
 
       if( trec ) {
         if( is_frozen ) {
-          FD_TEST( fd_funk_rec_remove( tst, NULL, tkey, NULL, 0UL )==FD_FUNK_ERR_FROZEN );
+          FD_TEST( fd_funk_rec_remove( tst, NULL, tkey, NULL )==FD_FUNK_ERR_FROZEN );
         }
       }
 
@@ -204,13 +204,13 @@ main( int     argc,
       FD_TEST( !fd_funk_rec_query_test( rec_query ) );
 
 #ifdef FD_FUNK_HANDHOLDING
-      FD_TEST( fd_funk_rec_remove( NULL, ttxn, NULL, NULL, 0UL )==FD_FUNK_ERR_INVAL );
-      FD_TEST( fd_funk_rec_remove( NULL, ttxn, tkey, NULL, 0UL )==FD_FUNK_ERR_INVAL );
-      FD_TEST( fd_funk_rec_remove( tst, ttxn, NULL, NULL, 0UL )==FD_FUNK_ERR_INVAL );
+      FD_TEST( fd_funk_rec_remove( NULL, ttxn, NULL, NULL )==FD_FUNK_ERR_INVAL );
+      FD_TEST( fd_funk_rec_remove( NULL, ttxn, tkey, NULL )==FD_FUNK_ERR_INVAL );
+      FD_TEST( fd_funk_rec_remove( tst, ttxn, NULL, NULL )==FD_FUNK_ERR_INVAL );
 #endif
 
       if( trec && ttxn_is_frozen ) {
-        FD_TEST( fd_funk_rec_remove( tst, ttxn, tkey, NULL, 0UL )==FD_FUNK_ERR_FROZEN );
+        FD_TEST( fd_funk_rec_remove( tst, ttxn, tkey, NULL )==FD_FUNK_ERR_FROZEN );
       }
 
       fd_funk_rec_prepare_t rec_prepare[1];
@@ -268,19 +268,24 @@ main( int     argc,
       FD_TEST( trec && xid_eq( fd_funk_rec_xid( trec ), rxid ) && key_eq( fd_funk_rec_key( trec ), rkey ) );
       FD_TEST( !fd_funk_rec_query_test( rec_query ) );
 
-#     define TEST_RELATIVE(rel) do {                                             \
-        rec_t *               r##rel = rrec->rel;                                \
-        fd_funk_rec_t const * t##rel = fd_funk_txn_##rel##_rec( tst, trec ); \
-        if( !r##rel ) FD_TEST( !t##rel );                                        \
-        else {                                                                   \
-          ulong r##rel##xid = r##rel->txn ? r##rel->txn->xid : 0UL;              \
-          FD_TEST( t##rel && xid_eq( fd_funk_rec_xid( t##rel ), r##rel##xid ) && \
-                             key_eq( fd_funk_rec_key( t##rel ), r##rel->key ) ); \
-        }                                                                        \
-      } while(0)
-      TEST_RELATIVE( prev );
-      TEST_RELATIVE( next );
-#     undef TEST_RELATIVE
+      if( ttxn ) {
+#       define TEST_RELATIVE(rel) do {                                             \
+          rec_t *               r##rel = rrec->rel;                                \
+          fd_funk_rec_t const * t##rel = fd_funk_txn_##rel##_rec( tst, trec );     \
+          if( !r##rel ) FD_TEST( !t##rel );                                        \
+          else {                                                                   \
+            ulong r##rel##xid = r##rel->txn ? r##rel->txn->xid : 0UL;              \
+            FD_TEST( t##rel && xid_eq( fd_funk_rec_xid( t##rel ), r##rel##xid ) && \
+                               key_eq( fd_funk_rec_key( t##rel ), r##rel->key ) ); \
+          }                                                                        \
+        } while(0)
+        TEST_RELATIVE( prev );
+        TEST_RELATIVE( next );
+#       undef TEST_RELATIVE
+      } else {
+        FD_TEST( fd_funk_txn_prev_rec( tst, trec )==NULL );
+        FD_TEST( fd_funk_txn_next_rec( tst, trec )==NULL );
+      }
 
       cnt++;
       rrec = rrec->map_next;
@@ -346,7 +351,7 @@ main( int     argc,
       FD_TEST( !fd_funk_rec_query_test( query ) );
 
       fd_funk_rec_t * trec2;
-      FD_TEST( !fd_funk_rec_remove( tst, ttxn, key_set( tkey, rkey ), &trec2, 0UL ) );
+      FD_TEST( !fd_funk_rec_remove( tst, ttxn, key_set( tkey, rkey ), &trec2 ) );
       FD_TEST( trec == trec2 );
 
     } else if( op>=2 ) { /* Prepare 8x as publish and cancel combined */

@@ -239,8 +239,6 @@ struct __attribute__((aligned(FD_FUNK_ALIGN))) fd_funk_shmem_private {
                           rec_max==fd_funk_rec_map_key_max(rec_map) */
   ulong rec_pool_gaddr;
   ulong rec_ele_gaddr;
-  uint rec_head_idx;  /* Record map index of the first record, FD_FUNK_REC_IDX_NULL if none (from oldest to youngest) */
-  uint rec_tail_idx;  /* "                       last          " */
 
   /* The funk alloc is used for allocating wksp resources for record
      values.  This is a fd_alloc and more details are given in

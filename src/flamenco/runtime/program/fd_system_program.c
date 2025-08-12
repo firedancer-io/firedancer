@@ -719,3 +719,50 @@ fd_system_program_execute( fd_exec_instr_ctx_t * ctx ) {
 
   return result;
 }
+
+/**********************************************************************/
+/* Public API                                                         */
+/**********************************************************************/
+
+int
+fd_get_system_account_kind( fd_txn_account_t * account,
+                            fd_spad_t *        exec_spad ) {
+  /* https://github.com/anza-xyz/solana-sdk/blob/nonce-account%40v2.2.1/nonce-account/src/lib.rs#L56 */
+  if( FD_UNLIKELY( memcmp( fd_txn_account_get_owner( account ), fd_solana_system_program_id.uc, sizeof(fd_pubkey_t) ) ) ) {
+    return FD_SYSTEM_PROGRAM_NONCE_ACCOUNT_KIND_UNKNOWN;
+  }
+
+  /* https://github.com/anza-xyz/solana-sdk/blob/nonce-account%40v2.2.1/nonce-account/src/lib.rs#L57-L58 */
+  if( FD_LIKELY( !fd_txn_account_get_data_len( account ) ) ) {
+    return FD_SYSTEM_PROGRAM_NONCE_ACCOUNT_KIND_SYSTEM;
+  }
+
+  /* https://github.com/anza-xyz/solana-sdk/blob/nonce-account%40v2.2.1/nonce-account/src/lib.rs#L59 */
+  if( FD_UNLIKELY( fd_txn_account_get_data_len( account )!=FD_SYSTEM_PROGRAM_NONCE_DLEN ) ) {
+    return FD_SYSTEM_PROGRAM_NONCE_ACCOUNT_KIND_UNKNOWN;
+  }
+
+  /* https://github.com/anza-xyz/solana-sdk/blob/nonce-account%40v2.2.1/nonce-account/src/lib.rs#L60-L64 */
+  int err;
+  fd_nonce_state_versions_t * versions = fd_bincode_decode_spad(
+      nonce_state_versions, exec_spad,
+      fd_txn_account_get_data( account ),
+      fd_txn_account_get_data_len( account ),
+      &err );
+  if( FD_UNLIKELY( err ) ) {
+    return FD_SYSTEM_PROGRAM_NONCE_ACCOUNT_KIND_UNKNOWN;
+  }
+
+  fd_nonce_state_t * state = NULL;
+  if( fd_nonce_state_versions_is_current( versions ) ) {
+    state = &versions->inner.current;
+  } else {
+    state = &versions->inner.legacy;
+  }
+
+  if( FD_LIKELY( fd_nonce_state_is_initialized( state ) ) ) {
+    return FD_SYSTEM_PROGRAM_NONCE_ACCOUNT_KIND_NONCE;
+  }
+
+  return FD_SYSTEM_PROGRAM_NONCE_ACCOUNT_KIND_UNKNOWN;
+}

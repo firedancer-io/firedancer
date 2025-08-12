@@ -72,6 +72,12 @@ int
 fd_runtime_fuzz_restore_features( fd_features_t *                    features,
                                   fd_exec_test_feature_set_t const * feature_set );
 
+void
+fd_runtime_fuzz_refresh_program_cache( fd_exec_slot_ctx_t *              slot_ctx,
+                                       fd_exec_test_acct_state_t const * acct_states,
+                                       ulong                             acct_states_count,
+                                       fd_spad_t *                       runtime_spad );
+
 FD_PROTOTYPES_END
 
 #endif /* HEADER_fd_src_flamenco_runtime_tests_harness_fd_harness_common_h */

@@ -93,7 +93,15 @@ fd_stake_ci_t * fd_stake_ci_join( void * mem );
 void * fd_stake_ci_leave ( fd_stake_ci_t * info );
 void * fd_stake_ci_delete( void          * mem  );
 
-/* fd_stake_ci_stake_msg_{init, fini} are used to handle messages
+/* Frankendancer and Firedancer's Gossip impls follow different regimes
+   for broadcasting Contact Infos. Firedancer employs an update-based
+   regime where we receive update/remove messages for individual contact
+   info entries. Frankendancer (and thusly Agave) performs a full table
+   broadcast. fd_stake_ci offers two sets of APIs that cater to the
+   different regimes. */
+
+/* Frankendancer only:
+   fd_stake_ci_stake_msg_{init, fini} are used to handle messages
    containing stake weight updates from the Rust side of the splice, and
    fd_stake_ci_dest_add_{init, fini} are used to handle messages
    containing contact info (potential shred destinations) updates from
@@ -151,6 +159,18 @@ void                       fd_stake_ci_stake_msg_init( fd_stake_ci_t * info, fd_
 void                       fd_stake_ci_stake_msg_fini( fd_stake_ci_t * info                                    );
 fd_shred_dest_weighted_t * fd_stake_ci_dest_add_init ( fd_stake_ci_t * info                                    );
 void                       fd_stake_ci_dest_add_fini ( fd_stake_ci_t * info, ulong                         cnt );
+
+/* Firedancer only:
+   The full client's Gossip update model publishes individual contact
+   info updates (update/insert or remove), which requires a different
+   set of dest_ APIs.
+
+   fd_stake_ci_dest_update updates (or adds, if necessary) a shred dest
+   entry. ip4 is in net order, port is in host order and are both
+   assumed to be non-zero. */
+
+void fd_stake_ci_dest_update( fd_stake_ci_t * info, fd_pubkey_t const * pubkey, uint ip4, ushort port );
+void fd_stake_ci_dest_remove( fd_stake_ci_t * info, fd_pubkey_t const * pubkey );
 
 
 /* fd_stake_ci_set_identity changes the identity of the locally running

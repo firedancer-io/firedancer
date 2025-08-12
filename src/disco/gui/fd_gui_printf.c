@@ -5,6 +5,7 @@
 
 #include "../../waltz/http/fd_http_server_private.h"
 #include "../../ballet/utf8/fd_utf8.h"
+#include "../../disco/fd_txn_m_t.h"
 
 #ifdef __has_include
 #if __has_include("../../app/fdctl/version.h")
@@ -611,6 +612,13 @@ fd_gui_printf_tile_stats( fd_gui_t *                  gui,
                           fd_gui_tile_stats_t const * cur ) {
   jsonp_open_object( gui, "tile_primary_metric" );
     jsonp_ulong(  gui, "quic",    cur->quic_conn_cnt );
+    jsonp_double( gui, "bundle_rtt_smoothed_millis", (double)(cur->bundle_rtt_smoothed_nanos) / 1000000.0 );
+
+    fd_histf_t bundle_rx_delay_hist_delta[ 1 ];
+    fd_histf_subtract( &cur->bundle_rx_delay_hist, &prev->bundle_rx_delay_hist, bundle_rx_delay_hist_delta );
+    ulong bundle_rx_delay_nanos_p90 = fd_histf_percentile( bundle_rx_delay_hist_delta, 90U, ULONG_MAX );
+    jsonp_double( gui, "bundle_rx_delay_millis_p90", fd_double_if(bundle_rx_delay_nanos_p90==ULONG_MAX, 0.0, (double)(bundle_rx_delay_nanos_p90) / 1000000.0 ));
+
     if( FD_LIKELY( cur->sample_time_nanos>prev->sample_time_nanos ) ) {
       jsonp_ulong( gui, "net_in",  (ulong)((double)(cur->net_in_rx_bytes - prev->net_in_rx_bytes) * 1000000000.0 / (double)(cur->sample_time_nanos - prev->sample_time_nanos) ));
       jsonp_ulong( gui, "net_out", (ulong)((double)(cur->net_out_tx_bytes - prev->net_out_tx_bytes) * 1000000000.0 / (double)(cur->sample_time_nanos - prev->sample_time_nanos) ));
@@ -685,7 +693,12 @@ fd_gui_printf_tile_timers( fd_gui_t *                   gui,
          JSON. */
       idle = -1;
     } else {
-      idle = (double)(cur[ i ].caughtup_postfrag_ticks - prev[ i ].caughtup_postfrag_ticks) / (cur_total - prev_total);
+      idle = (double)(
+          ( cur[ i ].caughtup_prefrag_ticks +
+            cur[ i ].caughtup_postfrag_ticks ) -
+          ( prev[ i ].caughtup_postfrag_ticks +
+            prev[ i ].caughtup_prefrag_ticks )
+        ) / (cur_total - prev_total);
     }
 
     jsonp_double( gui, NULL, idle );
@@ -1316,6 +1329,40 @@ fd_gui_printf_slot_transactions_request( fd_gui_t * gui,
           jsonp_close_array( gui );
           jsonp_open_array( gui, "txn_tips" );
             for( ulong i=0UL; i<txn_cnt; i++) jsonp_ulong_as_str( gui, NULL, gui->txs[ (slot->txs.start_offset + i)%FD_GUI_TXN_HISTORY_SZ ]->tips );
+          jsonp_close_array( gui );
+          jsonp_open_array( gui, "txn_source_ipv4" );
+            for( ulong i=0UL; i<txn_cnt; i++) {
+              char addr[ 64 ];
+              fd_cstr_printf_check( addr, sizeof(addr), NULL, FD_IP4_ADDR_FMT, FD_IP4_ADDR_FMT_ARGS( gui->txs[ (slot->txs.start_offset + i)%FD_GUI_TXN_HISTORY_SZ ]->source_ipv4 ) );
+              jsonp_string( gui, NULL, addr );
+            }
+          jsonp_close_array( gui );
+          jsonp_open_array( gui, "txn_source_tpu" );
+            for( ulong i=0UL; i<txn_cnt; i++) {
+              switch ( gui->txs[ (slot->txs.start_offset + i)%FD_GUI_TXN_HISTORY_SZ ]->source_tpu ) {
+                case FD_TXN_M_TPU_SOURCE_QUIC: {
+                  jsonp_string( gui, NULL, "quic");
+                  break;
+                }
+                case FD_TXN_M_TPU_SOURCE_UDP   : {
+                  jsonp_string( gui, NULL, "udp");
+                  break;
+                }
+                case FD_TXN_M_TPU_SOURCE_GOSSIP: {
+                  jsonp_string( gui, NULL, "gossip");
+                  break;
+                }
+                case FD_TXN_M_TPU_SOURCE_BUNDLE: {
+                  jsonp_string( gui, NULL, "bundle");
+                  break;
+                }
+                case FD_TXN_M_TPU_SOURCE_SEND  : {
+                  jsonp_string( gui, NULL, "send");
+                  break;
+                }
+                default: FD_LOG_ERR(("unknown tpu"));
+              }
+            }
           jsonp_close_array( gui );
           jsonp_open_array( gui, "txn_microblock_id" );
             for( ulong i=0UL; i<txn_cnt; i++) jsonp_ulong( gui, NULL, gui->txs[ (slot->txs.start_offset + i)%FD_GUI_TXN_HISTORY_SZ ]->microblock_idx );

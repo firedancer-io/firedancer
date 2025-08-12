@@ -348,10 +348,13 @@ struct fd_topo_tile {
       int   dump_instr_to_pb;
       int   dump_txn_to_pb;
       int   dump_syscall_to_pb;
+      int   dump_elf_to_pb;
     } exec;
 
     struct {
       ulong funk_obj_id;
+      char  solcap_capture[ PATH_MAX ];
+      ulong capture_start_slot;
     } writer;
 
     struct {
@@ -487,6 +490,15 @@ struct fd_topo_tile {
     struct {
       ulong funk_obj_id;
     } snapin;
+
+    struct {
+      uint   bind_address;
+      ushort bind_port;
+
+      ushort expected_shred_version;
+      ulong entrypoints_cnt;
+      fd_ip4_port_t entrypoints[ FD_TOPO_GOSSIP_ENTRYPOINTS_MAX ];
+    } ipecho;
 
   };
 };

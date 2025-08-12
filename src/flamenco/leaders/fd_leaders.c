@@ -1,5 +1,5 @@
 #include "fd_leaders.h"
-#include "../../ballet/chacha20/fd_chacha20rng.h"
+#include "../../ballet/chacha/fd_chacha_rng.h"
 #include "../../ballet/wsample/fd_wsample.h"
 
 #define SORT_NAME sort_vote_weights_by_stake_id
@@ -110,11 +110,11 @@ fd_epoch_leaders_new( void  *                  shmem,
   FD_TEST( laddr+fd_wsample_footprint( pub_cnt, 0 )<=(ulong)wsample_mem + fd_epoch_leaders_footprint( pub_cnt, slot_cnt ) );
 
   /* Create and seed ChaCha20Rng */
-  fd_chacha20rng_t _rng[1];
-  fd_chacha20rng_t * rng = fd_chacha20rng_join( fd_chacha20rng_new( _rng, FD_CHACHA20RNG_MODE_MOD ) );
+  fd_chacha_rng_t _rng[1];
+  fd_chacha_rng_t * rng = fd_chacha_rng_join( fd_chacha_rng_new( _rng, FD_CHACHA_RNG_MODE_MOD ) );
   uchar key[ 32 ] = {0};
   memcpy( key, &epoch, sizeof(ulong) );
-  fd_chacha20rng_init( rng, key );
+  fd_chacha20_rng_init( rng, key );
 
   void * _wsample = fd_wsample_new_init( wsample_mem, rng, pub_cnt, 0, FD_WSAMPLE_HINT_POWERLAW_NOREMOVE );
   for( ulong i=0UL; i<pub_cnt; i++ ) _wsample = fd_wsample_new_add( _wsample, stakes[i].stake );
@@ -126,7 +126,7 @@ fd_epoch_leaders_new( void  *                  shmem,
 
   /* Clean up the wsample object */
   fd_wsample_delete( fd_wsample_leave( wsample ) );
-  fd_chacha20rng_delete( fd_chacha20rng_leave( rng ) );
+  fd_chacha_rng_delete( fd_chacha_rng_leave( rng ) );
 
   /* Now we can use the space for the pubkeys */
   for( ulong i=0UL; i<pub_cnt; i++ ) memcpy( pubkeys+i, &stakes[ i ].id_key, 32UL );

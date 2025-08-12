@@ -20,10 +20,6 @@
 #define FD_ACC_MGR_ERR_READ_FAILED     (-3)
 #define FD_ACC_MGR_ERR_WRONG_MAGIC     (-4)
 
-/* FD_ACC_SZ_MAX is the hardcoded size limit of a Solana account. */
-
-#define FD_ACC_SZ_MAX       (10UL<<20) /* 10MiB */
-
 #define FD_ACC_NONCE_SZ_MAX (80UL)     /* 80 bytes */
 
 /* FD_ACC_TOT_SZ_MAX is the size limit of a Solana account in the firedancer
@@ -44,8 +40,9 @@ FD_PROTOTYPES_BEGIN
 static inline void
 fd_account_meta_init( fd_account_meta_t * m ) {
   fd_memset( m, 0, sizeof(fd_account_meta_t) );
-  m->magic = FD_ACCOUNT_META_MAGIC;
-  m->hlen  = sizeof(fd_account_meta_t);
+  m->magic           = FD_ACCOUNT_META_MAGIC;
+  m->hlen            = sizeof(fd_account_meta_t);
+  m->info.rent_epoch = ULONG_MAX;
 }
 
 /* fd_account_meta_exists checks if the account in a funk record exists or was
@@ -68,9 +65,9 @@ fd_account_meta_exists( fd_account_meta_t const * m ) {
   has_owner = !!has_owner;
 # endif
 
-  return ( ( m->info.lamports > 0 ) |
-           ( m->dlen          > 0 ) |
-           ( has_owner            ) );
+  return ((m->info.lamports > 0UL) |
+          (m->dlen          > 0UL) |
+          (has_owner             ) );
 
 }
 
@@ -83,6 +80,11 @@ fd_account_meta_get_data( fd_account_meta_t * m ) {
 static inline void const *
 fd_account_meta_get_data_const( fd_account_meta_t const * m ) {
   return ((uchar const *) m) + m->hlen;
+}
+
+static inline ulong
+fd_account_meta_get_record_sz( fd_account_meta_t const * m ) {
+  return sizeof(fd_account_meta_t) + m->dlen;
 }
 
 /* Funk key handling **************************************************/

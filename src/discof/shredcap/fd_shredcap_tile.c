@@ -6,10 +6,13 @@
 #include "../../util/pod/fd_pod_format.h"
 #include "../../disco/fd_disco.h"
 #include "../../discof/fd_discof.h"
+#include "../../discof/restore/utils/fd_ssmsg.h"
+#include "../../discof/restore/utils/fd_ssmanifest_parser.h"
 #include "../../flamenco/stakes/fd_stakes.h"
 #include "../../flamenco/runtime/sysvar/fd_sysvar_epoch_schedule.h"
 #include "../../disco/fd_disco.h"
 #include "../../util/pod/fd_pod_format.h"
+#include "../replay/fd_exec.h"
 
 #include <errno.h>
 #include <fcntl.h>
@@ -40,13 +43,13 @@
 #define MANIFEST_MAX_TOTAL_BANKS           (2UL) /* the minimum is 2 */
 #define MANIFEST_MAX_FORK_WIDTH            (1UL) /* banks are only needed during publish_stake_weights() */
 
-#define NET_SHRED        (0UL)
-#define REPAIR_NET       (1UL)
-#define SHRED_REPAIR     (2UL)
-#define GOSSIP_SHRED     (3UL)
-#define GOSSIP_REPAIR    (4UL)
-#define REPAIR_SHRED_CAP (5UL)
-#define REPLAY_SHRED_CAP (6UL)
+#define NET_SHRED       (0UL)
+#define REPAIR_NET      (1UL)
+#define SHRED_REPAIR    (2UL)
+#define GOSSIP_SHRED    (3UL)
+#define GOSSIP_REPAIR   (4UL)
+#define REPAIR_SHREDCAP (5UL)
+#define REPLAY_SHREDCAP (6UL)
 
 typedef union {
   struct {
@@ -57,7 +60,7 @@ typedef union {
   fd_net_rx_bounds_t net_rx;
 } fd_capture_in_ctx_t;
 
-struct fd_stake_out_link {
+struct out_link {
   ulong       idx;
   fd_frag_meta_t * mcache;
   ulong *          sync;
@@ -68,7 +71,7 @@ struct fd_stake_out_link {
   ulong       wmark;
   ulong       chunk;
 };
-typedef struct fd_stake_out_link fd_stake_out_link_t;
+typedef struct out_link out_link_t;
 
 struct fd_capture_tile_ctx {
   uchar               in_kind[ 32 ];
@@ -83,7 +86,8 @@ struct fd_capture_tile_ctx {
   ulong repair_buffer_sz;
   uchar repair_buffer[ FD_NET_MTU ];
 
-  fd_stake_out_link_t  stake_out[1];
+  out_link_t           stake_out[1];
+  out_link_t           snap_out[1];
   int                  enable_publish_stake_weights;
   ulong *              manifest_wmark;
   uchar *              manifest_bank_mem;
@@ -225,71 +229,28 @@ scratch_footprint( fd_topo_tile_t const * tile ) {
   return FD_LAYOUT_FINI( l, scratch_align() );
 }
 
-static inline ulong
-generate_stake_weight_msg( fd_exec_slot_ctx_t * slot_ctx,
-                           fd_spad_t          * runtime_spad,
-                           ulong                epoch,
-                           fd_vote_accounts_global_t const * vote_accounts,
-                           ulong              * stake_weight_msg_out ) {
-
-  fd_stake_weight_msg_t *           stake_weight_msg = (fd_stake_weight_msg_t *)fd_type_pun( stake_weight_msg_out );
-  fd_vote_stake_weight_t *          stake_weights    = stake_weight_msg->weights;
-  ulong                             stake_weight_idx = fd_stake_weights_by_node( vote_accounts,
-                                                                           stake_weights,
-                                                                           runtime_spad );
-  fd_epoch_schedule_t const * epoch_schedule = fd_bank_epoch_schedule_query( slot_ctx->bank );
-
-  stake_weight_msg->epoch          = epoch;
-  stake_weight_msg->staked_cnt     = stake_weight_idx;
-  stake_weight_msg->start_slot     = fd_epoch_slot0( epoch_schedule, stake_weight_msg_out[0] );
-  stake_weight_msg->slot_cnt       = epoch_schedule->slots_per_epoch;
-  stake_weight_msg->excluded_stake = 0UL;
-
-  return 5*sizeof(ulong) + (stake_weight_idx * sizeof(fd_stake_weight_t));
-}
-
 static void
-publish_stake_weights( fd_capture_tile_ctx_t * ctx,
-                       fd_stem_context_t *    stem,
-                       fd_solana_manifest_global_t const * manifest ) {
-  FD_SPAD_FRAME_BEGIN( ctx->shared_spad ) {
+publish_stake_weights_manifest( fd_capture_tile_ctx_t * ctx,
+                                fd_stem_context_t *    stem,
+                                fd_snapshot_manifest_t const * manifest ) {
+  fd_epoch_schedule_t const * schedule = fd_type_pun_const( &manifest->epoch_schedule_params );
+  ulong epoch = fd_slot_to_epoch( schedule, manifest->slot, NULL );
 
-    /* Process the manifest. */
-    ulong epoch                   = manifest->bank.stakes.epoch;
-    fd_exec_slot_ctx_t * slot_ctx = ctx->manifest_exec_slot_ctx;
-    fd_exec_slot_ctx_t * ret      = fd_exec_slot_ctx_recover( slot_ctx, manifest, ctx->shared_spad );
-    FD_TEST( ret==slot_ctx );
+  /* current epoch */
+  ulong * stake_weights_msg = fd_chunk_to_laddr( ctx->stake_out->mem, ctx->stake_out->chunk );
+  ulong stake_weights_sz = generate_stake_weight_msg_manifest( epoch, schedule, &manifest->epoch_stakes[0], stake_weights_msg );
+  ulong stake_weights_sig = 4UL;
+  fd_stem_publish( stem, 0UL, stake_weights_sig, ctx->stake_out->chunk, stake_weights_sz, 0UL, 0UL, fd_frag_meta_ts_comp( fd_tickcount() ) );
+  ctx->stake_out->chunk = fd_dcache_compact_next( ctx->stake_out->chunk, stake_weights_sz, ctx->stake_out->chunk0, ctx->stake_out->wmark );
+  FD_LOG_NOTICE(("sending current epoch stake weights - epoch: %lu, stake_weight_cnt: %lu, start_slot: %lu, slot_cnt: %lu", stake_weights_msg[0], stake_weights_msg[1], stake_weights_msg[2], stake_weights_msg[3]));
 
-    /* Publish current epoch. */
-    fd_vote_accounts_global_t const * vote_accounts = fd_bank_epoch_stakes_locking_query( slot_ctx->bank );
-    fd_vote_accounts_pair_global_t_mapnode_t * epoch_stakes_root = fd_vote_accounts_vote_accounts_root_join( vote_accounts );
-
-    if( epoch_stakes_root!=NULL ) {
-      ulong * stake_weights_msg = fd_chunk_to_laddr( ctx->stake_out->mem, ctx->stake_out->chunk );
-      ulong stake_weights_sz = generate_stake_weight_msg( slot_ctx, ctx->shared_spad, epoch, vote_accounts, stake_weights_msg );
-      ulong stake_weights_sig = 4UL;
-      fd_stem_publish( stem, 0UL, stake_weights_sig, ctx->stake_out->chunk, stake_weights_sz, 0UL, 0UL, fd_frag_meta_ts_comp( fd_tickcount() ) );
-      ctx->stake_out->chunk = fd_dcache_compact_next( ctx->stake_out->chunk, stake_weights_sz, ctx->stake_out->chunk0, ctx->stake_out->wmark );
-      FD_LOG_NOTICE(("sending current epoch stake weights - epoch: %lu, stake_weight_cnt: %lu, start_slot: %lu, slot_cnt: %lu", stake_weights_msg[0], stake_weights_msg[1], stake_weights_msg[2], stake_weights_msg[3]));
-    }
-
-    fd_bank_epoch_stakes_end_locking_query( slot_ctx->bank );
-
-    /* Publish next epoch. */
-    fd_vote_accounts_global_t const * next_vote_accounts = fd_bank_next_epoch_stakes_locking_query( slot_ctx->bank );
-    fd_vote_accounts_pair_global_t_mapnode_t * next_epoch_stakes_root = fd_vote_accounts_vote_accounts_root_join( next_vote_accounts );
-
-    if( next_epoch_stakes_root!=NULL ) {
-      ulong * stake_weights_msg = fd_chunk_to_laddr( ctx->stake_out->mem, ctx->stake_out->chunk );
-      ulong stake_weights_sz = generate_stake_weight_msg( slot_ctx, ctx->shared_spad, epoch + 1, next_vote_accounts, stake_weights_msg );
-      ulong stake_weights_sig = 4UL;
-      fd_stem_publish( stem, 0UL, stake_weights_sig, ctx->stake_out->chunk, stake_weights_sz, 0UL, 0UL, fd_frag_meta_ts_comp( fd_tickcount() ) );
-      ctx->stake_out->chunk = fd_dcache_compact_next( ctx->stake_out->chunk, stake_weights_sz, ctx->stake_out->chunk0, ctx->stake_out->wmark );
-      FD_LOG_NOTICE(("sending next epoch stake weights - epoch: %lu, stake_weight_cnt: %lu, start_slot: %lu, slot_cnt: %lu", stake_weights_msg[0], stake_weights_msg[1], stake_weights_msg[2], stake_weights_msg[3]));
-    }
-    fd_bank_next_epoch_stakes_end_locking_query( slot_ctx->bank );
-
-  } FD_SPAD_FRAME_END;
+  /* next current epoch */
+  stake_weights_msg = fd_chunk_to_laddr( ctx->stake_out->mem, ctx->stake_out->chunk );
+  stake_weights_sz = generate_stake_weight_msg_manifest( epoch + 1, schedule, &manifest->epoch_stakes[1], stake_weights_msg );
+  stake_weights_sig = 4UL;
+  fd_stem_publish( stem, 0UL, stake_weights_sig, ctx->stake_out->chunk, stake_weights_sz, 0UL, 0UL, fd_frag_meta_ts_comp( fd_tickcount() ) );
+  ctx->stake_out->chunk = fd_dcache_compact_next( ctx->stake_out->chunk, stake_weights_sz, ctx->stake_out->chunk0, ctx->stake_out->wmark );
+  FD_LOG_NOTICE(("sending next epoch stake weights - epoch: %lu, stake_weight_cnt: %lu, start_slot: %lu, slot_cnt: %lu", stake_weights_msg[0], stake_weights_msg[1], stake_weights_msg[2], stake_weights_msg[3]));
 }
 
 static inline int
@@ -298,7 +259,7 @@ before_frag( fd_capture_tile_ctx_t * ctx,
              ulong            seq FD_PARAM_UNUSED,
              ulong            sig ) {
   if( FD_LIKELY( ctx->in_kind[ in_idx ]==NET_SHRED ) ) {
-    return (fd_disco_netmux_sig_proto( sig )!=DST_PROTO_SHRED) & (fd_disco_netmux_sig_proto( sig )!=DST_PROTO_REPAIR);
+    return (int)(fd_disco_netmux_sig_proto( sig )!=DST_PROTO_SHRED) & (int)(fd_disco_netmux_sig_proto( sig )!=DST_PROTO_REPAIR);
   }
   return 0;
 }
@@ -325,7 +286,7 @@ handle_new_turbine_contact_info( fd_capture_tile_ctx_t * ctx,
 
 static int
 is_fec_completes_msg( ulong sz ) {
-  return sz == FD_SHRED_DATA_HEADER_SZ + FD_SHRED_MERKLE_ROOT_SZ;
+  return sz == FD_SHRED_DATA_HEADER_SZ + 2*FD_SHRED_MERKLE_ROOT_SZ;
 }
 
 static inline void
@@ -379,9 +340,12 @@ during_frag( fd_capture_tile_ctx_t * ctx,
     }
     fd_memcpy( ctx->repair_buffer, dcache_entry, sz );
     ctx->repair_buffer_sz = sz;
-  } else if( ctx->in_kind[ in_idx ] == REPAIR_SHRED_CAP ) {
+  } else if( ctx->in_kind[ in_idx ] == REPAIR_SHREDCAP ) {
 
     uchar const * dcache_entry = fd_chunk_to_laddr_const( ctx->in_links[ in_idx ].mem, chunk );
+
+    /* FIXME this should all be happening in after_frag */
+
     /* We expect to get all of the data shreds in a batch at once.  When
        we do we will write the header, the shreds, and a trailer. */
     ulong payload_sz = sig;
@@ -408,7 +372,9 @@ during_frag( fd_capture_tile_ctx_t * ctx,
       FD_LOG_CRIT(( "failed to write slice trailer %d", err ));
     }
 
-  } else if( ctx->in_kind[ in_idx ] == REPLAY_SHRED_CAP ) {
+  } else if( ctx->in_kind[ in_idx ] == REPLAY_SHREDCAP ) {
+
+    /* FIXME this should all be happening in after_frag */
 
    uchar const * dcache_entry = fd_chunk_to_laddr_const( ctx->in_links[ in_idx ].mem, chunk );
    fd_shredcap_bank_hash_msg_t bank_hash_msg = {
@@ -433,7 +399,7 @@ during_frag( fd_capture_tile_ctx_t * ctx,
 
 static void
 after_credit( fd_capture_tile_ctx_t * ctx,
-              fd_stem_context_t *     stem FD_PARAM_UNUSED,
+              fd_stem_context_t *     stem,
               int *                   opt_poll_in FD_PARAM_UNUSED,
               int *                   charge_busy FD_PARAM_UNUSED ) {
 
@@ -441,7 +407,6 @@ after_credit( fd_capture_tile_ctx_t * ctx,
     if( FD_LIKELY( !!strcmp( ctx->manifest_path, "") ) ) {
       /* ctx->manifest_spad will hold the processed manifest. */
       fd_spad_reset( ctx->manifest_spad );
-      fd_spad_push( ctx->manifest_spad );
       /* do not pop from ctx->manifest_spad, the manifest needs
          to remain available until a new manifest is processed. */
 
@@ -452,26 +417,38 @@ after_credit( fd_capture_tile_ctx_t * ctx,
       }
       FD_LOG_NOTICE(( "manifest %s.", ctx->manifest_path ));
 
-      fd_solana_manifest_global_t * manifest = NULL;
-      int err = 0;
-      FD_SPAD_FRAME_BEGIN( ctx->shared_spad ) {
-        /* alloc_max is slightly less than manifest_load_footprint(). */
-        uchar * buf       = fd_spad_alloc( ctx->shared_spad, manifest_load_align(), manifest_load_footprint() );
-        ulong   buf_sz    = 0;
-        FD_TEST( !fd_io_read( fd, buf/*dst*/, 0/*dst_min*/, manifest_load_footprint()-1UL /*dst_max*/, &buf_sz ) );
-        manifest = fd_bincode_decode_spad_global( solana_manifest, ctx->manifest_spad, buf, buf_sz, &err );
+      fd_snapshot_manifest_t * manifest = NULL;
+      FD_SPAD_FRAME_BEGIN( ctx->manifest_spad ) {
+        manifest = fd_spad_alloc( ctx->manifest_spad, alignof(fd_snapshot_manifest_t), sizeof(fd_snapshot_manifest_t) );
       } FD_SPAD_FRAME_END;
+      FD_TEST( manifest );
 
-      if( FD_UNLIKELY( err ) ) {
-        FD_LOG_WARNING(( "fd_solana_manifest_decode failed (%d)", err ));
-        return;
-      }
-      FD_LOG_NOTICE(( "manifest bank slot %lu", manifest->bank.slot ));
+      FD_SPAD_FRAME_BEGIN( ctx->shared_spad ) {
+        uchar * buf    = fd_spad_alloc( ctx->shared_spad, manifest_load_align(), manifest_load_footprint() );
+        ulong   buf_sz = 0;
+        FD_TEST( !fd_io_read( fd, buf/*dst*/, 0/*dst_min*/, manifest_load_footprint()-1UL /*dst_max*/, &buf_sz ) );
 
-      fd_fseq_update( ctx->manifest_wmark, manifest->bank.slot /*root_slot*/ );
+        fd_ssmanifest_parser_t * parser = fd_ssmanifest_parser_join( fd_ssmanifest_parser_new( aligned_alloc(
+                fd_ssmanifest_parser_align(), fd_ssmanifest_parser_footprint( 1UL<<24UL ) ), 1UL<<24UL, 42UL ) );
+        FD_TEST( parser );
+        fd_ssmanifest_parser_init( parser, manifest );
+        int parser_err = fd_ssmanifest_parser_consume( parser, buf, buf_sz );
+        if( FD_UNLIKELY( parser_err ) ) FD_LOG_ERR(( "fd_ssmanifest_parser_consume failed (%d)", parser_err ));
+      } FD_SPAD_FRAME_END;
+      FD_LOG_NOTICE(( "manifest bank slot %lu", manifest->slot ));
 
-      publish_stake_weights( ctx, stem, manifest );
+      fd_fseq_update( ctx->manifest_wmark, manifest->slot );
 
+      uchar * chunk = fd_chunk_to_laddr( ctx->snap_out->mem, ctx->snap_out->chunk );
+      ulong   sz    = sizeof(fd_snapshot_manifest_t);
+      ulong   sig   = fd_ssmsg_sig( FD_SSMSG_MANIFEST_INCREMENTAL, sz );
+      memcpy( chunk, manifest, sz );
+      fd_stem_publish( stem, ctx->snap_out->idx, sig, ctx->snap_out->chunk, sz, 0UL, 0UL, fd_frag_meta_ts_comp( fd_tickcount() ) );
+      ctx->snap_out->chunk = fd_dcache_compact_next( ctx->snap_out->chunk, sz, ctx->snap_out->chunk0, ctx->snap_out->wmark );
+
+      fd_stem_publish( stem, ctx->snap_out->idx, fd_ssmsg_sig( FD_SSMSG_DONE, 0UL ), 0UL, 0UL, 0UL, 0UL, 0UL );
+
+      publish_stake_weights_manifest( ctx, stem, manifest );
       //*charge_busy = 0;
     }
     /* No need to strcmp every time after_credit is called. */
@@ -741,9 +718,9 @@ unprivileged_init( fd_topo_t *      topo,
     } else if( 0==strcmp( link->name, "gossip_repai" ) ) {
       ctx->in_kind[ i ] = GOSSIP_REPAIR;
     } else if( 0==strcmp( link->name, "repair_scap" ) ) {
-      ctx->in_kind[ i ] = REPAIR_SHRED_CAP;
+      ctx->in_kind[ i ] = REPAIR_SHREDCAP;
     } else if( 0==strcmp( link->name, "replay_scap" ) ) {
-      ctx->in_kind[ i ] = REPLAY_SHRED_CAP;
+      ctx->in_kind[ i ] = REPLAY_SHREDCAP;
     } else {
       FD_LOG_ERR(( "scap tile has unexpected input link %s", link->name ));
     }
@@ -770,7 +747,19 @@ unprivileged_init( fd_topo_t *      topo,
     ctx->stake_out->chunk   = ctx->stake_out->chunk0;
   } else {
     FD_LOG_WARNING(( "no connection to stake_out link" ));
-    memset( ctx->stake_out, 0, sizeof(fd_stake_out_link_t) );
+    memset( ctx->stake_out, 0, sizeof(out_link_t) );
+  }
+
+  ctx->snap_out->idx          = fd_topo_find_tile_out_link( topo, tile, "snap_out", 0 );
+  if( FD_LIKELY( ctx->snap_out->idx!=ULONG_MAX ) ) {
+    fd_topo_link_t * snap_out = &topo->links[tile->out_link_id[ctx->snap_out->idx]];
+    ctx->snap_out->mem        = topo->workspaces[topo->objs[snap_out->dcache_obj_id].wksp_id].wksp;
+    ctx->snap_out->chunk0     = fd_dcache_compact_chunk0( ctx->snap_out->mem, snap_out->dcache );
+    ctx->snap_out->wmark      = fd_dcache_compact_wmark( ctx->snap_out->mem, snap_out->dcache, snap_out->mtu );
+    ctx->snap_out->chunk      = ctx->snap_out->chunk0;
+  } else {
+    FD_LOG_WARNING(( "no connection to snap_out link" ));
+    memset( ctx->snap_out, 0, sizeof(out_link_t) );
   }
 
   /* If the manifest is enabled (for processing), the stake_out link

@@ -8,7 +8,6 @@
 #include "../../ballet/zstd/fd_zstd.h"
 #include "../../flamenco/types/fd_types.h"
 #include "../../flamenco/types/fd_solana_block.pb.h"
-#include "../../flamenco/runtime/fd_blockstore.h"
 #include "../../flamenco/runtime/fd_executor_err.h"
 #include "../../flamenco/runtime/fd_system_ids.h"
 #include "fd_block_to_json.h"

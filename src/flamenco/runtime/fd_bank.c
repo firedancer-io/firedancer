@@ -195,12 +195,10 @@ fd_banks_new( void * shmem, ulong max_total_banks, ulong max_fork_width ) {
 
   /* Need to layout all of the CoW pools. */
   #define HAS_COW_1_LIMIT_1(name) \
-    void * name##_pool_mem = FD_SCRATCH_ALLOC_APPEND( l, fd_bank_##name##_pool_align(), fd_bank_##name##_pool_footprint( max_fork_width ) ); \
-    memset( name##_pool_mem, 0, fd_bank_##name##_pool_footprint( max_fork_width ) );
+    void * name##_pool_mem = FD_SCRATCH_ALLOC_APPEND( l, fd_bank_##name##_pool_align(), fd_bank_##name##_pool_footprint( max_fork_width ) );
 
   #define HAS_COW_1_LIMIT_0(name) \
-    void * name##_pool_mem = FD_SCRATCH_ALLOC_APPEND( l, fd_bank_##name##_pool_align(), fd_bank_##name##_pool_footprint( max_total_banks ) ); \
-    memset( name##_pool_mem, 0, fd_bank_##name##_pool_footprint( max_total_banks ) );
+    void * name##_pool_mem = FD_SCRATCH_ALLOC_APPEND( l, fd_bank_##name##_pool_align(), fd_bank_##name##_pool_footprint( max_total_banks ) );
 
   /* Do nothing for these. */
   #define HAS_COW_0_LIMIT_0(name)
@@ -519,7 +517,7 @@ fd_banks_clone_from_parent( fd_banks_t * banks,
   fd_bank_t * parent_bank = fd_banks_map_ele_query( bank_map, &parent_slot, NULL, bank_pool );
 
   if( FD_UNLIKELY( !parent_bank ) ) {
-    FD_LOG_WARNING(( "Failed to get bank" ));
+    FD_LOG_WARNING(( "Failed to get bank for parent slot %lu", parent_slot ));
     fd_rwlock_unwrite( &banks->rwlock );
     return NULL;
   }

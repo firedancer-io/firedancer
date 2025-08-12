@@ -13,8 +13,9 @@
 #include <unistd.h> /* dup3, close */
 #include <netinet/in.h> /* sockaddr_in */
 #include <sys/socket.h> /* socket */
-#include "generated/sock_seccomp.h"
 #include "../../metrics/fd_metrics.h"
+
+#include "generated/fd_sock_tile_seccomp.h"
 
 /* recv/sendmmsg packet count in batch and tango burst depth
    FIXME make configurable in the future?
@@ -40,8 +41,9 @@ populate_allowed_seccomp( fd_topo_t const *      topo,
                           struct sock_filter *   out ) {
   FD_SCRATCH_ALLOC_INIT( l, fd_topo_obj_laddr( topo, tile->tile_obj_id ) );
   fd_sock_tile_t * ctx = FD_SCRATCH_ALLOC_APPEND( l, alignof(fd_sock_tile_t), sizeof(fd_sock_tile_t) );
-  populate_sock_filter_policy_sock( out_cnt, out, (uint)fd_log_private_logfile_fd(), (uint)ctx->tx_sock, RX_SOCK_FD_MIN, RX_SOCK_FD_MIN+(uint)ctx->sock_cnt );
-  return sock_filter_policy_sock_instr_cnt;
+
+  populate_sock_filter_policy_fd_sock_tile( out_cnt, out, (uint)fd_log_private_logfile_fd(), (uint)ctx->tx_sock, RX_SOCK_FD_MIN, RX_SOCK_FD_MIN+(uint)ctx->sock_cnt );
+  return sock_filter_policy_fd_sock_tile_instr_cnt;
 }
 
 static ulong
@@ -406,7 +408,7 @@ poll_rx_socket( fd_sock_tile_t *    ctx,
 
     ctx->metrics.rx_pkt_cnt++;
     ulong chunk = fd_laddr_to_chunk( base, eth_hdr );
-    ulong sig   = fd_disco_netmux_sig( sa->sin_addr.s_addr, fd_ushort_bswap( sa->sin_port ), 0U, proto, hdr_sz );
+    ulong sig   = fd_disco_netmux_sig( sa->sin_addr.s_addr, fd_ushort_bswap( sa->sin_port ), sa->sin_addr.s_addr, proto, hdr_sz );
     ulong tspub = fd_frag_meta_ts_comp( ts );
 
     /* default for repair intake is to send to [shreds] to shred tile.

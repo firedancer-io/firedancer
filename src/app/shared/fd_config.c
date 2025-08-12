@@ -355,7 +355,9 @@ fd_config_fill( fd_config_t * config,
     FD_TEST( fd_cstr_printf_check( config->paths.snapshots, sizeof(config->paths.snapshots), NULL, "%s/snapshots", config->paths.base ) );
   }
 
+  long ts = -fd_log_wallclock();
   config->tick_per_ns_mu = fd_tempo_tick_per_ns( &config->tick_per_ns_sigma );
+  FD_LOG_INFO(( "calibrating fd_tempo tick_per_ns took %ld ms", (fd_log_wallclock()+ts)/(1000L*1000L) ));
 
   if( 0!=strcmp( config->net.bind_address, "" ) ) {
     if( FD_UNLIKELY( !fd_cstr_to_ip4_addr( config->net.bind_address, &config->net.bind_address_parsed ) ) ) {
@@ -446,7 +448,10 @@ fd_config_fill( fd_config_t * config,
 
 static void
 fd_config_validatef( fd_configf_t const * config ) {
-  (void)config;
+  CFG_HAS_NON_ZERO( layout.sign_tile_count );
+  if( FD_UNLIKELY( config->layout.sign_tile_count < 2 ) ) {
+    FD_LOG_ERR(( "layout.sign_tile_count must be >= 2" ));
+  }
 }
 
 static void
@@ -575,6 +580,9 @@ fd_config_load( int           is_firedancer,
                 int           is_local_cluster,
                 char const *  default_config,
                 ulong         default_config_sz,
+                char const *  override_config,
+                char const *  override_config_path,
+                ulong         override_config_sz,
                 char const *  user_config,
                 ulong         user_config_sz,
                 char const *  user_config_path,
@@ -584,6 +592,10 @@ fd_config_load( int           is_firedancer,
 
   fd_config_load_buf( config, default_config, default_config_sz, "default.toml" );
   fd_config_validate( config );
+  if( FD_UNLIKELY( override_config ) ) {
+    fd_config_load_buf( config, override_config, override_config_sz, override_config_path );
+    fd_config_validate( config );
+  }
   if( FD_LIKELY( user_config ) ) {
     fd_config_load_buf( config, user_config, user_config_sz, user_config_path );
     fd_config_validate( config );

@@ -1,9 +1,9 @@
 #include "fd_sysvar_epoch_rewards.h"
 #include "fd_sysvar.h"
 #include "../fd_acc_mgr.h"
-#include "../fd_runtime.h"
-#include "../fd_borrowed_account.h"
+#include "../fd_txn_account.h"
 #include "../fd_system_ids.h"
+#include "../context/fd_exec_slot_ctx.h"
 
 static void
 write_epoch_rewards( fd_exec_slot_ctx_t * slot_ctx, fd_sysvar_epoch_rewards_t * epoch_rewards ) {
@@ -18,7 +18,7 @@ write_epoch_rewards( fd_exec_slot_ctx_t * slot_ctx, fd_sysvar_epoch_rewards_t * 
     FD_LOG_ERR(( "fd_sysvar_epoch_rewards_encode failed" ));
   }
 
-  fd_sysvar_set( slot_ctx->bank, slot_ctx->funk, slot_ctx->funk_txn, &fd_sysvar_owner_id, &fd_sysvar_epoch_rewards_id, enc, sz, fd_bank_slot_get( slot_ctx->bank ) );
+  fd_sysvar_account_update( slot_ctx, &fd_sysvar_epoch_rewards_id, enc, sz );
 }
 
 fd_sysvar_epoch_rewards_t *
@@ -35,14 +35,14 @@ fd_sysvar_epoch_rewards_read( fd_funk_t *                 funk,
      exists in the accounts database, but doesn't have any lamports,
      this means that the account does not exist. This wouldn't happen
      in a real execution environment. */
-  if( FD_UNLIKELY( acc->vt->get_lamports( acc ) == 0UL ) ) {
+  if( FD_UNLIKELY( fd_txn_account_get_lamports( acc )==0UL ) ) {
     return NULL;
   }
 
   return fd_bincode_decode_static(
       sysvar_epoch_rewards, out,
-      acc->vt->get_data( acc ),
-      acc->vt->get_data_len( acc ),
+      fd_txn_account_get_data( acc ),
+      fd_txn_account_get_data_len( acc ),
       &err );
 }
 

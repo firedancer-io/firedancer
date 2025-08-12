@@ -6,7 +6,6 @@
 #include "../../flamenco/runtime/fd_runtime.h"
 #include "../../flamenco/runtime/fd_runtime_public.h"
 #include "../../flamenco/runtime/fd_executor.h"
-#include "../../flamenco/runtime/fd_hashes.h"
 
 #include "../../funk/fd_funk.h"
 
@@ -74,7 +73,6 @@ struct fd_exec_tile_ctx {
 
   /* Current bank being executed. */
   fd_banks_t *          banks;
-  fd_bank_t *           bank;
 
   fd_capture_ctx_t *    capture_ctx;
 };
@@ -97,167 +95,17 @@ scratch_footprint( fd_topo_tile_t const * tile FD_PARAM_UNUSED ) {
 
 static void
 execute_txn( fd_exec_tile_ctx_t * ctx ) {
-
-  FD_SPAD_FRAME_BEGIN( ctx->exec_spad ) {
-
-  /* Query the funk transaction for the given slot. */
-  fd_funk_txn_map_t * txn_map = fd_funk_txn_map( ctx->funk );
-  if( FD_UNLIKELY( !txn_map->map ) ) {
-    FD_LOG_ERR(( "Could not find valid funk transaction map" ));
-  }
-  fd_funk_txn_xid_t xid = { .ul = { ctx->slot, ctx->slot } };
-  fd_funk_txn_start_read( ctx->funk );
-  fd_funk_txn_t * funk_txn = fd_funk_txn_query( &xid, txn_map );
-  if( FD_UNLIKELY( !funk_txn ) ) {
-    FD_LOG_ERR(( "Could not find valid funk transaction" ));
-  }
-  fd_funk_txn_end_read( ctx->funk );
-  ctx->txn_ctx->funk_txn = funk_txn;
-
-  /* Get the bank for the given slot. */
   fd_banks_lock( ctx->banks );
-  ctx->bank = fd_banks_get_bank( ctx->banks, ctx->slot );
-  if( FD_UNLIKELY( !ctx->bank ) ) {
-    FD_LOG_ERR(( "Could not get bank for slot %lu", ctx->slot ));
-  }
-
-  /* Setup and execute the transaction.*/
-  ctx->txn_ctx->bank     = ctx->bank;
-  ctx->txn_ctx->slot     = fd_bank_slot_get( ctx->bank );
-  ctx->txn_ctx->features = fd_bank_features_get( ctx->bank );
-
-  fd_execute_txn_task_info_t task_info = {
-    .txn_ctx  = ctx->txn_ctx,
-    .exec_res = 0,
-    .txn      = &ctx->txn,
-  };
-
-  fd_txn_t const * txn_descriptor = TXN( task_info.txn );
-  fd_rawtxn_b_t    raw_txn        = {
-    .raw    = task_info.txn->payload,
-    .txn_sz = (ushort)task_info.txn->payload_sz
-  };
-
-  task_info.txn->flags = FD_TXN_P_FLAGS_SANITIZE_SUCCESS;
-
-  fd_exec_txn_ctx_setup( ctx->txn_ctx, txn_descriptor, &raw_txn );
-  ctx->txn_ctx->capture_ctx = ctx->capture_ctx;
-
-  /* Set up the core account keys. These are the account keys directly
-     passed in via the serialized transaction, represented as an array.
-     Note that this does not include additional keys referenced in
-     address lookup tables. */
-  fd_executor_setup_txn_account_keys( ctx->txn_ctx );
-
-  if( FD_UNLIKELY( fd_executor_txn_verify( ctx->txn_ctx )!=0 ) ) {
-    FD_LOG_WARNING(( "sigverify failed: %s", FD_BASE58_ENC_64_ALLOCA( (uchar *)ctx->txn_ctx->_txn_raw->raw+ctx->txn_ctx->txn_descriptor->signature_off ) ));
-    task_info.txn->flags = 0U;
-    task_info.exec_res   = FD_RUNTIME_TXN_ERR_SIGNATURE_FAILURE;
-    fd_banks_unlock( ctx->banks );
-    return;
-  }
-
-  fd_runtime_pre_execute_check( &task_info );
-  if( FD_UNLIKELY( !( task_info.txn->flags & FD_TXN_P_FLAGS_SANITIZE_SUCCESS ) ) ) {
-    fd_banks_unlock( ctx->banks );
-    return;
-  }
-
-  /* Execute */
-  task_info.txn->flags |= FD_TXN_P_FLAGS_EXECUTE_SUCCESS;
-  ctx->exec_res         = fd_execute_txn( &task_info );
-
-  if( FD_LIKELY( ctx->exec_res==FD_EXECUTOR_INSTR_SUCCESS ) ) {
-    fd_txn_reclaim_accounts( task_info.txn_ctx );
-  }
+  ctx->exec_res = fd_runtime_prepare_and_execute_txn(
+      ctx->banks,
+      ctx->txn_ctx,
+      &ctx->txn,
+      ctx->exec_spad,
+      ctx->slot,
+      ctx->capture_ctx,
+      1
+  );
   fd_banks_unlock( ctx->banks );
-
-  } FD_SPAD_FRAME_END;
-}
-
-// TODO: hashing can be moved into the writer tile
-static void
-hash_accounts( fd_exec_tile_ctx_t *                ctx,
-               fd_runtime_public_hash_bank_msg_t * msg ) {
-
-  ctx->slot = msg->slot;
-  fd_funk_txn_map_t * txn_map = fd_funk_txn_map( ctx->funk );
-  if( FD_UNLIKELY( !txn_map->map ) ) {
-    FD_LOG_ERR(( "Could not find valid funk transaction map" ));
-  }
-  fd_funk_txn_xid_t xid = { .ul = { ctx->slot, ctx->slot } };
-  fd_funk_txn_start_read( ctx->funk );
-  fd_funk_txn_t * funk_txn = fd_funk_txn_query( &xid, txn_map );
-  if( FD_UNLIKELY( !funk_txn ) ) {
-    FD_LOG_ERR(( "Could not find valid funk transaction" ));
-  }
-  fd_funk_txn_end_read( ctx->funk );
-  ctx->txn_ctx->funk_txn = funk_txn;
-
-  fd_banks_lock( ctx->banks );
-
-  ctx->bank = fd_banks_get_bank( ctx->banks, ctx->slot );
-  if( FD_UNLIKELY( !ctx->bank ) ) {
-    FD_LOG_ERR(( "Could not get bank for slot %lu", ctx->slot ));
-  }
-
-  ctx->txn_ctx->bank = ctx->bank;
-  ctx->txn_ctx->slot = fd_bank_slot_get( ctx->bank );
-
-  ulong start_idx = msg->start_idx;
-  ulong end_idx   = msg->end_idx;
-
-  fd_accounts_hash_task_info_t * task_info = fd_wksp_laddr_fast( ctx->runtime_public_wksp, msg->task_infos_gaddr );
-  if( FD_UNLIKELY( !task_info ) ) {
-    FD_LOG_ERR(( "Unable to join task info array" ));
-  }
-
-  if( FD_UNLIKELY( !msg->lthash_gaddr ) ) {
-    FD_LOG_ERR(( "lthash gaddr is zero" ));
-  }
-  fd_lthash_value_t * lthash = fd_wksp_laddr_fast( ctx->runtime_public_wksp, msg->lthash_gaddr );
-  if( FD_UNLIKELY( !lthash ) ) {
-    FD_LOG_ERR(( "Unable to join lthash" ));
-  }
-  fd_lthash_zero( lthash );
-
-  for( ulong i=start_idx; i<=end_idx; i++ ) {
-    fd_account_hash( ctx->txn_ctx->funk,
-                     ctx->txn_ctx->funk_txn,
-                     &task_info[i],
-                     lthash,
-                     ctx->txn_ctx->slot,
-                     &ctx->txn_ctx->features );
-  }
-
-  fd_banks_unlock( ctx->banks );
-}
-
-static void
-snap_hash_count( fd_exec_tile_ctx_t * ctx ) {
-  ctx->pairs_len = fd_accounts_sorted_subrange_count( ctx->funk, (uint)ctx->tile_idx, (uint)ctx->tile_cnt );
-}
-
-static void
-snap_hash_gather( fd_exec_tile_ctx_t *                ctx,
-                  fd_runtime_public_snap_hash_msg_t * msg ) {
-
-  ulong * num_pairs = fd_wksp_laddr_fast( ctx->runtime_public_wksp, msg->num_pairs_out_gaddr );
-  if( FD_UNLIKELY( !num_pairs ) ) {
-    FD_LOG_ERR(( "Unable to join num_pairs" ));
-  }
-  fd_pubkey_hash_pair_t * pairs = fd_wksp_laddr_fast( ctx->runtime_public_wksp, msg->pairs_gaddr );
-  if( FD_UNLIKELY( !pairs ) ) {
-    FD_LOG_ERR(( "Unable to join pairs" ));
-  }
-  fd_lthash_value_t * lthash_value = fd_wksp_laddr_fast( ctx->runtime_public_wksp, msg->lt_hash_value_out_gaddr );
-  if( FD_UNLIKELY( !lthash_value ) ) {
-    FD_LOG_ERR(( "Unable to join lthash values" ));
-  }
-
-  fd_accounts_sorted_subrange_gather( ctx->funk, (uint)ctx->tile_idx, (uint)ctx->tile_cnt,
-                                      num_pairs, lthash_value,
-                                      pairs, &ctx->runtime_public->features );
 }
 
 static void
@@ -284,20 +132,8 @@ during_frag( fd_exec_tile_ctx_t * ctx,
       ctx->slot = txn->slot;
       execute_txn( ctx );
       return;
-    } else if( sig==EXEC_HASH_ACCS_SIG ) {
-      fd_runtime_public_hash_bank_msg_t * msg = fd_chunk_to_laddr( ctx->replay_in_mem, chunk );
-      FD_LOG_DEBUG(( "hash accs=%lu msg recvd", msg->end_idx - msg->start_idx ));
-      hash_accounts( ctx, msg );
-      return;
-    } else if( sig==EXEC_SNAP_HASH_ACCS_CNT_SIG ) {
-      FD_LOG_DEBUG(( "snap hash count msg recvd" ));
-      snap_hash_count( ctx );
-    } else if( sig==EXEC_SNAP_HASH_ACCS_GATHER_SIG ) {
-      fd_runtime_public_snap_hash_msg_t * msg = fd_chunk_to_laddr( ctx->replay_in_mem, chunk );
-      FD_LOG_DEBUG(( "snap hash gather msg recvd" ));
-      snap_hash_gather( ctx, msg );
     } else {
-      FD_LOG_ERR(( "Unknown signature" ));
+      FD_LOG_CRIT(( "Unknown signature" ));
     }
   }
 }
@@ -326,14 +162,15 @@ after_frag( fd_exec_tile_ctx_t * ctx,
     msg->exec_tile_id = (uchar)ctx->tile_idx;
     msg->txn_id       = ctx->txn_id;
 
-    fd_stem_publish( stem,
-                     exec_out->idx,
-                     FD_WRITER_TXN_SIG,
-                     exec_out->chunk,
-                     sizeof(*msg),
-                     0UL,
-                     tsorig,
-                     tspub );
+    fd_stem_publish(
+        stem,
+        exec_out->idx,
+        FD_WRITER_TXN_SIG,
+        exec_out->chunk,
+        sizeof(*msg),
+        0UL,
+        tsorig,
+        tspub );
     exec_out->chunk = fd_dcache_compact_next( exec_out->chunk, sizeof(*msg), exec_out->chunk0, exec_out->wmark );
 
     /* Make sure that the txn/bpf id can never be equal to the sentinel
@@ -342,23 +179,9 @@ after_frag( fd_exec_tile_ctx_t * ctx,
     if( FD_UNLIKELY( ctx->txn_id==FD_EXEC_ID_SENTINEL ) ) {
       ctx->txn_id = 0U;
     }
-  } else if( sig==EXEC_HASH_ACCS_SIG ) {
-    FD_LOG_DEBUG(( "Sending ack for hash accs msg" ));
-    fd_fseq_update( ctx->exec_fseq, fd_exec_fseq_set_hash_done( ctx->slot ) );
-  } else if( sig==EXEC_SNAP_HASH_ACCS_CNT_SIG ) {
-    FD_LOG_NOTICE(( "Sending ack for snap hash count msg pairs_len=%lu", ctx->pairs_len ));
-    fd_fseq_update( ctx->exec_fseq, fd_exec_fseq_set_snap_hash_cnt_done( (uint)ctx->pairs_len ) );
-  } else if( sig==EXEC_SNAP_HASH_ACCS_GATHER_SIG ) {
-    FD_LOG_NOTICE(("Sending ack for snap hash gather msg" ));
-    fd_fseq_update( ctx->exec_fseq, fd_exec_fseq_set_snap_hash_gather_done() );
   } else {
     FD_LOG_ERR(( "Unknown message signature" ));
   }
-}
-
-static void
-privileged_init( fd_topo_t *      topo FD_PARAM_UNUSED,
-                 fd_topo_tile_t * tile FD_PARAM_UNUSED ) {
 }
 
 static void
@@ -504,15 +327,9 @@ unprivileged_init( fd_topo_t *      topo,
 
   fd_spad_push( ctx->exec_spad );
   // FIXME account for this in exec spad footprint
-  uchar * txn_ctx_mem   = fd_spad_alloc_check( ctx->exec_spad, FD_EXEC_TXN_CTX_ALIGN, FD_EXEC_TXN_CTX_FOOTPRINT );
-  ctx->txn_ctx          = fd_exec_txn_ctx_join( fd_exec_txn_ctx_new( txn_ctx_mem ), ctx->exec_spad, ctx->exec_spad_wksp );
-  *ctx->txn_ctx->funk   = *ctx->funk;
-
-  ctx->txn_ctx->runtime_pub_wksp = ctx->runtime_public_wksp;
-  if( FD_UNLIKELY( !ctx->txn_ctx->runtime_pub_wksp ) ) {
-    FD_LOG_ERR(( "Failed to find public wksp" ));
-  }
-
+  uchar * txn_ctx_mem         = fd_spad_alloc_check( ctx->exec_spad, FD_EXEC_TXN_CTX_ALIGN, FD_EXEC_TXN_CTX_FOOTPRINT );
+  ctx->txn_ctx                = fd_exec_txn_ctx_join( fd_exec_txn_ctx_new( txn_ctx_mem ), ctx->exec_spad, ctx->exec_spad_wksp );
+  *ctx->txn_ctx->funk         = *ctx->funk;
   ctx->txn_ctx->bank_hash_cmp = ctx->bank_hash_cmp;
 
   /********************************************************************/
@@ -530,7 +347,7 @@ unprivileged_init( fd_topo_t *      topo,
   ctx->txn_id = 0U;
   ctx->bpf_id = 0U;
 
-  FD_LOG_NOTICE(( "Done booting exec tile idx=%lu", ctx->tile_idx ));
+  FD_LOG_INFO(( "Done booting exec tile idx=%lu", ctx->tile_idx ));
 
   if( strlen(tile->exec.dump_proto_dir) > 0 ) {
     ctx->capture_ctx = fd_capture_ctx_new( capture_ctx_mem );
@@ -539,6 +356,7 @@ unprivileged_init( fd_topo_t *      topo,
     ctx->capture_ctx->dump_instr_to_pb = tile->exec.dump_instr_to_pb;
     ctx->capture_ctx->dump_txn_to_pb = tile->exec.dump_txn_to_pb;
     ctx->capture_ctx->dump_syscall_to_pb = tile->exec.dump_syscall_to_pb;
+    ctx->capture_ctx->dump_elf_to_pb = tile->exec.dump_elf_to_pb;
   } else {
     ctx->capture_ctx = NULL;
   }
@@ -629,8 +447,6 @@ populate_allowed_fds( fd_topo_t const *      topo,
   return out_cnt;
 }
 
-/* The stem burst is bound by the max number of exec tiles that are
-   posible. */
 #define STEM_BURST (1UL)
 
 #define STEM_CALLBACK_CONTEXT_TYPE  fd_exec_tile_ctx_t
@@ -649,7 +465,6 @@ fd_topo_run_tile_t fd_tile_execor = {
     .populate_allowed_fds     = populate_allowed_fds,
     .scratch_align            = scratch_align,
     .scratch_footprint        = scratch_footprint,
-    .privileged_init          = privileged_init,
     .unprivileged_init        = unprivileged_init,
     .run                      = stem_run,
 };

@@ -1,6 +1,8 @@
 #include "fd_send_tile.h"
 #include "../../disco/topo/fd_topo.h"
 #include "../../disco/keyguard/fd_keyload.h"
+#include "../../disco/fd_txn_m_t.h"
+#include "../../disco/keyguard/fd_keyguard.h"
 #include "generated/fd_send_tile_seccomp.h"
 
 #include <errno.h>
@@ -407,8 +409,13 @@ after_frag( fd_send_tile_ctx_t * ctx,
     /* send to gossip and dedup */
     fd_send_link_out_t * gossip_verify_out = ctx->gossip_verify_out;
     uchar * msg_to_gossip = fd_chunk_to_laddr( gossip_verify_out->mem, gossip_verify_out->chunk );
-    fd_memcpy( msg_to_gossip, txn->payload, txn->payload_sz );
-    fd_stem_publish( stem, gossip_verify_out->idx, 1UL, gossip_verify_out->chunk, txn->payload_sz, 0UL, 0, 0 );
+    fd_txn_m_t * txnm = (fd_txn_m_t *)msg_to_gossip;
+    *txnm = (fd_txn_m_t) { 0UL };
+    txnm->payload_sz = (ushort)txn->payload_sz;
+    txnm->source_ipv4 = ctx->src_ip_addr;
+    txnm->source_tpu  = FD_TXN_M_TPU_SOURCE_SEND;
+    fd_memcpy( msg_to_gossip+sizeof(fd_txn_m_t), txn->payload, txn->payload_sz );
+    fd_stem_publish( stem, gossip_verify_out->idx, 1UL, gossip_verify_out->chunk, fd_txn_m_realized_footprint( txnm, 0, 0 ), 0UL, 0, 0 );
     gossip_verify_out->chunk = fd_dcache_compact_next( gossip_verify_out->chunk, txn->payload_sz, gossip_verify_out->chunk0,
         gossip_verify_out->wmark );
   }
@@ -545,7 +552,8 @@ unprivileged_init( fd_topo_t *      topo,
                                                             sign_out->mcache,
                                                             sign_out->dcache,
                                                             sign_in->mcache,
-                                                            sign_in->dcache ) )==NULL ) {
+                                                            sign_in->dcache,
+                                                            sign_out->mtu ) )==NULL ) {
     FD_LOG_ERR(( "Keyguard join failed" ));
   }
 
@@ -620,7 +628,8 @@ metrics_write( fd_send_tile_ctx_t * ctx ) {
   FD_MCNT_SET(       SEND, RETRY_SENT,       ctx->quic->metrics.retry_tx_cnt );
   FD_MCNT_ENUM_COPY( SEND, ACK_TX,           ctx->quic->metrics.ack_tx );
 
-  FD_MGAUGE_SET( SEND, CONNECTIONS_ACTIVE,          ctx->quic->metrics.conn_active_cnt );
+  FD_MGAUGE_ENUM_COPY( SEND, CONNECTIONS_STATE,     ctx->quic->metrics.conn_state_cnt );
+  FD_MGAUGE_SET( SEND, CONNECTIONS_ALLOC,           ctx->quic->metrics.conn_alloc_cnt );
   FD_MCNT_SET(   SEND, CONNECTIONS_CREATED,         ctx->quic->metrics.conn_created_cnt );
   FD_MCNT_SET(   SEND, CONNECTIONS_CLOSED,          ctx->quic->metrics.conn_closed_cnt );
   FD_MCNT_SET(   SEND, CONNECTIONS_ABORTED,         ctx->quic->metrics.conn_aborted_cnt );

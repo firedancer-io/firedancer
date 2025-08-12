@@ -25,6 +25,7 @@ struct fd_snapin_tile {
   int state;
 
   ulong seed;
+  long boot_timestamp;
 
   fd_funk_t       funk[1];
   fd_funk_txn_t * funk_txn;
@@ -59,6 +60,9 @@ typedef struct fd_snapin_tile fd_snapin_tile_t;
 
 static inline int
 should_shutdown( fd_snapin_tile_t * ctx ) {
+  if( FD_UNLIKELY( ctx->state==FD_SNAPIN_STATE_SHUTDOWN ) ) {
+    FD_LOG_NOTICE(( "loaded %.1fM accounts from snapshot in %.1f seconds", (double)ctx->metrics.accounts_inserted/1e6, (double)(fd_log_wallclock()-ctx->boot_timestamp)/1e9 ));
+  }
   return ctx->state==FD_SNAPIN_STATE_SHUTDOWN;
 }
 
@@ -129,22 +133,24 @@ account_cb( void *                          _ctx,
   }
 
   FD_TXN_ACCOUNT_DECL( rec );
+  fd_funk_rec_prepare_t prepare = {0};
   int err = fd_txn_account_init_from_funk_mutable( rec,
                                                    (fd_pubkey_t*)hdr->meta.pubkey,
                                                    ctx->funk,
                                                    ctx->funk_txn,
                                                    /* do_create */ 1,
-                                                   hdr->meta.data_len );
+                                                   hdr->meta.data_len,
+                                                   &prepare );
   if( FD_UNLIKELY( err!=FD_ACC_MGR_SUCCESS ) ) FD_LOG_ERR(( "fd_txn_account_init_from_funk_mutable failed (%d)", err ));
 
-  rec->vt->set_data_len( rec, hdr->meta.data_len );
-  rec->vt->set_slot( rec, ctx->ssparse->accv_slot );
-  rec->vt->set_hash( rec, &hdr->hash );
-  rec->vt->set_info( rec, &hdr->info );
+  fd_txn_account_set_data_len( rec, hdr->meta.data_len );
+  fd_txn_account_set_slot( rec, ctx->ssparse->accv_slot );
+  fd_txn_account_set_hash( rec, &hdr->hash );
+  fd_txn_account_set_meta_info( rec, &hdr->info );
 
-  ctx->acc_data = rec->vt->get_data_mut( rec );
+  ctx->acc_data = fd_txn_account_get_data_mut( rec );
   ctx->metrics.accounts_inserted++;
-  fd_txn_account_mutable_fini( rec, ctx->funk, ctx->funk_txn );
+  fd_txn_account_mutable_fini( rec, ctx->funk, ctx->funk_txn, &prepare );
 }
 
 static void
@@ -274,7 +280,6 @@ returnable_frag( fd_snapin_tile_t *  ctx,
                  fd_stem_context_t * stem ) {
   (void)in_idx;
   (void)seq;
-  (void)sig;
   (void)tsorig;
   (void)tspub;
 
@@ -310,6 +315,8 @@ unprivileged_init( fd_topo_t *      topo,
 
   ctx->full = 1;
   ctx->state = FD_SNAPIN_STATE_LOADING;
+
+  ctx->boot_timestamp = fd_log_wallclock();
 
   FD_TEST( fd_funk_join( ctx->funk, fd_topo_obj_laddr( topo, tile->snapin.funk_obj_id ) ) );
   ctx->funk_txn = fd_funk_txn_query( fd_funk_root( ctx->funk ), ctx->funk->txn_map );

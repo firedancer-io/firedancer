@@ -82,6 +82,25 @@ struct fd_commission_split {
 };
 typedef struct fd_commission_split fd_commission_split_t;
 
+static inline uchar
+fd_vote_account_commission( fd_vote_state_versioned_t const * vote_state_versioned ) {
+  uint commission;
+  switch( vote_state_versioned->discriminant ) {
+  case fd_vote_state_versioned_enum_current:
+    commission = vote_state_versioned->inner.current.commission;
+    break;
+  case fd_vote_state_versioned_enum_v0_23_5:
+    commission = vote_state_versioned->inner.v0_23_5.commission;
+    break;
+  case fd_vote_state_versioned_enum_v1_14_11:
+    commission = vote_state_versioned->inner.v1_14_11.commission;
+    break;
+  default:
+    FD_LOG_CRIT(( "Invalid vote account version %u", vote_state_versioned->discriminant ));
+  }
+  return (uchar)commission;
+}
+
 void
 fd_vote_commission_split( fd_vote_state_versioned_t * vote_state_versioned,
                           ulong                       on,

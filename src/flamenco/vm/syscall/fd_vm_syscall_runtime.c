@@ -1,15 +1,16 @@
 #include "fd_vm_syscall.h"
 #include "../../runtime/program/fd_vote_program.h"
-#include "../../runtime/sysvar/fd_sysvar.h"
-#include "../../runtime/sysvar/fd_sysvar_clock.h"
-#include "../../runtime/sysvar/fd_sysvar_epoch_rewards.h"
-#include "../../runtime/sysvar/fd_sysvar_epoch_schedule.h"
-#include "../../runtime/sysvar/fd_sysvar_rent.h"
-#include "../../runtime/sysvar/fd_sysvar_last_restart_slot.h"
 #include "../../runtime/context/fd_exec_txn_ctx.h"
 #include "../../runtime/context/fd_exec_instr_ctx.h"
 #include "../../runtime/fd_system_ids.h"
 #include "fd_vm_syscall_macros.h"
+
+/* FIXME: In the original version of this code, there was an FD_TEST
+   to check if the VM was attached to an instruction context (that
+   would have crashed anyway because of pointer chasing).  If the VM
+   is being run outside the Solana runtime, it should never invoke
+   this syscall in the first place.  So we treat this as a SIGCALL in
+   a non-crashing way for the time being. */
 
 int
 fd_vm_syscall_sol_get_clock_sysvar( /**/            void *  _vm,
@@ -19,15 +20,7 @@ fd_vm_syscall_sol_get_clock_sysvar( /**/            void *  _vm,
                                     FD_PARAM_UNUSED ulong   r4,
                                     FD_PARAM_UNUSED ulong   r5,
                                     /**/            ulong * _ret ) {
-  fd_vm_t * vm = (fd_vm_t *)_vm;
-
-  /* FIXME: In the original version of this code, there was an FD_TEST
-     to check if the VM was attached to an instruction context (that
-     would have crashed anyway because of pointer chasing).  If the VM
-     is being run outside the Solana runtime, it should never invoke
-     this syscall in the first place.  So we treat this as a SIGCALL in
-     a non-crashing way. */
-
+  fd_vm_t * vm = _vm;
   fd_exec_instr_ctx_t const * instr_ctx = vm->instr_ctx;
   if( FD_UNLIKELY( !instr_ctx ) ) return FD_VM_SYSCALL_ERR_OUTSIDE_RUNTIME;
 
@@ -43,14 +36,8 @@ fd_vm_syscall_sol_get_clock_sysvar( /**/            void *  _vm,
   fd_vm_haddr_query_t * queries[] = { &var_query };
   FD_VM_TRANSLATE_MUT( vm, queries );
 
-  fd_sol_sysvar_clock_t const * clock = fd_sysvar_clock_read( instr_ctx->txn_ctx->funk,
-                                                              instr_ctx->txn_ctx->funk_txn,
-                                                              instr_ctx->txn_ctx->spad );
-  if( FD_UNLIKELY( !clock ) ) {
-    FD_LOG_ERR(( "failed to read sysvar clock" ));
-  }
-
-  memcpy( var_query.haddr, clock, sizeof(fd_sol_sysvar_clock_t) );
+  fd_sol_sysvar_clock_t clock = fd_sysvar_cache_clock_read_nofail( instr_ctx->sysvar_cache );
+  memcpy( var_query.haddr, &clock, sizeof(fd_sol_sysvar_clock_t) );
 
   *_ret = 0UL;
   return FD_VM_SUCCESS;
@@ -64,15 +51,7 @@ fd_vm_syscall_sol_get_epoch_schedule_sysvar( /**/            void *  _vm,
                                              FD_PARAM_UNUSED ulong   r4,
                                              FD_PARAM_UNUSED ulong   r5,
                                              /**/            ulong * _ret ) {
-  fd_vm_t * vm = (fd_vm_t *)_vm;
-
-  /* FIXME: In the original version of this code, there was an FD_TEST
-     to check if the VM was attached to an instruction context (that
-     would have crashed anyway because of pointer chasing).  If the VM
-     is being run outside the Solana runtime, it should never invoke
-     this syscall in the first place.  So we treat this as a SIGCALL in
-     a non-crashing way for the time being. */
-
+  fd_vm_t * vm = _vm;
   fd_exec_instr_ctx_t const * instr_ctx = vm->instr_ctx;
   if( FD_UNLIKELY( !instr_ctx ) ) return FD_VM_SYSCALL_ERR_OUTSIDE_RUNTIME;
 
@@ -88,13 +67,12 @@ fd_vm_syscall_sol_get_epoch_schedule_sysvar( /**/            void *  _vm,
   fd_vm_haddr_query_t * queries[] = { &var_query };
   FD_VM_TRANSLATE_MUT( vm, queries );
 
-  fd_epoch_schedule_t schedule[1];
-  if( FD_UNLIKELY( !fd_sysvar_epoch_schedule_read(
-      instr_ctx->txn_ctx->funk, instr_ctx->txn_ctx->funk_txn, schedule ) ) ) {
-    FD_LOG_ERR(( "failed to read sysvar epoch schedule" ));
+  fd_epoch_schedule_t schedule;
+  if( FD_UNLIKELY( !fd_sysvar_cache_epoch_schedule_read( instr_ctx->sysvar_cache, &schedule ) ) ) {
+    FD_TXN_ERR_FOR_LOG_INSTR( vm->instr_ctx->txn_ctx, FD_EXECUTOR_INSTR_ERR_UNSUPPORTED_SYSVAR, vm->instr_ctx->txn_ctx->instr_err_idx );
+    return FD_VM_ERR_INVAL;
   }
-
-  memcpy( var_query.haddr, schedule, sizeof(fd_epoch_schedule_t) );
+  memcpy( var_query.haddr, &schedule, sizeof(fd_epoch_schedule_t) );
 
   *_ret = 0UL;
   return FD_VM_SUCCESS;
@@ -108,14 +86,9 @@ fd_vm_syscall_sol_get_rent_sysvar( /**/            void *  _vm,
                                    FD_PARAM_UNUSED ulong   r4,
                                    FD_PARAM_UNUSED ulong   r5,
                                    /**/            ulong * _ret ) {
-  fd_vm_t * vm = (fd_vm_t *)_vm;
+  fd_vm_t * vm = _vm;
 
-  /* FIXME: In the original version of this code, there was an FD_TEST
-     to check if the VM was attached to an instruction context (that
-     would have crashed anyway because of pointer chasing).  If the VM
-     is being run outside the Solana runtime, it should never invoke
-     this syscall in the first place.  So we treat this as a SIGCALL in
-     a non-crashing way for the time being. */
+  /* Unreachable in a real SVM, used for testing */
 
   fd_exec_instr_ctx_t const * instr_ctx = vm->instr_ctx;
   if( FD_UNLIKELY( !instr_ctx ) ) return FD_VM_SYSCALL_ERR_OUTSIDE_RUNTIME;
@@ -132,20 +105,14 @@ fd_vm_syscall_sol_get_rent_sysvar( /**/            void *  _vm,
   fd_vm_haddr_query_t * queries[] = { &var_query };
   FD_VM_TRANSLATE_MUT( vm, queries );
 
-  fd_rent_t const * rent = fd_sysvar_rent_read( instr_ctx->txn_ctx->funk,
-                                                instr_ctx->txn_ctx->funk_txn,
-                                                instr_ctx->txn_ctx->spad );
-  if( FD_UNLIKELY( !rent ) ) {
-    FD_LOG_ERR(( "failed to read sysvar rent" ));
-  }
-
-  memcpy( var_query.haddr, rent, sizeof(fd_rent_t) );
+  fd_rent_t rent = fd_sysvar_cache_rent_read_nofail( instr_ctx->sysvar_cache );
+  memcpy( var_query.haddr, &rent, sizeof(fd_rent_t) );
 
   *_ret = 0UL;
   return FD_VM_SUCCESS;
 }
 
-/* https://github.com/anza-xyz/agave/blob/36323b6dcd3e29e4d6fe6d73d716a3f33927148b/programs/bpf_loader/src/syscalls/sysvar.rs#L144 */
+/* https://github.com/anza-xyz/agave/blob/v2.3.2/programs/bpf_loader/src/syscalls/sysvar.rs#L149 */
 int
 fd_vm_syscall_sol_get_last_restart_slot_sysvar( /**/            void *  _vm,
                                                 /**/            ulong   out_vaddr,
@@ -154,7 +121,9 @@ fd_vm_syscall_sol_get_last_restart_slot_sysvar( /**/            void *  _vm,
                                                 FD_PARAM_UNUSED ulong   r4,
                                                 FD_PARAM_UNUSED ulong   r5,
                                                 /**/            ulong * _ret ) {
-  fd_vm_t * vm = (fd_vm_t *)_vm;
+  fd_vm_t * vm = _vm;
+  fd_exec_instr_ctx_t const * instr_ctx = vm->instr_ctx;
+  if( FD_UNLIKELY( !instr_ctx ) ) return FD_VM_SYSCALL_ERR_OUTSIDE_RUNTIME;
 
   FD_VM_CU_UPDATE( vm, fd_ulong_sat_add( FD_VM_SYSVAR_BASE_COST, sizeof(fd_sol_sysvar_last_restart_slot_t) ) );
 
@@ -168,14 +137,13 @@ fd_vm_syscall_sol_get_last_restart_slot_sysvar( /**/            void *  _vm,
   fd_vm_haddr_query_t * queries[] = { &var_query };
   FD_VM_TRANSLATE_MUT( vm, queries );
 
-  fd_sol_sysvar_last_restart_slot_t * last_restart_slot = fd_sysvar_last_restart_slot_read( vm->instr_ctx->txn_ctx->funk,
-                                                                                            vm->instr_ctx->txn_ctx->funk_txn,
-                                                                                            vm->instr_ctx->txn_ctx->spad );
-  if( FD_UNLIKELY( !last_restart_slot ) ) {
-    FD_LOG_ERR(( "failed to read sysvar last restart slot" ));
+  fd_sol_sysvar_last_restart_slot_t last_restart_slot;
+  if( FD_UNLIKELY( !fd_sysvar_cache_last_restart_slot_read( vm->instr_ctx->sysvar_cache, &last_restart_slot ) ) ) {
+    FD_TXN_ERR_FOR_LOG_INSTR( vm->instr_ctx->txn_ctx, FD_EXECUTOR_INSTR_ERR_UNSUPPORTED_SYSVAR, vm->instr_ctx->txn_ctx->instr_err_idx );
+    return FD_VM_ERR_INVAL;
   }
 
-  memcpy( var_query.haddr, last_restart_slot, sizeof(fd_sol_sysvar_last_restart_slot_t) );
+  memcpy( var_query.haddr, &last_restart_slot, sizeof(fd_sol_sysvar_last_restart_slot_t) );
 
   *_ret = 0UL;
   return FD_VM_SUCCESS;
@@ -190,7 +158,9 @@ fd_vm_syscall_sol_get_sysvar( /**/            void *  _vm,
                               /**/            ulong   sz,
                               FD_PARAM_UNUSED ulong   r5,
                               /**/            ulong * _ret ) {
-  fd_vm_t * vm = (fd_vm_t *)_vm;
+  fd_vm_t * vm = _vm;
+  fd_exec_instr_ctx_t const * instr_ctx = vm->instr_ctx;
+  if( FD_UNLIKELY( !instr_ctx ) ) return FD_VM_SYSCALL_ERR_OUTSIDE_RUNTIME;
 
   /* sysvar_id_cost seems to just always be 32 / 250 = 0...
      https://github.com/anza-xyz/agave/blob/v2.1.0/programs/bpf_loader/src/syscalls/sysvar.rs#L190-L197 */
@@ -234,18 +204,16 @@ fd_vm_syscall_sol_get_sysvar( /**/            void *  _vm,
     return FD_VM_SUCCESS;
   }
 
-  /* we know that the account data won't be changed for the lifetime of this view, because sysvars don't change inter-block */
-  FD_TXN_ACCOUNT_DECL( sysvar_account );
-  err = fd_txn_account_init_from_funk_readonly( sysvar_account, sysvar_id, vm->instr_ctx->txn_ctx->funk, vm->instr_ctx->txn_ctx->funk_txn );
-  if( FD_UNLIKELY( err ) ) {
+  ulong         sysvar_buf_len;
+  uchar const * sysvar_buf =
+    fd_sysvar_cache_data_query( vm->instr_ctx->sysvar_cache, sysvar_id, &sysvar_buf_len );
+  if( FD_UNLIKELY( !sysvar_buf ) ) {
     *_ret = 2UL;
     return FD_VM_SUCCESS;
   }
 
   /* https://github.com/anza-xyz/agave/blob/v2.1.0/programs/bpf_loader/src/syscalls/sysvar.rs#L223-L228
      Note the length check is at the very end to fail after performing sufficient checks. */
-  const uchar * sysvar_buf     = sysvar_account->vt->get_data( sysvar_account );
-  ulong         sysvar_buf_len = sysvar_account->vt->get_data_len( sysvar_account );
 
   if( FD_UNLIKELY( offset_length>sysvar_buf_len ) ) {
     *_ret = 1UL;
@@ -262,13 +230,7 @@ fd_vm_syscall_sol_get_sysvar( /**/            void *  _vm,
   return FD_VM_SUCCESS;
 }
 
-/* https://github.com/anza-xyz/agave/blob/v2.1.0/programs/bpf_loader/src/syscalls/mod.rs#L2043-L2118
-
-   This syscall is meant to return the latest frozen stakes at an epoch
-   boundary.  So for instance, when we are executing in epoch 7, this
-   should return the stakes at the end of epoch 6.  Note that this is
-   also the stakes that determined the leader schedule for the upcoming
-   epoch, namely epoch 8. */
+/* https://github.com/anza-xyz/agave/blob/v2.1.0/programs/bpf_loader/src/syscalls/mod.rs#L2043-L2118 */
 int
 fd_vm_syscall_sol_get_epoch_stake( /**/            void *  _vm,
                                    /**/            ulong   var_addr,
@@ -291,9 +253,11 @@ fd_vm_syscall_sol_get_epoch_stake( /**/            void *  _vm,
     return FD_VM_SUCCESS;
   }
 
-  /* https://github.com/anza-xyz/agave/blob/v2.1.0/programs/bpf_loader/src/syscalls/mod.rs#L2083-L2091 */
-  FD_VM_CU_UPDATE( vm, fd_ulong_sat_add( FD_VM_MEM_OP_BASE_COST,
-                       fd_ulong_sat_add( FD_VM_SYSCALL_BASE_COST, FD_PUBKEY_FOOTPRINT / FD_VM_CPI_BYTES_PER_UNIT ) ) );
+  /* https://github.com/anza-xyz/agave/blob/v2.1.0/programs/bpf_loader/src/syscalls/mod.rs#L2083-L2091
+     FD_PUBKEY_FOOTPRINT/FD_VM_CPI_BYTES_PER_UNIT is always 32/250 = 0,
+     so we can omit it */
+
+  FD_VM_CU_UPDATE( vm, FD_VM_MEM_OP_BASE_COST + FD_VM_SYSCALL_BASE_COST );
 
   /* https://github.com/anza-xyz/agave/blob/v2.1.0/programs/bpf_loader/src/syscalls/mod.rs#L2103-L2104 */
   const fd_pubkey_t * vote_address = FD_VM_MEM_HADDR_LD( vm, var_addr, FD_VM_ALIGN_RUST_PUBKEY, FD_PUBKEY_FOOTPRINT );
@@ -387,7 +351,7 @@ fd_vm_syscall_sol_set_return_data( /**/            void *  _vm,
   /* https://github.com/anza-xyz/agave/blob/v2.0.8/programs/bpf_loader/src/syscalls/mod.rs#L1297 */
   fd_vm_t * vm = (fd_vm_t *)_vm;
 
-  /* FIXME: In the original version of this code, there was an FD_TEST
+  /* In the original version of this code, there was an FD_TEST
      to check if the VM was attached to an instruction context (that
      would have crashed anyway because of pointer chasing).  If the VM
      is being run outside the Solana runtime, it should never invoke
@@ -445,41 +409,7 @@ typedef struct fd_vm_syscall_processed_sibling_instruction fd_vm_syscall_process
 #define FD_VM_SYSCALL_PROCESSED_SIBLING_INSTRUCTION_SIZE  (16UL)
 #define FD_VM_SYSCALL_PROCESSED_SIBLING_INSTRUCTION_ALIGN (8UL )
 
-/*
-sol_get_last_processed_sibling_instruction returns the last element from a reverse-ordered
-list of successfully processed sibling instructions: the "processed sibling instruction list".
-
-For example, given the call flow:
-A
-B -> C -> D
-B -> E
-B -> F          (current execution point)
-
-B's processed sibling instruction list is [A]
-F's processed sibling instruction list is [E, C]
-
-This allows the current instruction to know what the last processed sibling instruction was.
-This is useful to check that critical preceeding instructions have actually executed: for example
-ensuring that an assert instruction has successfully executed.
-
-Parameters:
-- index:
-- result_meta_vaddr: virtual address of the object where metadata about the last processed sibling instruction will be stored upon successful execution (the length of the arrays in the result).
-  Has the type solana_program::instruction::ProcessedSiblingInstruction
-    https://github.com/anza-xyz/agave/blob/70089cce5119c9afaeb2986e2ecaa6d4505ec15d/sdk/program/src/instruction.rs#L672-L681
-- result_program_id_vaddr: virtual address where the pubkey of the program ID of the last processed sibling instruction will be stored upon successful execution
-- result_data_vaddr: virtual address where the instruction data of the last processed sibling instruction will be stored upon successful execution. The length of the data will be stored in ProcessedSiblingInstruction.data_len
-- result_accounts_vaddr: virtual address where an array of account meta structures will be stored into upon successful execution. The length of the data will be stored in ProcessedSiblingInstruction.accounts_len
-  Each account meta has the type solana_program::instruction::AccountMeta
-    https://github.com/anza-xyz/agave/blob/70089cce5119c9afaeb2986e2ecaa6d4505ec15d/sdk/program/src/instruction.rs#L525-L548
-
-Result:
-If a processed sibling instruction is found then 1 will be written into r0, and the result_* data structures
-above will be populated with the last processed sibling instruction.
-If there is no processed sibling instruction, 0 will be written into r0.
-
-Syscall entrypoint: https://github.com/anza-xyz/agave/blob/70089cce5119c9afaeb2986e2ecaa6d4505ec15d/programs/bpf_loader/src/syscalls/mod.rs#L1402
-*/
+/* https://github.com/anza-xyz/agave/blob/70089cce5119c9afaeb2986e2ecaa6d4505ec15d/programs/bpf_loader/src/syscalls/mod.rs#L1402 */
 int
 fd_vm_syscall_sol_get_processed_sibling_instruction(
     void * _vm,
@@ -488,18 +418,16 @@ fd_vm_syscall_sol_get_processed_sibling_instruction(
     ulong result_program_id_vaddr,
     ulong result_data_vaddr,
     ulong result_accounts_vaddr,
-    ulong * ret
+    ulong * _ret
 ) {
-
   fd_vm_t * vm = (fd_vm_t *)_vm;
 
   /* Consume base compute cost
      https://github.com/anza-xyz/agave/blob/v2.3.1/programs/bpf_loader/src/syscalls/mod.rs#L1513 */
   FD_VM_CU_UPDATE( vm, FD_VM_SYSCALL_BASE_COST );
 
-  /*
-    Get the current instruction stack height. This value is 1-indexed (top level instrution has a stack height
-    of 1).
+  /* Get the current instruction stack height.  This value is 1-indexed
+     (top level instruction has a stack height of 1).
     https://github.com/anza-xyz/agave/blob/v2.3.1/programs/bpf_loader/src/syscalls/mod.rs#L1517 */
   ulong stack_height = vm->instr_ctx->txn_ctx->instr_stack_sz;
 
@@ -529,8 +457,9 @@ fd_vm_syscall_sol_get_processed_sibling_instruction(
     }
   }
 
-  /* If we have found an entry, then copy the instruction into the result addresses
-     https://github.com/anza-xyz/agave/blob/70089cce5119c9afaeb2986e2ecaa6d4505ec15d/programs/bpf_loader/src/syscalls/mod.rs#L1440-L1533
+  /* If we have found an entry, then copy the instruction into the
+     result addresses.
+     https://github.com/anza-xyz/agave/blob/v2.3.1/programs/bpf_loader/src/syscalls/mod.rs#L1539-L1588
    */
   if( FD_LIKELY( found_instruction_context != NULL ) ) {
     fd_instr_info_t * instr_info = found_instruction_context->instr_info;
@@ -614,17 +543,17 @@ fd_vm_syscall_sol_get_processed_sibling_instruction(
 
     /* Return true as we found a sibling instruction
        https://github.com/anza-xyz/agave/blob/v2.3.1/programs/bpf_loader/src/syscalls/mod.rs#L1588 */
-    *ret = 1UL;
+    *_ret = 1UL;
     return FD_VM_SUCCESS;
   }
 
   /* Return false if we didn't find a sibling instruction
      https://github.com/anza-xyz/agave/blob/v2.3.1/programs/bpf_loader/src/syscalls/mod.rs#L1590 */
-  *ret = 0UL;
+  *_ret = 0UL;
   return FD_VM_SUCCESS;
 }
 
-// https://github.com/anza-xyz/agave/blob/master/programs/bpf_loader/src/syscalls/sysvar.rs#L75
+/* https://github.com/anza-xyz/agave/blob/v2.3.1/programs/bpf_loader/src/syscalls/sysvar.rs#L80 */
 int
 fd_vm_syscall_sol_get_epoch_rewards_sysvar( /**/            void *  _vm,
                                             /**/            ulong   out_vaddr,
@@ -633,22 +562,21 @@ fd_vm_syscall_sol_get_epoch_rewards_sysvar( /**/            void *  _vm,
                                             FD_PARAM_UNUSED ulong   r4,
                                             FD_PARAM_UNUSED ulong   r5,
                                             /**/            ulong * _ret ) {
-  fd_vm_t * vm = (fd_vm_t *)_vm;
-
+  fd_vm_t * vm = _vm;
   fd_exec_instr_ctx_t const * instr_ctx = vm->instr_ctx;
   if( FD_UNLIKELY( !instr_ctx ) ) return FD_VM_SYSCALL_ERR_OUTSIDE_RUNTIME;
 
   FD_VM_CU_UPDATE( vm, fd_ulong_sat_add( FD_VM_SYSVAR_BASE_COST, sizeof(fd_sysvar_epoch_rewards_t) ) );
 
-  void * out = FD_VM_MEM_HADDR_ST( vm, out_vaddr, FD_VM_ALIGN_RUST_SYSVAR_EPOCH_REWARDS, sizeof(fd_sysvar_epoch_rewards_t) );
+  uchar * out = FD_VM_MEM_HADDR_ST( vm, out_vaddr, FD_VM_ALIGN_RUST_SYSVAR_EPOCH_REWARDS, sizeof(fd_sysvar_epoch_rewards_t) );
 
-  fd_sysvar_epoch_rewards_t epoch_rewards[1];
-  if( FD_UNLIKELY( !fd_sysvar_epoch_rewards_read(
-      instr_ctx->txn_ctx->funk, instr_ctx->txn_ctx->funk_txn, epoch_rewards ) ) ) {
-    FD_LOG_ERR(( "failed to read sysvar epoch rewards" ));
+  fd_sysvar_epoch_rewards_t epoch_rewards;
+  if( FD_UNLIKELY( !fd_sysvar_cache_epoch_rewards_read( instr_ctx->sysvar_cache, &epoch_rewards ) ) ) {
+    FD_TXN_ERR_FOR_LOG_INSTR( vm->instr_ctx->txn_ctx, FD_EXECUTOR_INSTR_ERR_UNSUPPORTED_SYSVAR, vm->instr_ctx->txn_ctx->instr_err_idx );
+    return FD_VM_ERR_INVAL;
   }
-
-  memcpy( out, epoch_rewards, sizeof(fd_sysvar_epoch_rewards_t) );
+  memcpy( out, &epoch_rewards, sizeof(fd_sysvar_epoch_rewards_t) );
+  memset( out+81, 0, 7 ); /* padding */
 
   *_ret = 0UL;
   return FD_VM_SUCCESS;

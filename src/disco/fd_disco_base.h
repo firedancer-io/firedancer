@@ -4,7 +4,7 @@
 #include "../tango/fd_tango.h"
 #include "../ballet/shred/fd_shred.h"
 #include "../ballet/txn/fd_txn.h"
-
+#include "../flamenco/types/fd_types_custom.h"
 #include "../util/wksp/fd_wksp_private.h"
 
 #define DST_PROTO_OUTGOING (0UL)
@@ -53,10 +53,11 @@
 #define FD_SHRED_STORE_MTU (41792UL)
 
 /* FD_SHRED_REPAIR_MTU is the maximum size of a frag on the shred_repair
-   link.  This is the size of a data shred header + merkle root. */
+   link.  This is the size of a data shred header + merkle root
+   + chained merkle root. */
 
-#define FD_SHRED_REPAIR_MTU (FD_SHRED_DATA_HEADER_SZ + FD_SHRED_MERKLE_ROOT_SZ)
-FD_STATIC_ASSERT( FD_SHRED_REPAIR_MTU == 120 , update FD_SHRED_REPAIR_MTU );
+#define FD_SHRED_REPAIR_MTU (FD_SHRED_DATA_HEADER_SZ + 2*FD_SHRED_MERKLE_ROOT_SZ)
+FD_STATIC_ASSERT( FD_SHRED_REPAIR_MTU == 152UL , update FD_SHRED_REPAIR_MTU );
 
 /* Maximum size of frags going into the writer tile. */
 #define FD_REPLAY_WRITER_MTU (128UL)
@@ -65,6 +66,14 @@ FD_STATIC_ASSERT( FD_SHRED_REPAIR_MTU == 120 , update FD_SHRED_REPAIR_MTU );
 
 #define FD_NETMUX_SIG_MIN_HDR_SZ    ( 42UL) /* The default header size, which means no vlan tags and no IP options. */
 #define FD_NETMUX_SIG_IGNORE_HDR_SZ (102UL) /* Outside the allowable range, but still fits in 4 bits when compressed */
+
+struct fd_replay_out {
+  fd_hash_t block_id;        /* block id (last FEC set's merkle root) of the slot received from replay */
+  fd_hash_t parent_block_id; /* parent block id of the slot received from replay */
+  fd_hash_t bank_hash;       /* bank hash of the slot received from replay */
+  fd_hash_t block_hash;      /* last microblock header hash of slot received from replay */
+};
+typedef struct fd_replay_out fd_replay_out_t;
 
 FD_PROTOTYPES_BEGIN
 
@@ -75,7 +84,7 @@ FD_PROTOTYPES_BEGIN
 FD_FN_CONST static inline ulong
 fd_disco_netmux_sig( uint   hash_ip_addr,
                      ushort hash_port,
-                     uint   dst_ip_addr,
+                     uint   ip_addr,
                      ulong  proto,
                      ulong  hdr_sz ) {
   /* The size of an Ethernet header is 14+4k bytes, where 0<=k<=3 (?) is
@@ -86,12 +95,12 @@ fd_disco_netmux_sig( uint   hash_ip_addr,
      size by just storing i. */
   ulong hdr_sz_i = ((hdr_sz - 42UL)>>2)&0xFUL;
   ulong hash     = 0xfffffUL & fd_ulong_hash( (ulong)hash_ip_addr | ((ulong)hash_port<<32) );
-  return (hash<<44) | ((hdr_sz_i&0xFUL)<<40UL) | ((proto&0xFFUL)<<32UL) | ((ulong)dst_ip_addr);
+  return (hash<<44) | ((hdr_sz_i&0xFUL)<<40UL) | ((proto&0xFFUL)<<32UL) | ((ulong)ip_addr);
 }
 
-FD_FN_CONST static inline ulong fd_disco_netmux_sig_hash  ( ulong sig ) { return (sig>>44UL); }
-FD_FN_CONST static inline ulong fd_disco_netmux_sig_proto ( ulong sig ) { return (sig>>32UL) & 0xFFUL; }
-FD_FN_CONST static inline uint  fd_disco_netmux_sig_dst_ip( ulong sig ) { return (uint)(sig & 0xFFFFFFFFUL); }
+FD_FN_CONST static inline ulong fd_disco_netmux_sig_hash ( ulong sig ) { return (sig>>44UL); }
+FD_FN_CONST static inline ulong fd_disco_netmux_sig_proto( ulong sig ) { return (sig>>32UL) & 0xFFUL; }
+FD_FN_CONST static inline uint  fd_disco_netmux_sig_ip   ( ulong sig ) { return (uint)(sig & 0xFFFFFFFFUL); }
 
 /* fd_disco_netmux_sig_hdr_sz extracts the total size of the Ethernet,
    IP, and UDP headers from the netmux signature field.  The UDP payload
@@ -257,8 +266,6 @@ FD_FN_CONST static inline ulong  fd_disco_repair_replay_sig_slot         ( ulong
 FD_FN_CONST static inline ushort fd_disco_repair_replay_sig_parent_off   ( ulong sig ) { return (ushort)fd_ulong_extract    ( sig, 16, 31 ); }
 FD_FN_CONST static inline uint   fd_disco_repair_replay_sig_data_cnt     ( ulong sig ) { return (uint)  fd_ulong_extract    ( sig, 1,  15 ); }
 FD_FN_CONST static inline int    fd_disco_repair_replay_sig_slot_complete( ulong sig ) { return         fd_ulong_extract_bit( sig, 0      ); }
-
-#define FD_DISCO_REPAIR_REPLAY_MTU (sizeof(ulong) + sizeof(ushort) + sizeof(uint) + sizeof(int))
 
 FD_FN_PURE static inline ulong
 fd_disco_compact_chunk0( void * wksp ) {

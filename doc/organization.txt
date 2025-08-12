@@ -2,10 +2,10 @@ Firedancer source tree
 
   firedancer/
   │
-  ├── .github/         GitHub CI configuration
+  ├── book/            https://docs.firedancer.io/
   │
   ├── build/                   Build artifacts
-  │   └── linux/gcc/x86_64     Build profile
+  │   └── native/gcc           Build profile
   │       ├── bin/             Main programs and scripts
   │       ├── cov/             Coverage report
   │       ├── include/         Exported include headers
@@ -13,13 +13,17 @@ Firedancer source tree
   │       ├── obj/             Object files of individual compile units
   │       └── unit-test/       Test binaries
   │
-  ├── config/          GNU Make configuration
+  ├── config/          Build system (GNU Make)
   │
   ├── contrib/         Miscellaneous developer tooling
   │   ├── codegen/     Scripts used to generate code
-  │   ├── docker/      Reference container configuration
   │   ├── test/        Scripts used to run tests
   │   └── tool/        Config files for developer tools
+  │
+  ├── corpus/          Fuzz seed corpus
+  ├── dump/            Fuzz regression vectors, ledger archives
+  │
+  ├── frontend/        Firedancer GUI
   │
   ├── opt/
   │   ├── git/         Third-party dependency repos
@@ -43,19 +47,26 @@ Firedancer source tree
       │
       ├── choreo/      Consensus components (fork choice, voting)
       │
-      ├── disco/       Tiles running on the tango messaging layer
+      ├── disco/       Common tiles (network stack, block production)
       │
-      ├── flamenco/    Major Solana runtime components
+      ├── discof/      Full Firedancer tiles (consensus, runtime, RPC)
       │
-      ├── funk/        Database optimized for storing Solana ledger and
-      │                accounts
+      ├── discoh/      Frankendancer tiles (Agave FFI)
+      │
+      ├── flamenco/    Solana SVM / runtime
+      │
+      ├── funk/        Fork-aware in-memory key-value store (accounts DB, program cache)
+      │
+      ├── groove/      Disk-backed memory-mapped key-value cold store (accounts DB)
       │
       ├── tango/       IPC messaging layer
       │
       ├── util/        C language environment, system runtime, common data
       │                structures and various utilities (math, bits, rng ...)
       │
-      └── waltz/       Networking
+      ├── waltz/       Networking
+      │
+      └── wiredancer/  FPGA modules
 
 Important files
 

@@ -57,11 +57,10 @@ execve_as_root( int     argc,
 config_t config;
 
 int
-fd_dev_main( int          argc,
-             char **      _argv,
-             int          is_firedancer,
-             char const * default_config,
-             ulong        default_config_sz,
+fd_dev_main( int                        argc,
+             char **                    _argv,
+             int                        is_firedancer,
+             fd_config_file_t * const * configs,
              void (* topo_init )( config_t * config ) ) {
   /* save original arguments list in case we need to respawn the process
      as privileged */
@@ -116,7 +115,7 @@ fd_dev_main( int          argc,
     exit( 1 );
   }
 
-  fd_main_init( &argc, &argv, &config, opt_user_config_path, is_firedancer, action->is_local_cluster, log_path, default_config, default_config_sz, topo_init );
+  fd_main_init( &argc, &argv, &config, opt_user_config_path, is_firedancer, action->is_local_cluster, log_path, configs, topo_init );
 
   config.development.no_clone = config.development.no_clone || no_clone;
   config.development.sandbox = config.development.sandbox && !no_sandbox && !no_clone;
@@ -126,6 +125,8 @@ fd_dev_main( int          argc,
     FD_LOG_ERR(( "The `fddev` command is for development and test environments but your "
                  "configuration targets a live cluster. Use `fdctl` if this is a "
                  "production environment" ));
+
+  if( FD_LIKELY( action->topo ) ) action->topo( &config );
 
   args_t args = {0};
   if( FD_LIKELY( action->args ) ) action->args( &argc, &argv, &args );
@@ -143,6 +144,7 @@ fd_dev_main( int          argc,
         FD_LOG_ERR(( "insufficient permissions to execute command `%s` when running as root. "
                      "fddev is likely being run with a reduced capability bounding set.", action_name ));
       }
+      FD_LOG_INFO(( "insufficient permissions to execute command `%s`, rerunning as root", action_name ));
       execve_as_root( orig_argc, orig_argv );
     }
   }

@@ -190,6 +190,8 @@
 #define STEM_LAZY (0L)
 #endif
 
+#define STEM_SHUTDOWN_SEQ (ULONG_MAX-1UL)
+
 static inline void
 STEM_(in_update)( fd_stem_tile_in_t * in ) {
   fd_fseq_update( in->fseq, in->seq );
@@ -239,7 +241,6 @@ STEM_(run1)( ulong                        in_cnt,
              ulong                        cons_cnt,
              ulong *                      _cons_out,
              ulong **                     _cons_fseq,
-             ulong *                      cons_depth,
              ulong                        burst,
              long                         lazy,
              fd_rng_t *                   rng,
@@ -348,8 +349,6 @@ STEM_(run1)( ulong                        in_cnt,
     cons_out [ cons_idx ] = _cons_out [ cons_idx ];
     cons_slow[ cons_idx ] = (ulong*)(fd_metrics_link_out( fd_metrics_base_tl, cons_idx ) + FD_METRICS_COUNTER_LINK_SLOW_COUNT_OFF);
     cons_seq [ cons_idx ] = fd_fseq_query( _cons_fseq[ cons_idx ] );
-
-    cr_max = fd_ulong_min( cr_max, cons_depth[ cons_idx ] );
   }
 
   /* housekeeping init */
@@ -434,6 +433,10 @@ STEM_(run1)( ulong                        in_cnt,
             ulong out_idx = cons_out[ cons_idx ];
             ulong cons_cr_avail = (ulong)fd_long_max( (long)out_depth[ out_idx ]-fd_long_max( fd_seq_diff( out_seq[ out_idx ], cons_seq[ cons_idx ] ), 0L ), 0L );
 
+            /* If a reliable consumer exits, they can set the credit
+               return fseq to STEM_SHUTDOWN_SEQ to indicate they are no
+               longer actively consuming. */
+            cons_cr_avail = fd_ulong_if( cons_seq[ cons_idx ]==STEM_SHUTDOWN_SEQ, out_depth[ out_idx ], cons_cr_avail );
             slowest_cons = fd_ulong_if( cons_cr_avail<min_cr_avail, cons_idx, slowest_cons );
 
             cr_avail[ out_idx ] = fd_ulong_min( cr_avail[ out_idx ], cons_cr_avail );
@@ -739,7 +742,6 @@ STEM_(run)( fd_topo_t *      topo,
 
   ulong   reliable_cons_cnt = 0UL;
   ulong   cons_out[ FD_TOPO_MAX_LINKS ];
-  ulong   cons_depth[ FD_TOPO_MAX_LINKS ];
   ulong * cons_fseq[ FD_TOPO_MAX_LINKS ];
   for( ulong i=0UL; i<topo->tile_cnt; i++ ) {
     fd_topo_tile_t * consumer_tile = &topo->tiles[ i ];
@@ -748,7 +750,6 @@ STEM_(run)( fd_topo_t *      topo,
         if( FD_UNLIKELY( consumer_tile->in_link_id[ j ]==tile->out_link_id[ k ] && consumer_tile->in_link_reliable[ j ] ) ) {
           cons_out[ reliable_cons_cnt ] = k;
           cons_fseq[ reliable_cons_cnt ] = consumer_tile->in_link_fseq[ j ];
-          cons_depth[ reliable_cons_cnt ] = topo->links[ consumer_tile->in_link_id[ j ] ].depth;
           FD_TEST( cons_fseq[ reliable_cons_cnt ] );
           reliable_cons_cnt++;
           /* Need to test this, since each link may connect to many outs,
@@ -773,7 +774,6 @@ STEM_(run)( fd_topo_t *      topo,
                reliable_cons_cnt,
                cons_out,
                cons_fseq,
-               cons_depth,
                STEM_BURST,
                STEM_LAZY,
                rng,
@@ -787,8 +787,9 @@ STEM_(run)( fd_topo_t *      topo,
       /* Return infinite credits on any reliable consumer links so that
          producers now no longer expect us to consume. */
       ulong fseq_id = tile->in_link_fseq_obj_id[ i ];
-      ulong * fseq = fd_topo_obj_laddr( topo, fseq_id );
-      fd_fseq_update( fseq, ULONG_MAX );
+      ulong * fseq = fd_fseq_join( fd_topo_obj_laddr( topo, fseq_id ) );
+      FD_TEST( fseq );
+      fd_fseq_update( fseq, STEM_SHUTDOWN_SEQ );
     }
   }
 }

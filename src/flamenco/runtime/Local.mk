@@ -2,26 +2,18 @@ ifdef FD_HAS_INT128
 $(call add-hdrs,fd_acc_mgr.h)
 $(call add-objs,fd_acc_mgr,fd_flamenco)
 
-$(call add-hdrs,fd_txn_account.h)
-$(call add-objs,fd_txn_account,fd_flamenco)
-
 $(call add-hdrs,fd_bank_hash_cmp.h fd_rwseq_lock.h)
 $(call add-objs,fd_bank_hash_cmp,fd_flamenco)
 
 $(call add-hdrs,fd_blockhashes.h)
 $(call add-objs,fd_blockhashes,fd_flamenco)
-$(call make-unit-test,test_blockhashes,test_blockhashes,fd_flamenco fd_ballet fd_util)
-$(call run-unit-test,test_blockhashes)
-
-$(call add-hdrs,fd_blockstore.h fd_rwseq_lock.h)
-$(call add-objs,fd_blockstore,fd_flamenco)
-$(call make-unit-test,test_blockstore,test_blockstore, fd_flamenco fd_util fd_ballet,$(SECP256K1_LIBS))
 
 $(call add-hdrs,fd_executor.h)
 $(call add-objs,fd_executor,fd_flamenco)
 
 $(call add-hdrs,fd_hashes.h)
 $(call add-objs,fd_hashes,fd_flamenco)
+$(call make-unit-test,test_hashes,test_hashes,fd_flamenco fd_funk fd_ballet fd_util)
 
 $(call add-hdrs,fd_pubkey_utils.h)
 $(call add-objs,fd_pubkey_utils,fd_flamenco)
@@ -44,7 +36,10 @@ $(call add-objs,fd_borrowed_account,fd_flamenco)
 $(call add-hdrs, tests/fd_dump_pb.h)
 $(call add-objs, tests/fd_dump_pb,fd_flamenco)
 
-$(call add-hdrs,fd_rent_lists.h)
+$(call add-hdrs,fd_txn_account.h)
+$(call add-objs,fd_txn_account,fd_flamenco)
+$(call make-unit-test,test_txn_account,test_txn_account,fd_flamenco fd_funk fd_ballet fd_util)
+$(call run-unit-test,test_txn_account,)
 
 $(call add-hdrs,fd_bank.h)
 $(call add-objs,fd_bank,fd_flamenco)
@@ -72,7 +67,6 @@ $(call run-unit-test,test_system_ids,)
 ifdef FD_HAS_ROCKSDB
 $(call add-hdrs,fd_rocksdb.h)
 $(call add-objs,fd_rocksdb,fd_flamenco)
-$(call make-bin,fd_blockstore_tool,fd_blockstore_tool,fd_util fd_flamenco fd_ballet fd_util, $(ROCKSDB_LIBS))
 endif
 
 ifdef FD_HAS_ATOMIC

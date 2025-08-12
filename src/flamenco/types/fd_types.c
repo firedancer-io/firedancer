@@ -16175,13 +16175,10 @@ int fd_bpf_upgradeable_loader_program_instruction_encode( fd_bpf_upgradeable_loa
 
 int fd_bpf_upgradeable_loader_state_buffer_encode( fd_bpf_upgradeable_loader_state_buffer_t const * self, fd_bincode_encode_ctx_t * ctx ) {
   int err;
-  if( self->authority_address != NULL ) {
-    err = fd_bincode_bool_encode( 1, ctx );
-    if( FD_UNLIKELY( err ) ) return err;
-    err = fd_pubkey_encode( self->authority_address, ctx );
-    if( FD_UNLIKELY( err ) ) return err;
-  } else {
-    err = fd_bincode_bool_encode( 0, ctx );
+  err = fd_bincode_bool_encode( self->has_authority_address, ctx );
+  if( FD_UNLIKELY( err ) ) return err;
+  if( self->has_authority_address ) {
+    err = fd_pubkey_encode( &self->authority_address, ctx );
     if( FD_UNLIKELY( err ) ) return err;
   }
   return FD_BINCODE_SUCCESS;
@@ -16194,7 +16191,6 @@ static int fd_bpf_upgradeable_loader_state_buffer_decode_footprint_inner( fd_bin
     err = fd_bincode_bool_decode( &o, ctx );
     if( FD_UNLIKELY( err!=FD_BINCODE_SUCCESS ) ) return err;
     if( o ) {
-    *total_sz += FD_PUBKEY_ALIGN + sizeof(fd_pubkey_t);
       err = fd_pubkey_decode_footprint_inner( ctx, total_sz );
       if( FD_UNLIKELY( err!=FD_BINCODE_SUCCESS ) ) return err;
     }
@@ -16214,14 +16210,10 @@ static void fd_bpf_upgradeable_loader_state_buffer_decode_inner( void * struct_m
   {
     uchar o;
     fd_bincode_bool_decode_unsafe( &o, ctx );
+    self->has_authority_address = !!o;
     if( o ) {
-      *alloc_mem = (void*)fd_ulong_align_up( (ulong)*alloc_mem, FD_PUBKEY_ALIGN );
-      self->authority_address = *alloc_mem;
-      *alloc_mem = (uchar *)*alloc_mem + sizeof(fd_pubkey_t);
-      fd_pubkey_new( self->authority_address );
-      fd_pubkey_decode_inner( self->authority_address, alloc_mem, ctx );
-    } else {
-      self->authority_address = NULL;
+      fd_pubkey_new( &self->authority_address );
+      fd_pubkey_decode_inner( &self->authority_address, alloc_mem, ctx );
     }
   }
 }
@@ -16239,18 +16231,18 @@ void fd_bpf_upgradeable_loader_state_buffer_new(fd_bpf_upgradeable_loader_state_
 void fd_bpf_upgradeable_loader_state_buffer_walk( void * w, fd_bpf_upgradeable_loader_state_buffer_t const * self, fd_types_walk_fn_t fun, const char *name, uint level, uint varint ) {
   (void) varint;
   fun( w, self, name, FD_FLAMENCO_TYPE_MAP, "fd_bpf_upgradeable_loader_state_buffer", level++, 0 );
-  if( !self->authority_address ) {
+  if( !self->has_authority_address ) {
     fun( w, NULL, "authority_address", FD_FLAMENCO_TYPE_NULL, "pubkey", level, 0 );
   } else {
-    fd_pubkey_walk( w, self->authority_address, fun, "authority_address", level, 0 );
+    fd_pubkey_walk( w, &self->authority_address, fun, "authority_address", level, 0 );
   }
   fun( w, self, name, FD_FLAMENCO_TYPE_MAP_END, "fd_bpf_upgradeable_loader_state_buffer", level--, 0 );
 }
 ulong fd_bpf_upgradeable_loader_state_buffer_size( fd_bpf_upgradeable_loader_state_buffer_t const * self ) {
   ulong size = 0;
   size += sizeof(char);
-  if( NULL != self->authority_address ) {
-    size += fd_pubkey_size( self->authority_address );
+  if( self->has_authority_address ) {
+    size += fd_pubkey_size( &self->authority_address );
   }
   return size;
 }
@@ -16288,13 +16280,10 @@ int fd_bpf_upgradeable_loader_state_program_data_encode( fd_bpf_upgradeable_load
   int err;
   err = fd_bincode_uint64_encode( self->slot, ctx );
   if( FD_UNLIKELY( err ) ) return err;
-  if( self->upgrade_authority_address != NULL ) {
-    err = fd_bincode_bool_encode( 1, ctx );
-    if( FD_UNLIKELY( err ) ) return err;
-    err = fd_pubkey_encode( self->upgrade_authority_address, ctx );
-    if( FD_UNLIKELY( err ) ) return err;
-  } else {
-    err = fd_bincode_bool_encode( 0, ctx );
+  err = fd_bincode_bool_encode( self->has_upgrade_authority_address, ctx );
+  if( FD_UNLIKELY( err ) ) return err;
+  if( self->has_upgrade_authority_address ) {
+    err = fd_pubkey_encode( &self->upgrade_authority_address, ctx );
     if( FD_UNLIKELY( err ) ) return err;
   }
   return FD_BINCODE_SUCCESS;
@@ -16309,7 +16298,6 @@ static int fd_bpf_upgradeable_loader_state_program_data_decode_footprint_inner( 
     err = fd_bincode_bool_decode( &o, ctx );
     if( FD_UNLIKELY( err!=FD_BINCODE_SUCCESS ) ) return err;
     if( o ) {
-    *total_sz += FD_PUBKEY_ALIGN + sizeof(fd_pubkey_t);
       err = fd_pubkey_decode_footprint_inner( ctx, total_sz );
       if( FD_UNLIKELY( err!=FD_BINCODE_SUCCESS ) ) return err;
     }
@@ -16330,14 +16318,10 @@ static void fd_bpf_upgradeable_loader_state_program_data_decode_inner( void * st
   {
     uchar o;
     fd_bincode_bool_decode_unsafe( &o, ctx );
+    self->has_upgrade_authority_address = !!o;
     if( o ) {
-      *alloc_mem = (void*)fd_ulong_align_up( (ulong)*alloc_mem, FD_PUBKEY_ALIGN );
-      self->upgrade_authority_address = *alloc_mem;
-      *alloc_mem = (uchar *)*alloc_mem + sizeof(fd_pubkey_t);
-      fd_pubkey_new( self->upgrade_authority_address );
-      fd_pubkey_decode_inner( self->upgrade_authority_address, alloc_mem, ctx );
-    } else {
-      self->upgrade_authority_address = NULL;
+      fd_pubkey_new( &self->upgrade_authority_address );
+      fd_pubkey_decode_inner( &self->upgrade_authority_address, alloc_mem, ctx );
     }
   }
 }
@@ -16356,10 +16340,10 @@ void fd_bpf_upgradeable_loader_state_program_data_walk( void * w, fd_bpf_upgrade
   (void) varint;
   fun( w, self, name, FD_FLAMENCO_TYPE_MAP, "fd_bpf_upgradeable_loader_state_program_data", level++, 0 );
   fun( w, &self->slot, "slot", FD_FLAMENCO_TYPE_ULONG, "ulong", level, 0  );
-  if( !self->upgrade_authority_address ) {
+  if( !self->has_upgrade_authority_address ) {
     fun( w, NULL, "upgrade_authority_address", FD_FLAMENCO_TYPE_NULL, "pubkey", level, 0 );
   } else {
-    fd_pubkey_walk( w, self->upgrade_authority_address, fun, "upgrade_authority_address", level, 0 );
+    fd_pubkey_walk( w, &self->upgrade_authority_address, fun, "upgrade_authority_address", level, 0 );
   }
   fun( w, self, name, FD_FLAMENCO_TYPE_MAP_END, "fd_bpf_upgradeable_loader_state_program_data", level--, 0 );
 }
@@ -16367,8 +16351,8 @@ ulong fd_bpf_upgradeable_loader_state_program_data_size( fd_bpf_upgradeable_load
   ulong size = 0;
   size += sizeof(ulong);
   size += sizeof(char);
-  if( NULL != self->upgrade_authority_address ) {
-    size += fd_pubkey_size( self->upgrade_authority_address );
+  if( self->has_upgrade_authority_address ) {
+    size += fd_pubkey_size( &self->upgrade_authority_address );
   }
   return size;
 }
@@ -25203,14 +25187,6 @@ ulong fd_vote_info_pair_size( fd_vote_info_pair_t const * self ) {
 
 int fd_epoch_info_encode( fd_epoch_info_t const * self, fd_bincode_encode_ctx_t * ctx ) {
   int err;
-  err = fd_bincode_uint64_encode( self->stake_infos_len, ctx );
-  if( FD_UNLIKELY(err) ) return err;
-  if( self->stake_infos_len ) {
-    for( ulong i=0; i < self->stake_infos_len; i++ ) {
-      err = fd_epoch_info_pair_encode( self->stake_infos + i, ctx );
-      if( FD_UNLIKELY( err ) ) return err;
-    }
-  }
   if( self->vote_states_root ) {
     ulong vote_states_len = fd_vote_info_pair_t_map_size( self->vote_states_pool, self->vote_states_root );
     err = fd_bincode_uint64_encode( vote_states_len, ctx );
@@ -25231,16 +25207,6 @@ int fd_epoch_info_encode( fd_epoch_info_t const * self, fd_bincode_encode_ctx_t 
 static int fd_epoch_info_decode_footprint_inner( fd_bincode_decode_ctx_t * ctx, ulong * total_sz ) {
   if( ctx->data>=ctx->dataend ) { return FD_BINCODE_ERR_OVERFLOW; };
   int err = 0;
-  ulong stake_infos_len;
-  err = fd_bincode_uint64_decode( &stake_infos_len, ctx );
-  if( FD_UNLIKELY( err!=FD_BINCODE_SUCCESS ) ) return err;
-  if( stake_infos_len ) {
-    *total_sz += FD_EPOCH_INFO_PAIR_ALIGN + sizeof(fd_epoch_info_pair_t)*stake_infos_len;
-    for( ulong i=0; i < stake_infos_len; i++ ) {
-      err = fd_epoch_info_pair_decode_footprint_inner( ctx, total_sz );
-      if( FD_UNLIKELY( err!=FD_BINCODE_SUCCESS ) ) return err;
-    }
-  }
   ulong vote_states_len = 0UL;
   err = fd_bincode_uint64_decode( &vote_states_len, ctx );
   ulong vote_states_cnt = !!vote_states_len ? vote_states_len : 1;
@@ -25264,17 +25230,6 @@ int fd_epoch_info_decode_footprint( fd_bincode_decode_ctx_t * ctx, ulong * total
 }
 static void fd_epoch_info_decode_inner( void * struct_mem, void * * alloc_mem, fd_bincode_decode_ctx_t * ctx ) {
   fd_epoch_info_t * self = (fd_epoch_info_t *)struct_mem;
-  fd_bincode_uint64_decode_unsafe( &self->stake_infos_len, ctx );
-  if( self->stake_infos_len ) {
-    *alloc_mem = (void*)fd_ulong_align_up( (ulong)(*alloc_mem), FD_EPOCH_INFO_PAIR_ALIGN );
-    self->stake_infos = *alloc_mem;
-    *alloc_mem = (uchar *)(*alloc_mem) + sizeof(fd_epoch_info_pair_t)*self->stake_infos_len;
-    for( ulong i=0; i < self->stake_infos_len; i++ ) {
-      fd_epoch_info_pair_new( self->stake_infos + i );
-      fd_epoch_info_pair_decode_inner( self->stake_infos + i, alloc_mem, ctx );
-    }
-  } else
-    self->stake_infos = NULL;
   ulong vote_states_len;
   fd_bincode_uint64_decode_unsafe( &vote_states_len, ctx );
   self->vote_states_pool = fd_vote_info_pair_t_map_join_new( alloc_mem, vote_states_len );
@@ -25305,12 +25260,6 @@ void fd_epoch_info_new(fd_epoch_info_t * self) {
 void fd_epoch_info_walk( void * w, fd_epoch_info_t const * self, fd_types_walk_fn_t fun, const char *name, uint level, uint varint ) {
   (void) varint;
   fun( w, self, name, FD_FLAMENCO_TYPE_MAP, "fd_epoch_info", level++, 0 );
-  if( self->stake_infos_len ) {
-    fun( w, NULL, "stake_infos", FD_FLAMENCO_TYPE_ARR, "array", level++, 0 );
-    for( ulong i=0; i < self->stake_infos_len; i++ )
-      fd_epoch_info_pair_walk(w, self->stake_infos + i, fun, "epoch_info_pair", level, 0 );
-    fun( w, NULL, "stake_infos", FD_FLAMENCO_TYPE_ARR_END, "array", level--, 0 );
-  }
   if( self->vote_states_root ) {
     for( fd_vote_info_pair_t_mapnode_t * n = fd_vote_info_pair_t_map_minimum(self->vote_states_pool, self->vote_states_root ); n; n = fd_vote_info_pair_t_map_successor( self->vote_states_pool, n ) ) {
       fd_vote_info_pair_walk(w, &n->elem, fun, "vote_states", level, 0 );
@@ -25321,11 +25270,6 @@ void fd_epoch_info_walk( void * w, fd_epoch_info_t const * self, fd_types_walk_f
 }
 ulong fd_epoch_info_size( fd_epoch_info_t const * self ) {
   ulong size = 0;
-  do {
-    size += sizeof(ulong);
-    for( ulong i=0; i < self->stake_infos_len; i++ )
-      size += fd_epoch_info_pair_size( self->stake_infos + i );
-  } while(0);
   if( self->vote_states_root ) {
     size += sizeof(ulong);
     ulong max = fd_vote_info_pair_t_map_max( self->vote_states_pool );

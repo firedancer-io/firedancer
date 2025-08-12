@@ -28,19 +28,18 @@ static void * work_thread( void * arg ) {
     key.ul[0] = key_idx;
 
     /* First try to clone the record from the ancestor. */
-    fd_funk_rec_try_clone_safe( funk, txn, &key, alignof(ulong), sizeof(ulong) );
+    fd_funk_rec_insert_para( funk, txn, &key );
 
     /* Ensure that the record exists for the current txn. */
-
     fd_funk_rec_query_t query_check[1];
     fd_funk_rec_t const * rec_check = fd_funk_rec_query_try( funk, txn, &key, query_check );
     FD_TEST( rec_check );
 
     /* Now modify the record. */
-
     fd_funk_rec_query_t query_modify[1];
     fd_funk_rec_t * rec = fd_funk_rec_modify( funk, txn, &key, query_modify );
     FD_TEST( rec );
+    FD_TEST( fd_funk_val_truncate( rec, fd_funk_alloc( funk ), fd_funk_wksp( funk ), alignof(ulong), sizeof(ulong), NULL ) );
     void * val = fd_funk_val( rec, fd_funk_wksp(funk) );
     ulong * val_ul = (ulong *)val;
     *val_ul += 1UL;

@@ -19,7 +19,6 @@ extern fd_topo_obj_callbacks_t fd_obj_cb_fib4;
 extern fd_topo_obj_callbacks_t fd_obj_cb_keyswitch;
 extern fd_topo_obj_callbacks_t fd_obj_cb_tile;
 extern fd_topo_obj_callbacks_t fd_obj_cb_runtime_pub;
-extern fd_topo_obj_callbacks_t fd_obj_cb_blockstore;
 extern fd_topo_obj_callbacks_t fd_obj_cb_store;
 extern fd_topo_obj_callbacks_t fd_obj_cb_fec_sets;
 extern fd_topo_obj_callbacks_t fd_obj_cb_txncache;
@@ -40,7 +39,6 @@ fd_topo_obj_callbacks_t * CALLBACKS[] = {
   &fd_obj_cb_keyswitch,
   &fd_obj_cb_tile,
   &fd_obj_cb_runtime_pub,
-  &fd_obj_cb_blockstore,
   &fd_obj_cb_store,
   &fd_obj_cb_fec_sets,
   &fd_obj_cb_txncache,
@@ -88,6 +86,7 @@ extern fd_topo_run_tile_t fd_tile_benchs;
 extern fd_topo_run_tile_t fd_tile_bundle;
 extern fd_topo_run_tile_t fd_tile_pktgen;
 extern fd_topo_run_tile_t fd_tile_udpecho;
+extern fd_topo_run_tile_t fd_tile_ipecho;
 
 extern fd_topo_run_tile_t fd_tile_gossip;
 extern fd_topo_run_tile_t fd_tile_repair;
@@ -151,6 +150,7 @@ fd_topo_run_tile_t * TILES[] = {
   &fd_tile_snaprd,
   &fd_tile_snapdc,
   &fd_tile_snapin,
+  &fd_tile_ipecho,
   NULL,
 };
 
@@ -181,6 +181,8 @@ extern action_t fd_action_sim;
 extern action_t fd_action_backtest;
 extern action_t fd_action_snapshot_load;
 extern action_t fd_action_repair;
+extern action_t fd_action_shred_version;
+extern action_t fd_action_ipecho_server;
 
 action_t * ACTIONS[] = {
   &fd_action_run,
@@ -210,11 +212,26 @@ action_t * ACTIONS[] = {
   &fd_action_backtest,
   &fd_action_snapshot_load,
   &fd_action_repair,
+  &fd_action_shred_version,
+  &fd_action_ipecho_server,
   NULL,
 };
 
 int
 main( int     argc,
       char ** argv ) {
-  return fd_dev_main( argc, argv, 1, (char const *)firedancer_default_config, firedancer_default_config_sz, fd_topo_initialize );
+  fd_config_file_t _default = fd_config_file_default();
+  fd_config_file_t testnet = fd_config_file_testnet();
+  fd_config_file_t devnet = fd_config_file_devnet();
+  fd_config_file_t mainnet = fd_config_file_mainnet();
+
+  fd_config_file_t * configs[] = {
+    &_default,
+    &testnet,
+    &devnet,
+    &mainnet,
+    NULL
+  };
+
+  return fd_dev_main( argc, argv, 1, configs, fd_topo_initialize );
 }

@@ -166,8 +166,8 @@ fd_fib4_hmap_insert( fd_fib4_t *     fib,
   fd_fib4_hmap_entry_t * ele = fd_fib4_hmap_query_ele( query );
   ele->dst_addr              = ip4_dst;
   FD_TEST( hop );
-  fd_memcpy( &ele->next_hop, hop, sizeof(fd_fib4_hop_t) );
-  fib->hmap_cnt              += 1;
+  ele->next_hop = *hop;
+  fib->hmap_cnt++;
 
   fd_fib4_hmap_publish( query );
 
@@ -214,7 +214,7 @@ fd_fib4_insert( fd_fib4_t *     fib,
   FD_COMPILER_MFENCE();
 
   FD_TEST( hop );
-  fd_memcpy( entry, hop, sizeof(fd_fib4_hop_t) );
+  *entry = *hop;
 
   return 1;
 }
@@ -244,7 +244,7 @@ fd_fib4_lookup( fd_fib4_t const * fib,
       if( FD_UNLIKELY( find_err ) ) {
         return &fd_fib4_hop_blackhole;
       }
-      fd_memcpy( out, &next_hop, sizeof( fd_fib4_hop_t ) );
+      *out = next_hop;
       return out;
     } else if( FD_UNLIKELY( find_err!=FD_MAP_ERR_KEY ) ) {
       return &fd_fib4_hop_blackhole;

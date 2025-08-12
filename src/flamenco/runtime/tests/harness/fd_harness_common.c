@@ -1,4 +1,8 @@
 #include "fd_harness_common.h"
+#include "../../fd_system_ids.h"
+#include "../../context/fd_exec_slot_ctx.h"
+#include "../../sysvar/fd_sysvar_recent_hashes.h"
+#include "../../program/fd_program_cache.h"
 
 ulong
 fd_runtime_fuzz_runner_align( void ) {
@@ -76,7 +80,6 @@ fd_runtime_fuzz_load_account( fd_txn_account_t *                acc,
     return 0;
   }
 
-  fd_txn_account_init( acc );
   ulong size = 0UL;
   if( state->data ) size = state->data->size;
 
@@ -87,29 +90,33 @@ fd_runtime_fuzz_load_account( fd_txn_account_t *                acc,
     return 0;
   }
 
+  fd_funk_rec_prepare_t prepare = {0};
+
   assert( funk );
   int err = fd_txn_account_init_from_funk_mutable( /* acc         */ acc,
                                                    /* pubkey      */ pubkey,
                                                    /* funk        */ funk,
                                                    /* txn         */ funk_txn,
                                                    /* do_create   */ 1,
-                                                   /* min_data_sz */ size );
+                                                   /* min_data_sz */ size,
+                                                   /* prepare     */ &prepare );
   assert( err==FD_ACC_MGR_SUCCESS );
+
   if( state->data ) {
-    acc->vt->set_data( acc, state->data->bytes, size );
+    fd_txn_account_set_data( acc, state->data->bytes, size );
   }
 
   acc->starting_lamports = state->lamports;
   acc->starting_dlen     = size;
-  acc->vt->set_lamports( acc, state->lamports );
-  acc->vt->set_executable( acc, state->executable );
-  acc->vt->set_rent_epoch( acc, state->rent_epoch );
-  acc->vt->set_owner( acc, (fd_pubkey_t const *)state->owner );
+  fd_txn_account_set_lamports( acc, state->lamports );
+  fd_txn_account_set_executable( acc, state->executable );
+  fd_txn_account_set_rent_epoch( acc, state->rent_epoch );
+  fd_txn_account_set_owner( acc, (fd_pubkey_t const *)state->owner );
 
   /* make the account read-only by default */
-  acc->vt->set_readonly( acc );
+  fd_txn_account_set_readonly( acc );
 
-  fd_txn_account_mutable_fini( acc, funk, funk_txn );
+  fd_txn_account_mutable_fini( acc, funk, funk_txn, &prepare );
 
   return 1;
 }
@@ -129,4 +136,16 @@ fd_runtime_fuzz_restore_features( fd_features_t *                    features,
     fd_features_set( features, id, 0UL );
   }
   return 1;
+}
+
+void
+fd_runtime_fuzz_refresh_program_cache( fd_exec_slot_ctx_t *              slot_ctx,
+                                       fd_exec_test_acct_state_t const * acct_states,
+                                       ulong                             acct_states_count,
+                                       fd_spad_t *                       runtime_spad ) {
+  for( ushort i=0; i<acct_states_count; i++ ) {
+    fd_pubkey_t pubkey[1] = {0};
+    memcpy( &pubkey, acct_states[i].address, sizeof(fd_pubkey_t) );
+    fd_program_cache_update_program( slot_ctx, pubkey, runtime_spad );
+  }
 }

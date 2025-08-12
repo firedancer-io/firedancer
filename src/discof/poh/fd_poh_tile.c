@@ -1255,8 +1255,6 @@ fd_ext_poh_reset( ulong         completed_bank_slot, /* The slot that successful
   if( FD_LIKELY( parent_block_id!=NULL ) ) {
     ctx->parent_slot = completed_bank_slot;
     memcpy( ctx->parent_block_id, parent_block_id, 32UL );
-  } else {
-    FD_LOG_WARNING(( "fd_ext_poh_reset(block_id=null,reset_slot=%lu,parent_slot=%lu) - ignored", completed_bank_slot, ctx->parent_slot ));
   }
   ctx->slot         = completed_bank_slot+1UL;
   ctx->hashcnt      = 0UL;
@@ -1796,7 +1794,6 @@ during_frag( fd_poh_ctx_t * ctx,
              ulong          chunk,
              ulong          sz,
              ulong          ctl FD_PARAM_UNUSED ) {
-  (void)sig;
   ctx->skip_frag = 0;
 
   if( FD_UNLIKELY( ctx->in_kind[ in_idx ]==IN_KIND_STAKE ) ) {
@@ -2089,8 +2086,18 @@ fd_ext_shred_set_shred_version( ulong shred_version ) {
 
 void
 fd_ext_poh_publish_gossip_vote( uchar * data,
-                                ulong   data_len ) {
-  poh_link_publish( &gossip_dedup, 1UL, data, data_len );
+                                ulong   data_len,
+                                uint    source_ipv4,
+                                uchar * pubkey ) {
+  (void)pubkey;
+  uchar txn_with_header[ FD_TPU_RAW_MTU ];
+  fd_txn_m_t * txnm = (fd_txn_m_t *)txn_with_header;
+  *txnm = (fd_txn_m_t) { 0UL };
+  txnm->payload_sz = (ushort)data_len;
+  txnm->source_ipv4 = source_ipv4;
+  txnm->source_tpu  = FD_TXN_M_TPU_SOURCE_GOSSIP;
+  fd_memcpy(txn_with_header + sizeof(fd_txn_m_t), data, data_len);
+  poh_link_publish( &gossip_dedup, 1UL, txn_with_header, fd_txn_m_realized_footprint( txnm, 0, 0 ) );
 }
 
 void

@@ -95,7 +95,8 @@ agave_boot( config_t const * config ) {
     ADDH( "--expected-shred-version", config->consensus.expected_shred_version );
   if( !config->frankendancer.consensus.wait_for_vote_to_start_leader )
     ADD1( "--no-wait-for-vote-to-start-leader");
-  for( uint const * p = config->frankendancer.consensus.hard_fork_at_slots; *p; p++ ) ADDU( "--hard-fork", *p );
+  for( ulong i=0; i<config->frankendancer.consensus.hard_fork_at_slots_cnt; i++ )
+    ADDU( "--hard-fork", config->frankendancer.consensus.hard_fork_at_slots[ i ] );
   for( ulong i=0; i<config->frankendancer.consensus.known_validators_cnt; i++ )
     ADD( "--known-validator", config->frankendancer.consensus.known_validators[ i ] );
 
@@ -153,17 +154,17 @@ agave_boot( config_t const * config ) {
   if( config->frankendancer.rpc.bigtable_ledger_storage ) ADD1( "--enable-rpc-bigtable-ledger-storage" );
 
   /* snapshots */
-  if( config->frankendancer.snapshots.enabled ) {
-    if( config->frankendancer.snapshots.incremental_snapshots ) {
+  if( !config->frankendancer.snapshots.enabled ) {
+    ADD1( "--no-snapshots" );
+  } else {
+    if( !config->frankendancer.snapshots.incremental_snapshots ) {
+      ADD1( "--no-incremental-snapshots" );
+      ADDU( "--snapshot-interval-slots", config->frankendancer.snapshots.full_snapshot_interval_slots );
+    } else {
       ADDU( "--full-snapshot-interval-slots", config->frankendancer.snapshots.full_snapshot_interval_slots );
       ADDU( "--snapshot-interval-slots", config->frankendancer.snapshots.incremental_snapshot_interval_slots );
-    } else {
-      ADDU( "--snapshot-interval-slots", config->frankendancer.snapshots.full_snapshot_interval_slots );
     }
-  } else {
-    ADDU( "--snapshot-interval-slots", (uint)0 );
   }
-  if( !config->frankendancer.snapshots.incremental_snapshots ) ADD1( "--no-incremental-snapshots" );
   ADD( "--snapshots", config->frankendancer.snapshots.path );
   if( strcmp( "", config->frankendancer.snapshots.incremental_path ) ) ADD( "--incremental-snapshot-archive-path", config->frankendancer.snapshots.incremental_path );
   ADDU( "--maximum-snapshots-to-retain", config->frankendancer.snapshots.maximum_full_snapshots_to_retain );
@@ -180,7 +181,12 @@ agave_boot( config_t const * config ) {
     }
     ADDU( "--unified-scheduler-handler-threads", config->frankendancer.layout.agave_unified_scheduler_handler_threads );
   } else {
-    ulong num_threads = fd_ulong_max( config->topo.agave_affinity_cnt-4UL, fd_ulong_min( config->topo.agave_affinity_cnt, 4UL ) );
+    //          agave_affinity_cnt >= 8  =>  agave_affinity_cnt - 4
+    //     4 <= agave_affinity_cnt <  8  =>  4
+    //          agave_affinity_cnt <  4  =>  agave_affinity_cnt
+    ulong num_threads = fd_ulong_if( config->topo.agave_affinity_cnt>=4UL,
+                                     fd_ulong_if( config->topo.agave_affinity_cnt>=8, config->topo.agave_affinity_cnt-4UL, 4UL ),
+                                     config->topo.agave_affinity_cnt );
     ADDU( "--unified-scheduler-handler-threads", (uint)num_threads );
   }
 

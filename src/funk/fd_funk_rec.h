@@ -310,10 +310,7 @@ fd_funk_rec_cancel( fd_funk_t *             funk,
    modified afterward and must then be published.
 
    NOTE: fd_funk_rec_clone is NOT thread safe and should not be used
-   concurrently with other funk read/write operations.
-
-   FIXME: This function should be removed in favor of
-   fd_funk_rec_try_clone_safe. */
+   concurrently with other funk read/write operations. */
 
 fd_funk_rec_t *
 fd_funk_rec_clone( fd_funk_t *               funk,
@@ -322,11 +319,7 @@ fd_funk_rec_clone( fd_funk_t *               funk,
                    fd_funk_rec_prepare_t *   prepare,
                    int *                     opt_err );
 
-/* fd_funk_rec_try_clone_safe is the thread-safe analog to
-   fd_funk_rec_clone. This function will try to atomically query and
-   copy the given funk record from the youngest ancestor transaction
-   of the given txn and copy it into a new record of the same key into
-   the current funk txn.
+/* fd_funk_rec_insert_para does thread-safe insertion of a funk record.
 
    Detailed Behavior:
 
@@ -345,22 +338,14 @@ fd_funk_rec_clone( fd_funk_t *               funk,
    that we were attempting to acquire the lock. If a keypair is found,
    we will free the lock and exit the function.
 
-   Otherwise, we will allocate the account and copy over the data from
-   the ancestor record. Now we will add this into the record map. At
-   this point, we can now free the lock on the hash chain.
-
-   The caller can specify the alignment and min_sz they would like for
-   the value of the record. If the caller wishes to use default
-   alignment, they can pass 0UL (see fd_funk_val_truncate() for more
-   details). */
+   Otherwise, we will allocate a new account record. Now we will add
+   this into the record map. At this point, we can now free the lock on
+   the hash chain. */
 
 void
-fd_funk_rec_try_clone_safe( fd_funk_t *               funk,
-                            fd_funk_txn_t *           txn,
-                            fd_funk_rec_key_t const * key,
-                            ulong                     align,
-                            ulong                     min_sz );
-
+fd_funk_rec_insert_para( fd_funk_t *               funk,
+                         fd_funk_txn_t *           txn,
+                         fd_funk_rec_key_t const * key );
 
 /* fd_funk_rec_remove removes the live record with the
    given (xid,key) from funk. Returns FD_FUNK_SUCCESS (0) on
@@ -389,53 +374,7 @@ int
 fd_funk_rec_remove( fd_funk_t *               funk,
                     fd_funk_txn_t *           txn,
                     fd_funk_rec_key_t const * key,
-                    fd_funk_rec_t **          rec_out,
-                    ulong                     erase_data );
-
-/*
-  fd_funk_rec_hard_remove completely removes the record from Funk,
-  and leaves no tombstone behind.
-
-  This is a dangerous API. An older version of the record in a
-  parent transaction might be exposed. In other words, the record may
-  appear to go backwards in time. We are effectively reverting an
-  update. Any information in an removed record is lost.
-
-  Always succeeds.
-*/
-void
-fd_funk_rec_hard_remove( fd_funk_t *               funk,
-                         fd_funk_txn_t *           txn,
-                         fd_funk_rec_key_t const * key );
-
-/* When a record is erased there is metadata stored in the five most
-   significant bytes of record flags.  These are helpers to make setting
-   and getting these values simple. The caller is responsible for doing
-   a check on the flag of the record before using the value of the erase
-   data. The 5 least significant bytes of the erase data parameter will
-   be used and set into the erase flag. */
-
-void
-fd_funk_rec_set_erase_data( fd_funk_rec_t * rec, ulong erase_data );
-
-ulong
-fd_funk_rec_get_erase_data( fd_funk_rec_t const * rec );
-
-/* Remove a list of tombstones from funk, thereby freeing up space in
-   the main index. All the records must be removed and published
-   beforehand. Reasons for failure include:
-
-     FD_FUNK_ERR_INVAL - bad inputs (NULL funk, NULL rec, rec is
-       obviously not from funk, etc)
-
-     FD_FUNK_ERR_KEY - the record did not appear to be a removed record.
-       Specifically, a record query of funk for rec's (xid,key) pair did
-       not return rec. Also, the record was never published.
-*/
-int
-fd_funk_rec_forget( fd_funk_t *      funk,
-                    fd_funk_rec_t ** recs,
-                    ulong            recs_cnt );
+                    fd_funk_rec_t **          rec_out );
 
 /* fd_funk_all_iter_t iterators over all funk record objects in all funk
    transactions.

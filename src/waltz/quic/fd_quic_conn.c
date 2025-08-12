@@ -46,7 +46,7 @@ fd_quic_conn_footprint_ext( fd_quic_limits_t const * limits,
     }
     layout->stream_map_lg = (int)lg;
 
-    off                     = fd_ulong_align_up( off, fd_quic_stream_align() );
+    off                     = fd_ulong_align_up( off, fd_quic_stream_map_align() );
     layout->stream_map_off  = off;
     off                    += fd_quic_stream_map_footprint( (int)lg );
   } else {
@@ -104,7 +104,8 @@ fd_quic_conn_new( void *                   mem,
   fd_memset( conn, 0, sizeof(fd_quic_conn_t) );
 
   conn->quic  = quic;
-  fd_quic_set_conn_state( conn, FD_QUIC_CONN_STATE_INVALID );
+  conn->state = FD_QUIC_CONN_STATE_INVALID;
+  quic->metrics.conn_state_cnt[ FD_QUIC_CONN_STATE_INVALID ]++;
 
   /* Initialize streams */
 

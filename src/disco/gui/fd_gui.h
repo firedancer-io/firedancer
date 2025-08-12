@@ -6,6 +6,7 @@
 #include "../pack/fd_microblock.h"
 #include "../../waltz/http/fd_http_server.h"
 #include "../../flamenco/leaders/fd_leaders.h"
+#include "../../util/hist/fd_histf.h"
 
 #include "../topo/fd_topo.h"
 
@@ -161,16 +162,18 @@ typedef struct fd_gui_tile_timers fd_gui_tile_timers_t;
 struct fd_gui_tile_stats {
   long  sample_time_nanos;
 
-  ulong net_in_rx_bytes;      /* Number of bytes received by the net or sock tile*/
-  ulong quic_conn_cnt;        /* Number of active QUIC connections */
-  ulong verify_drop_cnt;      /* Number of transactions dropped by verify tiles */
-  ulong verify_total_cnt;     /* Number of transactions received by verify tiles */
-  ulong dedup_drop_cnt;       /* Number of transactions dropped by dedup tile */
-  ulong dedup_total_cnt;      /* Number of transactions received by dedup tile */
-  ulong pack_buffer_cnt;      /* Number of buffered transactions in the pack tile */
-  ulong pack_buffer_capacity; /* Total size of the pack transaction buffer */
-  ulong bank_txn_exec_cnt;    /* Number of transactions processed by the bank tile */
-  ulong net_out_tx_bytes;     /* Number of bytes sent by the net or sock tile */
+  ulong net_in_rx_bytes;           /* Number of bytes received by the net or sock tile*/
+  ulong quic_conn_cnt;             /* Number of active QUIC connections */
+  fd_histf_t bundle_rx_delay_hist; /* Histogram of bundle rx delay */
+  ulong bundle_rtt_smoothed_nanos; /* RTT (nanoseconds) moving average */
+  ulong verify_drop_cnt;           /* Number of transactions dropped by verify tiles */
+  ulong verify_total_cnt;          /* Number of transactions received by verify tiles */
+  ulong dedup_drop_cnt;            /* Number of transactions dropped by dedup tile */
+  ulong dedup_total_cnt;           /* Number of transactions received by dedup tile */
+  ulong pack_buffer_cnt;           /* Number of buffered transactions in the pack tile */
+  ulong pack_buffer_capacity;      /* Total size of the pack transaction buffer */
+  ulong bank_txn_exec_cnt;         /* Number of transactions processed by the bank tile */
+  ulong net_out_tx_bytes;          /* Number of bytes sent by the net or sock tile */
 };
 
 typedef struct fd_gui_tile_stats fd_gui_tile_stats_t;
@@ -264,7 +267,9 @@ struct __attribute__((packed)) fd_gui_txn {
   uchar txn_end_pct;
   uchar txn_preload_end_pct;
   uchar flags; /* assigned with the FD_GUI_TXN_FLAGS_* macros */
-  uint microblock_idx;
+  uchar source_tpu; /* FD_TXN_M_TPU_SOURCE_* */
+  uint  source_ipv4;
+  uint  microblock_idx;
 };
 
 

@@ -633,7 +633,6 @@ LLVMFuzzerTestOneInput( uchar const * data,
                         ulong         size ) {
 
   if (size >= sizeof(int)) {
-    const fd_valloc_t valloc = fd_libc_alloc_virtual();
     struct Unstructured u = {
         .data = data,
         .size = size,
@@ -645,7 +644,8 @@ LLVMFuzzerTestOneInput( uchar const * data,
 
     srand( rand_uint(&u));
 
-    void *shmem = fd_valloc_malloc(valloc, fd_http_server_align(), fd_http_server_footprint( PARAMS ));
+    void * shmem = aligned_alloc( fd_http_server_align(), fd_http_server_footprint( PARAMS ) );
+    assert( shmem );
 
     fd_http_server_callbacks_t gui_callbacks = {
         .open = open_callback,
@@ -695,7 +695,7 @@ LLVMFuzzerTestOneInput( uchar const * data,
     close_reset_clients_fd(http_server);
     close(fd_http_server_fd(http_server));
     fd_http_server_delete(fd_http_server_leave(http_server));
-    fd_valloc_free(valloc, shmem);
+    free( shmem );
   }
 
   return 0;

@@ -23,7 +23,7 @@
 #endif
 static const unsigned int sock_filter_policy_fd_bundle_tile_instr_cnt = 95;
 
-static void populate_sock_filter_policy_fd_bundle_tile( ulong out_cnt, struct sock_filter * out, uint logfile_fd, uint keylog_fd, uint etc_hosts_fd, uint etc_resolv_conf) {
+static void populate_sock_filter_policy_fd_bundle_tile( ulong out_cnt, struct sock_filter * out, uint logfile_fd, uint keylog_fd, uint etc_hosts_fd, uint etc_resolv_conf ) {
   FD_TEST( out_cnt >= 95 );
   struct sock_filter filter[95] = {
     /* Check: Jump to RET_KILL_PROCESS if the script's arch != the runtime arch */

@@ -224,15 +224,13 @@ fd_funk_txn_is_only_child( fd_funk_txn_t const * txn ) {
 
 typedef struct fd_funk_rec fd_funk_rec_t;
 
-/* Return the first (oldest) record in a transaction. Returns NULL if the
-   transaction has no records yet. */
+/* fd_funk_txn_{first,last}_rec return the {first,last} record in a
+   transaction.  Returns NULL if the transaction has no records yet, or
+   if txn is NULL (root txn). */
 
 fd_funk_rec_t const *
 fd_funk_txn_first_rec( fd_funk_t *           funk,
                        fd_funk_txn_t const * txn );
-
-/* Return the last (newest) record in a transaction. Returns NULL if the
-   transaction has no records yet. */
 
 fd_funk_rec_t const *
 fd_funk_txn_last_rec( fd_funk_t *           funk,

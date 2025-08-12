@@ -140,35 +140,35 @@ setup_routing_table( fd_net_ctx_t * ctx,
 static void
 setup_netdev_table( fd_net_ctx_t * ctx ) {
   /* GRE interfaces */
-  ctx->netdev_tbl_handle.dev_tbl[IF_IDX_GRE0] = (fd_netdev_t) {
+  ctx->netdev_tbl.dev_tbl[IF_IDX_GRE0] = (fd_netdev_t) {
     .if_idx = IF_IDX_GRE0,
     .dev_type = ARPHRD_IPGRE,
     .gre_dst_ip = gre0_outer_dst_ip,
     .gre_src_ip = gre0_outer_src_ip
   };
-  ctx->netdev_tbl_handle.dev_tbl[IF_IDX_GRE1] = (fd_netdev_t) {
+  ctx->netdev_tbl.dev_tbl[IF_IDX_GRE1] = (fd_netdev_t) {
     .if_idx = IF_IDX_GRE1,
     .dev_type = ARPHRD_IPGRE,
     .gre_dst_ip = gre1_outer_dst_ip,
   };
   /* Eth0 interface */
-  ctx->netdev_tbl_handle.dev_tbl[IF_IDX_ETH0] = (fd_netdev_t) {
+  ctx->netdev_tbl.dev_tbl[IF_IDX_ETH0] = (fd_netdev_t) {
     .if_idx = IF_IDX_ETH0,
     .dev_type = ARPHRD_ETHER,
   };
   /* Eth1 interface */
-  ctx->netdev_tbl_handle.dev_tbl[IF_IDX_ETH1] = (fd_netdev_t) {
+  ctx->netdev_tbl.dev_tbl[IF_IDX_ETH1] = (fd_netdev_t) {
     .if_idx = IF_IDX_ETH1,
     .dev_type = ARPHRD_ETHER,
   };
   /* Lo interface */
-  ctx->netdev_tbl_handle.dev_tbl[IF_IDX_LO] = (fd_netdev_t) {
+  ctx->netdev_tbl.dev_tbl[IF_IDX_LO] = (fd_netdev_t) {
     .if_idx = IF_IDX_LO,
     .dev_type = ARPHRD_LOOPBACK,
   };
-  fd_memcpy( (fd_netdev_t *)ctx->netdev_tbl_handle.dev_tbl[IF_IDX_ETH0].mac_addr, eth0_src_mac_addr, 6 );
-  fd_memcpy( (fd_netdev_t *)ctx->netdev_tbl_handle.dev_tbl[IF_IDX_ETH1].mac_addr, eth1_src_mac_addr, 6 );
-  ctx->netdev_tbl_handle.hdr->dev_cnt = IF_IDX_GRE1 + 1;
+  fd_memcpy( (fd_netdev_t *)ctx->netdev_tbl.dev_tbl[IF_IDX_ETH0].mac_addr, eth0_src_mac_addr, 6 );
+  fd_memcpy( (fd_netdev_t *)ctx->netdev_tbl.dev_tbl[IF_IDX_ETH1].mac_addr, eth1_src_mac_addr, 6 );
+  ctx->netdev_tbl.hdr->dev_cnt = IF_IDX_GRE1 + 1;
 }
 
 
@@ -299,6 +299,8 @@ main( int     argc,
   ctx->free_tx.depth  = topo_tile->xdp.free_ring_depth;
   ctx->netdev_buf     = FD_SCRATCH_ALLOC_APPEND( l, fd_netdev_tbl_align(), ctx->netdev_buf_sz );
 
+  init_device_table( ctx, netdev_dbl_buf_mem );
+
   FD_TEST( fd_topo_obj_laddr( topo, topo_tile->net.umem_dcache_obj_id )==umem_dcache_mem );
   void * const umem_dcache         = fd_dcache_join( umem_dcache_mem );
   FD_TEST( umem_dcache );
@@ -386,6 +388,11 @@ main( int     argc,
   /* Routing table */
   setup_routing_table( ctx, fib4_local_mem, fib4_main_mem );
 
+  /* Ensure initial (fake) device table is valid */
+  FD_TEST( net_check_gre_interface_exists( ctx )==0 );
+  uint is_gre_inf = 0U;
+  FD_TEST( net_tx_route( ctx, FD_IP4_ADDR( 1,1,1,1 ), &is_gre_inf )==0 );
+
   /* Neighbor table */
   add_neighbor( neigh4_hmap, gre0_outer_dst_ip, eth0_dst_mac_addr[0], eth0_dst_mac_addr[1], eth0_dst_mac_addr[2], eth0_dst_mac_addr[3], eth0_dst_mac_addr[4], eth0_dst_mac_addr[5] );
   add_neighbor( neigh4_hmap, gre1_outer_dst_ip, eth1_dst_mac_addr[0], eth1_dst_mac_addr[1], eth1_dst_mac_addr[2], eth1_dst_mac_addr[3], eth1_dst_mac_addr[4], eth1_dst_mac_addr[5] );
@@ -397,15 +404,15 @@ main( int     argc,
 
   /* Netdev table */
   FD_TEST( fd_topo_obj_laddr( topo, topo_tile->xdp.netdev_dbl_buf_obj_id )==netdev_dbl_buf_mem );
-  ctx->netdev_dbl_handle = fd_dbl_buf_join( netdev_dbl_buf_mem );
-  ctx->netdev_buf_sz     = fd_netdev_tbl_footprint( NETDEV_MAX, BOND_MASTER_MAX );
-  ctx->netdev_buf        = FD_SCRATCH_ALLOC_APPEND( l, fd_netdev_tbl_align(), ctx->netdev_buf_sz );
+  ctx->netdev_dbl_buf = fd_dbl_buf_join( netdev_dbl_buf_mem );
+  ctx->netdev_buf_sz  = fd_netdev_tbl_footprint( NETDEV_MAX, BOND_MASTER_MAX );
+  ctx->netdev_buf     = FD_SCRATCH_ALLOC_APPEND( l, fd_netdev_tbl_align(), ctx->netdev_buf_sz );
   fd_netdev_tbl_new( ctx->netdev_buf, NETDEV_MAX, BOND_MASTER_MAX );
-  FD_TEST( fd_netdev_tbl_join( &ctx->netdev_tbl_handle, ctx->netdev_buf ) );
+  FD_TEST( fd_netdev_tbl_join( &ctx->netdev_tbl, ctx->netdev_buf ) );
   setup_netdev_table( ctx );
   ctx->has_gre_interface = 1;
 
-  /* ctx->in*/
+  /* ctx->in */
   ctx->in[ 0 ].mem    = fd_wksp_containing( app_tx_dcache_mem );
   ctx->in[ 0 ].chunk0 = tx_chunk0;
   ctx->in[ 0 ].wmark  = tx_wmark;

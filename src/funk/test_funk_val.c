@@ -173,7 +173,7 @@ main( int     argc,
       rec_remove( ref, rrec );
 
       fd_funk_txn_t * ttxn = rxid ? fd_funk_txn_query( xid_set( txid, rxid ), txn_map ) : NULL;
-      FD_TEST( !fd_funk_rec_remove( tst, ttxn, key_set( tkey, rkey ), NULL, 0UL ) );
+      FD_TEST( !fd_funk_rec_remove( tst, ttxn, key_set( tkey, rkey ), NULL ) );
 
     } else if( op>=2 ) { /* Prepare 8x as publish and cancel combined */
 

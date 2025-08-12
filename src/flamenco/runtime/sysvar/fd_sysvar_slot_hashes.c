@@ -24,7 +24,7 @@ fd_sysvar_slot_hashes_write( fd_exec_slot_ctx_t *      slot_ctx,
   if( fd_slot_hashes_encode_global( slot_hashes_global, &ctx ) ) {
     FD_LOG_ERR(("fd_slot_hashes_encode failed"));
   }
-  fd_sysvar_set( slot_ctx->bank, slot_ctx->funk, slot_ctx->funk_txn, &fd_sysvar_owner_id, &fd_sysvar_slot_hashes_id, enc, slot_hashes_account_size, fd_bank_slot_get( slot_ctx->bank ) );
+  fd_sysvar_account_update( slot_ctx, &fd_sysvar_slot_hashes_id, enc, slot_hashes_account_size );
 }
 
 ulong
@@ -148,13 +148,13 @@ fd_sysvar_slot_hashes_read( fd_funk_t *     funk,
      exists in the accounts database, but doesn't have any lamports,
      this means that the account does not exist. This wouldn't happen
      in a real execution environment. */
-  if( FD_UNLIKELY( rec->vt->get_lamports( rec )==0 ) ) {
+  if( FD_UNLIKELY( fd_txn_account_get_lamports( rec )==0 ) ) {
     return NULL;
   }
 
   fd_bincode_decode_ctx_t decode = {
-    .data    = rec->vt->get_data( rec ),
-    .dataend = rec->vt->get_data( rec ) + rec->vt->get_data_len( rec )
+    .data    = fd_txn_account_get_data( rec ),
+    .dataend = fd_txn_account_get_data( rec ) + fd_txn_account_get_data_len( rec )
   };
 
   ulong total_sz = 0UL;

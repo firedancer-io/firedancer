@@ -2,7 +2,6 @@
 #define HEADER_fd_src_choreo_forks_fd_forks_h
 
 #include "../../flamenco/runtime/context/fd_exec_slot_ctx.h"
-#include "../../flamenco/runtime/fd_blockstore.h"
 #include "../fd_choreo_base.h"
 #include "../ghost/fd_ghost.h"
 #include "../voter/fd_voter.h"
@@ -24,7 +23,6 @@ struct fd_fork {
                  be read or written to by downstream consumers (eg.
                  consensus, publishing) and should definitely not be
                  removed. */
-  uint  end_idx; /* the end_idx of the last batch executed on this fork */
 };
 
 typedef struct fd_fork fd_fork_t;

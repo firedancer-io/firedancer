@@ -1,3 +1,6 @@
+#ifndef FD_SCRATCH_USE_HANDHOLDING
+#define FD_SCRATCH_USE_HANDHOLDING 1
+#endif
 #include "fd_sbpf_loader.h"
 #include "../../util/fd_util.h"
 
@@ -37,19 +40,16 @@ LOAD_ELF( duplicate_entrypoint_entry )
 void test_duplicate_entrypoint_entry( void ) {
   // TODO: boilerplate
   fd_scratch_push();
-  fd_valloc_t valloc = fd_scratch_virtual();
   fd_sbpf_elf_info_t info;
 
   fd_sbpf_elf_peek( &info, duplicate_entrypoint_entry_elf, duplicate_entrypoint_entry_elf_sz, /* deploy checks */ 1, FD_SBPF_V0, FD_SBPF_V3 );
 
-  void* rodata = fd_valloc_malloc( valloc, FD_SBPF_PROG_RODATA_ALIGN, info.rodata_footprint );
+  void * rodata = fd_scratch_alloc( FD_SBPF_PROG_RODATA_ALIGN, info.rodata_footprint );
   FD_TEST( rodata );
 
+  fd_sbpf_program_t * prog = fd_sbpf_program_new( fd_scratch_alloc( fd_sbpf_program_align(), fd_sbpf_program_footprint( &info ) ), &info, rodata );
 
-
-  fd_sbpf_program_t * prog = fd_sbpf_program_new( fd_valloc_malloc( valloc, fd_sbpf_program_align(), fd_sbpf_program_footprint( &info ) ), &info, rodata );
-
-  fd_sbpf_syscalls_t * syscalls = fd_sbpf_syscalls_new( fd_valloc_malloc( valloc, fd_sbpf_syscalls_align(), fd_sbpf_syscalls_footprint() ));
+  fd_sbpf_syscalls_t * syscalls = fd_sbpf_syscalls_new( fd_scratch_alloc( fd_sbpf_syscalls_align(), fd_sbpf_syscalls_footprint() ) );
   for( uint const * x = _syscalls; *x; x++ )
       fd_sbpf_syscalls_insert( syscalls, (ulong)*x );
 

@@ -8,8 +8,8 @@ $(call add-objs,fd_builtin_programs,fd_flamenco)
 $(call add-hdrs,fd_bpf_loader_serialization.h)
 $(call add-objs,fd_bpf_loader_serialization,fd_flamenco)
 
-$(call add-hdrs,fd_bpf_program_util.h)
-$(call add-objs,fd_bpf_program_util,fd_flamenco)
+$(call add-hdrs,fd_program_cache.h)
+$(call add-objs,fd_program_cache,fd_flamenco)
 
 ### Precompiles
 
@@ -51,7 +51,7 @@ $(call add-objs,fd_native_cpi,fd_flamenco)
 ### Tests
 ifdef FD_HAS_HOSTED
 ifdef FD_HAS_SECP256K1
-$(call make-unit-test,test_program_cache,test_program_cache,fd_flamenco fd_ballet fd_util fd_funk)
+$(call make-unit-test,test_program_cache,test_program_cache,fd_flamenco fd_ballet fd_funk fd_util)
 $(call run-unit-test,test_program_cache)
 endif
 endif

@@ -8,7 +8,7 @@
 #include "../program/fd_address_lookup_table_program.h"
 #include "../../../ballet/lthash/fd_lthash.h"
 #include "../../../ballet/nanopb/pb_encode.h"
-#include "../program/fd_bpf_program_util.h"
+#include "../program/fd_program_cache.h"
 
 
 #include <errno.h>
@@ -68,21 +68,21 @@ dump_account_state( fd_txn_account_t const *    txn_account,
     fd_memcpy(output_account->address, txn_account->pubkey, sizeof(fd_pubkey_t));
 
     // Lamports
-    output_account->lamports = (uint64_t) txn_account->vt->get_lamports( txn_account );
+    output_account->lamports = (uint64_t)fd_txn_account_get_lamports( txn_account );
 
     // Data
-    output_account->data = fd_spad_alloc( spad, alignof(pb_bytes_array_t), PB_BYTES_ARRAY_T_ALLOCSIZE( txn_account->vt->get_data_len( txn_account ) ) );
-    output_account->data->size = (pb_size_t) txn_account->vt->get_data_len( txn_account );
-    fd_memcpy(output_account->data->bytes, txn_account->vt->get_data( txn_account ), txn_account->vt->get_data_len( txn_account ) );
+    output_account->data = fd_spad_alloc( spad, alignof(pb_bytes_array_t), PB_BYTES_ARRAY_T_ALLOCSIZE( fd_txn_account_get_data_len( txn_account ) ) );
+    output_account->data->size = (pb_size_t) fd_txn_account_get_data_len( txn_account );
+    fd_memcpy(output_account->data->bytes, fd_txn_account_get_data( txn_account ), fd_txn_account_get_data_len( txn_account ) );
 
     // Executable
-    output_account->executable = (bool) txn_account->vt->is_executable( txn_account );
+    output_account->executable = (bool)fd_txn_account_is_executable( txn_account );
 
     // Rent epoch
-    output_account->rent_epoch = (uint64_t) txn_account->vt->get_rent_epoch( txn_account );
+    output_account->rent_epoch = (uint64_t)fd_txn_account_get_rent_epoch( txn_account );
 
     // Owner
-    fd_memcpy(output_account->owner, txn_account->vt->get_owner( txn_account ), sizeof(fd_pubkey_t));
+    fd_memcpy(output_account->owner, fd_txn_account_get_owner( txn_account ), sizeof(fd_pubkey_t));
 
     // Seed address (not present)
     output_account->has_seed_addr = false;
@@ -137,17 +137,17 @@ dump_lut_account_and_contained_accounts(  fd_exec_slot_ctx_t const *     slot_ct
   FD_TXN_ACCOUNT_DECL( alut_account );
   fd_pubkey_t const * alut_pubkey = (fd_pubkey_t const *)((uchar *)txn_payload + lookup_table->addr_off);
   uchar account_exists = dump_account_if_not_already_dumped( slot_ctx->funk, slot_ctx->funk_txn, alut_pubkey, spad, out_account_states, out_account_states_count, alut_account );
-  if( !account_exists || alut_account->vt->get_data_len( alut_account )<FD_LOOKUP_TABLE_META_SIZE ) {
+  if( !account_exists || fd_txn_account_get_data_len( alut_account )<FD_LOOKUP_TABLE_META_SIZE ) {
     return;
   }
 
   /* Decode the ALUT account and find its referenced writable and readonly indices */
-  if( alut_account->vt->get_data_len( alut_account ) & 0x1fUL ) {
+  if( fd_txn_account_get_data_len( alut_account ) & 0x1fUL ) {
     return;
   }
 
-  fd_pubkey_t * lookup_addrs = (fd_pubkey_t *)&alut_account->vt->get_data( alut_account )[FD_LOOKUP_TABLE_META_SIZE];
-  ulong lookup_addrs_cnt     = ( alut_account->vt->get_data_len( alut_account ) - FD_LOOKUP_TABLE_META_SIZE ) >> 5UL; // = (dlen - 56) / 32
+  fd_pubkey_t * lookup_addrs = (fd_pubkey_t *)&fd_txn_account_get_data( alut_account )[FD_LOOKUP_TABLE_META_SIZE];
+  ulong lookup_addrs_cnt     = ( fd_txn_account_get_data_len( alut_account ) - FD_LOOKUP_TABLE_META_SIZE ) >> 5UL; // = (dlen - 56) / 32
   for( ulong i=0UL; i<lookup_addrs_cnt; i++ ) {
     fd_pubkey_t const * referenced_pubkey = &lookup_addrs[i];
     dump_account_if_not_already_dumped( slot_ctx->funk, slot_ctx->funk_txn, referenced_pubkey, spad, out_account_states, out_account_states_count, NULL );
@@ -426,27 +426,19 @@ create_block_context_protobuf_from_block( fd_exec_test_block_context_t * block_c
   ulong num_sysvar_entries    = (sizeof(fd_relevant_sysvar_ids) / sizeof(fd_pubkey_t));
   ulong num_loaded_builtins   = (sizeof(loaded_builtins) / sizeof(fd_pubkey_t));
 
-  fd_account_keys_global_t const *   stake_account_keys      = fd_bank_stake_account_keys_locking_query( slot_ctx->bank );
-  fd_account_keys_pair_t_mapnode_t * stake_account_keys_pool = fd_account_keys_account_keys_pool_join( stake_account_keys );
-  fd_account_keys_pair_t_mapnode_t * stake_account_keys_root = fd_account_keys_account_keys_root_join( stake_account_keys );
+  fd_stake_delegation_t * stake_delegations_pool = fd_stake_delegations_get_pool( fd_bank_stake_delegations_locking_query( slot_ctx->bank ) );
 
+  fd_vote_accounts_global_t const * vote_accounts = fd_bank_curr_epoch_stakes_locking_query( slot_ctx->bank );
+  fd_vote_accounts_pair_global_t_mapnode_t * stakes_vote_accounts_pool = fd_vote_accounts_vote_accounts_pool_join( vote_accounts );
+  fd_vote_accounts_pair_global_t_mapnode_t * stakes_vote_accounts_root = fd_vote_accounts_vote_accounts_root_join( vote_accounts );
 
-  fd_stakes_global_t const * stakes = fd_bank_stakes_locking_query( slot_ctx->bank );
-  fd_delegation_pair_t_mapnode_t * stake_delegations_pool = fd_stakes_stake_delegations_pool_join( stakes );
-  fd_delegation_pair_t_mapnode_t * stake_delegations_root = fd_stakes_stake_delegations_root_join( stakes );
-
-  fd_vote_accounts_pair_global_t_mapnode_t * stakes_vote_accounts_pool = fd_vote_accounts_vote_accounts_pool_join( &stakes->vote_accounts );
-  fd_vote_accounts_pair_global_t_mapnode_t * stakes_vote_accounts_root = fd_vote_accounts_vote_accounts_root_join( &stakes->vote_accounts );
-
-  ulong new_stake_account_cnt = fd_account_keys_pair_t_map_size( stake_account_keys_pool, stake_account_keys_root );
-  ulong stake_account_cnt     = fd_delegation_pair_t_map_size( stake_delegations_pool,
-                                                               stake_delegations_root );
+  ulong stake_account_cnt     = fd_stake_delegation_pool_used( stake_delegations_pool );
 
   ulong vote_account_t_cnt    = fd_vote_accounts_pair_global_t_map_size( stakes_vote_accounts_pool,
                                                                          stakes_vote_accounts_root );
 
-  fd_bank_stake_account_keys_end_locking_query( slot_ctx->bank );
-  fd_bank_stakes_end_locking_query( slot_ctx->bank );
+  fd_bank_curr_epoch_stakes_end_locking_query( slot_ctx->bank );
+  fd_bank_stake_delegations_end_locking_query( slot_ctx->bank );
 
 
   fd_vote_accounts_global_t const * next_epoch_stakes = fd_bank_next_epoch_stakes_locking_query( slot_ctx->bank );
@@ -465,8 +457,6 @@ create_block_context_protobuf_from_block( fd_exec_test_block_context_t * block_c
 
   ulong total_num_accounts    = num_sysvar_entries +
                                 num_loaded_builtins +
-                                new_stake_account_cnt +
-                                stake_account_cnt +
                                 stake_account_cnt +
                                 vote_account_t_cnt +
                                 vote_account_t_1_cnt +
@@ -527,41 +517,24 @@ create_block_context_protobuf_from_block( fd_exec_test_block_context_t * block_c
 
   /* Dumping stake accounts for this epoch */
 
-  stakes = fd_bank_stakes_locking_query( slot_ctx->bank );
-  stake_delegations_pool = fd_stakes_stake_delegations_pool_join( stakes );
-  stake_delegations_root = fd_stakes_stake_delegations_root_join( stakes );
+  fd_stake_delegations_t const * stake_delegations = fd_bank_stake_delegations_locking_query( slot_ctx->bank );
+  fd_stake_delegation_map_t * map = fd_stake_delegations_get_map( stake_delegations );
+  fd_stake_delegation_t *     pool = fd_stake_delegations_get_pool( stake_delegations );
 
-  /* Dumping all existing stake accounts */
-  for( fd_delegation_pair_t_mapnode_t const * curr = fd_delegation_pair_t_map_minimum_const(
-          stake_delegations_pool,
-          stake_delegations_root );
-       curr;
-       curr = fd_delegation_pair_t_map_successor_const( stake_delegations_pool, curr ) ) {
-    dump_account_if_not_already_dumped( slot_ctx->funk, slot_ctx->funk_txn, &curr->elem.account, spad, block_context->acct_states, &block_context->acct_states_count, NULL );
+  for( fd_stake_delegation_map_iter_t iter = fd_stake_delegation_map_iter_init( map, pool );
+       !fd_stake_delegation_map_iter_done( iter, map, pool );
+       iter = fd_stake_delegation_map_iter_next( iter, map, pool ) ) {
+    fd_stake_delegation_t * stake_delegation = fd_stake_delegation_map_iter_ele( iter, map, pool );
+    dump_account_if_not_already_dumped( slot_ctx->funk, slot_ctx->funk_txn, &stake_delegation->stake_account, spad, block_context->acct_states, &block_context->acct_states_count, NULL );
   }
 
-  fd_bank_stakes_end_locking_query( slot_ctx->bank );
-
-  stake_account_keys = fd_bank_stake_account_keys_locking_query( slot_ctx->bank );
-  stake_account_keys_pool = fd_account_keys_account_keys_pool_join( stake_account_keys );
-  stake_account_keys_root = fd_account_keys_account_keys_root_join( stake_account_keys );
-
-  /* Dump all new stake accounts */
-  for( fd_account_keys_pair_t_mapnode_t const * curr = fd_account_keys_pair_t_map_minimum_const(
-          stake_account_keys_pool,
-          stake_account_keys_root );
-       curr;
-       curr = fd_account_keys_pair_t_map_successor_const( stake_account_keys_pool, curr ) ) {
-    dump_account_if_not_already_dumped( slot_ctx->funk, slot_ctx->funk_txn, &curr->elem.key, spad, block_context->acct_states, &block_context->acct_states_count, NULL );
-  }
-
-  fd_bank_stake_account_keys_end_locking_query( slot_ctx->bank );
+  fd_bank_stake_delegations_end_locking_query( slot_ctx->bank );
 
   /* Dumping vote accounts for this epoch */
 
-  stakes = fd_bank_stakes_locking_query( slot_ctx->bank );
-  fd_vote_accounts_pair_global_t_mapnode_t * vote_accounts_pool = fd_vote_accounts_vote_accounts_pool_join( &stakes->vote_accounts );
-  fd_vote_accounts_pair_global_t_mapnode_t * vote_accounts_root = fd_vote_accounts_vote_accounts_root_join( &stakes->vote_accounts );
+  fd_vote_accounts_global_t const * curr_vote_accounts = fd_bank_curr_epoch_stakes_locking_query( slot_ctx->bank );
+  fd_vote_accounts_pair_global_t_mapnode_t * vote_accounts_pool = fd_vote_accounts_vote_accounts_pool_join( curr_vote_accounts );
+  fd_vote_accounts_pair_global_t_mapnode_t * vote_accounts_root = fd_vote_accounts_vote_accounts_root_join( curr_vote_accounts );
 
   /* Dump all existing vote accounts */
   for( fd_vote_accounts_pair_global_t_mapnode_t const * curr = fd_vote_accounts_pair_global_t_map_minimum_const(
@@ -572,23 +545,7 @@ create_block_context_protobuf_from_block( fd_exec_test_block_context_t * block_c
     dump_account_if_not_already_dumped( slot_ctx->funk, slot_ctx->funk_txn, &curr->elem.key, spad, block_context->acct_states, &block_context->acct_states_count, NULL );
   }
 
-  fd_bank_stakes_end_locking_query( slot_ctx->bank );
-
-  fd_account_keys_global_t const * vote_account_keys = fd_bank_vote_account_keys_locking_query( slot_ctx->bank );
-  fd_account_keys_pair_t_mapnode_t * vote_account_keys_pool = fd_account_keys_account_keys_pool_join( vote_account_keys );
-  fd_account_keys_pair_t_mapnode_t * vote_account_keys_root = fd_account_keys_account_keys_root_join( vote_account_keys );
-
-
-  /* Dump all new vote accounts */
-  for( fd_account_keys_pair_t_mapnode_t const * curr = fd_account_keys_pair_t_map_minimum_const(
-          vote_account_keys_pool,
-          vote_account_keys_root );
-       curr;
-       curr = fd_account_keys_pair_t_map_successor_const( vote_account_keys_pool, curr ) ) {
-    dump_account_if_not_already_dumped( slot_ctx->funk, slot_ctx->funk_txn, &curr->elem.key, spad, block_context->acct_states, &block_context->acct_states_count, NULL );
-  }
-
-  fd_bank_vote_account_keys_end_locking_query( slot_ctx->bank );
+  fd_bank_curr_epoch_stakes_end_locking_query( slot_ctx->bank );
 
   // BlockContext -> EpochContext -> vote_accounts_t_1 (vote accounts at epoch T-1)
   fd_vote_accounts_global_t const * next_epoch_stakes_vaccs = fd_bank_next_epoch_stakes_locking_query( slot_ctx->bank );
@@ -762,8 +719,8 @@ create_txn_context_protobuf_from_txn( fd_exec_test_txn_context_t * txn_context_m
 
     dump_account_state( txn_account, &txn_context_msg->account_shared_data[txn_context_msg->account_shared_data_count++], spad );
 
-    fd_acct_addr_t * lookup_addrs  = (fd_acct_addr_t *)&txn_account->vt->get_data( txn_account )[FD_LOOKUP_TABLE_META_SIZE];
-    ulong lookup_addrs_cnt         = (txn_account->vt->get_data_len( txn_account ) - FD_LOOKUP_TABLE_META_SIZE) >> 5UL; // = (dlen - 56) / 32
+    fd_acct_addr_t * lookup_addrs  = (fd_acct_addr_t *)&fd_txn_account_get_data( txn_account )[FD_LOOKUP_TABLE_META_SIZE];
+    ulong lookup_addrs_cnt         = (fd_txn_account_get_data_len( txn_account ) - FD_LOOKUP_TABLE_META_SIZE) >> 5UL; // = (dlen - 56) / 32
 
     /* Dump any account state refererenced in ALUTs */
     uchar const * writable_lut_idxs = txn_payload + addr_lut->writable_off;
@@ -1224,7 +1181,10 @@ FD_SPAD_FRAME_BEGIN( txn_ctx->spad ) {
 
   /* Get the programdata for the account */
   ulong         program_data_len = 0UL;
-  uchar const * program_data     = fd_bpf_get_programdata_from_account( txn_ctx->funk, txn_ctx->funk_txn, program_acc, &program_data_len, txn_ctx->spad );
+  uchar const * program_data     = fd_program_cache_get_account_programdata( txn_ctx->funk,
+                                                                             txn_ctx->funk_txn,
+                                                                             program_acc,
+                                                                             &program_data_len );
   if( program_data==NULL ) {
     return;
   }

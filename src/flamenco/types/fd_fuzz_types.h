@@ -2615,15 +2615,9 @@ void *fd_bpf_upgradeable_loader_state_buffer_generate( void *mem, void **alloc_m
   *alloc_mem = (uchar *) *alloc_mem + sizeof(fd_bpf_upgradeable_loader_state_buffer_t);
   fd_bpf_upgradeable_loader_state_buffer_new(mem);
   {
-    uchar is_null = fd_rng_uchar( rng ) % 2;
-    if( !is_null ) {
-      self->authority_address = (fd_pubkey_t *) *alloc_mem;
-      *alloc_mem = (uchar *) *alloc_mem + sizeof(fd_pubkey_t);
-      fd_pubkey_new( self->authority_address );
-      fd_pubkey_generate( self->authority_address, alloc_mem, rng );
-    }
-    else {
-    self->authority_address = NULL;
+    self->has_authority_address = fd_rng_uchar( rng ) % 2;
+    if( self->has_authority_address ) {
+      fd_pubkey_generate( &self->authority_address, alloc_mem, rng );
     }
   }
   return mem;
@@ -2643,15 +2637,9 @@ void *fd_bpf_upgradeable_loader_state_program_data_generate( void *mem, void **a
   fd_bpf_upgradeable_loader_state_program_data_new(mem);
   self->slot = fd_rng_ulong( rng );
   {
-    uchar is_null = fd_rng_uchar( rng ) % 2;
-    if( !is_null ) {
-      self->upgrade_authority_address = (fd_pubkey_t *) *alloc_mem;
-      *alloc_mem = (uchar *) *alloc_mem + sizeof(fd_pubkey_t);
-      fd_pubkey_new( self->upgrade_authority_address );
-      fd_pubkey_generate( self->upgrade_authority_address, alloc_mem, rng );
-    }
-    else {
-    self->upgrade_authority_address = NULL;
+    self->has_upgrade_authority_address = fd_rng_uchar( rng ) % 2;
+    if( self->has_upgrade_authority_address ) {
+      fd_pubkey_generate( &self->upgrade_authority_address, alloc_mem, rng );
     }
   }
   return mem;
@@ -3953,17 +3941,6 @@ void *fd_epoch_info_generate( void *mem, void **alloc_mem, fd_rng_t * rng ) {
   fd_epoch_info_t *self = (fd_epoch_info_t *) mem;
   *alloc_mem = (uchar *) *alloc_mem + sizeof(fd_epoch_info_t);
   fd_epoch_info_new(mem);
-  self->stake_infos_len = fd_rng_ulong( rng ) % 8;
-  if( self->stake_infos_len ) {
-    self->stake_infos = (fd_epoch_info_pair_t *) *alloc_mem;
-    *alloc_mem = (uchar *) *alloc_mem + sizeof(fd_epoch_info_pair_t)*self->stake_infos_len;
-    for( ulong i=0; i < self->stake_infos_len; i++ ) {
-      fd_epoch_info_pair_new( self->stake_infos + i );
-      fd_epoch_info_pair_generate( self->stake_infos + i, alloc_mem, rng );
-    }
-  } else {
-    self->stake_infos = NULL;
-  }
   ulong vote_states_len = fd_rng_ulong( rng ) % 8;
   self->vote_states_pool = fd_vote_info_pair_t_map_join_new( alloc_mem, vote_states_len );
   self->vote_states_root = NULL;

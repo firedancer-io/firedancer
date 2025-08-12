@@ -1494,7 +1494,8 @@ fd_feature_id_t const ids[] = {
     .id                        = {"\xd7\xeb\x98\x87\x27\xcf\x64\x78\xbe\x0d\x81\x84\x03\x96\x2b\x10\x77\xb6\xc9\xcb\x3b\xfd\x6c\x3b\x95\xf6\xa4\x79\xee\x74\xde\xb8"},
                                  /* FXs1zh47QbNnhXcnB6YiAQoJ4sGB91tKF3UFHLcKT7PM */
     .name                      = "remove_accounts_executable_flag_checks",
-    .cleaned_up                = {UINT_MAX, UINT_MAX, UINT_MAX} },
+    .cleaned_up                = {UINT_MAX, UINT_MAX, UINT_MAX},
+    .activated_on_all_clusters = 1 },
 
   { .index                     = offsetof(fd_features_t, fix_alt_bn128_multiplication_input_length)>>3,
     .id                        = {"\x08\xe8\xaa\x2e\x13\xc5\xc5\x54\xe2\xc3\xb4\x0e\x26\xb4\x64\x3b\xc7\xcb\x89\x6c\xc0\x06\x05\xaa\x65\x7f\x3a\x3d\x30\xee\xf9\x05"},
@@ -1630,6 +1631,12 @@ fd_feature_id_t const ids[] = {
     .id                        = {"\x40\x02\x73\x40\x0f\xb3\x11\x37\x08\x32\x50\x92\x29\x6a\x13\x68\xe5\xe5\xde\x04\x99\x41\x79\xc5\xa0\xdf\xd8\x45\x51\x44\x24\x80"},
                                  /* 5JsG4NWH8Jbrqdd8uL6BNwnyZK3dQSoieRXG5vmofj9y */
     .name                      = "enable_vote_address_leader_schedule",
+    .cleaned_up                = {UINT_MAX, UINT_MAX, UINT_MAX} },
+
+  { .index                     = offsetof(fd_features_t, enshrine_slashing_program)>>3,
+    .id                        = {"\x0c\xe8\xe3\x0a\x1b\x9d\x30\xc1\x5d\x98\x93\xa3\x19\x40\xb4\xc8\x7f\x92\x5b\x24\x5e\x7a\xe6\xec\x6b\xe8\x87\xd5\xaa\x22\xb2\x6d"},
+                                 /* sProgVaNWkYdP2eTRAy1CPrgb3b9p8yXCASrPEqo6VJ */
+    .name                      = "enshrine_slashing_program",
     .cleaned_up                = {UINT_MAX, UINT_MAX, UINT_MAX} },
 
   { .index = ULONG_MAX }
@@ -1877,6 +1884,7 @@ fd_feature_id_query( ulong prefix ) {
   case 0x7170cf84367fbb1a: return &ids[ 236 ];
   case 0xa9e3bfbaf8d67260: return &ids[ 237 ];
   case 0x3711b30f40730240: return &ids[ 238 ];
+  case 0xc1309d1b0ae3e80c: return &ids[ 239 ];
   default: break;
   }
   return NULL;
@@ -2121,4 +2129,5 @@ FD_STATIC_ASSERT( offsetof( fd_features_t, formalize_loaded_transaction_data_siz
 FD_STATIC_ASSERT( offsetof( fd_features_t, enable_extend_program_checked                           )>>3==236UL, layout );
 FD_STATIC_ASSERT( offsetof( fd_features_t, require_static_nonce_account                            )>>3==237UL, layout );
 FD_STATIC_ASSERT( offsetof( fd_features_t, enable_vote_address_leader_schedule                     )>>3==238UL, layout );
+FD_STATIC_ASSERT( offsetof( fd_features_t, enshrine_slashing_program                               )>>3==239UL, layout );
 FD_STATIC_ASSERT( sizeof( fd_features_t )>>3==FD_FEATURE_ID_CNT, layout );

@@ -104,11 +104,22 @@
 | <span class="metrics-name">quic_&#8203;received_&#8203;bytes</span> | counter | Total bytes received (including IP, UDP, QUIC headers). |
 | <span class="metrics-name">quic_&#8203;sent_&#8203;packets</span> | counter | Number of IP packets sent. |
 | <span class="metrics-name">quic_&#8203;sent_&#8203;bytes</span> | counter | Total bytes sent (including IP, UDP, QUIC headers). |
-| <span class="metrics-name">quic_&#8203;connections_&#8203;active</span> | gauge | The number of currently active QUIC connections. |
+| <span class="metrics-name">quic_&#8203;connections_&#8203;alloc</span> | gauge | The number of currently allocated QUIC connections. |
+| <span class="metrics-name">quic_&#8203;connections_&#8203;state</span><br/>{quic_&#8203;conn_&#8203;state="<span class="metrics-enum">invalid</span>"} | gauge | The number of QUIC connections in each state. (freed) |
+| <span class="metrics-name">quic_&#8203;connections_&#8203;state</span><br/>{quic_&#8203;conn_&#8203;state="<span class="metrics-enum">handshake</span>"} | gauge | The number of QUIC connections in each state. (handshaking peer) |
+| <span class="metrics-name">quic_&#8203;connections_&#8203;state</span><br/>{quic_&#8203;conn_&#8203;state="<span class="metrics-enum">handshake_&#8203;complete</span>"} | gauge | The number of QUIC connections in each state. (handshake complete, confirming with peer) |
+| <span class="metrics-name">quic_&#8203;connections_&#8203;state</span><br/>{quic_&#8203;conn_&#8203;state="<span class="metrics-enum">active</span>"} | gauge | The number of QUIC connections in each state. (active connection) |
+| <span class="metrics-name">quic_&#8203;connections_&#8203;state</span><br/>{quic_&#8203;conn_&#8203;state="<span class="metrics-enum">peer_&#8203;close</span>"} | gauge | The number of QUIC connections in each state. (peer requested close) |
+| <span class="metrics-name">quic_&#8203;connections_&#8203;state</span><br/>{quic_&#8203;conn_&#8203;state="<span class="metrics-enum">abort</span>"} | gauge | The number of QUIC connections in each state. (connection terminating due to error) |
+| <span class="metrics-name">quic_&#8203;connections_&#8203;state</span><br/>{quic_&#8203;conn_&#8203;state="<span class="metrics-enum">close_&#8203;pending</span>"} | gauge | The number of QUIC connections in each state. (connection is closing) |
+| <span class="metrics-name">quic_&#8203;connections_&#8203;state</span><br/>{quic_&#8203;conn_&#8203;state="<span class="metrics-enum">dead</span>"} | gauge | The number of QUIC connections in each state. (connection about to be freed) |
+| <span class="metrics-name">quic_&#8203;connections_&#8203;state</span><br/>{quic_&#8203;conn_&#8203;state="<span class="metrics-enum">timeout</span>"} | gauge | The number of QUIC connections in each state. (connection timed out) |
 | <span class="metrics-name">quic_&#8203;connections_&#8203;created</span> | counter | The total number of connections that have been created. |
 | <span class="metrics-name">quic_&#8203;connections_&#8203;closed</span> | counter | Number of connections gracefully closed. |
 | <span class="metrics-name">quic_&#8203;connections_&#8203;aborted</span> | counter | Number of connections aborted. |
 | <span class="metrics-name">quic_&#8203;connections_&#8203;timed_&#8203;out</span> | counter | Number of connections timed out. |
+| <span class="metrics-name">quic_&#8203;connections_&#8203;timeout_&#8203;revived</span> | counter | Number of connections revived after timing out. |
+| <span class="metrics-name">quic_&#8203;connections_&#8203;timeout_&#8203;freed</span> | counter | Number of connections freed after timing out. |
 | <span class="metrics-name">quic_&#8203;connections_&#8203;retried</span> | counter | Number of connections established with retry. |
 | <span class="metrics-name">quic_&#8203;connection_&#8203;error_&#8203;no_&#8203;slots</span> | counter | Number of connections that failed to create due to lack of slots. |
 | <span class="metrics-name">quic_&#8203;connection_&#8203;error_&#8203;retry_&#8203;fail</span> | counter | Number of connections that failed during retry (e.g. invalid token). |
@@ -194,7 +205,7 @@
 | <span class="metrics-name">bundle_&#8203;rtt_&#8203;sample</span> | gauge | Latest RTT sample at scrape time (nanoseconds) |
 | <span class="metrics-name">bundle_&#8203;rtt_&#8203;smoothed</span> | gauge | RTT moving average (nanoseconds) |
 | <span class="metrics-name">bundle_&#8203;rtt_&#8203;var</span> | gauge | RTT variance (nanoseconds) |
-| <span class="metrics-name">bundle_&#8203;message_&#8203;rx_&#8203;delay</span> | histogram | Message receive delay in seconds from bundle server to bundle client |
+| <span class="metrics-name">bundle_&#8203;message_&#8203;rx_&#8203;delay_&#8203;nanos</span> | histogram | Message receive delay in nanoseconds from bundle server to bundle client |
 
 </div>
 
@@ -436,6 +447,8 @@
 | <span class="metrics-name">shred_&#8203;force_&#8203;complete_&#8203;request</span> | counter | The number of times we received a FEC force complete message |
 | <span class="metrics-name">shred_&#8203;force_&#8203;complete_&#8203;failure</span> | counter | The number of times we failed to force complete a FEC set on request |
 | <span class="metrics-name">shred_&#8203;force_&#8203;complete_&#8203;success</span> | counter | The number of times we successfully forced completed a FEC set on request |
+| <span class="metrics-name">shred_&#8203;store_&#8203;insert_&#8203;wait</span> | histogram | Time in seconds spent waiting for the store to insert a new FEC set |
+| <span class="metrics-name">shred_&#8203;store_&#8203;insert_&#8203;work</span> | histogram | Time in seconds spent on inserting a new FEC set |
 
 </div>
 
@@ -446,6 +459,16 @@
 | Metric | Type | Description |
 |--------|------|-------------|
 | <span class="metrics-name">store_&#8203;transactions_&#8203;inserted</span> | counter | Count of transactions produced while we were leader in the shreds that have been inserted so far |
+
+</div>
+
+## Sign Tile
+
+<div class="metrics">
+
+| Metric | Type | Description |
+|--------|------|-------------|
+| <span class="metrics-name">sign_&#8203;sign_&#8203;duration_&#8203;seconds</span> | histogram | Duration of signing a message |
 
 </div>
 
@@ -467,6 +490,10 @@
 |--------|------|-------------|
 | <span class="metrics-name">replay_&#8203;slot</span> | gauge |  |
 | <span class="metrics-name">replay_&#8203;last_&#8203;voted_&#8203;slot</span> | gauge |  |
+| <span class="metrics-name">replay_&#8203;store_&#8203;read_&#8203;wait</span> | histogram | Time in seconds spent waiting for the store to read a FEC set |
+| <span class="metrics-name">replay_&#8203;store_&#8203;read_&#8203;work</span> | histogram | Time in seconds spent on reading a FEC set |
+| <span class="metrics-name">replay_&#8203;store_&#8203;publish_&#8203;wait</span> | histogram | Time in seconds spent waiting for the store to publish a new FEC set |
+| <span class="metrics-name">replay_&#8203;store_&#8203;publish_&#8203;work</span> | histogram | Time in seconds spent on publishing a new FEC set |
 
 </div>
 
@@ -721,6 +748,9 @@
 | <span class="metrics-name">repair_&#8203;sent_&#8203;pkt_&#8203;types</span><br/>{repair_&#8203;sent_&#8203;request_&#8203;types="<span class="metrics-enum">needed_&#8203;window</span>"} | counter | What types of client messages are we sending (Need Window) |
 | <span class="metrics-name">repair_&#8203;sent_&#8203;pkt_&#8203;types</span><br/>{repair_&#8203;sent_&#8203;request_&#8203;types="<span class="metrics-enum">needed_&#8203;highest_&#8203;window</span>"} | counter | What types of client messages are we sending (Need Highest Window) |
 | <span class="metrics-name">repair_&#8203;sent_&#8203;pkt_&#8203;types</span><br/>{repair_&#8203;sent_&#8203;request_&#8203;types="<span class="metrics-enum">needed_&#8203;orphan</span>"} | counter | What types of client messages are we sending (Need Orphans) |
+| <span class="metrics-name">repair_&#8203;store_&#8203;link_&#8203;wait</span> | histogram | Time in seconds spent waiting for the store to link a new FEC set |
+| <span class="metrics-name">repair_&#8203;store_&#8203;link_&#8203;work</span> | histogram | Time in seconds spent on linking a new FEC set |
+| <span class="metrics-name">repair_&#8203;sign_&#8203;duration_&#8203;seconds</span> | histogram | Duration of signing a message |
 
 </div>
 
@@ -746,11 +776,22 @@
 | <span class="metrics-name">send_&#8203;sent_&#8203;packets</span> | counter | Total count of QUIC packets sent |
 | <span class="metrics-name">send_&#8203;sent_&#8203;bytes</span> | counter | Total bytes sent via QUIC |
 | <span class="metrics-name">send_&#8203;retry_&#8203;sent</span> | counter | Total count of QUIC retry packets sent |
-| <span class="metrics-name">send_&#8203;connections_&#8203;active</span> | gauge | Number of active QUIC connections |
+| <span class="metrics-name">send_&#8203;connections_&#8203;alloc</span> | gauge | Number of currently allocated QUIC connections |
+| <span class="metrics-name">send_&#8203;connections_&#8203;state</span><br/>{quic_&#8203;conn_&#8203;state="<span class="metrics-enum">invalid</span>"} | gauge | Number of QUIC connections in each state (freed) |
+| <span class="metrics-name">send_&#8203;connections_&#8203;state</span><br/>{quic_&#8203;conn_&#8203;state="<span class="metrics-enum">handshake</span>"} | gauge | Number of QUIC connections in each state (handshaking peer) |
+| <span class="metrics-name">send_&#8203;connections_&#8203;state</span><br/>{quic_&#8203;conn_&#8203;state="<span class="metrics-enum">handshake_&#8203;complete</span>"} | gauge | Number of QUIC connections in each state (handshake complete, confirming with peer) |
+| <span class="metrics-name">send_&#8203;connections_&#8203;state</span><br/>{quic_&#8203;conn_&#8203;state="<span class="metrics-enum">active</span>"} | gauge | Number of QUIC connections in each state (active connection) |
+| <span class="metrics-name">send_&#8203;connections_&#8203;state</span><br/>{quic_&#8203;conn_&#8203;state="<span class="metrics-enum">peer_&#8203;close</span>"} | gauge | Number of QUIC connections in each state (peer requested close) |
+| <span class="metrics-name">send_&#8203;connections_&#8203;state</span><br/>{quic_&#8203;conn_&#8203;state="<span class="metrics-enum">abort</span>"} | gauge | Number of QUIC connections in each state (connection terminating due to error) |
+| <span class="metrics-name">send_&#8203;connections_&#8203;state</span><br/>{quic_&#8203;conn_&#8203;state="<span class="metrics-enum">close_&#8203;pending</span>"} | gauge | Number of QUIC connections in each state (connection is closing) |
+| <span class="metrics-name">send_&#8203;connections_&#8203;state</span><br/>{quic_&#8203;conn_&#8203;state="<span class="metrics-enum">dead</span>"} | gauge | Number of QUIC connections in each state (connection about to be freed) |
+| <span class="metrics-name">send_&#8203;connections_&#8203;state</span><br/>{quic_&#8203;conn_&#8203;state="<span class="metrics-enum">timeout</span>"} | gauge | Number of QUIC connections in each state (connection timed out) |
 | <span class="metrics-name">send_&#8203;connections_&#8203;created</span> | counter | Total count of QUIC connections created |
 | <span class="metrics-name">send_&#8203;connections_&#8203;closed</span> | counter | Total count of QUIC connections closed |
 | <span class="metrics-name">send_&#8203;connections_&#8203;aborted</span> | counter | Total count of QUIC connections aborted |
 | <span class="metrics-name">send_&#8203;connections_&#8203;timed_&#8203;out</span> | counter | Total count of QUIC connections timed out |
+| <span class="metrics-name">send_&#8203;connections_&#8203;timeout_&#8203;revived</span> | counter | Total count of QUIC connections revived after timing out |
+| <span class="metrics-name">send_&#8203;connections_&#8203;timeout_&#8203;freed</span> | counter | Total count of QUIC connections freed after timing out |
 | <span class="metrics-name">send_&#8203;connections_&#8203;retried</span> | counter | Total count of QUIC connections retried |
 | <span class="metrics-name">send_&#8203;connection_&#8203;error_&#8203;no_&#8203;slots</span> | counter | Total count of connection errors due to no slots |
 | <span class="metrics-name">send_&#8203;connection_&#8203;error_&#8203;retry_&#8203;fail</span> | counter | Total count of connection retry failures |
@@ -856,5 +897,20 @@
 | <span class="metrics-name">snapin_&#8203;full_&#8203;bytes_&#8203;read</span> | gauge | Number of bytes read so far from the full snapshot. Might decrease if snapshot load is aborted and restarted |
 | <span class="metrics-name">snapin_&#8203;incremental_&#8203;bytes_&#8203;read</span> | gauge | Number of bytes read so far from the incremental snapshot. Might decrease if snapshot load is aborted and restarted |
 | <span class="metrics-name">snapin_&#8203;accounts_&#8203;inserted</span> | gauge | Number of accounts inserted during snpashot loading. Might decrease if snapshot load is aborted and restarted |
+
+</div>
+
+## Ipecho Tile
+
+<div class="metrics">
+
+| Metric | Type | Description |
+|--------|------|-------------|
+| <span class="metrics-name">ipecho_&#8203;shred_&#8203;version</span> | gauge | The current shred version used by the validator |
+| <span class="metrics-name">ipecho_&#8203;connection_&#8203;count</span> | gauge | The number of active connections to the ipecho service |
+| <span class="metrics-name">ipecho_&#8203;connections_&#8203;closed_&#8203;ok</span> | counter | The number of connections to the ipecho service that have been made and closed normally |
+| <span class="metrics-name">ipecho_&#8203;connections_&#8203;closed_&#8203;error</span> | counter | The number of connections to the ipecho service that have been made and closed abnormally |
+| <span class="metrics-name">ipecho_&#8203;bytes_&#8203;read</span> | counter | The total number of bytes read from all connections to the ipecho service |
+| <span class="metrics-name">ipecho_&#8203;bytes_&#8203;written</span> | counter | The total number of bytes written to all connections to the ipecho service |
 
 </div>

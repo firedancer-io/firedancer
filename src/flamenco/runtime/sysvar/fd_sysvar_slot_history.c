@@ -1,8 +1,9 @@
 #include "fd_sysvar_slot_history.h"
 #include "fd_sysvar.h"
 #include "fd_sysvar_rent.h"
-#include "../fd_executor_err.h"
 #include "../fd_system_ids.h"
+#include "../fd_txn_account.h"
+#include "../../../funk/fd_funk_txn.h"
 
 /* FIXME These constants should be header defines */
 
@@ -37,7 +38,7 @@ fd_sysvar_slot_history_set( fd_slot_history_global_t * history,
 
 FD_FN_UNUSED static const ulong blocks_len = slot_history_max_entries / bits_per_block;
 
-int
+void
 fd_sysvar_slot_history_write_history( fd_exec_slot_ctx_t *       slot_ctx,
                                       fd_slot_history_global_t * history ) {
   ulong sz = slot_history_min_account_size;
@@ -47,9 +48,8 @@ fd_sysvar_slot_history_write_history( fd_exec_slot_ctx_t *       slot_ctx,
   ctx.data    = enc;
   ctx.dataend = enc + sz;
   int err = fd_slot_history_encode_global( history, &ctx );
-  if (0 != err)
-    return err;
-  return fd_sysvar_set( slot_ctx->bank, slot_ctx->funk, slot_ctx->funk_txn, &fd_sysvar_owner_id, &fd_sysvar_slot_history_id, enc, sz, fd_bank_slot_get( slot_ctx->bank ) );
+  if( FD_UNLIKELY( err!=FD_BINCODE_SUCCESS ) ) FD_LOG_ERR(( "fd_slot_history_encode_global failed" ));
+  fd_sysvar_account_update( slot_ctx, &fd_sysvar_slot_history_id, enc, sz );
 }
 
 /* https://github.com/solana-labs/solana/blob/8f2c8b8388a495d2728909e30460aa40dcc5d733/sdk/program/src/slot_history.rs#L16 */
@@ -95,8 +95,8 @@ fd_sysvar_slot_history_update( fd_exec_slot_ctx_t * slot_ctx, fd_spad_t * runtim
     FD_LOG_CRIT(( "fd_txn_account_init_from_funk_readonly(slot_history) failed: %d", err ));
 
   fd_bincode_decode_ctx_t ctx = {
-    .data    = rec->vt->get_data( rec ),
-    .dataend = rec->vt->get_data( rec ) + rec->vt->get_data_len( rec )
+    .data    = fd_txn_account_get_data( rec ),
+    .dataend = fd_txn_account_get_data( rec ) + fd_txn_account_get_data_len( rec )
   };
 
   ulong total_sz = 0UL;
@@ -116,27 +116,7 @@ fd_sysvar_slot_history_update( fd_exec_slot_ctx_t * slot_ctx, fd_spad_t * runtim
   fd_sysvar_slot_history_set( history, fd_bank_slot_get( slot_ctx->bank ) );
   history->next_slot = fd_bank_slot_get( slot_ctx->bank ) + 1;
 
-  ulong sz = fd_ulong_max( rec->vt->get_data_len( rec ), slot_history_min_account_size );
-  err = fd_txn_account_init_from_funk_mutable( rec, key, slot_ctx->funk, slot_ctx->funk_txn, 0, sz );
-  if (err)
-    FD_LOG_CRIT(( "fd_txn_account_init_from_funk_mutable(slot_history) failed: %d", err ));
-
-  fd_bincode_encode_ctx_t e_ctx = {
-    .data    = rec->vt->get_data_mut( rec ),
-    .dataend = rec->vt->get_data_mut( rec )+sz,
-  };
-
-  if( FD_UNLIKELY( fd_slot_history_encode_global( history, &e_ctx ) ) ) {
-    FD_LOG_ERR(( "fd_slot_history_encode_global failed" ));
-  }
-
-  fd_rent_t const * rent = fd_bank_rent_query( slot_ctx->bank );
-  rec->vt->set_lamports( rec, fd_rent_exempt_minimum_balance( rent, sz ) );
-
-  rec->vt->set_data_len( rec, sz );
-  rec->vt->set_owner( rec, &fd_sysvar_owner_id );
-
-  fd_txn_account_mutable_fini( rec, slot_ctx->funk, slot_ctx->funk_txn );
+  fd_sysvar_slot_history_write_history( slot_ctx, history );
 
   return 0;
 
@@ -162,13 +142,13 @@ fd_sysvar_slot_history_read( fd_funk_t *     funk,
      exists in the accounts database, but doesn't have any lamports,
      this means that the account does not exist. This wouldn't happen
      in a real execution environment. */
-  if( FD_UNLIKELY( rec->vt->get_lamports( rec ) == 0UL ) ) {
+  if( FD_UNLIKELY( fd_txn_account_get_lamports( rec )==0UL ) ) {
     return NULL;
   }
 
   fd_bincode_decode_ctx_t ctx = {
-    .data    = rec->vt->get_data( rec ),
-    .dataend = rec->vt->get_data( rec ) + rec->vt->get_data_len( rec )
+    .data    = fd_txn_account_get_data( rec ),
+    .dataend = fd_txn_account_get_data( rec ) + fd_txn_account_get_data_len( rec )
   };
 
   ulong total_sz = 0UL;

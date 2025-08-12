@@ -76,7 +76,6 @@ struct fd_exec_txn_ctx {
   fd_bank_hash_cmp_t *                 bank_hash_cmp;
   fd_funk_txn_t *                      funk_txn;
   fd_funk_t                            funk[1];
-  fd_wksp_t *                          runtime_pub_wksp;
   ulong                                slot;
 
   fd_spad_t *                          spad;                                        /* Sized out to handle the worst case footprint of single transaction execution. */
@@ -106,6 +105,15 @@ struct fd_exec_txn_ctx {
   fd_txn_account_t                executable_accounts[ MAX_TX_ACCOUNT_LOCKS ]; /* Array of BPF upgradeable loader program data accounts */
   fd_txn_account_t                accounts[ MAX_TX_ACCOUNT_LOCKS ];            /* Array of borrowed accounts accessed by this transaction. */
 
+  /* When a program is deployed or upgraded, we must queue it to be
+     updated in the program cache (if it exists already) so that
+     the cache entry's ELF / sBPF information can be updated for future
+     executions. We keep an array of pubkeys for the transaction to
+     track which programs need to be reverified. The actual queueing
+     for reverification is done in the transaction finalization step. */
+  uchar                           programs_to_reverify_cnt;
+  fd_pubkey_t                     programs_to_reverify[ MAX_TX_ACCOUNT_LOCKS ];
+
   /* The next three fields describe Agave's "rollback" accounts, which
      are copies of the fee payer and (if applicable) nonce account. If the
      transaction fails to load, the fee payer is still debited the transaction fee,
@@ -123,8 +131,6 @@ struct fd_exec_txn_ctx {
 
   uint                            num_instructions;                            /* Counter for number of instructions in txn */
   fd_txn_return_data_t            return_data;                                 /* Data returned from `return_data` syscalls */
-  fd_vote_account_cache_t *       vote_accounts_map;                           /* Cache of bank's deserialized vote accounts to support fork choice */
-  fd_vote_account_cache_entry_t * vote_accounts_pool;                          /* Memory pool for deserialized vote account cache */
   ulong                           accounts_resize_delta;                       /* Transaction level tracking for account resizing */
   fd_hash_t                       blake_txn_msg_hash;                          /* Hash of raw transaction message used by the status cache */
   ulong                           execution_fee;                               /* Execution fee paid by the fee payer in the transaction */

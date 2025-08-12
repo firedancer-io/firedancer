@@ -57,7 +57,7 @@ FD_STATIC_ASSERT( FD_REWARDS_MAX_PARTITIONS <= FD_RUNTIME_SLOTS_PER_EPOCH / MAX_
    total footprint:         4224 bytes + 384 MB + 12360 bytes = 384016584 bytes
 */
 #define FD_EPOCH_REWARDS_FOOTPRINT (384016584UL)
-/* TODO: Add some static asserts to validate this calculation*/
+/* TODO: Add some static asserts to validate this calculation */
 
 #define FD_EPOCH_REWARDS_ALIGN (128UL)
 

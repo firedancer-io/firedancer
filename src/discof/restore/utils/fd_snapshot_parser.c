@@ -2,8 +2,8 @@
 #include "fd_ssmsg.h"
 #include "fd_ssmanifest_parser.h"
 
-#include "../../../flamenco/runtime/fd_acc_mgr.h" /* FD_ACC_SZ_MAX */
 #include "../../../util/archive/fd_tar.h"
+#include "../../../flamenco/runtime/fd_runtime_public.h" /* FD_ACC_SZ_MAX */
 
 #include <errno.h>
 #include <assert.h>

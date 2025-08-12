@@ -201,7 +201,7 @@ struct fake_funk {
 
       fd_funk_txn_t * txn2 = get_real_txn(txn);
       auto key = rec->real_id();
-      assert(fd_funk_rec_remove(_real, txn2, &key, NULL, 0UL) == FD_FUNK_SUCCESS);
+      assert(fd_funk_rec_remove(_real, txn2, &key, NULL) == FD_FUNK_SUCCESS);
 
       rec->_erased = true;
       rec->_data.clear();
