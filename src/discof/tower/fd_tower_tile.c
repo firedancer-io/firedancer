@@ -10,6 +10,8 @@
 #include "../../flamenco/fd_flamenco_base.h"
 #include "../../funk/fd_funk.h"
 
+#define LOGGING 0
+
 #define IN_KIND_GOSSIP ( 0)
 #define IN_KIND_REPLAY ( 1)
 #define IN_KIND_SNAP   ( 2)
@@ -185,8 +187,10 @@ after_frag_replay( ctx_t * ctx, ulong slot, fd_replay_out_t * replay_out, ulong 
   FD_TEST( vote_txn->payload_sz > 0UL );
   fd_stem_publish( stem, ctx->send_out_idx, vote_slot, ctx->send_out_chunk, sizeof(fd_txn_p_t), 0UL, tsorig, fd_frag_meta_ts_comp( fd_tickcount() ) );
 
+# if LOGGING
   fd_ghost_print( ctx->ghost, ctx->epoch->total_stake, fd_ghost_root( ctx->ghost ) );
   fd_tower_print( ctx->tower, ctx->root );
+# endif
 }
 
 static void

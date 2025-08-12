@@ -112,6 +112,7 @@ struct fd_configf {
   struct {
     uint exec_tile_count; /* TODO: redundant ish with bank tile cnt */
     uint writer_tile_count;
+    uint sign_tile_count;
   } layout;
 
   struct {
@@ -491,6 +492,9 @@ fd_config_load( int           is_firedancer,
                 int           is_local_cluster,
                 char const *  default_config,
                 ulong         default_config_sz,
+                char const *  override_config,
+                char const *  override_config_path,
+                ulong         override_config_sz,
                 char const *  user_config,
                 ulong         user_config_sz,
                 char const *  user_config_path,

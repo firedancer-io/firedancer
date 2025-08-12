@@ -44,8 +44,8 @@ typedef struct pubkey_to_idx pubkey_to_idx_t;
 FD_STATIC_ASSERT( FD_SHRED_DEST_ALIGN>=FD_SHA256_BATCH_ALIGN, fd_shred_dest_private_align );
 
 struct __attribute__((aligned(FD_SHRED_DEST_ALIGN))) fd_shred_dest_private {
-  uchar      _sha256_batch[ FD_SHA256_BATCH_FOOTPRINT ]  __attribute__((aligned(FD_SHA256_BATCH_ALIGN)));
-  fd_chacha20rng_t rng[1];
+  uchar _sha256_batch[ FD_SHA256_BATCH_FOOTPRINT ]  __attribute__((aligned(FD_SHA256_BATCH_ALIGN)));
+  fd_chacha_rng_t rng[1];
 
   /* null_dest is initialized to all zeros.  Returned when the destination
      doesn't exist (e.g. you've asked for the 5th destination, but you only

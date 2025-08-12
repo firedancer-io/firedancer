@@ -129,7 +129,7 @@ struct __attribute__((aligned(64UL))) fd_wsample_private {
   char               poisoned_mode;
   /* Two bytes of padding here */
 
-  fd_chacha20rng_t * rng;
+  fd_chacha_rng_t * rng;
 
   /* tree: Here's where the actual tree is stored, at indices [0,
      internal_node_cnt).  The indexing scheme is explained in the long
@@ -271,7 +271,7 @@ seed_recursive( treap_ele_t * pool,
 
 void *
 fd_wsample_new_init( void             * shmem,
-                     fd_chacha20rng_t * rng,
+                     fd_chacha_rng_t * rng,
                      ulong              ele_cnt,
                      int                restore_enabled,
                      int                opt_hint ) {
@@ -391,14 +391,14 @@ fd_wsample_delete( void * shmem  ) {
 
 
 
-fd_chacha20rng_t * fd_wsample_get_rng( fd_wsample_t * sampler ) { return sampler->rng; }
+fd_chacha_rng_t * fd_wsample_get_rng( fd_wsample_t * sampler ) { return sampler->rng; }
 
 
 /* TODO: Should this function exist at all? */
 void
-fd_wsample_seed_rng( fd_chacha20rng_t * rng,
+fd_wsample_seed_rng( fd_chacha_rng_t * rng,
                      uchar seed[static 32] ) {
-  fd_chacha20rng_init( rng, seed );
+  fd_chacha20_rng_init( rng, seed );
 }
 
 
@@ -597,7 +597,7 @@ fd_wsample_remove_idx( fd_wsample_t * sampler,
    but operations with mask registers are frustratingly slow.  Instead,
    we first define x'=x+1, so then v0<=x is equivalent to v0-x'<0, or
    whether v0-x' has the high bit set.  Because of
-   fd_chacha20rng_ulong_roll's contract, we know x<ULONG_MAX, so forming
+   fd_chacha20_rng_ulong_roll's contract, we know x<ULONG_MAX, so forming
    x' is safe. We then use a _mm512_permutexvar_epi8 to essentially
    broadcast the high byte from each of the ulongs (really we just need
    the high bit) to the whole vector.  A popcnt gives us our base
@@ -734,7 +734,7 @@ fd_wsample_sample_and_remove_many( fd_wsample_t * sampler,
   for( ulong i=0UL; i<cnt; i++ ) {
     if( FD_UNLIKELY( !sampler->unremoved_weight ) ) { idxs[ i ] = FD_WSAMPLE_EMPTY;         continue; }
     if( FD_UNLIKELY(  sampler->poisoned_mode    ) ) { idxs[ i ] = FD_WSAMPLE_INDETERMINATE; continue; }
-    ulong unif = fd_chacha20rng_ulong_roll( sampler->rng, sampler->unremoved_weight+sampler->poisoned_weight );
+    ulong unif = fd_chacha20_rng_ulong_roll( sampler->rng, sampler->unremoved_weight+sampler->poisoned_weight );
     if( FD_UNLIKELY( unif>=sampler->unremoved_weight ) ) {
       idxs[ i ] = FD_WSAMPLE_INDETERMINATE;
       sampler->poisoned_mode = 1;
@@ -771,7 +771,7 @@ ulong
 fd_wsample_sample( fd_wsample_t * sampler ) {
   if( FD_UNLIKELY( !sampler->unremoved_weight ) ) return FD_WSAMPLE_EMPTY;
   if( FD_UNLIKELY(  sampler->poisoned_mode    ) ) return FD_WSAMPLE_INDETERMINATE;
-  ulong unif = fd_chacha20rng_ulong_roll( sampler->rng, sampler->unremoved_weight+sampler->poisoned_weight );
+  ulong unif = fd_chacha20_rng_ulong_roll( sampler->rng, sampler->unremoved_weight+sampler->poisoned_weight );
   if( FD_UNLIKELY( unif>=sampler->unremoved_weight ) ) return FD_WSAMPLE_INDETERMINATE;
   return (ulong)fd_wsample_map_sample( sampler, unif );
 }
@@ -780,7 +780,7 @@ ulong
 fd_wsample_sample_and_remove( fd_wsample_t * sampler ) {
   if( FD_UNLIKELY( !sampler->unremoved_weight ) ) return FD_WSAMPLE_EMPTY;
   if( FD_UNLIKELY(  sampler->poisoned_mode    ) ) return FD_WSAMPLE_INDETERMINATE;
-  ulong unif = fd_chacha20rng_ulong_roll( sampler->rng, sampler->unremoved_weight+sampler->poisoned_weight );
+  ulong unif = fd_chacha20_rng_ulong_roll( sampler->rng, sampler->unremoved_weight+sampler->poisoned_weight );
   if( FD_UNLIKELY( unif>=sampler->unremoved_weight ) ) {
     sampler->poisoned_mode = 1;
     return FD_WSAMPLE_INDETERMINATE;

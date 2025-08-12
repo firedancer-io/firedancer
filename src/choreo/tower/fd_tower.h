@@ -517,7 +517,7 @@ void *
 fd_tower_delete( void * tower );
 
 /* fd_tower_lockout_check checks if we are locked out from voting for
-   `slot`.  Returns 1 if we can vote for `slot` without violating
+   the `slot`.  Returns 1 if we can vote for `slot` without violating
    lockout, 0 otherwise.  Assumes tower is non-empty.
 
    After voting for a slot n, we are locked out for 2^k slots, where k
@@ -583,7 +583,7 @@ int
 fd_tower_lockout_check( fd_tower_t const * tower,
                         fd_ghost_t const * ghost,
                         ulong              slot,
-                        fd_hash_t const *  hash_id );
+                        fd_hash_t const *  block_id );
 
 /* fd_tower_switch_check checks if we can switch to the fork of `slot`.
    Returns 1 if we can switch, 0 otherwise.  Assumes tower is non-empty.
@@ -618,7 +618,7 @@ fd_tower_switch_check( fd_tower_t const * tower,
                        fd_epoch_t const * epoch,
                        fd_ghost_t const * ghost,
                        ulong              slot,
-                       fd_hash_t const *  hash_id );
+                       fd_hash_t const *  block_id );
 
 /* fd_tower_threshold_check checks if we pass the threshold required to
    vote for `slot`.  This is only relevant after voting for (and

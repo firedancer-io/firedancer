@@ -46,7 +46,7 @@ fd_quic_conn_footprint_ext( fd_quic_limits_t const * limits,
     }
     layout->stream_map_lg = (int)lg;
 
-    off                     = fd_ulong_align_up( off, fd_quic_stream_align() );
+    off                     = fd_ulong_align_up( off, fd_quic_stream_map_align() );
     layout->stream_map_off  = off;
     off                    += fd_quic_stream_map_footprint( (int)lg );
   } else {

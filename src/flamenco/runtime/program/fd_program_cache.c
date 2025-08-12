@@ -251,7 +251,8 @@ fd_program_cache_validate_sbpf_program( fd_exec_slot_ctx_t const * slot_ctx,
                                         fd_program_cache_entry_t * cache_entry /* out */ ) {
   ulong               prog_align     = fd_sbpf_program_align();
   ulong               prog_footprint = fd_sbpf_program_footprint( elf_info );
-  fd_sbpf_program_t * prog           = fd_sbpf_program_new(  fd_spad_alloc( runtime_spad, prog_align, prog_footprint ), elf_info, cache_entry->rodata );
+  void              * prog_mem       = fd_spad_alloc_check( runtime_spad, prog_align, prog_footprint );
+  fd_sbpf_program_t * prog           = fd_sbpf_program_new( prog_mem , elf_info, cache_entry->rodata );
   if( FD_UNLIKELY( !prog ) ) {
     FD_LOG_DEBUG(( "fd_sbpf_program_new() failed" ));
     cache_entry->failed_verification = 1;
@@ -260,7 +261,8 @@ fd_program_cache_validate_sbpf_program( fd_exec_slot_ctx_t const * slot_ctx,
 
   /* Allocate syscalls */
 
-  fd_sbpf_syscalls_t * syscalls = fd_sbpf_syscalls_new( fd_spad_alloc( runtime_spad, fd_sbpf_syscalls_align(), fd_sbpf_syscalls_footprint() ) );
+  void               * syscalls_mem = fd_spad_alloc_check( runtime_spad, fd_sbpf_syscalls_align(), fd_sbpf_syscalls_footprint() );
+  fd_sbpf_syscalls_t * syscalls     = fd_sbpf_syscalls_join( fd_sbpf_syscalls_new( syscalls_mem ) );
   if( FD_UNLIKELY( !syscalls ) ) {
     FD_LOG_CRIT(( "Call to fd_sbpf_syscalls_new() failed" ));
   }
@@ -275,6 +277,7 @@ fd_program_cache_validate_sbpf_program( fd_exec_slot_ctx_t const * slot_ctx,
   if( FD_UNLIKELY( 0!=fd_sbpf_program_load( prog, program_data, program_data_len, syscalls, false ) ) ) {
     FD_LOG_DEBUG(( "fd_sbpf_program_load() failed: %s", fd_sbpf_strerror() ));
     cache_entry->failed_verification = 1;
+    fd_sbpf_syscalls_leave( syscalls );
     return -1;
   }
 
@@ -316,6 +319,7 @@ fd_program_cache_validate_sbpf_program( fd_exec_slot_ctx_t const * slot_ctx,
   }
 
   int res = fd_vm_validate( vm );
+  fd_sbpf_syscalls_leave( syscalls );
   if( FD_UNLIKELY( res ) ) {
     FD_LOG_DEBUG(( "fd_vm_validate() failed" ));
     cache_entry->failed_verification = 1;

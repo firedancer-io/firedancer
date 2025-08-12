@@ -6,6 +6,8 @@ int server_complete = 0;
 int client_complete = 0;
 fd_quic_conn_t * server_conn = NULL;
 
+int called_final = 0;
+
 void
 my_connection_new( fd_quic_conn_t * conn FD_PARAM_UNUSED,
                    void *           vp_context FD_PARAM_UNUSED ) {
@@ -17,6 +19,12 @@ void
 my_handshake_complete( fd_quic_conn_t * conn FD_PARAM_UNUSED,
                        void *           vp_context FD_PARAM_UNUSED ) {
   client_complete = 1;
+}
+
+void
+my_connection_final( fd_quic_conn_t * conn       FD_PARAM_UNUSED,
+                     void           * vp_context FD_PARAM_UNUSED ) {
+  called_final = 1;
 }
 
 /* global "clock" */
@@ -83,6 +91,7 @@ walk_timeout_period( fd_quic_t * client_quic, fd_quic_t * server_quic, int eight
 static void
 test_quic_keep_alive( fd_quic_t * client_quic, fd_quic_t * server_quic, int keep_alive ) {
 
+  called_final = 0;
   client_quic->config.keep_alive = keep_alive;
   test_init( client_quic, server_quic );
 
@@ -92,11 +101,13 @@ test_quic_keep_alive( fd_quic_t * client_quic, fd_quic_t * server_quic, int keep
   } else {
     FD_TEST( server_conn->state == FD_QUIC_CONN_STATE_INVALID ||
              server_conn->state == FD_QUIC_CONN_STATE_DEAD );
+    FD_TEST( called_final );
   }
 }
 
 static void
 test_quic_let_die( fd_quic_t * client_quic, fd_quic_t * server_quic ) {
+  called_final = 0;
   ulong    const   timestep    = client_quic->config.idle_timeout>>3;
   fd_quic_conn_t * client_conn = test_init( client_quic, server_quic );
 
@@ -104,6 +115,7 @@ test_quic_let_die( fd_quic_t * client_quic, fd_quic_t * server_quic ) {
   walk_timeout_period( client_quic, server_quic, 8 );
   FD_TEST( server_conn->state == FD_QUIC_CONN_STATE_INVALID ||
            server_conn->state == FD_QUIC_CONN_STATE_DEAD );
+  FD_TEST( called_final );
 }
 
 static void
@@ -247,6 +259,7 @@ main( int argc, char ** argv ) {
 
   server_quic->cb.conn_new         = my_connection_new;
   client_quic->cb.conn_hs_complete = my_handshake_complete;
+  server_quic->cb.conn_final       = my_connection_final;
 
   server_quic->config.initial_rx_max_stream_data = 1<<16;
   client_quic->config.initial_rx_max_stream_data = 1<<16;

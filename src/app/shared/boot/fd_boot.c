@@ -71,16 +71,67 @@ should_colorize( void ) {
   return 0;
 }
 
+static void
+determine_override_config( int *                      pargc,
+                           char ***                   pargv,
+                           fd_config_file_t * const * configs,
+                           char const **              override_config,
+                           char const **              override_config_path,
+                           ulong *                    override_config_sz ) {
+  int testnet = fd_env_strip_cmdline_contains( pargc, pargv, "--testnet" );
+  if( FD_UNLIKELY( testnet ) ) {
+    for( ulong i=0UL; configs[ i ]; i++ ) {
+      if( FD_UNLIKELY( !strcmp( configs[ i ]->name, "testnet" ) ) ) {
+        *override_config = (char const *)configs[ i ]->data;
+        *override_config_path = configs[ i ]->name;
+        *override_config_sz = configs[ i ]->data_sz;
+        break;
+      }
+    }
+
+    if( FD_UNLIKELY( !override_config ) ) FD_LOG_ERR(( "no testnet config found" ));
+  }
+
+  int devnet = fd_env_strip_cmdline_contains( pargc, pargv, "--devnet" );
+  if( FD_UNLIKELY( devnet ) ) {
+    if( FD_UNLIKELY( testnet ) ) FD_LOG_ERR(( "cannot specify both --testnet and --devnet" ));
+    for( ulong i=0UL; configs[ i ]; i++ ) {
+      if( FD_UNLIKELY( !strcmp( configs[ i ]->name, "devnet" ) ) ) {
+        *override_config = (char const *)configs[ i ]->data;
+        *override_config_path = configs[ i ]->name;
+        *override_config_sz = configs[ i ]->data_sz;
+        break;
+      }
+    }
+
+    if( FD_UNLIKELY( !override_config ) ) FD_LOG_ERR(( "no devnet config found" ));
+  }
+
+  int mainnet = fd_env_strip_cmdline_contains( pargc, pargv, "--mainnet" );
+  if( FD_UNLIKELY( mainnet ) ) {
+    if( FD_UNLIKELY( testnet || devnet ) ) FD_LOG_ERR(( "cannot specify both --testnet or --devnet and --mainnet" ));
+    for( ulong i=0UL; configs[ i ]; i++ ) {
+      if( FD_UNLIKELY( !strcmp( configs[ i ]->name, "mainnet" ) ) ) {
+        *override_config = (char const *)configs[ i ]->data;
+        *override_config_path = configs[ i ]->name;
+        *override_config_sz = configs[ i ]->data_sz;
+        break;
+      }
+    }
+
+    if( FD_UNLIKELY( !override_config ) ) FD_LOG_ERR(( "no mainnet config found" ));
+  }
+}
+
 void
-fd_main_init( int *        pargc,
-              char ***     pargv,
-              config_t   * config,
-              const char * opt_user_config_path,
-              int          is_firedancer,
-              int          is_local_cluster,
-              char const * log_path,
-              char const * default_config,
-              ulong        default_config_sz,
+fd_main_init( int *                      pargc,
+              char ***                   pargv,
+              config_t   *               config,
+              const char *               opt_user_config_path,
+              int                        is_firedancer,
+              int                        is_local_cluster,
+              char const *               log_path,
+              fd_config_file_t * const * configs,
               void (* topo_init )( config_t * config ) ) {
   fd_log_enable_unclean_exit(); /* Don't call atexit handlers on FD_LOG_ERR */
   fd_log_level_core_set( 5 ); /* Don't dump core for FD_LOG_ERR during boot */
@@ -105,7 +156,25 @@ fd_main_init( int *        pargc,
     }
 
     int netns = fd_env_strip_cmdline_contains( pargc, pargv, "--netns" );
-    fd_config_load( is_firedancer, netns, is_local_cluster, default_config, default_config_sz, user_config, user_config_sz, opt_user_config_path, config );
+
+    char const * default_config = NULL;
+    ulong default_config_sz = 0UL;
+    for( ulong i=0UL; configs[ i ]; i++ ) {
+      if( FD_UNLIKELY( !strcmp( configs[ i ]->name, "default" ) ) ) {
+        default_config = (char const *)configs[ i ]->data;
+        default_config_sz = configs[ i ]->data_sz;
+        break;
+      }
+    }
+    if( FD_UNLIKELY( !default_config ) ) FD_LOG_ERR(( "no default config found" ));
+
+    char const * override_config = NULL;
+    char const * override_config_path = NULL;
+    ulong override_config_sz = 0UL;
+    determine_override_config( pargc, pargv, configs,
+                               &override_config, &override_config_path, &override_config_sz );
+
+    fd_config_load( is_firedancer, netns, is_local_cluster, default_config, default_config_sz, override_config, override_config_path, override_config_sz, user_config, user_config_sz, opt_user_config_path, config );
     topo_init( config );
 
     if( FD_UNLIKELY( user_config && -1==munmap( user_config, user_config_sz ) ) ) FD_LOG_ERR(( "munmap() failed (%i-%s)", errno, fd_io_strerror( errno ) ));
@@ -178,11 +247,10 @@ fd_main_init( int *        pargc,
 static config_t config;
 
 int
-fd_main( int          argc,
-         char **      _argv,
-         int          is_firedancer,
-         char const * default_config,
-         ulong        default_config_sz,
+fd_main( int                        argc,
+         char **                    _argv,
+         int                        is_firedancer,
+         fd_config_file_t * const * configs,
          void (* topo_init )( config_t * config ) ) {
   char ** argv = _argv;
   argc--; argv++;
@@ -232,7 +300,7 @@ fd_main( int          argc,
   }
 
   int is_local_cluster = action ? action->is_local_cluster : 0;
-  fd_main_init( &argc, &argv, &config, opt_user_config_path, is_firedancer, is_local_cluster, NULL, default_config, default_config_sz, topo_init );
+  fd_main_init( &argc, &argv, &config, opt_user_config_path, is_firedancer, is_local_cluster, NULL, configs, topo_init );
 
   if( FD_UNLIKELY( !action ) ) {
     help_action->fn( NULL, NULL );

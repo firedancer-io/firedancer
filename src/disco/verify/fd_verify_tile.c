@@ -3,8 +3,6 @@
 #include "../metrics/fd_metrics.h"
 #include "generated/fd_verify_tile_seccomp.h"
 
-#include <linux/unistd.h>
-
 #define IN_KIND_QUIC   (0UL)
 #define IN_KIND_BUNDLE (1UL)
 #define IN_KIND_GOSSIP (2UL)
@@ -249,6 +247,7 @@ populate_allowed_fds( fd_topo_t const *      topo,
 
 #include "../stem/fd_stem.c"
 
+#ifndef FD_TILE_TEST
 fd_topo_run_tile_t fd_tile_verify = {
   .name                     = "verify",
   .populate_allowed_seccomp = populate_allowed_seccomp,
@@ -259,3 +258,4 @@ fd_topo_run_tile_t fd_tile_verify = {
   .unprivileged_init        = unprivileged_init,
   .run                      = stem_run,
 };
+#endif

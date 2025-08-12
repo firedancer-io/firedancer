@@ -4,6 +4,10 @@ name: Builds
 on:
   workflow_call:
     inputs:
+      cid:
+        type: string
+        description: Unique identifier to allow concurrency
+        default: "0"
       gcc:
         type: string
         description: GCC versions to use
@@ -32,9 +36,9 @@ on:
         type: boolean
         description: Print build matrix and exit
         default: false
-      verbose:
+      check_run:
         type: boolean
-        description: Show error outputs
+        description: Run `make check` instead of full builds
         default: false
       exit_on_err:
         type: boolean
@@ -42,6 +46,10 @@ on:
         default: false
   workflow_dispatch:
     inputs:
+      cid:
+        type: string
+        description: Unique identifier to allow concurrency
+        default: "0"
       gcc:
         type: string
         description: GCC versions to use (comma-separated | none | all)
@@ -70,20 +78,20 @@ on:
         type: boolean
         description: Print build matrix and exit
         default: false
-      verbose:
+      check_run:
         type: boolean
-        description: Show error outputs
+        description: Run `make check` instead of full builds
         default: false
       exit_on_err:
         type: boolean
         description: Exit on the first error
         default: false
 concurrency:
-  group: builds_${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  group: builds_${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}-${{ inputs.cid }}
   cancel-in-progress: true
 jobs:
   build_gcc:
-    runs-on: ci4
+    runs-on: rocky810
     if: ${{ inputs.gcc != 'none' }}
     steps:
       - uses: actions/checkout@v4
@@ -92,6 +100,12 @@ jobs:
 
       - uses: dtolnay/rust-toolchain@1.81.0
 
+      - uses: ./.github/actions/deps
+        with:
+          compiler: gcc
+          compiler-version: 12.4.0
+          extras: +dev
+
       - name: Build command line args
         run: |
           ARGS=""
@@ -99,9 +113,9 @@ jobs:
           if [ "${{ inputs.dry_run }}" == "true" ]; then
             ARGS="$ARGS --dry-run"
           fi
-          # verbose
-          if [ "${{ inputs.verbose }}" == "true" ]; then
-            ARGS="$ARGS --verbose"
+          # check-run
+          if [ "${{ inputs.check_run }}" == "true" ]; then
+            ARGS="$ARGS --check-run --no-deps"
           fi
           # exit-on-err
           if [ "${{ inputs.exit_on_err }}" == "true" ]; then
@@ -130,7 +144,7 @@ jobs:
           contrib/build.sh --no-rust --no-clang ${{ env.BUILD_ARGS }}
 
   build_clang:
-    runs-on: ci16
+    runs-on: rocky94
     if: ${{ inputs.clang != 'none' }}
     steps:
       - uses: actions/checkout@v4
@@ -139,6 +153,12 @@ jobs:
 
       - uses: dtolnay/rust-toolchain@1.81.0
 
+      - uses: ./.github/actions/deps
+        with:
+          compiler: clang
+          compiler-version: 18.1.6
+          extras: +dev
+
       - name: Build command line args
         run: |
           ARGS=""
@@ -146,9 +166,9 @@ jobs:
           if [ "${{ inputs.dry_run }}" == "true" ]; then
             ARGS="$ARGS --dry-run"
           fi
-          # verbose
-          if [ "${{ inputs.verbose }}" == "true" ]; then
-            ARGS="$ARGS --verbose"
+          # check-run
+          if [ "${{ inputs.check_run }}" == "true" ]; then
+            ARGS="$ARGS --check-run --no-deps"
           fi
           # exit-on-err
           if [ "${{ inputs.exit_on_err }}" == "true" ]; then

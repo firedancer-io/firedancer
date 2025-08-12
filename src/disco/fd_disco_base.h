@@ -160,7 +160,7 @@ FD_FN_CONST static inline ulong fd_disco_replay_old_sig_slot( ulong sig ) { retu
 
    There are two types of messages on the shred_repair link.  The first
    type is a generic shred message. The second is a FEC set completion
-   message. Since we have run out of bits, the reciever must look at the
+   message. Since we have run out of bits, the receiver must look at the
    sz of the dcache entry to determine which type of message it is.
 
    For the first message type (SHRED):

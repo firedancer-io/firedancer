@@ -78,6 +78,7 @@ fd_config_extract_podf( uchar *        pod,
                         fd_configf_t * config ) {
   CFG_POP      ( uint,   layout.exec_tile_count                           );
   CFG_POP      ( uint,   layout.writer_tile_count                         );
+  CFG_POP      ( uint,   layout.sign_tile_count                           );
 
   CFG_POP      ( ulong,  blockstore.shred_max                             );
   CFG_POP      ( ulong,  blockstore.block_max                             );

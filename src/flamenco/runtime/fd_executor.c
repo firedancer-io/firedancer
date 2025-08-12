@@ -1143,8 +1143,7 @@ fd_instr_stack_push( fd_exec_txn_ctx_t *     txn_ctx,
   int err = fd_exec_txn_ctx_get_key_of_account_at_index( txn_ctx,
                                                          instr->program_id,
                                                          &program_id_pubkey );
-  if( FD_UNLIKELY( err ||
-                   !memcmp( program_id_pubkey->key, fd_solana_native_loader_id.key, sizeof(fd_pubkey_t) ) ) ) {
+  if( FD_UNLIKELY( err ) ) {
     return FD_EXECUTOR_INSTR_ERR_UNSUPPORTED_PROGRAM_ID;
   }
 

@@ -130,49 +130,6 @@ fd_forks_query_const( fd_forks_t const * forks, ulong slot ) {
   return fd_fork_frontier_ele_query_const( forks->frontier, &slot, NULL, forks->pool );
 }
 
-// fd_fork_t *
-// fd_forks_advance( fd_forks_t *          forks,
-//                   fd_fork_t *           fork,
-//                   ulong                 slot,
-//                   fd_funk_t *           funk,
-//                   fd_blockstore_t *     blockstore,
-//                   fd_funk_t *           funk,
-//                   fd_valloc_t           valloc ) {
-//   // Remove slot ctx from frontier
-//   fd_fork_t * child = fd_fork_frontier_ele_remove( forks->frontier,
-//                                                    &fork->slot,
-//                                                    NULL,
-//                                                    forks->pool );
-//   child->slot       = curr_slot;
-//   if( FD_UNLIKELY( fd_fork_frontier_ele_query( forks->frontier,
-//                                                &curr_slot,
-//                                                NULL,
-//                                                forks->pool ) ) ) {
-//         FD_LOG_ERR( ( "invariant violation: child slot %lu was already in the
-//         frontier", curr_slot ) );
-//   }
-//   fd_fork_frontier_ele_insert( forks->frontier, child, forks->pool );
-//   FD_TEST( fork == child );
-
-//   // fork is advancing
-//   FD_LOG_DEBUG(( "new block execution - slot: %lu, parent_slot: %lu", curr_slot, parent_slot ));
-
-//   fork->slot_ctx.status_cache = status_cache;
-//   fd_funk_txn_xid_t xid;
-
-//   fd_memcpy( xid.uc, blockhash.uc, sizeof( fd_funk_txn_xid_t));
-//   xid.ul[0] = fork->slot_ctx.slot_bank.slot;
-//   /* push a new transaction on the stack */
-//   fd_funk_start_write( funk );
-//   fork->slot_ctx.funk_txn = fd_funk_txn_prepare( funk, fork->slot_ctx.funk_txn, &xid, 1 );
-//   fd_funk_end_write( funk );
-
-//   int res = fd_runtime_publish_old_txns( &fork->slot_ctx, capture_ctx );
-//   if( res != FD_RUNTIME_EXECUTE_SUCCESS ) {
-//     FD_LOG_ERR(( "txn publishing failed" ));
-//   }
-// }
-
 fd_fork_t *
 fd_forks_prepare( fd_forks_t const * forks, ulong parent_slot ) {
 

@@ -5,7 +5,8 @@
 #include "../../aio/fd_aio_pcapng.h"
 #include "../../udpsock/fd_udpsock.h"
 #include "../../tls/test_tls_helper.h"
-#include "../../../util/net/fd_eth.h"
+#include "../../../ballet/txn/fd_txn.h" /* FD_TXN_MTU */
+
 #include <stdio.h>
 
 /* Common helpers for QUIC tests.  The tests using these gain the

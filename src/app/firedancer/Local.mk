@@ -23,8 +23,10 @@ ifdef FD_HAS_INT128
 ifdef FD_HAS_SECP256K1
 ifdef FD_HAS_ZSTD
 
-$(OBJDIR)/obj/app/firedancer/config.o: src/app/fdctl/config/default.toml
 $(OBJDIR)/obj/app/firedancer/config.o: src/app/firedancer/config/default.toml
+$(OBJDIR)/obj/app/firedancer/config.o: src/app/firedancer/config/testnet.toml
+$(OBJDIR)/obj/app/firedancer/config.o: src/app/firedancer/config/devnet.toml
+$(OBJDIR)/obj/app/firedancer/config.o: src/app/firedancer/config/mainnet.toml
 $(OBJDIR)/obj/app/firedancer/version.d: src/app/firedancer/version.h
 
 .PHONY: firedancer
@@ -33,6 +35,9 @@ $(OBJDIR)/obj/app/firedancer/version.d: src/app/firedancer/version.h
 $(call add-objs,topology,fd_firedancer)
 $(call add-objs,config,fd_firedancer)
 $(call add-objs,callbacks,fd_firedancer)
+
+# commands
+$(call add-objs,commands/shred_version,fd_firedancer)
 
 # version
 $(call make-lib,firedancer_version)

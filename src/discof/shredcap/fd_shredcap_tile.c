@@ -60,7 +60,7 @@ typedef union {
   fd_net_rx_bounds_t net_rx;
 } fd_capture_in_ctx_t;
 
-struct fd_stake_out_link {
+struct out_link {
   ulong       idx;
   fd_frag_meta_t * mcache;
   ulong *          sync;
@@ -71,7 +71,7 @@ struct fd_stake_out_link {
   ulong       wmark;
   ulong       chunk;
 };
-typedef struct fd_stake_out_link fd_stake_out_link_t;
+typedef struct out_link out_link_t;
 
 struct fd_capture_tile_ctx {
   uchar               in_kind[ 32 ];
@@ -86,12 +86,8 @@ struct fd_capture_tile_ctx {
   ulong repair_buffer_sz;
   uchar repair_buffer[ FD_NET_MTU ];
 
-  fd_stake_out_link_t  stake_out[1];
-  ulong                snap_out_idx;
-  fd_wksp_t *          snap_out_mem;
-  ulong                snap_out_chunk0;
-  ulong                snap_out_wmark;
-  ulong                snap_out_chunk;
+  out_link_t           stake_out[1];
+  out_link_t           snap_out[1];
   int                  enable_publish_stake_weights;
   ulong *              manifest_wmark;
   uchar *              manifest_bank_mem;
@@ -290,7 +286,7 @@ handle_new_turbine_contact_info( fd_capture_tile_ctx_t * ctx,
 
 static int
 is_fec_completes_msg( ulong sz ) {
-  return sz == FD_SHRED_DATA_HEADER_SZ + FD_SHRED_MERKLE_ROOT_SZ;
+  return sz == FD_SHRED_DATA_HEADER_SZ + 2*FD_SHRED_MERKLE_ROOT_SZ;
 }
 
 static inline void
@@ -443,14 +439,14 @@ after_credit( fd_capture_tile_ctx_t * ctx,
 
       fd_fseq_update( ctx->manifest_wmark, manifest->slot );
 
-      uchar * chunk = fd_chunk_to_laddr( ctx->snap_out_mem, ctx->snap_out_chunk );
+      uchar * chunk = fd_chunk_to_laddr( ctx->snap_out->mem, ctx->snap_out->chunk );
       ulong   sz    = sizeof(fd_snapshot_manifest_t);
       ulong   sig   = fd_ssmsg_sig( FD_SSMSG_MANIFEST_INCREMENTAL, sz );
       memcpy( chunk, manifest, sz );
-      fd_stem_publish( stem, ctx->snap_out_idx, sig, ctx->snap_out_chunk, sz, 0UL, 0UL, fd_frag_meta_ts_comp( fd_tickcount() ) );
-      ctx->snap_out_chunk = fd_dcache_compact_next( ctx->snap_out_chunk, sz, ctx->snap_out_chunk0, ctx->snap_out_wmark );
+      fd_stem_publish( stem, ctx->snap_out->idx, sig, ctx->snap_out->chunk, sz, 0UL, 0UL, fd_frag_meta_ts_comp( fd_tickcount() ) );
+      ctx->snap_out->chunk = fd_dcache_compact_next( ctx->snap_out->chunk, sz, ctx->snap_out->chunk0, ctx->snap_out->wmark );
 
-      fd_stem_publish( stem, ctx->snap_out_idx, fd_ssmsg_sig( FD_SSMSG_DONE, 0UL ), 0UL, 0UL, 0UL, 0UL, 0UL );
+      fd_stem_publish( stem, ctx->snap_out->idx, fd_ssmsg_sig( FD_SSMSG_DONE, 0UL ), 0UL, 0UL, 0UL, 0UL, 0UL );
 
       publish_stake_weights_manifest( ctx, stem, manifest );
       //*charge_busy = 0;
@@ -751,16 +747,20 @@ unprivileged_init( fd_topo_t *      topo,
     ctx->stake_out->chunk   = ctx->stake_out->chunk0;
   } else {
     FD_LOG_WARNING(( "no connection to stake_out link" ));
-    memset( ctx->stake_out, 0, sizeof(fd_stake_out_link_t) );
+    memset( ctx->stake_out, 0, sizeof(out_link_t) );
   }
 
-  ctx->snap_out_idx         = fd_topo_find_tile_out_link( topo, tile, "snap_out", 0 );
-  FD_TEST( ctx->snap_out_idx!=ULONG_MAX );
-  fd_topo_link_t * snap_out = &topo->links[tile->out_link_id[ctx->snap_out_idx]];
-  ctx->snap_out_mem         = topo->workspaces[topo->objs[snap_out->dcache_obj_id].wksp_id].wksp;
-  ctx->snap_out_chunk0      = fd_dcache_compact_chunk0( ctx->snap_out_mem, snap_out->dcache );
-  ctx->snap_out_wmark       = fd_dcache_compact_wmark( ctx->snap_out_mem, snap_out->dcache, snap_out->mtu );
-  ctx->snap_out_chunk       = ctx->snap_out_chunk0;
+  ctx->snap_out->idx          = fd_topo_find_tile_out_link( topo, tile, "snap_out", 0 );
+  if( FD_LIKELY( ctx->snap_out->idx!=ULONG_MAX ) ) {
+    fd_topo_link_t * snap_out = &topo->links[tile->out_link_id[ctx->snap_out->idx]];
+    ctx->snap_out->mem        = topo->workspaces[topo->objs[snap_out->dcache_obj_id].wksp_id].wksp;
+    ctx->snap_out->chunk0     = fd_dcache_compact_chunk0( ctx->snap_out->mem, snap_out->dcache );
+    ctx->snap_out->wmark      = fd_dcache_compact_wmark( ctx->snap_out->mem, snap_out->dcache, snap_out->mtu );
+    ctx->snap_out->chunk      = ctx->snap_out->chunk0;
+  } else {
+    FD_LOG_WARNING(( "no connection to snap_out link" ));
+    memset( ctx->snap_out, 0, sizeof(out_link_t) );
+  }
 
   /* If the manifest is enabled (for processing), the stake_out link
      must be connected to the tile.  TODO in principle, it should be

@@ -491,6 +491,15 @@ struct fd_topo_tile {
       ulong funk_obj_id;
     } snapin;
 
+    struct {
+      uint   bind_address;
+      ushort bind_port;
+
+      ushort expected_shred_version;
+      ulong entrypoints_cnt;
+      fd_ip4_port_t entrypoints[ FD_TOPO_GOSSIP_ENTRYPOINTS_MAX ];
+    } ipecho;
+
   };
 };
 

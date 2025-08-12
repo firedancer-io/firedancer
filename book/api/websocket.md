@@ -672,8 +672,8 @@ potential underflow.
 |----------------------------|----------|-------------|
 | net_in                     | `number` | Network ingress bytes per second (W) |
 | quic                       | `number` | Active QUIC connections (P) |
-| bundle_rtt_smoothed_millis | `number` | The round-trip time for grpc messages sent to the bundle server.  These are mostly ping messages when the validator is not leader.  An exponential moving average ( avg = 1/8 val + 7/8 avg ) is used to filter the signal |
-| bundle_rx_delay_millis_p90 | `number` | An estimate of the 90th percentile of the one-way delay of a bundle dispatched from the bundle server.  Only samples since the start of the most recent leader rotation for this validator are used to compute the percentile |
+| bundle_rtt_smoothed_millis | `number` | The round-trip time for grpc messages sent to the bundle server.  These are mostly ping-pong messages.  An exponential moving average ( avg = 1/8 val + 7/8 avg ) is used to filter the signal (W) |
+| bundle_rx_delay_millis_p90 | `number` | An estimate of the 90th percentile of the one-way delay of a bundle dispatched from the bundle server (W) |
 | verify                     | `number` | Fraction of transactions that failed sigverify (W) |
 | dedup                      | `number` | Fraction of transactions deduplicated (W) |
 | pack                       | `number` | Fraction of pack buffer filled (P) |
@@ -1400,11 +1400,11 @@ The source tpu for a transaction can be one of the following
 
 | TPU    | Description |
 |--------|-------------|
-| quic   | the primary ingress tpu for user transactions.  Utilizes the quic protocol to recieve packets |
-| udp    | ingress transactions recieved as simple UDP packets |
-| gossip | vote transactions recieved from the gossip network |
-| bundle | bundle transacionts recieved by the bundle tile from a block builder.  Utilizes a grpc connection to recieve packets |
-| send   | vote transactions procuded by this validator recieved from the send tile. These transactions are meant for the active cluster leader |
+| quic   | the primary ingress tpu for user transactions.  Utilizes the quic protocol to receive packets |
+| udp    | ingress transactions received as simple UDP packets |
+| gossip | vote transactions received from the gossip network |
+| bundle | bundle transacionts received by the bundle tile from a block builder.  Utilizes a grpc connection to receive packets |
+| send   | vote transactions procuded by this validator received from the send tile. These transactions are meant for the active cluster leader |
 
 These are the possible error codes that might be included in `txn_error_code` and their meanings.
 
@@ -1449,4 +1449,5 @@ These are the possible error codes that might be included in `txn_error_code` an
 | ProgramExecutionTemporarilyRestricted | 36   | Execution of a program referenced by this transaciton is restricted |
 | UnbalancedTransaction                 | 37   | The total accounts balance before the transaction does not equal the total balance after |
 | ProgramCacheHitMaxLimit               | 38   | The program cache allocated for transaction batch for this transaction hit its load limit |
-| CommitCancelled                       | 39   | This transaction was part of a bundle that failed |
+| CommitCancelled                       | 39   | This transaction was aborted during the commit stage |
+| BundlePeer                            | 40   | This transaction was part of a bundle that failed |

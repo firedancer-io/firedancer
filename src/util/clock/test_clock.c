@@ -131,7 +131,7 @@ main( int     argc,
 
   init_w = (double)(init_x1-init_x0) / (double)(init_y1-init_y0);
 
-  FD_LOG_NOTICE(( "Joint read 1 (x %li ticks, y %li ns, dx %li ticks) w %e GHz", init_x1, init_y1, init_dx, init_w ));
+  FD_LOG_NOTICE(( "Joint read 1 (x %li ticks, y %li ns, dx %li ticks) w %e MHz", init_x1, init_y1, init_dx, init_w*1e3 ));
 
   FD_LOG_NOTICE(( "Creating clock" ));
 

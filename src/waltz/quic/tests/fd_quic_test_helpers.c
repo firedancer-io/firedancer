@@ -8,8 +8,6 @@
 #include <sys/socket.h>
 #include <arpa/inet.h>
 #include <netinet/in.h>
-#include "../../../ballet/txn/fd_txn.h" /* FD_TXN_MTU */
-#include "../../../util/net/fd_eth.h"
 #include "../../../util/net/fd_ip4.h"
 
 #if defined(__linux__)

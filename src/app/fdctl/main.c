@@ -1,5 +1,6 @@
 #include "topology.h"
 #include "config.h"
+#include "../shared/fd_config_file.h"
 #include "../shared/boot/fd_boot.h"
 #include "../shared/commands/configure/configure.h"
 
@@ -95,6 +96,7 @@ extern action_t fd_action_set_identity;
 extern action_t fd_action_get_identity;
 extern action_t fd_action_help;
 extern action_t fd_action_version;
+extern action_t fd_action_metrics;
 
 action_t * ACTIONS[] = {
   &fd_action_run,
@@ -110,13 +112,25 @@ action_t * ACTIONS[] = {
   &fd_action_get_identity,
   &fd_action_help,
   &fd_action_version,
+  &fd_action_metrics,
   NULL,
 };
 
 int
 main( int     argc,
       char ** argv ) {
-  return fd_main( argc, argv, 0, (char const *)fdctl_default_config, fdctl_default_config_sz, fd_topo_initialize );
+  fd_config_file_t _default = (fd_config_file_t){
+    .name    = "default",
+    .data    = fdctl_default_config,
+    .data_sz = fdctl_default_config_sz,
+  };
+
+  fd_config_file_t * configs[] = {
+    &_default,
+    NULL
+  };
+
+  return fd_main( argc, argv, 0, configs, fd_topo_initialize );
 }
 
 /* Kind of a hack for now, we sometimes want to view bench generation

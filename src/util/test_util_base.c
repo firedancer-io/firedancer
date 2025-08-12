@@ -425,7 +425,7 @@ main( int     argc,
   long tic = fd_tickcount();
   for( ulong iter=0UL; iter<1000000UL; iter++ ) {
     long toc = fd_tickcount();
-    FD_TEST( (toc - tic) > 0L );
+    FD_TEST( (toc - tic) >= 0L );
     tic = toc;
   }
 

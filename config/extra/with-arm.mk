@@ -37,3 +37,6 @@ include config/extra/with-rocksdb.mk
 endif
 
 FD_ARCH_SUPPORTS_SANDBOX:=1
+
+CPPFLAGS+=-DFD_HAS_ARM=1
+FD_HAS_ARM:=1

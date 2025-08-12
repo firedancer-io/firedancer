@@ -104,16 +104,16 @@ fd_http_server_align( void ) {
 FD_FN_CONST ulong
 fd_http_server_footprint( fd_http_server_params_t params ) {
   ulong l = FD_LAYOUT_INIT;
-  l = FD_LAYOUT_APPEND( l, FD_HTTP_SERVER_ALIGN,                           sizeof( fd_http_server_t )                                                                         );
-  l = FD_LAYOUT_APPEND( l, conn_pool_align(),                              conn_pool_footprint( params.max_connection_cnt )                                                   );
-  l = FD_LAYOUT_APPEND( l, ws_conn_pool_align(),                           ws_conn_pool_footprint( params.max_ws_connection_cnt )                                             );
-  l = FD_LAYOUT_APPEND( l, conn_treap_align(),                             conn_treap_footprint( params.max_connection_cnt )                                                  );
-  l = FD_LAYOUT_APPEND( l, ws_conn_treap_align(),                          ws_conn_treap_footprint( params.max_ws_connection_cnt )                                            );
-  l = FD_LAYOUT_APPEND( l, alignof( struct pollfd ),                       (params.max_connection_cnt+params.max_ws_connection_cnt+1UL)*sizeof( struct pollfd )               );
-  l = FD_LAYOUT_APPEND( l, 1UL,                                            params.max_request_len*params.max_connection_cnt                                                   );
-  l = FD_LAYOUT_APPEND( l, 1UL,                                            params.max_ws_recv_frame_len*params.max_ws_connection_cnt                                          );
-  l = FD_LAYOUT_APPEND( l, alignof( struct fd_http_server_ws_frame ),      params.max_ws_send_frame_cnt*params.max_ws_connection_cnt*sizeof( struct fd_http_server_ws_frame ) );
-  l = FD_LAYOUT_APPEND( l, 1UL,                                            params.outgoing_buffer_sz                                                                          );
+  l = FD_LAYOUT_APPEND( l, FD_HTTP_SERVER_ALIGN,                      sizeof( fd_http_server_t )                                                                         );
+  l = FD_LAYOUT_APPEND( l, conn_pool_align(),                         conn_pool_footprint( params.max_connection_cnt )                                                   );
+  l = FD_LAYOUT_APPEND( l, ws_conn_pool_align(),                      ws_conn_pool_footprint( params.max_ws_connection_cnt )                                             );
+  l = FD_LAYOUT_APPEND( l, conn_treap_align(),                        conn_treap_footprint( params.max_connection_cnt )                                                  );
+  l = FD_LAYOUT_APPEND( l, ws_conn_treap_align(),                     ws_conn_treap_footprint( params.max_ws_connection_cnt )                                            );
+  l = FD_LAYOUT_APPEND( l, alignof( struct pollfd ),                  (params.max_connection_cnt+params.max_ws_connection_cnt+1UL)*sizeof( struct pollfd )               );
+  l = FD_LAYOUT_APPEND( l, 1UL,                                       params.max_request_len*params.max_connection_cnt                                                   );
+  l = FD_LAYOUT_APPEND( l, 1UL,                                       params.max_ws_recv_frame_len*params.max_ws_connection_cnt                                          );
+  l = FD_LAYOUT_APPEND( l, alignof( struct fd_http_server_ws_frame ), params.max_ws_send_frame_cnt*params.max_ws_connection_cnt*sizeof( struct fd_http_server_ws_frame ) );
+  l = FD_LAYOUT_APPEND( l, 1UL,                                       params.outgoing_buffer_sz                                                                          );
   return FD_LAYOUT_FINI( l, fd_http_server_align() );
 }
 
