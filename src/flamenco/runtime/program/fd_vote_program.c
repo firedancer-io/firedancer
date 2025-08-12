@@ -2826,8 +2826,8 @@ fd_vote_store_account( fd_txn_account_t *   vote_account,
                        fd_bank_t *          bank ) {
   fd_pubkey_t const * owner = fd_txn_account_get_owner( vote_account );
 
-  if (memcmp(owner->uc, fd_solana_vote_program_id.key, sizeof(fd_pubkey_t)) != 0) {
-      return;
+  if( FD_UNLIKELY( memcmp( owner->uc, fd_solana_vote_program_id.key, sizeof(fd_pubkey_t) ) ) ) {
+    return;
   }
 
   if( fd_txn_account_get_lamports( vote_account ) == 0 ) {

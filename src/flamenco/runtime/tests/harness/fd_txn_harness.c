@@ -161,7 +161,6 @@ fd_runtime_fuzz_txn_ctx_create( fd_runtime_fuzz_runner_t *         runner,
   }
   fd_bank_vote_states_prev_prev_end_locking_modify( slot_ctx->bank );
 
-
   /* Provide a default clock if not present */
   fd_sol_sysvar_clock_t clock_[1];
   fd_sol_sysvar_clock_t const * clock = fd_sysvar_clock_read( funk, funk_txn, clock_ );

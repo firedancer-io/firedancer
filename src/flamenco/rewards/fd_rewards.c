@@ -172,7 +172,6 @@ calculate_stake_points_and_credits( fd_stake_history_t const *     stake_history
 static int
 calculate_stake_rewards( fd_stake_history_t const *      stake_history,
                          fd_stake_delegation_t const *   stake,
-                         uchar                           commission,
                          fd_vote_state_ele_t const *     vote_state,
                          ulong                           rewarded_epoch,
                          fd_point_value_t *              point_value,
@@ -211,7 +210,7 @@ calculate_stake_rewards( fd_stake_history_t const *      stake_history,
   }
 
   fd_commission_split_t split_result;
-  fd_vote_commission_split( commission, rewards, &split_result );
+  fd_vote_commission_split( vote_state->commission, rewards, &split_result );
   if( split_result.is_split && (split_result.voter_portion == 0 || split_result.staker_portion == 0) ) {
     return 1;
   }
@@ -235,7 +234,6 @@ redeem_rewards( fd_stake_history_t const *      stake_history,
   int rc = calculate_stake_rewards(
       stake_history,
       stake,
-      vote_state->commission,
       vote_state,
       rewarded_epoch,
       point_value,
@@ -339,9 +337,8 @@ calculate_points_all( fd_exec_slot_ctx_t const * slot_ctx,
       continue;
     }
 
-    fd_vote_states_t const * vote_states = fd_bank_vote_states_locking_query( slot_ctx->bank );
-    fd_vote_state_ele_t * vote_state_ele = fd_vote_states_query( vote_states, &stake_delegation->vote_account );
-
+    fd_vote_states_t const * vote_states    = fd_bank_vote_states_locking_query( slot_ctx->bank );
+    fd_vote_state_ele_t *    vote_state_ele = fd_vote_states_query( vote_states, &stake_delegation->vote_account );
     if( FD_UNLIKELY( !vote_state_ele ) ) {
       continue;
     }

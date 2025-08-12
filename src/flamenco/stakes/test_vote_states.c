@@ -24,6 +24,7 @@ int main( int argc, char ** argv ) {
      enough to actually hold the footprint of vote states for the max
      number of vote accounts that the runtime can support. */
   FD_TEST( fd_vote_states_footprint( FD_RUNTIME_MAX_VOTE_ACCOUNTS ) <= FD_VOTE_STATES_FOOTPRINT );
+  FD_TEST( fd_vote_state_map_chain_cnt_est( FD_RUNTIME_MAX_VOTE_ACCOUNTS ) == FD_VOTE_STATES_CHAIN_CNT_EST );
 
   ulong const max_vote_accounts = 10UL;
 

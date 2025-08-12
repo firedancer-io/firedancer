@@ -21,8 +21,8 @@ fd_vote_states_get_map( fd_vote_states_t const * vote_states ) {
 ulong
 fd_vote_states_align( void ) {
   /* The align of the struct should be the max of the align of the data
-     structures that it contains. In this case, this is the map, the
-     pool, and the struct itself */
+     structures that it contains.  In this case, this is the map, the
+     pool, and the struct itself. */
   return fd_ulong_max( fd_ulong_max( fd_vote_state_map_align(),
                        fd_vote_state_pool_align() ), alignof(fd_vote_states_t) );
 }
@@ -265,7 +265,7 @@ fd_vote_states_update_from_account( fd_vote_states_t *  vote_states,
 
   /* TODO: Instead of doing this messy + unbounded decode, it should be
      replaced with a more efficient decode that just reads the fields
-     we need directly.*/
+     we need directly. */
 
   fd_bincode_decode_ctx_t ctx = {
     .data    = account_data,
@@ -278,10 +278,7 @@ fd_vote_states_update_from_account( fd_vote_states_t *  vote_states,
     FD_LOG_CRIT(( "unable to decode vote state versioned" ));
   }
 
-  uchar vote_state_versioned[10000];
-  if( FD_UNLIKELY( total_sz > 10000UL ) ) {
-    FD_LOG_CRIT(( "vote state versioned is too large" ));
-  }
+  uchar vote_state_versioned[total_sz];
 
   fd_vote_state_versioned_t * vsv = fd_vote_state_versioned_decode( vote_state_versioned, &ctx );
   if( FD_UNLIKELY( err ) ) {
@@ -379,6 +376,14 @@ void
 fd_vote_states_reset_stakes( fd_vote_states_t * vote_states ) {
   fd_vote_state_ele_t * vote_state_pool = fd_vote_states_get_pool( vote_states );
   fd_vote_state_map_t * vote_state_map = fd_vote_states_get_map( vote_states );
+  #if FD_VOTE_STATES_USE_HANDHOLDING
+  if( FD_UNLIKELY( !vote_state_pool ) ) {
+    FD_LOG_CRIT(( "unable to retrieve join to vote state pool" ));
+  }
+  if( FD_UNLIKELY( !vote_state_map ) ) {
+    FD_LOG_CRIT(( "unable to retrieve join to vote state map" ));
+  }
+  #endif
 
   for( fd_vote_state_map_iter_t iter = fd_vote_state_map_iter_init( vote_state_map, vote_state_pool );
        !fd_vote_state_map_iter_done( iter, vote_state_map, vote_state_pool );

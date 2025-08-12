@@ -41,6 +41,8 @@
       referenced during a transaction.
    3. Vote states are updated at the epoch boundary. The stake
       information for the vote states is refreshed at the boundary.
+      TODO: The total stake delegated to a vote account should be
+      calculated during execution as the stake delegations are updated.
 */
 
 #define FD_VOTE_STATES_ALIGN (128UL)
@@ -93,7 +95,6 @@ struct __attribute__((aligned(FD_VOTE_STATES_ALIGN))) fd_vote_states {
 };
 typedef struct fd_vote_states fd_vote_states_t;
 
-
 /* This guarantees that the pool alignment is at most 128UL. */
 FD_STATIC_ASSERT(alignof(fd_vote_state_ele_t)<=FD_VOTE_STATES_ALIGN, unexpected pool element alignment);
 
@@ -107,6 +108,7 @@ FD_STATIC_ASSERT(alignof(fd_vote_state_ele_t)<=FD_VOTE_STATES_ALIGN, unexpected 
    fd_vote_states_chain_cnt_est.
    NOTE: the footprint is validated to be at least as large as the
    actual runtime-determined footprint (see test_vote_states.c) */
+
 #define FD_VOTE_STATES_CHAIN_CNT_EST (65536UL)
 #define FD_VOTE_STATES_FOOTPRINT                                                      \
   /* First, layout the struct with alignment */                                       \
