@@ -179,12 +179,6 @@ FD_PROTOTYPES_BEGIN
   X(fd_rent_t,                         rent,                        sizeof(fd_rent_t),                         alignof(fd_rent_t),                         0,   0,                0    )  /* Rent */                                                   \
   X(fd_slot_lthash_t,                  lthash,                      sizeof(fd_slot_lthash_t),                  alignof(fd_slot_lthash_t),                  0,   0,                1    )  /* LTHash */                                                 \
   X(fd_sysvar_cache_t,                 sysvar_cache,                sizeof(fd_sysvar_cache_t),                 alignof(fd_sysvar_cache_t),                 0,   0,                0    )  /* Sysvar cache */                                           \
-  X(fd_vote_accounts_global_t,         next_epoch_stakes,           200000000UL,                               128UL,                                      1,   0,                1    )  /* Next epoch stakes, ~4K per account * 50k vote accounts */ \
-                                                                                                                                                                                          /* These are the stakes that determine the leader */         \
-                                                                                                                                                                                          /* schedule for the upcoming epoch.  If we are executing */  \
-                                                                                                                                                                                          /* in epoch E, these are the stakes at the end of epoch */   \
-                                                                                                                                                                                          /* E-1 and they determined the leader schedule for epoch */  \
-                                                                                                                                                                                          /* E+1. */                                                   \
   X(fd_epoch_rewards_t,                epoch_rewards,               FD_EPOCH_REWARDS_FOOTPRINT,                FD_EPOCH_REWARDS_ALIGN,                     1,   1,                1    )  /* Epoch rewards */                                          \
   X(fd_epoch_leaders_t,                epoch_leaders,               FD_RUNTIME_MAX_EPOCH_LEADERS,              FD_EPOCH_LEADERS_ALIGN,                     1,   1,                1    )  /* Epoch leaders. If our system supports 100k vote accs, */  \
                                                                                                                                                                                           /* then there can be 100k unique leaders in the worst */     \
@@ -240,10 +234,6 @@ FD_PROTOTYPES_BEGIN
 #undef X
 #undef HAS_COW_0
 #undef HAS_COW_1
-
-#define POOL_NAME fd_bank_next_epoch_stakes_pool
-#define POOL_T    fd_bank_next_epoch_stakes_t
-#include "../../util/tmpl/fd_pool.c"
 
 #define POOL_NAME fd_bank_epoch_leaders_pool
 #define POOL_T    fd_bank_epoch_leaders_t

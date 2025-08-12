@@ -40,7 +40,9 @@ fd_vote_states_footprint( ulong max_vote_accounts ) {
 }
 
 void *
-fd_vote_states_new( void * mem, ulong max_vote_accounts ) {
+fd_vote_states_new( void * mem,
+                    ulong  max_vote_accounts,
+                    ulong  seed ) {
   if( FD_UNLIKELY( !mem ) ) {
     FD_LOG_WARNING(( "NULL mem" ));
     return NULL;
@@ -68,19 +70,21 @@ fd_vote_states_new( void * mem, ulong max_vote_accounts ) {
     return NULL;
   }
 
-  vote_states->magic             = FD_VOTE_STATES_MAGIC;
   vote_states->max_vote_accounts = max_vote_accounts;
 
-  if( FD_UNLIKELY( !fd_vote_state_pool_new( pool_mem, max_vote_accounts ) ) ) {
+  if( FD_UNLIKELY( !fd_vote_state_pool_join( fd_vote_state_pool_new( pool_mem, max_vote_accounts ) ) ) ) {
     FD_LOG_WARNING(( "Failed to create vote states pool" ));
     return NULL;
   }
 
-  /* TODO: The seed shouldn't be hardcoded. */
-  if( FD_UNLIKELY( !fd_vote_state_map_new( map_mem, map_chain_cnt, 999UL ) ) ) {
+  if( FD_UNLIKELY( !fd_vote_state_map_join( fd_vote_state_map_new( map_mem, map_chain_cnt, seed ) ) ) ) {
     FD_LOG_WARNING(( "Failed to create vote states map" ));
     return NULL;
   }
+
+  FD_COMPILER_MFENCE();
+  FD_VOLATILE( vote_states->magic ) = FD_VOTE_STATES_MAGIC;
+  FD_COMPILER_MFENCE();
 
   return mem;
 }
@@ -104,8 +108,9 @@ fd_vote_states_join( void * mem ) {
     return NULL;
   }
 
-  ulong map_chain_cnt = fd_vote_state_map_chain_cnt_est( vote_states->max_vote_accounts );
+  #if FD_VOTE_STATES_USE_HANDHOLDING
 
+  ulong map_chain_cnt = fd_vote_state_map_chain_cnt_est( vote_states->max_vote_accounts );
   FD_SCRATCH_ALLOC_INIT( l, vote_states );
   vote_states     = FD_SCRATCH_ALLOC_APPEND( l, fd_vote_states_align(),     sizeof(fd_vote_states_t) );
   void * pool_mem = FD_SCRATCH_ALLOC_APPEND( l, fd_vote_state_pool_align(), fd_vote_state_pool_footprint( vote_states->max_vote_accounts ) );
@@ -126,57 +131,13 @@ fd_vote_states_join( void * mem ) {
     return NULL;
   }
 
+  #endif
+
   return vote_states;
 }
 
-void *
-fd_vote_states_leave( fd_vote_states_t * self ) {
-  if( FD_UNLIKELY( !self ) ) {
-    FD_LOG_WARNING(( "NULL self" ));
-    return NULL;
-  }
-
-  if( FD_UNLIKELY( !fd_ulong_is_aligned( (ulong)self, fd_vote_states_align() ) ) ) {
-    FD_LOG_WARNING(( "misaligned self" ));
-    return NULL;
-  }
-
-  fd_vote_states_t * vote_states = (fd_vote_states_t *)self;
-
-  if( FD_UNLIKELY( vote_states->magic!=FD_VOTE_STATES_MAGIC ) ) {
-    FD_LOG_WARNING(( "Invalid vote states magic" ));
-    return NULL;
-  }
-
-  return (void *)self;
-}
-
-void *
-fd_vote_states_delete( void * mem ) {
-  if( FD_UNLIKELY( !mem ) ) {
-    FD_LOG_WARNING(( "NULL mem" ));
-    return NULL;
-  }
-
-  if( FD_UNLIKELY( !fd_ulong_is_aligned( (ulong)mem, fd_vote_states_align() ) ) ) {
-    FD_LOG_WARNING(( "misaligned mem" ));
-    return NULL;
-  }
-
-  fd_vote_states_t * vote_states = (fd_vote_states_t *)mem;
-
-  if( FD_UNLIKELY( vote_states->magic!=FD_VOTE_STATES_MAGIC ) ) {
-    FD_LOG_WARNING(( "Invalid vote states magic" ));
-    return NULL;
-  }
-
-  vote_states->magic = 0UL;
-
-  return mem;
-}
-
 void
-fd_vote_states_update( fd_vote_states_t *  self,
+fd_vote_states_update( fd_vote_states_t *  vote_states,
                        fd_pubkey_t const * vote_account,
                        fd_pubkey_t const * node_account,
                        uchar               commission,
@@ -186,14 +147,17 @@ fd_vote_states_update( fd_vote_states_t *  self,
                        ushort *            epoch,
                        ulong *             credits,
                        ulong *             prev_credits ) {
-  fd_vote_state_ele_t * vote_state_pool = fd_vote_states_get_pool( self );
+  fd_vote_state_ele_t * vote_state_pool = fd_vote_states_get_pool( vote_states );
+  fd_vote_state_map_t * vote_state_map = fd_vote_states_get_map( vote_states );
+
+  #if FD_VOTE_STATES_USE_HANDHOLDING
   if( FD_UNLIKELY( !vote_state_pool ) ) {
     FD_LOG_CRIT(( "unable to retrieve join to vote state pool" ));
   }
-  fd_vote_state_map_t * vote_state_map = fd_vote_states_get_map( self );
   if( FD_UNLIKELY( !vote_state_map ) ) {
     FD_LOG_CRIT(( "unable to retrieve join to vote state map" ));
   }
+  #endif
 
   /* First, handle the case where the vote state already exists
      and we just need to update the entry. The reason we do a const idx
@@ -265,13 +229,15 @@ void
 fd_vote_states_remove( fd_vote_states_t *  vote_states,
                        fd_pubkey_t const * vote_account ) {
   fd_vote_state_ele_t * vote_state_pool = fd_vote_states_get_pool( vote_states );
+  fd_vote_state_map_t * vote_state_map  = fd_vote_states_get_map( vote_states );
+  #if FD_VOTE_STATES_USE_HANDHOLDING
   if( FD_UNLIKELY( !vote_state_pool ) ) {
     FD_LOG_CRIT(( "unable to retrieve join to stake delegation pool" ));
   }
-  fd_vote_state_map_t * vote_state_map = fd_vote_states_get_map( vote_states );
   if( FD_UNLIKELY( !vote_state_map ) ) {
     FD_LOG_CRIT(( "unable to retrieve join to stake delegation map" ));
   }
+  #endif
 
   ulong vote_state_idx = fd_vote_state_map_idx_query(
       vote_state_map,
@@ -297,8 +263,12 @@ fd_vote_states_update_from_account( fd_vote_states_t *  vote_states,
                                     uchar const *       account_data,
                                     ulong               account_data_len ) {
 
+  /* TODO: Instead of doing this messy + unbounded decode, it should be
+     replaced with a more efficient decode that just reads the fields
+     we need directly.*/
+
   fd_bincode_decode_ctx_t ctx = {
-    .data = account_data,
+    .data    = account_data,
     .dataend = account_data + account_data_len,
   };
 
@@ -343,8 +313,8 @@ fd_vote_states_update_from_account( fd_vote_states_t *  vote_states,
 
       fd_vote_epoch_credits_t * ele = deq_fd_vote_epoch_credits_t_iter_ele( epoch_credits, iter );
 
-      epoch[credits_cnt] = (ushort)ele->epoch;
-      credits[credits_cnt] = ele->credits;
+      epoch[credits_cnt]        = (ushort)ele->epoch;
+      credits[credits_cnt]      = ele->credits;
       prev_credits[credits_cnt] = ele->prev_credits;
       credits_cnt++;
     }
@@ -363,8 +333,8 @@ fd_vote_states_update_from_account( fd_vote_states_t *  vote_states,
 
       fd_vote_epoch_credits_t * ele = deq_fd_vote_epoch_credits_t_iter_ele( epoch_credits, iter );
 
-      epoch[credits_cnt] = (ushort)ele->epoch;
-      credits[credits_cnt] = ele->credits;
+      epoch[credits_cnt]        = (ushort)ele->epoch;
+      credits[credits_cnt]      = ele->credits;
       prev_credits[credits_cnt] = ele->prev_credits;
       credits_cnt++;
     }
@@ -382,8 +352,8 @@ fd_vote_states_update_from_account( fd_vote_states_t *  vote_states,
 
       fd_vote_epoch_credits_t * ele = deq_fd_vote_epoch_credits_t_iter_ele( epoch_credits, iter );
 
-      epoch[credits_cnt] = (ushort)ele->epoch;
-      credits[credits_cnt] = ele->credits;
+      epoch[credits_cnt]        = (ushort)ele->epoch;
+      credits[credits_cnt]      = ele->credits;
       prev_credits[credits_cnt] = ele->prev_credits;
       credits_cnt++;
     }

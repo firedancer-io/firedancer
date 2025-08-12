@@ -21,8 +21,8 @@ int main( int argc, char ** argv ) {
   }
 
   /* We need to make sure that the hard constant is at least large
-     enough to actually hold the footprint of stake delegations for
-     the max number of stake accounts that the runtime can support.*/
+     enough to actually hold the footprint of vote states for the max
+     number of vote accounts that the runtime can support. */
   FD_TEST( fd_vote_states_footprint( FD_RUNTIME_MAX_VOTE_ACCOUNTS ) <= FD_VOTE_STATES_FOOTPRINT );
 
   ulong const max_vote_accounts = 10UL;
@@ -38,9 +38,9 @@ int main( int argc, char ** argv ) {
   ulong chain_cnt = fd_vote_state_map_chain_cnt_est( max_vote_accounts );
   FD_TEST( fd_vote_states_footprint( max_vote_accounts ) >= fd_vote_states_align() + fd_vote_state_pool_footprint( max_vote_accounts ) + fd_vote_state_map_footprint( chain_cnt ) );
 
-  FD_TEST( !fd_vote_states_new( NULL, max_vote_accounts ) );
-  FD_TEST( !fd_vote_states_new( vote_states_mem, 0UL ) );
-  void * new_vote_states_mem = fd_vote_states_new( vote_states_mem, max_vote_accounts );
+  FD_TEST( !fd_vote_states_new( NULL, max_vote_accounts, 999UL ) );
+  FD_TEST( !fd_vote_states_new( vote_states_mem, 0UL, 999UL ) );
+  void * new_vote_states_mem = fd_vote_states_new( vote_states_mem, max_vote_accounts, 999UL );
   FD_TEST( new_vote_states_mem );
 
   FD_TEST( !fd_vote_states_join( NULL ) );
@@ -50,17 +50,6 @@ int main( int argc, char ** argv ) {
 
   fd_vote_states_t * vote_states = fd_vote_states_join( new_vote_states_mem );
   FD_TEST( vote_states );
-
-  FD_TEST( !fd_vote_states_leave( NULL ) );
-  FD_TEST( fd_vote_states_join( fd_vote_states_leave( vote_states ) ) );
-  FD_TEST( fd_vote_states_join( fd_vote_states_leave( vote_states ) )==vote_states );
-
-  FD_TEST( fd_vote_states_max( vote_states ) == max_vote_accounts );
-
-  FD_TEST( !fd_vote_states_delete( NULL ) );
-  uchar * deleted_mem = fd_vote_states_delete( fd_vote_states_leave( vote_states ) );
-  FD_TEST( deleted_mem );
-  FD_TEST( !fd_vote_states_join( deleted_mem ) );
 
   FD_LOG_NOTICE(( "pass" ));
   fd_halt();

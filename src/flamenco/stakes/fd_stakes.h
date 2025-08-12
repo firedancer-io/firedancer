@@ -23,13 +23,8 @@ FD_PROTOTYPES_BEGIN
 #define STAKE_ACCOUNT_SIZE ( 200 )
 
 ulong
-fd_stake_weights_by_node_2( fd_vote_states_t const * vote_states,
-                            fd_vote_stake_weight_t * weights );
-
-ulong
-fd_stake_weights_by_node( fd_vote_accounts_global_t const * accs,
-                          fd_vote_stake_weight_t *          weights );
-
+fd_stake_weights_by_node( fd_vote_states_t const * vote_states,
+                          fd_vote_stake_weight_t * weights );
 
 void
 fd_stakes_activate_epoch( fd_exec_slot_ctx_t * slot_ctx,

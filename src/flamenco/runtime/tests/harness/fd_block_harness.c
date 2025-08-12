@@ -240,15 +240,15 @@ fd_runtime_fuzz_block_ctx_create( fd_runtime_fuzz_runner_t *           runner,
 
   /* SETUP STAKES HERE */
   fd_vote_states_t * vote_states = fd_bank_vote_states_locking_modify( slot_ctx->bank );
-  vote_states = fd_vote_states_join( fd_vote_states_new( vote_states, FD_RUNTIME_MAX_VOTE_ACCOUNTS ) );
+  vote_states = fd_vote_states_join( fd_vote_states_new( vote_states, FD_RUNTIME_MAX_VOTE_ACCOUNTS, 999UL ) );
   fd_bank_vote_states_end_locking_modify( slot_ctx->bank );
 
   fd_vote_states_t * vote_states_prev = fd_bank_vote_states_prev_locking_modify( slot_ctx->bank );
-  vote_states_prev = fd_vote_states_join( fd_vote_states_new( vote_states_prev, FD_RUNTIME_MAX_VOTE_ACCOUNTS ) );
+  vote_states_prev = fd_vote_states_join( fd_vote_states_new( vote_states_prev, FD_RUNTIME_MAX_VOTE_ACCOUNTS, 999UL ) );
   fd_bank_vote_states_prev_end_locking_modify( slot_ctx->bank );
 
   fd_vote_states_t * vote_states_prev_prev = fd_bank_vote_states_prev_prev_locking_modify( slot_ctx->bank );
-  vote_states_prev_prev = fd_vote_states_join( fd_vote_states_new( vote_states_prev_prev, FD_RUNTIME_MAX_VOTE_ACCOUNTS ) );
+  vote_states_prev_prev = fd_vote_states_join( fd_vote_states_new( vote_states_prev_prev, FD_RUNTIME_MAX_VOTE_ACCOUNTS, 999UL ) );
   fd_bank_vote_states_prev_prev_end_locking_modify( slot_ctx->bank );
 
   fd_stake_delegations_t * stake_delegations = fd_bank_stake_delegations_locking_modify( slot_ctx->bank );

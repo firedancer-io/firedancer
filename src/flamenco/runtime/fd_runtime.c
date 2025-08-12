@@ -136,7 +136,7 @@ fd_runtime_update_leaders( fd_bank_t * bank,
   fd_vote_states_t const * vote_states_prev_prev = fd_bank_vote_states_prev_prev_locking_query( bank );
   ulong vote_acc_cnt = fd_vote_states_cnt( vote_states_prev_prev ) ;
   fd_vote_stake_weight_t * epoch_weights = fd_spad_alloc_check( runtime_spad, alignof(fd_vote_stake_weight_t), vote_acc_cnt * sizeof(fd_vote_stake_weight_t) );
-  ulong stake_weight_cnt = fd_stake_weights_by_node_2( vote_states_prev_prev, epoch_weights );
+  ulong stake_weight_cnt = fd_stake_weights_by_node( vote_states_prev_prev, epoch_weights );
   fd_bank_vote_states_prev_prev_end_locking_query( bank );
 
   /* Derive leader schedule */
@@ -1965,9 +1965,6 @@ fd_runtime_process_new_epoch( fd_exec_slot_ctx_t * slot_ctx,
     new_rate_activation_epoch = NULL;
   }
 
-  fd_epoch_info_t temp_info = {0};
-  fd_epoch_info_new( &temp_info );
-
   /* If appropiate, use the stakes at T-1 to generate the leader schedule instead of T-2.
       This is due to a subtlety in how Agave's stake caches interact when loading from snapshots.
       See the comment in fd_exec_slot_ctx_recover_. */
@@ -2167,7 +2164,7 @@ fd_runtime_init_bank_from_genesis( fd_exec_slot_ctx_t *        slot_ctx,
   fd_stake_delegations_t * stake_delegations = fd_stake_delegations_join( fd_stake_delegations_new( fd_bank_stake_delegations_locking_modify( slot_ctx->bank ), 5000UL ) );
   FD_TEST( stake_delegations );
 
-  fd_vote_states_t * vote_states = fd_vote_states_join( fd_vote_states_new( fd_bank_vote_states_locking_modify( slot_ctx->bank ), 5000UL ) );
+  fd_vote_states_t * vote_states = fd_vote_states_join( fd_vote_states_new( fd_bank_vote_states_locking_modify( slot_ctx->bank ), 5000UL, 999UL ) );
   FD_TEST( vote_states );
 
   fd_acc_lamports_t capitalization = 0UL;
@@ -2256,8 +2253,8 @@ fd_runtime_init_bank_from_genesis( fd_exec_slot_ctx_t *        slot_ctx,
     }
   }
 
-  fd_vote_states_t * vote_states_prev_prev = fd_vote_states_join( fd_vote_states_new( fd_bank_vote_states_prev_prev_locking_modify( slot_ctx->bank ), FD_RUNTIME_MAX_VOTE_ACCOUNTS ) );
-  fd_vote_states_t * vote_states_prev = fd_vote_states_join( fd_vote_states_new( fd_bank_vote_states_prev_locking_modify( slot_ctx->bank ), FD_RUNTIME_MAX_VOTE_ACCOUNTS ) );
+  fd_vote_states_t * vote_states_prev_prev = fd_vote_states_join( fd_vote_states_new( fd_bank_vote_states_prev_prev_locking_modify( slot_ctx->bank ), FD_RUNTIME_MAX_VOTE_ACCOUNTS, 999UL ) );
+  fd_vote_states_t * vote_states_prev = fd_vote_states_join( fd_vote_states_new( fd_bank_vote_states_prev_locking_modify( slot_ctx->bank ), FD_RUNTIME_MAX_VOTE_ACCOUNTS, 999UL ) );
 
   for( ulong i=0UL; i<genesis_block->accounts_len; i++ ) {
     fd_pubkey_account_pair_t const * acc = &genesis_block->accounts[i];

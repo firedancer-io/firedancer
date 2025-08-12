@@ -4,7 +4,7 @@
 #include "../fd_flamenco_base.h"
 #include "../types/fd_types.h"
 
-#define FD_STAKE_DELEGATIONS_MAGIC (0x09151995UL)
+#define FD_STAKE_DELEGATIONS_MAGIC (0x0915199511111111UL)
 
 /* fd_stakes_delegations_t is a cache of stake accounts mapping the
    pubkey of the stake account to various information including
@@ -39,7 +39,7 @@
       reward distribution.
    The stake accounts are read-only during the epoch boundary. */
 
-/* The static footprint fo the stake delegation struct is roughly equal
+/* The static footprint of the stake delegation struct is roughly equal
    to the footprint of each stake_delegation * the number of total
    stake accounts that the system will support. If there are 3M stake
    accounts and each one is 112 bytes, then we can assume that the total

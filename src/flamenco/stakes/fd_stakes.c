@@ -7,8 +7,8 @@
 #include "fd_stake_delegations.h"
 
 ulong
-fd_stake_weights_by_node_2( fd_vote_states_t const * vote_states,
-                            fd_vote_stake_weight_t * weights ) {
+fd_stake_weights_by_node( fd_vote_states_t const * vote_states,
+                          fd_vote_stake_weight_t * weights ) {
   fd_vote_state_ele_t * vote_state_pool = fd_vote_states_get_pool( vote_states );
   fd_vote_state_map_t * vote_state_map  = fd_vote_states_get_map( vote_states );
 
@@ -24,34 +24,6 @@ fd_stake_weights_by_node_2( fd_vote_states_t const * vote_states,
     weights[ weights_cnt ].stake = vote_state->stake;
     weights_cnt++;
   }
-  sort_vote_weights_by_stake_vote_inplace( weights, weights_cnt );
-  return weights_cnt;
-}
-
-ulong
-fd_stake_weights_by_node( fd_vote_accounts_global_t const * accs,
-                          fd_vote_stake_weight_t *          weights ) {
-  fd_vote_accounts_pair_global_t_mapnode_t * pool = fd_vote_accounts_vote_accounts_pool_join( accs );
-  fd_vote_accounts_pair_global_t_mapnode_t * root = fd_vote_accounts_vote_accounts_root_join( accs );
-
-  /* For each active vote account, return (vote_key, node_identity, stake), sorted by (stake, vote) */
-  ulong weights_cnt = 0;
-  for( fd_vote_accounts_pair_global_t_mapnode_t * n = fd_vote_accounts_pair_global_t_map_minimum( pool, root );
-                                           n;
-                                           n = fd_vote_accounts_pair_global_t_map_successor( pool, n ) ) {
-
-    /* ... filter(|(stake, _)| *stake != 0u64) */
-    if( n->elem.stake == 0UL ) continue;
-
-    /* Copy output values */
-    memcpy( weights[ weights_cnt ].vote_key.uc, n->elem.key.uc, sizeof(fd_pubkey_t) );
-    weights[ weights_cnt ].stake = n->elem.stake;
-    uchar * vote_account_data = fd_solana_account_data_join( &n->elem.value );
-    /* node_pubkey is at offset 4, no need to fully deserialize the account(s) */
-    memcpy( weights[ weights_cnt ].id_key.uc, vote_account_data+4UL, sizeof(fd_pubkey_t) );
-    weights_cnt++;
-  }
-
   sort_vote_weights_by_stake_vote_inplace( weights, weights_cnt );
   return weights_cnt;
 }
