@@ -887,6 +887,13 @@ before_frag( fd_replay_tile_ctx_t * ctx,
 }
 
 static void
+dead_block( fd_replay_tile_ctx_t * ctx,
+            ulong                  slot ) {
+  FD_LOG_WARNING(( "ignoring replay of dead block %lu", slot ));
+  /* TODO: remove from forks */
+}
+
+static void
 during_frag( fd_replay_tile_ctx_t * ctx,
              ulong                  in_idx,
              ulong                  seq,
@@ -1180,6 +1187,10 @@ handle_writer_state_updates( fd_replay_tile_ctx_t * ctx ) {
         }
         break;
       }
+      case FD_WRITER_STATE_DEAD: {
+        dead_block( ctx, fd_writer_fseq_get_slot( res ) );
+        break;
+      }
       default:
         FD_LOG_CRIT(( "Unexpected fseq state from writer tile idx=%lu state=%u", i, state ));
         break;
@@ -1432,6 +1443,16 @@ handle_new_slice( fd_replay_tile_ctx_t * ctx, fd_stem_context_t * stem ) {
     return;
   }
 
+  /* At this point, our runtime state has been updated correctly. We
+     need to update the current fork with the range of shred indices
+     that we are about to execute. We also need to populate the slice's
+     metadata into the slice_exec_ctx. */
+  fd_fork_t * current_fork = fd_fork_frontier_ele_query( ctx->forks->frontier, &slot, NULL, ctx->forks->pool );
+  if( FD_UNLIKELY( !current_fork ) ) {
+    FD_LOG_WARNING(( "ignoring replay of current_fork is NULL for slot %lu, likely bad ancestry (invalid block)", slot ));
+    return;
+  }
+
   /* If the slot of the slice we are about to execute is different than
      the current slot, then we need to handle it. There are two cases:
      1. We have already executed at least one slice from the slot.
@@ -1442,13 +1463,6 @@ handle_new_slice( fd_replay_tile_ctx_t * ctx, fd_stem_context_t * stem ) {
   if( FD_UNLIKELY( slot!=fd_bank_slot_get( ctx->slot_ctx->bank ) ) ) {
     handle_slot_change( ctx, stem, slot, parent_slot );
   }
-
-  /* At this point, our runtime state has been updated correctly. We
-     need to update the current fork with the range of shred indices
-     that we are about to execute. We also need to populate the slice's
-     metadata into the slice_exec_ctx. */
-  fd_fork_t * current_fork = fd_fork_frontier_ele_query( ctx->forks->frontier, &slot, NULL, ctx->forks->pool );
-  if( FD_UNLIKELY( !current_fork ) ) FD_LOG_CRIT(( "invariant violation: current_fork is NULL for slot %lu", slot ));
 
   long shacq_start, shacq_end, shrel_end;
   FD_STORE_SHACQ_TIMED( ctx->store, shacq_start, shacq_end );
