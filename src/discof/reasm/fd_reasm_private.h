@@ -40,6 +40,19 @@
 #define DEQUE_T                ulong
 #include "../../util/tmpl/fd_deque_dynamic.c"
 
+typedef struct {
+  ulong     slot;
+  fd_hash_t block_id;
+} slot_mr_t;
+
+#define MAP_NAME         slot_mr
+#define MAP_T            slot_mr_t
+#define MAP_KEY          slot
+#define MAP_KEY_NULL     ULONG_MAX
+#define MAP_KEY_INVAL(k) ((k)==MAP_KEY_NULL)
+#define MAP_MEMOIZE      0
+#include "../../util/tmpl/fd_map_dynamic.c"
+
 struct __attribute__((aligned(128UL))) fd_reasm {
   ulong            root;     /* pool idx of the root FEC set */
   ulong            slot0;    /* special initialization slot. chains first FEC */
@@ -50,4 +63,5 @@ struct __attribute__((aligned(128UL))) fd_reasm {
   subtrees_t *     subtrees; /* map of mr->fec. roots of the orphaned subtrees */
   ulong *          bfs;      /* internal queue of pool idxs for BFS */
   ulong *          out;      /* delivery queue of pool idxs to output */
+  slot_mr_t *      slot_mr;  /* map of slot->mr */
 };

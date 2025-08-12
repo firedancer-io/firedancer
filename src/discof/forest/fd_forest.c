@@ -892,8 +892,7 @@ ancestry_print3( fd_forest_t const * forest, fd_forest_ele_t const * ele, int sp
 
 void
 fd_forest_ancestry_print( fd_forest_t const * forest ) {
-  FD_LOG_NOTICE(("\n\n[Ancestry]\n\n" ) );
-
+  printf(("\n\n[Ancestry]\n" ) );
   ancestry_print3( forest, fd_forest_pool_ele_const( fd_forest_pool_const( forest ), forest->root ), 0, "[", NULL, 0 );
 }
 
@@ -913,7 +912,7 @@ fd_forest_frontier_print( fd_forest_t const * forest ) {
 
 void
 fd_forest_orphaned_print( fd_forest_t const * forest ) {
-  printf( "\n\n[Orphaned]\n" );
+  printf( "\n[Orphaned]\n" );
   fd_forest_orphaned_t const * orphaned = fd_forest_orphaned_const( forest );
   fd_forest_ele_t const * pool = fd_forest_pool_const( forest );
   for( fd_forest_orphaned_iter_t iter = fd_forest_orphaned_iter_init( orphaned, pool );
@@ -928,10 +927,11 @@ void
 fd_forest_print( fd_forest_t const * forest ) {
   if( FD_UNLIKELY( forest->root == ULONG_MAX ) ) return;
 # if FD_FOREST_PRINT
+  FD_LOG_NOTICE(("\n\n[Forest]" ) );
   fd_forest_ancestry_print( forest );
   fd_forest_frontier_print( forest );
   fd_forest_orphaned_print( forest );
-  printf("\n\n");
+  printf("\n");
 # endif
 }
 

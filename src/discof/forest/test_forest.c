@@ -639,7 +639,7 @@ main( int argc, char ** argv ) {
   test_publish_incremental( wksp );
   test_out_of_order( wksp );
   test_forks( wksp );
-  // test_print_tree( wksp );
+  test_print_tree( wksp );
   // test_large_print_tree( wksp);
   test_linear_forest_iterator( wksp );
   test_branched_forest_iterator( wksp );
