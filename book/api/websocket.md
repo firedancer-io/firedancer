@@ -1400,11 +1400,11 @@ The source tpu for a transaction can be one of the following
 
 | TPU    | Description |
 |--------|-------------|
-| quic   | the primary ingress tpu for user transactions.  Utilizes the quic protocol to recieve packets |
-| udp    | ingress transactions recieved as simple UDP packets |
-| gossip | vote transactions recieved from the gossip network |
-| bundle | bundle transacionts recieved by the bundle tile from a block builder.  Utilizes a grpc connection to recieve packets |
-| send   | vote transactions procuded by this validator recieved from the send tile. These transactions are meant for the active cluster leader |
+| quic   | the primary ingress tpu for user transactions.  Utilizes the quic protocol to receive packets |
+| udp    | ingress transactions received as simple UDP packets |
+| gossip | vote transactions received from the gossip network |
+| bundle | bundle transacionts received by the bundle tile from a block builder.  Utilizes a grpc connection to receive packets |
+| send   | vote transactions procuded by this validator received from the send tile. These transactions are meant for the active cluster leader |
 
 These are the possible error codes that might be included in `txn_error_code` and their meanings.
 
