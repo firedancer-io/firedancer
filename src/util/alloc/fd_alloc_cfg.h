@@ -30,7 +30,7 @@
    Critically, noting that ~ 512KiB/64 ~ 8KiB is pretty clumsy for small
    allocations, we recursively nest a smaller sized superblock within
    blocks of this superblock.
-   
+
    Specifically, we pick a "large" superblock size that will nest as
    tightly inside a block of a "huge" superblock when the huge
    superblock is divided into the minimum 8 blocks.  Noting that the
@@ -51,14 +51,14 @@
    rounding nearest.  (For the parameters here, this implies a few
    percent overhead from the implicit rounding up of an unaligned
    allocation.)
-   
+
    block_footprints are directly computed from these superblock
-   footprints and and the block counts are recomputed to squeeze some
-   extra blocks into the superblocks that various integer roundings
-   might have exposed.  We discard any sizeclasses that are redundant
-   and any sizeclasses that are too small to be useful (blocks need to
-   be at least 5 as a single byte unaligned allocation will still have a
-   4 byte fd_alloc_hdr_t associated with it).  This yields the 126 size
+   footprints and the block counts are recomputed to squeeze some extra
+   blocks into the superblocks that various integer roundings might have
+   exposed.  We discard any sizeclasses that are redundant and any
+   sizeclasses that are too small to be useful (blocks need to be at
+   least 5 as a single byte unaligned allocation will still have a 4
+   byte fd_alloc_hdr_t associated with it).  This yields the 126 size
    classes below.
 
    On the assumption that small allocations have a shorter lifetime /

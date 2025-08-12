@@ -204,7 +204,7 @@ FD_PROTOTYPES_BEGIN
    fd_groove_data.  Assumes shdata points in the caller's address space
    to the memory region containing the fd_groove_data and that there are
    no current joins globally.  Returns shdata on success (caller has
-   ownership of the memory region, any volumes in the groove and and any
+   ownership of the memory region, any volumes in the groove and any
    groove data objects in these volumes) and NULL on failure (no
    ownership changes, logs details). */
 
@@ -495,10 +495,10 @@ fd_groove_data_verify( fd_groove_data_t const * data );
 
 /* fd_groove_data_volume_verify returns FD_GROOVE_SUCCESS if the
    groove volume mapped into the caller's address at _volume is appears
-   to be a valid groove volume and and FD_GROOVE_ERR_CORRUPT
-   otherwise (logs details).  Assumes join is a current local join and
-   the groove data is idle.  It is fine to verify volumes in parallel
-   (e.g. use hundreds of cores to verify petabytes of groove data). */
+   to be a valid groove volume and FD_GROOVE_ERR_CORRUPT otherwise (logs
+   details).  Assumes join is a current local join and the groove data
+   is idle.  It is fine to verify volumes in parallel (e.g. use hundreds
+   of cores to verify petabytes of groove data). */
 
 int
 fd_groove_data_volume_verify( fd_groove_data_t   const * data,

@@ -651,7 +651,7 @@ fd_forest_iter_next( fd_forest_iter_t iter, fd_forest_t const * forest ) {
     }
 
     /* Common case - valid shred to request. Note you can't know the
-       ele->complete_idx until you have actually recieved the slot
+       ele->complete_idx until you have actually received the slot
        complete shred, thus the we can do lt instead of leq  */
 
     if( ele->complete_idx != UINT_MAX &&

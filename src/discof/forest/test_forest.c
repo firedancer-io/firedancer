@@ -520,7 +520,7 @@ test_branched_forest_iterator( fd_wksp_t * wksp ) {
     slot 4    |
             slot 5
 
-  slot  complete_idx   recieved
+  slot  complete_idx   received
   0          1
   1          1            1
   2          2            2
