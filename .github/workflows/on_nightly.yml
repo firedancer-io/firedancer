@@ -31,5 +31,4 @@ jobs:
         gcc-12.4.0,linux_gcc_zen5,ALL;
         gcc-13.3.0,linux_gcc_zen5,ALL;
         gcc-14.1.0,linux_gcc_zen5,ALL
-      verbose: false
       build_arm: true
