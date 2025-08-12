@@ -1,4 +1,5 @@
 #define _GNU_SOURCE
+#include "../fd_shared_dev.h"
 #include "bench/bench.h"
 #include "../../shared/commands/configure/configure.h"
 #include "../../shared/commands/run/run.h"
@@ -6,9 +7,6 @@
 #include "../../../util/net/fd_ip4.h"
 
 #include <unistd.h>
-
-fd_topo_run_tile_t
-fdctl_tile_run( fd_topo_tile_t const * tile );
 
 void
 load_cmd_perm( args_t *         args FD_PARAM_UNUSED,

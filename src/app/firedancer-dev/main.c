@@ -102,6 +102,8 @@ extern fd_topo_run_tile_t fd_tile_archiver_feeder;
 extern fd_topo_run_tile_t fd_tile_archiver_writer;
 extern fd_topo_run_tile_t fd_tile_archiver_playback;
 extern fd_topo_run_tile_t fd_tile_shredcap;
+extern fd_topo_run_tile_t fd_tile_solcap;
+extern fd_topo_run_tile_t bench_solcap_producer_tile;
 
 extern fd_topo_run_tile_t fd_tile_snaprd;
 extern fd_topo_run_tile_t fd_tile_snapdc;
@@ -147,6 +149,8 @@ fd_topo_run_tile_t * TILES[] = {
   &fd_tile_benchs,
   &fd_tile_pktgen,
   &fd_tile_udpecho,
+  &fd_tile_solcap,
+  &bench_solcap_producer_tile,
   &fd_tile_snaprd,
   &fd_tile_snapdc,
   &fd_tile_snapin,
@@ -183,6 +187,7 @@ extern action_t fd_action_snapshot_load;
 extern action_t fd_action_repair;
 extern action_t fd_action_shred_version;
 extern action_t fd_action_ipecho_server;
+extern action_t fd_action_bench_solcap;
 
 action_t * ACTIONS[] = {
   &fd_action_run,
@@ -214,6 +219,7 @@ action_t * ACTIONS[] = {
   &fd_action_repair,
   &fd_action_shred_version,
   &fd_action_ipecho_server,
+  &fd_action_bench_solcap,
   NULL,
 };
 
