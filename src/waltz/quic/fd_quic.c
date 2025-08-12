@@ -2969,17 +2969,20 @@ fd_quic_handle_crypto_frame( fd_quic_frame_ctx_t *    context,
 static int
 fd_quic_conn_free_resources( fd_quic_t * quic, fd_quic_conn_t * conn );
 
-static void
+/* Returns new conn state */
+static uint
 fd_quic_timeout_conn( fd_quic_t * quic, fd_quic_conn_t * conn ) {
+  quic->metrics.conn_timeout_cnt++;
   if( quic->config.keep_timed_out ) {
     fd_quic_state_t * state = fd_quic_get_state( quic );
     fd_quic_conn_free_resources( quic, conn );
     fd_quic_set_conn_state( conn, FD_QUIC_CONN_STATE_TIMED_OUT );
     fd_quic_svc_schedule( state, conn, FD_QUIC_SVC_TIMEOUT );
+    return FD_QUIC_CONN_STATE_TIMED_OUT;
   } else {
     fd_quic_set_conn_state( conn, FD_QUIC_CONN_STATE_DEAD );
+    return FD_QUIC_CONN_STATE_DEAD;
   }
-  quic->metrics.conn_timeout_cnt++;
 }
 
 static int
@@ -2991,7 +2994,7 @@ fd_quic_svc_poll( fd_quic_t *      quic,
                    conn->state == FD_QUIC_CONN_STATE_TIMED_OUT ) ) {
     /* connection shouldn't have been scheduled,
        and is now removed, so just continue */
-    FD_LOG_ERR(( "Bad conn in schedule (svc_type=%u), state=%s", conn->svc_type, conn->state==FD_QUIC_CONN_STATE_INVALID ? "INVALID" : "TIMED_OUT" ));
+    FD_LOG_CRIT(( "Bad conn in schedule (svc_type=%u), state=%s", conn->svc_type, conn->state==FD_QUIC_CONN_STATE_INVALID ? "INVALID" : "TIMED_OUT" ));
     return 1;
   }
 
@@ -3010,8 +3013,9 @@ fd_quic_svc_poll( fd_quic_t *      quic,
             conn->server?"SERVER":"CLIENT",
             (void *)conn, conn->conn_idx, (double)fd_quic_ticks_to_us(conn->idle_timeout_ticks) / 1e3 )); )
 
-        fd_quic_timeout_conn( quic, conn );
-        return 1;
+        /* Handle timeout based on config. If left as TIMED_OUT rather than DEAD,
+           don't bother servicing further */
+        if( fd_quic_timeout_conn( quic, conn )==FD_QUIC_CONN_STATE_TIMED_OUT ) return 1;
       }
     } else if( quic->config.keep_alive & !!(conn->let_die_ticks > now) ) {
       /* send PING */
