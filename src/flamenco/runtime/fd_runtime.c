@@ -134,9 +134,9 @@ fd_runtime_update_leaders( fd_bank_t * bank,
   ulong slot_cnt = fd_epoch_slot_cnt( epoch_schedule, epoch );
 
   fd_vote_states_t const * vote_states_prev_prev = fd_bank_vote_states_prev_prev_locking_query( bank );
-  ulong vote_acc_cnt = fd_vote_states_cnt( vote_states_prev_prev ) ;
-  fd_vote_stake_weight_t * epoch_weights = fd_spad_alloc_check( runtime_spad, alignof(fd_vote_stake_weight_t), vote_acc_cnt * sizeof(fd_vote_stake_weight_t) );
-  ulong stake_weight_cnt = fd_stake_weights_by_node( vote_states_prev_prev, epoch_weights );
+  ulong                    vote_acc_cnt          = fd_vote_states_cnt( vote_states_prev_prev ) ;
+  fd_vote_stake_weight_t * epoch_weights         = fd_spad_alloc_check( runtime_spad, alignof(fd_vote_stake_weight_t), vote_acc_cnt * sizeof(fd_vote_stake_weight_t) );
+  ulong                    stake_weight_cnt      = fd_stake_weights_by_node( vote_states_prev_prev, epoch_weights );
   fd_bank_vote_states_prev_prev_end_locking_query( bank );
 
   /* Derive leader schedule */
@@ -166,12 +166,11 @@ fd_runtime_update_leaders( fd_bank_t * bank,
     if( FD_UNLIKELY( !leaders ) ) {
       FD_LOG_ERR(( "Unable to init and join fd_epoch_leaders" ));
     }
-    FD_TEST( leaders );
     fd_bank_epoch_leaders_end_locking_modify( bank );
   }
   } FD_SPAD_FRAME_END;
 
-  FD_TEST( fd_bank_epoch_leaders_locking_query( bank ) );
+  fd_bank_epoch_leaders_locking_query( bank );
   fd_bank_epoch_leaders_end_locking_query( bank );
 }
 
@@ -1353,9 +1352,11 @@ fd_runtime_prepare_and_execute_txn( fd_banks_t *        banks,
 /* Epoch Boundary                                                             */
 /******************************************************************************/
 
-/* Replace the stakes in T-2 (epoch_stakes) by the stakes at T-1 (next_epoch_stakes) */
+/* Replace the vote states for T-2 (vote_states_prev_prev) with the vote
+   states for T-1 (vote_states_prev) */
+
 static void
-fd_update_epoch_stakes( fd_exec_slot_ctx_t * slot_ctx ) {
+fd_update_vote_states_prev_prev( fd_exec_slot_ctx_t * slot_ctx ) {
 
   fd_vote_states_t *       vote_states_prev_prev = fd_bank_vote_states_prev_prev_locking_modify( slot_ctx->bank );
   fd_vote_states_t const * vote_states_prev      = fd_bank_vote_states_prev_locking_query( slot_ctx->bank );
@@ -1364,9 +1365,11 @@ fd_update_epoch_stakes( fd_exec_slot_ctx_t * slot_ctx ) {
   fd_bank_vote_states_prev_end_locking_query( slot_ctx->bank );
 }
 
-/* Copy stakes->vote_accounts into next_epoch_stakes. */
+/* Replace the vote states for T-1 (vote_states_prev) with the vote
+   states for T-1 (vote_states) */
+
 static void
-fd_update_next_epoch_stakes( fd_exec_slot_ctx_t * slot_ctx ) {
+fd_update_vote_states_prev( fd_exec_slot_ctx_t * slot_ctx ) {
   fd_vote_states_t *       vote_states_prev = fd_bank_vote_states_prev_locking_modify( slot_ctx->bank );
   fd_vote_states_t const * vote_states      = fd_bank_vote_states_locking_query( slot_ctx->bank );
   fd_memcpy( vote_states_prev, vote_states, fd_bank_vote_states_footprint );
@@ -1960,12 +1963,13 @@ fd_runtime_process_new_epoch( fd_exec_slot_ctx_t * slot_ctx,
     new_rate_activation_epoch = NULL;
   }
 
-  /* If appropiate, use the stakes at T-1 to generate the leader schedule instead of T-2.
-      This is due to a subtlety in how Agave's stake caches interact when loading from snapshots.
-      See the comment in fd_exec_slot_ctx_recover_. */
+  /* If appropiate, use the stakes at T-1 to generate the leader
+     schedule instead of T-2. This is due to a subtlety in how Agave's
+     stake caches interact when loading from snapshots.
+     See the comment in fd_exec_slot_ctx_recover_. */
 
-  if( fd_bank_use_prev_epoch_stake_get( slot_ctx->bank ) == epoch ) {
-    fd_update_epoch_stakes( slot_ctx );
+  if( fd_bank_use_prev_epoch_stake_get( slot_ctx->bank )==epoch ) {
+    fd_update_vote_states_prev_prev( slot_ctx );
   }
 
   /* Updates stake history sysvar accumulated values. */
@@ -1999,16 +2003,21 @@ fd_runtime_process_new_epoch( fd_exec_slot_ctx_t * slot_ctx,
                                 parent_epoch,
                                 runtime_spad );
 
-  /* Replace stakes at T-2 (epoch_stakes) by stakes at T-1 (next_epoch_stakes) */
-  fd_update_epoch_stakes( slot_ctx );
 
-  /* Replace stakes at T-1 (next_epoch_stakes) by updated stakes at T (stakes->vote_accounts) */
-  fd_update_next_epoch_stakes( slot_ctx );
+  /* Update vote_states_prev_prev with vote_states_prev */
+
+  fd_update_vote_states_prev_prev( slot_ctx );
+
+  /* Update vote_states_prev with vote_states */
+
+  fd_update_vote_states_prev( slot_ctx );
 
   /* Update current leaders using epoch_stakes (new T-2 stakes) */
+
   fd_runtime_update_leaders( slot_ctx->bank, fd_bank_slot_get( slot_ctx->bank ), runtime_spad );
 
   /* Increment the epoch. */
+
   fd_bank_epoch_set( slot_ctx->bank, fd_bank_epoch_get( slot_ctx->bank ) + 1UL );
 
   FD_LOG_NOTICE(( "fd_process_new_epoch end" ));
@@ -2157,10 +2166,14 @@ fd_runtime_init_bank_from_genesis( fd_exec_slot_ctx_t *        slot_ctx,
   /* Derive epoch stakes */
 
   fd_stake_delegations_t * stake_delegations = fd_stake_delegations_join( fd_stake_delegations_new( fd_bank_stake_delegations_locking_modify( slot_ctx->bank ), 5000UL ) );
-  FD_TEST( stake_delegations );
+  if( FD_UNLIKELY( !stake_delegations ) ) {
+    FD_LOG_CRIT(( "Failed to join and new a stake delegations" ));
+  }
 
   fd_vote_states_t * vote_states = fd_vote_states_join( fd_vote_states_new( fd_bank_vote_states_locking_modify( slot_ctx->bank ), 5000UL, 999UL ) );
-  FD_TEST( vote_states );
+  if( FD_UNLIKELY( !vote_states ) ) {
+    FD_LOG_CRIT(( "Failed to join and new a vote states" ));
+  }
 
   fd_acc_lamports_t capitalization = 0UL;
 

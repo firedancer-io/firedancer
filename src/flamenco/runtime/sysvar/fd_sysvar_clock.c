@@ -131,19 +131,17 @@ estimate_timestamp( fd_bank_t * bank ) {
   fd_vote_state_ele_t * vote_state_pool = fd_vote_states_get_pool( vote_states );
   fd_vote_state_map_t * vote_state_map  = fd_vote_states_get_map( vote_states );
 
-  for( fd_vote_state_map_iter_t iter = fd_vote_state_map_iter_init( vote_state_map, vote_state_pool );
-       !fd_vote_state_map_iter_done( iter, vote_state_map, vote_state_pool );
-       iter = fd_vote_state_map_iter_next( iter, vote_state_map, vote_state_pool ) ) {
-    fd_vote_state_ele_t const * vote_state = fd_vote_state_map_iter_ele_const( iter, vote_state_map, vote_state_pool );
+  fd_vote_state_map_iter_t    iter       = fd_vote_state_map_iter_init( vote_state_map, vote_state_pool );
+  fd_vote_state_ele_t const * vote_state = fd_vote_state_map_iter_ele_const( iter, vote_state_map, vote_state_pool );
 
     ulong slots = fd_bank_slot_get( bank ) - vote_state->last_vote_slot;
     uint128 ns_correction = fd_bank_ns_per_slot_get( bank ) * slots;
 
-    return vote_state->last_vote_timestamp + (long)(ns_correction / NS_IN_S);
-  }
+  long timestamp = vote_state->last_vote_timestamp + (long)(ns_correction / NS_IN_S);
 
   fd_bank_vote_states_end_locking_query( bank );
-  FD_LOG_CRIT(( "unreachable" ));
+
+  return timestamp;
 }
 
 #define CIDX_T ulong
@@ -213,6 +211,8 @@ fd_calculate_stake_weighted_timestamp( fd_exec_slot_ctx_t * slot_ctx,
 
   ulong total_stake = 0;
 
+  /* TODO: this calculation currently uses stake values as of the start
+     of the current epoch. Make sure that is correct. */
   fd_vote_states_t const * vote_states     = fd_bank_vote_states_locking_query( bank );
   fd_vote_state_ele_t *    vote_state_pool = fd_vote_states_get_pool( vote_states );
   fd_vote_state_map_t *    vote_state_map  = fd_vote_states_get_map( vote_states );

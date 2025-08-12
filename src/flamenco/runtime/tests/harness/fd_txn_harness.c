@@ -1,5 +1,6 @@
 #include "fd_txn_harness.h"
 #include "fd_harness_common.h"
+#include "../../fd_cost_tracker.h"
 
 static void
 fd_runtime_fuzz_txn_ctx_destroy( fd_runtime_fuzz_runner_t * runner,
@@ -141,21 +142,21 @@ fd_runtime_fuzz_txn_ctx_create( fd_runtime_fuzz_runner_t *         runner,
   }
 
   /* Setup vote states dummy account */
-  fd_vote_states_t * vote_states = fd_vote_states_join( fd_vote_states_new( fd_bank_vote_states_locking_modify( slot_ctx->bank ), 10000UL, 999UL ) );
+  fd_vote_states_t * vote_states = fd_vote_states_join( fd_vote_states_new( fd_bank_vote_states_locking_modify( slot_ctx->bank ), FD_WRITABLE_ACCOUNTS_PER_BLOCK, 999UL ) );
   if( FD_UNLIKELY( !vote_states ) ) {
     return NULL;
   }
   fd_bank_vote_states_end_locking_modify( slot_ctx->bank );
 
   /* Setup vote states dummy account */
-  fd_vote_states_t * vote_states_prev = fd_vote_states_join( fd_vote_states_new( fd_bank_vote_states_prev_locking_modify( slot_ctx->bank ), 10000UL, 999UL ) );
+  fd_vote_states_t * vote_states_prev = fd_vote_states_join( fd_vote_states_new( fd_bank_vote_states_prev_locking_modify( slot_ctx->bank ), FD_WRITABLE_ACCOUNTS_PER_BLOCK, 999UL ) );
   if( FD_UNLIKELY( !vote_states_prev ) ) {
     return NULL;
   }
   fd_bank_vote_states_prev_end_locking_modify( slot_ctx->bank );
 
   /* Setup vote states dummy account */
-  fd_vote_states_t * vote_states_prev_prev = fd_vote_states_join( fd_vote_states_new( fd_bank_vote_states_prev_prev_locking_modify( slot_ctx->bank ), 10000UL, 999UL ) );
+  fd_vote_states_t * vote_states_prev_prev = fd_vote_states_join( fd_vote_states_new( fd_bank_vote_states_prev_prev_locking_modify( slot_ctx->bank ), FD_WRITABLE_ACCOUNTS_PER_BLOCK, 999UL ) );
   if( FD_UNLIKELY( !vote_states_prev_prev ) ) {
     return NULL;
   }
