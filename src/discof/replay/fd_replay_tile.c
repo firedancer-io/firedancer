@@ -84,9 +84,6 @@
 #define IN_KIND_SNAP   (3)
 #define IN_KIND_WRITER (4)
 
-#define EXEC_TXN_BUSY   (0xA)
-#define EXEC_TXN_READY  (0xB)
-
 #define BANK_HASH_CMP_LG_MAX (16UL)
 
 struct fd_replay_in_link {
@@ -165,6 +162,8 @@ typedef struct fd_exec_slice fd_exec_slice_t;
 #define DEQUE_MAX  USHORT_MAX
 #include "../../util/tmpl/fd_deque_dynamic.c"
 
+FD_STATIC_ASSERT( FD_PACK_MAX_BANK_TILES<=64UL, exec_bitset );
+
 struct fd_replay_tile_ctx {
   fd_wksp_t * wksp;
   fd_wksp_t * status_cache_wksp;
@@ -221,8 +220,8 @@ struct fd_replay_tile_ctx {
 
   /* TODO: Some of these arrays should be bitvecs that get masked into. */
   ulong                exec_cnt;
+  ulong                exec_ready_bitset;                    /* Is tile ready */
   fd_replay_out_link_t exec_out  [ FD_PACK_MAX_BANK_TILES ]; /* Sending to exec unexecuted txns */
-  uchar                exec_ready[ FD_PACK_MAX_BANK_TILES ]; /* Is tile ready */
   uint                 prev_ids  [ FD_PACK_MAX_BANK_TILES ]; /* Previous txn id if any */
   ulong *              exec_fseq [ FD_PACK_MAX_BANK_TILES ]; /* fseq of the last executed txn */
 
@@ -677,9 +676,7 @@ init_after_snapshot( fd_replay_tile_ctx_t * ctx ) {
     snapshot_slot = 1UL;
 
     /* Now setup exec tiles for execution */
-    for( ulong i=0UL; i<ctx->exec_cnt; i++ ) {
-      ctx->exec_ready[ i ] = EXEC_TXN_READY;
-    }
+    ctx->exec_ready_bitset = fd_ulong_mask_lsb( (int)ctx->exec_cnt );
   }
 
   ctx->snapshot_slot = snapshot_slot;
@@ -736,12 +733,7 @@ init_after_snapshot( fd_replay_tile_ctx_t * ctx ) {
 
   /* Now that the snapshot(s) are done loading, we can mark all of the
      exec tiles as ready. */
-  for( ulong i=0UL; i<ctx->exec_cnt; i++ ) {
-    if( ctx->exec_ready[ i ] == EXEC_TXN_BUSY ) {
-      ctx->exec_ready[ i ] = EXEC_TXN_READY;
-    }
-  }
-
+  ctx->exec_ready_bitset = fd_ulong_mask_lsb( (int)ctx->exec_cnt );
 
   FD_LOG_NOTICE(( "snapshot slot %lu", snapshot_slot ));
 }
@@ -1171,11 +1163,11 @@ handle_writer_state_updates( fd_replay_tile_ctx_t * ctx ) {
         break;
       case FD_WRITER_STATE_TXN_DONE: {
         uint  txn_id       = fd_writer_fseq_get_txn_id( res );
-        ulong exec_tile_id = fd_writer_fseq_get_exec_tile_id( res );
-        if( ctx->exec_ready[ exec_tile_id ]==EXEC_TXN_BUSY && ctx->prev_ids[ exec_tile_id ]!=txn_id ) {
+        int   exec_tile_id = fd_writer_fseq_get_exec_tile_id( res );
+        if( fd_ulong_extract_bit( ctx->exec_ready_bitset, exec_tile_id )==0 && ctx->prev_ids[ exec_tile_id ]!=txn_id ) {
           //FD_LOG_DEBUG(( "Ack that exec tile idx=%lu txn id=%u has been finalized by writer tile %lu", exec_tile_id, txn_id, i ));
-          ctx->exec_ready[ exec_tile_id ] = EXEC_TXN_READY;
-          ctx->prev_ids[ exec_tile_id ]   = txn_id;
+          ctx->exec_ready_bitset        = fd_ulong_set_bit( ctx->exec_ready_bitset, exec_tile_id );
+          ctx->prev_ids[ exec_tile_id ] = txn_id;
           fd_fseq_update( ctx->writer_fseq[ i ], FD_WRITER_STATE_READY );
         }
         break;
@@ -1468,18 +1460,6 @@ handle_new_slice( fd_replay_tile_ctx_t * ctx, fd_stem_context_t * stem ) {
   fd_bank_shred_cnt_set( ctx->slot_ctx->bank, fd_bank_shred_cnt_get( ctx->slot_ctx->bank ) + data_cnt );
 }
 
-static ulong
-get_free_exec_tiles( fd_replay_tile_ctx_t * ctx, uchar * exec_free_idx ) {
-  ulong cnt=0UL;
-  for( uchar i=0; i<ctx->exec_cnt; i++ ) {
-    if( ctx->exec_ready[ i ]==EXEC_TXN_READY) {
-      exec_free_idx[ cnt ] = i;
-      cnt++;
-    }
-  }
-  return cnt;
-}
-
 static void
 exec_slice_fini_slot( fd_replay_tile_ctx_t * ctx, fd_stem_context_t * stem ) {
 
@@ -1603,8 +1583,6 @@ exec_slice_fini_slot( fd_replay_tile_ctx_t * ctx, fd_stem_context_t * stem ) {
 
 static void
 exec_and_handle_slice( fd_replay_tile_ctx_t * ctx, fd_stem_context_t * stem ) {
-  uchar exec_free_idx[ FD_PACK_MAX_BANK_TILES ];
-  ulong free_exec_cnt = get_free_exec_tiles( ctx, exec_free_idx );
 
   /* If there are no txns left to execute in the microblock and the
      exec tiles are not busy, then we are ready to either start
@@ -1613,7 +1591,7 @@ exec_and_handle_slice( fd_replay_tile_ctx_t * ctx, fd_stem_context_t * stem ) {
      We have to synchronize on the the microblock boundary because we
      only have the guarantee that all transactions within the same
      microblock can be executed in parallel. */
-  if( !fd_slice_exec_txn_ready( &ctx->slice_exec_ctx ) && free_exec_cnt==ctx->exec_cnt ) {
+  if( !fd_slice_exec_txn_ready( &ctx->slice_exec_ctx ) && ctx->exec_ready_bitset==fd_ulong_mask_lsb( (int)ctx->exec_cnt ) ) {
     if( fd_slice_exec_microblock_ready( &ctx->slice_exec_ctx ) ) {
       fd_slice_exec_microblock_parse( &ctx->slice_exec_ctx );
     } else if( fd_slice_exec_slice_ready( &ctx->slice_exec_ctx ) ) {
@@ -1630,13 +1608,15 @@ exec_and_handle_slice( fd_replay_tile_ctx_t * ctx, fd_stem_context_t * stem ) {
 
   /* At this point, we know that we have some quantity of transactions
      in a microblock that we are ready to execute. */
-  for( ulong i=0UL; i<free_exec_cnt; i++ ) {
+  for( int i=0; i<fd_ulong_popcnt( ctx->exec_ready_bitset ); i++ ) {
 
     if( !fd_slice_exec_txn_ready( &ctx->slice_exec_ctx ) ) {
       return;
     }
 
-    ulong exec_idx = exec_free_idx[ i ];
+    int exec_idx = fd_ulong_find_lsb( ctx->exec_ready_bitset );
+    /* Mark the exec tile as busy */
+    ctx->exec_ready_bitset = fd_ulong_pop_lsb( ctx->exec_ready_bitset );
 
     ulong tsorig = fd_frag_meta_ts_comp( fd_tickcount() );
 
@@ -1648,9 +1628,6 @@ exec_and_handle_slice( fd_replay_tile_ctx_t * ctx, fd_stem_context_t * stem ) {
        FIXME: this should be done during txn parsing so that we don't have to loop
        over all accounts a second time. */
     fd_runtime_update_program_cache( ctx->slot_ctx, &txn_p, ctx->runtime_spad );
-
-    /* Mark the exec tile as busy */
-    ctx->exec_ready[ exec_idx ] = EXEC_TXN_BUSY;
 
     /* Dispatch dcache to exec tile */
     fd_replay_out_link_t *        exec_out = &ctx->exec_out[ exec_idx ];
@@ -2017,9 +1994,9 @@ unprivileged_init( fd_topo_t *      topo,
     FD_LOG_CRIT(( "too many exec tiles %lu", ctx->exec_cnt ));
   }
 
+  /* Mark all initial state as not being ready. */
+  ctx->exec_ready_bitset = 0UL;
   for( ulong i = 0UL; i < ctx->exec_cnt; i++ ) {
-    /* Mark all initial state as not being ready. */
-    ctx->exec_ready[ i ]    = EXEC_TXN_BUSY;
     ctx->prev_ids[ i ]      = FD_EXEC_ID_SENTINEL;
 
     ulong exec_fseq_id = fd_pod_queryf_ulong( topo->props, ULONG_MAX, "exec_fseq.%lu", i );
