@@ -144,9 +144,7 @@ int main(int argc, char** argv) {
     while( runcnt ) continue;
     FD_LOG_NOTICE(( "paused (%u inserts)", insertcnt ));
 
-#ifdef FD_FUNK_HANDHOLDING
     FD_TEST( !fd_funk_verify( funk ) );
-#endif
 
   }
 

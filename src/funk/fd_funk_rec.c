@@ -57,14 +57,12 @@ fd_funk_rec_query_try( fd_funk_t *               funk,
                        fd_funk_txn_t const *     txn,
                        fd_funk_rec_key_t const * key,
                        fd_funk_rec_query_t *     query ) {
-#ifdef FD_FUNK_HANDHOLDING
   if( FD_UNLIKELY( funk==NULL || key==NULL || query==NULL ) ) {
     return NULL;
   }
   if( FD_UNLIKELY( txn && !fd_funk_txn_valid( funk, txn ) ) ) {
     return NULL;
   }
-#endif
 
   fd_funk_xid_key_pair_t pair[1];
   fd_funk_rec_key_set_pair( pair, txn, key );
@@ -108,14 +106,12 @@ fd_funk_rec_query_try_global( fd_funk_t const *         funk,
                               fd_funk_rec_key_t const * key,
                               fd_funk_txn_t const **    txn_out,
                               fd_funk_rec_query_t *     query ) {
-#ifdef FD_FUNK_HANDHOLDING
   if( FD_UNLIKELY( funk==NULL || key==NULL || query==NULL ) ) {
     return NULL;
   }
   if( FD_UNLIKELY( txn && !fd_funk_txn_valid( funk, txn ) ) ) {
     return NULL;
   }
-#endif
 
   /* Look for the first element in the hash chain with the right
      record key. This takes advantage of the fact that elements with
@@ -213,7 +209,6 @@ fd_funk_rec_prepare( fd_funk_t *               funk,
                      fd_funk_rec_key_t const * key,
                      fd_funk_rec_prepare_t *   prepare,
                      int *                     opt_err ) {
-#ifdef FD_FUNK_HANDHOLDING
   if( FD_UNLIKELY( funk==NULL || key==NULL || prepare==NULL ) ) {
     fd_int_store_if( !!opt_err, opt_err, FD_FUNK_ERR_INVAL );
     return NULL;
@@ -222,7 +217,6 @@ fd_funk_rec_prepare( fd_funk_t *               funk,
     fd_int_store_if( !!opt_err, opt_err, FD_FUNK_ERR_INVAL );
     return NULL;
   }
-#endif
   memset( prepare, 0, sizeof(fd_funk_rec_prepare_t) );
 
   if( !txn ) { /* Modifying last published */
@@ -472,14 +466,12 @@ fd_funk_rec_remove( fd_funk_t *               funk,
                     fd_funk_txn_t *           txn,
                     fd_funk_rec_key_t const * key,
                     fd_funk_rec_t **          rec_out ) {
-#ifdef FD_FUNK_HANDHOLDING
   if( FD_UNLIKELY( funk==NULL || key==NULL ) ) {
     return FD_FUNK_ERR_INVAL;
   }
   if( FD_UNLIKELY( txn && !fd_funk_txn_valid( funk, txn ) ) ) {
     return FD_FUNK_ERR_INVAL;
   }
-#endif
 
   if( !txn ) { /* Modifying last published */
     if( FD_UNLIKELY( fd_funk_last_publish_is_frozen( funk ) ) ) {

@@ -338,9 +338,7 @@ struct fake_funk {
     }
 
     void verify() {
-#ifdef FD_FUNK_HANDHOLDING
       assert(fd_funk_verify(_real) == FD_FUNK_SUCCESS);
-#endif
 
       for (auto i : _txns) {
         assert(i.first == i.second->_key);

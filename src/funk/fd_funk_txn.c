@@ -51,17 +51,13 @@ fd_funk_txn_prepare( fd_funk_t *               funk,
                      fd_funk_txn_xid_t const * xid,
                      int                       verbose ) {
 
-#ifdef FD_FUNK_HANDHOLDING
-  if( FD_UNLIKELY( !funk ) ) {
-    if( FD_UNLIKELY( verbose ) ) FD_LOG_WARNING(( "NULL funk" ));
-    return NULL;
-  }
+  if( FD_UNLIKELY( !funk ) ) FD_LOG_CRIT(( "NULL funk" ));
   if( FD_UNLIKELY( !xid ) ) {
     if( FD_UNLIKELY( verbose ) ) FD_LOG_WARNING(( "NULL xid" ));
     return NULL;
   }
   if( FD_UNLIKELY( parent && !fd_funk_txn_valid( funk, parent ) ) ) {
-    if( FD_UNLIKELY( verbose ) ) FD_LOG_WARNING(( "bad txn" ));
+    if( FD_UNLIKELY( verbose ) ) FD_LOG_WARNING(( "invalid parent txn" ));
     return NULL;
   }
   if( FD_UNLIKELY( fd_funk_txn_xid_eq_root( xid ) ) ) {
@@ -72,7 +68,6 @@ fd_funk_txn_prepare( fd_funk_t *               funk,
     if( FD_UNLIKELY( verbose ) ) FD_LOG_WARNING(( "xid is the last published" ));
     return NULL;
   }
-#endif
 
   fd_funk_txn_map_query_t query[1];
   if( FD_UNLIKELY( fd_funk_txn_map_query_try( funk->txn_map, xid, NULL, query, 0 ) != FD_MAP_ERR_KEY ) ) {
@@ -273,18 +268,12 @@ fd_funk_txn_cancel( fd_funk_t *     funk,
                     fd_funk_txn_t * txn,
                     int             verbose ) {
 
-#ifdef FD_FUNK_HANDHOLDING
-  if( FD_UNLIKELY( !funk ) ) {
-    if( FD_UNLIKELY( verbose ) ) FD_LOG_WARNING(( "NULL funk" ));
-    return 0UL;
-  }
+  if( FD_UNLIKELY( !funk ) ) FD_LOG_CRIT(( "NULL funk" ));
+  if( FD_UNLIKELY( !txn  ) ) FD_LOG_CRIT(( "NULL txn" ));
   if( FD_UNLIKELY( !fd_funk_txn_valid( funk, txn ) ) ) {
     if( FD_UNLIKELY( verbose ) ) FD_LOG_WARNING(( "bad txn" ));
     return 0UL;
   }
-#else
-  (void)verbose;
-#endif
 
   ulong txn_idx = (ulong)(txn - funk->txn_pool->ele);
   return fd_funk_txn_cancel_family( funk, funk->shmem->cycle_tag++, txn_idx );
@@ -362,18 +351,12 @@ fd_funk_txn_cancel_siblings( fd_funk_t *     funk,
                              fd_funk_txn_t * txn,
                              int             verbose ) {
 
-#ifdef FD_FUNK_HANDHOLDING
-  if( FD_UNLIKELY( !funk ) ) {
-    if( FD_UNLIKELY( verbose ) ) FD_LOG_WARNING(( "NULL funk" ));
-    return 0UL;
-  }
+  if( FD_UNLIKELY( !funk ) ) FD_LOG_CRIT(( "NULL funk" ));
+  if( FD_UNLIKELY( !txn  ) ) FD_LOG_CRIT(( "NULL txn"  ));
   if( FD_UNLIKELY( !fd_funk_txn_valid( funk, txn ) ) ) {
-    if( FD_UNLIKELY( verbose ) ) FD_LOG_WARNING(( "bad txn" ));
+    if( FD_UNLIKELY( verbose ) ) FD_LOG_WARNING(( "invalid txn" ));
     return 0UL;
   }
-#else
-  (void)verbose;
-#endif
 
   ulong txn_idx = (ulong)(txn - funk->txn_pool->ele);
 
@@ -387,18 +370,12 @@ fd_funk_txn_cancel_children( fd_funk_t *     funk,
                              fd_funk_txn_t * txn,
                              int             verbose ) {
 
-#ifdef FD_FUNK_HANDHOLDING
-  if( FD_UNLIKELY( !funk ) ) {
-    if( FD_UNLIKELY( verbose ) ) FD_LOG_WARNING(( "NULL funk" ));
-    return 0UL;
-  }
+  if( FD_UNLIKELY( !funk ) ) FD_LOG_CRIT(( "NULL funk" ));
+  if( FD_UNLIKELY( !txn  ) ) FD_LOG_CRIT(( "NULL txn"  ));
   if( FD_UNLIKELY( !fd_funk_txn_valid( funk, txn ) ) ) {
     if( FD_UNLIKELY( verbose ) ) FD_LOG_WARNING(( "bad txn" ));
     return 0UL;
   }
-#else
-  (void)verbose;
-#endif
 
   ulong oldest_idx;
 
@@ -620,19 +597,12 @@ ulong
 fd_funk_txn_publish( fd_funk_t *     funk,
                      fd_funk_txn_t * txn,
                      int             verbose ) {
-
-#ifdef FD_FUNK_HANDHOLDING
-  if( FD_UNLIKELY( !funk ) ) {
-    if( FD_UNLIKELY( verbose ) ) FD_LOG_WARNING(( "NULL funk" ));
-    return 0UL;
-  }
+  if( FD_UNLIKELY( !funk ) ) FD_LOG_CRIT(( "NULL funk" ));
+  if( FD_UNLIKELY( !txn  ) ) FD_LOG_CRIT(( "NULL txn"  ));
   if( FD_UNLIKELY( !fd_funk_txn_valid( funk, txn ) ) ) {
     if( FD_UNLIKELY( verbose ) ) FD_LOG_WARNING(( "bad txn" ));
     return 0UL;
   }
-#else
-  (void)verbose;
-#endif
 
   ulong txn_idx = (ulong)(txn - funk->txn_pool->ele);
 
@@ -685,18 +655,12 @@ int
 fd_funk_txn_publish_into_parent( fd_funk_t *     funk,
                                  fd_funk_txn_t * txn,
                                  int             verbose ) {
-#ifdef FD_FUNK_HANDHOLDING
-  if( FD_UNLIKELY( !funk ) ) {
-    if( FD_UNLIKELY( verbose ) ) FD_LOG_WARNING(( "NULL funk" ));
-    return FD_FUNK_ERR_INVAL;
-  }
+  if( FD_UNLIKELY( !funk ) ) FD_LOG_CRIT(( "NULL funk" ));
+  if( FD_UNLIKELY( !txn  ) ) FD_LOG_CRIT(( "NULL txn"  ));
   if( FD_UNLIKELY( !fd_funk_txn_valid( funk, txn ) ) ) {
     if( FD_UNLIKELY( verbose ) ) FD_LOG_WARNING(( "bad txn" ));
     return 0UL;
   }
-#else
-  (void)verbose;
-#endif
 
   fd_funk_txn_map_t *  txn_map  = funk->txn_map;
   fd_funk_txn_pool_t * txn_pool = funk->txn_pool;

@@ -191,9 +191,7 @@ main( int     argc,
       uint idx; RANDOM_SET_BIT_IDX( ~live_pmap );
       fd_funk_txn_t * txn = fd_funk_txn_query( &recent_xid[idx], map );
       FD_TEST( !txn );
-#ifdef FD_FUNK_HANDHOLDING
       FD_TEST( fd_funk_txn_cancel( funk, txn, verbose )==0UL );
-#endif
       break;
     }
 
@@ -202,9 +200,7 @@ main( int     argc,
       xid[0] = fd_funk_generate_xid();
       fd_funk_txn_t * txn = fd_funk_txn_query( xid, map );
       FD_TEST( !txn );
-#ifdef FD_FUNK_HANDHOLDING
       FD_TEST( fd_funk_txn_cancel( funk, txn, verbose )==0UL );
-#endif
       break;
     }
 
@@ -223,9 +219,7 @@ main( int     argc,
       uint idx; RANDOM_SET_BIT_IDX( ~live_pmap );
       fd_funk_txn_t * txn = fd_funk_txn_query( &recent_xid[idx], map );
       FD_TEST( !txn );
-#ifdef FD_FUNK_HANDHOLDING
       FD_TEST( fd_funk_txn_publish( funk, txn, verbose )==0UL );
-#endif
       break;
     }
 
@@ -234,16 +228,13 @@ main( int     argc,
       xid[0] = fd_funk_generate_xid();
       fd_funk_txn_t * txn = fd_funk_txn_query( xid, map );
       FD_TEST( !txn );
-#ifdef FD_FUNK_HANDHOLDING
       FD_TEST( fd_funk_txn_publish( funk, txn, verbose )==0UL );
-#endif
       break;
     }
 
     default: { /* various sanity checks */
       uint idx = r & 63U; r >>= 6;
       fd_funk_txn_t * txn = fd_funk_txn_query( &recent_xid[idx], map );
-#ifdef FD_FUNK_HANDHOLDING
       fd_funk_txn_xid_t xid[1];
       xid[0] = fd_funk_generate_xid();
 
@@ -270,7 +261,6 @@ main( int     argc,
       FD_TEST( !fd_funk_txn_publish( funk, NULL, verbose ) );                 /* NULL txn */
       FD_TEST( !fd_funk_txn_publish( funk, bad,  verbose ) );                 /* tx not in map */
       if( dead ) FD_TEST( !fd_funk_txn_publish( funk, dead, verbose ) );      /* tx not in prep */
-#endif
 
       if( txn ) {
         FD_TEST( fd_funk_txn_xid_eq( fd_funk_txn_xid( txn ), &recent_xid[idx] ) );
@@ -316,9 +306,7 @@ main( int     argc,
     }
     }
 
-#ifdef FD_FUNK_HANDHOLDING
     FD_TEST( !fd_funk_verify( funk ) );
-#endif
   }
 
   fd_funk_leave( funk, NULL );

@@ -241,6 +241,7 @@ handle_control_frag( fd_snapin_tile_t *  ctx,
 
       fd_funk_txn_xid_t incremental_xid = fd_funk_generate_xid();
       ctx->funk_txn = fd_funk_txn_prepare( ctx->funk, ctx->funk_txn, &incremental_xid, 0 );
+      if( FD_UNLIKELY( !ctx->funk_txn ) ) FD_LOG_ERR(( "fd_funk_txn_prepare failed" ));
       ctx->full     = 0;
       ctx->state    = FD_SNAPIN_STATE_LOADING;
       break;

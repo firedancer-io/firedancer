@@ -67,9 +67,7 @@ main( int     argc,
       FD_TEST( !tmp );                                                    \
     } while(0)
 
-#ifdef FD_FUNK_HANDHOLDING
     FD_TEST( !fd_funk_verify( tst ) );
-#endif
 
     fd_funk_txn_xid_t txid[1];
     fd_funk_rec_key_t tkey[1];

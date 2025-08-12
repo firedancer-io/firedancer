@@ -1954,6 +1954,7 @@ fd_migrate_builtin_to_core_bpf( fd_exec_slot_ctx_t *                   slot_ctx,
   fd_funk_txn_xid_t migration_xid = fd_funk_generate_xid();
   fd_funk_txn_start_write( slot_ctx->funk );
   slot_ctx->funk_txn = fd_funk_txn_prepare( slot_ctx->funk, slot_ctx->funk_txn, &migration_xid, 0UL );
+  if( FD_UNLIKELY( !slot_ctx->funk_txn ) ) FD_LOG_ERR(( "fd_funk_txn_prepare failed" ));
   fd_funk_txn_end_write( slot_ctx->funk );
 
   /* Attempt serialization of program account. If the program is
@@ -2804,6 +2805,7 @@ fd_runtime_read_genesis( fd_exec_slot_ctx_t *   slot_ctx,
     xid.ul[1] = 0UL;
     xid.ul[0] = 0UL;
     slot_ctx->funk_txn = fd_funk_txn_prepare( slot_ctx->funk, NULL, &xid, 1 );
+    if( FD_UNLIKELY( !slot_ctx->funk_txn ) ) FD_LOG_ERR(( "fd_funk_txn_prepare failed" ));
     fd_funk_txn_end_write( slot_ctx->funk );
 
     fd_runtime_init_bank_from_genesis( slot_ctx,
