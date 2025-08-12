@@ -1931,7 +1931,7 @@ static void
 fd_runtime_process_new_epoch( fd_exec_slot_ctx_t * slot_ctx,
                               ulong                parent_epoch,
                               fd_spad_t *          runtime_spad ) {
-  FD_LOG_NOTICE(( "fd_process_new_epoch start" ));
+  FD_LOG_NOTICE(( "fd_process_new_epoch start, epoch: %lu, slot: %lu", fd_bank_epoch_get( slot_ctx->bank ), fd_bank_slot_get( slot_ctx->bank ) ));
 
   FD_SPAD_FRAME_BEGIN( runtime_spad ) {
 

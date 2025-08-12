@@ -2815,7 +2815,6 @@ upsert_vote_account( fd_txn_account_t * vote_account,
         fd_txn_account_get_data( vote_account ),
         fd_txn_account_get_data_len( vote_account ) );
     fd_bank_vote_states_end_locking_modify( bank );
-
   } else {
     remove_vote_account( vote_account, bank );
   }
