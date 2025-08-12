@@ -107,7 +107,7 @@ test_insert( fd_wksp_t * wksp ) {
 }
 
 void
-test_publish( fd_wksp_t * wksp ){
+test_publish( fd_wksp_t * wksp ) {
   ulong        fec_max = 32;
   void *       mem     = fd_wksp_alloc_laddr( wksp, fd_reasm_align(), fd_reasm_footprint( fec_max ), 1UL );
   fd_reasm_t * reasm   = fd_reasm_join( fd_reasm_new( mem, fec_max, 0UL ) );
@@ -181,6 +181,44 @@ test_publish( fd_wksp_t * wksp ){
   fd_wksp_free_laddr( fd_reasm_delete( fd_reasm_leave( reasm ) ) );
 }
 
+void
+test_slot_mr( fd_wksp_t * wksp ) {
+  ulong        fec_max = 32;
+  void *       mem     = fd_wksp_alloc_laddr( wksp, fd_reasm_align(), fd_reasm_footprint( fec_max ), 1UL );
+  fd_reasm_t * reasm   = fd_reasm_join( fd_reasm_new( mem, fec_max, 0UL ) );
+  FD_TEST( reasm );
+  FD_TEST( reasm->slot_mr );
+
+  fd_reasm_fec_t * pool = reasm->pool;
+  // ulong            null = pool_idx_null( pool );
+
+  ancestry_t * ancestry = reasm->ancestry;
+  frontier_t * frontier = reasm->frontier;
+  subtrees_t * subtrees = reasm->subtrees;
+
+  fd_hash_t mr0[1] = {{{ 0 }}};
+  fd_hash_t mr1[1] = {{{ 1 }}};
+  fd_hash_t mr2[1] = {{{ 2 }}};
+  fd_hash_t mr3[1] = {{{ 3 }}};
+  fd_hash_t mr4[1] = {{{ 4 }}};
+
+  fd_reasm_init( reasm, mr1, 1 );
+  fd_reasm_fec_t * fec1 = fd_reasm_query( reasm, mr1 );
+  FD_TEST( fec1 );
+  FD_TEST( frontier_ele_query( frontier, &fec1->key, NULL, pool ) == fec1 );
+
+  fd_reasm_fec_t * fec2 = fd_reasm_insert( reasm, mr2, mr0, 2, 0, 1, 32, 0, 1 ); /* insert with bad mr0 should be mr1 */
+  FD_TEST( ancestry_ele_query( ancestry, &fec1->key, NULL, pool ) );             /* successfully chains anyways */
+  FD_TEST( frontier_ele_query( frontier, &fec2->key, NULL, pool ) );
+
+  fd_reasm_fec_t * fec4 = fd_reasm_insert( reasm, mr4, mr0, 4, 0, 1, 32, 0, 1 ); /* insert with bad mr0 should be mr3 */
+  FD_TEST( subtrees_ele_query( subtrees, &fec4->key, NULL, pool ) );             /* orphaned */
+
+  fd_reasm_fec_t * fec3 = fd_reasm_insert( reasm, mr3, mr2, 3, 0, 1, 32, 0, 1 );
+  FD_TEST( ancestry_ele_query( ancestry, &fec3->key, NULL, pool ) );             /* mr3 should chain to 2 */
+  FD_TEST( frontier_ele_query( frontier, &fec4->key, NULL, pool ) );             /* mr4 should have chained */
+}
+
 int
 main( int argc, char ** argv ) {
   fd_boot( &argc, &argv );
@@ -193,6 +231,7 @@ main( int argc, char ** argv ) {
 
   test_insert( wksp );
   test_publish( wksp );
+  test_slot_mr( wksp );
 
   ulong sig = fd_disco_repair_replay_sig( 3508496, 1, 32, 128 );
   FD_TEST( fd_disco_repair_replay_sig_slot( sig ) == 3508496 );

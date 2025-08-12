@@ -1447,6 +1447,16 @@ handle_new_slice( fd_replay_tile_ctx_t * ctx, fd_stem_context_t * stem ) {
   ulong slice_sz = 0;
   for( ulong i = 0; i < slice.merkles_cnt; i++ ) {
     fd_store_fec_t * fec = fd_store_query( ctx->store, &slice.merkles[i] );
+    if( FD_UNLIKELY( !fec ) ) {
+
+      /* The only case in which a FEC is not found in the store after
+         repair has notified is if the FEC was on a minority fork that
+         has already been published away.  In this case we abandon the
+         entire slice because it is no longer relevant.  */
+
+      FD_LOG_WARNING(( "store fec for slot: %lu is on minority fork already pruned by publish. abandoning slice. root: %lu. pruned merkle: %s", slice.slot, ctx->root, FD_BASE58_ENC_32_ALLOCA( &slice.merkles[i] ) ));
+      return;
+    }
     FD_TEST( fec );
     memcpy( ctx->slice_exec_ctx.buf + slice_sz, fec->data, fec->data_sz );
     slice_sz += fec->data_sz;
