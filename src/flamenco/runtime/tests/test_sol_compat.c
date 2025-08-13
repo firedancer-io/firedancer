@@ -1,3 +1,6 @@
+/* test_sol_compat.c runs solfuzz/sol_compat/protosol Protobuf fixtures.
+   Supports parallel / tile-based execution. */
+
 #define _DEFAULT_SOURCE
 #include "fd_solfuzz.h"
 #include <errno.h>

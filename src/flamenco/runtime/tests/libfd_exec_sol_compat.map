@@ -1,0 +1,6 @@
+VER_1 {
+    global:
+        sol_compat_*;
+    local:
+        *;
+};
