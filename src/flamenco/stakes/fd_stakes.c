@@ -32,7 +32,6 @@ static void
 dump_vote_and_stake_states( fd_vote_states_t const *       vote_states,
                             fd_stake_delegations_t const * stake_delegations ) {
 
-  return;
   fd_stake_delegation_map_t * stake_delegation_map  = fd_stake_delegations_get_map( stake_delegations );
   fd_stake_delegation_t *     stake_delegation_pool = fd_stake_delegations_get_pool( stake_delegations );
 
@@ -40,7 +39,7 @@ dump_vote_and_stake_states( fd_vote_states_t const *       vote_states,
        !fd_stake_delegation_map_iter_done( iter, stake_delegation_map, stake_delegation_pool );
        iter = fd_stake_delegation_map_iter_next( iter, stake_delegation_map, stake_delegation_pool ) ) {
     fd_stake_delegation_t const * stake_delegation = fd_stake_delegation_map_iter_ele_const( iter, stake_delegation_map, stake_delegation_pool );
-    FD_LOG_NOTICE(( "stake_delegation: %s, stake: %lu, activation_epoch: %lu, deactivation_epoch: %lu", FD_BASE58_ENC_32_ALLOCA( &stake_delegation->vote_account ), stake_delegation->stake, stake_delegation->activation_epoch, stake_delegation->deactivation_epoch ));
+    FD_LOG_NOTICE(( "stake_delegation: %s, vote_account: %s, stake: %lu, activation_epoch: %lu, deactivation_epoch: %lu", FD_BASE58_ENC_32_ALLOCA( &stake_delegation->stake_account ), FD_BASE58_ENC_32_ALLOCA( &stake_delegation->vote_account ), stake_delegation->stake, stake_delegation->activation_epoch, stake_delegation->deactivation_epoch ));
   }
 
   fd_vote_state_map_t * vote_state_map  = fd_vote_states_get_map( vote_states );
@@ -65,7 +64,9 @@ compute_stake_delegations( fd_bank_t *                bank,
   ulong total_stake = 0UL;
 
   fd_vote_states_t * vote_states = fd_bank_vote_states_locking_modify( bank );
-  fd_vote_states_reset_stakes( vote_states );
+  if( FD_UNLIKELY( !vote_states ) ) {
+    FD_LOG_CRIT(( "vote_states is NULL" ));
+  }
 
   fd_stake_delegations_t const * stake_delegations = fd_bank_stake_delegations_locking_query( bank );
   if( FD_UNLIKELY( !stake_delegations ) ) {
@@ -73,6 +74,10 @@ compute_stake_delegations( fd_bank_t *                bank,
   }
   fd_stake_delegation_map_t * stake_delegation_map  = fd_stake_delegations_get_map( stake_delegations );
   fd_stake_delegation_t *     stake_delegation_pool = fd_stake_delegations_get_pool( stake_delegations );
+
+  /* Reset the vote stakes so we can re-compute them based on the most
+     current stake delegation values. */
+  fd_vote_states_reset_stakes( vote_states );
 
   for( fd_stake_delegation_map_iter_t iter = fd_stake_delegation_map_iter_init( stake_delegation_map, stake_delegation_pool );
        !fd_stake_delegation_map_iter_done( iter, stake_delegation_map, stake_delegation_pool );
@@ -301,6 +306,16 @@ fd_stakes_remove_stake_delegation( fd_txn_account_t *   stake_account,
     FD_LOG_CRIT(( "unable to retrieve join to stake delegation pool" ));
   }
 
+  fd_stake_delegation_t const * stake_delegation = fd_stake_delegations_query( stake_delegations, stake_account->pubkey );
+
+  FD_LOG_NOTICE(("STAKE DELEGATION INSERT stake_account %s, vote_account %s, stake %lu, activation_epoch %lu, deactivation_epoch %lu, credits_observed %lu",
+      FD_BASE58_ENC_32_ALLOCA( stake_account->pubkey ),
+      FD_BASE58_ENC_32_ALLOCA( &stake_delegation->vote_account ),
+      stake_delegation->stake,
+      stake_delegation->activation_epoch,
+      stake_delegation->deactivation_epoch,
+      stake_delegation->credits_observed ));
+
   fd_stake_delegations_remove( stake_delegations, stake_account->pubkey );
 
   fd_bank_stake_delegations_end_locking_modify( bank );
@@ -335,6 +350,14 @@ fd_stakes_upsert_stake_delegation( fd_txn_account_t * stake_account,
     fd_bank_stake_delegations_end_locking_modify( bank );
     return;
   }
+
+  FD_LOG_NOTICE(("STAKE DELEGATION INSERT stake_account %s, vote_account %s, stake %lu, activation_epoch %lu, deactivation_epoch %lu, credits_observed %lu",
+      FD_BASE58_ENC_32_ALLOCA( stake_account->pubkey ),
+      FD_BASE58_ENC_32_ALLOCA( &stake_state.inner.stake.stake.delegation.voter_pubkey ),
+      stake_state.inner.stake.stake.delegation.stake,
+      stake_state.inner.stake.stake.delegation.activation_epoch,
+      stake_state.inner.stake.stake.delegation.deactivation_epoch,
+      stake_state.inner.stake.stake.credits_observed ));
 
   fd_stake_delegations_update(
       stake_delegations,
