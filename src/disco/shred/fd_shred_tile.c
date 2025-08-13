@@ -798,6 +798,7 @@ after_frag( fd_shred_ctx_t *    ctx,
       FD_MCNT_INC( SHRED, FORCE_COMPLETE_FAILURE, 1UL );
       return;
     }
+    FD_LOG_INFO(( "completing %lu %u", out_last_shred->slot, out_last_shred->fec_set_idx ));
     FD_MCNT_INC( SHRED, FORCE_COMPLETE_SUCCESS, 1UL );
     FD_TEST( ctx->fec_sets <= *out_fec_set );
     ctx->send_fec_set_idx[ 0UL ] = (ulong)(*out_fec_set - ctx->fec_sets);
@@ -863,6 +864,8 @@ after_frag( fd_shred_ctx_t *    ctx,
         }
       }
     }
+
+    if( rv==FD_FEC_RESOLVER_SHRED_COMPLETES ) FD_LOG_INFO(( "completing %lu %u", shred->slot, shred->fec_set_idx ));
 
     if( (rv==FD_FEC_RESOLVER_SHRED_OKAY) | (rv==FD_FEC_RESOLVER_SHRED_COMPLETES) ) {
       if( FD_LIKELY( fd_disco_netmux_sig_proto( sig ) != DST_PROTO_REPAIR ) ) {
@@ -1017,6 +1020,7 @@ after_frag( fd_shred_ctx_t *    ctx,
       memcpy( chunk+FD_SHRED_DATA_HEADER_SZ + FD_SHRED_MERKLE_ROOT_SZ, (uchar *)last + fd_shred_chain_off( last->variant ), FD_SHRED_MERKLE_ROOT_SZ );
       ulong sz    = FD_SHRED_DATA_HEADER_SZ + FD_SHRED_MERKLE_ROOT_SZ * 2;
       ulong tspub = fd_frag_meta_ts_comp( fd_tickcount() );
+      FD_LOG_INFO(( "publishing %lu %u %s %s", last->slot, last->fec_set_idx, FD_BASE58_ENC_32_ALLOCA( out_merkle_root.hash ), FD_BASE58_ENC_32_ALLOCA( (uchar *)last + fd_shred_chain_off( last->variant ) ) ));
       fd_stem_publish( stem, ctx->repair_out_idx, sig, ctx->repair_out_chunk, sz, 0UL, ctx->tsorig, tspub );
       ctx->repair_out_chunk = fd_dcache_compact_next( ctx->repair_out_chunk, sz, ctx->repair_out_chunk0, ctx->repair_out_wmark );
 

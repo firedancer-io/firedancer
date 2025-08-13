@@ -318,6 +318,9 @@ advance_frontier( fd_forest_t * forest, ulong slot, ushort parent_off ) {
     fd_forest_ele_t * head  = fd_forest_pool_ele( pool, fd_forest_deque_pop_head( queue ) );
     fd_forest_ele_t * child = fd_forest_pool_ele( pool, head->child );
     if( FD_LIKELY( child && head->complete_idx != UINT_MAX && head->buffered_idx == head->complete_idx ) ) {
+
+      FD_LOG_INFO(( "forest completing slot: %lu last_idx: %u", head->slot, head->complete_idx ));
+
       fd_forest_frontier_ele_remove( frontier, &head->slot, NULL, pool );
       fd_forest_ancestry_ele_insert( ancestry, head, pool );
       while( FD_LIKELY( child ) ) { /* append children to frontier */

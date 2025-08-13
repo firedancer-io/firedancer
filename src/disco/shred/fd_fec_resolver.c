@@ -4,6 +4,7 @@
 #include "../../ballet/reedsol/fd_reedsol.h"
 #include "../metrics/fd_metrics.h"
 #include "fd_fec_resolver.h"
+#include "../../flamenco/fd_flamenco_base.h"
 
 
 typedef union {
@@ -30,6 +31,7 @@ struct __attribute__((aligned(32UL))) set_ctx {
   /* If this FEC set has resigned shreds, this is our signature of the
      root of the Merkle tree */
   wrapped_sig_t         retransmitter_sig;
+  ulong slot;
 };
 typedef struct set_ctx set_ctx_t;
 
@@ -344,7 +346,10 @@ int fd_fec_resolver_add_shred( fd_fec_resolver_t    * resolver,
   /* Are we already done with this FEC set? */
   int found = !!ctx_map_query( done_map, *w_sig, NULL );
 
-  if( found )  return FD_FEC_RESOLVER_SHRED_IGNORED; /* With no packet loss, we expect found==1 about 50% of the time */
+  if( found )  {
+    FD_LOG_INFO(( "shred_ignored %lu %u %s %u", shred->slot, shred->fec_set_idx, FD_BASE58_ENC_64_ALLOCA( w_sig->u ), shred->idx ));
+    return FD_FEC_RESOLVER_SHRED_IGNORED; /* With no packet loss, we expect found==1 about 50% of the time */
+  }
 
   set_ctx_t * ctx = ctx_map_query( curr_map, *w_sig, NULL );
 
@@ -417,6 +422,8 @@ int fd_fec_resolver_add_shred( fd_fec_resolver_t    * resolver,
 
       /* Add this one that we're sacrificing to the done map to
          prevent the possibility of thrashing. */
+
+      FD_LOG_NOTICE(( "fec_set_spilled %lu %lu %s", victim_ctx->slot, victim_ctx->fec_set_idx, FD_BASE58_ENC_64_ALLOCA( victim_ctx->sig.u ) ));
       ctx_ll_insert( done_ll_sentinel, ctx_map_insert( done_map, victim_ctx->sig ) );
       if( FD_UNLIKELY( ctx_map_key_cnt( done_map ) > done_depth ) ) ctx_map_remove( done_map, ctx_ll_remove( done_ll_sentinel->prev ) );
 
@@ -465,6 +472,7 @@ int fd_fec_resolver_add_shred( fd_fec_resolver_t    * resolver,
     ctx->total_rx_shred_cnt = 0UL;
     ctx->data_variant   = fd_uchar_if(  is_data_shred, variant, fd_shred_variant( fd_shred_swap_type( shred_type ), (uchar)tree_depth ) );
     ctx->parity_variant = fd_uchar_if( !is_data_shred, variant, fd_shred_variant( fd_shred_swap_type( shred_type ), (uchar)tree_depth ) );
+    ctx->slot = shred->slot;
 
     if( FD_UNLIKELY( fd_shred_is_resigned( shred_type ) & !!(resolver->signer) ) ) {
       resolver->signer( resolver->sign_ctx, ctx->retransmitter_sig.u, _root->hash );
@@ -487,7 +495,10 @@ int fd_fec_resolver_add_shred( fd_fec_resolver_t    * resolver,
     int shred_dup = fd_int_if( is_data_shred, d_rcvd_test( ctx->set->data_shred_rcvd,   in_type_idx ),
                                               p_rcvd_test( ctx->set->parity_shred_rcvd, in_type_idx ) );
 
-    if( FD_UNLIKELY( shred_dup ) ) return FD_FEC_RESOLVER_SHRED_IGNORED;
+    if( FD_UNLIKELY( shred_dup ) ) {
+      FD_LOG_INFO(( "shred_ignored %lu %u %s %u", shred->slot, shred->fec_set_idx, FD_BASE58_ENC_64_ALLOCA( shred->signature ), shred->idx ));
+      return FD_FEC_RESOLVER_SHRED_IGNORED;
+    }
 
     /* Ensure that all the shreds in the FEC set have consistent
        variants.  They all must have the same tree_depth and the same
@@ -528,7 +539,10 @@ int fd_fec_resolver_add_shred( fd_fec_resolver_t    * resolver,
   *out_shred = (fd_shred_t const *)dst;
 
   /* Do we have enough to begin reconstruction? */
-  if( FD_LIKELY( ctx->total_rx_shred_cnt < ctx->set->data_shred_cnt ) ) return FD_FEC_RESOLVER_SHRED_OKAY;
+  if( FD_LIKELY( ctx->total_rx_shred_cnt < ctx->set->data_shred_cnt ) ) {
+    FD_LOG_INFO(( "shred_processed %lu %u %s %u", shred->slot, shred->fec_set_idx, FD_BASE58_ENC_64_ALLOCA( shred->signature ), shred->idx ));
+    return FD_FEC_RESOLVER_SHRED_OKAY;
+  }
 
   /* At this point, the FEC set is either valid or permanently invalid,
      so we can consider it done either way.  First though, since ctx_map_remove
@@ -751,7 +765,10 @@ fd_fec_resolver_force_complete( fd_fec_resolver_t  *  resolver,
   /* Error if already done. */
 
   int found = !!ctx_map_query( resolver->done_map, *w_sig, NULL );
-  if( found )  return FD_FEC_RESOLVER_SHRED_IGNORED;
+  if( found )  {
+    FD_LOG_INFO(( "shred_ignored %lu %u %s %u", last_shred->slot, last_shred->fec_set_idx, FD_BASE58_ENC_64_ALLOCA( last_shred->signature ), last_shred->idx ));
+    return FD_FEC_RESOLVER_SHRED_IGNORED;
+  }
 
   /* Error if FEC associated with last_shred not found. */
 

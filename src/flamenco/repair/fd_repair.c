@@ -458,19 +458,19 @@ fd_write_good_peer_cache_file( fd_repair_t * repair ) {
 
 int
 fd_repair_need_window_index( fd_repair_t * glob, ulong slot, uint shred_index ) {
-  // FD_LOG_NOTICE(( "[%s] need window %lu, shred_index %u", __func__, slot, shred_index ));
+  // FD_LOG_INFO(( "[%s] need window %lu %u", __func__, slot, shred_index ));
   return fd_repair_create_inflight_request( glob, fd_needed_window_index, slot, shred_index, glob->now );
 }
 
 int
 fd_repair_need_highest_window_index( fd_repair_t * glob, ulong slot, uint shred_index ) {
-  //FD_LOG_DEBUG(( "[%s] need highest %lu", __func__, slot ));
+  // FD_LOG_INFO(( "[%s] need highest %lu", __func__, slot ));
   return fd_repair_create_inflight_request( glob, fd_needed_highest_window_index, slot, shred_index, glob->now );
 }
 
 int
 fd_repair_need_orphan( fd_repair_t * glob, ulong slot ) {
-  // FD_LOG_NOTICE( ( "[repair] need orphan %lu", slot ) );
+  // FD_LOG_INFO(( "[repair] need orphan %lu", slot ));
   return fd_repair_create_inflight_request( glob, fd_needed_orphan, slot, UINT_MAX, glob->now );
 }
 

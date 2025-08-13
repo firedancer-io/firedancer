@@ -64,7 +64,7 @@
 #include "../forest/fd_forest.h"
 #include "../reasm/fd_reasm.h"
 
-#define LOGGING 0
+#define LOGGING 1
 
 #define IN_KIND_CONTACT (0)
 #define IN_KIND_NET     (1)
@@ -133,6 +133,7 @@ struct fd_repair_tile_ctx {
   long tsprint; /* timestamp for printing */
   long tsrepair; /* timestamp for repair */
   long tsreset; /* timestamp for resetting iterator */
+  long tsreasm;
 
   fd_repair_t * repair;
   fd_repair_config_t repair_config;
@@ -181,6 +182,7 @@ struct fd_repair_tile_ctx {
   ulong       replay_out_chunk;
 
   ulong snap_out_chunk;
+  int snap;
 
   /* These will only be used if shredcap is enabled */
   uint        shredcap_out_idx;
@@ -226,6 +228,10 @@ struct fd_repair_tile_ctx {
   /* Pending sign requests */
   fd_repair_pending_sign_req_t      * pending_sign_req_pool;
   fd_repair_pending_sign_req_map_t  * pending_sign_req_map;
+
+  ulong ancestry_max;
+  ulong frontier_max;
+  long tsforest;
 };
 typedef struct fd_repair_tile_ctx fd_repair_tile_ctx_t;
 
@@ -696,6 +702,7 @@ after_frag_snap( fd_repair_tile_ctx_t * ctx,
   FD_TEST( fd_forest_root_slot( ctx->forest )!=ULONG_MAX );
   fd_hash_t null = { 0 }; /* FIXME block_id manifest */
   fd_reasm_init( ctx->reasm, &null, manifest->slot );
+  ctx->snap = 1;
 
   // if( FD_UNLIKELY( manifest->slot < ctx->manifest_slot ) ) FD_LOG_ERR(( "time travel is not supported (yet). manifest slot %lu < prev rx manifest slot %lu", manifest->slot, ctx->manifest_slot ));
 
@@ -907,6 +914,7 @@ after_frag( fd_repair_tile_ctx_t * ctx,
          then we know we can force complete the FEC set interval [i, j)
          (assuming it wasn't already completed based on `cmpl`). */
 
+      FD_LOG_INFO(( "force complete slot %lu consumed %u buffered %u", ele->slot, ele->consumed_idx, ele->buffered_idx ));
       uint i = ele->consumed_idx + 1;
       for( uint j = i; j < ele->buffered_idx + 1; j++ ) {
         if( FD_UNLIKELY( fd_forest_ele_idxs_test( ele->fecs, j ) ) ) {
@@ -968,6 +976,7 @@ after_credit( fd_repair_tile_ctx_t * ctx,
 
   fd_reasm_fec_t * rfec = fd_reasm_next( ctx->reasm );
   if( FD_LIKELY( rfec ) ) {
+    ctx->tsreasm = fd_log_wallclock();
 
     if( FD_LIKELY( ctx->store ) ) { /* some topologies don't run with store */
 
@@ -1096,6 +1105,7 @@ after_credit( fd_repair_tile_ctx_t * ctx,
   fd_repair_continue( ctx->repair );
 }
 
+  #include "../reasm/fd_reasm_private.h"
 static inline void
 during_housekeeping( fd_repair_tile_ctx_t * ctx ) {
   fd_repair_settime( ctx->repair, fd_log_wallclock() );
@@ -1103,9 +1113,56 @@ during_housekeeping( fd_repair_tile_ctx_t * ctx ) {
 # if LOGGING
   long now = fd_log_wallclock();
   if( FD_UNLIKELY( now - ctx->tsprint > (long)10e9 ) ) {
-    fd_forest_print( ctx->forest );
-    fd_reasm_print( ctx->reasm );
-    ctx->tsprint = fd_log_wallclock();
+    // fd_forest_print( ctx->forest );
+    // fd_reasm_print( ctx->reasm );
+
+    fd_forest_ele_t * pool = fd_forest_pool( ctx->forest );
+    fd_forest_ancestry_t * ancestry = fd_forest_ancestry( ctx->forest );
+    fd_forest_frontier_t * frontier = fd_forest_frontier( ctx->forest );
+
+    ulong ancestry_max = 0;
+    for( fd_forest_ancestry_iter_t iter = fd_forest_ancestry_iter_init( ancestry, pool );
+        !fd_forest_ancestry_iter_done( iter, ancestry, pool );
+        iter = fd_forest_ancestry_iter_next( iter, ancestry, pool ) ) {
+      fd_forest_ele_t const * ele = fd_forest_ancestry_iter_ele( iter, ancestry, pool );
+      ancestry_max = fd_ulong_max( ancestry_max, ele->slot );
+    }
+
+    ulong frontier_max = 0;
+    for( fd_forest_frontier_iter_t iter = fd_forest_frontier_iter_init( frontier, pool );
+        !fd_forest_frontier_iter_done( iter, frontier, pool );
+        iter = fd_forest_frontier_iter_next( iter, frontier, pool ) ) {
+      fd_forest_ele_t const * ele = fd_forest_frontier_iter_ele( iter, frontier, pool );
+      frontier_max = fd_ulong_max( frontier_max, ele->slot );
+    }
+
+    if( frontier_max==ctx->frontier_max && frontier_max < ancestry_max && ((fd_log_wallclock() - ctx->tsforest) > (long)60e9) ) {
+      fd_forest_print( ctx->forest );
+      fd_reasm_print( ctx->reasm );
+      for( fd_forest_frontier_iter_t iter = fd_forest_frontier_iter_init( frontier, pool );
+          !fd_forest_frontier_iter_done( iter, frontier, pool );
+          iter = fd_forest_frontier_iter_next( iter, frontier, pool ) ) {
+        fd_forest_ele_t const * ele = fd_forest_frontier_iter_ele( iter, frontier, pool );
+        for( ulong i = 0; i < 32768; i++ ) {
+          if( fd_forest_ele_idxs_test( ele->idxs, i ) ) {
+            FD_LOG_NOTICE(( "slot %lu idx %lu", ele->slot, i ));
+          }
+        }
+        for( ulong i = 0; i < 32768; i++ ) {
+          if( fd_forest_ele_idxs_test( ele->fecs, i ) ) {
+            FD_LOG_NOTICE(( "fec slot %lu idx %lu", ele->slot, i ));
+          }
+        }
+        FD_LOG_NOTICE(( "consumed idx: %u", ele->consumed_idx ));
+        FD_LOG_NOTICE(( "buffered idx: %u", ele->buffered_idx ));
+        FD_LOG_NOTICE(( "complete idx: %u", ele->complete_idx ));
+      }
+      __asm__("int $3");
+    } else {
+      ctx->ancestry_max = ancestry_max;
+      ctx->frontier_max = frontier_max;
+      ctx->tsforest = fd_log_wallclock();
+    }
   }
 # endif
 }
@@ -1139,6 +1196,7 @@ unprivileged_init( fd_topo_t *      topo,
   ctx->tsprint  = fd_log_wallclock();
   ctx->tsrepair = fd_log_wallclock();
   ctx->tsreset  = fd_log_wallclock();
+  ctx->tsreasm  = fd_log_wallclock();
 
   if( FD_UNLIKELY( tile->in_cnt > MAX_IN_LINKS ) ) FD_LOG_ERR(( "repair tile has too many input links" ));
 
@@ -1328,6 +1386,7 @@ unprivileged_init( fd_topo_t *      topo,
   ctx->pending_sign_req_map   = fd_repair_pending_sign_req_map_join  ( fd_repair_pending_sign_req_map_new  ( ctx->pending_sign_req_map, FD_REPAIR_PENDING_SIGN_REQ_MAX, ctx->repair_seed ) );
 
   ctx->repair->next_nonce = 1;
+  ctx->snap = 0;
 
   if( FD_UNLIKELY( !ctx->pending_sign_req_pool || !ctx->pending_sign_req_map ) ) {
     FD_LOG_ERR(( "Failed to join pending_sign_req_pool or pending_sign_req_map" ));

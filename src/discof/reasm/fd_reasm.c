@@ -237,7 +237,7 @@ fd_reasm_insert( fd_reasm_t *      reasm,
                  ushort            data_cnt,
                  int               data_complete,
                  int               slot_complete ) {
-  // FD_LOG_NOTICE(( "inserting (%lu %u) %s. %u %d %d", slot, fec_set_idx, FD_BASE58_ENC_32_ALLOCA( merkle_root ), data_cnt, data_complete, slot_complete ));
+  FD_LOG_INFO(( "inserting (%lu %u) %s %s. %u %d %d", slot, fec_set_idx, FD_BASE58_ENC_32_ALLOCA( merkle_root ), FD_BASE58_ENC_32_ALLOCA( chained_merkle_root ), data_cnt, data_complete, slot_complete ));
 
 # if FD_REASM_USE_HANDHOLDING
   FD_TEST( pool_free( reasm->pool ) );
@@ -457,6 +457,9 @@ void
 fd_reasm_print( fd_reasm_t const * reasm ) {
   FD_LOG_NOTICE( ( "\n\n[Reasm]" ) );
   fd_reasm_fec_t * pool = reasm->pool;
+
+  printf(("\n\n[Ancestry]\n" ) );
+  print( reasm, pool_ele( reasm->pool, reasm->root ), 0, "" );
 
   printf(("\n\n[Frontier]\n" ) );
   frontier_t * frontier = reasm->frontier;
