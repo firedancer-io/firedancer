@@ -33,14 +33,6 @@ fd_crds_contact_info_init( fd_gossip_view_crds_value_t const * view,
   ci->version.commit      = ci_view->version->commit;
   ci->version.feature_set = ci_view->version->feature_set;
 
-  /* We only want to save the first instance in the event of duplicate socket
-     tag entries. This tracks Agave's behavior when producing
-     ContactInfo entries, where setting a socket value overrides
-     an existing entry instead of appending.
-     https://github.com/anza-xyz/agave/blob/540d5bc56cd44e3cc61b179bd52e9a782a2c99e4/gossip/src/contact_info.rs#L339-L372
-
-     TODO: Check if we might want to keep last-seen instead? */
-  uchar  tag_set[ FD_CONTACT_INFO_SOCKET_LAST+1UL ] = {0};
   ushort cur_port = 0U;
   for( ulong i = 0UL; i < ci_view->sockets_len; i++ ) {
    fd_gossip_view_socket_t const * socket_view = &ci_view->sockets[ i ];
@@ -52,9 +44,6 @@ fd_crds_contact_info_init( fd_gossip_view_crds_value_t const * view,
            instead of continue. */
       continue;
     }
-    if( FD_UNLIKELY( tag_set[ socket_tag ] ) ) {
-      continue;
-    }
     /* Should be caught by parser. */
     FD_TEST( socket_view->index < ci_view->addrs_len );
 
@@ -63,11 +52,15 @@ fd_crds_contact_info_init( fd_gossip_view_crds_value_t const * view,
       /* IPv6 not supported */
       continue;
     }
-
-    tag_set[ socket_tag ] = 1;
     cur_port += socket_view->offset;
 
-    ci->sockets[ socket_tag ].addr = addr_view->ip4_addr;
+    /* We only want to save the last instance in the event of duplicate
+     socket tag entries. This tracks Agave's behavior when populating
+     its ContactInfo cache, where setting a socket value overrides
+     an existing entry instead of appending.
+     https://github.com/anza-xyz/agave/blob/540d5bc56cd44e3cc61b179bd52e9a782a2c99e4/gossip/src/contact_info.rs#L557-L570
+     */
+    ci->sockets[ socket_tag ].addr = addr_view->ip4;
     ci->sockets[ socket_tag ].port = fd_ushort_bswap( cur_port );
   }
   return;

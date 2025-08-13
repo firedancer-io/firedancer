@@ -1027,8 +1027,7 @@ fd_crds_insert( fd_crds_t *                         crds,
     if( FD_UNLIKELY( !crds_contact_info_pool_free( crds->contact_info.pool ) ) ) {
       FD_LOG_ERR(( "TODO: contact info pool exhausted, implement LRU based eviction?" ));
     }
-    fd_crds_contact_info_entry_t * ci = crds_contact_info_pool_ele_acquire( crds->contact_info.pool );
-    candidate->contact_info.ci = ci;
+    candidate->contact_info.ci = crds_contact_info_pool_ele_acquire( crds->contact_info.pool );
   }
 
   candidate->num_duplicates         = 0UL;

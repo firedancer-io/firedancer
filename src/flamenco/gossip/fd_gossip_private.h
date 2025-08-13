@@ -75,11 +75,19 @@ FD_STATIC_ASSERT( FD_GOSSIP_SNAPSHOT_HASHES_MAX_INCREMENTAL==25UL,
 #define FD_GOSSIP_UPDATE_SZ_DUPLICATE_SHRED     (offsetof(fd_gossip_update_message_t, duplicate_shred) + sizeof(fd_gossip_duplicate_shred_t))
 #define FD_GOSSIP_UPDATE_SZ_SNAPSHOT_HASHES     (offsetof(fd_gossip_update_message_t, snapshot_hashes) + sizeof(fd_gossip_snapshot_hashes_t))
 
+/* IPv6 address type for hash set keys */
+struct fd_gossip_view_ipv6_addr {
+  ulong hi;
+  ulong lo;
+};
+
+typedef struct fd_gossip_view_ipv6_addr fd_gossip_view_ipv6_addr_t;
+
 struct fd_gossip_view_ipaddr {
   uchar   is_ip6;
   union {
-    uint   ip4_addr;
-    ushort ip6_addr_off;
+    uint                       ip4;
+    fd_gossip_view_ipv6_addr_t ip6;
   };
 };
 
@@ -130,18 +138,35 @@ typedef struct fd_gossip_view_version fd_gossip_view_version_t;
    = 65b
 
   This leaves us with 1188b - 65b = 1123b to hold addrs, sockets or
-  extensions. */
+  extensions. Extension is just a byte array, so we can ignore sizing it
+  and instead offset it in the payload.
 
-/* TODO: Check with Michael, these bounds feel too high */
-#define FD_GOSSIP_CONTACT_INFO_MAX_ADDRESSES (141UL) /* 1123b/8b (disc + ip4 addr) */
-
-/* Minimum size socket entry is
+  Before analyzing size bounds for addrs and sockets, we establish the
+  minimum size socket entry:
      1b (key)
    + 1b (index)
-   + 1b (offset)
-   = 3b */
+   + 1b (offset, compact-u16)
+   = 3b
 
-#define FD_GOSSIP_CONTACT_INFO_MAX_SOCKETS (375UL) /* 1123b/3b (socket entry) */
+  According to Agave's ContactInfo verifier (linked below), every IP
+  address must be unique, and must be referenced by at least one socket.
+  This means that the number of addrs must be at most the number of
+  sockets. So to find the maximum n (addr, socket) pairs we can fit in
+  1123b:
+    1123b / (8b (addr) + 3b (socket)) ~= 102 pairs.
+
+  This bounds the number of addrs to 102. We cannot apply this bound to
+  sockets, because the socket entries can reference the same addr
+  multiple times, so we can have just 1 addr and use the remaining space
+  to hold sockets.
+
+  Agave's verifier enforces a unique socket tag (key) across all
+  sockets, and since the key is 1b, this bounds us to 256 sockets.
+
+  https://github.com/anza-xyz/agave/blob/540d5bc56cd44e3cc61b179bd52e9a782a2c99e4/gossip/src/contact_info.rs#L599-L643 */
+
+#define FD_GOSSIP_CONTACT_INFO_MAX_ADDRESSES (102UL)
+#define FD_GOSSIP_CONTACT_INFO_MAX_SOCKETS   (256UL)
 
 struct fd_gossip_view_contact_info {
   long                     instance_creation_wallclock_nanos;
@@ -149,10 +174,10 @@ struct fd_gossip_view_contact_info {
   fd_gossip_view_version_t version[ 1 ];
 
   ushort                   addrs_len;
-  fd_gossip_view_ipaddr_t  addrs[ 16UL ];    /* TODO: calculate length bounds */
+  fd_gossip_view_ipaddr_t  addrs[ FD_GOSSIP_CONTACT_INFO_MAX_ADDRESSES ];
 
   ushort                   sockets_len;
-  fd_gossip_view_socket_t  sockets[ 16UL ];  /* TODO: calculate length bounds */
+  fd_gossip_view_socket_t  sockets[ FD_GOSSIP_CONTACT_INFO_MAX_SOCKETS ];
 
   ushort                   ext_len;
   ushort                   ext_off;

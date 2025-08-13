@@ -264,6 +264,73 @@ version_parse( fd_gossip_view_version_t * version,
   return BYTES_CONSUMED;
 }
 
+/* Contact Infos are checked for the following properties
+   - All addresses in addrs are unique
+   - Each socket entry references a unique socket tag
+   - Socket offsets do not cause an overflow
+   - All addresses are referenced at least once across all sockets
+   https://github.com/anza-xyz/agave/blob/540d5bc56cd44e3cc61b179bd52e9a782a2c99e4/gossip/src/contact_info.rs#L599 */
+
+struct ipv4_entry {
+  uint ip4_addr;
+};
+typedef struct ipv4_entry ipv4_entry_t;
+
+#define MAP_NAME              ipv4_set
+#define MAP_T                 ipv4_entry_t
+#define MAP_LG_SLOT_CNT       8
+#define MAP_KEY_T             uint
+#define MAP_KEY               ip4_addr
+#define MAP_KEY_NULL          0U
+#define MAP_KEY_INVAL(k)      (!(k))
+#define MAP_KEY_EQUAL(k0,k1)  ((k0)==(k1))
+#define MAP_KEY_HASH(k)       fd_uint_hash(k)
+#define MAP_MEMOIZE           0
+#define MAP_KEY_EQUAL_IS_SLOW 0
+#include "../../util/tmpl/fd_map.c"
+
+struct ipv6_entry {
+  fd_gossip_view_ipv6_addr_t ip6;
+  uint                       hash;
+};
+typedef struct ipv6_entry ipv6_entry_t;
+
+static inline int
+ipv6_key_inval( fd_gossip_view_ipv6_addr_t k ) {
+  return (k.hi == 0UL) & (k.lo == 0UL);
+}
+
+static inline int
+ipv6_key_equal( fd_gossip_view_ipv6_addr_t k0, fd_gossip_view_ipv6_addr_t k1 ) {
+  return (k0.hi == k1.hi) & (k0.lo == k1.lo);
+}
+
+static inline uint
+ipv6_key_hash( fd_gossip_view_ipv6_addr_t k ) {
+  return (uint)fd_ulong_hash( k.hi ^ fd_ulong_hash( k.lo ) );
+}
+
+#define MAP_NAME              ipv6_set
+#define MAP_T                 ipv6_entry_t
+#define MAP_LG_SLOT_CNT       7
+#define MAP_KEY_T             fd_gossip_view_ipv6_addr_t
+#define MAP_KEY               ip6
+#define MAP_KEY_NULL          ((fd_gossip_view_ipv6_addr_t){0UL, 0UL})
+#define MAP_KEY_INVAL         ipv6_key_inval
+#define MAP_KEY_EQUAL         ipv6_key_equal
+#define MAP_KEY_HASH          ipv6_key_hash
+#define MAP_KEY_EQUAL_IS_SLOW 0
+#include "../../util/tmpl/fd_map.c"
+
+/* Existing sets for socket validation */
+#define SET_NAME addr_idx_set
+#define SET_MAX  FD_GOSSIP_CONTACT_INFO_MAX_ADDRESSES
+#include "../../util/tmpl/fd_set.c"
+
+#define SET_NAME socket_tag_set
+#define SET_MAX  FD_GOSSIP_CONTACT_INFO_MAX_SOCKETS
+#include "../../util/tmpl/fd_set.c"
+
 static ulong
 fd_gossip_msg_crds_contact_info_parse( fd_gossip_view_crds_value_t * crds_val,
                                        uchar const *                 payload,
@@ -279,31 +346,63 @@ fd_gossip_msg_crds_contact_info_parse( fd_gossip_view_crds_value_t * crds_val,
   CHECK_LEFT( 2U ); crds_val->contact_info->shred_version = FD_LOAD( ushort, CURSOR )                                          ; INC(  2U );
   INC( version_parse( crds_val->contact_info->version, payload, payload_sz, CUR_OFFSET ) );
 
-  /* Parse addrs */
   ulong decode_sz;
   READ_CHECKED_COMPACT_U16( decode_sz, crds_val->contact_info->addrs_len, CUR_OFFSET )                                         ; INC( decode_sz );
-  CHECK( crds_val->contact_info->addrs_len <= sizeof(crds_val->contact_info->addrs)/sizeof(fd_gossip_view_ipaddr_t) );
+  CHECK( crds_val->contact_info->addrs_len<=FD_GOSSIP_CONTACT_INFO_MAX_ADDRESSES );
+
+  /* Init hash sets for uniqueness checks */
+  ipv4_entry_t ipv4_map[ ipv4_set_slot_cnt() ];
+  ipv6_entry_t ipv6_map[ ipv6_set_slot_cnt() ];
+  ipv4_set_new( ipv4_map );
+  ipv6_set_new( ipv6_map );
+
+  /* Flags to track null IP addresses (0.0.0.0 and ::) since they are
+     KEY_INVALs in their respective set impls */
+  int null_ipv4_seen = 0;
+  int null_ipv6_seen = 0;
 
   for( ulong i=0UL; i<crds_val->contact_info->addrs_len; i++ ) {
     fd_gossip_view_ipaddr_t * addr = &crds_val->contact_info->addrs[i];
     CHECK_LEFT( 4U ); addr->is_ip6 = FD_LOAD( uchar, CURSOR )                                                                  ; INC( 4U );
     if( FD_LIKELY( !addr->is_ip6 ) ) {
-      CHECK_LEFT(  4U ); addr->ip4_addr     = FD_LOAD( uint, CURSOR )                                                          ; INC( 4U );
+      CHECK_LEFT( 4U ); addr->ip4 = FD_LOAD( uint, CURSOR )                                                                    ; INC( 4U );
+      if( FD_UNLIKELY( !addr->ip4 ) ) {
+        CHECK( !null_ipv4_seen ); null_ipv4_seen = 1;
+      } else {
+        CHECK( ipv4_set_insert( ipv4_map, addr->ip4 ) != NULL );
+      }
     } else {
-      CHECK_LEFT( 16U ); addr->ip6_addr_off = CUR_OFFSET                                                                       ; INC( 16U );
+      CHECK_LEFT( 16U ); addr->ip6.hi = FD_LOAD( ulong, CURSOR ); addr->ip6.lo = FD_LOAD( ulong, CURSOR+8 )                    ; INC( 16U );
+      if( FD_UNLIKELY( (addr->ip6.hi==0UL) & (addr->ip6.lo==0UL) ) ) {
+        CHECK( !null_ipv6_seen ); null_ipv6_seen = 1;
+      } else {
+        ipv6_entry_t * ipv6_entry = ipv6_set_insert( ipv6_map, addr->ip6 );
+        CHECK( ipv6_entry!=NULL );
+      }
     }
   }
 
-  /* Parse sockets */
+  addr_idx_set_t ip_addr_hits[ addr_idx_set_word_cnt ];
+  socket_tag_set_t socket_tag_hits[ socket_tag_set_word_cnt ];
+  addr_idx_set_new( ip_addr_hits );
+  socket_tag_set_new( socket_tag_hits );
+
   READ_CHECKED_COMPACT_U16( decode_sz, crds_val->contact_info->sockets_len, CUR_OFFSET )                                       ; INC( decode_sz );
-  CHECK( crds_val->contact_info->sockets_len <= sizeof(crds_val->contact_info->sockets)/sizeof(fd_gossip_view_socket_t) );
+  CHECK( crds_val->contact_info->sockets_len<=FD_GOSSIP_CONTACT_INFO_MAX_SOCKETS );
+
+  ushort offset = 0U;
   for( ulong i=0UL; i<crds_val->contact_info->sockets_len; i++ ) {
     fd_gossip_view_socket_t * socket = &crds_val->contact_info->sockets[i];
     CHECK_LEFT( 1U ); socket->key   = FD_LOAD( uchar, CURSOR )                                                                 ; INC( 1U );
     CHECK_LEFT( 1U ); socket->index = FD_LOAD( uchar, CURSOR )                                                                 ; INC( 1U );
-    CHECK( socket->index < crds_val->contact_info->addrs_len );
     READ_CHECKED_COMPACT_U16( decode_sz, socket->offset, CUR_OFFSET )                                                          ; INC( decode_sz );
+    CHECK( socket->offset+offset>=offset ); /* Check for overflow */
+    offset += socket->offset;
+    CHECK( !socket_tag_set_test( socket_tag_hits, socket->key ) ); socket_tag_set_insert( socket_tag_hits, socket->key );
+    CHECK( socket->index<crds_val->contact_info->addrs_len );
+    addr_idx_set_insert( ip_addr_hits, socket->index );
   }
+  CHECK( addr_idx_set_cnt( ip_addr_hits )==crds_val->contact_info->addrs_len );
 
   /* extensions are currently unused */
   READ_CHECKED_COMPACT_U16( decode_sz, crds_val->contact_info->ext_len, CUR_OFFSET )                                           ; INC( decode_sz );
