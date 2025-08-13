@@ -431,6 +431,7 @@ struct fd_topo_tile {
 
     struct {
       ulong   funk_obj_id;
+      ulong   store_obj_id;
       ushort  rpc_port;
       ushort  tpu_port;
       uint    tpu_ip_addr;

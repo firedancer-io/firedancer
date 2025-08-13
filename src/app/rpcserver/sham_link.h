@@ -39,13 +39,13 @@ SHAM_LINK_(start)( SHAM_LINK_(t) * self ) {
 }
 
 static void
-SHAM_LINK_(during_frag)( SHAM_LINK_CONTEXT * ctx, SHAM_LINK_STATE * state, void const * msg, int sz );
+SHAM_LINK_(during_frag)( SHAM_LINK_CONTEXT * ctx, void const * msg, int sz );
 
 static void
-SHAM_LINK_(after_frag)( SHAM_LINK_CONTEXT * ctx, SHAM_LINK_STATE * state );
+SHAM_LINK_(after_frag)( SHAM_LINK_CONTEXT * ctx );
 
 static inline void
-SHAM_LINK_(poll)( SHAM_LINK_(t) * self, SHAM_LINK_CONTEXT * ctx, SHAM_LINK_STATE * state ) {
+SHAM_LINK_(poll)( SHAM_LINK_(t) * self, SHAM_LINK_CONTEXT * ctx ) {
   while (1) {
     fd_frag_meta_t const * mline = self->mcache + fd_mcache_line_idx( self->seq_expect, self->depth );
 
@@ -64,7 +64,7 @@ SHAM_LINK_(poll)( SHAM_LINK_(t) * self, SHAM_LINK_CONTEXT * ctx, SHAM_LINK_STATE
 
     ulong chunk = mline->chunk;
     /* TODO: sanity check chunk,sz */
-    SHAM_LINK_(during_frag)( ctx, state, fd_chunk_to_laddr( self->wksp, chunk ), mline->sz );
+    SHAM_LINK_(during_frag)( ctx, fd_chunk_to_laddr( self->wksp, chunk ), mline->sz );
 
     seq_found = fd_frag_meta_seq_query( mline );
     diff      = fd_seq_diff( seq_found, self->seq_expect );
@@ -74,7 +74,7 @@ SHAM_LINK_(poll)( SHAM_LINK_(t) * self, SHAM_LINK_CONTEXT * ctx, SHAM_LINK_STATE
       continue;
     }
 
-    SHAM_LINK_(after_frag)( ctx, state );
+    SHAM_LINK_(after_frag)( ctx );
 
     self->seq_expect++;
   }
