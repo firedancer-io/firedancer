@@ -71,9 +71,7 @@ fd_gossip_crds_msg_builder_append( fd_gossip_crds_msg_builder_t * builder,
     FD_LOG_WARNING(( "CRDS value size %lu exceeds expected maximum %lu", crds_sz, FD_GOSSIP_CRDS_MAX_SZ ));
   }
   fd_memcpy( &builder->msg[ builder->msg_sz ], crds_val, crds_sz );
-  crds_msg_t * msg = (crds_msg_t *)builder->msg;
-
-
+  crds_msg_t *     msg = (crds_msg_t *)builder->msg;
   crds_val_hdr_t * hdr = (crds_val_hdr_t *)crds_val;
 
   fd_gossip_crds_builder_crds_meta_t * meta = &builder->crds_meta[ msg->crds_len ];

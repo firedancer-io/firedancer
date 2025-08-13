@@ -165,6 +165,13 @@ fd_crds_insert( fd_crds_t *                         crds,
                 long                                now,
                 fd_stem_context_t *                 stem );
 
+/* fd_crds_has_staked_node returns true if any node in the cluster is
+   observed to have stake. This is used in timeout calculations, which
+   default to an extended expiry window when we have yet to observe
+   any staked peers. */
+int
+fd_crds_has_staked_node( fd_crds_t const * crds );
+
 void
 fd_crds_entry_value( fd_crds_entry_t const * entry,
                      uchar const **          value_bytes,
@@ -263,8 +270,8 @@ fd_crds_bucket_add( fd_crds_t *   crds,
 
    If no valid peer can be found, the returned fd_contact_info_t will be
    NULL.  The caller should check for this case and handle it
-   appropriately.  On success, the returned fd_contact_info_t is a contact info
-   suitable for sending a gossip pull request. */
+   appropriately.  On success, the returned fd_contact_info_t is a
+   contact info suitable for sending a gossip pull request. */
 
 fd_contact_info_t const *
 fd_crds_peer_sample( fd_crds_t const * crds,
@@ -305,7 +312,7 @@ fd_crds_mask_iter_entry( fd_crds_mask_iter_t * it,
                          fd_crds_t const * crds );
 
 /* fd_crds_purged_mask_iter_{init,next,done} mirrors the fd_crds_mask_*
-   APIs for the purged table. This includes purged and failed_inserts
+   APIs for the purged table.  This includes purged and failed_inserts
    entries for the specified mask range.
 
    Mixing APIs (e.g., using crds init and purged next/done/hash) is UB.*/

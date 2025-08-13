@@ -115,7 +115,7 @@ unprivileged_init( fd_topo_t *      topo,
   } else {
     if( FD_UNLIKELY( !tile->ipecho.expected_shred_version ) ) {
       FD_LOG_ERR(( "No entrypoints provided and expected shred version is zero. "
-                   "If you providing entrypoints, this node will be bootstrapping "
+                   "If you are not providing entrypoints, this node will be bootstrapping "
                    "the cluster and must have a shred version provided." ));
     }
     ctx->shred_version = tile->ipecho.expected_shred_version;

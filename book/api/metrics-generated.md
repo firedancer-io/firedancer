@@ -514,7 +514,22 @@
 
 | Metric | Type | Description |
 |--------|------|-------------|
-| <span class="metrics-name">gossip_&#8203;shred_&#8203;version</span> | gauge |  |
+| <span class="metrics-name">gossip_&#8203;test_&#8203;notify</span> | gauge |  |
+| <span class="metrics-name">gossip_&#8203;ping_&#8203;tracker_&#8203;capacity</span> | counter |  |
+| <span class="metrics-name">gossip_&#8203;ping_&#8203;tracker_&#8203;count</span><br/>{ping_&#8203;tracked_&#8203;type="<span class="metrics-enum">unpinged</span>"} | gauge |  (Peer is known but has not been pinged yet) |
+| <span class="metrics-name">gossip_&#8203;ping_&#8203;tracker_&#8203;count</span><br/>{ping_&#8203;tracked_&#8203;type="<span class="metrics-enum">invalid</span>"} | gauge |  (Peer was pinged but has not yet responded, or responded with an invalid pong) |
+| <span class="metrics-name">gossip_&#8203;ping_&#8203;tracker_&#8203;count</span><br/>{ping_&#8203;tracked_&#8203;type="<span class="metrics-enum">valid</span>"} | gauge |  (Peer was pinged and is currently valid) |
+| <span class="metrics-name">gossip_&#8203;ping_&#8203;tracker_&#8203;count</span><br/>{ping_&#8203;tracked_&#8203;type="<span class="metrics-enum">valid_&#8203;refreshing</span>"} | gauge |  (Peer was pinged and is currently valid, and is being refreshed with a new ping) |
+| <span class="metrics-name">gossip_&#8203;ping_&#8203;tracker_&#8203;pong_&#8203;result</span><br/>{pong_&#8203;response="<span class="metrics-enum">staked</span>"} | counter |  (Pong ignored as node is staked) |
+| <span class="metrics-name">gossip_&#8203;ping_&#8203;tracker_&#8203;pong_&#8203;result</span><br/>{pong_&#8203;response="<span class="metrics-enum">entrypoint</span>"} | counter |  (Pong ignored as node is an entrypoint) |
+| <span class="metrics-name">gossip_&#8203;ping_&#8203;tracker_&#8203;pong_&#8203;result</span><br/>{pong_&#8203;response="<span class="metrics-enum">untracked</span>"} | counter |  (Pong ignored as node has no outstanding ping) |
+| <span class="metrics-name">gossip_&#8203;ping_&#8203;tracker_&#8203;pong_&#8203;result</span><br/>{pong_&#8203;response="<span class="metrics-enum">address</span>"} | counter |  (Pong ignored as responding node doesn't match pinged address) |
+| <span class="metrics-name">gossip_&#8203;ping_&#8203;tracker_&#8203;pong_&#8203;result</span><br/>{pong_&#8203;response="<span class="metrics-enum">token</span>"} | counter |  (Pong ignored as token was not valid) |
+| <span class="metrics-name">gossip_&#8203;ping_&#8203;tracker_&#8203;pong_&#8203;result</span><br/>{pong_&#8203;response="<span class="metrics-enum">success</span>"} | counter |  (Pong accepted) |
+| <span class="metrics-name">gossip_&#8203;ping_&#8203;tracker_&#8203;evicted_&#8203;count</span> | counter |  |
+| <span class="metrics-name">gossip_&#8203;ping_&#8203;tracked_&#8203;count</span> | counter |  |
+| <span class="metrics-name">gossip_&#8203;ping_&#8203;tracker_&#8203;stake_&#8203;changed_&#8203;count</span> | counter |  |
+| <span class="metrics-name">gossip_&#8203;ping_&#8203;tracker_&#8203;address_&#8203;changed_&#8203;count</span> | counter |  |
 | <span class="metrics-name">gossip_&#8203;table_&#8203;capacity</span> | gauge |  |
 | <span class="metrics-name">gossip_&#8203;table_&#8203;size</span> | gauge |  |
 | <span class="metrics-name">gossip_&#8203;table_&#8203;crds_&#8203;counts</span><br/>{crds_&#8203;value="<span class="metrics-enum">contact_&#8203;info_&#8203;v1</span>"} | gauge |  (Contact Info V1) |
@@ -629,20 +644,20 @@
 | <span class="metrics-name">gossip_&#8203;crds_&#8203;push_&#8203;duplicates</span><br/>{crds_&#8203;value="<span class="metrics-enum">contact_&#8203;info_&#8203;v2</span>"} | counter |  (Contact Info V2) |
 | <span class="metrics-name">gossip_&#8203;crds_&#8203;push_&#8203;duplicates</span><br/>{crds_&#8203;value="<span class="metrics-enum">restart_&#8203;last_&#8203;voted_&#8203;fork_&#8203;slots</span>"} | counter |  (Restart Last Voted Fork Slots) |
 | <span class="metrics-name">gossip_&#8203;crds_&#8203;push_&#8203;duplicates</span><br/>{crds_&#8203;value="<span class="metrics-enum">restart_&#8203;heaviest_&#8203;fork</span>"} | counter |  (Restart Heaviest Fork) |
-| <span class="metrics-name">gossip_&#8203;crds_&#8203;push_&#8203;old</span><br/>{crds_&#8203;value="<span class="metrics-enum">contact_&#8203;info_&#8203;v1</span>"} | counter |  (Contact Info V1) |
-| <span class="metrics-name">gossip_&#8203;crds_&#8203;push_&#8203;old</span><br/>{crds_&#8203;value="<span class="metrics-enum">vote</span>"} | counter |  (Vote) |
-| <span class="metrics-name">gossip_&#8203;crds_&#8203;push_&#8203;old</span><br/>{crds_&#8203;value="<span class="metrics-enum">lowest_&#8203;slot</span>"} | counter |  (Lowest Slot) |
-| <span class="metrics-name">gossip_&#8203;crds_&#8203;push_&#8203;old</span><br/>{crds_&#8203;value="<span class="metrics-enum">snapshot_&#8203;hashes</span>"} | counter |  (Snapshot Hashes) |
-| <span class="metrics-name">gossip_&#8203;crds_&#8203;push_&#8203;old</span><br/>{crds_&#8203;value="<span class="metrics-enum">accounts_&#8203;hashes</span>"} | counter |  (Accounts Hashes) |
-| <span class="metrics-name">gossip_&#8203;crds_&#8203;push_&#8203;old</span><br/>{crds_&#8203;value="<span class="metrics-enum">epoch_&#8203;slots</span>"} | counter |  (Epoch Slots) |
-| <span class="metrics-name">gossip_&#8203;crds_&#8203;push_&#8203;old</span><br/>{crds_&#8203;value="<span class="metrics-enum">version_&#8203;v1</span>"} | counter |  (Version V1) |
-| <span class="metrics-name">gossip_&#8203;crds_&#8203;push_&#8203;old</span><br/>{crds_&#8203;value="<span class="metrics-enum">version_&#8203;v2</span>"} | counter |  (Version V2) |
-| <span class="metrics-name">gossip_&#8203;crds_&#8203;push_&#8203;old</span><br/>{crds_&#8203;value="<span class="metrics-enum">node_&#8203;instance</span>"} | counter |  (Node Instance) |
-| <span class="metrics-name">gossip_&#8203;crds_&#8203;push_&#8203;old</span><br/>{crds_&#8203;value="<span class="metrics-enum">duplicate_&#8203;shred</span>"} | counter |  (Duplicate Shred) |
-| <span class="metrics-name">gossip_&#8203;crds_&#8203;push_&#8203;old</span><br/>{crds_&#8203;value="<span class="metrics-enum">incremental_&#8203;snapshot_&#8203;hashes</span>"} | counter |  (Incremental Snapshot Hashes) |
-| <span class="metrics-name">gossip_&#8203;crds_&#8203;push_&#8203;old</span><br/>{crds_&#8203;value="<span class="metrics-enum">contact_&#8203;info_&#8203;v2</span>"} | counter |  (Contact Info V2) |
-| <span class="metrics-name">gossip_&#8203;crds_&#8203;push_&#8203;old</span><br/>{crds_&#8203;value="<span class="metrics-enum">restart_&#8203;last_&#8203;voted_&#8203;fork_&#8203;slots</span>"} | counter |  (Restart Last Voted Fork Slots) |
-| <span class="metrics-name">gossip_&#8203;crds_&#8203;push_&#8203;old</span><br/>{crds_&#8203;value="<span class="metrics-enum">restart_&#8203;heaviest_&#8203;fork</span>"} | counter |  (Restart Heaviest Fork) |
+| <span class="metrics-name">gossip_&#8203;crds_&#8203;push_&#8203;failed</span><br/>{crds_&#8203;value="<span class="metrics-enum">contact_&#8203;info_&#8203;v1</span>"} | counter |  (Contact Info V1) |
+| <span class="metrics-name">gossip_&#8203;crds_&#8203;push_&#8203;failed</span><br/>{crds_&#8203;value="<span class="metrics-enum">vote</span>"} | counter |  (Vote) |
+| <span class="metrics-name">gossip_&#8203;crds_&#8203;push_&#8203;failed</span><br/>{crds_&#8203;value="<span class="metrics-enum">lowest_&#8203;slot</span>"} | counter |  (Lowest Slot) |
+| <span class="metrics-name">gossip_&#8203;crds_&#8203;push_&#8203;failed</span><br/>{crds_&#8203;value="<span class="metrics-enum">snapshot_&#8203;hashes</span>"} | counter |  (Snapshot Hashes) |
+| <span class="metrics-name">gossip_&#8203;crds_&#8203;push_&#8203;failed</span><br/>{crds_&#8203;value="<span class="metrics-enum">accounts_&#8203;hashes</span>"} | counter |  (Accounts Hashes) |
+| <span class="metrics-name">gossip_&#8203;crds_&#8203;push_&#8203;failed</span><br/>{crds_&#8203;value="<span class="metrics-enum">epoch_&#8203;slots</span>"} | counter |  (Epoch Slots) |
+| <span class="metrics-name">gossip_&#8203;crds_&#8203;push_&#8203;failed</span><br/>{crds_&#8203;value="<span class="metrics-enum">version_&#8203;v1</span>"} | counter |  (Version V1) |
+| <span class="metrics-name">gossip_&#8203;crds_&#8203;push_&#8203;failed</span><br/>{crds_&#8203;value="<span class="metrics-enum">version_&#8203;v2</span>"} | counter |  (Version V2) |
+| <span class="metrics-name">gossip_&#8203;crds_&#8203;push_&#8203;failed</span><br/>{crds_&#8203;value="<span class="metrics-enum">node_&#8203;instance</span>"} | counter |  (Node Instance) |
+| <span class="metrics-name">gossip_&#8203;crds_&#8203;push_&#8203;failed</span><br/>{crds_&#8203;value="<span class="metrics-enum">duplicate_&#8203;shred</span>"} | counter |  (Duplicate Shred) |
+| <span class="metrics-name">gossip_&#8203;crds_&#8203;push_&#8203;failed</span><br/>{crds_&#8203;value="<span class="metrics-enum">incremental_&#8203;snapshot_&#8203;hashes</span>"} | counter |  (Incremental Snapshot Hashes) |
+| <span class="metrics-name">gossip_&#8203;crds_&#8203;push_&#8203;failed</span><br/>{crds_&#8203;value="<span class="metrics-enum">contact_&#8203;info_&#8203;v2</span>"} | counter |  (Contact Info V2) |
+| <span class="metrics-name">gossip_&#8203;crds_&#8203;push_&#8203;failed</span><br/>{crds_&#8203;value="<span class="metrics-enum">restart_&#8203;last_&#8203;voted_&#8203;fork_&#8203;slots</span>"} | counter |  (Restart Last Voted Fork Slots) |
+| <span class="metrics-name">gossip_&#8203;crds_&#8203;push_&#8203;failed</span><br/>{crds_&#8203;value="<span class="metrics-enum">restart_&#8203;heaviest_&#8203;fork</span>"} | counter |  (Restart Heaviest Fork) |
 | <span class="metrics-name">gossip_&#8203;crds_&#8203;pull_&#8203;rx_&#8203;count</span><br/>{crds_&#8203;value="<span class="metrics-enum">contact_&#8203;info_&#8203;v1</span>"} | counter |  (Contact Info V1) |
 | <span class="metrics-name">gossip_&#8203;crds_&#8203;pull_&#8203;rx_&#8203;count</span><br/>{crds_&#8203;value="<span class="metrics-enum">vote</span>"} | counter |  (Vote) |
 | <span class="metrics-name">gossip_&#8203;crds_&#8203;pull_&#8203;rx_&#8203;count</span><br/>{crds_&#8203;value="<span class="metrics-enum">lowest_&#8203;slot</span>"} | counter |  (Lowest Slot) |
@@ -699,6 +714,20 @@
 | <span class="metrics-name">gossip_&#8203;crds_&#8203;pull_&#8203;duplicates</span><br/>{crds_&#8203;value="<span class="metrics-enum">contact_&#8203;info_&#8203;v2</span>"} | counter |  (Contact Info V2) |
 | <span class="metrics-name">gossip_&#8203;crds_&#8203;pull_&#8203;duplicates</span><br/>{crds_&#8203;value="<span class="metrics-enum">restart_&#8203;last_&#8203;voted_&#8203;fork_&#8203;slots</span>"} | counter |  (Restart Last Voted Fork Slots) |
 | <span class="metrics-name">gossip_&#8203;crds_&#8203;pull_&#8203;duplicates</span><br/>{crds_&#8203;value="<span class="metrics-enum">restart_&#8203;heaviest_&#8203;fork</span>"} | counter |  (Restart Heaviest Fork) |
+| <span class="metrics-name">gossip_&#8203;crds_&#8203;pull_&#8203;failed</span><br/>{crds_&#8203;value="<span class="metrics-enum">contact_&#8203;info_&#8203;v1</span>"} | counter |  (Contact Info V1) |
+| <span class="metrics-name">gossip_&#8203;crds_&#8203;pull_&#8203;failed</span><br/>{crds_&#8203;value="<span class="metrics-enum">vote</span>"} | counter |  (Vote) |
+| <span class="metrics-name">gossip_&#8203;crds_&#8203;pull_&#8203;failed</span><br/>{crds_&#8203;value="<span class="metrics-enum">lowest_&#8203;slot</span>"} | counter |  (Lowest Slot) |
+| <span class="metrics-name">gossip_&#8203;crds_&#8203;pull_&#8203;failed</span><br/>{crds_&#8203;value="<span class="metrics-enum">snapshot_&#8203;hashes</span>"} | counter |  (Snapshot Hashes) |
+| <span class="metrics-name">gossip_&#8203;crds_&#8203;pull_&#8203;failed</span><br/>{crds_&#8203;value="<span class="metrics-enum">accounts_&#8203;hashes</span>"} | counter |  (Accounts Hashes) |
+| <span class="metrics-name">gossip_&#8203;crds_&#8203;pull_&#8203;failed</span><br/>{crds_&#8203;value="<span class="metrics-enum">epoch_&#8203;slots</span>"} | counter |  (Epoch Slots) |
+| <span class="metrics-name">gossip_&#8203;crds_&#8203;pull_&#8203;failed</span><br/>{crds_&#8203;value="<span class="metrics-enum">version_&#8203;v1</span>"} | counter |  (Version V1) |
+| <span class="metrics-name">gossip_&#8203;crds_&#8203;pull_&#8203;failed</span><br/>{crds_&#8203;value="<span class="metrics-enum">version_&#8203;v2</span>"} | counter |  (Version V2) |
+| <span class="metrics-name">gossip_&#8203;crds_&#8203;pull_&#8203;failed</span><br/>{crds_&#8203;value="<span class="metrics-enum">node_&#8203;instance</span>"} | counter |  (Node Instance) |
+| <span class="metrics-name">gossip_&#8203;crds_&#8203;pull_&#8203;failed</span><br/>{crds_&#8203;value="<span class="metrics-enum">duplicate_&#8203;shred</span>"} | counter |  (Duplicate Shred) |
+| <span class="metrics-name">gossip_&#8203;crds_&#8203;pull_&#8203;failed</span><br/>{crds_&#8203;value="<span class="metrics-enum">incremental_&#8203;snapshot_&#8203;hashes</span>"} | counter |  (Incremental Snapshot Hashes) |
+| <span class="metrics-name">gossip_&#8203;crds_&#8203;pull_&#8203;failed</span><br/>{crds_&#8203;value="<span class="metrics-enum">contact_&#8203;info_&#8203;v2</span>"} | counter |  (Contact Info V2) |
+| <span class="metrics-name">gossip_&#8203;crds_&#8203;pull_&#8203;failed</span><br/>{crds_&#8203;value="<span class="metrics-enum">restart_&#8203;last_&#8203;voted_&#8203;fork_&#8203;slots</span>"} | counter |  (Restart Last Voted Fork Slots) |
+| <span class="metrics-name">gossip_&#8203;crds_&#8203;pull_&#8203;failed</span><br/>{crds_&#8203;value="<span class="metrics-enum">restart_&#8203;heaviest_&#8203;fork</span>"} | counter |  (Restart Heaviest Fork) |
 | <span class="metrics-name">gossip_&#8203;crds_&#8203;pull_&#8203;old</span><br/>{crds_&#8203;value="<span class="metrics-enum">contact_&#8203;info_&#8203;v1</span>"} | counter |  (Contact Info V1) |
 | <span class="metrics-name">gossip_&#8203;crds_&#8203;pull_&#8203;old</span><br/>{crds_&#8203;value="<span class="metrics-enum">vote</span>"} | counter |  (Vote) |
 | <span class="metrics-name">gossip_&#8203;crds_&#8203;pull_&#8203;old</span><br/>{crds_&#8203;value="<span class="metrics-enum">lowest_&#8203;slot</span>"} | counter |  (Lowest Slot) |
@@ -1003,5 +1032,82 @@
 | <span class="metrics-name">ipecho_&#8203;connections_&#8203;closed_&#8203;error</span> | counter | The number of connections to the ipecho service that have been made and closed abnormally |
 | <span class="metrics-name">ipecho_&#8203;bytes_&#8203;read</span> | counter | The total number of bytes read from all connections to the ipecho service |
 | <span class="metrics-name">ipecho_&#8203;bytes_&#8203;written</span> | counter | The total number of bytes written to all connections to the ipecho service |
+
+</div>
+
+## Gossvf Tile
+
+<div class="metrics">
+
+| Metric | Type | Description |
+|--------|------|-------------|
+| <span class="metrics-name">gossvf_&#8203;message_&#8203;rx_&#8203;count</span><br/>{gossip_&#8203;message_&#8203;outcome="<span class="metrics-enum">success_&#8203;pull_&#8203;request</span>"} | counter |  (Pull Request (success)) |
+| <span class="metrics-name">gossvf_&#8203;message_&#8203;rx_&#8203;count</span><br/>{gossip_&#8203;message_&#8203;outcome="<span class="metrics-enum">success_&#8203;pull_&#8203;response</span>"} | counter |  (Pull Response (success)) |
+| <span class="metrics-name">gossvf_&#8203;message_&#8203;rx_&#8203;count</span><br/>{gossip_&#8203;message_&#8203;outcome="<span class="metrics-enum">success_&#8203;push</span>"} | counter |  (Push (success)) |
+| <span class="metrics-name">gossvf_&#8203;message_&#8203;rx_&#8203;count</span><br/>{gossip_&#8203;message_&#8203;outcome="<span class="metrics-enum">success_&#8203;prune</span>"} | counter |  (Prune (success)) |
+| <span class="metrics-name">gossvf_&#8203;message_&#8203;rx_&#8203;count</span><br/>{gossip_&#8203;message_&#8203;outcome="<span class="metrics-enum">success_&#8203;ping</span>"} | counter |  (Ping (success)) |
+| <span class="metrics-name">gossvf_&#8203;message_&#8203;rx_&#8203;count</span><br/>{gossip_&#8203;message_&#8203;outcome="<span class="metrics-enum">success_&#8203;pong</span>"} | counter |  (Pong (success)) |
+| <span class="metrics-name">gossvf_&#8203;message_&#8203;rx_&#8203;count</span><br/>{gossip_&#8203;message_&#8203;outcome="<span class="metrics-enum">dropped_&#8203;unparseable</span>"} | counter |  (Unparseable) |
+| <span class="metrics-name">gossvf_&#8203;message_&#8203;rx_&#8203;count</span><br/>{gossip_&#8203;message_&#8203;outcome="<span class="metrics-enum">dropped_&#8203;pull_&#8203;request_&#8203;not_&#8203;contact_&#8203;info</span>"} | counter |  (Pull Request (not contact info)) |
+| <span class="metrics-name">gossvf_&#8203;message_&#8203;rx_&#8203;count</span><br/>{gossip_&#8203;message_&#8203;outcome="<span class="metrics-enum">dropped_&#8203;pull_&#8203;request_&#8203;loopback</span>"} | counter |  (Pull Request (loopback)) |
+| <span class="metrics-name">gossvf_&#8203;message_&#8203;rx_&#8203;count</span><br/>{gossip_&#8203;message_&#8203;outcome="<span class="metrics-enum">dropped_&#8203;pull_&#8203;request_&#8203;inactive</span>"} | counter |  (Pull Request (inactive)) |
+| <span class="metrics-name">gossvf_&#8203;message_&#8203;rx_&#8203;count</span><br/>{gossip_&#8203;message_&#8203;outcome="<span class="metrics-enum">dropped_&#8203;pull_&#8203;request_&#8203;wallclock</span>"} | counter |  (Pull Request (wallclock)) |
+| <span class="metrics-name">gossvf_&#8203;message_&#8203;rx_&#8203;count</span><br/>{gossip_&#8203;message_&#8203;outcome="<span class="metrics-enum">dropped_&#8203;pull_&#8203;request_&#8203;signature</span>"} | counter |  (Pull Request (signature)) |
+| <span class="metrics-name">gossvf_&#8203;message_&#8203;rx_&#8203;count</span><br/>{gossip_&#8203;message_&#8203;outcome="<span class="metrics-enum">dropped_&#8203;pull_&#8203;request_&#8203;shred_&#8203;version</span>"} | counter |  (Pull Request (shred version)) |
+| <span class="metrics-name">gossvf_&#8203;message_&#8203;rx_&#8203;count</span><br/>{gossip_&#8203;message_&#8203;outcome="<span class="metrics-enum">dropped_&#8203;prune_&#8203;loopback</span>"} | counter |  (Prune (loopback)) |
+| <span class="metrics-name">gossvf_&#8203;message_&#8203;rx_&#8203;count</span><br/>{gossip_&#8203;message_&#8203;outcome="<span class="metrics-enum">dropped_&#8203;prune_&#8203;wallclock</span>"} | counter |  (Prune (wallclock)) |
+| <span class="metrics-name">gossvf_&#8203;message_&#8203;rx_&#8203;count</span><br/>{gossip_&#8203;message_&#8203;outcome="<span class="metrics-enum">dropped_&#8203;prune_&#8203;signature</span>"} | counter |  (Prune (signature)) |
+| <span class="metrics-name">gossvf_&#8203;message_&#8203;rx_&#8203;count</span><br/>{gossip_&#8203;message_&#8203;outcome="<span class="metrics-enum">dropped_&#8203;push_&#8203;no_&#8203;valid_&#8203;crds</span>"} | counter |  (Push (no valid crds)) |
+| <span class="metrics-name">gossvf_&#8203;message_&#8203;rx_&#8203;count</span><br/>{gossip_&#8203;message_&#8203;outcome="<span class="metrics-enum">dropped_&#8203;pull_&#8203;response_&#8203;no_&#8203;valid_&#8203;crds</span>"} | counter |  (Pull Response (no valid crds)) |
+| <span class="metrics-name">gossvf_&#8203;message_&#8203;rx_&#8203;count</span><br/>{gossip_&#8203;message_&#8203;outcome="<span class="metrics-enum">dropped_&#8203;ping_&#8203;signature</span>"} | counter |  (Ping (signature)) |
+| <span class="metrics-name">gossvf_&#8203;message_&#8203;rx_&#8203;count</span><br/>{gossip_&#8203;message_&#8203;outcome="<span class="metrics-enum">dropped_&#8203;pong_&#8203;signature</span>"} | counter |  (Pong (signature)) |
+| <span class="metrics-name">gossvf_&#8203;message_&#8203;rx_&#8203;bytes</span><br/>{gossip_&#8203;message_&#8203;outcome="<span class="metrics-enum">success_&#8203;pull_&#8203;request</span>"} | counter |  (Pull Request (success)) |
+| <span class="metrics-name">gossvf_&#8203;message_&#8203;rx_&#8203;bytes</span><br/>{gossip_&#8203;message_&#8203;outcome="<span class="metrics-enum">success_&#8203;pull_&#8203;response</span>"} | counter |  (Pull Response (success)) |
+| <span class="metrics-name">gossvf_&#8203;message_&#8203;rx_&#8203;bytes</span><br/>{gossip_&#8203;message_&#8203;outcome="<span class="metrics-enum">success_&#8203;push</span>"} | counter |  (Push (success)) |
+| <span class="metrics-name">gossvf_&#8203;message_&#8203;rx_&#8203;bytes</span><br/>{gossip_&#8203;message_&#8203;outcome="<span class="metrics-enum">success_&#8203;prune</span>"} | counter |  (Prune (success)) |
+| <span class="metrics-name">gossvf_&#8203;message_&#8203;rx_&#8203;bytes</span><br/>{gossip_&#8203;message_&#8203;outcome="<span class="metrics-enum">success_&#8203;ping</span>"} | counter |  (Ping (success)) |
+| <span class="metrics-name">gossvf_&#8203;message_&#8203;rx_&#8203;bytes</span><br/>{gossip_&#8203;message_&#8203;outcome="<span class="metrics-enum">success_&#8203;pong</span>"} | counter |  (Pong (success)) |
+| <span class="metrics-name">gossvf_&#8203;message_&#8203;rx_&#8203;bytes</span><br/>{gossip_&#8203;message_&#8203;outcome="<span class="metrics-enum">dropped_&#8203;unparseable</span>"} | counter |  (Unparseable) |
+| <span class="metrics-name">gossvf_&#8203;message_&#8203;rx_&#8203;bytes</span><br/>{gossip_&#8203;message_&#8203;outcome="<span class="metrics-enum">dropped_&#8203;pull_&#8203;request_&#8203;not_&#8203;contact_&#8203;info</span>"} | counter |  (Pull Request (not contact info)) |
+| <span class="metrics-name">gossvf_&#8203;message_&#8203;rx_&#8203;bytes</span><br/>{gossip_&#8203;message_&#8203;outcome="<span class="metrics-enum">dropped_&#8203;pull_&#8203;request_&#8203;loopback</span>"} | counter |  (Pull Request (loopback)) |
+| <span class="metrics-name">gossvf_&#8203;message_&#8203;rx_&#8203;bytes</span><br/>{gossip_&#8203;message_&#8203;outcome="<span class="metrics-enum">dropped_&#8203;pull_&#8203;request_&#8203;inactive</span>"} | counter |  (Pull Request (inactive)) |
+| <span class="metrics-name">gossvf_&#8203;message_&#8203;rx_&#8203;bytes</span><br/>{gossip_&#8203;message_&#8203;outcome="<span class="metrics-enum">dropped_&#8203;pull_&#8203;request_&#8203;wallclock</span>"} | counter |  (Pull Request (wallclock)) |
+| <span class="metrics-name">gossvf_&#8203;message_&#8203;rx_&#8203;bytes</span><br/>{gossip_&#8203;message_&#8203;outcome="<span class="metrics-enum">dropped_&#8203;pull_&#8203;request_&#8203;signature</span>"} | counter |  (Pull Request (signature)) |
+| <span class="metrics-name">gossvf_&#8203;message_&#8203;rx_&#8203;bytes</span><br/>{gossip_&#8203;message_&#8203;outcome="<span class="metrics-enum">dropped_&#8203;pull_&#8203;request_&#8203;shred_&#8203;version</span>"} | counter |  (Pull Request (shred version)) |
+| <span class="metrics-name">gossvf_&#8203;message_&#8203;rx_&#8203;bytes</span><br/>{gossip_&#8203;message_&#8203;outcome="<span class="metrics-enum">dropped_&#8203;prune_&#8203;loopback</span>"} | counter |  (Prune (loopback)) |
+| <span class="metrics-name">gossvf_&#8203;message_&#8203;rx_&#8203;bytes</span><br/>{gossip_&#8203;message_&#8203;outcome="<span class="metrics-enum">dropped_&#8203;prune_&#8203;wallclock</span>"} | counter |  (Prune (wallclock)) |
+| <span class="metrics-name">gossvf_&#8203;message_&#8203;rx_&#8203;bytes</span><br/>{gossip_&#8203;message_&#8203;outcome="<span class="metrics-enum">dropped_&#8203;prune_&#8203;signature</span>"} | counter |  (Prune (signature)) |
+| <span class="metrics-name">gossvf_&#8203;message_&#8203;rx_&#8203;bytes</span><br/>{gossip_&#8203;message_&#8203;outcome="<span class="metrics-enum">dropped_&#8203;push_&#8203;no_&#8203;valid_&#8203;crds</span>"} | counter |  (Push (no valid crds)) |
+| <span class="metrics-name">gossvf_&#8203;message_&#8203;rx_&#8203;bytes</span><br/>{gossip_&#8203;message_&#8203;outcome="<span class="metrics-enum">dropped_&#8203;pull_&#8203;response_&#8203;no_&#8203;valid_&#8203;crds</span>"} | counter |  (Pull Response (no valid crds)) |
+| <span class="metrics-name">gossvf_&#8203;message_&#8203;rx_&#8203;bytes</span><br/>{gossip_&#8203;message_&#8203;outcome="<span class="metrics-enum">dropped_&#8203;ping_&#8203;signature</span>"} | counter |  (Ping (signature)) |
+| <span class="metrics-name">gossvf_&#8203;message_&#8203;rx_&#8203;bytes</span><br/>{gossip_&#8203;message_&#8203;outcome="<span class="metrics-enum">dropped_&#8203;pong_&#8203;signature</span>"} | counter |  (Pong (signature)) |
+| <span class="metrics-name">gossvf_&#8203;crds_&#8203;rx_&#8203;count</span><br/>{gossip_&#8203;crds_&#8203;outcome="<span class="metrics-enum">success_&#8203;pull_&#8203;response</span>"} | counter |  (Pull Response (success)) |
+| <span class="metrics-name">gossvf_&#8203;crds_&#8203;rx_&#8203;count</span><br/>{gossip_&#8203;crds_&#8203;outcome="<span class="metrics-enum">success_&#8203;push</span>"} | counter |  (Push (success)) |
+| <span class="metrics-name">gossvf_&#8203;crds_&#8203;rx_&#8203;count</span><br/>{gossip_&#8203;crds_&#8203;outcome="<span class="metrics-enum">dropped_&#8203;pull_&#8203;response_&#8203;duplicate</span>"} | counter |  (Pull Response (duplicate)) |
+| <span class="metrics-name">gossvf_&#8203;crds_&#8203;rx_&#8203;count</span><br/>{gossip_&#8203;crds_&#8203;outcome="<span class="metrics-enum">dropped_&#8203;pull_&#8203;response_&#8203;signature</span>"} | counter |  (Pull Response (signature)) |
+| <span class="metrics-name">gossvf_&#8203;crds_&#8203;rx_&#8203;count</span><br/>{gossip_&#8203;crds_&#8203;outcome="<span class="metrics-enum">dropped_&#8203;pull_&#8203;response_&#8203;relayer_&#8203;shred_&#8203;version</span>"} | counter |  (Pull Response (relayer shred version)) |
+| <span class="metrics-name">gossvf_&#8203;crds_&#8203;rx_&#8203;count</span><br/>{gossip_&#8203;crds_&#8203;outcome="<span class="metrics-enum">dropped_&#8203;pull_&#8203;response_&#8203;origin_&#8203;no_&#8203;contact_&#8203;info</span>"} | counter |  (Pull Response (origin no contact info)) |
+| <span class="metrics-name">gossvf_&#8203;crds_&#8203;rx_&#8203;count</span><br/>{gossip_&#8203;crds_&#8203;outcome="<span class="metrics-enum">dropped_&#8203;pull_&#8203;response_&#8203;origin_&#8203;shred_&#8203;version</span>"} | counter |  (Pull Response (origin shred version)) |
+| <span class="metrics-name">gossvf_&#8203;crds_&#8203;rx_&#8203;count</span><br/>{gossip_&#8203;crds_&#8203;outcome="<span class="metrics-enum">dropped_&#8203;pull_&#8203;response_&#8203;inactive</span>"} | counter |  (Pull Response (inactive)) |
+| <span class="metrics-name">gossvf_&#8203;crds_&#8203;rx_&#8203;count</span><br/>{gossip_&#8203;crds_&#8203;outcome="<span class="metrics-enum">dropped_&#8203;push_&#8203;signauture</span>"} | counter |  (Push (signature)) |
+| <span class="metrics-name">gossvf_&#8203;crds_&#8203;rx_&#8203;count</span><br/>{gossip_&#8203;crds_&#8203;outcome="<span class="metrics-enum">dropped_&#8203;push_&#8203;relayer_&#8203;shred_&#8203;version</span>"} | counter |  (Push (relayer shred version)) |
+| <span class="metrics-name">gossvf_&#8203;crds_&#8203;rx_&#8203;count</span><br/>{gossip_&#8203;crds_&#8203;outcome="<span class="metrics-enum">dropped_&#8203;push_&#8203;origin_&#8203;no_&#8203;contact_&#8203;info</span>"} | counter |  (Push (origin no contact info)) |
+| <span class="metrics-name">gossvf_&#8203;crds_&#8203;rx_&#8203;count</span><br/>{gossip_&#8203;crds_&#8203;outcome="<span class="metrics-enum">dropped_&#8203;push_&#8203;origin_&#8203;shred_&#8203;version</span>"} | counter |  (Push (origin shred version)) |
+| <span class="metrics-name">gossvf_&#8203;crds_&#8203;rx_&#8203;count</span><br/>{gossip_&#8203;crds_&#8203;outcome="<span class="metrics-enum">dropped_&#8203;push_&#8203;inactive</span>"} | counter |  (Push (inactive)) |
+| <span class="metrics-name">gossvf_&#8203;crds_&#8203;rx_&#8203;count</span><br/>{gossip_&#8203;crds_&#8203;outcome="<span class="metrics-enum">dropped_&#8203;push_&#8203;wallclock</span>"} | counter |  (Push (wallclock)) |
+| <span class="metrics-name">gossvf_&#8203;crds_&#8203;rx_&#8203;bytes</span><br/>{gossip_&#8203;crds_&#8203;outcome="<span class="metrics-enum">success_&#8203;pull_&#8203;response</span>"} | counter |  (Pull Response (success)) |
+| <span class="metrics-name">gossvf_&#8203;crds_&#8203;rx_&#8203;bytes</span><br/>{gossip_&#8203;crds_&#8203;outcome="<span class="metrics-enum">success_&#8203;push</span>"} | counter |  (Push (success)) |
+| <span class="metrics-name">gossvf_&#8203;crds_&#8203;rx_&#8203;bytes</span><br/>{gossip_&#8203;crds_&#8203;outcome="<span class="metrics-enum">dropped_&#8203;pull_&#8203;response_&#8203;duplicate</span>"} | counter |  (Pull Response (duplicate)) |
+| <span class="metrics-name">gossvf_&#8203;crds_&#8203;rx_&#8203;bytes</span><br/>{gossip_&#8203;crds_&#8203;outcome="<span class="metrics-enum">dropped_&#8203;pull_&#8203;response_&#8203;signature</span>"} | counter |  (Pull Response (signature)) |
+| <span class="metrics-name">gossvf_&#8203;crds_&#8203;rx_&#8203;bytes</span><br/>{gossip_&#8203;crds_&#8203;outcome="<span class="metrics-enum">dropped_&#8203;pull_&#8203;response_&#8203;relayer_&#8203;shred_&#8203;version</span>"} | counter |  (Pull Response (relayer shred version)) |
+| <span class="metrics-name">gossvf_&#8203;crds_&#8203;rx_&#8203;bytes</span><br/>{gossip_&#8203;crds_&#8203;outcome="<span class="metrics-enum">dropped_&#8203;pull_&#8203;response_&#8203;origin_&#8203;no_&#8203;contact_&#8203;info</span>"} | counter |  (Pull Response (origin no contact info)) |
+| <span class="metrics-name">gossvf_&#8203;crds_&#8203;rx_&#8203;bytes</span><br/>{gossip_&#8203;crds_&#8203;outcome="<span class="metrics-enum">dropped_&#8203;pull_&#8203;response_&#8203;origin_&#8203;shred_&#8203;version</span>"} | counter |  (Pull Response (origin shred version)) |
+| <span class="metrics-name">gossvf_&#8203;crds_&#8203;rx_&#8203;bytes</span><br/>{gossip_&#8203;crds_&#8203;outcome="<span class="metrics-enum">dropped_&#8203;pull_&#8203;response_&#8203;inactive</span>"} | counter |  (Pull Response (inactive)) |
+| <span class="metrics-name">gossvf_&#8203;crds_&#8203;rx_&#8203;bytes</span><br/>{gossip_&#8203;crds_&#8203;outcome="<span class="metrics-enum">dropped_&#8203;push_&#8203;signauture</span>"} | counter |  (Push (signature)) |
+| <span class="metrics-name">gossvf_&#8203;crds_&#8203;rx_&#8203;bytes</span><br/>{gossip_&#8203;crds_&#8203;outcome="<span class="metrics-enum">dropped_&#8203;push_&#8203;relayer_&#8203;shred_&#8203;version</span>"} | counter |  (Push (relayer shred version)) |
+| <span class="metrics-name">gossvf_&#8203;crds_&#8203;rx_&#8203;bytes</span><br/>{gossip_&#8203;crds_&#8203;outcome="<span class="metrics-enum">dropped_&#8203;push_&#8203;origin_&#8203;no_&#8203;contact_&#8203;info</span>"} | counter |  (Push (origin no contact info)) |
+| <span class="metrics-name">gossvf_&#8203;crds_&#8203;rx_&#8203;bytes</span><br/>{gossip_&#8203;crds_&#8203;outcome="<span class="metrics-enum">dropped_&#8203;push_&#8203;origin_&#8203;shred_&#8203;version</span>"} | counter |  (Push (origin shred version)) |
+| <span class="metrics-name">gossvf_&#8203;crds_&#8203;rx_&#8203;bytes</span><br/>{gossip_&#8203;crds_&#8203;outcome="<span class="metrics-enum">dropped_&#8203;push_&#8203;inactive</span>"} | counter |  (Push (inactive)) |
+| <span class="metrics-name">gossvf_&#8203;crds_&#8203;rx_&#8203;bytes</span><br/>{gossip_&#8203;crds_&#8203;outcome="<span class="metrics-enum">dropped_&#8203;push_&#8203;wallclock</span>"} | counter |  (Push (wallclock)) |
 
 </div>

@@ -15,7 +15,7 @@ LLVMFuzzerInitialize( int  *   argc,
 int
 LLVMFuzzerTestOneInput( uchar const * data,
                         ulong         size ) {
-  if( FD_UNLIKELY( size>=1232UL ) ) return -1;
+  if( FD_UNLIKELY( size>1232UL ) ) return -1;
 
   fd_gossip_view_t view[1];
   fd_gossip_msg_parse( view, data, size );
