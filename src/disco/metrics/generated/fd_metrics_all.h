@@ -19,6 +19,7 @@
 #include "fd_metrics_storei.h"
 #include "fd_metrics_repair.h"
 #include "fd_metrics_gossip.h"
+#include "fd_metrics_gossvf.h"
 #include "fd_metrics_sign.h"
 #include "fd_metrics_netlnk.h"
 #include "fd_metrics_snaprd.h"
@@ -160,9 +161,9 @@ extern const fd_metrics_meta_t FD_METRICS_ALL_LINK_IN[FD_METRICS_ALL_LINK_IN_TOT
 #define FD_METRICS_ALL_LINK_OUT_TOTAL (1UL)
 extern const fd_metrics_meta_t FD_METRICS_ALL_LINK_OUT[FD_METRICS_ALL_LINK_OUT_TOTAL];
 
-#define FD_METRICS_TOTAL_SZ (8UL*271UL)
+#define FD_METRICS_TOTAL_SZ (8UL*270UL)
 
-#define FD_METRICS_TILE_KIND_CNT 24
+#define FD_METRICS_TILE_KIND_CNT 25
 extern const char * FD_METRICS_TILE_KIND_NAMES[FD_METRICS_TILE_KIND_CNT];
 extern const ulong FD_METRICS_TILE_KIND_SIZES[FD_METRICS_TILE_KIND_CNT];
 extern const fd_metrics_meta_t * FD_METRICS_TILE_KIND_METRICS[FD_METRICS_TILE_KIND_CNT];

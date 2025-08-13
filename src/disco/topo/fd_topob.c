@@ -366,6 +366,7 @@ fd_topob_auto_layout( fd_topo_t * topo,
     "sign",
     "plugin",
     "gui",
+    "gossvf", /* FIREDANCER only */
     "gossip", /* FIREDANCER only */
     "repair", /* FIREDANCER only */
     "replay", /* FIREDANCER only */

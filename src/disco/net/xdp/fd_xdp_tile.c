@@ -215,7 +215,7 @@ typedef struct {
 
   fd_net_out_ctx_t quic_out[1];
   fd_net_out_ctx_t shred_out[1];
-  fd_net_out_ctx_t gossip_out[1];
+  fd_net_out_ctx_t gossvf_out[1];
   fd_net_out_ctx_t repair_out[1];
   fd_net_out_ctx_t send_out[1];
 
@@ -968,7 +968,7 @@ net_rx_packet( fd_net_ctx_t * ctx,
     out = ctx->quic_out;
   } else if( FD_UNLIKELY( udp_dstport==ctx->gossip_listen_port ) ) {
     proto = DST_PROTO_GOSSIP;
-    out = ctx->gossip_out;
+    out = ctx->gossvf_out;
   } else if( FD_UNLIKELY( udp_dstport==ctx->repair_intake_listen_port ) ) {
     proto = DST_PROTO_REPAIR;
     if( FD_UNLIKELY( sz == REPAIR_PING_SZ ) ) out = ctx->repair_out; /* ping-pong */
@@ -1426,12 +1426,12 @@ unprivileged_init( fd_topo_t *      topo,
       ctx->shred_out->sync   = fd_mcache_seq_laddr( ctx->shred_out->mcache );
       ctx->shred_out->depth  = fd_mcache_depth( ctx->shred_out->mcache );
       ctx->shred_out->seq    = fd_mcache_seq_query( ctx->shred_out->sync );
-    } else if( strcmp( out_link->name, "net_gossip" ) == 0 ) {
+    } else if( strcmp( out_link->name, "net_gossvf" ) == 0 ) {
       fd_topo_link_t * gossip_out = out_link;
-      ctx->gossip_out->mcache = gossip_out->mcache;
-      ctx->gossip_out->sync   = fd_mcache_seq_laddr( ctx->gossip_out->mcache );
-      ctx->gossip_out->depth  = fd_mcache_depth( ctx->gossip_out->mcache );
-      ctx->gossip_out->seq    = fd_mcache_seq_query( ctx->gossip_out->sync );
+      ctx->gossvf_out->mcache = gossip_out->mcache;
+      ctx->gossvf_out->sync   = fd_mcache_seq_laddr( ctx->gossvf_out->mcache );
+      ctx->gossvf_out->depth  = fd_mcache_depth( ctx->gossvf_out->mcache );
+      ctx->gossvf_out->seq    = fd_mcache_seq_query( ctx->gossvf_out->sync );
     } else if( strcmp( out_link->name, "net_repair" ) == 0 ) {
       fd_topo_link_t * repair_out = out_link;
       ctx->repair_out->mcache = repair_out->mcache;
@@ -1461,7 +1461,7 @@ unprivileged_init( fd_topo_t *      topo,
     FD_LOG_ERR(( "quic transaction listen port set but no out link was found" ));
   } else if( FD_UNLIKELY( ctx->legacy_transaction_listen_port!=0 && ctx->quic_out->mcache==NULL ) ) {
     FD_LOG_ERR(( "legacy transaction listen port set but no out link was found" ));
-  } else if( FD_UNLIKELY( ctx->gossip_listen_port!=0 && ctx->gossip_out->mcache==NULL ) ) {
+  } else if( FD_UNLIKELY( ctx->gossip_listen_port!=0 && ctx->gossvf_out->mcache==NULL ) ) {
     FD_LOG_ERR(( "gossip listen port set but no out link was found" ));
   } else if( FD_UNLIKELY( ctx->repair_intake_listen_port!=0 && ctx->repair_out->mcache==NULL ) ) {
     FD_LOG_ERR(( "repair intake port set but no out link was found" ));
