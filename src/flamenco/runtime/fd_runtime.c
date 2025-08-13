@@ -1183,7 +1183,6 @@ fd_runtime_finalize_txn( fd_funk_t *         funk,
   } else {
 
     int dirty_vote_acc  = txn_ctx->dirty_vote_acc;
-    int dirty_stake_acc = txn_ctx->dirty_stake_acc;
 
     for( ushort i=0; i<txn_ctx->accounts_cnt; i++ ) {
       /* We are only interested in saving writable accounts and the fee
@@ -1204,8 +1203,7 @@ fd_runtime_finalize_txn( fd_funk_t *         funk,
         fd_vote_store_account( acc_rec, bank );
       }
 
-      if( dirty_stake_acc && 0==memcmp( fd_txn_account_get_owner( acc_rec ), &fd_solana_stake_program_id, sizeof(fd_pubkey_t) ) ) {
-        // TODO: does this correctly handle stake account close?
+      if( 0==memcmp( fd_txn_account_get_owner( acc_rec ), &fd_solana_stake_program_id, sizeof(fd_pubkey_t) ) ) {
         fd_update_stake_delegation( acc_rec, bank );
       }
 

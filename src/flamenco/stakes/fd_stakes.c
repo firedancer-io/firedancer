@@ -373,13 +373,8 @@ fd_stakes_upsert_stake_delegation( fd_txn_account_t * stake_account,
 }
 
 void
-fd_update_stake_delegation( fd_txn_account_t *   stake_account,
-                           fd_bank_t *          bank ) {
-  fd_pubkey_t const * owner = fd_txn_account_get_owner( stake_account );
-
-  if( memcmp( owner->uc, fd_solana_stake_program_id.key, sizeof(fd_pubkey_t) ) ) {
-      return;
-  }
+fd_update_stake_delegation( fd_txn_account_t * stake_account,
+                            fd_bank_t *        bank ) {
 
   int is_empty  = fd_txn_account_get_lamports( stake_account )==0UL;
   int is_uninit = 1;
