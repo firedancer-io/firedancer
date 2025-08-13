@@ -201,12 +201,12 @@ fd_tower_switch_check( fd_tower_t const * tower,
 }
 
 int
-fd_tower_threshold_check( fd_tower_t const *    tower,
-                          fd_epoch_t const *    epoch,
-                          fd_funk_t *           funk,
-                          fd_funk_txn_t const * txn,
-                          ulong                 slot,
-                          fd_tower_t *          scratch ) {
+fd_tower_threshold_check( fd_tower_t const *                 tower,
+                          fd_epoch_t *                       epoch,
+                          fd_replay_out_vote_state_t const * vote_states,
+                          ulong                              vote_states_len,
+                          ulong                              slot,
+                          fd_tower_t *                       scratch ) {
 
   /* First, simulate a vote, popping off everything that would be
      expired by voting for the current slot. */
@@ -231,20 +231,13 @@ fd_tower_threshold_check( fd_tower_t const *    tower,
 
   /* Iterate all the vote accounts. */
 
-  fd_voter_t const * epoch_voters = fd_epoch_voters_const( epoch );
-  for (ulong i = 0; i < fd_epoch_voters_slot_cnt( epoch_voters ); i++ ) {
-    if( FD_LIKELY( fd_epoch_voters_key_inval( epoch_voters[i].key ) ) ) continue /* most slots are empty */;
-
-    fd_voter_t const * voter = &epoch_voters[i];
+  for (ulong i = 0; i < vote_states_len; i++ ) {
+    fd_replay_out_vote_state_t const * vote_state = &vote_states[i];
 
     /* Convert the landed_votes into tower's vote_slots interface. */
 
     fd_tower_votes_remove_all( scratch );
-    int err = fd_tower_from_vote_acc( scratch, funk, txn, &voter->rec );
-    if( FD_UNLIKELY( err ) ) {
-      FD_LOG_WARNING(( "[%s] failed to read vote account %s", __func__, FD_BASE58_ENC_32_ALLOCA(&voter->key) ));
-      continue;
-    }
+    fd_tower_from_vote_acc( scratch, vote_state );
 
     /* If this voter has not voted, continue. */
 
@@ -272,6 +265,15 @@ fd_tower_threshold_check( fd_tower_t const *    tower,
         threshold slot's descendants. */
 
     if( FD_LIKELY( vote->slot >= threshold_slot ) ) {
+      /* Look up the stake from the voter map */
+      /* TODO: move the stake inside the vote state passed through from the runtime? */
+      fd_voter_t * epoch_voters = fd_epoch_voters( epoch );
+      fd_voter_t * voter        = fd_epoch_voters_query( epoch_voters, vote_state->key, NULL );
+      if( FD_UNLIKELY( !voter ) ) {
+        FD_LOG_ERR(( "[%s] invariant violation: unable to find voter with pubkey %s", __func__,
+          FD_BASE58_ENC_32_ALLOCA(&vote_state->key) ));
+      }
+
       threshold_stake += voter->stake;
     }
   }
@@ -320,12 +322,12 @@ fd_tower_reset_slot( fd_tower_t const * tower,
 }
 
 ulong
-fd_tower_vote_slot( fd_tower_t *          tower,
-                    fd_epoch_t const *    epoch,
-                    fd_funk_t *           funk,
-                    fd_funk_txn_t const * txn,
-                    fd_ghost_t const *    ghost,
-                    fd_tower_t *          scratch ) {
+fd_tower_vote_slot( fd_tower_t *                       tower,
+                    fd_epoch_t *                       epoch,
+                    fd_replay_out_vote_state_t const * vote_states,
+                    ulong                              vote_states_len,
+                    fd_ghost_t const *                 ghost,
+                    fd_tower_t *                       scratch ) {
 
   fd_tower_vote_t const * vote = fd_tower_votes_peek_tail_const( tower );
   fd_ghost_ele_t const *  root = fd_ghost_root_const( ghost );
@@ -355,7 +357,7 @@ fd_tower_vote_slot( fd_tower_t *          tower,
     /* The ghost head is on the same fork as our last vote slot, so we
        can vote fork it as long as we pass the threshold check. */
 
-    if( FD_LIKELY( head->slot > vote->slot && fd_tower_threshold_check( tower, epoch, funk, txn, head->slot, scratch ) ) ) {
+    if( FD_LIKELY( head->slot > vote->slot && fd_tower_threshold_check( tower, epoch, vote_states, vote_states_len, head->slot, scratch ) ) ) {
       FD_LOG_DEBUG(( "[%s] success (threshold). best: %lu. vote: (slot: %lu conf: %lu)", __func__, head->slot, vote->slot, vote->conf ));
       return head->slot;
     }
@@ -436,54 +438,20 @@ fd_tower_simulate_vote( fd_tower_t const * tower, ulong slot ) {
   return simulate_vote( tower, slot );
 }
 
-int
-fd_tower_from_vote_acc( fd_tower_t *              tower,
-                        fd_funk_t *               funk,
-                        fd_funk_txn_t const *     txn,
-                        fd_funk_rec_key_t const * vote_acc ) {
+void
+fd_tower_from_vote_acc( fd_tower_t *                       tower,
+                        fd_replay_out_vote_state_t const * state ) {
 # if FD_TOWER_USE_HANDHOLDING
   FD_TEST( fd_tower_votes_empty( tower ) );
 # endif
 
-  for(;;) {
-
-    /* Speculatively query the record and parse the voter state. If the
-       record is missing or the voter state fails to parse, then return
-       early (tower will be empty). */
-
-    fd_funk_rec_query_t   query;
-    fd_funk_rec_t const * rec = fd_funk_rec_query_try_global( funk, txn, vote_acc, NULL, &query );
-    if( FD_UNLIKELY( !rec ) ) return -1; /* record not found */
-    fd_voter_state_t const * state = fd_voter_state( funk, rec );
-    if( FD_UNLIKELY( !state ) ) return -1; /* unable to parse voter state */
-
-    /* Speculatively query the cnt.  */
-
-    ulong cnt = fd_voter_state_cnt( state ); /* TODO remove once Funk reads are safe */
-    if( FD_UNLIKELY( fd_funk_rec_query_test( &query ) != FD_FUNK_SUCCESS ) ) continue;
-    if( FD_UNLIKELY( cnt > 31UL ) ) FD_LOG_ERR(( "[%s] funk vote account corruption. cnt %lu > 31", __func__, cnt ));
-
-    /* Speculatively read the votes out of the state and push them onto
-       the tower. If there is a conflicting operation during this read,
-       rollback the tower. */
-
-    fd_tower_vote_t vote = { 0 };
-    ulong sz = sizeof(fd_voter_vote_old_t);
-    for( ulong i = 0; i < cnt; i++ ) {
-      if( FD_UNLIKELY( state->discriminant == fd_vote_state_versioned_enum_v0_23_5 ) ) {
-        memcpy( (uchar *)&vote, (uchar *)(state->v0_23_5.votes + i), sz );
-      } else if ( FD_UNLIKELY( state->discriminant == fd_vote_state_versioned_enum_v1_14_11 ) ) {
-        memcpy( (uchar *)&vote, (uchar *)(state->v1_14_11.votes + i), sz );
-      } else if ( FD_UNLIKELY( state->discriminant == fd_vote_state_versioned_enum_current ) ) {
-        memcpy( (uchar *)&vote, (uchar *)(state->votes + i) + sizeof(uchar) /* latency */, sz );
-      } else {
-        FD_LOG_ERR(( "[%s] unknown state->discriminant %u", __func__, state->discriminant ));
-      }
-      fd_tower_votes_push_tail( tower, vote );
-    }
-
-    if( FD_LIKELY( fd_funk_rec_query_test( &query ) == FD_FUNK_SUCCESS ) ) return 0;
-    else fd_tower_votes_remove_all( tower ); /* reset the tower and try again  */
+  /* Push all the votes from the vote state onto the tower. */
+  for( ulong i = 0; i < state->votes_cnt; i++ ) {
+    fd_tower_vote_t vote = {
+      .slot = state->votes[i].slot,
+      .conf = state->votes[i].conf
+    };
+    fd_tower_votes_push_tail( tower, vote );
   }
 }
 

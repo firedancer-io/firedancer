@@ -39,11 +39,9 @@ typedef struct fd_vote_record fd_vote_record_t;
    tower which both require bookkeeping the epoch voters. */
 
 struct fd_voter {
-  union {
-    fd_pubkey_t       key; /* vote account address */
-    fd_funk_rec_key_t rec; /* funk record key to query above */
-  };
-  uint hash; /* reserved for fd_map_dynamic.c */
+
+  fd_pubkey_t key;  /* vote account address */
+  uint        hash; /* reserved for fd_map_dynamic.c */
 
   /* IMPORTANT! The values below should only be modified by fd_epoch and
      fd_ghost. */

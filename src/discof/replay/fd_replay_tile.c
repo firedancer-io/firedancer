@@ -318,6 +318,8 @@ struct fd_replay_tile_ctx {
   fd_reasm_fec_t    fec_out;
   fd_exec_slice_t * exec_slice_map;
   fd_exec_slice_t * exec_slice_deque; /* Deque to buffer exec slices - lives in spad */
+
+  fd_pubkey_t vote_acc[1];
 };
 typedef struct fd_replay_tile_ctx fd_replay_tile_ctx_t;
 
@@ -1470,6 +1472,61 @@ handle_new_slice( fd_replay_tile_ctx_t * ctx, fd_stem_context_t * stem ) {
   fd_bank_shred_cnt_set( ctx->slot_ctx->bank, fd_bank_shred_cnt_get( ctx->slot_ctx->bank ) + data_cnt );
 }
 
+static int
+fd_replay_out_vote_state_from_funk(
+  fd_funk_t *                  funk,
+  fd_funk_txn_t const *        funk_txn,
+  fd_pubkey_t const *          pubkey,
+  fd_replay_out_vote_state_t * vote_state_out ) {
+
+  for(;;) {
+    fd_funk_rec_query_t query;
+    fd_funk_rec_key_t funk_key = fd_funk_acc_key( pubkey );
+    fd_funk_rec_t const * rec = fd_funk_rec_query_try_global( funk, funk_txn, &funk_key, NULL, &query );
+    if( FD_UNLIKELY( !rec ) ) {
+      FD_LOG_WARNING(( "vote account not found. address: %s",
+        FD_BASE58_ENC_32_ALLOCA( pubkey->uc ) ));
+      return -1;
+    }
+
+    fd_voter_state_t const * state = fd_voter_state( funk, rec );
+    if( FD_UNLIKELY( !state ) ) {
+      FD_LOG_WARNING(( "failed to get vote state for vote account %s",
+        FD_BASE58_ENC_32_ALLOCA( pubkey->uc ) ));
+      return -1;
+    }
+
+    /* Speculatively parse the vote state into a replay out vote state */
+    fd_memset( vote_state_out, 0, sizeof(fd_replay_out_vote_state_t) );
+    ulong cnt = fd_voter_state_cnt( state );
+    if( FD_UNLIKELY( fd_funk_rec_query_test( &query ) != FD_FUNK_SUCCESS ) ) continue;
+    if( FD_UNLIKELY( cnt > 31UL ) ) FD_LOG_ERR(( "[%s] funk vote account corruption. cnt %lu > 31", __func__, cnt ));
+
+    vote_state_out->key       = *pubkey;
+    vote_state_out->votes_cnt = cnt;
+
+    for( ulong i = 0; i < cnt; i++ ) {
+      if( FD_UNLIKELY( state->discriminant == fd_vote_state_versioned_enum_v0_23_5 ) ) {
+        vote_state_out->votes[i].slot = state->v0_23_5.votes[i].slot;
+        vote_state_out->votes[i].conf = state->v0_23_5.votes[i].conf;
+      } else if( FD_UNLIKELY( state->discriminant == fd_vote_state_versioned_enum_v1_14_11 ) ) {
+        vote_state_out->votes[i].slot = state->v1_14_11.votes[i].slot;
+        vote_state_out->votes[i].conf = state->v1_14_11.votes[i].conf;
+      } else if ( FD_UNLIKELY( state->discriminant == fd_vote_state_versioned_enum_current ) ) {
+        vote_state_out->votes[i].slot = state->votes[i].slot;
+        vote_state_out->votes[i].conf = state->votes[i].conf;
+      } else {
+        FD_LOG_ERR(( "[%s] unknown vote state version. discriminant %u", __func__, state->discriminant ));
+        return -1;
+      }
+    }
+
+    if( FD_LIKELY( fd_funk_rec_query_test( &query ) == FD_FUNK_SUCCESS ) ) {
+      return 0;
+    }
+  }
+}
+
 static void
 exec_slice_fini_slot( fd_replay_tile_ctx_t * ctx, fd_stem_context_t * stem ) {
 
@@ -1513,16 +1570,55 @@ exec_slice_fini_slot( fd_replay_tile_ctx_t * ctx, fd_stem_context_t * stem ) {
     FD_TEST( parent_block_id );
     FD_TEST( bank_hash       );
     FD_TEST( block_hash      );
-    fd_replay_out_t out = {
-      .block_id        = *block_id,
-      .parent_block_id = *parent_block_id,
-      .bank_hash       = *bank_hash,
-      .block_hash      = *block_hash,
-    };
-    uchar * chunk_laddr = fd_chunk_to_laddr( ctx->replay_out_mem, ctx->replay_out_chunk );
-    memcpy( chunk_laddr, &out, sizeof(fd_replay_out_t) );
-    fd_stem_publish( stem, ctx->replay_out_idx, curr_slot, ctx->replay_out_chunk, sizeof(fd_replay_out_t), 0UL, fd_frag_meta_ts_comp( fd_tickcount() ), fd_frag_meta_ts_comp( fd_tickcount() ) );
-    ctx->replay_out_chunk = fd_dcache_compact_next( ctx->replay_out_chunk, sizeof(fd_replay_out_t), ctx->replay_out_chunk0, ctx->replay_out_wmark );
+
+    FD_LOG_WARNING(( "getting ready to send output chunk to tower" ));
+
+    /* Get pointer to the chunk memory where we'll write the message */
+    fd_replay_out_t * out = (fd_replay_out_t *)fd_chunk_to_laddr( ctx->replay_out_mem, ctx->replay_out_chunk );
+
+    /* Initialize the header fields */
+    out->block_id        = *block_id;
+    out->parent_block_id = *parent_block_id;
+    out->bank_hash       = *bank_hash;
+    out->block_hash      = *block_hash;
+    out->vote_states_cnt = 0UL;
+
+    /* Query the state of our vote account */
+    if( FD_UNLIKELY( fd_replay_out_vote_state_from_funk(
+      ctx->funk, ctx->slot_ctx->funk_txn, ctx->vote_acc, &out->our_vote_state ) ) ) {
+      out->has_our_vote_state = 0;
+    } else {
+      out->has_our_vote_state = 1;
+    }
+
+    /* Send the vote state of all the vote accounts in the T-1 epoch */
+    FD_LOG_WARNING(( "iterating over all vote accounts in the T-1 epoch" ));
+    fd_vote_accounts_global_t const *               next_epoch_stakes      = fd_bank_next_epoch_stakes_locking_query( ctx->slot_ctx->bank );
+    fd_vote_accounts_pair_global_t_mapnode_t *      next_epoch_stakes_pool = fd_vote_accounts_vote_accounts_pool_join( next_epoch_stakes );
+    fd_vote_accounts_pair_global_t_mapnode_t *      next_epoch_stakes_root = fd_vote_accounts_vote_accounts_root_join( next_epoch_stakes );
+    for( fd_vote_accounts_pair_global_t_mapnode_t * elem                   = fd_vote_accounts_pair_global_t_map_minimum( next_epoch_stakes_pool, next_epoch_stakes_root );
+         elem;
+         elem = fd_vote_accounts_pair_global_t_map_successor( next_epoch_stakes_pool, elem ) ) {
+      fd_pubkey_t const * vote_account_pubkey = &elem->elem.key;
+      if( FD_UNLIKELY( fd_replay_out_vote_state_from_funk(
+        ctx->funk, ctx->slot_ctx->funk_txn, vote_account_pubkey, &out->vote_states[out->vote_states_cnt++] ) ) ) {
+        FD_LOG_ERR(( "failed to get vote state for vote account %s",
+          FD_BASE58_ENC_32_ALLOCA( vote_account_pubkey->uc ) ));
+      }
+    }
+    FD_LOG_WARNING(( "done iterating over all vote accounts in the T-1 epoch" ));
+
+    ulong msg_sz = sizeof(fd_replay_out_t) + ( out->vote_states_cnt * sizeof(fd_replay_out_vote_state_t) );
+    fd_stem_publish(
+      stem,
+      ctx->replay_out_idx,
+      curr_slot,
+      ctx->replay_out_chunk,
+      msg_sz,
+      0UL,
+      fd_frag_meta_ts_comp( fd_tickcount() ),
+      fd_frag_meta_ts_comp( fd_tickcount() ) );
+    ctx->replay_out_chunk = fd_dcache_compact_next( ctx->replay_out_chunk, msg_sz, ctx->replay_out_chunk0, ctx->replay_out_wmark );
   }
 
   /**********************************************************************/
@@ -2052,6 +2148,14 @@ unprivileged_init( fd_topo_t *      topo,
     if( FD_UNLIKELY( !ctx->writer_fseq[ i ] ) ) {
       FD_LOG_CRIT(( "writer tile %lu has no fseq", i ));
     }
+  }
+
+  /**********************************************************************/
+  /* vote account                                                      */
+  /**********************************************************************/
+  if( FD_UNLIKELY( !fd_base58_decode_32( tile->replay.vote_account_path, ctx->vote_acc->uc ) ) ) {
+    const uchar * vote_key = fd_keyload_load( tile->replay.vote_account_path, 1 );
+    memcpy( ctx->vote_acc->uc, vote_key, sizeof(fd_pubkey_t) );
   }
 
   /**********************************************************************/

@@ -648,7 +648,7 @@ unprivileged_init( fd_topo_t *      topo,
 
   if( FD_LIKELY( !strcmp( tile->snaprd.cluster, "testnet" ) ) ) {
     fd_ip4_port_t initial_peers[ 2UL ] = {
-      { .addr = FD_IP4_ADDR( 35 , 214, 172, 227 ), .port = 8899 },
+      { .addr = FD_IP4_ADDR( 64 , 130, 43, 178 ), .port = 8899 },
       { .addr = FD_IP4_ADDR( 145, 40 , 95 , 69  ), .port = 8899 }, /* Solana testnet peer */
     };
     for( ulong i=0UL; i<2UL; i++ ) fd_ssping_add( ctx->ssping, initial_peers[ i ] );

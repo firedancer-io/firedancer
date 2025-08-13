@@ -67,11 +67,30 @@ FD_STATIC_ASSERT( FD_SHRED_REPAIR_MTU == 152UL , update FD_SHRED_REPAIR_MTU );
 #define FD_NETMUX_SIG_MIN_HDR_SZ    ( 42UL) /* The default header size, which means no vlan tags and no IP options. */
 #define FD_NETMUX_SIG_IGNORE_HDR_SZ (102UL) /* Outside the allowable range, but still fits in 4 bits when compressed */
 
-struct fd_replay_out {
-  fd_hash_t block_id;        /* block id (last FEC set's merkle root) of the slot received from replay */
-  fd_hash_t parent_block_id; /* parent block id of the slot received from replay */
-  fd_hash_t bank_hash;       /* bank hash of the slot received from replay */
-  fd_hash_t block_hash;      /* last microblock header hash of slot received from replay */
+struct __attribute__((packed)) fd_replay_out_vote {
+  ulong slot;
+  uint  conf;
+};
+typedef struct fd_replay_out_vote fd_replay_out_vote_t;
+
+struct __attribute__((packed)) fd_replay_out_vote_state {
+  fd_pubkey_t          key;
+  ulong                root;
+  ulong                votes_cnt;
+  fd_replay_out_vote_t votes[31];
+  /* TODO: add stake here so we can properly support epoch boundaries */
+};
+typedef struct fd_replay_out_vote_state fd_replay_out_vote_state_t;
+
+struct __attribute__((packed)) fd_replay_out {
+  fd_hash_t                  block_id;        /* block id (last FEC set's merkle root) of the slot received from replay */
+  fd_hash_t                  parent_block_id; /* parent block id of the slot received from replay */
+  fd_hash_t                  bank_hash;       /* bank hash of the slot received from replay */
+  fd_hash_t                  block_hash;      /* last microblock header hash of slot received from replay */
+  ulong                      has_our_vote_state;  /* whether our vote state is included in this message */
+  fd_replay_out_vote_state_t our_vote_state;  /* our vote state */
+  ulong                      vote_states_cnt; /* number of vote states immediately preceeding this struct */
+  fd_replay_out_vote_state_t vote_states[];   /* vote_states_cnt vote states (fd_replay_out_vote_state_t) immediately preceeding this struct */
 };
 typedef struct fd_replay_out fd_replay_out_t;
 

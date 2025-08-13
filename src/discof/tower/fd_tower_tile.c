@@ -8,7 +8,6 @@
 #include "../../disco/topo/fd_topo.h"
 #include "../../discof/restore/utils/fd_ssmsg.h"
 #include "../../flamenco/fd_flamenco_base.h"
-#include "../../funk/fd_funk.h"
 
 #define LOGGING 0
 
@@ -30,10 +29,9 @@ typedef struct {
 } in_ctx_t;
 
 typedef struct {
-  fd_pubkey_t       identity_key[1];
-  fd_pubkey_t       vote_acc[1];
-  fd_funk_rec_key_t funk_key;
-  ulong             seed;
+  fd_pubkey_t identity_key[1];
+  fd_pubkey_t vote_acc[1];
+  ulong       seed;
 
   uchar    in_kind [ MAX_IN_LINKS ];
   in_ctx_t in_links[ MAX_IN_LINKS ];
@@ -62,50 +60,33 @@ typedef struct {
   fd_gossip_duplicate_shred_t duplicate_shred;
   uchar                       duplicate_shred_chunk[FD_EQVOC_PROOF_CHUNK_SZ];
   uchar *                     epoch_voters_buf;
-  char                        funk_file[PATH_MAX];
-  fd_funk_t                   funk[1];
   fd_gossip_vote_t            gossip_vote;
   fd_lockout_offset_t         lockouts[FD_TOWER_VOTE_MAX];
-  fd_replay_out_t             replay_out;
+  fd_replay_out_t *           replay_out;
   fd_tower_t *                scratch;
   fd_snapshot_manifest_t      snapshot_manifest;
   uchar *                     vote_ix_buf;
 } ctx_t;
 
 static void
-update_ghost( ctx_t * ctx, fd_funk_txn_t * txn ) {
-  fd_funk_t *  funk  = ctx->funk;
+update_ghost( ctx_t * ctx, fd_replay_out_t * replay_out ) {
   fd_epoch_t * epoch = ctx->epoch;
   fd_ghost_t * ghost = ctx->ghost;
 
   fd_voter_t * epoch_voters = fd_epoch_voters( epoch );
-  for( ulong i = 0; i < fd_epoch_voters_slot_cnt( epoch_voters ); i++ ) {
-    if( FD_LIKELY( fd_epoch_voters_key_inval( epoch_voters[i].key ) ) ) continue /* most slots are empty */;
+  for( ulong i = 0; i < replay_out->vote_states_cnt; i++ ) {
+    fd_replay_out_vote_state_t const * vote_state = &replay_out->vote_states[i];
 
-    /* TODO we can optimize this funk query to only check through the
-       last slot on this fork this function was called on. currently
-       rec_query_global traverses all the way back to the root. */
+    /* Look up the voter for this vote account */
+    fd_voter_t * voter = fd_epoch_voters_query( epoch_voters, vote_state->key, NULL );
+    if( FD_UNLIKELY( !voter ) ) FD_LOG_ERR(( "[%s] voter %s was not in epoch voters", __func__,
+      FD_BASE58_ENC_32_ALLOCA(&vote_state->key) ));
 
-    fd_voter_t * voter = &epoch_voters[i];
+    /* Skip voters with no votes */
+    if( FD_UNLIKELY( vote_state->votes_cnt == 0 ) ) continue;
 
-    /* Fetch the vote account's vote slot and root slot from the vote
-       account, re-trying if there is a Funk conflict. */
-
-    ulong vote = FD_SLOT_NULL;
-    ulong root = FD_SLOT_NULL;
-
-    for(;;) {
-      fd_funk_rec_query_t   query;
-      fd_funk_rec_t const * rec = fd_funk_rec_query_try_global( funk, txn, &voter->rec, NULL, &query );
-      if( FD_UNLIKELY( !rec ) ) break;
-      fd_voter_state_t const * state = fd_voter_state( funk, rec );
-      if( FD_UNLIKELY( !state ) ) break;
-      vote = fd_voter_state_vote( state );
-      root = fd_voter_state_root( state );
-      if( FD_LIKELY( fd_funk_rec_query_test( &query ) == FD_FUNK_SUCCESS ) ) break;
-    }
-
-    // FD_LOG_NOTICE(( "querying %s %lu %lu %lu", FD_BASE58_ENC_32_ALLOCA( voter->key.uc ), voter->stake, vote, root ));
+    ulong vote = vote_state->votes[vote_state->votes_cnt - 1].slot;
+    ulong root = vote_state->root;
 
     /* Only process votes for slots >= root. */
 
@@ -146,22 +127,17 @@ update_ghost( ctx_t * ctx, fd_funk_txn_t * txn ) {
 
 static void
 after_frag_replay( ctx_t * ctx, ulong slot, fd_replay_out_t * replay_out, ulong tsorig, fd_stem_context_t * stem ) {
-  fd_funk_txn_xid_t   txn_xid  = { .ul = { slot, slot } };
-  fd_funk_txn_map_t * txn_map  = fd_funk_txn_map( ctx->funk );
-  fd_funk_txn_start_read( ctx->funk );
-  fd_funk_txn_t * funk_txn = fd_funk_txn_query( &txn_xid, txn_map );
-  if( FD_UNLIKELY( !funk_txn ) ) FD_LOG_ERR(( "Could not find valid funk transaction" ));
-  fd_funk_txn_end_read( ctx->funk );
-
   /* Initialize the tower */
 
-  if( FD_UNLIKELY( fd_tower_votes_empty( ctx->tower ) ) ) fd_tower_from_vote_acc( ctx->tower, ctx->funk, funk_txn, &ctx->funk_key );
+  if( FD_UNLIKELY( replay_out->has_our_vote_state && fd_tower_votes_empty( ctx->tower ) ) ) {
+    fd_tower_from_vote_acc( ctx->tower, &replay_out->our_vote_state );
+  }
 
   fd_ghost_ele_t  const * ghost_ele  = fd_ghost_insert( ctx->ghost, &replay_out->parent_block_id, slot, &replay_out->block_id, ctx->epoch->total_stake );
   FD_TEST( ghost_ele );
-  update_ghost( ctx, funk_txn );
+  update_ghost( ctx, replay_out );
 
-  ulong vote_slot = fd_tower_vote_slot( ctx->tower, ctx->epoch, ctx->funk, funk_txn, ctx->ghost, ctx->scratch );
+  ulong vote_slot = fd_tower_vote_slot( ctx->tower, ctx->epoch, replay_out->vote_states, replay_out->vote_states_cnt, ctx->ghost, ctx->scratch );
   if( FD_UNLIKELY( vote_slot == FD_SLOT_NULL ) ) return; /* nothing to vote on */
 
   ulong root = fd_tower_vote( ctx->tower, vote_slot );
@@ -210,7 +186,6 @@ after_frag_snap( ctx_t                  * ctx,
     FD_TEST( fd_epoch_voters_key_cnt( epoch_voters ) < fd_epoch_voters_key_max( epoch_voters ) );
 #   endif
     fd_voter_t * voter = fd_epoch_voters_insert( epoch_voters, *pubkey );
-    voter->rec.uc[FD_FUNK_REC_KEY_FOOTPRINT - 1] = FD_FUNK_KEY_TYPE_ACC;
 #   if FD_EPOCH_USE_HANDHOLDING
     FD_TEST( 0==memcmp( voter->key.uc, pubkey->uc, sizeof(fd_pubkey_t) ) );
     FD_TEST( fd_epoch_voters_query( epoch_voters, voter->key, NULL ) );
@@ -260,7 +235,7 @@ during_frag( ctx_t * ctx,
   uchar const * chunk_laddr = fd_chunk_to_laddr( ctx->in_links[in_idx].mem, chunk );
   switch( in_kind ) {
   case IN_KIND_GOSSIP: {                                                                                 break; }
-  case IN_KIND_REPLAY: { memcpy( &ctx->replay_out,        chunk_laddr, sizeof(fd_replay_out_t)        ); break; }
+  case IN_KIND_REPLAY: { ctx->replay_out = (fd_replay_out_t *)chunk_laddr;                               break; }
   case IN_KIND_SNAP:   {
     if( FD_UNLIKELY( fd_ssmsg_sig_message( sig )!=FD_SSMSG_DONE ) ) memcpy( &ctx->snapshot_manifest, chunk_laddr, sizeof(fd_snapshot_manifest_t) );
     break;
@@ -281,7 +256,7 @@ after_frag( ctx_t *             ctx,
   uint in_kind = ctx->in_kind[in_idx];
   switch( in_kind ) {
   case IN_KIND_GOSSIP: {                                                               break; }
-  case IN_KIND_REPLAY: { after_frag_replay( ctx, sig, &ctx->replay_out, tsorig, stem ); break; }
+  case IN_KIND_REPLAY: { after_frag_replay( ctx, sig, ctx->replay_out, tsorig, stem ); break; }
   case IN_KIND_SNAP:   { after_frag_snap  ( ctx, sig, &ctx->snapshot_manifest        ); break; }
   default: FD_LOG_ERR(( "Unexpected input kind %u", in_kind ));
   }
@@ -307,10 +282,6 @@ unprivileged_init( fd_topo_t *      topo,
   ctx->tower   = fd_tower_join( fd_tower_new( tower_mem                     ) );
   ctx->scratch = fd_tower_join( fd_tower_new( scratch_mem                   ) );
 
-  if( FD_UNLIKELY( !fd_funk_join( ctx->funk, fd_topo_obj_laddr( topo, tile->tower.funk_obj_id ) ) ) ) {
-    FD_LOG_ERR(( "Failed to join database cache" ));
-  }
-
   ctx->epoch_voters_buf = voter_mem;
 
   memcpy( ctx->identity_key->uc, fd_keyload_load( tile->tower.identity_key_path, 1 ), sizeof(fd_pubkey_t) );
@@ -319,10 +290,6 @@ unprivileged_init( fd_topo_t *      topo,
     const uchar * vote_key = fd_keyload_load( tile->tower.vote_acc_path, 1 );
     memcpy( ctx->vote_acc->uc, vote_key, sizeof(fd_pubkey_t) );
   }
-
-  memset( ctx->funk_key.uc, 0, sizeof(fd_funk_rec_key_t) );
-  memcpy( ctx->funk_key.uc, ctx->vote_acc->uc, sizeof(fd_pubkey_t) );
-  ctx->funk_key.uc[FD_FUNK_REC_KEY_FOOTPRINT - 1] = FD_FUNK_KEY_TYPE_ACC;
 
   if( FD_UNLIKELY( tile->in_cnt > MAX_IN_LINKS ) ) FD_LOG_ERR(( "repair tile has too many input links" ));
 
