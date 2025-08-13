@@ -183,6 +183,8 @@ struct fd_config {
   double tick_per_ns_mu;
   double tick_per_ns_sigma;
 
+  long boot_timesamp_nanos;
+
   fd_topo_t topo;
 
   char cluster[ 32 ];

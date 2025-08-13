@@ -220,7 +220,7 @@ typedef struct fd_gossip_view_snapshot_hashes fd_gossip_view_snapshot_hashes_t;
  /* Offsets are within full message payload, not the subset where the encoded
     CRDS value lies. */
 struct fd_gossip_view_crds_value {
-  union{
+  union {
     ushort value_off; /* Start of CRDS value data in payload */
     ushort signature_off;
   };
@@ -307,8 +307,7 @@ struct fd_gossip_view {
     fd_gossip_view_pull_response_t pull_response[ 1 ];
     fd_gossip_view_push_t          push[ 1 ];
     fd_gossip_view_prune_t         prune[ 1 ];
-    fd_gossip_view_ping_t *        ping;
-    fd_gossip_view_pong_t *        pong;
+    ushort                         ping_pong_off;
   };
 };
 
@@ -329,9 +328,9 @@ fd_contact_info_gossip_socket( fd_contact_info_t const * ci ) {
 }
 
 ulong
-fd_gossip_msg_parse( fd_gossip_view_t *   view,
-                     uchar const *        payload,
-                     ulong                payload_sz );
+fd_gossip_msg_parse( fd_gossip_view_t * view,
+                     uchar const *      payload,
+                     ulong              payload_sz );
 
 FD_FN_CONST static inline ulong
 fd_gossip_pull_request_max_filter_bits( ulong num_keys,

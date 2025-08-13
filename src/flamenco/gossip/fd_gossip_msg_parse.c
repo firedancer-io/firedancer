@@ -307,7 +307,7 @@ fd_gossip_msg_crds_contact_info_parse( fd_gossip_view_crds_value_t * crds_val,
                                        ushort                        start_offset ) {
   CHECK_INIT( payload, payload_sz, start_offset );
   CHECK_LEFT( 32U ); crds_val->pubkey_off = CUR_OFFSET                                                                         ; INC( 32U );
-  ulong wallclock;
+  ulong wallclock = 0UL;
   INC( decode_u64_varint( payload, payload_sz, CUR_OFFSET, &wallclock ) );
   crds_val->wallclock_nanos = FD_MILLI_TO_NANOSEC( wallclock );
 
@@ -473,7 +473,7 @@ fd_gossip_msg_ping_pong_parse( fd_gossip_view_t * view,
   CHECK_INIT( payload, payload_sz, start_offset );
   /* Ping/Pong share the same memory layout */
   CHECK_LEFT( sizeof(fd_gossip_view_ping_t) );
-  view->ping = (fd_gossip_view_ping_t *)(CURSOR);
+  view->ping_pong_off = CUR_OFFSET;
   INC( sizeof(fd_gossip_view_ping_t) );
 
   return BYTES_CONSUMED;
@@ -540,7 +540,7 @@ fd_gossip_msg_prune_parse( fd_gossip_view_t * view,
   fd_gossip_view_prune_t * prune = view->prune;
   CHECKED_INC( 32U ); /* pubkey is sent twice */
   CHECK_LEFT(                      32U ); prune->origin_off      = CUR_OFFSET               ; INC( 32U );
-  CHECK_LEFT(                       8U ); prune->prunes_len      = FD_LOAD( ulong, CURSOR ) ; INC(  2U );
+  CHECK_LEFT(                       8U ); prune->prunes_len      = FD_LOAD( ulong, CURSOR ) ; INC(  8U );
   CHECK_LEFT(    prune->prunes_len*32U ); prune->prunes_off      = CUR_OFFSET               ; INC( prune->prunes_len*32U );
   CHECK_LEFT(                      64U ); prune->signature_off   = CUR_OFFSET               ; INC( 64U );
   CHECK_LEFT(                      32U ); prune->destination_off = CUR_OFFSET               ; INC( 32U );
@@ -553,9 +553,9 @@ fd_gossip_msg_prune_parse( fd_gossip_view_t * view,
 }
 
 ulong
-fd_gossip_msg_parse( fd_gossip_view_t *   view,
-                     uchar const *        payload,
-                     ulong                payload_sz ) {
+fd_gossip_msg_parse( fd_gossip_view_t * view,
+                     uchar const *      payload,
+                     ulong              payload_sz ) {
   CHECK_INIT( payload, payload_sz, 0U );
   CHECK(     payload_sz<=FD_GOSSIP_MTU );
 

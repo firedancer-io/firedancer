@@ -135,7 +135,7 @@ fd_active_set_prunes( fd_active_set_t * active_set,
   for( ulong i=0UL; i<12UL; i++ ) {
     if( FD_UNLIKELY( !memcmp( active_set->entries[ bucket ]->nodes[ i ]->pubkey, origin, 32UL ) ) ) {
       for( ulong j=0UL; j<peers_len; j++ ) {
-          fd_bloom_insert( active_set->entries[ bucket ]->nodes[ i ]->bloom, &peers[j*32UL], 32UL );
+        fd_bloom_insert( active_set->entries[ bucket ]->nodes[ i ]->bloom, &peers[j*32UL], 32UL );
       }
       if( opt_out_node_idx ) {
         *opt_out_node_idx = bucket*12UL + i;
@@ -146,8 +146,8 @@ fd_active_set_prunes( fd_active_set_t * active_set,
 }
 
 ulong
-fd_active_set_rotate( fd_active_set_t *     active_set,
-                      fd_crds_t *           crds ) {
+fd_active_set_rotate( fd_active_set_t * active_set,
+                      fd_crds_t *       crds ) {
   ulong num_bloom_filter_items = fd_ulong_max( fd_crds_peer_count( crds ), 512UL );
 
   ulong bucket = fd_rng_ulong_roll( active_set->rng, 25UL );

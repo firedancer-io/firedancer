@@ -43,6 +43,7 @@ struct fd_gossip_metrics {
   ulong                   rx_pull_crd_upserted[ FD_METRICS_ENUM_CRDS_VALUE_CNT ];
   ulong                   rx_pull_crd_duplicate[ FD_METRICS_ENUM_CRDS_VALUE_CNT ];
   ulong                   rx_pull_crd_fail[ FD_METRICS_ENUM_CRDS_VALUE_CNT ];
+  ulong                   rx_pull_crd_old[ FD_METRICS_ENUM_CRDS_VALUE_CNT ];
 
   ulong                   tx_push_crd_count[ FD_METRICS_ENUM_CRDS_VALUE_CNT ];
   ulong                   tx_push_crd_bytes[ FD_METRICS_ENUM_CRDS_VALUE_CNT ];

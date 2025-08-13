@@ -481,8 +481,9 @@ fd_crds_new( void *                    shmem,
 
   crds_samplers_new( crds->samplers );
 
-  crds->gossip_update = gossip_update_out;
-  crds->metrics       = metrics;
+  crds->gossip_update   = gossip_update_out;
+  crds->metrics         = metrics;
+  crds->has_staked_node = 0;
 
   FD_COMPILER_MFENCE();
   FD_VOLATILE( crds->magic ) = FD_CRDS_MAGIC;
@@ -635,7 +636,7 @@ expire( fd_crds_t *         crds,
   while( !failed_inserts_dlist_is_empty( crds->purged.failed_inserts_dlist, crds->purged.pool ) ) {
     fd_crds_purged_t * head = failed_inserts_dlist_ele_peek_head( crds->purged.failed_inserts_dlist, crds->purged.pool );
 
-    if( FD_LIKELY( head->expire.wallclock_nanos>now-20L*1000L*1000L ) ) break;
+    if( FD_LIKELY( head->expire.wallclock_nanos>now-20L*1000L*1000L*1000L ) ) break;
 
     failed_inserts_dlist_ele_pop_head( crds->purged.failed_inserts_dlist, crds->purged.pool );
     purged_treap_ele_remove( crds->purged.treap, head, crds->purged.pool );
@@ -705,6 +706,11 @@ fd_crds_genrate_hash( uchar const *     crds_value_buf,
   fd_sha256_init( sha2 );
   fd_sha256_append( sha2, crds_value_buf, crds_value_sz );
   fd_sha256_fini( sha2, out_hash );
+}
+
+int
+fd_crds_has_staked_node( fd_crds_t const * crds ) {
+  return crds->has_staked_node;
 }
 
 static inline void
@@ -846,12 +852,12 @@ int
 fd_crds_checks_fast( fd_crds_t *                         crds,
                      fd_gossip_view_crds_value_t const * candidate,
                      uchar const *                       payload,
-                     uchar                               from_push_msg ){
+                     uchar                               from_push_msg ) {
   fd_crds_key_t candidate_key;
   generate_key( candidate, payload, &candidate_key );
   fd_crds_entry_t * incumbent = lookup_map_ele_query( crds->lookup_map, &candidate_key, NULL, crds->pool );
 
-  if( FD_UNLIKELY( !incumbent ) ) return 0;
+  if( FD_UNLIKELY( !incumbent ) ) return FD_CRDS_UPSERT_CHECK_UPSERTS;
 
   if( FD_UNLIKELY( *(ulong *)incumbent->value_bytes==(*(ulong *)(payload+candidate->value_off)) ) ) {
     /* We have a duplicate, so we return the number of duplicates */
@@ -1096,7 +1102,7 @@ make_contact_info_key( uchar const * pubkey ) {
 }
 
 int
-fd_crds_entry_is_contact_info(  fd_crds_entry_t const * entry ) {
+fd_crds_entry_is_contact_info( fd_crds_entry_t const * entry ) {
   return entry->key.tag==FD_GOSSIP_VALUE_CONTACT_INFO;
 }
 
