@@ -3,8 +3,6 @@
 
 #include "../gossip/fd_gossip.h"
 #include "../../ballet/shred/fd_shred.h"
-#include "../../disco/metrics/generated/fd_metrics_repair.h"
-#include "../../disco/metrics/fd_metrics.h"
 
 
 #define FD_REPAIR_DELIVER_FAIL_TIMEOUT -1
@@ -97,6 +95,9 @@ typedef struct fd_active_elem fd_active_elem_t;
 enum fd_needed_elem_type {
   fd_needed_window_index, fd_needed_highest_window_index, fd_needed_orphan
 };
+FD_STATIC_ASSERT( fd_needed_window_index==FD_METRICS_ENUM_REPAIR_SENT_REQUEST_TYPES_V_NEEDED_WINDOW_IDX,                 update repair metrics enums );
+FD_STATIC_ASSERT( fd_needed_highest_window_index==FD_METRICS_ENUM_REPAIR_SENT_REQUEST_TYPES_V_NEEDED_HIGHEST_WINDOW_IDX, update repair metrics enums );
+FD_STATIC_ASSERT( fd_needed_orphan==FD_METRICS_ENUM_REPAIR_SENT_REQUEST_TYPES_V_NEEDED_ORPHAN_IDX,                       update repair metrics enums );
 
 struct fd_inflight_key {
   enum fd_needed_elem_type type;
@@ -161,6 +162,7 @@ struct fd_pinged_elem {
   int good;
 };
 typedef struct fd_pinged_elem fd_pinged_elem_t;
+
 #define MAP_NAME     fd_pinged_table
 #define MAP_KEY_T    fd_repair_peer_addr_t
 #define MAP_KEY_EQ   fd_repair_peer_addr_eq
@@ -196,22 +198,7 @@ struct fd_peer {
   fd_ip4_port_t ip4;
 };
 typedef struct fd_peer fd_peer_t;
-/* Repair Metrics */
-struct fd_repair_metrics {
-  ulong recv_clnt_pkt;
-  ulong recv_serv_pkt;
-  ulong recv_serv_corrupt_pkt;
-  ulong recv_serv_invalid_signature;
-  ulong recv_serv_full_ping_table;
-  ulong recv_serv_pkt_types[FD_METRICS_ENUM_REPAIR_SERV_PKT_TYPES_CNT];
-  ulong recv_pkt_corrupted_msg;
-  ulong send_pkt_cnt;
-  ulong sent_pkt_types[FD_METRICS_ENUM_REPAIR_SENT_REQUEST_TYPES_CNT];
-  fd_histf_t store_link_wait[ 1 ];
-  fd_histf_t store_link_work[ 1 ];
-};
-typedef struct fd_repair_metrics fd_repair_metrics_t;
-#define FD_REPAIR_METRICS_FOOTPRINT ( sizeof( fd_repair_metrics_t ) )
+
 /* Global data for repair service */
 struct fd_repair {
     /* Current time in nanosecs */
@@ -267,8 +254,6 @@ struct fd_repair {
     /* Pending sign requests for async operations */
     fd_repair_pending_sign_req_t      * pending_sign_req_pool;
     fd_repair_pending_sign_req_map_t  * pending_sign_req_map;
-    /* Metrics */
-    fd_repair_metrics_t metrics;
 };
 typedef struct fd_repair fd_repair_t;
 
@@ -358,9 +343,6 @@ void fd_repair_set_stake_weights_init( fd_repair_t             * repair,
                                        ulong                     stake_weights_cnt );
 
 void fd_repair_set_stake_weights_fini( fd_repair_t * repair );
-
-fd_repair_metrics_t *
-fd_repair_get_metrics( fd_repair_t * repair );
 
 /* Pending sign request operations */
 fd_repair_pending_sign_req_t *

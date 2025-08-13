@@ -115,18 +115,6 @@ typedef struct fd_fec_sig fd_fec_sig_t;
 #define MAP_MEMOIZE 0
 #include "../../util/tmpl/fd_map_dynamic.c"
 
-struct fd_sreasm {
-  ulong slot;
-  uint  cnt;
-};
-typedef struct fd_sreasm fd_sreasm_t;
-
-#define MAP_NAME     fd_sreasm
-#define MAP_T        fd_sreasm_t
-#define MAP_KEY      slot
-#define MAP_MEMOIZE  0
-#include "../../util/tmpl/fd_map_dynamic.c"
-
 struct fd_repair_tile_ctx {
   long tsprint; /* timestamp for printing */
   long tsrepair; /* timestamp for repair */
@@ -145,7 +133,6 @@ struct fd_repair_tile_ctx {
 
   fd_forest_t      * forest;
   fd_fec_sig_t     * fec_sigs;
-  fd_sreasm_t       * sreasm;
   fd_reasm_t * reasm;
   fd_forest_iter_t   repair_iter;
   fd_store_t       * store;
@@ -224,6 +211,21 @@ struct fd_repair_tile_ctx {
   /* Pending sign requests */
   fd_repair_pending_sign_req_t      * pending_sign_req_pool;
   fd_repair_pending_sign_req_map_t  * pending_sign_req_map;
+
+  struct {
+    ulong recv_clnt_pkt;
+    ulong recv_serv_pkt;
+    ulong recv_serv_corrupt_pkt;
+    ulong recv_serv_invalid_signature;
+    ulong recv_serv_full_ping_table;
+    ulong recv_serv_pkt_types[FD_METRICS_ENUM_REPAIR_SERV_PKT_TYPES_CNT];
+    ulong recv_pkt_corrupted_msg;
+    ulong send_pkt_cnt;
+    ulong sent_pkt_types[FD_METRICS_ENUM_REPAIR_SENT_REQUEST_TYPES_CNT];
+    fd_histf_t store_link_wait[ 1 ];
+    fd_histf_t store_link_work[ 1 ];
+    fd_histf_t slot_compl_time[ 1 ];
+  } metrics[ 1 ];
 };
 typedef struct fd_repair_tile_ctx fd_repair_tile_ctx_t;
 
@@ -248,9 +250,7 @@ scratch_footprint( fd_topo_tile_t const * tile ) {
   l = FD_LAYOUT_APPEND( l, fd_repair_align(),                       fd_repair_footprint()                    );
   l = FD_LAYOUT_APPEND( l, fd_forest_align(),                       fd_forest_footprint( tile->repair.slot_max ) );
   l = FD_LAYOUT_APPEND( l, fd_fec_sig_align(),                      fd_fec_sig_footprint( 20 ) );
-  l = FD_LAYOUT_APPEND( l, fd_sreasm_align(),              fd_sreasm_footprint( 20 ) );
   l = FD_LAYOUT_APPEND( l, fd_reasm_align(),                        fd_reasm_footprint( 1 << 20 ) );
-//l = FD_LAYOUT_APPEND( l, fd_fec_repair_align(),                   fd_fec_repair_footprint( ( 1<<20 ), tile->repair.shred_tile_cnt ) );
   l = FD_LAYOUT_APPEND( l, fd_repair_pending_sign_req_pool_align(), fd_repair_pending_sign_req_pool_footprint( FD_REPAIR_PENDING_SIGN_REQ_MAX ) );
   l = FD_LAYOUT_APPEND( l, fd_repair_pending_sign_req_map_align(),  fd_repair_pending_sign_req_map_footprint( FD_REPAIR_PENDING_SIGN_REQ_MAX ) );
   l = FD_LAYOUT_APPEND( l, fd_scratch_smem_align(),                 fd_scratch_smem_footprint( FD_REPAIR_SCRATCH_MAX ) );
@@ -300,6 +300,7 @@ send_packet( fd_repair_tile_ctx_t * ctx,
              uchar const *          payload,
              ulong                  payload_sz,
              ulong                  tsorig ) {
+
   uchar * packet = fd_chunk_to_laddr( ctx->net_out_mem, ctx->net_out_chunk );
   fd_ip4_udp_hdrs_t * hdr = (fd_ip4_udp_hdrs_t *)packet;
   *hdr = *(is_intake ? ctx->intake_hdr : ctx->serve_hdr);
@@ -361,14 +362,14 @@ fd_repair_handle_ping( fd_repair_tile_ctx_t *        repair_tile_ctx,
 
 /* Pass a raw client response packet into the protocol. addr is the address of the sender */
 static int
-fd_repair_recv_clnt_packet( fd_repair_tile_ctx_t *        repair_tile_ctx,
+fd_repair_recv_clnt_packet( fd_repair_tile_ctx_t *        ctx,
                             fd_stem_context_t *           stem,
                             fd_repair_t *                 glob,
                             uchar const *                 msg,
                             ulong                         msglen,
                             fd_repair_peer_addr_t const * src_addr,
                             uint                          dst_ip4_addr ) {
-  glob->metrics.recv_clnt_pkt++;
+  ctx->metrics->recv_clnt_pkt++;
 
   FD_SCRATCH_SCOPE_BEGIN {
     while( 1 ) {
@@ -388,9 +389,9 @@ fd_repair_recv_clnt_packet( fd_repair_tile_ctx_t *        repair_tile_ctx,
       case fd_repair_response_enum_ping:
         {
           uchar buf[FD_REPAIR_MAX_SIGN_BUF_SIZE];
-          ulong buflen = fd_repair_handle_ping( repair_tile_ctx, glob, &gmsg->inner.ping, src_addr, dst_ip4_addr, buf, sizeof(buf) );
+          ulong buflen = fd_repair_handle_ping( ctx, glob, &gmsg->inner.ping, src_addr, dst_ip4_addr, buf, sizeof(buf) );
           ulong tsorig = fd_frag_meta_ts_comp( fd_tickcount() );
-          send_packet( repair_tile_ctx, stem, 1, src_addr->addr, src_addr->port, dst_ip4_addr, buf, buflen, tsorig );
+          send_packet( ctx, stem, 1, src_addr->addr, src_addr->port, dst_ip4_addr, buf, buflen, tsorig );
           break;
         }
       }
@@ -489,42 +490,23 @@ sign_avail_credits( fd_repair_tile_ctx_t * ctx ) {
 }
 
 static void
-fd_repair_send_request( fd_repair_tile_ctx_t   * repair_tile_ctx,
-                        fd_stem_context_t      * stem,
-                        fd_repair_t            * glob,
-                        enum fd_needed_elem_type type,
-                        ulong                    slot,
-                        uint                     shred_index,
-                        fd_pubkey_t const      * recipient,
-                        long                     now ) {
+fd_repair_send_initial_request( fd_repair_tile_ctx_t   * ctx,
+                                fd_stem_context_t      * stem,
+                                fd_repair_t            * glob,
+                                fd_pubkey_t const      * recipient,
+                                long                     now ) {
   fd_repair_protocol_t protocol;
-  fd_repair_construct_request_protocol( glob, &protocol, type, slot, shred_index, recipient, 0, now );
+  fd_repair_construct_request_protocol( glob, &protocol, fd_needed_window_index, 0, 0, recipient, 0, now );
   fd_active_elem_t * active = fd_active_table_query( glob->actives, recipient, NULL );
 
+  ctx->metrics->sent_pkt_types[fd_needed_window_index]++;
   active->avg_reqs++;
-  glob->metrics.send_pkt_cnt++;
 
   uchar buf[FD_REPAIR_MAX_SIGN_BUF_SIZE];
-  ulong buflen       = fd_repair_sign_and_send( repair_tile_ctx, &protocol, &active->addr, buf, sizeof(buf), 0, 1, NULL );
+  ulong buflen       = fd_repair_sign_and_send( ctx, &protocol, &active->addr, buf, sizeof(buf), 0, 1, NULL );
   ulong tsorig       = fd_frag_meta_ts_comp( fd_tickcount() );
   uint  src_ip4_addr = 0U; /* unknown */
-  send_packet( repair_tile_ctx, stem, 1, active->addr.addr, active->addr.port, src_ip4_addr, buf, buflen, tsorig );
-}
-
-static void FD_FN_UNUSED
-fd_repair_send_requests( fd_repair_tile_ctx_t *   ctx,
-                         fd_stem_context_t *      stem,
-                         enum fd_needed_elem_type type,
-                         ulong                    slot,
-                         uint                     shred_index,
-                         long                     now ){
-  fd_repair_t * glob = ctx->repair;
-
-  for( uint i=0; i<FD_REPAIR_NUM_NEEDED_PEERS; i++ ) {
-    fd_pubkey_t const * id = &glob->peers[ glob->peer_idx++ ].key;
-    fd_repair_send_request( ctx, stem, glob, type, slot, shred_index, id, now );
-    if( FD_UNLIKELY( glob->peer_idx >= glob->peer_cnt ) ) glob->peer_idx = 0; /* wrap around */
-  }
+  send_packet( ctx, stem, 1, active->addr.addr, active->addr.port, src_ip4_addr, buf, buflen, tsorig );
 }
 
 /* Sends a request asynchronously. If successful, adds it to the
@@ -546,12 +528,13 @@ fd_repair_send_request_async( fd_repair_tile_ctx_t *   ctx,
 
     /* Acquire and add a pending request from the pool */
     fd_repair_protocol_t protocol;
-    fd_repair_pending_sign_req_t * pending = fd_repair_insert_pending_request( glob, &protocol, peer->addr.addr, peer->addr.port, type, slot, shred_index, now, recipient );
+    fd_repair_pending_sign_req_t * pending = fd_repair_insert_pending_request( ctx->repair, &protocol, peer->addr.addr, peer->addr.port, type, slot, shred_index, now, recipient );
+
     if( FD_UNLIKELY( !pending ) ) {
         FD_LOG_WARNING(( "No free pending sign reqs" ));
         return;
     }
-
+    ctx->metrics->sent_pkt_types[type]++;
     /* Sign and prepare the message directly into the pending buffer */
     pending->buflen = fd_repair_sign_and_send( ctx, &protocol, &peer->addr, pending->buf, sizeof(pending->buf), 1, pending->nonce, sign_out );
 
@@ -603,7 +586,7 @@ handle_new_cluster_contact_info( fd_repair_tile_ctx_t * ctx,
       receive a peer's contact information for the first time, effectively
       prepaying the RTT cost. */
       if( FD_LIKELY( ctx->repair_sign_cnt > 0 ) ) {
-        fd_repair_send_request(ctx, ctx->stem, ctx->repair, fd_needed_window_index, 0, 0, in_dests[i].pubkey, fd_log_wallclock());
+        fd_repair_send_initial_request(ctx, ctx->stem, ctx->repair, in_dests[i].pubkey, fd_log_wallclock());
       }
       ulong hash_src = 0xfffffUL & fd_ulong_hash( (ulong)in_dests[i].ip4_addr | ((ulong)repair_peer.port<<32) );
       FD_LOG_INFO(( "Added repair peer: pubkey %s hash_src %lu", FD_BASE58_ENC_32_ALLOCA(in_dests[i].pubkey), hash_src ));
@@ -795,6 +778,7 @@ fd_repair_handle_sign_response( fd_repair_tile_ctx_t * ctx,
     fd_memcpy( pending->buf + pending->sig_offset, ctx->buffer, 64UL );
     ulong tsorig = fd_frag_meta_ts_comp( fd_tickcount() );
     uint src_ip4_addr = 0U;
+    ctx->metrics->send_pkt_cnt++;
     send_packet( ctx, stem, 1, pending->dst_ip_addr, pending->dst_port, src_ip4_addr, pending->buf, pending->buflen, tsorig );
 
     fd_repair_remove_pending_request( ctx->repair, response_nonce );
@@ -870,7 +854,7 @@ after_frag( fd_repair_tile_ctx_t * ctx,
     if( FD_UNLIKELY( sz == FD_SHRED_DATA_HEADER_SZ + sizeof(fd_hash_t) + sizeof(fd_hash_t) ) ) {
       fd_forest_ele_t * ele = NULL;
       for( uint idx = shred->fec_set_idx; idx <= shred->idx; idx++ ) {
-        ele = fd_forest_data_shred_insert( ctx->forest, shred->slot, shred->data.parent_off, idx, shred->fec_set_idx, 0, 0 );
+        ele = fd_forest_data_shred_insert( ctx->forest, shred->slot, shred->data.parent_off, idx, shred->fec_set_idx, 0, RECOVERED );
       }
       FD_TEST( ele ); /* must be non-empty */
       fd_forest_ele_idxs_insert( ele->cmpl, shred->fec_set_idx );
@@ -887,17 +871,21 @@ after_frag( fd_repair_tile_ctx_t * ctx,
         cmr = &fd_reasm_root( ctx->reasm )->key;
       }
       FD_TEST( fd_reasm_insert( ctx->reasm, merkle_root, cmr, shred->slot, shred->fec_set_idx, shred->data.parent_off, (ushort)(shred->idx - shred->fec_set_idx + 1), data_complete, slot_complete ) );
+
+      if( FD_UNLIKELY( ele->complete_idx != UINT_MAX && ele->buffered_idx == ele->complete_idx ) ) {
+        fd_histf_sample( ctx->metrics->slot_compl_time, (ulong)(fd_tickcount() - ele->first_ts) );
+        FD_LOG_INFO(( "slot is complete %lu. num_data_shreds: %u, num_repaired: %u, num_turbine: %u", ele->slot, ele->complete_idx + 1, ele->repair_cnt, ele->turbine_cnt ));
+      }
     }
 
     /* Insert the shred into the map. */
 
     int is_code = fd_shred_is_code( fd_shred_type( shred->variant ) );
+    shred_src_t src = fd_disco_shred_repair_shred_sig_is_turbine( sig ) ? TURBINE : REPAIR;
     if( FD_LIKELY( !is_code ) ) {
       fd_repair_inflight_remove( ctx->repair, shred->slot, shred->idx );
-
-      int               data_complete = !!(shred->data.flags & FD_SHRED_DATA_FLAG_DATA_COMPLETE);
       int               slot_complete = !!(shred->data.flags & FD_SHRED_DATA_FLAG_SLOT_COMPLETE);
-      fd_forest_ele_t * ele           = fd_forest_data_shred_insert( ctx->forest, shred->slot, shred->data.parent_off, shred->idx, shred->fec_set_idx, data_complete, slot_complete );
+      fd_forest_ele_t * ele           = fd_forest_data_shred_insert( ctx->forest, shred->slot, shred->data.parent_off, shred->idx, shred->fec_set_idx, slot_complete, src );
 
       /* Check if there are FECs to force complete. Algorithm: window
          through the idxs in interval [i, j). If j = next fec_set_idx
@@ -929,6 +917,8 @@ after_frag( fd_repair_tile_ctx_t * ctx,
           // FD_LOG_NOTICE(( "not a fec boundary %lu %u", ele->slot, j ));
         }
       }
+    } else {
+      fd_forest_code_shred_insert( ctx->forest, shred->slot, shred->idx );
     }
     return;
   }
@@ -991,8 +981,8 @@ after_credit( fd_repair_tile_ctx_t * ctx,
       fd_stem_publish( stem, REPLAY_OUT_IDX, sig, ctx->replay_out_chunk, sizeof(fd_reasm_fec_t), 0, 0, tspub );
       ctx->replay_out_chunk = fd_dcache_compact_next( ctx->replay_out_chunk, sizeof(fd_reasm_fec_t), ctx->replay_out_chunk0, ctx->replay_out_wmark );
 
-      fd_histf_sample( ctx->repair->metrics.store_link_wait, (ulong)fd_long_max(shacq_end - shacq_start, 0) );
-      fd_histf_sample( ctx->repair->metrics.store_link_work, (ulong)fd_long_max(shrel_end - shacq_end,   0) );
+      fd_histf_sample( ctx->metrics->store_link_wait, (ulong)fd_long_max(shacq_end - shacq_start, 0) );
+      fd_histf_sample( ctx->metrics->store_link_work, (ulong)fd_long_max(shrel_end - shacq_end,   0) );
     }
 
     /* We might have more reassembled FEC sets to deliver to the
@@ -1272,7 +1262,6 @@ unprivileged_init( fd_topo_t *      topo,
   ctx->repair                 = FD_SCRATCH_ALLOC_APPEND( l, fd_repair_align(), fd_repair_footprint() );
   ctx->forest                 = FD_SCRATCH_ALLOC_APPEND( l, fd_forest_align(), fd_forest_footprint( tile->repair.slot_max ) );
   ctx->fec_sigs               = FD_SCRATCH_ALLOC_APPEND( l, fd_fec_sig_align(), fd_fec_sig_footprint( 20 ) );
-  ctx->sreasm                 = FD_SCRATCH_ALLOC_APPEND( l, fd_sreasm_align(), fd_sreasm_footprint( 20 ) );
   ctx->reasm                  = FD_SCRATCH_ALLOC_APPEND( l, fd_reasm_align(), fd_reasm_footprint( 1 << 20 ) );
   ctx->pending_sign_req_pool  = FD_SCRATCH_ALLOC_APPEND( l, fd_repair_pending_sign_req_pool_align(), fd_repair_pending_sign_req_pool_footprint( FD_REPAIR_PENDING_SIGN_REQ_MAX ) );
   ctx->pending_sign_req_map   = FD_SCRATCH_ALLOC_APPEND( l, fd_repair_pending_sign_req_map_align(), fd_repair_pending_sign_req_map_footprint( FD_REPAIR_PENDING_SIGN_REQ_MAX ) );
@@ -1325,7 +1314,6 @@ unprivileged_init( fd_topo_t *      topo,
   ctx->forest                 = fd_forest_join                       ( fd_forest_new                       ( ctx->forest, tile->repair.slot_max, ctx->repair_seed ) );
   // ctx->fec_repair  = fd_fec_repair_join( fd_fec_repair_new( ctx->fec_repair, ( tile->repair.max_pending_shred_sets + 2 ), tile->repair.shred_tile_cnt,  0 ) );
   ctx->fec_sigs               = fd_fec_sig_join                      ( fd_fec_sig_new                      ( ctx->fec_sigs, 20 ) );
-  ctx->sreasm = fd_sreasm_join( fd_sreasm_new( ctx->sreasm, 20 ) );
   ctx->reasm = fd_reasm_join( fd_reasm_new( ctx->reasm, 1 << 20, 0 ) );
   ctx->pending_sign_req_pool  = fd_repair_pending_sign_req_pool_join ( fd_repair_pending_sign_req_pool_new ( ctx->pending_sign_req_pool, FD_REPAIR_PENDING_SIGN_REQ_MAX ) );
   ctx->pending_sign_req_map   = fd_repair_pending_sign_req_map_join  ( fd_repair_pending_sign_req_map_new  ( ctx->pending_sign_req_map, FD_REPAIR_PENDING_SIGN_REQ_MAX, ctx->repair_seed ) );
@@ -1364,10 +1352,12 @@ unprivileged_init( fd_topo_t *      topo,
 
   fd_repair_update_addr( ctx->repair, &ctx->repair_intake_addr, &ctx->repair_serve_addr );
 
-  fd_histf_join( fd_histf_new( ctx->repair->metrics.store_link_wait, FD_MHIST_SECONDS_MIN( REPAIR, STORE_LINK_WAIT ),
-                                                                     FD_MHIST_SECONDS_MAX( REPAIR, STORE_LINK_WAIT ) ) );
-  fd_histf_join( fd_histf_new( ctx->repair->metrics.store_link_work, FD_MHIST_SECONDS_MIN( REPAIR, STORE_LINK_WORK ),
-                                                                     FD_MHIST_SECONDS_MAX( REPAIR, STORE_LINK_WORK ) ) );
+  fd_histf_join( fd_histf_new( ctx->metrics->store_link_wait, FD_MHIST_SECONDS_MIN( REPAIR, STORE_LINK_WAIT ),
+                                                              FD_MHIST_SECONDS_MAX( REPAIR, STORE_LINK_WAIT ) ) );
+  fd_histf_join( fd_histf_new( ctx->metrics->store_link_work, FD_MHIST_SECONDS_MIN( REPAIR, STORE_LINK_WORK ),
+                                                              FD_MHIST_SECONDS_MAX( REPAIR, STORE_LINK_WORK ) ) );
+  fd_histf_join( fd_histf_new( ctx->metrics->slot_compl_time, FD_MHIST_SECONDS_MIN( REPAIR, SLOT_COMPLETE_TIME ),
+                                                              FD_MHIST_SECONDS_MAX( REPAIR, SLOT_COMPLETE_TIME ) ) );
 
   fd_repair_settime( ctx->repair, fd_log_wallclock() );
   fd_repair_start( ctx->repair );
@@ -1406,18 +1396,20 @@ populate_allowed_fds( fd_topo_t const *      topo FD_PARAM_UNUSED,
 static inline void
 metrics_write( fd_repair_tile_ctx_t * ctx ) {
   /* Repair-protocol-specific metrics */
-  fd_repair_metrics_t * metrics = fd_repair_get_metrics( ctx->repair );
-  FD_MCNT_SET( REPAIR, RECV_CLNT_PKT, metrics->recv_clnt_pkt );
-  FD_MCNT_SET( REPAIR, RECV_SERV_PKT, metrics->recv_serv_pkt );
-  FD_MCNT_SET( REPAIR, RECV_SERV_CORRUPT_PKT, metrics->recv_serv_corrupt_pkt );
-  FD_MCNT_SET( REPAIR, RECV_SERV_INVALID_SIGNATURE, metrics->recv_serv_invalid_signature );
-  FD_MCNT_SET( REPAIR, RECV_SERV_FULL_PING_TABLE, metrics->recv_serv_full_ping_table );
-  FD_MCNT_ENUM_COPY( REPAIR, RECV_SERV_PKT_TYPES, metrics->recv_serv_pkt_types );
-  FD_MCNT_SET( REPAIR, RECV_PKT_CORRUPTED_MSG, metrics->recv_pkt_corrupted_msg );
-  FD_MCNT_SET( REPAIR, SEND_PKT_CNT, metrics->send_pkt_cnt );
-  FD_MCNT_ENUM_COPY( REPAIR, SENT_PKT_TYPES, metrics->sent_pkt_types );
-  FD_MHIST_COPY( REPAIR, STORE_LINK_WAIT, metrics->store_link_wait );
-  FD_MHIST_COPY( REPAIR, STORE_LINK_WORK, metrics->store_link_work );
+  FD_MCNT_SET( REPAIR, RECV_CLNT_PKT,               ctx->metrics->recv_clnt_pkt );
+  FD_MCNT_SET( REPAIR, RECV_SERV_PKT,               ctx->metrics->recv_serv_pkt );
+  FD_MCNT_SET( REPAIR, RECV_SERV_CORRUPT_PKT,       ctx->metrics->recv_serv_corrupt_pkt );
+  FD_MCNT_SET( REPAIR, RECV_SERV_INVALID_SIGNATURE, ctx->metrics->recv_serv_invalid_signature );
+  FD_MCNT_SET( REPAIR, RECV_SERV_FULL_PING_TABLE,   ctx->metrics->recv_serv_full_ping_table );
+  FD_MCNT_SET( REPAIR, RECV_PKT_CORRUPTED_MSG,      ctx->metrics->recv_pkt_corrupted_msg );
+
+  FD_MCNT_SET      ( REPAIR, SHRED_REPAIR_REQ,    ctx->metrics->send_pkt_cnt );
+  FD_MCNT_ENUM_COPY( REPAIR, RECV_SERV_PKT_TYPES, ctx->metrics->recv_serv_pkt_types );
+  FD_MCNT_ENUM_COPY( REPAIR, SENT_PKT_TYPES,      ctx->metrics->sent_pkt_types );
+
+  FD_MHIST_COPY( REPAIR, STORE_LINK_WAIT,    ctx->metrics->store_link_wait );
+  FD_MHIST_COPY( REPAIR, STORE_LINK_WORK,    ctx->metrics->store_link_work );
+  FD_MHIST_COPY( REPAIR, SLOT_COMPLETE_TIME, ctx->metrics->slot_compl_time );
 }
 
 /* TODO: This is not correct, but is temporary and will be fixed
