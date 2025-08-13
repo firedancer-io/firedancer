@@ -1096,7 +1096,7 @@ make_contact_info_key( uchar const * pubkey ) {
 }
 
 int
-fd_crds_entry_is_contact_info(  fd_crds_entry_t const * entry ) {
+fd_crds_entry_is_contact_info( fd_crds_entry_t const * entry ) {
   return entry->key.tag==FD_GOSSIP_VALUE_CONTACT_INFO;
 }
 

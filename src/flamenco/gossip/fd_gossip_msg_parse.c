@@ -553,9 +553,9 @@ fd_gossip_msg_prune_parse( fd_gossip_view_t * view,
 }
 
 ulong
-fd_gossip_msg_parse( fd_gossip_view_t *   view,
-                     uchar const *        payload,
-                     ulong                payload_sz ) {
+fd_gossip_msg_parse( fd_gossip_view_t * view,
+                     uchar const *      payload,
+                     ulong              payload_sz ) {
   CHECK_INIT( payload, payload_sz, 0U );
   CHECK(     payload_sz<=FD_GOSSIP_MTU );
 
