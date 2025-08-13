@@ -136,6 +136,34 @@ static ushort const lthash_world[1024] = {
   0x8b70, 0x1be3, 0xa39d, 0xbf82, 0x6e04, 0x3bd2, 0xdf31, 0x0741, 0xaab8, 0xd398, 0x01f4, 0xdd3a, 0x2f9d, 0x2b55, 0x6811, 0x171f,
 };
 
+static void
+bench_lthash( void ) {
+  uchar out[ 2048 ] __attribute__((aligned(64)));
+
+  fd_blake3_t _sha[1];
+  fd_blake3_t * sha = fd_blake3_join( fd_blake3_new( _sha ) );
+  FD_TEST( sha );
+
+  /* warmup */
+  ulong iter_target = 1<<21UL;
+  ulong iter = iter_target>>7;
+  long dt = fd_log_wallclock();
+  for( ulong rem=iter; rem; rem-- ) fd_blake3_fini_varlen( fd_blake3_append( fd_blake3_init( sha ), lthash_hello, 32UL ), out, sizeof(out) );
+  dt = fd_log_wallclock() - dt;
+
+  /* for real */
+  iter = iter_target;
+  dt = fd_log_wallclock();
+  for( ulong rem=iter; rem; rem-- ) fd_blake3_fini_varlen( fd_blake3_append( fd_blake3_init( sha ), lthash_hello, 32UL ), out, sizeof(out) );
+  dt = fd_log_wallclock() - dt;
+
+  FD_LOG_NOTICE(( "~%.2e hash/s; %f ns per hash",
+                  (double)(((float)(iter))/((float)dt*1e-9f)),
+                  (double)dt/(double)iter ));
+
+  fd_blake3_delete( fd_blake3_leave( sha ) );
+}
+
 int
 main( int     argc,
       char ** argv ) {
@@ -203,6 +231,8 @@ main( int     argc,
   if( FD_UNLIKELY( memcmp( value, expected, 2048 ) ) ) {
     FD_LOG_ERR(( "FAIL fd_lthash_zero()" ));
   }
+
+  bench_lthash();
 
   fd_rng_delete( fd_rng_leave( rng ) );
   FD_LOG_NOTICE(( "pass" ));
