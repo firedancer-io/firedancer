@@ -62,7 +62,10 @@ register_blockhash( fd_exec_slot_ctx_t * slot_ctx,
    4. Set the sysvar account with the new data */
 void
 fd_sysvar_recent_hashes_update( fd_exec_slot_ctx_t * slot_ctx ) {
-  register_blockhash( slot_ctx, fd_bank_poh_query( slot_ctx->bank ) );
+  // The blockhash is already set at slot 0
+  if( FD_LIKELY( slot_ctx->bank->slot_ != 0) ) {
+    register_blockhash( slot_ctx, fd_bank_poh_query( slot_ctx->bank ) );
+  }
 
   uchar enc[ FD_SYSVAR_RECENT_HASHES_BINCODE_SZ ] = {0};
   encode_rbh_from_blockhash_queue( slot_ctx, enc );

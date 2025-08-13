@@ -492,11 +492,7 @@ funk_and_txncache_publish( fd_replay_tile_ctx_t * ctx, ulong wmk, fd_funk_txn_xi
 }
 
 static void
-restore_slot_ctx( fd_replay_tile_ctx_t * ctx,
-                  fd_wksp_t *            mem,
-                  ulong                  chunk,
-                  ulong                  sig ) {
-  /* Use the full snapshot manifest to initialize the slot context */
+setup_slot_ctx( fd_replay_tile_ctx_t * ctx ) {
   uchar * slot_ctx_mem        = fd_spad_alloc_check( ctx->runtime_spad, FD_EXEC_SLOT_CTX_ALIGN, FD_EXEC_SLOT_CTX_FOOTPRINT );
   ctx->slot_ctx               = fd_exec_slot_ctx_join( fd_exec_slot_ctx_new( slot_ctx_mem ) );
   ctx->slot_ctx->banks        = ctx->banks;
@@ -506,6 +502,15 @@ restore_slot_ctx( fd_replay_tile_ctx_t * ctx,
   ctx->slot_ctx->status_cache = ctx->status_cache;
 
   ctx->slot_ctx->capture_ctx = ctx->capture_ctx;
+}
+
+static void
+restore_slot_ctx( fd_replay_tile_ctx_t * ctx,
+                  fd_wksp_t *            mem,
+                  ulong                  chunk,
+                  ulong                  sig ) {
+  /* Use the full snapshot manifest to initialize the slot context */
+  setup_slot_ctx( ctx );
 
   uchar const * data = fd_chunk_to_laddr( mem, chunk );
   ctx->manifest = (fd_snapshot_manifest_t*)data;
@@ -1210,7 +1215,11 @@ init_from_genesis( fd_replay_tile_ctx_t * ctx,
      (using the above for loop), but blockstore/fork setup on genesis is
      broken for now. */
   block_entry_height = 1UL;
+
+  // init_poh crashes with a NULL.  There is even a fixme todo in it.
+#if 0
   init_poh( ctx );
+#endif
 
   publish_slot_notifications( ctx, stem, block_entry_height, curr_slot );
 
@@ -1667,6 +1676,7 @@ after_credit( fd_replay_tile_ctx_t * ctx,
     }
 
     if( strlen( ctx->genesis )>0 ) {
+      setup_slot_ctx( ctx );
       init_from_genesis( ctx, stem );
       ctx->snapshot_init_done = 1;
     }
