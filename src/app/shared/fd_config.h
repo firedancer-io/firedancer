@@ -130,6 +130,12 @@ struct fd_configf {
   } runtime;
 
   struct {
+
+    struct {
+      uint max_full_snapshots_to_keep;
+      uint max_incremental_snapshots_to_keep;
+    } archive;
+
     int   incremental_snapshots;
     uint  maximum_local_snapshot_age;
     int   download;

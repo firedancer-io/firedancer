@@ -329,6 +329,18 @@ user = ""
     # are integrated with gossip
     cluster = "testnet"
 
+    # Controls how many snapshots are kept on disk when the validator
+    # boots up.  Setting these values to zero will disable loading
+    # snapshots from disk the next time the validator is restarted.  If
+    # there are more snapshots than the values specified here, the
+    # oldest snapshots will be removed by slot.
+    [snapshots.archive]
+        # The maximum number of full snapshots to keep on disk.
+        max_full_snapshots_to_keep = 1
+
+        # The maximum number of incremental snapshots to keep on disk.
+        max_incremental_snapshots_to_keep = 1
+
 [rpc]
     # If nonzero, enable JSON RPC on this port, and use the next port
     # for the RPC websocket.  If zero, disable JSON RPC.
