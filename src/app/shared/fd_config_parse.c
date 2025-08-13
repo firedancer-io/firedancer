@@ -76,41 +76,43 @@ fd_config_extract_podh( uchar *        pod,
 fd_configf_t *
 fd_config_extract_podf( uchar *        pod,
                         fd_configf_t * config ) {
-  CFG_POP      ( uint,   layout.exec_tile_count                           );
-  CFG_POP      ( uint,   layout.writer_tile_count                         );
-  CFG_POP      ( uint,   layout.sign_tile_count                           );
+  CFG_POP      ( uint,   layout.exec_tile_count                              );
+  CFG_POP      ( uint,   layout.writer_tile_count                            );
+  CFG_POP      ( uint,   layout.sign_tile_count                              );
 
-  CFG_POP      ( ulong,  blockstore.shred_max                             );
-  CFG_POP      ( ulong,  blockstore.block_max                             );
-  CFG_POP      ( ulong,  blockstore.idx_max                               );
-  CFG_POP      ( ulong,  blockstore.alloc_max                             );
-  CFG_POP      ( cstr,   blockstore.file                                  );
-  CFG_POP      ( cstr,   blockstore.checkpt                               );
-  CFG_POP      ( cstr,   blockstore.restore                               );
+  CFG_POP      ( ulong,  blockstore.shred_max                                );
+  CFG_POP      ( ulong,  blockstore.block_max                                );
+  CFG_POP      ( ulong,  blockstore.idx_max                                  );
+  CFG_POP      ( ulong,  blockstore.alloc_max                                );
+  CFG_POP      ( cstr,   blockstore.file                                     );
+  CFG_POP      ( cstr,   blockstore.checkpt                                  );
+  CFG_POP      ( cstr,   blockstore.restore                                  );
 
-  CFG_POP      ( ulong,  funk.max_account_records                         );
-  CFG_POP      ( ulong,  funk.heap_size_gib                               );
-  CFG_POP      ( ulong,  funk.max_database_transactions                   );
-  CFG_POP      ( bool,   funk.lock_pages                                  );
+  CFG_POP      ( ulong,  funk.max_account_records                            );
+  CFG_POP      ( ulong,  funk.heap_size_gib                                  );
+  CFG_POP      ( ulong,  funk.max_database_transactions                      );
+  CFG_POP      ( bool,   funk.lock_pages                                     );
 
-  CFG_POP      ( ulong,  runtime.heap_size_gib                            );
-  CFG_POP      ( ulong,  runtime.limits.max_rooted_slots                  );
-  CFG_POP      ( ulong,  runtime.limits.max_live_slots                    );
-  CFG_POP      ( ulong,  runtime.limits.max_transactions_per_slot         );
-  CFG_POP      ( ulong,  runtime.limits.snapshot_grace_period_seconds     );
-  CFG_POP      ( ulong,  runtime.limits.max_vote_accounts                 );
-  CFG_POP      ( ulong,  runtime.limits.max_total_banks                   );
-  CFG_POP      ( ulong,  runtime.limits.max_fork_width                    );
+  CFG_POP      ( ulong,  runtime.heap_size_gib                               );
+  CFG_POP      ( ulong,  runtime.limits.max_rooted_slots                     );
+  CFG_POP      ( ulong,  runtime.limits.max_live_slots                       );
+  CFG_POP      ( ulong,  runtime.limits.max_transactions_per_slot            );
+  CFG_POP      ( ulong,  runtime.limits.snapshot_grace_period_seconds        );
+  CFG_POP      ( ulong,  runtime.limits.max_vote_accounts                    );
+  CFG_POP      ( ulong,  runtime.limits.max_total_banks                      );
+  CFG_POP      ( ulong,  runtime.limits.max_fork_width                       );
 
-  CFG_POP      ( ulong,  store.max_completed_shred_sets                   );
+  CFG_POP      ( ulong,  store.max_completed_shred_sets                      );
 
-  CFG_POP      ( bool,   snapshots.incremental_snapshots                  );
-  CFG_POP      ( uint,   snapshots.maximum_local_snapshot_age             );
-  CFG_POP      ( bool,   snapshots.download                               );
-  CFG_POP_ARRAY( cstr,   snapshots.known_validators                       );
-  CFG_POP      ( uint,   snapshots.minimum_download_speed_mib             );
-  CFG_POP      ( uint,   snapshots.maximum_download_retry_abort           );
-  CFG_POP      ( cstr,   snapshots.cluster                                );
+  CFG_POP      ( bool,   snapshots.incremental_snapshots                     );
+  CFG_POP      ( uint,   snapshots.maximum_local_snapshot_age                );
+  CFG_POP      ( bool,   snapshots.download                                  );
+  CFG_POP_ARRAY( cstr,   snapshots.known_validators                          );
+  CFG_POP      ( uint,   snapshots.minimum_download_speed_mib                );
+  CFG_POP      ( uint,   snapshots.maximum_download_retry_abort              );
+  CFG_POP      ( cstr,   snapshots.cluster                                   );
+  CFG_POP      ( uint,   snapshots.max_full_snapshots_to_keep                );
+  CFG_POP      ( uint,   snapshots.max_incremental_snapshots_to_keep         );
 
   return config;
 }

@@ -227,6 +227,7 @@ warn_mount_users( char const * mount_path ) {
       FD_LOG_ERR(( "error closing `%s` (%i-%s)", path, errno, fd_io_strerror( errno ) ));
   }
 
+  if( FD_UNLIKELY( errno && errno!=ENOENT ) ) FD_LOG_ERR(( "readdir() (%i-%s)", errno, fd_io_strerror( errno ) ));
   if( FD_UNLIKELY( -1==closedir( dir ) ) ) FD_LOG_ERR(( "closedir (%i-%s)", errno, fd_io_strerror( errno ) ));
 }
 

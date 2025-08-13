@@ -182,11 +182,13 @@ setup_snapshots( config_t *       config,
                  fd_topo_tile_t * tile ) {
   fd_memcpy( tile->snaprd.snapshots_path, config->paths.snapshots, PATH_MAX );
   fd_memcpy( tile->snaprd.cluster, config->firedancer.snapshots.cluster, sizeof(tile->snaprd.cluster) );
-  tile->snaprd.incremental_snapshot_fetch   = config->firedancer.snapshots.incremental_snapshots;
-  tile->snaprd.do_download                  = config->firedancer.snapshots.download;
-  tile->snaprd.maximum_local_snapshot_age   = config->firedancer.snapshots.maximum_local_snapshot_age;
-  tile->snaprd.minimum_download_speed_mib   = config->firedancer.snapshots.minimum_download_speed_mib;
-  tile->snaprd.maximum_download_retry_abort = config->firedancer.snapshots.maximum_download_retry_abort;
+  tile->snaprd.incremental_snapshot_fetch        = config->firedancer.snapshots.incremental_snapshots;
+  tile->snaprd.do_download                       = config->firedancer.snapshots.download;
+  tile->snaprd.maximum_local_snapshot_age        = config->firedancer.snapshots.maximum_local_snapshot_age;
+  tile->snaprd.minimum_download_speed_mib        = config->firedancer.snapshots.minimum_download_speed_mib;
+  tile->snaprd.maximum_download_retry_abort      = config->firedancer.snapshots.maximum_download_retry_abort;
+  tile->snaprd.max_full_snapshots_to_keep        = config->firedancer.snapshots.max_full_snapshots_to_keep;
+  tile->snaprd.max_incremental_snapshots_to_keep = config->firedancer.snapshots.max_incremental_snapshots_to_keep;
   /* TODO: set up known validators and known validators cnt */
 }
 

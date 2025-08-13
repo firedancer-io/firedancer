@@ -80,6 +80,8 @@ struct fd_snaprd_tile {
     uint maximum_local_snapshot_age;
     uint minimum_download_speed_mib;
     uint maximum_download_retry_abort;
+    uint max_full_snapshots_to_keep;
+    uint max_incremental_snapshots_to_keep;
   } config;
 
   struct {
@@ -549,6 +551,10 @@ privileged_init( fd_topo_t *      topo,
   ctx->peer_selection = 1;
   ctx->state          = FD_SNAPRD_STATE_WAITING_FOR_PEERS;
 
+  fd_ssarchive_remove_old_snapshots( tile->snaprd.snapshots_path,
+                                     tile->snaprd.max_full_snapshots_to_keep,
+                                     tile->snaprd.max_incremental_snapshots_to_keep );
+
   ulong full_slot = ULONG_MAX;
   ulong incremental_slot = ULONG_MAX;
   char full_path[ PATH_MAX ] = {0};
@@ -632,10 +638,12 @@ unprivileged_init( fd_topo_t *      topo,
   fd_memset( &ctx->metrics, 0, sizeof(ctx->metrics) );
 
   fd_memcpy( ctx->config.path, tile->snaprd.snapshots_path, PATH_MAX );
-  ctx->config.incremental_snapshot_fetch = tile->snaprd.incremental_snapshot_fetch;
-  ctx->config.do_download                = tile->snaprd.do_download;
-  ctx->config.maximum_local_snapshot_age = tile->snaprd.maximum_local_snapshot_age;
-  ctx->config.minimum_download_speed_mib = tile->snaprd.minimum_download_speed_mib;
+  ctx->config.incremental_snapshot_fetch        = tile->snaprd.incremental_snapshot_fetch;
+  ctx->config.do_download                       = tile->snaprd.do_download;
+  ctx->config.maximum_local_snapshot_age        = tile->snaprd.maximum_local_snapshot_age;
+  ctx->config.minimum_download_speed_mib        = tile->snaprd.minimum_download_speed_mib;
+  ctx->config.max_full_snapshots_to_keep        = tile->snaprd.max_full_snapshots_to_keep;
+  ctx->config.max_incremental_snapshots_to_keep = tile->snaprd.max_incremental_snapshots_to_keep;
 
   if( FD_UNLIKELY( !tile->snaprd.maximum_download_retry_abort ) ) ctx->config.maximum_download_retry_abort = UINT_MAX;
   else                                                            ctx->config.maximum_download_retry_abort = tile->snaprd.maximum_download_retry_abort;

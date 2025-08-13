@@ -138,6 +138,8 @@ struct fd_configf {
     uint  minimum_download_speed_mib;
     uint  maximum_download_retry_abort;
     char  cluster[ 8UL ];
+    uint  max_full_snapshots_to_keep;
+    uint  max_incremental_snapshots_to_keep;
   } snapshots;
 
   struct {

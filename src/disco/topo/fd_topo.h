@@ -486,6 +486,8 @@ struct fd_topo_tile {
       uint  maximum_local_snapshot_age;
       uint  minimum_download_speed_mib;
       uint  maximum_download_retry_abort;
+      uint  max_full_snapshots_to_keep;
+      uint  max_incremental_snapshots_to_keep;
     } snaprd;
 
     struct {
