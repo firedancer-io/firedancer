@@ -1480,6 +1480,13 @@ user = ""
         # IP address of the second network namespace.
         interface1_addr = "198.18.0.2"
 
+    [development.gossip]
+        # Under normal operating conditions, a validator should always
+        # reach out to a host located on the public internet.  If this
+        # value is true, it allows the validator to gossip with nodes
+        # located on a private internet (rfc1918).
+        allow_private_address = false
+
     [development.genesis]
         # When creating a new chain from genesis during development,
         # this option can be used to specify the number of hashes in

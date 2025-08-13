@@ -761,8 +761,6 @@ metric introduced.
 </enum>
 
 <tile name="gossip">
-    <gauge name="ShredVersion" label="The shred version of this node, or zero if a gossip spy" />
-
     <gauge name="TableCapacity"     label="The capacity of the CRDS table" />
     <gauge name="TableSize"         label="The current size of the CRDS table" />
     <gauge name="TableCrdsCounts"   label="The number of CRDS values in the table, by type" enum="CrdsValue" />
@@ -794,6 +792,63 @@ metric introduced.
     <counter name="CrdsPushTxBytes" label="Number of bytes sent in CRDS messages"                 enum="CrdsValue" />
     <counter name="CrdsPullTxCount" label="Number of CRDS values sent in pull response messages"  enum="CrdsValue" />
     <counter name="CrdsPullTxBytes" label="Number of bytes sent in CRDS pull response messages"   enum="CrdsValue" />
+</tile>
+
+<enum name="GossipMessageOutcome">
+    <int value="0" name="SuccessPullRequest"                label="Pull Request (success)" />
+    <int value="1" name="SuccessPullResponse"               label="Pull Response (success)" />
+    <int value="2" name="SuccessPush"                       label="Push (success)" />
+    <int value="3" name="SuccessPrune"                      label="Prune (success)" />
+    <int value="4" name="SuccessPing"                       label="Ping (success)" />
+    <int value="5" name="SuccessPong"                       label="Pong (success)" />
+
+    <int value="6" name="DroppedUnparseable"                label="Unparseable" />
+
+    <int value="7" name="DroppedPullRequestNotContactInfo"  label="Pull Request (not contact info)" />
+    <int value="8" name="DroppedPullRequestLoopback"        label="Pull Request (loopback)" />
+    <int value="9" name="DroppedPullRequestInactive"        label="Pull Request (inactive)" />
+    <int value="10" name="DroppedPullRequestWallclock"      label="Pull Request (wallclock)" />
+    <int value="11" name="DroppedPullRequestSignature"      label="Pull Request (signature)" />
+    <int value="12" name="DroppedPullRequestShredVersion"   label="Pull Request (shred version)" />
+
+    <int value="13" name="DroppedPruneLoopback"             label="Prune (loopback)" />
+    <int value="14" name="DroppedPruneWallclock"            label="Prune (wallclock)" />
+    <int value="15" name="DroppedPruneSignature"            label="Prune (signature)" />
+
+    <int value="16" name="DroppedPushNoValidCrds"           label="Push (no valid crds)" />
+
+    <int value="17" name="DroppedPullResponseNoValidCrds"   label="Pull Response (no valid crds)" />
+
+    <int value="18" name="DroppedPingSignature"             label="Ping (signature)" />
+
+    <int value="19" name="DroppedPongSignature"             label="Pong (signature)" />
+</enum>
+
+<enum name="GossipCrdsOutcome">
+    <int value="0" name="SuccessPullResponse"                    label="Pull Response (success)" />
+    <int value="1" name="SuccessPush"                            label="Push (success)" />
+
+    <int value="2" name="DroppedPullResponseDuplicate"           label="Pull Response (duplicate)" />
+    <int value="3" name="DroppedPullResponseSignature"           label="Pull Response (signature)" />
+    <int value="4" name="DroppedPullResponseRelayerShredVersion" label="Pull Response (relayer shred version)" />
+    <int value="4" name="DroppedPullResponseOriginNoContactInfo" label="Pull Response (origin no contact info)" />
+    <int value="4" name="DroppedPullResponseOriginShredVersion"  label="Pull Response (origin shred version)" />
+    <int value="5" name="DroppedPullResponseInactive"            label="Pull Response (inactive)" />
+
+    <int value="3" name="DroppedPushSignauture"             label="Push (signature)" />
+    <int value="4" name="DroppedPushRelayerShredVersion"    label="Push (relayer shred version)" />
+    <int value="4" name="DroppedPushOriginNoContactInfo"    label="Push (origin no contact info)" />
+    <int value="4" name="DroppedPushOriginShredVersion"     label="Push (origin shred version)" />
+    <int value="5" name="DroppedPushInactive"               label="Push (inactive)" />
+    <int value="5" name="DroppedPushWallclock"              label="Push (wallclock)" />
+</enum>
+
+<tile name="gossvf">
+    <counter name="MessageRxCount" label="Number of gossip messages processed" enum="GossipMessageOutcome" />
+    <counter name="MessageRxBytes" label="Total wire bytes of gossip messages processed" enum="GossipMessageOutcome" />
+
+    <counter name="CrdsRxCount" label="Number of CRDS values processed" enum="GossipCrdsOutcome" />
+    <counter name="CrdsRxBytes" label="Total wire bytes of CRDS values processed" enum="GossipCrdsOutcome" />
 </tile>
 
 <tile name="sign">

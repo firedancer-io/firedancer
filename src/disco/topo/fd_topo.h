@@ -194,16 +194,28 @@ struct fd_topo_tile {
       ulong neigh4_ele_obj_id;     /* neigh4 hash map slots */
     } netlink;
 
+#define FD_TOPO_GOSSIP_ENTRYPOINTS_MAX 16UL
+
     struct {
       char identity_key_path[ PATH_MAX ];
-#     define FD_TOPO_GOSSIP_ENTRYPOINTS_MAX 16UL
+
+      ulong tcache_depth;
+
+      ushort shred_version;
+      int allow_private_address;
+
+      ulong         entrypoints_cnt;
+      fd_ip4_port_t entrypoints[ FD_TOPO_GOSSIP_ENTRYPOINTS_MAX ];
+    } gossvf;
+
+    struct {
+      char identity_key_path[ PATH_MAX ];
 
       ulong         entrypoints_cnt;
       fd_ip4_port_t entrypoints[ FD_TOPO_GOSSIP_ENTRYPOINTS_MAX ];
 
       uint   ip_addr;
-      int    has_expected_shred_version;
-      ushort expected_shred_version;
+      ushort shred_version;
 
       ulong  max_entries;
       ulong  max_purged;
