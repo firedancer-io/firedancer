@@ -54,6 +54,42 @@
    arbitrarily use a fourth of that size. */
 #define FD_GUI_TXN_HISTORY_SZ (1UL<<26UL)
 
+/* One use case for tracking ingress shred slot is to estimate when we
+   have caught up to the tip of the blockchain.  A naive approach would
+   be to track the maximum seen slot.
+
+   maximum_seen_slot = fd_ulong_max( maximum_seen_slot, new_slot_from_shred_tile );
+
+   Unfortunately, this doesn't always work because a validator can send
+   a slot number that is arbitrarily large on a false fork. Also, these
+   shreds can be for a repair response, which can be arbitrarily small.
+
+   The prospects here seem bleak, but not all hope is lost!  We know
+   that for a sufficiently large historical time window there is a high
+   probability that at least some of the slots we observe will be valid
+   recent turbine slots. For a sufficiently small window there is a high
+   probability that all the observed shred slots are non-malicious (i.e.
+   not arbitrarily large).
+
+   In practice shred slots are almost always non-malicious. We can keep
+   a history of the 12 largest slots we've seen in the past 4.8 seconds.
+   We'll consider the "tip" of the blockchain to be the maximum slot in
+   our history. This way, if we receive maliciously large slot number,
+   it will be evicted after 4.8 seconds. If we receive a small slot from
+   a repair response it will be ignored because we've seen other larger
+   slots, meaning that our estimate is eventually consistent. For
+   monitoring purposes this is sufficient.
+
+   The worst case scenario is that this validator receives an incorrect
+   shred slot slot more than once every 3 leader rotations. Before the
+   previous incorrect slot is evicted from the history, a new one takes
+   it's place and we wouldn't never get a correct estimate of the tip of
+   the chain.  We also would indefinitely think that that we haven't
+   caught up. This would require the chain having perpetually malicious
+   leaders with adjacent rotations.  If this happens, Solana has bigger
+   problems. */
+#define FD_GUI_SHRED_SLOT_HISTORY_SZ ( 12UL )
+
 #define FD_GUI_TXN_FLAGS_STARTED         ( 1U)
 #define FD_GUI_TXN_FLAGS_ENDED           ( 2U)
 #define FD_GUI_TXN_FLAGS_IS_SIMPLE_VOTE  ( 4U)
@@ -276,6 +312,17 @@ struct fd_gui_slot_rankings {
 
 typedef struct fd_gui_slot_rankings fd_gui_slot_rankings_t;
 
+struct fd_gui_shred_slot {
+      ulong slot; /* ULONG_MAX indicates invalid/evicted */
+      long timestamp_arrival_nanos;
+};
+typedef struct fd_gui_shred_slot fd_gui_shred_slot_t;
+
+#define SORT_NAME fd_gui_shred_slot_sort
+#define SORT_KEY_T fd_gui_shred_slot_t
+#define SORT_BEFORE(a,b) fd_int_if( (a).slot==ULONG_MAX, 0, fd_int_if( (b).slot==ULONG_MAX, 1, fd_int_if( (a).slot==(b).slot, (a).timestamp_arrival_nanos>(b).timestamp_arrival_nanos, (a).slot>(b).slot ) ) )
+#include "../../util/tmpl/fd_sort.c"
+
 struct __attribute__((packed)) fd_gui_txn {
   uchar signature[ FD_SHA512_HASH_SZ ];
   ulong transaction_fee;
@@ -384,6 +431,9 @@ struct fd_gui {
     ulong slot_optimistically_confirmed;
     ulong slot_completed;
     ulong slot_estimated;
+    ulong slot_caught_up;
+
+    fd_gui_shred_slot_t slots_max_known[ FD_GUI_SHRED_SLOT_HISTORY_SZ+1UL ];
 
     ulong estimated_tps_history_idx;
     ulong estimated_tps_history[ FD_GUI_TPS_HISTORY_SAMPLE_CNT ][ 3UL ];
@@ -540,6 +590,10 @@ fd_gui_microblock_execution_end( fd_gui_t *   gui,
 
 int
 fd_gui_poll( fd_gui_t * gui );
+
+void
+fd_gui_handle_shred_slot( fd_gui_t * gui, ulong slot, long now_nanos );
+
 
 FD_PROTOTYPES_END
 
