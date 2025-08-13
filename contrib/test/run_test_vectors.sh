@@ -1,8 +1,5 @@
 #!/bin/bash
 
-# FIXME This whole file should just really be a firedancer-dev
-#       invocation with parallelism natively implemented in C.
-
 set -ex
 
 DIR="$( dirname -- "${BASH_SOURCE[0]}"; )";   # Get the directory name
@@ -11,8 +8,6 @@ cd $DIR/../..
 
 OBJDIR=${OBJDIR:-build/native/gcc}
 NUM_PROCESSES=${NUM_PROCESSES:-12}
-PAGE_SZ=gigantic
-PAGE_CNT=$(( 6 * $NUM_PROCESSES ))
 
 if [ "$LOG_PATH" == "" ]; then
   LOG_PATH="`mktemp -d`"
@@ -35,39 +30,27 @@ else
   cd dump/test-vectors
 fi
 
-if ! git checkout -q $GIT_REF; then
-  git fetch -q --depth=1 origin $GIT_REF
-  git checkout -q FETCH_HEAD
-fi
+git fetch -q --depth=1 origin $GIT_REF
+git checkout -q $GIT_REF
 cd ../..
 
-WKSP=run-test-vectors
-# If workspace already exists, reset it (and hope that it has the correct size)
-if ./$OBJDIR/bin/fd_wksp_ctl query $WKSP --log-path '' >/dev/null 2>/dev/null; then
-  ./$OBJDIR/bin/fd_wksp_ctl reset $WKSP --log-path ''
-else
-  ./$OBJDIR/bin/fd_wksp_ctl new run-test-vectors $PAGE_CNT $PAGE_SZ 0 0644 --log-path ''
-fi
+LOG=$LOG_PATH/test_exec_block
+find dump/test-vectors/block/fixtures/* -type f -name '*.fix' | xargs -P $NUM_PROCESSES -n 1000 ./$OBJDIR/unit-test/test_exec_sol_compat --log-path $LOG --wksp-page-sz 1073741824
 
-SOL_COMPAT=( "$OBJDIR/unit-test/test_sol_compat" "--wksp" "$WKSP" )
+LOG=$LOG_PATH/test_exec_syscall
+find dump/test-vectors/syscall/fixtures/* -type f -name '*.fix' | xargs -P $NUM_PROCESSES -n 1000 ./$OBJDIR/unit-test/test_exec_sol_compat --log-path $LOG --wksp-page-sz 1073741824
 
-export FD_LOG_PATH=$LOG_PATH/test_exec_block
-find dump/test-vectors/block/fixtures -type f -name '*.fix' | xargs -P $NUM_PROCESSES -n 1000 ${SOL_COMPAT[@]}
+LOG=$LOG_PATH/test_exec_interp
+find dump/test-vectors/vm_interp/fixtures/* -type f -name '*.fix' | xargs -P $NUM_PROCESSES -n 1000 ./$OBJDIR/unit-test/test_exec_sol_compat --log-path $LOG --wksp-page-sz 1073741824
 
-export FD_LOG_PATH=$LOG_PATH/test_exec_syscall
-find dump/test-vectors/syscall/fixtures -type f -name '*.fix' | xargs -P $NUM_PROCESSES -n 1000 ${SOL_COMPAT[@]}
-
-export FD_LOG_PATH=$LOG_PATH/test_exec_interp
-find dump/test-vectors/vm_interp/fixtures -type f -name '*.fix' | xargs -P $NUM_PROCESSES -n 1000 ${SOL_COMPAT[@]}
-
-export FD_LOG_PATH=$LOG_PATH/test_exec_txn
-find dump/test-vectors/txn/fixtures -type f -name '*.fix' | xargs -P $NUM_PROCESSES ${SOL_COMPAT[@]}
+LOG=$LOG_PATH/test_exec_txn
+find dump/test-vectors/txn/fixtures/* -type f -name '*.fix' | xargs -P $NUM_PROCESSES ./$OBJDIR/unit-test/test_exec_sol_compat --log-path $LOG --wksp-page-sz 1073741824
 
 zstd -df dump/test-vectors/elf_loader/fixtures/*.zst
-export FD_LOG_PATH=$LOG_PATH/test_elf_loader
-find dump/test-vectors/elf_loader/fixtures -type f -name '*.fix' | xargs -P $NUM_PROCESSES -n 1000 ${SOL_COMPAT[@]}
+LOG=$LOG_PATH/test_elf_loader
+find dump/test-vectors/elf_loader/fixtures/* -type f -name '*.fix' | xargs -P $NUM_PROCESSES -n 1000 ./$OBJDIR/unit-test/test_exec_sol_compat --log-path $LOG --wksp-page-sz 1073741824
 
-export FD_LOG_PATH=$LOG_PATH/test_exec_instr
-find dump/test-vectors/instr/fixtures -type f -name '*.fix' | xargs -P $NUM_PROCESSES -n 1000 ${SOL_COMPAT[@]}
+LOG=$LOG_PATH/test_exec_instr
+find dump/test-vectors/instr/fixtures/* -type f -name '*.fix' | xargs -P $NUM_PROCESSES -n 1000 ./$OBJDIR/unit-test/test_exec_sol_compat --log-path $LOG --wksp-page-sz 1073741824
 
 echo Test vectors success

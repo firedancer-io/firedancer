@@ -1,14 +1,11 @@
-#include "fd_solfuzz.h"
-#include "generated/elf.pb.h"
-#include "../../../ballet/sbpf/fd_sbpf_loader.h"
-#include "../../vm/fd_vm_base.h"
+#include "fd_elf_harness.h"
 
 ulong
-fd_solfuzz_elf_loader_run( fd_solfuzz_runner_t * runner,
-                           void const *          input_,
-                           void **               output_,
-                           void *                output_buf,
-                           ulong                 output_bufsz ) {
+fd_runtime_fuzz_sbpf_load_run( fd_runtime_fuzz_runner_t * runner,
+                               void const *               input_,
+                               void **                    output_,
+                               void *                     output_buf,
+                               ulong                      output_bufsz ) {
   fd_exec_test_elf_loader_ctx_t const * input  = fd_type_pun_const( input_ );
   fd_exec_test_elf_loader_effects_t **  output = fd_type_pun( output_ );
 

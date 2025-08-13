@@ -4,6 +4,7 @@
 #include "fd_solcap_proto.h"
 #include "fd_solcap.pb.h"
 #include "../types/fd_types.h"
+#include "../runtime/fd_runtime_public.h"
 
 /* fd_solcap_writer_t is an opaque handle to a capture writer object.
    Currently, it implements writing SOLCAP_V1_BANK files.  See below
