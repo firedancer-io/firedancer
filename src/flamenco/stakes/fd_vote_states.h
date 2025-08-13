@@ -5,7 +5,7 @@
 #include "../types/fd_types.h"
 #include "../../util/fd_util_base.h"
 
-#define FD_VOTE_STATES_MAGIC (0x0123196511111111UL)
+#define FD_VOTE_STATES_MAGIC (0xF17EDA2CE7601E70) /* FIREDANCER VOTER V0 */
 
 /* fd_vote_states_t is a cache of vote accounts mapping the pubkey of
    a vote account to various infromation about the vote account
@@ -237,7 +237,8 @@ fd_vote_states_query_const( fd_vote_states_t const * vote_states,
   return fd_vote_state_map_ele_query_const(
       fd_vote_states_get_map( vote_states ),
       vote_account,
-      NULL, fd_vote_states_get_pool( vote_states ) );
+      NULL,
+      fd_vote_states_get_pool( vote_states ) );
 }
 
 /* fd_vote_states_max returns the maximum number of vote accounts that
