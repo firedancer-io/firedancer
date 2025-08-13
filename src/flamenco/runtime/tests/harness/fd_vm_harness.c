@@ -1,12 +1,4 @@
-#include "fd_instr_harness.h"
-#include "../fd_executor.h"
-#include "../fd_system_ids.h"
-#include "../program/fd_bpf_loader_serialization.h"
-#include "../context/fd_exec_txn_ctx.h"
-#include "../../../ballet/sbpf/fd_sbpf_loader.h"
-#include "../../vm/fd_vm.h"
-#include "../../vm/test_vm_util.h"
-#include "generated/vm.pb.h"
+#include "fd_vm_harness.h"
 
 static int
 fd_runtime_fuzz_vm_syscall_noop( void * _vm,
@@ -95,11 +87,11 @@ fd_runtime_fuzz_load_from_vm_input_regions( fd_vm_input_region_t const *        
 
 
 ulong
-fd_solfuzz_vm_interp_run( fd_solfuzz_runner_t * runner,
-                          void const *          input_,
-                          void **               output_,
-                          void *                output_buf,
-                          ulong                 output_bufsz ) {
+fd_runtime_fuzz_vm_interp_run( fd_runtime_fuzz_runner_t * runner,
+                               void const *               input_,
+                               void **                    output_,
+                               void *                     output_buf,
+                               ulong                      output_bufsz ) {
   fd_exec_test_syscall_context_t const * input = fd_type_pun_const( input_ );
   fd_exec_test_syscall_effects_t      ** output = fd_type_pun( output_ );
 
@@ -378,11 +370,11 @@ do{
 }
 
 ulong
-fd_solfuzz_syscall_run( fd_solfuzz_runner_t * runner,
-                        void const *          input_,
-                        void **               output_,
-                        void *                output_buf,
-                        ulong                 output_bufsz ) {
+fd_runtime_fuzz_vm_syscall_run( fd_runtime_fuzz_runner_t * runner,
+                                void const *               input_,
+                                void **                    output_,
+                                void *                     output_buf,
+                                ulong                      output_bufsz ) {
   fd_exec_test_syscall_context_t const * input =  fd_type_pun_const( input_ );
   fd_exec_test_syscall_effects_t **      output = fd_type_pun( output_ );
 

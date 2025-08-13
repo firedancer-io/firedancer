@@ -10,6 +10,8 @@
 #include "../../ballet/poh/fd_poh.h"
 #include "../types/fd_types_yaml.h"
 #include "../log_collector/fd_log_collector.h"
+#include "tests/harness/generated/invoke.pb.h"
+#include "tests/harness/generated/txn.pb.h"
 #include "../features/fd_features.h"
 #include "fd_runtime.h"
 

@@ -55,8 +55,8 @@
 #include "../info/fd_instr_info.h"
 #include "../info/fd_runtime_block_info.h"
 #include "../../vm/fd_vm.h"
-#include "generated/block.pb.h"
-#include "generated/elf.pb.h"
+#include "harness/generated/block.pb.h"
+#include "harness/generated/elf.pb.h"
 
 FD_PROTOTYPES_BEGIN
 
