@@ -2312,10 +2312,6 @@ fd_runtime_init_bank_from_genesis( fd_exec_slot_ctx_t *        slot_ctx,
 
   fd_acc_lamports_t capitalization = 0UL;
 
-  fd_features_t * features = fd_bank_features_modify( slot_ctx->bank );
-  FD_FEATURE_SET_ACTIVE(features, accounts_lt_hash, 0);
-  FD_FEATURE_SET_ACTIVE(features, remove_accounts_delta_hash, 0);
-
   for( ulong i=0UL; i<genesis_block->accounts_len; i++ ) {
     fd_pubkey_account_pair_t const * acc = &genesis_block->accounts[i];
     capitalization = fd_ulong_sat_add( capitalization, acc->account.lamports );
