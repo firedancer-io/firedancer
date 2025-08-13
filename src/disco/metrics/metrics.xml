@@ -632,6 +632,7 @@ metric introduced.
 </enum>
 
 <tile name="shred">
+    <gauge name="MaxTurbineSlot" summary="The maximum seen slot in a recieved, resolved FEC set" />
     <histogram name="ClusterContactInfoCnt" min="0" max="40200">
         <summary>Number of contact infos in the cluster contact info message</summary>
     </histogram>
