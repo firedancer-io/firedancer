@@ -784,7 +784,9 @@ on_snapshot_message( fd_replay_tile_ctx_t * ctx,
                      fd_stem_context_t *    stem,
                      ulong                  in_idx,
                      ulong                  chunk,
-                     ulong                  sig ) {
+                     ulong                  sig,
+                     ulong                  tsorig FD_PARAM_UNUSED,
+                     ulong                  tspub  FD_PARAM_UNUSED) {
   ulong msg = fd_ssmsg_sig_message( sig );
   if( FD_LIKELY( msg==FD_SSMSG_DONE ) ) {
     /* An end of message notification indicates the snapshot is loaded.
@@ -793,19 +795,6 @@ on_snapshot_message( fd_replay_tile_ctx_t * ctx,
        state machine and set the state here accordingly. */
     FD_LOG_INFO(("Snapshot loaded, replay can start executing"));
     ctx->snapshot_init_done = 1;
-    /* Kickoff repair orphans after the snapshots are done loading. If
-       we kickoff repair after we receive a full manifest, we might try
-       to repair a slot that is potentially huge amount of slots behind
-       turbine causing our repair buffers to fill up. Instead, we should
-       wait until we are done receiving all the snapshots.
-
-       TODO: Eventually, this logic should be cased out more:
-       1. If we just have a full snapshot, load in the slot_ctx for the
-          slot ctx and kickoff repair as soon as the manifest is
-          received.
-       2. If we are loading a full and incremental snapshot, we should
-          only load in the slot_ctx and kickoff repair for the
-          incremental snapshot. */
     kickoff_repair_orphans( ctx, stem );
     init_from_snapshot( ctx, stem );
     ulong curr_slot = fd_bank_slot_get( ctx->slot_ctx->bank );
@@ -816,6 +805,16 @@ on_snapshot_message( fd_replay_tile_ctx_t * ctx,
   }
 
   switch( msg ) {
+    case FD_SSMSG_HIGHEST_MANIFEST_SLOT: {
+      /* snapin sends the highest manifest slot so far to notify any
+         listeners of the highest rooted slot that will be loaded
+         by the snapshot tiles.  The highest manifest slot may change
+         if the snapshot tiles retry snapshot loading, but it is
+         guaranteed to be monotonically increasing. */
+      /* TODO: currently a no-op.  Repair cannot handle an receiving an
+         incrementally changing rooted slot and stake weights yet. */
+      break;
+    }
     case FD_SSMSG_MANIFEST_FULL:
     case FD_SSMSG_MANIFEST_INCREMENTAL: {
       /* We may either receive a full snapshot manifest or an
@@ -936,8 +935,8 @@ after_frag( fd_replay_tile_ctx_t *   ctx,
             ulong                    seq FD_PARAM_UNUSED,
             ulong                    sig,
             ulong                    sz FD_PARAM_UNUSED,
-            ulong                    tsorig FD_PARAM_UNUSED,
-            ulong                    tspub FD_PARAM_UNUSED,
+            ulong                    tsorig,
+            ulong                    tspub,
             fd_stem_context_t *      stem FD_PARAM_UNUSED ) {
   if( FD_UNLIKELY( ctx->in_kind[ in_idx ]==IN_KIND_ROOT ) ) {
     ulong root = sig;
@@ -966,7 +965,7 @@ after_frag( fd_replay_tile_ctx_t *   ctx,
 
     fd_fseq_update( ctx->published_wmark, root );
   } else if( FD_UNLIKELY( ctx->in_kind[ in_idx ]==IN_KIND_SNAP ) ) {
-    on_snapshot_message( ctx, stem, in_idx, ctx->_snap_out_chunk, sig );
+    on_snapshot_message( ctx, stem, in_idx, ctx->_snap_out_chunk, sig, tsorig, tspub );
   } else if( FD_LIKELY( ctx->in_kind[ in_idx ]==IN_KIND_REPAIR ) ) {
 
     /* Forks form a partial ordering over FEC sets. The Repair tile

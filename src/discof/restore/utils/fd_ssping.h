@@ -17,6 +17,7 @@
 
 #include "../../../util/fd_util_base.h"
 #include "../../../util/net/fd_net_headers.h"
+#include "../../../flamenco/types/fd_types_custom.h"
 
 #define FD_SSPING_ALIGN (8UL)
 
@@ -24,6 +25,30 @@
 
 struct fd_ssping_private;
 typedef struct fd_ssping_private fd_ssping_t;
+
+/* fd_ssinfo stores the resolved snapshot information from a peer. */
+struct fd_ssinfo {
+   struct {
+      ulong slot;                      /* slot of the full snapshot */
+      uchar hash[ FD_HASH_FOOTPRINT ]; /* base58 decoded hash of the full snapshot */
+      ulong slots_behind;              /* number of slots behind the latest full cluster slot */
+    } full;
+
+    struct {
+      ulong base_slot;                 /* slot of the full snapshot */
+      ulong slot;                      /* slot of the incremental snapshot */
+      uchar hash[ FD_HASH_FOOTPRINT ]; /* base58 decoded hash of the incremental snapshot */
+      ulong slots_behind;              /* number of slots behind latest incremental cluster slot */
+    } incremental;
+};
+typedef struct fd_ssinfo fd_ssinfo_t;
+
+/* fd_sspeer stores a peer's address and its resolved snapshot info. */
+struct fd_sspeer {
+  fd_ip4_port_t       addr;
+  fd_ssinfo_t const * snapshot_info;
+};
+typedef struct fd_sspeer fd_sspeer_t;
 
 FD_PROTOTYPES_BEGIN
 
@@ -80,11 +105,13 @@ void
 fd_ssping_advance( fd_ssping_t * ssping,
                    long          now );
 
-/* Retrieve the best "active" peer right now, by lowest ping.  If no
-   peer is active or pingable, this returns 0.0.0.0:0. */
+/* Retrieve the best "active" peer right now, by lowest ping.  Peer's
+   resolved snapshot slot must be greater than the highest slot
+   parameter. If no peer is active or pingable, this returns an empty
+   peer with address 0.0.0.0:0. */
 
-fd_ip4_port_t
-fd_ssping_best( fd_ssping_t const * ssping );
+fd_sspeer_t
+fd_ssping_best( fd_ssping_t * ssping );
 
 FD_PROTOTYPES_END
 
