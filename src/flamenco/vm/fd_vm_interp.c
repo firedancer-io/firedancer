@@ -1,6 +1,5 @@
 #include "fd_vm_base.h"
 #include "fd_vm_private.h"
-#include "../runtime/tests/fd_dump_pb.h"
 
 /* FIXME: MAKE DIFFERENT VERSIONS FOR EACH COMBO OF CHECK_ALIGN/TRACE? */
 /* TODO: factor out common unpacking code */
