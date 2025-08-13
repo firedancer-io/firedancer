@@ -144,7 +144,6 @@ sol_compat_instr_execute_v1( uchar *       out,
   pb_release( &fd_exec_test_instr_context_t_msg, input );
   sol_compat_cleanup_runner( runner );
 
-  // Check wksp usage
   FD_TEST( !fd_wksp_check_usage( wksp, WKSP_EXECUTE_ALLOC_TAG ) );
 
   return ok;
@@ -179,7 +178,6 @@ sol_compat_txn_execute_v1( uchar *       out,
   pb_release( &fd_exec_test_txn_context_t_msg, input );
   sol_compat_cleanup_runner( runner );
 
-  // Check wksp usage
   FD_TEST( !fd_wksp_check_usage( wksp, WKSP_EXECUTE_ALLOC_TAG ) );
 
   return ok;
@@ -214,7 +212,6 @@ sol_compat_block_execute_v1( uchar *       out,
   pb_release( &fd_exec_test_block_context_t_msg, input );
   sol_compat_cleanup_runner( runner );
 
-  // Check wksp usage
   FD_TEST( !fd_wksp_check_usage( wksp, WKSP_EXECUTE_ALLOC_TAG ) );
 
   return ok;
@@ -249,7 +246,6 @@ sol_compat_elf_loader_v1( uchar *       out,
   pb_release( &fd_exec_test_elf_loader_ctx_t_msg, input );
   sol_compat_cleanup_runner( runner );
 
-  // Check wksp usage
   FD_TEST( !fd_wksp_check_usage( wksp, WKSP_EXECUTE_ALLOC_TAG ) );
 
   return ok;
@@ -284,7 +280,6 @@ sol_compat_vm_syscall_execute_v1( uchar *       out,
   pb_release( &fd_exec_test_syscall_context_t_msg, input );
   sol_compat_cleanup_runner( runner );
 
-  // Check wksp usage
   FD_TEST( !fd_wksp_check_usage( wksp, WKSP_EXECUTE_ALLOC_TAG ) );
 
   return ok;
@@ -319,7 +314,6 @@ sol_compat_vm_interp_v1( uchar *       out,
   pb_release( &fd_exec_test_syscall_context_t_msg, input );
   sol_compat_cleanup_runner( runner );
 
-  // Check wksp usage
   FD_TEST( !fd_wksp_check_usage( wksp, WKSP_EXECUTE_ALLOC_TAG ) );
 
   return ok;
@@ -373,7 +367,6 @@ sol_compat_type_execute_v1( uchar *       out,
   pb_release( &fd_exec_test_type_context_t_msg, input );
   sol_compat_cleanup_runner( runner );
 
-  // Check wksp usage
   FD_TEST( !fd_wksp_check_usage( wksp, WKSP_EXECUTE_ALLOC_TAG ) );
 
   return ok;
