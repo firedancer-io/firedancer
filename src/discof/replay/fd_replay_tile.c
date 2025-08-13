@@ -466,11 +466,7 @@ funk_and_txncache_publish( fd_replay_tile_ctx_t * ctx, ulong wmk, fd_funk_txn_xi
 }
 
 static void
-restore_slot_ctx( fd_replay_tile_ctx_t * ctx,
-                  fd_wksp_t *            mem,
-                  ulong                  chunk,
-                  ulong                  sig FD_FN_UNUSED ) {
-  /* Use the full snapshot manifest to initialize the slot context */
+setup_slot_ctx( fd_replay_tile_ctx_t * ctx ) {
   uchar * slot_ctx_mem        = fd_spad_alloc_check( ctx->runtime_spad, FD_EXEC_SLOT_CTX_ALIGN, FD_EXEC_SLOT_CTX_FOOTPRINT );
   ctx->slot_ctx               = fd_exec_slot_ctx_join( fd_exec_slot_ctx_new( slot_ctx_mem ) );
   ctx->slot_ctx->banks        = ctx->banks;
@@ -480,6 +476,14 @@ restore_slot_ctx( fd_replay_tile_ctx_t * ctx,
   ctx->slot_ctx->status_cache = ctx->status_cache;
 
   ctx->slot_ctx->capture_ctx = ctx->capture_ctx;
+}
+
+static void
+restore_slot_ctx( fd_replay_tile_ctx_t * ctx,
+                  fd_wksp_t *            mem,
+                  ulong                  chunk ) {
+  /* Use the full snapshot manifest to initialize the slot context */
+  setup_slot_ctx( ctx );
 
   uchar const * data = fd_chunk_to_laddr( mem, chunk );
   ctx->manifest = (fd_snapshot_manifest_t*)data;
@@ -650,6 +654,10 @@ init_after_snapshot( fd_replay_tile_ctx_t * ctx ) {
      exec tiles as ready. */
   ctx->exec_ready_bitset = fd_ulong_mask_lsb( (int)ctx->exec_cnt );
 
+  if( ctx->capture_ctx ) {
+    fd_solcap_writer_flush( ctx->capture_ctx->capture );
+  }
+
   FD_LOG_NOTICE(( "snapshot slot %lu", snapshot_slot ));
 }
 
@@ -733,7 +741,7 @@ on_snapshot_message( fd_replay_tile_ctx_t * ctx,
          incremental snapshot manifest.  Note that this external message
          id is only used temporarily because replay cannot yet receive
          the firedancer-internal snapshot manifest message. */
-      restore_slot_ctx( ctx, ctx->in[ in_idx ].mem, chunk, sig );
+      restore_slot_ctx( ctx, ctx->in[ in_idx ].mem, chunk );
       break;
     }
     default: {
@@ -840,7 +848,7 @@ after_frag( fd_replay_tile_ctx_t *   ctx,
             ulong                    tspub FD_PARAM_UNUSED,
             fd_stem_context_t *      stem FD_PARAM_UNUSED ) {
   if( FD_UNLIKELY( ctx->in_kind[ in_idx ]==IN_KIND_ROOT ) ) {
-
+    if( FD_UNLIKELY( 0 == fd_bank_slot_get(ctx->slot_ctx->bank) )) return; // genesis has no block_id
     ulong root = sig;
     ctx->root = root;
     block_id_map_t * block_id = block_id_map_query( ctx->block_id_map, root, NULL );
@@ -1009,9 +1017,28 @@ init_from_genesis( fd_replay_tile_ctx_t * ctx,
      (using the above for loop), but blockstore/fork setup on genesis is
      broken for now. */
   block_entry_height = 1UL;
+
+  // init_poh crashes with a NULL.  There is even a fixme todo in it.
+#if 0
   init_poh( ctx );
+#endif
 
   publish_slot_notifications( ctx, stem, block_entry_height, curr_slot );
+
+  if( FD_LIKELY( ctx->replay_out_idx != ULONG_MAX && !ctx->read_only ) ) {
+    fd_hash_t const * bank_hash       = fd_bank_bank_hash_query( ctx->slot_ctx->bank );
+    fd_hash_t const * block_hash      = fd_blockhashes_peek_last( fd_bank_block_hash_queue_query( ctx->slot_ctx->bank ) );
+    FD_TEST( bank_hash       );
+    FD_TEST( block_hash      );
+    fd_replay_out_t out = {
+      .bank_hash       = *bank_hash,
+      .block_hash      = *block_hash,
+    };
+    uchar * chunk_laddr = fd_chunk_to_laddr( ctx->replay_out_mem, ctx->replay_out_chunk );
+    memcpy( chunk_laddr, &out, sizeof(fd_replay_out_t) );
+    fd_stem_publish( stem, ctx->replay_out_idx, curr_slot, ctx->replay_out_chunk, sizeof(fd_replay_out_t), 0UL, fd_frag_meta_ts_comp( fd_tickcount() ), fd_frag_meta_ts_comp( fd_tickcount() ) );
+    ctx->replay_out_chunk = fd_dcache_compact_next( ctx->replay_out_chunk, sizeof(fd_replay_out_t), ctx->replay_out_chunk0, ctx->replay_out_wmark );
+  }
 
   FD_TEST( ctx->slot_ctx );
 }
@@ -1413,6 +1440,7 @@ after_credit( fd_replay_tile_ctx_t * ctx,
     }
 
     if( strlen( ctx->genesis )>0 ) {
+      setup_slot_ctx( ctx );
       init_from_genesis( ctx, stem );
       ctx->snapshot_init_done = 1;
     }

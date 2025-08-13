@@ -282,7 +282,8 @@ fd_runtime_run_incinerator( fd_bank_t *        bank,
 static void
 fd_runtime_freeze( fd_exec_slot_ctx_t * slot_ctx ) {
 
-  fd_sysvar_recent_hashes_update( slot_ctx );
+  if( FD_LIKELY( slot_ctx->bank->slot_ != 0) )
+    fd_sysvar_recent_hashes_update( slot_ctx );
 
   ulong execution_fees = fd_bank_execution_fees_get( slot_ctx->bank );
   ulong priority_fees  = fd_bank_priority_fees_get( slot_ctx->bank );
@@ -799,8 +800,13 @@ static void
 fd_runtime_update_bank_hash( fd_exec_slot_ctx_t *            slot_ctx,
                              fd_runtime_block_info_t const * block_info ) {
   /* Save the previous bank hash, and the parents signature count */
-  fd_hash_t const * prev_bank_hash = fd_bank_bank_hash_query( slot_ctx->bank );
-  fd_bank_prev_bank_hash_set( slot_ctx->bank, *prev_bank_hash );
+  fd_hash_t const * prev_bank_hash = NULL;
+  if( FD_LIKELY( slot_ctx->bank->slot_ != 0) ) {
+    prev_bank_hash = fd_bank_bank_hash_query( slot_ctx->bank );
+    fd_bank_prev_bank_hash_set( slot_ctx->bank, *prev_bank_hash );
+  } else
+    prev_bank_hash = fd_bank_prev_bank_hash_query( slot_ctx->bank );
+
   fd_bank_parent_signature_cnt_set( slot_ctx->bank, fd_bank_signature_count_get( slot_ctx->bank ) );
   fd_bank_signature_count_set( slot_ctx->bank, block_info->signature_cnt );
 
@@ -2173,14 +2179,16 @@ fd_runtime_update_program_cache( fd_exec_slot_ctx_t * slot_ctx,
 /*******************************************************************************/
 
 static void
-fd_runtime_init_program( fd_exec_slot_ctx_t * slot_ctx,
+fd_runtime_genesis_init_program( fd_exec_slot_ctx_t * slot_ctx,
                          fd_spad_t *          runtime_spad ) {
-  fd_sysvar_recent_hashes_init( slot_ctx );
+
   fd_sysvar_clock_init( slot_ctx );
-  fd_sysvar_slot_history_init( slot_ctx, runtime_spad );
-  fd_sysvar_slot_hashes_init( slot_ctx, runtime_spad );
-  fd_sysvar_epoch_schedule_init( slot_ctx );
+  // fd_sysvar_slot_hashes_init( slot_ctx, runtime_spad );
   fd_sysvar_rent_init( slot_ctx );
+
+  fd_sysvar_slot_history_init( slot_ctx, runtime_spad );
+  fd_sysvar_epoch_schedule_init( slot_ctx );
+  fd_sysvar_recent_hashes_init( slot_ctx );
   fd_sysvar_stake_history_init( slot_ctx );
   fd_sysvar_last_restart_slot_init( slot_ctx );
 
@@ -2383,9 +2391,9 @@ fd_runtime_process_genesis_block( fd_exec_slot_ctx_t * slot_ctx,
 
   fd_bank_total_compute_units_used_set( slot_ctx->bank, 0UL );
 
-  fd_runtime_init_program( slot_ctx, runtime_spad );
+  fd_runtime_genesis_init_program( slot_ctx, runtime_spad );
 
-  fd_sysvar_slot_history_update( slot_ctx, runtime_spad );
+  // fd_sysvar_slot_history_update( slot_ctx, runtime_spad );
 
   fd_runtime_update_leaders( slot_ctx->bank, 0, runtime_spad );
 
@@ -2476,6 +2484,9 @@ fd_runtime_read_genesis( fd_exec_slot_ctx_t *   slot_ctx,
 
     FD_LOG_DEBUG(( "start genesis accounts - count: %lu", genesis_block->accounts_len ));
 
+    fd_lthash_value_t prev_hash[1];
+    fd_lthash_zero( prev_hash );
+
     for( ulong i=0; i<genesis_block->accounts_len; i++ ) {
       fd_pubkey_account_pair_t * a = &genesis_block->accounts[i];
 
@@ -2499,6 +2510,8 @@ fd_runtime_read_genesis( fd_exec_slot_ctx_t *   slot_ctx,
       fd_txn_account_set_rent_epoch( rec, a->account.rent_epoch );
       fd_txn_account_set_executable( rec, a->account.executable );
       fd_txn_account_set_owner( rec, &a->account.owner );
+
+      fd_hashes_update_lthash( rec, prev_hash, slot_ctx->bank, slot_ctx->capture_ctx );
 
       fd_txn_account_mutable_fini( rec, slot_ctx->funk, slot_ctx->funk_txn, &prepare );
     }

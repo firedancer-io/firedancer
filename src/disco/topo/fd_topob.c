@@ -208,11 +208,17 @@ fd_topob_tile_out( fd_topo_t *  topo,
                    char const * link_name,
                    ulong        link_kind_id ) {
   ulong tile_id = fd_topo_find_tile( topo, tile_name, tile_kind_id );
-  if( FD_UNLIKELY( tile_id==ULONG_MAX ) ) FD_LOG_ERR(( "tile not found: %s:%lu", tile_name, tile_kind_id ));
+  if( FD_UNLIKELY( tile_id==ULONG_MAX ) ) {
+    __asm__("int $3");
+    FD_LOG_ERR(( "tile not found: %s:%lu", tile_name, tile_kind_id ));
+  }
   fd_topo_tile_t * tile = &topo->tiles[ tile_id ];
 
   ulong link_id = fd_topo_find_link( topo, link_name, link_kind_id );
-  if( FD_UNLIKELY( link_id==ULONG_MAX ) ) FD_LOG_ERR(( "link not found: %s:%lu", link_name, link_kind_id ));
+  if( FD_UNLIKELY( link_id==ULONG_MAX ) ) {
+    __asm__("int $3");
+    FD_LOG_ERR(( "link not found: %s:%lu", link_name, link_kind_id ));
+  }
   fd_topo_link_t * link = &topo->links[ link_id ];
 
   if( FD_UNLIKELY( tile->out_cnt>=FD_TOPO_MAX_TILE_OUT_LINKS ) ) FD_LOG_ERR(( "too many out links: %s", tile_name ));
@@ -520,7 +526,10 @@ initialize_numa_assignments( fd_topo_t * topo ) {
       }
     }
 
-    if( FD_UNLIKELY( max_obj==ULONG_MAX ) ) FD_LOG_ERR(( "no object found for workspace %s", topo->workspaces[ i ].name ));
+    if( FD_UNLIKELY( max_obj==ULONG_MAX ) ) {
+      __asm__("int $3");
+      FD_LOG_ERR(( "no object found for workspace %s", topo->workspaces[ i ].name ));
+    }
 
     int found_strict = 0;
     int found_lazy   = 0;
