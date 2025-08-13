@@ -33,6 +33,8 @@ typedef struct {
   long  replay_time;
   ulong slot_cnt;
 
+  ulong start_from_genesis;
+
   /* Used by RocksDB and bank hash check. TODO refactor those APIs to
      not alloc. */
 
@@ -175,7 +177,7 @@ rocksdb_check_bank_hash( ctx_t * ctx, ulong slot, fd_hash_t * bank_hash ) {
     FD_LOG_ERR(( "Failed at decoding bank hash from rocksdb" ));
   }
 
-  if( slot!=ctx->start_slot && ctx->start_slot!=ULONG_MAX ) {
+  if( (slot!=ctx->start_slot && ctx->start_slot!=ULONG_MAX) || ctx->start_from_genesis ) {
     ctx->slot_cnt++;
     if( FD_LIKELY( !memcmp( bank_hash, &versioned->inner.current.frozen_hash, sizeof(fd_hash_t) ) ) ) {
       FD_LOG_NOTICE(( "Bank hash matches! slot=%lu, hash=%s", slot, FD_BASE58_ENC_32_ALLOCA( bank_hash->hash ) ));
@@ -327,6 +329,25 @@ after_frag( ctx_t *             ctx,
   switch( in_kind ) {
   case IN_KIND_REPLAY: {
     ulong slot = ctx->replay_slot_info.slot;
+    if( slot==0UL ) {
+      if( FD_UNLIKELY( ctx->start_from_genesis ) ) {
+        FD_LOG_CRIT(( "invariant violation: start_from_genesis is true for slot 0" ));
+      }
+      ctx->start_from_genesis = 1;
+      ctx->root               = 0UL;
+      ctx->start_slot         = 0UL;
+      ctx->replay_time        = -fd_log_wallclock();
+
+      /* Initialize RocksDB iterator for genesis case, similar to snapshot case */
+      fd_rocksdb_root_iter_new( &ctx->rocksdb_root_iter );
+      if( FD_UNLIKELY( fd_rocksdb_root_iter_seek( &ctx->rocksdb_root_iter, &ctx->rocksdb, ctx->root, &ctx->rocksdb_slot_meta, ctx->valloc ) ) ) {
+        FD_LOG_CRIT(( "Failed at seeking rocksdb root iter for slot=%lu", ctx->root ));
+      }
+      ctx->rocksdb_iter = rocksdb_create_iterator_cf( ctx->rocksdb.db, ctx->rocksdb.ro, ctx->rocksdb.cf_handles[FD_ROCKSDB_CFIDX_DATA_SHRED] );
+
+      FD_LOG_NOTICE(( "Genesis case: initialized RocksDB iterator for slot %lu", ctx->root ));
+    }
+
     rocksdb_check_bank_hash( ctx, slot, &ctx->replay_slot_info.bank_hash );
     if( FD_UNLIKELY( slot>=ctx->end_slot ) ) {
       ctx->replay_time    += fd_log_wallclock();
@@ -338,7 +359,7 @@ after_frag( ctx_t *             ctx,
 
       /* Delay publishing by 1 slot otherwise there is a replay tile race when it tries to query the parent. */
 
-      if( FD_UNLIKELY( ctx->staged_root!=ULONG_MAX ) ) fd_stem_publish( stem, ctx->root_out_idx, ctx->staged_root, 0, sizeof(fd_hash_t), 0UL, tspub, fd_frag_meta_ts_comp( fd_tickcount() ) );
+      if( FD_UNLIKELY( ctx->staged_root!=ULONG_MAX || ctx->start_from_genesis ) ) fd_stem_publish( stem, ctx->root_out_idx, ctx->staged_root, 0, sizeof(fd_hash_t), 0UL, tspub, fd_frag_meta_ts_comp( fd_tickcount() ) );
       ctx->staged_root = slot;
       ctx->credit = 1;
     }
@@ -380,6 +401,8 @@ unprivileged_init( fd_topo_t *      topo,
   ctx->end_slot    = tile->archiver.end_slot;
   ctx->replay_time = LONG_MAX;
   ctx->slot_cnt    = 0UL;
+
+  ctx->start_from_genesis = 0;
 
   fd_alloc_t * alloc = fd_alloc_join( fd_alloc_new( alloc_shmem, 1 ), 1 );
   FD_TEST( alloc );

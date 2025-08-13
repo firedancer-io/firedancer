@@ -167,7 +167,7 @@ xid_unique( void );
 static inline fd_funk_txn_xid_t *
 xid_set( fd_funk_txn_xid_t * xid,
          ulong               _xid ) {
-  xid->ul[0] = _xid; xid->ul[1] = _xid+_xid;
+  xid->ul[0] = _xid; xid->ul[1] = _xid;
   return xid;
 }
 

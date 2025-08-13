@@ -73,15 +73,26 @@ fd_shred_parse( uchar const * const buf,
     ulong slot       = shred->slot;
     if( FD_UNLIKELY( (shred->data.flags&0xC0)==0x80                              ) ) return NULL;
     if( FD_UNLIKELY( parent_off>slot                                             ) ) return NULL;
-    /* The property we want to enforce is
-           slot==0 <=> parent_off==0 <=> slot==parent_off,
-       where <=> means if and only if.  It's a strange expression
-       though, because any two of the statements automatically imply the
-       other one, so it's logically equivalent to:
-            (slot==0 or parent_off==0)   <=> slot==parent_off
-       We want the complement though, so that we can return NULL, and
-       the complement of iff is xor. */
-    if( FD_UNLIKELY( ((parent_off==0) | (slot==0UL)) ^ (slot==parent_off)        ) ) return NULL;
+
+    /* There are 3 cases we want to allow:
+        slot==0, parent_off==0
+        slot==1, parent_off==1
+        slot>1,  0<parent_off<slot
+      We've already ensured parent_off<=slot, so the cases we need to reject are:
+        slot==1, parent_off==0
+        slot>1,  parent_off==0
+        slot>1,  parent_off==slot
+
+      That gives
+      (slot==1 & parent_off==0) | (slot>1 & parent_off==0) | (slot>1 & parent_off==slot)
+      Simplifying a bit,
+      ((slot==1 | slot>1) & parent_off==0) | (slot>1 & parent_off==slot)
+      (slot!=0 & parent_off==0) | (slot>1 & parent_off==slot)
+
+      https://github.com/anza-xyz/agave/blob/dda8b79162d9aa1191c7813ca7f024ab5a5b0b9f/ledger/src/blockstore.rs#L5035
+    */
+
+    if( FD_UNLIKELY( ((slot!=0UL) & (parent_off==0UL)) | ((slot>1UL) & (parent_off==slot)) ) ) return NULL;
     if( FD_UNLIKELY( shred->idx<shred->fec_set_idx                               ) ) return NULL;
   } else {
     if( FD_UNLIKELY( shred->code.idx>=shred->code.code_cnt                       ) ) return NULL;

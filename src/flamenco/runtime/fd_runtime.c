@@ -282,7 +282,9 @@ fd_runtime_run_incinerator( fd_bank_t *        bank,
 static void
 fd_runtime_freeze( fd_exec_slot_ctx_t * slot_ctx ) {
 
-  fd_sysvar_recent_hashes_update( slot_ctx );
+  if( FD_LIKELY( fd_bank_slot_get( slot_ctx->bank ) != 0UL ) ) {
+    fd_sysvar_recent_hashes_update( slot_ctx );
+  }
 
   ulong execution_fees = fd_bank_execution_fees_get( slot_ctx->bank );
   ulong priority_fees  = fd_bank_priority_fees_get( slot_ctx->bank );
@@ -300,14 +302,14 @@ fd_runtime_freeze( fd_exec_slot_ctx_t * slot_ctx ) {
 
       fd_epoch_leaders_t const * leaders = fd_bank_epoch_leaders_locking_query( slot_ctx->bank );
       if( FD_UNLIKELY( !leaders ) ) {
-        FD_LOG_WARNING(( "fd_runtime_freeze: leaders not found" ));
+        FD_LOG_CRIT(( "fd_runtime_freeze: leaders not found" ));
         fd_bank_epoch_leaders_end_locking_query( slot_ctx->bank );
         break;
       }
 
       fd_pubkey_t const * leader = fd_epoch_leaders_get( leaders, fd_bank_slot_get( slot_ctx->bank ) );
       if( FD_UNLIKELY( !leader ) ) {
-        FD_LOG_WARNING(( "fd_runtime_freeze: leader not found" ));
+        FD_LOG_CRIT(( "fd_runtime_freeze: leader not found" ));
         fd_bank_epoch_leaders_end_locking_query( slot_ctx->bank );
         break;
       }
@@ -799,8 +801,14 @@ static void
 fd_runtime_update_bank_hash( fd_exec_slot_ctx_t *            slot_ctx,
                              fd_runtime_block_info_t const * block_info ) {
   /* Save the previous bank hash, and the parents signature count */
-  fd_hash_t const * prev_bank_hash = fd_bank_bank_hash_query( slot_ctx->bank );
-  fd_bank_prev_bank_hash_set( slot_ctx->bank, *prev_bank_hash );
+  fd_hash_t const * prev_bank_hash = NULL;
+  if( FD_LIKELY( fd_bank_slot_get( slot_ctx->bank )!=0UL ) ) {
+    prev_bank_hash = fd_bank_bank_hash_query( slot_ctx->bank );
+    fd_bank_prev_bank_hash_set( slot_ctx->bank, *prev_bank_hash );
+  } else {
+    prev_bank_hash = fd_bank_prev_bank_hash_query( slot_ctx->bank );
+  }
+
   fd_bank_parent_signature_cnt_set( slot_ctx->bank, fd_bank_signature_count_get( slot_ctx->bank ) );
   fd_bank_signature_count_set( slot_ctx->bank, block_info->signature_cnt );
 
@@ -1530,14 +1538,14 @@ fd_source_buffer_account_new( fd_exec_slot_ctx_t * slot_ctx,
   /* The buffer account should exist.
      https://github.com/anza-xyz/agave/blob/v2.3.0/runtime/src/bank/builtins/core_bpf_migration/source_buffer.rs#L27-L29 */
   if( FD_UNLIKELY( fd_txn_account_init_from_funk_mutable( buffer_account, buffer_address, slot_ctx->funk, slot_ctx->funk_txn, 0, 0UL, prepare )!=FD_ACC_MGR_SUCCESS ) ) {
-    FD_LOG_WARNING(( "Buffer account %s does not exist, skipping migration...", FD_BASE58_ENC_32_ALLOCA( buffer_address ) ));
+    FD_LOG_DEBUG(( "Buffer account %s does not exist, skipping migration...", FD_BASE58_ENC_32_ALLOCA( buffer_address ) ));
     return 1;
   }
 
   /* The buffer account should be owned by the upgradeable loader.
      https://github.com/anza-xyz/agave/blob/v2.3.0/runtime/src/bank/builtins/core_bpf_migration/source_buffer.rs#L31-L34 */
   if( FD_UNLIKELY( memcmp( fd_txn_account_get_owner( buffer_account ), fd_solana_bpf_loader_upgradeable_program_id.uc, sizeof(fd_pubkey_t) ) ) ) {
-    FD_LOG_WARNING(( "Buffer account %s is not owned by the upgradeable loader, skipping migration...", FD_BASE58_ENC_32_ALLOCA( buffer_address ) ));
+    FD_LOG_DEBUG(( "Buffer account %s is not owned by the upgradeable loader, skipping migration...", FD_BASE58_ENC_32_ALLOCA( buffer_address ) ));
     return 1;
   }
 
@@ -1639,21 +1647,21 @@ fd_migrate_builtin_to_core_bpf( fd_exec_slot_ctx_t *                   slot_ctx,
     /* The program account should exist.
        https://github.com/anza-xyz/agave/blob/v2.1.0/runtime/src/bank/builtins/core_bpf_migration/target_builtin.rs#L30-L33 */
     if( FD_UNLIKELY( !program_exists ) ) {
-      FD_LOG_WARNING(( "Builtin program %s does not exist, skipping migration...", FD_BASE58_ENC_32_ALLOCA( builtin_program_id ) ));
+      FD_LOG_DEBUG(( "Builtin program %s does not exist, skipping migration...", FD_BASE58_ENC_32_ALLOCA( builtin_program_id ) ));
       return;
     }
 
     /* The program account should be owned by the native loader.
        https://github.com/anza-xyz/agave/blob/v2.1.0/runtime/src/bank/builtins/core_bpf_migration/target_builtin.rs#L35-L38 */
     if( FD_UNLIKELY( memcmp( fd_txn_account_get_owner( target_program_account ), fd_solana_native_loader_id.uc, sizeof(fd_pubkey_t) ) ) ) {
-      FD_LOG_WARNING(( "Builtin program %s is not owned by the native loader, skipping migration...", FD_BASE58_ENC_32_ALLOCA( builtin_program_id ) ));
+      FD_LOG_DEBUG(( "Builtin program %s is not owned by the native loader, skipping migration...", FD_BASE58_ENC_32_ALLOCA( builtin_program_id ) ));
       return;
     }
   } else {
     /* The program account should _not_ exist.
        https://github.com/anza-xyz/agave/blob/v2.1.0/runtime/src/bank/builtins/core_bpf_migration/target_builtin.rs#L42-L46 */
     if( FD_UNLIKELY( program_exists ) ) {
-      FD_LOG_WARNING(( "Stateless program %s already exists, skipping migration...", FD_BASE58_ENC_32_ALLOCA( builtin_program_id ) ));
+      FD_LOG_DEBUG(( "Stateless program %s already exists, skipping migration...", FD_BASE58_ENC_32_ALLOCA( builtin_program_id ) ));
       return;
     }
   }
@@ -1871,12 +1879,12 @@ fd_apply_builtin_program_feature_transitions( fd_exec_slot_ctx_t *   slot_ctx,
   for( ulong i=0UL; i<fd_num_builtins(); i++ ) {
     /* https://github.com/anza-xyz/agave/blob/v2.1.0/runtime/src/bank.rs#L6732-L6751 */
     if( builtins[i].core_bpf_migration_config && FD_FEATURE_ACTIVE_OFFSET( fd_bank_slot_get( slot_ctx->bank ), fd_bank_features_get( slot_ctx->bank ), builtins[i].core_bpf_migration_config->enable_feature_offset ) ) {
-      FD_LOG_NOTICE(( "Migrating builtin program %s to core BPF", FD_BASE58_ENC_32_ALLOCA( builtins[i].pubkey->key ) ));
+      FD_LOG_DEBUG(( "Migrating builtin program %s to core BPF", FD_BASE58_ENC_32_ALLOCA( builtins[i].pubkey->key ) ));
       fd_migrate_builtin_to_core_bpf( slot_ctx, builtins[i].core_bpf_migration_config, runtime_spad );
     }
     /* https://github.com/anza-xyz/agave/blob/v2.1.0/runtime/src/bank.rs#L6753-L6774 */
     if( builtins[i].enable_feature_offset!=NO_ENABLE_FEATURE_ID && FD_FEATURE_JUST_ACTIVATED_OFFSET( slot_ctx, builtins[i].enable_feature_offset ) ) {
-      FD_LOG_NOTICE(( "Enabling builtin program %s", FD_BASE58_ENC_32_ALLOCA( builtins[i].pubkey->key ) ));
+      FD_LOG_DEBUG(( "Enabling builtin program %s", FD_BASE58_ENC_32_ALLOCA( builtins[i].pubkey->key ) ));
       fd_write_builtin_account( slot_ctx, *builtins[i].pubkey, builtins[i].data,strlen(builtins[i].data) );
     }
   }
@@ -1885,7 +1893,7 @@ fd_apply_builtin_program_feature_transitions( fd_exec_slot_ctx_t *   slot_ctx,
   fd_stateless_builtin_program_t const * stateless_builtins = fd_stateless_builtins();
   for( ulong i=0UL; i<fd_num_stateless_builtins(); i++ ) {
     if( stateless_builtins[i].core_bpf_migration_config && FD_FEATURE_ACTIVE_OFFSET( fd_bank_slot_get( slot_ctx->bank ), fd_bank_features_get( slot_ctx->bank ), stateless_builtins[i].core_bpf_migration_config->enable_feature_offset ) ) {
-      FD_LOG_NOTICE(( "Migrating stateless builtin program %s to core BPF", FD_BASE58_ENC_32_ALLOCA( stateless_builtins[i].pubkey->key ) ));
+      FD_LOG_DEBUG(( "Migrating stateless builtin program %s to core BPF", FD_BASE58_ENC_32_ALLOCA( stateless_builtins[i].pubkey->key ) ));
       fd_migrate_builtin_to_core_bpf( slot_ctx, stateless_builtins[i].core_bpf_migration_config, runtime_spad );
     }
   }
@@ -1933,10 +1941,10 @@ fd_feature_activate( fd_features_t *         features,
   }
 
   if( feature->has_activated_at ) {
-    FD_LOG_INFO(( "feature already activated - acc: %s, slot: %lu", FD_BASE58_ENC_32_ALLOCA( acct ), feature->activated_at ));
+    FD_LOG_DEBUG(( "feature already activated - acc: %s, slot: %lu", FD_BASE58_ENC_32_ALLOCA( acct ), feature->activated_at ));
     fd_features_set( features, id, feature->activated_at);
   } else {
-    FD_LOG_INFO(( "Feature %s not activated at %lu, activating", FD_BASE58_ENC_32_ALLOCA( acct ), feature->activated_at ));
+    FD_LOG_DEBUG(( "Feature %s not activated at %lu, activating", FD_BASE58_ENC_32_ALLOCA( acct ), feature->activated_at ));
 
     FD_TXN_ACCOUNT_DECL( modify_acct_rec );
     fd_funk_rec_prepare_t modify_acct_prepare = {0};
@@ -2173,14 +2181,15 @@ fd_runtime_update_program_cache( fd_exec_slot_ctx_t * slot_ctx,
 /*******************************************************************************/
 
 static void
-fd_runtime_init_program( fd_exec_slot_ctx_t * slot_ctx,
-                         fd_spad_t *          runtime_spad ) {
-  fd_sysvar_recent_hashes_init( slot_ctx );
+fd_runtime_genesis_init_program( fd_exec_slot_ctx_t * slot_ctx,
+                                 fd_spad_t *          runtime_spad ) {
+
   fd_sysvar_clock_init( slot_ctx );
-  fd_sysvar_slot_history_init( slot_ctx, runtime_spad );
-  fd_sysvar_slot_hashes_init( slot_ctx, runtime_spad );
-  fd_sysvar_epoch_schedule_init( slot_ctx );
   fd_sysvar_rent_init( slot_ctx );
+
+  fd_sysvar_slot_history_init( slot_ctx, runtime_spad );
+  fd_sysvar_epoch_schedule_init( slot_ctx );
+  fd_sysvar_recent_hashes_init( slot_ctx );
   fd_sysvar_stake_history_init( slot_ctx );
   fd_sysvar_last_restart_slot_init( slot_ctx );
 
@@ -2247,40 +2256,58 @@ fd_runtime_init_bank_from_genesis( fd_exec_slot_ctx_t *        slot_ctx,
     FD_LOG_CRIT(( "Failed to join and new a stake delegations" ));
   }
 
-  fd_vote_states_t * vote_states = fd_vote_states_join( fd_vote_states_new( fd_bank_vote_states_locking_modify( slot_ctx->bank ), 5000UL, 999UL ) );
+  fd_vote_states_t * vote_states = fd_vote_states_join( fd_vote_states_new( fd_bank_vote_states_locking_modify( slot_ctx->bank ), FD_RUNTIME_MAX_VOTE_ACCOUNTS, 999UL ) );
   if( FD_UNLIKELY( !vote_states ) ) {
     FD_LOG_CRIT(( "Failed to join and new a vote states" ));
   }
 
-  fd_acc_lamports_t capitalization = 0UL;
+  ulong capitalization = 0UL;
 
   for( ulong i=0UL; i<genesis_block->accounts_len; i++ ) {
     fd_pubkey_account_pair_t const * acc = &genesis_block->accounts[i];
     capitalization = fd_ulong_sat_add( capitalization, acc->account.lamports );
 
     if( !memcmp(acc->account.owner.key, fd_solana_vote_program_id.key, sizeof(fd_pubkey_t)) ) {
+      /* This means that there is a vote account which should be
+         inserted into the vote states. Even after the vote account is
+         inserted, we still don't know the total amount of stake that is
+         delegated to the vote account. This must be calculated later. */
+      FD_TXN_ACCOUNT_DECL( vote_acc );
+      int err = fd_txn_account_init_from_funk_readonly(
+          vote_acc,
+          &acc->key,
+          slot_ctx->funk,
+          slot_ctx->funk_txn );
+      if( FD_UNLIKELY( err!=FD_ACC_MGR_SUCCESS ) ) {
+        FD_LOG_CRIT(( "Failed to init vote account from funk" ));
+      }
+      uchar const * vote_account_data = fd_txn_account_get_data( vote_acc );
+      ulong         vote_account_dlen = fd_txn_account_get_data_len( vote_acc );
+      fd_vote_states_update_from_account( vote_states, &acc->key, vote_account_data, vote_account_dlen );
 
-      fd_vote_states_update_from_account( vote_states, &acc->key, acc->account.data, acc->account.data_len );
     } else if( !memcmp( acc->account.owner.key, fd_solana_stake_program_id.key, sizeof(fd_pubkey_t) ) ) {
-      FD_SPAD_FRAME_BEGIN( runtime_spad ) {
-
-      /* stake program account */
-      fd_stake_state_v2_t   stake_state   = {0};
-
-      uchar * stake_acc_mem = fd_spad_alloc( runtime_spad, FD_TXN_ACCOUNT_ALIGN, sizeof(fd_account_meta_t) + acc->account.data_len );
-      fd_account_meta_t * stake_meta = (fd_account_meta_t *)stake_acc_mem;
-      fd_wksp_t *         wksp       = fd_wksp_containing( stake_acc_mem );
-
-      fd_txn_account_t stake_acc[1];
-      if( FD_UNLIKELY( !fd_txn_account_join( fd_txn_account_new(
+      /* If an account is a stake account, then it must be added to the
+         stake delegations cache. We should only add stake accounts that
+         have a valid non-zero stake. */
+      FD_TXN_ACCOUNT_DECL( stake_acc );
+      int err = fd_txn_account_init_from_funk_readonly(
           stake_acc,
-          &fd_solana_stake_program_id,
-          stake_meta,
-          1 ), wksp ) ) ) {
-        FD_LOG_CRIT(( "Failed to join and new a txn account" ));
+          &acc->key,
+          slot_ctx->funk,
+          slot_ctx->funk_txn );
+      if( FD_UNLIKELY( err!=FD_ACC_MGR_SUCCESS ) ) {
+        FD_LOG_CRIT(( "Failed to init stake account from ffunk" ));
       }
 
-      FD_TEST( fd_stake_get_state( stake_acc, &stake_state ) == 0 );
+      fd_stake_state_v2_t stake_state = {0};
+      if( FD_UNLIKELY( fd_stake_get_state( stake_acc, &stake_state )!=0 ) ) {
+        FD_LOG_CRIT(( "Failed to get stake state" ));
+      }
+
+      if( FD_UNLIKELY( !fd_stake_state_v2_is_stake( &stake_state ) ) ) {
+        continue;
+      }
+
       if( !stake_state.inner.stake.stake.delegation.stake ) {
         continue;
       }
@@ -2295,11 +2322,10 @@ fd_runtime_init_bank_from_genesis( fd_exec_slot_ctx_t *        slot_ctx,
           stake_state.inner.stake.stake.credits_observed,
           stake_state.inner.stake.stake.delegation.warmup_cooldown_rate );
 
-      } FD_SPAD_FRAME_END;
     } else if( !memcmp(acc->account.owner.key, fd_solana_feature_program_id.key, sizeof(fd_pubkey_t)) ) {
       /* Feature Account */
 
-      /* Scan list of feature IDs to resolve address => feature offset */
+      /* Scan list of feature IDs to resolve address=>feature offset */
       fd_feature_id_t const *found = NULL;
       for( fd_feature_id_t const * id = fd_feature_iter_init();
            !fd_feature_iter_done( id );
@@ -2333,6 +2359,34 @@ fd_runtime_init_bank_from_genesis( fd_exec_slot_ctx_t *        slot_ctx,
       }
     }
   }
+  fd_bank_vote_states_end_locking_modify( slot_ctx->bank );
+
+  /* fd_refresh_vote_accounts is responsible for updating the vote
+     states with the total amount of active delegated stake. It does
+     this by iterating over all active stake delegations and summing up
+     the amount of stake that is delegated to each vote account. */
+
+  ulong new_rate_activation_epoch = 0UL;
+  fd_stake_history_t * stake_history = fd_sysvar_stake_history_read( slot_ctx->funk, slot_ctx->funk_txn, runtime_spad );
+  fd_refresh_vote_accounts(
+      slot_ctx,
+      stake_delegations,
+      stake_history,
+      &new_rate_activation_epoch );
+
+  /* Now that the stake and vote delegations are updated correctly, we
+     will propagate the vote states to the vote states for the previous
+     epoch and the epoch before that.
+
+     This is despite the fact we are booting off of genesis which means
+     that there is no previous or previous-previous epoch. This is done
+     to simplify edge cases around leader schedule and rewards
+     calculation.
+
+     TODO: Each of the edge cases around this needs to be documented
+     much better where each case is clearly enumerated and explained. */
+
+  fd_vote_states_t const * vote_states_curr = fd_bank_vote_states_locking_query( slot_ctx->bank );
 
   fd_vote_states_t * vote_states_prev_prev = fd_vote_states_join( fd_vote_states_new( fd_bank_vote_states_prev_prev_locking_modify( slot_ctx->bank ), FD_RUNTIME_MAX_VOTE_ACCOUNTS, 999UL ) );
   fd_vote_states_t * vote_states_prev = fd_vote_states_join( fd_vote_states_new( fd_bank_vote_states_prev_locking_modify( slot_ctx->bank ), FD_RUNTIME_MAX_VOTE_ACCOUNTS, 999UL ) );
@@ -2341,19 +2395,19 @@ fd_runtime_init_bank_from_genesis( fd_exec_slot_ctx_t *        slot_ctx,
     fd_pubkey_account_pair_t const * acc = &genesis_block->accounts[i];
 
     if( !memcmp( acc->account.owner.key, fd_solana_vote_program_id.key, sizeof(fd_pubkey_t) ) ) {
-
+      fd_vote_state_ele_t * vote_state = fd_vote_states_query( vote_states_curr, &acc->key );
       fd_vote_states_update_from_account( vote_states_prev_prev, &acc->key, acc->account.data, acc->account.data_len );
       fd_vote_states_update_from_account( vote_states_prev, &acc->key, acc->account.data, acc->account.data_len );
+      fd_vote_states_update_stake( vote_states_prev, &acc->key, vote_state->stake );
+      fd_vote_states_update_stake( vote_states_prev_prev, &acc->key, vote_state->stake );
     }
   }
 
   fd_bank_vote_states_prev_prev_end_locking_modify( slot_ctx->bank );
   fd_bank_vote_states_prev_end_locking_modify( slot_ctx->bank );
-
+  fd_bank_vote_states_end_locking_query( slot_ctx->bank );
 
   fd_bank_epoch_set( slot_ctx->bank, 0UL );
-
-  fd_bank_vote_states_end_locking_modify( slot_ctx->bank );
 
   fd_bank_capitalization_set( slot_ctx->bank, capitalization );
 }
@@ -2361,7 +2415,6 @@ fd_runtime_init_bank_from_genesis( fd_exec_slot_ctx_t *        slot_ctx,
 static int
 fd_runtime_process_genesis_block( fd_exec_slot_ctx_t * slot_ctx,
                                   fd_spad_t *          runtime_spad ) {
-
 
   fd_hash_t * poh = fd_bank_poh_modify( slot_ctx->bank );
   ulong hashcnt_per_slot = fd_bank_hashes_per_tick_get( slot_ctx->bank ) * fd_bank_ticks_per_slot_get( slot_ctx->bank );
@@ -2383,7 +2436,7 @@ fd_runtime_process_genesis_block( fd_exec_slot_ctx_t * slot_ctx,
 
   fd_bank_total_compute_units_used_set( slot_ctx->bank, 0UL );
 
-  fd_runtime_init_program( slot_ctx, runtime_spad );
+  fd_runtime_genesis_init_program( slot_ctx, runtime_spad );
 
   fd_sysvar_slot_history_update( slot_ctx, runtime_spad );
 
@@ -2408,117 +2461,147 @@ fd_runtime_process_genesis_block( fd_exec_slot_ctx_t * slot_ctx,
   return FD_RUNTIME_EXECUTE_SUCCESS;
 }
 
-void
-fd_runtime_read_genesis( fd_exec_slot_ctx_t *   slot_ctx,
-                         char const *           genesis_filepath,
-                         uchar                  is_snapshot,
-                         fd_spad_t *            runtime_spad ) {
+static void
+fd_runtime_init_accounts_from_genesis( fd_exec_slot_ctx_t *        slot_ctx,
+                                       fd_genesis_solana_t const * genesis_block ) {
 
-  if( strlen( genesis_filepath ) == 0 ) {
+  fd_funk_txn_start_write( slot_ctx->funk );
+  fd_funk_txn_xid_t xid = { .ul = { 0UL, 0UL } };
+  slot_ctx->funk_txn = fd_funk_txn_prepare( slot_ctx->funk, NULL, &xid, 1 );
+  if( FD_UNLIKELY( !slot_ctx->funk_txn ) ) {
+    FD_LOG_CRIT(( "Failed to prepare funk transaction" ));
+  }
+  fd_funk_txn_end_write( slot_ctx->funk );
+
+  FD_LOG_DEBUG(( "start genesis accounts - count: %lu", genesis_block->accounts_len ));
+
+  fd_lthash_value_t prev_hash[1];
+  fd_lthash_zero( prev_hash );
+
+  for( ulong i=0; i<genesis_block->accounts_len; i++ ) {
+    fd_pubkey_account_pair_t * a = &genesis_block->accounts[i];
+
+    fd_funk_rec_prepare_t prepare = {0};
+
+    FD_TXN_ACCOUNT_DECL( rec );
+    int err = fd_txn_account_init_from_funk_mutable( rec,
+                                                    &a->key,
+                                                    slot_ctx->funk,
+                                                    slot_ctx->funk_txn,
+                                                    1, /* do_create */
+                                                    a->account.data_len,
+                                                    &prepare );
+
+    if( FD_UNLIKELY( err ) ) {
+      FD_LOG_ERR(( "fd_txn_account_init_from_funk_mutable failed (%d)", err ));
+    }
+
+    fd_txn_account_set_data( rec, a->account.data, a->account.data_len );
+    fd_txn_account_set_lamports( rec, a->account.lamports );
+    fd_txn_account_set_rent_epoch( rec, a->account.rent_epoch );
+    fd_txn_account_set_executable( rec, a->account.executable );
+    fd_txn_account_set_owner( rec, &a->account.owner );
+    fd_hashes_update_lthash( rec, prev_hash, slot_ctx->bank, slot_ctx->capture_ctx );
+    fd_txn_account_mutable_fini( rec, slot_ctx->funk, slot_ctx->funk_txn, &prepare );
+  }
+
+
+}
+
+
+void
+fd_runtime_read_genesis( fd_exec_slot_ctx_t * slot_ctx,
+                         char const *         genesis_filepath,
+                         fd_spad_t *          runtime_spad ) {
+  FD_SPAD_FRAME_BEGIN( runtime_spad ) {
+
+  /* TODO: fd_runtime_read_genesis should include references to Agave's
+     genesis booting code.
+     TODO: Add a more robust description of the genesis file format. */
+
+  if( FD_UNLIKELY( !strlen( genesis_filepath ) ) ) {
+    FD_LOG_DEBUG(( "genesis_filepath is empty" ));
     return;
   }
 
+  /* If we have a genesis file, we will need to open the file and read
+     the data into a buffer. */
+
+  /* TODO: The file handling must be handled inside privileged_init. */
+
   struct stat sbuf;
-  if( FD_UNLIKELY( stat( genesis_filepath, &sbuf) < 0 ) ) {
-    FD_LOG_ERR(( "cannot open %s : %s", genesis_filepath, strerror(errno) ));
+  if( FD_UNLIKELY( stat( genesis_filepath, &sbuf)<0 ) ) {
+    FD_LOG_ERR(( "cannot open %s : %i-%s", genesis_filepath, errno, strerror( errno ) ));
   }
   int fd = open( genesis_filepath, O_RDONLY );
-  if( FD_UNLIKELY( fd < 0 ) ) {
-    FD_LOG_ERR(("cannot open %s : %s", genesis_filepath, strerror(errno)));
+  if( FD_UNLIKELY( fd<0 ) ) {
+    FD_LOG_ERR(("cannot open %s : %s", genesis_filepath, strerror( errno ) ));
   }
-
-  fd_genesis_solana_t * genesis_block;
-  fd_hash_t             genesis_hash;
-
-  /* NOTE: These genesis decode spad allocs persist through the lifetime of fd_runtime,
-     even though they aren't used outside of this function. This is because
-     fd_runtime_init_bank_from_genesis, which depends on the genesis_block, initializes
-     a bunch of structures on spad that need to persist throughout fd_runtime. Using a bump
-     allocator does not let us free memory lower in the stack without freeing everything
-     above it (in a meaningful way).
-
-     FIXME: Use spad frames here once the fd_runtime structures initialized here are no
-     longer spad-backed. */
 
   uchar * buf = fd_spad_alloc( runtime_spad, alignof(ulong), (ulong)sbuf.st_size );
   ulong sz    = 0UL;
   int res     = fd_io_read( fd, buf, (ulong)sbuf.st_size, (ulong)sbuf.st_size, &sz );
-  FD_TEST( res==0 );
-  FD_TEST( sz==(ulong)sbuf.st_size );
+  if( FD_UNLIKELY( res!=0 ) ) {
+    FD_LOG_ERR(( "fd_io_read failed (%d)", res ));
+  }
+  if( FD_UNLIKELY( sz!=(ulong)sbuf.st_size ) ) {
+    FD_LOG_ERR(( "fd_io_read failed (%lu != %lu)", sz, (ulong)sbuf.st_size ));
+  }
   close( fd );
 
-    int err;
-    genesis_block = fd_bincode_decode_spad(
-        genesis_solana, runtime_spad, buf, sz, &err );
-    if( FD_UNLIKELY( err!=FD_BINCODE_SUCCESS ) ) {
-      FD_LOG_ERR(( "fd_genesis_solana_decode_footprint failed (%d)", err ));
-    }
+  /* At this point, the genesis file is closed and the data has been
+     copied out to an indepedent buffer. Decode the genesis block from
+     the config data. */
 
-  // The hash is generated from the raw data... don't mess with this..
-  fd_sha256_hash( buf, sz, genesis_hash.uc );
-
-  fd_hash_t * genesis_hash_bm = fd_bank_genesis_hash_modify( slot_ctx->bank );
-  fd_memcpy( genesis_hash_bm, buf, sizeof(fd_hash_t) );
-
-  if( !is_snapshot ) {
-    /* Create a new Funk transaction for slot 0 */
-    fd_funk_txn_start_write( slot_ctx->funk );
-    fd_funk_txn_xid_t xid = { 0 };
-    xid.ul[1] = 0UL;
-    xid.ul[0] = 0UL;
-    slot_ctx->funk_txn = fd_funk_txn_prepare( slot_ctx->funk, NULL, &xid, 1 );
-    fd_funk_txn_end_write( slot_ctx->funk );
-
-    fd_runtime_init_bank_from_genesis( slot_ctx,
-                                        genesis_block,
-                                        &genesis_hash,
-                                        runtime_spad );
-
-    FD_LOG_DEBUG(( "start genesis accounts - count: %lu", genesis_block->accounts_len ));
-
-    for( ulong i=0; i<genesis_block->accounts_len; i++ ) {
-      fd_pubkey_account_pair_t * a = &genesis_block->accounts[i];
-
-      FD_TXN_ACCOUNT_DECL( rec );
-      fd_funk_rec_prepare_t prepare = {0};
-
-      int err = fd_txn_account_init_from_funk_mutable( rec,
-                                                      &a->key,
-                                                      slot_ctx->funk,
-                                                      slot_ctx->funk_txn,
-                                                      1, /* do_create */
-                                                      a->account.data_len,
-                                                      &prepare );
-
-      if( FD_UNLIKELY( err ) ) {
-        FD_LOG_ERR(( "fd_txn_account_init_from_funk_mutable failed (%d)", err ));
-      }
-
-      fd_txn_account_set_data( rec, a->account.data, a->account.data_len );
-      fd_txn_account_set_lamports( rec, a->account.lamports );
-      fd_txn_account_set_rent_epoch( rec, a->account.rent_epoch );
-      fd_txn_account_set_executable( rec, a->account.executable );
-      fd_txn_account_set_owner( rec, &a->account.owner );
-
-      fd_txn_account_mutable_fini( rec, slot_ctx->funk, slot_ctx->funk_txn, &prepare );
-    }
-
-    FD_LOG_DEBUG(( "end genesis accounts" ));
-
-    FD_LOG_DEBUG(( "native instruction processors - count: %lu", genesis_block->native_instruction_processors_len ));
-
-    for( ulong i=0UL; i < genesis_block->native_instruction_processors_len; i++ ) {
-      fd_string_pubkey_pair_t * a = &genesis_block->native_instruction_processors[i];
-      fd_write_builtin_account( slot_ctx, a->pubkey, (const char *) a->string, a->string_len );
-    }
-
-    fd_features_restore( slot_ctx, runtime_spad );
-
-    int err = fd_runtime_process_genesis_block( slot_ctx, runtime_spad );
-    if( FD_UNLIKELY( err ) ) {
-      FD_LOG_ERR(( "Genesis slot 0 execute failed with error %d", err ));
-    }
+  int err;
+  fd_genesis_solana_t * genesis_block = fd_bincode_decode_spad(
+      genesis_solana, runtime_spad, buf, sz, &err );
+  if( FD_UNLIKELY( err!=FD_BINCODE_SUCCESS ) ) {
+    FD_LOG_ERR(( "failed to decode genesis manifest (%d)", err ));
   }
+
+  /* The genesis hash is generated from the raw data that is located
+     inside of the genesis file. */
+
+  fd_hash_t * genesis_hash = fd_bank_genesis_hash_modify( slot_ctx->bank );
+  fd_sha256_hash( buf, sz, genesis_hash->hash );
+
+  /* Create a new Funk transaction for slot 0 and write each of the
+     accounts and their data from the genesis config into the accounts
+     database. */
+
+  fd_runtime_init_accounts_from_genesis( slot_ctx, genesis_block );
+
+  /* Once the accounts have been loaded from the genesis config into
+     the accounts db, we can initialize the bank state. This involves
+     setting some fields, and notably setting up the vote and stake
+     caches which are used for leader scheduling/rewards. */
+
+  fd_runtime_init_bank_from_genesis(
+      slot_ctx,
+      genesis_block,
+      genesis_hash,
+      runtime_spad );
+
+  /* Write the native programs to the accounts db. */
+
+  for( ulong i=0UL; i < genesis_block->native_instruction_processors_len; i++ ) {
+    fd_string_pubkey_pair_t * a = &genesis_block->native_instruction_processors[i];
+    fd_write_builtin_account( slot_ctx, a->pubkey, (const char *)a->string, a->string_len );
+  }
+  fd_features_restore( slot_ctx, runtime_spad );
+
+  /* At this point, state related to the bank and the accounts db
+     have been initialized and we are free to finish executing the
+     block. In practice, this updates some bank fields (notably the
+     poh and bank hash). */
+
+  err = fd_runtime_process_genesis_block( slot_ctx, runtime_spad );
+  if( FD_UNLIKELY( err ) ) {
+    FD_LOG_CRIT(( "Genesis slot 0 execute failed with error %d", err ));
+  }
+
+  } FD_SPAD_FRAME_END;
 }
 
 /******************************************************************************/
@@ -2528,13 +2611,6 @@ fd_runtime_read_genesis( fd_exec_slot_ctx_t *   slot_ctx,
 /* As a note, currently offline and live replay of transactions has differences
    with regards to how the execution environment is setup. These are helpers
    used to emulate this behavior */
-
-struct fd_poh_verification_info {
-  fd_microblock_info_t const * microblock_info;
-  fd_hash_t const            * in_poh_hash;
-  int success;
-};
-typedef struct fd_poh_verification_info fd_poh_verification_info_t;
 
 void
 fd_runtime_block_pre_execute_process_new_epoch( fd_exec_slot_ctx_t * slot_ctx,

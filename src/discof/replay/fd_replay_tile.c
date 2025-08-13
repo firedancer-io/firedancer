@@ -132,9 +132,11 @@ typedef struct {
   fd_hash_t block_id;
 } block_id_map_t;
 
-#define MAP_NAME    block_id_map
-#define MAP_T       block_id_map_t
-#define MAP_KEY     slot
+#define MAP_NAME          block_id_map
+#define MAP_T             block_id_map_t
+#define MAP_KEY           slot
+#define MAP_KEY_NULL      ULONG_MAX
+#define MAP_KEY_INVAL(k) (ULONG_MAX==(k))
 #define MAP_MEMOIZE 0
 #include "../../util/tmpl/fd_map_dynamic.c"
 
@@ -599,11 +601,7 @@ funk_and_txncache_publish( fd_replay_tile_ctx_t * ctx, ulong wmk, fd_funk_txn_xi
 }
 
 static void
-restore_slot_ctx( fd_replay_tile_ctx_t * ctx,
-                  fd_wksp_t *            mem,
-                  ulong                  chunk,
-                  ulong                  sig FD_FN_UNUSED ) {
-  /* Use the full snapshot manifest to initialize the slot context */
+setup_slot_ctx( fd_replay_tile_ctx_t * ctx ) {
   uchar * slot_ctx_mem        = fd_spad_alloc_check( ctx->runtime_spad, FD_EXEC_SLOT_CTX_ALIGN, FD_EXEC_SLOT_CTX_FOOTPRINT );
   ctx->slot_ctx               = fd_exec_slot_ctx_join( fd_exec_slot_ctx_new( slot_ctx_mem ) );
   ctx->slot_ctx->banks        = ctx->banks;
@@ -613,6 +611,14 @@ restore_slot_ctx( fd_replay_tile_ctx_t * ctx,
   ctx->slot_ctx->status_cache = ctx->status_cache;
 
   ctx->slot_ctx->capture_ctx = ctx->capture_ctx;
+}
+
+static void
+restore_slot_ctx( fd_replay_tile_ctx_t * ctx,
+                  fd_wksp_t *            mem,
+                  ulong                  chunk ) {
+  /* Use the full snapshot manifest to initialize the slot context */
+  setup_slot_ctx( ctx );
 
   uchar const * data = fd_chunk_to_laddr( mem, chunk );
   ctx->manifest = (fd_snapshot_manifest_t*)data;
@@ -760,7 +766,7 @@ init_after_snapshot( fd_replay_tile_ctx_t * ctx ) {
 
     fd_runtime_block_execute_finalize( ctx->slot_ctx, &info, ctx->runtime_spad );
 
-    snapshot_slot = 1UL;
+    snapshot_slot = 0UL;
 
     /* Now setup exec tiles for execution */
     ctx->exec_ready_bitset = fd_ulong_mask_lsb( (int)ctx->exec_cnt );
@@ -791,6 +797,10 @@ init_after_snapshot( fd_replay_tile_ctx_t * ctx ) {
      exec tiles as ready. */
   ctx->exec_ready_bitset = fd_ulong_mask_lsb( (int)ctx->exec_cnt );
 
+  if( ctx->capture_ctx ) {
+    fd_solcap_writer_flush( ctx->capture_ctx->capture );
+  }
+
   FD_LOG_NOTICE(( "snapshot slot %lu", snapshot_slot ));
 }
 
@@ -811,16 +821,12 @@ init_from_snapshot( fd_replay_tile_ctx_t * ctx,
 
   fd_runtime_read_genesis( ctx->slot_ctx,
                            ctx->genesis,
-                           1,
                            ctx->runtime_spad );
+
   /* We call this after fd_runtime_read_genesis, which sets up the
   slot_bank needed in blockstore_init. */
   /* FIXME: We should really only call this once. */
   init_after_snapshot( ctx );
-
-  if( ctx->plugin_out->mem && strlen( ctx->genesis ) > 0 ) {
-    replay_plugin_publish( ctx, stem, FD_PLUGIN_MSG_GENESIS_HASH_KNOWN, fd_bank_genesis_hash_query( ctx->slot_ctx->bank )->hash, sizeof(fd_hash_t) );
-  }
 
   // Tell the world about the current activate features
   fd_features_t const * features = fd_bank_features_query( ctx->slot_ctx->bank );
@@ -875,7 +881,7 @@ on_snapshot_message( fd_replay_tile_ctx_t * ctx,
          incremental snapshot manifest.  Note that this external message
          id is only used temporarily because replay cannot yet receive
          the firedancer-internal snapshot manifest message. */
-      restore_slot_ctx( ctx, ctx->in[ in_idx ].mem, chunk, sig );
+      restore_slot_ctx( ctx, ctx->in[ in_idx ].mem, chunk );
       break;
     }
     default: {
@@ -1028,7 +1034,7 @@ after_frag( fd_replay_tile_ctx_t *   ctx,
             ulong                    tspub FD_PARAM_UNUSED,
             fd_stem_context_t *      stem FD_PARAM_UNUSED ) {
   if( FD_UNLIKELY( ctx->in_kind[ in_idx ]==IN_KIND_ROOT ) ) {
-
+    if( FD_UNLIKELY( fd_bank_slot_get( ctx->slot_ctx->bank )==0UL )) return; // genesis has no block_id
     ulong root = sig;
     ctx->consensus_root = root;
     publish( ctx );
@@ -1155,7 +1161,6 @@ init_from_genesis( fd_replay_tile_ctx_t * ctx,
                    fd_stem_context_t *    stem ) {
   fd_runtime_read_genesis( ctx->slot_ctx,
                            ctx->genesis,
-                           0,
                            ctx->runtime_spad );
 
   /* We call this after fd_runtime_read_genesis, which sets up the
@@ -1163,8 +1168,26 @@ init_from_genesis( fd_replay_tile_ctx_t * ctx,
   /* FIXME: We should really only call this once. */
   init_after_snapshot( ctx );
 
-  if( ctx->plugin_out->mem && strlen( ctx->genesis ) > 0 ) {
-    replay_plugin_publish( ctx, stem, FD_PLUGIN_MSG_GENESIS_HASH_KNOWN, fd_bank_genesis_hash_query( ctx->slot_ctx->bank )->hash, sizeof(fd_hash_t) );
+  if( strlen( ctx->genesis )>0 ) {
+    fd_hash_t const * genesis_hash = fd_bank_genesis_hash_query( ctx->slot_ctx->bank );
+
+    if( !!ctx->plugin_out->mem ) {
+      replay_plugin_publish( ctx, stem, FD_PLUGIN_MSG_GENESIS_HASH_KNOWN, genesis_hash->hash, sizeof(fd_hash_t) );
+    }
+
+    /* Initialize store for genesis case, similar to snapshot case */
+    fd_hash_t genesis_block_id = *genesis_hash;
+    fd_store_exacq( ctx->store );
+    if( FD_UNLIKELY( fd_store_root( ctx->store ) ) ) {
+      FD_LOG_CRIT(( "invariant violation: store root is not 0 for genesis" ));
+    }
+    fd_store_insert( ctx->store, 0, &genesis_block_id );
+    ctx->store->slot0 = 0UL; /* Genesis slot */
+    fd_store_exrel( ctx->store );
+
+    /* Add genesis block to block_id_map */
+    block_id_map_t * entry = block_id_map_insert( ctx->block_id_map, 0UL );
+    entry->block_id        = genesis_block_id;
   }
 
   // Tell the world about the current activate features
@@ -1180,9 +1203,44 @@ init_from_genesis( fd_replay_tile_ctx_t * ctx,
      (using the above for loop), but blockstore/fork setup on genesis is
      broken for now. */
   block_entry_height = 1UL;
+
+  // init_poh crashes with a NULL.  There is even a fixme todo in it.
+#if 0
   init_poh( ctx );
+#endif
 
   publish_slot_notifications( ctx, stem, block_entry_height, curr_slot );
+
+  if( FD_LIKELY( ctx->replay_out_idx!=ULONG_MAX && !ctx->read_only ) ) {
+    fd_hash_t   parent_block_id = {0};
+    fd_bank_t * bank            = ctx->slot_ctx->bank;
+
+    fd_hash_t * block_id = fd_bank_block_id_modify( bank );
+    if( FD_UNLIKELY( !block_id ) ) {
+      FD_LOG_CRIT(( "invariant violation: block_id is NULL for slot %lu", curr_slot ));
+    }
+    fd_hash_t const * bank_hash = fd_bank_bank_hash_query( bank );
+    if( FD_UNLIKELY( !bank_hash ) ) {
+      FD_LOG_CRIT(( "invariant violation: bank_hash is NULL for slot %lu", curr_slot ));
+    }
+    fd_hash_t const * block_hash = fd_blockhashes_peek_last( fd_bank_block_hash_queue_query( bank ) );
+    if( FD_UNLIKELY( !block_hash ) ) {
+      FD_LOG_CRIT(( "invariant violation: block_hash is NULL for slot %lu", curr_slot ));
+    }
+    fd_replay_slot_info_t out = {
+      .slot            = 0UL,
+      .block_id        = *block_id,
+      .parent_block_id = parent_block_id,
+      .bank_hash       = *bank_hash,
+      .block_hash      = *block_hash,
+    };
+
+    /* Send the end of slot info message down the replay_out link */
+    uchar * chunk_laddr = fd_chunk_to_laddr( ctx->replay_out_mem, ctx->replay_out_chunk );
+    memcpy( chunk_laddr, &out, sizeof(fd_replay_slot_info_t) );
+    fd_stem_publish( stem, ctx->replay_out_idx, FD_REPLAY_SIG_SLOT_INFO, ctx->replay_out_chunk, sizeof(fd_replay_slot_info_t), 0UL, fd_frag_meta_ts_comp( fd_tickcount() ), fd_frag_meta_ts_comp( fd_tickcount() ) );
+    ctx->replay_out_chunk = fd_dcache_compact_next( ctx->replay_out_chunk, sizeof(fd_replay_slot_info_t), ctx->replay_out_chunk0, ctx->replay_out_wmark );
+  }
 
   FD_TEST( ctx->slot_ctx );
 }
@@ -1734,6 +1792,7 @@ after_credit( fd_replay_tile_ctx_t * ctx,
     }
 
     if( strlen( ctx->genesis )>0 ) {
+      setup_slot_ctx( ctx );
       init_from_genesis( ctx, stem );
       ctx->snapshot_init_done = 1;
     }
