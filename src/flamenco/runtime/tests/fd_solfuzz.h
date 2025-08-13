@@ -63,6 +63,13 @@ fd_wksp_demand_paged_new( char const * name,
                           ulong        part_max,
                           ulong        data_max );
 
+/* fd_wksp_check_usage checks the usage of a workspace. Returns 1
+   if there are any outstanding allocations in the wksp and 0 otherwise. */
+
+int
+fd_wksp_check_usage( fd_wksp_t * wksp,
+                     ulong       wksp_tag );
+
 /* fd_wksp_demand_paged_delete destroys a demand-paged workspace. */
 
 void

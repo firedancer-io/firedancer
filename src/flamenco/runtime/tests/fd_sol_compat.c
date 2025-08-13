@@ -50,16 +50,6 @@ sol_compat_fini( void ) {
   runner = NULL;
 }
 
-void
-sol_compat_check_wksp_usage( void ) {
-  fd_wksp_usage_t usage[1];
-  ulong tags[1] = { WKSP_EXECUTE_ALLOC_TAG };
-  fd_wksp_usage( wksp, tags, 1, usage );
-  if( usage->used_sz ) {
-    FD_LOG_ERR(( "%lu bytes leaked in %lu allocations", usage->used_sz, usage->used_cnt ));
-  }
-}
-
 sol_compat_features_t const *
 sol_compat_get_features_v1( void ) {
   static sol_compat_features_t features;
@@ -155,7 +145,7 @@ sol_compat_instr_execute_v1( uchar *       out,
   sol_compat_cleanup_runner( runner );
 
   // Check wksp usage
-  sol_compat_check_wksp_usage();
+  FD_TEST( !fd_wksp_check_usage( wksp, WKSP_EXECUTE_ALLOC_TAG ) );
 
   return ok;
 }
@@ -190,7 +180,7 @@ sol_compat_txn_execute_v1( uchar *       out,
   sol_compat_cleanup_runner( runner );
 
   // Check wksp usage
-  sol_compat_check_wksp_usage();
+  FD_TEST( !fd_wksp_check_usage( wksp, WKSP_EXECUTE_ALLOC_TAG ) );
 
   return ok;
 }
@@ -225,7 +215,7 @@ sol_compat_block_execute_v1( uchar *       out,
   sol_compat_cleanup_runner( runner );
 
   // Check wksp usage
-  sol_compat_check_wksp_usage();
+  FD_TEST( !fd_wksp_check_usage( wksp, WKSP_EXECUTE_ALLOC_TAG ) );
 
   return ok;
 }
@@ -260,7 +250,7 @@ sol_compat_elf_loader_v1( uchar *       out,
   sol_compat_cleanup_runner( runner );
 
   // Check wksp usage
-  sol_compat_check_wksp_usage();
+  FD_TEST( !fd_wksp_check_usage( wksp, WKSP_EXECUTE_ALLOC_TAG ) );
 
   return ok;
 }
@@ -295,7 +285,7 @@ sol_compat_vm_syscall_execute_v1( uchar *       out,
   sol_compat_cleanup_runner( runner );
 
   // Check wksp usage
-  sol_compat_check_wksp_usage();
+  FD_TEST( !fd_wksp_check_usage( wksp, WKSP_EXECUTE_ALLOC_TAG ) );
 
   return ok;
 }
@@ -330,7 +320,7 @@ sol_compat_vm_interp_v1( uchar *       out,
   sol_compat_cleanup_runner( runner );
 
   // Check wksp usage
-  sol_compat_check_wksp_usage();
+  FD_TEST( !fd_wksp_check_usage( wksp, WKSP_EXECUTE_ALLOC_TAG ) );
 
   return ok;
 }
@@ -384,7 +374,7 @@ sol_compat_type_execute_v1( uchar *       out,
   sol_compat_cleanup_runner( runner );
 
   // Check wksp usage
-  sol_compat_check_wksp_usage();
+  FD_TEST( !fd_wksp_check_usage( wksp, WKSP_EXECUTE_ALLOC_TAG ) );
 
   return ok;
 }

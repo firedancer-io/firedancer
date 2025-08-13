@@ -64,6 +64,15 @@ fd_wksp_demand_paged_new( char const * name,
   return wksp;
 }
 
+int
+fd_wksp_check_usage( fd_wksp_t * wksp,
+                     ulong       wksp_tag ) {
+  fd_wksp_usage_t usage[1];
+  ulong tags[1] = { wksp_tag };
+  fd_wksp_usage( wksp, tags, 1, usage );
+  return !!usage->used_sz;
+}
+
 void
 fd_wksp_demand_paged_delete( fd_wksp_t * wksp ) {
   fd_shmem_leave_anonymous( wksp, NULL );
