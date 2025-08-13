@@ -31,7 +31,7 @@ FD_PROTOTYPES_BEGIN
 static inline fd_lthash_value_t *
 fd_lthash_fini( fd_lthash_t * sha,
                 fd_lthash_value_t * hash ) {
-  return fd_blake3_fini_varlen( sha, hash->bytes, FD_LTHASH_LEN_BYTES );
+  return fd_blake3_fini_2048( sha, hash->bytes );
 }
 
 static inline fd_lthash_value_t *
