@@ -93,45 +93,45 @@ fd_sysvar_slot_hashes_init( fd_exec_slot_ctx_t * slot_ctx,
 /* https://github.com/anza-xyz/agave/blob/b11ca828cfc658b93cb86a6c5c70561875abe237/runtime/src/bank.rs#L2283-L2294 */
 void
 fd_sysvar_slot_hashes_update( fd_exec_slot_ctx_t * slot_ctx, fd_spad_t * runtime_spad ) {
-FD_SPAD_FRAME_BEGIN( runtime_spad ) {
-  fd_slot_hashes_global_t * slot_hashes_global = fd_sysvar_slot_hashes_read( slot_ctx->funk, slot_ctx->funk_txn, runtime_spad );
-  fd_slot_hash_t *          hashes             = NULL;
-  if( FD_UNLIKELY( !slot_hashes_global ) ) {
-    /* Note: Agave's implementation initializes a new slot_hashes if it doesn't already exist (refer to above URL). */
-    void * mem = fd_spad_alloc( runtime_spad, FD_SYSVAR_SLOT_HASHES_ALIGN, fd_sysvar_slot_hashes_footprint( FD_SYSVAR_SLOT_HASHES_CAP ) );
-    slot_hashes_global = fd_sysvar_slot_hashes_new( mem, FD_SYSVAR_SLOT_HASHES_CAP );
-  }
-  slot_hashes_global = fd_sysvar_slot_hashes_join( slot_hashes_global, &hashes );
-
-  uchar found = 0;
-  for( deq_fd_slot_hash_t_iter_t iter = deq_fd_slot_hash_t_iter_init( hashes );
-       !deq_fd_slot_hash_t_iter_done( hashes, iter );
-       iter = deq_fd_slot_hash_t_iter_next( hashes, iter ) ) {
-    fd_slot_hash_t * ele = deq_fd_slot_hash_t_iter_ele( hashes, iter );
-    if( ele->slot == fd_bank_slot_get( slot_ctx->bank ) ) {
-      fd_hash_t const * bank_hash = fd_bank_bank_hash_query( slot_ctx->bank );
-      memcpy( &ele->hash, bank_hash, sizeof(fd_hash_t) );
-      found = 1;
+  FD_SPAD_FRAME_BEGIN( runtime_spad ) {
+    fd_slot_hashes_global_t * slot_hashes_global = fd_sysvar_slot_hashes_read( slot_ctx->funk, slot_ctx->funk_txn, runtime_spad );
+    fd_slot_hash_t *          hashes             = NULL;
+    if( FD_UNLIKELY( !slot_hashes_global ) ) {
+      /* Note: Agave's implementation initializes a new slot_hashes if it doesn't already exist (refer to above URL). */
+      void * mem = fd_spad_alloc( runtime_spad, FD_SYSVAR_SLOT_HASHES_ALIGN, fd_sysvar_slot_hashes_footprint( FD_SYSVAR_SLOT_HASHES_CAP ) );
+      slot_hashes_global = fd_sysvar_slot_hashes_new( mem, FD_SYSVAR_SLOT_HASHES_CAP );
     }
-  }
+    slot_hashes_global = fd_sysvar_slot_hashes_join( slot_hashes_global, &hashes );
 
-  if( !found ) {
-    // https://github.com/firedancer-io/solana/blob/08a1ef5d785fe58af442b791df6c4e83fe2e7c74/runtime/src/bank.rs#L2371
-    fd_slot_hash_t slot_hash = {
-      .hash = fd_bank_bank_hash_get( slot_ctx->bank ), // parent hash?
-      .slot = fd_bank_parent_slot_get( slot_ctx->bank ),   // parent_slot
-    };
-    FD_LOG_DEBUG(( "fd_sysvar_slot_hash_update:  slot %lu,  hash %s", slot_hash.slot, FD_BASE58_ENC_32_ALLOCA( slot_hash.hash.key ) ));
+    uchar found = 0;
+    for( deq_fd_slot_hash_t_iter_t iter = deq_fd_slot_hash_t_iter_init( hashes );
+         !deq_fd_slot_hash_t_iter_done( hashes, iter );
+         iter = deq_fd_slot_hash_t_iter_next( hashes, iter ) ) {
+      fd_slot_hash_t * ele = deq_fd_slot_hash_t_iter_ele( hashes, iter );
+      if( ele->slot == fd_bank_slot_get( slot_ctx->bank ) ) {
+        fd_hash_t const * bank_hash = fd_bank_bank_hash_query( slot_ctx->bank );
+        memcpy( &ele->hash, bank_hash, sizeof(fd_hash_t) );
+        found = 1;
+      }
+    }
 
-    if( deq_fd_slot_hash_t_full( hashes ) )
-      memset( deq_fd_slot_hash_t_pop_tail_nocopy( hashes ), 0, sizeof(fd_slot_hash_t) );
+    if( !found ) {
+      // https://github.com/firedancer-io/solana/blob/08a1ef5d785fe58af442b791df6c4e83fe2e7c74/runtime/src/bank.rs#L2371
+      fd_slot_hash_t slot_hash = {
+        .hash = fd_bank_bank_hash_get( slot_ctx->bank ), // parent hash?
+        .slot = fd_bank_parent_slot_get( slot_ctx->bank ),   // parent_slot
+      };
+      FD_LOG_DEBUG(( "fd_sysvar_slot_hash_update:  slot %lu,  hash %s", slot_hash.slot, FD_BASE58_ENC_32_ALLOCA( slot_hash.hash.key ) ));
 
-    deq_fd_slot_hash_t_push_head( hashes, slot_hash );
-  }
+      if( deq_fd_slot_hash_t_full( hashes ) )
+        memset( deq_fd_slot_hash_t_pop_tail_nocopy( hashes ), 0, sizeof(fd_slot_hash_t) );
 
-  fd_sysvar_slot_hashes_write( slot_ctx, slot_hashes_global );
-  fd_sysvar_slot_hashes_leave( slot_hashes_global, hashes );
-} FD_SPAD_FRAME_END;
+      deq_fd_slot_hash_t_push_head( hashes, slot_hash );
+    }
+
+    fd_sysvar_slot_hashes_write( slot_ctx, slot_hashes_global );
+    fd_sysvar_slot_hashes_leave( slot_hashes_global, hashes );
+  } FD_SPAD_FRAME_END;
 }
 
 fd_slot_hashes_global_t *

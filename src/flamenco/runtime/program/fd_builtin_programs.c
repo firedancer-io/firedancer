@@ -181,6 +181,24 @@ static fd_core_bpf_migration_config_t const * migrating_builtins[] = {
 #include "../../../util/tmpl/fd_map_perfect.c"
 #undef PERFECT_HASH
 
+// https://github.com/anza-xyz/agave/blob/v2.3.7/runtime/src/bank.rs#L4944
+static int
+fd_builtin_is_bpf( fd_exec_slot_ctx_t * slot_ctx,
+                          fd_pubkey_t const  *pubkey ) {
+
+
+  fd_funk_t *         funk = slot_ctx->funk;
+  fd_funk_txn_t *     txn  = slot_ctx->funk_txn;
+  FD_TXN_ACCOUNT_DECL( rec );
+
+  int err = fd_txn_account_init_from_funk_readonly( rec, pubkey, funk, txn );
+  if( !!err )
+    return 0;
+
+  const fd_pubkey_t *owner = fd_txn_account_get_owner( rec );
+  return memcmp(owner, &fd_solana_bpf_loader_upgradeable_program_id, sizeof(fd_solana_bpf_loader_upgradeable_program_id)) == 0;
+}
+
 
 /* BuiltIn programs need "bogus" executable accounts to exist.
    These are loaded and ignored during execution.
@@ -216,7 +234,7 @@ fd_write_builtin_account( fd_exec_slot_ctx_t * slot_ctx,
   fd_txn_account_set_executable( rec, 1 );
   fd_txn_account_set_owner( rec, &fd_solana_native_loader_id );
 
-  fd_hashes_update_lthash( rec, prev_hash, slot_ctx->bank, NULL );
+  fd_hashes_update_lthash( rec, prev_hash, slot_ctx->bank, slot_ctx->capture_ctx );
 
   fd_txn_account_mutable_fini( rec, funk, txn, &prepare );
 
@@ -263,26 +281,24 @@ write_inline_spl_native_mint_program_account( fd_exec_slot_ctx_t * slot_ctx ) {
   FD_TEST( !err );
 }
 
+// <rant> Why are these not in the genesis block themselves?! the hackery to deal with subtle solana variants
+//        because of the "special knowledge" required for these accounts is counter productive... </rant>
+
 void fd_builtin_programs_init( fd_exec_slot_ctx_t * slot_ctx ) {
-  // https://github.com/anza-xyz/agave/blob/v2.0.1/runtime/src/bank/builtins/mod.rs#L33
+  // https://github.com/anza-xyz/agave/blob/v2.3.7/builtins/src/lib.rs#L52
   fd_builtin_program_t const * builtins = fd_builtins();
+
   for( ulong i=0UL; i<fd_num_builtins(); i++ ) {
-    if( builtins[i].core_bpf_migration_config && FD_FEATURE_ACTIVE_OFFSET( fd_bank_slot_get( slot_ctx->bank ), fd_bank_features_get( slot_ctx->bank ), builtins[i].core_bpf_migration_config->enable_feature_offset ) ) {
+    // https://github.com/anza-xyz/agave/blob/v2.3.7/runtime/src/bank.rs#L4949
+    if( (fd_bank_slot_get(slot_ctx->bank) == 0) && builtins[i].enable_feature_offset==NO_ENABLE_FEATURE_ID && !fd_builtin_is_bpf( slot_ctx, builtins[i].pubkey) ) {
+      fd_write_builtin_account( slot_ctx, *builtins[i].pubkey, builtins[i].data, strlen(builtins[i].data) );
+    } else if( builtins[i].core_bpf_migration_config && FD_FEATURE_ACTIVE_OFFSET( fd_bank_slot_get( slot_ctx->bank ), fd_bank_features_get( slot_ctx->bank ), builtins[i].core_bpf_migration_config->enable_feature_offset ) ) {
       continue;
     } else if( builtins[i].enable_feature_offset!=NO_ENABLE_FEATURE_ID && !FD_FEATURE_ACTIVE_OFFSET( fd_bank_slot_get( slot_ctx->bank ), fd_bank_features_get( slot_ctx->bank ), builtins[i].enable_feature_offset ) ) {
       continue;
     } else {
       fd_write_builtin_account( slot_ctx, *builtins[i].pubkey, builtins[i].data, strlen(builtins[i].data) );
     }
-  }
-
-  //TODO: remove when no longer necessary
-  if( FD_FEATURE_ACTIVE_BANK( slot_ctx->bank, zk_token_sdk_enabled ) ) {
-    fd_write_builtin_account( slot_ctx, fd_solana_zk_token_proof_program_id, "zk_token_proof_program", 22UL );
-  }
-
-  if( FD_FEATURE_ACTIVE_BANK( slot_ctx->bank, zk_elgamal_proof_program_enabled ) ) {
-    fd_write_builtin_account( slot_ctx, fd_solana_zk_elgamal_proof_program_id, "zk_elgamal_proof_program", 24UL );
   }
 
   /* Precompiles have empty account data */

@@ -54,6 +54,21 @@ execve_as_root( int     argc,
   FD_LOG_ERR(( "execve(sudo) failed (%i-%s)", errno, fd_io_strerror( errno ) ));
 }
 
+int is_debugger_attached(void) {
+  FILE *f = fopen("/proc/self/status", "r");
+  if (!f) return 0;
+  char buf[256];
+  while (fgets(buf, sizeof(buf), f)) {
+    if (strncmp(buf, "TracerPid:", 10) == 0) {
+      int tracer_pid = atoi(buf + 10);
+      fclose(f);
+      return tracer_pid != 0;
+    }
+  }
+  fclose(f);
+  return 0;
+}
+
 config_t config;
 
 int
@@ -144,8 +159,13 @@ fd_dev_main( int                        argc,
         FD_LOG_ERR(( "insufficient permissions to execute command `%s` when running as root. "
                      "fddev is likely being run with a reduced capability bounding set.", action_name ));
       }
-      FD_LOG_INFO(( "insufficient permissions to execute command `%s`, rerunning as root", action_name ));
-      execve_as_root( orig_argc, orig_argv );
+      if( !is_debugger_attached() ) {
+        FD_LOG_INFO(( "insufficient permissions to execute command `%s`, rerunning as root", action_name ));
+        execve_as_root( orig_argc, orig_argv );
+      } else {
+        // The check for is_live_cluster above will prevent the debugger from changing the behavior of a live_cluster client...
+        FD_LOG_INFO(( "insufficient permissions to execute command `%s` but a debugger is attached so we cannot rerun as root.. moving on..", action_name ));
+      }
     }
   }
 

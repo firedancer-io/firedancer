@@ -75,6 +75,12 @@ fd_hashes_update_lthash( fd_txn_account_t const  * account,
   /* Add the new hash of the account to the bank lthash */
   fd_lthash_add( bank_lthash, new_hash );
 
+//  FD_LOG_NOTICE(( "fd_hashes_update_lthash, add,%s,%s",
+//                    FD_BASE58_ENC_32_ALLOCA( account->pubkey ),
+//                    FD_LTHASH_ENC_32_ALLOCA( (fd_lthash_value_t *) new_hash )
+//      ));
+
+  /* Release the modification reference acquired above. */
   fd_bank_lthash_end_locking_modify( bank );
 
   /* Write the new account state to the capture file */
