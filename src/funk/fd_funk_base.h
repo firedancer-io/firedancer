@@ -290,7 +290,7 @@ fd_funk_txn_xid_copy( fd_funk_txn_xid_t *       xd,
 FD_FN_PURE static inline int
 fd_funk_txn_xid_eq_root( fd_funk_txn_xid_t const * x ) {
   ulong const * a = x->ul;
-  return !(a[0] | a[1]);
+  return ((a[0] == ULONG_MAX) & (a[1] == ULONG_MAX));
 }
 
 /* fd_funk_txn_xid_set_root sets transaction id pointed to by x to the
@@ -300,7 +300,7 @@ fd_funk_txn_xid_eq_root( fd_funk_txn_xid_t const * x ) {
 static inline fd_funk_txn_xid_t *
 fd_funk_txn_xid_set_root( fd_funk_txn_xid_t * x ) {
   ulong * a = x->ul;
-  a[0] = 0UL; a[1] = 0UL;
+  a[0] = ULONG_MAX; a[1] = ULONG_MAX;
   return x;
 }
 

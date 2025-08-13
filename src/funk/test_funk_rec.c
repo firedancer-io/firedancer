@@ -111,7 +111,7 @@ main( int     argc,
       rec_t *               rrec = rec_query_global( ref, NULL, rkey );
       fd_funk_rec_t const * trec = fd_funk_rec_query_try_global( tst, NULL, tkey, NULL, rec_query );
       if( !rrec || rrec->erase ) FD_TEST( !trec );
-      else                       FD_TEST( trec && xid_eq( fd_funk_rec_xid( trec ), rrec->txn ? rrec->txn->xid : 0UL ) );
+      else                       FD_TEST( trec && xid_eq( fd_funk_rec_xid( trec ), rrec->txn ? rrec->txn->xid : ULONG_MAX ) );
       FD_TEST( !fd_funk_rec_query_test( rec_query ) );
 
 #ifdef FD_FUNK_HANDHOLDING
@@ -199,7 +199,7 @@ main( int     argc,
       fd_funk_rec_t const * trec = fd_funk_rec_query_try_global( tst, ttxn, tkey, NULL, rec_query );
       if( !rrec || rrec->erase ) FD_TEST( !trec );
       else {
-        FD_TEST( trec && xid_eq( fd_funk_rec_xid( trec ), rrec->txn ? rrec->txn->xid : 0UL ) );
+        FD_TEST( trec && xid_eq( fd_funk_rec_xid( trec ), rrec->txn ? rrec->txn->xid : ULONG_MAX ) );
       }
       FD_TEST( !fd_funk_rec_query_test( rec_query ) );
 
@@ -256,7 +256,7 @@ main( int     argc,
     rec_t * rrec = ref->rec_map_head;
     while( rrec ) {
 
-      ulong rxid = rrec->txn ? rrec->txn->xid : 0UL;
+      ulong rxid = rrec->txn ? rrec->txn->xid : ULONG_MAX;
       ulong rkey = rrec->key;
 
       xid_set( txid, rxid );

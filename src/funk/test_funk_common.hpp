@@ -8,10 +8,10 @@
 #include <unistd.h>
 #include <sys/stat.h>
 
-static const long ROOT_KEY = 0;
-static const ulong MAX_TXNS = 100;
+static const ulong ROOT_KEY     = ULONG_MAX;
+static const ulong MAX_TXNS     = 100;
 static const ulong MAX_CHILDREN = 100;
-static const uint MAX_PARTS = 8;
+static const uint MAX_PARTS     = 8;
 
 struct fake_rec {
     ulong _key;
@@ -354,6 +354,7 @@ struct fake_funk {
         fd_funk_rec_t const * rec = fd_funk_all_iter_ele_const( iter );
         auto const * xid = fd_funk_rec_xid( rec );
         auto i = _txns.find(xid->ul[0]);
+
         assert(i != _txns.end());
         auto const * key = fd_funk_rec_key( rec );
         auto& recs = i->second->_recs;

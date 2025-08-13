@@ -316,7 +316,7 @@ funk_new( void ) {
   funk_t * funk = (funk_t *)malloc( sizeof(funk_t) );
   if( !funk ) FD_LOG_ERR(( "insufficient memory for unit test" ));
 
-  funk->last_publish = 0UL;
+  funk->last_publish = ULONG_MAX;
   funk->child_head   = NULL;
   funk->child_tail   = NULL;
   funk->txn_map_head = NULL;

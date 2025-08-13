@@ -196,9 +196,6 @@ fd_flamenco_txn_decode( void * mem, fd_bincode_decode_ctx_t * ctx );
 void
 fd_flamenco_txn_decode_inner( void * struct_mem, void * * alloc_mem, fd_bincode_decode_ctx_t * ctx );
 
-/* Represents the lamport balance associated with an account. */
-typedef ulong fd_acc_lamports_t;
-
 typedef struct fd_rust_duration fd_rust_duration_t;
 
 void
