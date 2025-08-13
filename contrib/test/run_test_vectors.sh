@@ -36,7 +36,7 @@ else
 fi
 
 if ! git checkout -q $GIT_REF; then
-  git fetch -q --depth=1 origin $GIT_REF
+  git remote update
   git checkout -q FETCH_HEAD
 fi
 cd ../..
@@ -51,23 +51,13 @@ fi
 
 SOL_COMPAT=( "$OBJDIR/unit-test/test_sol_compat" "--wksp" "$WKSP" --tile-cpus "f,0-$(( $NUM_PROCESSES - 1 ))" )
 
-export FD_LOG_PATH=$LOG_PATH/test_exec_block
-${SOL_COMPAT[@]} dump/test-vectors/block/fixtures
-
-export FD_LOG_PATH=$LOG_PATH/test_exec_syscall
-${SOL_COMPAT[@]} dump/test-vectors/syscall/fixtures
-
-export FD_LOG_PATH=$LOG_PATH/test_exec_interp
-${SOL_COMPAT[@]} dump/test-vectors/vm_interp/fixtures
-
-export FD_LOG_PATH=$LOG_PATH/test_exec_txn
-${SOL_COMPAT[@]} dump/test-vectors/txn/fixtures
-
-zstd -df dump/test-vectors/elf_loader/fixtures/*.zst
-export FD_LOG_PATH=$LOG_PATH/test_elf_loader
-${SOL_COMPAT[@]} dump/test-vectors/elf_loader/fixtures
-
-export FD_LOG_PATH=$LOG_PATH/test_exec_instr
-${SOL_COMPAT[@]} dump/test-vectors/instr/fixtures
+export FD_LOG_PATH=$LOG_PATH/solfuzz.log
+${SOL_COMPAT[@]} \
+  dump/test-vectors/block/fixtures \
+  dump/test-vectors/syscall/fixtures \
+  dump/test-vectors/vm_interp/fixtures \
+  dump/test-vectors/txn/fixtures \
+  dump/test-vectors/elf_loader/fixtures \
+  dump/test-vectors/instr/fixtures
 
 echo Test vectors success

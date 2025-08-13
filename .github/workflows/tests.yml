@@ -114,6 +114,14 @@ jobs:
           source /opt/${{ matrix.compiler }}/${{ matrix.compiler }}-${{ matrix.compiler-version }}/activate
           make run-fuzz-test
 
+      - name: check out test-vectors
+        if: ${{ matrix.run-unit-tests && matrix.test-case == 'native' }}
+        uses: actions/checkout@v5
+        with:
+          repository: firedancer-io/test-vectors
+          path: dump/test-vectors
+          fetch-depth: 20
+
       - name: run test-vector tests
         if: ${{ matrix.run-unit-tests && matrix.test-case == 'native' }}
         run: |
