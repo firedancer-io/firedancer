@@ -161,6 +161,7 @@ init( config_t const * config ) {
     }
   }
 
+  if( FD_UNLIKELY( errno && errno!=ENOENT ) ) FD_LOG_ERR(( "readdir() (%i-%s)", errno, fd_io_strerror( errno ) ));
   if( FD_UNLIKELY( -1==closedir( dir ) ) ) FD_LOG_ERR(( "closedir (%i-%s)", errno, fd_io_strerror( errno ) ));
 
   long started = fd_log_wallclock();

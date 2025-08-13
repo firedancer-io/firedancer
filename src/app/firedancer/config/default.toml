@@ -329,6 +329,15 @@ user = ""
     # are integrated with gossip
     cluster = "testnet"
 
+    # Controls how many full snapshots are allowed to be kept in the
+    # snapshots directory on disk.
+    #
+    # Firedancer does not currently support creating snapshots, and so
+    # these values are only checked once on boot.  Any excess snapshots
+    # will be deleted, oldest snapshot slot first.
+    max_full_snapshots_to_keep = 1
+    max_incremental_snapshots_to_keep = 1
+
 [rpc]
     # If nonzero, enable JSON RPC on this port, and use the next port
     # for the RPC websocket.  If zero, disable JSON RPC.

@@ -160,8 +160,8 @@ fd_file_util_rmtree( char const * path,
     }
   }
 
-  if( FD_UNLIKELY( -1==closedir( dir ) ) )            return -1;
-  if( FD_UNLIKELY( errno && errno!=ENOENT ) )         return -1;
+  if( FD_UNLIKELY( errno && errno!=ENOENT ) )   return -1;
+  if( FD_UNLIKELY( -1==closedir( dir ) ) )      return -1;
   if( FD_LIKELY( remove_root && -1==rmdir( path ) ) ) return -1;
 
   return 0;
