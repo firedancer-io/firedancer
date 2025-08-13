@@ -2061,7 +2061,6 @@ fd_runtime_process_new_epoch( fd_exec_slot_ctx_t * slot_ctx,
     FD_LOG_ERR(( "StakeHistory sysvar could not be read and decoded" ));
   }
 
-  /* FIXME: There are allocations made in here that are persisted. */
   fd_refresh_vote_accounts( slot_ctx,
                             history,
                             new_rate_activation_epoch );
