@@ -1058,12 +1058,13 @@ tx_pull_request( fd_gossip_t *       gossip,
   ulong total_crds_vals = fd_crds_len( gossip->crds ) + fd_crds_purged_len( gossip->crds );
   ulong num_items       = fd_ulong_max( 512UL, total_crds_vals );
 
-  double max_items      = fd_bloom_max_items( (double)BLOOM_FILTER_MAX_BITS, BLOOM_NUM_KEYS, BLOOM_FALSE_POSITIVE_RATE );
-  ulong  num_bits       = fd_bloom_num_bits( max_items, BLOOM_FALSE_POSITIVE_RATE, (double)BLOOM_FILTER_MAX_BITS );
+  double max_bits       = (double)fd_gossip_pull_request_max_filter_bits( BLOOM_NUM_KEYS, gossip->my_contact_info.crds_val_sz, FD_GOSSIP_MTU );
+  double max_items      = fd_bloom_max_items( max_bits, BLOOM_NUM_KEYS, BLOOM_FALSE_POSITIVE_RATE );
+  ulong  num_bits       = fd_bloom_num_bits( max_items, BLOOM_FALSE_POSITIVE_RATE, max_bits );
 
   double _mask_bits     = ceil( log2( (double)num_items / max_items ) );
-  uint mask_bits        = _mask_bits >= 0.0 ? (uint)_mask_bits : 0UL;
-  ulong mask            = fd_rng_ulong( gossip->rng ) | (~0UL>>(mask_bits));
+  uint   mask_bits      = _mask_bits >= 0.0 ? (uint)_mask_bits : 0UL;
+  ulong  mask           = fd_rng_ulong( gossip->rng ) | (~0UL>>(mask_bits));
 
 
   uchar payload[ FD_GOSSIP_MTU ];

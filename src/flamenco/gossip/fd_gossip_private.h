@@ -129,11 +129,11 @@ typedef struct fd_gossip_view_version fd_gossip_view_version_t;
    + 1b  (ext_len)
    = 65b
 
-  This leaves us with 1146b - 65b = 1081b to hold addrs, sockets or
+  This leaves us with 1188b - 65b = 1123b to hold addrs, sockets or
   extensions. */
 
 /* TODO: Check with Michael, these bounds feel too high */
-#define FD_GOSSIP_CONTACT_INFO_MAX_ADDRESSES (135UL) /* 1081b/8b (disc + ip4 addr) */
+#define FD_GOSSIP_CONTACT_INFO_MAX_ADDRESSES (141UL) /* 1123b/8b (disc + ip4 addr) */
 
 /* Minimum size socket entry is
      1b (key)
@@ -141,7 +141,7 @@ typedef struct fd_gossip_view_version fd_gossip_view_version_t;
    + 1b (offset)
    = 3b */
 
-#define FD_GOSSIP_CONTACT_INFO_MAX_SOCKETS (360UL) /* 1081b/3b (socket entry) */
+#define FD_GOSSIP_CONTACT_INFO_MAX_SOCKETS (375UL) /* 1123b/3b (socket entry) */
 
 struct fd_gossip_view_contact_info {
   long                     instance_creation_wallclock_nanos;
@@ -317,9 +317,9 @@ fd_gossip_msg_parse( fd_gossip_view_t *   view,
                      ulong                payload_sz );
 
 FD_FN_CONST static inline ulong
-fd_gossip_pull_request_max_bits( ulong num_keys,
-                                 ulong contact_info_crds_sz,
-                                 ulong payload_sz ) {
+fd_gossip_pull_request_max_filter_bits( ulong num_keys,
+                                        ulong contact_info_crds_sz,
+                                        ulong payload_sz ) {
   return 8UL*( payload_sz
              - 4UL          /* discriminant */
              - 8UL          /* keys len */
