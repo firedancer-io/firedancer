@@ -31,6 +31,8 @@ fd_stake_weights_by_node( fd_vote_states_t const * vote_states,
 static void
 dump_vote_and_stake_states( fd_vote_states_t const *       vote_states,
                             fd_stake_delegations_t const * stake_delegations ) {
+
+  return;
   fd_stake_delegation_map_t * stake_delegation_map  = fd_stake_delegations_get_map( stake_delegations );
   fd_stake_delegation_t *     stake_delegation_pool = fd_stake_delegations_get_pool( stake_delegations );
 
