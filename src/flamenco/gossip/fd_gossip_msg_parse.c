@@ -271,56 +271,25 @@ version_parse( fd_gossip_view_version_t * version,
    - All addresses are referenced at least once across all sockets
    https://github.com/anza-xyz/agave/blob/540d5bc56cd44e3cc61b179bd52e9a782a2c99e4/gossip/src/contact_info.rs#L599 */
 
-struct ipv4_entry {
-  uint ip4_addr;
+#define SET_NAME ip4_seen_set
+#define SET_MAX  (1<<15)
+#include "../../util/tmpl/fd_set.c"
+
+#define SET_NAME ip6_seen_set
+#define SET_MAX  (1<<14)
+#include "../../util/tmpl/fd_set.c"
+
+struct ipv6_addr {
+  ulong hi;
+  ulong lo;
 };
-typedef struct ipv4_entry ipv4_entry_t;
 
-#define MAP_NAME              ipv4_set
-#define MAP_T                 ipv4_entry_t
-#define MAP_LG_SLOT_CNT       8
-#define MAP_KEY_T             uint
-#define MAP_KEY               ip4_addr
-#define MAP_KEY_NULL          0U
-#define MAP_KEY_INVAL(k)      (!(k))
-#define MAP_KEY_EQUAL(k0,k1)  ((k0)==(k1))
-#define MAP_KEY_HASH(k)       fd_uint_hash(k)
-#define MAP_MEMOIZE           0
-#define MAP_KEY_EQUAL_IS_SLOW 0
-#include "../../util/tmpl/fd_map.c"
+typedef struct ipv6_addr ipv6_addr_t;
 
-struct ipv6_entry {
-  fd_gossip_view_ipv6_addr_t ip6;
-  uint                       hash;
-};
-typedef struct ipv6_entry ipv6_entry_t;
-
-static inline int
-ipv6_key_inval( fd_gossip_view_ipv6_addr_t k ) {
-  return (k.hi == 0UL) & (k.lo == 0UL);
+static inline ulong
+ipv6_hash( ipv6_addr_t const * addr ) {
+return fd_ulong_hash( addr->hi ^ fd_ulong_hash( addr->lo ) );
 }
-
-static inline int
-ipv6_key_equal( fd_gossip_view_ipv6_addr_t k0, fd_gossip_view_ipv6_addr_t k1 ) {
-  return (k0.hi == k1.hi) & (k0.lo == k1.lo);
-}
-
-static inline uint
-ipv6_key_hash( fd_gossip_view_ipv6_addr_t k ) {
-  return (uint)fd_ulong_hash( k.hi ^ fd_ulong_hash( k.lo ) );
-}
-
-#define MAP_NAME              ipv6_set
-#define MAP_T                 ipv6_entry_t
-#define MAP_LG_SLOT_CNT       7
-#define MAP_KEY_T             fd_gossip_view_ipv6_addr_t
-#define MAP_KEY               ip6
-#define MAP_KEY_NULL          ((fd_gossip_view_ipv6_addr_t){0UL, 0UL})
-#define MAP_KEY_INVAL         ipv6_key_inval
-#define MAP_KEY_EQUAL         ipv6_key_equal
-#define MAP_KEY_HASH          ipv6_key_hash
-#define MAP_KEY_EQUAL_IS_SLOW 0
-#include "../../util/tmpl/fd_map.c"
 
 /* Existing sets for socket validation */
 #define SET_NAME addr_idx_set
@@ -350,35 +319,24 @@ fd_gossip_msg_crds_contact_info_parse( fd_gossip_view_crds_value_t * crds_val,
   READ_CHECKED_COMPACT_U16( decode_sz, crds_val->contact_info->addrs_len, CUR_OFFSET )                                         ; INC( decode_sz );
   CHECK( crds_val->contact_info->addrs_len<=FD_GOSSIP_CONTACT_INFO_MAX_ADDRESSES );
 
-  /* Init hash sets for uniqueness checks */
-  ipv4_entry_t ipv4_map[ ipv4_set_slot_cnt() ];
-  ipv6_entry_t ipv6_map[ ipv6_set_slot_cnt() ];
-  ipv4_set_new( ipv4_map );
-  ipv6_set_new( ipv6_map );
-
-  /* Flags to track null IP addresses (0.0.0.0 and ::) since they are
-     KEY_INVALs in their respective set impls */
-  int null_ipv4_seen = 0;
-  int null_ipv6_seen = 0;
+  ip4_seen_set_t ip4_seen[ ip4_seen_set_word_cnt ];
+  ip6_seen_set_t ip6_seen[ ip6_seen_set_word_cnt ];
+  ip4_seen_set_new( ip4_seen );
+  ip6_seen_set_new( ip6_seen );
 
   for( ulong i=0UL; i<crds_val->contact_info->addrs_len; i++ ) {
     fd_gossip_view_ipaddr_t * addr = &crds_val->contact_info->addrs[i];
     CHECK_LEFT( 4U ); addr->is_ip6 = FD_LOAD( uchar, CURSOR )                                                                  ; INC( 4U );
     if( FD_LIKELY( !addr->is_ip6 ) ) {
       CHECK_LEFT( 4U ); addr->ip4 = FD_LOAD( uint, CURSOR )                                                                    ; INC( 4U );
-      if( FD_UNLIKELY( !addr->ip4 ) ) {
-        CHECK( !null_ipv4_seen ); null_ipv4_seen = 1;
-      } else {
-        CHECK( ipv4_set_insert( ipv4_map, addr->ip4 ) != NULL );
-      }
+      ulong idx = fd_uint_hash( addr->ip4 )&(ip4_seen_set_max( ip4_seen )-1);
+      CHECK( !ip4_seen_set_test( ip4_seen, idx ) ); /* Should not be set initially */
+      ip4_seen_set_insert( ip4_seen, idx );
     } else {
-      CHECK_LEFT( 16U ); addr->ip6.hi = FD_LOAD( ulong, CURSOR ); addr->ip6.lo = FD_LOAD( ulong, CURSOR+8 )                    ; INC( 16U );
-      if( FD_UNLIKELY( (addr->ip6.hi==0UL) & (addr->ip6.lo==0UL) ) ) {
-        CHECK( !null_ipv6_seen ); null_ipv6_seen = 1;
-      } else {
-        ipv6_entry_t * ipv6_entry = ipv6_set_insert( ipv6_map, addr->ip6 );
-        CHECK( ipv6_entry!=NULL );
-      }
+      CHECK_LEFT( 16U ); addr->ip6_off = CUR_OFFSET                                                                            ; INC( 16U );
+      ulong idx = ipv6_hash( (ipv6_addr_t *)(payload+addr->ip6_off) )&(ip6_seen_set_max( ip6_seen )-1);
+      CHECK( !ip6_seen_set_test( ip6_seen, idx ) );
+      ip6_seen_set_insert( ip6_seen, idx );
     }
   }
 

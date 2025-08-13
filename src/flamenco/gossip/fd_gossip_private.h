@@ -75,19 +75,11 @@ FD_STATIC_ASSERT( FD_GOSSIP_SNAPSHOT_HASHES_MAX_INCREMENTAL==25UL,
 #define FD_GOSSIP_UPDATE_SZ_DUPLICATE_SHRED     (offsetof(fd_gossip_update_message_t, duplicate_shred) + sizeof(fd_gossip_duplicate_shred_t))
 #define FD_GOSSIP_UPDATE_SZ_SNAPSHOT_HASHES     (offsetof(fd_gossip_update_message_t, snapshot_hashes) + sizeof(fd_gossip_snapshot_hashes_t))
 
-/* IPv6 address type for hash set keys */
-struct fd_gossip_view_ipv6_addr {
-  ulong hi;
-  ulong lo;
-};
-
-typedef struct fd_gossip_view_ipv6_addr fd_gossip_view_ipv6_addr_t;
-
 struct fd_gossip_view_ipaddr {
   uchar   is_ip6;
   union {
-    uint                       ip4;
-    fd_gossip_view_ipv6_addr_t ip6;
+    uint   ip4;
+    ushort ip6_off;
   };
 };
 
