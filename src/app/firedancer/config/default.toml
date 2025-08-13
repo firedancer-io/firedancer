@@ -245,6 +245,87 @@ user = ""
 # nodes, and all snapshot related configuration is for downloading and
 # using snapshots when booting the validator.
 [snapshots]
+    # Controls for where we look to find snapshots.  If multiple sources
+    # and peers are available, the one with the lowest latency and
+    # fastest download will be automatically selected among them.
+    #
+    # Somtimes, if a slightly slower peer is serving a newer snapshot
+    # than a faster peer, the slower peer will be selected if it will
+    # enable full validator startup to complete earlier, due to reduced
+    # catchup time once the snapshot is loaded.
+    #
+    # Snapshot download is hard to trust, as the protocol has no way to
+    # fully verify the downloaded contents (snapshots are not signed or
+    # fully validated).  If your node downloads a snapshot from an
+    # untrusted or compromised peer, it may initially appear to
+    # validate and work well, but could later crash, corrupt, or cause
+    # your node to vote incorrectly in an attacker controlled way.
+    #
+    # It is strongly recommended to only fetch snapshots from peers that
+    # you highly trust, and this is the default behavior of the
+    # configuration.
+    [snapshots.sources]
+        # Allow fetching of snapshots from peers specified in the gossip
+        # entrypoints.  Gossip entrypoints must be peers that are highly
+        # trusted as they are used to bootstrap your node.
+        [snapshots.sources.entrypoints]
+            enabled = true
+
+        # Allow fetching of snapshots from arbitrary gossip peers that
+        # are hosting a snapshot server.  This may allow faster snapshot
+        # download if a peer in a local data-center is serving a good
+        # snapshot, but it is extremely dangerous as the peer could
+        # serve you a specially crafted malicious snapshot with no way
+        # to tell.
+        [snapshots.sources.gossip]
+            enabled = false
+
+        # If true, only snapshots with a snapshot hash that is
+        # reported by a gossip entrypoint will be downloaded.  The
+        # snapshot does not need to be specifically fetched from an
+        # entrypoint itself, but just have a hash that matches those
+        # reported by the trusted entrypoints.
+        #
+        # This has little to no effect on security, and does not
+        # mean you can download snapshots from untrusted nodes.
+        # This is because the snapshot hash only hashes accounts, not
+        # other non-account data like the genesis configuration
+        # parameters and capitalization.
+        known_hashes_only = true
+    
+    # If any HTTP peers are listed, the following paths will be
+    # fetched from these peers to determine if they have a snapshot
+    # available:
+    #
+    #  /snapshot.tar.bz2
+    #  /incremental-snapshot.tar.bz2
+    #
+    # If these peers have snapshots at the given paths, they will be
+    # considered as sources for downloading snapshots.  If enabled,
+    # the validator will only download snapshots from these listed
+    # peers and will not use peers discovered from gossip nor the
+    # gossip entrypoints.
+    [snapshots.sources.http]
+        # Whether to enable fetching snapshots from a list of
+        # HTTP peers.
+        enabled = false
+
+        # A list of http peers to fetch snapshots from.
+        # Example: peers = ["http://example.com:1234", "http://example.com:5678"]
+        peers = []
+    
+    # Controls how many snapshots are kept on disk when the validator
+    # boots up.  Setting these values to zero will disable loading
+    # snapshots from disk.  If there are more snapshots than the
+    # values specified here, the oldest snapshots will be removed by
+    # slot.
+    [snapshots.archive]
+        # The maximum number of full snapshots to keep on disk.
+        max_full_snapshots_to_keep = 1
+
+        # The maximum number of incremental snapshots to keep on disk.
+        max_incremental_snapshots_to_keep = 1
+
     # Whether to enable loading from incremental snapshots.
     #
     # If set to false, the validator will only load from a full snapshot.
@@ -323,11 +404,6 @@ user = ""
     # If set to zero, the validator will continually retry until
     # completing snapshot download.
     maximum_download_retry_abort = 5
-
-    # The cluster to download snapshots from.  This is a temporary
-    # config option that will be removed once the snapshot tiles
-    # are integrated with gossip
-    cluster = "testnet"
 
 [rpc]
     # If nonzero, enable JSON RPC on this port, and use the next port
