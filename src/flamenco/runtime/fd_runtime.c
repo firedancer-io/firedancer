@@ -1196,9 +1196,6 @@ fd_runtime_finalize_txn( fd_funk_t *         funk,
         FD_LOG_CRIT(( "fd_runtime_finalize_txn: failed to join account at idx %u", i ));
       }
 
-      /* Reclaim any accounts that have 0-lamports */
-      fd_executor_reclaim_account( txn_ctx, &txn_ctx->accounts[i] );
-
       if( dirty_vote_acc && 0==memcmp( fd_txn_account_get_owner( acc_rec ), &fd_solana_vote_program_id, sizeof(fd_pubkey_t) ) ) {
         fd_vote_store_account( acc_rec, bank );
       }
@@ -1206,6 +1203,10 @@ fd_runtime_finalize_txn( fd_funk_t *         funk,
       if( 0==memcmp( fd_txn_account_get_owner( acc_rec ), &fd_solana_stake_program_id, sizeof(fd_pubkey_t) ) ) {
         fd_update_stake_delegation( acc_rec, bank );
       }
+
+      /* Reclaim any accounts that have 0-lamports, now that any related
+         cache updates have been applied. */
+      fd_executor_reclaim_account( txn_ctx, &txn_ctx->accounts[i] );
 
       fd_runtime_save_account( funk, funk_txn, &txn_ctx->accounts[i], bank, txn_ctx->spad_wksp, capture_ctx );
     }
