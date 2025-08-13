@@ -1,5 +1,5 @@
 // Source originally from https://github.com/BLAKE3-team/BLAKE3
-// From commit: 64747d48ffe9d1fbf4b71e94cabeb8a211461081
+// From commit: dcff6b65acdd978863512c2d9c1359aef2564ea4
 
 #include "blake3_impl.h"
 #include <string.h>
@@ -84,10 +84,10 @@ INLINE void compress_pre(uint32_t state[16], const uint32_t cv[8],
   round_fn(state, &block_words[0], 6);
 }
 
-void fd_blake3_compress_in_place_portable(uint32_t cv[8],
-                                          const uint8_t block[BLAKE3_BLOCK_LEN],
-                                          uint8_t block_len, uint64_t counter,
-                                          uint8_t flags) {
+void blake3_compress_in_place_portable(uint32_t cv[8],
+                                       const uint8_t block[BLAKE3_BLOCK_LEN],
+                                       uint8_t block_len, uint64_t counter,
+                                       uint8_t flags) {
   uint32_t state[16];
   compress_pre(state, cv, block, block_len, counter, flags);
   cv[0] = state[0] ^ state[8];
@@ -100,10 +100,10 @@ void fd_blake3_compress_in_place_portable(uint32_t cv[8],
   cv[7] = state[7] ^ state[15];
 }
 
-void fd_blake3_compress_xof_portable(const uint32_t cv[8],
-                                     const uint8_t block[BLAKE3_BLOCK_LEN],
-                                     uint8_t block_len, uint64_t counter,
-                                     uint8_t flags, uint8_t out[64]) {
+void blake3_compress_xof_portable(const uint32_t cv[8],
+                                  const uint8_t block[BLAKE3_BLOCK_LEN],
+                                  uint8_t block_len, uint64_t counter,
+                                  uint8_t flags, uint8_t out[64]) {
   uint32_t state[16];
   compress_pre(state, cv, block, block_len, counter, flags);
 
@@ -136,8 +136,8 @@ INLINE void hash_one_portable(const uint8_t *input, size_t blocks,
     if (blocks == 1) {
       block_flags |= flags_end;
     }
-    fd_blake3_compress_in_place_portable(cv, input, BLAKE3_BLOCK_LEN, counter,
-                                         block_flags);
+    blake3_compress_in_place_portable(cv, input, BLAKE3_BLOCK_LEN, counter,
+                                      block_flags);
     input = &input[BLAKE3_BLOCK_LEN];
     blocks -= 1;
     block_flags = flags;
@@ -145,11 +145,11 @@ INLINE void hash_one_portable(const uint8_t *input, size_t blocks,
   store_cv_words(out, cv);
 }
 
-void fd_blake3_hash_many_portable(const uint8_t *const *inputs, size_t num_inputs,
-                                  size_t blocks, const uint32_t key[8],
-                                  uint64_t counter, bool increment_counter,
-                                  uint8_t flags, uint8_t flags_start,
-                                  uint8_t flags_end, uint8_t *out) {
+void blake3_hash_many_portable(const uint8_t *const *inputs, size_t num_inputs,
+                               size_t blocks, const uint32_t key[8],
+                               uint64_t counter, bool increment_counter,
+                               uint8_t flags, uint8_t flags_start,
+                               uint8_t flags_end, uint8_t *out) {
   while (num_inputs > 0) {
     hash_one_portable(inputs[0], blocks, key, counter, flags, flags_start,
                       flags_end, out);
