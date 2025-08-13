@@ -30,14 +30,25 @@
 
 #include "../../util/rng/fd_rng.h"
 #include "../../util/net/fd_net_headers.h"
-#include "crds/fd_crds.h"
 
 #define FD_PING_TRACKER_ALIGN (128UL)
 
 #define FD_PING_TRACKER_MAGIC (0xF17EDA2CE0113100) /* FIREDANCE PINGT V0 */
 
+#define FD_PING_TRACKER_MAX (65536UL)
+
 struct fd_ping_tracker_private;
 typedef struct fd_ping_tracker_private fd_ping_tracker_t;
+
+#define FD_PING_TRACKER_CHANGE_TYPE_ACTIVE           (0)
+#define FD_PING_TRACKER_CHANGE_TYPE_INACTIVE         (1)
+#define FD_PING_TRACKER_CHANGE_TYPE_UNTRACKED_STAKED (2)
+
+typedef void (*fd_ping_tracker_change_fn)( void *        ctx,
+                                           uchar const * peer_pubkey,
+                                           fd_ip4_port_t peer_address,
+                                           long          now,
+                                           int           change_type );
 
 FD_PROTOTYPES_BEGIN
 
@@ -45,11 +56,15 @@ FD_FN_CONST ulong
 fd_ping_tracker_align( void );
 
 FD_FN_CONST ulong
-fd_ping_tracker_footprint( void );
+fd_ping_tracker_footprint( ulong entrypoints_len );
 
 void *
-fd_ping_tracker_new( void *     shmem,
-                     fd_rng_t * rng );
+fd_ping_tracker_new( void *                    shmem,
+                     fd_rng_t *                rng,
+                     ulong                     entrypoints_len,
+                     fd_ip4_port_t const *     entrypoints,
+                     fd_ping_tracker_change_fn change_fn,
+                     void *                    change_fn_ctx );
 
 fd_ping_tracker_t *
 fd_ping_tracker_join( void * shpt );
@@ -65,11 +80,11 @@ fd_ping_tracker_join( void * shpt );
    internally update the information. */
 
 void
-fd_ping_tracker_track( fd_ping_tracker_t *   ping_tracker,
-                       uchar const *         peer_pubkey,
-                       ulong                 peer_stake,
-                       fd_ip4_port_t const * peer_address,
-                       long                  now );
+fd_ping_tracker_track( fd_ping_tracker_t * ping_tracker,
+                       uchar const *       peer_pubkey,
+                       ulong               peer_stake,
+                       fd_ip4_port_t       peer_address,
+                       long                now );
 
 /* fd_ping_tracker_register registers a response pong from a peer so
    that they can be considered as valid.  It should be called any time
@@ -80,13 +95,12 @@ fd_ping_tracker_track( fd_ping_tracker_t *   ping_tracker,
    If a peer is marked as active, notify crds. */
 
 void
-fd_ping_tracker_register( fd_ping_tracker_t *   ping_tracker,
-                          fd_crds_t *           crds,
-                          uchar const *         peer_pubkey,
-                          ulong                 peer_stake,
-                          fd_ip4_port_t const * peer_address,
-                          uchar const *         pong_token,
-                          long                  now );
+fd_ping_tracker_register( fd_ping_tracker_t * ping_tracker,
+                          uchar const *       peer_pubkey,
+                          ulong               peer_stake,
+                          fd_ip4_port_t       peer_address,
+                          uchar const *       pong_token,
+                          long                now );
 
 /* fd_ping_tracker_active returns 1 if a peer is actively responding to
    pings at the provided address, and we can send data to them, or zero
@@ -100,7 +114,7 @@ int
 fd_ping_tracker_active( fd_ping_tracker_t const * ping_tracker,
                         uchar const *             peer_pubkey,
                         ulong                     peer_stake,
-                        fd_ip4_port_t const *     peer_address,
+                        fd_ip4_port_t             peer_address,
                         long                      now );
 
 /* fd_ping_tracker_pop_request informs the caller if a ping request
@@ -122,7 +136,6 @@ fd_ping_tracker_active( fd_ping_tracker_t const * ping_tracker,
 int
 fd_ping_tracker_pop_request( fd_ping_tracker_t *    ping_tracker,
                              long                   now,
-                             fd_crds_t *            crds,
                              uchar const **         out_peer_pubkey,
                              fd_ip4_port_t const ** out_peer_address,
                              uchar const **         out_token );

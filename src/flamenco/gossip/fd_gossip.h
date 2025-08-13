@@ -6,6 +6,7 @@
 #include "fd_gossip_types.h"
 #include "fd_gossip_out.h"
 #include "fd_gossip_metrics.h"
+#include "fd_ping_tracker.h"
 
 /* TODO: When we get a pull request, respond with ContactInfos first if
    we have any available that are responsive. */
@@ -55,8 +56,6 @@
 struct fd_gossip_private;
 typedef struct fd_gossip_private fd_gossip_t;
 
-
-
 typedef void (*fd_gossip_send_fn)( void *                 ctx,
                                    fd_stem_context_t *    stem,
                                    uchar const *          data,
@@ -76,7 +75,8 @@ FD_FN_CONST ulong
 fd_gossip_align( void );
 
 FD_FN_CONST ulong
-fd_gossip_footprint( ulong max_values );
+fd_gossip_footprint( ulong max_values,
+                     ulong entrypoints_len );
 
 void *
 fd_gossip_new( void *                    shmem,
@@ -90,6 +90,8 @@ fd_gossip_new( void *                    shmem,
                void *                    send_ctx,
                fd_gossip_sign_fn         sign_fn,
                void *                    sign_ctx,
+               fd_ping_tracker_change_fn ping_tracker_change_fn,
+               void *                    ping_tracker_change_fn_ctx,
                fd_gossip_out_ctx_t *     gossip_update_out,
                fd_gossip_out_ctx_t *     gossip_net_out );
 
@@ -171,20 +173,29 @@ fd_gossip_advance( fd_gossip_t *       gossip,
    Receiving a packet might cause response packets to need to be sent
    back to the gossip network.  The response packets are queued for
    later sending.  The caller is responsible for sending the response
-   packets by calling fd_gossip_tx().
+   packets by calling fd_gossip_tx(). */
 
-   Returns 0 on success, and an error code on failure.  Receive side
-   errors are entirely recoverable and do not interrupt the operation of
-   the gossip protocol.  It is highly advised to terminate the
-   application on a DUPLICATE_INSTANCE error to prevent slashable
-   activity. */
-
-int
+void
 fd_gossip_rx( fd_gossip_t *       gossip,
+              fd_ip4_port_t       peer,
               uchar const *       data,
               ulong               data_sz,
               long                now,
               fd_stem_context_t * stem );
+
+/* fd_gossip_ping_tracker_track marks a peer for ping tracking.  The
+   gossip implementation internally keeps track of peers that are
+   sending us contact info messages, but certain messages are already
+   filtered out by the gossvf layer.  If gossvf is filtering out
+   messages because it believes the peer is not active, it will still
+   ask the gossip layer to attempt to ping them, which it notifies with
+   this function. */
+
+void
+fd_gossip_ping_tracker_track( fd_gossip_t * gossip,
+                              uchar const * peer_pubkey,
+                              fd_ip4_port_t peer_address,
+                              long          now );
 
 int
 fd_gossip_push_vote( fd_gossip_t *       gossip,

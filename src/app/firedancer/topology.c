@@ -909,8 +909,7 @@ fd_topo_configure_tile( fd_topo_tile_t * tile,
         tile->gossip.ip_addr = config->net.ip_addr;
       }
       strncpy( tile->gossip.identity_key_path, config->paths.identity_key, sizeof(tile->gossip.identity_key_path) );
-      tile->gossip.has_expected_shred_version = !!config->consensus.expected_shred_version;
-      tile->gossip.expected_shred_version = config->consensus.expected_shred_version;
+      tile->gossip.shred_version = config->consensus.expected_shred_version;
       tile->gossip.max_entries = config->tiles.gossip.max_entries;
 
       tile->gossip.ip_addr = config->net.ip_addr;

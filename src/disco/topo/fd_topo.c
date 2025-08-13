@@ -206,22 +206,14 @@ fd_topo_tile_extra_huge_pages( fd_topo_tile_t const * tile ) {
 FD_FN_PURE static ulong
 fd_topo_tile_extra_normal_pages( fd_topo_tile_t const * tile ) {
   ulong key_pages = 0UL;
-  if( FD_UNLIKELY( !strcmp( tile->name, "sign"   ) ||
-                   !strcmp( tile->name, "shred"  ) ||
-                   !strcmp( tile->name, "poh"    ) ||
-                   !strcmp( tile->name, "quic"   ) ||
-
-                   !strcmp( tile->name, "gossip" ) ||
-                   !strcmp( tile->name, "repair" ) ||
-                   !strcmp( tile->name, "poh"   ) ||
-                   !strcmp( tile->name, "storei" ) ) ) {
+  if( FD_UNLIKELY( tile->keyswitch_obj_id ) ) {
     /* Certain tiles using fd_keyload_load need normal pages to hold
        key material. */
     key_pages = 5UL;
   }
 
   /* All tiles lock one normal page for the fd_log shared lock. */
-  return key_pages + 1UL;
+  return key_pages+1UL;
 }
 
 FD_FN_PURE static ulong

@@ -329,9 +329,9 @@ fd_contact_info_gossip_socket( fd_contact_info_t const * ci ) {
 }
 
 ulong
-fd_gossip_msg_parse( fd_gossip_view_t *   view,
-                     uchar const *        payload,
-                     ulong                payload_sz );
+fd_gossip_msg_parse( fd_gossip_view_t * view,
+                     uchar const *      payload,
+                     ulong              payload_sz );
 
 FD_FN_CONST static inline ulong
 fd_gossip_pull_request_max_filter_bits( ulong num_keys,
