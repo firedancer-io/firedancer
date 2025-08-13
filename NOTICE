@@ -235,7 +235,7 @@ From https://cr.yp.to/chacha.html and https://datatracker.ietf.org/doc/html/rfc7
 =======================================================================
 
 The BLAKE3 implementation in src/ballet/blake3 is currently a modified
-implementation of the BLAKE3 project implementation circa 2023-May.
+implementation of the BLAKE3 project implementation circa 2025-Aug.
 From
 https://github.com/BLAKE3-team/BLAKE3/tree/master/c
 

@@ -1,6 +1,6 @@
 
 // Source originally from https://github.com/BLAKE3-team/BLAKE3
-// From commit: 64747d48ffe9d1fbf4b71e94cabeb8a211461081
+// From commit: 2dd4e57f68d85f3983b1880b66250fc7bdf0b7c8
 
 #include "blake3_impl.h"
 
@@ -171,7 +171,7 @@ INLINE void transpose_vecs(__m256i vecs[DEGREE]) {
   __m256i gh_0145 = _mm256_unpacklo_epi32(vecs[6], vecs[7]);
   __m256i gh_2367 = _mm256_unpackhi_epi32(vecs[6], vecs[7]);
 
-  // Interleave 64-bit lates. The low unpack is lanes 00/22 and the high is
+  // Interleave 64-bit lanes. The low unpack is lanes 00/22 and the high is
   // 11/33.
   __m256i abcd_04 = _mm256_unpacklo_epi64(ab_0145, cd_0145);
   __m256i abcd_15 = _mm256_unpackhi_epi64(ab_0145, cd_0145);
@@ -232,10 +232,10 @@ INLINE void load_counters(uint64_t counter, bool increment_counter,
 }
 
 static
-void fd_blake3_hash8_avx2(const uint8_t *const *inputs, size_t blocks,
-                          const uint32_t key[8], uint64_t counter,
-                          bool increment_counter, uint8_t flags,
-                          uint8_t flags_start, uint8_t flags_end, uint8_t *out) {
+void blake3_hash8_avx2(const uint8_t *const *inputs, size_t blocks,
+                       const uint32_t key[8], uint64_t counter,
+                       bool increment_counter, uint8_t flags,
+                       uint8_t flags_start, uint8_t flags_end, uint8_t *out) {
   __m256i h_vecs[8] = {
       set1(key[0]), set1(key[1]), set1(key[2]), set1(key[3]),
       set1(key[4]), set1(key[5]), set1(key[6]), set1(key[7]),
@@ -291,27 +291,27 @@ void fd_blake3_hash8_avx2(const uint8_t *const *inputs, size_t blocks,
 }
 
 #if FD_HAS_AVX
-void fd_blake3_hash_many_sse41(const uint8_t *const *inputs, size_t num_inputs,
+void blake3_hash_many_sse41(const uint8_t *const *inputs, size_t num_inputs,
+                            size_t blocks, const uint32_t key[8],
+                            uint64_t counter, bool increment_counter,
+                            uint8_t flags, uint8_t flags_start,
+                            uint8_t flags_end, uint8_t *out);
+#else
+void blake3_hash_many_portable(const uint8_t *const *inputs, size_t num_inputs,
                                size_t blocks, const uint32_t key[8],
                                uint64_t counter, bool increment_counter,
                                uint8_t flags, uint8_t flags_start,
                                uint8_t flags_end, uint8_t *out);
-#else
-void fd_blake3_hash_many_portable(const uint8_t *const *inputs, size_t num_inputs,
-                                  size_t blocks, const uint32_t key[8],
-                                  uint64_t counter, bool increment_counter,
-                                  uint8_t flags, uint8_t flags_start,
-                                  uint8_t flags_end, uint8_t *out);
 #endif /* FD_HAS_AVX */
 
-void fd_blake3_hash_many_avx2(const uint8_t *const *inputs, size_t num_inputs,
-                              size_t blocks, const uint32_t key[8],
-                              uint64_t counter, bool increment_counter,
-                              uint8_t flags, uint8_t flags_start,
-                              uint8_t flags_end, uint8_t *out) {
+void blake3_hash_many_avx2(const uint8_t *const *inputs, size_t num_inputs,
+                           size_t blocks, const uint32_t key[8],
+                           uint64_t counter, bool increment_counter,
+                           uint8_t flags, uint8_t flags_start,
+                           uint8_t flags_end, uint8_t *out) {
   while (num_inputs >= DEGREE) {
-    fd_blake3_hash8_avx2(inputs, blocks, key, counter, increment_counter, flags,
-                         flags_start, flags_end, out);
+    blake3_hash8_avx2(inputs, blocks, key, counter, increment_counter, flags,
+                      flags_start, flags_end, out);
     if (increment_counter) {
       counter += DEGREE;
     }
@@ -320,11 +320,11 @@ void fd_blake3_hash_many_avx2(const uint8_t *const *inputs, size_t num_inputs,
     out = &out[DEGREE * BLAKE3_OUT_LEN];
   }
 #if FD_HAS_AVX
-  fd_blake3_hash_many_sse41(inputs, num_inputs, blocks, key, counter,
-                            increment_counter, flags, flags_start, flags_end, out);
+  blake3_hash_many_sse41(inputs, num_inputs, blocks, key, counter,
+                         increment_counter, flags, flags_start, flags_end, out);
 #else
-  fd_blake3_hash_many_portable(inputs, num_inputs, blocks, key, counter,
-                               increment_counter, flags, flags_start, flags_end,
-                               out);
+  blake3_hash_many_portable(inputs, num_inputs, blocks, key, counter,
+                            increment_counter, flags, flags_start, flags_end,
+                            out);
 #endif
 }
