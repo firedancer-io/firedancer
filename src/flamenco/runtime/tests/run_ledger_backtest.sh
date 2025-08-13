@@ -83,6 +83,10 @@ while [[ $# -gt 0 ]]; do
         ZST=1
         shift
         ;;
+    -g|--genesis)
+        GENESIS=1
+        shift
+        ;;
     --tile-cpus)
         TILE_CPUS="--tile-cpus $2"
         shift
@@ -142,6 +146,9 @@ fi
 chmod -R 0700 $DUMP/$LEDGER
 
 echo_notice "Starting on-demand ingest and replay"
+if [[ -n "$GENESIS" ]]; then
+  HAS_INCREMENTAL="false"
+fi
 echo "
 [snapshots]
     incremental_snapshots = $HAS_INCREMENTAL
@@ -163,7 +170,11 @@ echo "
         ingest_mode = \"$INGEST_MODE\"
     [tiles.replay]
         cluster_version = \"$CLUSTER_VERSION\"
-        enable_features = [ $FORMATTED_ONE_OFFS ]
+        enable_features = [ $FORMATTED_ONE_OFFS ] " > $DUMP_DIR/${LEDGER}_backtest.toml
+if [[ -n "$GENESIS" ]]; then
+  echo -n "        genesis = \"$DUMP/$LEDGER/genesis.bin\""  >> $DUMP_DIR/${LEDGER}_backtest.toml
+fi
+echo "
     [tiles.gui]
         enabled = false
 [store]
@@ -189,7 +200,7 @@ echo "
 [hugetlbfs]
     mount_path = \"$HUGE_TLBFS_MOUNT_PATH\"
     allow_hugepage_increase = $HUGE_TLBFS_ALLOW_HUGEPAGE_INCREASE
-" > $DUMP_DIR/${LEDGER}_backtest.toml
+" >> $DUMP_DIR/${LEDGER}_backtest.toml
 
 echo "Running backtest for $LEDGER"
 sudo $OBJDIR/bin/firedancer-dev configure init all --config ${DUMP_DIR}/${LEDGER}_backtest.toml &> /dev/null
