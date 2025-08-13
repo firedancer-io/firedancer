@@ -6,6 +6,8 @@
 #include "../../flamenco/runtime/fd_acc_mgr.h"
 #include "../../ballet/base58/fd_base58.h"
 #include "../../ballet/base64/fd_base64.h"
+#include "../../ballet/shred/fd_shred.h"
+#include "../reasm/fd_reasm.h"
 #include "fd_rpc_history.h"
 #include "fd_block_to_json.h"
 #include "keywords.h"
@@ -83,6 +85,7 @@ struct fd_rpc_global_ctx {
   fd_spad_t * spad;
   fd_webserver_t ws;
   fd_funk_t * funk;
+  fd_store_t * store;
   struct fd_ws_subscription sub_list[FD_WS_MAX_SUBS];
   ulong sub_cnt;
   ulong last_subsc_id;
@@ -92,6 +95,7 @@ struct fd_rpc_global_ctx {
   fd_perf_sample_t perf_sample_snapshot;
   long perf_sample_ts;
   fd_multi_epoch_leaders_t * leaders;
+  uchar buffer[sizeof(fd_reasm_fec_t) > sizeof(fd_replay_notif_msg_t) ? sizeof(fd_reasm_fec_t) : sizeof(fd_replay_notif_msg_t)];
   ulong acct_age;
   fd_rpc_history_t * history;
   fd_pubkey_t const * identity_key; /* nullable */
@@ -2299,7 +2303,9 @@ fd_rpc_create_ctx(fd_rpcserver_args_t * args, fd_rpc_ctx_t ** ctx_p) {
 
   ctx->global   = gctx;
   gctx->spad    = args->spad;
-  gctx->leaders = args->leaders;
+
+  uchar * mleaders_mem = (uchar *)fd_spad_alloc( args->spad, FD_MULTI_EPOCH_LEADERS_ALIGN, FD_MULTI_EPOCH_LEADERS_FOOTPRINT );
+  gctx->leaders = fd_multi_epoch_leaders_join( fd_multi_epoch_leaders_new( mleaders_mem) );
 
   if( !args->offline ) {
     gctx->tpu_socket = socket(AF_INET, SOCK_DGRAM, 0);
@@ -2335,8 +2341,8 @@ fd_rpc_create_ctx(fd_rpcserver_args_t * args, fd_rpc_ctx_t ** ctx_p) {
 void
 fd_rpc_start_service(fd_rpcserver_args_t * args, fd_rpc_ctx_t * ctx) {
   fd_rpc_global_ctx_t * gctx = ctx->global;
-
   gctx->funk = args->funk;
+  gctx->store = args->store;
 }
 
 int
@@ -2362,15 +2368,15 @@ fd_webserver_ws_closed(ulong conn_id, void * cb_arg) {
 }
 
 void
-fd_rpc_replay_during_frag( fd_rpc_ctx_t * ctx, fd_replay_notif_msg_t * state, void const * msg, int sz ) {
-  (void)ctx;
+fd_rpc_replay_during_frag( fd_rpc_ctx_t * ctx, void const * msg, int sz ) {
   FD_TEST( sz == (int)sizeof(fd_replay_notif_msg_t) );
-  fd_memcpy(state, msg, sizeof(fd_replay_notif_msg_t));
+  fd_memcpy(ctx->global->buffer, msg, sizeof(fd_replay_notif_msg_t));
 }
 
 void
-fd_rpc_replay_after_frag(fd_rpc_ctx_t * ctx, fd_replay_notif_msg_t * msg) {
+fd_rpc_replay_after_frag(fd_rpc_ctx_t * ctx) {
   fd_rpc_global_ctx_t * subs = ctx->global;
+  fd_replay_notif_msg_t * msg = (fd_replay_notif_msg_t *)subs->buffer;
 
   if( msg->type == FD_REPLAY_SLOT_TYPE ) {
     long ts = fd_log_wallclock() / (long)1e9;
@@ -2406,7 +2412,7 @@ fd_rpc_replay_after_frag(fd_rpc_ctx_t * ctx, fd_replay_notif_msg_t * msg) {
 
     if( msg->slot_exec.shred_cnt == 0 ) return;
 
-    fd_rpc_history_save( subs->history, msg );
+    fd_rpc_history_save_info( subs->history, msg );
 
     for( ulong j = 0; j < subs->sub_cnt; ++j ) {
       struct fd_ws_subscription * sub = &subs->sub_list[ j ];
@@ -2423,13 +2429,25 @@ fd_rpc_replay_after_frag(fd_rpc_ctx_t * ctx, fd_replay_notif_msg_t * msg) {
 }
 
 void
-fd_rpc_stake_during_frag( fd_rpc_ctx_t * ctx, fd_multi_epoch_leaders_t * state, void const * msg, int sz ) {
-  (void)ctx; (void)sz;
-  fd_multi_epoch_leaders_stake_msg_init( state, msg );
+fd_rpc_stake_during_frag( fd_rpc_ctx_t * ctx, void const * msg, int sz ) {
+  (void)sz;
+  fd_multi_epoch_leaders_stake_msg_init( ctx->global->leaders, msg );
 }
 
 void
-fd_rpc_stake_after_frag(fd_rpc_ctx_t * ctx, fd_multi_epoch_leaders_t * state) {
-  (void)ctx;
-  fd_multi_epoch_leaders_stake_msg_fini( state );
+fd_rpc_stake_after_frag(fd_rpc_ctx_t * ctx) {
+  fd_multi_epoch_leaders_stake_msg_fini( ctx->global->leaders );
+}
+
+void
+fd_rpc_repair_during_frag(fd_rpc_ctx_t * ctx, void const * msg, int sz) {
+  FD_TEST( sz==(int)sizeof(fd_reasm_fec_t) );
+  fd_memcpy(ctx->global->buffer, msg, sizeof(fd_reasm_fec_t));
+}
+
+void
+fd_rpc_repair_after_frag(fd_rpc_ctx_t * ctx) {
+  fd_rpc_global_ctx_t * subs = ctx->global;
+  fd_reasm_fec_t * fec_p = (fd_reasm_fec_t *)subs->buffer;
+  fd_rpc_history_save_fec( subs->history, subs->store, fec_p );
 }
