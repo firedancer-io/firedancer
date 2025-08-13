@@ -260,14 +260,63 @@ landed a vote for, and the current highest replayed slot on the
 validators fork choice. A distance of more than 150 means the validator
 is considered delinquent.
 
+#### `summary.slot_max_known`
+| frequency       | type           | example |
+|-----------------|----------------|---------|
+| *Once* + *Live* | `number\|null` | `100`   |
+
+The largest slot that is known by the validator to have been published
+to the blockchain. This is typically going to be the largest slot we've
+seen in a received turbine shred, but can also be a slot for which we
+were just leader. During boot, the max known slot may not be known yet
+if we haven't received any shreds. In this case this message will
+publish `null`.
+
+It is worth nothing that `slot_max_known` might be momentarily
+inaccurate (too large). If this happens, it should self-correct after
+about 4.8 seconds. This happens because `slot_max_known` is derived from
+the header on incoming shreds. In the worst case, a malicious leader
+shred can create an arbitrarily large slot on a new fork. All slot
+numbers received from shreds, including any malicious shreds, are
+forgotten after 4.8 seconds. This ensures our estimate self-corrects
+over time.
+
+NOTE: this message is only supported on the Firedancer client, the
+Frankendancer client will always publish `null` for this message
+
+#### `summary.slot_caught_up`
+| frequency       | type           | example |
+|-----------------|----------------|---------|
+| *Once* + *Live* | `number\|null` | `100`   |
+
+The slot when this validator caught up to the tip of the blockchain.
+This slot is recorded when replay slot is within 4 slots (one leader
+rotation) of `summary.slot_max_known`. If the WebSocket client connects
+before the validator has caught up, then this message will be published
+with `null`. The message would then be published once when the validator
+actually catches up.
+
+Since `summary.slot_max_known` can be sometimes arbitrarily larger that
+the ground truth, that affects the accuracy of the catch-up slot as
+well. If a maliciously large shred arrives within 3 leader rotations of
+the validator catchup event, then `summary.slot_max_known` will be
+wrong, and `summary.slot_caught_up` will not be recorded until after 4.8
+seconds when the malicious slot is forgotten. Functionally, this means
+that `summary.slot_caught_up` could be arbitrarily larger than the true
+catchup slot. The likelihood of this is low, and decreases for larger
+errors.
+
+NOTE: this message is only supported on the Firedancer client, the
+Frankendancer client will always publish `null` for this message
+
 #### `summary.startup_time_nanos`
 | frequency | type     | example             |
 |-----------|----------|---------------------|
 | *Once*    | `string` |  `"1719910299914232"` |
 
-A UNIX timestamp in nanoseconds of the validator's startup.  The timestamp is
-taken by the gui tile during boot, so it occurs before the validator downloads a
-snapshot and fully catches up to the cluster.
+A UNIX timestamp in nanoseconds of the validator's startup. The
+timestamp is taken by the gui tile during boot, so it occurs before the
+validator downloads a snapshot and fully catches up to the cluster.
 
 #### `summary.startup_progress`
 | frequency       | type              | example |
