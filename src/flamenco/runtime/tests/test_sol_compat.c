@@ -1,25 +1,16 @@
 #define _DEFAULT_SOURCE
 #include "fd_solfuzz.h"
 #include <errno.h>
-#include <dirent.h> /* opendir */
+#include <dirent.h>
 #include <fcntl.h>
-#include <sched.h> /* sched_yield */
 #include <sys/types.h>
-#include <sys/stat.h> /* fstat */
-#include <unistd.h> /* close */
+#include <sys/stat.h>
+#include <unistd.h>
 #include "../fd_runtime.h"
 #include "../../../ballet/nanopb/pb_firedancer.h"
-#include "../../../tango/fd_tango.h"
-
-#define MCACHE_DEPTH     (256UL)
-#define MCACHE_FOOTPRINT FD_MCACHE_FOOTPRINT( MCACHE_DEPTH, 0UL )
-#define DCACHE_DATA_SZ   FD_DCACHE_REQ_DATA_SZ( PATH_MAX, MCACHE_DEPTH, 1UL, 1 )
-#define DCACHE_FOOTPRINT FD_DCACHE_FOOTPRINT( DCACHE_DATA_SZ, 0UL )
 
 static int fail_fast;
 static int error_occurred;
-
-static uint shutdown_signal __attribute__((aligned(64)));
 
 /* run_test runs a test.
    Return 1 on success, 0 on failure. */
@@ -91,10 +82,7 @@ run_test( fd_solfuzz_runner_t * runner,
 
 /* Recursive dir walk function, follows symlinks */
 
-typedef int
-(* visit_path)( void *       ctx,
-                char const * path,
-                ulong        path_len );
+typedef int (* visit_path)( void * ctx, char const * path );
 
 static int
 recursive_walk1( DIR *      dir,
@@ -135,7 +123,7 @@ as_dir:
 as_file:
       suffix = strstr( entry->d_name, ".fix" );
       if( !suffix || suffix[4]!='\0' ) continue;
-      if( !visit( visit_ctx, path, sub_path_len ) ) break;
+      if( !visit( visit_ctx, path ) ) break;
     } else if( entry->d_type==DT_LNK ) {
       subdir = opendir( path );
       if( subdir ) {
@@ -177,9 +165,7 @@ recursive_walk( char const * path,
 
 static int
 visit_sync( void *       ctx,
-            char const * path,
-            ulong        path_len ) {
-  (void)path_len;
+            char const * path ) {
   fd_solfuzz_runner_t * runner = ctx;
   int ok = run_test( runner, path );
   if( !ok ) {
@@ -203,171 +189,13 @@ run_single_threaded( fd_solfuzz_runner_t * runner,
 
 /* Multi-threaded mode: fan out tasks to bank of tiles */
 
-struct walkdir_state {
-  fd_frag_meta_t * mcache;
-  uchar *          dcache;
-
-  ulong depth;
-  ulong chunk0;
-  ulong wmark;
-
-  ulong seq;
-  ulong chunk;
-  ulong cr_avail;
-
-  ulong    worker_cnt;
-  ulong ** fseqs;
-};
-typedef struct walkdir_state walkdir_state_t;
-
-static void
-walkdir_backpressure( walkdir_state_t * state ) {
-  ulong const worker_cnt = state->worker_cnt;
-  ulong const seq_pub    = state->seq;
-  ulong       cr_avail   = state->cr_avail;
-  do {
-    sched_yield();
-    cr_avail = ULONG_MAX;
-    for( ulong i=0UL; i<worker_cnt; i++ ) {
-      long lag = fd_seq_diff( seq_pub, fd_fseq_query( state->fseqs[ i ] ) );
-      /**/ lag = fd_long_max( lag, 0L );
-      cr_avail = fd_ulong_min( cr_avail, MCACHE_DEPTH-(ulong)lag );
-    }
-  } while( !cr_avail );
-  state->cr_avail = cr_avail;
-}
-
-static int
-walkdir_publish( void *       ctx,
-                 char const * path,
-                 ulong        path_len ) {
-  walkdir_state_t * state = ctx;
-  if( FD_UNLIKELY( !state->cr_avail ) ) {
-    /* Blocked on flow-control credits ... spin until they're replenished */
-    walkdir_backpressure( state );
-    /* Guaranteed to have more flow-control credits */
-  }
-
-  /* Write data record */
-  ulong  chunk = state->chunk;
-  char * msg   = fd_chunk_to_laddr( state->dcache, chunk );
-  fd_cstr_fini( fd_cstr_append_text( fd_cstr_init( msg ), path, path_len ) );
-  state->chunk = fd_dcache_compact_next( chunk, path_len+1UL, state->chunk0, state->wmark );
-
-  /* Write frag descriptor */
-  ulong seq = state->seq;
-  fd_mcache_publish( state->mcache, state->depth, seq, 0UL, chunk, 0UL, 0UL, 0UL, 0UL );
-  state->seq = fd_seq_inc( seq, 1UL );
-  state->cr_avail--;
-  return 1;
-}
-
-static void
-walkdir_tile( fd_frag_meta_t * mcache,
-              uchar *          dcache,
-              ulong **         fseqs,
-              ulong            worker_cnt,
-              int              argc,
-              char **          argv ) {
-  walkdir_state_t state = {
-    .mcache     = mcache,
-    .dcache     = dcache,
-    .depth      = fd_mcache_depth( mcache ),
-    .chunk0     = fd_dcache_compact_chunk0( dcache, dcache ),
-    .wmark      = fd_dcache_compact_wmark ( dcache, dcache, PATH_MAX ),
-    .seq        = fd_mcache_seq0( mcache ),
-    .worker_cnt = worker_cnt,
-    .fseqs      = fseqs
-  };
-  state.chunk    = state.chunk0;
-  state.cr_avail = state.depth;
-
-  for( int j=1; j<argc; j++ ) {
-    int ok = recursive_walk( argv[ j ], walkdir_publish, &state );
-    if( !ok ) {
-      FD_LOG_WARNING(( "Stopping early" ));
-    }
-  }
-
-  fd_mcache_seq_update( fd_mcache_seq_laddr( state.mcache ), state.seq );
-}
-
-struct mt_state {
-  fd_solfuzz_runner_t ** runners;
-  ulong                  worker_cnt;
-  fd_frag_meta_t *       mcache;
-  uchar *                dcache;
-  ulong **               fseqs;
-};
-typedef struct mt_state mt_state_t;
-
-static void
-exec_tile( fd_solfuzz_runner_t *  runner,
-           fd_frag_meta_t const * mcache,
-           uchar *                dcache,
-           ulong *                fseq,
-           ulong                  idx,
-           ulong                  cnt ) {
-  ulong const depth = fd_mcache_depth( mcache );
-  ulong       seq   = 0UL;
-  for(;;) {
-    fd_frag_meta_t const * mline = mcache + fd_mcache_line_idx( seq, depth );
-    ulong seq_found = fd_frag_meta_seq_query( mline );
-    if( FD_UNLIKELY( seq!=seq_found ) ) {
-      if( FD_VOLATILE_CONST( shutdown_signal ) ) break;
-      FD_SPIN_PAUSE();
-      continue;
-    }
-
-    if( seq%cnt==idx ) {
-      char const * path = fd_chunk_to_laddr_const( dcache, mline->chunk );
-      run_test( runner, path );
-    }
-
-    seq = fd_seq_inc( seq, 1UL );
-    FD_VOLATILE( fseq[0] ) = seq;
-  }
-  FD_VOLATILE( fseq[0] ) = seq;
-}
-
-static int
-exec_task( int     argc,
-           char ** argv ) {
-  ulong              worker_idx = (ulong)argc;
-  mt_state_t const * state      = fd_type_pun_const( argv );
-  exec_tile( state->runners[ worker_idx ], state->mcache, state->dcache, state->fseqs[ worker_idx ], worker_idx, state->worker_cnt );
-  return 0;
-}
-
 FD_FN_UNUSED static void
 run_multi_threaded( fd_solfuzz_runner_t ** runners,
                     ulong                  worker_cnt,
-                    int                    argc,
-                    char **                argv,
-                    fd_frag_meta_t *       mcache,
-                    uchar *                dcache,
-                    ulong **               fseqs ) {
-  mt_state_t state = {
-    .runners    = runners,
-    .worker_cnt = worker_cnt,
-    .mcache     = mcache,
-    .dcache     = dcache,
-    .fseqs      = fseqs
-  };
-
-  for( ulong i=0UL; i<worker_cnt; i++ ) {
-    fd_tile_exec_new( 1UL+i, exec_task, (int)i, fd_type_pun( &state ) );
-  }
-
-  walkdir_tile( mcache, dcache, fseqs, worker_cnt, argc, argv );
-  FD_VOLATILE( shutdown_signal ) = 1;
-
-  for( ulong i=0UL; i<worker_cnt; i++ ) {
-    fd_tile_exec_delete( fd_tile_exec_by_id( 1UL+i ), NULL );
-  }
-
-  ulong cnt = fd_mcache_seq_query( fd_mcache_seq_laddr_const( mcache ) );
-  FD_LOG_NOTICE(( "Processed %lu files", cnt ));
+                    int     argc,
+                    char ** argv ) {
+  (void)runners; (void)worker_cnt; (void)argc; (void)argv;
+  FD_LOG_WARNING(( "Multi-threaded mode not implemented yet" ));
 }
 
 int
@@ -400,33 +228,20 @@ main( int     argc,
 
   /* Allocate runners */
   int exit_code = 255;
-  fd_solfuzz_runner_t ** runners    = fd_wksp_alloc_laddr( wksp, alignof(void *),   worker_cnt*sizeof(void *),    wksp_tag );
-  void *                 mcache_mem = fd_wksp_alloc_laddr( wksp, fd_mcache_align(), MCACHE_FOOTPRINT,             wksp_tag );
-  void *                 dcache_mem = fd_wksp_alloc_laddr( wksp, fd_dcache_align(), DCACHE_FOOTPRINT,             wksp_tag );
-  uchar *                fseqs_mem  = fd_wksp_alloc_laddr( wksp, fd_fseq_align(),   worker_cnt*FD_FSEQ_FOOTPRINT, wksp_tag );
-  ulong **               fseqs      = fd_wksp_alloc_laddr( wksp, alignof(void *),   worker_cnt*sizeof(void *),    wksp_tag );
-  if( FD_UNLIKELY( !runners | !mcache_mem | !dcache_mem | !fseqs_mem | !fseqs ) ) {
-    FD_LOG_WARNING(( "init failed" )); goto exit;
-  }
+  fd_solfuzz_runner_t ** runners = fd_wksp_alloc_laddr( wksp, alignof(void *), worker_cnt*sizeof(void *), 1UL );
+  if( FD_UNLIKELY( !runners ) ) { FD_LOG_WARNING(( "init failed" )); goto exit; }
   fd_memset( runners, 0, worker_cnt*sizeof(void *) );
   for( ulong i=0UL; i<worker_cnt; i++ ) {
     runners[i] = fd_solfuzz_runner_new( wksp, wksp_tag );
     if( FD_UNLIKELY( !runners[i] ) ) { FD_LOG_WARNING(( "init failed (creating worker %lu)", i )); goto exit; }
   }
 
-  /* Create objects */
-  fd_frag_meta_t * mcache = fd_mcache_join( fd_mcache_new( mcache_mem, MCACHE_DEPTH, 0UL, 0UL ) ); FD_TEST( mcache );
-  uchar *          dcache = fd_dcache_join( fd_dcache_new( dcache_mem, DCACHE_DATA_SZ, 0UL    ) ); FD_TEST( dcache );
-  for( ulong i=0UL; i<worker_cnt; i++ ) {
-    fseqs[i] = fd_fseq_join( fd_fseq_new( fseqs_mem + i*FD_FSEQ_FOOTPRINT, 0UL ) ); FD_TEST( fseqs[i] );
-  }
-
   /* Run strategy */
-  if( fd_tile_cnt()==1 ) {
+  //if( fd_tile_cnt()==1 ) {
     run_single_threaded( runners[0], argc, argv );
-  } else {
-    run_multi_threaded( runners, worker_cnt, argc, argv, mcache, dcache, fseqs );
-  }
+  //} else {
+  //  run_multi_threaded( runners, worker_cnt, argc, argv );
+  //}
   if( error_occurred ) {
     if( fail_fast ) exit_code = 255;
     else            exit_code = 1;
@@ -439,11 +254,7 @@ exit:
   for( ulong i=0UL; runners && i<worker_cnt; i++ ) {
     if( runners[i] ) fd_solfuzz_runner_delete( runners[i] );
   }
-  fd_wksp_free_laddr( runners    );
-  fd_wksp_free_laddr( mcache_mem );
-  fd_wksp_free_laddr( dcache_mem );
-  fd_wksp_free_laddr( fseqs_mem  );
-  fd_wksp_free_laddr( fseqs      );
+  fd_wksp_free_laddr( runners );
   if( wksp_name ) fd_wksp_detach( wksp );
   else            fd_wksp_demand_paged_delete( wksp );
 
