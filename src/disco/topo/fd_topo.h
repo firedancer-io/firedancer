@@ -849,6 +849,19 @@ fd_topo_wksp_new( fd_topo_t const *          topo,
 void
 fd_topo_fill( fd_topo_t * topo );
 
+/* Resilient versions of fd_topo_workspace_fill and fd_topo_fill that
+   handle failed joins gracefully by setting pointers to NULL and
+   logging warnings instead of using FD_TEST. This is useful for
+   diagnostic tools like flame that need to inspect topology even when
+   some tiles have been killed or crashed. */
+
+void
+fd_topo_workspace_fill_resilient( fd_topo_t *      topo,
+                                  fd_topo_wksp_t * wksp );
+
+void
+fd_topo_fill_resilient( fd_topo_t * topo );
+
 /* fd_topo_tile_stack_join joins a huge page optimized stack for the
    provided tile.  The stack is assumed to already exist at a known
    path in the hugetlbfs mount. */
