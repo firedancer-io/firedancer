@@ -132,10 +132,14 @@ resolve_address( char const * address,
 }
 
 static int
-resolve_gossip_entrypoint( char const *    host_port,
+resolve_peer( char const *    peer,
                            fd_ip4_port_t * ip4_port ) {
 
   /* Split host:port */
+  char const * host_port = peer;
+  if( FD_LIKELY( strncmp( peer, "http://", 7UL )==0 ) ) {
+    host_port += 7UL;
+  }
 
   char const * colon = strrchr( host_port, ':' );
   if( FD_UNLIKELY( !colon ) ) {
@@ -170,7 +174,7 @@ resolve_gossip_entrypoints( config_t * config ) {
   ulong entrypoint_cnt = config->gossip.entrypoints_cnt;
   ulong resolved_entrypoints = 0UL;
   for( ulong j=0UL; j<entrypoint_cnt; j++ ) {
-    if( resolve_gossip_entrypoint( config->gossip.entrypoints[j], &config->gossip.resolved_entrypoints[resolved_entrypoints] ) ) {
+    if( resolve_peer( config->gossip.entrypoints[j], &config->gossip.resolved_entrypoints[resolved_entrypoints] ) ) {
       resolved_entrypoints++;
     }
   }
@@ -178,15 +182,32 @@ resolve_gossip_entrypoints( config_t * config ) {
 }
 
 static void
+resolve_snapshot_peers( config_t *       config,
+                        fd_topo_tile_t * tile ) {
+  ulong peers_cnt          = config->firedancer.snapshots.sources.http.peers_cnt;
+  ulong resolved_peers_cnt = 0UL;
+
+  if( FD_LIKELY( config->firedancer.snapshots.sources.http.enabled ) ) {
+    for( ulong j=0UL; j<peers_cnt; j++ ) {
+      if( resolve_peer( config->firedancer.snapshots.sources.http.peers[ j ], &tile->snaprd.http.peers[ resolved_peers_cnt ] ) ) {
+        resolved_peers_cnt++;
+      }
+    }
+  }
+
+  tile->snaprd.http.peers_cnt = resolved_peers_cnt;
+}
+
+static void
 setup_snapshots( config_t *       config,
                  fd_topo_tile_t * tile ) {
   fd_memcpy( tile->snaprd.snapshots_path, config->paths.snapshots, PATH_MAX );
-  fd_memcpy( tile->snaprd.cluster, config->firedancer.snapshots.cluster, sizeof(tile->snaprd.cluster) );
   tile->snaprd.incremental_snapshot_fetch   = config->firedancer.snapshots.incremental_snapshots;
   tile->snaprd.do_download                  = config->firedancer.snapshots.download;
   tile->snaprd.maximum_local_snapshot_age   = config->firedancer.snapshots.maximum_local_snapshot_age;
   tile->snaprd.minimum_download_speed_mib   = config->firedancer.snapshots.minimum_download_speed_mib;
   tile->snaprd.maximum_download_retry_abort = config->firedancer.snapshots.maximum_download_retry_abort;
+  resolve_snapshot_peers( config, tile );
   /* TODO: set up known validators and known validators cnt */
 }
 

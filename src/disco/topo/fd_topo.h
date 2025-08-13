@@ -485,6 +485,12 @@ struct fd_topo_tile {
       uint  maximum_local_snapshot_age;
       uint  minimum_download_speed_mib;
       uint  maximum_download_retry_abort;
+
+      struct {
+        ulong peers_cnt;
+        fd_ip4_port_t peers[ 16UL ];
+      } http;
+
     } snaprd;
 
     struct {

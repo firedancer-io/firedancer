@@ -7,10 +7,11 @@
 
 #include <net/if.h>
 
-#define NAME_SZ                          (256UL)
-#define AFFINITY_SZ                      (256UL)
-#define CONFIGURE_STAGE_COUNT            ( 12UL)
-#define FD_CONFIG_GOSSIP_ENTRYPOINTS_MAX ( 16UL)
+#define NAME_SZ                           (256UL)
+#define AFFINITY_SZ                       (256UL)
+#define CONFIGURE_STAGE_COUNT             ( 12UL)
+#define FD_CONFIG_GOSSIP_ENTRYPOINTS_MAX  ( 16UL)
+#define FD_CONFIG_SNAPSHOT_HTTP_PEERS_MAX ( 16UL)
 
 struct fd_configh {
   char dynamic_port_range[ 32 ];
@@ -130,6 +131,17 @@ struct fd_configf {
   } runtime;
 
   struct {
+
+    struct {
+
+      struct {
+        int   enabled;
+        ulong peers_cnt;
+        char  peers[ FD_CONFIG_SNAPSHOT_HTTP_PEERS_MAX ][ 262 ];
+      } http;
+
+    } sources;
+
     int   incremental_snapshots;
     uint  maximum_local_snapshot_age;
     int   download;
@@ -137,7 +149,6 @@ struct fd_configf {
     char  known_validators[ 16 ][ 256 ];
     uint  minimum_download_speed_mib;
     uint  maximum_download_retry_abort;
-    char  cluster[ 8UL ];
   } snapshots;
 
   struct {
