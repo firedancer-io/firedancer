@@ -121,12 +121,6 @@ sol_compat_shred_parse_v1( uchar *       out,
                            ulong         in_sz );
 
 int
-sol_compat_pack_compute_budget_v1( uchar *       out,
-                                   ulong *       out_sz,
-                                   uchar const * in,
-                                   ulong         in_sz );
-
-int
 sol_compat_type_execute_v1( uchar *       out,
                             ulong *       out_sz,
                             uchar const * in,
