@@ -406,14 +406,16 @@ verify_signatures( fd_gossvf_tile_ctx_t * ctx,
     }
     case FD_GOSSIP_MESSAGE_PRUNE: return verify_prune( view->prune, payload, sha );
     case FD_GOSSIP_MESSAGE_PING: {
-      if( FD_UNLIKELY( FD_ED25519_SUCCESS!=fd_ed25519_verify( view->ping->ping_token, 32UL, view->ping->signature, view->ping->pubkey, sha ) ) ) {
+      fd_gossip_view_ping_t const * ping = (fd_gossip_view_ping_t const *)(payload+view->ping_pong_off);
+      if( FD_UNLIKELY( FD_ED25519_SUCCESS!=fd_ed25519_verify( ping->ping_token, 32UL, ping->signature, ping->pubkey, sha ) ) ) {
         return FD_METRICS_ENUM_GOSSIP_MESSAGE_OUTCOME_V_DROPPED_PING_SIGNATURE_IDX;
       } else {
         return 0;
       }
     }
     case FD_GOSSIP_MESSAGE_PONG: {
-      if( FD_UNLIKELY( FD_ED25519_SUCCESS!=fd_ed25519_verify( view->pong->ping_hash, 32UL, view->pong->signature, view->pong->pubkey, sha ) ) ) {
+      fd_gossip_view_pong_t const * pong = (fd_gossip_view_pong_t const *)(payload+view->ping_pong_off);
+      if( FD_UNLIKELY( FD_ED25519_SUCCESS!=fd_ed25519_verify( pong->ping_hash, 32UL, pong->signature, pong->pubkey, sha ) ) ) {
         return FD_METRICS_ENUM_GOSSIP_MESSAGE_OUTCOME_V_DROPPED_PONG_SIGNATURE_IDX;
       } else {
         return 0;
@@ -823,7 +825,7 @@ handle_net( fd_gossvf_tile_ctx_t * ctx,
 
   result = verify_signatures( ctx, view, ctx->payload, ctx->sha );
   if( FD_UNLIKELY( result ) ) return result;
-  
+
   check_duplicate_instance( ctx, view, ctx->payload );
 
   switch( view->tag ) {
@@ -960,7 +962,7 @@ unprivileged_init( fd_topo_t *      topo,
 
   ctx->stakes = stake_pool_join( stake_pool_new( _stake_pool, MAX_STAKED_LEADERS ) );
   FD_TEST( ctx->stakes );
-  
+
   ctx->stake_map = stake_map_join( stake_map_new( _stake_map, fd_ulong_pow2_up( MAX_STAKED_LEADERS ), ctx->seed ) );
   FD_TEST( ctx->stake_map );
 

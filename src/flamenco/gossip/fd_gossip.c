@@ -631,11 +631,9 @@ fd_gossip_rx( fd_gossip_t *       gossip,
               long                now,
               fd_stem_context_t * stem ) {
   /* TODO: Implement traffic shaper / bandwidth limiter */
-
-  uchar const * payload = data+sizeof(fd_gossip_view_t);
   FD_TEST( data_sz>=sizeof(fd_gossip_view_t) );
-
-  fd_gossip_view_t const * view = (fd_gossip_view_t const *)data;
+  fd_gossip_view_t const * view    = (fd_gossip_view_t const *)data;
+  uchar const *            payload = data+sizeof(fd_gossip_view_t);
 
   switch( view->tag ) {
     case FD_GOSSIP_MESSAGE_PULL_REQUEST:
@@ -651,10 +649,10 @@ fd_gossip_rx( fd_gossip_t *       gossip,
       rx_prune( gossip, payload, view->prune );
       break;
     case FD_GOSSIP_MESSAGE_PING:
-      rx_ping( gossip, view->ping, peer, stem, now );
+      rx_ping( gossip, (fd_gossip_view_ping_t *)(payload+view->ping_pong_off), peer, stem, now );
       break;
     case FD_GOSSIP_MESSAGE_PONG:
-      rx_pong( gossip, view->pong, peer, now );
+      rx_pong( gossip, (fd_gossip_view_pong_t *)(payload+view->ping_pong_off), peer, now );
       break;
     default:
       FD_LOG_CRIT(( "Unknown gossip message type %d", view->tag ));
