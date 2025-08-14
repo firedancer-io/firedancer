@@ -378,21 +378,14 @@ main( int     argc,
       char ** argv ) {
   fd_boot( &argc, &argv );
 
-  char const * wksp_name = fd_env_strip_cmdline_cstr ( &argc, &argv, "--wksp",      NULL,    NULL );
-  uint         wksp_seed = fd_env_strip_cmdline_uint ( &argc, &argv, "--wksp-seed", NULL,      0U );
-  ulong        wksp_tag  = fd_env_strip_cmdline_ulong( &argc, &argv, "--wksp-tag",  NULL,     1UL );
-  ulong        data_max  = fd_env_strip_cmdline_ulong( &argc, &argv, "--data-max",  NULL, 6UL<<30 ); /* 6 GiB */
-  ulong        part_max  = fd_env_strip_cmdline_ulong( &argc, &argv, "--part-max",  NULL, fd_wksp_part_max_est( data_max, 64UL<<10 ) );
+  char const * _page_sz  = fd_env_strip_cmdline_cstr ( &argc, &argv, "--page-sz",   NULL,   "normal" );
+  ulong        page_cnt  = fd_env_strip_cmdline_ulong( &argc, &argv, "--page-cnt",  NULL,        0UL );
+  char const * wksp_name = fd_env_strip_cmdline_cstr ( &argc, &argv, "--wksp",      NULL,       NULL );
+  uint         wksp_seed = fd_env_strip_cmdline_uint ( &argc, &argv, "--wksp-seed", NULL,         0U );
+  ulong        wksp_tag  = fd_env_strip_cmdline_ulong( &argc, &argv, "--wksp-tag",  NULL,        1UL );
 
-  fd_wksp_t * wksp;
-  if( wksp_name ) {
-    FD_LOG_INFO(( "Attaching to --wksp %s", wksp_name ));
-    wksp = fd_wksp_attach( wksp_name );
-  } else {
-    FD_LOG_INFO(( "--wksp not specified, using anonymous demand-paged memory --part-max %lu --data-max %lu", part_max, data_max ));
-    wksp = fd_wksp_demand_paged_new( "solfuzz", wksp_seed, part_max, data_max );
-  }
-  if( FD_UNLIKELY( !wksp ) ) return 255;
+  ulong page_sz = fd_cstr_to_shmem_page_sz( _page_sz );
+  if( FD_UNLIKELY( !page_sz ) ) FD_LOG_ERR(( "unsupported --page-sz" ));
 
   /* Run strategy: If the application was launched with one tile
      (default), run everything on the current tile.  If more than one
@@ -400,6 +393,21 @@ main( int     argc,
      the file system, use all other tiles to execute fuzz vectors. */
   ulong worker_cnt = fd_tile_cnt();
   if( worker_cnt>1UL ) worker_cnt--;
+
+  fd_wksp_t * wksp;
+  if( wksp_name ) {
+    FD_LOG_INFO(( "Attaching to --wksp %s", wksp_name ));
+    wksp = fd_wksp_attach( wksp_name );
+  } else if( !page_cnt ) {
+    ulong data_max = worker_cnt*(6UL<<30);
+    ulong part_max = fd_wksp_part_max_est( data_max, 64UL<<10 );
+    FD_LOG_INFO(( "--wksp not specified, using anonymous demand-paged memory --part-max %lu --data-max %lu", part_max, data_max ));
+    wksp = fd_wksp_demand_paged_new( "solfuzz", wksp_seed, part_max, data_max );
+  } else {
+    FD_LOG_INFO(( "Creating anonymous workspace (--page-cnt %lu, --page-sz %s, --wksp-seed %u)", page_cnt, _page_sz, wksp_seed ));
+    wksp = fd_wksp_new_anonymous( page_sz, page_cnt, fd_log_cpu_id(), "solfuzz", wksp_seed );
+  }
+  if( FD_UNLIKELY( !wksp ) ) return 255;
 
   /* Allocate runners */
   int exit_code = 255;
@@ -447,8 +455,9 @@ exit:
   fd_wksp_free_laddr( dcache_mem );
   fd_wksp_free_laddr( fseqs_mem  );
   fd_wksp_free_laddr( fseqs      );
-  if( wksp_name ) fd_wksp_detach( wksp );
-  else            fd_wksp_demand_paged_delete( wksp );
+  if( wksp_name      ) fd_wksp_detach( wksp );
+  else if( !page_cnt ) fd_wksp_demand_paged_delete( wksp );
+  else                 fd_wksp_delete_anonymous( wksp );
 
   fd_halt();
   return exit_code;
