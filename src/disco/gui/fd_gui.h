@@ -239,6 +239,43 @@ struct fd_gui_slot {
 
 typedef struct fd_gui_slot fd_gui_slot_t;
 
+#define FD_GUI_SLOT_RANKINGS_SZ (100UL)
+#define FD_GUI_SLOT_RANKING_TYPE_ASC  (0)
+#define FD_GUI_SLOT_RANKING_TYPE_DESC (1)
+
+struct fd_gui_slot_ranking {
+  ulong slot;
+  ulong value;
+  int   type;
+};
+typedef struct fd_gui_slot_ranking fd_gui_slot_ranking_t;
+
+/* All rankings are initialized / reset to ULONG_MAX.  These sentinels
+   sort AFTER non-sentinel ranking entries.  Equal slots are sorted by
+   oldest slot AFTER.  Otherwise sort by value according to ranking
+   type. */
+#define SORT_NAME fd_gui_slot_ranking_sort
+#define SORT_KEY_T fd_gui_slot_ranking_t
+#define SORT_BEFORE(a,b) fd_int_if( (a).slot==ULONG_MAX, 0, fd_int_if( (b).slot==ULONG_MAX, 1, fd_int_if( (a).value==(b).value, (a).slot>(b).slot, fd_int_if( (a).type==FD_GUI_SLOT_RANKING_TYPE_DESC, (a).value>(b).value, (a).value<(b).value ) ) ) )
+#include "../../util/tmpl/fd_sort.c"
+
+struct fd_gui_slot_rankings {
+  fd_gui_slot_ranking_t largest_tips          [ FD_GUI_SLOT_RANKINGS_SZ+1UL ];
+  fd_gui_slot_ranking_t largest_fees          [ FD_GUI_SLOT_RANKINGS_SZ+1UL ];
+  fd_gui_slot_ranking_t largest_rewards       [ FD_GUI_SLOT_RANKINGS_SZ+1UL ];
+  fd_gui_slot_ranking_t largest_duration      [ FD_GUI_SLOT_RANKINGS_SZ+1UL ];
+  fd_gui_slot_ranking_t largest_compute_units [ FD_GUI_SLOT_RANKINGS_SZ+1UL ];
+  fd_gui_slot_ranking_t largest_skipped       [ FD_GUI_SLOT_RANKINGS_SZ+1UL ];
+  fd_gui_slot_ranking_t smallest_tips         [ FD_GUI_SLOT_RANKINGS_SZ+1UL ];
+  fd_gui_slot_ranking_t smallest_fees         [ FD_GUI_SLOT_RANKINGS_SZ+1UL ];
+  fd_gui_slot_ranking_t smallest_rewards      [ FD_GUI_SLOT_RANKINGS_SZ+1UL ];
+  fd_gui_slot_ranking_t smallest_duration     [ FD_GUI_SLOT_RANKINGS_SZ+1UL ];
+  fd_gui_slot_ranking_t smallest_compute_units[ FD_GUI_SLOT_RANKINGS_SZ+1UL ];
+  fd_gui_slot_ranking_t smallest_skipped      [ FD_GUI_SLOT_RANKINGS_SZ+1UL ];
+};
+
+typedef struct fd_gui_slot_rankings fd_gui_slot_rankings_t;
+
 struct __attribute__((packed)) fd_gui_txn {
   uchar signature[ FD_SHA512_HASH_SZ ];
   ulong transaction_fee;
@@ -394,6 +431,10 @@ struct fd_gui {
       fd_epoch_leaders_t * lsched;
       uchar __attribute__((aligned(FD_EPOCH_LEADERS_ALIGN))) _lsched[ FD_EPOCH_LEADERS_FOOTPRINT(MAX_STAKED_LEADERS, MAX_SLOTS_PER_EPOCH) ];
       fd_vote_stake_weight_t stakes[ MAX_STAKED_LEADERS ];
+
+      ulong rankings_slot; /* One more than the largest slot we've processed into our rankings */
+      fd_gui_slot_rankings_t rankings[ 1 ]; /* global slot rankings */
+      fd_gui_slot_rankings_t my_rankings[ 1 ]; /* my slots only */
     } epochs[ 2 ];
   } epoch;
 

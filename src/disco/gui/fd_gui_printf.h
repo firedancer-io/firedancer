@@ -89,6 +89,12 @@ fd_gui_printf_slot_request( fd_gui_t * gui,
                             ulong      id );
 
 void
+fd_gui_printf_slot_rankings_request( fd_gui_t * gui,
+                                     ulong      id,
+                                     int        mine );
+
+
+void
 fd_gui_printf_slot_request_detailed( fd_gui_t * gui,
                                      ulong      slot,
                                      ulong      id );
