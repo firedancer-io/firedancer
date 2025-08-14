@@ -63,16 +63,17 @@ typedef struct fd_pack_builtin_prog_cost fd_pack_builtin_prog_cost_t;
 #define MAP_PERFECT_HASH_R( ptr ) PERFECT_HASH( fd_uint_load_4( (uchar const *)ptr->b + 8UL ) )
 
 
-/* The cost model estimates 200,000 CUs for builtin programs that were migrated to BPF */
-#define MAP_PERFECT_0  ( VOTE_PROG_ID            ), .cost_per_instr=        3000UL
-#define MAP_PERFECT_1  ( SYS_PROG_ID             ), .cost_per_instr=        3000UL
-#define MAP_PERFECT_2  ( COMPUTE_BUDGET_PROG_ID  ), .cost_per_instr=        3000UL
-#define MAP_PERFECT_3  ( BPF_UPGRADEABLE_PROG_ID ), .cost_per_instr=        3000UL
-#define MAP_PERFECT_4  ( BPF_LOADER_1_PROG_ID    ), .cost_per_instr=        3000UL
-#define MAP_PERFECT_5  ( BPF_LOADER_2_PROG_ID    ), .cost_per_instr=        3000UL
-#define MAP_PERFECT_6  ( LOADER_V4_PROG_ID       ), .cost_per_instr=        3000UL
-#define MAP_PERFECT_7  ( KECCAK_SECP_PROG_ID     ), .cost_per_instr=        3000UL
-#define MAP_PERFECT_8  ( ED25519_SV_PROG_ID      ), .cost_per_instr=        3000UL
+/* The cost model estimates 200,000 CUs for builtin programs that were
+   migrated to BPF. */
+#define MAP_PERFECT_0  ( VOTE_PROG_ID            ), .cost_per_instr = FD_COMPUTE_BUDGET_MAX_BUILTIN_CU_LIMIT
+#define MAP_PERFECT_1  ( SYS_PROG_ID             ), .cost_per_instr = FD_COMPUTE_BUDGET_MAX_BUILTIN_CU_LIMIT
+#define MAP_PERFECT_2  ( COMPUTE_BUDGET_PROG_ID  ), .cost_per_instr = FD_COMPUTE_BUDGET_MAX_BUILTIN_CU_LIMIT
+#define MAP_PERFECT_3  ( BPF_UPGRADEABLE_PROG_ID ), .cost_per_instr = FD_COMPUTE_BUDGET_MAX_BUILTIN_CU_LIMIT
+#define MAP_PERFECT_4  ( BPF_LOADER_1_PROG_ID    ), .cost_per_instr = FD_COMPUTE_BUDGET_MAX_BUILTIN_CU_LIMIT
+#define MAP_PERFECT_5  ( BPF_LOADER_2_PROG_ID    ), .cost_per_instr = FD_COMPUTE_BUDGET_MAX_BUILTIN_CU_LIMIT
+#define MAP_PERFECT_6  ( LOADER_V4_PROG_ID       ), .cost_per_instr = FD_COMPUTE_BUDGET_MAX_BUILTIN_CU_LIMIT
+#define MAP_PERFECT_7  ( KECCAK_SECP_PROG_ID     ), .cost_per_instr = FD_COMPUTE_BUDGET_MAX_BUILTIN_CU_LIMIT
+#define MAP_PERFECT_8  ( ED25519_SV_PROG_ID      ), .cost_per_instr = FD_COMPUTE_BUDGET_MAX_BUILTIN_CU_LIMIT
 
 #include "../../util/tmpl/fd_map_perfect.c"
 
@@ -273,11 +274,17 @@ fd_pack_compute_cost( fd_txn_t const * txn,
   ulong fee[1];
   uint compute[1];
   ulong loaded_account_data_cost[1];
-  fd_compute_budget_program_finalize( cbp, txn->instr_cnt, fee, compute, loaded_account_data_cost );
+  fd_compute_budget_program_finalize(
+      cbp,
+      txn->instr_cnt,
+      non_builtin_cnt,
+      fee,
+      compute,
+      loaded_account_data_cost );
 
   non_builtin_cnt = fd_ulong_min( non_builtin_cnt, FD_COMPUTE_BUDGET_MAX_CU_LIMIT/FD_COMPUTE_BUDGET_DEFAULT_INSTR_CU_LIMIT );
 
-  ulong execution_cost = fd_ulong_if( (cbp->flags & FD_COMPUTE_BUDGET_PROGRAM_FLAG_SET_CU) && (non_builtin_cnt>0UL),
+  ulong execution_cost = fd_ulong_if( (cbp->flags & FD_COMPUTE_BUDGET_PROGRAM_FLAG_SET_CU),
                                       (ulong)*compute,
                                       builtin_cost + non_builtin_cnt*FD_COMPUTE_BUDGET_DEFAULT_INSTR_CU_LIMIT
                                     ); /* <= FD_COMPUTE_BUDGET_MAX_CU_LIMIT */

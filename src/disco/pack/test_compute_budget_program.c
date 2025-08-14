@@ -29,7 +29,7 @@ test_txn( uchar const * payload,
   ulong rewards = 0UL;
   uint  compute = 0U;
   ulong loaded_accounts_data_cost = 0UL;
-  fd_compute_budget_program_finalize( &state, txn->instr_cnt, &rewards, &compute, &loaded_accounts_data_cost);
+  fd_compute_budget_program_finalize( &state, txn->instr_cnt, txn->instr_cnt, &rewards, &compute, &loaded_accounts_data_cost);
   FD_TEST( rewards                   == expected_fee_lamports              );
   FD_TEST( (ulong)compute            == expected_max_cu                    );
   FD_TEST( loaded_accounts_data_cost == expected_loaded_accounts_data_cost );
