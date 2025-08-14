@@ -350,7 +350,7 @@ rx_deltas( volatile ulong * gossip_metrics,
                         gossvf_prev[ MIDX( COUNTER, GOSSVF, MESSAGE_RX_COUNT_DROPPED_PING_SIGNATURE ) ];
   deltas.ping_tx = gossip_metrics[ MIDX( COUNTER, GOSSIP, MESSAGE_TX_COUNT_PING ) ] -
                    gossip_prev[ MIDX( COUNTER, GOSSIP, MESSAGE_TX_COUNT_PING ) ];
-  deltas.ping_tx_bytes = gossip_metrics[ MIDX( COUNTER, GOSSIP, MESSAGE_TX_BYTES_PING ) ] - 
+  deltas.ping_tx_bytes = gossip_metrics[ MIDX( COUNTER, GOSSIP, MESSAGE_TX_BYTES_PING ) ] -
                          gossip_prev[ MIDX( COUNTER, GOSSIP, MESSAGE_TX_BYTES_PING ) ];
   deltas.ping_rx_bytes = gossvf_metrics[ MIDX( COUNTER, GOSSVF, MESSAGE_RX_BYTES_SUCCESS_PING ) ] +
                          gossvf_metrics[ MIDX( COUNTER, GOSSVF, MESSAGE_RX_BYTES_DROPPED_PING_SIGNATURE ) ] -
@@ -425,7 +425,7 @@ gossip_cmd_fn( args_t *   args,
 
   char buf1[ 64 ], buf2[ 64 ], buf3[ 64 ], buf4[ 64 ], buf5[ 64 ];
 
-  printf(" Overrun: %lu\n", net_link[ MIDX( COUNTER, LINK, OVERRUN_POLLING_FRAG_COUNT ) ] + 
+  printf(" Overrun: %lu\n", net_link[ MIDX( COUNTER, LINK, OVERRUN_POLLING_FRAG_COUNT ) ] +
                             net_link[ MIDX( COUNTER, LINK, OVERRUN_READING_FRAG_COUNT ) ] );
 
   printf(" Pull response drops: %lu/%lu\n", gossvf_metrics[ MIDX( COUNTER, GOSSVF, MESSAGE_RX_COUNT_DROPPED_PULL_RESPONSE_NO_VALID_CRDS ) ],
@@ -467,23 +467,24 @@ gossip_cmd_fn( args_t *   args,
           (double)(gossvf_metrics[ MIDX( COUNTER, GOSSVF, CRDS_RX_COUNT_DROPPED_PULL_RESPONSE_ORIGIN_SHRED_VERSION ) ] - gossvf_prev[ MIDX( COUNTER, GOSSVF, CRDS_RX_COUNT_DROPPED_PULL_RESPONSE_ORIGIN_SHRED_VERSION ) ]) / (double)(pull_response_crds_total - prev_pull_response_crds_total) * 100.0,
           (double)(gossvf_metrics[ MIDX( COUNTER, GOSSVF, CRDS_RX_COUNT_DROPPED_PULL_RESPONSE_INACTIVE ) ] - gossvf_prev[ MIDX( COUNTER, GOSSVF, CRDS_RX_COUNT_DROPPED_PULL_RESPONSE_INACTIVE ) ]) / (double)(pull_response_crds_total - prev_pull_response_crds_total) * 100.0 );
 
-  printf( " CRDS Counts: %lu contact info, %lu vote, %lu lowest slot, %lu snapshot hashes, %lu accounts hashes\n",
-          gossvf_metrics[ MIDX( GAUGE, GOSSIP, TABLE_CRDS_COUNTS_CONTACT_INFO_V1 ) ],
-          gossvf_metrics[ MIDX( GAUGE, GOSSIP, TABLE_CRDS_COUNTS_VOTE ) ],
-          gossvf_metrics[ MIDX( GAUGE, GOSSIP, TABLE_CRDS_COUNTS_LOWEST_SLOT ) ],
-          gossvf_metrics[ MIDX( GAUGE, GOSSIP, TABLE_CRDS_COUNTS_SNAPSHOT_HASHES ) ],
-          gossvf_metrics[ MIDX( GAUGE, GOSSIP, TABLE_CRDS_COUNTS_ACCOUNTS_HASHES ) ] );
-  printf( " CRDS Counts: %lu epoch slots, %lu version v1, %lu version v2, %lu node instance, %lu duplicate shred\n",
-          gossvf_metrics[ MIDX( GAUGE, GOSSIP, TABLE_CRDS_COUNTS_EPOCH_SLOTS ) ],
-          gossvf_metrics[ MIDX( GAUGE, GOSSIP, TABLE_CRDS_COUNTS_VERSION_V1 ) ],
-          gossvf_metrics[ MIDX( GAUGE, GOSSIP, TABLE_CRDS_COUNTS_VERSION_V2 ) ],
-          gossvf_metrics[ MIDX( GAUGE, GOSSIP, TABLE_CRDS_COUNTS_NODE_INSTANCE ) ],
-          gossvf_metrics[ MIDX( GAUGE, GOSSIP, TABLE_CRDS_COUNTS_DUPLICATE_SHRED ) ] );
-  printf( " CRDS Counts: %lu inc snapshot hashes, %lu contact info v2, %lu restart last voted, %lu restart heaviest\n",
-          gossvf_metrics[ MIDX( GAUGE, GOSSIP, TABLE_CRDS_COUNTS_INCREMENTAL_SNAPSHOT_HASHES ) ],
-          gossvf_metrics[ MIDX( GAUGE, GOSSIP, TABLE_CRDS_COUNTS_CONTACT_INFO_V2 ) ],
-          gossvf_metrics[ MIDX( GAUGE, GOSSIP, TABLE_CRDS_COUNTS_RESTART_LAST_VOTED_FORK_SLOTS ) ],
-          gossvf_metrics[ MIDX( GAUGE, GOSSIP, TABLE_CRDS_COUNTS_RESTART_HEAVIEST_FORK ) ] );
+  printf( " +------------------------+--------------+\n" );
+  printf( " | CRDS Type              | Count        |\n" );
+  printf( " +------------------------+--------------+\n" );
+  printf( " | Contact Info V1        | %s |\n", fmt_count( buf1, gossip_metrics[ MIDX( GAUGE, GOSSIP, TABLE_CRDS_COUNTS_CONTACT_INFO_V1 ) ] ) );
+  printf( " | Contact Info V2        | %s |\n", fmt_count( buf1, gossip_metrics[ MIDX( GAUGE, GOSSIP, TABLE_CRDS_COUNTS_CONTACT_INFO_V2 ) ] ) );
+  printf( " | Vote                   | %s |\n", fmt_count( buf1, gossip_metrics[ MIDX( GAUGE, GOSSIP, TABLE_CRDS_COUNTS_VOTE ) ] ) );
+  printf( " | Lowest Slot            | %s |\n", fmt_count( buf1, gossip_metrics[ MIDX( GAUGE, GOSSIP, TABLE_CRDS_COUNTS_LOWEST_SLOT ) ] ) );
+  printf( " | Snapshot Hashes        | %s |\n", fmt_count( buf1, gossip_metrics[ MIDX( GAUGE, GOSSIP, TABLE_CRDS_COUNTS_SNAPSHOT_HASHES ) ] ) );
+  printf( " | Accounts Hashes        | %s |\n", fmt_count( buf1, gossip_metrics[ MIDX( GAUGE, GOSSIP, TABLE_CRDS_COUNTS_ACCOUNTS_HASHES ) ] ) );
+  printf( " | Inc Snapshot Hashes    | %s |\n", fmt_count( buf1, gossip_metrics[ MIDX( GAUGE, GOSSIP, TABLE_CRDS_COUNTS_INCREMENTAL_SNAPSHOT_HASHES ) ] ) );
+  printf( " | Epoch Slots            | %s |\n", fmt_count( buf1, gossip_metrics[ MIDX( GAUGE, GOSSIP, TABLE_CRDS_COUNTS_EPOCH_SLOTS ) ] ) );
+  printf( " | Version V1             | %s |\n", fmt_count( buf1, gossip_metrics[ MIDX( GAUGE, GOSSIP, TABLE_CRDS_COUNTS_VERSION_V1 ) ] ) );
+  printf( " | Version V2             | %s |\n", fmt_count( buf1, gossip_metrics[ MIDX( GAUGE, GOSSIP, TABLE_CRDS_COUNTS_VERSION_V2 ) ] ) );
+  printf( " | Node Instance          | %s |\n", fmt_count( buf1, gossip_metrics[ MIDX( GAUGE, GOSSIP, TABLE_CRDS_COUNTS_NODE_INSTANCE ) ] ) );
+  printf( " | Duplicate Shred        | %s |\n", fmt_count( buf1, gossip_metrics[ MIDX( GAUGE, GOSSIP, TABLE_CRDS_COUNTS_DUPLICATE_SHRED ) ] ) );
+  printf( " | Restart Last Voted     | %s |\n", fmt_count( buf1, gossip_metrics[ MIDX( GAUGE, GOSSIP, TABLE_CRDS_COUNTS_RESTART_LAST_VOTED_FORK_SLOTS ) ] ) );
+  printf( " | Restart Heaviest       | %s |\n", fmt_count( buf1, gossip_metrics[ MIDX( GAUGE, GOSSIP, TABLE_CRDS_COUNTS_RESTART_HEAVIEST_FORK ) ] ) );
+  printf( " +------------------------+--------------+\n\n" );
 
 #define DIFFX(METRIC) gossip_metrics[ MIDX( COUNTER, TILE, METRIC ) ] - gossip_prev[ MIDX( COUNTER, TILE, METRIC ) ]
     ulong hkeep_ticks = DIFFX(REGIME_DURATION_NANOS_CAUGHT_UP_HOUSEKEEPING) + DIFFX(REGIME_DURATION_NANOS_PROCESSING_HOUSEKEEPING) + DIFFX(REGIME_DURATION_NANOS_BACKPRESSURE_HOUSEKEEPING);
