@@ -199,13 +199,15 @@ struct fd_topo_tile {
     struct {
       char identity_key_path[ PATH_MAX ];
 
+      ulong         entrypoints_cnt;
+      fd_ip4_port_t entrypoints[ FD_TOPO_GOSSIP_ENTRYPOINTS_MAX ];
+
+      long boot_timesamp_nanos;
+
       ulong tcache_depth;
 
       ushort shred_version;
       int allow_private_address;
-
-      ulong         entrypoints_cnt;
-      fd_ip4_port_t entrypoints[ FD_TOPO_GOSSIP_ENTRYPOINTS_MAX ];
     } gossvf;
 
     struct {
@@ -213,6 +215,8 @@ struct fd_topo_tile {
 
       ulong         entrypoints_cnt;
       fd_ip4_port_t entrypoints[ FD_TOPO_GOSSIP_ENTRYPOINTS_MAX ];
+
+      long boot_timesamp_nanos;
 
       uint   ip_addr;
       ushort shred_version;

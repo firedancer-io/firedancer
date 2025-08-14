@@ -263,8 +263,8 @@ fd_crds_bucket_add( fd_crds_t *   crds,
 
    If no valid peer can be found, the returned fd_contact_info_t will be
    NULL.  The caller should check for this case and handle it
-   appropriately.  On success, the returned fd_contact_info_t is a contact info
-   suitable for sending a gossip pull request. */
+   appropriately.  On success, the returned fd_contact_info_t is a
+   contact info suitable for sending a gossip pull request. */
 
 fd_contact_info_t const *
 fd_crds_peer_sample( fd_crds_t const * crds,
