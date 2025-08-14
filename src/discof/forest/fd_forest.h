@@ -50,11 +50,11 @@ struct __attribute__((aligned(128UL))) fd_forest_ele {
   ulong child;    /* pool idx of the left-child */
   ulong sibling;  /* pool idx of the right-sibling */
 
+  uint consumed_idx; /* highest contiguous consumed shred idx */
   uint buffered_idx; /* highest contiguous buffered shred idx */
   uint complete_idx; /* shred_idx with SLOT_COMPLETE_FLAG ie. last shred idx in the slot */
 
-  fd_forest_ele_idxs_t cmpl[fd_forest_ele_idxs_word_cnt]; /* fec complete idxs */
-  fd_forest_ele_idxs_t fecs[fd_forest_ele_idxs_word_cnt]; /* fec set idxs */
+  fd_forest_ele_idxs_t fecs[fd_forest_ele_idxs_word_cnt]; /* last shred idx of every FEC set */
   fd_forest_ele_idxs_t idxs[fd_forest_ele_idxs_word_cnt]; /* data shred idxs */
 };
 typedef struct fd_forest_ele fd_forest_ele_t;

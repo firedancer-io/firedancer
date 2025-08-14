@@ -64,6 +64,8 @@
 #include "../forest/fd_forest.h"
 #include "../reasm/fd_reasm.h"
 
+#define LOGGING 0
+
 #define IN_KIND_CONTACT (0)
 #define IN_KIND_NET     (1)
 #define IN_KIND_ROOT    (2)
@@ -856,8 +858,10 @@ after_frag( fd_repair_tile_ctx_t * ctx,
     /* Insert the shred sig (shared by all shred members in the FEC set)
        into the map. */
 
+    int fec_completes = sz == FD_SHRED_DATA_HEADER_SZ + sizeof(fd_hash_t) + sizeof(fd_hash_t);
+
     fd_fec_sig_t * fec_sig = fd_fec_sig_query( ctx->fec_sigs, (shred->slot << 32) | shred->fec_set_idx, NULL );
-    if( FD_UNLIKELY( !fec_sig ) ) {
+    if( FD_UNLIKELY( !fec_sig && !fec_completes ) ) {
       fec_sig = fd_fec_sig_insert( ctx->fec_sigs, (shred->slot << 32) | shred->fec_set_idx );
       memcpy( fec_sig->sig, shred->signature, sizeof(fd_ed25519_sig_t) );
     }
@@ -867,13 +871,12 @@ after_frag( fd_repair_tile_ctx_t * ctx,
        into the forest are idempotent so it is fine to insert the same
        shred multiple times. */
 
-    if( FD_UNLIKELY( sz == FD_SHRED_DATA_HEADER_SZ + sizeof(fd_hash_t) + sizeof(fd_hash_t) ) ) {
+    if( FD_UNLIKELY( fec_completes ) ) {
       fd_forest_ele_t * ele = NULL;
       for( uint idx = shred->fec_set_idx; idx <= shred->idx; idx++ ) {
         ele = fd_forest_data_shred_insert( ctx->forest, shred->slot, shred->data.parent_off, idx, shred->fec_set_idx, 0, 0 );
       }
       FD_TEST( ele ); /* must be non-empty */
-      fd_forest_ele_idxs_insert( ele->cmpl, shred->fec_set_idx );
 
       fd_hash_t const * merkle_root         = (fd_hash_t const *)fd_type_pun_const( ctx->buffer + FD_SHRED_DATA_HEADER_SZ );
       fd_hash_t const * chained_merkle_root = (fd_hash_t const *)fd_type_pun_const( ctx->buffer + FD_SHRED_DATA_HEADER_SZ + sizeof(fd_hash_t) );
@@ -887,6 +890,8 @@ after_frag( fd_repair_tile_ctx_t * ctx,
         cmr = &fd_reasm_root( ctx->reasm )->key;
       }
       FD_TEST( fd_reasm_insert( ctx->reasm, merkle_root, cmr, shred->slot, shred->fec_set_idx, shred->data.parent_off, (ushort)(shred->idx - shred->fec_set_idx + 1), data_complete, slot_complete ) );
+      fd_fec_sig_t * fec_sig = fd_fec_sig_query( ctx->fec_sigs, (shred->slot << 32) | shred->fec_set_idx, NULL );
+      FD_TEST( fec_sig );
     }
 
     /* Insert the shred into the map. */
@@ -904,29 +909,21 @@ after_frag( fd_repair_tile_ctx_t * ctx,
          then we know we can force complete the FEC set interval [i, j)
          (assuming it wasn't already completed based on `cmpl`). */
 
-      uint i = 0;
-      for( uint j = 1; j < ele->buffered_idx + 1; j++ ) { /* TODO iterate by word */
-        if( FD_UNLIKELY( fd_forest_ele_idxs_test( ele->cmpl, i ) && fd_forest_ele_idxs_test( ele->fecs, j ) ) ) {
-          i = j;
-        } else if( FD_UNLIKELY( fd_forest_ele_idxs_test( ele->fecs, j ) || j == ele->complete_idx ) ) {
-          if ( j == ele->complete_idx ) j++;
-          fd_forest_ele_idxs_insert( ele->cmpl, i );
-
-          /* Find the shred tile owning this FEC set. */
-
-          fd_fec_sig_t * fec_sig = fd_fec_sig_query( ctx->fec_sigs, (shred->slot << 32) | i, NULL );
-
-          ulong sig      = fd_ulong_load_8( fec_sig->sig );
-          ulong tile_idx = sig % ctx->shred_tile_cnt;
-          uint  last_idx = j - i - 1;
+      uint i = ele->consumed_idx + 1;
+      for( uint j = i; j < ele->buffered_idx + 1; j++ ) {
+        if( FD_UNLIKELY( fd_forest_ele_idxs_test( ele->fecs, j ) ) ) {
+          fd_fec_sig_t * fec_sig  = fd_fec_sig_query( ctx->fec_sigs, (shred->slot << 32) | i, NULL );
+          ulong          sig      = fd_ulong_load_8( fec_sig->sig );
+          ulong          tile_idx = sig % ctx->shred_tile_cnt;
+          uint           last_idx = j - i;
 
           uchar * chunk = fd_chunk_to_laddr( ctx->shred_out_ctx[tile_idx].mem, ctx->shred_out_ctx[tile_idx].chunk );
           memcpy( chunk, fec_sig->sig, sizeof(fd_ed25519_sig_t) );
+          fd_fec_sig_remove( ctx->fec_sigs, fec_sig );
           fd_stem_publish( stem, ctx->shred_out_ctx[tile_idx].idx, last_idx, ctx->shred_out_ctx[tile_idx].chunk, sizeof(fd_ed25519_sig_t), 0UL, 0UL, 0UL );
           ctx->shred_out_ctx[tile_idx].chunk = fd_dcache_compact_next( ctx->shred_out_ctx[tile_idx].chunk, sizeof(fd_ed25519_sig_t), ctx->shred_out_ctx[tile_idx].chunk0, ctx->shred_out_ctx[tile_idx].wmark );
-          i = j;
-        } else {
-          // FD_LOG_NOTICE(( "not a fec boundary %lu %u", ele->slot, j ));
+          ele->consumed_idx = j;
+          i = j + 1;
         }
       }
     }
@@ -1105,12 +1102,14 @@ static inline void
 during_housekeeping( fd_repair_tile_ctx_t * ctx ) {
   fd_repair_settime( ctx->repair, fd_log_wallclock() );
 
+# if LOGGING
   long now = fd_log_wallclock();
   if( FD_UNLIKELY( now - ctx->tsprint > (long)10e9 ) ) {
     fd_forest_print( ctx->forest );
     fd_reasm_print( ctx->reasm );
     ctx->tsprint = fd_log_wallclock();
   }
+# endif
 }
 
 static void
