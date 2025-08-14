@@ -10,6 +10,8 @@
 #include "../../util/net/fd_net_headers.h"
 #include "generated/fd_gossvf_tile_seccomp.h"
 
+#define DEBUG_PEERS (0)
+
 #define IN_KIND_SHRED_VERSION (0)
 #define IN_KIND_NET           (1)
 #define IN_KIND_REPLAY        (2)
@@ -126,6 +128,11 @@ struct fd_gossvf_tile_ctx {
   fd_ip4_port_t entrypoints[ 16UL ];
   ulong         entrypoints_cnt;
 
+#if DEBUG_PEERS
+  ulong peer_cnt;
+  ulong ping_cnt;
+#endif
+
   peer_t * peers;
   peer_map_t * peer_map;
 
@@ -137,7 +144,7 @@ struct fd_gossvf_tile_ctx {
 
   uchar payload[ FD_NET_MTU ];
   ulong payload_sz;
-  fd_ip4_port_t peer[1];
+  fd_ip4_port_t peer;
 
   fd_gossip_ping_update_t _ping_update[1];
   fd_gossip_update_message_t _gossip_update[1];
@@ -232,12 +239,13 @@ before_frag( fd_gossvf_tile_ctx_t * ctx,
   if( FD_UNLIKELY( !ctx->shred_version && ctx->in[ in_idx ].kind!=IN_KIND_SHRED_VERSION ) ) return -1;
 
   switch( ctx->in[ in_idx ].kind ) {
+    case IN_KIND_SHRED_VERSION: return 0;
     case IN_KIND_NET: return (seq % ctx->round_robin_cnt) != ctx->round_robin_idx;
     case IN_KIND_REPLAY: return 0;
     case IN_KIND_PINGS: return 0;
     case IN_KIND_GOSSIP: return sig!=FD_GOSSIP_UPDATE_TAG_CONTACT_INFO &&
                                 sig!=FD_GOSSIP_UPDATE_TAG_CONTACT_INFO_REMOVE;
-    default: __builtin_unreachable();
+    default: FD_LOG_ERR(( "unexpected in_kind %d", ctx->in[ in_idx ].kind )); return -1;
   }
 }
 
@@ -285,7 +293,7 @@ during_frag( fd_gossvf_tile_ctx_t * ctx,
     case IN_KIND_NET: {
       uchar * src = (uchar *)fd_chunk_to_laddr( ctx->in[ in_idx ].mem, chunk );
       uchar * payload;
-      strip_network_hdrs( src, sz, &payload, &ctx->payload_sz, ctx->peer );
+      strip_network_hdrs( src, sz, &payload, &ctx->payload_sz, &ctx->peer );
       fd_memcpy( ctx->payload, payload, ctx->payload_sz );
       break;
     }
@@ -415,13 +423,22 @@ verify_signatures( fd_gossvf_tile_ctx_t * ctx,
   };
 }
 
+static inline int
+is_entrypoint( fd_gossvf_tile_ctx_t * ctx,
+               fd_ip4_port_t          addr ) {
+  for( ulong i=0UL; i<ctx->entrypoints_cnt; i++ ) {
+    if( FD_UNLIKELY( addr.addr==ctx->entrypoints[ i ].addr && addr.port==ctx->entrypoints[ i ].port ) ) return 1;
+  }
+  return 0;
+}
+
 static void
 filter_shred_version_crds( fd_gossvf_tile_ctx_t *            ctx,
                            int                               tag,
                            fd_gossip_view_crds_container_t * container,
                            uchar const *                     payload ) {
   peer_t const * relayer = peer_map_ele_query_const( ctx->peer_map, (fd_pubkey_t*)(payload+container->from_off), NULL, ctx->peers );
-  int keep_non_ci = relayer && relayer->shred_version==ctx->shred_version;
+  int keep_non_ci = (relayer && relayer->shred_version==ctx->shred_version) || (!relayer && is_entrypoint( ctx, ctx->peer ) );
 
   ulong i = 0UL;
   while( i<container->crds_values_len ) {
@@ -431,6 +448,7 @@ filter_shred_version_crds( fd_gossvf_tile_ctx_t *            ctx,
       peer_t const * origin = peer_map_ele_query_const( ctx->peer_map, (fd_pubkey_t*)(payload+container->crds_values[ i ].pubkey_off), NULL, ctx->peers );
       no_origin = !origin;
       keep = origin && origin->shred_version==ctx->shred_version;
+      if( !origin ) keep = 1; /* TODO ... */
     }
 
     if( FD_UNLIKELY( !keep ) ) {
@@ -563,9 +581,7 @@ is_ping_active( fd_gossvf_tile_ctx_t *              ctx,
   }
 
   /* 1. If the node is an entrypoint, it is active */
-  for( ulong i=0UL; i<ctx->entrypoints_cnt; i++ ) {
-    if( FD_UNLIKELY( rpc_addr.l==ctx->entrypoints[ i ].l ) ) return 1;
-  }
+  if( FD_UNLIKELY( is_entrypoint( ctx, rpc_addr ) ) ) return 1;
 
   /* 2. If the node has more than 1 sol staked, it is active */
   stake_t const * stake = stake_map_ele_query_const( ctx->stake_map, (fd_pubkey_t*)(payload+value->pubkey_off), NULL, ctx->stakes );
@@ -581,8 +597,6 @@ verify_addresses( fd_gossvf_tile_ctx_t * ctx,
                   fd_gossip_view_t *     view,
                   uchar const *          payload,
                   fd_stem_context_t *    stem ) {
-  if( FD_UNLIKELY( ctx->allow_private_address ) ) return 0;
-
   fd_gossip_view_crds_container_t * container;
   switch( view->tag ) {
     case FD_GOSSIP_MESSAGE_PING:
@@ -621,7 +635,7 @@ verify_addresses( fd_gossvf_tile_ctx_t * ctx,
 
       /* TODO: Support IPv6 ... */
       int is_ip6 = contact_info->addrs[ socket->index ].is_ip6;
-      int is_ip4_nonpublic = !is_ip6 && !fd_ip4_addr_is_public( contact_info->addrs[ socket->index ].ip4 );
+      int is_ip4_nonpublic = !ctx->allow_private_address && !is_ip6 && !fd_ip4_addr_is_public( contact_info->addrs[ socket->index ].ip4 );
       if( FD_UNLIKELY( is_ip6 || is_ip4_nonpublic ) ) {
         remove = 1;
         break;
@@ -632,6 +646,12 @@ verify_addresses( fd_gossvf_tile_ctx_t * ctx,
         fd_memcpy( pingreq->pubkey.uc, payload+value->pubkey_off, 32UL );
         fd_stem_publish( stem, 0UL, fd_gossvf_sig( contact_info->addrs[ socket->index ].ip4, fd_ushort_bswap( port ), 1 ), ctx->out->chunk, sizeof(fd_gossip_pingreq_t), 0UL, 0UL, 0UL );
         ctx->out->chunk = fd_dcache_compact_next( ctx->out->chunk, sizeof(fd_gossip_pingreq_t), ctx->out->chunk0, ctx->out->wmark );
+
+#if DEBUG_PEERS
+        char base58[ FD_BASE58_ENCODED_32_SZ ];
+        fd_base58_encode_32( payload+value->pubkey_off, NULL, base58 );
+        FD_LOG_NOTICE(( "pinging %s (" FD_IP4_ADDR_FMT ":%hu) (%lu)", base58, FD_IP4_ADDR_FMT_ARGS( contact_info->addrs[ socket->index ].ip4 ), fd_ushort_bswap( port ), ctx->ping_cnt ));
+#endif
 
         remove = 1;
         break;
@@ -670,11 +690,26 @@ verify_addresses( fd_gossvf_tile_ctx_t * ctx,
 static void
 handle_ping_update( fd_gossvf_tile_ctx_t *    ctx,
                     fd_gossip_ping_update_t * ping_update ) {
+#if DEBUG_PEERS
+    char base58[ FD_BASE58_ENCODED_32_SZ ];
+    fd_base58_encode_32( ping_update->pubkey.uc, NULL, base58 );
+#endif
+
   if( FD_UNLIKELY( ping_update->remove ) ) {
+#if DEBUG_PEERS
+    ctx->ping_cnt--;
+    FD_LOG_NOTICE(( "removing ping for %s (" FD_IP4_ADDR_FMT ":%hu) (%lu)", base58, FD_IP4_ADDR_FMT_ARGS( ping_update->gossip_addr.addr ), fd_ushort_bswap( ping_update->gossip_addr.port ), ctx->ping_cnt ));
+#endif
+
     ping_t * ping = ping_map_ele_remove( ctx->ping_map, &ping_update->pubkey, NULL, ctx->pings );
     FD_TEST( ping );
     ping_pool_ele_release( ctx->pings, ping );
   } else {
+#if DEBUG_PEERS
+    ctx->ping_cnt++;
+    FD_LOG_NOTICE(( "adding ping for %s (" FD_IP4_ADDR_FMT ":%hu) (%lu)", base58, FD_IP4_ADDR_FMT_ARGS( ping_update->gossip_addr.addr ), fd_ushort_bswap( ping_update->gossip_addr.port ), ctx->ping_cnt ));
+#endif
+
     FD_TEST( ping_pool_free( ctx->pings ) );
     ping_t * ping = ping_pool_ele_acquire( ctx->pings );
     ping->addr.l = ping_update->gossip_addr.l;
@@ -686,13 +721,27 @@ handle_ping_update( fd_gossvf_tile_ctx_t *    ctx,
 static void
 handle_peer_update( fd_gossvf_tile_ctx_t *       ctx,
                     fd_gossip_update_message_t * gossip_update ) {
+#if DEBUG_PEERS
+    char base58[ FD_BASE58_ENCODED_32_SZ ];
+    fd_base58_encode_32( gossip_update->origin_pubkey, NULL, base58 );
+#endif
+
   switch( gossip_update->tag ) {
     case FD_GOSSIP_UPDATE_TAG_CONTACT_INFO: {
       peer_t * peer = peer_map_ele_query( ctx->peer_map, (fd_pubkey_t*)gossip_update->origin_pubkey, NULL, ctx->peers );
       if( FD_LIKELY( peer ) ) {
+#if DEBUG_PEERS
+        FD_LOG_NOTICE(( "updating peer %s (" FD_IP4_ADDR_FMT ":%hu) (%lu)", base58, FD_IP4_ADDR_FMT_ARGS( gossip_update->contact_info.contact_info->sockets[ FD_CONTACT_INFO_SOCKET_GOSSIP ].addr ), fd_ushort_bswap( gossip_update->contact_info.contact_info->sockets[ FD_CONTACT_INFO_SOCKET_GOSSIP ].port ), ctx->peer_cnt ));
+#endif
+
         peer->shred_version = gossip_update->contact_info.contact_info->shred_version;
         peer->gossip_addr = gossip_update->contact_info.contact_info->sockets[ FD_CONTACT_INFO_SOCKET_GOSSIP ];
       } else {
+#if DEBUG_PEERS
+        ctx->peer_cnt++;
+        FD_LOG_NOTICE(( "adding peer %s (" FD_IP4_ADDR_FMT ":%hu) (%lu)", base58, FD_IP4_ADDR_FMT_ARGS( gossip_update->contact_info.contact_info->sockets[ FD_CONTACT_INFO_SOCKET_GOSSIP ].addr ), fd_ushort_bswap( gossip_update->contact_info.contact_info->sockets[ FD_CONTACT_INFO_SOCKET_GOSSIP ].port ), ctx->peer_cnt ));
+#endif
+
         FD_TEST( peer_pool_free( ctx->peers ) );
         peer = peer_pool_ele_acquire( ctx->peers );
         peer->shred_version = gossip_update->contact_info.contact_info->shred_version;
@@ -703,6 +752,11 @@ handle_peer_update( fd_gossvf_tile_ctx_t *       ctx,
       break;
     }
     case FD_GOSSIP_UPDATE_TAG_CONTACT_INFO_REMOVE: {
+#if DEBUG_PEERS
+      ctx->peer_cnt--;
+      FD_LOG_NOTICE(( "removing peer %s (%lu)", base58, ctx->peer_cnt ));
+#endif
+
       peer_t * peer = peer_map_ele_remove( ctx->peer_map, (fd_pubkey_t*)gossip_update->origin_pubkey, NULL, ctx->peers );
       FD_TEST( peer );
       peer_pool_ele_release( ctx->peers, peer );
@@ -827,7 +881,7 @@ handle_net( fd_gossvf_tile_ctx_t * ctx,
   fd_memcpy( dst+sizeof(fd_gossip_view_t), ctx->payload, ctx->payload_sz );
 
   ulong tspub = (ulong)fd_frag_meta_ts_comp( fd_tickcount() );
-  fd_stem_publish( stem, 0UL, fd_gossvf_sig( ctx->peer->addr, ctx->peer->port, 0 ), ctx->out->chunk, sizeof(fd_gossip_view_t)+ctx->payload_sz, 0UL, tsorig, tspub );
+  fd_stem_publish( stem, 0UL, fd_gossvf_sig( ctx->peer.addr, ctx->peer.port, 0 ), ctx->out->chunk, sizeof(fd_gossip_view_t)+ctx->payload_sz, 0UL, tsorig, tspub );
   ctx->out->chunk = fd_dcache_compact_next( ctx->out->chunk, sizeof(fd_gossip_view_t)+ctx->payload_sz, ctx->out->chunk0, ctx->out->wmark );
 
   return result;
@@ -938,7 +992,17 @@ unprivileged_init( fd_topo_t *      topo,
   ctx->entrypoints_cnt = tile->gossvf.entrypoints_cnt;
   for( ulong i=0UL; i<tile->gossvf.entrypoints_cnt; i++ ) {
     ctx->entrypoints[ i ].l = tile->gossvf.entrypoints[ i ].l;
+#if DEBUG_PEERS
+    FD_LOG_NOTICE(( "entrypoint " FD_IP4_ADDR_FMT ":%hu", FD_IP4_ADDR_FMT_ARGS( ctx->entrypoints[ i ].addr ), fd_ushort_bswap( ctx->entrypoints[ i ].port ) ));
+#endif
   }
+
+  ctx->instance_creation_wallclock_nanos = tile->gossvf.boot_timesamp_nanos;
+
+#if DEBUG_PEERS
+  ctx->peer_cnt = 0UL;
+  ctx->ping_cnt = 0UL;
+#endif
 
   memset( &ctx->metrics, 0, sizeof( ctx->metrics ) );
 

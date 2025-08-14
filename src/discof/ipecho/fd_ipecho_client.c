@@ -96,6 +96,8 @@ fd_ipecho_client_init( fd_ipecho_client_t *  client,
     peer_cnt++;
   }
 
+  for( ulong i=peer_cnt; i<16UL; i++ ) client->pollfds[ i ].fd = -1;
+
   client->peer_cnt = peer_cnt;
   client->start_time_nanos = fd_log_wallclock();
 }
@@ -221,7 +223,7 @@ fd_ipecho_client_poll( fd_ipecho_client_t * client,
 
   *charge_busy = 1;
 
-  for( ulong i=0UL; i<16U; i++ ) {
+  for( ulong i=0UL; i<16UL; i++ ) {
     if( FD_UNLIKELY( -1==client->pollfds[ i ].fd ) ) continue;
 
     if( FD_LIKELY( client->pollfds[ i ].revents & POLLOUT ) ) write_conn( client, i );

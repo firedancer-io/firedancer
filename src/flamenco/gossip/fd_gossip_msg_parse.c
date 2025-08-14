@@ -307,7 +307,7 @@ fd_gossip_msg_crds_contact_info_parse( fd_gossip_view_crds_value_t * crds_val,
                                        ushort                        start_offset ) {
   CHECK_INIT( payload, payload_sz, start_offset );
   CHECK_LEFT( 32U ); crds_val->pubkey_off = CUR_OFFSET                                                                         ; INC( 32U );
-  ulong wallclock;
+  ulong wallclock = 0UL;
   INC( decode_u64_varint( payload, payload_sz, CUR_OFFSET, &wallclock ) );
   crds_val->wallclock_nanos = FD_MILLI_TO_NANOSEC( wallclock );
 

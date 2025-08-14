@@ -59,6 +59,7 @@ gossip_cmd_topo( config_t * config ) {
   gossip_tile->gossip.shred_version = config->consensus.expected_shred_version;
   gossip_tile->gossip.max_entries  = config->tiles.gossip.max_entries;
   gossip_tile->gossip.ports.gossip = config->gossip.port;
+  gossip_tile->gossip.boot_timesamp_nanos = fd_log_wallclock();
 
   fd_topob_wksp( topo, "gossvf" );
   fd_topo_tile_t * gossvf_tile = fd_topob_tile( topo, "gossvf", "gossvf", "metric_in", 0UL, 0, 1 );
@@ -70,6 +71,7 @@ gossip_cmd_topo( config_t * config ) {
   for( ulong i=0UL; i<config->gossip.entrypoints_cnt; i++ ) {
     gossvf_tile->gossvf.entrypoints[ i ] = config->gossip.resolved_entrypoints[ i ];
   }
+  gossvf_tile->gossvf.boot_timesamp_nanos = gossip_tile->gossip.boot_timesamp_nanos;
 
   fd_topob_wksp( topo, "gossip_net" );
   fd_topob_link( topo, "gossip_net", "gossip_net", config->net.ingress_buffer_size, FD_NET_MTU, 1UL );
@@ -92,6 +94,7 @@ gossip_cmd_topo( config_t * config ) {
   ipecho_tile->ipecho.bind_address = config->net.ip_addr;
   ipecho_tile->ipecho.bind_port = config->gossip.port;
   ipecho_tile->ipecho.entrypoints_cnt = config->gossip.entrypoints_cnt;
+  FD_LOG_WARNING(( "IPECHO entrypoints: %lu", ipecho_tile->ipecho.entrypoints_cnt ));
   for( ulong i=0UL; i<config->gossip.entrypoints_cnt; i++ ) {
     ipecho_tile->ipecho.entrypoints[ i ] = config->gossip.resolved_entrypoints[ i ];
   }
@@ -485,14 +488,16 @@ gossip_cmd_fn( args_t *   args,
 #define DIFFX(METRIC) gossip_metrics[ MIDX( COUNTER, TILE, METRIC ) ] - gossip_prev[ MIDX( COUNTER, TILE, METRIC ) ]
     ulong hkeep_ticks = DIFFX(REGIME_DURATION_NANOS_CAUGHT_UP_HOUSEKEEPING) + DIFFX(REGIME_DURATION_NANOS_PROCESSING_HOUSEKEEPING) + DIFFX(REGIME_DURATION_NANOS_BACKPRESSURE_HOUSEKEEPING);
     ulong busy_ticks = DIFFX(REGIME_DURATION_NANOS_PROCESSING_PREFRAG) + DIFFX(REGIME_DURATION_NANOS_PROCESSING_POSTFRAG );
-    ulong caught_up_ticks = DIFFX(REGIME_DURATION_NANOS_CAUGHT_UP_PREFRAG) + DIFFX(REGIME_DURATION_NANOS_CAUGHT_UP_POSTFRAG);
+    ulong caught_up_ticks1 = DIFFX(REGIME_DURATION_NANOS_CAUGHT_UP_PREFRAG);
+    ulong caught_up_ticks2 = DIFFX(REGIME_DURATION_NANOS_CAUGHT_UP_POSTFRAG);
     ulong backpressure_ticks = DIFFX(REGIME_DURATION_NANOS_BACKPRESSURE_PREFRAG);
-    ulong total_ticks = hkeep_ticks + busy_ticks + caught_up_ticks + backpressure_ticks;
+    ulong total_ticks = hkeep_ticks + busy_ticks + caught_up_ticks1 + caught_up_ticks2 + backpressure_ticks;
 
-    printf( " Gossip Hkeep: %.1f %%  Busy: %.1f %%  Idle: %.1f %%  Backp: %0.1f %%\n",
+    printf( " Gossip Hkeep: %.1f %%  Busy: %.1f %%  Idle1: %.1f %%  Idle2: %.1f %%  Backp: %0.1f %%\n",
             (double)hkeep_ticks/(double)total_ticks*100.0,
             (double)busy_ticks/(double)total_ticks*100.0,
-            (double)caught_up_ticks/(double)total_ticks*100.0,
+            (double)caught_up_ticks1/(double)total_ticks*100.0,
+            (double)caught_up_ticks2/(double)total_ticks*100.0,
             (double)backpressure_ticks/(double)total_ticks*100.0 );
 #undef DIFFX
 #define DIFFX(METRIC) gossvf_metrics[ MIDX( COUNTER, TILE, METRIC ) ] - gossvf_prev[ MIDX( COUNTER, TILE, METRIC ) ]
