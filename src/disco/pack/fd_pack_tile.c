@@ -411,31 +411,6 @@ during_housekeeping( fd_pack_ctx_t * ctx ) {
   }
 }
 
-static inline void
-before_credit( fd_pack_ctx_t *     ctx,
-               fd_stem_context_t * stem,
-               int *               charge_busy ) {
-  (void)stem;
-
-  if( FD_UNLIKELY( (ctx->cur_spot!=NULL) & !ctx->is_bundle ) ) {
-    *charge_busy = 1;
-
-    /* If we were overrun while processing a frag from an in, then
-       cur_spot is left dangling and not cleaned up, so clean it up here
-       (by returning the slot to the pool of free slots).  If the last
-       transaction was a bundle, then we don't want to return it.  When
-       we try to process the first transaction in the next bundle, we'll
-       see we never got the full bundle and cancel the whole last
-       bundle, returning all the storage to the pool. */
-#if FD_PACK_USE_EXTRA_STORAGE
-    if( FD_LIKELY( !ctx->insert_to_extra ) ) fd_pack_insert_txn_cancel( ctx->pack, ctx->cur_spot );
-    else                                     extra_txn_deq_remove_tail( ctx->extra_txn_deq       );
-#else
-    fd_pack_insert_txn_cancel( ctx->pack, ctx->cur_spot );
-#endif
-    ctx->cur_spot = NULL;
-  }
-}
 
 #if FD_PACK_USE_EXTRA_STORAGE
 /* insert_from_extra: helper method to pop the transaction at the head
@@ -1354,7 +1329,6 @@ populate_allowed_fds( fd_topo_t const *      topo,
 #define STEM_CALLBACK_CONTEXT_ALIGN alignof(fd_pack_ctx_t)
 
 #define STEM_CALLBACK_DURING_HOUSEKEEPING during_housekeeping
-#define STEM_CALLBACK_BEFORE_CREDIT       before_credit
 #define STEM_CALLBACK_AFTER_CREDIT        after_credit
 #define STEM_CALLBACK_DURING_FRAG         during_frag
 #define STEM_CALLBACK_AFTER_FRAG          after_frag
