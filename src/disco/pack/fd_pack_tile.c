@@ -451,6 +451,9 @@ insert_from_extra( fd_pack_ctx_t * ctx ) {
   fd_memcpy( TXN(spot->txnp),     insert_txn,            fd_txn_footprint( insert_txn->instr_cnt, insert_txn->addr_table_lookup_cnt ) );
   fd_memcpy( spot->alt_accts,     insert->alt_accts,     insert_txn->addr_table_adtl_cnt*sizeof(fd_acct_addr_t)                       );
   spot->txnp->payload_sz = insert->txnp->payload_sz;
+  spot->txnp->source_tpu  = insert->txnp->source_tpu;
+  spot->txnp->source_ipv4 = insert->txnp->source_ipv4;
+  spot->txnp->scheduler_arrival_time_nanos = insert->txnp->scheduler_arrival_time_nanos;
   extra_txn_deq_remove_head( ctx->extra_txn_deq );
 
   ulong blockhash_slot = insert->txnp->blockhash_slot;
@@ -616,7 +619,10 @@ after_credit( fd_pack_ctx_t *     ctx,
         ctx->crank->metrics[ 0 ]++; /* BUNDLE_CRANK_STATUS_NOT_NEEDED */
       }
       else if( FD_LIKELY( txn_sz<ULONG_MAX ) ) {
-        bundle[0]->txnp->payload_sz = (ushort)txn_sz;
+        bundle[0]->txnp->payload_sz  = (ushort)txn_sz;
+        bundle[0]->txnp->source_tpu  = FD_TXN_M_TPU_SOURCE_BUNDLE;
+        bundle[0]->txnp->source_ipv4 = 0; /* not applicable */
+        bundle[0]->txnp->scheduler_arrival_time_nanos = ctx->approx_wallclock_ns + (long)((double)(fd_tickcount() - ctx->approx_tickcount) / ctx->ticks_per_ns);
         memcpy( bundle[0]->txnp->payload+TXN(bundle[0]->txnp)->recent_blockhash_off, ctx->crank->recent_blockhash, 32UL );
 
         fd_keyguard_client_sign( ctx->crank->keyguard_client, bundle[0]->txnp->payload+1UL,
