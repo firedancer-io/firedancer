@@ -14,7 +14,13 @@ main( int     argc,
   FD_TEST( alignof( fd_chacha_rng_t )==fd_chacha_rng_align()     );
   FD_TEST( sizeof ( _rng            )==fd_chacha_rng_footprint() );
 
-  fd_chacha_rng_t * rng = fd_chacha_rng_join( fd_chacha_rng_new( _rng, FD_CHACHA_RNG_MODE_MOD ) );
+  FD_TEST( fd_chacha_rng_new( NULL, FD_CHACHA_RNG_MODE_MOD )==NULL ); /* invalid mem */
+  FD_TEST( fd_chacha_rng_new( (void *)((ulong)_rng+1UL), FD_CHACHA_RNG_MODE_MOD )==NULL ); /* misaligned mem */
+  FD_TEST( fd_chacha_rng_new( _rng, 42 )==NULL ); /* invalid mode */
+
+  FD_TEST( fd_chacha_rng_new( _rng, FD_CHACHA_RNG_MODE_MOD )==_rng );
+  FD_TEST( fd_chacha_rng_join( NULL )==NULL ); /* invalid mem */
+  fd_chacha_rng_t * rng = fd_chacha_rng_join( _rng );
   FD_TEST( (ulong)rng == (ulong)_rng );
 
   /* Initialize it with a key */
@@ -94,9 +100,12 @@ main( int     argc,
   REFILL_TEST( fd_chacha8_rng_refill_seq,      1*FD_CHACHA_BLOCK_SZ );
   REFILL_TEST( fd_chacha20_rng_refill_seq,     1*FD_CHACHA_BLOCK_SZ );
 
-  /* Clean up */
+  /* Test leave/delete */
 
-  FD_TEST( (ulong)fd_chacha_rng_delete( fd_chacha_rng_leave( rng ) )==(ulong)_rng );
+  FD_TEST( fd_chacha_rng_leave( NULL )==NULL ); /* invalid mem */
+  FD_TEST( fd_chacha_rng_leave( rng )==_rng );
+  FD_TEST( fd_chacha_rng_delete( NULL )==NULL ); /* invalid mem */
+  FD_TEST( fd_chacha_rng_delete( rng )==_rng );
 
   FD_LOG_NOTICE(( "pass" ));
   fd_halt();
