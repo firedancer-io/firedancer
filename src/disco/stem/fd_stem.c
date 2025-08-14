@@ -102,20 +102,20 @@
    not invoked if the stem is backpressured, as it would not try and
    read a frag from an in in the first place (instead, leaving it on the
    in mcache to backpressure the upstream producer).  in_idx will be the
-   index of the in that the frag was received from. If the producer of
-   the frags is respecting flow control, it is safe to read frag data in
-   any of the callbacks, but it is suggested to copy or read frag data
-   within this callback, as if the producer does not respect flow
-   control, the frag may be torn or corrupt due to an overrun by the
-   reader.  If the frag being read from has been overwritten while this
-   callback is running, the frag will be ignored and the stem will not
-   call the after_frag function. Instead it will recover from the
-   overrun and continue with new frags.  This function cannot fail.  The
-   ctx is a user-provided context object from when the stem tile was
-   initialized. seq, sig, chunk, and sz are the respective fields from
-   the mcache fragment that was received.  If the producer is not
-   respecting flow control, these may be corrupt or torn and should not
-   be trusted, except for seq which is read atomically.
+   index of the in that the frag was received from, skipping any unpolled
+   links. If the producer of the frags is respecting flow control, it is
+   safe to read frag data in any of the callbacks, but it is suggested to
+   copy or read frag data within this callback, as if the producer does
+   not respect flow control, the frag may be torn or corrupt due to an
+   overrun by the reader.  If the frag being read from has been
+   overwritten while this callback is running, the frag will be ignored
+   and the stem will not call the after_frag function. Instead it will
+   recover from the overrun and continue with new frags.  This function
+   cannot fail.  The ctx is a user-provided context object from when the
+   stem tile was initialized. seq, sig, chunk, and sz are the respective
+   fields from the mcache fragment that was received.  If the producer
+   is not respecting flow control, these may be corrupt or torn and
+   should not be trusted, except for seq which is read atomically.
 
       RETURNABLE_FRAG
    Is called after the stem has received a new frag from an in, and
@@ -148,13 +148,13 @@
    the reader was overrun, the frag is abandoned and this function is
    not called.  This callback is not invoked if the stem is
    backpressured, as it would not read a frag in the first place.
-   in_idx will be the index of the in that the frag was received from.
-   You should not read the frag data directly here, as it might still
-   get overrun, instead it should be copied out of the frag during the
-   read callback if needed later. This function cannot fail. The ctx is
-   a user-provided context object from when the stem tile was
-   initialized.  stem should only be used for calling fd_stem_publish to
-   publish a fragment to downstream consumers.  seq is the sequence
+   in_idx will be the index of the in that the frag was received from,
+   skipping any unpolled links. You should not read the frag data directly
+   here, as it might still get overrun, instead it should be copied out of
+   the frag during the read callback if needed later. This function cannot
+   fail. The ctx is a user-provided context object from when the stem tile
+   was initialized.  stem should only be used for calling fd_stem_publish
+   to publish a fragment to downstream consumers.  seq is the sequence
    number of the fragment that was read from the input mcache. sig,
    chunk, sz, tsorig, and tspub are the respective fields from the
    mcache fragment that was received.  If the producer is not respecting

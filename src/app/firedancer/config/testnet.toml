@@ -1,6 +1,13 @@
+[snapshots]
+    cluster = "testnet"
 [gossip]
     entrypoints = [
         "entrypoint.testnet.solana.com:8001",
         "entrypoint2.testnet.solana.com:8001",
         "entrypoint3.testnet.solana.com:8001",
     ]
+[funk]
+    heap_size_gib = 40
+    max_account_records = 200_000_000
+[consensus]
+    expected_shred_version = 9065

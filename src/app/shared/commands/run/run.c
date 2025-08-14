@@ -898,6 +898,11 @@ run_firedancer( config_t * config,
 void
 run_cmd_fn( args_t *   args FD_PARAM_UNUSED,
             config_t * config ) {
+  #define CHECK_PORT_NON_ZERO( field ) \
+    if( FD_UNLIKELY( config->field==0 ) ) { \
+      FD_LOG_ERR(( #field " is not set in your configuration file. Please set it to a non-zero value." )); \
+    }
+
   if( FD_UNLIKELY( !config->gossip.entrypoints_cnt && !config->development.bootstrap ) )
     FD_LOG_ERR(( "No entrypoints specified in configuration file under [gossip.entrypoints], but "
                  "at least one is needed to determine how to connect to the Solana cluster. If "
@@ -910,6 +915,15 @@ run_cmd_fn( args_t *   args FD_PARAM_UNUSED,
       FD_LOG_ERR(( "One of the entrypoints in your configuration file under [gossip.entrypoints] is "
                    "empty. Please remove the empty entrypoint or set it correctly. "));
   }
+
+  CHECK_PORT_NON_ZERO( gossip.port );
+  CHECK_PORT_NON_ZERO( tiles.quic.quic_transaction_listen_port );
+  CHECK_PORT_NON_ZERO( tiles.quic.regular_transaction_listen_port );
+  CHECK_PORT_NON_ZERO( tiles.shred.shred_listen_port );
+  CHECK_PORT_NON_ZERO( tiles.metric.prometheus_listen_port );
+  CHECK_PORT_NON_ZERO( tiles.gui.gui_listen_port );
+
+  #undef CHECK_PORT_NON_ZERO
 
   run_firedancer( config, -1, 1 );
 }

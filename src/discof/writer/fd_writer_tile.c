@@ -267,9 +267,6 @@ after_frag( fd_writer_tile_ctx_t * ctx,
 
     if( FD_LIKELY( txn_ctx->flags & FD_TXN_P_FLAGS_EXECUTE_SUCCESS ) ) {
       FD_SPAD_FRAME_BEGIN( ctx->spad ) {
-        if( FD_UNLIKELY( !ctx->bank ) ) {
-          FD_LOG_CRIT(( "No bank for slot %lu", txn_ctx->slot ));
-        }
 
         fd_runtime_finalize_txn(
           ctx->funk,
@@ -288,6 +285,8 @@ after_frag( fd_writer_tile_ctx_t * ctx,
         /* Spin for the replay tile to ack the previous txn done. */
         FD_SPIN_PAUSE();
       }
+    } else {
+      fd_banks_unlock( ctx->banks );
     }
     /* Notify the replay tile. */
     fd_fseq_update( ctx->fseq, fd_writer_fseq_set_txn_done( msg->txn_id, msg->exec_tile_id ) );
