@@ -763,8 +763,7 @@ tx_pull_request( fd_gossip_t *       gossip,
   uint   mask_bits      = _mask_bits >= 0.0 ? (uint)_mask_bits : 0UL;
   ulong  mask           = fd_rng_ulong( gossip->rng ) | (~0UL>>(mask_bits));
 
-
-  uchar payload[ FD_GOSSIP_MTU ];
+  uchar payload[ FD_GOSSIP_MTU ] = {0};
 
   ulong payload_sz;
   ulong * keys_ptr, * bits_ptr, * bits_set;
