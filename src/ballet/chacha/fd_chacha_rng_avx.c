@@ -103,7 +103,7 @@ fd_chacha_rng_refill_avx( fd_chacha_rng_t * rng,
   /* Update ring buffer */
 
   ulong  slot = rng->buf_fill % (8*FD_CHACHA_BLOCK_SZ);
-  uint * out  = (uint *)rng->buf + (slot*2*FD_CHACHA_BLOCK_SZ);
+  uint * out  = (uint *)( rng->buf + (slot*2*FD_CHACHA_BLOCK_SZ) );
   wu_st( out+0x00, c0 ); wu_st( out+0x08, c8 );
   wu_st( out+0x10, c1 ); wu_st( out+0x18, c9 );
   wu_st( out+0x20, c2 ); wu_st( out+0x28, cA );
