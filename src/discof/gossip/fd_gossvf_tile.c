@@ -820,11 +820,13 @@ handle_net( fd_gossvf_tile_ctx_t * ctx,
   int result = filter_shred_version( ctx, view, ctx->payload );
   if( FD_UNLIKELY( result ) ) return result;
 
-  result = verify_addresses( ctx, view, ctx->payload, stem );
-  if( FD_UNLIKELY( result ) ) return result;
+  (void)verify_addresses;
+  // result = verify_addresses( ctx, view, ctx->payload, stem );
+  // if( FD_UNLIKELY( result ) ) return result;
 
-  result = verify_signatures( ctx, view, ctx->payload, ctx->sha );
-  if( FD_UNLIKELY( result ) ) return result;
+  (void)verify_signatures;
+  // result = verify_signatures( ctx, view, ctx->payload, ctx->sha );
+  // if( FD_UNLIKELY( result ) ) return result;
 
   check_duplicate_instance( ctx, view, ctx->payload );
 

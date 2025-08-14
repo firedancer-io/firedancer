@@ -305,7 +305,7 @@ fd_crds_mask_iter_entry( fd_crds_mask_iter_t * it,
                          fd_crds_t const * crds );
 
 /* fd_crds_purged_mask_iter_{init,next,done} mirrors the fd_crds_mask_*
-   APIs for the purged table. This includes purged and failed_inserts
+   APIs for the purged table.  This includes purged and failed_inserts
    entries for the specified mask range.
 
    Mixing APIs (e.g., using crds init and purged next/done/hash) is UB.*/

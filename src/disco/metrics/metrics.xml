@@ -760,7 +760,31 @@ metric introduced.
     <int value="5" name="Pong"         label="Pong" />
 </enum>
 
+<enum name="PongResponse">
+    <int value="0" name="Staked"     label="Pong ignored as node is staked" />
+    <int value="1" name="Entrypoint" label="Pong ignored as node is an entrypoint" />
+    <int value="2" name="Untracked"  label="Pong ignored as node has no outstanding ping" />
+    <int value="3" name="Address"    label="Pong ignored as responding node doesn't match pinged address" />
+    <int value="4" name="Token"      label="Pong ignored as token was not valid" />
+    <int value="5" name="Success"    label="Pong accepted" />
+</enum>
+
+<enum name="PingTrackedType">
+    <int value="0" name="Unpinged" label="Peer is known but has not been pinged yet" />
+    <int value="1" name="Invalid" label="Peer was pinged but has not yet responded, or responded with an invalid pong" />
+    <int value="2" name="Valid" label="Peer was pinged and is currently valid" />
+    <int value="3" name="ValidRefreshing" label="Peer was pinged and is currently valid, and is being refreshed with a new ping" />
+</enum>
+
 <tile name="gossip">
+    <counter name="PingTrackerCapacity" label="The peer tracking capacity of the ping tracker" />
+    <gauge name="PingTrackerCount" enum="PingTrackedType" label="The number of peers being tracked for ping/pong" />
+    <counter name="PingTrackerPongResult" enum="PongResponse" label="The result of processing a pong response to a ping" />
+    <counter name="PingTrackerEvictedCount" label="The number of peers evicted from the ping tracker to make space for new peers" />
+    <counter name="PingTrackedCount" label="The total number of peers ever tracked for ping/pong" />
+    <counter name="PingTrackerStakeChangedCount" label="The number of times a tracked peer was removed from tracking as it became staked" />
+    <counter name="PingTrackerAddressChangedCount" label="The number of times a tracked peer was removed from tracking as it's gossip address changed" />
+
     <gauge name="TableCapacity"     label="The capacity of the CRDS table" />
     <gauge name="TableSize"         label="The current size of the CRDS table" />
     <gauge name="TableCrdsCounts"   label="The number of CRDS values in the table, by type" enum="CrdsValue" />
