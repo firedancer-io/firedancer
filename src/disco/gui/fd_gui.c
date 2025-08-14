@@ -493,7 +493,9 @@ fd_gui_tile_stats_snap( fd_gui_t *                     gui,
     fd_topo_tile_t const * quic = &topo->tiles[ fd_topo_find_tile( topo, "quic", i ) ];
     volatile ulong * quic_metrics = fd_metrics_tile( quic->metrics );
 
-    stats->quic_conn_cnt += quic_metrics[ MIDX( GAUGE, QUIC, CONNECTIONS_ALLOC ) ];
+    /* quic evicts connections lazily, we only count connections that
+       haven't exceeded a timeout */
+    stats->quic_conn_cnt += quic_metrics[ MIDX( GAUGE, QUIC, CONNECTIONS_ALLOC ) ] - quic_metrics[ MIDX( GAUGE, QUIC, CONNECTIONS_STATE_TIMEOUT ) ];
   }
 
   ulong bundle_tile_idx = fd_topo_find_tile( topo, "bundle", 0UL );
