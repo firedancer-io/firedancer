@@ -185,8 +185,8 @@
   imm     = fd_vm_instr_imm   ( instr ); /* in [0,2^32) even if malformed */                     \
   reg_dst = reg[ dst ];                  /* Guaranteed in-bounds */                              \
   reg_src = reg[ src ];                  /* Guaranteed in-bounds */                              \
-  printf("opc: %lu, remaining cus: %lu\n", opcode, cu - (pc - pc0 + 1UL - ic_correction)); \
-  printf("reg0: %lu, reg1: %lu, reg2: %lu, reg3: %lu, reg4: %lu, reg5: %lu, reg6: %lu, reg7: %lu, reg8: %lu, reg9: %lu, reg10: %lu\n", reg[0], reg[1], reg[2], reg[3], reg[4], reg[5], reg[6], reg[7], reg[8], reg[9], reg[10]); \
+  if( false ) printf("opc: %lu, remaining cus: %lu\n", opcode, cu - (pc - pc0 + 1UL - ic_correction)); \
+  if( false ) printf("reg0: %lu, reg1: %lu, reg2: %lu, reg3: %lu, reg4: %lu, reg5: %lu, reg6: %lu, reg7: %lu, reg8: %lu, reg9: %lu, reg10: %lu\n", reg[0], reg[1], reg[2], reg[3], reg[4], reg[5], reg[6], reg[7], reg[8], reg[9], reg[10]); \
   goto *interp_jump_table[ sbpf_version ][ opcode ]      /* Guaranteed in-bounds */
 
 /* FD_VM_INTERP_SYSCALL_EXEC

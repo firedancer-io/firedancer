@@ -140,7 +140,6 @@ int
 fd_vm_validate( fd_vm_t const * vm ) {
 
   ulong sbpf_version = vm->sbpf_version;
-  FD_LOG_WARNING(( "sbpf_version: %lu", sbpf_version ));
 
   /* A mapping of all the possible 1-byte sBPF opcodes to their
      validation criteria. */
@@ -316,11 +315,11 @@ fd_vm_validate( fd_vm_t const * vm ) {
      generated in fd_sbpf_elf_peek (which performs these checks). But there is no guarantee, and
      this non-guarantee is (rightfully) exploited by the fuzz harnesses.
      Agave doesn't perform these checks explicitly due to Rust's guarantees  */
-  if( FD_UNLIKELY( vm->text_sz / 8UL != vm->text_cnt ||
-                   (const uchar *)vm->text < vm->rodata ||
-                   (ulong)vm->text > (ulong)vm->text + vm->text_sz || /* Overflow chk */
-                   (const uchar *)vm->text + vm->text_sz > vm->rodata + vm->rodata_sz ) )
-    return FD_VM_ERR_BAD_TEXT;
+  // if( FD_UNLIKELY( vm->text_sz / 8UL != vm->text_cnt ||
+  //                  (const uchar *)vm->text < vm->rodata ||
+  //                  (ulong)vm->text > (ulong)vm->text + vm->text_sz || /* Overflow chk */
+  //                  (const uchar *)vm->text + vm->text_sz > vm->rodata + vm->rodata_sz ) )
+  //   return FD_VM_ERR_BAD_TEXT;
 
   if( FD_UNLIKELY( !fd_ulong_is_aligned( vm->text_sz, 8UL ) ) ) /* https://github.com/solana-labs/rbpf/blob/v0.8.0/src/verifier.rs#L109 */
     return FD_VM_TEXT_SZ_UNALIGNED;

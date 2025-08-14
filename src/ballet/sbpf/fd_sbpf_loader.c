@@ -451,7 +451,6 @@ fd_sbpf_load_shdrs( fd_sbpf_elf_info_t *  info,
 
   info->text_off = (uint)shdr_text->sh_offset;
   ulong text_size = shdr_get_loaded_size( shdr_text );
-  FD_LOG_WARNING(("TEXT SIZE %lu %u", text_size, info->text_off));
   info->text_sz = text_size;
   info->text_cnt = (uint) text_size / 8U;
 
@@ -1190,36 +1189,66 @@ fd_sbpf_relocate( fd_sbpf_loader_t   const * loader,
   return 0;
 }
 
-static int
-fd_sbpf_parse_rodata_new( fd_sbpf_elf_t *            elf,
-                          uchar *                    rodata,
-                          fd_sbpf_elf_info_t const * info,
-                          int                        elf_deploy_checks ) {
+static int FD_FN_UNUSED
+fd_sbpf_parse_rodata( fd_sbpf_elf_t *            elf,
+                      uchar *                    rodata,
+                      fd_sbpf_elf_info_t const * info,
+                      int                        elf_deploy_checks ) {
 
   fd_elf64_shdr const * shdrs = (fd_elf64_shdr const *)(elf->bin + elf->ehdr.e_shoff);
 
   uchar * elf_bin = elf->bin;
 
+  /* The lowest section address. */
   ulong lowest_addr     = ULONG_MAX;
+  /* The highest section address. */
   ulong highest_addr    = 0UL;
+  /* The aggregated section length, not including gaps between
+     sections. */
   ulong ro_fill_length  = 0UL;
   uchar invalid_offsets = 0;
-
+  /* When sbpf_version.enable_elf_vaddr()=true, we allow section_addr
+     != sh_offset if section_addr - sh_offset is constant across all
+     sections. That is, we allow sections to be translated by a fixed
+     virtual offset. */
   ulong addr_file_offset = ULONG_MAX;
+
+  /* Keep track of where ro-sections are so we can tell whether they're
+     contiguous */
+  ulong first_ro_section = 0UL;
+  ulong last_ro_section  = 0UL;
+  ulong n_ro_sections    = 0UL;
 
   /* Zero out the new rodata buffer ahead of time so we don't need to
      worry about zeroing out the gaps between sections.
-
-     TODO: This can be opitmized by only zeroing out the gaps. */
+     TODO: A small optimization is to just zero out the gaps. */
   memset( rodata, 0, info->rodata_sz );
   for( ulong i=0UL; i<elf->ehdr.e_shnum; i++ ) {
-    /* If the section has not been loaded, skip it. */
+    /* If the section has not been loaded, skip it. Sections are loaded
+       based on their names in fd_sbpf_load_shdrs() */
     if( !( info->loaded_sections[ i>>6UL ] & (1UL<<(i&63UL)) ) ) continue;
+
+
+    if( n_ro_sections == 0UL ) {
+      first_ro_section = i;
+    }
+    last_ro_section = i;
+    n_ro_sections   = n_ro_sections + 1UL;
 
     fd_elf64_shdr const * shdr = &shdrs[ i ];
 
+    /* sh_offset handling:
+
+       If sbpf_version.enable_elf_vaddr()=true, we allow section_addr >
+       sh_offset, if section_addr - sh_offset is constant across all
+       sections. That is, we allow the linker to align rodata to a
+       positive base address (MM_RODATA_START) as long as the mapping
+       to sh_offset(s) stays linear.
+
+       If sbpf_version.enable_elf_vaddr()=false, section_addr must match
+       sh_offset for backwards compatibility */
     if( !invalid_offsets ) {
-      if( info->sbpf_version>=FD_SBPF_V0 ) { /* enable_elf_vaddr  */
+      if( info->sbpf_version>FD_SBPF_V0 ) { /* enable_elf_vaddr */
         if( shdr->sh_addr < shdr->sh_offset ) {
           invalid_offsets = 1;
         } else {
@@ -1236,28 +1265,83 @@ fd_sbpf_parse_rodata_new( fd_sbpf_elf_t *            elf,
     }
 
     ulong vaddr_end;
-    if( info->sbpf_version>=FD_SBPF_V0 && shdr->sh_addr>=FD_VM_MEM_MAP_PROGRAM_REGION_START ) { /* enable_elf_vaddr() */
+    if( info->sbpf_version>FD_SBPF_V0 && shdr->sh_addr>=FD_VM_MEM_MAP_PROGRAM_REGION_START ) { /* enable_elf_vaddr() */
       vaddr_end = shdr->sh_addr;
     } else {
       vaddr_end = shdr->sh_addr + FD_VM_MEM_MAP_PROGRAM_REGION_START;
     }
 
-    if( info->sbpf_version>=FD_SBPF_V0 ) { /* reject_rodata_stack_overlap() */
+    if( info->sbpf_version>FD_SBPF_V0 ) { /* reject_rodata_stack_overlap() */
       vaddr_end += shdr->sh_size;
     }
     if( FD_UNLIKELY( (elf_deploy_checks && invalid_offsets) || vaddr_end>FD_VM_MEM_MAP_STACK_REGION_START ) ) {
       return -1; /* ValueOutOfBounds */
     }
 
-    FD_LOG_WARNING(("shaddr %lu  shoffset %lu  shsize %lu  rodata_sz %u", shdr->sh_addr, shdr->sh_offset, shdr->sh_size, info->rodata_sz));
-    memcpy( rodata + shdr->sh_addr, elf_bin + shdr->sh_offset, shdr->sh_size );
+    lowest_addr    = fd_ulong_min( lowest_addr, shdr->sh_addr );
+    highest_addr   = fd_ulong_max( highest_addr, shdr->sh_addr + shdr->sh_size );
+    ro_fill_length = ro_fill_length + shdr->sh_size;
   }
 
-  if( FD_UNLIKELY( elf_deploy_checks && lowest_addr+ro_fill_length>highest_addr ) ) {
+  if( FD_UNLIKELY( elf_deploy_checks /* reject_broken_elfs */ && lowest_addr+ro_fill_length>highest_addr ) ) {
     return -1; /* ValueOutOfBounds */
   }
 
-  FD_LOG_WARNING(("ULONG %lu", *(ulong*)&rodata[381455]));
+  int can_borrow = !invalid_offsets && (last_ro_section+1UL-first_ro_section==n_ro_sections);
+  if( info->sbpf_version>FD_SBPF_V0 && !can_borrow ) { /* enable_elf_vaddr() */
+    return -1; /* ValueOutOfBounds */
+  }
+
+  if( can_borrow && info->sbpf_version>FD_SBPF_V0 ) { /* enable_elf_vaddr() */
+    /* This implies that optimized_rodata is enabled. */
+    ulong buf_offset_start = fd_ulong_sat_sub( lowest_addr, (addr_file_offset==ULONG_MAX ? 0UL : addr_file_offset) );
+    ulong buf_offset_end   = fd_ulong_sat_sub( highest_addr, (addr_file_offset==ULONG_MAX ? 0UL : addr_file_offset) );
+    ulong addr_offset;
+    if( lowest_addr>=FD_VM_MEM_MAP_PROGRAM_REGION_START ) {
+      addr_offset = lowest_addr;
+    } else {
+      if( info->sbpf_version>FD_SBPF_V0 ) { /* enable_elf_vaddr() */
+        return -1; /* ValueOutOfBounds */
+      }
+      addr_offset = lowest_addr + FD_VM_MEM_MAP_PROGRAM_REGION_START;
+
+      (void)addr_offset; /* vaddr of the section. */
+      (void)buf_offset_start; /* start offset of the elf buffer for section data. */
+      (void)buf_offset_end; /* end offset of the elf buffer for section data. */
+    }
+    /* FIXME: Figure out what to do here. */
+  } else {
+    /* Read-only and other non-ro sections are mixed. Zero the non-ro
+       sections and and copy the ro ones at their intended offsets. */
+    if( info->sbpf_version>FD_SBPF_V0 ) { /* optimize_rodata */
+      highest_addr = fd_ulong_sat_sub( highest_addr, lowest_addr );
+    } else {
+      lowest_addr = 0UL;
+    }
+
+    if( highest_addr > info->rodata_sz ) {
+      return -1; /* ValueOutOfBounds */
+    }
+
+    memset( rodata, 0, info->rodata_sz );
+    for( ulong i=0; i<elf->ehdr.e_shnum; i++ ) {
+      if( !( info->loaded_sections[ i>>6UL ] & (1UL<<(i&63UL)) ) ) continue;
+
+      fd_elf64_shdr const * shdr = &shdrs[ i ];
+
+      ulong buf_offset_start = fd_ulong_sat_sub( shdr->sh_addr, lowest_addr );
+
+      memcpy( rodata + buf_offset_start, elf_bin + shdr->sh_offset, shdr->sh_size );
+
+      ulong addr_offset;
+      if( lowest_addr>=FD_VM_MEM_MAP_PROGRAM_REGION_START ) {
+        addr_offset = lowest_addr;
+      } else {
+        addr_offset = lowest_addr + FD_VM_MEM_MAP_PROGRAM_REGION_START;
+      }
+      (void)addr_offset; /* vaddr of the section. */
+    }
+  }
 
   return 0;
 }
@@ -1285,7 +1369,6 @@ fd_sbpf_zero_rodata( fd_sbpf_elf_t *            elf,
        offsets, thus we can't trust the shdr->sh_offset field. */
     if( FD_UNLIKELY( shdr->sh_type==FD_ELF_SHT_NOBITS ) ) continue;
 
-    FD_LOG_WARNING(("SECTION SECTION %lu", shdr->sh_addr));
 
     ulong off = shdr->sh_offset;
     ulong sz  = shdr->sh_size;
@@ -1301,7 +1384,6 @@ fd_sbpf_zero_rodata( fd_sbpf_elf_t *            elf,
   }
 
   fd_memset( rodata+cursor, 0, info->rodata_sz - cursor );
-  FD_LOG_WARNING(("RODATA SIZE %u cursor %lu", info->rodata_sz, cursor));
 
   return 0;
 }
@@ -1345,11 +1427,12 @@ fd_sbpf_program_load( fd_sbpf_program_t *  prog,
   /* Register entrypoint to calldests. */
   fd_sbpf_calldests_insert( prog->calldests, prog->entry_pc );
 
-  /* Copy rodata segment */
-  fd_memcpy( prog->rodata, elf->bin, prog->info.rodata_footprint );
-
-  if( FD_UNLIKELY( (err=fd_sbpf_parse_rodata_new( elf, prog->rodata, &prog->info, elf_deploy_checks ))!=0 ) )
-    return err;
+  /* We may move around the text section, so we will use the elf binary
+     directly to  */
+  //prog->text = (ulong*)(elf->bin + prog->text_off);
+  memcpy( prog->rodata, elf->bin, prog->rodata_sz );
+  // if( FD_UNLIKELY( (err=fd_sbpf_parse_rodata( elf, prog->rodata, &prog->info, elf_deploy_checks ))!=0 ) )
+  //   return err;
 
   /* Convert calls with PC relative immediate to hashes */
   if( FD_UNLIKELY( (err=fd_sbpf_hash_calls  ( &loader, prog, elf ))!=0 ) )
@@ -1360,8 +1443,8 @@ fd_sbpf_program_load( fd_sbpf_program_t *  prog,
     return err;
 
   /* Create read-only segment */
-  // if( FD_UNLIKELY( (err=fd_sbpf_zero_rodata( elf, prog->rodata, &prog->info ))!=0 ) )
-  //   return err;
+  if( FD_UNLIKELY( (err=fd_sbpf_zero_rodata( elf, prog->rodata, &prog->info ))!=0 ) )
+    return err;
 
   return 0;
 }

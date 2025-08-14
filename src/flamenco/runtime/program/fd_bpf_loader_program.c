@@ -2580,7 +2580,6 @@ fd_bpf_loader_program_execute( fd_exec_instr_ctx_t * ctx ) {
 
       /* https://github.com/anza-xyz/agave/blob/89872fdb074e6658646b2b57a299984f0059cc84/programs/bpf_loader/src/lib.rs#L460-L467 */
       if( FD_FEATURE_ACTIVE_BANK( ctx->txn_ctx->bank, remove_accounts_executable_flag_checks ) ) {
-        FD_LOG_WARNING(("ASDF"));
         return FD_EXECUTOR_INSTR_ERR_UNSUPPORTED_PROGRAM_ID;
       }
       return FD_EXECUTOR_INSTR_ERR_INVALID_ACC_DATA;
@@ -2590,7 +2589,6 @@ fd_bpf_loader_program_execute( fd_exec_instr_ctx_t * ctx ) {
     if( FD_UNLIKELY( cache_entry->failed_verification ) ) {
       fd_log_collector_msg_literal( ctx, "Program is not deployed" );
       if( FD_FEATURE_ACTIVE_BANK( ctx->txn_ctx->bank, remove_accounts_executable_flag_checks ) ) {
-        FD_LOG_WARNING(("ASDF"));
         return FD_EXECUTOR_INSTR_ERR_UNSUPPORTED_PROGRAM_ID;
       }
       return FD_EXECUTOR_INSTR_ERR_INVALID_ACC_DATA;
@@ -2598,7 +2596,6 @@ fd_bpf_loader_program_execute( fd_exec_instr_ctx_t * ctx ) {
 
     /* https://github.com/anza-xyz/agave/blob/v2.1.14/programs/bpf_loader/src/lib.rs#L446 */
     fd_borrowed_account_drop( &program_account );
-    FD_LOG_WARNING(("ASDF2"));
     return fd_bpf_execute( ctx, cache_entry, is_deprecated );
   } FD_SPAD_FRAME_END;
 }
