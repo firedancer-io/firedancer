@@ -220,7 +220,7 @@ typedef struct fd_gossip_view_snapshot_hashes fd_gossip_view_snapshot_hashes_t;
  /* Offsets are within full message payload, not the subset where the encoded
     CRDS value lies. */
 struct fd_gossip_view_crds_value {
-  union{
+  union {
     ushort value_off; /* Start of CRDS value data in payload */
     ushort signature_off;
   };

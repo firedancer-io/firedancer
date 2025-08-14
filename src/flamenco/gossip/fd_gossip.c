@@ -124,7 +124,7 @@ ping_tracker_change( void *        _ctx,
   switch( change_type ) {
     case FD_PING_TRACKER_CHANGE_TYPE_ACTIVE:   fd_crds_peer_active( ctx->crds, peer_pubkey, now ); break;
     case FD_PING_TRACKER_CHANGE_TYPE_INACTIVE: fd_crds_peer_inactive( ctx->crds, peer_pubkey, now ); break;
-    case FD_PING_TRACKER_CHANGE_TYPE_UNTRACKED_STAKED: break;
+    case FD_PING_TRACKER_CHANGE_TYPE_INACTIVE_STAKED: break;
     default: FD_LOG_ERR(( "Unknown change type %d", change_type )); return;
   }
 
@@ -168,12 +168,12 @@ fd_gossip_new( void *                    shmem,
   }
 
   FD_SCRATCH_ALLOC_INIT( l, shmem );
-  fd_gossip_t * gossip  = FD_SCRATCH_ALLOC_APPEND( l, alignof(fd_gossip_t),    sizeof(fd_gossip_t)                                                    );
-  void * crds           = FD_SCRATCH_ALLOC_APPEND( l, fd_crds_align(),         fd_crds_footprint( max_values, max_values*4 )                          );
-  void * active_set     = FD_SCRATCH_ALLOC_APPEND( l, fd_active_set_align(),   fd_active_set_footprint()                                              );
-  void * ping_tracker   = FD_SCRATCH_ALLOC_APPEND( l, fd_ping_tracker_align(), fd_ping_tracker_footprint( entrypoints_cnt )                           );
-  void * stake_weights  = FD_SCRATCH_ALLOC_APPEND( l, stake_map_align(),       stake_map_footprint()                                                  );
-  void * active_ps      = FD_SCRATCH_ALLOC_APPEND( l, push_set_align(),        push_set_footprint( FD_ACTIVE_SET_MAX_PEERS )                          );
+  fd_gossip_t * gossip  = FD_SCRATCH_ALLOC_APPEND( l, alignof(fd_gossip_t),    sizeof(fd_gossip_t)                           );
+  void * crds           = FD_SCRATCH_ALLOC_APPEND( l, fd_crds_align(),         fd_crds_footprint( max_values, max_values*4 ) );
+  void * active_set     = FD_SCRATCH_ALLOC_APPEND( l, fd_active_set_align(),   fd_active_set_footprint()                     );
+  void * ping_tracker   = FD_SCRATCH_ALLOC_APPEND( l, fd_ping_tracker_align(), fd_ping_tracker_footprint( entrypoints_cnt )  );
+  void * stake_weights  = FD_SCRATCH_ALLOC_APPEND( l, stake_map_align(),       stake_map_footprint()                         );
+  void * active_ps      = FD_SCRATCH_ALLOC_APPEND( l, push_set_align(),        push_set_footprint( FD_ACTIVE_SET_MAX_PEERS ) );
 
   gossip->gossip_net_out  = gossip_net_out;
 
@@ -229,7 +229,14 @@ fd_gossip_join( void * shgossip ) {
 }
 
 fd_gossip_metrics_t const *
-fd_gossip_metrics( fd_gossip_t const * gossip ){ return gossip->metrics; }
+fd_gossip_metrics( fd_gossip_t const * gossip ) {
+  return gossip->metrics;
+}
+
+fd_ping_tracker_metrics_t const *
+fd_gossip_ping_tracker_metrics( fd_gossip_t const * gossip ) {
+  return fd_ping_tracker_metrics( gossip->ping_tracker );
+}
 
 static fd_ip4_port_t
 random_entrypoint( fd_gossip_t const * gossip ) {
@@ -358,9 +365,8 @@ ulong
 get_stake( fd_gossip_t const * gossip,
            uchar const *       pubkey ) {
   stake_weight_entry_t const * entry = stake_map_query_const( gossip->stake_weights, *(fd_pubkey_t const *)pubkey, NULL );
-  if( FD_UNLIKELY( !entry ) ) {
-    return 0UL;
-  }
+  if( FD_UNLIKELY( !entry ) ) return 0UL;
+
   return entry->stake;
 }
 

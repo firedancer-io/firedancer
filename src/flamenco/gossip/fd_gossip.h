@@ -101,6 +101,9 @@ fd_gossip_join( void * shgossip );
 fd_gossip_metrics_t const *
 fd_gossip_metrics( fd_gossip_t const * gossip );
 
+fd_ping_tracker_metrics_t const *
+fd_gossip_ping_tracker_metrics( fd_gossip_t const * gossip );
+
 /* fd_gossip stores the node's contact info for various purposes:
 
       - The pubkey specified in contact_info will serve as the
