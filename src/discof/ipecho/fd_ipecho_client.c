@@ -76,7 +76,7 @@ fd_ipecho_client_init( fd_ipecho_client_t *  client,
 
     struct sockaddr_in addr = {
       .sin_family = AF_INET,
-      .sin_port   = server->port,
+      .sin_port   = fd_ushort_bswap( server->port ),
       .sin_addr   = { .s_addr = server->addr }
     };
 

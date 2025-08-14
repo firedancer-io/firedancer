@@ -295,7 +295,7 @@ send_packet( fd_repair_tile_ctx_t * ctx,
              fd_stem_context_t *    stem,
              int                    is_intake,
              uint                   dst_ip_addr,
-             ushort                 dst_port,
+             ushort                 dst_port, /* host order */
              uint                   src_ip_addr,
              uchar const *          payload,
              ulong                  payload_sz,
@@ -313,7 +313,7 @@ send_packet( fd_repair_tile_ctx_t * ctx,
   ip4->check       = fd_ip4_hdr_check_fast( ip4 );
 
   fd_udp_hdr_t * udp = hdr->udp;
-  udp->net_dport = dst_port;
+  udp->net_dport = fd_ushort_bswap( dst_port );
   udp->net_len = fd_ushort_bswap( (ushort)(payload_sz + sizeof(fd_udp_hdr_t)) );
   fd_memcpy( packet+sizeof(fd_ip4_udp_hdrs_t), payload, payload_sz );
   hdr->udp->check = 0U;
@@ -593,7 +593,7 @@ handle_new_cluster_contact_info( fd_repair_tile_ctx_t * ctx,
    if( FD_UNLIKELY( ctx->repair->peer_cnt >= FD_ACTIVE_KEY_MAX ) ) break;// FIXME: aiming to move all peer tracking out of lib into tile, leaving like this for now
     fd_repair_peer_addr_t repair_peer = {
       .addr = in_dests[i].ip4_addr,
-      .port = fd_ushort_bswap( in_dests[i].udp_port ),
+      .port = in_dests[i].udp_port
     };
     int dup = fd_repair_add_active_peer( ctx->repair, &repair_peer, in_dests[i].pubkey );
     if( !dup ) {
@@ -953,13 +953,16 @@ after_frag( fd_repair_tile_ctx_t * ctx,
   ulong data_sz = udp_sz-sizeof(fd_udp_hdr_t);
   if( FD_UNLIKELY( (ulong)data+data_sz > (ulong)eth+sz ) ) return;
 
-  fd_gossip_peer_addr_t peer_addr = { .addr=ip4->saddr, .port=udp->net_sport };
-  ushort dport = udp->net_dport;
+  fd_gossip_peer_addr_t peer_addr = {
+    .addr = ip4->saddr,
+    .port = fd_ushort_bswap( udp->net_sport )
+  };
+  ushort dport = fd_ushort_bswap( udp->net_dport );
   if( ctx->repair_intake_addr.port == dport ) {
     fd_repair_recv_clnt_packet( ctx, stem, ctx->repair, data, data_sz, &peer_addr, ip4->daddr );
   } else if( ctx->repair_serve_addr.port == dport ) {
   } else {
-    FD_LOG_WARNING(( "Unexpectedly received packet for port %u", (uint)fd_ushort_bswap( dport ) ));
+    FD_LOG_WARNING(( "Unexpectedly received packet for port %hu", dport ));
   }
 }
 
@@ -1295,8 +1298,8 @@ unprivileged_init( fd_topo_t *      topo,
 
   ctx->wksp = topo->workspaces[ topo->objs[ tile->tile_obj_id ].wksp_id ].wksp;
 
-  ctx->repair_intake_addr.port = fd_ushort_bswap( tile->repair.repair_intake_listen_port );
-  ctx->repair_serve_addr.port  = fd_ushort_bswap( tile->repair.repair_serve_listen_port  );
+  ctx->repair_intake_addr.port = tile->repair.repair_intake_listen_port;
+  ctx->repair_serve_addr.port  = tile->repair.repair_serve_listen_port;
 
   ctx->repair_intake_listen_port = tile->repair.repair_intake_listen_port;
   ctx->repair_serve_listen_port = tile->repair.repair_serve_listen_port;
@@ -1354,9 +1357,9 @@ unprivileged_init( fd_topo_t *      topo,
   FD_TEST( ctx->turbine_slot );
   fd_fseq_update( ctx->turbine_slot, 0UL );
 
-  FD_LOG_NOTICE(( "repair my addr - intake addr: " FD_IP4_ADDR_FMT ":%u, serve_addr: " FD_IP4_ADDR_FMT ":%u",
-    FD_IP4_ADDR_FMT_ARGS( ctx->repair_intake_addr.addr ), fd_ushort_bswap( ctx->repair_intake_addr.port ),
-    FD_IP4_ADDR_FMT_ARGS( ctx->repair_serve_addr.addr ), fd_ushort_bswap( ctx->repair_serve_addr.port ) ));
+  FD_LOG_NOTICE(( "repair my addr - intake addr: " FD_IP4_ADDR_FMT ":%hu, serve_addr: " FD_IP4_ADDR_FMT ":%hu",
+    FD_IP4_ADDR_FMT_ARGS( ctx->repair_intake_addr.addr ), ctx->repair_intake_addr.port,
+    FD_IP4_ADDR_FMT_ARGS( ctx->repair_serve_addr.addr ), ctx->repair_serve_addr.port ));
 
   if( fd_repair_set_config( ctx->repair, &ctx->repair_config ) ) {
     FD_LOG_ERR( ( "error setting repair config" ) );

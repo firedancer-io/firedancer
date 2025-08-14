@@ -205,7 +205,7 @@ scratch_footprint( fd_topo_tile_t const * tile FD_PARAM_UNUSED ) {
 static void
 send_packet( fd_gossip_tile_ctx_t * ctx,
              uint                   dst_ip_addr,
-             ushort                 dst_port,
+             ushort                 dst_port, /* host order */
              uchar const *          payload,
              ulong                  payload_sz,
              ulong                  tsorig ) {
@@ -222,7 +222,7 @@ send_packet( fd_gossip_tile_ctx_t * ctx,
   ip4->check       = fd_ip4_hdr_check_fast( ip4 );
 
   fd_udp_hdr_t * udp = hdr->udp;
-  udp->net_dport = dst_port;
+  udp->net_dport = fd_ushort_bswap( dst_port );
   udp->net_len   = fd_ushort_bswap( (ushort)(payload_sz + sizeof(fd_udp_hdr_t)) );
   fd_memcpy( packet+sizeof(fd_ip4_udp_hdrs_t), payload, payload_sz );
   udp->check = 0U;
@@ -724,7 +724,7 @@ unprivileged_init( fd_topo_t *      topo,
   ctx->wksp = topo->workspaces[ topo->objs[ tile->tile_obj_id ].wksp_id ].wksp;
 
   ctx->gossip_my_addr.addr = tile->gossip.ip_addr;
-  ctx->gossip_my_addr.port = fd_ushort_bswap( tile->gossip.gossip_listen_port );
+  ctx->gossip_my_addr.port = tile->gossip.gossip_listen_port;
 
   ctx->gossip_listen_port = tile->gossip.gossip_listen_port;
 
@@ -750,8 +750,8 @@ unprivileged_init( fd_topo_t *      topo,
   /* Gossip set up */
   ctx->gossip = fd_gossip_join( fd_gossip_new( ctx->gossip, ctx->gossip_seed ) );
 
-  FD_LOG_NOTICE(( "gossip my addr - addr: " FD_IP4_ADDR_FMT ":%u",
-    FD_IP4_ADDR_FMT_ARGS( ctx->gossip_my_addr.addr ), fd_ushort_bswap( ctx->gossip_my_addr.port ) ));
+  FD_LOG_NOTICE(( "gossip my addr - addr: " FD_IP4_ADDR_FMT ":%hu",
+    FD_IP4_ADDR_FMT_ARGS( ctx->gossip_my_addr.addr ), ctx->gossip_my_addr.port ));
   ctx->gossip_config.my_addr    = ctx->gossip_my_addr;
   ctx->gossip_config.my_version = (fd_gossip_version_v3_t){
     .major = 42U,
@@ -780,15 +780,15 @@ unprivileged_init( fd_topo_t *      topo,
   fd_gossip_update_addr( ctx->gossip, &ctx->gossip_config.my_addr );
 
   ctx->tvu_my_addr.addr       = tile->gossip.ip_addr;
-  ctx->tvu_my_addr.port       = fd_ushort_bswap( tile->gossip.tvu_port );
+  ctx->tvu_my_addr.port       = tile->gossip.tvu_port;
   ctx->tpu_my_addr.addr       = tile->gossip.ip_addr;
-  ctx->tpu_my_addr.port       = fd_ushort_bswap( tile->gossip.tpu_port );
+  ctx->tpu_my_addr.port       = tile->gossip.tpu_port;
   ctx->tpu_quic_my_addr.addr  = tile->gossip.ip_addr;
-  ctx->tpu_quic_my_addr.port  = fd_ushort_bswap( tile->gossip.tpu_quic_port );
+  ctx->tpu_quic_my_addr.port  = tile->gossip.tpu_quic_port;
   ctx->tpu_vote_my_addr.addr  = tile->gossip.ip_addr;
-  ctx->tpu_vote_my_addr.port  = fd_ushort_bswap( tile->gossip.tpu_vote_port );
+  ctx->tpu_vote_my_addr.port  = tile->gossip.tpu_vote_port;
   ctx->repair_serve_addr.addr = tile->gossip.ip_addr;
-  ctx->repair_serve_addr.port = fd_ushort_bswap( tile->gossip.repair_serve_port );
+  ctx->repair_serve_addr.port = tile->gossip.repair_serve_port;
 
   fd_gossip_update_tvu_addr( ctx->gossip, &ctx->tvu_my_addr );
   fd_gossip_update_tpu_addr( ctx->gossip, &ctx->tpu_my_addr, &ctx->tpu_quic_my_addr );

@@ -627,7 +627,7 @@ fd_gossip_port_from_socketaddr( fd_gossip_socket_addr_t const * addr ) {
 int
 fd_gossip_to_soladdr( fd_gossip_socket_addr_t * dst, fd_gossip_peer_addr_t const * src ) {
   fd_gossip_socket_addr_new_disc( dst, fd_gossip_socket_addr_enum_ip4 );
-  dst->inner.ip4.port = fd_ushort_bswap( src->port );
+  dst->inner.ip4.port = src->port;
   dst->inner.ip4.addr = src->addr;
   return 0;
 }
@@ -638,7 +638,7 @@ fd_gossip_from_soladdr(fd_gossip_peer_addr_t * dst, fd_gossip_socket_addr_t cons
   FD_STATIC_ASSERT(sizeof(fd_gossip_peer_addr_t) == sizeof(ulong),"messed up size");
   dst->l = 0;
   if (src->discriminant == fd_gossip_socket_addr_enum_ip4) {
-    dst->port = fd_ushort_bswap( src->inner.ip4.port );
+    dst->port = src->inner.ip4.port;
     dst->addr = src->inner.ip4.addr;
     return 0;
   } else {
@@ -647,8 +647,8 @@ fd_gossip_from_soladdr(fd_gossip_peer_addr_t * dst, fd_gossip_socket_addr_t cons
   }
 }
 
-#define GOSSIP_ADDR_FMT FD_IP4_ADDR_FMT ":%u"
-#define GOSSIP_ADDR_FMT_ARGS( k ) FD_IP4_ADDR_FMT_ARGS( (k).addr ), fd_ushort_bswap( (k).port )
+#define GOSSIP_ADDR_FMT FD_IP4_ADDR_FMT ":%hu"
+#define GOSSIP_ADDR_FMT_ARGS( k ) FD_IP4_ADDR_FMT_ARGS( (k).addr ), (k).port
 
 
 /* Set the gossip configuration */
@@ -2411,7 +2411,7 @@ fd_gossip_set_entrypoints( fd_gossip_t *         gossip,
   gossip->entrypoints_cnt = entrypoints_cnt;
   for( ulong i=0UL; i<entrypoints_cnt; i++ ) {
     FD_LOG_NOTICE(( "gossip initial peer - addr: " FD_IP4_ADDR_FMT ":%u",
-      FD_IP4_ADDR_FMT_ARGS( entrypoints[i].addr ), fd_ushort_bswap( entrypoints[i].port ) ));
+      FD_IP4_ADDR_FMT_ARGS( entrypoints[i].addr ), entrypoints[i].port ));
     fd_gossip_add_active_peer( gossip, &entrypoints[i] );
     gossip->entrypoints[i] = entrypoints[i];
   }

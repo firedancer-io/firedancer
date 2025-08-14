@@ -8,7 +8,6 @@
 
 #include "../types/fd_types.h"
 #include "../../disco/plugin/fd_plugin.h"
-#include "../../util/net/fd_net_headers.h" /* fd_ip4_port_t */
 
 typedef union fd_ip4_port fd_gossip_peer_addr_t;
 
