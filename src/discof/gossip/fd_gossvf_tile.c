@@ -371,14 +371,14 @@ verify_signatures( fd_gossvf_tile_ctx_t * ctx,
           continue;
         }
 
-        int err = verify_crds_value( &view->pull_response->crds_values[ i ], payload, sha );
-        if( FD_UNLIKELY( err!=FD_ED25519_SUCCESS ) ) {
-          ctx->metrics.crds_rx[ FD_METRICS_ENUM_GOSSIP_CRDS_OUTCOME_V_DROPPED_PULL_RESPONSE_SIGNATURE_IDX ]++;
-          ctx->metrics.crds_rx_bytes[ FD_METRICS_ENUM_GOSSIP_CRDS_OUTCOME_V_DROPPED_PULL_RESPONSE_SIGNATURE_IDX ] += view->pull_response->crds_values[ i ].length;
-          view->pull_response->crds_values[ i ] = view->pull_response->crds_values[ view->pull_response->crds_values_len-1UL ];
-          view->pull_response->crds_values_len--;
-          continue;
-        }
+        // int err = verify_crds_value( &view->pull_response->crds_values[ i ], payload, sha );
+        // if( FD_UNLIKELY( err!=FD_ED25519_SUCCESS ) ) {
+        //   ctx->metrics.crds_rx[ FD_METRICS_ENUM_GOSSIP_CRDS_OUTCOME_V_DROPPED_PULL_RESPONSE_SIGNATURE_IDX ]++;
+        //   ctx->metrics.crds_rx_bytes[ FD_METRICS_ENUM_GOSSIP_CRDS_OUTCOME_V_DROPPED_PULL_RESPONSE_SIGNATURE_IDX ] += view->pull_response->crds_values[ i ].length;
+        //   view->pull_response->crds_values[ i ] = view->pull_response->crds_values[ view->pull_response->crds_values_len-1UL ];
+        //   view->pull_response->crds_values_len--;
+        //   continue;
+        // }
 
         i++;
       }
@@ -824,9 +824,8 @@ handle_net( fd_gossvf_tile_ctx_t * ctx,
   // result = verify_addresses( ctx, view, ctx->payload, stem );
   // if( FD_UNLIKELY( result ) ) return result;
 
-  (void)verify_signatures;
-  // result = verify_signatures( ctx, view, ctx->payload, ctx->sha );
-  // if( FD_UNLIKELY( result ) ) return result;
+  result = verify_signatures( ctx, view, ctx->payload, ctx->sha );
+  if( FD_UNLIKELY( result ) ) return result;
 
   check_duplicate_instance( ctx, view, ctx->payload );
 
