@@ -333,7 +333,6 @@ STEM_(run1)( ulong                        in_cnt,
     out_depth[ out_idx ] = fd_mcache_depth( out_mcache[ out_idx ] );
     out_seq[ out_idx ] = 0UL;
 
-    cr_max = fd_ulong_min( cr_max, out_depth[ out_idx ] );
     cr_avail[ out_idx ] = out_depth[ out_idx ];
   }
 
@@ -349,6 +348,8 @@ STEM_(run1)( ulong                        in_cnt,
     cons_out [ cons_idx ] = _cons_out [ cons_idx ];
     cons_slow[ cons_idx ] = (ulong*)(fd_metrics_link_out( fd_metrics_base_tl, cons_idx ) + FD_METRICS_COUNTER_LINK_SLOW_COUNT_OFF);
     cons_seq [ cons_idx ] = fd_fseq_query( _cons_fseq[ cons_idx ] );
+
+    cr_max = fd_ulong_min( cr_max, out_depth[ cons_out[ cons_idx ] ] );
   }
 
   /* housekeeping init */
