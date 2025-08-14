@@ -19,7 +19,7 @@ jobs:
       matrix:
         test-case:
           - linux_gcc_x86_64
-          - linux_gcc_icelake         #  most capable target
+          - linux_clang_icelake
           - native
         # Attach additional params to machine types
         include:
@@ -32,14 +32,14 @@ jobs:
             compiler: gcc
             compiler-version: 11.4.0
             run-unit-tests: true
-          - test-case: linux_gcc_icelake
-            machine: linux_gcc_icelake
+          - test-case: linux_clang_icelake
+            machine: linux_clang_icelake
             label: icelake
-            extras: "rpath handholding"
+            extras: "asan ubsan rpath handholding"
             deps-extras: "+dev"
             targets: "all integration-test fdctl firedancer"
-            compiler: gcc
-            compiler-version: 12.4.0
+            compiler: clang
+            compiler-version: 15.0.6
             run-unit-tests: true
           - test-case: native
             machine: native
@@ -47,8 +47,8 @@ jobs:
             extras: "rpath handholding"
             deps-extras: "+dev"
             targets: "all integration-test fdctl firedancer"
-            compiler: clang
-            compiler-version: 15.0.6
+            compiler: gcc
+            compiler-version: 12.4.0
             run-unit-tests: true
             run-integration-tests: true
     runs-on: ${{ matrix.label }}
