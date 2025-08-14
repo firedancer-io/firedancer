@@ -67,13 +67,38 @@ FD_STATIC_ASSERT( FD_SHRED_REPAIR_MTU == 152UL , update FD_SHRED_REPAIR_MTU );
 #define FD_NETMUX_SIG_MIN_HDR_SZ    ( 42UL) /* The default header size, which means no vlan tags and no IP options. */
 #define FD_NETMUX_SIG_IGNORE_HDR_SZ (102UL) /* Outside the allowable range, but still fits in 4 bits when compressed */
 
-struct fd_replay_out {
+/* Maximum number of vote account states the Tower tile can process in one slot */
+#define FD_TOWER_MAX_VOTE_ACCOUNTS (4096UL)
+
+#define FD_REPLAY_SIG_SLOT_INFO  (1UL)
+#define FD_REPLAY_SIG_VOTE_STATE (2UL)
+
+/* Represents a single vote in a vote tower */
+struct __attribute__((packed)) fd_replay_out_vote {
+  ulong slot;
+  uint  conf;
+};
+typedef struct fd_replay_out_vote fd_replay_out_vote_t;
+
+/* The minimal information Tower needs about a vote account at the end of a slot */
+struct __attribute__((packed)) fd_replay_out_vote_state {
+  fd_pubkey_t          key;
+  ulong                root;
+  ulong                votes_cnt;
+  fd_replay_out_vote_t votes[31];
+  ulong                stake;
+};
+typedef struct fd_replay_out_vote_state fd_replay_out_vote_state_t;
+
+/* The summary information Tower needs at the end of a slot */
+struct fd_replay_slot_info {
+  ulong     slot;
   fd_hash_t block_id;        /* block id (last FEC set's merkle root) of the slot received from replay */
   fd_hash_t parent_block_id; /* parent block id of the slot received from replay */
   fd_hash_t bank_hash;       /* bank hash of the slot received from replay */
   fd_hash_t block_hash;      /* last microblock header hash of slot received from replay */
 };
-typedef struct fd_replay_out fd_replay_out_t;
+typedef struct fd_replay_slot_info fd_replay_slot_info_t;
 
 FD_PROTOTYPES_BEGIN
 
