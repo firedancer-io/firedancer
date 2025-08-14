@@ -473,7 +473,7 @@ fd_gossip_msg_ping_pong_parse( fd_gossip_view_t * view,
   CHECK_INIT( payload, payload_sz, start_offset );
   /* Ping/Pong share the same memory layout */
   CHECK_LEFT( sizeof(fd_gossip_view_ping_t) );
-  view->ping = (fd_gossip_view_ping_t *)(CURSOR);
+  view->ping_pong_off = CUR_OFFSET;
   INC( sizeof(fd_gossip_view_ping_t) );
 
   return BYTES_CONSUMED;

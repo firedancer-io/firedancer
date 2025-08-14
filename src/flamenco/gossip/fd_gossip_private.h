@@ -307,8 +307,7 @@ struct fd_gossip_view {
     fd_gossip_view_pull_response_t pull_response[ 1 ];
     fd_gossip_view_push_t          push[ 1 ];
     fd_gossip_view_prune_t         prune[ 1 ];
-    fd_gossip_view_ping_t *        ping;
-    fd_gossip_view_pong_t *        pong;
+    ushort                         ping_pong_off;
   };
 };
 

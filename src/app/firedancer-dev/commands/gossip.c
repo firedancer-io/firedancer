@@ -527,7 +527,7 @@ gossip_cmd_fn( args_t *   args,
     rx_deltas_t deltas = rx_deltas( gossip_metrics, gossip_prev, gossvf_metrics, gossvf_prev );
 
     printf( " +--------------------------------------------------------------------------+--------------+\n" );
-    printf( " |              | RX count     | RX drops     | TX count     | RX bytes     | TX bytes     |\n" );
+    printf( " |              | RX count     | RX drops     | TX count     | RX bits      | TX bits      |\n" );
     printf( " +--------------+--------------+--------------+--------------+--------------+--------------+\n" );
     printf( " | Pull Request | %s | %s | %s | %s | %s |\n", fmt_count( buf1, deltas.pull_request_rx ), fmt_count( buf2, deltas.pull_request_rx_drop ),  fmt_count( buf3, deltas.pull_request_tx ),  fmt_bytes( buf4, deltas.pull_request_rx_bytes ),  fmt_bytes( buf5, deltas.pull_request_tx_bytes ) );
     printf( " | Pull Response| %s | %s | %s | %s | %s |\n", fmt_count( buf1, deltas.pull_response_rx), fmt_count( buf2, deltas.pull_response_rx_drop ), fmt_count( buf3, deltas.pull_response_tx ), fmt_bytes( buf4, deltas.pull_response_rx_bytes ), fmt_bytes( buf5, deltas.pull_response_tx_bytes ) );
