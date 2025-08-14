@@ -146,8 +146,8 @@ fd_active_set_prunes( fd_active_set_t * active_set,
 }
 
 ulong
-fd_active_set_rotate( fd_active_set_t *     active_set,
-                      fd_crds_t *           crds ) {
+fd_active_set_rotate( fd_active_set_t * active_set,
+                      fd_crds_t *       crds ) {
   ulong num_bloom_filter_items = fd_ulong_max( fd_crds_peer_count( crds ), 512UL );
 
   ulong bucket = fd_rng_ulong_roll( active_set->rng, 25UL );

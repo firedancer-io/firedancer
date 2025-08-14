@@ -156,8 +156,27 @@ during_housekeeping( fd_gossip_tile_ctx_t * ctx ) {
 
 static inline void
 metrics_write( fd_gossip_tile_ctx_t * ctx ) {
+  fd_ping_tracker_metrics_t const * ping_tracker_metrics = fd_gossip_ping_tracker_metrics( ctx->gossip );
+
+  FD_MGAUGE_SET( GOSSIP, PING_TRACKER_COUNT_UNPINGED,         ping_tracker_metrics->unpinged_cnt );
+  FD_MGAUGE_SET( GOSSIP, PING_TRACKER_COUNT_INVALID,          ping_tracker_metrics->invalid_cnt );
+  FD_MGAUGE_SET( GOSSIP, PING_TRACKER_COUNT_VALID,            ping_tracker_metrics->valid_cnt );
+  FD_MGAUGE_SET( GOSSIP, PING_TRACKER_COUNT_VALID_REFRESHING, ping_tracker_metrics->refreshing_cnt );
+
+  FD_MCNT_SET( GOSSIP, PING_TRACKER_PONG_RESULT_STAKED,     ping_tracker_metrics->pong_result[ 0UL ] );
+  FD_MCNT_SET( GOSSIP, PING_TRACKER_PONG_RESULT_ENTRYPOINT, ping_tracker_metrics->pong_result[ 1UL ] );
+  FD_MCNT_SET( GOSSIP, PING_TRACKER_PONG_RESULT_UNTRACKED,  ping_tracker_metrics->pong_result[ 2UL ] );
+  FD_MCNT_SET( GOSSIP, PING_TRACKER_PONG_RESULT_ADDRESS,    ping_tracker_metrics->pong_result[ 3UL ] );
+  FD_MCNT_SET( GOSSIP, PING_TRACKER_PONG_RESULT_TOKEN,      ping_tracker_metrics->pong_result[ 4UL ] );
+  FD_MCNT_SET( GOSSIP, PING_TRACKER_PONG_RESULT_SUCCESS,    ping_tracker_metrics->pong_result[ 5UL ] );
+
+  FD_MCNT_SET( GOSSIP, PING_TRACKER_EVICTED_COUNT,         ping_tracker_metrics->peers_evicted );
+  FD_MCNT_SET( GOSSIP, PING_TRACKED_COUNT,                 ping_tracker_metrics->tracked_cnt );
+  FD_MCNT_SET( GOSSIP, PING_TRACKER_STAKE_CHANGED_COUNT,   ping_tracker_metrics->stake_changed_cnt );
+  FD_MCNT_SET( GOSSIP, PING_TRACKER_ADDRESS_CHANGED_COUNT, ping_tracker_metrics->address_changed_cnt );
+
   fd_gossip_metrics_t const * metrics = fd_gossip_metrics( ctx->gossip );
-  /* CRDS Table */
+
   FD_MGAUGE_SET(       GOSSIP, TABLE_SIZE,          metrics->crds_table->total_ele_cnt );
   FD_MGAUGE_ENUM_COPY( GOSSIP, TABLE_CRDS_COUNTS,   metrics->crds_table->ele_cnt );
   FD_MGAUGE_SET(       GOSSIP, PURGED_SIZE,         metrics->crds_table->table_purged_cnt );
