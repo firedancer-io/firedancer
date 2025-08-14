@@ -1119,6 +1119,88 @@ fd_gui_printf_summary_ping( fd_gui_t * gui,
 }
 
 void
+fd_gui_printf_slot_rankings_request( fd_gui_t * gui,
+                                     ulong      id ) {
+  jsonp_open_envelope( gui, "slot", "query_rankings" );
+    jsonp_ulong( gui, "id", id );
+    jsonp_open_object( gui, "value" );
+      jsonp_open_array( gui, "largest_tips" );
+        for( ulong i = 0UL; i<FD_GUI_SLOT_RANKINGS_SZ; i++ ) {
+          if( FD_UNLIKELY( gui->summary.slot_rankings->largest_tips->slot==ULONG_MAX ) ) break;
+          jsonp_ulong( gui, NULL, gui->summary.slot_rankings->largest_tips->slot );
+        }
+      jsonp_close_array( gui );
+      jsonp_open_array( gui, "largest_fees" );
+        for( ulong i = 0UL; i<FD_GUI_SLOT_RANKINGS_SZ; i++ ) {
+          if( FD_UNLIKELY( gui->summary.slot_rankings->largest_fees->slot==ULONG_MAX ) ) break;
+          jsonp_ulong( gui, NULL, gui->summary.slot_rankings->largest_fees->slot );
+        }
+      jsonp_close_array( gui );
+      jsonp_open_array( gui, "largest_rewards" );
+        for( ulong i = 0UL; i<FD_GUI_SLOT_RANKINGS_SZ; i++ ) {
+          if( FD_UNLIKELY( gui->summary.slot_rankings->largest_rewards->slot==ULONG_MAX ) ) break;
+          jsonp_ulong( gui, NULL, gui->summary.slot_rankings->largest_rewards->slot );
+        }
+      jsonp_close_array( gui );
+      jsonp_open_array( gui, "largest_duration" );
+        for( ulong i = 0UL; i<FD_GUI_SLOT_RANKINGS_SZ; i++ ) {
+          if( FD_UNLIKELY( gui->summary.slot_rankings->largest_duration->slot==ULONG_MAX ) ) break;
+          jsonp_ulong( gui, NULL, gui->summary.slot_rankings->largest_duration->slot );
+        }
+      jsonp_close_array( gui );
+      jsonp_open_array( gui, "largest_compute_units" );
+        for( ulong i = 0UL; i<FD_GUI_SLOT_RANKINGS_SZ; i++ ) {
+          if( FD_UNLIKELY( gui->summary.slot_rankings->largest_compute_units->slot==ULONG_MAX ) ) break;
+          jsonp_ulong( gui, NULL, gui->summary.slot_rankings->largest_compute_units->slot );
+        }
+      jsonp_close_array( gui );
+      jsonp_open_array( gui, "latest_skipped" );
+        for( ulong i = 0UL; i<FD_GUI_SLOT_RANKINGS_SZ; i++ ) {
+          if( FD_UNLIKELY( gui->summary.slot_rankings->largest_skipped->slot==ULONG_MAX ) ) break;
+          jsonp_ulong( gui, NULL, gui->summary.slot_rankings->largest_skipped->slot );
+        }
+      jsonp_close_array( gui );
+      jsonp_open_array( gui, "smallest_tips" );
+        for( ulong i = 0UL; i<FD_GUI_SLOT_RANKINGS_SZ; i++ ) {
+          if( FD_UNLIKELY( gui->summary.slot_rankings->smallest_tips->slot==ULONG_MAX ) ) break;
+          jsonp_ulong( gui, NULL, gui->summary.slot_rankings->smallest_tips->slot );
+        }
+      jsonp_close_array( gui );
+      jsonp_open_array( gui, "smallest_fees" );
+        for( ulong i = 0UL; i<FD_GUI_SLOT_RANKINGS_SZ; i++ ) {
+          if( FD_UNLIKELY( gui->summary.slot_rankings->smallest_fees->slot==ULONG_MAX ) ) break;
+          jsonp_ulong( gui, NULL, gui->summary.slot_rankings->smallest_fees->slot );
+        }
+      jsonp_close_array( gui );
+      jsonp_open_array( gui, "smallest_rewards" );
+        for( ulong i = 0UL; i<FD_GUI_SLOT_RANKINGS_SZ; i++ ) {
+          if( FD_UNLIKELY( gui->summary.slot_rankings->smallest_rewards->slot==ULONG_MAX ) ) break;
+          jsonp_ulong( gui, NULL, gui->summary.slot_rankings->smallest_rewards->slot );
+        }
+      jsonp_close_array( gui );
+      jsonp_open_array( gui, "smallest_duration" );
+        for( ulong i = 0UL; i<FD_GUI_SLOT_RANKINGS_SZ; i++ ) {
+          if( FD_UNLIKELY( gui->summary.slot_rankings->smallest_duration->slot==ULONG_MAX ) ) break;
+          jsonp_ulong( gui, NULL, gui->summary.slot_rankings->smallest_duration->slot );
+        }
+      jsonp_close_array( gui );
+      jsonp_open_array( gui, "smallest_compute_units" );
+        for( ulong i = 0UL; i<FD_GUI_SLOT_RANKINGS_SZ; i++ ) {
+          if( FD_UNLIKELY( gui->summary.slot_rankings->smallest_compute_units->slot==ULONG_MAX ) ) break;
+          jsonp_ulong( gui, NULL, gui->summary.slot_rankings->smallest_compute_units->slot );
+        }
+      jsonp_close_array( gui );
+      jsonp_open_array( gui, "earliest_skipped" );
+        for( ulong i = 0UL; i<FD_GUI_SLOT_RANKINGS_SZ; i++ ) {
+          if( FD_UNLIKELY( gui->summary.slot_rankings->smallest_skipped->slot==ULONG_MAX ) ) break;
+          jsonp_ulong( gui, NULL, gui->summary.slot_rankings->smallest_skipped->slot );
+        }
+      jsonp_close_array( gui );
+    jsonp_close_object( gui );
+  jsonp_close_envelope( gui );
+}
+
+void
 fd_gui_printf_slot_request( fd_gui_t * gui,
                             ulong      _slot,
                             ulong      id ) {
