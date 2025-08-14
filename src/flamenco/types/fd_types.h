@@ -44,7 +44,8 @@ typedef struct fd_hash_hash_age_pair fd_hash_hash_age_pair_t;
 /* Encoded Size: Dynamic */
 struct fd_block_hash_vec {
   ulong last_hash_index;
-  fd_hash_t * last_hash;
+  fd_hash_t last_hash;
+  uchar has_last_hash;
   ulong ages_len;
   fd_hash_hash_age_pair_t * ages;
   ulong max_age;
@@ -54,7 +55,8 @@ typedef struct fd_block_hash_vec fd_block_hash_vec_t;
 
 struct fd_block_hash_vec_global {
   ulong last_hash_index;
-  ulong last_hash_offset;
+  fd_hash_t last_hash;
+  uchar has_last_hash;
   ulong ages_len;
   ulong ages_offset;
   ulong max_age;
@@ -62,9 +64,6 @@ struct fd_block_hash_vec_global {
 typedef struct fd_block_hash_vec_global fd_block_hash_vec_global_t;
 #define FD_BLOCK_HASH_VEC_GLOBAL_ALIGN alignof(fd_block_hash_vec_global_t)
 
-FD_FN_UNUSED static fd_hash_t * fd_block_hash_vec_last_hash_join( fd_block_hash_vec_global_t const * struct_mem ) {
-  return struct_mem->last_hash_offset ? (fd_hash_t *)fd_type_pun( (uchar *)struct_mem + struct_mem->last_hash_offset ) : NULL;
-}
 FD_FN_UNUSED static fd_hash_hash_age_pair_t * fd_block_hash_vec_ages_join( fd_block_hash_vec_global_t const * struct_mem ) { // vector
   return struct_mem->ages_offset ? (fd_hash_hash_age_pair_t *)fd_type_pun( (uchar *)struct_mem + struct_mem->ages_offset ) : NULL;
 }
@@ -805,7 +804,8 @@ struct fd_versioned_bank {
   ulong signature_count;
   ulong capitalization;
   ulong max_tick_height;
-  ulong* hashes_per_tick;
+  ulong hashes_per_tick;
+  uchar has_hashes_per_tick;
   ulong ticks_per_slot;
   uint128 ns_per_slot;
   ulong genesis_creation_time;
@@ -844,7 +844,8 @@ struct fd_versioned_bank_global {
   ulong signature_count;
   ulong capitalization;
   ulong max_tick_height;
-  ulong hashes_per_tick_offset;
+  ulong hashes_per_tick;
+  uchar has_hashes_per_tick;
   ulong ticks_per_slot;
   uint128 ns_per_slot;
   ulong genesis_creation_time;
@@ -875,9 +876,6 @@ FD_FN_UNUSED static fd_slot_pair_t * fd_versioned_bank_ancestors_join( fd_versio
 }
 FD_FN_UNUSED static void fd_versioned_bank_ancestors_update( fd_versioned_bank_global_t * struct_mem, fd_slot_pair_t * vec ) {
   struct_mem->ancestors_offset = !!vec ? (ulong)vec - (ulong)struct_mem : 0UL;
-}
-FD_FN_UNUSED static ulong * fd_versioned_bank_hashes_per_tick_join( fd_versioned_bank_global_t const * struct_mem ) {
-  return struct_mem->hashes_per_tick_offset ? (ulong *)fd_type_pun( (uchar *)struct_mem + struct_mem->hashes_per_tick_offset ) : NULL;
 }
 FD_FN_UNUSED static fd_epoch_epoch_stakes_pair_global_t * fd_versioned_bank_epoch_stakes_join( fd_versioned_bank_global_t const * struct_mem ) { // vector
   return struct_mem->epoch_stakes_offset ? (fd_epoch_epoch_stakes_pair_global_t *)fd_type_pun( (uchar *)struct_mem + struct_mem->epoch_stakes_offset ) : NULL;
@@ -1162,7 +1160,8 @@ typedef struct fd_rust_duration fd_rust_duration_t;
 /* Encoded Size: Dynamic */
 struct fd_poh_config {
   fd_rust_duration_t target_tick_duration;
-  ulong* target_tick_count;
+  ulong target_tick_count;
+  uchar has_target_tick_count;
   ulong hashes_per_tick;
   uchar has_hashes_per_tick;
 };
@@ -2049,7 +2048,8 @@ deq_ulong_join_new( void * * alloc_mem, ulong max ) {
 struct fd_vote {
   ulong * slots; /* fd_deque_dynamic */
   fd_hash_t hash;
-  long* timestamp;
+  long timestamp;
+  uchar has_timestamp;
 };
 typedef struct fd_vote fd_vote_t;
 #define FD_VOTE_ALIGN alignof(fd_vote_t)
@@ -3377,13 +3377,6 @@ struct fd_pubkey_rewardinfo_pair {
 };
 typedef struct fd_pubkey_rewardinfo_pair fd_pubkey_rewardinfo_pair_t;
 #define FD_PUBKEY_REWARDINFO_PAIR_ALIGN alignof(fd_pubkey_rewardinfo_pair_t)
-
-/* Encoded Size: Dynamic */
-struct fd_optional_account {
-  fd_solana_account_t * account;
-};
-typedef struct fd_optional_account fd_optional_account_t;
-#define FD_OPTIONAL_ACCOUNT_ALIGN alignof(fd_optional_account_t)
 
 /* https://github.com/anza-xyz/agave/blob/cbc8320d35358da14d79ebcada4dfb6756ffac79/programs/stake/src/points.rs#L27 */
 /* Encoded Size: Fixed (25 bytes) */
@@ -6402,14 +6395,6 @@ static inline ulong fd_pubkey_rewardinfo_pair_size( fd_pubkey_rewardinfo_pair_t 
 static inline ulong fd_pubkey_rewardinfo_pair_align( void ) { return FD_PUBKEY_REWARDINFO_PAIR_ALIGN; }
 int fd_pubkey_rewardinfo_pair_decode_footprint( fd_bincode_decode_ctx_t * ctx, ulong * total_sz );
 void * fd_pubkey_rewardinfo_pair_decode( void * mem, fd_bincode_decode_ctx_t * ctx );
-
-void fd_optional_account_new( fd_optional_account_t * self );
-int fd_optional_account_encode( fd_optional_account_t const * self, fd_bincode_encode_ctx_t * ctx );
-void fd_optional_account_walk( void * w, fd_optional_account_t const * self, fd_types_walk_fn_t fun, const char *name, uint level, uint varint );
-ulong fd_optional_account_size( fd_optional_account_t const * self );
-static inline ulong fd_optional_account_align( void ) { return FD_OPTIONAL_ACCOUNT_ALIGN; }
-int fd_optional_account_decode_footprint( fd_bincode_decode_ctx_t * ctx, ulong * total_sz );
-void * fd_optional_account_decode( void * mem, fd_bincode_decode_ctx_t * ctx );
 
 static inline void fd_calculated_stake_points_new( fd_calculated_stake_points_t * self ) { fd_memset( self, 0, sizeof(fd_calculated_stake_points_t) ); }
 int fd_calculated_stake_points_encode( fd_calculated_stake_points_t const * self, fd_bincode_encode_ctx_t * ctx );

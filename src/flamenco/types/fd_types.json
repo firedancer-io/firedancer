@@ -79,7 +79,7 @@
       "type": "struct",
       "fields": [
         { "name": "last_hash_index", "type": "ulong" },
-        { "name": "last_hash", "type": "option", "element": "hash" },
+        { "name": "last_hash", "type": "option", "element": "hash", "flat": true },
         { "name": "ages", "type": "vector", "element": "hash_hash_age_pair" },
         { "name": "max_age", "type": "ulong" }
       ]
@@ -427,7 +427,7 @@
         { "name": "signature_count",       "type": "ulong" },
         { "name": "capitalization",        "type": "ulong" },
         { "name": "max_tick_height",       "type": "ulong" },
-        { "name": "hashes_per_tick",       "type": "option", "element": "ulong" },
+        { "name": "hashes_per_tick",       "type": "option", "element": "ulong", "flat": true },
         { "name": "ticks_per_slot",        "type": "ulong" },
         { "name": "ns_per_slot",           "type": "uint128" },
         { "name": "genesis_creation_time", "type": "ulong" },
@@ -595,7 +595,7 @@
       "type": "struct",
       "fields": [
         { "name": "target_tick_duration", "type": "rust_duration" },
-        { "name": "target_tick_count", "type": "option", "element": "ulong" },
+        { "name": "target_tick_count", "type": "option", "element": "ulong", "flat": true },
         { "name": "hashes_per_tick", "type": "option", "element": "ulong", "flat": true }
       ]
     },
@@ -1168,7 +1168,7 @@
       "fields": [
         { "name": "slots", "type": "deque", "element": "ulong" },
         { "name": "hash", "type": "hash" },
-        { "name": "timestamp", "type": "option", "element": "long" }
+        { "name": "timestamp", "type": "option", "element": "long", "flat": true }
       ],
       "comment": "https://github.com/solana-labs/solana/blob/8f2c8b8388a495d2728909e30460aa40dcc5d733/programs/vote/src/vote_state/mod.rs#L133"
     },
@@ -2669,13 +2669,6 @@
         { "name": "reward_info", "type": "reward_info" }
       ],
       "comment": "https://github.com/anza-xyz/agave/blob/7117ed9653ce19e8b2dea108eff1f3eb6a3378a7/runtime/src/bank/partitioned_epoch_rewards/mod.rs#L85"
-    },
-    {
-      "name": "optional_account",
-      "type": "struct",
-      "fields": [
-        { "name": "account", "type": "option", "element": "solana_account" }
-      ]
     },
     {
       "name": "calculated_stake_points",
