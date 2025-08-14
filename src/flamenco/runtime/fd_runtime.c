@@ -827,19 +827,21 @@ fd_runtime_update_bank_hash( fd_exec_slot_ctx_t *            slot_ctx,
   /* Update the bank hash */
   fd_bank_bank_hash_set( slot_ctx->bank, *new_bank_hash );
 
-  FD_LOG_NOTICE(( "\n\n[Replay]\n"
-                  "slot:             %lu\n"
-                  "bank hash:        %s\n"
-                  "parent bank hash: %s\n"
-                  "lthash:           %s\n"
-                  "signature_count:  %lu\n"
-                  "last_blockhash:   %s\n",
-                  fd_bank_slot_get( slot_ctx->bank ),
-                  FD_BASE58_ENC_32_ALLOCA( new_bank_hash->hash ),
-                  FD_BASE58_ENC_32_ALLOCA( fd_bank_prev_bank_hash_query( slot_ctx->bank ) ),
-                  FD_LTHASH_ENC_32_ALLOCA( (fd_lthash_value_t *) lthash->lthash ),
-                  fd_bank_signature_count_get( slot_ctx->bank ),
-                  FD_BASE58_ENC_32_ALLOCA( fd_bank_poh_query( slot_ctx->bank )->hash ) ));
+  if( !slot_ctx->silent ) {
+    FD_LOG_NOTICE(( "\n\n[Replay]\n"
+                    "slot:             %lu\n"
+                    "bank hash:        %s\n"
+                    "parent bank hash: %s\n"
+                    "lthash:           %s\n"
+                    "signature_count:  %lu\n"
+                    "last_blockhash:   %s\n",
+                    fd_bank_slot_get( slot_ctx->bank ),
+                    FD_BASE58_ENC_32_ALLOCA( new_bank_hash->hash ),
+                    FD_BASE58_ENC_32_ALLOCA( fd_bank_prev_bank_hash_query( slot_ctx->bank ) ),
+                    FD_LTHASH_ENC_32_ALLOCA( (fd_lthash_value_t *) lthash->lthash ),
+                    fd_bank_signature_count_get( slot_ctx->bank ),
+                    FD_BASE58_ENC_32_ALLOCA( fd_bank_poh_query( slot_ctx->bank )->hash ) ));
+  }
 
   if( slot_ctx->capture_ctx != NULL && slot_ctx->capture_ctx->capture != NULL &&
     fd_bank_slot_get( slot_ctx->bank )>=slot_ctx->capture_ctx->solcap_start_slot ) {

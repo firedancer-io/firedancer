@@ -236,6 +236,7 @@ fd_runtime_fuzz_block_ctx_create( fd_solfuzz_runner_t *                runner,
   slot_ctx->funk_txn  = funk_txn;
   slot_ctx->funk      = funk;
   runner->bank->slot_ = slot;
+  slot_ctx->silent    = 1;
 
   fd_hash_t * bank_hash = fd_bank_bank_hash_modify( slot_ctx->bank );
   fd_memcpy( bank_hash, test_ctx->slot_ctx.parent_bank_hash, sizeof(fd_hash_t) );
