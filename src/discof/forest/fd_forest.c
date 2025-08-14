@@ -357,10 +357,10 @@ acquire( fd_forest_t * forest, ulong slot ) {
   ele->child   = null;
   ele->sibling = null;
 
+  ele->consumed_idx = UINT_MAX;
   ele->buffered_idx = UINT_MAX;
   ele->complete_idx = UINT_MAX;
 
-  fd_forest_ele_idxs_null( ele->cmpl ); /* FIXME expensive */
   fd_forest_ele_idxs_null( ele->fecs ); /* FIXME expensive */
   fd_forest_ele_idxs_null( ele->idxs ); /* FIXME expensive */
 
@@ -436,10 +436,11 @@ fd_forest_data_shred_insert( fd_forest_t * forest, ulong slot, ushort parent_off
     fd_forest_ancestry_ele_insert( fd_forest_ancestry( forest ), ele, pool );
     link( forest, parent, ele );
   }
-  fd_forest_ele_idxs_insert( ele->fecs, fec_set_idx );
+  fd_forest_ele_idxs_insert_if( ele->fecs, fec_set_idx > 0, fec_set_idx - 1 );
+  fd_forest_ele_idxs_insert_if( ele->fecs, slot_complete, shred_idx );
+  ele->complete_idx = fd_uint_if( slot_complete, shred_idx, ele->complete_idx );
   fd_forest_ele_idxs_insert( ele->idxs, shred_idx );
   while( fd_forest_ele_idxs_test( ele->idxs, ele->buffered_idx + 1U ) ) ele->buffered_idx++;
-  ele->complete_idx = fd_uint_if( slot_complete, shred_idx, ele->complete_idx );
   advance_frontier( forest, slot, parent_off );
   return ele;
 }

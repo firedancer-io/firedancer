@@ -1370,7 +1370,7 @@ handle_slot_change( fd_replay_tile_ctx_t * ctx,
   }
 
   ulong turbine_slot = fd_fseq_query( ctx->turbine_slot );
-  FD_LOG_NOTICE(( "\n\n[Distance]\n"
+  FD_LOG_NOTICE(( "\n\n[Replay]\n"
     "slot:            %lu\n"
     "current turbine: %lu\n"
     "slots behind:    %lu\n"
