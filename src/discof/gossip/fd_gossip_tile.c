@@ -96,7 +96,7 @@ gossip_send_fn( void *                ctx,
   ip4->net_tot_len = fd_ushort_bswap( (ushort)(payload_sz + sizeof(fd_udp_hdr_t) + sizeof(fd_ip4_hdr_t)) );
   udp->net_len     = fd_ushort_bswap( (ushort)(payload_sz + sizeof(fd_udp_hdr_t)) );
   ip4->daddr       = peer_address->addr;
-  udp->net_dport   = peer_address->port;
+  udp->net_dport   = fd_ushort_bswap( peer_address->port );
   ip4->net_id      = fd_ushort_bswap( gossip_ctx->net_id++ );
   ip4->check       = fd_ip4_hdr_check_fast( ip4 );
   udp->check       = 0;

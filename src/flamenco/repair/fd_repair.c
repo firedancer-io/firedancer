@@ -74,7 +74,7 @@ fd_repair_delete ( void * shmap ) {
 /* Convert an address to a human readable string */
 const char * fd_repair_addr_str( char * dst, size_t dstlen, fd_ip4_port_t const * src ) {
   char tmp[INET_ADDRSTRLEN];
-  snprintf(dst, dstlen, "%s:%u", inet_ntop(AF_INET, &src->addr, tmp, INET_ADDRSTRLEN), (uint)ntohs(src->port));
+  snprintf(dst, dstlen, "%s:%u", inet_ntop(AF_INET, &src->addr, tmp, INET_ADDRSTRLEN), src->port );
   return dst;
 }
 
@@ -444,13 +444,13 @@ fd_write_good_peer_cache_file( fd_repair_t * repair ) {
        in peer->addr.addr is already in network byte order. */
     struct in_addr addr_parsed;
     addr_parsed.s_addr = peer->addr.addr; /* net-order -> struct in_addr */
-    char * ip_str = inet_ntoa( addr_parsed );
 
     /* Convert port from network byte order to host byte order. */
-    ushort port = fd_ushort_bswap( peer->addr.port );
+    ushort port = peer->addr.port;
 
     /* Write out line: base58EncodedPubkey/ipAddr/port */
-    dprintf( repair->good_peer_cache_file_fd, "%s/%s/%u\n", base58_str, ip_str, (uint)port );
+    dprintf( repair->good_peer_cache_file_fd, "%s/" FD_IP4_ADDR_FMT "/%hu\n",
+             base58_str, FD_IP4_ADDR_FMT_ARGS( addr_parsed.s_addr ), port );
   }
 
   return 0;

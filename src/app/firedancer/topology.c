@@ -160,7 +160,7 @@ resolve_gossip_entrypoint( char const *    host_port,
   if( FD_UNLIKELY( !endptr || !port || port>USHORT_MAX || *endptr!='\0' ) ) {
     FD_LOG_ERR(( "invalid [gossip.entrypoints] entry \"%s\": invalid port number", host_port ));
   }
-  ip4_port->port = (ushort)fd_ushort_bswap( (ushort)port );
+  ip4_port->port = (ushort)port;
 
   /* Resolve hostname */
   int resolved = resolve_address( fqdn, &ip4_port->addr );
