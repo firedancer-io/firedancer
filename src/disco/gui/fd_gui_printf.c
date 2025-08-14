@@ -1114,6 +1114,58 @@ fd_gui_printf_summary_ping( fd_gui_t * gui,
 }
 
 void
+fd_gui_printf_slot_rankings_request( fd_gui_t * gui,
+                                     ulong      id,
+                                     int        mine ) {
+  ulong epoch = ULONG_MAX;
+  for( ulong i = 0UL; i<2UL; i++ ) {
+    if( FD_LIKELY( gui->epoch.has_epoch[ i ] ) ) {
+      /* the "current" epoch is the smallest */
+      epoch = fd_ulong_min( epoch, gui->epoch.epochs[ i ].epoch );
+    }
+  }
+  ulong epoch_idx = epoch % 2UL;
+
+  fd_gui_slot_rankings_t * rankings = fd_ptr_if( mine, (fd_gui_slot_rankings_t *)gui->epoch.epochs[ epoch_idx ].my_rankings, (fd_gui_slot_rankings_t *)gui->epoch.epochs[ epoch_idx ].rankings );
+
+  jsonp_open_envelope( gui, "slot", "query_rankings" );
+    jsonp_ulong( gui, "id", id );
+    jsonp_open_object( gui, "value" );
+
+#define OUTPUT_RANKING_ARRAY(field) \
+      jsonp_open_array( gui, "slots_" FD_STRINGIFY(field) ); \
+      for( ulong i = 0UL; i<fd_ulong_if( epoch==ULONG_MAX, 0UL, FD_GUI_SLOT_RANKINGS_SZ ); i++ ) { \
+        if( FD_UNLIKELY( rankings->field[ i ].slot==ULONG_MAX ) ) break; \
+        jsonp_ulong( gui, NULL, rankings->field[ i ].slot ); \
+      } \
+      jsonp_close_array( gui ); \
+      jsonp_open_array( gui, "vals_" FD_STRINGIFY(field) ); \
+      for( ulong i = 0UL; i<fd_ulong_if( epoch==ULONG_MAX, 0UL, FD_GUI_SLOT_RANKINGS_SZ ); i++ ) { \
+        if( FD_UNLIKELY( rankings->field[ i ].slot==ULONG_MAX ) ) break; \
+        jsonp_ulong( gui, NULL, rankings->field[ i ].value ); \
+      } \
+      jsonp_close_array( gui )
+
+      OUTPUT_RANKING_ARRAY( largest_tips );
+      OUTPUT_RANKING_ARRAY( largest_fees );
+      OUTPUT_RANKING_ARRAY( largest_rewards );
+      OUTPUT_RANKING_ARRAY( largest_duration );
+      OUTPUT_RANKING_ARRAY( largest_compute_units );
+      OUTPUT_RANKING_ARRAY( largest_skipped );
+      OUTPUT_RANKING_ARRAY( smallest_tips );
+      OUTPUT_RANKING_ARRAY( smallest_fees );
+      OUTPUT_RANKING_ARRAY( smallest_rewards );
+      OUTPUT_RANKING_ARRAY( smallest_duration );
+      OUTPUT_RANKING_ARRAY( smallest_compute_units );
+      OUTPUT_RANKING_ARRAY( smallest_skipped );
+
+#undef OUTPUT_RANKING_ARRAY
+
+    jsonp_close_object( gui );
+  jsonp_close_envelope( gui );
+}
+
+void
 fd_gui_printf_slot_request( fd_gui_t * gui,
                             ulong      _slot,
                             ulong      id ) {
