@@ -1054,6 +1054,68 @@ new validator identity.
 | waterfall           | `TxnWaterfall\|null`      | If the slot is not `mine`, will be `null`. Otherwise, a waterfall showing reasons transactions were acquired since the end of the prior leader slot |
 | tile_primary_metric | `TilePrimaryMetric\|null` | If the slot is not `mine`, will be `null`. Otherwise, max value of per-tile-type primary metrics since the end of the prior leader slot |
 
+#### `slot.query_rankings`
+| frequency   | type           | example |
+|-------------|----------------|---------|
+| *Request*   | `SlotRankings` | below   |
+
+| param | type   | description |
+|-------|--------|-------------|
+| mine  | `bool` | If `mine` is true, only include slots produced by this validator in the result.  Otherwise, any slot from the current epoch may be included |
+
+::: details Example
+
+```json
+{
+    "topic": "slot",
+    "key": "query_rankings",
+    "id": 32,
+    "params": {
+        "mine": false
+    }
+}
+```
+
+```json
+{
+    "topic": "slot",
+    "key": "query_rankings",
+    "id": 32,
+    "value": {
+      "largest_tips": [1, 2, 3],
+      "largest_fees": [1, 2, 3],
+      "largest_rewards": [1, 2, 3],
+      "largest_duration": [1, 2, 3],
+      "largest_compute_units": [1, 2, 3],
+      "largest_skipped": [7, 8, 9],
+      "smallest_tips": [1, 2, 3],
+      "smallest_fees": [1, 2, 3],
+      "smallest_rewards": [1, 2, 3],
+      "smallest_duration": [1, 2, 3],
+      "smallest_compute_units": [1, 2, 3],
+      "smallest_skipped": [4, 5, 6]
+    }
+}
+```
+
+:::
+
+**`SlotRankings`**
+| Field                  | Type                      | Description |
+|------------------------|---------------------------|-------------|
+| largest_tips           | `number[]` | An array of slot numbers from the current epoch containing the top 10 (or less) slots sorted by tips in descending order |
+| largest_fees           | `number[]` | An array of slot numbers from the current epoch containing the top 10 (or less) slots sorted by fees in descending order |
+| largest_rewards        | `number[]` | An array of slot numbers from the current epoch containing the top 10 (or less) slots sorted by rewards in descending order |
+| largest_duration       | `number[]` | An array of slot numbers from the current epoch containing the top 10 (or less) slots sorted by duration in descending order |
+| largest_compute_units  | `number[]` | An array of slot numbers from the current epoch containing the top 10 (or less) slots sorted by compute_units in descending order |
+| largest_skipped        | `number[]` | An array of slot numbers from the current epoch containing the top 10 (or less) skipped slots sorted by slot number in descending order |
+| smallest_tips          | `number[]` | An array of slot numbers from the current epoch containing the bottom 10 (or less) slots sorted by tips in ascending order |
+| smallest_fees          | `number[]` | An array of slot numbers from the current epoch containing the bottom 10 (or less) slots sorted by fees in ascending order |
+| smallest_rewards       | `number[]` | An array of slot numbers from the current epoch containing the bottom 10 (or less) slots sorted by rewards in ascending order |
+| smallest_duration      | `number[]` | An array of slot numbers from the current epoch containing the bottom 10 (or less) slots sorted by duration in ascending order |
+| smallest_compute_units | `number[]` | An array of slot numbers from the current epoch containing the bottom 10 (or less) slots sorted by compute_units in ascending order |
+| smallest_skipped       | `number[]` | An array of slot numbers from the current epoch containing the bottom 10 (or less) skipped slots sorted by slot number in ascending order |
+
 #### `slot.query`
 | frequency   | type           | example |
 |-------------|----------------|---------|
@@ -1393,8 +1455,8 @@ new validator identity.
 | txn_bank_idx                      | `number[]`  | `txn_bank_idx[i]` is the index of the bank tile that executed the `i`-th transaction in the slot |
 | txn_microblock_id                 | `string[]`  | `txn_microblock_id[i]` is the index of the microblock for the `i`-th transaction in the slot.  Microblocks are collections of 1+ transactions.  All of the transactions from a bundle share the same microblock. Microblock ids are monotonically increasing in the order they appear in the block and start at 0 for each slot |
 | txn_signature                     | `string[]`  | `txn_signature[i]` is the base58 signature of the `i`-th transaction in the slot |
-| txn_source_ipv4                   | `number[]`  | `txn_signature[i]` is the source ipv4 address for the `i`-th transaction in the slot |
-| txn_source_tpu                    | `string[]`  | `txn_signature[i]` is the transaction processing unit (TPU) which handled the `i`-th transaction in the slot |
+| txn_source_ipv4                   | `string[]`  | `txn_source_ipv4[i]` is the source ipv4 address for the `i`-th transaction in the slot |
+| txn_source_tpu                    | `string[]`  | `txn_source_tpu[i]` is the transaction processing unit (TPU) which handled the `i`-th transaction in the slot |
 
 The source tpu for a transaction can be one of the following
 
