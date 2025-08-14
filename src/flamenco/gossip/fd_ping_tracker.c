@@ -253,7 +253,7 @@ static inline int
 is_entrypoint( fd_ping_tracker_t const * ping_tracker,
                fd_ip4_port_t             peer_addr ) {
   for( ulong i=0UL; i<ping_tracker->entrypoints_cnt; i++ ) {
-    if( FD_UNLIKELY( peer_addr.l==ping_tracker->entrypoints[ i ].l ) ) return 1;
+    if( FD_UNLIKELY( peer_addr.addr==ping_tracker->entrypoints[ i ].addr && peer_addr.port==ping_tracker->entrypoints[ i ].port ) ) return 1;
   }
   return 0;
 }
@@ -411,10 +411,10 @@ fd_ping_tracker_pop_request( fd_ping_tracker_t *    ping_tracker,
     else                                          __builtin_unreachable();
 
     /* Push the element to the back of the refreshing list now, so it
-       starts getting pinged every 2 seconds. */
+       starts getting pinged every 60 seconds. */
     refreshing_list_ele_push_tail( ping_tracker->refreshing, next, ping_tracker->pool );
     next->state           = FD_PING_TRACKER_STATE_REFRESHING;
-    next->next_ping_nanos = now+2L*1000L*1000L*1000L;
+    next->next_ping_nanos = now+60L*1000L*1000L*1000L;
     *out_peer_pubkey      = next->identity_pubkey.b;
     *out_peer_address     = &next->address;
     *out_token            = next->ping_token;

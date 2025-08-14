@@ -442,17 +442,17 @@ rx_pull_response( fd_gossip_t *                          gossip,
     metrics->rx_pull_crd_bytes[ value->tag ] += value->length;
 
     int checks_res = fd_crds_checks_fast( gossip->crds,
-                                             value,
-                                             payload,
-                                             0 /* from_push_msg m*/ );
+                                          value,
+                                          payload,
+                                          0 /* from_push_msg m*/ );
     if( FD_UNLIKELY( !!checks_res ) ) {
       checks_res < 0 ? metrics->rx_pull_crd_fail[ value->tag ]++
                      : metrics->rx_pull_crd_duplicate[ value->tag ]++;
       continue;
     }
 
-    uchar const * origin_pubkey    = payload+value->pubkey_off;
-    ulong origin_stake             = get_stake( gossip, origin_pubkey );
+    uchar const * origin_pubkey = payload+value->pubkey_off;
+    ulong origin_stake          = get_stake( gossip, origin_pubkey );
 
     /* TODO: Is this jittered in Agave? */
     long accept_after_nanos;
