@@ -2,6 +2,7 @@
 #include "fd_sbpf_opcodes.h"
 #include "../../util/fd_util.h"
 #include "../../util/bits/fd_sat.h"
+#include "../../flamenco/vm/fd_vm_private.h"
 #include "../murmur3/fd_murmur3.h"
 
 #include <assert.h>
@@ -450,6 +451,7 @@ fd_sbpf_load_shdrs( fd_sbpf_elf_info_t *  info,
 
   info->text_off = (uint)shdr_text->sh_offset;
   ulong text_size = shdr_get_loaded_size( shdr_text );
+  FD_LOG_WARNING(("TEXT SIZE %lu %u", text_size, info->text_off));
   info->text_sz = text_size;
   info->text_cnt = (uint) text_size / 8U;
 
@@ -1189,11 +1191,83 @@ fd_sbpf_relocate( fd_sbpf_loader_t   const * loader,
 }
 
 static int
+fd_sbpf_parse_rodata_new( fd_sbpf_elf_t *            elf,
+                          uchar *                    rodata,
+                          fd_sbpf_elf_info_t const * info,
+                          int                        elf_deploy_checks ) {
+
+  fd_elf64_shdr const * shdrs = (fd_elf64_shdr const *)(elf->bin + elf->ehdr.e_shoff);
+
+  uchar * elf_bin = elf->bin;
+
+  ulong lowest_addr     = ULONG_MAX;
+  ulong highest_addr    = 0UL;
+  ulong ro_fill_length  = 0UL;
+  uchar invalid_offsets = 0;
+
+  ulong addr_file_offset = ULONG_MAX;
+
+  /* Zero out the new rodata buffer ahead of time so we don't need to
+     worry about zeroing out the gaps between sections.
+
+     TODO: This can be opitmized by only zeroing out the gaps. */
+  memset( rodata, 0, info->rodata_sz );
+  for( ulong i=0UL; i<elf->ehdr.e_shnum; i++ ) {
+    /* If the section has not been loaded, skip it. */
+    if( !( info->loaded_sections[ i>>6UL ] & (1UL<<(i&63UL)) ) ) continue;
+
+    fd_elf64_shdr const * shdr = &shdrs[ i ];
+
+    if( !invalid_offsets ) {
+      if( info->sbpf_version>=FD_SBPF_V0 ) { /* enable_elf_vaddr  */
+        if( shdr->sh_addr < shdr->sh_offset ) {
+          invalid_offsets = 1;
+        } else {
+          ulong offset = fd_ulong_sat_sub( shdr->sh_addr, shdr->sh_offset );
+          if( addr_file_offset!=ULONG_MAX && addr_file_offset!=offset ) {
+            invalid_offsets = 1;
+          } else {
+            addr_file_offset = offset;
+          }
+        }
+      } else if( shdr->sh_addr!=shdr->sh_offset ) {
+        invalid_offsets = 1;
+      }
+    }
+
+    ulong vaddr_end;
+    if( info->sbpf_version>=FD_SBPF_V0 && shdr->sh_addr>=FD_VM_MEM_MAP_PROGRAM_REGION_START ) { /* enable_elf_vaddr() */
+      vaddr_end = shdr->sh_addr;
+    } else {
+      vaddr_end = shdr->sh_addr + FD_VM_MEM_MAP_PROGRAM_REGION_START;
+    }
+
+    if( info->sbpf_version>=FD_SBPF_V0 ) { /* reject_rodata_stack_overlap() */
+      vaddr_end += shdr->sh_size;
+    }
+    if( FD_UNLIKELY( (elf_deploy_checks && invalid_offsets) || vaddr_end>FD_VM_MEM_MAP_STACK_REGION_START ) ) {
+      return -1; /* ValueOutOfBounds */
+    }
+
+    FD_LOG_WARNING(("shaddr %lu  shoffset %lu  shsize %lu  rodata_sz %u", shdr->sh_addr, shdr->sh_offset, shdr->sh_size, info->rodata_sz));
+    memcpy( rodata + shdr->sh_addr, elf_bin + shdr->sh_offset, shdr->sh_size );
+  }
+
+  if( FD_UNLIKELY( elf_deploy_checks && lowest_addr+ro_fill_length>highest_addr ) ) {
+    return -1; /* ValueOutOfBounds */
+  }
+
+  FD_LOG_WARNING(("ULONG %lu", *(ulong*)&rodata[381455]));
+
+  return 0;
+}
+
+static int FD_FN_UNUSED
 fd_sbpf_zero_rodata( fd_sbpf_elf_t *            elf,
                      uchar *                    rodata,
                      fd_sbpf_elf_info_t const * info ) {
 
-  fd_elf64_shdr const * shdrs = (fd_elf64_shdr const *)( elf->bin + elf->ehdr.e_shoff );
+  fd_elf64_shdr const * shdrs = (fd_elf64_shdr const *)(elf->bin + elf->ehdr.e_shoff);
 
   /* memset gaps between sections to zero.
       Assume section sh_addrs are monotonically increasing.
@@ -1211,6 +1285,8 @@ fd_sbpf_zero_rodata( fd_sbpf_elf_t *            elf,
        offsets, thus we can't trust the shdr->sh_offset field. */
     if( FD_UNLIKELY( shdr->sh_type==FD_ELF_SHT_NOBITS ) ) continue;
 
+    FD_LOG_WARNING(("SECTION SECTION %lu", shdr->sh_addr));
+
     ulong off = shdr->sh_offset;
     ulong sz  = shdr->sh_size;
     assert( cursor<=off             );  /* Invariant: Monotonically increasing offsets */
@@ -1225,6 +1301,7 @@ fd_sbpf_zero_rodata( fd_sbpf_elf_t *            elf,
   }
 
   fd_memset( rodata+cursor, 0, info->rodata_sz - cursor );
+  FD_LOG_WARNING(("RODATA SIZE %u cursor %lu", info->rodata_sz, cursor));
 
   return 0;
 }
@@ -1271,6 +1348,9 @@ fd_sbpf_program_load( fd_sbpf_program_t *  prog,
   /* Copy rodata segment */
   fd_memcpy( prog->rodata, elf->bin, prog->info.rodata_footprint );
 
+  if( FD_UNLIKELY( (err=fd_sbpf_parse_rodata_new( elf, prog->rodata, &prog->info, elf_deploy_checks ))!=0 ) )
+    return err;
+
   /* Convert calls with PC relative immediate to hashes */
   if( FD_UNLIKELY( (err=fd_sbpf_hash_calls  ( &loader, prog, elf ))!=0 ) )
     return err;
@@ -1280,8 +1360,8 @@ fd_sbpf_program_load( fd_sbpf_program_t *  prog,
     return err;
 
   /* Create read-only segment */
-  if( FD_UNLIKELY( (err=fd_sbpf_zero_rodata( elf, prog->rodata, &prog->info ))!=0 ) )
-    return err;
+  // if( FD_UNLIKELY( (err=fd_sbpf_zero_rodata( elf, prog->rodata, &prog->info ))!=0 ) )
+  //   return err;
 
   return 0;
 }

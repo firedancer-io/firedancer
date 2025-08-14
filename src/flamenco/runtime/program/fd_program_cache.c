@@ -253,8 +253,10 @@ fd_program_cache_validate_sbpf_program( fd_exec_slot_ctx_t const * slot_ctx,
   ulong               prog_footprint = fd_sbpf_program_footprint( elf_info );
   void              * prog_mem       = fd_spad_alloc_check( runtime_spad, prog_align, prog_footprint );
   fd_sbpf_program_t * prog           = fd_sbpf_program_new( prog_mem , elf_info, cache_entry->rodata );
+  FD_LOG_WARNING(("PROG TEXT %p", (void*)prog->text));
+  FD_LOG_WARNING(("VALUE %lu", *(ulong*)((uchar*)prog->text + prog->text_off) ));
   if( FD_UNLIKELY( !prog ) ) {
-    FD_LOG_DEBUG(( "fd_sbpf_program_new() failed" ));
+    FD_LOG_WARNING(( "fd_sbpf_program_new() failed" ));
     cache_entry->failed_verification = 1;
     return -1;
   }
@@ -275,11 +277,14 @@ fd_program_cache_validate_sbpf_program( fd_exec_slot_ctx_t const * slot_ctx,
   /* Load program. */
 
   if( FD_UNLIKELY( 0!=fd_sbpf_program_load( prog, program_data, program_data_len, syscalls, false ) ) ) {
-    FD_LOG_DEBUG(( "fd_sbpf_program_load() failed: %s", fd_sbpf_strerror() ));
+    FD_LOG_WARNING(( "fd_sbpf_program_load() failed: %s", fd_sbpf_strerror() ));
     cache_entry->failed_verification = 1;
     fd_sbpf_syscalls_leave( syscalls );
     return -1;
   }
+
+  FD_LOG_WARNING(("VALUE %lu", *(ulong*)((uchar*)prog->text + prog->text_off) ));
+
 
   /* Validate the program. */
 
@@ -321,7 +326,7 @@ fd_program_cache_validate_sbpf_program( fd_exec_slot_ctx_t const * slot_ctx,
   int res = fd_vm_validate( vm );
   fd_sbpf_syscalls_leave( syscalls );
   if( FD_UNLIKELY( res ) ) {
-    FD_LOG_DEBUG(( "fd_vm_validate() failed" ));
+    FD_LOG_WARNING(( "fd_vm_validate() failed: %d", res ));
     cache_entry->failed_verification = 1;
     return -1;
   }

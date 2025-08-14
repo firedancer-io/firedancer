@@ -140,6 +140,7 @@ int
 fd_vm_validate( fd_vm_t const * vm ) {
 
   ulong sbpf_version = vm->sbpf_version;
+  FD_LOG_WARNING(( "sbpf_version: %lu", sbpf_version ));
 
   /* A mapping of all the possible 1-byte sBPF opcodes to their
      validation criteria. */
@@ -452,7 +453,10 @@ fd_vm_validate( fd_vm_t const * vm ) {
       break;
     }
 
-    case FD_INVALID: default: return FD_VM_ERR_INVALID_OPCODE;
+    case FD_INVALID: default: {
+      FD_LOG_WARNING(( "invalid opcode: %d", instr.opcode.raw ));
+      return FD_VM_ERR_INVALID_OPCODE;
+    }
     }
 
     /* Check registers
