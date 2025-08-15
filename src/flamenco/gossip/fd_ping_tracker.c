@@ -421,7 +421,7 @@ fd_ping_tracker_pop_request( fd_ping_tracker_t *    ping_tracker,
     unpinged->state           = FD_PING_TRACKER_STATE_INVALID;
     ping_tracker->metrics->unpinged_cnt--;
     ping_tracker->metrics->invalid_cnt++;
-    unpinged->next_ping_nanos = now+60L*1000L*1000L*1000L;
+    unpinged->next_ping_nanos = now+1L*1000L*1000L*1000L;
     *out_peer_pubkey          = unpinged->identity_pubkey.b;
     *out_peer_address         = &unpinged->address;
     *out_token                = unpinged->ping_token;
@@ -438,7 +438,8 @@ fd_ping_tracker_pop_request( fd_ping_tracker_t *    ping_tracker,
     if(      FD_UNLIKELY( !peer_refreshing && !peer_waiting ) ) return 0;
     else if( FD_UNLIKELY(  peer_refreshing && !peer_waiting ) ) next = peer_refreshing;
     else if( FD_UNLIKELY( !peer_refreshing &&  peer_waiting ) ) next = peer_waiting;
-    else                                                        next = peer_waiting;
+    else if( FD_UNLIKELY( peer_waiting->next_ping_nanos<peer_refreshing->next_ping_nanos ) ) next = peer_waiting;
+    else next = peer_refreshing;
 
     FD_TEST( next->state!=FD_PING_TRACKER_STATE_UNPINGED );
     FD_TEST( next->next_ping_nanos );
@@ -492,7 +493,7 @@ fd_ping_tracker_pop_request( fd_ping_tracker_t *    ping_tracker,
       next->state = FD_PING_TRACKER_STATE_INVALID;
       ping_tracker->metrics->invalid_cnt++;
     }
-    next->next_ping_nanos = now+60L*1000L*1000L*1000L;
+    next->next_ping_nanos = now+1L*1000L*1000L*1000L;
     *out_peer_pubkey      = next->identity_pubkey.b;
     *out_peer_address     = &next->address;
     *out_token            = next->ping_token;
