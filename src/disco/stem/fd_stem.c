@@ -549,12 +549,11 @@ STEM_(run1)( ulong                        in_cnt,
     /* Select which in to poll next (randomized round robin) */
 
     if( FD_UNLIKELY( !in_cnt ) ) {
-      int was_busy = 0;
-      was_busy |= !!charge_busy_before;
-      was_busy |= !!charge_busy_after;
-      metric_regime_ticks[ 0+was_busy ] += housekeeping_ticks;
+      int was_busy = charge_busy_before+charge_busy_after;
+      metric_regime_ticks[0] += housekeeping_ticks;
       long next = fd_tickcount();
-      metric_regime_ticks[ 3+was_busy ] += (ulong)(next - now);
+      if( FD_UNLIKELY( was_busy ) ) metric_regime_ticks[3] += (ulong)(next - now);
+      else                          metric_regime_ticks[6] += (ulong)(next - now);
       now = next;
       continue;
     }
