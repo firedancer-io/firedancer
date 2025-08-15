@@ -698,6 +698,14 @@ user = ""
     # requests.
     sign_tile_count = 2
 
+    # How many snapshot hash tiles to run.  The snapshot hash tiles are
+    # responsible for verifying the hash of all accounts in the loaded
+    # snapshot via lthash (lattice hashing).  Currently, set to 0 by
+    # default because it is too slow to run in the full client.  TODO:
+    # enable snapshot hash tiles in the full client and update this
+    # comment.
+    hash_tile_count = 0
+
 # All memory that will be used in Firedancer is pre-allocated in two
 # kinds of pages: huge and gigantic.  Huge pages are 2 MiB and gigantic
 # pages are 1 GiB.  This is done to prevent TLB misses which can have a

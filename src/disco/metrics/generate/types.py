@@ -30,7 +30,8 @@ class Tile(Enum):
     SNAPRD = 24
     SNAPDC = 25
     SNAPIN = 26
-    IPECHO = 27
+    SNAPHS = 27
+    IPECHO = 28
 
 
 class MetricType(Enum):

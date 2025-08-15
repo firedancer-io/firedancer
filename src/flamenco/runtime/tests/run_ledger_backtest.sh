@@ -27,6 +27,7 @@ ONE_OFFS=""
 HUGE_TLBFS_MOUNT_PATH=${HUGE_TLBFS_MOUNT_PATH:="/mnt/.fd"}
 HUGE_TLBFS_ALLOW_HUGEPAGE_INCREASE=${HUGE_TLBFS_ALLOW_HUGEPAGE_INCREASE:="true"}
 HAS_INCREMENTAL="false"
+ENABLE_LTHASH_VERIFICATION=false
 
 while [[ $# -gt 0 ]]; do
   case $1 in
@@ -97,6 +98,10 @@ while [[ $# -gt 0 ]]; do
        HAS_INCREMENTAL="$2"
        shift
        ;;
+    -lt|--enable-lthash-verification)
+        ENABLE_LTHASH_VERIFICATION=true
+        shift
+        ;;
     -*|--*)
        echo "unknown option $1"
        exit 1
@@ -115,6 +120,12 @@ mkdir -p $OBJDIR/cov/raw
 
 DUMP=$(realpath $DUMP_DIR)
 mkdir -p $DUMP
+
+if $ENABLE_LTHASH_VERIFICATION; then
+HASH_TILE_COUNT=1
+else
+HASH_TILE_COUNT=0
+fi
 
 if [[ ! -e $DUMP/$LEDGER && SKIP_INGEST -eq 0 ]]; then
   if [[ -n "$ZST" ]]; then
@@ -153,6 +164,7 @@ echo "
     bank_tile_count = 1
     shred_tile_count = 4
     exec_tile_count = 4
+    hash_tile_count = $HASH_TILE_COUNT
 [tiles]
     [tiles.archiver]
         enabled = true
