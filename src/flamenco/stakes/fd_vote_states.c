@@ -418,3 +418,72 @@ fd_vote_states_update_stake( fd_vote_states_t *  vote_states,
 
   vote_state->stake = stake;
 }
+
+fd_vote_state_ele_t *
+fd_vote_states_query( fd_vote_states_t const * vote_states,
+                      fd_pubkey_t const *      vote_account ) {
+
+  return fd_vote_state_map_ele_query(
+      fd_vote_states_get_map( vote_states ),
+      vote_account,
+      NULL,
+      fd_vote_states_get_pool( vote_states ) );
+}
+
+/* fd_vote_states_query_const is the same as fd_vote_states but instead
+   returns a const pointer. */
+
+fd_vote_state_ele_t const *
+fd_vote_states_query_const( fd_vote_states_t const * vote_states,
+                            fd_pubkey_t const *      vote_account ) {
+  return fd_vote_state_map_ele_query_const(
+      fd_vote_states_get_map( vote_states ),
+      vote_account,
+      NULL,
+      fd_vote_states_get_pool( vote_states ) );
+}
+
+ulong
+fd_vote_states_max( fd_vote_states_t const * vote_states ) {
+  return vote_states->max_vote_accounts;
+}
+
+ulong
+fd_vote_states_cnt( fd_vote_states_t const * vote_states ) {
+  return fd_vote_state_pool_used( fd_vote_states_get_pool( vote_states ) );
+}
+
+fd_vote_state_ele_t *
+fd_vote_states_iter_ele( fd_vote_states_iter_t * iter ) {
+  ulong idx = fd_vote_state_map_iter_idx( iter->iter, iter->map, iter->pool );
+  return fd_vote_state_pool_ele( iter->pool, idx );
+}
+
+int
+fd_vote_states_iter_init( fd_vote_states_t const * vote_states,
+                          fd_vote_states_iter_t *  iter ) {
+  #if FD_VOTE_STATES_USE_HANDHOLDING
+  if( FD_UNLIKELY( !vote_states ) ) {
+    FD_LOG_CRIT(( "unable to retrieve join to vote state pool" ));
+  }
+  if( FD_UNLIKELY( !iter ) ) {
+    FD_LOG_CRIT(( "unable to retrieve join to vote state map" ));
+  }
+  #endif
+
+  iter->map  = fd_vote_states_get_map( vote_states );
+  iter->pool = fd_vote_states_get_pool( vote_states );
+  iter->iter = fd_vote_state_map_iter_init( iter->map, iter->pool );
+
+  return 0;
+}
+
+int
+fd_vote_states_iter_done( fd_vote_states_iter_t * iter ) {
+  return fd_vote_state_map_iter_done( iter->iter, iter->map, iter->pool );
+}
+
+void
+fd_vote_states_iter_next( fd_vote_states_iter_t * iter ) {
+  iter->iter = fd_vote_state_map_iter_next( iter->iter, iter->map, iter->pool );
+}

@@ -28,33 +28,33 @@ fd_stake_weights_by_node( fd_vote_states_t const * vote_states,
   return weights_cnt;
 }
 
-static void
-dump_vote_and_stake_states( fd_vote_states_t const *       vote_states,
-                            fd_stake_delegations_t const * stake_delegations ) {
+// static void
+// dump_vote_and_stake_states( fd_vote_states_t const *       vote_states,
+//                             fd_stake_delegations_t const * stake_delegations ) {
 
-  return;
-  fd_stake_delegation_map_t * stake_delegation_map  = fd_stake_delegations_get_map( stake_delegations );
-  fd_stake_delegation_t *     stake_delegation_pool = fd_stake_delegations_get_pool( stake_delegations );
+//   return;
+//   fd_stake_delegation_map_t * stake_delegation_map  = fd_stake_delegations_get_map( stake_delegations );
+//   fd_stake_delegation_t *     stake_delegation_pool = fd_stake_delegations_get_pool( stake_delegations );
 
-  for( fd_stake_delegation_map_iter_t iter = fd_stake_delegation_map_iter_init( stake_delegation_map, stake_delegation_pool );
-       !fd_stake_delegation_map_iter_done( iter, stake_delegation_map, stake_delegation_pool );
-       iter = fd_stake_delegation_map_iter_next( iter, stake_delegation_map, stake_delegation_pool ) ) {
-    fd_stake_delegation_t const * stake_delegation = fd_stake_delegation_map_iter_ele_const( iter, stake_delegation_map, stake_delegation_pool );
-    FD_LOG_NOTICE(( "stake_delegation: %s, vote_account: %s, stake: %lu, activation_epoch: %lu, deactivation_epoch: %lu", FD_BASE58_ENC_32_ALLOCA( &stake_delegation->stake_account ), FD_BASE58_ENC_32_ALLOCA( &stake_delegation->vote_account ), stake_delegation->stake, stake_delegation->activation_epoch, stake_delegation->deactivation_epoch ));
-  }
+//   for( fd_stake_delegation_map_iter_t iter = fd_stake_delegation_map_iter_init( stake_delegation_map, stake_delegation_pool );
+//        !fd_stake_delegation_map_iter_done( iter, stake_delegation_map, stake_delegation_pool );
+//        iter = fd_stake_delegation_map_iter_next( iter, stake_delegation_map, stake_delegation_pool ) ) {
+//     fd_stake_delegation_t const * stake_delegation = fd_stake_delegation_map_iter_ele_const( iter, stake_delegation_map, stake_delegation_pool );
+//     FD_LOG_NOTICE(( "stake_delegation: %s, vote_account: %s, stake: %lu, activation_epoch: %lu, deactivation_epoch: %lu", FD_BASE58_ENC_32_ALLOCA( &stake_delegation->stake_account ), FD_BASE58_ENC_32_ALLOCA( &stake_delegation->vote_account ), stake_delegation->stake, stake_delegation->activation_epoch, stake_delegation->deactivation_epoch ));
+//   }
 
-  fd_vote_state_map_t * vote_state_map  = fd_vote_states_get_map( vote_states );
-  fd_vote_state_ele_t * vote_state_pool = fd_vote_states_get_pool( vote_states );
+//   fd_vote_state_map_t * vote_state_map  = fd_vote_states_get_map( vote_states );
+//   fd_vote_state_ele_t * vote_state_pool = fd_vote_states_get_pool( vote_states );
 
-  for( fd_vote_state_map_iter_t iter = fd_vote_state_map_iter_init( vote_state_map, vote_state_pool );
-       !fd_vote_state_map_iter_done( iter, vote_state_map, vote_state_pool );
-       iter = fd_vote_state_map_iter_next( iter, vote_state_map, vote_state_pool ) ) {
+//   for( fd_vote_state_map_iter_t iter = fd_vote_state_map_iter_init( vote_state_map, vote_state_pool );
+//        !fd_vote_state_map_iter_done( iter, vote_state_map, vote_state_pool );
+//        iter = fd_vote_state_map_iter_next( iter, vote_state_map, vote_state_pool ) ) {
 
-    fd_vote_state_ele_t const * vote_state = fd_vote_state_map_iter_ele_const( iter, vote_state_map, vote_state_pool );
+//     fd_vote_state_ele_t const * vote_state = fd_vote_state_map_iter_ele_const( iter, vote_state_map, vote_state_pool );
 
-    FD_LOG_NOTICE(( "vote_state: %s, stake: %lu, lvs: %lu, lvt: %ld, c: %d", FD_BASE58_ENC_32_ALLOCA( &vote_state->vote_account ), vote_state->stake, vote_state->last_vote_slot, vote_state->last_vote_timestamp, vote_state->commission ));
-  }
-}
+//     FD_LOG_NOTICE(( "vote_state: %s, stake: %lu, lvs: %lu, lvt: %ld, c: %d", FD_BASE58_ENC_32_ALLOCA( &vote_state->vote_account ), vote_state->stake, vote_state->last_vote_slot, vote_state->last_vote_timestamp, vote_state->commission ));
+//   }
+// }
 
 static void
 compute_stake_delegations( fd_bank_t *                bank,
@@ -112,7 +112,7 @@ compute_stake_delegations( fd_bank_t *                bank,
 
   fd_bank_total_epoch_stake_set( bank, total_stake );
 
-  dump_vote_and_stake_states( vote_states, stake_delegations );
+  // dump_vote_and_stake_states( vote_states, stake_delegations );
 
   fd_bank_stake_delegations_end_locking_query( bank );
 

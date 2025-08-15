@@ -613,14 +613,9 @@ calculate_stake_vote_rewards( fd_exec_slot_ctx_t *                       slot_ct
   result->vote_reward_map_root = NULL;
 
   /* Pre-fill the vote pubkeys in the vote rewards map pool */
-  fd_vote_state_ele_t * vote_state_pool = fd_vote_states_get_pool( vote_states );
-  fd_vote_state_map_t * vote_state_map = fd_vote_states_get_map( vote_states );
-
-  for( fd_vote_state_map_iter_t iter = fd_vote_state_map_iter_init( vote_state_map, vote_state_pool );
-       !fd_vote_state_map_iter_done( iter, vote_state_map, vote_state_pool );
-       iter = fd_vote_state_map_iter_next( iter, vote_state_map, vote_state_pool ) ) {
-
-    fd_vote_state_ele_t const * vote_state = fd_vote_state_map_iter_ele_const( iter, vote_state_map, vote_state_pool );
+  fd_vote_states_iter_t iter[1];
+  for( fd_vote_states_iter_init( vote_states, iter ); !fd_vote_states_iter_done( iter ); fd_vote_states_iter_next( iter ) ) {
+    fd_vote_state_ele_t const * vote_state = fd_vote_states_iter_ele( iter );
 
     fd_vote_reward_t_mapnode_t * vote_reward_node = fd_vote_reward_t_map_acquire( result->vote_reward_map_pool );
 

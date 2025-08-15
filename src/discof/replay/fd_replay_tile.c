@@ -688,14 +688,12 @@ init_after_snapshot( fd_replay_tile_ctx_t * ctx ) {
   block_id->key[0] = UCHAR_MAX; /* TODO: would be good to have the actual block id of the snapshot slot */
 
   fd_vote_states_t const * vote_states     = fd_bank_vote_states_locking_query( ctx->slot_ctx->bank );
-  fd_vote_state_map_t *    vote_state_map  = fd_vote_states_get_map( vote_states );
-  fd_vote_state_ele_t *    vote_state_pool = fd_vote_states_get_pool( vote_states );
 
   fd_bank_hash_cmp_t * bank_hash_cmp = ctx->bank_hash_cmp;
-  for( fd_vote_state_map_iter_t iter = fd_vote_state_map_iter_init( vote_state_map, vote_state_pool );
-       !fd_vote_state_map_iter_done( iter, vote_state_map, vote_state_pool );
-       iter = fd_vote_state_map_iter_next( iter, vote_state_map, vote_state_pool ) ) {
-    fd_vote_state_ele_t const * vote_state = fd_vote_state_map_iter_ele_const( iter, vote_state_map, vote_state_pool );
+
+  fd_vote_states_iter_t iter[1];
+  for( fd_vote_states_iter_init( vote_states, iter ); !fd_vote_states_iter_done( iter ); fd_vote_states_iter_next( iter ) ) {
+    fd_vote_state_ele_t const * vote_state = fd_vote_states_iter_ele( iter );
     bank_hash_cmp->total_stake += vote_state->stake;
   }
   bank_hash_cmp->watermark = snapshot_slot;
@@ -1051,16 +1049,11 @@ publish_votes_to_plugin( fd_replay_tile_ctx_t * ctx,
   if( FD_UNLIKELY ( !fork  ) ) return;
 
   fd_vote_states_t const * vote_states = fd_bank_vote_states_locking_query( ctx->slot_ctx->bank );
-
-  fd_vote_state_map_t * vote_state_map  = fd_vote_states_get_map( vote_states );
-  fd_vote_state_ele_t * vote_state_pool = fd_vote_states_get_pool( vote_states );
-
   ulong i = 0;
   FD_SPAD_FRAME_BEGIN( ctx->runtime_spad ) {
-  for( fd_vote_state_map_iter_t iter = fd_vote_state_map_iter_init( vote_state_map, vote_state_pool );
-       !fd_vote_state_map_iter_done( iter, vote_state_map, vote_state_pool );
-       iter = fd_vote_state_map_iter_next( iter, vote_state_map, vote_state_pool ) ) {
-    fd_vote_state_ele_t const * vote_state = fd_vote_state_map_iter_ele_const( iter, vote_state_map, vote_state_pool );
+  fd_vote_states_iter_t iter[1];
+  for( fd_vote_states_iter_init( vote_states, iter ); !fd_vote_states_iter_done( iter ); fd_vote_states_iter_next( iter ) ) {
+    fd_vote_state_ele_t const * vote_state = fd_vote_states_iter_ele( iter );
 
     fd_vote_update_msg_t * msg = (fd_vote_update_msg_t *)(dst + sizeof(ulong) + i*112U);
     memset( msg, 0, 112U );

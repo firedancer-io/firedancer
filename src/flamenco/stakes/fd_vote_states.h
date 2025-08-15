@@ -74,7 +74,6 @@ struct fd_vote_state_ele {
 };
 typedef struct fd_vote_state_ele fd_vote_state_ele_t;
 
-
 #define POOL_NAME fd_vote_state_pool
 #define POOL_T    fd_vote_state_ele_t
 #define POOL_NEXT next_
@@ -88,6 +87,14 @@ typedef struct fd_vote_state_ele fd_vote_state_ele_t;
 #define MAP_KEY_HASH(key,seed) (fd_hash( seed, key, sizeof(fd_pubkey_t) ))
 #define MAP_NEXT               next_
 #include "../../util/tmpl/fd_map_chain.c"
+
+struct fd_vote_states_iter {
+  fd_vote_state_map_t *    map;
+  fd_vote_state_ele_t *    pool;
+  fd_vote_state_map_iter_t iter;
+};
+typedef struct fd_vote_states_iter fd_vote_states_iter_t;
+
 
 struct __attribute__((aligned(FD_VOTE_STATES_ALIGN))) fd_vote_states {
   ulong magic;
@@ -217,45 +224,43 @@ fd_vote_states_remove( fd_vote_states_t *  vote_states,
 /* fd_vote_states_query returns the vote state corresponding to a given
    account. Returns NULL if the account does not exist. */
 
-static inline fd_vote_state_ele_t *
+fd_vote_state_ele_t *
 fd_vote_states_query( fd_vote_states_t const * vote_states,
-                      fd_pubkey_t const *      vote_account ) {
-
-  return fd_vote_state_map_ele_query(
-      fd_vote_states_get_map( vote_states ),
-      vote_account,
-      NULL,
-      fd_vote_states_get_pool( vote_states ) );
-}
+                      fd_pubkey_t const *      vote_account );
 
 /* fd_vote_states_query_const is the same as fd_vote_states but instead
    returns a const pointer. */
 
-static inline fd_vote_state_ele_t const *
+fd_vote_state_ele_t const *
 fd_vote_states_query_const( fd_vote_states_t const * vote_states,
-                            fd_pubkey_t const *      vote_account ) {
-  return fd_vote_state_map_ele_query_const(
-      fd_vote_states_get_map( vote_states ),
-      vote_account,
-      NULL,
-      fd_vote_states_get_pool( vote_states ) );
-}
+                            fd_pubkey_t const *      vote_account );
 
 /* fd_vote_states_max returns the maximum number of vote accounts that
    the vote states struct can support. */
 
-static inline ulong
-fd_vote_states_max( fd_vote_states_t const * vote_states ) {
-  return vote_states->max_vote_accounts;
-}
+ulong
+fd_vote_states_max( fd_vote_states_t const * vote_states );
 
 /* fd_vote_states_cnt returns the number of vote states in the vote
    states struct. */
 
-static inline ulong
-fd_vote_states_cnt( fd_vote_states_t const * vote_states ) {
-  return fd_vote_state_pool_used( fd_vote_states_get_pool( vote_states ) );
-}
+ulong
+fd_vote_states_cnt( fd_vote_states_t const * vote_states );
+
+/* Iterator API for vote states. */
+
+fd_vote_state_ele_t *
+fd_vote_states_iter_ele( fd_vote_states_iter_t * iter );
+
+int
+fd_vote_states_iter_init( fd_vote_states_t const * vote_states,
+                          fd_vote_states_iter_t *   iter );
+
+int
+fd_vote_states_iter_done( fd_vote_states_iter_t * iter );
+
+void
+fd_vote_states_iter_next( fd_vote_states_iter_t * iter );
 
 FD_PROTOTYPES_END
 
