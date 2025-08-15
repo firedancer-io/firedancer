@@ -72,7 +72,7 @@ fd_repair_delete ( void * shmap ) {
 }
 
 /* Convert an address to a human readable string */
-const char * fd_repair_addr_str( char * dst, size_t dstlen, fd_repair_peer_addr_t const * src ) {
+const char * fd_repair_addr_str( char * dst, size_t dstlen, fd_ip4_port_t const * src ) {
   char tmp[INET_ADDRSTRLEN];
   snprintf(dst, dstlen, "%s:%u", inet_ntop(AF_INET, &src->addr, tmp, INET_ADDRSTRLEN), (uint)ntohs(src->port));
   return dst;
@@ -95,7 +95,7 @@ fd_repair_set_config( fd_repair_t * glob, const fd_repair_config_t * config ) {
 }
 
 int
-fd_repair_update_addr( fd_repair_t * glob, const fd_repair_peer_addr_t * intake_addr, const fd_repair_peer_addr_t * service_addr ) {
+fd_repair_update_addr( fd_repair_t * glob, const fd_ip4_port_t * intake_addr, const fd_ip4_port_t * service_addr ) {
   char tmp[100];
   FD_LOG_NOTICE(("updating address %s", fd_repair_addr_str(tmp, sizeof(tmp), intake_addr)));
 
@@ -106,7 +106,7 @@ fd_repair_update_addr( fd_repair_t * glob, const fd_repair_peer_addr_t * intake_
 
 /* Initiate connection to a peer */
 int
-fd_repair_add_active_peer( fd_repair_t * glob, fd_repair_peer_addr_t const * addr, fd_pubkey_t const * id ) {
+fd_repair_add_active_peer( fd_repair_t * glob, fd_ip4_port_t const * addr, fd_pubkey_t const * id ) {
   fd_active_elem_t * val = fd_active_table_query(glob->actives, id, NULL);
   if (val == NULL) {
     val = fd_active_table_insert(glob->actives, id);
@@ -250,7 +250,7 @@ fd_read_in_good_peer_cache_file( fd_repair_t * repair ) {
     }
 
     /* Create the peer address struct (byte-swap the port to network order). */
-    //fd_repair_peer_addr_t peer_addr;
+    //fd_ip4_port_t peer_addr;
     /* already in network byte order from inet_aton */
     //peer_addr.addr = ip_addr;
     /* Flip to big-endian for network order */

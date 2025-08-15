@@ -123,7 +123,7 @@ struct fd_eqvoc_proof {
   fd_pubkey_t         producer;   /* producer of shreds' pubkey */
   void *              bmtree_mem; /* scratch space for reconstructing
                                      the merkle root */
-  ulong               wallclock;  /* `wallclock` */
+  long                wallclock;  /* `wallclock` (nanos) */
   ulong               chunk_cnt;  /* `num_chunks` */
   ulong               chunk_sz;   /* `chunk_len` */
 
@@ -330,7 +330,7 @@ fd_eqvoc_proof_t *
 fd_eqvoc_proof_insert( fd_eqvoc_t * eqvoc, ulong slot, fd_pubkey_t const * from );
 
 void
-fd_eqvoc_proof_init( fd_eqvoc_proof_t * proof, fd_pubkey_t const * producer, ulong wallclock, ulong chunk_cnt, ulong chunk_sz, void * bmtree_mem );
+fd_eqvoc_proof_init( fd_eqvoc_proof_t * proof, fd_pubkey_t const * producer, long wallclock, ulong chunk_cnt, ulong chunk_sz, void * bmtree_mem );
 
 /* fd_eqvoc_proof_chunk_insert inserts a proof chunk into the proof.
    Proofs are divided into chunks before they are transmitted via

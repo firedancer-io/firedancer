@@ -1882,7 +1882,7 @@
       "comment": "https://github.com/firedancer-io/agave/blob/540d5bc56cd44e3cc61b179bd52e9a782a2c99e4/gossip/src/legacy_contact_info.rs#L14"
     },
     {
-      "name": "gossip_vote",
+      "name": "gossip_vote_old",
       "type": "struct",
       "fields": [
         { "name": "index", "type": "uchar" },
@@ -2016,7 +2016,7 @@
       ]
     },
     {
-      "name": "gossip_duplicate_shred",
+      "name": "gossip_duplicate_shred_old",
       "type": "struct",
       "fields": [
         { "name": "duplicate_shred_index", "type": "ushort" },
@@ -2123,7 +2123,7 @@
       "type": "enum",
       "variants": [
         { "name": "contact_info_v1", "type": "gossip_contact_info_v1" },
-        { "name": "vote", "type": "gossip_vote" },
+        { "name": "vote", "type": "gossip_vote_old" },
         { "name": "lowest_slot", "type": "gossip_lowest_slot" },
         { "name": "snapshot_hashes", "type": "gossip_slot_hashes" },
         { "name": "accounts_hashes", "type": "gossip_slot_hashes" },
@@ -2131,7 +2131,7 @@
         { "name": "version_v1", "type": "gossip_version_v1" },
         { "name": "version_v2", "type": "gossip_version_v2" },
         { "name": "node_instance", "type": "gossip_node_instance" },
-        { "name": "duplicate_shred", "type": "gossip_duplicate_shred" },
+        { "name": "duplicate_shred", "type": "gossip_duplicate_shred_old" },
         { "name": "incremental_snapshot_hashes", "type": "gossip_incremental_snapshot_hashes" },
         { "name": "contact_info_v2", "type": "gossip_contact_info_v2" },
         { "name": "restart_last_voted_fork_slots", "type": "gossip_restart_last_voted_fork_slots" },

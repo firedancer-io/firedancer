@@ -2885,10 +2885,10 @@ void *fd_gossip_contact_info_v1_generate( void *mem, void **alloc_mem, fd_rng_t 
   return mem;
 }
 
-void *fd_gossip_vote_generate( void *mem, void **alloc_mem, fd_rng_t * rng ) {
-  fd_gossip_vote_t *self = (fd_gossip_vote_t *) mem;
-  *alloc_mem = (uchar *) *alloc_mem + sizeof(fd_gossip_vote_t);
-  fd_gossip_vote_new(mem);
+void *fd_gossip_vote_old_generate( void *mem, void **alloc_mem, fd_rng_t * rng ) {
+  fd_gossip_vote_old_t *self = (fd_gossip_vote_old_t *) mem;
+  *alloc_mem = (uchar *) *alloc_mem + sizeof(fd_gossip_vote_old_t);
+  fd_gossip_vote_old_new(mem);
   self->index = fd_rng_uchar( rng );
   fd_pubkey_generate( &self->from, alloc_mem, rng );
   fd_flamenco_txn_generate( &self->txn, alloc_mem, rng );
@@ -3117,10 +3117,10 @@ void *fd_gossip_node_instance_generate( void *mem, void **alloc_mem, fd_rng_t * 
   return mem;
 }
 
-void *fd_gossip_duplicate_shred_generate( void *mem, void **alloc_mem, fd_rng_t * rng ) {
-  fd_gossip_duplicate_shred_t *self = (fd_gossip_duplicate_shred_t *) mem;
-  *alloc_mem = (uchar *) *alloc_mem + sizeof(fd_gossip_duplicate_shred_t);
-  fd_gossip_duplicate_shred_new(mem);
+void *fd_gossip_duplicate_shred_old_generate( void *mem, void **alloc_mem, fd_rng_t * rng ) {
+  fd_gossip_duplicate_shred_old_t *self = (fd_gossip_duplicate_shred_old_t *) mem;
+  *alloc_mem = (uchar *) *alloc_mem + sizeof(fd_gossip_duplicate_shred_old_t);
+  fd_gossip_duplicate_shred_old_new(mem);
   self->duplicate_shred_index = fd_rng_ushort( rng );
   fd_pubkey_generate( &self->from, alloc_mem, rng );
   self->wallclock = fd_rng_ulong( rng );
@@ -3316,7 +3316,7 @@ void fd_crds_data_inner_generate( fd_crds_data_inner_t * self, void **alloc_mem,
     break;
   }
   case 1: {
-    fd_gossip_vote_generate( &self->vote, alloc_mem, rng );
+    fd_gossip_vote_old_generate( &self->vote, alloc_mem, rng );
     break;
   }
   case 2: {
@@ -3348,7 +3348,7 @@ void fd_crds_data_inner_generate( fd_crds_data_inner_t * self, void **alloc_mem,
     break;
   }
   case 9: {
-    fd_gossip_duplicate_shred_generate( &self->duplicate_shred, alloc_mem, rng );
+    fd_gossip_duplicate_shred_old_generate( &self->duplicate_shred, alloc_mem, rng );
     break;
   }
   case 10: {

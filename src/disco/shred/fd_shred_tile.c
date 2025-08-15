@@ -15,6 +15,7 @@
 #include "../net/fd_net_tile.h"
 #include "../../flamenco/leaders/fd_leaders.h"
 #include "../../util/net/fd_net_headers.h"
+#include "../../flamenco/gossip/fd_gossip_types.h"
 
 #include <linux/unistd.h>
 
@@ -91,6 +92,7 @@
 #define IN_KIND_NET     (3UL)
 #define IN_KIND_SIGN    (4UL)
 #define IN_KIND_REPAIR  (5UL)
+#define IN_KIND_GOSSIP  (6UL)
 
 #define NET_OUT_IDX     1
 #define SIGN_OUT_IDX    2
@@ -215,6 +217,8 @@ typedef struct {
   ulong       repair_out_chunk;
 
   fd_store_t * store;
+
+  fd_gossip_update_message_t gossip_upd_buf[1];
 
   struct {
     fd_histf_t contact_info_cnt[ 1 ];
@@ -346,6 +350,10 @@ before_frag( fd_shred_ctx_t * ctx,
   if( FD_LIKELY( ctx->in_kind[ in_idx ]==IN_KIND_NET ) ) {
     return (int)(fd_disco_netmux_sig_proto( sig )!=DST_PROTO_SHRED) & (int)(fd_disco_netmux_sig_proto( sig )!=DST_PROTO_REPAIR);
   }
+  if( FD_UNLIKELY( ctx->in_kind[ in_idx ]==IN_KIND_GOSSIP ) ){
+    return sig!=FD_GOSSIP_UPDATE_TAG_CONTACT_INFO &&
+           sig!=FD_GOSSIP_UPDATE_TAG_CONTACT_INFO_REMOVE;
+  }
   return 0;
 }
 
@@ -380,6 +388,14 @@ during_frag( fd_shred_ctx_t * ctx,
     uchar const * dcache_entry = fd_chunk_to_laddr_const( ctx->in[ in_idx ].mem, chunk );
     handle_new_cluster_contact_info( ctx, dcache_entry );
     return;
+  }
+
+  if( FD_UNLIKELY( ctx->in_kind[ in_idx ]==IN_KIND_GOSSIP ) ) {
+    if( FD_UNLIKELY( chunk<ctx->in[ in_idx ].chunk0 || chunk>ctx->in[ in_idx ].wmark ) )
+      FD_LOG_ERR(( "chunk %lu %lu corrupt, not in range [%lu,%lu]", chunk, sz,
+                   ctx->in[ in_idx ].chunk0, ctx->in[ in_idx ].wmark ));
+    uchar const * gossip_upd_msg = fd_chunk_to_laddr_const( ctx->in[ in_idx ].mem, chunk );
+    fd_memcpy( ctx->gossip_upd_buf, gossip_upd_msg, sz );
   }
 
   if( FD_UNLIKELY( ctx->in_kind[ in_idx ]==IN_KIND_STAKE ) ) {
@@ -746,6 +762,30 @@ after_frag( fd_shred_ctx_t *    ctx,
 
   if( FD_UNLIKELY( ctx->in_kind[ in_idx ]==IN_KIND_STAKE ) ) {
     fd_stake_ci_stake_msg_fini( ctx->stake_ci );
+    return;
+  }
+
+  if( FD_UNLIKELY( ctx->in_kind[ in_idx ]==IN_KIND_GOSSIP ) ) {
+    if( ctx->gossip_upd_buf->tag==FD_GOSSIP_UPDATE_TAG_CONTACT_INFO ) {
+      fd_contact_info_t const * ci = ctx->gossip_upd_buf->contact_info.contact_info;
+      fd_ip4_port_t tvu_addr = ci->sockets[ FD_CONTACT_INFO_SOCKET_TVU ];
+      if( !tvu_addr.l ){
+        fd_stake_ci_dest_remove( ctx->stake_ci, &ci->pubkey );
+      } else {
+        fd_stake_ci_dest_update( ctx->stake_ci, &ci->pubkey, tvu_addr.addr, fd_ushort_bswap( tvu_addr.port ) );
+      }
+    } else if( ctx->gossip_upd_buf->tag==FD_GOSSIP_UPDATE_TAG_CONTACT_INFO_REMOVE ) {
+      if( FD_UNLIKELY( !memcmp( ctx->identity_key->uc, ctx->gossip_upd_buf->origin_pubkey, 32UL ) ) ) {
+        /* If our own contact info was dropped, we update with dummy IP
+           instead of removing since stake_ci expects our contact info
+           in the sdests table all the time. fd_stake_ci_new initializes
+           both ei->sdests with our contact info so this should always
+           update (and not append). */
+        fd_stake_ci_dest_update( ctx->stake_ci, (fd_pubkey_t *)ctx->gossip_upd_buf->origin_pubkey, 1U, 0U );
+      } else {
+        fd_stake_ci_dest_remove( ctx->stake_ci, (fd_pubkey_t *)ctx->gossip_upd_buf->origin_pubkey );
+      }
+    }
     return;
   }
 
@@ -1252,6 +1292,7 @@ unprivileged_init( fd_topo_t *      topo,
     ctx->adtl_dests_leader[i].port = tile->shred.adtl_dests_leader[i].port;
   }
 
+  uchar has_contact_info_in = 0;
   for( ulong i=0UL; i<tile->in_cnt; i++ ) {
     fd_topo_link_t const * link = &topo->links[ tile->in_link_id[ i ] ];
     fd_topo_wksp_t const * link_wksp = &topo->workspaces[ topo->objs[ link->dcache_obj_id ].wksp_id ];
@@ -1259,11 +1300,17 @@ unprivileged_init( fd_topo_t *      topo,
     if( FD_LIKELY(      !strcmp( link->name, "net_shred"    ) ) ) { ctx->in_kind[ i ] = IN_KIND_NET;
       fd_net_rx_bounds_init( &ctx->in[ i ].net_rx, link->dcache );
       continue; /* only net_rx needs to be set in this case. */ }
-    else if( FD_LIKELY( !strcmp( link->name, "poh_shred"    ) ) ) ctx->in_kind[ i ] = IN_KIND_POH;
-    else if( FD_LIKELY( !strcmp( link->name, "stake_out"    ) ) ) ctx->in_kind[ i ] = IN_KIND_STAKE;
-    else if( FD_LIKELY( !strcmp( link->name, "crds_shred"   ) ) ) ctx->in_kind[ i ] = IN_KIND_CONTACT;
-    else if( FD_LIKELY( !strcmp( link->name, "sign_shred"   ) ) ) ctx->in_kind[ i ] = IN_KIND_SIGN;
-    else if( FD_LIKELY( !strcmp( link->name, "repair_shred" ) ) ) ctx->in_kind[ i ] = IN_KIND_REPAIR;
+    else if( FD_LIKELY( !strcmp( link->name, "poh_shred"    ) ) )   ctx->in_kind[ i ] = IN_KIND_POH;
+    else if( FD_LIKELY( !strcmp( link->name, "stake_out"    ) ) )   ctx->in_kind[ i ] = IN_KIND_STAKE;
+    else if( FD_LIKELY( !strcmp( link->name, "sign_shred"   ) ) )   ctx->in_kind[ i ] = IN_KIND_SIGN;
+    else if( FD_LIKELY( !strcmp( link->name, "repair_shred" ) ) )   ctx->in_kind[ i ] = IN_KIND_REPAIR;
+    else if( FD_LIKELY( !strcmp( link->name, "crds_shred"   ) ) ) { ctx->in_kind[ i ] = IN_KIND_CONTACT;
+      if( FD_UNLIKELY( has_contact_info_in ) ) FD_LOG_ERR(( "shred tile has multiple contact info in link types, can only be either gossip_out or crds_shred" ));
+      has_contact_info_in = 1;
+    }
+    else if( FD_LIKELY( !strcmp( link->name, "gossip_out"   ) ) ) { ctx->in_kind[ i ] = IN_KIND_GOSSIP;
+      if( FD_UNLIKELY( has_contact_info_in ) ) FD_LOG_ERR(( "shred tile has multiple contact info in link types, can only be either gossip_out or crds_shred" ));
+      has_contact_info_in = 1; }
     else FD_LOG_ERR(( "shred tile has unexpected input link %lu %s", i, link->name ));
 
     ctx->in[ i ].mem    = link_wksp->wksp;

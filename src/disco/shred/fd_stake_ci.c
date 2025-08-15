@@ -455,7 +455,6 @@ ci_dest_remove_impl( fd_stake_ci_t *       info,
        retained */
     return;
   }
-
   ulong cur_cnt = fd_shred_dest_cnt_all( ei->sdest );
   for( ulong i=0UL, j=0UL; i<cur_cnt; i++ ) {
     if( FD_UNLIKELY( i==idx ) ) continue;
