@@ -201,6 +201,10 @@ fd_deploy_program( fd_exec_instr_ctx_t * instr_ctx,
     FD_LOG_ERR(( "fd_sbpf_program_new() failed: %s", fd_sbpf_strerror() ));
   }
 
+  /* We want to use a cloned version of the account since the
+     sbpf_loader program will modify the elf bytes that are passed in.
+     This will lead the hash of the programdata account to be invalid
+     so these changes should be staged in a separate buffer. */
   void * programdata_clone = fd_spad_alloc( spad, FD_SBPF_PROG_RODATA_ALIGN, programdata_size );
   if( FD_UNLIKELY( !programdata_clone ) ) {
     return FD_EXECUTOR_INSTR_ERR_INVALID_ACC_DATA;

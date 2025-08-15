@@ -53,7 +53,10 @@ void test_duplicate_entrypoint_entry( void ) {
   for( uint const * x = _syscalls; *x; x++ )
       fd_sbpf_syscalls_insert( syscalls, (ulong)*x );
 
-  int res = fd_sbpf_program_load( prog, duplicate_entrypoint_entry_elf, duplicate_entrypoint_entry_elf_sz, syscalls, /* deploy checks */ 1 );
+  void * elf_clone = fd_scratch_alloc( FD_SBPF_PROG_RODATA_ALIGN, duplicate_entrypoint_entry_elf_sz );
+  fd_memcpy( elf_clone, duplicate_entrypoint_entry_elf, duplicate_entrypoint_entry_elf_sz );
+
+  int res = fd_sbpf_program_load( prog, elf_clone, duplicate_entrypoint_entry_elf_sz, syscalls, /* deploy checks */ 1 );
   FD_TEST( res == 0 );
 
   // end of boilerplate
