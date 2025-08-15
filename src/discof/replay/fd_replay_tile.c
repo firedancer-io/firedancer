@@ -201,7 +201,6 @@ struct fd_replay_tile_ctx {
   /* Do not modify order! This is join-order in unprivileged_init. */
 
   fd_funk_t    funk[1];
-  fd_forks_t * forks;
   fd_store_t * store;
 
   /* Vote accounts in the current epoch. Lifetimes of the vote account
@@ -339,7 +338,6 @@ scratch_footprint( fd_topo_tile_t const * tile FD_PARAM_UNUSED ) {
   ulong l = FD_LAYOUT_INIT;
   l = FD_LAYOUT_APPEND( l, alignof(fd_replay_tile_ctx_t), sizeof(fd_replay_tile_ctx_t) );
   l = FD_LAYOUT_APPEND( l, FD_CAPTURE_CTX_ALIGN, FD_CAPTURE_CTX_FOOTPRINT );
-  l = FD_LAYOUT_APPEND( l, fd_forks_align(), fd_forks_footprint( FD_BLOCK_MAX ) );
   for( ulong i = 0UL; i<FD_PACK_MAX_BANK_TILES; i++ ) {
     l = FD_LAYOUT_APPEND( l, FD_BMTREE_COMMIT_ALIGN, FD_BMTREE_COMMIT_FOOTPRINT(0) );
   }
@@ -683,11 +681,6 @@ init_after_snapshot( fd_replay_tile_ctx_t * ctx ) {
 
   /* Initialize consensus structures post-snapshot */
 
-  fd_fork_t * snapshot_fork = fd_forks_init( ctx->forks, fd_bank_slot_get( ctx->slot_ctx->bank ) );
-  if( FD_UNLIKELY( !snapshot_fork ) ) {
-    FD_LOG_CRIT(( "Failed to initialize snapshot fork" ));
-  }
-
   fd_hash_t * block_id = fd_bank_block_id_modify( ctx->slot_ctx->bank );
   memset( block_id, 0, sizeof(fd_hash_t) );
   block_id->key[0] = UCHAR_MAX; /* TODO: would be good to have the actual block id of the snapshot slot */
@@ -726,7 +719,6 @@ init_after_snapshot( fd_replay_tile_ctx_t * ctx ) {
       fd_store_publish( ctx->store, &bid->block_id );
       fd_store_exrel  ( ctx->store );
     }
-    if( FD_LIKELY( ctx->forks ) ) fd_forks_publish( ctx->forks, root );
 
     fd_fseq_update( ctx->published_wmark, root );
   }
@@ -960,7 +952,6 @@ after_frag( fd_replay_tile_ctx_t *   ctx,
 
       block_id_map_remove( ctx->block_id_map, block_id );
     }
-    if( FD_LIKELY( ctx->forks ) ) fd_forks_publish( ctx->forks, root );
     if( FD_LIKELY( ctx->funk ) ) { fd_funk_txn_xid_t xid = { .ul = { root, root } }; funk_and_txncache_publish( ctx, root, &xid ); }
     if( FD_LIKELY( ctx->banks ) ) fd_banks_publish( ctx->banks, root );
 
@@ -1050,10 +1041,6 @@ static void
 publish_votes_to_plugin( fd_replay_tile_ctx_t * ctx,
                          fd_stem_context_t *    stem ) {
   uchar * dst = (uchar *)fd_chunk_to_laddr( ctx->votes_plugin_out->mem, ctx->votes_plugin_out->chunk );
-
-  ulong bank_slot = fd_bank_slot_get( ctx->slot_ctx->bank );
-  fd_fork_t * fork = fd_fork_frontier_ele_query( ctx->forks->frontier, &bank_slot, NULL, ctx->forks->pool );
-  if( FD_UNLIKELY ( !fork  ) ) return;
 
   fd_vote_accounts_global_t const *          epoch_stakes      = fd_bank_epoch_stakes_locking_query( ctx->slot_ctx->bank );
   fd_vote_accounts_pair_global_t_mapnode_t * epoch_stakes_pool = fd_vote_accounts_vote_accounts_pool_join( epoch_stakes );
@@ -1223,58 +1210,21 @@ handle_new_slot( fd_replay_tile_ctx_t * ctx,
                  ulong                  slot,
                  ulong                  parent_slot ) {
 
-  /* We need to handle logic that creates a bank and funk txn since
-     we are starting to execute a new slot. We must also manage the
-     forks data structure to reflect that this slot is now being
-     executed. */
+  /* We need to execute a new block. */
 
-  /* First, update fd_forks_t */
-
-  /* Make sure that the slot is not already in the frontier. */
-  if( FD_UNLIKELY( fd_fork_frontier_ele_query(
-      ctx->forks->frontier,
-      &slot,
-      NULL,
-      ctx->forks->pool ) ) ) {
-    FD_LOG_CRIT(( "invariant violation: child slot %lu was already in the frontier", slot ) );
+  fd_bank_t * bank = fd_banks_get_bank( ctx->banks, slot );
+  if( FD_UNLIKELY( !!bank ) ) {
+    FD_LOG_CRIT(( "invariant violation: block %lu (parent_block %lu) already has a bank", slot, parent_slot ) );
   }
 
-  /* This means we want to execute a slice on a new slot. This means
-      we have to update our forks and create a new bank/funk_txn. */
-  fd_fork_t * fork = fd_forks_prepare( ctx->forks, parent_slot );
-  if( FD_UNLIKELY( !fork ) ) {
-    FD_LOG_CRIT(( "invariant violation: failed to prepare fork for slot: %lu", slot ));
-  }
-
-  /* We need to update the fork's position in the map. This means
-      we have to remove it from the map, update its key and reinsert
-      into the frontier map. */
-  fd_fork_t * fork_map_ele = fd_fork_frontier_ele_remove(
-      ctx->forks->frontier,
-      &fork->slot,
-      NULL,
-      ctx->forks->pool );
-  if( FD_UNLIKELY( !fork_map_ele ) ) {
-    FD_LOG_CRIT(( "invariant violation: failed to remove fork for slot: %lu", slot ));
-  }
-
-  /* Update the values for the child */
-  fork_map_ele->slot    = slot;
-
-  fd_fork_frontier_ele_insert( ctx->forks->frontier, fork_map_ele, ctx->forks->pool );
-
-  if( FD_UNLIKELY( fork!=fork_map_ele ) ) {
-    FD_LOG_CRIT(( "invariant violation: fork != new_fork for slot: %lu", slot ));
-  }
-
-  /* Second, clone the bank from the parent. */
+  /* Clone the bank from the parent. */
 
   ctx->slot_ctx->bank = fd_banks_clone_from_parent( ctx->banks, slot, parent_slot );
   if( FD_UNLIKELY( !ctx->slot_ctx->bank ) ) {
     FD_LOG_CRIT(( "invariant violation: bank is NULL curr_slot: %lu, parent_slot: %lu", slot, parent_slot ));
   }
 
-  /* Third, create a new funk txn for the slot. */
+  /* Create a new funk txn for the block. */
 
   fd_funk_txn_start_write( ctx->funk );
 
@@ -1297,8 +1247,8 @@ handle_new_slot( fd_replay_tile_ctx_t * ctx,
 
   fd_funk_txn_end_write( ctx->funk );
 
-  /* Now update any required runtime state and handle an epoch boundary
-      change. */
+  /* Update any required runtime state and handle any potential epoch
+     boundary change. */
 
   fd_bank_parent_slot_set( ctx->slot_ctx->bank, parent_slot );
 
@@ -1329,30 +1279,22 @@ handle_new_slot( fd_replay_tile_ctx_t * ctx,
 }
 
 static void
-handle_prev_slot( fd_replay_tile_ctx_t * ctx,
-                  ulong                  slot,
-                  ulong                  parent_slot ) {
+handle_existing_slot( fd_replay_tile_ctx_t * ctx,
+                      ulong                  slot ) {
   /* Because a fork already exists for the fork we are attempting to
      execute, we just need to update the slot ctx's handles to
      the bank and funk txn. */
 
-  fd_fork_t * fork = fd_fork_frontier_ele_query( ctx->forks->frontier, &slot, NULL, ctx->forks->pool );
-  if( FD_UNLIKELY( !fork ) ) {
-    FD_LOG_CRIT(( "invariant violation: fork is NULL for slot %lu", slot ));
-  }
-
-  FD_LOG_NOTICE(( "switching to executing slot: %lu (parent: %lu)", slot, parent_slot ));
-
   ctx->slot_ctx->bank = fd_banks_get_bank( ctx->banks, slot );
   if( FD_UNLIKELY( !ctx->slot_ctx->bank ) ) {
-    FD_LOG_CRIT(( "invariant violation: fork is non-NULL and bank is NULL for slot %lu", slot ));
+    FD_LOG_CRIT(( "invariant violation: bank is NULL for slot %lu", slot ));
   }
 
   fd_funk_txn_map_t * txn_map = fd_funk_txn_map( ctx->funk );
   fd_funk_txn_xid_t   xid     = { .ul = { slot, slot } };
   ctx->slot_ctx->funk_txn     = fd_funk_txn_query( &xid, txn_map );
   if( FD_UNLIKELY( !ctx->slot_ctx->funk_txn ) ) {
-    FD_LOG_CRIT(( "invariant violation: fork is non-NULL and funk_txn is NULL for slot %lu", slot ));
+    FD_LOG_CRIT(( "invariant violation: funk_txn is NULL for slot %lu", slot ));
   }
 }
 
@@ -1361,13 +1303,6 @@ handle_slot_change( fd_replay_tile_ctx_t * ctx,
                     fd_stem_context_t *    stem,
                     ulong                  slot,
                     ulong                  parent_slot ) {
-  /* This is an edge case related to pack. The parent fork might
-     already be in the frontier and currently executing (ie.
-     fork->frozen = 0). */
-  fd_fork_t * parent_fork = fd_fork_frontier_ele_query( ctx->forks->frontier, &parent_slot, NULL, ctx->forks->pool );
-  if( FD_UNLIKELY( parent_fork && !!parent_fork->lock ) ) {
-    FD_LOG_CRIT(( "invariant violation: parent fork is locked for slot %lu", slot ));
-  }
 
   ulong turbine_slot = fd_fseq_query( ctx->turbine_slot );
   FD_LOG_NOTICE(( "\n\n[Replay]\n"
@@ -1380,14 +1315,27 @@ handle_slot_change( fd_replay_tile_ctx_t * ctx,
     turbine_slot - slot,
     (turbine_slot-slot)<5UL ));
 
-  fd_fork_t * fork = fd_fork_frontier_ele_query( ctx->forks->frontier, &slot, NULL, ctx->forks->pool );
-  if( !!fork ) {
-    FD_LOG_NOTICE(( "switching from slot: %lu to executing on a different slot: %lu", fd_bank_slot_get( ctx->slot_ctx->bank ), slot ));
+  fd_bank_t * bank = fd_banks_get_bank( ctx->banks, slot );
+  if( !!bank ) {
+    ulong bank_parent_block = fd_bank_parent_slot_get( bank );
+    if( FD_UNLIKELY( bank_parent_block != parent_slot ) ) {
+      FD_LOG_CRIT(( "invariant violation: bank parent block %lu does not match caller parent block %lu", bank_parent_block, parent_slot ));
+    }
+    FD_LOG_NOTICE(( "switching from block %lu (parent %lu) to a different existing block %lu (parent %lu)",
+                    fd_bank_slot_get( ctx->slot_ctx->bank ),
+                    fd_bank_parent_slot_get( ctx->slot_ctx->bank ),
+                    slot,
+                    bank_parent_block ));
     /* This means we are switching back to a slot we have already
        started executing (we have executed at least 1 slice from the
        slot we are switching to). */
-    handle_prev_slot( ctx, slot, parent_slot );
+    handle_existing_slot( ctx, slot );
   } else {
+    FD_LOG_NOTICE(( "switching from block %lu (parent %lu) to a new block %lu (parent %lu)",
+                    fd_bank_slot_get( ctx->slot_ctx->bank ),
+                    fd_bank_parent_slot_get( ctx->slot_ctx->bank ),
+                    slot,
+                    parent_slot ));
     /* This means we are switching to a new slot. */
     handle_new_slot( ctx, stem, slot, parent_slot );
   }
@@ -1435,12 +1383,8 @@ handle_new_slice( fd_replay_tile_ctx_t * ctx, fd_stem_context_t * stem ) {
     handle_slot_change( ctx, stem, slot, parent_slot );
   }
 
-  /* At this point, our runtime state has been updated correctly. We
-     need to update the current fork with the range of shred indices
-     that we are about to execute. We also need to populate the slice's
-     metadata into the slice_exec_ctx. */
-  fd_fork_t * current_fork = fd_fork_frontier_ele_query( ctx->forks->frontier, &slot, NULL, ctx->forks->pool );
-  if( FD_UNLIKELY( !current_fork ) ) FD_LOG_CRIT(( "invariant violation: current_fork is NULL for slot %lu", slot ));
+  /* At this point, our runtime state has been updated correctly.  We
+     need to populate the slice's metadata into the slice_exec_ctx. */
 
   long shacq_start, shacq_end, shrel_end;
   FD_STORE_SHACQ_TIMED( ctx->store, shacq_start, shacq_end );
@@ -1497,12 +1441,6 @@ exec_slice_fini_slot( fd_replay_tile_ctx_t * ctx, fd_stem_context_t * stem ) {
 
   ulong block_entry_height = fd_bank_block_height_get( ctx->slot_ctx->bank );
   publish_slot_notifications( ctx, stem, block_entry_height, curr_slot );
-
-  fd_fork_t * fork = fd_fork_frontier_ele_query( ctx->forks->frontier, &curr_slot, NULL, ctx->forks->pool );
-  if( FD_UNLIKELY( !fork ) ) {
-    FD_LOG_CRIT(( "invariant violation: fork is NULL for slot %lu", curr_slot ));
-  }
-  fork->lock = 0;
 
   if( FD_LIKELY( ctx->replay_out_idx != ULONG_MAX && !ctx->read_only ) ) {
     fd_hash_t const * block_id        = &block_id_map_query( ctx->block_id_map, curr_slot, NULL )->block_id;
@@ -1736,7 +1674,6 @@ unprivileged_init( fd_topo_t *      topo,
   FD_SCRATCH_ALLOC_INIT( l, scratch );
   fd_replay_tile_ctx_t * ctx     = FD_SCRATCH_ALLOC_APPEND( l, alignof(fd_replay_tile_ctx_t), sizeof(fd_replay_tile_ctx_t) );
   void * capture_ctx_mem         = FD_SCRATCH_ALLOC_APPEND( l, FD_CAPTURE_CTX_ALIGN, FD_CAPTURE_CTX_FOOTPRINT );
-  void * forks_mem               = FD_SCRATCH_ALLOC_APPEND( l, fd_forks_align(), fd_forks_footprint( FD_BLOCK_MAX ) );
   for( ulong i = 0UL; i<FD_PACK_MAX_BANK_TILES; i++ ) {
     ctx->bmtree[i]           = FD_SCRATCH_ALLOC_APPEND( l, FD_BMTREE_COMMIT_ALIGN, FD_BMTREE_COMMIT_FOOTPRINT(0) );
   }
@@ -1916,8 +1853,6 @@ unprivileged_init( fd_topo_t *      topo,
     one_off_features[i] = tile->replay.enable_features[i];
   }
   fd_features_enable_one_offs( features, one_off_features, (uint)tile->replay.enable_features_cnt, 0UL );
-
-  ctx->forks = fd_forks_join( fd_forks_new( forks_mem, FD_BLOCK_MAX, 42UL ) );
 
   /**********************************************************************/
   /* bank_hash_cmp                                                      */

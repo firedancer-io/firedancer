@@ -334,7 +334,7 @@ SET_(insert_if)( SET_(t) * set,
                  int       c,
                  ulong     idx ) {
 # if FD_TMPL_USE_HANDHOLDING
-  if( FD_UNLIKELY( idx>=(ulong)(SET_MAX) ) ) FD_LOG_CRIT(( "idx out of bounds" ));
+  if( FD_UNLIKELY( c && idx>=(ulong)(SET_MAX) ) ) FD_LOG_CRIT(( "idx out of bounds" ));
 # endif
   set[ idx >> 6 ] |= ((ulong)!!c) << (idx & 63UL);
   return set;
@@ -345,7 +345,7 @@ SET_(remove_if)( SET_(t) * set,
                  int       c,
                  ulong     idx ) {
 # if FD_TMPL_USE_HANDHOLDING
-  if( FD_UNLIKELY( idx>=(ulong)(SET_MAX) ) ) FD_LOG_CRIT(( "idx out of bounds" ));
+  if( FD_UNLIKELY( c && idx>=(ulong)(SET_MAX) ) ) FD_LOG_CRIT(( "idx out of bounds" ));
 # endif
   set[ idx >> 6 ] &= ~(((ulong)!!c) << (idx & 63UL));
   return set;
