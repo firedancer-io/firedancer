@@ -108,6 +108,8 @@ gossip_cmd_fn( args_t *   args FD_PARAM_UNUSED,
   configure_stage( &fd_cfg_stage_hugetlbfs,        CONFIGURE_CMD_INIT, config );
   configure_stage( &fd_cfg_stage_ethtool_channels, CONFIGURE_CMD_INIT, config );
   configure_stage( &fd_cfg_stage_ethtool_gro,      CONFIGURE_CMD_INIT, config );
+  configure_stage( &fd_cfg_stage_ethtool_loopback, CONFIGURE_CMD_INIT, config );
+  configure_stage( &fd_cfg_stage_ethtool_ntuple,   CONFIGURE_CMD_INIT, config );
 
   initialize_workspaces( config );
   initialize_stacks( config );
