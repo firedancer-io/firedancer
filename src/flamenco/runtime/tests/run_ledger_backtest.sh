@@ -20,7 +20,7 @@ TRASH_HASH=""
 LOG="/tmp/ledger_log$$"
 TILE_CPUS="--tile-cpus 5-15"
 THREAD_MEM_BOUND="--thread-mem-bound 0"
-INGEST_MDOE="rocksdb"
+INGEST_MODE="rocksdb"
 CLUSTER_VERSION=""
 DUMP_DIR=${DUMP_DIR:="./dump"}
 ONE_OFFS=""
@@ -75,7 +75,7 @@ while [[ $# -gt 0 ]]; do
        shift
        ;;
     -i|--ingest-mode)
-       INGEST_MDOE="$2"
+       INGEST_MODE="$2"
        shift
        shift
        ;;
@@ -160,7 +160,7 @@ echo "
         rocksdb_path = \"$DUMP/$LEDGER/rocksdb\"
         shredcap_path = \"$DUMP/$LEDGER/slices.bin\"
         bank_hash_path = \"$DUMP/$LEDGER/bank_hashes.bin\"
-        ingest_mode = \"$INGEST_MDOE\"
+        ingest_mode = \"$INGEST_MODE\"
     [tiles.replay]
         cluster_version = \"$CLUSTER_VERSION\"
         enable_features = [ $FORMATTED_ONE_OFFS ]
