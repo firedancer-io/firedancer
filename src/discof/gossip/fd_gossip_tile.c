@@ -209,10 +209,11 @@ metrics_write( fd_gossip_tile_ctx_t * ctx ) {
     COPY_CRDS_TRAFFIC( route##_RX, insert ); \
     FD_MCNT_ENUM_COPY( GOSSIP, CRDS_##route##_UPSERTED, insert##_upserted ); \
     FD_MCNT_ENUM_COPY( GOSSIP, CRDS_##route##_DUPLICATES, insert##_duplicate ); \
-    FD_MCNT_ENUM_COPY( GOSSIP, CRDS_##route##_OLD, insert##_fail );
+    FD_MCNT_ENUM_COPY( GOSSIP, CRDS_##route##_FAILED, insert##_fail );
 
   COPY_CRDS_INSERT( PUSH, metrics->rx_push_crd );
   COPY_CRDS_INSERT( PULL, metrics->rx_pull_crd );
+  FD_MCNT_ENUM_COPY( GOSSIP, CRDS_PULL_OLD, metrics->rx_pull_crd_old );
 
   /* TX */
   COPY_CRDS_TRAFFIC( PUSH_TX, metrics->tx_push_crd );

@@ -803,12 +803,13 @@ metric introduced.
     <counter name="CrdsPushRxBytes"     label="Number of bytes received in CRDS push messages"                enum="CrdsValue" />
     <counter name="CrdsPushUpserted"    label="Number of CRDS values upserted from push messages"             enum="CrdsValue" />
     <counter name="CrdsPushDuplicates"  label="Number of CRDS values that were duplicates in push messages"   enum="CrdsValue" />
-    <counter name="CrdsPushOld"         label="Number of CRDS values that were old in push messages"          enum="CrdsValue" />
+    <counter name="CrdsPushFailed"      label="Number of CRDS values that would not upsert in push messages"          enum="CrdsValue" />
 
     <counter name="CrdsPullRxCount"     label="Number of CRDS values received from pull response messages"              enum="CrdsValue" />
     <counter name="CrdsPullRxBytes"     label="Number of bytes received in CRDS pull response messages"                 enum="CrdsValue" />
     <counter name="CrdsPullUpserted"    label="Number of CRDS values upserted from pull response messages"              enum="CrdsValue" />
     <counter name="CrdsPullDuplicates"  label="Number of CRDS values that were duplicates in pull response messages"    enum="CrdsValue" />
+    <counter name="CrdsPullFailed"      label="Number of CRDS values that would not upsert in push messages"           enum="CrdsValue" />
     <counter name="CrdsPullOld"         label="Number of CRDS values that were old in pull response messages"           enum="CrdsValue" />
 
     <counter name="CrdsPushTxCount" label="Number of CRDS values sent"                            enum="CrdsValue" />

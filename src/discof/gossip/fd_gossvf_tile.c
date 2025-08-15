@@ -450,7 +450,7 @@ filter_shred_version_crds( fd_gossvf_tile_ctx_t *            ctx,
       peer_t const * origin = peer_map_ele_query_const( ctx->peer_map, (fd_pubkey_t*)(payload+container->crds_values[ i ].pubkey_off), NULL, ctx->peers );
       no_origin = !origin;
       keep = origin && origin->shred_version==ctx->shred_version;
-      if( !origin ) keep = 1; /* TODO ... */
+      if( !origin ) keep = 0;
     }
 
     if( FD_UNLIKELY( !keep ) ) {
