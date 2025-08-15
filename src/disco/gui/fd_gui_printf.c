@@ -236,6 +236,20 @@ fd_gui_printf_vote_distance( fd_gui_t * gui ) {
   jsonp_close_envelope( gui );
 }
 
+void
+fd_gui_printf_slot_max_known( fd_gui_t * gui ) {
+  jsonp_open_envelope( gui, "summary", "slot_max_known" );
+    jsonp_ulong( gui, "value", gui->summary.slot_max_known );
+  jsonp_close_envelope( gui );
+}
+
+void
+fd_gui_printf_slot_caught_up( fd_gui_t * gui ) {
+  jsonp_open_envelope( gui, "summary", "slot_caught_up" );
+    jsonp_ulong( gui, "value", gui->summary.slot_caught_up );
+  jsonp_close_envelope( gui );
+}
+
 
 void
 fd_gui_printf_vote_state( fd_gui_t * gui ) {

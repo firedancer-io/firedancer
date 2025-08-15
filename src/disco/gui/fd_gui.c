@@ -104,6 +104,8 @@ fd_gui_new( void *             shmem,
   gui->summary.slot_optimistically_confirmed = 0UL;
   gui->summary.slot_completed                = 0UL;
   gui->summary.slot_estimated                = 0UL;
+  gui->summary.slot_max_known                = 0UL;
+  gui->summary.slot_caught_up                = 0UL;
 
   gui->summary.estimated_tps_history_idx = 0UL;
   memset( gui->summary.estimated_tps_history, 0, sizeof(gui->summary.estimated_tps_history) );
@@ -167,6 +169,8 @@ fd_gui_ws_open( fd_gui_t * gui,
     fd_gui_printf_startup_time_nanos,
     fd_gui_printf_vote_state,
     fd_gui_printf_vote_distance,
+    fd_gui_printf_slot_max_known,
+    fd_gui_printf_slot_caught_up,
     fd_gui_printf_skipped_history,
     fd_gui_printf_tps_history,
     fd_gui_printf_tiles,
@@ -536,6 +540,16 @@ fd_gui_tile_stats_snap( fd_gui_t *                     gui,
   stats->bank_txn_exec_cnt = waterfall->out.block_fail + waterfall->out.block_success;
 }
 
+static void
+fd_gui_turbine_slot_snap( fd_gui_t * gui ) {
+  for( ulong i=0UL; i<gui->summary.shred_tile_cnt; i++ ) {
+    fd_topo_tile_t const * shred = &gui->topo->tiles[ fd_topo_find_tile( gui->topo, "shred", i ) ];
+    volatile ulong * shred_metrics = fd_metrics_tile( shred->metrics );
+
+    gui->summary.slot_max_known = fd_ulong_max( gui->summary.slot_max_known, shred_metrics[ MIDX( GAUGE, SHRED, MAX_TURBINE_SLOT ) ]);
+  }
+}
+
 int
 fd_gui_poll( fd_gui_t * gui ) {
   long now = fd_log_wallclock();
@@ -559,6 +573,10 @@ fd_gui_poll( fd_gui_t * gui ) {
     *gui->summary.tile_stats_reference = *gui->summary.tile_stats_current;
     fd_gui_tile_stats_snap( gui, gui->summary.txn_waterfall_current, gui->summary.tile_stats_current );
     fd_gui_printf_live_tile_stats( gui, gui->summary.tile_stats_reference, gui->summary.tile_stats_current );
+    fd_http_server_ws_broadcast( gui->http );
+
+    fd_gui_turbine_slot_snap( gui );
+    fd_gui_printf_slot_max_known( gui );
     fd_http_server_ws_broadcast( gui->http );
 
     gui->next_sample_100millis += 100L*1000L*1000L;
@@ -1309,7 +1327,18 @@ fd_gui_handle_reset_slot( fd_gui_t * gui,
   ulong last_slot = _slot;
   long last_published = gui->slots[ _slot % FD_GUI_SLOTS_CNT ]->completed_time;
 
-  for( ulong i=0UL; i<fd_ulong_min( _slot+1, 750UL ); i++ ) {
+  /* when we are about to catch up, set slot_caught_up */
+  if( FD_UNLIKELY( gui->summary.slot_caught_up==0UL && gui->summary.slot_max_known < (_slot + 5UL) ) ) {
+    gui->summary.slot_caught_up = _slot + 5UL;
+
+    fd_gui_printf_slot_caught_up( gui );
+    fd_http_server_ws_broadcast( gui->http );
+  }
+
+  /* If we've just caught up. We should truncate our slot history to avoid including catch-up slots */
+  ulong slot_duration_history_sz = fd_ulong_if( gui->summary.slot_caught_up && _slot > gui->summary.slot_caught_up, _slot - gui->summary.slot_caught_up, 750UL );
+
+  for( ulong i=0UL; i<fd_ulong_min( _slot+1, slot_duration_history_sz ); i++ ) {
     ulong parent_slot = _slot - i;
     ulong parent_idx  = parent_slot % FD_GUI_SLOTS_CNT;
 
@@ -1335,6 +1364,10 @@ fd_gui_handle_reset_slot( fd_gui_t * gui,
     gui->summary.slot_completed = _slot;
     fd_gui_printf_completed_slot( gui );
     fd_http_server_ws_broadcast( gui->http );
+
+    /* also update slot_max_known which could be larger than the max
+       turbine slot if we are leader */
+    gui->summary.slot_max_known = fd_ulong_max( gui->summary.slot_max_known, gui->summary.slot_completed );
   }
 
   for( ulong i=0UL; i<2UL; i++ ) {

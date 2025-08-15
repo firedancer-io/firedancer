@@ -225,6 +225,7 @@ typedef struct {
     ulong shred_processing_result[ FD_FEC_RESOLVER_ADD_SHRED_RETVAL_CNT+FD_SHRED_ADD_SHRED_EXTRA_RETVAL_CNT ];
     ulong invalid_block_id_cnt;
     ulong shred_rejected_unchained_cnt;
+    ulong max_resolved_fec_set_slot;
     fd_histf_t store_insert_wait[ 1 ];
     fd_histf_t store_insert_work[ 1 ];
   } metrics[ 1 ];
@@ -297,6 +298,7 @@ metrics_write( fd_shred_ctx_t * ctx ) {
   FD_MHIST_COPY( SHRED, SHREDDING_DURATION_SECONDS, ctx->metrics->shredding_timing             );
   FD_MHIST_COPY( SHRED, ADD_SHRED_DURATION_SECONDS, ctx->metrics->add_shred_timing             );
 
+  FD_MGAUGE_SET( SHRED, MAX_TURBINE_SLOT,           ctx->metrics->max_resolved_fec_set_slot    );
   FD_MCNT_SET  ( SHRED, INVALID_BLOCK_ID,           ctx->metrics->invalid_block_id_cnt         );
   FD_MCNT_SET  ( SHRED, SHRED_REJECTED_UNCHAINED,   ctx->metrics->shred_rejected_unchained_cnt );
   FD_MHIST_COPY( SHRED, STORE_INSERT_WAIT,          ctx->metrics->store_insert_wait            );
@@ -865,6 +867,7 @@ after_frag( fd_shred_ctx_t *    ctx,
     }
 
     if( (rv==FD_FEC_RESOLVER_SHRED_OKAY) | (rv==FD_FEC_RESOLVER_SHRED_COMPLETES) ) {
+      ctx->metrics->max_resolved_fec_set_slot = fd_ulong_max( ctx->metrics->max_resolved_fec_set_slot, shred->slot );
       if( FD_LIKELY( fd_disco_netmux_sig_proto( sig ) != DST_PROTO_REPAIR ) ) {
         /* Relay this shred */
         ulong max_dest_cnt[1];
@@ -1331,6 +1334,7 @@ unprivileged_init( fd_topo_t *      topo,
   memset( ctx->metrics->shred_processing_result, '\0', sizeof(ctx->metrics->shred_processing_result) );
   ctx->metrics->invalid_block_id_cnt         = 0UL;
   ctx->metrics->shred_rejected_unchained_cnt = 0UL;
+  ctx->metrics->max_resolved_fec_set_slot    = 0UL;
 
   ctx->pending_batch.microblock_cnt = 0UL;
   ctx->pending_batch.txn_cnt        = 0UL;

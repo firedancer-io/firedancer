@@ -345,6 +345,8 @@ struct fd_gui {
     ulong slot_optimistically_confirmed;
     ulong slot_completed;
     ulong slot_estimated;
+    ulong slot_max_known;
+    ulong slot_caught_up;
 
     ulong estimated_tps_history_idx;
     ulong estimated_tps_history[ FD_GUI_TPS_HISTORY_SAMPLE_CNT ][ 3UL ];
