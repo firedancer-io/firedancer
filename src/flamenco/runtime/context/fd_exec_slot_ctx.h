@@ -30,6 +30,8 @@ struct fd_exec_slot_ctx {
   fd_txncache_t * status_cache;
 
   fd_capture_ctx_t * capture_ctx;
+
+  uint silent : 1;
 };
 
 #define FD_EXEC_SLOT_CTX_ALIGN     (alignof(fd_exec_slot_ctx_t))

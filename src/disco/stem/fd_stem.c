@@ -102,20 +102,20 @@
    not invoked if the stem is backpressured, as it would not try and
    read a frag from an in in the first place (instead, leaving it on the
    in mcache to backpressure the upstream producer).  in_idx will be the
-   index of the in that the frag was received from. If the producer of
-   the frags is respecting flow control, it is safe to read frag data in
-   any of the callbacks, but it is suggested to copy or read frag data
-   within this callback, as if the producer does not respect flow
-   control, the frag may be torn or corrupt due to an overrun by the
-   reader.  If the frag being read from has been overwritten while this
-   callback is running, the frag will be ignored and the stem will not
-   call the after_frag function. Instead it will recover from the
-   overrun and continue with new frags.  This function cannot fail.  The
-   ctx is a user-provided context object from when the stem tile was
-   initialized. seq, sig, chunk, and sz are the respective fields from
-   the mcache fragment that was received.  If the producer is not
-   respecting flow control, these may be corrupt or torn and should not
-   be trusted, except for seq which is read atomically.
+   index of the in that the frag was received from, skipping any unpolled
+   links. If the producer of the frags is respecting flow control, it is
+   safe to read frag data in any of the callbacks, but it is suggested to
+   copy or read frag data within this callback, as if the producer does
+   not respect flow control, the frag may be torn or corrupt due to an
+   overrun by the reader.  If the frag being read from has been
+   overwritten while this callback is running, the frag will be ignored
+   and the stem will not call the after_frag function. Instead it will
+   recover from the overrun and continue with new frags.  This function
+   cannot fail.  The ctx is a user-provided context object from when the
+   stem tile was initialized. seq, sig, chunk, and sz are the respective
+   fields from the mcache fragment that was received.  If the producer
+   is not respecting flow control, these may be corrupt or torn and
+   should not be trusted, except for seq which is read atomically.
 
       RETURNABLE_FRAG
    Is called after the stem has received a new frag from an in, and
@@ -148,13 +148,13 @@
    the reader was overrun, the frag is abandoned and this function is
    not called.  This callback is not invoked if the stem is
    backpressured, as it would not read a frag in the first place.
-   in_idx will be the index of the in that the frag was received from.
-   You should not read the frag data directly here, as it might still
-   get overrun, instead it should be copied out of the frag during the
-   read callback if needed later. This function cannot fail. The ctx is
-   a user-provided context object from when the stem tile was
-   initialized.  stem should only be used for calling fd_stem_publish to
-   publish a fragment to downstream consumers.  seq is the sequence
+   in_idx will be the index of the in that the frag was received from,
+   skipping any unpolled links. You should not read the frag data directly
+   here, as it might still get overrun, instead it should be copied out of
+   the frag during the read callback if needed later. This function cannot
+   fail. The ctx is a user-provided context object from when the stem tile
+   was initialized.  stem should only be used for calling fd_stem_publish
+   to publish a fragment to downstream consumers.  seq is the sequence
    number of the fragment that was read from the input mcache. sig,
    chunk, sz, tsorig, and tspub are the respective fields from the
    mcache fragment that was received.  If the producer is not respecting
@@ -333,7 +333,6 @@ STEM_(run1)( ulong                        in_cnt,
     out_depth[ out_idx ] = fd_mcache_depth( out_mcache[ out_idx ] );
     out_seq[ out_idx ] = 0UL;
 
-    cr_max = fd_ulong_min( cr_max, out_depth[ out_idx ] );
     cr_avail[ out_idx ] = out_depth[ out_idx ];
   }
 
@@ -349,6 +348,8 @@ STEM_(run1)( ulong                        in_cnt,
     cons_out [ cons_idx ] = _cons_out [ cons_idx ];
     cons_slow[ cons_idx ] = (ulong*)(fd_metrics_link_out( fd_metrics_base_tl, cons_idx ) + FD_METRICS_COUNTER_LINK_SLOW_COUNT_OFF);
     cons_seq [ cons_idx ] = fd_fseq_query( _cons_fseq[ cons_idx ] );
+
+    cr_max = fd_ulong_min( cr_max, out_depth[ cons_out[ cons_idx ] ] );
   }
 
   /* housekeeping init */
@@ -548,12 +549,11 @@ STEM_(run1)( ulong                        in_cnt,
     /* Select which in to poll next (randomized round robin) */
 
     if( FD_UNLIKELY( !in_cnt ) ) {
-      int was_busy = 0;
-      was_busy |= !!charge_busy_before;
-      was_busy |= !!charge_busy_after;
-      metric_regime_ticks[ 0+was_busy ] += housekeeping_ticks;
+      int was_busy = charge_busy_before+charge_busy_after;
+      metric_regime_ticks[0] += housekeeping_ticks;
       long next = fd_tickcount();
-      metric_regime_ticks[ 3+was_busy ] += (ulong)(next - now);
+      if( FD_UNLIKELY( was_busy ) ) metric_regime_ticks[3] += (ulong)(next - now);
+      else                          metric_regime_ticks[6] += (ulong)(next - now);
       now = next;
       continue;
     }

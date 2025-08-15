@@ -101,15 +101,9 @@ void *fd_block_hash_vec_generate( void *mem, void **alloc_mem, fd_rng_t * rng ) 
   fd_block_hash_vec_new(mem);
   self->last_hash_index = fd_rng_ulong( rng );
   {
-    uchar is_null = fd_rng_uchar( rng ) % 2;
-    if( !is_null ) {
-      self->last_hash = (fd_hash_t *) *alloc_mem;
-      *alloc_mem = (uchar *) *alloc_mem + sizeof(fd_hash_t);
-      fd_hash_new( self->last_hash );
-      fd_hash_generate( self->last_hash, alloc_mem, rng );
-    }
-    else {
-    self->last_hash = NULL;
+    self->has_last_hash = fd_rng_uchar( rng ) % 2;
+    if( self->has_last_hash ) {
+      fd_hash_generate( &self->last_hash, alloc_mem, rng );
     }
   }
   self->ages_len = fd_rng_ulong( rng ) % 8;
@@ -593,14 +587,9 @@ void *fd_versioned_bank_generate( void *mem, void **alloc_mem, fd_rng_t * rng ) 
   self->capitalization = fd_rng_ulong( rng );
   self->max_tick_height = fd_rng_ulong( rng );
   {
-    uchar is_null = fd_rng_uchar( rng ) % 2;
-    if( !is_null ) {
-      self->hashes_per_tick = (ulong *) *alloc_mem;
-      *alloc_mem = (uchar *) *alloc_mem + sizeof(ulong);
-      LLVMFuzzerMutate( (uchar *)self->hashes_per_tick, sizeof(ulong), sizeof(ulong) );
-    }
-    else {
-    self->hashes_per_tick = NULL;
+    self->has_hashes_per_tick = fd_rng_uchar( rng ) % 2;
+    if( self->has_hashes_per_tick ) {
+      LLVMFuzzerMutate( (uchar *)&(self->hashes_per_tick), sizeof(ulong), sizeof(ulong) );
     }
   }
   self->ticks_per_slot = fd_rng_ulong( rng );
@@ -885,14 +874,9 @@ void *fd_poh_config_generate( void *mem, void **alloc_mem, fd_rng_t * rng ) {
   fd_poh_config_new(mem);
   fd_rust_duration_generate( &self->target_tick_duration, alloc_mem, rng );
   {
-    uchar is_null = fd_rng_uchar( rng ) % 2;
-    if( !is_null ) {
-      self->target_tick_count = (ulong *) *alloc_mem;
-      *alloc_mem = (uchar *) *alloc_mem + sizeof(ulong);
-      LLVMFuzzerMutate( (uchar *)self->target_tick_count, sizeof(ulong), sizeof(ulong) );
-    }
-    else {
-    self->target_tick_count = NULL;
+    self->has_target_tick_count = fd_rng_uchar( rng ) % 2;
+    if( self->has_target_tick_count ) {
+      LLVMFuzzerMutate( (uchar *)&(self->target_tick_count), sizeof(ulong), sizeof(ulong) );
     }
   }
   {
@@ -1743,14 +1727,9 @@ void *fd_vote_generate( void *mem, void **alloc_mem, fd_rng_t * rng ) {
   }
   fd_hash_generate( &self->hash, alloc_mem, rng );
   {
-    uchar is_null = fd_rng_uchar( rng ) % 2;
-    if( !is_null ) {
-      self->timestamp = (long *) *alloc_mem;
-      *alloc_mem = (uchar *) *alloc_mem + sizeof(long);
-      LLVMFuzzerMutate( (uchar *)self->timestamp, sizeof(long), sizeof(long) );
-    }
-    else {
-    self->timestamp = NULL;
+    self->has_timestamp = fd_rng_uchar( rng ) % 2;
+    if( self->has_timestamp ) {
+      LLVMFuzzerMutate( (uchar *)&(self->timestamp), sizeof(long), sizeof(long) );
     }
   }
   return mem;
@@ -3854,25 +3833,6 @@ void *fd_pubkey_rewardinfo_pair_generate( void *mem, void **alloc_mem, fd_rng_t 
   fd_pubkey_rewardinfo_pair_new(mem);
   fd_pubkey_generate( &self->pubkey, alloc_mem, rng );
   fd_reward_info_generate( &self->reward_info, alloc_mem, rng );
-  return mem;
-}
-
-void *fd_optional_account_generate( void *mem, void **alloc_mem, fd_rng_t * rng ) {
-  fd_optional_account_t *self = (fd_optional_account_t *) mem;
-  *alloc_mem = (uchar *) *alloc_mem + sizeof(fd_optional_account_t);
-  fd_optional_account_new(mem);
-  {
-    uchar is_null = fd_rng_uchar( rng ) % 2;
-    if( !is_null ) {
-      self->account = (fd_solana_account_t *) *alloc_mem;
-      *alloc_mem = (uchar *) *alloc_mem + sizeof(fd_solana_account_t);
-      fd_solana_account_new( self->account );
-      fd_solana_account_generate( self->account, alloc_mem, rng );
-    }
-    else {
-    self->account = NULL;
-    }
-  }
   return mem;
 }
 

@@ -392,10 +392,6 @@ fd_funk_txn_cancel_children( fd_funk_t *     funk,
     if( FD_UNLIKELY( verbose ) ) FD_LOG_WARNING(( "NULL funk" ));
     return 0UL;
   }
-  if( FD_UNLIKELY( !fd_funk_txn_valid( funk, txn ) ) ) {
-    if( FD_UNLIKELY( verbose ) ) FD_LOG_WARNING(( "bad txn" ));
-    return 0UL;
-  }
 #else
   (void)verbose;
 #endif
@@ -405,6 +401,10 @@ fd_funk_txn_cancel_children( fd_funk_t *     funk,
   if( FD_LIKELY( txn == NULL ) ) {
     oldest_idx = fd_funk_txn_idx( funk->shmem->child_head_cidx ); /* opt for non-compete */
   } else {
+    if( FD_UNLIKELY( !fd_funk_txn_valid( funk, txn ) ) ) {
+      if( FD_UNLIKELY( verbose ) ) FD_LOG_CRIT(( "bad txn" ));
+      return 0UL;
+    }
     oldest_idx = fd_funk_txn_idx( txn->child_head_cidx );
   }
 

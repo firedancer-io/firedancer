@@ -209,18 +209,21 @@ privileged_init( fd_topo_t *      topo,
     DST_PROTO_SHRED,    /* shred_listen_port (turbine) */
     DST_PROTO_GOSSIP,   /* gossip_listen_port */
     DST_PROTO_REPAIR,   /* shred_listen_port (repair) */
-    DST_PROTO_REPAIR    /* repair_serve_listen_port */
+    DST_PROTO_REPAIR,   /* repair_serve_listen_port */
+    DST_PROTO_SEND      /* send_src_port */
   };
-  for( uint candidate_idx=0U; candidate_idx<6; candidate_idx++ ) {
+  for( uint candidate_idx=0U; candidate_idx<7; candidate_idx++ ) {
     if( !udp_port_candidates[ candidate_idx ] ) continue;
     uint sock_idx = ctx->sock_cnt;
     if( candidate_idx>FD_SOCK_TILE_MAX_SOCKETS ) FD_LOG_ERR(( "too many sockets" ));
     ushort port = (ushort)udp_port_candidates[ candidate_idx ];
 
     /* Validate value of REPAIR_SHRED_SOCKET_ID */
-    if( udp_port_candidates[sock_idx]==tile->sock.net.repair_intake_listen_port )
+    if( tile->sock.net.repair_intake_listen_port &&
+       udp_port_candidates[sock_idx]==tile->sock.net.repair_intake_listen_port )
       FD_TEST( sock_idx==REPAIR_SHRED_SOCKET_ID );
-    if( udp_port_candidates[sock_idx]==tile->sock.net.repair_serve_listen_port )
+    if( tile->sock.net.repair_serve_listen_port &&
+       udp_port_candidates[sock_idx]==tile->sock.net.repair_serve_listen_port )
       FD_TEST( sock_idx==REPAIR_SHRED_SOCKET_ID+1 );
 
     char const * target_link = udp_port_links[ candidate_idx ];

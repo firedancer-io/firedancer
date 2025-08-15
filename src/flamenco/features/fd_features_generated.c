@@ -1559,7 +1559,8 @@ fd_feature_id_t const ids[] = {
     .id                        = {"\x11\x6d\x1d\xd8\x23\xca\x86\x4d\x30\x4e\x6a\x0b\x8f\xe5\x2b\xd4\xf9\x49\xca\x91\x36\x1f\x39\x34\xc7\x53\x10\xf1\xcf\xfb\x6b\x33"},
                                  /* 2B2SBNbUcr438LtGXNcJNBP2GBSxjx81F945SdSkUSfC */
     .name                      = "disable_partitioned_rent_collection",
-    .cleaned_up                = {UINT_MAX, UINT_MAX, UINT_MAX} },
+    .cleaned_up                = {UINT_MAX, UINT_MAX, UINT_MAX},
+    .activated_on_all_clusters = 1 },
 
   { .index                     = offsetof(fd_features_t, vote_only_full_fec_sets)>>3,
     .id                        = {"\x09\xe7\xc5\x4a\x98\x6c\xb6\x68\x7d\xea\x99\x67\x65\x85\xc4\x3a\x6b\xac\x6d\x4c\x86\x10\x38\x21\xa6\x5c\x47\x63\x60\x46\x6a\x13"},

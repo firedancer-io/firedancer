@@ -2,6 +2,7 @@
 #define HEADER_fd_src_discof_rpcserver_fd_rpc_history_h
 
 #include "fd_rpc_service.h"
+#include "../../ballet/shred/fd_shred.h"
 
 struct fd_rpc_history;
 typedef struct fd_rpc_history fd_rpc_history_t;
@@ -13,7 +14,9 @@ typedef struct fd_rpc_txn_key fd_rpc_txn_key_t;
 
 fd_rpc_history_t * fd_rpc_history_create(fd_rpcserver_args_t * args);
 
-void fd_rpc_history_save(fd_rpc_history_t * hist, fd_replay_notif_msg_t * msg);
+void fd_rpc_history_save_info(fd_rpc_history_t * hist, fd_replay_notif_msg_t * msg);
+
+void fd_rpc_history_save_fec(fd_rpc_history_t * hist, fd_store_t * store, fd_reasm_fec_t * fec);
 
 ulong fd_rpc_history_first_slot(fd_rpc_history_t * hist);
 

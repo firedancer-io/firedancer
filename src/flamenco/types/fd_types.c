@@ -286,13 +286,10 @@ int fd_block_hash_vec_encode( fd_block_hash_vec_t const * self, fd_bincode_encod
   int err;
   err = fd_bincode_uint64_encode( self->last_hash_index, ctx );
   if( FD_UNLIKELY( err ) ) return err;
-  if( self->last_hash != NULL ) {
-    err = fd_bincode_bool_encode( 1, ctx );
-    if( FD_UNLIKELY( err ) ) return err;
-    err = fd_hash_encode( self->last_hash, ctx );
-    if( FD_UNLIKELY( err ) ) return err;
-  } else {
-    err = fd_bincode_bool_encode( 0, ctx );
+  err = fd_bincode_bool_encode( self->has_last_hash, ctx );
+  if( FD_UNLIKELY( err ) ) return err;
+  if( self->has_last_hash ) {
+    err = fd_hash_encode( &self->last_hash, ctx );
     if( FD_UNLIKELY( err ) ) return err;
   }
   err = fd_bincode_uint64_encode( self->ages_len, ctx );
@@ -311,14 +308,10 @@ int fd_block_hash_vec_encode_global( fd_block_hash_vec_global_t const * self, fd
   int err;
   err = fd_bincode_uint64_encode( self->last_hash_index, ctx );
   if( FD_UNLIKELY( err ) ) return err;
-  if( self->last_hash_offset ) {
-    err = fd_bincode_bool_encode( 1, ctx );
-    if( FD_UNLIKELY( err ) ) return err;
-    fd_hash_t * last_hash = (void *)((uchar*)self + self->last_hash_offset);
-    err = fd_hash_encode( last_hash, ctx );
-    if( FD_UNLIKELY( err ) ) return err;
-  } else {
-    err = fd_bincode_bool_encode( 0, ctx );
+  err = fd_bincode_bool_encode( self->has_last_hash, ctx );
+  if( FD_UNLIKELY( err ) ) return err;
+  if( self->has_last_hash ) {
+    err = fd_hash_encode( &self->last_hash, ctx );
     if( FD_UNLIKELY( err ) ) return err;
   }
   err = fd_bincode_uint64_encode( self->ages_len, ctx );
@@ -345,7 +338,6 @@ static int fd_block_hash_vec_decode_footprint_inner( fd_bincode_decode_ctx_t * c
     err = fd_bincode_bool_decode( &o, ctx );
     if( FD_UNLIKELY( err!=FD_BINCODE_SUCCESS ) ) return err;
     if( o ) {
-    *total_sz += FD_HASH_ALIGN + sizeof(fd_hash_t);
       err = fd_hash_decode_footprint_inner( ctx, total_sz );
       if( FD_UNLIKELY( err!=FD_BINCODE_SUCCESS ) ) return err;
     }
@@ -378,14 +370,10 @@ static void fd_block_hash_vec_decode_inner( void * struct_mem, void * * alloc_me
   {
     uchar o;
     fd_bincode_bool_decode_unsafe( &o, ctx );
+    self->has_last_hash = !!o;
     if( o ) {
-      *alloc_mem = (void*)fd_ulong_align_up( (ulong)*alloc_mem, FD_HASH_ALIGN );
-      self->last_hash = *alloc_mem;
-      *alloc_mem = (uchar *)*alloc_mem + sizeof(fd_hash_t);
-      fd_hash_new( self->last_hash );
-      fd_hash_decode_inner( self->last_hash, alloc_mem, ctx );
-    } else {
-      self->last_hash = NULL;
+      fd_hash_new( &self->last_hash );
+      fd_hash_decode_inner( &self->last_hash, alloc_mem, ctx );
     }
   }
   fd_bincode_uint64_decode_unsafe( &self->ages_len, ctx );
@@ -415,14 +403,10 @@ static void fd_block_hash_vec_decode_inner_global( void * struct_mem, void * * a
   {
     uchar o;
     fd_bincode_bool_decode_unsafe( &o, ctx );
+    self->has_last_hash = !!o;
     if( o ) {
-      *alloc_mem = (void*)fd_ulong_align_up( (ulong)*alloc_mem, FD_HASH_ALIGN );
-      self->last_hash_offset = (ulong)*alloc_mem - (ulong)struct_mem;
-      fd_hash_new( *alloc_mem );
-      *alloc_mem = (uchar *)*alloc_mem + sizeof(fd_hash_t);
-      fd_hash_decode_inner( (uchar*)self + self->last_hash_offset, alloc_mem, ctx );
-    } else {
-      self->last_hash_offset = 0UL;
+      fd_hash_new( (fd_hash_t *)fd_type_pun(&self->last_hash) );
+      fd_hash_decode_inner( &self->last_hash, alloc_mem, ctx );
     }
   }
   fd_bincode_uint64_decode_unsafe( &self->ages_len, ctx );
@@ -455,10 +439,10 @@ void fd_block_hash_vec_walk( void * w, fd_block_hash_vec_t const * self, fd_type
   (void) varint;
   fun( w, self, name, FD_FLAMENCO_TYPE_MAP, "fd_block_hash_vec", level++, 0 );
   fun( w, &self->last_hash_index, "last_hash_index", FD_FLAMENCO_TYPE_ULONG, "ulong", level, 0  );
-  if( !self->last_hash ) {
+  if( !self->has_last_hash ) {
     fun( w, NULL, "last_hash", FD_FLAMENCO_TYPE_NULL, "hash", level, 0 );
   } else {
-    fd_hash_walk( w, self->last_hash, fun, "last_hash", level, 0 );
+    fd_hash_walk( w, &self->last_hash, fun, "last_hash", level, 0 );
   }
   if( self->ages_len ) {
     fun( w, NULL, "ages", FD_FLAMENCO_TYPE_ARR, "array", level++, 0 );
@@ -473,8 +457,8 @@ ulong fd_block_hash_vec_size( fd_block_hash_vec_t const * self ) {
   ulong size = 0;
   size += sizeof(ulong);
   size += sizeof(char);
-  if( NULL != self->last_hash ) {
-    size += fd_hash_size( self->last_hash );
+  if( self->has_last_hash ) {
+    size += fd_hash_size( &self->last_hash );
   }
   do {
     size += sizeof(ulong);
@@ -489,9 +473,8 @@ ulong fd_block_hash_vec_size_global( fd_block_hash_vec_global_t const * self ) {
   ulong size = 0;
   size += sizeof(ulong);
   size += sizeof(char);
-  fd_hash_t * last_hash = (fd_hash_t *)fd_type_pun( (uchar *)self + self->last_hash_offset );
-  if( NULL != last_hash ) {
-    size += fd_hash_size( last_hash );
+  if( self->has_last_hash ) {
+    size += fd_hash_size( &self->last_hash );
   }
   do {
     size += sizeof(ulong);
@@ -3384,13 +3367,10 @@ int fd_versioned_bank_encode( fd_versioned_bank_t const * self, fd_bincode_encod
   if( FD_UNLIKELY( err ) ) return err;
   err = fd_bincode_uint64_encode( self->max_tick_height, ctx );
   if( FD_UNLIKELY( err ) ) return err;
-  if( self->hashes_per_tick != NULL ) {
-    err = fd_bincode_bool_encode( 1, ctx );
-    if( FD_UNLIKELY( err ) ) return err;
-    err = fd_bincode_uint64_encode( self->hashes_per_tick[0], ctx );
-    if( FD_UNLIKELY( err ) ) return err;
-  } else {
-    err = fd_bincode_bool_encode( 0, ctx );
+  err = fd_bincode_bool_encode( self->has_hashes_per_tick, ctx );
+  if( FD_UNLIKELY( err ) ) return err;
+  if( self->has_hashes_per_tick ) {
+    err = fd_bincode_uint64_encode( self->hashes_per_tick, ctx );
     if( FD_UNLIKELY( err ) ) return err;
   }
   err = fd_bincode_uint64_encode( self->ticks_per_slot, ctx );
@@ -3473,14 +3453,10 @@ int fd_versioned_bank_encode_global( fd_versioned_bank_global_t const * self, fd
   if( FD_UNLIKELY( err ) ) return err;
   err = fd_bincode_uint64_encode( self->max_tick_height, ctx );
   if( FD_UNLIKELY( err ) ) return err;
-  if( self->hashes_per_tick_offset ) {
-    err = fd_bincode_bool_encode( 1, ctx );
-    if( FD_UNLIKELY( err ) ) return err;
-    ulong * hashes_per_tick = (void *)((uchar*)self + self->hashes_per_tick_offset);
-    err = fd_bincode_uint64_encode( hashes_per_tick[0], ctx );
-    if( FD_UNLIKELY( err ) ) return err;
-  } else {
-    err = fd_bincode_bool_encode( 0, ctx );
+  err = fd_bincode_bool_encode( self->has_hashes_per_tick, ctx );
+  if( FD_UNLIKELY( err ) ) return err;
+  if( self->has_hashes_per_tick ) {
+    err = fd_bincode_uint64_encode( self->hashes_per_tick, ctx );
     if( FD_UNLIKELY( err ) ) return err;
   }
   err = fd_bincode_uint64_encode( self->ticks_per_slot, ctx );
@@ -3571,7 +3547,6 @@ static int fd_versioned_bank_decode_footprint_inner( fd_bincode_decode_ctx_t * c
     err = fd_bincode_bool_decode( &o, ctx );
     if( FD_UNLIKELY( err!=FD_BINCODE_SUCCESS ) ) return err;
     if( o ) {
-    *total_sz += 8UL + sizeof(ulong);
       err = fd_bincode_uint64_decode_footprint( ctx );
       if( FD_UNLIKELY( err!=FD_BINCODE_SUCCESS ) ) return err;
     }
@@ -3660,13 +3635,9 @@ static void fd_versioned_bank_decode_inner( void * struct_mem, void * * alloc_me
   {
     uchar o;
     fd_bincode_bool_decode_unsafe( &o, ctx );
+    self->has_hashes_per_tick = !!o;
     if( o ) {
-      *alloc_mem = (void*)fd_ulong_align_up( (ulong)*alloc_mem, 8UL );
-      self->hashes_per_tick = *alloc_mem;
-      *alloc_mem = (uchar *)*alloc_mem + sizeof(ulong);
-      fd_bincode_uint64_decode_unsafe( self->hashes_per_tick, ctx );
-    } else {
-      self->hashes_per_tick = NULL;
+      fd_bincode_uint64_decode_unsafe( &self->hashes_per_tick, ctx );
     }
   }
   fd_bincode_uint64_decode_unsafe( &self->ticks_per_slot, ctx );
@@ -3736,13 +3707,9 @@ static void fd_versioned_bank_decode_inner_global( void * struct_mem, void * * a
   {
     uchar o;
     fd_bincode_bool_decode_unsafe( &o, ctx );
+    self->has_hashes_per_tick = !!o;
     if( o ) {
-      *alloc_mem = (void*)fd_ulong_align_up( (ulong)*alloc_mem, 8UL );
-      self->hashes_per_tick_offset = (ulong)*alloc_mem - (ulong)struct_mem;
-      fd_bincode_uint64_decode_unsafe( *alloc_mem, ctx );
-      *alloc_mem = (uchar *)*alloc_mem + sizeof(ulong);
-    } else {
-      self->hashes_per_tick_offset = 0UL;
+      fd_bincode_uint64_decode_unsafe( &self->hashes_per_tick, ctx );
     }
   }
   fd_bincode_uint64_decode_unsafe( &self->ticks_per_slot, ctx );
@@ -3820,10 +3787,10 @@ void fd_versioned_bank_walk( void * w, fd_versioned_bank_t const * self, fd_type
   fun( w, &self->signature_count, "signature_count", FD_FLAMENCO_TYPE_ULONG, "ulong", level, 0  );
   fun( w, &self->capitalization, "capitalization", FD_FLAMENCO_TYPE_ULONG, "ulong", level, 0  );
   fun( w, &self->max_tick_height, "max_tick_height", FD_FLAMENCO_TYPE_ULONG, "ulong", level, 0  );
-  if( !self->hashes_per_tick ) {
+  if( !self->has_hashes_per_tick ) {
     fun( w, NULL, "hashes_per_tick", FD_FLAMENCO_TYPE_NULL, "ulong", level, 0 );
   } else {
-    fun( w, self->hashes_per_tick, "hashes_per_tick", FD_FLAMENCO_TYPE_ULONG, "ulong", level, 0 );
+    fun( w, &self->hashes_per_tick, "hashes_per_tick", FD_FLAMENCO_TYPE_ULONG, "ulong", level, 0 );
   }
   fun( w, &self->ticks_per_slot, "ticks_per_slot", FD_FLAMENCO_TYPE_ULONG, "ulong", level, 0  );
   fun( w, &self->ns_per_slot, "ns_per_slot", FD_FLAMENCO_TYPE_UINT128, "uint128", level, 0  );
@@ -3870,7 +3837,7 @@ ulong fd_versioned_bank_size( fd_versioned_bank_t const * self ) {
   size += sizeof(ulong);
   size += sizeof(ulong);
   size += sizeof(char);
-  if( NULL != self->hashes_per_tick ) {
+  if( self->has_hashes_per_tick ) {
     size += sizeof(ulong);
   }
   size += sizeof(ulong);
@@ -3919,8 +3886,7 @@ ulong fd_versioned_bank_size_global( fd_versioned_bank_global_t const * self ) {
   size += sizeof(ulong);
   size += sizeof(ulong);
   size += sizeof(char);
-  ulong * hashes_per_tick = (ulong *)fd_type_pun( (uchar *)self + self->hashes_per_tick_offset );
-  if( NULL != hashes_per_tick ) {
+  if( self->has_hashes_per_tick ) {
     size += sizeof(ulong);
   }
   size += sizeof(ulong);
@@ -5657,13 +5623,10 @@ int fd_poh_config_encode( fd_poh_config_t const * self, fd_bincode_encode_ctx_t 
   int err;
   err = fd_rust_duration_encode( &self->target_tick_duration, ctx );
   if( FD_UNLIKELY( err ) ) return err;
-  if( self->target_tick_count != NULL ) {
-    err = fd_bincode_bool_encode( 1, ctx );
-    if( FD_UNLIKELY( err ) ) return err;
-    err = fd_bincode_uint64_encode( self->target_tick_count[0], ctx );
-    if( FD_UNLIKELY( err ) ) return err;
-  } else {
-    err = fd_bincode_bool_encode( 0, ctx );
+  err = fd_bincode_bool_encode( self->has_target_tick_count, ctx );
+  if( FD_UNLIKELY( err ) ) return err;
+  if( self->has_target_tick_count ) {
+    err = fd_bincode_uint64_encode( self->target_tick_count, ctx );
     if( FD_UNLIKELY( err ) ) return err;
   }
   err = fd_bincode_bool_encode( self->has_hashes_per_tick, ctx );
@@ -5684,7 +5647,6 @@ static int fd_poh_config_decode_footprint_inner( fd_bincode_decode_ctx_t * ctx, 
     err = fd_bincode_bool_decode( &o, ctx );
     if( FD_UNLIKELY( err!=FD_BINCODE_SUCCESS ) ) return err;
     if( o ) {
-    *total_sz += 8UL + sizeof(ulong);
       err = fd_bincode_uint64_decode_footprint( ctx );
       if( FD_UNLIKELY( err!=FD_BINCODE_SUCCESS ) ) return err;
     }
@@ -5714,13 +5676,9 @@ static void fd_poh_config_decode_inner( void * struct_mem, void * * alloc_mem, f
   {
     uchar o;
     fd_bincode_bool_decode_unsafe( &o, ctx );
+    self->has_target_tick_count = !!o;
     if( o ) {
-      *alloc_mem = (void*)fd_ulong_align_up( (ulong)*alloc_mem, 8UL );
-      self->target_tick_count = *alloc_mem;
-      *alloc_mem = (uchar *)*alloc_mem + sizeof(ulong);
-      fd_bincode_uint64_decode_unsafe( self->target_tick_count, ctx );
-    } else {
-      self->target_tick_count = NULL;
+      fd_bincode_uint64_decode_unsafe( &self->target_tick_count, ctx );
     }
   }
   {
@@ -5748,10 +5706,10 @@ void fd_poh_config_walk( void * w, fd_poh_config_t const * self, fd_types_walk_f
   (void) varint;
   fun( w, self, name, FD_FLAMENCO_TYPE_MAP, "fd_poh_config", level++, 0 );
   fd_rust_duration_walk( w, &self->target_tick_duration, fun, "target_tick_duration", level, 0 );
-  if( !self->target_tick_count ) {
+  if( !self->has_target_tick_count ) {
     fun( w, NULL, "target_tick_count", FD_FLAMENCO_TYPE_NULL, "ulong", level, 0 );
   } else {
-    fun( w, self->target_tick_count, "target_tick_count", FD_FLAMENCO_TYPE_ULONG, "ulong", level, 0 );
+    fun( w, &self->target_tick_count, "target_tick_count", FD_FLAMENCO_TYPE_ULONG, "ulong", level, 0 );
   }
   if( !self->has_hashes_per_tick ) {
     fun( w, NULL, "hashes_per_tick", FD_FLAMENCO_TYPE_NULL, "ulong", level, 0 );
@@ -5764,7 +5722,7 @@ ulong fd_poh_config_size( fd_poh_config_t const * self ) {
   ulong size = 0;
   size += fd_rust_duration_size( &self->target_tick_duration );
   size += sizeof(char);
-  if( NULL != self->target_tick_count ) {
+  if( self->has_target_tick_count ) {
     size += sizeof(ulong);
   }
   size += sizeof(char);
@@ -10725,13 +10683,10 @@ int fd_vote_encode( fd_vote_t const * self, fd_bincode_encode_ctx_t * ctx ) {
   }
   err = fd_hash_encode( &self->hash, ctx );
   if( FD_UNLIKELY( err ) ) return err;
-  if( self->timestamp != NULL ) {
-    err = fd_bincode_bool_encode( 1, ctx );
-    if( FD_UNLIKELY( err ) ) return err;
-    err = fd_bincode_int64_encode( self->timestamp[0], ctx );
-    if( FD_UNLIKELY( err ) ) return err;
-  } else {
-    err = fd_bincode_bool_encode( 0, ctx );
+  err = fd_bincode_bool_encode( self->has_timestamp, ctx );
+  if( FD_UNLIKELY( err ) ) return err;
+  if( self->has_timestamp ) {
+    err = fd_bincode_int64_encode( self->timestamp, ctx );
     if( FD_UNLIKELY( err ) ) return err;
   }
   return FD_BINCODE_SUCCESS;
@@ -10755,7 +10710,6 @@ static int fd_vote_decode_footprint_inner( fd_bincode_decode_ctx_t * ctx, ulong 
     err = fd_bincode_bool_decode( &o, ctx );
     if( FD_UNLIKELY( err!=FD_BINCODE_SUCCESS ) ) return err;
     if( o ) {
-    *total_sz += 8UL + sizeof(long);
       err = fd_bincode_int64_decode_footprint( ctx );
       if( FD_UNLIKELY( err!=FD_BINCODE_SUCCESS ) ) return err;
     }
@@ -10783,13 +10737,9 @@ static void fd_vote_decode_inner( void * struct_mem, void * * alloc_mem, fd_binc
   {
     uchar o;
     fd_bincode_bool_decode_unsafe( &o, ctx );
+    self->has_timestamp = !!o;
     if( o ) {
-      *alloc_mem = (void*)fd_ulong_align_up( (ulong)*alloc_mem, 8UL );
-      self->timestamp = *alloc_mem;
-      *alloc_mem = (uchar *)*alloc_mem + sizeof(long);
-      fd_bincode_int64_decode_unsafe( self->timestamp, ctx );
-    } else {
-      self->timestamp = NULL;
+      fd_bincode_int64_decode_unsafe( &self->timestamp, ctx );
     }
   }
 }
@@ -10823,10 +10773,10 @@ void fd_vote_walk( void * w, fd_vote_t const * self, fd_types_walk_fn_t fun, con
   /* Done walking deque */
 
   fd_hash_walk( w, &self->hash, fun, "hash", level, 0 );
-  if( !self->timestamp ) {
+  if( !self->has_timestamp ) {
     fun( w, NULL, "timestamp", FD_FLAMENCO_TYPE_NULL, "long", level, 0 );
   } else {
-    fun( w, self->timestamp, "timestamp", FD_FLAMENCO_TYPE_SLONG, "long", level, 0 );
+    fun( w, &self->timestamp, "timestamp", FD_FLAMENCO_TYPE_SLONG, "long", level, 0 );
   }
   fun( w, self, name, FD_FLAMENCO_TYPE_MAP_END, "fd_vote", level--, 0 );
 }
@@ -10841,7 +10791,7 @@ ulong fd_vote_size( fd_vote_t const * self ) {
   }
   size += fd_hash_size( &self->hash );
   size += sizeof(char);
-  if( NULL != self->timestamp ) {
+  if( self->has_timestamp ) {
     size += sizeof(long);
   }
   return size;
@@ -24836,88 +24786,6 @@ void fd_pubkey_rewardinfo_pair_walk( void * w, fd_pubkey_rewardinfo_pair_t const
   fd_reward_info_walk( w, &self->reward_info, fun, "reward_info", level, 0 );
   fun( w, self, name, FD_FLAMENCO_TYPE_MAP_END, "fd_pubkey_rewardinfo_pair", level--, 0 );
 }
-int fd_optional_account_encode( fd_optional_account_t const * self, fd_bincode_encode_ctx_t * ctx ) {
-  int err;
-  if( self->account != NULL ) {
-    err = fd_bincode_bool_encode( 1, ctx );
-    if( FD_UNLIKELY( err ) ) return err;
-    err = fd_solana_account_encode( self->account, ctx );
-    if( FD_UNLIKELY( err ) ) return err;
-  } else {
-    err = fd_bincode_bool_encode( 0, ctx );
-    if( FD_UNLIKELY( err ) ) return err;
-  }
-  return FD_BINCODE_SUCCESS;
-}
-static int fd_optional_account_decode_footprint_inner( fd_bincode_decode_ctx_t * ctx, ulong * total_sz ) {
-  if( ctx->data>=ctx->dataend ) { return FD_BINCODE_ERR_OVERFLOW; };
-  int err = 0;
-  {
-    uchar o;
-    err = fd_bincode_bool_decode( &o, ctx );
-    if( FD_UNLIKELY( err!=FD_BINCODE_SUCCESS ) ) return err;
-    if( o ) {
-    *total_sz += FD_SOLANA_ACCOUNT_ALIGN + sizeof(fd_solana_account_t);
-      err = fd_solana_account_decode_footprint_inner( ctx, total_sz );
-      if( FD_UNLIKELY( err!=FD_BINCODE_SUCCESS ) ) return err;
-    }
-  }
-  return 0;
-}
-int fd_optional_account_decode_footprint( fd_bincode_decode_ctx_t * ctx, ulong * total_sz ) {
-  *total_sz += sizeof(fd_optional_account_t);
-  void const * start_data = ctx->data;
-  int err = fd_optional_account_decode_footprint_inner( ctx, total_sz );
-  if( ctx->data>ctx->dataend ) { return FD_BINCODE_ERR_OVERFLOW; };
-  ctx->data = start_data;
-  return err;
-}
-static void fd_optional_account_decode_inner( void * struct_mem, void * * alloc_mem, fd_bincode_decode_ctx_t * ctx ) {
-  fd_optional_account_t * self = (fd_optional_account_t *)struct_mem;
-  {
-    uchar o;
-    fd_bincode_bool_decode_unsafe( &o, ctx );
-    if( o ) {
-      *alloc_mem = (void*)fd_ulong_align_up( (ulong)*alloc_mem, FD_SOLANA_ACCOUNT_ALIGN );
-      self->account = *alloc_mem;
-      *alloc_mem = (uchar *)*alloc_mem + sizeof(fd_solana_account_t);
-      fd_solana_account_new( self->account );
-      fd_solana_account_decode_inner( self->account, alloc_mem, ctx );
-    } else {
-      self->account = NULL;
-    }
-  }
-}
-void * fd_optional_account_decode( void * mem, fd_bincode_decode_ctx_t * ctx ) {
-  fd_optional_account_t * self = (fd_optional_account_t *)mem;
-  fd_optional_account_new( self );
-  void * alloc_region = (uchar *)mem + sizeof(fd_optional_account_t);
-  void * * alloc_mem = &alloc_region;
-  fd_optional_account_decode_inner( mem, alloc_mem, ctx );
-  return self;
-}
-void fd_optional_account_new(fd_optional_account_t * self) {
-  fd_memset( self, 0, sizeof(fd_optional_account_t) );
-}
-void fd_optional_account_walk( void * w, fd_optional_account_t const * self, fd_types_walk_fn_t fun, const char *name, uint level, uint varint ) {
-  (void) varint;
-  fun( w, self, name, FD_FLAMENCO_TYPE_MAP, "fd_optional_account", level++, 0 );
-  if( !self->account ) {
-    fun( w, NULL, "account", FD_FLAMENCO_TYPE_NULL, "solana_account", level, 0 );
-  } else {
-    fd_solana_account_walk( w, self->account, fun, "account", level, 0 );
-  }
-  fun( w, self, name, FD_FLAMENCO_TYPE_MAP_END, "fd_optional_account", level--, 0 );
-}
-ulong fd_optional_account_size( fd_optional_account_t const * self ) {
-  ulong size = 0;
-  size += sizeof(char);
-  if( NULL != self->account ) {
-    size += fd_solana_account_size( self->account );
-  }
-  return size;
-}
-
 int fd_calculated_stake_points_encode( fd_calculated_stake_points_t const * self, fd_bincode_encode_ctx_t * ctx ) {
   int err;
   err = fd_bincode_uint128_encode( self->points, ctx );

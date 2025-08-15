@@ -86,8 +86,9 @@ fd_shmem_private_map_query_by_addr( fd_shmem_join_info_t * map,
  */
 static void *
 fd_shmem_private_grab_region( ulong addr,
-                              ulong size ) {
-  void * mmap_ret = mmap( (void*)addr, size, PROT_READ, MAP_ANON|MAP_PRIVATE, -1, 0 );
+                              ulong size,
+                              int   prot ) {
+  void * mmap_ret = mmap( (void*)addr, size, prot, MAP_ANON|MAP_PRIVATE, -1, 0 );
   if( FD_UNLIKELY( mmap_ret == MAP_FAILED ) ) return mmap_ret;
 
   if( FD_UNLIKELY( (ulong)mmap_ret != addr ) ) {
@@ -102,7 +103,8 @@ fd_shmem_private_grab_region( ulong addr,
 
 void *
 fd_shmem_private_map_rand( ulong size,
-                           ulong align ) {
+                           ulong align,
+                           int   prot ) {
   ulong ret_addr = 0;
 
   /* Failure is unlikely, 1000 iterations should guarantee success */
@@ -114,7 +116,7 @@ fd_shmem_private_map_rand( ulong size,
     ret_addr &= 0x00007FFFFFFFFFFFUL;
     ret_addr  = fd_ulong_align_up( ret_addr, align );
 
-    if( fd_shmem_private_grab_region( ret_addr, size )!=MAP_FAILED ) {
+    if( fd_shmem_private_grab_region( ret_addr, size, prot )!=MAP_FAILED ) {
       return (void *)ret_addr;
     }
   }
@@ -196,7 +198,7 @@ fd_shmem_join( char const *               name,
   }
 
   /* Generate a random address that we are guaranteed to be able to map */
-  void * const map_addr = fd_shmem_private_map_rand( sz, page_sz );
+  void * const map_addr = fd_shmem_private_map_rand( sz, page_sz, PROT_READ );
   if( FD_UNLIKELY( map_addr==MAP_FAILED ) ) FD_LOG_ERR(( "fd_shmem_private_map_rand failed" ));
 
   /* Note that MAP_HUGETLB and MAP_HUGE_* are implied by the mount point */

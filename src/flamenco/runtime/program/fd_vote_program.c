@@ -1841,7 +1841,7 @@ process_vote_with_account( fd_borrowed_account_t *       vote_account,
   if( FD_UNLIKELY( rc ) ) return rc;
 
   // https://github.com/anza-xyz/agave/blob/v2.0.1/programs/vote/src/vote_state/mod.rs#L1126
-  if( FD_LIKELY( vote->timestamp ) ) {
+  if( FD_LIKELY( vote->has_timestamp ) ) {
     if( FD_UNLIKELY( deq_ulong_cnt( vote->slots ) == 0 ) ) {
       ctx->txn_ctx->custom_err = FD_VOTE_ERR_EMPTY_SLOTS;
       return FD_EXECUTOR_INSTR_ERR_CUSTOM_ERR;
@@ -1860,7 +1860,7 @@ process_vote_with_account( fd_borrowed_account_t *       vote_account,
       return FD_EXECUTOR_INSTR_ERR_CUSTOM_ERR;
     }
     // https://github.com/anza-xyz/agave/blob/v2.0.1/programs/vote/src/vote_state/mod.rs#L1131
-    rc = process_timestamp( &vote_state, max, *vote->timestamp, ctx );
+    rc = process_timestamp( &vote_state, max, vote->timestamp, ctx );
     if( FD_UNLIKELY( rc ) ) return rc;
   }
 

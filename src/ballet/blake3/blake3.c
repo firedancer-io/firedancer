@@ -1,5 +1,5 @@
 // Source originally from https://github.com/BLAKE3-team/BLAKE3
-// From commit: 64747d48ffe9d1fbf4b71e94cabeb8a211461081
+// From commit: e1c2ea27fdd717fd924d7b286a125408d7e817f7
 
 #include <assert.h>
 #include <stdbool.h>
@@ -8,11 +8,14 @@
 #include "blake3.h"
 #include "blake3_impl.h"
 
+#pragma GCC diagnostic ignored "-Wsign-conversion"
+#pragma GCC diagnostic ignored "-Wconversion"
+
 FD_FN_CONST const char *blake3_version(void) { return BLAKE3_VERSION_STRING; }
 
 INLINE void chunk_state_init(blake3_chunk_state *self, const uint32_t key[8],
                              uint8_t flags) {
-  fd_memcpy(self->cv, key, BLAKE3_KEY_LEN);
+  memcpy(self->cv, key, BLAKE3_KEY_LEN);
   self->chunk_counter = 0;
   memset(self->buf, 0, BLAKE3_BLOCK_LEN);
   self->buf_len = 0;
@@ -22,7 +25,7 @@ INLINE void chunk_state_init(blake3_chunk_state *self, const uint32_t key[8],
 
 INLINE void chunk_state_reset(blake3_chunk_state *self, const uint32_t key[8],
                               uint64_t chunk_counter) {
-  fd_memcpy(self->cv, key, BLAKE3_KEY_LEN);
+  memcpy(self->cv, key, BLAKE3_KEY_LEN);
   self->chunk_counter = chunk_counter;
   self->blocks_compressed = 0;
   memset(self->buf, 0, BLAKE3_BLOCK_LEN);
@@ -41,11 +44,8 @@ INLINE size_t chunk_state_fill_buf(blake3_chunk_state *self,
     take = input_len;
   }
   uint8_t *dest = self->buf + ((size_t)self->buf_len);
-  fd_memcpy(dest, input, take);
-#pragma GCC diagnostic push
-#pragma GCC diagnostic ignored "-Wconversion"
+  memcpy(dest, input, take);
   self->buf_len += (uint8_t)take;
-#pragma GCC diagnostic pop
   return take;
 }
 
@@ -70,8 +70,8 @@ INLINE output_t make_output(const uint32_t input_cv[8],
                             uint8_t block_len, uint64_t counter,
                             uint8_t flags) {
   output_t ret;
-  fd_memcpy(ret.input_cv, input_cv, 32);
-  fd_memcpy(ret.block, block, BLAKE3_BLOCK_LEN);
+  memcpy(ret.input_cv, input_cv, 32);
+  memcpy(ret.block, block, BLAKE3_BLOCK_LEN);
   ret.block_len = block_len;
   ret.counter = counter;
   ret.flags = flags;
@@ -86,32 +86,38 @@ INLINE output_t make_output(const uint32_t input_cv[8],
 // bytes.
 INLINE void output_chaining_value(const output_t *self, uint8_t cv[32]) {
   uint32_t cv_words[8];
-  fd_memcpy(cv_words, self->input_cv, 32);
-  fd_blake3_compress_in_place(cv_words, self->block, self->block_len,
-                              self->counter, self->flags);
+  memcpy(cv_words, self->input_cv, 32);
+  blake3_compress_in_place(cv_words, self->block, self->block_len,
+                           self->counter, self->flags);
   store_cv_words(cv, cv_words);
 }
 
 INLINE void output_root_bytes(const output_t *self, uint64_t seek, uint8_t *out,
                               size_t out_len) {
+  if (out_len == 0) {
+      return;
+  }
   uint64_t output_block_counter = seek / 64;
   size_t offset_within_block = seek % 64;
   uint8_t wide_buf[64];
-  while (out_len > 0) {
-    fd_blake3_compress_xof(self->input_cv, self->block, self->block_len,
-                           output_block_counter, self->flags | ROOT, wide_buf);
-    size_t available_bytes = 64 - offset_within_block;
-    size_t fd_memcpy_len;
-    if (out_len > available_bytes) {
-      fd_memcpy_len = available_bytes;
-    } else {
-      fd_memcpy_len = out_len;
-    }
-    fd_memcpy(out, wide_buf + offset_within_block, fd_memcpy_len);
-    out += fd_memcpy_len;
-    out_len -= fd_memcpy_len;
+  if(offset_within_block) {
+    blake3_compress_xof(self->input_cv, self->block, self->block_len, output_block_counter, self->flags | ROOT, wide_buf);
+    const size_t available_bytes = 64 - offset_within_block;
+    const size_t bytes = out_len > available_bytes ? available_bytes : out_len;
+    memcpy(out, wide_buf + offset_within_block, bytes);
+    out += bytes;
+    out_len -= bytes;
     output_block_counter += 1;
-    offset_within_block = 0;
+  }
+  if(out_len / 64) {
+    blake3_xof_many(self->input_cv, self->block, self->block_len, output_block_counter, self->flags | ROOT, out, out_len / 64);
+  }
+  output_block_counter += out_len / 64;
+  out += out_len & -64;
+  out_len -= out_len & -64;
+  if(out_len) {
+    blake3_compress_xof(self->input_cv, self->block, self->block_len, output_block_counter, self->flags | ROOT, wide_buf);
+    memcpy(out, wide_buf, out_len);
   }
 }
 
@@ -122,33 +128,25 @@ INLINE void chunk_state_update(blake3_chunk_state *self, const uint8_t *input,
     input += take;
     input_len -= take;
     if (input_len > 0) {
-      fd_blake3_compress_in_place(
+      blake3_compress_in_place(
           self->cv, self->buf, BLAKE3_BLOCK_LEN, self->chunk_counter,
           self->flags | chunk_state_maybe_start_flag(self));
-#pragma GCC diagnostic push
-#pragma GCC diagnostic ignored "-Wconversion"
       self->blocks_compressed += 1;
-#pragma GCC diagnostic pop
       self->buf_len = 0;
       memset(self->buf, 0, BLAKE3_BLOCK_LEN);
     }
   }
 
   while (input_len > BLAKE3_BLOCK_LEN) {
-    fd_blake3_compress_in_place(self->cv, input, BLAKE3_BLOCK_LEN,
-                                self->chunk_counter,
-                                self->flags | chunk_state_maybe_start_flag(self));
-#pragma GCC diagnostic push
-#pragma GCC diagnostic ignored "-Wconversion"
+    blake3_compress_in_place(self->cv, input, BLAKE3_BLOCK_LEN,
+                             self->chunk_counter,
+                             self->flags | chunk_state_maybe_start_flag(self));
     self->blocks_compressed += 1;
-#pragma GCC diagnostic pop
     input += BLAKE3_BLOCK_LEN;
     input_len -= BLAKE3_BLOCK_LEN;
   }
 
-  size_t take = chunk_state_fill_buf(self, input, input_len);
-  input += take;
-  input_len -= take;
+  chunk_state_fill_buf(self, input, input_len);
 }
 
 INLINE output_t chunk_state_output(const blake3_chunk_state *self) {
@@ -166,10 +164,10 @@ INLINE output_t parent_output(const uint8_t block[BLAKE3_BLOCK_LEN],
 // Given some input larger than one chunk, return the number of bytes that
 // should go in the left subtree. This is the largest power-of-2 number of
 // chunks that leaves at least 1 byte for the right subtree.
-INLINE size_t left_len(size_t content_len) {
-  // Subtract 1 to reserve at least one byte for the right side. content_len
+INLINE size_t left_subtree_len(size_t input_len) {
+  // Subtract 1 to reserve at least one byte for the right side. input_len
   // should always be greater than BLAKE3_CHUNK_LEN.
-  size_t full_chunks = (content_len - 1) / BLAKE3_CHUNK_LEN;
+  size_t full_chunks = (input_len - 1) / BLAKE3_CHUNK_LEN;
   return round_down_to_power_of_2(full_chunks) * BLAKE3_CHUNK_LEN;
 }
 
@@ -195,9 +193,9 @@ INLINE size_t compress_chunks_parallel(const uint8_t *input, size_t input_len,
     chunks_array_len += 1;
   }
 
-  fd_blake3_hash_many(chunks_array, chunks_array_len,
-                      BLAKE3_CHUNK_LEN / BLAKE3_BLOCK_LEN, key, chunk_counter,
-                      true, flags, CHUNK_START, CHUNK_END, out);
+  blake3_hash_many(chunks_array, chunks_array_len,
+                   BLAKE3_CHUNK_LEN / BLAKE3_BLOCK_LEN, key, chunk_counter,
+                   true, flags, CHUNK_START, CHUNK_END, out);
 
   // Hash the remaining partial chunk, if there is one. Note that the empty
   // chunk (meaning the empty message) is a different codepath.
@@ -238,16 +236,16 @@ INLINE size_t compress_parents_parallel(const uint8_t *child_chaining_values,
     parents_array_len += 1;
   }
 
-  fd_blake3_hash_many(parents_array, parents_array_len, 1, key,
-                      0, // Parents always use counter 0.
-                      false, flags | PARENT,
-                      0, // Parents have no start flags.
-                      0, // Parents have no end flags.
-                      out);
+  blake3_hash_many(parents_array, parents_array_len, 1, key,
+                   0, // Parents always use counter 0.
+                   false, flags | PARENT,
+                   0, // Parents have no start flags.
+                   0, // Parents have no end flags.
+                   out);
 
   // If there's an odd child left over, it becomes an output.
   if (num_chaining_values > 2 * parents_array_len) {
-    fd_memcpy(&out[parents_array_len * BLAKE3_OUT_LEN],
+    memcpy(&out[parents_array_len * BLAKE3_OUT_LEN],
            &child_chaining_values[2 * parents_array_len * BLAKE3_OUT_LEN],
            BLAKE3_OUT_LEN);
     return parents_array_len + 1;
@@ -266,23 +264,22 @@ INLINE size_t compress_parents_parallel(const uint8_t *child_chaining_values,
 // As a special case when the SIMD degree is 1, this function will still return
 // at least 2 outputs. This guarantees that this function doesn't perform the
 // root compression. (If it did, it would use the wrong flags, and also we
-// wouldn't be able to implement exendable output.) Note that this function is
+// wouldn't be able to implement extendable output.) Note that this function is
 // not used when the whole input is only 1 chunk long; that's a different
 // codepath.
 //
 // Why not just have the caller split the input on the first update(), instead
 // of implementing this special rule? Because we don't want to limit SIMD or
 // multi-threading parallelism for that update().
-static size_t fd_blake3_compress_subtree_wide(const uint8_t *input,
-                                              size_t input_len,
-                                              const uint32_t key[8],
-                                              uint64_t chunk_counter,
-                                              uint8_t flags, uint8_t *out) {
+size_t blake3_compress_subtree_wide(const uint8_t *input, size_t input_len,
+                                    const uint32_t key[8],
+                                    uint64_t chunk_counter, uint8_t flags,
+                                    uint8_t *out, bool use_tbb) {
   // Note that the single chunk case does *not* bump the SIMD degree up to 2
   // when it is 1. If this implementation adds multi-threading in the future,
   // this gives us the option of multi-threading even the 2-chunk case, which
   // can help performance on smaller platforms.
-  if (input_len <= fd_blake3_simd_degree() * BLAKE3_CHUNK_LEN) {
+  if (input_len <= blake3_simd_degree() * BLAKE3_CHUNK_LEN) {
     return compress_chunks_parallel(input, input_len, key, chunk_counter, flags,
                                     out);
   }
@@ -291,7 +288,7 @@ static size_t fd_blake3_compress_subtree_wide(const uint8_t *input,
   // the input into left and right subtrees. (Note that this is only optimal
   // as long as the SIMD degree is a power of 2. If we ever get a SIMD degree
   // of 3 or something, we'll need a more complicated strategy.)
-  size_t left_input_len = left_len(input_len);
+  size_t left_input_len = left_subtree_len(input_len);
   size_t right_input_len = input_len - left_input_len;
   const uint8_t *right_input = &input[left_input_len];
   uint64_t right_chunk_counter =
@@ -301,7 +298,7 @@ static size_t fd_blake3_compress_subtree_wide(const uint8_t *input,
   // account for the special case of returning 2 outputs when the SIMD degree
   // is 1.
   uint8_t cv_array[2 * MAX_SIMD_DEGREE_OR_2 * BLAKE3_OUT_LEN];
-  size_t degree = fd_blake3_simd_degree();
+  size_t degree = blake3_simd_degree();
   if (left_input_len > BLAKE3_CHUNK_LEN && degree == 1) {
     // The special case: We always use a degree of at least two, to make
     // sure there are two outputs. Except, as noted above, at the chunk
@@ -311,18 +308,30 @@ static size_t fd_blake3_compress_subtree_wide(const uint8_t *input,
   }
   uint8_t *right_cvs = &cv_array[degree * BLAKE3_OUT_LEN];
 
-  // Recurse! If this implementation adds multi-threading support in the
-  // future, this is where it will go.
-  size_t left_n = fd_blake3_compress_subtree_wide(input, left_input_len, key,
-                                                  chunk_counter, flags, cv_array);
-  size_t right_n = fd_blake3_compress_subtree_wide(
-      right_input, right_input_len, key, right_chunk_counter, flags, right_cvs);
+  // Recurse!
+  size_t left_n = -1;
+  size_t right_n = -1;
+
+#if defined(BLAKE3_USE_TBB)
+  blake3_compress_subtree_wide_join_tbb(
+      key, flags, use_tbb,
+      // left-hand side
+      input, left_input_len, chunk_counter, cv_array, &left_n,
+      // right-hand side
+      right_input, right_input_len, right_chunk_counter, right_cvs, &right_n);
+#else
+  left_n = blake3_compress_subtree_wide(
+      input, left_input_len, key, chunk_counter, flags, cv_array, use_tbb);
+  right_n = blake3_compress_subtree_wide(right_input, right_input_len, key,
+                                         right_chunk_counter, flags, right_cvs,
+                                         use_tbb);
+#endif // BLAKE3_USE_TBB
 
   // The special case again. If simd_degree=1, then we'll have left_n=1 and
   // right_n=1. Rather than compressing them into a single output, return
   // them directly, to make sure we always have at least two outputs.
   if (left_n == 1) {
-    fd_memcpy(out, cv_array, 2 * BLAKE3_OUT_LEN);
+    memcpy(out, cv_array, 2 * BLAKE3_OUT_LEN);
     return 2;
   }
 
@@ -342,65 +351,70 @@ static size_t fd_blake3_compress_subtree_wide(const uint8_t *input,
 //
 // As with compress_subtree_wide(), this function is not used on inputs of 1
 // chunk or less. That's a different codepath.
-INLINE void compress_subtree_to_parent_node(
-    const uint8_t *input, size_t input_len, const uint32_t key[8],
-    uint64_t chunk_counter, uint8_t flags, uint8_t out[2 * BLAKE3_OUT_LEN]) {
+INLINE void
+compress_subtree_to_parent_node(const uint8_t *input, size_t input_len,
+                                const uint32_t key[8], uint64_t chunk_counter,
+                                uint8_t flags, uint8_t out[2 * BLAKE3_OUT_LEN],
+                                bool use_tbb) {
 #if defined(BLAKE3_TESTING)
   assert(input_len > BLAKE3_CHUNK_LEN);
 #endif
 
   uint8_t cv_array[MAX_SIMD_DEGREE_OR_2 * BLAKE3_OUT_LEN];
-  size_t num_cvs = fd_blake3_compress_subtree_wide(input, input_len, key,
-                                                   chunk_counter, flags, cv_array);
+  size_t num_cvs = blake3_compress_subtree_wide(input, input_len, key,
+                                                chunk_counter, flags, cv_array, use_tbb);
   assert(num_cvs <= MAX_SIMD_DEGREE_OR_2);
-
-  // If MAX_SIMD_DEGREE is greater than 2 and there's enough input,
+  // The following loop never executes when MAX_SIMD_DEGREE_OR_2 is 2, because
+  // as we just asserted, num_cvs will always be <=2 in that case. But GCC
+  // (particularly GCC 8.5) can't tell that it never executes, and if NDEBUG is
+  // set then it emits incorrect warnings here. We tried a few different
+  // hacks to silence these, but in the end our hacks just produced different
+  // warnings (see https://github.com/BLAKE3-team/BLAKE3/pull/380). Out of
+  // desperation, we ifdef out this entire loop when we know it's not needed.
+#if MAX_SIMD_DEGREE_OR_2 > 2
+  // If MAX_SIMD_DEGREE_OR_2 is greater than 2 and there's enough input,
   // compress_subtree_wide() returns more than 2 chaining values. Condense
   // them into 2 by forming parent nodes repeatedly.
   uint8_t out_array[MAX_SIMD_DEGREE_OR_2 * BLAKE3_OUT_LEN / 2];
-  // The second half of this loop condition is always true, and we just
-  // asserted it above. But GCC can't tell that it's always true, and if NDEBUG
-  // is set on platforms where MAX_SIMD_DEGREE_OR_2 == 2, GCC emits spurious
-  // warnings here. GCC 8.5 is particularly sensitive, so if you're changing
-  // this code, test it against that version.
-  while (num_cvs > 2 && num_cvs <= MAX_SIMD_DEGREE_OR_2) {
+  while (num_cvs > 2) {
     num_cvs =
         compress_parents_parallel(cv_array, num_cvs, key, flags, out_array);
-    fd_memcpy(cv_array, out_array, num_cvs * BLAKE3_OUT_LEN);
+    memcpy(cv_array, out_array, num_cvs * BLAKE3_OUT_LEN);
   }
-  fd_memcpy(out, cv_array, 2 * BLAKE3_OUT_LEN);
+#endif
+  memcpy(out, cv_array, 2 * BLAKE3_OUT_LEN);
 }
 
 INLINE void hasher_init_base(blake3_hasher *self, const uint32_t key[8],
                              uint8_t flags) {
-  fd_memcpy(self->key, key, BLAKE3_KEY_LEN);
+  memcpy(self->key, key, BLAKE3_KEY_LEN);
   chunk_state_init(&self->chunk, key, flags);
   self->cv_stack_len = 0;
 }
 
-void fd_blake3_hasher_init(blake3_hasher *self) { hasher_init_base(self, IV, 0); }
+void blake3_hasher_init(blake3_hasher *self) { hasher_init_base(self, IV, 0); }
 
-void fd_blake3_hasher_init_keyed(blake3_hasher *self,
-                                 const uint8_t key[BLAKE3_KEY_LEN]) {
+void blake3_hasher_init_keyed(blake3_hasher *self,
+                              const uint8_t key[BLAKE3_KEY_LEN]) {
   uint32_t key_words[8];
   load_key_words(key, key_words);
   hasher_init_base(self, key_words, KEYED_HASH);
 }
 
-void fd_blake3_hasher_init_derive_key_raw(blake3_hasher *self, const void *context,
-                                          size_t context_len) {
+void blake3_hasher_init_derive_key_raw(blake3_hasher *self, const void *context,
+                                       size_t context_len) {
   blake3_hasher context_hasher;
   hasher_init_base(&context_hasher, IV, DERIVE_KEY_CONTEXT);
-  fd_blake3_hasher_update(&context_hasher, context, context_len);
+  blake3_hasher_update(&context_hasher, context, context_len);
   uint8_t context_key[BLAKE3_KEY_LEN];
-  fd_blake3_hasher_finalize(&context_hasher, context_key, BLAKE3_KEY_LEN);
+  blake3_hasher_finalize(&context_hasher, context_key, BLAKE3_KEY_LEN);
   uint32_t context_key_words[8];
   load_key_words(context_key, context_key_words);
   hasher_init_base(self, context_key_words, DERIVE_KEY_MATERIAL);
 }
 
-void fd_blake3_hasher_init_derive_key(blake3_hasher *self, const char *context) {
-  fd_blake3_hasher_init_derive_key_raw(self, context, strlen(context));
+void blake3_hasher_init_derive_key(blake3_hasher *self, const char *context) {
+  blake3_hasher_init_derive_key_raw(self, context, strlen(context));
 }
 
 // As described in hasher_push_cv() below, we do "lazy merging", delaying
@@ -420,10 +434,7 @@ INLINE void hasher_merge_cv_stack(blake3_hasher *self, uint64_t total_len) {
         &self->cv_stack[(self->cv_stack_len - 2) * BLAKE3_OUT_LEN];
     output_t output = parent_output(parent_node, self->key, self->chunk.flags);
     output_chaining_value(&output, parent_node);
-#pragma GCC diagnostic push
-#pragma GCC diagnostic ignored "-Wconversion"
     self->cv_stack_len -= 1;
-#pragma GCC diagnostic pop
   }
 }
 
@@ -462,18 +473,15 @@ INLINE void hasher_merge_cv_stack(blake3_hasher *self, uint64_t total_len) {
 INLINE void hasher_push_cv(blake3_hasher *self, uint8_t new_cv[BLAKE3_OUT_LEN],
                            uint64_t chunk_counter) {
   hasher_merge_cv_stack(self, chunk_counter);
-  fd_memcpy(&self->cv_stack[self->cv_stack_len * BLAKE3_OUT_LEN], new_cv,
+  memcpy(&self->cv_stack[self->cv_stack_len * BLAKE3_OUT_LEN], new_cv,
          BLAKE3_OUT_LEN);
-#pragma GCC diagnostic push
-#pragma GCC diagnostic ignored "-Wconversion"
   self->cv_stack_len += 1;
-#pragma GCC diagnostic pop
 }
 
-void fd_blake3_hasher_update(blake3_hasher *self, const void *input,
-                             size_t input_len) {
+INLINE void blake3_hasher_update_base(blake3_hasher *self, const void *input,
+                                      size_t input_len, bool use_tbb) {
   // Explicitly checking for zero avoids causing UB by passing a null pointer
-  // to fd_memcpy. This comes up in practice with things like:
+  // to memcpy. This comes up in practice with things like:
   //   std::vector<uint8_t> v;
   //   blake3_hasher_update(&hasher, v.data(), v.size());
   if (input_len == 0) {
@@ -557,7 +565,7 @@ void fd_blake3_hasher_update(blake3_hasher *self, const void *input,
       uint8_t cv_pair[2 * BLAKE3_OUT_LEN];
       compress_subtree_to_parent_node(input_bytes, subtree_len, self->key,
                                       self->chunk.chunk_counter,
-                                      self->chunk.flags, cv_pair);
+                                      self->chunk.flags, cv_pair, use_tbb);
       hasher_push_cv(self, cv_pair, self->chunk.chunk_counter);
       hasher_push_cv(self, &cv_pair[BLAKE3_OUT_LEN],
                      self->chunk.chunk_counter + (subtree_chunks / 2));
@@ -579,15 +587,29 @@ void fd_blake3_hasher_update(blake3_hasher *self, const void *input,
   }
 }
 
-void fd_blake3_hasher_finalize(const blake3_hasher *self, uint8_t *out,
-                               size_t out_len) {
-  fd_blake3_hasher_finalize_seek(self, 0, out, out_len);
+void blake3_hasher_update(blake3_hasher *self, const void *input,
+                          size_t input_len) {
+  bool use_tbb = false;
+  blake3_hasher_update_base(self, input, input_len, use_tbb);
 }
 
-void fd_blake3_hasher_finalize_seek(const blake3_hasher *self, uint64_t seek,
-                                    uint8_t *out, size_t out_len) {
+#if defined(BLAKE3_USE_TBB)
+void blake3_hasher_update_tbb(blake3_hasher *self, const void *input,
+                              size_t input_len) {
+  bool use_tbb = true;
+  blake3_hasher_update_base(self, input, input_len, use_tbb);
+}
+#endif // BLAKE3_USE_TBB
+
+void blake3_hasher_finalize(const blake3_hasher *self, uint8_t *out,
+                            size_t out_len) {
+  blake3_hasher_finalize_seek(self, 0, out, out_len);
+}
+
+void blake3_hasher_finalize_seek(const blake3_hasher *self, uint64_t seek,
+                                 uint8_t *out, size_t out_len) {
   // Explicitly checking for zero avoids causing UB by passing a null pointer
-  // to fd_memcpy. This comes up in practice with things like:
+  // to memcpy. This comes up in practice with things like:
   //   std::vector<uint8_t> v;
   //   blake3_hasher_finalize(&hasher, v.data(), v.size());
   if (out_len == 0) {
@@ -614,24 +636,21 @@ void fd_blake3_hasher_finalize_seek(const blake3_hasher *self, uint64_t seek,
     output = chunk_state_output(&self->chunk);
   } else {
     // There are always at least 2 CVs in the stack in this case.
-#pragma GCC diagnostic push
-#pragma GCC diagnostic ignored "-Wsign-conversion"
     cvs_remaining = self->cv_stack_len - 2;
-#pragma GCC diagnostic pop
     output = parent_output(&self->cv_stack[cvs_remaining * 32], self->key,
                            self->chunk.flags);
   }
   while (cvs_remaining > 0) {
     cvs_remaining -= 1;
     uint8_t parent_block[BLAKE3_BLOCK_LEN];
-    fd_memcpy(parent_block, &self->cv_stack[cvs_remaining * 32], 32);
+    memcpy(parent_block, &self->cv_stack[cvs_remaining * 32], 32);
     output_chaining_value(&output, &parent_block[32]);
     output = parent_output(parent_block, self->key, self->chunk.flags);
   }
   output_root_bytes(&output, seek, out, out_len);
 }
 
-void fd_blake3_hasher_reset(blake3_hasher *self) {
+void blake3_hasher_reset(blake3_hasher *self) {
   chunk_state_reset(&self->chunk, self->key, 0);
   self->cv_stack_len = 0;
 }

@@ -484,8 +484,6 @@ fd_config_validate( fd_config_t const * config ) {
   CFG_HAS_NON_EMPTY( log.level_stderr );
   CFG_HAS_NON_EMPTY( log.level_flush );
 
-  CFG_HAS_NON_ZERO( gossip.port );
-
   CFG_HAS_NON_EMPTY( layout.affinity );
   CFG_HAS_NON_ZERO ( layout.net_tile_count );
   CFG_HAS_NON_ZERO ( layout.quic_tile_count );
@@ -521,8 +519,6 @@ fd_config_validate( fd_config_t const * config ) {
   CFG_HAS_NON_ZERO( tiles.netlink.max_peer_routes      );
   CFG_HAS_NON_ZERO( tiles.netlink.max_neighbors        );
 
-  CFG_HAS_NON_ZERO( tiles.quic.regular_transaction_listen_port );
-  CFG_HAS_NON_ZERO( tiles.quic.quic_transaction_listen_port );
   CFG_HAS_NON_ZERO( tiles.quic.max_concurrent_connections );
   CFG_HAS_NON_ZERO( tiles.quic.txn_reassembly_count );
   CFG_HAS_NON_ZERO( tiles.quic.max_concurrent_handshakes );
@@ -536,15 +532,10 @@ fd_config_validate( fd_config_t const * config ) {
   CFG_HAS_NON_ZERO( tiles.pack.max_pending_transactions );
 
   CFG_HAS_NON_ZERO( tiles.shred.max_pending_shred_sets );
-  CFG_HAS_NON_ZERO( tiles.shred.shred_listen_port );
 
   if( config->is_firedancer ) {
     CFG_HAS_POW2( tiles.repair.slot_max );
   }
-
-  CFG_HAS_NON_ZERO( tiles.metric.prometheus_listen_port );
-
-  CFG_HAS_NON_ZERO( tiles.gui.gui_listen_port );
 
   if( FD_UNLIKELY( config->tiles.bundle.keepalive_interval_millis <    3000 &&
                    config->tiles.bundle.keepalive_interval_millis > 3600000 ) ) {

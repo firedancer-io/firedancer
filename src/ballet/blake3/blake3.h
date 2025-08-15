@@ -1,5 +1,5 @@
 // Source originally from https://github.com/BLAKE3-team/BLAKE3
-// From commit: 64747d48ffe9d1fbf4b71e94cabeb8a211461081
+// From commit: df610ddc3b93841ffc59a87e3da659a15910eb46
 
 #ifndef BLAKE3_H
 #define BLAKE3_H
@@ -11,7 +11,9 @@
 extern "C" {
 #endif
 
-#define BLAKE3_VERSION_STRING "1.3.3"
+#define BLAKE3_API
+
+#define BLAKE3_VERSION_STRING "1.8.2"
 #define BLAKE3_KEY_LEN 32
 #define BLAKE3_OUT_LEN 32
 #define BLAKE3_BLOCK_LEN 64
@@ -41,20 +43,20 @@ typedef struct {
   uint8_t cv_stack[(BLAKE3_MAX_DEPTH + 1) * BLAKE3_OUT_LEN];
 } blake3_hasher;
 
-const char *fd_blake3_version(void);
-void fd_blake3_hasher_init(blake3_hasher *self);
-void fd_blake3_hasher_init_keyed(blake3_hasher *self,
-                                 const uint8_t key[BLAKE3_KEY_LEN]);
-void fd_blake3_hasher_init_derive_key(blake3_hasher *self, const char *context);
-void fd_blake3_hasher_init_derive_key_raw(blake3_hasher *self, const void *context,
-                                          size_t context_len);
-void fd_blake3_hasher_update(blake3_hasher *self, const void *input,
-                             size_t input_len);
-void fd_blake3_hasher_finalize(const blake3_hasher *self, uint8_t *out,
-                               size_t out_len);
-void fd_blake3_hasher_finalize_seek(const blake3_hasher *self, uint64_t seek,
-                                    uint8_t *out, size_t out_len);
-void fd_blake3_hasher_reset(blake3_hasher *self);
+BLAKE3_API const char *blake3_version(void);
+BLAKE3_API void blake3_hasher_init(blake3_hasher *self);
+BLAKE3_API void blake3_hasher_init_keyed(blake3_hasher *self,
+                                         const uint8_t key[BLAKE3_KEY_LEN]);
+BLAKE3_API void blake3_hasher_init_derive_key(blake3_hasher *self, const char *context);
+BLAKE3_API void blake3_hasher_init_derive_key_raw(blake3_hasher *self, const void *context,
+                                                  size_t context_len);
+BLAKE3_API void blake3_hasher_update(blake3_hasher *self, const void *input,
+                                     size_t input_len);
+BLAKE3_API void blake3_hasher_finalize(const blake3_hasher *self, uint8_t *out,
+                                       size_t out_len);
+BLAKE3_API void blake3_hasher_finalize_seek(const blake3_hasher *self, uint64_t seek,
+                                            uint8_t *out, size_t out_len);
+BLAKE3_API void blake3_hasher_reset(blake3_hasher *self);
 
 #ifdef __cplusplus
 }

@@ -516,7 +516,7 @@ after_frag( fd_snaprd_tile_t *  ctx,
         break;
       case FD_SNAPRD_STATE_FLUSHING_FULL_HTTP:
       case FD_SNAPRD_STATE_FLUSHING_INCREMENTAL_HTTP:
-        FD_LOG_NOTICE(( "error downloading snapshot from http://" FD_IP4_ADDR_FMT ":%hu/snapshot.tar.bz2",
+        FD_LOG_NOTICE(( "error downloading snapshot from http://" FD_IP4_ADDR_FMT ":%hu/incremental-snapshot.tar.bz2",
                         FD_IP4_ADDR_FMT_ARGS( ctx->addr.addr ), ctx->addr.port ));
         fd_sshttp_cancel( ctx->sshttp );
         fd_ssping_invalidate( ctx->ssping, ctx->addr, fd_log_wallclock() );
