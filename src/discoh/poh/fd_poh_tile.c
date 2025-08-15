@@ -528,6 +528,12 @@ typedef struct {
      so that they can resume the replay stage if it was suspended waiting. */
   void * signal_leader_change;
 
+  /* Leader fseq for low power mode. When non-NULL, the PoH tile updates
+     this fseq to 1 when it becomes leader and to 0 when it stops being
+     leader. When leader, all tiles busy spin regardless of low-power settings
+     to ensure peak performance when leader. */
+  ulong * leader_state;
+
   /* These are temporarily set in during_frag so they can be used in
      after_frag once the frag has been validated as not overrun. */
   uchar _txns[ USHORT_MAX ];
@@ -1764,6 +1770,15 @@ during_housekeeping( fd_poh_ctx_t * ctx ) {
     FD_COMPILER_MFENCE();
     fd_ext_poh_signal_leader_change( ctx->signal_leader_change );
   }
+
+  if ( FD_UNLIKELY( ctx->leader_state ) ) {
+    ulong is_leader = ctx->slot+1UL>=ctx->next_leader_slot;
+    ulong current   = fd_fseq_query( ctx->leader_state );
+    if ( FD_UNLIKELY( current!=is_leader) ) {
+      fd_fseq_update( ctx->leader_state, is_leader );
+      FD_LOG_WARNING(( "fd_poh_leader_state_changed, is_leader=%lu, current=%lu, slot=%lu, next_leader_slot=%lu", is_leader, current, ctx->slot, ctx->next_leader_slot ));
+    }
+  }
 }
 
 static inline void
@@ -2230,6 +2245,7 @@ unprivileged_init( fd_topo_t *      topo,
   ctx->sha256   = NONNULL( fd_sha256_join( fd_sha256_new( sha256 ) ) );
   ctx->current_leader_bank = NULL;
   ctx->signal_leader_change = NULL;
+  ctx->leader_state = NULL;
 
   ctx->shred_seq = ULONG_MAX;
   ctx->halted_switching_key = 0;
@@ -2267,6 +2283,14 @@ unprivileged_init( fd_topo_t *      topo,
 
   fd_shred_version = fd_fseq_join( fd_topo_obj_laddr( topo, poh_shred_obj_id ) );
   FD_TEST( fd_shred_version );
+
+  if( FD_UNLIKELY( tile->idle_sleep ) ) {
+    ulong leader_state_obj_id = fd_pod_query_ulong( topo->props, "leader_state", ULONG_MAX );
+    FD_TEST( leader_state_obj_id!=ULONG_MAX );
+    ctx->leader_state = fd_fseq_join( fd_topo_obj_laddr(topo, leader_state_obj_id) );
+    FD_TEST( ctx->leader_state );
+    fd_fseq_update( ctx->leader_state, 0UL );
+  }
 
   poh_link_init( &gossip_dedup,          topo, tile, out1( topo, tile, "gossip_dedup" ).idx );
   poh_link_init( &stake_out,             topo, tile, out1( topo, tile, "stake_out"    ).idx );
