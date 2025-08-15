@@ -1,6 +1,7 @@
 #include "fd_alloc.h"
 #include "fd_alloc_cfg.h"
 #include "../sanitize/fd_asan.h"
+#include "../sanitize/fd_msan.h"
 /* Note: this will still compile on platforms without FD_HAS_ATOMIC.  It
    should only be used single threaded in those use cases.  (The code
    does imitate at a very low level the operations required by
@@ -291,6 +292,7 @@ fd_alloc_private_inactive_stack_pop( fd_alloc_vgaddr_t * inactive_stack,
 
     /**/  top_gaddr = (ulong)fd_alloc_vgaddr_off( old );
     ulong top_ver   = (ulong)fd_alloc_vgaddr_ver( old );
+    fd_msan_unpoison( &top_gaddr, sizeof( top_gaddr ) );
     if( FD_UNLIKELY( !top_gaddr ) ) break;
 
     /* Try to pop the top of the inactive stack. */
@@ -597,11 +599,11 @@ fd_alloc_tag( fd_alloc_t * join ) {
   return FD_LIKELY( join ) ? fd_alloc_private_join_alloc( join )->tag : 0UL;
 }
 
-void *
-fd_alloc_malloc_at_least( fd_alloc_t * join,
-                          ulong        align,
-                          ulong        sz,
-                          ulong *      max ) {
+static inline void *
+fd_alloc_malloc_at_least_impl( fd_alloc_t * join,
+                               ulong        align,
+                               ulong        sz,
+                               ulong *      max ) {
 
   if( FD_UNLIKELY( !max ) ) return NULL;
 
@@ -883,6 +885,16 @@ fd_alloc_malloc_at_least( fd_alloc_t * join,
   *max = block_footprint - (alloc_laddr - block_laddr);
 
   return fd_alloc_hdr_store( (void *)alloc_laddr, superblock, block_idx, sizeclass );
+}
+
+void *
+fd_alloc_malloc_at_least( fd_alloc_t * join,
+                          ulong        align,
+                          ulong        sz,
+                          ulong *      max ) {
+  void * res = fd_alloc_malloc_at_least_impl( join, align, sz, max );
+  fd_msan_poison( res, *max );
+  return res;
 }
 
 void
@@ -1277,6 +1289,7 @@ fd_alloc_superblock_fprintf( fd_wksp_t * wksp,             /* non-NULL */
         uchar * laddr_est = (uchar *)fd_wksp_laddr_fast( wksp, gaddr_est );
         fd_alloc_hdr_t hdr = FD_LOAD( fd_alloc_hdr_t, laddr_est - sizeof(fd_alloc_hdr_t) );
 
+        fd_msan_unpoison( &hdr, sizeof( hdr ) );
         if( fd_alloc_hdr_sizeclass ( hdr )           ==sizeclass &&
             fd_alloc_hdr_block_idx ( hdr )           ==block_idx &&
             fd_alloc_hdr_superblock( hdr, laddr_est )==superblock ) {
@@ -1286,6 +1299,7 @@ fd_alloc_superblock_fprintf( fd_wksp_t * wksp,             /* non-NULL */
           ctr[1]++;
           break;
         }
+        fd_msan_poison( &hdr, sizeof( hdr ) );
 
         align_est >>= 1;
         if( FD_UNLIKELY( !align_est ) ) {
