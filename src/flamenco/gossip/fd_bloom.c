@@ -66,8 +66,8 @@ fd_bloom_new( void *     shmem,
 
   FD_SCRATCH_ALLOC_INIT( l, shmem );
   fd_bloom_t * bloom = FD_SCRATCH_ALLOC_APPEND( l, FD_BLOOM_ALIGN, sizeof(fd_bloom_t) );
-  void * _keys = FD_SCRATCH_ALLOC_APPEND( l, 8UL, num_keys );
-  void * _bits = FD_SCRATCH_ALLOC_APPEND( l, 1UL, (max_bits+7UL)/8UL );
+  void * _keys       = FD_SCRATCH_ALLOC_APPEND( l, 8UL, num_keys );
+  void * _bits       = FD_SCRATCH_ALLOC_APPEND( l, 1UL, (max_bits+7UL)/8UL );
 
   bloom->keys      = (ulong *)_keys;
   bloom->keys_len  = 0UL;
@@ -128,7 +128,7 @@ fd_bloom_insert( fd_bloom_t *  bloom,
                  uchar const * key,
                  ulong         key_sz ) {
   for( ulong i=0UL; i<bloom->keys_len; i++ ) {
-    ulong bit = fnv_hasher( key, key_sz, bloom->keys[ i ]) % bloom->bits_len;
+    ulong bit = fnv_hasher( key, key_sz, bloom->keys[ i ] ) % bloom->bits_len;
     bloom->bits[ bit / 64UL ] |= (1UL << (bit % 64UL));
   }
 }

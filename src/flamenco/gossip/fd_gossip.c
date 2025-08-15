@@ -444,7 +444,6 @@ rx_pull_response( fd_gossip_t *                          gossip,
                   uchar const *                          payload,
                   fd_stem_context_t *                    stem,
                   long                                   now ) {
-  /* TODO: use epoch_duration and make timeouts ... ? */
   fd_gossip_metrics_t * metrics = gossip->metrics;
   for( ulong i=0UL; i<pull_response->crds_values_len; i++ ) {
     fd_gossip_view_crds_value_t const * value = &pull_response->crds_values[ i ];
@@ -469,10 +468,10 @@ rx_pull_response( fd_gossip_t *                          gossip,
     uchar is_me = !memcmp( origin_pubkey, gossip->identity_pubkey, 32UL );
     if( FD_UNLIKELY( is_me ) ) {
       accept_after_nanos = 0L;
-    } else if( !origin_stake ) {
+    } else if( !origin_stake && fd_crds_has_staked_node( gossip->crds ) ) {
       accept_after_nanos = now-15L*1000L*1000L*1000L;
     } else {
-      accept_after_nanos = now-432000L*1000L*1000L*1000L;
+      accept_after_nanos = now-432000L*400L*1000L*1000L;
     }
 
     /* https://github.com/anza-xyz/agave/blob/540d5bc56cd44e3cc61b179bd52e9a782a2c99e4/gossip/src/crds_gossip_pull.rs#L340-L351 */
