@@ -14,5 +14,5 @@ main( int     argc,
     NULL
   };
 
-  return fd_dev_main( argc, argv, 0, configs, fd_topo_initialize );
+  return fd_dev_main( argc, argv, 0, configs );
 }

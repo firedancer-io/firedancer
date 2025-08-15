@@ -20,8 +20,6 @@ ifdef FD_HAS_THREADS
 ifdef FD_HAS_ALLOCA
 ifdef FD_HAS_DOUBLE
 ifdef FD_HAS_INT128
-ifdef FD_HAS_SECP256K1
-ifdef FD_HAS_ZSTD
 
 $(OBJDIR)/obj/app/firedancer/config.o: src/app/firedancer/config/default.toml
 $(OBJDIR)/obj/app/firedancer/config.o: src/app/firedancer/config/testnet.toml
@@ -43,15 +41,23 @@ $(call add-objs,commands/shred_version,fd_firedancer)
 $(call make-lib,firedancer_version)
 $(call add-objs,version,firedancer_version)
 
+ifdef FD_HAS_SECP256K1
+ifdef FD_HAS_ZSTD
+FD_HAS_FIREDANCER_DEPS:=1
+endif
+endif
+
+endif
+endif
+endif
+endif
+endif
+
+
+ifdef FD_HAS_FIREDANCER_DEPS
 $(call make-bin,firedancer,main,fd_firedancer fdctl_shared fdctl_platform fd_discof fd_disco fd_choreo fd_flamenco fd_funk fd_quic fd_tls fd_reedsol fd_waltz fd_tango fd_ballet fd_util firedancer_version,$(SECP256K1_LIBS) $(OPENSSL_LIBS))
 
 firedancer: $(OBJDIR)/bin/firedancer
 else
-$(warning firedancer build disabled due to lack of zstd)
-endif
-endif
-endif
-endif
-endif
-endif
+$(warning firedancer build not supported on this platform, missing deps?)
 endif

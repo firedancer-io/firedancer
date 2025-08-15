@@ -10,8 +10,7 @@ int
 fd_dev_main( int                        argc,
              char **                    _argv,
              int                        is_firedancer,
-             fd_config_file_t * const * configs,
-             void (* topo_init )( config_t * config ) );
+             fd_config_file_t * const * configs );
 
 FD_PROTOTYPES_END
 

@@ -175,7 +175,7 @@ fd_main_init( int *                      pargc,
                                &override_config, &override_config_path, &override_config_sz );
 
     fd_config_load( is_firedancer, netns, is_local_cluster, default_config, default_config_sz, override_config, override_config_path, override_config_sz, user_config, user_config_sz, opt_user_config_path, config );
-    topo_init( config );
+    if( topo_init ) topo_init( config );
 
     if( FD_UNLIKELY( user_config && -1==munmap( user_config, user_config_sz ) ) ) FD_LOG_ERR(( "munmap() failed (%i-%s)", errno, fd_io_strerror( errno ) ));
 

@@ -14,7 +14,10 @@
 #include <pthread.h>
 #include <sys/wait.h>
 
-fd_topo_run_tile_t
+extern void
+fd_topo_initialize( fd_config_t * config );
+
+extern fd_topo_run_tile_t
 fdctl_tile_run( fd_topo_tile_t const * tile );
 
 void
@@ -151,6 +154,8 @@ void
 dev_cmd_fn( args_t *   args,
             config_t * config,
             void ( * agave_main )( config_t const * ) ) {
+  fd_topo_initialize( config );
+
   if( FD_LIKELY( !args->dev.no_configure ) ) {
     args_t configure_args = {
       .configure.command = CONFIGURE_CMD_INIT,

@@ -60,8 +60,7 @@ int
 fd_dev_main( int                        argc,
              char **                    _argv,
              int                        is_firedancer,
-             fd_config_file_t * const * configs,
-             void (* topo_init )( config_t * config ) ) {
+             fd_config_file_t * const * configs ) {
   /* save original arguments list in case we need to respawn the process
      as privileged */
   int    orig_argc = argc;
@@ -115,7 +114,7 @@ fd_dev_main( int                        argc,
     exit( 1 );
   }
 
-  fd_main_init( &argc, &argv, &config, opt_user_config_path, is_firedancer, action->is_local_cluster, log_path, configs, topo_init );
+  fd_main_init( &argc, &argv, &config, opt_user_config_path, is_firedancer, action->is_local_cluster, log_path, configs, NULL );
 
   config.development.no_clone = config.development.no_clone || no_clone;
   config.development.sandbox = config.development.sandbox && !no_sandbox && !no_clone;

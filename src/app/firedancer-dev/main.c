@@ -128,29 +128,33 @@ fd_topo_run_tile_t * TILES[] = {
   &fd_tile_bundle,
   &fd_tile_gossip,
   &fd_tile_repair,
-  &fd_tile_replay,
-  &fd_tile_execor,
-  &fd_tile_writer,
   &fd_tile_poh,
   &fd_tile_send,
-  &fd_tile_tower,
   &fd_tile_rpcserv,
   &fd_tile_archiver_feeder,
   &fd_tile_archiver_writer,
   &fd_tile_archiver_playback,
   &fd_tile_shredcap,
-#if FD_HAS_ROCKSDB
-  &fd_tile_backtest,
-#endif
   &fd_tile_bencho,
   &fd_tile_benchg,
   &fd_tile_benchs,
   &fd_tile_pktgen,
   &fd_tile_udpecho,
   &fd_tile_snaprd,
+#if FD_HAS_ZSTD
   &fd_tile_snapdc,
+#endif
   &fd_tile_snapin,
   &fd_tile_ipecho,
+#if FD_HAS_SECP256k1
+  &fd_tile_replay,
+  &fd_tile_execor,
+  &fd_tile_writer,
+  &fd_tile_tower,
+#if FD_HAS_ROCKSDB
+  &fd_tile_backtest,
+#endif
+#endif
   NULL,
 };
 
@@ -237,5 +241,5 @@ main( int     argc,
     NULL
   };
 
-  return fd_dev_main( argc, argv, 1, configs, fd_topo_initialize );
+  return fd_dev_main( argc, argv, 1, configs );
 }
