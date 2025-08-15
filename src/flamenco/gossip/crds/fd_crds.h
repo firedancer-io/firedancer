@@ -165,6 +165,13 @@ fd_crds_insert( fd_crds_t *                         crds,
                 long                                now,
                 fd_stem_context_t *                 stem );
 
+/* fd_crds_has_staked_node returns true if any node in the cluster is
+   observed to have stake. This is used in timeout calculations, which
+   default to an extended expiry window when we have yet to observe
+   any staked peers. */
+int
+fd_crds_has_staked_node( fd_crds_t const * crds );
+
 void
 fd_crds_entry_value( fd_crds_entry_t const * entry,
                      uchar const **          value_bytes,
