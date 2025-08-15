@@ -1187,48 +1187,7 @@ fd_sbpf_relocate( fd_sbpf_loader_t   const * loader,
   return 0;
 }
 
-static int FD_FN_UNUSED
-fd_sbpf_zero_rodata( fd_sbpf_elf_t *            elf,
-                     uchar *                    rodata,
-                     fd_sbpf_elf_info_t const * info ) {
-
-  fd_elf64_shdr const * shdrs = (fd_elf64_shdr const *)( elf->bin + elf->ehdr.e_shoff );
-
-  /* memset gaps between sections to zero.
-      Assume section sh_addrs are monotonically increasing.
-      Assume section virtual address ranges equal physical address ranges.
-      Assume ranges are not overflowing. */
-  /* FIXME match Solana more closely here */
-
-  ulong cursor = 0UL;
-  for( ulong i=0; i<elf->ehdr.e_shnum; i++ ) {
-    if( !( info->loaded_sections[ i>>6UL ] & (1UL<<(i&63UL)) ) ) continue;
-
-    fd_elf64_shdr const * shdr = &shdrs[ i ];
-
-    /* NOBITS sections are included in rodata, but may have invalid
-       offsets, thus we can't trust the shdr->sh_offset field. */
-    if( FD_UNLIKELY( shdr->sh_type==FD_ELF_SHT_NOBITS ) ) continue;
-
-    ulong off = shdr->sh_offset;
-    ulong sz  = shdr->sh_size;
-    assert( cursor<=off             );  /* Invariant: Monotonically increasing offsets */
-    assert( off+sz>=off             );  /* Invariant: No integer overflow */
-    assert( off+sz<=info->rodata_sz );  /* Invariant: No buffer overflow */
-
-    /* Fill gap with zeros */
-    ulong gap = off - cursor;
-    fd_memset( rodata+cursor, 0, gap );
-
-    cursor = off+sz;
-  }
-
-  fd_memset( rodata+cursor, 0, info->rodata_sz - cursor );
-
-  return 0;
-}
-
-static int FD_FN_UNUSED
+static int
 fd_sbpf_parse_rodata( fd_sbpf_elf_t * elf,
                      uchar *       rodata,
                      fd_sbpf_elf_info_t const * info ) {
