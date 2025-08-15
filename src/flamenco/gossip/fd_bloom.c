@@ -160,6 +160,8 @@ fd_bloom_init_inplace( ulong *      keys,
     return -1;
   }
   out_bloom->keys                = keys;
+  for( ulong i=0UL; i<keys_len; i++ ) out_bloom->keys[ i ] = fd_rng_ulong( rng );
+
   out_bloom->keys_len            = keys_len;
   out_bloom->bits                = bits;
   out_bloom->bits_len            = bits_len;
