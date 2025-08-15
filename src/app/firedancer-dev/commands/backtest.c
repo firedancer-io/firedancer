@@ -179,10 +179,12 @@ backtest_topo( config_t * config ) {
   /**********************************************************************/
   /* Setup replay->backtest link (replay_notif) in topo                 */
   /**********************************************************************/
-  fd_topob_wksp( topo, "replay_notif" );
-  fd_topob_link( topo, "replay_notif", "replay_notif", FD_REPLAY_NOTIF_DEPTH, FD_REPLAY_NOTIF_MTU, 1UL );
-  fd_topob_tile_in(  topo, "back", 0UL, "metric_in", "replay_notif", 0UL, FD_TOPOB_RELIABLE, FD_TOPOB_POLLED );
-  fd_topob_tile_out( topo, "replay", 0UL, "replay_notif", 0UL );
+
+  fd_topob_wksp( topo, "replay_out"   );
+  fd_topob_link( topo, "replay_out", "replay_out", 128UL, sizeof( fd_replay_out_t ), 1UL );
+  fd_topob_tile_out( topo, "replay", 0UL, "replay_out", 0UL );
+  fd_topob_tile_in ( topo, "back", 0UL, "metric_in", "replay_out", 0UL, FD_TOPOB_RELIABLE, FD_TOPOB_POLLED );
+  fd_topob_tile_in ( topo, "back", 0UL, "metric_in", "snap_out",   0UL, FD_TOPOB_RELIABLE, FD_TOPOB_POLLED );
 
   /**********************************************************************/
   /* Setup replay->exec links in topo                                   */
@@ -217,28 +219,11 @@ backtest_topo( config_t * config ) {
   /* Setup the shared objs used by replay and exec tiles                */
   /**********************************************************************/
 
-  fd_topob_wksp( topo, "slot_fseqs"  ); /* fseqs for marked slots eg. turbine slot */
-
   fd_topob_wksp( topo, "store" );
   fd_topo_obj_t * store_obj = setup_topo_store( topo, "store", config->firedancer.store.max_completed_shred_sets, 1 );
   fd_topob_tile_uses( topo, backtest_tile, store_obj, FD_SHMEM_JOIN_MODE_READ_WRITE );
   fd_topob_tile_uses( topo, replay_tile, store_obj, FD_SHMEM_JOIN_MODE_READ_WRITE );
   FD_TEST( fd_pod_insertf_ulong( topo->props, store_obj->id, "store" ) );
-
-  fd_topo_obj_t * root_slot_obj = fd_topob_obj( topo, "fseq", "slot_fseqs" );
-  fd_topob_tile_uses( topo, backtest_tile,  root_slot_obj, FD_SHMEM_JOIN_MODE_READ_ONLY  );
-  fd_topob_tile_uses( topo, replay_tile, root_slot_obj, FD_SHMEM_JOIN_MODE_READ_WRITE );
-  FD_TEST( fd_pod_insertf_ulong( topo->props, root_slot_obj->id, "root_slot" ) );
-
-  fd_topo_obj_t * turbine_slot0_obj = fd_topob_obj( topo, "fseq", "slot_fseqs" );
-  fd_topob_tile_uses( topo, backtest_tile, turbine_slot0_obj, FD_SHMEM_JOIN_MODE_READ_WRITE );
-  fd_topob_tile_uses( topo, replay_tile, turbine_slot0_obj, FD_SHMEM_JOIN_MODE_READ_ONLY );
-  FD_TEST( fd_pod_insertf_ulong( topo->props, turbine_slot0_obj->id, "turbine_slot0" ) );
-
-  fd_topo_obj_t * turbine_slot_obj = fd_topob_obj( topo, "fseq", "slot_fseqs" );
-  fd_topob_tile_uses( topo, backtest_tile, turbine_slot_obj, FD_SHMEM_JOIN_MODE_READ_WRITE );
-  fd_topob_tile_uses( topo, replay_tile, turbine_slot_obj, FD_SHMEM_JOIN_MODE_READ_ONLY );
-  FD_TEST( fd_pod_insertf_ulong( topo->props, turbine_slot_obj->id, "turbine_slot" ) );
 
   /* runtime_pub_obj shared by replay, exec and writer tiles */
   fd_topob_wksp( topo, "runtime_pub" );

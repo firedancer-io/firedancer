@@ -37,17 +37,17 @@ fd_store_new( void * shmem, ulong fec_max, ulong part_cnt ) {
     return NULL;
   }
 
-  fd_memset( shmem, 0, footprint );
-
   /* This seed value is very important. We have fec_max chains in the
      map, which means the size of each partition of buckets should be
      fec_max / part_cnt. When inserting into the map, we use the
      partition_slot_cnt as the seed, so that the modified hash function
      can use the seed/partition_slot_cnt to hash the key into the
      correct partition. */
+
   ulong part_slot_cnt = fec_max / part_cnt;
   ulong seed          = part_slot_cnt;
 
+  fd_memset( shmem, 0, footprint );
   FD_SCRATCH_ALLOC_INIT( l, shmem );
   fd_store_t * store  = FD_SCRATCH_ALLOC_APPEND( l, fd_store_align(),        sizeof( fd_store_t )               );
   void *       map    = FD_SCRATCH_ALLOC_APPEND( l, fd_store_map_align(),    fd_store_map_footprint ( fec_max ) );
@@ -80,24 +80,24 @@ fd_store_new( void * shmem, ulong fec_max, ulong part_cnt ) {
 
 fd_store_t *
 fd_store_join( void * shstore ) {
-  fd_store_t * store = (fd_store_t *)shstore;
 
-  if( FD_UNLIKELY( !store ) ) {
+  if( FD_UNLIKELY( !shstore ) ) {
     FD_LOG_WARNING(( "NULL store" ));
     return NULL;
   }
 
-  if( FD_UNLIKELY( !fd_ulong_is_aligned((ulong)store, fd_store_align() ) ) ) {
+  if( FD_UNLIKELY( !fd_ulong_is_aligned((ulong)shstore, fd_store_align() ) ) ) {
     FD_LOG_WARNING(( "misaligned store" ));
     return NULL;
   }
 
-  fd_wksp_t * wksp = fd_wksp_containing( store );
+  fd_wksp_t * wksp = fd_wksp_containing( shstore );
   if( FD_UNLIKELY( !wksp ) ) {
     FD_LOG_WARNING(( "store must be part of a workspace" ));
     return NULL;
   }
 
+  fd_store_t * store = (fd_store_t *)shstore;
   if( FD_UNLIKELY( store->magic!=FD_STORE_MAGIC ) ) {
     FD_LOG_WARNING(( "bad magic" ));
     return NULL;
@@ -119,18 +119,18 @@ fd_store_leave( fd_store_t const * store ) {
 
 void *
 fd_store_delete( void * shstore ) {
-  fd_store_t * store = shstore;
 
-  if( FD_UNLIKELY( !store ) ) {
+  if( FD_UNLIKELY( !shstore ) ) {
     FD_LOG_WARNING(( "NULL store" ));
     return NULL;
   }
 
-  if( FD_UNLIKELY( !fd_ulong_is_aligned((ulong)store, fd_store_align() ) ) ) {
+  if( FD_UNLIKELY( !fd_ulong_is_aligned((ulong)shstore, fd_store_align() ) ) ) {
     FD_LOG_WARNING(( "misaligned store" ));
     return NULL;
   }
 
+  fd_store_t * store = (fd_store_t *)shstore;
   if( FD_UNLIKELY( store->magic!=FD_STORE_MAGIC ) ) {
     FD_LOG_WARNING(( "bad magic" ));
     return NULL;
@@ -140,13 +140,14 @@ fd_store_delete( void * shstore ) {
   FD_VOLATILE( store->magic ) = 0UL;
   FD_COMPILER_MFENCE();
 
-  return store;
+  return shstore;
 }
 
 fd_store_fec_t *
 fd_store_insert( fd_store_t * store,
                  ulong        part_idx,
                  fd_hash_t  * merkle_root ) {
+
 # if FD_STORE_USE_HANDHOLDING
   if( FD_UNLIKELY( fd_store_query_const( store, merkle_root ) ) ) { FD_LOG_WARNING(( "merkle root %s already in store", FD_BASE58_ENC_32_ALLOCA( merkle_root ) )); return NULL; }
 # endif
@@ -175,6 +176,7 @@ fd_store_insert( fd_store_t * store,
 
 fd_store_fec_t *
 fd_store_link( fd_store_t * store, fd_hash_t * merkle_root, fd_hash_t * chained_merkle_root ) {
+
 # if FD_STORE_USE_HANDHOLDING
   if( FD_UNLIKELY( !fd_store_query_const( store, merkle_root         ) ) ) { FD_LOG_WARNING(( "missing merkle root %s",         FD_BASE58_ENC_32_ALLOCA( merkle_root         ) ) ); return NULL; }
   if( FD_UNLIKELY( !fd_store_query_const( store, chained_merkle_root ) ) ) { FD_LOG_WARNING(( "missing chained merkle root %s", FD_BASE58_ENC_32_ALLOCA( chained_merkle_root ) ) ); return NULL; }
@@ -199,15 +201,15 @@ fd_store_fec_t *
 fd_store_publish( fd_store_t  * store,
                   fd_hash_t   * merkle_root ) {
 
+# if FD_STORE_USE_HANDHOLDING
+  if( FD_UNLIKELY( !fd_store_query( store, merkle_root ) ) ) { FD_LOG_WARNING(( "merkle root %s not found", FD_BASE58_ENC_32_ALLOCA( merkle_root ) )); return NULL; }
+# endif
+
   fd_store_map_t  * map  = fd_store_map ( store );
   fd_store_pool_t   pool = fd_store_pool( store );
   fd_store_fec_t  * fec0 = fd_store_fec0( store );
   fd_store_fec_t  * oldr = fd_store_root( store );
   fd_store_fec_t  * newr = fd_store_query( store, merkle_root );
-
-# if FD_STORE_USE_HANDHOLDING
-  if( FD_UNLIKELY( !newr ) ) { FD_LOG_WARNING(( "merkle root %s not found", FD_BASE58_ENC_32_ALLOCA( merkle_root ) )); return NULL; }
-# endif
 
   /* First, remove the previous root, and push it as the first element
      of the BFS queue. */
@@ -245,16 +247,16 @@ fd_store_publish( fd_store_t  * store,
 fd_store_t *
 fd_store_clear( fd_store_t * store ) {
 
+# if FD_STORE_USE_HANDHOLDING
+  if( FD_UNLIKELY( !fd_store_root( store ) ) ) { FD_LOG_WARNING(( "calling clear on an empty store" )); return NULL; }
+# endif
+
   fd_store_map_t * map  = fd_store_map( store );
   fd_store_pool_t  pool = fd_store_pool( store );
   fd_store_fec_t * fec0 = fd_store_fec0( store );
 
   fd_store_fec_t * head = fd_store_root( store );
   fd_store_fec_t * tail = head;
-
-# if FD_STORE_USE_HANDHOLDING
-  if ( FD_UNLIKELY( !head ) ) { FD_LOG_WARNING(( "calling clear on an empty store" )); return store; }
-# endif
 
   for( fd_store_map_iter_t iter = fd_store_map_iter_init( map, fec0 );
        !fd_store_map_iter_done( iter, map, fec0 );
@@ -278,6 +280,7 @@ fd_store_clear( fd_store_t * store ) {
 
 int
 fd_store_verify( fd_store_t * store ) {
+
   fd_store_map_t * map  = fd_store_map( store );
   fd_store_fec_t * fec0 = fd_store_fec0( store );
 
@@ -311,14 +314,13 @@ fd_store_verify( fd_store_t * store ) {
 
 static void
 print( fd_store_t const * store, fd_store_fec_t const * fec, int space, const char * prefix ) {
-  fd_store_pool_t pool = fd_store_pool_const( store );
 
   if( fec == NULL ) return;
-
   if( space > 0 ) printf( "\n" );
   for( int i = 0; i < space; i++ ) printf( " " );
   printf( "%s%s", prefix, FD_BASE58_ENC_32_ALLOCA( &fec->key.mr ) );
 
+  fd_store_pool_t pool = fd_store_pool_const( store );
   fd_store_fec_t const * curr = fd_store_pool_ele_const( &pool, fec->child );
   char new_prefix[1024]; /* FIXME size this correctly */
   while( curr ) {

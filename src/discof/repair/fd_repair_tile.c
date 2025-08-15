@@ -64,7 +64,8 @@
 #include "../forest/fd_forest.h"
 #include "../reasm/fd_reasm.h"
 
-#define LOGGING 0
+#define LOGGING 1
+#define DEBUG_LOGGING 0
 
 #define IN_KIND_CONTACT (0)
 #define IN_KIND_NET     (1)
@@ -152,9 +153,6 @@ struct fd_repair_tile_ctx {
   fd_forest_iter_t   repair_iter;
   fd_store_t       * store;
 
-  ulong * turbine_slot0;
-  ulong * turbine_slot;
-
   uchar       identity_private_key[ 32 ];
   fd_pubkey_t identity_public_key;
 
@@ -223,6 +221,8 @@ struct fd_repair_tile_ctx {
   fd_keyguard_client_t keyguard_client[1];
 
   ulong manifest_slot;
+  ulong turbine_slot;
+
   /* Pending sign requests */
   fd_repair_pending_sign_req_t      * pending_sign_req_pool;
   fd_repair_pending_sign_req_map_t  * pending_sign_req_map;
@@ -843,15 +843,16 @@ after_frag( fd_repair_tile_ctx_t * ctx,
       FD_LOG_WARNING(( "shred %lu %u %u too old, ignoring", shred->slot, shred->idx, shred->fec_set_idx ));
       return;
     };
-
-    /* Update turbine_slot0 and turbine_slot. */
-
-    if( FD_UNLIKELY( fd_fseq_query( ctx->turbine_slot0 )==ULONG_MAX ) ) {
-      fd_fseq_update( ctx->turbine_slot0, shred->slot );
-      FD_LOG_NOTICE(("First turbine slot %lu", shred->slot));
+#   if LOGGING
+    if( FD_UNLIKELY( shred->slot > ctx->turbine_slot ) ) {
+      FD_LOG_NOTICE(( "\n\n[Turbine]\n"
+                      "slot:             %lu\n"
+                      "root:             %lu\n",
+                      shred->slot,
+                      fd_forest_root_slot( ctx->forest ) ));
     }
-    fd_fseq_update( ctx->turbine_slot, fd_ulong_max( shred->slot, fd_fseq_query( ctx->turbine_slot ) ) );
-    if( FD_UNLIKELY( shred->slot <= fd_forest_root_slot( ctx->forest ) ) ) return; /* shred too old */
+#   endif
+    ctx->turbine_slot = fd_ulong_max( shred->slot, ctx->turbine_slot );
 
     /* TODO add automated caught-up test */
 
@@ -980,10 +981,9 @@ after_credit( fd_repair_tile_ctx_t * ctx,
       if( FD_UNLIKELY( !fd_store_link( ctx->store, &rfec->key, &rfec->cmr ) ) ) FD_LOG_WARNING(( "failed to link %s %s. slot %lu fec_set_idx %u", FD_BASE58_ENC_32_ALLOCA( &rfec->key ), FD_BASE58_ENC_32_ALLOCA( &rfec->cmr ), rfec->slot, rfec->fec_set_idx ));
       FD_STORE_SHREL_TIMED( ctx->store, shrel_end );
 
-      memcpy( fd_chunk_to_laddr( ctx->replay_out_mem, ctx->replay_out_chunk ), rfec, sizeof(fd_reasm_fec_t) );
       ulong sig   = rfec->slot << 32 | rfec->fec_set_idx;
-      ulong tspub = fd_frag_meta_ts_comp( fd_tickcount() );
-      fd_stem_publish( stem, REPLAY_OUT_IDX, sig, ctx->replay_out_chunk, sizeof(fd_reasm_fec_t), 0, 0, tspub );
+      memcpy( fd_chunk_to_laddr( ctx->replay_out_mem, ctx->replay_out_chunk ), rfec, sizeof(fd_reasm_fec_t) );
+      fd_stem_publish( stem, REPLAY_OUT_IDX, sig, ctx->replay_out_chunk, sizeof(fd_reasm_fec_t), 0, 0, fd_frag_meta_ts_comp( fd_tickcount() ) );
       ctx->replay_out_chunk = fd_dcache_compact_next( ctx->replay_out_chunk, sizeof(fd_reasm_fec_t), ctx->replay_out_chunk0, ctx->replay_out_wmark );
 
       fd_histf_sample( ctx->repair->metrics.store_link_wait, (ulong)fd_long_max(shacq_end - shacq_start, 0) );
@@ -1068,9 +1068,7 @@ after_credit( fd_repair_tile_ctx_t * ctx,
      frontier are fully complete and the iter is done */
 
   fd_forest_ele_t const * ele = fd_forest_pool_ele_const( pool, ctx->repair_iter.ele_idx );
-  if( FD_LIKELY( !ele || ( ele->slot == fd_fseq_query( ctx->turbine_slot ) && ( now - ctx->tsreset ) < (long)30e6 ) ) ){
-    return;
-  }
+  if( FD_LIKELY( !ele || ( ele->slot==ctx->turbine_slot && (now-ctx->tsreset)<(long)30e6 ) ) ) return;
 
   while( total_req < MAX_REQ_PER_CREDIT ){
     ele = fd_forest_pool_ele_const( pool, ctx->repair_iter.ele_idx );
@@ -1100,9 +1098,9 @@ static inline void
 during_housekeeping( fd_repair_tile_ctx_t * ctx ) {
   fd_repair_settime( ctx->repair, fd_log_wallclock() );
 
-# if LOGGING
+# if DEBUG_LOGGING
   long now = fd_log_wallclock();
-  if( FD_UNLIKELY( now - ctx->tsprint > (long)10e9 ) ) {
+  if( FD_UNLIKELY( now - ctx->tsprint > (long)60e9 ) ) {
     fd_forest_print( ctx->forest );
     fd_reasm_print( ctx->reasm );
     ctx->tsprint = fd_log_wallclock();
@@ -1335,21 +1333,7 @@ unprivileged_init( fd_topo_t *      topo,
   ctx->repair_iter = fd_forest_iter_init( ctx->forest );
   FD_TEST( fd_forest_iter_done( ctx->repair_iter, ctx->forest ) );
 
-  /**********************************************************************/
-  /* turbine_slot fseq                                                  */
-  /**********************************************************************/
-
-  ulong turbine_slot0_obj_id = fd_pod_queryf_ulong( topo->props, ULONG_MAX, "turbine_slot0" );
-  FD_TEST( turbine_slot0_obj_id!=ULONG_MAX );
-  ctx->turbine_slot0 = fd_fseq_join( fd_topo_obj_laddr( topo, turbine_slot0_obj_id ) );
-  FD_TEST( ctx->turbine_slot0 );
-  FD_TEST( fd_fseq_query( ctx->turbine_slot0 )==ULONG_MAX );
-
-  ulong turbine_slot_obj_id = fd_pod_queryf_ulong( topo->props, ULONG_MAX, "turbine_slot" );
-  FD_TEST( turbine_slot_obj_id!=ULONG_MAX );
-  ctx->turbine_slot = fd_fseq_join( fd_topo_obj_laddr( topo, turbine_slot_obj_id ) );
-  FD_TEST( ctx->turbine_slot );
-  fd_fseq_update( ctx->turbine_slot, 0UL );
+  ctx->turbine_slot = 0;
 
   FD_LOG_NOTICE(( "repair my addr - intake addr: " FD_IP4_ADDR_FMT ":%u, serve_addr: " FD_IP4_ADDR_FMT ":%u",
     FD_IP4_ADDR_FMT_ARGS( ctx->repair_intake_addr.addr ), fd_ushort_bswap( ctx->repair_intake_addr.port ),

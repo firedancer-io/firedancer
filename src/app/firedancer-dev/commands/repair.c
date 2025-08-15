@@ -216,28 +216,6 @@ repair_topo( config_t * config ) {
   fd_topo_obj_t * root_slot_obj = fd_topob_obj( topo, "fseq", "slot_fseqs" );
   FD_TEST( fd_pod_insertf_ulong( topo->props, root_slot_obj->id, "root_slot" ) );
 
-  /* turbine_slot0 is an fseq marking the slot number of the first shred
-     we observed from Turbine.  This is a useful heuristic for
-     determining when replay has progressed past the slot in which we
-     last voted.  The idea is once replay has proceeded past the slot
-     from which validator stopped replaying and therefore also stopped
-     voting (crashed, shutdown, etc.), it will have "read-back" its
-     latest tower in the ledger.  Note this logic is not true in the
-     case our latest tower vote was for a minority fork. */
-
-  fd_topo_obj_t * turbine_slot0_obj = fd_topob_obj( topo, "fseq", "slot_fseqs" );
-  fd_topob_tile_uses( topo, repair_tile, turbine_slot0_obj, FD_SHMEM_JOIN_MODE_READ_WRITE );
-  FD_TEST( fd_pod_insertf_ulong( topo->props, turbine_slot0_obj->id, "turbine_slot0" ) );
-
-  /* turbine_slot is an fseq marking the highest slot we've observed on
-     a shred.  This is continuously updated as the validator is running
-     and is used to determine whether the validator is caught up with
-     the rest of the cluster. */
-
-  fd_topo_obj_t * turbine_slot_obj = fd_topob_obj( topo, "fseq", "slot_fseqs" );
-  fd_topob_tile_uses( topo, repair_tile, turbine_slot_obj, FD_SHMEM_JOIN_MODE_READ_WRITE );
-  FD_TEST( fd_pod_insertf_ulong( topo->props, turbine_slot_obj->id, "turbine_slot" ) );
-
   for( ulong i=0UL; i<shred_tile_cnt; i++ ) {
     fd_topo_tile_t * shred_tile = &topo->tiles[ fd_topo_find_tile( topo, "shred", i ) ];
     fd_topob_tile_uses( topo, shred_tile, poh_shred_obj, FD_SHMEM_JOIN_MODE_READ_ONLY );
