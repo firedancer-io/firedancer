@@ -62,7 +62,6 @@ struct fd_gossip_private {
 
   stake_weight_entry_t *    stake_weights;
 
-  /* Event timers */
   struct {
     long next_pull_request;
     long next_active_set_refresh;
@@ -198,6 +197,11 @@ fd_gossip_new( void *                    shmem,
   FD_TEST( fd_sha512_join( fd_sha512_new( gossip->sha512 ) ) );
 
   gossip->rng = rng;
+
+  gossip->timers.next_pull_request = 0L;
+  gossip->timers.next_active_set_refresh = 0L;
+  gossip->timers.next_contact_info_refresh = 0L;
+  gossip->timers.next_flush_push_state = 0L;
 
   gossip->send_fn  = send_fn;
   gossip->send_ctx = send_ctx;
