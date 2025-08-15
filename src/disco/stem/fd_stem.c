@@ -534,21 +534,14 @@ STEM_(run1)( ulong                        in_cnt,
     metric_in_backp = 0UL;
 
     int charge_busy_after = 0;
-#ifdef STEM_CALLBACK_AFTER_CREDIT
     int poll_in = 1;
+#ifdef STEM_CALLBACK_AFTER_CREDIT
     STEM_CALLBACK_AFTER_CREDIT( ctx, &stem, &poll_in, &charge_busy_after );
-    if( FD_UNLIKELY( !poll_in ) ) {
-      metric_regime_ticks[1] += housekeeping_ticks;
-      long next = fd_tickcount();
-      metric_regime_ticks[4] += (ulong)(next - now);
-      now = next;
-      continue;
-    }
 #endif
 
     /* Select which in to poll next (randomized round robin) */
 
-    if( FD_UNLIKELY( !in_cnt ) ) {
+    if( FD_UNLIKELY( (!in_cnt) | (!poll_in) ) ) {
       int was_busy = 0;
       was_busy |= !!charge_busy_before;
       was_busy |= !!charge_busy_after;
@@ -559,19 +552,12 @@ STEM_(run1)( ulong                        in_cnt,
       continue;
     }
 
-    ulong prefrag_ticks = 0UL;
 #if defined(STEM_CALLBACK_BEFORE_CREDIT) && defined(STEM_CALLBACK_AFTER_CREDIT)
     if( FD_LIKELY( charge_busy_before || charge_busy_after ) ) {
-#elif defined(STEM_CALLBACK_BEFORE_CREDIT)
-    if( FD_LIKELY( charge_busy_before ) ) {
-#elif defined(STEM_CALLBACK_AFTER_CREDIT)
-    if( FD_LIKELY( charge_busy_after ) ) {
-#endif
-
-#if defined(STEM_CALLBACK_BEFORE_CREDIT) || defined(STEM_CALLBACK_AFTER_CREDIT)
       long prefrag_next = fd_tickcount();
-      prefrag_ticks = (ulong)(prefrag_next - now);
+      ulong prefrag_ticks = (ulong)(prefrag_next - now);
       now = prefrag_next;
+      metric_regime_ticks[ 4 ] += prefrag_ticks;
     }
 #endif
 
@@ -600,12 +586,10 @@ STEM_(run1)( ulong                        in_cnt,
     long diff = fd_seq_diff( this_in_seq, seq_found );
     if( FD_UNLIKELY( diff ) ) { /* Caught up or overrun, optimize for new frag case */
       ulong * housekeeping_regime = &metric_regime_ticks[0];
-      ulong * prefrag_regime = &metric_regime_ticks[3];
       ulong * finish_regime = &metric_regime_ticks[6];
       if( FD_UNLIKELY( diff<0L ) ) { /* Overrun (impossible if in is honoring our flow control) */
         this_in->seq = seq_found; /* Resume from here (probably reasonably current, could query in mcache sync directly instead) */
         housekeeping_regime = &metric_regime_ticks[1];
-        prefrag_regime = &metric_regime_ticks[4];
         finish_regime = &metric_regime_ticks[7];
         this_in->accum[ FD_METRICS_COUNTER_LINK_OVERRUN_POLLING_COUNT_OFF ]++;
         this_in->accum[ FD_METRICS_COUNTER_LINK_OVERRUN_POLLING_FRAG_COUNT_OFF ] += (uint)(-diff);
@@ -617,7 +601,6 @@ STEM_(run1)( ulong                        in_cnt,
 
       /* Don't bother with spin as polling multiple locations */
       *housekeeping_regime += housekeeping_ticks;
-      *prefrag_regime += prefrag_ticks;
       long next = fd_tickcount();
       *finish_regime += (ulong)(next - now);
       now = next;
@@ -628,7 +611,6 @@ STEM_(run1)( ulong                        in_cnt,
     int filter = STEM_CALLBACK_BEFORE_FRAG( ctx, (ulong)this_in->idx, seq_found, sig );
     if( FD_UNLIKELY( filter<0 ) ) {
       metric_regime_ticks[1] += housekeeping_ticks;
-      metric_regime_ticks[4] += prefrag_ticks;
       long next = fd_tickcount();
       metric_regime_ticks[7] += (ulong)(next - now);
       now = next;
@@ -642,7 +624,6 @@ STEM_(run1)( ulong                        in_cnt,
       this_in->mline = this_in->mcache + fd_mcache_line_idx( this_in_seq, this_in->depth );
 
       metric_regime_ticks[1] += housekeeping_ticks;
-      metric_regime_ticks[4] += prefrag_ticks;
       long next = fd_tickcount();
       metric_regime_ticks[7] += (ulong)(next - now);
       now = next;
@@ -679,7 +660,6 @@ STEM_(run1)( ulong                        in_cnt,
       fd_metrics_link_in( fd_metrics_base_tl, this_in->idx )[ FD_METRICS_COUNTER_LINK_OVERRUN_READING_FRAG_COUNT_OFF ] += (uint)fd_seq_diff( seq_test, seq_found ); /* No local accum since extremely rare, faster to use smaller cache line */
       /* Don't bother with spin as polling multiple locations */
       metric_regime_ticks[1] += housekeeping_ticks;
-      metric_regime_ticks[4] += prefrag_ticks;
       long next = fd_tickcount();
       metric_regime_ticks[7] += (ulong)(next - now);
       now = next;
@@ -711,7 +691,6 @@ STEM_(run1)( ulong                        in_cnt,
     this_in->accum[ FD_METRICS_COUNTER_LINK_CONSUMED_SIZE_BYTES_OFF ] += (uint)sz;
 
     metric_regime_ticks[1] += housekeeping_ticks;
-    metric_regime_ticks[4] += prefrag_ticks;
     long next = fd_tickcount();
     metric_regime_ticks[7] += (ulong)(next - now);
     now = next;
