@@ -693,12 +693,7 @@ fd_gui_printf_tile_timers( fd_gui_t *                   gui,
          JSON. */
       idle = -1;
     } else {
-      idle = (double)(
-          ( cur[ i ].caughtup_prefrag_ticks +
-            cur[ i ].caughtup_postfrag_ticks ) -
-          ( prev[ i ].caughtup_postfrag_ticks +
-            prev[ i ].caughtup_prefrag_ticks )
-        ) / (cur_total - prev_total);
+      idle = (double)(cur[ i ].caughtup_postfrag_ticks - prev[ i ].caughtup_postfrag_ticks) / (cur_total - prev_total);
     }
 
     jsonp_double( gui, NULL, idle );
