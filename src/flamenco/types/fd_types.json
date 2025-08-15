@@ -2456,6 +2456,54 @@
         { "name": "rent_exempt" }
       ],
       "comment": "https://github.com/anza-xyz/agave/blob/v2.2.13/svm-rent-collector/src/rent_state.rs#L5-L15"
+    },
+    {
+      "name": "vote_transaction",
+      "type": "enum",
+      "variants": [
+        { "name": "vote", "type": "vote" },
+        { "name": "vote_state_update", "type": "vote_state_update" },
+        { "name": "compact_vote_state_update", "type": "compact_vote_state_update" },
+        { "name": "tower_sync", "type": "tower_sync" }
+      ],
+      "comment": "https://github.com/firedancer-io/solana/blob/53a4e5d6c58b2ffe89b09304e4437f8ca198dadd/programs/vote/src/vote_instruction.rs#L21"
+    },
+    {
+      "name": "tower_1_14_11",
+      "type": "struct",
+      "fields": [
+        { "name": "node_pubkey", "type": "pubkey" },
+        { "name": "threshold_depth", "type": "ulong" },
+        { "name": "threshold_size", "type": "double" },
+        { "name": "vote_state", "type": "vote_state_1_14_11" },
+        { "name": "last_vote", "type": "vote_transaction" },
+        { "name": "last_timestamp", "type": "vote_block_timestamp" }
+      ]
+    },
+    {
+      "name": "saved_tower_1_7_14",
+      "type": "struct",
+      "fields": [
+        { "name": "signature", "type": "signature" },
+        { "name": "data", "type": "vector", "element": "uchar" }
+      ]
+    },
+    {
+      "name": "saved_tower",
+      "type": "struct",
+      "fields": [
+        { "name": "signature", "type": "signature" },
+        { "name": "data", "type": "vector", "element": "uchar" }
+      ]
+    },
+    {
+      "name": "saved_tower_versions",
+      "type": "enum",
+      "variants": [
+        { "name": "v1_17_14", "type": "saved_tower_1_7_14" },
+        { "name": "current", "type": "saved_tower" }
+      ],
+      "comment": "https://github.com/anza-xyz/agave/blob/v2.2.13/svm-rent-collector/src/rent_state.rs#L5-L15"
     }
   ]
 }

@@ -3,7 +3,7 @@
 #include "fd_types_custom.h"
 #include "fd_types_reflect_private.h"
 #pragma GCC diagnostic ignored "-Wpedantic"
-ulong fd_types_vt_list_cnt = 214;
+ulong fd_types_vt_list_cnt = 219;
 fd_types_vt_t const fd_types_vt_list[] = {
   { .name="fd_hash", .name_len=7, .align=FD_HASH_ALIGN, .new_=(void *)fd_hash_new, .decode=(void *)fd_hash_decode, .size=(void *)fd_hash_size, .walk=(void *)fd_hash_walk, .decode_footprint=(void *)fd_hash_decode_footprint, .encode=(void *)fd_hash_encode  },
   { .name="fd_pubkey", .name_len=9, .align=FD_PUBKEY_ALIGN, .new_=(void *)fd_pubkey_new, .decode=(void *)fd_pubkey_decode, .size=(void *)fd_pubkey_size, .walk=(void *)fd_pubkey_walk, .decode_footprint=(void *)fd_pubkey_decode_footprint, .encode=(void *)fd_pubkey_encode  },
@@ -219,5 +219,10 @@ fd_types_vt_t const fd_types_vt_list[] = {
   { .name="fd_cost_tracker", .name_len=15, .align=FD_COST_TRACKER_ALIGN, .new_=(void *)fd_cost_tracker_new, .decode=(void *)fd_cost_tracker_decode, .size=(void *)fd_cost_tracker_size, .walk=(void *)fd_cost_tracker_walk, .decode_footprint=(void *)fd_cost_tracker_decode_footprint, .encode=(void *)fd_cost_tracker_encode  },
   { .name="fd_rent_paying", .name_len=14, .align=FD_RENT_PAYING_ALIGN, .new_=(void *)fd_rent_paying_new, .decode=(void *)fd_rent_paying_decode, .size=(void *)fd_rent_paying_size, .walk=(void *)fd_rent_paying_walk, .decode_footprint=(void *)fd_rent_paying_decode_footprint, .encode=(void *)fd_rent_paying_encode  },
   { .name="fd_rent_state", .name_len=13, .align=FD_RENT_STATE_ALIGN, .new_=(void *)fd_rent_state_new, .decode=(void *)fd_rent_state_decode, .size=(void *)fd_rent_state_size, .walk=(void *)fd_rent_state_walk, .decode_footprint=(void *)fd_rent_state_decode_footprint, .encode=(void *)fd_rent_state_encode  },
+  { .name="fd_vote_transaction", .name_len=19, .align=FD_VOTE_TRANSACTION_ALIGN, .new_=(void *)fd_vote_transaction_new, .decode=(void *)fd_vote_transaction_decode, .size=(void *)fd_vote_transaction_size, .walk=(void *)fd_vote_transaction_walk, .decode_footprint=(void *)fd_vote_transaction_decode_footprint, .encode=(void *)fd_vote_transaction_encode  },
+  { .name="fd_tower_1_14_11", .name_len=16, .align=FD_TOWER_1_14_11_ALIGN, .new_=(void *)fd_tower_1_14_11_new, .decode=(void *)fd_tower_1_14_11_decode, .size=(void *)fd_tower_1_14_11_size, .walk=(void *)fd_tower_1_14_11_walk, .decode_footprint=(void *)fd_tower_1_14_11_decode_footprint, .encode=(void *)fd_tower_1_14_11_encode  },
+  { .name="fd_saved_tower_1_7_14", .name_len=21, .align=FD_SAVED_TOWER_1_7_14_ALIGN, .new_=(void *)fd_saved_tower_1_7_14_new, .decode=(void *)fd_saved_tower_1_7_14_decode, .size=(void *)fd_saved_tower_1_7_14_size, .walk=(void *)fd_saved_tower_1_7_14_walk, .decode_footprint=(void *)fd_saved_tower_1_7_14_decode_footprint, .encode=(void *)fd_saved_tower_1_7_14_encode  },
+  { .name="fd_saved_tower", .name_len=14, .align=FD_SAVED_TOWER_ALIGN, .new_=(void *)fd_saved_tower_new, .decode=(void *)fd_saved_tower_decode, .size=(void *)fd_saved_tower_size, .walk=(void *)fd_saved_tower_walk, .decode_footprint=(void *)fd_saved_tower_decode_footprint, .encode=(void *)fd_saved_tower_encode  },
+  { .name="fd_saved_tower_versions", .name_len=23, .align=FD_SAVED_TOWER_VERSIONS_ALIGN, .new_=(void *)fd_saved_tower_versions_new, .decode=(void *)fd_saved_tower_versions_decode, .size=(void *)fd_saved_tower_versions_size, .walk=(void *)fd_saved_tower_versions_walk, .decode_footprint=(void *)fd_saved_tower_versions_decode_footprint, .encode=(void *)fd_saved_tower_versions_encode  },
   { .name=NULL }
 };

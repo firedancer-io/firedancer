@@ -3425,4 +3425,98 @@ void *fd_rent_state_generate( void *mem, void **alloc_mem, fd_rng_t * rng ) {
   return mem;
 }
 
+void fd_vote_transaction_inner_generate( fd_vote_transaction_inner_t * self, void **alloc_mem, uint discriminant, fd_rng_t * rng ) {
+  switch (discriminant) {
+  case 0: {
+    fd_vote_generate( &self->vote, alloc_mem, rng );
+    break;
+  }
+  case 1: {
+    fd_vote_state_update_generate( &self->vote_state_update, alloc_mem, rng );
+    break;
+  }
+  case 2: {
+    fd_compact_vote_state_update_generate( &self->compact_vote_state_update, alloc_mem, rng );
+    break;
+  }
+  case 3: {
+    break;
+  }
+  }
+}
+void *fd_vote_transaction_generate( void *mem, void **alloc_mem, fd_rng_t * rng ) {
+  fd_vote_transaction_t *self = (fd_vote_transaction_t *) mem;
+  *alloc_mem = (uchar *) *alloc_mem + sizeof(fd_vote_transaction_t);
+  fd_vote_transaction_new(mem);
+  self->discriminant = fd_rng_uint( rng ) % 4;
+  fd_vote_transaction_inner_generate( &self->inner, alloc_mem, self->discriminant, rng );
+  return mem;
+}
+
+void *fd_tower_1_14_11_generate( void *mem, void **alloc_mem, fd_rng_t * rng ) {
+  fd_tower_1_14_11_t *self = (fd_tower_1_14_11_t *) mem;
+  *alloc_mem = (uchar *) *alloc_mem + sizeof(fd_tower_1_14_11_t);
+  fd_tower_1_14_11_new(mem);
+  fd_pubkey_generate( &self->node_pubkey, alloc_mem, rng );
+  self->threshold_depth = fd_rng_ulong( rng );
+  self->threshold_size = fd_rng_double_o( rng );
+  fd_vote_state_1_14_11_generate( &self->vote_state, alloc_mem, rng );
+  fd_vote_transaction_generate( &self->last_vote, alloc_mem, rng );
+  fd_vote_block_timestamp_generate( &self->last_timestamp, alloc_mem, rng );
+  return mem;
+}
+
+void *fd_saved_tower_1_7_14_generate( void *mem, void **alloc_mem, fd_rng_t * rng ) {
+  fd_saved_tower_1_7_14_t *self = (fd_saved_tower_1_7_14_t *) mem;
+  *alloc_mem = (uchar *) *alloc_mem + sizeof(fd_saved_tower_1_7_14_t);
+  fd_saved_tower_1_7_14_new(mem);
+  fd_signature_generate( &self->signature, alloc_mem, rng );
+  self->data_len = fd_rng_ulong( rng ) % 8;
+  if( self->data_len ) {
+    self->data = (uchar *) *alloc_mem;
+    *alloc_mem = (uchar *) *alloc_mem + self->data_len;
+    for( ulong i=0; i < self->data_len; ++i) { self->data[i] = fd_rng_uchar( rng ) % 0x80; }
+  } else {
+    self->data = NULL;
+  }
+  return mem;
+}
+
+void *fd_saved_tower_generate( void *mem, void **alloc_mem, fd_rng_t * rng ) {
+  fd_saved_tower_t *self = (fd_saved_tower_t *) mem;
+  *alloc_mem = (uchar *) *alloc_mem + sizeof(fd_saved_tower_t);
+  fd_saved_tower_new(mem);
+  fd_signature_generate( &self->signature, alloc_mem, rng );
+  self->data_len = fd_rng_ulong( rng ) % 8;
+  if( self->data_len ) {
+    self->data = (uchar *) *alloc_mem;
+    *alloc_mem = (uchar *) *alloc_mem + self->data_len;
+    for( ulong i=0; i < self->data_len; ++i) { self->data[i] = fd_rng_uchar( rng ) % 0x80; }
+  } else {
+    self->data = NULL;
+  }
+  return mem;
+}
+
+void fd_saved_tower_versions_inner_generate( fd_saved_tower_versions_inner_t * self, void **alloc_mem, uint discriminant, fd_rng_t * rng ) {
+  switch (discriminant) {
+  case 0: {
+    fd_saved_tower_1_7_14_generate( &self->v1_17_14, alloc_mem, rng );
+    break;
+  }
+  case 1: {
+    fd_saved_tower_generate( &self->current, alloc_mem, rng );
+    break;
+  }
+  }
+}
+void *fd_saved_tower_versions_generate( void *mem, void **alloc_mem, fd_rng_t * rng ) {
+  fd_saved_tower_versions_t *self = (fd_saved_tower_versions_t *) mem;
+  *alloc_mem = (uchar *) *alloc_mem + sizeof(fd_saved_tower_versions_t);
+  fd_saved_tower_versions_new(mem);
+  self->discriminant = fd_rng_uint( rng ) % 2;
+  fd_saved_tower_versions_inner_generate( &self->inner, alloc_mem, self->discriminant, rng );
+  return mem;
+}
+
 #endif // HEADER_FUZZ_FD_RUNTIME_TYPES

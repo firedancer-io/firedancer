@@ -1,6 +1,12 @@
+#include <errno.h>
+#include <unistd.h>
+#include <fcntl.h>
+#include <sys/stat.h>
+
 #include "fd_tower.h"
 #include "../../flamenco/txn/fd_txn_generate.h"
 #include "../../flamenco/runtime/fd_system_ids.h"
+#include "../../flamenco/runtime/program/fd_vote_program.h"
 
 #define THRESHOLD_DEPTH         (8)
 #define THRESHOLD_PCT           (2.0 / 3.0)
@@ -391,7 +397,7 @@ fd_tower_vote( fd_tower_t * tower, ulong slot ) {
 
   /* Pop everything that got expired. */
 
-  while( fd_tower_votes_cnt( tower ) > cnt ) {
+  while( FD_LIKELY( fd_tower_votes_cnt( tower ) > cnt ) ) {
     fd_tower_votes_pop_tail( tower );
   }
 
@@ -409,9 +415,9 @@ fd_tower_vote( fd_tower_t * tower, ulong slot ) {
      confirmations in prior votes. */
 
   ulong prev_conf = 0;
-  for( fd_tower_votes_iter_t iter = fd_tower_votes_iter_init_rev( tower );
-       !fd_tower_votes_iter_done_rev( tower, iter );
-       iter = fd_tower_votes_iter_prev( tower, iter ) ) {
+  for( fd_tower_votes_iter_t iter = fd_tower_votes_iter_init_rev( tower       );
+                                   !fd_tower_votes_iter_done_rev( tower, iter );
+                             iter = fd_tower_votes_iter_prev    ( tower, iter ) ) {
     fd_tower_vote_t * vote = fd_tower_votes_iter_ele( tower, iter );
     if( FD_UNLIKELY( vote->conf != ++prev_conf ) ) {
       break;
@@ -438,6 +444,141 @@ fd_tower_simulate_vote( fd_tower_t const * tower, ulong slot ) {
 }
 
 void
+fd_tower_checkpt( fd_tower_t const * tower,
+                  ulong              root,
+                  uchar *            vote_state,
+                  ulong              vote_state_sz,
+                  uchar *            tower_sync,
+                  ulong              tower_sync_sz,
+                  uchar const        pvtkey[static 32],
+                  uchar const        pubkey[static 32],
+                  uchar *            ser,
+                  ulong *            ser_sz ) {
+
+  ulong off = 0; uchar * rem = NULL;
+
+  /* kind            */ FD_STORE( uint, ser+off, fd_saved_tower_versions_enum_current ); off += sizeof(uint);
+  /* signature       */ uchar * sig = ser+off;                                           off += FD_ED25519_SIG_SZ;
+  /* msg             */ uchar * msg = ser+off;                                           off += sizeof(ulong);
+  /* node_pubkey     */ memcpy( ser+off, pubkey, sizeof(fd_pubkey_t) );                  off += sizeof(fd_pubkey_t);
+  /* threshold_depth */ FD_STORE( ulong, ser+off, THRESHOLD_DEPTH );                     off += sizeof(ulong);
+  /* threshold_size  */ FD_STORE( double, ser+off, THRESHOLD_PCT );                      off += sizeof(double);
+
+  /* vote_state      */
+
+  memcpy( ser+off, vote_state, sizeof(fd_voter_meta_t) );                                off += sizeof(fd_voter_meta_t);
+  FD_STORE( ulong, ser+off, fd_tower_votes_cnt( tower ) );
+  for( fd_tower_votes_iter_t iter = fd_tower_votes_iter_init( tower       );
+                                   !fd_tower_votes_iter_done( tower, iter );
+                             iter = fd_tower_votes_iter_next( tower, iter ) ) {
+    fd_tower_vote_t const * vote = fd_tower_votes_iter_ele_const( tower, iter );
+    FD_STORE( ulong, ser+off, vote->slot       );                                        off += sizeof(ulong);
+    FD_STORE( uint,  ser+off, (uint)vote->conf );                                        off += sizeof(uint);
+  }
+  *ser = 1;                                                                              off += sizeof(uchar);
+  FD_STORE( ulong, ser+off, root );                                                      off += sizeof(ulong);
+  fd_voter_state_t * state = (fd_voter_state_t *)fd_type_pun( vote_state );
+  rem = fd_voter_root_laddr( state ) + sizeof(uchar) + sizeof(ulong);
+  memcpy( ser+off, rem, vote_state_sz - off );                                           off += vote_state_sz - off;
+
+  /* vote_txn        */
+
+  FD_STORE( uint, ser+off, fd_vote_transaction_enum_tower_sync );                        off += sizeof(uint);
+  memcpy( ser+off, tower_sync, tower_sync_sz );                                          off += tower_sync_sz;
+
+  /* block timestamp */
+
+  ulong last_vote_slot = fd_tower_votes_peek_tail_const( tower )->slot;
+  FD_STORE( ulong, ser+off, last_vote_slot  );                                           off += sizeof(ulong);
+  FD_STORE( long, ser+off, fd_log_wallclock() / (long)1e9 );                             off += sizeof(long);
+
+  /* sign the data (everything beginning from msg )*/
+
+  ulong msg_sz = off - sizeof(uint) - FD_ED25519_SIG_SZ;
+  FD_STORE( ulong, msg, msg_sz ); /* store the final msg sz */
+  fd_sha512_t sha[1];
+  fd_ed25519_sign( sig, msg, msg_sz, pubkey, pvtkey, sha );
+
+  *ser_sz = off;
+}
+
+int
+fd_tower_restore( fd_tower_t * tower,
+                  ulong      * root,
+                  uchar const  pubkey[ static 32 ],
+                  uchar      * ser,
+                  ulong        ser_sz,
+                  uchar      * de,
+                  ulong        de_sz ) {
+  if( FD_UNLIKELY( !fd_tower_votes_empty( tower ) ) ) { FD_LOG_WARNING(( "[%s] tower must be empty", __func__ )); return -1; };
+
+  fd_bincode_decode_ctx_t ctx; ulong sz; int err;
+  ctx.data = ser; ctx.dataend = ser + ser_sz;
+  err = fd_saved_tower_versions_decode_footprint( &ctx, &sz );
+  if( FD_UNLIKELY( err!=FD_BINCODE_SUCCESS ) ) { FD_LOG_WARNING(( "decode failed. %d",    err       )); return -1; };
+  if( FD_UNLIKELY( sz > de_sz              ) ) { FD_LOG_WARNING(( "sz: %lu > de_sz: %lu", sz, de_sz )); return -1; };
+  fd_saved_tower_versions_decode( de, &ctx );
+  fd_saved_tower_versions_t * saved_tower_versions = (fd_saved_tower_versions_t *)fd_type_pun( de );
+
+  if( FD_UNLIKELY( saved_tower_versions->discriminant!= fd_saved_tower_versions_enum_current ) ) {
+
+  /* It's unclear whether the relevant Agave version is 1.7.14 or
+     1.17.14. Agave references both versions in the same struct. Most
+     likely a typo. */
+
+    FD_LOG_WARNING(( "Firedancer only supports restoring modern towers (>1.17.14) from the tower binary file." ));
+    return -1;
+  }
+
+  fd_saved_tower_t * current = &saved_tower_versions->inner.current;
+
+  fd_sha512_t sha[1];
+  err = fd_ed25519_verify( current->data, current->data_len, current->signature.uc, pubkey, sha );
+  if( FD_UNLIKELY( err!=FD_ED25519_SUCCESS ) ) { FD_LOG_WARNING(( "%s", fd_ed25519_strerror( err ) )); return -1; }
+
+  ctx.data = current->data; ctx.dataend = current->data + current->data_len;
+  err = fd_tower_1_14_11_decode_footprint( &ctx, &sz );
+  if( FD_UNLIKELY( err!=FD_BINCODE_SUCCESS ) ) { FD_LOG_WARNING(( "bincode_decode failed. %d", err )); return -1; }
+  fd_tower_1_14_11_decode( ser, &ctx ); /* safe to reuse ser, because data was copied into de */
+  fd_tower_1_14_11_t * tower_1_14_11 = (fd_tower_1_14_11_t *)fd_type_pun( ser );
+
+  fd_vote_state_1_14_11_t * vote_state = &tower_1_14_11->vote_state;
+  fd_vote_lockout_t * votes = vote_state->votes;
+  for( deq_fd_vote_lockout_t_iter_t iter = deq_fd_vote_lockout_t_iter_init( votes       );
+                                          !deq_fd_vote_lockout_t_iter_done( votes, iter );
+                                    iter = deq_fd_vote_lockout_t_iter_next( votes, iter ) ) {
+    fd_vote_lockout_t const * vote_lockout = deq_fd_vote_lockout_t_iter_ele_const( votes, iter );
+    fd_tower_votes_push_tail( tower, (fd_tower_vote_t){ .slot = vote_lockout->slot, .conf = vote_lockout->confirmation_count } );
+  }
+  fd_ulong_store_if( vote_state->has_root_slot, root, vote_state->root_slot );
+
+  return 0;
+}
+
+fd_tower_sync_t *
+fd_tower_to_tower_sync( fd_tower_t const * tower, ulong root, fd_hash_t * bank_hash, fd_hash_t * block_id, fd_tower_sync_t * tower_sync ) {
+  tower_sync->lockouts      = tower_sync->lockouts;
+  tower_sync->lockouts_cnt  = (ushort)fd_tower_votes_cnt( tower );
+  tower_sync->root          = root;
+  tower_sync->has_root      = 1;
+  tower_sync->hash          = *bank_hash;
+  tower_sync->timestamp     = fd_log_wallclock() / (long)1e9; /* seconds */
+  tower_sync->has_timestamp = 1;
+  tower_sync->block_id      = *block_id;
+
+  ulong i = 0;
+  for( fd_tower_votes_iter_t iter = fd_tower_votes_iter_init( tower       );
+                                   !fd_tower_votes_iter_done( tower, iter );
+                             iter = fd_tower_votes_iter_next( tower, iter ) ) {
+    fd_tower_vote_t const * vote               = fd_tower_votes_iter_ele_const( tower, iter );
+    tower_sync->lockouts[i].slot               = vote->slot;
+    tower_sync->lockouts[i].confirmation_count = (uint)vote->conf;
+    i++;
+  }
+  return tower_sync;
+}
+
+void
 fd_tower_to_vote_txn( fd_tower_t const *    tower,
                       ulong                 root,
                       fd_lockout_offset_t * lockouts_scratch,
@@ -457,9 +598,9 @@ fd_tower_to_vote_txn( fd_tower_t const *    tower,
 
   ulong prev = tower_sync.root;
   ulong i    = 0UL;
-  for( fd_tower_votes_iter_t iter = fd_tower_votes_iter_init( tower );
-      !fd_tower_votes_iter_done( tower, iter );
-      iter = fd_tower_votes_iter_next( tower, iter ) ) {
+  for( fd_tower_votes_iter_t iter = fd_tower_votes_iter_init( tower       );
+                                   !fd_tower_votes_iter_done( tower, iter );
+                             iter = fd_tower_votes_iter_next( tower, iter ) ) {
     fd_tower_vote_t const * vote              = fd_tower_votes_iter_ele_const( tower, iter );
     tower_sync.lockouts[i].offset             = vote->slot - prev;
     tower_sync.lockouts[i].confirmation_count = (uchar)vote->conf;
@@ -533,9 +674,9 @@ fd_tower_to_vote_txn( fd_tower_t const *    tower,
 int
 fd_tower_verify( fd_tower_t const * tower ) {
   fd_tower_vote_t const * prev = NULL;
-  for( fd_tower_votes_iter_t iter = fd_tower_votes_iter_init( tower );
-       !fd_tower_votes_iter_done( tower, iter );
-       iter = fd_tower_votes_iter_next( tower, iter ) ) {
+  for( fd_tower_votes_iter_t iter = fd_tower_votes_iter_init( tower       );
+                                   !fd_tower_votes_iter_done( tower, iter );
+                             iter = fd_tower_votes_iter_next( tower, iter ) ) {
     fd_tower_vote_t const * vote = fd_tower_votes_iter_ele_const( tower, iter );
     if( FD_LIKELY( prev && !( vote->slot < prev->slot && vote->conf < prev->conf ) ) ) {
       FD_LOG_WARNING(( "[%s] invariant violation: vote %lu %lu. prev %lu %lu", __func__, vote->slot, vote->conf, prev->slot, prev->conf ));
@@ -555,9 +696,9 @@ fd_tower_print( fd_tower_t const * tower, ulong root ) {
 
   /* Determine spacing. */
 
-  for( fd_tower_votes_iter_t iter = fd_tower_votes_iter_init_rev( tower );
-       !fd_tower_votes_iter_done_rev( tower, iter );
-       iter = fd_tower_votes_iter_prev( tower, iter ) ) {
+  for( fd_tower_votes_iter_t iter = fd_tower_votes_iter_init_rev( tower       );
+                                   !fd_tower_votes_iter_done_rev( tower, iter );
+                             iter = fd_tower_votes_iter_prev    ( tower, iter ) ) {
 
     max_slot = fd_ulong_max( max_slot, fd_tower_votes_iter_ele_const( tower, iter )->slot );
   }
@@ -588,9 +729,9 @@ fd_tower_print( fd_tower_t const * tower, ulong root ) {
 
   /* Print each record in the table */
 
-  for( fd_tower_votes_iter_t iter = fd_tower_votes_iter_init_rev( tower );
-       !fd_tower_votes_iter_done_rev( tower, iter );
-       iter = fd_tower_votes_iter_prev( tower, iter ) ) {
+  for( fd_tower_votes_iter_t iter = fd_tower_votes_iter_init_rev( tower       );
+                                   !fd_tower_votes_iter_done_rev( tower, iter );
+                             iter = fd_tower_votes_iter_prev    ( tower, iter ) ) {
 
     fd_tower_vote_t const * vote = fd_tower_votes_iter_ele_const( tower, iter );
     printf( "%*lu | %lu\n", digit_cnt, vote->slot, vote->conf );
@@ -612,17 +753,17 @@ fd_tower_from_vote_acc_data( uchar const * data,
   /* Push all the votes onto the tower. */
   for( ulong i = 0; i < fd_voter_state_cnt( state ); i++ ) {
     fd_tower_vote_t vote = { 0 };
-    if( FD_UNLIKELY( state->discriminant == fd_vote_state_versioned_enum_v0_23_5 ) ) {
+    if( FD_UNLIKELY( state->kind == fd_vote_state_versioned_enum_v0_23_5 ) ) {
       vote.slot = state->v0_23_5.votes[i].slot;
       vote.conf = state->v0_23_5.votes[i].conf;
-    } else if( FD_UNLIKELY( state->discriminant == fd_vote_state_versioned_enum_v1_14_11 ) ) {
+    } else if( FD_UNLIKELY( state->kind == fd_vote_state_versioned_enum_v1_14_11 ) ) {
       vote.slot = state->v1_14_11.votes[i].slot;
       vote.conf = state->v1_14_11.votes[i].conf;
-    } else if ( FD_UNLIKELY( state->discriminant == fd_vote_state_versioned_enum_current ) ) {
+    } else if ( FD_UNLIKELY( state->kind == fd_vote_state_versioned_enum_current ) ) {
       vote.slot = state->votes[i].slot;
       vote.conf = state->votes[i].conf;
     } else {
-      FD_LOG_CRIT(( "[%s] unknown vote state version. discriminant %u", __func__, state->discriminant ));
+      FD_LOG_CRIT(( "[%s] unknown vote state version. discriminant %u", __func__, state->kind ));
     }
     fd_tower_votes_push_tail( tower_out, vote );
   }

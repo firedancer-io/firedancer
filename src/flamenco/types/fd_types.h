@@ -2601,6 +2601,66 @@ struct fd_rent_state {
 typedef struct fd_rent_state fd_rent_state_t;
 #define FD_RENT_STATE_ALIGN alignof(fd_rent_state_t)
 
+union fd_vote_transaction_inner {
+  fd_vote_t vote;
+  fd_vote_state_update_t vote_state_update;
+  fd_compact_vote_state_update_t compact_vote_state_update;
+  fd_tower_sync_t tower_sync;
+};
+typedef union fd_vote_transaction_inner fd_vote_transaction_inner_t;
+
+/* https://github.com/firedancer-io/solana/blob/53a4e5d6c58b2ffe89b09304e4437f8ca198dadd/programs/vote/src/vote_instruction.rs#L21 */
+struct fd_vote_transaction {
+  uint discriminant;
+  fd_vote_transaction_inner_t inner;
+};
+typedef struct fd_vote_transaction fd_vote_transaction_t;
+#define FD_VOTE_TRANSACTION_ALIGN alignof(fd_vote_transaction_t)
+
+/* Encoded Size: Dynamic */
+struct fd_tower_1_14_11 {
+  fd_pubkey_t node_pubkey;
+  ulong threshold_depth;
+  double threshold_size;
+  fd_vote_state_1_14_11_t vote_state;
+  fd_vote_transaction_t last_vote;
+  fd_vote_block_timestamp_t last_timestamp;
+};
+typedef struct fd_tower_1_14_11 fd_tower_1_14_11_t;
+#define FD_TOWER_1_14_11_ALIGN alignof(fd_tower_1_14_11_t)
+
+/* Encoded Size: Dynamic */
+struct fd_saved_tower_1_7_14 {
+  fd_signature_t signature;
+  ulong data_len;
+  uchar* data;
+};
+typedef struct fd_saved_tower_1_7_14 fd_saved_tower_1_7_14_t;
+#define FD_SAVED_TOWER_1_7_14_ALIGN alignof(fd_saved_tower_1_7_14_t)
+
+/* Encoded Size: Dynamic */
+struct fd_saved_tower {
+  fd_signature_t signature;
+  ulong data_len;
+  uchar* data;
+};
+typedef struct fd_saved_tower fd_saved_tower_t;
+#define FD_SAVED_TOWER_ALIGN alignof(fd_saved_tower_t)
+
+union fd_saved_tower_versions_inner {
+  fd_saved_tower_1_7_14_t v1_17_14;
+  fd_saved_tower_t current;
+};
+typedef union fd_saved_tower_versions_inner fd_saved_tower_versions_inner_t;
+
+/* https://github.com/anza-xyz/agave/blob/v2.2.13/svm-rent-collector/src/rent_state.rs#L5-L15 */
+struct fd_saved_tower_versions {
+  uint discriminant;
+  fd_saved_tower_versions_inner_t inner;
+};
+typedef struct fd_saved_tower_versions fd_saved_tower_versions_t;
+#define FD_SAVED_TOWER_VERSIONS_ALIGN alignof(fd_saved_tower_versions_t)
+
 
 FD_PROTOTYPES_BEGIN
 
@@ -5206,6 +5266,64 @@ enum {
 fd_rent_state_enum_uninitialized = 0,
 fd_rent_state_enum_rent_paying = 1,
 fd_rent_state_enum_rent_exempt = 2,
+};
+void fd_vote_transaction_new_disc( fd_vote_transaction_t * self, uint discriminant );
+void fd_vote_transaction_new( fd_vote_transaction_t * self );
+int fd_vote_transaction_encode( fd_vote_transaction_t const * self, fd_bincode_encode_ctx_t * ctx );
+void fd_vote_transaction_walk( void * w, fd_vote_transaction_t const * self, fd_types_walk_fn_t fun, const char *name, uint level, uint varint );
+ulong fd_vote_transaction_size( fd_vote_transaction_t const * self );
+static inline ulong fd_vote_transaction_align( void ) { return FD_VOTE_TRANSACTION_ALIGN; }
+int fd_vote_transaction_decode_footprint( fd_bincode_decode_ctx_t * ctx, ulong * total_sz );
+void * fd_vote_transaction_decode( void * mem, fd_bincode_decode_ctx_t * ctx );
+
+FD_FN_PURE uchar fd_vote_transaction_is_vote( fd_vote_transaction_t const * self );
+FD_FN_PURE uchar fd_vote_transaction_is_vote_state_update( fd_vote_transaction_t const * self );
+FD_FN_PURE uchar fd_vote_transaction_is_compact_vote_state_update( fd_vote_transaction_t const * self );
+FD_FN_PURE uchar fd_vote_transaction_is_tower_sync( fd_vote_transaction_t const * self );
+enum {
+fd_vote_transaction_enum_vote = 0,
+fd_vote_transaction_enum_vote_state_update = 1,
+fd_vote_transaction_enum_compact_vote_state_update = 2,
+fd_vote_transaction_enum_tower_sync = 3,
+};
+void fd_tower_1_14_11_new( fd_tower_1_14_11_t * self );
+int fd_tower_1_14_11_encode( fd_tower_1_14_11_t const * self, fd_bincode_encode_ctx_t * ctx );
+void fd_tower_1_14_11_walk( void * w, fd_tower_1_14_11_t const * self, fd_types_walk_fn_t fun, const char *name, uint level, uint varint );
+ulong fd_tower_1_14_11_size( fd_tower_1_14_11_t const * self );
+static inline ulong fd_tower_1_14_11_align( void ) { return FD_TOWER_1_14_11_ALIGN; }
+int fd_tower_1_14_11_decode_footprint( fd_bincode_decode_ctx_t * ctx, ulong * total_sz );
+void * fd_tower_1_14_11_decode( void * mem, fd_bincode_decode_ctx_t * ctx );
+
+void fd_saved_tower_1_7_14_new( fd_saved_tower_1_7_14_t * self );
+int fd_saved_tower_1_7_14_encode( fd_saved_tower_1_7_14_t const * self, fd_bincode_encode_ctx_t * ctx );
+void fd_saved_tower_1_7_14_walk( void * w, fd_saved_tower_1_7_14_t const * self, fd_types_walk_fn_t fun, const char *name, uint level, uint varint );
+ulong fd_saved_tower_1_7_14_size( fd_saved_tower_1_7_14_t const * self );
+static inline ulong fd_saved_tower_1_7_14_align( void ) { return FD_SAVED_TOWER_1_7_14_ALIGN; }
+int fd_saved_tower_1_7_14_decode_footprint( fd_bincode_decode_ctx_t * ctx, ulong * total_sz );
+void * fd_saved_tower_1_7_14_decode( void * mem, fd_bincode_decode_ctx_t * ctx );
+
+void fd_saved_tower_new( fd_saved_tower_t * self );
+int fd_saved_tower_encode( fd_saved_tower_t const * self, fd_bincode_encode_ctx_t * ctx );
+void fd_saved_tower_walk( void * w, fd_saved_tower_t const * self, fd_types_walk_fn_t fun, const char *name, uint level, uint varint );
+ulong fd_saved_tower_size( fd_saved_tower_t const * self );
+static inline ulong fd_saved_tower_align( void ) { return FD_SAVED_TOWER_ALIGN; }
+int fd_saved_tower_decode_footprint( fd_bincode_decode_ctx_t * ctx, ulong * total_sz );
+void * fd_saved_tower_decode( void * mem, fd_bincode_decode_ctx_t * ctx );
+
+void fd_saved_tower_versions_new_disc( fd_saved_tower_versions_t * self, uint discriminant );
+void fd_saved_tower_versions_new( fd_saved_tower_versions_t * self );
+int fd_saved_tower_versions_encode( fd_saved_tower_versions_t const * self, fd_bincode_encode_ctx_t * ctx );
+void fd_saved_tower_versions_walk( void * w, fd_saved_tower_versions_t const * self, fd_types_walk_fn_t fun, const char *name, uint level, uint varint );
+ulong fd_saved_tower_versions_size( fd_saved_tower_versions_t const * self );
+static inline ulong fd_saved_tower_versions_align( void ) { return FD_SAVED_TOWER_VERSIONS_ALIGN; }
+int fd_saved_tower_versions_decode_footprint( fd_bincode_decode_ctx_t * ctx, ulong * total_sz );
+void * fd_saved_tower_versions_decode( void * mem, fd_bincode_decode_ctx_t * ctx );
+
+FD_FN_PURE uchar fd_saved_tower_versions_is_v1_17_14( fd_saved_tower_versions_t const * self );
+FD_FN_PURE uchar fd_saved_tower_versions_is_current( fd_saved_tower_versions_t const * self );
+enum {
+fd_saved_tower_versions_enum_v1_17_14 = 0,
+fd_saved_tower_versions_enum_current = 1,
 };
 FD_PROTOTYPES_END
 

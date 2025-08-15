@@ -743,6 +743,59 @@ fd_tower_to_vote_txn( fd_tower_t const *    tower,
                       fd_pubkey_t const *   vote_acc,
                       fd_txn_p_t *          vote_txn );
 
+/* fd_tower_checkpt checkpoints tower into a binary file.  Assumes tower
+   is a valid local join of a empty tower, pubkey is the identity key
+   of the validator associated with the tower, and path specifies the
+   location of the binary file.  On return, the the state of the tower
+   as of the time of the file was checkpointed will be successfully
+   restored into tower.  Any errors encountered in restore are fatal and
+   Firedancer will shutdown with as informative an error message as can
+   be contextualized at the error site.
+
+   The stored format is binary-compatible with Agave.  Firedancer can
+   restore towers checkpointed by Agave (>1.17.14) and vice versa.
+
+   IMPORTANT SAFETY TIP! No other process should be writing to either
+   the memory pointed by tower or the file pointed to by path while
+   fd_tower_checkpt is in progress. */
+
+void
+fd_tower_checkpt( fd_tower_t const * tower,
+                  ulong              root,
+                  uchar *            vote_state,
+                  ulong              vote_state_sz,
+                  uchar *            tower_sync,
+                  ulong              tower_sync_sz,
+                  uchar const        pvtkey[static 32],
+                  uchar const        pubkey[static 32],
+                  uchar *            ser,
+                  ulong *            ser_sz );
+
+/* fd_tower_restore restores tower from the binary file described by fd.
+   Returns 0 on success, -1 on error.  Assumes tower is a valid local
+   join of an empty tower, pubkey is the identity key of the validator
+   associated with the tower, and fd is a valid open file descriptor for
+   the tower file.  On return, the the state of the tower as of the time
+   the file was checkpointed will be successfully restored into tower.
+   Any errors encountered during restore are logged with as informative
+   an error message as can be contextualized and restore will return -1.
+
+   The stored format is binary-compatible with Agave.  Firedancer can
+   restore towers checkpointed by Agave (>1.17.14) and vice versa.
+
+   IMPORTANT SAFETY TIP! No other process should be writing to either
+   the memory pointed by tower or the file pointed to by path while
+   fd_tower_restore is in progress. */
+
+int
+fd_tower_restore( fd_tower_t * tower,
+                  ulong      * root,
+                  uchar const  pubkey[ static 32 ],
+                  uchar      * ser,
+                  ulong        ser_sz,
+                  uchar      * de,
+                  ulong        de_sz );
+
 /* fd_tower_verify checks tower is in a valid state. Valid iff:
    - cnt < FD_TOWER_VOTE_MAX
    - vote slots and confirmation counts in the tower are monotonically
