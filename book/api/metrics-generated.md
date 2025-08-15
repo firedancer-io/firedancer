@@ -514,6 +514,7 @@
 
 | Metric | Type | Description |
 |--------|------|-------------|
+| <span class="metrics-name">gossip_&#8203;test_&#8203;notify</span> | gauge |  |
 | <span class="metrics-name">gossip_&#8203;ping_&#8203;tracker_&#8203;capacity</span> | counter |  |
 | <span class="metrics-name">gossip_&#8203;ping_&#8203;tracker_&#8203;count</span><br/>{ping_&#8203;tracked_&#8203;type="<span class="metrics-enum">unpinged</span>"} | gauge |  (Peer is known but has not been pinged yet) |
 | <span class="metrics-name">gossip_&#8203;ping_&#8203;tracker_&#8203;count</span><br/>{ping_&#8203;tracked_&#8203;type="<span class="metrics-enum">invalid</span>"} | gauge |  (Peer was pinged but has not yet responded, or responded with an invalid pong) |

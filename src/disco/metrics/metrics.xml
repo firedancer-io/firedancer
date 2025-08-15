@@ -774,6 +774,8 @@ metric introduced.
 </enum>
 
 <tile name="gossip">
+    <gauge name="TestNotify" label="Test" />
+
     <counter name="PingTrackerCapacity" label="The peer tracking capacity of the ping tracker" />
     <gauge name="PingTrackerCount" enum="PingTrackedType" label="The number of peers being tracked for ping/pong" />
     <counter name="PingTrackerPongResult" enum="PongResponse" label="The result of processing a pong response to a ping" />
