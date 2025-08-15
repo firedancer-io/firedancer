@@ -15,9 +15,9 @@ main( int     argc,
   fd_ipecho_client_t * client = fd_ipecho_client_join( fd_ipecho_client_new( _client ) );
   FD_TEST( client );
 
-  fd_ip4_port_t localhost = (fd_ip4_port_t){ .addr = FD_IP4_ADDR(127,0,0,1), .port = fd_ushort_bswap( 12008 ) };
+  fd_ip4_port_t localhost = (fd_ip4_port_t){ .addr = FD_IP4_ADDR(127,0,0,1), .port = 12008 };
   fd_ipecho_client_init( client, &localhost, 1UL );
-  // fd_ip4_port_t anza1 = { .addr = FD_IP4_ADDR(35,203,170,30), .port = fd_ushort_bswap( 8001 ) };
+  // fd_ip4_port_t anza1 = { .addr = FD_IP4_ADDR(35,203,170,30), .port = 8001 };
   // fd_ipecho_client_init( client, &anza1, 1UL );
 
   for(;;) {

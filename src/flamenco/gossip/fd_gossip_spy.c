@@ -74,7 +74,7 @@ gossip_to_sockaddr( uchar * dst, fd_gossip_peer_addr_t const * src ) {
   struct sockaddr_in * t = (struct sockaddr_in *)dst;
   t->sin_family = AF_INET;
   t->sin_addr.s_addr = src->addr;
-  t->sin_port = src->port;
+  t->sin_port = fd_ushort_bswap( src->port );
   return sizeof(struct sockaddr_in);
 }
 
@@ -85,7 +85,7 @@ gossip_from_sockaddr( fd_gossip_peer_addr_t * dst, uchar const * src ) {
   dst->l = 0;
   const struct sockaddr_in * sa = (const struct sockaddr_in *)src;
   dst->addr = sa->sin_addr.s_addr;
-  dst->port = sa->sin_port;
+  dst->port = fd_ushort_bswap( sa->sin_port );
   return 0;
 }
 
@@ -212,7 +212,7 @@ resolve_hostport(const char* str /* host:port */, fd_gossip_peer_addr_t * res) {
     FD_LOG_ERR(("invalid port number"));
     return NULL;
   }
-  res->port = htons((ushort)port);
+  res->port = (ushort)port;
 
   return res;
 }
