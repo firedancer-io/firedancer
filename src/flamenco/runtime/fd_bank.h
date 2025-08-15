@@ -6,6 +6,7 @@
 #include "../features/fd_features.h"
 #include "../rewards/fd_epoch_rewards.h"
 #include "../stakes/fd_stake_delegations.h"
+#include "../stakes/fd_vote_states.h"
 #include "../fd_rwlock.h"
 #include "fd_runtime_const.h"
 #include "fd_blockhashes.h"
@@ -142,7 +143,6 @@ FD_PROTOTYPES_BEGIN
 
 #define FD_BANKS_ITER(X)                                                                                                                                                                                                                               \
   /* type,                             name,                        footprint,                                 align,                                      CoW, limit fork width, has lock */                                                          \
-  X(fd_clock_timestamp_votes_global_t, clock_timestamp_votes,       5000000UL,                                 128UL,                                      1,   0,                1    )  /* TODO: This needs to get sized out */                      \
   X(fd_blockhashes_t,                  block_hash_queue,            sizeof(fd_blockhashes_t),                  alignof(fd_blockhashes_t),                  0,   0,                0    )  /* Block hash queue */                                       \
   X(fd_fee_rate_governor_t,            fee_rate_governor,           sizeof(fd_fee_rate_governor_t),            alignof(fd_fee_rate_governor_t),            0,   0,                0    )  /* Fee rate governor */                                      \
   X(ulong,                             capitalization,              sizeof(ulong),                             alignof(ulong),                             0,   0,                0    )  /* Capitalization */                                         \
@@ -179,14 +179,6 @@ FD_PROTOTYPES_BEGIN
   X(fd_rent_t,                         rent,                        sizeof(fd_rent_t),                         alignof(fd_rent_t),                         0,   0,                0    )  /* Rent */                                                   \
   X(fd_slot_lthash_t,                  lthash,                      sizeof(fd_slot_lthash_t),                  alignof(fd_slot_lthash_t),                  0,   0,                1    )  /* LTHash */                                                 \
   X(fd_sysvar_cache_t,                 sysvar_cache,                sizeof(fd_sysvar_cache_t),                 alignof(fd_sysvar_cache_t),                 0,   0,                0    )  /* Sysvar cache */                                           \
-  X(fd_vote_accounts_global_t,         next_epoch_stakes,           200000000UL,                               128UL,                                      1,   0,                1    )  /* Next epoch stakes, ~4K per account * 50k vote accounts */ \
-                                                                                                                                                                                          /* These are the stakes that determine the leader */         \
-                                                                                                                                                                                          /* schedule for the upcoming epoch.  If we are executing */  \
-                                                                                                                                                                                          /* in epoch E, these are the stakes at the end of epoch */   \
-                                                                                                                                                                                          /* E-1 and they determined the leader schedule for epoch */  \
-                                                                                                                                                                                          /* E+1. */                                                   \
-  X(fd_vote_accounts_global_t,         epoch_stakes,                200000000UL,                               128UL,                                      1,   0,                1    )  /* Epoch stakes ~4K per account * 50k vote accounts */       \
-  X(fd_vote_accounts_global_t,         curr_epoch_stakes,           200000000UL,                               128UL,                                      1,   0,                1    )  /* Stakes being accumulated in current epoch */              \
   X(fd_epoch_rewards_t,                epoch_rewards,               FD_EPOCH_REWARDS_FOOTPRINT,                FD_EPOCH_REWARDS_ALIGN,                     1,   1,                1    )  /* Epoch rewards */                                          \
   X(fd_epoch_leaders_t,                epoch_leaders,               FD_RUNTIME_MAX_EPOCH_LEADERS,              FD_EPOCH_LEADERS_ALIGN,                     1,   1,                1    )  /* Epoch leaders. If our system supports 100k vote accs, */  \
                                                                                                                                                                                           /* then there can be 100k unique leaders in the worst */     \
@@ -201,7 +193,13 @@ FD_PROTOTYPES_BEGIN
   X(ulong,                             shred_cnt,                   sizeof(ulong),                             alignof(ulong),                             0,   0,                0    )  /* Shred count */                                            \
   X(int,                               enable_exec_recording,       sizeof(int),                               alignof(int),                               0,   0,                0    )  /* Enable exec recording */                                  \
   X(fd_stake_delegations_t,            stake_delegations,           FD_STAKE_DELEGATIONS_FOOTPRINT,            FD_STAKE_DELEGATIONS_ALIGN,                 1,   0,                1    )  /* Stake delegations */                                      \
-  X(ulong,                             epoch,                       sizeof(ulong),                             alignof(ulong),                             0,   0,                0    )  /* Epoch */
+  X(ulong,                             epoch,                       sizeof(ulong),                             alignof(ulong),                             0,   0,                0    )  /* Epoch */                                                  \
+  X(fd_vote_states_t,                  vote_states,                 FD_VOTE_STATES_FOOTPRINT,                  FD_VOTE_STATES_ALIGN,                       1,   0,                1    )  /* Vote states for all vote accounts as of epoch E if */     \
+                                                                                                                                                                                          /* epoch E is the one that is currently being executed */    \
+  X(fd_vote_states_t,                  vote_states_prev,            FD_VOTE_STATES_FOOTPRINT,                  FD_VOTE_STATES_ALIGN,                       1,   1,                1    )  /* Vote states for all vote accounts as of of the end of */  \
+                                                                                                                                                                                          /* epoch E-1 if epoch E is currently being executed */       \
+  X(fd_vote_states_t,                  vote_states_prev_prev,       FD_VOTE_STATES_FOOTPRINT,                  FD_VOTE_STATES_ALIGN,                       1,   1,                1    )  /* Vote states for all vote accounts as of the end of */     \
+                                                                                                                                                                                          /* epoch E-2 if epoch E is currently being executed */
 
 /* Invariant Every CoW field must have a rw-lock */
 #define X(type, name, footprint, align, cow, limit_fork_width, has_lock)                                              \
@@ -236,47 +234,29 @@ FD_PROTOTYPES_BEGIN
 #undef HAS_COW_0
 #undef HAS_COW_1
 
-#define POOL_NAME fd_bank_clock_timestamp_votes_pool
-#define POOL_T    fd_bank_clock_timestamp_votes_t
-#include "../../util/tmpl/fd_pool.c"
-#undef POOL_NAME
-#undef POOL_T
-
-#define POOL_NAME fd_bank_next_epoch_stakes_pool
-#define POOL_T    fd_bank_next_epoch_stakes_t
-#include "../../util/tmpl/fd_pool.c"
-#undef POOL_NAME
-#undef POOL_T
-
-#define POOL_NAME fd_bank_epoch_stakes_pool
-#define POOL_T    fd_bank_epoch_stakes_t
-#include "../../util/tmpl/fd_pool.c"
-#undef POOL_NAME
-#undef POOL_T
-
 #define POOL_NAME fd_bank_epoch_leaders_pool
 #define POOL_T    fd_bank_epoch_leaders_t
 #include "../../util/tmpl/fd_pool.c"
-#undef POOL_NAME
-#undef POOL_T
 
 #define POOL_NAME fd_bank_epoch_rewards_pool
 #define POOL_T    fd_bank_epoch_rewards_t
 #include "../../util/tmpl/fd_pool.c"
-#undef POOL_NAME
-#undef POOL_T
 
 #define POOL_NAME fd_bank_stake_delegations_pool
 #define POOL_T    fd_bank_stake_delegations_t
 #include "../../util/tmpl/fd_pool.c"
-#undef POOL_NAME
-#undef POOL_T
 
-#define POOL_NAME fd_bank_curr_epoch_stakes_pool
-#define POOL_T    fd_bank_curr_epoch_stakes_t
+#define POOL_NAME fd_bank_vote_states_pool
+#define POOL_T    fd_bank_vote_states_t
 #include "../../util/tmpl/fd_pool.c"
-#undef POOL_NAME
-#undef POOL_T
+
+#define POOL_NAME fd_bank_vote_states_prev_pool
+#define POOL_T    fd_bank_vote_states_prev_t
+#include "../../util/tmpl/fd_pool.c"
+
+#define POOL_NAME fd_bank_vote_states_prev_prev_pool
+#define POOL_T    fd_bank_vote_states_prev_prev_t
+#include "../../util/tmpl/fd_pool.c"
 
 /* As mentioned above, the overall layout of the bank struct:
    - Fields used for internal pool/bank management

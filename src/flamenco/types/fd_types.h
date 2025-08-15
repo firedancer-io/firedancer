@@ -3417,43 +3417,6 @@ struct fd_epoch_info_pair {
 typedef struct fd_epoch_info_pair fd_epoch_info_pair_t;
 #define FD_EPOCH_INFO_PAIR_ALIGN alignof(fd_epoch_info_pair_t)
 
-/* Encoded Size: Dynamic */
-struct fd_vote_info_pair {
-  fd_pubkey_t account;
-  fd_vote_state_versioned_t state;
-};
-typedef struct fd_vote_info_pair fd_vote_info_pair_t;
-#define FD_VOTE_INFO_PAIR_ALIGN alignof(fd_vote_info_pair_t)
-
-typedef struct fd_vote_info_pair_t_mapnode fd_vote_info_pair_t_mapnode_t;
-#define REDBLK_T fd_vote_info_pair_t_mapnode_t
-#define REDBLK_NAME fd_vote_info_pair_t_map
-#define REDBLK_IMPL_STYLE 1
-#include "../../util/tmpl/fd_redblack.c"
-struct fd_vote_info_pair_t_mapnode {
-    fd_vote_info_pair_t elem;
-    ulong redblack_parent;
-    ulong redblack_left;
-    ulong redblack_right;
-    int redblack_color;
-};
-static inline fd_vote_info_pair_t_mapnode_t *
-fd_vote_info_pair_t_map_join_new( void * * alloc_mem, ulong len ) {
-  if( FD_UNLIKELY( 0 == len ) ) len = 1; // prevent underflow
-  *alloc_mem = (void*)fd_ulong_align_up( (ulong)*alloc_mem, fd_vote_info_pair_t_map_align() );
-  void * map_mem = *alloc_mem;
-  *alloc_mem = (uchar *)*alloc_mem + fd_vote_info_pair_t_map_footprint( len );
-  return fd_vote_info_pair_t_map_join( fd_vote_info_pair_t_map_new( map_mem, len ) );
-}
-/* Encoded Size: Dynamic */
-struct fd_epoch_info {
-  fd_vote_info_pair_t_mapnode_t * vote_states_pool;
-  fd_vote_info_pair_t_mapnode_t * vote_states_root;
-  ulong stake_infos_new_keys_start_idx;
-};
-typedef struct fd_epoch_info fd_epoch_info_t;
-#define FD_EPOCH_INFO_ALIGN alignof(fd_epoch_info_t)
-
 /* https://github.com/anza-xyz/agave/blob/v2.2.0/cost-model/src/transaction_cost.rs#L153-L161 */
 /* Encoded Size: Fixed (48 bytes) */
 struct fd_usage_cost_details {
@@ -6439,22 +6402,6 @@ static inline int fd_epoch_info_pair_decode_footprint( fd_bincode_decode_ctx_t *
   return 0;
 }
 void * fd_epoch_info_pair_decode( void * mem, fd_bincode_decode_ctx_t * ctx );
-
-void fd_vote_info_pair_new( fd_vote_info_pair_t * self );
-int fd_vote_info_pair_encode( fd_vote_info_pair_t const * self, fd_bincode_encode_ctx_t * ctx );
-void fd_vote_info_pair_walk( void * w, fd_vote_info_pair_t const * self, fd_types_walk_fn_t fun, const char *name, uint level, uint varint );
-ulong fd_vote_info_pair_size( fd_vote_info_pair_t const * self );
-static inline ulong fd_vote_info_pair_align( void ) { return FD_VOTE_INFO_PAIR_ALIGN; }
-int fd_vote_info_pair_decode_footprint( fd_bincode_decode_ctx_t * ctx, ulong * total_sz );
-void * fd_vote_info_pair_decode( void * mem, fd_bincode_decode_ctx_t * ctx );
-
-void fd_epoch_info_new( fd_epoch_info_t * self );
-int fd_epoch_info_encode( fd_epoch_info_t const * self, fd_bincode_encode_ctx_t * ctx );
-void fd_epoch_info_walk( void * w, fd_epoch_info_t const * self, fd_types_walk_fn_t fun, const char *name, uint level, uint varint );
-ulong fd_epoch_info_size( fd_epoch_info_t const * self );
-static inline ulong fd_epoch_info_align( void ) { return FD_EPOCH_INFO_ALIGN; }
-int fd_epoch_info_decode_footprint( fd_bincode_decode_ctx_t * ctx, ulong * total_sz );
-void * fd_epoch_info_decode( void * mem, fd_bincode_decode_ctx_t * ctx );
 
 static inline void fd_usage_cost_details_new( fd_usage_cost_details_t * self ) { fd_memset( self, 0, sizeof(fd_usage_cost_details_t) ); }
 int fd_usage_cost_details_encode( fd_usage_cost_details_t const * self, fd_bincode_encode_ctx_t * ctx );

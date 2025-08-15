@@ -513,7 +513,6 @@ void
 fd_runtime_finalize_txn( fd_funk_t *         funk,
                          fd_funk_txn_t *     funk_txn,
                          fd_exec_txn_ctx_t * txn_ctx,
-                         fd_spad_t *         finalize_spad,
                          fd_bank_t *         bank,
                          fd_capture_ctx_t *  capture_ctx );
 

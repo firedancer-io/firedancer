@@ -2708,22 +2708,6 @@
       ]
     },
     {
-      "name": "vote_info_pair",
-      "type": "struct",
-      "fields": [
-        { "name": "account", "type": "pubkey" },
-        { "name": "state", "type": "vote_state_versioned" }
-      ]
-    },
-    {
-      "name": "epoch_info",
-      "type": "struct",
-      "fields": [
-        { "name": "vote_states", "type": "map", "element": "vote_info_pair", "key": "account" },
-        { "name": "stake_infos_new_keys_start_idx", "type": "ulong" }
-      ]
-    },
-    {
       "name": "usage_cost_details",
       "type": "struct",
       "fields": [

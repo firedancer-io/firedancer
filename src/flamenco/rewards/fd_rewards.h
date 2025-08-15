@@ -31,7 +31,6 @@ fd_begin_partitioned_rewards( fd_exec_slot_ctx_t * slot_ctx,
                               fd_capture_ctx_t *   capture_ctx,
                               fd_hash_t const *    parent_blockhash,
                               ulong                parent_epoch,
-                              fd_epoch_info_t *    temp_info,
                               fd_spad_t *          runtime_spad );
 
 /* fd_rewards_recalculate_partitioned_rewards restores epoch bank stake
