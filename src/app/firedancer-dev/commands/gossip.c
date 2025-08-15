@@ -10,8 +10,10 @@
 #include "../../../util/pod/fd_pod_format.h"
 #include "../../../util/net/fd_ip4.h" /* fd_cstr_to_ip4_addr */
 
+#include <errno.h>
 #include <stdio.h> /* printf */
 #include <stdlib.h>
+#include <sys/select.h>
 #include <unistd.h> /* isatty */
 #include <sys/ioctl.h>
 
@@ -94,7 +96,6 @@ gossip_cmd_topo( config_t * config ) {
   ipecho_tile->ipecho.bind_address = config->net.ip_addr;
   ipecho_tile->ipecho.bind_port = config->gossip.port;
   ipecho_tile->ipecho.entrypoints_cnt = config->gossip.entrypoints_cnt;
-  FD_LOG_WARNING(( "IPECHO entrypoints: %lu", ipecho_tile->ipecho.entrypoints_cnt ));
   for( ulong i=0UL; i<config->gossip.entrypoints_cnt; i++ ) {
     ipecho_tile->ipecho.entrypoints[ i ] = config->gossip.resolved_entrypoints[ i ];
   }
@@ -570,6 +571,31 @@ gossip_cmd_fn( args_t *   args,
 
     for( ulong i=0UL; i<FD_METRICS_TOTAL_SZ/sizeof(ulong); i++ ) gossip_prev[ i ] = gossip_metrics[ i ];
     for( ulong i=0UL; i<FD_METRICS_TOTAL_SZ/sizeof(ulong); i++ ) gossvf_prev[ i ] = gossvf_metrics[ i ];
+    
+    fd_set read_fds;
+    FD_ZERO( &read_fds );
+    FD_SET( STDIN_FILENO, &read_fds );
+    fd_set except_fds = read_fds;
+
+    struct timeval timeout;
+    timeout.tv_sec = 0;
+    timeout.tv_usec = 0;
+
+    if( FD_UNLIKELY( -1==select( 1, &read_fds, NULL, &except_fds, &timeout ) ) ) FD_LOG_ERR(( "select(STDIN_FILENO) failed (%i-%s)", errno, fd_io_strerror( errno ) ));
+    if( FD_UNLIKELY( FD_ISSET( STDIN_FILENO, &read_fds ) ) ) {
+      int ch;
+      long err = read( STDIN_FILENO, &ch, 1 );
+      (void)err;
+
+      ulong state = gossip_metrics[ MIDX( GAUGE, GOSSIP, TEST_NOTIFY ) ];
+      if( FD_LIKELY( !state ) ) {
+        FD_LOG_WARNING(( "Stopping sending pull requests ... " ));
+        gossip_metrics[ MIDX( GAUGE, GOSSIP, TEST_NOTIFY ) ] = 1UL;
+      } else if( FD_LIKELY( state==2UL ) ) {
+        FD_LOG_WARNING(( "Sending single pull request .... " ));
+        gossip_metrics[ MIDX( GAUGE, GOSSIP, TEST_NOTIFY ) ] = 3UL;
+      }
+    }
     sleep( 1 );
   }
 }
