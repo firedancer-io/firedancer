@@ -196,13 +196,19 @@ fd_deploy_program( fd_exec_instr_ctx_t * instr_ctx,
   /* Allocate program buffer */
   ulong  prog_align        = fd_sbpf_program_align();
   ulong  prog_footprint    = fd_sbpf_program_footprint( elf_info );
-  fd_sbpf_program_t * prog = fd_sbpf_program_new( fd_spad_alloc( spad, prog_align, prog_footprint ), elf_info, rodata );
+  fd_sbpf_program_t * prog = fd_sbpf_program_new( fd_spad_alloc( spad, prog_align, prog_footprint ), elf_info, programdata, rodata );
   if( FD_UNLIKELY( !prog ) ) {
     FD_LOG_ERR(( "fd_sbpf_program_new() failed: %s", fd_sbpf_strerror() ));
   }
 
+  void * programdata_clone = fd_spad_alloc( spad, FD_SBPF_PROG_RODATA_ALIGN, programdata_size );
+  if( FD_UNLIKELY( !programdata_clone ) ) {
+    return FD_EXECUTOR_INSTR_ERR_INVALID_ACC_DATA;
+  }
+  fd_memcpy( programdata_clone, programdata, programdata_size );
+
   /* Load program */
-  int err = fd_sbpf_program_load( prog, programdata, programdata_size, syscalls, deploy_mode );
+  int err = fd_sbpf_program_load( prog, programdata_clone, programdata_size, syscalls, deploy_mode );
   if( FD_UNLIKELY( err ) ) {
     return FD_EXECUTOR_INSTR_ERR_INVALID_ACC_DATA;
   }

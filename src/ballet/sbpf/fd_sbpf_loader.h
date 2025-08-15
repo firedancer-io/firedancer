@@ -200,6 +200,7 @@ fd_sbpf_program_footprint( fd_sbpf_elf_info_t const * info );
 fd_sbpf_program_t *
 fd_sbpf_program_new( void *                     prog_mem,
                      fd_sbpf_elf_info_t const * elf_info,
+                     void const *               elf,
                      void *                     rodata );
 
 /* fd_sbpf_program_load loads an eBPF program for execution.

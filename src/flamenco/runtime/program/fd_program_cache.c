@@ -252,7 +252,7 @@ fd_program_cache_validate_sbpf_program( fd_exec_slot_ctx_t const * slot_ctx,
   ulong               prog_align     = fd_sbpf_program_align();
   ulong               prog_footprint = fd_sbpf_program_footprint( elf_info );
   void              * prog_mem       = fd_spad_alloc_check( runtime_spad, prog_align, prog_footprint );
-  fd_sbpf_program_t * prog           = fd_sbpf_program_new( prog_mem , elf_info, cache_entry->rodata );
+  fd_sbpf_program_t * prog           = fd_sbpf_program_new( prog_mem, elf_info, program_data, cache_entry->rodata );
   if( FD_UNLIKELY( !prog ) ) {
     FD_LOG_DEBUG(( "fd_sbpf_program_new() failed" ));
     cache_entry->failed_verification = 1;
@@ -272,9 +272,12 @@ fd_program_cache_validate_sbpf_program( fd_exec_slot_ctx_t const * slot_ctx,
                                fd_bank_features_query( slot_ctx->bank ),
                                0 );
 
+  uchar * programdata_clone = fd_spad_alloc( runtime_spad, prog_align, prog_footprint );
+  fd_memcpy( programdata_clone, program_data, program_data_len );
+
   /* Load program. */
 
-  if( FD_UNLIKELY( 0!=fd_sbpf_program_load( prog, program_data, program_data_len, syscalls, false ) ) ) {
+  if( FD_UNLIKELY( 0!=fd_sbpf_program_load( prog, programdata_clone, program_data_len, syscalls, false ) ) ) {
     FD_LOG_DEBUG(( "fd_sbpf_program_load() failed: %s", fd_sbpf_strerror() ));
     cache_entry->failed_verification = 1;
     fd_sbpf_syscalls_leave( syscalls );

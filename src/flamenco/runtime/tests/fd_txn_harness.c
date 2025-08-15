@@ -235,8 +235,8 @@ fd_runtime_fuzz_txn_ctx_create( fd_solfuzz_runner_t *              runner,
       fd_hash_t blockhash = FD_LOAD( fd_hash_t, test_ctx->blockhash_queue[i]->bytes );
       /* Drop duplicate blockhashes */
       if( FD_UNLIKELY( fd_blockhash_map_idx_remove( blockhashes->map, &blockhash, ULONG_MAX, blockhashes->d.deque )!=ULONG_MAX ) ) {
-        FD_LOG_WARNING(( "Fuzz input has a duplicate blockhash %s at index %lu",
-                         FD_BASE58_ENC_32_ALLOCA( blockhash.hash ), i ));
+        FD_LOG_DEBUG(( "Fuzz input has a duplicate blockhash %s at index %lu",
+                       FD_BASE58_ENC_32_ALLOCA( blockhash.hash ), i ));
       }
       // Recent block hashes cap is 150 (actually 151), while blockhash queue capacity is 300 (actually 301)
       fd_bank_poh_set( slot_ctx->bank, blockhash );

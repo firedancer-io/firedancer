@@ -43,7 +43,7 @@ LLVMFuzzerTestOneInput( uchar const * data,
   void * rodata = malloc( info.rodata_footprint );
   FD_TEST( rodata );
 
-  fd_sbpf_program_t * prog = fd_sbpf_program_new( aligned_alloc( fd_sbpf_program_align(), fd_sbpf_program_footprint( &info ) ), &info, rodata );
+  fd_sbpf_program_t * prog = fd_sbpf_program_new( aligned_alloc( fd_sbpf_program_align(), fd_sbpf_program_footprint( &info ) ), &info, data, rodata );
   FD_TEST( prog );
 
   fd_sbpf_syscalls_t * syscalls = fd_sbpf_syscalls_new( aligned_alloc( fd_sbpf_syscalls_align(), fd_sbpf_syscalls_footprint() ) );

@@ -569,6 +569,7 @@ fd_sbpf_program_footprint( fd_sbpf_elf_info_t const * info ) {
 fd_sbpf_program_t *
 fd_sbpf_program_new( void *                     prog_mem,
                      fd_sbpf_elf_info_t const * elf_info,
+                     void const *               elf,
                      void *                     rodata ) {
 
   if( FD_UNLIKELY( !prog_mem ) ) {
@@ -601,7 +602,7 @@ fd_sbpf_program_new( void *                     prog_mem,
     .info      = *elf_info,
     .rodata    = rodata,
     .rodata_sz = elf_info->rodata_sz,
-    .text      = (ulong *)((ulong)rodata + elf_info->text_off), /* FIXME: WHAT IF MISALIGNED */
+    .text      = (ulong *)((ulong)elf + elf_info->text_off), /* FIXME: WHAT IF MISALIGNED */
     .text_off  = elf_info->text_off,
     .text_cnt  = elf_info->text_cnt,
     .text_sz   = elf_info->text_sz,
@@ -1065,13 +1066,12 @@ fd_sbpf_apply_reloc( fd_sbpf_loader_t   const * loader,
    section header table. */
 
 static int
-fd_sbpf_hash_calls( fd_sbpf_loader_t *    loader,
-                    fd_sbpf_program_t *   prog,
-                    fd_sbpf_elf_t const * elf ) {
+fd_sbpf_hash_calls( fd_sbpf_loader_t *   loader,
+                    fd_sbpf_elf_info_t * info,
+                    fd_sbpf_elf_t *      elf ) {
 
   fd_elf64_shdr const * shdrs  = (fd_elf64_shdr const *)( elf->bin + elf->ehdr.e_shoff );
-  fd_sbpf_elf_info_t *  info   = &prog->info;
-  uchar *               rodata = prog->rodata;
+  uchar *               rodata = elf->bin;
 
   fd_elf64_shdr const * shtext    = &shdrs[ info->shndx_text ];
   fd_sbpf_calldests_t * calldests = loader->calldests;
@@ -1111,9 +1111,8 @@ fd_sbpf_hash_calls( fd_sbpf_loader_t *    loader,
 
 static int
 fd_sbpf_relocate( fd_sbpf_loader_t   const * loader,
-                  fd_sbpf_elf_t      const * elf,
+                  fd_sbpf_elf_t            * elf,
                   ulong                      elf_sz,
-                  uchar                    * rodata,
                   fd_sbpf_elf_info_t const * info ) {
 
   ulong const dt_rel    = loader->dt_rel;
@@ -1181,14 +1180,14 @@ fd_sbpf_relocate( fd_sbpf_loader_t   const * loader,
   /* Apply each reloc */
 
   for( ulong i=0; i<rel_cnt; i++ ) {
-    int res = fd_sbpf_apply_reloc( loader, elf, elf_sz, rodata, info, &rel[ i ] );
+    int res = fd_sbpf_apply_reloc( loader, elf, elf_sz, elf->bin, info, &rel[ i ] );
     if( res!=0 ) return res;
   }
 
   return 0;
 }
 
-static int
+static int FD_FN_UNUSED
 fd_sbpf_zero_rodata( fd_sbpf_elf_t *            elf,
                      uchar *                    rodata,
                      fd_sbpf_elf_info_t const * info ) {
@@ -1226,6 +1225,34 @@ fd_sbpf_zero_rodata( fd_sbpf_elf_t *            elf,
 
   fd_memset( rodata+cursor, 0, info->rodata_sz - cursor );
 
+  return 0;
+}
+
+static int FD_FN_UNUSED
+fd_sbpf_parse_rodata( fd_sbpf_elf_t * elf,
+                     uchar *       rodata,
+                     fd_sbpf_elf_info_t const * info ) {
+  fd_elf64_shdr const * shdrs = (fd_elf64_shdr const *)( elf->bin + elf->ehdr.e_shoff );
+
+  /* memset gaps between sections to zero.
+      Assume section sh_addrs are monotonically increasing.
+      Assume section virtual address ranges equal physical address ranges.
+      Assume ranges are not overflowing. */
+  /* FIXME match Solana more closely here */
+
+  fd_memset( rodata, 0, info->rodata_sz );
+
+  for( ulong i=0; i<elf->ehdr.e_shnum; i++ ) {
+    if( !( info->loaded_sections[ i>>6UL ] & (1UL<<(i&63UL)) ) ) continue;
+
+    fd_elf64_shdr const * shdr = &shdrs[ i ];
+
+    /* NOBITS sections are included in rodata, but may have invalid
+       offsets, thus we can't trust the shdr->sh_offset field. */
+    if( FD_UNLIKELY( shdr->sh_type==FD_ELF_SHT_NOBITS ) ) continue;
+
+    fd_memcpy( rodata+shdr->sh_addr, elf->bin+shdr->sh_offset, shdr->sh_size );
+  }
   return 0;
 }
 
@@ -1268,20 +1295,19 @@ fd_sbpf_program_load( fd_sbpf_program_t *  prog,
   /* Register entrypoint to calldests. */
   fd_sbpf_calldests_insert( prog->calldests, prog->entry_pc );
 
-  /* Copy rodata segment */
-  fd_memcpy( prog->rodata, elf->bin, prog->info.rodata_footprint );
-
   /* Convert calls with PC relative immediate to hashes */
-  if( FD_UNLIKELY( (err=fd_sbpf_hash_calls  ( &loader, prog, elf ))!=0 ) )
+  if( FD_UNLIKELY( (err=fd_sbpf_hash_calls( &loader, &prog->info, elf ))!=0 ) )
     return err;
 
   /* Apply relocations */
-  if( FD_UNLIKELY( (err=fd_sbpf_relocate    ( &loader, elf, elf_sz, prog->rodata, &prog->info ))!=0 ) )
+  if( FD_UNLIKELY( (err=fd_sbpf_relocate( &loader, elf, elf_sz, &prog->info ))!=0 ) )
     return err;
 
   /* Create read-only segment */
-  if( FD_UNLIKELY( (err=fd_sbpf_zero_rodata( elf, prog->rodata, &prog->info ))!=0 ) )
+  if( FD_UNLIKELY( (err=fd_sbpf_parse_rodata( elf, prog->rodata, &prog->info ))!=0 ) )
     return err;
+
+  prog->text = (ulong *)((uchar *)elf->bin + prog->info.text_off);
 
   return 0;
 }

@@ -79,7 +79,7 @@ main( int     argc,
   if( FD_UNLIKELY( !prog_buf ) )
     FD_LOG_ERR(( "aligned_alloc(%#lx, %#lx) failed (%i-%s)", prog_align, prog_footprint, errno, fd_io_strerror( errno ) ));
 
-  fd_sbpf_program_t * prog = fd_sbpf_program_new( prog_buf, &elf_info, rodata );
+  fd_sbpf_program_t * prog = fd_sbpf_program_new( prog_buf, &elf_info, bin_buf, rodata );
   FD_TEST( prog );
 
   fd_sbpf_syscalls_t * syscalls = fd_sbpf_syscalls_new(
