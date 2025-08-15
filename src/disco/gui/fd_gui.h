@@ -239,6 +239,45 @@ struct fd_gui_slot {
 
 typedef struct fd_gui_slot fd_gui_slot_t;
 
+#define FD_GUI_SLOT_RANKINGS_SZ (10UL)
+#define FD_GUI_SLOT_RANKING_TYPE_ASC  (0)
+#define FD_GUI_SLOT_RANKING_TYPE_DESC (1)
+
+struct fd_gui_slot_ranking {
+  ulong slot;
+  ulong value;
+  int   type;
+};
+typedef struct fd_gui_slot_ranking fd_gui_slot_ranking_t;
+
+#define SORT_NAME fd_gui_slot_ranking_sort
+#define SORT_KEY_T fd_gui_slot_ranking_t
+
+/* Sentinels (slot==ULONG_MAX) are sorted after.  Compare equals is
+   sorted by oldest slot after. otherwise sort by value according to
+   ranking type */
+#define SORT_BEFORE(a,b) fd_int_if( (a).slot==ULONG_MAX, 0, fd_int_if( (b).slot==ULONG_MAX, 1, fd_int_if( (a).value==(b).value, (a).slot>(b).slot, fd_int_if( (a).type==FD_GUI_SLOT_RANKING_TYPE_DESC, (a).value>(b).value, (a).value<(b).value ) ) ) )
+#include "../../util/tmpl/fd_sort.c"
+
+struct fd_gui_slot_rankings {
+  ulong epoch;
+  ulong next_slot; /* the largest slot that we've already combed through in this epoch for these rankings, plus one */
+  fd_gui_slot_ranking_t largest_tips          [ FD_GUI_SLOT_RANKINGS_SZ+1UL ];
+  fd_gui_slot_ranking_t largest_fees          [ FD_GUI_SLOT_RANKINGS_SZ+1UL ];
+  fd_gui_slot_ranking_t largest_rewards       [ FD_GUI_SLOT_RANKINGS_SZ+1UL ];
+  fd_gui_slot_ranking_t largest_duration      [ FD_GUI_SLOT_RANKINGS_SZ+1UL ];
+  fd_gui_slot_ranking_t largest_compute_units [ FD_GUI_SLOT_RANKINGS_SZ+1UL ];
+  fd_gui_slot_ranking_t largest_skipped       [ FD_GUI_SLOT_RANKINGS_SZ+1UL ];
+  fd_gui_slot_ranking_t smallest_tips         [ FD_GUI_SLOT_RANKINGS_SZ+1UL ];
+  fd_gui_slot_ranking_t smallest_fees         [ FD_GUI_SLOT_RANKINGS_SZ+1UL ];
+  fd_gui_slot_ranking_t smallest_rewards      [ FD_GUI_SLOT_RANKINGS_SZ+1UL ];
+  fd_gui_slot_ranking_t smallest_duration     [ FD_GUI_SLOT_RANKINGS_SZ+1UL ];
+  fd_gui_slot_ranking_t smallest_compute_units[ FD_GUI_SLOT_RANKINGS_SZ+1UL ];
+  fd_gui_slot_ranking_t smallest_skipped      [ FD_GUI_SLOT_RANKINGS_SZ+1UL ];
+};
+
+typedef struct fd_gui_slot_rankings fd_gui_slot_rankings_t;
+
 struct __attribute__((packed)) fd_gui_txn {
   uchar signature[ FD_SHA512_HASH_SZ ];
   ulong transaction_fee;
@@ -345,6 +384,7 @@ struct fd_gui {
     ulong slot_optimistically_confirmed;
     ulong slot_completed;
     ulong slot_estimated;
+    fd_gui_slot_rankings_t slot_rankings[ 1 ];
 
     ulong estimated_tps_history_idx;
     ulong estimated_tps_history[ FD_GUI_TPS_HISTORY_SAMPLE_CNT ][ 3UL ];

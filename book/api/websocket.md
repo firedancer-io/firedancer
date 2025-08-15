@@ -1054,6 +1054,61 @@ new validator identity.
 | waterfall           | `TxnWaterfall\|null`      | If the slot is not `mine`, will be `null`. Otherwise, a waterfall showing reasons transactions were acquired since the end of the prior leader slot |
 | tile_primary_metric | `TilePrimaryMetric\|null` | If the slot is not `mine`, will be `null`. Otherwise, max value of per-tile-type primary metrics since the end of the prior leader slot |
 
+#### `slot.query_rankings`
+| frequency   | type           | example |
+|-------------|----------------|---------|
+| *Request*   | `SlotRankings` | below   |
+
+::: details Example
+
+```json
+{
+    "topic": "slot",
+    "key": "query_rankings",
+    "id": 32,
+}
+```
+
+```json
+{
+    "topic": "slot",
+    "key": "query_rankings",
+    "id": 32,
+    "value": {
+      "largest_tips": [1, 2, 3],
+      "largest_fees": [1, 2, 3],
+      "largest_rewards": [1, 2, 3],
+      "largest_duration": [1, 2, 3],
+      "largest_compute_units": [1, 2, 3],
+      "latest_skipped": [1, 2, 3],
+      "smallest_tips": [1, 2, 3],
+      "smallest_fees": [1, 2, 3],
+      "smallest_rewards": [1, 2, 3],
+      "smallest_duration": [1, 2, 3],
+      "smallest_compute_units": [1, 2, 3],
+      "earliest_skipped": [1, 2, 3]
+    }
+}
+```
+
+:::
+
+**`SlotRankings`**
+| Field                  | Type                      | Description |
+|------------------------|---------------------------|-------------|
+| largest_tips           | `number[]` | An array of slot numbers from the current epoch containing the top 10 (or less, if applicable) slots sorted by tips in descending order |
+| largest_fees           | `number[]` | An array of slot numbers from the current epoch containing the top 10 (or less, if applicable) slots sorted by fees in descending order |
+| largest_rewards        | `number[]` | An array of slot numbers from the current epoch containing the top 10 (or less, if applicable) slots sorted by rewards in descending order |
+| largest_duration       | `number[]` | An array of slot numbers from the current epoch containing the top 10 (or less, if applicable) slots sorted by duration in descending order |
+| largest_compute_units  | `number[]` | An array of slot numbers from the current epoch containing the top 10 (or less, if applicable) slots sorted by compute_units in descending order |
+| latest_skipped         | `number[]` | An array of slot numbers from the current epoch containing the top 10 (or less, if applicable) skipped slots sorted by slot number in descending order |
+| smallest_tips          | `number[]` | An array of slot numbers from the current epoch containing the bottom 10 (or less, if applicable) slots sorted by tips in ascending order |
+| smallest_fees          | `number[]` | An array of slot numbers from the current epoch containing the bottom 10 (or less, if applicable) slots sorted by fees in ascending order |
+| smallest_rewards       | `number[]` | An array of slot numbers from the current epoch containing the bottom 10 (or less, if applicable) slots sorted by rewards in ascending order |
+| smallest_duration      | `number[]` | An array of slot numbers from the current epoch containing the bottom 10 (or less, if applicable) slots sorted by duration in ascending order |
+| smallest_compute_units | `number[]` | An array of slot numbers from the current epoch containing the bottom 10 (or less, if applicable) slots sorted by compute_units in ascending order |
+| earliest_skipped       | `number[]` | An array of slot numbers from the current epoch containing the bottom 10 (or less, if applicable) skipped slots sorted by slot number in ascending order |
+
 #### `slot.query`
 | frequency   | type           | example |
 |-------------|----------------|---------|
