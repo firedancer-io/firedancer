@@ -518,6 +518,8 @@ FD_BANKS_ITER(X)
 #undef HAS_COW_0
 #undef HAS_COW_1
 
+// FIXME these locks do not fundamentally fix the minority fork racy
+// publishing issue.  Remove these once we have refcnts.
 /* fd_banks_lock() and fd_banks_unlock() are locks to be acquired and
    freed around accessing or modifying a specific bank. This is only
    required if there is concurrent access to a bank while operations on
