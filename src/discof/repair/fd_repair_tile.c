@@ -890,8 +890,6 @@ after_frag( fd_repair_tile_ctx_t * ctx,
         cmr = &fd_reasm_root( ctx->reasm )->key;
       }
       FD_TEST( fd_reasm_insert( ctx->reasm, merkle_root, cmr, shred->slot, shred->fec_set_idx, shred->data.parent_off, (ushort)(shred->idx - shred->fec_set_idx + 1), data_complete, slot_complete ) );
-      fd_fec_sig_t * fec_sig = fd_fec_sig_query( ctx->fec_sigs, (shred->slot << 32) | shred->fec_set_idx, NULL );
-      FD_TEST( fec_sig );
     }
 
     /* Insert the shred into the map. */
