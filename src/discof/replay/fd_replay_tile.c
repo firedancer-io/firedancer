@@ -80,9 +80,9 @@
 #define PLUGIN_PUBLISH_TIME_NS ((long)60e9)
 
 #define IN_KIND_REPAIR (0)
-#define IN_KIND_ROOT  (2)
-#define IN_KIND_SNAP   (3)
-#define IN_KIND_WRITER (4)
+#define IN_KIND_ROOT   (1)
+#define IN_KIND_SNAP   (2)
+#define IN_KIND_WRITER (3)
 
 #define BANK_HASH_CMP_LG_MAX (16UL)
 
@@ -229,8 +229,6 @@ struct fd_replay_tile_ctx {
   /* Metadata updated during execution */
 
   ulong   snapshot_slot;
-  ulong * turbine_slot0;
-  ulong * turbine_slot;
   ulong   root; /* the root slot is the most recent slot to have reached
                    max lockout in the tower  */
   ulong   bank_idx;
@@ -247,20 +245,6 @@ struct fd_replay_tile_ctx {
   ulong   bank_cnt;
   fd_replay_out_link_t bank_out[ FD_PACK_MAX_BANK_TILES ]; /* Sending to PoH finished txns + a couple more tasks ??? */
 
-
-  ulong * published_wmark; /* publish watermark. The watermark is defined as the
-                  minimum of the tower root (root above) and blockstore
-                  smr (blockstore->smr). The watermark is used to
-                  publish our fork-aware structures eg. blockstore,
-                  forks, ghost. In general, publishing has the effect of
-                  pruning minority forks in those structures,
-                  indicating that is ok to release the memory being
-                  occupied by said forks.
-
-                  The reason it has to be the minimum of the two, is the
-                  tower root can lag the SMR and vice versa, but both
-                  the fork-aware structures need to maintain information
-                  through both of those slots. */
 
   ulong * poh;  /* proof-of-history slot */
   uint poh_init_done;
@@ -529,7 +513,6 @@ restore_slot_ctx( fd_replay_tile_ctx_t * ctx,
 
 static void
 kickoff_repair_orphans( fd_replay_tile_ctx_t * ctx, fd_stem_context_t * stem ) {
-  fd_fseq_update( ctx->published_wmark, ctx->manifest->slot );
   publish_stake_weights_manifest( ctx, stem, ctx->manifest );
 }
 
@@ -571,7 +554,7 @@ publish_slot_notifications( fd_replay_tile_ctx_t * ctx,
     msg->type                        = FD_REPLAY_SLOT_TYPE;
     msg->slot_exec.slot              = curr_slot;
     msg->slot_exec.parent            = fd_bank_parent_slot_get( ctx->slot_ctx->bank );
-    msg->slot_exec.root              = fd_fseq_query( ctx->published_wmark );
+    msg->slot_exec.root              = ctx->root;
     msg->slot_exec.height            = block_entry_block_height;
     msg->slot_exec.transaction_count = fd_bank_txn_count_get( ctx->slot_ctx->bank );
     msg->slot_exec.shred_cnt = fd_bank_shred_cnt_get( ctx->slot_ctx->bank );
@@ -692,29 +675,6 @@ init_after_snapshot( fd_replay_tile_ctx_t * ctx ) {
 
   fd_bank_vote_states_end_locking_query( ctx->slot_ctx->bank );
 
-  ulong root = snapshot_slot;
-  if( FD_LIKELY( root > fd_fseq_query( ctx->published_wmark ) ) ) {
-
-    /* The watermark has advanced likely because we loaded an
-       incremental snapshot that was downloaded just-in-time.  We had
-       kicked off repair with an older incremental snapshot, and so now
-       we have to prune the relevant data structures, so replay can
-       start from the latest frontier.
-
-       No funk_and_txncache_publish( ctx, wmark, &xid ); because there
-       are no funk txns to publish, and all rooted slots have already
-       been registered in the txncache when we loaded the snapshot. */
-
-    if( FD_LIKELY( ctx->store ) ) {
-      block_id_map_t * bid = block_id_map_query( ctx->block_id_map, root, NULL );
-      fd_store_exacq  ( ctx->store );
-      fd_store_publish( ctx->store, &bid->block_id );
-      fd_store_exrel  ( ctx->store );
-    }
-
-    fd_fseq_update( ctx->published_wmark, root );
-  }
-
   /* Now that the snapshot(s) are done loading, we can mark all of the
      exec tiles as ready. */
   ctx->exec_ready_bitset = fd_ulong_mask_lsb( (int)ctx->exec_cnt );
@@ -777,6 +737,15 @@ on_snapshot_message( fd_replay_tile_ctx_t * ctx,
        state machine and set the state here accordingly. */
     FD_LOG_INFO(("Snapshot loaded, replay can start executing"));
     ctx->snapshot_init_done = 1;
+    ulong snapshot_slot = fd_bank_slot_get( ctx->slot_ctx->bank );
+    fd_hash_t null = { 0 }; /* FIXME sentinel value for missing block_id in manifest */
+
+    fd_store_exacq( ctx->store );
+    FD_TEST( !fd_store_root( ctx->store ) );
+    fd_store_insert( ctx->store, 0, &null );
+    ctx->store->slot0 = snapshot_slot; /* FIXME special slot to link to sentinel value */
+    fd_store_exrel( ctx->store );
+
     /* Kickoff repair orphans after the snapshots are done loading. If
        we kickoff repair after we receive a full manifest, we might try
        to repair a slot that is potentially huge amount of slots behind
@@ -791,11 +760,9 @@ on_snapshot_message( fd_replay_tile_ctx_t * ctx,
           only load in the slot_ctx and kickoff repair for the
           incremental snapshot. */
     kickoff_repair_orphans( ctx, stem );
-    init_from_snapshot( ctx, stem );
-    ulong curr_slot = fd_bank_slot_get( ctx->slot_ctx->bank );
-    block_id_map_t * entry = block_id_map_insert( ctx->block_id_map, curr_slot );
-    fd_hash_t null = { 0 };
+    block_id_map_t * entry = block_id_map_insert( ctx->block_id_map, snapshot_slot );
     entry->block_id = null;
+    init_from_snapshot( ctx, stem );
     return;
   }
 
@@ -807,26 +774,6 @@ on_snapshot_message( fd_replay_tile_ctx_t * ctx,
          id is only used temporarily because replay cannot yet receive
          the firedancer-internal snapshot manifest message. */
       restore_slot_ctx( ctx, ctx->in[ in_idx ].mem, chunk, sig );
-
-      /* The below handles the annoying case in which multiple manifests
-         can be received.  A new manifest is essentially a new root, and
-         while the Store has a "publish" operation for new roots, this
-         scenario is a little different, because the manifest overwrites
-         the previous one entirely.  For example, the manifest slot can
-         go backwards, which would violate the Store assumption that the
-         root only publishes forwards (and is a descendant of the prior
-         root).  Instead, on new manifest, the Store is cleaned out
-         entirely.  This could be done more intelligently and retain any
-         store FEC sets that we suspect would chain off the new manifest
-         slot, but given this is a startup-only operation it is probably
-         unnecessary.*/
-
-      fd_store_exacq( ctx->store );
-      fd_hash_t null = { 0 }; /* FIXME sentinel value for missing block_id in manifest */
-      if( FD_LIKELY( fd_store_root( ctx->store ) ) ) fd_store_clear( ctx->store );
-      fd_store_insert( ctx->store, 0, &null );
-      ctx->store->slot0 = fd_bank_slot_get( ctx->slot_ctx->bank ); /* FIXME special slot to link to sentinel value */
-      fd_store_exrel( ctx->store );
       break;
     }
     default: {
@@ -933,12 +880,8 @@ after_frag( fd_replay_tile_ctx_t *   ctx,
             ulong                    tspub FD_PARAM_UNUSED,
             fd_stem_context_t *      stem FD_PARAM_UNUSED ) {
   if( FD_UNLIKELY( ctx->in_kind[ in_idx ]==IN_KIND_ROOT ) ) {
+
     ulong root = sig;
-
-    if( FD_LIKELY( root <= fd_fseq_query( ctx->published_wmark ) ) ) {
-      return;
-    }
-
     ctx->root = root;
     block_id_map_t * block_id = block_id_map_query( ctx->block_id_map, root, NULL );
     FD_TEST( block_id ); /* invariant violation. replay must have replayed the full block (and therefore have the block id) if it's trying to root it. */
@@ -956,9 +899,10 @@ after_frag( fd_replay_tile_ctx_t *   ctx,
     if( FD_LIKELY( ctx->funk ) ) { fd_funk_txn_xid_t xid = { .ul = { root, root } }; funk_and_txncache_publish( ctx, root, &xid ); }
     if( FD_LIKELY( ctx->banks ) ) fd_banks_publish( ctx->banks, root );
 
-    fd_fseq_update( ctx->published_wmark, root );
   } else if( FD_UNLIKELY( ctx->in_kind[ in_idx ]==IN_KIND_SNAP ) ) {
+
     on_snapshot_message( ctx, stem, in_idx, ctx->_snap_out_chunk, sig );
+
   } else if( FD_LIKELY( ctx->in_kind[ in_idx ]==IN_KIND_REPAIR ) ) {
 
     /* Forks form a partial ordering over FEC sets. The Repair tile
@@ -1219,17 +1163,6 @@ handle_slot_change( fd_replay_tile_ctx_t * ctx,
                     ulong                  slot,
                     ulong                  parent_slot ) {
 
-  ulong turbine_slot = fd_fseq_query( ctx->turbine_slot );
-  FD_LOG_NOTICE(( "\n\n[Replay]\n"
-    "slot:            %lu\n"
-    "current turbine: %lu\n"
-    "slots behind:    %lu\n"
-    "live:            %d\n",
-    slot,
-    turbine_slot,
-    turbine_slot - slot,
-    (turbine_slot-slot)<5UL ));
-
   fd_bank_t * bank = fd_banks_get_bank( ctx->banks, slot );
   if( !!bank ) {
     ulong bank_parent_block = fd_bank_parent_slot_get( bank );
@@ -1263,6 +1196,9 @@ handle_new_slice( fd_replay_tile_ctx_t * ctx, fd_stem_context_t * stem ) {
   if( FD_UNLIKELY( fd_exec_slice_deque_cnt( ctx->exec_slice_deque )==0UL ) ) {
     return;
   }
+  if( FD_UNLIKELY( ctx->root==ULONG_MAX ) ) { /* banks is not initialized yet */
+    return;
+  }
 
   fd_exec_slice_t slice = fd_exec_slice_deque_pop_head( ctx->exec_slice_deque );
 
@@ -1273,13 +1209,13 @@ handle_new_slice( fd_replay_tile_ctx_t * ctx, fd_stem_context_t * stem ) {
   int    slot_complete = slice.slot_complete;
   ulong  parent_slot   = slot - parent_off;
 
-  if( FD_UNLIKELY( slot<fd_fseq_query( ctx->published_wmark ) ) ) {
-    FD_LOG_WARNING(( "ignoring replay of slot %lu (parent: %lu). earlier than our watermark %lu.", slot, parent_slot, fd_fseq_query( ctx->published_wmark ) ));
+  if( FD_UNLIKELY( slot<ctx->root ) ) {
+    FD_LOG_WARNING(( "ignoring replay of slot %lu (parent: %lu). earlier than our watermark %lu.", slot, parent_slot, ctx->root ));
     return;
   }
 
-  if( FD_UNLIKELY( parent_slot<fd_fseq_query( ctx->published_wmark ) ) ) {
-    FD_LOG_WARNING(( "ignoring replay of slot %lu (parent: %lu). parent slot is earlier than our watermark %lu.", slot, parent_slot, fd_fseq_query( ctx->published_wmark ) ) );
+  if( FD_UNLIKELY( parent_slot<ctx->root ) ) {
+    FD_LOG_WARNING(( "ignoring replay of slot %lu (parent: %lu). parent slot is earlier than our watermark %lu.", slot, parent_slot, ctx->root ) );
     return;
   }
 
@@ -1359,6 +1295,7 @@ exec_slice_fini_slot( fd_replay_tile_ctx_t * ctx, fd_stem_context_t * stem ) {
 
   if( FD_LIKELY( ctx->replay_out_idx != ULONG_MAX && !ctx->read_only ) ) {
     fd_hash_t const * block_id        = &block_id_map_query( ctx->block_id_map, curr_slot, NULL )->block_id;
+    FD_TEST( block_id_map_query( ctx->block_id_map, fd_bank_parent_slot_get( ctx->slot_ctx->bank ), NULL ) );
     fd_hash_t const * parent_block_id = &block_id_map_query( ctx->block_id_map, fd_bank_parent_slot_get( ctx->slot_ctx->bank ), NULL )->block_id;
     fd_hash_t const * bank_hash       = fd_bank_bank_hash_query( ctx->slot_ctx->bank );
     fd_hash_t const * block_hash      = fd_blockhashes_peek_last( fd_bank_block_hash_queue_query( ctx->slot_ctx->bank ) );
@@ -1641,25 +1578,6 @@ unprivileged_init( fd_topo_t *      topo,
   if( FD_UNLIKELY( !fd_funk_join( ctx->funk, fd_topo_obj_laddr( topo, tile->replay.funk_obj_id ) ) ) ) {
     FD_LOG_ERR(( "Failed to join database cache" ));
   }
-
-  /**********************************************************************/
-  /* root_slot fseq                                                     */
-  /**********************************************************************/
-
-  ulong root_slot_obj_id = fd_pod_queryf_ulong( topo->props, ULONG_MAX, "root_slot" );
-  FD_TEST( root_slot_obj_id!=ULONG_MAX );
-  ctx->published_wmark = fd_fseq_join( fd_topo_obj_laddr( topo, root_slot_obj_id ) );
-  if( FD_UNLIKELY( !ctx->published_wmark ) ) FD_LOG_ERR(( "replay tile has no root_slot fseq" ));
-  FD_TEST( ULONG_MAX==fd_fseq_query( ctx->published_wmark ) );
-
-  /**********************************************************************/
-  /* turbine_slot fseq                                                  */
-  /**********************************************************************/
-
-  ulong turbine_slot_obj_id = fd_pod_queryf_ulong( topo->props, ULONG_MAX, "turbine_slot" );
-  FD_TEST( turbine_slot_obj_id!=ULONG_MAX );
-  ctx->turbine_slot = fd_fseq_join( fd_topo_obj_laddr( topo, turbine_slot_obj_id ) );
-  if( FD_UNLIKELY( !ctx->turbine_slot ) ) FD_LOG_ERR(( "replay tile has no turb_slot fseq" ));
 
   /**********************************************************************/
   /* TOML paths                                                         */

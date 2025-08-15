@@ -280,7 +280,7 @@ after_frag( ctx_t *             ctx,
             fd_stem_context_t * stem ) {
   uint in_kind = ctx->in_kind[in_idx];
   switch( in_kind ) {
-  case IN_KIND_GOSSIP: {                                                               break; }
+  case IN_KIND_GOSSIP: {                                                                break; }
   case IN_KIND_REPLAY: { after_frag_replay( ctx, sig, &ctx->replay_out, tsorig, stem ); break; }
   case IN_KIND_SNAP:   { after_frag_snap  ( ctx, sig, &ctx->snapshot_manifest        ); break; }
   default: FD_LOG_ERR(( "Unexpected input kind %u", in_kind ));
@@ -293,13 +293,13 @@ unprivileged_init( fd_topo_t *      topo,
   void * scratch = fd_topo_obj_laddr( topo, tile->tile_obj_id );
 
   FD_SCRATCH_ALLOC_INIT( l, scratch );
-  ctx_t * ctx        = FD_SCRATCH_ALLOC_APPEND( l, alignof(ctx_t), sizeof(ctx_t)        );
-  void * epoch_mem   = FD_SCRATCH_ALLOC_APPEND( l, fd_epoch_align(),             fd_epoch_footprint( FD_VOTER_MAX ) );
-  void * ghost_mem   = FD_SCRATCH_ALLOC_APPEND( l, fd_ghost_align(),             fd_ghost_footprint( FD_BLOCK_MAX ) );
-  void * tower_mem   = FD_SCRATCH_ALLOC_APPEND( l, fd_tower_align(),             fd_tower_footprint()               );
-  void * scratch_mem = FD_SCRATCH_ALLOC_APPEND( l, fd_tower_align(),             fd_tower_footprint()               );
-  void * voter_mem   = FD_SCRATCH_ALLOC_APPEND( l, 128UL,                        VOTER_FOOTPRINT * VOTER_MAX        );
-  ulong scratch_top  = FD_SCRATCH_ALLOC_FINI  ( l, scratch_align()                                                  );
+  ctx_t * ctx         = FD_SCRATCH_ALLOC_APPEND( l, alignof(ctx_t), sizeof(ctx_t)        );
+  void * epoch_mem    = FD_SCRATCH_ALLOC_APPEND( l, fd_epoch_align(),             fd_epoch_footprint( FD_VOTER_MAX ) );
+  void * ghost_mem    = FD_SCRATCH_ALLOC_APPEND( l, fd_ghost_align(),             fd_ghost_footprint( FD_BLOCK_MAX ) );
+  void * tower_mem    = FD_SCRATCH_ALLOC_APPEND( l, fd_tower_align(),             fd_tower_footprint()               );
+  void * scratch_mem  = FD_SCRATCH_ALLOC_APPEND( l, fd_tower_align(),             fd_tower_footprint()               );
+  void * voter_mem    = FD_SCRATCH_ALLOC_APPEND( l, 128UL,                        VOTER_FOOTPRINT * VOTER_MAX        );
+  ulong  scratch_top  = FD_SCRATCH_ALLOC_FINI  ( l, scratch_align()                                                  );
   FD_TEST( scratch_top == (ulong)scratch + scratch_footprint( tile ) );
 
   ctx->epoch   = fd_epoch_join( fd_epoch_new( epoch_mem, FD_VOTER_MAX       ) );

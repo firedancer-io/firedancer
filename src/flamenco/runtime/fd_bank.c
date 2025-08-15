@@ -285,6 +285,8 @@ fd_banks_new( void * shmem, ulong max_total_banks, ulong max_fork_width ) {
   banks->max_total_banks = max_total_banks;
   banks->max_fork_width  = max_fork_width;
   banks->magic           = FD_BANKS_MAGIC;
+  banks->root_idx        = ULONG_MAX;
+  banks->root            = ULONG_MAX;
 
   return shmem;
 }
@@ -475,7 +477,6 @@ fd_banks_init_bank( fd_banks_t * banks, ulong slot ) {
 
 fd_bank_t *
 fd_banks_get_bank( fd_banks_t * banks, ulong slot ) {
-
   fd_bank_t *      bank_pool = fd_banks_get_bank_pool( banks );
   fd_banks_map_t * bank_map  = fd_banks_get_bank_map( banks );
 
