@@ -851,7 +851,7 @@ class VectorMember(TypeNode):
     }
 
     def emitWalk(self, inner, indent=''):
-        # The `serialize` function in Rust's `short_vec` (analagous to our `walk()` implementation) handles serializing
+        # The `serialize` function in Rust's `short_vec` (analogous to our `walk()` implementation) handles serializing
         # the vector's length independently, rather than relying on the Serializer (i.e., the `walk` function callback)
         # to do it. To remain consistent, we have to replicate this behavior here.
         # Reference: https://docs.rs/solana-short-vec/latest/src/solana_short_vec/lib.rs.html#166-185
