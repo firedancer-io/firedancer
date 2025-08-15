@@ -122,9 +122,12 @@ send_test_topo( config_t * config ) {
 
   FOR(net_tile_cnt) fd_topos_net_tile_finish( topo, i );
 
+  fd_topo_net_rx_t rx_rules = {0};
+  fd_topo_net_rx_rule_push( &rx_rules, DST_PROTO_SEND, "net_send", config->tiles.send.send_src_port );
+
   for( ulong i=0UL; i<topo->tile_cnt; i++ ) {
     fd_topo_tile_t * tile = &topo->tiles[ i ];
-    if( !fd_topo_configure_tile( tile, config ) ) {
+    if( !fd_topo_configure_tile( tile, config, &rx_rules ) ) {
       FD_LOG_ERR(( "unknown tile name %lu `%s`", i, tile->name ));
     }
   }

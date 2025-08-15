@@ -29,13 +29,16 @@
 /* Maximum number of additional destinations for leader shreds and for retransmitted shreds */
 #define FD_TOPO_ADTL_DESTS_MAX ( 32UL)
 
+#define FD_TOPO_LINK_NAME_SZ (13UL)
+
+#define FD_TOPO_NET_RX_RULE_MAX (32UL)
 
 /* A workspace is a Firedancer specific memory management structure that
    sits on top of 1 or more memory mapped gigantic or huge pages mounted
    to the hugetlbfs. */
 typedef struct {
   ulong id;           /* The ID of this workspace.  Indexed from [0, wksp_cnt).  When placed in a topology, the ID must be the index of the workspace in the workspaces list. */
-  char  name[ 13UL ]; /* The name of this workspace, like "pack".  There can be at most one of each workspace name in a topology. */
+  char  name[ FD_TOPO_LINK_NAME_SZ ]; /* The name of this workspace, like "pack".  There can be at most one of each workspace name in a topology. */
 
   ulong numa_idx;     /* The index of the NUMA node on the system that this workspace should be allocated from. */
 
@@ -90,17 +93,51 @@ typedef struct {
   ushort port; /* in host byte order */
 } fd_topo_ip_port_t;
 
+struct fd_topo_net_rx_rule {
+  ushort port;
+  ushort proto_id;
+  char   link[ FD_TOPO_LINK_NAME_SZ ];
+};
+typedef struct fd_topo_net_rx_rule fd_topo_net_rx_rule_t;
+
+struct fd_topo_net_rx {
+  fd_topo_net_rx_rule_t rx_rules[ FD_TOPO_NET_RX_RULE_MAX ];
+  ushort                rx_rule_cnt;
+};
+typedef struct fd_topo_net_rx fd_topo_net_rx_t;
+
+static inline void
+fd_topo_net_rx_rule_push( fd_topo_net_rx_t * net,
+                          ushort             dst_id,
+                          char const *       link_name,
+                          ushort             port ) {
+  ulong const prev_rule_cnt = net->rx_rule_cnt;
+  if( FD_UNLIKELY( prev_rule_cnt>=FD_TOPO_NET_RX_RULE_MAX ) ) {
+    FD_LOG_ERR(( "too many net rx rules" ));
+  }
+
+  for( ulong i=0UL; i<prev_rule_cnt; i++ ) {
+    if( net->rx_rules[ i ].port==port ) return;
+  }
+
+  fd_topo_net_rx_rule_t * rule = &net->rx_rules[ prev_rule_cnt ];
+  fd_memset( rule, 0, sizeof(fd_topo_net_rx_rule_t) );
+  rule->port     = port;
+  rule->proto_id = dst_id;
+
+  ulong link_name_len = strnlen( link_name, FD_TOPO_LINK_NAME_SZ );
+  if( FD_UNLIKELY( link_name_len>=FD_TOPO_LINK_NAME_SZ ) ) {
+    FD_LOG_ERR(( "link name too long: \"%s\"", link_name ));
+  }
+  fd_cstr_fini( fd_cstr_append_text( fd_cstr_init( rule->link ), link_name, link_name_len ) );
+
+  net->rx_rule_cnt = (ushort)( prev_rule_cnt+1UL );
+}
+
 struct fd_topo_net_tile {
   ulong umem_dcache_obj_id;  /* dcache for XDP UMEM frames */
   uint  bind_address;
-
-  ushort shred_listen_port;
-  ushort quic_transaction_listen_port;
-  ushort legacy_transaction_listen_port;
-  ushort gossip_listen_port;
-  ushort repair_intake_listen_port;
-  ushort repair_serve_listen_port;
-  ushort send_src_port;
+  fd_topo_net_rx_t rx_rules;
 };
 typedef struct fd_topo_net_tile fd_topo_net_tile_t;
 

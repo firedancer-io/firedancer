@@ -197,7 +197,7 @@ pktgen_cmd_fn( args_t *   args FD_PARAM_UNUSED,
   fd_topo_tile_t * metric_tile = &topo->tiles[ fd_topo_find_tile( topo, "metric", 0UL ) ];
 
   ushort const listen_port = 9000;
-  net_tile->net.legacy_transaction_listen_port = listen_port;
+  fd_topo_net_rx_rule_push( &net_tile->net.rx_rules, DST_PROTO_TPU_UDP, "net_quic", listen_port );
 
   if( FD_UNLIKELY( !fd_cstr_to_ip4_addr( config->tiles.metric.prometheus_listen_address, &metric_tile->metric.prometheus_listen_addr ) ) )
     FD_LOG_ERR(( "failed to parse prometheus listen address `%s`", config->tiles.metric.prometheus_listen_address ));

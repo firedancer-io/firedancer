@@ -836,9 +836,18 @@ fd_topo_initialize( config_t * config ) {
 
   FOR(net_tile_cnt) fd_topos_net_tile_finish( topo, i );
 
+  fd_topo_net_rx_t rx_rules = {0};
+  fd_topo_net_rx_rule_push( &rx_rules, DST_PROTO_TPU_QUIC, "net_quic",   config->tiles.quic.quic_transaction_listen_port );
+  fd_topo_net_rx_rule_push( &rx_rules, DST_PROTO_TPU_QUIC, "net_quic",   config->tiles.quic.quic_transaction_listen_port );
+  fd_topo_net_rx_rule_push( &rx_rules, DST_PROTO_SHRED,    "net_shred",  config->tiles.shred.shred_listen_port           );
+  fd_topo_net_rx_rule_push( &rx_rules, DST_PROTO_GOSSIP,   "net_gossip", config->gossip.port                             );
+  fd_topo_net_rx_rule_push( &rx_rules, DST_PROTO_REPAIR,   "net_repair", config->tiles.repair.repair_intake_listen_port  );
+  fd_topo_net_rx_rule_push( &rx_rules, DST_PROTO_REPAIR,   "net_repair", config->tiles.repair.repair_serve_listen_port   );
+  fd_topo_net_rx_rule_push( &rx_rules, DST_PROTO_SEND,     "net_send",   config->tiles.send.send_src_port                );
+
   for( ulong i=0UL; i<topo->tile_cnt; i++ ) {
     fd_topo_tile_t * tile = &topo->tiles[ i ];
-    if( !fd_topo_configure_tile( tile, config ) ) {
+    if( !fd_topo_configure_tile( tile, config, &rx_rules ) ) {
       FD_LOG_ERR(( "unknown tile name %lu `%s`", i, tile->name ));
     }
   }
@@ -869,17 +878,12 @@ fd_topo_initialize( config_t * config ) {
 }
 
 int
-fd_topo_configure_tile( fd_topo_tile_t * tile,
-                        fd_config_t *    config ) {
-    if( FD_UNLIKELY( !strcmp( tile->name, "net" ) || !strcmp( tile->name, "sock" ) ) ) {
+fd_topo_configure_tile( fd_topo_tile_t *         tile,
+                        fd_config_t *            config,
+                        fd_topo_net_rx_t const * rx_rules ) {
+    if( FD_UNLIKELY( rx_rules && (!strcmp( tile->name, "net" ) || !strcmp( tile->name, "sock" )) ) ) {
 
-      tile->net.shred_listen_port              = config->tiles.shred.shred_listen_port;
-      tile->net.quic_transaction_listen_port   = config->tiles.quic.quic_transaction_listen_port;
-      tile->net.legacy_transaction_listen_port = config->tiles.quic.regular_transaction_listen_port;
-      tile->net.gossip_listen_port             = config->gossip.port;
-      tile->net.repair_intake_listen_port      = config->tiles.repair.repair_intake_listen_port;
-      tile->net.repair_serve_listen_port       = config->tiles.repair.repair_serve_listen_port;
-      tile->net.send_src_port                  = config->tiles.send.send_src_port;
+      tile->net.rx_rules = *rx_rules;
 
     } else if( FD_UNLIKELY( !strcmp( tile->name, "netlnk" ) ) ) {
 
