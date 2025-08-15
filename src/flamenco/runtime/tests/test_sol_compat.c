@@ -19,8 +19,8 @@
 #define DCACHE_DATA_SZ   FD_DCACHE_REQ_DATA_SZ( PATH_MAX, MCACHE_DEPTH, 1UL, 1 )
 #define DCACHE_FOOTPRINT FD_DCACHE_FOOTPRINT( DCACHE_DATA_SZ, 0UL )
 
-static int fail_fast;
-static int error_occurred;
+static int g_fail_fast;
+static int g_error_occurred;
 
 static uint shutdown_signal __attribute__((aligned(64)));
 
@@ -107,6 +107,7 @@ recursive_walk1( DIR *      dir,
                  void *     visit_ctx ) {
   struct dirent * entry;
   errno = 0;
+  int ok = 1;
   while(( entry = readdir( dir ) )) {
     path[ path_len ] = '\0';
     if( FD_LIKELY( !strcmp( entry->d_name, "." ) || !strcmp( entry->d_name, ".." ) ) ) continue;
@@ -132,13 +133,14 @@ recursive_walk1( DIR *      dir,
         continue;
       }
 as_dir:
-      recursive_walk1( subdir, path, sub_path_len, visit, visit_ctx );
+      ok = recursive_walk1( subdir, path, sub_path_len, visit, visit_ctx );
       closedir( subdir );
+      if( !ok ) break;
     } else if( entry->d_type==DT_REG ) {
 as_file:
       suffix = strstr( entry->d_name, ".fix" );
       if( !suffix || suffix[4]!='\0' ) continue;
-      if( !visit( visit_ctx, path, sub_path_len ) ) break;
+      if( !visit( visit_ctx, path, sub_path_len ) ) { ok = 0; break; }
     } else if( entry->d_type==DT_LNK ) {
       subdir = opendir( path );
       if( subdir ) {
@@ -152,7 +154,7 @@ as_file:
       }
     }
   }
-  return 1;
+  return ok;
 }
 
 static int
@@ -186,8 +188,8 @@ visit_sync( void *       ctx,
   fd_solfuzz_runner_t * runner = ctx;
   int ok = run_test( runner, path );
   if( !ok ) {
-    error_occurred = 1;
-    if( fail_fast ) return 0;
+    g_error_occurred = 1;
+    if( g_fail_fast ) return 0;
   }
   return 1;
 }
@@ -223,12 +225,13 @@ struct walkdir_state {
 };
 typedef struct walkdir_state walkdir_state_t;
 
-static void
+static int
 walkdir_backpressure( walkdir_state_t * state ) {
   ulong const worker_cnt = state->worker_cnt;
   ulong const seq_pub    = state->seq;
   ulong       cr_avail   = state->cr_avail;
   do {
+    if( FD_VOLATILE_CONST( shutdown_signal ) ) return 0;
     sched_yield();
     cr_avail = ULONG_MAX;
     for( ulong i=0UL; i<worker_cnt; i++ ) {
@@ -238,6 +241,7 @@ walkdir_backpressure( walkdir_state_t * state ) {
     }
   } while( !cr_avail );
   state->cr_avail = cr_avail;
+  return 1;
 }
 
 static int
@@ -247,7 +251,7 @@ walkdir_publish( void *       ctx,
   walkdir_state_t * state = ctx;
   if( FD_UNLIKELY( !state->cr_avail ) ) {
     /* Blocked on flow-control credits ... spin until they're replenished */
-    walkdir_backpressure( state );
+    if( !walkdir_backpressure( state ) ) return 0;
     /* Guaranteed to have more flow-control credits */
   }
 
@@ -304,15 +308,17 @@ struct mt_state {
 };
 typedef struct mt_state mt_state_t;
 
-static void
+static int
 exec_tile( fd_solfuzz_runner_t *  runner,
            fd_frag_meta_t const * mcache,
            uchar *                dcache,
            ulong *                fseq,
            ulong                  idx,
            ulong                  cnt ) {
-  ulong const depth = fd_mcache_depth( mcache );
-  ulong       seq   = 0UL;
+  ulong const depth     = fd_mcache_depth( mcache );
+  ulong       seq       = 0UL;
+  int         ok        = 1;
+  int const   fail_fast = g_fail_fast;
   for(;;) {
     fd_frag_meta_t const * mline = mcache + fd_mcache_line_idx( seq, depth );
     ulong seq_found = fd_frag_meta_seq_query( mline );
@@ -324,13 +330,18 @@ exec_tile( fd_solfuzz_runner_t *  runner,
 
     if( seq%cnt==idx ) {
       char const * path = fd_chunk_to_laddr_const( dcache, mline->chunk );
-      run_test( runner, path );
+      ok &= !!run_test( runner, path );
+      if( fail_fast && !ok ) {
+        FD_VOLATILE( shutdown_signal ) = 1;
+        break;
+      }
     }
 
     seq = fd_seq_inc( seq, 1UL );
     FD_VOLATILE( fseq[0] ) = seq;
   }
   FD_VOLATILE( fseq[0] ) = seq;
+  return ok;
 }
 
 static int
@@ -338,11 +349,10 @@ exec_task( int     argc,
            char ** argv ) {
   ulong              worker_idx = (ulong)argc;
   mt_state_t const * state      = fd_type_pun_const( argv );
-  exec_tile( state->runners[ worker_idx ], state->mcache, state->dcache, state->fseqs[ worker_idx ], worker_idx, state->worker_cnt );
-  return 0;
+  return exec_tile( state->runners[ worker_idx ], state->mcache, state->dcache, state->fseqs[ worker_idx ], worker_idx, state->worker_cnt );
 }
 
-FD_FN_UNUSED static void
+FD_FN_UNUSED static int
 run_multi_threaded( fd_solfuzz_runner_t ** runners,
                     ulong                  worker_cnt,
                     int                    argc,
@@ -365,12 +375,17 @@ run_multi_threaded( fd_solfuzz_runner_t ** runners,
   walkdir_tile( mcache, dcache, fseqs, worker_cnt, argc, argv );
   FD_VOLATILE( shutdown_signal ) = 1;
 
+  int ok = 1;
   for( ulong i=0UL; i<worker_cnt; i++ ) {
-    fd_tile_exec_delete( fd_tile_exec_by_id( 1UL+i ), NULL );
+    int tile_ok = 0;
+    fd_tile_exec_delete( fd_tile_exec_by_id( 1UL+i ), &tile_ok );
+    ok &= !!tile_ok;
   }
 
   ulong cnt = fd_mcache_seq_query( fd_mcache_seq_laddr_const( mcache ) );
-  FD_LOG_NOTICE(( "Processed %lu files", cnt ));
+  if( ok ) FD_LOG_NOTICE(( "Processed %lu files", cnt ));
+  else     FD_LOG_WARNING(( "Processed %lu files, but at least one error occurred", cnt ));
+  return ok;
 }
 
 int
@@ -383,6 +398,8 @@ main( int     argc,
   char const * wksp_name = fd_env_strip_cmdline_cstr ( &argc, &argv, "--wksp",      NULL,       NULL );
   uint         wksp_seed = fd_env_strip_cmdline_uint ( &argc, &argv, "--wksp-seed", NULL,         0U );
   ulong        wksp_tag  = fd_env_strip_cmdline_ulong( &argc, &argv, "--wksp-tag",  NULL,        1UL );
+  int const    fail_fast = fd_env_strip_cmdline_int  ( &argc, &argv, "--fail-fast", NULL,        1   );
+  g_fail_fast = !!fail_fast;
 
   ulong page_sz = fd_cstr_to_shmem_page_sz( _page_sz );
   if( FD_UNLIKELY( !page_sz ) ) FD_LOG_ERR(( "unsupported --page-sz" ));
@@ -436,9 +453,9 @@ main( int     argc,
   if( fd_tile_cnt()==1 ) {
     run_single_threaded( runners[0], argc, argv );
   } else {
-    run_multi_threaded( runners, worker_cnt, argc, argv, mcache, dcache, fseqs );
+    g_error_occurred = !run_multi_threaded( runners, worker_cnt, argc, argv, mcache, dcache, fseqs );
   }
-  if( error_occurred ) {
+  if( g_error_occurred ) {
     if( fail_fast ) exit_code = 255;
     else            exit_code = 1;
   } else {
