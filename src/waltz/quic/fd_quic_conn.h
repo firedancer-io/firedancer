@@ -277,6 +277,22 @@ fd_quic_conn_new( void *                   mem,
                   fd_quic_t *              quic,
                   fd_quic_limits_t const * limits );
 
+/* clears all non-persistent members of the connection object */
+static inline void
+fd_quic_conn_clear( fd_quic_conn_t * conn ) {
+  fd_quic_t            * quic       = conn->quic;
+  uint                   conn_state = conn->state;
+  uint                   conn_idx   = conn->conn_idx;
+  fd_quic_stream_map_t * stream_map = conn->stream_map;
+
+  fd_memset( conn, 0, sizeof( fd_quic_conn_t ) );
+
+  conn->quic       = quic;
+  conn->state      = conn_state;
+  conn->conn_idx   = conn_idx;
+  conn->stream_map = stream_map;
+}
+
 /* set the user-defined context value on the connection */
 void
 fd_quic_conn_set_context( fd_quic_conn_t * conn, void * context );
