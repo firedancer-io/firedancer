@@ -1052,24 +1052,26 @@ after_frag( fd_shred_ctx_t *    ctx,
     ulong max_dest_cnt[1];
     fd_shred_dest_idx_t * dests;
     if( FD_LIKELY( ctx->in_kind[ in_idx ]==IN_KIND_NET ) ) {
+      for( ulong i=0UL; i<k; i++ ) {
+        for( ulong j=0UL; j<ctx->adtl_dests_retransmit_cnt; j++ ) send_shred( ctx, stem, new_shreds[ i ], ctx->adtl_dests_retransmit+j, ctx->tsorig );
+      }
       out_stride = k;
       /* In the case of feature activation, the fanout used below is
           the same as the one calculated/modified previously at the
-          begining of after_frag() for IN_KIND_NET in this slot. */
+          beginning of after_frag() for IN_KIND_NET in this slot. */
       dests = fd_shred_dest_compute_children( sdest, new_shreds, k, ctx->scratchpad_dests, k, fanout, fanout, max_dest_cnt );
     } else {
-      out_stride = 1UL;
-      *max_dest_cnt = 1UL;
-      dests = fd_shred_dest_compute_first   ( sdest, new_shreds, k, ctx->scratchpad_dests );
       for( ulong i=0UL; i<k; i++ ) {
         for( ulong j=0UL; j<ctx->adtl_dests_leader_cnt; j++ ) send_shred( ctx, stem, new_shreds[ i ], ctx->adtl_dests_leader+j, ctx->tsorig );
       }
+      out_stride = 1UL;
+      *max_dest_cnt = 1UL;
+      dests = fd_shred_dest_compute_first   ( sdest, new_shreds, k, ctx->scratchpad_dests );
     }
     if( FD_UNLIKELY( !dests ) ) return;
 
     /* Send only the ones we didn't receive. */
     for( ulong i=0UL; i<k; i++ ) {
-      for( ulong j=0UL; j<ctx->adtl_dests_retransmit_cnt; j++ ) send_shred( ctx, stem, new_shreds[ i ], ctx->adtl_dests_retransmit+j, ctx->tsorig );
       for( ulong j=0UL; j<*max_dest_cnt; j++ ) send_shred( ctx, stem, new_shreds[ i ], fd_shred_dest_idx_to_dest( sdest, dests[ j*out_stride+i ]), ctx->tsorig );
     }
   }

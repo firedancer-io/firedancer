@@ -478,11 +478,13 @@ fd_topo_initialize( config_t * config ) {
                        config->tiles.shred.additional_shred_destinations_retransmit[ i ],
                        &tile->shred.adtl_dests_retransmit[ i ] );
       }
+      tile->shred.adtl_dests_retransmit_cnt = config->tiles.shred.additional_shred_destinations_retransmit_cnt;
       for( ulong i=0UL; i<config->tiles.shred.additional_shred_destinations_leader_cnt; i++ ) {
         parse_ip_port( "tiles.shred.additional_shred_destinations_leader",
                        config->tiles.shred.additional_shred_destinations_leader[ i ],
                        &tile->shred.adtl_dests_leader[ i ] );
       }
+      tile->shred.adtl_dests_leader_cnt = config->tiles.shred.additional_shred_destinations_leader_cnt;
 
     } else if( FD_UNLIKELY( !strcmp( tile->name, "store" ) ) ) {
       tile->store.disable_blockstore_from_slot = config->development.bench.disable_blockstore_from_slot;
