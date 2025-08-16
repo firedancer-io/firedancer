@@ -321,8 +321,8 @@ verify_prune( fd_gossip_view_prune_t const * view,
   fd_memcpy(       sign_data+18UL,                       payload+view->origin_off,      32UL );
   FD_STORE( ulong, sign_data+50UL,                       view->prunes_len );
   fd_memcpy(       sign_data+58UL,                       payload+view->prunes_off,      view->prunes_len*32UL );
-  FD_STORE( ulong, sign_data+58UL+view->prunes_len*32UL, view->wallclock );
-  fd_memcpy(       sign_data+66UL+view->prunes_len*32UL, payload+view->destination_off, 32UL );
+  fd_memcpy(       sign_data+58UL+view->prunes_len*32UL, payload+view->destination_off, 32UL );
+  FD_STORE( ulong, sign_data+90UL+view->prunes_len*32UL, view->wallclock );
 
   ulong sign_data_len = 98UL+view->prunes_len*32UL;
   int err_prefix    = fd_ed25519_verify( sign_data,      sign_data_len,      payload+view->signature_off, payload+view->origin_off, sha );
