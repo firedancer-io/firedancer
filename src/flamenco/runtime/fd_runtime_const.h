@@ -9,7 +9,9 @@ FD_PROTOTYPES_BEGIN
 /* All of the variable bounds in the bank should be deteremined by the
    max number of vote accounts and stake accounts that the system
    supports. */
-#define FD_RUNTIME_MAX_VOTE_ACCOUNTS  (100000UL)  /* 100k vote accounts */
+#define FD_RUNTIME_MAX_VOTE_ACCOUNTS  (40200UL)
+/* 402k vote accounts, matches the bound in Frankendancer and the snapshot parser.
+   In Alpenglow this will be limited to 2k. */
 #define FD_RUNTIME_MAX_STAKE_ACCOUNTS (3000000UL) /* 3M stake accounts */
 
 #define FD_RUNTIME_SLOTS_PER_EPOCH    (432000UL)  /* 432k slots per epoch */

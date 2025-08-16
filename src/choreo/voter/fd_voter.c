@@ -4,7 +4,7 @@
 #include "../../funk/fd_funk_val.h"
 
 fd_voter_state_t const *
-fd_voter_state( fd_funk_t * funk, fd_funk_rec_t const * rec ) {
+fd_voter_state( fd_funk_t const * funk, fd_funk_rec_t const * rec ) {
   if( FD_UNLIKELY( !rec || !!( rec->flags & FD_FUNK_REC_FLAG_ERASE ) ) ) {
     FD_LOG_WARNING(( "account erased. address: %s", FD_BASE58_ENC_32_ALLOCA( rec->pair.key->uc ) ));
     return NULL;
