@@ -64,6 +64,20 @@ close: (not (or (eq (arg 0) 2)
                 (eq (arg 0) gui_socket_fd)))
 
 # server: serving pages over HTTP requires polling connections
-#
-# arg 2 is the timeout.
 poll: (eq (arg 2) 0)
+
+# low_power_mode: stem calls fd_log_sleep to reduce CPU usage when
+#                 the tile is idle. Can be enabled by configuration.
+#
+# fd_log_sleep calls clock_nanosleep; glibc's nanosleep uses the
+# clock_nanosleep syscall. arg 0 is the clock (CLOCK_REALTIME),
+# arg 1 is flags (0), arg2 is requested time, arg3 is remainder pointer.
+clock_nanosleep: (and (eq (arg 0) CLOCK_REALTIME)
+                      (eq (arg 1) 0))
+
+# low_power_mode: stem calls fd_log_sleep to reduce CPU usage when
+#                 the tile is idle. Can be enabled by configuration.
+#
+# fd_log_sleep calls sched_yield depending on the amount of time.
+# This syscall takes no arguments.
+sched_yield

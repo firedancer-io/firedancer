@@ -37,6 +37,8 @@ metric introduced.
 
     <int value="6" name="CaughtUpPostfrag" label="Caught up + Postfrag" />
     <int value="7" name="ProcessingPostfrag" label="Processing + Postfrag" />
+
+    <int value="8" name="Sleeping" label="Sleeping" />
 </enum>
 
 <common>
