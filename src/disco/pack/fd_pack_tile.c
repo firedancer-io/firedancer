@@ -693,7 +693,7 @@ after_credit( fd_pack_ctx_t *     ctx,
         break;
       case FD_PACK_STRATEGY_BUNDLE:
         flags = FD_PACK_SCHEDULE_VOTE | FD_PACK_SCHEDULE_BUNDLE
-                                      | fd_int_if( ctx->slot_end_ns - ctx->approx_wallclock_ns<50000000L, FD_PACK_SCHEDULE_TXN,  0 );
+                                      | fd_int_if( ctx->slot_end_ns - ctx->approx_wallclock_ns<100000000L, FD_PACK_SCHEDULE_TXN,  0 );
         break;
     }
 
