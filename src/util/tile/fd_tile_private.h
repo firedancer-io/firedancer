@@ -60,7 +60,8 @@ fd_tile_private_stack_new( int   optimize,
 
 ulong
 fd_tile_private_cpus_parse( char const * cstr,
-                            ushort *     tile_to_cpu );
+                            ushort *     tile_to_cpu,
+                            ulong        tile_max );
 
 FD_PROTOTYPES_END
 

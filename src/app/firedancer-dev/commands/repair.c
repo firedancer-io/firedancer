@@ -166,7 +166,7 @@ repair_topo( config_t * config ) {
   fd_topo_cpus_init( cpus );
 
   ulong affinity_tile_cnt = 0UL;
-  if( FD_LIKELY( !is_auto_affinity ) ) affinity_tile_cnt = fd_tile_private_cpus_parse( config->layout.affinity, parsed_tile_to_cpu );
+  if( FD_LIKELY( !is_auto_affinity ) ) affinity_tile_cnt = fd_tile_private_cpus_parse( config->layout.affinity, parsed_tile_to_cpu, FD_TILE_MAX );
 
   ulong tile_to_cpu[ FD_TILE_MAX ] = {0};
   for( ulong i=0UL; i<affinity_tile_cnt; i++ ) {
@@ -439,8 +439,9 @@ repair_cmd_fn( args_t *   args,
 }
 
 action_t fd_action_repair = {
-  .name = "repair",
-  .args = repair_cmd_args,
-  .fn   = repair_cmd_fn,
-  .perm = dev_cmd_perm,
+  .name        = "repair",
+  .description = "Run the repair tile in isolation (download blcocks from peers)",
+  .args        = repair_cmd_args,
+  .fn          = repair_cmd_fn,
+  .perm        = dev_cmd_perm,
 };

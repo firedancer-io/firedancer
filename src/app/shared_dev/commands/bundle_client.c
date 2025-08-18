@@ -94,6 +94,6 @@ action_t fd_action_bundle_client = {
   .args          = bundle_client_cmd_args,
   .fn            = bundle_client_cmd_fn,
   .perm          = NULL,
-  .description   = "Run bundle tile in isolation",
+  .description   = "Run the bundle tile in isolation",
   .is_diagnostic = 1 /* allow running against live clusters */
 };
