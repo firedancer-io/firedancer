@@ -371,14 +371,14 @@ verify_signatures( fd_gossvf_tile_ctx_t * ctx,
           continue;
         }
 
-        // int err = verify_crds_value( &view->pull_response->crds_values[ i ], payload, sha );
-        // if( FD_UNLIKELY( err!=FD_ED25519_SUCCESS ) ) {
-        //   ctx->metrics.crds_rx[ FD_METRICS_ENUM_GOSSIP_CRDS_OUTCOME_V_DROPPED_PULL_RESPONSE_SIGNATURE_IDX ]++;
-        //   ctx->metrics.crds_rx_bytes[ FD_METRICS_ENUM_GOSSIP_CRDS_OUTCOME_V_DROPPED_PULL_RESPONSE_SIGNATURE_IDX ] += view->pull_response->crds_values[ i ].length;
-        //   view->pull_response->crds_values[ i ] = view->pull_response->crds_values[ view->pull_response->crds_values_len-1UL ];
-        //   view->pull_response->crds_values_len--;
-        //   continue;
-        // }
+        int err = verify_crds_value( &view->pull_response->crds_values[ i ], payload, sha );
+        if( FD_UNLIKELY( err!=FD_ED25519_SUCCESS ) ) {
+          ctx->metrics.crds_rx[ FD_METRICS_ENUM_GOSSIP_CRDS_OUTCOME_V_DROPPED_PULL_RESPONSE_SIGNATURE_IDX ]++;
+          ctx->metrics.crds_rx_bytes[ FD_METRICS_ENUM_GOSSIP_CRDS_OUTCOME_V_DROPPED_PULL_RESPONSE_SIGNATURE_IDX ] += view->pull_response->crds_values[ i ].length;
+          view->pull_response->crds_values[ i ] = view->pull_response->crds_values[ view->pull_response->crds_values_len-1UL ];
+          view->pull_response->crds_values_len--;
+          continue;
+        }
 
         i++;
       }
@@ -450,7 +450,6 @@ filter_shred_version_crds( fd_gossvf_tile_ctx_t *            ctx,
       peer_t const * origin = peer_map_ele_query_const( ctx->peer_map, (fd_pubkey_t*)(payload+container->crds_values[ i ].pubkey_off), NULL, ctx->peers );
       no_origin = !origin;
       keep = origin && origin->shred_version==ctx->shred_version;
-      if( !origin ) keep = 0;
     }
 
     if( FD_UNLIKELY( !keep ) ) {
@@ -464,8 +463,13 @@ filter_shred_version_crds( fd_gossvf_tile_ctx_t *            ctx,
             ctx->metrics.crds_rx_bytes[ FD_METRICS_ENUM_GOSSIP_CRDS_OUTCOME_V_DROPPED_PULL_RESPONSE_ORIGIN_SHRED_VERSION_IDX ] += container->crds_values[ i ].length;
           }
         } else {
-          ctx->metrics.crds_rx[ FD_METRICS_ENUM_GOSSIP_CRDS_OUTCOME_V_DROPPED_PULL_RESPONSE_RELAYER_SHRED_VERSION_IDX ]++;
-          ctx->metrics.crds_rx_bytes[ FD_METRICS_ENUM_GOSSIP_CRDS_OUTCOME_V_DROPPED_PULL_RESPONSE_RELAYER_SHRED_VERSION_IDX ] += container->crds_values[ i ].length;
+          if( FD_LIKELY( !relayer ) ) {
+            ctx->metrics.crds_rx[ FD_METRICS_ENUM_GOSSIP_CRDS_OUTCOME_V_DROPPED_PULL_RESPONSE_RELAYER_NO_CONTACT_INFO_IDX ]++;
+            ctx->metrics.crds_rx_bytes[ FD_METRICS_ENUM_GOSSIP_CRDS_OUTCOME_V_DROPPED_PULL_RESPONSE_RELAYER_NO_CONTACT_INFO_IDX ] += container->crds_values[ i ].length;
+          } else {
+            ctx->metrics.crds_rx[ FD_METRICS_ENUM_GOSSIP_CRDS_OUTCOME_V_DROPPED_PULL_RESPONSE_RELAYER_SHRED_VERSION_IDX ]++;
+            ctx->metrics.crds_rx_bytes[ FD_METRICS_ENUM_GOSSIP_CRDS_OUTCOME_V_DROPPED_PULL_RESPONSE_RELAYER_SHRED_VERSION_IDX ] += container->crds_values[ i ].length;
+          }
         }
       } else {
         if( FD_LIKELY( keep_non_ci ) ) {
@@ -477,8 +481,13 @@ filter_shred_version_crds( fd_gossvf_tile_ctx_t *            ctx,
             ctx->metrics.crds_rx_bytes[ FD_METRICS_ENUM_GOSSIP_CRDS_OUTCOME_V_DROPPED_PUSH_ORIGIN_SHRED_VERSION_IDX ] += container->crds_values[ i ].length;
           }
         } else {
-          ctx->metrics.crds_rx[ FD_METRICS_ENUM_GOSSIP_CRDS_OUTCOME_V_DROPPED_PUSH_RELAYER_SHRED_VERSION_IDX ]++;
-          ctx->metrics.crds_rx_bytes[ FD_METRICS_ENUM_GOSSIP_CRDS_OUTCOME_V_DROPPED_PUSH_RELAYER_SHRED_VERSION_IDX ] += container->crds_values[ i ].length;
+          if( FD_LIKELY( !relayer ) ) {
+            ctx->metrics.crds_rx[ FD_METRICS_ENUM_GOSSIP_CRDS_OUTCOME_V_DROPPED_PUSH_RELAYER_NO_CONTACT_INFO_IDX ]++;
+            ctx->metrics.crds_rx_bytes[ FD_METRICS_ENUM_GOSSIP_CRDS_OUTCOME_V_DROPPED_PUSH_RELAYER_NO_CONTACT_INFO_IDX ] += container->crds_values[ i ].length;
+          } else {
+            ctx->metrics.crds_rx[ FD_METRICS_ENUM_GOSSIP_CRDS_OUTCOME_V_DROPPED_PUSH_RELAYER_SHRED_VERSION_IDX ]++;
+            ctx->metrics.crds_rx_bytes[ FD_METRICS_ENUM_GOSSIP_CRDS_OUTCOME_V_DROPPED_PUSH_RELAYER_SHRED_VERSION_IDX ] += container->crds_values[ i ].length;
+          }
         }
       }
       container->crds_values[ i ] = container->crds_values[ container->crds_values_len-1UL ];
@@ -794,8 +803,8 @@ handle_net( fd_gossvf_tile_ctx_t * ctx,
   }
 
   if( FD_UNLIKELY( view->tag==FD_GOSSIP_MESSAGE_PRUNE ) ) {
-    if( FD_UNLIKELY( !!memcmp( ctx->payload+view->prune->destination_off, ctx->identity_pubkey, 32UL ) ) ) return FD_METRICS_ENUM_GOSSIP_MESSAGE_OUTCOME_V_DROPPED_PRUNE_LOOPBACK_IDX;
-    if( FD_UNLIKELY( now-500L*1000L*1000L>view->prune->wallclock_nanos ) ) return FD_METRICS_ENUM_GOSSIP_MESSAGE_OUTCOME_V_DROPPED_PRUNE_WALLCLOCK_IDX;
+    if( FD_UNLIKELY( !!memcmp( ctx->payload+view->prune->destination_off, ctx->identity_pubkey, 32UL ) ) ) return FD_METRICS_ENUM_GOSSIP_MESSAGE_OUTCOME_V_DROPPED_PRUNE_DESTINATION_IDX;
+    if( FD_UNLIKELY( now-1000L*1000L*1000L>view->prune->wallclock_nanos ) ) return FD_METRICS_ENUM_GOSSIP_MESSAGE_OUTCOME_V_DROPPED_PRUNE_WALLCLOCK_IDX;
   }
 
   if( FD_LIKELY( view->tag==FD_GOSSIP_MESSAGE_PUSH ) ) {

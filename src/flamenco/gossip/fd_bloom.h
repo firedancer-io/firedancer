@@ -1,7 +1,8 @@
 #ifndef HEADER_fd_src_flamenco_gossip_fd_bloom_h
 #define HEADER_fd_src_flamenco_gossip_fd_bloom_h
 
-#include "../../util/fd_util.h"
+#include "../../util/rng/fd_rng.h"
+
 #include <math.h>
 
 #define FD_BLOOM_ALIGN     (64UL)
