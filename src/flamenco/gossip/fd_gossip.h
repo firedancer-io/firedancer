@@ -207,14 +207,6 @@ fd_gossip_push_vote( fd_gossip_t *       gossip,
                      fd_stem_context_t * stem,
                      long                now );
 
-void
-fd_gossip_disable_pull_request( fd_gossip_t * gossip );
-
-void
-fd_gossip_send_one_pull_request( fd_gossip_t *       gossip,
-                                 fd_stem_context_t * stem,
-                                 long                now );
-
 FD_PROTOTYPES_END
 
 #endif /* HEADER_fd_src_flamenco_gossip_fd_gossip_h */
