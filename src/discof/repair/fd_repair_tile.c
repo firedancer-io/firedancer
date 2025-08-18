@@ -41,7 +41,18 @@
 
     Async requests can be distributed across multiple sign tiles using
     round-robin based on the request nonce. This provides load balancing
-    and prevents any single sign tile from becoming a bottleneck. */
+    and prevents any single sign tile from becoming a bottleneck.
+
+    The Firedancer repair tile uses a "recorder" to track all outgoing
+    repair requests.
+
+    - Tracks inflight requests by unique nonce, with metadata
+      (timestamp, peer, slot, shred index)
+    - Maintains per-peer stats: inflight count, last send/receive,
+      EMA hit rate/RTT.
+    - Efficiently expires stale requests given a timeout.
+    - Selects peers for new requests, balancing load and performance.
+*/
 
 #define _GNU_SOURCE
 
@@ -49,6 +60,7 @@
 #include "generated/fd_repair_tile_seccomp.h"
 
 #include "../../flamenco/repair/fd_repair.h"
+#include "../../flamenco/repair/fd_recorder.h"
 #include "../../flamenco/leaders/fd_leaders_base.h"
 #include "../../disco/fd_disco.h"
 #include "../../disco/keyguard/fd_keyload.h"
@@ -145,12 +157,13 @@ struct fd_repair_tile_ctx {
   ushort                repair_intake_listen_port;
   ushort                repair_serve_listen_port;
 
-  fd_forest_t      * forest;
-  fd_fec_sig_t     * fec_sigs;
-  fd_sreasm_t       * sreasm;
-  fd_reasm_t * reasm;
+  fd_forest_t *      forest;
+  fd_fec_sig_t *     fec_sigs;
+  fd_sreasm_t *      sreasm;
+  fd_reasm_t *       reasm;
+  fd_recorder_t *    recorder;
   fd_forest_iter_t   repair_iter;
-  fd_store_t       * store;
+  fd_store_t *       store;
 
   ulong * turbine_slot0;
   ulong * turbine_slot;
@@ -223,9 +236,6 @@ struct fd_repair_tile_ctx {
   fd_keyguard_client_t keyguard_client[1];
 
   ulong manifest_slot;
-  /* Pending sign requests */
-  fd_repair_pending_sign_req_t      * pending_sign_req_pool;
-  fd_repair_pending_sign_req_map_t  * pending_sign_req_map;
 };
 typedef struct fd_repair_tile_ctx fd_repair_tile_ctx_t;
 
@@ -246,18 +256,16 @@ FD_FN_PURE static inline ulong
 scratch_footprint( fd_topo_tile_t const * tile ) {
 
   ulong l = FD_LAYOUT_INIT;
-  l = FD_LAYOUT_APPEND( l, alignof(fd_repair_tile_ctx_t), sizeof(fd_repair_tile_ctx_t)             );
-  l = FD_LAYOUT_APPEND( l, fd_repair_align(),                       fd_repair_footprint()                    );
-  l = FD_LAYOUT_APPEND( l, fd_forest_align(),                       fd_forest_footprint( tile->repair.slot_max ) );
-  l = FD_LAYOUT_APPEND( l, fd_fec_sig_align(),                      fd_fec_sig_footprint( 20 ) );
-  l = FD_LAYOUT_APPEND( l, fd_sreasm_align(),              fd_sreasm_footprint( 20 ) );
-  l = FD_LAYOUT_APPEND( l, fd_reasm_align(),                        fd_reasm_footprint( 1 << 20 ) );
-//l = FD_LAYOUT_APPEND( l, fd_fec_repair_align(),                   fd_fec_repair_footprint( ( 1<<20 ), tile->repair.shred_tile_cnt ) );
-  l = FD_LAYOUT_APPEND( l, fd_repair_pending_sign_req_pool_align(), fd_repair_pending_sign_req_pool_footprint( FD_REPAIR_PENDING_SIGN_REQ_MAX ) );
-  l = FD_LAYOUT_APPEND( l, fd_repair_pending_sign_req_map_align(),  fd_repair_pending_sign_req_map_footprint( FD_REPAIR_PENDING_SIGN_REQ_MAX ) );
-  l = FD_LAYOUT_APPEND( l, fd_scratch_smem_align(),                 fd_scratch_smem_footprint( FD_REPAIR_SCRATCH_MAX ) );
-  l = FD_LAYOUT_APPEND( l, fd_scratch_fmem_align(),                 fd_scratch_fmem_footprint( FD_REPAIR_SCRATCH_DEPTH ) );
-  return FD_LAYOUT_FINI( l, scratch_align() );
+    l = FD_LAYOUT_APPEND( l, alignof(fd_repair_tile_ctx_t), sizeof(fd_repair_tile_ctx_t) );
+    l = FD_LAYOUT_APPEND( l, fd_repair_align(),        fd_repair_footprint      ( )                         );
+    l = FD_LAYOUT_APPEND( l, fd_recorder_align(),      fd_recorder_footprint    ( )                         );
+    l = FD_LAYOUT_APPEND( l, fd_forest_align(),        fd_forest_footprint      ( tile->repair.slot_max )   );
+    l = FD_LAYOUT_APPEND( l, fd_fec_sig_align(),       fd_fec_sig_footprint     ( 20 )                      );
+    l = FD_LAYOUT_APPEND( l, fd_sreasm_align(),        fd_sreasm_footprint      ( 20 )                      );
+    l = FD_LAYOUT_APPEND( l, fd_reasm_align(),         fd_reasm_footprint       ( 1 << 20 )                 );
+    l = FD_LAYOUT_APPEND( l, fd_scratch_smem_align(),  fd_scratch_smem_footprint( FD_REPAIR_SCRATCH_MAX )   );
+    l = FD_LAYOUT_APPEND( l, fd_scratch_fmem_align(),  fd_scratch_fmem_footprint( FD_REPAIR_SCRATCH_DEPTH ) );
+  return FD_LAYOUT_FINI ( l, scratch_align() );
 }
 
 
@@ -501,16 +509,18 @@ fd_repair_send_request( fd_repair_tile_ctx_t   * repair_tile_ctx,
                         long                     now ) {
   fd_repair_protocol_t protocol;
   fd_repair_construct_request_protocol( glob, &protocol, type, slot, shred_index, recipient, 0, now );
-  fd_active_elem_t * active = fd_active_table_query( glob->actives, recipient, NULL );
 
-  active->avg_reqs++;
+  fd_recorder_peer_t * peer = fd_recorder_peer_query( repair_tile_ctx->recorder, recipient );
+  if( FD_UNLIKELY( !peer ) ) FD_LOG_ERR(( "No peer found for recipient %s", FD_BASE58_ENC_32_ALLOCA(recipient) ));
+
   glob->metrics.send_pkt_cnt++;
 
+  fd_repair_peer_addr_t peer_addr = { .addr = peer->ip4.addr, .port = peer->ip4.port };
   uchar buf[FD_REPAIR_MAX_SIGN_BUF_SIZE];
-  ulong buflen       = fd_repair_sign_and_send( repair_tile_ctx, &protocol, &active->addr, buf, sizeof(buf), 0, 1, NULL );
+  ulong buflen       = fd_repair_sign_and_send( repair_tile_ctx, &protocol, &peer_addr, buf, sizeof(buf), 0, 1, NULL );
   ulong tsorig       = fd_frag_meta_ts_comp( fd_tickcount() );
   uint  src_ip4_addr = 0U; /* unknown */
-  send_packet( repair_tile_ctx, stem, 1, active->addr.addr, active->addr.port, src_ip4_addr, buf, buflen, tsorig );
+  send_packet( repair_tile_ctx, stem, 1, peer->ip4.addr, peer->ip4.port, src_ip4_addr, buf, buflen, tsorig );
 }
 
 static void FD_FN_UNUSED
@@ -523,9 +533,8 @@ fd_repair_send_requests( fd_repair_tile_ctx_t *   ctx,
   fd_repair_t * glob = ctx->repair;
 
   for( uint i=0; i<FD_REPAIR_NUM_NEEDED_PEERS; i++ ) {
-    fd_pubkey_t const * id = &glob->peers[ glob->peer_idx++ ].key;
-    fd_repair_send_request( ctx, stem, glob, type, slot, shred_index, id, now );
-    if( FD_UNLIKELY( glob->peer_idx >= glob->peer_cnt ) ) glob->peer_idx = 0; /* wrap around */
+    fd_pubkey_t * selected_peer = fd_recorder_select_peer( ctx->recorder );
+    if( FD_LIKELY( selected_peer ) ) fd_repair_send_request( ctx, stem, glob, type, slot, shred_index, selected_peer, now );
   }
 }
 
@@ -543,19 +552,18 @@ fd_repair_send_request_async( fd_repair_tile_ctx_t *   ctx,
                               uint                     shred_index,
                               fd_pubkey_t const      * recipient,
                               long                     now ){
-    fd_active_elem_t * peer = fd_active_table_query(glob->actives, recipient, NULL);
-    if (!peer) FD_LOG_ERR(( "No active peer found for recipient %s", FD_BASE58_ENC_32_ALLOCA(recipient) ));
+    /* Query the peer from the recorder instead of active table */
+    fd_recorder_peer_t * peer = fd_recorder_peer_query( ctx->recorder, recipient );
+    if( FD_UNLIKELY( !peer ) ) FD_LOG_ERR(( "No peer found for recipient %s", FD_BASE58_ENC_32_ALLOCA(recipient) ));
 
     /* Acquire and add a pending request from the pool */
     fd_repair_protocol_t protocol;
-    fd_repair_pending_sign_req_t * pending = fd_repair_insert_pending_request( glob, &protocol, peer->addr.addr, peer->addr.port, type, slot, shred_index, now, recipient );
-    if( FD_UNLIKELY( !pending ) ) {
-        FD_LOG_WARNING(( "No free pending sign reqs" ));
-        return;
-    }
+    fd_repair_pending_sign_req_t * pending = fd_repair_insert_pending_request( glob, &protocol, peer->ip4.addr, peer->ip4.port, type, slot, shred_index, now, recipient );
 
-    /* Sign and prepare the message directly into the pending buffer */
-    pending->buflen = fd_repair_sign_and_send( ctx, &protocol, &peer->addr, pending->buf, sizeof(pending->buf), 1, pending->nonce, sign_out );
+    fd_repair_peer_addr_t peer_addr = { .addr = peer->ip4.addr, .port = peer->ip4.port };
+    pending->buflen = fd_repair_sign_and_send( ctx, &protocol, &peer_addr, pending->buf, sizeof(pending->buf), 1, pending->nonce, sign_out );
+
+    fd_recorder_req_insert( ctx->recorder, pending->nonce, (ulong)now, recipient, peer->ip4, slot, shred_index );
 
     sign_out->credits--;
 }
@@ -571,9 +579,8 @@ fd_repair_send_requests_async( fd_repair_tile_ctx_t *   ctx,
   fd_repair_t * glob = ctx->repair;
 
   for( uint i=0; i<FD_REPAIR_NUM_NEEDED_PEERS; i++ ) {
-    fd_pubkey_t const * id = &glob->peers[ glob->peer_idx++ ].key;
-    fd_repair_send_request_async( ctx, stem, glob, sign_out, type, slot, shred_index, id, now );
-    if( FD_UNLIKELY( glob->peer_idx >= glob->peer_cnt ) ) glob->peer_idx = 0;
+    fd_pubkey_t * selected_peer = fd_recorder_select_peer( ctx->recorder );
+    if( FD_LIKELY( selected_peer ) ) fd_repair_send_request_async( ctx, stem, glob, sign_out, type, slot, shred_index, selected_peer, now );
   }
 }
 
@@ -599,6 +606,10 @@ handle_new_cluster_contact_info( fd_repair_tile_ctx_t * ctx,
     };
     int dup = fd_repair_add_active_peer( ctx->repair, &repair_peer, in_dests[i].pubkey );
     if( !dup ) {
+      /* Add peer to recorder for async request performance tracking */
+      fd_ip4_port_t ip4_port = { .addr = repair_peer.addr, .port = repair_peer.port };
+      fd_recorder_peer_add( ctx->recorder, in_dests[i].pubkey, ip4_port );
+
     /* The repair process uses a Ping-Pong protocol that incurs one
       round-trip time (RTT) for the initial repair request. To optimize
       this, we proactively send a placeholder Repair request as soon as we
@@ -839,6 +850,13 @@ after_frag( fd_repair_tile_ctx_t * ctx,
 
   if( FD_UNLIKELY( in_kind==IN_KIND_SHRED ) ) {
     fd_shred_t * shred = (fd_shred_t *)fd_type_pun( ctx->buffer );
+
+    ulong nonce = 0UL;
+    if ( FD_UNLIKELY( sz == FD_REPAIR_HEADER_SZ ) ) {
+      nonce = fd_uint_load_4(ctx->buffer + sz - sizeof(uint));
+      sz -= sizeof(uint);
+    }
+
     if( FD_UNLIKELY( shred->slot <= fd_forest_root_slot( ctx->forest ) ) ) {
       FD_LOG_WARNING(( "shred %lu %u %u too old, ignoring", shred->slot, shred->idx, shred->fec_set_idx ));
       return;
@@ -897,6 +915,9 @@ after_frag( fd_repair_tile_ctx_t * ctx,
     int is_code = fd_shred_is_code( fd_shred_type( shred->variant ) );
     if( FD_LIKELY( !is_code ) ) {
       fd_repair_inflight_remove( ctx->repair, shred->slot, shred->idx );
+
+      /* Record successful shred response in recorder if nonce matches a request */
+      if( FD_UNLIKELY( nonce != 0 ) ) fd_recorder_req_remove( ctx->recorder, nonce, 1 /* is_recv=1 for successful response */ );
 
       int               data_complete = !!(shred->data.flags & FD_SHRED_DATA_FLAG_DATA_COMPLETE);
       int               slot_complete = !!(shred->data.flags & FD_SHRED_DATA_FLAG_SLOT_COMPLETE);
@@ -966,6 +987,10 @@ after_credit( fd_repair_tile_ctx_t * ctx,
               int *                  opt_poll_in,
               int *                  charge_busy ) {
 
+  /* Periodically expire old requests from recorder */
+  long now = fd_log_wallclock();
+  fd_recorder_req_expire( ctx->recorder, (ulong)now, 0 /* is_recv=0 for timeout */ );
+
   fd_reasm_fec_t * rfec = fd_reasm_next( ctx->reasm );
   if( FD_LIKELY( rfec ) ) {
 
@@ -1002,11 +1027,11 @@ after_credit( fd_repair_tile_ctx_t * ctx,
   }
 
   if( FD_UNLIKELY( ctx->forest->root==ULONG_MAX ) ) return;
-  if( FD_UNLIKELY( ctx->repair->peer_cnt==0     ) ) return; /* no peers to send requests to */
+  /* Check if recorder has any peers available */
+  ulong available_peers = fd_recorder_peer_cnt( ctx->recorder );
+  if( FD_UNLIKELY( available_peers == 0 ) ) return; /* no peers to send requests to */
 
   *charge_busy = 1;
-
-  long now = fd_log_wallclock();
 
 #if MAX_REQ_PER_CREDIT > FD_REPAIR_NUM_NEEDED_PEERS
   /* If the requests are > 1 per credit then we need to starve
@@ -1027,10 +1052,7 @@ after_credit( fd_repair_tile_ctx_t * ctx,
   /* Verify that there is at least one sign tile with available credits.
      If not, we can't send any requests and leave early. */
   fd_repair_out_ctx_t * sign_out = sign_avail_credits( ctx );
-  if( FD_UNLIKELY( !sign_out ) ) {
-      // FD_LOG_NOTICE(( "No sign tiles have available credits" ));
-      return;
-  }
+  if( FD_UNLIKELY( !sign_out ) ) return;
 
   /* Always request orphans first */
   int total_req = 0;
@@ -1098,10 +1120,10 @@ after_credit( fd_repair_tile_ctx_t * ctx,
 
 static inline void
 during_housekeeping( fd_repair_tile_ctx_t * ctx ) {
-  fd_repair_settime( ctx->repair, fd_log_wallclock() );
+  long now = fd_log_wallclock();
+  fd_repair_settime( ctx->repair, now );
 
 # if LOGGING
-  long now = fd_log_wallclock();
   if( FD_UNLIKELY( now - ctx->tsprint > (long)10e9 ) ) {
     fd_forest_print( ctx->forest );
     fd_reasm_print( ctx->reasm );
@@ -1266,14 +1288,12 @@ unprivileged_init( fd_topo_t *      topo,
 
   /* Scratch mem setup */
 
-  ctx->repair                 = FD_SCRATCH_ALLOC_APPEND( l, fd_repair_align(), fd_repair_footprint() );
-  ctx->forest                 = FD_SCRATCH_ALLOC_APPEND( l, fd_forest_align(), fd_forest_footprint( tile->repair.slot_max ) );
-  ctx->fec_sigs               = FD_SCRATCH_ALLOC_APPEND( l, fd_fec_sig_align(), fd_fec_sig_footprint( 20 ) );
-  ctx->sreasm                 = FD_SCRATCH_ALLOC_APPEND( l, fd_sreasm_align(), fd_sreasm_footprint( 20 ) );
-  ctx->reasm                  = FD_SCRATCH_ALLOC_APPEND( l, fd_reasm_align(), fd_reasm_footprint( 1 << 20 ) );
-  ctx->pending_sign_req_pool  = FD_SCRATCH_ALLOC_APPEND( l, fd_repair_pending_sign_req_pool_align(), fd_repair_pending_sign_req_pool_footprint( FD_REPAIR_PENDING_SIGN_REQ_MAX ) );
-  ctx->pending_sign_req_map   = FD_SCRATCH_ALLOC_APPEND( l, fd_repair_pending_sign_req_map_align(), fd_repair_pending_sign_req_map_footprint( FD_REPAIR_PENDING_SIGN_REQ_MAX ) );
-  // ctx->fec_repair = FD_SCRATCH_ALLOC_APPEND( l, fd_fec_repair_align(), fd_fec_repair_footprint(  ( 1<<20 ), tile->repair.shred_tile_cnt ) );
+  ctx->repair   = FD_SCRATCH_ALLOC_APPEND( l, fd_repair_align(),   fd_repair_footprint   ( )                       );
+  ctx->recorder = FD_SCRATCH_ALLOC_APPEND( l, fd_recorder_align(), fd_recorder_footprint ( )                       );
+  ctx->forest   = FD_SCRATCH_ALLOC_APPEND( l, fd_forest_align(),   fd_forest_footprint   ( tile->repair.slot_max ) );
+  ctx->fec_sigs = FD_SCRATCH_ALLOC_APPEND( l, fd_fec_sig_align(),  fd_fec_sig_footprint  ( 20 )                    );
+  ctx->sreasm   = FD_SCRATCH_ALLOC_APPEND( l, fd_sreasm_align(),   fd_sreasm_footprint   ( 20 )                    );
+  ctx->reasm    = FD_SCRATCH_ALLOC_APPEND( l, fd_reasm_align(),    fd_reasm_footprint    ( 1 << 20 )               );
   /* Look at fec_repair.h for an explanation of this fec_max. */
 
   ctx->repair->next_nonce = 1;
@@ -1318,20 +1338,16 @@ unprivileged_init( fd_topo_t *      topo,
 
   /* Repair set up */
 
-  ctx->repair                 = fd_repair_join                       ( fd_repair_new                       ( ctx->repair, ctx->repair_seed ) );
-  ctx->forest                 = fd_forest_join                       ( fd_forest_new                       ( ctx->forest, tile->repair.slot_max, ctx->repair_seed ) );
+  ctx->repair   = fd_repair_join   ( fd_repair_new  ( ctx->repair, ctx->repair_seed )                        );
+  ctx->forest   = fd_forest_join   ( fd_forest_new  ( ctx->forest, tile->repair.slot_max, ctx->repair_seed ) );
+  ctx->fec_sigs = fd_fec_sig_join  ( fd_fec_sig_new ( ctx->fec_sigs, 20 )                                    );
+  ctx->sreasm   = fd_sreasm_join   ( fd_sreasm_new  ( ctx->sreasm, 20 )                                      );
+  ctx->reasm    = fd_reasm_join    ( fd_reasm_new   ( ctx->reasm, 1 << 20, 0 )                               );
+  ctx->recorder = fd_recorder_join ( fd_recorder_new( ctx->recorder, ctx->repair_seed, 200000000UL )         );
   // ctx->fec_repair  = fd_fec_repair_join( fd_fec_repair_new( ctx->fec_repair, ( tile->repair.max_pending_shred_sets + 2 ), tile->repair.shred_tile_cnt,  0 ) );
-  ctx->fec_sigs               = fd_fec_sig_join                      ( fd_fec_sig_new                      ( ctx->fec_sigs, 20 ) );
-  ctx->sreasm = fd_sreasm_join( fd_sreasm_new( ctx->sreasm, 20 ) );
-  ctx->reasm = fd_reasm_join( fd_reasm_new( ctx->reasm, 1 << 20, 0 ) );
-  ctx->pending_sign_req_pool  = fd_repair_pending_sign_req_pool_join ( fd_repair_pending_sign_req_pool_new ( ctx->pending_sign_req_pool, FD_REPAIR_PENDING_SIGN_REQ_MAX ) );
-  ctx->pending_sign_req_map   = fd_repair_pending_sign_req_map_join  ( fd_repair_pending_sign_req_map_new  ( ctx->pending_sign_req_map, FD_REPAIR_PENDING_SIGN_REQ_MAX, ctx->repair_seed ) );
 
   ctx->repair->next_nonce = 1;
 
-  if( FD_UNLIKELY( !ctx->pending_sign_req_pool || !ctx->pending_sign_req_map ) ) {
-    FD_LOG_ERR(( "Failed to join pending_sign_req_pool or pending_sign_req_map" ));
-  }
   ctx->repair_iter = fd_forest_iter_init( ctx->forest );
   FD_TEST( fd_forest_iter_done( ctx->repair_iter, ctx->forest ) );
 

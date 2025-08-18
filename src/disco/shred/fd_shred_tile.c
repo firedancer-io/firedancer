@@ -891,14 +891,21 @@ after_frag( fd_shred_ctx_t *    ctx,
         int  completes             = 0;
         if( FD_LIKELY( is_code ) ) shred_idx_or_data_cnt = shred->code.data_cnt;  /* optimize for code_cnt >= data_cnt */
         else  completes = shred->data.flags & ( FD_SHRED_DATA_FLAG_SLOT_COMPLETE | FD_SHRED_DATA_FLAG_DATA_COMPLETE );
-        ulong sig = fd_disco_shred_repair_shred_sig( !!completes, shred->slot, shred->fec_set_idx, is_code, shred_idx_or_data_cnt );
+        ulong out_sig = fd_disco_shred_repair_shred_sig( !!completes, shred->slot, shred->fec_set_idx, is_code, shred_idx_or_data_cnt );
 
         /* Copy the shred header into the frag and publish. */
 
         ulong sz = fd_shred_header_sz( shred->variant );
-        fd_memcpy( fd_chunk_to_laddr( ctx->repair_out_mem, ctx->repair_out_chunk ), shred, sz );
+        uchar * chunk = fd_chunk_to_laddr( ctx->repair_out_mem, ctx->repair_out_chunk );
+        fd_memcpy( chunk, shred, sz );
+
+        if( FD_UNLIKELY( fd_disco_netmux_sig_proto(sig) == DST_PROTO_REPAIR ) ) {
+          uint nonce = fd_uint_load_4(shred_buffer + shred_buffer_sz - sizeof(uint));
+          fd_memcpy( chunk + sz, &nonce, sizeof(uint) );
+          sz += sizeof(uint);
+        }
         ulong tspub = fd_frag_meta_ts_comp( fd_tickcount() );
-        fd_stem_publish( stem, ctx->repair_out_idx, sig, ctx->repair_out_chunk, sz, 0UL, ctx->tsorig, tspub );
+        fd_stem_publish( stem, ctx->repair_out_idx, out_sig, ctx->repair_out_chunk, sz, 0UL, ctx->tsorig, tspub );
         ctx->repair_out_chunk = fd_dcache_compact_next( ctx->repair_out_chunk, sz, ctx->repair_out_chunk0, ctx->repair_out_wmark );
       }
     }
