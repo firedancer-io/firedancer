@@ -773,44 +773,60 @@ metric introduced.
     <int value="3" name="ValidRefreshing" label="Peer was pinged and is currently valid, and is being refreshed with a new ping" />
 </enum>
 
+<enum name="CrdsInsertionOutcome">
+    <int value="0" name="UpsertedPullResponse" label="Pull Response (upserted)" />
+    <int value="1" name="UpsertedPush" label="Push (upserted)" />
+
+    <int value="2" name="DroppedPullResponseNoOverride" label="Pull Response (does not override existing entry)" />
+    <int value="3" name="DroppedPullResponseOld" label="Pull Response (outside expiry window and no contact info entry)" />
+    <int value="4" name="DroppedPullResponseHashDuplicate" label="Pull Response (hash duplicate)" />
+
+    <int value="5" name="DroppedPushNoOverride" label="Push (does not override existing entry)" />
+    <int value="6" name="DroppedPushHashDuplicate" label="Push (hash duplicate)" />
+</enum>
+
+
 <tile name="gossip">
     <gauge name="TestNotify" label="Test" />
 
     <counter name="PingTrackerCapacity" label="The peer tracking capacity of the ping tracker" />
-    <gauge name="PingTrackerCount" enum="PingTrackedType" label="The number of peers being tracked for ping/pong" />
+    <gauge   name="PingTrackerCount" enum="PingTrackedType" label="The number of peers being tracked for ping/pong" />
     <counter name="PingTrackerPongResult" enum="PongResponse" label="The result of processing a pong response to a ping" />
     <counter name="PingTrackerEvictedCount" label="The number of peers evicted from the ping tracker to make space for new peers" />
     <counter name="PingTrackedCount" label="The total number of peers ever tracked for ping/pong" />
     <counter name="PingTrackerStakeChangedCount" label="The number of times a tracked peer was removed from tracking as it became staked" />
     <counter name="PingTrackerAddressChangedCount" label="The number of times a tracked peer was removed from tracking as it's gossip address changed" />
 
-    <gauge name="TableCapacity"     label="The capacity of the CRDS table" />
-    <gauge name="TableSize"         label="The current size of the CRDS table" />
-    <gauge name="TableCrdsCounts"   label="The number of CRDS values in the table, by type" enum="CrdsValue" />
-    <gauge name="PurgedSize"        label="The size of list of purged table entries" />
-    <gauge name="VisibleStake"      label="The total visible stake in the CRDS table, in lamports" />
-    <gauge name="UnstakedPeerCount" label="The number of peers in the CRDS table that are not staked" />
-    <gauge name="StakedPeerCount"   label="The number of peers in the CRDS table that are staked" />
+    <gauge   name="TableCapacity"               label="The capacity of the CRDS table" />
+    <gauge   name="PurgedCapacity"              label="The capacity of the list of purged table entries" />
+    <gauge   name="ContactInfoCapacity"         label="The capacity of the Contact Info sidetable" />
+    <gauge   name="TableCount"                  label="The number of CRDS values in the table" />
+    <gauge   name="TableCrdsCounts"             label="The number of CRDS values in the table, by type" enum="CrdsValue" />
+    <gauge   name="ContactInfoCount"            label="The number of contact info entries in the ContactInfo sidetable" />
+    <gauge   name="PurgedCount"                 label="The number of purged table entries" />"
+    <counter name="TableEvictedCount"           label="The number of entries evicted from the CRDS table to make space for new entries" />
+    <counter name="ContactInfoEvictedCount"     label="The number of entries evicted from the Contact Info sidetable to make space for new entries" />
+    <counter name="PurgedEvictedCount"          label="The number of purged entries evicted from the CRDS table to make space for new entries" />
+    <counter name="DropTableExpiredCount"       label="The number of expired entries dropped from the CRDS table" />
+    <counter name="DropContactInfoExpiredCount" label="The number of expired entries dropped from the Contact Info sidetable" />
+    <counter name="DropPurgedExpiredCount"      label="The number of expired entries dropped from the purged entries list" />
+    <gauge   name="VisibleStake"                label="The total visible stake in the CRDS table, in lamports" />
+    <gauge   name="UnstakedPeerCount"           label="The number of peers in the CRDS table that are not staked" />
+    <gauge   name="StakedPeerCount"             label="The number of peers in the CRDS table that are staked" />
 
     <counter name="UndeterminedCrds" label="Number of CRDS values processed with undetermined result" enum="CrdsValue" />
 
-    <counter name="MessageRxCount"    label="Number of gossip messages received"            enum="GossipMessage"/>
-    <counter name="MessageRxBytes"    label="Number of bytes received in gossip messages"   enum="GossipMessage" />
-    <counter name="MessageTxCount"        label="Number of gossip messages sent"                enum="GossipMessage" />
-    <counter name="MessageTxBytes"        label="Number of bytes sent in gossip messages"       enum="GossipMessage" />
+    <counter name="MessageRxCount" label="Number of gossip messages received"            enum="GossipMessage"/>
+    <counter name="MessageRxBytes" label="Number of bytes received in gossip messages"   enum="GossipMessage" />
+    <counter name="MessageTxCount" label="Number of gossip messages sent"                enum="GossipMessage" />
+    <counter name="MessageTxBytes" label="Number of bytes sent in gossip messages"       enum="GossipMessage" />
 
-    <counter name="CrdsPushRxCount"     label="Number of CRDS values received from push messages"             enum="CrdsValue" />
-    <counter name="CrdsPushRxBytes"     label="Number of bytes received in CRDS push messages"                enum="CrdsValue" />
-    <counter name="CrdsPushUpserted"    label="Number of CRDS values upserted from push messages"             enum="CrdsValue" />
-    <counter name="CrdsPushDuplicates"  label="Number of CRDS values that were duplicates in push messages"   enum="CrdsValue" />
-    <counter name="CrdsPushFailed"      label="Number of CRDS values that would not upsert in push messages"          enum="CrdsValue" />
+    <counter name="CrdsPushRxCount" label="Number of CRDS values received from push messages"             enum="CrdsValue" />
+    <counter name="CrdsPushRxBytes" label="Number of bytes received in CRDS push messages"                enum="CrdsValue" />
+    <counter name="CrdsPullRxCount" label="Number of CRDS values received from pull response messages"    enum="CrdsValue" />
+    <counter name="CrdsPullRxBytes" label="Number of bytes received in CRDS pull response messages"       enum="CrdsValue" />
 
-    <counter name="CrdsPullRxCount"     label="Number of CRDS values received from pull response messages"              enum="CrdsValue" />
-    <counter name="CrdsPullRxBytes"     label="Number of bytes received in CRDS pull response messages"                 enum="CrdsValue" />
-    <counter name="CrdsPullUpserted"    label="Number of CRDS values upserted from pull response messages"              enum="CrdsValue" />
-    <counter name="CrdsPullDuplicates"  label="Number of CRDS values that were duplicates in pull response messages"    enum="CrdsValue" />
-    <counter name="CrdsPullFailed"      label="Number of CRDS values that would not upsert in push messages"           enum="CrdsValue" />
-    <counter name="CrdsPullOld"         label="Number of CRDS values that were old in pull response messages"           enum="CrdsValue" />
+    <counter name="CrdsRxOutcome" label="Outcome of incoming CRDS messages" enum="CrdsInsertionOutcome" />
 
     <counter name="CrdsPushTxCount" label="Number of CRDS values sent"                            enum="CrdsValue" />
     <counter name="CrdsPushTxBytes" label="Number of bytes sent in CRDS messages"                 enum="CrdsValue" />

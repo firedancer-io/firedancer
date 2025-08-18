@@ -11,10 +11,21 @@ FD_STATIC_ASSERT( FD_METRICS_ENUM_CRDS_VALUE_CNT== FD_GOSSIP_VALUE_LAST+1,
                   "FD_METRICS_ENUM_CRDS_VALUE_CNT must match FD_GOSSIP_VALUE_LAST+1" );
 
 struct fd_crds_table_metrics {
-  ulong total_ele_cnt;
+  ulong table_cnt;
   ulong ele_cnt[ FD_METRICS_ENUM_CRDS_VALUE_CNT ];
+  ulong contact_info_cnt;
+  ulong purged_cnt;
+
+  ulong table_expired_cnt;
+  ulong contact_info_expired_cnt;
+  ulong purged_expired_cnt;
+
+  ulong table_evicted_cnt;
+  ulong contact_info_evicted_cnt;
+  ulong purged_evicted_cnt;
+
+
   ulong tiebroken[ FD_METRICS_ENUM_CRDS_VALUE_CNT ];
-  ulong table_purged_cnt;
 
   ulong visible_stake;
   ulong unstaked_peer_cnt;
@@ -34,16 +45,10 @@ struct fd_gossip_metrics {
 
   ulong                   rx_push_crd_count[ FD_METRICS_ENUM_CRDS_VALUE_CNT ];
   ulong                   rx_push_crd_bytes[ FD_METRICS_ENUM_CRDS_VALUE_CNT ];
-  ulong                   rx_push_crd_upserted[ FD_METRICS_ENUM_CRDS_VALUE_CNT ];
-  ulong                   rx_push_crd_duplicate[ FD_METRICS_ENUM_CRDS_VALUE_CNT ];
-  ulong                   rx_push_crd_fail[ FD_METRICS_ENUM_CRDS_VALUE_CNT ];
-
   ulong                   rx_pull_crd_count[ FD_METRICS_ENUM_CRDS_VALUE_CNT ];
   ulong                   rx_pull_crd_bytes[ FD_METRICS_ENUM_CRDS_VALUE_CNT ];
-  ulong                   rx_pull_crd_upserted[ FD_METRICS_ENUM_CRDS_VALUE_CNT ];
-  ulong                   rx_pull_crd_duplicate[ FD_METRICS_ENUM_CRDS_VALUE_CNT ];
-  ulong                   rx_pull_crd_fail[ FD_METRICS_ENUM_CRDS_VALUE_CNT ];
-  ulong                   rx_pull_crd_old[ FD_METRICS_ENUM_CRDS_VALUE_CNT ];
+
+  ulong                   rx_crds_outcome[ FD_METRICS_ENUM_CRDS_INSERTION_OUTCOME_CNT ];
 
   ulong                   tx_push_crd_count[ FD_METRICS_ENUM_CRDS_VALUE_CNT ];
   ulong                   tx_push_crd_bytes[ FD_METRICS_ENUM_CRDS_VALUE_CNT ];
