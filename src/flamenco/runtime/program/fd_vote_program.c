@@ -1913,24 +1913,6 @@ do_process_vote_state_update( fd_vote_state_t *           vote_state,
                                  ctx );
 }
 
-// ??
-ulong
-fd_query_pubkey_stake( fd_pubkey_t const * pubkey, fd_vote_accounts_global_t const * vote_accounts ) {
-  fd_vote_accounts_pair_global_t_mapnode_t key  = { 0 };
-  key.elem.key                                  = *pubkey;
-
-  fd_vote_accounts_pair_global_t_mapnode_t * vote_accounts_pool = fd_vote_accounts_vote_accounts_pool_join( vote_accounts );
-  fd_vote_accounts_pair_global_t_mapnode_t * vote_accounts_root = fd_vote_accounts_vote_accounts_root_join( vote_accounts );
-
-  if( !vote_accounts_pool && !vote_accounts_root ) {
-    return 0;
-  }
-
-  fd_vote_accounts_pair_global_t_mapnode_t * vote_node = fd_vote_accounts_pair_global_t_map_find(
-      vote_accounts_pool, vote_accounts_root, &key );
-  return vote_node ? vote_node->elem.stake : 0;
-}
-
 static int
 process_vote_state_update( fd_borrowed_account_t *       vote_account,
                            fd_slot_hash_t const *        slot_hashes,
@@ -1944,7 +1926,15 @@ process_vote_state_update( fd_borrowed_account_t *       vote_account,
   //
   // There is no corresponding code in anza
 
-  fd_vote_accounts_global_t const * vote_accounts = fd_bank_curr_epoch_stakes_locking_query( ctx->txn_ctx->bank );
+  fd_vote_states_t const * vote_states = fd_bank_vote_states_locking_query( ctx->txn_ctx->bank );
+  if( !vote_states ) {
+    FD_LOG_CRIT(( "vote_states is NULL" ));
+  }
+
+  fd_vote_state_ele_t * vote_state_ele = fd_vote_states_query( vote_states, vote_account->acct->pubkey );
+  if( !vote_state_ele ) {
+    FD_LOG_CRIT(( "vote_state is NULL" ));
+  }
 
   if( !deq_fd_vote_lockout_t_empty( vote_state_update->lockouts ) ) {
     fd_vote_lockout_t *  lockout       = deq_fd_vote_lockout_t_peek_tail( vote_state_update->lockouts );
@@ -1956,13 +1946,12 @@ process_vote_state_update( fd_borrowed_account_t *       vote_account,
           lockout->slot,
           &vote_state_update->hash,
           0,
-          fd_query_pubkey_stake( vote_account->acct->pubkey,
-          vote_accounts ) );
+          vote_state_ele->stake );
       fd_bank_hash_cmp_unlock( bank_hash_cmp );
     }
   }
 
-  fd_bank_curr_epoch_stakes_end_locking_query( ctx->txn_ctx->bank );
+  fd_bank_vote_states_end_locking_query( ctx->txn_ctx->bank );
 
   fd_vote_state_t vote_state;
   // https://github.com/anza-xyz/agave/blob/v2.0.1/programs/vote/src/vote_state/mod.rs#L1144
@@ -2031,19 +2020,22 @@ process_tower_sync( fd_borrowed_account_t *       vote_account,
   if( !deq_fd_vote_lockout_t_empty( tower_sync->lockouts ) ) {
     fd_vote_lockout_t *  lockout       = deq_fd_vote_lockout_t_peek_tail( tower_sync->lockouts );
     fd_bank_hash_cmp_t * bank_hash_cmp = ctx->txn_ctx->bank_hash_cmp;
-    fd_vote_accounts_global_t const * vote_accounts = fd_bank_curr_epoch_stakes_locking_query( ctx->txn_ctx->bank );
-    if( FD_LIKELY( lockout && bank_hash_cmp ) ) {
+    fd_vote_states_t const * vote_states = fd_bank_vote_states_locking_query( ctx->txn_ctx->bank );
+    if( !vote_states ) {
+      FD_LOG_CRIT(( "vote_states is NULL" ));
+    }
+    fd_vote_state_ele_t * vote_state_ele = fd_vote_states_query( vote_states, vote_account->acct->pubkey );
+    if( FD_LIKELY( lockout && bank_hash_cmp && vote_state_ele ) ) {
       fd_bank_hash_cmp_lock( bank_hash_cmp );
       fd_bank_hash_cmp_insert(
-        bank_hash_cmp,
+          bank_hash_cmp,
           lockout->slot,
           &tower_sync->hash,
           0,
-          fd_query_pubkey_stake( vote_account->acct->pubkey,
-          vote_accounts ) );
+          vote_state_ele->stake );
       fd_bank_hash_cmp_unlock( bank_hash_cmp );
     }
-    fd_bank_curr_epoch_stakes_end_locking_query( ctx->txn_ctx->bank );
+    fd_bank_vote_states_end_locking_query( ctx->txn_ctx->bank );
   }
 
   // https://github.com/anza-xyz/agave/blob/v2.0.1/programs/vote/src/vote_state/mod.rs#L1194
@@ -2111,54 +2103,15 @@ fd_vote_decode_compact_update( fd_compact_vote_state_update_t * compact_update,
   return 1;
 }
 
-void
-fd_vote_record_timestamp_vote_with_slot( fd_pubkey_t const *  vote_acc,
-                                         long                 timestamp,
-                                         ulong                slot,
-                                         fd_bank_t *          bank ) {
-
-  fd_clock_timestamp_votes_global_t * clock_timestamp_votes = fd_bank_clock_timestamp_votes_locking_modify( bank );
-
-  fd_clock_timestamp_vote_t_mapnode_t * pool = fd_clock_timestamp_votes_votes_pool_join( clock_timestamp_votes );
-  fd_clock_timestamp_vote_t_mapnode_t * root = fd_clock_timestamp_votes_votes_root_join( clock_timestamp_votes );
-
-  if( FD_UNLIKELY( !pool ) ) {
-    FD_LOG_ERR(( "Timestamp vote account pool not allocated" ));
-  }
-
-  fd_clock_timestamp_vote_t timestamp_vote = {
-      .pubkey    = *vote_acc,
-      .timestamp = (long)timestamp,
-      .slot      = slot,
-  };
-  fd_clock_timestamp_vote_t_mapnode_t   key = { .elem = timestamp_vote };
-  fd_clock_timestamp_vote_t_mapnode_t * node =
-      fd_clock_timestamp_vote_t_map_find( pool, root, &key );
-  if( NULL != node ) {
-    node->elem = timestamp_vote;
-  } else {
-    node = fd_clock_timestamp_vote_t_map_acquire( pool );
-    FD_TEST( node != NULL );
-    node->elem = timestamp_vote;
-    fd_clock_timestamp_vote_t_map_insert( pool, &root, node );
-  }
-
-  fd_clock_timestamp_votes_votes_pool_update( clock_timestamp_votes, pool );
-  fd_clock_timestamp_votes_votes_root_update( clock_timestamp_votes, root );
-
-  fd_bank_clock_timestamp_votes_end_locking_modify( bank );
-}
-
 /// returns commission split as (voter_portion, staker_portion, was_split) tuple
 ///
 ///  if commission calculation is 100% one way or other, indicate with false for was_split
 
 // https://github.com/anza-xyz/agave/blob/v2.0.1/sdk/program/src/vote/state/mod.rs#L543
 void
-fd_vote_commission_split( fd_vote_state_versioned_t * vote_state_versioned,
-                          ulong                       on,
-                          fd_commission_split_t *     result ) {
-  uchar commission = (uchar)fd_vote_account_commission( vote_state_versioned );
+fd_vote_commission_split( uchar                   commission,
+                          ulong                   on,
+                          fd_commission_split_t * result ) {
   uint commission_split = fd_uint_min( (uint)commission, 100 );
   result->is_split      = ( commission_split != 0 && commission_split != 100 );
   // https://github.com/anza-xyz/agave/blob/v2.0.1/sdk/program/src/vote/state/mod.rs#L545
@@ -2842,76 +2795,36 @@ fd_vote_convert_to_current( fd_vote_state_versioned_t * self,
 }
 
 static void
-remove_vote_account( fd_txn_account_t *   vote_account,
-                     fd_bank_t *          bank ) {
+remove_vote_account( fd_txn_account_t * vote_account,
+                     fd_bank_t *        bank ) {
 
-  fd_vote_accounts_global_t * epoch_vote_accounts = fd_bank_curr_epoch_stakes_locking_modify( bank );
-  fd_vote_accounts_pair_global_t_mapnode_t * epoch_vote_accounts_pool = fd_vote_accounts_vote_accounts_pool_join( epoch_vote_accounts );
-  fd_vote_accounts_pair_global_t_mapnode_t * epoch_vote_accounts_root = fd_vote_accounts_vote_accounts_root_join( epoch_vote_accounts );
-
-  if( FD_UNLIKELY( epoch_vote_accounts_pool==NULL ) ) {
-    fd_bank_curr_epoch_stakes_end_locking_modify( bank );
-    return;
-  }
-
-  fd_vote_accounts_pair_global_t_mapnode_t vote_acc;
-  fd_memcpy( vote_acc.elem.key.uc, vote_account->pubkey->uc, sizeof(fd_pubkey_t) );
-  fd_vote_accounts_pair_global_t_mapnode_t * vote_account_entry = fd_vote_accounts_pair_global_t_map_find( epoch_vote_accounts_pool, epoch_vote_accounts_root, &vote_acc );
-  if( FD_LIKELY( vote_account_entry ) ) {
-    fd_vote_accounts_pair_global_t_map_remove( epoch_vote_accounts_pool, &epoch_vote_accounts_root, vote_account_entry);
-  }
-
-  fd_vote_accounts_vote_accounts_pool_update( epoch_vote_accounts, epoch_vote_accounts_pool );
-  fd_vote_accounts_vote_accounts_root_update( epoch_vote_accounts, epoch_vote_accounts_root );
-  fd_bank_curr_epoch_stakes_end_locking_modify( bank );
+  fd_vote_states_t * vote_states = fd_bank_vote_states_locking_modify( bank );
+  fd_vote_states_remove( vote_states, vote_account->pubkey );
+  fd_bank_vote_states_end_locking_modify( bank );
 }
 
 static void
-upsert_vote_account( fd_txn_account_t *   vote_account,
-                     fd_bank_t *          bank ) {
-
-  fd_vote_accounts_global_t * vote_accounts = fd_bank_curr_epoch_stakes_locking_modify( bank );
-  fd_vote_accounts_pair_global_t_mapnode_t * stakes_vote_accounts_pool = fd_vote_accounts_vote_accounts_pool_join( vote_accounts );
-  fd_vote_accounts_pair_global_t_mapnode_t * stakes_vote_accounts_root = fd_vote_accounts_vote_accounts_root_join( vote_accounts );
+upsert_vote_account( fd_txn_account_t * vote_account,
+                     fd_bank_t *        bank ) {
 
   if( fd_vote_state_versions_is_correct_and_initialized( vote_account ) ) {
-    fd_account_keys_pair_t_mapnode_t key;
-    fd_memcpy( &key.elem.key, vote_account->pubkey->uc, sizeof(fd_pubkey_t) );
-
-    fd_vote_accounts_pair_global_t_mapnode_t vote_acc;
-    fd_memcpy( &vote_acc.elem.key, vote_account->pubkey->uc, sizeof(fd_pubkey_t) );
-
-    // Skip duplicates
-    if( FD_LIKELY( fd_vote_accounts_pair_global_t_map_find( stakes_vote_accounts_pool, stakes_vote_accounts_root, &vote_acc )  ) ) {
-      fd_bank_curr_epoch_stakes_end_locking_modify( bank );
-      return;
-    }
-
-    fd_vote_accounts_pair_global_t_mapnode_t * new_node = fd_vote_accounts_pair_global_t_map_acquire( stakes_vote_accounts_pool );
-    if( FD_UNLIKELY( !new_node ) ) {
-      FD_LOG_CRIT(( "Map full" ));
-    }
-
-    fd_memcpy( &new_node->elem.key, vote_account->pubkey, sizeof(fd_pubkey_t) );
-
-    fd_vote_accounts_pair_global_t_map_insert( stakes_vote_accounts_pool, &stakes_vote_accounts_root, new_node );
-    fd_bank_curr_epoch_stakes_end_locking_modify( bank );
+    fd_vote_states_t * vote_states = fd_bank_vote_states_locking_modify( bank );
+    fd_vote_states_update_from_account(
+        vote_states,
+        vote_account->pubkey,
+        fd_txn_account_get_data( vote_account ),
+        fd_txn_account_get_data_len( vote_account ) );
+    fd_bank_vote_states_end_locking_modify( bank );
   } else {
-    fd_bank_curr_epoch_stakes_end_locking_modify( bank );
     remove_vote_account( vote_account, bank );
   }
 }
 
 void
-fd_vote_store_account( fd_txn_account_t *   vote_account,
-                       fd_bank_t *          bank ) {
-  fd_pubkey_t const * owner = fd_txn_account_get_owner( vote_account );
+fd_vote_store_account( fd_txn_account_t * vote_account,
+                       fd_bank_t *        bank ) {
 
-  if (memcmp(owner->uc, fd_solana_vote_program_id.key, sizeof(fd_pubkey_t)) != 0) {
-      return;
-  }
-
-  if( fd_txn_account_get_lamports( vote_account ) == 0 ) {
+  if( fd_txn_account_get_lamports( vote_account )==0UL ) {
     remove_vote_account( vote_account, bank );
   } else {
     upsert_vote_account( vote_account, bank );

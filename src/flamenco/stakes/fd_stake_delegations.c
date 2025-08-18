@@ -68,9 +68,6 @@ fd_stake_delegations_new( void * mem, ulong max_stake_accounts ) {
     return NULL;
   }
 
-  stake_delegations->magic              = FD_STAKE_DELEGATIONS_MAGIC;
-  stake_delegations->max_stake_accounts = max_stake_accounts;
-
   if( FD_UNLIKELY( !fd_stake_delegation_pool_new( pool_mem, max_stake_accounts ) ) ) {
     FD_LOG_WARNING(( "Failed to create stake delegations pool" ));
     return NULL;
@@ -81,6 +78,12 @@ fd_stake_delegations_new( void * mem, ulong max_stake_accounts ) {
     FD_LOG_WARNING(( "Failed to create stake delegations map" ));
     return NULL;
   }
+
+  stake_delegations->max_stake_accounts = max_stake_accounts;
+
+  FD_COMPILER_MFENCE();
+  FD_VOLATILE( stake_delegations->magic ) = FD_STAKE_DELEGATIONS_MAGIC;
+  FD_COMPILER_MFENCE();
 
   return mem;
 }
@@ -104,6 +107,7 @@ fd_stake_delegations_join( void * mem ) {
     return NULL;
   }
 
+  #if FD_STAKES_USE_HANDHOLDING
   ulong map_chain_cnt = fd_stake_delegation_map_chain_cnt_est( stake_delegations->max_stake_accounts );
 
   FD_SCRATCH_ALLOC_INIT( l, stake_delegations );
@@ -125,6 +129,7 @@ fd_stake_delegations_join( void * mem ) {
     FD_LOG_WARNING(( "Failed to join stake delegations map" ));
     return NULL;
   }
+  #endif
 
   return stake_delegations;
 }

@@ -137,8 +137,7 @@ struct fd_exec_txn_ctx {
   ulong                           priority_fee;                                /* Priority fee paid by the fee payer in the transaction */
   ulong                           collected_rent;                              /* Rent collected from accounts in this transaction */
 
-  uchar dirty_vote_acc  : 1; /* 1 if this transaction maybe modified a vote account */
-  uchar dirty_stake_acc : 1; /* 1 if this transaction maybe modified a stake account */
+  uchar dirty_vote_acc : 1; /* 1 if this transaction maybe modified a vote account */
 
   fd_capture_ctx_t * capture_ctx;
 

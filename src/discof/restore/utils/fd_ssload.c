@@ -136,23 +136,6 @@ fd_ssload_recover( fd_snapshot_manifest_t * manifest,
   fd_bank_execution_fees_set( slot_ctx->bank, manifest->collector_fees );
   fd_bank_priority_fees_set( slot_ctx->bank, 0UL );
 
-  /* FIXME: Remove the magic number here. */
-  fd_clock_timestamp_votes_global_t * clock_timestamp_votes = fd_bank_clock_timestamp_votes_locking_modify( slot_ctx->bank );
-  uchar * clock_pool_mem = (uchar *)fd_ulong_align_up( (ulong)clock_timestamp_votes + sizeof(fd_clock_timestamp_votes_global_t), fd_clock_timestamp_vote_t_map_align() );
-  fd_clock_timestamp_vote_t_mapnode_t * clock_pool = fd_clock_timestamp_vote_t_map_join( fd_clock_timestamp_vote_t_map_new(clock_pool_mem, 30000UL ) );
-  clock_timestamp_votes->votes_pool_offset = (ulong)fd_clock_timestamp_vote_t_map_leave( clock_pool) - (ulong)clock_timestamp_votes;
-  clock_timestamp_votes->votes_root_offset = 0UL;
-  fd_bank_clock_timestamp_votes_end_locking_modify( slot_ctx->bank );
-
-  for( ulong i=0UL; i<manifest->vote_accounts_len; i++ ) {
-    fd_snapshot_manifest_vote_account_t * account = &manifest->vote_accounts[ i ];
-    fd_pubkey_t vote_account_pubkey;
-    fd_memcpy( vote_account_pubkey.uc, account->vote_account_pubkey, 32UL );
-    if( FD_LIKELY( account->last_slot || account->stake ) ) {
-      fd_vote_record_timestamp_vote_with_slot( &vote_account_pubkey, account->last_timestamp, account->last_slot, slot_ctx->bank );
-    }
-  }
-
   /* Update last restart slot
      https://github.com/solana-labs/solana/blob/30531d7a5b74f914dde53bfbb0bc2144f2ac92bb/runtime/src/bank.rs#L2152
 

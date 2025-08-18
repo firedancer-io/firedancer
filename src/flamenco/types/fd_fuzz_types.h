@@ -3888,31 +3888,6 @@ void *fd_epoch_info_pair_generate( void *mem, void **alloc_mem, fd_rng_t * rng )
   return mem;
 }
 
-void *fd_vote_info_pair_generate( void *mem, void **alloc_mem, fd_rng_t * rng ) {
-  fd_vote_info_pair_t *self = (fd_vote_info_pair_t *) mem;
-  *alloc_mem = (uchar *) *alloc_mem + sizeof(fd_vote_info_pair_t);
-  fd_vote_info_pair_new(mem);
-  fd_pubkey_generate( &self->account, alloc_mem, rng );
-  fd_vote_state_versioned_generate( &self->state, alloc_mem, rng );
-  return mem;
-}
-
-void *fd_epoch_info_generate( void *mem, void **alloc_mem, fd_rng_t * rng ) {
-  fd_epoch_info_t *self = (fd_epoch_info_t *) mem;
-  *alloc_mem = (uchar *) *alloc_mem + sizeof(fd_epoch_info_t);
-  fd_epoch_info_new(mem);
-  ulong vote_states_len = fd_rng_ulong( rng ) % 8;
-  self->vote_states_pool = fd_vote_info_pair_t_map_join_new( alloc_mem, vote_states_len );
-  self->vote_states_root = NULL;
-  for( ulong i=0; i < vote_states_len; i++ ) {
-    fd_vote_info_pair_t_mapnode_t * node = fd_vote_info_pair_t_map_acquire( self->vote_states_pool );
-    fd_vote_info_pair_generate( &node->elem, alloc_mem, rng );
-    fd_vote_info_pair_t_map_insert( self->vote_states_pool, &self->vote_states_root, node );
-  }
-  self->stake_infos_new_keys_start_idx = fd_rng_ulong( rng );
-  return mem;
-}
-
 void *fd_usage_cost_details_generate( void *mem, void **alloc_mem, fd_rng_t * rng ) {
   fd_usage_cost_details_t *self = (fd_usage_cost_details_t *) mem;
   *alloc_mem = (uchar *) *alloc_mem + sizeof(fd_usage_cost_details_t);

@@ -8,14 +8,14 @@
 #include "../../ballet/ed25519/fd_ed25519.h"
 #include "../../ballet/txn/fd_txn.h"
 
-#define FD_HASH_FOOTPRINT (32UL)
-#define FD_HASH_ALIGN (8UL)
-#define FD_PUBKEY_FOOTPRINT FD_HASH_FOOTPRINT
-#define FD_PUBKEY_ALIGN FD_HASH_ALIGN
 #define FD_SIGNATURE_ALIGN (8UL)
 
 /* TODO this should not have packed alignment, but it's misused everywhere */
 
+#define FD_HASH_FOOTPRINT   (32UL)
+#define FD_HASH_ALIGN       (8UL)
+#define FD_PUBKEY_FOOTPRINT FD_HASH_FOOTPRINT
+#define FD_PUBKEY_ALIGN     FD_HASH_ALIGN
 union __attribute__((packed)) fd_hash {
   uchar hash[ FD_HASH_FOOTPRINT ];
   uchar key [ FD_HASH_FOOTPRINT ]; // Making fd_hash and fd_pubkey interchangeable
