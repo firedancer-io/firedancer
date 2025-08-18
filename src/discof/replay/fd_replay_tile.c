@@ -1304,6 +1304,9 @@ handle_new_slot( fd_replay_tile_ctx_t * ctx,
 
   fd_bank_tick_height_set( ctx->slot_ctx->bank, fd_bank_max_tick_height_get( ctx->slot_ctx->bank ) );
 
+  /* Update block height. */
+  fd_bank_block_height_set( ctx->slot_ctx->bank, fd_bank_block_height_get( ctx->slot_ctx->bank ) + 1UL );
+
   ulong * max_tick_height = fd_bank_max_tick_height_modify( ctx->slot_ctx->bank );
   ulong   ticks_per_slot  = fd_bank_ticks_per_slot_get( ctx->slot_ctx->bank );
   if( FD_UNLIKELY( FD_RUNTIME_EXECUTE_SUCCESS != fd_runtime_compute_max_tick_height(ticks_per_slot, slot, max_tick_height ) ) ) {

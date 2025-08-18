@@ -2690,9 +2690,6 @@ fd_runtime_block_pre_execute_process_new_epoch( fd_exec_slot_ctx_t * slot_ctx,
                                                 fd_spad_t *          runtime_spad,
                                                 int *                is_epoch_boundary ) {
 
-  /* Update block height. */
-  fd_bank_block_height_set( slot_ctx->bank, fd_bank_block_height_get( slot_ctx->bank ) + 1UL );
-
   ulong const slot = fd_bank_slot_get( slot_ctx->bank );
   if( slot != 0UL ) {
     fd_epoch_schedule_t const * epoch_schedule = fd_bank_epoch_schedule_query( slot_ctx->bank );
@@ -2708,7 +2705,7 @@ fd_runtime_block_pre_execute_process_new_epoch( fd_exec_slot_ctx_t * slot_ctx,
     if( FD_UNLIKELY( prev_epoch<new_epoch || !slot_idx ) ) {
       FD_LOG_DEBUG(( "Epoch boundary" ));
       /* Epoch boundary! */
-      fd_runtime_process_new_epoch( slot_ctx, new_epoch - 1UL, runtime_spad );
+      fd_runtime_process_new_epoch( slot_ctx, prev_epoch, runtime_spad );
       *is_epoch_boundary = 1;
     }
   } else {
