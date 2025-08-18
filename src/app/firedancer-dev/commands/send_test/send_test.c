@@ -66,7 +66,7 @@ send_test_topo( config_t * config ) {
   fd_topo_cpus_init( cpus );
 
   ulong affinity_tile_cnt = 0UL;
-  if( FD_LIKELY( strcmp( config->layout.affinity, "auto" ) ) ) affinity_tile_cnt = fd_tile_private_cpus_parse( config->layout.affinity, parsed_tile_to_cpu );
+  if( FD_LIKELY( strcmp( config->layout.affinity, "auto" ) ) ) affinity_tile_cnt = fd_tile_private_cpus_parse( config->layout.affinity, parsed_tile_to_cpu, FD_TILE_MAX );
 
   for( ulong i=0UL; i<affinity_tile_cnt; i++ ) {
     if( FD_UNLIKELY( parsed_tile_to_cpu[ i ]!=USHORT_MAX && parsed_tile_to_cpu[ i ]>=cpus->cpu_cnt ) )

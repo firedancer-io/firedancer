@@ -26,7 +26,7 @@ udpecho_topo( config_t * config ) {
   fd_topo_cpus_init( cpus );
 
   ulong affinity_tile_cnt = 0UL;
-  if( FD_LIKELY( !is_auto_affinity ) ) affinity_tile_cnt = fd_tile_private_cpus_parse( affinity, parsed_tile_to_cpu );
+  if( FD_LIKELY( !is_auto_affinity ) ) affinity_tile_cnt = fd_tile_private_cpus_parse( affinity, parsed_tile_to_cpu, FD_TILE_MAX );
 
   ulong tile_to_cpu[ FD_TILE_MAX ] = {0};
   for( ulong i=0UL; i<affinity_tile_cnt; i++ ) {
@@ -69,10 +69,10 @@ udpecho_topo( config_t * config ) {
   fd_topo_print_log( /* stdout */ 1, topo );
 }
 
-void
+static void
 udpecho_cmd_args( int *    pargc,
-                 char *** pargv,
-                 args_t * args ) {
+                  char *** pargv,
+                  args_t * args ) {
   ushort port_l = fd_env_strip_cmdline_ushort( pargc, pargv, "--port", NULL, 0 );
   ushort port_s = fd_env_strip_cmdline_ushort( pargc, pargv, "-p",     NULL, 0 );
   ushort port   = port_s ? port_s : port_l;
@@ -80,10 +80,9 @@ udpecho_cmd_args( int *    pargc,
   args->udpecho.listen_port = port;
 }
 
-void
+static void
 udpecho_cmd_fn( args_t *   args,
                 config_t * config ) {
-  udpecho_topo( config );
   fd_topo_t *      topo        = &config->topo;
   fd_topo_tile_t * net_tile    = &topo->tiles[ fd_topo_find_tile( topo, "net",    0UL ) ];
   fd_topo_tile_t * metric_tile = &topo->tiles[ fd_topo_find_tile( topo, "metric", 0UL ) ];
@@ -118,5 +117,6 @@ action_t fd_action_udpecho = {
   .args        = udpecho_cmd_args,
   .fn          = udpecho_cmd_fn,
   .perm        = dev_cmd_perm,
+  .topo        = udpecho_topo,
   .description = "Run a UDP echo server"
 };

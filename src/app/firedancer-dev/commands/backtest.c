@@ -37,7 +37,7 @@ backtest_topo( config_t * config ) {
   ulong exec_tile_cnt   = config->firedancer.layout.exec_tile_count;
   ulong writer_tile_cnt = config->firedancer.layout.writer_tile_count;
 
-  fd_topo_t * topo = { fd_topob_new( &config->topo, config->name ) };
+  fd_topo_t * topo = fd_topob_new( &config->topo, config->name );
   topo->max_page_size = fd_cstr_to_shmem_page_sz( config->hugetlbfs.max_page_size );
   topo->gigantic_page_threshold = config->hugetlbfs.gigantic_page_threshold_mib << 20;
 
@@ -466,8 +466,9 @@ backtest_cmd_fn( args_t *   args FD_PARAM_UNUSED,
 }
 
 action_t fd_action_backtest = {
-  .name = "backtest",
-  .fn   = backtest_cmd_fn,
-  .perm = backtest_cmd_perm,
-  .topo = backtest_cmd_topo,
+  .name        = "backtest",
+  .description = "Replay a ledger offline",
+  .fn          = backtest_cmd_fn,
+  .perm        = backtest_cmd_perm,
+  .topo        = backtest_cmd_topo,
 };

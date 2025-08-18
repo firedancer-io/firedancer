@@ -142,8 +142,9 @@ gossip_cmd_perm( args_t *         args FD_PARAM_UNUSED,
 }
 
 action_t fd_action_gossip = {
-  .name = "gossip",
-  .args = gossip_cmd_args,
-  .fn   = gossip_cmd_fn,
-  .perm = gossip_cmd_perm,
+  .name        = "gossip",
+  .description = "Run the gossip tile (peer discovery)",
+  .args        = gossip_cmd_args,
+  .fn          = gossip_cmd_fn,
+  .perm        = gossip_cmd_perm,
 };
