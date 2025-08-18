@@ -1,4 +1,5 @@
 #include "../../../../disco/stem/fd_stem.h"
+#include <sched.h>
 
 struct fd_echo_tile { uchar dummy; };
 typedef struct fd_echo_tile fd_echo_tile_t;
@@ -17,10 +18,17 @@ after_frag( void *              _ctx,
   fd_stem_publish( stem, 0UL, sig, 0UL, 0UL, 0UL, tsorig, tspub );
 }
 
+static void
+during_housekeeping( fd_echo_tile_t * ctx ) {
+  (void)ctx;
+  sched_yield();
+}
+
 #define STEM_BURST                  (1UL)
 #define STEM_CALLBACK_CONTEXT_TYPE  fd_echo_tile_t
 #define STEM_CALLBACK_CONTEXT_ALIGN alignof(fd_echo_tile_t)
 #define STEM_CALLBACK_AFTER_FRAG    after_frag
+#define STEM_CALLBACK_DURING_HOUSEKEEPING during_housekeeping
 #include "../../../../disco/stem/fd_stem.c"
 
 static ulong scratch_align( void ) { return alignof(fd_echo_tile_t); }

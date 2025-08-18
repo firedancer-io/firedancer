@@ -1,5 +1,6 @@
 #include "fd_trtt_tile.h"
 #include "../../../../disco/stem/fd_stem.h"
+#include <sched.h>
 
 static void
 after_credit( fd_trtt_tile_t *    ctx,
@@ -33,11 +34,18 @@ after_frag( fd_trtt_tile_t *    ctx,
   ctx->inflight = 0;
 }
 
+static void
+during_housekeeping( fd_trtt_tile_t * ctx ) {
+  (void)ctx;
+  sched_yield();
+}
+
 #define STEM_BURST                  (1UL)
 #define STEM_CALLBACK_CONTEXT_TYPE  fd_trtt_tile_t
 #define STEM_CALLBACK_CONTEXT_ALIGN alignof(fd_trtt_tile_t)
 #define STEM_CALLBACK_AFTER_CREDIT  after_credit
 #define STEM_CALLBACK_AFTER_FRAG    after_frag
+#define STEM_CALLBACK_DURING_HOUSEKEEPING during_housekeeping
 #include "../../../../disco/stem/fd_stem.c"
 
 static ulong scratch_align( void ) { return alignof(fd_trtt_tile_t); }
@@ -48,7 +56,7 @@ unprivileged_init( fd_topo_t *      topo,
                    fd_topo_tile_t * tile ) {
   fd_trtt_tile_t * ctx = fd_topo_obj_laddr( topo, tile->tile_obj_id );
   fd_memset( ctx, 0, sizeof(fd_trtt_tile_t) );
-  fd_histf_join( fd_histf_new( ctx->rtt_hist, 1, (ulong)1e7 ) );
+  fd_histf_join( fd_histf_new( ctx->rtt_hist, 1, (ulong)1e9 ) );
 }
 
 fd_topo_run_tile_t fd_tile_trtt = {

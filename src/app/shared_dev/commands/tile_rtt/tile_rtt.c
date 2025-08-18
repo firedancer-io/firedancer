@@ -21,7 +21,7 @@ tile_rtt_topo( config_t * config ) {
   fd_topob_tile( topo, "trtt", "tile_rtt", "tile_rtt", 0UL, 0, 0 );
   fd_topob_tile( topo, "echo", "tile_rtt", "tile_rtt", 1UL, 0, 0 );
 
-  ulong const link_depth = 256UL;
+  ulong const link_depth = 1024;
   fd_topob_link( topo, "trtt_echo", "tile_rtt", link_depth, 0UL, 0UL );
   fd_topob_link( topo, "echo_trtt", "tile_rtt", link_depth, 0UL, 0UL );
   fd_topob_tile_out( topo, "trtt", 0UL, "trtt_echo", 0UL );
@@ -74,20 +74,29 @@ tile_rtt_cmd_fn( args_t *   args,
   fd_histf_join( rtt_hist_ );
   FD_LOG_NOTICE(( "trtt_ctx is at %p", (void *)trtt_ctx ));
 
+  fd_histf_t const * rtt_hist_ro_init = fd_type_pun( rtt_hist_ );
+  fd_histf_t prev_hist[ 1 ];
+  *prev_hist = *rtt_hist_ro_init;
+
   fd_topo_run_single_process( topo, 2, config->uid, config->gid, fdctl_tile_run );
   double ns_per_tick = 1.0/fd_tempo_tick_per_ns( NULL );
   for(;;) {
     fd_log_sleep( (long)1e9 );
     /* FIXME is this data race safe? */
-    fd_histf_t const * rtt_hist = fd_type_pun( rtt_hist_ );
-    ulong p10 = fd_histf_percentile( rtt_hist, 10, (ulong)1e9 );
-    ulong p50 = fd_histf_percentile( rtt_hist, 50, (ulong)1e9 );
-    ulong p99 = fd_histf_percentile( rtt_hist, 99, (ulong)1e9 );
-    FD_LOG_NOTICE(( "tile_rtt: p10=%5.1f p50=%5.1f p99=%5.1f",
+    fd_histf_t const * rtt_hist_ro = fd_type_pun( rtt_hist_ );
+
+    fd_histf_t delta_hist[ 1 ];
+    fd_histf_subtract( rtt_hist_ro, prev_hist, delta_hist );
+
+    ulong p10 = fd_histf_percentile( delta_hist, 10, (ulong)1e9 );
+    ulong p50 = fd_histf_percentile( delta_hist, 50, (ulong)1e9 );
+    ulong p99 = fd_histf_percentile( delta_hist, 99, (ulong)1e9 );
+    FD_LOG_NOTICE(( "tile_rtt/sec: p10=%5.1f p50=%5.1f p99=%5.1f",
                     (double)p10*ns_per_tick,
                     (double)p50*ns_per_tick,
                     (double)p99*ns_per_tick ));
-    /* FIXME periodically reset histf */
+
+    *prev_hist = *rtt_hist_ro;
   }
 }
 
