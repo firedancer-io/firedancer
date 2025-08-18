@@ -152,15 +152,6 @@ during_housekeeping( fd_gossip_tile_ctx_t * ctx ) {
 
     fd_keyswitch_state( ctx->keyswitch, FD_KEYSWITCH_STATE_COMPLETED );
   }
-
-  ulong test_notify = FD_MGAUGE_GET( GOSSIP, TEST_NOTIFY );
-  if( FD_UNLIKELY( 1UL==test_notify ) ) {
-    FD_MGAUGE_SET( GOSSIP, TEST_NOTIFY, 2UL );
-    fd_gossip_disable_pull_request( ctx->gossip );
-  } else if( FD_UNLIKELY( 3UL==test_notify ) ) {
-    FD_MGAUGE_SET( GOSSIP, TEST_NOTIFY, 2UL );
-    fd_gossip_send_one_pull_request( ctx->gossip, ctx->stem, ctx->last_wallclock );
-  }
 }
 
 static inline void
@@ -186,9 +177,19 @@ metrics_write( fd_gossip_tile_ctx_t * ctx ) {
 
   fd_gossip_metrics_t const * metrics = fd_gossip_metrics( ctx->gossip );
 
-  FD_MGAUGE_SET(       GOSSIP, TABLE_SIZE,          metrics->crds_table->total_ele_cnt );
+  FD_MGAUGE_SET(       GOSSIP, TABLE_COUNT,         metrics->crds_table->table_cnt );
   FD_MGAUGE_ENUM_COPY( GOSSIP, TABLE_CRDS_COUNTS,   metrics->crds_table->ele_cnt );
-  FD_MGAUGE_SET(       GOSSIP, PURGED_SIZE,         metrics->crds_table->table_purged_cnt );
+  FD_MGAUGE_SET(       GOSSIP, CONTACT_INFO_COUNT,  metrics->crds_table->contact_info_cnt );
+  FD_MGAUGE_SET(       GOSSIP, PURGED_COUNT,        metrics->crds_table->purged_cnt );
+
+  FD_MCNT_SET( GOSSIP, TABLE_EVICTED_COUNT,        metrics->crds_table->table_evicted_cnt );
+  FD_MCNT_SET( GOSSIP, CONTACT_INFO_EVICTED_COUNT, metrics->crds_table->contact_info_evicted_cnt );
+  FD_MCNT_SET( GOSSIP, PURGED_EVICTED_COUNT,       metrics->crds_table->purged_evicted_cnt );
+
+  FD_MCNT_SET( GOSSIP, DROP_TABLE_EXPIRED_COUNT,        metrics->crds_table->table_expired_cnt );
+  FD_MCNT_SET( GOSSIP, DROP_CONTACT_INFO_EXPIRED_COUNT, metrics->crds_table->contact_info_expired_cnt );
+  FD_MCNT_SET( GOSSIP, DROP_PURGED_EXPIRED_COUNT,       metrics->crds_table->purged_expired_cnt );
+
   FD_MGAUGE_SET(       GOSSIP, VISIBLE_STAKE,       metrics->crds_table->visible_stake );
   FD_MGAUGE_SET(       GOSSIP, STAKED_PEER_COUNT,   metrics->crds_table->staked_peer_cnt );
   FD_MGAUGE_SET(       GOSSIP, UNSTAKED_PEER_COUNT, metrics->crds_table->unstaked_peer_cnt );
@@ -205,17 +206,11 @@ metrics_write( fd_gossip_tile_ctx_t * ctx ) {
     FD_MCNT_ENUM_COPY( GOSSIP, CRDS_##route##_COUNT,    crds_traffic##_count ); \
     FD_MCNT_ENUM_COPY( GOSSIP, CRDS_##route##_BYTES,    crds_traffic##_bytes );
 
-  #define COPY_CRDS_INSERT( route, insert ) \
-    COPY_CRDS_TRAFFIC( route##_RX, insert ); \
-    FD_MCNT_ENUM_COPY( GOSSIP, CRDS_##route##_UPSERTED, insert##_upserted ); \
-    FD_MCNT_ENUM_COPY( GOSSIP, CRDS_##route##_DUPLICATES, insert##_duplicate ); \
-    FD_MCNT_ENUM_COPY( GOSSIP, CRDS_##route##_FAILED, insert##_fail );
+  COPY_CRDS_TRAFFIC( PUSH_RX, metrics->rx_push_crd );
+  COPY_CRDS_TRAFFIC( PULL_RX, metrics->rx_pull_crd );
 
-  COPY_CRDS_INSERT( PUSH, metrics->rx_push_crd );
-  COPY_CRDS_INSERT( PULL, metrics->rx_pull_crd );
-  FD_MCNT_ENUM_COPY( GOSSIP, CRDS_PULL_OLD, metrics->rx_pull_crd_old );
+  FD_MCNT_ENUM_COPY( GOSSIP, CRDS_RX_OUTCOME, metrics->rx_crds_outcome );
 
-  /* TX */
   COPY_CRDS_TRAFFIC( PUSH_TX, metrics->tx_push_crd );
   COPY_CRDS_TRAFFIC( PULL_TX, metrics->tx_pull_crd );
 }
@@ -462,6 +457,10 @@ unprivileged_init( fd_topo_t *      topo,
                                                ctx->gossip_out,
                                                ctx->net_out ) );
   FD_TEST( ctx->gossip );
+
+  FD_MGAUGE_SET( GOSSIP, TABLE_CAPACITY, tile->gossip.max_entries );
+  FD_MGAUGE_SET( GOSSIP, PURGED_CAPACITY, tile->gossip.max_entries );
+  FD_MGAUGE_SET( GOSSIP, CONTACT_INFO_CAPACITY, FD_CONTACT_INFO_TABLE_SIZE );
 
   fd_ip4_udp_hdr_init( ctx->net_out_hdr, FD_GOSSIP_MTU, tile->gossip.ip_addr, tile->gossip.ports.gossip );
 
