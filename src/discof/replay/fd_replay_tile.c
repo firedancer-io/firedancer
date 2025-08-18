@@ -226,7 +226,6 @@ struct fd_replay_tile_ctx {
   ulong *              exec_fseq [ FD_PACK_MAX_BANK_TILES ]; /* fseq of the last executed txn */
 
   ulong                writer_cnt;
-  ulong *              writer_fseq[ FD_PACK_MAX_BANK_TILES ];
 
   /* Metadata updated during execution */
 
@@ -879,6 +878,37 @@ before_frag( fd_replay_tile_ctx_t * ctx,
 }
 
 static void
+fd_replay_process_solcap_account_update( fd_replay_tile_ctx_t *                          ctx,
+                                          fd_runtime_public_account_update_msg_t const * msg,
+                                          uchar const *                                  account_data ) {
+  if( FD_UNLIKELY( !ctx->capture_ctx || !ctx->capture_ctx->capture ||
+                   fd_bank_slot_get( ctx->slot_ctx->bank )<ctx->capture_ctx->solcap_start_slot ) ) {
+    /* No solcap capture configured or slot not reached yet, ignore the message */
+    return;
+  }
+
+  /* Write the account to the solcap file */
+  fd_solcap_write_account( ctx->capture_ctx->capture,
+    &msg->pubkey,
+    &msg->info,
+    account_data,
+    msg->data_sz,
+    &msg->hash );
+}
+
+static void
+fd_replay_process_txn_finalized( fd_replay_tile_ctx_t *                                  ctx,
+                                 fd_runtime_public_writer_replay_txn_finalized_t const * msg ) {
+  uint txn_id = msg->txn_id;
+  int exec_tile_id = msg->exec_tile_id;
+  if( fd_ulong_extract_bit(
+    ctx->exec_ready_bitset, exec_tile_id )==0 && ctx->prev_ids[ exec_tile_id ]!=txn_id ) {
+      ctx->exec_ready_bitset        = fd_ulong_set_bit( ctx->exec_ready_bitset, exec_tile_id );
+      ctx->prev_ids[ exec_tile_id ] = txn_id;
+  }
+}
+
+static void
 during_frag( fd_replay_tile_ctx_t * ctx,
              ulong                  in_idx,
              ulong                  seq,
@@ -897,36 +927,18 @@ during_frag( fd_replay_tile_ctx_t * ctx,
     FD_TEST( sz==sizeof(fd_reasm_fec_t) );
     memcpy( &ctx->fec_out, fd_chunk_to_laddr( ctx->in[ in_idx ].mem, chunk ), sizeof(fd_reasm_fec_t) );
   } else if( FD_UNLIKELY( ctx->in_kind[ in_idx ]==IN_KIND_WRITER ) ) {
-
-    /* Currently we need to serialize all solcap writes in a single tile, so
-       we are notified by the writer tile when an account update has occurred.
-
-       TODO: remove this message and link when solcap v2 is here */
-    if( FD_UNLIKELY( sig!=FD_WRITER_ACCOUNT_UPDATE_SIG ) ) {
-      FD_LOG_WARNING(( "Unexpected sig %lu from writer_replay", sig ));
-      return;
-    }
-
-    if( FD_UNLIKELY( !ctx->capture_ctx || !ctx->capture_ctx->capture ||
-                     fd_bank_slot_get( ctx->slot_ctx->bank )<ctx->capture_ctx->solcap_start_slot ) ) {
-      /* No solcap capture configured or slot not reached yet, ignore the message */
-      return;
-    }
-
     fd_replay_in_link_t * in = &ctx->in[ in_idx ];
-    uchar const * msg_data = fd_chunk_to_laddr( in->mem, chunk );
-    fd_runtime_public_account_update_msg_t const * msg = (fd_runtime_public_account_update_msg_t const *)msg_data;
-
-    /* Account data follows immediately after the message header */
-    void const * account_data = msg_data + sizeof(fd_runtime_public_account_update_msg_t);
-
-    /* Write the account to the solcap file */
-    fd_solcap_write_account( ctx->capture_ctx->capture,
-                             &msg->pubkey,
-                             &msg->info,
-                             account_data,
-                             msg->data_sz,
-                             &msg->hash );
+    if( sig == FD_RUNTIME_PUBLIC_WRITER_REPLAY_SIG_TXN_DONE ) {
+      fd_runtime_public_writer_replay_txn_finalized_t const * msg =
+        (fd_runtime_public_writer_replay_txn_finalized_t const *)fd_chunk_to_laddr( in->mem, chunk );
+      fd_replay_process_txn_finalized( ctx, msg );
+    } else if( sig == FD_RUNTIME_PUBLIC_WRITER_REPLAY_SIG_ACC_UPDATE ) {
+      fd_runtime_public_account_update_msg_t const * msg = (fd_runtime_public_account_update_msg_t const *)fd_chunk_to_laddr( in->mem, chunk );
+      uchar const * account_data = (uchar const *)fd_type_pun_const( msg ) + sizeof(fd_runtime_public_account_update_msg_t);
+      fd_replay_process_solcap_account_update( ctx, msg, account_data );
+    } else {
+      FD_LOG_ERR(( "Unknown sig %lu", sig ));
+    }
   }
 }
 
@@ -1144,43 +1156,6 @@ publish_votes_to_plugin( fd_replay_tile_ctx_t * ctx,
 }
 
 static void
-handle_writer_state_updates( fd_replay_tile_ctx_t * ctx ) {
-
-  for( ulong i=0UL; i<ctx->writer_cnt; i++ ) {
-    ulong res = fd_fseq_query( ctx->writer_fseq[ i ] );
-    if( FD_UNLIKELY( fd_writer_fseq_is_not_joined( res ) ) ) {
-      FD_LOG_WARNING(( "writer tile fseq idx=%lu has not been joined by the corresponding writer tile", i ));
-      continue;
-    }
-
-    uint state = fd_writer_fseq_get_state( res );
-    switch( state ) {
-      case FD_WRITER_STATE_NOT_BOOTED:
-        FD_LOG_WARNING(( "writer tile idx=%lu is still booting", i ));
-        break;
-      case FD_WRITER_STATE_READY:
-        /* No-op. */
-        break;
-      case FD_WRITER_STATE_TXN_DONE: {
-        uint  txn_id       = fd_writer_fseq_get_txn_id( res );
-        int   exec_tile_id = fd_writer_fseq_get_exec_tile_id( res );
-        if( fd_ulong_extract_bit( ctx->exec_ready_bitset, exec_tile_id )==0 && ctx->prev_ids[ exec_tile_id ]!=txn_id ) {
-          //FD_LOG_DEBUG(( "Ack that exec tile idx=%lu txn id=%u has been finalized by writer tile %lu", exec_tile_id, txn_id, i ));
-          ctx->exec_ready_bitset        = fd_ulong_set_bit( ctx->exec_ready_bitset, exec_tile_id );
-          ctx->prev_ids[ exec_tile_id ] = txn_id;
-          fd_fseq_update( ctx->writer_fseq[ i ], FD_WRITER_STATE_READY );
-        }
-        break;
-      }
-      default:
-        FD_LOG_CRIT(( "Unexpected fseq state from writer tile idx=%lu state=%u", i, state ));
-        break;
-    }
-  }
-
-}
-
-static void
 init_from_genesis( fd_replay_tile_ctx_t * ctx,
                    fd_stem_context_t *    stem ) {
   fd_runtime_read_genesis( ctx->slot_ctx,
@@ -1300,6 +1275,10 @@ handle_new_slot( fd_replay_tile_ctx_t * ctx,
   /* Now update any required runtime state and handle an epoch boundary
       change. */
 
+  if( ctx->capture_ctx ) {
+    fd_solcap_writer_set_slot( ctx->capture_ctx->capture, slot );
+  }
+
   fd_bank_parent_slot_set( ctx->slot_ctx->bank, parent_slot );
 
   fd_bank_tick_height_set( ctx->slot_ctx->bank, fd_bank_max_tick_height_get( ctx->slot_ctx->bank ) );
@@ -1391,10 +1370,6 @@ handle_slot_change( fd_replay_tile_ctx_t * ctx,
     /* This means we are switching to a new slot. */
     handle_new_slot( ctx, stem, slot, parent_slot );
   }
-
-  if( ctx->capture_ctx ) {
-    fd_solcap_writer_set_slot( ctx->capture_ctx->capture, slot );
-  }
 }
 
 static void
@@ -1473,6 +1448,10 @@ handle_new_slice( fd_replay_tile_ctx_t * ctx, fd_stem_context_t * stem ) {
 static void
 exec_slice_fini_slot( fd_replay_tile_ctx_t * ctx, fd_stem_context_t * stem ) {
 
+  if( ctx->capture_ctx ) {
+    fd_solcap_writer_flush( ctx->capture_ctx->capture );
+  }
+
   ulong curr_slot = fd_bank_slot_get( ctx->slot_ctx->bank );
 
   fd_microblock_hdr_t * hdr = (fd_microblock_hdr_t *)fd_type_pun( ctx->slice_exec_ctx.buf + ctx->slice_exec_ctx.last_mblk_off );
@@ -1539,10 +1518,6 @@ exec_slice_fini_slot( fd_replay_tile_ctx_t * ctx, fd_stem_context_t * stem ) {
     FD_LOG_DEBUG(( "writing %lu to slots file", prev_slot ));
     fprintf( ctx->slots_replayed_file, "%lu\n", prev_slot );
     fflush( ctx->slots_replayed_file );
-  }
-
-  if (NULL != ctx->capture_ctx) {
-    fd_solcap_writer_flush( ctx->capture_ctx->capture );
   }
 
   /**********************************************************************/
@@ -1675,9 +1650,6 @@ after_credit( fd_replay_tile_ctx_t * ctx,
   }
 
   /* TODO: Consider moving state management to during_housekeeping */
-
-  /* Check all the writer link fseqs. */
-  handle_writer_state_updates( ctx );
 
   exec_and_handle_slice( ctx, stem );
 
@@ -2040,18 +2012,6 @@ unprivileged_init( fd_topo_t *      topo,
   ctx->writer_cnt = fd_topo_tile_name_cnt( topo, "writer" );
   if( FD_UNLIKELY( ctx->writer_cnt>FD_PACK_MAX_BANK_TILES ) ) {
     FD_LOG_CRIT(( "replay tile has too many writer tiles %lu", ctx->writer_cnt ));
-  }
-
-  for( ulong i = 0UL; i < ctx->writer_cnt; i++ ) {
-
-    ulong writer_fseq_id = fd_pod_queryf_ulong( topo->props, ULONG_MAX, "writer_fseq.%lu", i );
-    if( FD_UNLIKELY( writer_fseq_id==ULONG_MAX ) ) {
-      FD_LOG_CRIT(( "writer tile %lu has no fseq", i ));
-    }
-    ctx->writer_fseq[ i ] = fd_fseq_join( fd_topo_obj_laddr( topo, writer_fseq_id ) );
-    if( FD_UNLIKELY( !ctx->writer_fseq[ i ] ) ) {
-      FD_LOG_CRIT(( "writer tile %lu has no fseq", i ));
-    }
   }
 
   /**********************************************************************/

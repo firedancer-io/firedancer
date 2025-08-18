@@ -84,7 +84,7 @@ fd_hashes_update_lthash( fd_txn_account_t const  * account,
     int err = fd_solcap_write_account(
       capture_ctx->capture,
       account->pubkey,
-      fd_txn_account_get_info( account ),
+      &meta->info,
       fd_txn_account_get_data( account ),
       fd_txn_account_get_data_len( account ),
       new_hash_checksum );
