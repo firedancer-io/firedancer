@@ -725,45 +725,39 @@ metric introduced.
     <histogram name="SignDurationSeconds" min="0.00000001" max="0.001" converter="seconds" summary="Duration of signing a message" />
 </tile>
 
-<enum name="GossipProcessingResult">
-</enum>
-
-<enum name="CrdsProcessingResult">
-</enum>
-
 <enum name="CrdsValue">
-    <int value="0"  name="ContactInfoV1"             label="Contact Info V1" />
-    <int value="1"  name="Vote"                      label="Vote" />
-    <int value="2"  name="LowestSlot"                label="Lowest Slot" />
-    <int value="3"  name="SnapshotHashes"            label="Snapshot Hashes" />
-    <int value="4"  name="AccountsHashes"            label="Accounts Hashes" />
-    <int value="5"  name="EpochSlots"                label="Epoch Slots" />
-    <int value="6"  name="VersionV1"                 label="Version V1" />
-    <int value="7"  name="VersionV2"                 label="Version V2" />
-    <int value="8"  name="NodeInstance"              label="Node Instance" />
-    <int value="9"  name="DuplicateShred"            label="Duplicate Shred" />
+    <int value="0" name="ContactInfoV1" label="Contact Info V1" />
+    <int value="1" name="Vote" label="Vote" />
+    <int value="2" name="LowestSlot" label="Lowest Slot" />
+    <int value="3" name="SnapshotHashes" label="Snapshot Hashes" />
+    <int value="4" name="AccountsHashes" label="Accounts Hashes" />
+    <int value="5" name="EpochSlots" label="Epoch Slots" />
+    <int value="6" name="VersionV1" label="Version V1" />
+    <int value="7" name="VersionV2" label="Version V2" />
+    <int value="8" name="NodeInstance" label="Node Instance" />
+    <int value="9" name="DuplicateShred" label="Duplicate Shred" />
     <int value="10" name="IncrementalSnapshotHashes" label="Incremental Snapshot Hashes" />
-    <int value="11" name="ContactInfoV2"             label="Contact Info V2" />
+    <int value="11" name="ContactInfoV2" label="Contact Info V2" />
     <int value="12" name="RestartLastVotedForkSlots" label="Restart Last Voted Fork Slots" />
-    <int value="13" name="RestartHeaviestFork"       label="Restart Heaviest Fork" />
+    <int value="13" name="RestartHeaviestFork" label="Restart Heaviest Fork" />
 </enum>
 
 <enum name="GossipMessage">
-    <int value="0" name="PullRequest"  label="Pull Request" />
+    <int value="0" name="PullRequest" label="Pull Request" />
     <int value="1" name="PullResponse" label="Pull Response" />
-    <int value="2" name="Push"         label="Push" />
-    <int value="3" name="Prune"        label="Prune" />
-    <int value="4" name="Ping"         label="Ping" />
-    <int value="5" name="Pong"         label="Pong" />
+    <int value="2" name="Push" label="Push" />
+    <int value="3" name="Prune" label="Prune" />
+    <int value="4" name="Ping" label="Ping" />
+    <int value="5" name="Pong" label="Pong" />
 </enum>
 
 <enum name="PongResponse">
-    <int value="0" name="Staked"     label="Pong ignored as node is staked" />
+    <int value="0" name="Staked" label="Pong ignored as node is staked" />
     <int value="1" name="Entrypoint" label="Pong ignored as node is an entrypoint" />
-    <int value="2" name="Untracked"  label="Pong ignored as node has no outstanding ping" />
-    <int value="3" name="Address"    label="Pong ignored as responding node doesn't match pinged address" />
-    <int value="4" name="Token"      label="Pong ignored as token was not valid" />
-    <int value="5" name="Success"    label="Pong accepted" />
+    <int value="2" name="Untracked" label="Pong ignored as node has no outstanding ping" />
+    <int value="3" name="Address" label="Pong ignored as responding node doesn't match pinged address" />
+    <int value="4" name="Token" label="Pong ignored as token was not valid" />
+    <int value="5" name="Success" label="Pong accepted" />
 </enum>
 
 <enum name="PingTrackedType">
@@ -785,7 +779,6 @@ metric introduced.
     <int value="6" name="DroppedPushHashDuplicate" label="Push (hash duplicate)" />
 </enum>
 
-
 <tile name="gossip">
     <counter name="PingTrackerCapacity" label="The peer tracking capacity of the ping tracker" />
     <gauge   name="PingTrackerCount" enum="PingTrackedType" label="The number of peers being tracked for ping/pong" />
@@ -795,100 +788,100 @@ metric introduced.
     <counter name="PingTrackerStakeChangedCount" label="The number of times a tracked peer was removed from tracking as it became staked" />
     <counter name="PingTrackerAddressChangedCount" label="The number of times a tracked peer was removed from tracking as it's gossip address changed" />
 
-    <gauge   name="TableCapacity"               label="The capacity of the CRDS table" />
-    <gauge   name="PurgedCapacity"              label="The capacity of the list of purged table entries" />
-    <gauge   name="ContactInfoCapacity"         label="The capacity of the Contact Info sidetable" />
-    <gauge   name="TableCount"                  label="The number of CRDS values in the table" />
-    <gauge   name="TableCrdsCounts"             label="The number of CRDS values in the table, by type" enum="CrdsValue" />
-    <gauge   name="ContactInfoCount"            label="The number of contact info entries in the ContactInfo sidetable" />
-    <gauge   name="PurgedCount"                 label="The number of purged table entries" />"
-    <counter name="TableEvictedCount"           label="The number of entries evicted from the CRDS table to make space for new entries" />
-    <counter name="ContactInfoEvictedCount"     label="The number of entries evicted from the Contact Info sidetable to make space for new entries" />
-    <counter name="PurgedEvictedCount"          label="The number of purged entries evicted from the CRDS table to make space for new entries" />
-    <counter name="DropTableExpiredCount"       label="The number of expired entries dropped from the CRDS table" />
+    <gauge name="TableCapacity" label="The capacity of the CRDS table" />
+    <gauge name="PurgedCapacity" label="The capacity of the list of purged table entries" />
+    <gauge name="ContactInfoCapacity" label="The capacity of the Contact Info sidetable" />
+    <gauge name="TableCount" label="The number of CRDS values in the table" />
+    <gauge name="TableCrdsCounts" label="The number of CRDS values in the table, by type" enum="CrdsValue" />
+    <gauge name="ContactInfoCount" label="The number of contact info entries in the ContactInfo sidetable" />
+    <gauge name="PurgedCount" label="The number of purged table entries" />"
+    <counter name="TableEvictedCount" label="The number of entries evicted from the CRDS table to make space for new entries" />
+    <counter name="ContactInfoEvictedCount" label="The number of entries evicted from the Contact Info sidetable to make space for new entries" />
+    <counter name="PurgedEvictedCount" label="The number of purged entries evicted from the CRDS table to make space for new entries" />
+    <counter name="DropTableExpiredCount" label="The number of expired entries dropped from the CRDS table" />
     <counter name="DropContactInfoExpiredCount" label="The number of expired entries dropped from the Contact Info sidetable" />
-    <counter name="DropPurgedExpiredCount"      label="The number of expired entries dropped from the purged entries list" />
-    <gauge   name="VisibleStake"                label="The total visible stake in the CRDS table, in lamports" />
-    <gauge   name="UnstakedPeerCount"           label="The number of peers in the CRDS table that are not staked" />
-    <gauge   name="StakedPeerCount"             label="The number of peers in the CRDS table that are staked" />
+    <counter name="DropPurgedExpiredCount" label="The number of expired entries dropped from the purged entries list" />
+    <gauge name="VisibleStake" label="The total visible stake in the CRDS table, in lamports" />
+    <gauge name="UnstakedPeerCount" label="The number of peers in the CRDS table that are not staked" />
+    <gauge name="StakedPeerCount" label="The number of peers in the CRDS table that are staked" />
 
     <counter name="UndeterminedCrds" label="Number of CRDS values processed with undetermined result" enum="CrdsValue" />
 
-    <counter name="MessageRxCount" label="Number of gossip messages received"            enum="GossipMessage"/>
-    <counter name="MessageRxBytes" label="Number of bytes received in gossip messages"   enum="GossipMessage" />
-    <counter name="MessageTxCount" label="Number of gossip messages sent"                enum="GossipMessage" />
-    <counter name="MessageTxBytes" label="Number of bytes sent in gossip messages"       enum="GossipMessage" />
+    <counter name="MessageRxCount" label="Number of gossip messages received" enum="GossipMessage"/>
+    <counter name="MessageRxBytes" label="Number of bytes received in gossip messages" enum="GossipMessage" />
+    <counter name="MessageTxCount" label="Number of gossip messages sent" enum="GossipMessage" />
+    <counter name="MessageTxBytes" label="Number of bytes sent in gossip messages" enum="GossipMessage" />
 
-    <counter name="CrdsPushRxCount" label="Number of CRDS values received from push messages"             enum="CrdsValue" />
-    <counter name="CrdsPushRxBytes" label="Number of bytes received in CRDS push messages"                enum="CrdsValue" />
-    <counter name="CrdsPullRxCount" label="Number of CRDS values received from pull response messages"    enum="CrdsValue" />
-    <counter name="CrdsPullRxBytes" label="Number of bytes received in CRDS pull response messages"       enum="CrdsValue" />
+    <counter name="CrdsPushRxCount" label="Number of CRDS values received from push messages" enum="CrdsValue" />
+    <counter name="CrdsPushRxBytes" label="Number of bytes received in CRDS push messages" enum="CrdsValue" />
+    <counter name="CrdsPullRxCount" label="Number of CRDS values received from pull response messages" enum="CrdsValue" />
+    <counter name="CrdsPullRxBytes" label="Number of bytes received in CRDS pull response messages" enum="CrdsValue" />
 
     <counter name="CrdsRxOutcome" label="Outcome of incoming CRDS messages" enum="CrdsInsertionOutcome" />
 
-    <counter name="CrdsPushTxCount" label="Number of CRDS values sent"                            enum="CrdsValue" />
-    <counter name="CrdsPushTxBytes" label="Number of bytes sent in CRDS messages"                 enum="CrdsValue" />
-    <counter name="CrdsPullTxCount" label="Number of CRDS values sent in pull response messages"  enum="CrdsValue" />
-    <counter name="CrdsPullTxBytes" label="Number of bytes sent in CRDS pull response messages"   enum="CrdsValue" />
+    <counter name="CrdsPushTxCount" label="Number of CRDS values sent" enum="CrdsValue" />
+    <counter name="CrdsPushTxBytes" label="Number of bytes sent in CRDS messages" enum="CrdsValue" />
+    <counter name="CrdsPullTxCount" label="Number of CRDS values sent in pull response messages" enum="CrdsValue" />
+    <counter name="CrdsPullTxBytes" label="Number of bytes sent in CRDS pull response messages" enum="CrdsValue" />
 </tile>
 
-<enum name="GossipMessageOutcome">
-    <int value="0" name="SuccessPullRequest"                label="Pull Request (success)" />
-    <int value="1" name="SuccessPullResponse"               label="Pull Response (success)" />
-    <int value="2" name="SuccessPush"                       label="Push (success)" />
-    <int value="3" name="SuccessPrune"                      label="Prune (success)" />
-    <int value="4" name="SuccessPing"                       label="Ping (success)" />
-    <int value="5" name="SuccessPong"                       label="Pong (success)" />
+<enum name="GossvfMessageOutcome">
+    <int value="0" name="SuccessPullRequest" label="Pull Request (success)" />
+    <int value="1" name="SuccessPullResponse" label="Pull Response (success)" />
+    <int value="2" name="SuccessPush" label="Push (success)" />
+    <int value="3" name="SuccessPrune" label="Prune (success)" />
+    <int value="4" name="SuccessPing" label="Ping (success)" />
+    <int value="5" name="SuccessPong" label="Pong (success)" />
 
-    <int value="6" name="DroppedUnparseable"                label="Unparseable" />
+    <int value="6" name="DroppedUnparseable" label="Unparseable" />
 
-    <int value="7" name="DroppedPullRequestNotContactInfo"  label="Pull Request (not contact info)" />
-    <int value="8" name="DroppedPullRequestLoopback"        label="Pull Request (loopback)" />
-    <int value="9" name="DroppedPullRequestInactive"        label="Pull Request (inactive)" />
-    <int value="10" name="DroppedPullRequestWallclock"      label="Pull Request (wallclock)" />
-    <int value="11" name="DroppedPullRequestSignature"      label="Pull Request (signature)" />
-    <int value="12" name="DroppedPullRequestShredVersion"   label="Pull Request (shred version)" />
+    <int value="7" name="DroppedPullRequestNotContactInfo" label="Pull Request (not contact info)" />
+    <int value="8" name="DroppedPullRequestLoopback" label="Pull Request (loopback)" />
+    <int value="9" name="DroppedPullRequestInactive" label="Pull Request (inactive)" />
+    <int value="10" name="DroppedPullRequestWallclock" label="Pull Request (wallclock)" />
+    <int value="11" name="DroppedPullRequestSignature" label="Pull Request (signature)" />
+    <int value="12" name="DroppedPullRequestShredVersion" label="Pull Request (shred version)" />
 
-    <int value="13" name="DroppedPruneDestination"          label="Prune (destination)" />
-    <int value="14" name="DroppedPruneWallclock"            label="Prune (wallclock)" />
-    <int value="15" name="DroppedPruneSignature"            label="Prune (signature)" />
+    <int value="13" name="DroppedPruneDestination" label="Prune (destination)" />
+    <int value="14" name="DroppedPruneWallclock" label="Prune (wallclock)" />
+    <int value="15" name="DroppedPruneSignature" label="Prune (signature)" />
 
-    <int value="16" name="DroppedPushNoValidCrds"           label="Push (no valid crds)" />
+    <int value="16" name="DroppedPushNoValidCrds" label="Push (no valid crds)" />
 
-    <int value="17" name="DroppedPullResponseNoValidCrds"   label="Pull Response (no valid crds)" />
+    <int value="17" name="DroppedPullResponseNoValidCrds" label="Pull Response (no valid crds)" />
 
-    <int value="18" name="DroppedPingSignature"             label="Ping (signature)" />
+    <int value="18" name="DroppedPingSignature" label="Ping (signature)" />
 
-    <int value="19" name="DroppedPongSignature"             label="Pong (signature)" />
+    <int value="19" name="DroppedPongSignature" label="Pong (signature)" />
 </enum>
 
-<enum name="GossipCrdsOutcome">
-    <int value="0" name="SuccessPullResponse"                    label="Pull Response (success)" />
-    <int value="1" name="SuccessPush"                            label="Push (success)" />
+<enum name="GossvfCrdsOutcome">
+    <int value="0" name="SuccessPullResponse" label="Pull Response (success)" />
+    <int value="1" name="SuccessPush" label="Push (success)" />
 
-    <int value="2" name="DroppedPullResponseDuplicate"            label="Pull Response (duplicate)" />
-    <int value="3" name="DroppedPullResponseSignature"            label="Pull Response (signature)" />
+    <int value="2" name="DroppedPullResponseDuplicate" label="Pull Response (duplicate)" />
+    <int value="3" name="DroppedPullResponseSignature" label="Pull Response (signature)" />
     <int value="4" name="DroppedPullResponseRelayerNoContactInfo" label="Pull Response (relayer no contact info)" />
-    <int value="4" name="DroppedPullResponseRelayerShredVersion"  label="Pull Response (relayer shred version)" />
-    <int value="4" name="DroppedPullResponseOriginNoContactInfo"  label="Pull Response (origin no contact info)" />
-    <int value="4" name="DroppedPullResponseOriginShredVersion"   label="Pull Response (origin shred version)" />
-    <int value="5" name="DroppedPullResponseInactive"             label="Pull Response (inactive)" />
+    <int value="4" name="DroppedPullResponseRelayerShredVersion" label="Pull Response (relayer shred version)" />
+    <int value="4" name="DroppedPullResponseOriginNoContactInfo" label="Pull Response (origin no contact info)" />
+    <int value="4" name="DroppedPullResponseOriginShredVersion" label="Pull Response (origin shred version)" />
+    <int value="5" name="DroppedPullResponseInactive" label="Pull Response (inactive)" />
 
-    <int value="3" name="DroppedPushSignauture"           label="Push (signature)" />
+    <int value="3" name="DroppedPushSignauture" label="Push (signature)" />
     <int value="4" name="DroppedPushRelayerNoContactInfo" label="Push (relayer no contact info)" />
-    <int value="4" name="DroppedPushRelayerShredVersion"  label="Push (relayer shred version)" />
-    <int value="4" name="DroppedPushOriginNoContactInfo"  label="Push (origin no contact info)" />
-    <int value="4" name="DroppedPushOriginShredVersion"   label="Push (origin shred version)" />
-    <int value="5" name="DroppedPushInactive"             label="Push (inactive)" />
-    <int value="5" name="DroppedPushWallclock"            label="Push (wallclock)" />
+    <int value="4" name="DroppedPushRelayerShredVersion" label="Push (relayer shred version)" />
+    <int value="4" name="DroppedPushOriginNoContactInfo" label="Push (origin no contact info)" />
+    <int value="4" name="DroppedPushOriginShredVersion" label="Push (origin shred version)" />
+    <int value="5" name="DroppedPushInactive" label="Push (inactive)" />
+    <int value="5" name="DroppedPushWallclock" label="Push (wallclock)" />
 </enum>
 
 <tile name="gossvf">
-    <counter name="MessageRxCount" label="Number of gossip messages processed" enum="GossipMessageOutcome" />
-    <counter name="MessageRxBytes" label="Total wire bytes of gossip messages processed" enum="GossipMessageOutcome" />
+    <counter name="MessageRxCount" label="Number of gossip messages processed" enum="GossvfMessageOutcome" />
+    <counter name="MessageRxBytes" label="Total wire bytes of gossip messages processed" enum="GossvfMessageOutcome" />
 
-    <counter name="CrdsRxCount" label="Number of CRDS values processed" enum="GossipCrdsOutcome" />
-    <counter name="CrdsRxBytes" label="Total wire bytes of CRDS values processed" enum="GossipCrdsOutcome" />
+    <counter name="CrdsRxCount" label="Number of CRDS values processed" enum="GossvfCrdsOutcome" />
+    <counter name="CrdsRxBytes" label="Total wire bytes of CRDS values processed" enum="GossvfCrdsOutcome" />
 </tile>
 
 <tile name="sign">

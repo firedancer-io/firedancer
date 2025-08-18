@@ -94,7 +94,6 @@ gossip_cmd_topo( config_t * config ) {
   ipecho_tile->ipecho.bind_address = config->net.ip_addr;
   ipecho_tile->ipecho.bind_port = config->gossip.port;
   ipecho_tile->ipecho.entrypoints_cnt = config->gossip.entrypoints_cnt;
-  FD_LOG_WARNING(( "IPECHO entrypoints: %lu", ipecho_tile->ipecho.entrypoints_cnt ));
   for( ulong i=0UL; i<config->gossip.entrypoints_cnt; i++ ) {
     ipecho_tile->ipecho.entrypoints[ i ] = config->gossip.resolved_entrypoints[ i ];
   }
