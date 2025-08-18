@@ -625,6 +625,54 @@ test_frontier( fd_wksp_t * wksp ) {
   FD_TEST( !fd_forest_ancestry_ele_query( fd_forest_ancestry( forest ), &frontier_slot, NULL, fd_forest_pool( forest ) ) );
 }
 
+void
+test_turbine_pause_frontier_race_condition( fd_wksp_t * wksp ) {
+
+  /* We had a gnarly race where suppose we were executing at the head of
+     turbine, caught up, and suddenly got dropped from turbine for a
+     bit. Let's say we were at slot 100, and we executed it fully, but
+     from our POV it looks like there aren't any new shreds coming in.
+     Soon we get added back to the turbine tree, and slot 109 comes in.
+     slot 109 is a child of 108, and we don't know yet that slot 108 is
+     a child of 100.  In the old forest paradigm, 108 would have been
+     created by 109 getting created. Then we have another slot 101
+     arrive, and 101 would chain successfully to 100, and the frontier
+     would advance to 101.  But NOW slot 108 arrives, and chains off of
+     100.  But the original !query(slot)->acquire->insert that catches
+     that 108 would need to be added to the frontier as well would
+     *never get called*, because 108  ALREADY EXISTED.
+  */
+  ulong ele_max = 8;
+  void * mem = fd_wksp_alloc_laddr( wksp, fd_forest_align(), fd_forest_footprint( ele_max ), 1UL );
+  FD_TEST( mem );
+  fd_forest_t * forest = fd_forest_join( fd_forest_new( mem, ele_max, 42UL /* seed */ ) );
+
+  fd_forest_init( forest, 0 );
+  fd_forest_data_shred_insert( forest, 100, 0, 0, 0, 1, 1 );
+
+  /* turbine pause */
+
+  fd_forest_data_shred_insert( forest, 109, 1, 0, 0, 0, 0 );
+
+  fd_forest_data_shred_insert( forest, 101, 1, 0, 0, 0, 0 );
+
+  /* turbine resume */
+
+  fd_forest_data_shred_insert( forest, 108, 8, 0, 0, 0, 0 );
+
+  fd_forest_print( forest );
+  FD_TEST( !fd_forest_verify( forest ) );
+  ulong slot1 = 101;
+  ulong slot2 = 108;
+  ulong slot3 = 109;
+  FD_TEST( fd_forest_frontier_ele_query( fd_forest_frontier( forest ), &slot1, NULL, fd_forest_pool( forest ) ) );
+  FD_TEST( fd_forest_frontier_ele_query( fd_forest_frontier( forest ), &slot2, NULL, fd_forest_pool( forest ) ) );
+  FD_TEST( !fd_forest_frontier_ele_query( fd_forest_frontier( forest ), &slot3, NULL, fd_forest_pool( forest ) ) );
+
+  fd_forest_print( forest );
+
+}
+
 int
 main( int argc, char ** argv ) {
   fd_boot( &argc, &argv );
@@ -635,6 +683,7 @@ main( int argc, char ** argv ) {
   fd_wksp_t * wksp = fd_wksp_new_anonymous( fd_cstr_to_shmem_page_sz( page_sz ), page_cnt, fd_shmem_cpu_idx( numa_idx ), "wksp", 0UL );
   FD_TEST( wksp );
 
+  test_turbine_pause_frontier_race_condition( wksp );
   test_publish( wksp );
   test_publish_incremental( wksp );
   test_out_of_order( wksp );
