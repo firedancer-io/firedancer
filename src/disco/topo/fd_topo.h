@@ -231,7 +231,6 @@ struct fd_topo_tile {
         ushort tvu_quic;
         ushort tpu;
         ushort tpu_quic;
-        ushort vote;
         ushort repair;
       } ports;
     } gossip;

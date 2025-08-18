@@ -642,6 +642,21 @@ user = ""
     # denial of service or spam attack.
     verify_tile_count = 6
 
+    # How many gossip verify tiles to run. Gossip verify tiles are
+    # architecturally similar to verify tiles in that inbound Gossip
+    # messages are routed through the gossip verify tiles first before
+    # arriving at the gossip tile (if verified successfully).
+
+    # Likewise, they are designed to be scaled linearly and should be
+    # increased until a favorable drop rate is achieved (~10%) once
+    # the table is nearly fully populated. Large drop rates are expected
+    # during the boot sequence due to the influx of pull responses as a
+    # result of making a pull request from an empty Gossip table. This
+    # can be mitigated by adding more cores, but it is difficult to
+    # avoid completely on mainnet and testnet loads.
+
+    gossvf_tile_count = 1
+
     # How many bank tiles to run.  Should be set to 4 for perf and
     # balanced scheduling modes.  Bank tiles execute transactions, so
     # the validator can include the results of the transaction into a

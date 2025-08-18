@@ -3,7 +3,8 @@
 
 #include "../fd_gossip_private.h"
 #include "../fd_gossip_out.h"
-#include "../fd_gossip_metrics.h"
+
+#include "../../../disco/metrics/generated/fd_metrics_gossip.h"
 
 struct fd_crds_entry_private;
 typedef struct fd_crds_entry_private fd_crds_entry_t;
@@ -14,12 +15,32 @@ typedef struct fd_crds_private fd_crds_t;
 struct fd_crds_mask_iter_private;
 typedef struct fd_crds_mask_iter_private fd_crds_mask_iter_t;
 
-#define FD_CRDS_UPSERT_CHECK_UPSERTS      ( 0)
-#define FD_CRDS_UPSERT_CHECK_FAILS        (-1)
+#define FD_CRDS_ALIGN 128UL
+
+#define FD_CRDS_MAGIC (0xf17eda2c37c7d50UL) /* firedancer crds version 0*/
+
+#define FD_CRDS_UPSERT_CHECK_UPSERTS ( 0)
+#define FD_CRDS_UPSERT_CHECK_FAILS   (-1)
 
 #define CRDS_MAX_CONTACT_INFO_LG (15)
 #define CRDS_MAX_CONTACT_INFO    (1<<CRDS_MAX_CONTACT_INFO_LG) /* 32768 */
 
+struct fd_crds_metrics {
+  ulong count[ FD_METRICS_ENUM_CRDS_VALUE_CNT ];
+  ulong expired_cnt;
+  ulong evicted_cnt;
+
+  ulong peer_staked_cnt;
+  ulong peer_unstaked_cnt;
+  ulong peer_visible_stake;
+  ulong peer_evicted_cnt;
+
+  ulong purged_cnt;
+  ulong purged_expired_cnt;
+  ulong purged_evicted_cnt;
+};
+
+typedef struct fd_crds_metrics fd_crds_metrics_t;
 
 FD_PROTOTYPES_BEGIN
 
@@ -30,20 +51,18 @@ FD_FN_CONST ulong
 fd_crds_footprint( ulong ele_max,
                    ulong purged_max );
 
-/* metrics is a pointer to a fd_crds_table_metrics_t structure that will be
-   updated with the current CRDS table metrics.
-   gossip_update_out holds the info to the gossip out link used to publish
-   gossip message updates */
 void *
-fd_crds_new( void *                    shmem,
-             fd_rng_t *                rng,
-             ulong                     ele_max,
-             ulong                     purged_max,
-             fd_crds_table_metrics_t * metrics,
-             fd_gossip_out_ctx_t *     gossip_update_out  );
+fd_crds_new( void *                shmem,
+             fd_rng_t *            rng,
+             ulong                 ele_max,
+             ulong                 purged_max,
+             fd_gossip_out_ctx_t * gossip_update_out  );
 
 fd_crds_t *
 fd_crds_join( void * shcrds );
+
+fd_crds_metrics_t const *
+fd_crds_metrics( fd_crds_t const * crds );
 
 /* fd_crds_advance performs housekeeping operations and should be run
    as a part of a gossip advance loop. The following operations are
@@ -64,47 +83,45 @@ fd_crds_advance( fd_crds_t *         crds,
                  long                now,
                  fd_stem_context_t * stem );
 
-/* fd_crds_len returns the number of entries in the CRDS table. This does not
-   include purged entries, which have a separate queue tracking them.
-   See fd_crds_purged_* APIs below. */
+/* fd_crds_len returns the number of entries in the CRDS table. This
+   does not include purged entries, which have a separate queue tracking
+   them. See fd_crds_purged_* APIs below. */
+
 ulong
 fd_crds_len( fd_crds_t const * crds );
 
-/* fd_crds maintains a table of purged CRDS entries. A CRDS entry is
-   purged when it is overriden by a newer form of the entry. Such entries
-   are no longer propagated by the node, but are still tracked in order
-   to avoid re-receiving them via pull responses by including them in
-   the pull request filters we generate. This means we only need to hold
-   the hash of the entry and the wallclock time when it was purged.
+/* fd_crds maintains a table of purged CRDS entries.  A CRDS entry is
+   purged when it is overriden by a newer form of the entry, or it is
+   expired.  Such entries are no longer propagated by the node, but are
+   still tracked in order to avoid re-receiving them via pull responses
+   by including them in the pull request filters we generate.  This
+   means we only need to hold the hash of the entry and the wallclock
+   time when it was purged.
 
-   Agave's Gossip client maintains two such tables: one labeled "purged"
-   and another "failed_inserts". They function the same, the only difference
-   lies in the conditions that trigger the insertion and the expiry windows.
+   Agave's gossip client maintains two such tables: one labeled "purged"
+   and another "failed_inserts".  They function the same, the only
+   difference lies in the conditions that trigger the insertion and the
+   expiry windows.
 
-   "purged"
-      A CRDS value is inserted into "purged" when
-       - it is from an incoming push message and does NOT upsert in the CRDS
-         table and is not a duplicate of an existing entry in the CRDS table
-       - it is an existing entry in the CRDS table and will be overriden by
-         an incoming CRDS value in a push/pull response message
-      "purged" entries expire after 60s
+    - purged, kept for 60s
+      
+      A CRDS value is roughly considered "purged" when it is removed
+      from the gossip table due to an incoming CRDS value replacing it.
 
-  "failed_inserts"
-      A CRDS value is inserted into "failed_inserts" when it is from an
-      incoming pull response and either
-        - does NOT upsert in the CRDS table and is not a duplicate of an
-           existing entry in the CRDS table
-        - satisfies upsert conditions, but is too old to be inserted
-      "failed_inserts" entries expire after 20s */
+    - failed, kept for 20s
+
+      A CRDS value is failed when it is incoming and does not upsert the
+      table, or it is too old to be inserted.
+   */
 
 ulong
 fd_crds_purged_len( fd_crds_t const * crds );
 
 void
-fd_crds_genrate_hash( uchar const *     crds_value_buf,
-                      ulong             crds_value_sz,
-                      uchar             out_hash[ static 32UL ] );
-
+fd_crds_generate_hash( fd_sha256_t * sha,
+                       uchar const * crds_value,
+                       ulong         crds_value_sz,
+                       uchar         out_hash[ static 32UL ] );
 
 void
 fd_crds_insert_failed_insert( fd_crds_t *   crds,
@@ -234,7 +251,6 @@ fd_crds_peer_inactive( fd_crds_t *   crds,
                        uchar const * peer_pubkey,
                        long          now );
 
-
 /* The CRDS Table also maintains a set of peer samplers for use in various
    Gossip tx cases. Namely
    - Rotating the active push set (bucket_samplers)
@@ -276,7 +292,6 @@ fd_crds_bucket_add( fd_crds_t *   crds,
 fd_contact_info_t const *
 fd_crds_peer_sample( fd_crds_t const * crds,
                      fd_rng_t *        rng );
-
 
 /* fd_crds_mask_iter_{init,next,done,entry} provide an API to
    iterate over the CRDS values in the table that whose hashes match

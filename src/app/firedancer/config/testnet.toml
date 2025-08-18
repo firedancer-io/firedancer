@@ -8,5 +8,5 @@
 [funk]
     heap_size_gib = 40
     max_account_records = 200_000_000
-[consensus]
-    expected_shred_version = 9065
+[layout]
+    gossvf_tile_count = 4
