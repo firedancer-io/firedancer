@@ -28,7 +28,6 @@ static fd_exec_slot_ctx_t * test_slot_ctx = NULL;
 static void
 test_teardown( void ) {
   if( test_slot_ctx ) {
-    fd_exec_slot_ctx_leave( test_slot_ctx );
     test_slot_ctx = NULL;
   }
 

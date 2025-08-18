@@ -86,8 +86,7 @@ snapshot_load_topo( config_t *     config,
 
   /* snapshot manifest out link */
   fd_topob_wksp( topo, "snap_out" );
-  FD_TEST( sizeof(fd_snapshot_manifest_t)<(5UL*(1UL<<30UL)) );
-  fd_topo_link_t * snap_out_link = fd_topob_link( topo, "snap_out", "snap_out", 2UL, 5UL*(1UL<<30UL), 1UL );
+  fd_topo_link_t * snap_out_link = fd_topob_link( topo, "snap_out", "snap_out", 2UL, sizeof(fd_snapshot_manifest_t), 1UL );
   snap_out_link->permit_no_consumers = 1;
   fd_topob_tile_out( topo, "snapin", 0UL, "snap_out", 0UL );
 

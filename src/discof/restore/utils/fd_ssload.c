@@ -2,6 +2,7 @@
 
 #include "../../../flamenco/runtime/context/fd_exec_slot_ctx.h"
 #include "../../../flamenco/runtime/program/fd_vote_program.h"
+#include "../../../flamenco/runtime/sysvar/fd_sysvar_epoch_schedule.h"
 #include "fd_ssmsg.h"
 
 void
@@ -95,6 +96,9 @@ fd_ssload_recover( fd_snapshot_manifest_t * manifest,
   epoch_schedule->first_normal_epoch          = manifest->epoch_schedule_params.first_normal_epoch;
   epoch_schedule->first_normal_slot           = manifest->epoch_schedule_params.first_normal_slot;
 
+  ulong epoch = fd_slot_to_epoch( epoch_schedule, manifest->slot, NULL );
+  fd_bank_epoch_set( slot_ctx->bank, epoch );
+
   fd_rent_t * rent = fd_bank_rent_modify( slot_ctx->bank );
   rent->lamports_per_uint8_year = manifest->rent_params.lamports_per_uint8_year;
   rent->exemption_threshold     = manifest->rent_params.exemption_threshold;
@@ -156,4 +160,144 @@ fd_ssload_recover( fd_snapshot_manifest_t * manifest,
       }
     }
   }
+
+  /* Stake delegations for the current epoch. */
+  fd_stake_delegations_t * stake_delegations = fd_stake_delegations_join( fd_stake_delegations_new( fd_bank_stake_delegations_locking_modify( slot_ctx->bank ), FD_RUNTIME_MAX_STAKE_ACCOUNTS ) );
+  for( ulong i=0UL; i<manifest->stake_delegations_len; i++ ) {
+    fd_snapshot_manifest_stake_delegation_t const * elem = &manifest->stake_delegations[ i ];
+    fd_stake_delegations_update(
+        stake_delegations,
+        (fd_pubkey_t *)elem->stake_pubkey,
+        (fd_pubkey_t *)elem->vote_pubkey,
+        elem->stake_delegation,
+        elem->activation_epoch,
+        elem->deactivation_epoch,
+        elem->credits_observed,
+        elem->warmup_cooldown_rate
+    );
+  }
+  fd_bank_stake_delegations_end_locking_modify( slot_ctx->bank );
+
+  /* Vote states for the current epoch. */
+  fd_vote_states_t * vote_states = fd_vote_states_join( fd_vote_states_new( fd_bank_vote_states_locking_modify( slot_ctx->bank ), FD_RUNTIME_MAX_VOTE_ACCOUNTS, 999UL ) );
+  for( ulong i=0UL; i<manifest->vote_accounts_len; i++ ) {
+    fd_snapshot_manifest_vote_account_t const * elem = &manifest->vote_accounts[ i ];
+    /* First convert the epoch credits to the format expected by the
+       vote states. */
+    ushort epoch_credits_epoch[ EPOCH_CREDITS_MAX ];
+    ulong  epoch_credits_credits[ EPOCH_CREDITS_MAX ];
+    ulong  epoch_credits_prev_credits[ EPOCH_CREDITS_MAX ];
+    for( ulong j=0UL; j<elem->epoch_credits_history_len; j++ ) {
+      epoch_credits_epoch[ j ]        = (ushort)elem->epoch_credits[ j ].epoch;
+      epoch_credits_credits[ j ]      = elem->epoch_credits[ j ].credits;
+      epoch_credits_prev_credits[ j ] = elem->epoch_credits[ j ].prev_credits;
+    }
+
+    fd_vote_states_update(
+        vote_states,
+        (fd_pubkey_t *)elem->vote_account_pubkey,
+        (fd_pubkey_t *)elem->node_account_pubkey,
+        elem->commission,
+        elem->last_timestamp,
+        elem->last_slot,
+        elem->epoch_credits_history_len,
+        epoch_credits_epoch,
+        epoch_credits_credits,
+        epoch_credits_prev_credits );
+    fd_vote_states_update_stake( vote_states, (fd_pubkey_t *)elem->vote_account_pubkey, elem->stake );
+  }
+  fd_bank_vote_states_end_locking_modify( slot_ctx->bank );
+
+  /* Vote stakes for the previous epoch (E-1). */
+  fd_vote_states_t * vote_stakes_prev = fd_vote_states_join( fd_vote_states_new( fd_bank_vote_states_prev_locking_modify( slot_ctx->bank ), FD_RUNTIME_MAX_VOTE_ACCOUNTS, 999UL ) );
+  for( ulong i=0UL; i<manifest->epoch_stakes[1].vote_stakes_len; i++ ) {
+    fd_snapshot_manifest_vote_stakes_t const * elem = &manifest->epoch_stakes[1].vote_stakes[i];
+    /* First convert the epoch credits to the format expected by the
+       vote states. */
+    ushort epoch_credits_epoch[ EPOCH_CREDITS_MAX ];
+    ulong  epoch_credits_credits[ EPOCH_CREDITS_MAX ];
+    ulong  epoch_credits_prev_credits[ EPOCH_CREDITS_MAX ];
+    for( ulong j=0UL; j<elem->epoch_credits_history_len; j++ ) {
+      epoch_credits_epoch[ j ]        = (ushort)elem->epoch_credits[ j ].epoch;
+      epoch_credits_credits[ j ]      = elem->epoch_credits[ j ].credits;
+      epoch_credits_prev_credits[ j ] = elem->epoch_credits[ j ].prev_credits;
+    }
+
+    fd_vote_states_update(
+        vote_stakes_prev,
+        (fd_pubkey_t *)elem->vote,
+        (fd_pubkey_t *)elem->identity,
+        elem->commission,
+        elem->timestamp,
+        elem->slot,
+        elem->epoch_credits_history_len,
+        epoch_credits_epoch,
+        epoch_credits_credits,
+        epoch_credits_prev_credits );
+    if( elem->stake ) {
+      fd_vote_states_update_stake( vote_stakes_prev, (fd_pubkey_t *)elem->vote, elem->stake );
+    } else {
+      fd_vote_states_remove( vote_stakes_prev, (fd_pubkey_t *)elem->vote );
+    }
+  }
+
+  fd_bank_vote_states_prev_end_locking_modify( slot_ctx->bank );
+
+  /* We also want to set the total stake to be the total amout of stake
+     at the end of the previous epoch. This value is used for the
+     get_epoch_stake syscall.
+
+     FIXME: This needs to be updated at the epoch boundary and this
+     currently does NOT happen.
+
+     A note on Agave's indexing scheme for their epoch_stakes
+     structure:
+
+     https://github.com/anza-xyz/agave/blob/v2.2.14/runtime/src/bank.rs#L6175
+
+     If we are loading a snapshot and replaying in the middle of
+     epoch 7, the syscall is supposed to return the total stake at
+     the end of epoch 6.  The epoch_stakes structure is indexed in
+     Agave by the epoch number of the leader schedule that the
+     stakes are meant to determine.  For instance, to get the
+     stakes at the end of epoch 6, we should query by 8, because
+     the leader schedule for epoch 8 is determined based on the
+     stakes at the end of epoch 6.  Therefore, we save the total
+     epoch stake by querying for epoch+1. This logic is encapsulated
+     in fd_ssmanifest_parser.c. */
+  fd_bank_total_epoch_stake_set( slot_ctx->bank, manifest->epoch_stakes[1].total_stake );
+
+  /* Vote stakes for the previous epoch (E-2) */
+  fd_vote_states_t * vote_stakes_prev_prev = fd_vote_states_join( fd_vote_states_new( fd_bank_vote_states_prev_prev_locking_modify( slot_ctx->bank ), FD_RUNTIME_MAX_VOTE_ACCOUNTS, 999UL ) );
+  for( ulong i=0UL; i<manifest->epoch_stakes[0].vote_stakes_len; i++ ) {
+    fd_snapshot_manifest_vote_stakes_t const * elem = &manifest->epoch_stakes[0].vote_stakes[i];
+    /* First convert the epoch credits to the format expected by the
+       vote states. */
+    ushort epoch_credits_epoch[ EPOCH_CREDITS_MAX ];
+    ulong  epoch_credits_credits[ EPOCH_CREDITS_MAX ];
+    ulong  epoch_credits_prev_credits[ EPOCH_CREDITS_MAX ];
+    for( ulong j=0UL; j<elem->epoch_credits_history_len; j++ ) {
+      epoch_credits_epoch[ j ]        = (ushort)elem->epoch_credits[ j ].epoch;
+      epoch_credits_credits[ j ]      = elem->epoch_credits[ j ].credits;
+      epoch_credits_prev_credits[ j ] = elem->epoch_credits[ j ].prev_credits;
+    }
+    fd_vote_states_update(
+        vote_stakes_prev_prev,
+        (fd_pubkey_t *)elem->vote,
+        (fd_pubkey_t *)elem->identity,
+        elem->commission,
+        elem->timestamp,
+        elem->slot,
+        elem->epoch_credits_history_len,
+        epoch_credits_epoch,
+        epoch_credits_credits,
+        epoch_credits_prev_credits );
+    if( elem->stake ) {
+      fd_vote_states_update_stake( vote_stakes_prev_prev, (fd_pubkey_t *)elem->vote, elem->stake );
+    } else {
+      fd_vote_states_remove( vote_stakes_prev_prev, (fd_pubkey_t *)elem->vote );
+    }
+  }
+  fd_bank_vote_states_prev_prev_end_locking_modify( slot_ctx->bank );
+
 }

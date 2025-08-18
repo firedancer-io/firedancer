@@ -3,6 +3,7 @@
 
 #include "../fd_choreo_base.h"
 #include "../voter/fd_voter.h"
+#include "../../flamenco/stakes/fd_vote_states.h"
 
 /* FD_EPOCH_USE_HANDHOLDING:  Define this to non-zero at compile time
    to turn on additional runtime checks and logging. */
@@ -91,16 +92,16 @@ fd_epoch_leave( fd_epoch_t const * epoch );
 void *
 fd_epoch_delete( void * epoch );
 
-/* fd_epoch_init initializes a fd_choreo epoch using `epoch_bank`.
-   Assumes epoch is a valid local join and epoch has not already been
-   initialized.  This should only be called once at the beginning of an
-   epoch. */
+/* fd_epoch_init initializes a fd_choreo epoch using vote states from
+   the runtime bank.  Assumes epoch is a valid local join and epoch has
+   not already been initialized.  This should only be called once
+   at the beginning of an epoch. */
 
 void
-fd_epoch_init( fd_epoch_t *                      epoch,
-               ulong                             eah_start_slot,
-               ulong                             eah_stop_slot,
-               fd_vote_accounts_global_t const * vote_accounts );
+fd_epoch_init( fd_epoch_t *             epoch,
+               ulong                    eah_start_slot,
+               ulong                    eah_stop_slot,
+               fd_vote_states_t const * vote_accounts );
 
 /* fd_epoch_fini finishes an epoch.  Assumes epoch is a valid local join
    and epoch has already been initialized.  This should only be called
