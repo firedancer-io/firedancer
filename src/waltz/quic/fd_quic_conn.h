@@ -234,17 +234,6 @@ struct fd_quic_conn {
   ulong used_pkt_meta;
 };
 
-inline static void
-fd_quic_set_conn_state( fd_quic_conn_t * conn,
-                        uint             state ) {
-  FD_COMPILER_MFENCE();
-  uint old_state = conn->state;
-  conn->quic->metrics.conn_state_cnt[ old_state ]--;
-  conn->quic->metrics.conn_state_cnt[ state     ]++;
-  conn->state = state;
-  FD_COMPILER_MFENCE();
-}
-
 FD_PROTOTYPES_BEGIN
 
 FD_FN_CONST static inline ulong

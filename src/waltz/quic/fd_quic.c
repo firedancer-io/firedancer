@@ -834,6 +834,30 @@ fd_quic_log_full_hdr( fd_quic_conn_t const * conn,
   return hdr;
 }
 
+static inline void
+fd_quic_set_conn_state( fd_quic_conn_t * conn,
+                        uint             new_state ) {
+
+  uint old_state = conn->state;
+
+  FD_COMPILER_MFENCE();
+
+  int was_timed_out = !!(old_state == FD_QUIC_CONN_STATE_TIMED_OUT);
+  int freeing       = was_timed_out & !!(new_state == FD_QUIC_CONN_STATE_INVALID);
+  int reviving      = was_timed_out & !freeing & !(new_state == FD_QUIC_CONN_STATE_TIMED_OUT);
+
+  fd_quic_metrics_t * metrics = &conn->quic->metrics;
+  metrics->conn_timeout_freed_cnt   += (ulong)freeing;
+  metrics->conn_timeout_revived_cnt += (ulong)reviving;
+
+  metrics->conn_state_cnt[ old_state ]--;
+  metrics->conn_state_cnt[ new_state ]++;
+
+  conn->state = new_state;
+
+  FD_COMPILER_MFENCE();
+}
+
 /* fd_quic_conn_error sets the connection state to aborted.  This does
    not destroy the connection object.  Rather, it will eventually cause
    the connection to be freed during a later fd_quic_service call.
@@ -2277,6 +2301,11 @@ fd_quic_handle_v1_one_rtt( fd_quic_t *      quic,
   /* update expected packet number */
   conn->exp_pkt_number[2] = fd_ulong_max( conn->exp_pkt_number[2], pkt_number+1UL );
 
+  /* Revive conn if it was timed out */
+  if( FD_UNLIKELY( conn->state == FD_QUIC_CONN_STATE_TIMED_OUT ) ) {
+    fd_quic_set_conn_state( conn, FD_QUIC_CONN_STATE_ACTIVE );
+  }
+
   return tot_sz;
 }
 
@@ -2379,13 +2408,6 @@ fd_quic_process_quic_packet_v1( fd_quic_t *     quic,
   if( FD_UNLIKELY( rc == 0UL ) ) {
     /* this is an error because it causes infinite looping */
     return FD_QUIC_PARSE_FAIL;
-  }
-
-  /* If connection is timed out, revive it if packet successfully handled. */
-  if( FD_UNLIKELY( conn && conn->state == FD_QUIC_CONN_STATE_TIMED_OUT ) ) {
-    quic->metrics.conn_timeout_revived_cnt++;
-    fd_quic_set_conn_state( conn, FD_QUIC_CONN_STATE_ACTIVE );
-    fd_quic_svc_schedule( state, conn, FD_QUIC_SVC_WAIT );
   }
 
   cur_ptr += rc;
@@ -2868,6 +2890,7 @@ fd_quic_tls_cb_handshake_complete( fd_quic_tls_hs_t * hs,
       return;
 
     case FD_QUIC_CONN_STATE_HANDSHAKE:
+    case FD_QUIC_CONN_STATE_TIMED_OUT:
       if( FD_UNLIKELY( !conn->transport_params_set ) ) { /* unreachable */
         FD_LOG_WARNING(( "Handshake marked as completed but transport params are not set. This is a bug!" ));
         fd_quic_conn_error( conn, FD_QUIC_CONN_REASON_INTERNAL_ERROR, __LINE__ );
@@ -4151,7 +4174,6 @@ fd_quic_free_timed_out( fd_quic_t * quic ) {
   fd_quic_conn_t * conn = fd_quic_conn_at_idx( state, queue->head );
   fd_quic_svc_pop_head( state, queue, conn );
 
-  quic->metrics.conn_timeout_freed_cnt++;
   fd_quic_conn_free( quic, conn );
 }
 
