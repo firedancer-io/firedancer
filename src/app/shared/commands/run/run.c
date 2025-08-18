@@ -734,7 +734,8 @@ fdctl_check_configure( config_t const * config ) {
 
 void
 run_firedancer_init( config_t * config,
-                     int        init_workspaces ) {
+                     int        init_workspaces,
+                     int        check_configure ) {
   struct stat st;
   int err = stat( config->paths.identity_key, &st );
   if( FD_UNLIKELY( -1==err && errno==ENOENT ) ) FD_LOG_ERR(( "[consensus.identity_path] key does not exist `%s`. You can generate an identity key at this path by running `fdctl keys new identity --config <toml>`", config->paths.identity_key ));
@@ -748,7 +749,10 @@ run_firedancer_init( config_t * config,
     }
   }
 
-  fdctl_check_configure( config );
+  /* FIXME: fdctl_check_configure unconditionally checks for network
+            stack prerequisites even if the command being run does not
+            require networking.  Hack around that here for now. */
+  if( check_configure ) fdctl_check_configure( config );
   if( FD_LIKELY( init_workspaces ) ) initialize_workspaces( config );
   initialize_stacks( config );
 }
@@ -815,7 +819,7 @@ run_firedancer( config_t * config,
   /* dump the topology we are using to the output log */
   fd_topo_print_log( 0, &config->topo );
 
-  run_firedancer_init( config, init_workspaces );
+  run_firedancer_init( config, init_workspaces, 1 );
 
 #if defined(__x86_64__) || defined(__aarch64__)
 

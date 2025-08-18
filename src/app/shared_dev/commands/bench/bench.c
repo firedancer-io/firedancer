@@ -173,7 +173,7 @@ bench_cmd_fn( args_t *   args,
 
   update_config_for_dev( config );
 
-  run_firedancer_init( config, 1 );
+  run_firedancer_init( config, 1, 1 );
   fdctl_setup_netns( config, 1 );
 
   if( 0==strcmp( config->net.provider, "xdp" ) ) {

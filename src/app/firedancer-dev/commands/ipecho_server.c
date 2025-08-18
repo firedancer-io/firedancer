@@ -72,7 +72,7 @@ ipecho_server_cmd_fn( args_t *   args,
   args_t c_args = configure_args();
   configure_cmd_fn( &c_args, config );
 
-  run_firedancer_init( config, 1 );
+  run_firedancer_init( config, 1, 0 );
 
   fd_log_private_shared_lock[ 1 ] = 0;
   fd_topo_join_workspaces( &config->topo, FD_SHMEM_JOIN_MODE_READ_WRITE );
