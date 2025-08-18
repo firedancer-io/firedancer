@@ -55,6 +55,14 @@ struct fd_crds_entry_private {
         uchar in_list; /* 1 if in the fresh list, 0 otherwise */
       } fresh_dlist;
 
+      /* The contact info side table has a separate size limit, so
+         we maintain a separate evict list to make space for new
+         entries */
+      struct {
+        ulong prev;
+        ulong next;
+      } evict_dlist;
+
       /* TODO: stake-ordered treap/pq? */
     } contact_info;
     struct {
@@ -184,6 +192,12 @@ struct fd_crds_entry_private {
 #define DLIST_ELE_T fd_crds_entry_t
 #define DLIST_PREV  contact_info.fresh_dlist.prev
 #define DLIST_NEXT  contact_info.fresh_dlist.next
+#include "../../../util/tmpl/fd_dlist.c"
+
+#define DLIST_NAME  crds_contact_info_evict_dlist
+#define DLIST_ELE_T fd_crds_entry_t
+#define DLIST_PREV  contact_info.evict_dlist.prev
+#define DLIST_NEXT  contact_info.evict_dlist.next
 #include "../../../util/tmpl/fd_dlist.c"
 
 #define TREAP_NAME      hash_treap
@@ -349,7 +363,8 @@ struct fd_crds_private {
   /* Contact Info side table */
   struct{
     fd_crds_contact_info_entry_t *    pool;
-    crds_contact_info_fresh_list_t *  dlist;
+    crds_contact_info_fresh_list_t *  fresh_dlist;
+    crds_contact_info_evict_dlist_t * evict_dlist;
   } contact_info;
 
   crds_samplers_t            samplers[1];
@@ -383,6 +398,7 @@ fd_crds_footprint( ulong ele_max,
   /* Contact Info side table */
   l = FD_LAYOUT_APPEND( l, crds_contact_info_pool_align(), crds_contact_info_pool_footprint( CRDS_MAX_CONTACT_INFO ) );
   l = FD_LAYOUT_APPEND( l, crds_contact_info_fresh_list_align(), crds_contact_info_fresh_list_footprint() );
+  l = FD_LAYOUT_APPEND( l, crds_contact_info_evict_dlist_align(), crds_contact_info_evict_dlist_footprint() );
   return FD_LAYOUT_FINI( l, FD_CRDS_ALIGN );
 }
 
@@ -473,11 +489,13 @@ fd_crds_new( void *                    shmem,
 
 
   /* Contact Info */
-  void * _ci_pool               = FD_SCRATCH_ALLOC_APPEND( l, crds_contact_info_pool_align(), crds_contact_info_pool_footprint( CRDS_MAX_CONTACT_INFO ) );
-  void * _ci_dlist              = FD_SCRATCH_ALLOC_APPEND( l, crds_contact_info_fresh_list_align(), crds_contact_info_fresh_list_footprint() );
+  void * _ci_pool        = FD_SCRATCH_ALLOC_APPEND( l, crds_contact_info_pool_align(), crds_contact_info_pool_footprint( CRDS_MAX_CONTACT_INFO ) );
+  void * _ci_dlist       = FD_SCRATCH_ALLOC_APPEND( l, crds_contact_info_fresh_list_align(), crds_contact_info_fresh_list_footprint() );
+  void * _ci_evict_dlist = FD_SCRATCH_ALLOC_APPEND( l, crds_contact_info_evict_dlist_align(), crds_contact_info_evict_dlist_footprint() );
 
-  crds->contact_info.pool       = crds_contact_info_pool_join( crds_contact_info_pool_new( _ci_pool, CRDS_MAX_CONTACT_INFO ) );
-  crds->contact_info.dlist      = crds_contact_info_fresh_list_join( crds_contact_info_fresh_list_new( _ci_dlist ) );
+  crds->contact_info.pool        = crds_contact_info_pool_join( crds_contact_info_pool_new( _ci_pool, CRDS_MAX_CONTACT_INFO ) );
+  crds->contact_info.fresh_dlist = crds_contact_info_fresh_list_join( crds_contact_info_fresh_list_new( _ci_dlist ) );
+  crds->contact_info.evict_dlist = crds_contact_info_evict_dlist_join( crds_contact_info_evict_dlist_new( _ci_evict_dlist ) );
 
   crds_samplers_new( crds->samplers );
 
@@ -533,6 +551,7 @@ remove_contact_info( fd_crds_t *         crds,
                                 FD_GOSSIP_UPDATE_SZ_CONTACT_INFO_REMOVE,
                                 now );
   }
+
   if( FD_LIKELY( crds->metrics ) ) {
     if( FD_LIKELY( !!ci->stake ) ) {
       crds->metrics->staked_peer_cnt--;
@@ -543,8 +562,9 @@ remove_contact_info( fd_crds_t *         crds,
   }
 
   if( FD_LIKELY( !!ci->contact_info.fresh_dlist.in_list ) ) {
-    crds_contact_info_fresh_list_ele_remove( crds->contact_info.dlist, ci, crds->pool );
+    crds_contact_info_fresh_list_ele_remove( crds->contact_info.fresh_dlist, ci, crds->pool );
   }
+  crds_contact_info_evict_dlist_ele_remove( crds->contact_info.evict_dlist, ci, crds->pool );
   crds_contact_info_pool_ele_release( crds->contact_info.pool, ci->contact_info.ci );
 
   /* FIXME: If the peer is in any active set bucket, it is NOT removed
@@ -650,12 +670,12 @@ expire( fd_crds_t *         crds,
 void
 unfresh( fd_crds_t * crds,
             long        now ) {
-  while( !crds_contact_info_fresh_list_is_empty( crds->contact_info.dlist, crds->pool ) ) {
-    fd_crds_entry_t * head = crds_contact_info_fresh_list_ele_peek_head( crds->contact_info.dlist, crds->pool );
+  while( !crds_contact_info_fresh_list_is_empty( crds->contact_info.fresh_dlist, crds->pool ) ) {
+    fd_crds_entry_t * head = crds_contact_info_fresh_list_ele_peek_head( crds->contact_info.fresh_dlist, crds->pool );
 
     if( FD_LIKELY( head->expire.wallclock_nanos>now-60L*1000L*1000L*1000L ) ) break;
 
-    head = crds_contact_info_fresh_list_ele_pop_head( crds->contact_info.dlist, crds->pool );
+    head = crds_contact_info_fresh_list_ele_pop_head( crds->contact_info.fresh_dlist, crds->pool );
     head->contact_info.fresh_dlist.in_list = 0;
     crds_samplers_upd_peer_at_idx( crds->samplers, head, head->contact_info.sampler_idx, now );
   }
@@ -994,7 +1014,7 @@ fd_crds_insert( fd_crds_t *                         crds,
     insert_purged( crds, incumbent->value_hash, now );
 
     if( FD_UNLIKELY( incumbent->key.tag==FD_GOSSIP_VALUE_CONTACT_INFO ) ) {
-      if( FD_LIKELY( !!incumbent->contact_info.fresh_dlist.in_list ) ) crds_contact_info_fresh_list_ele_remove( crds->contact_info.dlist, incumbent, crds->pool );
+      if( FD_LIKELY( !!incumbent->contact_info.fresh_dlist.in_list ) ) crds_contact_info_fresh_list_ele_remove( crds->contact_info.fresh_dlist, incumbent, crds->pool );
       candidate->contact_info.ci = incumbent->contact_info.ci;
 
       /* is_active is user controlled (specifically by ping_tracker),
@@ -1031,9 +1051,11 @@ fd_crds_insert( fd_crds_t *                         crds,
     fd_crds_release( crds, incumbent );
   } else if( candidate->key.tag==FD_GOSSIP_VALUE_CONTACT_INFO ) {
     if( FD_UNLIKELY( !crds_contact_info_pool_free( crds->contact_info.pool ) ) ) {
-      FD_LOG_ERR(( "TODO: contact info pool exhausted, implement LRU based eviction?" ));
+      fd_crds_entry_t * evict = crds_contact_info_evict_dlist_ele_pop_head( crds->contact_info.evict_dlist, crds->pool );
+      remove_contact_info( crds, evict, now, stem );
     }
     candidate->contact_info.ci = crds_contact_info_pool_ele_acquire( crds->contact_info.pool );
+    crds_contact_info_evict_dlist_ele_push_tail( crds->contact_info.evict_dlist, candidate, crds->pool );
   }
 
   candidate->num_duplicates         = 0UL;
@@ -1056,7 +1078,7 @@ fd_crds_insert( fd_crds_t *                         crds,
     fd_crds_contact_info_init( candidate_view, payload, candidate->contact_info.ci->contact_info );
 
     if( FD_LIKELY( !is_from_me ) ){
-      crds_contact_info_fresh_list_ele_push_tail( crds->contact_info.dlist, candidate, crds->pool );
+      crds_contact_info_fresh_list_ele_push_tail( crds->contact_info.fresh_dlist, candidate, crds->pool );
       candidate->contact_info.fresh_dlist.in_list = 1;
     } else {
       candidate->contact_info.fresh_dlist.in_list = 0;
