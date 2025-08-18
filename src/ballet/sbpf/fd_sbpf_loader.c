@@ -1,4 +1,5 @@
 #include "fd_sbpf_loader.h"
+#include "fd_sbpf_instr.h"
 #include "fd_sbpf_opcodes.h"
 #include "../../util/fd_util.h"
 #include "../../util/bits/fd_sat.h"
@@ -74,8 +75,19 @@ typedef union fd_sbpf_elf fd_sbpf_elf_t;
 
    FIXME: These should be defined elsewhere */
 
-#define FD_SBPF_MM_PROGRAM_ADDR (0x100000000UL) /* readonly program data */
-#define FD_SBPF_MM_STACK_ADDR   (0x200000000UL) /* stack (with gaps) */
+#define FD_SBPF_MM_BYTECODE_ADDR (0x0UL)         /* bytecode */
+#define FD_SBPF_MM_RODATA_ADDR   (0x100000000UL) /* readonly program data */
+#define FD_SBPF_MM_PROGRAM_ADDR  (0x100000000UL) /* readonly program data */
+#define FD_SBPF_MM_STACK_ADDR    (0x200000000UL) /* stack */
+#define FD_SBPF_MM_HEAP_ADDR     (0x300000000UL) /* heap */
+#define FD_SBPF_MM_REGION_SZ     (0x100000000UL) /* max region size */
+
+#define FD_SBPF_PF_X  (1U) /* executable */
+#define FD_SBPF_PF_W  (2U) /* writable */
+#define FD_SBPF_PF_R  (4U) /* readable */
+#define FD_SBPF_PF_RW (FD_SBPF_PF_R|FD_SBPF_PF_W)
+
+#define EXPECTED_PHDR_CNT (4U)
 
 /* _fd_int_store_if_negative stores x to *p if *p is negative (branchless) */
 
@@ -480,39 +492,17 @@ fd_sbpf_load_shdrs( fd_sbpf_elf_info_t *  info,
 }
 
 fd_sbpf_elf_info_t *
-fd_sbpf_elf_peek( fd_sbpf_elf_info_t * info,
-                  void const *         bin,
-                  ulong                elf_sz,
-                  int                  elf_deploy_checks,
-                  uint                 sbpf_min_version,
-                  uint                 sbpf_max_version ) {
-
-  /* ELFs must have a file header */
-  if( FD_UNLIKELY( elf_sz<=sizeof(fd_elf64_ehdr) ) )
-    return NULL;
+fd_sbpf_elf_peek_old( fd_sbpf_elf_info_t * info,
+                      void const *         bin,
+                      ulong                elf_sz,
+                      int                  elf_deploy_checks,
+                      uint                 sbpf_min_version,
+                      uint                 sbpf_max_version ) {
 
   /* Reject overlong ELFs (using uint addressing internally).
      This is well beyond Solana's max account size of 10 MB. */
   if( FD_UNLIKELY( elf_sz>UINT_MAX ) )
     return NULL;
-
-  /* Initialize info struct */
-  *info = (fd_sbpf_elf_info_t) {
-    .text_off         = 0U,
-    .text_cnt         = 0U,
-    .dynstr_off       = 0U,
-    .dynstr_sz        = 0U,
-    .rodata_footprint = 0U,
-    .rodata_sz        = 0U,
-    .shndx_text       = -1,
-    .shndx_symtab     = -1,
-    .shndx_strtab     = -1,
-    .shndx_dyn        = -1,
-    .shndx_dynstr     = -1,
-    .phndx_dyn        = -1,
-    .sbpf_version     = 0U,
-    /* !!! Keep this in sync with -Werror=missing-field-initializers */
-  };
 
   fd_sbpf_elf_t const * elf = (fd_sbpf_elf_t const *)bin;
   int err;
@@ -560,6 +550,12 @@ fd_sbpf_program_align( void ) {
 ulong
 fd_sbpf_program_footprint( fd_sbpf_elf_info_t const * info ) {
   FD_COMPILER_UNPREDICTABLE( info ); /* Make this appear as FD_FN_PURE (e.g. footprint might depened on info contents in future) */
+  if( FD_UNLIKELY( fd_sbpf_enable_stricter_elf_headers( info->sbpf_version ) ) ) {
+    /* SBPF v3+ no longer neeeds calldests bitmap */
+    return FD_LAYOUT_FINI( FD_LAYOUT_APPEND( FD_LAYOUT_INIT,
+      alignof(fd_sbpf_program_t), sizeof(fd_sbpf_program_t) ),
+      alignof(fd_sbpf_program_t) );
+  }
   return FD_LAYOUT_FINI( FD_LAYOUT_APPEND( FD_LAYOUT_APPEND( FD_LAYOUT_INIT,
     alignof(fd_sbpf_program_t), sizeof(fd_sbpf_program_t) ),
     fd_sbpf_calldests_align(), fd_sbpf_calldests_footprint( info->rodata_sz / 8UL ) ),  /* calldests bitmap */
@@ -608,14 +604,19 @@ fd_sbpf_program_new( void *                     prog_mem,
     .entry_pc  = elf_info->entry_pc
   };
 
-  /* Initialize calldests map */
-
-  ulong pc_max = elf_info->rodata_sz / 8UL;
-  prog->calldests_shmem = fd_sbpf_calldests_new(
-        FD_SCRATCH_ALLOC_APPEND( laddr, fd_sbpf_calldests_align(),
-                                        fd_sbpf_calldests_footprint( pc_max ) ),
-        pc_max );
-  prog->calldests = fd_sbpf_calldests_join( prog->calldests_shmem );
+  if( FD_UNLIKELY( fd_sbpf_enable_stricter_elf_headers( elf_info->sbpf_version ) ) ) {
+    /* No calldests map in SBPF v3+ */
+    prog->calldests_shmem = NULL;
+    prog->calldests = NULL;
+  } else {
+    /* Initialize calldests map */
+    ulong pc_max = elf_info->rodata_sz / 8UL;
+    prog->calldests_shmem = fd_sbpf_calldests_new(
+          FD_SCRATCH_ALLOC_APPEND( laddr, fd_sbpf_calldests_align(),
+                                          fd_sbpf_calldests_footprint( pc_max ) ),
+          pc_max );
+    prog->calldests = fd_sbpf_calldests_join( prog->calldests_shmem );
+  }
 
   return prog;
 }
@@ -1230,11 +1231,11 @@ fd_sbpf_zero_rodata( fd_sbpf_elf_t *            elf,
 }
 
 int
-fd_sbpf_program_load( fd_sbpf_program_t *  prog,
-                      void const *         _bin,
-                      ulong                elf_sz,
-                      fd_sbpf_syscalls_t * syscalls,
-                      int                  elf_deploy_checks ) {
+fd_sbpf_program_load_old( fd_sbpf_program_t *  prog,
+                          void const *         _bin,
+                          ulong                elf_sz,
+                          fd_sbpf_syscalls_t * syscalls,
+                          int                  elf_deploy_checks ) {
   fd_sbpf_loader_seterr( 0, 0 );
 
   int err;
@@ -1284,6 +1285,232 @@ fd_sbpf_program_load( fd_sbpf_program_t *  prog,
     return err;
 
   return 0;
+}
+
+int
+fd_sbpf_program_get_sbpf_version_or_err( void const *                    bin,
+                                         ulong                           bin_sz,
+                                         fd_sbpf_loader_config_t const * config ) {
+  /* https://github.com/anza-xyz/sbpf/blob/v0.12.2/src/elf.rs#L376-L381 */
+  const ulong E_FLAGS_OFFSET = 48UL;
+  const uint  E_FLAGS_SBPF_V2 = 0x20;
+
+  if( FD_UNLIKELY( bin_sz < E_FLAGS_OFFSET+sizeof(uint) ) ) {
+    return FD_SBPF_ELF_PARSER_ERR_OUT_OF_BOUNDS;
+  }
+  uint e_flags = fd_uint_load_4( (uchar const *)bin + E_FLAGS_OFFSET );
+
+  uint sbpf_version = 0U;
+  if( FD_UNLIKELY( config->sbpf_max_version==FD_SBPF_V0 ) ) {
+    /* https://github.com/anza-xyz/sbpf/blob/main/src/elf.rs#L384-L388 */
+    sbpf_version = e_flags==E_FLAGS_SBPF_V2 ? FD_SBPF_RESERVED : FD_SBPF_V0;
+  } else {
+    /* https://github.com/anza-xyz/sbpf/blob/main/src/elf.rs#L390-L396 */
+    sbpf_version = e_flags < FD_SBPF_VERSION_COUNT ? e_flags : FD_SBPF_RESERVED;
+  }
+
+  /* https://github.com/anza-xyz/sbpf/blob/main/src/elf.rs#L399-L401 */
+  if( FD_UNLIKELY( !( config->sbpf_min_version <= sbpf_version && sbpf_version <= config->sbpf_max_version ) ) ) {
+    return FD_SBPF_ELF_ERR_UNSUPPORTED_SBPF_VERSION;
+  }
+
+  /* https://github.com/anza-xyz/sbpf/blob/v0.12.2/src/elf.rs#L403-L407 */
+  return (int)sbpf_version;
+}
+
+int
+fd_sbpf_elf_peek_strict( fd_sbpf_elf_info_t *            info,
+                         void const *                    bin,
+                         ulong                           bin_sz,
+                         fd_sbpf_loader_config_t const * config ) {
+  (void)config;
+
+  /* Parse file header */
+
+  /* https://github.com/anza-xyz/sbpf/blob/v0.12.2/src/elf.rs#L425
+     https://github.com/anza-xyz/sbpf/blob/main/src/elf_parser/mod.rs#L278
+     (Agave does some extra checks on alignment, but they don't seem necessary) */
+  if( FD_UNLIKELY( bin_sz<sizeof(fd_elf64_ehdr) ) ) {
+    return FD_SBPF_ELF_PARSER_ERR_OUT_OF_BOUNDS;
+  }
+
+  fd_elf64_ehdr ehdr = FD_LOAD( fd_elf64_ehdr, bin );
+
+  /* https://github.com/anza-xyz/sbpf/blob/v0.12.2/src/elf.rs#L430-L453 */
+  ulong program_header_table_end = sizeof(fd_elf64_ehdr) + ehdr.e_phnum*sizeof(fd_elf64_phdr);
+
+  int parse_ehdr_err =
+      ( fd_uint_load_4( ehdr.e_ident )    != FD_ELF_MAG_LE         )
+    | ( ehdr.e_ident[ FD_ELF_EI_CLASS   ] != FD_ELF_CLASS_64       )
+    | ( ehdr.e_ident[ FD_ELF_EI_DATA    ] != FD_ELF_DATA_LE        )
+    | ( ehdr.e_ident[ FD_ELF_EI_VERSION ] != 1                     )
+    | ( ehdr.e_ident[ FD_ELF_EI_OSABI   ] != FD_ELF_OSABI_NONE     )
+    | ( fd_ulong_load_8( ehdr.e_ident+8 ) != 0UL                   )
+    | ( ehdr.e_type                       != FD_ELF_ET_DYN         )
+    | ( ehdr.e_machine                    != FD_ELF_EM_SBPF        )
+    | ( ehdr.e_version                    != 1                     )
+    // | ( ehdr.e_entry )
+    | ( ehdr.e_phoff                      != sizeof(fd_elf64_ehdr) )
+    // | ( ehdr.e_shoff )
+    // | ( ehdr.e_flags )
+    | ( ehdr.e_ehsize                     != sizeof(fd_elf64_ehdr) )
+    | ( ehdr.e_phentsize                  != sizeof(fd_elf64_phdr) )
+    | ( ehdr.e_phnum                      <  EXPECTED_PHDR_CNT     ) /* SIMD-0189 says < instead of != */
+    | ( program_header_table_end          >= bin_sz                )
+    | ( ehdr.e_shentsize                  != sizeof(fd_elf64_shdr) )
+    // | ( ehdr.e_shnum )
+    | ( ehdr.e_shstrndx                   >= ehdr.e_shnum          )
+  ;
+  if( FD_UNLIKELY( parse_ehdr_err ) ) {
+    return FD_SBPF_ELF_PARSER_ERR_INVALID_FILE_HEADER;
+  }
+
+  /* Parse program headers (expecting 4 segments) */
+
+  /* https://github.com/anza-xyz/sbpf/blob/v0.12.2/src/elf.rs#L455-L487
+     Note: Agave iterates with a zip, i.e. it cuts the loop to 4, even
+           though the number of phdrs is allowed to be higher. */
+  ulong expected_p_vaddr[ EXPECTED_PHDR_CNT ] = { FD_SBPF_MM_BYTECODE_ADDR, FD_SBPF_MM_RODATA_ADDR, FD_SBPF_MM_STACK_ADDR, FD_SBPF_MM_HEAP_ADDR };
+  uint  expected_p_flags[ EXPECTED_PHDR_CNT ] = { FD_SBPF_PF_X,             FD_SBPF_PF_R,           FD_SBPF_PF_RW,         FD_SBPF_PF_RW        };
+  fd_elf64_phdr     phdr[ EXPECTED_PHDR_CNT ];
+  for( uint i=0; i<EXPECTED_PHDR_CNT; i++ ) {
+    ulong phdr_off = sizeof(fd_elf64_ehdr) + i*sizeof(fd_elf64_phdr);
+    phdr[ i ] = FD_LOAD( fd_elf64_phdr, bin+phdr_off );
+
+    ulong p_filesz = ( expected_p_flags[ i ] & FD_SBPF_PF_W ) ? 0UL : phdr[ i ].p_memsz;
+    int parse_phdr_err =
+        ( phdr[ i ].p_type         != FD_ELF_PT_LOAD              )
+      | ( phdr[ i ].p_flags        != expected_p_flags[ i ]       )
+      | ( phdr[ i ].p_offset       <  program_header_table_end    )
+      | ( phdr[ i ].p_offset       >= bin_sz                      )
+      | ( phdr[ i ].p_offset % 8UL != 0UL                         )
+      | ( phdr[ i ].p_vaddr        != expected_p_vaddr[ i ]       )
+      | ( phdr[ i ].p_paddr        != expected_p_vaddr[ i ]       )
+      | ( phdr[ i ].p_filesz       != p_filesz                    )
+      | ( phdr[ i ].p_filesz       >  bin_sz - phdr[ i ].p_offset )
+      | ( phdr[ i ].p_filesz % 8UL != 0UL                         )
+      | ( phdr[ i ].p_memsz        >= FD_SBPF_MM_REGION_SZ        )
+    ;
+    if( FD_UNLIKELY( parse_phdr_err ) ) {
+      return FD_SBPF_ELF_PARSER_ERR_INVALID_PROGRAM_HEADER;
+    }
+  }
+
+  /* https://github.com/anza-xyz/sbpf/blob/v0.12.2/src/elf.rs#L489-L506 */
+  ulong vm_range_start = phdr[ 0 ].p_vaddr;
+  ulong vm_range_end = phdr[ 0 ].p_vaddr + phdr[ 0 ].p_memsz;
+  ulong entry_chk = ehdr.e_entry + 7UL;
+  int parse_e_entry_err =
+     !( vm_range_start <= entry_chk && entry_chk < vm_range_end ) /* rust contains includes min, excludes max*/
+    | ( ehdr.e_entry % 8UL != 0UL                               )
+  ;
+  if( FD_UNLIKELY( parse_e_entry_err ) ) {
+    return FD_SBPF_ELF_PARSER_ERR_INVALID_FILE_HEADER;
+  }
+
+  /* https://github.com/anza-xyz/sbpf/blob/v0.12.2/src/elf.rs#L507-L515 */
+  ulong entry_pc = ( ehdr.e_entry - phdr[ 0 ].p_vaddr ) / 8UL;
+  ulong insn = fd_ulong_load_8( (uchar const *) bin + phdr[ 0 ].p_offset + entry_pc*8UL );
+  /* Entrypoint must be a valid function start (ADD64_IMM with dst=r10)
+     https://github.com/anza-xyz/sbpf/blob/v0.12.2/src/ebpf.rs#L588 */
+  if( FD_UNLIKELY( !fd_sbpf_is_function_start( fd_sbpf_instr( insn ) ) ) ) {
+    return FD_SBPF_ELF_PARSER_ERR_INVALID_FILE_HEADER;
+  }
+
+  /* config.enable_symbol_and_section_labels is false in production,
+     so there's nothing else to do.
+     https://github.com/anza-xyz/sbpf/blob/v0.12.2/src/elf.rs#L519 */
+
+  info->rodata_sz        = (uint)phdr[ 1 ].p_memsz;
+  info->rodata_footprint = (uint)bin_sz;
+  info->entry_pc         = (uint)entry_pc;
+  info->text_off         = (uint)phdr[ 0 ].p_offset;
+  info->text_sz          = (uint)phdr[ 0 ].p_memsz;
+  info->text_cnt         = (uint)( phdr[ 0 ].p_memsz / 8UL );
+
+  return 0;
+}
+
+int
+fd_sbpf_elf_peek_lenient( fd_sbpf_elf_info_t *            info,
+                          void const *                    bin,
+                          ulong                           bin_sz,
+                          fd_sbpf_loader_config_t const * config ) {
+  // FIXME
+  fd_sbpf_elf_info_t * res = fd_sbpf_elf_peek_old( info, bin, bin_sz, config->elf_deploy_checks, config->sbpf_min_version, config->sbpf_max_version );
+
+  /* Peek (vs load) stops here
+     https://github.com/anza-xyz/sbpf/blob/v0.12.2/src/elf.rs#L639 */
+  return res==NULL ? FD_SBPF_ELF_PARSER_ERR_INVALID_FILE_HEADER : 0;
+}
+
+int
+fd_sbpf_elf_peek( fd_sbpf_elf_info_t *            info,
+                  void const *                    bin,
+                  ulong                           bin_sz,
+                  fd_sbpf_loader_config_t const * config ) {
+  /* Extract sbpf_version (or error)
+     https://github.com/anza-xyz/sbpf/blob/main/src/elf.rs#L376-L401 */
+  int maybe_sbpf_version = fd_sbpf_program_get_sbpf_version_or_err( bin, bin_sz, config );
+  if( FD_UNLIKELY( maybe_sbpf_version<0 ) ) {
+    return maybe_sbpf_version;
+  }
+
+  /* Initialize info struct */
+  *info = (fd_sbpf_elf_info_t) {
+    .text_off         = 0U,
+    .text_cnt         = 0U,
+    .text_sz          = 0UL,
+    .dynstr_off       = 0U,
+    .dynstr_sz        = 0U,
+    .rodata_sz        = 0U,
+    .rodata_footprint = 0U,
+    .shndx_text       = -1,
+    .shndx_symtab     = -1,
+    .shndx_strtab     = -1,
+    .shndx_dyn        = -1,
+    .shndx_dynstr     = -1,
+    .phndx_dyn        = -1,
+    .entry_pc         = 0U,
+    .sbpf_version     = (uint)maybe_sbpf_version,
+    /* !!! Keep this in sync with -Werror=missing-field-initializers */
+  };
+
+  /* Invoke strict vs lenient parser
+     https://github.com/anza-xyz/sbpf/blob/main/src/elf.rs#L403-L407 */
+  if( FD_UNLIKELY( fd_sbpf_enable_stricter_elf_headers( info->sbpf_version ) ) ) {
+    return fd_sbpf_elf_peek_strict( info, bin, bin_sz, config );
+  }
+  return fd_sbpf_elf_peek_lenient( info, bin, bin_sz, config );
+}
+
+int
+fd_sbpf_program_load_lenient( fd_sbpf_program_t *             prog,
+                              void const *                    bin,
+                              ulong                           bin_sz,
+                              fd_sbpf_syscalls_t *            syscalls,
+                              fd_sbpf_loader_config_t const * config ) {
+  /* Load (vs peek) starts here
+     https://github.com/anza-xyz/sbpf/blob/v0.12.2/src/elf.rs#L639 */
+
+  // FIXME
+  return fd_sbpf_program_load_old( prog, bin, bin_sz, syscalls, config->elf_deploy_checks );
+}
+
+int
+fd_sbpf_program_load( fd_sbpf_program_t *             prog,
+                      void const *                    bin,
+                      ulong                           bin_sz,
+                      fd_sbpf_syscalls_t *            syscalls,
+                      fd_sbpf_loader_config_t const * config ) {
+  /* Invoke strict vs lenient loader
+     Note: info.sbpf_version is already set by fd_sbpf_program_parse()
+     https://github.com/anza-xyz/sbpf/blob/main/src/elf.rs#L409-L413 */
+  if( FD_UNLIKELY( fd_sbpf_enable_stricter_elf_headers( prog->info.sbpf_version ) ) ) {
+    /* There is nothing else to do in the strict case*/
+    return 0;
+  }
+  return fd_sbpf_program_load_lenient( prog, bin, bin_sz, syscalls, config );
 }
 
 #undef ERR

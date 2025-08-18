@@ -107,8 +107,10 @@ FD_STATIC_ASSERT( sizeof(fd_vm_vec_t)==FD_VM_VEC_SIZE, fd_vm_vec size mismatch )
 /* SIMD-0178 + SIMD-0179 */
 #define FD_VM_SBPF_STATIC_SYSCALLS(v)              ( v >= FD_SBPF_V3 )
 /* SIMD-0189 */
-#define FD_VM_SBPF_ENABLE_STRICTER_ELF_HEADERS(v)  ( v >= FD_SBPF_V3 )
 #define FD_VM_SBPF_ENABLE_LOWER_BYTECODE_VADDR(v)  ( v >= FD_SBPF_V3 )
+/* enable_strict_elf_headers is defined in fd_sbpf_loader.h because it's needed
+   by the ELF loader, not really by the VM
+   #define FD_VM_SBPF_ENABLE_STRICTER_ELF_HEADERS(v)  ( v >= FD_SBPF_V3 ) */
 
 #define FD_VM_SBPF_DYNAMIC_STACK_FRAMES_ALIGN      (64U)
 
