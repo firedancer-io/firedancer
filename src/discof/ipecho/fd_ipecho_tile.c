@@ -160,6 +160,7 @@ populate_allowed_fds( fd_topo_t const *      topo,
 }
 
 #define STEM_BURST (1UL)
+#define STEM_LAZY  (50UL)
 
 #define STEM_CALLBACK_CONTEXT_TYPE  fd_ipecho_tile_ctx_t
 #define STEM_CALLBACK_CONTEXT_ALIGN alignof(fd_ipecho_tile_ctx_t)

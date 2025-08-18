@@ -1,22 +1,22 @@
-#include <math.h>
 #include "fd_gossip.h"
 #include "fd_bloom.h"
-#include "fd_gossip_metrics.h"
 #include "fd_gossip_private.h"
-#include "fd_gossip_crds_msg_builder.h"
-
-#include "crds/fd_crds.h"
+#include "fd_gossip_txbuild.h"
 #include "fd_active_set.h"
 #include "fd_ping_tracker.h"
+#include "crds/fd_crds.h"
 #include "../../disco/keyguard/fd_keyguard.h"
 
-#define BLOOM_FILTER_MAX_BITS     (512UL*8UL) /* TODO: Calculate for worst case contactinfo */
-#define BLOOM_FALSE_POSITIVE_RATE (      0.1)
-#define BLOOM_NUM_KEYS            (      8.0)
+FD_STATIC_ASSERT( FD_METRICS_ENUM_GOSSIP_MESSAGE_CNT==FD_GOSSIP_MESSAGE_LAST+1UL,
+                  "FD_METRICS_ENUM_GOSSIP_MESSAGE_CNT must match FD_GOSSIP_MESSAGE_LAST+1" );
 
-/* Macro to increment tx_msg_bytes with network packet header overhead */
-#define FD_GOSSIP_TX_MSG_BYTES_INC(gossip, msg_type, msg_size) \
-  do { (gossip)->metrics->tx_msg_bytes[ (msg_type) ] += (msg_size) + 42UL; } while(0)
+FD_STATIC_ASSERT( FD_METRICS_ENUM_CRDS_VALUE_CNT==FD_GOSSIP_VALUE_LAST+1UL,
+                  "FD_METRICS_ENUM_CRDS_VALUE_CNT must match FD_GOSSIP_VALUE_LAST+1" );
+
+#include <math.h>
+
+#define BLOOM_FALSE_POSITIVE_RATE (0.1)
+#define BLOOM_NUM_KEYS            (8.0)
 
 struct stake_weight {
   fd_pubkey_t key;
@@ -54,17 +54,15 @@ struct fd_gossip_private {
   fd_active_set_t *   active_set;
   fd_ping_tracker_t * ping_tracker;
 
-  fd_sha512_t         sha512[1];
+  fd_sha256_t sha256[1];
+  fd_sha512_t sha512[1];
 
-  fd_ip4_port_t       entrypoints[ 16UL ];
-  ulong               entrypoints_cnt;
+  ulong         entrypoints_cnt;
+  fd_ip4_port_t entrypoints[ 16UL ];
 
-  fd_rng_t *          rng;
+  fd_rng_t * rng;
 
-  /* TODO: has_shred_version */
-  ushort              expected_shred_version;
-
-  stake_weight_entry_t *    stake_weights;
+  stake_weight_entry_t * stake_weights;
 
   struct {
     long next_pull_request;
@@ -172,7 +170,7 @@ fd_gossip_new( void *                    shmem,
 
   FD_SCRATCH_ALLOC_INIT( l, shmem );
   fd_gossip_t * gossip  = FD_SCRATCH_ALLOC_APPEND( l, alignof(fd_gossip_t),    sizeof(fd_gossip_t)                           );
-  void * crds           = FD_SCRATCH_ALLOC_APPEND( l, fd_crds_align(),         fd_crds_footprint( max_values, max_values*4 ) );
+  void * crds           = FD_SCRATCH_ALLOC_APPEND( l, fd_crds_align(),         fd_crds_footprint( max_values, max_values ) );
   void * active_set     = FD_SCRATCH_ALLOC_APPEND( l, fd_active_set_align(),   fd_active_set_footprint()                     );
   void * ping_tracker   = FD_SCRATCH_ALLOC_APPEND( l, fd_ping_tracker_align(), fd_ping_tracker_footprint( entrypoints_cnt )  );
   void * stake_weights  = FD_SCRATCH_ALLOC_APPEND( l, stake_map_align(),       stake_map_footprint()                         );
@@ -183,7 +181,7 @@ fd_gossip_new( void *                    shmem,
   gossip->entrypoints_cnt = entrypoints_cnt;
   fd_memcpy( gossip->entrypoints, entrypoints, entrypoints_cnt*sizeof(fd_ip4_port_t) );
 
-  gossip->crds = fd_crds_join( fd_crds_new( crds, rng, max_values, max_values*4, gossip->metrics->crds_table, gossip_update_out ) );
+  gossip->crds = fd_crds_join( fd_crds_new( crds, rng, max_values, max_values, gossip_update_out ) );
   FD_TEST( gossip->crds );
 
   gossip->active_set = fd_active_set_join( fd_active_set_new( active_set, rng ) );
@@ -198,6 +196,7 @@ fd_gossip_new( void *                    shmem,
   gossip->active_pset = push_set_join( push_set_new( active_ps, FD_ACTIVE_SET_MAX_PEERS ) );
   FD_TEST( gossip->active_pset );
 
+  FD_TEST( fd_sha256_join( fd_sha256_new( gossip->sha256 ) ) );
   FD_TEST( fd_sha512_join( fd_sha512_new( gossip->sha512 ) ) );
 
   gossip->rng = rng;
@@ -241,6 +240,11 @@ fd_gossip_metrics( fd_gossip_t const * gossip ) {
   return gossip->metrics;
 }
 
+fd_crds_metrics_t const *
+fd_gossip_crds_metrics( fd_gossip_t const * gossip ) {
+  return fd_crds_metrics( gossip->crds );
+}
+
 fd_ping_tracker_metrics_t const *
 fd_gossip_ping_tracker_metrics( fd_gossip_t const * gossip ) {
   return fd_ping_tracker_metrics( gossip->ping_tracker );
@@ -253,60 +257,60 @@ random_entrypoint( fd_gossip_t const * gossip ) {
 }
 
 static void
-crds_builder_flush( fd_gossip_t *                  gossip,
-                    fd_gossip_crds_msg_builder_t * builder,
-                    fd_stem_context_t *            stem,
-                    fd_ip4_port_t                  dest_addr,
-                    long                           now ) {
-  if( FD_UNLIKELY( fd_gossip_crds_msg_builder_get_crds_len( builder )==0UL ) ) {
-    return;
-  }
-  gossip->send_fn( gossip->send_ctx, stem, builder->msg, builder->msg_sz, &dest_addr, (ulong)now );
-  uint msg_type = fd_gossip_crds_msg_builder_get_msg_type( builder );
-  gossip->metrics->tx_msg_count[ msg_type ]++;
-  FD_GOSSIP_TX_MSG_BYTES_INC( gossip, msg_type, builder->msg_sz );
+txbuild_flush( fd_gossip_t *         gossip,
+               fd_gossip_txbuild_t * txbuild,
+               fd_stem_context_t *   stem,
+               fd_ip4_port_t         dest_addr,
+               long                  now ) {
+  if( FD_UNLIKELY( !txbuild->crds_len ) ) return;
 
-  ulong * crds_count = msg_type==FD_GOSSIP_MESSAGE_PUSH ? gossip->metrics->tx_push_crd_count : gossip->metrics->tx_pull_crd_count;
-  ulong * crds_bytes = msg_type==FD_GOSSIP_MESSAGE_PUSH ? gossip->metrics->tx_push_crd_bytes : gossip->metrics->tx_pull_crd_bytes;
+  gossip->send_fn( gossip->send_ctx, stem, txbuild->bytes, txbuild->bytes_len, &dest_addr, (ulong)now );
 
-  ulong crds_len = fd_gossip_crds_msg_builder_get_crds_len( builder );
-  for( ulong i=0UL; i<crds_len; i++ ) {
-    fd_gossip_crds_builder_crds_meta_t * meta = &builder->crds_meta[ i ];
-    crds_count[ meta->tag ]++;
-    crds_bytes[ meta->tag ] += meta->sz;
+  gossip->metrics->message_tx[ txbuild->tag ]++;
+  gossip->metrics->message_tx_bytes[ txbuild->tag ] += txbuild->bytes_len+42UL; /* 42 = sizeof(fd_ip4_udp_hdrs_t) */
+  for( ulong i=0UL; i<txbuild->crds_len; i++ ) {
+    if( FD_LIKELY( txbuild->tag==FD_GOSSIP_MESSAGE_PUSH ) ) {
+      gossip->metrics->crds_tx_push[ txbuild->crds[ i ].tag ]++;
+      gossip->metrics->crds_tx_push_bytes[ txbuild->crds[ i ].tag ] += txbuild->crds[ i ].sz;
+    } else {
+      gossip->metrics->crds_tx_pull_response[ txbuild->crds[ i ].tag ]++;
+      gossip->metrics->crds_tx_pull_response_bytes[ txbuild->crds[ i ].tag ] += txbuild->crds[ i ].sz;
+    }
   }
-  fd_gossip_crds_msg_builder_reset( builder );
+
+  fd_gossip_txbuild_init( txbuild, gossip->identity_pubkey, txbuild->tag );
 }
 
 /* Note: NOT a no-op in the case contact info does not exist. We
    reset and push it back to the last-hit queue instead.
 
    TODO: Is this desired behavior? */
+
 static void
 active_push_set_flush( fd_gossip_t *       gossip,
                        push_set_t *        pset,
                        ulong               idx,
                        fd_stem_context_t * stem,
                        long                now ) {
-  fd_contact_info_t const * ci = fd_crds_contact_info_lookup( gossip->crds,
-                                                              fd_active_set_node_pubkey( gossip->active_set, idx ) );
+  fd_contact_info_t const * ci = fd_crds_contact_info_lookup( gossip->crds, fd_active_set_node_pubkey( gossip->active_set, idx ) );
   push_set_entry_t * state = pset_entry_pool_ele( pset->pool, idx );
   if( FD_LIKELY( ci ) ) {
-    crds_builder_flush( gossip, state->builder, stem, fd_contact_info_gossip_socket( ci ), now );
+    txbuild_flush( gossip, state->txbuild, stem, fd_contact_info_gossip_socket( ci ), now );
   } else {
-    fd_gossip_crds_msg_builder_reset( state->builder );
+    fd_gossip_txbuild_init( state->txbuild, gossip->identity_pubkey, state->txbuild->tag );
   }
   push_set_pop_append( pset, state, now );
 }
 
 static void
-active_push_set_insert( fd_gossip_t *                       gossip,
-                        uchar const *                       crds_val,
-                        ulong                               crds_sz,
-                        uchar const *                       origin_pubkey,
-                        ulong                               origin_stake,
-                        fd_stem_context_t *                 stem,
-                        long                                now ) {
+active_push_set_insert( fd_gossip_t *       gossip,
+                        uchar const *       crds_val,
+                        ulong               crds_sz,
+                        uchar const *       origin_pubkey,
+                        ulong               origin_stake,
+                        fd_stem_context_t * stem,
+                        long                now,
+                        int                 flush_immediately ) {
   ulong out_nodes[ 12UL ];
   ulong out_nodes_cnt = fd_active_set_nodes( gossip->active_set,
                                              gossip->identity_pubkey,
@@ -316,13 +320,17 @@ active_push_set_insert( fd_gossip_t *                       gossip,
                                              0UL, /* ignore_prunes_if_peer_is_origin TODO */
                                              out_nodes );
   for( ulong j=0UL; j<out_nodes_cnt; j++ ) {
-    ulong idx            = out_nodes[ j ];
+    ulong idx = out_nodes[ j ];
     push_set_entry_t * entry = pset_entry_pool_ele( gossip->active_pset->pool, idx );
-    if( FD_UNLIKELY( fd_gossip_crds_msg_builder_needs_flush( entry->builder, crds_sz ) ) ) {
+    if( FD_UNLIKELY( !fd_gossip_txbuild_can_fit( entry->txbuild, crds_sz ) ) ) {
       active_push_set_flush( gossip, gossip->active_pset, idx, stem, now );
     }
-    fd_gossip_crds_msg_builder_append( entry->builder, crds_val, crds_sz );
+
+    fd_gossip_txbuild_append( entry->txbuild, crds_sz, crds_val );
     push_set_pop_append( gossip->active_pset, entry, now );
+    if( FD_UNLIKELY( !!flush_immediately ) ) {
+      active_push_set_flush( gossip, gossip->active_pset, idx, stem, now );
+    }
   }
 }
 
@@ -336,7 +344,8 @@ push_my_contact_info( fd_gossip_t *       gossip,
                           gossip->identity_pubkey,
                           gossip->identity_stake,
                           stem,
-                          now );
+                          now,
+                          0 /* flush_immediately */ );
 }
 
 static inline void
@@ -363,7 +372,6 @@ fd_gossip_set_my_contact_info( fd_gossip_t *             gossip,
                                fd_contact_info_t const * contact_info,
                                long                      now ) {
   fd_memcpy( gossip->identity_pubkey, contact_info->pubkey.uc, 32UL );
-  gossip->expected_shred_version = contact_info->shred_version;
 
   *gossip->my_contact_info.ci = *contact_info;
   refresh_contact_info( gossip, now );
@@ -415,8 +423,8 @@ rx_pull_request( fd_gossip_t *                         gossip,
   filter->bits_len = pr_view->bloom_bits_cnt;
   filter->bits     = (ulong *)( payload + pr_view->bloom_bits_offset );
 
-  fd_gossip_crds_msg_builder_t pull_resp[1];
-  fd_gossip_crds_msg_builder_init( pull_resp, gossip->identity_pubkey, FD_GOSSIP_MESSAGE_PULL_RESPONSE );
+  fd_gossip_txbuild_t pull_resp[1];
+  fd_gossip_txbuild_init( pull_resp, gossip->identity_pubkey, FD_GOSSIP_MESSAGE_PULL_RESPONSE );
 
   uchar iter_mem[ 16UL ];
 
@@ -433,12 +441,13 @@ rx_pull_request( fd_gossip_t *                         gossip,
     uchar const * crds_val;
     ulong         crds_size;
     fd_crds_entry_value( candidate, &crds_val, &crds_size );
-    if( FD_UNLIKELY( fd_gossip_crds_msg_builder_needs_flush( pull_resp, crds_size ) ) ) {
-      crds_builder_flush( gossip, pull_resp, stem, peer_addr, now );
+    if( FD_UNLIKELY( !fd_gossip_txbuild_can_fit( pull_resp, crds_size ) ) ) {
+      txbuild_flush( gossip, pull_resp, stem, peer_addr, now );
     }
-    fd_gossip_crds_msg_builder_append( pull_resp, crds_val, crds_size );
+    fd_gossip_txbuild_append( pull_resp, crds_size, crds_val );
   }
-  crds_builder_flush( gossip, pull_resp, stem, peer_addr, now );
+
+  txbuild_flush( gossip, pull_resp, stem, peer_addr, now );
 }
 
 static void
@@ -447,19 +456,13 @@ rx_pull_response( fd_gossip_t *                          gossip,
                   uchar const *                          payload,
                   fd_stem_context_t *                    stem,
                   long                                   now ) {
-  fd_gossip_metrics_t * metrics = gossip->metrics;
   for( ulong i=0UL; i<pull_response->crds_values_len; i++ ) {
     fd_gossip_view_crds_value_t const * value = &pull_response->crds_values[ i ];
-    metrics->rx_pull_crd_count[ value->tag ]++;
-    metrics->rx_pull_crd_bytes[ value->tag ] += value->length;
 
-    int checks_res = fd_crds_checks_fast( gossip->crds,
-                                          value,
-                                          payload,
-                                          0 /* from_push_msg m*/ );
+    int checks_res = fd_crds_checks_fast( gossip->crds, value, payload, 0 /* from_push_msg m*/ );
     if( FD_UNLIKELY( !!checks_res ) ) {
-      checks_res < 0 ? metrics->rx_crds_outcome[ FD_METRICS_ENUM_CRDS_INSERTION_OUTCOME_V_DROPPED_PULL_RESPONSE_NO_OVERRIDE_IDX ]++
-                     : metrics->rx_crds_outcome[ FD_METRICS_ENUM_CRDS_INSERTION_OUTCOME_V_DROPPED_PULL_RESPONSE_HASH_DUPLICATE_IDX ]++;
+      checks_res < 0 ? gossip->metrics->crds_rx_count[ FD_METRICS_ENUM_GOSSIP_CRDS_OUTCOME_V_DROPPED_PULL_RESPONSE_STALE_IDX ]++
+                     : gossip->metrics->crds_rx_count[ FD_METRICS_ENUM_GOSSIP_CRDS_OUTCOME_V_DROPPED_PULL_RESPONSE_DUPLICATE_IDX ]++;
       continue;
     }
 
@@ -480,9 +483,9 @@ rx_pull_response( fd_gossip_t *                          gossip,
     /* https://github.com/anza-xyz/agave/blob/540d5bc56cd44e3cc61b179bd52e9a782a2c99e4/gossip/src/crds_gossip_pull.rs#L340-L351 */
     if( FD_UNLIKELY( accept_after_nanos>value->wallclock_nanos &&
                      !fd_crds_contact_info_lookup( gossip->crds, origin_pubkey ) ) ) {
-      metrics->rx_crds_outcome[ FD_METRICS_ENUM_CRDS_INSERTION_OUTCOME_V_DROPPED_PULL_RESPONSE_OLD_IDX ]++;
+      gossip->metrics->crds_rx_count[ FD_METRICS_ENUM_GOSSIP_CRDS_OUTCOME_V_DROPPED_PULL_RESPONSE_WALLCLOCK_IDX ]++;
       uchar candidate_hash[ 32UL ];
-      fd_crds_genrate_hash( payload+value->value_off, value->length, candidate_hash );
+      fd_crds_generate_hash( gossip->sha256, payload+value->value_off, value->length, candidate_hash );
       fd_crds_insert_failed_insert( gossip->crds, candidate_hash, now );
       continue;
     }
@@ -495,14 +498,14 @@ rx_pull_response( fd_gossip_t *                          gossip,
                                                         now,
                                                         stem );
     FD_TEST( candidate );
-    metrics->rx_crds_outcome[ FD_METRICS_ENUM_CRDS_INSERTION_OUTCOME_V_UPSERTED_PULL_RESPONSE_IDX ]++;
+    gossip->metrics->crds_rx_count[ FD_METRICS_ENUM_GOSSIP_CRDS_OUTCOME_V_UPSERTED_PULL_RESPONSE_IDX ]++;
     if( FD_UNLIKELY( fd_crds_entry_is_contact_info( candidate ) ) ){
       fd_contact_info_t const * contact_info = fd_crds_entry_contact_info( candidate );
 
       fd_ip4_port_t origin_addr = fd_contact_info_gossip_socket( contact_info );
       if( FD_LIKELY( !is_me ) ) fd_ping_tracker_track( gossip->ping_tracker, origin_pubkey, origin_stake, origin_addr, now );
     }
-    active_push_set_insert( gossip, payload+value->value_off, value->length, origin_pubkey, origin_stake, stem, now );
+    active_push_set_insert( gossip, payload+value->value_off, value->length, origin_pubkey, origin_stake, stem, now, 0 /* flush_immediately */ );
   }
 }
 
@@ -513,10 +516,6 @@ process_push_crds( fd_gossip_t *                       gossip,
                    uchar const *                       payload,
                    long                                now,
                    fd_stem_context_t *                 stem ) {
-  fd_gossip_metrics_t * metrics = gossip->metrics;
-  metrics->rx_push_crd_count[ value->tag ]++;
-  metrics->rx_push_crd_bytes[ value->tag ] += value->length;
-
   /* overrides_fast here, either count duplicates or purge if older (how!?) */
 
   /* return values in both fd_crds_checks_fast and fd_crds_inserted need
@@ -527,12 +526,12 @@ process_push_crds( fd_gossip_t *                       gossip,
                                         payload,
                                         1 /* from_push_msg */ );
   if( FD_UNLIKELY( !!checks_res ) ) {
-    checks_res < 0 ? metrics->rx_crds_outcome[ FD_METRICS_ENUM_CRDS_INSERTION_OUTCOME_V_DROPPED_PUSH_NO_OVERRIDE_IDX ]++
-                   : metrics->rx_crds_outcome[ FD_METRICS_ENUM_CRDS_INSERTION_OUTCOME_V_DROPPED_PUSH_HASH_DUPLICATE_IDX ]++;
+    checks_res < 0 ? gossip->metrics->crds_rx_count[ FD_METRICS_ENUM_GOSSIP_CRDS_OUTCOME_V_DROPPED_PUSH_STALE_IDX ]++
+                   : gossip->metrics->crds_rx_count[ FD_METRICS_ENUM_GOSSIP_CRDS_OUTCOME_V_DROPPED_PUSH_DUPLICATE_IDX ]++;
     return checks_res;
   }
 
-  metrics->rx_crds_outcome[ FD_METRICS_ENUM_CRDS_INSERTION_OUTCOME_V_UPSERTED_PUSH_IDX ]++;
+  gossip->metrics->crds_rx_count[ FD_METRICS_ENUM_GOSSIP_CRDS_OUTCOME_V_UPSERTED_PUSH_IDX ]++;
 
   uchar const * origin_pubkey = payload+value->pubkey_off;
   uchar is_me                 = !memcmp( origin_pubkey, gossip->identity_pubkey, 32UL );
@@ -553,7 +552,7 @@ process_push_crds( fd_gossip_t *                       gossip,
     fd_ip4_port_t origin_addr = contact_info->sockets[ FD_CONTACT_INFO_SOCKET_GOSSIP ];
     if( FD_LIKELY( !is_me ) ) fd_ping_tracker_track( gossip->ping_tracker, origin_pubkey, origin_stake, origin_addr, now );
   }
-  active_push_set_insert( gossip, payload+value->value_off, value->length, origin_pubkey, origin_stake, stem, now );
+  active_push_set_insert( gossip, payload+value->value_off, value->length, origin_pubkey, origin_stake, stem, now, 0 /* flush_immediately */ );
   return 0;
 }
 
@@ -622,8 +621,8 @@ rx_ping( fd_gossip_t *           gossip,
   gossip->sign_fn( gossip->sign_ctx, pre_image, 48UL, FD_KEYGUARD_SIGN_TYPE_SHA256_ED25519, out_pong->signature );
   gossip->send_fn( gossip->send_ctx, stem, (uchar *)out_payload, sizeof(out_payload), &peer_address, (ulong)now );
 
-  gossip->metrics->tx_msg_count[ FD_GOSSIP_MESSAGE_PONG ]++;
-  FD_GOSSIP_TX_MSG_BYTES_INC( gossip, FD_GOSSIP_MESSAGE_PONG, sizeof(out_payload) );
+  gossip->metrics->message_tx[ FD_GOSSIP_MESSAGE_PONG ]++;
+  gossip->metrics->message_tx_bytes[ FD_GOSSIP_MESSAGE_PONG ] += sizeof(out_payload) + 42UL; /* 42 = sizeof(fd_ip4_udp_hdrs_t) */
 }
 
 static void
@@ -713,14 +712,14 @@ fd_gossip_push_vote( fd_gossip_t *       gossip,
   fd_crds_entry_t const * entry = fd_crds_insert( gossip->crds, value, crds_val, gossip->identity_stake, 1, /* is_me */ now, stem );
   if( FD_UNLIKELY( !entry ) ) return -1;
 
-  /* TODO: Possibly flush if we want this out ASAP? */
   active_push_set_insert( gossip,
                           crds_val,
                           crds_val_sz,
                           gossip->identity_pubkey,
                           gossip->identity_stake,
                           stem,
-                          now );
+                          now,
+                          1 /* flush_immediately */ );
   return 0;
 }
 
@@ -728,7 +727,6 @@ static void
 tx_ping( fd_gossip_t *       gossip,
          fd_stem_context_t * stem,
          long                now ) {
-
   /* TODO: have this point to dcache buffer directly instead. */
   uchar out_payload[ sizeof(fd_gossip_view_ping_t) + 4UL ];
   FD_STORE( uint, out_payload, FD_GOSSIP_MESSAGE_PING );
@@ -749,8 +747,8 @@ tx_ping( fd_gossip_t *       gossip,
     gossip->sign_fn( gossip->sign_ctx, out_ping->ping_token, 32UL, FD_KEYGUARD_SIGN_TYPE_ED25519, out_ping->signature );
     gossip->send_fn( gossip->send_ctx, stem, out_payload, sizeof(out_payload), peer_address, (ulong)now );
 
-    gossip->metrics->tx_msg_count[ FD_GOSSIP_MESSAGE_PING ]++;
-    FD_GOSSIP_TX_MSG_BYTES_INC( gossip, FD_GOSSIP_MESSAGE_PING, sizeof(out_payload) );
+    gossip->metrics->message_tx[ FD_GOSSIP_MESSAGE_PING ]++;
+    gossip->metrics->message_tx_bytes[ FD_GOSSIP_MESSAGE_PING ] += sizeof(out_payload) + 42UL; /* 42 = sizeof(fd_ip4_udp_hdrs_t) */
   }
 }
 
@@ -786,10 +784,8 @@ tx_pull_request( fd_gossip_t *       gossip,
                                          &bits_ptr,
                                          &bits_set,
                                          &payload_sz );
-  if( FD_UNLIKELY( !!res ) ) {
-    FD_LOG_WARNING(( "Failed to initialize pull request" ));
-    return;
-  }
+  FD_TEST( !res && payload_sz<=FD_GOSSIP_MTU );
+
   fd_bloom_t filter[1];
   fd_bloom_init_inplace( keys_ptr, bits_ptr, BLOOM_NUM_KEYS, num_bits, 0, gossip->rng, BLOOM_FALSE_POSITIVE_RATE, filter );
 
@@ -810,7 +806,6 @@ tx_pull_request( fd_gossip_t *       gossip,
   for( ulong i=0UL; i<(num_bits+63)/64UL; i++ ) num_bits_set += fd_ulong_popcnt( bits_ptr[ i ] );
   *bits_set = (ulong)num_bits_set;
 
-
   fd_contact_info_t const * peer = fd_crds_peer_sample( gossip->crds, gossip->rng );
   fd_ip4_port_t peer_addr;
   if( FD_UNLIKELY( !peer ) ) {
@@ -819,11 +814,10 @@ tx_pull_request( fd_gossip_t *       gossip,
   } else {
     peer_addr = fd_contact_info_gossip_socket( peer );
   }
-
   gossip->send_fn( gossip->send_ctx, stem, payload, payload_sz, &peer_addr, (ulong)now );
 
-  gossip->metrics->tx_msg_count[ FD_GOSSIP_MESSAGE_PULL_REQUEST ]++;
-  FD_GOSSIP_TX_MSG_BYTES_INC( gossip, FD_GOSSIP_MESSAGE_PULL_REQUEST, payload_sz );
+  gossip->metrics->message_tx[ FD_GOSSIP_MESSAGE_PULL_REQUEST ]++;
+  gossip->metrics->message_tx_bytes[ FD_GOSSIP_MESSAGE_PULL_REQUEST ] += payload_sz + 42UL; /* 42 = sizeof(fd_ip4_udp_hdrs_t) */
 }
 
 static inline long
@@ -855,7 +849,8 @@ rotate_active_set( fd_gossip_t *       gossip,
     entry->last_hit.wallclock_nanos = now;
     pset_last_hit_ele_push_tail( pset->last_hit, entry, pset->pool );
   }
-  fd_gossip_crds_msg_builder_init( entry->builder, gossip->identity_pubkey, FD_GOSSIP_MESSAGE_PUSH );
+
+  fd_gossip_txbuild_init( entry->txbuild, gossip->identity_pubkey, FD_GOSSIP_MESSAGE_PUSH );
 }
 
 static inline void
