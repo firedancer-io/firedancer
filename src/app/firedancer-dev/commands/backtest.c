@@ -205,16 +205,13 @@ backtest_topo( config_t * config ) {
 
   /**********************************************************************/
   /* Setup writer->replay links in topo, to send solcap account updates
-     so that they are serialized.
-
-     TODO: remove this when solcap v2 is here. */
+     so that they are serialized, and to notify replay tile that a txn
+     has been finalized by the writer tile. */
   /**********************************************************************/
-  if( strlen( config->capture.solcap_capture ) ) {
-    fd_topob_wksp( topo, "writ_repl" );
-    FOR(writer_tile_cnt) fd_topob_link( topo, "writ_repl", "writ_repl", 1UL, FD_RUNTIME_PUBLIC_ACCOUNT_UPDATE_MSG_FOOTPRINT, 1UL );
-    FOR(writer_tile_cnt) fd_topob_tile_out( topo, "writer", i, "writ_repl", i );
-    FOR(writer_tile_cnt) fd_topob_tile_in( topo, "replay", 0UL, "metric_in", "writ_repl", i, FD_TOPOB_RELIABLE, FD_TOPOB_POLLED );
-  }
+  fd_topob_wksp( topo, "writ_repl" );
+  FOR(writer_tile_cnt) fd_topob_link( topo, "writ_repl", "writ_repl", 1UL, FD_RUNTIME_PUBLIC_ACCOUNT_UPDATE_MSG_FOOTPRINT, 1UL );
+  FOR(writer_tile_cnt) fd_topob_tile_out( topo, "writer", i, "writ_repl", i );
+  FOR(writer_tile_cnt) fd_topob_tile_in( topo, "replay", 0UL, "metric_in", "writ_repl", i, FD_TOPOB_RELIABLE, FD_TOPOB_POLLED );
 
   /**********************************************************************/
   /* Setup the shared objs used by replay and exec tiles                */

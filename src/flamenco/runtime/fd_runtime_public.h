@@ -11,21 +11,16 @@
 /* definition of the public/readable workspace */
 #define FD_RUNTIME_PUBLIC_MAGIC (0xF17EDA2C9A7B1C21UL)
 
-#define EXEC_NEW_TXN_SIG               (0x777777UL)
+#define EXEC_NEW_TXN_SIG         (0x777777UL)
 
-#define FD_WRITER_BOOT_SIG             (0xAABB0011UL)
-#define FD_WRITER_SLOT_SIG             (0xBBBB1122UL)
-#define FD_WRITER_TXN_SIG              (0xBBCC2233UL)
-#define FD_WRITER_ACCOUNT_UPDATE_SIG   (0xBBDD3344UL)
+#define FD_WRITER_BOOT_SIG       (0xAABB0011UL)
+#define FD_WRITER_SLOT_SIG       (0xBBBB1122UL)
+#define FD_WRITER_TXN_SIG        (0xBBCC2233UL)
 
-#define FD_EXEC_STATE_NOT_BOOTED       (0xFFFFFFFFUL)
-#define FD_EXEC_STATE_BOOTED           (1<<1UL      )
+#define FD_EXEC_STATE_NOT_BOOTED (0xFFFFFFFFUL)
+#define FD_EXEC_STATE_BOOTED     (1<<1UL      )
 
-#define FD_WRITER_STATE_NOT_BOOTED     (0UL         )
-#define FD_WRITER_STATE_READY          (1UL         )
-#define FD_WRITER_STATE_TXN_DONE       (1UL<<1      )
-
-#define FD_EXEC_ID_SENTINEL            (UINT_MAX    )
+#define FD_EXEC_ID_SENTINEL      (UINT_MAX    )
 
 
 /* parallel execution apis ********************************************/
@@ -117,43 +112,6 @@ fd_exec_fseq_is_not_joined( ulong fseq ) {
   return fseq==ULONG_MAX;
 }
 
-/* Writer tile fseq management APIs ***********************************/
-
-/*
-   +----------------------------------+----------+----------------------+
-   |         Transaction ID           | Exec Tile|         State        |
-   |            (32 bits)             |   ID     |       (24 bits)      |
-   |                                  | (8 bits) |                      |
-   +----------------------------------+----------+----------------------+
- */
-
-static inline uint
-fd_writer_fseq_get_state( ulong fseq ) {
-  return (uint)(fseq & 0x00FFFFFFU);
-}
-
-static inline ulong
-fd_writer_fseq_set_txn_done( uint txn_id, uchar exec_tile_id ) {
-  ulong state = (((ulong)txn_id) << 32);
-  state      |= (((ulong)exec_tile_id) << 24);
-  state      |= FD_WRITER_STATE_TXN_DONE;
-  return state;
-}
-
-static inline uint
-fd_writer_fseq_get_txn_id( ulong fseq ) {
-  return (uint)(fseq >> 32);
-}
-
-static inline uchar
-fd_writer_fseq_get_exec_tile_id( ulong fseq ) {
-  return (uchar)((fseq >> 24) & 0xFFUL);
-}
-
-static inline int
-fd_writer_fseq_is_not_joined( ulong fseq ) {
-  return fseq==ULONG_MAX;
-}
 
 struct fd_runtime_public_txn_msg {
   ulong      slot;
@@ -192,9 +150,13 @@ FD_STATIC_ASSERT( sizeof(fd_runtime_public_replay_writer_slot_msg_t)<=FD_REPLAY_
 /* FD_ACC_SZ_MAX is the hardcoded size limit of a Solana account. */
 #define FD_ACC_SZ_MAX       (10UL<<20) /* 10MiB */
 
+/* Writer->Replay message APIs **************************************/
+#define FD_RUNTIME_PUBLIC_WRITER_REPLAY_SIG_TXN_DONE   (1UL) /* txn finalized */
+#define FD_RUNTIME_PUBLIC_WRITER_REPLAY_SIG_ACC_UPDATE (2UL) /* solcap account update */
+
 /* Message sent from writer tile to replay tile,
    notifying the solcap writer that an account update has occurred. */
-struct fd_runtime_public_account_update_msg {
+struct __attribute__((packed)) fd_runtime_public_account_update_msg {
   fd_pubkey_t              pubkey;
   fd_solana_account_meta_t info;
   ulong                    data_sz;
@@ -203,7 +165,15 @@ struct fd_runtime_public_account_update_msg {
 };
 typedef struct fd_runtime_public_account_update_msg fd_runtime_public_account_update_msg_t;
 #define FD_RUNTIME_PUBLIC_ACCOUNT_UPDATE_MSG_FOOTPRINT (FD_ACC_SZ_MAX + sizeof(fd_runtime_public_account_update_msg_t))
-FD_STATIC_ASSERT( sizeof(fd_runtime_public_account_update_msg_t) == 128, account_update_msg_mtu );
+FD_STATIC_ASSERT( sizeof(fd_runtime_public_account_update_msg_t) == 124, account_update_msg_mtu );
+
+/* Message sent from writer tile to replay tile,
+   notifying the replay tile that a txn has been finalized. */
+struct __attribute__((packed)) fd_runtime_public_writer_replay_txn_finalized {
+  uint txn_id;
+  int  exec_tile_id;
+};
+typedef struct fd_runtime_public_writer_replay_txn_finalized fd_runtime_public_writer_replay_txn_finalized_t;
 
 struct fd_runtime_public {
   /* FIXME:  This is a non-fork-aware copy of the currently active

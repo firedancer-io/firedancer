@@ -1042,9 +1042,9 @@ fd_runtime_finalize_account( fd_funk_t *        funk,
 
    TODO: remove this when solcap v2 is here. */
 static void
-fd_runtime_buffer_solcap_account_update( fd_txn_account_t * account,
-                                         fd_bank_t *        bank,
-                                         fd_capture_ctx_t * capture_ctx ) {
+fd_runtime_buffer_solcap_account_update( fd_txn_account_t *        account,
+                                         fd_bank_t *               bank,
+                                         fd_capture_ctx_t *        capture_ctx ) {
 
   /* Check if we should publish the update */
   if( FD_UNLIKELY( !capture_ctx || fd_bank_slot_get( bank )<capture_ctx->solcap_start_slot ) ) {
@@ -1052,9 +1052,8 @@ fd_runtime_buffer_solcap_account_update( fd_txn_account_t * account,
   }
 
   /* Get account data */
-  fd_solana_account_meta_t const * info = fd_txn_account_get_info( account );
-  fd_account_meta_t const * meta        = fd_txn_account_get_meta( account );
-  void const * data                     = fd_txn_account_get_data( account );
+  fd_account_meta_t const * meta = fd_txn_account_get_meta( account );
+  void const * data              = fd_txn_account_get_data( account );
 
   /* Calculate account hash using lthash */
   fd_lthash_value_t lthash[1];
@@ -1071,7 +1070,7 @@ fd_runtime_buffer_solcap_account_update( fd_txn_account_t * account,
   /* Write the message to the buffer */
   fd_runtime_public_account_update_msg_t * account_update_msg = (fd_runtime_public_account_update_msg_t *)(capture_ctx->account_updates_buffer_ptr);
   account_update_msg->pubkey                                  = *account->pubkey;
-  account_update_msg->info                                    = *info;
+  account_update_msg->info                                    = meta->info;
   account_update_msg->data_sz                                 = meta->dlen;
   account_update_msg->hash                                    = hash;
   capture_ctx->account_updates_buffer_ptr                    += sizeof(fd_runtime_public_account_update_msg_t);

@@ -281,7 +281,6 @@ fd_topo_initialize( config_t * config ) {
   fd_topob_wksp( topo, "tower"       );
   fd_topob_wksp( topo, "exec_spad"   );
   fd_topob_wksp( topo, "exec_fseq"   );
-  fd_topob_wksp( topo, "writer_fseq" );
   fd_topob_wksp( topo, "funk" );
 
   fd_topob_wksp( topo, "snapdc" );
@@ -528,13 +527,6 @@ fd_topo_initialize( config_t * config ) {
     fd_topo_obj_t * exec_fseq_obj = fd_topob_obj( topo, "fseq", "exec_fseq" );
     fd_topob_tile_uses( topo, replay_tile, exec_fseq_obj, FD_SHMEM_JOIN_MODE_READ_ONLY );
     FD_TEST( fd_pod_insertf_ulong( topo->props, exec_fseq_obj->id, "exec_fseq.%lu", i ) );
-  }
-
-  for( ulong i=0UL; i<writer_tile_cnt; i++ ) {
-    fd_topo_obj_t * writer_fseq_obj = fd_topob_obj( topo, "fseq", "writer_fseq" );
-    fd_topob_tile_uses( topo, &topo->tiles[ fd_topo_find_tile( topo, "writer", i ) ], writer_fseq_obj, FD_SHMEM_JOIN_MODE_READ_WRITE );
-    fd_topob_tile_uses( topo, replay_tile, writer_fseq_obj, FD_SHMEM_JOIN_MODE_READ_WRITE );
-    FD_TEST( fd_pod_insertf_ulong( topo->props, writer_fseq_obj->id, "writer_fseq.%lu", i ) );
   }
 
   fd_topob_tile_uses( topo, snapin_tile, funk_obj,               FD_SHMEM_JOIN_MODE_READ_WRITE );
@@ -819,14 +811,10 @@ fd_topo_initialize( config_t * config ) {
     /**/                 fd_topob_tile_in(  topo, "plugin", 0UL,           "metric_in", "votes_plugin", 0UL,          FD_TOPOB_RELIABLE,   FD_TOPOB_POLLED );
   }
 
-  /* Link from writer tile to replay tile, to send solcap account updates so that they are serialized.
-     TODO: remove this when solcap v2 is here. */
-  if( strlen( config->capture.solcap_capture ) ) {
-    fd_topob_wksp( topo, "writ_repl" );
-    FOR(writer_tile_cnt) fd_topob_link(     topo, "writ_repl", "writ_repl", 1UL, FD_RUNTIME_PUBLIC_ACCOUNT_UPDATE_MSG_FOOTPRINT, 1UL );
-    FOR(writer_tile_cnt) fd_topob_tile_out( topo, "writer",    i,                               "writ_repl", i );
-    FOR(writer_tile_cnt) fd_topob_tile_in(  topo, "replay",    0UL,      "metric_in", "writ_repl", i, FD_TOPOB_RELIABLE, FD_TOPOB_POLLED );
-  }
+  fd_topob_wksp( topo, "writ_repl" );
+  FOR(writer_tile_cnt) fd_topob_link(     topo, "writ_repl", "writ_repl", 1UL, FD_RUNTIME_PUBLIC_ACCOUNT_UPDATE_MSG_FOOTPRINT, 1UL );
+  FOR(writer_tile_cnt) fd_topob_tile_out( topo, "writer",    i,                               "writ_repl", i );
+  FOR(writer_tile_cnt) fd_topob_tile_in(  topo, "replay",    0UL,      "metric_in", "writ_repl", i, FD_TOPOB_RELIABLE, FD_TOPOB_POLLED );
 
   if( FD_LIKELY( config->tiles.gui.enabled ) ) {
     fd_topob_wksp( topo, "gui"          );
