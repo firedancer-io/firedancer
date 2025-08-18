@@ -5565,10 +5565,16 @@ fd_quic_handle_conn_close_0_frame(
     FD_LOG_WARNING(( "fd_quic_handle_conn_close_frame - "
         "error_code: %lu  "
         "frame_type: %lx  "
-        "reason: %s",
+        "reason: %s"
+        "retry_src_conn_id_sz: %u"
+        "ip: " FD_IP4_ADDR_FMT " "
+        "port: %u",
         data->error_code,
         data->frame_type,
-        reason_buf ));
+        reason_buf,
+        context->conn->retry_src_conn_id.sz,
+        FD_IP4_ADDR_FMT_ARGS( context->conn->peer[0].ip_addr ),
+        context->conn->peer[0].udp_port ));
   // );
 
   fd_quic_handle_conn_close_frame( context->conn );
@@ -5598,9 +5604,15 @@ fd_quic_handle_conn_close_1_frame(
 
     FD_LOG_WARNING(( "fd_quic_handle_conn_close_frame - "
         "error_code: %lu  "
-        "reason: %s",
+        "reason: %s"
+        "retry_src_conn_id_sz: %u"
+        "ip: " FD_IP4_ADDR_FMT " "
+        "port: %u",
         data->error_code,
-        reason_buf ));
+        reason_buf,
+        context->conn->retry_src_conn_id.sz,
+        FD_IP4_ADDR_FMT_ARGS( context->conn->peer[0].ip_addr ),
+        context->conn->peer[0].udp_port ));
   // );
 
   fd_quic_handle_conn_close_frame( context->conn );
