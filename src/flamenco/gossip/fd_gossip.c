@@ -898,18 +898,6 @@ fd_gossip_advance( fd_gossip_t *       gossip,
 }
 
 void
-fd_gossip_disable_pull_request( fd_gossip_t * gossip ) {
-  gossip->timers.next_pull_request = LONG_MAX;
-}
-
-void
-fd_gossip_send_one_pull_request( fd_gossip_t *       gossip,
-                                 fd_stem_context_t * stem,
-                                 long                now ) {
-  tx_pull_request( gossip, stem, now );
-}
-
-void
 fd_gossip_ping_tracker_track( fd_gossip_t * gossip,
                               uchar const * peer_pubkey,
                               fd_ip4_port_t peer_address,
