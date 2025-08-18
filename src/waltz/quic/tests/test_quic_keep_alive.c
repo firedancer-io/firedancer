@@ -151,6 +151,44 @@ test_quic_revive( fd_quic_t * client_quic, fd_quic_t * server_quic ) {
   fd_quic_stream_send( stream, "hello", 5, 1 );
   fd_quic_service( client_quic ); /* Send it, aio will receive on server */
   FD_TEST( server_conn->state == FD_QUIC_CONN_STATE_ACTIVE );
+  FD_TEST( server_conn->svc_type == FD_QUIC_SVC_INSTANT || server_conn->svc_type == FD_QUIC_SVC_ACK_TX );
+  FD_TEST( server_quic->metrics.conn_timeout_revived_cnt == 1 );
+}
+
+static void
+test_hs_with_timeout( fd_quic_t * client_quic, fd_quic_t * server_quic ) {
+
+  fd_memset( &server_quic->metrics, 0, sizeof(fd_quic_metrics_t) );
+  fd_memset( &client_quic->metrics, 0, sizeof(fd_quic_metrics_t) );
+
+  FD_TEST( fd_quic_init( server_quic ) );
+  FD_TEST( fd_quic_init( client_quic ) );
+  fd_quic_svc_validate( server_quic );
+  fd_quic_svc_validate( client_quic );
+
+  fd_quic_conn_t * client_conn = fd_quic_connect( client_quic, 0U, 0, 0U, 0 );
+  FD_TEST( client_conn );
+
+  fd_quic_service( client_quic ); /* client initial */
+  fd_quic_service( server_quic ); /* server initial, hs */
+
+  /* trigger a timeout */
+  now += server_quic->config.idle_timeout;
+  fd_quic_service( server_quic );
+
+  FD_TEST( server_conn->state == FD_QUIC_CONN_STATE_TIMED_OUT );
+  FD_TEST( server_conn->svc_time == LONG_MAX );
+  FD_TEST( fd_quic_get_state( server_quic )->svc_queue[ FD_QUIC_SVC_TIMEOUT ].head == server_conn->conn_idx );
+  FD_TEST( server_conn->svc_next == UINT_MAX );
+  FD_TEST( server_conn->svc_prev == UINT_MAX );
+  FD_TEST( server_quic->metrics.conn_timeout_cnt == 1 );
+
+  client_conn->last_activity = now; /* to not trigger self timeout */
+  fd_quic_service( client_quic );   /* client send, trigger revival on server */
+
+  FD_TEST( server_conn->state == FD_QUIC_CONN_STATE_HANDSHAKE_COMPLETE );
+  FD_TEST( server_conn->svc_type == FD_QUIC_SVC_INSTANT );
+  FD_TEST( server_quic->metrics.conn_timeout_revived_cnt == 1 );
 }
 
 static void
@@ -210,6 +248,7 @@ test_quic_timeout_store( fd_quic_t * client_quic, fd_quic_t * server_quic ) {
   client_quic->config.keep_timed_out = 1;
   server_quic->config.keep_timed_out = 1;
   test_quic_revive( client_quic, server_quic );
+  test_hs_with_timeout( client_quic, server_quic );
   test_quic_free_timed_out( client_quic, server_quic );
   client_quic->config.keep_timed_out = 0;
   server_quic->config.keep_timed_out = 0;
