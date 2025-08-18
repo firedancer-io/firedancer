@@ -2574,10 +2574,6 @@ fd_stake_program_execute( fd_exec_instr_ctx_t * ctx ) {
     return FD_EXECUTOR_INSTR_ERR_CUSTOM_ERR;
   }
 
-  /* Replicate stake account changes to bank caches after processing the
-     transaction's instructions. */
-  ctx->txn_ctx->dirty_stake_acc = 1;
-
   int rc;
   // PLEASE PRESERVE SWITCH-CASE ORDERING TO MIRROR AGAVE IMPL:
   // https://github.com/anza-xyz/agave/blob/c8685ce0e1bb9b26014f1024de2cd2b8c308cbde/programs/stake/src/stake_instruction.rs#L84

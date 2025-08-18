@@ -355,33 +355,29 @@ publish_stake_weights( fd_replay_tile_ctx_t * ctx,
                        fd_exec_slot_ctx_t *   slot_ctx ) {
   fd_epoch_schedule_t const * epoch_schedule = fd_bank_epoch_schedule_query( slot_ctx->bank );
 
-  fd_vote_accounts_global_t const * epoch_stakes = fd_bank_epoch_stakes_locking_query( slot_ctx->bank );
-  fd_vote_accounts_pair_global_t_mapnode_t * epoch_stakes_root = fd_vote_accounts_vote_accounts_root_join( epoch_stakes );
-
-  if( epoch_stakes_root!=NULL ) {
+  fd_vote_states_t const * vote_states_prev_prev = fd_bank_vote_states_prev_prev_locking_query( slot_ctx->bank );
+  do {
     ulong * stake_weights_msg = fd_chunk_to_laddr( ctx->stake_out->mem, ctx->stake_out->chunk );
-    ulong epoch = fd_slot_to_leader_schedule_epoch( epoch_schedule, fd_bank_slot_get( slot_ctx->bank ) );
-    ulong stake_weights_sz = generate_stake_weight_msg( slot_ctx, epoch - 1, epoch_stakes, stake_weights_msg );
-    ulong stake_weights_sig = 4UL;
+    ulong epoch               = fd_slot_to_leader_schedule_epoch( epoch_schedule, fd_bank_slot_get( slot_ctx->bank ) );
+    ulong stake_weights_sz    = generate_stake_weight_msg( slot_ctx, epoch - 1, vote_states_prev_prev, stake_weights_msg );
+    ulong stake_weights_sig   = 4UL;
     fd_stem_publish( stem, 0UL, stake_weights_sig, ctx->stake_out->chunk, stake_weights_sz, 0UL, 0UL, fd_frag_meta_ts_comp( fd_tickcount() ) );
     ctx->stake_out->chunk = fd_dcache_compact_next( ctx->stake_out->chunk, stake_weights_sz, ctx->stake_out->chunk0, ctx->stake_out->wmark );
     FD_LOG_NOTICE(("sending current epoch stake weights - epoch: %lu, stake_weight_cnt: %lu, start_slot: %lu, slot_cnt: %lu", stake_weights_msg[0], stake_weights_msg[1], stake_weights_msg[2], stake_weights_msg[3]));
-  }
+  } while( 0 );
+  fd_bank_vote_states_prev_prev_end_locking_query( slot_ctx->bank );
 
-  fd_bank_epoch_stakes_end_locking_query( slot_ctx->bank );
-  fd_vote_accounts_global_t const * next_epoch_stakes = fd_bank_next_epoch_stakes_locking_query( slot_ctx->bank );
-  fd_vote_accounts_pair_global_t_mapnode_t * next_epoch_stakes_root = fd_vote_accounts_vote_accounts_root_join( next_epoch_stakes );
-
-  if( next_epoch_stakes_root!=NULL ) {
+  fd_vote_states_t const * vote_states_prev = fd_bank_vote_states_prev_locking_query( slot_ctx->bank );
+  do {
     ulong * stake_weights_msg = fd_chunk_to_laddr( ctx->stake_out->mem, ctx->stake_out->chunk );
     ulong   epoch             = fd_slot_to_leader_schedule_epoch( epoch_schedule, fd_bank_slot_get( slot_ctx->bank ) ); /* epoch */
-    ulong stake_weights_sz = generate_stake_weight_msg( slot_ctx, epoch, next_epoch_stakes, stake_weights_msg );
-    ulong stake_weights_sig = 4UL;
+    ulong   stake_weights_sz  = generate_stake_weight_msg( slot_ctx, epoch, vote_states_prev, stake_weights_msg );
+    ulong   stake_weights_sig = 4UL;
     fd_stem_publish( stem, 0UL, stake_weights_sig, ctx->stake_out->chunk, stake_weights_sz, 0UL, 0UL, fd_frag_meta_ts_comp( fd_tickcount() ) );
     ctx->stake_out->chunk = fd_dcache_compact_next( ctx->stake_out->chunk, stake_weights_sz, ctx->stake_out->chunk0, ctx->stake_out->wmark );
     FD_LOG_NOTICE(("sending next epoch stake weights - epoch: %lu, stake_weight_cnt: %lu, start_slot: %lu, slot_cnt: %lu", stake_weights_msg[0], stake_weights_msg[1], stake_weights_msg[2], stake_weights_msg[3]));
-  }
-  fd_bank_next_epoch_stakes_end_locking_query( slot_ctx->bank );
+  } while( 0 );
+  fd_bank_vote_states_prev_end_locking_query( slot_ctx->bank );
 }
 
 static void
@@ -526,7 +522,6 @@ restore_slot_ctx( fd_replay_tile_ctx_t * ctx,
 
   fd_exec_slot_ctx_t * recovered_slot_ctx = fd_exec_slot_ctx_recover( ctx->slot_ctx,
                                                                       manifest_global );
-
   if( !recovered_slot_ctx ) {
     FD_LOG_ERR(( "Failed to restore slot context from snapshot manifest!" ));
   }
@@ -684,20 +679,18 @@ init_after_snapshot( fd_replay_tile_ctx_t * ctx ) {
   memset( block_id, 0, sizeof(fd_hash_t) );
   block_id->key[0] = UCHAR_MAX; /* TODO: would be good to have the actual block id of the snapshot slot */
 
-  fd_vote_accounts_global_t const * vote_accounts = fd_bank_curr_epoch_stakes_locking_query( ctx->slot_ctx->bank );
-
-  fd_vote_accounts_pair_global_t_mapnode_t * vote_accounts_pool = fd_vote_accounts_vote_accounts_pool_join( vote_accounts );
-  fd_vote_accounts_pair_global_t_mapnode_t * vote_accounts_root = fd_vote_accounts_vote_accounts_root_join( vote_accounts );
+  fd_vote_states_t const * vote_states = fd_bank_vote_states_locking_query( ctx->slot_ctx->bank );
 
   fd_bank_hash_cmp_t * bank_hash_cmp = ctx->bank_hash_cmp;
-  for( fd_vote_accounts_pair_global_t_mapnode_t * curr = fd_vote_accounts_pair_global_t_map_minimum( vote_accounts_pool, vote_accounts_root );
-       curr;
-       curr = fd_vote_accounts_pair_global_t_map_successor( vote_accounts_pool, curr ) ) {
-    bank_hash_cmp->total_stake += curr->elem.stake;
+
+  uchar iter_mem[FD_VOTE_STATE_ITER_FOOTPRINT];
+  for( fd_vote_states_iter_t * iter = fd_vote_states_iter_init( vote_states, iter_mem ); !fd_vote_states_iter_done( iter ); fd_vote_states_iter_next( iter ) ) {
+    fd_vote_state_ele_t const * vote_state = fd_vote_states_iter_ele( iter );
+    bank_hash_cmp->total_stake += vote_state->stake;
   }
   bank_hash_cmp->watermark = snapshot_slot;
 
-  fd_bank_curr_epoch_stakes_end_locking_query( ctx->slot_ctx->bank );
+  fd_bank_vote_states_end_locking_query( ctx->slot_ctx->bank );
 
   ulong root = snapshot_slot;
   if( FD_LIKELY( root > fd_fseq_query( ctx->published_wmark ) ) ) {
@@ -741,8 +734,8 @@ init_from_snapshot( fd_replay_tile_ctx_t * ctx,
   fd_bank_lthash_end_locking_query( ctx->slot_ctx->bank );
 
   fd_runtime_update_leaders( ctx->slot_ctx->bank,
-    fd_bank_slot_get( ctx->slot_ctx->bank ),
-    ctx->runtime_spad );
+      fd_bank_slot_get( ctx->slot_ctx->bank ),
+      ctx->runtime_spad );
 
   fd_runtime_read_genesis( ctx->slot_ctx,
                            ctx->genesis,
@@ -1054,86 +1047,30 @@ publish_votes_to_plugin( fd_replay_tile_ctx_t * ctx,
                          fd_stem_context_t *    stem ) {
   uchar * dst = (uchar *)fd_chunk_to_laddr( ctx->votes_plugin_out->mem, ctx->votes_plugin_out->chunk );
 
-  fd_vote_accounts_global_t const *          epoch_stakes      = fd_bank_epoch_stakes_locking_query( ctx->slot_ctx->bank );
-  fd_vote_accounts_pair_global_t_mapnode_t * epoch_stakes_pool = fd_vote_accounts_vote_accounts_pool_join( epoch_stakes );
-  fd_vote_accounts_pair_global_t_mapnode_t * epoch_stakes_root = fd_vote_accounts_vote_accounts_root_join( epoch_stakes );
-
+  fd_vote_states_t const * vote_states = fd_bank_vote_states_locking_query( ctx->slot_ctx->bank );
   ulong i = 0;
   FD_SPAD_FRAME_BEGIN( ctx->runtime_spad ) {
-  for( fd_vote_accounts_pair_global_t_mapnode_t const * n = fd_vote_accounts_pair_global_t_map_minimum_const( epoch_stakes_pool, epoch_stakes_root );
-       n && i < FD_CLUSTER_NODE_CNT;
-       n = fd_vote_accounts_pair_global_t_map_successor_const( epoch_stakes_pool, n ) ) {
-    if( n->elem.stake == 0 ) continue;
-
-    uchar * data     = (uchar *)&n->elem.value + n->elem.value.data_offset;
-    ulong   data_len = n->elem.value.data_len;
-
-    int err;
-    fd_vote_state_versioned_t * vsv = fd_bincode_decode_spad(
-        vote_state_versioned, ctx->runtime_spad,
-        data,
-        data_len,
-        &err );
-    if( FD_UNLIKELY( err ) ) {
-      FD_LOG_ERR(( "Unexpected failure in decoding vote state %d", err ));
-    }
-
-    fd_pubkey_t node_pubkey;
-    ulong       commission;
-    ulong       epoch_credits;
-    fd_vote_epoch_credits_t const * _epoch_credits;
-    ulong       root_slot;
-
-    switch( vsv->discriminant ) {
-      case fd_vote_state_versioned_enum_v0_23_5:
-        node_pubkey   = vsv->inner.v0_23_5.node_pubkey;
-        commission    = vsv->inner.v0_23_5.commission;
-        _epoch_credits = deq_fd_vote_epoch_credits_t_cnt( vsv->inner.v0_23_5.epoch_credits ) == 0 ? NULL : deq_fd_vote_epoch_credits_t_peek_tail_const( vsv->inner.v0_23_5.epoch_credits );
-        epoch_credits = _epoch_credits==NULL ? 0UL : _epoch_credits->credits - _epoch_credits->prev_credits;
-        root_slot     = vsv->inner.v0_23_5.root_slot;
-        break;
-      case fd_vote_state_versioned_enum_v1_14_11:
-        node_pubkey   = vsv->inner.v1_14_11.node_pubkey;
-        commission    = vsv->inner.v1_14_11.commission;
-        _epoch_credits = deq_fd_vote_epoch_credits_t_cnt( vsv->inner.v1_14_11.epoch_credits ) == 0 ? NULL : deq_fd_vote_epoch_credits_t_peek_tail_const( vsv->inner.v1_14_11.epoch_credits );
-        epoch_credits = _epoch_credits==NULL ? 0UL : _epoch_credits->credits - _epoch_credits->prev_credits;
-        root_slot     = vsv->inner.v1_14_11.root_slot;
-        break;
-      case fd_vote_state_versioned_enum_current:
-        node_pubkey   = vsv->inner.current.node_pubkey;
-        commission    = vsv->inner.current.commission;
-        _epoch_credits = deq_fd_vote_epoch_credits_t_cnt( vsv->inner.current.epoch_credits ) == 0 ? NULL : deq_fd_vote_epoch_credits_t_peek_tail_const( vsv->inner.current.epoch_credits );
-        epoch_credits = _epoch_credits==NULL ? 0UL : _epoch_credits->credits - _epoch_credits->prev_credits;
-        root_slot     = vsv->inner.v0_23_5.root_slot;
-        break;
-      default:
-        __builtin_unreachable();
-    }
-
-    fd_clock_timestamp_vote_t_mapnode_t query;
-    memcpy( query.elem.pubkey.uc, n->elem.key.uc, 32UL );
-    fd_clock_timestamp_votes_global_t const * clock_timestamp_votes = fd_bank_clock_timestamp_votes_locking_query( ctx->slot_ctx->bank );
-    fd_clock_timestamp_vote_t_mapnode_t * timestamp_votes_root  = fd_clock_timestamp_votes_votes_root_join( clock_timestamp_votes );
-    fd_clock_timestamp_vote_t_mapnode_t * timestamp_votes_pool  = fd_clock_timestamp_votes_votes_pool_join( clock_timestamp_votes );
-
-    fd_clock_timestamp_vote_t_mapnode_t * res = fd_clock_timestamp_vote_t_map_find( timestamp_votes_pool, timestamp_votes_root, &query );
+  uchar iter_mem[FD_VOTE_STATE_ITER_FOOTPRINT];
+  for( fd_vote_states_iter_t * iter = fd_vote_states_iter_init( vote_states, iter_mem ); !fd_vote_states_iter_done( iter ); fd_vote_states_iter_next( iter ) ) {
+    fd_vote_state_ele_t const * vote_state = fd_vote_states_iter_ele( iter );
 
     fd_vote_update_msg_t * msg = (fd_vote_update_msg_t *)(dst + sizeof(ulong) + i*112U);
     memset( msg, 0, 112U );
-    memcpy( msg->vote_pubkey, n->elem.key.uc, sizeof(fd_pubkey_t) );
-    memcpy( msg->node_pubkey, node_pubkey.uc, sizeof(fd_pubkey_t) );
-    msg->activated_stake = n->elem.stake;
-    msg->last_vote       = res == NULL ? 0UL : res->elem.slot;
-    msg->root_slot       = root_slot;
-    msg->epoch_credits   = epoch_credits;
-    msg->commission      = (uchar)commission;
+    memcpy( msg->vote_pubkey, &vote_state->vote_account, sizeof(fd_pubkey_t) );
+    memcpy( msg->node_pubkey, &vote_state->node_account, sizeof(fd_pubkey_t) );
+    msg->activated_stake = vote_state->stake;
+    msg->last_vote       = vote_state->last_vote_slot;
+    msg->root_slot       = 0UL; /* TODO: needs to be populated in vote_state */
+    msg->epoch_credits   = 0UL; /* TODO: needs to be populated in vote_state */
+    msg->commission      = (uchar)vote_state->commission;
     msg->is_delinquent   = (uchar)fd_int_if(fd_bank_slot_get( ctx->slot_ctx->bank ) >= 128UL, msg->last_vote <= fd_bank_slot_get( ctx->slot_ctx->bank ) - 128UL, msg->last_vote == 0);
+
+
     ++i;
-    fd_bank_clock_timestamp_votes_end_locking_query( ctx->slot_ctx->bank );
   }
   } FD_SPAD_FRAME_END;
 
-  fd_bank_epoch_stakes_end_locking_query( ctx->slot_ctx->bank );
+  fd_bank_vote_states_end_locking_query( ctx->slot_ctx->bank );
 
   *(ulong *)dst = i;
 

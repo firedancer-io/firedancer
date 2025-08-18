@@ -183,52 +183,17 @@ dump_executable_account_if_exists( fd_funk_t const *                 funk,
 /** VOTE ACCOUNTS DUMPING **/
 static void
 dump_vote_accounts( fd_exec_slot_ctx_t const *        slot_ctx,
-                    fd_vote_accounts_global_t const * vote_accounts,
+                    fd_vote_states_t const *          vote_states,
                     fd_spad_t *                       spad,
-                    fd_exec_test_vote_account_t **    out_vote_accounts,
-                    pb_size_t *                       out_vote_accounts_count,
                     fd_exec_test_acct_state_t *       out_acct_states,
                     pb_size_t *                       out_acct_states_cnt ) {
 
-  fd_vote_accounts_pair_global_t_mapnode_t * vote_accounts_pool = fd_vote_accounts_vote_accounts_pool_join( vote_accounts );
-  fd_vote_accounts_pair_global_t_mapnode_t * vote_accounts_root = fd_vote_accounts_vote_accounts_root_join( vote_accounts );
-
-  pb_size_t idx            = 0UL;
-  ulong vote_account_t_cnt = fd_vote_accounts_pair_global_t_map_size( vote_accounts_pool,
-                                                                      vote_accounts_root );
-  fd_exec_test_vote_account_t * vote_account_out = fd_spad_alloc( spad,
-                                                                  alignof(fd_exec_test_vote_account_t),
-                                                                  vote_account_t_cnt * sizeof(fd_exec_test_vote_account_t) );
-
-  for( fd_vote_accounts_pair_global_t_mapnode_t const * curr = fd_vote_accounts_pair_global_t_map_minimum_const(
-          vote_accounts_pool,
-          vote_accounts_root );
-       curr;
-       curr = fd_vote_accounts_pair_global_t_map_successor_const( vote_accounts_pool, curr ) ) {
-    fd_exec_test_vote_account_t * vote_out = &vote_account_out[idx++];
-
-    vote_out->has_vote_account           = true;
-    vote_out->stake                      = curr->elem.stake;
-    vote_out->vote_account.lamports      = curr->elem.value.lamports;
-    vote_out->vote_account.rent_epoch    = curr->elem.value.rent_epoch;
-    vote_out->vote_account.executable    = curr->elem.value.executable;
-    vote_out->vote_account.has_seed_addr = false;
-
-    fd_memcpy( &vote_out->vote_account.address, &curr->elem.key, sizeof(fd_pubkey_t) );
-    fd_memcpy( &vote_out->vote_account.owner, &curr->elem.value.owner, sizeof(fd_pubkey_t) );
-
-    vote_out->vote_account.data = fd_spad_alloc( spad, alignof(pb_bytes_array_t), PB_BYTES_ARRAY_T_ALLOCSIZE( curr->elem.value.data_len ) );
-    vote_out->vote_account.data->size = (pb_size_t) curr->elem.value.data_len;
-
-    uchar * data = fd_solana_account_data_join( &curr->elem.value );
-    fd_memcpy( &vote_out->vote_account.data->bytes, data, curr->elem.value.data_len );
-
-    // Dump the vote account
-    dump_account_if_not_already_dumped( slot_ctx->funk, slot_ctx->funk_txn, &curr->elem.key, spad, out_acct_states, out_acct_states_cnt, NULL );
+  uchar iter_mem[FD_VOTE_STATE_ITER_FOOTPRINT];
+  for( fd_vote_states_iter_t * iter = fd_vote_states_iter_init( vote_states, iter_mem ); !fd_vote_states_iter_done( iter ); fd_vote_states_iter_next( iter ) ) {
+    fd_vote_state_ele_t const * vote_state = fd_vote_states_iter_ele( iter );
+    dump_account_if_not_already_dumped( slot_ctx->funk, slot_ctx->funk_txn, &vote_state->vote_account, spad, out_acct_states, out_acct_states_cnt, NULL );
   }
 
-  *out_vote_accounts       = vote_account_out;
-  *out_vote_accounts_count = idx;
 }
 
 /** TRANSACTION DUMPING **/
@@ -424,34 +389,22 @@ create_block_context_protobuf_from_block( fd_exec_test_block_context_t * block_c
   ulong num_sysvar_entries    = (sizeof(fd_relevant_sysvar_ids) / sizeof(fd_pubkey_t));
   ulong num_loaded_builtins   = (sizeof(loaded_builtins) / sizeof(fd_pubkey_t));
 
-  fd_stake_delegation_t * stake_delegations_pool = fd_stake_delegations_get_pool( fd_bank_stake_delegations_locking_query( slot_ctx->bank ) );
-
-  fd_vote_accounts_global_t const * vote_accounts = fd_bank_curr_epoch_stakes_locking_query( slot_ctx->bank );
-  fd_vote_accounts_pair_global_t_mapnode_t * stakes_vote_accounts_pool = fd_vote_accounts_vote_accounts_pool_join( vote_accounts );
-  fd_vote_accounts_pair_global_t_mapnode_t * stakes_vote_accounts_root = fd_vote_accounts_vote_accounts_root_join( vote_accounts );
-
-  ulong stake_account_cnt     = fd_stake_delegation_pool_used( stake_delegations_pool );
-
-  ulong vote_account_t_cnt    = fd_vote_accounts_pair_global_t_map_size( stakes_vote_accounts_pool,
-                                                                         stakes_vote_accounts_root );
-
-  fd_bank_curr_epoch_stakes_end_locking_query( slot_ctx->bank );
+  fd_stake_delegations_t const * stake_delegations = fd_bank_stake_delegations_locking_query( slot_ctx->bank );
+  ulong stake_account_cnt     = fd_stake_delegations_cnt( stake_delegations );
   fd_bank_stake_delegations_end_locking_query( slot_ctx->bank );
 
+  fd_vote_states_t const * vote_states = fd_bank_vote_states_locking_query( slot_ctx->bank );
+  ulong vote_account_t_cnt    = fd_vote_states_cnt( vote_states );
+  fd_bank_vote_states_end_locking_query( slot_ctx->bank );
 
-  fd_vote_accounts_global_t const * next_epoch_stakes = fd_bank_next_epoch_stakes_locking_query( slot_ctx->bank );
-  fd_vote_accounts_pair_global_t_mapnode_t * next_epoch_stakes_pool = fd_vote_accounts_vote_accounts_pool_join( next_epoch_stakes );
-  fd_vote_accounts_pair_global_t_mapnode_t * next_epoch_stakes_root = fd_vote_accounts_vote_accounts_root_join( next_epoch_stakes );
-  ulong vote_account_t_1_cnt  = fd_vote_accounts_pair_global_t_map_size( next_epoch_stakes_pool,
-                                                                         next_epoch_stakes_root );
-  fd_bank_next_epoch_stakes_end_locking_query( slot_ctx->bank );
 
-  fd_vote_accounts_global_t const * epoch_stakes = fd_bank_epoch_stakes_locking_query( slot_ctx->bank );
-  fd_vote_accounts_pair_global_t_mapnode_t * epoch_stakes_pool = fd_vote_accounts_vote_accounts_pool_join( epoch_stakes );
-  fd_vote_accounts_pair_global_t_mapnode_t * epoch_stakes_root = fd_vote_accounts_vote_accounts_root_join( epoch_stakes );
-  ulong vote_account_t_2_cnt  = fd_vote_accounts_pair_global_t_map_size( epoch_stakes_pool,
-                                                                         epoch_stakes_root );
-  fd_bank_epoch_stakes_end_locking_query( slot_ctx->bank );
+  fd_vote_states_t const * vote_states_prev = fd_bank_vote_states_prev_locking_query( slot_ctx->bank );
+  ulong vote_account_t_1_cnt  = fd_vote_states_cnt( vote_states_prev );
+  fd_bank_vote_states_prev_end_locking_query( slot_ctx->bank );
+
+  fd_vote_states_t const * vote_states_prev_prev = fd_bank_vote_states_prev_prev_locking_query( slot_ctx->bank );
+  ulong vote_account_t_2_cnt = fd_vote_states_cnt( vote_states_prev_prev );
+  fd_bank_vote_states_prev_prev_end_locking_query( slot_ctx->bank );
 
   ulong total_num_accounts    = num_sysvar_entries +
                                 num_loaded_builtins +
@@ -515,7 +468,7 @@ create_block_context_protobuf_from_block( fd_exec_test_block_context_t * block_c
 
   /* Dumping stake accounts for this epoch */
 
-  fd_stake_delegations_t const * stake_delegations = fd_bank_stake_delegations_locking_query( slot_ctx->bank );
+  stake_delegations = fd_bank_stake_delegations_locking_query( slot_ctx->bank );
   fd_stake_delegation_map_t * map = fd_stake_delegations_get_map( stake_delegations );
   fd_stake_delegation_t *     pool = fd_stake_delegations_get_pool( stake_delegations );
 
@@ -530,41 +483,32 @@ create_block_context_protobuf_from_block( fd_exec_test_block_context_t * block_c
 
   /* Dumping vote accounts for this epoch */
 
-  fd_vote_accounts_global_t const * curr_vote_accounts = fd_bank_curr_epoch_stakes_locking_query( slot_ctx->bank );
-  fd_vote_accounts_pair_global_t_mapnode_t * vote_accounts_pool = fd_vote_accounts_vote_accounts_pool_join( curr_vote_accounts );
-  fd_vote_accounts_pair_global_t_mapnode_t * vote_accounts_root = fd_vote_accounts_vote_accounts_root_join( curr_vote_accounts );
-
-  /* Dump all existing vote accounts */
-  for( fd_vote_accounts_pair_global_t_mapnode_t const * curr = fd_vote_accounts_pair_global_t_map_minimum_const(
-          vote_accounts_pool,
-          vote_accounts_root );
-       curr;
-       curr = fd_vote_accounts_pair_global_t_map_successor_const( vote_accounts_pool, curr ) ) {
-    dump_account_if_not_already_dumped( slot_ctx->funk, slot_ctx->funk_txn, &curr->elem.key, spad, block_context->acct_states, &block_context->acct_states_count, NULL );
+  vote_states = fd_bank_vote_states_locking_query( slot_ctx->bank );
+  uchar iter_mem[FD_VOTE_STATE_ITER_FOOTPRINT];
+  for( fd_vote_states_iter_t * iter = fd_vote_states_iter_init( vote_states, iter_mem ); !fd_vote_states_iter_done( iter ); fd_vote_states_iter_next( iter ) ) {
+    fd_vote_state_ele_t const * vote_state = fd_vote_states_iter_ele( iter );
+    dump_account_if_not_already_dumped( slot_ctx->funk, slot_ctx->funk_txn, &vote_state->vote_account, spad, block_context->acct_states, &block_context->acct_states_count, NULL );
   }
 
-  fd_bank_curr_epoch_stakes_end_locking_query( slot_ctx->bank );
+  fd_bank_vote_states_end_locking_query( slot_ctx->bank );
 
   // BlockContext -> EpochContext -> vote_accounts_t_1 (vote accounts at epoch T-1)
-  fd_vote_accounts_global_t const * next_epoch_stakes_vaccs = fd_bank_next_epoch_stakes_locking_query( slot_ctx->bank );
+  vote_states_prev = fd_bank_vote_states_prev_locking_query( slot_ctx->bank );
   dump_vote_accounts( slot_ctx,
-                      next_epoch_stakes_vaccs,
+                      vote_states_prev,
                       spad,
-                      &block_context->epoch_ctx.vote_accounts_t_1,
-                      &block_context->epoch_ctx.vote_accounts_t_1_count,
                       block_context->acct_states,
                       &block_context->acct_states_count );
+  fd_bank_vote_states_prev_end_locking_query( slot_ctx->bank );
 
   // BlockContext -> EpochContext -> vote_accounts_t_2 (vote accounts at epoch T-2)
-  fd_vote_accounts_global_t const * epoch_stakes_vaccs = fd_bank_epoch_stakes_locking_query( slot_ctx->bank );
+  vote_states_prev_prev = fd_bank_vote_states_prev_prev_locking_query( slot_ctx->bank );
   dump_vote_accounts( slot_ctx,
-                      epoch_stakes_vaccs,
+                      vote_states,
                       spad,
-                      &block_context->epoch_ctx.vote_accounts_t_2,
-                      &block_context->epoch_ctx.vote_accounts_t_2_count,
                       block_context->acct_states,
                       &block_context->acct_states_count );
-  fd_bank_epoch_stakes_end_locking_query( slot_ctx->bank );
+  fd_bank_vote_states_prev_prev_end_locking_query( slot_ctx->bank );
 }
 
 static void

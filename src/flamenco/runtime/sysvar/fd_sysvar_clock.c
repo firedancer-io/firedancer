@@ -120,19 +120,27 @@ estimate_timestamp( fd_bank_t * bank ) {
   /* TODO: bound the estimate to ensure it stays within a certain range of the expected PoH clock:
   https://github.com/solana-labs/solana/blob/8f2c8b8388a495d2728909e30460aa40dcc5d733/runtime/src/stake_weighted_timestamp.rs#L13 */
 
-  fd_clock_timestamp_votes_global_t const * clock_timestamp_votes = fd_bank_clock_timestamp_votes_locking_query( bank );
-  fd_clock_timestamp_vote_t_mapnode_t *     votes                  = !!clock_timestamp_votes ? fd_clock_timestamp_votes_votes_root_join( clock_timestamp_votes ) : NULL;
-  if( NULL==votes ) {
-    fd_bank_clock_timestamp_votes_end_locking_query( bank );
+  /* TODO: actually take the stake-weighted median. For now, just use a node. */
+  fd_vote_states_t const * vote_states = fd_bank_vote_states_locking_query( bank );
+
+  if( !fd_vote_states_cnt( vote_states ) ) {
+    fd_bank_vote_states_end_locking_query( bank );
     return timestamp_from_genesis( bank );
   }
 
-  /* TODO: actually take the stake-weighted median. For now, just use the root node. */
-  fd_clock_timestamp_vote_t * head          = &votes->elem;
-  ulong                       slots         = fd_bank_slot_get( bank ) - head->slot;
-  uint128                     ns_correction = fd_bank_ns_per_slot_get( bank ) * slots;
-  fd_bank_clock_timestamp_votes_end_locking_query( bank );
-  return head->timestamp  + (long) (ns_correction / NS_IN_S) ;
+  uchar iter_mem[FD_VOTE_STATE_ITER_FOOTPRINT];
+  fd_vote_states_iter_t * iter = fd_vote_states_iter_init( vote_states, iter_mem );
+
+  fd_vote_state_ele_t const * vote_state = fd_vote_states_iter_ele( iter );
+
+  ulong slots = fd_bank_slot_get( bank ) - vote_state->last_vote_slot;
+  uint128 ns_correction = fd_bank_ns_per_slot_get( bank ) * slots;
+
+  long timestamp = vote_state->last_vote_timestamp + (long)(ns_correction / NS_IN_S);
+
+  fd_bank_vote_states_end_locking_query( bank );
+
+  return timestamp;
 }
 
 #define CIDX_T ulong
@@ -172,7 +180,7 @@ FD_FN_CONST static inline int valcmp (VAL_T a, VAL_T b) {
 #define TREAP_IMPL_STYLE 0
 #include "../../../util/tmpl/fd_treap.c"
 
-/* https://github.com/solana-labs/solana/blob/c091fd3da8014c0ef83b626318018f238f506435/runtime/src/bank.rs#L3600 */
+/* https://github.com/anza-xyz/agave/blob/v2.3.1/runtime/src/bank.rs#L2563 */
 void
 fd_calculate_stake_weighted_timestamp( fd_exec_slot_ctx_t * slot_ctx,
                                        long *               result_timestamp,
@@ -186,152 +194,101 @@ fd_calculate_stake_weighted_timestamp( fd_exec_slot_ctx_t * slot_ctx,
   FD_SPAD_FRAME_BEGIN( spad ) {
 
   ulong slot_duration = (ulong)fd_bank_ns_per_slot_get( bank );
-  // get the unique timestamps
-  /* stake per timestamp */
 
-  /* Set up a temporary treap, pool, and rng (required for treap prio) */
-  /* FIXME: Hardcoded constant */
+  /* Set up a temporary treap, pool, and rng (required for treap prio).
+     This is to establish a mapping between each vote timestamp and the
+     amount of stake associated with each timestamp. */
   stake_ts_treap_t   _treap[1];
-  stake_ts_treap_t * treap    = stake_ts_treap_join( stake_ts_treap_new( _treap, 10240UL ) );
-  uchar *            pool_mem = fd_spad_alloc( spad, stake_ts_pool_align(), stake_ts_pool_footprint( 10240UL ) );
-  stake_ts_ele_t *   pool     = stake_ts_pool_join( stake_ts_pool_new( pool_mem, 10240UL ) );
+  stake_ts_treap_t * treap    = stake_ts_treap_join( stake_ts_treap_new( _treap, FD_RUNTIME_MAX_VOTE_ACCOUNTS ) );
+  uchar *            pool_mem = fd_spad_alloc( spad, stake_ts_pool_align(), stake_ts_pool_footprint( FD_RUNTIME_MAX_VOTE_ACCOUNTS ) );
+  stake_ts_ele_t *   pool     = stake_ts_pool_join( stake_ts_pool_new( pool_mem, FD_RUNTIME_MAX_VOTE_ACCOUNTS ) );
   uint               txn_cnt  = (uint)fd_bank_transaction_count_get( bank );
 
   fd_rng_t           _rng[1];
   fd_rng_t *         rng      = fd_rng_join( fd_rng_new( _rng, txn_cnt, 0UL ) );
 
-  ulong total_stake = 0;
+  uint128 total_stake = 0UL;
 
-  fd_clock_timestamp_votes_global_t const * clock_timestamp_votes = fd_bank_clock_timestamp_votes_locking_query( bank );
-  if( FD_UNLIKELY( !clock_timestamp_votes ) ) {
-    fd_bank_clock_timestamp_votes_end_locking_query( bank );
-    *result_timestamp = 0;
-    return;
-  }
+  /* A timestamp estimate is calculated at every slot using the most
+     recent vote states of voting validators. This estimated is based on
+     a stake weighted median using the stake as of the end of epoch E-2
+     if we are currently in epoch E. We do not count vote accounts that
+     have not voted in an epoch's worth of slots (432k). */
+  fd_vote_states_t const * vote_states           = fd_bank_vote_states_locking_query( bank );
+  fd_vote_states_t const * vote_states_prev_prev = fd_bank_vote_states_prev_prev_locking_query( bank );
 
-  fd_clock_timestamp_vote_t_mapnode_t *      timestamp_votes_pool = fd_clock_timestamp_votes_votes_pool_join( clock_timestamp_votes );
-  fd_clock_timestamp_vote_t_mapnode_t *      timestamp_votes_root = fd_clock_timestamp_votes_votes_root_join( clock_timestamp_votes );
-
-  fd_vote_accounts_global_t const *          epoch_stakes  = fd_bank_epoch_stakes_locking_query( bank );
-  fd_vote_accounts_pair_global_t_mapnode_t * vote_acc_pool = fd_vote_accounts_vote_accounts_pool_join( epoch_stakes );
-  fd_vote_accounts_pair_global_t_mapnode_t * vote_acc_root = fd_vote_accounts_vote_accounts_root_join( epoch_stakes );
-
-  for( fd_vote_accounts_pair_global_t_mapnode_t * n = fd_vote_accounts_pair_global_t_map_minimum(vote_acc_pool, vote_acc_root);
-       n;
-       n = fd_vote_accounts_pair_global_t_map_successor( vote_acc_pool, n ) ) {
-
-    /* get timestamp */
-    fd_pubkey_t const * vote_pubkey = &n->elem.key;
-
-    if( timestamp_votes_pool == NULL ) {
+  uchar iter_mem[FD_VOTE_STATE_ITER_FOOTPRINT];
+  for( fd_vote_states_iter_t * iter = fd_vote_states_iter_init( vote_states, iter_mem );
+       !fd_vote_states_iter_done( iter );
+       fd_vote_states_iter_next( iter ) ) {
+    fd_vote_state_ele_t const * vote_state      = fd_vote_states_iter_ele( iter );
+    fd_vote_state_ele_t const * vote_state_prev = fd_vote_states_query_const( vote_states_prev_prev, &vote_state->vote_account );
+    if( !vote_state_prev ) {
+      /* Don't count vote accounts that didn't have stake at the end of
+         epoch E-2. */
       continue;
+    }
+    ulong vote_stake     = vote_state_prev->stake;
+    ulong vote_timestamp = (ulong)vote_state->last_vote_timestamp;
+    ulong vote_slot      = vote_state->last_vote_slot;
+
+    ulong slot_delta = fd_ulong_sat_sub( fd_bank_slot_get( bank ), vote_slot );
+    fd_epoch_schedule_t const * epoch_schedule = fd_bank_epoch_schedule_query( bank );
+    if( slot_delta>epoch_schedule->slots_per_epoch ) {
+      /* Don't count vote accounts that haven't voted in the past 432k
+         slots (length of an epoch). */
+      continue;
+    }
+
+    ulong offset   = fd_ulong_sat_mul(slot_duration, slot_delta);
+    long  estimate = (long)vote_timestamp + (long)(offset / NS_IN_S);
+    /* get stake */
+    total_stake += vote_stake;
+    ulong treap_idx = stake_ts_treap_idx_query( treap, estimate, pool );
+    if ( FD_LIKELY( treap_idx < ULONG_MAX ) ) {
+      pool[ treap_idx ].stake += vote_stake;
     } else {
-      fd_clock_timestamp_vote_t_mapnode_t query_vote_acc_node;
-      query_vote_acc_node.elem.pubkey = *vote_pubkey;
-      fd_clock_timestamp_vote_t_mapnode_t * vote_acc_node = fd_clock_timestamp_vote_t_map_find( timestamp_votes_pool,
-                                                                                                timestamp_votes_root,
-                                                                                                &query_vote_acc_node );
-      ulong vote_timestamp = 0;
-      ulong vote_slot = 0;
-      if( vote_acc_node == NULL ) {
-        int err;
-
-        uchar * data     = fd_solana_account_data_join( &n->elem.value );
-        ulong   data_len = n->elem.value.data_len;
-
-        FD_SPAD_FRAME_BEGIN( spad ) {
-          fd_vote_state_versioned_t * vsv = fd_bincode_decode_spad(
-              vote_state_versioned, spad,
-              data,
-              data_len,
-              &err );
-          if( FD_UNLIKELY( err!=FD_BINCODE_SUCCESS ) ) {
-            FD_LOG_WARNING(( "Vote state versioned decode failed" ));
-            continue;
-          }
-
-          switch( vsv->discriminant ) {
-          case fd_vote_state_versioned_enum_v0_23_5:
-            vote_timestamp = (ulong)vsv->inner.v0_23_5.last_timestamp.timestamp;
-            vote_slot = vsv->inner.v0_23_5.last_timestamp.slot;
-            break;
-          case fd_vote_state_versioned_enum_v1_14_11:
-            vote_timestamp = (ulong)vsv->inner.v1_14_11.last_timestamp.timestamp;
-            vote_slot = vsv->inner.v1_14_11.last_timestamp.slot;
-            break;
-          case fd_vote_state_versioned_enum_current:
-            vote_timestamp = (ulong)vsv->inner.current.last_timestamp.timestamp;
-            vote_slot = vsv->inner.current.last_timestamp.slot;
-            break;
-          default:
-            __builtin_unreachable();
-          }
-        }
-        FD_SPAD_FRAME_END;
-
-      } else {
-        vote_timestamp = (ulong)vote_acc_node->elem.timestamp;
-        vote_slot = vote_acc_node->elem.slot;
+      if( 0 == stake_ts_pool_free( pool ) ) {
+        FD_LOG_ERR(( "stake_ts_pool is empty" ));
       }
-
-      ulong slot_delta = fd_ulong_sat_sub(fd_bank_slot_get( bank ), vote_slot);
-      fd_epoch_schedule_t const * epoch_schedule = fd_bank_epoch_schedule_query( bank );
-      if( slot_delta > epoch_schedule->slots_per_epoch ) {
-        continue;
-      }
-
-      ulong offset   = fd_ulong_sat_mul(slot_duration, slot_delta);
-      long  estimate = (long)vote_timestamp + (long)(offset / NS_IN_S);
-      /* get stake */
-      total_stake += n->elem.stake;
-      ulong treap_idx = stake_ts_treap_idx_query( treap, estimate, pool );
-      if ( FD_LIKELY( treap_idx < ULONG_MAX ) ) {
-        pool[ treap_idx ].stake += n->elem.stake;
-      } else {
-        if( 0 == stake_ts_pool_free( pool ) ) {
-          FD_LOG_ERR(( "stake_ts_pool is empty" ));
-        }
-        ulong idx = stake_ts_pool_idx_acquire( pool );
-        pool[ idx ].prio_cidx = fd_rng_ulong( rng );
-        pool[ idx ].timestamp = estimate;
-        pool[ idx ].stake     = n->elem.stake;
-        stake_ts_treap_idx_insert( treap, idx, pool );
-      }
+      ulong idx = stake_ts_pool_idx_acquire( pool );
+      pool[ idx ].prio_cidx = fd_rng_ulong( rng );
+      pool[ idx ].timestamp = estimate;
+      pool[ idx ].stake     = vote_stake;
+      stake_ts_treap_idx_insert( treap, idx, pool );
     }
   }
-  fd_bank_epoch_stakes_end_locking_query( bank );
-  fd_bank_clock_timestamp_votes_end_locking_query( bank );
+  fd_bank_vote_states_end_locking_query( bank );
+  fd_bank_vote_states_prev_prev_end_locking_query( bank );
 
   *result_timestamp = 0;
-  if( total_stake == 0 ) {
+  if( FD_UNLIKELY( total_stake==0UL ) ) {
     return;
   }
 
-  // FIXME: this should be a uint128
-  ulong stake_accumulator = 0;
+  uint128 stake_accumulator = 0;
   for( stake_ts_treap_fwd_iter_t iter = stake_ts_treap_fwd_iter_init( treap, pool );
        !stake_ts_treap_fwd_iter_done( iter );
        iter = stake_ts_treap_fwd_iter_next( iter, pool ) ) {
     ulong idx         = stake_ts_treap_fwd_iter_idx( iter );
-    stake_accumulator = fd_ulong_sat_add(stake_accumulator, pool[ idx ].stake);
-    if( stake_accumulator > (total_stake / 2) ) {
+    stake_accumulator = fd_uint128_sat_add( stake_accumulator, pool[ idx ].stake );
+    if( stake_accumulator>(total_stake/2UL) ) {
       *result_timestamp = pool[ idx ].timestamp;
       break;
     }
   }
 
-  FD_LOG_DEBUG(( "stake weighted timestamp: %ld total stake %lu", *result_timestamp, total_stake ));
+  FD_LOG_DEBUG(( "stake weighted timestamp: %ld total stake %lu", *result_timestamp, (ulong)total_stake ));
 
   int const fix_estimate_into_u64 = FD_FEATURE_ACTIVE_BANK( bank, warp_timestamp_again );
 
   // Bound estimate by `max_allowable_drift` since the start of the epoch
   fd_epoch_schedule_t const * epoch_schedule   = fd_bank_epoch_schedule_query( bank );
   ulong                       epoch_start_slot = fd_epoch_slot0( epoch_schedule, clock->epoch );
-  FD_LOG_DEBUG(( "Epoch start slot %lu", epoch_start_slot ));
   ulong poh_estimate_offset = fd_ulong_sat_mul( slot_duration, fd_ulong_sat_sub( fd_bank_slot_get( bank ), epoch_start_slot ) );
   ulong estimate_offset     = fd_ulong_sat_mul( NS_IN_S, (fix_estimate_into_u64) ? fd_ulong_sat_sub( (ulong)*result_timestamp, (ulong)clock->epoch_start_timestamp ) : (ulong)(*result_timestamp - clock->epoch_start_timestamp));
-  ulong max_delta_fast      = fd_ulong_sat_mul( poh_estimate_offset, MAX_ALLOWABLE_DRIFT_FAST ) / 100;
-  ulong max_delta_slow      = fd_ulong_sat_mul( poh_estimate_offset, MAX_ALLOWABLE_DRIFT_SLOW ) / 100;
+  ulong max_delta_fast      = fd_ulong_sat_mul( poh_estimate_offset, MAX_ALLOWABLE_DRIFT_FAST ) / 100UL;
+  ulong max_delta_slow      = fd_ulong_sat_mul( poh_estimate_offset, MAX_ALLOWABLE_DRIFT_SLOW ) / 100UL;
   FD_LOG_DEBUG(( "poh offset %lu estimate %lu fast %lu slow %lu", poh_estimate_offset, estimate_offset, max_delta_fast, max_delta_slow ));
   if( estimate_offset > poh_estimate_offset && fd_ulong_sat_sub(estimate_offset, poh_estimate_offset) > max_delta_slow ) {
     *result_timestamp = clock->epoch_start_timestamp + (long)poh_estimate_offset / NS_IN_S + (long)max_delta_slow / NS_IN_S;
@@ -339,7 +296,7 @@ fd_calculate_stake_weighted_timestamp( fd_exec_slot_ctx_t * slot_ctx,
     *result_timestamp = clock->epoch_start_timestamp + (long)poh_estimate_offset / NS_IN_S - (long)max_delta_fast / NS_IN_S;
   }
 
-  if (*result_timestamp < clock->unix_timestamp) {
+  if( *result_timestamp<clock->unix_timestamp ) {
     FD_LOG_DEBUG(( "updated timestamp to ancestor" ));
     *result_timestamp = clock->unix_timestamp;
   }

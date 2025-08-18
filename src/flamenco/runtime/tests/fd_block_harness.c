@@ -19,9 +19,8 @@
 /* Stripped down version of `fd_refresh_vote_accounts()` that simply refreshes the stake delegation amount
    for each of the vote accounts using the stake delegations cache. */
 static void
-fd_runtime_fuzz_block_refresh_vote_accounts( fd_vote_accounts_pair_global_t_mapnode_t * vote_accounts_pool,
-                                             fd_vote_accounts_pair_global_t_mapnode_t * vote_accounts_root,
-                                             fd_stake_delegations_t *                   stake_delegations ) {
+fd_runtime_fuzz_block_refresh_vote_accounts( fd_vote_states_t *       vote_states,
+                                             fd_stake_delegations_t * stake_delegations ) {
   fd_stake_delegation_map_t * map  = fd_stake_delegations_get_map( stake_delegations );
   fd_stake_delegation_t *     pool = fd_stake_delegations_get_pool( stake_delegations );
 
@@ -34,12 +33,10 @@ fd_runtime_fuzz_block_refresh_vote_accounts( fd_vote_accounts_pair_global_t_mapn
     ulong         stake        = node->stake;
 
     /* Find the voter in the vote accounts cache and update their delegation amount */
-    fd_vote_accounts_pair_global_t_mapnode_t vode_node[1];
-    fd_memcpy( vode_node->elem.key.uc, voter_pubkey, sizeof(fd_pubkey_t) );
-    fd_vote_accounts_pair_global_t_mapnode_t * found_node = fd_vote_accounts_pair_global_t_map_find( vote_accounts_pool, vote_accounts_root, vode_node );
-    if( FD_LIKELY( found_node ) ) {
-      found_node->elem.stake += stake;
-    }
+    fd_vote_state_ele_t * vote_state = fd_vote_states_query( vote_states, voter_pubkey );
+    ulong vote_stake = vote_state->stake;
+    fd_vote_states_update_stake( vote_states, voter_pubkey, vote_stake + stake );
+
   }
 }
 
@@ -47,11 +44,10 @@ fd_runtime_fuzz_block_refresh_vote_accounts( fd_vote_accounts_pair_global_t_mapn
    from the current present account state. This function also registers a vote timestamp
    for the vote account */
 static void
-fd_runtime_fuzz_block_register_vote_account( fd_exec_slot_ctx_t *                        slot_ctx,
-                                             fd_vote_accounts_pair_global_t_mapnode_t *  pool,
-                                             fd_vote_accounts_pair_global_t_mapnode_t ** root,
-                                             fd_pubkey_t *                               pubkey,
-                                             fd_spad_t *                                 spad ) {
+fd_runtime_fuzz_block_register_vote_account( fd_exec_slot_ctx_t * slot_ctx,
+                                             fd_vote_states_t *   vote_states,
+                                             fd_pubkey_t *        pubkey,
+                                             fd_spad_t *          spad ) {
   FD_TXN_ACCOUNT_DECL( acc );
   if( FD_UNLIKELY( fd_txn_account_init_from_funk_readonly( acc, pubkey, slot_ctx->funk, slot_ctx->funk_txn ) ) ) {
     return;
@@ -79,47 +75,11 @@ fd_runtime_fuzz_block_register_vote_account( fd_exec_slot_ctx_t *               
     return;
   }
 
-  /* Nothing to do if the account already exists in the cache */
-  fd_vote_accounts_pair_global_t_mapnode_t existing_node[1];
-  fd_memcpy( existing_node->elem.key.uc, pubkey, sizeof(fd_pubkey_t) );
-  if( fd_vote_accounts_pair_global_t_map_find( pool, *root, existing_node ) ) {
-    return;
-  }
-
-  /* At this point, the node is new and needs to be inserted into the cache. */
-  fd_vote_accounts_pair_global_t_mapnode_t * node_to_insert = fd_vote_accounts_pair_global_t_map_acquire( pool );
-  fd_memcpy( node_to_insert->elem.key.uc, pubkey, sizeof(fd_pubkey_t) );
-
-  ulong account_dlen                    = fd_txn_account_get_data_len( acc );
-  node_to_insert->elem.stake            = 0UL; // This will get set later
-  node_to_insert->elem.value.executable = !!fd_txn_account_is_executable( acc );
-  node_to_insert->elem.value.lamports   = fd_txn_account_get_lamports( acc );
-  node_to_insert->elem.value.rent_epoch = fd_txn_account_get_rent_epoch( acc );
-  node_to_insert->elem.value.data_len   = account_dlen;
-
-  uchar * data = fd_spad_alloc( spad, alignof(uchar), account_dlen );
-  memcpy( data, fd_txn_account_get_data( acc ), account_dlen );
-  fd_solana_account_data_update( &node_to_insert->elem.value, data );
-
-  fd_vote_accounts_pair_global_t_map_insert( pool, root, node_to_insert );
-
-  /* Record a timestamp for the vote account */
-  fd_vote_block_timestamp_t const * ts = NULL;
-  switch( vsv->discriminant ) {
-    case fd_vote_state_versioned_enum_v0_23_5:
-      ts = &vsv->inner.v0_23_5.last_timestamp;
-      break;
-    case fd_vote_state_versioned_enum_v1_14_11:
-      ts = &vsv->inner.v1_14_11.last_timestamp;
-      break;
-    case fd_vote_state_versioned_enum_current:
-      ts = &vsv->inner.current.last_timestamp;
-      break;
-    default:
-      __builtin_unreachable();
-  }
-
-  fd_vote_record_timestamp_vote_with_slot( pubkey, ts->timestamp, ts->slot, slot_ctx->bank );
+  fd_vote_states_update_from_account(
+      vote_states,
+      acc->pubkey,
+      fd_txn_account_get_data( acc ),
+      fd_txn_account_get_data_len( acc ) );
 }
 
 /* Stores an entry in the stake delegations cache for the given vote account. Deserializes and uses the present
@@ -170,27 +130,38 @@ fd_runtime_fuzz_block_register_stake_delegation( fd_exec_slot_ctx_t *     slot_c
 static void
 fd_runtime_fuzz_block_update_prev_epoch_votes_cache( fd_vote_accounts_pair_global_t_mapnode_t *  pool,
                                                      fd_vote_accounts_pair_global_t_mapnode_t ** root,
+                                                     fd_vote_states_t *                   vote_states,
                                                      fd_exec_test_vote_account_t *        vote_accounts,
                                                      pb_size_t                            vote_accounts_cnt,
                                                      fd_spad_t *                          spad ) {
   for( uint i=0U; i<vote_accounts_cnt; i++ ) {
-    fd_exec_test_acct_state_t * vote_account = &vote_accounts[i].vote_account;
-    ulong                       stake        = vote_accounts[i].stake;
+    fd_exec_test_acct_state_t * vote_account  = &vote_accounts[i].vote_account;
+    ulong                       stake         = vote_accounts[i].stake;
+    uchar *                     vote_data     = vote_account->data->bytes;
+    ulong                       vote_data_len = vote_account->data->size;
+    fd_pubkey_t                 vote_address  = {0};
+    fd_memcpy( &vote_address, vote_account->address, sizeof(fd_pubkey_t) );
 
-    fd_vote_accounts_pair_global_t_mapnode_t * vote_node = fd_vote_accounts_pair_global_t_map_acquire( pool );
-    vote_node->elem.stake = stake;
-    fd_memcpy( &vote_node->elem.key, vote_account->address, sizeof(fd_pubkey_t) );
-    vote_node->elem.value.executable = vote_account->executable;
-    vote_node->elem.value.lamports   = vote_account->lamports;
-    vote_node->elem.value.rent_epoch = vote_account->rent_epoch;
-    vote_node->elem.value.data_len   = vote_account->data->size;
-    fd_memcpy( &vote_node->elem.value.owner, vote_account->owner, sizeof(fd_pubkey_t) );
+    if( !!pool ) {
 
-    uchar * data = fd_spad_alloc( spad, alignof(uchar), vote_account->data->size );
-    memcpy( data, vote_account->data->bytes, vote_account->data->size );
-    fd_solana_account_data_update( &vote_node->elem.value, data );
+      fd_vote_accounts_pair_global_t_mapnode_t * vote_node = fd_vote_accounts_pair_global_t_map_acquire( pool );
+      vote_node->elem.stake            = stake;
+      vote_node->elem.key              = vote_address;
+      vote_node->elem.value.executable = vote_account->executable;
+      vote_node->elem.value.lamports   = vote_account->lamports;
+      vote_node->elem.value.rent_epoch = vote_account->rent_epoch;
+      vote_node->elem.value.data_len   = vote_account->data->size;
+      fd_memcpy( &vote_node->elem.value.owner, vote_account->owner, sizeof(fd_pubkey_t) );
 
-    fd_vote_accounts_pair_global_t_map_insert( pool, root, vote_node );
+      uchar * data = fd_spad_alloc( spad, alignof(uchar), vote_account->data->size );
+      memcpy( data, vote_account->data->bytes, vote_account->data->size );
+      fd_solana_account_data_update( &vote_node->elem.value, data );
+
+      fd_vote_accounts_pair_global_t_map_insert( pool, root, vote_node );
+    }
+
+    fd_vote_states_update_from_account( vote_states, &vote_address, vote_data, vote_data_len );
+    fd_vote_states_update_stake( vote_states, &vote_address, stake );
   }
 }
 
@@ -220,9 +191,6 @@ fd_runtime_fuzz_block_ctx_create( fd_solfuzz_runner_t *                runner,
   fd_funk_txn_t * funk_txn = fd_funk_txn_prepare( funk, NULL, xid, 1 );
   fd_funk_txn_end_write( funk );
 
-  /* Allocate contexts */
-  ulong vote_acct_max = fd_ulong_max( 128UL, test_ctx->acct_states_count );
-
   /* Restore feature flags */
   fd_features_t features = {0};
   if( !fd_runtime_fuzz_restore_features( &features, &test_ctx->epoch_ctx.features ) ) {
@@ -242,16 +210,6 @@ fd_runtime_fuzz_block_ctx_create( fd_solfuzz_runner_t *                runner,
   fd_memcpy( bank_hash, test_ctx->slot_ctx.parent_bank_hash, sizeof(fd_hash_t) );
 
   /* All bank mgr stuff here. */
-
-  /* Initialize vote timestamps cache */
-  fd_clock_timestamp_votes_global_t * clock_timestamp_votes = fd_bank_clock_timestamp_votes_locking_modify( slot_ctx->bank );
-  uchar * pool_mem = (uchar *)fd_ulong_align_up( (ulong)clock_timestamp_votes + sizeof(fd_clock_timestamp_votes_global_t), fd_clock_timestamp_vote_t_map_align() );
-  fd_clock_timestamp_vote_t_mapnode_t * clock_pool = fd_clock_timestamp_vote_t_map_join( fd_clock_timestamp_vote_t_map_new( pool_mem, 15000UL ) );
-  fd_clock_timestamp_vote_t_mapnode_t * clock_root = NULL;
-
-  fd_clock_timestamp_votes_votes_pool_update( clock_timestamp_votes, clock_pool );
-  fd_clock_timestamp_votes_votes_root_update( clock_timestamp_votes, clock_root );
-  fd_bank_clock_timestamp_votes_end_locking_modify( slot_ctx->bank );
 
   slot_ctx->bank->slot_ = slot;
 
@@ -301,15 +259,23 @@ fd_runtime_fuzz_block_ctx_create( fd_solfuzz_runner_t *                runner,
   /* Initialize the current running epoch stake and vote accounts */
 
   /* SETUP STAKES HERE */
-  fd_vote_accounts_global_t * curr_stakes = fd_bank_curr_epoch_stakes_locking_modify( slot_ctx->bank );
-  pool_mem = (uchar *)fd_ulong_align_up( (ulong)curr_stakes + sizeof(fd_vote_accounts_global_t), fd_vote_accounts_pair_t_map_align() );
-  fd_vote_accounts_pair_global_t_mapnode_t * vote_accounts_pool = fd_vote_accounts_pair_global_t_map_join( fd_vote_accounts_pair_global_t_map_new( pool_mem, vote_acct_max ) );
-  fd_vote_accounts_pair_global_t_mapnode_t * vote_accounts_root = NULL;
+  fd_vote_states_t * vote_states = fd_bank_vote_states_locking_modify( slot_ctx->bank );
+  vote_states = fd_vote_states_join( fd_vote_states_new( vote_states, FD_RUNTIME_MAX_VOTE_ACCOUNTS, 999UL ) );
+  fd_bank_vote_states_end_locking_modify( slot_ctx->bank );
+
+  fd_vote_states_t * vote_states_prev = fd_bank_vote_states_prev_locking_modify( slot_ctx->bank );
+  vote_states_prev = fd_vote_states_join( fd_vote_states_new( vote_states_prev, FD_RUNTIME_MAX_VOTE_ACCOUNTS, 999UL ) );
+  fd_bank_vote_states_prev_end_locking_modify( slot_ctx->bank );
+
+  fd_vote_states_t * vote_states_prev_prev = fd_bank_vote_states_prev_prev_locking_modify( slot_ctx->bank );
+  vote_states_prev_prev = fd_vote_states_join( fd_vote_states_new( vote_states_prev_prev, FD_RUNTIME_MAX_VOTE_ACCOUNTS, 999UL ) );
+  fd_bank_vote_states_prev_prev_end_locking_modify( slot_ctx->bank );
 
   fd_stake_delegations_t * stake_delegations = fd_bank_stake_delegations_locking_modify( slot_ctx->bank );
   stake_delegations = fd_stake_delegations_join( fd_stake_delegations_new( stake_delegations, FD_RUNTIME_MAX_STAKE_ACCOUNTS ) );
 
   /* Load in all accounts with > 0 lamports provided in the context. The input expects unique account pubkeys. */
+  vote_states = fd_bank_vote_states_locking_modify( slot_ctx->bank );
   for( ushort i=0; i<test_ctx->acct_states_count; i++ ) {
     FD_TXN_ACCOUNT_DECL(acc);
     fd_runtime_fuzz_load_account( acc, funk, funk_txn, &test_ctx->acct_states[i], 1 );
@@ -317,11 +283,11 @@ fd_runtime_fuzz_block_ctx_create( fd_solfuzz_runner_t *                runner,
     /* Update vote accounts cache for epoch T */
     fd_pubkey_t pubkey;
     memcpy( &pubkey, test_ctx->acct_states[i].address, sizeof(fd_pubkey_t) );
-    fd_runtime_fuzz_block_register_vote_account( slot_ctx,
-                                                 vote_accounts_pool,
-                                                 &vote_accounts_root,
-                                                 &pubkey,
-                                                 runner->spad );
+    fd_runtime_fuzz_block_register_vote_account(
+        slot_ctx,
+        vote_states,
+        &pubkey,
+        runner->spad );
 
     /* Update the stake delegations cache for epoch T */
     fd_runtime_fuzz_block_register_stake_delegation( slot_ctx,
@@ -330,17 +296,9 @@ fd_runtime_fuzz_block_ctx_create( fd_solfuzz_runner_t *                runner,
   }
 
   /* Refresh vote accounts to calculate stake delegations */
-  fd_runtime_fuzz_block_refresh_vote_accounts( vote_accounts_pool,
-                                               vote_accounts_root,
-                                               stake_delegations );
+  fd_runtime_fuzz_block_refresh_vote_accounts( vote_states, stake_delegations );
+  fd_bank_vote_states_end_locking_modify( slot_ctx->bank );
 
-  fd_vote_accounts_vote_accounts_pool_update( curr_stakes, vote_accounts_pool );
-  fd_vote_accounts_vote_accounts_root_update( curr_stakes, vote_accounts_root );
-
-  // fd_vote_accounts_stake_delegations_pool_update( curr_stakes, stake_delegations_pool );
-  // fd_vote_accounts_stake_delegations_root_update( curr_stakes, stake_delegations_root );
-
-  fd_bank_curr_epoch_stakes_end_locking_modify( slot_ctx->bank );
   fd_bank_stake_delegations_end_locking_modify( slot_ctx->bank );
 
   /* Finish init epoch bank sysvars */
@@ -357,38 +315,25 @@ fd_runtime_fuzz_block_ctx_create( fd_solfuzz_runner_t *                runner,
   /* Refresh the program cache */
   fd_runtime_fuzz_refresh_program_cache( slot_ctx, test_ctx->acct_states, test_ctx->acct_states_count, runner->spad );
 
-  fd_vote_accounts_global_t * vote_accounts = fd_bank_next_epoch_stakes_locking_modify( slot_ctx->bank );
-  pool_mem = (uchar *)fd_ulong_align_up( (ulong)vote_accounts + sizeof(fd_vote_accounts_global_t), fd_vote_accounts_pair_global_t_map_align() );
-  vote_accounts_pool = fd_vote_accounts_pair_global_t_map_join( fd_vote_accounts_pair_global_t_map_new( pool_mem, vote_acct_max ) );
-  vote_accounts_root = NULL;
-
   /* Update vote cache for epoch T-1 */
-  fd_runtime_fuzz_block_update_prev_epoch_votes_cache( vote_accounts_pool,
-                                                       &vote_accounts_root,
+  vote_states_prev = fd_bank_vote_states_prev_locking_modify( slot_ctx->bank );
+  fd_runtime_fuzz_block_update_prev_epoch_votes_cache( NULL,
+                                                       NULL,
+                                                       vote_states_prev,
                                                        test_ctx->epoch_ctx.vote_accounts_t_1,
                                                        test_ctx->epoch_ctx.vote_accounts_t_1_count,
                                                        runner->spad );
-
-  fd_vote_accounts_vote_accounts_pool_update( vote_accounts, vote_accounts_pool );
-  fd_vote_accounts_vote_accounts_root_update( vote_accounts, vote_accounts_root );
-
-  fd_bank_next_epoch_stakes_end_locking_modify( slot_ctx->bank );
+  fd_bank_vote_states_prev_end_locking_modify( slot_ctx->bank );
 
   /* Update vote cache for epoch T-2 */
-  vote_accounts = fd_bank_epoch_stakes_locking_modify( slot_ctx->bank );
-  pool_mem = (uchar *)fd_ulong_align_up( (ulong)vote_accounts + sizeof(fd_vote_accounts_global_t), fd_vote_accounts_pair_global_t_map_align() );
-  vote_accounts_pool = fd_vote_accounts_pair_global_t_map_join( fd_vote_accounts_pair_global_t_map_new( pool_mem, vote_acct_max ) );
-  vote_accounts_root = NULL;
-
-  fd_runtime_fuzz_block_update_prev_epoch_votes_cache( vote_accounts_pool,
-                                                       &vote_accounts_root,
+  vote_states_prev_prev = fd_bank_vote_states_prev_prev_locking_modify( slot_ctx->bank );
+  fd_runtime_fuzz_block_update_prev_epoch_votes_cache( NULL,
+                                                       NULL,
+                                                       vote_states_prev_prev,
                                                        test_ctx->epoch_ctx.vote_accounts_t_2,
                                                        test_ctx->epoch_ctx.vote_accounts_t_2_count,
                                                        runner->spad );
-
-  fd_vote_accounts_vote_accounts_pool_update( vote_accounts, vote_accounts_pool );
-  fd_vote_accounts_vote_accounts_root_update( vote_accounts, vote_accounts_root );
-  fd_bank_epoch_stakes_end_locking_modify( slot_ctx->bank );
+  fd_bank_vote_states_prev_prev_end_locking_modify( slot_ctx->bank );
 
   /* Update leader schedule */
   fd_runtime_update_leaders( slot_ctx->bank, fd_bank_slot_get( slot_ctx->bank ), runner->spad );
@@ -571,7 +516,6 @@ fd_runtime_fuzz_block_ctx_exec( fd_solfuzz_runner_t *      runner,
           slot_ctx->funk,
           slot_ctx->funk_txn,
           txn_ctx,
-          runner->spad,
           slot_ctx->bank,
           capture_ctx );
 

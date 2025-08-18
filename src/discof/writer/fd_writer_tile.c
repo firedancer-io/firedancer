@@ -341,7 +341,6 @@ after_frag( fd_writer_tile_ctx_t * ctx,
           ctx->funk,
           ctx->funk_txn,
           txn_ctx,
-          ctx->spad,
           ctx->bank,
           ctx->capture_ctx );
 

@@ -192,7 +192,6 @@ fd_exec_txn_ctx_setup_basic( fd_exec_txn_ctx_t * ctx ) {
   ctx->return_data.len = 0;
 
   ctx->dirty_vote_acc  = 0;
-  ctx->dirty_stake_acc = 0;
   ctx->failed_instr    = NULL;
   ctx->instr_err_idx   = INT_MAX;
   ctx->capture_ctx     = NULL;
