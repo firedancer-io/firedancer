@@ -113,6 +113,7 @@ struct fd_configf {
     uint exec_tile_count; /* TODO: redundant ish with bank tile cnt */
     uint writer_tile_count;
     uint sign_tile_count;
+    uint gossvf_tile_count;
   } layout;
 
   struct {
@@ -234,6 +235,7 @@ struct fd_config {
     ulong         entrypoints_cnt;
     char          entrypoints[ GOSSIP_TILE_ENTRYPOINTS_MAX ][ 262 ];
     fd_ip4_port_t resolved_entrypoints[ GOSSIP_TILE_ENTRYPOINTS_MAX ];
+    long          boot_timestamp_nanos;
 
     ushort        port;
     char          host[ 256 ];
