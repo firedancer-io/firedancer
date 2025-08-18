@@ -152,15 +152,6 @@ during_housekeeping( fd_gossip_tile_ctx_t * ctx ) {
 
     fd_keyswitch_state( ctx->keyswitch, FD_KEYSWITCH_STATE_COMPLETED );
   }
-
-  ulong test_notify = FD_MGAUGE_GET( GOSSIP, TEST_NOTIFY );
-  if( FD_UNLIKELY( 1UL==test_notify ) ) {
-    FD_MGAUGE_SET( GOSSIP, TEST_NOTIFY, 2UL );
-    fd_gossip_disable_pull_request( ctx->gossip );
-  } else if( FD_UNLIKELY( 3UL==test_notify ) ) {
-    FD_MGAUGE_SET( GOSSIP, TEST_NOTIFY, 2UL );
-    fd_gossip_send_one_pull_request( ctx->gossip, ctx->stem, ctx->last_wallclock );
-  }
 }
 
 static inline void
