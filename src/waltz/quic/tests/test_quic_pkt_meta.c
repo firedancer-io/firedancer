@@ -187,8 +187,9 @@ main( int argc, char ** argv ) {
   fd_boot          ( &argc, &argv );
   fd_quic_test_boot( &argc, &argv );
 
-  ulong        max_inflight = fd_env_strip_cmdline_ulong ( &argc, &argv, "--max-inflight",  NULL, 100UL );
-  ulong        range_sz     = fd_env_strip_cmdline_ulong ( &argc, &argv, "--range-sz",      NULL, 10UL );
+  ulong        max_inflight = fd_env_strip_cmdline_ulong ( &argc, &argv, "--max-inflight",  NULL, 100UL      );
+  ulong        range_sz     = fd_env_strip_cmdline_ulong ( &argc, &argv, "--range-sz",      NULL, 10UL       );
+  char const * _page_sz     = fd_env_strip_cmdline_cstr  ( &argc, &argv, "--page-sz",       NULL, "gigantic" );
 
   FD_LOG_INFO(("booted"));
 
@@ -209,7 +210,7 @@ main( int argc, char ** argv ) {
 
   fd_wksp_t * wksp = fd_wksp_join(
                         fd_wksp_new_anonymous(
-                          fd_cstr_to_shmem_page_sz( "gigantic" ), 1, fd_shmem_cpu_idx( 0 ), "wksp", 0UL
+                          fd_cstr_to_shmem_page_sz( _page_sz ), 1, fd_shmem_cpu_idx( 0 ), "wksp", 0UL
                         )
                      );
   FD_TEST( wksp );
