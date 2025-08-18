@@ -7,6 +7,9 @@
 #define FD_CRDS_ALIGN 8UL
 #define FD_CRDS_MAGIC (0xf17eda2c37c7d50UL) /* firedancer crds version 0*/
 
+FD_STATIC_ASSERT( CRDS_MAX_CONTACT_INFO==FD_CONTACT_INFO_TABLE_SIZE,
+                  "CRDS_MAX_CONTACT_INFO must match FD_CONTACT_INFO_TABLE_SIZE" );
+
 struct fd_crds_key {
   uchar tag;
   uchar pubkey[ 32UL ];
@@ -553,6 +556,7 @@ remove_contact_info( fd_crds_t *         crds,
   }
 
   if( FD_LIKELY( crds->metrics ) ) {
+    crds->metrics->contact_info_cnt--;
     if( FD_LIKELY( !!ci->stake ) ) {
       crds->metrics->staked_peer_cnt--;
       crds->metrics->visible_stake -= ci->stake;
@@ -589,7 +593,7 @@ void
 fd_crds_release( fd_crds_t *       crds,
                  fd_crds_entry_t * value ) {
   if( FD_LIKELY( crds->metrics ) ) {
-    crds->metrics->total_ele_cnt--;
+    crds->metrics->table_cnt--;
     crds->metrics->ele_cnt[ value->key.tag ]--;
   }
   crds_pool_ele_release( crds->pool, value );
@@ -616,6 +620,13 @@ expire( fd_crds_t *         crds,
     if( FD_UNLIKELY( head->key.tag==FD_GOSSIP_VALUE_CONTACT_INFO ) ) {
       remove_contact_info( crds, head, now, stem );
     }
+
+    if( FD_LIKELY( crds->metrics ) ) {
+      crds->metrics->table_expired_cnt++;
+      if( FD_UNLIKELY( head->key.tag==FD_GOSSIP_VALUE_CONTACT_INFO ) ){
+        crds->metrics->contact_info_expired_cnt++;
+      }
+    }
     fd_crds_release( crds, head );
   }
 
@@ -636,7 +647,12 @@ expire( fd_crds_t *         crds,
     if( FD_UNLIKELY( head->key.tag==FD_GOSSIP_VALUE_CONTACT_INFO ) ) {
       remove_contact_info( crds, head, now, stem );
     }
-
+    if( FD_LIKELY( crds->metrics ) ) {
+      crds->metrics->table_expired_cnt++;
+      if( FD_UNLIKELY( head->key.tag==FD_GOSSIP_VALUE_CONTACT_INFO ) ){
+        crds->metrics->contact_info_expired_cnt++;
+      }
+    }
     fd_crds_release( crds, head );
   }
 
@@ -649,7 +665,8 @@ expire( fd_crds_t *         crds,
     purged_treap_ele_remove( crds->purged.treap, head, crds->purged.pool );
     purged_pool_ele_release( crds->purged.pool, head );
     if( FD_LIKELY( crds->metrics ) ) {
-      crds->metrics->table_purged_cnt--;
+      crds->metrics->purged_cnt--;
+      crds->metrics->purged_expired_cnt++;
     }
   }
 
@@ -662,7 +679,8 @@ expire( fd_crds_t *         crds,
     purged_treap_ele_remove( crds->purged.treap, head, crds->purged.pool );
     purged_pool_ele_release( crds->purged.pool, head );
     if( FD_LIKELY( crds->metrics ) ) {
-      crds->metrics->table_purged_cnt--;
+      crds->metrics->purged_cnt--;
+      crds->metrics->purged_expired_cnt++;
     }
   }
 }
@@ -708,6 +726,13 @@ fd_crds_acquire( fd_crds_t *         crds,
     lookup_map_ele_remove( crds->lookup_map, &evict->key, NULL, crds->pool );
     if( FD_UNLIKELY( evict->key.tag==FD_GOSSIP_VALUE_CONTACT_INFO ) ) {
       remove_contact_info( crds, evict, now, stem );
+    }
+
+    if( FD_LIKELY( crds->metrics ) ) {
+      crds->metrics->table_evicted_cnt++;
+      if( FD_UNLIKELY( evict->key.tag==FD_GOSSIP_VALUE_CONTACT_INFO ) ){
+        crds->metrics->contact_info_evicted_cnt++;
+      }
     }
 
     return evict;
@@ -798,10 +823,13 @@ insert_purged( fd_crds_t *   crds,
   if( FD_UNLIKELY( !purged_pool_free( crds->purged.pool ) ) ) {
     purged = purged_dlist_ele_pop_head( crds->purged.purged_dlist, crds->purged.pool );
     purged_treap_ele_remove( crds->purged.treap, purged, crds->purged.pool );
+    if( FD_LIKELY( crds->metrics ) ) {
+      crds->metrics->purged_evicted_cnt++;
+    }
   } else {
     purged = purged_pool_ele_acquire( crds->purged.pool );
     if( FD_LIKELY( crds->metrics ) ) {
-      crds->metrics->table_purged_cnt++;
+      crds->metrics->purged_cnt++;
     }
   }
   purged_init( purged, hash, now );
@@ -857,10 +885,13 @@ fd_crds_insert_failed_insert( fd_crds_t *   crds,
   if( FD_UNLIKELY( !purged_pool_free( crds->purged.pool ) ) ) {
     failed = failed_inserts_dlist_ele_pop_head( crds->purged.failed_inserts_dlist, crds->purged.pool );
     purged_treap_ele_remove( crds->purged.treap, failed, crds->purged.pool );
+    if( FD_LIKELY( crds->metrics ) ) {
+      crds->metrics->purged_evicted_cnt++;
+    }
   } else {
     failed = purged_pool_ele_acquire( crds->purged.pool );
     if( FD_LIKELY( crds->metrics ) ) {
-      crds->metrics->table_purged_cnt++;
+      crds->metrics->purged_cnt++;
     }
   }
   purged_init( failed, hash, now );
@@ -1004,7 +1035,7 @@ fd_crds_insert( fd_crds_t *                         crds,
   crds_entry_init( candidate_view, payload, origin_stake, candidate );
 
   if( FD_LIKELY( crds->metrics ) ) {
-      crds->metrics->total_ele_cnt++;
+      crds->metrics->table_cnt++;
       crds->metrics->ele_cnt[ candidate->key.tag ]++;
   }
 
@@ -1053,7 +1084,14 @@ fd_crds_insert( fd_crds_t *                         crds,
     if( FD_UNLIKELY( !crds_contact_info_pool_free( crds->contact_info.pool ) ) ) {
       fd_crds_entry_t * evict = crds_contact_info_evict_dlist_ele_pop_head( crds->contact_info.evict_dlist, crds->pool );
       remove_contact_info( crds, evict, now, stem );
+      if( FD_LIKELY( crds->metrics ) ) {
+        crds->metrics->contact_info_evicted_cnt++;
+      }
     }
+    if( FD_LIKELY( crds->metrics ) ) {
+      crds->metrics->contact_info_cnt++;
+    }
+
     candidate->contact_info.ci = crds_contact_info_pool_ele_acquire( crds->contact_info.pool );
     crds_contact_info_evict_dlist_ele_push_tail( crds->contact_info.evict_dlist, candidate, crds->pool );
   }
