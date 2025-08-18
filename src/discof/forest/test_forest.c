@@ -15,15 +15,21 @@
             slot 6
 */
 
+fd_forest_ele_t *
+fd_forest_block_data_shred_insert( fd_forest_t * forest, ulong slot, ulong parent_slot, uint shred_idx, uint fec_set_idx, int data_complete FD_PARAM_UNUSED, int slot_complete ) {
+  fd_forest_block_insert( forest, slot, parent_slot );
+  return fd_forest_data_shred_insert( forest, slot, parent_slot, shred_idx, fec_set_idx, slot_complete );
+}
+
 fd_forest_t *
 setup_preorder( fd_forest_t * forest ) {
   fd_forest_init( forest, 0 );
-  fd_forest_data_shred_insert( forest, 1, 1, 0, 0, 0, 0 );
-  fd_forest_data_shred_insert( forest, 2, 1, 0, 0, 0, 0 );
-  fd_forest_data_shred_insert( forest, 4, 2, 0, 0, 0, 0 );
-  fd_forest_data_shred_insert( forest, 3, 2, 0, 0, 0, 0 );
-  fd_forest_data_shred_insert( forest, 5, 2, 0, 0, 0, 0 );
-  fd_forest_data_shred_insert( forest, 6, 1, 0, 0, 0, 0 );
+  fd_forest_block_data_shred_insert( forest, 1, 0, 0, 0, 0, 0 );
+  fd_forest_block_data_shred_insert( forest, 2, 1, 0, 0, 0, 0 );
+  fd_forest_block_data_shred_insert( forest, 4, 2, 0, 0, 0, 0 );
+  fd_forest_block_data_shred_insert( forest, 3, 1, 0, 0, 0, 0 );
+  fd_forest_block_data_shred_insert( forest, 5, 3, 0, 0, 0, 0 );
+  fd_forest_block_data_shred_insert( forest, 6, 5, 0, 0, 0, 0 );
   FD_TEST( !fd_forest_verify( forest ) );
   fd_forest_print( forest );
   return forest;
@@ -88,39 +94,52 @@ test_publish_incremental( fd_wksp_t * wksp ){
   void * mem = fd_wksp_alloc_laddr( wksp, fd_forest_align(), fd_forest_footprint( ele_max ), 1UL );
   FD_TEST( mem );
   fd_forest_t * forest = fd_forest_join( fd_forest_new( mem, ele_max, 42UL /* seed */ ) );
+  fd_forest_ancestry_t * ancestry = fd_forest_ancestry( forest );
+  fd_forest_frontier_t * frontier = fd_forest_frontier( forest );
+  //fd_forest_orphaned_t * orphaned = fd_forest_orphaned( forest );
+  fd_forest_subtrees_t * subtrees = fd_forest_subtrees( forest );
+  fd_forest_consumed_t * consumed = fd_forest_consumed( forest );
+  fd_forest_cns_t *      conspool = fd_forest_conspool( forest );
+  fd_forest_ele_t *      pool     = fd_forest_pool( forest );
 
   /* 1. Try publishing to a slot that doesnt exist
 
-      0          10 -> 11
+      0          10? -> 11
 
    */
 
   fd_forest_init( forest, 0 );
-  fd_forest_data_shred_insert( forest, 11, 1, 0, 0, 1, 1 );
+  fd_forest_block_data_shred_insert( forest, 11, 10, 0, 0, 1, 1 );
 
   ulong new_root = 1;
+  ulong _11 = 11;
   fd_forest_publish( forest, new_root );
   FD_TEST( fd_forest_root_slot( forest ) == new_root );
-  FD_TEST( fd_forest_frontier_ele_query( fd_forest_frontier( forest ), &new_root, NULL, fd_forest_pool( forest ) ) );
+  FD_TEST( fd_forest_consumed_ele_query( consumed, &new_root, NULL, conspool ) );
+  FD_TEST( fd_forest_frontier_ele_query( frontier, &new_root, NULL, pool ) || fd_forest_ancestry_ele_query( ancestry, &new_root, NULL, pool ) );
+  FD_TEST( fd_forest_subtrees_ele_query( subtrees, &_11, NULL, pool ) );
   FD_TEST( !fd_forest_query( forest, 0 ) );
+  FD_TEST( !fd_forest_query( forest, 10 ) );
+
 
   /* 2. Try publishing to a slot on the frontier
-
-    1 -> 2 -> 3       10 -> 11
+              v
+    1 -> 2 -> 3       10? -> 11
 
   */
 
-  fd_forest_data_shred_insert( forest, 2, 1, 0, 0, 1, 1 );
-  fd_forest_data_shred_insert( forest, 3, 1, 0, 0, 1, 1 );
+  fd_forest_block_data_shred_insert( forest, 2, 1, 0, 0, 1, 1 );
+  fd_forest_block_data_shred_insert( forest, 3, 2, 0, 0, 1, 1 );
 
-  ulong frontier = 3;
-  FD_TEST( fd_forest_frontier_ele_query( fd_forest_frontier( forest ), &frontier, NULL, fd_forest_pool( forest ) ) );
-  fd_forest_publish( forest, frontier );
-  FD_TEST( fd_forest_root_slot( forest ) == frontier );
-  FD_TEST( fd_forest_frontier_ele_query( fd_forest_frontier( forest ), &frontier, NULL, fd_forest_pool( forest ) ) );
+  ulong front_slot = 3;
+  FD_TEST( fd_forest_consumed_ele_query( consumed, &front_slot, NULL, conspool ) );
+  FD_TEST( fd_forest_frontier_ele_query( frontier, &front_slot, NULL, pool ) );
+  fd_forest_publish( forest, front_slot );
+  FD_TEST( fd_forest_root_slot( forest ) == front_slot );
+  FD_TEST( fd_forest_consumed_ele_query( consumed, &front_slot, NULL, conspool ) );
   FD_TEST( !fd_forest_query( forest, 1 ) );
   FD_TEST( !fd_forest_query( forest, 2 ) );
-  FD_TEST( fd_forest_query( forest, 10 ) );
+  FD_TEST( !fd_forest_query( forest, 10 ) );
   FD_TEST( fd_forest_query( forest, 11 ) );
 
   /* 3. Try publishing to a slot in ancestry but in front of the frontier
@@ -130,18 +149,19 @@ test_publish_incremental( fd_wksp_t * wksp ){
 
   */
 
-  fd_forest_data_shred_insert( forest, 4, 1, 0, 0, 0, 0 );
-  fd_forest_data_shred_insert( forest, 5, 1, 0, 0, 0, 0 );
-  fd_forest_data_shred_insert( forest, 6, 1, 0, 0, 0, 0 );
-  fd_forest_data_shred_insert( forest, 7, 1, 0, 0, 0, 0 );
+  fd_forest_block_data_shred_insert( forest, 4, 3, 0, 0, 0, 0 );
+  fd_forest_block_data_shred_insert( forest, 5, 4, 0, 0, 0, 0 );
+  fd_forest_block_data_shred_insert( forest, 6, 5, 0, 0, 0, 0 );
+  fd_forest_block_data_shred_insert( forest, 7, 6, 0, 0, 0, 0 );
+  FD_TEST( !fd_forest_verify( forest ) );
 
-  frontier = 4;
+  front_slot = 4;
   new_root = 6;
-  FD_TEST( fd_forest_frontier_ele_query( fd_forest_frontier( forest ), &frontier, NULL, fd_forest_pool( forest ) ) );
+  FD_TEST( fd_forest_consumed_ele_query( fd_forest_consumed( forest ), &front_slot, NULL, fd_forest_conspool( forest ) ) );
   fd_forest_publish( forest, new_root );
   FD_TEST( fd_forest_root_slot( forest ) == new_root );
-  frontier = 7;
-  FD_TEST( fd_forest_frontier_ele_query( fd_forest_frontier( forest ), &frontier, NULL, fd_forest_pool( forest ) ) );
+  front_slot = 7;
+  FD_TEST( fd_forest_consumed_ele_query( fd_forest_consumed( forest ), &front_slot, NULL, fd_forest_conspool( forest ) ) );
   FD_TEST( !fd_forest_query( forest, 3 ) );
   FD_TEST( !fd_forest_query( forest, 4 ) );
   FD_TEST( !fd_forest_query( forest, 5 ) );
@@ -152,21 +172,21 @@ test_publish_incremental( fd_wksp_t * wksp ){
                8 -> 9 (should get pruned)
   */
 
-  fd_forest_data_shred_insert( forest, 9, 1, 0, 0, 0, 0 );
+  fd_forest_block_data_shred_insert( forest, 9, 8, 0, 0, 0, 0 );
 
   new_root = 10;
-  frontier = 11;
+  front_slot = 11;
 
-  fd_forest_publish( forest, new_root);
+  fd_forest_publish( forest, new_root );
   FD_TEST( !fd_forest_verify( forest ) );
   FD_TEST( fd_forest_root_slot( forest ) == new_root );
-  FD_TEST( fd_forest_frontier_ele_query( fd_forest_frontier( forest ), &frontier, NULL, fd_forest_pool( forest ) ) );
+  FD_TEST( fd_forest_consumed_ele_query( fd_forest_consumed( forest ), &front_slot, NULL, fd_forest_conspool( forest ) ) );
   FD_TEST( !fd_forest_query( forest, 6 ) );
   FD_TEST( !fd_forest_query( forest, 7 ) );
   FD_TEST( !fd_forest_query( forest, 8 ) );
   FD_TEST( !fd_forest_query( forest, 9 ) );
-  FD_TEST( fd_forest_query( forest, 10 ) );
-  FD_TEST( fd_forest_query( forest, 11 ) );
+  FD_TEST( fd_forest_ancestry_ele_query( ancestry, &new_root, NULL, pool ) );
+  FD_TEST( fd_forest_frontier_ele_query( frontier, &front_slot, NULL, pool ) );
 
   /* 5. Try publishing to an orphan slot that is not a "head" of orphans
                             (publish)
@@ -174,16 +194,16 @@ test_publish_incremental( fd_wksp_t * wksp ){
 
   */
 
-  fd_forest_data_shred_insert( forest, 14, 1, 0, 0, 0, 0 );
-  fd_forest_data_shred_insert( forest, 15, 1, 0, 0, 0, 0 );
-  fd_forest_data_shred_insert( forest, 16, 1, 0, 0, 0, 0 );
+  fd_forest_block_data_shred_insert( forest, 14, 13, 0, 0, 0, 0 );
+  fd_forest_block_data_shred_insert( forest, 15, 14, 0, 0, 0, 0 );
+  fd_forest_block_data_shred_insert( forest, 16, 15, 0, 0, 0, 0 );
 
   new_root = 15;
-  frontier = 16;
+  front_slot = 16;
   fd_forest_publish( forest, new_root );
   FD_TEST( !fd_forest_verify( forest ) );
   FD_TEST( fd_forest_root_slot( forest ) == new_root );
-  FD_TEST( fd_forest_frontier_ele_query( fd_forest_frontier( forest ), &frontier, NULL, fd_forest_pool( forest ) ) );
+  FD_TEST( fd_forest_consumed_ele_query( fd_forest_consumed( forest ), &front_slot, NULL, fd_forest_conspool( forest ) ) );
   FD_TEST( !fd_forest_query( forest, 10 ) );
   FD_TEST( !fd_forest_query( forest, 11 ) );
   FD_TEST( !fd_forest_query( forest, 14 ) );
@@ -193,7 +213,8 @@ test_publish_incremental( fd_wksp_t * wksp ){
 #include "../../util/tmpl/fd_sort.c"
 
 ulong * frontier_arr( fd_wksp_t * wksp, fd_forest_t * forest ) {
-  fd_forest_frontier_t const * frontier = fd_forest_frontier_const( forest );
+  fd_forest_consumed_t const * consumed = fd_forest_consumed_const( forest );
+  fd_forest_cns_t const *      conspool = fd_forest_conspool_const( forest );
   fd_forest_ele_t const *      pool     = fd_forest_pool_const( forest );
   ulong                        cnt      = fd_forest_pool_used( pool );
 
@@ -201,10 +222,10 @@ ulong * frontier_arr( fd_wksp_t * wksp, fd_forest_t * forest ) {
   ulong * arr = fd_wksp_alloc_laddr( wksp, 8, cnt, 42UL );
 
   ulong i = 0;
-  for( fd_forest_frontier_iter_t iter = fd_forest_frontier_iter_init( frontier, pool );
-       !fd_forest_frontier_iter_done( iter, frontier, pool );
-       iter = fd_forest_frontier_iter_next( iter, frontier, pool ) ) {
-    fd_forest_ele_t const * ele = fd_forest_frontier_iter_ele_const( iter, frontier, pool );
+  for( fd_forest_consumed_iter_t iter = fd_forest_consumed_iter_init( consumed, conspool );
+       !fd_forest_consumed_iter_done( iter, consumed, conspool );
+       iter = fd_forest_consumed_iter_next( iter, consumed, conspool ) ) {
+    fd_forest_cns_t const * ele = fd_forest_consumed_iter_ele_const( iter, consumed, conspool );
     arr[i++] = ele->slot;
     FD_TEST( i < cnt );
   }
@@ -219,11 +240,15 @@ void test_out_of_order( fd_wksp_t * wksp ) {
   fd_forest_t * forest = fd_forest_join( fd_forest_new( mem, ele_max, 42UL /* seed */ ) );
 
   fd_forest_init( forest, 0 );
-  fd_forest_data_shred_insert( forest, 6, 1, 0, 0, 0, 0 );
-  fd_forest_data_shred_insert( forest, 5, 2, 0, 0, 0, 0 );
-  fd_forest_data_shred_insert( forest, 2, 1, 0, 0, 0, 0 );
-  fd_forest_data_shred_insert( forest, 1, 1, 0, 0, 0, 0 );
-  fd_forest_data_shred_insert( forest, 3, 2, 0, 0, 0, 0 );
+  fd_forest_block_data_shred_insert( forest, 6, 5, 0, 0, 0, 0 );
+  fd_forest_block_data_shred_insert( forest, 5, 3, 0, 0, 0, 0 );
+
+  fd_forest_print( forest );
+
+
+  fd_forest_block_data_shred_insert( forest, 2, 1, 0, 0, 0, 0 );
+  fd_forest_block_data_shred_insert( forest, 1, 0, 0, 0, 0, 0 );
+  fd_forest_block_data_shred_insert( forest, 3, 1, 0, 0, 0, 0 );
 
   fd_forest_print( forest );
   ulong * arr = frontier_arr( wksp, forest );
@@ -232,7 +257,7 @@ void test_out_of_order( fd_wksp_t * wksp ) {
   FD_TEST( !fd_forest_verify( forest ) );
   fd_wksp_free_laddr( arr );
 
-  fd_forest_data_shred_insert( forest, 1, 1, 1, 0, 1, 1 );
+  fd_forest_block_data_shred_insert( forest, 1, 0, 1, 0, 1, 1 );
   fd_forest_print( forest );
   arr = frontier_arr( wksp, forest );
   FD_TEST( arr[0] == 2 );
@@ -241,7 +266,7 @@ void test_out_of_order( fd_wksp_t * wksp ) {
   FD_TEST( !fd_forest_verify( forest ) );
   fd_wksp_free_laddr( arr );
 
-  fd_forest_data_shred_insert( forest, 3, 2, 1, 0, 1, 1 );
+  fd_forest_block_data_shred_insert( forest, 3, 1, 1, 0, 1, 1 );
   fd_forest_print( forest );
   arr = frontier_arr( wksp, forest );
   FD_TEST( arr[0] == 2 );
@@ -250,7 +275,7 @@ void test_out_of_order( fd_wksp_t * wksp ) {
   FD_TEST( !fd_forest_verify( forest ) );
   fd_wksp_free_laddr( arr );
 
-  fd_forest_data_shred_insert( forest, 5, 2, 1, 0, 1, 1 );
+  fd_forest_block_data_shred_insert( forest, 5, 3, 1, 0, 1, 1 );
   fd_forest_print( forest );
   arr = frontier_arr( wksp, forest );
   FD_TEST( arr[0] == 2 );
@@ -259,8 +284,8 @@ void test_out_of_order( fd_wksp_t * wksp ) {
   FD_TEST( !fd_forest_verify( forest ) );
   fd_wksp_free_laddr( arr );
 
-  fd_forest_data_shred_insert( forest, 4, 2, 0, 0, 0, 0 );
-  fd_forest_data_shred_insert( forest, 2, 1, 1, 0, 1, 1 );
+  fd_forest_block_data_shred_insert( forest, 4, 2, 0, 0, 0, 0 );
+  fd_forest_block_data_shred_insert( forest, 2, 1, 1, 0, 1, 1 );
   fd_forest_print( forest );
   arr = frontier_arr( wksp, forest );
   FD_TEST( arr[0] == 4 );
@@ -269,7 +294,7 @@ void test_out_of_order( fd_wksp_t * wksp ) {
   FD_TEST( !fd_forest_verify( forest ) );
   fd_wksp_free_laddr( arr );
 
-  fd_forest_data_shred_insert( forest, 6, 1, 1, 0, 1, 1 );
+  fd_forest_block_data_shred_insert( forest, 6, 5, 1, 0, 1, 1 );
   fd_forest_print( forest );
   arr = frontier_arr( wksp, forest );
   FD_TEST( arr[0] == 4 );
@@ -278,8 +303,8 @@ void test_out_of_order( fd_wksp_t * wksp ) {
   FD_TEST( !fd_forest_verify( forest ) );
   fd_wksp_free_laddr( arr );
 
-  fd_forest_data_shred_insert( forest, 4, 2, 1, 0, 0, 0 ); /* shred complete arrives before */
-  fd_forest_data_shred_insert( forest, 4, 2, 2, 0, 1, 1 );
+  fd_forest_block_data_shred_insert( forest, 4, 2, 1, 0, 0, 0 ); /* shred complete arrives before */
+  fd_forest_block_data_shred_insert( forest, 4, 2, 2, 0, 1, 1 );
   fd_forest_print( forest );
   arr = frontier_arr( wksp, forest );
   FD_TEST( arr[0] == 4 );
@@ -288,6 +313,8 @@ void test_out_of_order( fd_wksp_t * wksp ) {
   FD_TEST( !fd_forest_verify( forest ) );
   fd_wksp_free_laddr( arr );
 
+
+  fd_forest_print( forest );
   // for( ulong i = 0; i < 7; i++ ) {
   //   FD_LOG_NOTICE(( "i %lu %lu", i, arr[i] ));
   // }
@@ -306,60 +333,60 @@ test_forks( fd_wksp_t * wksp ){
 
   // these slots all have 2 shreds, 0,1
   fd_forest_init( forest, 0 );
-  fd_forest_data_shred_insert( forest, 1, 1, 1, 0, 1, 1 );
-  fd_forest_data_shred_insert( forest, 2, 1, 1, 0, 1, 1 );
-  fd_forest_data_shred_insert( forest, 3, 1, 1, 0, 1, 1 );
-  fd_forest_data_shred_insert( forest, 4, 1, 1, 0, 1, 1 );
-  fd_forest_data_shred_insert( forest, 10, 1, 1, 0, 1, 1 ); /* orphan */
+  fd_forest_block_data_shred_insert( forest, 1, 0, 1, 0, 0, 1 );
+  fd_forest_block_data_shred_insert( forest, 2, 1, 1, 0, 0, 1 );
+  fd_forest_block_data_shred_insert( forest, 3, 2, 1, 0, 0, 1 );
+  fd_forest_block_data_shred_insert( forest, 4, 3, 1, 0, 0, 1 );
+  fd_forest_block_data_shred_insert( forest, 10, 9, 1, 0, 0, 1 ); /* orphan */
 
   /* Frontier should be slot 1. */
   ulong key = 1 ;
-  FD_TEST(  fd_forest_frontier_ele_query( fd_forest_frontier( forest ), &key, NULL, fd_forest_pool( forest ) ) );
+  FD_TEST(  fd_forest_consumed_ele_query( fd_forest_consumed( forest ), &key, NULL, fd_forest_conspool( forest ) ) );
 
   int cnt = 0;
-  for( fd_forest_frontier_iter_t iter = fd_forest_frontier_iter_init( fd_forest_frontier( forest ), fd_forest_pool( forest ) );
-       !fd_forest_frontier_iter_done( iter, fd_forest_frontier( forest ), fd_forest_pool( forest ) );
-       iter = fd_forest_frontier_iter_next( iter, fd_forest_frontier( forest ), fd_forest_pool( forest ) ) ) {
-    fd_forest_ele_t * ele = fd_forest_frontier_iter_ele( iter, fd_forest_frontier( forest ), fd_forest_pool( forest ) );
+  for( fd_forest_consumed_iter_t iter = fd_forest_consumed_iter_init( fd_forest_consumed( forest ), fd_forest_conspool( forest ) );
+       !fd_forest_consumed_iter_done( iter, fd_forest_consumed( forest ), fd_forest_conspool( forest ) );
+       iter = fd_forest_consumed_iter_next( iter, fd_forest_consumed( forest ), fd_forest_conspool( forest ) ) ) {
+    fd_forest_cns_t * ele = fd_forest_consumed_iter_ele( iter, fd_forest_consumed( forest ), fd_forest_conspool( forest ) );
     cnt++;
     (void) ele;
   }
 
   FD_TEST( cnt == 1 );
   // advance frontier to slot 3
-  fd_forest_data_shred_insert( forest, 1, 1, 0, 0, 0, 0 );
-  fd_forest_data_shred_insert( forest, 2, 1, 0, 0, 0, 0 );
+  fd_forest_block_data_shred_insert( forest, 1, 0, 0, 0, 0, 0 );
+  fd_forest_block_data_shred_insert( forest, 2, 1, 0, 0, 0, 0 );
 
   key = 3;
-  FD_TEST( fd_forest_frontier_ele_query( fd_forest_frontier( forest ), &key, NULL, fd_forest_pool( forest ) ) );
+  FD_TEST( fd_forest_consumed_ele_query( fd_forest_consumed( forest ), &key, NULL, fd_forest_conspool( forest ) ) );
 
   // add a new fork off slot 1
-  fd_forest_data_shred_insert( forest, 5, 4, 1, 0, 1, 1 );
+  fd_forest_block_data_shred_insert( forest, 5, 1, 1, 0, 1, 1 );
 
   fd_forest_print( forest );
 
   key = 5;
-  FD_TEST( fd_forest_frontier_ele_query( fd_forest_frontier( forest ), &key, NULL, fd_forest_pool( forest ) ) );
+  FD_TEST( fd_forest_consumed_ele_query( fd_forest_consumed( forest ), &key, NULL, fd_forest_conspool( forest ) ) );
 
   cnt = 0;
-  for( fd_forest_frontier_iter_t iter = fd_forest_frontier_iter_init( fd_forest_frontier( forest ), fd_forest_pool( forest ) );
-       !fd_forest_frontier_iter_done( iter, fd_forest_frontier( forest ), fd_forest_pool( forest ) );
-       iter = fd_forest_frontier_iter_next( iter, fd_forest_frontier( forest ), fd_forest_pool( forest ) ) ) {
-    fd_forest_ele_t * ele = fd_forest_frontier_iter_ele( iter, fd_forest_frontier( forest ), fd_forest_pool( forest ) );
+  for( fd_forest_consumed_iter_t iter = fd_forest_consumed_iter_init( fd_forest_consumed( forest ), fd_forest_conspool( forest ) );
+       !fd_forest_consumed_iter_done( iter, fd_forest_consumed( forest ), fd_forest_conspool( forest ) );
+       iter = fd_forest_consumed_iter_next( iter, fd_forest_consumed( forest ), fd_forest_conspool( forest ) ) ) {
+    fd_forest_cns_t * ele = fd_forest_consumed_iter_ele( iter, fd_forest_consumed( forest ), fd_forest_conspool( forest ) );
     cnt++;
     (void) ele;
   }
   FD_TEST( cnt == 2 );
 
   // add a fork off of the orphan
-  fd_forest_data_shred_insert( forest, 11, 1, 1, 0, 1, 1 );
-  fd_forest_data_shred_insert( forest, 12, 4, 1, 0, 1, 1 );
+  fd_forest_block_data_shred_insert( forest, 11, 10, 1, 0, 1, 1 );
+  fd_forest_block_data_shred_insert( forest, 12, 8, 1, 0, 1, 1 );
 
   cnt = 0;
-  for( fd_forest_frontier_iter_t iter = fd_forest_frontier_iter_init( fd_forest_frontier( forest ), fd_forest_pool( forest ) );
-       !fd_forest_frontier_iter_done( iter, fd_forest_frontier( forest ), fd_forest_pool( forest ) );
-       iter = fd_forest_frontier_iter_next( iter, fd_forest_frontier( forest ), fd_forest_pool( forest ) ) ) {
-    fd_forest_ele_t * ele = fd_forest_frontier_iter_ele( iter, fd_forest_frontier( forest ), fd_forest_pool( forest ) );
+  for( fd_forest_consumed_iter_t iter = fd_forest_consumed_iter_init( fd_forest_consumed( forest ), fd_forest_conspool( forest ) );
+       !fd_forest_consumed_iter_done( iter, fd_forest_consumed( forest ), fd_forest_conspool( forest ) );
+       iter = fd_forest_consumed_iter_next( iter, fd_forest_consumed( forest ), fd_forest_conspool( forest ) ) ) {
+    fd_forest_cns_t * ele = fd_forest_consumed_iter_ele( iter, fd_forest_consumed( forest ), fd_forest_conspool( forest ) );
     cnt++;
     (void) ele;
   }
@@ -377,19 +404,19 @@ test_print_tree( fd_wksp_t *wksp ){
   fd_forest_t * forest = fd_forest_join( fd_forest_new( mem, ele_max, 42UL /* seed */ ) );
 
   fd_forest_init( forest, 1568376 );
-  fd_forest_data_shred_insert( forest, 1568377, 1, 0, 0, 1, 1 );
-  fd_forest_data_shred_insert( forest, 1568378, 1, 0, 0, 1, 1 );
-  fd_forest_data_shred_insert( forest, 1568379, 1, 0, 0, 1, 1 );
-  fd_forest_data_shred_insert( forest, 1568380, 1, 0, 0, 1, 1 );
-  fd_forest_data_shred_insert( forest, 1568381, 2, 0, 0, 1, 1 );
-  fd_forest_data_shred_insert( forest, 1568382, 1, 0, 0, 1, 1 );
-  fd_forest_data_shred_insert( forest, 1568383, 4, 0, 0, 1, 1 );
-  fd_forest_data_shred_insert( forest, 1568384, 5, 0, 0, 1, 1 );
-  fd_forest_data_shred_insert( forest, 1568385, 5, 0, 0, 1, 1 );
-  fd_forest_data_shred_insert( forest, 1568386, 6, 0, 0, 1, 1 );
+  fd_forest_block_data_shred_insert( forest, 1568377, 1568376, 0, 0, 1, 1 );
+  fd_forest_block_data_shred_insert( forest, 1568378, 1568377, 0, 0, 1, 1 );
+  fd_forest_block_data_shred_insert( forest, 1568379, 1568378, 0, 0, 1, 1 );
+  fd_forest_block_data_shred_insert( forest, 1568380, 1568379, 0, 0, 1, 1 );
+  fd_forest_block_data_shred_insert( forest, 1568381, 1568379, 0, 0, 1, 1 );
+  fd_forest_block_data_shred_insert( forest, 1568382, 1568381, 0, 0, 1, 1 );
+  fd_forest_block_data_shred_insert( forest, 1568383, 1568379, 0, 0, 1, 1 );
+  fd_forest_block_data_shred_insert( forest, 1568384, 1568379, 0, 0, 1, 1 );
+  fd_forest_block_data_shred_insert( forest, 1568385, 1568380, 0, 0, 1, 1 );
+  fd_forest_block_data_shred_insert( forest, 1568386, 15683806, 0, 0, 1, 1 );
 
   for( ulong i = 1568387; i < 1568400; i++ ){
-    FD_TEST( fd_forest_data_shred_insert( forest, i, 1, 0, 0, 1, 1) );
+    FD_TEST( fd_forest_block_data_shred_insert( forest, i, i-1, 0, 0, 1, 1) );
   }
 
   FD_TEST( !fd_forest_verify( forest ) );
@@ -414,32 +441,32 @@ test_large_print_tree( fd_wksp_t * wksp ){
   fd_forest_init( forest, 330090532 );
 
   for( ulong slot = 330090533; slot <= 330090539; slot++ ){
-    fd_forest_data_shred_insert( forest, slot, 1, 0, 0, 1, 1 );
+    fd_forest_block_data_shred_insert( forest, slot, slot-1, 0, 0, 1, 1 );
   }
 
-  fd_forest_data_shred_insert( forest, 330090544, 5, 0, 0, 1, 1 );
+  fd_forest_block_data_shred_insert( forest, 330090544, 330090539, 0, 0, 1, 1 );
 
   for( ulong slot = 330090545; slot <= 330090583; slot++ ){
-    fd_forest_data_shred_insert( forest, slot, 1, 0, 0, 1, 1 );
+    fd_forest_block_data_shred_insert( forest, slot, slot - 1, 0, 0, 1, 1 );
   }
 
-  fd_forest_data_shred_insert( forest, 330090588, 5, 0, 0, 1, 1 );
+  fd_forest_block_data_shred_insert( forest, 330090588, 330090588 - 5, 0, 0, 1, 1 );
   for( ulong slot = 330090589; slot <= 330090855; slot++ ){
-    fd_forest_data_shred_insert( forest, slot, 1, 0, 0, 1, 1 );
+    fd_forest_block_data_shred_insert( forest, slot, slot -1, 0, 0, 1, 1 );
   }
-  fd_forest_data_shred_insert( forest, 330090856, 5, 0, 0, 1, 1 );
+  fd_forest_block_data_shred_insert( forest, 330090856, 330090588 - 5, 0, 0, 1, 1 );
   for( ulong slot = 330090857; slot <= 330090859; slot++ ){
-    fd_forest_data_shred_insert( forest, slot, 1, 0, 0, 1, 1 );
+    fd_forest_block_data_shred_insert( forest, slot, slot - 1, 0, 0, 1, 1 );
   }
-  fd_forest_data_shred_insert( forest, 330090864, 5, 0, 0, 1, 1 );
+  fd_forest_block_data_shred_insert( forest, 330090864, 330090864 - 5, 0, 0, 1, 1 );
   for( ulong slot = 330090865; slot <= 330091007; slot++ ){
-    fd_forest_data_shred_insert( forest, slot, 1, 0, 0, 1, 1 );
+    fd_forest_block_data_shred_insert( forest, slot, slot - 1, 0, 0, 1, 1 );
   }
-  fd_forest_data_shred_insert( forest, 330091008, 5, 0, 0, 1, 1 );
+  fd_forest_block_data_shred_insert( forest, 330091008, 330091008 - 5, 0, 0, 1, 1 );
 
-  fd_forest_data_shred_insert( forest, 330091010, 3, 0, 0, 1, 1 );
+  fd_forest_block_data_shred_insert( forest, 330091010, 330091010 - 5, 0, 0, 1, 1 );
   for( ulong slot = 330091011; slot <= 330091048; slot++ ){
-    fd_forest_data_shred_insert( forest, slot, 1, 0, 0, 1, 1 );
+    fd_forest_block_data_shred_insert( forest, slot, slot - 1, 0, 0, 1, 1 );
   }
 
   FD_TEST( !fd_forest_verify( forest ) );
@@ -476,11 +503,11 @@ test_linear_forest_iterator( fd_wksp_t * wksp ) {
   (slot 5, idx 0), (slot 5, idx 1), (slot 5, idx 2), (slot 5, idx 3), (slot 5, idx 4)
   */
   fd_forest_init( forest, 0 );
-  fd_forest_data_shred_insert( forest, 1, 1, 1, 0, 1, 1 );
-  fd_forest_data_shred_insert( forest, 2, 1, 2, 0, 1, 1 );
-  fd_forest_data_shred_insert( forest, 3, 1, 0, 0, 0, 0 );
-  fd_forest_data_shred_insert( forest, 4, 1, 3, 0, 0, 0 );
-  fd_forest_data_shred_insert( forest, 5, 1, 5, 0, 1, 1 );
+  fd_forest_block_data_shred_insert( forest, 1, 0, 1, 0, 1, 1 );
+  fd_forest_block_data_shred_insert( forest, 2, 1, 2, 0, 1, 1 );
+  fd_forest_block_data_shred_insert( forest, 3, 2, 0, 0, 0, 0 );
+  fd_forest_block_data_shred_insert( forest, 4, 3, 3, 0, 0, 0 );
+  fd_forest_block_data_shred_insert( forest, 5, 4, 5, 0, 1, 1 );
 
   iter_order_t expected[10] = {
     { 1, 0 }, { 2, 0 }, { 2, 1 }, { 3, UINT_MAX }, { 4, UINT_MAX },
@@ -533,11 +560,11 @@ test_branched_forest_iterator( fd_wksp_t * wksp ) {
   (slot 5, idx 0), (slot 5, idx 1), (slot 5, idx 2), (slot 5, idx 3), (slot 5, idx 4)
   */
   fd_forest_init( forest, 0 );
-  fd_forest_data_shred_insert( forest, 1, 1, 1, 0, 1, 1 );
-  fd_forest_data_shred_insert( forest, 2, 1, 2, 0, 1, 1 );
-  fd_forest_data_shred_insert( forest, 3, 2, 0, 0, 0, 0 );
-  fd_forest_data_shred_insert( forest, 4, 2, 3, 0, 0, 0 );
-  fd_forest_data_shred_insert( forest, 5, 2, 5, 0, 1, 1 );
+  fd_forest_block_data_shred_insert( forest, 1, 0, 1, 0, 1, 1 );
+  fd_forest_block_data_shred_insert( forest, 2, 1, 2, 0, 1, 1 );
+  fd_forest_block_data_shred_insert( forest, 3, 1, 0, 0, 0, 0 );
+  fd_forest_block_data_shred_insert( forest, 4, 2, 3, 0, 0, 0 );
+  fd_forest_block_data_shred_insert( forest, 5, 3, 5, 0, 1, 1 );
 
   /* This is deterministic. With only one frontier, we will try to DFS
   the left most fork */
@@ -558,7 +585,7 @@ test_branched_forest_iterator( fd_wksp_t * wksp ) {
   /* Now frontier advances to the point where we have two things in the
      frontier */
   ulong curr_ver =  fd_fseq_query( fd_forest_ver_const( forest ) );
-  fd_forest_data_shred_insert( forest, 1, 1, 0, 0, 0, 0 );
+  fd_forest_block_data_shred_insert( forest, 1, 0, 0, 0, 0, 0 );
   // slot one is complete, so we should now have two things in the frontier
 
   FD_TEST( curr_ver < fd_fseq_query( fd_forest_ver_const( forest ) ) );
@@ -591,7 +618,7 @@ test_branched_forest_iterator( fd_wksp_t * wksp ) {
     i++;
     if( i == 2 ) {
       /* insert a data shred in the middle of the iteration */
-      fd_forest_data_shred_insert( forest, 3, 2, 3, 0, 1, 1 );
+      fd_forest_block_data_shred_insert( forest, 3, 1, 3, 0, 1, 1 );
       FD_TEST( curr_ver < fd_fseq_query( fd_forest_ver_const( forest ) ) );
       curr_ver = fd_fseq_query( fd_forest_ver_const( forest ) );
     }
@@ -609,24 +636,24 @@ test_frontier( fd_wksp_t * wksp ) {
   fd_forest_t * forest = fd_forest_join( fd_forest_new( mem, ele_max, 42UL /* seed */ ) );
 
   fd_forest_init( forest, 0 );
-  fd_forest_data_shred_insert( forest, 1, 1, 0, 0, 1, 1 );
-  fd_forest_data_shred_insert( forest, 2, 1, 0, 0, 1, 1 );
-  fd_forest_data_shred_insert( forest, 3, 1, 0, 0, 0, 0 ); /* new frontier */
+  fd_forest_block_data_shred_insert( forest, 1, 0, 0, 0, 1, 1 );
+  fd_forest_block_data_shred_insert( forest, 2, 1, 0, 0, 1, 1 );
+  fd_forest_block_data_shred_insert( forest, 3, 2, 0, 0, 0, 0 ); /* new frontier */
 
   ulong frontier_slot = 3;
   FD_TEST( !fd_forest_verify( forest ) );
   FD_TEST( fd_forest_frontier_ele_query( fd_forest_frontier( forest ), &frontier_slot, NULL, fd_forest_pool( forest ) ) );
 
   /* frontier chaining from slot 1 */
-  fd_forest_data_shred_insert( forest, 4, 3, 0, 0, 0, 0 ); /* new frontier */
+  fd_forest_block_data_shred_insert( forest, 4, 1, 0, 0, 0, 0 ); /* new frontier */
   frontier_slot = 4;
   FD_TEST( !fd_forest_verify( forest ) );
-  FD_TEST( fd_forest_frontier_ele_query( fd_forest_frontier( forest ), &frontier_slot, NULL, fd_forest_pool( forest ) ) );
+  FD_TEST(  fd_forest_consumed_ele_query( fd_forest_consumed( forest ), &frontier_slot, NULL, fd_forest_conspool( forest ) ) );
   FD_TEST( !fd_forest_ancestry_ele_query( fd_forest_ancestry( forest ), &frontier_slot, NULL, fd_forest_pool( forest ) ) );
 }
 
 void
-test_turbine_pause_frontier_race_condition( fd_wksp_t * wksp ) {
+test_invalid_frontier_insert( fd_wksp_t * wksp ) {
 
   /* We had a gnarly race where suppose we were executing at the head of
      turbine, caught up, and suddenly got dropped from turbine for a
@@ -648,26 +675,26 @@ test_turbine_pause_frontier_race_condition( fd_wksp_t * wksp ) {
   fd_forest_t * forest = fd_forest_join( fd_forest_new( mem, ele_max, 42UL /* seed */ ) );
 
   fd_forest_init( forest, 0 );
-  fd_forest_data_shred_insert( forest, 100, 0, 0, 0, 1, 1 );
+  fd_forest_block_data_shred_insert( forest, 100, 0, 0, 0, 1, 1 );
 
   /* turbine pause */
 
-  fd_forest_data_shred_insert( forest, 109, 1, 0, 0, 0, 0 );
+  fd_forest_block_data_shred_insert( forest, 109, 108, 0, 0, 0, 0 );
 
-  fd_forest_data_shred_insert( forest, 101, 1, 0, 0, 0, 0 );
+  fd_forest_block_data_shred_insert( forest, 101, 100, 0, 0, 0, 0 );
 
   /* turbine resume */
 
-  fd_forest_data_shred_insert( forest, 108, 8, 0, 0, 0, 0 );
+  fd_forest_block_data_shred_insert( forest, 108, 100, 0, 0, 0, 0 );
 
   fd_forest_print( forest );
   FD_TEST( !fd_forest_verify( forest ) );
   ulong slot1 = 101;
   ulong slot2 = 108;
   ulong slot3 = 109;
-  FD_TEST( fd_forest_frontier_ele_query( fd_forest_frontier( forest ), &slot1, NULL, fd_forest_pool( forest ) ) );
-  FD_TEST( fd_forest_frontier_ele_query( fd_forest_frontier( forest ), &slot2, NULL, fd_forest_pool( forest ) ) );
-  FD_TEST( !fd_forest_frontier_ele_query( fd_forest_frontier( forest ), &slot3, NULL, fd_forest_pool( forest ) ) );
+  FD_TEST( fd_forest_consumed_ele_query( fd_forest_consumed( forest ), &slot1, NULL, fd_forest_conspool( forest ) ) );
+  FD_TEST( fd_forest_consumed_ele_query( fd_forest_consumed( forest ), &slot2, NULL, fd_forest_conspool( forest ) ) );
+  FD_TEST( !fd_forest_consumed_ele_query( fd_forest_consumed( forest ), &slot3, NULL, fd_forest_conspool( forest ) ) );
 
   fd_forest_print( forest );
 
@@ -683,7 +710,7 @@ main( int argc, char ** argv ) {
   fd_wksp_t * wksp = fd_wksp_new_anonymous( fd_cstr_to_shmem_page_sz( page_sz ), page_cnt, fd_shmem_cpu_idx( numa_idx ), "wksp", 0UL );
   FD_TEST( wksp );
 
-  test_turbine_pause_frontier_race_condition( wksp );
+  test_invalid_frontier_insert( wksp );
   test_publish( wksp );
   test_publish_incremental( wksp );
   test_out_of_order( wksp );

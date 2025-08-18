@@ -64,7 +64,6 @@
 #include "../forest/fd_forest.h"
 #include "../reasm/fd_reasm.h"
 
-#define LOGGING 1
 #define DEBUG_LOGGING 0
 
 #define IN_KIND_CONTACT (0)
@@ -862,9 +861,9 @@ after_frag( fd_repair_tile_ctx_t * ctx,
        shred multiple times. */
 
     if( FD_UNLIKELY( fec_completes ) ) {
-      fd_forest_ele_t * ele = NULL;
+      fd_forest_ele_t * ele = fd_forest_block_insert( ctx->forest, shred->slot, shred->slot - shred->data.parent_off );
       for( uint idx = shred->fec_set_idx; idx <= shred->idx; idx++ ) {
-        ele = fd_forest_data_shred_insert( ctx->forest, shred->slot, shred->data.parent_off, idx, shred->fec_set_idx, 0, 0 );
+        ele = fd_forest_data_shred_insert( ctx->forest, shred->slot, shred->slot - shred->data.parent_off, idx, shred->fec_set_idx, 0 );
       }
       FD_TEST( ele ); /* must be non-empty */
 
@@ -888,9 +887,9 @@ after_frag( fd_repair_tile_ctx_t * ctx,
     if( FD_LIKELY( !is_code ) ) {
       fd_repair_inflight_remove( ctx->repair, shred->slot, shred->idx );
 
-      int               data_complete = !!(shred->data.flags & FD_SHRED_DATA_FLAG_DATA_COMPLETE);
       int               slot_complete = !!(shred->data.flags & FD_SHRED_DATA_FLAG_SLOT_COMPLETE);
-      fd_forest_ele_t * ele           = fd_forest_data_shred_insert( ctx->forest, shred->slot, shred->data.parent_off, shred->idx, shred->fec_set_idx, data_complete, slot_complete );
+      fd_forest_ele_t * ele           = fd_forest_block_insert( ctx->forest, shred->slot, shred->slot - shred->data.parent_off );
+      fd_forest_data_shred_insert( ctx->forest, shred->slot, shred->slot - shred->data.parent_off, shred->idx, shred->fec_set_idx, slot_complete );
 
       /* Check if there are FECs to force complete. Algorithm: window
          through the idxs in interval [i, j). If j = next fec_set_idx
@@ -1089,7 +1088,7 @@ during_housekeeping( fd_repair_tile_ctx_t * ctx ) {
 
 # if DEBUG_LOGGING
   long now = fd_log_wallclock();
-  if( FD_UNLIKELY( now - ctx->tsprint > (long)60e9 ) ) {
+  if( FD_UNLIKELY( now - ctx->tsprint > (long)5e9 ) ) {
     fd_forest_print( ctx->forest );
     fd_reasm_print( ctx->reasm );
     ctx->tsprint = fd_log_wallclock();

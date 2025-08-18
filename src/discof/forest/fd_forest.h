@@ -44,7 +44,8 @@
    operations from processes with separate local forest joins. */
 
 struct __attribute__((aligned(128UL))) fd_forest_ele {
-  ulong slot;     /* map key */
+  ulong slot;        /* map key */
+  ulong parent_slot; /* map key of the parent. invariant: if parent is populated, parent_slot is populated. the converse is not necessarily true. */
   ulong next;     /* internal use by fd_pool, fd_map_chain */
   ulong parent;   /* pool idx of the parent in the tree */
   ulong child;    /* pool idx of the left-child */
@@ -78,6 +79,27 @@ typedef struct fd_forest_ele fd_forest_ele_t;
 #define MAP_KEY   slot
 #include "../../util/tmpl/fd_map_chain.c"
 
+#define MAP_NAME  fd_forest_subtrees
+#define MAP_ELE_T fd_forest_ele_t
+#define MAP_KEY   slot
+#include "../../util/tmpl/fd_map_chain.c"
+
+struct fd_forest_cns {
+  ulong slot;
+  ulong forest_pool_idx;
+  ulong next;
+};
+typedef struct fd_forest_cns fd_forest_cns_t;
+
+#define MAP_NAME     fd_forest_consumed
+#define MAP_ELE_T    fd_forest_cns_t
+#define MAP_KEY      slot
+#include "../../util/tmpl/fd_map_chain.c"
+
+#define POOL_NAME     fd_forest_conspool
+#define POOL_T        fd_forest_cns_t
+#include "../../util/tmpl/fd_pool.c"
+
 /* Internal use only for BFSing */
 #define DEQUE_NAME fd_forest_deque
 #define DEQUE_T    ulong
@@ -100,8 +122,11 @@ typedef struct fd_forest_ele fd_forest_ele_t;
    |-------------------|
    | frontier          |
    |-------------------|
+   | subtrees          |
+   |-------------------|
    | orphaned          |
    ---------------------
+
 
    A valid, initialized forest is always non-empty.  After
    `fd_forest_init` the forest will always have a root ele unless
@@ -114,8 +139,12 @@ struct __attribute__((aligned(128UL))) fd_forest {
   ulong ver_gaddr;      /* wksp gaddr of version fseq, incremented on write ops */
   ulong pool_gaddr;     /* wksp gaddr of fd_pool */
   ulong ancestry_gaddr; /* wksp_gaddr of fd_forest_ancestry */
-  ulong frontier_gaddr; /* map of slot to ele (leaf that needs repair) */
+  ulong frontier_gaddr; /* leaves that needs repair) */
+  ulong subtrees_gaddr; /* head of orphaned trees */
   ulong orphaned_gaddr; /* map of parent_slot to singly-linked list of ele orphaned by that parent slot */
+
+  ulong consumed_gaddr; /* map of slot to pool idx of the completed repair frontier */
+  ulong conspool_gaddr; /* wksp gaddr of fd_forest_consumed_pool */
   ulong deque_gaddr;    /* wksp gaddr of fd_forest_deque. internal use only for BFSing */
   ulong magic;          /* ==FD_FOREST_MAGIC */
 };
@@ -144,13 +173,19 @@ fd_forest_footprint( ulong ele_max ) {
     FD_LAYOUT_APPEND(
     FD_LAYOUT_APPEND(
     FD_LAYOUT_APPEND(
+    FD_LAYOUT_APPEND(
+    FD_LAYOUT_APPEND(
+    FD_LAYOUT_APPEND(
     FD_LAYOUT_INIT,
       alignof(fd_forest_t),         sizeof(fd_forest_t)                     ),
       fd_fseq_align(),              fd_fseq_footprint()                     ),
       fd_forest_pool_align(),       fd_forest_pool_footprint    ( ele_max ) ),
       fd_forest_ancestry_align(),   fd_forest_ancestry_footprint( ele_max ) ),
       fd_forest_frontier_align(),   fd_forest_frontier_footprint( ele_max ) ),
+      fd_forest_subtrees_align(),   fd_forest_subtrees_footprint( ele_max ) ),
       fd_forest_orphaned_align(),   fd_forest_orphaned_footprint( ele_max ) ),
+      fd_forest_consumed_align(),   fd_forest_consumed_footprint( ele_max ) ), /* TODO: we can size this a LOT smaller than ele_max */
+      fd_forest_conspool_align(),   fd_forest_conspool_footprint( ele_max ) ), /* TODO: we can size this a LOT smaller than ele_max */
       fd_forest_deque_align(),      fd_forest_deque_footprint   ( ele_max ) ),
     fd_forest_align() );
 }
@@ -274,6 +309,19 @@ fd_forest_frontier_const( fd_forest_t const * forest ) {
   return fd_wksp_laddr_fast( fd_forest_wksp( forest ), forest->frontier_gaddr );
 }
 
+/* fd_forest_{subtrees, subtrees_const} returns a pointer in the caller's
+   address space to forest's subtrees map. */
+
+FD_FN_PURE static inline fd_forest_subtrees_t *
+fd_forest_subtrees( fd_forest_t * forest ) {
+  return fd_wksp_laddr_fast( fd_forest_wksp( forest ), forest->subtrees_gaddr );
+}
+
+FD_FN_PURE static inline fd_forest_subtrees_t const *
+fd_forest_subtrees_const( fd_forest_t const * forest ) {
+  return fd_wksp_laddr_fast( fd_forest_wksp( forest ), forest->subtrees_gaddr );
+}
+
 /* fd_forest_{orphaned, orphaned_const} returns a pointer in the caller's
    address space to forest's orphaned map. */
 
@@ -285,6 +333,32 @@ fd_forest_orphaned( fd_forest_t * forest ) {
 FD_FN_PURE static inline fd_forest_orphaned_t const *
 fd_forest_orphaned_const( fd_forest_t const * forest ) {
   return fd_wksp_laddr_fast( fd_forest_wksp( forest ), forest->orphaned_gaddr );
+}
+
+/* fd_forest_{consumed, consumed_const} returns a pointer in the caller's
+   address space to forest's consumed map. */
+
+FD_FN_PURE static inline fd_forest_consumed_t *
+fd_forest_consumed( fd_forest_t * forest ) {
+  return fd_wksp_laddr_fast( fd_forest_wksp( forest ), forest->consumed_gaddr );
+}
+
+FD_FN_PURE static inline fd_forest_consumed_t const *
+fd_forest_consumed_const( fd_forest_t const * forest ) {
+  return fd_wksp_laddr_fast( fd_forest_wksp( forest ), forest->consumed_gaddr );
+}
+
+/* fd_forest_{conspool, conspool_const} returns a pointer in the caller's
+   address space to forest's conspool pool. */
+
+FD_FN_PURE static inline fd_forest_cns_t *
+fd_forest_conspool( fd_forest_t * forest ) {
+  return fd_wksp_laddr_fast( fd_forest_wksp( forest ), forest->conspool_gaddr );
+}
+
+FD_FN_PURE static inline fd_forest_cns_t const *
+fd_forest_conspool_const( fd_forest_t const * forest ) {
+  return fd_wksp_laddr_fast( fd_forest_wksp( forest ), forest->conspool_gaddr );
 }
 
 /* fd_forest_root_slot returns forest's root slot.  Assumes
@@ -301,14 +375,23 @@ fd_forest_query( fd_forest_t * forest, ulong slot );
 
 /* Operations */
 
-/* fd_forest_shred_insert inserts a new shred into the forest.
-   Assumes slot >= forest->smr, slot is not already in forest,
-   parent_slot is already in forest, and the ele pool has a free
+/* fd_forest_block_insert inserts a new block into the forest.
+   Assumes slot >= forest->smr, and the ele pool has a free
    element (if handholding is enabled, explicitly checks and errors).
+   This block insert is idempotent, and can be called multiple times
+   with the same slot.
    Returns the inserted forest ele. */
 
 fd_forest_ele_t *
-fd_forest_data_shred_insert( fd_forest_t * forest, ulong slot, ushort parent_off, uint shred_idx, uint fec_set_idx, int data_complete, int slot_complete );
+fd_forest_block_insert( fd_forest_t * forest, ulong slot, ulong parent_slot );
+
+/* fd_forest_shred_insert inserts a new shred into the forest.
+   Assumes slot is already in forest, and should typically be called
+   directly after fd_forest_block_insert. Returns the forest ele
+   corresponding to the shred slot. */
+
+fd_forest_ele_t *
+fd_forest_data_shred_insert( fd_forest_t * forest, ulong slot, ulong parent_slot, uint shred_idx, uint fec_set_idx, int slot_complete );
 
 /* fd_forest_publish publishes slot as the new forest root, setting
    the subtree beginning from slot as the new forest tree (ie. slot
@@ -322,7 +405,7 @@ struct fd_forest_iter {
   ulong ele_idx;
   uint  shred_idx;
   ulong                     frontier_ver; /* the frontier version number of forest at time of initialization */
-  fd_forest_frontier_iter_t head; /* the frontier node "root" of our current iteration, provided NO insertions or deletions in the frontier. */
+  fd_forest_consumed_iter_t head; /* the frontier node "root" of our current iteration, provided NO insertions or deletions in the frontier. */
 };
 typedef struct fd_forest_iter fd_forest_iter_t;
 

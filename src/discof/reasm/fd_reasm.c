@@ -189,8 +189,8 @@ fd_reasm_slot0( fd_reasm_t * reasm ) {
 }
 
 fd_reasm_fec_t *
-fd_reasm_query( fd_reasm_t * reasm,
-                fd_hash_t const * merkle_root ) {
+fd_reasm_query( fd_reasm_t const * reasm,
+                fd_hash_t  const * merkle_root ) {
   fd_reasm_fec_t * fec = NULL;
   fec =                  ancestry_ele_query( reasm->ancestry, merkle_root, NULL, reasm->pool );
   fec = fd_ptr_if( !fec, frontier_ele_query( reasm->frontier, merkle_root, NULL, reasm->pool ), fec );
@@ -296,25 +296,20 @@ fd_reasm_insert( fd_reasm_t *      reasm,
      The new FEC set may result in a new leaf or a new orphan tree root
      so we need to check that. */
 
-  int              is_leaf = 0;
-  int              is_root = 0;
   fd_reasm_fec_t * parent    = NULL;
   if(        FD_LIKELY( parent = ancestry_ele_query ( ancestry, &fec->cmr, NULL, pool ) ) ) { /* parent is connected non-leaf */
     frontier_ele_insert( frontier, fec, pool );
     out_push_tail( out, pool_idx( pool, fec ) );
-    is_leaf = 1;
   } else if( FD_LIKELY( parent = frontier_ele_remove( frontier, &fec->cmr, NULL, pool ) ) ) { /* parent is connected leaf    */
     ancestry_ele_insert( ancestry, parent, pool );
     frontier_ele_insert( frontier, fec,    pool );
     out_push_tail( out, pool_idx( pool, fec ) );
-    is_leaf = 1;
   } else if( FD_LIKELY( parent = orphaned_ele_query ( orphaned, &fec->cmr, NULL, pool ) ) ) { /* parent is orphaned non-root */
     orphaned_ele_insert( orphaned, fec, pool );
   } else if( FD_LIKELY( parent = subtrees_ele_query ( subtrees, &fec->cmr, NULL, pool ) ) ) { /* parent is orphaned root     */
     orphaned_ele_insert( orphaned, fec, pool );
   } else {                                                                                    /* parent not found            */
     subtrees_ele_insert( subtrees, fec, pool );
-    is_root = 1;
   }
 
   if( FD_LIKELY( parent ) ) link( reasm, parent, fec );
@@ -326,23 +321,36 @@ fd_reasm_insert( fd_reasm_t *      reasm,
      coalesce connected orphans into the same tree.  This way we only
      need to search the orphan tree roots (vs. all orphaned nodes). */
 
-  FD_TEST( bfs_empty( bfs ) ); bfs_remove_all( bfs );
+  FD_TEST( bfs_empty( bfs ) );
   for( subtrees_iter_t iter = subtrees_iter_init(       subtrees, pool );
                              !subtrees_iter_done( iter, subtrees, pool );
                        iter = subtrees_iter_next( iter, subtrees, pool ) ) {
     bfs_push_tail( bfs, subtrees_iter_idx( iter, subtrees, pool ) );
   }
+
+  /* connects subtrees to the new FEC */
   while( FD_LIKELY( !bfs_empty( bfs ) ) ) {
     fd_reasm_fec_t * orphan_root = pool_ele( reasm->pool, bfs_pop_head( bfs ) );
     overwrite_invalid_block_id( reasm, orphan_root ); /* handle receiving child before parent */
     if( FD_LIKELY( orphan_root && 0==memcmp( orphan_root->cmr.uc, fec->key.uc, sizeof(fd_hash_t) ) ) ) { /* this orphan_root is a direct child of fec */
       link( reasm, fec, orphan_root );
-      if( FD_UNLIKELY( is_root ) ) { /* this is an orphan tree */
-        subtrees_ele_remove( subtrees, &orphan_root->key, NULL, pool );
-        orphaned_ele_insert( orphaned, orphan_root,             pool );
-      }
+      subtrees_ele_remove( subtrees, &orphan_root->key, NULL, pool );
+      orphaned_ele_insert( orphaned, orphan_root,             pool );
     }
   }
+
+  /* At this point we are in a state where:
+
+       ele     < in frontier/subtrees/orphaned >
+        |
+     children  < all in orphaned >
+
+     if ele is in orphaned/subtrees, we are done and this state is
+     correct.
+     if ele is an frontier, then we need to extend the
+     frontier from this ele. (make ele and all its children the ancestry,
+     except the leaf, which needs to be added to the frontier).
+     it's not possible for ele to be in ancestry at this point! */
 
   /* Third, we advance the frontier beginning from this FEC, if it was
      connected.  By definition if this FEC was connected then its parent
@@ -352,7 +360,7 @@ fd_reasm_insert( fd_reasm_t *      reasm,
      orphaned children.  So we BFS the from the new FEC outward until we
      reach the leaves. */
 
-  if( FD_LIKELY( is_leaf ) ) bfs_push_tail( bfs, pool_idx( pool, fec ) );
+  if( FD_LIKELY( frontier_ele_query( frontier, &fec->key, NULL, pool ) ) ) bfs_push_tail( bfs, pool_idx( pool, fec ) );
   while( FD_LIKELY( !bfs_empty( bfs ) ) ) {
     fd_reasm_fec_t * parent  = pool_ele( pool, bfs_pop_head( bfs ) );
     fd_reasm_fec_t * child = pool_ele( pool, parent->child );
@@ -361,9 +369,8 @@ fd_reasm_insert( fd_reasm_t *      reasm,
       ancestry_ele_insert( ancestry, parent,             pool );
     }
     while( FD_LIKELY( child ) ) {
-      subtrees_ele_remove( subtrees, &child->key, NULL, pool );
-      orphaned_ele_remove( orphaned, &child->key, NULL, pool );
-      frontier_ele_insert( frontier, child,             pool );
+      FD_TEST( orphaned_ele_remove( orphaned, &child->key, NULL, pool ) );
+      frontier_ele_insert( frontier, child,              pool );
       bfs_push_tail( bfs, pool_idx( pool, child ) );
       out_push_tail( out, pool_idx( pool, child ) );
       child = pool_ele( pool, child->sibling );
