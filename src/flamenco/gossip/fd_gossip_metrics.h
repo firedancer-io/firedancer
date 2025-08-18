@@ -37,24 +37,24 @@ typedef struct fd_crds_table_metrics fd_crds_table_metrics_t;
 struct fd_gossip_metrics {
   fd_crds_table_metrics_t crds_table[ 1 ];
 
-  ulong                   rx_msg_count[ FD_METRICS_ENUM_GOSSIP_MESSAGE_CNT ];
-  ulong                   rx_msg_bytes[ FD_METRICS_ENUM_GOSSIP_MESSAGE_CNT ];
+  ulong rx_msg_count[ FD_METRICS_ENUM_GOSSIP_MESSAGE_CNT ];
+  ulong rx_msg_bytes[ FD_METRICS_ENUM_GOSSIP_MESSAGE_CNT ];
 
-  ulong                   tx_msg_count[ FD_METRICS_ENUM_GOSSIP_MESSAGE_CNT ];
-  ulong                   tx_msg_bytes[ FD_METRICS_ENUM_GOSSIP_MESSAGE_CNT ];
+  ulong tx_msg_count[ FD_METRICS_ENUM_GOSSIP_MESSAGE_CNT ];
+  ulong tx_msg_bytes[ FD_METRICS_ENUM_GOSSIP_MESSAGE_CNT ];
 
-  ulong                   rx_push_crd_count[ FD_METRICS_ENUM_CRDS_VALUE_CNT ];
-  ulong                   rx_push_crd_bytes[ FD_METRICS_ENUM_CRDS_VALUE_CNT ];
-  ulong                   rx_pull_crd_count[ FD_METRICS_ENUM_CRDS_VALUE_CNT ];
-  ulong                   rx_pull_crd_bytes[ FD_METRICS_ENUM_CRDS_VALUE_CNT ];
+  ulong rx_push_crd_count[ FD_METRICS_ENUM_CRDS_VALUE_CNT ];
+  ulong rx_push_crd_bytes[ FD_METRICS_ENUM_CRDS_VALUE_CNT ];
+  ulong rx_pull_crd_count[ FD_METRICS_ENUM_CRDS_VALUE_CNT ];
+  ulong rx_pull_crd_bytes[ FD_METRICS_ENUM_CRDS_VALUE_CNT ];
 
-  ulong                   rx_crds_outcome[ FD_METRICS_ENUM_CRDS_INSERTION_OUTCOME_CNT ];
+  ulong rx_crds_outcome[ FD_METRICS_ENUM_CRDS_INSERTION_OUTCOME_CNT ];
 
-  ulong                   tx_push_crd_count[ FD_METRICS_ENUM_CRDS_VALUE_CNT ];
-  ulong                   tx_push_crd_bytes[ FD_METRICS_ENUM_CRDS_VALUE_CNT ];
+  ulong tx_push_crd_count[ FD_METRICS_ENUM_CRDS_VALUE_CNT ];
+  ulong tx_push_crd_bytes[ FD_METRICS_ENUM_CRDS_VALUE_CNT ];
 
-  ulong                   tx_pull_crd_count[ FD_METRICS_ENUM_CRDS_VALUE_CNT ];
-  ulong                   tx_pull_crd_bytes[ FD_METRICS_ENUM_CRDS_VALUE_CNT ];
+  ulong tx_pull_crd_count[ FD_METRICS_ENUM_CRDS_VALUE_CNT ];
+  ulong tx_pull_crd_bytes[ FD_METRICS_ENUM_CRDS_VALUE_CNT ];
 };
 
 typedef struct fd_gossip_metrics fd_gossip_metrics_t;
