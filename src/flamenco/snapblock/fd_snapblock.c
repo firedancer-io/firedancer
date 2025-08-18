@@ -1,4 +1,5 @@
 #include "fd_snapblock.h"
+#include "../runtime/fd_bank.h"
 
 
 struct fd_snapblock {
@@ -87,8 +88,31 @@ fd_snapblock_writer_join( void * mem ) {
   return snapblock;
 }
 
+static int
+fd_snapblock_writer_dump_banks( fd_snapblock_t * snapblock ) {
+  /* In order to simplify what gets dumped as much as possible, we will
+     root the parent bank of the slot that we wish to dump. This way,
+     we have the state going into the slot that we are interested in
+     capturing. */
+
+  fd_banks_lock( snapblock->banks );
+
+  fd_bank_t * bank = fd_banks_parent_get( snapblock->banks, fd_banks_get_bank( snapblock->banks, snapblock->slot ) );
+  if( FD_UNLIKELY( !bank ) ) {
+    FD_LOG_CRIT(( "failed to get parent bank" ));
+  }
+
+  /* We need to cancel the bank for the slot that we wish to dump. */
+
+
+
+}
+
+
 fd_snapblock_t *
-fd_snapblock_writer_create( fd_snapblock_t * snapblock );
+fd_snapblock_writer_create( fd_snapblock_t * snapblock ) {
+
+}
 
 void *
 fd_snapblock_writer_fini( fd_snapblock_t * snapblock );

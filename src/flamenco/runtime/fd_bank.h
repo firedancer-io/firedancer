@@ -465,7 +465,7 @@ fd_bank_slot_get( fd_bank_t const * bank ) {
   return bank->slot_;
 }
 
-/* Simple getters and setters for members of fd_banks_t.*/
+/* Simple getters and setters for members of fd_banks_t. */
 
 static inline fd_bank_t *
 fd_banks_get_bank_pool( fd_banks_t const * banks ) {
@@ -493,6 +493,12 @@ fd_banks_set_bank_map( fd_banks_t * banks, fd_banks_map_t * bank_map ) {
     FD_LOG_CRIT(( "Failed to leave bank map" ));
   }
   banks->map_offset = (ulong)bank_map_mem - (ulong)banks;
+}
+
+static inline fd_bank_t *
+fd_banks_parent_get( fd_banks_t * banks, fd_bank_t * bank ) {
+  ulong idx = bank->parent_idx;
+  return fd_banks_pool_ele( fd_banks_get_bank_pool( banks ), idx );
 }
 
 #define HAS_COW_1(type, name, footprint, align)                                    \

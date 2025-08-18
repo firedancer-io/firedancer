@@ -622,6 +622,26 @@ fd_banks_clone_from_parent( fd_banks_t * banks,
   return new_bank;
 }
 
+static fd_bank_t * FD_FN_UNUSED
+fd_banks_remove_children( fd_banks_t * banks, fd_bank_t * bank ) {
+  fd_rwlock_write( &banks->rwlock );
+
+  fd_bank_t *      bank_pool = fd_banks_get_bank_pool( banks );
+  fd_banks_map_t * bank_map  = fd_banks_get_bank_map( banks );
+
+  ulong null_idx = fd_banks_pool_idx_null( bank_pool );
+
+  /* Remove the children from the map. */
+  if( bank->child_idx!=null_idx ) {
+    fd_bank_t * child = fd_banks_pool_ele( bank_pool, bank->child_idx );
+    bank_pool
+
+
+  }
+
+  fd_rwlock_unwrite( &banks->rwlock );
+}
+
 fd_bank_t const *
 fd_banks_publish( fd_banks_t * banks, ulong slot ) {
 
