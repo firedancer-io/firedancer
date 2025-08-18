@@ -441,7 +441,6 @@ rx_pull_request( fd_gossip_t *                         gossip,
   crds_builder_flush( gossip, pull_resp, stem, peer_addr, now );
 }
 
-
 static void
 rx_pull_response( fd_gossip_t *                          gossip,
                   fd_gossip_view_pull_response_t const * pull_response,

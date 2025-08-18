@@ -1,6 +1,6 @@
 #include "fd_bloom.h"
 
-#include "../../util/rng/fd_rng.h"
+#include "../../util/log/fd_log.h"
 
 #include <math.h>
 
