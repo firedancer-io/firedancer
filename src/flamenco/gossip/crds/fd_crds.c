@@ -1,11 +1,10 @@
 #include "fd_crds.h"
-#include "../../../ballet/sha256/fd_sha256.h"
-#include <string.h>
-#include "../fd_gossip_types.h"
 #include "fd_crds_contact_info.c"
+#include "../fd_gossip_types.h"
 
-#define FD_CRDS_ALIGN 8UL
-#define FD_CRDS_MAGIC (0xf17eda2c37c7d50UL) /* firedancer crds version 0*/
+#include "../../../ballet/sha256/fd_sha256.h"
+
+#include <string.h>
 
 FD_STATIC_ASSERT( CRDS_MAX_CONTACT_INFO==FD_CONTACT_INFO_TABLE_SIZE,
                   "CRDS_MAX_CONTACT_INFO must match FD_CONTACT_INFO_TABLE_SIZE" );
@@ -305,9 +304,9 @@ struct fd_crds_purged {
 };
 typedef struct fd_crds_purged fd_crds_purged_t;
 
-#define POOL_NAME   purged_pool
-#define POOL_T      fd_crds_purged_t
-#define POOL_NEXT   pool.next
+#define POOL_NAME purged_pool
+#define POOL_T    fd_crds_purged_t
+#define POOL_NEXT pool.next
 
 #include "../../../util/tmpl/fd_pool.c"
 
@@ -320,38 +319,41 @@ typedef struct fd_crds_purged fd_crds_purged_t;
 #define TREAP_PREV      treap.prev
 #define TREAP_LT(e0,e1) (*(ulong *)((e0)->hash)<*(ulong *)((e1)->hash))
 
-#define TREAP_PARENT    treap.parent
-#define TREAP_LEFT      treap.left
-#define TREAP_RIGHT     treap.right
-#define TREAP_PRIO      treap.prio
+#define TREAP_PARENT treap.parent
+#define TREAP_LEFT   treap.left
+#define TREAP_RIGHT  treap.right
+#define TREAP_PRIO   treap.prio
 
 #include "../../../util/tmpl/fd_treap.c"
 
-#define DLIST_NAME      failed_inserts_dlist
-#define DLIST_ELE_T     fd_crds_purged_t
-#define DLIST_PREV      expire.prev
-#define DLIST_NEXT      expire.next
+#define DLIST_NAME  failed_inserts_dlist
+#define DLIST_ELE_T fd_crds_purged_t
+#define DLIST_PREV  expire.prev
+#define DLIST_NEXT  expire.next
 
 #include "../../../util/tmpl/fd_dlist.c"
 
-#define DLIST_NAME      purged_dlist
-#define DLIST_ELE_T     fd_crds_purged_t
-#define DLIST_PREV      expire.prev
-#define DLIST_NEXT      expire.next
+#define DLIST_NAME  purged_dlist
+#define DLIST_ELE_T fd_crds_purged_t
+#define DLIST_PREV  expire.prev
+#define DLIST_NEXT  expire.next
 
 #include "../../../util/tmpl/fd_dlist.c"
-
 
 struct fd_crds_private {
-  fd_gossip_out_ctx_t *      gossip_update;
-  fd_crds_table_metrics_t *  metrics;
-  fd_crds_entry_t *          pool;
+  fd_gossip_out_ctx_t * gossip_update;
 
-  evict_treap_t *            evict_treap;
-  staked_expire_dlist_t *    staked_expire_dlist;
-  unstaked_expire_dlist_t *  unstaked_expire_dlist;
-  hash_treap_t *             hash_treap;
-  lookup_map_t *             lookup_map;
+  fd_sha256_t sha256[1];
+
+  int has_staked_node;
+
+  fd_crds_entry_t * pool;
+
+  evict_treap_t *           evict_treap;
+  staked_expire_dlist_t *   staked_expire_dlist;
+  unstaked_expire_dlist_t * unstaked_expire_dlist;
+  hash_treap_t *            hash_treap;
+  lookup_map_t *            lookup_map;
 
   struct {
     fd_crds_purged_t *       pool;
@@ -360,17 +362,17 @@ struct fd_crds_private {
     failed_inserts_dlist_t * failed_inserts_dlist;
   } purged;
 
-  int                        has_staked_node;
-  ulong                      magic;
-
-  /* Contact Info side table */
-  struct{
+  struct {
     fd_crds_contact_info_entry_t *    pool;
     crds_contact_info_fresh_list_t *  fresh_dlist;
     crds_contact_info_evict_dlist_t * evict_dlist;
   } contact_info;
 
-  crds_samplers_t            samplers[1];
+  crds_samplers_t samplers[1];
+
+  fd_crds_metrics_t metrics[1];
+
+  ulong magic;
 };
 
 FD_FN_CONST ulong
@@ -383,24 +385,19 @@ fd_crds_footprint( ulong ele_max,
                    ulong purged_max ) {
   ulong l;
   l = FD_LAYOUT_INIT;
-  l = FD_LAYOUT_APPEND( l, FD_CRDS_ALIGN,                 sizeof(fd_crds_t) );
-  l = FD_LAYOUT_APPEND( l, crds_pool_align(),             crds_pool_footprint( ele_max )      );
-  l = FD_LAYOUT_APPEND( l, evict_treap_align(),           evict_treap_footprint( ele_max )    );
-  l = FD_LAYOUT_APPEND( l, staked_expire_dlist_align(),   staked_expire_dlist_footprint()     );
-  l = FD_LAYOUT_APPEND( l, unstaked_expire_dlist_align(), unstaked_expire_dlist_footprint()   );
-  l = FD_LAYOUT_APPEND( l, hash_treap_align(),            hash_treap_footprint( ele_max )     );
-  l = FD_LAYOUT_APPEND( l, lookup_map_align(),            lookup_map_footprint( ele_max )     );
-
-  /* Purged Table */
-  l = FD_LAYOUT_APPEND( l, purged_pool_align(),          purged_pool_footprint( purged_max ) );
-  l = FD_LAYOUT_APPEND( l, purged_treap_align(),         purged_treap_footprint( purged_max ) );
-  l = FD_LAYOUT_APPEND( l, purged_dlist_align(),         purged_dlist_footprint() );
-  l = FD_LAYOUT_APPEND( l, failed_inserts_dlist_align(), failed_inserts_dlist_footprint() );
-
-
-  /* Contact Info side table */
-  l = FD_LAYOUT_APPEND( l, crds_contact_info_pool_align(), crds_contact_info_pool_footprint( CRDS_MAX_CONTACT_INFO ) );
-  l = FD_LAYOUT_APPEND( l, crds_contact_info_fresh_list_align(), crds_contact_info_fresh_list_footprint() );
+  l = FD_LAYOUT_APPEND( l, FD_CRDS_ALIGN,                         sizeof(fd_crds_t) );
+  l = FD_LAYOUT_APPEND( l, crds_pool_align(),                     crds_pool_footprint( ele_max )      );
+  l = FD_LAYOUT_APPEND( l, evict_treap_align(),                   evict_treap_footprint( ele_max )    );
+  l = FD_LAYOUT_APPEND( l, staked_expire_dlist_align(),           staked_expire_dlist_footprint()     );
+  l = FD_LAYOUT_APPEND( l, unstaked_expire_dlist_align(),         unstaked_expire_dlist_footprint()   );
+  l = FD_LAYOUT_APPEND( l, hash_treap_align(),                    hash_treap_footprint( ele_max )     );
+  l = FD_LAYOUT_APPEND( l, lookup_map_align(),                    lookup_map_footprint( ele_max )     );
+  l = FD_LAYOUT_APPEND( l, purged_pool_align(),                   purged_pool_footprint( purged_max ) );
+  l = FD_LAYOUT_APPEND( l, purged_treap_align(),                  purged_treap_footprint( purged_max ) );
+  l = FD_LAYOUT_APPEND( l, purged_dlist_align(),                  purged_dlist_footprint() );
+  l = FD_LAYOUT_APPEND( l, failed_inserts_dlist_align(),          failed_inserts_dlist_footprint() );
+  l = FD_LAYOUT_APPEND( l, crds_contact_info_pool_align(),        crds_contact_info_pool_footprint( CRDS_MAX_CONTACT_INFO ) );
+  l = FD_LAYOUT_APPEND( l, crds_contact_info_fresh_list_align(),  crds_contact_info_fresh_list_footprint() );
   l = FD_LAYOUT_APPEND( l, crds_contact_info_evict_dlist_align(), crds_contact_info_evict_dlist_footprint() );
   return FD_LAYOUT_FINI( l, FD_CRDS_ALIGN );
 }
@@ -410,7 +407,6 @@ fd_crds_new( void *                    shmem,
              fd_rng_t *                rng,
              ulong                     ele_max,
              ulong                     purged_max,
-             fd_crds_table_metrics_t * metrics,
              fd_gossip_out_ctx_t *     gossip_update_out ) {
   if( FD_UNLIKELY( !shmem ) ) {
     FD_LOG_WARNING(( "NULL shmem" ));
@@ -438,17 +434,25 @@ fd_crds_new( void *                    shmem,
   }
 
   if( FD_UNLIKELY( !gossip_update_out ) ) {
-    FD_LOG_INFO(( "NULL gossip_out, will not publish update messages" ));
+    FD_LOG_WARNING(( "NULL gossip_out" ));
+    return NULL;
   }
 
   FD_SCRATCH_ALLOC_INIT( l, shmem );
-  fd_crds_t * crds              = FD_SCRATCH_ALLOC_APPEND( l, FD_CRDS_ALIGN,                 sizeof(fd_crds_t) );
-  void * _pool                  = FD_SCRATCH_ALLOC_APPEND( l, crds_pool_align(),             crds_pool_footprint( ele_max ) );
-  void * _evict_treap           = FD_SCRATCH_ALLOC_APPEND( l, evict_treap_align(),           evict_treap_footprint( ele_max ) );
-  void * _staked_expire_dlist   = FD_SCRATCH_ALLOC_APPEND( l, staked_expire_dlist_align(),   staked_expire_dlist_footprint() );
-  void * _unstaked_expire_dlist = FD_SCRATCH_ALLOC_APPEND( l, unstaked_expire_dlist_align(), unstaked_expire_dlist_footprint() );
-  void * _hash_treap            = FD_SCRATCH_ALLOC_APPEND( l, hash_treap_align(),            hash_treap_footprint( ele_max ) );
-  void * _lookup_map            = FD_SCRATCH_ALLOC_APPEND( l, lookup_map_align(),            lookup_map_footprint( ele_max ) );
+  fd_crds_t * crds              = FD_SCRATCH_ALLOC_APPEND( l, FD_CRDS_ALIGN,                         sizeof(fd_crds_t) );
+  void * _pool                  = FD_SCRATCH_ALLOC_APPEND( l, crds_pool_align(),                     crds_pool_footprint( ele_max ) );
+  void * _evict_treap           = FD_SCRATCH_ALLOC_APPEND( l, evict_treap_align(),                   evict_treap_footprint( ele_max ) );
+  void * _staked_expire_dlist   = FD_SCRATCH_ALLOC_APPEND( l, staked_expire_dlist_align(),           staked_expire_dlist_footprint() );
+  void * _unstaked_expire_dlist = FD_SCRATCH_ALLOC_APPEND( l, unstaked_expire_dlist_align(),         unstaked_expire_dlist_footprint() );
+  void * _hash_treap            = FD_SCRATCH_ALLOC_APPEND( l, hash_treap_align(),                    hash_treap_footprint( ele_max ) );
+  void * _lookup_map            = FD_SCRATCH_ALLOC_APPEND( l, lookup_map_align(),                    lookup_map_footprint( ele_max ) );
+  void * _purged_pool           = FD_SCRATCH_ALLOC_APPEND( l, purged_pool_align(),                   purged_pool_footprint( purged_max ) );
+  void * _purged_treap          = FD_SCRATCH_ALLOC_APPEND( l, purged_treap_align(),                  purged_treap_footprint( purged_max ) );
+  void * _purged_dlist          = FD_SCRATCH_ALLOC_APPEND( l, purged_dlist_align(),                  purged_dlist_footprint() );
+  void * _failed_inserts_dlist  = FD_SCRATCH_ALLOC_APPEND( l, failed_inserts_dlist_align(),          failed_inserts_dlist_footprint() );
+  void * _ci_pool               = FD_SCRATCH_ALLOC_APPEND( l, crds_contact_info_pool_align(),        crds_contact_info_pool_footprint( CRDS_MAX_CONTACT_INFO ) );
+  void * _ci_dlist              = FD_SCRATCH_ALLOC_APPEND( l, crds_contact_info_fresh_list_align(),  crds_contact_info_fresh_list_footprint() );
+  void * _ci_evict_dlist        = FD_SCRATCH_ALLOC_APPEND( l, crds_contact_info_evict_dlist_align(), crds_contact_info_evict_dlist_footprint() );
 
   crds->pool = crds_pool_join( crds_pool_new( _pool, ele_max ) );
   FD_TEST( crds->pool );
@@ -470,40 +474,35 @@ fd_crds_new( void *                    shmem,
   crds->lookup_map = lookup_map_join( lookup_map_new( _lookup_map, ele_max, fd_rng_ulong( rng ) ) );
   FD_TEST( crds->lookup_map );
 
-
-  /* Purged Table */
-  void * _purged_pool          = FD_SCRATCH_ALLOC_APPEND( l, purged_pool_align(),          purged_pool_footprint( purged_max ) );
-  void * _purged_treap         = FD_SCRATCH_ALLOC_APPEND( l, purged_treap_align(),         purged_treap_footprint( purged_max ) );
-  void * _purged_dlist         = FD_SCRATCH_ALLOC_APPEND( l, purged_dlist_align(),         purged_dlist_footprint() );
-  void * _failed_inserts_dlist = FD_SCRATCH_ALLOC_APPEND( l, failed_inserts_dlist_align(), failed_inserts_dlist_footprint() );
-
-  crds->purged.pool          = purged_pool_join( purged_pool_new( _purged_pool, purged_max ) );
+  crds->purged.pool = purged_pool_join( purged_pool_new( _purged_pool, purged_max ) );
   FD_TEST( crds->purged.pool );
 
-  crds->purged.treap         = purged_treap_join( purged_treap_new( _purged_treap, purged_max ) );
+  crds->purged.treap = purged_treap_join( purged_treap_new( _purged_treap, purged_max ) );
   FD_TEST( crds->purged.treap );
   purged_treap_seed( crds->purged.pool, purged_max, fd_rng_ulong( rng ) );
 
-  crds->purged.purged_dlist  = purged_dlist_join( purged_dlist_new( _purged_dlist ) );
+  crds->purged.purged_dlist = purged_dlist_join( purged_dlist_new( _purged_dlist ) );
   FD_TEST( crds->purged.purged_dlist );
 
   crds->purged.failed_inserts_dlist = failed_inserts_dlist_join( failed_inserts_dlist_new( _failed_inserts_dlist ) );
   FD_TEST( crds->purged.failed_inserts_dlist );
 
+  crds->contact_info.pool = crds_contact_info_pool_join( crds_contact_info_pool_new( _ci_pool, CRDS_MAX_CONTACT_INFO ) );
+  FD_TEST( crds->contact_info.pool );
 
-  /* Contact Info */
-  void * _ci_pool        = FD_SCRATCH_ALLOC_APPEND( l, crds_contact_info_pool_align(), crds_contact_info_pool_footprint( CRDS_MAX_CONTACT_INFO ) );
-  void * _ci_dlist       = FD_SCRATCH_ALLOC_APPEND( l, crds_contact_info_fresh_list_align(), crds_contact_info_fresh_list_footprint() );
-  void * _ci_evict_dlist = FD_SCRATCH_ALLOC_APPEND( l, crds_contact_info_evict_dlist_align(), crds_contact_info_evict_dlist_footprint() );
-
-  crds->contact_info.pool        = crds_contact_info_pool_join( crds_contact_info_pool_new( _ci_pool, CRDS_MAX_CONTACT_INFO ) );
   crds->contact_info.fresh_dlist = crds_contact_info_fresh_list_join( crds_contact_info_fresh_list_new( _ci_dlist ) );
+  FD_TEST( crds->contact_info.fresh_dlist );
+
   crds->contact_info.evict_dlist = crds_contact_info_evict_dlist_join( crds_contact_info_evict_dlist_new( _ci_evict_dlist ) );
+  FD_TEST( crds->contact_info.evict_dlist );
+
+  FD_TEST( fd_sha256_join( fd_sha256_new( crds->sha256 ) ) );
 
   crds_samplers_new( crds->samplers );
 
+  memset( crds->metrics, 0, sizeof(fd_crds_metrics_t) );
+
   crds->gossip_update   = gossip_update_out;
-  crds->metrics         = metrics;
   crds->has_staked_node = 0;
 
   FD_COMPILER_MFENCE();
@@ -535,35 +534,27 @@ fd_crds_join( void * shcrds ) {
   return crds;
 }
 
+fd_crds_metrics_t const *
+fd_crds_metrics( fd_crds_t const * crds ) {
+  return crds->metrics;
+}
+
 static inline void
 remove_contact_info( fd_crds_t *         crds,
                      fd_crds_entry_t *   ci,
                      long                now,
                      fd_stem_context_t * stem ) {
-  /* Emit this eviction as a gossip update event */
-  if( FD_LIKELY( crds->gossip_update ) ) {
-    fd_gossip_update_message_t * msg = fd_gossip_out_get_chunk( crds->gossip_update );
-    msg->tag = FD_GOSSIP_UPDATE_TAG_CONTACT_INFO_REMOVE;
-    msg->wallclock_nanos = now;
-    fd_memcpy( msg->origin_pubkey, ci->key.pubkey, 32UL );
-    msg->contact_info_remove.idx = crds_contact_info_pool_idx( crds->contact_info.pool, ci->contact_info.ci );
+  fd_gossip_update_message_t * msg = fd_gossip_out_get_chunk( crds->gossip_update );
+  msg->tag = FD_GOSSIP_UPDATE_TAG_CONTACT_INFO_REMOVE;
+  msg->wallclock_nanos = now;
+  fd_memcpy( msg->origin_pubkey, ci->key.pubkey, 32UL );
+  msg->contact_info_remove.idx = crds_contact_info_pool_idx( crds->contact_info.pool, ci->contact_info.ci );
+  fd_gossip_tx_publish_chunk( crds->gossip_update, stem, (ulong)msg->tag, FD_GOSSIP_UPDATE_SZ_CONTACT_INFO_REMOVE, now );
 
-    fd_gossip_tx_publish_chunk( crds->gossip_update,
-                                stem,
-                                (ulong)msg->tag,
-                                FD_GOSSIP_UPDATE_SZ_CONTACT_INFO_REMOVE,
-                                now );
-  }
+  if( FD_LIKELY( ci->stake ) ) crds->metrics->peer_staked_cnt--;
+  else                         crds->metrics->peer_unstaked_cnt--;
 
-  if( FD_LIKELY( crds->metrics ) ) {
-    crds->metrics->contact_info_cnt--;
-    if( FD_LIKELY( !!ci->stake ) ) {
-      crds->metrics->staked_peer_cnt--;
-      crds->metrics->visible_stake -= ci->stake;
-    } else {
-      crds->metrics->unstaked_peer_cnt--;
-    }
-  }
+  crds->metrics->peer_visible_stake -= ci->stake;
 
   if( FD_LIKELY( !!ci->contact_info.fresh_dlist.in_list ) ) {
     crds_contact_info_fresh_list_ele_remove( crds->contact_info.fresh_dlist, ci, crds->pool );
@@ -592,11 +583,8 @@ fd_crds_purged_len( fd_crds_t const * crds ) {
 void
 fd_crds_release( fd_crds_t *       crds,
                  fd_crds_entry_t * value ) {
-  if( FD_LIKELY( crds->metrics ) ) {
-    crds->metrics->table_cnt--;
-    crds->metrics->ele_cnt[ value->key.tag ]--;
-  }
   crds_pool_ele_release( crds->pool, value );
+  crds->metrics->count[ value->key.tag ]--;
 }
 
 static inline void
@@ -617,17 +605,10 @@ expire( fd_crds_t *         crds,
     lookup_map_ele_remove( crds->lookup_map, &head->key, NULL, crds->pool );
     evict_treap_ele_remove( crds->evict_treap, head, crds->pool );
 
-    if( FD_UNLIKELY( head->key.tag==FD_GOSSIP_VALUE_CONTACT_INFO ) ) {
-      remove_contact_info( crds, head, now, stem );
-    }
-
-    if( FD_LIKELY( crds->metrics ) ) {
-      crds->metrics->table_expired_cnt++;
-      if( FD_UNLIKELY( head->key.tag==FD_GOSSIP_VALUE_CONTACT_INFO ) ){
-        crds->metrics->contact_info_expired_cnt++;
-      }
-    }
+    if( FD_UNLIKELY( head->key.tag==FD_GOSSIP_VALUE_CONTACT_INFO ) ) remove_contact_info( crds, head, now, stem );
     fd_crds_release( crds, head );
+
+    crds->metrics->expired_cnt++;
   }
 
   long unstaked_expire_duration_nanos = fd_long_if( crds->has_staked_node,
@@ -644,16 +625,10 @@ expire( fd_crds_t *         crds,
     lookup_map_ele_remove( crds->lookup_map, &head->key, NULL, crds->pool );
     evict_treap_ele_remove( crds->evict_treap, head, crds->pool );
 
-    if( FD_UNLIKELY( head->key.tag==FD_GOSSIP_VALUE_CONTACT_INFO ) ) {
-      remove_contact_info( crds, head, now, stem );
-    }
-    if( FD_LIKELY( crds->metrics ) ) {
-      crds->metrics->table_expired_cnt++;
-      if( FD_UNLIKELY( head->key.tag==FD_GOSSIP_VALUE_CONTACT_INFO ) ){
-        crds->metrics->contact_info_expired_cnt++;
-      }
-    }
+    if( FD_UNLIKELY( head->key.tag==FD_GOSSIP_VALUE_CONTACT_INFO ) ) remove_contact_info( crds, head, now, stem );
     fd_crds_release( crds, head );
+
+    crds->metrics->expired_cnt++;
   }
 
   while( !purged_dlist_is_empty( crds->purged.purged_dlist, crds->purged.pool ) ) {
@@ -664,10 +639,9 @@ expire( fd_crds_t *         crds,
     purged_dlist_ele_pop_head( crds->purged.purged_dlist, crds->purged.pool );
     purged_treap_ele_remove( crds->purged.treap, head, crds->purged.pool );
     purged_pool_ele_release( crds->purged.pool, head );
-    if( FD_LIKELY( crds->metrics ) ) {
-      crds->metrics->purged_cnt--;
-      crds->metrics->purged_expired_cnt++;
-    }
+
+    crds->metrics->purged_cnt--;
+    crds->metrics->purged_expired_cnt++;
   }
 
   while( !failed_inserts_dlist_is_empty( crds->purged.failed_inserts_dlist, crds->purged.pool ) ) {
@@ -678,16 +652,15 @@ expire( fd_crds_t *         crds,
     failed_inserts_dlist_ele_pop_head( crds->purged.failed_inserts_dlist, crds->purged.pool );
     purged_treap_ele_remove( crds->purged.treap, head, crds->purged.pool );
     purged_pool_ele_release( crds->purged.pool, head );
-    if( FD_LIKELY( crds->metrics ) ) {
-      crds->metrics->purged_cnt--;
-      crds->metrics->purged_expired_cnt++;
-    }
+
+    crds->metrics->purged_cnt--;
+    crds->metrics->purged_expired_cnt++;
   }
 }
 
 void
 unfresh( fd_crds_t * crds,
-            long        now ) {
+         long        now ) {
   while( !crds_contact_info_fresh_list_is_empty( crds->contact_info.fresh_dlist, crds->pool ) ) {
     fd_crds_entry_t * head = crds_contact_info_fresh_list_ele_peek_head( crds->contact_info.fresh_dlist, crds->pool );
 
@@ -716,41 +689,19 @@ fd_crds_acquire( fd_crds_t *         crds,
     FD_TEST( !evict_treap_fwd_iter_done( head ) );
     fd_crds_entry_t * evict = evict_treap_fwd_iter_ele( head, crds->pool );
 
-    if( FD_LIKELY( !evict->stake ) ) {
-      unstaked_expire_dlist_ele_remove( crds->unstaked_expire_dlist, evict, crds->pool );
-    } else {
-      staked_expire_dlist_ele_remove( crds->staked_expire_dlist, evict, crds->pool );
-    }
+    if( FD_LIKELY( !evict->stake ) ) unstaked_expire_dlist_ele_remove( crds->unstaked_expire_dlist, evict, crds->pool );
+    else                             staked_expire_dlist_ele_remove( crds->staked_expire_dlist, evict, crds->pool );
 
     hash_treap_ele_remove( crds->hash_treap, evict, crds->pool );
     lookup_map_ele_remove( crds->lookup_map, &evict->key, NULL, crds->pool );
-    if( FD_UNLIKELY( evict->key.tag==FD_GOSSIP_VALUE_CONTACT_INFO ) ) {
-      remove_contact_info( crds, evict, now, stem );
-    }
+    if( FD_UNLIKELY( evict->key.tag==FD_GOSSIP_VALUE_CONTACT_INFO ) ) remove_contact_info( crds, evict, now, stem );
 
-    if( FD_LIKELY( crds->metrics ) ) {
-      crds->metrics->table_evicted_cnt++;
-      if( FD_UNLIKELY( evict->key.tag==FD_GOSSIP_VALUE_CONTACT_INFO ) ){
-        crds->metrics->contact_info_evicted_cnt++;
-      }
-    }
+    crds->metrics->evicted_cnt++;
 
     return evict;
   } else {
     return crds_pool_ele_acquire( crds->pool );
   }
-}
-
-
-void
-fd_crds_genrate_hash( uchar const *     crds_value_buf,
-                      ulong             crds_value_sz,
-                      uchar             out_hash[ static 32UL ] ){
-
-  static fd_sha256_t sha2[1];
-  fd_sha256_init( sha2 );
-  fd_sha256_append( sha2, crds_value_buf, crds_value_sz );
-  fd_sha256_fini( sha2, out_hash );
 }
 
 int
@@ -780,11 +731,22 @@ generate_key( fd_gossip_view_crds_value_t const * view,
   }
 }
 
+void
+fd_crds_generate_hash( fd_sha256_t * sha,
+                       uchar const * crds_value,
+                       ulong         crds_value_sz,
+                       uchar         out_hash[ static 32UL ] ){
+  fd_sha256_init( sha );
+  fd_sha256_append( sha, crds_value, crds_value_sz );
+  fd_sha256_fini( sha, out_hash );
+}
+
 static inline void
 crds_entry_init( fd_gossip_view_crds_value_t const * view,
-                 uchar const *                    payload,
-                 ulong                            stake,
-                 fd_crds_entry_t *                out_value ) {
+                 fd_sha256_t *                       sha,
+                 uchar const *                       payload,
+                 ulong                               stake,
+                 fd_crds_entry_t *                   out_value ) {
   /* Construct key */
   fd_crds_key_t * key = &out_value->key;
   generate_key( view, payload, key );
@@ -792,7 +754,7 @@ crds_entry_init( fd_gossip_view_crds_value_t const * view,
   out_value->wallclock_nanos = view->wallclock_nanos;
   out_value->stake           = stake;
 
-  fd_crds_genrate_hash( payload+view->value_off, view->length, out_value->value_hash );
+  fd_crds_generate_hash( sha, payload+view->value_off, view->length, out_value->value_hash );
   out_value->hash.hash = fd_ulong_load_8( out_value->value_hash );
 
   if( FD_UNLIKELY( view->tag==FD_GOSSIP_VALUE_NODE_INSTANCE ) ) {
@@ -915,15 +877,13 @@ fd_crds_checks_fast( fd_crds_t *                         crds,
     return (int)(++incumbent->num_duplicates);
   }
   int overrides = overrides_fast( incumbent, candidate, payload );
-  if( FD_LIKELY( overrides==1 ) ) {
-    return FD_CRDS_UPSERT_CHECK_UPSERTS;
-  }
+  if( FD_LIKELY( overrides==1 ) ) return FD_CRDS_UPSERT_CHECK_UPSERTS;
+
   uchar cand_hash[ 32UL ];
-  fd_crds_genrate_hash( payload+candidate->value_off, candidate->length, cand_hash );
+  fd_crds_generate_hash( crds->sha256, payload+candidate->value_off, candidate->length, cand_hash );
 
   if( FD_UNLIKELY( overrides==-1 ) ) {
     /* Tiebreaker case, we compare hash values */
-    crds->metrics->tiebroken[ candidate->tag ]++;
     int res = memcmp( cand_hash, incumbent->value_hash, 32UL );
     if( FD_UNLIKELY( !res ) ) {
       /* Hashes match, so we treat this as a duplicate */
@@ -1032,12 +992,9 @@ fd_crds_insert( fd_crds_t *                         crds,
   /* Update table count metrics at the end to avoid early return
      handling */
   fd_crds_entry_t * candidate = fd_crds_acquire( crds, now, stem );
-  crds_entry_init( candidate_view, payload, origin_stake, candidate );
+  crds_entry_init( candidate_view, crds->sha256, payload, origin_stake, candidate );
 
-  if( FD_LIKELY( crds->metrics ) ) {
-      crds->metrics->table_cnt++;
-      crds->metrics->ele_cnt[ candidate->key.tag ]++;
-  }
+  crds->metrics->count[ candidate->key.tag ]++;
 
   fd_crds_entry_t * incumbent = lookup_map_ele_query( crds->lookup_map, &candidate->key, NULL, crds->pool );
   uchar is_replacing = incumbent!=NULL;
@@ -1061,14 +1018,9 @@ fd_crds_insert( fd_crds_t *                         crds,
         }
       }
 
-      if( FD_LIKELY( crds->metrics ) ) {
-        if( incumbent->stake ) {
-          crds->metrics->staked_peer_cnt--;
-          crds->metrics->visible_stake -= incumbent->stake;
-        } else {
-          crds->metrics->unstaked_peer_cnt--;
-        }
-      }
+      if( FD_LIKELY( incumbent->stake ) ) crds->metrics->peer_staked_cnt--;
+      else                                crds->metrics->peer_unstaked_cnt--;
+      crds->metrics->peer_visible_stake -= incumbent->stake;
     }
 
     evict_treap_ele_remove( crds->evict_treap, incumbent, crds->pool );
@@ -1084,12 +1036,7 @@ fd_crds_insert( fd_crds_t *                         crds,
     if( FD_UNLIKELY( !crds_contact_info_pool_free( crds->contact_info.pool ) ) ) {
       fd_crds_entry_t * evict = crds_contact_info_evict_dlist_ele_pop_head( crds->contact_info.evict_dlist, crds->pool );
       remove_contact_info( crds, evict, now, stem );
-      if( FD_LIKELY( crds->metrics ) ) {
-        crds->metrics->contact_info_evicted_cnt++;
-      }
-    }
-    if( FD_LIKELY( crds->metrics ) ) {
-      crds->metrics->contact_info_cnt++;
+      crds->metrics->peer_evicted_cnt++;
     }
 
     candidate->contact_info.ci = crds_contact_info_pool_ele_acquire( crds->contact_info.pool );
@@ -1126,14 +1073,9 @@ fd_crds_insert( fd_crds_t *                         crds,
       crds_samplers_add_peer( crds->samplers, candidate, now);
     }
 
-    if( FD_LIKELY( crds->metrics ) ) {
-      if( candidate->stake ) {
-        crds->metrics->staked_peer_cnt++;
-        crds->metrics->visible_stake += candidate->stake;
-      } else {
-        crds->metrics->unstaked_peer_cnt++;
-      }
-    }
+    if( FD_LIKELY( candidate->stake ) ) crds->metrics->peer_staked_cnt++;
+    else                                crds->metrics->peer_unstaked_cnt++;
+    crds->metrics->peer_visible_stake += candidate->stake;
   }
 
   if( FD_LIKELY( !is_from_me ) ) publish_update_msg( crds, candidate, candidate_view, payload, now, stem );

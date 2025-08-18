@@ -1,12 +1,14 @@
 #ifndef HEADER_fd_src_flamenco_gossip_fd_gossip_h
 #define HEADER_fd_src_flamenco_gossip_fd_gossip_h
 
-#include "../../util/rng/fd_rng.h"
-#include "../../util/net/fd_net_headers.h"
 #include "fd_gossip_types.h"
 #include "fd_gossip_out.h"
-#include "fd_gossip_metrics.h"
 #include "fd_ping_tracker.h"
+#include "crds/fd_crds.h"
+
+#include "../../disco/metrics/fd_metrics.h"
+#include "../../util/rng/fd_rng.h"
+#include "../../util/net/fd_net_headers.h"
 
 /* TODO: When we get a pull request, respond with ContactInfos first if
    we have any available that are responsive. */
@@ -69,6 +71,20 @@ typedef void (*fd_gossip_sign_fn)( void *         ctx,
                                    int            sign_type,
                                    uchar *        out_signature );
 
+struct fd_gossip_metrics {
+  ulong crds_rx_count[ FD_METRICS_ENUM_GOSSIP_CRDS_OUTCOME_CNT ];
+
+  ulong message_tx[ FD_METRICS_ENUM_GOSSIP_MESSAGE_CNT ];
+  ulong message_tx_bytes[ FD_METRICS_ENUM_GOSSIP_MESSAGE_CNT ];
+
+  ulong crds_tx_push[ FD_METRICS_ENUM_CRDS_VALUE_CNT ];
+  ulong crds_tx_push_bytes[ FD_METRICS_ENUM_CRDS_VALUE_CNT ];
+  ulong crds_tx_pull_response[ FD_METRICS_ENUM_CRDS_VALUE_CNT ];
+  ulong crds_tx_pull_response_bytes[ FD_METRICS_ENUM_CRDS_VALUE_CNT ];
+};
+
+typedef struct fd_gossip_metrics fd_gossip_metrics_t;
+
 FD_PROTOTYPES_BEGIN
 
 FD_FN_CONST ulong
@@ -100,6 +116,9 @@ fd_gossip_join( void * shgossip );
 
 fd_gossip_metrics_t const *
 fd_gossip_metrics( fd_gossip_t const * gossip );
+
+fd_crds_metrics_t const *
+fd_gossip_crds_metrics( fd_gossip_t const * gossip );
 
 fd_ping_tracker_metrics_t const *
 fd_gossip_ping_tracker_metrics( fd_gossip_t const * gossip );
