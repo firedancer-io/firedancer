@@ -770,10 +770,11 @@ unprivileged_init( fd_topo_t *      topo,
 
   /* manifest_wmark (root slot) */
   ulong root_slot_obj_id = fd_pod_queryf_ulong( topo->props, ULONG_MAX, "root_slot" );
-  FD_TEST( root_slot_obj_id!=ULONG_MAX );
-  ctx->manifest_wmark = fd_fseq_join( fd_topo_obj_laddr( topo, root_slot_obj_id ) );
-  if( FD_UNLIKELY( !ctx->manifest_wmark ) ) FD_LOG_ERR(( "no root_slot fseq" ));
-  FD_TEST( ULONG_MAX==fd_fseq_query( ctx->manifest_wmark ) );
+  if( FD_LIKELY( root_slot_obj_id!=ULONG_MAX ) ) { /* for profiler */
+    ctx->manifest_wmark = fd_fseq_join( fd_topo_obj_laddr( topo, root_slot_obj_id ) );
+    if( FD_UNLIKELY( !ctx->manifest_wmark ) ) FD_LOG_ERR(( "no root_slot fseq" ));
+    FD_TEST( ULONG_MAX==fd_fseq_query( ctx->manifest_wmark ) );
+  }
 
   ctx->manifest_bank_mem    = manifest_bank_mem;
 

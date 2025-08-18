@@ -61,67 +61,7 @@
 
    KEYING
 
-   The reasm keys FEC sets by concatenating the slot with fec_set_idx.
-   This uniquely identifies a FEC set in most cases.  It is possible to
-   receive over the network two or more different FEC sets with the same
-   slot and fec_set_idx due to equivocation as mentioned earlier.  In
-   general, the reasm expects the caller to handle equivocation and
-   assumes unique FEC sets will have unique keys (handholding is
-   available to verify this).
-
-   The map key is an encoding of the slot and fec_set_idx which uniquely
-   keys every FEC set.  The 32 msb of the key are the 32 lsb of the slot
-   and the 32 lsb of the key are the fec_set_idx, except when the FEC
-   set is the last one for the slot, in which case the 32 lsb are set to
-   UINT_MAX. By setting fec_set_idx to UINT_MAX, the reasm can easily
-   query for the last FEC set in any given slot
-
-   A useful property of the keying scheme above is a FEC set can infer
-   the key of its immediate child by adding data_cnt to its fec_set_idx.
-   For example, a FEC set for slot 0, fec_set_idx 0, data_cnt 32 knows
-   its child key is slot 0, fec_set_idx 32. The last FEC set in the slot
-   is special because the child(s) FEC set will have a different slot
-   number, so we know the fec_set_idx will be zero.
-
-   There is one exception to this keying scheme.  When the FEC set is
-   the last one in the slot, an extra insertion to the parent_map is
-   done. In the standard procedure, the second to last fec will create
-   the (n-1, n) entry, and the following child slot will create a
-   (UINT_MAX, 0) entry. Thus we insert an extra entry (n, UINT_MAX) in
-   the parent_map to connect the chain. This double insertion is only
-   done for the parent_map - the pool_ele will have an element with key
-   slot | fec_set_idx, not UINT_MAX.
-
-   Visually, the parent_map / elements looks like this:
-
-      - Arrows denote a child->parent entry in the parent_map.
-
-   parent_map                                             |  pool_ele (slot, fec_set_idx, completes)
-   ──────────────────────────────────────────────────────────────────────────────────────────────────
-   (slot, 0)                                              |  (slot, 0,  0)
-       ▲                                                  |
-       |                                                  |
-   (slot, 32)                                             |  (slot, 32, 0)
-       ▲                                                  |
-       |                                                  |
-   (slot, 64) <-- (slot, UINT_MAX)                        |  (slot, 64, 1)
-                        ▲                                 |
-                        |                                 |
-                  (slot + 1, 0)                           |  (slot + 1, 0, 0)
-                        ▲                                 |
-                        |                                 |
-                  (slot + 1, 32)                          |  (slot + 1, 32, 0)
-                        ▲                                 |
-                        |                                 |
-                  (slot + 1, 64) ◄── (slot + 1, UINT_MAX) |  (slot + 1, 64, 1)
-                        ▲                                 |
-                        | ...                             |
-
-   Thus we will have double entries for the last FEC set in a slot in
-   the parent map, but only one entry in the ancestry/orphan/frontier
-   pool. This means if we want to query for the last FEC set in a slot,
-   we need to query the parent_map twice - once with the fec_set_idx set
-   to UINT_MAX and once with the parent_key of the result.
+   The reasm keys FEC sets by the merkle root of the FEC set.
 
    INSERTING
 
@@ -266,7 +206,7 @@ fd_reasm_slot0( fd_reasm_t * reasm );
    found, NULL otherwise. */
 
 fd_reasm_fec_t *
-fd_reasm_query( fd_reasm_t * reasm, fd_hash_t const * merkle_root );
+fd_reasm_query( fd_reasm_t const * reasm, fd_hash_t const * merkle_root );
 
 /* fd_reasm_init initializes reasm with a dummy root of key merkle_root
    and with metadata slot.  All other fields are set to either pool null
