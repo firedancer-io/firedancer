@@ -5557,7 +5557,7 @@ fd_quic_handle_conn_close_0_frame(
   }
 
   /* the information here can be invaluable for debugging */
-  FD_DEBUG(
+  // FD_DEBUG(
     char reason_buf[256] = {0};
     ulong reason_len = fd_ulong_min( sizeof(reason_buf)-1, reason_phrase_length );
     memcpy( reason_buf, p, reason_len );
@@ -5569,7 +5569,7 @@ fd_quic_handle_conn_close_0_frame(
         data->error_code,
         data->frame_type,
         reason_buf ));
-  );
+  // );
 
   fd_quic_handle_conn_close_frame( context->conn );
 
@@ -5591,7 +5591,7 @@ fd_quic_handle_conn_close_1_frame(
   }
 
   /* the information here can be invaluable for debugging */
-  FD_DEBUG(
+  // FD_DEBUG(
     char reason_buf[256] = {0};
     ulong reason_len = fd_ulong_min( sizeof(reason_buf)-1, reason_phrase_length );
     memcpy( reason_buf, p, reason_len );
@@ -5601,7 +5601,7 @@ fd_quic_handle_conn_close_1_frame(
         "reason: %s",
         data->error_code,
         reason_buf ));
-  );
+  // );
 
   fd_quic_handle_conn_close_frame( context->conn );
 
