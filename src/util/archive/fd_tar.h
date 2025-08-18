@@ -286,60 +286,64 @@ fd_tar_writer_footprint( void ) {
    object in mem on success. On failure, returns NULL and writes reason
    to warning log. Reasons for failure include invalid memory region.
    The writer will enable the user to write/stream out files of variable
-   size into a continual stream. The writer should persist for the span of
-   a single tar archive. The user is repsonsible for passing in an open, valid
-   file descriptor. */
+   size into a continual stream. The writer should persist for the span
+   of a single tar archive. The user is repsonsible for passing in an
+   open, valid file descriptor. */
 
 fd_tar_writer_t *
 fd_tar_writer_new( void * mem, int fd );
 
 /* fd_tar_writer_delete destroys a tar writer and frees any allocated
    resources. Returns the underlying memory region back to the caller.
-   This writer will also handle cleanup for the tar archive: it will write
-   out the tar archive trailer and will close the underlying file descriptor. */
+   This writer will also handle cleanup for the tar archive: it will
+   write out the tar archive trailer and will close the underlying file
+   descriptor. */
 
 void *
 fd_tar_writer_delete( fd_tar_writer_t * writer );
 
 /* fd_tar_write_new_file writes out a file header, it will leave certain
-   fields blank to allow for writing back of header metadata that is unknown
-   until the file done streaming out. The user must enforce the invariant that
-   this can only be called after fd_tar_fini_file() orfd_tar_writer_new() */
+   fields blank to allow for writing back of header metadata that is
+   unknown until the file done streaming out. The user must enforce the
+   invariant that this can only be called after fd_tar_fini_file() or
+   fd_tar_writer_new() */
 
 int
 fd_tar_writer_new_file( fd_tar_writer_t * writer,
                         char const *      file_name );
 
-/* fd_tar_writer_write_file_data will write out a variable amount of bytes to the
-   writer's tarball. This can be called multiple times for a single file.
-   The user must enforce the invariant that this function succeeded a call
-   to fd_tar_new_file and should precede a call to fd_tar_fini_file. If this
-   invariant isn't enforced, then the tar writer will silently produce an
-   invalid file. */
+/* fd_tar_writer_write_file_data will write out a variable amount of
+   bytes to the writer's tarball. This can be called multiple times for
+   a single file. The user must enforce the invariant that this function
+   succeeded a call to fd_tar_new_file and should precede a call to
+   fd_tar_fini_file. If this invariant isn't enforced, then the tar
+   writer will silently produce an invalid file. */
 
 int
 fd_tar_writer_write_file_data( fd_tar_writer_t * writer,
                                void const *      data,
                                ulong             data_sz );
 
-/* fd_tar_fini_file will write out any alignment bytes to the current file's
-   data. It will then write back to the file header with the file size and
-   the checksum. */
+/* fd_tar_fini_file will write out any alignment bytes to the current
+   file's data. It will then write back to the file header with the file
+   size and the checksum. */
 
 int
 fd_tar_writer_fini_file( fd_tar_writer_t * writer );
 
-/* fd_tar_writer_make_space and fd_tar_writer_fill_space, allow for writing
-   back to a specific place in the tar stream. This can be used by first
-   making a call to fd_tar_write_new_file, fd_tar_writer_make_space, and
-   fd_tar_writer_fini_file. This will populate the header and write out
-   random bytes. The start of this data file will be saved by the tar writer.
-   Up to n data files can be appended to the tar archive before a call to
-   fd_tar_writer_fill_space. fd_tar_writer_fill_space should only be called
-   after an unpaired call to fd_tar_writer_make_space and it requires a valid
-   fd_tar_writer_t handle. It allows the user to write back to the point at
-   which they made space. _make_space and _fill_space should be paired together.
-   There can only be one oustanding call to make_space at a time.
+/* fd_tar_writer_make_space and fd_tar_writer_fill_space, allow for
+   writing back to a specific place in the tar stream. This can be used
+   by first making a call to fd_tar_write_new_file,
+   fd_tar_writer_make_space, and fd_tar_writer_fini_file. This will
+   populate the header and write out random bytes. The start of this
+   data file will be saved by the tar writer. Up to n data files can be
+   appended to the tar archive before a call to
+   fd_tar_writer_fill_space. fd_tar_writer_fill_space should only be
+   called after an unpaired call to fd_tar_writer_make_space and it
+   requires a valid fd_tar_writer_t handle. It allows the user to write
+   back to the point at which they made space. _make_space and
+   _fill_space should be paired together. There can only be one
+   oustanding call to make_space at a time.
 
    TODO: This can be extended to support multiple write backs. */
 
