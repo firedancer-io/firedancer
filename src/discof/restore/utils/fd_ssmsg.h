@@ -2,18 +2,12 @@
 #define HEADER_fd_src_discof_restore_utils_fd_ssmsg_h
 
 #include "../../../flamenco/types/fd_types.h"
+#include "../../../flamenco/runtime/fd_runtime_const.h"
+#include "../../../flamenco/stakes/fd_vote_states.h"
 
 #define FD_SSMSG_MANIFEST_FULL        (0) /* A snapshot manifest message from the full snapshot */
 #define FD_SSMSG_MANIFEST_INCREMENTAL (1) /* A snapshot manifest message from the incremental snapshot */
 #define FD_SSMSG_DONE                 (2) /* Indicates the snapshot is fully loaded and tiles are shutting down */
-
-/* This number is exhagerately high, but is consisent with Frankendancer.
-   We need this to be about the number of validators, so roughly
-   1-2k for mainnet and 3k for testnet. With Alpenglow this will be 2k.
-   Also, the snapshot currently contains vote account with 0 stakes,
-   so the length (from snapshot) might be actually higher that the
-   number of entries we actually need/consume. */
-#define MAX_VOTE_STAKES (40200)
 
 FD_FN_CONST static inline ulong
 fd_ssmsg_sig( ulong message,
@@ -23,10 +17,20 @@ fd_ssmsg_sig( ulong message,
 
 FD_FN_CONST static inline ulong fd_ssmsg_sig_manifest_size( ulong sig ) { return (sig >> 2); }
 FD_FN_CONST static inline ulong fd_ssmsg_sig_message( ulong sig ) { return (sig & 0x3UL); }
+struct epoch_credits {
+  ulong epoch;
+  ulong credits;
+  ulong prev_credits;
+};
+
+typedef struct epoch_credits epoch_credits_t;
 
 struct fd_snapshot_manifest_vote_account {
   /* The pubkey of the vote account */
   uchar vote_account_pubkey[ 32UL ];
+
+  /* The pubkey of the node account */
+  uchar node_account_pubkey[ 32UL ];
 
   ulong stake;
   ulong last_slot;
@@ -46,10 +50,38 @@ struct fd_snapshot_manifest_vote_account {
      epoch credits history may be short.  The maximum number of entries
      in the epoch credits history is 64. */
   ulong epoch_credits_history_len;
-  ulong epoch_credits[ 64UL ];
+  epoch_credits_t epoch_credits[ EPOCH_CREDITS_MAX ];
 };
 
 typedef struct fd_snapshot_manifest_vote_account fd_snapshot_manifest_vote_account_t;
+
+struct fd_snapshot_manifest_stake_delegation {
+  /* The stake pubkey */
+  uchar stake_pubkey[ 32UL ];
+
+  /* The vote pubkey that the stake account is delegated to */
+  uchar vote_pubkey[ 32UL ];
+
+  /* The amount of stake delegated */
+  ulong stake_delegation;
+
+  /* The activation epoch of the stake delegation */
+  ulong activation_epoch;
+
+  /* The deactivation epoch of the stake delegation */
+  ulong deactivation_epoch;
+
+  /* The amount of credits observed for the stake delegation */
+  ulong credits_observed;
+
+  /* The warmup cooldown rate for the stake delegation */
+  double warmup_cooldown_rate;
+};
+
+typedef struct fd_snapshot_manifest_stake_delegation fd_snapshot_manifest_stake_delegation_t;
+
+/* TODO: Consider combining this struct with
+   fd_snapshot_manifest_vote_account. */
 
 struct fd_snapshot_manifest_vote_stakes {
   /* The vote pubkey */
@@ -69,13 +101,35 @@ struct fd_snapshot_manifest_vote_stakes {
 
   /* The total amount of active stake for the vote account */
   ulong stake;
+
+  /* The latest slot and timestmap that the vote account voted on in
+     the given epoch. */
+  ulong slot;
+  long  timestamp;
+
+  /* The validator's commission rate as of the given epoch. */
+  uchar commission;
+
+  /* The epoch credits array tracks the history of how many credits the
+     provided vote account earned in each of the past epochs.  The
+     entry at epoch_credits[0] is for the current epoch,
+     epoch_credits[1] is for the previous epoch, and so on.  In cases of
+     booting a new chain from genesis, or for new vote accounts the
+     epoch credits history may be short.  The maximum number of entries
+     in the epoch credits history is 64. */
+  ulong           epoch_credits_history_len;
+  epoch_credits_t epoch_credits[ EPOCH_CREDITS_MAX ];
 };
 
 typedef struct fd_snapshot_manifest_vote_stakes fd_snapshot_manifest_vote_stakes_t;
 
 struct fd_snapshot_manifest_epoch_stakes {
+  /* The total amount of active stake at the end of the given epoch.*/
+  ulong                              total_stake;
+
+  /* The vote accounts and their stakes for a given epoch. */
   ulong                              vote_stakes_len;
-  fd_snapshot_manifest_vote_stakes_t vote_stakes[ MAX_VOTE_STAKES ];
+  fd_snapshot_manifest_vote_stakes_t vote_stakes[ FD_RUNTIME_MAX_VOTE_ACCOUNTS ];
 };
 
 typedef struct fd_snapshot_manifest_epoch_stakes fd_snapshot_manifest_epoch_stakes_t;
@@ -365,7 +419,10 @@ struct fd_snapshot_manifest {
      percentage of the inflation rewards for the epoch and validator
      uptime, which is measured by vote account vote credits. */
   ulong                               vote_accounts_len;
-  fd_snapshot_manifest_vote_account_t vote_accounts[ 16384UL ]; /* TODO: Bound correctly */
+  fd_snapshot_manifest_vote_account_t vote_accounts[ FD_RUNTIME_MAX_VOTE_ACCOUNTS ];
+
+  ulong stake_delegations_len;
+  fd_snapshot_manifest_stake_delegation_t stake_delegations[ FD_RUNTIME_MAX_STAKE_ACCOUNTS ];
 
   /* Epoch stakes represent the exact amount staked to each vote
      account at the beginning of the previous epoch. They are
@@ -393,17 +450,5 @@ struct fd_snapshot_manifest {
 };
 
 typedef struct fd_snapshot_manifest fd_snapshot_manifest_t;
-
-/* Forward Declarations */
-
-typedef struct fd_solana_manifest fd_solana_manifest_t;
-
-FD_PROTOTYPES_BEGIN
-
-fd_snapshot_manifest_t *
-fd_snapshot_manifest_init_from_solana_manifest( void *                        mem,
-                                                fd_solana_manifest_global_t * solana_manifest );
-
-FD_PROTOTYPES_END
 
 #endif /* HEADER_fd_src_discof_restore_utils_fd_ssmsg_h */

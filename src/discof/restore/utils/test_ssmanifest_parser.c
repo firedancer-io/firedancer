@@ -54,30 +54,16 @@ main( int     argc,
 
   FD_LOG_NOTICE(( "Parsing %lu bytes from %s", size, argv[1] ));
 
-  fd_bincode_decode_ctx_t ctx = { .data = buffer, .dataend = buffer+size };
-  ulong total_sz = 0UL;
-
-  long ts = -fd_log_wallclock();
-
-  int err = fd_solana_manifest_decode_footprint( &ctx, &total_sz );
-  if( FD_UNLIKELY( err ) ) FD_LOG_ERR(( "fd_solana_manifest_decode_footprint failed (%d)", err ));
-  void * manifest_buf = aligned_alloc( FD_SOLANA_MANIFEST_GLOBAL_ALIGN, total_sz );
-  FD_TEST( manifest_buf );
-  fd_solana_manifest_global_t * manifest_global = fd_solana_manifest_decode_global( manifest_buf, &ctx );
-  FD_TEST( manifest_global );
-  long elapsed1 = fd_log_wallclock() + ts;
-  FD_LOG_NOTICE(( "fd_types decoded %lu bytes in %ld ms", size, elapsed1/(1000L*1000L) ));
-
   fd_ssmanifest_parser_t * parser = fd_ssmanifest_parser_join( fd_ssmanifest_parser_new( aligned_alloc( fd_ssmanifest_parser_align(), fd_ssmanifest_parser_footprint( 1UL<<24UL ) ), 1UL<<24UL, 42UL ) );
   FD_TEST( parser );
 
   fd_ssmanifest_parser_init( parser, manifest );
 
-  ts = -fd_log_wallclock();
+  long ts = -fd_log_wallclock();
 
   int result = fd_ssmanifest_parser_consume( parser, buffer, size );
   if( FD_UNLIKELY( result ) ) FD_LOG_ERR(( "fd_ssmanifest_parser_consume failed (%d)", result ));
 
-  elapsed1 = fd_log_wallclock() + ts;
-  FD_LOG_NOTICE(( "fd_ssmanifest_parser decoded %lu bytes in %ld ms", size, elapsed1/(1000L*1000L) ));
+  long elapsed = fd_log_wallclock() + ts;
+  FD_LOG_NOTICE(( "fd_ssmanifest_parser decoded %lu bytes in %ld ms", size, elapsed/(1000L*1000L) ));
 }

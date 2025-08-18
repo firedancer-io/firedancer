@@ -1578,6 +1578,8 @@ method_getVoteAccounts(struct json_values* values, fd_rpc_ctx_t * ctx) {
     const void* arg = json_get_value(values, path, 4, &arg_sz);
     (void)arg; // Ignore for now
 
+
+    /* TODO: Integrate properly. Maybe snoop link out of replay? */
     // ulong                 slot      = get_slot_from_commitment_level( values, ctx );
     // fd_slot_bank_t *      slot_bank = read_slot_bank( ctx, slot );
     // if( FD_UNLIKELY( !slot_bank ) ) {
@@ -1585,74 +1587,74 @@ method_getVoteAccounts(struct json_values* values, fd_rpc_ctx_t * ctx) {
     //   return 0;
     // }
 
-    int needcomma = 0;
+    // int needcomma = 0;
 
-    fd_clock_timestamp_vote_t_mapnode_t * timestamp_votes_root = NULL;
-    fd_clock_timestamp_vote_t_mapnode_t * timestamp_votes_pool = NULL;
-    fd_vote_accounts_pair_t_mapnode_t *   vote_acc_root        = NULL; // slot_bank->epoch_stakes.vote_accounts_root;
-    fd_vote_accounts_pair_t_mapnode_t *   vote_acc_pool        = NULL; // slot_bank->epoch_stakes.vote_accounts_pool;
-    for( fd_vote_accounts_pair_t_mapnode_t* n = fd_vote_accounts_pair_t_map_minimum(vote_acc_pool, vote_acc_root);
-         n;
-         n = fd_vote_accounts_pair_t_map_successor( vote_acc_pool, n ) ) {
+    // fd_clock_timestamp_vote_t_mapnode_t * timestamp_votes_root = NULL;
+    // fd_clock_timestamp_vote_t_mapnode_t * timestamp_votes_pool = NULL;
+    // fd_vote_accounts_pair_t_mapnode_t *   vote_acc_root        = NULL; // slot_bank->epoch_stakes.vote_accounts_root;
+    // fd_vote_accounts_pair_t_mapnode_t *   vote_acc_pool        = NULL; // slot_bank->epoch_stakes.vote_accounts_pool;
+    // for( fd_vote_accounts_pair_t_mapnode_t* n = fd_vote_accounts_pair_t_map_minimum(vote_acc_pool, vote_acc_root);
+    //      n;
+    //      n = fd_vote_accounts_pair_t_map_successor( vote_acc_pool, n ) ) {
 
-      /* get timestamp */
-      fd_pubkey_t const * vote_pubkey = &n->elem.key;
+    //   /* get timestamp */
+    //   fd_pubkey_t const * vote_pubkey = &n->elem.key;
 
-      if( timestamp_votes_pool == NULL ) {
-        continue;
-      } else {
-        fd_clock_timestamp_vote_t_mapnode_t query_vote_acc_node;
-        query_vote_acc_node.elem.pubkey = *vote_pubkey;
-        fd_clock_timestamp_vote_t_mapnode_t * vote_acc_node = fd_clock_timestamp_vote_t_map_find(timestamp_votes_pool, timestamp_votes_root, &query_vote_acc_node);
-        ulong vote_timestamp = 0;
-        ulong vote_slot = 0;
-        if( vote_acc_node == NULL ) {
-          int err;
-          fd_vote_state_versioned_t * vsv = fd_bincode_decode_spad(
-            vote_state_versioned, ctx->global->spad,
-            n->elem.value.data,
-            n->elem.value.data_len,
-            &err );
-          if( FD_UNLIKELY( err!=FD_BINCODE_SUCCESS ) ) {
-            FD_LOG_WARNING(( "Vote state versioned decode failed" ));
-            continue;
-          }
+    //   if( timestamp_votes_pool == NULL ) {
+    //     continue;
+    //   } else {
+    //     fd_clock_timestamp_vote_t_mapnode_t query_vote_acc_node;
+    //     query_vote_acc_node.elem.pubkey = *vote_pubkey;
+    //     fd_clock_timestamp_vote_t_mapnode_t * vote_acc_node = fd_clock_timestamp_vote_t_map_find(timestamp_votes_pool, timestamp_votes_root, &query_vote_acc_node);
+    //     ulong vote_timestamp = 0;
+    //     ulong vote_slot = 0;
+    //     if( vote_acc_node == NULL ) {
+    //       int err;
+    //       fd_vote_state_versioned_t * vsv = fd_bincode_decode_spad(
+    //         vote_state_versioned, ctx->global->spad,
+    //         n->elem.value.data,
+    //         n->elem.value.data_len,
+    //         &err );
+    //       if( FD_UNLIKELY( err!=FD_BINCODE_SUCCESS ) ) {
+    //         FD_LOG_WARNING(( "Vote state versioned decode failed" ));
+    //         continue;
+    //       }
 
-          switch( vsv->discriminant ) {
-          case fd_vote_state_versioned_enum_v0_23_5:
-            vote_timestamp = (ulong)vsv->inner.v0_23_5.last_timestamp.timestamp;
-            vote_slot = vsv->inner.v0_23_5.last_timestamp.slot;
-            break;
-          case fd_vote_state_versioned_enum_v1_14_11:
-            vote_timestamp = (ulong)vsv->inner.v1_14_11.last_timestamp.timestamp;
-            vote_slot = vsv->inner.v1_14_11.last_timestamp.slot;
-            break;
-          case fd_vote_state_versioned_enum_current:
-            vote_timestamp = (ulong)vsv->inner.current.last_timestamp.timestamp;
-            vote_slot = vsv->inner.current.last_timestamp.slot;
-            break;
-          default:
-            __builtin_unreachable();
-          }
+    //       switch( vsv->discriminant ) {
+    //       case fd_vote_state_versioned_enum_v0_23_5:
+    //         vote_timestamp = (ulong)vsv->inner.v0_23_5.last_timestamp.timestamp;
+    //         vote_slot = vsv->inner.v0_23_5.last_timestamp.slot;
+    //         break;
+    //       case fd_vote_state_versioned_enum_v1_14_11:
+    //         vote_timestamp = (ulong)vsv->inner.v1_14_11.last_timestamp.timestamp;
+    //         vote_slot = vsv->inner.v1_14_11.last_timestamp.slot;
+    //         break;
+    //       case fd_vote_state_versioned_enum_current:
+    //         vote_timestamp = (ulong)vsv->inner.current.last_timestamp.timestamp;
+    //         vote_slot = vsv->inner.current.last_timestamp.slot;
+    //         break;
+    //       default:
+    //         __builtin_unreachable();
+    //       }
 
-        } else {
-          vote_timestamp = (ulong)vote_acc_node->elem.timestamp;
-          vote_slot = vote_acc_node->elem.slot;
-        }
-        (void)vote_timestamp;
+    //     } else {
+    //       vote_timestamp = (ulong)vote_acc_node->elem.timestamp;
+    //       vote_slot = vote_acc_node->elem.slot;
+    //     }
+    //     (void)vote_timestamp;
 
-        char pubkey[50];
-        fd_base58_encode_32(vote_pubkey->uc, 0, pubkey);
-        char key[50];
-        fd_base58_encode_32(n->elem.key.uc, 0, key);
-        if( needcomma ) fd_web_reply_sprintf(ws, ",");
-        fd_web_reply_sprintf(ws, "{\"commission\":0,\"epochVoteAccount\":true,\"epochCredits\":[],\"nodePubkey\":\"%s\",\"lastVote\":%lu,\"activatedStake\":%lu,\"votePubkey\":\"%s\",\"rootSlot\":0}",
-                             pubkey, vote_slot, n->elem.stake, key);
-        needcomma = 1;
-      }
-    }
+    //     char pubkey[50];
+    //     fd_base58_encode_32(vote_pubkey->uc, 0, pubkey);
+    //     char key[50];
+    //     fd_base58_encode_32(n->elem.key.uc, 0, key);
+    //     if( needcomma ) fd_web_reply_sprintf(ws, ",");
+    //     fd_web_reply_sprintf(ws, "{\"commission\":0,\"epochVoteAccount\":true,\"epochCredits\":[],\"nodePubkey\":\"%s\",\"lastVote\":%lu,\"activatedStake\":%lu,\"votePubkey\":\"%s\",\"rootSlot\":0}",
+    //                          pubkey, vote_slot, n->elem.stake, key);
+    //     needcomma = 1;
+    //   }
+    // }
 
-    fd_web_reply_sprintf(ws, "]},\"id\":%s}" CRLF, ctx->call_id);
+    // fd_web_reply_sprintf(ws, "]},\"id\":%s}" CRLF, ctx->call_id);
   } FD_SPAD_FRAME_END;
   return 0;
 }

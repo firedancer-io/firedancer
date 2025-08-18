@@ -207,9 +207,6 @@ fd_rust_duration_normalize ( fd_rust_duration_t * );
 int
 fd_rust_duration_footprint_validator ( fd_bincode_decode_ctx_t * ctx );
 
-void fd_vote_accounts_decode_inner( void * struct_mem, void * * alloc_mem, fd_bincode_decode_ctx_t * ctx );
-void fd_vote_accounts_decode_inner_global( void * struct_mem, void * * alloc_mem, fd_bincode_decode_ctx_t * ctx );
-
 int fd_tower_sync_decode_footprint_inner( fd_bincode_decode_ctx_t * ctx, ulong * total_sz );
 void fd_tower_sync_decode_inner( void * struct_mem, void * * alloc_mem, fd_bincode_decode_ctx_t * ctx );
 
