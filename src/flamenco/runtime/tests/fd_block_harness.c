@@ -276,19 +276,25 @@ fd_runtime_fuzz_block_ctx_create( fd_solfuzz_runner_t *                runner,
 
   fd_bank_slots_per_year_set( slot_ctx->bank, test_ctx->epoch_ctx.slots_per_year );
 
+  fd_bank_parent_signature_cnt_set( slot_ctx->bank, test_ctx->slot_ctx.parent_signature_count );
+
   fd_fee_rate_governor_t * fee_rate_governor = fd_bank_fee_rate_governor_modify( slot_ctx->bank );
-  fee_rate_governor->target_lamports_per_signature = 10000UL;
-  fee_rate_governor->target_signatures_per_slot = 20000UL;
-  fee_rate_governor->min_lamports_per_signature = 5000UL;
-  fee_rate_governor->max_lamports_per_signature = 100000UL;
-  fee_rate_governor->burn_percent = 50;
+  *fee_rate_governor = (fd_fee_rate_governor_t){
+    .target_lamports_per_signature = test_ctx->slot_ctx.fee_rate_governor.target_lamports_per_signature,
+    .target_signatures_per_slot    = test_ctx->slot_ctx.fee_rate_governor.target_signatures_per_slot,
+    .min_lamports_per_signature    = test_ctx->slot_ctx.fee_rate_governor.min_lamports_per_signature,
+    .max_lamports_per_signature    = test_ctx->slot_ctx.fee_rate_governor.max_lamports_per_signature,
+    .burn_percent                  = (uchar)test_ctx->slot_ctx.fee_rate_governor.burn_percent
+  };
 
   fd_inflation_t * inflation = fd_bank_inflation_modify( slot_ctx->bank );
-  inflation->initial         = test_ctx->epoch_ctx.inflation.initial;
-  inflation->terminal        = test_ctx->epoch_ctx.inflation.terminal;
-  inflation->taper           = test_ctx->epoch_ctx.inflation.taper;
-  inflation->foundation      = test_ctx->epoch_ctx.inflation.foundation;
-  inflation->foundation_term = test_ctx->epoch_ctx.inflation.foundation_term;
+  *inflation = (fd_inflation_t){
+    .initial         = test_ctx->epoch_ctx.inflation.initial,
+    .terminal        = test_ctx->epoch_ctx.inflation.terminal,
+    .taper           = test_ctx->epoch_ctx.inflation.taper,
+    .foundation      = test_ctx->epoch_ctx.inflation.foundation,
+    .foundation_term = test_ctx->epoch_ctx.inflation.foundation_term
+  };
 
   fd_bank_block_height_set( slot_ctx->bank, test_ctx->slot_ctx.block_height );
 
