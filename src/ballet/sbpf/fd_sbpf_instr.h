@@ -58,6 +58,16 @@ fd_sbpf_ulong( fd_sbpf_instr_t instr ) {
   return _.u;
 }
 
+FD_FN_CONST static inline int
+fd_sbpf_is_function_start( fd_sbpf_instr_t instr ) {
+  return instr.opcode.raw == 0x07 && instr.dst_reg == 0x0A;
+}
+
+FD_FN_CONST static inline int
+fd_sbpf_is_function_end( fd_sbpf_instr_t instr ) {
+  return instr.opcode.raw == 0x05 && instr.dst_reg == 0x9D;
+}
+
 FD_PROTOTYPES_END
 
 #endif /* HEADER_fd_src_ballet_sbpf_fd_sbpf_instr_h */

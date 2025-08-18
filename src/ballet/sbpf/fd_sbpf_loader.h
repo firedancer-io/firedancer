@@ -18,11 +18,37 @@
 #define FD_SBPF_ERR_INVALID_ELF (1)
 #define FD_SBPF_PROG_RODATA_ALIGN 8UL
 
-#define FD_SBPF_VERSION_COUNT (4UL)
-#define FD_SBPF_V0            (0UL)
-#define FD_SBPF_V1            (1UL)
-#define FD_SBPF_V2            (2UL)
-#define FD_SBPF_V3            (3UL)
+/* https://github.com/anza-xyz/sbpf/blob/v0.12.2/src/elf_parser/mod.rs#L17 */
+#define FD_SBPF_ELF_PARSER_ERR_INVALID_FILE_HEADER           (-1)
+#define FD_SBPF_ELF_PARSER_ERR_INVALID_PROGRAM_HEADER        (-2)
+#define FD_SBPF_ELF_PARSER_ERR_INVALID_SECTION_HEADER        (-3)
+#define FD_SBPF_ELF_PARSER_ERR_INVALID_STRING                (-4)
+#define FD_SBPF_ELF_PARSER_ERR_STRING_TOO_LONG               (-5)
+#define FD_SBPF_ELF_PARSER_ERR_OUT_OF_BOUNDS                 (-6)
+#define FD_SBPF_ELF_PARSER_ERR_INVALID_SIZE                  (-7)
+#define FD_SBPF_ELF_PARSER_ERR_OVERLAP                       (-8)
+#define FD_SBPF_ELF_PARSER_ERR_SECTION_NOT_IN_ORDER          (-9)
+#define FD_SBPF_ELF_PARSER_ERR_NO_SECTION_NAME_STRING_TABLE  (-10)
+#define FD_SBPF_ELF_PARSER_ERR_INVALID_DYNAMIC_SECTION_TABLE (-11)
+#define FD_SBPF_ELF_PARSER_ERR_INVALID_RELOCATION_TABLE      (-12)
+#define FD_SBPF_ELF_PARSER_ERR_INVALID_ALIGNMENT             (-13)
+#define FD_SBPF_ELF_PARSER_ERR_NO_STRING_TABLE               (-14)
+#define FD_SBPF_ELF_PARSER_ERR_NO_DYNAMIC_STRING_TABLE       (-15)
+
+/* https://github.com/anza-xyz/sbpf/blob/v0.12.2/src/elf.rs#L40 */
+#define FD_SBPF_ELF_ERR_UNSUPPORTED_SBPF_VERSION             (-22)
+
+/* https://github.com/anza-xyz/sbpf/blob/v0.12.2/src/program.rs
+   FD_SBPF_VERSION_COUNT represents the latest active version,
+   which is V3 for Agave 2.3 and V4 for Agave 3.x.
+   To build for Agave 3.x, set FD_SBPF_VERSION_COUNT to 5U. */
+#define FD_SBPF_VERSION_COUNT (4U)
+#define FD_SBPF_V0            (0U)
+#define FD_SBPF_V1            (1U)
+#define FD_SBPF_V2            (2U)
+#define FD_SBPF_V3            (3U)
+#define FD_SBPF_V4            (4U)
+#define FD_SBPF_RESERVED      (FD_SBPF_VERSION_COUNT+1U)
 
 /* Program struct *****************************************************/
 
@@ -119,7 +145,7 @@ struct fd_sbpf_elf_info {
   ulong loaded_sections[ 1024UL ];
 
   /* SBPF version, SIMD-0161 */
-  uint sbpf_version;
+  ulong sbpf_version;
 };
 typedef struct fd_sbpf_elf_info fd_sbpf_elf_info_t;
 
@@ -154,6 +180,14 @@ struct __attribute__((aligned(32UL))) fd_sbpf_program {
 };
 typedef struct fd_sbpf_program fd_sbpf_program_t;
 
+struct fd_sbpf_loader_config {
+  int elf_deploy_checks;
+  uint sbpf_min_version;
+  uint sbpf_max_version;
+  int enable_symbol_and_section_labels;
+};
+typedef struct fd_sbpf_loader_config fd_sbpf_loader_config_t;
+
 /* Prototypes *********************************************************/
 
 FD_PROTOTYPES_BEGIN
@@ -170,13 +204,11 @@ FD_PROTOTYPES_BEGIN
    sbpf_min_version, sbpf_max_version: determine the min, max SBPF version
    allowed, version is retrieved from the ELF header. See SIMD-0161. */
 
-fd_sbpf_elf_info_t *
-fd_sbpf_elf_peek( fd_sbpf_elf_info_t * info,
-                  void const *         bin,
-                  ulong                bin_sz,
-                  int                  elf_deploy_checks,
-                  uint                 sbpf_min_version,
-                  uint                 sbpf_max_version );
+int
+fd_sbpf_elf_peek( fd_sbpf_elf_info_t *            info,
+                  void const *                    bin,
+                  ulong                           bin_sz,
+                  fd_sbpf_loader_config_t const * config );
 
 /* fd_sbpf_program_{align,footprint} return the alignment and size
    requirements of the memory region backing the fd_sbpf_program_t
@@ -228,18 +260,18 @@ fd_sbpf_program_new( void *                     prog_mem,
      reject_broken_elfs: elf_deploy_checks
 
    For documentation on these config params, see:
-   https://github.com/solana-labs/rbpf/blob/v0.3.0/src/vm.rs#L198
+   https://github.com/anza-xyz/sbpf/blob/v0.3.0/src/vm.rs#L198
 
    Solana/Agave equivalent:
-   https://github.com/solana-labs/rbpf/blob/v0.8.0/src/elf.rs#L361
+   https://github.com/anza-xyz/sbpf/blob/v0.8.0/src/elf.rs#L361
    */
 
 int
-fd_sbpf_program_load( fd_sbpf_program_t *  prog,
-                      void const *         bin,
-                      ulong                bin_sz,
-                      fd_sbpf_syscalls_t * syscalls,
-                      int                  elf_deploy_checks );
+fd_sbpf_program_load( fd_sbpf_program_t *             prog,
+                      void const *                    bin,
+                      ulong                           bin_sz,
+                      fd_sbpf_syscalls_t *            syscalls,
+                      fd_sbpf_loader_config_t const * config );
 
 /* fd_sbpf_program_delete destroys the program object and unformats the
    memory regions holding it. */
@@ -255,6 +287,9 @@ fd_sbpf_program_delete( fd_sbpf_program_t * program );
 
 char const *
 fd_sbpf_strerror( void );
+
+/* SIMD-0189 */
+static inline int fd_sbpf_enable_stricter_elf_headers( ulong sbpf_version ) { return sbpf_version >= FD_SBPF_V3; }
 
 FD_PROTOTYPES_END
 
