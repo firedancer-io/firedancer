@@ -84,7 +84,7 @@ dev1_cmd_fn( args_t *   args,
   }
 
   update_config_for_dev( config );
-  run_firedancer_init( config, 1 );
+  run_firedancer_init( config, 1, 0 );
 
   install_parent_signals();
 
