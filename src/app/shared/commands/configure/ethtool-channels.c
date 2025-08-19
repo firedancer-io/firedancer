@@ -1,4 +1,5 @@
 #include "configure.h"
+#include "fd_ethtool.h"
 
 #include <errno.h>
 #include <stdio.h>
@@ -28,18 +29,6 @@ static void
 init_perm( fd_cap_chk_t *   chk,
            config_t const * config FD_PARAM_UNUSED ) {
   fd_cap_chk_root( chk, NAME, "increase network device channels with `ethtool --set-channels`" );
-}
-
-static int
-device_is_bonded( const char * device ) {
-  char path[ PATH_MAX ];
-  FD_TEST( fd_cstr_printf_check( path, PATH_MAX, NULL, "/sys/class/net/%s/bonding", device ) );
-  struct stat st;
-  int err = stat( path, &st );
-  if( FD_UNLIKELY( err && errno != ENOENT ) )
-    FD_LOG_ERR(( "error checking if device `%s` is bonded, stat(%s) failed (%i-%s)",
-                 device, path, errno, fd_io_strerror( errno ) ));
-  return !err;
 }
 
 static void
@@ -119,7 +108,7 @@ static void
 init( config_t const * config ) {
   /* we need one channel for both TX and RX on the NIC for each QUIC
      tile, but the interface probably defaults to one channel total */
-  if( FD_UNLIKELY( device_is_bonded( config->net.interface ) ) ) {
+  if( FD_UNLIKELY( fd_ethtool_device_is_bonded( config->net.interface ) ) ) {
     /* if using a bonded device, we need to set channels on the
        underlying devices. */
     char line[ 4096 ];
@@ -202,7 +191,7 @@ check_device( const char * device,
 
 static configure_result_t
 check( config_t const * config ) {
-  if( FD_UNLIKELY( device_is_bonded( config->net.interface ) ) ) {
+  if( FD_UNLIKELY( fd_ethtool_device_is_bonded( config->net.interface ) ) ) {
     char line[ 4096 ];
     device_read_slaves( config->net.interface, line );
     char * saveptr;
