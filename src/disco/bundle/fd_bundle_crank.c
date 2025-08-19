@@ -206,7 +206,7 @@ fd_bundle_crank_gen_init( void                 * mem,
     for( ulong i=0UL; i<8UL; i++ ) {
       seed[12] = (char)((ulong)'0' + i);
       uchar out_bump[1];
-      FD_TEST( FD_PUBKEY_SUCCESS==fd_pubkey_find_program_address( (fd_pubkey_t const *)tip_payment_program_addr,
+      FD_TEST( FD_EXECUTOR_INSTR_SUCCESS==fd_pubkey_find_program_address( (fd_pubkey_t const *)tip_payment_program_addr,
                                                                   1UL, seed_ptr, &seed_len,
                                                                   (fd_pubkey_t *)g->crank3->tip_payment_accounts[i], out_bump, cerr ) );
     }
@@ -217,11 +217,11 @@ fd_bundle_crank_gen_init( void                 * mem,
     ulong seed_len = 14;
     uchar out_bump[1];
     uchar * seed_ptr[1] = { (uchar *)seed };
-    FD_TEST( FD_PUBKEY_SUCCESS==fd_pubkey_find_program_address( (fd_pubkey_t const *)tip_payment_program_addr,
+    FD_TEST( FD_EXECUTOR_INSTR_SUCCESS==fd_pubkey_find_program_address( (fd_pubkey_t const *)tip_payment_program_addr,
                                                                 1UL, seed_ptr, &seed_len,
                                                                 (fd_pubkey_t *)g->crank3->tip_payment_program_config, out_bump, cerr ) );
     /* Same seed used for tip distribution config account too */
-    FD_TEST( FD_PUBKEY_SUCCESS==fd_pubkey_find_program_address( (fd_pubkey_t const *)tip_distribution_program_addr,
+    FD_TEST( FD_EXECUTOR_INSTR_SUCCESS==fd_pubkey_find_program_address( (fd_pubkey_t const *)tip_distribution_program_addr,
                                                                 1UL, seed_ptr, &seed_len,
                                                                 (fd_pubkey_t *)g->crank3->tip_distribution_program_config, out_bump, cerr ) );
   } while( 0 );
@@ -275,7 +275,7 @@ fd_bundle_crank_update_epoch( fd_bundle_crank_gen_t * g,
 
   uchar * _seeds[1] = { (uchar *)seeds };
 
-  FD_TEST( FD_PUBKEY_SUCCESS==fd_pubkey_find_program_address( (fd_pubkey_t const *)g->crank3->tip_distribution_program,
+  FD_TEST( FD_EXECUTOR_INSTR_SUCCESS==fd_pubkey_find_program_address( (fd_pubkey_t const *)g->crank3->tip_distribution_program,
                                                               1UL, _seeds, &seed_len,
                                                               (fd_pubkey_t *)g->crank3->new_tip_receiver,
                                                               &(g->crank3->init_tip_distribution_acct.bump), custom_err ) );
