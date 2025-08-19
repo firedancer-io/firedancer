@@ -529,39 +529,61 @@
 | <span class="metrics-name">gossip_&#8203;ping_&#8203;tracked_&#8203;count</span> | counter |  |
 | <span class="metrics-name">gossip_&#8203;ping_&#8203;tracker_&#8203;stake_&#8203;changed_&#8203;count</span> | counter |  |
 | <span class="metrics-name">gossip_&#8203;ping_&#8203;tracker_&#8203;address_&#8203;changed_&#8203;count</span> | counter |  |
-| <span class="metrics-name">gossip_&#8203;crds_&#8203;capacity</span> | gauge |  |
-| <span class="metrics-name">gossip_&#8203;crds_&#8203;count</span><br/>{crds_&#8203;value="<span class="metrics-enum">contact_&#8203;info_&#8203;v1</span>"} | gauge |  (Contact Info V1) |
-| <span class="metrics-name">gossip_&#8203;crds_&#8203;count</span><br/>{crds_&#8203;value="<span class="metrics-enum">vote</span>"} | gauge |  (Vote) |
-| <span class="metrics-name">gossip_&#8203;crds_&#8203;count</span><br/>{crds_&#8203;value="<span class="metrics-enum">lowest_&#8203;slot</span>"} | gauge |  (Lowest Slot) |
-| <span class="metrics-name">gossip_&#8203;crds_&#8203;count</span><br/>{crds_&#8203;value="<span class="metrics-enum">snapshot_&#8203;hashes</span>"} | gauge |  (Snapshot Hashes) |
-| <span class="metrics-name">gossip_&#8203;crds_&#8203;count</span><br/>{crds_&#8203;value="<span class="metrics-enum">accounts_&#8203;hashes</span>"} | gauge |  (Accounts Hashes) |
-| <span class="metrics-name">gossip_&#8203;crds_&#8203;count</span><br/>{crds_&#8203;value="<span class="metrics-enum">epoch_&#8203;slots</span>"} | gauge |  (Epoch Slots) |
-| <span class="metrics-name">gossip_&#8203;crds_&#8203;count</span><br/>{crds_&#8203;value="<span class="metrics-enum">version_&#8203;v1</span>"} | gauge |  (Version V1) |
-| <span class="metrics-name">gossip_&#8203;crds_&#8203;count</span><br/>{crds_&#8203;value="<span class="metrics-enum">version_&#8203;v2</span>"} | gauge |  (Version V2) |
-| <span class="metrics-name">gossip_&#8203;crds_&#8203;count</span><br/>{crds_&#8203;value="<span class="metrics-enum">node_&#8203;instance</span>"} | gauge |  (Node Instance) |
-| <span class="metrics-name">gossip_&#8203;crds_&#8203;count</span><br/>{crds_&#8203;value="<span class="metrics-enum">duplicate_&#8203;shred</span>"} | gauge |  (Duplicate Shred) |
-| <span class="metrics-name">gossip_&#8203;crds_&#8203;count</span><br/>{crds_&#8203;value="<span class="metrics-enum">incremental_&#8203;snapshot_&#8203;hashes</span>"} | gauge |  (Incremental Snapshot Hashes) |
-| <span class="metrics-name">gossip_&#8203;crds_&#8203;count</span><br/>{crds_&#8203;value="<span class="metrics-enum">contact_&#8203;info_&#8203;v2</span>"} | gauge |  (Contact Info V2) |
-| <span class="metrics-name">gossip_&#8203;crds_&#8203;count</span><br/>{crds_&#8203;value="<span class="metrics-enum">restart_&#8203;last_&#8203;voted_&#8203;fork_&#8203;slots</span>"} | gauge |  (Restart Last Voted Fork Slots) |
-| <span class="metrics-name">gossip_&#8203;crds_&#8203;count</span><br/>{crds_&#8203;value="<span class="metrics-enum">restart_&#8203;heaviest_&#8203;fork</span>"} | gauge |  (Restart Heaviest Fork) |
-| <span class="metrics-name">gossip_&#8203;crds_&#8203;expired_&#8203;count</span> | counter |  |
-| <span class="metrics-name">gossip_&#8203;crds_&#8203;evicted_&#8203;count</span> | counter |  |
-| <span class="metrics-name">gossip_&#8203;crds_&#8203;peer_&#8203;capacity</span> | gauge |  |
-| <span class="metrics-name">gossip_&#8203;crds_&#8203;peer_&#8203;staked_&#8203;count</span> | gauge |  |
-| <span class="metrics-name">gossip_&#8203;crds_&#8203;peer_&#8203;unstaked_&#8203;count</span> | gauge |  |
-| <span class="metrics-name">gossip_&#8203;crds_&#8203;peer_&#8203;total_&#8203;stake</span> | gauge |  |
-| <span class="metrics-name">gossip_&#8203;crds_&#8203;peer_&#8203;evicted_&#8203;count</span> | counter |  |
-| <span class="metrics-name">gossip_&#8203;crds_&#8203;purged_&#8203;capacity</span> | gauge |  |
-| <span class="metrics-name">gossip_&#8203;crds_&#8203;purged_&#8203;count</span> | gauge |  |
-| <span class="metrics-name">gossip_&#8203;crds_&#8203;purged_&#8203;expired_&#8203;count</span> | counter |  |
-| <span class="metrics-name">gossip_&#8203;crds_&#8203;purged_&#8203;evicted_&#8203;count</span> | counter |  |
-| <span class="metrics-name">gossip_&#8203;crds_&#8203;rx_&#8203;count</span><br/>{gossip_&#8203;crds_&#8203;outcome="<span class="metrics-enum">upserted_&#8203;pull_&#8203;response</span>"} | counter |  (Pull Response (upserted)) |
-| <span class="metrics-name">gossip_&#8203;crds_&#8203;rx_&#8203;count</span><br/>{gossip_&#8203;crds_&#8203;outcome="<span class="metrics-enum">upserted_&#8203;push</span>"} | counter |  (Push (upserted)) |
-| <span class="metrics-name">gossip_&#8203;crds_&#8203;rx_&#8203;count</span><br/>{gossip_&#8203;crds_&#8203;outcome="<span class="metrics-enum">dropped_&#8203;pull_&#8203;response_&#8203;stale</span>"} | counter |  (Pull Response (newer entry already present in table)) |
-| <span class="metrics-name">gossip_&#8203;crds_&#8203;rx_&#8203;count</span><br/>{gossip_&#8203;crds_&#8203;outcome="<span class="metrics-enum">dropped_&#8203;pull_&#8203;response_&#8203;wallclock</span>"} | counter |  (Pull Response (outside expiry window and no contact info entry)) |
-| <span class="metrics-name">gossip_&#8203;crds_&#8203;rx_&#8203;count</span><br/>{gossip_&#8203;crds_&#8203;outcome="<span class="metrics-enum">dropped_&#8203;pull_&#8203;response_&#8203;duplicate</span>"} | counter |  (Pull Response (duplicate)) |
-| <span class="metrics-name">gossip_&#8203;crds_&#8203;rx_&#8203;count</span><br/>{gossip_&#8203;crds_&#8203;outcome="<span class="metrics-enum">dropped_&#8203;push_&#8203;stale</span>"} | counter |  (Push (newer entry already present in table)) |
-| <span class="metrics-name">gossip_&#8203;crds_&#8203;rx_&#8203;count</span><br/>{gossip_&#8203;crds_&#8203;outcome="<span class="metrics-enum">dropped_&#8203;push_&#8203;duplicate</span>"} | counter |  (Push (duplicate)) |
+| <span class="metrics-name">gossip_&#8203;table_&#8203;capacity</span> | gauge |  |
+| <span class="metrics-name">gossip_&#8203;purged_&#8203;capacity</span> | gauge |  |
+| <span class="metrics-name">gossip_&#8203;contact_&#8203;info_&#8203;capacity</span> | gauge |  |
+| <span class="metrics-name">gossip_&#8203;table_&#8203;count</span> | gauge |  |
+| <span class="metrics-name">gossip_&#8203;table_&#8203;crds_&#8203;counts</span><br/>{crds_&#8203;value="<span class="metrics-enum">contact_&#8203;info_&#8203;v1</span>"} | gauge |  (Contact Info V1) |
+| <span class="metrics-name">gossip_&#8203;table_&#8203;crds_&#8203;counts</span><br/>{crds_&#8203;value="<span class="metrics-enum">vote</span>"} | gauge |  (Vote) |
+| <span class="metrics-name">gossip_&#8203;table_&#8203;crds_&#8203;counts</span><br/>{crds_&#8203;value="<span class="metrics-enum">lowest_&#8203;slot</span>"} | gauge |  (Lowest Slot) |
+| <span class="metrics-name">gossip_&#8203;table_&#8203;crds_&#8203;counts</span><br/>{crds_&#8203;value="<span class="metrics-enum">snapshot_&#8203;hashes</span>"} | gauge |  (Snapshot Hashes) |
+| <span class="metrics-name">gossip_&#8203;table_&#8203;crds_&#8203;counts</span><br/>{crds_&#8203;value="<span class="metrics-enum">accounts_&#8203;hashes</span>"} | gauge |  (Accounts Hashes) |
+| <span class="metrics-name">gossip_&#8203;table_&#8203;crds_&#8203;counts</span><br/>{crds_&#8203;value="<span class="metrics-enum">epoch_&#8203;slots</span>"} | gauge |  (Epoch Slots) |
+| <span class="metrics-name">gossip_&#8203;table_&#8203;crds_&#8203;counts</span><br/>{crds_&#8203;value="<span class="metrics-enum">version_&#8203;v1</span>"} | gauge |  (Version V1) |
+| <span class="metrics-name">gossip_&#8203;table_&#8203;crds_&#8203;counts</span><br/>{crds_&#8203;value="<span class="metrics-enum">version_&#8203;v2</span>"} | gauge |  (Version V2) |
+| <span class="metrics-name">gossip_&#8203;table_&#8203;crds_&#8203;counts</span><br/>{crds_&#8203;value="<span class="metrics-enum">node_&#8203;instance</span>"} | gauge |  (Node Instance) |
+| <span class="metrics-name">gossip_&#8203;table_&#8203;crds_&#8203;counts</span><br/>{crds_&#8203;value="<span class="metrics-enum">duplicate_&#8203;shred</span>"} | gauge |  (Duplicate Shred) |
+| <span class="metrics-name">gossip_&#8203;table_&#8203;crds_&#8203;counts</span><br/>{crds_&#8203;value="<span class="metrics-enum">incremental_&#8203;snapshot_&#8203;hashes</span>"} | gauge |  (Incremental Snapshot Hashes) |
+| <span class="metrics-name">gossip_&#8203;table_&#8203;crds_&#8203;counts</span><br/>{crds_&#8203;value="<span class="metrics-enum">contact_&#8203;info_&#8203;v2</span>"} | gauge |  (Contact Info V2) |
+| <span class="metrics-name">gossip_&#8203;table_&#8203;crds_&#8203;counts</span><br/>{crds_&#8203;value="<span class="metrics-enum">restart_&#8203;last_&#8203;voted_&#8203;fork_&#8203;slots</span>"} | gauge |  (Restart Last Voted Fork Slots) |
+| <span class="metrics-name">gossip_&#8203;table_&#8203;crds_&#8203;counts</span><br/>{crds_&#8203;value="<span class="metrics-enum">restart_&#8203;heaviest_&#8203;fork</span>"} | gauge |  (Restart Heaviest Fork) |
+| <span class="metrics-name">gossip_&#8203;contact_&#8203;info_&#8203;count</span> | gauge |  |
+| <span class="metrics-name">gossip_&#8203;purged_&#8203;count</span> | gauge |  |
+| <span class="metrics-name">gossip_&#8203;table_&#8203;evicted_&#8203;count</span> | counter |  |
+| <span class="metrics-name">gossip_&#8203;contact_&#8203;info_&#8203;evicted_&#8203;count</span> | counter |  |
+| <span class="metrics-name">gossip_&#8203;purged_&#8203;evicted_&#8203;count</span> | counter |  |
+| <span class="metrics-name">gossip_&#8203;drop_&#8203;table_&#8203;expired_&#8203;count</span> | counter |  |
+| <span class="metrics-name">gossip_&#8203;drop_&#8203;contact_&#8203;info_&#8203;expired_&#8203;count</span> | counter |  |
+| <span class="metrics-name">gossip_&#8203;drop_&#8203;purged_&#8203;expired_&#8203;count</span> | counter |  |
+| <span class="metrics-name">gossip_&#8203;visible_&#8203;stake</span> | gauge |  |
+| <span class="metrics-name">gossip_&#8203;unstaked_&#8203;peer_&#8203;count</span> | gauge |  |
+| <span class="metrics-name">gossip_&#8203;staked_&#8203;peer_&#8203;count</span> | gauge |  |
+| <span class="metrics-name">gossip_&#8203;undetermined_&#8203;crds</span><br/>{crds_&#8203;value="<span class="metrics-enum">contact_&#8203;info_&#8203;v1</span>"} | counter |  (Contact Info V1) |
+| <span class="metrics-name">gossip_&#8203;undetermined_&#8203;crds</span><br/>{crds_&#8203;value="<span class="metrics-enum">vote</span>"} | counter |  (Vote) |
+| <span class="metrics-name">gossip_&#8203;undetermined_&#8203;crds</span><br/>{crds_&#8203;value="<span class="metrics-enum">lowest_&#8203;slot</span>"} | counter |  (Lowest Slot) |
+| <span class="metrics-name">gossip_&#8203;undetermined_&#8203;crds</span><br/>{crds_&#8203;value="<span class="metrics-enum">snapshot_&#8203;hashes</span>"} | counter |  (Snapshot Hashes) |
+| <span class="metrics-name">gossip_&#8203;undetermined_&#8203;crds</span><br/>{crds_&#8203;value="<span class="metrics-enum">accounts_&#8203;hashes</span>"} | counter |  (Accounts Hashes) |
+| <span class="metrics-name">gossip_&#8203;undetermined_&#8203;crds</span><br/>{crds_&#8203;value="<span class="metrics-enum">epoch_&#8203;slots</span>"} | counter |  (Epoch Slots) |
+| <span class="metrics-name">gossip_&#8203;undetermined_&#8203;crds</span><br/>{crds_&#8203;value="<span class="metrics-enum">version_&#8203;v1</span>"} | counter |  (Version V1) |
+| <span class="metrics-name">gossip_&#8203;undetermined_&#8203;crds</span><br/>{crds_&#8203;value="<span class="metrics-enum">version_&#8203;v2</span>"} | counter |  (Version V2) |
+| <span class="metrics-name">gossip_&#8203;undetermined_&#8203;crds</span><br/>{crds_&#8203;value="<span class="metrics-enum">node_&#8203;instance</span>"} | counter |  (Node Instance) |
+| <span class="metrics-name">gossip_&#8203;undetermined_&#8203;crds</span><br/>{crds_&#8203;value="<span class="metrics-enum">duplicate_&#8203;shred</span>"} | counter |  (Duplicate Shred) |
+| <span class="metrics-name">gossip_&#8203;undetermined_&#8203;crds</span><br/>{crds_&#8203;value="<span class="metrics-enum">incremental_&#8203;snapshot_&#8203;hashes</span>"} | counter |  (Incremental Snapshot Hashes) |
+| <span class="metrics-name">gossip_&#8203;undetermined_&#8203;crds</span><br/>{crds_&#8203;value="<span class="metrics-enum">contact_&#8203;info_&#8203;v2</span>"} | counter |  (Contact Info V2) |
+| <span class="metrics-name">gossip_&#8203;undetermined_&#8203;crds</span><br/>{crds_&#8203;value="<span class="metrics-enum">restart_&#8203;last_&#8203;voted_&#8203;fork_&#8203;slots</span>"} | counter |  (Restart Last Voted Fork Slots) |
+| <span class="metrics-name">gossip_&#8203;undetermined_&#8203;crds</span><br/>{crds_&#8203;value="<span class="metrics-enum">restart_&#8203;heaviest_&#8203;fork</span>"} | counter |  (Restart Heaviest Fork) |
+| <span class="metrics-name">gossip_&#8203;message_&#8203;rx_&#8203;count</span><br/>{gossip_&#8203;message="<span class="metrics-enum">pull_&#8203;request</span>"} | counter |  (Pull Request) |
+| <span class="metrics-name">gossip_&#8203;message_&#8203;rx_&#8203;count</span><br/>{gossip_&#8203;message="<span class="metrics-enum">pull_&#8203;response</span>"} | counter |  (Pull Response) |
+| <span class="metrics-name">gossip_&#8203;message_&#8203;rx_&#8203;count</span><br/>{gossip_&#8203;message="<span class="metrics-enum">push</span>"} | counter |  (Push) |
+| <span class="metrics-name">gossip_&#8203;message_&#8203;rx_&#8203;count</span><br/>{gossip_&#8203;message="<span class="metrics-enum">prune</span>"} | counter |  (Prune) |
+| <span class="metrics-name">gossip_&#8203;message_&#8203;rx_&#8203;count</span><br/>{gossip_&#8203;message="<span class="metrics-enum">ping</span>"} | counter |  (Ping) |
+| <span class="metrics-name">gossip_&#8203;message_&#8203;rx_&#8203;count</span><br/>{gossip_&#8203;message="<span class="metrics-enum">pong</span>"} | counter |  (Pong) |
+| <span class="metrics-name">gossip_&#8203;message_&#8203;rx_&#8203;bytes</span><br/>{gossip_&#8203;message="<span class="metrics-enum">pull_&#8203;request</span>"} | counter |  (Pull Request) |
+| <span class="metrics-name">gossip_&#8203;message_&#8203;rx_&#8203;bytes</span><br/>{gossip_&#8203;message="<span class="metrics-enum">pull_&#8203;response</span>"} | counter |  (Pull Response) |
+| <span class="metrics-name">gossip_&#8203;message_&#8203;rx_&#8203;bytes</span><br/>{gossip_&#8203;message="<span class="metrics-enum">push</span>"} | counter |  (Push) |
+| <span class="metrics-name">gossip_&#8203;message_&#8203;rx_&#8203;bytes</span><br/>{gossip_&#8203;message="<span class="metrics-enum">prune</span>"} | counter |  (Prune) |
+| <span class="metrics-name">gossip_&#8203;message_&#8203;rx_&#8203;bytes</span><br/>{gossip_&#8203;message="<span class="metrics-enum">ping</span>"} | counter |  (Ping) |
+| <span class="metrics-name">gossip_&#8203;message_&#8203;rx_&#8203;bytes</span><br/>{gossip_&#8203;message="<span class="metrics-enum">pong</span>"} | counter |  (Pong) |
 | <span class="metrics-name">gossip_&#8203;message_&#8203;tx_&#8203;count</span><br/>{gossip_&#8203;message="<span class="metrics-enum">pull_&#8203;request</span>"} | counter |  (Pull Request) |
 | <span class="metrics-name">gossip_&#8203;message_&#8203;tx_&#8203;count</span><br/>{gossip_&#8203;message="<span class="metrics-enum">pull_&#8203;response</span>"} | counter |  (Pull Response) |
 | <span class="metrics-name">gossip_&#8203;message_&#8203;tx_&#8203;count</span><br/>{gossip_&#8203;message="<span class="metrics-enum">push</span>"} | counter |  (Push) |
@@ -574,62 +596,125 @@
 | <span class="metrics-name">gossip_&#8203;message_&#8203;tx_&#8203;bytes</span><br/>{gossip_&#8203;message="<span class="metrics-enum">prune</span>"} | counter |  (Prune) |
 | <span class="metrics-name">gossip_&#8203;message_&#8203;tx_&#8203;bytes</span><br/>{gossip_&#8203;message="<span class="metrics-enum">ping</span>"} | counter |  (Ping) |
 | <span class="metrics-name">gossip_&#8203;message_&#8203;tx_&#8203;bytes</span><br/>{gossip_&#8203;message="<span class="metrics-enum">pong</span>"} | counter |  (Pong) |
-| <span class="metrics-name">gossip_&#8203;crds_&#8203;tx_&#8203;push_&#8203;count</span><br/>{crds_&#8203;value="<span class="metrics-enum">contact_&#8203;info_&#8203;v1</span>"} | counter |  (Contact Info V1) |
-| <span class="metrics-name">gossip_&#8203;crds_&#8203;tx_&#8203;push_&#8203;count</span><br/>{crds_&#8203;value="<span class="metrics-enum">vote</span>"} | counter |  (Vote) |
-| <span class="metrics-name">gossip_&#8203;crds_&#8203;tx_&#8203;push_&#8203;count</span><br/>{crds_&#8203;value="<span class="metrics-enum">lowest_&#8203;slot</span>"} | counter |  (Lowest Slot) |
-| <span class="metrics-name">gossip_&#8203;crds_&#8203;tx_&#8203;push_&#8203;count</span><br/>{crds_&#8203;value="<span class="metrics-enum">snapshot_&#8203;hashes</span>"} | counter |  (Snapshot Hashes) |
-| <span class="metrics-name">gossip_&#8203;crds_&#8203;tx_&#8203;push_&#8203;count</span><br/>{crds_&#8203;value="<span class="metrics-enum">accounts_&#8203;hashes</span>"} | counter |  (Accounts Hashes) |
-| <span class="metrics-name">gossip_&#8203;crds_&#8203;tx_&#8203;push_&#8203;count</span><br/>{crds_&#8203;value="<span class="metrics-enum">epoch_&#8203;slots</span>"} | counter |  (Epoch Slots) |
-| <span class="metrics-name">gossip_&#8203;crds_&#8203;tx_&#8203;push_&#8203;count</span><br/>{crds_&#8203;value="<span class="metrics-enum">version_&#8203;v1</span>"} | counter |  (Version V1) |
-| <span class="metrics-name">gossip_&#8203;crds_&#8203;tx_&#8203;push_&#8203;count</span><br/>{crds_&#8203;value="<span class="metrics-enum">version_&#8203;v2</span>"} | counter |  (Version V2) |
-| <span class="metrics-name">gossip_&#8203;crds_&#8203;tx_&#8203;push_&#8203;count</span><br/>{crds_&#8203;value="<span class="metrics-enum">node_&#8203;instance</span>"} | counter |  (Node Instance) |
-| <span class="metrics-name">gossip_&#8203;crds_&#8203;tx_&#8203;push_&#8203;count</span><br/>{crds_&#8203;value="<span class="metrics-enum">duplicate_&#8203;shred</span>"} | counter |  (Duplicate Shred) |
-| <span class="metrics-name">gossip_&#8203;crds_&#8203;tx_&#8203;push_&#8203;count</span><br/>{crds_&#8203;value="<span class="metrics-enum">incremental_&#8203;snapshot_&#8203;hashes</span>"} | counter |  (Incremental Snapshot Hashes) |
-| <span class="metrics-name">gossip_&#8203;crds_&#8203;tx_&#8203;push_&#8203;count</span><br/>{crds_&#8203;value="<span class="metrics-enum">contact_&#8203;info_&#8203;v2</span>"} | counter |  (Contact Info V2) |
-| <span class="metrics-name">gossip_&#8203;crds_&#8203;tx_&#8203;push_&#8203;count</span><br/>{crds_&#8203;value="<span class="metrics-enum">restart_&#8203;last_&#8203;voted_&#8203;fork_&#8203;slots</span>"} | counter |  (Restart Last Voted Fork Slots) |
-| <span class="metrics-name">gossip_&#8203;crds_&#8203;tx_&#8203;push_&#8203;count</span><br/>{crds_&#8203;value="<span class="metrics-enum">restart_&#8203;heaviest_&#8203;fork</span>"} | counter |  (Restart Heaviest Fork) |
-| <span class="metrics-name">gossip_&#8203;crds_&#8203;tx_&#8203;push_&#8203;bytes</span><br/>{crds_&#8203;value="<span class="metrics-enum">contact_&#8203;info_&#8203;v1</span>"} | counter |  (Contact Info V1) |
-| <span class="metrics-name">gossip_&#8203;crds_&#8203;tx_&#8203;push_&#8203;bytes</span><br/>{crds_&#8203;value="<span class="metrics-enum">vote</span>"} | counter |  (Vote) |
-| <span class="metrics-name">gossip_&#8203;crds_&#8203;tx_&#8203;push_&#8203;bytes</span><br/>{crds_&#8203;value="<span class="metrics-enum">lowest_&#8203;slot</span>"} | counter |  (Lowest Slot) |
-| <span class="metrics-name">gossip_&#8203;crds_&#8203;tx_&#8203;push_&#8203;bytes</span><br/>{crds_&#8203;value="<span class="metrics-enum">snapshot_&#8203;hashes</span>"} | counter |  (Snapshot Hashes) |
-| <span class="metrics-name">gossip_&#8203;crds_&#8203;tx_&#8203;push_&#8203;bytes</span><br/>{crds_&#8203;value="<span class="metrics-enum">accounts_&#8203;hashes</span>"} | counter |  (Accounts Hashes) |
-| <span class="metrics-name">gossip_&#8203;crds_&#8203;tx_&#8203;push_&#8203;bytes</span><br/>{crds_&#8203;value="<span class="metrics-enum">epoch_&#8203;slots</span>"} | counter |  (Epoch Slots) |
-| <span class="metrics-name">gossip_&#8203;crds_&#8203;tx_&#8203;push_&#8203;bytes</span><br/>{crds_&#8203;value="<span class="metrics-enum">version_&#8203;v1</span>"} | counter |  (Version V1) |
-| <span class="metrics-name">gossip_&#8203;crds_&#8203;tx_&#8203;push_&#8203;bytes</span><br/>{crds_&#8203;value="<span class="metrics-enum">version_&#8203;v2</span>"} | counter |  (Version V2) |
-| <span class="metrics-name">gossip_&#8203;crds_&#8203;tx_&#8203;push_&#8203;bytes</span><br/>{crds_&#8203;value="<span class="metrics-enum">node_&#8203;instance</span>"} | counter |  (Node Instance) |
-| <span class="metrics-name">gossip_&#8203;crds_&#8203;tx_&#8203;push_&#8203;bytes</span><br/>{crds_&#8203;value="<span class="metrics-enum">duplicate_&#8203;shred</span>"} | counter |  (Duplicate Shred) |
-| <span class="metrics-name">gossip_&#8203;crds_&#8203;tx_&#8203;push_&#8203;bytes</span><br/>{crds_&#8203;value="<span class="metrics-enum">incremental_&#8203;snapshot_&#8203;hashes</span>"} | counter |  (Incremental Snapshot Hashes) |
-| <span class="metrics-name">gossip_&#8203;crds_&#8203;tx_&#8203;push_&#8203;bytes</span><br/>{crds_&#8203;value="<span class="metrics-enum">contact_&#8203;info_&#8203;v2</span>"} | counter |  (Contact Info V2) |
-| <span class="metrics-name">gossip_&#8203;crds_&#8203;tx_&#8203;push_&#8203;bytes</span><br/>{crds_&#8203;value="<span class="metrics-enum">restart_&#8203;last_&#8203;voted_&#8203;fork_&#8203;slots</span>"} | counter |  (Restart Last Voted Fork Slots) |
-| <span class="metrics-name">gossip_&#8203;crds_&#8203;tx_&#8203;push_&#8203;bytes</span><br/>{crds_&#8203;value="<span class="metrics-enum">restart_&#8203;heaviest_&#8203;fork</span>"} | counter |  (Restart Heaviest Fork) |
-| <span class="metrics-name">gossip_&#8203;crds_&#8203;tx_&#8203;pull_&#8203;response_&#8203;count</span><br/>{crds_&#8203;value="<span class="metrics-enum">contact_&#8203;info_&#8203;v1</span>"} | counter |  (Contact Info V1) |
-| <span class="metrics-name">gossip_&#8203;crds_&#8203;tx_&#8203;pull_&#8203;response_&#8203;count</span><br/>{crds_&#8203;value="<span class="metrics-enum">vote</span>"} | counter |  (Vote) |
-| <span class="metrics-name">gossip_&#8203;crds_&#8203;tx_&#8203;pull_&#8203;response_&#8203;count</span><br/>{crds_&#8203;value="<span class="metrics-enum">lowest_&#8203;slot</span>"} | counter |  (Lowest Slot) |
-| <span class="metrics-name">gossip_&#8203;crds_&#8203;tx_&#8203;pull_&#8203;response_&#8203;count</span><br/>{crds_&#8203;value="<span class="metrics-enum">snapshot_&#8203;hashes</span>"} | counter |  (Snapshot Hashes) |
-| <span class="metrics-name">gossip_&#8203;crds_&#8203;tx_&#8203;pull_&#8203;response_&#8203;count</span><br/>{crds_&#8203;value="<span class="metrics-enum">accounts_&#8203;hashes</span>"} | counter |  (Accounts Hashes) |
-| <span class="metrics-name">gossip_&#8203;crds_&#8203;tx_&#8203;pull_&#8203;response_&#8203;count</span><br/>{crds_&#8203;value="<span class="metrics-enum">epoch_&#8203;slots</span>"} | counter |  (Epoch Slots) |
-| <span class="metrics-name">gossip_&#8203;crds_&#8203;tx_&#8203;pull_&#8203;response_&#8203;count</span><br/>{crds_&#8203;value="<span class="metrics-enum">version_&#8203;v1</span>"} | counter |  (Version V1) |
-| <span class="metrics-name">gossip_&#8203;crds_&#8203;tx_&#8203;pull_&#8203;response_&#8203;count</span><br/>{crds_&#8203;value="<span class="metrics-enum">version_&#8203;v2</span>"} | counter |  (Version V2) |
-| <span class="metrics-name">gossip_&#8203;crds_&#8203;tx_&#8203;pull_&#8203;response_&#8203;count</span><br/>{crds_&#8203;value="<span class="metrics-enum">node_&#8203;instance</span>"} | counter |  (Node Instance) |
-| <span class="metrics-name">gossip_&#8203;crds_&#8203;tx_&#8203;pull_&#8203;response_&#8203;count</span><br/>{crds_&#8203;value="<span class="metrics-enum">duplicate_&#8203;shred</span>"} | counter |  (Duplicate Shred) |
-| <span class="metrics-name">gossip_&#8203;crds_&#8203;tx_&#8203;pull_&#8203;response_&#8203;count</span><br/>{crds_&#8203;value="<span class="metrics-enum">incremental_&#8203;snapshot_&#8203;hashes</span>"} | counter |  (Incremental Snapshot Hashes) |
-| <span class="metrics-name">gossip_&#8203;crds_&#8203;tx_&#8203;pull_&#8203;response_&#8203;count</span><br/>{crds_&#8203;value="<span class="metrics-enum">contact_&#8203;info_&#8203;v2</span>"} | counter |  (Contact Info V2) |
-| <span class="metrics-name">gossip_&#8203;crds_&#8203;tx_&#8203;pull_&#8203;response_&#8203;count</span><br/>{crds_&#8203;value="<span class="metrics-enum">restart_&#8203;last_&#8203;voted_&#8203;fork_&#8203;slots</span>"} | counter |  (Restart Last Voted Fork Slots) |
-| <span class="metrics-name">gossip_&#8203;crds_&#8203;tx_&#8203;pull_&#8203;response_&#8203;count</span><br/>{crds_&#8203;value="<span class="metrics-enum">restart_&#8203;heaviest_&#8203;fork</span>"} | counter |  (Restart Heaviest Fork) |
-| <span class="metrics-name">gossip_&#8203;crds_&#8203;tx_&#8203;pull_&#8203;response_&#8203;bytes</span><br/>{crds_&#8203;value="<span class="metrics-enum">contact_&#8203;info_&#8203;v1</span>"} | counter |  (Contact Info V1) |
-| <span class="metrics-name">gossip_&#8203;crds_&#8203;tx_&#8203;pull_&#8203;response_&#8203;bytes</span><br/>{crds_&#8203;value="<span class="metrics-enum">vote</span>"} | counter |  (Vote) |
-| <span class="metrics-name">gossip_&#8203;crds_&#8203;tx_&#8203;pull_&#8203;response_&#8203;bytes</span><br/>{crds_&#8203;value="<span class="metrics-enum">lowest_&#8203;slot</span>"} | counter |  (Lowest Slot) |
-| <span class="metrics-name">gossip_&#8203;crds_&#8203;tx_&#8203;pull_&#8203;response_&#8203;bytes</span><br/>{crds_&#8203;value="<span class="metrics-enum">snapshot_&#8203;hashes</span>"} | counter |  (Snapshot Hashes) |
-| <span class="metrics-name">gossip_&#8203;crds_&#8203;tx_&#8203;pull_&#8203;response_&#8203;bytes</span><br/>{crds_&#8203;value="<span class="metrics-enum">accounts_&#8203;hashes</span>"} | counter |  (Accounts Hashes) |
-| <span class="metrics-name">gossip_&#8203;crds_&#8203;tx_&#8203;pull_&#8203;response_&#8203;bytes</span><br/>{crds_&#8203;value="<span class="metrics-enum">epoch_&#8203;slots</span>"} | counter |  (Epoch Slots) |
-| <span class="metrics-name">gossip_&#8203;crds_&#8203;tx_&#8203;pull_&#8203;response_&#8203;bytes</span><br/>{crds_&#8203;value="<span class="metrics-enum">version_&#8203;v1</span>"} | counter |  (Version V1) |
-| <span class="metrics-name">gossip_&#8203;crds_&#8203;tx_&#8203;pull_&#8203;response_&#8203;bytes</span><br/>{crds_&#8203;value="<span class="metrics-enum">version_&#8203;v2</span>"} | counter |  (Version V2) |
-| <span class="metrics-name">gossip_&#8203;crds_&#8203;tx_&#8203;pull_&#8203;response_&#8203;bytes</span><br/>{crds_&#8203;value="<span class="metrics-enum">node_&#8203;instance</span>"} | counter |  (Node Instance) |
-| <span class="metrics-name">gossip_&#8203;crds_&#8203;tx_&#8203;pull_&#8203;response_&#8203;bytes</span><br/>{crds_&#8203;value="<span class="metrics-enum">duplicate_&#8203;shred</span>"} | counter |  (Duplicate Shred) |
-| <span class="metrics-name">gossip_&#8203;crds_&#8203;tx_&#8203;pull_&#8203;response_&#8203;bytes</span><br/>{crds_&#8203;value="<span class="metrics-enum">incremental_&#8203;snapshot_&#8203;hashes</span>"} | counter |  (Incremental Snapshot Hashes) |
-| <span class="metrics-name">gossip_&#8203;crds_&#8203;tx_&#8203;pull_&#8203;response_&#8203;bytes</span><br/>{crds_&#8203;value="<span class="metrics-enum">contact_&#8203;info_&#8203;v2</span>"} | counter |  (Contact Info V2) |
-| <span class="metrics-name">gossip_&#8203;crds_&#8203;tx_&#8203;pull_&#8203;response_&#8203;bytes</span><br/>{crds_&#8203;value="<span class="metrics-enum">restart_&#8203;last_&#8203;voted_&#8203;fork_&#8203;slots</span>"} | counter |  (Restart Last Voted Fork Slots) |
-| <span class="metrics-name">gossip_&#8203;crds_&#8203;tx_&#8203;pull_&#8203;response_&#8203;bytes</span><br/>{crds_&#8203;value="<span class="metrics-enum">restart_&#8203;heaviest_&#8203;fork</span>"} | counter |  (Restart Heaviest Fork) |
+| <span class="metrics-name">gossip_&#8203;crds_&#8203;push_&#8203;rx_&#8203;count</span><br/>{crds_&#8203;value="<span class="metrics-enum">contact_&#8203;info_&#8203;v1</span>"} | counter |  (Contact Info V1) |
+| <span class="metrics-name">gossip_&#8203;crds_&#8203;push_&#8203;rx_&#8203;count</span><br/>{crds_&#8203;value="<span class="metrics-enum">vote</span>"} | counter |  (Vote) |
+| <span class="metrics-name">gossip_&#8203;crds_&#8203;push_&#8203;rx_&#8203;count</span><br/>{crds_&#8203;value="<span class="metrics-enum">lowest_&#8203;slot</span>"} | counter |  (Lowest Slot) |
+| <span class="metrics-name">gossip_&#8203;crds_&#8203;push_&#8203;rx_&#8203;count</span><br/>{crds_&#8203;value="<span class="metrics-enum">snapshot_&#8203;hashes</span>"} | counter |  (Snapshot Hashes) |
+| <span class="metrics-name">gossip_&#8203;crds_&#8203;push_&#8203;rx_&#8203;count</span><br/>{crds_&#8203;value="<span class="metrics-enum">accounts_&#8203;hashes</span>"} | counter |  (Accounts Hashes) |
+| <span class="metrics-name">gossip_&#8203;crds_&#8203;push_&#8203;rx_&#8203;count</span><br/>{crds_&#8203;value="<span class="metrics-enum">epoch_&#8203;slots</span>"} | counter |  (Epoch Slots) |
+| <span class="metrics-name">gossip_&#8203;crds_&#8203;push_&#8203;rx_&#8203;count</span><br/>{crds_&#8203;value="<span class="metrics-enum">version_&#8203;v1</span>"} | counter |  (Version V1) |
+| <span class="metrics-name">gossip_&#8203;crds_&#8203;push_&#8203;rx_&#8203;count</span><br/>{crds_&#8203;value="<span class="metrics-enum">version_&#8203;v2</span>"} | counter |  (Version V2) |
+| <span class="metrics-name">gossip_&#8203;crds_&#8203;push_&#8203;rx_&#8203;count</span><br/>{crds_&#8203;value="<span class="metrics-enum">node_&#8203;instance</span>"} | counter |  (Node Instance) |
+| <span class="metrics-name">gossip_&#8203;crds_&#8203;push_&#8203;rx_&#8203;count</span><br/>{crds_&#8203;value="<span class="metrics-enum">duplicate_&#8203;shred</span>"} | counter |  (Duplicate Shred) |
+| <span class="metrics-name">gossip_&#8203;crds_&#8203;push_&#8203;rx_&#8203;count</span><br/>{crds_&#8203;value="<span class="metrics-enum">incremental_&#8203;snapshot_&#8203;hashes</span>"} | counter |  (Incremental Snapshot Hashes) |
+| <span class="metrics-name">gossip_&#8203;crds_&#8203;push_&#8203;rx_&#8203;count</span><br/>{crds_&#8203;value="<span class="metrics-enum">contact_&#8203;info_&#8203;v2</span>"} | counter |  (Contact Info V2) |
+| <span class="metrics-name">gossip_&#8203;crds_&#8203;push_&#8203;rx_&#8203;count</span><br/>{crds_&#8203;value="<span class="metrics-enum">restart_&#8203;last_&#8203;voted_&#8203;fork_&#8203;slots</span>"} | counter |  (Restart Last Voted Fork Slots) |
+| <span class="metrics-name">gossip_&#8203;crds_&#8203;push_&#8203;rx_&#8203;count</span><br/>{crds_&#8203;value="<span class="metrics-enum">restart_&#8203;heaviest_&#8203;fork</span>"} | counter |  (Restart Heaviest Fork) |
+| <span class="metrics-name">gossip_&#8203;crds_&#8203;push_&#8203;rx_&#8203;bytes</span><br/>{crds_&#8203;value="<span class="metrics-enum">contact_&#8203;info_&#8203;v1</span>"} | counter |  (Contact Info V1) |
+| <span class="metrics-name">gossip_&#8203;crds_&#8203;push_&#8203;rx_&#8203;bytes</span><br/>{crds_&#8203;value="<span class="metrics-enum">vote</span>"} | counter |  (Vote) |
+| <span class="metrics-name">gossip_&#8203;crds_&#8203;push_&#8203;rx_&#8203;bytes</span><br/>{crds_&#8203;value="<span class="metrics-enum">lowest_&#8203;slot</span>"} | counter |  (Lowest Slot) |
+| <span class="metrics-name">gossip_&#8203;crds_&#8203;push_&#8203;rx_&#8203;bytes</span><br/>{crds_&#8203;value="<span class="metrics-enum">snapshot_&#8203;hashes</span>"} | counter |  (Snapshot Hashes) |
+| <span class="metrics-name">gossip_&#8203;crds_&#8203;push_&#8203;rx_&#8203;bytes</span><br/>{crds_&#8203;value="<span class="metrics-enum">accounts_&#8203;hashes</span>"} | counter |  (Accounts Hashes) |
+| <span class="metrics-name">gossip_&#8203;crds_&#8203;push_&#8203;rx_&#8203;bytes</span><br/>{crds_&#8203;value="<span class="metrics-enum">epoch_&#8203;slots</span>"} | counter |  (Epoch Slots) |
+| <span class="metrics-name">gossip_&#8203;crds_&#8203;push_&#8203;rx_&#8203;bytes</span><br/>{crds_&#8203;value="<span class="metrics-enum">version_&#8203;v1</span>"} | counter |  (Version V1) |
+| <span class="metrics-name">gossip_&#8203;crds_&#8203;push_&#8203;rx_&#8203;bytes</span><br/>{crds_&#8203;value="<span class="metrics-enum">version_&#8203;v2</span>"} | counter |  (Version V2) |
+| <span class="metrics-name">gossip_&#8203;crds_&#8203;push_&#8203;rx_&#8203;bytes</span><br/>{crds_&#8203;value="<span class="metrics-enum">node_&#8203;instance</span>"} | counter |  (Node Instance) |
+| <span class="metrics-name">gossip_&#8203;crds_&#8203;push_&#8203;rx_&#8203;bytes</span><br/>{crds_&#8203;value="<span class="metrics-enum">duplicate_&#8203;shred</span>"} | counter |  (Duplicate Shred) |
+| <span class="metrics-name">gossip_&#8203;crds_&#8203;push_&#8203;rx_&#8203;bytes</span><br/>{crds_&#8203;value="<span class="metrics-enum">incremental_&#8203;snapshot_&#8203;hashes</span>"} | counter |  (Incremental Snapshot Hashes) |
+| <span class="metrics-name">gossip_&#8203;crds_&#8203;push_&#8203;rx_&#8203;bytes</span><br/>{crds_&#8203;value="<span class="metrics-enum">contact_&#8203;info_&#8203;v2</span>"} | counter |  (Contact Info V2) |
+| <span class="metrics-name">gossip_&#8203;crds_&#8203;push_&#8203;rx_&#8203;bytes</span><br/>{crds_&#8203;value="<span class="metrics-enum">restart_&#8203;last_&#8203;voted_&#8203;fork_&#8203;slots</span>"} | counter |  (Restart Last Voted Fork Slots) |
+| <span class="metrics-name">gossip_&#8203;crds_&#8203;push_&#8203;rx_&#8203;bytes</span><br/>{crds_&#8203;value="<span class="metrics-enum">restart_&#8203;heaviest_&#8203;fork</span>"} | counter |  (Restart Heaviest Fork) |
+| <span class="metrics-name">gossip_&#8203;crds_&#8203;pull_&#8203;rx_&#8203;count</span><br/>{crds_&#8203;value="<span class="metrics-enum">contact_&#8203;info_&#8203;v1</span>"} | counter |  (Contact Info V1) |
+| <span class="metrics-name">gossip_&#8203;crds_&#8203;pull_&#8203;rx_&#8203;count</span><br/>{crds_&#8203;value="<span class="metrics-enum">vote</span>"} | counter |  (Vote) |
+| <span class="metrics-name">gossip_&#8203;crds_&#8203;pull_&#8203;rx_&#8203;count</span><br/>{crds_&#8203;value="<span class="metrics-enum">lowest_&#8203;slot</span>"} | counter |  (Lowest Slot) |
+| <span class="metrics-name">gossip_&#8203;crds_&#8203;pull_&#8203;rx_&#8203;count</span><br/>{crds_&#8203;value="<span class="metrics-enum">snapshot_&#8203;hashes</span>"} | counter |  (Snapshot Hashes) |
+| <span class="metrics-name">gossip_&#8203;crds_&#8203;pull_&#8203;rx_&#8203;count</span><br/>{crds_&#8203;value="<span class="metrics-enum">accounts_&#8203;hashes</span>"} | counter |  (Accounts Hashes) |
+| <span class="metrics-name">gossip_&#8203;crds_&#8203;pull_&#8203;rx_&#8203;count</span><br/>{crds_&#8203;value="<span class="metrics-enum">epoch_&#8203;slots</span>"} | counter |  (Epoch Slots) |
+| <span class="metrics-name">gossip_&#8203;crds_&#8203;pull_&#8203;rx_&#8203;count</span><br/>{crds_&#8203;value="<span class="metrics-enum">version_&#8203;v1</span>"} | counter |  (Version V1) |
+| <span class="metrics-name">gossip_&#8203;crds_&#8203;pull_&#8203;rx_&#8203;count</span><br/>{crds_&#8203;value="<span class="metrics-enum">version_&#8203;v2</span>"} | counter |  (Version V2) |
+| <span class="metrics-name">gossip_&#8203;crds_&#8203;pull_&#8203;rx_&#8203;count</span><br/>{crds_&#8203;value="<span class="metrics-enum">node_&#8203;instance</span>"} | counter |  (Node Instance) |
+| <span class="metrics-name">gossip_&#8203;crds_&#8203;pull_&#8203;rx_&#8203;count</span><br/>{crds_&#8203;value="<span class="metrics-enum">duplicate_&#8203;shred</span>"} | counter |  (Duplicate Shred) |
+| <span class="metrics-name">gossip_&#8203;crds_&#8203;pull_&#8203;rx_&#8203;count</span><br/>{crds_&#8203;value="<span class="metrics-enum">incremental_&#8203;snapshot_&#8203;hashes</span>"} | counter |  (Incremental Snapshot Hashes) |
+| <span class="metrics-name">gossip_&#8203;crds_&#8203;pull_&#8203;rx_&#8203;count</span><br/>{crds_&#8203;value="<span class="metrics-enum">contact_&#8203;info_&#8203;v2</span>"} | counter |  (Contact Info V2) |
+| <span class="metrics-name">gossip_&#8203;crds_&#8203;pull_&#8203;rx_&#8203;count</span><br/>{crds_&#8203;value="<span class="metrics-enum">restart_&#8203;last_&#8203;voted_&#8203;fork_&#8203;slots</span>"} | counter |  (Restart Last Voted Fork Slots) |
+| <span class="metrics-name">gossip_&#8203;crds_&#8203;pull_&#8203;rx_&#8203;count</span><br/>{crds_&#8203;value="<span class="metrics-enum">restart_&#8203;heaviest_&#8203;fork</span>"} | counter |  (Restart Heaviest Fork) |
+| <span class="metrics-name">gossip_&#8203;crds_&#8203;pull_&#8203;rx_&#8203;bytes</span><br/>{crds_&#8203;value="<span class="metrics-enum">contact_&#8203;info_&#8203;v1</span>"} | counter |  (Contact Info V1) |
+| <span class="metrics-name">gossip_&#8203;crds_&#8203;pull_&#8203;rx_&#8203;bytes</span><br/>{crds_&#8203;value="<span class="metrics-enum">vote</span>"} | counter |  (Vote) |
+| <span class="metrics-name">gossip_&#8203;crds_&#8203;pull_&#8203;rx_&#8203;bytes</span><br/>{crds_&#8203;value="<span class="metrics-enum">lowest_&#8203;slot</span>"} | counter |  (Lowest Slot) |
+| <span class="metrics-name">gossip_&#8203;crds_&#8203;pull_&#8203;rx_&#8203;bytes</span><br/>{crds_&#8203;value="<span class="metrics-enum">snapshot_&#8203;hashes</span>"} | counter |  (Snapshot Hashes) |
+| <span class="metrics-name">gossip_&#8203;crds_&#8203;pull_&#8203;rx_&#8203;bytes</span><br/>{crds_&#8203;value="<span class="metrics-enum">accounts_&#8203;hashes</span>"} | counter |  (Accounts Hashes) |
+| <span class="metrics-name">gossip_&#8203;crds_&#8203;pull_&#8203;rx_&#8203;bytes</span><br/>{crds_&#8203;value="<span class="metrics-enum">epoch_&#8203;slots</span>"} | counter |  (Epoch Slots) |
+| <span class="metrics-name">gossip_&#8203;crds_&#8203;pull_&#8203;rx_&#8203;bytes</span><br/>{crds_&#8203;value="<span class="metrics-enum">version_&#8203;v1</span>"} | counter |  (Version V1) |
+| <span class="metrics-name">gossip_&#8203;crds_&#8203;pull_&#8203;rx_&#8203;bytes</span><br/>{crds_&#8203;value="<span class="metrics-enum">version_&#8203;v2</span>"} | counter |  (Version V2) |
+| <span class="metrics-name">gossip_&#8203;crds_&#8203;pull_&#8203;rx_&#8203;bytes</span><br/>{crds_&#8203;value="<span class="metrics-enum">node_&#8203;instance</span>"} | counter |  (Node Instance) |
+| <span class="metrics-name">gossip_&#8203;crds_&#8203;pull_&#8203;rx_&#8203;bytes</span><br/>{crds_&#8203;value="<span class="metrics-enum">duplicate_&#8203;shred</span>"} | counter |  (Duplicate Shred) |
+| <span class="metrics-name">gossip_&#8203;crds_&#8203;pull_&#8203;rx_&#8203;bytes</span><br/>{crds_&#8203;value="<span class="metrics-enum">incremental_&#8203;snapshot_&#8203;hashes</span>"} | counter |  (Incremental Snapshot Hashes) |
+| <span class="metrics-name">gossip_&#8203;crds_&#8203;pull_&#8203;rx_&#8203;bytes</span><br/>{crds_&#8203;value="<span class="metrics-enum">contact_&#8203;info_&#8203;v2</span>"} | counter |  (Contact Info V2) |
+| <span class="metrics-name">gossip_&#8203;crds_&#8203;pull_&#8203;rx_&#8203;bytes</span><br/>{crds_&#8203;value="<span class="metrics-enum">restart_&#8203;last_&#8203;voted_&#8203;fork_&#8203;slots</span>"} | counter |  (Restart Last Voted Fork Slots) |
+| <span class="metrics-name">gossip_&#8203;crds_&#8203;pull_&#8203;rx_&#8203;bytes</span><br/>{crds_&#8203;value="<span class="metrics-enum">restart_&#8203;heaviest_&#8203;fork</span>"} | counter |  (Restart Heaviest Fork) |
+| <span class="metrics-name">gossip_&#8203;crds_&#8203;rx_&#8203;outcome</span><br/>{crds_&#8203;insertion_&#8203;outcome="<span class="metrics-enum">upserted_&#8203;pull_&#8203;response</span>"} | counter |  (Pull Response (upserted)) |
+| <span class="metrics-name">gossip_&#8203;crds_&#8203;rx_&#8203;outcome</span><br/>{crds_&#8203;insertion_&#8203;outcome="<span class="metrics-enum">upserted_&#8203;push</span>"} | counter |  (Push (upserted)) |
+| <span class="metrics-name">gossip_&#8203;crds_&#8203;rx_&#8203;outcome</span><br/>{crds_&#8203;insertion_&#8203;outcome="<span class="metrics-enum">dropped_&#8203;pull_&#8203;response_&#8203;no_&#8203;override</span>"} | counter |  (Pull Response (does not override existing entry)) |
+| <span class="metrics-name">gossip_&#8203;crds_&#8203;rx_&#8203;outcome</span><br/>{crds_&#8203;insertion_&#8203;outcome="<span class="metrics-enum">dropped_&#8203;pull_&#8203;response_&#8203;old</span>"} | counter |  (Pull Response (outside expiry window and no contact info entry)) |
+| <span class="metrics-name">gossip_&#8203;crds_&#8203;rx_&#8203;outcome</span><br/>{crds_&#8203;insertion_&#8203;outcome="<span class="metrics-enum">dropped_&#8203;pull_&#8203;response_&#8203;hash_&#8203;duplicate</span>"} | counter |  (Pull Response (hash duplicate)) |
+| <span class="metrics-name">gossip_&#8203;crds_&#8203;rx_&#8203;outcome</span><br/>{crds_&#8203;insertion_&#8203;outcome="<span class="metrics-enum">dropped_&#8203;push_&#8203;no_&#8203;override</span>"} | counter |  (Push (does not override existing entry)) |
+| <span class="metrics-name">gossip_&#8203;crds_&#8203;rx_&#8203;outcome</span><br/>{crds_&#8203;insertion_&#8203;outcome="<span class="metrics-enum">dropped_&#8203;push_&#8203;hash_&#8203;duplicate</span>"} | counter |  (Push (hash duplicate)) |
+| <span class="metrics-name">gossip_&#8203;crds_&#8203;push_&#8203;tx_&#8203;count</span><br/>{crds_&#8203;value="<span class="metrics-enum">contact_&#8203;info_&#8203;v1</span>"} | counter |  (Contact Info V1) |
+| <span class="metrics-name">gossip_&#8203;crds_&#8203;push_&#8203;tx_&#8203;count</span><br/>{crds_&#8203;value="<span class="metrics-enum">vote</span>"} | counter |  (Vote) |
+| <span class="metrics-name">gossip_&#8203;crds_&#8203;push_&#8203;tx_&#8203;count</span><br/>{crds_&#8203;value="<span class="metrics-enum">lowest_&#8203;slot</span>"} | counter |  (Lowest Slot) |
+| <span class="metrics-name">gossip_&#8203;crds_&#8203;push_&#8203;tx_&#8203;count</span><br/>{crds_&#8203;value="<span class="metrics-enum">snapshot_&#8203;hashes</span>"} | counter |  (Snapshot Hashes) |
+| <span class="metrics-name">gossip_&#8203;crds_&#8203;push_&#8203;tx_&#8203;count</span><br/>{crds_&#8203;value="<span class="metrics-enum">accounts_&#8203;hashes</span>"} | counter |  (Accounts Hashes) |
+| <span class="metrics-name">gossip_&#8203;crds_&#8203;push_&#8203;tx_&#8203;count</span><br/>{crds_&#8203;value="<span class="metrics-enum">epoch_&#8203;slots</span>"} | counter |  (Epoch Slots) |
+| <span class="metrics-name">gossip_&#8203;crds_&#8203;push_&#8203;tx_&#8203;count</span><br/>{crds_&#8203;value="<span class="metrics-enum">version_&#8203;v1</span>"} | counter |  (Version V1) |
+| <span class="metrics-name">gossip_&#8203;crds_&#8203;push_&#8203;tx_&#8203;count</span><br/>{crds_&#8203;value="<span class="metrics-enum">version_&#8203;v2</span>"} | counter |  (Version V2) |
+| <span class="metrics-name">gossip_&#8203;crds_&#8203;push_&#8203;tx_&#8203;count</span><br/>{crds_&#8203;value="<span class="metrics-enum">node_&#8203;instance</span>"} | counter |  (Node Instance) |
+| <span class="metrics-name">gossip_&#8203;crds_&#8203;push_&#8203;tx_&#8203;count</span><br/>{crds_&#8203;value="<span class="metrics-enum">duplicate_&#8203;shred</span>"} | counter |  (Duplicate Shred) |
+| <span class="metrics-name">gossip_&#8203;crds_&#8203;push_&#8203;tx_&#8203;count</span><br/>{crds_&#8203;value="<span class="metrics-enum">incremental_&#8203;snapshot_&#8203;hashes</span>"} | counter |  (Incremental Snapshot Hashes) |
+| <span class="metrics-name">gossip_&#8203;crds_&#8203;push_&#8203;tx_&#8203;count</span><br/>{crds_&#8203;value="<span class="metrics-enum">contact_&#8203;info_&#8203;v2</span>"} | counter |  (Contact Info V2) |
+| <span class="metrics-name">gossip_&#8203;crds_&#8203;push_&#8203;tx_&#8203;count</span><br/>{crds_&#8203;value="<span class="metrics-enum">restart_&#8203;last_&#8203;voted_&#8203;fork_&#8203;slots</span>"} | counter |  (Restart Last Voted Fork Slots) |
+| <span class="metrics-name">gossip_&#8203;crds_&#8203;push_&#8203;tx_&#8203;count</span><br/>{crds_&#8203;value="<span class="metrics-enum">restart_&#8203;heaviest_&#8203;fork</span>"} | counter |  (Restart Heaviest Fork) |
+| <span class="metrics-name">gossip_&#8203;crds_&#8203;push_&#8203;tx_&#8203;bytes</span><br/>{crds_&#8203;value="<span class="metrics-enum">contact_&#8203;info_&#8203;v1</span>"} | counter |  (Contact Info V1) |
+| <span class="metrics-name">gossip_&#8203;crds_&#8203;push_&#8203;tx_&#8203;bytes</span><br/>{crds_&#8203;value="<span class="metrics-enum">vote</span>"} | counter |  (Vote) |
+| <span class="metrics-name">gossip_&#8203;crds_&#8203;push_&#8203;tx_&#8203;bytes</span><br/>{crds_&#8203;value="<span class="metrics-enum">lowest_&#8203;slot</span>"} | counter |  (Lowest Slot) |
+| <span class="metrics-name">gossip_&#8203;crds_&#8203;push_&#8203;tx_&#8203;bytes</span><br/>{crds_&#8203;value="<span class="metrics-enum">snapshot_&#8203;hashes</span>"} | counter |  (Snapshot Hashes) |
+| <span class="metrics-name">gossip_&#8203;crds_&#8203;push_&#8203;tx_&#8203;bytes</span><br/>{crds_&#8203;value="<span class="metrics-enum">accounts_&#8203;hashes</span>"} | counter |  (Accounts Hashes) |
+| <span class="metrics-name">gossip_&#8203;crds_&#8203;push_&#8203;tx_&#8203;bytes</span><br/>{crds_&#8203;value="<span class="metrics-enum">epoch_&#8203;slots</span>"} | counter |  (Epoch Slots) |
+| <span class="metrics-name">gossip_&#8203;crds_&#8203;push_&#8203;tx_&#8203;bytes</span><br/>{crds_&#8203;value="<span class="metrics-enum">version_&#8203;v1</span>"} | counter |  (Version V1) |
+| <span class="metrics-name">gossip_&#8203;crds_&#8203;push_&#8203;tx_&#8203;bytes</span><br/>{crds_&#8203;value="<span class="metrics-enum">version_&#8203;v2</span>"} | counter |  (Version V2) |
+| <span class="metrics-name">gossip_&#8203;crds_&#8203;push_&#8203;tx_&#8203;bytes</span><br/>{crds_&#8203;value="<span class="metrics-enum">node_&#8203;instance</span>"} | counter |  (Node Instance) |
+| <span class="metrics-name">gossip_&#8203;crds_&#8203;push_&#8203;tx_&#8203;bytes</span><br/>{crds_&#8203;value="<span class="metrics-enum">duplicate_&#8203;shred</span>"} | counter |  (Duplicate Shred) |
+| <span class="metrics-name">gossip_&#8203;crds_&#8203;push_&#8203;tx_&#8203;bytes</span><br/>{crds_&#8203;value="<span class="metrics-enum">incremental_&#8203;snapshot_&#8203;hashes</span>"} | counter |  (Incremental Snapshot Hashes) |
+| <span class="metrics-name">gossip_&#8203;crds_&#8203;push_&#8203;tx_&#8203;bytes</span><br/>{crds_&#8203;value="<span class="metrics-enum">contact_&#8203;info_&#8203;v2</span>"} | counter |  (Contact Info V2) |
+| <span class="metrics-name">gossip_&#8203;crds_&#8203;push_&#8203;tx_&#8203;bytes</span><br/>{crds_&#8203;value="<span class="metrics-enum">restart_&#8203;last_&#8203;voted_&#8203;fork_&#8203;slots</span>"} | counter |  (Restart Last Voted Fork Slots) |
+| <span class="metrics-name">gossip_&#8203;crds_&#8203;push_&#8203;tx_&#8203;bytes</span><br/>{crds_&#8203;value="<span class="metrics-enum">restart_&#8203;heaviest_&#8203;fork</span>"} | counter |  (Restart Heaviest Fork) |
+| <span class="metrics-name">gossip_&#8203;crds_&#8203;pull_&#8203;tx_&#8203;count</span><br/>{crds_&#8203;value="<span class="metrics-enum">contact_&#8203;info_&#8203;v1</span>"} | counter |  (Contact Info V1) |
+| <span class="metrics-name">gossip_&#8203;crds_&#8203;pull_&#8203;tx_&#8203;count</span><br/>{crds_&#8203;value="<span class="metrics-enum">vote</span>"} | counter |  (Vote) |
+| <span class="metrics-name">gossip_&#8203;crds_&#8203;pull_&#8203;tx_&#8203;count</span><br/>{crds_&#8203;value="<span class="metrics-enum">lowest_&#8203;slot</span>"} | counter |  (Lowest Slot) |
+| <span class="metrics-name">gossip_&#8203;crds_&#8203;pull_&#8203;tx_&#8203;count</span><br/>{crds_&#8203;value="<span class="metrics-enum">snapshot_&#8203;hashes</span>"} | counter |  (Snapshot Hashes) |
+| <span class="metrics-name">gossip_&#8203;crds_&#8203;pull_&#8203;tx_&#8203;count</span><br/>{crds_&#8203;value="<span class="metrics-enum">accounts_&#8203;hashes</span>"} | counter |  (Accounts Hashes) |
+| <span class="metrics-name">gossip_&#8203;crds_&#8203;pull_&#8203;tx_&#8203;count</span><br/>{crds_&#8203;value="<span class="metrics-enum">epoch_&#8203;slots</span>"} | counter |  (Epoch Slots) |
+| <span class="metrics-name">gossip_&#8203;crds_&#8203;pull_&#8203;tx_&#8203;count</span><br/>{crds_&#8203;value="<span class="metrics-enum">version_&#8203;v1</span>"} | counter |  (Version V1) |
+| <span class="metrics-name">gossip_&#8203;crds_&#8203;pull_&#8203;tx_&#8203;count</span><br/>{crds_&#8203;value="<span class="metrics-enum">version_&#8203;v2</span>"} | counter |  (Version V2) |
+| <span class="metrics-name">gossip_&#8203;crds_&#8203;pull_&#8203;tx_&#8203;count</span><br/>{crds_&#8203;value="<span class="metrics-enum">node_&#8203;instance</span>"} | counter |  (Node Instance) |
+| <span class="metrics-name">gossip_&#8203;crds_&#8203;pull_&#8203;tx_&#8203;count</span><br/>{crds_&#8203;value="<span class="metrics-enum">duplicate_&#8203;shred</span>"} | counter |  (Duplicate Shred) |
+| <span class="metrics-name">gossip_&#8203;crds_&#8203;pull_&#8203;tx_&#8203;count</span><br/>{crds_&#8203;value="<span class="metrics-enum">incremental_&#8203;snapshot_&#8203;hashes</span>"} | counter |  (Incremental Snapshot Hashes) |
+| <span class="metrics-name">gossip_&#8203;crds_&#8203;pull_&#8203;tx_&#8203;count</span><br/>{crds_&#8203;value="<span class="metrics-enum">contact_&#8203;info_&#8203;v2</span>"} | counter |  (Contact Info V2) |
+| <span class="metrics-name">gossip_&#8203;crds_&#8203;pull_&#8203;tx_&#8203;count</span><br/>{crds_&#8203;value="<span class="metrics-enum">restart_&#8203;last_&#8203;voted_&#8203;fork_&#8203;slots</span>"} | counter |  (Restart Last Voted Fork Slots) |
+| <span class="metrics-name">gossip_&#8203;crds_&#8203;pull_&#8203;tx_&#8203;count</span><br/>{crds_&#8203;value="<span class="metrics-enum">restart_&#8203;heaviest_&#8203;fork</span>"} | counter |  (Restart Heaviest Fork) |
+| <span class="metrics-name">gossip_&#8203;crds_&#8203;pull_&#8203;tx_&#8203;bytes</span><br/>{crds_&#8203;value="<span class="metrics-enum">contact_&#8203;info_&#8203;v1</span>"} | counter |  (Contact Info V1) |
+| <span class="metrics-name">gossip_&#8203;crds_&#8203;pull_&#8203;tx_&#8203;bytes</span><br/>{crds_&#8203;value="<span class="metrics-enum">vote</span>"} | counter |  (Vote) |
+| <span class="metrics-name">gossip_&#8203;crds_&#8203;pull_&#8203;tx_&#8203;bytes</span><br/>{crds_&#8203;value="<span class="metrics-enum">lowest_&#8203;slot</span>"} | counter |  (Lowest Slot) |
+| <span class="metrics-name">gossip_&#8203;crds_&#8203;pull_&#8203;tx_&#8203;bytes</span><br/>{crds_&#8203;value="<span class="metrics-enum">snapshot_&#8203;hashes</span>"} | counter |  (Snapshot Hashes) |
+| <span class="metrics-name">gossip_&#8203;crds_&#8203;pull_&#8203;tx_&#8203;bytes</span><br/>{crds_&#8203;value="<span class="metrics-enum">accounts_&#8203;hashes</span>"} | counter |  (Accounts Hashes) |
+| <span class="metrics-name">gossip_&#8203;crds_&#8203;pull_&#8203;tx_&#8203;bytes</span><br/>{crds_&#8203;value="<span class="metrics-enum">epoch_&#8203;slots</span>"} | counter |  (Epoch Slots) |
+| <span class="metrics-name">gossip_&#8203;crds_&#8203;pull_&#8203;tx_&#8203;bytes</span><br/>{crds_&#8203;value="<span class="metrics-enum">version_&#8203;v1</span>"} | counter |  (Version V1) |
+| <span class="metrics-name">gossip_&#8203;crds_&#8203;pull_&#8203;tx_&#8203;bytes</span><br/>{crds_&#8203;value="<span class="metrics-enum">version_&#8203;v2</span>"} | counter |  (Version V2) |
+| <span class="metrics-name">gossip_&#8203;crds_&#8203;pull_&#8203;tx_&#8203;bytes</span><br/>{crds_&#8203;value="<span class="metrics-enum">node_&#8203;instance</span>"} | counter |  (Node Instance) |
+| <span class="metrics-name">gossip_&#8203;crds_&#8203;pull_&#8203;tx_&#8203;bytes</span><br/>{crds_&#8203;value="<span class="metrics-enum">duplicate_&#8203;shred</span>"} | counter |  (Duplicate Shred) |
+| <span class="metrics-name">gossip_&#8203;crds_&#8203;pull_&#8203;tx_&#8203;bytes</span><br/>{crds_&#8203;value="<span class="metrics-enum">incremental_&#8203;snapshot_&#8203;hashes</span>"} | counter |  (Incremental Snapshot Hashes) |
+| <span class="metrics-name">gossip_&#8203;crds_&#8203;pull_&#8203;tx_&#8203;bytes</span><br/>{crds_&#8203;value="<span class="metrics-enum">contact_&#8203;info_&#8203;v2</span>"} | counter |  (Contact Info V2) |
+| <span class="metrics-name">gossip_&#8203;crds_&#8203;pull_&#8203;tx_&#8203;bytes</span><br/>{crds_&#8203;value="<span class="metrics-enum">restart_&#8203;last_&#8203;voted_&#8203;fork_&#8203;slots</span>"} | counter |  (Restart Last Voted Fork Slots) |
+| <span class="metrics-name">gossip_&#8203;crds_&#8203;pull_&#8203;tx_&#8203;bytes</span><br/>{crds_&#8203;value="<span class="metrics-enum">restart_&#8203;heaviest_&#8203;fork</span>"} | counter |  (Restart Heaviest Fork) |
 
 </div>
 
