@@ -112,7 +112,7 @@ sol_compat_get_features_v1( void ) {
       if( iter->reverted ) continue; /* skip reverted features */
 
       /* Pretend that features activated on all clusters are hardcoded */
-      if( iter->activated_on_all_clusters ) {
+      if( iter->hardcode_for_fuzzing ) {
         hardcoded_features[ features.hardcoded_features_cnt++ ] = iter->id.ul[0];
       } else {
         supported_features[ features.supported_feature_cnt++  ] = iter->id.ul[0];

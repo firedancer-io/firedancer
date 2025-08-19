@@ -56,12 +56,12 @@ typedef union fd_features fd_features_t;
    offset in fd_features_t. */
 
 struct fd_feature_id {
-  ulong        index;                     /* index of feature in fd_features_t */
-  fd_pubkey_t  id;                        /* pubkey of feature */
-  char const * name;                      /* feature name cstr */
-  uint         cleaned_up[3];             /* cleaned_up cluster version for feature */
-  uchar        reverted;                  /* if the feature was reverted */
-  uchar        activated_on_all_clusters; /* if the feature was activated on all clusters (currently only used for fuzzing) */
+  ulong        index;                /* index of feature in fd_features_t */
+  fd_pubkey_t  id;                   /* pubkey of feature */
+  char const * name;                 /* feature name cstr */
+  uint         cleaned_up[3];        /* cleaned_up cluster version for feature */
+  uchar        reverted;             /* if the feature was reverted */
+  uchar        hardcode_for_fuzzing; /* if the should be treated as hardcoded in the firedancer fuzzing harness */
 };
 typedef struct fd_feature_id fd_feature_id_t;
 
