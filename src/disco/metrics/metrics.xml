@@ -867,7 +867,7 @@ metric introduced.
     <int value="4" name="DroppedPullResponseOriginShredVersion" label="Pull Response (origin shred version)" />
     <int value="5" name="DroppedPullResponseInactive" label="Pull Response (inactive)" />
 
-    <int value="3" name="DroppedPushSignature" label="Push (signature)" />
+    <int value="3" name="DroppedPushSignauture" label="Push (signature)" />
     <int value="4" name="DroppedPushRelayerNoContactInfo" label="Push (relayer no contact info)" />
     <int value="4" name="DroppedPushRelayerShredVersion" label="Push (relayer shred version)" />
     <int value="4" name="DroppedPushOriginNoContactInfo" label="Push (origin no contact info)" />
