@@ -1,19 +1,16 @@
-#include "fd_gossip_txbuild.h"
+/* source file meant to be directly included in fd_gossip.c */
 
 struct push_set_entry {
-  fd_gossip_txbuild_t txbuild[1];
-
+  fd_gossip_crds_msg_builder_t builder[1];
   /* We use fd_pool APIs because fd_dlist doesn't work without it and
-     there are no suitable linked list APIs. However, because we want
-     to track the active set indices, we also need to bypass the native
-     acquire/release mechanism provided by fd_pool and use it as an
-     array instead. */
-
+    there are no suitable linked list APIs. However, because we want
+    to track the active set indices, we also need to bypass the native
+    acquire/release mechanism provided by fd_pool and use it as an
+    array instead. */
   struct {
     ulong next;
     uchar in_use;
   } pool;
-
   struct{
     long  wallclock_nanos;
     ulong prev;
