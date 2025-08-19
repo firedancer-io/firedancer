@@ -125,8 +125,9 @@ fd_bank_hash_cmp_insert( fd_bank_hash_cmp_t * bank_hash_cmp,
       }
     }
 
-    cmp      = fd_bank_hash_cmp_map_insert( bank_hash_cmp->map, slot );
-    cmp->cnt = 0;
+    cmp           = fd_bank_hash_cmp_map_insert( bank_hash_cmp->map, slot );
+    cmp->cnt      = 0;
+    cmp->overflow = 0;
     bank_hash_cmp->cnt++;
   }
 
