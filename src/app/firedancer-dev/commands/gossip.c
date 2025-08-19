@@ -25,7 +25,6 @@ gossip_cmd_topo( config_t * config ) {
   static const ulong tile_to_cpu[ FD_TILE_MAX ] = {0}; /* TODO */
 
   config->layout.net_tile_count = 1;
-  ulong gossvf_tile_count = config->firedancer.layout.gossvf_tile_count;
 
   fd_topo_cpus_t cpus[1];
   fd_topo_cpus_init( cpus );
@@ -63,26 +62,24 @@ gossip_cmd_topo( config_t * config ) {
   gossip_tile->gossip.boot_timesamp_nanos = fd_log_wallclock();
 
   fd_topob_wksp( topo, "gossvf" );
-  for( ulong i=0UL; i<gossvf_tile_count; i++ ) {
-    fd_topo_tile_t * gossvf_tile = fd_topob_tile( topo, "gossvf", "gossvf", "metric_in", 0UL, 0, 1 );
-    strncpy( gossvf_tile->gossvf.identity_key_path, config->paths.identity_key, sizeof(gossvf_tile->gossvf.identity_key_path) );
-    gossvf_tile->gossvf.tcache_depth = 1UL<<22UL;
-    gossvf_tile->gossvf.shred_version = 0;
-    gossvf_tile->gossvf.allow_private_address = 0;
-    gossvf_tile->gossvf.entrypoints_cnt = config->gossip.entrypoints_cnt;
-    for( ulong i=0UL; i<config->gossip.entrypoints_cnt; i++ ) {
-      gossvf_tile->gossvf.entrypoints[ i ] = config->gossip.resolved_entrypoints[ i ];
-    }
-    gossvf_tile->gossvf.boot_timesamp_nanos = gossip_tile->gossip.boot_timesamp_nanos;
+  fd_topo_tile_t * gossvf_tile = fd_topob_tile( topo, "gossvf", "gossvf", "metric_in", 0UL, 0, 1 );
+  strncpy( gossvf_tile->gossvf.identity_key_path, config->paths.identity_key, sizeof(gossvf_tile->gossvf.identity_key_path) );
+  gossvf_tile->gossvf.tcache_depth = 1UL<<22UL;
+  gossvf_tile->gossvf.shred_version = 0;
+  gossvf_tile->gossvf.allow_private_address = 0;
+  gossvf_tile->gossvf.entrypoints_cnt = config->gossip.entrypoints_cnt;
+  for( ulong i=0UL; i<config->gossip.entrypoints_cnt; i++ ) {
+    gossvf_tile->gossvf.entrypoints[ i ] = config->gossip.resolved_entrypoints[ i ];
   }
-  fd_topos_net_rx_link( topo, "net_gossvf", 0UL, config->net.ingress_buffer_size );
-  for( ulong i=0UL; i<gossvf_tile_count; i++ ) {
-    fd_topob_tile_in( topo, "gossvf", i, "metric_in", "net_gossvf",   0UL, FD_TOPOB_UNRELIABLE, FD_TOPOB_POLLED );
-  }
+  gossvf_tile->gossvf.boot_timesamp_nanos = gossip_tile->gossip.boot_timesamp_nanos;
 
   fd_topob_wksp( topo, "gossip_net" );
   fd_topob_link( topo, "gossip_net", "gossip_net", config->net.ingress_buffer_size, FD_NET_MTU, 1UL );
+
+  fd_topos_net_rx_link( topo, "net_gossvf", 0UL, config->net.ingress_buffer_size );
+  fd_topob_tile_in( topo, "gossvf", 0UL, "metric_in", "net_gossvf",   0UL, FD_TOPOB_UNRELIABLE, FD_TOPOB_POLLED );
   fd_topos_tile_in_net( topo, "metric_in", "gossip_net", 0UL, FD_TOPOB_UNRELIABLE, FD_TOPOB_POLLED );
+
   fd_topob_tile_out( topo, "gossip", 0UL, "gossip_net", 0UL );
 
   fd_topo_obj_t * poh_shred_obj = fd_topob_obj( topo, "fseq", "gossip" );
@@ -104,31 +101,23 @@ gossip_cmd_topo( config_t * config ) {
   fd_topob_wksp( topo, "ipecho_out" );
   fd_topob_link( topo, "ipecho_out", "ipecho_out", 4UL, 0UL, 1UL );
   fd_topob_tile_out( topo, "ipecho", 0UL, "ipecho_out", 0UL );
-
-  for( ulong i=0UL; i<gossvf_tile_count; i++ ) {
-    fd_topob_tile_in( topo, "gossvf", i, "metric_in", "ipecho_out", 0UL, FD_TOPOB_RELIABLE, FD_TOPOB_POLLED );
-  }
+  fd_topob_tile_in( topo, "gossvf", 0UL, "metric_in", "ipecho_out", 0UL, FD_TOPOB_RELIABLE, FD_TOPOB_POLLED );
   fd_topob_tile_in( topo, "gossip", 0UL, "metric_in", "ipecho_out", 0UL, FD_TOPOB_RELIABLE, FD_TOPOB_POLLED );
 
   fd_topob_wksp( topo, "gossvf_gossi" );
+  fd_topob_link( topo, "gossvf_gossi", "gossvf_gossi", config->net.ingress_buffer_size, sizeof(fd_gossip_view_t)+FD_NET_MTU, 1UL );
+  fd_topob_tile_out( topo, "gossvf", 0UL, "gossvf_gossi", 0UL );
+  fd_topob_tile_in( topo, "gossip", 0UL, "metric_in", "gossvf_gossi", 0UL, FD_TOPOB_RELIABLE, FD_TOPOB_POLLED );
+
   fd_topob_wksp( topo, "gossip_gossv" );
-  fd_topob_wksp( topo, "gossip_out" );
-
-  fd_topob_link(     topo, "gossip_gossv", "gossip_gossv", 4096UL, sizeof(fd_gossip_ping_update_t), 1UL );
+  fd_topob_link( topo, "gossip_gossv", "gossip_gossv", 4096UL, sizeof(fd_gossip_ping_update_t), 1UL );
   fd_topob_tile_out( topo, "gossip", 0UL, "gossip_gossv", 0UL );
+  fd_topob_tile_in( topo, "gossvf", 0UL, "metric_in", "gossip_gossv", 0UL, FD_TOPOB_RELIABLE, FD_TOPOB_POLLED );
 
+  fd_topob_wksp( topo, "gossip_out" );
   fd_topob_link( topo, "gossip_out", "gossip_out", 65536UL, sizeof(fd_gossip_update_message_t), 1UL );
   fd_topob_tile_out( topo, "gossip", 0UL, "gossip_out", 0UL );
-  for( ulong i=0UL; i<gossvf_tile_count; i++ ) {
-    fd_topob_link(     topo, "gossvf_gossi", "gossvf_gossi", config->net.ingress_buffer_size, sizeof(fd_gossip_view_t)+FD_NET_MTU, 1UL );
-    fd_topob_tile_out( topo, "gossvf", i, "gossvf_gossi", i );
-    fd_topob_tile_in(  topo, "gossip", 0UL, "metric_in", "gossvf_gossi", i, FD_TOPOB_RELIABLE, FD_TOPOB_POLLED );
-
-
-    /* Only one link_kind for gossip_out broadcast link */
-    fd_topob_tile_in( topo, "gossvf", i, "metric_in", "gossip_gossv", 0UL, FD_TOPOB_RELIABLE, FD_TOPOB_POLLED );
-    fd_topob_tile_in( topo, "gossvf", i, "metric_in", "gossip_out",   0UL, FD_TOPOB_RELIABLE, FD_TOPOB_POLLED );
-  }
+  fd_topob_tile_in( topo, "gossvf", 0UL, "metric_in", "gossip_out", 0UL, FD_TOPOB_RELIABLE, FD_TOPOB_POLLED );
 
   fd_topob_wksp( topo, "sign" );
   fd_topo_tile_t * sign_tile = fd_topob_tile( topo, "sign", "sign", "metric_in", 0UL, 0, 1 );

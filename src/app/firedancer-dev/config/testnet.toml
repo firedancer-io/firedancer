@@ -9,5 +9,3 @@
         "entrypoint2.testnet.solana.com:8001",
         "entrypoint3.testnet.solana.com:8001",
     ]
-[layout]
-    gossvf_tile_count = 2
