@@ -41,8 +41,8 @@ fd_vm_syscall_strerror( int err ) {
   case FD_VM_SYSCALL_ERR_OUTSIDE_RUNTIME:                        return "Syscall executed outside runtime";
 
 
-  case FD_VM_SYSCALL_ERR_POSEIDON_INVALID_PARAMS:                return "Syscall error: Invalid parameters.";
-  case FD_VM_SYSCALL_ERR_POSEIDON_INVALID_ENDIANNESS:            return "Syscall error: Invalid endianness.";
+  case FD_VM_SYSCALL_ERR_POSEIDON_INVALID_PARAMS:                return "Invalid parameters.";
+  case FD_VM_SYSCALL_ERR_POSEIDON_INVALID_ENDIANNESS:            return "Invalid endianness.";
 
   default: break;
   }
