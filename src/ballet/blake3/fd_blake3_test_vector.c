@@ -17,6 +17,11 @@ static char const zeros[16384]={0};
 
 #define _(v) ((uchar)0x##v)
 
+#if __GNUC__ >= 15
+#pragma GCC diagnostic push
+#pragma GCC diagnostic ignored "-Wunterminated-string-initialization"
+#endif
+
 static fd_blake3_test_vector_t const fd_blake3_test_vector[] = {
   { "", 0UL, { _(af),_(13),_(49),_(b9),_(f5),_(f9),_(a1),_(a6),_(a0),_(40),_(4d),_(ea),_(36),_(dc),_(c9),_(49),_(9b),_(cb),_(25),_(c9),_(ad),_(c1),_(12),_(b7),_(cc),_(9a),_(93),_(ca),_(e4),_(1f),_(32),_(62) } },
   { "\x00", 1UL, { _(2d),_(3a),_(de),_(df),_(f1),_(1b),_(61),_(f1),_(4c),_(88),_(6e),_(35),_(af),_(a0),_(36),_(73),_(6d),_(cd),_(87),_(a7),_(4d),_(27),_(b5),_(c1),_(51),_(02),_(25),_(d0),_(f5),_(92),_(e2),_(13) } },
@@ -45,3 +50,7 @@ static fd_blake3_test_vector_t const fd_blake3_test_vector[] = {
 };
 
 #undef _
+
+#if __GNUC__ >= 15
+#pragma GCC diagnostic pop
+#endif

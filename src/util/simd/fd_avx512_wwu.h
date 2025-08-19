@@ -57,6 +57,14 @@ static inline void  wwu_st( uint * m, wwu_t x ) { _mm512_store_epi32( m, x ); } 
 static inline wwu_t wwu_ldu( void const * m ) { return _mm512_loadu_epi32( m ); } /* wwu( m[0], m[1], ... m[15]) */
 static inline void  wwu_stu( void * m, wwu_t x ) { _mm512_storeu_epi32( m, x ); } /* does m[0] = x0, m[1] = x1, ... m[15] = xf */
 
+/* Element operations */
+
+/* wwu_extract extracts the uint in lane imm from the vector uint.
+
+   Note: C99 TC3 allows type punning through a union. */
+
+#define wwu_extract(a,imm) __extension__({ wwu_t l = (a); (uint)_mm_extract_epi32( _mm512_castsi512_si128( _mm512_alignr_epi32( l, l, (imm) ) ), 0 ); })
+
 /* Arithmetic operations */
 
 #define wwu_neg(x)           _mm512_sub_epi32( _mm512_setzero_si512(), (x) ) /* wwu( -x0, -x1, ... -xf ) */

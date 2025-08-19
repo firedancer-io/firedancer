@@ -257,7 +257,7 @@ typedef struct fd_blake3_pos fd_blake3_pos_t;
 /* fd_blake3_buf_t contains intermediate results of hash tree
    construction.  Internally, it is a table of output chaining values.
    Each row contains a contiguous window of output chaining values for
-   the nodes at a specific tree layer.  Row 0 is the tree layer. */
+   the nodes at a specific tree layer.  Row 0 is the leaf layer. */
 
 union __attribute__((aligned(FD_BLAKE3_ALIGN))) fd_blake3_buf {
 
@@ -369,6 +369,41 @@ void *
 fd_blake3_hash( void const * data,
                 ulong        sz,
                 void *       hash );
+
+/* fd_blake3_lthash_batch{n} calculate a batch of n independent BLAKE3
+   hash operations with 2048 byte XOF output, and up to 1024 byte input.
+   The outputs are reduced down to a single value using 'LtHash'
+   group-add arithmetic.
+
+   batch_data[i] give a pointer to the input message.  batch_data is
+   assumed to be 64-byte aligned.  batch_data[i] does not have to be
+   aligned.  batch_sz[i] give the input size (in [0,1024]).  batch_sz is
+   assumed to be 64-byte aligned.  On return, 2048 bytes of output are
+   written to out_lthash.  out_lthash is assumed to be 64-byte aligned.
+
+   Execution time is bound by the largest batch_sz[i] input. */
+
+#if FD_HAS_AVX
+
+void
+fd_blake3_lthash_batch8(
+    void const * batch_data[8],  /* align=32 ele_align=1 */
+    uint const   batch_sz  [8],  /* align=32 */
+    void *       out_lthash      /* align=32 */
+);
+
+#endif
+
+#if FD_HAS_AVX512
+
+void
+fd_blake3_lthash_batch16(
+    void const * batch_data[16],  /* align=64 ele_align=1 */
+    uint const   batch_sz  [16],  /* align=64 */
+    void *       out_lthash       /* align=64 */
+);
+
+#endif
 
 FD_PROTOTYPES_END
 

@@ -137,7 +137,8 @@ static ushort const lthash_world[1024] = {
 };
 
 static void
-bench_lthash( void ) {
+bench_lthash_seq( void ) {
+  FD_LOG_NOTICE(( "Benchmarking lthash sequential API" ));
   uchar out[ 2048 ] __attribute__((aligned(64)));
 
   fd_blake3_t _sha[1];
@@ -174,15 +175,19 @@ main( int     argc,
   fd_lthash_t _hash[1];        fd_lthash_t *       hash     = _hash;
   fd_lthash_value_t _value[1]; fd_lthash_value_t * value    = _value;
   fd_lthash_value_t _tmp[1];   fd_lthash_value_t * tmp      = _tmp;
-  uchar _expected[ 2048 ];     uchar *             expected = _expected;
   ushort compute_extected[1024];
+
+  uchar value32[32];
+  fd_blake3_hash( "hello", 5UL, value32 );
+  FD_TEST( fd_memeq( value32, lthash_hello, 32 ) );
 
   FD_TEST( fd_lthash_init( hash )==hash );
   FD_TEST( fd_lthash_append( hash, "hello", 5 )==hash );
   FD_TEST( fd_lthash_fini( hash, value )==value );
 
-  memcpy( expected, lthash_hello, 2048 );
-  if( FD_UNLIKELY( memcmp( value, expected, 2048 ) ) ) {
+  if( FD_UNLIKELY( memcmp( value, lthash_hello, 2048 ) ) ) {
+    FD_LOG_HEXDUMP_WARNING(( "want", lthash_hello, 2048 ));
+    FD_LOG_HEXDUMP_WARNING(( "have", value,        2048 ));
     FD_LOG_ERR(( "FAIL lthash('hello')" ));
   }
 
@@ -190,8 +195,7 @@ main( int     argc,
   FD_TEST( fd_lthash_append( hash, "world!", 6 )==hash );
   FD_TEST( fd_lthash_fini( hash, tmp )==tmp );
 
-  memcpy( expected, lthash_world, 2048 );
-  if( FD_UNLIKELY( memcmp( tmp, expected, 2048 ) ) ) {
+  if( FD_UNLIKELY( memcmp( tmp, lthash_world, 2048 ) ) ) {
     FD_LOG_ERR(( "FAIL lthash('world!')" ));
   }
 
@@ -199,6 +203,7 @@ main( int     argc,
   for ( ulong i=0; i<1024; i++ ) {
     compute_extected[i] = (ushort)( lthash_hello[i] + lthash_world[i] );
   }
+  uchar expected[ 2048 ];
   memcpy( expected, compute_extected, 2048 );
   if( FD_UNLIKELY( memcmp( value, expected, 2048 ) ) ) {
     FD_LOG_ERR(( "FAIL lthash('hello')+lthash('world!')" ));
@@ -232,7 +237,7 @@ main( int     argc,
     FD_LOG_ERR(( "FAIL fd_lthash_zero()" ));
   }
 
-  bench_lthash();
+  bench_lthash_seq();
 
   fd_rng_delete( fd_rng_leave( rng ) );
   FD_LOG_NOTICE(( "pass" ));
