@@ -1746,7 +1746,11 @@ process_loader_upgradeable_instruction( fd_exec_instr_ctx_t * instr_ctx ) {
       }
 
       /* Max msg_sz: 16 - 2 + 45 = 59 < 127 => we can use printf */
-      fd_log_collector_printf_dangerous_max_127( instr_ctx, "New authority %s", FD_BASE58_ENC_32_ALLOCA( new_authority ) );
+      if( new_authority ) {
+        fd_log_collector_printf_dangerous_max_127( instr_ctx, "New authority Some(%s)", FD_BASE58_ENC_32_ALLOCA( new_authority ) );
+      } else {
+        fd_log_collector_printf_dangerous_max_127( instr_ctx, "New authority None" );
+      }
 
       /* implicit drop of account */
 
