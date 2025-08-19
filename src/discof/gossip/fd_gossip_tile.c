@@ -265,6 +265,18 @@ gossip_deliver_fun( fd_crds_data_t * data,
     txnm->source_tpu  = FD_TXN_M_TPU_SOURCE_GOSSIP;
     memcpy( vote_txn_msg + sizeof(fd_txn_m_t), gossip_vote->txn.raw, vote_txn_sz );
 
+    //fd_gossip_decode_vote( gossip_vote->txn.raw, gossip_vote->txn.raw_sz );
+    ulong pay_sz;
+    uchar txn_buf[FD_TXN_MAX_SZ];
+    ulong sz = fd_txn_parse_core( gossip_vote->txn.raw, gossip_vote->txn.raw_sz, txn_buf, NULL,&pay_sz );
+    FD_TEST( pay_sz > 0 && sz > 0 );
+
+    fd_txn_t * txn = (fd_txn_t *)txn_buf;
+    /* get first instruction */
+    FD_TEST( txn->instr_cnt > 0 );
+    fd_txn_instr_t * instr = &txn->instr[0];
+    fd_gossip_decode_vote( ctx->gossip, gossip_vote->txn.raw + instr->data_off, instr->data_sz );
+
     ulong sig = 1UL;
     fd_mcache_publish( ctx->verify_out_mcache, ctx->verify_out_depth, ctx->verify_out_seq, sig, ctx->verify_out_chunk,
       fd_txn_m_realized_footprint( txnm, 0, 0 ), 0UL, 0, 0 );

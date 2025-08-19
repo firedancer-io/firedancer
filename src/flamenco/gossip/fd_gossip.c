@@ -2405,6 +2405,37 @@ fd_gossip_set_stake_weights( fd_gossip_t * gossip,
 }
 
 void
+fd_gossip_decode_vote( fd_gossip_t * glob, uchar const * vote_instruction, ulong vote_instruction_sz ) {
+  FD_SPAD_FRAME_BEGIN( glob->decode_spad ) {
+    ulong decoded_sz;
+    fd_vote_instruction_t * vote = fd_bincode_decode1_spad(
+        vote_instruction,
+        glob->decode_spad,
+        vote_instruction, vote_instruction_sz,
+        NULL,
+        &decoded_sz );
+
+    if( FD_UNLIKELY( !vote ) ) {
+      FD_LOG_WARNING(( "corrupt gossip vote instruction" ));
+      return;
+    }
+
+    if( fd_vote_instruction_is_tower_sync( vote ) ) {
+      fd_tower_sync_t * tower_sync = &vote->inner.tower_sync;
+      FD_LOG_NOTICE(( "TOWER SYNC for %s", FD_BASE58_ENC_32_ALLOCA( tower_sync->block_id.uc ) ));
+      for( deq_fd_vote_lockout_t_iter_t iter = deq_fd_vote_lockout_t_iter_init( tower_sync->lockouts );
+           !deq_fd_vote_lockout_t_iter_done( tower_sync->lockouts, iter );
+           iter = deq_fd_vote_lockout_t_iter_next( tower_sync->lockouts, iter ) ) {
+        fd_vote_lockout_t * lockout = deq_fd_vote_lockout_t_iter_ele( tower_sync->lockouts, iter );
+        FD_LOG_NOTICE(( "%lu | %u ", lockout->slot, lockout->confirmation_count ));
+      }
+    } else {
+      FD_LOG_WARNING(( "NOT A TOWER SYNC vote instruction" ));
+    }
+  } FD_SPAD_FRAME_END;
+}
+
+void
 fd_gossip_set_entrypoints( fd_gossip_t *         gossip,
                            fd_ip4_port_t const * entrypoints,
                            ulong                 entrypoints_cnt ) {

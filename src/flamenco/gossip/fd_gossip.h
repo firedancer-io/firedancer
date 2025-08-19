@@ -118,6 +118,8 @@ ushort fd_gossip_get_shred_version( fd_gossip_t const * glob );
 
 void fd_gossip_set_stake_weights( fd_gossip_t * gossip, fd_stake_weight_t const * stake_weights, ulong stake_weights_cnt );
 
+void fd_gossip_decode_vote( fd_gossip_t * glob, uchar const * vote_instruction, ulong vote_instruction_sz );
+
 /* fd_gossip_set_entrypoints sets ip and ports for initial known
    validators to gossip to.  These values are set by the operator
    at startup.  This function should only be called at startup. */
