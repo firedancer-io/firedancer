@@ -9,6 +9,11 @@ MAKEFLAGS += --no-builtin-variables
 
 OBJDIR:=$(BASEDIR)/$(BUILDDIR)
 
+# Grab all the Local.mk files in the source tree, save to a variable so that
+# other rules can depend on this list. We will include these files later on.
+# Don't use "-L" if source code directory structure has symlink loops
+LOCAL_MKS := $(shell $(FIND) -L src -type f -name Local.mk)
+
 CPPFLAGS+=-DFD_BUILD_INFO=\"$(OBJDIR)/info\"
 CPPFLAGS+=$(EXTRA_CPPFLAGS)
 
@@ -221,8 +226,9 @@ unit-test: $(OBJDIR)/unit-test/automatic.txt
 define _run-unit-test
 RUN_UNIT_TEST+=$(OBJDIR)/unit-test/$(1)
 endef
-$(OBJDIR)/unit-test/automatic.txt:
+$(OBJDIR)/unit-test/automatic.txt: $(LOCAL_MKS)
 	$(MKDIR) "$(OBJDIR)/unit-test"
+	$(RM) $@
 	@$(foreach test,$(RUN_UNIT_TEST),echo $(test)>>$@;)
 
 # Generate list of automatic integration tests from $(call run-integration-test,...)
@@ -230,8 +236,9 @@ integration-test: $(OBJDIR)/integration-test/automatic.txt
 define _run-integration-test
 RUN_INTEGRATION_TEST+=$(OBJDIR)/integration-test/$(1)
 endef
-$(OBJDIR)/integration-test/automatic.txt:
+$(OBJDIR)/integration-test/automatic.txt: $(LOCAL_MKS)
 	$(MKDIR) "$(OBJDIR)/integration-test"
+	$(RM) $@
 	@$(foreach test,$(RUN_INTEGRATION_TEST),echo $(test)>>$@;)
 	$(TOUCH) "$@"
 
@@ -402,8 +409,8 @@ include $(1)
 MKPATH:=
 endef
 
-# Don't use "-L" if source code directory structure has symlink loops
-$(foreach mk,$(shell $(FIND) -L src -type f -name Local.mk),$(eval $(call _include-mk,$(mk))))
+# Include all of the Local.mk files we found earlier
+$(foreach mk,$(LOCAL_MKS),$(eval $(call _include-mk,$(mk))))
 
 # Include all the dependencies.  Must be after the make fragments
 # include so that DEPFILES is fully populated (similarly for the
