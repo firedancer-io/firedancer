@@ -427,6 +427,7 @@
 
 | Metric | Type | Description |
 |--------|------|-------------|
+| <span class="metrics-name">shred_&#8203;max_&#8203;turbine_&#8203;slot</span> | gauge | The maximum seen slot in a recieved, resolved FEC set |
 | <span class="metrics-name">shred_&#8203;cluster_&#8203;contact_&#8203;info_&#8203;cnt</span> | histogram | Number of contact infos in the cluster contact info message |
 | <span class="metrics-name">shred_&#8203;microblocks_&#8203;abandoned</span> | counter | The number of microblocks that were abandoned because we switched slots without finishing the current slot |
 | <span class="metrics-name">shred_&#8203;invalid_&#8203;block_&#8203;id</span> | counter | The number of times a block was created with unknown parent block_id |

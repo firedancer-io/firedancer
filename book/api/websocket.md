@@ -230,6 +230,27 @@ landed a vote for, and the current highest replayed slot on the
 validators fork choice. A distance of more than 150 means the validator
 is considered delinquent.
 
+#### `summary.slot_max_known`
+| frequency       | type     | example |
+|-----------------|----------|---------|
+| *Once* + *Live* | `number` | `100`     |
+
+The largest slot that is known by the validator to have been published
+to the blockchain.  This is typically going to be the largest slot we've
+seen in a received turbine shred, but can also be a slot for which we
+were just leader.  If this value is zero, then the validator is just
+booting and hasn't started receiving shreds yet.
+
+#### `summary.slot_caught_up`
+| frequency | type     | example |
+|-----------|----------|---------|
+| *Once*    | `number` | `0`     |
+
+The slot when this validator caught up to the tip of the blockchain.
+This slot is sampled and fixed when replay slot is within 5 slots of the
+max known slot. If this value is zero, then the validator has not caught
+up yet.
+
 #### `summary.startup_time_nanos`
 | frequency | type     | example             |
 |-----------|----------|---------------------|
