@@ -74,8 +74,8 @@ fd_feature_id_t const ids[] = {{""",
             print(f",\n    .cleaned_up                = {{UINT_MAX, UINT_MAX, UINT_MAX}}", file=body, end="")
         if x.get("reverted"):
             print(f",\n    .reverted                  = {x.get('reverted')}", file=body, end="")
-        if x.get("activated_on_all_clusters"):
-            print(f",\n    .activated_on_all_clusters = 1", file=body, end="")
+        if x.get("hardcode_for_fuzzing"):
+            print(f",\n    .hardcode_for_fuzzing = 1", file=body, end="")
         print(" },\n", file=body)
     print(
         f"""  {{ .index = ULONG_MAX }}
