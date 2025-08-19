@@ -64,6 +64,7 @@
 #include "fd_avx512_wwl.h" /* Vector long support */
 #include "fd_avx512_wwv.h" /* Vector ulong support */
 #include "fd_avx512_wwb.h" /* Vector uchar (byte) support */
+#include "fd_avx512_wwh.h" /* Vector ushort support */
 
 #else
 #error "Build target does not support AVX512 wrappers"

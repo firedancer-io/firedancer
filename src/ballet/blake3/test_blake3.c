@@ -8,6 +8,21 @@ FD_STATIC_ASSERT( FD_BLAKE3_ALIGN    ==128UL, unit_test );
 FD_STATIC_ASSERT( FD_BLAKE3_ALIGN    ==alignof(fd_blake3_t), unit_test );
 FD_STATIC_ASSERT( FD_BLAKE3_FOOTPRINT==sizeof (fd_blake3_t), unit_test );
 
+static uchar rand_buf[ 1<<24 ] __attribute__((aligned(64)));
+#define chunks_16_hash      (0x9e6ba4480745792fUL)
+#define lthash_1024_16_hash (0x565ac69fdbeb1154UL)
+
+static fd_rng_t rng[1];
+
+/* lthash_1024_root_cv is the input chaining value of the root block of
+   the hash of the first 1024 bytes of rand buf (so, the output chaining
+   value after compressing 960 bytes). */
+// __attribute__((aligned(32))) static uchar
+// lthash_1024_root_cv[ 32 ] = {
+//   0x3f, 0x38, 0x49, 0x5d, 0x8d, 0x95, 0xca, 0x24, 0x94, 0x53, 0xbe, 0xc4, 0xe8, 0x29, 0x7d, 0xb2,
+//   0x49, 0xbc, 0x4d, 0xaa, 0xab, 0x91, 0x27, 0x31, 0x12, 0xdb, 0x67, 0xfd, 0x4c, 0x6c, 0x66, 0x3c
+// };
+
 static void
 check_fixture( uchar const * expected,
                uchar const * msg,
@@ -70,15 +85,9 @@ check_fixture( uchar const * expected,
                   FD_LOG_HEX16_FMT_ARGS( expected    ), FD_LOG_HEX16_FMT_ARGS( expected+16 ) ));
 }
 
-int
-main( int     argc,
-      char ** argv ) {
-  fd_boot( &argc, &argv );
 
-  fd_rng_t _rng[1]; fd_rng_t * rng = fd_rng_join( fd_rng_new( _rng, 0U, 0UL ) );
-
-  /* Create hasher instance */
-
+static void
+test_constructor( void ) {
   FD_TEST( fd_blake3_align    ()==FD_BLAKE3_ALIGN     );
   FD_TEST( fd_blake3_footprint()==FD_BLAKE3_FOOTPRINT );
 
@@ -94,129 +103,294 @@ main( int     argc,
 
   fd_blake3_t * blake = fd_blake3_join( obj ); FD_TEST( blake );
 
-  /* Run through known test vectors */
+  FD_TEST( fd_blake3_leave( NULL )==NULL ); /* null sha */
+  FD_TEST( fd_blake3_leave( blake  )==obj  ); /* ok */
 
+  FD_TEST( fd_blake3_delete( NULL          )==NULL ); /* null shsha       */
+  FD_TEST( fd_blake3_delete( (void *)0x1UL )==NULL ); /* misaligned shsha */
+  FD_TEST( fd_blake3_delete( obj           )==mem  ); /* ok */
+}
+
+static void
+test_small_fixtures( void ) {
+  fd_blake3_t blake_[1];
+  fd_blake3_t * blake = fd_blake3_join( fd_blake3_new( blake_ ) );
   for( fd_blake3_test_vector_t const * vec = fd_blake3_test_vector; vec->msg; vec++ ) {
     check_fixture( vec->hash, (uchar const *)vec->msg, vec->sz, blake, rng );
   }
-  FD_LOG_NOTICE(( "OK: test vectors" ));
-
-  fd_rng_t _rng2[1]; fd_rng_t * rng2 = fd_rng_join( fd_rng_new( _rng2, 0x6a09e667, 0UL ) );
-  static uchar rand_buf[ 1<<24 ] __attribute__((aligned(64)));
-  for( ulong b=0UL; b<sizeof(rand_buf); b++ ) rand_buf[b] = fd_rng_uchar( rng2 );
-  fd_rng_delete( fd_rng_leave( rng2 ) );
-
-  /* Test chunk compression */
-
-  uchar const * block_in = rand_buf;
-  ulong const   chunks_16_hash = 0x9e6ba4480745792fUL;
-  ulong         chunks_16_have;
-  uchar         block_res[ 1024 ] __attribute__((aligned(32)));
-  (void)block_in; (void)chunks_16_hash; (void)chunks_16_have; (void)block_res;
+  fd_blake3_delete( fd_blake3_leave( blake ) );
+}
 
 #if FD_HAS_AVX
+
+static void
+test_avx_compress8_fast( void ) {
+  uchar block_res[ 512 ] __attribute__((aligned(32)));
+  uchar const * block_in = rand_buf;
   fd_blake3_avx_compress8_fast( block_in,      block_res,     0UL, 0 );
   fd_blake3_avx_compress8_fast( block_in+8192, block_res+256, 8UL, 0 );
-  chunks_16_have = fd_hash( 0UL, block_res, 512UL );
+  ulong chunks_16_have = fd_hash( 0UL, block_res, 512UL );
   if( FD_UNLIKELY( chunks_16_hash!=chunks_16_have ) ) {
     FD_LOG_ERR(( "fd_blake3_avx_compress8_fast failed (expected %016lx got %016lx)",
                  chunks_16_hash, chunks_16_have ));
   }
+}
 
-  do {
-    ulong  batch_data [ 8 ] __attribute__((aligned(32)));
-    /*                    */ for( uint i=0; i<8; i++ ) batch_data [i] = (ulong)( block_in + 1024*i );
-    uint   batch_sz   [ 8 ]; for( uint i=0; i<8; i++ ) batch_sz   [i] = 1024UL;
-    void * batch_hash [ 8 ]; for( uint i=0; i<8; i++ ) batch_hash [i] = block_res + 32*i;
-    ulong  ctr_vec    [ 8 ]; for( uint i=0; i<8; i++ ) ctr_vec    [i] = i;
-    uint   batch_flags[ 8 ]; for( uint i=0; i<8; i++ ) batch_flags[i] = 0;
-    fd_blake3_avx_compress8( 8UL, batch_data, batch_sz, batch_hash, ctr_vec, batch_flags );
-    for( uint i=0; i<8; i++ ) batch_data[ i ] = (ulong)( block_in + 1024*(8+i) );
-    for( uint i=0; i<8; i++ ) batch_hash[ i ] = block_res + 32*(8+i);
-    for( uint i=0; i<8; i++ ) ctr_vec   [ i ] = 8+i;
-    fd_blake3_avx_compress8( 8UL, batch_data, batch_sz, batch_hash, ctr_vec, batch_flags );
-    chunks_16_have = fd_hash( 0UL, block_res, 512UL );
-    if( FD_UNLIKELY( chunks_16_hash!=chunks_16_have ) ) {
-      FD_LOG_ERR(( "fd_blake3_avx_compress8 failed (expected %016lx got %016lx)",
-                   chunks_16_hash, chunks_16_have ));
+static void
+test_avx_compress8( void ) {
+  uchar block_res[ 512 ] __attribute__((aligned(32)));
+  uchar const * block_in = rand_buf;
+  ulong  batch_data [ 8 ] __attribute__((aligned(32)));
+  /*                    */ for( uint i=0; i<8; i++ ) batch_data [i] = (ulong)( block_in + 1024*i );
+  uint   batch_sz   [ 8 ]; for( uint i=0; i<8; i++ ) batch_sz   [i] = 1024UL;
+  void * batch_hash [ 8 ]; for( uint i=0; i<8; i++ ) batch_hash [i] = block_res + 32*i;
+  ulong  ctr_vec    [ 8 ]; for( uint i=0; i<8; i++ ) ctr_vec    [i] = i;
+  uint   batch_flags[ 8 ]; for( uint i=0; i<8; i++ ) batch_flags[i] = 0;
+  fd_blake3_avx_compress8( 8UL, batch_data, batch_sz, ctr_vec, batch_flags, batch_hash, NULL, 32U, NULL );
+  for( uint i=0; i<8; i++ ) batch_data[ i ] = (ulong)( block_in + 1024*(8+i) );
+  for( uint i=0; i<8; i++ ) batch_hash[ i ] = block_res + 32*(8+i);
+  for( uint i=0; i<8; i++ ) ctr_vec   [ i ] = 8+i;
+  fd_blake3_avx_compress8( 8UL, batch_data, batch_sz, ctr_vec, batch_flags, batch_hash, NULL, 32U, NULL );
+  ulong chunks_16_have = fd_hash( 0UL, block_res, 512UL );
+  if( FD_UNLIKELY( chunks_16_hash!=chunks_16_have ) ) {
+    FD_LOG_ERR(( "fd_blake3_avx_compress8 failed (expected %016lx got %016lx)",
+                  chunks_16_hash, chunks_16_have ));
+  }
+}
+
+static void
+test_avx_compress8_xof2048_para( void ) {
+  void const * data[ 16 ] __attribute__((aligned(32)));
+  for( uint i=0; i<16; i++ ) data[ i ] = rand_buf + 1024*i;
+  uint sz[ 8 ];
+  for( uint i=0; i< 8; i++ ) sz  [ i ] = 1024UL;
+
+  ushort lthash0[ 1024 ] __attribute__((aligned(32)));
+  ushort lthash1[ 1024 ] __attribute__((aligned(32)));
+  fd_blake3_lthash_batch8( data,   sz, lthash0 );
+  fd_blake3_lthash_batch8( data+8, sz, lthash1 );
+
+  for( ulong i=0UL; i<1024UL; i++ ) lthash0[i] = (ushort)( lthash0[i] + lthash1[i] );
+  FD_TEST( fd_hash( 0UL, lthash0, 2048UL )==lthash_1024_16_hash );
+
+  ulong iter = 100000UL;
+  while( iter-- ) {
+    for( ulong i=0UL; i<8UL; i++ ) {
+      data[ i ] = rand_buf + fd_rng_uint_roll( rng, (uint)sizeof(rand_buf)-1024U );
+      sz  [ i ] = fd_rng_uint_roll( rng, 1025UL );
     }
-  } while(0);
-#endif
+    fd_blake3_lthash_batch8( data, sz, lthash0 );
+    ushort lthash2[ 1024 ] = {0};
+    for( ulong i=0UL; i<8UL; i++ ) {
+      fd_blake3_t blake[1];
+      fd_blake3_init( blake );
+      fd_blake3_append( blake, data[i], sz[i] );
+      ushort lthash3[ 1024 ] __attribute__((aligned(64)));
+      fd_blake3_fini_2048( blake, lthash3 );
+      for( ulong j=0UL; j<1024UL; j++ ) lthash2[j] = (ushort)( lthash2[j] + lthash3[j] );
+    }
+    if( FD_UNLIKELY( !fd_memeq( lthash0, lthash2, 2048 ) ) ) {
+      FD_LOG_ERR(( "fd_blake3_lthash_batch8 computed wrong result: sz=[%u %u %u %u %u %u %u %u]",
+                   sz[0x0], sz[0x1], sz[0x2], sz[0x3], sz[0x4], sz[0x5], sz[0x6], sz[0x7] ));
+    }
+  }
+}
+
+static void
+test_avx_compress8_xof2048_seq( void ) {
+  ushort lthash[ 1024 ] = {0};
+  for( ulong j=0UL; j<16UL; j++ ) {
+    uchar root_msg   [ 64 ] __attribute__((aligned(64)));
+    uchar root_cv_pre[ 32 ] __attribute__((aligned(32)));
+    fd_blake3_t blake[1];
+    fd_blake3_init( blake );
+    fd_blake3_append( blake, rand_buf+(1024*j), 1024UL );
+    fd_blake3_fini_xof_compress( blake, root_msg, root_cv_pre );
+
+    ulong  batch_data [  8 ] __attribute__((aligned(32)));
+    /*                     */ for( uint i=0; i< 8; i++ ) batch_data [i] = (ulong)root_msg;
+    uint   batch_sz   [  8 ]; for( uint i=0; i< 8; i++ ) batch_sz   [i] = 64UL;
+    ulong  ctr_vec    [ 32 ]; for( uint i=0; i<32; i++ ) ctr_vec    [i] = i;
+    uint   batch_flags[  8 ]; for( uint i=0; i< 8; i++ ) batch_flags[i] = FD_BLAKE3_FLAG_ROOT | FD_BLAKE3_FLAG_CHUNK_END;
+    ulong  batch_cv   [  8 ]; for( uint i=0; i< 8; i++ ) batch_cv   [i] = (ulong)root_cv_pre;
+    ushort xof2048[ 1024 ] __attribute__((aligned(32)));
+    void * batch_hash [ 32 ]; for( uint i=0; i<32; i++ ) batch_hash [i] = xof2048 + 32*i; /* 64 byte stride */
+    fd_blake3_avx_compress8( 8UL, batch_data, batch_sz, ctr_vec,    batch_flags, batch_hash,    NULL, 64U, batch_cv );
+    fd_blake3_avx_compress8( 8UL, batch_data, batch_sz, ctr_vec+ 8, batch_flags, batch_hash+ 8, NULL, 64U, batch_cv );
+    fd_blake3_avx_compress8( 8UL, batch_data, batch_sz, ctr_vec+16, batch_flags, batch_hash+16, NULL, 64U, batch_cv );
+    fd_blake3_avx_compress8( 8UL, batch_data, batch_sz, ctr_vec+24, batch_flags, batch_hash+24, NULL, 64U, batch_cv );
+    for( ulong i=0UL; i<1024UL; i++ ) lthash[i] = (ushort)( lthash[i] + xof2048[i] );
+  }
+
+  if( FD_UNLIKELY( fd_hash( 0UL, lthash, sizeof(lthash) )!=lthash_1024_16_hash ) ) {
+    FD_LOG_ERR(( "test_avx_compress8_xof2048_seq computed wrong result" ));
+  }
+}
+
+#endif /* FD_HAS_AVX */
 
 #if FD_HAS_AVX512
-  fd_blake3_avx512_compress16_fast( block_in, block_res, 0UL, 0 );
-  chunks_16_have = fd_hash( 0UL, block_res, 512UL );
+
+static void
+test_avx512_compress16_fast( void ) {
+  uchar block_res[ 512 ] __attribute__((aligned(32)));
+  fd_blake3_avx512_compress16_fast( rand_buf, block_res, 0UL, 0 );
+  ulong chunks_16_have = fd_hash( 0UL, block_res, 512UL );
   if( FD_UNLIKELY( chunks_16_hash!=chunks_16_have ) ) {
     FD_LOG_ERR(( "fd_blake3_avx512_compress16_fast failed (expected %016lx got %016lx)",
                  chunks_16_hash, chunks_16_have ));
   }
+}
 
-  do {
-    ulong  batch_data [ 16 ] __attribute__((aligned(64)));
-    /*                     */ for( uint i=0; i<16; i++ ) batch_data [i] = (ulong)( block_in + 1024*i );
-    uint   batch_sz   [ 16 ]; for( uint i=0; i<16; i++ ) batch_sz   [i] = 1024UL;
-    void * batch_hash [ 16 ]; for( uint i=0; i<16; i++ ) batch_hash [i] = block_res + 32*i;
-    ulong  ctr_vec    [ 16 ]; for( uint i=0; i<16; i++ ) ctr_vec    [i] = i;
-    uint   batch_flags[ 16 ]; for( uint i=0; i<16; i++ ) batch_flags[i] = 0;
-    fd_blake3_avx512_compress16( 16UL, batch_data, batch_sz, batch_hash, ctr_vec, batch_flags );
-    chunks_16_have = fd_hash( 0UL, block_res, 512UL );
-    if( FD_UNLIKELY( chunks_16_hash!=chunks_16_have ) ) {
-      FD_LOG_ERR(( "fd_blake3_avx512_compress16 failed (expected %016lx got %016lx)",
-                   chunks_16_hash, chunks_16_have ));
+static void
+test_avx512_compress16( void ) {
+  uchar block_res[ 512 ] __attribute__((aligned(32)));
+  ulong  batch_data [ 16 ] __attribute__((aligned(64)));
+  /*                     */ for( uint i=0; i<16; i++ ) batch_data [i] = (ulong)( rand_buf + 1024*i );
+  uint   batch_sz   [ 16 ]; for( uint i=0; i<16; i++ ) batch_sz   [i] = 1024UL;
+  void * batch_hash [ 16 ]; for( uint i=0; i<16; i++ ) batch_hash [i] = block_res + 32*i;
+  ulong  ctr_vec    [ 16 ]; for( uint i=0; i<16; i++ ) ctr_vec    [i] = i;
+  uint   batch_flags[ 16 ]; for( uint i=0; i<16; i++ ) batch_flags[i] = 0;
+  fd_blake3_avx512_compress16( 16UL, batch_data, batch_sz, ctr_vec, batch_flags, batch_hash, NULL, 32U, NULL );
+  ulong chunks_16_have = fd_hash( 0UL, block_res, 512UL );
+  if( FD_UNLIKELY( chunks_16_hash!=chunks_16_have ) ) {
+    FD_LOG_ERR(( "fd_blake3_avx512_compress16 failed (expected %016lx got %016lx)",
+                  chunks_16_hash, chunks_16_have ));
+  }
+}
+
+static void
+test_avx512_compress16_xof2048_para( void ) {
+  void const * data[ 16 ] __attribute__((aligned(64)));
+  for( uint i=0; i<16; i++ ) data[ i ] = rand_buf + 1024*i;
+  uint sz[ 16 ];
+  for( uint i=0; i<16; i++ ) sz  [ i ] = 1024UL;
+
+  ushort lthash[ 1024 ] __attribute__((aligned(64)));
+  fd_blake3_lthash_batch16( data, sz, lthash );
+  if( FD_UNLIKELY( fd_hash( 0UL, lthash, sizeof(lthash) )!=lthash_1024_16_hash ) ) {
+    uchar expected32[ 32 ];
+    fd_blake3_hash( rand_buf, 1024UL, expected32 );
+    FD_LOG_HEXDUMP_WARNING(( "lthash[0..32] want", expected32, 32 ));
+    FD_LOG_HEXDUMP_WARNING(( "lthash[0..32] have", lthash,     32 ));
+    FD_LOG_ERR(( "test_avx512_compress16_xof2048_para computed wrong result" ));
+  }
+
+  ulong iter = 100000UL;
+  while( iter-- ) {
+    for( ulong i=0UL; i<16UL; i++ ) {
+      data[ i ] = rand_buf + fd_rng_uint_roll( rng, (uint)sizeof(rand_buf)-1024U );
+      sz  [ i ] = fd_rng_uint_roll( rng, 1025UL );
     }
-  } while(0);
-#endif
-  FD_LOG_NOTICE(( "OK: chunk compression" ));
+    fd_blake3_lthash_batch16( data, sz, lthash );
+    ushort lthash2[ 1024 ] = {0};
+    for( ulong i=0UL; i<16UL; i++ ) {
+      fd_blake3_t blake[1];
+      fd_blake3_init( blake );
+      fd_blake3_append( blake, data[i], sz[i] );
+      ushort lthash3[ 1024 ] __attribute__((aligned(64)));
+      fd_blake3_fini_2048( blake, lthash3 );
+      for( ulong j=0UL; j<1024UL; j++ ) lthash2[j] = (ushort)( lthash2[j] + lthash3[j] );
+    }
+    if( FD_UNLIKELY( !fd_memeq( lthash, lthash2, 2048 ) ) ) {
+      FD_LOG_ERR(( "fd_blake3_lthash_batch16 computed wrong result: sz=[%u %u %u %u %u %u %u %u %u %u %u %u %u %u %u %u]",
+                   sz[0x0], sz[0x1], sz[0x2], sz[0x3], sz[0x4], sz[0x5], sz[0x6], sz[0x7],
+                   sz[0x8], sz[0x9], sz[0xa], sz[0xb], sz[0xc], sz[0xd], sz[0xe], sz[0xf] ));
+    }
+  }
+}
+
+static void
+test_avx512_compress16_xof2048_seq( void ) {
+  ushort lthash[ 1024 ] = {0};
+  for( ulong j=0UL; j<16UL; j++ ) {
+    uchar root_msg   [ 64 ] __attribute__((aligned(64)));
+    uchar root_cv_pre[ 32 ] __attribute__((aligned(32)));
+    fd_blake3_t blake[1];
+    fd_blake3_init( blake );
+    fd_blake3_append( blake, rand_buf+(1024*j), 1024UL );
+    fd_blake3_fini_xof_compress( blake, root_msg, root_cv_pre );
+
+    ulong  batch_data [ 16 ] __attribute__((aligned(64)));
+    /*                     */ for( uint i=0; i<16; i++ ) batch_data [i] = (ulong)root_msg;
+    uint   batch_sz   [ 16 ]; for( uint i=0; i<16; i++ ) batch_sz   [i] = 64UL;
+    ulong  ctr_vec    [ 32 ]; for( uint i=0; i<32; i++ ) ctr_vec    [i] = i;
+    uint   batch_flags[ 16 ]; for( uint i=0; i<16; i++ ) batch_flags[i] = FD_BLAKE3_FLAG_ROOT | FD_BLAKE3_FLAG_CHUNK_END;
+    ulong  batch_cv   [ 16 ]; for( uint i=0; i<16; i++ ) batch_cv   [i] = (ulong)root_cv_pre;
+    ushort xof2048[ 1024 ] __attribute__((aligned(64)));
+    void * batch_hash [ 32 ]; for( uint i=0; i<32; i++ ) batch_hash [i] = xof2048 + 32*i; /* 64 byte stride */
+    fd_blake3_avx512_compress16( 16UL, batch_data, batch_sz, ctr_vec,    batch_flags, batch_hash,    NULL, 64U, batch_cv );
+    fd_blake3_avx512_compress16( 16UL, batch_data, batch_sz, ctr_vec+16, batch_flags, batch_hash+16, NULL, 64U, batch_cv );
+    for( ulong i=0UL; i<1024UL; i++ ) lthash[i] = (ushort)( lthash[i] + xof2048[i] );
+  }
+
+  if( FD_UNLIKELY( fd_hash( 0UL, lthash, sizeof(lthash) )!=lthash_1024_16_hash ) ) {
+    FD_LOG_ERR(( "test_avx512_compress16_xof2048_seq computed wrong result" ));
+  }
+}
+
+#endif /* FD_HAS_AVX512 */
 
   /* Run through random preimage tests */
 
   static const struct { ulong sz; uchar hash[32]; } test_fixtures[] = {
-    {     64, "\x8e\x78\x6e\x0a\x39\x5b\xff\x26\x43\x11\x5e\x32\x12\xc0\xb3\x01\xa9\xf8\xd7\x82\x9c\xe5\x55\x7b\x12\x53\x63\x48\x11\xb3\x07\x0a" },
-    {    128, "\x16\xbb\x9d\x92\x1f\xf7\x75\x0b\xd6\xe1\xf3\x60\xa2\x7b\x2f\x5f\xe7\x85\x38\xb3\xbf\xfe\xcb\x4d\x21\x25\xd9\x4f\x8a\xc7\xfb\x99" },
-    {    256, "\x69\x33\x78\x3f\xc6\x50\x4e\x8c\x19\x06\x96\x1f\x96\xda\xa6\xcb\xe3\x30\xa9\x08\xe4\x4f\x22\x50\x73\x62\x4e\x2a\xc7\xf0\xf4\xc2" },
-    {    512, "\x58\xea\xbd\x0c\xa7\xea\x6c\x70\x41\xb3\x21\x7b\x53\x27\xbd\x00\xda\xc6\xb2\x15\x72\x9a\xbe\x19\x74\x30\x17\x05\xd4\xe2\xfa\xfd" },
-    {   1024, "\xe6\x0f\x0a\xd7\xc9\xdb\x47\xa9\x1b\x7c\xe4\x49\xeb\x1d\xc6\x5f\xee\xf2\xcf\x43\x12\xd6\xe1\xb1\xfa\xd7\x3e\x79\x03\xce\xb2\xe3" },
-    {   1536, "\xcb\xe6\x93\x8f\x0d\x73\x6c\xd9\xad\x5e\x9f\x0b\x37\x06\x6c\xfe\xaa\xfa\x83\x83\x8a\x13\x95\x53\x49\x3a\xd8\xb5\xe3\xa6\x9d\x2c" },
-    {   2048, "\x46\x24\x6b\xc2\xf5\xc0\x5d\xe6\xbc\xd8\xad\x81\xc1\x74\xbe\xe8\x6f\xe6\xde\xce\xf9\x0f\xca\x81\x08\x1a\x97\xc1\x80\xf2\x34\x25" },
-    {   2560, "\x1a\x75\x49\x9f\x44\x64\xe4\xe9\xa9\x3c\xa6\x9b\x0c\xc1\x48\xed\x77\xc7\x6e\x06\xc0\xb0\x50\xcd\x92\xbc\x5b\x62\x72\xbb\xce\x63" },
-    {   3072, "\x91\xaf\x45\x38\x21\x83\xc4\x6d\xa1\x22\x28\x8c\x32\x2b\x80\xf9\xb1\x9f\x94\xbc\x24\x06\xe8\xcc\x9d\x13\xc9\x4f\xbe\x2b\x5d\xe2" },
-    {   4096, "\xbc\xdb\x49\xf0\x74\x15\x9b\x24\x20\xaa\x52\x0a\x9c\x94\x83\x67\xa5\xe7\xa0\x17\xa8\x77\x87\xf9\x4f\x74\x99\x9e\x75\x40\x15\xcf" },
-    {   5120, "\x62\x62\x30\xf7\x3f\x2f\x66\x76\x0c\x28\x50\x8c\xf5\x21\x69\x92\x41\xf1\xa7\xe8\x48\x03\x68\xe0\xe5\x34\xcd\x43\x36\x0b\xeb\x2e" },
-    {   6144, "\x31\xbf\x52\x72\x5d\xf1\xd6\xc5\xb7\x08\x05\x99\x1b\x81\x06\xe9\x25\x57\x42\xaa\x29\xd2\x96\x9f\x8f\xb9\x74\xf4\xf1\xef\x89\x29" },
-    {   7168, "\x9b\x5a\x42\x31\xda\x7a\x8d\xf0\x2d\xa4\x88\x7a\xd6\x67\x4d\xa1\x01\x49\x1d\x43\xa4\x34\xfc\x21\xbb\x0b\x8c\x1d\xcd\x9d\x0a\xa5" },
-    {   8192, "\x93\x01\x1d\x11\x98\xfb\x6a\xe5\xfc\x93\xc0\x7a\xf6\x74\xc8\x79\x30\x8d\xd2\x4d\x74\x45\x68\xde\xc9\xc0\x7d\x52\x81\x57\xb4\xc9" },
-    {   8704, "\x7e\x1f\x44\x9b\xc1\x5b\x33\x7a\x4f\x59\x37\xfd\x4a\xa0\xa6\xfb\x86\xe0\x8a\xa6\x4d\x6b\xde\x1e\x59\x4e\xc0\x65\x33\xcc\x25\x96" },
-    {   9216, "\xa8\x8d\xc5\xe8\xbd\x3f\xd9\xd7\x1e\x58\xcd\x06\x71\x7d\x37\xd8\x84\xaa\x04\xd0\xcf\x4f\x84\x86\xe4\xbc\x13\x12\xd5\xf1\x31\x83" },
-    {   9728, "\x1f\xd1\xf8\x74\xec\xa7\x73\x18\x17\x1d\x41\x3a\xf1\x5b\x47\xe1\x72\xe6\x87\xcd\x39\x38\xdb\x55\xb2\x25\x21\xaa\x54\xdc\x7f\x80" },
-    {  10240, "\x4f\x97\x7f\x5f\xa1\x07\xa2\xb9\xf9\x74\x88\xae\xc2\xdd\x96\x17\x72\xb0\xad\x1c\x3b\xe1\xb0\x0f\x71\x5a\x70\xec\x9e\xa2\x74\x32" },
-    {  10752, "\xc9\xea\xd9\x36\x34\x7d\xb7\xf4\xd2\xb4\xfe\xd0\xf7\x2d\x0b\x63\xc9\x57\x26\x17\x6e\xda\x2e\x0a\xeb\x1d\xb4\x77\x30\xb9\x19\x43" },
-    {  11264, "\x2a\xb7\x37\x0b\x8f\x48\xf2\xa7\x12\x7c\x3f\xc3\xad\xcb\x0f\x89\x98\x8b\x35\xe6\x0c\x36\x33\x9d\xd0\xb5\x13\x29\x2f\xcc\x0c\x4d" },
-    {  11776, "\x1f\xc8\x45\xff\x4a\xe1\xb6\x3f\x07\xaa\xd8\xf2\x1c\x4f\x5f\x43\x4c\xd2\x1f\x61\xd5\x32\x32\xac\x0c\xaf\x60\x0b\x95\xa4\xef\x6d" },
-    {  12288, "\x28\x78\x16\xb9\x63\x6d\x20\xb0\x61\xab\xb4\x95\xf4\xc4\x6a\x0d\xe3\x5f\x51\x82\x9c\x60\xe7\x92\xad\xdf\xf1\x9f\x24\x9d\x9e\x41" },
-    {  12800, "\xb2\x86\xff\x43\xbe\x3b\xbb\xf0\x60\x05\x00\xdd\x17\x9e\x6b\xc6\x3f\x7f\x3a\x1e\x29\x3e\xda\x5a\xcc\x5c\x67\x87\xea\x72\xe4\xec" },
-    {  13312, "\x31\xf8\x25\x9d\x9b\x5f\xe5\xf8\xac\xaf\x6d\x1a\xf7\x53\x48\x6d\x08\x8e\xcb\x2d\x38\xbb\xb7\x29\xf8\xde\xad\x09\x3d\xc8\xe0\x55" },
-    {  13824, "\x2c\xa0\x2a\x8f\x4b\x78\xf8\x3b\xf0\x65\x11\xe0\x21\x31\xb4\xd9\x5c\xbc\x33\x64\x33\x87\xbc\x55\xf5\x1d\x34\xb4\x02\x27\x2d\x25" },
-    {  14336, "\x6b\x2e\xb8\xf6\xf1\x73\x8b\xe2\x05\xb5\x5a\x91\xb8\x66\xac\x1a\x0b\xcd\x66\xa2\x79\x42\xff\x4c\xaa\x28\x9d\xb3\x3d\x6a\x14\x5e" },
-    {  14848, "\x34\x20\x76\x40\x87\xdf\xc1\xda\x72\xd3\xf7\xf3\xaa\x0d\xb9\x51\x73\xb9\x06\x50\x1b\xe2\x03\x52\xfd\xfb\xca\x50\xf5\x3e\xbc\x77" },
-    {  15360, "\x8f\x81\x9f\x30\x42\x44\x8d\xc8\xcf\xc0\xc6\x4a\x36\x31\x61\x41\x44\x76\x89\x3b\x9c\x50\x31\x85\xa3\x65\x9d\x38\xbc\xdf\xc1\x32" },
-    {  15872, "\xc6\xd2\x5b\x4e\x48\xf3\x77\xef\x42\x5d\xb4\x9f\xb4\xe7\x49\x7d\x8e\x11\xd9\xa9\x0c\x22\xf3\x10\xe5\x3c\xe2\x2d\x40\xc1\x28\xe8" },
-    {  16384, "\x18\xdf\x04\xb9\xd9\x39\x65\x64\x5a\xd3\x1d\x32\x31\x71\xf0\x04\x3b\x52\x7f\x59\x64\x02\x42\x40\xee\x18\xda\x24\xe1\x02\xe8\xa2" },
-    {  16385, "\xac\xe0\x15\xdd\xfa\x44\x1a\x5c\x30\x90\x89\x74\xd0\xaf\xe3\x19\xf6\x82\xa3\x6d\x8b\xdd\x6e\x3a\x19\xc8\xd4\x2a\xb7\x09\xeb\x03" },
-    {  24575, "\x2b\x7d\xe4\x8d\x19\x74\x8a\x5e\xac\x1b\x10\xd1\xcb\x06\x07\x1a\xc7\x02\x51\x75\x61\x8d\x76\xd7\x41\xee\x57\x33\x20\xe9\xc4\x8f" },
-    {  32768, "\x14\x93\x4b\x79\x56\xa6\x43\x6a\x67\x9d\x01\x37\x43\x10\x9c\x28\xea\x2f\x10\x88\xc7\xfc\xb3\x31\x87\x38\x6b\xe0\x00\xe0\x83\x3d" },
-    {  32769, "\x7b\xdb\xe3\xc9\xe9\xcd\x48\x7d\x8f\xc5\x03\x0b\x9c\x16\x46\x14\x72\xb3\x3e\xae\x42\xa0\x33\xf3\x9c\x79\x3f\xe5\xa7\x7c\x3b\x87" },
-    { 131072, "\x8a\x98\xa1\x96\x6a\x97\x30\xb3\xc8\xb8\x2e\x2a\xd6\x06\xed\x57\xfa\xc2\x12\x27\x3a\xf3\xcb\x76\xe1\xf1\x3f\x7a\x1e\x44\xfd\xc6" },
-    { 131073, "\x8f\xd1\x92\x3a\x05\x03\x09\xe2\x8f\x99\x0c\x33\xf9\xa2\x7b\xb3\x86\x50\x29\xa6\xdc\x39\x26\x96\x58\xda\x03\x65\xa3\x60\xbf\x4a" },
-    { 262144, "\x94\xda\x5d\x5f\xb7\x48\xe7\x2e\x94\x47\xfc\x52\x90\x8f\x6e\xf0\x51\x91\xd9\xf8\xee\x4b\x48\x6a\x50\x41\x6f\xa7\xa4\x57\x5d\x24" },
-    { 262145, "\xba\xf8\x15\x48\xde\xc6\x2b\x7c\xea\x70\xd1\x71\x98\x31\xae\x21\x2a\xf0\x8d\xf8\xb8\xfe\x46\xe8\x9d\xce\x7d\xdc\xac\xd5\x5f\x28" },
-    { 524288, "\xd3\xb4\x34\xce\x23\x3d\x85\xa5\xeb\x07\xe7\x33\x1d\x9f\xc1\xcf\x51\xa6\x3f\x36\x1d\xa2\x23\xfb\x35\xea\x6b\x2f\x84\xaf\x95\xce" },
-    { 524289, "\x9f\x05\x67\xce\xbe\xce\x9c\xdf\x80\xb1\x45\x7f\xd8\x3a\x45\xaf\x0b\xfc\xa2\x51\x23\xd6\xf8\x57\x62\xc2\xad\x67\xeb\xad\x73\x8c" },
+    {     64, {0x8e,0x78,0x6e,0x0a,0x39,0x5b,0xff,0x26,0x43,0x11,0x5e,0x32,0x12,0xc0,0xb3,0x01,0xa9,0xf8,0xd7,0x82,0x9c,0xe5,0x55,0x7b,0x12,0x53,0x63,0x48,0x11,0xb3,0x07,0x0a} },
+    {    128, {0x16,0xbb,0x9d,0x92,0x1f,0xf7,0x75,0x0b,0xd6,0xe1,0xf3,0x60,0xa2,0x7b,0x2f,0x5f,0xe7,0x85,0x38,0xb3,0xbf,0xfe,0xcb,0x4d,0x21,0x25,0xd9,0x4f,0x8a,0xc7,0xfb,0x99} },
+    {    256, {0x69,0x33,0x78,0x3f,0xc6,0x50,0x4e,0x8c,0x19,0x06,0x96,0x1f,0x96,0xda,0xa6,0xcb,0xe3,0x30,0xa9,0x08,0xe4,0x4f,0x22,0x50,0x73,0x62,0x4e,0x2a,0xc7,0xf0,0xf4,0xc2} },
+    {    512, {0x58,0xea,0xbd,0x0c,0xa7,0xea,0x6c,0x70,0x41,0xb3,0x21,0x7b,0x53,0x27,0xbd,0x00,0xda,0xc6,0xb2,0x15,0x72,0x9a,0xbe,0x19,0x74,0x30,0x17,0x05,0xd4,0xe2,0xfa,0xfd} },
+    {   1024, {0xe6,0x0f,0x0a,0xd7,0xc9,0xdb,0x47,0xa9,0x1b,0x7c,0xe4,0x49,0xeb,0x1d,0xc6,0x5f,0xee,0xf2,0xcf,0x43,0x12,0xd6,0xe1,0xb1,0xfa,0xd7,0x3e,0x79,0x03,0xce,0xb2,0xe3} },
+    {   1536, {0xcb,0xe6,0x93,0x8f,0x0d,0x73,0x6c,0xd9,0xad,0x5e,0x9f,0x0b,0x37,0x06,0x6c,0xfe,0xaa,0xfa,0x83,0x83,0x8a,0x13,0x95,0x53,0x49,0x3a,0xd8,0xb5,0xe3,0xa6,0x9d,0x2c} },
+    {   2048, {0x46,0x24,0x6b,0xc2,0xf5,0xc0,0x5d,0xe6,0xbc,0xd8,0xad,0x81,0xc1,0x74,0xbe,0xe8,0x6f,0xe6,0xde,0xce,0xf9,0x0f,0xca,0x81,0x08,0x1a,0x97,0xc1,0x80,0xf2,0x34,0x25} },
+    {   2560, {0x1a,0x75,0x49,0x9f,0x44,0x64,0xe4,0xe9,0xa9,0x3c,0xa6,0x9b,0x0c,0xc1,0x48,0xed,0x77,0xc7,0x6e,0x06,0xc0,0xb0,0x50,0xcd,0x92,0xbc,0x5b,0x62,0x72,0xbb,0xce,0x63} },
+    {   3072, {0x91,0xaf,0x45,0x38,0x21,0x83,0xc4,0x6d,0xa1,0x22,0x28,0x8c,0x32,0x2b,0x80,0xf9,0xb1,0x9f,0x94,0xbc,0x24,0x06,0xe8,0xcc,0x9d,0x13,0xc9,0x4f,0xbe,0x2b,0x5d,0xe2} },
+    {   4096, {0xbc,0xdb,0x49,0xf0,0x74,0x15,0x9b,0x24,0x20,0xaa,0x52,0x0a,0x9c,0x94,0x83,0x67,0xa5,0xe7,0xa0,0x17,0xa8,0x77,0x87,0xf9,0x4f,0x74,0x99,0x9e,0x75,0x40,0x15,0xcf} },
+    {   5120, {0x62,0x62,0x30,0xf7,0x3f,0x2f,0x66,0x76,0x0c,0x28,0x50,0x8c,0xf5,0x21,0x69,0x92,0x41,0xf1,0xa7,0xe8,0x48,0x03,0x68,0xe0,0xe5,0x34,0xcd,0x43,0x36,0x0b,0xeb,0x2e} },
+    {   6144, {0x31,0xbf,0x52,0x72,0x5d,0xf1,0xd6,0xc5,0xb7,0x08,0x05,0x99,0x1b,0x81,0x06,0xe9,0x25,0x57,0x42,0xaa,0x29,0xd2,0x96,0x9f,0x8f,0xb9,0x74,0xf4,0xf1,0xef,0x89,0x29} },
+    {   7168, {0x9b,0x5a,0x42,0x31,0xda,0x7a,0x8d,0xf0,0x2d,0xa4,0x88,0x7a,0xd6,0x67,0x4d,0xa1,0x01,0x49,0x1d,0x43,0xa4,0x34,0xfc,0x21,0xbb,0x0b,0x8c,0x1d,0xcd,0x9d,0x0a,0xa5} },
+    {   8192, {0x93,0x01,0x1d,0x11,0x98,0xfb,0x6a,0xe5,0xfc,0x93,0xc0,0x7a,0xf6,0x74,0xc8,0x79,0x30,0x8d,0xd2,0x4d,0x74,0x45,0x68,0xde,0xc9,0xc0,0x7d,0x52,0x81,0x57,0xb4,0xc9} },
+    {   8704, {0x7e,0x1f,0x44,0x9b,0xc1,0x5b,0x33,0x7a,0x4f,0x59,0x37,0xfd,0x4a,0xa0,0xa6,0xfb,0x86,0xe0,0x8a,0xa6,0x4d,0x6b,0xde,0x1e,0x59,0x4e,0xc0,0x65,0x33,0xcc,0x25,0x96} },
+    {   9216, {0xa8,0x8d,0xc5,0xe8,0xbd,0x3f,0xd9,0xd7,0x1e,0x58,0xcd,0x06,0x71,0x7d,0x37,0xd8,0x84,0xaa,0x04,0xd0,0xcf,0x4f,0x84,0x86,0xe4,0xbc,0x13,0x12,0xd5,0xf1,0x31,0x83} },
+    {   9728, {0x1f,0xd1,0xf8,0x74,0xec,0xa7,0x73,0x18,0x17,0x1d,0x41,0x3a,0xf1,0x5b,0x47,0xe1,0x72,0xe6,0x87,0xcd,0x39,0x38,0xdb,0x55,0xb2,0x25,0x21,0xaa,0x54,0xdc,0x7f,0x80} },
+    {  10240, {0x4f,0x97,0x7f,0x5f,0xa1,0x07,0xa2,0xb9,0xf9,0x74,0x88,0xae,0xc2,0xdd,0x96,0x17,0x72,0xb0,0xad,0x1c,0x3b,0xe1,0xb0,0x0f,0x71,0x5a,0x70,0xec,0x9e,0xa2,0x74,0x32} },
+    {  10752, {0xc9,0xea,0xd9,0x36,0x34,0x7d,0xb7,0xf4,0xd2,0xb4,0xfe,0xd0,0xf7,0x2d,0x0b,0x63,0xc9,0x57,0x26,0x17,0x6e,0xda,0x2e,0x0a,0xeb,0x1d,0xb4,0x77,0x30,0xb9,0x19,0x43} },
+    {  11264, {0x2a,0xb7,0x37,0x0b,0x8f,0x48,0xf2,0xa7,0x12,0x7c,0x3f,0xc3,0xad,0xcb,0x0f,0x89,0x98,0x8b,0x35,0xe6,0x0c,0x36,0x33,0x9d,0xd0,0xb5,0x13,0x29,0x2f,0xcc,0x0c,0x4d} },
+    {  11776, {0x1f,0xc8,0x45,0xff,0x4a,0xe1,0xb6,0x3f,0x07,0xaa,0xd8,0xf2,0x1c,0x4f,0x5f,0x43,0x4c,0xd2,0x1f,0x61,0xd5,0x32,0x32,0xac,0x0c,0xaf,0x60,0x0b,0x95,0xa4,0xef,0x6d} },
+    {  12288, {0x28,0x78,0x16,0xb9,0x63,0x6d,0x20,0xb0,0x61,0xab,0xb4,0x95,0xf4,0xc4,0x6a,0x0d,0xe3,0x5f,0x51,0x82,0x9c,0x60,0xe7,0x92,0xad,0xdf,0xf1,0x9f,0x24,0x9d,0x9e,0x41} },
+    {  12800, {0xb2,0x86,0xff,0x43,0xbe,0x3b,0xbb,0xf0,0x60,0x05,0x00,0xdd,0x17,0x9e,0x6b,0xc6,0x3f,0x7f,0x3a,0x1e,0x29,0x3e,0xda,0x5a,0xcc,0x5c,0x67,0x87,0xea,0x72,0xe4,0xec} },
+    {  13312, {0x31,0xf8,0x25,0x9d,0x9b,0x5f,0xe5,0xf8,0xac,0xaf,0x6d,0x1a,0xf7,0x53,0x48,0x6d,0x08,0x8e,0xcb,0x2d,0x38,0xbb,0xb7,0x29,0xf8,0xde,0xad,0x09,0x3d,0xc8,0xe0,0x55} },
+    {  13824, {0x2c,0xa0,0x2a,0x8f,0x4b,0x78,0xf8,0x3b,0xf0,0x65,0x11,0xe0,0x21,0x31,0xb4,0xd9,0x5c,0xbc,0x33,0x64,0x33,0x87,0xbc,0x55,0xf5,0x1d,0x34,0xb4,0x02,0x27,0x2d,0x25} },
+    {  14336, {0x6b,0x2e,0xb8,0xf6,0xf1,0x73,0x8b,0xe2,0x05,0xb5,0x5a,0x91,0xb8,0x66,0xac,0x1a,0x0b,0xcd,0x66,0xa2,0x79,0x42,0xff,0x4c,0xaa,0x28,0x9d,0xb3,0x3d,0x6a,0x14,0x5e} },
+    {  14848, {0x34,0x20,0x76,0x40,0x87,0xdf,0xc1,0xda,0x72,0xd3,0xf7,0xf3,0xaa,0x0d,0xb9,0x51,0x73,0xb9,0x06,0x50,0x1b,0xe2,0x03,0x52,0xfd,0xfb,0xca,0x50,0xf5,0x3e,0xbc,0x77} },
+    {  15360, {0x8f,0x81,0x9f,0x30,0x42,0x44,0x8d,0xc8,0xcf,0xc0,0xc6,0x4a,0x36,0x31,0x61,0x41,0x44,0x76,0x89,0x3b,0x9c,0x50,0x31,0x85,0xa3,0x65,0x9d,0x38,0xbc,0xdf,0xc1,0x32} },
+    {  15872, {0xc6,0xd2,0x5b,0x4e,0x48,0xf3,0x77,0xef,0x42,0x5d,0xb4,0x9f,0xb4,0xe7,0x49,0x7d,0x8e,0x11,0xd9,0xa9,0x0c,0x22,0xf3,0x10,0xe5,0x3c,0xe2,0x2d,0x40,0xc1,0x28,0xe8} },
+    {  16384, {0x18,0xdf,0x04,0xb9,0xd9,0x39,0x65,0x64,0x5a,0xd3,0x1d,0x32,0x31,0x71,0xf0,0x04,0x3b,0x52,0x7f,0x59,0x64,0x02,0x42,0x40,0xee,0x18,0xda,0x24,0xe1,0x02,0xe8,0xa2} },
+    {  16385, {0xac,0xe0,0x15,0xdd,0xfa,0x44,0x1a,0x5c,0x30,0x90,0x89,0x74,0xd0,0xaf,0xe3,0x19,0xf6,0x82,0xa3,0x6d,0x8b,0xdd,0x6e,0x3a,0x19,0xc8,0xd4,0x2a,0xb7,0x09,0xeb,0x03} },
+    {  24575, {0x2b,0x7d,0xe4,0x8d,0x19,0x74,0x8a,0x5e,0xac,0x1b,0x10,0xd1,0xcb,0x06,0x07,0x1a,0xc7,0x02,0x51,0x75,0x61,0x8d,0x76,0xd7,0x41,0xee,0x57,0x33,0x20,0xe9,0xc4,0x8f} },
+    {  32768, {0x14,0x93,0x4b,0x79,0x56,0xa6,0x43,0x6a,0x67,0x9d,0x01,0x37,0x43,0x10,0x9c,0x28,0xea,0x2f,0x10,0x88,0xc7,0xfc,0xb3,0x31,0x87,0x38,0x6b,0xe0,0x00,0xe0,0x83,0x3d} },
+    {  32769, {0x7b,0xdb,0xe3,0xc9,0xe9,0xcd,0x48,0x7d,0x8f,0xc5,0x03,0x0b,0x9c,0x16,0x46,0x14,0x72,0xb3,0x3e,0xae,0x42,0xa0,0x33,0xf3,0x9c,0x79,0x3f,0xe5,0xa7,0x7c,0x3b,0x87} },
+    { 131072, {0x8a,0x98,0xa1,0x96,0x6a,0x97,0x30,0xb3,0xc8,0xb8,0x2e,0x2a,0xd6,0x06,0xed,0x57,0xfa,0xc2,0x12,0x27,0x3a,0xf3,0xcb,0x76,0xe1,0xf1,0x3f,0x7a,0x1e,0x44,0xfd,0xc6} },
+    { 131073, {0x8f,0xd1,0x92,0x3a,0x05,0x03,0x09,0xe2,0x8f,0x99,0x0c,0x33,0xf9,0xa2,0x7b,0xb3,0x86,0x50,0x29,0xa6,0xdc,0x39,0x26,0x96,0x58,0xda,0x03,0x65,0xa3,0x60,0xbf,0x4a} },
+    { 262144, {0x94,0xda,0x5d,0x5f,0xb7,0x48,0xe7,0x2e,0x94,0x47,0xfc,0x52,0x90,0x8f,0x6e,0xf0,0x51,0x91,0xd9,0xf8,0xee,0x4b,0x48,0x6a,0x50,0x41,0x6f,0xa7,0xa4,0x57,0x5d,0x24} },
+    { 262145, {0xba,0xf8,0x15,0x48,0xde,0xc6,0x2b,0x7c,0xea,0x70,0xd1,0x71,0x98,0x31,0xae,0x21,0x2a,0xf0,0x8d,0xf8,0xb8,0xfe,0x46,0xe8,0x9d,0xce,0x7d,0xdc,0xac,0xd5,0x5f,0x28} },
+    { 524288, {0xd3,0xb4,0x34,0xce,0x23,0x3d,0x85,0xa5,0xeb,0x07,0xe7,0x33,0x1d,0x9f,0xc1,0xcf,0x51,0xa6,0x3f,0x36,0x1d,0xa2,0x23,0xfb,0x35,0xea,0x6b,0x2f,0x84,0xaf,0x95,0xce} },
+    { 524289, {0x9f,0x05,0x67,0xce,0xbe,0xce,0x9c,0xdf,0x80,0xb1,0x45,0x7f,0xd8,0x3a,0x45,0xaf,0x0b,0xfc,0xa2,0x51,0x23,0xd6,0xf8,0x57,0x62,0xc2,0xad,0x67,0xeb,0xad,0x73,0x8c} },
     {0}
   };
+
+static void
+test_rand_fixtures( void ) {
+  fd_blake3_t blake_[1];
+  fd_blake3_t * blake = fd_blake3_join( fd_blake3_new( blake_ ) );
   for( ulong j=0UL; test_fixtures[j].sz; j++ ) {
     check_fixture( test_fixtures[j].hash, rand_buf, test_fixtures[j].sz, blake, rng );
   }
-  FD_LOG_NOTICE(( "OK: large inputs" ));
+  fd_blake3_delete( fd_blake3_leave( blake ) );
+}
+
+static void
+test_reduced( void ) {
+  fd_blake3_t blake_[1];
+  fd_blake3_t * blake = fd_blake3_join( fd_blake3_new( blake_ ) );
 
   /* Hash every message from 0 to 16MiB and ensure that the various APIs agree */
 
@@ -249,7 +423,55 @@ main( int     argc,
     FD_TEST( 0==memcmp( hash, hash2, 32UL ) );
   }
 
-  FD_LOG_NOTICE(( "Correctness tests OK" ));
+  fd_blake3_delete( fd_blake3_leave( blake ) );
+}
+
+static void
+test_reduced_xof2048( void ) {
+  fd_rng_t rng_[1];
+  fd_rng_t * rng = fd_rng_join( fd_rng_new( rng_, 1U, 0UL ) );
+
+  ulong acc = 0UL;
+  uchar input[ 65536 ];
+  uchar hash [  2048 ];
+  for( ulong sz=0UL; sz<=sizeof(input); sz++ ) {
+    fd_blake3_t blake[1];
+    fd_blake3_init( blake );
+    for( ulong j=0UL; j<sz; j++ ) input[ j ] = fd_rng_uchar( rng );
+    fd_blake3_append( blake, input, sz );
+    fd_blake3_fini_2048( blake, hash );
+    acc ^= fd_hash( 0UL, hash, sizeof(hash) );
+  }
+  FD_TEST( acc==0x79836ea1df1a342aUL );
+
+  fd_rng_delete( fd_rng_leave( rng ) );
+}
+
+static void
+test_lthash( void ) {
+  fd_blake3_t blake_[1];
+  fd_blake3_t * blake = fd_blake3_join( fd_blake3_new( blake_ ) );
+
+  uchar const * in = rand_buf;
+  ushort lthash[ 1024 ] = {0};
+  for( ulong i=0UL; i<16UL; i++ ) {
+    fd_blake3_init( blake );
+    fd_blake3_append( blake, in, 1024UL );
+    uchar ele2[32];
+    fd_blake3_fini( blake, ele2 );
+
+    fd_blake3_init( blake );
+    fd_blake3_append( blake, in, 1024UL );
+    in += 1024UL;
+    ushort ele[ 1024 ] = {0};
+    fd_blake3_fini_2048( blake, ele );
+    FD_TEST( fd_memeq( ele, ele2, 32UL ) );
+    for( ulong j=0UL; j<1024UL; j++ ) lthash[ j ] = (ushort)( lthash[ j ] + ele[ j ] );
+  }
+  FD_TEST( fd_hash( 0UL, lthash, sizeof(lthash) )==lthash_1024_16_hash );
+
+  fd_blake3_delete( fd_blake3_leave( blake ) );
+}
 
   /* Benchmarks */
 
@@ -265,6 +487,11 @@ main( int     argc,
       262144, 524288 };
   ulong bench_cnt = sizeof(bench_sz)/sizeof(bench_sz[0]);
 
+static void
+bench_incremental( void ) {
+  fd_blake3_t blake_[1];
+  fd_blake3_t * blake = fd_blake3_join( fd_blake3_new( blake_ ) );
+
   FD_LOG_NOTICE(( "Benchmarking incremental (best case)" ));
 
   for( ulong j=0UL; j<bench_cnt; j++ ) {
@@ -272,15 +499,16 @@ main( int     argc,
     ulong iter_target = (1UL<<28)/sz;
 
     /* warmup */
+    uchar hash[ 32 ];
     ulong iter = iter_target / 100;
     long dt = fd_log_wallclock();
-    for( ulong rem=iter; rem; rem-- ) fd_blake3_fini( fd_blake3_append( fd_blake3_init( blake ), buf, sz ), hash );
+    for( ulong rem=iter; rem; rem-- ) fd_blake3_fini( fd_blake3_append( fd_blake3_init( blake ), rand_buf, sz ), hash );
     dt = fd_log_wallclock() - dt;
 
     /* for real */
     iter = iter_target;
     dt = fd_log_wallclock();
-    for( ulong rem=iter; rem; rem-- ) fd_blake3_fini( fd_blake3_append( fd_blake3_init( blake ), buf, sz ), hash );
+    for( ulong rem=iter; rem; rem-- ) fd_blake3_fini( fd_blake3_append( fd_blake3_init( blake ), rand_buf, sz ), hash );
     dt = fd_log_wallclock() - dt;
 
     FD_LOG_NOTICE(( "  ~%6.3f Gbps per core; %f ns per byte (sz %6lu)",
@@ -289,34 +517,75 @@ main( int     argc,
                     sz ));
   }
 
+  fd_blake3_delete( fd_blake3_leave( blake ) );
+}
+
+static void
+bench_incremental_xof_2048( void ) {
+  fd_blake3_t blake_[1];
+  fd_blake3_t * blake = fd_blake3_join( fd_blake3_new( blake_ ) );
+
+  FD_LOG_NOTICE(( "Benchmarking incremental XOF(2048) (best case)" ));
+
+  for( ulong j=0UL; j<bench_cnt; j++ ) {
+    ulong sz          = bench_sz[j];
+    ulong iter_target = (1UL<<28)/sz;
+
+    /* warmup */
+    uchar hash[ 2048 ] __attribute__((aligned(64)));
+    ulong iter = iter_target / 100;
+    long dt = fd_log_wallclock();
+    for( ulong rem=iter; rem; rem-- ) fd_blake3_fini_2048( fd_blake3_append( fd_blake3_init( blake ), rand_buf, sz ), hash );
+    dt = fd_log_wallclock() - dt;
+
+    /* for real */
+    iter = iter_target;
+    dt = fd_log_wallclock();
+    for( ulong rem=iter; rem; rem-- ) fd_blake3_fini_2048( fd_blake3_append( fd_blake3_init( blake ), rand_buf, sz ), hash );
+    dt = fd_log_wallclock() - dt;
+
+    FD_LOG_NOTICE(( "  ~%6.3f Gbps per core input;  ~%6.3f Gbps per core total;  %f ns per byte (sz %6lu)",
+                    (double)(((float)( 8UL*sz      *iter))/((float)dt)),
+                    (double)(((float)((8UL*sz+2048)*iter))/((float)dt)),
+                    (double)dt/((double)sz*(double)iter),
+                    sz ));
+  }
+
+  fd_blake3_delete( fd_blake3_leave( blake ) );
+}
+
+static void
+bench_streamlined( void ) {
   FD_LOG_NOTICE(( "Benchmarking streamlined" ));
   for( ulong j=0UL; j<bench_cnt; j++ ) {
     ulong sz          = bench_sz[j];
     ulong iter_target = (1UL<<28)/sz;
 
     /* warmup */
+    uchar hash[ 32 ];
     ulong iter = iter_target / 100;
     long dt = fd_log_wallclock();
-    for( ulong rem=iter; rem; rem-- ) fd_blake3_hash( buf, sz, hash );
+    for( ulong rem=iter; rem; rem-- ) fd_blake3_hash( rand_buf, sz, hash );
     dt = fd_log_wallclock() - dt;
 
     /* for real */
     iter = iter_target;
     dt = fd_log_wallclock();
-    for( ulong rem=iter; rem; rem-- ) fd_blake3_hash( buf, sz, hash );
+    for( ulong rem=iter; rem; rem-- ) fd_blake3_hash( rand_buf, sz, hash );
     dt = fd_log_wallclock() - dt;
 
     double gbps = (double)(((float)(8UL*sz*iter))/((float)dt));
     FD_LOG_NOTICE(( "  ~%6.3f Gbps per core; %f ns per byte (sz %6lu)",
                     gbps, (double)dt/((double)sz*(double)iter), sz ));
   }
+}
 
-  /* Raw benchmarks */
+#if FD_HAS_AVX512
 
-  uchar batch_hash[ FD_BLAKE3_PARA_MAX*32 ] __attribute__((aligned(64)));
-
+static void
+bench_avx512_compress16_fast( void ) {
   FD_LOG_NOTICE(( "Benchmarking AVX512 backend (compress16_fast)" ));
-# if FD_HAS_AVX512
+  uchar batch_hash[ 1024 ] __attribute__((aligned(64)));
   for( uint sz=1024; sz>4; sz>>=4 ) {
     uchar const flags = sz==64 ? FD_BLAKE3_FLAG_PARENT : 0;
     /* warmup */
@@ -331,9 +600,13 @@ main( int     argc,
     FD_LOG_NOTICE(( "  ~%6.3f Gbps throughput / core (par 16 sz %u)", (double)(16UL*8UL*sz*iter) / (double)dt, sz ));
     FD_LOG_NOTICE(( "  %6.3g * 16 blocks / second / core", (double)iter * 1e9 / (double)dt ));
   }
+}
 
+static void
+bench_avx512_compress16( void ) {
   FD_LOG_NOTICE(( "Benchmarking AVX512 backend (compress16)" ));
   for( uint sz=1024; sz>4; sz>>=4 ) {
+    uchar        block_res[ 1024 ] __attribute__((aligned(64)));
     ulong        batch_data2[ 16 ]; for( uint i=0; i<16; i++ ) batch_data2[i] = (ulong)rand_buf;
     uint         batch_sz   [ 16 ]; for( uint i=0; i<16; i++ ) batch_sz   [i] = sz;
     void *       batch_hash [ 16 ]; for( uint i=0; i<16; i++ ) batch_hash [i] = block_res;
@@ -341,21 +614,50 @@ main( int     argc,
     uint         batch_flags[ 16 ] = {0U};
     /* warmup */
     for( ulong rem=100UL; rem; rem-- )
-      fd_blake3_avx512_compress16( 16UL, batch_data2, batch_sz, batch_hash, ctr_vec, batch_flags );
+      fd_blake3_avx512_compress16( 16UL, batch_data2, batch_sz, ctr_vec, batch_flags, batch_hash, NULL, 32U, NULL );
     /* for real */
     ulong iter = 100000UL;
     long  dt   = -fd_log_wallclock();
     for( ulong rem=iter; rem; rem-- )
-      fd_blake3_avx512_compress16( 16UL, batch_data2, batch_sz, batch_hash, ctr_vec, batch_flags );
+      fd_blake3_avx512_compress16( 16UL, batch_data2, batch_sz, ctr_vec, batch_flags, batch_hash, NULL, 32U, NULL );
     dt += fd_log_wallclock();
     FD_LOG_NOTICE(( "  ~%6.3f Gbps throughput / core (par 16 sz %u)", (double)(16UL*8UL*sz*iter) / (double)dt, sz ));
     FD_LOG_NOTICE(( "  %6.3g * 16 blocks / second / core", (double)iter * 1e9 / (double)dt ));
   }
-# endif /* FD_HAS_AVX512 */
+}
 
-# if FD_HAS_AVX
+static void
+bench_avx512_lthash( void ) {
+  FD_LOG_NOTICE(( "Benchmarking AVX512 backend (LtHash)" ));
+    ulong  batch_data2[ 16 ]; for( uint i=0; i<16; i++ ) batch_data2[i] = (ulong)rand_buf;
+    uint   batch_sz   [ 16 ]; for( uint i=0; i<16; i++ ) batch_sz   [i] = 64;
+    ulong  ctr_vec    [ 16 ] = {0UL};
+    uint   batch_flags[ 16 ]; for( uint i=0; i<16; i++ ) batch_flags[i] = FD_BLAKE3_FLAG_ROOT;
+    ushort lthash     [ 1024 ] __attribute__((aligned(64)));
+    /* warmup */
+    for( ulong rem=100UL; rem; rem-- ) {
+      fd_blake3_avx512_compress16( 16UL, batch_data2, batch_sz, ctr_vec, batch_flags, NULL, lthash, 32U, NULL );
+    }
+    /* for real */
+    ulong iter = 100000UL;
+    long  dt   = -fd_log_wallclock();
+    for( ulong rem=iter; rem; rem-- ) {
+      fd_blake3_avx512_compress16( 16UL, batch_data2, batch_sz, ctr_vec, batch_flags, NULL, lthash, 32U, NULL );
+    }
+    dt += fd_log_wallclock();
+    FD_LOG_NOTICE(( "  %6.3g LtHash updates / second / core", (double)(iter*16) * 1e9 / (double)dt ));
+}
+
+
+#endif
+
+#if FD_HAS_AVX
+
+static void
+bench_avx_compress8_fast( void ) {
   FD_LOG_NOTICE(( "Benchmarking AVX2 backend (compress8_fast)" ));
   for( uint sz=1024; sz>4; sz>>=4 ) {
+    uchar batch_hash[ 512 ] __attribute__((aligned(32)));
     uchar const flags = sz==64 ? FD_BLAKE3_FLAG_PARENT : 0;
     /* warmup */
     for( ulong rem=100UL; rem; rem-- )
@@ -369,70 +671,166 @@ main( int     argc,
     FD_LOG_NOTICE(( "  ~%6.3f Gbps throughput / core (par 8 sz %u)", (double)(8UL*8UL*sz*iter) / (double)dt, sz ));
     FD_LOG_NOTICE(( "  %6.3g * 8 blocks / second / core", (double)iter * 1e9 / (double)dt ));
   }
+}
 
+static void
+bench_avx_compress8( void ) {
   FD_LOG_NOTICE(( "Benchmarking AVX2 backend (compress8)" ));
   for( uint sz=1024; sz>4; sz>>=4 ) {
-    ulong        batch_data2[ 8 ]; for( uint i=0; i<8; i++ ) batch_data2[i] = (ulong)rand_buf;
+    ulong        batch_data2[ 8 ] __attribute__((aligned(32)));
+    /*                          */ for( uint i=0; i<8; i++ ) batch_data2[i] = (ulong)rand_buf;
     uint         batch_sz   [ 8 ]; for( uint i=0; i<8; i++ ) batch_sz   [i] = sz;
-    void *       batch_hash [ 8 ]; for( uint i=0; i<8; i++ ) batch_hash [i] = block_res;
+    void *       batch_hash [ 8 ]; for( uint i=0; i<8; i++ ) batch_hash [i] = rand_buf;
     ulong        ctr_vec    [ 8 ] = {0UL};
     uint         batch_flags[ 8 ] = {0U};
     /* warmup */
     for( ulong rem=100UL; rem; rem-- )
-      fd_blake3_avx_compress8( 8UL, batch_data2, batch_sz, batch_hash, ctr_vec, batch_flags );
+      fd_blake3_avx_compress8( 8UL, batch_data2, batch_sz, ctr_vec, batch_flags, batch_hash, NULL, 32U, NULL );
     /* for real */
     ulong iter = 100000UL;
     long  dt   = -fd_log_wallclock();
     for( ulong rem=iter; rem; rem-- )
-      fd_blake3_avx_compress8( 8UL, batch_data2, batch_sz, batch_hash, ctr_vec, batch_flags );
+      fd_blake3_avx_compress8( 8UL, batch_data2, batch_sz, ctr_vec, batch_flags, batch_hash, NULL, 32U, NULL );
     dt += fd_log_wallclock();
     FD_LOG_NOTICE(( "  ~%6.3f Gbps throughput / core (par 8 sz %u)", (double)(8UL*8UL*sz*iter) / (double)dt, sz ));
-    FD_LOG_NOTICE(( "  %6.3g * 8 blocks / second / core", (double)iter * 1e9 / (double)dt ));
+    FD_LOG_NOTICE(( "  %6.3g batches / second / core", (double)iter     * 1e9 / (double)dt ));
+    FD_LOG_NOTICE(( "  %6.3g blocks  / second / core", (double)(iter*8) * 1e9 / (double)dt ));
   }
-# endif /* FD_HAS_AVX */
+}
 
-# if FD_HAS_SSE
+static void
+bench_avx_lthash( void ) {
+  FD_LOG_NOTICE(( "Benchmarking AVX2 backend (LtHash)" ));
+  ulong  batch_data [ 8 ] __attribute__((aligned(32)));
+  /*                    */ for( uint i=0; i<8; i++ ) batch_data[i] = (ulong)rand_buf;
+  uint   batch_sz   [ 8 ]; for( uint i=0; i<8; i++ ) batch_sz[i] = 64;
+  ulong  batch_ctr  [ 8 ] = {0UL};
+  uint   batch_flags[ 8 ]; for( uint i=0; i<8; i++ ) batch_flags[i] = FD_BLAKE3_FLAG_ROOT;
+  ushort lthash     [ 1024 ] __attribute__((aligned(32)));
+  /* warmup */
+  for( ulong rem=100UL; rem; rem-- ) {
+    fd_blake3_avx_compress8( 8UL, batch_data, batch_sz, batch_ctr, batch_flags, NULL, lthash, 32U, NULL );
+  }
+  /* for real */
+  ulong iter = 100000UL;
+  long  dt   = -fd_log_wallclock();
+  for( ulong rem=iter; rem; rem-- ) {
+    fd_blake3_avx_compress8( 8UL, batch_data, batch_sz, batch_ctr, batch_flags, NULL, lthash, 32U, NULL );
+  }
+  dt += fd_log_wallclock();
+  FD_LOG_NOTICE(( "  %6.3g LtHash updates / second / core", (double)(iter*8) * 1e9 / (double)dt ));
+}
+
+#endif
+
+#if FD_HAS_SSE
+
+static void
+bench_sse_compress1( void ) {
+  FD_LOG_NOTICE(( "Benchmarking SSE4.1 backend (compress1)" ));
   do {
     FD_LOG_NOTICE(( "Benchmarking SSE4.1 backend (compress1)" ));
+    uchar batch_hash[ 32 ] __attribute__((aligned(16)));
     /* warmup */
     for( ulong rem=100UL; rem; rem-- )
-      fd_blake3_sse_compress1( batch_hash, rand_buf, FD_BLAKE3_CHUNK_SZ, 0UL, 0 );
+      fd_blake3_sse_compress1( batch_hash, rand_buf, FD_BLAKE3_CHUNK_SZ, 0UL, 0, NULL, NULL );
     /* for real */
     ulong iter = 100000UL;
     long  dt   = -fd_log_wallclock();
     for( ulong rem=iter; rem; rem-- )
-      fd_blake3_sse_compress1( batch_hash, rand_buf, FD_BLAKE3_CHUNK_SZ, 0UL, 0 );
+      fd_blake3_sse_compress1( batch_hash, rand_buf, FD_BLAKE3_CHUNK_SZ, 0UL, 0, NULL, NULL );
     dt += fd_log_wallclock();
     FD_LOG_NOTICE(( "  ~%6.3f Gbps throughput / core (par 1 sz 1024)", (double)(8UL*1024UL*iter) / (double)dt ));
     FD_LOG_NOTICE(( "  %6.3g blocks / second / core", (double)iter * 1e9 / (double)dt ));
   } while(0);
-# endif /* FD_HAS_SSE */
+}
 
+#endif /* FD_HAS_SSE */
+
+static void
+bench_ref_compress1( void ) {
   do {
     FD_LOG_NOTICE(( "Benchmarking ref backend (compress1)" ));
+    uchar batch_hash[ 32 ];
     /* warmup */
     for( ulong rem=100UL; rem; rem-- )
-      fd_blake3_ref_compress1( batch_hash, rand_buf, FD_BLAKE3_CHUNK_SZ, 0UL, 0 );
+      fd_blake3_ref_compress1( batch_hash, rand_buf, FD_BLAKE3_CHUNK_SZ, 0UL, 0, NULL, NULL );
     /* for real */
     ulong iter = 100000UL;
     long  dt   = -fd_log_wallclock();
     for( ulong rem=iter; rem; rem-- )
-      fd_blake3_ref_compress1( batch_hash, rand_buf, FD_BLAKE3_CHUNK_SZ, 0UL, 0 );
+      fd_blake3_ref_compress1( batch_hash, rand_buf, FD_BLAKE3_CHUNK_SZ, 0UL, 0, NULL, NULL );
     dt += fd_log_wallclock();
     FD_LOG_NOTICE(( "  ~%6.3f Gbps throughput / core (par 1 sz 1024)", (double)(8UL*1024UL*iter) / (double)dt ));
     FD_LOG_NOTICE(( "  %6.3g blocks / second / core", (double)iter * 1e9 / (double)dt ));
   } while(0);
+}
 
-  /* clean up */
+struct test_fn {
+  char const * name;
+  void (* fn)( void );
+};
 
-  FD_TEST( fd_blake3_leave( NULL )==NULL ); /* null sha */
-  FD_TEST( fd_blake3_leave( blake  )==obj  ); /* ok */
+static struct test_fn const tests[] = {
+  { "lthash",           test_lthash },
+  { "constructor",      test_constructor },
+  { "small_fixtures",   test_small_fixtures },
+  { "rand_fixtures",    test_rand_fixtures },
+  { "reduced",          test_reduced },
+  { "reduced xof2048",  test_reduced_xof2048 },
 
-  FD_TEST( fd_blake3_delete( NULL          )==NULL ); /* null shsha       */
-  FD_TEST( fd_blake3_delete( (void *)0x1UL )==NULL ); /* misaligned shsha */
-  FD_TEST( fd_blake3_delete( obj           )==mem  ); /* ok */
+#if FD_HAS_AVX512
+  { "test avx512_compress16_fast",         test_avx512_compress16_fast },
+  { "test avx512_compress16",              test_avx512_compress16 },
+  { "test avx512_compress16_xof2048_para", test_avx512_compress16_xof2048_para },
+  { "test avx512_compress16_xof2048_seq",  test_avx512_compress16_xof2048_seq },
+#endif
+#if FD_HAS_AVX
+  { "test avx_compress8_fast",         test_avx_compress8_fast },
+  { "test avx_compress8",              test_avx_compress8 },
+  { "test avx_compress8_xof2048_para", test_avx_compress8_xof2048_para },
+  { "test avx_compress8_xof2048_seq",  test_avx_compress8_xof2048_seq },
+#endif
 
+  { "bench incremental",            bench_incremental },
+  { "bench streamlined",            bench_streamlined },
+  { "bench incremental xof 2048",   bench_incremental_xof_2048 },
+#if FD_HAS_AVX512
+  { "bench avx512_compress16_fast", bench_avx512_compress16_fast },
+  { "bench avx512_compress16",      bench_avx512_compress16 },
+  { "bench avx512_lthash",          bench_avx512_lthash },
+#endif
+#if FD_HAS_AVX
+  { "bench avx_compress8_fast",     bench_avx_compress8_fast },
+  { "bench avx_compress8",          bench_avx_compress8 },
+  { "bench avx_lthash",             bench_avx_lthash },
+#endif
+#if FD_HAS_SSE
+  { "bench sse_compress1",          bench_sse_compress1 },
+#endif
+  { "bench ref_compress1",          bench_ref_compress1 },
+
+  {0}
+};
+
+int
+main( int     argc,
+      char ** argv ) {
+  fd_boot( &argc, &argv );
+
+  do {
+    fd_rng_t _rng2[1]; fd_rng_t * rng2 = fd_rng_join( fd_rng_new( _rng2, 0x6a09e667, 0UL ) );
+    for( ulong b=0UL; b<sizeof(rand_buf); b++ ) rand_buf[b] = fd_rng_uchar( rng2 );
+    fd_rng_delete( fd_rng_leave( rng2 ) );
+  } while(0);
+
+  fd_rng_join( fd_rng_new( rng, 0U, 0UL ) );
+  for( struct test_fn const * t=tests; t->name; t++ ) {
+    t->fn();
+    FD_LOG_NOTICE(( "OK: %s", t->name ));
+  }
   fd_rng_delete( fd_rng_leave( rng ) );
+
   FD_LOG_NOTICE(( "pass" ));
   fd_halt();
   return 0;

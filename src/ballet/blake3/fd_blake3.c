@@ -114,7 +114,7 @@ fd_blake3_seek_branch( fd_blake3_pos_t * restrict s,
     return 1;
   }
 
-  uint j=0UL;
+  uint j=0U;
   uint single_lo = 0UL;
   uint single_hi = 0UL;
   for( ; j<32U; j++ ) {
@@ -312,9 +312,9 @@ fd_blake3_batch_hash( fd_blake3_op_t const * ops,
     batch_flags  [ j ] = ops[ j ].flags;
   }
 #if FD_HAS_AVX512
-  fd_blake3_avx512_compress16( op_cnt, batch_data, batch_data_sz, fd_type_pun( batch_hash ), batch_ctr, batch_flags );
+  fd_blake3_avx512_compress16( op_cnt, batch_data, batch_data_sz, batch_ctr, batch_flags, fd_type_pun( batch_hash ), NULL, 32U, NULL );
 #elif FD_HAS_AVX
-  fd_blake3_avx_compress8( op_cnt, batch_data, batch_data_sz, fd_type_pun( batch_hash ), batch_ctr, batch_flags );
+  fd_blake3_avx_compress8    ( op_cnt, batch_data, batch_data_sz, batch_ctr, batch_flags, fd_type_pun( batch_hash ), NULL, 32U, NULL );
 #else
   #error "FIXME missing para support"
 #endif
@@ -470,10 +470,10 @@ fd_blake3_append_blocks( fd_blake3_pos_t * s,
     }
     if( op->flags & FD_BLAKE3_FLAG_PARENT ) {
       FD_BLAKE3_TRACE(( "fd_blake3_append_blocks: compressing output chaining values (layer %u)", s->layer ));
-      fd_blake3_ref_compress1( op->out, op->msg, 64UL, op->counter, op->flags );
+      fd_blake3_ref_compress1( op->out, op->msg, 64UL, op->counter, op->flags, NULL, NULL );
     } else {
       FD_BLAKE3_TRACE(( "fd_blake3_append_blocks: compressing %lu leaf chunks", FD_BLAKE3_COL_CNT ));
-      fd_blake3_ref_compress1( op->out, op->msg, FD_BLAKE3_CHUNK_SZ, op->counter, op->flags );
+      fd_blake3_ref_compress1( op->out, op->msg, FD_BLAKE3_CHUNK_SZ, op->counter, op->flags, NULL, NULL );
       buf_cnt--;
     }
     s->next_tick++;
@@ -584,9 +584,9 @@ fd_blake3_single_hash( fd_blake3_pos_t * s,
     FD_BLAKE3_TRACE(( "fd_blake3_single_hash: compressing %hu bytes at layer %u, counter %lu, flags 0x%x",
                       op->sz, s->layer, op->counter, op->flags ));
 #   if FD_HAS_SSE
-    fd_blake3_sse_compress1( op->out, op->msg, op->sz, op->counter, op->flags );
+    fd_blake3_sse_compress1( op->out, op->msg, op->sz, op->counter, op->flags, NULL, NULL );
 #   else
-    fd_blake3_ref_compress1( op->out, op->msg, op->sz, op->counter, op->flags );
+    fd_blake3_ref_compress1( op->out, op->msg, op->sz, op->counter, op->flags, NULL, NULL );
 #   endif
   }
 #endif
@@ -614,12 +614,146 @@ fd_blake3_fini( fd_blake3_t * sha,
   return hash;
 }
 
+/* fd_blake3_fini_xof_compress performs BLAKE3 compression (input
+   hashing) for all blocks in the hash tree except for the root block.
+   Root compression inputs are returned via the function's out pointers:
+   On return, root_msg[0..64] contains the padded message input for the
+   root block, root_cv_pre[0..64] contains the output chaining value of
+   the previous block (or the BLAKE3 IV if root block is the only block
+   in the hash operation, i.e. <=64 byte hash input).
+   Other values (counter, flags, size) are re-derived by the XOF
+   implementation using the blake3 state object. */
+
+void
+fd_blake3_fini_xof_compress( fd_blake3_t * sha,
+                             uchar *       root_msg,
+                             uchar *       root_cv_pre ) {
+  fd_blake3_pos_t * s        = &sha->pos;
+  fd_blake3_buf_t * tbl      = &sha->buf;
+  uchar *           buf      = sha->block;
+  ulong             buf_used = sha->block_sz;
+
+  /* TODO HACKY!! */
+  s->input    = buf - ( s->leaf_idx << FD_BLAKE3_CHUNK_LG_SZ );
+  s->input_sz = ( s->leaf_idx << FD_BLAKE3_CHUNK_LG_SZ ) + buf_used;
+
+  /* The root block is contained in a leaf.  Process all but the last
+     blocks of the chunk.  (The last block is the "root" block) */
+  if( s->input_sz<=FD_BLAKE3_CHUNK_SZ ) {
+    fd_blake3_op_t op[1];
+    if( !fd_blake3_prepare_leaf( s, tbl, op, s->next_tick ) )
+      FD_LOG_ERR(( "fd_blake3_fini_xof_compress invariant violation: failed to prepare compression of <=1024 byte message (duplicate call to fini?)" ));
+#if FD_HAS_SSE
+    fd_blake3_sse_compress1( root_msg, op->msg, op->sz, op->counter, op->flags, root_cv_pre, NULL );
+#else
+    fd_blake3_ref_compress1( root_msg, op->msg, op->sz, op->counter, op->flags, root_cv_pre, NULL );
+#endif
+    return;
+  }
+
+  /* The root block is a branch node.  Continue working until there are
+     only two blocks remaining. */
+  ulong tick = sha->pos.next_tick+1;
+  for(;;) {
+    int l0_complete = fd_blake3_l0_complete( s );
+    int ln_complete = s->live_cnt == 2UL;
+    if( l0_complete & ln_complete ) break;
+
+#if FD_BLAKE3_PARA_MAX>1
+    fd_blake3_op_t ops[ FD_BLAKE3_PARA_MAX ] = {0};
+    ulong          op_cnt = 0UL;
+    while( op_cnt<FD_BLAKE3_PARA_MAX ) {
+      fd_blake3_op_t * op = &ops[ op_cnt ];
+      if( !fd_blake3_prepare( s, tbl, op, tick ) )
+        break;
+      op_cnt++;
+    }
+    if( FD_UNLIKELY( !op_cnt ) ) {
+      FD_LOG_ERR(( "fd_blake3_fini_xof_compress invariant violation: failed to prepare branch compression with live_cnt=%lu (duplicate call to fini?)", s->live_cnt ));
+    }
+
+    fd_blake3_batch_hash( ops, op_cnt );
+#else
+    fd_blake3_op_t op[1] = {0};
+    if( !fd_blake3_prepare( s, tbl, op, tick ) )
+      break;
+#   if FD_HAS_SSE
+    fd_blake3_sse_compress1( op->out, op->msg, op->sz, op->counter, op->flags, NULL, NULL );
+#   else
+    fd_blake3_ref_compress1( op->out, op->msg, op->sz, op->counter, op->flags, NULL, NULL );
+#   endif
+#endif
+    tick++;
+  }
+}
+
 void *
 fd_blake3_fini_2048( fd_blake3_t * sha,
                      void *        hash ) {
-  (void)sha;
-  fd_memset( hash, 0, 2048UL );
-  return NULL;
+  FD_BLAKE3_TRACE(( "fd_blake3_fini_2048(sha=%p,hash=%p)", (void *)sha, hash ));
+
+  /* Compress input until the last remaining piece of work is the BLAKE3
+     root block.  This root block is put through the compression
+     function repeatedly to "expand" the hash output (XOF hashing).
+     Solana uses this to generate a 2048 byte 'LtHash' value.
+     fd_blake3 does this SIMD-parallel for better performance. */
+  uchar root_msg   [ 64 ] __attribute__((aligned(64)));
+  uchar root_cv_pre[ 32 ] __attribute__((aligned(32)));
+  fd_blake3_fini_xof_compress( sha, root_msg, root_cv_pre );
+
+  /* Restore root block details */
+  uint          last_block_sz    = 64u;
+  uint          last_block_flags = FD_BLAKE3_FLAG_ROOT | FD_BLAKE3_FLAG_PARENT;
+  ulong         ctr0             = 0UL;
+  if( sha->pos.input_sz<=FD_BLAKE3_CHUNK_SZ ) {
+    last_block_sz    = (uint)sha->pos.input_sz & 63u;
+    if( fd_ulong_is_aligned( sha->pos.input_sz, 64 ) ) last_block_sz = 64;
+    if( FD_UNLIKELY( sha->pos.input_sz==0UL        ) ) last_block_sz = 0u;
+    last_block_flags = FD_BLAKE3_FLAG_ROOT | FD_BLAKE3_FLAG_CHUNK_END;
+    if( sha->pos.input_sz<=FD_BLAKE3_BLOCK_SZ ) last_block_flags |= FD_BLAKE3_FLAG_CHUNK_START;
+    ctr0             = sha->pos.leaf_idx-1UL;
+  } else {
+    fd_blake3_op_t op[1];
+    if( FD_UNLIKELY( !fd_blake3_prepare( &sha->pos, &sha->buf, op, sha->pos.next_tick+1UL ) ) ) {
+      FD_LOG_ERR(( "fd_blake3_fini_2048 invariant violation: failed to prepare branch root compression (duplicate call to fini?)" ));
+    }
+    memcpy( root_msg,    op->msg,      64UL );
+    memcpy( root_cv_pre, FD_BLAKE3_IV, 32UL );
+  }
+  FD_BLAKE3_TRACE(( "fd_blake3_fini_2048: sz=%lu ctr0=%lu flags=%x",
+                    sha->pos.input_sz, ctr0, last_block_flags ));
+
+  /* Expand LtHash
+     For now, this uses the generic AVX2/AVX512 compress backend.
+     Could write a more optimized version in the future saving some of
+     the matrix transpose work. */
+  for( ulong i=0UL; i<32UL; i+=FD_BLAKE3_PARA_MAX ) {
+#if FD_HAS_AVX512
+    ulong  batch_data [ 16 ] __attribute__((aligned(64)));
+    /*                     */ for( ulong j=0; j<16; j++ ) batch_data [ j ] = (ulong)root_msg;
+    uint   batch_sz   [ 16 ]; for( ulong j=0; j<16; j++ ) batch_sz   [ j ] = last_block_sz;
+    ulong  batch_ctr  [ 16 ]; for( ulong j=0; j<16; j++ ) batch_ctr  [ j ] = ctr0+i+j;
+    uint   batch_flags[ 16 ]; for( ulong j=0; j<16; j++ ) batch_flags[ j ] = last_block_flags;
+    void * batch_hash [ 16 ]; for( ulong j=0; j<16; j++ ) batch_hash [ j ] = (uchar *)hash + (i+j)*64;
+    void * batch_cv   [ 16 ]; for( ulong j=0; j<16; j++ ) batch_cv   [ j ] = root_cv_pre;
+    fd_blake3_avx512_compress16( 16UL, batch_data, batch_sz, batch_ctr, batch_flags, batch_hash, NULL, 64U, batch_cv );
+#elif FD_HAS_AVX
+    ulong  batch_data [ 8 ]; for( ulong j=0; j<8; j++ ) batch_data [ j ] = (ulong)root_msg;
+    uint   batch_sz   [ 8 ]; for( ulong j=0; j<8; j++ ) batch_sz   [ j ] = last_block_sz;
+    ulong  batch_ctr  [ 8 ]; for( ulong j=0; j<8; j++ ) batch_ctr  [ j ] = ctr0+i+j;
+    uint   batch_flags[ 8 ]; for( ulong j=0; j<8; j++ ) batch_flags[ j ] = last_block_flags;
+    void * batch_hash [ 8 ]; for( ulong j=0; j<8; j++ ) batch_hash [ j ] = (uchar *)hash + (i+j)*64;
+    void * batch_cv   [ 8 ]; for( ulong j=0; j<8; j++ ) batch_cv   [ j ] = root_cv_pre;
+    fd_blake3_avx_compress8( 8UL, batch_data, batch_sz, batch_ctr, batch_flags, batch_hash, NULL, 64U, batch_cv );
+#elif FD_HAS_SSE
+    fd_blake3_sse_compress1( (uchar *)hash+i*64, root_msg, last_block_sz, ctr0+i, last_block_flags, NULL, root_cv_pre );
+#else
+    fd_blake3_ref_compress1( (uchar *)hash+i*64, root_msg, last_block_sz, ctr0+i, last_block_flags, NULL, root_cv_pre );
+#endif
+  }
+
+  FD_BLAKE3_TRACE(( "fd_blake3_fini_2048: done" ));
+  return hash;
 }
 
 void *
@@ -650,3 +784,53 @@ fd_blake3_hash( void const * data,
   memcpy( hash, hash_, 32UL );
   return hash;
 }
+
+#if FD_HAS_AVX
+
+void
+fd_blake3_lthash_batch8(
+    void const * batch_data[8],  /* align=32 ele_align=1 */
+    uint const   batch_sz  [8],  /* align=32 */
+    void *       out_lthash      /* align=32 */
+) {
+  if( FD_UNLIKELY( !fd_ulong_is_aligned( (ulong)batch_data, 32 ) ) ) {
+    FD_LOG_ERR(( "misaligned batch_data: %p", (void *)batch_data ));
+  }
+  if( FD_UNLIKELY( !fd_ulong_is_aligned( (ulong)batch_sz, 32 ) ) ) {
+    FD_LOG_ERR(( "misaligned batch_sz: %p", (void *)batch_sz ));
+  }
+  if( FD_UNLIKELY( !fd_ulong_is_aligned( (ulong)out_lthash, 32 ) ) ) {
+    FD_LOG_ERR(( "misaligned out_lthash: %p", (void *)out_lthash ));
+  }
+
+  ulong batch_ctr  [ 8 ] = {0};
+  uint  batch_flags[ 8 ]; for( uint i=0; i<8; i++ ) batch_flags[ i ] = FD_BLAKE3_FLAG_ROOT;
+  fd_blake3_avx_compress8( 8UL, batch_data, batch_sz, batch_ctr, batch_flags, NULL, out_lthash, 32U, NULL );
+}
+
+#endif
+
+#if FD_HAS_AVX512
+
+void
+fd_blake3_lthash_batch16(
+    void const * batch_data[16],  /* align=32 ele_align=1 */
+    uint const   batch_sz  [16],  /* align=32 */
+    void *       out_lthash      /* align=32 */
+) {
+  if( FD_UNLIKELY( !fd_ulong_is_aligned( (ulong)batch_data, 64 ) ) ) {
+    FD_LOG_ERR(( "misaligned batch_data: %p", (void *)batch_data ));
+  }
+  if( FD_UNLIKELY( !fd_ulong_is_aligned( (ulong)batch_sz, 64 ) ) ) {
+    FD_LOG_ERR(( "misaligned batch_sz: %p", (void *)batch_sz ));
+  }
+  if( FD_UNLIKELY( !fd_ulong_is_aligned( (ulong)out_lthash, 64 ) ) ) {
+    FD_LOG_ERR(( "misaligned out_lthash: %p", (void *)out_lthash ));
+  }
+
+  ulong batch_ctr  [ 16 ] = {0};
+  uint  batch_flags[ 16 ]; for( uint i=0; i<16; i++ ) batch_flags[ i ] = FD_BLAKE3_FLAG_ROOT;
+  fd_blake3_avx512_compress16( 16UL, batch_data, batch_sz, batch_ctr, batch_flags, NULL, out_lthash, 32U, NULL );
+}
+
+#endif
