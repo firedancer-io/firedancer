@@ -18,7 +18,21 @@
 #include <netinet/in.h>
 #include <stdarg.h>
 
+#ifdef __has_include
+#if __has_include("../../app/firedancer/version.h")
 #include "../../app/firedancer/version.h"
+#endif
+#endif
+
+#ifndef FDCTL_MAJOR_VERSION
+#define FDCTL_MAJOR_VERSION 0
+#endif
+#ifndef FDCTL_MINOR_VERSION
+#define FDCTL_MINOR_VERSION 0
+#endif
+#ifndef FDCTL_PATCH_VERSION
+#define FDCTL_PATCH_VERSION 0
+#endif
 
 #define CRLF "\r\n"
 #define MATCH_STRING(_text_,_text_sz_,_str_) (_text_sz_ == sizeof(_str_)-1 && memcmp(_text_, _str_, sizeof(_str_)-1) == 0)
