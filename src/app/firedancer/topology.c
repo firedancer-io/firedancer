@@ -881,7 +881,6 @@ fd_topo_configure_tile( fd_topo_tile_t * tile,
       tile->gossip.ports.gossip           = config->gossip.port;
       tile->gossip.ports.tvu              = config->tiles.shred.shred_listen_port;
       tile->gossip.ports.tpu              = config->tiles.quic.regular_transaction_listen_port;
-      tile->gossip.ports.vote             = config->tiles.quic.regular_transaction_listen_port;
       tile->gossip.ports.tpu_quic         = config->tiles.quic.quic_transaction_listen_port;
       tile->gossip.ports.repair           = config->tiles.repair.repair_intake_listen_port;
 

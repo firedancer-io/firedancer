@@ -60,7 +60,12 @@ gossip_cmd_topo( config_t * config ) {
   gossip_tile->gossip.shred_version = config->consensus.expected_shred_version;
   gossip_tile->gossip.max_entries  = config->tiles.gossip.max_entries;
   gossip_tile->gossip.ports.gossip = config->gossip.port;
-  gossip_tile->gossip.boot_timesamp_nanos = fd_log_wallclock();
+  gossip_tile->gossip.ports.repair = 0;
+  gossip_tile->gossip.ports.tpu = 0;
+  gossip_tile->gossip.ports.tpu_quic = 0;
+  gossip_tile->gossip.ports.tvu = 0;
+  gossip_tile->gossip.ports.tvu_quic = 0;
+  gossip_tile->gossip.boot_timesamp_nanos = config->boot_timesamp_nanos;
 
   fd_topob_wksp( topo, "gossvf" );
   for( ulong i=0UL; i<gossvf_tile_count; i++ ) {
@@ -73,7 +78,7 @@ gossip_cmd_topo( config_t * config ) {
     for( ulong i=0UL; i<config->gossip.entrypoints_cnt; i++ ) {
       gossvf_tile->gossvf.entrypoints[ i ] = config->gossip.resolved_entrypoints[ i ];
     }
-    gossvf_tile->gossvf.boot_timesamp_nanos = gossip_tile->gossip.boot_timesamp_nanos;
+    gossvf_tile->gossvf.boot_timesamp_nanos = config->boot_timesamp_nanos;
   }
   fd_topos_net_rx_link( topo, "net_gossvf", 0UL, config->net.ingress_buffer_size );
   for( ulong i=0UL; i<gossvf_tile_count; i++ ) {
@@ -793,6 +798,7 @@ gossip_cmd_fn( args_t *   args,
     total_overrun += overrun_count;
   }
   printf(" Total Overrun: %s\n", fmt_count( buf1, total_overrun ) );
+  printf(" Total ping tracked: %lu\n", gossip_metrics[ MIDX( COUNTER, GOSSIP, PING_TRACKED_COUNT ) ] );
 
   printf(" Net RX bw %s, TX bw %s .. %s %s\n", fmt_bytes( buf1, net_metrics[ MIDX( COUNTER, NET, RX_BYTES_TOTAL ) ] - prev_net_rx1_bytes ),
                                       fmt_bytes( buf2, net_metrics[ MIDX( COUNTER, NET, TX_BYTES_TOTAL ) ] - prev_net_tx1_bytes ),

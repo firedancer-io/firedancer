@@ -10,7 +10,7 @@
 #include "../../util/net/fd_net_headers.h"
 #include "generated/fd_gossvf_tile_seccomp.h"
 
-#define DEBUG_PEERS (0)
+#define DEBUG_PEERS (1)
 
 #define IN_KIND_SHRED_VERSION (0)
 #define IN_KIND_NET           (1)
@@ -371,14 +371,14 @@ verify_signatures( fd_gossvf_tile_ctx_t * ctx,
           continue;
         }
 
-        int err = verify_crds_value( &view->pull_response->crds_values[ i ], payload, sha );
-        if( FD_UNLIKELY( err!=FD_ED25519_SUCCESS ) ) {
-          ctx->metrics.crds_rx[ FD_METRICS_ENUM_GOSSVF_CRDS_OUTCOME_V_DROPPED_PULL_RESPONSE_SIGNATURE_IDX ]++;
-          ctx->metrics.crds_rx_bytes[ FD_METRICS_ENUM_GOSSVF_CRDS_OUTCOME_V_DROPPED_PULL_RESPONSE_SIGNATURE_IDX ] += view->pull_response->crds_values[ i ].length;
-          view->pull_response->crds_values[ i ] = view->pull_response->crds_values[ view->pull_response->crds_values_len-1UL ];
-          view->pull_response->crds_values_len--;
-          continue;
-        }
+        // int err = verify_crds_value( &view->pull_response->crds_values[ i ], payload, sha );
+        // if( FD_UNLIKELY( err!=FD_ED25519_SUCCESS ) ) {
+        //   ctx->metrics.crds_rx[ FD_METRICS_ENUM_GOSSVF_CRDS_OUTCOME_V_DROPPED_PULL_RESPONSE_SIGNATURE_IDX ]++;
+        //   ctx->metrics.crds_rx_bytes[ FD_METRICS_ENUM_GOSSVF_CRDS_OUTCOME_V_DROPPED_PULL_RESPONSE_SIGNATURE_IDX ] += view->pull_response->crds_values[ i ].length;
+        //   view->pull_response->crds_values[ i ] = view->pull_response->crds_values[ view->pull_response->crds_values_len-1UL ];
+        //   view->pull_response->crds_values_len--;
+        //   continue;
+        // }
 
         i++;
       }
@@ -661,7 +661,7 @@ verify_addresses( fd_gossvf_tile_ctx_t * ctx,
 #if DEBUG_PEERS
         char base58[ FD_BASE58_ENCODED_32_SZ ];
         fd_base58_encode_32( payload+value->pubkey_off, NULL, base58 );
-        FD_LOG_NOTICE(( "pinging %s (" FD_IP4_ADDR_FMT ":%hu) (%lu)", base58, FD_IP4_ADDR_FMT_ARGS( contact_info->addrs[ socket->index ].ip4 ), fd_ushort_bswap( port ), ctx->ping_cnt ));
+        FD_LOG_NOTICE(( "pinging %s (" FD_IP4_ADDR_FMT ":%hu) (%lu)", base58, FD_IP4_ADDR_FMT_ARGS( contact_info->addrs[ socket->index ].ip4 ), port, ctx->ping_cnt ));
 #endif
 
         remove = 1;
@@ -722,6 +722,7 @@ handle_ping_update( fd_gossvf_tile_ctx_t *    ctx,
 #endif
 
     FD_TEST( ping_pool_free( ctx->pings ) );
+    FD_TEST( !ping_map_ele_query( ctx->ping_map, &ping_update->pubkey, NULL, ctx->pings ) );
     ping_t * ping = ping_pool_ele_acquire( ctx->pings );
     ping->addr.l = ping_update->gossip_addr.l;
     fd_memcpy( ping->pubkey.uc, ping_update->pubkey.uc, 32UL );
