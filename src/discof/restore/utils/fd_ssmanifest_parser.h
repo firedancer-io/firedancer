@@ -36,6 +36,9 @@ fd_ssmanifest_acc_vec_sz( fd_ssmanifest_parser_t const * parser,
                           ulong                          slot,
                           ulong                          id );
 
+ulong
+fd_ssmanifest_bank_slot( fd_ssmanifest_parser_t const * parser );
+
 FD_PROTOTYPES_END
 
 #endif /* HEADER_fd_src_discof_restore_utils_fd_ssmanifest_parser_h */

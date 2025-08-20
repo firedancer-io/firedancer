@@ -26,11 +26,11 @@ fd_sysvar_slot_history_update( fd_exec_slot_ctx_t * slot_ctx );
 /* fd_sysvar_slot_history_read reads the slot history sysvar from funk.
    If the account doesn't exist in funk or if the account has zero
    lamports, this function returns NULL. */
-
 fd_slot_history_global_t *
 fd_sysvar_slot_history_read( fd_funk_t *     funk,
                              fd_funk_txn_t * funk_txn,
-                             fd_spad_t *     spad );
+                             void *          buf,
+                             ulong           bufsz );
 
 int
 fd_sysvar_slot_history_find_slot( fd_slot_history_global_t const * history,

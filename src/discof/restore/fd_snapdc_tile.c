@@ -110,6 +110,10 @@ handle_control_frag( fd_snapdc_tile_t *  ctx,
   /* 2. Check if the control message is actually valid given the state
         machine, and if not, return a malformed message to the sender. */
   switch( sig ) {
+    case FD_SNAPSHOT_MSG_CTRL_EXPECT_INCREMENTAL:
+    case FD_SNAPSHOT_MSG_CTRL_EXPECT_FULL_ONLY:
+      /* Purely an information message, no-op */
+      break;
     case FD_SNAPSHOT_MSG_CTRL_RESET_FULL:
       ctx->state = FD_SNAPDC_STATE_DECOMPRESSING;
       ctx->full = 1;

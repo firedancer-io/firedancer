@@ -7,6 +7,9 @@
 #include "../../flamenco/runtime/fd_acc_mgr.h"
 #include "../../flamenco/types/fd_types.h"
 #include "../../funk/fd_funk.h"
+#include "../../flamenco/runtime/fd_txncache.h"
+#include "../../flamenco/runtime/sysvar/fd_sysvar_slot_history.h"
+#include <stdalign.h>
 
 #define NAME "snapin"
 
@@ -23,16 +26,23 @@
 struct fd_snapin_tile {
   int full;
   int state;
+  int incremental_snapshot_fetch;
 
   ulong seed;
   long boot_timestamp;
 
   fd_funk_t       funk[1];
   fd_funk_txn_t * funk_txn;
+  fd_txncache_t * tcache;
   uchar *         acc_data;
 
-  fd_stem_context_t * stem;
+  fd_stem_context_t *    stem;
   fd_snapshot_parser_t * ssparse;
+
+  ulong bank_slot;
+
+  uchar * scratch;
+  ulong   scratch_sz;
 
   struct {
     ulong full_bytes_read;
@@ -75,8 +85,9 @@ static ulong
 scratch_footprint( fd_topo_tile_t const * tile ) {
   (void)tile;
   ulong l = FD_LAYOUT_INIT;
-  l = FD_LAYOUT_APPEND( l, alignof(fd_snapin_tile_t),  sizeof(fd_snapin_tile_t)                  );
+  l = FD_LAYOUT_APPEND( l, alignof(fd_snapin_tile_t),  sizeof(fd_snapin_tile_t)                                );
   l = FD_LAYOUT_APPEND( l, fd_snapshot_parser_align(), fd_snapshot_parser_footprint( 1UL<<24UL ) );
+  l = FD_LAYOUT_APPEND( l, 8UL,                        10UL << 20UL                                            );
   return FD_LAYOUT_FINI( l, alignof(fd_snapin_tile_t) );
 }
 
@@ -89,14 +100,50 @@ metrics_write( fd_snapin_tile_t * ctx ) {
   FD_MGAUGE_SET( SNAPIN, STATE, (ulong)ctx->state );
 }
 
+static int
+verify_slot_deltas( slot_set_t const *         slot_set,
+                    fd_slot_entry_t const *    slot_pool,
+                    fd_slot_history_global_t * slot_history ) {
+
+  for( slot_set_iter_t iter = slot_set_iter_init( slot_set, slot_pool );
+       !slot_set_iter_done( iter, slot_set, slot_pool );
+       iter = slot_set_iter_next( iter, slot_set, slot_pool ) ) {
+    fd_slot_entry_t const * slot_entry = slot_set_iter_ele_const( iter, slot_set, slot_pool );
+    if( FD_UNLIKELY( fd_sysvar_slot_history_find_slot( slot_history, slot_entry->slot, NULL )!=FD_SLOT_HISTORY_SLOT_FOUND ) ) return -1;
+  }
+
+  return 0;
+}
+
 static void
 manifest_cb( void * _ctx ) {
   fd_snapin_tile_t * ctx = (fd_snapin_tile_t*)_ctx;
+
+  fd_snapshot_manifest_t const * manifest = fd_chunk_to_laddr_const( ctx->manifest_out.wksp, ctx->manifest_out.chunk );
+  ctx->bank_slot = manifest->slot;
+  /* TODO: verify bank slot matches predicted slot */
 
   ulong sig = ctx->full ? fd_ssmsg_sig( FD_SSMSG_MANIFEST_FULL ) :
                           fd_ssmsg_sig( FD_SSMSG_MANIFEST_INCREMENTAL );
   fd_stem_publish( ctx->stem, 0UL, sig, ctx->manifest_out.chunk, sizeof(fd_snapshot_manifest_t), 0UL, 0UL, 0UL );
   ctx->manifest_out.chunk = fd_dcache_compact_next( ctx->manifest_out.chunk, sizeof(fd_snapshot_manifest_t), ctx->manifest_out.chunk0, ctx->manifest_out.wmark );
+}
+
+static void
+status_cache_cb( void *                        _ctx,
+                 fd_sstxncache_entry_t const * entry ) {
+  fd_snapin_tile_t * ctx = (fd_snapin_tile_t*)_ctx;
+
+  if( FD_LIKELY( ctx->tcache ) ) {
+    fd_txncache_insert_t insert = {
+      .blockhash = entry->blockhash,
+      .slot      = entry->slot,
+      .txnhash   = entry->txnhash,
+      .result    = &entry->result
+    };
+
+    fd_txncache_insert_batch( ctx->tcache, &insert, 1 );
+  }
 }
 
 static void
@@ -208,28 +255,37 @@ handle_control_frag( fd_snapin_tile_t *  ctx,
                      fd_stem_context_t * stem,
                      ulong               sig ) {
   switch( sig ) {
+    case FD_SNAPSHOT_MSG_CTRL_EXPECT_INCREMENTAL:
+      ctx->incremental_snapshot_fetch = 1;
+      fd_snapshot_parser_reset( ctx->ssparse, fd_chunk_to_laddr( ctx->manifest_out.wksp, ctx->manifest_out.chunk ), ctx->manifest_out.mtu, 0 );
+      break;
+    case FD_SNAPSHOT_MSG_CTRL_EXPECT_FULL_ONLY:
+      ctx->incremental_snapshot_fetch = 0;
+      fd_snapshot_parser_reset( ctx->ssparse, fd_chunk_to_laddr( ctx->manifest_out.wksp, ctx->manifest_out.chunk ), ctx->manifest_out.mtu, 1 );
+      break;
     case FD_SNAPSHOT_MSG_CTRL_RESET_FULL:
       ctx->full = 1;
-      fd_snapshot_parser_reset( ctx->ssparse, fd_chunk_to_laddr( ctx->manifest_out.wksp, ctx->manifest_out.chunk ), ctx->manifest_out.mtu );
+      fd_snapshot_parser_reset( ctx->ssparse, fd_chunk_to_laddr( ctx->manifest_out.wksp, ctx->manifest_out.chunk ), ctx->manifest_out.mtu, !ctx->incremental_snapshot_fetch );
       fd_funk_txn_cancel_root( ctx->funk );
       ctx->state = FD_SNAPIN_STATE_LOADING;
       break;
     case FD_SNAPSHOT_MSG_CTRL_RESET_INCREMENTAL:
       ctx->full = 0;
-      fd_snapshot_parser_reset( ctx->ssparse, fd_chunk_to_laddr( ctx->manifest_out.wksp, ctx->manifest_out.chunk ), ctx->manifest_out.mtu );
+      fd_snapshot_parser_reset( ctx->ssparse, fd_chunk_to_laddr( ctx->manifest_out.wksp, ctx->manifest_out.chunk ), ctx->manifest_out.mtu, 1 );
       if( FD_UNLIKELY( !ctx->funk_txn ) ) fd_funk_txn_cancel_root( ctx->funk );
       else                                fd_funk_txn_cancel( ctx->funk, ctx->funk_txn, 0 );
       ctx->state = FD_SNAPIN_STATE_LOADING;
       break;
     case FD_SNAPSHOT_MSG_CTRL_EOF_FULL:
       FD_TEST( ctx->full );
+      FD_TEST( ctx->incremental_snapshot_fetch );
       if( FD_UNLIKELY( ctx->state!=FD_SNAPIN_STATE_DONE ) ) {
         FD_LOG_WARNING(( "unexpected end of snapshot when not done parsing" ));
         transition_malformed( ctx, stem );
         break;
       }
 
-      fd_snapshot_parser_reset( ctx->ssparse, fd_chunk_to_laddr( ctx->manifest_out.wksp, ctx->manifest_out.chunk ), ctx->manifest_out.mtu );
+      fd_snapshot_parser_reset( ctx->ssparse, fd_chunk_to_laddr( ctx->manifest_out.wksp, ctx->manifest_out.chunk ), ctx->manifest_out.mtu, 1 );
 
       fd_funk_txn_xid_t incremental_xid = fd_funk_generate_xid();
       ctx->funk_txn = fd_funk_txn_prepare( ctx->funk, ctx->funk_txn, &incremental_xid, 0 );
@@ -241,6 +297,15 @@ handle_control_frag( fd_snapin_tile_t *  ctx,
     case FD_SNAPSHOT_MSG_CTRL_DONE:
       if( FD_UNLIKELY( ctx->state!=FD_SNAPIN_STATE_DONE ) ) {
         FD_LOG_WARNING(( "unexpected end of snapshot when not done parsing" ));
+        transition_malformed( ctx, stem );
+        break;
+      }
+
+      slot_set_t const *         slot_set  = fd_slot_delta_parser_get_slot_set( ctx->ssparse->slot_delta_parser );
+      fd_slot_entry_t const *    slot_pool = fd_slot_delta_parser_get_slot_pool( ctx->ssparse->slot_delta_parser );
+      fd_slot_history_global_t * history   = fd_sysvar_slot_history_read( ctx->funk, ctx->funk_txn, ctx->scratch, ctx->scratch_sz );
+      if( FD_UNLIKELY( verify_slot_deltas( slot_set, slot_pool, history ) ) ) {
+        FD_LOG_WARNING(( "slot deltas verification failed" ));
         transition_malformed( ctx, stem );
         break;
       }
@@ -308,6 +373,7 @@ unprivileged_init( fd_topo_t *      topo,
   FD_SCRATCH_ALLOC_INIT( l, scratch );
   fd_snapin_tile_t * ctx = FD_SCRATCH_ALLOC_APPEND( l, alignof(fd_snapin_tile_t),  sizeof(fd_snapin_tile_t)                  );
   void * _ssparse        = FD_SCRATCH_ALLOC_APPEND( l, fd_snapshot_parser_align(), fd_snapshot_parser_footprint( 1UL<<24UL ) );
+  void * _scratch        = FD_SCRATCH_ALLOC_APPEND( l, 8UL,                        10UL << 20UL                   );
 
   ctx->full = 1;
   ctx->state = FD_SNAPIN_STATE_LOADING;
@@ -317,9 +383,18 @@ unprivileged_init( fd_topo_t *      topo,
   FD_TEST( fd_funk_join( ctx->funk, fd_topo_obj_laddr( topo, tile->snapin.funk_obj_id ) ) );
   ctx->funk_txn = fd_funk_txn_query( fd_funk_root( ctx->funk ), ctx->funk->txn_map );
 
-  ctx->ssparse = fd_snapshot_parser_new( _ssparse, ctx, ctx->seed, 1UL<<24UL, manifest_cb, account_cb, account_data_cb );
+  if( FD_LIKELY( tile->snapin.tcache_obj_id!=ULONG_MAX ) ) {
+    ctx->tcache = fd_txncache_join( fd_topo_obj_laddr( topo, tile->snapin.tcache_obj_id ) );
+    FD_TEST( ctx->tcache );
+  } else {
+    ctx->tcache = NULL;
+  }
 
+  ctx->ssparse = fd_snapshot_parser_new( _ssparse, ctx, ctx->seed, 1UL<<24UL, manifest_cb, status_cache_cb, account_cb, account_data_cb );
   FD_TEST( ctx->ssparse );
+
+  ctx->scratch    = _scratch;
+  ctx->scratch_sz = 10UL << 20UL;
 
   fd_memset( &ctx->metrics, 0, sizeof(ctx->metrics) );
 
@@ -334,7 +409,7 @@ unprivileged_init( fd_topo_t *      topo,
   ctx->manifest_out.chunk   = ctx->manifest_out.chunk0;
   ctx->manifest_out.mtu     = writer_link->mtu;
 
-  fd_snapshot_parser_reset( ctx->ssparse, fd_chunk_to_laddr( ctx->manifest_out.wksp, ctx->manifest_out.chunk ), ctx->manifest_out.mtu );
+  fd_snapshot_parser_reset( ctx->ssparse, fd_chunk_to_laddr( ctx->manifest_out.wksp, ctx->manifest_out.chunk ), ctx->manifest_out.mtu, 0 );
 
   fd_topo_link_t const * in_link = &topo->links[ tile->in_link_id[ 0UL ] ];
   fd_topo_wksp_t const * in_wksp = &topo->workspaces[ topo->objs[ in_link->dcache_obj_id ].wksp_id ];
@@ -342,6 +417,8 @@ unprivileged_init( fd_topo_t *      topo,
   ctx->in.chunk0                 = fd_dcache_compact_chunk0( ctx->in.wksp, in_link->dcache );
   ctx->in.wmark                  = fd_dcache_compact_wmark( ctx->in.wksp, in_link->dcache, in_link->mtu );
   ctx->in.mtu                    = in_link->mtu;
+
+  ctx->incremental_snapshot_fetch = 0;
 }
 
 #define STEM_BURST 2UL /* For control fragments, one acknowledgement, and one malformed message */

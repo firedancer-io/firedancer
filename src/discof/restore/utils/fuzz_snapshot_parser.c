@@ -28,6 +28,12 @@ manifest_cb( void * _ctx ) {
 }
 
 static void
+status_cache_cb( void * _ctx,
+                 fd_sstxncache_entry_t const * entry ) {
+  (void)_ctx; (void)entry;
+}
+
+static void
 acc_hdr_cb( void *                          _ctx,
             fd_solana_account_hdr_t const * hdr ) {
   (void)_ctx; (void)hdr;
@@ -43,7 +49,7 @@ acc_data_cb( void *        _ctx,
 int
 LLVMFuzzerTestOneInput( uchar const * const data,
                         ulong         const size ) {
-  fd_snapshot_parser_t * parser = fd_snapshot_parser_new( parser_mem, NULL, 42UL, 1024UL, manifest_cb, acc_hdr_cb, acc_data_cb );
+  fd_snapshot_parser_t * parser = fd_snapshot_parser_new( parser_mem, NULL, 42UL, 1024UL, manifest_cb, status_cache_cb, acc_hdr_cb, acc_data_cb );
   assert( parser );
   /* FIXME split input in the future */
   uchar const * p   = data;

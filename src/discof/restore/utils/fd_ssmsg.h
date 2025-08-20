@@ -14,6 +14,21 @@ fd_ssmsg_sig( ulong message ) {
   return (message & 0x3UL);
 }
 
+static inline void
+fd_ssmsg_slot_to_frag( ulong slot,
+                       uint* low,
+                       uint* high ) {
+  *low = (uint)(slot & 0xFFFFFFFFUL);
+  *high = (uint)((slot >> 32UL) & 0xFFFFFFFFUL);
+}
+
+static inline void
+fd_ssmsg_frag_to_slot( ulong low,
+                       ulong high,
+                       ulong* slot ) {
+  *slot = (high << 32UL) | low;
+}
+
 FD_FN_CONST static inline ulong fd_ssmsg_sig_message( ulong sig ) { return (sig & 0x3UL); }
 struct epoch_credits {
   ulong epoch;
@@ -127,6 +142,9 @@ struct fd_snapshot_manifest_epoch_stakes {
 
   /* The vote accounts and their stakes for a given epoch. */
   ulong                              vote_stakes_len;
+
+  /* Epoch */
+  ulong                              epoch;
   fd_snapshot_manifest_vote_stakes_t vote_stakes[ FD_RUNTIME_MAX_VOTE_ACCOUNTS ];
 };
 
