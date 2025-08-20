@@ -1262,6 +1262,10 @@ state_process( fd_ssmanifest_parser_t * parser ) {
   if( FD_UNLIKELY( parser->state==STATE_VERSIONED_EPOCH_STAKES_EPOCH ) ) {
     ulong epoch_delta = parser->epoch_stakes_epoch-parser->epoch;
     parser->epoch_idx = epoch_delta<2UL ? epoch_delta : ULONG_MAX;
+
+    if( FD_LIKELY( parser->epoch_idx!=ULONG_MAX ) ) {
+      parser->manifest->epoch_stakes[ parser->epoch_idx ].epoch = parser->epoch;
+    }
   }
 
   /* STATE_STAKES_VOTE_ACCOUNTS */

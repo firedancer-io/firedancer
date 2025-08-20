@@ -1,0 +1,334 @@
+#include "fd_slot_delta_parser.h"
+
+struct fd_slot_entry {
+  ulong slot;
+  uint  hash;
+};
+typedef struct fd_slot_entry fd_slot_entry_t;
+
+#define MAP_NAME        slot_set
+#define MAP_T           fd_slot_entry_t
+#define MAP_KEY         slot
+#define MAP_LG_SLOT_CNT 9
+#include "../../../util/tmpl/fd_map.c"
+
+#define SLOT_DELTA_PARSER_DEBUG 0
+
+#define STATE_SLOT_DELTAS_LEN                                    ( 0)
+#define STATE_SLOT_DELTA_SLOT                                    ( 1)
+#define STATE_SLOT_DELTA_IS_ROOT                                 ( 2)
+#define STATE_SLOT_DELTA_STATUS_LEN                              ( 3)
+#define STATE_STATUS_BLOCKHASH                                   ( 4)
+#define STATE_STATUS_TXN_IDX                                     ( 5)
+#define STATE_CACHE_STATUS_LEN                                   ( 6)
+#define STATE_CACHE_STATUS_KEY_SLICE                             ( 7)
+#define STATE_CACHE_STATUS_RESULT                                ( 8)
+#define STATE_CACHE_STATUS_RESULT_ERR                            ( 9)
+#define STATE_CACHE_STATUS_RESULT_ERR_INSTR_IDX                  (10)
+#define STATE_CACHE_STATUS_RESULT_ERR_INSTR_ERR                  (11)
+#define STATE_CACHE_STATUS_RESULT_ERR_INSTR_ERR_CUSTOM           (12)
+#define STATE_CACHE_STATUS_RESULT_ERR_INSTR_ERR_CUSTOM_BORSH_LEN (13)
+#define STATE_CACHE_STATUS_RESULT_ERR_INSTR_ERR_CUSTOM_BORSH_ERR (14)
+#define STATE_CACHE_STATUS_RESULT_ERR_IDX                        (15)
+#define STATE_DONE                                               (16)
+
+struct fd_slot_delta_parser_private {
+  int     state;
+
+  uchar * dst;
+  ulong   dst_cur;
+  ulong   dst_sz;
+
+  ulong   bank_slot;
+
+  ulong   len;
+  int     is_root;
+  ulong   slot_delta_status_len;
+  ulong   cache_status_len;
+  ulong   borsh_io_error_len;
+  uint    error_discriminant;
+
+  fd_slot_entry_t * slot_set;
+
+  fd_snapshot_txncache_entry_t * entry;
+};
+
+static inline ulong
+state_size( fd_slot_delta_parser_t * parser ) {
+  switch( parser->state ) {
+    case STATE_SLOT_DELTAS_LEN:                                    return sizeof(ulong);
+    case STATE_SLOT_DELTA_SLOT:                                    return sizeof(ulong);
+    case STATE_SLOT_DELTA_IS_ROOT:                                 return sizeof(uchar);
+    case STATE_SLOT_DELTA_STATUS_LEN:                              return sizeof(ulong);
+    case STATE_STATUS_BLOCKHASH:                                   return FD_HASH_FOOTPRINT;
+    case STATE_STATUS_TXN_IDX:                                     return sizeof(ulong);
+    case STATE_CACHE_STATUS_LEN:                                   return sizeof(ulong);
+    case STATE_CACHE_STATUS_KEY_SLICE:                             return 20UL;
+    case STATE_CACHE_STATUS_RESULT:                                return sizeof(uint);
+    case STATE_CACHE_STATUS_RESULT_ERR:                            return sizeof(uint);
+    case STATE_CACHE_STATUS_RESULT_ERR_INSTR_IDX:                  return sizeof(uchar);
+    case STATE_CACHE_STATUS_RESULT_ERR_INSTR_ERR:                  return sizeof(uint);
+    case STATE_CACHE_STATUS_RESULT_ERR_INSTR_ERR_CUSTOM:           return sizeof(uint);
+    case STATE_CACHE_STATUS_RESULT_ERR_INSTR_ERR_CUSTOM_BORSH_LEN: return sizeof(ulong);
+    case STATE_CACHE_STATUS_RESULT_ERR_INSTR_ERR_CUSTOM_BORSH_ERR: return parser->borsh_io_error_len;
+    case STATE_CACHE_STATUS_RESULT_ERR_IDX:                        return sizeof(uchar);
+    case STATE_DONE:                                               return 0UL;
+    default: FD_LOG_ERR(( "unknown state %d", parser->state ));
+  }
+}
+
+static inline uchar *
+state_dst( fd_slot_delta_parser_t * parser ) {
+  switch( parser->state ) {
+    case STATE_SLOT_DELTAS_LEN:                                    return (uchar*)&parser->len;
+    case STATE_SLOT_DELTA_SLOT:                                    return (uchar*)&parser->entry->slot;
+    case STATE_SLOT_DELTA_IS_ROOT:                                 return (uchar*)&parser->is_root;
+    case STATE_SLOT_DELTA_STATUS_LEN:                              return (uchar*)&parser->slot_delta_status_len;
+    case STATE_STATUS_BLOCKHASH:                                   return parser->entry->blockhash;
+    case STATE_STATUS_TXN_IDX:                                     return NULL;
+    case STATE_CACHE_STATUS_LEN:                                   return (uchar*)&parser->cache_status_len;
+    case STATE_CACHE_STATUS_KEY_SLICE:                             return parser->entry->txnhash;
+    case STATE_CACHE_STATUS_RESULT:                                return (uchar*)&parser->error_discriminant;
+    case STATE_CACHE_STATUS_RESULT_ERR:                            return (uchar*)&parser->error_discriminant;
+    case STATE_CACHE_STATUS_RESULT_ERR_INSTR_IDX:                  return NULL;
+    case STATE_CACHE_STATUS_RESULT_ERR_INSTR_ERR:                  return (uchar*)&parser->error_discriminant;
+    case STATE_CACHE_STATUS_RESULT_ERR_INSTR_ERR_CUSTOM:           return (uchar*)&parser->error_discriminant;
+    case STATE_CACHE_STATUS_RESULT_ERR_INSTR_ERR_CUSTOM_BORSH_LEN: return (uchar*)&parser->borsh_io_error_len;
+    case STATE_CACHE_STATUS_RESULT_ERR_IDX:                        return NULL;
+    case STATE_DONE:                                               return NULL;
+    default: FD_LOG_ERR(( "unknown state %d", parser->state ));
+  }
+}
+
+#if SLOT_DELTA_PARSER_DEBUG
+static inline void
+state_log( fd_slot_delta_parser_t * parser ) {
+  switch( parser->state ) {
+    case STATE_SLOT_DELTAS_LEN:        FD_LOG_NOTICE(( "STATE_SLOT_DELTAS_LEN:        %lu", parser->slot_delta_len ));                              break;
+    case STATE_SLOT_DELTA_SLOT:        FD_LOG_NOTICE(( "STATE_SLOT_DELTA_SLOT:        %lu", parser->entry->slot ));                                 break;
+    case STATE_SLOT_DELTA_IS_ROOT:     FD_LOG_NOTICE(( "STATE_SLOT_DELTA_IS_ROOT:     %d",  parser->is_root ));                                     break;
+    case STATE_SLOT_DELTA_STATUS_LEN:  FD_LOG_NOTICE(( "STATE_SLOT_DELTA_STATUS_LEN:  %lu", parser->slot_delta_status_len ));                       break;
+    case STATE_STATUS_BLOCKHASH:       FD_LOG_NOTICE(( "STATE_STATUS_BLOCKHASH:       %s",  FD_BASE58_ENC_32_ALLOCA( parser->entry->blockhash ) )); break;
+    case STATECACHE_STATUS_LEN:        FD_LOG_NOTICE(( "STATE_CACHE_STATUS_LEN:       %lu", parser->cache_status_len ));                            break;
+    default: break;
+  }
+}
+#endif
+
+static inline int
+state_validate( fd_slot_delta_parser_t * parser ) {
+  switch( parser->state ) {
+    case STATE_SLOT_DELTAS_LEN:
+      if( FD_UNLIKELY( parser->len>FD_SLOT_DELTA_MAX_ENTRIES ) ) {
+        return FD_SLOT_DELTA_PARSER_ERROR_TOO_MANY_ENTRIES;
+      }
+      break;
+    case STATE_SLOT_DELTA_SLOT:
+      if( FD_UNLIKELY( parser->entry->slot>parser->bank_slot ) ) {
+        return FD_SLOT_DELTA_PARSER_ERROR_SLOT_GREATER_THAN_MAX_ROOT;
+      }
+
+      fd_slot_entry_t * slot = slot_set_insert( parser->slot_set, parser->entry->slot );
+      if( FD_UNLIKELY( slot==NULL ) ) {
+        return FD_SLOT_DELTA_PARSER_ERROR_SLOT_HASH_MULTIPLE_ENTRIES;
+      }
+      break;
+    case STATE_SLOT_DELTA_IS_ROOT:
+      if( FD_UNLIKELY( !parser->is_root) ) {
+        return FD_SLOT_DELTA_PARSER_ERROR_SLOT_IS_NOT_ROOT;
+      }
+      break;
+    default: break;
+  }
+
+  return 0;
+}
+
+static inline void
+result_loop( fd_slot_delta_parser_t * parser ) {
+  if( FD_LIKELY( parser->cache_status_len ) ) {
+    parser->state = STATE_CACHE_STATUS_KEY_SLICE;
+  } else if( FD_LIKELY( parser->slot_delta_status_len ) ) {
+    parser->state = STATE_STATUS_BLOCKHASH;
+  } else if( FD_LIKELY( parser->len ) ) {
+    parser->state = STATE_SLOT_DELTA_SLOT;
+  } else {
+    parser->state = STATE_DONE;
+  }
+}
+
+static inline int
+state_process( fd_slot_delta_parser_t * parser ) {
+  FD_TEST( parser->state!=STATE_DONE );
+
+  switch( parser->state ) {
+    case STATE_SLOT_DELTAS_LEN:
+      parser->state = STATE_SLOT_DELTA_SLOT;
+      break;
+    case STATE_SLOT_DELTA_SLOT:
+      parser->state = STATE_SLOT_DELTA_IS_ROOT;
+      parser->len--;
+      break;
+    case STATE_SLOT_DELTA_IS_ROOT:
+      parser->state = STATE_SLOT_DELTA_STATUS_LEN;
+      break;
+    case STATE_SLOT_DELTA_STATUS_LEN:
+      parser->state = STATE_STATUS_BLOCKHASH;
+      break;
+    case STATE_STATUS_BLOCKHASH:
+      parser->state = STATE_STATUS_TXN_IDX;
+      parser->slot_delta_status_len--;
+      break;
+    case STATE_STATUS_TXN_IDX:
+      parser->state = STATE_CACHE_STATUS_LEN;
+      break;
+    case STATE_CACHE_STATUS_LEN:
+      parser->state = STATE_CACHE_STATUS_KEY_SLICE;
+      break;
+    case STATE_CACHE_STATUS_KEY_SLICE:
+      parser->state = STATE_CACHE_STATUS_RESULT;
+      parser->cache_status_len--;
+      break;
+    case STATE_CACHE_STATUS_RESULT:
+      if( FD_LIKELY( !parser->error_discriminant ) ) {
+        result_loop( parser );
+      } else {
+        parser->state = STATE_CACHE_STATUS_RESULT_ERR;
+      }
+      break;
+    case STATE_CACHE_STATUS_RESULT_ERR:
+      if( FD_UNLIKELY( parser->error_discriminant==8UL ) ) {
+        parser->state = STATE_CACHE_STATUS_RESULT_ERR_INSTR_IDX;
+      } else if( FD_UNLIKELY( parser->error_discriminant==30UL || parser->error_discriminant==31UL || parser->error_discriminant==35UL ) ) {
+        parser->state = STATE_CACHE_STATUS_RESULT_ERR_IDX;
+      } else {
+        result_loop( parser );
+      }
+    break;
+    case STATE_CACHE_STATUS_RESULT_ERR_INSTR_IDX:
+      parser->state = STATE_CACHE_STATUS_RESULT_ERR_INSTR_ERR;
+      break;
+    case STATE_CACHE_STATUS_RESULT_ERR_INSTR_ERR:
+      if( FD_UNLIKELY( parser->error_discriminant==25UL ) ) {
+        parser->state = STATE_CACHE_STATUS_RESULT_ERR_INSTR_ERR_CUSTOM;
+      } else if( FD_UNLIKELY( parser->error_discriminant==44UL ) ) {
+        parser->state = STATE_CACHE_STATUS_RESULT_ERR_INSTR_ERR_CUSTOM_BORSH_LEN;
+      } else {
+        result_loop( parser );
+      }
+      break;
+    case STATE_CACHE_STATUS_RESULT_ERR_INSTR_ERR_CUSTOM:
+      result_loop( parser );
+      break;
+    case STATE_CACHE_STATUS_RESULT_ERR_INSTR_ERR_CUSTOM_BORSH_LEN:
+      parser->state = STATE_CACHE_STATUS_RESULT_ERR_INSTR_ERR_CUSTOM_BORSH_ERR;
+      break;
+    case STATE_CACHE_STATUS_RESULT_ERR_INSTR_ERR_CUSTOM_BORSH_ERR:
+      result_loop( parser );
+      break;
+    case STATE_CACHE_STATUS_RESULT_ERR_IDX:
+      result_loop( parser );
+      break;
+    default: FD_LOG_ERR(( "unknown state %d", parser->state ));
+  }
+  return 0;
+}
+
+FD_FN_CONST ulong
+fd_slot_delta_parser_align( void ) {
+  return fd_ulong_max( alignof(fd_slot_delta_parser_t), slot_set_align() );
+}
+
+FD_FN_CONST ulong
+fd_slot_delta_parser_footprint( void ) {
+  ulong l = FD_LAYOUT_INIT;
+  l = FD_LAYOUT_APPEND( l, alignof(fd_slot_delta_parser_t), sizeof(fd_slot_delta_parser_t) );
+  l = FD_LAYOUT_APPEND( l, slot_set_align(), slot_set_footprint() );
+  return FD_LAYOUT_FINI( l, alignof(fd_slot_delta_parser_t) );
+}
+
+void *
+fd_slot_delta_parser_new( void * shmem ) {
+  if( FD_UNLIKELY( !shmem ) ) {
+    FD_LOG_WARNING(( "NULL shmem" ));
+    return NULL;
+  }
+
+  if( FD_UNLIKELY( !fd_ulong_is_aligned( (ulong)shmem, fd_slot_delta_parser_align() ) ) ) {
+    FD_LOG_WARNING(( "unaligned shmem" ));
+    return NULL;
+  }
+
+  FD_SCRATCH_ALLOC_INIT( l, shmem );
+  fd_slot_delta_parser_t * parser = FD_SCRATCH_ALLOC_APPEND( l, alignof(fd_slot_delta_parser_t), sizeof(fd_slot_delta_parser_t) );
+  void * slot_set_mem             = FD_SCRATCH_ALLOC_APPEND( l, slot_set_align(), slot_set_footprint() );
+
+  parser->slot_set = slot_set_join( slot_set_new( slot_set_mem ) );
+  FD_TEST( parser->slot_set );
+
+  parser->state = STATE_DONE;
+
+  return parser;
+}
+
+fd_slot_delta_parser_t *
+fd_slot_delta_parser_join( void * shmem ) {
+  return shmem;
+}
+
+void
+fd_slot_delta_parser_init( fd_slot_delta_parser_t *       parser,
+                           fd_snapshot_txncache_entry_t * entry,
+                           ulong                          bank_slot ) {
+  parser->state     = STATE_SLOT_DELTAS_LEN;
+  parser->len       = 0UL;
+  parser->entry     = entry;
+  parser->bank_slot = bank_slot;
+  parser->is_root   = 0;
+
+  parser->dst       = state_dst( parser );
+  parser->dst_sz    = state_size( parser );
+  parser->dst_cur   = 0UL;
+}
+
+int
+fd_slot_delta_parser_consume( fd_slot_delta_parser_t * parser,
+                              uchar const *            buf,
+                              ulong                    bufsz ) {
+  while( bufsz ) {
+    ulong consume = fd_ulong_min( bufsz, parser->dst_sz-parser->dst_cur );
+
+    if( FD_LIKELY( parser->dst && consume ) ) {
+      memcpy( parser->dst+parser->dst_cur, buf, consume );
+    }
+
+    parser->dst_cur += consume;
+    buf             += consume;
+    bufsz           -= consume;
+
+#if SLOT_DELTA_PARSER_DEBUG
+    state_log( parser );
+#endif
+
+    if( FD_LIKELY( parser->dst_cur==parser->dst_sz ) ) {
+      int err = state_validate( parser );
+      if( FD_UNLIKELY( err ) ) return err;
+
+      err = state_process( parser );
+      if( FD_UNLIKELY( err ) ) return err;
+
+      parser->dst     = state_dst( parser );
+      parser->dst_sz  = state_size( parser );
+      parser->dst_cur = 0UL;
+
+      if( FD_UNLIKELY( parser->state==STATE_DONE ) ) break;
+    }
+  }
+
+  if( FD_UNLIKELY( bufsz ) ) {
+    FD_LOG_WARNING(( "excess data in buffer" ));
+    return -1;
+  }
+
+  return 0;
+}

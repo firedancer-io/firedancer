@@ -74,6 +74,7 @@ struct fd_snapshot_manifest_vote_stakes {
 typedef struct fd_snapshot_manifest_vote_stakes fd_snapshot_manifest_vote_stakes_t;
 
 struct fd_snapshot_manifest_epoch_stakes {
+  ulong                              epoch;
   ulong                              vote_stakes_len;
   fd_snapshot_manifest_vote_stakes_t vote_stakes[ MAX_VOTE_STAKES ];
 };
