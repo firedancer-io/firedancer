@@ -58,6 +58,7 @@ struct fd_gossip_tile_ctx {
 
   ushort            net_id;
   fd_ip4_udp_hdrs_t net_out_hdr[ 1 ];
+  fd_rng_t          rng[ 1 ];
 };
 
 typedef struct fd_gossip_tile_ctx fd_gossip_tile_ctx_t;
@@ -346,8 +347,8 @@ unprivileged_init( fd_topo_t *      topo,
   void * _stake_weights      = FD_SCRATCH_ALLOC_APPEND( l, alignof(fd_stake_weight_t),    MAX_STAKED_LEADERS*sizeof(fd_stake_weight_t) );
 
   ctx->stake_weights_converted = (fd_stake_weight_t *)_stake_weights;
-  fd_rng_t rng[ 1 ];
-  FD_TEST( fd_rng_join( fd_rng_new( rng, ctx->rng_seed, ctx->rng_idx ) ) );
+
+  FD_TEST( fd_rng_join( fd_rng_new( ctx->rng, ctx->rng_seed, ctx->rng_idx ) ) );
 
   FD_TEST( tile->in_cnt<=sizeof(ctx->in)/sizeof(ctx->in[0]) );
   ulong sign_in_tile_idx = ULONG_MAX;
@@ -420,14 +421,19 @@ unprivileged_init( fd_topo_t *      topo,
   ctx->my_contact_info->version.commit      = firedancer_commit_ref;
   ctx->my_contact_info->version.feature_set = UINT_MAX; /* TODO ... */
 
-  ctx->my_contact_info->sockets[ FD_CONTACT_INFO_SOCKET_GOSSIP ]            = (fd_ip4_port_t){ .addr = tile->gossip.ip_addr, .port = fd_ushort_bswap( tile->gossip.ports.gossip ) };
-  ctx->my_contact_info->sockets[ FD_CONTACT_INFO_SOCKET_TVU ]               = (fd_ip4_port_t){ .addr = tile->gossip.ip_addr, .port = fd_ushort_bswap( tile->gossip.ports.tvu ) };
-  ctx->my_contact_info->sockets[ FD_CONTACT_INFO_SOCKET_TPU ]               = (fd_ip4_port_t){ .addr = tile->gossip.ip_addr, .port = fd_ushort_bswap( tile->gossip.ports.tpu ) };
-  ctx->my_contact_info->sockets[ FD_CONTACT_INFO_SOCKET_TPU_FORWARDS ]      = (fd_ip4_port_t){ .addr = tile->gossip.ip_addr, .port = fd_ushort_bswap( tile->gossip.ports.tpu ) };
-  ctx->my_contact_info->sockets[ FD_CONTACT_INFO_SOCKET_TPU_QUIC ]          = (fd_ip4_port_t){ .addr = tile->gossip.ip_addr, .port = fd_ushort_bswap( tile->gossip.ports.tpu_quic ) };
-  ctx->my_contact_info->sockets[ FD_CONTACT_INFO_SOCKET_TPU_VOTE_QUIC ]     = (fd_ip4_port_t){ .addr = tile->gossip.ip_addr, .port = fd_ushort_bswap( tile->gossip.ports.tpu_quic ) };
-  ctx->my_contact_info->sockets[ FD_CONTACT_INFO_SOCKET_TPU_FORWARDS_QUIC ] = (fd_ip4_port_t){ .addr = tile->gossip.ip_addr, .port = fd_ushort_bswap( tile->gossip.ports.tpu_quic ) };
-  ctx->my_contact_info->sockets[ FD_CONTACT_INFO_SOCKET_TPU_VOTE ]          = (fd_ip4_port_t){ .addr = tile->gossip.ip_addr, .port = fd_ushort_bswap( tile->gossip.ports.tpu ) };
+  ctx->my_contact_info->sockets[ FD_CONTACT_INFO_SOCKET_GOSSIP ]              = (fd_ip4_port_t){ .addr = tile->gossip.ip_addr, .port = fd_ushort_bswap( tile->gossip.ports.gossip ) };
+  if( FD_LIKELY( !!tile->gossip.ports.tvu ) )
+    ctx->my_contact_info->sockets[ FD_CONTACT_INFO_SOCKET_TVU ]               = (fd_ip4_port_t){ .addr = tile->gossip.ip_addr, .port = fd_ushort_bswap( tile->gossip.ports.tvu ) };
+  if( FD_LIKELY( !!tile->gossip.ports.tpu ) ) {
+    ctx->my_contact_info->sockets[ FD_CONTACT_INFO_SOCKET_TPU ]               = (fd_ip4_port_t){ .addr = tile->gossip.ip_addr, .port = fd_ushort_bswap( tile->gossip.ports.tpu ) };
+    ctx->my_contact_info->sockets[ FD_CONTACT_INFO_SOCKET_TPU_FORWARDS ]      = (fd_ip4_port_t){ .addr = tile->gossip.ip_addr, .port = fd_ushort_bswap( tile->gossip.ports.tpu ) };
+    ctx->my_contact_info->sockets[ FD_CONTACT_INFO_SOCKET_TPU_VOTE ]          = (fd_ip4_port_t){ .addr = tile->gossip.ip_addr, .port = fd_ushort_bswap( tile->gossip.ports.tpu ) };
+  }
+  if( FD_LIKELY( !!tile->gossip.ports.tpu_quic ) ) {
+    ctx->my_contact_info->sockets[ FD_CONTACT_INFO_SOCKET_TPU_QUIC ]          = (fd_ip4_port_t){ .addr = tile->gossip.ip_addr, .port = fd_ushort_bswap( tile->gossip.ports.tpu_quic ) };
+    ctx->my_contact_info->sockets[ FD_CONTACT_INFO_SOCKET_TPU_VOTE_QUIC ]     = (fd_ip4_port_t){ .addr = tile->gossip.ip_addr, .port = fd_ushort_bswap( tile->gossip.ports.tpu_quic ) };
+    ctx->my_contact_info->sockets[ FD_CONTACT_INFO_SOCKET_TPU_FORWARDS_QUIC ] = (fd_ip4_port_t){ .addr = tile->gossip.ip_addr, .port = fd_ushort_bswap( tile->gossip.ports.tpu_quic ) };
+  }
 
   ctx->my_contact_info->sockets[ FD_CONTACT_INFO_SOCKET_TVU_QUIC ]          = (fd_ip4_port_t){ .addr = 0, .port = 0 };
   ctx->my_contact_info->sockets[ FD_CONTACT_INFO_SOCKET_SERVE_REPAIR ]      = (fd_ip4_port_t){ .addr = 0, .port = 0 };
@@ -436,7 +442,7 @@ unprivileged_init( fd_topo_t *      topo,
   ctx->my_contact_info->sockets[ FD_CONTACT_INFO_SOCKET_RPC_PUBSUB ]        = (fd_ip4_port_t){ .addr = 0, .port = 0 };
 
   ctx->gossip = fd_gossip_join( fd_gossip_new( _gossip,
-                                               rng,
+                                               ctx->rng,
                                                tile->gossip.max_entries,
                                                tile->gossip.entrypoints_cnt,
                                                tile->gossip.entrypoints,
