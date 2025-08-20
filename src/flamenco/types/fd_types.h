@@ -2483,49 +2483,6 @@ struct fd_txn_result {
 typedef struct fd_txn_result fd_txn_result_t;
 #define FD_TXN_RESULT_ALIGN alignof(fd_txn_result_t)
 
-/* Encoded Size: Dynamic */
-struct fd_cache_status {
-  uchar key_slice[20];
-  fd_txn_result_t result;
-};
-typedef struct fd_cache_status fd_cache_status_t;
-#define FD_CACHE_STATUS_ALIGN alignof(fd_cache_status_t)
-
-/* Encoded Size: Dynamic */
-struct fd_status_value {
-  ulong txn_idx;
-  ulong statuses_len;
-  fd_cache_status_t * statuses;
-};
-typedef struct fd_status_value fd_status_value_t;
-#define FD_STATUS_VALUE_ALIGN alignof(fd_status_value_t)
-
-/* Encoded Size: Dynamic */
-struct fd_status_pair {
-  fd_hash_t hash;
-  fd_status_value_t value;
-};
-typedef struct fd_status_pair fd_status_pair_t;
-#define FD_STATUS_PAIR_ALIGN alignof(fd_status_pair_t)
-
-/* Encoded Size: Dynamic */
-struct fd_slot_delta {
-  ulong slot;
-  uchar is_root;
-  ulong slot_delta_vec_len;
-  fd_status_pair_t * slot_delta_vec;
-};
-typedef struct fd_slot_delta fd_slot_delta_t;
-#define FD_SLOT_DELTA_ALIGN alignof(fd_slot_delta_t)
-
-/* Encoded Size: Dynamic */
-struct fd_bank_slot_deltas {
-  ulong slot_deltas_len;
-  fd_slot_delta_t * slot_deltas;
-};
-typedef struct fd_bank_slot_deltas fd_bank_slot_deltas_t;
-#define FD_BANK_SLOT_DELTAS_ALIGN alignof(fd_bank_slot_deltas_t)
-
 /* https://github.com/anza-xyz/agave/blob/7117ed9653ce19e8b2dea108eff1f3eb6a3378a7/runtime/src/bank/partitioned_epoch_rewards/mod.rs#L85 */
 /* Encoded Size: Fixed (60 bytes) */
 struct fd_pubkey_rewardinfo_pair {
@@ -5058,46 +5015,6 @@ enum {
 fd_txn_result_enum_ok = 0,
 fd_txn_result_enum_error = 1,
 };
-void fd_cache_status_new( fd_cache_status_t * self );
-int fd_cache_status_encode( fd_cache_status_t const * self, fd_bincode_encode_ctx_t * ctx );
-void fd_cache_status_walk( void * w, fd_cache_status_t const * self, fd_types_walk_fn_t fun, const char *name, uint level, uint varint );
-ulong fd_cache_status_size( fd_cache_status_t const * self );
-static inline ulong fd_cache_status_align( void ) { return FD_CACHE_STATUS_ALIGN; }
-int fd_cache_status_decode_footprint( fd_bincode_decode_ctx_t * ctx, ulong * total_sz );
-void * fd_cache_status_decode( void * mem, fd_bincode_decode_ctx_t * ctx );
-
-void fd_status_value_new( fd_status_value_t * self );
-int fd_status_value_encode( fd_status_value_t const * self, fd_bincode_encode_ctx_t * ctx );
-void fd_status_value_walk( void * w, fd_status_value_t const * self, fd_types_walk_fn_t fun, const char *name, uint level, uint varint );
-ulong fd_status_value_size( fd_status_value_t const * self );
-static inline ulong fd_status_value_align( void ) { return FD_STATUS_VALUE_ALIGN; }
-int fd_status_value_decode_footprint( fd_bincode_decode_ctx_t * ctx, ulong * total_sz );
-void * fd_status_value_decode( void * mem, fd_bincode_decode_ctx_t * ctx );
-
-void fd_status_pair_new( fd_status_pair_t * self );
-int fd_status_pair_encode( fd_status_pair_t const * self, fd_bincode_encode_ctx_t * ctx );
-void fd_status_pair_walk( void * w, fd_status_pair_t const * self, fd_types_walk_fn_t fun, const char *name, uint level, uint varint );
-ulong fd_status_pair_size( fd_status_pair_t const * self );
-static inline ulong fd_status_pair_align( void ) { return FD_STATUS_PAIR_ALIGN; }
-int fd_status_pair_decode_footprint( fd_bincode_decode_ctx_t * ctx, ulong * total_sz );
-void * fd_status_pair_decode( void * mem, fd_bincode_decode_ctx_t * ctx );
-
-void fd_slot_delta_new( fd_slot_delta_t * self );
-int fd_slot_delta_encode( fd_slot_delta_t const * self, fd_bincode_encode_ctx_t * ctx );
-void fd_slot_delta_walk( void * w, fd_slot_delta_t const * self, fd_types_walk_fn_t fun, const char *name, uint level, uint varint );
-ulong fd_slot_delta_size( fd_slot_delta_t const * self );
-static inline ulong fd_slot_delta_align( void ) { return FD_SLOT_DELTA_ALIGN; }
-int fd_slot_delta_decode_footprint( fd_bincode_decode_ctx_t * ctx, ulong * total_sz );
-void * fd_slot_delta_decode( void * mem, fd_bincode_decode_ctx_t * ctx );
-
-void fd_bank_slot_deltas_new( fd_bank_slot_deltas_t * self );
-int fd_bank_slot_deltas_encode( fd_bank_slot_deltas_t const * self, fd_bincode_encode_ctx_t * ctx );
-void fd_bank_slot_deltas_walk( void * w, fd_bank_slot_deltas_t const * self, fd_types_walk_fn_t fun, const char *name, uint level, uint varint );
-ulong fd_bank_slot_deltas_size( fd_bank_slot_deltas_t const * self );
-static inline ulong fd_bank_slot_deltas_align( void ) { return FD_BANK_SLOT_DELTAS_ALIGN; }
-int fd_bank_slot_deltas_decode_footprint( fd_bincode_decode_ctx_t * ctx, ulong * total_sz );
-void * fd_bank_slot_deltas_decode( void * mem, fd_bincode_decode_ctx_t * ctx );
-
 void fd_pubkey_rewardinfo_pair_new( fd_pubkey_rewardinfo_pair_t * self );
 int fd_pubkey_rewardinfo_pair_encode( fd_pubkey_rewardinfo_pair_t const * self, fd_bincode_encode_ctx_t * ctx );
 void fd_pubkey_rewardinfo_pair_walk( void * w, fd_pubkey_rewardinfo_pair_t const * self, fd_types_walk_fn_t fun, const char *name, uint level, uint varint );

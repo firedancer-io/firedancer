@@ -884,7 +884,8 @@ fd_topo_configure_tile( fd_topo_tile_t * tile,
 
   } else if( FD_UNLIKELY( !strcmp( tile->name, "snapin" ) ) ) {
 
-    tile->snapin.funk_obj_id = fd_pod_query_ulong( config->topo.props, "funk", ULONG_MAX );
+    tile->snapin.funk_obj_id     = fd_pod_query_ulong( config->topo.props, "funk",     ULONG_MAX );
+    tile->snapin.txncache_obj_id = fd_pod_query_ulong( config->topo.props, "txncache", ULONG_MAX );
 
   } else if( FD_UNLIKELY( !strcmp( tile->name, "repair" ) ) ) {
     tile->repair.max_pending_shred_sets    = config->tiles.shred.max_pending_shred_sets;
