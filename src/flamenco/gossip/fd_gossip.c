@@ -309,7 +309,8 @@ active_push_set_insert( fd_gossip_t *       gossip,
                         uchar const *       origin_pubkey,
                         ulong               origin_stake,
                         fd_stem_context_t * stem,
-                        long                now ) {
+                        long                now,
+                        int                 flush_immediately ) {
   ulong out_nodes[ 12UL ];
   ulong out_nodes_cnt = fd_active_set_nodes( gossip->active_set,
                                              gossip->identity_pubkey,
@@ -327,6 +328,9 @@ active_push_set_insert( fd_gossip_t *       gossip,
 
     fd_gossip_txbuild_append( entry->txbuild, crds_sz, crds_val );
     push_set_pop_append( gossip->active_pset, entry, now );
+    if( FD_UNLIKELY( !!flush_immediately ) ) {
+      active_push_set_flush( gossip, gossip->active_pset, idx, stem, now );
+    }
   }
 }
 
@@ -340,7 +344,8 @@ push_my_contact_info( fd_gossip_t *       gossip,
                           gossip->identity_pubkey,
                           gossip->identity_stake,
                           stem,
-                          now );
+                          now,
+                          0 /* flush_immediately */ );
 }
 
 static inline void
@@ -500,7 +505,7 @@ rx_pull_response( fd_gossip_t *                          gossip,
       fd_ip4_port_t origin_addr = fd_contact_info_gossip_socket( contact_info );
       if( FD_LIKELY( !is_me ) ) fd_ping_tracker_track( gossip->ping_tracker, origin_pubkey, origin_stake, origin_addr, now );
     }
-    active_push_set_insert( gossip, payload+value->value_off, value->length, origin_pubkey, origin_stake, stem, now );
+    active_push_set_insert( gossip, payload+value->value_off, value->length, origin_pubkey, origin_stake, stem, now, 0 /* flush_immediately */ );
   }
 }
 
@@ -547,7 +552,7 @@ process_push_crds( fd_gossip_t *                       gossip,
     fd_ip4_port_t origin_addr = contact_info->sockets[ FD_CONTACT_INFO_SOCKET_GOSSIP ];
     if( FD_LIKELY( !is_me ) ) fd_ping_tracker_track( gossip->ping_tracker, origin_pubkey, origin_stake, origin_addr, now );
   }
-  active_push_set_insert( gossip, payload+value->value_off, value->length, origin_pubkey, origin_stake, stem, now );
+  active_push_set_insert( gossip, payload+value->value_off, value->length, origin_pubkey, origin_stake, stem, now, 0 /* flush_immediately */ );
   return 0;
 }
 
@@ -707,14 +712,14 @@ fd_gossip_push_vote( fd_gossip_t *       gossip,
   fd_crds_entry_t const * entry = fd_crds_insert( gossip->crds, value, crds_val, gossip->identity_stake, 1, /* is_me */ now, stem );
   if( FD_UNLIKELY( !entry ) ) return -1;
 
-  /* TODO: Possibly flush if we want this out ASAP? */
   active_push_set_insert( gossip,
                           crds_val,
                           crds_val_sz,
                           gossip->identity_pubkey,
                           gossip->identity_stake,
                           stem,
-                          now );
+                          now,
+                          1 /* flush_immediately */ );
   return 0;
 }
 
