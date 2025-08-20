@@ -806,15 +806,9 @@ tx_pull_request( fd_gossip_t *       gossip,
   if( FD_UNLIKELY( !peer ) ) {
     /* Choose random entrypoint */
     peer_addr = random_entrypoint( gossip );
-    FD_LOG_WARNING(( "TTT" ));
   } else {
     peer_addr = fd_contact_info_gossip_socket( peer );
-    FD_LOG_WARNING(( "TTT2" ));
   }
-
-  FD_LOG_WARNING(( "Sending pull request to " FD_IP4_ADDR_FMT ":%hu",
-                  FD_IP4_ADDR_FMT_ARGS( peer_addr.addr ), fd_ushort_bswap( peer_addr.port ) ));
-
   gossip->send_fn( gossip->send_ctx, stem, payload, payload_sz, &peer_addr, (ulong)now );
 
   gossip->metrics->message_tx[ FD_GOSSIP_MESSAGE_PULL_REQUEST ]++;
