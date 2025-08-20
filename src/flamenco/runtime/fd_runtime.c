@@ -2016,8 +2016,7 @@ fd_runtime_process_new_epoch( fd_exec_slot_ctx_t * slot_ctx,
 
   long start = fd_log_wallclock();
 
-  ulong const slot  = fd_bank_slot_get ( slot_ctx->bank );
-  ulong const epoch = fd_bank_epoch_get( slot_ctx->bank );
+  ulong const slot = fd_bank_slot_get ( slot_ctx->bank );
 
   /* Activate new features
      https://github.com/anza-xyz/agave/blob/v2.1.0/runtime/src/bank.rs#L6587-L6598 */
@@ -2040,15 +2039,6 @@ fd_runtime_process_new_epoch( fd_exec_slot_ctx_t * slot_ctx,
       _err );
   if( FD_UNLIKELY( !is_some ) ) {
     new_rate_activation_epoch = NULL;
-  }
-
-  /* If appropiate, use the stakes at T-1 to generate the leader
-     schedule instead of T-2. This is due to a subtlety in how Agave's
-     stake caches interact when loading from snapshots.
-     See the comment in fd_exec_slot_ctx_recover_. */
-
-  if( fd_bank_use_prev_epoch_stake_get( slot_ctx->bank )==epoch ) {
-    fd_update_vote_states_prev_prev( slot_ctx );
   }
 
   /* Updates stake history sysvar accumulated values. */
