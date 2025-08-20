@@ -500,9 +500,11 @@ before_frag( fd_snaprd_tile_t * ctx FD_PARAM_UNUSED,
              ulong              seq FD_PARAM_UNUSED,
              ulong              sig ) {
   if( ctx->in_kind[ in_idx ]==IN_KIND_GOSSIP ){
-    return !( sig==FD_GOSSIP_UPDATE_TAG_CONTACT_INFO ||
-              sig==FD_GOSSIP_UPDATE_TAG_CONTACT_INFO_REMOVE ||
-              sig==FD_GOSSIP_UPDATE_TAG_SNAPSHOT_HASHES );
+    (void)sig;
+    // return !( sig==FD_GOSSIP_UPDATE_TAG_CONTACT_INFO ||
+    //           sig==FD_GOSSIP_UPDATE_TAG_CONTACT_INFO_REMOVE ||
+    //           sig==FD_GOSSIP_UPDATE_TAG_SNAPSHOT_HASHES );
+    return 1;
   }
   return 0;
 }
@@ -734,12 +736,12 @@ unprivileged_init( fd_topo_t *      topo,
   for( ulong i=0UL; i<(tile->in_cnt); i++ ){
     fd_topo_link_t * in_link = &topo->links[ tile->in_link_id[ i ] ];
     if( 0==strcmp( in_link->name, "gossip_out" ) ) {
-      has_gossip_in         = 1;
+      // has_gossip_in         = 1;
       ctx->in_kind[ i ]     = IN_KIND_GOSSIP;
-      ctx->gossip_in.mem    = topo->workspaces[ topo->objs[ in_link->dcache_obj_id ].wksp_id ].wksp;
-      ctx->gossip_in.chunk0 = fd_dcache_compact_chunk0( ctx->gossip_in.mem, in_link->dcache );
-      ctx->gossip_in.wmark  = fd_dcache_compact_wmark ( ctx->gossip_in.mem, in_link->dcache, in_link->mtu );
-      ctx->gossip_in.mtu    = in_link->mtu;
+      // ctx->gossip_in.mem    = topo->workspaces[ topo->objs[ in_link->dcache_obj_id ].wksp_id ].wksp;
+      // ctx->gossip_in.chunk0 = fd_dcache_compact_chunk0( ctx->gossip_in.mem, in_link->dcache );
+      // ctx->gossip_in.wmark  = fd_dcache_compact_wmark ( ctx->gossip_in.mem, in_link->dcache, in_link->mtu );
+      // ctx->gossip_in.mtu    = in_link->mtu;
     } else if( 0==strcmp( in_link->name, "snapdc_rd" ) ||
                0==strcmp( in_link->name, "snapin_rd" ) ) {
       ctx->in_kind[ i ] = IN_KIND_SNAPCTL;
