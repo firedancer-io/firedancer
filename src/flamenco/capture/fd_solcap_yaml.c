@@ -160,7 +160,8 @@ process_account( FILE * file,
 static int
 process_account_table( FILE * file,
                        ulong  slot,
-                       int    verbose ) {
+                       int    verbose,
+                       int    show_duplicate_accounts ) {
 
   /* Remember stream cursor */
 
@@ -229,15 +230,40 @@ process_account_table( FILE * file,
     return 0;
   }
 
-  /* Read accounts table */
+  typedef struct {
+    fd_solcap_account_tbl_t entry;
+    long acc_coff;
+    int is_last_occurrence;
+  } account_entry_info_t;
+
+  account_entry_info_t * entries = malloc(meta->account_table_cnt * sizeof(account_entry_info_t));
+  if( FD_UNLIKELY( !entries ) ) {
+    FD_LOG_ERR(( "malloc failed for account entries" ));
+    return 0;
+  }
 
   for( ulong i=0UL; i < meta->account_table_cnt; i++ ) {
-    /* Read account */
-
-    fd_solcap_account_tbl_t entry[1];
-    if( FD_UNLIKELY( 1UL!=fread( entry, sizeof(fd_solcap_account_tbl_t), 1UL, file ) ) ) {
+    if( FD_UNLIKELY( 1UL!=fread( &entries[i].entry, sizeof(fd_solcap_account_tbl_t), 1UL, file ) ) ) {
       FD_LOG_ERR(( "fread accounts table entry failed (%d-%s)", errno, strerror( errno ) ));
+      free(entries);
       return 0;
+    }
+    entries[i].acc_coff = entries[i].entry.acc_coff;
+    entries[i].is_last_occurrence = 1;
+  }
+
+  for( ulong i=0UL; i < meta->account_table_cnt; i++ ) {
+    for( ulong j=i+1UL; j < meta->account_table_cnt; j++ ) {
+      if( memcmp(entries[i].entry.key, entries[j].entry.key, sizeof(entries[i].entry.key)) == 0 ) {
+        entries[i].is_last_occurrence = 0;
+        break;
+      }
+    }
+  }
+
+  for( ulong i=0UL; i < meta->account_table_cnt; i++ ) {
+    if( !entries[i].is_last_occurrence && !show_duplicate_accounts ) {
+      continue;
     }
 
     /* Write to YAML */
@@ -246,22 +272,25 @@ process_account_table( FILE * file,
       "    - pubkey:   '%s'\n"
       "      hash:     '%s'\n"
       "      explorer: 'https://explorer.solana.com/block/%lu?accountFilter=%s&filter=all'\n",
-      FD_BASE58_ENC_32_ALLOCA( entry->key ),
-      FD_BASE58_ENC_32_ALLOCA( entry->hash ),
+      FD_BASE58_ENC_32_ALLOCA( entries[i].entry.key ),
+      FD_BASE58_ENC_32_ALLOCA( entries[i].entry.hash ),
       slot,
-      FD_BASE58_ENC_32_ALLOCA( entry->key ) );
+      FD_BASE58_ENC_32_ALLOCA( entries[i].entry.key ) );
 
     /* Fetch account details */
 
     if( verbose > 3 ) {
-      long acc_goff = (long)pos + entry->acc_coff;
+      long acc_goff = (long)pos + entries[i].acc_coff;
       if( FD_UNLIKELY( !process_account( file, acc_goff, verbose ) ) ) {
         FD_LOG_ERR(( "process_account() failed" ));
+        free(entries);
         return 0;
       }
     }
 
   } /* end for */
+
+  free(entries);
 
   /* Restore cursor */
 
@@ -281,6 +310,7 @@ static int
 process_bank( fd_solcap_chunk_t const * chunk,
               FILE *                    file,
               int                       verbose,
+              int                       show_duplicate_accounts,
               long                      chunk_gaddr,
               ulong                     start_slot,
               ulong                     end_slot,
@@ -356,7 +386,7 @@ process_bank( fd_solcap_chunk_t const * chunk,
     }
 
     printf( "  - accounts_delta:\n" );
-    if( FD_UNLIKELY( 0!=process_account_table( file, meta.slot, verbose ) ) )
+    if( FD_UNLIKELY( 0!=process_account_table( file, meta.slot, verbose, show_duplicate_accounts ) ) )
       return errno;
   }
 
@@ -459,9 +489,10 @@ main( int     argc,
   for( int i=1; i<argc; i++ )
     if( 0==strcmp( argv[i], "--help" ) ) return usage();
 
-  int   verbose    = fd_env_strip_cmdline_int  ( &argc, &argv, "-v",           NULL, 0          );
-  ulong start_slot = fd_env_strip_cmdline_ulong( &argc, &argv, "--start-slot", NULL, 0          );
-  ulong end_slot   = fd_env_strip_cmdline_ulong( &argc, &argv, "--end-slot",   NULL, ULONG_MAX  );
+  int   verbose                 = fd_env_strip_cmdline_int     ( &argc, &argv, "-v",           NULL, 0         );
+  int   show_duplicate_accounts = fd_env_strip_cmdline_contains( &argc, &argv, "--show-duplicate-accounts"     );
+  ulong start_slot              = fd_env_strip_cmdline_ulong   ( &argc, &argv, "--start-slot", NULL, 0         );
+  ulong end_slot                = fd_env_strip_cmdline_ulong   ( &argc, &argv, "--end-slot",   NULL, ULONG_MAX );
 
   if( argc!=2 ) {
     fprintf( stderr, "ERROR: expected 1 argument, got %d\n", argc-1 );
@@ -516,7 +547,7 @@ main( int     argc,
 
     /* TODO: figure out how to make solana.solcap yamls print slot */
     if( chunk->magic == FD_SOLCAP_V1_BANK_MAGIC )
-      process_bank( chunk, file, verbose, chunk_gaddr, start_slot, end_slot, previous_slot != 0 );
+      process_bank( chunk, file, verbose, show_duplicate_accounts, chunk_gaddr, start_slot, end_slot, previous_slot != 0 );
     else if ( chunk->magic == FD_SOLCAP_V1_TRXN_MAGIC )
       previous_slot = process_txn( chunk, file, verbose, chunk_gaddr, previous_slot, start_slot, end_slot );
   }

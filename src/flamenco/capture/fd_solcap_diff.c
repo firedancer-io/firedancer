@@ -446,9 +446,6 @@ fd_solcap_diff_account( fd_solcap_differ_t *                  diff,
             "%s        owner:       %s\n",
             diff->file_paths[0], FD_BASE58_ENC_32_ALLOCA( meta[0].owner ),
             diff->file_paths[1], FD_BASE58_ENC_32_ALLOCA( meta[1].owner ) );
-  else
-    printf( "        (both files   )  owner:      %s\n", FD_BASE58_ENC_32_ALLOCA( meta[0].owner ) );
-    /* Even if the owner matches, still print it for convenience */
   if( meta[0].lamports != meta[1].lamports )
     printf( "        (%s)  lamports:   %lu\n"
             "        (%s)  lamports:   %lu\n",
@@ -567,8 +564,9 @@ fd_solcap_diff_missing_account( fd_solcap_differ_t *                  diff,
 /* fd_solcap_diff_account_tbl detects and prints differences in the
    accounts that were hashed into the account delta hash. */
 
-static void
+static int
 fd_solcap_diff_account_tbl( fd_solcap_differ_t * diff ) {
+  int has_mismatch = 0;
 
   /* Read and sort tables */
 
@@ -578,7 +576,7 @@ fd_solcap_diff_account_tbl( fd_solcap_differ_t * diff ) {
   for( ulong i=0UL; i<2UL; i++ ) {
     if( diff->preimage[i].account_table_coff == 0L ) {
       FD_LOG_WARNING(( "Missing accounts table in capture" ));
-      return;
+      return 1;
     }
     chunk_goff[i] = (ulong)( (long)diff->iter[i].chunk_off + diff->preimage[i].account_table_coff );
 
@@ -590,7 +588,7 @@ fd_solcap_diff_account_tbl( fd_solcap_differ_t * diff ) {
 
     if( FD_UNLIKELY( meta->account_table_cnt > INT_MAX ) ) {
       FD_LOG_WARNING(( "Too many accounts in capture" ));
-      return;
+      return 1;
     }
 
     /* Allocate table */
@@ -603,24 +601,64 @@ fd_solcap_diff_account_tbl( fd_solcap_differ_t * diff ) {
 
     /* Read table */
     FD_TEST( tbl_cnt==fread( tbl[i], sizeof(fd_solcap_account_tbl_t), tbl_cnt, stream ) );
+  }
 
-    /* Sort table */
-    sort_account_tbl_inplace( tbl[i], tbl_cnt );
+  typedef struct {
+    fd_solcap_account_tbl_t const * entry;
+    int is_last_occurrence;
+  } account_entry_info_t;
+
+  account_entry_info_t * entries[2];
+  ulong tbl_cnt[2];
+  for( ulong i=0UL; i<2UL; i++ ) {
+    tbl_cnt[i] = (ulong)(tbl_end[i] - tbl[i]);
+    entries[i] = fd_scratch_alloc( alignof(account_entry_info_t), tbl_cnt[i] * sizeof(account_entry_info_t) );
+
+    for( ulong j=0UL; j < tbl_cnt[i]; j++ ) {
+      entries[i][j].entry = &tbl[i][j];
+      entries[i][j].is_last_occurrence = 1;
+    }
+
+    for( ulong j=0UL; j < tbl_cnt[i]; j++ ) {
+      for( ulong k=j+1UL; k < tbl_cnt[i]; k++ ) {
+        if( memcmp(entries[i][j].entry->key, entries[i][k].entry->key, sizeof(entries[i][j].entry->key)) == 0 ) {
+          entries[i][j].is_last_occurrence = 0;
+          break;
+        }
+      }
+    }
+  }
+
+  for( ulong i=0UL; i<2UL; i++ ) {
+    for( ulong j=0UL; j < tbl_cnt[i]-1UL; j++ ) {
+      for( ulong k=j+1UL; k < tbl_cnt[i]; k++ ) {
+        if( memcmp(entries[i][j].entry->key, entries[i][k].entry->key, sizeof(entries[i][j].entry->key)) > 0 ) {
+          account_entry_info_t temp = entries[i][j];
+          entries[i][j] = entries[i][k];
+          entries[i][k] = temp;
+        }
+      }
+    }
   }
 
   /* Walk tables in parallel */
+  ulong idx[2] = {0UL, 0UL};
 
   for(;;) {
-    fd_solcap_account_tbl_t * a = tbl[0];
-    fd_solcap_account_tbl_t * b = tbl[1];
+    while( idx[0] < tbl_cnt[0] && !entries[0][idx[0]].is_last_occurrence ) idx[0]++;
+    while( idx[1] < tbl_cnt[1] && !entries[1][idx[1]].is_last_occurrence ) idx[1]++;
 
-    if( a==tbl_end[0] ) break;
-    if( b==tbl_end[1] ) break;
+    if( idx[0] >= tbl_cnt[0] ) break;
+    if( idx[1] >= tbl_cnt[1] ) break;
+
+    fd_solcap_account_tbl_t const * a = entries[0][idx[0]].entry;
+    fd_solcap_account_tbl_t const * b = entries[1][idx[1]].entry;
 
     int key_cmp = memcmp( a->key, b->key, 32UL );
     if( key_cmp==0 ) {
       int hash_cmp = memcmp( a->hash, b->hash, 32UL );
       if( hash_cmp!=0 ) {
+        has_mismatch = 1;
         printf( "\n    (in both files) account:  %s\n"
                 "        (%s)  hash:       %s\n"
                 "        (%s)  hash:       %s\n",
@@ -628,44 +666,56 @@ fd_solcap_diff_account_tbl( fd_solcap_differ_t * diff ) {
                 diff->file_paths[0], FD_BASE58_ENC_32_ALLOCA( a->hash ),
                 diff->file_paths[1], FD_BASE58_ENC_32_ALLOCA( b->hash ) );
 
-        if( diff->verbose >= 3 )
-          fd_solcap_diff_account( diff, (fd_solcap_account_tbl_t const * const *)tbl, chunk_goff );
+        if( diff->verbose >= 3 ) {
+          fd_solcap_account_tbl_t const * const entry_pair[2] = {a, b};
+          fd_solcap_diff_account( diff, entry_pair, chunk_goff );
+        }
       }
 
-      tbl[0]++;
-      tbl[1]++;
+      idx[0]++;
+      idx[1]++;
       continue;
     }
 
     if( key_cmp<0 ) {
+      has_mismatch = 1;
       printf( "\n    (%s) account:  %s\n", diff->file_paths[0], FD_BASE58_ENC_32_ALLOCA( a->key ) );
       if( diff->verbose >= 3 )
-        fd_solcap_diff_missing_account( diff, tbl[0], chunk_goff[0], diff->iter[0].stream );
-      tbl[0]++;
+        fd_solcap_diff_missing_account( diff, a, chunk_goff[0], diff->iter[0].stream );
+      idx[0]++;
       continue;
     }
 
     if( key_cmp>0 ) {
+      has_mismatch = 1;
       printf( "\n    (%s) account:  %s\n", diff->file_paths[1], FD_BASE58_ENC_32_ALLOCA( b->key ) );
       if( diff->verbose >= 3 )
-        fd_solcap_diff_missing_account( diff, tbl[1], chunk_goff[1], diff->iter[1].stream );
-      tbl[1]++;
+        fd_solcap_diff_missing_account( diff, b, chunk_goff[1], diff->iter[1].stream );
+      idx[1]++;
       continue;
     }
   }
-  while( tbl[0]!=tbl_end[0] ) {
-    printf( "\n    (%s) account:  %s\n", diff->file_paths[0], FD_BASE58_ENC_32_ALLOCA( tbl[0]->key ) );
-    if( diff->verbose >= 3 )
-      fd_solcap_diff_missing_account( diff, tbl[0], chunk_goff[0], diff->iter[0].stream );
-    tbl[0]++;
+
+  while( idx[0] < tbl_cnt[0] ) {
+    has_mismatch = 1;
+    if( entries[0][idx[0]].is_last_occurrence ) {
+      printf( "\n    (%s) account:  %s\n", diff->file_paths[0], FD_BASE58_ENC_32_ALLOCA( entries[0][idx[0]].entry->key ) );
+      if( diff->verbose >= 3 )
+        fd_solcap_diff_missing_account( diff, entries[0][idx[0]].entry, chunk_goff[0], diff->iter[0].stream );
+    }
+    idx[0]++;
   }
-  while( tbl[1]!=tbl_end[1] ) {
-    printf( "\n    (%s) account:  %s\n", diff->file_paths[1], FD_BASE58_ENC_32_ALLOCA( tbl[1]->key ) );
-    if( diff->verbose >= 3 )
-      fd_solcap_diff_missing_account( diff, tbl[1], chunk_goff[1], diff->iter[1].stream );
-    tbl[1]++;
+  while( idx[1] < tbl_cnt[1] ) {
+    has_mismatch = 1;
+    if( entries[1][idx[1]].is_last_occurrence ) {
+      printf( "\n    (%s) account:  %s\n", diff->file_paths[1], FD_BASE58_ENC_32_ALLOCA( entries[1][idx[1]].entry->key ) );
+      if( diff->verbose >= 3 )
+        fd_solcap_diff_missing_account( diff, entries[1][idx[1]].entry, chunk_goff[1], diff->iter[1].stream );
+    }
+    idx[1]++;
   }
 
+  return has_mismatch;
 }
 
 /* fd_solcap_diff_bank detects bank hash mismatches and prints a
@@ -678,67 +728,82 @@ fd_solcap_diff_bank( fd_solcap_differ_t * diff ) {
   fd_solcap_BankPreimage const * pre = diff->preimage;
 
   FD_TEST( pre[0].slot == pre[1].slot );
-  if( 0==memcmp( &pre[0], &pre[1], sizeof(fd_solcap_BankPreimage) ) )
+
+  int has_mismatch = 0;
+  if( 0!=memcmp( pre[0].bank_hash, pre[1].bank_hash, 32UL ) ) has_mismatch = 1;
+  if( 0!=memcmp( pre[0].prev_bank_hash, pre[1].prev_bank_hash, 32UL ) ) has_mismatch = 1;
+  if( 0!=memcmp( pre[0].account_delta_hash, pre[1].account_delta_hash, 32UL ) ) has_mismatch = 1;
+  if( 0!=memcmp( pre[0].accounts_lt_hash_checksum, pre[1].accounts_lt_hash_checksum, 32UL ) ) has_mismatch = 1;
+  if( 0!=memcmp( pre[0].poh_hash, pre[1].poh_hash, 32UL ) ) has_mismatch = 1;
+  if( pre[0].signature_cnt != pre[1].signature_cnt ) has_mismatch = 1;
+  if( pre[0].account_cnt != pre[1].account_cnt ) has_mismatch = 1;
+
+  if( has_mismatch )
+    printf( "\nbank hash mismatch at slot=%lu\n", pre[0].slot );
+  else if ( diff->verbose <= 1 ) {
     return 0;
+  }
 
-  printf( "\nbank hash mismatch at slot=%lu\n", pre[0].slot );
+  if( 0!=memcmp( pre[0].bank_hash, pre[1].bank_hash, 32UL ) ) {
+    printf( "(%s) bank_hash:  %s\n"
+            "(%s) bank_hash:  %s\n",
+            diff->file_paths[0], FD_BASE58_ENC_32_ALLOCA( pre[0].bank_hash ),
+            diff->file_paths[1], FD_BASE58_ENC_32_ALLOCA( pre[1].bank_hash ) );
+    has_mismatch = 1;
+  }
 
-  printf( "(%s) bank_hash:  %s\n"
-          "(%s) bank_hash:  %s\n",
-          diff->file_paths[0], FD_BASE58_ENC_32_ALLOCA( pre[0].bank_hash ),
-          diff->file_paths[1], FD_BASE58_ENC_32_ALLOCA( pre[1].bank_hash ) );
-
-  int only_account_mismatch = 0;
   if( 0!=memcmp( pre[0].account_delta_hash, pre[1].account_delta_hash, 32UL ) ) {
-    only_account_mismatch = 1;
     printf( "(%s) account_delta_hash:  %s\n"
             "(%s) account_delta_hash:  %s\n",
             diff->file_paths[0], FD_BASE58_ENC_32_ALLOCA( pre[0].account_delta_hash ),
             diff->file_paths[1], FD_BASE58_ENC_32_ALLOCA( pre[1].account_delta_hash ) );
+    has_mismatch = 1;
   }
   if( 0!=memcmp( pre[0].accounts_lt_hash_checksum, pre[1].accounts_lt_hash_checksum, 32UL ) ) {
-    only_account_mismatch = 1;
     printf( "(%s) accounts_lt_hash_checksum:  %s\n"
             "(%s) accounts_lt_hash_checksum:  %s\n",
             diff->file_paths[0], FD_BASE58_ENC_32_ALLOCA( pre[0].accounts_lt_hash_checksum ),
             diff->file_paths[1], FD_BASE58_ENC_32_ALLOCA( pre[1].accounts_lt_hash_checksum ) );
+    has_mismatch = 1;
   }
   if( 0!=memcmp( pre[0].prev_bank_hash, pre[1].prev_bank_hash, 32UL ) ) {
-    only_account_mismatch = 0;
     printf( "(%s) prev_bank_hash:      %s\n"
             "(%s) prev_bank_hash:      %s\n",
             diff->file_paths[0], FD_BASE58_ENC_32_ALLOCA( pre[0].prev_bank_hash ),
             diff->file_paths[1], FD_BASE58_ENC_32_ALLOCA( pre[1].prev_bank_hash ) );
+    has_mismatch = 1;
   }
   if( 0!=memcmp( pre[0].poh_hash, pre[1].poh_hash, 32UL ) ) {
-    only_account_mismatch = 0;
     printf( "(%s) poh_hash:            %s\n"
             "(%s) poh_hash:            %s\n",
             diff->file_paths[0], FD_BASE58_ENC_32_ALLOCA( pre[0].poh_hash ),
             diff->file_paths[1], FD_BASE58_ENC_32_ALLOCA( pre[1].poh_hash ) );
+    has_mismatch = 1;
   }
   if( pre[0].signature_cnt != pre[1].signature_cnt ) {
-    only_account_mismatch = 0;
     printf( "(%s) signature_cnt:       %lu\n"
             "(%s) signature_cnt:       %lu\n",
             diff->file_paths[0], pre[0].signature_cnt,
             diff->file_paths[1], pre[1].signature_cnt );
+    has_mismatch = 1;
   }
   if( pre[0].account_cnt != pre[1].account_cnt ) {
     printf( "(%s) account_cnt:         %lu\n"
             "(%s) account_cnt:         %lu\n",
             diff->file_paths[0], pre[0].account_cnt,
             diff->file_paths[1], pre[1].account_cnt );
+    has_mismatch = 1;
   }
   printf( "\n" );
 
-  if( only_account_mismatch && diff->verbose >= 2 ) {
+  int has_account_tbl_mismatch = 0;
+  if( diff->verbose >= 2 ) {
     fd_scratch_push();
-    fd_solcap_diff_account_tbl( diff );
+    has_account_tbl_mismatch = fd_solcap_diff_account_tbl( diff );
     fd_scratch_pop();
   }
 
-  return 1;
+  return has_mismatch || has_account_tbl_mismatch;
 }
 
 /* Diffs two transaction results with each other. */
@@ -750,8 +815,8 @@ fd_solcap_transaction_fd_diff( fd_solcap_txn_differ_t * txn_differ ) {
     FD_LOG_WARNING(( "Transaction signatures are different for slot=%lu, signature=(%s != %s)."
                      "It is possible that either the transactions are out of order or some transactions are missing.",
                      txn_differ->transaction[0].slot,
-                     FD_BASE58_ENC_32_ALLOCA( txn_differ->transaction[0].txn_sig ),
-                     FD_BASE58_ENC_32_ALLOCA( txn_differ->transaction[1].txn_sig ) ));
+                     FD_BASE58_ENC_64_ALLOCA( txn_differ->transaction[0].txn_sig ),
+                     FD_BASE58_ENC_64_ALLOCA( txn_differ->transaction[1].txn_sig ) ));
   }
   else {
     bool diff_txns = txn_differ->transaction[0].fd_txn_err != txn_differ->transaction[1].fd_txn_err;
@@ -1155,9 +1220,12 @@ main( int     argc,
   if( res==0 ) FD_LOG_ERR(( "Captures don't share any slots" ));
 
   /* Diff each block for accounts and hashes */
-
+  int found_mismatch = 0;
   for(;;) {
-    if( FD_UNLIKELY( fd_solcap_diff_bank( diff ) ) ) break;
+    if( FD_UNLIKELY( fd_solcap_diff_bank( diff ) ) ) {
+      found_mismatch = 1;
+      break;
+    }
     printf( "Slot %10lu: OK\n", diff->preimage[0].slot );
     /* Advance to next slot. */
     int res = fd_solcap_differ_sync( diff, start_slot, end_slot );
@@ -1184,5 +1252,5 @@ main( int     argc,
   FD_TEST( fd_scratch_frame_used()==0UL );
   fd_wksp_free_laddr( fd_scratch_detach( NULL ) );
   fd_halt();
-  return 0;
+  return found_mismatch;
 }
