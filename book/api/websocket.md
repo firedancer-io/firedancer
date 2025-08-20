@@ -1038,6 +1038,16 @@ If the validator identity is changed with a `set-identity` operation,
 the skipped history is republished with a list of skipped slots for the
 new validator identity.
 
+#### `slot.skipped_history_cluster`
+| frequency | type       | example |
+|-----------|------------|---------|
+ *Once*     | `number[]` | `[286576808, 286576809, 286576810, 286576811, 286625025, 286625026, 286625027]` |
+
+A list of all of the leader slots which were skipped in the current and
+immediately prior epoch.  Recent non-rooted slots may be included, and
+included skipped slots will not become unskipped as a later slot has
+rooted.
+
 #### `slot.update`
 | frequency   | type          | example |
 |-------------|---------------|---------|
