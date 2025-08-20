@@ -1003,6 +1003,7 @@ fd_crds_insert( fd_crds_t *                         crds,
 
     if( FD_UNLIKELY( incumbent->key.tag==FD_GOSSIP_VALUE_CONTACT_INFO ) ) {
       if( FD_LIKELY( !!incumbent->contact_info.fresh_dlist.in_list ) ) crds_contact_info_fresh_list_ele_remove( crds->contact_info.fresh_dlist, incumbent, crds->pool );
+      crds_contact_info_evict_dlist_ele_remove( crds->contact_info.evict_dlist, incumbent, crds->pool );
       candidate->contact_info.ci = incumbent->contact_info.ci;
 
       /* is_active is user controlled (specifically by ping_tracker),
@@ -1040,7 +1041,6 @@ fd_crds_insert( fd_crds_t *                         crds,
     }
 
     candidate->contact_info.ci = crds_contact_info_pool_ele_acquire( crds->contact_info.pool );
-    crds_contact_info_evict_dlist_ele_push_tail( crds->contact_info.evict_dlist, candidate, crds->pool );
   }
 
   candidate->num_duplicates         = 0UL;
@@ -1063,6 +1063,8 @@ fd_crds_insert( fd_crds_t *                         crds,
     fd_crds_contact_info_init( candidate_view, payload, candidate->contact_info.ci->contact_info );
     /* Default to active, since we filter inactive entries prior to insertion */
     candidate->contact_info.is_active = 1;
+
+    crds_contact_info_evict_dlist_ele_push_tail( crds->contact_info.evict_dlist, candidate, crds->pool );
 
     if( FD_LIKELY( !is_from_me ) ){
       crds_contact_info_fresh_list_ele_push_tail( crds->contact_info.fresh_dlist, candidate, crds->pool );
