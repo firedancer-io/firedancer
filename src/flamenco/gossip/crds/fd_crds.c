@@ -1226,7 +1226,9 @@ fd_crds_mask_iter_init( fd_crds_t const * crds,
                         uint              mask_bits,
                         uchar             iter_mem[ static 16UL ] ) {
   fd_crds_mask_iter_t * it = (fd_crds_mask_iter_t *)iter_mem;
-  ulong start_hash         = (mask&(~0UL<<(64UL-mask_bits)));
+  ulong start_hash         = 0 ;
+  if( FD_LIKELY( mask_bits > 0) ) start_hash = (mask&(~0UL<<(64UL-mask_bits)));
+
   it->end_hash             = mask;
 
   it->idx                  = hash_treap_idx_ge( crds->hash_treap, start_hash, crds->pool );
@@ -1258,7 +1260,8 @@ fd_crds_purged_mask_iter_init( fd_crds_t const * crds,
                                uint              mask_bits,
                                uchar             iter_mem[ static 16UL ] ){
   fd_crds_mask_iter_t * it = (fd_crds_mask_iter_t *)iter_mem;
-  ulong start_hash         = (mask&(~0UL<<(64UL-mask_bits)));
+  ulong start_hash         = 0;
+  if( FD_LIKELY( mask_bits > 0 ) ) start_hash = (mask&(~0UL<<(64UL-mask_bits)));
   it->end_hash             = mask;
 
   it->idx                  = purged_treap_idx_ge( crds->purged.treap, start_hash, crds->purged.pool );

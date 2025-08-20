@@ -170,7 +170,7 @@ fd_gossip_new( void *                    shmem,
 
   FD_SCRATCH_ALLOC_INIT( l, shmem );
   fd_gossip_t * gossip  = FD_SCRATCH_ALLOC_APPEND( l, alignof(fd_gossip_t),    sizeof(fd_gossip_t)                           );
-  void * crds           = FD_SCRATCH_ALLOC_APPEND( l, fd_crds_align(),         fd_crds_footprint( max_values, max_values*4 ) );
+  void * crds           = FD_SCRATCH_ALLOC_APPEND( l, fd_crds_align(),         fd_crds_footprint( max_values, max_values ) );
   void * active_set     = FD_SCRATCH_ALLOC_APPEND( l, fd_active_set_align(),   fd_active_set_footprint()                     );
   void * ping_tracker   = FD_SCRATCH_ALLOC_APPEND( l, fd_ping_tracker_align(), fd_ping_tracker_footprint( entrypoints_cnt )  );
   void * stake_weights  = FD_SCRATCH_ALLOC_APPEND( l, stake_map_align(),       stake_map_footprint()                         );
@@ -181,7 +181,7 @@ fd_gossip_new( void *                    shmem,
   gossip->entrypoints_cnt = entrypoints_cnt;
   fd_memcpy( gossip->entrypoints, entrypoints, entrypoints_cnt*sizeof(fd_ip4_port_t) );
 
-  gossip->crds = fd_crds_join( fd_crds_new( crds, rng, max_values, max_values*4UL, gossip_update_out ) );
+  gossip->crds = fd_crds_join( fd_crds_new( crds, rng, max_values, max_values, gossip_update_out ) );
   FD_TEST( gossip->crds );
 
   gossip->active_set = fd_active_set_join( fd_active_set_new( active_set, rng ) );
