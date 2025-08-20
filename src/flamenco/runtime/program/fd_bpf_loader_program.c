@@ -13,18 +13,6 @@
 #include "fd_native_cpi.h"
 #include "../fd_borrowed_account.h"
 
-#include <stdlib.h>
-
-static char * trace_buf;
-
-static void __attribute__((constructor)) make_buf(void) {
-  trace_buf = (char*)malloc(256*1024);
-}
-
-static void __attribute__((destructor)) free_buf(void) {
-  free(trace_buf);
-}
-
 /* https://github.com/anza-xyz/agave/blob/ced98f1ebe73f7e9691308afa757323003ff744f/sdk/program/src/program_error.rs#L290-L335 */
 static inline int
 program_error_to_instr_error( ulong  err,
