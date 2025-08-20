@@ -31,7 +31,7 @@ transaction filtering pipeline for the block production.
      |  +---------+  |  +---------+                  |  +---------+      |
      |       |       |      |                        |       |           |
      |       |       |      |                        |       |    +--- core ----+      core ideally near numa node as connected
-     |       v       |      v                        |       v    | FILT RECENT |      obj wksps, performance liekly bounded by NOC
+     |       v       |      v                        |       v    | FILT RECENT |      obj wksps, performance likely bounded by NOC
      |       +------ | -----+---------- ... -------- | ------+--->|  DUP TAGS   |      metadata handling limit (i.e. undeduped
      |               |   metadata w/tag              |            |     MUX     |      transaction rate, not raw packet bandwidth)
      |               |    for verified               |            +-------------+
