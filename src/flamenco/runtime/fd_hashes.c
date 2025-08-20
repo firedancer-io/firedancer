@@ -78,7 +78,7 @@ fd_hashes_update_lthash( fd_txn_account_t const  * account,
   fd_bank_lthash_end_locking_modify( bank );
 
   /* Write the new account state to the capture file */
-  if( capture_ctx ) {
+  if( capture_ctx && capture_ctx->capture && fd_bank_slot_get( bank )>=capture_ctx->solcap_start_slot ) {
     uchar new_hash_checksum[FD_HASH_FOOTPRINT];
     fd_lthash_hash( new_hash, new_hash_checksum );
     int err = fd_solcap_write_account(

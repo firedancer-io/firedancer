@@ -866,19 +866,15 @@ static void
 fd_replay_process_solcap_account_update( fd_replay_tile_ctx_t *                          ctx,
                                           fd_runtime_public_account_update_msg_t const * msg,
                                           uchar const *                                  account_data ) {
-  if( FD_UNLIKELY( !ctx->capture_ctx || !ctx->capture_ctx->capture ||
-                   fd_bank_slot_get( ctx->slot_ctx->bank )<ctx->capture_ctx->solcap_start_slot ) ) {
-    /* No solcap capture configured or slot not reached yet, ignore the message */
-    return;
+  if( ctx->capture_ctx && ctx->capture_ctx->capture && fd_bank_slot_get( ctx->slot_ctx->bank )>=ctx->capture_ctx->solcap_start_slot ) {
+    /* Write the account to the solcap file */
+    fd_solcap_write_account( ctx->capture_ctx->capture,
+      &msg->pubkey,
+      &msg->info,
+      account_data,
+      msg->data_sz,
+      &msg->hash );
   }
-
-  /* Write the account to the solcap file */
-  fd_solcap_write_account( ctx->capture_ctx->capture,
-    &msg->pubkey,
-    &msg->info,
-    account_data,
-    msg->data_sz,
-    &msg->hash );
 }
 
 static void

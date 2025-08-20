@@ -457,6 +457,11 @@ LLVM_PROFILE_FILE="$(OBJDIR)/cov/raw/test_vectors-%p.profraw" \
 LOG_PATH="$(OBJDIR)/log/fd-test-vectors-report" \
 contrib/test/run_test_vectors.sh
 
+run-solcap-tests: bin unit-test
+	OBJDIR=$(OBJDIR) \
+	MACHINE=$(MACHINE) \
+	contrib/test/run_solcap_tests.sh
+
 seccomp-policies:
 	$(FIND) . -name '*.seccomppolicy' -exec $(PYTHON) contrib/codegen/generate_filters.py {} \;
 
