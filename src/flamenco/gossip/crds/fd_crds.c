@@ -1061,6 +1061,8 @@ fd_crds_insert( fd_crds_t *                         crds,
 
   if( FD_UNLIKELY( candidate->key.tag==FD_GOSSIP_VALUE_CONTACT_INFO ) ) {
     fd_crds_contact_info_init( candidate_view, payload, candidate->contact_info.ci->contact_info );
+    /* Default to active, since we filter inactive entries prior to insertion */
+    candidate->contact_info.is_active = 1;
 
     if( FD_LIKELY( !is_from_me ) ){
       crds_contact_info_fresh_list_ele_push_tail( crds->contact_info.fresh_dlist, candidate, crds->pool );
@@ -1095,12 +1097,11 @@ fd_crds_entry_hash( fd_crds_entry_t const * entry ) {
   return entry->value_hash;
 }
 
-inline static fd_crds_key_t
-make_contact_info_key( uchar const * pubkey ) {
-  fd_crds_key_t key[1];
-  key->tag = FD_GOSSIP_VALUE_CONTACT_INFO;
-  fd_memcpy( key->pubkey, pubkey, 32UL );
-  return *key;
+inline static void
+make_contact_info_key( uchar const * pubkey,
+                       fd_crds_key_t * key_out ) {
+  key_out->tag = FD_GOSSIP_VALUE_CONTACT_INFO;
+  fd_memcpy( key_out->pubkey, pubkey, 32UL );
 }
 
 int
@@ -1116,9 +1117,11 @@ fd_crds_entry_contact_info( fd_crds_entry_t const * entry ) {
 
 fd_contact_info_t const *
 fd_crds_contact_info_lookup( fd_crds_t const * crds,
-                              uchar const *     pubkey ){
-  fd_crds_key_t key         = make_contact_info_key( pubkey );
-  fd_crds_entry_t * peer_ci = lookup_map_ele_query( crds->lookup_map, &key, NULL, crds->pool );
+                              uchar const *     pubkey ) {
+
+  fd_crds_key_t key[1];
+  make_contact_info_key( pubkey, key );
+  fd_crds_entry_t * peer_ci = lookup_map_ele_query( crds->lookup_map, key, NULL, crds->pool );
   if( FD_UNLIKELY( !peer_ci ) ) {
     return NULL;
   }
@@ -1136,9 +1139,11 @@ set_peer_active_status( fd_crds_t *   crds,
                         uchar const * peer_pubkey,
                         uchar         status,
                         long          now ) {
-  fd_crds_key_t key = make_contact_info_key( peer_pubkey );
 
-  fd_crds_entry_t * peer_ci = lookup_map_ele_query( crds->lookup_map, &key, NULL, crds->pool );
+  fd_crds_key_t key[1];
+  make_contact_info_key( peer_pubkey, key );
+
+  fd_crds_entry_t * peer_ci = lookup_map_ele_query( crds->lookup_map, key, NULL, crds->pool );
   /* TODO: error handling? This technically should never hit */
   if( FD_UNLIKELY( !peer_ci ) ) return;
   uchar old_status = peer_ci->contact_info.is_active;
@@ -1197,8 +1202,9 @@ void
 fd_crds_bucket_add( fd_crds_t *   crds,
                     ulong         bucket,
                     uchar const * pubkey ) {
-  fd_crds_key_t key         = make_contact_info_key( pubkey );
-  fd_crds_entry_t * peer_ci = lookup_map_ele_query( crds->lookup_map, &key, NULL, crds->pool );
+  fd_crds_key_t key[1];
+  make_contact_info_key( pubkey, key );
+  fd_crds_entry_t * peer_ci = lookup_map_ele_query( crds->lookup_map, key, NULL, crds->pool );
   if( FD_UNLIKELY( !peer_ci ) ) {
     FD_LOG_NOTICE(( "Sample peer not found in CRDS. Likely dropped." ));
     return;
