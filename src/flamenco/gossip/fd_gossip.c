@@ -62,8 +62,6 @@ struct fd_gossip_private {
 
   fd_rng_t * rng;
 
-  ushort expected_shred_version;
-
   stake_weight_entry_t * stake_weights;
 
   struct {
@@ -369,7 +367,6 @@ fd_gossip_set_my_contact_info( fd_gossip_t *             gossip,
                                fd_contact_info_t const * contact_info,
                                long                      now ) {
   fd_memcpy( gossip->identity_pubkey, contact_info->pubkey.uc, 32UL );
-  gossip->expected_shred_version = contact_info->shred_version;
 
   *gossip->my_contact_info.ci = *contact_info;
   refresh_contact_info( gossip, now );
@@ -782,10 +779,8 @@ tx_pull_request( fd_gossip_t *       gossip,
                                          &bits_ptr,
                                          &bits_set,
                                          &payload_sz );
-  if( FD_UNLIKELY( !!res ) ) {
-    FD_LOG_WARNING(( "Failed to initialize pull request" ));
-    return;
-  }
+  FD_TEST( !res && payload_sz<=FD_GOSSIP_MTU );
+
   fd_bloom_t filter[1];
   fd_bloom_init_inplace( keys_ptr, bits_ptr, BLOOM_NUM_KEYS, num_bits, 0, gossip->rng, BLOOM_FALSE_POSITIVE_RATE, filter );
 
@@ -806,15 +801,19 @@ tx_pull_request( fd_gossip_t *       gossip,
   for( ulong i=0UL; i<(num_bits+63)/64UL; i++ ) num_bits_set += fd_ulong_popcnt( bits_ptr[ i ] );
   *bits_set = (ulong)num_bits_set;
 
-
   fd_contact_info_t const * peer = fd_crds_peer_sample( gossip->crds, gossip->rng );
   fd_ip4_port_t peer_addr;
   if( FD_UNLIKELY( !peer ) ) {
     /* Choose random entrypoint */
     peer_addr = random_entrypoint( gossip );
+    FD_LOG_WARNING(( "TTT" ));
   } else {
     peer_addr = fd_contact_info_gossip_socket( peer );
+    FD_LOG_WARNING(( "TTT2" ));
   }
+
+  FD_LOG_WARNING(( "Sending pull request to " FD_IP4_ADDR_FMT ":%hu",
+                  FD_IP4_ADDR_FMT_ARGS( peer_addr.addr ), fd_ushort_bswap( peer_addr.port ) ));
 
   gossip->send_fn( gossip->send_ctx, stem, payload, payload_sz, &peer_addr, (ulong)now );
 
