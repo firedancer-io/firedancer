@@ -146,7 +146,7 @@ fd_sysvar_cache_slot_history_join_const(
 }
 
 void
-fd_sysvar_slot_history_leave_const(
+fd_sysvar_cache_slot_history_leave_const(
     fd_sysvar_cache_t const *        sysvar_cache,
     fd_slot_history_global_t const * slot_history
 ) {
