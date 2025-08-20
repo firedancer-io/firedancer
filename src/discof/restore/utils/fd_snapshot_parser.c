@@ -14,6 +14,7 @@ fd_snapshot_parser_footprint( ulong max_acc_vecs ) {
   ulong l = FD_LAYOUT_INIT;
   l = FD_LAYOUT_APPEND( l, alignof(fd_snapshot_parser_t), sizeof(fd_snapshot_parser_t)                   );
   l = FD_LAYOUT_APPEND( l, fd_ssmanifest_parser_align(),  fd_ssmanifest_parser_footprint( max_acc_vecs ) );
+  l = FD_LAYOUT_APPEND( l, fd_slot_delta_parser_align(),  fd_slot_delta_parser_footprint()               );
   l = FD_LAYOUT_APPEND( l, 16UL,                          1UL<<20UL                                      );
   return FD_LAYOUT_FINI( l, fd_snapshot_parser_align() );
 }
@@ -24,6 +25,7 @@ fd_snapshot_parser_new( void * mem,
                         ulong  seed,
                         ulong  max_acc_vecs,
                         fd_snapshot_parser_process_manifest_fn_t manifest_cb,
+                        fd_slot_delta_parser_process_entry_fn_t  status_cache_cb,
                         fd_snapshot_process_acc_hdr_fn_t         acc_hdr_cb,
                         fd_snapshot_process_acc_data_fn_t        acc_data_cb ) {
 
@@ -39,6 +41,7 @@ fd_snapshot_parser_new( void * mem,
   FD_SCRATCH_ALLOC_INIT( l, mem );
   fd_snapshot_parser_t * self = FD_SCRATCH_ALLOC_APPEND( l, alignof(fd_snapshot_parser_t), sizeof(fd_snapshot_parser_t)                   );
   void * parser               = FD_SCRATCH_ALLOC_APPEND( l, fd_ssmanifest_parser_align(),  fd_ssmanifest_parser_footprint( max_acc_vecs ) );
+  void * _slot_delta_parser   = FD_SCRATCH_ALLOC_APPEND( l, fd_slot_delta_parser_align(),  fd_slot_delta_parser_footprint()               );
   void * _buf_mem             = FD_SCRATCH_ALLOC_APPEND( l, 16UL,                          1UL<<20UL                                      );
 
   self->state         = SNAP_STATE_TAR;
@@ -52,19 +55,22 @@ fd_snapshot_parser_new( void * mem,
   self->manifest_parser = fd_ssmanifest_parser_join( fd_ssmanifest_parser_new( parser, max_acc_vecs, seed ) );
   FD_TEST( self->manifest_parser );
 
+  self->slot_delta_parser = fd_slot_delta_parser_join( fd_slot_delta_parser_new( _slot_delta_parser ) );
+  FD_TEST( self->slot_delta_parser );
+
   self->buf = _buf_mem;
 
-  self->manifest_cb = manifest_cb;
-  self->acc_hdr_cb  = acc_hdr_cb;
-  self->acc_data_cb = acc_data_cb;
-  self->cb_arg      = cb_arg;
+  self->manifest_cb     = manifest_cb;
+  self->status_cache_cb = status_cache_cb;
+  self->acc_hdr_cb      = acc_hdr_cb;
+  self->acc_data_cb     = acc_data_cb;
+  self->cb_arg          = cb_arg;
 
   self->metrics.accounts_files_processed = 0UL;
   self->metrics.accounts_files_total     = 0UL;
   self->metrics.accounts_processed       = 0UL;
   self->processing_accv                  = 0;
   self->goff                             = 0UL;
-
   return self;
 }
 
@@ -172,6 +178,22 @@ fd_snapshot_parser_manifest_prepare( fd_snapshot_parser_t * self,
   return 0;
 }
 
+static int
+fd_snapshot_parser_status_cache_prepare( fd_snapshot_parser_t * self,
+                                         ulong                  sz ) {
+  /* Only read once */
+  if( FD_UNLIKELY( self->status_cache_done) ) {
+    FD_LOG_WARNING(( "Snapshot file contains multiple status caches" ));
+    self->state = SNAP_STATE_IGNORE;
+    return 0;
+  }
+
+  self->state  = SNAP_STATE_STATUS_CACHE;
+  self->buf_sz = sz;
+
+  return 0;
+}
+
 static void
 fd_snapshot_parser_restore_file( void *                self_,
                                  fd_tar_meta_t const * meta,
@@ -194,7 +216,7 @@ fd_snapshot_parser_restore_file( void *                self_,
     }
     fd_snapshot_parser_accv_prepare( self, meta, sz );
   } else if( fd_memeq( meta->name, "snapshots/status_cache", sizeof("snapshots/status_cache") ) ) {
-    /* TODO */
+    fd_snapshot_parser_status_cache_prepare( self, sz );
   } else if(0==strncmp( meta->name, "snapshots/", sizeof("snapshots/")-1 ) ) {
     fd_snapshot_parser_manifest_prepare( self, sz );
   }
@@ -312,22 +334,11 @@ static uchar const *
 fd_snapshot_parser_read_manifest_chunk( fd_snapshot_parser_t * self,
                                         uchar const *          buf,
                                         ulong                  bufsz ) {
-  FD_TEST( self->buf_ctr < self->buf_sz );
+  FD_TEST( self->buf_ctr==0UL );
 
-  ulong sz = self->buf_sz - self->buf_ctr;
-  if( sz>bufsz ) sz = bufsz;
-
-  self->buf_ctr += sz;
-
-  int result = fd_ssmanifest_parser_consume( self->manifest_parser, buf, sz );
+  int result = fd_ssmanifest_parser_consume( self->manifest_parser, buf, bufsz );
   if( -1==result ) self->flags |= SNAP_FLAG_FAILED;
   if( 0==result ) {
-    if( self->buf_ctr!=self->buf_sz ) {
-      /* Some additional trailing garbage */
-      self->flags |= SNAP_FLAG_FAILED;
-      return buf;
-    }
-
     /* manifest cb */
     if( FD_LIKELY( self->manifest_cb ) ) self->manifest_cb( self->cb_arg );
 
@@ -338,7 +349,21 @@ fd_snapshot_parser_read_manifest_chunk( fd_snapshot_parser_t * self,
     self->state = SNAP_STATE_IGNORE;
   }
 
-  return buf+sz;
+  return buf+bufsz;
+}
+
+static uchar const *
+fd_snapshot_parser_read_status_cache_chunk( fd_snapshot_parser_t * self,
+                                            uchar const *          buf,
+                                            ulong                  bufsz ) {
+  int result = fd_slot_delta_parser_consume( self->slot_delta_parser, buf, bufsz );
+  if( FD_UNLIKELY( -1==result ) ) self->flags |= SNAP_FLAG_FAILED;
+  if( FD_LIKELY( 0==result ) ) {
+    self->status_cache_done = 1;
+    self->state = SNAP_STATE_IGNORE;
+  }
+
+  return buf+bufsz;
 }
 
 static int
@@ -391,17 +416,11 @@ fd_snapshot_parser_read_account_hdr_chunk( fd_snapshot_parser_t * self,
   self->accv_sz -= hdr_read;
   bufsz         -= hdr_read;
 
-  // ulong peek_sz = 0UL;
   if( FD_LIKELY( fd_snapshot_parser_hdr_read_is_complete( self ) ) ) {
     if( FD_UNLIKELY( 0!=fd_snapshot_parser_restore_account_hdr( self ) ) ) {
       return buf; /* parse error */
     }
-    // peek_sz = fd_ulong_min( self->acc_rem, bufsz );
   }
-
-  // self->acc_rem -= peek_sz;
-  // self->accv_sz -= peek_sz;
-  // buf_next         += peek_sz;
 
   return buf_next;
 }
@@ -473,6 +492,9 @@ fd_snapshot_parser_process_chunk( fd_snapshot_parser_t * self,
     break;
   case SNAP_STATE_MANIFEST:
     buf_next = fd_snapshot_parser_read_manifest_chunk( self, buf, bufsz );
+    break;
+  case SNAP_STATE_STATUS_CACHE:
+    buf_next = fd_snapshot_parser_read_status_cache_chunk( self, buf, bufsz );
     break;
   default:
     FD_LOG_ERR(( "Invalid parser state %u (this is a bug)", self->state ));

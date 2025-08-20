@@ -519,6 +519,7 @@ struct fd_topo_tile {
 
     struct {
       ulong funk_obj_id;
+      ulong txncache_obj_id;
     } snapin;
 
     struct {
