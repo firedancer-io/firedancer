@@ -174,7 +174,7 @@ sim_topo( config_t * config ) {
       } else {
         FD_LOG_NOTICE(( "Found archive file from config: %s", tile->archiver.rocksdb_path ));
       }
-    } else if( !fd_topo_configure_tile( tile, config ) ) {
+    } else if( !fd_topo_configure_tile( tile, config, NULL ) ) {
       FD_LOG_ERR(( "unknown tile name %lu `%s`", i, tile->name ));
     }
 

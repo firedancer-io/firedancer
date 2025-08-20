@@ -3,7 +3,7 @@
 
 #if FD_HAS_HOSTED
 
-#include "../../../util/fd_util_base.h"
+#include "../../topo/fd_topo.h"
 #include "../../metrics/generated/fd_metrics_enums.h"
 #include <poll.h>
 #include <sys/socket.h>
@@ -11,7 +11,7 @@
 /* FD_SOCK_TILE_MAX_SOCKETS controls the max number of UDP ports that a
    sock tile can bind to. */
 
-#define FD_SOCK_TILE_MAX_SOCKETS (8)
+#define FD_SOCK_TILE_MAX_SOCKETS FD_TOPO_NET_RX_RULE_MAX
 
 /* MAX_NET_INS controls the max number of TX links that a sock tile can
    serve. */
