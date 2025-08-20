@@ -638,7 +638,9 @@ fd_increase_calculated_data_size( fd_exec_txn_ctx_t * txn_ctx,
 static int
 fd_collect_loaded_account( fd_exec_txn_ctx_t *      txn_ctx,
                            fd_txn_account_t const * account,
-                           ulong                    loaded_acc_size ) {
+                           ulong                    loaded_acc_size,
+                           fd_pubkey_t *            additional_loaded_account_keys,
+                           ulong *                  additional_loaded_account_keys_cnt ) {
 
   /* https://github.com/anza-xyz/agave/blob/v2.3.1/svm/src/account_loader.rs#L586-L590 */
   int err = fd_increase_calculated_data_size( txn_ctx, loaded_acc_size );
@@ -671,9 +673,17 @@ fd_collect_loaded_account( fd_exec_txn_ctx_t *      txn_ctx,
 
   /* Iterate through the account keys and make sure the programdata
      account is not present so it doesn't get loaded twice.
-     https://github.com/anza-xyz/agave/blob/v2.3.1/svm/src/account_loader.rs#L617-L618 */
+     https://github.com/anza-xyz/agave/blob/v2.3.1/svm/src/account_loader.rs#L617 */
   for( ushort i=0; i<txn_ctx->accounts_cnt; i++ ) {
     if( FD_UNLIKELY( !memcmp( &txn_ctx->account_keys[i], &loader_state->inner.program.programdata_address, sizeof(fd_pubkey_t) ) ) ) {
+      return FD_RUNTIME_EXECUTE_SUCCESS;
+    }
+  }
+
+  /* Check that the programdata account has not been already counted
+     https://github.com/anza-xyz/agave/blob/v2.3.1/svm/src/account_loader.rs#L618 */
+  for( ushort i=0; i<*additional_loaded_account_keys_cnt; i++ ) {
+    if( FD_UNLIKELY( !memcmp( &additional_loaded_account_keys[i], &loader_state->inner.program.programdata_address, sizeof(fd_pubkey_t) ) ) ) {
       return FD_RUNTIME_EXECUTE_SUCCESS;
     }
   }
@@ -697,6 +707,13 @@ fd_collect_loaded_account( fd_exec_txn_ctx_t *      txn_ctx,
     return err;
   }
 
+  /* Add the programdata account to the list of loaded programdata accounts
+     https://github.com/anza-xyz/agave/blob/v2.3.1/svm/src/account_loader.rs#L631 */
+  fd_memcpy(
+    &additional_loaded_account_keys[(*additional_loaded_account_keys_cnt)++],
+    &loader_state->inner.program.programdata_address,
+    sizeof(fd_pubkey_t) );
+
   return FD_RUNTIME_EXECUTE_SUCCESS;
 }
 
@@ -718,6 +735,12 @@ fd_executor_load_transaction_accounts_simd_186( fd_exec_txn_ctx_t * txn_ctx ) {
   fd_epoch_schedule_t schedule[1] = { fd_sysvar_cache_epoch_schedule_read_nofail( fd_bank_sysvar_cache_query( txn_ctx->bank ) ) };
 
   ulong epoch = fd_slot_to_epoch( schedule, txn_ctx->slot, NULL );
+
+  /* Programdata accounts that are loaded by this transaction.
+     We keep track of these to ensure they are not counted twice.
+     https://github.com/anza-xyz/agave/blob/v2.3.1/svm/src/account_loader.rs#L559 */
+  fd_pubkey_t additional_loaded_account_keys[ FD_TXN_ACCT_ADDR_MAX ] = { 0 };
+  ulong       additional_loaded_account_keys_cnt                     = 0UL;
 
   /* Charge a base fee for each address lookup table.
      https://github.com/anza-xyz/agave/blob/v2.3.1/svm/src/account_loader.rs#L570-L576 */
@@ -747,7 +770,12 @@ fd_executor_load_transaction_accounts_simd_186( fd_exec_txn_ctx_t * txn_ctx ) {
          is enabled. */
       ulong loaded_acc_size = fd_ulong_sat_add( FD_TRANSACTION_ACCOUNT_BASE_SIZE,
                                                 fd_txn_account_get_data_len( acct ) );
-      int err = fd_collect_loaded_account( txn_ctx, acct, loaded_acc_size );
+      int err = fd_collect_loaded_account(
+        txn_ctx,
+        acct,
+        loaded_acc_size,
+        additional_loaded_account_keys,
+        &additional_loaded_account_keys_cnt );
       if( FD_UNLIKELY( err!=FD_RUNTIME_EXECUTE_SUCCESS ) ) {
         return err;
       }
@@ -757,7 +785,12 @@ fd_executor_load_transaction_accounts_simd_186( fd_exec_txn_ctx_t * txn_ctx ) {
     /* Load and collect any remaining accounts
        https://github.com/anza-xyz/agave/blob/v2.3.1/svm/src/account_loader.rs#L652-L659 */
     ulong loaded_acc_size = load_transaction_account( txn_ctx, acct, is_writable, epoch, unknown_acc );
-    int err = fd_collect_loaded_account( txn_ctx, acct, loaded_acc_size );
+    int err = fd_collect_loaded_account(
+      txn_ctx,
+      acct,
+      loaded_acc_size,
+      additional_loaded_account_keys,
+      &additional_loaded_account_keys_cnt );
     if( FD_UNLIKELY( err!=FD_RUNTIME_EXECUTE_SUCCESS ) ) {
       return err;
     }
