@@ -35,9 +35,12 @@
 /* Number of peers to send requests to. */
 #define FD_REPAIR_NUM_NEEDED_PEERS (1)
 /* Max number of pending sign requests */
-#define FD_REPAIR_PENDING_SIGN_REQ_MAX (1<<10)
+#define FD_SIGN_REQ_MAX (1<<10)
 /* Maximum size for sign buffer, typically <= 160 bytes (e.g., pings, repairs) */
 #define FD_REPAIR_MAX_SIGN_BUF_SIZE (256UL)
+/* FD_REPAIR_HEADER_SZ: size of all headers for repair type shreds.
+   Initially same as FD_SHRED_DATA_HEADER_SZ, but with additional nonce. */
+#define FD_REPAIR_HEADER_SZ (FD_SHRED_DATA_HEADER_SZ + sizeof(uint))
 
 typedef fd_gossip_peer_addr_t fd_repair_peer_addr_t;
 
@@ -182,11 +185,11 @@ struct fd_repair_pending_sign_req {
 };
 typedef struct fd_repair_pending_sign_req fd_repair_pending_sign_req_t;
 
-#define POOL_NAME   fd_repair_pending_sign_req_pool
+#define POOL_NAME   fd_sign_req_pool
 #define POOL_T      fd_repair_pending_sign_req_t
 #include "../../util/tmpl/fd_pool.c"
 
-#define MAP_NAME     fd_repair_pending_sign_req_map
+#define MAP_NAME     fd_sign_req_map
 #define MAP_KEY      nonce
 #define MAP_ELE_T    fd_repair_pending_sign_req_t
 #include "../../util/tmpl/fd_map_chain.c"
@@ -265,8 +268,8 @@ struct fd_repair {
     /* Path to the file where we write the cache of known good repair peers, to make cold booting faster */
     int good_peer_cache_file_fd;
     /* Pending sign requests for async operations */
-    fd_repair_pending_sign_req_t      * pending_sign_req_pool;
-    fd_repair_pending_sign_req_map_t  * pending_sign_req_map;
+    fd_repair_pending_sign_req_t      * sign_req_pool;
+    fd_sign_req_map_t                 * sign_req_map;
     /* Metrics */
     fd_repair_metrics_t metrics;
 };
@@ -278,16 +281,14 @@ fd_repair_align ( void ) { return 128UL; }
 FD_FN_CONST static inline ulong
 fd_repair_footprint( void ) {
   ulong l = FD_LAYOUT_INIT;
-  l = FD_LAYOUT_APPEND( l, alignof(fd_repair_t),                    sizeof(fd_repair_t) );
-  l = FD_LAYOUT_APPEND( l, fd_active_table_align(),                 fd_active_table_footprint(FD_ACTIVE_KEY_MAX) );
-  l = FD_LAYOUT_APPEND( l, fd_inflight_table_align(),               fd_inflight_table_footprint(FD_NEEDED_KEY_MAX) );
-  l = FD_LAYOUT_APPEND( l, fd_pinged_table_align(),                 fd_pinged_table_footprint(FD_REPAIR_PINGED_MAX) );
-  /* regular and temp stake weights */
-  l = FD_LAYOUT_APPEND( l, alignof(fd_vote_stake_weight_t),         FD_STAKE_WEIGHTS_MAX * sizeof(fd_vote_stake_weight_t) );
-  l = FD_LAYOUT_APPEND( l, alignof(fd_vote_stake_weight_t),         FD_STAKE_WEIGHTS_MAX * sizeof(fd_vote_stake_weight_t) );
-  /* pending sign request structures */
-  l = FD_LAYOUT_APPEND( l, fd_repair_pending_sign_req_pool_align(), fd_repair_pending_sign_req_pool_footprint( FD_REPAIR_PENDING_SIGN_REQ_MAX ) );
-  l = FD_LAYOUT_APPEND( l, fd_repair_pending_sign_req_map_align(),  fd_repair_pending_sign_req_map_footprint( FD_REPAIR_PENDING_SIGN_REQ_MAX ) );
+    l = FD_LAYOUT_APPEND( l, alignof(fd_repair_t),            sizeof(fd_repair_t) );
+    l = FD_LAYOUT_APPEND( l, fd_active_table_align(),         fd_active_table_footprint   ( FD_ACTIVE_KEY_MAX )     );
+    l = FD_LAYOUT_APPEND( l, fd_inflight_table_align(),       fd_inflight_table_footprint ( FD_NEEDED_KEY_MAX )     );
+    l = FD_LAYOUT_APPEND( l, fd_pinged_table_align(),         fd_pinged_table_footprint   ( FD_REPAIR_PINGED_MAX )  );
+    l = FD_LAYOUT_APPEND( l, fd_sign_req_pool_align(),        fd_sign_req_pool_footprint  ( FD_SIGN_REQ_MAX )       );
+    l = FD_LAYOUT_APPEND( l, fd_sign_req_map_align(),         fd_sign_req_map_footprint   ( FD_SIGN_REQ_MAX )       );
+    l = FD_LAYOUT_APPEND( l, alignof(fd_vote_stake_weight_t), FD_STAKE_WEIGHTS_MAX * sizeof(fd_vote_stake_weight_t) );
+    l = FD_LAYOUT_APPEND( l, alignof(fd_vote_stake_weight_t), FD_STAKE_WEIGHTS_MAX * sizeof(fd_vote_stake_weight_t) );
   return FD_LAYOUT_FINI(l, fd_repair_align() );
 }
 

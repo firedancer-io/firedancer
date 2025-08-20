@@ -52,7 +52,7 @@ test_add_pending_request( fd_repair_t * repair,
                           ushort        dst_port,
                           fd_pubkey_t const * recipient ) {
   /* Check if there is any space for a new pending sign request */
-  if( FD_UNLIKELY( fd_repair_pending_sign_req_pool_free( repair->pending_sign_req_pool ) == 0 ) ) {
+  if( FD_UNLIKELY( fd_sign_req_pool_free( repair->sign_req_pool ) == 0 ) ) {
     return -1;
   }
 
@@ -60,7 +60,7 @@ test_add_pending_request( fd_repair_t * repair,
     return -1;
   }
 
-  fd_repair_pending_sign_req_t * pending = fd_repair_pending_sign_req_pool_ele_acquire( repair->pending_sign_req_pool );
+  fd_repair_pending_sign_req_t * pending = fd_sign_req_pool_ele_acquire( repair->sign_req_pool );
   if( !pending ) {
     return -1;
   }
@@ -75,7 +75,7 @@ test_add_pending_request( fd_repair_t * repair,
   fd_memcpy( pending->buf, buf, buflen );
 
   /* Add to map */
-  fd_repair_pending_sign_req_map_ele_insert( repair->pending_sign_req_map, pending, repair->pending_sign_req_pool );
+  fd_sign_req_map_ele_insert( repair->sign_req_map, pending, repair->sign_req_pool );
 
   return 0;
 }
@@ -87,7 +87,7 @@ test_pending_sign_requests_basic( void ) {
 
   fd_repair_t * repair = test_repair_setup();
 
-  FD_TEST( fd_repair_pending_sign_req_pool_free( repair->pending_sign_req_pool ) == FD_REPAIR_PENDING_SIGN_REQ_MAX );
+  FD_TEST( fd_sign_req_pool_free( repair->sign_req_pool ) == FD_SIGN_REQ_MAX );
   FD_TEST( fd_repair_query_pending_request( repair, 14919811UL ) == NULL );
 
   uchar test_buf[128];
@@ -103,7 +103,7 @@ test_pending_sign_requests_basic( void ) {
   int result = test_add_pending_request( repair, nonce, test_buf, sizeof(test_buf),
                                          sig_offset, dst_ip, dst_port, &recipient );
   FD_TEST( result == 0 );
-  FD_TEST( fd_repair_pending_sign_req_pool_free( repair->pending_sign_req_pool ) == FD_REPAIR_PENDING_SIGN_REQ_MAX - 1 );
+  FD_TEST( fd_sign_req_pool_free( repair->sign_req_pool ) == FD_SIGN_REQ_MAX - 1 );
 
   fd_repair_pending_sign_req_t * pending = fd_repair_query_pending_request( repair, nonce );
   FD_TEST( pending != NULL );
@@ -117,7 +117,7 @@ test_pending_sign_requests_basic( void ) {
 
   result = fd_repair_remove_pending_request( repair, nonce );
   FD_TEST( result == 0 );
-  FD_TEST( fd_repair_pending_sign_req_pool_free( repair->pending_sign_req_pool ) == FD_REPAIR_PENDING_SIGN_REQ_MAX );
+  FD_TEST( fd_sign_req_pool_free( repair->sign_req_pool ) == FD_SIGN_REQ_MAX );
   FD_TEST( fd_repair_query_pending_request( repair, nonce ) == NULL );
 
   result = fd_repair_remove_pending_request( repair, nonce );
@@ -149,7 +149,7 @@ test_pending_sign_requests_multiple( void ) {
     FD_TEST( result == 0 );
   }
 
-  FD_TEST( fd_repair_pending_sign_req_pool_free( repair->pending_sign_req_pool ) == FD_REPAIR_PENDING_SIGN_REQ_MAX - num_requests );
+  FD_TEST( fd_sign_req_pool_free( repair->sign_req_pool ) == FD_SIGN_REQ_MAX - num_requests );
 
   for( ulong i = 0; i < num_requests; i++ ) {
     fd_repair_pending_sign_req_t * pending = fd_repair_query_pending_request( repair, nonces[i] );
@@ -170,7 +170,7 @@ test_pending_sign_requests_multiple( void ) {
     }
   }
 
-  FD_TEST( fd_repair_pending_sign_req_pool_free( repair->pending_sign_req_pool ) == FD_REPAIR_PENDING_SIGN_REQ_MAX );
+  FD_TEST( fd_sign_req_pool_free( repair->sign_req_pool ) == FD_SIGN_REQ_MAX );
 
   test_repair_cleanup( repair );
   FD_LOG_NOTICE(( "Multiple pending sign request tests PASS" ));
@@ -218,7 +218,7 @@ test_pending_sign_requests_out_of_order( void ) {
     }
   }
 
-  FD_TEST( fd_repair_pending_sign_req_pool_free( repair->pending_sign_req_pool ) == FD_REPAIR_PENDING_SIGN_REQ_MAX );
+  FD_TEST( fd_sign_req_pool_free( repair->sign_req_pool ) == FD_SIGN_REQ_MAX );
 
   test_repair_cleanup( repair );
   FD_LOG_NOTICE(( "Out-of-order pending sign request tests PASS" ));
@@ -271,11 +271,11 @@ test_pending_sign_requests_edge_cases( void ) {
                                      4, 16120512UL, 8080, &recipient );
   FD_TEST( result == 0 );
 
-  fd_repair_pending_sign_req_t * pending2 = fd_repair_pending_sign_req_pool_ele_acquire( repair->pending_sign_req_pool );
+  fd_repair_pending_sign_req_t * pending2 = fd_sign_req_pool_ele_acquire( repair->sign_req_pool );
   pending2->nonce = 100;
   pending2->dst_ip_addr = 16120512UL;
 
-  fd_repair_pending_sign_req_map_ele_insert( repair->pending_sign_req_map, pending2, repair->pending_sign_req_pool );
+  fd_sign_req_map_ele_insert( repair->sign_req_map, pending2, repair->sign_req_pool );
 
   FD_TEST( fd_repair_query_pending_request( repair, 100 )->dst_ip_addr == 16120512UL );
 
@@ -298,16 +298,16 @@ test_pending_sign_requests_pool_exhaustion( void ) {
   create_test_buffer( test_buf, sizeof(test_buf) );
 
   /* reach pool limit*/
-  for( ulong i = 0; i < FD_REPAIR_PENDING_SIGN_REQ_MAX; i++ ) {
+  for( ulong i = 0; i < FD_SIGN_REQ_MAX; i++ ) {
     int result = test_add_pending_request( repair, i, test_buf, sizeof(test_buf),
                                            4, 0x7F000001, 8080, &recipient );
     FD_TEST( result == 0 );
   }
 
-  FD_TEST( fd_repair_pending_sign_req_pool_free( repair->pending_sign_req_pool ) == 0 );
+  FD_TEST( fd_sign_req_pool_free( repair->sign_req_pool ) == 0 );
 
   /* try to add one more thiis should fail */
-  int result = test_add_pending_request( repair, FD_REPAIR_PENDING_SIGN_REQ_MAX,
+  int result = test_add_pending_request( repair, FD_SIGN_REQ_MAX,
                                          test_buf, sizeof(test_buf),
                                          4, 0x7F000001, 8080, &recipient );
   FD_TEST( result == -1 );
@@ -318,10 +318,10 @@ test_pending_sign_requests_pool_exhaustion( void ) {
     FD_TEST( result == 0 );
   }
 
-  FD_TEST( fd_repair_pending_sign_req_pool_free( repair->pending_sign_req_pool ) == 10 );
+  FD_TEST( fd_sign_req_pool_free( repair->sign_req_pool ) == 10 );
 
   for( ulong i = 0; i < 5; i++ ) {
-    result = test_add_pending_request( repair, FD_REPAIR_PENDING_SIGN_REQ_MAX + i,
+    result = test_add_pending_request( repair, FD_SIGN_REQ_MAX + i,
                                        test_buf, sizeof(test_buf),
                                        4, 0x7F000001, 8080, &recipient );
     FD_TEST( result == 0 );

@@ -40,11 +40,10 @@ fd_repair_new ( void * shmem, ulong seed ) {
   glob->peer_idx   = 0;
   glob->actives_random_seed  = 0;
 
-  /* Initialize pending sign request pool and map */
-  shm = FD_SCRATCH_ALLOC_APPEND( l, fd_repair_pending_sign_req_pool_align(), fd_repair_pending_sign_req_pool_footprint( FD_REPAIR_PENDING_SIGN_REQ_MAX ) );
-  glob->pending_sign_req_pool = fd_repair_pending_sign_req_pool_join( fd_repair_pending_sign_req_pool_new( shm, FD_REPAIR_PENDING_SIGN_REQ_MAX ) );
-  shm = FD_SCRATCH_ALLOC_APPEND( l, fd_repair_pending_sign_req_map_align(), fd_repair_pending_sign_req_map_footprint( FD_REPAIR_PENDING_SIGN_REQ_MAX ) );
-  glob->pending_sign_req_map = fd_repair_pending_sign_req_map_join( fd_repair_pending_sign_req_map_new( shm, FD_REPAIR_PENDING_SIGN_REQ_MAX, seed ) );
+  void * pool_shm = FD_SCRATCH_ALLOC_APPEND( l, fd_sign_req_pool_align(), fd_sign_req_pool_footprint( FD_SIGN_REQ_MAX ) );
+  glob->sign_req_pool = fd_sign_req_pool_join( fd_sign_req_pool_new( pool_shm, FD_SIGN_REQ_MAX ) );
+  void * map_shm  = FD_SCRATCH_ALLOC_APPEND( l, fd_sign_req_map_align(),  fd_sign_req_map_footprint( FD_SIGN_REQ_MAX ) );
+  glob->sign_req_map  = fd_sign_req_map_join( fd_sign_req_map_new( map_shm, FD_SIGN_REQ_MAX, seed ) );
 
   ulong scratch_top = FD_SCRATCH_ALLOC_FINI(l, 1UL);
   if ( scratch_top > (ulong)shmem + fd_repair_footprint() ) {
@@ -63,11 +62,11 @@ fd_repair_leave ( fd_repair_t * join ) { return join; }
 void *
 fd_repair_delete ( void * shmap ) {
   fd_repair_t * glob = (fd_repair_t *)shmap;
-  fd_active_table_delete( fd_active_table_leave( glob->actives ) );
-  fd_inflight_table_delete( fd_inflight_table_leave( glob->dupdetect ) );
-  fd_pinged_table_delete( fd_pinged_table_leave( glob->pinged ) );
-  fd_repair_pending_sign_req_pool_delete( fd_repair_pending_sign_req_pool_leave( glob->pending_sign_req_pool ) );
-  fd_repair_pending_sign_req_map_delete( fd_repair_pending_sign_req_map_leave( glob->pending_sign_req_map ) );
+  fd_active_table_delete   ( fd_active_table_leave( glob->actives )        );
+  fd_inflight_table_delete ( fd_inflight_table_leave( glob->dupdetect )    );
+  fd_pinged_table_delete   ( fd_pinged_table_leave( glob->pinged )         );
+  fd_sign_req_pool_delete  ( fd_sign_req_pool_leave( glob->sign_req_pool ) );
+  fd_sign_req_map_delete   ( fd_sign_req_map_leave( glob->sign_req_map )   );
   return glob;
 }
 
@@ -571,18 +570,20 @@ fd_repair_insert_pending_request( fd_repair_t *            repair,
                                   long                     now,
                                   fd_pubkey_t const *      recipient ) {
   /* Check if there is any space for a new pending sign request */
-  if( FD_UNLIKELY( fd_repair_pending_sign_req_pool_free( repair->pending_sign_req_pool ) == 0 ) ) {
+  if( FD_UNLIKELY( fd_sign_req_pool_free( repair->sign_req_pool ) == 0 ) ) {
+    FD_LOG_ERR(( "sign_req_pool is full" ));
     return NULL;
   }
 
-  fd_repair_pending_sign_req_t * pending = fd_repair_pending_sign_req_pool_ele_acquire( repair->pending_sign_req_pool );
+  fd_repair_pending_sign_req_t * pending = fd_sign_req_pool_ele_acquire( repair->sign_req_pool );
   if (FD_UNLIKELY( !pending ) ) {
+    FD_LOG_ERR(( "failed to acquire from sign_req_pool" ));
     return NULL;
   }
 
   pending->nonce =       repair->next_nonce;
 
-  fd_repair_pending_sign_req_map_ele_insert( repair->pending_sign_req_map, pending, repair->pending_sign_req_pool );
+  fd_sign_req_map_ele_insert( repair->sign_req_map, pending, repair->sign_req_pool );
 
   fd_repair_construct_request_protocol( repair, protocol, type, slot, shred_index, recipient, repair->next_nonce, now );
 
@@ -599,18 +600,22 @@ fd_repair_insert_pending_request( fd_repair_t *            repair,
 fd_repair_pending_sign_req_t *
 fd_repair_query_pending_request( fd_repair_t * repair,
                                  ulong         nonce ) {
-  return fd_repair_pending_sign_req_map_ele_query( repair->pending_sign_req_map, &nonce, NULL, repair->pending_sign_req_pool );
+  fd_repair_pending_sign_req_t * result = fd_sign_req_map_ele_query( repair->sign_req_map, &nonce, NULL, repair->sign_req_pool );
+  if( FD_UNLIKELY( !result ) ) {
+    FD_LOG_ERR(( "Query failed for nonce %lu", nonce ));
+  }
+  return result;
 }
 
 int
 fd_repair_remove_pending_request( fd_repair_t * repair,
                                   ulong         nonce ) {
-  fd_repair_pending_sign_req_t * pending = fd_repair_pending_sign_req_map_ele_query( repair->pending_sign_req_map, &nonce, NULL, repair->pending_sign_req_pool );
+  fd_repair_pending_sign_req_t * pending = fd_sign_req_map_ele_query( repair->sign_req_map, &nonce, NULL, repair->sign_req_pool );
   if( FD_UNLIKELY( !pending ) ) {
     return -1;
   }
 
-  fd_repair_pending_sign_req_map_ele_remove( repair->pending_sign_req_map, &nonce, NULL, repair->pending_sign_req_pool );
-  fd_repair_pending_sign_req_pool_ele_release( repair->pending_sign_req_pool, pending );
+  fd_sign_req_map_ele_remove( repair->sign_req_map, &nonce, NULL, repair->sign_req_pool );
+  fd_sign_req_pool_ele_release( repair->sign_req_pool, pending );
   return 0;
 }
