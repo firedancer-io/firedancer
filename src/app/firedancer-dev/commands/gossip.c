@@ -90,10 +90,6 @@ gossip_cmd_topo( config_t * config ) {
   fd_topos_tile_in_net( topo, "metric_in", "gossip_net", 0UL, FD_TOPOB_UNRELIABLE, FD_TOPOB_POLLED );
   fd_topob_tile_out( topo, "gossip", 0UL, "gossip_net", 0UL );
 
-  fd_topo_obj_t * poh_shred_obj = fd_topob_obj( topo, "fseq", "gossip" );
-  FD_TEST( fd_pod_insertf_ulong( topo->props, poh_shred_obj->id, "poh_shred" ) );
-  fd_topob_tile_uses( topo, gossip_tile, poh_shred_obj, FD_SHMEM_JOIN_MODE_READ_WRITE );
-
   fd_topos_net_tile_finish( topo, 0UL );
 
   fd_topob_wksp( topo, "ipecho" );
@@ -741,7 +737,7 @@ gossip_cmd_fn( args_t *   args,
   args_t c_args = configure_args();
   configure_cmd_fn( &c_args, config );
 
-  run_firedancer_init( config, 1 );
+  run_firedancer_init( config, 1, 1 );
 
   if( 0==strcmp( config->net.provider, "xdp" ) ) {
     fd_topo_install_xdp( &config->topo, config->net.bind_address_parsed );

@@ -604,6 +604,42 @@ is_ping_active( fd_gossvf_tile_ctx_t *              ctx,
 }
 
 static int
+ping_if_unponged_contact_info( fd_gossvf_tile_ctx_t *              ctx,
+                               fd_gossip_view_crds_value_t const * value,
+                               uchar const *                       payload,
+                               fd_stem_context_t *                 stem ) {
+  ushort port = 0;
+  for( ulong j=0UL; j<value->contact_info->sockets_len; j++ ) {
+    fd_gossip_view_socket_t const * socket = &value->contact_info->sockets[ j ];
+
+    port += socket->offset;
+    if( FD_UNLIKELY( socket->key!=FD_CONTACT_INFO_SOCKET_GOSSIP ) ) continue;
+
+    /* TODO: Support IPv6 ... */
+    int is_ip6 = value->contact_info->addrs[ socket->index ].is_ip6;
+    int is_ip4_nonpublic = !ctx->allow_private_address && !is_ip6 && !fd_ip4_addr_is_public( value->contact_info->addrs[ socket->index ].ip4 );
+    if( FD_UNLIKELY( is_ip6 || is_ip4_nonpublic ) ) return 1;
+
+    if( FD_UNLIKELY( !is_ping_active( ctx, value, payload ) ) ) {
+      fd_gossip_pingreq_t * pingreq = (fd_gossip_pingreq_t*)fd_chunk_to_laddr( ctx->out->mem, ctx->out->chunk );
+      fd_memcpy( pingreq->pubkey.uc, payload+value->pubkey_off, 32UL );
+      fd_stem_publish( stem, 0UL, fd_gossvf_sig( value->contact_info->addrs[ socket->index ].ip4, fd_ushort_bswap( port ), 1 ), ctx->out->chunk, sizeof(fd_gossip_pingreq_t), 0UL, 0UL, 0UL );
+      ctx->out->chunk = fd_dcache_compact_next( ctx->out->chunk, sizeof(fd_gossip_pingreq_t), ctx->out->chunk0, ctx->out->wmark );
+
+#if DEBUG_PEERS
+      char base58[ FD_BASE58_ENCODED_32_SZ ];
+      fd_base58_encode_32( payload+value->pubkey_off, NULL, base58 );
+      FD_LOG_NOTICE(( "pinging %s (" FD_IP4_ADDR_FMT ":%hu) (%lu)", base58, FD_IP4_ADDR_FMT_ARGS( contact_info->addrs[ socket->index ].ip4 ), port, ctx->ping_cnt ));
+#endif
+
+      return 1;
+    }
+  }
+
+  return 0;
+}
+
+static int
 verify_addresses( fd_gossvf_tile_ctx_t * ctx,
                   fd_gossip_view_t *     view,
                   uchar const *          payload,
@@ -634,42 +670,7 @@ verify_addresses( fd_gossvf_tile_ctx_t * ctx,
       continue;
     }
 
-    int remove = 0;
-
-    fd_gossip_view_contact_info_t const * contact_info = value->contact_info;
-    ushort port = 0;
-    for( ulong j=0UL; j<contact_info->sockets_len; j++ ) {
-      fd_gossip_view_socket_t const * socket = &contact_info->sockets[ j ];
-
-      port += socket->offset;
-      if( FD_UNLIKELY( socket->key!=FD_CONTACT_INFO_SOCKET_GOSSIP ) ) continue;
-
-      /* TODO: Support IPv6 ... */
-      int is_ip6 = contact_info->addrs[ socket->index ].is_ip6;
-      int is_ip4_nonpublic = !ctx->allow_private_address && !is_ip6 && !fd_ip4_addr_is_public( contact_info->addrs[ socket->index ].ip4 );
-      if( FD_UNLIKELY( is_ip6 || is_ip4_nonpublic ) ) {
-        remove = 1;
-        break;
-      }
-
-      if( FD_UNLIKELY( !is_ping_active( ctx, value, payload ) ) ) {
-        fd_gossip_pingreq_t * pingreq = (fd_gossip_pingreq_t*)fd_chunk_to_laddr( ctx->out->mem, ctx->out->chunk );
-        fd_memcpy( pingreq->pubkey.uc, payload+value->pubkey_off, 32UL );
-        fd_stem_publish( stem, 0UL, fd_gossvf_sig( contact_info->addrs[ socket->index ].ip4, fd_ushort_bswap( port ), 1 ), ctx->out->chunk, sizeof(fd_gossip_pingreq_t), 0UL, 0UL, 0UL );
-        ctx->out->chunk = fd_dcache_compact_next( ctx->out->chunk, sizeof(fd_gossip_pingreq_t), ctx->out->chunk0, ctx->out->wmark );
-
-#if DEBUG_PEERS
-        char base58[ FD_BASE58_ENCODED_32_SZ ];
-        fd_base58_encode_32( payload+value->pubkey_off, NULL, base58 );
-        FD_LOG_NOTICE(( "pinging %s (" FD_IP4_ADDR_FMT ":%hu) (%lu)", base58, FD_IP4_ADDR_FMT_ARGS( contact_info->addrs[ socket->index ].ip4 ), port, ctx->ping_cnt ));
-#endif
-
-        remove = 1;
-        break;
-      }
-    }
-
-    if( FD_UNLIKELY( remove ) ) {
+    if( FD_UNLIKELY( ping_if_unponged_contact_info( ctx, value, payload, stem ) ) ) {
       if( FD_LIKELY( view->tag==FD_GOSSIP_MESSAGE_PUSH ) ) {
         ctx->metrics.crds_rx[ FD_METRICS_ENUM_GOSSVF_CRDS_OUTCOME_V_DROPPED_PUSH_INACTIVE_IDX ]++;
         ctx->metrics.crds_rx_bytes[ FD_METRICS_ENUM_GOSSVF_CRDS_OUTCOME_V_DROPPED_PUSH_INACTIVE_IDX ] += value->length;
@@ -794,7 +795,7 @@ handle_net( fd_gossvf_tile_ctx_t * ctx,
   if( FD_UNLIKELY( view->tag==FD_GOSSIP_MESSAGE_PULL_REQUEST ) ) {
     if( FD_UNLIKELY( view->pull_request->contact_info->tag!=FD_GOSSIP_VALUE_CONTACT_INFO ) ) return FD_METRICS_ENUM_GOSSVF_MESSAGE_OUTCOME_V_DROPPED_PULL_REQUEST_NOT_CONTACT_INFO_IDX;
     if( FD_UNLIKELY( !memcmp( ctx->payload+view->pull_request->contact_info->pubkey_off, ctx->identity_pubkey, 32UL ) ) ) return FD_METRICS_ENUM_GOSSVF_MESSAGE_OUTCOME_V_DROPPED_PULL_REQUEST_LOOPBACK_IDX;
-    if( FD_UNLIKELY( !is_ping_active( ctx, view->pull_request->contact_info, ctx->payload ) ) ) return FD_METRICS_ENUM_GOSSVF_MESSAGE_OUTCOME_V_DROPPED_PULL_REQUEST_INACTIVE_IDX; /* TODO: Send ping */
+    if( FD_UNLIKELY( ping_if_unponged_contact_info( ctx, view->pull_request->contact_info, ctx->payload, stem ) ) ) return FD_METRICS_ENUM_GOSSVF_MESSAGE_OUTCOME_V_DROPPED_PULL_REQUEST_INACTIVE_IDX;
 
     /* TODO: Jitter? */
     long clamp_wallclock_lower_nanos = now-15L*1000L*1000L*1000L;
