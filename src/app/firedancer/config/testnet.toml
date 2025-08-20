@@ -9,4 +9,4 @@
     heap_size_gib = 40
     max_account_records = 200_000_000
 [layout]
-    gossvf_tile_count = 1
+    gossvf_tile_count = 4
