@@ -86,40 +86,14 @@ compute_stake_delegations( fd_bank_t *                bank,
   fd_bank_vote_states_end_locking_modify( bank );
 }
 
+/* Refresh vote accounts.
 
-/* Populates vote accounts with updated delegated stake from the next cached epoch stakes into temp_info */
-void
-fd_populate_vote_accounts( fd_exec_slot_ctx_t *       slot_ctx,
-                           fd_stake_history_t const * history,
-                           ulong *                    new_rate_activation_epoch ) {
+   This updates the epoch bank stakes vote_accounts cache - that is, the total amount
+   of delegated stake each vote account has, using the current delegation values from inside each
+   stake account. Contrary to the Agave equivalent, it also merges the stakes cache vote accounts with the
+   new vote account keys from this epoch.
 
-  /* We can optimize this function by only iterating over the vote
-     accounts (since there's much fewer of them) instead of all of the
-     stake accounts, and pre-inserting them into the delegations pool.
-     This way, the delegation calculations can be tpooled. */
-  compute_stake_delegations(
-      slot_ctx->bank,
-      fd_bank_epoch_get( slot_ctx->bank ),
-      history,
-      new_rate_activation_epoch );
-
-  /* TODO: because we are calculating the stake delegation partially
-     into the new epoch, we are interested in calculating the rewards
-     with stake delegations from epoch E-1. We already have this
-     information in vote_states_prev in the bank. However, this needs
-     to be implemented properly throughout the rewards calculation. */
-  FD_LOG_ERR(( "snapshots during rewards distribution are currently not supported" ));
-}
-
-/*
-Refresh vote accounts.
-
-This updates the epoch bank stakes vote_accounts cache - that is, the total amount
-of delegated stake each vote account has, using the current delegation values from inside each
-stake account. Contrary to the Agave equivalent, it also merges the stakes cache vote accounts with the
-new vote account keys from this epoch.
-
-https://github.com/solana-labs/solana/blob/c091fd3da8014c0ef83b626318018f238f506435/runtime/src/stakes.rs#L562 */
+   https://github.com/solana-labs/solana/blob/c091fd3da8014c0ef83b626318018f238f506435/runtime/src/stakes.rs#L562 */
 void
 fd_refresh_vote_accounts( fd_exec_slot_ctx_t *       slot_ctx,
                           fd_stake_history_t const * history,

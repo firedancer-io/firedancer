@@ -456,7 +456,7 @@ fd_banks_init_bank( fd_banks_t * banks, ulong slot ) {
   #define HAS_LOCK_0(name)
 
   #define X(type, name, footprint, align, cow, limit_fork_width, has_lock) \
-    HAS_COW_##cow(name);                                 \
+    HAS_COW_##cow(name);                                                   \
     HAS_LOCK_##has_lock(name)
   FD_BANKS_ITER(X)
   #undef X
@@ -482,7 +482,7 @@ fd_banks_get_bank( fd_banks_t * banks, ulong slot ) {
 
   ulong idx = fd_banks_map_idx_query_const( bank_map, &slot, ULONG_MAX, bank_pool );
   if( FD_UNLIKELY( idx==ULONG_MAX ) ) {
-    FD_LOG_WARNING(( "Failed to get bank idx for slot %lu", slot ));
+    FD_LOG_DEBUG(( "Failed to get bank idx for slot %lu", slot ));
     return NULL;
   }
 
