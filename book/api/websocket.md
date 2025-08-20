@@ -1022,21 +1022,41 @@ initially replay one but the cluster votes on the other one.
 | priority_fee                 | `string\|null` | Total amount of priority fees that this slot collects in lamports after any burning |
 | tips                         | `string\|null` | Total amount of tips that this slot collects in lamports, across all block builders, after any commission to the block builder is subtracted |
 
-#### `slot.skipped_history`
-| frequency      | type       | example |
-|----------------|------------|---------|
- *Once* + *Live* | `number[]` | `[286576808, 286576809, 286576810, 286576811, 286625025, 286625026, 286625027]` |
 
-A list of all of the recent leader slots of the validator which were
-skipped. Only two epochs of leader slots are tracked, and skips prior
-to this are not retrieved.
+
+#### `slot.skipped_history`
+| frequency       | type                 | example |
+|-----------------|----------------------|---------|
+| *Once* + *Live* | `SlotSkippedHistory` | below   |
+
+An object containing two arrays of recently skipped slots:
+
+- `mine`: Recent leader slots in the current epoch of this validator
+  which were skipped
+- `cluster`: All skipped slots in the current epoch across the entire
+  cluster
 
 The skipped slots include unrooted and unconfirmed slots of ours which
 are skipped on the currently active fork.
 
 If the validator identity is changed with a `set-identity` operation,
-the skipped history is republished with a list of skipped slots for the
-new validator identity.
+the skipped history is republished with an updated `mine` for the new
+validator identity.
+
+::: details Example
+
+```json
+{
+    "topic": "slot",
+    "key": "skipped_history",
+    "value": {
+        "mine": [286576808, 286576809, 286576810],
+        "cluster": [286576804, 286576805, 286576808, 286576809, 286576810, 286576811, 286625025, 286625026, 286625027, 286625041, 286625042]
+    }
+}
+```
+
+:::
 
 #### `slot.update`
 | frequency   | type          | example |
