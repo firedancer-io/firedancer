@@ -186,7 +186,7 @@ fd_gossip_new( void *                    shmem,
     FD_LOG_WARNING(( "max_values must be a power of 2" ));
     return NULL;
   }
-  ulong stake_map_chain_cnt = stake_map_chain_cnt_est( max_values );
+  ulong stake_map_chain_cnt = stake_map_chain_cnt_est( CRDS_MAX_CONTACT_INFO );
 
   FD_SCRATCH_ALLOC_INIT( l, shmem );
   fd_gossip_t * gossip  = FD_SCRATCH_ALLOC_APPEND( l, alignof(fd_gossip_t),    sizeof(fd_gossip_t)                           );

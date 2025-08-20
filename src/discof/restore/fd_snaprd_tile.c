@@ -502,9 +502,11 @@ before_frag( fd_snaprd_tile_t * ctx FD_PARAM_UNUSED,
              ulong              seq FD_PARAM_UNUSED,
              ulong              sig ) {
   if( ctx->in_kind[ in_idx ]==IN_KIND_GOSSIP ){
-    return !( sig==FD_GOSSIP_UPDATE_TAG_CONTACT_INFO ||
-              sig==FD_GOSSIP_UPDATE_TAG_CONTACT_INFO_REMOVE ||
-              sig==FD_GOSSIP_UPDATE_TAG_SNAPSHOT_HASHES );
+    (void)sig;
+    // return !( sig==FD_GOSSIP_UPDATE_TAG_CONTACT_INFO ||
+    //           sig==FD_GOSSIP_UPDATE_TAG_CONTACT_INFO_REMOVE ||
+    //           sig==FD_GOSSIP_UPDATE_TAG_SNAPSHOT_HASHES );
+    return 1;
   }
   return 0;
 }
@@ -576,41 +578,48 @@ after_frag( fd_snaprd_tile_t *  ctx,
   } else {
     FD_TEST( sig==FD_SNAPSHOT_MSG_CTRL_ACK || sig==FD_SNAPSHOT_MSG_CTRL_MALFORMED );
 
-    switch( ctx->state) {
-      case FD_SNAPRD_STATE_READING_FULL_FILE:
-      case FD_SNAPRD_STATE_FLUSHING_FULL_FILE:
-      case FD_SNAPRD_STATE_FLUSHING_FULL_FILE_RESET:
-        FD_LOG_ERR(( "error reading snapshot from local file `%s`", ctx->local_in.full_snapshot_path ));
-      case FD_SNAPRD_STATE_READING_INCREMENTAL_FILE:
-      case FD_SNAPRD_STATE_FLUSHING_INCREMENTAL_FILE:
-        FD_LOG_ERR(( "error reading snapshot from local file `%s`", ctx->local_in.incremental_snapshot_path ));
-      case FD_SNAPRD_STATE_READING_FULL_HTTP:
-      case FD_SNAPRD_STATE_READING_INCREMENTAL_HTTP:
-        FD_LOG_NOTICE(( "error downloading snapshot from http://" FD_IP4_ADDR_FMT ":%hu/snapshot.tar.bz2",
-                        FD_IP4_ADDR_FMT_ARGS( ctx->addr.addr ), ctx->addr.port ));
-        fd_sshttp_cancel( ctx->sshttp );
-        fd_ssping_invalidate( ctx->ssping, ctx->addr, fd_log_wallclock() );
-        fd_stem_publish( stem, 0UL, FD_SNAPSHOT_MSG_CTRL_RESET_FULL, 0UL, 0UL, 0UL, 0UL, 0UL );
-        ctx->state = FD_SNAPRD_STATE_FLUSHING_FULL_HTTP_RESET;
-        break;
-      case FD_SNAPRD_STATE_FLUSHING_FULL_HTTP:
-      case FD_SNAPRD_STATE_FLUSHING_INCREMENTAL_HTTP:
-        FD_LOG_NOTICE(( "error downloading snapshot from http://" FD_IP4_ADDR_FMT ":%hu/incremental-snapshot.tar.bz2",
-                        FD_IP4_ADDR_FMT_ARGS( ctx->addr.addr ), ctx->addr.port ));
-        fd_sshttp_cancel( ctx->sshttp );
-        fd_ssping_invalidate( ctx->ssping, ctx->addr, fd_log_wallclock() );
-        /* We would like to transition to FULL_HTTP_RESET, but we can't
-           do it just yet, because we have already sent a DONE control
-           fragment, and need to wait for acknowledges to come back
-           first, to ensure there's only one control message outstanding
-           at a time. */
-        ctx->malformed = 1;
-        break;
-      case FD_SNAPRD_STATE_FLUSHING_FULL_HTTP_RESET:
-        break;
-      default:
-        FD_LOG_ERR(( "unexpected state %d", ctx->state ));
-        break;
+    if( FD_LIKELY( sig==FD_SNAPSHOT_MSG_CTRL_ACK ) ) ctx->ack_cnt++;
+    else {
+      FD_TEST( ctx->state!=FD_SNAPRD_STATE_SHUTDOWN &&
+              ctx->state!=FD_SNAPRD_STATE_COLLECTING_PEERS &&
+              ctx->state!=FD_SNAPRD_STATE_WAITING_FOR_PEERS );
+
+      switch( ctx->state) {
+        case FD_SNAPRD_STATE_READING_FULL_FILE:
+        case FD_SNAPRD_STATE_FLUSHING_FULL_FILE:
+        case FD_SNAPRD_STATE_FLUSHING_FULL_FILE_RESET:
+          FD_LOG_ERR(( "error reading snapshot from local file `%s`", ctx->local_in.full_snapshot_path ));
+        case FD_SNAPRD_STATE_READING_INCREMENTAL_FILE:
+        case FD_SNAPRD_STATE_FLUSHING_INCREMENTAL_FILE:
+          FD_LOG_ERR(( "error reading snapshot from local file `%s`", ctx->local_in.incremental_snapshot_path ));
+        case FD_SNAPRD_STATE_READING_FULL_HTTP:
+        case FD_SNAPRD_STATE_READING_INCREMENTAL_HTTP:
+          FD_LOG_NOTICE(( "error downloading snapshot from http://" FD_IP4_ADDR_FMT ":%hu/snapshot.tar.bz2",
+                          FD_IP4_ADDR_FMT_ARGS( ctx->addr.addr ), ctx->addr.port ));
+          fd_sshttp_cancel( ctx->sshttp );
+          fd_ssping_invalidate( ctx->ssping, ctx->addr, fd_log_wallclock() );
+          fd_stem_publish( stem, 0UL, FD_SNAPSHOT_MSG_CTRL_RESET_FULL, 0UL, 0UL, 0UL, 0UL, 0UL );
+          ctx->state = FD_SNAPRD_STATE_FLUSHING_FULL_HTTP_RESET;
+          break;
+        case FD_SNAPRD_STATE_FLUSHING_FULL_HTTP:
+        case FD_SNAPRD_STATE_FLUSHING_INCREMENTAL_HTTP:
+          FD_LOG_NOTICE(( "error downloading snapshot from http://" FD_IP4_ADDR_FMT ":%hu/incremental-snapshot.tar.bz2",
+                          FD_IP4_ADDR_FMT_ARGS( ctx->addr.addr ), ctx->addr.port ));
+          fd_sshttp_cancel( ctx->sshttp );
+          fd_ssping_invalidate( ctx->ssping, ctx->addr, fd_log_wallclock() );
+          /* We would like to transition to FULL_HTTP_RESET, but we can't
+            do it just yet, because we have already sent a DONE control
+            fragment, and need to wait for acknowledges to come back
+            first, to ensure there's only one control message outstanding
+            at a time. */
+          ctx->malformed = 1;
+          break;
+        case FD_SNAPRD_STATE_FLUSHING_FULL_HTTP_RESET:
+          break;
+        default:
+          FD_LOG_ERR(( "unexpected state %d", ctx->state ));
+          break;
+      }
     }
   }
 }
@@ -742,12 +751,12 @@ unprivileged_init( fd_topo_t *      topo,
   for( ulong i=0UL; i<(tile->in_cnt); i++ ){
     fd_topo_link_t * in_link = &topo->links[ tile->in_link_id[ i ] ];
     if( 0==strcmp( in_link->name, "gossip_out" ) ) {
-      has_gossip_in         = 1;
+      // has_gossip_in         = 1;
       ctx->in_kind[ i ]     = IN_KIND_GOSSIP;
-      ctx->gossip_in.mem    = topo->workspaces[ topo->objs[ in_link->dcache_obj_id ].wksp_id ].wksp;
-      ctx->gossip_in.chunk0 = fd_dcache_compact_chunk0( ctx->gossip_in.mem, in_link->dcache );
-      ctx->gossip_in.wmark  = fd_dcache_compact_wmark ( ctx->gossip_in.mem, in_link->dcache, in_link->mtu );
-      ctx->gossip_in.mtu    = in_link->mtu;
+      // ctx->gossip_in.mem    = topo->workspaces[ topo->objs[ in_link->dcache_obj_id ].wksp_id ].wksp;
+      // ctx->gossip_in.chunk0 = fd_dcache_compact_chunk0( ctx->gossip_in.mem, in_link->dcache );
+      // ctx->gossip_in.wmark  = fd_dcache_compact_wmark ( ctx->gossip_in.mem, in_link->dcache, in_link->mtu );
+      // ctx->gossip_in.mtu    = in_link->mtu;
     } else if( 0==strcmp( in_link->name, "snapdc_rd" ) ||
                0==strcmp( in_link->name, "snapin_rd" ) ) {
       ctx->in_kind[ i ] = IN_KIND_SNAPCTL;

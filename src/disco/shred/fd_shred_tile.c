@@ -1330,9 +1330,9 @@ unprivileged_init( fd_topo_t *      topo,
     }
     else if( FD_LIKELY( !strcmp( link->name, "gossip_out"   ) ) ) { ctx->in_kind[ i ] = IN_KIND_GOSSIP;
       if( FD_UNLIKELY( has_contact_info_in ) ) FD_LOG_ERR(( "shred tile has multiple contact info in link types, can only be either gossip_out or crds_shred" ));
-      has_contact_info_in = 1; 
+      has_contact_info_in = 1;
     }
-    
+
     else FD_LOG_ERR(( "shred tile has unexpected input link %lu %s", i, link->name ));
 
     if( FD_LIKELY( !!link->mtu ) ) {

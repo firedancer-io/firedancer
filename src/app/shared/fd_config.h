@@ -240,6 +240,8 @@ struct fd_config {
 
     ushort        port;
     char          host[ 256 ];
+
+    long          boot_timestamp_nanos;
   } gossip;
 
   struct {
