@@ -264,7 +264,7 @@ struct fd_topo_tile {
       char              identity_key_path[ PATH_MAX ];
       ushort            shred_listen_port;
       int               larger_shred_limits_per_block;
-      ulong             expected_shred_version;
+      ushort            expected_shred_version;
       ulong             adtl_dests_retransmit_cnt;
       fd_topo_ip_port_t adtl_dests_retransmit[ FD_TOPO_ADTL_DESTS_MAX ];
       ulong             adtl_dests_leader_cnt;

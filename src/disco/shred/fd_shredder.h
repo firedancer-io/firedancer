@@ -82,10 +82,12 @@ FD_FN_CONST static inline ulong fd_shredder_footprint( void ) { return sizeof(fd
    key of the validator that will sign the shreds this shredder
    produces.  The value provided for shred_version will be stored in the
    shred_version field of each shred that this shredder produces. */
-void          * fd_shredder_new(  void * mem, fd_shredder_sign_fn * signer, void * signer_ctx, ushort shred_version );
+void          * fd_shredder_new(  void * mem, fd_shredder_sign_fn * signer, void * signer_ctx );
 fd_shredder_t * fd_shredder_join( void * mem );
 void *          fd_shredder_leave(  fd_shredder_t * shredder );
 void *          fd_shredder_delete( void *          mem      );
+
+static inline void fd_shredder_set_shred_version( fd_shredder_t * shredder, ushort shred_version ) { shredder->shred_version = shred_version; }
 
 
 /* fd_shredder_count_{data_shreds, parity_shreds, fec_sets}: returns the

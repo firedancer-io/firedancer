@@ -247,6 +247,7 @@ fd_topo_initialize( config_t * config ) {
   fd_topob_wksp( topo, "gossip_tower" );
   fd_topob_wksp( topo, "replay_out"   );
   fd_topob_wksp( topo, "root_out"     );
+  fd_topob_wksp( topo, "ipecho_out"  );
 
   fd_topob_wksp( topo, "repair_sign"  );
 
@@ -265,6 +266,7 @@ fd_topo_initialize( config_t * config ) {
   fd_topob_wksp( topo, "resolv"      );
   fd_topob_wksp( topo, "sign"        );
   fd_topob_wksp( topo, "repair"      );
+  fd_topob_wksp( topo, "ipecho"      );
   fd_topob_wksp( topo, "gossip"      );
   fd_topob_wksp( topo, "metric"      );
   fd_topob_wksp( topo, "replay"      );
@@ -336,6 +338,7 @@ fd_topo_initialize( config_t * config ) {
   /**/                 fd_topob_link( topo, "gossip_tower", "gossip_tower", 128UL,                                    FD_TPU_MTU,                    1UL );
   /**/                 fd_topob_link( topo, "replay_out",   "replay_out",   128UL,                                    sizeof(fd_replay_out_t),       1UL );
   /**/                 fd_topob_link( topo, "root_out",     "root_out",     128UL,                                    sizeof(fd_block_id_t),         1UL );
+  /**/                 fd_topob_link( topo, "ipecho_out",   "ipecho_out",   4UL,                                      0UL,                           1UL );
 
   /**/                 fd_topob_link( topo, "crds_shred",   "crds_shred",   128UL,                                    8UL  + 40200UL * 38UL,         1UL );
   /**/                 fd_topob_link( topo, "gossip_repai", "gossip_repai", 128UL,                                    40200UL * 38UL, 1UL );
@@ -419,8 +422,9 @@ fd_topo_initialize( config_t * config ) {
   FOR(sign_tile_cnt)               fd_topob_tile( topo, "sign",    "sign",    "metric_in",  tile_to_cpu[ topo->tile_cnt ], 0,        1 );
   /**/                             fd_topob_tile( topo, "metric",  "metric",  "metric_in",  tile_to_cpu[ topo->tile_cnt ], 0,        0 );
   fd_topo_tile_t * pack_tile =     fd_topob_tile( topo, "pack",    "pack",    "metric_in",  tile_to_cpu[ topo->tile_cnt ], 0,        0 );
-  /**/                             fd_topob_tile( topo, "poh",     "poh",     "metric_in",  tile_to_cpu[ topo->tile_cnt ], 0,          1 );
+  /**/                             fd_topob_tile( topo, "poh",     "poh",     "metric_in",  tile_to_cpu[ topo->tile_cnt ], 0,        1 );
   /**/                             fd_topob_tile( topo, "gossip",  "gossip",  "metric_in",  tile_to_cpu[ topo->tile_cnt ], 0,        0 );
+  /**/                             fd_topob_tile( topo, "ipecho",  "ipecho",  "metric_in",  tile_to_cpu[ topo->tile_cnt ], 0,        0 );
   fd_topo_tile_t * repair_tile =   fd_topob_tile( topo, "repair",  "repair",  "metric_in",  tile_to_cpu[ topo->tile_cnt ], 0,        0 );
   /**/                             fd_topob_tile( topo, "send",    "send",    "metric_in",  tile_to_cpu[ topo->tile_cnt ], 0,        0 );
 
@@ -599,6 +603,9 @@ fd_topo_initialize( config_t * config ) {
   /**/                 fd_topob_tile_in ( topo, "tower",  0UL,          "metric_in",  "snap_out",     0UL,           FD_TOPOB_RELIABLE,   FD_TOPOB_POLLED   );
   /**/                 fd_topob_tile_out( topo, "tower",  0UL,                        "root_out",     0UL                                                   );
   /**/                 fd_topob_tile_out( topo, "tower",  0UL,                        "tower_send",   0UL                                                   );
+
+  /**/                 fd_topob_tile_out( topo, "ipecho", 0UL,                        "ipecho_out",   0UL                                                   );
+  FOR(shred_tile_cnt)  fd_topob_tile_in ( topo, "shred",  i,             "metric_in", "ipecho_out",   0UL,            FD_TOPOB_RELIABLE,   FD_TOPOB_POLLED  );
 
   /* Sign links don't need to be reliable because they are synchronous,
     so there's at most one fragment in flight at a time anyway.  The
@@ -886,6 +893,12 @@ fd_topo_configure_tile( fd_topo_tile_t * tile,
       tile->gossip.entrypoints_cnt      = fd_ulong_min( config->gossip.resolved_entrypoints_cnt, FD_TOPO_GOSSIP_ENTRYPOINTS_MAX );
       fd_memcpy( tile->gossip.entrypoints, config->gossip.resolved_entrypoints, tile->gossip.entrypoints_cnt * sizeof(fd_ip4_port_t) );
 
+    } else if( FD_UNLIKELY( !strcmp( tile->name, "ipecho") ) ) {
+      tile->ipecho.expected_shred_version = config->consensus.expected_shred_version;
+      tile->ipecho.bind_address           = config->net.ip_addr;
+      tile->ipecho.bind_port              = config->gossip.port;
+      tile->ipecho.entrypoints_cnt        = config->gossip.entrypoints_cnt;
+      fd_memcpy( tile->ipecho.entrypoints, config->gossip.resolved_entrypoints, tile->ipecho.entrypoints_cnt * sizeof(fd_ip4_port_t) );
     } else if( FD_UNLIKELY( !strcmp( tile->name, "repair" ) ) ) {
       tile->repair.max_pending_shred_sets    = config->tiles.shred.max_pending_shred_sets;
       tile->repair.repair_intake_listen_port = config->tiles.repair.repair_intake_listen_port;

@@ -4,8 +4,7 @@
 void *
 fd_shredder_new( void *                mem,
                  fd_shredder_sign_fn * signer,
-                 void *                signer_ctx,
-                 ushort                shred_version ) {
+                 void *                signer_ctx ) {
   fd_shredder_t * shredder = (fd_shredder_t *)mem;
 
   if( FD_UNLIKELY( !mem ) ) {
@@ -18,7 +17,7 @@ fd_shredder_new( void *                mem,
     return NULL;
   }
 
-  shredder->shred_version = shred_version;
+  shredder->shred_version = 0;
   shredder->entry_batch   = NULL;
   shredder->sz            = 0UL;
   shredder->offset        = 0UL;

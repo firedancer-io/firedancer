@@ -91,6 +91,7 @@
 #define IN_KIND_NET     (3UL)
 #define IN_KIND_SIGN    (4UL)
 #define IN_KIND_REPAIR  (5UL)
+#define IN_KIND_IPECHO  (6UL)
 
 #define NET_OUT_IDX     1
 #define SIGN_OUT_IDX    2
@@ -339,6 +340,15 @@ before_frag( fd_shred_ctx_t * ctx,
              ulong            in_idx,
              ulong            seq,
              ulong            sig ) {
+  if( FD_UNLIKELY( ctx->in_kind[ in_idx ]==IN_KIND_IPECHO ) ) {
+    FD_TEST( sig!=0UL && sig<=USHORT_MAX );
+    fd_shredder_set_shred_version    ( ctx->shredder, (ushort)sig );
+    fd_fec_resolver_set_shred_version( ctx->resolver, (ushort)sig );
+    return 1;
+  }
+
+  if( FD_UNLIKELY( !ctx->shredder->shred_version ) ) return -1;
+
   if( FD_LIKELY( ctx->in_kind[ in_idx ]==IN_KIND_POH ) ) {
     ctx->poh_in_expect_seq = seq+1UL;
     return (int)(fd_disco_poh_sig_pkt_type( sig )!=POH_PKT_TYPE_MICROBLOCK) & (int)(fd_disco_poh_sig_pkt_type( sig )!=POH_PKT_TYPE_FEAT_ACT_SLOT);
@@ -1193,19 +1203,22 @@ unprivileged_init( fd_topo_t *      topo,
       if( FD_UNLIKELY( !__x ) ) FD_LOG_ERR(( #x " was unexpectedly NULL" )); \
       __x; }))
 
-  ulong expected_shred_version = tile->shred.expected_shred_version;
-  if( FD_LIKELY( !expected_shred_version ) ) {
+  int has_ipecho_in = fd_topo_find_tile_in_link( topo, tile, "ipecho_out", 0UL )!=ULONG_MAX;
+  ushort expected_shred_version = tile->shred.expected_shred_version;
+  if( FD_UNLIKELY( !has_ipecho_in && !expected_shred_version ) ) {
     ulong busy_obj_id = fd_pod_query_ulong( topo->props, "poh_shred", ULONG_MAX );
     FD_TEST( busy_obj_id!=ULONG_MAX );
     ulong * gossip_shred_version = fd_fseq_join( fd_topo_obj_laddr( topo, busy_obj_id ) );
     FD_LOG_INFO(( "Waiting for shred version to be determined via gossip." ));
+    ulong _expected_shred_version = ULONG_MAX;
     do {
-      expected_shred_version = FD_VOLATILE_CONST( *gossip_shred_version );
-    } while( expected_shred_version==ULONG_MAX );
-  }
+      _expected_shred_version = FD_VOLATILE_CONST( *gossip_shred_version );
+    } while( _expected_shred_version==ULONG_MAX );
 
-  if( FD_UNLIKELY( expected_shred_version > USHORT_MAX ) ) FD_LOG_ERR(( "invalid shred version %lu", expected_shred_version ));
-  FD_LOG_INFO(( "Using shred version %hu", (ushort)expected_shred_version ));
+    if( FD_UNLIKELY( _expected_shred_version>USHORT_MAX ) ) FD_LOG_ERR(( "invalid shred version %lu", _expected_shred_version ));
+    FD_LOG_INFO(( "Using shred version %hu", (ushort)_expected_shred_version ));
+    expected_shred_version = (ushort)_expected_shred_version;
+  }
 
   ctx->keyswitch = fd_keyswitch_join( fd_topo_obj_laddr( topo, tile->keyswitch_obj_id ) );
   FD_TEST( ctx->keyswitch );
@@ -1224,14 +1237,18 @@ unprivileged_init( fd_topo_t *      topo,
 
   ulong shred_limit = fd_ulong_if( tile->shred.larger_shred_limits_per_block, 32UL*32UL*1024UL, 32UL*1024UL );
   fd_fec_set_t * resolver_sets = fec_sets + (shred_store_mcache_depth+1UL)/2UL + 1UL;
-  ctx->shredder = NONNULL( fd_shredder_join     ( fd_shredder_new     ( _shredder, fd_shred_signer, ctx->keyguard_client, (ushort)expected_shred_version ) ) );
+  ctx->shredder = NONNULL( fd_shredder_join     ( fd_shredder_new     ( _shredder, fd_shred_signer, ctx->keyguard_client ) ) );
   ctx->resolver = NONNULL( fd_fec_resolver_join ( fd_fec_resolver_new ( _resolver,
                                                                         fd_shred_signer, ctx->keyguard_client,
                                                                         tile->shred.fec_resolver_depth, 1UL,
                                                                         (shred_store_mcache_depth+3UL)/2UL,
                                                                         128UL * tile->shred.fec_resolver_depth, resolver_sets,
-                                                                        (ushort)expected_shred_version,
                                                                         shred_limit ) ) );
+
+  if( FD_LIKELY( !!expected_shred_version ) ) {
+    fd_shredder_set_shred_version    ( ctx->shredder, expected_shred_version );
+    fd_fec_resolver_set_shred_version( ctx->resolver, expected_shred_version );
+  }
 
   ctx->shred34  = shred34;
   ctx->fec_sets = fec_sets;
@@ -1266,11 +1283,14 @@ unprivileged_init( fd_topo_t *      topo,
     else if( FD_LIKELY( !strcmp( link->name, "crds_shred"   ) ) ) ctx->in_kind[ i ] = IN_KIND_CONTACT;
     else if( FD_LIKELY( !strcmp( link->name, "sign_shred"   ) ) ) ctx->in_kind[ i ] = IN_KIND_SIGN;
     else if( FD_LIKELY( !strcmp( link->name, "repair_shred" ) ) ) ctx->in_kind[ i ] = IN_KIND_REPAIR;
+    else if( FD_LIKELY( !strcmp( link->name, "ipecho_out"   ) ) ) ctx->in_kind[ i ] = IN_KIND_IPECHO;
     else FD_LOG_ERR(( "shred tile has unexpected input link %lu %s", i, link->name ));
 
-    ctx->in[ i ].mem    = link_wksp->wksp;
-    ctx->in[ i ].chunk0 = fd_dcache_compact_chunk0( ctx->in[ i ].mem, link->dcache );
-    ctx->in[ i ].wmark  = fd_dcache_compact_wmark ( ctx->in[ i ].mem, link->dcache, link->mtu );
+    if( FD_LIKELY( !!link->mtu ) ) {
+      ctx->in[ i ].mem    = link_wksp->wksp;
+      ctx->in[ i ].chunk0 = fd_dcache_compact_chunk0( ctx->in[ i ].mem, link->dcache );
+      ctx->in[ i ].wmark  = fd_dcache_compact_wmark ( ctx->in[ i ].mem, link->dcache, link->mtu );
+    }
   }
 
   fd_topo_link_t * net_out = &topo->links[ tile->out_link_id[ NET_OUT_IDX ] ];
