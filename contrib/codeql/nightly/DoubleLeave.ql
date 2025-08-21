@@ -14,6 +14,7 @@ import cpp
 import GenericDoubleFree
 import semmle.code.cpp.dataflow.new.DataFlow
 import Flow::PathGraph
+import filter
 
 bindingset[x]
 string matchLeave(string x) {
@@ -33,4 +34,5 @@ from
 where
   Flow::flowPath(source, sink)
   and source.getLocation().getStartLine() != sink.getLocation().getStartLine()
+  and included(source.getLocation()) and included(sink.getLocation())
 select sink.getNode(), source, sink, "double leave"

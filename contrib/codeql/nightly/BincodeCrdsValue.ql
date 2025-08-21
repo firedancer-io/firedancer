@@ -14,6 +14,7 @@
 import cpp
 import semmle.code.cpp.dataflow.new.DataFlow
 import Flow::PathGraph
+import filter
 
 class CtxData extends FieldAccess {
   CtxData() {
@@ -67,5 +68,6 @@ module Config implements DataFlow::ConfigSig {
 module Flow = DataFlow::Global<Config>;
 
 from Flow::PathNode source, Flow::PathNode sink
-where Flow::flowPath(source, sink)
+where Flow::flowPath(source, sink) and
+included(source.getLocation()) and included(sink.getLocation())
 select sink.getNode(), source, sink, "Only use fd_crds_value_encode to initialize fd_value_elem->data"

@@ -9,6 +9,7 @@
  */
 
 import cpp
+import filter
 
 class AllocaCall extends FunctionCall {
   AllocaCall() {
@@ -21,4 +22,5 @@ class AllocaCall extends FunctionCall {
 
 from Loop l, AllocaCall c
 where c.getAPredecessor*() = l
+and included(l.getLocation())
 select c, "Call to alloca in loop"
