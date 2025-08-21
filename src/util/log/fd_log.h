@@ -266,6 +266,11 @@
 
 #define FD_TEST_CUSTOM(c,err) do { if( FD_UNLIKELY( !(c) ) ) FD_LOG_ERR(( "FAIL: %s", (err) )); } while(0)
 
+/* FD_TEST_BRK is like FD_TEST but drops into a debugger on failure. */
+
+#define FD_TEST_BRK(c) do { if( FD_UNLIKELY( !(c) ) ) FD_LOG_WARNING(( "FAIL: %s", #c )); __asm__("int $3"); } while(0)
+
+
 /* Macros for doing hexedit / tcpdump-like logging of memory regions.
    E.g.
 
