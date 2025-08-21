@@ -796,6 +796,10 @@ metric introduced.
     <counter name="CrdsExpiredCount" label="The number of entries expired from the data store due to age" />
     <counter name="CrdsEvictedCount" label="The number of entries evicted from the data store to make space for new entries" />
 
+    <counter name="CrdsInsertedCount" label="The total number of entries ever inserted into the data store" />
+    <counter name="CrdsInsertedTotalAgeNanos" label="The total age of inserted CRDS in nanoseconds" />
+    <counter name="CrdsInsertedFreshCount" label="The total number of entries ever inserted into the data store which were considered fresh" />
+
     <gauge name="CrdsPeerCapacity" label="The capacity for storing peers in the data store" />
     <gauge name="CrdsPeerStakedCount" label="The number of staked peers in the data store" />
     <gauge name="CrdsPeerUnstakedCount" label="The number of unstaked peers in the data store" />

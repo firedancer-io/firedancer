@@ -546,6 +546,9 @@
 | <span class="metrics-name">gossip_&#8203;crds_&#8203;count</span><br/>{crds_&#8203;value="<span class="metrics-enum">restart_&#8203;heaviest_&#8203;fork</span>"} | gauge |  (Restart Heaviest Fork) |
 | <span class="metrics-name">gossip_&#8203;crds_&#8203;expired_&#8203;count</span> | counter |  |
 | <span class="metrics-name">gossip_&#8203;crds_&#8203;evicted_&#8203;count</span> | counter |  |
+| <span class="metrics-name">gossip_&#8203;crds_&#8203;inserted_&#8203;count</span> | counter |  |
+| <span class="metrics-name">gossip_&#8203;crds_&#8203;inserted_&#8203;total_&#8203;age_&#8203;nanos</span> | counter |  |
+| <span class="metrics-name">gossip_&#8203;crds_&#8203;inserted_&#8203;fresh_&#8203;count</span> | counter |  |
 | <span class="metrics-name">gossip_&#8203;crds_&#8203;peer_&#8203;capacity</span> | gauge |  |
 | <span class="metrics-name">gossip_&#8203;crds_&#8203;peer_&#8203;staked_&#8203;count</span> | gauge |  |
 | <span class="metrics-name">gossip_&#8203;crds_&#8203;peer_&#8203;unstaked_&#8203;count</span> | gauge |  |

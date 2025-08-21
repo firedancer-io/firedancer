@@ -633,20 +633,27 @@ user = ""
     # denial of service or spam attack.
     verify_tile_count = 6
 
-    # How many gossip verify tiles to run. Gossip verify tiles are
-    # architecturally similar to verify tiles in that inbound Gossip
-    # messages are routed through the gossip verify tiles first before
-    # arriving at the gossip tile (if verified successfully).
-
-    # Likewise, they are designed to be scaled linearly and should be
-    # increased until a favorable drop rate is achieved (~10%) once
-    # the table is nearly fully populated. Large drop rates are expected
-    # during the boot sequence due to the influx of pull responses as a
-    # result of making a pull request from an empty Gossip table. This
-    # can be mitigated by adding more cores, but it is difficult to
-    # avoid completely on mainnet and testnet loads.
-
+    # How many gossip verify tiles to run.  Gossip verify tiles perform
+    # signature verification on incoming gossip messages, an expensive
+    # operation that is easily spammed.
+    #
+    # Gossip verify tiles are designed to scale linearly when adding
+    # more tiles, and the gossip verify tile count should be increased
+    # until the validator is not dropping incoming gossip messages
+    # during steady state operation.
+    #
+    # One gossip verify tile is sufficient for all known clusters, but
+    # during a denial of service or other attack, it may be necessary to
+    # increase this number higher.
     gossvf_tile_count = 1
+
+    # On boot, the entire gossip table must be retrieved from peers and
+    # verified for the validator to fully join the cluster.  Verifying
+    # the table is extremely expensive.  The validator supports a fast
+    # boot mode where all available CPU cores are used on startup by
+    # extra gossvf tiles to perform this verification in parallel, after
+    # which they are released back to the regular layout.
+    gossvf_fast_boot = 1
 
     # How many bank tiles to run.  Should be set to 4 for perf and
     # balanced scheduling modes.  Bank tiles execute transactions, so

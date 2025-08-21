@@ -208,6 +208,8 @@ struct fd_topo_tile {
 
       ushort shred_version;
       int allow_private_address;
+
+      int fast_boot;
     } gossvf;
 
     struct {

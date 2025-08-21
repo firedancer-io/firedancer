@@ -806,6 +806,17 @@ gossip_cmd_fn( args_t *   args,
   prev_net_rx1_bytes = net_metrics[ MIDX( COUNTER, NET, RX_BYTES_TOTAL ) ];
   prev_net_tx1_bytes = net_metrics[ MIDX( COUNTER, NET, TX_BYTES_TOTAL ) ];
 
+  ulong crds_inserted_diff = gossip_metrics[ MIDX( COUNTER, GOSSIP, CRDS_INSERTED_COUNT ) ] -
+                             gossip_prev[ MIDX( COUNTER, GOSSIP, CRDS_INSERTED_COUNT ) ];
+  // ulong age_diff = gossip_metrics[ MIDX( COUNTER, GOSSIP, CRDS_INSERTED_TOTAL_AGE_NANOS ) ] -
+  //                  gossip_prev[ MIDX( COUNTER, GOSSIP, CRDS_INSERTED_TOTAL_AGE_NANOS ) ];
+  ulong fresh_diff = gossip_metrics[ MIDX( COUNTER, GOSSIP, CRDS_INSERTED_FRESH_COUNT ) ] -
+                    gossip_prev[ MIDX( COUNTER, GOSSIP, CRDS_INSERTED_FRESH_COUNT ) ];
+  // printf( " Avg pull resp age %.1f s\n", (double)age_diff / (double)pr_diff / 1e9 );
+  // printf( " Avg CRDS per pull resp %.1f\n", (double)crds_diff / (double)pr_diff );
+
+  printf( " %% CRDS fresh %.1f %%\n", (double)fresh_diff / (double)crds_inserted_diff * 100.0 );
+
   ulong pull_response_drops = aggregate_gossvf_counter( &gossvf_tiles, MIDX( COUNTER, GOSSVF, MESSAGE_RX_COUNT_DROPPED_PULL_RESPONSE_NO_VALID_CRDS ) );
   ulong pull_response_success = aggregate_gossvf_counter( &gossvf_tiles, MIDX( COUNTER, GOSSVF, MESSAGE_RX_COUNT_SUCCESS_PULL_RESPONSE ) );
   printf(" Pull response drops: %lu/%lu\n", pull_response_drops, pull_response_drops + pull_response_success);

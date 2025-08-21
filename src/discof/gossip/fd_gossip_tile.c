@@ -203,6 +203,10 @@ metrics_write( fd_gossip_tile_ctx_t * ctx ) {
   FD_MCNT_ENUM_COPY( GOSSIP, CRDS_TX_PULL_RESPONSE_BYTES, metrics->crds_tx_pull_response_bytes );
 
   FD_MCNT_ENUM_COPY( GOSSIP, CRDS_RX_COUNT,               metrics->crds_rx_count );
+
+  FD_MCNT_SET( GOSSIP, CRDS_INSERTED_COUNT,           metrics->crds_inserted_count );
+  FD_MCNT_SET( GOSSIP, CRDS_INSERTED_FRESH_COUNT,     metrics->crds_inserted_fresh_count );
+  FD_MCNT_SET( GOSSIP, CRDS_INSERTED_TOTAL_AGE_NANOS, metrics->crds_inserted_total_age_nanos );
 }
 
 void

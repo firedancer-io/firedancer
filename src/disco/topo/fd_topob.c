@@ -429,6 +429,11 @@ fd_topob_auto_layout( fd_topo_t * topo,
   for( ulong i=0UL; i<sizeof(ORDERED)/sizeof(ORDERED[0]); i++ ) {
     for( ulong j=0UL; j<topo->tile_cnt; j++ ) {
       fd_topo_tile_t * tile = &topo->tiles[ j ];
+      if( !strcmp( tile->name, "gossvf" ) && tile->gossvf.fast_boot ) {
+        /* Fast boot gossvf tiles do not get pinned */
+        continue;
+      }
+
       if( !strcmp( tile->name, ORDERED[ i ] ) ) {
         if( FD_UNLIKELY( cpu_idx>=cpus->cpu_cnt ) ) {
           FD_LOG_ERR(( "auto layout cannot set affinity for tile `%s:%lu` because all the CPUs are already assigned", tile->name, tile->kind_id ));
@@ -483,6 +488,8 @@ fd_topob_auto_layout( fd_topo_t * topo,
         break;
       }
     }
+
+    if( FD_UNLIKELY( !strcmp( tile->name, "gossvf" ) && tile->gossvf.fast_boot ) ) found = 1;
 
     if( FD_UNLIKELY( !found ) ) FD_LOG_WARNING(( "auto layout cannot affine tile `%s:%lu` because it is unknown. Leaving it floating", tile->name, tile->kind_id ));
   }

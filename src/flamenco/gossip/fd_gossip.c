@@ -519,6 +519,10 @@ rx_pull_response( fd_gossip_t *                          gossip,
       continue;
     }
 
+    gossip->metrics->crds_inserted_total_age_nanos += (ulong)fd_long_max( 0L, now-value->wallclock_nanos );
+    gossip->metrics->crds_inserted_fresh_count += (ulong)fd_long_if( fd_long_max( 0L, now-value->wallclock_nanos )<15L*1000L*1000L*1000L, 1UL, 0UL );
+    gossip->metrics->crds_inserted_count++;
+
     fd_crds_entry_t const * candidate = fd_crds_insert( gossip->crds,
                                                         value,
                                                         payload,
