@@ -18,29 +18,43 @@ FD_STATIC_ASSERT( FD_METRICS_ENUM_CRDS_VALUE_CNT==FD_GOSSIP_VALUE_LAST+1UL,
 #define BLOOM_FALSE_POSITIVE_RATE (0.1)
 #define BLOOM_NUM_KEYS            (8.0)
 
-struct stake_weight {
-  fd_pubkey_t key;
+struct stake {
+  fd_pubkey_t pubkey;
   ulong       stake;
-  ulong       hash;
+
+  struct {
+    ulong prev;
+    ulong next;
+  } map;
+
+  struct {
+    ulong next;
+  } pool;
 };
 
-typedef struct stake_weight stake_weight_entry_t;
+typedef struct stake stake_t;
 
-fd_pubkey_t pubkey_null = { .ul = {0UL,0UL,0UL,0UL} };
+/* NOTE: Since the staked count is known at the time we populate
+   the map, we can treat the pool as an array instead. This means we
+   can bypass the acquire/release model and quickly iterate through the
+   pool when we repopulate the map on every fd_gossip_stakes_update
+   iteration. */
+#define POOL_NAME  stake_pool
+#define POOL_T     stake_t
+#define POOL_IDX_T ulong
+#define POOL_NEXT  pool.next
+#include "../../util/tmpl/fd_pool.c"
 
 #define MAP_NAME               stake_map
-#define MAP_T                  stake_weight_entry_t
+#define MAP_KEY                pubkey
+#define MAP_ELE_T              stake_t
 #define MAP_KEY_T              fd_pubkey_t
-#define MAP_HASH_T             ulong
-#define MAP_KEY_NULL           pubkey_null
-#define MAP_KEY_EQUAL(k0,k1)   (!(memcmp((k0).key,(k1).key,sizeof(fd_pubkey_t))))
-#define MAP_KEY_INVAL(k)       (MAP_KEY_EQUAL((k),MAP_KEY_NULL))
-#define MAP_KEY_HASH(key)      ((key).ui[3])
-#define MAP_KEY_MOVE(k0,k1)    (fd_memcpy((k0).key,(k1).key,sizeof(fd_pubkey_t) ))
-#define MAP_KEY_EQUAL_IS_SLOW  1
-#define MAP_LG_SLOT_CNT        CRDS_MAX_CONTACT_INFO_LG
-
-#include "../../util/tmpl/fd_map.c"
+#define MAP_PREV               map.prev
+#define MAP_NEXT               map.next
+#define MAP_KEY_EQ(k0,k1)      fd_pubkey_eq( k0, k1 )
+#define MAP_KEY_HASH(key,seed) (seed^fd_ulong_load_8( (key)->uc ))
+#define MAP_OPTIMIZE_RANDOM_ACCESS_REMOVAL 1
+#include "../../util/tmpl/fd_map_chain.c"
 
 #include "fd_push_set_private.c"
 
@@ -62,7 +76,11 @@ struct fd_gossip_private {
 
   fd_rng_t * rng;
 
-  stake_weight_entry_t * stake_weights;
+  struct {
+    ulong         count;
+    stake_t *     pool;
+    stake_map_t * map;
+  } stake;
 
   struct {
     long next_pull_request;
@@ -104,12 +122,13 @@ fd_gossip_footprint( ulong max_values,
                      ulong entrypoints_len ) {
   ulong l;
   l = FD_LAYOUT_INIT;
-  l = FD_LAYOUT_APPEND( l, alignof(fd_gossip_t),    sizeof(fd_gossip_t)                           );
-  l = FD_LAYOUT_APPEND( l, fd_crds_align(),         fd_crds_footprint( max_values, max_values )   );
-  l = FD_LAYOUT_APPEND( l, fd_active_set_align(),   fd_active_set_footprint()                     );
-  l = FD_LAYOUT_APPEND( l, fd_ping_tracker_align(), fd_ping_tracker_footprint( entrypoints_len )  );
-  l = FD_LAYOUT_APPEND( l, stake_map_align(),       stake_map_footprint()                         );
-  l = FD_LAYOUT_APPEND( l, push_set_align(),        push_set_footprint( FD_ACTIVE_SET_MAX_PEERS ) );
+  l = FD_LAYOUT_APPEND( l, alignof(fd_gossip_t),    sizeof(fd_gossip_t)                                                     );
+  l = FD_LAYOUT_APPEND( l, fd_crds_align(),         fd_crds_footprint( max_values, max_values )                             );
+  l = FD_LAYOUT_APPEND( l, fd_active_set_align(),   fd_active_set_footprint()                                               );
+  l = FD_LAYOUT_APPEND( l, fd_ping_tracker_align(), fd_ping_tracker_footprint( entrypoints_len )                            );
+  l = FD_LAYOUT_APPEND( l, stake_pool_align(),      stake_pool_footprint( CRDS_MAX_CONTACT_INFO )                           );
+  l = FD_LAYOUT_APPEND( l, stake_map_align(),       stake_map_footprint( stake_map_chain_cnt_est( CRDS_MAX_CONTACT_INFO ) ) );
+  l = FD_LAYOUT_APPEND( l, push_set_align(),        push_set_footprint( FD_ACTIVE_SET_MAX_PEERS )                           );
   l = FD_LAYOUT_FINI( l, fd_gossip_align() );
   return l;
 }
@@ -167,13 +186,15 @@ fd_gossip_new( void *                    shmem,
     FD_LOG_WARNING(( "max_values must be a power of 2" ));
     return NULL;
   }
+  ulong stake_map_chain_cnt = stake_map_chain_cnt_est( max_values );
 
   FD_SCRATCH_ALLOC_INIT( l, shmem );
   fd_gossip_t * gossip  = FD_SCRATCH_ALLOC_APPEND( l, alignof(fd_gossip_t),    sizeof(fd_gossip_t)                           );
-  void * crds           = FD_SCRATCH_ALLOC_APPEND( l, fd_crds_align(),         fd_crds_footprint( max_values, max_values ) );
+  void * crds           = FD_SCRATCH_ALLOC_APPEND( l, fd_crds_align(),         fd_crds_footprint( max_values, max_values )   );
   void * active_set     = FD_SCRATCH_ALLOC_APPEND( l, fd_active_set_align(),   fd_active_set_footprint()                     );
   void * ping_tracker   = FD_SCRATCH_ALLOC_APPEND( l, fd_ping_tracker_align(), fd_ping_tracker_footprint( entrypoints_cnt )  );
-  void * stake_weights  = FD_SCRATCH_ALLOC_APPEND( l, stake_map_align(),       stake_map_footprint()                         );
+  void * stake_pool     = FD_SCRATCH_ALLOC_APPEND( l, stake_pool_align(),      stake_pool_footprint( CRDS_MAX_CONTACT_INFO ) );
+  void * stake_weights  = FD_SCRATCH_ALLOC_APPEND( l, stake_map_align(),       stake_map_footprint( stake_map_chain_cnt )    );
   void * active_ps      = FD_SCRATCH_ALLOC_APPEND( l, push_set_align(),        push_set_footprint( FD_ACTIVE_SET_MAX_PEERS ) );
 
   gossip->gossip_net_out  = gossip_net_out;
@@ -190,8 +211,12 @@ fd_gossip_new( void *                    shmem,
   gossip->ping_tracker = fd_ping_tracker_join( fd_ping_tracker_new( ping_tracker, rng, gossip->entrypoints_cnt, gossip->entrypoints, ping_tracker_change, gossip ) );
   FD_TEST( gossip->ping_tracker );
 
-  gossip->stake_weights = stake_map_join( stake_map_new( stake_weights ) );
-  FD_TEST( gossip->stake_weights );
+  gossip->stake.count = 0UL;
+  gossip->stake.pool = stake_pool_join( stake_pool_new( stake_pool, CRDS_MAX_CONTACT_INFO ) );
+  FD_TEST( gossip->stake.pool );
+
+  gossip->stake.map = stake_map_join( stake_map_new( stake_weights, stake_map_chain_cnt, fd_rng_ulong( rng ) ) );
+  FD_TEST( gossip->stake.map );
 
   gossip->active_pset = push_set_join( push_set_new( active_ps, FD_ACTIVE_SET_MAX_PEERS ) );
   FD_TEST( gossip->active_pset );
@@ -380,9 +405,8 @@ fd_gossip_set_my_contact_info( fd_gossip_t *             gossip,
 ulong
 get_stake( fd_gossip_t const * gossip,
            uchar const *       pubkey ) {
-  stake_weight_entry_t const * entry = stake_map_query_const( gossip->stake_weights, *(fd_pubkey_t const *)pubkey, NULL );
+  stake_t const * entry = stake_map_ele_query_const( gossip->stake.map, (fd_pubkey_t const *)pubkey, NULL, gossip->stake.pool );
   if( FD_UNLIKELY( !entry ) ) return 0UL;
-
   return entry->stake;
 }
 
@@ -394,17 +418,22 @@ fd_gossip_stakes_update( fd_gossip_t *             gossip,
     FD_LOG_ERR(( "stake_weights_cnt %lu exceeds maximum of %d", stake_weights_cnt, CRDS_MAX_CONTACT_INFO ));
   }
 
-  stake_map_clear( gossip->stake_weights );
+  /* Clear the map, this requires us to iterate through all elements and
+     individually call map remove. */
+  for( ulong i=0UL; i<gossip->stake.count; i++ ) {
+    stake_map_idx_remove_fast( gossip->stake.map, i, gossip->stake.pool );
+  }
 
   for( ulong i=0UL; i<stake_weights_cnt; i++ ) {
-    stake_weight_entry_t * entry = stake_map_insert( gossip->stake_weights, stake_weights[i].key );
-    if( FD_UNLIKELY( !entry ) ) {
-      FD_LOG_ERR(( "Failed to insert stake weight" ));
-    }
+    stake_t * entry = stake_pool_ele( gossip->stake.pool, i );
+    fd_memcpy( entry->pubkey.uc, stake_weights[i].key.uc, 32UL );
     entry->stake = stake_weights[i].stake;
+
+    stake_map_idx_insert( gossip->stake.map, i, gossip->stake.pool );
   }
   /* Update the identity stake */
   gossip->identity_stake = get_stake( gossip, gossip->identity_pubkey );
+  gossip->stake.count    = stake_weights_cnt;
 }
 
 static void
