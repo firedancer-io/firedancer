@@ -229,9 +229,143 @@ struct fd_replay_tile_ctx {
   /* Metadata updated during execution */
 
   ulong   snapshot_slot;
-  ulong   root; /* the root slot is the most recent slot to have reached
-                   max lockout in the tower  */
-  ulong   bank_idx;
+
+  /* A note on publishing ...
+
+     The watermarks are used to publish our fork-aware structures.  For
+     example, store, banks, and txncache need to be published to release
+     resources occupied by rooted or dead blocks.  In general,
+     publishing has the effect of pruning forks in those structures,
+     indicating that it is ok to release the memory being occupied by
+     the blocks on said forks.  Tower is responsible for informing us of
+     the latest block on the consensus rooted fork.  As soon as we can,
+     we should move the published root as close as possible to the
+     latest consensus root, publishing/pruning everything on the fork
+     tree along the way.  That is, all the blocks that directly descend
+     from the current published root (inclusive) to the new published
+     root (exclusive) on the rooted fork, as well as all the minority
+     forks that branch from said blocks.
+
+     Ideally, we'd move the published root to the consensus root
+     immediately upon receiving a new consensus root.  However, that's
+     not always safe to do.  One thing we need to be careful about is
+     making sure that there are no more users/consumers of
+     soon-to-be-pruned blocks, lest a use-after-free occurs.  This can
+     be done by using a reference counter for each block.  Any
+     concurrent activity, such as transaction execution through the
+     exec-writer pipeline, should retain a refcnt on the block for as
+     long as it needs access to the shared fork-aware structures related
+     to that block.  Eventually, refcnt on a given block will drop down
+     to 0 as the block either finishes replaying or gets marked as dead,
+     and any other tile that has retained a refcnt on the block releases
+     it.  At that point, it becomes a candidate for pruning.  The key to
+     safe publishing then becomes figuring out how far we could advance
+     the published root, such that every minority fork branching off of
+     blocks in between the current published root (inclusive) and the
+     new published root (exclusive) is safe to be pruned.  This is a
+     straightforward tree traversal, where if a block B on the rooted
+     fork has refcnt 0, and all minority forks branching off of B also
+     have refcnt 0, then B is safe to be pruned.  We advance the
+     published root to the farthest consecutively prunable block on the
+     rooted fork.  Note that reasm presents the replay tile with a clean
+     view of the world where every block is chained off of a parent
+     block.  So there are no orpahned/dangling tree nodes to worry
+     about.  The world is a nice single tree as far as replay is
+     concerned.
+
+     In the following fork tree, every node is a block and the number in
+     parentheses is the refcnt on the block.  The chain marked with
+     double slashes is the rooted fork.  Suppose the published root is
+     at block P, and consensus root is at block T.  We can't publish
+     past block P because Q has refcnt 1.
+
+
+          P(0)
+        /    \\
+      Q(1)    A(0)
+            / ||  \
+        X(0) B(0)  C(0)
+       /      || \
+      Y(0)   M(0) R(0)
+            / ||   /  \
+        D(2) T(0) J(0) L(0)
+              ||
+              ..
+              ..
+              ..
+              ||
+      blocks we might be actively replaying
+
+
+     When refcnt on Q drops to 0, we would be able to advance the
+     published root to block M, because blocks P, A, and B, as well as
+     all subtrees branching off of them, have refcnt 0, and therefore
+     can be pruned.  Block M itself cannot be pruned yet because its
+     child block D has refcnt 2.  After publishing/pruning, the fork
+     tree would be:
+
+
+             M(0)
+            / ||
+        D(2) T(0)
+              ||
+              ..
+              ..
+              ..
+              ||
+      blocks we might be actively replaying
+
+
+     As a result, the shared fork-aware structures can free resources
+     for blocks P, A, B, and all subtrees branching off of them.
+
+     For the reference counting part, the replay tile is the sole entity
+     that can update the refcnt.  This ensures that all refcnt increment
+     and decrement attempts are serialized at the replay tile, and that
+     there are no racy resurrection of a soon-to-be-pruned block.  If a
+     refcnt increment request arrives after a block has been pruned,
+     replay simply rejects the request.
+
+     A note on the implementation of the above ...
+
+     Upon receiving a new consensus root, we descend down the rooted
+     fork from the current published root to the new consensus root.  On
+     each node/block of the rooted fork, we do a summation of the refcnt
+     on the block and all the minority fork blocks branching from the
+     block.  If the summation is 0, the block is safe for pruning.  We
+     advance the published root to the far end of the consecutive run of
+     0 refcnt sums originating from the current published root.  On our
+     descent down the minority forks, we also mark any block that hasn't
+     finished replaying as dead, so we don't waste time executing them.
+     No more transactions shall be dispatched for execution from dead
+     blocks.
+
+     Blocks start out with a refcnt of 0.  Other tiles may send a
+     request to the replay tile for a reference on a block.  The
+     transaction dispatcher is another source of refcnt updates.  On
+     every dispatch of a transaction for block B, we increment the
+     refcnt for B.  And on every transaction finalization, we decrement
+     the refcnt for B.  This means that whenever the refcnt on a block
+     is 0, there is no more reference on that block from the execution
+     pipeline.  While it might be tempting to simply increment the
+     refcnt once when we start replaying a block, and decrement the
+     refcnt once when we finish a block, this more fine-grained refcnt
+     update strategy allows for aborting and potentially immediate
+     pruning of blocks under interleaved block replay.  Upon receiving a
+     new consensus root, we can simply look at the refcnt on minority
+     fork blocks, and a refcnt of 0 would imply that the block is safe
+     for pruning, even if we haven't finished replaying it.  Without the
+     fine-grained refcnt, we would need to first stop dispatching from
+     the aborted block, and then wait for a full drain of the execution
+     pipeline to know for sure that there are no more in-flight
+     transactions executing on the aborted block.  Note that this will
+     allow the refcnt on any block to transiently drop down to 0.  We
+     will not mistakenly prune an actively replaying block, aka a leaf
+     node, that is chaining off of the rooted fork, because the
+     consensus root is always an ancestor of the actively replaying tip.
+     */
+  ulong consensus_root; /* The most recent block to have reached max lockout in the tower. */
+  ulong published_root; /* The most recent block to have been published, always <=consensus_root. */
 
   /* Other metadata */
 
@@ -321,8 +455,8 @@ scratch_footprint( fd_topo_tile_t const * tile FD_PARAM_UNUSED ) {
   for( ulong i = 0UL; i<FD_PACK_MAX_BANK_TILES; i++ ) {
     l = FD_LAYOUT_APPEND( l, FD_BMTREE_COMMIT_ALIGN, FD_BMTREE_COMMIT_FOOTPRINT(0) );
   }
-  l = FD_LAYOUT_APPEND( l, 128UL, FD_SLICE_MAX );
   l = FD_LAYOUT_APPEND( l, block_id_map_align(), block_id_map_footprint( fd_ulong_find_msb( fd_ulong_pow2_up( FD_BLOCK_MAX ) ) ) );
+  l = FD_LAYOUT_APPEND( l, 128UL, FD_SLICE_MAX );
   l = FD_LAYOUT_APPEND( l, fd_exec_slice_map_align(), fd_exec_slice_map_footprint( 20 ) );
   l = FD_LAYOUT_FINI  ( l, scratch_align() );
   return l;
@@ -390,14 +524,6 @@ txncache_publish( fd_replay_tile_ctx_t * ctx,
                   fd_funk_txn_t *        to_root_txn,
                   fd_funk_txn_t *        rooted_txn ) {
 
-
-  /* For the status cache, we stop rooting until the status cache has been
-     written out to the current snapshot. We also need to iterate up the
-     funk transaction tree up until the current "root" to figure out what slots
-     should be registered. This root can correspond to the latest false root if
-     one exists.  */
-
-
   if( FD_UNLIKELY( !ctx->slot_ctx->status_cache ) ) {
     return;
   }
@@ -410,6 +536,7 @@ txncache_publish( fd_replay_tile_ctx_t * ctx,
     ulong slot = txn->xid.ul[0];
 
     FD_LOG_INFO(( "Registering slot %lu", slot ));
+    //FIXME we shouldn't have to iterate
     fd_txncache_register_root_slot( ctx->slot_ctx->status_cache, slot );
 
     txn = fd_funk_txn_parent( txn, txn_pool );
@@ -438,13 +565,9 @@ funk_publish( fd_replay_tile_ctx_t * ctx,
 static void
 funk_and_txncache_publish( fd_replay_tile_ctx_t * ctx, ulong wmk, fd_funk_txn_xid_t const * xid ) {
 
-  FD_LOG_DEBUG(( "Entering funk_and_txncache_publish for wmk=%lu", wmk ));
-
   if( xid->ul[0] != wmk ) {
     FD_LOG_CRIT(( "Invariant violation: xid->ul[0] != wmk %lu %lu", xid->ul[0], wmk ));
   }
-
-  /* Handle updates to funk and the status cache. */
 
   fd_funk_txn_start_read( ctx->funk );
   fd_funk_txn_map_t * txn_map     = fd_funk_txn_map( ctx->funk );
@@ -525,7 +648,7 @@ publish_slot_notifications( fd_replay_tile_ctx_t * ctx,
     msg->type                        = FD_REPLAY_SLOT_TYPE;
     msg->slot_exec.slot              = curr_slot;
     msg->slot_exec.parent            = fd_bank_parent_slot_get( ctx->slot_ctx->bank );
-    msg->slot_exec.root              = ctx->root;
+    msg->slot_exec.root              = ctx->consensus_root;
     msg->slot_exec.height            = block_entry_block_height;
     msg->slot_exec.transaction_count = fd_bank_txn_count_get( ctx->slot_ctx->bank );
     msg->slot_exec.shred_cnt = fd_bank_shred_cnt_get( ctx->slot_ctx->bank );
@@ -722,6 +845,7 @@ on_snapshot_message( fd_replay_tile_ctx_t * ctx,
     block_id_map_t * entry = block_id_map_insert( ctx->block_id_map, snapshot_slot );
     entry->block_id = manifest_block_id;
     init_from_snapshot( ctx, stem );
+    ctx->slot_ctx->bank->flags |= FD_BANK_FLAGS_FROZEN;
 
     return;
   }
@@ -744,6 +868,43 @@ on_snapshot_message( fd_replay_tile_ctx_t * ctx,
 
   return;
 }
+
+/* Advance the published root as much as we can. */
+static void
+publish( fd_replay_tile_ctx_t * ctx ) {
+  ulong publishable_root = 0UL;
+  if( FD_UNLIKELY( !fd_banks_publish_prepare( ctx->banks, ctx->consensus_root, &publishable_root ) ) ) {
+    /* Nothing to publish. */
+    return;
+  }
+
+  if( FD_UNLIKELY( publishable_root<=ctx->published_root ) ) {
+    FD_LOG_WARNING(( "bank returned publishable root %lu no greater than replay published root %lu meaning replay and bank state potentially out of sync", publishable_root, ctx->published_root ));
+    return;
+  }
+
+  block_id_map_t * block_id = block_id_map_query( ctx->block_id_map, publishable_root, NULL );
+  FD_TEST( block_id ); /* invariant violation. replay must have replayed the full block (and therefore have the block id) if it's trying to root it. */
+  if( FD_LIKELY( ctx->store ) ) {
+    long exacq_start, exacq_end, exrel_end;
+    FD_STORE_EXACQ_TIMED( ctx->store, exacq_start, exacq_end );
+    fd_store_publish( ctx->store, &block_id->block_id );
+    FD_STORE_EXREL_TIMED( ctx->store, exrel_end );
+
+    fd_histf_sample( ctx->metrics.store_publish_wait, (ulong)fd_long_max(exacq_end - exacq_start, 0) );
+    fd_histf_sample( ctx->metrics.store_publish_work, (ulong)fd_long_max(exrel_end - exacq_end,   0) );
+
+    block_id_map_remove( ctx->block_id_map, block_id );
+  }
+
+  fd_funk_txn_xid_t xid = { .ul = { publishable_root, publishable_root } };
+  funk_and_txncache_publish( ctx, publishable_root, &xid );
+
+  fd_banks_publish( ctx->banks, publishable_root );
+
+  ctx->published_root = publishable_root;
+}
+
 
 /* Receives from repair newly completed slices of executable slots on
    the frontier. Guaranteed good properties, like happiness, in order,
@@ -787,12 +948,22 @@ fd_replay_process_solcap_account_update( fd_replay_tile_ctx_t *                 
 static void
 fd_replay_process_txn_finalized( fd_replay_tile_ctx_t *                                  ctx,
                                  fd_runtime_public_writer_replay_txn_finalized_t const * msg ) {
-  uint txn_id = msg->txn_id;
-  int exec_tile_id = msg->exec_tile_id;
-  if( fd_ulong_extract_bit(
-    ctx->exec_ready_bitset, exec_tile_id )==0 && ctx->prev_ids[ exec_tile_id ]!=txn_id ) {
+  uint txn_id       = msg->txn_id;
+  int  exec_tile_id = msg->exec_tile_id;
+  if( fd_ulong_extract_bit( ctx->exec_ready_bitset, exec_tile_id )==0 && ctx->prev_ids[ exec_tile_id ]!=txn_id ) {
       ctx->exec_ready_bitset        = fd_ulong_set_bit( ctx->exec_ready_bitset, exec_tile_id );
       ctx->prev_ids[ exec_tile_id ] = txn_id;
+      ctx->slot_ctx->bank->refcnt--;
+      /* Reference counter just decreased, and an exec tile just got
+         freed up.  If there's a need to be more aggressively pruning,
+         we could check here if more slots just became publishable and
+         publish.  Not publishing here shouldn't bloat the fork tree too
+         much though.  We mark minority forks dead as soon as we can,
+         and execution dispatch stops on dead blocks.  So shortly
+         afterwards, dead blocks should be eligible for pruning as
+         in-flight transactions retire from the execution pipeline. */
+  } else {
+    FD_LOG_CRIT(( "invariant violation: txn id %u on exec tile %d already finalized", txn_id, exec_tile_id ));
   }
 }
 
@@ -842,22 +1013,8 @@ after_frag( fd_replay_tile_ctx_t *   ctx,
   if( FD_UNLIKELY( ctx->in_kind[ in_idx ]==IN_KIND_ROOT ) ) {
 
     ulong root = sig;
-    ctx->root = root;
-    block_id_map_t * block_id = block_id_map_query( ctx->block_id_map, root, NULL );
-    FD_TEST( block_id ); /* invariant violation. replay must have replayed the full block (and therefore have the block id) if it's trying to root it. */
-    if( FD_LIKELY( ctx->store ) ) {
-      long exacq_start, exacq_end, exrel_end;
-      FD_STORE_EXACQ_TIMED( ctx->store, exacq_start, exacq_end );
-      fd_store_publish( ctx->store, &block_id->block_id );
-      FD_STORE_EXREL_TIMED( ctx->store, exrel_end );
-
-      fd_histf_sample( ctx->metrics.store_publish_wait, (ulong)fd_long_max(exacq_end - exacq_start, 0) );
-      fd_histf_sample( ctx->metrics.store_publish_work, (ulong)fd_long_max(exrel_end - exacq_end,   0) );
-
-      block_id_map_remove( ctx->block_id_map, block_id );
-    }
-    if( FD_LIKELY( ctx->funk ) ) { fd_funk_txn_xid_t xid = { .ul = { root, root } }; funk_and_txncache_publish( ctx, root, &xid ); }
-    if( FD_LIKELY( ctx->banks ) ) fd_banks_publish( ctx->banks, root );
+    ctx->consensus_root = root;
+    publish( ctx );
 
   } else if( FD_UNLIKELY( ctx->in_kind[ in_idx ]==IN_KIND_SNAP ) ) {
 
@@ -1075,8 +1232,7 @@ handle_new_slot( fd_replay_tile_ctx_t * ctx,
   if( FD_UNLIKELY( FD_RUNTIME_EXECUTE_SUCCESS != fd_runtime_compute_max_tick_height(ticks_per_slot, slot, max_tick_height ) ) ) {
     FD_LOG_CRIT(( "couldn't compute tick height/max tick height slot %lu ticks_per_slot %lu", slot, ticks_per_slot ));
   }
-
-  fd_bank_enable_exec_recording_set( ctx->slot_ctx->bank, ctx->tx_metadata_storage );
+  ctx->slot_ctx->bank->flags |= fd_ulong_if( ctx->tx_metadata_storage, FD_BANK_FLAGS_EXEC_RECORDING, 0UL );
 
   int is_epoch_boundary = 0;
   fd_runtime_block_pre_execute_process_new_epoch(
@@ -1153,7 +1309,7 @@ handle_new_slice( fd_replay_tile_ctx_t * ctx, fd_stem_context_t * stem ) {
   if( FD_UNLIKELY( fd_exec_slice_deque_cnt( ctx->exec_slice_deque )==0UL ) ) {
     return;
   }
-  if( FD_UNLIKELY( ctx->root==ULONG_MAX ) ) { /* banks is not initialized yet */
+  if( FD_UNLIKELY( ctx->consensus_root==ULONG_MAX ) ) { /* banks is not initialized yet */
     return;
   }
 
@@ -1166,30 +1322,14 @@ handle_new_slice( fd_replay_tile_ctx_t * ctx, fd_stem_context_t * stem ) {
   int    slot_complete = slice.slot_complete;
   ulong  parent_slot   = slot - parent_off;
 
-  if( FD_UNLIKELY( slot<ctx->root ) ) {
-    FD_LOG_WARNING(( "ignoring replay of slot %lu (parent: %lu). earlier than our watermark %lu.", slot, parent_slot, ctx->root ));
-    return;
-  }
-
-  if( FD_UNLIKELY( parent_slot<ctx->root ) ) {
-    FD_LOG_WARNING(( "ignoring replay of slot %lu (parent: %lu). parent slot is earlier than our watermark %lu.", slot, parent_slot, ctx->root ) );
-    return;
-  }
-
-  /* If the slot of the slice we are about to execute is different than
-     the current slot, then we need to handle it. There are two cases:
-     1. We have already executed at least one slice from the slot.
-        Then we just need to query for the correct database handle,
-        fork, and bank.
-     2. We need to create a database txn, initialize forks, and clone
-        a bank. */
-  if( FD_UNLIKELY( slot!=fd_bank_slot_get( ctx->slot_ctx->bank ) ) ) {
-    handle_slot_change( ctx, stem, slot, parent_slot );
-  }
-
-  /* At this point, our runtime state has been updated correctly.  We
-     need to populate the slice's metadata into the slice_exec_ctx. */
-
+  /* Read the slice from the store.  This should happen before we try to
+     find a bank to execute against.  This allows us to filter out frags
+     that were in-flight when we published away minority forks that the
+     frags land on.  These frags would have no bank to execute against,
+     because their corresponding banks, or parent banks, have also been
+     pruned during publishing.  A query against store will rightfully
+     tell us that the underlying data is not found, implying that this
+     is for a minority fork that we can safely ignore. */
   long shacq_start, shacq_end, shrel_end;
   FD_STORE_SHACQ_TIMED( ctx->store, shacq_start, shacq_end );
   ulong slice_sz = 0;
@@ -1202,7 +1342,7 @@ handle_new_slice( fd_replay_tile_ctx_t * ctx, fd_stem_context_t * stem ) {
          has already been published away.  In this case we abandon the
          entire slice because it is no longer relevant.  */
 
-      FD_LOG_WARNING(( "store fec for slot: %lu is on minority fork already pruned by publish. abandoning slice. root: %lu. pruned merkle: %s", slice.slot, ctx->root, FD_BASE58_ENC_32_ALLOCA( &slice.merkles[i] ) ));
+      FD_LOG_WARNING(( "store fec for slot: %lu is on minority fork already pruned by publish. abandoning slice. root: %lu. pruned merkle: %s", slice.slot, ctx->consensus_root, FD_BASE58_ENC_32_ALLOCA( &slice.merkles[i] ) ));
       return;
     }
     FD_TEST( fec );
@@ -1215,6 +1355,23 @@ handle_new_slice( fd_replay_tile_ctx_t * ctx, fd_stem_context_t * stem ) {
   fd_histf_sample( ctx->metrics.store_read_work, (ulong)fd_long_max(shrel_end - shacq_end,   0) );
 
   fd_slice_exec_begin( &ctx->slice_exec_ctx, slice_sz, slot_complete );
+
+  /* At this point, we've found a slice that we are about to execute.
+     So we must make sure that we have a bank to execute against.
+
+     If the block id of the slice we are about to execute is different
+     than the current one, then we need to do an execution context
+     switch. There are two cases:
+     1. We have already executed at least one slice from the block.  We
+        just query for the existing database txn and bank.
+     2. This is a new block, so we need to create a database txn, and
+        clone a bank.  The fact that the block hasn't been published
+        away means that it must be from a block that we can chain off of
+        an existing parent block.  In other words, there has to be a
+        parent bank for it.  Otherwise, it's an invariant violation. */
+  if( FD_UNLIKELY( slot!=fd_bank_slot_get( ctx->slot_ctx->bank ) ) ) {
+    handle_slot_change( ctx, stem, slot, parent_slot );
+  }
   fd_bank_shred_cnt_set( ctx->slot_ctx->bank, fd_bank_shred_cnt_get( ctx->slot_ctx->bank ) + data_cnt );
 }
 
@@ -1225,15 +1382,19 @@ exec_slice_fini_slot( fd_replay_tile_ctx_t * ctx, fd_stem_context_t * stem ) {
     fd_solcap_writer_flush( ctx->capture_ctx->capture );
   }
 
-  ulong curr_slot = fd_bank_slot_get( ctx->slot_ctx->bank );
+  fd_bank_t * bank = ctx->slot_ctx->bank;
+
+  bank->flags |= FD_BANK_FLAGS_FROZEN;
+
+  ulong curr_slot = fd_bank_slot_get( bank );
 
   fd_microblock_hdr_t * hdr = (fd_microblock_hdr_t *)fd_type_pun( ctx->slice_exec_ctx.buf + ctx->slice_exec_ctx.last_mblk_off );
-  fd_hash_t * poh = fd_bank_poh_modify( ctx->slot_ctx->bank );
+  fd_hash_t * poh = fd_bank_poh_modify( bank );
   memcpy( poh, hdr->hash, sizeof(fd_hash_t) );
 
   block_id_map_t * bid = block_id_map_query( ctx->block_id_map, curr_slot, NULL );
   FD_TEST( bid ); /* must exist */
-  fd_hash_t * block_id = fd_bank_block_id_modify( ctx->slot_ctx->bank );
+  fd_hash_t * block_id = fd_bank_block_id_modify( bank );
   memcpy( block_id, &bid->block_id, sizeof(fd_hash_t) );
 
   /* Reset ctx for next slot */
@@ -1242,20 +1403,20 @@ exec_slice_fini_slot( fd_replay_tile_ctx_t * ctx, fd_stem_context_t * stem ) {
   /* do hashing */
 
   fd_runtime_block_info_t runtime_block_info[1];
-  runtime_block_info->signature_cnt = fd_bank_signature_count_get( ctx->slot_ctx->bank );
+  runtime_block_info->signature_cnt = fd_bank_signature_count_get( bank );
 
   fd_runtime_block_execute_finalize( ctx->slot_ctx, runtime_block_info, ctx->runtime_spad );
 
 
-  ulong block_entry_height = fd_bank_block_height_get( ctx->slot_ctx->bank );
+  ulong block_entry_height = fd_bank_block_height_get( bank );
   publish_slot_notifications( ctx, stem, block_entry_height, curr_slot );
 
   if( FD_LIKELY( ctx->replay_out_idx != ULONG_MAX && !ctx->read_only ) ) {
     fd_hash_t const * block_id        = &block_id_map_query( ctx->block_id_map, curr_slot, NULL )->block_id;
-    FD_TEST( block_id_map_query( ctx->block_id_map, fd_bank_parent_slot_get( ctx->slot_ctx->bank ), NULL ) );
-    fd_hash_t const * parent_block_id = &block_id_map_query( ctx->block_id_map, fd_bank_parent_slot_get( ctx->slot_ctx->bank ), NULL )->block_id;
-    fd_hash_t const * bank_hash       = fd_bank_bank_hash_query( ctx->slot_ctx->bank );
-    fd_hash_t const * block_hash      = fd_blockhashes_peek_last( fd_bank_block_hash_queue_query( ctx->slot_ctx->bank ) );
+    FD_TEST( block_id_map_query( ctx->block_id_map, fd_bank_parent_slot_get( bank ), NULL ) );
+    fd_hash_t const * parent_block_id = &block_id_map_query( ctx->block_id_map, fd_bank_parent_slot_get( bank ), NULL )->block_id;
+    fd_hash_t const * bank_hash       = fd_bank_bank_hash_query( bank );
+    fd_hash_t const * block_hash      = fd_blockhashes_peek_last( fd_bank_block_hash_queue_query( bank ) );
     FD_TEST( block_id        );
     FD_TEST( parent_block_id );
     FD_TEST( bank_hash       );
@@ -1276,11 +1437,11 @@ exec_slice_fini_slot( fd_replay_tile_ctx_t * ctx, fd_stem_context_t * stem ) {
   /* Prepare bank for the next execution and write to debugging files   */
   /**********************************************************************/
 
-  ulong prev_slot = fd_bank_slot_get( ctx->slot_ctx->bank );
+  ulong prev_slot = fd_bank_slot_get( bank );
 
-  fd_bank_execution_fees_set( ctx->slot_ctx->bank, 0UL );
+  fd_bank_execution_fees_set( bank, 0UL );
 
-  fd_bank_priority_fees_set( ctx->slot_ctx->bank, 0UL );
+  fd_bank_priority_fees_set( bank, 0UL );
 
   if( FD_UNLIKELY( ctx->slots_replayed_file ) ) {
     FD_LOG_DEBUG(( "writing %lu to slots file", prev_slot ));
@@ -1292,7 +1453,7 @@ exec_slice_fini_slot( fd_replay_tile_ctx_t * ctx, fd_stem_context_t * stem ) {
   /* Bank hash comparison, and halt if there's a mismatch after replay  */
   /**********************************************************************/
 
-  fd_hash_t const * bank_hash = fd_bank_bank_hash_query( ctx->slot_ctx->bank );
+  fd_hash_t const * bank_hash = fd_bank_bank_hash_query( bank );
   fd_bank_hash_cmp_t * bank_hash_cmp = ctx->bank_hash_cmp;
   fd_bank_hash_cmp_lock( bank_hash_cmp );
   fd_bank_hash_cmp_insert( bank_hash_cmp, curr_slot, bank_hash, 1, 0 );
@@ -1300,8 +1461,8 @@ exec_slice_fini_slot( fd_replay_tile_ctx_t * ctx, fd_stem_context_t * stem ) {
   if( ctx->shredcap_out->idx!=ULONG_MAX ) {
     /* TODO: We need some way to define common headers. */
     uchar *           chunk_laddr = fd_chunk_to_laddr( ctx->shredcap_out->mem, ctx->shredcap_out->chunk );
-    fd_hash_t const * bank_hash   = fd_bank_bank_hash_query( ctx->slot_ctx->bank );
-    ulong             slot        = fd_bank_slot_get( ctx->slot_ctx->bank );
+    fd_hash_t const * bank_hash   = fd_bank_bank_hash_query( bank );
+    ulong             slot        = fd_bank_slot_get( bank );
     memcpy( chunk_laddr, bank_hash, sizeof(fd_hash_t) );
     memcpy( chunk_laddr+sizeof(fd_hash_t), &slot, sizeof(ulong) );
     fd_stem_publish( stem, ctx->shredcap_out->idx, 0UL, ctx->shredcap_out->chunk, sizeof(fd_hash_t) + sizeof(ulong), 0UL, fd_frag_meta_ts_comp( fd_tickcount() ), fd_frag_meta_ts_comp( fd_tickcount() ) );
@@ -1381,6 +1542,11 @@ exec_and_handle_slice( fd_replay_tile_ctx_t * ctx, fd_stem_context_t * stem ) {
        FIXME: this should be done during txn parsing so that we don't have to loop
        over all accounts a second time. */
     fd_runtime_update_program_cache( ctx->slot_ctx, &txn_p, ctx->runtime_spad );
+
+    /* At this point, we are going to send the txn down the execution
+       pipeline. Increment the refcnt so we don't prematurely prune a
+       bank that's needed by an in-flight txn. */
+    ctx->slot_ctx->bank->refcnt++;
 
     /* Dispatch dcache to exec tile */
     fd_replay_out_link_t *        exec_out = &ctx->exec_out[ exec_idx ];
@@ -1479,8 +1645,8 @@ unprivileged_init( fd_topo_t *      topo,
   for( ulong i = 0UL; i<FD_PACK_MAX_BANK_TILES; i++ ) {
     ctx->bmtree[i]           = FD_SCRATCH_ALLOC_APPEND( l, FD_BMTREE_COMMIT_ALIGN, FD_BMTREE_COMMIT_FOOTPRINT(0) );
   }
-  void * slice_buf               = FD_SCRATCH_ALLOC_APPEND( l, 128UL, FD_SLICE_MAX );
-  void * block_id_map_mem        = FD_SCRATCH_ALLOC_APPEND( l, block_id_map_align(), block_id_map_footprint( fd_ulong_find_msb( fd_ulong_pow2_up( FD_BLOCK_MAX ) ) ) );
+  void * block_id_map_mem   = FD_SCRATCH_ALLOC_APPEND( l, block_id_map_align(), block_id_map_footprint( fd_ulong_find_msb( fd_ulong_pow2_up( FD_BLOCK_MAX ) ) ) );
+  void * slice_buf          = FD_SCRATCH_ALLOC_APPEND( l, 128UL, FD_SLICE_MAX );
   void * exec_slice_map_mem = FD_SCRATCH_ALLOC_APPEND( l, fd_exec_slice_map_align(), fd_exec_slice_map_footprint( 20 ) );
   ulong  scratch_alloc_mem  = FD_SCRATCH_ALLOC_FINI  ( l, scratch_align() );
 

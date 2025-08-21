@@ -474,6 +474,9 @@ fd_banks_init_bank( fd_banks_t * banks, ulong slot ) {
   #undef HAS_LOCK_0
   #undef HAS_LOCK_1
 
+  bank->flags  = FD_BANK_FLAGS_INIT;
+  bank->refcnt = 0UL;
+
   fd_banks_map_ele_insert( bank_map, bank, bank_pool );
 
   /* Now that the node is inserted, update the root */
@@ -629,6 +632,9 @@ fd_banks_clone_from_parent( fd_banks_t * banks,
   #undef HAS_LOCK_0
   #undef HAS_LOCK_1
 
+  new_bank->flags  = FD_BANK_FLAGS_INIT;
+  new_bank->refcnt = 0UL;
+
   /* Delta field does not need to be copied over. The dirty flag just
      needs to be cleared if it was set. */
   new_bank->stake_delegations_delta_dirty = 0;
@@ -759,6 +765,10 @@ fd_banks_publish( fd_banks_t * banks, ulong slot ) {
     return NULL;
   }
 
+  if( FD_UNLIKELY( old_root->refcnt!=0UL ) ) {
+    FD_LOG_CRIT(( "refcnt for old root bank %lu is %lu", old_root->slot_, old_root->refcnt ));
+  }
+
   fd_bank_t * new_root = fd_banks_map_ele_query( bank_map, &slot, NULL, bank_pool );
   if( FD_UNLIKELY( !new_root ) ) {
     FD_LOG_WARNING(( "Failed to get new root bank" ));
@@ -783,6 +793,9 @@ fd_banks_publish( fd_banks_t * banks, ulong slot ) {
     while( FD_LIKELY( child ) ) {
 
       if( FD_LIKELY( child!=new_root ) ) {
+        if( FD_UNLIKELY( child->refcnt!=0UL ) ) {
+          FD_LOG_CRIT(( "refcnt for child bank %lu is %lu", child->slot_, child->refcnt ));
+        }
 
         /* Remove the child from the map first and push onto the
            frontier list that needs to be iterated through */
@@ -913,4 +926,180 @@ fd_banks_rekey_root_bank( fd_banks_t * banks, ulong slot ) {
   }
 
   return bank;
+}
+
+/* Is the fork tree starting at the given bank entirely eligible for
+   pruning?  Returns 1 for yes, 0 for no.
+
+   See comment in replay for more details on safe pruning. */
+static int
+fd_banks_subtree_can_be_pruned( fd_bank_t * bank_pool, fd_bank_t * bank ) {
+  if( FD_UNLIKELY( !bank ) ) {
+    FD_LOG_CRIT(( "invariant violation: bank is NULL" ));
+  }
+
+  if( bank->refcnt!=0UL ) {
+    return 0;
+  }
+
+  /* Recursively check all children. */
+  ulong child_idx = bank->child_idx;
+  while( child_idx!=fd_banks_pool_idx_null( bank_pool ) ) {
+    fd_bank_t * child = fd_banks_pool_ele( bank_pool, child_idx );
+    if( !fd_banks_subtree_can_be_pruned( bank_pool, child ) ) {
+      return 0;
+    }
+    child_idx = child->sibling_idx;
+  }
+
+  return 1;
+}
+
+/* Mark everything in the fork tree starting at the given bank dead. */
+static void
+fd_banks_subtree_mark_dead( fd_bank_t * bank_pool, fd_bank_t * bank ) {
+  if( FD_UNLIKELY( !bank ) ) {
+    FD_LOG_CRIT(( "invariant violation: bank is NULL" ));
+  }
+  if( FD_UNLIKELY( bank->flags & FD_BANK_FLAGS_ROOTED ) ) {
+    FD_LOG_CRIT(( "invariant violation: bank for slot %lu is rooted", fd_bank_slot_get( bank ) ));
+  }
+
+  bank->flags |= FD_BANK_FLAGS_DEAD;
+
+  /* Recursively mark all children. */
+  ulong child_idx = bank->child_idx;
+  while( child_idx!=fd_banks_pool_idx_null( bank_pool ) ) {
+    fd_bank_t * child = fd_banks_pool_ele( bank_pool, child_idx );
+    fd_banks_subtree_mark_dead( bank_pool, child );
+    child_idx = child->sibling_idx;
+  }
+}
+
+int
+fd_banks_publish_prepare( fd_banks_t * banks,
+                          ulong        target_slot,
+                          ulong *      publishable_slot ) {
+  fd_bank_t *      bank_pool = fd_banks_get_bank_pool( banks );
+  fd_banks_map_t * bank_map  = fd_banks_get_bank_map( banks );
+
+  fd_bank_t * root = fd_banks_root( banks );
+  if( FD_UNLIKELY( !root ) ) {
+    FD_LOG_WARNING(( "failed to get root bank" ));
+    return 0;
+  }
+
+  /* Early exit if target is the same as the old root. */
+  if( FD_UNLIKELY( fd_bank_slot_get( root )==target_slot ) ) {
+    FD_LOG_WARNING(( "target slot %lu is the same as the old root slot %lu", target_slot, fd_bank_slot_get( root ) ));
+    return 0;
+  }
+
+  fd_bank_t * target_bank = fd_banks_map_ele_query( bank_map, &target_slot, NULL, bank_pool );
+  if( FD_UNLIKELY( !target_bank ) ) {
+    FD_LOG_WARNING(( "failed to get bank for target slot %lu", target_slot ));
+    return 0;
+  }
+
+  /* Mark rooted fork. */
+  fd_bank_t * curr = target_bank;
+  fd_bank_t * prev = NULL;
+  while( curr ) {
+    curr->flags |= FD_BANK_FLAGS_ROOTED;
+    prev         = curr;
+    curr         = fd_banks_pool_ele( bank_pool, curr->parent_idx );
+  }
+
+  /* If we didn't reach the old root, target is not a descendant. */
+  if( prev!=root ) {
+    FD_LOG_CRIT(( "target slot %lu is not a descendant of root slot %lu", target_slot, fd_bank_slot_get( root ) ));
+  }
+
+  /* Now traverse from root towards target and find the highest
+     block that can be pruned. */
+  ulong highest_publishable_block = 0UL;
+  fd_bank_t * publishable_bank    = NULL;
+  fd_bank_t * prune_candidate     = root;
+  int found_publishable_block     = 0;
+  while( prune_candidate && prune_candidate->flags & FD_BANK_FLAGS_ROOTED ) {
+    fd_bank_t * rooted_child_bank = NULL;
+
+    if( prune_candidate->refcnt!=0UL ) {
+      break;
+    }
+
+    /* For this node to be pruned, all minority forks that branch off
+       from it must be entirely eligible for pruning.  This means
+       checking all children (except for the one on the rooted fork) and
+       their entire subtrees. */
+    int all_minority_forks_can_be_pruned = 1;
+    ulong child_idx = prune_candidate->child_idx;
+    while( child_idx!=fd_banks_pool_idx_null( bank_pool ) ) {
+      fd_bank_t * sibling = fd_banks_pool_ele( bank_pool, child_idx );
+      if( sibling->flags & FD_BANK_FLAGS_ROOTED ) {
+        rooted_child_bank = sibling;
+      } else {
+        /* This is a minority fork. */
+        if( !fd_banks_subtree_can_be_pruned( bank_pool, sibling ) ) {
+          all_minority_forks_can_be_pruned = 0;
+          break;
+        }
+      }
+      child_idx = sibling->sibling_idx;
+    }
+
+    if( !all_minority_forks_can_be_pruned ) {
+      break;
+    }
+
+    highest_publishable_block = fd_bank_slot_get( prune_candidate );
+    publishable_bank          = prune_candidate;
+    prune_candidate           = rooted_child_bank;
+    found_publishable_block   = 1;
+  }
+
+  int advanced_publishable_block = 0;
+  if( FD_LIKELY( found_publishable_block ) ) {
+    /* Find the rooted child of the highest block that can be pruned.
+       That's where we can publish to. */
+    fd_bank_t * rooted_child_bank = NULL;
+    ulong child_idx = publishable_bank->child_idx;
+    while( child_idx!=fd_banks_pool_idx_null( bank_pool ) ) {
+      fd_bank_t * sibling = fd_banks_pool_ele( bank_pool, child_idx );
+      if( sibling->flags & FD_BANK_FLAGS_ROOTED ) {
+        rooted_child_bank = sibling;
+        break;
+      }
+      child_idx = sibling->sibling_idx;
+    }
+    if( FD_LIKELY( rooted_child_bank ) ) {
+      highest_publishable_block = fd_bank_slot_get( rooted_child_bank );
+    }
+
+    /* Write output. */
+    *publishable_slot = highest_publishable_block;
+    if( FD_LIKELY( *publishable_slot!=fd_bank_slot_get( root ) ) ) {
+      advanced_publishable_block = 1;
+    }
+  }
+
+  /* Now mark all minority forks as dead. */
+  curr = root;
+  while( curr && curr->flags & FD_BANK_FLAGS_ROOTED ) {
+    fd_bank_t * rooted_child_bank = NULL;
+    ulong child_idx = curr->child_idx;
+    while( child_idx!=fd_banks_pool_idx_null( bank_pool ) ) {
+      fd_bank_t * sibling = fd_banks_pool_ele( bank_pool, child_idx );
+      if( sibling->flags & FD_BANK_FLAGS_ROOTED ) {
+        rooted_child_bank = sibling;
+      } else {
+        /* This is a minority fork. */
+        fd_banks_subtree_mark_dead( bank_pool, sibling );
+      }
+      child_idx = sibling->sibling_idx;
+    }
+    curr = rooted_child_bank;
+  }
+
+  return advanced_publishable_block;
 }
