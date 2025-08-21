@@ -675,7 +675,8 @@ fd_gui_printf_tile_timers( fd_gui_t *                   gui,
                                 + cur[ i ].processing_prefrag_ticks
                                 + cur[ i ].backpressure_prefrag_ticks
                                 + cur[ i ].caughtup_postfrag_ticks
-                                + cur[ i ].processing_postfrag_ticks);
+                                + cur[ i ].processing_postfrag_ticks
+                                + cur[ i ].sleeping_ticks);
 
     double prev_total = (double)(prev[ i ].caughtup_housekeeping_ticks
                                   + prev[ i ].processing_housekeeping_ticks
@@ -684,7 +685,8 @@ fd_gui_printf_tile_timers( fd_gui_t *                   gui,
                                   + prev[ i ].processing_prefrag_ticks
                                   + prev[ i ].backpressure_prefrag_ticks
                                   + prev[ i ].caughtup_postfrag_ticks
-                                  + prev[ i ].processing_postfrag_ticks);
+                                  + prev[ i ].processing_postfrag_ticks
+                                  + prev[ i ].sleeping_ticks);
 
     double idle;
     if( FD_UNLIKELY( cur_total==prev_total ) ) {
@@ -693,7 +695,7 @@ fd_gui_printf_tile_timers( fd_gui_t *                   gui,
          JSON. */
       idle = -1;
     } else {
-      idle = (double)(cur[ i ].caughtup_postfrag_ticks - prev[ i ].caughtup_postfrag_ticks) / (cur_total - prev_total);
+      idle = (double)(cur[ i ].caughtup_postfrag_ticks + cur[ i ].sleeping_ticks - prev[ i ].caughtup_postfrag_ticks - prev[ i ].sleeping_ticks) / (cur_total - prev_total);
     }
 
     jsonp_double( gui, NULL, idle );

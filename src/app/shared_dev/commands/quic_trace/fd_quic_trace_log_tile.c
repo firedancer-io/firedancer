@@ -70,19 +70,21 @@ fd_quic_trace_log_tile( fd_frag_meta_t const * in_mcache ) {
 
   uchar scratch[ sizeof(fd_stem_tile_in_t)+128 ] __attribute__((aligned(FD_STEM_SCRATCH_ALIGN)));
 
-  stem_run1( /* in_cnt     */ 1UL,
-             /* in_mcache  */ in_mcache_tbl,
-             /* in_fseq    */ fseq_tbl,
-             /* out_cnt    */ 0UL,
-             /* out_mcache */ NULL,
-             /* cons_cnt   */ 0UL,
-             /* cons_out   */ NULL,
-             /* cons_fseq  */ NULL,
-             /* stem_burst */ 1UL,
-             /* stem_lazy  */ 0L,
-             /* rng        */ rng,
-             /* scratch    */ scratch,
-             /* ctx        */ NULL );
+  stem_run1( /* in_cnt       */ 1UL,
+             /* in_mcache    */ in_mcache_tbl,
+             /* in_fseq      */ fseq_tbl,
+             /* out_cnt      */ 0UL,
+             /* out_mcache   */ NULL,
+             /* cons_cnt     */ 0UL,
+             /* cons_out     */ NULL,
+             /* cons_fseq    */ NULL,
+             /* idle_sleep   */ 0,
+             /* stem_burst   */ 1UL,
+             /* stem_lazy    */ 0L,
+             /* rng          */ rng,
+             /* leader_state */ NULL,
+             /* scratch      */ scratch,
+             /* ctx          */ NULL );
 
   fd_fseq_delete( fd_fseq_leave( fseq ) );
 }

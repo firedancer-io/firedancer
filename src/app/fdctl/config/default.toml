@@ -820,6 +820,21 @@ dynamic_port_range = "8900-9000"
     # very high TPS rates because the cluster size will be very small.
     shred_tile_count = 1
 
+    # Enable low power mode for tiles to reduce CPU usage when idle.
+    #
+    # By default, Firedancer is designed to maximize performance by
+    # dedicating CPU cores exclusively to each tile, spinning continuously
+    # to minimize latency. This ensures the fastest possible response to
+    # incoming work and is optimal for low-latency, high-throughput environments.
+    #
+    # In contrast, this option allows tiles to sleep after detecting inactivity
+    # rather than continuously spinning for new work.  This significantly reduces
+    # power consumption and CPU usage but introduces a slight latency overhead.
+    # Enable this if power efficiency is a priority.
+    #
+    # The default is false to maintain optimal performance.
+    low_power_mode = false
+
 # All memory that will be used in Firedancer is pre-allocated in two
 # kinds of pages: huge and gigantic.  Huge pages are 2 MiB and gigantic
 # pages are 1 GiB.  This is done to prevent TLB misses which can have a
