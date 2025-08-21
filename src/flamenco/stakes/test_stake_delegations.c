@@ -22,8 +22,11 @@ int main( int argc, char ** argv ) {
 
   /* We need to make sure that the hard constant is at least large
      enough to actually hold the footprint of stake delegations for
-     the max number of stake accounts that the runtime can support.*/
+     the max number of stake accounts that the runtime can support. */
   FD_TEST( fd_stake_delegations_footprint( FD_RUNTIME_MAX_STAKE_ACCOUNTS ) <= FD_STAKE_DELEGATIONS_FOOTPRINT );
+  FD_TEST( fd_stake_delegations_footprint( FD_RUNTIME_MAX_STAKE_ACCS_IN_SLOT ) <= FD_STAKE_DELEGATIONS_DELTA_FOOTPRINT );
+
+  /* Test stake delegations where is_tombstone == 0 */
 
   ulong const max_stake_accounts = 10UL;
 
@@ -38,9 +41,9 @@ int main( int argc, char ** argv ) {
   ulong chain_cnt = fd_stake_delegation_map_chain_cnt_est( max_stake_accounts );
   FD_TEST( fd_stake_delegations_footprint( max_stake_accounts ) >= fd_stake_delegations_align() + fd_stake_delegation_pool_footprint( max_stake_accounts ) + fd_stake_delegation_map_footprint( chain_cnt ) );
 
-  FD_TEST( !fd_stake_delegations_new( NULL, max_stake_accounts ) );
-  FD_TEST( !fd_stake_delegations_new( stake_delegations_mem, 0UL ) );
-  void * new_stake_delegations_mem = fd_stake_delegations_new( stake_delegations_mem, max_stake_accounts );
+  FD_TEST( !fd_stake_delegations_new( NULL, max_stake_accounts, 0 ) );
+  FD_TEST( !fd_stake_delegations_new( stake_delegations_mem, 0UL, 0 ) );
+  void * new_stake_delegations_mem = fd_stake_delegations_new( stake_delegations_mem, max_stake_accounts, 0 );
   FD_TEST( new_stake_delegations_mem );
 
   FD_TEST( !fd_stake_delegations_join( NULL ) );
@@ -131,6 +134,40 @@ int main( int argc, char ** argv ) {
   uchar * deleted_mem = fd_stake_delegations_delete( fd_stake_delegations_leave( stake_delegations ) );
   FD_TEST( deleted_mem );
   FD_TEST( !fd_stake_delegations_join( deleted_mem ) );
+
+  /* Test stake_delegations where is_tombstone == 1. */
+  stake_delegations = fd_stake_delegations_join( fd_stake_delegations_new( stake_delegations_mem, max_stake_accounts, 1 ) );
+  FD_TEST( stake_delegations );
+
+  FD_TEST( fd_stake_delegations_cnt( stake_delegations ) == 0UL );
+  fd_stake_delegations_update( stake_delegations, &stake_account_0, &voter_pubkey_0, 100UL, 0UL, 0UL, 0UL, 0.0 );
+  FD_TEST( fd_stake_delegations_cnt( stake_delegations ) == 1UL );
+  fd_stake_delegations_update( stake_delegations, &stake_account_1, &voter_pubkey_1, 200UL, 0UL, 0UL, 0UL, 0.0 );
+  FD_TEST( fd_stake_delegations_cnt( stake_delegations ) == 2UL );
+  fd_stake_delegation_t const * stake_delegation = fd_stake_delegations_query( stake_delegations, &stake_account_0 );
+  FD_TEST( stake_delegation );
+  FD_TEST( stake_delegation->is_tombstone == 0 );
+  stake_delegation = fd_stake_delegations_query( stake_delegations, &stake_account_1 );
+  FD_TEST( stake_delegation );
+  FD_TEST( stake_delegation->is_tombstone == 0 );
+
+  fd_stake_delegations_remove( stake_delegations, &stake_account_0 );
+  stake_delegation = fd_stake_delegations_query( stake_delegations, &stake_account_0 );
+  FD_TEST( stake_delegation );
+  FD_TEST( stake_delegation->is_tombstone == 1 );
+  FD_TEST( fd_stake_delegations_cnt( stake_delegations ) == 2UL );
+
+  fd_stake_delegations_remove( stake_delegations, &stake_account_2 );
+  stake_delegation = fd_stake_delegations_query( stake_delegations, &stake_account_2 );
+  FD_TEST( stake_delegation );
+  FD_TEST( stake_delegation->is_tombstone == 1 );
+  FD_TEST( fd_stake_delegations_cnt( stake_delegations ) == 3UL );
+
+  fd_stake_delegations_update( stake_delegations, &stake_account_0, &voter_pubkey_0, 100UL, 0UL, 0UL, 0UL, 0.0 );
+  stake_delegation = fd_stake_delegations_query( stake_delegations, &stake_account_0 );
+  FD_TEST( stake_delegation );
+  FD_TEST( stake_delegation->is_tombstone == 0 );
+  FD_TEST( fd_stake_delegations_cnt( stake_delegations ) == 3UL );
 
   FD_LOG_NOTICE(( "pass" ));
   fd_halt();

@@ -4,6 +4,7 @@
 /* fd_rewards.h provides APIs for distributing Solana staking rewards. */
 
 #include "../types/fd_types.h"
+#include "../stakes/fd_stake_delegations.h"
 
 FD_PROTOTYPES_BEGIN
 
@@ -27,11 +28,12 @@ FD_PROTOTYPES_BEGIN
      - ... update epoch rewards bank field ... */
 
 void
-fd_begin_partitioned_rewards( fd_exec_slot_ctx_t * slot_ctx,
-                              fd_capture_ctx_t *   capture_ctx,
-                              fd_hash_t const *    parent_blockhash,
-                              ulong                parent_epoch,
-                              fd_spad_t *          runtime_spad );
+fd_begin_partitioned_rewards( fd_exec_slot_ctx_t *           slot_ctx,
+                              fd_stake_delegations_t const * stake_delegations,
+                              fd_capture_ctx_t *             capture_ctx,
+                              fd_hash_t const *              parent_blockhash,
+                              ulong                          parent_epoch,
+                              fd_spad_t *                    runtime_spad );
 
 /* fd_rewards_recalculate_partitioned_rewards restores epoch bank stake
    and account reward calculations.  Does not update accounts.  Called

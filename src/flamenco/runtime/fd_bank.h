@@ -14,19 +14,17 @@
 
 FD_PROTOTYPES_BEGIN
 
-#define FD_BANKS_MAGIC 0X99999AA9999UL
+#define FD_BANKS_MAGIC (0XF17EDA2C7EBA2450) /* FIREDANCER BANKS V0 */
 
 /* TODO: Some optimizations, cleanups, future work:
    1. Simple data types (ulong, int, etc) should be stored as their
       underlying type instead of a byte array.
-   2. For some of the more complex types in the bank, we should provide
-      a way to layout the data ahead of time instead of manually.
-      calculating the offsets/layout of the offset-based struct.
-      This could likely be emitted from fd_types
-   3. Perhaps make the query/modify scoping more explicit. Right now,
+   2. Perhaps make the query/modify scoping more explicit. Right now,
       the caller is free to use the API wrong if there are no locks.
       Maybe just expose a different API if there are no locks?
-   4. Rename locks to suffix with _query_locking and _query_locking_end
+   3. Rename locks to suffix with _query_locking and _query_locking_end
+   4. Replace memset with custom constructors for new banks.
+   5. Don't templatize out more complex types.
   */
 
 /* A fd_bank_t struct is the representation of the bank state on Solana
@@ -39,7 +37,7 @@ FD_PROTOTYPES_BEGIN
    fd_bank_t must be based on the fd_bank_t of it's parent slot. This
    state is managed by the fd_banks_t struct.
 
-   In order to support fork-awareness, there are a few key features
+   In order to support fork-awareness, there are several key features
    that fd_banks_t and fd_bank_t MUST support:
    1. Query for any non-rooted slot's bank: create a fast lookup
       from slot to bank
@@ -59,6 +57,17 @@ FD_PROTOTYPES_BEGIN
       be very expensive to copy the entire bank state for a given slot
       each time a bank is created. In order to avoid large memcpys, we
       can use a CoW mechanism for certain fields.
+   6. In a similar vein, some fields are very large and are not written
+      to very often, and are only read at the epoch boundary. The most
+      notable example is the stake delegations cache. In order to handle
+      this, we can use a delta-based approach where each bank only has
+      a delta of the stake delegations. The root bank will own the full
+      set of stake delegations. This means that the deltas are only
+      applied to the root bank as each bank gets rooted. If the caller
+      needs to access the full set of stake delegations for a given
+      bank, they can assemble the full set of stake delegations by
+      applying all of the deltas from the current bank and all of its
+      ancestors up to the root bank.
 
   Each field of a fd_bank_t has a pre-specified set of fields including
     - name: the name of the field
@@ -82,6 +91,13 @@ FD_PROTOTYPES_BEGIN
   is instead represented by a pool index and a dirty flag. If the field
   is modified, then the dirty flag is set, and an element of the pool
   is acquired and the data is copied over from the parent pool idx.
+
+  Currently, there is a delta-based field, fd_stake_delegations_t.
+  Each bank stores a delta-based representation in the form of an
+  aligned uchar buffer. The full state is stored in fd_banks_t also as
+  a uchar buffer which corresponds to the full state of stake
+  delegations for the current root. fd_banks_t also reserves another
+  buffer which can store the full state of the stake delegations.
 
   fd_bank_t also holds all of the rw-locks for the fields that have
   rw-locks.
@@ -131,6 +147,18 @@ FD_PROTOTYPES_BEGIN
   fd_struct_t * field = fd_bank_field_modify( bank );
   OR
   fd_bank_field_set( bank, value );
+
+  To access fields in the bank if the field has a lock:
+
+  fd_struct_t const * field = fd_bank_field_locking_query( bank );
+  ... use field ...
+  fd_bank_field_locking_end_query( bank );
+
+  To modify fields in the bank if the field has a lock:
+
+  fd_struct_t * field = fd_bank_field_locking_modify( bank );
+  ... use field ...
+  fd_bank_field_locking_end_locking_modify( bank );
 
   IMPORTANT SAFETY NOTE: fd_banks_t assumes that there is only one bank
   being executed against at a time. However, it is safe to call
@@ -191,7 +219,6 @@ FD_PROTOTYPES_BEGIN
   X(ulong,                             slots_per_epoch,             sizeof(ulong),                             alignof(ulong),                             0,   0,                0    )  /* Slots per epoch */                                        \
   X(ulong,                             shred_cnt,                   sizeof(ulong),                             alignof(ulong),                             0,   0,                0    )  /* Shred count */                                            \
   X(int,                               enable_exec_recording,       sizeof(int),                               alignof(int),                               0,   0,                0    )  /* Enable exec recording */                                  \
-  X(fd_stake_delegations_t,            stake_delegations,           FD_STAKE_DELEGATIONS_FOOTPRINT,            FD_STAKE_DELEGATIONS_ALIGN,                 1,   0,                1    )  /* Stake delegations */                                      \
   X(ulong,                             epoch,                       sizeof(ulong),                             alignof(ulong),                             0,   0,                0    )  /* Epoch */                                                  \
   X(fd_vote_states_t,                  vote_states,                 FD_VOTE_STATES_FOOTPRINT,                  FD_VOTE_STATES_ALIGN,                       1,   0,                1    )  /* Vote states for all vote accounts as of epoch E if */     \
                                                                                                                                                                                           /* epoch E is the one that is currently being executed */    \
@@ -239,10 +266,6 @@ FD_PROTOTYPES_BEGIN
 
 #define POOL_NAME fd_bank_epoch_rewards_pool
 #define POOL_T    fd_bank_epoch_rewards_t
-#include "../../util/tmpl/fd_pool.c"
-
-#define POOL_NAME fd_bank_stake_delegations_pool
-#define POOL_T    fd_bank_stake_delegations_t
 #include "../../util/tmpl/fd_pool.c"
 
 #define POOL_NAME fd_bank_vote_states_pool
@@ -327,6 +350,11 @@ struct fd_bank {
   #undef HAS_LOCK_0
   #undef HAS_LOCK_1
 
+  /* Stake delegations delta. */
+
+  uchar       stake_delegations_delta[FD_STAKE_DELEGATIONS_DELTA_FOOTPRINT] __attribute__((aligned(FD_STAKE_DELEGATIONS_ALIGN)));
+  int         stake_delegations_delta_dirty;
+  fd_rwlock_t stake_delegations_delta_lock;
 };
 typedef struct fd_bank fd_bank_t;
 
@@ -367,10 +395,10 @@ fd_bank_footprint( void );
 /* fd_banks_t is the main struct used to manage the bank state. It can
    be used to query/modify/clone/publish the bank state.
 
-   fd_banks_t contains some metadata a map/pool pair to manage the banks.
-   It also contains pointers to the CoW pools.
+   fd_banks_t contains some metadata a map/pool pair to manage the
+   banks. It also contains pointers to the CoW pools.
 
-   The data is laid out contigiously in memory starting from fd_banks_t;
+   The data is laid out contiguously in memory starting from fd_banks_t;
    this can be seen in fd_banks_footprint(). */
 
 #define POOL_NAME fd_banks_pool
@@ -388,17 +416,36 @@ fd_bank_footprint( void );
 #undef MAP_KEY
 
 struct fd_banks {
-  ulong             magic;           /* ==FD_BANKS_MAGIC */
-  ulong             max_total_banks; /* Maximum number of banks */
-  ulong             max_fork_width;  /* Maximum fork width executing
-                                       through any given slot. */
-  ulong             root;            /* root slot */
-  ulong             root_idx;        /* root idx */
+  ulong       magic;           /* ==FD_BANKS_MAGIC */
+  ulong       max_total_banks; /* Maximum number of banks */
+  ulong       max_fork_width;  /* Maximum fork width executing through
+                                  any given slot. */
+  ulong       root;            /* root slot */
+  ulong       root_idx;        /* root idx */
 
-  fd_rwlock_t       rwlock;          /* rwlock for fd_banks_t */
+  fd_rwlock_t rwlock;          /* rwlock for fd_banks_t */
 
-  ulong             pool_offset;     /* offset of pool from banks */
-  ulong             map_offset;      /* offset of map from banks */
+  ulong       pool_offset;     /* offset of pool from banks */
+  ulong       map_offset;      /* offset of map from banks */
+
+  /* stake_delegations_root will be the full state of stake delegations
+     for the current root. It can get updated in two ways:
+     1. On boot the snapshot will be directly read into the rooted
+        stake delegations because we assume that any and all snapshots
+        are a rooted slot.
+     2. Calls to fd_banks_publish() will apply all of the stake
+        delegation deltas from each of the banks that are about to be
+        published.  */
+
+  uchar stake_delegations_root[FD_STAKE_DELEGATIONS_FOOTPRINT] __attribute__((aligned(FD_STAKE_DELEGATIONS_ALIGN)));
+
+  /* stake_delegations_frontier is reserved memory that can represent
+     the full state of stake delegations for the current frontier. This
+     is done by taking the stake_delegations_root and applying all of
+     the deltas from the current bank and all of its ancestors up to the
+     root bank. */
+
+  uchar stake_delegations_frontier[FD_STAKE_DELEGATIONS_FOOTPRINT] __attribute__((aligned(FD_STAKE_DELEGATIONS_ALIGN)));
 
   /* Layout all CoW pools. */
 
@@ -419,7 +466,7 @@ typedef struct fd_banks fd_banks_t;
 /* Bank accesssors. Different accessors are emitted for different types
    depending on if the field has a lock or not. */
 
-#define HAS_LOCK_1(type, name) \
+#define HAS_LOCK_1(type, name)                                     \
   type const * fd_bank_##name##_locking_query( fd_bank_t * bank ); \
   void fd_bank_##name##_end_locking_query( fd_bank_t * bank );     \
   type * fd_bank_##name##_locking_modify( fd_bank_t * bank );      \
@@ -444,7 +491,71 @@ fd_bank_slot_get( fd_bank_t const * bank ) {
   return bank->slot_;
 }
 
-/* Simple getters and setters for members of fd_banks_t.*/
+/* Each bank has a fd_stake_delegations_t object which is delta-based.
+   The usage pattern is the same as other bank fields:
+   1. fd_bank_stake_dleegations_delta_locking_modify( bank ) will return
+      a mutable pointer to the stake delegations delta object. If the
+      caller has not yet initialized the delta object, then it will
+      be initialized. Because it is a delta it is not copied over from
+      a parent bank.
+   2. fd_bank_stake_delegations_delta_locking_query( bank ) will return
+      a const pointer to the stake delegations delta object. If the
+      delta object has not been initialized, then NULL is returned.
+   3. fd_bank_stake_delegations_delta_locking_end_modify( bank ) will
+      release the write lock on the object.
+   4. fd_bank_stake_delegations_delta_locking_end_query( bank ) will
+      release a read lock on the object.
+*/
+
+static inline fd_stake_delegations_t *
+fd_bank_stake_delegations_delta_locking_modify( fd_bank_t * bank ) {
+  fd_rwlock_write( &bank->stake_delegations_delta_lock );
+  if( !bank->stake_delegations_delta_dirty ) {
+    bank->stake_delegations_delta_dirty = 1;
+    fd_stake_delegations_new( bank->stake_delegations_delta, FD_RUNTIME_MAX_STAKE_ACCS_IN_SLOT, 1 );
+  }
+  return fd_stake_delegations_join( bank->stake_delegations_delta );
+}
+
+static inline void
+fd_bank_stake_delegations_delta_end_locking_modify( fd_bank_t * bank ) {
+  fd_rwlock_unwrite( &bank->stake_delegations_delta_lock );
+}
+
+static inline fd_stake_delegations_t *
+fd_bank_stake_delegations_delta_locking_query( fd_bank_t * bank ) {
+  fd_rwlock_read( &bank->stake_delegations_delta_lock );
+  return bank->stake_delegations_delta_dirty ? fd_stake_delegations_join( bank->stake_delegations_delta ) : NULL;
+}
+
+static inline void
+fd_bank_stake_delegations_delta_end_locking_query( fd_bank_t * bank ) {
+  fd_rwlock_unread( &bank->stake_delegations_delta_lock );
+}
+
+/* fd_bank_stake_delegations_frontier_query() will return a pointer to
+   the full stake delegations for the current frontier. The caller is
+   responsible that there are no concurrent readers or writers to
+   the stake delegations returned by this function.
+
+   Under the hood, the function copies the rooted stake delegations and
+   applies all of the deltas for the direct ancestry from the current
+   bank up to the rooted bank to the copy. */
+
+fd_stake_delegations_t *
+fd_bank_stake_delegations_frontier_query( fd_banks_t * banks,
+                                          fd_bank_t *  bank );
+
+/* fd_banks_stake_delegations_root_query() will return a pointer to the
+   full stake delegations for the current root. This function should
+   only be called on boot. */
+
+fd_stake_delegations_t *
+fd_banks_stake_delegations_root_query( fd_banks_t * banks );
+
+/* Simple getters and setters for the various maps and pools in
+   fd_banks_t. Notably, the map/pool pairs for the fd_bank_t structs as
+   well as all of the CoW structs in the banks. */
 
 static inline fd_bank_t *
 fd_banks_get_bank_pool( fd_banks_t const * banks ) {
@@ -497,9 +608,10 @@ FD_BANKS_ITER(X)
 #undef HAS_COW_0
 #undef HAS_COW_1
 
-// FIXME these locks do not fundamentally fix the minority fork racy
-// publishing issue.  Remove these once we have refcnts.
-/* fd_banks_lock() and fd_banks_unlock() are locks to be acquired and
+/* FIXME: these locks do not fundamentally fix the minority fork racy
+   publishing issue.  Remove these once we have refcnts.
+
+   fd_banks_lock() and fd_banks_unlock() are locks to be acquired and
    freed around accessing or modifying a specific bank. This is only
    required if there is concurrent access to a bank while operations on
    its underlying map are being performed.
@@ -549,7 +661,8 @@ fd_banks_align( void );
    the banks. */
 
 ulong
-fd_banks_footprint( ulong max_total_banks, ulong max_fork_width );
+fd_banks_footprint( ulong max_total_banks,
+                    ulong max_fork_width );
 
 /* fd_banks_new() creates a new fd_banks_t struct. This function lays
    out the memory for all of the constituent fd_bank_t structs and
@@ -557,7 +670,9 @@ fd_banks_footprint( ulong max_total_banks, ulong max_fork_width );
    given slot. */
 
 void *
-fd_banks_new( void * mem, ulong max_total_banks, ulong max_fork_width );
+fd_banks_new( void * mem,
+              ulong  max_total_banks,
+              ulong  max_fork_width );
 
 /* fd_banks_join() joins a new fd_banks_t struct. */
 
@@ -579,13 +694,15 @@ fd_banks_delete( void * shmem );
    fd_bank_t with the corresponding slot. */
 
 fd_bank_t *
-fd_banks_init_bank( fd_banks_t * banks, ulong slot );
+fd_banks_init_bank( fd_banks_t * banks,
+                    ulong        slot );
 
 /* fd_bank_get_bank() returns a bank for a given slot. If said bank
    does not exist, NULL is returned. */
 
 fd_bank_t *
-fd_banks_get_bank( fd_banks_t * banks, ulong slot );
+fd_banks_get_bank( fd_banks_t * banks,
+                   ulong        slot );
 
 /* fd_banks_clone_from_parent() clones a bank from a parent bank.
    If the bank corresponding to the parent slot does not exist,
@@ -613,7 +730,8 @@ fd_banks_clone_from_parent( fd_banks_t * banks,
    cancelled and their resources will be released back to the pool. */
 
 fd_bank_t const *
-fd_banks_publish( fd_banks_t * banks, ulong slot );
+fd_banks_publish( fd_banks_t * banks,
+                  ulong        slot );
 
 /* fd_bank_clear_bank() clears the contents of a bank. This should ONLY
    be used with banks that have no children.
@@ -623,7 +741,8 @@ fd_banks_publish( fd_banks_t * banks, ulong slot );
    For all non-CoW fields, we will reset the indices to its parent. */
 
 void
-fd_banks_clear_bank( fd_banks_t * banks, fd_bank_t * bank );
+fd_banks_clear_bank( fd_banks_t * banks,
+                     fd_bank_t *  bank );
 
 /* fd_banks_rekey_root_bank() will change the key of the current root
    bank to a caller-specified slot. This function returns the root bank
@@ -636,7 +755,8 @@ fd_banks_clear_bank( fd_banks_t * banks, fd_bank_t * bank );
    effectively lowers the memory used by snapshot loading. */
 
 fd_bank_t *
-fd_banks_rekey_root_bank( fd_banks_t * banks, ulong slot );
+fd_banks_rekey_root_bank( fd_banks_t * banks,
+                          ulong        slot );
 
 FD_PROTOTYPES_END
 

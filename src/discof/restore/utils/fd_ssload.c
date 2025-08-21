@@ -162,7 +162,7 @@ fd_ssload_recover( fd_snapshot_manifest_t * manifest,
   }
 
   /* Stake delegations for the current epoch. */
-  fd_stake_delegations_t * stake_delegations = fd_stake_delegations_join( fd_stake_delegations_new( fd_bank_stake_delegations_locking_modify( slot_ctx->bank ), FD_RUNTIME_MAX_STAKE_ACCOUNTS ) );
+  fd_stake_delegations_t * stake_delegations = fd_banks_stake_delegations_root_query( slot_ctx->banks );
   for( ulong i=0UL; i<manifest->stake_delegations_len; i++ ) {
     fd_snapshot_manifest_stake_delegation_t const * elem = &manifest->stake_delegations[ i ];
     fd_stake_delegations_update(
@@ -176,7 +176,6 @@ fd_ssload_recover( fd_snapshot_manifest_t * manifest,
         elem->warmup_cooldown_rate
     );
   }
-  fd_bank_stake_delegations_end_locking_modify( slot_ctx->bank );
 
   /* Vote states for the current epoch. */
   fd_vote_states_t * vote_states = fd_vote_states_join( fd_vote_states_new( fd_bank_vote_states_locking_modify( slot_ctx->bank ), FD_RUNTIME_MAX_VOTE_ACCOUNTS, 999UL ) );

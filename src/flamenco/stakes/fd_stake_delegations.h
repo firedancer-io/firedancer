@@ -17,6 +17,16 @@
    is backed by a memory pool. Callers are allowed to insert, replace,
    and remove entries from the map.
 
+   fd_stakes_delegations_t can also exist in two modes: with and without
+   tombstones. The mode is determined by the leave_tombstones flag
+   passed to fd_stake_delegations_new. If tombstones are enabled, then
+   calling fd_stake_delegations_remove will not remove the entry from
+   the map, but rather set the is_tombstone flag to true. This is
+   useful for delta updates where we want to keep the entry in the map
+   for future reference. In practice, this struct is used in both modes
+   by the bank. The stake delegations corresponding to each slot are
+   stored in a delta struct which is used to update the main cache.
+
    In practice, fd_stakes_delegations_t are updated in 3 cases:
    1. During bootup when the snapshot manifest is loaded in. The cache
       is also refreshed during the bootup process to ensure that the
@@ -39,29 +49,49 @@
       reward distribution.
    The stake accounts are read-only during the epoch boundary. */
 
-/* The static footprint of the stake delegation struct is roughly equal
-   to the footprint of each stake_delegation * the number of total
-   stake accounts that the system will support. If there are 3M stake
-   accounts and each one is 112 bytes, then we can assume that the total
-   number is ~360MB.
+/* The static footprint of the vote states assumes that there are
+   FD_RUNTIME_MAX_STAKE_ACCOUNTS. It also assumes worst case alignment
+   for each struct. fd_stake_delegations_t is laid out as first the
+   fd_stake_delegations_t struct, followed by a pool of
+   fd_stake_delegation_t structs, followed by a map of
+   fd_stake_delegation_map_ele_t structs. The pool has
+   FD_RUNTIME_MAX_STAKE_ACCOUNTS elements, and the map has a chain count
+   determined by a call to fd_stake_delegations_chain_cnt_est.
+   NOTE: the footprint is validated to be at least as large as the
+   actual runtime-determined footprint (see test_stake_delegations.c) */
 
-   TODO: This needs to be more carefully bounded where we account for
-   the overhead of the map + pool headers as well as the alignment
-   requirements.
+#define FD_STAKE_DELEGATIONS_CHAIN_CNT_EST (2097152UL)
+#define FD_STAKE_DELEGATIONS_FOOTPRINT                                                         \
+  /* First, layout the struct with alignment */                                                \
+  sizeof(fd_stake_delegations_t) + alignof(fd_stake_delegations_t) +                           \
+  /* Now layout the pool's data footprint */                                                   \
+  FD_STAKE_DELEGATIONS_ALIGN + sizeof(fd_stake_delegation_t) * FD_RUNTIME_MAX_STAKE_ACCOUNTS + \
+  /* Now layout the pool's meta footprint */                                                   \
+  FD_STAKE_DELEGATIONS_ALIGN + 128UL /* POOL_ALIGN */ +                                        \
+  /* Now layout the map.  We must make assumptions about the chain */                          \
+  /* count to be equivalent to chain_cnt_est. */                                               \
+  FD_STAKE_DELEGATIONS_ALIGN + 128UL /* MAP_ALIGN */ + (FD_STAKE_DELEGATIONS_CHAIN_CNT_EST * sizeof(ulong))
 
-   TODO: This needs to be a configurable constant based on the number
-   of max delegations. */
+/* We need a footprint for the max amount of stake delegations that
+   can be added in a single slot. We know that there can be up to
+   8192 writable accounts in a slot (bound determined from the cost
+   tracker). Using the same calculation as above, we get 120 bytes per
+   stake delegation with up to 8192 delegations we have a total
+   footprint of ~1MB. */
 
-#define FD_STAKE_DELEGATIONS_FOOTPRINT (360000000UL)
+#define FD_STAKE_DELEGATIONS_DELTA_CHAIN_CNT_EST (4096UL)
+#define FD_STAKE_DELEGATIONS_DELTA_FOOTPRINT                                                       \
+  /* First, layout the struct with alignment */                                                    \
+  sizeof(fd_stake_delegations_t) + alignof(fd_stake_delegations_t) +                               \
+  /* Now layout the pool's data footprint */                                                       \
+  FD_STAKE_DELEGATIONS_ALIGN + sizeof(fd_stake_delegation_t) * FD_RUNTIME_MAX_STAKE_ACCS_IN_SLOT + \
+  /* Now layout the pool's meta footprint */                                                       \
+  FD_STAKE_DELEGATIONS_ALIGN + 128UL /* POOL_ALIGN */ +                                            \
+  /* Now layout the map.  We must make assumptions about the chain */                              \
+  /* count to be equivalent to chain_cnt_est. */                                                   \
+  FD_STAKE_DELEGATIONS_ALIGN + 128UL /* MAP_ALIGN */ + (FD_STAKE_DELEGATIONS_DELTA_CHAIN_CNT_EST * sizeof(ulong))
 
-#define FD_STAKE_DELEGATIONS_ALIGN     (128UL)
-
-/* FD_STAKES_USE_HANDHOLDING:  Define this to non-zero at compile time
-   to turn on additional runtime checks and logging. */
-
-#ifndef FD_STAKES_USE_HANDHOLDING
-#define FD_STAKES_USE_HANDHOLDING 1
-#endif
+#define FD_STAKE_DELEGATIONS_ALIGN (128UL)
 
 struct fd_stake_delegation {
   fd_pubkey_t stake_account;
@@ -72,6 +102,7 @@ struct fd_stake_delegation {
   ulong       deactivation_epoch;
   ulong       credits_observed;
   double      warmup_cooldown_rate;
+  int         is_tombstone;
 };
 typedef struct fd_stake_delegation fd_stake_delegation_t;
 
@@ -94,6 +125,7 @@ typedef struct fd_stake_delegation fd_stake_delegation_t;
 struct fd_stake_delegations {
   ulong magic;
   ulong max_stake_accounts;
+  int   leave_tombstones;
 };
 typedef struct fd_stake_delegations fd_stake_delegations_t;
 
@@ -125,10 +157,14 @@ fd_stake_delegations_footprint( ulong max_stake_accounts );
 
 /* fd_stake_delegations_new creates a new stake delegations struct
    with a given amount of max stake accounts. It formats a memory region
-   which is sized based off of the number of stake accounts. */
+   which is sized based off of the number of stake accounts. The struct
+   can optionally be configured to leave tombstones in the map. This is
+   useful if fd_stake_delegations is being used as a delta. */
 
 void *
-fd_stake_delegations_new( void * mem, ulong max_stake_accounts );
+fd_stake_delegations_new( void * mem,
+                          ulong  max_stake_accounts,
+                          int    leave_tombstones );
 
 /* fd_stake_delegations_join joins a stake delegations struct from a
    memory region. There can be multiple valid joins for a given memory
@@ -171,7 +207,12 @@ fd_stake_delegations_update( fd_stake_delegations_t * stake_delegations,
 /* fd_stake_delegations_remove removes a stake delegation corresponding
    to a stake account's pubkey if one exists. Nothing happens if the
    key doesn't exist in the stake delegations. fd_stake_delegations_t
-   must be a valid local join. */
+   must be a valid local join.
+
+   NOTE: If the leave_tombstones flag is set, then the entry is not
+   removed from the map, but rather set to a tombstone. If the
+   delegation does not exist in the map, then a tombstone is actually
+   inserted into the struct. */
 
 void
 fd_stake_delegations_remove( fd_stake_delegations_t * stake_delegations,
@@ -186,7 +227,6 @@ static inline fd_stake_delegation_t const *
 fd_stake_delegations_query( fd_stake_delegations_t const * stake_delegations,
                             fd_pubkey_t const *            stake_account ) {
 
-  #if FD_STAKES_USE_HANDHOLDING
   if( FD_UNLIKELY( !stake_delegations ) ) {
     FD_LOG_CRIT(( "NULL stake_delegations" ));
     return NULL;
@@ -196,7 +236,6 @@ fd_stake_delegations_query( fd_stake_delegations_t const * stake_delegations,
     FD_LOG_CRIT(( "NULL stake_account" ));
     return NULL;
   }
-  #endif
 
   fd_stake_delegation_t const * stake_delegation_pool = fd_stake_delegations_get_pool( stake_delegations );
   if( FD_UNLIKELY( !stake_delegation_pool ) ) {
@@ -217,15 +256,17 @@ fd_stake_delegations_query( fd_stake_delegations_t const * stake_delegations,
 
 /* fd_stake_delegations_cnt returns the number of stake delegations
    in the stake delegations struct. fd_stake_delegations_t must be a
-   valid local join. */
+   valid local join.
+
+   NOTE: The cnt will return the number of stake delegations that are
+   in the underlying map. This number includes tombstones if the
+   leave_tombstones flag is set. */
 
 static inline ulong
 fd_stake_delegations_cnt( fd_stake_delegations_t const * stake_delegations ) {
-  #if FD_STAKES_USE_HANDHOLDING
   if( FD_UNLIKELY( !stake_delegations ) ) {
     FD_LOG_CRIT(( "NULL stake_delegations" ));
   }
-  #endif
 
   fd_stake_delegation_t const * stake_delegation_pool = fd_stake_delegations_get_pool( stake_delegations );
   if( FD_UNLIKELY( !stake_delegation_pool ) ) {
@@ -237,11 +278,9 @@ fd_stake_delegations_cnt( fd_stake_delegations_t const * stake_delegations ) {
 
 static inline ulong
 fd_stake_delegations_max( fd_stake_delegations_t const * stake_delegations ) {
-  #if FD_STAKES_USE_HANDHOLDING
   if( FD_UNLIKELY( !stake_delegations ) ) {
     FD_LOG_CRIT(( "NULL stake_delegations" ));
   }
-  #endif
 
   return stake_delegations->max_stake_accounts;
 }

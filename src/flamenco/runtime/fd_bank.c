@@ -1,4 +1,5 @@
 #include "fd_bank.h"
+#include "fd_runtime_const.h"
 #include "sysvar/fd_sysvar_epoch_schedule.h"
 
 ulong
@@ -284,9 +285,17 @@ fd_banks_new( void * shmem, ulong max_total_banks, ulong max_fork_width ) {
 
   banks->max_total_banks = max_total_banks;
   banks->max_fork_width  = max_fork_width;
-  banks->magic           = FD_BANKS_MAGIC;
   banks->root_idx        = ULONG_MAX;
   banks->root            = ULONG_MAX;
+
+  if( FD_UNLIKELY( !fd_stake_delegations_new( banks->stake_delegations_root, FD_RUNTIME_MAX_STAKE_ACCOUNTS, 0 ) ) ) {
+    FD_LOG_WARNING(( "Unable to create stake delegations root" ));
+    return NULL;
+  }
+
+  FD_COMPILER_MFENCE();
+  FD_VOLATILE( banks->magic ) = FD_BANKS_MAGIC;
+  FD_COMPILER_MFENCE();
 
   return shmem;
 }
@@ -589,7 +598,9 @@ fd_banks_clone_from_parent( fd_banks_t * banks,
      except for the fields which correspond to the header of the bank
      struct which is used for pool and map management. We can take
      advantage of the fact that those fields are laid out at the top
-     of the bank struct. */
+     of the bank struct.
+
+     TODO: We don't need to copy over the stake delegations delta. */
 
   memcpy( (uchar *)new_bank + FD_BANK_HEADER_SIZE, (uchar *)parent_bank + FD_BANK_HEADER_SIZE, sizeof(fd_bank_t) - FD_BANK_HEADER_SIZE );
 
@@ -618,9 +629,114 @@ fd_banks_clone_from_parent( fd_banks_t * banks,
   #undef HAS_LOCK_0
   #undef HAS_LOCK_1
 
+  /* Delta field does not need to be copied over. The dirty flag just
+     needs to be cleared if it was set. */
+  new_bank->stake_delegations_delta_dirty = 0;
+  fd_rwlock_unwrite( &new_bank->stake_delegations_delta_lock );
+
   fd_rwlock_unwrite( &banks->rwlock );
 
   return new_bank;
+}
+
+/* Apply a fd_stake_delegations_t into the root. This assumes that there
+   are no in-between, un-applied banks between the root and the bank
+   being applied. This also assumes that the stake delegation object
+   that is being applied is a delta. */
+
+static inline void
+fd_banks_stake_delegations_apply_delta( fd_bank_t *              bank,
+                                        fd_stake_delegations_t * stake_delegations_base ) {
+
+  if( !bank->stake_delegations_delta_dirty ) {
+    return;
+  }
+
+  fd_stake_delegations_t * stake_delegations_delta = fd_stake_delegations_join( bank->stake_delegations_delta );
+  if( FD_UNLIKELY( !stake_delegations_delta ) ) {
+    FD_LOG_CRIT(( "Failed to join stake delegations delta" ));
+  }
+  fd_stake_delegation_t *     stake_delegation_pool = fd_stake_delegations_get_pool( stake_delegations_delta );
+  fd_stake_delegation_map_t * stake_delegation_map  = fd_stake_delegations_get_map( stake_delegations_delta );
+
+  for( fd_stake_delegation_map_iter_t iter = fd_stake_delegation_map_iter_init( stake_delegation_map, stake_delegation_pool );
+       !fd_stake_delegation_map_iter_done( iter, stake_delegation_map, stake_delegation_pool );
+       iter = fd_stake_delegation_map_iter_next( iter, stake_delegation_map, stake_delegation_pool ) ) {
+    fd_stake_delegation_t const * stake_delegation = fd_stake_delegation_map_iter_ele_const( iter, stake_delegation_map, stake_delegation_pool );
+    if( FD_LIKELY( !stake_delegation->is_tombstone ) ) {
+      fd_stake_delegations_update(
+          stake_delegations_base,
+          &stake_delegation->stake_account,
+          &stake_delegation->vote_account,
+          stake_delegation->stake,
+          stake_delegation->activation_epoch,
+          stake_delegation->deactivation_epoch,
+          stake_delegation->credits_observed,
+          stake_delegation->warmup_cooldown_rate
+      );
+    } else {
+      fd_stake_delegations_remove( stake_delegations_base, &stake_delegation->stake_account );
+    }
+  }
+}
+
+/* fd_bank_stake_delegation_apply_deltas applies all of the stake
+   delegations for the entire direct ancestry from the bank to the
+   root into a full fd_stake_delegations_t object. */
+
+static inline void
+fd_bank_stake_delegation_apply_deltas( fd_banks_t *             banks,
+                                       fd_bank_t *              bank,
+                                       fd_stake_delegations_t * stake_delegations ) {
+
+  /* Naively what we want to do is iterate from the old root to the new
+     root and apply the delta to the full state iteratively. */
+
+  /* First, gather all of the pool indicies that we want to apply deltas
+     for in reverse order starting from the new root. We want to exclude
+     the old root since its delta has been applied previously. */
+  ulong pool_indicies[ banks->max_total_banks ];
+  ulong pool_indicies_len = 0UL;
+
+  fd_bank_t * bank_pool = fd_banks_get_bank_pool( banks );
+
+  ulong curr_idx = fd_banks_pool_idx( bank_pool, bank );
+  while( curr_idx!=fd_banks_pool_idx_null( bank_pool ) ) {
+    pool_indicies[pool_indicies_len++] = curr_idx;
+    fd_bank_t * curr_bank = fd_banks_pool_ele( bank_pool, curr_idx );
+    curr_idx = curr_bank->parent_idx;
+  }
+
+  /* We have populated all of the indicies that we need to apply deltas
+     from in reverse order. */
+
+  for( ulong i=pool_indicies_len; i>0; i-- ) {
+    ulong idx = pool_indicies[i-1UL];
+    fd_banks_stake_delegations_apply_delta( fd_banks_pool_ele( bank_pool, idx ), stake_delegations );
+  }
+}
+
+fd_stake_delegations_t *
+fd_bank_stake_delegations_frontier_query( fd_banks_t * banks, fd_bank_t * bank ) {
+
+  fd_rwlock_write( &banks->rwlock );
+
+  /* First copy the rooted state into the frontier. */
+  memcpy( banks->stake_delegations_frontier, banks->stake_delegations_root, FD_STAKE_DELEGATIONS_FOOTPRINT );
+
+  /* Now apply all of the updates from the bank and all of its
+     ancestors in order to the frontier. */
+  fd_stake_delegations_t * stake_delegations = fd_stake_delegations_join( banks->stake_delegations_frontier );
+  fd_bank_stake_delegation_apply_deltas( banks, bank, stake_delegations );
+
+  fd_rwlock_unwrite( &banks->rwlock );
+
+  return stake_delegations;
+}
+
+fd_stake_delegations_t *
+fd_banks_stake_delegations_root_query( fd_banks_t * banks ) {
+  return fd_stake_delegations_join( banks->stake_delegations_root );
 }
 
 fd_bank_t const *
@@ -649,6 +765,13 @@ fd_banks_publish( fd_banks_t * banks, ulong slot ) {
     fd_rwlock_unwrite( &banks->rwlock );
     return NULL;
   }
+
+  fd_stake_delegations_t * stake_delegations = fd_stake_delegations_join( banks->stake_delegations_root );
+  fd_bank_stake_delegation_apply_deltas( banks, new_root, stake_delegations );
+  new_root->stake_delegations_delta_dirty = 0;
+
+  /* Now that the deltas have been applied, we can remove all nodes
+     that are not direct descendants of the new root. */
 
   fd_bank_t * head = fd_banks_map_ele_remove( bank_map, &old_root->slot_, NULL, bank_pool );
   head->next       = fd_banks_pool_idx_null( bank_pool );

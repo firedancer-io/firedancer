@@ -2016,6 +2016,11 @@ fd_runtime_process_new_epoch( fd_exec_slot_ctx_t * slot_ctx,
 
   FD_SPAD_FRAME_BEGIN( runtime_spad ) {
 
+  fd_stake_delegations_t const * stake_delegations = fd_bank_stake_delegations_frontier_query( slot_ctx->banks, slot_ctx->bank );
+  if( FD_UNLIKELY( !stake_delegations ) ) {
+    FD_LOG_CRIT(( "stake_delegations is NULL" ));
+  }
+
   long start = fd_log_wallclock();
 
   ulong const slot = fd_bank_slot_get ( slot_ctx->bank );
@@ -2044,7 +2049,7 @@ fd_runtime_process_new_epoch( fd_exec_slot_ctx_t * slot_ctx,
   }
 
   /* Updates stake history sysvar accumulated values. */
-  fd_stakes_activate_epoch( slot_ctx, new_rate_activation_epoch, runtime_spad );
+  fd_stakes_activate_epoch( slot_ctx, stake_delegations, new_rate_activation_epoch, runtime_spad );
 
   /* Refresh vote accounts in stakes cache using updated stake weights, and merges slot bank vote accounts with the epoch bank vote accounts.
     https://github.com/anza-xyz/agave/blob/v2.1.6/runtime/src/stakes.rs#L363-L370 */
@@ -2054,6 +2059,7 @@ fd_runtime_process_new_epoch( fd_exec_slot_ctx_t * slot_ctx,
   }
 
   fd_refresh_vote_accounts( slot_ctx,
+                            stake_delegations,
                             history,
                             new_rate_activation_epoch );
 
@@ -2068,6 +2074,7 @@ fd_runtime_process_new_epoch( fd_exec_slot_ctx_t * slot_ctx,
   }
 
   fd_begin_partitioned_rewards( slot_ctx,
+                                stake_delegations,
                                 slot_ctx->capture_ctx,
                                 &parent_blockhash,
                                 parent_epoch,
@@ -2235,7 +2242,7 @@ fd_runtime_init_bank_from_genesis( fd_exec_slot_ctx_t *        slot_ctx,
 
   /* Derive epoch stakes */
 
-  fd_stake_delegations_t * stake_delegations = fd_stake_delegations_join( fd_stake_delegations_new( fd_bank_stake_delegations_locking_modify( slot_ctx->bank ), 5000UL ) );
+  fd_stake_delegations_t * stake_delegations = fd_banks_stake_delegations_root_query( slot_ctx->banks );
   if( FD_UNLIKELY( !stake_delegations ) ) {
     FD_LOG_CRIT(( "Failed to join and new a stake delegations" ));
   }
@@ -2347,8 +2354,6 @@ fd_runtime_init_bank_from_genesis( fd_exec_slot_ctx_t *        slot_ctx,
   fd_bank_epoch_set( slot_ctx->bank, 0UL );
 
   fd_bank_vote_states_end_locking_modify( slot_ctx->bank );
-
-  fd_bank_stake_delegations_end_locking_modify( slot_ctx->bank );
 
   fd_bank_capitalization_set( slot_ctx->bank, capitalization );
 }

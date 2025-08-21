@@ -171,9 +171,9 @@ fd_vote_states_update( fd_vote_states_t *  vote_states,
   }
 
   /* First, handle the case where the vote state already exists
-     and we just need to update the entry. The reason we do a const idx
+     and we just need to update the entry.  The reason we do a const idx
      query is to allow fd_vote_states_update to be called while
-     iterating over the map. It is unsafe to call
+     iterating over the map.  It is unsafe to call
      fd_vote_state_map_ele_query() during iteration, but we only
      need to change fields which are not used for pool/map management. */
 
