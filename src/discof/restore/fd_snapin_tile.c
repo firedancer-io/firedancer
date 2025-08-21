@@ -153,27 +153,29 @@ manifest_cb( void * _ctx,
   }
 }
 
-static int
+__attribute__((unused)) static int
 is_duplicate_account( fd_snapin_tile_t * ctx,
                       uchar const *      account_pubkey ) {
-  fd_account_meta_t const * rec_meta = fd_funk_get_acc_meta_readonly( ctx->funk,
-                                                                      ctx->funk_txn,
-                                                                      (fd_pubkey_t*)account_pubkey,
-                                                                      NULL,
-                                                                      NULL,
-                                                                      NULL );
-  if( FD_UNLIKELY( rec_meta ) ) {
-    if( FD_LIKELY( rec_meta->slot>ctx->ssparse->accv_slot ) ) return 1;
+  (void)ctx;
+  (void)account_pubkey;
+  // fd_account_meta_t const * rec_meta = fd_funk_get_acc_meta_readonly( ctx->funk,
+  //                                                                     ctx->funk_txn,
+  //                                                                     (fd_pubkey_t*)account_pubkey,
+  //                                                                     NULL,
+  //                                                                     NULL,
+  //                                                                     NULL );
+  // if( FD_UNLIKELY( rec_meta ) ) {
+  //   if( FD_LIKELY( rec_meta->slot>ctx->ssparse->accv_slot ) ) return 1;
 
-    if( FD_LIKELY( ctx->hash_info.enabled ) ) {
-      /* Send the existing account to hash tiles */
-      fd_snapshot_existing_account_t * account = (fd_snapshot_existing_account_t *)fd_chunk_to_laddr( ctx->hash_out.wksp, ctx->hash_out.chunk );
-      fd_snapshot_account_init( &account->hdr, account_pubkey, rec_meta->info.owner, rec_meta->info.lamports, rec_meta->info.executable, rec_meta->dlen );
-      fd_memcpy( account->data, fd_account_meta_get_data_const( rec_meta ), rec_meta->dlen );
-      fd_stem_publish( ctx->stem, FD_SNAPIN_HSH_IDX, FD_SNAPSHOT_HASH_MSG_SUB, ctx->hash_out.chunk, sizeof(fd_snapshot_existing_account_t), 0UL, 0UL, 0UL );
-      ctx->hash_out.chunk = fd_dcache_compact_next( ctx->hash_out.chunk, sizeof(fd_snapshot_existing_account_t), ctx->hash_out.chunk0, ctx->hash_out.wmark );
-    }
-  }
+  //   if( FD_LIKELY( ctx->hash_info.enabled ) ) {
+  //     /* Send the existing account to hash tiles */
+  //     fd_snapshot_existing_account_t * account = (fd_snapshot_existing_account_t *)fd_chunk_to_laddr( ctx->hash_out.wksp, ctx->hash_out.chunk );
+  //     fd_snapshot_account_init( &account->hdr, account_pubkey, rec_meta->info.owner, rec_meta->info.lamports, rec_meta->info.executable, rec_meta->dlen );
+  //     fd_memcpy( account->data, fd_account_meta_get_data_const( rec_meta ), rec_meta->dlen );
+  //     fd_stem_publish( ctx->stem, FD_SNAPIN_HSH_IDX, FD_SNAPSHOT_HASH_MSG_SUB, ctx->hash_out.chunk, sizeof(fd_snapshot_existing_account_t), 0UL, 0UL, 0UL );
+  //     ctx->hash_out.chunk = fd_dcache_compact_next( ctx->hash_out.chunk, sizeof(fd_snapshot_existing_account_t), ctx->hash_out.chunk0, ctx->hash_out.wmark );
+  //   }
+  // }
 
   return 0;
 }
@@ -183,30 +185,31 @@ account_cb( void *                          _ctx,
             fd_solana_account_hdr_t const * hdr ) {
   fd_snapin_tile_t * ctx = (fd_snapin_tile_t*)_ctx;
 
-  if( FD_UNLIKELY( is_duplicate_account( ctx, hdr->meta.pubkey ) ) ) {
-    ctx->acc_data = NULL;
-    return;
-  }
+  // if( FD_UNLIKELY( is_duplicate_account( ctx, hdr->meta.pubkey ) ) ) {
+  //   ctx->acc_data = NULL;
+  //   return;
+  // }
+  ctx->acc_data = NULL;
 
-  FD_TXN_ACCOUNT_DECL( rec );
-  fd_funk_rec_prepare_t prepare = {0};
-  int err = fd_txn_account_init_from_funk_mutable( rec,
-                                                   (fd_pubkey_t*)hdr->meta.pubkey,
-                                                   ctx->funk,
-                                                   ctx->funk_txn,
-                                                   /* do_create */ 1,
-                                                   hdr->meta.data_len,
-                                                   &prepare );
-  if( FD_UNLIKELY( err!=FD_ACC_MGR_SUCCESS ) ) FD_LOG_ERR(( "fd_txn_account_init_from_funk_mutable failed (%d)", err ));
+  // FD_TXN_ACCOUNT_DECL( rec );
+  // fd_funk_rec_prepare_t prepare = {0};
+  // int err = fd_txn_account_init_from_funk_mutable( rec,
+  //                                                  (fd_pubkey_t*)hdr->meta.pubkey,
+  //                                                  ctx->funk,
+  //                                                  ctx->funk_txn,
+  //                                                  /* do_create */ 1,
+  //                                                  hdr->meta.data_len,
+  //                                                  &prepare );
+  // if( FD_UNLIKELY( err!=FD_ACC_MGR_SUCCESS ) ) FD_LOG_ERR(( "fd_txn_account_init_from_funk_mutable failed (%d)", err ));
 
-  fd_txn_account_set_data_len( rec, hdr->meta.data_len );
-  fd_txn_account_set_slot( rec, ctx->ssparse->accv_slot );
-  fd_txn_account_set_hash( rec, &hdr->hash );
-  fd_txn_account_set_meta_info( rec, &hdr->info );
+  // fd_txn_account_set_data_len( rec, hdr->meta.data_len );
+  // fd_txn_account_set_slot( rec, ctx->ssparse->accv_slot );
+  // fd_txn_account_set_hash( rec, &hdr->hash );
+  // fd_txn_account_set_meta_info( rec, &hdr->info );
 
-  ctx->acc_data = fd_txn_account_get_data_mut( rec );
+  // ctx->acc_data = fd_txn_account_get_data_mut( rec );
   ctx->metrics.accounts_inserted++;
-  fd_txn_account_mutable_fini( rec, ctx->funk, ctx->funk_txn, &prepare );
+  // fd_txn_account_mutable_fini( rec, ctx->funk, ctx->funk_txn, &prepare );
 
   if( FD_LIKELY( ctx->hash_info.enabled ) ) {
     /* send account hdr to snaplt tile */
