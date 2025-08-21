@@ -22,8 +22,7 @@ typedef struct fd_crds_mask_iter_private fd_crds_mask_iter_t;
 #define FD_CRDS_UPSERT_CHECK_UPSERTS ( 0)
 #define FD_CRDS_UPSERT_CHECK_FAILS   (-1)
 
-#define CRDS_MAX_CONTACT_INFO_LG (15)
-#define CRDS_MAX_CONTACT_INFO    (1<<CRDS_MAX_CONTACT_INFO_LG) /* 32768 */
+#define CRDS_MAX_CONTACT_INFO    (1<<15) /* 32768 */
 
 struct fd_crds_metrics {
   ulong count[ FD_METRICS_ENUM_CRDS_VALUE_CNT ];
@@ -104,7 +103,7 @@ fd_crds_len( fd_crds_t const * crds );
    expiry windows.
 
     - purged, kept for 60s
-      
+
       A CRDS value is roughly considered "purged" when it is removed
       from the gossip table due to an incoming CRDS value replacing it.
 
