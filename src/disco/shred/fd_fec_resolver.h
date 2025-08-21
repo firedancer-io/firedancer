@@ -190,7 +190,18 @@ fd_fec_resolver_t * fd_fec_resolver_join( void * shmem );
    This function returns SHRED_COMPLETES when the received shred is the
    last one and completes the FEC set.  In this case, the function
    populates any missing shreds in the FEC set stored in out_fec_set. */
-int fd_fec_resolver_add_shred( fd_fec_resolver_t    * resolver,
+
+#define FD_FEC_RESOLVER_EVICT_NONE  (ULONG_MAX << 48) | FD_SHRED_BLK_MAX
+
+struct fd_fec_resolver_res {
+   int   retval;
+   ulong thrashed_slot;
+   ulong thrashed_fec_set_idx;
+};
+typedef struct fd_fec_resolver_res fd_fec_resolver_res_t;
+
+fd_fec_resolver_res_t
+fd_fec_resolver_add_shred( fd_fec_resolver_t    * resolver,
                                fd_shred_t const     * shred,
                                ulong                  shred_sz,
                                uchar const          * leader_pubkey,

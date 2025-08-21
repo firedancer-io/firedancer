@@ -606,8 +606,6 @@ handle_new_cluster_contact_info( fd_repair_tile_ctx_t * ctx,
       if( FD_LIKELY( ctx->repair_sign_cnt > 0 ) ) {
         fd_repair_send_request(ctx, ctx->stem, ctx->repair, fd_needed_window_index, 0, 0, in_dests[i].pubkey, fd_log_wallclock());
       }
-      ulong hash_src = 0xfffffUL & fd_ulong_hash( (ulong)in_dests[i].ip4_addr | ((ulong)repair_peer.port<<32) );
-      FD_LOG_INFO(( "Added repair peer: pubkey %s hash_src %lu", FD_BASE58_ENC_32_ALLOCA(in_dests[i].pubkey), hash_src ));
     }
   }
 }

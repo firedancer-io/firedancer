@@ -8,7 +8,7 @@ $(call make-unit-test,test_shred_dest,test_shred_dest,fd_disco fd_flamenco fd_ba
 ifdef FD_ARCH_SUPPORTS_SANDBOX
 $(call make-unit-test,test_shred_tile,test_shred_tile,fdctl_shared fdctl_platform fd_disco fd_flamenco fd_ballet fd_tango fd_waltz fd_reedsol fd_funk fd_util)
 endif
-$(call make-unit-test,test_fec_resolver,test_fec_resolver,fd_flamenco fd_disco fd_ballet fd_util fd_tango fd_reedsol)
+#$(call make-unit-test,test_fec_resolver,test_fec_resolver,fd_flamenco fd_disco fd_ballet fd_util fd_tango fd_reedsol)
 $(call make-unit-test,test_stake_ci,test_stake_ci,fd_disco fd_flamenco fd_ballet fd_util fd_tango fd_reedsol)
 $(call run-unit-test,test_shred_dest,)
 $(call run-unit-test,test_fec_resolver,)

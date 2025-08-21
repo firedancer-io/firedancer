@@ -276,6 +276,7 @@ quic_send( fd_send_tile_ctx_t  *  ctx,
 static inline void
 handle_new_contact_info( fd_send_tile_ctx_t   * ctx,
                          fd_shred_dest_wire_t * contact ) {
+  return;
   uint    new_ip   = contact->ip4_addr;
   ushort  new_port = contact->udp_port;
   if( FD_UNLIKELY( new_ip==0 || new_port==0 ) ) {
