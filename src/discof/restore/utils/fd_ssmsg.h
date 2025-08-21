@@ -10,12 +10,10 @@
 #define FD_SSMSG_DONE                 (2) /* Indicates the snapshot is fully loaded and tiles are shutting down */
 
 FD_FN_CONST static inline ulong
-fd_ssmsg_sig( ulong message,
-              ulong manifest_size ) {
-  return (manifest_size << 2) | (message & 0x3UL);
+fd_ssmsg_sig( ulong message ) {
+  return (message & 0x3UL);
 }
 
-FD_FN_CONST static inline ulong fd_ssmsg_sig_manifest_size( ulong sig ) { return (sig >> 2); }
 FD_FN_CONST static inline ulong fd_ssmsg_sig_message( ulong sig ) { return (sig & 0x3UL); }
 struct epoch_credits {
   ulong epoch;

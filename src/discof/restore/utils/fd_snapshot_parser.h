@@ -19,8 +19,7 @@ struct fd_snapshot_parser;
 typedef struct fd_snapshot_parser fd_snapshot_parser_t;
 
 typedef void
-(* fd_snapshot_parser_process_manifest_fn_t)( void * _ctx,
-                                              ulong  manifest_sz );
+(* fd_snapshot_parser_process_manifest_fn_t)( void * _ctx );
 
 typedef void
 (* fd_snapshot_process_acc_hdr_fn_t)( void *                          _ctx,

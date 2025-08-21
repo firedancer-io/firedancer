@@ -441,12 +441,12 @@ after_credit( fd_capture_tile_ctx_t * ctx,
 
       uchar * chunk = fd_chunk_to_laddr( ctx->snap_out->mem, ctx->snap_out->chunk );
       ulong   sz    = sizeof(fd_snapshot_manifest_t);
-      ulong   sig   = fd_ssmsg_sig( FD_SSMSG_MANIFEST_INCREMENTAL, sz );
+      ulong   sig   = fd_ssmsg_sig( FD_SSMSG_MANIFEST_INCREMENTAL );
       memcpy( chunk, manifest, sz );
       fd_stem_publish( stem, ctx->snap_out->idx, sig, ctx->snap_out->chunk, sz, 0UL, 0UL, fd_frag_meta_ts_comp( fd_tickcount() ) );
       ctx->snap_out->chunk = fd_dcache_compact_next( ctx->snap_out->chunk, sz, ctx->snap_out->chunk0, ctx->snap_out->wmark );
 
-      fd_stem_publish( stem, ctx->snap_out->idx, fd_ssmsg_sig( FD_SSMSG_DONE, 0UL ), 0UL, 0UL, 0UL, 0UL, 0UL );
+      fd_stem_publish( stem, ctx->snap_out->idx, fd_ssmsg_sig( FD_SSMSG_DONE ), 0UL, 0UL, 0UL, 0UL, 0UL );
 
       publish_stake_weights_manifest( ctx, stem, manifest );
       //*charge_busy = 0;
