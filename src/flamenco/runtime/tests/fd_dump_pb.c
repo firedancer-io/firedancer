@@ -466,13 +466,11 @@ create_block_context_protobuf_from_block( fd_exec_test_block_context_t * block_c
 
   /* Dumping stake accounts for this epoch */
 
-  fd_stake_delegation_map_t * map = fd_stake_delegations_get_map( stake_delegations );
-  fd_stake_delegation_t *     pool = fd_stake_delegations_get_pool( stake_delegations );
-
-  for( fd_stake_delegation_map_iter_t iter = fd_stake_delegation_map_iter_init( map, pool );
-       !fd_stake_delegation_map_iter_done( iter, map, pool );
-       iter = fd_stake_delegation_map_iter_next( iter, map, pool ) ) {
-    fd_stake_delegation_t * stake_delegation = fd_stake_delegation_map_iter_ele( iter, map, pool );
+  uchar mem[FD_STAKE_DELEGATIONS_ITER_FOOTPRINT];
+  for( fd_stake_delegations_iter_t * iter = fd_stake_delegations_iter_init( stake_delegations, mem );
+       !fd_stake_delegations_iter_done( iter );
+       fd_stake_delegations_iter_next( iter ) ) {
+    fd_stake_delegation_t * stake_delegation = fd_stake_delegations_iter_ele( iter );
     dump_account_if_not_already_dumped( slot_ctx->funk, slot_ctx->funk_txn, &stake_delegation->stake_account, spad, block_context->acct_states, &block_context->acct_states_count, NULL );
   }
 

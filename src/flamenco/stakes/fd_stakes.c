@@ -39,18 +39,15 @@ compute_stake_delegations( fd_bank_t *                    bank,
     FD_LOG_CRIT(( "vote_states is NULL" ));
   }
 
-  fd_stake_delegation_map_t * stake_delegation_map  = fd_stake_delegations_get_map( stake_delegations );
-  fd_stake_delegation_t *     stake_delegation_pool = fd_stake_delegations_get_pool( stake_delegations );
-
   /* Reset the vote stakes so we can re-compute them based on the most
      current stake delegation values. */
   fd_vote_states_reset_stakes( vote_states );
 
-  for( fd_stake_delegation_map_iter_t iter = fd_stake_delegation_map_iter_init( stake_delegation_map, stake_delegation_pool );
-       !fd_stake_delegation_map_iter_done( iter, stake_delegation_map, stake_delegation_pool );
-       iter = fd_stake_delegation_map_iter_next( iter, stake_delegation_map, stake_delegation_pool ) ) {
-
-    fd_stake_delegation_t const * stake_delegation = fd_stake_delegation_map_iter_ele_const( iter, stake_delegation_map, stake_delegation_pool );
+  uchar mem[FD_STAKE_DELEGATIONS_ITER_FOOTPRINT];
+  for( fd_stake_delegations_iter_t * iter = fd_stake_delegations_iter_init( stake_delegations, mem );
+       !fd_stake_delegations_iter_done( iter );
+       fd_stake_delegations_iter_next( iter ) ) {
+    fd_stake_delegation_t const * stake_delegation = fd_stake_delegations_iter_ele( iter );
 
     // Skip any delegations that are not in the delegation pool
 
@@ -110,17 +107,15 @@ accumulate_stake_cache_delegations( fd_stake_delegations_t const * stake_delegat
                                     fd_stake_history_entry_t *     accumulator,
                                     ulong                          epoch ) {
 
-  fd_stake_delegation_t *     pool = fd_stake_delegations_get_pool( stake_delegations );
-  fd_stake_delegation_map_t * map  = fd_stake_delegations_get_map( stake_delegations );
-
   ulong effective    = 0UL;
   ulong activating   = 0UL;
   ulong deactivating = 0UL;
 
-  for( fd_stake_delegation_map_iter_t iter = fd_stake_delegation_map_iter_init( map, pool );
-       !fd_stake_delegation_map_iter_done( iter, map, pool );
-       iter = fd_stake_delegation_map_iter_next( iter, map, pool ) ) {
-    fd_stake_delegation_t const * stake_delegation = fd_stake_delegation_map_iter_ele_const( iter, map, pool );
+  uchar mem[FD_STAKE_DELEGATIONS_ITER_FOOTPRINT];
+  for( fd_stake_delegations_iter_t * iter = fd_stake_delegations_iter_init( stake_delegations, mem );
+       !fd_stake_delegations_iter_done( iter );
+       fd_stake_delegations_iter_next( iter ) ) {
+    fd_stake_delegation_t const * stake_delegation = fd_stake_delegations_iter_ele( iter );
 
     fd_delegation_t delegation = {
       .voter_pubkey         = stake_delegation->vote_account,
@@ -308,14 +303,11 @@ fd_refresh_stake_delegations( fd_exec_slot_ctx_t * slot_ctx ) {
     FD_LOG_CRIT(( "fd_runtime_refresh_stakes: stake_delegations is NULL" ));
   }
 
-  fd_stake_delegation_map_t * stake_delegation_map  = fd_stake_delegations_get_map( stake_delegations );
-  fd_stake_delegation_t *     stake_delegation_pool = fd_stake_delegations_get_pool( stake_delegations );
-
-  for( fd_stake_delegation_map_iter_t iter = fd_stake_delegation_map_iter_init( stake_delegation_map, stake_delegation_pool );
-       !fd_stake_delegation_map_iter_done( iter, stake_delegation_map, stake_delegation_pool );
-       iter = fd_stake_delegation_map_iter_next( iter, stake_delegation_map, stake_delegation_pool ) ) {
-
-    fd_stake_delegation_t * stake_delegation = fd_stake_delegation_map_iter_ele( iter, stake_delegation_map, stake_delegation_pool );
+  uchar mem[FD_STAKE_DELEGATIONS_ITER_FOOTPRINT];
+  for( fd_stake_delegations_iter_t * iter = fd_stake_delegations_iter_init( stake_delegations, mem );
+       !fd_stake_delegations_iter_done( iter );
+       fd_stake_delegations_iter_next( iter ) ) {
+    fd_stake_delegation_t const * stake_delegation = fd_stake_delegations_iter_ele( iter );
 
     FD_TXN_ACCOUNT_DECL( acct_rec );
     int err = fd_txn_account_init_from_funk_readonly( acct_rec,

@@ -4,7 +4,7 @@
 #include "../../util/fd_util_base.h"
 #include "../types/fd_types_custom.h"
 
-#define FD_VOTE_STATES_MAGIC (0xF17EDA2CE7601E70) /* FIREDANCER VOTER V0 */
+#define FD_VOTE_STATES_MAGIC (0xF17EDA2CE7601E70UL) /* FIREDANCER VOTER V0 */
 
 /* fd_vote_states_t is a cache of vote accounts mapping the pubkey of
    a vote account to various infromation about the vote account
