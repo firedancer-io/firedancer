@@ -8,6 +8,7 @@
  */
 
 import cpp
+import filter
 
 class MagicAccess extends FieldAccess {
   MagicAccess() { this.getTarget().getName() = "magic" }
@@ -56,5 +57,6 @@ class CheckFunction extends Function {
 }
 
 from CheckFunction f
-where not f.valid()
+where not f.valid() and
+included(f.getLocation())
 select f, "should check or null magic of " + f.getParentType()

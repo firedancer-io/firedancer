@@ -8,10 +8,12 @@
  */
 
 import cpp
+import filter
 
 from BinaryBitwiseOperation op, Expr lhs, PointerFieldAccess rhs
 where
 op.getLeftOperand() = lhs and
 op.getRightOperand() = rhs and
-rhs.getTarget().getDeclaringType() = lhs.getType()
+rhs.getTarget().getDeclaringType() = lhs.getType() and
+included(op.getLocation())
 select lhs, "Potential null pointer is checked than accessed without short-circuiting."

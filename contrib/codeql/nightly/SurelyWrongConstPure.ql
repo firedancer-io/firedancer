@@ -9,6 +9,7 @@
  */
 
 import cpp
+import filter
 
 abstract class RFunc extends Function { }
 
@@ -28,5 +29,6 @@ where
     f.hasName("fd_log_private_2") or
     f.hasName("fd_log_wallclock()") or
     f.getName().matches("fd_valloc_%")
-  ) and r.calls*(f)
+  ) and r.calls*(f) and
+  included(f.getLocation())
 select r, f + " is called (transitively) by " + r + " which is marked as " + r.getAnAttribute().getName()

@@ -9,7 +9,7 @@
 
 import cpp
 import semmle.code.cpp.dataflow.new.DataFlow
-
+import filter
 import Flow::PathGraph
 
 
@@ -38,5 +38,6 @@ module Flow = DataFlow::Global<Config>;
 from
   Flow::PathNode source, Flow::PathNode sink
 where
-  not Flow::flowPath(source, sink)
+  not Flow::flowPath(source, sink) and
+  included(source.getLocation()) and included(sink.getLocation())
 select source.getNode(), source, sink, "A call to mmap is not checked for failure."

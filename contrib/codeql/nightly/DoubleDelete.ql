@@ -14,6 +14,7 @@ import cpp
 import GenericDoubleFree
 import semmle.code.cpp.dataflow.new.DataFlow
 import Flow::PathGraph
+import filter
 
 bindingset[x]
 string matchDelete(string x) {
@@ -35,4 +36,5 @@ where
   Flow::flowPath(source, sink)
   and source.getLocation().getStartLine() != sink.getLocation().getStartLine()
   and not source.getLocation().getFile().getBaseName().matches("test%")
+  and included(source.getLocation()) and included(sink.getLocation())
 select sink.getNode(), source, sink, "double delete"
