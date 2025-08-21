@@ -85,6 +85,7 @@ fd_topo_run_tile_t dummy_tile_snapin = { .name = "snapin" };
 fd_topo_run_tile_t dummy_tile_arch_f = { .name = "arch_f" };
 fd_topo_run_tile_t dummy_tile_arch_w = { .name = "arch_w" };
 fd_topo_run_tile_t dummy_tile_scap   = { .name = "scap"   };
+fd_topo_run_tile_t dummy_tile_ipecho = { .name = "ipecho" };
 
 fd_topo_run_tile_t * TILES[] = {
   NULL, /* Placeholder for tile under test (it must appear first). */
@@ -124,6 +125,7 @@ fd_topo_run_tile_t * TILES[] = {
   &dummy_tile_arch_f,
   &dummy_tile_arch_w,
   &dummy_tile_scap,
+  &dummy_tile_ipecho,
   NULL,
 };
 

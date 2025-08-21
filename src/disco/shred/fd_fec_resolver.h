@@ -142,10 +142,14 @@ fd_fec_resolver_new( void                    * shmem,
                      ulong                     complete_depth,
                      ulong                     done_depth,
                      fd_fec_set_t            * sets,
-                     ushort                    expected_shred_version,
                      ulong                     max_shred_idx );
 
 fd_fec_resolver_t * fd_fec_resolver_join( void * shmem );
+
+void
+fd_fec_resolver_set_shred_version( fd_fec_resolver_t * resolver,
+                                   ushort              expected_shred_version );
+
 
 #define FD_FEC_RESOLVER_SHRED_REJECTED  (-2)
 #define FD_FEC_RESOLVER_SHRED_IGNORED   (-1)

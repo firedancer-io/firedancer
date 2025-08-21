@@ -96,8 +96,9 @@ test_one_batch( void ) {
   signer_ctx_t signer_ctx[ 1 ];
   signer_ctx_init( signer_ctx, test_private_key );
 
-  FD_TEST( _shredder==fd_shredder_new( _shredder, test_signer, signer_ctx, SHRED_VER ) );
+  FD_TEST( _shredder==fd_shredder_new( _shredder, test_signer, signer_ctx ) );
   fd_shredder_t * shredder = fd_shredder_join( _shredder );           FD_TEST( shredder );
+  fd_shredder_set_shred_version( shredder, SHRED_VER );
 
   uchar const * pubkey = test_private_key+32UL;
 
@@ -116,9 +117,13 @@ test_one_batch( void ) {
 
   ulong foot = fd_fec_resolver_footprint( 4UL, 1UL, 1UL, 1UL );
   fd_fec_resolver_t *r1, *r2, *r3;
-  r1 = fd_fec_resolver_join( fd_fec_resolver_new( res_mem+0UL*foot, NULL, NULL, 2UL, 1UL, 1UL, 1UL, out_sets,     SHRED_VER, MAX ) );
-  r2 = fd_fec_resolver_join( fd_fec_resolver_new( res_mem+1UL*foot, NULL, NULL, 2UL, 1UL, 1UL, 1UL, out_sets+4UL, SHRED_VER, MAX ) );
-  r3 = fd_fec_resolver_join( fd_fec_resolver_new( res_mem+2UL*foot, NULL, NULL, 2UL, 1UL, 1UL, 1UL, out_sets+8UL, SHRED_VER, MAX ) );
+  r1 = fd_fec_resolver_join( fd_fec_resolver_new( res_mem+0UL*foot, NULL, NULL, 2UL, 1UL, 1UL, 1UL, out_sets,     MAX ) );
+  r2 = fd_fec_resolver_join( fd_fec_resolver_new( res_mem+1UL*foot, NULL, NULL, 2UL, 1UL, 1UL, 1UL, out_sets+4UL, MAX ) );
+  r3 = fd_fec_resolver_join( fd_fec_resolver_new( res_mem+2UL*foot, NULL, NULL, 2UL, 1UL, 1UL, 1UL, out_sets+8UL, MAX ) );
+
+  fd_fec_resolver_set_shred_version( r1, SHRED_VER );
+  fd_fec_resolver_set_shred_version( r2, SHRED_VER );
+  fd_fec_resolver_set_shred_version( r3, SHRED_VER );
 
   fd_fec_set_t const * out_fec[1];
   fd_shred_t const   * out_shred[1];
@@ -163,8 +168,9 @@ test_interleaved( void ) {
   signer_ctx_t signer_ctx[ 1 ];
   signer_ctx_init( signer_ctx, test_private_key );
 
-  FD_TEST( _shredder==fd_shredder_new( _shredder, test_signer, signer_ctx, SHRED_VER ) );
+  FD_TEST( _shredder==fd_shredder_new( _shredder, test_signer, signer_ctx ) );
   fd_shredder_t * shredder = fd_shredder_join( _shredder );           FD_TEST( shredder );
+  fd_shredder_set_shred_version( shredder, SHRED_VER );
 
   uchar const * pubkey = test_private_key+32UL;
   fd_entry_batch_meta_t meta[1];
@@ -190,7 +196,8 @@ test_interleaved( void ) {
   fd_shred_t const   * out_shred[1];
   fd_bmtree_node_t     out_merkle_root[1];
 
-  fd_fec_resolver_t * resolver = fd_fec_resolver_join( fd_fec_resolver_new( res_mem, NULL, NULL, 2UL, 1UL, 1UL, 1UL, out_sets, SHRED_VER, MAX ) );
+  fd_fec_resolver_t * resolver = fd_fec_resolver_join( fd_fec_resolver_new( res_mem, NULL, NULL, 2UL, 1UL, 1UL, 1UL, out_sets, MAX ) );
+  fd_fec_resolver_set_shred_version( resolver, SHRED_VER );
   for( ulong j=0UL; j<set0->data_shred_cnt; j++ ) {
     ADD_SHRED( resolver, set0->data_shreds[ j ], OKAY );
     ADD_SHRED( resolver, set1->data_shreds[ j ], OKAY );
@@ -207,8 +214,9 @@ test_rolloff( void ) {
   signer_ctx_t signer_ctx[ 1 ];
   signer_ctx_init( signer_ctx, test_private_key );
 
-  FD_TEST( _shredder==fd_shredder_new( _shredder, test_signer, signer_ctx, SHRED_VER ) );
+  FD_TEST( _shredder==fd_shredder_new( _shredder, test_signer, signer_ctx ) );
   fd_shredder_t * shredder = fd_shredder_join( _shredder );           FD_TEST( shredder );
+  fd_shredder_set_shred_version( shredder, SHRED_VER );
   uchar const * pubkey = test_private_key+32UL;
   fd_fec_set_t const * out_fec[1];
   fd_shred_t const   * out_shred[1];
@@ -237,7 +245,8 @@ test_rolloff( void ) {
   FD_TEST( fd_shredder_fini_batch( shredder ) );
 
   fd_fec_resolver_t * resolver;
-  resolver = fd_fec_resolver_join( fd_fec_resolver_new( res_mem, NULL, NULL, 2UL, 1UL, 1UL, 8UL, out_sets, SHRED_VER, MAX ) );
+  resolver = fd_fec_resolver_join( fd_fec_resolver_new( res_mem, NULL, NULL, 2UL, 1UL, 1UL, 8UL, out_sets, MAX ) );
+  fd_fec_resolver_set_shred_version( resolver, SHRED_VER );
   for( ulong j=0UL; j<set0->data_shred_cnt; j++ ) { ADD_SHRED( resolver, set0->data_shreds[ j ], OKAY ); }
 
   for( ulong j=0UL; j<set1->data_shred_cnt; j++ ) { ADD_SHRED( resolver, set1->data_shreds[ j ], OKAY ); }
@@ -267,8 +276,9 @@ perf_test( void ) {
   signer_ctx_t signer_ctx[ 1 ];
   signer_ctx_init( signer_ctx, test_private_key );
 
-  FD_TEST( _shredder==fd_shredder_new( _shredder, test_signer, signer_ctx, SHRED_VER ) );
+  FD_TEST( _shredder==fd_shredder_new( _shredder, test_signer, signer_ctx ) );
   fd_shredder_t * shredder = fd_shredder_join( _shredder );           FD_TEST( shredder );
+  fd_shredder_set_shred_version( shredder, SHRED_VER );
 
   fd_fec_set_t _set[ 1 ];
   uchar * ptr = fec_set_memory;
@@ -301,7 +311,8 @@ test_new_formats( void ) {
   for( ulong i=0UL; i<4UL; i++ ) ptr = allocate_fec_set( out_sets+i, ptr );
 
   fd_fec_resolver_t * resolver;
-  resolver = fd_fec_resolver_join( fd_fec_resolver_new( res_mem, test_signer, signer_ctx, 2UL, 1UL, 1UL, 8UL, out_sets, 1, MAX ) );
+  resolver = fd_fec_resolver_join( fd_fec_resolver_new( res_mem, test_signer, signer_ctx, 2UL, 1UL, 1UL, 8UL, out_sets, MAX ) );
+  fd_fec_resolver_set_shred_version( resolver, 1 );
 
   uchar pubkey[32];
   fd_base58_decode_32( "5XDmMEZpXM2GBXNjhgRCti4qLGeFQvx4RnzWeRgfupYk", pubkey );
@@ -378,8 +389,9 @@ test_shred_version( void ) {
   signer_ctx_t signer_ctx[ 1 ];
   signer_ctx_init( signer_ctx, test_private_key );
 
-  FD_TEST( _shredder==fd_shredder_new( _shredder, test_signer, signer_ctx, (ushort)~SHRED_VER ) );
+  FD_TEST( _shredder==fd_shredder_new( _shredder, test_signer, signer_ctx ) );
   fd_shredder_t * shredder = fd_shredder_join( _shredder );           FD_TEST( shredder );
+  fd_shredder_set_shred_version( shredder, (ushort)~SHRED_VER );
 
   uchar const * pubkey = test_private_key+32UL;
 
@@ -396,7 +408,8 @@ test_shred_version( void ) {
 
   for( ulong i=0UL; i<4UL; i++ )  ptr = allocate_fec_set( out_sets+i, ptr );
 
-  fd_fec_resolver_t * r = fd_fec_resolver_join( fd_fec_resolver_new( res_mem, NULL, NULL, 2UL, 1UL, 1UL, 1UL, out_sets, SHRED_VER, MAX ) );
+  fd_fec_resolver_t * r = fd_fec_resolver_join( fd_fec_resolver_new( res_mem, NULL, NULL, 2UL, 1UL, 1UL, 1UL, out_sets, MAX ) );
+  fd_fec_resolver_set_shred_version( r, SHRED_VER );
 
   fd_fec_set_t const * out_fec[1];
   fd_shred_t const   * out_shred[1];
@@ -446,8 +459,9 @@ test_shred_reject( void ) {
   signer_ctx_t signer_ctx[ 1 ];
   signer_ctx_init( signer_ctx, test_private_key );
 
-  FD_TEST( _shredder==fd_shredder_new( _shredder, test_signer, signer_ctx, (ushort)SHRED_VER ) );
+  FD_TEST( _shredder==fd_shredder_new( _shredder, test_signer, signer_ctx ) );
   fd_shredder_t * shredder = fd_shredder_join( _shredder );           FD_TEST( shredder );
+  fd_shredder_set_shred_version( shredder, (ushort)SHRED_VER );
 
   uchar const * pubkey = test_private_key+32UL;
 
@@ -465,7 +479,8 @@ test_shred_reject( void ) {
 
   for( ulong i=0UL; i<4UL; i++ )  ptr = allocate_fec_set( out_sets+i, ptr );
 
-  fd_fec_resolver_t * r = fd_fec_resolver_join( fd_fec_resolver_new( res_mem, NULL, NULL, 2UL, 1UL, 1UL, 1UL, out_sets, SHRED_VER, MAX ) );
+  fd_fec_resolver_t * r = fd_fec_resolver_join( fd_fec_resolver_new( res_mem, NULL, NULL, 2UL, 1UL, 1UL, 1UL, out_sets, MAX ) );
+  fd_fec_resolver_set_shred_version( r, SHRED_VER );
 
   fd_fec_set_t const * out_fec[1];
   fd_shred_t const   * out_shred[1];
@@ -554,8 +569,9 @@ test_merkle_root( void ) {
   signer_ctx_t signer_ctx[ 1 ];
   signer_ctx_init( signer_ctx, test_private_key );
 
-  FD_TEST( _shredder==fd_shredder_new( _shredder, test_signer, signer_ctx, (ushort)SHRED_VER ) );
+  FD_TEST( _shredder==fd_shredder_new( _shredder, test_signer, signer_ctx ) );
   fd_shredder_t * shredder = fd_shredder_join( _shredder );           FD_TEST( shredder );
+  fd_shredder_set_shred_version( shredder, (ushort)SHRED_VER );
 
   uchar const * pubkey = test_private_key+32UL;
 
@@ -573,7 +589,8 @@ test_merkle_root( void ) {
 
   for( ulong i=0UL; i<4UL; i++ )  ptr = allocate_fec_set( out_sets+i, ptr );
 
-  fd_fec_resolver_t * r = fd_fec_resolver_join( fd_fec_resolver_new( res_mem, NULL, NULL, 2UL, 1UL, 1UL, 1UL, out_sets, SHRED_VER, MAX ) );
+  fd_fec_resolver_t * r = fd_fec_resolver_join( fd_fec_resolver_new( res_mem, NULL, NULL, 2UL, 1UL, 1UL, 1UL, out_sets, MAX ) );
+  fd_fec_resolver_set_shred_version( r, SHRED_VER );
 
   fd_fec_set_t const * out_fec[1];
   fd_shred_t const   * out_shred[1];
@@ -622,8 +639,9 @@ test_force_complete( void ) {
   signer_ctx_t signer_ctx[ 1 ];
   signer_ctx_init( signer_ctx, test_private_key );
 
-  FD_TEST( _shredder==fd_shredder_new( _shredder, test_signer, signer_ctx, SHRED_VER ) );
+  FD_TEST( _shredder==fd_shredder_new( _shredder, test_signer, signer_ctx ) );
   fd_shredder_t * shredder = fd_shredder_join( _shredder );           FD_TEST( shredder );
+  fd_shredder_set_shred_version( shredder, SHRED_VER );
 
   uchar const * pubkey = test_private_key+32UL;
   fd_entry_batch_meta_t meta[1];
@@ -647,7 +665,9 @@ test_force_complete( void ) {
   fd_shred_t const   * out_shred[1];
   fd_bmtree_node_t     out_merkle_root[1];
 
-  fd_fec_resolver_t * resolver = fd_fec_resolver_join( fd_fec_resolver_new( res_mem, NULL, NULL, 2UL, 1UL, 1UL, 1UL, out_sets, SHRED_VER, MAX ) );
+  fd_fec_resolver_t * resolver = fd_fec_resolver_join( fd_fec_resolver_new( res_mem, NULL, NULL, 2UL, 1UL, 1UL, 1UL, out_sets, MAX ) );
+  fd_fec_resolver_set_shred_version( resolver, SHRED_VER );
+
   for( ulong j=0UL; j<set0->data_shred_cnt; j++ ) {
     if( j == 2 ) continue;
     ADD_SHRED( resolver, set0->data_shreds[ j ], OKAY );
@@ -710,8 +730,9 @@ test_chained_merkle_shreds( void ) {
   signer_ctx_t signer_ctx[ 1 ];
   signer_ctx_init( signer_ctx, test_private_key );
 
-  FD_TEST( _shredder==fd_shredder_new( _shredder, test_signer, signer_ctx, SHRED_VER ) );
+  FD_TEST( _shredder==fd_shredder_new( _shredder, test_signer, signer_ctx ) );
   fd_shredder_t * shredder = fd_shredder_join( _shredder );           FD_TEST( shredder );
+  fd_shredder_set_shred_version( shredder, SHRED_VER );
 
   fd_fec_set_t _set[ 1 ];
   for( ulong j=0UL; j<FD_REEDSOL_DATA_SHREDS_MAX;   j++ ) _set->data_shreds[   j ] = fec_set_memory_1 + 2048UL*j;
@@ -758,7 +779,8 @@ test_chained_merkle_shreds( void ) {
       FD_TEST( set->data_shred_cnt>=32 );
       FD_TEST( set->parity_shred_cnt>=32 );
 
-      resolver = fd_fec_resolver_join( fd_fec_resolver_new( res_mem, NULL, NULL, 2UL, 1UL, 1UL, 8UL, out_sets, SHRED_VER, MAX ) );
+      resolver = fd_fec_resolver_join( fd_fec_resolver_new( res_mem, NULL, NULL, 2UL, 1UL, 1UL, 8UL, out_sets, MAX ) );
+      fd_fec_resolver_set_shred_version( resolver, SHRED_VER );
 
       for( ulong j=0; j<set->data_shred_cnt; j++ ) {
         /* Simple test that we didn't overflow */
@@ -787,7 +809,8 @@ test_chained_merkle_shreds( void ) {
       }
       FD_TEST( sets_eq( set, *out_fec ) );
 
-      resolver = fd_fec_resolver_join( fd_fec_resolver_new( res_mem, NULL, NULL, 2UL, 1UL, 1UL, 8UL, out_sets, SHRED_VER, MAX ) );
+      resolver = fd_fec_resolver_join( fd_fec_resolver_new( res_mem, NULL, NULL, 2UL, 1UL, 1UL, 8UL, out_sets, MAX ) );
+      fd_fec_resolver_set_shred_version( resolver, SHRED_VER );
 
       for( ulong j=0; j<set->parity_shred_cnt; j++ ) {
         /* Simple test that we didn't overflow */

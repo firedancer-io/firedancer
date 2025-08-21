@@ -191,7 +191,6 @@ fd_fec_resolver_new( void                    * shmem,
                      ulong                     complete_depth,
                      ulong                     done_depth,
                      fd_fec_set_t            * sets,
-                     ushort                    expected_shred_version,
                      ulong                     max_shred_idx ) {
   if( FD_UNLIKELY( (depth==0UL) | (partial_depth==0UL) | (complete_depth==0UL) | (done_depth==0UL) ) ) return NULL;
   if( FD_UNLIKELY( (depth>=(1UL<<62)-1UL) | (done_depth>=(1UL<<62)-1UL ) ) ) return NULL;
@@ -232,8 +231,6 @@ fd_fec_resolver_new( void                    * shmem,
   for( ulong i=0UL; i<depth; i++ ) { bmtrlist_push_tail( bmtree_list, (uchar *)bmfootprint + i*footprint_per_bmtree ); }
   bmtrlist_leave( bmtree_list );
 
-  if( FD_UNLIKELY( expected_shred_version==(ushort)0 ) ) { FD_LOG_WARNING(( "expected shred version cannot be 0" )); return NULL; }
-
   resolver->curr_ll_sentinel->prev = resolver->curr_ll_sentinel;
   resolver->curr_ll_sentinel->next = resolver->curr_ll_sentinel;
   resolver->done_ll_sentinel->prev = resolver->done_ll_sentinel;
@@ -243,7 +240,7 @@ fd_fec_resolver_new( void                    * shmem,
   resolver->partial_depth          = partial_depth;
   resolver->complete_depth         = complete_depth;
   resolver->done_depth             = done_depth;
-  resolver->expected_shred_version = expected_shred_version;
+  resolver->expected_shred_version = 0;
   resolver->signer                 = signer;
   resolver->sign_ctx               = sign_ctx;
   resolver->max_shred_idx          = max_shred_idx;
@@ -278,6 +275,12 @@ fd_fec_resolver_join( void * shmem ) {
   if( FD_UNLIKELY( !fd_sha512_join( resolver->sha512 ) ) ) return NULL;
 
   return resolver;
+}
+
+void
+fd_fec_resolver_set_shred_version( fd_fec_resolver_t * resolver,
+                                   ushort              expected_shred_version ) {
+  resolver->expected_shred_version = expected_shred_version;
 }
 
 /* Two helper functions for working with the linked lists that are
