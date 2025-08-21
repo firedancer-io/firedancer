@@ -86,7 +86,7 @@ gossip_cmd_topo( config_t * config ) {
   }
 
   fd_topob_wksp( topo, "gossip_net" );
-  fd_topob_link( topo, "gossip_net", "gossip_net", config->net.ingress_buffer_size, FD_NET_MTU, 1UL );
+  fd_topob_link( topo, "gossip_net", "gossip_net", 65536*4UL, FD_NET_MTU, 1UL );
   fd_topos_tile_in_net( topo, "metric_in", "gossip_net", 0UL, FD_TOPOB_UNRELIABLE, FD_TOPOB_POLLED );
   fd_topob_tile_out( topo, "gossip", 0UL, "gossip_net", 0UL );
 
@@ -115,13 +115,13 @@ gossip_cmd_topo( config_t * config ) {
   fd_topob_wksp( topo, "gossip_gossv" );
   fd_topob_wksp( topo, "gossip_out" );
 
-  fd_topob_link(     topo, "gossip_gossv", "gossip_gossv", 4096UL, sizeof(fd_gossip_ping_update_t), 1UL );
+  fd_topob_link(     topo, "gossip_gossv", "gossip_gossv", 65536UL*4, sizeof(fd_gossip_ping_update_t), 1UL );
   fd_topob_tile_out( topo, "gossip", 0UL, "gossip_gossv", 0UL );
 
-  fd_topob_link( topo, "gossip_out", "gossip_out", 65536UL, sizeof(fd_gossip_update_message_t), 1UL );
+  fd_topob_link( topo, "gossip_out", "gossip_out", 65536UL*4, sizeof(fd_gossip_update_message_t), 1UL );
   fd_topob_tile_out( topo, "gossip", 0UL, "gossip_out", 0UL );
   for( ulong i=0UL; i<gossvf_tile_count; i++ ) {
-    fd_topob_link(     topo, "gossvf_gossi", "gossvf_gossi", config->net.ingress_buffer_size, sizeof(fd_gossip_view_t)+FD_NET_MTU, 1UL );
+    fd_topob_link(     topo, "gossvf_gossi", "gossvf_gossi", 65536UL*4, sizeof(fd_gossip_view_t)+FD_NET_MTU, 1UL );
     fd_topob_tile_out( topo, "gossvf", i, "gossvf_gossi", i );
     fd_topob_tile_in(  topo, "gossip", 0UL, "metric_in", "gossvf_gossi", i, FD_TOPOB_RELIABLE, FD_TOPOB_POLLED );
 
