@@ -2,6 +2,8 @@
 #include "utils/fd_sshttp.h"
 #include "utils/fd_ssctrl.h"
 #include "utils/fd_ssarchive.h"
+#include "utils/fd_http_resolver.h"
+#include "utils/fd_ssmsg.h"
 
 #include "../../disco/topo/fd_topo.h"
 #include "../../disco/metrics/fd_metrics.h"
@@ -38,6 +40,7 @@
 #define FD_SNAPRD_STATE_FLUSHING_INCREMENTAL_HTTP (11) /* Incremental snapshot was downloaded ok, confirm it decompressed and inserted ok */
 #define FD_SNAPRD_STATE_SHUTDOWN                  (12) /* The tile is done, and has likely already exited */
 
+#define FD_SNAPRD_MAX_HTTP_PEERS (16UL) /* Maximum number of configured http peers */
 #define SNAPRD_FILE_BUF_SZ (1024UL*1024UL) /* 1 MiB */
 
 #define IN_KIND_SNAPCTL (0)
@@ -47,6 +50,8 @@
 struct fd_snaprd_tile {
   fd_ssping_t * ssping;
   fd_sshttp_t * sshttp;
+  fd_http_resolver_t * ssresolver;
+  fd_stem_context_t *  stem;
 
   int   state;
   int   malformed;
@@ -70,6 +75,21 @@ struct fd_snaprd_tile {
   } local_out;
 
   uchar in_kind[ MAX_IN_LINKS ];
+
+  struct {
+    struct {
+      ulong slot;
+    } full;
+
+    struct {
+      ulong slot;
+    } incremental;
+  } http;
+
+  struct {
+    ulong         highest_resolved_incremental_slot;
+    fd_ip4_port_t highest_resolved_peer;
+  } resolve;
 
   struct {
     ulong full_snapshot_slot;
@@ -126,6 +146,14 @@ struct fd_snaprd_tile {
     ulong       chunk;
     ulong       mtu;
   } out;
+
+  struct {
+    fd_wksp_t * wksp;
+    ulong       chunk0;
+    ulong       wmark;
+    ulong       chunk;
+    ulong       mtu;
+  } signal_out;
 };
 
 typedef struct fd_snaprd_tile fd_snaprd_tile_t;
@@ -143,6 +171,7 @@ scratch_footprint( fd_topo_tile_t const * tile ) {
   l = FD_LAYOUT_APPEND( l, fd_sshttp_align(),          fd_sshttp_footprint()          );
   l = FD_LAYOUT_APPEND( l, fd_ssping_align(),          fd_ssping_footprint( 65536UL ) );
   l = FD_LAYOUT_APPEND( l, alignof(fd_contact_info_t), sizeof(fd_contact_info_t) * FD_CONTACT_INFO_TABLE_SIZE );
+  l = FD_LAYOUT_APPEND( l, fd_http_resolver_align(),   fd_http_resolver_footprint( FD_SNAPRD_MAX_HTTP_PEERS ) );
   return FD_LAYOUT_FINI( l, alignof(fd_snaprd_tile_t) );
 }
 
@@ -164,6 +193,46 @@ metrics_write( fd_snaprd_tile_t * ctx ) {
   FD_MGAUGE_SET( SNAPRD, INCREMENTAL_DOWNLOAD_RETRIES,  ctx->metrics.incremental.num_retries );
 
   FD_MGAUGE_SET( SNAPRD, STATE, (ulong)ctx->state );
+}
+
+static void
+on_http_download_resolve( void * _ctx,
+                          ulong  slot,
+                          int    full ) {
+  fd_snaprd_tile_t * ctx = (fd_snaprd_tile_t *)_ctx;
+
+  if( FD_LIKELY( full ) ) ctx->http.full.slot = slot;
+  else                    ctx->http.incremental.slot = slot;
+}
+
+static void
+on_resolve( void *                _ctx,
+            fd_ip4_port_t         addr,
+            fd_ssinfo_t const *   ssinfo ) {
+  fd_snaprd_tile_t * ctx = (fd_snaprd_tile_t *)_ctx;
+
+  FD_LOG_WARNING(("resolved peer " FD_IP4_ADDR_FMT ":%hu to slot %lu (base %lu)",
+                  FD_IP4_ADDR_FMT_ARGS( addr.addr ), fd_ushort_bswap( addr.port ),
+                  ssinfo->incremental.slot!=ULONG_MAX ? ssinfo->incremental.slot : ssinfo->full.slot,
+                  ssinfo->incremental.base_slot ));
+
+  /* Ignore resolve results if not fetching incremental snapshot because
+     we will instead broadcast the full snapshot slot. */
+  if( FD_UNLIKELY( !ctx->config.incremental_snapshot_fetch ) ) return;
+
+  if( FD_LIKELY( ctx->state==FD_SNAPRD_STATE_READING_FULL_HTTP ) ) {
+    if( FD_UNLIKELY( ssinfo->incremental.slot==ULONG_MAX ) ) return;
+    if( FD_UNLIKELY( ctx->http.full.slot==ULONG_MAX ) )      return;
+    if( FD_UNLIKELY( ssinfo->incremental.base_slot!=ctx->http.full.slot ||
+                     ssinfo->incremental.slot<=ctx->resolve.highest_resolved_incremental_slot ) ) return;
+  }
+
+  ctx->resolve.highest_resolved_incremental_slot = ssinfo->incremental.slot;
+  ctx->resolve.highest_resolved_peer             = addr;
+
+  uint tsorig; uint tspub;
+  fd_ssmsg_slot_to_frag( ctx->resolve.highest_resolved_incremental_slot, &tsorig, &tspub );
+  fd_stem_publish( ctx->stem, 1UL, FD_SSMSG_EXPECTED_SLOT, 0UL, 0UL, 0UL, tsorig, tspub );
 }
 
 static void
@@ -363,9 +432,12 @@ after_credit( fd_snaprd_tile_t *  ctx,
   (void)opt_poll_in;
   (void)charge_busy;
 
+  ctx->stem = stem;
+
   long now = fd_log_wallclock();
   if( FD_LIKELY( ctx->peer_selection ) ) {
     fd_ssping_advance( ctx->ssping, now );
+    fd_http_resolver_advance( ctx->ssresolver, now );
   }
 
   drain_buffer( ctx );
@@ -716,6 +788,7 @@ unprivileged_init( fd_topo_t *      topo,
   void * _ssping          = FD_SCRATCH_ALLOC_APPEND( l, fd_ssping_align(),          fd_ssping_footprint( 65536UL ) );
   // void * _gossip_peers_rx = FD_SCRATCH_ALLOC_APPEND( l, gossip_peers_rx_align(),    gossip_peers_rx_footprint()    );
   void * _ci_table        = FD_SCRATCH_ALLOC_APPEND( l, alignof(fd_contact_info_t), sizeof(fd_contact_info_t) * FD_CONTACT_INFO_TABLE_SIZE );
+  void * _ssresolver      = FD_SCRATCH_ALLOC_APPEND( l, fd_http_resolver_align(),   fd_http_resolver_footprint( FD_SNAPRD_MAX_HTTP_PEERS ) );
 
   ctx->ack_cnt = 0UL;
   ctx->malformed = 0;
@@ -739,7 +812,7 @@ unprivileged_init( fd_topo_t *      topo,
   ctx->ssping = fd_ssping_join( fd_ssping_new( _ssping, 65536UL, 1UL ) );
   FD_TEST( ctx->ssping );
 
-  ctx->sshttp = fd_sshttp_join( fd_sshttp_new( _sshttp ) );
+  ctx->sshttp = fd_sshttp_join( fd_sshttp_new( _sshttp, on_http_download_resolve, ctx ) );
   FD_TEST( ctx->sshttp );
 
   ctx->gossip.ci_table = _ci_table;
@@ -767,13 +840,33 @@ unprivileged_init( fd_topo_t *      topo,
   }
 
 
-  if( FD_UNLIKELY( tile->out_cnt!=1UL ) ) FD_LOG_ERR(( "tile `" NAME "` has %lu outs, expected 1", tile->out_cnt ));
+  ctx->ssresolver = fd_http_resolver_join( fd_http_resolver_new( _ssresolver, tile->snaprd.http.peers_cnt, ctx->config.incremental_snapshot_fetch, on_resolve, ctx ) );
+  FD_TEST( ctx->ssresolver );
+
+  for( ulong i=0UL; i<tile->snaprd.http.peers_cnt; i++ ) {
+    fd_ssping_add( ctx->ssping, tile->snaprd.http.peers[ i ] );
+    fd_http_resolver_add( ctx->ssresolver, tile->snaprd.http.peers[ i ] );
+  }
+
+  if( FD_UNLIKELY( tile->out_cnt!=2UL ) ) FD_LOG_ERR(( "tile `" NAME "` has %lu outs, expected 2", tile->out_cnt ));
 
   ctx->out.wksp   = topo->workspaces[ topo->objs[ topo->links[ tile->out_link_id[ 0 ] ].dcache_obj_id ].wksp_id ].wksp;
   ctx->out.chunk0 = fd_dcache_compact_chunk0( ctx->out.wksp, topo->links[ tile->out_link_id[ 0 ] ].dcache );
   ctx->out.wmark  = fd_dcache_compact_wmark ( ctx->out.wksp, topo->links[ tile->out_link_id[ 0 ] ].dcache, topo->links[ tile->out_link_id[ 0 ] ].mtu );
   ctx->out.chunk  = ctx->out.chunk0;
   ctx->out.mtu    = topo->links[ tile->out_link_id[ 0 ] ].mtu;
+
+  ctx->signal_out.wksp   = topo->workspaces[ topo->objs[ topo->links[ tile->out_link_id[ 1UL ] ].dcache_obj_id ].wksp_id ].wksp;
+  ctx->signal_out.chunk0 = fd_dcache_compact_chunk0( ctx->signal_out.wksp, topo->links[ tile->out_link_id[ 1UL ] ].dcache );
+  ctx->signal_out.wmark  = fd_dcache_compact_wmark ( ctx->signal_out.wksp, topo->links[ tile->out_link_id[ 1UL ] ].dcache, topo->links[ tile->out_link_id[ 0 ] ].mtu );
+  ctx->signal_out.chunk  = ctx->signal_out.chunk0;
+  ctx->signal_out.mtu    = topo->links[ tile->out_link_id[ 1UL ] ].mtu;
+
+  ctx->http.full.slot                         = ULONG_MAX;
+  ctx->http.incremental.slot                  = ULONG_MAX;
+
+  ctx->resolve.highest_resolved_incremental_slot = 0UL;
+  ctx->resolve.highest_resolved_peer             = (fd_ip4_port_t){ .addr = 0, 0};
 }
 
 #define STEM_BURST 2UL /* One control message, and one data message */

@@ -36,10 +36,16 @@ struct fd_sshttp_private {
   ulong response_len;
   char  response[ USHORT_MAX ];
 
-  char full_snapshot_name[ PATH_MAX ];
-  char incremental_snapshot_name[ PATH_MAX ];
+
+  ulong full_slot;
+  ulong incremental_slot;
+  char  full_snapshot_name[ PATH_MAX ];
+  char  incremental_snapshot_name[ PATH_MAX ];
 
   ulong content_len;
+
+  void *                                      cb_arg;
+  fd_sshttp_on_snapshot_download_resolve_fn_t on_resolve_cb;
 
   ulong magic;
 };
@@ -58,7 +64,9 @@ fd_sshttp_footprint( void ) {
 }
 
 void *
-fd_sshttp_new( void * shmem ) {
+fd_sshttp_new( void * shmem,
+               fd_sshttp_on_snapshot_download_resolve_fn_t on_resolve,
+               void *                                      cb_arg ) {
   if( FD_UNLIKELY( !shmem ) ) {
     FD_LOG_WARNING(( "NULL shmem" ));
     return NULL;
@@ -73,6 +81,9 @@ fd_sshttp_new( void * shmem ) {
   fd_sshttp_t * sshttp = FD_SCRATCH_ALLOC_APPEND( l, FD_SSHTTP_ALIGN, sizeof(fd_sshttp_t) );
 
   sshttp->state = FD_SSHTTP_STATE_INIT;
+
+  sshttp->on_resolve_cb = on_resolve;
+  sshttp->cb_arg        = cb_arg;
 
   FD_COMPILER_MFENCE();
   FD_VOLATILE( sshttp->magic ) = FD_SSHTTP_MAGIC;
@@ -104,11 +115,11 @@ fd_sshttp_join( void * shhttp ) {
 }
 
 void
-fd_sshttp_init( fd_sshttp_t * http,
-                fd_ip4_port_t addr,
-                char const *  path,
-                ulong         path_len,
-                long          now ) {
+fd_sshttp_init( fd_sshttp_t *                               http,
+                fd_ip4_port_t                               addr,
+                char const *                                path,
+                ulong                                       path_len,
+                long                                        now ) {
   FD_TEST( http->state==FD_SSHTTP_STATE_INIT );
 
   http->hops = 4UL;
@@ -144,8 +155,8 @@ fd_sshttp_init( fd_sshttp_t * http,
     }
   }
 
-  http->state    = FD_SSHTTP_STATE_REQ;
-  http->deadline = now + 500L*1000L*1000L;
+  http->state         = FD_SSHTTP_STATE_REQ;
+  http->deadline      = now + 500L*1000L*1000L;
 }
 
 void
@@ -232,9 +243,13 @@ follow_redirect( fd_sshttp_t *        http,
       fd_base58_encode_32( decoded_hash, NULL, encoded_hash );
 
       if( FD_LIKELY( incremental_entry_slot!=ULONG_MAX ) ) {
+        http->incremental_slot = incremental_entry_slot;
         FD_TEST( fd_cstr_printf_check( http->incremental_snapshot_name, PATH_MAX, NULL, "incremental-snapshot-%lu-%lu-%s.tar.zst", full_entry_slot, incremental_entry_slot, encoded_hash ) );
+        http->on_resolve_cb( http->cb_arg, incremental_entry_slot, 0 );
       } else {
+        http->full_slot = full_entry_slot;
         FD_TEST( fd_cstr_printf_check( http->full_snapshot_name, PATH_MAX, NULL, "snapshot-%lu-%s.tar.zst", full_entry_slot, encoded_hash ) );
+        http->on_resolve_cb( http->cb_arg, incremental_entry_slot, 1 );
       }
       break;
     }
