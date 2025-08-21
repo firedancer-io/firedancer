@@ -4,6 +4,7 @@
 #include "../../disco/keyguard/fd_keyswitch.h"
 #include "../../disco/keyguard/fd_keyload.h"
 #include "../../disco/metrics/fd_metrics.h"
+#include "../../disco/shred/fd_stake_ci.h"
 #include "../../flamenco/gossip/fd_gossip_private.h"
 #include "../../flamenco/gossip/fd_ping_tracker.h"
 #include "../../flamenco/leaders/fd_leaders_base.h"
@@ -114,6 +115,7 @@ typedef struct stake stake_t;
 #define MAP_NEXT               map.next
 #define MAP_KEY_EQ(k0,k1)      fd_pubkey_eq( k0, k1 )
 #define MAP_KEY_HASH(key,seed) (seed^fd_ulong_load_8( (key)->uc ))
+#define MAP_OPTIMIZE_RANDOM_ACCESS_REMOVAL 1
 #include "../../util/tmpl/fd_map_chain.c"
 
 struct fd_gossvf_tile_ctx {
@@ -139,8 +141,12 @@ struct fd_gossvf_tile_ctx {
   ping_t * pings;
   ping_map_t * ping_map;
 
-  stake_t * stakes;
-  stake_map_t * stake_map;
+  struct {
+    ulong         count;
+    stake_t *     pool;
+    stake_map_t * map;
+    uchar         msg_buf[ FD_STAKE_CI_STAKE_MSG_SZ ];
+  } stake;
 
   uchar payload[ FD_NET_MTU ];
   ulong payload_sz;
@@ -298,7 +304,7 @@ during_frag( fd_gossvf_tile_ctx_t * ctx,
       break;
     }
     case IN_KIND_REPLAY:
-      /* TODO: Update stakes map */
+      fd_memcpy( ctx->stake.msg_buf, fd_chunk_to_laddr_const( ctx->in[ in_idx ].mem, chunk ), sz );
       break;
     case IN_KIND_PINGS: {
       fd_memcpy( ctx->_ping_update, fd_chunk_to_laddr( ctx->in[ in_idx ].mem, chunk ), sz );
@@ -310,6 +316,26 @@ during_frag( fd_gossvf_tile_ctx_t * ctx,
     default:
       FD_LOG_ERR(( "unexpected in_kind %d", ctx->in[ in_idx ].kind ));
   }
+}
+
+static inline void
+handle_stakes( fd_gossvf_tile_ctx_t * ctx,
+                   fd_stake_weight_msg_t const * msg ) {
+  fd_stake_weight_t stake_weights[ MAX_STAKED_LEADERS ];
+  ulong new_stakes_cnt = compute_id_weights_from_vote_weights( stake_weights, msg->weights, msg->staked_cnt );
+
+  for( ulong i=0Ul; i<ctx->stake.count; i++ ) {
+    stake_map_idx_remove_fast( ctx->stake.map, i, ctx->stake.pool );
+  }
+
+  for( ulong i=0UL; i<new_stakes_cnt; i++ ) {
+    stake_t * entry = stake_pool_ele( ctx->stake.pool, i );
+    fd_memcpy( entry->pubkey.uc, stake_weights[i].key.uc, 32UL );
+    entry->stake = stake_weights[i].stake;
+
+    stake_map_idx_insert( ctx->stake.map, i, ctx->stake.pool );
+  }
+  ctx->stake.count = new_stakes_cnt;
 }
 
 static int
@@ -595,7 +621,7 @@ is_ping_active( fd_gossvf_tile_ctx_t *              ctx,
   if( FD_UNLIKELY( is_entrypoint( ctx, rpc_addr ) ) ) return 1;
 
   /* 2. If the node has more than 1 sol staked, it is active */
-  stake_t const * stake = stake_map_ele_query_const( ctx->stake_map, (fd_pubkey_t*)(payload+value->pubkey_off), NULL, ctx->stakes );
+  stake_t const * stake = stake_map_ele_query_const( ctx->stake.map, (fd_pubkey_t*)(payload+value->pubkey_off), NULL, ctx->stake.pool );
   if( FD_LIKELY( stake && stake->stake>=1000000000UL ) ) return 1;
 
   /* 3. If the node has actively ponged a ping, it is active */
@@ -971,11 +997,12 @@ unprivileged_init( fd_topo_t *      topo,
   ctx->ping_map = ping_map_join( ping_map_new( _ping_map, 2UL*FD_PING_TRACKER_MAX, ctx->seed ) );
   FD_TEST( ctx->ping_map );
 
-  ctx->stakes = stake_pool_join( stake_pool_new( _stake_pool, MAX_STAKED_LEADERS ) );
-  FD_TEST( ctx->stakes );
+  ctx->stake.count = 0UL;
+  ctx->stake.pool  = stake_pool_join( stake_pool_new( _stake_pool, MAX_STAKED_LEADERS ) );
+  FD_TEST( ctx->stake.pool );
 
-  ctx->stake_map = stake_map_join( stake_map_new( _stake_map, fd_ulong_pow2_up( MAX_STAKED_LEADERS ), ctx->seed ) );
-  FD_TEST( ctx->stake_map );
+  ctx->stake.map = stake_map_join( stake_map_new( _stake_map, fd_ulong_pow2_up( MAX_STAKED_LEADERS ), ctx->seed ) );
+  FD_TEST( ctx->stake.map );
 
   ctx->round_robin_cnt = fd_topo_tile_name_cnt( topo, tile->name );
   ctx->round_robin_idx = tile->kind_id;
