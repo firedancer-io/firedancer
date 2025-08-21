@@ -454,7 +454,8 @@ FD_STATIC_ASSERT( FD_TILE_MAX<65535, update_tile_to_cpu_type );
 
 ulong
 fd_tile_private_cpus_parse( char const * cstr,
-                            ushort *     tile_to_cpu ) {
+                            ushort *     tile_to_cpu,
+                            ulong        tile_max ) {
   if( !cstr ) return 0UL;
   ulong cnt = 0UL;
 
@@ -485,7 +486,7 @@ fd_tile_private_cpus_parse( char const * cstr,
 
       /* float_cnt is at least 1 at this point */
       do {
-        if( FD_UNLIKELY( cnt>=FD_TILE_MAX ) ) FD_LOG_ERR(( "fd_tile: too many --tile-cpus" ));
+        if( FD_UNLIKELY( cnt>=tile_max ) ) FD_LOG_ERR(( "fd_tile: too many --tile-cpus" ));
         tile_to_cpu[ cnt++ ] = (ushort)65535;
       } while( --float_cnt );
 
@@ -524,7 +525,7 @@ fd_tile_private_cpus_parse( char const * cstr,
     if( FD_UNLIKELY( !stride    ) ) FD_LOG_ERR(( "fd_tile: malformed --tile-cpus (invalid stride)" ));
 
     for( ulong cpu=cpu0; cpu<cpu1; cpu+=stride ) {
-      if( FD_UNLIKELY( cnt>=FD_TILE_MAX                    ) ) FD_LOG_ERR(( "fd_tile: too many --tile-cpus" ));
+      if( FD_UNLIKELY( cnt>=tile_max                       ) ) FD_LOG_ERR(( "fd_tile: too many --tile-cpus" ));
       if( FD_UNLIKELY( fd_cpuset_test( assigned_set, cpu ) ) ) FD_LOG_ERR(( "fd_tile: malformed --tile-cpus (repeated cpu)" ));
       tile_to_cpu[ cnt++ ] = (ushort)cpu;
       fd_cpuset_insert( assigned_set, cpu );
@@ -743,7 +744,7 @@ fd_tile_private_map_boot( ushort * tile_to_cpu,
 void
 fd_tile_private_boot_str( char const * cpus ) {
   ushort tile_to_cpu[ FD_TILE_MAX ];
-  ulong  tile_cnt = fd_tile_private_cpus_parse( cpus, tile_to_cpu );
+  ulong  tile_cnt = fd_tile_private_cpus_parse( cpus, tile_to_cpu, FD_TILE_MAX );
 
   if( FD_UNLIKELY( !tile_cnt ) ) {
     FD_LOG_INFO(( "fd_tile: no cpus specified; treating thread group as single tile running on O/S assigned cpu(s)" ));

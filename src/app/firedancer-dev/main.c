@@ -102,6 +102,8 @@ extern fd_topo_run_tile_t fd_tile_archiver_feeder;
 extern fd_topo_run_tile_t fd_tile_archiver_writer;
 extern fd_topo_run_tile_t fd_tile_archiver_playback;
 extern fd_topo_run_tile_t fd_tile_shredcap;
+extern fd_topo_run_tile_t fd_tile_trtt;
+extern fd_topo_run_tile_t fd_tile_echo;
 
 extern fd_topo_run_tile_t fd_tile_snaprd;
 extern fd_topo_run_tile_t fd_tile_snapdc;
@@ -151,6 +153,8 @@ fd_topo_run_tile_t * TILES[] = {
   &fd_tile_snapdc,
   &fd_tile_snapin,
   &fd_tile_ipecho,
+  &fd_tile_trtt,
+  &fd_tile_echo,
   NULL,
 };
 
@@ -185,6 +189,7 @@ extern action_t fd_action_repair;
 extern action_t fd_action_shred_version;
 extern action_t fd_action_ipecho_server;
 extern action_t fd_action_send_test;
+extern action_t fd_action_tile_rtt;
 
 action_t * ACTIONS[] = {
   &fd_action_run,
@@ -218,6 +223,7 @@ action_t * ACTIONS[] = {
   &fd_action_shred_version,
   &fd_action_ipecho_server,
   &fd_action_send_test,
+  &fd_action_tile_rtt,
   NULL,
 };
 

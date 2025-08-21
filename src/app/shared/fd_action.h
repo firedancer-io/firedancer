@@ -102,6 +102,10 @@ union fdctl_args {
     ushort listen_port;
   } udpecho;
 
+  struct {
+    ushort tile_cpus[2];
+  } tile_rtt;
+
 };
 
 typedef union fdctl_args args_t;

@@ -36,7 +36,7 @@ snapshot_load_topo( config_t *     config,
 
   static ushort tile_to_cpu[ FD_TILE_MAX ] = {0};
   if( args->snapshot_load.tile_cpus[0] ) {
-    ulong cpu_cnt = fd_tile_private_cpus_parse( args->snapshot_load.tile_cpus, tile_to_cpu );
+    ulong cpu_cnt = fd_tile_private_cpus_parse( args->snapshot_load.tile_cpus, tile_to_cpu, FD_TILE_MAX );
     if( FD_UNLIKELY( cpu_cnt<4UL ) ) FD_LOG_ERR(( "--tile-cpus specifies %lu CPUs, but need at least 4", cpu_cnt ));
   }
 
@@ -234,8 +234,9 @@ snapshot_load_cmd_fn( args_t *   args,
 }
 
 action_t fd_action_snapshot_load = {
-  .name = NAME,
-  .args = snapshot_load_cmd_args,
-  .perm = dev_cmd_perm,
-  .fn   = snapshot_load_cmd_fn
+  .name        = NAME,
+  .description = "Run the snapshot downloader",
+  .args        = snapshot_load_cmd_args,
+  .perm        = dev_cmd_perm,
+  .fn          = snapshot_load_cmd_fn
 };
