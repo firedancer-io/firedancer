@@ -218,7 +218,6 @@ FD_PROTOTYPES_BEGIN
   X(ulong,                             total_compute_units_used,    sizeof(ulong),                             alignof(ulong),                             0,   0,                0    )  /* Total compute units used */                               \
   X(ulong,                             slots_per_epoch,             sizeof(ulong),                             alignof(ulong),                             0,   0,                0    )  /* Slots per epoch */                                        \
   X(ulong,                             shred_cnt,                   sizeof(ulong),                             alignof(ulong),                             0,   0,                0    )  /* Shred count */                                            \
-  X(int,                               enable_exec_recording,       sizeof(int),                               alignof(int),                               0,   0,                0    )  /* Enable exec recording */                                  \
   X(ulong,                             epoch,                       sizeof(ulong),                             alignof(ulong),                             0,   0,                0    )  /* Epoch */                                                  \
   X(fd_vote_states_t,                  vote_states,                 FD_VOTE_STATES_FOOTPRINT,                  FD_VOTE_STATES_ALIGN,                       1,   0,                1    )  /* Vote states for all vote accounts as of epoch E if */     \
                                                                                                                                                                                           /* epoch E is the one that is currently being executed */    \
@@ -280,6 +279,15 @@ FD_PROTOTYPES_BEGIN
 #define POOL_T    fd_bank_vote_states_prev_prev_t
 #include "../../util/tmpl/fd_pool.c"
 
+#define FD_BANK_FLAGS_INIT              (0x00000000UL) /* Initialized and replayable. */
+#define FD_BANK_FLAGS_FROZEN            (0x00000001UL) /* Frozen, either because we finished replaying it, or because it was a
+                                                          snapshot loaded bank. */
+#define FD_BANK_FLAGS_DEAD              (0x00000002UL) /* Dead, meaning we stopped replaying it before we could finish it,
+                                                          because for example it exceeded the block CU limit, or we decided it
+                                                          was on a minority fork. */
+#define FD_BANK_FLAGS_ROOTED            (0x00000004UL) /* Rooted because tower said so. */
+#define FD_BANK_FLAGS_EXEC_RECORDING    (0x00000100UL) /* Enable execution recording. */
+
 /* As mentioned above, the overall layout of the bank struct:
    - Fields used for internal pool/bank management
    - Non-Cow fields
@@ -289,10 +297,13 @@ FD_PROTOTYPES_BEGIN
    The CoW fields are laid out contiguously in the bank struct.
    The locks for the CoW fields are laid out contiguously after the
    CoW fields.
+
+   (r) Field is owned by the replay tile, and should be updated only by
+       the replay tile.
 */
 
 struct fd_bank {
-  #define FD_BANK_HEADER_SIZE (40UL)
+  #define FD_BANK_HEADER_SIZE (56UL)
 
   /* Fields used for internal pool and bank management */
   ulong             slot_;       /* slot this node is tracking, also the map key */
@@ -300,6 +311,8 @@ struct fd_bank {
   ulong             parent_idx;  /* index of the parent in the node pool */
   ulong             child_idx;   /* index of the left-child in the node pool */
   ulong             sibling_idx; /* index of the right-sibling in the node pool */
+  ulong             flags;       /* (r) keeps track of the state of the bank, as well as some configurations */
+  ulong             refcnt;      /* (r) reference count on the bank, see replay for more details */
 
   /* First, layout all non-CoW fields contiguously. This is done to
      allow for cloning the bank state with a simple memcpy. Each
@@ -634,8 +647,13 @@ fd_banks_unlock( fd_banks_t * banks ) {
 /* fd_banks_root returns the current root slot for the bank. */
 
 FD_FN_PURE static inline fd_bank_t const *
-fd_banks_root( fd_banks_t const * banks ) {
+fd_banks_root_const( fd_banks_t const * banks ) {
   return fd_banks_pool_ele_const( fd_banks_get_bank_pool( banks ), banks->root_idx );
+}
+
+FD_FN_PURE static inline fd_bank_t *
+fd_banks_root( fd_banks_t * banks ) {
+  return fd_banks_pool_ele( fd_banks_get_bank_pool( banks ), banks->root_idx );
 }
 
 /* fd_banks_align() returns the alignment of fd_banks_t */
@@ -757,6 +775,29 @@ fd_banks_clear_bank( fd_banks_t * banks,
 fd_bank_t *
 fd_banks_rekey_root_bank( fd_banks_t * banks,
                           ulong        slot );
+
+/* Returns the highest block that can be safely published between the
+   current published root of the fork tree and the target block.  See
+   the note on safe publishing for more details.  In general, a node in
+   the fork tree can be pruned if
+   (1) the node itself can be pruned, and
+   (2) all subtrees (except for the one on the rooted fork) forking off
+       of the node can be pruned.
+   The highest publishable block is the highest block on the rooted fork
+   where the above is true, or the rooted child block of such if there
+   is one.
+
+   This function assumes that the given target block has been rooted by
+   consensus.  It will mark every block on the rooted fork as rooted, up
+   to the given target block.  It will also mark minority forks as dead.
+
+   Highest publishable block is written to the out pointer.  Returns 1
+   if the publishable block can be advanced beyond the current root.
+   Returns 0 if no such block can be found. */
+int
+fd_banks_publish_prepare( fd_banks_t * banks,
+                          ulong        target_slot,
+                          ulong *      publishable_slot );
 
 FD_PROTOTYPES_END
 

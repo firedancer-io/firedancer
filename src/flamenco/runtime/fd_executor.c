@@ -1394,7 +1394,7 @@ fd_exec_txn_ctx_from_exec_slot_ctx( fd_exec_slot_ctx_t const * slot_ctx,
 
   ctx->bank_hash_cmp = bank_hash_cmp;
 
-  ctx->enable_exec_recording = fd_bank_enable_exec_recording_get( slot_ctx->bank );
+  ctx->enable_exec_recording = !!( slot_ctx->bank->flags & FD_BANK_FLAGS_EXEC_RECORDING );
 
   ctx->bank = slot_ctx->bank;
 

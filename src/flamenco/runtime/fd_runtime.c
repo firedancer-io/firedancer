@@ -1273,7 +1273,7 @@ fd_runtime_prepare_and_execute_txn( fd_banks_t *        banks,
   txn_ctx->slot                  = fd_bank_slot_get( bank );
   txn_ctx->features              = fd_bank_features_get( bank );
   txn_ctx->status_cache          = NULL; // TODO: Make non-null once implemented
-  txn_ctx->enable_exec_recording = fd_bank_enable_exec_recording_get( bank );
+  txn_ctx->enable_exec_recording = !!( bank->flags & FD_BANK_FLAGS_EXEC_RECORDING );
   txn_ctx->funk_txn              = funk_txn;
   txn_ctx->capture_ctx           = capture_ctx;
 
