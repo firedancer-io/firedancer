@@ -458,7 +458,11 @@ calculate_stake_vote_rewards_account( fd_exec_slot_ctx_t const *                
     fd_vote_state_ele_t * vote_state_ele = fd_vote_states_query( vote_states, voter_acc );
     if( FD_UNLIKELY( !vote_state_ele ) ) {
       FD_LOG_DEBUG(( "failed to query vote state" ));
-      fd_bank_vote_states_end_locking_query( slot_ctx->bank );
+      if( !is_recalculation ) {
+        fd_bank_vote_states_end_locking_query( slot_ctx->bank );
+      } else {
+        fd_bank_vote_states_prev_end_locking_query( slot_ctx->bank );
+      }
       continue;
     }
 
