@@ -389,14 +389,12 @@ create_block_context_protobuf_from_block( fd_exec_test_block_context_t * block_c
   ulong num_sysvar_entries    = (sizeof(fd_relevant_sysvar_ids) / sizeof(fd_pubkey_t));
   ulong num_loaded_builtins   = (sizeof(loaded_builtins) / sizeof(fd_pubkey_t));
 
-  fd_stake_delegations_t const * stake_delegations = fd_bank_stake_delegations_locking_query( slot_ctx->bank );
+  fd_stake_delegations_t const * stake_delegations = fd_bank_stake_delegations_frontier_query( slot_ctx->banks, slot_ctx->bank );
   ulong stake_account_cnt     = fd_stake_delegations_cnt( stake_delegations );
-  fd_bank_stake_delegations_end_locking_query( slot_ctx->bank );
 
   fd_vote_states_t const * vote_states = fd_bank_vote_states_locking_query( slot_ctx->bank );
   ulong vote_account_t_cnt    = fd_vote_states_cnt( vote_states );
   fd_bank_vote_states_end_locking_query( slot_ctx->bank );
-
 
   fd_vote_states_t const * vote_states_prev = fd_bank_vote_states_prev_locking_query( slot_ctx->bank );
   ulong vote_account_t_1_cnt  = fd_vote_states_cnt( vote_states_prev );
@@ -468,7 +466,6 @@ create_block_context_protobuf_from_block( fd_exec_test_block_context_t * block_c
 
   /* Dumping stake accounts for this epoch */
 
-  stake_delegations = fd_bank_stake_delegations_locking_query( slot_ctx->bank );
   fd_stake_delegation_map_t * map = fd_stake_delegations_get_map( stake_delegations );
   fd_stake_delegation_t *     pool = fd_stake_delegations_get_pool( stake_delegations );
 
@@ -478,8 +475,6 @@ create_block_context_protobuf_from_block( fd_exec_test_block_context_t * block_c
     fd_stake_delegation_t * stake_delegation = fd_stake_delegation_map_iter_ele( iter, map, pool );
     dump_account_if_not_already_dumped( slot_ctx->funk, slot_ctx->funk_txn, &stake_delegation->stake_account, spad, block_context->acct_states, &block_context->acct_states_count, NULL );
   }
-
-  fd_bank_stake_delegations_end_locking_query( slot_ctx->bank );
 
   /* Dumping vote accounts for this epoch */
 

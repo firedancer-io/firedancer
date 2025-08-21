@@ -250,8 +250,8 @@ fd_runtime_fuzz_block_ctx_create( fd_solfuzz_runner_t *                runner,
   vote_states_prev_prev = fd_vote_states_join( fd_vote_states_new( vote_states_prev_prev, FD_RUNTIME_MAX_VOTE_ACCOUNTS, 999UL ) );
   fd_bank_vote_states_prev_prev_end_locking_modify( slot_ctx->bank );
 
-  fd_stake_delegations_t * stake_delegations = fd_bank_stake_delegations_locking_modify( slot_ctx->bank );
-  stake_delegations = fd_stake_delegations_join( fd_stake_delegations_new( stake_delegations, FD_RUNTIME_MAX_STAKE_ACCOUNTS ) );
+  fd_stake_delegations_t * stake_delegations = fd_banks_stake_delegations_root_query( slot_ctx->banks );
+  stake_delegations = fd_stake_delegations_join( fd_stake_delegations_new( stake_delegations, FD_RUNTIME_MAX_STAKE_ACCOUNTS, 0 ) );
 
   /* Load in all accounts with > 0 lamports provided in the context. The input expects unique account pubkeys. */
   vote_states = fd_bank_vote_states_locking_modify( slot_ctx->bank );
@@ -277,8 +277,6 @@ fd_runtime_fuzz_block_ctx_create( fd_solfuzz_runner_t *                runner,
   /* Refresh vote accounts to calculate stake delegations */
   fd_runtime_fuzz_block_refresh_vote_accounts( vote_states, stake_delegations );
   fd_bank_vote_states_end_locking_modify( slot_ctx->bank );
-
-  fd_bank_stake_delegations_end_locking_modify( slot_ctx->bank );
 
   /* Finish init epoch bank sysvars */
   fd_epoch_schedule_t epoch_schedule_[1];

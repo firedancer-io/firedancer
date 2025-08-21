@@ -40,7 +40,9 @@ fd_stake_delegations_footprint( ulong max_stake_accounts ) {
 }
 
 void *
-fd_stake_delegations_new( void * mem, ulong max_stake_accounts ) {
+fd_stake_delegations_new( void * mem,
+                          ulong  max_stake_accounts,
+                          int    leave_tombstones ) {
   if( FD_UNLIKELY( !mem ) ) {
     FD_LOG_WARNING(( "NULL mem" ));
     return NULL;
@@ -80,6 +82,7 @@ fd_stake_delegations_new( void * mem, ulong max_stake_accounts ) {
   }
 
   stake_delegations->max_stake_accounts = max_stake_accounts;
+  stake_delegations->leave_tombstones   = leave_tombstones;
 
   FD_COMPILER_MFENCE();
   FD_VOLATILE( stake_delegations->magic ) = FD_STAKE_DELEGATIONS_MAGIC;
@@ -107,7 +110,6 @@ fd_stake_delegations_join( void * mem ) {
     return NULL;
   }
 
-  #if FD_STAKES_USE_HANDHOLDING
   ulong map_chain_cnt = fd_stake_delegation_map_chain_cnt_est( stake_delegations->max_stake_accounts );
 
   FD_SCRATCH_ALLOC_INIT( l, stake_delegations );
@@ -129,7 +131,6 @@ fd_stake_delegations_join( void * mem ) {
     FD_LOG_WARNING(( "Failed to join stake delegations map" ));
     return NULL;
   }
-  #endif
 
   return stake_delegations;
 }
@@ -225,6 +226,7 @@ fd_stake_delegations_update( fd_stake_delegations_t * stake_delegations,
     stake_delegation->deactivation_epoch   = deactivation_epoch;
     stake_delegation->credits_observed     = credits_observed;
     stake_delegation->warmup_cooldown_rate = warmup_cooldown_rate;
+    stake_delegation->is_tombstone         = 0;
     return;
   }
 
@@ -272,15 +274,37 @@ fd_stake_delegations_remove( fd_stake_delegations_t * stake_delegations,
       stake_account,
       ULONG_MAX,
       stake_delegation_pool );
-  if( FD_UNLIKELY( delegation_idx == ULONG_MAX ) ) {
-    /* The delegation was not found, nothing to do. */
-    return;
-  }
 
-  ulong idx = fd_stake_delegation_map_idx_remove( stake_delegation_map, stake_account, ULONG_MAX, stake_delegation_pool );
-  if( FD_UNLIKELY( idx==ULONG_MAX ) ) {
-    return;
-  }
+  if( stake_delegations->leave_tombstones ) {
+    /* If we are configured to leave tombstones, we need to either
+       update the entry's is_tombstone flag or insert a new entry. */
 
-  fd_stake_delegation_pool_idx_release( stake_delegation_pool, delegation_idx );
+    fd_stake_delegation_t * stake_delegation = NULL;
+    if( delegation_idx!=ULONG_MAX ) {
+      /* The delegation was found, update the is_tombstone flag. */
+      stake_delegation = fd_stake_delegation_pool_ele( stake_delegation_pool, delegation_idx );
+    } else {
+      /* Otherwise, acquire an element from the pool and add it into the
+         map. */
+      stake_delegation = fd_stake_delegation_pool_ele_acquire( stake_delegation_pool );
+      stake_delegation->stake_account = *stake_account;
+      fd_stake_delegation_map_ele_insert( stake_delegation_map, stake_delegation, stake_delegation_pool );
+    }
+    stake_delegation->is_tombstone = 1;
+
+  } else {
+    /* If we are not configured to leave tombstones, we need to remove
+       the entry from the map and release it from the pool. */
+    if( FD_UNLIKELY( delegation_idx == ULONG_MAX ) ) {
+      /* The delegation was not found, nothing to do. */
+      return;
+    }
+
+    ulong idx = fd_stake_delegation_map_idx_remove( stake_delegation_map, stake_account, ULONG_MAX, stake_delegation_pool );
+    if( FD_UNLIKELY( idx==ULONG_MAX ) ) {
+      return;
+    }
+
+    fd_stake_delegation_pool_idx_release( stake_delegation_pool, delegation_idx );
+  }
 }

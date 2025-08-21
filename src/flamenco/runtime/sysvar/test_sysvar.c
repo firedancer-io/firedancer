@@ -11,7 +11,7 @@
 #include "../../../util/fd_util.h"
 
 __attribute__((aligned(FD_SHMEM_NORMAL_PAGE_SZ)))
-static uchar wksp_mem[ 2<<20 ]; /* 2 MiB */
+static uchar wksp_mem[ 2<<21 ]; /* 4 MiB */
 
 int
 main( int     argc,

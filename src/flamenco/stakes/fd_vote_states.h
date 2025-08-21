@@ -93,7 +93,7 @@ FD_STATIC_ASSERT(alignof(fd_vote_state_ele_t)<=FD_VOTE_STATES_ALIGN, unexpected 
    NOTE: the footprint is validated to be at least as large as the
    actual runtime-determined footprint (see test_vote_states.c) */
 
-#define FD_VOTE_STATES_CHAIN_CNT_EST (65536UL)
+#define FD_VOTE_STATES_CHAIN_CNT_EST (32768UL)
 #define FD_VOTE_STATES_FOOTPRINT                                                      \
   /* First, layout the struct with alignment */                                       \
   sizeof(fd_vote_states_t) + alignof(fd_vote_states_t) +                              \
