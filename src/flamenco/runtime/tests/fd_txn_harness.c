@@ -200,8 +200,10 @@ fd_runtime_fuzz_txn_ctx_create( fd_solfuzz_runner_t *              runner,
   fd_sol_sysvar_clock_t clock_[1];
   fd_sol_sysvar_clock_t const * clock = fd_sysvar_clock_read( funk, funk_txn, clock_ );
   if( !clock ) {
+    /* solfuzz-agave uses a parent epoch of 0 as well */
+    ulong parent_epoch = 0UL;
     fd_sysvar_clock_init( slot_ctx );
-    fd_sysvar_clock_update( slot_ctx, runner->spad );
+    fd_sysvar_clock_update( slot_ctx, runner->spad, &parent_epoch );
   }
 
   /* Epoch schedule and rent get set from the epoch bank */

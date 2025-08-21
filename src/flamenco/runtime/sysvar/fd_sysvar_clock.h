@@ -26,12 +26,15 @@ fd_sysvar_clock_init( fd_exec_slot_ctx_t * slot_ctx );
 
 /* fd_sysvar_clock_update updates the clock sysvar account.  Runs
    fd_calculate_stake_weighted_timestamp under the hood.  Should be
-   called at the start of every slot before execution commences.
+   called at the start of every slot before execution commences.  Takes
+   in a pointer to the parent_epoch, where *parent_epoch is the epoch of
+   the parent slot.  parent_epoch = NULL is used for genesis bootup.
    Crashes the process with FD_LOG_ERR on failure. */
 
 void
 fd_sysvar_clock_update( fd_exec_slot_ctx_t * slot_ctx,
-                        fd_spad_t *          spad );
+                        fd_spad_t *          spad,
+                        ulong const *        parent_epoch );
 
 /* Writes the current value of the clock sysvar to funk. */
 
@@ -47,19 +50,6 @@ fd_sol_sysvar_clock_t *
 fd_sysvar_clock_read( fd_funk_t *             funk,
                       fd_funk_txn_t *         funk_txn,
                       fd_sol_sysvar_clock_t * clock );
-
-/* fd_calculate_stake_weighted_timestamp calculates a timestamp
-   estimate.  Does not modify the slot context.  Walks all cached vote
-   accounts (from the "bank") and calculates a unix timestamp estimate.
-   The estimate is stored into *result_timestamp.  spad is used for
-   scratch allocations (allocates a treap of size FD_SYSVAR_CLOCK_STAKE_WEIGHTS_MAX).
-   Crashes the process with FD_LOG_ERR on failure (e.g. too many vote
-   accounts). */
-
-void
-fd_calculate_stake_weighted_timestamp( fd_exec_slot_ctx_t * slot_ctx,
-                                       long *               result_timestamp,
-                                       fd_spad_t *          spad );
 
 FD_PROTOTYPES_END
 
