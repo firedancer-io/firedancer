@@ -694,19 +694,8 @@ after_frag_snap( fd_repair_tile_ctx_t * ctx,
   fd_snapshot_manifest_t * manifest = (fd_snapshot_manifest_t *)chunk;
   fd_forest_init( ctx->forest, manifest->slot );
   FD_TEST( fd_forest_root_slot( ctx->forest )!=ULONG_MAX );
-  fd_hash_t null = { 0 }; /* FIXME block_id manifest */
-  fd_reasm_init( ctx->reasm, &null, manifest->slot );
-
-  // if( FD_UNLIKELY( manifest->slot < ctx->manifest_slot ) ) FD_LOG_ERR(( "time travel is not supported (yet). manifest slot %lu < prev rx manifest slot %lu", manifest->slot, ctx->manifest_slot ));
-
-  // fd_forest_t * forest = ctx->forest;
-  // int uninit = fd_fseq_query( fd_forest_ver( forest ) ) == FD_FOREST_VER_UNINIT;
-  // if( FD_UNLIKELY( uninit ) ) fd_forest_init   ( forest, manifest->slot );
-  // else                        fd_forest_publish( forest, manifest->slot );
-
-  // fd_hash_t null = { 0 }; /* FIXME block_id manifest */
-  // if( FD_UNLIKELY( !fd_reasm_root( ctx->reasm ) ) ) fd_reasm_insert ( ctx->reasm, &null, &null, manifest->slot, 0, 0, 0, 1, 1 );
-  // else                                              fd_reasm_publish( ctx->reasm, &ctx->root_block_id                         );
+  fd_hash_t manifest_block_id = { .ul = { 0xf17eda2ce7b1d } }; /* FIXME manifest_block_id */
+  fd_reasm_init( ctx->reasm, &manifest_block_id, manifest->slot );
 }
 
 static ulong FD_FN_UNUSED

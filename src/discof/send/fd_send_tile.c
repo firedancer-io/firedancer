@@ -143,6 +143,7 @@ quic_tx_aio_send( void *                    _ctx,
 
     ulong tspub = (ulong)ctx->now;
 
+    FD_LOG_NOTICE(( "voting" ));
     fd_stem_publish( ctx->stem, net_out_link->idx, sig, net_out_link->chunk, sz_l2, 0UL, 0, tspub );
     net_out_link->chunk = fd_dcache_compact_next( net_out_link->chunk, sz_l2, net_out_link->chunk0, net_out_link->wmark );
   }

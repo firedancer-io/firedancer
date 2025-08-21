@@ -198,8 +198,8 @@ after_frag_snap( ctx_t                  * ctx,
                  ulong                    sig,
                  fd_snapshot_manifest_t * manifest ) {
   if( FD_UNLIKELY( fd_ssmsg_sig_message( sig )!=FD_SSMSG_DONE ) ) return;
-  fd_hash_t null = { 0 };
-  fd_ghost_init( ctx->ghost, manifest->slot, &null );
+  fd_hash_t manifest_block_id = { .ul = { 0xf17eda2ce7b1d } }; /* FIXME manifest_block_id */
+  fd_ghost_init( ctx->ghost, manifest->slot, &manifest_block_id );
 
   fd_voter_t * epoch_voters = fd_epoch_voters( ctx->epoch );
   for(ulong i = 0; i< manifest->vote_accounts_len; i++) {
