@@ -672,10 +672,7 @@ during_frag( fd_repair_tile_ctx_t * ctx,
     dcache_entry_sz = sz;
 
   } else if( FD_UNLIKELY( in_kind==IN_KIND_SNAP ) ) {
-
-    if( FD_UNLIKELY( ctx->in_kind[in_idx]!=IN_KIND_SNAP || fd_ssmsg_sig_message( sig )!=FD_SSMSG_DONE ) ) ctx->snap_out_chunk = chunk;
     return;
-
   } else if ( FD_UNLIKELY( in_kind==IN_KIND_SIGN ) ) {
     dcache_entry = fd_chunk_to_laddr_const( in_ctx->mem, chunk );
     dcache_entry_sz = sz;
@@ -686,16 +683,27 @@ during_frag( fd_repair_tile_ctx_t * ctx,
   fd_memcpy( ctx->buffer, dcache_entry, dcache_entry_sz );
 }
 
-static inline void
-after_frag_snap( fd_repair_tile_ctx_t * ctx,
-                 ulong                  sig,
-                 uchar const          * chunk ) {
-  if( FD_UNLIKELY( fd_ssmsg_sig_message( sig )!=FD_SSMSG_DONE ) ) return;
-  fd_snapshot_manifest_t * manifest = (fd_snapshot_manifest_t *)chunk;
-  fd_forest_init( ctx->forest, manifest->slot );
-  FD_TEST( fd_forest_root_slot( ctx->forest )!=ULONG_MAX );
-  fd_hash_t manifest_block_id = { .ul = { 0xf17eda2ce7b1d } }; /* FIXME manifest_block_id */
-  fd_reasm_init( ctx->reasm, &manifest_block_id, manifest->slot );
+__attribute__((unused)) static inline void
+after_frag_snap( fd_repair_tile_ctx_t * ctx FD_PARAM_UNUSED,
+                 ulong                  sig FD_PARAM_UNUSED,
+                 uchar const          * chunk FD_PARAM_UNUSED) {
+  // if( FD_UNLIKELY( fd_ssmsg_sig_message( sig )!=FD_SSMSG_DONE ) ) return;
+  // fd_snapshot_manifest_t * manifest = (fd_snapshot_manifest_t *)chunk;
+  // fd_forest_init( ctx->forest, manifest->slot );
+  // FD_TEST( fd_forest_root_slot( ctx->forest )!=ULONG_MAX );
+  // fd_hash_t null = { 0 }; /* FIXME block_id manifest */
+  // fd_reasm_init( ctx->reasm, &null, manifest->slot );
+
+  // if( FD_UNLIKELY( manifest->slot < ctx->manifest_slot ) ) FD_LOG_ERR(( "time travel is not supported (yet). manifest slot %lu < prev rx manifest slot %lu", manifest->slot, ctx->manifest_slot ));
+
+  // fd_forest_t * forest = ctx->forest;
+  // int uninit = fd_fseq_query( fd_forest_ver( forest ) ) == FD_FOREST_VER_UNINIT;
+  // if( FD_UNLIKELY( uninit ) ) fd_forest_init   ( forest, manifest->slot );
+  // else                        fd_forest_publish( forest, manifest->slot );
+
+  // fd_hash_t null = { 0 }; /* FIXME block_id manifest */
+  // if( FD_UNLIKELY( !fd_reasm_root( ctx->reasm ) ) ) fd_reasm_insert ( ctx->reasm, &null, &null, manifest->slot, 0, 0, 0, 1, 1 );
+  // else                                              fd_reasm_publish( ctx->reasm, &ctx->root_block_id                         );
 }
 
 static ulong FD_FN_UNUSED
@@ -924,7 +932,22 @@ after_frag( fd_repair_tile_ctx_t * ctx,
   }
 
   if( FD_UNLIKELY( in_kind==IN_KIND_SNAP ) ) {
-    after_frag_snap( ctx, sig, fd_chunk_to_laddr( ctx->in_links[ in_idx ].mem, ctx->snap_out_chunk ) );
+
+    if( FD_LIKELY( fd_ssmsg_sig_message( sig )==FD_SSMSG_EXPECTED_SLOT ) ) {
+      ulong slot = ULONG_MAX;
+      fd_ssmsg_frag_to_slot( tsorig, tspub, &slot );
+      fd_forest_init( ctx->forest, slot );
+      FD_TEST( fd_forest_root_slot( ctx->forest )!=ULONG_MAX );
+      fd_hash_t null = { 0 }; /* FIXME block_id manifest */
+      fd_reasm_init( ctx->reasm, &null, slot );
+
+      fd_hash_t manifest_block_id = { .ul = { 0xf17eda2ce7b1d } }; /* FIXME manifest_block_id */
+      fd_store_exacq( ctx->store );
+      FD_TEST( !fd_store_root( ctx->store ) );
+      fd_store_insert( ctx->store, 0, &manifest_block_id );
+      ctx->store->slot0 = slot; /* FIXME manifest_block_id */
+      fd_store_exrel( ctx->store );
+    }
     return;
   }
 
@@ -1153,7 +1176,7 @@ unprivileged_init( fd_topo_t *      topo,
         ctx->sign_repair_in_depth[ ctx->sign_repair_in_cnt ] = link->depth;
         ctx->sign_repair_in_cnt++;
       }
-    } else if( 0==strcmp( link->name, "snap_out" ) ) {
+    } else if( 0==strcmp( link->name, "snap_signal" ) ) {
       ctx->in_kind[ in_idx ] = IN_KIND_SNAP;
     } else if( 0==strcmp( link->name, "stake_out" ) ) {
       ctx->in_kind[ in_idx ] = IN_KIND_STAKE;

@@ -712,12 +712,6 @@ on_snapshot_message( fd_replay_tile_ctx_t * ctx,
     FD_TEST( snapshot_slot==fd_bank_slot_get( ctx->slot_ctx->bank ) );
     fd_hash_t manifest_block_id = { .ul = { 0xf17eda2ce7b1d } }; /* FIXME manifest_block_id */
 
-    fd_store_exacq( ctx->store );
-    FD_TEST( !fd_store_root( ctx->store ) );
-    fd_store_insert( ctx->store, 0, &manifest_block_id );
-    ctx->store->slot0 = snapshot_slot; /* FIXME manifest_block_id */
-    fd_store_exrel( ctx->store );
-
     publish_stake_weights_manifest( ctx, stem, ctx->manifest );
     block_id_map_t * entry = block_id_map_insert( ctx->block_id_map, snapshot_slot );
     entry->block_id = manifest_block_id;

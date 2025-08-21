@@ -1,6 +1,8 @@
 #ifndef HEADER_fd_src_discof_restore_utils_fd_sshttp_h
 #define HEADER_fd_src_discof_restore_utils_fd_sshttp_h
 
+#include "fd_http_resolver.h"
+
 struct fd_sshttp_private;
 typedef struct fd_sshttp_private fd_sshttp_t;
 
@@ -9,6 +11,11 @@ typedef struct fd_sshttp_private fd_sshttp_t;
 #define FD_SSHTTP_ALIGN (8UL)
 
 #define FD_SSHTTP_MAGIC (0xF17EDA2CE5811900) /* FIREDANCE HTTP V0 */
+
+typedef void
+(* fd_sshttp_on_snapshot_download_resolve_fn_t)( void * ctx,
+                                                 ulong  slot,
+                                                 int    full  );
 
 FD_PROTOTYPES_BEGIN
 
@@ -19,7 +26,9 @@ FD_FN_CONST ulong
 fd_sshttp_footprint( void );
 
 void *
-fd_sshttp_new( void * shmem );
+fd_sshttp_new( void *                                      shmem,
+               fd_sshttp_on_snapshot_download_resolve_fn_t on_resolve,
+               void *                                      cb_arg );
 
 fd_sshttp_t *
 fd_sshttp_join( void * sshttp );
@@ -31,11 +40,11 @@ fd_sshttp_snapshot_names( fd_sshttp_t * http,
                          char const **  incremental_snapshot_name );
 
 void
-fd_sshttp_init( fd_sshttp_t * http,
-                fd_ip4_port_t addr,
-                char const *  path,
-                ulong         path_len,
-                long          now );
+fd_sshttp_init( fd_sshttp_t *                               http,
+                fd_ip4_port_t                               addr,
+                char const *                                path,
+                ulong                                       path_len,
+                long                                        now );
 
 void
 fd_sshttp_cancel( fd_sshttp_t * http );
