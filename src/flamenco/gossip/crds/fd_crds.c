@@ -1024,20 +1024,30 @@ fd_crds_insert( fd_crds_t *                         crds,
       crds->metrics->peer_visible_stake -= incumbent->stake;
     }
 
-    evict_treap_ele_remove( crds->evict_treap, incumbent, crds->pool );
     if( FD_LIKELY( incumbent->stake ) ) {
       staked_expire_dlist_ele_remove( crds->staked_expire_dlist, incumbent, crds->pool );
     } else {
       unstaked_expire_dlist_ele_remove( crds->unstaked_expire_dlist, incumbent, crds->pool );
     }
+    evict_treap_ele_remove( crds->evict_treap, incumbent, crds->pool );
     hash_treap_ele_remove( crds->hash_treap, incumbent, crds->pool );
     lookup_map_ele_remove( crds->lookup_map, &incumbent->key, NULL, crds->pool );
     fd_crds_release( crds, incumbent );
   } else if( candidate->key.tag==FD_GOSSIP_VALUE_CONTACT_INFO ) {
     if( FD_UNLIKELY( !crds_contact_info_pool_free( crds->contact_info.pool ) ) ) {
-      fd_crds_entry_t * evict = crds_contact_info_evict_dlist_ele_pop_head( crds->contact_info.evict_dlist, crds->pool );
+      fd_crds_entry_t * evict = crds_contact_info_evict_dlist_ele_peek_head( crds->contact_info.evict_dlist, crds->pool );
       remove_contact_info( crds, evict, now, stem );
+      if( FD_LIKELY( evict->stake ) ) {
+        staked_expire_dlist_ele_remove( crds->staked_expire_dlist, evict, crds->pool );
+      } else {
+        unstaked_expire_dlist_ele_remove( crds->unstaked_expire_dlist, evict, crds->pool );
+      }
+      evict_treap_ele_remove( crds->evict_treap, evict, crds->pool );
+      hash_treap_ele_remove( crds->hash_treap, evict, crds->pool );
+      lookup_map_ele_remove( crds->lookup_map, &evict->key, NULL, crds->pool );
+      fd_crds_release( crds, evict );
       crds->metrics->peer_evicted_cnt++;
+      crds->metrics->evicted_cnt++;
     }
 
     candidate->contact_info.ci = crds_contact_info_pool_ele_acquire( crds->contact_info.pool );
