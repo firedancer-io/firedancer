@@ -512,11 +512,6 @@ restore_slot_ctx( fd_replay_tile_ctx_t * ctx,
 }
 
 static void
-kickoff_repair_orphans( fd_replay_tile_ctx_t * ctx, fd_stem_context_t * stem ) {
-  publish_stake_weights_manifest( ctx, stem, ctx->manifest );
-}
-
-static void
 replay_plugin_publish( fd_replay_tile_ctx_t * ctx,
                        fd_stem_context_t * stem,
                        ulong sig,
@@ -737,32 +732,21 @@ on_snapshot_message( fd_replay_tile_ctx_t * ctx,
        state machine and set the state here accordingly. */
     FD_LOG_INFO(("Snapshot loaded, replay can start executing"));
     ctx->snapshot_init_done = 1;
-    ulong snapshot_slot = fd_bank_slot_get( ctx->slot_ctx->bank );
-    fd_hash_t null = { 0 }; /* FIXME sentinel value for missing block_id in manifest */
+    ulong snapshot_slot = ctx->manifest->slot;
+    FD_TEST( snapshot_slot==fd_bank_slot_get( ctx->slot_ctx->bank ) );
+    fd_hash_t manifest_block_id = { .ul = { 0xf17eda2ce7b1d } }; /* FIXME manifest_block_id */
 
     fd_store_exacq( ctx->store );
     FD_TEST( !fd_store_root( ctx->store ) );
-    fd_store_insert( ctx->store, 0, &null );
-    ctx->store->slot0 = snapshot_slot; /* FIXME special slot to link to sentinel value */
+    fd_store_insert( ctx->store, 0, &manifest_block_id );
+    ctx->store->slot0 = snapshot_slot; /* FIXME manifest_block_id */
     fd_store_exrel( ctx->store );
 
-    /* Kickoff repair orphans after the snapshots are done loading. If
-       we kickoff repair after we receive a full manifest, we might try
-       to repair a slot that is potentially huge amount of slots behind
-       turbine causing our repair buffers to fill up. Instead, we should
-       wait until we are done receiving all the snapshots.
-
-       TODO: Eventually, this logic should be cased out more:
-       1. If we just have a full snapshot, load in the slot_ctx for the
-          slot ctx and kickoff repair as soon as the manifest is
-          received.
-       2. If we are loading a full and incremental snapshot, we should
-          only load in the slot_ctx and kickoff repair for the
-          incremental snapshot. */
-    kickoff_repair_orphans( ctx, stem );
+    publish_stake_weights_manifest( ctx, stem, ctx->manifest );
     block_id_map_t * entry = block_id_map_insert( ctx->block_id_map, snapshot_slot );
-    entry->block_id = null;
+    entry->block_id = manifest_block_id;
     init_from_snapshot( ctx, stem );
+
     return;
   }
 

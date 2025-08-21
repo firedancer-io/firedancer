@@ -257,7 +257,7 @@ fd_reasm_delete( void * reasm );
 fd_reasm_fec_t *
 fd_reasm_root( fd_reasm_t * reasm );
 
-/* FIXME block_id manifest */
+/* FIXME manifest_block_id */
 
 ulong
 fd_reasm_slot0( fd_reasm_t * reasm );
