@@ -90,16 +90,13 @@ metrics_write( fd_snapin_tile_t * ctx ) {
 }
 
 static void
-manifest_cb( void * _ctx,
-             ulong  manifest_sz ) {
+manifest_cb( void * _ctx ) {
   fd_snapin_tile_t * ctx = (fd_snapin_tile_t*)_ctx;
 
-  ulong sz = sizeof(fd_snapshot_manifest_t)+manifest_sz;
-  FD_TEST( sz<=ctx->manifest_out.mtu );
-  ulong sig = ctx->full ? fd_ssmsg_sig( FD_SSMSG_MANIFEST_FULL, manifest_sz ) :
-                          fd_ssmsg_sig( FD_SSMSG_MANIFEST_INCREMENTAL, manifest_sz );
-  fd_stem_publish( ctx->stem, 0UL, sig, ctx->manifest_out.chunk, sz, 0UL, 0UL, 0UL );
-  ctx->manifest_out.chunk = fd_dcache_compact_next( ctx->manifest_out.chunk, sz, ctx->manifest_out.chunk0, ctx->manifest_out.wmark );
+  ulong sig = ctx->full ? fd_ssmsg_sig( FD_SSMSG_MANIFEST_FULL ) :
+                          fd_ssmsg_sig( FD_SSMSG_MANIFEST_INCREMENTAL );
+  fd_stem_publish( ctx->stem, 0UL, sig, ctx->manifest_out.chunk, sizeof(fd_snapshot_manifest_t), 0UL, 0UL, 0UL );
+  ctx->manifest_out.chunk = fd_dcache_compact_next( ctx->manifest_out.chunk, sizeof(fd_snapshot_manifest_t), ctx->manifest_out.chunk0, ctx->manifest_out.wmark );
 }
 
 static int
@@ -252,7 +249,7 @@ handle_control_frag( fd_snapin_tile_t *  ctx,
       }
 
       if( FD_LIKELY( ctx->funk_txn ) ) fd_funk_txn_publish_into_parent( ctx->funk, ctx->funk_txn, 0 );
-      fd_stem_publish( stem, 0UL, fd_ssmsg_sig( FD_SSMSG_DONE, 0UL ), 0UL, 0UL, 0UL, 0UL, 0UL );
+      fd_stem_publish( stem, 0UL, fd_ssmsg_sig( FD_SSMSG_DONE ), 0UL, 0UL, 0UL, 0UL, 0UL );
       break;
     case FD_SNAPSHOT_MSG_CTRL_SHUTDOWN:
       ctx->state = FD_SNAPIN_STATE_SHUTDOWN;

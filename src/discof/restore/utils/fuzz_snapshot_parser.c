@@ -23,9 +23,8 @@ LLVMFuzzerInitialize( int  *   argc,
 }
 
 static void
-manifest_cb( void * _ctx,
-             ulong  manifest_sz ) {
-  (void)_ctx; (void)manifest_sz;
+manifest_cb( void * _ctx ) {
+  (void)_ctx;
 }
 
 static void

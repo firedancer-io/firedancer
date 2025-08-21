@@ -317,8 +317,6 @@ fd_snapshot_parser_read_manifest_chunk( fd_snapshot_parser_t * self,
   ulong sz = self->buf_sz - self->buf_ctr;
   if( sz>bufsz ) sz = bufsz;
 
-  uchar * dst = self->manifest_buf+sizeof(fd_snapshot_manifest_t);
-  fd_memcpy( dst+self->buf_ctr, buf, sz );
   self->buf_ctr += sz;
 
   int result = fd_ssmanifest_parser_consume( self->manifest_parser, buf, sz );
@@ -331,7 +329,7 @@ fd_snapshot_parser_read_manifest_chunk( fd_snapshot_parser_t * self,
     }
 
     /* manifest cb */
-    if( FD_LIKELY( self->manifest_cb ) ) self->manifest_cb( self->cb_arg, self->buf_sz );
+    if( FD_LIKELY( self->manifest_cb ) ) self->manifest_cb( self->cb_arg );
 
     /* Discard buffer to reclaim heap space */
 

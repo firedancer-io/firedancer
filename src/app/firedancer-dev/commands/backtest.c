@@ -22,6 +22,7 @@
 #include "../../../disco/topo/fd_topob.h"
 #include "../../../disco/metrics/fd_metrics.h"
 #include "../../../util/pod/fd_pod_format.h"
+#include "../../../discof/restore/utils/fd_ssmsg.h"
 #include "../../../discof/replay/fd_replay_notif.h"
 #include "../../../discof/reasm/fd_reasm.h"
 #include "../../../flamenco/runtime/fd_runtime_public.h" /* FD_RUNTIME_PUBLIC_ACCOUNT_UPDATE_MSG_MTU */
@@ -125,7 +126,7 @@ backtest_topo( config_t * config ) {
   /* TODO: Should be depth of 1 or 2, not 4, but it causes backpressure
      from the replay tile parsing the manifest, remove when this is
      fixed. */
-  fd_topob_link( topo, "snap_out", "snap_out", 4UL, 5UL*(1UL<<30UL), 1UL );
+  fd_topob_link( topo, "snap_out", "snap_out", 4UL, sizeof(fd_snapshot_manifest_t), 1UL );
 
   fd_topob_link( topo, "snap_zstd",   "snap_zstd",   8192UL, 16384UL,    1UL );
   fd_topob_link( topo, "snap_stream", "snap_stream", 2048UL, USHORT_MAX, 1UL );
