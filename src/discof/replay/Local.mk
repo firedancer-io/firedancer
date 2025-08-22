@@ -1,4 +1,4 @@
-$(call add-objs,fd_rdisp_simple,fd_discof)
+$(call add-objs,fd_rdisp,fd_discof)
 $(call make-unit-test,test_rdisp,test_rdisp,fd_discof fd_ballet fd_tango fd_util)
 ifdef FD_HAS_INT128
 ifdef FD_HAS_SSE

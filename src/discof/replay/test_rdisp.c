@@ -9,7 +9,7 @@
 #include <sys/stat.h>
 #endif
 
-#define TEST_FOOTPRINT (1024UL*1024UL)
+#define TEST_FOOTPRINT (128UL*1024UL*1024UL)
 uchar footprint[ TEST_FOOTPRINT ] __attribute__((aligned(128)));
 
 /* so that if/when we change RDISP_BLOCK_TAG_T, only one function has to
@@ -159,7 +159,8 @@ test_mainnet( char const * filename,
 
   long sched_duration = -fd_tickcount();
   long advanced_ticks = 0UL;
-  while( txn_cnt ) {
+  ulong txn_remaining = txn_cnt;
+  while( txn_remaining ) {
     ulong ready = 0UL;
     while( eq_cnt( eq ) && eq->timeout<fd_tickcount() + advanced_ticks ) {
       fd_rdisp_complete_txn( disp, eq->txn_idx );
@@ -171,7 +172,7 @@ test_mainnet( char const * filename,
         }
       }
       eq_remove_min( eq );
-      txn_cnt--;
+      txn_remaining--;
     }
     if( FD_LIKELY( free && 0UL!=(ready=fd_rdisp_get_next_ready( disp, tag( 0UL ) ) ) ) ) {
       event_t new_e[1] = {{
@@ -195,10 +196,12 @@ test_mainnet( char const * filename,
 
 # if FD_HAS_DOUBLE
   double ticks_per_ns = fd_tempo_tick_per_ns( NULL );
+  FD_LOG_NOTICE(( "inserting %lu transactions took %f ms", txn_cnt, (double)insert_duration/ticks_per_ns * 1e-6 ));
   FD_LOG_NOTICE(( "scheduling took %f ms of work at the replay tile, and an estimated %f ms total time with %lu exec tiles and %f ns/CU",
         (double)sched_duration/ticks_per_ns * 1e-6, (double)(sched_duration+advanced_ticks)/ticks_per_ns * 1e-6, exec_cnt, (double)ticks_per_cu/ticks_per_ns ));
 # else
-  FD_LOG_NOTICE(( "scheduling took %lu ticks of work at the replay tile, and an estimated %lu ticks total time with %lu exec tiles and %lu ticks/CU",
+  FD_LOG_NOTICE(( "inserting %lu transactions took %li ms", txn_cnt, insert_duration ));
+  FD_LOG_NOTICE(( "scheduling took %li ticks of work at the replay tile, and an estimated %li ticks total time with %lu exec tiles and %lu ticks/CU",
         sched_duration, sched_duration+advanced_ticks, exec_cnt, ticks_per_cu ));
 # endif
 
@@ -208,6 +211,7 @@ test_mainnet( char const * filename,
 #endif
 }
 
+
 int
 main( int     argc,
       char ** argv ) {
@@ -216,7 +220,7 @@ main( int     argc,
   fd_rng_t _rng[1]; fd_rng_t * rng = fd_rng_join( fd_rng_new( _rng, 0U, 0UL ) );
 
   char const * block_file = fd_env_strip_cmdline_cstr  ( &argc, &argv, "--block-file", NULL, NULL );
-  test_mainnet( block_file, 8UL, 10UL, 0UL, 1 );
+  test_mainnet( block_file, 8UL, 20UL, 0UL, 1 );
 
   ulong depth       = 100UL;
   ulong block_depth = 10UL;
@@ -326,6 +330,11 @@ main( int     argc,
   FD_TEST( t2[0]==fd_rdisp_get_next_ready( disp, tag( 2UL ) ) );   fd_rdisp_complete_txn( disp, t2[0] );
   FD_TEST( t2[1]==fd_rdisp_get_next_ready( disp, tag( 2UL ) ) );   fd_rdisp_complete_txn( disp, t2[1] );
   FD_TEST( t2[2]==fd_rdisp_get_next_ready( disp, tag( 2UL ) ) );   fd_rdisp_complete_txn( disp, t2[2] );
+
+  /* TODO:
+     test that if there is a transaction that is ready to be dispatched
+     based on accounts but was inserted as serializing, it doesn't get
+     returned until all before have been completed. */
 
   fd_rdisp_delete( fd_rdisp_leave( disp ) );
 
