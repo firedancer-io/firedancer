@@ -24,7 +24,7 @@
 #define FD_METRICS_GAUGE_SNAPIN_ACCOUNTS_INSERTED_OFF  (19UL)
 #define FD_METRICS_GAUGE_SNAPIN_ACCOUNTS_INSERTED_NAME "snapin_accounts_inserted"
 #define FD_METRICS_GAUGE_SNAPIN_ACCOUNTS_INSERTED_TYPE (FD_METRICS_TYPE_GAUGE)
-#define FD_METRICS_GAUGE_SNAPIN_ACCOUNTS_INSERTED_DESC "Number of accounts inserted during snpashot loading. Might decrease if snapshot load is aborted and restarted"
+#define FD_METRICS_GAUGE_SNAPIN_ACCOUNTS_INSERTED_DESC "Number of accounts inserted during snapshot loading. Might decrease if snapshot load is aborted and restarted"
 #define FD_METRICS_GAUGE_SNAPIN_ACCOUNTS_INSERTED_CVT  (FD_METRICS_CONVERTER_NONE)
 
 #define FD_METRICS_SNAPIN_TOTAL (4UL)
