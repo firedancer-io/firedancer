@@ -546,16 +546,11 @@ after_credit( fd_gossip_tile_ctx_t * ctx,
     }
 
     if( send_peers_cnt>0 && ctx->send_contact_out_mcache ) {
-      while( send_peers_cnt ) {
-        ulong send_batch_cnt   = fd_ulong_min( send_peers_cnt, 1500UL );
-        /* */ send_peers_cnt  -= send_batch_cnt;
-        ulong send_contact_sz  = (send_batch_cnt * sizeof(fd_shred_dest_wire_t));
-        ulong send_contact_sig = 4UL;
-
-        fd_stem_publish( ctx->stem, ctx->send_contact_out_idx, send_contact_sig, ctx->send_contact_out_chunk,
-          send_contact_sz, 0UL, 0, tspub );
-        ctx->send_contact_out_chunk = fd_dcache_compact_next( ctx->send_contact_out_chunk, send_contact_sz, ctx->send_contact_out_chunk0, ctx->send_contact_out_wmark );
-      }
+      ulong send_contact_sz  = (send_peers_cnt * sizeof(fd_shred_dest_wire_t));
+      ulong send_contact_sig = 4UL;
+      fd_stem_publish( ctx->stem, ctx->send_contact_out_idx, send_contact_sig, ctx->send_contact_out_chunk,
+        send_peers_cnt, 0UL, 0, tspub );
+      ctx->send_contact_out_chunk = fd_dcache_compact_next( ctx->send_contact_out_chunk, send_contact_sz, ctx->send_contact_out_chunk0, ctx->send_contact_out_wmark );
     }
   }
 

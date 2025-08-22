@@ -396,11 +396,8 @@ during_frag( fd_send_tile_ctx_t * ctx,
     if( sz>sizeof(fd_shred_dest_wire_t)*MAX_STAKED_LEADERS ) {
       FD_LOG_ERR(( "sz %lu >= max expected gossip update size %lu", sz, sizeof(fd_shred_dest_wire_t) * MAX_STAKED_LEADERS ));
     }
-    if( FD_UNLIKELY( sz%sizeof(fd_shred_dest_wire_t)!=0UL ) ) {
-      FD_LOG_ERR(( "sz %lu is not a multiple of sizeof(fd_shred_dest_wire_t) %lu", sz, sizeof(fd_shred_dest_wire_t) ));
-    }
-    ctx->contact_cnt = sz / sizeof(fd_shred_dest_wire_t);
-    fd_memcpy( ctx->contact_buf, dcache_entry, sz );
+    ctx->contact_cnt = sz;
+    fd_memcpy( ctx->contact_buf, dcache_entry, sz*sizeof(fd_shred_dest_wire_t) );
   }
 
   if( FD_UNLIKELY( kind==IN_KIND_TOWER ) ) {
