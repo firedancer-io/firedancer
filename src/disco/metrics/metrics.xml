@@ -928,7 +928,7 @@ metric introduced.
     <gauge name="State" summary="State of the tile. 0 = waiting for decompressed snapshot bytestream, 1 = processing full snapshot, 2 = processing incremental snapshot, 3 = done." />
     <gauge name="FullBytesRead" summary="Number of bytes read so far from the full snapshot. Might decrease if snapshot load is aborted and restarted" />
     <gauge name="IncrementalBytesRead" summary="Number of bytes read so far from the incremental snapshot. Might decrease if snapshot load is aborted and restarted" />
-    <gauge name="AccountsInserted" summary="Number of accounts inserted during snpashot loading. Might decrease if snapshot load is aborted and restarted" />
+    <gauge name="AccountsInserted" summary="Number of accounts inserted during snapshot loading. Might decrease if snapshot load is aborted and restarted" />
 </tile>
 
 <tile name="metric">
