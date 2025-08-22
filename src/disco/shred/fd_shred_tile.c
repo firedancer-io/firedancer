@@ -865,6 +865,16 @@ after_frag( fd_shred_ctx_t *    ctx,
       }
     }
 
+    if( FD_UNLIKELY( res.thrashed_slot > 0 && res.thrashed_fec_set_idx < FD_SHRED_BLK_MAX ) ) {
+      /* We've thrashed a FEC set in the fec_resolver. We need to let
+         repair know to clear out it's cached info for that fec set and
+         re-repair those shreds. */
+      ulong sig_ = fd_disco_shred_repair_shred_sig( 0, res.thrashed_slot, (uint)res.thrashed_fec_set_idx, 0, (uint)res.max_shred_idx );
+      fd_stem_publish( stem, ctx->repair_out_idx, sig_, ctx->repair_out_chunk, 0, 0, ctx->tsorig, ctx->tsorig );
+      ctx->repair_out_chunk = fd_dcache_compact_next( ctx->repair_out_chunk, 0, ctx->repair_out_chunk0, ctx->repair_out_wmark );
+    }
+
+
     if( (rv==FD_FEC_RESOLVER_SHRED_OKAY) | (rv==FD_FEC_RESOLVER_SHRED_COMPLETES) ) {
       if( FD_LIKELY( fd_disco_netmux_sig_proto( sig ) != DST_PROTO_REPAIR ) ) {
         /* Relay this shred */

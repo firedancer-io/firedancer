@@ -197,17 +197,18 @@ struct fd_fec_resolver_res {
    int   retval;
    ulong thrashed_slot;
    ulong thrashed_fec_set_idx;
+   ulong max_shred_idx;
 };
 typedef struct fd_fec_resolver_res fd_fec_resolver_res_t;
 
 fd_fec_resolver_res_t
 fd_fec_resolver_add_shred( fd_fec_resolver_t    * resolver,
-                               fd_shred_t const     * shred,
-                               ulong                  shred_sz,
-                               uchar const          * leader_pubkey,
-                               fd_fec_set_t const * * out_fec_set,
-                               fd_shred_t const   * * out_shred,
-                               fd_bmtree_node_t     * out_merkle_root );
+                           fd_shred_t const     * shred,
+                           ulong                  shred_sz,
+                           uchar const          * leader_pubkey,
+                           fd_fec_set_t const * * out_fec_set,
+                           fd_shred_t const   * * out_shred,
+                           fd_bmtree_node_t     * out_merkle_root );
 
 
 /* fd_fec_resolver_done_contains returns 1 if the FEC with signature
