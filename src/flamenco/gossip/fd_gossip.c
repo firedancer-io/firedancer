@@ -500,8 +500,8 @@ rx_pull_response( fd_gossip_t *                          gossip,
 
     /* TODO: Is this jittered in Agave? */
     long accept_after_nanos;
-    uchar is_me = !memcmp( origin_pubkey, gossip->identity_pubkey, 32UL );
-    if( FD_UNLIKELY( is_me ) ) {
+    int is_me = !memcmp( origin_pubkey, gossip->identity_pubkey, 32UL );
+    if( FD_UNLIKELY( !!is_me ) ) {
       accept_after_nanos = 0L;
     } else if( !origin_stake && fd_crds_has_staked_node( gossip->crds ) ) {
       accept_after_nanos = now-15L*1000L*1000L*1000L;
@@ -563,7 +563,7 @@ process_push_crds( fd_gossip_t *                       gossip,
   gossip->metrics->crds_rx_count[ FD_METRICS_ENUM_GOSSIP_CRDS_OUTCOME_V_UPSERTED_PUSH_IDX ]++;
 
   uchar const * origin_pubkey = payload+value->pubkey_off;
-  uchar is_me                 = !memcmp( origin_pubkey, gossip->identity_pubkey, 32UL );
+  int   is_me                 = !memcmp( origin_pubkey, gossip->identity_pubkey, 32UL );
   ulong origin_stake          = get_stake( gossip, origin_pubkey );
 
 

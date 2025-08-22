@@ -86,6 +86,9 @@ struct fd_crds_entry_private {
   uchar   value_bytes[ FD_GOSSIP_CRDS_MAX_SZ ];
   ushort  value_sz;
 
+  /* Gossip does not publish updates of its own entries. */
+  int     is_me;
+
   /* The value hash is the sha256 of the value_bytes.  It is used in
      bloom filter generation and as a tiebreaker when a
      fd_crds_checks_fast call returns CHECK_UNDETERMINED. */
@@ -544,12 +547,14 @@ remove_contact_info( fd_crds_t *         crds,
                      fd_crds_entry_t *   ci,
                      long                now,
                      fd_stem_context_t * stem ) {
-  fd_gossip_update_message_t * msg = fd_gossip_out_get_chunk( crds->gossip_update );
-  msg->tag = FD_GOSSIP_UPDATE_TAG_CONTACT_INFO_REMOVE;
-  msg->wallclock_nanos = now;
-  fd_memcpy( msg->origin_pubkey, ci->key.pubkey, 32UL );
-  msg->contact_info_remove.idx = crds_contact_info_pool_idx( crds->contact_info.pool, ci->contact_info.ci );
-  fd_gossip_tx_publish_chunk( crds->gossip_update, stem, (ulong)msg->tag, FD_GOSSIP_UPDATE_SZ_CONTACT_INFO_REMOVE, now );
+  if( FD_LIKELY( !ci->is_me ) ) {
+    fd_gossip_update_message_t * msg = fd_gossip_out_get_chunk( crds->gossip_update );
+    msg->tag = FD_GOSSIP_UPDATE_TAG_CONTACT_INFO_REMOVE;
+    msg->wallclock_nanos = now;
+    fd_memcpy( msg->origin_pubkey, ci->key.pubkey, 32UL );
+    msg->contact_info_remove.idx = crds_contact_info_pool_idx( crds->contact_info.pool, ci->contact_info.ci );
+    fd_gossip_tx_publish_chunk( crds->gossip_update, stem, (ulong)msg->tag, FD_GOSSIP_UPDATE_SZ_CONTACT_INFO_REMOVE, now );
+  }
 
   if( FD_LIKELY( ci->stake ) ) crds->metrics->peer_staked_cnt--;
   else                         crds->metrics->peer_unstaked_cnt--;
@@ -746,6 +751,7 @@ crds_entry_init( fd_gossip_view_crds_value_t const * view,
                  fd_sha256_t *                       sha,
                  uchar const *                       payload,
                  ulong                               stake,
+                 int                                 is_me,
                  fd_crds_entry_t *                   out_value ) {
   /* Construct key */
   fd_crds_key_t * key = &out_value->key;
@@ -753,6 +759,7 @@ crds_entry_init( fd_gossip_view_crds_value_t const * view,
 
   out_value->wallclock_nanos = view->wallclock_nanos;
   out_value->stake           = stake;
+  out_value->is_me           = is_me;
 
   fd_crds_generate_hash( sha, payload+view->value_off, view->length, out_value->value_hash );
   out_value->hash.hash = fd_ulong_load_8( out_value->value_hash );
@@ -986,13 +993,13 @@ fd_crds_insert( fd_crds_t *                         crds,
                 fd_gossip_view_crds_value_t const * candidate_view,
                 uchar const *                       payload,
                 ulong                               origin_stake,
-                uchar                               is_from_me,
+                int                                 is_from_me,
                 long                                now ,
                 fd_stem_context_t *                 stem ) {
   /* Update table count metrics at the end to avoid early return
      handling */
   fd_crds_entry_t * candidate = fd_crds_acquire( crds, now, stem );
-  crds_entry_init( candidate_view, crds->sha256, payload, origin_stake, candidate );
+  crds_entry_init( candidate_view, crds->sha256, payload, origin_stake, is_from_me, candidate );
 
   crds->metrics->count[ candidate->key.tag ]++;
 

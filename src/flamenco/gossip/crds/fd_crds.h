@@ -177,7 +177,7 @@ fd_crds_insert( fd_crds_t *                         crds,
                 fd_gossip_view_crds_value_t const * candidate_view,
                 uchar const *                       payload,
                 ulong                               origin_stake,
-                uchar                               is_from_me,
+                int                                 is_from_me,
                 long                                now,
                 fd_stem_context_t *                 stem );
 
