@@ -1010,7 +1010,7 @@ after_credit( fd_repair_tile_ctx_t * ctx,
 
   fd_forest_t          * forest   = ctx->forest;
   fd_forest_ele_t      * pool     = fd_forest_pool( forest );
-  fd_forest_orphaned_t * orphaned = fd_forest_orphaned( forest );
+  fd_forest_subtrees_t * subtrees = fd_forest_subtrees( forest );
 
   /* Verify that there is at least one sign tile with available credits.
      If not, we can't send any requests and leave early. */
@@ -1022,10 +1022,10 @@ after_credit( fd_repair_tile_ctx_t * ctx,
 
   /* Always request orphans first */
   int total_req = 0;
-  for( fd_forest_orphaned_iter_t iter = fd_forest_orphaned_iter_init( orphaned, pool );
-        !fd_forest_orphaned_iter_done( iter, orphaned, pool );
-        iter = fd_forest_orphaned_iter_next( iter, orphaned, pool ) ) {
-    fd_forest_ele_t * orphan = fd_forest_orphaned_iter_ele( iter, orphaned, pool );
+  for( fd_forest_subtrees_iter_t iter = fd_forest_subtrees_iter_init( subtrees, pool );
+        !fd_forest_subtrees_iter_done( iter, subtrees, pool );
+        iter = fd_forest_subtrees_iter_next( iter, subtrees, pool ) ) {
+    fd_forest_ele_t * orphan = fd_forest_subtrees_iter_ele( iter, subtrees, pool );
     if( fd_repair_need_orphan( ctx->repair, orphan->slot ) ) {
       fd_repair_send_requests_async( ctx, stem, sign_out, fd_needed_orphan, orphan->slot, UINT_MAX, now);
       total_req += FD_REPAIR_NUM_NEEDED_PEERS;
