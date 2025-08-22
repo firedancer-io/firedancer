@@ -334,7 +334,7 @@ fd_blake3_avx512_compress16( ulong                   batch_cnt,
   /* Upper half of the compression function output.
      Usually thrown away, but kept in the final compression round if
      out_sz==64. */
-  wwu_t hu[8];
+  wwu_t hu[8] = {0};
 
   ulong lthash_rem    = lthash ? 32 : 0; /* Number of LtHash (XOF) blocks remaining */
   int   compress_done = 0;
