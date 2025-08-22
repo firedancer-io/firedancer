@@ -129,7 +129,7 @@
    responsibility to ensure correct replay. */
 
 #define FD_RDISP_MAX_DEPTH       0x7FFFFFUL /* 23 bit numbers, approx 8M */
-#define FD_RDISP_MAX_BLOCK_DEPTH 0x7FFFFFUL /* Also 23 bits, but for a different reason */
+#define FD_RDISP_MAX_BLOCK_DEPTH 0x3FFFFFUL /* 22 bits, but for a different reason */
 #define FD_RDISP_UNSTAGED        ULONG_MAX
 
 struct fd_rdisp;
@@ -207,6 +207,11 @@ fd_rdisp_remove_block( fd_rdisp_t *          disp,
    at the time of the call complete_txn should NOT be called on that
    transaction index when it completes.  The specified block must be
    schedule-ready.
+
+   FIXME: Right now this only works if there are no DISPATCHED
+   transactions.  Until I get back from my honeymoon, if you need this,
+   you'll need to call complete on DISPATCHED transactions before
+   calling this function.
 
    Returns 0 on success, and -1 if block is not known.  After a
    successful return, the block tag block will not be known. */
