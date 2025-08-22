@@ -1,3 +1,4 @@
+#include "../../util/fd_util.h"
 #include "fd_bloom.h"
 
 #include <stdlib.h>
@@ -34,13 +35,13 @@ test_filters( void ) {
 
 void
 test_add_contains( void ) {
-  void * bytes = aligned_alloc( fd_bloom_align(), fd_bloom_footprint( 0.1, 100 ) );
+  void * bytes = aligned_alloc( fd_bloom_align(), fd_bloom_footprint( 0.1, 100*8 ) );
   FD_TEST( bytes );
 
   fd_rng_t _rng[1]; fd_rng_t * rng = fd_rng_join( fd_rng_new( _rng, 0U, 0UL ) );
   FD_TEST( rng );
 
-  fd_bloom_t * bloom = fd_bloom_join( fd_bloom_new( bytes, rng, 0.1, 100 ) );
+  fd_bloom_t * bloom = fd_bloom_join( fd_bloom_new( bytes, rng, 0.1, 100*8 ) );
   FD_TEST( bloom );
 
   fd_bloom_initialize( bloom, 100UL );

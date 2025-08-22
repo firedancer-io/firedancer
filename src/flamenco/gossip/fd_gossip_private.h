@@ -68,12 +68,12 @@ FD_STATIC_ASSERT( FD_GOSSIP_SNAPSHOT_HASHES_MAX_INCREMENTAL==25UL,
                  "FD_GOSSIP_SNAPSHOT_HASHES_MAX_INCREMENTAL must be 25" );
 
 
-#define FD_GOSSIP_UPDATE_SZ_CONTACT_INFO        (offsetof(fd_gossip_update_message_t, contact_info)    + sizeof(fd_contact_info_t) + sizeof(ulong))
-#define FD_GOSSIP_UPDATE_SZ_CONTACT_INFO_REMOVE (offsetof(fd_gossip_update_message_t, contact_info)    + sizeof(ulong))
-#define FD_GOSSIP_UPDATE_SZ_LOWEST_SLOT         (offsetof(fd_gossip_update_message_t, lowest_slot)     + sizeof(ulong))
-#define FD_GOSSIP_UPDATE_SZ_VOTE                (offsetof(fd_gossip_update_message_t, vote)            + sizeof(fd_gossip_vote_t))
-#define FD_GOSSIP_UPDATE_SZ_DUPLICATE_SHRED     (offsetof(fd_gossip_update_message_t, duplicate_shred) + sizeof(fd_gossip_duplicate_shred_t))
-#define FD_GOSSIP_UPDATE_SZ_SNAPSHOT_HASHES     (offsetof(fd_gossip_update_message_t, snapshot_hashes) + sizeof(fd_gossip_snapshot_hashes_t))
+#define FD_GOSSIP_UPDATE_SZ_CONTACT_INFO        (49UL + sizeof(ulong) + sizeof(fd_contact_info_t))
+#define FD_GOSSIP_UPDATE_SZ_CONTACT_INFO_REMOVE (49UL + sizeof(ulong))
+#define FD_GOSSIP_UPDATE_SZ_LOWEST_SLOT         (49UL + sizeof(ulong))
+#define FD_GOSSIP_UPDATE_SZ_VOTE                (49UL + sizeof(fd_gossip_vote_t))
+#define FD_GOSSIP_UPDATE_SZ_DUPLICATE_SHRED     (49UL + sizeof(fd_gossip_duplicate_shred_t))
+#define FD_GOSSIP_UPDATE_SZ_SNAPSHOT_HASHES     (49UL + sizeof(fd_gossip_snapshot_hashes_t))
 
 struct fd_gossip_view_ipaddr {
   uchar   is_ip6;

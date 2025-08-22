@@ -1,5 +1,10 @@
 #include "crds/fd_crds.h"
 
+#include <stdlib.h>
+
+/* Mock gossip out context for testing */
+static fd_gossip_out_ctx_t test_gossip_out_ctx = {0};
+
 fd_crds_t *
 create_test_crds_with_ci( fd_rng_t * rng, ulong num_peers ) {
   ulong ele_max = 1024UL;
@@ -8,7 +13,7 @@ create_test_crds_with_ci( fd_rng_t * rng, ulong num_peers ) {
   void * crds_mem = aligned_alloc( fd_crds_align(), fd_crds_footprint( ele_max, purged_max ) );
   FD_TEST( crds_mem );
 
-  fd_crds_t * crds = fd_crds_join( fd_crds_new( crds_mem, rng, ele_max, purged_max, NULL, NULL ) );
+  fd_crds_t * crds = fd_crds_join( fd_crds_new( crds_mem, rng, ele_max, purged_max, &test_gossip_out_ctx ) );
   FD_TEST( crds );
 
   /* Insert test contact info entries */

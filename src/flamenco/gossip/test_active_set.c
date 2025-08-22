@@ -74,4 +74,6 @@ main( int     argc,
 
   test_get_stake_bucket();
   test_push_active_set();
+
+  FD_LOG_NOTICE(( "pass" ));
 }

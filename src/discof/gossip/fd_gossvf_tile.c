@@ -303,9 +303,11 @@ during_frag( fd_gossvf_tile_ctx_t * ctx,
       fd_memcpy( ctx->payload, payload, ctx->payload_sz );
       break;
     }
-    case IN_KIND_REPLAY:
-      fd_memcpy( ctx->stake.msg_buf, fd_chunk_to_laddr_const( ctx->in[ in_idx ].mem, chunk ), sz );
+    case IN_KIND_REPLAY: {
+      fd_stake_weight_msg_t const * msg = (fd_stake_weight_msg_t const *)fd_chunk_to_laddr( ctx->in[ in_idx ].mem, chunk );
+      fd_memcpy( ctx->stake.msg_buf, msg, FD_STAKE_CI_STAKE_MSG_HEADER_SZ+(msg->staked_cnt*FD_STAKE_CI_STAKE_MSG_RECORD_SZ) );
       break;
+    }
     case IN_KIND_PINGS: {
       fd_memcpy( ctx->_ping_update, fd_chunk_to_laddr( ctx->in[ in_idx ].mem, chunk ), sz );
       break;
@@ -319,8 +321,8 @@ during_frag( fd_gossvf_tile_ctx_t * ctx,
 }
 
 static inline void
-handle_stakes( fd_gossvf_tile_ctx_t * ctx,
-                   fd_stake_weight_msg_t const * msg ) {
+handle_stakes( fd_gossvf_tile_ctx_t *        ctx,
+               fd_stake_weight_msg_t const * msg ) {
   fd_stake_weight_t stake_weights[ MAX_STAKED_LEADERS ];
   ulong new_stakes_cnt = compute_id_weights_from_vote_weights( stake_weights, msg->weights, msg->staked_cnt );
 
@@ -945,7 +947,7 @@ after_frag( fd_gossvf_tile_ctx_t * ctx,
     case IN_KIND_SHRED_VERSION: break;
     case IN_KIND_PINGS:  handle_ping_update( ctx, ctx->_ping_update ); break;
     case IN_KIND_GOSSIP: handle_peer_update( ctx, ctx->_gossip_update ); break;
-    case IN_KIND_REPLAY: /* TODO ... implement stakes */ break;
+    case IN_KIND_REPLAY: handle_stakes( ctx, (fd_stake_weight_msg_t const *) ctx->stake.msg_buf ); break;
     case IN_KIND_NET: {
       int result = handle_net( ctx, tsorig, stem );
       ctx->metrics.message_rx[ result ]++;

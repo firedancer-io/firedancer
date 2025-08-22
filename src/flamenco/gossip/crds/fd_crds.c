@@ -544,6 +544,7 @@ remove_contact_info( fd_crds_t *         crds,
                      fd_crds_entry_t *   ci,
                      long                now,
                      fd_stem_context_t * stem ) {
+  if( FD_UNLIKELY( !stem ) ) return;
   fd_gossip_update_message_t * msg = fd_gossip_out_get_chunk( crds->gossip_update );
   msg->tag = FD_GOSSIP_UPDATE_TAG_CONTACT_INFO_REMOVE;
   msg->wallclock_nanos = now;
@@ -908,7 +909,7 @@ publish_update_msg( fd_crds_t *                         crds,
                     uchar const *                       payload,
                     long                                now,
                     fd_stem_context_t *                 stem ) {
-  if( FD_UNLIKELY( !crds->gossip_update ) ) return;
+  if( FD_UNLIKELY( !stem ) ) return;
   if( FD_LIKELY( entry->key.tag!=FD_GOSSIP_VALUE_CONTACT_INFO    &&
                  entry->key.tag!=FD_GOSSIP_VALUE_LOWEST_SLOT     &&
                  entry->key.tag!=FD_GOSSIP_VALUE_VOTE            &&
@@ -1092,7 +1093,7 @@ fd_crds_insert( fd_crds_t *                         crds,
     crds->metrics->peer_visible_stake += candidate->stake;
   }
 
-  if( FD_LIKELY( !is_from_me ) ) publish_update_msg( crds, candidate, candidate_view, payload, now, stem );
+  publish_update_msg( crds, candidate, candidate_view, payload, now, stem );
   return candidate;
 }
 
