@@ -59,7 +59,7 @@ FD_PROTOTYPES_END
 union fd_ip4_port {
   struct {
     uint   addr;  /* net order */
-    ushort port;  /* net order */
+    ushort port;  /* host order */
   };
   ulong l;
 };

@@ -1,4 +1,5 @@
 #include "fd_contact_info.h"
+#include "../../util/net/fd_net_headers.h"
 #include <string.h>
 
 static void
@@ -252,7 +253,7 @@ fd_contact_info_insert_socket( fd_contact_info_t *            ci_int,
     fd_contact_info_remove_socket( ci_int, socket_tag );
   }
 
-  ushort new_port = fd_ushort_bswap( peer->port );
+  ushort new_port = peer->port; /* host order */
   fd_gossip_socket_entry_t new_socket_entry;
   new_socket_entry.key = socket_tag;
 

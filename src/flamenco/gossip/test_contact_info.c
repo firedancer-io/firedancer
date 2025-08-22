@@ -1,4 +1,5 @@
 #include "../../util/fd_util.h"
+#include "../../util/net/fd_net_headers.h"
 #include "fd_contact_info.h"
 
 void
@@ -22,7 +23,7 @@ test_insertion(void){
   fd_contact_info_t contact_info;
   fd_contact_info_init( &contact_info );
 
-  fd_gossip_peer_addr_t peer = { .addr = 0x01020304, .port = fd_ushort_bswap( 1234 ) };
+  fd_gossip_peer_addr_t peer = { .addr = 0x01020304, .port = 1234 };
 
   FD_TEST( fd_contact_info_insert_socket( &contact_info, &peer, FD_GOSSIP_SOCKET_TAG_GOSSIP )==0 );
   FD_TEST( contact_info.ci_crd.addrs_len == 1U );
@@ -35,7 +36,7 @@ test_insertion(void){
   FD_TEST( contact_info.ports[0] == 1234 );
 
   // Insert again, check that the socket is overwritten
-  peer.port = fd_ushort_bswap( 5678 );
+  peer.port = 5678;
   FD_TEST( fd_contact_info_insert_socket( &contact_info, &peer, FD_GOSSIP_SOCKET_TAG_GOSSIP )==0 );
   FD_TEST( contact_info.ci_crd.addrs_len == 1U );
   FD_TEST( contact_info.ci_crd.sockets_len == 1U );
@@ -48,7 +49,7 @@ test_insertion(void){
 
   // Insert a new socket + new addr
   peer.addr = 0x05060708;
-  peer.port = fd_ushort_bswap( 1234 );
+  peer.port = 1234;
   FD_TEST( fd_contact_info_insert_socket( &contact_info, &peer, FD_GOSSIP_SOCKET_TAG_TPU )==0 );
   FD_TEST( contact_info.ci_crd.addrs_len == 2U );
   FD_TEST( contact_info.ci_crd.sockets_len == 2U );
@@ -70,7 +71,7 @@ test_insertion(void){
 
   // Insert a new socket + existing addr
   peer.addr = 0x01020304;
-  peer.port = fd_ushort_bswap( 5679 );
+  peer.port = 5679;
   FD_TEST( fd_contact_info_insert_socket( &contact_info, &peer, FD_GOSSIP_SOCKET_TAG_TVU )==0 );
   FD_TEST( contact_info.ci_crd.addrs_len == 2U );
   FD_TEST( contact_info.ci_crd.sockets_len == 3U );
@@ -85,7 +86,7 @@ test_insertion(void){
 
   // Overwrite an existing socket, check for ip addr drop
   peer.addr = 0x01020304;
-  peer.port = fd_ushort_bswap( 1234 );
+  peer.port = 1234;
 
   FD_TEST( fd_contact_info_insert_socket( &contact_info, &peer, FD_GOSSIP_SOCKET_TAG_TPU )==0 );
   FD_TEST( contact_info.ci_crd.addrs_len == 1U );
