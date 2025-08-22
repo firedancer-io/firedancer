@@ -15,7 +15,7 @@ FD_PROTOTYPES_BEGIN
 
 /* fd_chacha20_block is the ChaCha20 block function.
 
-   - block points to the output block (64 byte size, 32 byte align)
+   - block points to the output block (64 byte size, 64 byte align)
    - key points to the encryption key (32 byte size, 32 byte align)
    - idx_nonce points to the block index and block nonce
      (first byte is 32-bit index, rest is 96-bit nonce)
