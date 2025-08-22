@@ -245,6 +245,7 @@ quic_send( fd_send_tile_ctx_t  *  ctx,
     FD_LOG_CRIT(( "Tried looking up connection for an unstaked pubkey"));
   }
   if( !entry->got_ci_msg ) {
+    FD_LOG_DEBUG(("send_tile: No contact info for %s", FD_BASE58_ENC_32_ALLOCA( pubkey->key ) ));
     ctx->metrics.quic_send_result_cnt[FD_METRICS_ENUM_TXN_QUIC_SEND_RESULT_V_NO_CI_IDX]++;
     return;
   } else if( !entry->conn ) {
