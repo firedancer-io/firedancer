@@ -559,7 +559,6 @@ fd_sha256_hash_32_repeated( void const * _data,
   }
   vu_stu( hash,      vu_bswap( w0003 ) );
   vu_stu( hash+16UL, vu_bswap( w0407 ) );
-#undef FOUND_ROUNDS
 #undef NEXT_W
 
 #else
