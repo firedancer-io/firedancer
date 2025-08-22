@@ -323,7 +323,7 @@ fd_refresh_stake_delegations( fd_exec_slot_ctx_t * slot_ctx ) {
                                                       slot_ctx->funk,
                                                       slot_ctx->funk_txn );
 
-    if( FD_UNLIKELY( err!=FD_ACC_MGR_SUCCESS ) ) {
+    if( FD_UNLIKELY( err!=FD_ACC_MGR_SUCCESS || fd_txn_account_get_lamports( acct_rec )==0UL ) ) {
       continue;
     }
 
