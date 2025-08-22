@@ -142,7 +142,6 @@ account_cb( void *                          _ctx,
 
   fd_txn_account_set_data_len( rec, hdr->meta.data_len );
   fd_txn_account_set_slot( rec, ctx->ssparse->accv_slot );
-  fd_txn_account_set_hash( rec, &hdr->hash );
   fd_txn_account_set_meta_info( rec, &hdr->info );
 
   ctx->acc_data = fd_txn_account_get_data_mut( rec );

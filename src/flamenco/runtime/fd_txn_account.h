@@ -171,9 +171,6 @@ fd_txn_account_get_lamports( fd_txn_account_t const * acct );
 ulong
 fd_txn_account_get_rent_epoch( fd_txn_account_t const * acct );
 
-fd_hash_t const *
-fd_txn_account_get_hash( fd_txn_account_t const * acct );
-
 fd_solana_account_meta_t const *
 fd_txn_account_get_info( fd_txn_account_t const * acct );
 
@@ -209,10 +206,6 @@ fd_txn_account_set_data_len( fd_txn_account_t * acct, ulong data_len );
 void
 fd_txn_account_set_slot( fd_txn_account_t * acct,
                          ulong              slot );
-
-void
-fd_txn_account_set_hash( fd_txn_account_t * acct,
-                         fd_hash_t const *  hash );
 
 void
 fd_txn_account_clear_owner( fd_txn_account_t * acct );
