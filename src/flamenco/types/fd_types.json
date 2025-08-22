@@ -209,7 +209,6 @@
         { "name": "magic", "type": "ushort" },
         { "name": "hlen",  "type": "ushort" },
         { "name": "dlen",  "type": "ulong" },
-        { "name": "hash",  "type": "uchar[32]" },
         { "name": "slot",  "type": "ulong" },
         { "name": "info",  "type": "solana_account_meta" }
       ]

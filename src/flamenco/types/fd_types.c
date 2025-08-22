@@ -1047,8 +1047,6 @@ int fd_account_meta_encode( fd_account_meta_t const * self, fd_bincode_encode_ct
   if( FD_UNLIKELY( err ) ) return err;
   err = fd_bincode_uint64_encode( self->dlen, ctx );
   if( FD_UNLIKELY( err ) ) return err;
-  err = fd_bincode_bytes_encode( self->hash, sizeof(self->hash), ctx );
-  if( FD_UNLIKELY( err ) ) return err;
   err = fd_bincode_uint64_encode( self->slot, ctx );
   if( FD_UNLIKELY( err ) ) return err;
   err = fd_solana_account_meta_encode( &self->info, ctx );
@@ -1064,8 +1062,6 @@ static int fd_account_meta_decode_footprint_inner( fd_bincode_decode_ctx_t * ctx
   if( FD_UNLIKELY( err!=FD_BINCODE_SUCCESS ) ) return err;
   err = fd_bincode_uint64_decode_footprint( ctx );
   if( FD_UNLIKELY( err!=FD_BINCODE_SUCCESS ) ) return err;
-  err = fd_bincode_bytes_decode_footprint( 32, ctx );
-  if( FD_UNLIKELY( err ) ) return err;
   err = fd_bincode_uint64_decode_footprint( ctx );
   if( FD_UNLIKELY( err!=FD_BINCODE_SUCCESS ) ) return err;
   err = fd_solana_account_meta_decode_footprint_inner( ctx, total_sz );
@@ -1085,7 +1081,6 @@ static void fd_account_meta_decode_inner( void * struct_mem, void * * alloc_mem,
   fd_bincode_uint16_decode_unsafe( &self->magic, ctx );
   fd_bincode_uint16_decode_unsafe( &self->hlen, ctx );
   fd_bincode_uint64_decode_unsafe( &self->dlen, ctx );
-  fd_bincode_bytes_decode_unsafe( &self->hash[0], sizeof(self->hash), ctx );
   fd_bincode_uint64_decode_unsafe( &self->slot, ctx );
   fd_solana_account_meta_decode_inner( &self->info, alloc_mem, ctx );
 }
@@ -1107,7 +1102,6 @@ void fd_account_meta_walk( void * w, fd_account_meta_t const * self, fd_types_wa
   fun( w, &self->magic, "magic", FD_FLAMENCO_TYPE_USHORT, "ushort", level, 0  );
   fun( w, &self->hlen, "hlen", FD_FLAMENCO_TYPE_USHORT, "ushort", level, 0  );
   fun( w, &self->dlen, "dlen", FD_FLAMENCO_TYPE_ULONG, "ulong", level, 0  );
-  fun( w, self->hash, "hash", FD_FLAMENCO_TYPE_HASH256, "uchar[32]", level, 0  );
   fun( w, &self->slot, "slot", FD_FLAMENCO_TYPE_ULONG, "ulong", level, 0  );
   fd_solana_account_meta_walk( w, &self->info, fun, "info", level, 0 );
   fun( w, self, name, FD_FLAMENCO_TYPE_MAP_END, "fd_account_meta", level--, 0 );

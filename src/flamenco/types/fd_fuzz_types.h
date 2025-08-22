@@ -252,7 +252,6 @@ void *fd_account_meta_generate( void *mem, void **alloc_mem, fd_rng_t * rng ) {
   self->magic = fd_rng_ushort( rng );
   self->hlen = fd_rng_ushort( rng );
   self->dlen = fd_rng_ulong( rng );
-  LLVMFuzzerMutate( &self->hash[0], sizeof(self->hash), sizeof(self->hash) );
   self->slot = fd_rng_ulong( rng );
   fd_solana_account_meta_generate( &self->info, alloc_mem, rng );
   return mem;
