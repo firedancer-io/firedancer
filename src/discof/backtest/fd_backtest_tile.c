@@ -329,8 +329,20 @@ after_frag( ctx_t *             ctx,
   switch( in_kind ) {
   case IN_KIND_REPLAY: {
     ulong slot = ctx->replay_slot_info.slot;
-    if ( slot==0 ) ctx->start_from_genesis = 1;
-    rocksdb_check_bank_hash( ctx, slot, &ctx->replay_slot_info.bank_hash );
+    if ( slot==0 ) {
+      ctx->start_from_genesis = 1;
+      ctx->root = 0UL; /* Set root for genesis case */
+      ctx->start_slot = 0UL; /* Set start_slot for genesis case */
+      ctx->replay_time = -fd_log_wallclock(); /* Start timing for genesis case */
+
+      /* Initialize RocksDB iterator for genesis case, similar to snapshot case */
+      fd_rocksdb_root_iter_new( &ctx->rocksdb_root_iter );
+      if( FD_UNLIKELY( fd_rocksdb_root_iter_seek( &ctx->rocksdb_root_iter, &ctx->rocksdb, ctx->root, &ctx->rocksdb_slot_meta, ctx->valloc ) ) ) {
+        FD_LOG_CRIT(( "Failed at seeking rocksdb root iter for slot=%lu", ctx->root ));
+      }
+      ctx->rocksdb_iter = rocksdb_create_iterator_cf(ctx->rocksdb.db, ctx->rocksdb.ro, ctx->rocksdb.cf_handles[FD_ROCKSDB_CFIDX_DATA_SHRED]);
+    }
+    rocksdb_check_bank_hash( ctx, slot, &ctx->replay_out.bank_hash );
     if( FD_UNLIKELY( slot>=ctx->end_slot ) ) {
       ctx->replay_time    += fd_log_wallclock();
       double replay_time_s = (double)ctx->replay_time * 1e-9;
