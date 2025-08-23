@@ -31,6 +31,8 @@ test_filters( void ) {
   fd_bloom_initialize( bloom, 100UL );
   FD_TEST( bloom->keys_len==1UL );
   FD_TEST( bloom->bits_len==100UL );
+
+  free( bytes );
 }
 
 void
@@ -53,6 +55,8 @@ test_add_contains( void ) {
   FD_TEST( !fd_bloom_contains( bloom, (uchar *)"world", 5UL ) );
   fd_bloom_insert( bloom, (uchar *)"world", 5UL );
   FD_TEST( fd_bloom_contains( bloom, (uchar *)"world", 5UL ) );
+
+  free( bytes );
 }
 
 int

@@ -52,7 +52,7 @@ fd_crds_contact_info_init( fd_gossip_view_crds_value_t const * view,
       /* IPv6 not supported */
       continue;
     }
-    cur_port += socket_view->offset;
+    cur_port = (ushort)(cur_port + socket_view->offset);
 
     /* We only want to save the last instance in the event of duplicate
      socket tag entries. This tracks Agave's behavior when populating
