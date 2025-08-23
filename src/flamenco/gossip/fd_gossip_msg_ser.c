@@ -108,8 +108,7 @@ contact_info_convert_sockets( fd_contact_info_t const *             contact_info
                               uchar *                               out_socket_entries_cnt,
                               uint                                  out_addrs[ static FD_CONTACT_INFO_SOCKET_MAX ],
                               uchar *                               out_addrs_cnt ) {
-  if( FD_UNLIKELY( !contact_info || !out_sockets_entries || !out_socket_entries_cnt ||
-                   !out_addrs || !out_addrs_cnt ) ) {
+  if( FD_UNLIKELY( !contact_info || !out_socket_entries_cnt || !out_addrs_cnt ) ) {
     FD_LOG_WARNING(( "Invalid arguments to fd_contact_info_convert_sockets" ));
     return -1;
   }
