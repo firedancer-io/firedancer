@@ -609,7 +609,7 @@ is_ping_active( fd_gossvf_tile_ctx_t *              ctx,
   for( ulong i=0UL; i<contact_info->sockets_len; i++ ) {
     fd_gossip_view_socket_t const * socket = &contact_info->sockets[ i ];
 
-    port += socket->offset;
+    port = (ushort)(port+socket->offset);
     if( FD_UNLIKELY( socket->key!=FD_CONTACT_INFO_SOCKET_GOSSIP ) ) continue;
 
     if( FD_LIKELY( !contact_info->addrs[ socket->index ].is_ip6 ) ) {
@@ -640,7 +640,7 @@ ping_if_unponged_contact_info( fd_gossvf_tile_ctx_t *              ctx,
   for( ulong j=0UL; j<value->contact_info->sockets_len; j++ ) {
     fd_gossip_view_socket_t const * socket = &value->contact_info->sockets[ j ];
 
-    port += socket->offset;
+    port = (ushort)(port+socket->offset);
     if( FD_UNLIKELY( socket->key!=FD_CONTACT_INFO_SOCKET_GOSSIP ) ) continue;
 
     /* TODO: Support IPv6 ... */
