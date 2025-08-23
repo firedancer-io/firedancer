@@ -1,6 +1,5 @@
 #include "fd_lthash.h"
-#include "../fd_ballet.h"
-#include "../hex/fd_hex.h"
+#include "test_lthash_adder.c"
 
 static ushort const lthash_hello[1024] = {
   0x8fea, 0x3d16, 0x86b3, 0x9282, 0x445e, 0xc591, 0x8de5, 0xb34b, 0x6e50, 0xc1f8, 0xb74e, 0x868a, 0x08e9, 0x62c5, 0x674a, 0x0f20,
@@ -138,7 +137,7 @@ static ushort const lthash_world[1024] = {
 
 static void
 bench_lthash_seq( void ) {
-  FD_LOG_NOTICE(( "Benchmarking lthash sequential API" ));
+  FD_LOG_NOTICE(( "Benchmarking lthash sequential API (128 byte input)" ));
   uchar out[ 2048 ] __attribute__((aligned(64)));
 
   fd_blake3_t _sha[1];
@@ -149,13 +148,13 @@ bench_lthash_seq( void ) {
   ulong iter_target = 1<<21UL;
   ulong iter = iter_target>>7;
   long dt = fd_log_wallclock();
-  for( ulong rem=iter; rem; rem-- ) fd_blake3_fini_2048( fd_blake3_append( fd_blake3_init( sha ), lthash_hello, 32UL ), out );
+  for( ulong rem=iter; rem; rem-- ) fd_blake3_fini_2048( fd_blake3_append( fd_blake3_init( sha ), lthash_hello, 128UL ), out );
   dt = fd_log_wallclock() - dt;
 
   /* for real */
   iter = iter_target;
   dt = fd_log_wallclock();
-  for( ulong rem=iter; rem; rem-- ) fd_blake3_fini_2048( fd_blake3_append( fd_blake3_init( sha ), lthash_hello, 32UL ), out );
+  for( ulong rem=iter; rem; rem-- ) fd_blake3_fini_2048( fd_blake3_append( fd_blake3_init( sha ), lthash_hello, 128UL ), out );
   dt = fd_log_wallclock() - dt;
 
   FD_LOG_NOTICE(( "~%.2e hash/s; %f ns per hash",
@@ -236,8 +235,14 @@ main( int     argc,
   if( FD_UNLIKELY( memcmp( value, expected, 2048 ) ) ) {
     FD_LOG_ERR(( "FAIL fd_lthash_zero()" ));
   }
+  FD_LOG_NOTICE(( "OK: streaming lthash" ));
+
+  test_lthash_adder();
+  FD_LOG_NOTICE(( "OK: lthash_adder" ));
 
   bench_lthash_seq();
+
+  bench_lthash_adder();
 
   fd_rng_delete( fd_rng_leave( rng ) );
   FD_LOG_NOTICE(( "pass" ));
