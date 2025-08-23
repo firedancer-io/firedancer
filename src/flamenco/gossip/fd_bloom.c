@@ -115,7 +115,12 @@ fd_bloom_initialize( fd_bloom_t * bloom,
   double num_bits = ceil( ((double)num_items * log( bloom->false_positive_rate )) / log( 1.0 / pow( 2.0, log( 2.0 ) ) ) );
   num_bits = fmax( 1.0, fmin( (double)bloom->max_bits, num_bits ) );
 
-  ulong num_keys = fd_ulong_if( num_items==0UL, 0UL, fd_ulong_max( 1UL, (ulong)( round( ((double)num_bits/(double)num_items) * FD_BLOOM_LN_2 ) ) ) );
+  ulong num_keys;
+  if( FD_UNLIKELY( num_items == 0UL ) ) {
+    num_keys = 0UL;
+  } else {
+    num_keys = fd_ulong_max( 1UL, (ulong)( round( ((double)num_bits/(double)num_items) * FD_BLOOM_LN_2 ) ) );
+  }
   for( ulong i=0UL; i<num_keys; i++ ) bloom->keys[ i ] = fd_rng_ulong( bloom->rng );
 
   bloom->keys_len = num_keys;
