@@ -110,7 +110,7 @@ fd_hashes_update_lthash( fd_txn_account_t const  * account,
 */
 
 void
-fd_hashes_hash_bank( fd_slot_lthash_t const * lthash,
+fd_hashes_hash_bank( fd_lthash_value_t const * lthash,
                      fd_hash_t const *        prev_bank_hash,
                      fd_hash_t const *        last_blockhash,
                      ulong                    signature_count,

@@ -108,11 +108,11 @@ fd_ssload_recover( fd_snapshot_manifest_t * manifest,
   else                                             fd_bank_hashes_per_tick_set( slot_ctx->bank, 0UL );
 
   if( FD_LIKELY( manifest->has_accounts_lthash ) ) {
-    fd_slot_lthash_t lthash;
-    fd_memcpy( lthash.lthash, manifest->accounts_lthash, 2048UL );
+    fd_lthash_value_t lthash;
+    fd_memcpy( lthash.bytes, manifest->accounts_lthash, 2048UL );
     fd_bank_lthash_set( slot_ctx->bank, lthash );
   } else {
-    fd_slot_lthash_t lthash = {0};
+    fd_lthash_value_t lthash = {0};
     fd_bank_lthash_set( slot_ctx->bank, lthash );
   }
 

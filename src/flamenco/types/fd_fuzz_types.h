@@ -297,14 +297,6 @@ void *fd_reward_info_generate( void *mem, void **alloc_mem, fd_rng_t * rng ) {
   return mem;
 }
 
-void *fd_slot_lthash_generate( void *mem, void **alloc_mem, fd_rng_t * rng ) {
-  fd_slot_lthash_t *self = (fd_slot_lthash_t *) mem;
-  *alloc_mem = (uchar *) *alloc_mem + sizeof(fd_slot_lthash_t);
-  fd_slot_lthash_new(mem);
-  LLVMFuzzerMutate( &self->lthash[0], sizeof(self->lthash), sizeof(self->lthash) );
-  return mem;
-}
-
 void *fd_rust_duration_generate( void *mem, void **alloc_mem, fd_rng_t * rng ) {
   fd_rust_duration_t *self = (fd_rust_duration_t *) mem;
   *alloc_mem = (uchar *) *alloc_mem + sizeof(fd_rust_duration_t);

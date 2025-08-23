@@ -339,7 +339,7 @@ fd_runtime_fuzz_block_ctx_create( fd_solfuzz_runner_t *                runner,
   fd_funk_txn_end_write( funk );
 
   /* Reset the lthash to zero, because we are in a new Funk transaction now */
-  fd_slot_lthash_t lthash = {0};
+  fd_lthash_value_t lthash = {0};
   fd_bank_lthash_set( slot_ctx->bank, lthash );
 
   // Populate blockhash queue and recent blockhashes sysvar

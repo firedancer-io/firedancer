@@ -3,7 +3,7 @@
 #include "fd_types_custom.h"
 #include "fd_types_reflect_private.h"
 #pragma GCC diagnostic ignored "-Wpedantic"
-ulong fd_types_vt_list_cnt = 215;
+ulong fd_types_vt_list_cnt = 214;
 fd_types_vt_t const fd_types_vt_list[] = {
   { .name="fd_hash", .name_len=7, .align=FD_HASH_ALIGN, .new_=(void *)fd_hash_new, .decode=(void *)fd_hash_decode, .size=(void *)fd_hash_size, .walk=(void *)fd_hash_walk, .decode_footprint=(void *)fd_hash_decode_footprint, .encode=(void *)fd_hash_encode  },
   { .name="fd_pubkey", .name_len=9, .align=FD_PUBKEY_ALIGN, .new_=(void *)fd_pubkey_new, .decode=(void *)fd_pubkey_decode, .size=(void *)fd_pubkey_size, .walk=(void *)fd_pubkey_walk, .decode_footprint=(void *)fd_pubkey_decode_footprint, .encode=(void *)fd_pubkey_encode  },
@@ -31,7 +31,6 @@ fd_types_vt_t const fd_types_vt_list[] = {
   { .name="fd_stake", .name_len=8, .align=FD_STAKE_ALIGN, .new_=(void *)fd_stake_new, .decode=(void *)fd_stake_decode, .size=(void *)fd_stake_size, .walk=(void *)fd_stake_walk, .decode_footprint=(void *)fd_stake_decode_footprint, .encode=(void *)fd_stake_encode  },
   { .name="fd_reward_type", .name_len=14, .align=FD_REWARD_TYPE_ALIGN, .new_=(void *)fd_reward_type_new, .decode=(void *)fd_reward_type_decode, .size=(void *)fd_reward_type_size, .walk=(void *)fd_reward_type_walk, .decode_footprint=(void *)fd_reward_type_decode_footprint, .encode=(void *)fd_reward_type_encode  },
   { .name="fd_reward_info", .name_len=14, .align=FD_REWARD_INFO_ALIGN, .new_=(void *)fd_reward_info_new, .decode=(void *)fd_reward_info_decode, .size=(void *)fd_reward_info_size, .walk=(void *)fd_reward_info_walk, .decode_footprint=(void *)fd_reward_info_decode_footprint, .encode=(void *)fd_reward_info_encode  },
-  { .name="fd_slot_lthash", .name_len=14, .align=FD_SLOT_LTHASH_ALIGN, .new_=(void *)fd_slot_lthash_new, .decode=(void *)fd_slot_lthash_decode, .size=(void *)fd_slot_lthash_size, .walk=(void *)fd_slot_lthash_walk, .decode_footprint=(void *)fd_slot_lthash_decode_footprint, .encode=(void *)fd_slot_lthash_encode  },
   { .name="fd_rust_duration", .name_len=16, .align=FD_RUST_DURATION_ALIGN, .new_=(void *)fd_rust_duration_new, .decode=(void *)fd_rust_duration_decode, .size=(void *)fd_rust_duration_size, .walk=(void *)fd_rust_duration_walk, .decode_footprint=(void *)fd_rust_duration_decode_footprint, .encode=(void *)fd_rust_duration_encode  },
   { .name="fd_poh_config", .name_len=13, .align=FD_POH_CONFIG_ALIGN, .new_=(void *)fd_poh_config_new, .decode=(void *)fd_poh_config_decode, .size=(void *)fd_poh_config_size, .walk=(void *)fd_poh_config_walk, .decode_footprint=(void *)fd_poh_config_decode_footprint, .encode=(void *)fd_poh_config_encode  },
   { .name="fd_string_pubkey_pair", .name_len=21, .align=FD_STRING_PUBKEY_PAIR_ALIGN, .new_=(void *)fd_string_pubkey_pair_new, .decode=(void *)fd_string_pubkey_pair_decode, .size=(void *)fd_string_pubkey_pair_size, .walk=(void *)fd_string_pubkey_pair_walk, .decode_footprint=(void *)fd_string_pubkey_pair_decode_footprint, .encode=(void *)fd_string_pubkey_pair_encode  },
