@@ -1340,35 +1340,6 @@ void fd_reward_info_walk( void * w, fd_reward_info_t const * self, fd_types_walk
   fun( w, &self->commission, "commission", FD_FLAMENCO_TYPE_ULONG, "ulong", level, 0  );
   fun( w, self, name, FD_FLAMENCO_TYPE_MAP_END, "fd_reward_info", level--, 0 );
 }
-int fd_slot_lthash_encode( fd_slot_lthash_t const * self, fd_bincode_encode_ctx_t * ctx ) {
-  int err;
-  err = fd_bincode_bytes_encode( self->lthash, sizeof(self->lthash), ctx );
-  if( FD_UNLIKELY( err ) ) return err;
-  return FD_BINCODE_SUCCESS;
-}
-static inline int fd_slot_lthash_decode_footprint_inner( fd_bincode_decode_ctx_t * ctx, ulong * total_sz ) {
-  if( (ulong)ctx->data + 2048UL > (ulong)ctx->dataend ) { return FD_BINCODE_ERR_OVERFLOW; };
-  ctx->data = (void *)( (ulong)ctx->data + 2048UL );
-  return 0;
-}
-static void fd_slot_lthash_decode_inner( void * struct_mem, void * * alloc_mem, fd_bincode_decode_ctx_t * ctx ) {
-  fd_slot_lthash_t * self = (fd_slot_lthash_t *)struct_mem;
-  fd_bincode_bytes_decode_unsafe( &self->lthash[0], sizeof(self->lthash), ctx );
-}
-void * fd_slot_lthash_decode( void * mem, fd_bincode_decode_ctx_t * ctx ) {
-  fd_slot_lthash_t * self = (fd_slot_lthash_t *)mem;
-  fd_slot_lthash_new( self );
-  void * alloc_region = (uchar *)mem + sizeof(fd_slot_lthash_t);
-  void * * alloc_mem = &alloc_region;
-  fd_slot_lthash_decode_inner( mem, alloc_mem, ctx );
-  return self;
-}
-void fd_slot_lthash_walk( void * w, fd_slot_lthash_t const * self, fd_types_walk_fn_t fun, const char *name, uint level, uint varint ) {
-  (void) varint;
-  fun( w, self, name, FD_FLAMENCO_TYPE_MAP, "fd_slot_lthash", level++, 0 );
-  fun( w, self->lthash, "lthash", FD_FLAMENCO_TYPE_HASH16384, "uchar[2048]", level, 0  );
-  fun( w, self, name, FD_FLAMENCO_TYPE_MAP_END, "fd_slot_lthash", level--, 0 );
-}
 int fd_rust_duration_encode( fd_rust_duration_t const * self, fd_bincode_encode_ctx_t * ctx ) {
   int err;
   err = fd_bincode_uint64_encode( self->seconds, ctx );

@@ -231,14 +231,6 @@ struct fd_reward_info {
 typedef struct fd_reward_info fd_reward_info_t;
 #define FD_REWARD_INFO_ALIGN alignof(fd_reward_info_t)
 
-/* You can cast this to a (fd_lthash_value_t *) and use it directly since the alignment is preserved */
-/* Encoded Size: Fixed (2048 bytes) */
-struct __attribute__((aligned(128UL))) fd_slot_lthash {
-  uchar lthash[2048];
-};
-typedef struct fd_slot_lthash fd_slot_lthash_t;
-#define FD_SLOT_LTHASH_ALIGN (128UL)
-
 /* Encoded Size: Fixed (12 bytes) */
 struct fd_rust_duration {
   ulong seconds;
@@ -2865,18 +2857,6 @@ static inline ulong fd_reward_info_size( fd_reward_info_t const * self ) { (void
 static inline ulong fd_reward_info_align( void ) { return FD_REWARD_INFO_ALIGN; }
 int fd_reward_info_decode_footprint( fd_bincode_decode_ctx_t * ctx, ulong * total_sz );
 void * fd_reward_info_decode( void * mem, fd_bincode_decode_ctx_t * ctx );
-
-static inline void fd_slot_lthash_new( fd_slot_lthash_t * self ) { fd_memset( self, 0, sizeof(fd_slot_lthash_t) ); }
-int fd_slot_lthash_encode( fd_slot_lthash_t const * self, fd_bincode_encode_ctx_t * ctx );
-void fd_slot_lthash_walk( void * w, fd_slot_lthash_t const * self, fd_types_walk_fn_t fun, const char *name, uint level, uint varint );
-static inline ulong fd_slot_lthash_size( fd_slot_lthash_t const * self ) { (void)self; return 2048UL; }
-static inline ulong fd_slot_lthash_align( void ) { return FD_SLOT_LTHASH_ALIGN; }
-static inline int fd_slot_lthash_decode_footprint( fd_bincode_decode_ctx_t * ctx, ulong * total_sz ) {
-  *total_sz += sizeof(fd_slot_lthash_t);
-  if( (ulong)ctx->data + 2048UL > (ulong)ctx->dataend ) { return FD_BINCODE_ERR_OVERFLOW; };
-  return 0;
-}
-void * fd_slot_lthash_decode( void * mem, fd_bincode_decode_ctx_t * ctx );
 
 static inline void fd_rust_duration_new( fd_rust_duration_t * self ) { fd_memset( self, 0, sizeof(fd_rust_duration_t) ); }
 int fd_rust_duration_encode( fd_rust_duration_t const * self, fd_bincode_encode_ctx_t * ctx );

@@ -658,7 +658,7 @@ init_from_snapshot( fd_replay_tile_ctx_t * ctx,
                     fd_stem_context_t *    stem ) {
   fd_features_restore( ctx->slot_ctx, ctx->runtime_spad );
 
-  fd_slot_lthash_t const * lthash = fd_bank_lthash_locking_query( ctx->slot_ctx->bank );
+  fd_lthash_value_t const * lthash = fd_bank_lthash_locking_query( ctx->slot_ctx->bank );
   if( fd_lthash_is_zero( (fd_lthash_value_t *)lthash ) ) {
     FD_LOG_ERR(( "snapshot manifest does not contain lthash!" ));
   }

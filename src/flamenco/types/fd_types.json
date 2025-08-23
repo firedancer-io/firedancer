@@ -257,15 +257,6 @@
       "comment": "https://github.com/anza-xyz/agave/blob/7117ed9653ce19e8b2dea108eff1f3eb6a3378a7/sdk/src/reward_info.rs#L5"
     },
     {
-      "name": "slot_lthash",
-      "type": "struct",
-      "alignment": "128",
-      "fields": [
-        { "name": "lthash",                      "type": "uchar[2048]" }
-      ],
-      "comment": "You can cast this to a (fd_lthash_value_t *) and use it directly since the alignment is preserved"
-    },
-    {
       "name": "rust_duration",
       "type": "struct",
       "normalizer": "fd_rust_duration_normalize",

@@ -537,8 +537,8 @@ test_fd_hashes_hash_bank( void ) {
 
   /* Test case: Bank hash computation */
   {
-    fd_slot_lthash_t lthash;
-    memset( lthash.lthash, 0xAA, FD_LTHASH_LEN_BYTES );
+    fd_lthash_value_t lthash;
+    memset( lthash.bytes, 0xAA, FD_LTHASH_LEN_BYTES );
 
     fd_hash_t prev_bank_hash;
     memset( prev_bank_hash.hash, 0xBB, sizeof(fd_hash_t) );
