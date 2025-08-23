@@ -3,6 +3,7 @@
 #include "../fd_gossip_types.h"
 
 #include "../../../ballet/sha256/fd_sha256.h"
+#include "../../../funk/fd_funk_base.h" /* no link dependency, only using hash */
 
 #include <string.h>
 
@@ -222,22 +223,21 @@ struct fd_crds_entry_private {
 static inline ulong
 lookup_hash( fd_crds_key_t const * key,
              ulong                 seed ) {
-  ulong hash = fd_hash( seed, &key->tag, 1UL );
-  hash = fd_hash( hash, key->pubkey, 32UL );
+  ulong hash_fn = ((ulong)key->tag)<<16;
   switch( key->tag ) {
-    case FD_GOSSIP_VALUE_VOTE:
-      hash = fd_hash( hash, &key->vote_index, 1UL );
-      break;
-    case FD_GOSSIP_VALUE_EPOCH_SLOTS:
-      hash = fd_hash( hash, &key->epoch_slots_index, 1UL );
-      break;
-    case FD_GOSSIP_VALUE_DUPLICATE_SHRED:
-      hash = fd_hash( hash, &key->duplicate_shred_index, 2UL );
-      break;
-    default:
-      break;
+  case FD_GOSSIP_VALUE_VOTE:
+    hash_fn ^= key->vote_index;
+    break;
+  case FD_GOSSIP_VALUE_EPOCH_SLOTS:
+    hash_fn ^= key->epoch_slots_index;
+    break;
+  case FD_GOSSIP_VALUE_DUPLICATE_SHRED:
+    hash_fn ^= key->duplicate_shred_index;
+    break;
+  default:
+    break;
   }
-  return hash;
+  return fd_funk_rec_key_hash1( key->pubkey, hash_fn, seed );
 }
 
 static inline int
