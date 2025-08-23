@@ -4,15 +4,15 @@
 
 #define SER_INIT( payload, payload_sz, offset ) \
   uchar *       _payload    = (payload);        \
-  ushort const  _offset     = (offset);         \
-  ushort        _i          = (offset);         \
+  ulong const   _offset     = (offset);         \
+  ulong         _i          = (offset);         \
   ulong const   _payload_sz = (payload_sz);     \
   (void)        _offset;                        \
   (void)        _payload_sz;
 
-#define INC( n ) (_i += (ushort)(n))
+#define INC( n ) (_i += (ulong)(n))
 
-#define CUR_OFFSET      (_i)
+#define CUR_OFFSET      ((ushort)_i)
 #define CURSOR          (_payload+_i)
 #define BYTES_CONSUMED  (_i-_offset)
 #define BYTES_REMAINING (_payload_sz-_i)
@@ -157,7 +157,7 @@ contact_info_convert_sockets( fd_contact_info_t const *             contact_info
       out_sockets_entries[socket_entries_cnt].addr_index  = (uchar)(addrs_cnt-1);
     }
 
-    out_sockets_entries[socket_entries_cnt].port_offset   = (socket->socket.port-sorted[j-1].socket.port);
+    out_sockets_entries[socket_entries_cnt].port_offset   = (ushort)(socket->socket.port-sorted[j-1].socket.port);
     out_sockets_entries[socket_entries_cnt++].tag         = socket->socket_tag;
   }
 
