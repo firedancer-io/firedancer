@@ -465,7 +465,8 @@ fd_log_collector_program_failure( fd_exec_instr_ctx_t * ctx ) {
   char custom_err[33] = { 0 };
   const char * err = custom_err;
   const fd_exec_txn_ctx_t * txn_ctx = ctx->txn_ctx;
-  if( FD_UNLIKELY( txn_ctx->custom_err!=0U ) ) {
+  if( FD_UNLIKELY( txn_ctx->exec_err_kind==FD_EXECUTOR_ERR_KIND_INSTR &&
+                   txn_ctx->exec_err==FD_EXECUTOR_INSTR_ERR_CUSTOM_ERR ) ) {
     /* Max msg_sz = 32 <= 66 */
     snprintf( custom_err, sizeof(custom_err), "custom program error: 0x%x", txn_ctx->custom_err );
   } else if( txn_ctx->exec_err ) {
