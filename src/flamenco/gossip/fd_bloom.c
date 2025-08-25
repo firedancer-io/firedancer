@@ -34,8 +34,8 @@ fd_bloom_footprint( double false_positive_rate,
   ulong l;
   l = FD_LAYOUT_INIT;
   l = FD_LAYOUT_APPEND( l, FD_BLOOM_ALIGN, sizeof(fd_bloom_t) );
-  l = FD_LAYOUT_APPEND( l, 8UL,            num_keys           );
-  l = FD_LAYOUT_APPEND( l, 1UL,            (max_bits+7UL)/8UL );
+  l = FD_LAYOUT_APPEND( l, 8UL,            num_keys*sizeof(ulong) );
+  l = FD_LAYOUT_APPEND( l, 8UL,            (max_bits+7UL)/8UL );
   return FD_LAYOUT_FINI( l, FD_BLOOM_ALIGN );
 }
 
@@ -66,7 +66,7 @@ fd_bloom_new( void *     shmem,
 
   FD_SCRATCH_ALLOC_INIT( l, shmem );
   fd_bloom_t * bloom = FD_SCRATCH_ALLOC_APPEND( l, FD_BLOOM_ALIGN, sizeof(fd_bloom_t) );
-  void * _keys       = FD_SCRATCH_ALLOC_APPEND( l, 8UL, num_keys );
+  void * _keys       = FD_SCRATCH_ALLOC_APPEND( l, 8UL, num_keys*sizeof(ulong) );
   void * _bits       = FD_SCRATCH_ALLOC_APPEND( l, 8UL, (max_bits+7UL)/8UL );
 
   bloom->keys      = (ulong *)_keys;
