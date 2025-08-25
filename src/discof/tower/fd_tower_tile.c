@@ -107,7 +107,7 @@ update_ghost( ctx_t * ctx, fd_replay_out_vote_state_t const * vote_states, ulong
 
          TODO: update the set of account in epoch_voter's to match the list received from replay,
                so that epoch_voters is correct across epoch boundaries. */
-      FD_LOG_WARNING(( "[%s] voter %s was not in epoch voters", __func__,
+      FD_LOG_CRIT(( "[%s] voter %s was not in epoch voters", __func__,
       FD_BASE58_ENC_32_ALLOCA(&vote_state->key) ));
       continue;
     }

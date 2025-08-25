@@ -274,7 +274,7 @@ fd_tower_threshold_check( fd_tower_t const *   tower,
 
            TODO: update the set of account in epoch_voter's to match the list received from replay,
                  so that epoch_voters is correct across epoch boundaries. */
-        FD_LOG_WARNING(( "[%s] voter %s was not in epoch voters", __func__,
+        FD_LOG_CRIT(( "[%s] voter %s was not in epoch voters", __func__,
           FD_BASE58_ENC_32_ALLOCA(&vote_keys[i]) ));
         continue;
       }
