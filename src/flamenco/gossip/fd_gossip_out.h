@@ -1,5 +1,5 @@
-#ifndef HEADER_fd_src_flamenco_gossip_fd_gossip_tx_h
-#define HEADER_fd_src_flamenco_gossip_fd_gossip_tx_h
+#ifndef HEADER_fd_src_flamenco_gossip_fd_gossip_out_h
+#define HEADER_fd_src_flamenco_gossip_fd_gossip_out_h
 #include "../../util/fd_util.h"
 #include "../../disco/stem/fd_stem.h"
 
@@ -33,4 +33,4 @@ fd_gossip_tx_publish_chunk( fd_gossip_out_ctx_t * ctx,
 
 FD_PROTOTYPES_END
 
-#endif /* HEADER_fd_src_flamenco_gossip_fd_gossip_tx_h */
+#endif /* HEADER_fd_src_flamenco_gossip_fd_gossip_out_h */
