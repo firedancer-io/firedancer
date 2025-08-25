@@ -48,10 +48,16 @@
 #define FD_GOSSIP_VALUE_RESTART_HEAVIEST_FORK         (13)
 #define FD_GOSSIP_VALUE_LAST                          (FD_GOSSIP_VALUE_RESTART_HEAVIEST_FORK)
 
-/* Gossip messages encode wallclock in millis, while we
-   parse them into nanoseconds for internal use. */
+/* Gossip messages encode wallclock in millis*, while we
+   parse them into nanoseconds for internal use.
+
+   * exceptions:
+     - Contact Info outset (AKA instance creation wallclock) is encoded
+       in micros */
 #define FD_NANOSEC_TO_MILLI(_ts_) ((long)(_ts_/1000000))
 #define FD_MILLI_TO_NANOSEC(_ts_) ((long)(_ts_*1000000))
+#define FD_NANOSEC_TO_MICRO(_ts_) ((long)(_ts_/1000))
+#define FD_MICRO_TO_NANOSEC(_ts_) ((long)(_ts_*1000))
 
 /* Bound max inc entries by
     1188b (max CRDS encoded buffer size )

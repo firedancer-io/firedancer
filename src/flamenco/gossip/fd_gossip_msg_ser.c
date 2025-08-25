@@ -242,7 +242,7 @@ fd_gossip_contact_info_encode( fd_contact_info_t const *     contact_info,
   ulong wallclock = (ulong)FD_NANOSEC_TO_MILLI( contact_info->wallclock_nanos );
   INC( varint_encode( wallclock, CURSOR ) );
 
-  ulong instance_creation_wallclock = (ulong)FD_NANOSEC_TO_MILLI( contact_info->instance_creation_wallclock_nanos );
+  ulong instance_creation_wallclock = (ulong)FD_NANOSEC_TO_MICRO( contact_info->instance_creation_wallclock_nanos );
   FD_STORE( ulong,  CURSOR, instance_creation_wallclock ); INC( 8UL );
   FD_STORE( ushort, CURSOR, contact_info->shred_version ); INC( 2UL );
 
