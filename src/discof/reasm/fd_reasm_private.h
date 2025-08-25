@@ -54,8 +54,8 @@ typedef struct {
 #include "../../util/tmpl/fd_map_dynamic.c"
 
 struct __attribute__((aligned(128UL))) fd_reasm {
-  ulong            root;     /* pool idx of the root FEC set */
   ulong            slot0;    /* special initialization slot. chains first FEC */
+  ulong            root;     /* pool idx of the root FEC set */
   fd_reasm_fec_t * pool;     /* pool of FEC nodes backing the above maps / tree */
   ancestry_t *     ancestry; /* map of mr->fec. non-leaves of the connected tree */
   frontier_t *     frontier; /* map of mr->fec. leaves of the connected tree */

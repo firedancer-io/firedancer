@@ -30,12 +30,11 @@
 
 #define FD_FOREST_MAGIC (0xf17eda2ce7b1c0UL) /* firedancer forest version 0 */
 
-#define SET_NAME fd_forest_ele_idxs
+#define SET_NAME fd_forest_blk_idxs
 #define SET_MAX  FD_SHRED_BLK_MAX
 #include "../../util/tmpl/fd_set.c"
 
-
-/* fd_forest_ele_t implements a left-child, right-sibling n-ary
+/* fd_forest_blk_t implements a left-child, right-sibling n-ary
    tree. Each ele maintains the `pool` index of its left-most child
    (`child_idx`), its immediate-right sibling (`sibling_idx`), and its
    parent (`parent_idx`).
@@ -43,7 +42,7 @@
    This tree structure is gaddr-safe and supports accesses and
    operations from processes with separate local forest joins. */
 
-struct __attribute__((aligned(128UL))) fd_forest_ele {
+struct __attribute__((aligned(128UL))) fd_forest_blk {
   ulong slot;        /* map key */
   ulong parent_slot; /* map key of the parent. invariant: if parent is populated, parent_slot is populated. the converse is not necessarily true. */
   ulong next;     /* internal use by fd_pool, fd_map_chain */
@@ -55,32 +54,32 @@ struct __attribute__((aligned(128UL))) fd_forest_ele {
   uint buffered_idx; /* highest contiguous buffered shred idx */
   uint complete_idx; /* shred_idx with SLOT_COMPLETE_FLAG ie. last shred idx in the slot */
 
-  fd_forest_ele_idxs_t fecs[fd_forest_ele_idxs_word_cnt]; /* last shred idx of every FEC set */
-  fd_forest_ele_idxs_t idxs[fd_forest_ele_idxs_word_cnt]; /* data shred idxs */
+  fd_forest_blk_idxs_t fecs[fd_forest_blk_idxs_word_cnt]; /* last shred idx of every FEC set */
+  fd_forest_blk_idxs_t idxs[fd_forest_blk_idxs_word_cnt]; /* data shred idxs */
 };
-typedef struct fd_forest_ele fd_forest_ele_t;
+typedef struct fd_forest_blk fd_forest_blk_t;
 
 #define POOL_NAME fd_forest_pool
-#define POOL_T    fd_forest_ele_t
+#define POOL_T    fd_forest_blk_t
 #include "../../util/tmpl/fd_pool.c"
 
 #define MAP_NAME  fd_forest_ancestry
-#define MAP_ELE_T fd_forest_ele_t
+#define MAP_ELE_T fd_forest_blk_t
 #define MAP_KEY   slot
 #include "../../util/tmpl/fd_map_chain.c"
 
 #define MAP_NAME  fd_forest_frontier
-#define MAP_ELE_T fd_forest_ele_t
+#define MAP_ELE_T fd_forest_blk_t
 #define MAP_KEY   slot
 #include "../../util/tmpl/fd_map_chain.c"
 
 #define MAP_NAME  fd_forest_orphaned
-#define MAP_ELE_T fd_forest_ele_t
+#define MAP_ELE_T fd_forest_blk_t
 #define MAP_KEY   slot
 #include "../../util/tmpl/fd_map_chain.c"
 
 #define MAP_NAME  fd_forest_subtrees
-#define MAP_ELE_T fd_forest_ele_t
+#define MAP_ELE_T fd_forest_blk_t
 #define MAP_KEY   slot
 #include "../../util/tmpl/fd_map_chain.c"
 
@@ -139,7 +138,7 @@ struct __attribute__((aligned(128UL))) fd_forest {
   ulong ver_gaddr;      /* wksp gaddr of version fseq, incremented on write ops */
   ulong pool_gaddr;     /* wksp gaddr of fd_pool */
   ulong ancestry_gaddr; /* wksp_gaddr of fd_forest_ancestry */
-  ulong frontier_gaddr; /* leaves that needs repair) */
+  ulong frontier_gaddr; /* leaves that needs repair */
   ulong subtrees_gaddr; /* head of orphaned trees */
   ulong orphaned_gaddr; /* map of parent_slot to singly-linked list of ele orphaned by that parent slot */
 
@@ -273,12 +272,12 @@ fd_forest_ver_const( fd_forest_t const * forest ) {
 /* fd_forest_{pool, pool_const} returns a pointer in the caller's address
    space to forest's element pool. */
 
-FD_FN_PURE static inline fd_forest_ele_t *
+FD_FN_PURE static inline fd_forest_blk_t *
 fd_forest_pool( fd_forest_t * forest ) {
   return fd_wksp_laddr_fast( fd_forest_wksp( forest ), forest->pool_gaddr );
 }
 
-FD_FN_PURE static inline fd_forest_ele_t const *
+FD_FN_PURE static inline fd_forest_blk_t const *
 fd_forest_pool_const( fd_forest_t const * forest ) {
   return fd_wksp_laddr_fast( fd_forest_wksp( forest ), forest->pool_gaddr );
 }
@@ -370,27 +369,26 @@ fd_forest_root_slot( fd_forest_t const * forest ) {
   return fd_forest_pool_ele_const( fd_forest_pool_const( forest ), forest->root )->slot;
 }
 
-fd_forest_ele_t *
+fd_forest_blk_t *
 fd_forest_query( fd_forest_t * forest, ulong slot );
 
 /* Operations */
 
-/* fd_forest_block_insert inserts a new block into the forest.
-   Assumes slot >= forest->smr, and the ele pool has a free
-   element (if handholding is enabled, explicitly checks and errors).
-   This block insert is idempotent, and can be called multiple times
-   with the same slot.
-   Returns the inserted forest ele. */
+/* fd_forest_blk_insert inserts a new block into the forest.  Assumes
+   slot >= forest->smr, and the blk pool has a free element (if
+   handholding is enabled, explicitly checks and errors).  This blk
+   insert is idempotent, and can be called multiple times with the same
+   slot. Returns the inserted forest ele. */
 
-fd_forest_ele_t *
-fd_forest_block_insert( fd_forest_t * forest, ulong slot, ulong parent_slot );
+fd_forest_blk_t *
+fd_forest_blk_insert( fd_forest_t * forest, ulong slot, ulong parent_slot );
 
 /* fd_forest_shred_insert inserts a new shred into the forest.
    Assumes slot is already in forest, and should typically be called
    directly after fd_forest_block_insert. Returns the forest ele
    corresponding to the shred slot. */
 
-fd_forest_ele_t *
+fd_forest_blk_t *
 fd_forest_data_shred_insert( fd_forest_t * forest, ulong slot, ulong parent_slot, uint shred_idx, uint fec_set_idx, int slot_complete );
 
 /* fd_forest_publish publishes slot as the new forest root, setting
@@ -398,7 +396,7 @@ fd_forest_data_shred_insert( fd_forest_t * forest, ulong slot, ulong parent_slot
    and all its descendants).  Prunes all eles not in slot's forest.
    Assumes slot is present in forest.  Returns the new root. */
 
-fd_forest_ele_t const *
+fd_forest_blk_t const *
 fd_forest_publish( fd_forest_t * forest, ulong slot );
 
 struct fd_forest_iter {
@@ -466,7 +464,7 @@ fd_forest_frontier_print( fd_forest_t const * forest );
    starting from the grandparent of the most recently executed slot:
 
    ```
-   fd_forest_ele_t const * ele = fd_forest_query( slot );
+   fd_forest_blk_t const * ele = fd_forest_query( slot );
    fd_forest_print( forest, fd_forest_parent( fd_forest_parent( ele ) ) )
    ```
 

@@ -74,7 +74,8 @@ fd_reasm_new( void * shmem, ulong fec_max, ulong seed ) {
   void * slot_mr  = FD_SCRATCH_ALLOC_APPEND( l, slot_mr_align(),     slot_mr_footprint ( lgf_max ) );
   FD_TEST( FD_SCRATCH_ALLOC_FINI( l, fd_reasm_align() ) == (ulong)shmem + footprint );
 
-  reasm->root     = pool_idx_null( pool );
+  reasm->slot0    = ULONG_MAX;
+  reasm->root     = pool_idx_null( pool                    );
   reasm->pool     = pool_new     ( pool,     fec_max       );
   reasm->ancestry = ancestry_new ( ancestry, fec_max, seed );
   reasm->frontier = frontier_new ( frontier, fec_max, seed );
@@ -271,23 +272,23 @@ fd_reasm_insert( fd_reasm_t *      reasm,
 
   /* This is a gross case reasm needs to handle because Agave currently
      does not validate chained merkle roots across slots ie. if a leader
-     sends a bad chained merkle root on a slot boundary, the cluster might
-     converge on the leader's block anyways.  So we overwrite the chained
-     merkle root based on the slot and parent_off metadata.  There are two
-     cases: 1. we receive the parent before the child.  In this case we
-     just overwrite the child's CMR.  2. we receive the child before the
-     parent.  In this case every time we receive a new FEC set we need to
-     check the orphan roots for whether we can link the orphan to the new
-     FEC via slot metadata, since the chained merkle root metadata on that
-     orphan root might be wrong. */
+     sends a bad chained merkle root on a slot boundary, the cluster
+     might converge on the leader's block anyways.  So we overwrite the
+     chained merkle root based on the slot and parent_off metadata.
+     There are two cases: 1. we receive the parent before the child.  In
+     this case we just overwrite the child's CMR.  2. we receive the
+     child before the parent.  In this case every time we receive a new
+     FEC set we need to check the orphan roots for whether we can link
+     the orphan to the new FEC via slot metadata, since the chained
+     merkle root metadata on that orphan root might be wrong. */
 
   if( FD_UNLIKELY( slot_complete ) ) {
     slot_mr_t * slot_mr = slot_mr_query( reasm->slot_mr, slot, NULL );
     if( FD_UNLIKELY( slot_mr ) ) {
       FD_LOG_WARNING(( "equivocating block_id for FEC slot: %lu fec_set_idx: %u prev: %s curr: %s", fec->slot, fec->fec_set_idx, FD_BASE58_ENC_32_ALLOCA( &slot_mr->block_id ), FD_BASE58_ENC_32_ALLOCA( &fec->key ) )); /* it's possible there's equivocation... */
     } else {
-      slot_mr = slot_mr_insert( reasm->slot_mr, slot );
-      slot_mr->block_id   = fec->key;
+      slot_mr           = slot_mr_insert( reasm->slot_mr, slot );
+      slot_mr->block_id = fec->key;
     }
   }
   overwrite_invalid_block_id( reasm, fec ); /* handle receiving parent before child */
@@ -296,7 +297,7 @@ fd_reasm_insert( fd_reasm_t *      reasm,
      The new FEC set may result in a new leaf or a new orphan tree root
      so we need to check that. */
 
-  fd_reasm_fec_t * parent    = NULL;
+  fd_reasm_fec_t * parent = NULL;
   if(        FD_LIKELY( parent = ancestry_ele_query ( ancestry, &fec->cmr, NULL, pool ) ) ) { /* parent is connected non-leaf */
     frontier_ele_insert( frontier, fec, pool );
     out_push_tail( out, pool_idx( pool, fec ) );
@@ -421,12 +422,10 @@ fd_reasm_publish( fd_reasm_t * reasm, fd_hash_t const * merkle_root ) {
       }
       child = pool_ele( pool, child->sibling );                           /* right-sibling */
     }
+    slot_mr_remove( reasm->slot_mr, slot_mr_query( reasm->slot_mr, head->slot, NULL ) /* cannot be NULL*/ );
+
     fd_reasm_fec_t * next = pool_ele( pool, head->next ); /* pophead */
     pool_ele_release( pool, head );                       /* release */
-
-    slot_mr_t * slot_mr = slot_mr_query( reasm->slot_mr, head->slot, NULL );
-    if( FD_UNLIKELY( slot_mr ) ) slot_mr_remove( reasm->slot_mr, slot_mr );
-
     head = next;                                          /* advance */
   }
   newr->parent = null;                   /* unlink old root */
