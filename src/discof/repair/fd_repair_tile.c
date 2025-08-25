@@ -65,7 +65,8 @@
 #include "../forest/fd_forest.h"
 #include "../reasm/fd_reasm.h"
 
-#define DEBUG_LOGGING 0
+#define LOGGING       1
+#define DEBUG_LOGGING 1
 
 #define IN_KIND_CONTACT (0)
 #define IN_KIND_NET     (1)
@@ -857,7 +858,7 @@ after_frag( fd_repair_tile_ctx_t * ctx,
        shred multiple times. */
 
     if( FD_UNLIKELY( fec_completes ) ) {
-      fd_forest_ele_t * ele = fd_forest_block_insert( ctx->forest, shred->slot, shred->slot - shred->data.parent_off );
+      fd_forest_blk_t * ele = fd_forest_blk_insert( ctx->forest, shred->slot, shred->slot - shred->data.parent_off );
       for( uint idx = shred->fec_set_idx; idx <= shred->idx; idx++ ) {
         ele = fd_forest_data_shred_insert( ctx->forest, shred->slot, shred->slot - shred->data.parent_off, idx, shred->fec_set_idx, 0 );
       }
@@ -884,7 +885,7 @@ after_frag( fd_repair_tile_ctx_t * ctx,
       fd_repair_inflight_remove( ctx->repair, shred->slot, shred->idx );
 
       int               slot_complete = !!(shred->data.flags & FD_SHRED_DATA_FLAG_SLOT_COMPLETE);
-      fd_forest_ele_t * ele           = fd_forest_block_insert( ctx->forest, shred->slot, shred->slot - shred->data.parent_off );
+      fd_forest_blk_t * blk           = fd_forest_blk_insert( ctx->forest, shred->slot, shred->slot - shred->data.parent_off );
       fd_forest_data_shred_insert( ctx->forest, shred->slot, shred->slot - shred->data.parent_off, shred->idx, shred->fec_set_idx, slot_complete );
 
       /* Check if there are FECs to force complete. Algorithm: window
@@ -892,9 +893,9 @@ after_frag( fd_repair_tile_ctx_t * ctx,
          then we know we can force complete the FEC set interval [i, j)
          (assuming it wasn't already completed based on `cmpl`). */
 
-      uint i = ele->consumed_idx + 1;
-      for( uint j = i; j < ele->buffered_idx + 1; j++ ) {
-        if( FD_UNLIKELY( fd_forest_ele_idxs_test( ele->fecs, j ) ) ) {
+      uint i = blk->consumed_idx + 1;
+      for( uint j = i; j < blk->buffered_idx + 1; j++ ) {
+        if( FD_UNLIKELY( fd_forest_blk_idxs_test( blk->fecs, j ) ) ) {
           fd_fec_sig_t * fec_sig  = fd_fec_sig_query( ctx->fec_sigs, (shred->slot << 32) | i, NULL );
           ulong          sig      = fd_ulong_load_8( fec_sig->sig );
           ulong          tile_idx = sig % ctx->shred_tile_cnt;
@@ -905,7 +906,7 @@ after_frag( fd_repair_tile_ctx_t * ctx,
           fd_fec_sig_remove( ctx->fec_sigs, fec_sig );
           fd_stem_publish( stem, ctx->shred_out_ctx[tile_idx].idx, last_idx, ctx->shred_out_ctx[tile_idx].chunk, sizeof(fd_ed25519_sig_t), 0UL, 0UL, 0UL );
           ctx->shred_out_ctx[tile_idx].chunk = fd_dcache_compact_next( ctx->shred_out_ctx[tile_idx].chunk, sizeof(fd_ed25519_sig_t), ctx->shred_out_ctx[tile_idx].chunk0, ctx->shred_out_ctx[tile_idx].wmark );
-          ele->consumed_idx = j;
+          blk->consumed_idx = j;
           i = j + 1;
         }
       }
@@ -1005,7 +1006,7 @@ after_credit( fd_repair_tile_ctx_t * ctx,
 #endif
 
   fd_forest_t          * forest   = ctx->forest;
-  fd_forest_ele_t      * pool     = fd_forest_pool( forest );
+  fd_forest_blk_t      * pool     = fd_forest_pool( forest );
   fd_forest_subtrees_t * subtrees = fd_forest_subtrees( forest );
 
   /* Verify that there is at least one sign tile with available credits.
@@ -1021,7 +1022,7 @@ after_credit( fd_repair_tile_ctx_t * ctx,
   for( fd_forest_subtrees_iter_t iter = fd_forest_subtrees_iter_init( subtrees, pool );
         !fd_forest_subtrees_iter_done( iter, subtrees, pool );
         iter = fd_forest_subtrees_iter_next( iter, subtrees, pool ) ) {
-    fd_forest_ele_t * orphan = fd_forest_subtrees_iter_ele( iter, subtrees, pool );
+    fd_forest_blk_t * orphan = fd_forest_subtrees_iter_ele( iter, subtrees, pool );
     if( fd_repair_need_orphan( ctx->repair, orphan->slot ) ) {
       fd_repair_send_requests_async( ctx, stem, sign_out, fd_needed_orphan, orphan->slot, UINT_MAX, now);
       total_req += FD_REPAIR_NUM_NEEDED_PEERS;
@@ -1051,7 +1052,7 @@ after_credit( fd_repair_tile_ctx_t * ctx,
      chance to complete the shreds. !ele handles an edgecase where all
      frontier are fully complete and the iter is done */
 
-  fd_forest_ele_t const * ele = fd_forest_pool_ele_const( pool, ctx->repair_iter.ele_idx );
+  fd_forest_blk_t const * ele = fd_forest_pool_ele_const( pool, ctx->repair_iter.ele_idx );
   if( FD_LIKELY( !ele || ( ele->slot==ctx->turbine_slot && (now-ctx->tsreset)<(long)30e6 ) ) ) return;
 
   while( total_req < MAX_REQ_PER_CREDIT ){

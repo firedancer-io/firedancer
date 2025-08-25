@@ -335,8 +335,8 @@ FD_FN_PURE static inline fd_store_fec_t const * fd_store_child_const  ( fd_store
 FD_FN_PURE static inline fd_store_fec_t       * fd_store_sibling      ( fd_store_t       * store, fd_store_fec_t const * fec ) { fd_store_pool_t pool = fd_store_pool      ( store ); return fd_store_pool_ele      ( &pool, fec->sibling ); }
 FD_FN_PURE static inline fd_store_fec_t const * fd_store_sibling_const( fd_store_t const * store, fd_store_fec_t const * fec ) { fd_store_pool_t pool = fd_store_pool_const( store ); return fd_store_pool_ele_const( &pool, fec->sibling ); }
 
-/* fd_store_{shacq, shrel, exacq, exrel} acquires or releases the shared
-   or exclusive lock. */
+/* fd_store_{shacq, shrel, exacq, exrel} acquires / releases the
+   shared / exclusive lock. */
 
 FD_FN_PURE static inline void fd_store_shacq( fd_store_t * store ) { fd_rwlock_read   ( &store->lock ); }
 FD_FN_PURE static inline void fd_store_shrel( fd_store_t * store ) { fd_rwlock_unread ( &store->lock ); }

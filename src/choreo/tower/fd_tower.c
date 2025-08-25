@@ -502,7 +502,7 @@ fd_tower_to_vote_txn( fd_tower_t const *    tower,
   tower_sync.root          = root;
   tower_sync.lockouts_len  = (ushort)fd_tower_votes_cnt( tower );
   tower_sync.lockouts      = lockouts_scratch;
-  tower_sync.timestamp     = (long)(fd_log_wallclock() / 1e9L); /* seconds */
+  tower_sync.timestamp     = fd_log_wallclock() / (long)1e9; /* seconds */
   tower_sync.has_timestamp = 1;
 
   ulong prev = tower_sync.root;
