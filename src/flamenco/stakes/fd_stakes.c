@@ -297,11 +297,31 @@ fd_update_stake_delegation( fd_txn_account_t * stake_account,
 }
 
 void
-fd_refresh_stake_delegations( fd_exec_slot_ctx_t * slot_ctx ) {
+fd_refresh_stake_delegations( fd_exec_slot_ctx_t * slot_ctx,
+                              fd_spad_t *          spad ) {
+
   fd_stake_delegations_t * stake_delegations = fd_banks_stake_delegations_root_query( slot_ctx->banks );
   if( FD_UNLIKELY( !stake_delegations ) ) {
     FD_LOG_CRIT(( "fd_runtime_refresh_stakes: stake_delegations is NULL" ));
   }
+
+  /* We want to buffer all of the invalid stake delegations and remove
+     them from the stake delegations after we finish iterating over
+     them. We have to buffer them because it is not safe to remove them
+     while we iterate over them.
+
+    TODO: Consider replacing this allocation with memory that comes from
+    the tile context instead of the runtime spad. */
+
+  FD_SPAD_FRAME_BEGIN( spad ) {
+
+  ulong keys_footprint = sizeof(fd_pubkey_t) * FD_RUNTIME_MAX_STAKE_ACCOUNTS;
+  if( FD_UNLIKELY( keys_footprint>fd_spad_alloc_max( spad, alignof(fd_pubkey_t) ) ) ) {
+    FD_LOG_CRIT(( "runtime spad is too small to buffer invalid delegations" ));
+  }
+  fd_pubkey_t * invalid_delegations     = fd_spad_alloc( spad, alignof(fd_pubkey_t), keys_footprint );
+  ulong         invalid_delegations_cnt = 0UL;
+
 
   uchar mem[FD_STAKE_DELEGATIONS_ITER_FOOTPRINT]__attribute__((aligned(FD_STAKE_DELEGATIONS_ITER_ALIGN)));
   for( fd_stake_delegations_iter_t * iter = fd_stake_delegations_iter_init( stake_delegations, mem );
@@ -310,23 +330,27 @@ fd_refresh_stake_delegations( fd_exec_slot_ctx_t * slot_ctx ) {
     fd_stake_delegation_t const * stake_delegation = fd_stake_delegations_iter_ele( iter );
 
     FD_TXN_ACCOUNT_DECL( acct_rec );
-    int err = fd_txn_account_init_from_funk_readonly( acct_rec,
-                                                      &stake_delegation->stake_account,
-                                                      slot_ctx->funk,
-                                                      slot_ctx->funk_txn );
+    int err = fd_txn_account_init_from_funk_readonly(
+        acct_rec,
+        &stake_delegation->stake_account,
+        slot_ctx->funk,
+        slot_ctx->funk_txn );
 
     if( FD_UNLIKELY( err!=FD_ACC_MGR_SUCCESS || fd_txn_account_get_lamports( acct_rec )==0UL ) ) {
+      invalid_delegations[ invalid_delegations_cnt++ ] = stake_delegation->stake_account;
       continue;
     }
 
     fd_stake_state_v2_t stake_state;
     err = fd_stake_get_state( acct_rec, &stake_state );
     if( FD_UNLIKELY( err ) ) {
-      FD_LOG_CRIT(( "invariant violation: stake account has invalid state" ));
+      invalid_delegations[ invalid_delegations_cnt++ ] = stake_delegation->stake_account;
+      continue;
     }
 
     if( FD_UNLIKELY( !fd_stake_state_v2_is_stake( &stake_state ) ) ) {
-      FD_LOG_CRIT(( "invariant violation: stake account is not a stake" ));
+      invalid_delegations[ invalid_delegations_cnt++ ] = stake_delegation->stake_account;
+      continue;
     }
 
     fd_stake_delegations_update(
@@ -337,8 +361,17 @@ fd_refresh_stake_delegations( fd_exec_slot_ctx_t * slot_ctx ) {
         stake_state.inner.stake.stake.delegation.activation_epoch,
         stake_state.inner.stake.stake.delegation.deactivation_epoch,
         stake_state.inner.stake.stake.credits_observed,
-        stake_state.inner.stake.stake.delegation.warmup_cooldown_rate
-    );
+        stake_state.inner.stake.stake.delegation.warmup_cooldown_rate );
   }
 
+  /* Now that we have collected all of the invalid delegations, we can
+     remove them from the map of stake delegations. */
+
+  for( ulong i=0UL; i<invalid_delegations_cnt; i++ ) {
+    fd_stake_delegations_remove( stake_delegations, &invalid_delegations[ i ] );
+  }
+
+  /* At this point, we should have no invalid stake delegations. */
+
+  } FD_SPAD_FRAME_END;
 }

@@ -589,7 +589,7 @@ init_after_snapshot( fd_replay_tile_ctx_t * ctx ) {
      of data required for the stake delegations. See
      fd_stake_delegations.h for why this is required. */
 
-  fd_refresh_stake_delegations( ctx->slot_ctx );
+  fd_refresh_stake_delegations( ctx->slot_ctx, ctx->runtime_spad );
 
   /* After both snapshots have been loaded in, we can determine if we should
      start distributing rewards. */
