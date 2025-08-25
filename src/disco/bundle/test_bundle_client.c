@@ -67,6 +67,109 @@ test_bundle_rx( fd_wksp_t * wksp ) {
   test_bundle_env_destroy( env );
 }
 
+static void
+test_bundle_rx_too_many_txns( fd_wksp_t * wksp ) {
+  test_bundle_env_t env[1]; test_bundle_env_create( env, wksp );
+  fd_bundle_tile_t * state = env->state;
+
+  /*
+  Contains a single bundle with 6 transactions
+  {
+    "bundles": [
+      {
+        "bundle": {
+          "header": null,
+          "packets": [
+            {
+              "data": [
+                72
+              ],
+              "meta": {
+                "size": 1,
+                "addr": "",
+                "port": 0,
+                "flags": null,
+                "sender_stake": 0
+              }
+            },
+            ...x5
+          ]
+        },
+        "uuid": [0, 0, 0]
+      }
+    ]
+  }
+  */
+  static uchar subscribe_bundles_msg_x5[] = {
+    0x0a, 0x52, 0x0a, 0x4b, 0x1a, 0x0d, 0x0a, 0x01, 0x48, 0x12, 0x08,
+    0x08, 0x01, 0x12, 0x00, 0x18, 0x00, 0x28, 0x00, 0x1a, 0x0d, 0x0a,
+    0x01, 0x48, 0x12, 0x08, 0x08, 0x01, 0x12, 0x00, 0x18, 0x00, 0x28,
+    0x00, 0x1a, 0x0d, 0x0a, 0x01, 0x48, 0x12, 0x08, 0x08, 0x01, 0x12,
+    0x00, 0x18, 0x00, 0x28, 0x00, 0x1a, 0x0d, 0x0a, 0x01, 0x48, 0x12,
+    0x08, 0x08, 0x01, 0x12, 0x00, 0x18, 0x00, 0x28, 0x00, 0x1a, 0x0d,
+    0x0a, 0x01, 0x48, 0x12, 0x08, 0x08, 0x01, 0x12, 0x00, 0x18, 0x00,
+    0x28, 0x00, 0x12, 0x03, 0x00, 0x00, 0x00
+  };
+
+  /* Wipe timestamps */
+  for( ulong i=0UL; i<(env->stem_depths[0]); i++ ) {
+    env->out_mcache[ i ].tsorig = 0U;
+    env->out_mcache[ i ].tspub  = 0U;
+  }
+
+  state->builder_info_avail = 1;
+  fd_bundle_client_grpc_rx_msg(
+      state,
+      subscribe_bundles_msg_x5, sizeof(subscribe_bundles_msg_x5),
+      FD_BUNDLE_CLIENT_REQ_Bundle_SubscribeBundles
+  );
+
+  ulong txn_cnt = 0UL;
+  for( ulong i=0UL; i<(env->stem_depths[0]); i++ ) {
+    txn_cnt += env->out_mcache[ i ].tspub!=0U;
+  }
+  FD_TEST( txn_cnt==5UL );
+  test_bundle_env_destroy( env );
+
+  test_bundle_env_create( env, wksp );
+  state = env->state;
+
+  /* Same as above, now with 6 transactions. Should be a NOP */
+  static uchar subscribe_bundles_msg_x6[] = {
+    0x0a, 0x61, 0x0a, 0x5a, 0x1a, 0x0d, 0x0a, 0x01, 0x48, 0x12, 0x08,
+    0x08, 0x01, 0x12, 0x00, 0x18, 0x00, 0x28, 0x00, 0x1a, 0x0d, 0x0a,
+    0x01, 0x48, 0x12, 0x08, 0x08, 0x01, 0x12, 0x00, 0x18, 0x00, 0x28,
+    0x00, 0x1a, 0x0d, 0x0a, 0x01, 0x48, 0x12, 0x08, 0x08, 0x01, 0x12,
+    0x00, 0x18, 0x00, 0x28, 0x00, 0x1a, 0x0d, 0x0a, 0x01, 0x48, 0x12,
+    0x08, 0x08, 0x01, 0x12, 0x00, 0x18, 0x00, 0x28, 0x00, 0x1a, 0x0d,
+    0x0a, 0x01, 0x48, 0x12, 0x08, 0x08, 0x01, 0x12, 0x00, 0x18, 0x00,
+    0x28, 0x00, 0x1a, 0x0d, 0x0a, 0x01, 0x48, 0x12, 0x08, 0x08, 0x01,
+    0x12, 0x00, 0x18, 0x00, 0x28, 0x00, 0x12, 0x03, 0x00, 0x00, 0x00
+  };
+
+
+  /* Wipe timestamps */
+  for( ulong i=0UL; i<(env->stem_depths[0]); i++ ) {
+    env->out_mcache[ i ].tsorig = 0U;
+    env->out_mcache[ i ].tspub  = 0U;
+  }
+
+  state->builder_info_avail = 1;
+  fd_bundle_client_grpc_rx_msg(
+      state,
+      subscribe_bundles_msg_x6, sizeof(subscribe_bundles_msg_x6),
+      FD_BUNDLE_CLIENT_REQ_Bundle_SubscribeBundles
+  );
+
+  FD_TEST( state->bundle_txn_cnt==6 );
+  txn_cnt = 0UL;
+  for( ulong i=0UL; i<(env->stem_depths[0]); i++ ) {
+    txn_cnt += env->out_mcache[ i ].tspub!=0U;
+  }
+  FD_TEST( txn_cnt==0UL );
+  test_bundle_env_destroy( env );
+}
+
 /* Ensure forwarding of bundles stops when builder fee info is missing. */
 
 static void
@@ -770,6 +873,7 @@ main( int     argc,
   FD_TEST( wksp );
 
   test_bundle_rx( wksp );
+  test_bundle_rx_too_many_txns( wksp );
   test_bundle_stream_ended( wksp );
   test_bundle_stream_reset( wksp );
   test_bundle_header_timeout( wksp );
