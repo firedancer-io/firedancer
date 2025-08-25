@@ -176,7 +176,7 @@ void
 fd_exec_txn_ctx_setup_basic( fd_exec_txn_ctx_t * ctx ) {
   fd_compute_budget_details_new( &ctx->compute_budget_details );
 
-  ctx->custom_err                = UINT_MAX;
+  ctx->custom_err                = 0U;
   ctx->instr_stack_sz            = 0;
   ctx->accounts_cnt              = 0UL;
   ctx->executable_cnt            = 0UL;
