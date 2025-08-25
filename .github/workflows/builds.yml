@@ -94,7 +94,7 @@ jobs:
     runs-on: rocky810
     if: ${{ inputs.gcc != 'none' }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
         with:
           submodules: recursive
 
@@ -147,7 +147,7 @@ jobs:
     runs-on: rocky94
     if: ${{ inputs.clang != 'none' }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
         with:
           submodules: recursive
 
@@ -203,7 +203,7 @@ jobs:
       matrix:
         gcc_version: [12]
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
         with:
           submodules: recursive
 

@@ -14,7 +14,7 @@ jobs:
       COV_OBJ_DIR: build/cov
       EXTRAS: fuzz # asan
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
         with:
           submodules: recursive
 
@@ -90,7 +90,7 @@ jobs:
       MACHINE: ${{ matrix.machine }}
       EXTRAS: fuzz asan ubsan
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
         with:
           submodules: recursive
 
