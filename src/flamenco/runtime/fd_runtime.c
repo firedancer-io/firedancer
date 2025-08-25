@@ -805,7 +805,7 @@ fd_runtime_update_bank_hash( fd_exec_slot_ctx_t *            slot_ctx,
   fd_bank_signature_count_set( slot_ctx->bank, block_info->signature_cnt );
 
   /* Compute the new bank hash */
-  fd_slot_lthash_t const * lthash = fd_bank_lthash_locking_query( slot_ctx->bank );
+  fd_lthash_value_t const * lthash = fd_bank_lthash_locking_query( slot_ctx->bank );
   fd_hash_t new_bank_hash[1] = { 0 };
   fd_hashes_hash_bank(
       lthash,
@@ -828,21 +828,19 @@ fd_runtime_update_bank_hash( fd_exec_slot_ctx_t *            slot_ctx,
                     fd_bank_slot_get( slot_ctx->bank ),
                     FD_BASE58_ENC_32_ALLOCA( new_bank_hash->hash ),
                     FD_BASE58_ENC_32_ALLOCA( fd_bank_prev_bank_hash_query( slot_ctx->bank ) ),
-                    FD_LTHASH_ENC_32_ALLOCA( (fd_lthash_value_t *) lthash->lthash ),
+                    FD_LTHASH_ENC_32_ALLOCA( lthash->bytes ),
                     fd_bank_signature_count_get( slot_ctx->bank ),
                     FD_BASE58_ENC_32_ALLOCA( fd_bank_poh_query( slot_ctx->bank )->hash ) ));
   }
 
   if( slot_ctx->capture_ctx != NULL && slot_ctx->capture_ctx->capture != NULL &&
     fd_bank_slot_get( slot_ctx->bank )>=slot_ctx->capture_ctx->solcap_start_slot ) {
-    uchar lthash_hash[FD_HASH_FOOTPRINT];
-    fd_lthash_hash( (fd_lthash_value_t *)lthash, lthash_hash );
     fd_solcap_write_bank_preimage(
           slot_ctx->capture_ctx->capture,
           new_bank_hash->hash,
           fd_bank_prev_bank_hash_query( slot_ctx->bank ),
           NULL,
-          lthash_hash,
+          lthash->bytes, /* truncated to 32 */
           fd_bank_poh_query( slot_ctx->bank )->hash,
           fd_bank_signature_count_get( slot_ctx->bank ) );
   }
@@ -1047,9 +1045,7 @@ fd_runtime_buffer_solcap_account_update( fd_txn_account_t *        account,
 
   /* Calculate account hash using lthash */
   fd_lthash_value_t lthash[1];
-  fd_hash_t hash;
   fd_hashes_account_lthash( account->pubkey, meta, data, lthash );
-  fd_lthash_hash( lthash, hash.hash );
 
   /* Calculate message size */
   if( FD_UNLIKELY( capture_ctx->account_updates_len > FD_CAPTURE_CTX_MAX_ACCOUNT_UPDATES ) ) {
@@ -1059,11 +1055,11 @@ fd_runtime_buffer_solcap_account_update( fd_txn_account_t *        account,
 
   /* Write the message to the buffer */
   fd_runtime_public_account_update_msg_t * account_update_msg = (fd_runtime_public_account_update_msg_t *)(capture_ctx->account_updates_buffer_ptr);
-  account_update_msg->pubkey                                  = *account->pubkey;
-  account_update_msg->info                                    = meta->info;
-  account_update_msg->data_sz                                 = meta->dlen;
-  account_update_msg->hash                                    = hash;
-  capture_ctx->account_updates_buffer_ptr                    += sizeof(fd_runtime_public_account_update_msg_t);
+  account_update_msg->pubkey               = *account->pubkey;
+  account_update_msg->info                 = meta->info;
+  account_update_msg->data_sz              = meta->dlen;
+  memcpy( account_update_msg->hash.uc, lthash->bytes, sizeof(fd_hash_t) );
+  capture_ctx->account_updates_buffer_ptr += sizeof(fd_runtime_public_account_update_msg_t);
 
   /* Write the account data to the buffer */
   memcpy( capture_ctx->account_updates_buffer_ptr, data, meta->dlen );
@@ -2391,7 +2387,7 @@ fd_runtime_process_genesis_block( fd_exec_slot_ctx_t * slot_ctx,
 
   fd_runtime_freeze( slot_ctx );
 
-  fd_slot_lthash_t const * lthash = fd_bank_lthash_locking_query( slot_ctx->bank );
+  fd_lthash_value_t const * lthash = fd_bank_lthash_locking_query( slot_ctx->bank );
 
   fd_hash_t const * prev_bank_hash = fd_bank_bank_hash_query( slot_ctx->bank );
 

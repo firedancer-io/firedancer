@@ -171,18 +171,18 @@ main( int     argc,
 
   fd_rng_t _rng[1]; fd_rng_t * rng = fd_rng_join( fd_rng_new( _rng, 0U, 0UL ) );
 
-  fd_lthash_t _hash[1];        fd_lthash_t *       hash     = _hash;
-  fd_lthash_value_t _value[1]; fd_lthash_value_t * value    = _value;
-  fd_lthash_value_t _tmp[1];   fd_lthash_value_t * tmp      = _tmp;
+  fd_blake3_t _hasher[1];      fd_blake3_t *       hasher = _hasher;
+  fd_lthash_value_t _value[1]; fd_lthash_value_t * value  = _value;
+  fd_lthash_value_t _tmp[1];   fd_lthash_value_t * tmp    = _tmp;
   ushort compute_extected[1024];
 
   uchar value32[32];
   fd_blake3_hash( "hello", 5UL, value32 );
   FD_TEST( fd_memeq( value32, lthash_hello, 32 ) );
 
-  FD_TEST( fd_lthash_init( hash )==hash );
-  FD_TEST( fd_lthash_append( hash, "hello", 5 )==hash );
-  FD_TEST( fd_lthash_fini( hash, value )==value );
+  FD_TEST( fd_blake3_init( hasher )==hasher );
+  FD_TEST( fd_blake3_append( hasher, "hello", 5 )==hasher );
+  FD_TEST( fd_blake3_fini_2048( hasher, value )==value );
 
   if( FD_UNLIKELY( memcmp( value, lthash_hello, 2048 ) ) ) {
     FD_LOG_HEXDUMP_WARNING(( "want", lthash_hello, 2048 ));
@@ -190,9 +190,9 @@ main( int     argc,
     FD_LOG_ERR(( "FAIL lthash('hello')" ));
   }
 
-  FD_TEST( fd_lthash_init( hash )==hash );
-  FD_TEST( fd_lthash_append( hash, "world!", 6 )==hash );
-  FD_TEST( fd_lthash_fini( hash, tmp )==tmp );
+  FD_TEST( fd_blake3_init( hasher )==hasher );
+  FD_TEST( fd_blake3_append( hasher, "world!", 6 )==hasher );
+  FD_TEST( fd_blake3_fini_2048( hasher, tmp )==tmp );
 
   if( FD_UNLIKELY( memcmp( tmp, lthash_world, 2048 ) ) ) {
     FD_LOG_ERR(( "FAIL lthash('world!')" ));
@@ -209,9 +209,9 @@ main( int     argc,
   }
 
   // remove hello
-  FD_TEST( fd_lthash_init( hash )==hash );
-  FD_TEST( fd_lthash_append( hash, "hello", 5 )==hash );
-  FD_TEST( fd_lthash_fini( hash, tmp )==tmp );
+  FD_TEST( fd_blake3_init( hasher )==hasher );
+  FD_TEST( fd_blake3_append( hasher, "hello", 5 )==hasher );
+  FD_TEST( fd_blake3_fini_2048( hasher, tmp )==tmp );
 
   FD_TEST( fd_lthash_sub( value, tmp )==value );
   memcpy( expected, lthash_world, 2048 );
@@ -220,9 +220,9 @@ main( int     argc,
   }
 
   // remove world!
-  FD_TEST( fd_lthash_init( hash )==hash );
-  FD_TEST( fd_lthash_append( hash, "world!", 6 )==hash );
-  FD_TEST( fd_lthash_fini( hash, tmp )==tmp );
+  FD_TEST( fd_blake3_init( hasher )==hasher );
+  FD_TEST( fd_blake3_append( hasher, "world!", 6 )==hasher );
+  FD_TEST( fd_blake3_fini_2048( hasher, tmp )==tmp );
 
   FD_TEST( fd_lthash_sub( value, tmp )==value );
   memset( expected, 0, 2048 );
