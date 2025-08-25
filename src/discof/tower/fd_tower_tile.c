@@ -165,7 +165,7 @@ after_frag_replay( ctx_t * ctx, fd_replay_slot_info_t * slot_info, ulong tsorig,
 
   /* Convert the replay vote states into vote towers */
   for( ulong i = 0; i < ctx->replay_vote_states_len; i++ ) {
-    fd_tower_remove_all_votes( ctx->vote_towers[i] );
+    fd_tower_votes_remove_all( ctx->vote_towers[i] );
     fd_tower_from_vote_state( ctx->vote_towers[i], &ctx->replay_vote_states[i] );
     ctx->vote_keys[i] = ctx->replay_vote_states[i].key;
 

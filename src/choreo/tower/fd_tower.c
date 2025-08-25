@@ -200,11 +200,6 @@ fd_tower_switch_check( fd_tower_t const * tower,
   return switch_pct > SWITCH_PCT;
 }
 
-void
-fd_tower_remove_all_votes( fd_tower_t * tower ) {
-  fd_tower_votes_remove_all( tower );
-}
-
 int
 fd_tower_threshold_check( fd_tower_t const *   tower,
                           fd_epoch_t *         epoch,
