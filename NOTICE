@@ -532,3 +532,16 @@ HPACK Huffman decoder from nghttp2 (circa 2025-Mar).  Original sources:
  */
 
 =======================================================================
+
+The compiled SBPF programs used for tests and available in
+src/ballet/sbpf/fixtures/ are taken from Anza's Agave and Token program,
+both released under Apache License 2.0.
+
+https://github.com/anza-xyz/agave/tree/v2.3.7/svm/tests/example-programs/hello-solana
+https://github.com/solana-program/token/tree/program%40v8.0.0/p-token
+
+                                 Apache License
+                           Version 2.0, January 2004
+                        http://www.apache.org/licenses/
+
+=======================================================================

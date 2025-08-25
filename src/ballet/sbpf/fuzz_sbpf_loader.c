@@ -35,7 +35,9 @@ LLVMFuzzerTestOneInput( uchar const * data,
                         ulong         size ) {
 
   fd_sbpf_elf_info_t info;
-  if( FD_UNLIKELY( !fd_sbpf_elf_peek( &info, data, size, 0, FD_SBPF_V0, FD_SBPF_V3 ) ) )
+  fd_sbpf_loader_config_t config = { 0 };
+  config.sbpf_max_version = FD_SBPF_V3;
+  if( FD_UNLIKELY( fd_sbpf_elf_peek( &info, data, size, &config )<0 ) )
     return -1;
 
   /* Allocate objects */
@@ -53,7 +55,7 @@ LLVMFuzzerTestOneInput( uchar const * data,
     fd_sbpf_syscalls_insert( syscalls, (ulong)*x );
 
   /* Load program */
-  int res = fd_sbpf_program_load( prog, data, size, syscalls, 0 );
+  int res = fd_sbpf_program_load( prog, data, size, syscalls, &config );
 
   /* Should be able to load at least one program and not load at least one program */
   if ( FD_UNLIKELY( !res ) ) {

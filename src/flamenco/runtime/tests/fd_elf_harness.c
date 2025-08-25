@@ -39,7 +39,11 @@ fd_solfuzz_elf_loader_run( fd_solfuzz_runner_t * runner,
 
   do{
 
-    if( FD_UNLIKELY( !fd_sbpf_elf_peek( &info, elf_bin, elf_sz, input->deploy_checks, FD_SBPF_V0, FD_SBPF_V3 ) ) ) {
+    fd_sbpf_loader_config_t config = { 0 };
+    config.elf_deploy_checks = input->deploy_checks;
+    config.sbpf_min_version = FD_SBPF_V0;
+    config.sbpf_max_version = FD_SBPF_V3;
+    if( FD_UNLIKELY( fd_sbpf_elf_peek( &info, elf_bin, elf_sz, &config )<0 ) ) {
       /* return incomplete effects on execution failures */
       break;
     }
@@ -53,7 +57,7 @@ fd_solfuzz_elf_loader_run( fd_solfuzz_runner_t * runner,
 
     fd_vm_syscall_register_all( syscalls, 0 );
 
-    int res = fd_sbpf_program_load( prog, elf_bin, elf_sz, syscalls, input->deploy_checks );
+    int res = fd_sbpf_program_load( prog, elf_bin, elf_sz, syscalls, &config );
     if( FD_UNLIKELY( res ) ) {
       break;
     }

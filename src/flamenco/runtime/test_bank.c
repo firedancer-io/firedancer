@@ -1,5 +1,202 @@
 #include "fd_bank.h"
 
+static void
+test_bank_publishing( void * mem ) {
+  fd_banks_t * banks = fd_banks_join( fd_banks_new( mem, 16UL, 2UL ) );
+  /* Create the following fork tree with refcnts:
+
+         P(0)
+       /    \\
+     Q(1)    A(0)
+           / ||  \
+       X(0) B(0)  C(0)
+      /      || \
+     Y(0)   M(0) R(0)
+           / ||   /  \
+       D(2) T(0) J(0) L(0)
+             ||
+             ..
+             ..
+             ||
+     blocks we might be actively replaying
+
+     Where || marks the rooted fork and numbers in parentheses are
+     refcnts.
+
+     When Q's refcnt drops to 0, we should be able to advance the
+     published root to block M, because blocks P, A, and B, as well as
+     all subtrees branching off of them, have refcnt 0. */
+
+  /* Start with P as root. */
+  fd_bank_t * bank_P = fd_banks_init_bank( banks, 100UL );                 /* P slot = 100 */
+  FD_TEST( bank_P );
+  FD_TEST( fd_bank_slot_get( bank_P ) == 100UL );
+  bank_P->refcnt = 0UL; /* P(0) */
+
+  /* Create Q branch from P. */
+  fd_bank_t * bank_Q = fd_banks_clone_from_parent( banks, 101UL, 100UL );  /* Q slot = 101 */
+  FD_TEST( bank_Q );
+  bank_Q->refcnt = 1UL; /* Q(1) */
+
+  /* Create A branch from P - this is on the rooted fork. */
+  fd_bank_t * bank_A = fd_banks_clone_from_parent( banks, 102UL, 100UL );  /* A slot = 102 */
+  FD_TEST( bank_A );
+  bank_A->refcnt = 0UL; /* A(0) */
+
+  /* Create X branch from A. */
+  fd_bank_t * bank_X = fd_banks_clone_from_parent( banks, 103UL, 102UL );  /* X slot = 103 */
+  FD_TEST( bank_X );
+  bank_X->refcnt = 0UL; /* X(0) */
+
+  /* Create Y branch from X. */
+  fd_bank_t * bank_Y = fd_banks_clone_from_parent( banks, 104UL, 103UL );  /* Y slot = 104 */
+  FD_TEST( bank_Y );
+  bank_Y->refcnt = 0UL; /* Y(0) */
+
+  /* Create B branch from A - this is on the rooted fork. */
+  fd_bank_t * bank_B = fd_banks_clone_from_parent( banks, 105UL, 102UL );  /* B slot = 105 */
+  FD_TEST( bank_B );
+  bank_B->refcnt = 0UL; /* B(0) */
+
+  /* Create C branch from A. */
+  fd_bank_t * bank_C = fd_banks_clone_from_parent( banks, 106UL, 102UL );  /* C slot = 106 */
+  FD_TEST( bank_C );
+  bank_C->refcnt = 0UL; /* C(0) */
+
+  /* Create M branch from B - this is on the rooted fork. */
+  fd_bank_t * bank_M = fd_banks_clone_from_parent( banks, 107UL, 105UL );  /* M slot = 107 */
+  FD_TEST( bank_M );
+  bank_M->refcnt = 0UL; /* M(0) */
+
+  /* Create R branch from B. */
+  fd_bank_t * bank_R = fd_banks_clone_from_parent( banks, 108UL, 105UL );  /* R slot = 108 */
+  FD_TEST( bank_R );
+  bank_R->refcnt = 0UL; /* R(0) */
+
+  /* Create D branch from M. */
+  fd_bank_t * bank_D = fd_banks_clone_from_parent( banks, 109UL, 107UL );  /* D slot = 109 */
+  FD_TEST( bank_D );
+  bank_D->refcnt = 2UL; /* D(2) */
+
+  /* Create T branch from M - this is on the rooted fork. */
+  fd_bank_t * bank_T = fd_banks_clone_from_parent( banks, 110UL, 107UL );  /* T slot = 110 */
+  FD_TEST( bank_T );
+  bank_T->refcnt = 0UL; /* T(0) */
+
+  /* Create J branch from R. */
+  fd_bank_t * bank_J = fd_banks_clone_from_parent( banks, 111UL, 108UL );  /* J slot = 111 */
+  FD_TEST( bank_J );
+  bank_J->refcnt = 0UL; /* J(0) */
+
+  /* Create L branch from R. */
+  fd_bank_t * bank_L = fd_banks_clone_from_parent( banks, 112UL, 108UL );  /* L slot = 112 */
+  FD_TEST( bank_L );
+  bank_L->refcnt = 0UL; /* L(0) */
+
+  /* Verify all banks exist. */
+  FD_TEST( fd_banks_get_bank( banks, 100UL ) == bank_P );
+  FD_TEST( fd_banks_get_bank( banks, 101UL ) == bank_Q );
+  FD_TEST( fd_banks_get_bank( banks, 102UL ) == bank_A );
+  FD_TEST( fd_banks_get_bank( banks, 103UL ) == bank_X );
+  FD_TEST( fd_banks_get_bank( banks, 104UL ) == bank_Y );
+  FD_TEST( fd_banks_get_bank( banks, 105UL ) == bank_B );
+  FD_TEST( fd_banks_get_bank( banks, 106UL ) == bank_C );
+  FD_TEST( fd_banks_get_bank( banks, 107UL ) == bank_M );
+  FD_TEST( fd_banks_get_bank( banks, 108UL ) == bank_R );
+  FD_TEST( fd_banks_get_bank( banks, 109UL ) == bank_D );
+  FD_TEST( fd_banks_get_bank( banks, 110UL ) == bank_T );
+  FD_TEST( fd_banks_get_bank( banks, 111UL ) == bank_J );
+  FD_TEST( fd_banks_get_bank( banks, 112UL ) == bank_L );
+
+  /* Verify initial refcnts. */
+  FD_TEST( bank_P->refcnt == 0UL );
+  FD_TEST( bank_Q->refcnt == 1UL );
+  FD_TEST( bank_A->refcnt == 0UL );
+  FD_TEST( bank_X->refcnt == 0UL );
+  FD_TEST( bank_Y->refcnt == 0UL );
+  FD_TEST( bank_B->refcnt == 0UL );
+  FD_TEST( bank_C->refcnt == 0UL );
+  FD_TEST( bank_M->refcnt == 0UL );
+  FD_TEST( bank_R->refcnt == 0UL );
+  FD_TEST( bank_D->refcnt == 2UL );
+  FD_TEST( bank_T->refcnt == 0UL );
+  FD_TEST( bank_J->refcnt == 0UL );
+  FD_TEST( bank_L->refcnt == 0UL );
+
+  /* Try to publish with Q having refcnt 1 - should not be able to advance past P. */
+  ulong publishable_slot = 0UL;
+  int result = fd_banks_publish_prepare( banks, 110UL, &publishable_slot ); /* Try to publish up to T */
+  FD_TEST( result == 0 ); /* Should not be able to advance past P */
+
+  /* Now decrement Q's refcnt to 0. */
+  bank_Q->refcnt--;
+  FD_TEST( bank_Q->refcnt == 0UL );
+
+  /* Try to publish again - should now be able to advance to M. */
+  result = fd_banks_publish_prepare( banks, 110UL, &publishable_slot );
+  FD_TEST( result == 1 );
+  FD_TEST( publishable_slot == 107UL ); /* Should be able to publish up to M (slot 107) */
+
+  /* Actually publish up to M. */
+  fd_bank_t const * new_root = fd_banks_publish( banks, 107UL );
+  FD_TEST( new_root == bank_M );
+  FD_TEST( fd_bank_slot_get( new_root ) == 107UL );
+
+  /* Verify that banks P, Q, A, X, Y, B, C and their subtrees have been pruned. */
+  FD_TEST( !fd_banks_get_bank( banks, 100UL ) ); /* P should be gone */
+  FD_TEST( !fd_banks_get_bank( banks, 101UL ) ); /* Q should be gone */
+  FD_TEST( !fd_banks_get_bank( banks, 102UL ) ); /* A should be gone */
+  FD_TEST( !fd_banks_get_bank( banks, 103UL ) ); /* X should be gone */
+  FD_TEST( !fd_banks_get_bank( banks, 104UL ) ); /* Y should be gone */
+  FD_TEST( !fd_banks_get_bank( banks, 105UL ) ); /* B should be gone */
+  FD_TEST( !fd_banks_get_bank( banks, 106UL ) ); /* C should be gone */
+  FD_TEST( !fd_banks_get_bank( banks, 108UL ) ); /* R should be gone */
+  FD_TEST( !fd_banks_get_bank( banks, 111UL ) ); /* J should be gone */
+  FD_TEST( !fd_banks_get_bank( banks, 112UL ) ); /* L should be gone */
+
+  /* Verify that the remaining banks are still there. */
+  FD_TEST( fd_banks_get_bank( banks, 107UL ) == bank_M ); /* M should be the new root */
+  FD_TEST( fd_banks_get_bank( banks, 109UL ) == bank_D ); /* D should remain */
+  FD_TEST( fd_banks_get_bank( banks, 110UL ) == bank_T ); /* T should remain */
+
+  /* Verify that the new structure matches the expected result:
+         M(0)
+        / ||
+     D(2) T(0)
+          ||
+          .. */
+
+  FD_TEST( fd_banks_root( banks ) == bank_M );
+  FD_TEST( fd_bank_slot_get( fd_banks_root( banks ) ) == 107UL );
+
+  /* Verify refcnts after publishing. */
+  FD_TEST( bank_M->refcnt == 0UL );
+  FD_TEST( bank_D->refcnt == 2UL ); /* D still has refcnt 2 */
+  FD_TEST( bank_T->refcnt == 0UL );
+
+  /* Now decrement D's refcnt and try to publish further. */
+  bank_D->refcnt--;
+  bank_D->refcnt--;
+  FD_TEST( bank_D->refcnt == 0UL );
+
+  /* Should now be able to publish up to T. */
+  result = fd_banks_publish_prepare( banks, 110UL, &publishable_slot );
+  FD_TEST( result == 1 );
+  FD_TEST( publishable_slot == 110UL ); /* Should be able to publish up to T */
+
+  /* Actually publish up to T. */
+  new_root = fd_banks_publish( banks, 110UL );
+  FD_TEST( new_root == bank_T );
+  FD_TEST( fd_bank_slot_get( new_root ) == 110UL );
+
+  /* Verify that M and D have been pruned. */
+  FD_TEST( !fd_banks_get_bank( banks, 107UL ) ); /* M should be gone */
+  FD_TEST( !fd_banks_get_bank( banks, 109UL ) ); /* D should be gone */
+  FD_TEST( fd_banks_get_bank( banks, 110UL ) == bank_T ); /* T should be the new root */
+
+  FD_LOG_NOTICE(( "safe publishing test pass" ));
+}
+
 int
 main( int argc, char ** argv ) {
   fd_boot( &argc, &argv );
@@ -411,6 +608,8 @@ main( int argc, char ** argv ) {
   uchar * deleted_banks_mem = fd_banks_delete( fd_banks_leave( banks ) );
   FD_TEST( deleted_banks_mem == mem );
   FD_TEST( fd_banks_join( deleted_banks_mem ) == NULL );
+
+  test_bank_publishing( mem );
 
   FD_LOG_NOTICE(( "pass" ));
 

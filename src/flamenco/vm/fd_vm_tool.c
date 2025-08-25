@@ -48,7 +48,11 @@ fd_vm_tool_prog_create( fd_vm_tool_prog_t * tool_prog,
   /* Extract ELF info */
 
   fd_sbpf_elf_info_t elf_info;
-  FD_TEST( fd_sbpf_elf_peek( &elf_info, bin_buf, bin_sz, /* deploy checks */ 0, FD_SBPF_V0, FD_SBPF_V3 ) );
+  fd_sbpf_loader_config_t config = { 0 };
+  config.elf_deploy_checks = 0;
+  config.sbpf_min_version = FD_SBPF_V0;
+  config.sbpf_max_version = FD_SBPF_V3;
+  FD_TEST( fd_sbpf_elf_peek( &elf_info, bin_buf, bin_sz, &config )>=0 );
 
   /* Allocate rodata segment */
 
@@ -70,7 +74,7 @@ fd_vm_tool_prog_create( fd_vm_tool_prog_t * tool_prog,
   fd_vm_syscall_register_all( syscalls, 0 );
 
   /* Load program */
-  if( FD_UNLIKELY( 0!=fd_sbpf_program_load( prog, bin_buf, bin_sz, syscalls, 0 ) ) )
+  if( FD_UNLIKELY( 0!=fd_sbpf_program_load( prog, bin_buf, bin_sz, syscalls, &config ) ) )
     FD_LOG_ERR(( "fd_sbpf_program_load() failed: %s", fd_sbpf_strerror() ));
 
   tool_prog->bin_buf  = bin_buf;

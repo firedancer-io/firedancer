@@ -177,8 +177,8 @@ fd_gossip_new( void *                    shmem,
     return NULL;
   }
 
-  if( FD_UNLIKELY( entrypoints_cnt>16UL ) ) {
-    FD_LOG_WARNING(( "entrypoints_cnt must be <= 16" ));
+  if( FD_UNLIKELY( (entrypoints_cnt<1) | (entrypoints_cnt>16UL) ) ) {
+    FD_LOG_WARNING(( "entrypoints_cnt must in (0, 16]" ));
     return NULL;
   }
 

@@ -19,6 +19,11 @@
 #define FD_ELF_EI_ABIVERSION  8
 #define FD_ELF_EI_NIDENT     16
 
+/* FD_ELF_MAX: Magic number */
+
+/* [127, 69, 76, 70] -> [0x7f, 0x45, 0x4c, 0x46] */
+#define FD_ELF_MAG_LE 0x464c457fU
+
 /* FD_ELF_CLASS: 32-bit/64-bit architecture */
 
 #define FD_ELF_CLASS_NONE 0

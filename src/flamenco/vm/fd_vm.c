@@ -327,33 +327,35 @@ fd_vm_validate( fd_vm_t const * vm ) {
   if ( FD_UNLIKELY( vm->text_cnt == 0UL ) ) /* https://github.com/solana-labs/rbpf/blob/v0.8.0/src/verifier.rs#L112 */
     return FD_VM_ERR_EMPTY;
 
-  ulong function_start = 0UL;
-  ulong function_next = 0UL;
-  if( FD_VM_SBPF_STATIC_SYSCALLS(sbpf_version) ) {
-    function_next = fd_sbpf_calldests_const_iter_init( vm->calldests );
-    FD_TEST( function_next==0UL ); /* assert that the first function always starts at 0. */
-  }
-
   ulong const * text     = vm->text;
   ulong         text_cnt = vm->text_cnt;
+
+  /* https://github.com/anza-xyz/sbpf/blob/v0.12.2/src/verifier.rs#L233-L235 */
+  ulong function_start = 0UL;
+  ulong function_next  = 0UL;
+  if( fd_sbpf_enable_stricter_elf_headers(sbpf_version) ) {
+    if( FD_UNLIKELY( !fd_sbpf_is_function_start( fd_sbpf_instr( text[0] ) ) ) ) {
+      return FD_VM_INVALID_FUNCTION;
+    }
+  }
+
   for( ulong i=0UL; i<text_cnt; i++ ) {
     fd_sbpf_instr_t instr = fd_sbpf_instr( text[i] );
 
-    /* Validate functions, stored in vm->calldests.
-       https://github.com/anza-xyz/sbpf/blob/v0.11.1/src/verifier.rs#L253-L263
+    /* Validate functions
+       https://github.com/anza-xyz/sbpf/blob/v0.12.2/src/verifier.rs#L240-L255
        At the start of a function, we check that the function ends with JA(0x05) or RETURN(0x9D).
        As a side effect, the range of the function is [function_start, function_next-1],
        used to validate jumps.
        Note that the first function always starts at 0, and similarly the last function
        always ends at text_cnt-1. */
-    if( FD_UNLIKELY( FD_VM_SBPF_STATIC_SYSCALLS(sbpf_version) && i==function_next ) ) {
-      function_start = function_next;
-      function_next = fd_sbpf_calldests_const_iter_next( vm->calldests, function_start );
-      if( fd_sbpf_calldests_const_iter_done( function_next ) ) {
-        function_next = text_cnt;
+    if( FD_UNLIKELY( fd_sbpf_enable_stricter_elf_headers(sbpf_version) && fd_sbpf_is_function_start( instr ) ) ) {
+      function_start = i;
+      function_next  = i+1;
+      while( function_next<text_cnt && !fd_sbpf_is_function_start( fd_sbpf_instr( text[function_next] ) ) ) {
+        function_next++;
       }
-      fd_sbpf_instr_t end_instr = fd_sbpf_instr( text[function_next-1] );
-      if( FD_UNLIKELY( end_instr.opcode.raw!=0x05 && end_instr.opcode.raw!=0x9D ) ) {
+      if( FD_UNLIKELY( !fd_sbpf_is_function_end( fd_sbpf_instr( text[function_next-1] ) ) ) ) {
         return FD_VM_INVALID_FUNCTION;
       }
     }
@@ -433,16 +435,18 @@ fd_vm_validate( fd_vm_t const * vm ) {
       break;
     }
 
-    /* https://github.com/anza-xyz/sbpf/blob/v0.11.1/src/verifier.rs#L411-L418 */
+    /* https://github.com/anza-xyz/sbpf/blob/v0.12.2/src/verifier.rs#L403-L409 */
     case FD_CHECK_CALL_IMM: {
       ulong target_pc = (ulong)( fd_long_sat_add( (long)i, fd_long_sat_add( (long)(int)instr.imm, 1 ) ) );
-      if( FD_UNLIKELY( target_pc>=text_cnt || !fd_sbpf_calldests_test( vm->calldests, target_pc ) ) ) {
+      if( FD_UNLIKELY( !(
+        target_pc<text_cnt && fd_sbpf_is_function_start( fd_sbpf_instr( text[target_pc] ) )
+      ) ) ) {
         return FD_VM_INVALID_FUNCTION;
       }
       break;
     }
 
-    /* https://github.com/anza-xyz/sbpf/blob/v0.11.1/src/verifier.rs#L423-L428 */
+    /* https://github.com/anza-xyz/sbpf/blob/v0.12.2/src/verifier.rs#L414-L423 */
     case FD_CHECK_SYSCALL: {
       /* check active syscall */
       fd_sbpf_syscalls_t const * syscall = fd_sbpf_syscalls_query_const( vm->syscalls, (ulong)instr.imm, NULL );
@@ -613,13 +617,9 @@ fd_vm_init(
   /* We do support calldests==NULL for tests that do not require
      program execution, e.g. just testing some interpreter functionality
      or syscalls.
-     However in v3, if calldests is specified, it must be a valid calldests.
-     In particular, the bit 0 should be always set to 1.
-     This property is derived from:
-     https://github.com/anza-xyz/sbpf/blob/v0.11.1/src/elf.rs#L529
-     and it's used by fd_vm_validate() */
-  if( FD_LIKELY( calldests && FD_VM_SBPF_STATIC_SYSCALLS(sbpf_version) ) ) {
-    fd_sbpf_calldests_insert( calldests, 0 );
+     SBPF v3+ no longer needs calldests, so we enforce it to be NULL. */
+  if( FD_UNLIKELY( calldests && fd_sbpf_enable_stricter_elf_headers(sbpf_version) ) ) {
+    return NULL;
   }
 
   // Set the vm fields
