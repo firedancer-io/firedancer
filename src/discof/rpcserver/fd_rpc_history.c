@@ -32,6 +32,7 @@ struct fd_rpc_txn {
   ulong slot;
   ulong file_offset;
   ulong file_size;
+  struct fd_rpc_txn * next_lru;
 };
 typedef struct fd_rpc_txn fd_rpc_txn_t;
 
@@ -64,6 +65,7 @@ struct fd_rpc_acct_map_elem {
   ulong slot;
   ulong age;
   fd_rpc_txn_key_t sig; /* Transaction signature */
+  struct fd_rpc_acct_map_elem * next_lru;
 };
 typedef struct fd_rpc_acct_map_elem fd_rpc_acct_map_elem_t;
 #define MAP_NAME fd_rpc_acct_map
@@ -94,8 +96,12 @@ struct fd_rpc_history {
   fd_rpc_block_t * block_map;
   ulong block_cnt;
   fd_rpc_txn_t * txn_map;
+  fd_rpc_txn_t * txn_oldest_lru;
+  fd_rpc_txn_t * txn_newest_lru;
   fd_rpc_acct_map_t * acct_map;
   fd_rpc_acct_map_elem_t * acct_pool;
+  fd_rpc_acct_map_elem_t * acct_oldest_lru;
+  fd_rpc_acct_map_elem_t * acct_newest_lru;
   fd_rpc_reasm_map_t * reasm_map;
   ulong first_slot;
   ulong latest_slot;
@@ -213,13 +219,30 @@ fd_rpc_history_scan_block(fd_rpc_history_t * hist, ulong slot, ulong file_offset
         /* Loop across signatures */
         fd_ed25519_sig_t const * sigs = (fd_ed25519_sig_t const *)(raw + txn->signature_off);
         for ( uchar j = 0; j < txn->signature_cnt; j++ ) {
-          if( fd_rpc_txn_map_is_full( hist->txn_map ) ) break; /* Out of space */
+          while( fd_rpc_txn_map_is_full( hist->txn_map ) ) {
+            /* Remove the oldest entry from the map */
+            fd_rpc_txn_t * ent = hist->txn_oldest_lru;
+            hist->txn_oldest_lru = ent->next_lru;
+            fd_rpc_txn_map_remove( hist->txn_map, &ent->sig );
+          }
+
+          /* Insert the new entry into the map */
           fd_rpc_txn_key_t key;
           memcpy(&key, (const uchar*)&sigs[j], sizeof(key));
           fd_rpc_txn_t * ent = fd_rpc_txn_map_insert( hist->txn_map, &key );
           ent->file_offset = file_offset + blockoff;
           ent->file_size = pay_sz;
           ent->slot = slot;
+
+          /* Update the LRU chain*/
+          ent->next_lru = NULL;
+          if( hist->txn_newest_lru ) {
+            hist->txn_newest_lru->next_lru = ent;
+            hist->txn_newest_lru = ent;
+          } else {
+            hist->txn_newest_lru = ent;
+            hist->txn_oldest_lru = ent;
+          }
         }
 
         /* Loop across accounts */
@@ -228,12 +251,31 @@ fd_rpc_history_scan_block(fd_rpc_history_t * hist, ulong slot, ulong file_offset
         fd_pubkey_t * accs = (fd_pubkey_t *)((uchar *)raw + txn->acct_addr_off);
         for( ulong i = 0UL; i < txn->acct_addr_cnt; i++ ) {
           if( !memcmp(&accs[i], fd_solana_vote_program_id.key, sizeof(fd_pubkey_t)) ) continue; /* Ignore votes */
-          if( !fd_rpc_acct_map_pool_free( hist->acct_pool ) ) break;
+
+          while( !fd_rpc_acct_map_pool_free( hist->acct_pool ) ) {
+            /* Remove the oldest entry from the map */
+            fd_rpc_acct_map_elem_t * ent = hist->acct_oldest_lru;
+            hist->acct_oldest_lru = ent->next_lru;
+            ent = fd_rpc_acct_map_ele_remove( hist->acct_map, &ent->key, NULL, hist->acct_pool );
+            if( ent ) fd_rpc_acct_map_pool_ele_release( hist->acct_pool, ent );
+          }
+
+          /* Insert the new entry into the map */
           fd_rpc_acct_map_elem_t * ele = fd_rpc_acct_map_pool_ele_acquire( hist->acct_pool );
           ele->key = accs[i];
           ele->slot = slot;
           ele->sig = sig0;
           fd_rpc_acct_map_ele_insert( hist->acct_map, ele, hist->acct_pool );
+
+          /* Update the LRU chain */
+          ele->next_lru = NULL;
+          if( hist->acct_newest_lru ) {
+            hist->acct_newest_lru->next_lru = ele;
+            hist->acct_newest_lru = ele;
+          } else {
+            hist->acct_newest_lru = ele;
+            hist->acct_oldest_lru = ele;
+          }
         }
 
         blockoff += pay_sz;
