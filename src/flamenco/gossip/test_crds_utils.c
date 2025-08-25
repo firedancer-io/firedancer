@@ -50,3 +50,8 @@ create_test_crds_with_ci( fd_rng_t * rng, ulong num_peers ) {
 
   return crds;
 }
+
+void
+free_test_crds( fd_crds_t * crds ) {
+  free( (void *)crds );
+}
