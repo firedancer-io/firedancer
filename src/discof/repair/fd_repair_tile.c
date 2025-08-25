@@ -66,7 +66,7 @@
 #include "../reasm/fd_reasm.h"
 
 #define LOGGING       1
-#define DEBUG_LOGGING 1
+#define DEBUG_LOGGING 0
 
 #define IN_KIND_CONTACT (0)
 #define IN_KIND_NET     (1)
@@ -1085,7 +1085,7 @@ during_housekeeping( fd_repair_tile_ctx_t * ctx ) {
 
 # if DEBUG_LOGGING
   long now = fd_log_wallclock();
-  if( FD_UNLIKELY( now - ctx->tsprint > (long)5e9 ) ) {
+  if( FD_UNLIKELY( now - ctx->tsprint > (long)30e9 ) ) {
     fd_forest_print( ctx->forest );
     fd_reasm_print( ctx->reasm );
     ctx->tsprint = fd_log_wallclock();
