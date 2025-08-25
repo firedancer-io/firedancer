@@ -68,7 +68,7 @@ FD_STATIC_ASSERT( FD_SHRED_REPAIR_MTU == 152UL , update FD_SHRED_REPAIR_MTU );
 #define FD_NETMUX_SIG_IGNORE_HDR_SZ (102UL) /* Outside the allowable range, but still fits in 4 bits when compressed */
 
 /* Maximum number of vote account states the Tower tile can process in one slot */
-#define FD_TOWER_MAX_VOTE_ACCOUNTS (4096UL)
+#define FD_REPLAY_TOWER_VOTE_ACC_MAX (4096UL)
 
 #define FD_REPLAY_SIG_SLOT_INFO  (1UL)
 #define FD_REPLAY_SIG_VOTE_STATE (2UL)

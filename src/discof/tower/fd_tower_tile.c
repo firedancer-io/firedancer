@@ -63,9 +63,9 @@ typedef struct {
   fd_lockout_offset_t         lockouts[FD_TOWER_VOTE_MAX];
   fd_replay_slot_info_t       replay_slot_info;
   ulong                       replay_vote_states_len;
-  fd_replay_out_vote_state_t  replay_vote_states[FD_TOWER_MAX_VOTE_ACCOUNTS];
-  fd_tower_t *                vote_towers[FD_TOWER_MAX_VOTE_ACCOUNTS];
-  fd_pubkey_t                 vote_keys[FD_TOWER_MAX_VOTE_ACCOUNTS];
+  fd_replay_out_vote_state_t  replay_vote_states[FD_REPLAY_TOWER_VOTE_ACC_MAX];
+  fd_tower_t *                vote_towers[FD_REPLAY_TOWER_VOTE_ACC_MAX];
+  fd_pubkey_t                 vote_keys[FD_REPLAY_TOWER_VOTE_ACC_MAX];
   int                         replay_out_eom;
   fd_snapshot_manifest_t      snapshot_manifest;
 } ctx_t;
@@ -265,12 +265,12 @@ scratch_footprint( fd_topo_tile_t const * tile FD_PARAM_UNUSED ) {
     FD_LAYOUT_APPEND(
     FD_LAYOUT_APPEND(
     FD_LAYOUT_INIT,
-      alignof(ctx_t),   sizeof(ctx_t)                                     ),
-      fd_epoch_align(), fd_epoch_footprint( FD_TOWER_MAX_VOTE_ACCOUNTS )  ),
-      fd_ghost_align(), fd_ghost_footprint( FD_TOWER_MAX_VOTE_ACCOUNTS )  ),
-      fd_tower_align(), fd_tower_footprint()                              ), /* our tower */
-      128UL,            VOTER_FOOTPRINT * FD_TOWER_MAX_VOTE_ACCOUNTS      ), /* epoch voters */
-      fd_tower_align(), fd_tower_footprint() * FD_TOWER_MAX_VOTE_ACCOUNTS ), /* vote towers */
+      alignof(ctx_t),   sizeof(ctx_t)                                       ),
+      fd_epoch_align(), fd_epoch_footprint( FD_REPLAY_TOWER_VOTE_ACC_MAX )  ),
+      fd_ghost_align(), fd_ghost_footprint( FD_REPLAY_TOWER_VOTE_ACC_MAX )  ),
+      fd_tower_align(), fd_tower_footprint()                                ), /* our tower */
+      128UL,            VOTER_FOOTPRINT * FD_REPLAY_TOWER_VOTE_ACC_MAX      ), /* epoch voters */
+      fd_tower_align(), fd_tower_footprint() * FD_REPLAY_TOWER_VOTE_ACC_MAX ), /* vote towers */
     scratch_align() );
 }
 
@@ -302,7 +302,7 @@ during_frag( ctx_t * ctx,
     if(      FD_UNLIKELY( sig==FD_REPLAY_SIG_SLOT_INFO  ) ) memcpy( &ctx->replay_slot_info,      chunk_laddr, sizeof(fd_replay_slot_info_t)      );
     else if( FD_LIKELY(   sig==FD_REPLAY_SIG_VOTE_STATE ) ) {
       if( FD_UNLIKELY( fd_frag_meta_ctl_som( ctl ) ) ) ctx->replay_vote_states_len = 0;
-      if( FD_UNLIKELY( ctx->replay_vote_states_len >= FD_TOWER_MAX_VOTE_ACCOUNTS ) ) FD_LOG_ERR(( "tower received more vote states than expected" ));
+      if( FD_UNLIKELY( ctx->replay_vote_states_len >= FD_REPLAY_TOWER_VOTE_ACC_MAX ) ) FD_LOG_ERR(( "tower received more vote states than expected" ));
       memcpy( &ctx->replay_vote_states[ctx->replay_vote_states_len++], chunk_laddr, sizeof(fd_replay_out_vote_state_t) );
       ctx->replay_out_eom = fd_frag_meta_ctl_eom( ctl );
     }
@@ -345,20 +345,20 @@ unprivileged_init( fd_topo_t *      topo,
   void * scratch = fd_topo_obj_laddr( topo, tile->tile_obj_id );
 
   FD_SCRATCH_ALLOC_INIT( l, scratch );
-  ctx_t * ctx            = FD_SCRATCH_ALLOC_APPEND( l, alignof(ctx_t),   sizeof(ctx_t)                                     );
-  void * epoch_mem       = FD_SCRATCH_ALLOC_APPEND( l, fd_epoch_align(), fd_epoch_footprint( FD_TOWER_MAX_VOTE_ACCOUNTS )  );
-  void * ghost_mem       = FD_SCRATCH_ALLOC_APPEND( l, fd_ghost_align(), fd_ghost_footprint( FD_TOWER_MAX_VOTE_ACCOUNTS )  );
-  void * tower_mem       = FD_SCRATCH_ALLOC_APPEND( l, fd_tower_align(), fd_tower_footprint()                              );
-  void * voter_mem       = FD_SCRATCH_ALLOC_APPEND( l, 128UL,            VOTER_FOOTPRINT * FD_TOWER_MAX_VOTE_ACCOUNTS      );
-  uchar * vote_tower_mem = FD_SCRATCH_ALLOC_APPEND( l, fd_tower_align(), fd_tower_footprint() * FD_TOWER_MAX_VOTE_ACCOUNTS );
-  ulong scratch_top      = FD_SCRATCH_ALLOC_FINI  ( l, scratch_align()                                                     );
+  ctx_t * ctx            = FD_SCRATCH_ALLOC_APPEND( l, alignof(ctx_t),   sizeof(ctx_t)                                       );
+  void * epoch_mem       = FD_SCRATCH_ALLOC_APPEND( l, fd_epoch_align(), fd_epoch_footprint( FD_REPLAY_TOWER_VOTE_ACC_MAX )  );
+  void * ghost_mem       = FD_SCRATCH_ALLOC_APPEND( l, fd_ghost_align(), fd_ghost_footprint( FD_REPLAY_TOWER_VOTE_ACC_MAX )  );
+  void * tower_mem       = FD_SCRATCH_ALLOC_APPEND( l, fd_tower_align(), fd_tower_footprint()                                );
+  void * voter_mem       = FD_SCRATCH_ALLOC_APPEND( l, 128UL,            VOTER_FOOTPRINT * FD_REPLAY_TOWER_VOTE_ACC_MAX      );
+  uchar * vote_tower_mem = FD_SCRATCH_ALLOC_APPEND( l, fd_tower_align(), fd_tower_footprint() * FD_REPLAY_TOWER_VOTE_ACC_MAX );
+  ulong scratch_top      = FD_SCRATCH_ALLOC_FINI  ( l, scratch_align()                                                       );
   FD_TEST( scratch_top == (ulong)scratch + scratch_footprint( tile ) );
 
-  ctx->epoch   = fd_epoch_join( fd_epoch_new( epoch_mem, FD_TOWER_MAX_VOTE_ACCOUNTS ) );
+  ctx->epoch   = fd_epoch_join( fd_epoch_new( epoch_mem, FD_REPLAY_TOWER_VOTE_ACC_MAX ) );
   ctx->ghost   = fd_ghost_join( fd_ghost_new( ghost_mem, FD_BLOCK_MAX, 42UL         ) );
   ctx->tower   = fd_tower_join( fd_tower_new( tower_mem                             ) );
 
-  for( ulong i = 0; i < FD_TOWER_MAX_VOTE_ACCOUNTS; i++ ) {
+  for( ulong i = 0; i < FD_REPLAY_TOWER_VOTE_ACC_MAX; i++ ) {
     ctx->vote_towers[i] = fd_tower_join( fd_tower_new( vote_tower_mem + ( i * fd_tower_footprint() ) ) );
   }
   ctx->replay_out_eom         = 0;

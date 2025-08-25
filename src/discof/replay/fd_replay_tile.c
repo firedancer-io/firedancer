@@ -433,7 +433,7 @@ struct fd_replay_tile_ctx {
   /* Buffer to store vote states that need to be published to Tower. */
   ulong vote_state_out_idx; /* index of vote state to publish next */
   ulong vote_state_out_len; /* number of vote states in the buffer */
-  fd_replay_out_vote_state_t vote_state_out[FD_TOWER_MAX_VOTE_ACCOUNTS];
+  fd_replay_out_vote_state_t vote_state_out[FD_REPLAY_TOWER_VOTE_ACC_MAX];
 };
 typedef struct fd_replay_tile_ctx fd_replay_tile_ctx_t;
 
@@ -1495,7 +1495,7 @@ buffer_vote_states_for_tower( fd_replay_tile_ctx_t * ctx ) {
     fd_vote_state_ele_t const * vote_state = fd_vote_states_iter_ele( iter );
     if( FD_UNLIKELY( vote_state->stake == 0 ) ) continue; /* skip unstaked vote accounts */
     fd_pubkey_t const * vote_account_pubkey = &vote_state->vote_account;
-    if( FD_UNLIKELY( ctx->vote_state_out_len >= (FD_TOWER_MAX_VOTE_ACCOUNTS-1UL) ) ) FD_LOG_ERR(( "vote_state_out_len too large" ));
+    if( FD_UNLIKELY( ctx->vote_state_out_len >= (FD_REPLAY_TOWER_VOTE_ACC_MAX-1UL) ) ) FD_LOG_ERR(( "vote_state_out_len too large" ));
     if( FD_UNLIKELY( fd_replay_out_vote_state_from_funk(
       ctx->funk, ctx->slot_ctx->funk_txn, vote_account_pubkey, vote_state->stake, &ctx->vote_state_out[ctx->vote_state_out_len++] ) ) ) {
         FD_LOG_ERR(( "failed to get vote state for vote account %s", FD_BASE58_ENC_32_ALLOCA( vote_account_pubkey->uc ) ));
