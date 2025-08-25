@@ -101,6 +101,44 @@ abort( );  /* WRONG! */
 abort ();  /* WRONG! */
 ```
 
+For function calls with a long argument list, either single line or
+multi-line with two additional indents.
+
+```c
+int result = foo( argument_one, argument_two, argument_three, argument_four, argugment_five, argument_six ); /* good */
+
+int result = foo( /* good */
+    argument_one,
+    argument_two,
+    argument_three,
+    argument_four,
+    argument_five,
+    argument_six );
+
+int result = foo( /* WRONG! */
+  argument_one,
+  argument_two,
+  argument_three,
+  argument_four,
+  argument_five,
+  argument_six );
+
+int result = foo( argument_one, /* WRONG! */
+    argument_two,
+    argument_three,
+    argument_four,
+    argument_five,
+    argument_six );
+
+int result = foo( argument_one, /* WRONG! */
+                  argument_two,
+                  argument_three,
+                  argument_four,
+                  argument_five,
+                  argument_six );
+
+```
+
 For function calls with arguments, spaces inside brackets.
 No space before brackets.
 
