@@ -29,7 +29,7 @@ fd_bloom_footprint( double false_positive_rate,
 
   if( FD_UNLIKELY( max_bits<1UL || max_bits>32768UL ) ) return 0UL;
 
-  ulong num_keys = (ulong)( (double)max_bits*FD_BLOOM_LN_2 );
+  ulong num_keys = (ulong)( round( (double)max_bits*FD_BLOOM_LN_2 ) );
 
   ulong l;
   l = FD_LAYOUT_INIT;
@@ -62,7 +62,7 @@ fd_bloom_new( void *     shmem,
 
   if( FD_UNLIKELY( !rng ) ) return NULL;
 
-  ulong num_keys = (ulong)( (double)max_bits*FD_BLOOM_LN_2 );
+  ulong num_keys = (ulong)( round( (double)max_bits*FD_BLOOM_LN_2 ) );
 
   FD_SCRATCH_ALLOC_INIT( l, shmem );
   fd_bloom_t * bloom = FD_SCRATCH_ALLOC_APPEND( l, FD_BLOOM_ALIGN, sizeof(fd_bloom_t) );
