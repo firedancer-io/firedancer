@@ -260,12 +260,14 @@ fd_rpc_history_process_column(fd_rpc_history_t * hist, struct fd_rpc_reasm_map_c
   for( ulong idx = 0; idx < col->ele_cnt; ) {
     ulong end_idx = ULONG_MAX;
     /* Query the next batch */
+    fd_store_shacq( store );
     ulong batch_sz = 0;
     for( ulong i = idx; i < col->ele_cnt; i++ ) {
       fd_reasm_fec_t * ele = &col->ele[i];
       fd_store_fec_t * fec_p = list[i-idx] = fd_store_query( store, &ele->key );
       if( !fec_p ) {
         FD_LOG_ERR(( "missing fec" ));
+        fd_store_shrel( store );
         return;
       }
       batch_sz += fec_p->data_sz;
@@ -276,6 +278,7 @@ fd_rpc_history_process_column(fd_rpc_history_t * hist, struct fd_rpc_reasm_map_c
     }
     if( end_idx == ULONG_MAX ) {
       FD_LOG_ERR(( "missing data complete flag" ));
+      fd_store_shrel( store );
       return;
     }
     FD_SPAD_FRAME_BEGIN( hist->spad ) {
@@ -292,11 +295,14 @@ fd_rpc_history_process_column(fd_rpc_history_t * hist, struct fd_rpc_reasm_map_c
       /* Write the trimmed batch to the file */
       if( pwrite( hist->file_fd, blk_data, batch_sz, (long)file_offset ) != (ssize_t)batch_sz ) {
         FD_LOG_ERR(( "unable to write to rpc history file" ));
+        fd_store_shrel( store );
+        return;
       }
       file_offset += batch_sz;
       blk->file_size += batch_sz;
       hist->file_totsz = file_offset;
     } FD_SPAD_FRAME_END;
+    fd_store_shrel( store );
     idx = end_idx + 1;
   }
 }
