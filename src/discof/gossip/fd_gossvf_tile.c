@@ -967,7 +967,7 @@ privileged_init( fd_topo_t *      topo,
   fd_gossvf_tile_ctx_t * ctx = FD_SCRATCH_ALLOC_APPEND( l, alignof( fd_gossvf_tile_ctx_t ), sizeof( fd_gossvf_tile_ctx_t ) );
   FD_TEST( fd_rng_secure( &ctx->seed, 8U ) );
 
-  if( FD_UNLIKELY( !strcmp( tile->shred.identity_key_path, "" ) ) ) FD_LOG_ERR(( "identity_key_path not set" ));
+  if( FD_UNLIKELY( !strcmp( tile->gossvf.identity_key_path, "" ) ) ) FD_LOG_ERR(( "identity_key_path not set" ));
 
   ctx->identity_pubkey[ 0 ] = *(fd_pubkey_t const *)fd_type_pun_const( fd_keyload_load( tile->gossvf.identity_key_path, /* pubkey only: */ 1 ) );
 }
