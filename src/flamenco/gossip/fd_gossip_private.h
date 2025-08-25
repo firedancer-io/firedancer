@@ -1,6 +1,6 @@
 
-#ifndef HEADER_fd_src_flamenco_gossip_fd_gossip_msg_h
-#define HEADER_fd_src_flamenco_gossip_fd_gossip_msg_h
+#ifndef HEADER_fd_src_flamenco_gossip_fd_gossip_private_h
+#define HEADER_fd_src_flamenco_gossip_fd_gossip_private_h
 
 #include "fd_gossip_types.h"
 #include "../../util/fd_util.h"
@@ -377,4 +377,4 @@ fd_gossip_crds_vote_encode( uchar *       out_buf,
                             uchar const * identity_pubkey,
                             long          now,
                             ulong *       opt_encoded_sz );
-#endif /* HEADER_fd_src_flamenco_gossip_fd_gossip_msg_h */
+#endif /* HEADER_fd_src_flamenco_gossip_fd_gossip_private_h */
