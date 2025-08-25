@@ -201,9 +201,10 @@ init( send_test_ctx_t * ctx, config_t * config ) {
   ctx->last_evt [  MOCK_STAKE_IDX  ] = 0;
   ctx->last_evt [ MOCK_TRIGGER_IDX ] = 0;
 
-  ctx->delay    [    MOCK_CI_IDX   ] = 5e9L;
-  ctx->delay    [  MOCK_STAKE_IDX  ] = 172800e9L;
-  ctx->delay    [ MOCK_TRIGGER_IDX ] = 400e6L;
+  double tick_per_ns = fd_tempo_tick_per_ns( NULL );
+  ctx->delay    [    MOCK_CI_IDX   ] = (long)(tick_per_ns * 5e9);
+  ctx->delay    [  MOCK_STAKE_IDX  ] = (long)(tick_per_ns * 400e6 * MAX_SLOTS_PER_EPOCH);
+  ctx->delay    [ MOCK_TRIGGER_IDX ] = (long)(tick_per_ns * 400e6); /* 400ms */
 
   encode_vote( ctx, ctx->txn_buf );
 
