@@ -229,6 +229,7 @@ fd_http_server_response_t request_callback( fd_http_server_request_t const * req
         {
             resp.status = 200;
             resp.upgrade_websocket = xorshift_next(&poll_rng) % 2;
+            resp.compress_websocket = xorshift_next(&poll_rng) % 2;
         }
         break;
         case 1:
