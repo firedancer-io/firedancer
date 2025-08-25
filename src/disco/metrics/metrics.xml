@@ -250,29 +250,55 @@ metric introduced.
     <counter name="PktRetransmissions" summary="Number of QUIC packets that retransmitted." />
 </tile>
 
-
 <enum name="NewContactOutcome">
     <int value="0" name="Unroutable" label="Skipped (unroutable)" />
-    <int value="1" name="Unstaked" label="Skipped (unstaked)" />
+    <int value="1" name="Initialized" label="Initialized" />
     <int value="2" name="Changed" label="Contact info changed" />
     <int value="3" name="NoChange" label="Contact info unchanged" />
 </enum>
 
-<enum name="TxnQuicSendResult">
+<enum name="TxnSendResult">
     <int value="0" name="Success" label="Success" />
     <int value="1" name="NoCi" label="No contact info" />
     <int value="2" name="NoConn" label="No QUIC connection" />
     <int value="3" name="NoStream" label="No QUIC stream" />
 </enum>
 
+<enum name="SendQuicPorts">
+    <int value="0" name="QuicVote" label="QUIC Vote port" />
+    <int value="1" name="QuicTpu" label="QUIC TPU port" />
+</enum>
+
+<enum name="SendEnsureConnResult">
+    <int value="0" name="NoLeader" label="No QUIC connection" />
+    <int value="1" name="NoCi" label="No contact info" />
+    <int value="2" name="NewConnection" label="Initiated connection" />
+    <int value="3" name="ConnFailed" label="Connection failed" />
+    <int value="4" name="Connected" label="Connection exists" />
+</enum>
+
 <tile name="send">
 
     <counter name="LeaderNotFound" summary="Total number of times slot leader not found" />
-    <counter name="NewContactInfo" enum="NewContactOutcome" summary="Total number of contact infos received and handled" />
-    <counter name="ContactStale" summary="Total number of reconnects skipped due to stale contact info" />
-    <counter name="QuicSendResult" enum="TxnQuicSendResult" summary="Total number of transactions we attempted to send via QUIC" />
-    <counter name="QuicConnCreateFailed" summary="Total number of QUIC connection creation failures" />
-    <counter name="HandshakeComplete" summary="Total number of times we completed a handshake" />
+    <counter name="UnstakedCi" summary="Total number of times we received contact info for an unstaked node" />
+    <counter name="CiRemoved" summary="Total number of times we removed contact info" />
+
+    <counter name="NewContactInfoQuicVote" enum="NewContactOutcome" summary="Total number of contact infos received and handled for QUIC Vote port" />
+    <counter name="NewContactInfoQuicTpu" enum="NewContactOutcome" summary="Total number of contact infos received and handled for QUIC TPU port" />
+    <counter name="NewContactInfoUdpVote" enum="NewContactOutcome" summary="Total number of contact infos received and handled for UDP Vote port" />
+    <counter name="NewContactInfoUdpTpu" enum="NewContactOutcome" summary="Total number of contact infos received and handled for UDP TPU port" />
+
+    <counter name="SendResultQuicVote" enum="TxnSendResult" summary="Total count of results from trying to send via QUIC Vote port" />
+    <counter name="SendResultQuicTpu" enum="TxnSendResult" summary="Total count of results from trying to send via QUIC TPU port" />
+    <counter name="SendResultUdpVote" enum="TxnSendResult" summary="Total count of results from trying to send via UDP Vote port" />
+    <counter name="SendResultUdpTpu" enum="TxnSendResult" summary="Total count of results from trying to send via UDP TPU port" />
+
+    <counter name="EnsureConnResultQuicVote" enum="SendEnsureConnResult" summary="Total count of results from trying to ensure a connection for a leader for QUIC Vote port" />
+    <counter name="EnsureConnResultQuicTpu" enum="SendEnsureConnResult" summary="Total count of results from trying to ensure a connection for a leader for QUIC TPU port" />
+
+    <counter name="HandshakeComplete" enum="SendQuicPorts" summary="Total number of times we completed a handshake" />
+    <counter name="QuicConnFinal" enum="SendQuicPorts" summary="Total number of times QUIC connection closed" />
+
     <gauge name="StakedNoCi" summary="Last counted # staked accounts without contact info" />
     <gauge name="StaleCi" summary="Last counted # staked accounts with stale contact info" />
 

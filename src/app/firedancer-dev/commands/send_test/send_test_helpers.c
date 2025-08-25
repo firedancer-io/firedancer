@@ -77,6 +77,8 @@ parse_gossip_line( char * line ) {
   /* solana gossip output does not contain all 4 we care about - for now, use these two */
   fd_ip4_port_t * udp_tpu  = &msg.contact_info.contact_info->sockets[FD_CONTACT_INFO_SOCKET_TPU];
   fd_ip4_port_t * quic_tpu = &msg.contact_info.contact_info->sockets[FD_CONTACT_INFO_SOCKET_TPU_QUIC];
+  fd_ip4_port_t * udp_vote = &msg.contact_info.contact_info->sockets[FD_CONTACT_INFO_SOCKET_TPU_VOTE];
+  fd_ip4_port_t * quic_vote = &msg.contact_info.contact_info->sockets[FD_CONTACT_INFO_SOCKET_TPU_VOTE_QUIC];
 
   /* Set pubkey, IP, ports - 'gossip' should send all in net order */
   FD_TEST( fd_base58_decode_32( pubkey_token, msg.origin_pubkey ) );
@@ -90,6 +92,9 @@ parse_gossip_line( char * line ) {
   ushort quic_port_net = fd_cstr_to_ushort( tpu_quic ); FD_TEST( quic_port_net );
   udp_tpu->port  = fd_ushort_bswap( udp_port_net  );
   quic_tpu->port = fd_ushort_bswap( quic_port_net );
+
+  fd_memset( udp_vote,  0, sizeof(fd_ip4_port_t) );
+  fd_memset( quic_vote, 0, sizeof(fd_ip4_port_t) );
 
   return msg;
 }
