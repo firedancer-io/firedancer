@@ -63,6 +63,8 @@ test_push_active_set( void ) {
 
   ulong out_cnt = fd_active_set_nodes( active_set, identity_pubkey, identity_stake, target_pubkey, target_stake, 0, out_nodes );
   (void)out_cnt;
+  free_test_crds( crds );
+  free( bytes );
 }
 
 
