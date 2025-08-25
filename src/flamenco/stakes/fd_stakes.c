@@ -11,7 +11,7 @@ fd_stake_weights_by_node( fd_vote_states_t const * vote_states,
                           fd_vote_stake_weight_t * weights ) {
 
   ulong weights_cnt = 0;
-  uchar iter_mem[FD_VOTE_STATE_ITER_FOOTPRINT];
+  uchar iter_mem[FD_VOTE_STATE_ITER_FOOTPRINT]__attribute__((aligned(FD_VOTE_STATE_ITER_ALIGN)));
   for( fd_vote_states_iter_t * iter = fd_vote_states_iter_init( vote_states, iter_mem ); !fd_vote_states_iter_done( iter ); fd_vote_states_iter_next( iter ) ) {
     fd_vote_state_ele_t const * vote_state = fd_vote_states_iter_ele( iter );
     if( FD_UNLIKELY( !vote_state->stake ) ) continue;
@@ -43,7 +43,7 @@ compute_stake_delegations( fd_bank_t *                    bank,
      current stake delegation values. */
   fd_vote_states_reset_stakes( vote_states );
 
-  uchar mem[FD_STAKE_DELEGATIONS_ITER_FOOTPRINT];
+  uchar mem[FD_STAKE_DELEGATIONS_ITER_FOOTPRINT]__attribute__((aligned(FD_STAKE_DELEGATIONS_ITER_ALIGN)));
   for( fd_stake_delegations_iter_t * iter = fd_stake_delegations_iter_init( stake_delegations, mem );
        !fd_stake_delegations_iter_done( iter );
        fd_stake_delegations_iter_next( iter ) ) {
@@ -111,7 +111,7 @@ accumulate_stake_cache_delegations( fd_stake_delegations_t const * stake_delegat
   ulong activating   = 0UL;
   ulong deactivating = 0UL;
 
-  uchar mem[FD_STAKE_DELEGATIONS_ITER_FOOTPRINT];
+  uchar mem[FD_STAKE_DELEGATIONS_ITER_FOOTPRINT]__attribute__((aligned(FD_STAKE_DELEGATIONS_ITER_ALIGN)));
   for( fd_stake_delegations_iter_t * iter = fd_stake_delegations_iter_init( stake_delegations, mem );
        !fd_stake_delegations_iter_done( iter );
        fd_stake_delegations_iter_next( iter ) ) {
@@ -303,7 +303,7 @@ fd_refresh_stake_delegations( fd_exec_slot_ctx_t * slot_ctx ) {
     FD_LOG_CRIT(( "fd_runtime_refresh_stakes: stake_delegations is NULL" ));
   }
 
-  uchar mem[FD_STAKE_DELEGATIONS_ITER_FOOTPRINT];
+  uchar mem[FD_STAKE_DELEGATIONS_ITER_FOOTPRINT]__attribute__((aligned(FD_STAKE_DELEGATIONS_ITER_ALIGN)));
   for( fd_stake_delegations_iter_t * iter = fd_stake_delegations_iter_init( stake_delegations, mem );
        !fd_stake_delegations_iter_done( iter );
        fd_stake_delegations_iter_next( iter ) ) {

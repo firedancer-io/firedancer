@@ -112,7 +112,7 @@ fd_epoch_init( fd_epoch_t *             epoch,
 
   fd_voter_t * epoch_voters = fd_epoch_voters( epoch );
 
-  uchar iter_mem[FD_VOTE_STATE_ITER_FOOTPRINT];
+  uchar iter_mem[FD_VOTE_STATE_ITER_FOOTPRINT]__attribute__((aligned(FD_VOTE_STATE_ITER_ALIGN)));
   for( fd_vote_states_iter_t * iter = fd_vote_states_iter_init( vote_accounts, iter_mem ); !fd_vote_states_iter_done( iter ); fd_vote_states_iter_next( iter ) ) {
     fd_vote_state_ele_t const * vote_state = fd_vote_states_iter_ele( iter );
 

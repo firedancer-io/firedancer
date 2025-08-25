@@ -657,7 +657,7 @@ fd_banks_stake_delegations_apply_delta( fd_bank_t *              bank,
     FD_LOG_CRIT(( "Failed to join stake delegations delta" ));
   }
 
-  uchar mem[FD_STAKE_DELEGATIONS_ITER_FOOTPRINT];
+  uchar mem[FD_STAKE_DELEGATIONS_ITER_FOOTPRINT]__attribute__((aligned(FD_STAKE_DELEGATIONS_ITER_ALIGN)));
   for( fd_stake_delegations_iter_t * iter = fd_stake_delegations_iter_init( stake_delegations_delta, mem );
        !fd_stake_delegations_iter_done( iter );
        fd_stake_delegations_iter_next( iter ) ) {

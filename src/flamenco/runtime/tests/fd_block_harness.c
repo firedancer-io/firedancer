@@ -21,7 +21,7 @@
 static void
 fd_runtime_fuzz_block_refresh_vote_accounts( fd_vote_states_t *       vote_states,
                                              fd_stake_delegations_t * stake_delegations ) {
-  uchar mem[FD_STAKE_DELEGATIONS_ITER_FOOTPRINT];
+  uchar mem[FD_STAKE_DELEGATIONS_ITER_FOOTPRINT]__attribute__((aligned(FD_STAKE_DELEGATIONS_ITER_ALIGN)));
   for( fd_stake_delegations_iter_t * iter = fd_stake_delegations_iter_init( stake_delegations, mem );
        !fd_stake_delegations_iter_done( iter );
        fd_stake_delegations_iter_next( iter ) ) {

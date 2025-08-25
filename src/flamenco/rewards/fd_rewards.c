@@ -321,7 +321,7 @@ calculate_points_all( fd_exec_slot_ctx_t const *     slot_ctx,
 
   uint128 total_points = 0;
 
-  uchar mem[FD_STAKE_DELEGATIONS_ITER_FOOTPRINT];
+  uchar mem[FD_STAKE_DELEGATIONS_ITER_FOOTPRINT]__attribute__((aligned(FD_STAKE_DELEGATIONS_ITER_ALIGN)));
   for( fd_stake_delegations_iter_t * iter = fd_stake_delegations_iter_init( stake_delegations, mem );
        !fd_stake_delegations_iter_done( iter );
        fd_stake_delegations_iter_next( iter ) ) {
@@ -419,7 +419,7 @@ calculate_stake_vote_rewards_account( fd_exec_slot_ctx_t const *                
       spad, fd_vote_reward_t_map_align(), fd_vote_reward_t_map_footprint( stake_delegation_cnt ) ), stake_delegation_cnt ) );
   fd_vote_reward_t_mapnode_t * vote_reward_map_root = NULL;
 
-  uchar mem[FD_STAKE_DELEGATIONS_ITER_FOOTPRINT];
+  uchar mem[FD_STAKE_DELEGATIONS_ITER_FOOTPRINT]__attribute__((aligned(FD_STAKE_DELEGATIONS_ITER_ALIGN)));
   for( fd_stake_delegations_iter_t * iter = fd_stake_delegations_iter_init( stake_delegations, mem );
        !fd_stake_delegations_iter_done( iter );
        fd_stake_delegations_iter_next( iter ) ) {
@@ -622,7 +622,7 @@ calculate_stake_vote_rewards( fd_exec_slot_ctx_t *                       slot_ct
   result->vote_reward_map_root = NULL;
 
   /* Pre-fill the vote pubkeys in the vote rewards map pool */
-  uchar iter_mem[FD_VOTE_STATE_ITER_FOOTPRINT];
+  uchar iter_mem[FD_VOTE_STATE_ITER_FOOTPRINT]__attribute__((aligned(FD_VOTE_STATE_ITER_ALIGN)));
   for( fd_vote_states_iter_t * iter = fd_vote_states_iter_init( vote_states, iter_mem ); !fd_vote_states_iter_done( iter ); fd_vote_states_iter_next( iter ) ) {
     fd_vote_state_ele_t const * vote_state = fd_vote_states_iter_ele( iter );
 

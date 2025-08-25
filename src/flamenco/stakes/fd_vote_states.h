@@ -70,6 +70,7 @@ struct fd_vote_states_iter;
 typedef struct fd_vote_states_iter fd_vote_states_iter_t;
 
 #define FD_VOTE_STATE_ITER_FOOTPRINT (32UL)
+#define FD_VOTE_STATE_ITER_ALIGN     (8UL)
 
 struct __attribute__((aligned(FD_VOTE_STATES_ALIGN))) fd_vote_states {
   ulong magic;
@@ -228,7 +229,7 @@ fd_vote_states_cnt( fd_vote_states_t const * vote_states );
 
    Example use:
 
-   uchar mem[FD_VOTE_STATE_ITER_FOOTPRINT];
+   uchar mem[FD_VOTE_STATE_ITER_FOOTPRINT]__attribute__((aligned(FD_VOTE_STATE_ITER_ALIGN)));
    for( fd_vote_states_iter_t * iter = fd_vote_states_iter_init( vote_states, mem ); !fd_vote_states_iter_done( iter ); fd_vote_states_iter_next( iter ) ) {
      fd_vote_state_ele_t * vote_state = fd_vote_states_iter_ele( iter );
      // Do something with the vote state ...

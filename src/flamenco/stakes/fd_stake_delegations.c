@@ -23,6 +23,7 @@ struct fd_stake_delegations_iter {
 };
 typedef struct fd_stake_delegations_iter fd_stake_delegations_iter_t;
 FD_STATIC_ASSERT(sizeof(fd_stake_delegations_iter_t) == FD_STAKE_DELEGATIONS_ITER_FOOTPRINT, "fd_stake_delegations_iter_t is not the expected size");
+FD_STATIC_ASSERT(alignof(fd_stake_delegations_iter_t) == FD_STAKE_DELEGATIONS_ITER_ALIGN, "fd_stake_delegations_iter_t is not the expected alignment");
 
 static inline fd_stake_delegation_t *
 fd_stake_delegations_get_pool( fd_stake_delegations_t const * stake_delegations ) {

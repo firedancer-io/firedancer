@@ -115,8 +115,8 @@ struct fd_stake_delegations {
 };
 typedef struct fd_stake_delegations fd_stake_delegations_t;
 
-
 #define FD_STAKE_DELEGATIONS_ITER_FOOTPRINT (32UL)
+#define FD_STAKE_DELEGATIONS_ITER_ALIGN     (8UL)
 struct fd_stake_delegations_iter;
 typedef struct fd_stake_delegations_iter fd_stake_delegations_iter_t;
 
@@ -243,7 +243,7 @@ fd_stake_delegations_max( fd_stake_delegations_t const * stake_delegations ) {
 
    Example use:
 
-   uchar mem[FD_STAKE_DELEGATIONS_ITER_FOOTPRINT];
+   uchar mem[FD_STAKE_DELEGATIONS_ITER_FOOTPRINT]__attribute__((aligned(FD_STAKE_DELEGATIONS_ITER_ALIGN)));
    for( fd_stake_delegations_iter_t * iter = fd_stake_delegations_iter_init( stake_delegations, mem ); !fd_stake_delegations_iter_done( iter ); fd_stake_delegations_iter_next( iter ) ) {
      fd_stake_delegation_t * stake_delegation = fd_stake_delegations_iter_ele( iter );
      // Do something with the stake delegation ...

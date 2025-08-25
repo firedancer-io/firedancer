@@ -22,6 +22,7 @@ struct fd_vote_states_iter {
 };
 typedef struct fd_vote_states_iter fd_vote_states_iter_t;
 FD_STATIC_ASSERT(sizeof(fd_vote_states_iter_t) == FD_VOTE_STATE_ITER_FOOTPRINT, "fd_vote_states_iter_t is not the expected size");
+FD_STATIC_ASSERT(alignof(fd_vote_states_iter_t) == FD_VOTE_STATE_ITER_ALIGN, "fd_vote_states_iter_t is not the expected alignment");
 
 static fd_vote_state_ele_t *
 fd_vote_states_get_pool( fd_vote_states_t const * vote_states ) {
