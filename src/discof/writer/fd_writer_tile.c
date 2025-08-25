@@ -314,7 +314,6 @@ after_frag( fd_writer_tile_ctx_t * ctx,
     }
     fd_exec_txn_ctx_t * txn_ctx = ctx->txn_ctx[ in_idx ];
 
-    fd_banks_lock( ctx->banks );
     ctx->bank = fd_banks_get_bank( ctx->banks, txn_ctx->slot );
     if( FD_UNLIKELY( !ctx->bank ) ) {
       FD_LOG_CRIT(( "Could not find bank for slot %lu", txn_ctx->slot ));
@@ -345,9 +344,6 @@ after_frag( fd_writer_tile_ctx_t * ctx,
           ctx->capture_ctx );
 
       } FD_SPAD_FRAME_END;
-      fd_banks_unlock( ctx->banks );
-    } else {
-      fd_banks_unlock( ctx->banks );
     }
 
     /* Notify the replay tile that we are done with this txn. */

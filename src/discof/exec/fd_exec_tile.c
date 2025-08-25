@@ -95,7 +95,6 @@ scratch_footprint( fd_topo_tile_t const * tile FD_PARAM_UNUSED ) {
 
 static void
 execute_txn( fd_exec_tile_ctx_t * ctx ) {
-  fd_banks_lock( ctx->banks );
   ctx->exec_res = fd_runtime_prepare_and_execute_txn(
       ctx->banks,
       ctx->txn_ctx,
@@ -105,7 +104,6 @@ execute_txn( fd_exec_tile_ctx_t * ctx ) {
       ctx->capture_ctx,
       1
   );
-  fd_banks_unlock( ctx->banks );
 }
 
 static void

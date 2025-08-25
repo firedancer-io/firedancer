@@ -436,7 +436,16 @@ struct fd_banks {
   ulong       root;            /* root slot */
   ulong       root_idx;        /* root idx */
 
-  fd_rwlock_t rwlock;          /* rwlock for fd_banks_t */
+  /* This lock is only used to serialize banks fork tree reads with
+     respect to fork tree writes.  In other words, tree traversals
+     cannot happen at the same time as a tree pruning operation or a
+     tree insertion operation.  So the public APIs on banks take either
+     a read lock or a write lock depending on what they do on the fork
+     tree.  For example, publishing takes a write lock, and bank lookups
+     take a read lock.  Notably, individual banks can still be
+     concurrently accessed or modified, and this lock does not offer
+     synchronization on individual fields within a bank. */
+  fd_rwlock_t rwlock;
 
   ulong       pool_offset;     /* offset of pool from banks */
   ulong       map_offset;      /* offset of map from banks */
@@ -621,28 +630,6 @@ FD_BANKS_ITER(X)
 #undef HAS_COW_0
 #undef HAS_COW_1
 
-/* FIXME: these locks do not fundamentally fix the minority fork racy
-   publishing issue.  Remove these once we have refcnts.
-
-   fd_banks_lock() and fd_banks_unlock() are locks to be acquired and
-   freed around accessing or modifying a specific bank. This is only
-   required if there is concurrent access to a bank while operations on
-   its underlying map are being performed.
-
-   Under the hood, this is a wrapper around fd_banks_t's rwlock.
-   This is done so a caller can safely read/write a specific bank.
-   Otherwise, we run the risk of accessing/modifying a bank that may be
-   freed. This is acquiring and freeing a read lock around fd_banks_t. */
-
-static inline void
-fd_banks_lock( fd_banks_t * banks ) {
-  fd_rwlock_read( &banks->rwlock );
-}
-
-static inline void
-fd_banks_unlock( fd_banks_t * banks ) {
-  fd_rwlock_unread( &banks->rwlock );
-}
 
 /* fd_banks_root returns the current root slot for the bank. */
 
@@ -716,7 +703,12 @@ fd_banks_init_bank( fd_banks_t * banks,
                     ulong        slot );
 
 /* fd_bank_get_bank() returns a bank for a given slot. If said bank
-   does not exist, NULL is returned. */
+   does not exist, NULL is returned.
+
+   The returned pointer is valid so long as the underlying bank does not
+   get pruned by a publishing operation.  Higher level components are
+   responsible for ensuring that publishing does not happen while a bank
+   is being accessed.  This is done through the reference counter. */
 
 fd_bank_t *
 fd_banks_get_bank( fd_banks_t * banks,
@@ -756,7 +748,7 @@ fd_banks_publish( fd_banks_t * banks,
 
    This function will memset all non-CoW fields to 0.
 
-   For all non-CoW fields, we will reset the indices to its parent. */
+   For all CoW fields, we will reset the indices to its parent. */
 
 void
 fd_banks_clear_bank( fd_banks_t * banks,
