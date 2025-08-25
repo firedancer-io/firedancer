@@ -647,12 +647,12 @@ fd_tower_switch_check( fd_tower_t const * tower,
    long time from counting towards the threshold stake. */
 
 int
-fd_tower_threshold_check( fd_tower_t const *    tower,
-                          fd_epoch_t const *    epoch,
-                          fd_funk_t *           funk,
-                          fd_funk_txn_t const * txn,
-                          ulong                 slot,
-                          fd_tower_t *          scratch );
+fd_tower_threshold_check( fd_tower_t const *   tower,
+                          fd_epoch_t *         epoch,
+                          fd_pubkey_t *        vote_keys,
+                          fd_tower_t * const * vote_towers,
+                          ulong                vote_cnt,
+                          ulong                slot );
 
 /* fd_tower_reset_slot returns the slot to reset PoH to when building
    the next leader block.  Assumes tower and ghost are both valid local
@@ -695,12 +695,12 @@ fd_tower_reset_slot( fd_tower_t const * tower,
       switch to the ghost head's fork. */
 
 ulong
-fd_tower_vote_slot( fd_tower_t *          tower,
-                    fd_epoch_t const *    epoch,
-                    fd_funk_t *           funk,
-                    fd_funk_txn_t const * txn,
-                    fd_ghost_t const *    ghost,
-                    fd_tower_t *          scratch );
+fd_tower_vote_slot( fd_tower_t const *   tower,
+                    fd_epoch_t *         epoch,
+                    fd_pubkey_t *        voter_keys,
+                    fd_tower_t * const * voter_towers,
+                    ulong                voter_len,
+                    fd_ghost_t const *   ghost );
 
 /* fd_tower_simulate_vote simulates a vote on the vote tower for slot,
    returning the new height (cnt) for all the votes that would have been
@@ -727,17 +727,6 @@ ulong
 fd_tower_vote( fd_tower_t * tower, ulong slot );
 
 /* Misc */
-
-/* fd_tower_from_vote_acc reads into tower the vote account saved in
-   funk at the provided txn and vote_acc address.  Returns 0 on success,
-   -1 on failure (account not found or failed to parse).  Assumes tower
-   is a valid local join and currently empty. */
-
-int
-fd_tower_from_vote_acc( fd_tower_t *              tower,
-                        fd_funk_t *               funk,
-                        fd_funk_txn_t const *     txn,
-                        fd_funk_rec_key_t const * vote_acc );
 
 /* fd_tower_to_vote_txn writes tower into a fd_tower_sync_t vote
    instruction and serializes it into a Solana transaction.  Assumes
