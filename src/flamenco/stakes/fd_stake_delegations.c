@@ -16,15 +16,6 @@
 #define MAP_NEXT               next_
 #include "../../util/tmpl/fd_map_chain.c"
 
-struct fd_stake_delegations_iter {
-  fd_stake_delegation_map_t *    map;
-  fd_stake_delegation_t *        pool;
-  fd_stake_delegation_map_iter_t iter;
-};
-typedef struct fd_stake_delegations_iter fd_stake_delegations_iter_t;
-FD_STATIC_ASSERT(sizeof(fd_stake_delegations_iter_t) == FD_STAKE_DELEGATIONS_ITER_FOOTPRINT, "fd_stake_delegations_iter_t is not the expected size");
-FD_STATIC_ASSERT(alignof(fd_stake_delegations_iter_t) == FD_STAKE_DELEGATIONS_ITER_ALIGN, "fd_stake_delegations_iter_t is not the expected alignment");
-
 static inline fd_stake_delegation_t *
 fd_stake_delegations_get_pool( fd_stake_delegations_t const * stake_delegations ) {
   return fd_stake_delegation_pool_join( (uchar *)stake_delegations + stake_delegations->pool_offset_ );
@@ -380,16 +371,11 @@ fd_stake_delegations_iter_ele( fd_stake_delegations_iter_t * iter ) {
 }
 
 fd_stake_delegations_iter_t *
-fd_stake_delegations_iter_init( fd_stake_delegations_t const * stake_delegations,
-                                uchar *                  iter_mem ) {
+fd_stake_delegations_iter_init( fd_stake_delegations_iter_t *  iter,
+                                fd_stake_delegations_t const * stake_delegations ) {
   if( FD_UNLIKELY( !stake_delegations ) ) {
     FD_LOG_CRIT(( "NULL stake_delegations" ));
   }
-  if( FD_UNLIKELY( !iter_mem ) ) {
-    FD_LOG_CRIT(( "NULL iter_mem" ));
-  }
-
-  fd_stake_delegations_iter_t * iter = (fd_stake_delegations_iter_t *)iter_mem;
 
   iter->map  = fd_stake_delegations_get_map( stake_delegations );
   iter->pool = fd_stake_delegations_get_pool( stake_delegations );

@@ -466,8 +466,8 @@ create_block_context_protobuf_from_block( fd_exec_test_block_context_t * block_c
 
   /* Dumping stake accounts for this epoch */
 
-  uchar mem[FD_STAKE_DELEGATIONS_ITER_FOOTPRINT]__attribute__((aligned(FD_STAKE_DELEGATIONS_ITER_ALIGN)));
-  for( fd_stake_delegations_iter_t * iter = fd_stake_delegations_iter_init( stake_delegations, mem );
+  fd_stake_delegations_iter_t iter_[1];
+  for( fd_stake_delegations_iter_t * iter = fd_stake_delegations_iter_init( iter_, stake_delegations );
        !fd_stake_delegations_iter_done( iter );
        fd_stake_delegations_iter_next( iter ) ) {
     fd_stake_delegation_t * stake_delegation = fd_stake_delegations_iter_ele( iter );
@@ -477,8 +477,8 @@ create_block_context_protobuf_from_block( fd_exec_test_block_context_t * block_c
   /* Dumping vote accounts for this epoch */
 
   vote_states = fd_bank_vote_states_locking_query( slot_ctx->bank );
-  fd_vote_states_iter_t iter_[1];
-  for( fd_vote_states_iter_t * iter = fd_vote_states_iter_init( iter_, vote_states ); !fd_vote_states_iter_done( iter ); fd_vote_states_iter_next( iter ) ) {
+  fd_vote_states_iter_t vote_iter_[1];
+  for( fd_vote_states_iter_t * iter = fd_vote_states_iter_init( vote_iter_, vote_states ); !fd_vote_states_iter_done( iter ); fd_vote_states_iter_next( iter ) ) {
     fd_vote_state_ele_t const * vote_state = fd_vote_states_iter_ele( iter );
     dump_account_if_not_already_dumped( slot_ctx->funk, slot_ctx->funk_txn, &vote_state->vote_account, spad, block_context->acct_states, &block_context->acct_states_count, NULL );
   }
