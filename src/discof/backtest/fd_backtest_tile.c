@@ -103,6 +103,7 @@ rocksdb_next_shred( ctx_t * ctx,
     if( FD_UNLIKELY( fd_rocksdb_get_meta( &ctx->rocksdb, ctx->rocksdb_slot_meta.slot, &ctx->rocksdb_slot_meta, ctx->valloc ) ) ) return NULL;
     ctx->rocksdb_curr_idx = 0;
     ctx->rocksdb_end_idx  = ctx->rocksdb_slot_meta.received;
+    FD_LOG_NOTICE(( "rocksdb_next_shred: moved to slot %lu, received=%lu", ctx->rocksdb_slot_meta.slot, ctx->rocksdb_slot_meta.received ));
   }
   ulong slot = ctx->rocksdb_slot_meta.slot;
 
@@ -341,8 +342,29 @@ after_frag( ctx_t *             ctx,
         FD_LOG_CRIT(( "Failed at seeking rocksdb root iter for slot=%lu", ctx->root ));
       }
       ctx->rocksdb_iter = rocksdb_create_iterator_cf(ctx->rocksdb.db, ctx->rocksdb.ro, ctx->rocksdb.cf_handles[FD_ROCKSDB_CFIDX_DATA_SHRED]);
+
+      /* For genesis case, we want to ensure we read slots sequentially starting from 0 */
+      ctx->rocksdb_curr_idx = 0;
+      ctx->rocksdb_end_idx = 0;
+
+      FD_LOG_NOTICE(( "Genesis case: initialized RocksDB iterator for slot %lu", ctx->root ));
+    } else if ( ctx->start_from_genesis ) {
+      /* For genesis case, ensure we're reading slots sequentially */
+      FD_LOG_NOTICE(( "Genesis case: ensuring we read slot %lu sequentially", slot ));
+      /* Force the iterator to seek to the specific slot we want */
+      if( FD_UNLIKELY( fd_rocksdb_root_iter_seek( &ctx->rocksdb_root_iter, &ctx->rocksdb, slot, &ctx->rocksdb_slot_meta, ctx->valloc ) ) ) {
+        FD_LOG_WARNING(( "Failed at seeking rocksdb root iter for slot %lu - slot may not exist", slot ));
+        /* If slot doesn't exist in RocksDB, we might need to skip it */
+        return;
+      }
+      ctx->rocksdb_curr_idx = 0;
+      ctx->rocksdb_end_idx = 0;
     }
     rocksdb_check_bank_hash( ctx, slot, &ctx->replay_out.bank_hash );
+
+    /* Enable credit to allow sending next slot's data */
+    ctx->credit = 1;
+
     if( FD_UNLIKELY( slot>=ctx->end_slot ) ) {
       ctx->replay_time    += fd_log_wallclock();
       double replay_time_s = (double)ctx->replay_time * 1e-9;
