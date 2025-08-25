@@ -435,9 +435,12 @@ fd_banks_init_bank( fd_banks_t * banks, ulong slot ) {
   fd_bank_t *      bank_pool = fd_banks_get_bank_pool( banks );
   fd_banks_map_t * bank_map  = fd_banks_get_bank_map( banks );
 
+  fd_rwlock_write( &banks->rwlock );
+
   fd_bank_t * bank = fd_banks_pool_ele_acquire( bank_pool );
   if( FD_UNLIKELY( bank==NULL ) ) {
     FD_LOG_WARNING(( "Failed to acquire bank" ));
+    fd_rwlock_unwrite( &banks->rwlock );
     return NULL;
   }
 
@@ -484,6 +487,7 @@ fd_banks_init_bank( fd_banks_t * banks, ulong slot ) {
   banks->root     = slot;
   banks->root_idx = fd_banks_pool_idx( bank_pool, bank );
 
+  fd_rwlock_unwrite( &banks->rwlock );
   return bank;
 }
 
@@ -492,18 +496,21 @@ fd_banks_get_bank( fd_banks_t * banks, ulong slot ) {
   fd_bank_t *      bank_pool = fd_banks_get_bank_pool( banks );
   fd_banks_map_t * bank_map  = fd_banks_get_bank_map( banks );
 
+  fd_rwlock_read( &banks->rwlock );
   ulong idx = fd_banks_map_idx_query_const( bank_map, &slot, ULONG_MAX, bank_pool );
   if( FD_UNLIKELY( idx==ULONG_MAX ) ) {
     FD_LOG_DEBUG(( "Failed to get bank idx for slot %lu", slot ));
+    fd_rwlock_unread( &banks->rwlock );
     return NULL;
   }
 
   fd_bank_t * bank = fd_banks_pool_ele( bank_pool, idx );
   if( FD_UNLIKELY( !bank ) ) {
     FD_LOG_WARNING(( "Failed to get bank for slot %lu", slot ));
+    fd_rwlock_unread( &banks->rwlock );
     return NULL;
   }
-
+  fd_rwlock_unread( &banks->rwlock );
   return bank;
 }
 
@@ -866,6 +873,7 @@ fd_banks_publish( fd_banks_t * banks, ulong slot ) {
 void
 fd_banks_clear_bank( fd_banks_t * banks, fd_bank_t * bank ) {
 
+  fd_rwlock_read( &banks->rwlock );
   /* Get the parent bank. */
   fd_bank_t * parent_bank = fd_banks_pool_ele( fd_banks_get_bank_pool( banks ), bank->parent_idx );
 
@@ -877,7 +885,7 @@ fd_banks_clear_bank( fd_banks_t * banks, fd_bank_t * bank ) {
       /* assign the bank to the idx corresponding to the parent.     */                                                     \
       fd_bank_##name##_pool_idx_release( name##_pool, bank->name##_pool_idx );                                              \
       bank->name##_dirty    = 0;                                                                                            \
-      bank->name##_pool_idx = !!parent_bank ? parent_bank->name##_pool_idx : fd_bank_##name##_pool_idx_null( name##_pool ); \
+      bank->name##_pool_idx = parent_bank ? parent_bank->name##_pool_idx : fd_bank_##name##_pool_idx_null( name##_pool );   \
     }
 
   #define HAS_COW_0(type, name, footprint) \
@@ -889,24 +897,31 @@ fd_banks_clear_bank( fd_banks_t * banks, fd_bank_t * bank ) {
   #undef X
   #undef HAS_COW_0
   #undef HAS_COW_1
+
+  fd_rwlock_unread( &banks->rwlock );
 }
 
 fd_bank_t *
 fd_banks_rekey_root_bank( fd_banks_t * banks, ulong slot ) {
 
+  fd_rwlock_write( &banks->rwlock );
+
   if( FD_UNLIKELY( !banks ) ) {
     FD_LOG_WARNING(( "Banks is NULL" ));
+    fd_rwlock_unwrite( &banks->rwlock );
     return NULL;
   }
 
   if( FD_UNLIKELY( banks->root_idx==fd_banks_pool_idx_null( fd_banks_get_bank_pool( banks ) ) ) ) {
     FD_LOG_WARNING(( "Root bank does not exist" ));
+    fd_rwlock_unwrite( &banks->rwlock );
     return NULL;
   }
 
   fd_bank_t * bank = fd_banks_pool_ele( fd_banks_get_bank_pool( banks ), banks->root_idx );
   if( FD_UNLIKELY( !bank ) ) {
     FD_LOG_WARNING(( "Failed to get root bank" ));
+    fd_rwlock_unwrite( &banks->rwlock );
     return NULL;
   }
 
@@ -915,6 +930,7 @@ fd_banks_rekey_root_bank( fd_banks_t * banks, ulong slot ) {
   bank = fd_banks_map_ele_remove( fd_banks_get_bank_map( banks ), &bank->slot_, NULL, fd_banks_get_bank_pool( banks ) );
   if( FD_UNLIKELY( !bank ) ) {
     FD_LOG_WARNING(( "Failed to remove root bank" ));
+    fd_rwlock_unwrite( &banks->rwlock );
     return NULL;
   }
 
@@ -922,9 +938,11 @@ fd_banks_rekey_root_bank( fd_banks_t * banks, ulong slot ) {
 
   if( FD_UNLIKELY( !fd_banks_map_ele_insert( fd_banks_get_bank_map( banks ), bank, fd_banks_get_bank_pool( banks ) ) ) ) {
     FD_LOG_WARNING(( "Failed to insert root bank" ));
+    fd_rwlock_unwrite( &banks->rwlock );
     return NULL;
   }
 
+  fd_rwlock_unwrite( &banks->rwlock );
   return bank;
 }
 
@@ -983,21 +1001,26 @@ fd_banks_publish_prepare( fd_banks_t * banks,
   fd_bank_t *      bank_pool = fd_banks_get_bank_pool( banks );
   fd_banks_map_t * bank_map  = fd_banks_get_bank_map( banks );
 
+  fd_rwlock_read( &banks->rwlock );
+
   fd_bank_t * root = fd_banks_root( banks );
   if( FD_UNLIKELY( !root ) ) {
     FD_LOG_WARNING(( "failed to get root bank" ));
+    fd_rwlock_unread( &banks->rwlock );
     return 0;
   }
 
   /* Early exit if target is the same as the old root. */
   if( FD_UNLIKELY( fd_bank_slot_get( root )==target_slot ) ) {
     FD_LOG_WARNING(( "target slot %lu is the same as the old root slot %lu", target_slot, fd_bank_slot_get( root ) ));
+    fd_rwlock_unread( &banks->rwlock );
     return 0;
   }
 
   fd_bank_t * target_bank = fd_banks_map_ele_query( bank_map, &target_slot, NULL, bank_pool );
   if( FD_UNLIKELY( !target_bank ) ) {
     FD_LOG_WARNING(( "failed to get bank for target slot %lu", target_slot ));
+    fd_rwlock_unread( &banks->rwlock );
     return 0;
   }
 
@@ -1101,5 +1124,6 @@ fd_banks_publish_prepare( fd_banks_t * banks,
     curr = rooted_child_bank;
   }
 
+  fd_rwlock_unread( &banks->rwlock );
   return advanced_publishable_block;
 }
