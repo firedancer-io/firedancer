@@ -2,6 +2,7 @@
 #include "fd_bloom.h"
 
 #include <stdlib.h>
+#include <string.h>
 
 FD_STATIC_ASSERT( FD_BLOOM_ALIGN    ==64UL,  unit_test );
 FD_STATIC_ASSERT( FD_BLOOM_FOOTPRINT==128UL, unit_test );
@@ -59,6 +60,30 @@ test_add_contains( void ) {
   free( bytes );
 }
 
+/* Tests that the keys footprint is correctly sized by checking for
+   overwrites into the filter bits during initialization. Filter
+   bits OOB will be caught by UBSAN. */
+void
+test_keys_oob( void ) {
+  void * bytes = aligned_alloc( fd_bloom_align(), fd_bloom_footprint( 0.1, 16 ) );
+  FD_TEST( bytes );
+  memset( bytes, 0UL, fd_bloom_footprint( 0.1, 16 ) );
+
+  fd_rng_t _rng[1]; fd_rng_t * rng = fd_rng_join( fd_rng_new( _rng, 0U, 0UL ) );
+  FD_TEST( rng );
+
+  fd_bloom_t * bloom = fd_bloom_join( fd_bloom_new( bytes, rng, 0.1, 16 ) );
+  FD_TEST( bloom );
+
+  fd_bloom_initialize( bloom, 1 );
+
+  for( ulong i=0UL; i<(16+63UL)/64UL; i++ ) {
+    FD_TEST( bloom->bits[ i ]==0UL );
+  }
+
+  free( bytes );
+}
+
 int
 main( int     argc,
       char ** argv ) {
@@ -71,4 +96,7 @@ main( int     argc,
 
   test_add_contains();
   FD_LOG_NOTICE(( "test_add_contains() passed" ));
+
+  test_keys_oob();
+  FD_LOG_NOTICE(( "test_max_keys() passed" ));
 }
