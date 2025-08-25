@@ -1,6 +1,8 @@
 #ifndef HEADER_fd_src_util_tmpl_fd_map_h
 #define HEADER_fd_src_util_tmpl_fd_map_h
 
+#include "../fd_util_base.h"
+
 /* Common map error codes (FIXME: probably should get around to making
    unified error codes, error strings and/or flags across util at least
    so we don't have to do this in the generator itself) */
@@ -31,5 +33,10 @@
 
 //#define FD_MAP_FLAG_BLOCKING      (1)
 #define FD_MAP_FLAG_ADAPTIVE      (2)
+
+struct fd_map_chain_iter {
+  ulong chain_rem;
+  ulong ele_idx;
+};
 
 #endif /* HEADER_fd_src_util_tmpl_fd_map_h */
