@@ -28,6 +28,14 @@
    by the bank. The stake delegations corresponding to each slot are
    stored in a delta struct which is used to update the main cache.
 
+   There are some important invariants wrt fd_stake_delegations_t:
+   1. After execution has started, there will be no invalid stake
+      accounts in the stake delegations struct.
+   2. The stake delegations struct can have valid delegations for vote
+      accounts which no longer exist.
+   3. There are no stake accounts which are valid delegations which
+      exist in the accounts database but not in fd_stake_delegations_t.
+
    In practice, fd_stakes_delegations_t are updated in 3 cases:
    1. During bootup when the snapshot manifest is loaded in. The cache
       is also refreshed during the bootup process to ensure that the

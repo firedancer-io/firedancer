@@ -77,12 +77,11 @@ fd_update_stake_delegation( fd_txn_account_t * stake_account,
    the snapshot has finished loading.
 
    Before this function is called, there are some important assumptions
-   made about the state of the stake delegations:
+   made about the state of the stake delegations that are enforced by
+   the Agave client:
    1. fd_stake_delegations_t is not missing any valid entries
    2. fd_stake_delegations_t may have some invalid entries that should
       be removed
-   These are invariants enforced by the Agave client. However, after
-   TODO:FIXME: add permalink
 
    fd_refresh_stake_delegations will remove all of the invalid entries
    that are detected. An entry is considered invalid if the stake
