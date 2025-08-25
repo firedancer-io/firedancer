@@ -27,7 +27,7 @@ LLVMFuzzerTestOneInput( uchar const *data,
   char name[0x1000];
 
   if( FD_UNLIKELY( size<2UL )) {
-    return 1;
+    return -1;
   }
 
   uint8_t family_sel = data[ 0 ] & 0x3u;
