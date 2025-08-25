@@ -165,6 +165,19 @@ before_credit( fd_gui_ctx_t *      ctx,
   *charge_busy = charge_busy_server | charge_poll;
 }
 
+static int
+before_frag( fd_gui_ctx_t * ctx,
+             ulong          in_idx,
+             ulong          seq,
+             ulong          sig ) {
+  (void)seq;
+
+  /* Ignore "done draining banks" signal from pack->poh */
+  if( FD_LIKELY( ctx->in_kind[ in_idx ]==IN_KIND_PACK_POH && sig==ULONG_MAX ) ) return 1;
+
+  return 0;
+}
+
 static inline void
 during_frag( fd_gui_ctx_t * ctx,
              ulong          in_idx,
@@ -596,6 +609,7 @@ rlimit_file_cnt( fd_topo_t const *      topo FD_PARAM_UNUSED,
 
 #define STEM_CALLBACK_DURING_HOUSEKEEPING during_housekeeping
 #define STEM_CALLBACK_BEFORE_CREDIT       before_credit
+#define STEM_CALLBACK_BEFORE_FRAG         before_frag
 #define STEM_CALLBACK_DURING_FRAG         during_frag
 #define STEM_CALLBACK_AFTER_FRAG          after_frag
 
