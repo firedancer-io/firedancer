@@ -9,7 +9,7 @@
 #include "../../discof/restore/utils/fd_ssmsg.h"
 
 /* FIXME: SIMD-0180 - set the correct epochs */
-#define FD_SIMD0180_ACTIVE_EPOCH_TESTNET (5000)
+#define FD_SIMD0180_ACTIVE_EPOCH_TESTNET (829)
 #define FD_SIMD0180_ACTIVE_EPOCH_MAINNET (5000)
 
 /* Replay tile msg link formatting. The following take a pointer into
