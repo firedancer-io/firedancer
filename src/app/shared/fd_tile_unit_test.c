@@ -71,6 +71,7 @@ fd_topo_run_tile_t dummy_tile_resolv = { .name = "resolv" };
 fd_topo_run_tile_t dummy_tile_poh    = { .name = "poh"    };
 fd_topo_run_tile_t dummy_tile_bank   = { .name = "bank"   };
 fd_topo_run_tile_t dummy_tile_store  = { .name = "store"  };
+fd_topo_run_tile_t dummy_tile_gossvf = { .name = "gossvf" };
 fd_topo_run_tile_t dummy_tile_gossip = { .name = "gossip" };
 fd_topo_run_tile_t dummy_tile_repair = { .name = "repair" };
 fd_topo_run_tile_t dummy_tile_send   = { .name = "send"   };
@@ -111,6 +112,7 @@ fd_topo_run_tile_t * TILES[] = {
   &dummy_tile_poh,
   &dummy_tile_bank,
   &dummy_tile_store,
+  &dummy_tile_gossvf,
   &dummy_tile_gossip,
   &dummy_tile_repair,
   &dummy_tile_send,

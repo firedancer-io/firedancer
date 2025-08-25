@@ -547,6 +547,7 @@ warn_unknown_files( config_t const * config,
     if( FD_UNLIKELY( !known_file ) ) FD_LOG_WARNING(( "unknown file `%s` found in `%s`", entry->d_name, mount_path ));
   }
 
+  if( FD_UNLIKELY( errno && errno!=ENOENT ) ) FD_LOG_ERR(( "error reading dir `%s` (%i-%s)", mount_path, errno, fd_io_strerror( errno ) ));
   if( FD_UNLIKELY( closedir( dir ) ) ) FD_LOG_ERR(( "error closing `%s` (%i-%s)", mount_path, errno, fd_io_strerror( errno ) ));
 }
 

@@ -349,6 +349,10 @@ fd_bundle_tile_load_certs( SSL_CTX * ssl_ctx ) {
     }
   }
 
+  if( FD_UNLIKELY( errno && errno!=ENOENT ) ) {
+    FD_LOG_ERR(( "readdir(%s) failed (%i-%s)", default_dir, errno, fd_io_strerror( errno ) ));
+  }
+
   STACK_OF(X509) * cert_list = X509_STORE_get1_all_certs( ca_certs );
   FD_LOG_INFO(( "Loaded %d CA certs from %s into OpenSSL", sk_X509_num( cert_list ), default_dir ));
   if( fd_log_level_logfile()==0 ) {

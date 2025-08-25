@@ -66,7 +66,7 @@ LLVMFuzzerTestOneInput( uchar const *data,
                         ulong        size ) {
 #define PARAMS_SIZE (3)
   if( FD_UNLIKELY( size < PARAMS_SIZE )) {
-    return 1;
+    return -1;
   }
   fd_grpc_client_metrics_t metrics = {0};
   void *app_ctx = (void *) (0x1234UL);

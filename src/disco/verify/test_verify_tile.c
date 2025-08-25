@@ -67,7 +67,7 @@ mock_topo_create( void ) {
 
   mock_link_create( topo, "quic_verify"  );
   mock_link_create( topo, "bundle_verif" );
-  mock_link_create( topo, "gossip_verif" );
+  mock_link_create( topo, "gossip_out" );
   mock_link_create( topo, "send_txns"    );
 
   /* Declare link ins in opposite order than IN_KIND_* to check for in
@@ -77,7 +77,7 @@ mock_topo_create( void ) {
 #define IN_IDX_BUNDLE 2
 #define IN_IDX_QUIC   3
   fd_topob_tile_in( topo, "verify", 0UL, "wksp", "send_txns",    0UL, 0, 1 );
-  fd_topob_tile_in( topo, "verify", 0UL, "wksp", "gossip_verif", 0UL, 0, 1 );
+  fd_topob_tile_in( topo, "verify", 0UL, "wksp", "gossip_out", 0UL, 0, 1 );
   fd_topob_tile_in( topo, "verify", 0UL, "wksp", "bundle_verif", 0UL, 0, 1 );
   fd_topob_tile_in( topo, "verify", 0UL, "wksp", "quic_verify",  0UL, 0, 1 );
 

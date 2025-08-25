@@ -10,7 +10,7 @@
 #define NAME_SZ                          (256UL)
 #define AFFINITY_SZ                      (256UL)
 #define CONFIGURE_STAGE_COUNT            ( 12UL)
-#define FD_CONFIG_GOSSIP_ENTRYPOINTS_MAX ( 16UL)
+#define GOSSIP_TILE_ENTRYPOINTS_MAX      ( 16UL)
 
 struct fd_configh {
   char dynamic_port_range[ 32 ];
@@ -113,6 +113,7 @@ struct fd_configf {
     uint exec_tile_count; /* TODO: redundant ish with bank tile cnt */
     uint writer_tile_count;
     uint sign_tile_count;
+    uint gossvf_tile_count;
   } layout;
 
   struct {
@@ -138,6 +139,8 @@ struct fd_configf {
     uint  minimum_download_speed_mib;
     uint  maximum_download_retry_abort;
     char  cluster[ 8UL ];
+    uint  max_full_snapshots_to_keep;
+    uint  max_incremental_snapshots_to_keep;
   } snapshots;
 
   struct {
@@ -180,6 +183,8 @@ struct fd_config {
 
   double tick_per_ns_mu;
   double tick_per_ns_sigma;
+
+  long boot_timesamp_nanos;
 
   fd_topo_t topo;
 
@@ -230,11 +235,13 @@ struct fd_config {
 
   struct {
     ulong         entrypoints_cnt;
-    char          entrypoints[ FD_CONFIG_GOSSIP_ENTRYPOINTS_MAX ][ 262 ];
-    ulong         resolved_entrypoints_cnt; /* ??? why during config ... */
-    fd_ip4_port_t resolved_entrypoints[ FD_CONFIG_GOSSIP_ENTRYPOINTS_MAX ];
+    char          entrypoints[ GOSSIP_TILE_ENTRYPOINTS_MAX ][ 262 ];
+    fd_ip4_port_t resolved_entrypoints[ GOSSIP_TILE_ENTRYPOINTS_MAX ];
+
     ushort        port;
     char          host[ 256 ];
+
+    long          boot_timestamp_nanos;
   } gossip;
 
   struct {
@@ -337,6 +344,10 @@ struct fd_config {
       ulong max_peer_routes;
       ulong max_neighbors;
     } netlink;
+
+    struct {
+      ulong max_entries;
+    } gossip;
 
     struct {
       ushort regular_transaction_listen_port;

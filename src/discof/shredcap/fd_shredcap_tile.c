@@ -4,6 +4,7 @@
 #include "../../flamenco/types/fd_types.h"
 #include "../../flamenco/fd_flamenco_base.h"
 #include "../../util/pod/fd_pod_format.h"
+#include "../../flamenco/gossip/fd_gossip_types.h"
 #include "../../disco/fd_disco.h"
 #include "../../discof/fd_discof.h"
 #include "../../discof/restore/utils/fd_ssmsg.h"
@@ -43,13 +44,12 @@
 #define MANIFEST_MAX_TOTAL_BANKS           (2UL) /* the minimum is 2 */
 #define MANIFEST_MAX_FORK_WIDTH            (1UL) /* banks are only needed during publish_stake_weights() */
 
-#define NET_SHRED       (0UL)
-#define REPAIR_NET      (1UL)
-#define SHRED_REPAIR    (2UL)
-#define GOSSIP_SHRED    (3UL)
-#define GOSSIP_REPAIR   (4UL)
-#define REPAIR_SHREDCAP (5UL)
-#define REPLAY_SHREDCAP (6UL)
+#define NET_SHRED        (0UL)
+#define REPAIR_NET       (1UL)
+#define SHRED_REPAIR     (2UL)
+#define GOSSIP_OUT       (3UL)
+#define REPAIR_SHREDCAP (4UL)
+#define REPLAY_SHREDCAP (5UL)
 
 typedef union {
   struct {
@@ -260,26 +260,33 @@ before_frag( fd_capture_tile_ctx_t * ctx,
              ulong            sig ) {
   if( FD_LIKELY( ctx->in_kind[ in_idx ]==NET_SHRED ) ) {
     return (int)(fd_disco_netmux_sig_proto( sig )!=DST_PROTO_SHRED) & (int)(fd_disco_netmux_sig_proto( sig )!=DST_PROTO_REPAIR);
+  } else if( FD_UNLIKELY( ctx->in_kind[ in_idx ]==GOSSIP_OUT)) {
+    return sig!=FD_GOSSIP_UPDATE_TAG_CONTACT_INFO;
   }
   return 0;
 }
 
 static inline void
-handle_new_turbine_contact_info( fd_capture_tile_ctx_t * ctx,
-                                 uchar const *          buf ) {
-  ulong const * header = (ulong const *)fd_type_pun_const( buf );
-  ulong dest_cnt = header[ 0 ];
+handle_new_contact_info( fd_capture_tile_ctx_t * ctx,
+                         uchar const *           buf ) {
+  fd_gossip_update_message_t const * msg = (fd_gossip_update_message_t const *)fd_type_pun_const( buf );
+  char tvu_buf[1024];
+  char repair_buf[1024];
+  fd_ip4_port_t tvu    = msg->contact_info.contact_info->sockets[ FD_CONTACT_INFO_SOCKET_TVU ];
+  fd_ip4_port_t repair = msg->contact_info.contact_info->sockets[ FD_CONTACT_INFO_SOCKET_SERVE_REPAIR ];
 
-  fd_shred_dest_wire_t const * in_dests = fd_type_pun_const( header+1UL );
-
-  for( ulong i=0UL; i<dest_cnt; i++ ) {
-    // need to bswap the port
-    //ushort port = fd_ushort_bswap( in_dests[i].udp_port );
-    char peers_buf[1024];
-    snprintf( peers_buf, sizeof(peers_buf),
-              "%u,%u,%s,%d\n",
-              in_dests[i].ip4_addr, in_dests[i].udp_port, FD_BASE58_ENC_32_ALLOCA(in_dests[i].pubkey), 1);
-    int err = fd_io_buffered_ostream_write( &ctx->peers_ostream, peers_buf, strlen(peers_buf) );
+  if( FD_UNLIKELY( tvu.l!=0UL ) ){
+    snprintf( tvu_buf, sizeof(tvu_buf),
+              "%u,%u(tvu),%s,%d\n",
+              tvu.addr, tvu.port, FD_BASE58_ENC_32_ALLOCA(msg->contact_info.contact_info->pubkey.uc), 1);
+    int err = fd_io_buffered_ostream_write( &ctx->peers_ostream, tvu_buf, strlen(tvu_buf) );
+    FD_TEST( err==0 );
+  }
+  if( FD_UNLIKELY( repair.l!=0UL ) ){
+    snprintf( repair_buf, sizeof(repair_buf),
+              "%u,%u(repair),%s,%d\n",
+              repair.addr, repair.port, FD_BASE58_ENC_32_ALLOCA(msg->contact_info.contact_info->pubkey.uc), 1);
+    int err = fd_io_buffered_ostream_write( &ctx->peers_ostream, repair_buf, strlen(repair_buf) );
     FD_TEST( err==0 );
   }
 }
@@ -563,19 +570,8 @@ after_frag( fd_capture_tile_ctx_t * ctx,
               peer_ip4_addr, peer_port, fd_log_wallclock(), nonce, slot, shred_index );
     int err = fd_io_buffered_ostream_write( &ctx->repair_ostream, repair_data_buf, strlen(repair_data_buf) );
     FD_TEST( err==0 );
-  } else if( ctx->in_kind[ in_idx ] == GOSSIP_REPAIR ) {
-    fd_shred_dest_wire_t const * in_dests = (fd_shred_dest_wire_t const *)fd_type_pun_const( ctx->contact_info_buffer );
-    ulong dest_cnt = sz;
-    for( ulong i=0UL; i<dest_cnt; i++ ) {
-      char peers_buf[1024];
-      snprintf( peers_buf, sizeof(peers_buf),
-                "%u,%u,%s,%d\n",
-                 in_dests[i].ip4_addr, in_dests[i].udp_port, FD_BASE58_ENC_32_ALLOCA(in_dests[i].pubkey), 0);
-      int err = fd_io_buffered_ostream_write( &ctx->peers_ostream, peers_buf, strlen(peers_buf) );
-      FD_TEST( err==0 );
-    }
-  } else if( ctx->in_kind[ in_idx ] == GOSSIP_SHRED ) { // crds_shred contact infos
-    handle_new_turbine_contact_info( ctx, ctx->contact_info_buffer );
+  } else if( ctx->in_kind[ in_idx ] == GOSSIP_OUT ) {
+    handle_new_contact_info( ctx, ctx->contact_info_buffer );
   }
 }
 
@@ -713,10 +709,8 @@ unprivileged_init( fd_topo_t *      topo,
       ctx->in_kind[ i ] = REPAIR_NET;
     } else if( 0==strcmp( link->name, "shred_repair" ) ) {
       ctx->in_kind[ i ] = SHRED_REPAIR;
-    } else if( 0==strcmp( link->name, "crds_shred" ) ) {
-      ctx->in_kind[ i ] = GOSSIP_SHRED;
-    } else if( 0==strcmp( link->name, "gossip_repai" ) ) {
-      ctx->in_kind[ i ] = GOSSIP_REPAIR;
+    } else if( 0==strcmp( link->name, "gossip_out" ) ) {
+      ctx->in_kind[ i ] = GOSSIP_OUT;
     } else if( 0==strcmp( link->name, "repair_scap" ) ) {
       ctx->in_kind[ i ] = REPAIR_SHREDCAP;
     } else if( 0==strcmp( link->name, "replay_scap" ) ) {
