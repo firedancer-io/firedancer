@@ -70,6 +70,9 @@ FD_STATIC_ASSERT( FD_SHRED_REPAIR_MTU == 152UL , update FD_SHRED_REPAIR_MTU );
 /* Maximum number of vote account states the Tower tile can process in one slot */
 #define FD_REPLAY_TOWER_VOTE_ACC_MAX (4096UL)
 
+/* Maximum size of the vote account data in a vote account state */
+#define FD_REPLAY_TOWER_ACC_DATA_MAX (4096UL)
+
 #define FD_REPLAY_SIG_SLOT_INFO  (1UL)
 #define FD_REPLAY_SIG_VOTE_STATE (2UL)
 
@@ -81,14 +84,12 @@ struct __attribute__((packed)) fd_replay_out_vote {
 typedef struct fd_replay_out_vote fd_replay_out_vote_t;
 
 /* The minimal information Tower needs about a vote account at the end of a slot */
-struct __attribute__((packed)) fd_replay_out_vote_state {
-  fd_pubkey_t          key;
-  ulong                root;
-  ulong                votes_cnt;
-  fd_replay_out_vote_t votes[31];
-  ulong                stake;
+struct __attribute__((packed)) fd_replay_tower {
+  fd_pubkey_t key;
+  ulong       stake;
+  uchar       vote_acc_data[FD_REPLAY_TOWER_ACC_DATA_MAX];
 };
-typedef struct fd_replay_out_vote_state fd_replay_out_vote_state_t;
+typedef struct fd_replay_tower fd_replay_tower_t;
 
 /* The summary information Tower needs at the end of a slot */
 struct fd_replay_slot_info {

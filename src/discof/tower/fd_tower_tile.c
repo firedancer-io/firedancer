@@ -62,44 +62,58 @@ typedef struct {
   uchar *                     epoch_voters_buf;
   fd_lockout_offset_t         lockouts[FD_TOWER_VOTE_MAX];
   fd_replay_slot_info_t       replay_slot_info;
-  ulong                       replay_vote_states_len;
-  fd_replay_out_vote_state_t  replay_vote_states[FD_REPLAY_TOWER_VOTE_ACC_MAX];
+  ulong                       replay_towers_cnt;
+  fd_replay_tower_t           replay_towers[FD_REPLAY_TOWER_VOTE_ACC_MAX];
   fd_tower_t *                vote_towers[FD_REPLAY_TOWER_VOTE_ACC_MAX];
   fd_pubkey_t                 vote_keys[FD_REPLAY_TOWER_VOTE_ACC_MAX];
   int                         replay_out_eom;
   fd_snapshot_manifest_t      snapshot_manifest;
 } ctx_t;
 
-/* fd_tower_from_vote_state reads into the given tower the given vote account state.
+/* fd_parse_replay_tower reads into the given tower the given replay tower state.
    Assumes tower is a valid local join and currently empty. */
 static void
-fd_tower_from_vote_state( fd_tower_t *                       tower,
-                          fd_replay_out_vote_state_t const * state ) {
+fd_parse_replay_tower( fd_replay_tower_t const * replay_tower,
+                       fd_tower_t *              tower_out ) {
 # if FD_TOWER_USE_HANDHOLDING
-  FD_TEST( fd_tower_votes_empty( tower ) );
+  FD_TEST( fd_tower_votes_empty( tower_out ) );
 # endif
 
-  /* Push all the votes from the vote state onto the tower. */
-  for( ulong i = 0; i < state->votes_cnt; i++ ) {
-    fd_tower_vote_t vote = {
-      .slot = state->votes[i].slot,
-      .conf = state->votes[i].conf
-    };
-    fd_tower_votes_push_tail( tower, vote );
+  fd_voter_state_t const * state = fd_type_pun_const( replay_tower->vote_acc_data );
+
+  /* Push all the votes onto the tower. */
+  for( ulong i = 0; i < fd_voter_state_cnt( state ); i++ ) {
+    fd_tower_vote_t vote = { 0 };
+    if( FD_UNLIKELY( state->discriminant == fd_vote_state_versioned_enum_v0_23_5 ) ) {
+      vote.slot = state->v0_23_5.votes[i].slot;
+      vote.conf = state->v0_23_5.votes[i].conf;
+    } else if( FD_UNLIKELY( state->discriminant == fd_vote_state_versioned_enum_v1_14_11 ) ) {
+      vote.slot = state->v1_14_11.votes[i].slot;
+      vote.conf = state->v1_14_11.votes[i].conf;
+    } else if ( FD_UNLIKELY( state->discriminant == fd_vote_state_versioned_enum_current ) ) {
+      vote.slot = state->votes[i].slot;
+      vote.conf = state->votes[i].conf;
+    } else {
+      FD_LOG_CRIT(( "[%s] unknown vote state version. discriminant %u", __func__, state->discriminant ));
+    }
+    fd_tower_votes_push_tail( tower_out, vote );
   }
 }
 
 static void
-update_ghost( ctx_t * ctx, fd_replay_out_vote_state_t const * vote_states, ulong vote_states_len ) {
+update_ghost( ctx_t * ctx ) {
   fd_epoch_t * epoch = ctx->epoch;
   fd_ghost_t * ghost = ctx->ghost;
 
   fd_voter_t * epoch_voters = fd_epoch_voters( epoch );
-  for( ulong i = 0; i < vote_states_len; i++ ) {
-    fd_replay_out_vote_state_t const * vote_state = &vote_states[i];
+  for( ulong i = 0; i < ctx->replay_towers_cnt; i++ ) {
+    fd_replay_tower_t const * replay_tower = &ctx->replay_towers[i];
+    fd_pubkey_t const *       pubkey       = &replay_tower->key;
+    fd_voter_state_t const *  voter_state  = (fd_voter_state_t *)fd_type_pun_const( replay_tower->vote_acc_data );
+    fd_tower_t *              tower        = ctx->vote_towers[i];
 
     /* Look up the voter for this vote account */
-    fd_voter_t * voter = fd_epoch_voters_query( epoch_voters, vote_state->key, NULL );
+    fd_voter_t * voter = fd_epoch_voters_query( epoch_voters, *pubkey, NULL );
     if( FD_UNLIKELY( !voter ) ) {
       /* This means that the cached list of epoch voters is not in sync with the list passed
          through from replay. This likely means that we have crossed an epoch boundary and the
@@ -107,17 +121,16 @@ update_ghost( ctx_t * ctx, fd_replay_out_vote_state_t const * vote_states, ulong
 
          TODO: update the set of account in epoch_voter's to match the list received from replay,
                so that epoch_voters is correct across epoch boundaries. */
-      FD_LOG_CRIT(( "[%s] voter %s was not in epoch voters", __func__,
-      FD_BASE58_ENC_32_ALLOCA(&vote_state->key) ));
+      FD_LOG_CRIT(( "[%s] voter %s was not in epoch voters", __func__, FD_BASE58_ENC_32_ALLOCA(pubkey) ));
       continue;
     }
 
-    voter->stake = vote_state->stake; /* update the voters stake */
+    voter->stake = replay_tower->stake; /* update the voters stake */
 
-    if( FD_UNLIKELY( vote_state->votes_cnt == 0 ) ) continue; /* skip voters with no votes */
+    if( FD_UNLIKELY( fd_voter_state_cnt( voter_state ) == 0 ) ) continue; /* skip voters with no votes */
 
-    ulong vote = vote_state->votes[vote_state->votes_cnt - 1].slot;
-    ulong root = vote_state->root;
+    ulong vote = fd_tower_votes_peek_tail( tower )->slot; /* peek last vote from the tower */
+    ulong root = fd_voter_state_root( voter_state );
 
     /* Only process votes for slots >= root. */
     if( FD_LIKELY( vote != FD_SLOT_NULL && vote >= fd_ghost_root( ghost )->slot ) ) {
@@ -158,28 +171,28 @@ update_ghost( ctx_t * ctx, fd_replay_out_vote_state_t const * vote_states, ulong
 static void
 after_frag_replay( ctx_t * ctx, fd_replay_slot_info_t * slot_info, ulong tsorig, fd_stem_context_t * stem ) {
   /* If we have not received any votes, something is wrong. */
-  if( FD_UNLIKELY( !ctx->replay_vote_states_len ) ) {
+  if( FD_UNLIKELY( !ctx->replay_towers_cnt ) ) {
     FD_LOG_WARNING(( "No vote states received from replay. No votes will be sent"));
     return;
   }
 
-  /* Convert the replay vote states into vote towers */
-  for( ulong i = 0; i < ctx->replay_vote_states_len; i++ ) {
+  /* Parse the replay vote towers */
+  for( ulong i = 0; i < ctx->replay_towers_cnt; i++ ) {
     fd_tower_votes_remove_all( ctx->vote_towers[i] );
-    fd_tower_from_vote_state( ctx->vote_towers[i], &ctx->replay_vote_states[i] );
-    ctx->vote_keys[i] = ctx->replay_vote_states[i].key;
+    fd_parse_replay_tower( &ctx->replay_towers[i], ctx->vote_towers[i] );
+    ctx->vote_keys[i] = ctx->replay_towers[i].key;
 
     /* If this is our vote account, and our tower has not been initialized, initialize it with our vote state */
     if( FD_UNLIKELY( fd_tower_votes_empty( ctx->tower ) &&
       memcmp( &ctx->vote_keys[i], ctx->vote_acc, sizeof(fd_pubkey_t) ) == 0 ) ) {
-      fd_tower_from_vote_state( ctx->tower, &ctx->replay_vote_states[i] );
+      fd_parse_replay_tower( &ctx->replay_towers[i], ctx->tower );
     }
   }
 
   /* Update ghost with the vote account states received from replay. */
   fd_ghost_ele_t  const * ghost_ele  = fd_ghost_insert( ctx->ghost, &slot_info->parent_block_id, slot_info->slot, &slot_info->block_id, ctx->epoch->total_stake );
   FD_TEST( ghost_ele );
-  update_ghost( ctx, ctx->replay_vote_states, ctx->replay_vote_states_len );
+  update_ghost( ctx );
 
   /* Find the lowest vote slot to vote on. */
   ulong vote_slot = fd_tower_vote_slot(
@@ -187,7 +200,7 @@ after_frag_replay( ctx_t * ctx, fd_replay_slot_info_t * slot_info, ulong tsorig,
     ctx->epoch,
     ctx->vote_keys,
     ctx->vote_towers,
-    ctx->replay_vote_states_len,
+    ctx->replay_towers_cnt,
     ctx->ghost );
   if( FD_UNLIKELY( vote_slot == FD_SLOT_NULL ) ) return; /* nothing to vote on */
 
@@ -301,9 +314,9 @@ during_frag( ctx_t * ctx,
   case IN_KIND_REPLAY: {
     if(      FD_UNLIKELY( sig==FD_REPLAY_SIG_SLOT_INFO  ) ) memcpy( &ctx->replay_slot_info,      chunk_laddr, sizeof(fd_replay_slot_info_t)      );
     else if( FD_LIKELY(   sig==FD_REPLAY_SIG_VOTE_STATE ) ) {
-      if( FD_UNLIKELY( fd_frag_meta_ctl_som( ctl ) ) ) ctx->replay_vote_states_len = 0;
-      if( FD_UNLIKELY( ctx->replay_vote_states_len >= FD_REPLAY_TOWER_VOTE_ACC_MAX ) ) FD_LOG_ERR(( "tower received more vote states than expected" ));
-      memcpy( &ctx->replay_vote_states[ctx->replay_vote_states_len++], chunk_laddr, sizeof(fd_replay_out_vote_state_t) );
+      if( FD_UNLIKELY( fd_frag_meta_ctl_som( ctl ) ) ) ctx->replay_towers_cnt = 0;
+      if( FD_UNLIKELY( ctx->replay_towers_cnt >= FD_REPLAY_TOWER_VOTE_ACC_MAX ) ) FD_LOG_ERR(( "tower received more vote states than expected" ));
+      memcpy( &ctx->replay_towers[ctx->replay_towers_cnt++], chunk_laddr, sizeof(fd_replay_tower_t) );
       ctx->replay_out_eom = fd_frag_meta_ctl_eom( ctl );
     }
     else FD_LOG_ERR(( "unexpected replay message sig %lu", sig ));
@@ -361,8 +374,8 @@ unprivileged_init( fd_topo_t *      topo,
   for( ulong i = 0; i < FD_REPLAY_TOWER_VOTE_ACC_MAX; i++ ) {
     ctx->vote_towers[i] = fd_tower_join( fd_tower_new( vote_tower_mem + ( i * fd_tower_footprint() ) ) );
   }
-  ctx->replay_out_eom         = 0;
-  ctx->replay_vote_states_len = 0;
+  ctx->replay_out_eom    = 0;
+  ctx->replay_towers_cnt = 0;
 
   ctx->epoch_voters_buf = voter_mem;
 

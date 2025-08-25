@@ -430,10 +430,10 @@ struct fd_replay_tile_ctx {
   fd_exec_slice_t * exec_slice_map;
   fd_exec_slice_t * exec_slice_deque; /* Deque to buffer exec slices - lives in spad */
 
-  /* Buffer to store vote states that need to be published to Tower. */
-  ulong vote_state_out_idx; /* index of vote state to publish next */
-  ulong vote_state_out_len; /* number of vote states in the buffer */
-  fd_replay_out_vote_state_t vote_state_out[FD_REPLAY_TOWER_VOTE_ACC_MAX];
+  /* Buffer to store vote towers that need to be published to the Tower tile. */
+  ulong             vote_tower_out_idx; /* index of vote tower to publish next */
+  ulong             vote_tower_out_len; /* number of vote towers in the buffer */
+  fd_replay_tower_t vote_tower_out[FD_REPLAY_TOWER_VOTE_ACC_MAX];
 };
 typedef struct fd_replay_tile_ctx fd_replay_tile_ctx_t;
 
@@ -1398,21 +1398,20 @@ handle_new_slice( fd_replay_tile_ctx_t * ctx, fd_stem_context_t * stem ) {
    - Vote state has invalid version discriminant (calls FD_LOG_ERR and returns -1)
    - Vote count exceeds maximum of 31 (calls FD_LOG_ERR, fatal) */
 static int
-fd_replay_out_vote_state_from_funk(
-  fd_funk_t const *            funk,
-  fd_funk_txn_t const *        funk_txn,
-  fd_pubkey_t const *          pubkey,
-  ulong                        stake,
-  fd_replay_out_vote_state_t * vote_state_out ) {
+fd_replay_out_vote_tower_from_funk(
+  fd_funk_t const *     funk,
+  fd_funk_txn_t const * funk_txn,
+  fd_pubkey_t const *   pubkey,
+  ulong                 stake,
+  fd_replay_tower_t *   vote_tower_out ) {
 
-  fd_memset( vote_state_out, 0, sizeof(fd_replay_out_vote_state_t) );
-  vote_state_out->key   = *pubkey;
-  vote_state_out->stake = stake;
+  fd_memset( vote_tower_out, 0, sizeof(fd_replay_tower_t) );
+  vote_tower_out->key   = *pubkey;
+  vote_tower_out->stake = stake;
 
   /* Speculatively copy out the raw vote account state from Funk */
-  uchar vote_state_buf[FD_VOTE_STATE_V3_SZ];
   for(;;) {
-    fd_memset( vote_state_buf, 0, sizeof(vote_state_buf) );
+    fd_memset( vote_tower_out->vote_acc_data, 0, sizeof(vote_tower_out->vote_acc_data) );
 
     fd_funk_rec_query_t query;
     fd_funk_rec_key_t funk_key = fd_funk_acc_key( pubkey );
@@ -1432,60 +1431,32 @@ fd_replay_out_vote_state_from_funk(
     }
 
     ulong data_sz = metadata->dlen;
-    if( FD_UNLIKELY( data_sz > sizeof(vote_state_buf) ) ) {
+    if( FD_UNLIKELY( data_sz > sizeof(vote_tower_out->vote_acc_data) ) ) {
       FD_LOG_WARNING(( "vote account %s has too large data. dlen %lu > %lu",
         FD_BASE58_ENC_32_ALLOCA( pubkey->uc ),
         data_sz,
-        sizeof(vote_state_buf) ));
+        sizeof(vote_tower_out->vote_acc_data) ));
       return -1;
     }
 
-    fd_memcpy( vote_state_buf, raw + metadata->hlen, data_sz );
+    fd_memcpy( vote_tower_out->vote_acc_data, raw + metadata->hlen, data_sz );
 
     if( FD_LIKELY( fd_funk_rec_query_test( &query ) == FD_FUNK_SUCCESS ) ) {
       break;
     }
   }
 
-  /* Parse the information we need to construct a fd_replay_out_vote_state_t from the raw vote state */
-  fd_voter_state_t const * state = fd_type_pun_const( vote_state_buf );
-  if( FD_UNLIKELY( state == NULL || state->discriminant > fd_vote_state_versioned_enum_current ) ) {
-    FD_LOG_WARNING(( "bad account state. address: %s", FD_BASE58_ENC_32_ALLOCA( pubkey->uc ) ));
-    return -1;
-  }
-
-  ulong cnt = fd_voter_state_cnt( state );
-  vote_state_out->votes_cnt = cnt;
-
-  for( ulong i = 0; i < cnt; i++ ) {
-    if( FD_UNLIKELY( state->discriminant == fd_vote_state_versioned_enum_v0_23_5 ) ) {
-      vote_state_out->votes[i].slot = state->v0_23_5.votes[i].slot;
-      vote_state_out->votes[i].conf = state->v0_23_5.votes[i].conf;
-    } else if( FD_UNLIKELY( state->discriminant == fd_vote_state_versioned_enum_v1_14_11 ) ) {
-      vote_state_out->votes[i].slot = state->v1_14_11.votes[i].slot;
-      vote_state_out->votes[i].conf = state->v1_14_11.votes[i].conf;
-    } else if ( FD_UNLIKELY( state->discriminant == fd_vote_state_versioned_enum_current ) ) {
-      vote_state_out->votes[i].slot = state->votes[i].slot;
-      vote_state_out->votes[i].conf = state->votes[i].conf;
-    } else {
-      FD_LOG_ERR(( "[%s] unknown vote state version. discriminant %u", __func__, state->discriminant ));
-      return -1;
-    }
-  }
-
-  vote_state_out->root = fd_voter_state_root( state );
-
   return 0;
 }
 
-/* This function buffers all the vote account states that Tower needs at the end of this slot
-   into the ctx->vote_state_out buffer. These will then be published in after_credit.
+/* This function buffers all the vote account towers that Tower needs at the end of this slot
+   into the ctx->vote_tower_out buffer. These will then be published in after_credit.
 
    This function should be called at the end of a slot, before any epoch boundary processing. */
 static void
-buffer_vote_states_for_tower( fd_replay_tile_ctx_t * ctx ) {
-  ctx->vote_state_out_idx = 0;
-  ctx->vote_state_out_len = 0;
+buffer_vote_towers( fd_replay_tile_ctx_t * ctx ) {
+  ctx->vote_tower_out_idx = 0;
+  ctx->vote_tower_out_len = 0;
 
   fd_vote_states_t const * vote_states = fd_bank_vote_states_locking_query( ctx->slot_ctx->bank );
   fd_vote_states_iter_t iter_[1];
@@ -1495,9 +1466,9 @@ buffer_vote_states_for_tower( fd_replay_tile_ctx_t * ctx ) {
     fd_vote_state_ele_t const * vote_state = fd_vote_states_iter_ele( iter );
     if( FD_UNLIKELY( vote_state->stake == 0 ) ) continue; /* skip unstaked vote accounts */
     fd_pubkey_t const * vote_account_pubkey = &vote_state->vote_account;
-    if( FD_UNLIKELY( ctx->vote_state_out_len >= (FD_REPLAY_TOWER_VOTE_ACC_MAX-1UL) ) ) FD_LOG_ERR(( "vote_state_out_len too large" ));
-    if( FD_UNLIKELY( fd_replay_out_vote_state_from_funk(
-      ctx->funk, ctx->slot_ctx->funk_txn, vote_account_pubkey, vote_state->stake, &ctx->vote_state_out[ctx->vote_state_out_len++] ) ) ) {
+    if( FD_UNLIKELY( ctx->vote_tower_out_len >= (FD_REPLAY_TOWER_VOTE_ACC_MAX-1UL) ) ) FD_LOG_ERR(( "vote_tower_out_len too large" ));
+    if( FD_UNLIKELY( fd_replay_out_vote_tower_from_funk(
+      ctx->funk, ctx->slot_ctx->funk_txn, vote_account_pubkey, vote_state->stake, &ctx->vote_tower_out[ctx->vote_tower_out_len++] ) ) ) {
         FD_LOG_ERR(( "failed to get vote state for vote account %s", FD_BASE58_ENC_32_ALLOCA( vote_account_pubkey->uc ) ));
       }
   }
@@ -1568,8 +1539,8 @@ exec_slice_fini_slot( fd_replay_tile_ctx_t * ctx, fd_stem_context_t * stem ) {
     fd_stem_publish( stem, ctx->tower_out->idx, FD_REPLAY_SIG_SLOT_INFO, ctx->tower_out->chunk, sizeof(fd_replay_slot_info_t), 0UL, fd_frag_meta_ts_comp( fd_tickcount() ), fd_frag_meta_ts_comp( fd_tickcount() ) );
     ctx->tower_out->chunk = fd_dcache_compact_next( ctx->tower_out->chunk, sizeof(fd_replay_slot_info_t), ctx->tower_out->chunk0, ctx->tower_out->wmark );
 
-    /* Copy the vote state of all the vote accounts into the buffer, which will be published in after_credit */
-    buffer_vote_states_for_tower( ctx );
+    /* Copy the vote tower of all the vote accounts into the buffer, which will be published in after_credit */
+    buffer_vote_towers( ctx );
   }
 
   /**********************************************************************/
@@ -1700,34 +1671,34 @@ exec_and_handle_slice( fd_replay_tile_ctx_t * ctx, fd_stem_context_t * stem ) {
   }
 }
 
-/* This function publishes the next vote state in the ctx->vote_state_out buffer to Tower.
+/* This function publishes the next vote tower in the ctx->vote_tower_out buffer to Tower.
 
-   This function should be called in after_credit, after all the vote states for the end of a slot
-   have been buffered in ctx->vote_state_out. */
+   This function should be called in after_credit, after all the vote towers for the end of a slot
+   have been buffered in ctx->vote_tower_out. */
 static void
-publish_next_vote_state( fd_replay_tile_ctx_t * ctx,
+publish_next_vote_tower( fd_replay_tile_ctx_t * ctx,
                          fd_stem_context_t *    stem ) {
-  int som = ctx->vote_state_out_idx==0;
-  int eom = ctx->vote_state_out_idx==( ctx->vote_state_out_len - 1 );
+  int som = ctx->vote_tower_out_idx==0;
+  int eom = ctx->vote_tower_out_idx==( ctx->vote_tower_out_len - 1 );
 
-  fd_replay_out_vote_state_t * vote_state = fd_chunk_to_laddr( ctx->tower_out->mem, ctx->tower_out->chunk );
-  fd_memcpy( vote_state, &ctx->vote_state_out[ ctx->vote_state_out_idx ], sizeof(fd_replay_out_vote_state_t) );
+  fd_replay_tower_t * vote_state = fd_chunk_to_laddr( ctx->tower_out->mem, ctx->tower_out->chunk );
+  fd_memcpy( vote_state, &ctx->vote_tower_out[ ctx->vote_tower_out_idx ], sizeof(fd_replay_tower_t) );
   fd_stem_publish(
     stem,
     ctx->tower_out->idx,
     FD_REPLAY_SIG_VOTE_STATE,
     ctx->tower_out->chunk,
-    sizeof(fd_replay_out_vote_state_t),
+    sizeof(fd_replay_tower_t),
     fd_frag_meta_ctl( 0UL, som, eom, 0 ),
     fd_frag_meta_ts_comp( fd_tickcount() ),
     fd_frag_meta_ts_comp( fd_tickcount() ) );
     ctx->tower_out->chunk = fd_dcache_compact_next(
       ctx->tower_out->chunk,
-      sizeof(fd_replay_out_vote_state_t),
+      sizeof(fd_replay_tower_t),
       ctx->tower_out->chunk0,
       ctx->tower_out->wmark );
 
-  ctx->vote_state_out_idx++;
+  ctx->vote_tower_out_idx++;
 }
 
 static void
@@ -1753,8 +1724,8 @@ after_credit( fd_replay_tile_ctx_t * ctx,
   }
 
   /* Send any outstanding vote states to Tower */
-  if( FD_UNLIKELY( ctx->vote_state_out_idx < ctx->vote_state_out_len ) ) {
-    publish_next_vote_state( ctx, stem );
+  if( FD_UNLIKELY( ctx->vote_tower_out_idx < ctx->vote_tower_out_len ) ) {
+    publish_next_vote_tower( ctx, stem );
     /* Don't continue polling for fragments but instead skip to the next iteration
        of the stem loop.
 
