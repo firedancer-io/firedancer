@@ -712,7 +712,7 @@ init_after_snapshot( fd_replay_tile_ctx_t * ctx ) {
      of data required for the stake delegations. See
      fd_stake_delegations.h for why this is required. */
 
-  fd_refresh_stake_delegations( ctx->slot_ctx );
+  fd_refresh_stake_delegations( ctx->slot_ctx, ctx->runtime_spad );
 
   /* After both snapshots have been loaded in, we can determine if we should
      start distributing rewards. */
@@ -1307,6 +1307,7 @@ handle_new_slice( fd_replay_tile_ctx_t * ctx, fd_stem_context_t * stem ) {
   /* If there are no slices in slice deque, then there is nothing to
      execute. */
   if( FD_UNLIKELY( fd_exec_slice_deque_cnt( ctx->exec_slice_deque )==0UL ) ) {
+    FD_LOG_WARNING(("NO SLICES AND READY!"));
     return;
   }
   if( FD_UNLIKELY( ctx->consensus_root==ULONG_MAX ) ) { /* banks is not initialized yet */

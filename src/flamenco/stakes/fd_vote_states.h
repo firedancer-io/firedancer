@@ -5,7 +5,7 @@
 #include "../../util/tmpl/fd_map.h"
 #include "../types/fd_types_custom.h"
 
-#define FD_VOTE_STATES_MAGIC (0xF17EDA2CE7601E70) /* FIREDANCER VOTER V0 */
+#define FD_VOTE_STATES_MAGIC (0xF17EDA2CE7601E70UL) /* FIREDANCER VOTER V0 */
 
 /* fd_vote_states_t is a cache of vote accounts mapping the pubkey of
    a vote account to various infromation about the vote account
@@ -234,8 +234,8 @@ fd_vote_states_cnt( fd_vote_states_t const * vote_states );
 
    Example use:
 
-   uchar mem[FD_VOTE_STATE_ITER_FOOTPRINT];
-   for( fd_vote_states_iter_t * iter = fd_vote_states_iter_init( vote_states, mem ); !fd_vote_states_iter_done( iter ); fd_vote_states_iter_next( iter ) ) {
+   fd_vote_states_iter_t iter_[1];
+   for( fd_vote_states_iter_t * iter = fd_vote_states_iter_init( vote_states, iter_ ); !fd_vote_states_iter_done( iter ); fd_vote_states_iter_next( iter ) ) {
      fd_vote_state_ele_t * vote_state = fd_vote_states_iter_ele( iter );
      // Do something with the vote state ...
    }

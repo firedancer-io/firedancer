@@ -73,14 +73,25 @@ fd_update_stake_delegation( fd_txn_account_t * stake_account,
    delegations stored in fd_stake_delegations_t which is owned by
    the bank. For a given database handle, read in the state of all
    stake accounts, decode their state, and update each stake delegation.
+   This is meant to be called before any slots are executed, but after
+   the snapshot has finished loading.
 
-   This function does not add or remove stake delegations from the map
-   and makes the assumption that there are no stake delegations in
-   fd_stake_delegations_t that should be removed (e.g. invalid state
-   or zero balance). */
+   Before this function is called, there are some important assumptions
+   made about the state of the stake delegations that are enforced by
+   the Agave client:
+   1. fd_stake_delegations_t is not missing any valid entries
+   2. fd_stake_delegations_t may have some invalid entries that should
+      be removed
+
+   fd_refresh_stake_delegations will remove all of the invalid entries
+   that are detected. An entry is considered invalid if the stake
+   account does not exist (e.g. zero balance or no record) or if it
+   has invalid state (e.g. not a stake account or invalid bincode data).
+   No new entries are added to the struct at this point. */
 
 void
-fd_refresh_stake_delegations( fd_exec_slot_ctx_t * slot_ctx );
+fd_refresh_stake_delegations( fd_exec_slot_ctx_t * slot_ctx,
+                              fd_spad_t *          spad );
 
 FD_PROTOTYPES_END
 

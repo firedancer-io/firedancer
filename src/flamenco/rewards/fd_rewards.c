@@ -321,22 +321,20 @@ calculate_points_all( fd_exec_slot_ctx_t const *     slot_ctx,
 
   uint128 total_points = 0;
 
-  fd_stake_delegation_map_t * stake_delegation_map  = fd_stake_delegations_get_map( stake_delegations );
-  fd_stake_delegation_t *     stake_delegation_pool = fd_stake_delegations_get_pool( stake_delegations );
+  fd_vote_states_t const * vote_states = fd_bank_vote_states_locking_query( slot_ctx->bank );
 
-  for( fd_stake_delegation_map_iter_t iter = fd_stake_delegation_map_iter_init( stake_delegation_map, stake_delegation_pool );
-        !fd_stake_delegation_map_iter_done( iter, stake_delegation_map, stake_delegation_pool );
-        iter = fd_stake_delegation_map_iter_next( iter, stake_delegation_map, stake_delegation_pool ) ) {
-    fd_stake_delegation_t const * stake_delegation = fd_stake_delegation_map_iter_ele_const( iter, stake_delegation_map, stake_delegation_pool );
+  fd_stake_delegations_iter_t iter_[1];
+  for( fd_stake_delegations_iter_t * iter = fd_stake_delegations_iter_init( iter_, stake_delegations );
+       !fd_stake_delegations_iter_done( iter );
+       fd_stake_delegations_iter_next( iter ) ) {
+    fd_stake_delegation_t const * stake_delegation = fd_stake_delegations_iter_ele( iter );
 
     if( FD_UNLIKELY( stake_delegation->stake<minimum_stake_delegation ) ) {
       continue;
     }
 
-    fd_vote_states_t const * vote_states    = fd_bank_vote_states_locking_query( slot_ctx->bank );
-    fd_vote_state_ele_t *    vote_state_ele = fd_vote_states_query( vote_states, &stake_delegation->vote_account );
+    fd_vote_state_ele_t * vote_state_ele = fd_vote_states_query( vote_states, &stake_delegation->vote_account );
     if( FD_UNLIKELY( !vote_state_ele ) ) {
-      fd_bank_vote_states_end_locking_query( slot_ctx->bank );
       continue;
     }
 
@@ -346,9 +344,6 @@ calculate_points_all( fd_exec_slot_ctx_t const *     slot_ctx,
         vote_state_ele,
         stake_history,
         new_warmup_cooldown_rate_epoch, &account_points );
-
-    fd_bank_vote_states_end_locking_query( slot_ctx->bank );
-
     if( FD_UNLIKELY( err ) ) {
       FD_LOG_DEBUG(( "failed to calculate points" ));
       continue;
@@ -356,6 +351,8 @@ calculate_points_all( fd_exec_slot_ctx_t const *     slot_ctx,
 
     total_points += account_points;
   }
+
+  fd_bank_vote_states_end_locking_query( slot_ctx->bank );
 
   return total_points;
 }
@@ -414,20 +411,28 @@ calculate_stake_vote_rewards_account( fd_exec_slot_ctx_t const *                
   ulong minimum_stake_delegation = get_minimum_stake_delegation( slot_ctx );
   ulong total_stake_rewards      = 0UL;
   ulong dlist_additional_cnt     = 0UL;
-
-  ulong                       stake_delegation_cnt  = fd_stake_delegations_cnt( stake_delegations );
-  fd_stake_delegation_map_t * stake_delegation_map  = fd_stake_delegations_get_map( stake_delegations );
-  fd_stake_delegation_t *     stake_delegation_pool = fd_stake_delegations_get_pool( stake_delegations );
+  ulong stake_delegation_cnt     = fd_stake_delegations_cnt( stake_delegations );
 
   /* Build a local vote reward map */
   fd_vote_reward_t_mapnode_t * vote_reward_map_pool = fd_vote_reward_t_map_join( fd_vote_reward_t_map_new( fd_spad_alloc(
       spad, fd_vote_reward_t_map_align(), fd_vote_reward_t_map_footprint( stake_delegation_cnt ) ), stake_delegation_cnt ) );
   fd_vote_reward_t_mapnode_t * vote_reward_map_root = NULL;
 
-  for( fd_stake_delegation_map_iter_t iter = fd_stake_delegation_map_iter_init( stake_delegation_map, stake_delegation_pool );
-        !fd_stake_delegation_map_iter_done( iter, stake_delegation_map, stake_delegation_pool );
-        iter = fd_stake_delegation_map_iter_next( iter, stake_delegation_map, stake_delegation_pool ) ) {
-    fd_stake_delegation_t const * stake_delegation = fd_stake_delegation_map_iter_ele_const( iter, stake_delegation_map, stake_delegation_pool );
+  fd_vote_states_t const * vote_states = NULL;
+  if( !is_recalculation ) {
+    vote_states = fd_bank_vote_states_locking_query( slot_ctx->bank );
+  } else {
+    vote_states = fd_bank_vote_states_prev_locking_query( slot_ctx->bank );
+  }
+  if( FD_UNLIKELY( !vote_states ) ) {
+    FD_LOG_CRIT(( "vote_states is NULL" ));
+  }
+
+  fd_stake_delegations_iter_t iter_[1];
+  for( fd_stake_delegations_iter_t * iter = fd_stake_delegations_iter_init( iter_, stake_delegations );
+       !fd_stake_delegations_iter_done( iter );
+       fd_stake_delegations_iter_next( iter ) ) {
+    fd_stake_delegation_t const * stake_delegation = fd_stake_delegations_iter_ele( iter );
 
     if( FD_FEATURE_ACTIVE_BANK( slot_ctx->bank, stake_minimum_delegation_for_rewards ) ) {
       if( stake_delegation->stake<minimum_stake_delegation ) {
@@ -435,25 +440,10 @@ calculate_stake_vote_rewards_account( fd_exec_slot_ctx_t const *                
       }
     }
 
-    fd_pubkey_t const *      voter_acc   = &stake_delegation->vote_account;
-    fd_vote_states_t const * vote_states = NULL;
-    if( !is_recalculation ) {
-      vote_states = fd_bank_vote_states_locking_query( slot_ctx->bank );
-    } else {
-      vote_states = fd_bank_vote_states_prev_locking_query( slot_ctx->bank );
-    }
-    if( FD_UNLIKELY( !vote_states ) ) {
-      FD_LOG_CRIT(( "vote_states is NULL" ));
-    }
-
+    fd_pubkey_t const *   voter_acc      = &stake_delegation->vote_account;
     fd_vote_state_ele_t * vote_state_ele = fd_vote_states_query( vote_states, voter_acc );
     if( FD_UNLIKELY( !vote_state_ele ) ) {
       FD_LOG_DEBUG(( "failed to query vote state" ));
-      if( !is_recalculation ) {
-        fd_bank_vote_states_end_locking_query( slot_ctx->bank );
-      } else {
-        fd_bank_vote_states_prev_end_locking_query( slot_ctx->bank );
-      }
       continue;
     }
 
@@ -468,12 +458,6 @@ calculate_stake_vote_rewards_account( fd_exec_slot_ctx_t const *                
         point_value,
         new_warmup_cooldown_rate_epoch,
         calculated_stake_rewards );
-
-    if( !is_recalculation ) {
-      fd_bank_vote_states_end_locking_query( slot_ctx->bank );
-    } else {
-      fd_bank_vote_states_prev_end_locking_query( slot_ctx->bank );
-    }
 
     if( FD_UNLIKELY( err!=0 ) ) {
       FD_LOG_DEBUG(( "redeem_rewards failed for %s with error %d", FD_BASE58_ENC_32_ALLOCA( &stake_delegation->stake_account ), err ));
@@ -532,6 +516,12 @@ calculate_stake_vote_rewards_account( fd_exec_slot_ctx_t const *                
     dlist_additional_cnt++;
 
     fd_stake_reward_calculation_dlist_ele_push_tail( result->stake_reward_calculation.stake_rewards, stake_reward, result->stake_reward_calculation.pool );
+  }
+
+  if( !is_recalculation ) {
+    fd_bank_vote_states_end_locking_query( slot_ctx->bank );
+  } else {
+    fd_bank_vote_states_prev_end_locking_query( slot_ctx->bank );
   }
 
   /* Merge vote rewards with result after */

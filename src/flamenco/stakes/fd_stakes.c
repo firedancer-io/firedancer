@@ -39,18 +39,15 @@ compute_stake_delegations( fd_bank_t *                    bank,
     FD_LOG_CRIT(( "vote_states is NULL" ));
   }
 
-  fd_stake_delegation_map_t * stake_delegation_map  = fd_stake_delegations_get_map( stake_delegations );
-  fd_stake_delegation_t *     stake_delegation_pool = fd_stake_delegations_get_pool( stake_delegations );
-
   /* Reset the vote stakes so we can re-compute them based on the most
      current stake delegation values. */
   fd_vote_states_reset_stakes( vote_states );
 
-  for( fd_stake_delegation_map_iter_t iter = fd_stake_delegation_map_iter_init( stake_delegation_map, stake_delegation_pool );
-       !fd_stake_delegation_map_iter_done( iter, stake_delegation_map, stake_delegation_pool );
-       iter = fd_stake_delegation_map_iter_next( iter, stake_delegation_map, stake_delegation_pool ) ) {
-
-    fd_stake_delegation_t const * stake_delegation = fd_stake_delegation_map_iter_ele_const( iter, stake_delegation_map, stake_delegation_pool );
+  fd_stake_delegations_iter_t iter_[1];
+  for( fd_stake_delegations_iter_t * iter = fd_stake_delegations_iter_init( iter_, stake_delegations );
+       !fd_stake_delegations_iter_done( iter );
+       fd_stake_delegations_iter_next( iter ) ) {
+    fd_stake_delegation_t const * stake_delegation = fd_stake_delegations_iter_ele( iter );
 
     // Skip any delegations that are not in the delegation pool
 
@@ -69,11 +66,10 @@ compute_stake_delegations( fd_bank_t *                    bank,
         new_rate_activation_epoch );
 
     fd_vote_state_ele_t * vote_state = fd_vote_states_query( vote_states, &stake_delegation->vote_account );
-    if( vote_state ) {
+    if( FD_LIKELY( vote_state ) ) {
+      total_stake       += new_entry.effective;
       vote_state->stake += new_entry.effective;
     }
-
-    total_stake += new_entry.effective;
   }
 
   fd_bank_total_epoch_stake_set( bank, total_stake );
@@ -110,17 +106,15 @@ accumulate_stake_cache_delegations( fd_stake_delegations_t const * stake_delegat
                                     fd_stake_history_entry_t *     accumulator,
                                     ulong                          epoch ) {
 
-  fd_stake_delegation_t *     pool = fd_stake_delegations_get_pool( stake_delegations );
-  fd_stake_delegation_map_t * map  = fd_stake_delegations_get_map( stake_delegations );
-
   ulong effective    = 0UL;
   ulong activating   = 0UL;
   ulong deactivating = 0UL;
 
-  for( fd_stake_delegation_map_iter_t iter = fd_stake_delegation_map_iter_init( map, pool );
-       !fd_stake_delegation_map_iter_done( iter, map, pool );
-       iter = fd_stake_delegation_map_iter_next( iter, map, pool ) ) {
-    fd_stake_delegation_t const * stake_delegation = fd_stake_delegation_map_iter_ele_const( iter, map, pool );
+  fd_stake_delegations_iter_t iter_[1];
+  for( fd_stake_delegations_iter_t * iter = fd_stake_delegations_iter_init( iter_, stake_delegations );
+       !fd_stake_delegations_iter_done( iter );
+       fd_stake_delegations_iter_next( iter ) ) {
+    fd_stake_delegation_t const * stake_delegation = fd_stake_delegations_iter_ele( iter );
 
     fd_delegation_t delegation = {
       .voter_pubkey         = stake_delegation->vote_account,
@@ -302,39 +296,59 @@ fd_update_stake_delegation( fd_txn_account_t * stake_account,
 }
 
 void
-fd_refresh_stake_delegations( fd_exec_slot_ctx_t * slot_ctx ) {
+fd_refresh_stake_delegations( fd_exec_slot_ctx_t * slot_ctx,
+                              fd_spad_t *          spad ) {
+
   fd_stake_delegations_t * stake_delegations = fd_banks_stake_delegations_root_query( slot_ctx->banks );
   if( FD_UNLIKELY( !stake_delegations ) ) {
     FD_LOG_CRIT(( "fd_runtime_refresh_stakes: stake_delegations is NULL" ));
   }
 
-  fd_stake_delegation_map_t * stake_delegation_map  = fd_stake_delegations_get_map( stake_delegations );
-  fd_stake_delegation_t *     stake_delegation_pool = fd_stake_delegations_get_pool( stake_delegations );
+  /* We want to buffer all of the invalid stake delegations and remove
+     them from the stake delegations after we finish iterating over
+     them. We have to buffer them because it is not safe to remove them
+     while we iterate over them.
 
-  for( fd_stake_delegation_map_iter_t iter = fd_stake_delegation_map_iter_init( stake_delegation_map, stake_delegation_pool );
-       !fd_stake_delegation_map_iter_done( iter, stake_delegation_map, stake_delegation_pool );
-       iter = fd_stake_delegation_map_iter_next( iter, stake_delegation_map, stake_delegation_pool ) ) {
+    TODO: Consider replacing this allocation with memory that comes from
+    the tile context instead of the runtime spad. */
 
-    fd_stake_delegation_t * stake_delegation = fd_stake_delegation_map_iter_ele( iter, stake_delegation_map, stake_delegation_pool );
+  FD_SPAD_FRAME_BEGIN( spad ) {
+
+  ulong keys_footprint = sizeof(fd_pubkey_t) * FD_RUNTIME_MAX_STAKE_ACCOUNTS;
+  if( FD_UNLIKELY( keys_footprint>fd_spad_alloc_max( spad, alignof(fd_pubkey_t) ) ) ) {
+    FD_LOG_CRIT(( "runtime spad is too small to buffer invalid delegations" ));
+  }
+  fd_pubkey_t * invalid_delegations     = fd_spad_alloc( spad, alignof(fd_pubkey_t), keys_footprint );
+  ulong         invalid_delegations_cnt = 0UL;
+
+  fd_stake_delegations_iter_t iter_[1];
+  for( fd_stake_delegations_iter_t * iter = fd_stake_delegations_iter_init( iter_, stake_delegations );
+       !fd_stake_delegations_iter_done( iter );
+       fd_stake_delegations_iter_next( iter ) ) {
+    fd_stake_delegation_t const * stake_delegation = fd_stake_delegations_iter_ele( iter );
 
     FD_TXN_ACCOUNT_DECL( acct_rec );
-    int err = fd_txn_account_init_from_funk_readonly( acct_rec,
-                                                      &stake_delegation->stake_account,
-                                                      slot_ctx->funk,
-                                                      slot_ctx->funk_txn );
+    int err = fd_txn_account_init_from_funk_readonly(
+        acct_rec,
+        &stake_delegation->stake_account,
+        slot_ctx->funk,
+        slot_ctx->funk_txn );
 
     if( FD_UNLIKELY( err!=FD_ACC_MGR_SUCCESS || fd_txn_account_get_lamports( acct_rec )==0UL ) ) {
+      invalid_delegations[ invalid_delegations_cnt++ ] = stake_delegation->stake_account;
       continue;
     }
 
     fd_stake_state_v2_t stake_state;
     err = fd_stake_get_state( acct_rec, &stake_state );
     if( FD_UNLIKELY( err ) ) {
-      FD_LOG_CRIT(( "invariant violation: stake account has invalid state" ));
+      invalid_delegations[ invalid_delegations_cnt++ ] = stake_delegation->stake_account;
+      continue;
     }
 
     if( FD_UNLIKELY( !fd_stake_state_v2_is_stake( &stake_state ) ) ) {
-      FD_LOG_CRIT(( "invariant violation: stake account is not a stake" ));
+      invalid_delegations[ invalid_delegations_cnt++ ] = stake_delegation->stake_account;
+      continue;
     }
 
     fd_stake_delegations_update(
@@ -345,8 +359,17 @@ fd_refresh_stake_delegations( fd_exec_slot_ctx_t * slot_ctx ) {
         stake_state.inner.stake.stake.delegation.activation_epoch,
         stake_state.inner.stake.stake.delegation.deactivation_epoch,
         stake_state.inner.stake.stake.credits_observed,
-        stake_state.inner.stake.stake.delegation.warmup_cooldown_rate
-    );
+        stake_state.inner.stake.stake.delegation.warmup_cooldown_rate );
   }
 
+  /* Now that we have collected all of the invalid delegations, we can
+     remove them from the map of stake delegations. */
+
+  for( ulong i=0UL; i<invalid_delegations_cnt; i++ ) {
+    fd_stake_delegations_remove( stake_delegations, &invalid_delegations[ i ] );
+  }
+
+  /* At this point, we should have no invalid stake delegations. */
+
+  } FD_SPAD_FRAME_END;
 }
