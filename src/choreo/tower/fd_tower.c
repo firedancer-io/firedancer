@@ -205,7 +205,7 @@ fd_tower_threshold_check( fd_tower_t const *   tower,
                           fd_epoch_t *         epoch,
                           fd_pubkey_t *        vote_keys,
                           fd_tower_t * const * vote_towers,
-                          ulong                vote_len,
+                          ulong                vote_cnt,
                           ulong                slot ) {
 
   /* First, simulate a vote, popping off everything that would be
@@ -231,7 +231,7 @@ fd_tower_threshold_check( fd_tower_t const *   tower,
 
   /* Iterate all the vote accounts. */
 
-  for (ulong i = 0; i < vote_len; i++ ) {
+  for (ulong i = 0; i < vote_cnt; i++ ) {
     fd_tower_t const * vote_tower = vote_towers[i];
 
     /* If this voter has not voted, continue. */
@@ -325,7 +325,7 @@ fd_tower_vote_slot( fd_tower_t const *   tower,
                     fd_epoch_t *         epoch,
                     fd_pubkey_t *        vote_keys,
                     fd_tower_t * const * vote_towers,
-                    ulong                vote_len,
+                    ulong                vote_cnt,
                     fd_ghost_t const *   ghost ) {
 
   fd_tower_vote_t const * vote = fd_tower_votes_peek_tail_const( tower );
@@ -356,7 +356,7 @@ fd_tower_vote_slot( fd_tower_t const *   tower,
     /* The ghost head is on the same fork as our last vote slot, so we
        can vote fork it as long as we pass the threshold check. */
 
-    if( FD_LIKELY( head->slot > vote->slot && fd_tower_threshold_check( tower, epoch, vote_keys, vote_towers, vote_len, head->slot ) ) ) {
+    if( FD_LIKELY( head->slot > vote->slot && fd_tower_threshold_check( tower, epoch, vote_keys, vote_towers, vote_cnt, head->slot ) ) ) {
       FD_LOG_DEBUG(( "[%s] success (threshold). best: %lu. vote: (slot: %lu conf: %lu)", __func__, head->slot, vote->slot, vote->conf ));
       return head->slot;
     }

@@ -651,7 +651,7 @@ fd_tower_threshold_check( fd_tower_t const *   tower,
                           fd_epoch_t *         epoch,
                           fd_pubkey_t *        vote_keys,
                           fd_tower_t * const * vote_towers,
-                          ulong                vote_len,
+                          ulong                vote_cnt,
                           ulong                slot );
 
 /* fd_tower_reset_slot returns the slot to reset PoH to when building
