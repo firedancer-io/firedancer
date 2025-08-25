@@ -767,7 +767,7 @@ unprivileged_init( fd_topo_t *      topo,
     if( FD_LIKELY( !strcmp( tile->snaprd.cluster, "testnet" ) ) ) {
       FD_LOG_NOTICE(( "no gossip input link found, using initial peers for testnet" ));
       fd_ip4_port_t initial_peers[ 2UL ] = {
-        { .addr = FD_IP4_ADDR( 35 , 214, 172, 227 ), .port = fd_ushort_bswap(8899) },
+        { .addr = FD_IP4_ADDR( 35 , 209, 131, 19  ), .port = fd_ushort_bswap(8899) },
         { .addr = FD_IP4_ADDR( 145, 40 , 95 , 69  ), .port = fd_ushort_bswap(8899) }, /* Solana testnet peer */
       };
 
