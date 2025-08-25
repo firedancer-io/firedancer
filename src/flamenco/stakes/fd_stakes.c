@@ -66,11 +66,10 @@ compute_stake_delegations( fd_bank_t *                    bank,
         new_rate_activation_epoch );
 
     fd_vote_state_ele_t * vote_state = fd_vote_states_query( vote_states, &stake_delegation->vote_account );
-    if( vote_state ) {
+    if( FD_LIKELY( vote_state ) ) {
+      total_stake       += new_entry.effective;
       vote_state->stake += new_entry.effective;
     }
-
-    total_stake += new_entry.effective;
   }
 
   fd_bank_total_epoch_stake_set( bank, total_stake );
