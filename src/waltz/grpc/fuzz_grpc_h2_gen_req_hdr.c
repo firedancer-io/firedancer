@@ -43,7 +43,7 @@ LLVMFuzzerTestOneInput( uchar const *data,
                       sizeof( char )+ // https
                       4UL; // lengths of strings
   if( FD_UNLIKELY( size < minimum_len )) {
-    return 1;
+    return -1;
   }
   ulong remaining = size-minimum_len;
 
@@ -54,7 +54,7 @@ LLVMFuzzerTestOneInput( uchar const *data,
   uchar https           = data[ 4 ];
   ushort port           = (ushort)(data[ 5 ] << 8 | data[ 6 ]);
   if( FD_UNLIKELY( (ulong)host_len+(ulong)path_len+(ulong)bearer_auth_len+(ulong)version_len>remaining )) {
-    return 1;
+    return -1;
   }
   const char *content = (const char *) (data+minimum_len);
   const char *p = content;
@@ -80,7 +80,7 @@ LLVMFuzzerTestOneInput( uchar const *data,
   bearer_auth_len = (uchar)strlen( bearer_auth );
   version_len = (uchar)strlen( version );
   if( FD_UNLIKELY((host_len==0) | (path_len==0) | (bearer_auth_len==0) | (version_len==0))) {
-    return 1;
+    return -1;
   }
 
   snprintf( host_port, sizeof(host_port), "%s:%d", host, port );

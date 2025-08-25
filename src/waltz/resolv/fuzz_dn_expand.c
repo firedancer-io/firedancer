@@ -31,7 +31,7 @@ LLVMFuzzerTestOneInput( uchar const *data,
 
   /* Need at least two bytes for the offset plus one byte of data */
   if( FD_UNLIKELY( size<3 )) {
-    return 1;
+    return -1;
   }
 
   /* First two bytes pick an offset inside the packet to start
