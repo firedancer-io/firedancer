@@ -270,6 +270,8 @@
 
 */
 
+#include "fd_map.h"
+
 /* MAP_NAME gives the API prefix to use for map */
 
 #ifndef MAP_NAME
@@ -392,12 +394,7 @@ typedef struct MAP_(private) MAP_(private_t);
 
 typedef MAP_(private_t) MAP_(t);
 
-struct MAP_(iter) {
-  ulong chain_rem;
-  ulong ele_idx;
-};
-
-typedef struct MAP_(iter) MAP_(iter_t);
+typedef struct fd_map_chain_iter MAP_(iter_t);
 
 FD_PROTOTYPES_BEGIN
 
