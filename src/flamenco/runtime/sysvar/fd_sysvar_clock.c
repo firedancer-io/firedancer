@@ -161,8 +161,8 @@ get_timestamp_estimate( fd_bank_t *             bank,
   fd_vote_states_t const * vote_states           = fd_bank_vote_states_locking_query( bank );
   fd_vote_states_t const * vote_states_prev_prev = fd_bank_vote_states_prev_prev_locking_query( bank );
 
-  uchar iter_mem[FD_VOTE_STATE_ITER_FOOTPRINT];
-  for( fd_vote_states_iter_t * iter = fd_vote_states_iter_init( vote_states, iter_mem );
+  fd_vote_states_iter_t iter_[1];
+  for( fd_vote_states_iter_t * iter = fd_vote_states_iter_init( iter_, vote_states );
        !fd_vote_states_iter_done( iter );
        fd_vote_states_iter_next( iter ) ) {
     fd_vote_state_ele_t const * vote_state      = fd_vote_states_iter_ele( iter );

@@ -11,8 +11,8 @@ fd_stake_weights_by_node( fd_vote_states_t const * vote_states,
                           fd_vote_stake_weight_t * weights ) {
 
   ulong weights_cnt = 0;
-  uchar iter_mem[FD_VOTE_STATE_ITER_FOOTPRINT];
-  for( fd_vote_states_iter_t * iter = fd_vote_states_iter_init( vote_states, iter_mem ); !fd_vote_states_iter_done( iter ); fd_vote_states_iter_next( iter ) ) {
+  fd_vote_states_iter_t iter_[1];
+  for( fd_vote_states_iter_t * iter = fd_vote_states_iter_init( iter_, vote_states ); !fd_vote_states_iter_done( iter ); fd_vote_states_iter_next( iter ) ) {
     fd_vote_state_ele_t const * vote_state = fd_vote_states_iter_ele( iter );
     if( FD_UNLIKELY( !vote_state->stake ) ) continue;
 

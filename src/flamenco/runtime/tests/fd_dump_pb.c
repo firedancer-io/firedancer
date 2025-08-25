@@ -188,8 +188,8 @@ dump_vote_accounts( fd_exec_slot_ctx_t const *        slot_ctx,
                     fd_exec_test_acct_state_t *       out_acct_states,
                     pb_size_t *                       out_acct_states_cnt ) {
 
-  uchar iter_mem[FD_VOTE_STATE_ITER_FOOTPRINT];
-  for( fd_vote_states_iter_t * iter = fd_vote_states_iter_init( vote_states, iter_mem ); !fd_vote_states_iter_done( iter ); fd_vote_states_iter_next( iter ) ) {
+  fd_vote_states_iter_t iter_[1];
+  for( fd_vote_states_iter_t * iter = fd_vote_states_iter_init( iter_, vote_states ); !fd_vote_states_iter_done( iter ); fd_vote_states_iter_next( iter ) ) {
     fd_vote_state_ele_t const * vote_state = fd_vote_states_iter_ele( iter );
     dump_account_if_not_already_dumped( slot_ctx->funk, slot_ctx->funk_txn, &vote_state->vote_account, spad, out_acct_states, out_acct_states_cnt, NULL );
   }
@@ -479,8 +479,8 @@ create_block_context_protobuf_from_block( fd_exec_test_block_context_t * block_c
   /* Dumping vote accounts for this epoch */
 
   vote_states = fd_bank_vote_states_locking_query( slot_ctx->bank );
-  uchar iter_mem[FD_VOTE_STATE_ITER_FOOTPRINT];
-  for( fd_vote_states_iter_t * iter = fd_vote_states_iter_init( vote_states, iter_mem ); !fd_vote_states_iter_done( iter ); fd_vote_states_iter_next( iter ) ) {
+  fd_vote_states_iter_t iter_[1];
+  for( fd_vote_states_iter_t * iter = fd_vote_states_iter_init( iter_, vote_states ); !fd_vote_states_iter_done( iter ); fd_vote_states_iter_next( iter ) ) {
     fd_vote_state_ele_t const * vote_state = fd_vote_states_iter_ele( iter );
     dump_account_if_not_already_dumped( slot_ctx->funk, slot_ctx->funk_txn, &vote_state->vote_account, spad, block_context->acct_states, &block_context->acct_states_count, NULL );
   }

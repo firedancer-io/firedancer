@@ -111,9 +111,8 @@ fd_epoch_init( fd_epoch_t *             epoch,
   epoch->last_slot  = eah_stop_slot;
 
   fd_voter_t * epoch_voters = fd_epoch_voters( epoch );
-
-  uchar iter_mem[FD_VOTE_STATE_ITER_FOOTPRINT];
-  for( fd_vote_states_iter_t * iter = fd_vote_states_iter_init( vote_accounts, iter_mem ); !fd_vote_states_iter_done( iter ); fd_vote_states_iter_next( iter ) ) {
+  fd_vote_states_iter_t iter_[1];
+  for( fd_vote_states_iter_t * iter = fd_vote_states_iter_init( iter_, vote_accounts ); !fd_vote_states_iter_done( iter ); fd_vote_states_iter_next( iter ) ) {
     fd_vote_state_ele_t const * vote_state = fd_vote_states_iter_ele( iter );
 
     if( FD_UNLIKELY( vote_state->stake>0UL ) ) {

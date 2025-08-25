@@ -15,14 +15,6 @@
 #define MAP_NEXT               next_
 #include "../../util/tmpl/fd_map_chain.c"
 
-struct fd_vote_states_iter {
-  fd_vote_state_map_t *    map;
-  fd_vote_state_ele_t *    pool;
-  fd_vote_state_map_iter_t iter;
-};
-typedef struct fd_vote_states_iter fd_vote_states_iter_t;
-FD_STATIC_ASSERT(sizeof(fd_vote_states_iter_t) == FD_VOTE_STATE_ITER_FOOTPRINT, "fd_vote_states_iter_t is not the expected size");
-
 static fd_vote_state_ele_t *
 fd_vote_states_get_pool( fd_vote_states_t const * vote_states ) {
   return fd_vote_state_pool_join( (uchar *)vote_states + vote_states->pool_offset_ );
@@ -467,16 +459,14 @@ fd_vote_states_iter_ele( fd_vote_states_iter_t * iter ) {
 }
 
 fd_vote_states_iter_t *
-fd_vote_states_iter_init( fd_vote_states_t const * vote_states,
-                          uchar *                  iter_mem ) {
+fd_vote_states_iter_init( fd_vote_states_iter_t *  iter,
+                          fd_vote_states_t const * vote_states ) {
+  if( FD_UNLIKELY( !iter ) ) {
+    FD_LOG_CRIT(( "NULL iter_mem" ));
+  }
   if( FD_UNLIKELY( !vote_states ) ) {
     FD_LOG_CRIT(( "NULL vote_states" ));
   }
-  if( FD_UNLIKELY( !iter_mem ) ) {
-    FD_LOG_CRIT(( "NULL iter_mem" ));
-  }
-
-  fd_vote_states_iter_t * iter = (fd_vote_states_iter_t *)iter_mem;
 
   iter->map  = fd_vote_states_get_map( vote_states );
   iter->pool = fd_vote_states_get_pool( vote_states );
