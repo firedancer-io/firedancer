@@ -319,6 +319,8 @@ fd_sbpf_load_shdrs( fd_sbpf_elf_info_t *  info,
   ulong vsegment_end    = 0UL;  /* Upper bound of segment virtual address */
 
   ulong tot_section_sz = 0UL;  /* Size of all sections */
+  ulong lowest_addr    = 0UL;
+  ulong highest_addr   = 0UL;
 
   for( ulong i=0UL; i<sht_cnt; i++ ) {
     uint  sh_type   = shdr[ i ].sh_type;
@@ -367,6 +369,15 @@ fd_sbpf_load_shdrs( fd_sbpf_elf_info_t *  info,
     /* Check name */
     /* TODO switch table for this? */
     /* TODO reject duplicate sections */
+
+    /* https://github.com/firedancer-io/sbpf/blob/sbpf-v0.11.1-patches/src/elf.rs#L855 */
+    if( FD_LIKELY( strncmp( name, ".text", 5UL )==0 ||
+                   strncmp( name, ".rodata", 7UL )==0 ||
+                   strncmp( name, ".data.rel.ro", 12UL )==0 ||
+                   strncmp( name, ".eh_frame", 8UL )==0 ) ) {
+      lowest_addr  = fd_ulong_min( lowest_addr, sh_addr );
+      highest_addr = fd_ulong_max( highest_addr, fd_ulong_sat_add( sh_addr, sh_size ) );
+    }
 
     int load = 0;  /* should section be loaded? */
 
@@ -438,6 +449,9 @@ fd_sbpf_load_shdrs( fd_sbpf_elf_info_t *  info,
       tot_section_sz += sh_actual_size;
     }
   }
+
+  /* https://github.com/firedancer-io/sbpf/blob/sbpf-v0.11.1-patches/src/elf.rs#L982 */
+  REQUIRE( fd_ulong_sat_sub( highest_addr, lowest_addr ) <= elf_sz ); /* addr out of bounds */
 
   /* More coherence checks */
   REQUIRE( psegment_end <= elf_sz ); // https://github.com/solana-labs/rbpf/blob/v0.8.0/src/elf.rs#L782
