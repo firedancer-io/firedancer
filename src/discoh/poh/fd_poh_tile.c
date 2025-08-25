@@ -446,6 +446,22 @@ typedef struct {
      that we know which slot the slot_done message is arriving for. */
   int slot_done;
 
+  /* Pack and bank tiles need a reference to the bank object with a
+     slightly different lifetime than current_leader_bank, particularly
+     when we switch forks in the middle of a leader slot.  We need to
+     make sure we don't free the last reference to the bank while the
+     pack or bank tiles are still using it.  The strange thing is that
+     bank tiles have no concept of the current slot, but we know they're
+     done with the bank object when pack's inter-slot bank draining
+     process is complete.  Pack notifies PoH by a frag with
+     sig==ULONG_MAX on the pack_poh link when the banks are drained, and
+     the PoH tile must then free the reference on behalf of pack.
+
+     pack_leader_bank is non-NULL when the reference we're holding on
+     behalf of the pack tile is acquired, and NULL when it is not
+     acquired. */
+  void const * pack_leader_bank;
+
   /* The PoH tile must never drop microblocks that get committed by the
      bank, so it needs to always be able to mixin a microblock hash.
      Mixing in requires incrementing the hashcnt, so we need to ensure
@@ -1033,6 +1049,12 @@ publish_became_leader( fd_poh_ctx_t * ctx,
   ulong sig = fd_disco_poh_sig( slot, POH_PKT_TYPE_BECAME_LEADER, 0UL );
   fd_stem_publish( ctx->stem, ctx->pack_out->idx, sig, ctx->pack_out->chunk, sizeof(fd_became_leader_t), 0UL, 0UL, 0UL );
   ctx->pack_out->chunk = fd_dcache_compact_next( ctx->pack_out->chunk, sizeof(fd_became_leader_t), ctx->pack_out->chunk0, ctx->pack_out->wmark );
+
+  /* increment refcount for pack's reference to the current leader bank */
+  if( FD_UNLIKELY( ctx->current_leader_bank ) ) {
+    ctx->pack_leader_bank = ctx->current_leader_bank;
+    fd_ext_bank_acquire( ctx->pack_leader_bank );
+  }
 }
 
 /* The PoH tile knows when it should become leader by waiting for its
@@ -1783,6 +1805,13 @@ before_frag( fd_poh_ctx_t * ctx,
 
   if( FD_LIKELY( ctx->in_kind[ in_idx ]!=IN_KIND_BANK && ctx->in_kind[ in_idx ]!=IN_KIND_PACK ) ) return 0;
 
+  if( FD_UNLIKELY( sig==ULONG_MAX ) ) {
+    /* Banks are drained, release pack's owenership of the current bank */
+    if( FD_UNLIKELY( ctx->pack_leader_bank ) ) fd_ext_bank_release( ctx->pack_leader_bank );
+    ctx->pack_leader_bank = NULL;
+    return 1; /* discard */
+  }
+
   uint pack_idx = (uint)fd_disco_bank_sig_pack_idx( sig );
   FD_TEST( ((int)(pack_idx-ctx->expect_pack_idx))>=0L );
   if( FD_UNLIKELY( pack_idx!=ctx->expect_pack_idx ) ) return -1;
@@ -2228,7 +2257,8 @@ unprivileged_init( fd_topo_t *      topo,
 
   ctx->mleaders = NONNULL( fd_multi_epoch_leaders_join( fd_multi_epoch_leaders_new( ctx->mleaders_mem ) ) );
   ctx->sha256   = NONNULL( fd_sha256_join( fd_sha256_new( sha256 ) ) );
-  ctx->current_leader_bank = NULL;
+  ctx->current_leader_bank  = NULL;
+  ctx->pack_leader_bank     = NULL;
   ctx->signal_leader_change = NULL;
 
   ctx->shred_seq = ULONG_MAX;
