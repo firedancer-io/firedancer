@@ -146,6 +146,7 @@ typedef struct {
      microblocks to expect in the slot. */
   ulong slot_microblock_cnt;
 
+  /* Counter which increments when we've finished packing for a slot */
   uint pack_idx;
 
   ulong pack_txn_cnt; /* total num transactions packed since startup */
@@ -582,8 +583,17 @@ after_credit( fd_pack_ctx_t *     ctx,
 
   /* Am I in drain mode?  If so, check if I can exit it */
   if( FD_UNLIKELY( ctx->drain_banks ) ) {
-    if( FD_LIKELY( ctx->bank_idle_bitset==fd_ulong_mask_lsb( (int)bank_cnt ) ) ) ctx->drain_banks = 0;
-    else                                                                         return;
+    if( FD_LIKELY( ctx->bank_idle_bitset==fd_ulong_mask_lsb( (int)bank_cnt ) ) ) {
+      ctx->drain_banks = 0;
+
+      /* Pack notifies poh when banks are drained so that poh can
+         relinquish pack's ownership over the slot bank (by decrementing
+         its Arc). We do this by sending a ULONG_MAX sig over the
+         pack_poh mcache. */
+      fd_stem_publish( stem, 1UL, ULONG_MAX, 0UL, 0UL, 0UL, 0UL, fd_frag_meta_ts_comp( fd_tickcount() ) );
+    } else {
+      return;
+    }
   }
 
   /* Have I sent the max allowed microblocks? Nothing to do. */
