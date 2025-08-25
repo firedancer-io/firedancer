@@ -637,8 +637,8 @@ init_after_snapshot( fd_replay_tile_ctx_t * ctx ) {
 
   fd_bank_hash_cmp_t * bank_hash_cmp = ctx->bank_hash_cmp;
 
-  uchar iter_mem[FD_VOTE_STATE_ITER_FOOTPRINT];
-  for( fd_vote_states_iter_t * iter = fd_vote_states_iter_init( vote_states, iter_mem ); !fd_vote_states_iter_done( iter ); fd_vote_states_iter_next( iter ) ) {
+  fd_vote_states_iter_t iter_[1];
+  for( fd_vote_states_iter_t * iter = fd_vote_states_iter_init( iter_, vote_states ); !fd_vote_states_iter_done( iter ); fd_vote_states_iter_next( iter ) ) {
     fd_vote_state_ele_t const * vote_state = fd_vote_states_iter_ele( iter );
     bank_hash_cmp->total_stake += vote_state->stake;
   }
@@ -949,9 +949,9 @@ publish_votes_to_plugin( fd_replay_tile_ctx_t * ctx,
 
   fd_vote_states_t const * vote_states = fd_bank_vote_states_locking_query( ctx->slot_ctx->bank );
   ulong i = 0;
-  FD_SPAD_FRAME_BEGIN( ctx->runtime_spad ) {
-  uchar iter_mem[FD_VOTE_STATE_ITER_FOOTPRINT];
-  for( fd_vote_states_iter_t * iter = fd_vote_states_iter_init( vote_states, iter_mem ); !fd_vote_states_iter_done( iter ); fd_vote_states_iter_next( iter ) ) {
+
+  fd_vote_states_iter_t iter_[1];
+  for( fd_vote_states_iter_t * iter = fd_vote_states_iter_init( iter_, vote_states ); !fd_vote_states_iter_done( iter ); fd_vote_states_iter_next( iter ) ) {
     fd_vote_state_ele_t const * vote_state = fd_vote_states_iter_ele( iter );
 
     fd_vote_update_msg_t * msg = (fd_vote_update_msg_t *)(dst + sizeof(ulong) + i*112U);
@@ -964,11 +964,8 @@ publish_votes_to_plugin( fd_replay_tile_ctx_t * ctx,
     msg->epoch_credits   = 0UL; /* TODO: needs to be populated in vote_state */
     msg->commission      = (uchar)vote_state->commission;
     msg->is_delinquent   = (uchar)fd_int_if(fd_bank_slot_get( ctx->slot_ctx->bank ) >= 128UL, msg->last_vote <= fd_bank_slot_get( ctx->slot_ctx->bank ) - 128UL, msg->last_vote == 0);
-
-
     ++i;
   }
-  } FD_SPAD_FRAME_END;
 
   fd_bank_vote_states_end_locking_query( ctx->slot_ctx->bank );
 
