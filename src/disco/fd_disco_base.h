@@ -25,10 +25,6 @@
 #define REPLAY_FLAG_CATCHING_UP         (0x08UL)
 #define REPLAY_FLAG_INIT                (0x10UL)
 
-#define EXEC_FLAG_READY_NEW             (0x20UL)
-#define EXEC_FLAG_EXECUTING_SLICE       (0x40UL)
-#define EXEC_FLAG_FINISHED_SLOT         (0x80UL)
-
 /* FD_NET_MTU is the max full packet size, with ethernet, IP, and UDP
    headers that can go in or out of the net tile.  2048 is the maximum
    XSK entry size, so this value follows naturally. */
@@ -63,6 +59,8 @@ FD_STATIC_ASSERT( FD_SHRED_REPAIR_MTU == 152UL , update FD_SHRED_REPAIR_MTU );
 #define FD_REPLAY_WRITER_MTU (128UL)
 #define FD_EXEC_WRITER_MTU   (128UL)
 
+#define FD_REPAIR_REPLAY_SIG_REASM_FEC  (0UL)
+#define FD_REPAIR_REPLAY_SIG_TURBINE    (1UL)
 
 #define FD_NETMUX_SIG_MIN_HDR_SZ    ( 42UL) /* The default header size, which means no vlan tags and no IP options. */
 #define FD_NETMUX_SIG_IGNORE_HDR_SZ (102UL) /* Outside the allowable range, but still fits in 4 bits when compressed */
