@@ -272,9 +272,8 @@ after_credit( ctx_t *             ctx,
     .slot_complete = !!( prev->data.flags & FD_SHRED_DATA_FLAG_SLOT_COMPLETE )
   };
 
-  ulong sig = out.slot << 32 | out.fec_set_idx;
   memcpy( fd_chunk_to_laddr( ctx->replay_out_mem, ctx->replay_out_chunk ), &out, sizeof(fd_reasm_fec_t) );
-  fd_stem_publish( stem, ctx->replay_out_idx, sig, ctx->replay_out_chunk, sizeof(fd_reasm_fec_t), 0, tsorig, fd_frag_meta_ts_comp( fd_tickcount() ) );
+  fd_stem_publish( stem, ctx->replay_out_idx, FD_REPAIR_REPLAY_SIG_REASM_FEC, ctx->replay_out_chunk, sizeof(fd_reasm_fec_t), 0, tsorig, fd_frag_meta_ts_comp( fd_tickcount() ) );
   ctx->replay_out_chunk = fd_dcache_compact_next( ctx->replay_out_chunk, sizeof(fd_reasm_fec_t), ctx->replay_out_chunk0, ctx->replay_out_wmark );
 
   ctx->curr = curr;
