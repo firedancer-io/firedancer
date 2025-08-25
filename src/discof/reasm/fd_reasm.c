@@ -422,7 +422,8 @@ fd_reasm_publish( fd_reasm_t * reasm, fd_hash_t const * merkle_root ) {
       }
       child = pool_ele( pool, child->sibling );                           /* right-sibling */
     }
-    slot_mr_remove( reasm->slot_mr, slot_mr_query( reasm->slot_mr, head->slot, NULL ) /* cannot be NULL*/ );
+    slot_mr_t * slot_mr = slot_mr_query( reasm->slot_mr, head->slot, NULL );
+    if( FD_UNLIKELY( slot_mr ) ) slot_mr_remove( reasm->slot_mr, slot_mr  ); /* only first FEC */
 
     fd_reasm_fec_t * next = pool_ele( pool, head->next ); /* pophead */
     pool_ele_release( pool, head );                       /* release */
