@@ -78,11 +78,11 @@ FD_PROTOTYPES_END
   (memcmp(&(LHS),&(RHS),sizeof(fd_quic_conn_id_t))==0)
 
 /* fd_quic_net_endpoint_t identifies a UDP/IP network endpoint.
-   Stored in host endian.  May change during the lifetime of the conn. */
+    May change during the lifetime of the conn. */
 
 struct fd_quic_net_endpoint {
-  uint   ip_addr;
-  ushort udp_port;
+  uint   ip_addr;  /* net */
+  ushort udp_port; /* host */
 };
 typedef struct fd_quic_net_endpoint fd_quic_net_endpoint_t;
 

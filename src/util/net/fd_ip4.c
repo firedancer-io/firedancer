@@ -13,7 +13,6 @@ __fd_cstr_to_uchar( char const * cstr ) {
   return (int)value;
 }
 
-
 int
 fd_cstr_to_ip4_addr( char const * s,
                      uint *       out ) {

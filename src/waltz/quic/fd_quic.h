@@ -547,8 +547,8 @@ fd_quic_fini( fd_quic_t * quic );
    until conn_final callback.
 
    args
-     dst_ip_addr   destination ip address
-     dst_udp_port  destination port number */
+     dst_ip_addr   destination ip address, in net order
+     dst_udp_port  destination port number, in host order */
 
 FD_QUIC_API fd_quic_conn_t *
 fd_quic_connect( fd_quic_t *  quic,  /* requires exclusive access */
