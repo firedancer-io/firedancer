@@ -51,7 +51,7 @@ fd_quic_limits_t quic_limits = {
   .conn_id_cnt                 = FD_QUIC_MIN_CONN_ID_CNT,
   .inflight_frame_cnt          = 16UL * MAX_STAKED_LEADERS,
   .min_inflight_frame_cnt_conn = 4UL,
-  .stream_id_cnt               = 16UL,
+  .stream_id_cnt               = 64UL,
   .tx_buf_sz                   = 1UL<<11,
   .stream_pool_cnt             = 1UL<<13
 };
@@ -275,10 +275,12 @@ quic_send( fd_send_tile_ctx_t  *  ctx,
    and starts/restarts a connection if necessary. */
 static inline void
 handle_contact_info_update( fd_send_tile_ctx_t *               ctx,
-                         fd_gossip_update_message_t const * msg ) {
+                            fd_gossip_update_message_t const * msg ) {
   fd_ip4_port_t tpu_quic = msg->contact_info.contact_info->sockets[ FD_CONTACT_INFO_SOCKET_TPU_QUIC ];
+  /* gossip sends both in net order. Our internal representation convention is to
+     store ip in net order, and port in host order */
   uint    new_ip         = tpu_quic.addr;
-  ushort  new_port       = tpu_quic.port;
+  ushort  new_port       = fd_ushort_bswap( tpu_quic.port );
   if( FD_UNLIKELY( new_ip==0 || new_port==0 ) ) {
     ctx->metrics.new_contact_info[FD_METRICS_ENUM_NEW_CONTACT_OUTCOME_V_UNROUTABLE_IDX]++;
     return;

@@ -5,6 +5,7 @@
 #include "../../../../choreo/tower/fd_tower.h"
 #include "../../../../flamenco/leaders/fd_leaders_base.h"
 #include "../../../../disco/pack/fd_microblock.h"
+#include "../../../../flamenco/gossip/fd_gossip_types.h"
 #include "../../../../util/net/fd_ip4.h"
 
 #include <stdio.h>
@@ -61,62 +62,54 @@ struct send_test_ctx {
 
 /* Event handler function implementations */
 
-static inline fd_shred_dest_wire_t
+static inline fd_gossip_update_message_t
 parse_gossip_line( char * line ) {
-  fd_shred_dest_wire_t dest;
+  fd_gossip_update_message_t msg = {0};
   FD_LOG_DEBUG(( "Parsing gossip line: %s", line ));
 
   /* Parse tokens */
   char * ip_token     = strtok( line, " |\t" );  FD_TEST( ip_token );
   char * pubkey_token = strtok( NULL, " |\t" );  FD_TEST( pubkey_token );
-  /* ************* */   strtok( NULL, " |\t" );  /* Skip port1 */
-  /* ************* */   strtok( NULL, " |\t" );  /* Skip port2 */
-  char * tpu_port     = strtok( NULL, " |\t" );  FD_TEST( tpu_port );
+  /* ************* */   strtok( NULL, " |\t" );  /* Skip gossip port */
+  char * tpu_udp      = strtok( NULL, " |\t" );  FD_TEST( tpu_udp );
+  char * tpu_quic     = strtok( NULL, " |\t" );  FD_TEST( tpu_quic );
 
-  /* Set IP address, pubkey, port */
+  /* solana gossip output does not contain all 4 we care about - for now, use these two */
+  fd_ip4_port_t * udp_tpu  = &msg.contact_info.contact_info->sockets[FD_CONTACT_INFO_SOCKET_TPU];
+  fd_ip4_port_t * quic_tpu = &msg.contact_info.contact_info->sockets[FD_CONTACT_INFO_SOCKET_TPU_QUIC];
+
+  /* Set pubkey, IP, ports - 'gossip' should send all in net order */
+  FD_TEST( fd_base58_decode_32( pubkey_token, msg.origin_pubkey ) );
+
   uint ip_addr;
   FD_TEST( fd_cstr_to_ip4_addr( ip_token, &ip_addr ) );
-  dest.ip4_addr = ip_addr;
-  FD_TEST( fd_base58_decode_32( pubkey_token, dest.pubkey[0].key ) );
-  FD_TEST( (dest.udp_port = (ushort)atoi( tpu_port )) > 0 );
+  udp_tpu->addr  = ip_addr;
+  quic_tpu->addr = ip_addr;
 
-  return dest;
+  ushort udp_port_net  = fd_cstr_to_ushort( tpu_udp  ); FD_TEST( udp_port_net  );
+  ushort quic_port_net = fd_cstr_to_ushort( tpu_quic ); FD_TEST( quic_port_net );
+  udp_tpu->port  = fd_ushort_bswap( udp_port_net  );
+  quic_tpu->port = fd_ushort_bswap( quic_port_net );
+
+  return msg;
 }
 
 static inline void
 send_test_ci( send_test_ctx_t * ctx, send_test_out_t * out ) {
-  fd_shred_dest_wire_t * dests = fd_chunk_to_laddr( out->mem, out->chunk );
-  ulong dest_count = 0;
-
   FILE * file = fopen( ctx->gossip_file, "r" );
   if( !file ) FD_LOG_ERR(( "Failed to open gossip file: %s", ctx->gossip_file ));
 
-  ulong const batch_cnt = USHORT_MAX/sizeof(fd_shred_dest_wire_t);
-
   char line[1024];
   while( fgets( line, sizeof(line), file ) ) {
-    dests[dest_count++] = parse_gossip_line( line );
-    if( dest_count == batch_cnt ) {
-      ulong const sz = sizeof(fd_shred_dest_wire_t) * dest_count;
-      FD_TEST( sz <= USHORT_MAX );
+    fd_gossip_update_message_t * msg = fd_chunk_to_laddr( out->mem, out->chunk );
+    *msg = parse_gossip_line( line );
+    ulong const sz = sizeof(fd_gossip_update_message_t);
 
-      /* Publish batch */
-      fd_mcache_publish( out->mcache, out->depth, out->seq, 0UL, out->chunk, sz, 0UL, 0UL, 0UL );
-      out->seq   = fd_seq_inc( out->seq, 1UL );
-      out->chunk = fd_dcache_compact_next( out->chunk, sz, out->chunk0, out->wmark );
-
-      dests = fd_chunk_to_laddr( out->mem, out->chunk ); /* reset dests */
-      dest_count = 0;
-    }
+    fd_mcache_publish( out->mcache, out->depth, out->seq, 0UL, out->chunk, sz, 0UL, 0UL, 0UL );
+    out->seq   = fd_seq_inc( out->seq, 1UL );
+    out->chunk = fd_dcache_compact_next( out->chunk, sz, out->chunk0, out->wmark );
   }
   fclose( file );
-
-  /* Publish batch */
-  ulong const sz = sizeof(fd_shred_dest_wire_t) * dest_count;
-  FD_TEST( sz <= USHORT_MAX );
-  fd_mcache_publish( out->mcache, out->depth, out->seq, 0UL, out->chunk, sz, 0UL, 0UL, 0UL );
-  out->seq   = fd_seq_inc( out->seq, 1UL );
-  out->chunk = fd_dcache_compact_next( out->chunk, sz, out->chunk0, out->wmark );
 }
 
 static inline fd_vote_stake_weight_t

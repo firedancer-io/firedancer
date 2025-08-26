@@ -14,7 +14,6 @@
 #include "../../disco/net/fd_net_tile.h"
 #include "../../disco/keyguard/fd_keyguard_client.h"
 #include "../../flamenco/leaders/fd_multi_epoch_leaders.h"
-#include "../../flamenco/gossip/fd_gossip.h"
 #include "../../waltz/quic/fd_quic.h"
 
 #define IN_KIND_SIGN   (0UL)
@@ -56,8 +55,8 @@ struct fd_send_conn_entry {
   uint             hash;
   fd_quic_conn_t * conn;
   long             last_ci_ticks;
-  uint             ip4_addr;
-  ushort           udp_port;
+  uint             ip4_addr;  /* net order */
+  ushort           udp_port;  /* host order */
   int              got_ci_msg;
 };
 typedef struct fd_send_conn_entry fd_send_conn_entry_t;
