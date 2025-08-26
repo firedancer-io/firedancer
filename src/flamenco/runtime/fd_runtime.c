@@ -2021,13 +2021,11 @@ fd_runtime_process_new_epoch( fd_exec_slot_ctx_t * slot_ctx,
 
   ulong const slot = fd_bank_slot_get ( slot_ctx->bank );
 
-  /* Activate new features
-     https://github.com/anza-xyz/agave/blob/v2.1.0/runtime/src/bank.rs#L6587-L6598 */
+  /* Activate new features and apply builtin feature transitions
+     https://github.com/anza-xyz/agave/blob/v2.1.0/runtime/src/bank.rs#L6587-L6598
+     https://github.com/anza-xyz/agave/blob/v2.1.0/runtime/src/bank.rs#L6621-L6624 */
   fd_features_activate( slot_ctx, runtime_spad );
   fd_features_restore( slot_ctx, runtime_spad );
-
-  /* Apply builtin program feature transitions
-     https://github.com/anza-xyz/agave/blob/v2.1.0/runtime/src/bank.rs#L6621-L6624 */
   fd_apply_builtin_program_feature_transitions( slot_ctx, runtime_spad );
 
   /* Get the new rate activation epoch */
@@ -2054,9 +2052,6 @@ fd_runtime_process_new_epoch( fd_exec_slot_ctx_t * slot_ctx,
     FD_LOG_ERR(( "StakeHistory sysvar could not be read and decoded" ));
   }
 
-  /* Now increment the epoch */
-
-  fd_bank_epoch_set( slot_ctx->bank, fd_bank_epoch_get( slot_ctx->bank ) + 1UL );
 
   fd_refresh_vote_accounts( slot_ctx,
                             stake_delegations,

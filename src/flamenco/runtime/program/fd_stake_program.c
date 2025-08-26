@@ -749,7 +749,7 @@ fd_new_warmup_cooldown_rate_epoch(
     fd_epoch_schedule_t const * epoch_schedule,
     fd_features_t const *       features,
     ulong                       slot,
-    /* out */ ulong *           epoch,
+    ulong *                     epoch,
     int *                       err
 ) {
   *err = 0;
