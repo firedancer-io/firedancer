@@ -221,7 +221,7 @@ union fd_features {
     /* 0xe5937c9dd5edd306 */ ulong reenable_sbpf_v0_execution;
     /* 0xefc2cb9c2b40f3ff */ ulong enable_sbpf_v1_deployment_and_execution;
     /* 0x408e6a8a269a6ad1 */ ulong enable_sbpf_v2_deployment_and_execution;
-    /* 0xbec08bda942c5ea5 */ ulong enable_sbpf_v3_deployment_and_execution;
+    /* 0x66ee381e7be8bc9b */ ulong enable_sbpf_v3_deployment_and_execution;
     /* 0xf46b1f18665c4236 */ ulong migrate_feature_gate_program_to_core_bpf;
     /* 0xa9a90df1904da912 */ ulong migrate_config_program_to_core_bpf;
     /* 0x2434a84be5b684a5 */ ulong migrate_address_lookup_table_program_to_core_bpf;

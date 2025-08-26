@@ -750,7 +750,8 @@ fd_feature_id_t const ids[] = {
     .id                        = {"\xa7\x53\x9b\xed\x5c\xc7\x64\xe3\x4e\x5c\xb0\x51\xc9\x19\xbf\x17\xbe\x92\xb8\x8b\x5a\x37\x6e\xd2\x33\xa0\xbe\x6b\x31\xa2\x5a\x1c"},
                                  /* CGB2jM8pwZkeeiXQ66kBMyBR6Np61mggL7XUsmLjVcrw */
     .name                      = "skip_rent_rewrites",
-    .cleaned_up                = {UINT_MAX, UINT_MAX, UINT_MAX} },
+    .cleaned_up                = {3, 0, 0},
+    .hardcode_for_fuzzing = 1 },
 
   { .index                     = offsetof(fd_features_t, prevent_crediting_accounts_that_end_rent_paying)>>3,
     .id                        = {"\x68\x03\xcb\x34\xee\x14\xb9\x41\xe4\x82\x55\xaa\xae\x45\x50\x80\x27\x51\x46\x7f\xc4\x71\xf3\x5a\xf3\x82\x49\xe4\xe9\xfb\xb2\x55"},
@@ -1343,7 +1344,7 @@ fd_feature_id_t const ids[] = {
     .id                        = {"\xa8\x0c\x7c\x9c\x46\xc9\x15\x1d\x98\x48\x72\x27\x55\x41\x17\x88\x22\xad\x13\x7f\x8c\x63\x6f\x91\xf7\x6d\x86\xac\xdd\xbb\xcc\xf5"},
                                  /* CJzY83ggJHqPGDq8VisV3U91jDJLuEaALZooBrXtnnLU */
     .name                      = "disable_rent_fees_collection",
-    .cleaned_up                = {UINT_MAX, UINT_MAX, UINT_MAX},
+    .cleaned_up                = {3, 0, 0},
     .hardcode_for_fuzzing = 1 },
 
   { .index                     = offsetof(fd_features_t, add_new_reserved_account_keys)>>3,
@@ -1445,8 +1446,8 @@ fd_feature_id_t const ids[] = {
     .cleaned_up                = {UINT_MAX, UINT_MAX, UINT_MAX} },
 
   { .index                     = offsetof(fd_features_t, enable_sbpf_v3_deployment_and_execution)>>3,
-    .id                        = {"\xa5\x5e\x2c\x94\xda\x8b\xc0\xbe\x92\x50\x5b\xcc\xed\xd1\xab\x88\x9c\xed\xbd\xa6\xc9\x36\xa1\xf2\x60\x13\x3e\x95\xba\x9e\x4f\xf8"},
-                                 /* C8XZNs1bfzaiT3YDeXZJ7G5swQWQv7tVzDnCxtHvnSpw */
+    .id                        = {"\x9b\xbc\xe8\x7b\x1e\x38\xee\x66\x59\xb3\x0e\x4c\x46\xc7\xc0\xc8\xc2\xd4\xc4\x58\x7f\xcb\x89\x1a\xa1\x2a\x01\xd6\xe2\xf4\x69\xa1"},
+                                 /* BUwGLeF3Lxyfv1J1wY8biFHBB2hrk2QhbNftQf3VV3cC */
     .name                      = "enable_sbpf_v3_deployment_and_execution",
     .cleaned_up                = {UINT_MAX, UINT_MAX, UINT_MAX} },
 
@@ -1507,25 +1508,29 @@ fd_feature_id_t const ids[] = {
     .id                        = {"\xf6\xd3\x41\xcb\x4b\xa2\x65\x9e\xac\xe7\x83\xef\x30\xe5\xfc\xc1\x9a\x94\x8b\x9b\x00\xba\x8a\xad\xf5\x2a\x6b\x9f\x65\x24\x5e\xc8"},
                                  /* HcW8ZjBezYYgvcbxNJwqv1t484Y2556qJsfNDWvJGZRH */
     .name                      = "lift_cpi_caller_restriction",
-    .cleaned_up                = {UINT_MAX, UINT_MAX, UINT_MAX} },
+    .cleaned_up                = {UINT_MAX, UINT_MAX, UINT_MAX},
+    .reverted                  = 1 },
 
   { .index                     = offsetof(fd_features_t, accounts_lt_hash)>>3,
     .id                        = {"\x04\xfb\xc1\xc8\xa2\xa2\xac\xda\x75\xee\xf4\x49\x65\x74\x21\x57\xdc\x0e\x4b\x16\x65\xd4\x98\xd0\x04\x28\x03\xf7\x8b\xa4\x41\xd8"},
                                  /* LTHasHQX6661DaDD4S6A2TFi6QBuiwXKv66fB1obfHq */
     .name                      = "accounts_lt_hash",
-    .cleaned_up                = {UINT_MAX, UINT_MAX, UINT_MAX} },
+    .cleaned_up                = {3, 0, 0},
+    .hardcode_for_fuzzing = 1 },
 
   { .index                     = offsetof(fd_features_t, remove_accounts_delta_hash)>>3,
     .id                        = {"\x04\xfc\x24\x64\xea\x47\xc7\x01\xce\x63\x3e\xfe\x17\xa1\xa9\xa9\xd2\xdb\x08\x93\x34\x17\x9e\x78\x50\x90\x91\x6c\x31\x8b\xc9\x75"},
                                  /* LTdLt9Ycbyoipz5fLysCi1NnDnASsZfmJLJXts5ZxZz */
     .name                      = "remove_accounts_delta_hash",
-    .cleaned_up                = {UINT_MAX, UINT_MAX, UINT_MAX} },
+    .cleaned_up                = {3, 0, 0},
+    .hardcode_for_fuzzing = 1 },
 
   { .index                     = offsetof(fd_features_t, snapshots_lt_hash)>>3,
     .id                        = {"\x04\xfc\x6a\x5f\xbf\x7b\xb5\x56\x65\xe6\x61\xcc\x39\xc8\x8c\xa7\x3e\x31\xe9\xea\xad\x08\x7c\x60\x1c\x5c\x77\xcb\x58\x08\xf8\xbb"},
                                  /* LTsNAP8h1voEVVToMNBNqoiNQex4aqfUrbFhRH3mSQ2 */
     .name                      = "snapshots_lt_hash",
-    .cleaned_up                = {UINT_MAX, UINT_MAX, UINT_MAX} },
+    .cleaned_up                = {3, 0, 0},
+    .hardcode_for_fuzzing = 1 },
 
   { .index                     = offsetof(fd_features_t, reserve_minimal_cus_for_builtin_instructions)>>3,
     .id                        = {"\xa5\xb1\x67\x6f\x57\x48\x66\xc6\xf6\x9e\x9c\xfb\x60\x44\xe4\xbc\xdd\xae\x3b\x38\x3d\x7b\x71\x74\x6d\xc2\xd8\x80\x67\x53\x2e\x0e"},
@@ -1559,7 +1564,7 @@ fd_feature_id_t const ids[] = {
     .id                        = {"\x11\x6d\x1d\xd8\x23\xca\x86\x4d\x30\x4e\x6a\x0b\x8f\xe5\x2b\xd4\xf9\x49\xca\x91\x36\x1f\x39\x34\xc7\x53\x10\xf1\xcf\xfb\x6b\x33"},
                                  /* 2B2SBNbUcr438LtGXNcJNBP2GBSxjx81F945SdSkUSfC */
     .name                      = "disable_partitioned_rent_collection",
-    .cleaned_up                = {UINT_MAX, UINT_MAX, UINT_MAX},
+    .cleaned_up                = {3, 0, 0},
     .hardcode_for_fuzzing = 1 },
 
   { .index                     = offsetof(fd_features_t, vote_only_full_fec_sets)>>3,
@@ -1856,7 +1861,7 @@ fd_feature_id_query( ulong prefix ) {
   case 0xe5937c9dd5edd306: return &ids[ 206 ];
   case 0xefc2cb9c2b40f3ff: return &ids[ 207 ];
   case 0x408e6a8a269a6ad1: return &ids[ 208 ];
-  case 0xbec08bda942c5ea5: return &ids[ 209 ];
+  case 0x66ee381e7be8bc9b: return &ids[ 209 ];
   case 0xf46b1f18665c4236: return &ids[ 210 ];
   case 0xa9a90df1904da912: return &ids[ 211 ];
   case 0x2434a84be5b684a5: return &ids[ 212 ];
