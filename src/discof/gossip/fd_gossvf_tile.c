@@ -313,6 +313,7 @@ during_frag( fd_gossvf_tile_ctx_t * ctx,
       break;
     }
     case IN_KIND_GOSSIP:
+      FD_TEST( sz==FD_GOSSIP_UPDATE_SZ_CONTACT_INFO || sz==FD_GOSSIP_UPDATE_SZ_CONTACT_INFO_REMOVE );
       fd_memcpy( ctx->_gossip_update, fd_chunk_to_laddr( ctx->in[ in_idx ].mem, chunk ), sz );
       break;
     default:
